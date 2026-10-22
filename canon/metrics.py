@@ -191,3 +191,138 @@ def drift(base: StyleMetrics, cur: StyleMetrics) -> list[str]:
     if cur.ai_pattern_hits:
         out.append(f"쇠맛 패턴: {', '.join(cur.ai_pattern_hits)}")
     return out
+
+
+# ---------- 초반 1~3화 지표 ----------
+# 독자가 계속 읽을지 정하는 화에서 설명 덤프, 늦은 주인공, 프롤로그 투 시작과 끝을 LLM 없이 찾는다.
+# 경고 기준은 작법 안내의 경험칙에서 잡은 출발점이고, 실제 작품으로 재 보며 조정한다.
+
+OPENING_CLICHES = [  # 첫 두 문장에 나오면 흔한 시작
+    ("눈을 뜨는 시작", re.compile(r"눈을\s*(?:떴|뜨)")),
+    ("알람 · 기상", re.compile(r"알람|자명종|잠에서\s*깨")),
+    ("평범한 자기소개", re.compile(r"평범한")),
+    ("'그날' 시작", re.compile(r"(?<![가-힣])그날(?:은|도|,|\s)")),
+    ("날씨 · 하늘", re.compile(r"햇살|햇빛|하늘(?:은|이)|비가\s*(?:내리|오)|바람이\s*불")),
+    ("'어느 날' 시작", re.compile(r"어느\s*날")),
+]
+ENDING_CLICHES = [  # 마지막 문단에 나오면 앞날을 해설하는 끝
+    ("'몰랐다'", re.compile(r"(?:몰랐다|알지\s*못했다|상상도\s*못)")),
+    ("'시작이었다'", re.compile(r"시작(?:이었다|일\s*줄|에\s*불과)")),
+    ("운명 · 서막", re.compile(r"운명|서막|폭풍\s*전야|돌이킬\s*수\s*없")),
+]
+_BACKSTORY = re.compile(r"\d+\s*년\s*전|몇\s*년\s*전|오래전|그\s*시절|어릴\s*적|었었다|였었다|이\s*세계(?:에서|의|는)|이\s*대륙|라고\s*불렸다|라\s*불리는|불리는\s*곳")
+_STATUS_LINE = re.compile(r"^\s*[\[【<〈].*[\]】>〉]\s*$", re.M)
+
+OPENING_LIMITS = {
+    "first_dialogue_at": 1500,   # 첫 대사까지 글자
+    "hero_at": 1000,             # 주인공 이름까지 글자
+    "longest_narration": 800,    # 앞 3분의 1에서 대사 없이 이어지는 서술
+    "backstory_hits": 3,         # 앞 3분의 1의 회상 · 설명 표지
+    "lore_per_1k": 4.0,          # 앞 2,000자의 설정어 밀도
+    "named_characters": 5,       # 1화에 이름이 나오는 인물
+    "status_ratio": 0.1,         # 상태창 같은 괄호 블록 줄 비율
+    "head_dialogue_drop": 0.15,  # 앞 3분의 1 대사 비율이 문체 기준보다 이만큼 낮으면
+}
+
+
+class OpeningMetrics(BaseModel):
+    chars: int = 0
+    first_dialogue_at: Optional[int] = Field(None, description="첫 대사(따옴표)가 나오는 글자 위치. 대사가 없으면 None")
+    head_dialogue_ratio: float = Field(0, description="앞 3분의 1의 대사 비율")
+    hero_at: Optional[int] = Field(None, description="주인공 이름이 처음 나오는 글자 위치. 안 나오면 None")
+    named: list[str] = Field(default_factory=list, description="이름이 나온 인물 (처음 나온 순서)")
+    lore_per_1k: float = Field(0, description="앞 2,000자에서 세계관 장소 · 이야기 요소 이름이 나온 횟수 (1,000자당)")
+    longest_narration: int = Field(0, description="앞 3분의 1에서 대사 없이 이어지는 가장 긴 서술 (글자)")
+    backstory_hits: int = Field(0, description="앞 3분의 1의 회상 · 설명 표지 수 ('~년 전', '~었었다', '이 세계에서는')")
+    opening_cliches: list[str] = Field(default_factory=list, description="첫 두 문장에서 찾은 흔한 시작")
+    ending_cliches: list[str] = Field(default_factory=list, description="마지막 문단에서 찾은 앞날 해설")
+    status_ratio: float = Field(0, description="상태창처럼 괄호로 감싼 줄의 글자 비율")
+
+
+def _given(name: str) -> list[str]:
+    """'강서윤' → ['강서윤', '서윤']. 한글 세 글자 이름은 성을 뗀 이름으로도 부르니까."""
+    name = name.strip()
+    out = [name] if name else []
+    if len(name) == 3 and all("가" <= ch <= "힣" for ch in name):
+        out.append(name[1:])
+    return out
+
+
+def _first_at(text: str, names: list[str]) -> Optional[int]:
+    hits = [i for i in (text.find(x) for x in names if x) if i >= 0]
+    return min(hits) if hits else None
+
+
+def measure_opening(text: str, characters: list[str], hero: str = "", lore: list[str] | None = None) -> OpeningMetrics:
+    """characters: 설정의 인물 이름, hero: 주인공 이름, lore: 세계관 장소 · 이야기 요소 이름 (두 글자 이상만 센다)."""
+    text = text.strip()
+    if not text:
+        return OpeningMetrics()
+    head = text[: max(1, len(text) // 3)]
+    q = _QUOTE.search(text)
+    quoted = sum(len(m) for m in _QUOTE.findall(head))
+    found = sorted(((_first_at(text, _given(c)), c) for c in characters if c.strip()), key=lambda x: (x[0] is None, x[0] or 0))
+    early = text[:2000]
+    terms = [t.strip() for t in (lore or []) if len(t.strip()) >= 2]
+    lore_hits = sum(early.count(t) for t in dict.fromkeys(terms))
+    run, longest = 0, 0
+    for para in re.split(r"\n\s*\n|\n", head):
+        if not para.strip():
+            continue
+        if _QUOTE.search(para):
+            run = 0
+        else:
+            run += len(para.strip())
+            longest = max(longest, run)
+    sents = sentences(text)
+    first2 = " ".join(sents[:2])
+    paras = [x for x in re.split(r"\n\s*\n", text) if x.strip()]
+    last = paras[-1] if paras else ""
+    status = sum(len(m) for m in _STATUS_LINE.findall(text))
+    return OpeningMetrics(
+        chars=len(text),
+        first_dialogue_at=q.start() if q else None,
+        head_dialogue_ratio=round(quoted / len(head), 2),
+        hero_at=_first_at(text, _given(hero)) if hero else None,
+        named=[c for at, c in found if at is not None],
+        lore_per_1k=round(lore_hits * 1000 / max(len(early), 1000), 1),  # 아주 짧은 글이 튀지 않게
+        longest_narration=longest,
+        backstory_hits=len(_BACKSTORY.findall(head)),
+        opening_cliches=[name for name, rx in OPENING_CLICHES if rx.search(first2)],
+        ending_cliches=[name for name, rx in ENDING_CLICHES if rx.search(last)],
+        status_ratio=round(status / len(text), 2),
+    )
+
+
+def opening_warnings(m: OpeningMetrics, n: int, base_dialogue: Optional[float] = None, hero: str = "") -> list[str]:
+    """초반 지표에서 기준을 넘은 것을 경고 문장으로. n 은 화 번호 (인물 수는 1화만 본다)."""
+    if not m.chars:
+        return []
+    L = OPENING_LIMITS
+    out = []
+    if m.first_dialogue_at is None:
+        out.append("대사가 한 줄도 없습니다. 초반에는 주인공의 목소리가 들려야 합니다")
+    elif m.first_dialogue_at > L["first_dialogue_at"]:
+        out.append(f"첫 대사가 {m.first_dialogue_at:,}자 뒤에 나옵니다 (기준 {L['first_dialogue_at']:,}자)")
+    if base_dialogue is not None and m.head_dialogue_ratio < base_dialogue - L["head_dialogue_drop"]:
+        out.append(f"앞 3분의 1 대사 비율 {m.head_dialogue_ratio} (문체 기준 {base_dialogue})")
+    if hero:
+        if m.hero_at is None:
+            out.append(f"주인공 {hero}의 이름이 나오지 않습니다")
+        elif m.hero_at > L["hero_at"]:
+            out.append(f"주인공 {hero}의 이름이 {m.hero_at:,}자 뒤에 처음 나옵니다 (기준 {L['hero_at']:,}자)")
+    if n == 1 and len(m.named) > L["named_characters"]:
+        out.append(f"1화에 이름이 나온 인물이 {len(m.named)}명입니다 (기준 {L['named_characters']}명): {', '.join(m.named)}")
+    if m.lore_per_1k > L["lore_per_1k"]:
+        out.append(f"앞 2,000자에 설정어가 1,000자당 {m.lore_per_1k}번 나옵니다. 설정 설명이 몰렸는지 보세요")
+    if m.longest_narration > L["longest_narration"]:
+        out.append(f"앞부분에 대사 없이 {m.longest_narration:,}자가 이어집니다 (기준 {L['longest_narration']}자)")
+    if m.backstory_hits >= L["backstory_hits"]:
+        out.append(f"앞부분에 회상 · 설명 표지가 {m.backstory_hits}번 있습니다 ('~년 전', '~었었다', '이 세계에서는' 등)")
+    if m.opening_cliches:
+        out.append(f"흔한 시작: {', '.join(m.opening_cliches)}")
+    if m.ending_cliches:
+        out.append(f"끝 문단의 앞날 해설: {', '.join(m.ending_cliches)}")
+    if m.status_ratio > L["status_ratio"]:
+        out.append(f"상태창 같은 괄호 블록이 본문의 {m.status_ratio:.0%} 입니다")
+    return out
