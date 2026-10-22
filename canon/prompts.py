@@ -436,6 +436,81 @@ def recap_prompt(p: Project, kind: str, number: int) -> str:
 - 화별 요약에 없는 내용은 만들지 않습니다. 해석이나 평가는 쓰지 않습니다."""
 
 
+# ---------- 단편 → 장편 전환 ----------
+
+CONVERT_TAIL = 1500  # 단편 마지막 화 본문 끝부분. 결말을 어떻게 닫았는지 원문으로 본다
+
+ENDING_GUIDE = {
+    "keep": """결말 처리: 닫고 다음 이야기로 (ending = keep).
+- 단편의 결말은 아크 1의 결말로 그대로 둡니다. 결말에서 해결된 것을 되돌리지 않습니다.
+- 장편의 다음 갈등은 결말 뒤에 새로 생긴 문제에서 시작합니다. 결말에서 얻은 것(힘, 관계, 지위, 진실)이 다음 문제의 원인이 되게 하면 이어 읽힙니다.
+- facts 와 episodes 는 보통 비워 둡니다.""",
+    "reopen": """결말 처리: 결말 다시 열기 (ending = reopen).
+- 단편의 결말이 진짜 끝이 아니었다는 장치를 씁니다: 거짓 승리, 드러나지 않은 배후, 치르지 않은 대가, 풀리지 않은 비밀 가운데 이 이야기에 맞는 것.
+- 이미 쓴 본문과 모순되면 안 됩니다. 본문이 있는 화는 바꾸지 않고, 장치는 foreshadows(근거가 되는 화를 planted_ep 로)와 facts 로 겁니다.
+- 본문이 아직 없는 화는 episodes 에 전체 플롯을 넣어 결말을 열어 둘 수 있습니다. 바꾸는 화만 넣습니다.""",
+    "": """결말 처리: 아래 둘 중 이 이야기에 맞는 쪽을 고르고 ending 에 적으세요.
+- keep(닫고 다음 이야기로): 결말은 그대로 두고, 결말 뒤에 새로 생긴 문제로 장편을 잇습니다. 결말에서 얻은 것이 다음 문제의 원인이 되게 합니다.
+- reopen(결말 다시 열기): 결말이 진짜 끝이 아니었다는 장치(거짓 승리, 배후, 대가, 풀리지 않은 비밀)로 큰 갈등을 다시 엽니다.
+  이미 쓴 본문과 모순되지 않게, 본문이 있는 화는 바꾸지 않고 foreshadows 와 facts 로 겁니다. 본문이 없는 화는 episodes 에 바뀐 전체 플롯을 넣을 수 있습니다.""",
+}
+
+
+def convert_prompt(p: Project, total: int, ending: str, note: str) -> str:
+    """단편 → 장편 전환 제안. 단편은 화가 적어 화별 요약과 플롯을 모두 넣는다."""
+    end = max((a.end_ep for a in p.arc), default=0)
+    locked = [e for e in p.episodes if e.status in ("written", "finalized")]
+    last = max(locked, key=lambda e: e.plot.number) if locked else None
+    open_plots = [e.plot for e in p.episodes if e.status not in ("written", "finalized")]
+    done = all(e.status == "finalized" for e in p.episodes) and len(p.episodes) >= end > 0
+    opened = [f for f in p.foreshadows if f.status == "open"]
+    tail = last.text[-CONVERT_TAIL:] if last else ""
+    return f"""아래 단편({end or p.meta.target_episodes}화)을 총 {total}화 장편 연재로 늘리려 합니다. 전환 계획을 세우세요.
+단편 전체(1~{end}화)는 그대로 장편의 아크 1이 됩니다. 이미 쓴 본문, 인물, 관계, 문체는 바꾸지 않습니다.
+
+[작품]
+{meta_text(p)}
+[세계관]
+{dump(p.world)}
+[인물]
+{dump(p.characters)}
+[관계]
+{describe_relations(p) or rels(p)}
+[이야기 요소 (작가가 더한 설정과 사건)]
+{elements.plan_block(p) or "없음"}
+[인물 현재 상태]
+{dump(p.states) or "설정 그대로"}
+[단편의 기승전결 (아크 1이 됨)]
+{dump(p.arc) if p.arc else "없음"}
+[지금까지의 줄거리 (작가가 승인한 화별 요약)]
+{story_so_far(p, (end or p.meta.target_episodes) + 1) or "아직 없음"}
+[본문이 없는 화의 플롯]
+{dump(open_plots) if open_plots else "없음 (모두 썼음)"}
+[마지막으로 쓴 {last.plot.number if last else 0}화 끝부분]
+{tail or "없음"}
+[열린 복선]
+{chr(10).join(f"- {f.id} ({f.planted_ep}화에 심음, {f.scope}): {f.description}" for f in opened) or "없음"}
+[확정된 사실]
+{chr(10).join("- " + f for f in p.facts) or "없음"}
+[작가의 요청]
+{note.strip() or "없음"}
+
+{ENDING_GUIDE.get(ending, ENDING_GUIDE[""])}
+
+요구사항:
+- total_episodes 는 {total} 입니다.
+- arc 는 아크 1입니다. number 1, start_ep 1, end_ep {end}. title, goal, conflict, payoff, cast 는 단편에서 실제로 일어난 일로 채웁니다. acts 와 payoffs 는 비워 둡니다.
+- arc.summary 는 {"화별 요약만 근거로 5~8문장, 600자 안팎으로 씁니다. 관계가 바뀐 계기, 드러난 비밀, 남은 문제를 남깁니다" if done else "비워 둡니다 (아직 다 쓰지 않았습니다)"}.
+- parts 는 1화부터 {total}화까지 빈틈없이 이어지고 number 는 1부터 차례대로입니다. 부 하나는 보통 50~150화이고, 1부는 아크 1을 품어 {end}화보다 뒤에서 끝납니다.
+- 부가 바뀔 때 무대, 상대, 걸린 것의 크기가 한 단계씩 커지게 합니다. 단편의 theme 은 마지막 부에서 완성됩니다.
+- arc_ideas 에는 그 부의 아크(5~30화짜리 작은 이야기) 후보를 순서대로 3~8개 한 줄씩 적습니다. 1부는 아크 2부터 적습니다. 새 인물이 필요하면 "새 인물: 역할" 을 그 아크 줄에 함께 적습니다. summary 는 비워 둡니다.
+- foreshadows 에는 장편 전체나 한 부를 끌고 갈 새 장기 떡밥 2~5개를 넣습니다. id 는 "fs-s-" 로 시작하고, scope 는 part 나 series, status 는 open, planted_ep 는 실마리가 이미 있는 화({end}화 이하)입니다.
+- scopes 에는 열린 복선 가운데 장편에서 더 멀리 끌고 갈 것만 넣습니다.
+- tiers 는 장편에서 비중이 달라지는 인물만 넣습니다. main 은 작품 전체를 끌고 갈 2~4명, 나머지는 support 나 minor 입니다.
+- episodes 에는 본문이 없는 화만 넣고, 모든 칸을 채웁니다.
+- reply 는 3~5문장: 결말을 어떻게 처리했는지, 장편 전체를 끄는 갈등이 무엇인지, 1부가 어디서 끝나는지."""
+
+
 # ---------- 플롯 대화 (기승전결 · 화별 플롯 화면) ----------
 
 SYSTEM_PLOT_CHAT = (
