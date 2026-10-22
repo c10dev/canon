@@ -68,7 +68,8 @@ class LocalLLMTest(unittest.TestCase):
         env = {"CANON_CONFIG": str(self.cfg), "CANON_LOCAL_URL": self.url}
         self.env = mock.patch.dict(os.environ, env)
         self.env.start()
-        for name in ("CANON_LOCAL_MODEL", "CANON_LOCAL_KEY", *(f"CANON_LLM_{s.upper()}" for s in settings.STAGES)):
+        stage_env = [f"CANON_{k}_{s.upper()}" for k in ("LLM", "MODEL") for s in settings.STAGES]
+        for name in ("CANON_LOCAL_MODEL", "CANON_LOCAL_KEY", *stage_env):
             os.environ.pop(name, None)
 
     def tearDown(self):
@@ -125,6 +126,18 @@ class LocalLLMTest(unittest.TestCase):
             self.assertEqual(settings.public()["stage_settings"], {"state": "local"})
         with mock.patch.dict(os.environ, {"CANON_LLM": "mock"}):  # mock 이면 단계 설정과 무관하게 mock
             self.assertIsInstance(get_llm("state"), MockLLM)
+
+    def test_stage_model(self):
+        with mock.patch.dict(os.environ, {"CANON_LLM": "local"}):
+            settings.update(stage_models={"state": "gemma-small"})
+            self.assertEqual(get_llm("state").model, "gemma-small")
+            self.assertEqual(get_llm("write").model, "gemma-4-31b-it")  # 비우면 서버의 기본 모델
+            self.assertEqual(settings.public()["stages"]["state"]["model"], "gemma-small")
+            with mock.patch.dict(os.environ, {"CANON_MODEL_STATE": "gemma-env"}):
+                self.assertEqual(settings.stage_model("state"), ("gemma-env", "env"))
+            FakeServer.replies = ["상태 정리"]
+            get_llm("state").text("시스템", "정리")
+            self.assertEqual(FakeServer.requests[-1]["model"], "gemma-small")
 
     def test_compare_and_pick(self):
         # 다른 테스트가 먼저 store 를 불러왔어도 매번 빈 폴더에서 돈다

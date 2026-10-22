@@ -319,6 +319,10 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 #jobs .x { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 14px; min-width: 32px; min-height: 32px; flex: none; }
 .spinner.sm { width: 14px; height: 14px; border-width: 2px; }
 
+/* 설정: 단계별 백엔드와 모델 */
+.stage-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+@media (max-width: 600px) { .stage-row { grid-template-columns: 1fr; } }
+
 /* 연구 (모델 실험) */
 .nav-extra { padding-top: 12px; border-top: 1px solid var(--line); }
 .nav-extra > .small { padding: 0 10px 4px; }
@@ -337,10 +341,8 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .rs-log li:first-child { border-top: none; }
 
 /* 이름 · 지명 후보 */
-.stage-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 .name-picks-box { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
 .name-picks { display: flex; flex-wrap: wrap; gap: 6px; }
 .name-pick { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 5px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; text-align: left; max-width: 100%; }
 .name-pick:hover { border-color: var(--accent); background: var(--accent-soft); }
 .name-pick small { font-size: 11px; font-weight: 400; color: var(--muted); }
-@media (max-width: 560px) { .stage-row { grid-template-columns: 1fr; } }

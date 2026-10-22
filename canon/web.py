@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
 from . import dynamics, genres, jobs, library, naming, pipeline, prompts, research, settings, store
-from .llm import GeminiLLM, LocalLLM, get_llm
+from .llm import GeminiLLM, LocalLLM, get_llm, make_llm
 from .schema import ArcPlan, Meta, Project, SetupSuggestion, StateDelta, StyleEntry, StyleProfile
 
 STATIC = Path(__file__).parent / "static"
@@ -92,7 +92,7 @@ class SettingsIn(BaseModel):
     local_model: str | None = None
     local_key: str | None = None
     stages: dict[str, str] | None = None  # {"write": "local"}, 빈 값이면 전체 설정을 따름
-    stage_models: dict[str, str] | None = None  # {"name": "gemini-2.5-flash"}, 빈 값이면 백엔드 기본 모델
+    stage_models: dict[str, str] | None = None  # {"state": "gemini-3.8-flash"}, 빈 값이면 백엔드 기본 모델
 
 
 @app.put("/api/config")
@@ -105,7 +105,7 @@ def put_config(body: SettingsIn) -> dict:
             raise HTTPException(400, f"단계 설정이 잘못됐습니다: {stage}={value}")
     for stage in body.stage_models or {}:
         if stage not in settings.STAGES:
-            raise HTTPException(400, f"알 수 없는 단계: {stage}")
+            raise HTTPException(400, f"알 수 없는 단계입니다: {stage}")
     settings.update(provider=body.provider, model=body.model, api_key=body.api_key, clear_key=body.clear_key,
                     local_url=body.local_url, local_model=body.local_model, local_key=body.local_key,
                     stages=body.stages, stage_models=body.stage_models)
@@ -114,19 +114,32 @@ def put_config(body: SettingsIn) -> dict:
 
 @app.post("/api/config/test")
 def test_config() -> dict:
-    """단계에서 쓰는 백엔드마다 연결을 확인한다. 본문 생성 비용은 들지 않는다."""
+    """단계에서 쓰는 백엔드와 모델마다 연결을 확인한다. 본문 생성 비용은 들지 않는다."""
     used = {(settings.stage_provider(s)[0], settings.stage_model(s)[0]) for s in settings.STAGES}
-    if {prov for prov, _ in used} == {"mock"}:
+    used = {u for u in used if u[0] != "mock"}
+    if not used:
         return {"ok": True, "message": "mock 모드입니다. 실제 AI 를 호출하지 않습니다."}
     done = []
-    for prov, mdl in sorted(x for x in used if x[0] != "mock"):
+    for prov, model in sorted(used):
         try:
-            llm = GeminiLLM(model=mdl or None) if prov == "gemini" else LocalLLM(model=mdl or None)
+            llm = make_llm(prov, model)
             llm.check()
         except Exception as e:  # SDK 오류 종류가 많아 메시지만 보여준다
-            raise HTTPException(400, f"{prov} 연결 실패: {getattr(e, 'message', None) or e}")
+            raise HTTPException(400, f"{prov} {model or ''} 연결 실패: {getattr(e, 'message', None) or e}")
         done.append(llm.model)
-    return {"ok": True, "message": f"{', '.join(done)} 에 연결됐습니다."}
+    return {"ok": True, "message": f"{', '.join(dict.fromkeys(done))} 에 연결됐습니다."}
+
+
+@app.get("/api/config/models")
+def config_models() -> dict:
+    """설정 화면의 모델 목록. 백엔드마다 실제로 쓸 수 있는 모델을 묻고, 실패하면 이유만 돌려준다."""
+    out = {}
+    for prov, make in (("gemini", GeminiLLM), ("local", lambda: LocalLLM(timeout=5))):
+        try:
+            out[prov] = {"models": make().models(), "error": ""}
+        except Exception as e:  # 키가 없거나 서버가 꺼져 있어도 화면은 열려야 한다
+            out[prov] = {"models": [], "error": str(getattr(e, "message", None) or e)}
+    return out
 
 
 @app.get("/api/projects")

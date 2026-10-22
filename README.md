@@ -72,7 +72,7 @@ AI 에게 이름을 맡기면 서윤, 도현 같은 몇 개 이름으로 몰리�
 - 설정 화면의 인물 카드에서 **이름 후보 뽑기**(즉시, AI 호출 없음)나 **AI 이름 추천**(후보 중에서 골라 이유를 붙임)을 누르고, 마음에 드는 칩을 누르면 이름 칸에 들어간다. 세계관 카드의 **지명 후보 뽑기**는 종류(마을, 산, 고개, 문파, 왕국…)를 골라 장소 목록에 더한다. 다른 인물과 첫 글자나 끝 글자가 겹치는 이름은 뒤로 미룬다.
 - **이름 점검**은 글자가 겹치는 이름, 나이와 안 맞는 이름, AI 가 자주 짓는 이름을 알려 준다. 막지는 않는다.
 - **이름 규칙**에 "북부 귀족은 성 앞에 '폰'을 붙인다" 같은 규칙을 적으면 AI 추천과 설정 제안 프롬프트에 들어간다. 'AI 제안받기'도 같은 후보 목록을 받아서 고른다.
-- AI 추천에 쓰는 모델은 설정 화면 '단계별 백엔드'의 **이름·지명 AI 추천** 줄에서 정한다. 정하지 않으면 계획 단계 설정을 따른다. 모든 단계에 모델 칸이 있어 단계마다 다른 Gemini 모델이나 로컬 모델을 지정할 수 있다 (예: 이름 추천만 gemini-2.5-flash).
+- AI 추천에 쓰는 모델은 설정 화면 '단계별 백엔드'의 **이름·지명 AI 추천** 줄에서 정한다. 정하지 않으면 계획 단계 설정을 따른다. 모든 단계에 모델 칸이 있어 단계마다 다른 Gemini 모델이나 로컬 모델을 지정할 수 있다 (예: 이름 추천만 gemini-3.8-flash, 환경 변수 `CANON_MODEL_NAME`).
 
 ```bash
 python -m canon names 등대 --character hero          # 인물 이름 후보 8개 (AI 호출 없음)
@@ -128,13 +128,13 @@ python -m canon recalc 등대                   # project.json 의 params 를 �
 
 ## 로컬 모델 (Ollama, llama.cpp, vLLM, LM Studio)
 
-OpenAI 호환 API 를 여는 서버면 된다. 단계마다 백엔드를 고를 수 있어서, 계획과 검수는 Gemini 에 두고 본문만 로컬 모델로 쓸 수 있다. 웹 설정 화면의 **로컬 서버**, **단계별 백엔드**에서 정하거나 환경 변수로 정한다.
+OpenAI 호환 API 를 여는 서버면 된다. 단계마다 백엔드를 고를 수 있어서, 계획과 검수는 Gemini 에 두고 본문만 로컬 모델로 쓸 수 있다. 단계마다 모델도 따로 고를 수 있다 (예: 상태 변경안만 빠르고 싼 `gemini-3.8-flash`). 웹 설정 화면의 **로컬 서버**, **단계별 백엔드와 모델**에서 정하거나 환경 변수로 정한다. 모델 칸은 Gemini API 와 로컬 서버의 모델 목록을 불러와 보여 주고, 목록에 없는 이름은 직접 적으면 된다.
 
 ```bash
 export CANON_LOCAL_URL=http://localhost:11434/v1   # Ollama. llama.cpp :8080/v1, vLLM :8000/v1
 export CANON_LOCAL_MODEL=gemma4:31b                # 비우면 서버에 하나뿐인 모델
 export CANON_LLM_WRITE=local                       # 본문만 로컬 (plan / write / check / state / name)
-export CANON_MODEL_NAME=gemini-2.5-flash           # 단계별 모델 (비우면 그 백엔드의 기본 모델)
+export CANON_MODEL_STATE=gemini-3.8-flash          # 상태 변경안만 다른 모델 (CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME)
 # 전부 로컬이면 CANON_LLM=local
 
 python -m canon compare 등대 3                  # 같은 화를 gemini 와 local 로 써서 1, 2 번으로 가림
