@@ -57,6 +57,11 @@ def _delay() -> None:
 def _arc(total: int, start: int = 1) -> list[Act]:
     """start 화부터 total 화까지를 기승전결로 나눈다. 장편 아크는 start 가 아크 첫 화."""
     size = total - start + 1
+    if size < 4:  # 짧은 작품은 이웃 구간이 한 화를 함께 쓴다
+        from .pipeline import act_ranges
+        r = act_ranges(total, start)
+        goals = [("주인공과 세계 소개, 사건 발생", "계기 사건"), ("갈등 심화", "중간 반전"), ("위기와 클라이맥스", "최대 위기"), ("해결과 여운", "결말")]
+        return [Act(name=nm, start_ep=s, end_ep=e, goal=g, key_turn=k) for nm, (s, e), (g, k) in zip("기승전결", r, goals)]
     c = min(start - 1 + max(1, round(size * 0.2)) + max(1, round(size * 0.38)) + max(1, round(size * 0.24)), total - 1)
     b = min(start - 1 + max(1, round(size * 0.2)) + max(1, round(size * 0.38)), c - 1)
     a = min(start - 1 + max(1, round(size * 0.2)), b - 1)

@@ -184,6 +184,7 @@ details > summary { cursor: pointer; font-size: 13px; color: var(--accent); min-
 .act-eps { display: flex; flex-direction: column; gap: 8px; }
 .act-eps > .act-label { color: var(--muted); padding: 0 2px; }
 .ep-slot { padding: 10px 12px; border: 1px dashed var(--line-strong); border-radius: 10px; color: var(--muted); font-size: 13px; }
+.ep-slot.shared { border-style: dotted; background: var(--bg); line-height: 1.5; }
 .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(480px, 100vw); z-index: 15; overflow-y: auto; border-radius: 0; box-shadow: -8px 0 32px rgba(0,0,0,0.16); padding-top: 56px; display: flex; flex-direction: column; gap: 12px; }
 .drawer-close { position: absolute; top: 10px; right: 12px; }
 @media (max-width: 760px) { .board { grid-template-columns: minmax(0, 1fr); } }

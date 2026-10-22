@@ -334,6 +334,17 @@ function beats() {
   return [...p.story_arcs].sort((a, b) => a.start_ep - b.start_ep).flatMap((s) => s.acts);
 }
 
+/** 화를 함께 쓰는 구간(4화보다 짧은 작품)을 한 묶음으로. web._plot_ranges 와 같은 규칙 */
+function actGroups(acts) {
+  const out = [];
+  for (const a of acts) {
+    const g = out[out.length - 1];
+    if (g && a.start_ep <= g.end) { g.names.push(a.name); g.end = Math.max(g.end, a.end_ep); }
+    else out.push({ names: [a.name], start: a.start_ep, end: a.end_ep });
+  }
+  return out;
+}
+
 function actOf(n) {
   return beats().find((a) => a.start_ep <= n && n <= a.end_ep);
 }
@@ -1513,7 +1524,7 @@ function viewHome() {
   const cur = currentEp();
   const [nextLabel, nextHref] = nextStep();
 
-  const actBand = p.arc.length && !serial() ? `<div class="act-band" style="display:grid;grid-template-columns:repeat(${m.target_episodes},minmax(0,1fr));gap:6px">${p.arc.map((a) => `<div class="act-head ${actClass(a.name)}" style="grid-column:span ${a.end_ep - a.start_ep + 1};padding:4px 8px;font-size:12px;font-weight:700">${a.name} ${a.start_ep}–${a.end_ep}화</div>`).join('')}</div>` : '';
+  const actBand = p.arc.length && !serial() ? `<div class="act-band" style="display:grid;grid-template-columns:repeat(${m.target_episodes},minmax(0,1fr));gap:6px">${actGroups(p.arc).map((g) => `<div class="act-head ${actClass(g.names[0])}" style="grid-column:span ${g.end - g.start + 1};padding:4px 8px;font-size:12px;font-weight:700">${g.names.join('·')} ${g.start}–${g.end}화</div>`).join('')}</div>` : '';
   // 장편은 지금 쓰는 부(없으면 지금 아크 근처 60화)만 칸으로 보인다
   const curPart = serial() ? p.parts.find((x) => x.start_ep <= cur && cur <= x.end_ep) : null;
   const shown = !serial() ? eps : curPart ? eps.filter((e) => e.plot.number >= curPart.start_ep && e.plot.number <= curPart.end_ep)
@@ -2070,10 +2081,15 @@ function epCard(e, sel) {
 /** 기승전결 네 칸 보드. 단편은 작품 전체 구조, 장편은 고른 아크의 구조를 그린다 */
 function actBoard(acts, eps, sel) {
   const slot = (n) => `<div class="ep-slot" aria-hidden="true">${n}화</div>`;
+  // 4화보다 짧은 작품은 이웃 구간이 한 화를 함께 쓴다. 그 화 카드는 앞 구간에만 두고 뒤 구간에는 안내만 둔다
+  const owner = (n) => acts.findIndex((x) => x.start_ep <= n && n <= x.end_ep);
   const cols = acts.map((a, i) => {
-    const inAct = eps.filter((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep);
     const count = Math.max(0, a.end_ep - a.start_ep + 1);
-    const nums = Array.from({ length: Math.min(count, 60) }, (_, k) => a.start_ep + k);
+    const all = Array.from({ length: Math.min(count, 60) }, (_, k) => a.start_ep + k);
+    const nums = all.filter((n) => owner(n) === i);
+    const shared = all.filter((n) => owner(n) !== i);
+    const inAct = eps.filter((e) => nums.includes(e.plot.number));
+    const share = shared.length ? `<div class="ep-slot shared">${shared.map((n) => `${n}화`).join(', ')}는 ${acts[owner(shared[0])].name} 구간과 한 화에 함께 들어가요</div>` : '';
     const block = (label, text) => `<div class="act-block"><span class="act-label">${label}</span><p class="${text ? '' : 'empty-text'}">${esc(text) || '비어 있음'}</p></div>`;
     return `<section class="act-col" aria-label="${a.name} 구간">
         <div class="act-head ${actClass(a.name)}${S.selAct === i ? ' sel' : ''}">
@@ -2082,7 +2098,7 @@ function actBoard(acts, eps, sel) {
           <button type="button" class="btn small act-edit" data-action="selectAct" data-arg="${i}">구간 고치기</button>
         </div>
         <div class="act-eps"><span class="act-label">화별 플롯 ${inAct.length ? `${inAct.length}화` : ''}</span>
-          ${inAct.length ? inAct.map((e) => epCard(e, sel)).join('') : nums.map(slot).join('')}</div>
+          ${share}${inAct.length ? inAct.map((e) => epCard(e, sel)).join('') : nums.map(slot).join('')}</div>
       </section>`;
   }).join('');
   return `<div class="board">${cols}</div>`;

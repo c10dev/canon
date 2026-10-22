@@ -645,6 +645,9 @@ class Project(BaseModel):
     def act_for(self, n: int) -> Optional[Act]:
         return next((a for a in self.beats() if a.start_ep <= n <= a.end_ep), None)
 
+    def acts_for(self, n: int) -> list[Act]:
+        """n 화에 걸친 구간들. 4화보다 짧은 작품은 한 화에 두 구간 이상이 들어갈 수 있다."""
+        return [a for a in self.beats() if a.start_ep <= n <= a.end_ep]
     def arc_for(self, n: int) -> Optional[StoryArc]:
         return next((s for s in self.story_arcs if s.start_ep <= n <= s.end_ep), None)
 

@@ -135,10 +135,21 @@ def arc_prompt(p: Project) -> str:
 {elements.plan_block(p) or "없음"}{lines_block(p)}
 
 요구사항:
-- 기, 승, 전, 결 네 구간이 1화부터 {p.meta.target_episodes}화까지 빈틈없이 이어져야 합니다.
-- 일반적인 비율은 기 15~20%, 승 35~40%, 전 25%, 결 15~20% 입니다.
+{arc_range_rule(p.meta.target_episodes)}
 - goal 은 그 구간이 끝날 때 도달해야 하는 이야기 상태, key_turn 은 핵심 전환점입니다.
 - 주인공의 arc 가 결 구간에서 완성되도록 합니다."""
+
+
+def arc_range_rule(total: int) -> str:
+    """구간 범위 요구사항. 4화보다 짧으면 한 화에 두 구간이 들어가야 하므로 따로 안내한다."""
+    if total >= 4:
+        return f"""- 기, 승, 전, 결 네 구간이 1화부터 {total}화까지 빈틈없이 이어져야 합니다. 구간끼리 화가 겹치면 안 됩니다.
+- 일반적인 비율은 기 15~20%, 승 35~40%, 전 25%, 결 15~20% 입니다."""
+    shape = {1: "기 1~1, 승 1~1, 전 1~1, 결 1~1 (한 화 안에 기승전결)",
+             2: "기 1~1, 승 1~1, 전 2~2, 결 2~2",
+             3: "기 1~1, 승 2~2, 전 3~3, 결 3~3"}.get(total, "")
+    return f"""- 총 {total}화라 네 구간이 한 화씩 가질 수 없습니다. 이웃한 구간이 한 화를 함께 씁니다. 범위는 {shape} 로 하세요.
+- 한 화를 함께 쓰는 구간은 그 화 안에서 차례로 지나갑니다. goal 과 key_turn 은 구간마다 따로 씁니다."""
 
 
 def plot_prompt(p: Project, start: int, end: int) -> str:
@@ -797,6 +808,7 @@ def build_episode_context(p: Project, n: int) -> str:
     장편은 줄거리를 부 → 아크 → 화로 접고, 인물·복선·사실을 이번 화에 관련된 것만 골라 크기를 일정하게 둔다."""
     ep = p.episode(n)
     act = p.act_for(n)
+    together = p.acts_for(n)[1:]  # 짧은 작품에서 이 화에 함께 들어간 뒤 구간
     cast_ids = set(ep.plot.characters) or {c.id for c in static_characters(p)} or {c.id for c in p.characters}
     states = [s for s in p.states if s.character_id in cast_ids]
     rels = [r for r in p.relationships if r.a in cast_ids and r.b in cast_ids]
@@ -811,6 +823,12 @@ def build_episode_context(p: Project, n: int) -> str:
         where = f"""# 현재 구간: {act.name if act else "?"} ({act.start_ep if act else "?"}~{act.end_ep if act else "?"}화)
 목표: {act.goal if act else ""}
 전환점: {act.key_turn if act else ""}"""
+        for b in together:
+            where += f"""\n# 이 화에 이어서 들어갈 구간: {b.name} ({b.start_ep}~{b.end_ep}화)
+목표: {b.goal}
+전환점: {b.key_turn}"""
+        if together:
+            where += "\n한 화 안에서 위 구간들을 차례로 지나가도록 쓰세요."
 
     els = elements.episode_block(p, n)
     els = f"\n\n# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것)\n{els}" if els else ""
