@@ -13,7 +13,6 @@ mock 제외)는 켜 둬도 일반 호출로 돈다.
 """
 from __future__ import annotations
 
-import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -22,16 +21,13 @@ from typing import Any, Callable, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from . import dynamics, jobs, pipeline, prompts, settings, store
+from . import dynamics, jobs, pipeline, prompts, settings, store, usage
 from .llm import BatchLLM, Interrupted, SchemaMismatch, get_llm
 from .research import CHARS_PER_TOKEN, JSON_OUTPUT_RESERVE, _filler
 from .schema import ConsistencyReport, Project, StateDelta
 
 LOG_KEEP = 500
 STEP_NAMES = {"write": "본문", "check": "검수", "state": "상태 변경안"}
-# USD / 100만 토큰 (입력, 출력). 2026-10 기준 정가 추정치, 배치는 절반. CANON_PRICE="입력,출력" 으로 바꾼다.
-PRICES = {"gemini-4-argon": (2.0, 10.0)}
-BATCH_DISCOUNT = 0.5
 # 측정값이 없을 때 쓰는 단계별 소요 시간 추정 (초, 일반 호출)
 SECONDS = {"write": 90.0, "check": 40.0, "state": 40.0}
 # 배치 한 번 기다리는 시간 가정 (초): 보통 범위. 최악은 24시간
@@ -192,19 +188,11 @@ def review_reasons(p: Project, delta: StateDelta, report: Optional[ConsistencyRe
 
 # ---------- 비용과 시간 추정 ----------
 
-def price(stage: str) -> Optional[tuple[float, float]]:
-    """단계가 쓰는 모델의 (입력, 출력) 가격. Gemini 가 아니거나 모르는 모델이면 None (로컬은 0원)."""
+def stage_cost(stage: str, tin: float, tout: float, batch: bool) -> Optional[float]:
+    """단계가 쓰는 모델로 tin/tout 토큰을 쓸 때의 USD. 가격은 사용량 화면과 같은 가격표(usage.prices)를 쓴다.
+    로컬은 0원, 가격표에 없는 Gemini 모델이면 None."""
     prov = settings.stage_provider(stage)[0]
-    if prov != "gemini":
-        return (0.0, 0.0)
-    env = os.environ.get("CANON_PRICE", "")
-    if env:
-        try:
-            a, b = (float(x) for x in env.split(","))
-            return a, b
-        except ValueError:
-            pass
-    return PRICES.get(gemini_model(stage))
+    return usage.stage_cost(prov, gemini_model(stage), tin, tout, batch and prov == "gemini")
 
 
 def gemini_model(stage: str) -> str:
@@ -261,13 +249,15 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
             tokens[step][0] += len(text) / CHARS_PER_TOKEN
             tokens[step][1] += m["out"] if m and m["out"] else out
     cost: Optional[float] = 0.0
+    unpriced = []
     for step, (tin, tout) in tokens.items():
-        pr = price(step)
-        if pr is None:
-            cost = None
-            break
-        k = BATCH_DISCOUNT if batch and settings.stage_provider(step)[0] == "gemini" else 1.0
-        cost += (tin * pr[0] + tout * pr[1]) / 1e6 * k
+        c = stage_cost(step, tin, tout, batch)
+        if c is None:
+            unpriced.append(gemini_model(step))
+        elif cost is not None:
+            cost += c
+    if unpriced:
+        cost = None
     eps = len(todo) - len(missing)
 
     def secs(step: str) -> float:
@@ -290,7 +280,7 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
         "batch_rounds": rounds, "seconds_min": round(normal + rounds * BATCH_WAIT[0]),
         "seconds_max": round(normal + rounds * BATCH_WAIT[1]), "seconds_worst": round(normal + rounds * 86400),
         "batch_avg_seconds": round(sum(waits) / len(waits)) if waits else None,
-        "measured": bool(measured), "model": gemini_model("write"),
+        "measured": bool(measured), "model": gemini_model("write"), "unpriced": sorted(set(unpriced)),
         "stages": {s: settings.stage_provider(s)[0] for s in steps},
     }
 
@@ -347,6 +337,10 @@ class Runner:
 
     def call(self, stage: str, n: int, fn: Callable[[Any], Any]) -> tuple[Any, dict]:
         """stage 의 백엔드로 fn(llm) 을 부르고 (결과, 토큰과 시간) 을 돌려준다. 배치가 켜져 있으면 배치로."""
+        with usage.scope(project=self.name, episode=n, source="autorun", task="auto"):
+            return self._call(stage, n, fn)
+
+    def _call(self, stage: str, n: int, fn: Callable[[Any], Any]) -> tuple[Any, dict]:
         llm = get_llm(stage)
         use_batch = self.run.batch and hasattr(llm, "batch_submit")
         if use_batch:
@@ -371,13 +365,12 @@ class Runner:
         u = getattr(llm, "last_usage", None) or {}
         tin = int(u.get("prompt_tokens") or 0)
         tout = int(u.get("completion_tokens") or 0) + int(u.get("thought_tokens") or 0)
-        pr = price(stage)
+        c = stage_cost(stage, tin, tout, use_batch)
         with self.ctl.lock:
             self.run.tokens_in += tin
             self.run.tokens_out += tout
-            if pr:
-                k = BATCH_DISCOUNT if use_batch and settings.stage_provider(stage)[0] == "gemini" else 1.0
-                self.run.cost = round(self.run.cost + (tin * pr[0] + tout * pr[1]) / 1e6 * k, 4)
+            if c:
+                self.run.cost = round(self.run.cost + c, 4)
         return out, dict(step=stage, tokens_in=tin, tokens_out=tout, seconds=round(time.time() - t, 1), batch=use_batch)
 
     def loop(self) -> None:

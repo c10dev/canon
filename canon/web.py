@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from urllib.parse import unquote
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import autorun, dynamics, elements, genres, jobs, library, metrics, naming, pipeline, prompts, research, settings, store
+from . import autorun, dynamics, elements, genres, jobs, library, metrics, naming, pipeline, prompts, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, get_llm, make_llm
 from .schema import (ArcPlan, ArcProposal, Meta, Project, Selection, SerialConversion, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
@@ -26,12 +27,34 @@ app = FastAPI(title="Canon")
 _active = 0  # 처리 중인 요청 수. 자동 업데이트는 이 값이 0일 때만 다시 시작한다.
 
 
+_PROJECT_PATH = re.compile(r"^/api/projects/([^/]+)/?(.*)$")
+_EPISODE_PATH = re.compile(r"(?:^episodes/|^research/compare/|^chat/text:)(\d+)")
+
+
+def _usage_scope(path: str) -> dict:
+    """요청 경로에서 사용량 기록에 붙일 작품, 화, 작업 이름을 읽는다. 연구 화면 호출은 단계를 research 로 적는다."""
+    if path.startswith("/api/research"):
+        return {"source": "research", "stage": "research", "task": "probe"}
+    m = _PROJECT_PATH.match(path)
+    if not m:
+        return {"source": "web"}
+    rest = m[2]
+    ep = _EPISODE_PATH.search(rest)
+    parts = rest.split("/")
+    task = parts[2] if parts[0] == "episodes" and len(parts) > 2 else parts[0].split(":")[0]
+    out = {"source": "web", "project": unquote(m[1]), "episode": int(ep[1]) if ep else None, "task": task or None}
+    if parts[0] == "research":
+        out.update(source="research", stage="research", task=parts[1] if len(parts) > 1 else "research")
+    return out
+
+
 @app.middleware("http")
 async def _count_active(request: Request, call_next):
     global _active
     _active += 1
     try:
-        return await call_next(request)
+        with usage.scope(**_usage_scope(request.url.path)):
+            return await call_next(request)
     finally:
         _active -= 1
 
@@ -785,7 +808,8 @@ def start_job(name: str, body: JobIn) -> dict:
         raise ValueError(f"모르는 작업입니다: {kind}")
 
     try:
-        job = jobs.start(name, kind, n, label, fn, total=total, owned=owned)
+        with usage.scope(episode=n if kind in ("write", "state") else None, task=kind):
+            job = jobs.start(name, kind, n, label, fn, total=total, owned=owned)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}
     return job.public()
@@ -1056,6 +1080,34 @@ def brief(name: str, n: int, kind: str = "episode") -> dict:
 
 
 # ---------- 연구 (모델 실험, 작품 데이터와 분리) ----------
+
+@app.get("/api/usage")
+def usage_summary(days: int = 30, project: str | None = None) -> dict:
+    """AI 호출 기록을 기간과 작품으로 걸러 모은다. days 가 0 이면 전체."""
+    return usage.summary(days or None, project or None)
+
+
+@app.get("/api/usage/prices")
+def usage_prices() -> dict:
+    return usage.price_table()
+
+
+class PricesIn(BaseModel):
+    rows: list[usage.Price]
+
+
+@app.put("/api/usage/prices")
+def put_usage_prices(body: PricesIn) -> dict:
+    usage.save_prices(body.rows)
+    return usage.price_table()
+
+
+@app.delete("/api/usage/prices")
+def reset_usage_prices() -> dict:
+    """가격표를 기본값(Google 가격표에서 옮긴 값)으로 되돌린다."""
+    settings.set_prices([])
+    return usage.price_table()
+
 
 class Probe(BaseModel):
     url: str = ""

@@ -102,7 +102,7 @@ function autoEstCard() {
     <div class="grid-2">${col(e.off, false)}${col(e.on, true)}</div>
     ${x.missing.length ? `<div class="note warn">플롯이 없는 화(${x.missing.join(', ')}화)에서 멈춥니다. 먼저 플롯을 만드세요.</div>` : ''}
     ${local.length ? `<div class="small">${local.join(', ')} 단계는 로컬 모델이라 비용이 없고 배치도 쓰지 않아요.</div>` : ''}
-    <div class="small">${x.measured ? '지난 실행에서 잰 출력량과 시간을 썼어요.' : '처음이라 화당 목표 분량으로 추정했어요.'} 가격은 ${esc(x.model)} 정가 기준 추정치이고, 생각(thinking) 토큰이 많으면 더 나올 수 있어요.</div>`;
+    <div class="small">${x.measured ? '지난 실행에서 잰 출력량과 시간을 썼어요.' : '처음이라 화당 목표 분량으로 추정했어요.'} 가격은 <a href="#/usage">사용량 · 비용</a> 화면의 가격표(${esc(x.model)} 기준)로 계산한 추정치이고, 생각(thinking) 토큰이 많으면 더 나올 수 있어요.${x.unpriced && x.unpriced.length ? ` 가격표에 없는 모델(${x.unpriced.map(esc).join(', ')})이 있어 비용을 모릅니다.` : ''}</div>`;
 }
 
 function autoPolicyForm(f, disabled) {

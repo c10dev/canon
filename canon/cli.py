@@ -32,6 +32,7 @@
   python -m canon adjust 내소설 a b --warmth 0.3 --trust 0.6   a 가 b 를 보는 관계를 직접 보정
   python -m canon revert 내소설 3       3화 상태 반영 직후로 되돌리기
   python -m canon recalc 내소설         계수(params)를 바꾼 뒤 사건 로그로 관계 재계산
+  python -m canon usage [--days 30 | --all] [--project 내소설] [--prices]   AI 사용량과 추정 비용 (가격표 보기)
   python -m canon serve [--port 8000]    웹 UI (브라우저 자동 열기, 끄려면 --no-browser)
   python -m canon upgrade               main 의 새 코드 받기 (serve 는 시작할 때와 10분마다 알아서 받는다)
 설정은 projects/<이름>/project.json 을 직접 고쳐도 된다.
@@ -45,7 +46,7 @@ import sys
 from pathlib import Path
 
 from . import (autorun, dynamics, elements, genres, library, logline, metrics, naming, pipeline, prompts, research, store, storylines,
-               updater)
+               updater, usage)
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 
@@ -925,6 +926,49 @@ def cmd_recalc(a: argparse.Namespace) -> None:
     print(dynamics.describe_relations(p, numbers=p.settings.show_numbers) or "관계 없음")
 
 
+STAGE_LABELS = {"plan": "계획", "write": "본문", "check": "검수", "state": "상태 변경안", "name": "이름 추천",
+                "revise": "부분 수정", "research": "연구"}
+
+
+def _usd(x: float | None) -> str:
+    return "가격 모름" if x is None else (f"${x:,.2f}" if x >= 0.995 or x == 0 else f"${x:.4f}")
+
+
+def cmd_usage(a: argparse.Namespace) -> None:
+    if a.prices:
+        t = usage.price_table()
+        print(f"USD / 100만 토큰. 기본값은 {t['checked']} Google 가격표 ({t['url']})")
+        print(f"{'모델':<26}{'적용':>11}{'입력':>8}{'출력':>8}{'캐시':>8}{'배치입력':>9}{'배치출력':>9}")
+        for r in t["rows"]:
+            mark = " (사용자 수정)" if r["custom"] else (" (예고)" if r["upcoming"] else "")
+            print(f"{r['model']:<26}{r['since'] or '처음부터':>11}{r['input']:>8g}{r['output']:>8g}{r['cached'] if r['cached'] is not None else r['input']:>8g}"
+                  f"{r['batch_input'] if r['batch_input'] is not None else r['input'] / 2:>9g}"
+                  f"{r['batch_output'] if r['batch_output'] is not None else r['output'] / 2:>9g}{mark}")
+        print("고치려면 웹 설정 화면의 'AI 요금 가격표'에서 고친다. 로컬 모델은 0원으로 센다.")
+        return
+    s = usage.summary(None if a.all else a.days, a.project or None)
+    t = s["total"]
+    span = "전체 기간" if a.all else f"최근 {a.days}일"
+    print(f"{span}{' · ' + a.project if a.project else ''}: 호출 {t['calls']}번, 추정 비용 {_usd(t['cost'])}")
+    print(f"  입력 {t['in']:,} 토큰 (캐시 {t['cached']:,}), 출력 {t['out']:,} 토큰 (생각 토큰 포함)")
+    if t["batch"]:
+        print(f"  배치 {t['batch']}번으로 아낀 비용 {_usd(t['saved'])}")
+    if t["failed"] or t["retries"]:
+        print(f"  실패 {t['failed']}번, 다시 요청 {t['retries']}번 (여기에 쓴 비용 {_usd(t['wasted'])})")
+    for title, key, label in (("작품별", "by_project", lambda r: r["project"] or "(작품 밖)"),
+                              ("단계별", "by_stage", lambda r: STAGE_LABELS.get(r["stage"], r["stage"] or "기타")),
+                              ("모델별", "by_model", lambda r: f"{r['model']} ({r['backend']})"),
+                              ("날짜별", "by_day", lambda r: r["day"])):
+        rows = s[key]
+        if rows:
+            print(f"\n{title}")
+            for r in rows:
+                print(f"  {label(r):<32} {r['calls']:>5}번 {_usd(r['cost']):>10}")
+    if s["unpriced"]:
+        print(f"\n! 가격표에 없는 모델: {', '.join(s['unpriced'])}. 이 호출은 비용에서 빠졌습니다 (웹 설정에서 가격 추가).")
+    print(f"\n추정치입니다. 실제 청구 금액은 Google AI Studio 사용량 화면에서 확인하세요: {s['billing_url']}")
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="canon", description="데이터 기반 AI 소설 생성기 (MVP)")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1065,6 +1109,12 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--update-interval", type=float, default=10, help="실행 중 새 코드 확인 간격(분), 기본 10")
     sp.set_defaults(fn=cmd_serve)
     sub.add_parser("upgrade", help="main 의 새 코드 받기 (git pull)").set_defaults(fn=cmd_upgrade)
+    sp = sub.add_parser("usage", help="AI 사용량과 추정 비용")
+    sp.add_argument("--days", type=int, default=30, help="최근 며칠 (기본 30)")
+    sp.add_argument("--all", action="store_true", help="전체 기간")
+    sp.add_argument("--project", help="이 작품만")
+    sp.add_argument("--prices", action="store_true", help="가격표 보기")
+    sp.set_defaults(fn=cmd_usage)
 
     sp = add("view", cmd_view, yes=False)
     sp.add_argument("mode", choices=["numbers", "words"])
@@ -1075,7 +1125,10 @@ def main(argv: list[str] | None = None) -> None:
     add("recalc", cmd_recalc, yes=False)
 
     a = ap.parse_args(argv)
+    ep = getattr(a, "n", None)
     try:
-        a.fn(a)
+        with usage.scope(project=getattr(a, "name", None), episode=ep if isinstance(ep, int) else None,
+                         source="cli", task=a.cmd, stage="research" if a.cmd == "compare" else None):
+            a.fn(a)
     except (ValueError, KeyError, FileNotFoundError, RuntimeError) as e:
         sys.exit(f"오류: {e}")
