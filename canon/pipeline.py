@@ -106,19 +106,76 @@ def analyze_style(llm: LLM, sample: str) -> StyleProfile:
 
 def plan_arc(llm: LLM, p: Project) -> ArcPlan:
     plan = llm.json(prompts.SYSTEM_PLANNER, prompts.arc_prompt(p), ArcPlan, hint={"total": p.meta.target_episodes})
-    validate_arc(plan, p.meta.target_episodes)
+    fit_arc(plan, p.meta.target_episodes)
     return plan
 
 
+ACT_NAMES = ["기", "승", "전", "결"]
+SHARE_BELOW = 4  # 이보다 짧은 작품은 네 구간이 한 화씩 갖지 못하므로 이웃 구간이 한 화를 함께 쓴다
+
+
+def act_order(a: Act) -> tuple[int, int]:
+    """시작 화, 같으면 기승전결 순서. 짧은 작품에서 두 구간이 같은 화에서 시작해도 순서가 흔들리지 않는다."""
+    return a.start_ep, ACT_NAMES.index(a.name) if a.name in ACT_NAMES else len(ACT_NAMES)
+
+
+def act_ranges(total: int, start: int = 1, weights: list[float] | None = None) -> list[tuple[int, int]]:
+    """start~total 화를 기승전결 네 구간으로 나눈다. weights 는 구간별 비중(AI 가 낸 길이 등)이고 없으면 기본 비율.
+    4화보다 짧으면 정해진 틀을 쓴다: 3화는 기1 · 승2 · 전결3, 2화는 기승1 · 전결2, 1화는 네 구간 모두 1화."""
+    size = total - start + 1
+    if size < 1:
+        raise ValueError(f"구간을 나눌 화가 없습니다 ({start}~{total}화)")
+    if size < SHARE_BELOW:
+        idx = {1: [0, 0, 0, 0], 2: [0, 0, 1, 1], 3: [0, 1, 2, 2]}[size]
+        return [(start + k, start + k) for k in idx]
+    w = [max(float(x), 0.01) for x in (weights or [0.18, 0.38, 0.26, 0.18])]
+    raw = [x / sum(w) * size for x in w]
+    lens = [max(1, int(r)) for r in raw]
+    while sum(lens) < size:  # 버림으로 모자란 화는 소수점이 큰 구간부터 준다
+        k = max(range(4), key=lambda i: raw[i] - lens[i])
+        lens[k] += 1
+    while sum(lens) > size:  # 최소 1화를 채우느라 넘친 화는 가장 긴 구간에서 뺀다
+        k = max(range(4), key=lambda i: lens[i])
+        lens[k] -= 1
+    out, a = [], start
+    for n in lens:
+        out.append((a, a + n - 1))
+        a += n
+    return out
+
+
+def fit_arc(plan: ArcPlan, total: int, start: int = 1) -> bool:
+    """AI 가 낸 구간 범위가 맞지 않으면(겹침, 빈틈, 화수 불일치) 목표와 전환점은 두고 범위만 고친다.
+    AI 가 정한 구간 길이의 비율은 살린다. 고쳤으면 True. 구간 이름부터 틀리면 고치지 않고 오류를 낸다."""
+    try:
+        validate_arc(plan, total, start)
+        return False
+    except ValueError:
+        pass
+    if sorted(a.name for a in plan.acts) != sorted(ACT_NAMES):
+        raise ValueError(f"기승전결 네 구간이 아닙니다: {[a.name for a in plan.acts]}")
+    acts = sorted(plan.acts, key=lambda a: ACT_NAMES.index(a.name))
+    weights = [max(1, a.end_ep - a.start_ep + 1) for a in acts]
+    for a, (s, e) in zip(acts, act_ranges(total, start, weights)):
+        a.start_ep, a.end_ep = s, e
+    plan.acts = acts
+    validate_arc(plan, total, start)
+    return True
+
+
 def validate_arc(plan: ArcPlan, total: int, start: int = 1) -> None:
-    """기승전결 네 구간이 start 화부터 total 화까지 빈틈없이 이어지는지 본다. 장편 아크는 start 가 아크 첫 화다."""
-    acts = sorted(plan.acts, key=lambda a: a.start_ep)
-    if [a.name for a in acts] != ["기", "승", "전", "결"]:
+    """기승전결 네 구간이 start 화부터 total 화까지 빈틈없이 이어지는지 본다. 장편 아크는 start 가 아크 첫 화다.
+    4화보다 짧으면 구간이 앞 구간의 마지막 화에서 시작해도 된다(한 화에 두 구간)."""
+    acts = sorted(plan.acts, key=act_order)
+    if [a.name for a in acts] != ACT_NAMES:
         raise ValueError(f"기승전결 순서가 아닙니다: {[a.name for a in acts]}")
+    share = total - start + 1 < SHARE_BELOW
     expected = start
-    for a in acts:
-        if a.start_ep != expected or a.end_ep < a.start_ep:
-            raise ValueError(f"{a.name} 구간 범위 오류: {a.start_ep}~{a.end_ep}")
+    for i, a in enumerate(acts):
+        shared = share and i > 0 and a.start_ep == expected - 1
+        if (a.start_ep != expected and not shared) or a.end_ep < a.start_ep:
+            hint = " 4화보다 짧으면 이웃 구간끼리 한 화를 함께 쓸 수 있습니다" if share else ""
+            raise ValueError(f"{a.name} 구간 범위 오류: {a.start_ep}~{a.end_ep}화 ({expected}화부터여야 합니다){hint}")
         expected = a.end_ep + 1
     if expected != total + 1:
         raise ValueError(f"구간이 {expected - 1}화에서 끝납니다 (목표 {total}화)")
@@ -147,7 +204,7 @@ def apply_plots(p: Project, batch: PlotBatch) -> None:
         cur = by_no.get(plot.number)
         if cur and cur.status != "draft":
             continue
-        act = p.act_for(plot.number)
+        act = p.act_for(plot.number)  # 짧은 작품에서 한 화에 여러 구간이면 첫 구간
         if act:
             plot.act = act.name
         if cur and (cur.plot.storyline or cur.plot.threads) and not (plot.storyline or plot.threads):
@@ -251,7 +308,9 @@ def clean_arc(p: Project, prop: ArcProposal) -> ArcProposal:
     limit = part.end_ep if part else p.meta.target_episodes
     if a.end_ep > limit:
         raise ValueError(f"아크가 {a.end_ep}화에서 끝나 {'부' if part else '작품'} 끝({limit}화)을 넘습니다")
-    validate_arc(ArcPlan(acts=a.acts), a.end_ep, a.start_ep)
+    plan = ArcPlan(acts=a.acts)
+    fit_arc(plan, a.end_ep, a.start_ep)  # 구간 범위가 어긋났으면 비율을 살려 고친다
+    a.acts = plan.acts
     if 0 < limit - a.end_ep < ARC_MIN:  # 남는 화로는 아크를 만들 수 없으니 결 구간을 부 끝까지 늘린다
         last = max(a.acts, key=lambda x: x.start_ep)
         last.end_ep = a.end_ep = limit
@@ -847,7 +906,7 @@ def clean_revision(p: Project, rev: PlotRevision) -> PlotRevision:
     rev.total_episodes = total
     focus = focus_arc(p) if p.serial else None
     current_acts = focus.acts if focus else p.arc
-    acts = sorted(rev.acts, key=lambda a: a.start_ep)
+    acts = sorted(rev.acts, key=act_order)
     if acts and [a.model_dump() for a in acts] == [a.model_dump() for a in current_acts] and not total:
         acts = []
     if acts and p.serial and focus is None:
