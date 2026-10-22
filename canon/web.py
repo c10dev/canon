@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import dynamics, pipeline, prompts, settings, store
+from . import dynamics, genres, pipeline, prompts, settings, store
 from .llm import GeminiLLM, get_llm
 from .schema import ArcPlan, Meta, Project, SetupSuggestion, StateDelta, StyleProfile
 
@@ -111,7 +111,15 @@ def create_project(body: NewProject) -> Project:
     p = Project(meta=body.meta)
     if not p.meta.title:
         p.meta.title = name
+    if p.meta.genre:  # 새 작품 폼은 장르를 글로 받는다: '로맨스, 회귀'
+        p.meta.genres = genres.parse(p.meta.genre)
+        p.meta.genre = genres.label(p.meta)
     return _save(name, p)
+
+
+@app.get("/api/genres")
+def genre_list() -> list[genres.Genre]:
+    return genres.CATALOG
 
 
 @app.get("/api/projects/{name}")
@@ -126,6 +134,7 @@ def put_project(name: str, p: Project) -> Project:
     if p.arc:
         pipeline.validate_arc(ArcPlan(acts=p.arc), p.meta.target_episodes)
     pipeline._init_states(p)
+    p.meta.genre = genres.label(p.meta)
     if p.snapshot(0) is None:  # 첫 반영 전에는 설정 화면의 시작 호감이 시작 관계다
         p.ties = []
         dynamics.seed_ties(p)
