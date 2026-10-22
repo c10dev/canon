@@ -19,7 +19,7 @@
   python -m canon adjust 내소설 a b --warmth 0.3 --trust 0.6   a 가 b 를 보는 관계를 직접 보정
   python -m canon revert 내소설 3       3화 상태 반영 직후로 되돌리기
   python -m canon recalc 내소설         계수(params)를 바꾼 뒤 사건 로그로 관계 재계산
-  python -m canon serve [--port 8000]    웹 UI
+  python -m canon serve [--port 8000]    웹 UI (브라우저 자동 열기, 끄려면 --no-browser)
 설정은 projects/<이름>/project.json 을 직접 고쳐도 된다.
 """
 from __future__ import annotations
@@ -32,7 +32,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import dynamics, metrics, pipeline, prompts, store
+from . import dynamics, genres, metrics, pipeline, prompts, store
 from .llm import dump, get_llm, make_llm
 from .schema import ConsistencyReport, Meta, Project, StateDelta
 
@@ -55,9 +55,12 @@ def cmd_new(a: argparse.Namespace) -> None:
     if store.exists(a.name):
         sys.exit(f"이미 있는 프로젝트입니다: {a.name}")
     print("기본 설정을 입력하세요. 모르는 칸은 비워 두면 AI 가 제안합니다.\n")
+    genre_ids = genres.parse(a.genre or ask("장르 (쉼표로 여러 개, 목록: python -m canon genres)", "현대 드라마"))
     meta = Meta(
         title=a.title or ask("제목"),
-        genre=a.genre or ask("장르", "현대 드라마"),
+        genres=genre_ids,
+        genre=" · ".join(genres.names(genre_ids)),
+        adult=a.adult,
         logline=a.logline or ask("로그라인 (누가, 무엇을 원하고, 무엇이 막는가)"),
         tone=ask("분위기/톤") if a.interactive else "",
         target_episodes=int(a.episodes or ask("총 화수 (10~20)", "16")),
@@ -182,20 +185,33 @@ def _num(v: float | None) -> str:
     return "-" if v is None else str(v)
 
 
+def cmd_genres(a: argparse.Namespace) -> None:
+    for kind in ("장르", "요소"):
+        print(f"[{kind}]")
+        for g in genres.CATALOG:
+            if g.kind == kind:
+                print(f"  {g.name} ({g.id}): {g.summary}")
+    print("\nnew --genre '로맨스 판타지, 회귀' 처럼 쓰고, 목록에 없는 장르도 그대로 적을 수 있습니다.")
+
+
 def cmd_stats(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     base = pipeline.style_baseline(p)
     rows = [("기준", base, [])]
     rows += [(f"{e.plot.number}화", *pipeline.style_drift(p, e.plot.number))
              for e in p.episodes if e.text and (a.n is None or e.plot.number == a.n)]
-    print(f"{'':>5} {'문장평균':>7} {'변화폭':>6} {'문단평균':>7} {'대사':>5} {'과거형':>6} {'어휘':>6}  경고")
+    print(f"{'':>5} {'문장평균':>7} {'변화폭':>6} {'문단평균':>7} {'대사':>5} {'과거형':>6} {'어휘':>6} "
+          f"{'쉼표':>5} {'짧은끝':>6} {'대명사':>6}  경고")
     for label, m, warns in rows:
         print(f"{label:>5} {m.sentence_len_mean:>7} {m.sentence_len_cv:>6} {m.paragraph_len_mean:>7} "
-              f"{m.dialogue_ratio:>5} {_num(m.past_tense_ratio):>6} {_num(m.mattr):>6}  {len(warns) or ''}")
+              f"{m.dialogue_ratio:>5} {_num(m.past_tense_ratio):>6} {_num(m.mattr):>6} "
+              f"{_num(m.comma_sentence_ratio):>5} {_num(m.short_ending_ratio):>6} {_num(m.pronoun_per_1k):>6}  {len(warns) or ''}")
         for w in warns:
             print(f"      ! {w}")
     if not p.style_baseline:
         print("\n(기준은 문체 예시 발췌로 잰 값입니다. style 명령을 다시 실행하면 원문 전체로 잽니다.)")
+    elif base.comma_sentence_ratio is None:
+        print("\n(기준값이 예전 버전이라 쉼표, 짧은끝, 대명사는 비교하지 않았습니다. style 명령을 다시 실행하면 비교합니다.)")
 
 
 def _print_delta(d: StateDelta) -> None:
@@ -246,6 +262,8 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
     _print_relation_preview(p, delta)
     if p.episode(n).issues:
         _print_issues(p, n)
+    for w in pipeline.style_drift(p, n)[1]:
+        print(f"! 문체: {w}")
     if not confirm("이 변경을 반영할까요? (아니오면 project.json 수정 후 다시 update)", yes):
         return False
     pipeline.apply_delta(p, delta)
@@ -345,7 +363,7 @@ def cmd_show(a: argparse.Namespace) -> None:
         print(dump(getattr(p, a.section)))
         return
     m = p.meta
-    print(f"《{m.title}》 {m.genre} / {m.target_episodes}화\n로그라인: {m.logline}\n")
+    print(f"《{m.title}》 {genres.label(m)}{' · 성인' if m.adult else ''} / {m.target_episodes}화\n로그라인: {m.logline}\n")
     print("인물:", ", ".join(f"{c.name}({c.id})" for c in p.characters) or "없음")
     print("스타일:", "있음" if p.style.sample_passages or p.style.narration_pov else "없음")
     for act in p.arc:
@@ -358,7 +376,7 @@ def cmd_show(a: argparse.Namespace) -> None:
 def cmd_serve(a: argparse.Namespace) -> None:
     from .web import serve
 
-    serve(a.host, a.port)
+    serve(a.host, a.port, open_browser=not a.no_browser)
 
 
 def cmd_view(a: argparse.Namespace) -> None:
@@ -408,7 +426,8 @@ def main(argv: list[str] | None = None) -> None:
 
     sp = add("new", cmd_new)
     sp.add_argument("--title", default="")
-    sp.add_argument("--genre", default="")
+    sp.add_argument("--genre", default="", help="쉼표로 여러 개 (python -m canon genres 로 목록)")
+    sp.add_argument("--adult", action="store_true", help="성인 독자 대상 작품")
     sp.add_argument("--logline", default="")
     sp.add_argument("--episodes", default="")
     sp.add_argument("--no-suggest", action="store_true")
@@ -440,9 +459,12 @@ def main(argv: list[str] | None = None) -> None:
     sp = add("show", cmd_show, yes=False)
     sp.add_argument("section", nargs="?")
 
+    sub.add_parser("genres", help="장르 목록").set_defaults(fn=cmd_genres)
+
     sp = sub.add_parser("serve", help="웹 UI 실행")
     sp.add_argument("--host", default="127.0.0.1")
     sp.add_argument("--port", type=int, default=8000)
+    sp.add_argument("--no-browser", action="store_true", help="브라우저를 자동으로 열지 않음 (서버에서 상시 실행할 때)")
     sp.set_defaults(fn=cmd_serve)
 
     sp = add("view", cmd_view, yes=False)

@@ -176,6 +176,13 @@ document.addEventListener('change', (e) => {
   }
 });
 
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.id === 'genre-custom' && !e.isComposing) {
+    e.preventDefault();
+    actions.addCustomGenre();
+  }
+});
+
 function markDirty() {
   if (!S.dirty) {
     S.dirty = true;
@@ -224,6 +231,7 @@ const actions = {
       genre: $('#np-genre').value.trim(),
       logline: $('#np-logline').value.trim(),
       target_episodes: parseInt($('#np-eps').value, 10) || 16,
+      adult: $('#np-adult').checked,
     };
     await run('만드는 중', async () => {
       await api('POST', '/projects', { name, meta });
@@ -254,6 +262,20 @@ const actions = {
       S.suggestion = null;
       toast('빈칸을 채웠습니다. 기존 입력은 그대로입니다.');
     });
+  },
+  toggleGenre(id) {
+    const m = P().meta;
+    m.genres = m.genres.includes(id) ? m.genres.filter((g) => g !== id) : [...m.genres, id];
+    syncGenre();
+  },
+  addCustomGenre() {
+    const el = $('#genre-custom');
+    const v = el.value.trim();
+    if (!v) return;
+    const hit = (S.genres || []).find((g) => g.name === v || g.id === v);
+    const id = hit ? hit.id : v;
+    if (!P().meta.genres.includes(id)) P().meta.genres.push(id);
+    syncGenre();
   },
   addCharacter() {
     const n = P().characters.length + 1;
@@ -588,6 +610,7 @@ async function route() {
   S.relations = null;
   try {
     if (!S.config) S.config = await api('GET', '/config');
+    if (!S.genres && parts[0] === 'p') S.genres = await api('GET', '/genres').catch(() => []);
     if (parts[0] === 'settings') {
       S.config = await api('GET', '/config');
     } else if (parts[0] === 'p' && parts[1]) {
@@ -757,10 +780,11 @@ function viewProjects() {
       <div class="grid-2">
         <div class="field"><label for="np-name">폴더 이름 <span class="hint">projects/ 아래에 저장</span></label><input id="np-name" type="text" placeholder="lighthouse"></div>
         <div class="field"><label for="np-title">제목</label><input id="np-title" type="text" placeholder="등대"></div>
-        <div class="field"><label for="np-genre">장르</label><input id="np-genre" type="text" placeholder="미스터리 드라마"></div>
+        <div class="field"><label for="np-genre">장르</label><input id="np-genre" type="text" placeholder="로맨스 판타지, 회귀" aria-describedby="np-genre-hint"><span id="np-genre-hint" class="small">쉼표로 여러 개. 설정 화면에서 목록으로 고를 수 있어요</span></div>
         <div class="field"><label for="np-eps">총 화수 (10~20)</label><input id="np-eps" type="number" min="10" max="20" value="12"></div>
       </div>
       <div class="field"><label for="np-logline">로그라인 <span class="hint">누가, 무엇을 원하고, 무엇이 막는가</span></label><textarea id="np-logline" rows="2"></textarea></div>
+      <label class="check-row"><input id="np-adult" type="checkbox"><span><strong>성인물</strong> <span class="small">성인 독자 대상</span></span></label>
       <div><button class="btn primary" data-action="createProject">만들고 설정 시작</button></div>
     </section>`;
 }
@@ -813,7 +837,7 @@ function viewHome() {
   const openFs = p.foreshadows.filter((f) => f.status === 'open');
   const lastWarn = p.history.length ? p.history[p.history.length - 1].warnings : [];
 
-  return `${header(`${esc(m.genre || '장르 미정')} · 전 ${m.target_episodes}화 · 화당 ${Number(m.words_per_episode).toLocaleString()}자`, m.title || S.name, esc(m.logline), `<a class="btn" href="${base()}/arc">플롯 보드</a><a class="btn primary" href="${nextHref}">${esc(nextLabel)}</a>`)}
+  return `${header(`${esc(m.genre || '장르 미정')}${m.adult ? ' · 성인' : ''} · 전 ${m.target_episodes}화 · 화당 ${Number(m.words_per_episode).toLocaleString()}자`, m.title || S.name, esc(m.logline), `<a class="btn" href="${base()}/arc">플롯 보드</a><a class="btn primary" href="${nextHref}">${esc(nextLabel)}</a>`)}
     <section class="card" aria-label="진행 단계"><div class="stages">
       ${stage(s1c, s1t, '1 설정', `인물 ${p.characters.length} · 관계 ${p.relationships.length}`, base() + '/setup')}
       ${stage(s2c, s2t, '2 문체', hasStyle ? `대표 문단 ${p.style.sample_passages.length}개` : '선택 사항', base() + '/style')}
@@ -842,6 +866,45 @@ function viewHome() {
         ${lastWarn.length ? `<div class="note warn">최근 경고: ${lastWarn.map(esc).join(' / ')}</div>` : ''}
       </section>
     </div>`;
+}
+
+// ----- 장르 -----
+
+function genreById(id) {
+  return (S.genres || []).find((g) => g.id === id);
+}
+
+function genreLabel(m) {
+  return m.genres.map((id) => (genreById(id) ? genreById(id).name : id)).join(' · ') || m.genre || '';
+}
+
+function syncGenre() {
+  const m = P().meta;
+  m.genre = genreLabel(m);
+  markDirty();
+  render();
+}
+
+function genreGuide(g) {
+  const row = (k, v) => (v && v.length ? `<div class="g-row"><span class="g-k">${k}</span><span>${esc(Array.isArray(v) ? v.join(', ') : v)}</span></div>` : '');
+  return `<details class="genre-guide"><summary><strong>${esc(g.name)}</strong><div class="small">${esc(g.summary)}</div></summary>
+    ${row('독자가 기대하는 것', g.reader_expects)}${row('관습', g.conventions)}${row('자주 쓰는 소재', g.tropes)}${row('전개 속도', g.pacing)}${row('피할 것', g.avoid)}</details>`;
+}
+
+function genrePicker() {
+  const m = P().meta;
+  const cat = S.genres || [];
+  const opts = (kind) => cat.filter((g) => g.kind === kind).map((g) => `<button type="button" aria-pressed="${m.genres.includes(g.id)}" data-action="toggleGenre" data-arg="${esc(g.id)}" title="${esc(g.summary)}">${esc(g.name)}</button>`).join('');
+  const custom = m.genres.filter((id) => !genreById(id));
+  const picked = m.genres.map(genreById).filter(Boolean);
+  return `<div class="field"><span class="label-text">장르 <span class="hint">여러 개 고를 수 있어요. 고른 장르의 안내가 AI 프롬프트에 들어갑니다</span></span>
+      <div class="genre-opts" role="group" aria-label="장르">${opts('장르')}</div>
+      <div class="small" style="margin-top:4px">요소</div>
+      <div class="genre-opts" role="group" aria-label="요소">${opts('요소')}${custom.map((c) => `<button type="button" aria-pressed="true" data-action="toggleGenre" data-arg="${esc(c)}" title="직접 적은 장르, 누르면 빠집니다">${esc(c)} ✕</button>`).join('')}</div>
+      <div class="row" style="flex-wrap:nowrap"><input id="genre-custom" type="text" aria-label="직접 적는 장르" placeholder="목록에 없으면 직접 적기 (예: 오컬트)"><button type="button" class="btn small" style="white-space:nowrap;flex:none" data-action="addCustomGenre">추가</button></div>
+    </div>
+    ${picked.length ? `<div class="genre-guides">${picked.map(genreGuide).join('')}</div>` : ''}
+    <label class="check-row"><input type="checkbox" data-bind="meta.adult" data-kind="bool"${m.adult ? ' checked' : ''}><span><strong>성인물</strong> <span class="small">성인 독자 대상. 끄면 노골적인 성적 묘사와 과도한 잔혹 묘사를 피하도록 지시합니다</span></span></label>`;
 }
 
 // ----- 1. 설정 도우미 -----
@@ -885,7 +948,8 @@ function viewSetup() {
         <section class="card">
           <h2>기본 정보</h2>
           ${input('제목', 'meta.title')}
-          <div class="grid-2">${input('장르', 'meta.genre')}${input('총 화수 (10~20)', 'meta.target_episodes', { type: 'number', min: 1, max: 40 })}</div>
+          ${genrePicker()}
+          ${input('총 화수 (10~20)', 'meta.target_episodes', { type: 'number', min: 1, max: 40 })}
           ${input('로그라인', 'meta.logline', { rows: 3, hint: '누가, 무엇을 원하고, 무엇이 막는가' })}
           ${input('주제', 'meta.theme')}${input('톤', 'meta.tone')}
           ${input('화당 분량', 'meta.words_per_episode', { type: 'number', hint: '공백 포함 글자 수' })}

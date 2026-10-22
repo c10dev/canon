@@ -154,3 +154,15 @@ def test_relations(client):
 
     assert client.put("/api/projects/rel/view", json={"show_numbers": True}).json()["settings"]["show_numbers"] is True
     assert client.get("/api/projects/rel/relations").json()["show_numbers"] is True
+
+
+def test_genres(client):
+    cat = client.get("/api/genres").json()
+    assert any(g["id"] == "romance_fantasy" for g in cat)
+    meta = {"title": "t", "genre": "로맨스 판타지, 회귀", "adult": True}
+    p = client.post("/api/projects", json={"name": "g", "meta": meta}).json()
+    assert p["meta"]["genres"] == ["romance_fantasy", "regression"]
+    assert p["meta"]["genre"] == "로맨스 판타지 · 회귀" and p["meta"]["adult"] is True
+    p["meta"]["genres"] = ["mystery", "오컬트"]
+    p = client.put("/api/projects/g", json=p).json()
+    assert p["meta"]["genre"] == "미스터리 · 추리 · 오컬트"

@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import dynamics, pipeline, prompts, settings, store
+from . import dynamics, genres, pipeline, prompts, settings, store
 from .llm import GeminiLLM, LocalLLM, get_llm
 from .schema import ArcPlan, Meta, Project, SetupSuggestion, StateDelta, StyleProfile
 
@@ -125,7 +125,15 @@ def create_project(body: NewProject) -> Project:
     p = Project(meta=body.meta)
     if not p.meta.title:
         p.meta.title = name
+    if p.meta.genre:  # 새 작품 폼은 장르를 글로 받는다: '로맨스, 회귀'
+        p.meta.genres = genres.parse(p.meta.genre)
+        p.meta.genre = genres.label(p.meta)
     return _save(name, p)
+
+
+@app.get("/api/genres")
+def genre_list() -> list[genres.Genre]:
+    return genres.CATALOG
 
 
 @app.get("/api/projects/{name}")
@@ -140,6 +148,7 @@ def put_project(name: str, p: Project) -> Project:
     if p.arc:
         pipeline.validate_arc(ArcPlan(acts=p.arc), p.meta.target_episodes)
     pipeline._init_states(p)
+    p.meta.genre = genres.label(p.meta)
     if p.snapshot(0) is None:  # 첫 반영 전에는 설정 화면의 시작 호감이 시작 관계다
         p.ties = []
         dynamics.seed_ties(p)
@@ -360,8 +369,26 @@ def index() -> FileResponse:
     return FileResponse(STATIC / "index.html")
 
 
-def serve(host: str = "127.0.0.1", port: int = 8000) -> None:
+def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False) -> None:
+    import threading
+    import time
+    import webbrowser
+
     import uvicorn
 
-    print(f"Canon 웹 UI: http://{host}:{port}")
-    uvicorn.run(app, host=host, port=port)
+    shown = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
+    url = f"http://{shown}:{port}"
+    print(f"Canon 웹 UI: {url}")
+    server = uvicorn.Server(uvicorn.Config(app, host=host, port=port))
+
+    def open_when_ready() -> None:
+        # 서버가 포트를 연 뒤에 브라우저를 띄운다. 포트가 이미 쓰이고 있으면 열지 않는다.
+        while not server.started:
+            if server.should_exit:
+                return
+            time.sleep(0.1)
+        webbrowser.open(url)
+
+    if open_browser:
+        threading.Thread(target=open_when_ready, daemon=True).start()
+    server.run()

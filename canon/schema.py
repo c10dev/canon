@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .metrics import StyleMetrics
 
@@ -20,13 +20,22 @@ EpisodeStatus = Literal["draft", "confirmed", "written", "finalized"]
 
 class Meta(BaseModel):
     title: str = ""
-    genre: str = ""
+    genre: str = Field("", description="장르 한 줄 표시. genres 를 고르면 그 이름으로 맞춘다")
+    genres: list[str] = Field(default_factory=list, description="canon/genres.py 의 장르 id, 목록에 없으면 직접 적은 이름")
+    adult: bool = Field(False, description="성인 독자 대상 작품인지")
     logline: str = Field("", description="한두 문장 요약: 누가, 무엇을 원하고, 무엇이 막는가")
     theme: str = ""
     tone: str = ""
     target_episodes: int = 16
     words_per_episode: int = Field(5000, description="화당 목표 분량(글자 수, 공백 포함)")
     notes: str = ""
+
+    @model_validator(mode="after")
+    def _genres_from_text(self) -> "Meta":
+        """genres 가 없던 예전 project.json: 적어 둔 장르를 직접 적은 장르 하나로 본다."""
+        if not self.genres and self.genre.strip():
+            self.genres = [self.genre.strip()]
+        return self
 
 
 class WorldSetting(BaseModel):
@@ -187,7 +196,7 @@ class EpisodePlot(BaseModel):
     summary: str
     events: list[str] = Field(description="순서대로 일어나는 사건 3~6개")
     characters: list[str] = Field(description="등장 인물 id")
-    emotional_shift: str = Field(description="주요 인물의 감정 변화")
+    emotional_shift: str = Field(description="주요 인물의 감정 변화가 겉으로 드러나는 행동이나 대사 (감정 이름이 아니라 보이는 것)")
     ending_hook: str = Field(description="다음 화로 이어지는 엔딩 훅")
     foreshadow_plant: list[str] = Field(default_factory=list, description="이번 화에 심는 복선")
     foreshadow_payoff: list[str] = Field(default_factory=list, description="이번 화에 회수하는 복선 id")
