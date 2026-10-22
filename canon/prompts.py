@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from . import genres
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
-from .schema import ChatMessage, ConsistencyReport, Project, StateDelta
+from .schema import Character, ChatMessage, ConsistencyReport, Foreshadow, Project, StateDelta
 
 SYSTEM_PLANNER = (
     "당신은 한국 웹소설/단편소설 기획 전문 편집자입니다. "
@@ -68,9 +68,11 @@ def meta_text(p: Project) -> str:
     return f"{dump(view)}\n\n[장르 안내]\n{genres.guide(p.meta)}"
 
 
-def rels(p: Project) -> str:
-    """관계 설정. a_view/b_view 는 시작 관계를 만드는 설정 단계 입력이라 뺀다 (지금 관계는 Tie 가 가진다)."""
-    return dump([r.model_dump(exclude={"a_view", "b_view"}) for r in p.relationships])
+def rels(p: Project, ids: set[str] | None = None) -> str:
+    """관계 설정. a_view/b_view 는 시작 관계를 만드는 설정 단계 입력이라 뺀다 (지금 관계는 Tie 가 가진다).
+    ids 를 주면 그 인물끼리의 관계만 넣는다."""
+    return dump([r.model_dump(exclude={"a_view", "b_view"}) for r in p.relationships
+                 if ids is None or (r.a in ids and r.b in ids)])
 
 
 def setup_prompt(p: Project) -> str:
@@ -128,6 +130,8 @@ def arc_prompt(p: Project) -> str:
 
 
 def plot_prompt(p: Project, start: int, end: int) -> str:
+    if p.serial:
+        return serial_plot_prompt(p, start, end)
     prior = [e.plot for e in p.episodes if e.plot.number < start]
     return f"""{start}화부터 {end}화까지 화별 플롯을 작성하세요.
 
@@ -150,15 +154,257 @@ def plot_prompt(p: Project, start: int, end: int) -> str:
 {plot_rules(p)}"""
 
 
+def serial_plot_prompt(p: Project, start: int, end: int) -> str:
+    """장편: 앞 화 플롯 전부 대신 접은 줄거리와 이번 아크의 앞 화 플롯만 넣는다."""
+    arc = p.arc_for(start)
+    lo = arc.start_ep if arc else start
+    near = [e.plot for e in p.episodes if max(1, lo - 2) <= e.plot.number < start]
+    ids = set(arc.cast if arc else []) | {c for e in near for c in e.characters}
+    fs, more = relevant_foreshadows(p, start)
+    return f"""{start}화부터 {end}화까지 화별 플롯을 작성하세요.
+
+[작품]
+{meta_text(p)}
+[세계관]
+{dump(p.world)}
+[주역]
+{dump(static_characters(p))}
+[이 아크의 다른 인물]
+{dump([c for c in p.characters if c.id in ids and c.tier != "main"]) or "없음"}
+[등장할 수 있는 다른 인물 (id: 이름, 역할)]
+{roster_line(p, ids) or "없음"}
+[관계]
+{rels(p, ids | {c.id for c in static_characters(p)})}
+
+{structure_text(p, start)}
+
+[지금까지의 줄거리]
+{story_so_far(p, start) or "없음 (첫 화)"}
+[바로 앞 화 플롯 (확정 또는 초안, 이어지게 쓸 것)]
+{dump(near) if near else "없음"}
+[열린 복선]{f" (그 밖에 {more}개는 이번 아크와 거리가 멀어 뺐습니다)" if more else ""}
+{dump(fs) or "없음"}
+
+요구사항:
+{plot_rules(p)}"""
+
+
 def plot_rules(p: Project) -> str:
     """화별 플롯을 쓸 때 지킬 규칙. 초안 생성과 대화형 수정이 같이 쓴다."""
-    return f"""- 각 화는 소속 구간(act)의 goal 을 향해 전진해야 하며, 구간의 key_turn 은 해당 구간 안의 특정 화에 배치합니다.
+    common = f"""- 각 화는 소속 구간(act)의 goal 을 향해 전진해야 하며, 구간의 key_turn 은 해당 구간 안의 특정 화에 배치합니다.
 - 한 화에 사건 3~6개, 분량은 약 {p.meta.words_per_episode}자 기준.
-- 매 화 ending_hook 을 둡니다. 마지막 화는 훅 대신 여운을 둡니다.
 - emotional_shift 는 감정 이름이 아니라 감정 변화가 겉으로 드러나는 행동이나 대사로 적습니다 (예: "도현의 전화를 세 번째에야 받는다").
 - 모든 화가 같은 모양이 되지 않도록, 필요한 화에는 회상, 시간 건너뛰기, 곁가지 사건, 주인공의 잘못된 선택을 씁니다. 갈등은 너무 깔끔하게 정리하지 않습니다.
-- 복선은 심는 화와 회수하는 화를 계획하고, 결 구간까지 모두 회수합니다.
 - characters 에는 인물 id 만 씁니다."""
+    if not p.serial:
+        return common + """
+- 매 화 ending_hook 을 둡니다. 마지막 화는 훅 대신 여운을 둡니다.
+- 복선은 심는 화와 회수하는 화를 계획하고, 결 구간까지 모두 회수합니다."""
+    return common + f"""
+- act 는 그 화가 속한 아크 안의 기승전결 위치입니다. 아크의 conflict 가 결 구간에서 해결되고, 아크의 payoff 가 전 구간 끝이나 결 구간 첫 화에 확실하게 나옵니다.
+- 주인공이 막히는 구간은 2~3화를 넘기지 않고, 막힌 만큼 시원하게 푸는 화를 뒤에 둡니다.
+- 매 화 ending_hook 을 둡니다. 장면 한가운데나 새 정보가 드러나는 순간에 끊습니다. 아크 마지막 화는 다음 아크로 이어지는 떡밥으로 끊습니다. 작품 마지막 화({p.meta.target_episodes}화)만 훅 대신 여운을 둡니다.
+- 이 아크에서 심은 작은 복선은 아크 안에서 회수합니다. 아크의 payoffs 에 있는 복선은 아크가 끝나기 전에 회수합니다. 부나 작품 끝까지 끌고 갈 복선은 심을 때 그렇다고 밝힙니다.
+- 1~3화는 주인공의 특별함과 목표를 보여 주고, 첫 아크의 큰 보상은 25화 안에 둡니다 (연재 초반 관습)."""
+
+
+# ---------- 장편 연재: 계층 줄거리, 관련 자료 고르기, 부 · 아크 기획 ----------
+
+FACTS_FILTER_FROM = 60  # 확정 사실이 이보다 많으면 이번 화와 관련된 것만 넣는다
+FACTS_RECENT = 30
+FORESHADOW_RECENT = 30  # 이 화수 안에 심은 복선은 늘 넣는다
+FORESHADOW_CAP = 25
+
+
+def story_so_far(p: Project, n: int) -> str:
+    """n화 직전까지의 줄거리. 단편은 화별 요약 전부. 장편은 끝난 부 → 이번 부의 끝난 아크 → 이번 아크의 화 순서로 접어서,
+    300화째에도 크기가 일정하다. 요약이 아직 없는 부와 아크는 한 단계 아래 요약으로 대신한다."""
+    eps = sorted((e for e in p.episodes if e.plot.number < n and e.summary), key=lambda e: e.plot.number)
+    line = lambda e: f"{e.plot.number}화 {e.plot.title}: {e.summary}"  # noqa: E731
+    if not p.serial or not p.story_arcs:
+        return "\n".join(map(line, eps))
+    cur_arc = p.arc_for(n)
+    cur_part = p.part_for(n)
+    arc_start = cur_arc.start_ep if cur_arc else n
+    part_start = cur_part.start_ep if cur_part else 1
+    out: list[str] = []
+
+    def arc_text(a) -> str:
+        if a.summary:
+            return f"[아크 {a.number} {a.title} ({a.start_ep}~{a.end_ep}화)] {a.summary}"
+        inside = [line(e) for e in eps if a.start_ep <= e.plot.number <= a.end_ep]
+        return f"[아크 {a.number} {a.title} ({a.start_ep}~{a.end_ep}화)]\n" + "\n".join(inside)
+
+    for part in sorted(p.parts, key=lambda x: x.start_ep):
+        if part.end_ep >= part_start:
+            break
+        if part.summary:
+            out.append(f"[{part.number}부 {part.title} ({part.start_ep}~{part.end_ep}화)] {part.summary}")
+        else:
+            out += [arc_text(a) for a in p.story_arcs if part.start_ep <= a.start_ep <= part.end_ep]
+    if not p.parts:
+        part_start = 1
+    out += [arc_text(a) for a in sorted(p.story_arcs, key=lambda a: a.start_ep) if part_start <= a.start_ep and a.end_ep < arc_start]
+    tail = [e for e in eps if e.plot.number >= arc_start]
+    if n - arc_start < 3:  # 아크 첫머리에는 직전 아크의 마지막 화들도 이어서 본다
+        tail = [e for e in eps if arc_start - 3 <= e.plot.number < arc_start] + tail
+    if tail:
+        out.append(f"[이번 아크{f' {cur_arc.number} {cur_arc.title}' if cur_arc else ''}]\n" + "\n".join(map(line, tail)))
+    return "\n\n".join(out)
+
+
+def structure_text(p: Project, n: int) -> str:
+    """n화가 속한 부와 아크, 아크 안 기승전결. 장편 전용."""
+    part, arc = p.part_for(n), p.arc_for(n)
+    lines = []
+    if part:
+        lines.append(f"[{part.number}부 {part.title} ({part.start_ep}~{part.end_ep}화)]\n목표: {part.goal}\n전환점: {part.key_turn}")
+    if arc:
+        lines.append(dump(arc.model_dump(exclude={"summary"}) | {"title": f"아크 {arc.number} {arc.title}"}))
+    return "[지금 부와 아크]\n" + ("\n".join(lines) or "아직 없음")
+
+
+def static_characters(p: Project) -> list[Character]:
+    """앞 블록(캐시)에 늘 넣는 인물. 예전 작품은 모두 주역이라 지금과 같다."""
+    return [c for c in p.characters if c.tier == "main"]
+
+
+def roster_line(p: Project, exclude: set[str]) -> str:
+    """설정 전체를 넣지 않는 인물의 한 줄 목록. 플롯이 이미 있는 인물을 다시 만들지 않게 한다."""
+    return ", ".join(f"{c.id}: {c.name}({c.role})" for c in p.characters if c.tier != "main" and c.id not in exclude)
+
+
+def relevant_foreshadows(p: Project, n: int) -> tuple[list[Foreshadow], int]:
+    """n화에 넣을 열린 복선과 뺀 개수. 단편은 전부. 장편은 이번 아크에 회수할 것, 회수 예정이 지난 것,
+    작품 단위 복선, 최근에 심은 것만 넣는다."""
+    opened = [f for f in p.foreshadows if f.status == "open"]
+    if not p.serial:
+        return opened, 0
+    arc = p.arc_for(n)
+    end = arc.end_ep if arc else n
+    lo = arc.start_ep if arc else n
+
+    def keep(f: Foreshadow) -> bool:
+        return ((arc is not None and f.id in arc.payoffs) or (f.due_ep is not None and f.due_ep <= end)
+                or f.scope == "series" or f.planted_ep >= min(lo, n - FORESHADOW_RECENT))
+
+    picked = [f for f in opened if keep(f)][-FORESHADOW_CAP:]
+    return picked, len(opened) - len(picked)
+
+
+def relevant_facts(p: Project, cast: set[str]) -> tuple[list[str], int]:
+    """확정 사실이 많으면 이번 화 인물 이름이 들어간 것과 최근 것만 넣는다."""
+    if len(p.facts) <= FACTS_FILTER_FROM:
+        return p.facts, 0
+    names = [c.name for c in p.characters if c.id in cast and c.name]
+    recent = set(p.facts[-FACTS_RECENT:])
+    picked = [f for f in p.facts if f in recent or any(nm in f for nm in names)]
+    return picked, len(p.facts) - len(picked)
+
+
+def series_prompt(p: Project) -> str:
+    total = p.meta.target_episodes
+    return f"""아래 작품을 총 {total}화 장편 연재로 기획합니다. 작품 전체를 부(권, 시즌)로 나누세요.
+
+[작품]
+{meta_text(p)}
+[세계관]
+{dump(p.world)}
+[인물]
+{dump(static_characters(p))}
+[관계]
+{rels(p)}
+[지금 부 구성]
+{dump(p.parts) if p.parts else "아직 없음"}
+
+요구사항:
+- 부는 1화부터 {total}화까지 빈틈없이 이어지고 number 는 1부터 차례대로입니다. 부 하나는 보통 50~150화입니다.
+- 부가 바뀔 때 무대, 상대, 걸린 것의 크기가 한 단계씩 커지게 합니다. 같은 크기의 갈등을 되풀이하지 않습니다.
+- goal 은 그 부가 끝날 때 이야기가 도달해야 하는 상태, key_turn 은 부를 마무리하는 큰 사건이나 드러나는 비밀입니다.
+- 주인공의 arc 와 작품의 theme 은 마지막 부에서 완성됩니다. 가장 큰 비밀은 부마다 조금씩 드러냅니다.
+- arc_ideas 에는 그 부에서 다룰 아크(5~30화짜리 작은 이야기) 후보를 순서대로 3~8개 한 줄씩 적습니다. 화별 플롯은 쓰지 않습니다.
+- summary 는 비워 둡니다."""
+
+
+def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
+    part = p.part_for(start)
+    limit = part.end_ep if part else p.meta.target_episodes
+    opened = sorted((f for f in p.foreshadows if f.status == "open"), key=lambda f: f.planted_ep)
+    fs_lines = "\n".join(
+        f"- {f.id} ({f.planted_ep}화에 심음, {f.scope}{f', {f.due_ep}화 회수 예정' if f.due_ep else ''}"
+        f"{', 오래됨' if start - f.planted_ep > 50 else ''}): {f.description}" for f in opened)
+    prev = max(p.story_arcs, key=lambda a: a.start_ep) if p.story_arcs else None
+    prev_eps = [e.plot for e in p.episodes if prev and prev.start_ep <= e.plot.number <= prev.end_ep][-3:]
+    size = f"{length}화 안팎" if length else "내용에 맞게 5~30화 (보통 10~25화). 첫 아크는 25화 안에 큰 보상이 오도록 짧고 세게"
+    return f"""장편 연재의 다음 아크 하나를 기획하세요. 이 아크는 {start}화에서 시작합니다.
+
+[작품]
+{meta_text(p)}
+[세계관]
+{dump(p.world)}
+[주역]
+{dump(static_characters(p))}
+[다른 인물 (id: 이름, 역할)]
+{roster_line(p, set()) or "없음"}
+[관계]
+{describe_relations(p) or rels(p)}
+[인물 현재 상태]
+{dump([s for s in p.states if s.character_id in {c.id for c in static_characters(p)}]) or "설정 그대로"}
+[부 구성]
+{dump(p.parts) if p.parts else "부 구성 없음 (작품 전체가 한 부)"}
+
+[지금까지의 줄거리]
+{story_so_far(p, start) or "없음 (첫 아크)"}
+[직전 아크]
+{dump(prev.model_dump(exclude={"summary"})) if prev else "없음"}
+[직전 아크의 마지막 화 플롯]
+{dump(prev_eps) if prev_eps else "없음"}
+[열린 복선]
+{fs_lines or "없음"}
+[확정된 사실 (최근)]
+{chr(10).join("- " + f for f in p.facts[-FACTS_RECENT:]) or "없음"}
+[작가의 요청]
+{note.strip() or "없음"}
+
+요구사항:
+- arc.number 는 {len(p.story_arcs) + 1}, start_ep 는 {start}, end_ep 는 {limit} 이하입니다. 길이는 {size}.
+- 지금 부의 goal 과 arc_ideas 중 아직 다루지 않은 것을 따라가되, 지금까지 실제로 쓰인 줄거리에 맞게 고칩니다.
+- 아크는 하나의 문제를 열고 해결합니다. goal 은 아크가 끝날 때 바뀌어 있어야 하는 것, conflict 는 주인공을 막는 문제나 상대, payoff 는 아크 클라이맥스에서 독자가 받는 보상(사이다)입니다.
+- acts 는 아크 안의 기승전결로, {start}화부터 end_ep 까지 기, 승, 전, 결 순서로 빈틈없이 이어집니다. 마지막 1~2화는 정리와 다음 아크 떡밥에 씁니다.
+- 직전 아크와 같은 모양의 갈등을 되풀이하지 않습니다. 걸린 것이나 상대가 조금씩 커지게 합니다.
+- payoffs 에는 이 아크에서 회수할 열린 복선 id 를 넣습니다. '오래됨' 표시가 있는 복선은 회수하거나 아크 안에서 다시 떠올립니다.
+- cast 에는 이 아크에 주로 나오는 인물 id 를 넣습니다. 새 인물이 필요하면 new_characters 에 전체 설정(speech_style 포함)을 넣고 tier 는 support 나 minor 로 둡니다. 이미 있는 인물을 다시 만들지 않습니다.
+- reply 에는 왜 이 아크인지, 어떤 복선을 회수하고 무엇을 다음으로 남기는지 2~4문장으로 씁니다.
+- summary 는 비워 둡니다."""
+
+
+def recap_prompt(p: Project, kind: str, number: int) -> str:
+    if kind == "arc":
+        a = next(x for x in p.story_arcs if x.number == number)
+        body = "\n".join(f"{e.plot.number}화 {e.plot.title}: {e.summary}" for e in p.episodes
+                         if a.start_ep <= e.plot.number <= a.end_ep and e.summary)
+        what, size = f"아크 {a.number} {a.title} ({a.start_ep}~{a.end_ep}화)", "5~8문장, 600자 안팎"
+        plan = dump(a.model_dump(exclude={"summary", "acts"}))
+    else:
+        x = next(x for x in p.parts if x.number == number)
+        arcs = [a for a in p.story_arcs if x.start_ep <= a.start_ep <= x.end_ep]
+        body = "\n\n".join(
+            f"[아크 {a.number} {a.title}] " + (a.summary or " ".join(
+                e.summary for e in p.episodes if a.start_ep <= e.plot.number <= a.end_ep and e.summary)) for a in arcs)
+        what, size = f"{x.number}부 {x.title} ({x.start_ep}~{x.end_ep}화)", "8~12문장, 1,000자 안팎"
+        plan = dump(x.model_dump(exclude={"summary", "arc_ideas"}))
+    return f"""{what} 이(가) 끝났습니다. 아래 화별 요약만 근거로 이 구간의 요약을 쓰세요.
+이 요약은 앞으로 수십 화 동안 이 구간 본문 대신 프롬프트에 들어갑니다.
+
+[기획]
+{plan}
+[화별 요약 (작가가 승인한 것)]
+{body or "없음"}
+
+요구사항:
+- {size}. 일어난 순서대로 씁니다.
+- 반드시 남길 것: 인물 관계가 바뀐 계기, 드러난 비밀, 새로 생긴 약속이나 빚, 아직 풀리지 않은 문제, 주인공이 얻거나 잃은 것.
+- 화별 요약에 없는 내용은 만들지 않습니다. 해석이나 평가는 쓰지 않습니다."""
 
 
 # ---------- 플롯 대화 (기승전결 · 화별 플롯 화면) ----------
@@ -189,6 +435,8 @@ def _chat_line(m: ChatMessage) -> str:
 
 def plot_chat_prompt(p: Project, message: str) -> str:
     """앞쪽은 작품 설정(잘 바뀌지 않음), 뒤쪽은 지금 구조와 플롯, 대화. 캐시가 맞도록 이 순서를 지킨다."""
+    if p.serial:
+        return serial_plot_chat_prompt(p, message)
     eps = [{"status": e.status, **e.plot.model_dump()} for e in p.episodes]
     done = [e for e in p.episodes if e.summary]
     locked = [e.plot.number for e in p.episodes if e.status in ("written", "finalized")]
@@ -234,41 +482,99 @@ def plot_chat_prompt(p: Project, message: str) -> str:
 {plot_rules(p)}"""
 
 
+def serial_plot_chat_prompt(p: Project, message: str) -> str:
+    """장편: 고칠 대상은 아직 본문이 없는 첫 아크(pipeline.focus_arc)와 그 뒤에 기획한 아크다. 앞선 내용은 접은 줄거리로 본다."""
+    from .pipeline import focus_arc
+
+    focus = focus_arc(p)
+    lo = focus.start_ep if focus else 1
+    eps = [{"status": e.status, **e.plot.model_dump()} for e in p.episodes if e.plot.number >= lo - 2]
+    locked = [e.plot.number for e in p.episodes if e.status in ("written", "finalized") and e.plot.number >= lo]
+    confirmed = [e.plot.number for e in p.episodes if e.status == "confirmed"]
+    history = next((c.messages for c in p.chats if c.topic == "plot"), [])[-CHAT_HISTORY_LIMIT:]
+    fs, more = relevant_foreshadows(p, lo)
+    arcs = [a.model_dump(exclude={"summary"}) for a in p.story_arcs if a.end_ep >= lo]
+    return f"""[작품]
+{meta_text(p)}
+[세계관]
+{dump(p.world)}
+[주역]
+{dump(static_characters(p))}
+[다른 인물 (id: 이름, 역할)]
+{roster_line(p, set()) or "없음"}
+[관계]
+{rels(p)}
+[부 구성]
+{dump(p.parts) if p.parts else "부 구성 없음"}
+
+[지금까지의 줄거리]
+{story_so_far(p, lo) or "없음"}
+[고칠 수 있는 아크] 구조(acts)를 바꾸면 아크 {focus.number if focus else "?"}({focus.start_ep if focus else "?"}~{focus.end_ep if focus else "?"}화)의 기승전결 네 구간입니다
+{dump(arcs) if arcs else "아직 없음"}
+[화별 플롯] status: draft 초안, confirmed 작가가 확정, written 본문 있음, finalized 반영 완료
+{dump(eps) if eps else "아직 없음"}
+[열린 복선]{f" (그 밖에 {more}개)" if more else ""}
+{dump(fs) or "없음"}
+
+[지금까지의 대화]
+{chr(10).join(_chat_line(m) for m in history) or "없음 (첫 대화)"}
+
+[작가의 새 말]
+{message}
+
+요구사항:
+- reply 에는 작가에게 하는 대답을 2~5문장으로 씁니다. 무엇을 왜 바꿨는지, 다른 화에 어떤 영향이 있는지 말합니다.
+- 요청이 모호하면 가장 그럴듯한 해석으로 고치고, reply 에서 어떻게 해석했는지 밝힙니다. 고칠 것이 없거나 질문만 받았으면 변경 없이 대답만 합니다.
+- 바꾸는 것만 넣습니다. acts 는 위 아크의 기승전결을 바꿀 때만 네 구간 모두, 그대로면 빈 목록입니다. episodes 에는 바뀌는 화만, 모든 칸을 채운 전체 플롯으로 넣습니다.
+- 장편이라 total_episodes 는 늘 0 입니다. 아크를 새로 만들거나 길이를 바꾸는 것은 다음 아크 기획에서 합니다.
+- 본문이 있는 화({", ".join(map(str, locked)) or "없음"})는 바꾸지 않습니다. 기획한 아크 밖의 화({p.planned_until() + 1}화부터)는 만들지 않습니다.
+- 작가가 확정한 화({", ".join(map(str, confirmed)) or "없음"})는 작가가 그 화를 바꿔 달라고 했을 때만 바꿉니다.
+- 한 화를 바꾸면 앞뒤 화의 엔딩 훅, 복선 심기와 회수가 어긋나지 않게 이어지는 화도 함께 고칩니다.
+{plot_rules(p)}"""
+
+
 def build_episode_context(p: Project, n: int) -> str:
     """앞쪽은 화가 바뀌어도 그대로인 블록, 뒤쪽은 화마다 바뀌는 블록이다.
-    Gemini 암묵적 캐시는 앞부분이 같은 요청에 적용되므로 이 순서를 지킨다."""
+    Gemini 암묵적 캐시는 앞부분이 같은 요청에 적용되므로 이 순서를 지킨다.
+    장편은 줄거리를 부 → 아크 → 화로 접고, 인물·복선·사실을 이번 화에 관련된 것만 골라 크기를 일정하게 둔다."""
     ep = p.episode(n)
     act = p.act_for(n)
-    cast_ids = set(ep.plot.characters) or {c.id for c in p.characters}
+    cast_ids = set(ep.plot.characters) or {c.id for c in static_characters(p)} or {c.id for c in p.characters}
     states = [s for s in p.states if s.character_id in cast_ids]
     rels = [r for r in p.relationships if r.a in cast_ids and r.b in cast_ids]
-    prev = [e for e in p.episodes if e.plot.number < n and e.summary]
     last_text = next((e.text for e in reversed(p.episodes) if e.plot.number == n - 1 and e.text), "")
     cast_names = ", ".join(f"{c.name}({c.id})" for c in p.characters if c.id in cast_ids)
+    extra = [c for c in p.characters if c.id in cast_ids and c.tier != "main"]
+    facts, facts_cut = relevant_facts(p, cast_ids)
+    fs, fs_cut = relevant_foreshadows(p, n)
+    if p.serial:
+        where = structure_text(p, n) + f"\n현재 아크 안 구간: {act.name if act else '?'} ({act.start_ep if act else '?'}~{act.end_ep if act else '?'}화) 목표: {act.goal if act else ''}"
+    else:
+        where = f"""# 현재 구간: {act.name if act else "?"} ({act.start_ep if act else "?"}~{act.end_ep if act else "?"}화)
+목표: {act.goal if act else ""}
+전환점: {act.key_turn if act else ""}"""
 
     return f"""{static_context(p)}
 
-# 확정된 사실
-{chr(10).join("- " + f for f in p.facts) or "없음"}
+# 확정된 사실{f" (이번 화와 관련된 것만, {facts_cut}개 생략)" if facts_cut else ""}
+{chr(10).join("- " + f for f in facts) or "없음"}
 
 # 이번 화 등장 인물
 {cast_names or "설정의 인물 전원"}
-
+{f"{chr(10)}# 이번 화에 나오는 조연 · 단역 설정{chr(10)}{dump(extra)}{chr(10)}" if extra else ""}
 # 인물 현재 상태 ({n - 1}화 종료 시점)
 {dump(states) or "1화 시작 시점, 설정 그대로"}
 
 # 관계 현재 상태
 {describe_relations(p, cast_ids) or dump(rels) or "없음"}
 
-# 열린 복선
-{dump([f for f in p.foreshadows if f.status == "open"]) or "없음"}
+# 열린 복선{f" (이번 아크와 관련된 것만, {fs_cut}개 생략)" if fs_cut else ""}
+{dump(fs) or "없음"}
 
 # 지금까지의 줄거리
-{chr(10).join(f"{e.plot.number}화 {e.plot.title}: {e.summary}" for e in prev) or "없음 (첫 화)"}
+{story_so_far(p, n) or "없음 (첫 화)"}
 
-# 현재 구간: {act.name if act else "?"} ({act.start_ep if act else "?"}~{act.end_ep if act else "?"}화)
-목표: {act.goal if act else ""}
-전환점: {act.key_turn if act else ""}
+{where}
 
 # 직전 화 마지막 부분 (내용 연결용, 문체 기준은 위의 예시 문단)
 {last_text[-1500:] or "없음"}
@@ -294,8 +600,8 @@ def static_context(p: Project) -> str:
 # 문체 예시 (이 문체를 따를 것, 내용은 가져오지 말 것)
 {samples}
 
-# 인물 설정
-{dump(p.characters)}"""
+# 인물 설정{" (주역. 조연 · 단역은 나오는 화에만 뒤에 넣는다)" if len(static_characters(p)) < len(p.characters) else ""}
+{dump(static_characters(p))}"""
 
 
 def episode_prompt(p: Project, n: int) -> str:
@@ -311,18 +617,28 @@ def episode_prompt(p: Project, n: int) -> str:
 
 def state_prompt(p: Project, n: int) -> str:
     ep = p.episode(n)
+    if p.serial:  # 장편: 이번 화에 나온 인물과 주역만 자세히, 나머지는 한 줄 목록으로
+        ids = set(ep.plot.characters) | {c.id for c in static_characters(p)}
+        chars = [c for c in p.characters if c.id in ids]
+        states = [s for s in p.states if s.character_id in ids]
+        relations = rels(p, ids)
+        fs, _ = relevant_foreshadows(p, n)
+        others = roster_line(p, ids)
+    else:
+        chars, states, relations = p.characters, p.states, rels(p)
+        fs, others = [f for f in p.foreshadows if f.status == "open"], ""
     return f"""{n}화 본문을 읽고 상태 변경안을 작성하세요.
 
 [인물 설정]
-{dump(p.characters)}
-[이전 인물 상태]
-{dump(p.states) or "설정 그대로"}
+{dump(chars)}
+{f"[다른 인물 (id: 이름, 역할) — 다시 만들지 않습니다]{chr(10)}{others}{chr(10)}" if others else ""}[이전 인물 상태]
+{dump(states) or "설정 그대로"}
 [이전 관계]
-{rels(p)}
+{relations}
 [현재 비밀]
 {dump(p.secrets) or "없음"}
 [열린 복선]
-{dump([f for f in p.foreshadows if f.status == "open"]) or "없음"}
+{dump(fs) or "없음"}
 [이번 화 플롯]
 {dump(ep.plot)}
 
@@ -335,7 +651,8 @@ def state_prompt(p: Project, n: int) -> str:
 - events 에는 인물 사이에 일어난 관계 사건을 본문 순서대로 적습니다. kind 는 정해진 목록에서 고르고, intensity 는 1(가벼움)~3(결정적), quote 에는 근거 문장을 본문에서 그대로 옮깁니다. 관계 수치는 프로그램이 사건으로 계산하므로 적지 않고, 수동보정은 쓰지 않습니다.
 - relationship_updates 에는 관계 유형이나 설명이 바뀐 쌍만 넣습니다.
 - 새로 생긴 비밀은 secrets_added 에 넣고, 비밀이 드러난 사건에는 reveals_secret 에 비밀 id 를 적습니다.
-- 새 복선 id 는 fs-{n:02d}-키워드 형식으로 짓습니다.
+- 새 복선 id 는 fs-{n:02d}-키워드 형식으로 짓습니다. 이번 아크 안에서 회수할 작은 복선은 scope 를 arc, 부나 작품 끝까지 갈 복선은 part 나 series 로 둡니다.
+- 인물 설정과 목록에 없는 인물이 이름을 갖고 처음 나왔으면 new_characters 에 넣습니다. 조연은 tier 를 support, 지나가는 인물은 minor 로 두고, 본문에서 드러난 것만 적습니다.
 - warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다."""
 
 
@@ -349,10 +666,16 @@ def check_prompt(p: Project, n: int) -> str:
         full.append(e)
         budget -= len(e.text)
     full_nos = {e.plot.number for e in full}
-    past = "\n\n".join(
-        f"## {e.plot.number}화 {e.plot.title}\n{e.text if e.plot.number in full_nos else '(요약) ' + e.summary}"
-        for e in prior
-    )
+    if p.serial and full and len(full) < len(prior):
+        # 장편: 통째로 못 넣는 오래된 부분은 화별 요약 대신 접은 줄거리로 본다
+        first = min(full_nos)
+        past = f"## {first - 1}화까지의 줄거리 (요약)\n{story_so_far(p, first)}\n\n" + "\n\n".join(
+            f"## {e.plot.number}화 {e.plot.title}\n{e.text}" for e in prior if e.plot.number in full_nos)
+    else:
+        past = "\n\n".join(
+            f"## {e.plot.number}화 {e.plot.title}\n{e.text if e.plot.number in full_nos else '(요약) ' + e.summary}"
+            for e in prior
+        )
     return f"""{static_context(p)}
 
 # 확정된 사실

@@ -16,7 +16,7 @@ from pydantic import BaseModel, ValidationError
 
 from . import dynamics, genres, jobs, library, pipeline, prompts, research, settings, store
 from .llm import GeminiLLM, LocalLLM, get_llm
-from .schema import ArcPlan, Meta, Project, SetupSuggestion, StateDelta, StyleEntry, StyleProfile
+from .schema import ArcPlan, ArcProposal, Meta, Project, SeriesPlan, SetupSuggestion, StateDelta, StyleEntry, StyleProfile
 
 STATIC = Path(__file__).parent / "static"
 NAME_RE = re.compile(r"^[^/\\.][^/\\]{0,63}$")
@@ -168,10 +168,14 @@ def get_project(name: str) -> Project:
 
 @app.put("/api/projects/{name}")
 def put_project(name: str, p: Project, merged: str = "") -> Project:
-    """화면에서 고친 프로젝트 전체를 저장한다. 구조(arc)가 있으면 화수와 맞는지 검사한다."""
+    """화면에서 고친 프로젝트 전체를 저장한다. 구조(arc)가 있으면 화수와 맞는지 검사한다.
+    장편은 부 구성과 아크(아크 안 기승전결 포함)가 이어지는지 검사한다."""
     _load(name)
-    if p.arc:
+    if p.arc and not p.serial:
         pipeline.validate_arc(ArcPlan(acts=p.arc), p.meta.target_episodes)
+    if p.serial:
+        pipeline.validate_parts(p.parts, p.meta.target_episodes)
+        pipeline.validate_story_arcs(p)
     pipeline._init_states(p)
     p.meta.genre = genres.label(p.meta)
     if p.snapshot(0) is None:  # 첫 반영 전에는 설정 화면의 시작 호감이 시작 관계다
@@ -319,8 +323,44 @@ class Range(BaseModel):
 def draft_plots(name: str, r: Range) -> Project:
     """확정되지 않은 화만 새 초안으로 바꾼다."""
     p = _load(name)
-    batch = pipeline.draft_plots(get_llm("plan"), p, r.start or 1, r.end or p.meta.target_episodes)
+    end = r.end or (p.planned_until() if p.serial else p.meta.target_episodes)
+    batch = pipeline.draft_plots(get_llm("plan"), p, r.start or 1, end)
     pipeline.apply_plots(p, batch)
+    return _save(name, p)
+
+
+# ---------- 3-0. 장편 연재: 부 구성, 아크, 요약 ----------
+# AI 제안은 백그라운드 작업(series, nextarc, recap_arc, recap_part)으로 받고, 화면에서 고친 뒤 아래로 반영한다.
+
+@app.post("/api/projects/{name}/series/apply")
+def apply_series(name: str, plan: SeriesPlan) -> Project:
+    p = _load(name)
+    pipeline.apply_series(p, plan)
+    return _save(name, p)
+
+
+@app.post("/api/projects/{name}/arcs/apply")
+def apply_arc(name: str, prop: ArcProposal) -> Project:
+    p = _load(name)
+    pipeline.apply_arc(p, prop)
+    return _save(name, p)
+
+
+@app.delete("/api/projects/{name}/arcs/last")
+def remove_last_arc(name: str) -> Project:
+    p = _load(name)
+    pipeline.remove_last_arc(p)
+    return _save(name, p)
+
+
+class RecapIn(BaseModel):
+    summary: str
+
+
+@app.post("/api/projects/{name}/recap/{kind}/{number}")
+def apply_recap(name: str, kind: str, number: int, body: RecapIn) -> Project:
+    p = _load(name)
+    pipeline.apply_recap(p, kind, number, body.summary)
     return _save(name, p)
 
 
@@ -407,8 +447,10 @@ def chat_clear(name: str, topic: str) -> Project:
 # ---------- 백그라운드 작업 ----------
 
 class JobIn(BaseModel):
-    kind: str  # suggest | arc | plots | write | state
-    ep: int | None = None
+    kind: str  # suggest | arc | plots | write | state | series | nextarc | recap_arc | recap_part
+    ep: int | None = None  # 화 번호. plots 는 장편에서 아크 번호(없으면 초안이 있는 모든 아크), recap_* 는 아크·부 번호
+    note: str = ""  # nextarc: 작가가 바라는 것
+    length: int = 0  # nextarc: 아크 화수 (0 이면 AI 가 정함)
 
 
 def _edit(name: str, fn) -> Project:
@@ -420,11 +462,17 @@ def _edit(name: str, fn) -> Project:
     return p
 
 
-def _plot_ranges(p: Project) -> list[tuple[str, int, int]]:
-    """초안이거나 아직 없는 화가 있는 구간만 다시 만든다."""
+def _plot_ranges(p: Project, arc: int | None = None) -> list[tuple[str, int, int]]:
+    """초안이거나 아직 없는 화가 있는 구간만 다시 만든다. 장편은 arc 번호를 주면 그 아크만."""
     status = {e.plot.number: e.status for e in p.episodes}
+    beats = p.beats()
+    if p.serial and arc is not None:
+        s = next((x for x in p.story_arcs if x.number == arc), None)
+        if s is None:
+            raise ValueError(f"아크 {arc}이(가) 없습니다")
+        beats = s.acts
     out = []
-    for a in sorted(p.arc, key=lambda a: a.start_ep):
+    for a in sorted(beats, key=lambda a: a.start_ep):
         nums = range(a.start_ep, a.end_ep + 1)
         if any(status.get(n, "draft") == "draft" for n in nums):
             out.append((a.name, a.start_ep, a.end_ep))
@@ -436,7 +484,7 @@ def start_job(name: str, body: JobIn) -> dict:
     """오래 걸리는 AI 작업을 시작하고 바로 돌아온다. 결과는 GET /api/jobs 로 본다."""
     p = _load(name)
     kind, n = body.kind, body.ep
-    stage = {"write": "write", "state": "state"}.get(kind, "plan")  # suggest, arc, plots 는 plan
+    stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state"}.get(kind, "plan")  # 나머지는 plan
     llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
     if kind == "suggest":
@@ -449,10 +497,29 @@ def start_job(name: str, body: JobIn) -> dict:
 
         def fn(job: jobs.Job):
             return pipeline.plan_arc(llm, store.load(name)).model_dump()
+    elif kind == "series":
+        label, total, owned = "부 구성 제안", 1, set()
+
+        def fn(job: jobs.Job):
+            return pipeline.plan_series(llm, store.load(name)).model_dump()
+    elif kind == "nextarc":
+        label, total, owned = f"{pipeline.next_arc_start(p)}화부터 다음 아크 제안", 1, set()
+        note, length = body.note, body.length
+
+        def fn(job: jobs.Job):
+            return pipeline.plan_next_arc(llm, store.load(name), length, note).model_dump()
+    elif kind in ("recap_arc", "recap_part"):
+        unit = kind.removeprefix("recap_")
+        if n is None:
+            raise ValueError("아크나 부 번호(ep)가 필요합니다")
+        label, total, owned = f"{'아크' if unit == 'arc' else '부'} {n} 요약", 1, set()
+
+        def fn(job: jobs.Job):
+            return pipeline.recap(llm, store.load(name), unit, n).model_dump()
     elif kind == "plots":
-        if not p.arc:
-            raise ValueError("기승전결 구조(arc)를 먼저 만들고 저장하세요")
-        ranges = _plot_ranges(p)
+        if not p.beats():
+            raise ValueError("다음 아크를 먼저 기획하세요" if p.serial else "기승전결 구조(arc)를 먼저 만들고 저장하세요")
+        ranges = _plot_ranges(p, n if p.serial else None)
         if not ranges:
             raise ValueError("모든 화가 확정되어 새로 만들 초안이 없습니다")
         draft = {e.plot.number for e in p.episodes if e.status == "draft"}
@@ -463,7 +530,8 @@ def start_job(name: str, body: JobIn) -> dict:
         def fn(job: jobs.Job):
             # 구간마다 따로 부른다: 한 번에 20화를 받는 것보다 빠르게 첫 결과가 오고, 실패해도 앞 구간은 남는다
             for act, a, b in ranges:
-                job.note = f"{act} 구간 ({a}~{b}화) 만드는 중"
+                arc = store.load(name).arc_for(a)
+                job.note = f"{f'아크 {arc.number} ' if arc else ''}{act} 구간 ({a}~{b}화) 만드는 중"
                 batch = pipeline.draft_plots(llm, store.load(name), a, b)
                 _edit(name, lambda q: pipeline.apply_plots(q, batch))
                 job.done += 1

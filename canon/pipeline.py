@@ -4,7 +4,10 @@ from __future__ import annotations
 from . import dynamics, metrics, prompts
 from .llm import LLM
 from .schema import (
+    Act,
     ArcPlan,
+    ArcProposal,
+    Character,
     CharacterState,
     ChatMessage,
     ConsistencyReport,
@@ -12,8 +15,11 @@ from .schema import (
     PlotBatch,
     PlotRevision,
     Project,
+    Recap,
+    SeriesPlan,
     SetupSuggestion,
     StateDelta,
+    StoryArc,
     StoryEvent,
     StyleProfile,
 )
@@ -61,11 +67,12 @@ def plan_arc(llm: LLM, p: Project) -> ArcPlan:
     return plan
 
 
-def validate_arc(plan: ArcPlan, total: int) -> None:
+def validate_arc(plan: ArcPlan, total: int, start: int = 1) -> None:
+    """기승전결 네 구간이 start 화부터 total 화까지 빈틈없이 이어지는지 본다. 장편 아크는 start 가 아크 첫 화다."""
     acts = sorted(plan.acts, key=lambda a: a.start_ep)
     if [a.name for a in acts] != ["기", "승", "전", "결"]:
         raise ValueError(f"기승전결 순서가 아닙니다: {[a.name for a in acts]}")
-    expected = 1
+    expected = start
     for a in acts:
         if a.start_ep != expected or a.end_ep < a.start_ep:
             raise ValueError(f"{a.name} 구간 범위 오류: {a.start_ep}~{a.end_ep}")
@@ -75,11 +82,14 @@ def validate_arc(plan: ArcPlan, total: int) -> None:
 
 
 def draft_plots(llm: LLM, p: Project, start: int, end: int) -> PlotBatch:
-    if not p.arc:
-        raise ValueError("기승전결 구조(arc)를 먼저 만드세요")
+    beats = p.beats()
+    if not beats:
+        raise ValueError("다음 아크를 먼저 기획하세요" if p.serial else "기승전결 구조(arc)를 먼저 만드세요")
+    if p.serial and end > p.planned_until():
+        raise ValueError(f"{p.planned_until()}화까지만 아크가 있습니다. {end}화까지 쓰려면 다음 아크를 먼저 기획하세요")
     batch = llm.json(
         prompts.SYSTEM_PLANNER, prompts.plot_prompt(p, start, end), PlotBatch,
-        hint={"start": start, "end": end, "arc": p.arc},
+        hint={"start": start, "end": end, "arc": beats},
     )
     numbers = [e.number for e in batch.episodes]
     if numbers != list(range(start, end + 1)):
@@ -94,8 +104,198 @@ def apply_plots(p: Project, batch: PlotBatch) -> None:
         cur = by_no.get(plot.number)
         if cur and cur.status != "draft":
             continue
+        act = p.act_for(plot.number)
+        if act:
+            plot.act = act.name
         by_no[plot.number] = Episode(plot=plot)
     p.episodes = [by_no[k] for k in sorted(by_no)]
+
+
+# ---------- 3-0. 장편 연재: 부 구성과 굴러가는 아크 기획 ----------
+
+ARC_MIN, ARC_MAX = 4, 60  # 아크 하나의 화수 범위. 아크 안에 기승전결 네 구간이 들어가야 해서 최소 4화
+OLD_FORESHADOW = 50  # 이 화수보다 오래 열린 복선은 다음 아크 기획 때 따로 표시한다
+
+
+def validate_parts(parts: list, total: int) -> None:
+    parts = sorted(parts, key=lambda x: x.start_ep)
+    expected = 1
+    for i, x in enumerate(parts, 1):
+        if x.number != i:
+            raise ValueError(f"부 번호가 1부터 차례대로가 아닙니다: {[y.number for y in parts]}")
+        if x.start_ep != expected or x.end_ep < x.start_ep:
+            raise ValueError(f"{x.number}부 범위 오류: {x.start_ep}~{x.end_ep}")
+        expected = x.end_ep + 1
+    if parts and expected != total + 1:
+        raise ValueError(f"부 구성이 {expected - 1}화에서 끝납니다 (목표 {total}화)")
+
+
+def validate_story_arcs(p: Project) -> None:
+    """아크가 1화부터 빈틈없이 이어지고, 아크 안 기승전결이 맞고, 부 경계를 넘지 않는지 본다."""
+    expected = 1
+    for i, s in enumerate(sorted(p.story_arcs, key=lambda s: s.start_ep), 1):
+        if s.number != i:
+            raise ValueError(f"아크 번호가 1부터 차례대로가 아닙니다 ({s.number})")
+        if s.start_ep != expected or s.end_ep < s.start_ep:
+            raise ValueError(f"아크 {s.number} 범위 오류: {s.start_ep}~{s.end_ep} ({expected}화부터여야 합니다)")
+        validate_arc(ArcPlan(acts=s.acts), s.end_ep, s.start_ep)
+        part = p.part_for(s.start_ep)
+        if p.parts and (part is None or s.end_ep > part.end_ep):
+            raise ValueError(f"아크 {s.number}({s.start_ep}~{s.end_ep}화)가 부 경계를 넘습니다")
+        expected = s.end_ep + 1
+    if p.story_arcs and expected - 1 > p.meta.target_episodes:
+        raise ValueError(f"아크가 총 화수({p.meta.target_episodes}화)를 넘습니다")
+
+
+def plan_series(llm: LLM, p: Project) -> SeriesPlan:
+    total = p.meta.target_episodes
+    plan = llm.json(prompts.SYSTEM_PLANNER, prompts.series_prompt(p), SeriesPlan, hint={"total": total})
+    for x in plan.parts:
+        x.summary = ""
+    validate_parts(plan.parts, total)
+    return plan
+
+
+def apply_series(p: Project, plan: SeriesPlan) -> None:
+    """부 구성을 바꾼다. 이미 끝난 부의 요약은 범위가 같으면 남긴다. 기존 아크가 새 부 경계를 넘으면 막는다."""
+    validate_parts(plan.parts, p.meta.target_episodes)
+    old = {(x.start_ep, x.end_ep): x.summary for x in p.parts}
+    before = p.parts
+    p.parts = [x.model_copy(deep=True, update={"summary": x.summary or old.get((x.start_ep, x.end_ep), "")})
+               for x in sorted(plan.parts, key=lambda x: x.start_ep)]
+    try:
+        validate_story_arcs(p)
+    except ValueError:
+        p.parts = before
+        raise
+
+
+def next_arc_start(p: Project) -> int:
+    return p.planned_until() + 1
+
+
+def plan_next_arc(llm: LLM, p: Project, length: int = 0, note: str = "") -> ArcProposal:
+    """지금까지 쓴 내용을 보고 다음 아크 하나를 제안한다. 저장하지 않는다."""
+    if not p.serial:
+        raise ValueError("장편 연재(form=serial) 작품에서만 아크를 기획합니다")
+    start = next_arc_start(p)
+    if start > p.meta.target_episodes:
+        raise ValueError(f"총 {p.meta.target_episodes}화까지 아크가 모두 있습니다. 더 쓰려면 총 화수를 늘리세요")
+    length = length or p.meta.arc_length
+    part = p.part_for(start)
+    limit = part.end_ep if part else p.meta.target_episodes
+    prop = llm.json(
+        prompts.SYSTEM_PLANNER, prompts.next_arc_prompt(p, start, length, note), ArcProposal,
+        hint={"start": start, "length": length, "limit": limit, "number": len(p.story_arcs) + 1},
+    )
+    return clean_arc(p, prop)
+
+
+def clean_arc(p: Project, prop: ArcProposal) -> ArcProposal:
+    """아크 번호와 시작 화를 맞추고 범위를 검사한다. 고칠 수 없는 오류는 그대로 알린다."""
+    a = prop.arc
+    a.number, a.summary = len(p.story_arcs) + 1, ""
+    start = next_arc_start(p)
+    if a.start_ep != start:
+        raise ValueError(f"아크가 {a.start_ep}화에서 시작합니다 ({start}화부터여야 합니다)")
+    size = a.end_ep - a.start_ep + 1
+    if not ARC_MIN <= size <= ARC_MAX:
+        raise ValueError(f"아크 길이 {size}화는 쓸 수 없습니다 ({ARC_MIN}~{ARC_MAX}화)")
+    part = p.part_for(start)
+    limit = part.end_ep if part else p.meta.target_episodes
+    if a.end_ep > limit:
+        raise ValueError(f"아크가 {a.end_ep}화에서 끝나 {'부' if part else '작품'} 끝({limit}화)을 넘습니다")
+    validate_arc(ArcPlan(acts=a.acts), a.end_ep, a.start_ep)
+    if 0 < limit - a.end_ep < ARC_MIN:  # 남는 화로는 아크를 만들 수 없으니 결 구간을 부 끝까지 늘린다
+        last = max(a.acts, key=lambda x: x.start_ep)
+        last.end_ep = a.end_ep = limit
+        prop.reply = (prop.reply.rstrip() + f"\n\n※ {'부' if part else '작품'} 끝까지 {ARC_MIN}화가 안 남아 아크를 {limit}화까지 늘렸습니다.").strip()
+    known = {c.id for c in p.characters}
+    prop.new_characters = [c for c in prop.new_characters if c.id not in known]
+    ids = known | {c.id for c in prop.new_characters}
+    a.cast = [c for c in a.cast if c in ids]
+    open_fs = {f.id for f in p.foreshadows if f.status == "open"}
+    a.payoffs = [f for f in a.payoffs if f in open_fs]
+    return prop
+
+
+def _add_characters(p: Project, chars: list[Character], first_ep: int) -> None:
+    """새 인물을 붙인다. 주역으로 올리는 것은 작가가 정하므로 조연으로 들인다."""
+    known = {c.id for c in p.characters}
+    for c in chars:
+        if c.id in known:
+            continue
+        p.characters.append(c.model_copy(update={
+            "tier": "support" if c.tier == "main" else c.tier,
+            "first_ep": c.first_ep or first_ep,
+        }))
+        known.add(c.id)
+    _init_states(p)
+
+
+def apply_arc(p: Project, prop: ArcProposal) -> StoryArc:
+    """제안된 다음 아크를 붙인다. 새 인물과 복선 회수 예정 화도 함께 반영한다."""
+    prop = clean_arc(p, prop.model_copy(deep=True))
+    a = prop.arc
+    p.story_arcs.append(a)
+    try:
+        validate_story_arcs(p)
+    except ValueError:
+        p.story_arcs.pop()
+        raise
+    _add_characters(p, prop.new_characters, a.start_ep)
+    for f in p.foreshadows:
+        if f.id in a.payoffs and f.status == "open":
+            f.due_ep = a.end_ep
+    return a
+
+
+def remove_last_arc(p: Project) -> StoryArc:
+    """마지막 아크를 지운다 (다시 기획하려고). 확정했거나 본문이 있는 화가 있으면 막는다."""
+    if not p.story_arcs:
+        raise ValueError("지울 아크가 없습니다")
+    a = max(p.story_arcs, key=lambda s: s.start_ep)
+    eps = [e for e in p.episodes if a.start_ep <= e.plot.number <= a.end_ep]
+    stuck = [e.plot.number for e in eps if e.status != "draft"]
+    if stuck:
+        raise ValueError(f"아크 {a.number}에 확정했거나 본문이 있는 화({stuck})가 있어 지울 수 없습니다")
+    p.story_arcs.remove(a)
+    p.episodes = [e for e in p.episodes if e not in eps]
+    return a
+
+
+def arc_finished(p: Project, a: StoryArc) -> bool:
+    nums = {e.plot.number for e in p.episodes if e.status == "finalized"}
+    return all(n in nums for n in range(a.start_ep, a.end_ep + 1))
+
+
+def recap(llm: LLM, p: Project, kind: str, number: int) -> Recap:
+    """끝난 아크(kind='arc')나 부(kind='part')의 요약을 제안한다. 화별 요약(작가가 승인한 것)으로 만든다."""
+    target = _recap_target(p, kind, number)
+    if not arc_finished(p, target):
+        raise ValueError(f"{'아크' if kind == 'arc' else '부'} {number}의 모든 화가 상태 반영까지 끝나야 요약합니다")
+    return llm.json(prompts.SYSTEM_EDITOR, prompts.recap_prompt(p, kind, number), Recap, hint={"kind": kind, "number": number})
+
+
+def apply_recap(p: Project, kind: str, number: int, summary: str) -> None:
+    _recap_target(p, kind, number).summary = summary.strip()
+
+
+def _recap_target(p: Project, kind: str, number: int):
+    items = p.story_arcs if kind == "arc" else p.parts if kind == "part" else None
+    if items is None:
+        raise ValueError(f"모르는 요약 단위입니다: {kind}")
+    hit = next((x for x in items if x.number == number), None)
+    if hit is None:
+        raise ValueError(f"{'아크' if kind == 'arc' else '부'} {number}이(가) 없습니다")
+    return hit
+
+
+def pending_recaps(p: Project) -> list[tuple[str, int]]:
+    """모든 화가 끝났는데 요약이 없는 아크와 부."""
+    out = [("arc", a.number) for a in p.story_arcs if not a.summary and arc_finished(p, a)]
+    out += [("part", x.number) for x in p.parts if not x.summary and arc_finished(p, x)]
+    return out
 
 
 # ---------- 3-1. 대화로 구조와 플롯 다듬기 ----------
@@ -111,24 +311,46 @@ def revise_plot(llm: LLM, p: Project, message: str) -> PlotRevision:
         raise ValueError("메시지가 비었습니다")
     rev = llm.json(
         prompts.SYSTEM_PLOT_CHAT, prompts.plot_chat_prompt(p, message), PlotRevision,
-        hint={"message": message, "arc": p.arc, "episodes": [e.plot for e in p.episodes], "total": p.meta.target_episodes},
+        hint={"message": message, "arc": (focus_arc(p).acts if p.serial and p.story_arcs else p.arc),
+              "episodes": [e.plot for e in p.episodes], "total": p.meta.target_episodes, "serial": p.serial},
     )
     return clean_revision(p, rev)
 
 
+def focus_arc(p: Project) -> StoryArc | None:
+    """장편 플롯 대화가 구조를 고치는 아크: 아직 본문이 없는 화가 있는 첫 아크, 없으면 마지막 아크."""
+    status = {e.plot.number: e.status for e in p.episodes}
+    arcs = sorted(p.story_arcs, key=lambda s: s.start_ep)
+    for a in arcs:
+        if any(status.get(n, "draft") not in LOCKED for n in range(a.start_ep, a.end_ep + 1)):
+            return a
+    return arcs[-1] if arcs else None
+
+
 def clean_revision(p: Project, rev: PlotRevision) -> PlotRevision:
     notes: list[str] = []
+    if p.serial and rev.total_episodes:
+        notes.append("장편은 총 화수를 부 구성에서 바꿔서 화수 변경을 뺐습니다.")
+        rev.total_episodes = 0
     total = rev.total_episodes if rev.total_episodes and rev.total_episodes != p.meta.target_episodes else 0
     if total and not 1 <= total <= 100:
         notes.append(f"총 화수 {total}화는 쓸 수 없어 뺐습니다.")
         total = 0
     rev.total_episodes = total
+    focus = focus_arc(p) if p.serial else None
+    current_acts = focus.acts if focus else p.arc
     acts = sorted(rev.acts, key=lambda a: a.start_ep)
-    if acts and [a.model_dump() for a in acts] == [a.model_dump() for a in p.arc] and not total:
+    if acts and [a.model_dump() for a in acts] == [a.model_dump() for a in current_acts] and not total:
+        acts = []
+    if acts and p.serial and focus is None:
+        notes.append("아직 아크가 없어 구조 변경을 뺐습니다.")
         acts = []
     if acts:
         try:
-            validate_arc(ArcPlan(acts=acts), total or p.meta.target_episodes)
+            if focus:
+                validate_arc(ArcPlan(acts=acts), focus.end_ep, focus.start_ep)
+            else:
+                validate_arc(ArcPlan(acts=acts), total or p.meta.target_episodes)
         except ValueError as e:
             notes.append(f"구조 변경안이 맞지 않아 뺐습니다: {e}")
             acts = []
@@ -136,8 +358,12 @@ def clean_revision(p: Project, rev: PlotRevision) -> PlotRevision:
         notes.append("화수를 바꾸려면 구조도 함께 바꿔야 해서 화수 변경을 뺐습니다.")
         rev.total_episodes = total = 0
     rev.acts = acts
-    arc = acts or p.arc
-    last = total or p.meta.target_episodes
+    if focus:
+        arc = [a for a in p.beats() if not focus.start_ep <= a.start_ep <= focus.end_ep] + acts if acts else p.beats()
+        last = p.planned_until()
+    else:
+        arc = acts or p.arc
+        last = total or p.meta.target_episodes
     status = {e.plot.number: e.status for e in p.episodes}
     current = {e.plot.number: e.plot.model_dump() for e in p.episodes}
     keep, seen = [], set()
@@ -182,10 +408,16 @@ def apply_revision(p: Project, rev: PlotRevision, acts: bool, episodes: list[int
     total = p.meta.target_episodes
     arc = p.arc
     applied: list[str] = []
+    focus = focus_arc(p) if p.serial else None
     if acts and rev.acts:
-        total = rev.total_episodes or total
-        validate_arc(ArcPlan(acts=rev.acts), total)
+        if focus:
+            validate_arc(ArcPlan(acts=rev.acts), focus.end_ep, focus.start_ep)
+        else:
+            total = rev.total_episodes or total
+            validate_arc(ArcPlan(acts=rev.acts), total)
         arc = [a.model_copy(deep=True) for a in rev.acts]
+    if p.serial:
+        total = p.planned_until()
     by_no = {e.plot.number: e for e in p.episodes}
     cut = [n for n in by_no if n > total]
     stuck = [n for n in cut if by_no[n].status != "draft"]
@@ -199,8 +431,11 @@ def apply_revision(p: Project, rev: PlotRevision, acts: bool, episodes: list[int
         if cur and cur.status in LOCKED:
             raise ValueError(f"{n}화는 본문이 있어 플롯을 바꿀 수 없습니다")
     if acts and rev.acts:
-        p.arc = arc
-        p.meta.target_episodes = total
+        if focus:
+            focus.acts = arc
+        else:
+            p.arc = arc
+            p.meta.target_episodes = total
         for n in cut:
             del by_no[n]
         applied.append("acts")
@@ -209,7 +444,7 @@ def apply_revision(p: Project, rev: PlotRevision, acts: bool, episodes: list[int
         applied.append(str(n))
     p.episodes = [by_no[k] for k in sorted(by_no)]
     for e in p.episodes:
-        act = next((a for a in p.arc if a.start_ep <= e.plot.number <= a.end_ep), None)
+        act = p.act_for(e.plot.number)
         if act and e.status not in LOCKED:
             e.plot.act = act.name
     return applied
@@ -280,6 +515,7 @@ def apply_delta(p: Project, d: StateDelta) -> None:
     dynamics.ensure_initial(p)
     ep.summary = d.summary
     ep.status = "finalized"
+    _add_characters(p, d.new_characters, d.episode)
 
     for upd in d.character_updates:
         cur = p.state_of(upd.character_id)
@@ -319,6 +555,19 @@ def apply_delta(p: Project, d: StateDelta) -> None:
             f.status, f.payoff_ep = "resolved", d.episode
     p.history.append(d)
     dynamics.take_snapshot(p, d.episode)
+    if p.serial:
+        prune_snapshots(p)
+
+
+SNAPSHOT_KEEP = 20  # 장편에서 남기는 최근 스냅샷 수. 시작점과 아크가 끝난 화는 늘 남긴다
+
+
+def prune_snapshots(p: Project) -> None:
+    """장편은 화마다 상태 전체를 복사하면 project.json 이 너무 커진다. 관계는 사건 로그로 다시 계산할 수 있다."""
+    ends = {a.end_ep for a in p.story_arcs}
+    recent = sorted(s.episode for s in p.snapshots)[-SNAPSHOT_KEEP:]
+    keep = {0, *ends, *recent}
+    p.snapshots = [s for s in p.snapshots if s.episode in keep]
 
 
 def adjust_tie(p: Project, source: str, target: str, warmth: float | None, trust: float | None) -> None:
