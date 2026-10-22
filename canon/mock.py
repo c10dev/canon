@@ -30,10 +30,13 @@ from .schema import (
     Part,
     PlotRevision,
     Recap,
+    RebuildEpisode,
     Relationship,
+    Rework,
     ScopeChange,
     Secret,
     SerialConversion,
+    SerialRebuild,
     SeriesPlan,
     SetupSuggestion,
     StateDelta,
@@ -119,6 +122,46 @@ def _conversion(hint: dict) -> SerialConversion:
         last = hint["unlocked"][-1:] if hint["unlocked"] else []
         conv.episodes = [e.model_copy(update={"ending_hook": "수평선에 낯선 불빛이 켜졌다"}) for e in last]
     return conv
+
+
+def _rebuild(hint: dict) -> SerialRebuild:
+    """재구성 흉내: 앞부분을 아크 둘로 나누고, 1화는 새 훅 · 옛 1화는 그대로 · 옛 2화는 다듬기 · 나머지는 재료로 새로 쓴다.
+    단편 결말(마지막 옛 화)은 첫 아크 끝으로 옮긴다. 검증 규칙을 시험하도록 옛 화 둘을 그대로 두겠다는 줄을 섞는다."""
+    total, span, old = hint["total"], hint["span"], [n for n, _ in hint["old"]]
+    cut = span // 2 if span >= 8 else span
+    arcs = [StoryArc(number=1, title="등대의 여름", start_ep=1, end_ep=cut, goal="오빠의 행방을 안다", conflict="숨긴 편지",
+                     payoff="편지의 진실", acts=_arc(cut), cast=["hero", "ally", "nobody"])]
+    if cut < span:
+        arcs.append(StoryArc(number=2, title="북쪽 항구", start_ep=cut + 1, end_ep=span, goal="오빠의 배를 쫓는다",
+                             conflict="밀수 조직", payoff="첫 단서", acts=_arc(span, cut + 1), cast=["hero", "ally"]))
+    rows: dict[int, RebuildEpisode] = {1: RebuildEpisode(number=1, title="불 꺼진 등대", summary="사건부터 연다.", use="new")}
+    plan = [("keep", [old[0]], "")] if old else []
+    if len(old) > 1:
+        plan.append(("revise", [old[1]], "도현이 무언가 숨긴다는 기색을 미리 흘린다"))
+    if len(old) > 3:
+        plan.append(("keep", [old[2], old[3]], ""))  # 옛 화 둘을 그대로 둘 수는 없다 → rewrite 로 바뀐다
+    middle = old[4:-1] if len(old) > 4 else []
+    plan += [("rewrite", [o], "옛 화의 장면을 살린다") for o in middle]
+    slot = 2
+    for use, src, note in plan:
+        if slot >= cut:
+            break
+        rows[slot] = RebuildEpisode(number=slot, title=f"{slot}화", summary=f"옛 {src}화를 쓴다.", sources=src, use=use, note=note)
+        slot += 1
+    if len(old) > 4:
+        rows[cut] = RebuildEpisode(number=cut, title="편지의 진실", summary="단편의 결말.", sources=[old[-1]], use="rewrite",
+                                   note="단편 결말을 첫 아크 끝으로 옮긴다")
+    eps = [rows.get(n) or RebuildEpisode(number=n, title=f"{n}화", summary=f"{n}화 새 이야기", use="new") for n in range(1, span + 1)]
+    parts = _series(total).parts
+    if len(parts) > 1 and parts[0].end_ep < span:
+        parts[0].end_ep = span
+        parts[1].start_ep = span + 1
+    return SerialRebuild(
+        reply="단편을 씨앗으로 앞부분을 다시 짰어요. 1화는 사건부터 열고, 단편 결말은 첫 아크 끝으로 옮겼어요.",
+        total_episodes=total, ending_at=hint["ending_at"] or "arc", parts=parts, arcs=arcs, episodes=eps,
+        foreshadows=[Foreshadow(id="fs-r-door", description="등대 아래 잠긴 문", planted_ep=1, scope="series")],
+        tiers=[TierChange(id="ally", tier="support", reason="장편에서는 조연"), TierChange(id="nobody", tier="minor")],
+    )
 
 
 def _plot(n: int, act: str, note: str = "") -> EpisodePlot:
@@ -244,6 +287,10 @@ class MockLLM:
             return _next_arc(hint)  # type: ignore[return-value]
         if schema is SerialConversion:
             return _conversion(hint)  # type: ignore[return-value]
+        if schema is SerialRebuild:
+            return _rebuild(hint)  # type: ignore[return-value]
+        if schema is Rework:
+            return Rework(text=hint["text"].rstrip() + "\n\n도현은 대답 대신 시선을 피했다.", reply="새 자리에 맞게 끝을 고쳤어요.")  # type: ignore[return-value]
         if schema is Recap:
             return Recap(summary=f"{'아크' if hint['kind'] == 'arc' else '부'} {hint['number']} 요약: 주인공이 시험을 넘겼다.")  # type: ignore[return-value]
         if schema is PlotBatch:

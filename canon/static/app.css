@@ -457,6 +457,16 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .ep-card .line-badge { align-self: flex-start; }
 .line-ep { display: inline-flex; gap: 2px; }
 
+/* 재구성 화 지도 (convert.js) */
+.rb-map { width: 100%; border-collapse: collapse; font-size: 13px; }
+.rb-map th { position: sticky; top: 0; background: var(--surface); text-align: left; font-weight: 600; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.rb-map td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.rb-map td:last-child { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+.rb-map select { width: auto; }
+.rb-map tr.rb-keep td:first-child { box-shadow: inset 3px 0 0 var(--green); }
+.rb-map tr.rb-revise td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.rb-map tr.rb-rewrite td:first-child { box-shadow: inset 3px 0 0 var(--amber); }
+
 /* 사용량 · 비용 */
 .usage-filters select { min-height: 36px; }
 .usage-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }

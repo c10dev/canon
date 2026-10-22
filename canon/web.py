@@ -17,7 +17,7 @@ from pydantic import BaseModel, ValidationError
 
 from . import autorun, dynamics, elements, genres, jobs, library, metrics, naming, pipeline, prompts, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, get_llm, make_llm
-from .schema import (ArcPlan, ArcProposal, EpisodePlot, Meta, Project, Selection, SerialConversion, SeriesPlan, SetupSuggestion, StateDelta,
+from .schema import (ArcPlan, ArcProposal, EpisodePlot, Meta, Project, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 
 STATIC = Path(__file__).parent / "static"
@@ -473,7 +473,9 @@ def conversion_status(name: str) -> dict:
     p = _load(name)
     lo, hi = pipeline.convert_range(p)
     blockers = pipeline.undo_blockers(p, store.load_backup(name, pipeline.BACKUP_TAG)) if p.conversion else []
-    return {"min": lo, "max": hi, "end": pipeline.short_end(p), "conversion": p.conversion, "undo_blockers": blockers}
+    span = dict(zip(("min", "default", "max"), pipeline.rebuild_span(p))) if not p.serial and p.episodes else None
+    return {"min": lo, "max": hi, "end": pipeline.short_end(p), "conversion": p.conversion, "undo_blockers": blockers,
+            "rebuild": span}
 
 
 @app.post("/api/projects/{name}/convert/apply")
@@ -482,6 +484,30 @@ def apply_conversion(name: str, prop: SerialConversion) -> Project:
     p = _load(name)
     before = pipeline.apply_conversion(p, prop)
     store.save_backup(name, pipeline.BACKUP_TAG, before)
+    return _save(name, p)
+
+
+@app.post("/api/projects/{name}/convert/rebuild/apply")
+def apply_rebuild(name: str, prop: SerialRebuild) -> dict:
+    """재구성 반영. 옮기지 못해 작가가 볼 것(notes)을 함께 돌려준다."""
+    _not_auto(name)
+    p = _load(name)
+    before, notes = pipeline.apply_rebuild(p, prop)
+    store.save_backup(name, pipeline.BACKUP_TAG, before)
+    return {"project": _save(name, p), "notes": notes}
+
+
+class ReworkIn(BaseModel):
+    text: str
+    proposed: str = ""  # AI 가 낸 글 (작가가 손봤으면 수정 기록에 남긴다)
+
+
+@app.post("/api/projects/{name}/episodes/{n}/rework")
+def accept_rework(name: str, n: int, body: ReworkIn) -> Project:
+    """재구성에서 다듬기로 고른 화에 다듬은 본문을 넣는다."""
+    _not_auto(name)
+    p = _load(name)
+    pipeline.accept_rework(p, n, body.text, body.proposed)
     return _save(name, p)
 
 
@@ -670,13 +696,14 @@ def impact_dismiss(name: str, eid: str) -> Project:
 # ---------- 백그라운드 작업 ----------
 
 class JobIn(BaseModel):
-    kind: str  # suggest | arc | plots | write | state | impact | series | nextarc | recap_arc | recap_part | storyline | convert | hook | openings | opening_drafts
+    kind: str  # suggest | arc | plots | write | state | impact | series | nextarc | recap_arc | recap_part | storyline | convert | rebuild | rework | hook | openings | opening_drafts
     ep: int | None = None  # 화 번호. plots 는 장편에서 아크 번호(없으면 초안이 있는 모든 아크), recap_* 는 아크·부 번호
     element: str = ""  # impact 일 때 요소 id
-    note: str = ""  # nextarc, storyline, convert: 작가가 바라는 것
+    note: str = ""  # nextarc, storyline, convert, rebuild: 작가가 바라는 것
     line_kind: str = ""  # storyline: 원하는 줄기 종류 (비우면 AI 가 고름)
-    length: int = 0  # nextarc: 아크 화수 (0 이면 AI 가 정함). convert: 장편 총 화수
-    ending: str = ""  # convert: keep | reopen, 비우면 AI 가 고름
+    length: int = 0  # nextarc: 아크 화수 (0 이면 AI 가 정함). convert, rebuild: 장편 총 화수
+    ending: str = ""  # convert: keep | reopen, rebuild: arc | part | series (단편 결말이 갈 곳). 비우면 AI 가 고름
+    span: int = 0  # rebuild: 다시 짤 앞부분 화수 (0 이면 기본값)
     approaches: list[str] = []  # openings, opening_drafts: 여는 방식 id (비우면 기본 세 가지)
     draft: int = 0  # hook: 0 이면 그 화 본문, k 면 비교본 k 번을 판정
 
@@ -714,7 +741,7 @@ def start_job(name: str, body: JobIn) -> dict:
     kind, n = body.kind, body.ep
     if kind in ("write", "state", "plots"):
         _not_auto(name)
-    stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state",
+    stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "rework": "revise",
              "hook": "check", "opening_drafts": "write"}.get(kind, "plan")  # 나머지는 plan
     llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
@@ -747,6 +774,25 @@ def start_job(name: str, body: JobIn) -> dict:
 
         def fn(job: jobs.Job):
             return pipeline.propose_conversion(llm, store.load(name), size, ending, note).model_dump()
+    elif kind == "rebuild":
+        _not_auto(name)
+        size, ending, note = body.length, body.ending, body.note
+        span = pipeline.check_rebuild(p, size, body.span, ending)
+        label, total, owned = f"장편 {size}화로 재구성 계획", 1, set()
+
+        def fn(job: jobs.Job):
+            return pipeline.propose_rebuild(llm, store.load(name), size, span, ending, note).model_dump()
+    elif kind == "rework":
+        _not_auto(name)
+        if n is None:
+            raise ValueError("화 번호(ep)가 필요합니다")
+        x = p.archive.entry(n) if p.archive else None
+        if x is None or x.use != "revise":
+            raise ValueError(f"{n}화는 재구성에서 다듬기로 고른 화가 아닙니다")
+        label, total, owned = f"{n}화 다듬기", 1, set()
+
+        def fn(job: jobs.Job):
+            return pipeline.propose_rework(llm, store.load(name), n).model_dump()
     elif kind == "storyline":
         label, total, owned = "이야기 줄기 제안", 1, set()
         note, line_kind = body.note, body.line_kind
@@ -855,7 +901,7 @@ def start_job(name: str, body: JobIn) -> dict:
         raise ValueError(f"모르는 작업입니다: {kind}")
 
     try:
-        with usage.scope(episode=n if kind in ("write", "state", "hook", "openings", "opening_drafts") else None, task=kind):
+        with usage.scope(episode=n if kind in ("write", "state", "rework", "hook", "openings", "opening_drafts") else None, task=kind):
             job = jobs.start(name, kind, n, label, fn, total=total, owned=owned)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}
