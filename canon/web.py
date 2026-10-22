@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import dynamics, genres, library, pipeline, prompts, research, settings, store
+from . import dynamics, genres, jobs, library, pipeline, prompts, research, settings, store
 from .llm import GeminiLLM, LocalLLM, get_llm, make_llm
 from .schema import ArcPlan, Meta, Project, SetupSuggestion, StateDelta, StyleEntry, StyleProfile
 
@@ -54,8 +54,19 @@ def _load(name: str) -> Project:
     return store.load(name)
 
 
-def _save(name: str, p: Project) -> Project:
-    store.save(name, p)
+def _save(name: str, p: Project, merged: set[str] | None = None) -> Project:
+    """저장한다. 화면이 보낸 작품 전체를 저장할 때(merged 를 넘길 때)는 백그라운드 작업이 맡은 화를
+    디스크에 있는 내용(작업 결과)으로 지킨다. 다른 엔드포인트는 방금 읽은 디스크 내용을 고쳐 저장하므로 그대로 쓴다."""
+    with jobs.project_lock(name):
+        owned = jobs.owned_episodes(name, merged) if merged is not None else set()
+        if owned and store.exists(name):
+            disk = {e.plot.number: e for e in store.load(name).episodes}
+            mine = {e.plot.number: e for e in p.episodes}
+            for n in owned:
+                if n in disk:
+                    mine[n] = disk[n]
+            p.episodes = [mine[k] for k in sorted(mine)]
+        store.save(name, p)
     return p
 
 
@@ -173,7 +184,7 @@ def get_project(name: str) -> Project:
 
 
 @app.put("/api/projects/{name}")
-def put_project(name: str, p: Project) -> Project:
+def put_project(name: str, p: Project, merged: str = "") -> Project:
     """화면에서 고친 프로젝트 전체를 저장한다. 구조(arc)가 있으면 화수와 맞는지 검사한다."""
     _load(name)
     if p.arc:
@@ -183,7 +194,7 @@ def put_project(name: str, p: Project) -> Project:
     if p.snapshot(0) is None:  # 첫 반영 전에는 설정 화면의 시작 호감이 시작 관계다
         p.ties = []
         dynamics.seed_ties(p)
-    return _save(name, p)
+    return _save(name, p, merged={m for m in merged.split(",") if m})
 
 
 # ---------- 1. 설정 도우미 ----------
@@ -368,8 +379,8 @@ def chat_send(name: str, topic: str, body: ChatIn) -> Project:
     p = _load(name)
     _chat(p, topic)
     rev = pipeline.revise_plot(get_llm("plan"), p, body.message)
-    pipeline.record_chat(p, topic, body.message, rev)
-    return _save(name, p)
+    # AI 를 기다리는 동안 백그라운드 작업이 저장했을 수 있으니 최신 내용에 대화만 덧붙인다
+    return _edit(name, lambda q: pipeline.record_chat(q, topic, body.message, rev))
 
 
 class ChatApply(BaseModel):
@@ -410,6 +421,116 @@ def chat_clear(name: str, topic: str) -> Project:
     p = _load(name)
     _chat(p, topic).messages = []
     return _save(name, p)
+# ---------- 백그라운드 작업 ----------
+
+class JobIn(BaseModel):
+    kind: str  # suggest | arc | plots | write | state
+    ep: int | None = None
+
+
+def _edit(name: str, fn) -> Project:
+    """작업 결과를 최신 project.json 에 반영해 저장한다 (작업이 도는 동안 사용자가 저장했을 수 있다)."""
+    with jobs.project_lock(name):
+        p = store.load(name)
+        fn(p)
+        store.save(name, p)
+    return p
+
+
+def _plot_ranges(p: Project) -> list[tuple[str, int, int]]:
+    """초안이거나 아직 없는 화가 있는 구간만 다시 만든다."""
+    status = {e.plot.number: e.status for e in p.episodes}
+    out = []
+    for a in sorted(p.arc, key=lambda a: a.start_ep):
+        nums = range(a.start_ep, a.end_ep + 1)
+        if any(status.get(n, "draft") == "draft" for n in nums):
+            out.append((a.name, a.start_ep, a.end_ep))
+    return out
+
+
+@app.post("/api/projects/{name}/jobs")
+def start_job(name: str, body: JobIn) -> dict:
+    """오래 걸리는 AI 작업을 시작하고 바로 돌아온다. 결과는 GET /api/jobs 로 본다."""
+    p = _load(name)
+    kind, n = body.kind, body.ep
+    stage = {"write": "write", "state": "state"}.get(kind, "plan")  # suggest, arc, plots 는 plan
+    llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
+
+    if kind == "suggest":
+        label, total, owned = "설정 제안", 1, set()
+
+        def fn(job: jobs.Job):
+            return pipeline.suggest_setup(llm, store.load(name)).model_dump()
+    elif kind == "arc":
+        label, total, owned = "기승전결 구조 제안", 1, set()
+
+        def fn(job: jobs.Job):
+            return pipeline.plan_arc(llm, store.load(name)).model_dump()
+    elif kind == "plots":
+        if not p.arc:
+            raise ValueError("기승전결 구조(arc)를 먼저 만들고 저장하세요")
+        ranges = _plot_ranges(p)
+        if not ranges:
+            raise ValueError("모든 화가 확정되어 새로 만들 초안이 없습니다")
+        draft = {e.plot.number for e in p.episodes if e.status == "draft"}
+        have = {e.plot.number for e in p.episodes}
+        owned = {k for _, a, b in ranges for k in range(a, b + 1) if k in draft or k not in have}
+        label, total = "화별 플롯 초안", len(ranges)
+
+        def fn(job: jobs.Job):
+            # 구간마다 따로 부른다: 한 번에 20화를 받는 것보다 빠르게 첫 결과가 오고, 실패해도 앞 구간은 남는다
+            for act, a, b in ranges:
+                job.note = f"{act} 구간 ({a}~{b}화) 만드는 중"
+                batch = pipeline.draft_plots(llm, store.load(name), a, b)
+                _edit(name, lambda q: pipeline.apply_plots(q, batch))
+                job.done += 1
+            job.note = ""
+            return None
+    elif kind in ("write", "state"):
+        if n is None:
+            raise ValueError("화 번호(ep)가 필요합니다")
+        e = p.episode(n)
+        if kind == "write":
+            if e.status == "draft":
+                raise ValueError(f"{n}화 플롯이 아직 확정되지 않았습니다")
+            label, total, owned = f"{n}화 본문", 1, {n}
+
+            def fn(job: jobs.Job):
+                text = pipeline.write_episode(llm, store.load(name), n)
+
+                def put(q: Project) -> None:
+                    ep = q.episode(n)
+                    ep.text, ep.status = text, "written"
+                _edit(name, put)
+                return None
+        else:
+            if not e.text:
+                raise ValueError(f"{n}화 본문이 없습니다")
+            label, total, owned = f"{n}화 상태 변경안", 1, set()
+
+            def fn(job: jobs.Job):
+                return pipeline.extract_state(llm, store.load(name), n).model_dump()
+    else:
+        raise ValueError(f"모르는 작업입니다: {kind}")
+
+    try:
+        job = jobs.start(name, kind, n, label, fn, total=total, owned=owned)
+    except jobs.Busy as b:
+        return {**b.job.public(), "already": True}
+    return job.public()
+
+
+@app.get("/api/jobs")
+def list_jobs(project: str | None = None) -> list[dict]:
+    return [j.public() for j in jobs.listing(project)]
+
+
+@app.get("/api/jobs/{jid}")
+def get_job(jid: str) -> dict:
+    j = jobs.get(jid)
+    if j is None:
+        raise HTTPException(404, "작업이 없습니다 (서버가 다시 시작됐을 수 있어요)")
+    return j.public()
 
 
 # ---------- 4. 본문 ----------
@@ -689,7 +810,7 @@ def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
                 last = r.message
                 continue
             print(f"[업데이트] {r.message}. 진행 중인 작업이 끝나면 다시 시작합니다")
-            while _active and not server.should_exit:
+            while (_active or jobs.running()) and not server.should_exit:
                 time.sleep(1)
             restart.set()
             server.should_exit = True
