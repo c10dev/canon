@@ -29,6 +29,8 @@ Gemini API 키와 모델은 화면 오른쪽 아래 **모델 · API 키 설정**
 
 작품 홈, 설정 도우미, 문체 레퍼런스, 기승전결 플롯 보드, 집필, 상태 변경안 승인, 채팅 앱 작업지시서 화면이 있다. CLI 와 같은 `projects/<이름>/project.json` 을 읽고 쓴다. AI 제안은 바로 저장되지 않고, 화면에서 고르거나 고친 뒤 저장할 때 반영된다.
 
+**문체 라이브러리**(작품 목록 위 버튼, 사이드바 아래 링크)에서는 붙여 넣어 분석한 문체를 작품과 따로 모아 두고 목록으로 본다. 항목마다 이름, 출처, 메모, 분석한 원문, 스타일 프로필, 원문으로 잰 기준 지표가 있고, 고치기·복제·삭제할 수 있다. 새 작품을 만들 때 라이브러리 문체를 고르거나, 작품의 문체 레퍼런스 화면에서 가져오거나(`적용`) 지금 문체를 라이브러리에 저장할 수 있다. 적용하면 그 시점의 문체가 `project.json` 으로 복사되므로 라이브러리를 고쳐도 쓰고 있는 작품은 다시 적용하기 전까지 그대로다. 둘이 달라지면 문체 화면에 표시되고, 어느 쪽으로 맞출지 고를 수 있다. 라이브러리는 `projects/.styles/<id>.json` 에 저장된다(`CANON_STYLES` 로 경로 변경).
+
 새 작품 폼과 설정 도우미에서 장르를 여러 개 고를 수 있다(로맨스 판타지, 무협 같은 큰 갈래와 회귀, 계약 관계 같은 요소). 고른 장르마다 독자가 기대하는 것, 관습, 자주 쓰는 소재, 전개 속도, 피할 것을 펼쳐 볼 수 있고, 같은 안내가 프롬프트와 작업지시서에 들어간다. 목록에 없는 장르는 직접 적는다. **성인물**을 체크하면 성인 독자 대상으로, 끄면 전연령 수위로 쓰라고 지시한다.
 
 설정 도우미는 처음 쓰는 사람이 빈칸 앞에서 막히지 않게 나눠서 묻는다.
@@ -62,7 +64,8 @@ sudo tailscale serve --bg --https=8446 http://127.0.0.1:8000
 ```bash
 python -m canon genres                          # 장르 목록
 python -m canon new 등대 -i --genre "미스터리, 회귀"   # 1. 설정 도우미 (AI 가 인물/세계관 제안), 성인물이면 --adult
-python -m canon style 등대 examples/sample_style.txt   # 2. 예시 텍스트로 문체 프로필
+python -m canon style 등대 examples/sample_style.txt   # 2. 예시 텍스트로 문체 프로필 (--save 이름: 라이브러리에도 저장)
+#    또는 python -m canon style 등대 --library <id>    문체 라이브러리 항목 적용
 python -m canon arc 등대                         # 3. 기승전결 구간
 python -m canon plot 등대                        # 4. 화별 플롯 초안
 #    projects/등대/project.json 에서 플롯 수정
@@ -71,6 +74,8 @@ python -m canon run 등대                         # 6. 화마다 본문 생성 
 python -m canon show 등대                        # 진행 상황
 python -m canon stats 등대                       # 화별 문체 지표를 레퍼런스와 비교
 ```
+
+문체 라이브러리는 `python -m canon styles` (목록), `styles add 이름 원문.txt [--source 출처]`, `styles show <id>`, `styles rm <id>` 로도 다룬다.
 
 한 화씩 하려면 `write 등대 3` → `check 등대 3` → `update 등대 3`. `check` 는 앞선 본문·설정과의 모순을 근거 문장과 함께 보여준다 (`run --no-check` 로 생략 가능). 작품에서 쓰지 말아야 할 표현은 `project.json` 의 `style.banned_phrases` 에 넣으면 `stats` 와 본문 지시에 반영된다.
 
@@ -115,6 +120,7 @@ canon/genres.py    장르 목록과 장르별 안내
 canon/dynamics.py  관계 역학 수식 (사건 적용, 긴장 계산, 재생, 말로 바꾸기)
 canon/llm.py       Gemini 프로바이더 (+ mock.py)
 canon/store.py     project.json 저장, 본문을 episodes/NN.md 로 내보내기
+canon/library.py   문체 라이브러리 (작품과 따로 저장하는 문체 항목)
 canon/cli.py       명령줄
 canon/web.py       웹 UI 서버 (FastAPI) + canon/static/ 화면
 tests/             웹 API 흐름 테스트 (mock LLM, pytest)

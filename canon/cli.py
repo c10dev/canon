@@ -1,7 +1,9 @@
 """명령줄 인터페이스.
 
   python -m canon new 내소설           설정 도우미 (질문에 답하면 AI 가 빈칸 제안)
-  python -m canon style 내소설 sample.txt   예시 텍스트로 스타일 프로필 생성
+  python -m canon style 내소설 sample.txt   예시 텍스트로 스타일 프로필 생성 (--save 이름: 라이브러리에도 저장)
+  python -m canon style 내소설 --library ID   문체 라이브러리 항목을 작품에 적용
+  python -m canon styles [add 이름 파일 | show ID | rm ID]   문체 라이브러리 (작품과 따로 저장)
   python -m canon arc 내소설            기승전결 구간 설계
   python -m canon plot 내소설 [--from 1 --to 16]   화별 플롯 초안
   python -m canon confirm 내소설 all|3  플롯 확정
@@ -29,7 +31,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import dynamics, genres, logline, metrics, pipeline, prompts, store, updater
+from . import dynamics, genres, library, logline, metrics, pipeline, prompts, store, updater
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, StateDelta
 
@@ -119,13 +121,62 @@ def cmd_suggest(a: argparse.Namespace) -> None:
 
 def cmd_style(a: argparse.Namespace) -> None:
     p = store.load(a.name)
+    if a.library:
+        e = library.load(a.library)
+        print(dump(e.profile))
+        if confirm(f"라이브러리 문체 '{e.name}' 을 적용할까요? 지금 작품의 문체는 바뀝니다.", a.yes):
+            library.apply(p, e)
+            print(f"저장: {store.save(a.name, p)}")
+        return
+    if not a.file:
+        sys.exit("예시 원문 파일이나 --library ID 를 주세요 (라이브러리 목록: python -m canon styles)")
     sample = Path(a.file).read_text(encoding="utf-8")
     profile = pipeline.analyze_style(get_llm(), sample)
     print(dump(profile))
     if confirm("이 스타일 프로필을 저장할까요?", a.yes):
         p.style = profile
         p.style_baseline = metrics.measure(sample)
+        p.style_id = ""
+        if a.save:
+            e = library.from_project(p, a.save, sample)
+            print(f"라이브러리에 저장: {e.name} ({e.id})")
         print(f"저장: {store.save(a.name, p)}")
+
+
+def cmd_styles(a: argparse.Namespace) -> None:
+    if a.action == "add":
+        if not a.args or len(a.args) != 2:
+            sys.exit("사용법: python -m canon styles add 이름 원문.txt")
+        name, file = a.args
+        sample = Path(file).read_text(encoding="utf-8")
+        profile = pipeline.analyze_style(get_llm(), sample)
+        print(dump(profile))
+        if confirm("이 문체를 라이브러리에 저장할까요?", a.yes):
+            e = library.create(name, profile, sample, a.source)
+            print(f"저장: {e.name} ({e.id})")
+        return
+    if a.action in ("show", "rm"):
+        if len(a.args) != 1:
+            sys.exit(f"사용법: python -m canon styles {a.action} ID")
+        e = library.load(a.args[0])
+        if a.action == "show":
+            print(f"{e.name} ({e.id})  출처: {e.source or '-'}  원문 {len(e.sample):,}자")
+            print(dump(e.profile))
+            return
+        used = library.used_by(e.id)
+        note = f" 쓰는 작품({', '.join(used)})은 복사해 둔 문체를 그대로 씁니다." if used else ""
+        if confirm(f"'{e.name}' 을 라이브러리에서 지울까요?{note}", a.yes):
+            library.delete(e.id)
+            print("지웠습니다")
+        return
+    rows = library.entries()
+    if not rows:
+        print("문체 라이브러리가 비어 있습니다. styles add 이름 원문.txt 로 추가하세요.")
+    for e in rows:
+        used = library.used_by(e.id)
+        print(f"{e.id}  {e.name}  {e.profile.narration_pov or '-'} / {e.profile.tense or '-'}"
+              f"  원문 {len(e.sample):,}자  작품 {len(used)}개{'  (' + ', '.join(used) + ')' if used else ''}")
+    print(f"\n저장 위치: {library.root()}")
 
 
 def cmd_arc(a: argparse.Namespace) -> None:
@@ -430,7 +481,10 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--no-suggest", action="store_true")
     sp.add_argument("-i", "--interactive", action="store_true", help="톤, 분량, 주인공까지 질문")
     add("suggest", cmd_suggest)
-    add("style", cmd_style, "file")
+    sp = add("style", cmd_style)
+    sp.add_argument("file", nargs="?")
+    sp.add_argument("--library", help="문체 라이브러리 항목 id 를 적용 (파일 대신)")
+    sp.add_argument("--save", metavar="이름", help="분석한 문체를 라이브러리에도 저장")
     add("arc", cmd_arc)
     sp = add("plot", cmd_plot, yes=False)
     sp.add_argument("--from", dest="start", type=int)
@@ -453,6 +507,12 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("section", nargs="?")
 
     sub.add_parser("genres", help="장르 목록").set_defaults(fn=cmd_genres)
+    sp = sub.add_parser("styles", help="문체 라이브러리")
+    sp.add_argument("action", nargs="?", choices=["list", "add", "show", "rm"], default="list")
+    sp.add_argument("args", nargs="*")
+    sp.add_argument("--source", default="", help="add: 원문 출처 메모")
+    sp.add_argument("-y", "--yes", action="store_true", help="확인 없이 반영")
+    sp.set_defaults(fn=cmd_styles)
 
     sp = sub.add_parser("serve", help="웹 UI 실행")
     sp.add_argument("--host", default="127.0.0.1")
