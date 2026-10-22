@@ -504,7 +504,8 @@ def _quoted(p: Project, target: str, n: int, quote: str) -> bool:
     if target == "확정 사실":
         return bool(elements.find("\n".join(p.facts), quote))
     setting = p.model_dump(include={"meta": True, "world": True, "characters": True, "relationships": True, "secrets": True,
-                                    "elements": {"__all__": {"name", "aliases", "description"}}})
+                                    "elements": {"__all__": {"name", "aliases", "description"}},
+                                    "parts": True, "story_arcs": {"__all__": {"title", "goal", "conflict", "payoff", "summary"}}})
     return bool(elements.find("\n".join(_strings(setting)), quote))
 
 

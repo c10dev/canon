@@ -755,7 +755,8 @@ SYSTEM_IMPACT = (
 
 
 def impact_texts(p: Project, linked: set[int], limit: int = CHECK_TEXT_LIMIT) -> str:
-    """이미 쓴 화. 한도 안이면 모두 원문, 넘으면 언급이 있는 화와 최근 화부터 원문으로 넣고 나머지는 요약."""
+    """이미 쓴 화. 한도 안이면 모두 원문, 넘으면 언급이 있는 화와 최근 화부터 원문으로 넣고 나머지는 요약.
+    장편은 원문으로 넣지 못한 화 중 요약이 승인된 아크에 속한 화를 아크 요약 한 줄로 접는다."""
     written = sorted((e for e in p.episodes if e.text), key=lambda e: e.plot.number)
     order = sorted(written, key=lambda e: (e.plot.number not in linked, -e.plot.number))
     full, budget = set(), limit
@@ -763,15 +764,45 @@ def impact_texts(p: Project, linked: set[int], limit: int = CHECK_TEXT_LIMIT) ->
         if len(e.text) <= budget:
             full.add(e.plot.number)
             budget -= len(e.text)
-    return "\n\n".join(
-        f"## {e.plot.number}화 {e.plot.title}\n{e.text if e.plot.number in full else '(요약) ' + (e.summary or e.plot.summary)}"
-        for e in written
-    )
+    out, folded = [], set()
+    for e in written:
+        n = e.plot.number
+        arc = p.arc_for(n) if p.serial and n not in full and n not in linked else None
+        if arc and arc.summary:
+            if arc.number not in folded:
+                folded.add(arc.number)
+                out.append(f"## 아크 {arc.number} {arc.title} ({arc.start_ep}~{arc.end_ep}화, 아크 요약)\n{arc.summary}")
+            continue
+        out.append(f"## {n}화 {e.plot.title}\n{e.text if n in full else '(요약) ' + (e.summary or e.plot.summary)}")
+    return "\n\n".join(out)
+
+
+def impact_structure(p: Project) -> str:
+    """영향 분석에 넣는 구조. 단편은 기승전결, 장편은 부 구성과 기획한 아크 (끝난 아크는 화별 구간을 뺀다)."""
+    if not p.serial:
+        return f"[기승전결 구조] 총 {p.meta.target_episodes}화\n{dump(p.arc) if p.arc else '아직 없음'}"
+    done = max((e.plot.number for e in p.episodes if e.text), default=0)
+    arcs = [a.model_dump(exclude={"acts"} if a.end_ep <= done else set()) for a in sorted(p.story_arcs, key=lambda a: a.start_ep)]
+    last = p.planned_until()
+    rest = (f"\n{last + 1}~{p.meta.target_episodes}화는 아직 아크로 기획하지 않았습니다. 이 화들에 미칠 영향은 "
+            "부의 goal, key_turn, arc_ideas 에 비춰 summary 와 conflicts 로 알립니다." if last < p.meta.target_episodes else "")
+    return f"""[부 구성] 장편 연재, 총 {p.meta.target_episodes}화
+{dump(p.parts) if p.parts else "부 구성 없음 (작품 전체가 한 부)"}
+[기획한 아크] summary 는 작가가 승인한 아크 요약
+{dump(arcs) if arcs else "아직 없음"}{rest}"""
+
+
+def impact_plots(p: Project, el: StoryElement, linked: set[int]) -> list[dict]:
+    """영향 분석에 넣는 화별 플롯. 장편은 본문 없는 화와 요소가 걸린 화만 넣는다 (나머지는 본문과 요약으로 본다)."""
+    keep = linked | set(el.episodes) | ({el.reveal_ep} if el.reveal_ep else set())
+    return [{"status": e.status, **e.plot.model_dump()} for e in p.episodes
+            if not p.serial or not e.text or e.plot.number in keep]
 
 
 def impact_prompt(p: Project, el: StoryElement, linked: set[int]) -> str:
     """앞쪽은 작품 설정, 뒤쪽은 구조와 플롯, 이미 쓴 본문, 마지막에 분석할 요소."""
-    eps = [{"status": e.status, **e.plot.model_dump()} for e in p.episodes]
+    eps = impact_plots(p, el, linked)
+    skipped = len(p.episodes) - len(eps)
     locked = [e.plot.number for e in p.episodes if e.status in ("written", "finalized")]
     confirmed = [e.plot.number for e in p.episodes if e.status == "confirmed"]
     others = "\n".join(elements.describe(p, x) for x in p.elements if x.id != el.id and x.context != "off")
@@ -795,9 +826,8 @@ def impact_prompt(p: Project, el: StoryElement, linked: set[int]) -> str:
 [다른 이야기 요소]
 {others or "없음"}
 
-[기승전결 구조] 총 {p.meta.target_episodes}화
-{dump(p.arc) if p.arc else "아직 없음"}
-[화별 플롯] status: draft 초안, confirmed 작가가 확정, written 본문 있음, finalized 반영 완료
+{impact_structure(p)}
+[화별 플롯] status: draft 초안, confirmed 작가가 확정, written 본문 있음, finalized 반영 완료{f" (요소와 관련 없는 본문 있는 화 {skipped}개의 플롯은 빼고 아래 본문과 요약으로 대신합니다)" if skipped else ""}
 {dump(eps) if eps else "아직 없음"}
 [열린 복선]
 {dump(open_fs) if open_fs else "없음"}
@@ -811,7 +841,8 @@ def impact_prompt(p: Project, el: StoryElement, linked: set[int]) -> str:
 
 요구사항:
 - summary 에는 작가에게 2~5문장으로 영향 전체를 설명합니다. 영향이 없으면 그렇다고 말하고 나머지 목록은 비웁니다.
-- conflicts 에는 근거가 분명한 어긋남만 넣습니다. quote 는 본문, 플롯, 설정, 확정 사실의 원문을 그대로 옮기고, 본문이나 플롯이면 episode 에 화 번호를 적습니다.
+- conflicts 에는 근거가 분명한 어긋남만 넣습니다. quote 는 본문, 플롯, 설정, 확정 사실의 원문을 그대로 옮기고, 본문이나 플롯이면 episode 에 화 번호를 적습니다.{"""
+- 부나 아크의 goal, conflict, payoff, key_turn, arc_ideas 와 어긋나면 target 을 설정으로 하고 그 문구를 그대로 옮깁니다. 부와 아크는 이 분석으로 바꾸지 않으니 fix 는 설명 추가나 그대로 둠 중에서 고르고, 부나 아크를 어떻게 고치면 좋을지는 problem 에 적습니다.""" if p.serial else ""}
 - 본문이 있는 화({", ".join(map(str, locked)) or "없음"})의 모순은 patches(본문 최소 수정), new_facts(둘을 함께 성립시키는 설명), 또는 시점 변경 중 가장 덜 고치는 쪽을 fix 로 권합니다. 본문이 있는 화의 플롯은 episodes 에 넣지 않습니다.
 - patches 의 quote 는 본문 문장을 한두 문장만 그대로 옮기고, replacement 는 같은 문체로 필요한 만큼만 고칩니다.
 - episodes 에는 이 요소 때문에 바뀌어야 하는 본문 없는 화만, 모든 칸을 채운 전체 플롯으로 넣습니다. 나올 화가 정해져 있으면 그 화 사건에 넣고, 드러나는 화 전에는 foreshadow_plant 로 암시를 심습니다.
