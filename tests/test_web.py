@@ -104,3 +104,41 @@ def test_settings(client, tmp_path, monkeypatch):
     from canon.llm import get_llm
     from canon.mock import MockLLM
     assert isinstance(get_llm(), MockLLM)
+
+
+def test_relations(client):
+    meta = {"title": "등대", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "rel", "meta": meta})
+    s = client.post("/api/projects/rel/suggest").json()
+    p = client.post("/api/projects/rel/suggest/apply", json=s).json()
+    p["arc"] = client.post("/api/projects/rel/arc").json()["acts"]
+
+    # 첫 반영 전: 설정 화면의 시작 호감이 시작 관계가 된다
+    p["relationships"][0]["affinity"] = -5
+    p = client.put("/api/projects/rel", json=p).json()
+    assert all(t["warmth"] == -1 for t in p["ties"])
+    rel = client.get("/api/projects/rel/relations").json()
+    assert rel["words"] and "온기 -1.00" in rel["numbers"] and rel["show_numbers"] is False
+
+    client.post("/api/projects/rel/plots", json={})
+    client.post("/api/projects/rel/episodes/1/confirm")
+    client.post("/api/projects/rel/episodes/1/write")
+    d = client.post("/api/projects/rel/episodes/1/state").json()
+    assert d["events"]
+
+    # 미리 보기는 저장하지 않고, 고른 사건에 따라 결과가 달라진다
+    with_events = client.post("/api/projects/rel/episodes/1/preview", json=d).json()
+    without = client.post("/api/projects/rel/episodes/1/preview", json=dict(d, events=[])).json()
+    assert with_events["numbers"] != without["numbers"]
+    assert client.get("/api/projects/rel").json()["episodes"][0]["status"] == "written"
+
+    p = client.post("/api/projects/rel/episodes/1/apply", json=d).json()
+    assert client.get("/api/projects/rel/relations").json()["numbers"] == with_events["numbers"]
+
+    # 첫 반영 뒤에는 화면 저장이 계산된 관계를 덮어쓰지 않는다
+    ties = p["ties"]
+    p["relationships"][0]["affinity"] = 5
+    assert client.put("/api/projects/rel", json=p).json()["ties"] == ties
+
+    assert client.put("/api/projects/rel/view", json={"show_numbers": True}).json()["settings"]["show_numbers"] is True
+    assert client.get("/api/projects/rel/relations").json()["show_numbers"] is True
