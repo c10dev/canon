@@ -16,6 +16,8 @@ from .schema import (
     ConsistencyReport,
     EpisodePlot,
     Foreshadow,
+    ImpactConflict,
+    ImpactReport,
     NameOption,
     NameOptions,
     PlotBatch,
@@ -30,6 +32,7 @@ from .schema import (
     StoryArc,
     StoryEvent,
     StyleProfile,
+    TextPatch,
     WorldSetting,
 )
 
@@ -111,6 +114,26 @@ def _revision(hint: dict) -> PlotRevision:
     return rev
 
 
+def _impact(hint: dict) -> ImpactReport:
+    """영향 분석 흉내: 처음 쓴 화의 첫 문장을 모순으로 짚고 고친 문장을, 본문 없는 첫 화에 사건을 더한 플롯을 낸다.
+    검증 규칙을 시험하도록 원문에 없는 인용 하나를 함께 넣는다."""
+    el, eps = hint["element"], hint["episodes"]
+    rep = ImpactReport(summary=f"'{el.name}' 을(를) 더하면 앞 화 몇 곳이 흔들려요.", new_facts=[f"{el.name}: {el.description}"])
+    written = next((e for e in eps if e.text), None)
+    if written:
+        first = written.text.split("\n")[0].split(". ")[0].strip()
+        n = written.plot.number
+        rep.conflicts = [
+            ImpactConflict(target="본문", episode=n, quote=first, problem=f"{el.name} 과(와) 맞지 않는다", fix="본문 수정"),
+            ImpactConflict(target="본문", episode=n, quote="원문에 없는 지어낸 문장", problem="검증에서 빠져야 한다", fix="그대로 둠"),
+        ]
+        rep.patches = [TextPatch(episode=n, quote=first, replacement=first + " " + el.name + "이(가) 떠올랐다.", reason="새 설정과 맞춘다")]
+    target = next((e for e in eps if e.status in ("draft", "confirmed")), None)
+    if target:
+        rep.episodes = [target.plot.model_copy(update={"events": target.plot.events + [f"{el.name} 이(가) 드러난다"]})]
+    return rep
+
+
 class MockLLM:
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
         _delay()
@@ -164,6 +187,8 @@ class MockLLM:
                 foreshadow_planted=[Foreshadow(id=f"fs-{n:02d}-key", description="녹슨 열쇠", planted_ep=n)] if n == 1 else [],
                 foreshadow_resolved=["fs-01-key"] if n == 2 else [],
             )  # type: ignore[return-value]
+        if schema is ImpactReport:
+            return _impact(hint)  # type: ignore[return-value]
         if schema is NameOptions:  # 코드 후보에서 앞쪽 n 개를 고른 척한다
             names = hint["candidates"][: hint["n"]]
             return NameOptions(options=[NameOption(name=x, reason="후보 중 인물과 시대에 맞는 이름") for x in names])  # type: ignore[return-value]

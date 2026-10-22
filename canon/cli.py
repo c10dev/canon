@@ -11,6 +11,7 @@
   python -m canon recap 내소설 [arc|part 번호]   장편: 끝난 아크·부 요약 (승인 후 저장)
   python -m canon plot 내소설 [--from 1 --to 16]   화별 플롯 초안 (장편은 기본으로 플롯이 빈 아크)
   python -m canon revise 내소설 "3화 전개가 너무 빨라"   말로 구조와 플롯 고치기 (변경안 확인 후 반영, 대화는 웹과 같이 저장)
+  python -m canon causal 내소설 [list | add | show ID | impact ID | rm ID]   인과율: 요소·설정·사건을 더하고 영향 분석
   python -m canon confirm 내소설 all|3  플롯 확정
   python -m canon write 내소설 3        본문 생성
   python -m canon check 내소설 3        본문 검수 (앞선 본문·설정과의 모순, 근거 인용)
@@ -39,9 +40,9 @@ import re
 import sys
 from pathlib import Path
 
-from . import autorun, dynamics, genres, library, logline, metrics, naming, pipeline, prompts, research, store, updater
+from . import autorun, dynamics, elements, genres, library, logline, metrics, naming, pipeline, prompts, research, store, updater
 from .llm import dump, get_llm
-from .schema import ConsistencyReport, LoglineParts, Meta, Project, StateDelta
+from .schema import ConsistencyReport, LoglineParts, Meta, Project, StateDelta, StoryElement
 
 
 def ask(label: str, default: str = "") -> str:
@@ -325,6 +326,64 @@ def cmd_recap(a: argparse.Namespace) -> None:
             pipeline.apply_recap(p, kind, num, r.summary)
             store.save(a.name, p)
     print("저장 완료")
+
+
+def cmd_causal(a: argparse.Namespace) -> None:
+    """인과율: 요소, 특징, 설정, 사건을 더하고, 이미 쓴 화와 정해 둔 플롯에 주는 영향을 본다."""
+    p = store.load(a.name)
+    act, args = a.action, a.args
+    if act == "list":
+        for el in p.elements:
+            imp = (el.impact.outcome or "결정 전") + (" (요소를 고친 뒤라 지난 분석)" if elements.stale(el) else "") if el.impact else "분석 전"
+            print(f"{el.id}  [{el.kind}] {el.name}  ({elements.timing(el)})  영향 분석: {imp}")
+        if not p.elements:
+            print("요소가 없습니다. python -m canon causal 이름 add --kind 과거사건 --title 이름 --desc 설명")
+        return
+    if act == "add":
+        kind = (a.kind or "기타").replace(" ", "")
+        kind = next((k for k in elements.KINDS if k.replace(" ", "") == kind), None)
+        if kind is None:
+            raise ValueError(f"종류는 {', '.join(elements.KINDS)} 중 하나입니다")
+        el = StoryElement(id=elements.new_id(p), kind=kind, name=a.title or ask("이름"), description=a.desc or ask("설명"),
+                          characters=[c for c in (a.chars or "").split(",") if c], since_ep=a.since,
+                          episodes=[int(x) for x in (a.eps or "").split(",") if x.strip()], reveal_ep=a.reveal)
+        p.elements.append(el)
+        elements.stamp(p)
+        store.save(a.name, p)
+        print(f"더했습니다: {el.id} {el.name} ({elements.timing(el)})")
+        if el.added_after:
+            print(f"{el.added_after}화까지 쓴 뒤에 더했습니다. 영향을 보려면: python -m canon causal {a.name} impact {el.id}")
+        return
+    if not args:
+        raise ValueError("요소 id 를 적으세요 (python -m canon causal 이름 list)")
+    el = elements.get(p, args[0])
+    if act == "rm":
+        p.elements = [x for x in p.elements if x.id != el.id]
+        store.save(a.name, p)
+        print(f"지웠습니다: {el.id}")
+        return
+    if act == "show":
+        print(elements.describe(p, el))
+        print("\n관련 화 (AI 없이 찾음)")
+        for lk in elements.links(p, el):
+            why = ", ".join(filter(None, ["언급: " + "/".join(lk.terms) if lk.terms else "", "인물" if lk.characters else "", "나올 화" if lk.planned else ""]))
+            print(f"  {lk.episode}화 ({lk.status}) {why}  {lk.snippet}")
+        return
+    rep = pipeline.analyze_impact(get_llm("plan"), p, el.id)
+    pipeline.record_impact(p, el.id, rep)
+    print(rep.summary)
+    for c in rep.conflicts:
+        print(f"\n[{c.target}{f' {c.episode}화' if c.episode else ''}] {c.problem}  → {c.fix}\n  \"{c.quote}\"")
+    for e in rep.episodes:
+        print(f"\n{e.number}화 플롯 변경: {e.title}\n  {e.summary}\n  사건: {' / '.join(e.events)}")
+    for t in rep.patches:
+        print(f"\n{t.episode}화 본문 수정\n  - {t.quote}\n  + {t.replacement}")
+    for f in rep.new_facts:
+        print(f"\n확정 사실 더하기: {f}")
+    if (rep.episodes or rep.patches or rep.new_facts) and confirm("모두 반영할까요? (확정된 화는 초안으로, 본문은 위처럼 바뀝니다)", a.yes):
+        done = pipeline.apply_impact(p, el.id, [e.number for e in rep.episodes], list(range(len(rep.patches))), list(range(len(rep.new_facts))))
+        print(f"반영: {', '.join(done)}")
+    print(f"저장: {store.save(a.name, p)}")
 
 
 def cmd_confirm(a: argparse.Namespace) -> None:
@@ -766,6 +825,16 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--from", dest="start", type=int)
     sp.add_argument("--to", dest="end", type=int)
     add("revise", cmd_revise, "message")
+    sp = add("causal", cmd_causal)
+    sp.add_argument("action", nargs="?", choices=["list", "add", "show", "impact", "rm"], default="list")
+    sp.add_argument("args", nargs="*")
+    sp.add_argument("--kind", help="add: " + ", ".join(elements.KINDS))
+    sp.add_argument("--title", help="add: 이름")
+    sp.add_argument("--desc", help="add: 설명")
+    sp.add_argument("--chars", help="add: 관련 인물 id, 쉼표로")
+    sp.add_argument("--since", type=int, default=0, help="add: n화부터 생김 (0 이면 처음부터 사실)")
+    sp.add_argument("--eps", help="add: 나올 화, 쉼표로")
+    sp.add_argument("--reveal", type=int, default=0, help="add: 독자에게 드러나는 화")
     add("confirm", cmd_confirm, "which", yes=False)
     add("write", cmd_write, "n", yes=False)
     sp = add("update", cmd_update, "n")

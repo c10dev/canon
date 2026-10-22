@@ -3,7 +3,7 @@ import pytest
 
 from canon import pipeline, prompts
 from canon.mock import MockLLM
-from canon.schema import Character, EpisodePlot, Foreshadow, Project, StateDelta
+from canon.schema import Character, EpisodePlot, Foreshadow, Project, StateDelta, StoryElement
 
 LLM = MockLLM()
 
@@ -214,6 +214,16 @@ def test_serial_plot_prompt_has_no_full_history():
     pr = prompts.plot_prompt(p, p.story_arcs[-1].end_ep + 1, p.story_arcs[-1].end_ep + 5)
     assert '"number": 1,' not in pr  # 1화 플롯 전체는 들어가지 않는다
     assert "지금까지의 줄거리" in pr
+
+
+def test_story_elements_reach_serial_prompts():
+    p = _serial()
+    a = _plan_arc(p)
+    p.elements.append(StoryElement(id="el-01", kind="세계 규칙", name="탑의 문지기", description="탑 입구에는 늘 문지기가 있다", context="always"))
+    assert "탑의 문지기" in prompts.build_episode_context(p, a.start_ep)
+    assert "탑의 문지기" in prompts.plot_prompt(p, a.start_ep, a.end_ep)
+    assert "탑의 문지기" in prompts.next_arc_prompt(p, a.end_ep + 1, 0, "")
+    assert "탑의 문지기" in prompts.plot_chat_prompt(p, "더 빠르게")
 
 
 def test_series_rejects_gaps():

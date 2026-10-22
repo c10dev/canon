@@ -364,6 +364,32 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 @media (max-width: 760px) { .arc-facts { grid-template-columns: minmax(0, 1fr); } }
 .recap { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
 
+/* ----- 인과율 ----- */
+.causal { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .causal { grid-template-columns: minmax(0, 1fr); } }
+.causal-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.el-list { display: flex; flex-direction: column; gap: 8px; }
+@media (min-width: 901px) { .el-list { position: sticky; top: 16px; } }
+.el-item { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font: inherit; color: inherit; cursor: pointer; }
+.el-item:hover { border-color: var(--line-strong); }
+.el-item.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.el-item strong { font-size: 15px; }
+.strip-scroll { overflow-x: auto; padding: 2px; }
+.strip { display: grid; gap: 4px; min-width: min-content; }
+.strip .cell { min-width: 30px; padding: 6px 0 4px; border: 1px solid var(--line); border-radius: 6px; text-align: center; font-size: 12px; font-weight: 700; color: var(--text-2); text-decoration: none; font-variant-numeric: tabular-nums; background: var(--surface); }
+.strip .cell i { display: block; font-style: normal; font-size: 10px; font-weight: 500; min-height: 14px; }
+.strip .cell.has-text { border-bottom: 3px solid var(--text-2); }
+.strip .cell.before { opacity: .55; }
+.strip .cell.since { border-left: 3px solid var(--accent); }
+.strip .cell.reveal { outline: 2px dashed var(--accent); outline-offset: 1px; }
+.strip .cell.rel { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+.strip .cell.plot { background: var(--amber-soft); border-color: var(--amber); color: var(--amber-ink); }
+.strip .cell.bad { background: var(--red-soft); border-color: var(--red); color: var(--red); }
+.conflicts { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.conflict { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px; background: var(--bg); font-size: 13px; line-height: 1.55; }
+.conflict blockquote { margin: 0; padding-left: 10px; border-left: 3px solid var(--line-strong); color: var(--text-2); font-family: var(--serif); }
+.strip .cell.rel.weak { background: var(--surface); border-style: dashed; }
+
 /* 이름 · 지명 후보 */
 .name-picks-box { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
 .name-picks { display: flex; flex-wrap: wrap; gap: 6px; }

@@ -1,8 +1,8 @@
 """소설 프로젝트 데이터 스키마.
 
 모든 상태는 하나의 Project 객체(project.json)에 저장된다.
-LLM 이 직접 채우는 모델(SetupSuggestion, StyleProfile, ArcPlan, PlotBatch, PlotRevision, StateDelta, ConsistencyReport,
-SeriesPlan, ArcProposal, Recap)은
+LLM 이 직접 채우는 모델(SetupSuggestion, StyleProfile, ArcPlan, PlotBatch, PlotRevision, NameOptions, StateDelta, ConsistencyReport,
+ImpactReport, SeriesPlan, ArcProposal, Recap)은
 Gemini 구조화 출력에 그대로 넘기므로 dict 타입 필드를 쓰지 않는다.
 """
 from __future__ import annotations
@@ -425,6 +425,62 @@ class NameOptions(BaseModel):
     options: list[NameOption]
 
 
+# ---------- 인과율: 언제든 더하는 이야기 요소와 그 영향 ----------
+
+ElementKind = Literal["세계 규칙", "장소", "물건", "세력", "인물 특징", "과거 사건", "예정 사건", "기타"]
+
+
+class ImpactConflict(BaseModel):
+    target: Literal["본문", "플롯", "설정", "확정 사실"] = Field(description="새 요소와 부딪치는 것이 있는 곳")
+    episode: int = Field(0, description="본문이나 플롯이면 그 화 번호, 설정이나 확정 사실이면 0")
+    quote: str = Field(description="부딪치는 기존 내용을 원문 그대로 (본문이면 본문 문장, 플롯이면 플롯 문구)")
+    problem: str = Field(description="무엇이 어긋나는지 한 문장")
+    fix: Literal["본문 수정", "플롯 수정", "설명 추가", "시점 변경", "그대로 둠"] = Field(
+        description="권하는 처리: 본문 수정(patches), 플롯 수정(episodes), 설명 추가(new_facts), 시점 변경(요소의 since_ep 를 늦춤), 그대로 둠")
+
+
+class TextPatch(BaseModel):
+    episode: int = Field(description="본문이 있는 화 번호")
+    quote: str = Field(description="바꿀 본문 문장을 원문 그대로 (한두 문장)")
+    replacement: str = Field(description="새 요소와 맞게 최소로 고친 문장")
+    reason: str = Field("", description="왜 바꾸는지 한 문장")
+
+
+class ImpactReport(BaseModel):
+    """요소 하나를 더하거나 바꿨을 때 AI 가 내는 영향 보고서. 작가가 고른 부분만 반영한다 (pipeline.apply_impact)."""
+    summary: str = Field(description="작가에게 하는 설명 2~5문장: 어느 화와 플롯이 어떻게 흔들리고 무엇을 권하는지")
+    conflicts: list[ImpactConflict] = Field(default_factory=list, description="근거를 인용할 수 있는 모순과 어긋남만")
+    episodes: list[EpisodePlot] = Field(default_factory=list, description="바뀌는 화의 전체 플롯. 본문이 없는 화만")
+    patches: list[TextPatch] = Field(default_factory=list, description="이미 쓴 화의 최소 본문 수정안")
+    new_facts: list[str] = Field(default_factory=list, description="모순을 설명으로 덮을 때 더할 확정 사실")
+
+
+class ElementImpact(BaseModel):
+    """요소에 붙여 두는 마지막 영향 분석. 반영 결과와, 분석할 때의 요소 내용(basis)을 함께 남긴다."""
+    report: ImpactReport
+    basis: str = Field("", description="분석한 요소 내용의 지문. 요소를 고치면 달라져 다시 분석하라고 알린다")
+    at: str = ""
+    outcome: Literal["", "applied", "dismissed"] = ""
+    applied: list[str] = Field(default_factory=list, description="반영한 부분: 'ep:3', 'patch:0', 'fact:1'")
+
+
+class StoryElement(BaseModel):
+    """작가가 언제든 더하는 요소, 특징, 설정, 사건 (인과율 화면). 작가 입력이라 바로 저장한다."""
+    id: str
+    kind: ElementKind = "기타"
+    name: str = ""
+    aliases: list[str] = Field(default_factory=list, description="본문과 플롯에서 언급을 찾을 다른 이름")
+    description: str = ""
+    characters: list[str] = Field(default_factory=list, description="관련 인물 id")
+    since_ep: int = Field(0, description="0 이면 처음부터 사실, n 이면 n화부터 생긴다")
+    episodes: list[int] = Field(default_factory=list, description="일어나거나 꼭 나와야 하는 화 (예정 사건 등)")
+    reveal_ep: int = Field(0, description="독자에게 드러나는 화. 0 이면 숨기지 않는다")
+    context: Literal["auto", "always", "off"] = Field("auto", description="본문 프롬프트에 넣기: 관련 있을 때, 항상, 넣지 않음")
+    created_at: str = ""
+    added_after: int = Field(0, description="더할 때 본문이 있던 마지막 화. 0 이면 연재 전에 더함")
+    impact: Optional[ElementImpact] = None
+
+
 class SetupSuggestion(BaseModel):
     """설정 도우미: 사용자가 채운 기본 정보를 바탕으로 빈칸을 제안."""
     theme: str
@@ -459,6 +515,7 @@ class Project(BaseModel):
     snapshots: list[Snapshot] = Field(default_factory=list)
     settings: Settings = Field(default_factory=Settings)
     chats: list[Chat] = Field(default_factory=list, description="화면별 AI 대화 기록")
+    elements: list[StoryElement] = Field(default_factory=list, description="인과율: 언제든 더하는 요소, 특징, 설정, 사건")
 
     def episode(self, n: int) -> Episode:
         for ep in self.episodes:
