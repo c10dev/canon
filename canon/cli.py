@@ -13,6 +13,8 @@
   python -m canon stats 내소설 [3]      문체 지표를 레퍼런스와 비교
   python -m canon update 내소설 3       상태 변경안 확인 후 반영
   python -m canon run 내소설            확정된 화를 순서대로 write → check → update
+  python -m canon compare 내소설 3 [--a gemini --b local]   같은 화를 두 백엔드로 써서 이름을 가리고 비교
+  python -m canon compare 내소설 3 --pick 2   고른 쪽을 본문으로 쓰고 어느 백엔드였는지 공개
   python -m canon brief 내소설 3        구독형 채팅 앱용 작업지시서 출력 (--state, --check)
   python -m canon import 내소설 3 본문.txt   다른 곳에서 쓴 본문 가져오기
   python -m canon show 내소설 [섹션]       섹션 rel 은 관계 역학을 보여 준다
@@ -32,7 +34,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import dynamics, genres, library, logline, metrics, pipeline, prompts, store, updater
+from . import dynamics, genres, library, logline, metrics, pipeline, prompts, research, store, updater
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, StateDelta
 
@@ -109,7 +111,7 @@ def cmd_new(a: argparse.Namespace) -> None:
 
 def _suggest(name: str, p: Project, yes: bool) -> None:
     print("\nAI 가 설정을 제안하는 중...")
-    s = pipeline.suggest_setup(get_llm(), p)
+    s = pipeline.suggest_setup(get_llm("plan"), p)
     print(dump(s))
     if confirm("이 제안을 반영할까요? (반영 후 project.json 에서 수정 가능)", yes):
         pipeline.apply_setup(p, s)
@@ -132,7 +134,7 @@ def cmd_style(a: argparse.Namespace) -> None:
     if not a.file:
         sys.exit("예시 원문 파일이나 --library ID 를 주세요 (라이브러리 목록: python -m canon styles)")
     sample = Path(a.file).read_text(encoding="utf-8")
-    profile = pipeline.analyze_style(get_llm(), sample)
+    profile = pipeline.analyze_style(get_llm("plan"), sample)
     print(dump(profile))
     if confirm("이 스타일 프로필을 저장할까요?", a.yes):
         p.style = profile
@@ -150,7 +152,7 @@ def cmd_styles(a: argparse.Namespace) -> None:
             sys.exit("사용법: python -m canon styles add 이름 원문.txt")
         name, file = a.args
         sample = Path(file).read_text(encoding="utf-8")
-        profile = pipeline.analyze_style(get_llm(), sample)
+        profile = pipeline.analyze_style(get_llm("plan"), sample)
         print(dump(profile))
         if confirm("이 문체를 라이브러리에 저장할까요?", a.yes):
             e = library.create(name, profile, sample, a.source)
@@ -182,7 +184,7 @@ def cmd_styles(a: argparse.Namespace) -> None:
 
 def cmd_arc(a: argparse.Namespace) -> None:
     p = store.load(a.name)
-    plan = pipeline.plan_arc(get_llm(), p)
+    plan = pipeline.plan_arc(get_llm("plan"), p)
     for act in plan.acts:
         print(f"[{act.name}] {act.start_ep}~{act.end_ep}화  목표: {act.goal}  / 전환점: {act.key_turn}")
     if confirm("이 구조로 확정할까요?", a.yes):
@@ -193,7 +195,7 @@ def cmd_arc(a: argparse.Namespace) -> None:
 def cmd_plot(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     start, end = a.start or 1, a.end or p.meta.target_episodes
-    batch = pipeline.draft_plots(get_llm(), p, start, end)
+    batch = pipeline.draft_plots(get_llm("plan"), p, start, end)
     for e in batch.episodes:
         print(f"\n{e.number}화 [{e.act}] {e.title}\n  {e.summary}\n  사건: {' / '.join(e.events)}\n  훅: {e.ending_hook}")
     pipeline.apply_plots(p, batch)
@@ -202,7 +204,7 @@ def cmd_plot(a: argparse.Namespace) -> None:
 
 def cmd_revise(a: argparse.Namespace) -> None:
     p = store.load(a.name)
-    rev = pipeline.revise_plot(get_llm(), p, a.message)
+    rev = pipeline.revise_plot(get_llm("plan"), p, a.message)
     msg = pipeline.record_chat(p, "plot", a.message, rev)
     print(rev.reply)
     if rev.total_episodes:
@@ -238,7 +240,7 @@ def cmd_write(a: argparse.Namespace) -> None:
 
 def _write(name: str, p: Project, n: int) -> None:
     print(f"{n}화 생성 중...")
-    text = pipeline.write_episode(get_llm(), p, n)
+    text = pipeline.write_episode(get_llm("write"), p, n)
     ep = p.episode(n)
     ep.text, ep.status = text, "written"
     store.save(name, p)
@@ -265,7 +267,7 @@ def cmd_check(a: argparse.Namespace) -> None:
 
 def _check(name: str, p: Project, n: int) -> None:
     print(f"{n}화 검수 중...")
-    pipeline.apply_check(p, pipeline.check_episode(get_llm(), p, n))
+    pipeline.apply_check(p, pipeline.check_episode(get_llm("check"), p, n))
     store.save(name, p)
 
 
@@ -358,7 +360,7 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
         delta.episode = n
     else:
         print(f"{n}화 상태 추출 중...")
-        delta = pipeline.extract_state(get_llm(), p, n)
+        delta = pipeline.extract_state(get_llm("state"), p, n)
     _print_delta(delta)
     _print_relation_preview(p, delta)
     if p.episode(n).issues:
@@ -390,6 +392,27 @@ def cmd_run(a: argparse.Namespace) -> None:
             print("상태 반영을 보류해 멈춥니다.")
             return
     print("모든 화 완료")
+
+
+def cmd_compare(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    if a.pick:
+        r = research.pick_compare(a.name, p, a.n, a.pick)
+        store.save(a.name, p)
+        print(f"{a.pick}번은 {r['picked']} 였습니다 (다른 쪽: {', '.join(r['others'])}). {a.n}화 본문으로 저장했습니다.")
+        print("지금까지 고른 횟수: " + ", ".join(f"{prov} {cnt}" for prov, cnt in sorted(r["wins"].items())))
+        return
+    if a.a == a.b:
+        sys.exit("--a 와 --b 가 같습니다")
+    print(f"{a.n}화를 {a.a}, {a.b} 로 각각 쓰는 중...")
+    c = research.run_compare(a.name, p, a.n, research.Backend(provider=a.a), research.Backend(provider=a.b))
+    print(f"\n{'':>3} {'글자':>6} {'문장평균':>7} {'대사':>5} {'어휘':>6}  문체 경고")
+    for d in c["drafts"]:
+        print(f"{d['n']:>3} {d['chars']:>6} {d['sentence_len_mean']:>7} {d['dialogue_ratio']:>5} {_num(d['mattr']):>6}  {len(d['warnings']) or ''}")
+        for w in d["warnings"]:
+            print(f"      ! {w}")
+    out = research.compare_dir(a.name, a.n)
+    print(f"\n저장: {out}/1.md, 2.md (key.json 은 열지 마세요)\n읽어 보고 고르세요: compare {a.name} {a.n} --pick 1|2")
 
 
 def cmd_brief(a: argparse.Namespace) -> None:
@@ -522,6 +545,10 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("n", type=int, nargs="?")
     sp = add("run", cmd_run)
     sp.add_argument("--no-check", action="store_true", help="화마다 검수 호출을 건너뜀")
+    sp = add("compare", cmd_compare, "n", yes=False)
+    sp.add_argument("--a", default="gemini", choices=["gemini", "local", "mock"])
+    sp.add_argument("--b", default="local", choices=["gemini", "local", "mock"])
+    sp.add_argument("--pick", type=int, choices=[1, 2], help="고른 번호. 본문으로 저장하고 백엔드를 공개")
     sp = add("brief", cmd_brief, "n", yes=False)
     sp.add_argument("--state", action="store_true", help="상태 정리용 작업지시서")
     sp.add_argument("--check", action="store_true", help="검수용 작업지시서")
@@ -557,5 +584,5 @@ def main(argv: list[str] | None = None) -> None:
     a = ap.parse_args(argv)
     try:
         a.fn(a)
-    except (ValueError, KeyError, FileNotFoundError) as e:
+    except (ValueError, KeyError, FileNotFoundError, RuntimeError) as e:
         sys.exit(f"오류: {e}")

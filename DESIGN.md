@@ -107,16 +107,23 @@ AI 는 숫자를 매기지 않고 사건만 뽑는다. 같은 사건은 항상 �
 
 `canon/llm.py` 의 `LLM` 인터페이스(`json`, `text`) 뒤에 구현을 둔다.
 
-- `GeminiLLM` (기본): `google-genai` SDK, 구조화 출력은 `response_json_schema` 로 pydantic 스키마를 그대로 전달. 모델은 `CANON_MODEL` 로 바꾼다.
+- `GeminiLLM` (기본): `google-genai` SDK, 구조화 출력은 `response_json_schema` 로 pydantic 스키마를 그대로 전달. 기본 모델은 `gemini-4-argon` 이고 `CANON_MODEL` 로 바꾼다.
+- `LocalLLM`: OpenAI 호환 `/v1/chat/completions` 서버(Ollama, llama.cpp, vLLM, LM Studio). 표준 라이브러리만 쓴다. 구조화 출력은 `response_format`(json_schema) 로 강제하고 pydantic 으로 검증하며, 틀리면 오류를 알려 주고 한 번 더 묻는다. 추론 모델의 `<think>` 블록은 지운다. 본문(`text`)에는 `local_sampling`(기본 temperature 1.0, top_p 0.95, min_p 0.05)을, 구조화 출력에는 temperature 0.3 을 쓴다.
 - `MockLLM`: API 키 없이 전체 흐름 확인용 (`CANON_LLM=mock`).
 
-Claude, OpenAI 구현은 같은 두 메서드만 구현하면 추가된다.
+**단계별 백엔드.** `get_llm(stage)` 는 plan(설정 제안, 문체 분석, 기승전결, 화별 플롯) / write(본문) / check(검수) / state(상태 추출) 마다 다른 백엔드를 고를 수 있다. 권장 조합은 계획·검수·상태 추출은 Gemini, 본문은 문체를 학습시킨 로컬 모델이다. 프롬프트는 `prompts.py` 한 곳을 같이 쓰므로 백엔드를 바꿔도 컨텍스트는 같다.
+
+**블라인드 비교.** `compare` 는 같은 화를 두 백엔드로 쓰고 1, 2 번으로 가려 저장한 뒤 문체 지표를 보여 준다. `--pick` 으로 고르면 그 본문을 쓰고 어느 쪽이었는지 공개하며 `compare/log.jsonl` 에 누적한다. "어느 모델이 한국어 소설을 더 잘 쓰나"를 작품 안에서 직접 확인하기 위한 도구다.
+
+Claude 등 다른 구현도 같은 두 메서드만 구현하면 추가된다.
+
+**연구 화면.** `canon/research.py` 는 모델 실험을 본편과 분리한다. 실험은 `project.json` 을 저장하지 않고 `research/log.jsonl` 에 기록한다. 단계 시험은 pipeline 함수를 그대로 부르고 결과만 돌려준다. 빈 필드와, 필드 설명에 `a ~ b` 로 적힌 숫자가 범위를 벗어났는지 검사한다. 스키마에 기본값이 있으면 json_schema 의 required 가 비어 로컬 서버가 필드를 건너뛸 수 있어서, 이 검사로 모델별 차이를 본다. 컨텍스트 크기는 아직 안 쓴 화를 목표 분량의 글로 채운 사본으로 재서, 검수처럼 앞선 본문을 모두 넣는 단계가 몇 화부터 한도를 넘는지 미리 보여 준다. 블라인드 비교의 저장 형식(`compare/NN/`, `compare/log.jsonl`)은 CLI `compare` 와 같다. `LocalLLM`, `GeminiLLM` 은 이 화면을 위해 `last_usage`, `last_attempts`, `context_limit()`, `count_tokens()` 를 제공한다. LoRA 처럼 컨텍스트 값이 없는 모델은 부모 모델 값을 쓴다.
 
 ## 7. 알려진 한계 (MVP)
 
 - 화별 스냅샷으로 상태 반영을 되돌릴 수 있지만(`revert`), 관계 역학 계수는 실제 원고로 아직 튜닝하지 않았다.
 - 화 하나를 한 번의 호출로 쓴다. 분량이 길면 장면 단위 분할 생성이 필요할 수 있다.
-- 실제 Gemini 호출은 API 키가 있는 환경에서 아직 검증하지 않았다 (mock 으로 전체 흐름만 확인).
+- 실제 Gemini 호출과 실제 로컬 서버 호출은 아직 검증하지 않았다 (mock 과 가짜 OpenAI 호환 서버로만 확인). gemini-4-argon 의 thinking 수준은 아직 설정하지 않는다.
 - 웹 UI 는 단일 사용자용이다 (로그인, 동시 편집 없음). 다른 기기에서 열 때는 서버에서 systemd 로 띄우고 Tailscale 같은 사설망 안에서만 연다 (`deploy/canon.service`). 공개 인터넷에 열려면 로그인과 API 키 보호가 먼저 필요하다.
 - 웹에서 오래 걸리는 AI 작업(설정 제안, 구조 제안, 화별 플롯 초안, 본문 쓰기, 상태 변경안)은 백그라운드 작업(`canon/jobs.py`, `POST /api/projects/{name}/jobs`)으로 돈다. 화면은 왼쪽 아래 작업 상자로 진행을 보여 주고 1.5초마다 `GET /api/jobs` 로 확인하므로 그동안 다른 화면을 쓸 수 있다. 같은 작품의 같은 작업은 하나만 돈다. 화별 플롯 초안은 구간(기·승·전·결)마다 한 번씩 불러 끝난 구간부터 카드가 채워진다. 작업이 맡은 화는 작업 중(과 끝난 뒤 화면이 받아 갈 때까지)에는 작품 전체 저장이 덮지 않는다. 작업 목록은 서버 메모리에만 있어 서버를 다시 띄우면 사라지고, 자동 업데이트는 도는 작업이 끝난 뒤에 재시작한다.
 - 코드 자동 업데이트(`canon/updater.py`)는 `main` 에서 fast-forward 할 수 있을 때만 받는다. 로컬 변경이나 커밋이 있으면 건너뛴다. 받은 뒤에는 요청이 없을 때 같은 명령으로 프로세스를 다시 띄운다(`os.execv`).
@@ -127,3 +134,4 @@ Claude, OpenAI 구현은 같은 두 메서드만 구현하면 추가된다.
 2. **MCP 서버**: `get_episode_brief`, `submit_episode_text`, `propose_state_update`, `apply_state_update`, `get_project` 같은 tool 로 노출. Claude Desktop 등 구독형 앱이 직접 데이터를 읽고 쓰게 한다. `prompts.py` 와 `pipeline.py` 를 그대로 재사용한다.
 3. 웹 UI 다듬기: 관계도 그래프 시각화, 화별 상태 스냅샷과 되돌리기 화면.
 4. 장편 확장: 권 단위 아크, 오래된 요약의 재요약, 인물별 기억 검색.
+5. 문체 학습: AI 초안과 사용자 수정본을 함께 저장해 SFT/DPO 데이터로 내보내고, 로컬 모델에 문체 LoRA 를 붙인 뒤 `compare` 로 효과를 잰다.
