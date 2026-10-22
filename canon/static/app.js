@@ -425,6 +425,30 @@ const actions = {
     render();
   },
 
+  // 설정
+  async saveSettings() {
+    const key = $('#set-key').value.trim();
+    const body = { provider: $('#set-provider').value, model: $('#set-model').value.trim() };
+    if (key) body.api_key = key;
+    await run('저장 중', async () => {
+      S.config = await api('PUT', '/config', body);
+      toast('설정을 저장했습니다');
+    });
+  },
+  async clearKey() {
+    if (!confirm('저장된 API 키를 지울까요?')) return;
+    await run('지우는 중', async () => {
+      S.config = await api('PUT', '/config', { clear_key: true });
+      toast('키를 지웠습니다');
+    });
+  },
+  async testSettings() {
+    await run('연결 확인 중', async () => {
+      const r = await api('POST', '/config/test');
+      toast(r.message);
+    });
+  },
+
   // 작업지시서
   openStateBrief(n) {
     S.briefTab = 'state';
@@ -519,7 +543,9 @@ async function route() {
   S.briefText = null;
   try {
     if (!S.config) S.config = await api('GET', '/config');
-    if (parts[0] === 'p' && parts[1]) {
+    if (parts[0] === 'settings') {
+      S.config = await api('GET', '/config');
+    } else if (parts[0] === 'p' && parts[1]) {
       if (S.name !== parts[1] || S.dirty) await loadProject(parts[1]);
       else S.project = await api('GET', `/projects/${enc(parts[1])}`);
       S.dirty = false;
@@ -550,6 +576,10 @@ async function route() {
 function render() {
   renderSavebar();
   const [p, , page, arg] = S.route;
+  if (p === 'settings') {
+    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:820px;margin:0 auto">${viewSettings()}</main></div>`;
+    return;
+  }
   if (p !== 'p' || !P()) {
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1080px;margin:0 auto">${viewProjects()}</main></div>`;
     return;
@@ -594,7 +624,8 @@ function sidebar(active) {
     <div class="side-foot">
       <span class="small">생성 모델</span>
       <strong style="font-size:13px">${esc(cfg.model || '')}</strong>
-      ${cfg.has_key ? '' : '<span style="color:var(--red)">GEMINI_API_KEY 가 없습니다. AI 호출 대신 작업지시서를 쓰세요.</span>'}
+      ${cfg.has_key ? '' : '<span style="color:var(--red)">API 키가 없습니다. 설정에서 넣거나 작업지시서를 쓰세요.</span>'}
+      <a href="#/settings">모델 · API 키 설정</a>
       <a href="#/">작품 목록</a>
     </div>
   </nav>`;
@@ -602,6 +633,39 @@ function sidebar(active) {
 
 function header(eyebrow, title, desc, right = '') {
   return `<header class="page-head"><div class="lead"><div class="eyebrow">${eyebrow}</div><h1>${esc(title)}</h1>${desc ? `<p class="desc">${desc}</p>` : ''}</div><div class="row">${right}</div></header>`;
+}
+
+// ----- 설정 -----
+
+function viewSettings() {
+  const c = S.config || {};
+  const src = { env: '환경 변수', file: '설정 파일', default: '기본값', none: '없음' };
+  const envNote = (s, name) => s === 'env' ? `<div class="small">환경 변수 ${name} 가 설정돼 있어 그 값이 우선합니다.</div>` : '';
+  const keyState = c.key_source === 'none'
+    ? '<span class="chip" style="background:var(--red-soft);color:var(--red)">없음</span>'
+    : `<span class="chip finalized">${esc(c.key_hint)}</span> <span class="small">${src[c.key_source]}</span>`;
+  return `${header('Canon', '모델 · API 키 설정', '여기서 저장한 값은 이 컴퓨터의 설정 파일에만 들어갑니다. 작품 폴더나 저장소에는 들어가지 않아요.', '<a class="btn" href="javascript:history.back()">돌아가기</a>')}
+    <section class="card">
+      <div class="field"><label for="set-provider">생성 방식</label>
+        <select id="set-provider">
+          <option value="gemini"${c.provider === 'gemini' ? ' selected' : ''}>Gemini API</option>
+          <option value="mock"${c.provider === 'mock' ? ' selected' : ''}>mock (AI 호출 없이 화면 확인용)</option>
+        </select>${envNote(c.provider_source, 'CANON_LLM')}</div>
+      <div class="field"><label for="set-key">Gemini API 키 <span class="hint">지금: </span>${keyState}</label>
+        <input id="set-key" type="password" autocomplete="off" placeholder="${c.key_source === 'none' ? 'AIza… 로 시작하는 키' : '바꿀 때만 입력'}">
+        <div class="small"><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>에서 무료로 발급받을 수 있어요. 저장한 키는 화면에 다시 보여주지 않습니다.</div>
+        ${envNote(c.key_source, 'GEMINI_API_KEY')}</div>
+      <div class="field"><label for="set-model">모델</label>
+        <input id="set-model" type="text" list="model-list" value="${esc(c.model_setting || '')}">
+        <datalist id="model-list"><option value="gemini-2.5-pro"></option><option value="gemini-2.5-flash"></option><option value="gemini-2.5-flash-lite"></option></datalist>
+        <div class="small">pro 는 품질이 좋고, flash 는 빠르고 저렴합니다.</div>${envNote(c.model_source, 'CANON_MODEL')}</div>
+      <div class="row">
+        <button class="btn primary" data-action="saveSettings">저장</button>
+        <button class="btn" data-action="testSettings">연결 확인</button>
+        ${c.key_source === 'file' ? '<button class="btn danger" data-action="clearKey">저장된 키 지우기</button>' : ''}
+      </div>
+      <div class="small">설정 파일: ${esc(c.path)}</div>
+    </section>`;
 }
 
 // ----- 작품 목록 -----
@@ -612,7 +676,9 @@ function viewProjects() {
       <div class="between"><h3>${esc(x.title || x.name)}</h3><span class="small">${x.finalized} / ${x.episodes}화</span></div>
       <div class="small">${esc(x.genre || '장르 미정')} · 폴더 ${esc(x.name)}</div>
     </a>`).join('');
-  return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편을 씁니다.')}
+  const cfg = S.config || {};
+  return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편을 씁니다.', '<a class="btn" href="#/settings">모델 · API 키 설정</a>')}
+    ${cfg.has_key ? '' : '<div class="note warn">Gemini API 키가 없어요. <a href="#/settings" style="color:inherit;font-weight:700">설정</a>에서 넣으면 AI 생성을 쓸 수 있습니다. 키 없이도 채팅 앱 작업지시서로 쓸 수 있어요.</div>'}
     ${list.length ? `<div class="grid-auto">${cards}</div>` : '<div class="note plain">아직 작품이 없어요. 아래에서 새 작품을 만드세요.</div>'}
     <section class="card" style="max-width:720px">
       <h2>새 작품</h2>

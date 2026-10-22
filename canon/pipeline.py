@@ -1,7 +1,7 @@
 """생성 파이프라인. 각 단계는 Project 를 받아 제안을 만들고, 반영은 호출자가 승인 후 한다."""
 from __future__ import annotations
 
-from . import metrics, prompts
+from . import dynamics, metrics, prompts
 from .llm import LLM
 from .schema import (
     ArcPlan,
@@ -12,6 +12,7 @@ from .schema import (
     Project,
     SetupSuggestion,
     StateDelta,
+    StoryEvent,
     StyleProfile,
 )
 
@@ -34,6 +35,7 @@ def apply_setup(p: Project, s: SetupSuggestion) -> None:
     pairs = {frozenset((r.a, r.b)) for r in p.relationships}
     p.relationships += [r for r in s.relationships if frozenset((r.a, r.b)) not in pairs]
     _init_states(p)
+    dynamics.seed_ties(p)
 
 
 def _init_states(p: Project) -> None:
@@ -143,6 +145,7 @@ def extract_state(llm: LLM, p: Project, n: int) -> StateDelta:
 
 def apply_delta(p: Project, d: StateDelta) -> None:
     ep = p.episode(d.episode)
+    dynamics.ensure_initial(p)
     ep.summary = d.summary
     ep.status = "finalized"
 
@@ -158,12 +161,23 @@ def apply_delta(p: Project, d: StateDelta) -> None:
 
     for upd in d.relationship_updates:
         key = frozenset((upd.a, upd.b))
-        for i, r in enumerate(p.relationships):
+        for r in p.relationships:
             if frozenset((r.a, r.b)) == key:
-                p.relationships[i] = upd
+                r.type, r.description = upd.type or r.type, upd.description or r.description
+                if not d.events:  # 사건 없이 수치만 온 예전 형식: 양방향 온기를 affinity 에 맞춘다
+                    r.affinity, r.tension = upd.affinity, upd.tension
+                    for s, t in ((r.a, r.b), (r.b, r.a)):
+                        dynamics.get_tie(p.ties, s, t).warmth = dynamics.clip(upd.affinity / 5)
                 break
         else:
             p.relationships.append(upd)
+            dynamics.seed_ties(p)
+
+    known_secrets = {s.id for s in p.secrets}
+    p.secrets += [s for s in d.secrets_added if s.id not in known_secrets]
+    events = [e.model_copy(update={"episode": d.episode}) for e in d.events if e.kind != "수동보정"]
+    dynamics.run_episode(p, d.episode, events, ep.plot.characters)
+    p.events += events
 
     p.facts += [f for f in d.new_facts if f not in p.facts]
     known = {f.id for f in p.foreshadows}
@@ -172,3 +186,41 @@ def apply_delta(p: Project, d: StateDelta) -> None:
         if f.id in d.foreshadow_resolved:
             f.status, f.payoff_ep = "resolved", d.episode
     p.history.append(d)
+    dynamics.take_snapshot(p, d.episode)
+
+
+def adjust_tie(p: Project, source: str, target: str, warmth: float | None, trust: float | None) -> None:
+    """사용자가 관계 수치를 직접 고친다. 마지막으로 확정된 화의 수동보정 사건으로 기록한다."""
+    done = [e.plot.number for e in p.episodes if e.status == "finalized"]
+    n = max(done, default=0)
+    dynamics.ensure_initial(p)
+    e = StoryEvent(episode=n, actor=source, target=target, kind="수동보정", set_warmth=warmth, set_trust=trust)
+    dynamics.apply_event(p.ties, p.secrets, p.params, e)
+    dynamics.sync_relationships(p)
+    p.events.append(e)
+    dynamics.take_snapshot(p, n)
+
+
+def revert(p: Project, n: int) -> None:
+    """n화 상태 반영 직후로 되돌린다. 이후 화의 본문은 남기고 상태 반영만 취소한다."""
+    snap = p.snapshot(n)
+    if snap is None:
+        raise ValueError(f"{n}화 스냅샷이 없습니다 (있는 화: {[s.episode for s in p.snapshots]})")
+    p.states = [s.model_copy(deep=True) for s in snap.states]
+    p.relationships = [r.model_copy(deep=True) for r in snap.relationships]
+    p.ties = [t.model_copy(deep=True) for t in snap.ties]
+    p.secrets = [s.model_copy(deep=True) for s in snap.secrets]
+    p.facts = list(snap.facts)
+    p.foreshadows = [f.model_copy(deep=True) for f in snap.foreshadows]
+    p.events = [e for e in p.events if e.episode <= n]
+    p.history = [d for d in p.history if d.episode <= n]
+    p.snapshots = [s for s in p.snapshots if s.episode <= n]
+    for ep in p.episodes:
+        if ep.plot.number > n and ep.status == "finalized":
+            ep.status, ep.summary = "written", ""
+
+
+def recalc(p: Project) -> None:
+    """계수(params)를 바꾼 뒤 사건 로그를 처음부터 다시 재생해 현재 관계를 다시 계산한다."""
+    p.ties = dynamics.replay(p)
+    dynamics.sync_relationships(p)

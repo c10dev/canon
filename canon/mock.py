@@ -16,8 +16,10 @@ from .schema import (
     Foreshadow,
     PlotBatch,
     Relationship,
+    Secret,
     SetupSuggestion,
     StateDelta,
+    StoryEvent,
     StyleProfile,
     WorldSetting,
 )
@@ -70,7 +72,15 @@ class MockLLM:
             return StateDelta(
                 episode=n, summary=f"{n}화에서 서윤과 도현이 단서를 찾았다.",
                 character_updates=[CharacterState(character_id="hero", emotional_state=f"{n}화 이후 조금 더 단단해짐", knows=[f"{n}화 단서"])],
-                relationship_updates=[Relationship(a="hero", b="ally", type="동료", affinity=min(5, 1 + n), tension=3)],
+                events=[
+                    StoryEvent(episode=n, actor="ally", target="hero", kind="거짓말발각", intensity=3,
+                               reveals_secret="sec-ally-letter", quote="그 편지, 네가 버린 거 아니었잖아.")
+                    if n == 2 else
+                    StoryEvent(episode=n, actor="ally", target="hero", kind="도움", intensity=2, quote="도현이 손전등을 건넸다."),
+                    StoryEvent(episode=n, actor="hero", target="ally", kind="공동경험", intensity=1, quote="둘은 등대 계단을 올랐다."),
+                ],
+                relationship_updates=[Relationship(a="hero", b="ally", type="동료", description="서로 의지하는 사이")] if n == 3 else [],
+                secrets_added=[Secret(id="sec-ally-letter", owner="ally", content="오빠의 편지를 숨겼다", hidden_from=["hero"])] if n == 1 else [],
                 new_facts=[f"{n}화: 등대는 10년 전 폐쇄되었다"] if n == 1 else [],
                 foreshadow_planted=[Foreshadow(id=f"fs-{n:02d}-key", description="녹슨 열쇠", planted_ep=n)] if n == 1 else [],
                 foreshadow_resolved=["fs-01-key"] if n == 2 else [],

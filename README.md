@@ -5,7 +5,8 @@
 ## 설치
 
 ```bash
-pip install -r requirements.txt
+python3 -m venv .venv && source .venv/bin/activate   # macOS Homebrew Python 은 가상환경 필요
+python -m pip install -r requirements.txt
 export GEMINI_API_KEY=...            # https://aistudio.google.com/apikey
 export CANON_MODEL=gemini-2.5-pro # 선택, 사용할 Gemini 모델
 ```
@@ -18,6 +19,8 @@ API 키 없이 흐름만 보려면 `export CANON_LLM=mock`.
 python -m canon serve            # http://127.0.0.1:8000
 CANON_LLM=mock python -m canon serve   # API 키 없이 화면만 둘러보기
 ```
+
+Gemini API 키와 모델은 화면 오른쪽 아래 **모델 · API 키 설정**에서 넣는다. `~/.canon/config.json` 에만 저장되고(권한 600), 환경 변수 `GEMINI_API_KEY`, `CANON_MODEL`, `CANON_LLM` 이 있으면 그 값이 우선한다. CLI 도 같은 설정을 쓴다.
 
 작품 홈, 설정 도우미, 문체 레퍼런스, 기승전결 플롯 보드, 집필, 상태 변경안 승인, 채팅 앱 작업지시서 화면이 있다. CLI 와 같은 `projects/<이름>/project.json` 을 읽고 쓴다. AI 제안은 바로 저장되지 않고, 화면에서 고르거나 고친 뒤 저장할 때 반영된다.
 
@@ -37,6 +40,20 @@ python -m canon stats 등대                       # 화별 문체 지표를 레
 
 한 화씩 하려면 `write 등대 3` → `check 등대 3` → `update 등대 3`. `check` 는 앞선 본문·설정과의 모순을 근거 문장과 함께 보여준다 (`run --no-check` 로 생략 가능). 작품에서 쓰지 말아야 할 표현은 `project.json` 의 `style.banned_phrases` 에 넣으면 `stats` 와 본문 지시에 반영된다.
 
+## 관계 역학
+
+상태 갱신 때 AI 는 관계 수치를 직접 적지 않고, 본문에서 일어난 **사건**(도움, 배신, 거짓말 발각 등과 강도, 목격자, 근거 문장)만 뽑는다. 관계 변화는 `canon/dynamics.py` 의 수식이 계산한다. 관계는 방향이 있어서 서윤→도현과 도현→서윤을 따로 본다(온기, 신뢰, 원한, 서열, 친숙도, 단계). 긴장도는 이 값들과 목표 충돌, 숨긴 비밀, 불균형 삼각관계로 계산한다.
+
+```bash
+python -m canon show 등대 rel                 # 관계 보기
+python -m canon view 등대 numbers             # 숫자로 보기 (words 는 말로 보기, 기본)
+python -m canon adjust 등대 hero ally --warmth 0.3 --trust 0.6   # hero 가 ally 를 보는 관계 직접 보정
+python -m canon revert 등대 3                 # 3화 상태 반영 직후로 되돌리기 (본문은 유지)
+python -m canon recalc 등대                   # project.json 의 params 를 바꾼 뒤 재계산
+```
+
+계수는 `project.json` 의 `params` 에 있다. 프롬프트에는 숫자 대신 "신뢰: 의심하고 있다" 같은 말로 들어간다.
+
 ## 채팅 앱(구독형)으로 쓰기
 
 ```bash
@@ -54,6 +71,7 @@ canon/schema.py    데이터 스키마
 canon/prompts.py   프롬프트와 컨텍스트 조립, 작업지시서
 canon/pipeline.py  단계별 생성/검증/반영 로직
 canon/metrics.py   문체 지표 (LLM 없이 계산)
+canon/dynamics.py  관계 역학 수식 (사건 적용, 긴장 계산, 재생, 말로 바꾸기)
 canon/llm.py       Gemini 프로바이더 (+ mock.py)
 canon/store.py     project.json 저장, 본문을 episodes/NN.md 로 내보내기
 canon/cli.py       명령줄

@@ -1,15 +1,14 @@
 """LLM 프로바이더 추상화. 기본은 Gemini, 테스트용 mock 제공.
 
-환경 변수
+설정은 웹 설정 화면(~/.canon/config.json) 또는 환경 변수로 한다. 환경 변수가 우선이다.
   CANON_LLM    gemini(기본) | mock
   CANON_MODEL  Gemini 모델 이름 (기본 gemini-2.5-pro)
-  GEMINI_API_KEY  Gemini API 키 (google-genai SDK 가 읽음)
+  GEMINI_API_KEY  Gemini API 키
 """
 from __future__ import annotations
 
 import copy
 import json
-import os
 from typing import Any, Protocol, TypeVar
 
 from pydantic import BaseModel
@@ -39,11 +38,20 @@ def _inline_refs(schema: dict) -> dict:
 
 
 class GeminiLLM:
-    def __init__(self, model: str | None = None):
+    def __init__(self, model: str | None = None, api_key: str | None = None):
         from google import genai
 
-        self.client = genai.Client()
-        self.model = model or os.environ.get("CANON_MODEL", "gemini-2.5-pro")
+        from . import settings
+
+        key = api_key or settings.api_key()[0]
+        if not key:
+            raise RuntimeError("Gemini API 키가 없습니다. 웹 설정 화면에서 넣거나 GEMINI_API_KEY 를 설정하세요.")
+        self.client = genai.Client(api_key=key)
+        self.model = model or settings.model()[0]
+
+    def check(self) -> None:
+        """키와 모델 이름이 맞는지 가볍게 확인한다 (생성 호출 없음)."""
+        self.client.models.get(model=self.model)
 
     def _call(self, system: str, prompt: str, **config: Any) -> str:
         from google.genai import types
@@ -71,7 +79,9 @@ class GeminiLLM:
 
 
 def get_llm() -> LLM:
-    if os.environ.get("CANON_LLM", "gemini").lower() == "mock":
+    from . import settings
+
+    if settings.provider()[0] == "mock":
         from .mock import MockLLM
 
         return MockLLM()

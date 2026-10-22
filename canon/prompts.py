@@ -11,6 +11,7 @@ import json
 
 from pydantic import BaseModel
 
+from .dynamics import describe_relations
 from .llm import _inline_refs, dump
 from .schema import ConsistencyReport, Project, StateDelta
 
@@ -146,7 +147,7 @@ def build_episode_context(p: Project, n: int) -> str:
 {dump(states) or "1화 시작 시점, 설정 그대로"}
 
 # 관계 현재 상태
-{dump(rels) or "없음"}
+{describe_relations(p, cast_ids) or dump(rels) or "없음"}
 
 # 열린 복선
 {dump([f for f in p.foreshadows if f.status == "open"]) or "없음"}
@@ -206,6 +207,8 @@ def state_prompt(p: Project, n: int) -> str:
 {dump(p.states) or "설정 그대로"}
 [이전 관계]
 {dump(p.relationships)}
+[현재 비밀]
+{dump(p.secrets) or "없음"}
 [열린 복선]
 {dump([f for f in p.foreshadows if f.status == "open"]) or "없음"}
 [이번 화 플롯]
@@ -216,7 +219,10 @@ def state_prompt(p: Project, n: int) -> str:
 
 요구사항:
 - episode 는 {n} 입니다.
-- 변화가 있는 인물과 관계만 넣고, 관계는 변경 후 값 전체를 씁니다.
+- 변화가 있는 인물만 넣습니다.
+- events 에는 인물 사이에 일어난 관계 사건을 본문 순서대로 적습니다. kind 는 정해진 목록에서 고르고, intensity 는 1(가벼움)~3(결정적), quote 에는 근거 문장을 본문에서 그대로 옮깁니다. 관계 수치는 프로그램이 사건으로 계산하므로 적지 않고, 수동보정은 쓰지 않습니다.
+- relationship_updates 에는 관계 유형이나 설명이 바뀐 쌍만 넣습니다.
+- 새로 생긴 비밀은 secrets_added 에 넣고, 비밀이 드러난 사건에는 reveals_secret 에 비밀 id 를 적습니다.
 - 새 복선 id 는 fs-{n:02d}-키워드 형식으로 짓습니다.
 - warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다."""
 
@@ -245,6 +251,9 @@ def check_prompt(p: Project, n: int) -> str:
 
 # 관계 현재 상태
 {dump(p.relationships) or "없음"}
+
+# 비밀 (hidden_from 의 인물은 아직 모른다)
+{dump(p.secrets) or "없음"}
 
 # 앞선 본문
 {past or "없음 (첫 화)"}
