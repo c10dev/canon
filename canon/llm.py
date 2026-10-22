@@ -54,10 +54,18 @@ class GeminiLLM:
             raise RuntimeError("Gemini API 키가 없습니다. 웹 설정 화면에서 넣거나 GEMINI_API_KEY 를 설정하세요.")
         self.client = genai.Client(api_key=key)
         self.model = model or settings.model()[0]
+        self.last_usage: dict | None = None  # 연구 화면에서 보여 줄 마지막 호출의 토큰 수
+        self.last_attempts = 0
 
     def check(self) -> None:
         """키와 모델 이름이 맞는지 가볍게 확인한다 (생성 호출 없음)."""
         self.client.models.get(model=self.model)
+
+    def context_limit(self) -> int | None:
+        return getattr(self.client.models.get(model=self.model), "input_token_limit", None)
+
+    def count_tokens(self, text: str) -> int | None:
+        return self.client.models.count_tokens(model=self.model, contents=text).total_tokens
 
     def _call(self, system: str, prompt: str, **config: Any) -> str:
         from google.genai import types
@@ -67,6 +75,8 @@ class GeminiLLM:
             contents=prompt,
             config=types.GenerateContentConfig(system_instruction=system, **config),
         )
+        u = resp.usage_metadata
+        self.last_usage = {"prompt_tokens": u.prompt_token_count, "completion_tokens": u.candidates_token_count} if u else None
         if not resp.text:
             raise RuntimeError(f"Gemini 응답이 비었습니다: {resp.candidates[0].finish_reason if resp.candidates else resp}")
         return resp.text
@@ -78,6 +88,7 @@ class GeminiLLM:
             response_mime_type="application/json",
             response_json_schema=_inline_refs(schema.model_json_schema()),
         )
+        self.last_attempts = 1
         return schema.model_validate_json(raw)
 
     def text(self, system: str, prompt: str) -> str:
@@ -104,24 +115,62 @@ class LocalLLM:
         self.sampling = sampling if sampling is not None else settings.local_sampling()
         self.timeout = timeout or float(os.environ.get("CANON_LOCAL_TIMEOUT", "900"))
         self._model = model or settings.local_model()[0]
+        self.last_usage: dict | None = None  # 연구 화면에서 보여 줄 마지막 호출의 토큰 수
+        self.last_attempts = 0
 
     def _request(self, method: str, path: str, body: dict | None = None) -> dict:
+        """path 가 http 로 시작하면 그 주소를 그대로 쓴다 (/v1 밖의 /tokenize, /version)."""
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         data = json.dumps(body, ensure_ascii=False).encode() if body is not None else None
-        req = urllib.request.Request(self.base_url + path, data=data, headers=headers, method=method)
+        url = path if path.startswith("http") else self.base_url + path
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")[:500]
-            raise RuntimeError(f"로컬 서버 오류 {e.code} ({self.base_url}{path}): {detail}") from e
+            raise RuntimeError(f"로컬 서버 오류 {e.code} ({url}): {detail}") from e
         except urllib.error.URLError as e:
             raise RuntimeError(f"로컬 서버에 연결하지 못했습니다 ({self.base_url}): {e.reason}") from e
 
     def models(self) -> list[str]:
         return [m["id"] for m in self._request("GET", "/models").get("data", [])]
+
+    def _root(self) -> str:
+        return re.sub(r"/v1$", "", self.base_url)
+
+    def server_info(self) -> dict:
+        """모델 목록과 컨텍스트 길이, 서버 종류. vLLM 은 max_model_len 과 /version 을 준다."""
+        data = self._request("GET", "/models").get("data", [])
+        models = [{"id": m["id"], "owned_by": m.get("owned_by", ""), "parent": m.get("parent"),
+                   "max_model_len": m.get("max_model_len")} for m in data]
+        try:
+            version = self._request("GET", self._root() + "/version").get("version")
+        except RuntimeError:
+            version = None
+        kinds = {m["owned_by"] for m in models} - {""}
+        return {"url": self.base_url, "server": ", ".join(sorted(kinds)) or "알 수 없음", "version": version, "models": models}
+
+    def context_limit(self) -> int | None:
+        """모델의 최대 컨텍스트. LoRA 처럼 값이 없으면 부모 모델 값을 쓴다."""
+        models = {m["id"]: m for m in self.server_info()["models"]}
+        m = models.get(self.model) or {}
+        return m.get("max_model_len") or (models.get(m.get("parent")) or {}).get("max_model_len")
+
+    def count_tokens(self, text: str) -> int | None:
+        """서버 토크나이저로 센다 (vLLM, llama.cpp). 지원하지 않으면 None."""
+        for body in ({"model": self.model, "prompt": text}, {"content": text}):
+            try:
+                r = self._request("POST", self._root() + "/tokenize", body)
+            except RuntimeError:
+                continue
+            if "count" in r:
+                return r["count"]
+            if isinstance(r.get("tokens"), list):
+                return len(r["tokens"])
+        return None
 
     @property
     def model(self) -> str:
@@ -142,6 +191,7 @@ class LocalLLM:
     def _chat(self, system: str, messages: list[dict], **extra: Any) -> str:
         body = {"model": self.model, "messages": [{"role": "system", "content": system}, *messages], **extra}
         resp = self._request("POST", "/chat/completions", body)
+        self.last_usage = resp.get("usage")
         choice = (resp.get("choices") or [{}])[0]
         content = (choice.get("message") or {}).get("content") or ""
         content = _THINK_RE.sub("", content).strip()
@@ -154,6 +204,7 @@ class LocalLLM:
         fmt = {"type": "json_schema", "json_schema": {"name": schema.__name__, "schema": js}}
         messages = [{"role": "user", "content": prompt}]
         for attempt in range(2):
+            self.last_attempts = attempt + 1
             raw = self._chat(system, messages, response_format=fmt, temperature=0.3)
             try:
                 return schema.model_validate_json(_FENCE_RE.sub("", raw))

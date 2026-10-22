@@ -19,6 +19,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/genres.py` | 장르 목록(`CATALOG`)과 장르별 안내. 프롬프트의 장르 안내와 수위 블록(`guide`) |
 | `canon/dynamics.py` | 관계 역학: 사건(`StoryEvent`)으로 방향 관계(`Tie`)를 계산, 긴장도, 스냅샷 재생, 숫자를 말로 바꾸기. LLM 을 부르지 않는 순수 계산 |
 | `canon/llm.py` | LLM 프로바이더 인터페이스(`json`, `text`)와 Gemini, 로컬(OpenAI 호환) 구현, 단계별 선택(`get_llm(stage)`) |
+| `canon/research.py` | 연구 화면(모델 실험) 로직. 서버 점검, 샘플 비교, 단계 시험, 컨텍스트 크기, 블라인드 비교. 작품 데이터와 분리해 `research/log.jsonl` 에 기록 |
 | `canon/mock.py` | 테스트용 가짜 LLM |
 | `canon/store.py` | `projects/<이름>/project.json` 저장, 본문을 `episodes/NN.md` 로 내보내기 |
 | `canon/cli.py` | 명령줄 (`python -m canon ...`) |
