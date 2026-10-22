@@ -1,7 +1,8 @@
 /* 대화로 다듬기 패널. app.js 의 S, actions, api, render 를 그대로 쓴다.
    작가가 말하면 AI 가 답과 변경안을 내고, 변경안은 바뀌는 칸만 보여 준다. 작가가 고른 부분만 반영한다.
-   지금은 기승전결 · 플롯 화면(topic 'plot')에만 붙어 있다. 다른 화면에 붙일 때는 CHAT_TOPICS 에 항목을 더하고
-   서버 web.py 의 _chat 과 변경안 반영 함수를 함께 늘린다. */
+   기승전결 · 플롯 화면(topic 'plot')과 집필 화면의 본문 부분 수정(topic 'text:<화>', passage.js)에 붙어 있다.
+   다른 화면에 붙일 때는 CHAT_TOPICS 에 항목을 더하고 서버 web.py 의 _chat 과 변경안 반영 함수를 함께 늘린다.
+   주제마다 body(요청 내용), proposal(변경안 그리기), userMsg, inputExtra 를 바꿔 끼울 수 있다. */
 'use strict';
 
 const CHAT_TOPICS = {
@@ -10,6 +11,7 @@ const CHAT_TOPICS = {
     intro: '구조나 플롯이 마음에 들지 않으면 말로 알려 주세요. AI 가 바꿀 부분을 변경안으로 보여 주고, 고른 것만 반영합니다. 본문이 있는 화는 바뀌지 않아요.',
     examples: ['3화 전개가 너무 빨라', '결말을 비극으로 바꿔 줘', '승 구간을 한 화 늘려 줘', '주인공이 더 늦게 진실을 알게 해 줘'],
     placeholder: '예: 3화 전개가 너무 빨라',
+    clearAsk: '이 작품의 대화 기록을 지울까요? 반영한 구조와 플롯은 그대로입니다.',
   },
 };
 
@@ -20,6 +22,7 @@ Object.assign(S, {
   chatPicks: {},      // '메시지번호:acts' 또는 '메시지번호:화' → 반영할지
   chatScroll: true,   // 다음 그리기 때 맨 아래로 내릴지
   chatScrollTop: 0,   // 화면을 다시 그려도 읽던 자리를 지킨다
+  chatTopic: 'plot',  // 지금 열린 패널의 주제 ('plot' 또는 'text:<화>')
 });
 
 const PLOT_FIELDS = [
@@ -35,8 +38,13 @@ function chatMessages(topic) {
   return c ? c.messages : [];
 }
 
-function chatButton() {
-  return `<button class="btn${S.chatOpen ? ' on' : ''}" data-action="toggleChat" aria-pressed="${S.chatOpen}">${CHAT_TOPICS.plot.title}</button>`;
+/** 'text:3' 처럼 화 번호가 붙은 주제는 앞부분('text')의 설정을 쓴다. */
+function chatConf(topic) {
+  return CHAT_TOPICS[String(topic).split(':')[0]];
+}
+
+function chatButton(topic = 'plot') {
+  return `<button class="btn${S.chatOpen ? ' on' : ''}" data-action="toggleChat" aria-pressed="${S.chatOpen}">${chatConf(topic).title}</button>`;
 }
 
 // ----- 변경안 비교 -----
@@ -143,20 +151,23 @@ function proposal(m, i) {
 
 function chatPanel(topic) {
   if (!S.chatOpen) return '';
-  const t = CHAT_TOPICS[topic];
+  const t = chatConf(topic);
+  if (S.chatTopic !== topic) S.chatScroll = true;
+  S.chatTopic = topic;
   initPicks(topic);
   const msgs = chatMessages(topic);
   const list = msgs.map((m, i) => m.role === 'user'
-    ? `<div class="msg user">${esc(m.text)}</div>`
-    : `<div class="msg ai"><div class="msg-text">${esc(m.text)}</div>${m.revision ? proposal(m, i) : ''}</div>`).join('');
+    ? `<div class="msg user">${t.userMsg ? t.userMsg(m) : esc(m.text)}</div>`
+    : `<div class="msg ai"><div class="msg-text">${esc(m.text)}</div>${m.revision ? proposal(m, i) : m.passage && t.proposal ? t.proposal(m, i) : ''}</div>`).join('');
   const empty = msgs.length || S.chatPending ? '' : `<div class="note info">${esc(t.intro)}</div>
-    <div class="row">${t.examples.map((x) => `<button type="button" class="btn small" data-action="chatExample" data-arg="${esc(x)}">${esc(x)}</button>`).join('')}</div>`;
+    ${t.examples.length ? `<div class="row">${t.examples.map((x) => `<button type="button" class="btn small" data-action="chatExample" data-arg="${esc(x)}">${esc(x)}</button>`).join('')}</div>` : ''}`;
   const pending = S.chatPending ? `<div class="msg user">${esc(S.chatPending)}</div><div class="msg ai pending" role="status"><span class="spinner small" aria-hidden="true"></span>생각하는 중… (최대 1분)</div>` : '';
   return `<aside class="chat-panel" aria-label="${esc(t.title)}">
     <div class="chat-head"><h2>${esc(t.title)}</h2><div class="row" style="gap:4px">
       ${msgs.length ? '<button type="button" class="btn small" data-action="chatClear">기록 지우기</button>' : ''}
       <button type="button" class="btn icon-btn" data-action="toggleChat" aria-label="닫기">✕</button></div></div>
     <div class="chat-log" id="chat-log">${empty}${list}${pending}</div>
+    ${t.inputExtra ? t.inputExtra(topic) : ''}
     <div class="chat-input">
       <textarea id="chat-input" rows="2" data-local="chatDraft" aria-label="AI 에게 할 말" placeholder="${esc(t.placeholder)}"${S.chatPending ? ' disabled' : ''}>${esc(S.chatDraft)}</textarea>
       <button type="button" class="btn primary" data-action="chatSend"${S.chatPending ? ' disabled' : ''}>보내기</button>
@@ -188,16 +199,22 @@ Object.assign(actions, {
     render();
     $('#chat-input')?.focus();
   },
-  async chatSend() {
+  async chatSend(preset = '') {
+    const topic = S.chatTopic;
+    const t = chatConf(topic);
     const text = (S.chatDraft || '').trim();
-    if (!text || S.chatPending) return;
-    S.chatPending = text;
+    preset = typeof preset === 'string' ? preset : '';
+    if ((!text && !preset) || S.chatPending) return;
+    if (t.ready && !t.ready()) return;
+    S.chatPending = text || (t.presetLabel ? t.presetLabel(preset) : preset);
     S.chatDraft = '';
     S.chatScroll = true;
     render();
     try {
       await saveIfDirty();
-      S.project = await api('POST', `/projects/${enc(S.name)}/chat/plot`, { message: text });
+      if (t.beforeSend) await t.beforeSend();
+      const body = t.body ? t.body(text, preset) : { message: text };
+      S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(topic)}`, body);
     } catch (e) {
       toast(e.message, true);
       S.chatDraft = text;
@@ -209,7 +226,7 @@ Object.assign(actions, {
     }
   },
   async chatApply(i) {
-    const m = chatMessages('plot')[i];
+    const m = chatMessages(S.chatTopic)[i];
     // 화면에 보이는 체크 상태를 그대로 쓴다 (바꿀 수 없게 된 칸은 꺼져 있다)
     const box = document.querySelector(`[data-chat-pick="${pickKey(i, 'acts')}"]`);
     const acts = !!(box && box.checked && !box.disabled);
@@ -220,21 +237,21 @@ Object.assign(actions, {
     if (!acts && !episodes.length) return toast('반영할 부분을 고르세요', true);
     await run('변경안을 반영하는 중', async () => {
       await saveIfDirty();
-      S.project = await api('POST', `/projects/${enc(S.name)}/chat/plot/${i}/apply`, { acts, episodes });
+      S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(S.chatTopic)}/${i}/apply`, { acts, episodes });
       toast(`반영했습니다: ${[acts ? '구조' : '', ...episodes.map((n) => `${n}화`)].filter(Boolean).join(', ')}`);
     });
   },
   async chatDismiss(i) {
     await run('정리하는 중', async () => {
       await saveIfDirty();
-      S.project = await api('POST', `/projects/${enc(S.name)}/chat/plot/${i}/dismiss`);
+      S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(S.chatTopic)}/${i}/dismiss`);
     });
   },
   async chatClear() {
-    if (!confirm('이 작품의 대화 기록을 지울까요? 반영한 구조와 플롯은 그대로입니다.')) return;
+    if (!confirm(chatConf(S.chatTopic).clearAsk)) return;
     await run('지우는 중', async () => {
       await saveIfDirty();
-      S.project = await api('DELETE', `/projects/${enc(S.name)}/chat/plot`);
+      S.project = await api('DELETE', `/projects/${enc(S.name)}/chat/${enc(S.chatTopic)}`);
       S.chatPicks = {};
     });
   },

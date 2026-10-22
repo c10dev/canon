@@ -16,6 +16,8 @@
   python -m canon lines 내소설 [map | suggest | add | tag ID 4,5 | rm ID]   이야기 줄기: 서브플롯 · 과거 회상 · 외전 노선도와 제안
   python -m canon confirm 내소설 all|3  플롯 확정
   python -m canon write 내소설 3        본문 생성
+  python -m canon fix 내소설 3 "고칠 문장" [--ask "더 짧게" --preset less_ai]   본문 일부를 AI 후보로 고치기 (고른 후보만 반영)
+  python -m canon edits 내소설 [3] [--undo e2 | --jsonl]   본문 부분 수정 기록 보기, 되돌리기, 고치기 전후 쌍 내보내기
   python -m canon check 내소설 3        본문 검수 (앞선 본문·설정과의 모순, 근거 인용)
   python -m canon stats 내소설 [3]      문체 지표를 레퍼런스와 비교
   python -m canon update 내소설 3       상태 변경안 확인 후 반영
@@ -45,7 +47,7 @@ from pathlib import Path
 from . import (autorun, dynamics, elements, genres, library, logline, metrics, naming, pipeline, prompts, research, store, storylines,
                updater)
 from .llm import dump, get_llm
-from .schema import ConsistencyReport, LoglineParts, Meta, Project, StateDelta, StoryElement, Storyline, StorylineProposal
+from .schema import ConsistencyReport, LoglineParts, Meta, Project, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 
 
 def ask(label: str, default: str = "") -> str:
@@ -804,6 +806,53 @@ def cmd_import(a: argparse.Namespace) -> None:
     print(f"{a.n}화 본문을 가져왔습니다. 다음: update {a.name} {a.n}  (또는 brief --state 로 채팅 앱에서 정리 후 update --from-json)")
 
 
+def cmd_fix(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    text = p.episode(a.n).text
+    if a.quote not in text:
+        sys.exit(f"{a.n}화 본문에 그 문장이 없습니다: {a.quote}")
+    sel = Selection(start=text.index(a.quote), text=a.quote)
+    rev = pipeline.revise_passage(get_llm("revise"), p, a.n, sel, a.ask or "", a.preset or "")
+    msg = pipeline.record_passage(p, a.n, sel, a.ask or "", a.preset or "", rev)
+    print(rev.reply)
+    for k, c in enumerate(rev.candidates, 1):
+        print(f"\n[{k}] {c.note}\n{c.text}")
+    i = len(p.chat(f"text:{a.n}").messages) - 1
+    if msg.passage:
+        pick = "1" if a.yes else ask(f"넣을 후보 번호 (1~{len(rev.candidates)}, 비우면 넣지 않음)")
+        if pick.isdigit() and 1 <= int(pick) <= len(rev.candidates):
+            edit = pipeline.apply_passage(p, a.n, i, int(pick) - 1)
+            print(f"{a.n}화에 {pick}번 후보를 넣었습니다 (되돌리기: edits {a.name} {a.n} --undo {edit.id})")
+        else:
+            msg.outcome = "dismissed"
+    print(f"저장: {store.save(a.name, p)}")
+
+
+def cmd_edits(a: argparse.Namespace) -> None:
+    import json
+
+    p = store.load(a.name)
+    eps = [p.episode(a.n)] if a.n else p.episodes
+    if a.undo:
+        if not a.n:
+            sys.exit("--undo 는 화 번호와 함께 씁니다")
+        edit = pipeline.undo_edit(p, a.n, a.undo)
+        print(f"{a.n}화 {edit.id} 수정을 되돌렸습니다. 저장: {store.save(a.name, p)}")
+        return
+    for e in eps:
+        for x in e.edits:
+            if a.jsonl:  # 선호 · 미세 조정 자료: 고치기 전후와 고르지 않은 후보, 그 자리 앞뒤 문맥
+                text = e.text
+                at = text.find(x.after) if x.after and not x.undone else -1
+                ctx = (text[max(0, at - 300):at], text[at + len(x.after):at + len(x.after) + 300]) if at >= 0 else ("", "")
+                print(json.dumps({"episode": e.plot.number, **x.model_dump(), "context_before": ctx[0], "context_after": ctx[1]},
+                                 ensure_ascii=False))
+                continue
+            mark = " (되돌림)" if x.undone else ""
+            how = {"manual": "직접", "ai": "AI", "typed": "본문 저장"}[x.source]
+            print(f"{e.plot.number}화 {x.id} [{how}]{mark} {x.instruction}\n  - {x.before[:80]}\n  + {x.after[:80]}")
+
+
 def cmd_show(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     if a.section == "rel":
@@ -990,6 +1039,13 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--state", action="store_true", help="상태 정리용 작업지시서")
     sp.add_argument("--check", action="store_true", help="검수용 작업지시서")
     add("import", cmd_import, "n", "file", yes=False)
+    sp = add("fix", cmd_fix, "n", "quote")
+    sp.add_argument("--ask", help="AI 에게 바라는 것 (예: 대사로 풀어 줘)")
+    sp.add_argument("--preset", choices=list(prompts.PASSAGE_PRESETS), help="빠른 요청")
+    sp = add("edits", cmd_edits, yes=False)
+    sp.add_argument("n", type=int, nargs="?")
+    sp.add_argument("--undo", metavar="ID", help="이 수정을 되돌림 (예: e2)")
+    sp.add_argument("--jsonl", action="store_true", help="고치기 전후 쌍을 JSON Lines 로 출력")
     sp = add("show", cmd_show, yes=False)
     sp.add_argument("section", nargs="?")
 

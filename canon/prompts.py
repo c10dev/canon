@@ -11,10 +11,10 @@ import json
 
 from pydantic import BaseModel
 
-from . import elements, genres, naming, storylines
+from . import elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
-from .schema import Character, ChatMessage, ConsistencyReport, Foreshadow, ImpactReport, Project, StateDelta, StoryElement
+from .schema import Character, ChatMessage, ConsistencyReport, Foreshadow, ImpactReport, Project, Selection, StateDelta, StoryElement
 
 SYSTEM_PLANNER = (
     "당신은 한국 웹소설/단편소설 기획 전문 편집자입니다. "
@@ -697,6 +697,98 @@ def serial_plot_chat_prompt(p: Project, message: str) -> str:
 - 작가가 확정한 화({", ".join(map(str, confirmed)) or "없음"})는 작가가 그 화를 바꿔 달라고 했을 때만 바꿉니다.
 - 한 화를 바꾸면 앞뒤 화의 엔딩 훅, 복선 심기와 회수가 어긋나지 않게 이어지는 화도 함께 고칩니다.
 {plot_rules(p)}"""
+
+
+# ---------- 본문 부분 수정 (집필 화면에서 고른 부분) ----------
+
+SYSTEM_REVISER = (
+    "당신은 작가 곁에서 원고를 다듬는 소설가입니다. 작가가 고른 부분만 다시 쓰고, 앞뒤 본문에 그대로 이어 붙을 글을 냅니다. "
+    "스타일 프로필과 문체 예시를 따르고, 인물 설정과 현재 상태, 확정된 사실을 어기지 않습니다. "
+    "작가가 바꾸라고 하지 않은 사건과 사실은 바꾸지 않습니다. 모든 출력은 한국어로 작성합니다.\n\n" + PROSE_RULES
+)
+
+# 빠른 요청: id → (버튼 이름, AI 에게 하는 말). 화면(passage.js)은 서버가 준 목록을 그대로 쓴다.
+PASSAGE_PRESETS: dict[str, tuple[str, str]] = {
+    "longer": ("더 길게", "이 부분을 1.5~2배로 풀어 써 주세요. 사건을 더하지 말고 행동, 감각, 대사로 장면을 늘립니다."),
+    "shorter": ("더 짧게", "뜻과 사건은 그대로 두고 절반에서 3분의 2 길이로 줄여 주세요. 설명과 겹치는 묘사부터 덜어 냅니다."),
+    "dialogue": ("대사 늘리기", "서술로 넘긴 부분을 인물의 대사와 짧은 행동으로 바꿔 주세요. 말투는 인물 설정의 speech_style 을 따릅니다."),
+    "less_ai": ("쇠맛 줄이기", "AI 가 쓴 티가 나는 표현을 덜어 주세요. 감정 이름, 정리하는 문장, 번역투, 셋씩 나열, 여운을 노린 짧은 끝 문장을 구체적인 행동과 사물로 바꿉니다."),
+    "style": ("문체에 맞게", "스타일 프로필과 문체 예시에 맞춰 다시 써 주세요. 시점, 시제, 문장 리듬, 대사 처리 방식을 맞춥니다."),
+}
+PASSAGE_FULL_LIMIT = 12_000  # 본문이 이보다 짧으면 통째로 넣고, 길면 고른 부분 앞뒤만 넣는다
+PASSAGE_BEFORE, PASSAGE_AFTER = 4_000, 2_000
+PASSAGE_HISTORY = 6  # 같은 화 부분 수정 대화에서 넣는 최근 메시지 수
+
+
+def passage_request(message: str, preset: str) -> str:
+    """작가의 말. 빠른 요청을 골랐으면 그 지시를 앞에 둔다."""
+    parts = [PASSAGE_PRESETS[preset][1]] if preset in PASSAGE_PRESETS else []
+    if message.strip():
+        parts.append(message.strip())
+    return " ".join(parts)
+
+
+def _passage_line(m: ChatMessage) -> str:
+    if m.role == "user":
+        quote = m.selection.text if m.selection else ""
+        label = PASSAGE_PRESETS[m.preset][0] if m.preset in PASSAGE_PRESETS else ""
+        said = f"[{label}] " + (m.text if m.text != label else "") if label else m.text
+        return f"작가: {said.strip()}" + (
+            f"\n  (고른 부분: {quote[:120]}{'…' if len(quote) > 120 else ''})" if quote else "")
+    line = f"편집자: {m.text}"
+    if m.passage and m.passage.candidates:
+        picked = {"applied": f"작가가 {int(m.applied[0]) + 1}번 후보를 넣음" if m.applied else "작가가 넣음",
+                  "dismissed": "작가가 모두 버림"}.get(m.outcome, "아직 고르지 않음")
+        line += f"\n  (후보 {len(m.passage.candidates)}개 / {picked})"
+    return line
+
+
+def passage_prompt(p: Project, n: int, sel: Selection, message: str, preset: str = "") -> str:
+    """앞쪽은 작품 설정(캐시), 뒤쪽은 이번 화 데이터와 본문, 대화, 요청. 본문 쓰기와 같은 순서를 지킨다."""
+    ep = p.episode(n)
+    text = ep.text
+    start, end = sel.start, sel.start + len(sel.text)
+    if len(text) <= PASSAGE_FULL_LIMIT:
+        before, after, cut = text[:start], text[end:], ""
+    else:
+        before, after = text[max(0, start - PASSAGE_BEFORE):start], text[end:end + PASSAGE_AFTER]
+        cut = " (고른 부분 앞뒤만)"
+    cast_ids = set(ep.plot.characters) or {c.id for c in static_characters(p)} or {c.id for c in p.characters}
+    states = [s for s in p.states if s.character_id in cast_ids]
+    extra = [c for c in p.characters if c.id in cast_ids and c.tier != "main"]
+    facts, facts_cut = relevant_facts(p, cast_ids)
+    els = elements.episode_block(p, n)
+    chat = next((c for c in p.chats if c.topic == f"text:{n}"), None)
+    history = "\n".join(_passage_line(m) for m in (chat.messages[-PASSAGE_HISTORY:] if chat else []))
+    hits = [f"{name} {cnt}회" for name, cnt in metrics.pattern_counts(sel.text).items() if cnt] if preset == "less_ai" else []
+    request = passage_request(message, preset) or "더 낫게 다듬어 주세요."
+    return f"""{static_context(p)}
+
+# 확정된 사실{f" (이번 화와 관련된 것만, {facts_cut}개 생략)" if facts_cut else ""}
+{chr(10).join("- " + f for f in facts) or "없음"}{f"{chr(10)}{chr(10)}# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것){chr(10)}{els}" if els else ""}
+{f"{chr(10)}# 이번 화에 나오는 조연 · 단역 설정{chr(10)}{dump(extra)}{chr(10)}" if extra else ""}
+# 인물 현재 상태 ({n - 1}화 종료 시점)
+{dump(state_view(p, states)) or "1화 시작 시점, 설정 그대로"}
+
+# 이번 화 플롯
+{dump(ep.plot)}
+
+# {n}화 본문{cut}. 【고칠 부분】부터 【여기까지】를 고칩니다
+{before}【고칠 부분】{sel.text}【여기까지】{after}
+
+# 이 화 부분 수정 대화 (최근)
+{history or "없음"}
+
+# 작가의 요청
+{request}
+{f"고른 부분에서 찾은 쇠맛 패턴: {', '.join(hits)}" if hits else ""}
+요구사항:
+- candidates 의 text 에는 【고칠 부분】 자리에 들어갈 글만 씁니다. 표시 기호와 앞뒤 본문은 넣지 않습니다.
+- 후보는 2~3개를 서로 다른 방향으로 냅니다. note 에 무엇을 바꿨는지 한 줄로 적습니다.
+- 첫 문장은 바로 앞 본문에, 마지막 문장은 바로 뒤 본문에 자연스럽게 이어집니다. 앞뒤에 이미 있는 내용은 되풀이하지 않습니다.
+- 작가가 요청하지 않은 사건, 사실, 인물의 행동과 결정은 바꾸지 않습니다. 확정 사실과 인물 설정을 어기지 않습니다.
+- 대사는 인물 설정의 speech_style 을 따르고, 문단은 빈 줄로 나눕니다. 마크다운 기호는 쓰지 않습니다.
+- reply 에는 후보들이 어떻게 다른지 1~3문장으로 적습니다. 요청이 모호하면 가장 그럴듯하게 해석하고 그렇게 해석했다고 밝힙니다."""
 
 
 def build_episode_context(p: Project, n: int) -> str:

@@ -16,8 +16,8 @@ from pydantic import BaseModel, ValidationError
 
 from . import autorun, dynamics, elements, genres, jobs, library, metrics, naming, pipeline, prompts, research, settings, store
 from .llm import GeminiLLM, LocalLLM, get_llm, make_llm
-from .schema import (ArcPlan, ArcProposal, Meta, Project, SerialConversion, SeriesPlan, SetupSuggestion, StateDelta, StorylineProposal, StyleEntry,
-                     StyleProfile)
+from .schema import (ArcPlan, ArcProposal, Meta, Project, Selection, SerialConversion, SeriesPlan, SetupSuggestion, StateDelta,
+                     StorylineProposal, StyleEntry, StyleProfile)
 
 STATIC = Path(__file__).parent / "static"
 NAME_RE = re.compile(r"^[^/\\.][^/\\]{0,63}$")
@@ -516,23 +516,37 @@ def unconfirm_plot(name: str, n: int) -> Project:
 
 
 # ---------- 3-1. 대화로 다듬기 ----------
-# 대화 기록은 project.json 의 chats 에 화면(topic)별로 남는다. 지금은 플롯 화면(topic='plot')만 있다.
+# 대화 기록은 project.json 의 chats 에 화면(topic)별로 남는다. 플롯 화면은 'plot', 집필 화면의 본문 부분 수정은
+# 화마다 'text:<화>' 이다 (4-1 참고).
+
+TEXT_TOPIC = re.compile(r"^text:(\d+)$")
+
 
 def _chat(p: Project, topic: str):
-    if topic != "plot":
+    m = TEXT_TOPIC.match(topic)
+    if topic != "plot" and not (m and any(e.plot.number == int(m.group(1)) for e in p.episodes)):
         raise HTTPException(404, f"대화 주제가 없습니다: {topic}")
     return p.chat(topic)
 
 
 class ChatIn(BaseModel):
-    message: str
+    message: str = ""
+    selection: Selection | None = None  # 본문 부분 수정: 고른 부분
+    preset: str = ""  # 본문 부분 수정: 빠른 요청 id (prompts.PASSAGE_PRESETS)
 
 
 @app.post("/api/projects/{name}/chat/{topic}")
 def chat_send(name: str, topic: str, body: ChatIn) -> Project:
-    """작가의 말을 보내고 AI 답과 변경안을 대화 기록에 남긴다. 구조와 플롯은 바꾸지 않는다."""
+    """작가의 말을 보내고 AI 답과 변경안을 대화 기록에 남긴다. 구조와 플롯, 본문은 바꾸지 않는다."""
     p = _load(name)
     _chat(p, topic)
+    if m := TEXT_TOPIC.match(topic):
+        n = int(m.group(1))
+        if body.selection is None:
+            raise ValueError("본문에서 고칠 부분을 고르세요")
+        sel = Selection(start=pipeline.locate(p.episode(n).text, body.selection.text, body.selection.start), text=body.selection.text)
+        rev = pipeline.revise_passage(get_llm("revise"), p, n, sel, body.message, body.preset)
+        return _edit(name, lambda q: pipeline.record_passage(q, n, sel, body.message, body.preset, rev))
     rev = pipeline.revise_plot(get_llm("plan"), p, body.message)
     # AI 를 기다리는 동안 백그라운드 작업이 저장했을 수 있으니 최신 내용에 대화만 덧붙인다
     return _edit(name, lambda q: pipeline.record_chat(q, topic, body.message, rev))
@@ -541,11 +555,20 @@ def chat_send(name: str, topic: str, body: ChatIn) -> Project:
 class ChatApply(BaseModel):
     acts: bool = False
     episodes: list[int] = []
+    candidate: int | None = None  # 본문 부분 수정: 넣을 후보 번호 (0부터)
+    text: str | None = None  # 본문 부분 수정: 작가가 손본 후보
 
 
 @app.post("/api/projects/{name}/chat/{topic}/{i}/apply")
 def chat_apply(name: str, topic: str, i: int, body: ChatApply) -> Project:
     """i 번째 메시지의 변경안에서 고른 부분만 반영한다."""
+    if m := TEXT_TOPIC.match(topic):
+        n = int(m.group(1))
+        if body.candidate is None:
+            raise ValueError("넣을 후보를 고르세요")
+        _text_guard(name, n)
+        _chat(_load(name), topic)
+        return _edit(name, lambda q: pipeline.apply_passage(q, n, i, body.candidate, body.text))
     p = _load(name)
     msgs = _chat(p, topic).messages
     if not 0 <= i < len(msgs) or msgs[i].revision is None:
@@ -562,20 +585,23 @@ def chat_apply(name: str, topic: str, i: int, body: ChatApply) -> Project:
 
 @app.post("/api/projects/{name}/chat/{topic}/{i}/dismiss")
 def chat_dismiss(name: str, topic: str, i: int) -> Project:
-    p = _load(name)
-    msgs = _chat(p, topic).messages
-    if not 0 <= i < len(msgs) or msgs[i].revision is None:
-        raise HTTPException(404, "변경안이 있는 메시지가 아닙니다")
-    if not msgs[i].outcome:
-        msgs[i].outcome = "dismissed"
-    return _save(name, p)
+    _chat(_load(name), topic)
+
+    def fn(p: Project) -> None:
+        msgs = p.chat(topic).messages
+        if not 0 <= i < len(msgs) or (msgs[i].revision is None and msgs[i].passage is None):
+            raise HTTPException(404, "변경안이 있는 메시지가 아닙니다")
+        if not msgs[i].outcome:
+            msgs[i].outcome = "dismissed"
+    return _edit(name, fn)
 
 
 @app.delete("/api/projects/{name}/chat/{topic}")
 def chat_clear(name: str, topic: str) -> Project:
-    p = _load(name)
-    _chat(p, topic).messages = []
-    return _save(name, p)
+    _chat(_load(name), topic)
+    return _edit(name, lambda p: setattr(p.chat(topic), "messages", []))
+
+
 # ---------- 3-2. 인과율 ----------
 # 요소 자체는 작가 입력이라 작품 저장(PUT)으로 저장한다. 영향 분석은 백그라운드 작업(kind 'impact')이 요소에 붙인다.
 
@@ -803,9 +829,45 @@ def put_text(name: str, n: int, body: Text) -> Project:
         raise ValueError(f"{n}화 플롯을 먼저 확정하세요")
     if ep.status == "finalized":
         raise ValueError(f"{n}화는 상태 반영까지 끝나 본문을 바꿀 수 없습니다")
-    ep.text = body.text.strip()
+    text = body.text.strip()
+    pipeline.record_typed(p, n, ep.text, text)
+    ep.text = text
     ep.status = "written" if ep.text else "confirmed"
     return _save(name, p)
+
+
+# ---------- 4-1. 본문 부분 수정 ----------
+# 집필 화면에서 고른 부분을 직접 고치거나(아래), AI 후보로 바꾼다(대화 'text:<화>', 3-1). 모두 Episode.edits 에 남는다.
+
+def _text_guard(name: str, n: int) -> None:
+    _not_auto(name)
+    if n in jobs.owned_episodes(name):
+        raise ValueError(f"{n}화 본문을 쓰는 작업이 도는 중입니다. 끝난 뒤에 고치세요")
+
+
+@app.get("/api/passage/presets")
+def passage_presets() -> list[dict]:
+    return [{"id": k, "label": label} for k, (label, _) in prompts.PASSAGE_PRESETS.items()]
+
+
+class EditIn(BaseModel):
+    selection: Selection
+    after: str
+
+
+@app.post("/api/projects/{name}/episodes/{n}/edits")
+def edit_passage(name: str, n: int, body: EditIn) -> Project:
+    """고른 부분을 작가가 직접 고친 글로 바꾼다."""
+    _load(name).episode(n)
+    _text_guard(name, n)
+    return _edit(name, lambda p: pipeline.edit_text(p, n, body.selection, body.after.strip(), "manual"))
+
+
+@app.post("/api/projects/{name}/episodes/{n}/edits/{eid}/undo")
+def undo_passage(name: str, n: int, eid: str) -> Project:
+    _load(name).episode(n)
+    _text_guard(name, n)
+    return _edit(name, lambda p: pipeline.undo_edit(p, n, eid))
 
 
 @app.get("/api/projects/{name}/episodes/{n}/context")

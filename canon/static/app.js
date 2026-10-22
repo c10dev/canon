@@ -17,6 +17,7 @@ const S = {
   styleLink: null,   // 작품 문체와 라이브러리 항목의 관계
   selEp: null,       // 플롯 보드에서 고른 화
   deltas: {},        // 화별 상태 변경안 (반영 전)
+  deltaBase: {},     // 변경안을 만들 때의 본문. 그 뒤에 본문을 고치면 다시 만들라고 알린다
   picks: {},         // 변경안 항목 선택 여부
   textDraft: {},     // 화별 본문 편집 중인 값
   context: null,
@@ -969,8 +970,7 @@ const actions = {
     await run('본문 저장 중', async () => {
       await saveIfDirty();
       S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, { text: S.textDraft[n] ?? ep(n).text });
-      delete S.textDraft[n];
-      delete S.deltas[n];
+      delete S.textDraft[n];  // 만들어 둔 상태 변경안은 남기고, 본문이 바뀌었다고 알린다 (passageNotes)
       toast('본문을 저장했습니다');
     });
   },
@@ -1151,6 +1151,7 @@ function refreshPreview(n) {
 
 function setDelta(n, d) {
   S.deltas[n] = d;
+  S.deltaBase[n] = ep(n) ? ep(n).text : '';
   S.picks = {};
   S.preview = null;
   d.character_updates.forEach((_, i) => { S.picks['c' + i] = true; });
@@ -1236,6 +1237,7 @@ async function route() {
       }
       if (parts[2] === 'write' && n && ep(n) && ep(n).status !== 'draft') {
         S.context = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/context`).catch(() => null);
+        if (!S.presets) S.presets = await api('GET', '/passage/presets').catch(() => []);
       }
       if (parts[2] === 'research') await rsLoad();
       if (parts[2] === 'convert') await convertLoad();
@@ -1287,6 +1289,7 @@ function render() {
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${body}</main></div>`;
   syncChat();
+  if (typeof syncPassage === 'function') syncPassage();
   document.querySelectorAll('textarea[data-autogrow]').forEach(autosize);
   // 상태 정리 지시서 탭이 바뀌면 다시 불러온다
   if (page === 'brief' && S.briefText === null && ep(n)) {
@@ -1343,7 +1346,8 @@ function header(eyebrow, title, desc, right = '') {
 // ----- 설정 -----
 
 const STAGES = [['plan', '계획 (설정 제안, 문체 분석, 기승전결, 화별 플롯)'], ['write', '본문 쓰기'], ['check', '검수'], ['state', '상태 변경안'],
-  ['name', '이름·지명 AI 추천 (정하지 않으면 계획 단계를 따름)']];
+  ['name', '이름·지명 AI 추천 (정하지 않으면 계획 단계를 따름)'], ['revise', '본문 부분 수정 (정하지 않으면 본문 쓰기 단계를 따름)']];
+const STAGE_PARENT_LABEL = { name: '계획 단계를 따름', revise: '본문 쓰기 단계를 따름' };
 
 function providerOptions(cur) {
   return [['gemini', 'Gemini API'], ['local', '로컬 서버 (OpenAI 호환)'], ['mock', 'mock (AI 호출 없이 화면 확인용)']]
@@ -1388,7 +1392,7 @@ function viewSettings() {
         const base = st.provider === 'local' ? (c.local_model || '서버에 하나뿐인 모델') : c.model_setting;
         return `<div class="field"><label for="set-stage-${s}">${label} <span class="hint">지금: ${esc(st.model || '')}</span></label>
           <div class="stage-row">
-            <select id="set-stage-${s}" aria-label="${esc(label)} 백엔드"><option value="">${s === 'name' ? '계획 단계를 따름' : '위 생성 방식을 따름'}</option>${providerOptions((c.stage_settings || {})[s])}</select>
+            <select id="set-stage-${s}" aria-label="${esc(label)} 백엔드"><option value="">${STAGE_PARENT_LABEL[s] || '위 생성 방식을 따름'}</option>${providerOptions((c.stage_settings || {})[s])}</select>
             <input id="set-stage-model-${s}" type="text" list="model-options" aria-label="${esc(label)} 모델" value="${esc((c.stage_model_settings || {})[s] || '')}" placeholder="모델: ${esc(base || '기본')}">
           </div>
           ${st.source === 'env' ? `<div class="small">환경 변수 CANON_LLM_${s.toUpperCase()} 가 우선합니다.</div>` : ''}
@@ -2393,6 +2397,7 @@ function viewWrite(n) {
       <div class="small">합계 ${S.context.reduce((s, c) => s + c.chars, 0).toLocaleString()}자. 이전 본문 전체 대신 이 데이터만 매번 같은 순서로 넣습니다.</div>` : '<div class="small">플롯을 확정하면 보입니다.</div>';
 
   const right = `${e.status !== 'finalized' ? `<div class="seg" role="group" aria-label="생성 방식"><button type="button" aria-pressed="${isApi}" data-action="setMode" data-arg="api">Gemini API</button><button type="button" aria-pressed="${!isApi}" data-action="setMode" data-arg="brief">채팅 앱 작업지시서</button></div>` : ''}
+    ${e.text && editable ? chatButton(`text:${n}`) : ''}
     ${e.text && editable && isApi ? `${((b) => `<button class="btn" data-action="writeEp" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('write', n, '다시 생성'))}` : ''}
     ${editable && !isApi ? `<a class="btn" href="${base()}/brief/${n}">작업지시서</a>` : ''}
     ${e.status === 'written' ? `<a class="btn primary" href="${base()}/review/${n}">상태 정리로</a>` : ''}`;
@@ -2409,14 +2414,16 @@ function viewWrite(n) {
         <div class="field"><span class="small">감정 변화</span><div style="font-size:13px">${esc(e.plot.emotional_shift)}</div></div>
         <div class="field"><span class="small">엔딩 훅</span><div style="font-size:13px">${esc(e.plot.ending_hook)}</div></div>
         ${e.summary ? `<div class="field"><span class="small">승인된 요약</span><div style="font-size:13px;line-height:1.6">${esc(e.summary)}</div></div>` : ''}
+        ${issuesBlock(e)}
         <a href="${base()}/arc" data-action="gotoPlot" data-arg="${n}" style="font-size:13px">플롯 보기</a>
       </aside>
       <section class="card" style="flex:3 1 520px;min-width:0;padding:0;gap:0" aria-label="본문">
         <div class="between" style="padding:10px 16px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)">
-          <span>${e.status === 'finalized' ? '상태 반영까지 끝난 화는 읽기 전용입니다' : '본문을 직접 고친 뒤 저장할 수 있어요'}</span>
+          <span>${e.status === 'finalized' ? '상태 반영까지 끝난 화는 읽기 전용입니다' : e.text ? '고칠 부분을 드래그하면 직접 고치거나 AI 에게 맡길 수 있어요' : '본문을 직접 고친 뒤 저장할 수 있어요'}</span>
           <span class="row"><span><strong id="char-count" style="color:var(--text)">${(text || '').length.toLocaleString()}</strong> / ${Number(P().meta.words_per_episode).toLocaleString()}자</span>
           ${editable && (e.text || draft !== undefined) ? `<button class="btn small" id="save-text" data-action="saveText" data-arg="${n}"${draft === undefined ? ' disabled' : ''}>본문 저장</button>` : ''}</span>
         </div>
+        ${e.text ? passageNotes(n) ? `<div style="padding:12px 16px 0;display:flex;flex-direction:column;gap:8px">${passageNotes(n)}</div>` : '' : ''}
         ${center}
       </section>
       <aside class="card tight" style="flex:1 1 260px;min-width:0" aria-label="AI 에게 보내는 컨텍스트">
@@ -2425,7 +2432,9 @@ function viewWrite(n) {
         ${S.context ? `<button class="btn small" data-action="togglePrompt" data-arg="${n}">${S.promptText ? '프롬프트 닫기' : '프롬프트 원문 보기'}</button>` : ''}
         ${S.promptText ? `<pre class="brief mono" style="max-height:420px">${esc(S.promptText)}</pre>` : ''}
       </aside>
-    </div>`;
+    </div>
+    ${editHistory(e)}
+    ${e.text && editable ? chatPanel(`text:${n}`) : ''}`;
 }
 
 // ----- 5. 상태 승인 -----
@@ -2450,6 +2459,8 @@ function viewReview(n) {
   }
 
   const p = P();
+  const stale = S.deltaBase[n] !== undefined && S.deltaBase[n] !== e.text
+    ? `<section class="note warn" role="alert">이 변경안을 만든 뒤 본문을 고쳤어요. 고친 내용이 상태에 영향을 준다면 다시 추출하세요. ${((b) => `<button class="btn small" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '다시 추출'))}</section>` : '';
   const total = d.character_updates.length + d.events.length + d.secrets_added.length + d.relationship_updates.length + d.new_facts.length + d.foreshadow_planted.length + d.foreshadow_resolved.length + (d.new_characters || []).length;
   if (!S.preview || S.preview.n !== n) refreshPreview(n);
   const picked = Object.values(S.picks).filter(Boolean).length;
@@ -2492,7 +2503,7 @@ function viewReview(n) {
   ].join('');
   const section = (title, body) => `<section class="card"><h2>${title}</h2>${body || '<div class="small">변경 없음</div>'}</section>`;
 
-  return top('AI 가 본문에서 뽑은 변경안입니다. 체크한 항목만 데이터에 반영되고, 반영해야 다음 화를 쓸 수 있어요.', `<span class="small">${total}건 중 <strong id="pick-count" style="color:var(--text)">${picked}</strong>건 선택</span>`) +
+  return top('AI 가 본문에서 뽑은 변경안입니다. 체크한 항목만 데이터에 반영되고, 반영해야 다음 화를 쓸 수 있어요.', `<span class="small">${total}건 중 <strong id="pick-count" style="color:var(--text)">${picked}</strong>건 선택</span>`) + stale +
     (d.warnings.length ? `<section class="note warn" role="alert"><strong>경고 ${d.warnings.length}건 · 본문을 고칠지 확인하세요</strong><ul style="padding-left:18px;margin-top:6px">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul><a href="${base()}/write/${n}" style="color:inherit;font-weight:700">본문으로</a></section>` : '') +
     section('인물 상태', chars) +
     (newChars ? section('새로 나온 인물', newChars) : '') +

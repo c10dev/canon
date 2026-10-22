@@ -20,6 +20,8 @@ from .schema import (
     ImpactReport,
     NameOption,
     NameOptions,
+    PassageCandidate,
+    PassageRevision,
     PlotBatch,
     Part,
     PlotRevision,
@@ -178,6 +180,18 @@ def _storyline(hint: dict) -> StorylineProposal:
     return StorylineProposal(storyline=s, episodes=pick + [999], threads=nxt, reply="서윤의 결핍에서 출발하는 과거 회상이에요.")
 
 
+def _passage(hint: dict) -> PassageRevision:
+    """고른 부분을 두 방향으로 바꾼 척한다: 요청을 덧붙인 것과, 앞 절반만 남긴 것."""
+    src = hint["selection"].strip()
+    ask = hint.get("preset") or hint.get("message", "").strip() or "다듬음"
+    short = src[: max(1, len(src) // 2)].rstrip() + "."
+    return PassageRevision(reply=f"요청({ask})대로 두 가지로 고쳤어요.", candidates=[
+        PassageCandidate(text=f"{src} ({ask})", note="요청을 덧붙임"),
+        PassageCandidate(text=short, note="절반으로 줄임"),
+        PassageCandidate(text=src, note="원문 그대로 (걸러져야 함)"),
+    ])
+
+
 class MockLLM:
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
         _delay()
@@ -240,6 +254,8 @@ class MockLLM:
         if schema is NameOptions:  # 코드 후보에서 앞쪽 n 개를 고른 척한다
             names = hint["candidates"][: hint["n"]]
             return NameOptions(options=[NameOption(name=x, reason="후보 중 인물과 시대에 맞는 이름") for x in names])  # type: ignore[return-value]
+        if schema is PassageRevision:
+            return _passage(hint)  # type: ignore[return-value]
         if schema is ConsistencyReport:
             n = hint["episode"]
             issues = [ConsistencyIssue(

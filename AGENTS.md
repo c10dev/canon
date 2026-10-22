@@ -25,7 +25,8 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/static/lines.js` | 이야기 줄기 화면: SVG 노선도, 줄기 편집, 화 붙이기, AI 제안. 플롯 편집기의 줄기 칸(`lineField`)과 화 카드 표시(`lineBadge`)도 여기 있다. `storylines.span` · `tag` 와 같은 규칙이라 함께 고친다 |
 | `canon/static/causal.js` | 인과율 화면: 요소 추가·편집, 관련 화 지도, 영향 분석 변경안 고르기. `elements.basis` 와 같은 모양(`elBasis`)으로 분석이 지났는지 본다 |
 | `canon/static/convert.js` | 단편 → 장편 전환 화면: 총 화수 · 결말 처리 고르기, AI 전환 계획에서 항목 골라 반영, 되돌리기 |
-| `canon/static/chat.js` | 화면에 붙는 AI 대화 패널(지금은 기승전결 · 플롯 화면). 변경안을 칸별로 지금 값과 비교해 보여 주고 고른 것만 반영 요청. 화면 본체는 `app.js` |
+| `canon/static/chat.js` | 화면에 붙는 AI 대화 패널(기승전결 · 플롯 화면 `plot`, 집필 화면 `text:<화>`). 변경안을 칸별로 지금 값과 비교해 보여 주고 고른 것만 반영 요청. 주제마다 요청 내용과 변경안 그리기를 `CHAT_TOPICS` 에서 바꿔 끼운다. 화면 본체는 `app.js` |
+| `canon/static/passage.js` | 본문 부분 수정: 본문에서 고르면 뜨는 도구(직접 수정, AI에게 고치기), 후보를 원문과 단어 단위로 비교, 수정 기록과 되돌리기, 고친 뒤 다시 할 단계 알림. 서버는 `pipeline.edit_text` · `revise_passage` · `apply_passage` · `undo_edit` |
 | `canon/llm.py` | LLM 프로바이더 인터페이스(`json`, `text`)와 Gemini, 로컬(OpenAI 호환) 구현, 단계별 선택(`get_llm(stage)`) |
 | `canon/research.py` | 연구 화면(모델 실험) 로직. 서버 점검, 샘플 비교, 단계 시험, 컨텍스트 크기, 블라인드 비교. 작품 데이터와 분리해 `research/log.jsonl` 에 기록 |
 | `canon/mock.py` | 테스트용 가짜 LLM |
@@ -36,7 +37,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/autorun.py` | 자동 집필: 목표 화까지 write → check + state → 정책(`Policy`) 통과 시 반영을 반복. 배치(`llm.BatchLLM`) 켜고 끄기, 비용·시간 추정, `autorun.json` 에 진행 기록, 서버 재시작 후 이어 가기. 화면은 `static/auto.js` |
 | `canon/updater.py` | 코드 자동 업데이트: `origin/main` fast-forward, 의존성 설치, 프로세스 재시작. `serve` 가 시작 때와 주기적으로 부른다 |
 
-흐름: `new` → `style` → `arc` → `plot` → (사용자 수정) → `confirm` → `write` → `check` → `update` 반복 (`run` 이 자동 반복). 장편(`new --serial`)은 `arc` 대신 `series` 한 번, 그리고 아크마다 `nextarc` → `plot` → `confirm` → `run` → `recap` 을 반복한다 (`arcs` 로 진행 보기). 단편은 `convert` 로 장편으로 바꿀 수 있다(단편 전체가 아크 1, `--undo` 로 되돌리기). 서브플롯 · 과거 회상 · 외전은 `lines` 로 이야기 줄기를 만들고 화에 붙인다. `stats` 로 화별 문체 지표 확인. `compare` 로 같은 화를 두 백엔드로 써서 가려 비교.
+흐름: `new` → `style` → `arc` → `plot` → (사용자 수정) → `confirm` → `write` → `check` → `update` 반복 (`run` 이 자동 반복). 장편(`new --serial`)은 `arc` 대신 `series` 한 번, 그리고 아크마다 `nextarc` → `plot` → `confirm` → `run` → `recap` 을 반복한다 (`arcs` 로 진행 보기). 단편은 `convert` 로 장편으로 바꿀 수 있다(단편 전체가 아크 1, `--undo` 로 되돌리기). 서브플롯 · 과거 회상 · 외전은 `lines` 로 이야기 줄기를 만들고 화에 붙인다. `fix` 로 본문 일부를 AI 후보로 고치고 `edits` 로 수정 기록 보기 · 되돌리기 · 내보내기. `stats` 로 화별 문체 지표 확인. `compare` 로 같은 화를 두 백엔드로 써서 가려 비교.
 
 ## 설계 원칙 (깨지 않기)
 
@@ -50,7 +51,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 - **바뀌지 않는 블록이 앞, 화마다 바뀌는 블록이 뒤.** `static_context()` 를 앞에 둬야 Gemini 암묵적 캐시가 맞는다. 컨텍스트에 블록을 추가할 때 이 순서를 지킨다.
 - **API 경로와 작업지시서 경로는 같은 프롬프트를 공유한다.** 프롬프트를 고칠 때는 `prompts.py` 한 곳만 고치고, `brief` 출력도 함께 확인한다. 나중에 MCP 서버도 이 함수들을 재사용한다.
 - **LLM 호출은 `LLM` 인터페이스 뒤에만 둔다.** pipeline 이나 cli 에서 SDK 를 직접 부르지 않는다.
-- LLM 이 채우는 스키마(`SetupSuggestion`, `StyleProfile`, `ArcPlan`, `PlotBatch`, `PlotRevision`, `NameOptions`, `StateDelta`, `StoryEvent`, `ConsistencyReport`, `SeriesPlan`, `ArcProposal`, `Recap`, `ImpactReport`, `StorylineProposal`, `SerialConversion`)에는 dict 타입 필드를 쓰지 않는다 (Gemini 구조화 출력 호환).
+- LLM 이 채우는 스키마(`SetupSuggestion`, `StyleProfile`, `ArcPlan`, `PlotBatch`, `PlotRevision`, `NameOptions`, `PassageRevision`, `StateDelta`, `StoryEvent`, `ConsistencyReport`, `SeriesPlan`, `ArcProposal`, `Recap`, `ImpactReport`, `StorylineProposal`, `SerialConversion`)에는 dict 타입 필드를 쓰지 않는다 (Gemini 구조화 출력 호환).
 
 ## 개발 명령
 
@@ -60,14 +61,14 @@ python -m unittest                  # mock LLM 으로 전체 흐름 스모크 �
 CANON_LLM=mock python -m canon ...  # 수동 확인
 ```
 
-환경 변수: `GEMINI_API_KEY`, `CANON_LLM`(gemini | local | mock), `CANON_MODEL`(기본 `gemini-4-argon`), `CANON_LOCAL_URL` / `CANON_LOCAL_MODEL` / `CANON_LOCAL_KEY`(로컬 서버), `CANON_LLM_PLAN` / `_WRITE` / `_CHECK` / `_STATE`(단계별 백엔드), `CANON_MODEL_PLAN` / `_WRITE` / `_CHECK` / `_STATE`(단계별 모델), `CANON_HOME`(프로젝트 저장 위치, 기본 `projects/`).
+환경 변수: `GEMINI_API_KEY`, `CANON_LLM`(gemini | local | mock), `CANON_MODEL`(기본 `gemini-4-argon`), `CANON_LOCAL_URL` / `CANON_LOCAL_MODEL` / `CANON_LOCAL_KEY`(로컬 서버), `CANON_LLM_PLAN` / `_WRITE` / `_CHECK` / `_STATE` / `_NAME` / `_REVISE`(단계별 백엔드), `CANON_MODEL_PLAN` / `_WRITE` / `_CHECK` / `_STATE` / `_NAME` / `_REVISE`(단계별 모델), `CANON_HOME`(프로젝트 저장 위치, 기본 `projects/`).
 
 스키마나 파이프라인을 바꾸면 `canon/mock.py` 도 맞춰 고치고 `python -m unittest` 가 통과하는지 확인한다. 실제 Gemini 호출은 키가 있을 때만 확인할 수 있으니, 확인하지 못했다면 그렇다고 밝힌다.
 
 ## 규칙
 
 - 사용자에게 보이는 문구, 프롬프트, 문서는 **한국어**로 쓴다. 코드 식별자는 영어.
-- 기본 LLM 은 **Gemini** 다 (사용자 결정). 다른 프로바이더는 `LLM` 구현을 추가하는 방식으로만 넣는다. 로컬 모델은 `LocalLLM`(OpenAI 호환) 하나로 Ollama, llama.cpp, vLLM, LM Studio 를 모두 다룬다. 파이프라인 호출부는 `get_llm("plan" | "write" | "check" | "state")` 로 단계를 밝힌다.
+- 기본 LLM 은 **Gemini** 다 (사용자 결정). 다른 프로바이더는 `LLM` 구현을 추가하는 방식으로만 넣는다. 로컬 모델은 `LocalLLM`(OpenAI 호환) 하나로 Ollama, llama.cpp, vLLM, LM Studio 를 모두 다룬다. 파이프라인 호출부는 `get_llm("plan" | "write" | "check" | "state" | "name" | "revise")` 로 단계를 밝힌다.
 - **API 키, `.env`, `projects/`(사용자 소설 데이터)는 커밋하지 않는다.** `.gitignore` 에 있다.
 - 스키마 필드를 바꾸면 기존 `project.json` 이 읽히도록 기본값을 둔다.
 - 기능을 바꾸면 README.md 와 DESIGN.md 의 해당 부분도 고친다.
