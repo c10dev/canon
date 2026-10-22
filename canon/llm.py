@@ -84,6 +84,19 @@ class GeminiLLM:
         return self._call(system, prompt)
 
 
+def _require_all(schema: Any) -> Any:
+    """모든 object 의 속성을 required 로 만든다. 기본값이 있는 필드는 pydantic 스키마에서 선택 항목이라
+    vLLM 등의 guided decoding 이 필드를 통째로 빼먹는다 (StyleProfile 이 sample_passages 만 오는 식)."""
+    if isinstance(schema, dict):
+        out = {k: _require_all(v) for k, v in schema.items()}
+        if isinstance(out.get("properties"), dict):
+            out["required"] = list(out["properties"])
+        return out
+    if isinstance(schema, list):
+        return [_require_all(v) for v in schema]
+    return schema
+
+
 _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.S)
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```\s*$")
 
@@ -116,7 +129,11 @@ class LocalLLM:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")[:500]
-            raise RuntimeError(f"로컬 서버 오류 {e.code} ({self.base_url}{path}): {detail}") from e
+            hint = ""
+            if "context length" in detail or "max_model_len" in detail or "context window" in detail:
+                hint = (" 프롬프트가 서버의 컨텍스트 한도를 넘었습니다. 서버 한도를 올리거나"
+                        " (vLLM --max-model-len, llama.cpp -c) 검수처럼 긴 단계는 Gemini 로 돌리세요 (CANON_LLM_CHECK=gemini).")
+            raise RuntimeError(f"로컬 서버 오류 {e.code} ({self.base_url}{path}): {detail}{hint}") from e
         except urllib.error.URLError as e:
             raise RuntimeError(f"로컬 서버에 연결하지 못했습니다 ({self.base_url}): {e.reason}") from e
 
@@ -150,7 +167,7 @@ class LocalLLM:
         return content
 
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
-        js = _inline_refs(schema.model_json_schema())
+        js = _require_all(_inline_refs(schema.model_json_schema()))
         fmt = {"type": "json_schema", "json_schema": {"name": schema.__name__, "schema": js}}
         messages = [{"role": "user", "content": prompt}]
         for attempt in range(2):

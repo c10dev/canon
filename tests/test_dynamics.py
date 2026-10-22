@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 os.environ["CANON_LLM"] = "mock"
-os.environ.setdefault("CANON_HOME", tempfile.mkdtemp())
+os.environ["CANON_HOME"] = tempfile.mkdtemp()
 
 from canon import dynamics, pipeline, store  # noqa: E402
 from canon.cli import main  # noqa: E402

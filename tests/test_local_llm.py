@@ -11,8 +11,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
-os.environ.setdefault("CANON_LLM", "mock")
-os.environ.setdefault("CANON_HOME", tempfile.mkdtemp())
+os.environ["CANON_LLM"] = "mock"
+os.environ["CANON_HOME"] = tempfile.mkdtemp()  # 셸에 CANON_HOME 이 있어도 사용자 작품 폴더를 건드리지 않게
 
 from canon import settings, store  # noqa: E402
 from canon.cli import main  # noqa: E402
@@ -98,11 +98,20 @@ class LocalLLMTest(unittest.TestCase):
         self.assertEqual(first["response_format"]["type"], "json_schema")
         self.assertEqual(first["response_format"]["json_schema"]["name"], "StyleProfile")
         self.assertNotIn("$defs", json.dumps(first["response_format"]))
+        sent = first["response_format"]["json_schema"]["schema"]
+        self.assertEqual(sent["required"], list(sent["properties"]))  # 기본값 있는 필드도 빼먹지 않게
         self.assertEqual(len(second["messages"]), 4)  # 시스템, 질문, 틀린 답, 오류 안내
 
         FakeServer.replies = ["{}x", "{}x"]
         with self.assertRaises(RuntimeError):
             LocalLLM().json("시스템", "분석", StyleProfile)
+
+    def test_out_of_range_numbers_are_clamped(self):
+        from canon.schema import Relationship, StoryEvent
+        r = Relationship(a="a", b="b", type="적", affinity=40, tension=90, goal_conflict=-1.0)
+        self.assertEqual((r.affinity, r.tension, r.goal_conflict), (5, 10, 0.0))
+        self.assertEqual(StoryEvent(episode=1, actor="a", target="b", kind="도움", intensity=7).intensity, 3)
+        self.assertEqual(Relationship.model_json_schema()["properties"]["affinity"]["minimum"], -5)
 
     def test_stage_routing(self):
         with mock.patch.dict(os.environ, {"CANON_LLM": "gemini", "CANON_LLM_WRITE": "mock"}):
@@ -118,6 +127,10 @@ class LocalLLMTest(unittest.TestCase):
             self.assertIsInstance(get_llm("state"), MockLLM)
 
     def test_compare_and_pick(self):
+        # 다른 테스트가 먼저 store 를 불러왔어도 매번 빈 폴더에서 돈다
+        patcher = mock.patch.object(store, "ROOT", Path(tempfile.mkdtemp()))
+        patcher.start()
+        self.addCleanup(patcher.stop)
         main(["new", "cmp", "--title", "등대", "--genre", "미스터리", "--logline", "x", "--episodes", "10", "-y"])
         main(["style", "cmp", str(SAMPLE), "-y"])
         main(["arc", "cmp", "-y"])
