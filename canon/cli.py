@@ -4,8 +4,12 @@
   python -m canon style 내소설 sample.txt   예시 텍스트로 스타일 프로필 생성 (--save 이름: 라이브러리에도 저장)
   python -m canon style 내소설 --library ID   문체 라이브러리 항목을 작품에 적용
   python -m canon styles [add 이름 파일 | show ID | rm ID]   문체 라이브러리 (작품과 따로 저장)
-  python -m canon arc 내소설            기승전결 구간 설계
-  python -m canon plot 내소설 [--from 1 --to 16]   화별 플롯 초안
+  python -m canon arc 내소설            기승전결 구간 설계 (단편)
+  python -m canon series 내소설         장편: 총 화수를 부로 나누는 부 구성 제안
+  python -m canon nextarc 내소설 [--len 15 --note "..." --redo]   장편: 다음 아크 하나 기획 (--redo 는 마지막 아크를 지우고 다시)
+  python -m canon arcs 내소설           장편: 부와 아크 진행 보기
+  python -m canon recap 내소설 [arc|part 번호]   장편: 끝난 아크·부 요약 (승인 후 저장)
+  python -m canon plot 내소설 [--from 1 --to 16]   화별 플롯 초안 (장편은 기본으로 플롯이 빈 아크)
   python -m canon revise 내소설 "3화 전개가 너무 빨라"   말로 구조와 플롯 고치기 (변경안 확인 후 반영, 대화는 웹과 같이 저장)
   python -m canon causal 내소설 [list | add | show ID | impact ID | rm ID]   인과율: 요소·설정·사건을 더하고 영향 분석
   python -m canon confirm 내소설 all|3  플롯 확정
@@ -98,8 +102,10 @@ def cmd_new(a: argparse.Namespace) -> None:
         logline_parts=parts,
         theme=ask("주제 (이 이야기가 끝까지 묻는 질문 하나, 예: 떠난 사람을 이해하면 용서할 수 있나?)") if a.interactive else "",
         tone=ask("분위기/톤 (예: 조금 어둡고 진지하고 호흡이 느리다)") if a.interactive else "",
-        target_episodes=int(a.episodes or ask("총 화수 (10~20)", "16")),
+        target_episodes=int(a.episodes or ask("총 화수 (단편 10~20, 장편 연재 100~300)", "300" if a.serial else "16")),
         words_per_episode=int(ask("화당 분량(자)", "5000") if a.interactive else 5000),
+        form="serial" if a.serial else "short",
+        arc_length=a.arc_length or 0,
     )
     p = Project(meta=meta)
     if a.interactive:
@@ -186,6 +192,8 @@ def cmd_styles(a: argparse.Namespace) -> None:
 
 def cmd_arc(a: argparse.Namespace) -> None:
     p = store.load(a.name)
+    if p.serial:
+        sys.exit("장편 연재는 작품 전체 기승전결 대신 부 구성(series)과 아크(nextarc)로 나눕니다")
     plan = pipeline.plan_arc(get_llm("plan"), p)
     for act in plan.acts:
         print(f"[{act.name}] {act.start_ep}~{act.end_ep}화  목표: {act.goal}  / 전환점: {act.key_turn}")
@@ -196,7 +204,16 @@ def cmd_arc(a: argparse.Namespace) -> None:
 
 def cmd_plot(a: argparse.Namespace) -> None:
     p = store.load(a.name)
-    start, end = a.start or 1, a.end or p.meta.target_episodes
+    if p.serial and not (a.start or a.end):
+        have = {e.plot.number for e in p.episodes}
+        todo = next((s for s in sorted(p.story_arcs, key=lambda s: s.start_ep)
+                     if any(n not in have for n in range(s.start_ep, s.end_ep + 1))), None)
+        if todo is None:
+            sys.exit(f"플롯이 빈 아크가 없습니다. 다음 아크를 먼저 기획하세요: nextarc {a.name}")
+        start, end = todo.start_ep, todo.end_ep
+        print(f"아크 {todo.number} {todo.title} ({start}~{end}화) 플롯을 만듭니다")
+    else:
+        start, end = a.start or 1, a.end or (p.planned_until() if p.serial else p.meta.target_episodes)
     batch = pipeline.draft_plots(get_llm("plan"), p, start, end)
     for e in batch.episodes:
         print(f"\n{e.number}화 [{e.act}] {e.title}\n  {e.summary}\n  사건: {' / '.join(e.events)}\n  훅: {e.ending_hook}")
@@ -223,6 +240,92 @@ def cmd_revise(a: argparse.Namespace) -> None:
     elif msg.revision:
         msg.outcome = "dismissed"
     print(f"저장: {store.save(a.name, p)}")
+
+
+def _print_arc(x) -> None:
+    print(f"\n아크 {x.number} {x.title} ({x.start_ep}~{x.end_ep}화, {x.end_ep - x.start_ep + 1}화)")
+    print(f"  목표: {x.goal}\n  갈등: {x.conflict}\n  보상: {x.payoff}")
+    for act in x.acts:
+        print(f"  [{act.name}] {act.start_ep}~{act.end_ep}화  {act.goal}  / 전환점: {act.key_turn}")
+    if x.cast:
+        print(f"  주요 인물: {', '.join(x.cast)}")
+    if x.payoffs:
+        print(f"  회수할 복선: {', '.join(x.payoffs)}")
+
+
+def _need_serial(p: Project) -> None:
+    if not p.serial:
+        sys.exit("장편 연재 작품이 아닙니다. project.json 의 meta.form 을 \"serial\" 로 바꾸거나 new --serial 로 만드세요")
+
+
+def cmd_series(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    _need_serial(p)
+    plan = pipeline.plan_series(get_llm("plan"), p)
+    for x in plan.parts:
+        print(f"\n{x.number}부 {x.title} ({x.start_ep}~{x.end_ep}화)\n  목표: {x.goal}\n  전환점: {x.key_turn}")
+        for idea in x.arc_ideas:
+            print(f"  - {idea}")
+    if confirm("이 부 구성으로 저장할까요?", a.yes):
+        pipeline.apply_series(p, plan)
+        print(f"저장: {store.save(a.name, p)}")
+
+
+def cmd_nextarc(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    _need_serial(p)
+    if a.redo:
+        gone = pipeline.remove_last_arc(p)
+        print(f"아크 {gone.number}({gone.start_ep}~{gone.end_ep}화)를 지우고 다시 기획합니다")
+    prop = pipeline.plan_next_arc(get_llm("plan"), p, a.len or 0, a.note or "")
+    if prop.reply:
+        print(prop.reply)
+    _print_arc(prop.arc)
+    for c in prop.new_characters:
+        print(f"  새 인물: {c.name}({c.id}) {c.role} - {c.speech_style}")
+    if confirm("이 아크를 반영할까요? (반영 후 plot 으로 화별 플롯)", a.yes):
+        arc = pipeline.apply_arc(p, prop)
+        print(f"저장: {store.save(a.name, p)}\n다음: plot {a.name}  ({arc.start_ep}~{arc.end_ep}화)")
+
+
+def cmd_arcs(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    _need_serial(p)
+    status = {e.plot.number: e.status for e in p.episodes}
+    print(f"《{p.meta.title}》 총 {p.meta.target_episodes}화 · 기획 {p.planned_until()}화까지 · "
+          f"반영 {sum(s == 'finalized' for s in status.values())}화")
+    parts = p.parts or []
+    for x in parts or [None]:
+        if x:
+            print(f"\n{x.number}부 {x.title} ({x.start_ep}~{x.end_ep}화){'  요약 있음' if x.summary else ''}\n  목표: {x.goal}")
+        for s in p.story_arcs:
+            if x and not x.start_ep <= s.start_ep <= x.end_ep:
+                continue
+            nums = range(s.start_ep, s.end_ep + 1)
+            done = sum(status.get(n) == "finalized" for n in nums)
+            plotted = sum(n in status for n in nums)
+            print(f"  아크 {s.number:>2} {s.start_ep:>3}~{s.end_ep:<3}화 {s.title}  플롯 {plotted}/{len(nums)} 반영 {done}/{len(nums)}"
+                  f"{'  요약 있음' if s.summary else ''}")
+    for kind, num in pipeline.pending_recaps(p):
+        print(f"! {'아크' if kind == 'arc' else '부'} {num} 이 끝났습니다. 요약하세요: recap {a.name} {kind} {num}")
+    if p.planned_until() < p.meta.target_episodes:
+        print(f"\n다음: nextarc {a.name}  ({p.planned_until() + 1}화부터)")
+
+
+def cmd_recap(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    _need_serial(p)
+    todo = [(a.kind, a.number)] if a.kind else pipeline.pending_recaps(p)
+    if not todo:
+        print("요약할 아크나 부가 없습니다 (모든 화가 반영된 아크·부만 요약합니다)")
+        return
+    for kind, num in todo:
+        r = pipeline.recap(get_llm("state"), p, kind, num)
+        print(f"\n[{'아크' if kind == 'arc' else '부'} {num} 요약]\n{r.summary}")
+        if confirm("이 요약을 저장할까요? (앞으로 이 구간 대신 프롬프트에 들어갑니다)", a.yes):
+            pipeline.apply_recap(p, kind, num, r.summary)
+            store.save(a.name, p)
+    print("저장 완료")
 
 
 def cmd_causal(a: argparse.Namespace) -> None:
@@ -491,6 +594,11 @@ def cmd_run(a: argparse.Namespace) -> None:
         if not _update(a.name, p, n, a.yes):
             print("상태 반영을 보류해 멈춥니다.")
             return
+    if p.serial and p.planned_until() < p.meta.target_episodes:
+        for kind, num in pipeline.pending_recaps(p):
+            print(f"{'아크' if kind == 'arc' else '부'} {num} 이 끝났습니다. 요약: recap {a.name} {kind} {num}")
+        print(f"기획한 {p.planned_until()}화까지 완료. 다음 아크: nextarc {a.name}")
+        return
     print("모든 화 완료")
 
 
@@ -606,6 +714,8 @@ def cmd_show(a: argparse.Namespace) -> None:
     print(f"《{m.title}》 {genres.label(m)}{' · 성인' if m.adult else ''} / {m.target_episodes}화\n로그라인: {m.logline}\n")
     print("인물:", ", ".join(f"{c.name}({c.id})" for c in p.characters) or "없음")
     print("스타일:", "있음" if p.style.sample_passages or p.style.narration_pov else "없음")
+    if p.serial:
+        print(f"장편 연재: 부 {len(p.parts)}개, 아크 {len(p.story_arcs)}개, {p.planned_until()}화까지 기획 (자세히: arcs {a.name})")
     for act in p.arc:
         print(f"[{act.name}] {act.start_ep}~{act.end_ep}화: {act.goal}")
     for e in p.episodes:
@@ -686,6 +796,8 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--episodes", default="")
     sp.add_argument("--no-suggest", action="store_true")
     sp.add_argument("-i", "--interactive", action="store_true", help="톤, 분량, 주인공까지 질문")
+    sp.add_argument("--serial", action="store_true", help="장편 연재: 부 → 아크 → 화로 나눠 아크씩 기획")
+    sp.add_argument("--arc-length", type=int, default=0, help="장편: 아크 하나의 기본 화수 (기본은 AI 가 정함)")
     add("suggest", cmd_suggest)
     sp = add("names", cmd_names)
     sp.add_argument("--character", default="", help="인물 id. 비우면 지명 후보")
@@ -700,6 +812,15 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--library", help="문체 라이브러리 항목 id 를 적용 (파일 대신)")
     sp.add_argument("--save", metavar="이름", help="분석한 문체를 라이브러리에도 저장")
     add("arc", cmd_arc)
+    add("series", cmd_series)
+    sp = add("nextarc", cmd_nextarc)
+    sp.add_argument("--len", type=int, help="아크 화수")
+    sp.add_argument("--note", help="이번 아크에 바라는 것")
+    sp.add_argument("--redo", action="store_true", help="마지막 아크(아직 확정 전)를 지우고 다시 기획")
+    add("arcs", cmd_arcs, yes=False)
+    sp = add("recap", cmd_recap)
+    sp.add_argument("kind", nargs="?", choices=["arc", "part"])
+    sp.add_argument("number", nargs="?", type=int)
     sp = add("plot", cmd_plot, yes=False)
     sp.add_argument("--from", dest="start", type=int)
     sp.add_argument("--to", dest="end", type=int)

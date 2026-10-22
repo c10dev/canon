@@ -1,7 +1,8 @@
 """소설 프로젝트 데이터 스키마.
 
 모든 상태는 하나의 Project 객체(project.json)에 저장된다.
-LLM 이 직접 채우는 모델(SetupSuggestion, StyleProfile, ArcPlan, PlotBatch, PlotRevision, NameOptions, StateDelta, ConsistencyReport, ImpactReport)은
+LLM 이 직접 채우는 모델(SetupSuggestion, StyleProfile, ArcPlan, PlotBatch, PlotRevision, NameOptions, StateDelta, ConsistencyReport,
+ImpactReport, SeriesPlan, ArcProposal, Recap)은
 Gemini 구조화 출력에 그대로 넘기므로 dict 타입 필드를 쓰지 않는다.
 """
 from __future__ import annotations
@@ -14,6 +15,7 @@ from .metrics import StyleMetrics
 
 ActName = Literal["기", "승", "전", "결"]
 EpisodeStatus = Literal["draft", "confirmed", "written", "finalized"]
+Form = Literal["short", "serial"]
 
 
 # ---------- 기본 설정 ----------
@@ -46,6 +48,8 @@ class Meta(BaseModel):
     tone_dials: ToneDials = Field(default_factory=ToneDials, description="설정 화면에서 고른 톤 다이얼. tone 문장을 만든다")
     target_episodes: int = 16
     words_per_episode: int = Field(5000, description="화당 목표 분량(글자 수, 공백 포함)")
+    form: Form = Field("short", description="short: 작품 전체를 기승전결 하나로 / serial: 부 → 아크 → 화로 나눠 아크씩 굴러가며 기획하는 장편 연재")
+    arc_length: int = Field(0, description="장편: 아크 하나의 기본 화수. 0 이면 AI 가 내용에 맞게 정한다")
     notes: str = ""
 
     @model_validator(mode="after")
@@ -79,6 +83,9 @@ class Character(BaseModel):
     speech_style: str = Field("", description="말투, 어미, 호칭, 자주 쓰는 표현")
     secrets: list[str] = Field(default_factory=list)
     arc: str = Field("", description="시작 상태에서 결말 상태로의 변화")
+    tier: Literal["main", "support", "minor"] = Field(
+        "main", description="main 주역(매 화 설정 전체를 넣음) / support 조연 / minor 단역 (나오는 화에만 넣음)")
+    first_ep: int = Field(0, description="처음 나온 화. 설정 단계 인물은 0")
 
 
 def _range(lo: float, hi: float) -> dict:
@@ -269,6 +276,52 @@ class PlotBatch(BaseModel):
     episodes: list[EpisodePlot]
 
 
+# ---------- 장편 연재: 작품 → 부 → 아크 → 화 ----------
+
+class Part(BaseModel):
+    """부(권, 시즌). 무대와 판이 바뀌는 큰 단위. 장편(form='serial')에서만 쓴다."""
+    number: int
+    title: str
+    start_ep: int
+    end_ep: int
+    goal: str = Field(description="이 부가 끝날 때 이야기가 도달해야 하는 상태")
+    key_turn: str = Field("", description="부를 마무리하는 큰 사건이나 드러나는 비밀")
+    arc_ideas: list[str] = Field(default_factory=list, description="이 부에서 다룰 아크 후보를 순서대로 한 줄씩. 다음 아크를 기획할 때 참고")
+    summary: str = Field("", description="부가 끝난 뒤의 요약. 작가가 승인한 것만 넣는다")
+
+
+class SeriesPlan(BaseModel):
+    """부 구성 제안."""
+    parts: list[Part]
+
+
+class StoryArc(BaseModel):
+    """아크: 화 5~30개로 된 작은 이야기. 하나의 문제를 열고 해결하며, 자체 기승전결과 클라이맥스 보상을 가진다."""
+    number: int
+    title: str
+    start_ep: int
+    end_ep: int
+    goal: str = Field(description="아크가 끝날 때 바뀌어 있어야 하는 것")
+    conflict: str = Field("", description="이번 아크에서 주인공을 막는 문제나 상대")
+    payoff: str = Field("", description="아크 클라이맥스에서 독자가 받는 보상(사이다)")
+    acts: list[Act] = Field(default_factory=list, description="아크 안의 기승전결. start_ep 부터 end_ep 까지 빈틈없이")
+    cast: list[str] = Field(default_factory=list, description="이 아크에 주로 나오는 인물 id")
+    payoffs: list[str] = Field(default_factory=list, description="이 아크에서 회수할 열린 복선 id")
+    summary: str = Field("", description="아크가 끝난 뒤의 요약. 작가가 승인한 것만 넣는다")
+
+
+class ArcProposal(BaseModel):
+    """다음 아크 제안. 작가가 고쳐서 반영한다 (pipeline.apply_arc)."""
+    arc: StoryArc
+    new_characters: list[Character] = Field(default_factory=list, description="이 아크에서 새로 등장하는 인물. 기존 인물은 넣지 않는다")
+    reply: str = Field("", description="작가에게 하는 설명: 왜 이 아크인지, 어떤 복선을 회수하고 무엇을 남기는지 2~4문장")
+
+
+class Recap(BaseModel):
+    """아크나 부가 끝난 뒤의 요약 제안."""
+    summary: str = Field(description="다음 화를 쓸 때 참고할 요약")
+
+
 # ---------- 대화형 다듬기 ----------
 
 class PlotRevision(BaseModel):
@@ -343,6 +396,8 @@ class Foreshadow(BaseModel):
     planted_ep: int
     payoff_ep: Optional[int] = None
     status: Literal["open", "resolved"] = "open"
+    scope: Literal["arc", "part", "series"] = Field("arc", description="회수 범위: arc 이번 아크 안 / part 이번 부 안 / series 작품 끝까지 가는 큰 복선")
+    due_ep: Optional[int] = Field(None, description="회수 예정 화. 정하지 않았으면 비움")
 
 
 class StateDelta(BaseModel):
@@ -356,6 +411,7 @@ class StateDelta(BaseModel):
     new_facts: list[str] = Field(default_factory=list, description="본문에서 새로 확정된 사실 (이름, 장소, 과거사 등)")
     foreshadow_planted: list[Foreshadow] = Field(default_factory=list)
     foreshadow_resolved: list[str] = Field(default_factory=list, description="회수된 복선 id")
+    new_characters: list[Character] = Field(default_factory=list, description="인물 설정에 없는데 이번 화에 이름을 갖고 처음 나온 인물. 조연은 support, 지나가는 인물은 minor")
     warnings: list[str] = Field(default_factory=list, description="플롯, 설정, 말투와 어긋난 부분")
 
 
@@ -444,7 +500,9 @@ class Project(BaseModel):
     style: StyleProfile = Field(default_factory=StyleProfile)
     style_baseline: Optional[StyleMetrics] = Field(None, description="레퍼런스 원문 전체로 잰 문체 지표 (style 명령 때 저장)")
     style_id: str = Field("", description="문체 라이브러리에서 가져온 항목 id. 비어 있으면 이 작품에서 직접 만든 문체")
-    arc: list[Act] = Field(default_factory=list)
+    arc: list[Act] = Field(default_factory=list, description="단편: 작품 전체의 기승전결. 장편에서는 비워 두고 아크마다 기승전결을 둔다")
+    parts: list[Part] = Field(default_factory=list, description="장편: 부 구성")
+    story_arcs: list[StoryArc] = Field(default_factory=list, description="장편: 지금까지 기획한 아크. 다음 아크를 하나씩 붙인다")
     episodes: list[Episode] = Field(default_factory=list)
     states: list[CharacterState] = Field(default_factory=list)
     facts: list[str] = Field(default_factory=list)
@@ -465,8 +523,28 @@ class Project(BaseModel):
                 return ep
         raise KeyError(f"{n}화 플롯이 없습니다")
 
+    @property
+    def serial(self) -> bool:
+        return self.meta.form == "serial"
+
+    def beats(self) -> list[Act]:
+        """화마다 소속 구간(기승전결)을 정하는 목록. 단편은 작품 전체 구조, 장편은 기획한 아크들의 구간을 이은 것."""
+        if not self.serial:
+            return self.arc
+        return [a for s in sorted(self.story_arcs, key=lambda s: s.start_ep) for a in s.acts]
+
     def act_for(self, n: int) -> Optional[Act]:
-        return next((a for a in self.arc if a.start_ep <= n <= a.end_ep), None)
+        return next((a for a in self.beats() if a.start_ep <= n <= a.end_ep), None)
+
+    def arc_for(self, n: int) -> Optional[StoryArc]:
+        return next((s for s in self.story_arcs if s.start_ep <= n <= s.end_ep), None)
+
+    def part_for(self, n: int) -> Optional[Part]:
+        return next((s for s in self.parts if s.start_ep <= n <= s.end_ep), None)
+
+    def planned_until(self) -> int:
+        """장편에서 아크로 기획한 마지막 화. 아크가 없으면 0."""
+        return max((s.end_ep for s in self.story_arcs), default=0)
 
     def state_of(self, cid: str) -> Optional[CharacterState]:
         return next((s for s in self.states if s.character_id == cid), None)

@@ -27,6 +27,13 @@ const S = {
   jobs: [],          // 서버에서 돌고 있거나 막 끝난 AI 작업
   jobsSeen: null,    // 화면을 연 시점에 이미 끝나 있던 작업 id (결과를 다시 적용하지 않는다)
   jobsOpen: false,   // 작업 목록 펼침
+  selArc: null,      // 장편: 플롯 보드에서 고른 아크 번호 ('next' 는 다음 아크 기획)
+  editArc: false,    // 장편: 아크 고치기 서랍
+  selPart: null,     // 장편: 고치는 부 번호
+  seriesDraft: null, // 장편: 부 구성 제안 (반영 전)
+  arcDraft: null,    // 장편: 다음 아크 제안 (반영 전)
+  arcForm: { length: 0, note: '' },  // 장편: 다음 아크 요청
+  recapDraft: null,  // 장편: 아크·부 요약 제안 { kind, number, summary }
   namingStyles: null, // 이름 스타일 목록 (서버 naming.STYLES)
   names: {},         // 이름·지명 후보. 'c:<인물 id>' 또는 'place' → { candidates, options, ai }
   nameCheck: null,   // 출연진 이름 점검 { warnings, style, detected }
@@ -81,6 +88,10 @@ const JOB_DONE_MSG = {
   plots: '화별 플롯 초안을 만들었습니다. 확정된 화는 그대로입니다.',
   write: (j) => `${j.ep}화 본문을 저장했습니다.`,
   state: (j) => `${j.ep}화 상태 변경안이 도착했습니다.`,
+  series: '부 구성 제안이 도착했습니다. 확인하고 반영하세요.',
+  nextarc: '다음 아크 제안이 도착했습니다. 고친 뒤 반영하세요.',
+  recap_arc: (j) => `아크 ${j.ep} 요약 제안이 도착했습니다.`,
+  recap_part: (j) => `${j.ep}부 요약 제안이 도착했습니다.`,
   impact: (j) => `${j.label.replace(/^인과율: /, '')}이 끝났습니다. 인과율에서 확인하세요.`,
   auto: (j) => `자동 집필: ${j.note || '멈췄습니다'}`,
 };
@@ -146,7 +157,7 @@ async function pollJobs(soon = false) {
 }
 
 // 작업 결과가 보이는 화면
-const JOB_PAGES = { suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal'], impact: ['causal'] };
+const JOB_PAGES = { suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'] };
 
 // 작업이 project.json 에 쓴 화만 받아 온다 (mine 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
 async function mergeEpisodes(mine) {
@@ -193,6 +204,16 @@ function applyJobResult(j) {
     delete S.deltas[j.ep];
   } else if (j.kind === 'state' && j.result) {
     setDelta(j.ep, j.result);
+  } else if (j.kind === 'series' && j.result) {
+    S.seriesDraft = j.result;
+  } else if (j.kind === 'nextarc' && j.result) {
+    S.arcDraft = j.result;
+    S.selArc = 'next';
+  } else if (j.kind.startsWith('recap_') && j.result) {
+    const kind = j.kind.slice(6);
+    S.recapDraft = { kind, number: j.ep, summary: j.result.summary };
+    if (kind === 'arc') S.selArc = j.ep;
+    else S.selPart = j.ep;
   }
   j.applied = true;
 }
@@ -203,6 +224,10 @@ const JOB_LINK = {
   plots: (j) => `#/p/${enc(j.project)}/arc`,
   write: (j) => `#/p/${enc(j.project)}/write/${j.ep}`,
   state: (j) => `#/p/${enc(j.project)}/review/${j.ep}`,
+  series: (j) => `#/p/${enc(j.project)}/arc`,
+  nextarc: (j) => `#/p/${enc(j.project)}/arc`,
+  recap_arc: (j) => `#/p/${enc(j.project)}/arc`,
+  recap_part: (j) => `#/p/${enc(j.project)}/arc`,
   impact: (j) => `#/p/${enc(j.project)}/causal${j.result ? '/' + enc(j.result.element) : ''}`,
   auto: (j) => `#/p/${enc(j.project)}/auto`,
 };
@@ -293,8 +318,25 @@ function currentEp() {
   return open ? open.plot.number : eps[eps.length - 1].plot.number;
 }
 
+const serial = () => P().meta.form === 'serial';
+
+/** 화마다 소속 구간을 정하는 기승전결 목록. 단편은 작품 전체 구조, 장편은 기획한 아크들의 구간 (schema.Project.beats 와 같음) */
+function beats() {
+  const p = P();
+  if (!serial()) return p.arc;
+  return [...p.story_arcs].sort((a, b) => a.start_ep - b.start_ep).flatMap((s) => s.acts);
+}
+
 function actOf(n) {
-  return P().arc.find((a) => a.start_ep <= n && n <= a.end_ep);
+  return beats().find((a) => a.start_ep <= n && n <= a.end_ep);
+}
+
+function arcOf(n) {
+  return P().story_arcs.find((a) => a.start_ep <= n && n <= a.end_ep);
+}
+
+function plannedUntil() {
+  return Math.max(0, ...P().story_arcs.map((a) => a.end_ep));
 }
 
 function actClass(name) {
@@ -304,7 +346,11 @@ function actClass(name) {
 // ---------- 입력 바인딩 ----------
 // data-bind="meta.title" data-kind="text|int|list|bool"
 
+// 반영 전 AI 제안도 같은 방식으로 고친다. 이 값들은 작품 저장(dirty)과 상관없다.
+const DRAFT_ROOTS = { arcDraft: () => S.arcDraft, seriesDraft: () => S.seriesDraft, recap: () => S.recapDraft, arcForm: () => S.arcForm };
+
 function bindRoot(name) {
+  if (DRAFT_ROOTS[name]) return DRAFT_ROOTS[name]();
   return name === 'lib' ? S.lib : P();
 }
 
@@ -339,7 +385,12 @@ document.addEventListener('input', (e) => {
     if (kind === 'bool') v = el.checked;
     setPath(root, el.dataset.bind, v);
     if (el.dataset.root === 'lib') S.libDirty = true;
-    else markDirty();
+    else if (!DRAFT_ROOTS[el.dataset.root]) markDirty();
+    if (el.dataset.root === 'arcDraft' && el.dataset.bind === 'arc.end_ep') {  // 아크 끝 화를 바꾸면 결 구간 끝도 따라간다
+      const acts = S.arcDraft.arc.acts;
+      const last = acts[acts.length - 1];
+      if (last && v >= last.start_ep) last.end_ep = v;
+    }
     const cnt = el.id === 'f-sample' && $('#lib-sample-count');
     if (cnt) cnt.textContent = v.length.toLocaleString();
     const out = el.dataset.out && document.getElementById(el.dataset.out);
@@ -367,6 +418,10 @@ document.addEventListener('change', (e) => {
     if (c) c.textContent = Object.values(S.picks).filter(Boolean).length;
     if (S.route[2] === 'review' && /^[ers]\d/.test(el.dataset.pick)) refreshPreview(Number(S.route[3]));
   }
+  if (el.name === 'np-form') {  // 형식을 바꾸면 총 화수 기본값도 바꾼다
+    const eps = $('#np-eps');
+    if (eps) eps.value = el.value === 'serial' ? 300 : 12;
+  }
   if (el.dataset.castEp) {
     const plot = ep(Number(el.dataset.castEp)).plot;
     const id = el.value;
@@ -386,7 +441,7 @@ document.addEventListener('input', (e) => {
 // 구간 범위나 목표를 고치면 보드도 다시 그린다 (입력이 끝났을 때만)
 document.addEventListener('change', (e) => {
   const bind = e.target.dataset && e.target.dataset.bind;
-  if (bind && bind.startsWith('arc.') && S.route[2] === 'arc') render();
+  if (bind && /^(arc|story_arcs|parts)\./.test(bind) && S.route[2] === 'arc') render();
   if (S.route[2] !== 'setup' || !bind) return;
   if (bind === 'world.name_style') {  // 스타일을 바꾸면 이전 후보는 버리고 다시 점검한다
     S.names = {};
@@ -398,7 +453,7 @@ document.addEventListener('change', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && (S.selEp || S.selAct != null) && S.route[2] === 'arc' && !e.isComposing) {
+  if (e.key === 'Escape' && (S.selEp || S.selAct != null || S.editArc || S.selPart != null) && S.route[2] === 'arc' && !e.isComposing) {
     actions.closePanel();
     return;
   }
@@ -464,6 +519,7 @@ const actions = {
       genres: [...S.newMeta.genres],
       target_episodes: parseInt($('#np-eps').value, 10) || 16,
       adult: $('#np-adult').checked,
+      form: $('#np-serial').checked ? 'serial' : 'short',
     };
     const styleId = $('#np-style') ? $('#np-style').value : '';
     await run('만드는 중', async () => {
@@ -763,16 +819,22 @@ const actions = {
   selectEp(n) {
     S.selEp = Number(n);
     S.selAct = null;
+    S.editArc = false;
+    S.selPart = null;
     render();
   },
   selectAct(i) {
     S.selAct = Number(i);
     S.selEp = null;
+    S.editArc = false;
+    S.selPart = null;
     render();
   },
   closePanel() {
     S.selEp = null;
     S.selAct = null;
+    S.editArc = false;
+    S.selPart = null;
     render();
   },
   async confirmEp(n) {
@@ -787,13 +849,101 @@ const actions = {
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/unconfirm`);
     });
   },
-  async confirmAll() {
-    const drafts = P().episodes.filter((e) => e.status === 'draft');
+  async confirmAll(arc) {
+    const a = arc ? P().story_arcs.find((x) => x.number === Number(arc)) : null;
+    const drafts = P().episodes.filter((e) => e.status === 'draft' && (!a || (e.plot.number >= a.start_ep && e.plot.number <= a.end_ep)));
     if (!drafts.length) return toast('확정할 초안이 없습니다');
     if (!confirm(`초안 ${drafts.length}화를 모두 확정할까요?`)) return;
     await run('확정하는 중', async () => {
       await saveIfDirty();
       for (const e of drafts) S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${e.plot.number}/confirm`);
+    });
+  },
+
+  // 장편: 부 · 아크
+  async planSeries() {
+    if (P().parts.length && !confirm('지금 부 구성을 AI 제안으로 바꿀까요? 반영 전에 확인할 수 있어요.')) return;
+    await startJob('series');
+  },
+  dropSeries() {
+    S.seriesDraft = null;
+    render();
+  },
+  async applySeries() {
+    await run('반영하는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/series/apply`, S.seriesDraft);
+      S.seriesDraft = null;
+      toast('부 구성을 반영했어요. 이제 첫 아크를 기획하세요.');
+    });
+  },
+  selectArc(n) {
+    S.selArc = n === 'next' ? 'next' : Number(n);
+    S.selEp = null;
+    S.selAct = null;
+    S.editArc = false;
+    S.selPart = null;
+    render();
+  },
+  editArc() {
+    S.editArc = true;
+    S.selEp = null;
+    S.selAct = null;
+    S.selPart = null;
+    render();
+  },
+  selectPart(n) {
+    S.selPart = Number(n);
+    S.selEp = null;
+    S.selAct = null;
+    S.editArc = false;
+    render();
+  },
+  async planNextArc() {
+    await startJob('nextarc', null, { length: Number(S.arcForm.length) || 0, note: S.arcForm.note || '' });
+  },
+  dropArc() {
+    S.arcDraft = null;
+    render();
+  },
+  async applyArc() {
+    await run('반영하는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/arcs/apply`, S.arcDraft);
+      S.selArc = S.arcDraft.arc.number;
+      S.arcDraft = null;
+      S.arcForm = { length: 0, note: '' };
+      toast('아크를 반영했어요. 화별 플롯 초안을 만드세요.');
+    });
+  },
+  async removeLastArc() {
+    if (!confirm('마지막 아크와 그 아크의 플롯 초안을 지울까요? 다시 기획할 수 있어요.')) return;
+    await run('지우는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('DELETE', `/projects/${enc(S.name)}/arcs/last`);
+      S.selArc = 'next';
+    });
+  },
+  async draftArcPlots(n) {
+    await startJob('plots', Number(n));
+  },
+  async recapArc(n) {
+    await startJob('recap_arc', Number(n));
+  },
+  async recapPart(n) {
+    await startJob('recap_part', Number(n));
+  },
+  dropRecap() {
+    S.recapDraft = null;
+    render();
+  },
+  async applyRecap() {
+    const r = S.recapDraft;
+    await run('저장하는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/recap/${r.kind}/${r.number}`, { summary: r.summary });
+      S.recapDraft = null;
+      toast('요약을 저장했어요. 앞으로 이 구간 대신 요약이 프롬프트에 들어갑니다.');
     });
   },
 
@@ -971,6 +1121,7 @@ function pickedDelta(n) {
     new_facts: pick('f', d.new_facts),
     foreshadow_planted: pick('p', d.foreshadow_planted),
     foreshadow_resolved: pick('x', d.foreshadow_resolved),
+    new_characters: pick('n', d.new_characters || []),
   };
 }
 
@@ -1001,6 +1152,7 @@ function setDelta(n, d) {
   d.new_facts.forEach((_, i) => { S.picks['f' + i] = true; });
   d.foreshadow_planted.forEach((_, i) => { S.picks['p' + i] = true; });
   d.foreshadow_resolved.forEach((_, i) => { S.picks['x' + i] = true; });
+  (d.new_characters || []).forEach((_, i) => { S.picks['n' + i] = true; });
 }
 
 document.addEventListener('click', (e) => {
@@ -1122,7 +1274,7 @@ function render() {
     return;
   }
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: viewArc, write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, auto: viewAuto, causal: viewCausal };
+  const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, auto: viewAuto, causal: viewCausal };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${body}</main></div>`;
   syncChat();
@@ -1144,7 +1296,7 @@ function sidebar(active) {
     ['home', base(), 'H', '작품 홈'],
     ['setup', base() + '/setup', '1', '설정 도우미'],
     ['style', base() + '/style', '2', '문체 레퍼런스'],
-    ['arc', base() + '/arc', '3', '기승전결 · 플롯'],
+    ['arc', base() + '/arc', '3', serial() ? '부 · 아크 · 플롯' : '기승전결 · 플롯'],
     ['causal', base() + '/causal', '∴', '인과율'],
     ['write', `${base()}/write/${cur}`, '4', '집필'],
     ['review', `${base()}/review/${cur}`, '5', '상태 승인'],
@@ -1287,7 +1439,7 @@ function viewProjects() {
       <div class="small">${esc(x.genre || '장르 미정')} · 폴더 ${esc(x.name)}</div>
     </a>`).join('');
   const cfg = S.config || {};
-  return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편을 씁니다.', '<a class="btn" href="#/styles">문체 라이브러리</a><a class="btn" href="#/settings">모델 · API 키 설정</a>')}
+  return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편부터 300화 장편 연재까지 씁니다.', '<a class="btn" href="#/styles">문체 라이브러리</a><a class="btn" href="#/settings">모델 · API 키 설정</a>')}
     ${cfg.has_key ? '' : '<div class="note warn">Gemini API 키가 없어요. <a href="#/settings" style="color:inherit;font-weight:700">설정</a>에서 넣으면 AI 생성을 쓸 수 있습니다. 키 없이도 채팅 앱 작업지시서로 쓸 수 있어요.</div>'}
     ${list.length ? `<div class="grid-auto">${cards}</div>` : '<div class="note plain">아직 작품이 없어요. 아래에서 새 작품을 만드세요.</div>'}
     <section class="card" style="max-width:720px">
@@ -1295,8 +1447,12 @@ function viewProjects() {
       <div class="grid-2">
         <div class="field"><label for="np-name">폴더 이름 <span class="hint">projects/ 아래에 저장</span></label><input id="np-name" type="text" placeholder="lighthouse"></div>
         <div class="field"><label for="np-title">제목</label><input id="np-title" type="text" placeholder="등대"></div>
-        <div class="field"><label for="np-eps">총 화수 (10~20)</label><input id="np-eps" type="number" min="10" max="20" value="12"></div>
+        <div class="field"><label for="np-eps">총 화수 <span class="hint">단편 10~20, 장편 100~300</span></label><input id="np-eps" type="number" min="4" max="1000" value="12"></div>
       </div>
+      <fieldset class="field form-pick"><legend class="label">형식</legend>
+        <label class="row"><input type="radio" name="np-form" id="np-short" value="short" checked><span><strong>단편</strong> <span class="small">작품 전체를 기승전결 하나로 짜고 모든 화의 플롯을 한 번에 만들어요</span></span></label>
+        <label class="row"><input type="radio" name="np-form" id="np-serial" value="serial"><span><strong>장편 연재</strong> <span class="small">부 → 아크(5~30화) → 화로 나눠, 다음 아크의 플롯만 그때그때 만들어요. 200~300화 웹소설용</span></span></label>
+      </fieldset>
       ${genrePicker()}
       ${adultCheck('id="np-adult"')}
       ${(S.libs || []).length ? `<div class="field"><label for="np-style">문체 <span class="hint">라이브러리에서 고르면 문체 단계를 건너뛸 수 있어요. 나중에 바꿔도 됩니다</span></label>
@@ -1310,7 +1466,12 @@ function viewProjects() {
 function nextStep() {
   const p = P();
   if (!p.characters.length) return ['설정 시작', base() + '/setup'];
-  if (!p.arc.length || !p.episodes.length) return ['기승전결 · 플롯 만들기', base() + '/arc'];
+  if (serial()) {
+    const open = p.episodes.find((e) => e.status !== 'finalized');
+    if (!open && plannedUntil() < p.meta.target_episodes) return [`다음 아크 기획 (${plannedUntil() + 1}화부터)`, base() + '/arc'];
+    if (!p.episodes.length) return ['부 · 아크 기획', base() + '/arc'];
+  }
+  if (!beats().length || !p.episodes.length) return ['기승전결 · 플롯 만들기', base() + '/arc'];
   const e = ep(currentEp());
   if (e.status === 'draft') return [`${e.plot.number}화 플롯 확정`, base() + '/arc'];
   if (e.status === 'confirmed') return [`${e.plot.number}화 쓰기`, `${base()}/write/${e.plot.number}`];
@@ -1331,15 +1492,20 @@ function viewHome() {
   const state = (ok, partial) => (ok ? ['done', '완료'] : partial ? ['doing', '진행 중'] : ['', '시작 전']);
   const [s1c, s1t] = state(p.characters.length > 0);
   const [s2c, s2t] = state(hasStyle);
-  const [s3c, s3t] = state(p.arc.length === 4);
+  const [s3c, s3t] = serial() ? state(plannedUntil() >= m.target_episodes, p.story_arcs.length > 0) : state(p.arc.length === 4);
   const [s4c, s4t] = state(eps.length && confirmed === m.target_episodes, confirmed > 0);
   const [s5c, s5t] = state(written === m.target_episodes, written > 0);
   const [s6c, s6t] = state(fin === m.target_episodes, fin > 0);
   const cur = currentEp();
   const [nextLabel, nextHref] = nextStep();
 
-  const actBand = p.arc.length ? `<div class="act-band" style="display:grid;grid-template-columns:repeat(${m.target_episodes},minmax(0,1fr));gap:6px">${p.arc.map((a) => `<div class="act-head ${actClass(a.name)}" style="grid-column:span ${a.end_ep - a.start_ep + 1};padding:4px 8px;font-size:12px;font-weight:700">${a.name} ${a.start_ep}–${a.end_ep}화</div>`).join('')}</div>` : '';
-  const cells = eps.map((e) => {
+  const actBand = p.arc.length && !serial() ? `<div class="act-band" style="display:grid;grid-template-columns:repeat(${m.target_episodes},minmax(0,1fr));gap:6px">${p.arc.map((a) => `<div class="act-head ${actClass(a.name)}" style="grid-column:span ${a.end_ep - a.start_ep + 1};padding:4px 8px;font-size:12px;font-weight:700">${a.name} ${a.start_ep}–${a.end_ep}화</div>`).join('')}</div>` : '';
+  // 장편은 지금 쓰는 부(없으면 지금 아크 근처 60화)만 칸으로 보인다
+  const curPart = serial() ? p.parts.find((x) => x.start_ep <= cur && cur <= x.end_ep) : null;
+  const shown = !serial() ? eps : curPart ? eps.filter((e) => e.plot.number >= curPart.start_ep && e.plot.number <= curPart.end_ep)
+    : eps.filter((e) => Math.abs(e.plot.number - cur) <= 30);
+  const arcBand = serial() && p.story_arcs.length ? `<div class="arc-rail">${p.story_arcs.filter((a) => shown.some((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep)).map((a) => `<a class="arc-chip" href="${base()}/arc"><strong>아크 ${a.number}</strong> <span>${a.start_ep}–${a.end_ep}화 ${esc(a.title)}</span></a>`).join('')}</div>` : '';
+  const cells = shown.map((e) => {
     const n = e.plot.number;
     const href = e.status === 'draft' ? base() + '/arc' : e.status === 'written' ? `${base()}/review/${n}` : `${base()}/write/${n}`;
     return `<a class="ep-cell ${e.status}${n === cur && e.status !== 'finalized' ? ' current' : ''}" href="${href}" title="${esc(e.plot.title)}"><strong>${n}</strong><span>${e.auto ? '자동 반영' : STATUS[e.status].replace('플롯 ', '').replace('본문 ', '')}</span></a>`;
@@ -1357,7 +1523,7 @@ function viewHome() {
     <section class="card" aria-label="진행 단계"><div class="stages">
       ${stage(s1c, s1t, '1 설정', `인물 ${p.characters.length} · 관계 ${p.relationships.length}`, base() + '/setup')}
       ${stage(s2c, s2t, '2 문체', hasStyle ? `대표 문단 ${p.style.sample_passages.length}개` : '선택 사항', base() + '/style')}
-      ${stage(s3c, s3t, '3 기승전결', p.arc.length ? '4구간' : '없음', base() + '/arc')}
+      ${serial() ? stage(s3c, s3t, '3 부 · 아크', p.story_arcs.length ? `아크 ${p.story_arcs.length}개 · ${plannedUntil()}화까지` : '없음', base() + '/arc') : stage(s3c, s3t, '3 기승전결', p.arc.length ? '4구간' : '없음', base() + '/arc')}
       ${stage(s4c, s4t, '플롯 확정', `${confirmed} / ${m.target_episodes}화`, base() + '/arc')}
       ${stage(s5c, s5t, '4 집필', `${written} / ${m.target_episodes}화`, `${base()}/write/${cur}`)}
       ${stage(s6c, s6t, '5 상태 반영', `${fin} / ${m.target_episodes}화`, `${base()}/review/${cur}`)}
@@ -1368,7 +1534,7 @@ function viewHome() {
         <span><i style="background:var(--accent)"></i>플롯 확정</span>
         <span><i style="background:var(--amber)"></i>본문 작성됨</span>
         <span><i style="background:var(--green)"></i>반영 완료</span></div></div>
-      ${eps.length ? `${actBand}<div class="ep-grid" style="grid-template-columns:repeat(${m.target_episodes},minmax(0,1fr))">${cells}</div>` : `<div class="note plain">아직 화별 플롯이 없어요. <a href="${base()}/arc">기승전결 · 플롯</a>에서 만드세요.</div>`}
+      ${eps.length ? `${actBand}${arcBand}<div class="ep-grid"${serial() ? '' : ` style="grid-template-columns:repeat(${m.target_episodes},minmax(0,1fr))"`}>${cells}</div>${curPart ? `<div class="small">${curPart.number}부 ${esc(curPart.title)} (${curPart.start_ep}–${curPart.end_ep}화)만 보여요. 전체는 <a href="${base()}/arc">부 · 아크</a>에서 보세요.</div>` : ''}` : `<div class="note plain">아직 화별 플롯이 없어요. <a href="${base()}/arc">기승전결 · 플롯</a>에서 만드세요.</div>`}
       ${eps.some((e) => e.status === 'written') ? `<div class="note warn">${cur}화 본문이 작성됐습니다. 상태 변경안을 승인해야 다음 화를 쓸 수 있어요. <a href="${base()}/review/${cur}" style="color:inherit;font-weight:700">${cur}화 변경안 검토</a></div>` : ''}
     </section>
     <div class="grid-auto">
@@ -1650,6 +1816,8 @@ function viewSetup() {
       <div class="between"><strong style="font-size:16px">${esc(c.name || '이름 없음')}</strong><button class="btn small danger" data-action="removeCharacter" data-arg="${i}" aria-label="${esc(c.name || c.id)} 삭제">삭제</button></div>
       <div class="grid-2">${input('이름', b + '.name')}${input('역할', b + '.role', { placeholder: '주인공, 상대역, 조력자…' })}</div>
       <div class="grid-2">${input('나이', b + '.age', { placeholder: '예: 17세, 40대 초반' })}${input('성별', b + '.gender', { placeholder: '남 / 여' })}</div>
+      ${serial() ? `<div class="field"><label for="tier-${i}">비중 <span class="hint">주역은 매 화 설정 전체가 들어가고, 조연 · 단역은 나오는 화에만 들어가요${c.first_ep ? ` · ${c.first_ep}화에 처음 나옴` : ''}</span></label>
+        <select id="tier-${i}" data-bind="${b}.tier">${[['main', '주역'], ['support', '조연'], ['minor', '단역']].map(([v, l]) => `<option value="${v}"${(c.tier || 'main') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div>` : ''}
       <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보 뽑기</button><button type="button" class="btn small" data-action="nameAI" data-arg="${esc(c.id)}">AI 이름 추천</button></div>
       ${namePicks('c:' + c.id, 'useName', (n) => `${c.id}|${n}`)}
       ${input('원하는 것', b + '.goal', { hint: '작품 전체에서' })}
@@ -1879,44 +2047,56 @@ function viewLibEntry() {
 
 // ----- 3. 기승전결 · 플롯 -----
 
-function viewArc() {
-  const p = P();
-  const eps = p.episodes;
-  if (S.selEp && !ep(S.selEp)) S.selEp = null;
-  if (S.selAct != null && !p.arc[S.selAct]) S.selAct = null;
-  const sel = S.selEp ? ep(S.selEp) : null;
-  const card = (e) => `<button type="button" class="ep-card ${e.status}${sel && sel.plot.number === e.plot.number ? ' sel' : ''}" data-action="selectEp" data-arg="${e.plot.number}" aria-label="${e.plot.number}화 ${esc(e.plot.title)} 플롯 열기">
+function epCard(e, sel) {
+  return `<button type="button" class="ep-card ${e.status}${sel && sel.plot.number === e.plot.number ? ' sel' : ''}" data-action="selectEp" data-arg="${e.plot.number}" aria-label="${e.plot.number}화 ${esc(e.plot.title)} 플롯 열기">
       <span class="ep-top"><strong>${e.plot.number}화</strong><span class="chip ${e.status}">${STATUS[e.status]}</span></span>
       <span class="t">${esc(e.plot.title) || '제목 없음'}</span><span class="s">${esc(e.plot.summary)}</span></button>`;
-  const slot = (n) => `<div class="ep-slot" aria-hidden="true">${n}화</div>`;
+}
 
-  let board;
-  if (!p.arc.length) {
-    board = `<div class="card empty"><p>아직 기승전결 구조가 없어요.</p>${((b) => `<button class="btn primary" data-action="planArc"${b.attr}>${b.label}</button>`)(jobBtn('arc', null, 'AI 로 구조 만들기'))}</div>`;
-  } else {
-    const cols = p.arc.map((a, i) => {
-      const inAct = eps.filter((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep);
-      const count = Math.max(0, a.end_ep - a.start_ep + 1);
-      const nums = Array.from({ length: count }, (_, k) => a.start_ep + k);
-      const block = (label, text) => `<div class="act-block"><span class="act-label">${label}</span><p class="${text ? '' : 'empty-text'}">${esc(text) || '비어 있음'}</p></div>`;
-      return `<section class="act-col" aria-label="${a.name} 구간">
+/** 기승전결 네 칸 보드. 단편은 작품 전체 구조, 장편은 고른 아크의 구조를 그린다 */
+function actBoard(acts, eps, sel) {
+  const slot = (n) => `<div class="ep-slot" aria-hidden="true">${n}화</div>`;
+  const cols = acts.map((a, i) => {
+    const inAct = eps.filter((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep);
+    const count = Math.max(0, a.end_ep - a.start_ep + 1);
+    const nums = Array.from({ length: Math.min(count, 60) }, (_, k) => a.start_ep + k);
+    const block = (label, text) => `<div class="act-block"><span class="act-label">${label}</span><p class="${text ? '' : 'empty-text'}">${esc(text) || '비어 있음'}</p></div>`;
+    return `<section class="act-col" aria-label="${a.name} 구간">
         <div class="act-head ${actClass(a.name)}${S.selAct === i ? ' sel' : ''}">
           <div class="between"><strong>${a.name}</strong><span class="act-meta">${a.start_ep}–${a.end_ep}화 · ${count}화</span></div>
           ${block('구간 목표', a.goal)}${block('전환점', a.key_turn)}
           <button type="button" class="btn small act-edit" data-action="selectAct" data-arg="${i}">구간 고치기</button>
         </div>
         <div class="act-eps"><span class="act-label">화별 플롯 ${inAct.length ? `${inAct.length}화` : ''}</span>
-          ${inAct.length ? inAct.map(card).join('') : nums.map(slot).join('')}</div>
+          ${inAct.length ? inAct.map((e) => epCard(e, sel)).join('') : nums.map(slot).join('')}</div>
       </section>`;
-    }).join('');
-    board = `<div class="board-wrap">${eps.length ? '' : '<div class="note info">구간을 확인한 뒤 <strong>화별 플롯 초안 만들기</strong>를 누르면 각 구간에 화 카드가 채워집니다.</div>'}<div class="board">${cols}</div></div>`;
+  }).join('');
+  return `<div class="board">${cols}</div>`;
+}
+
+function drawerHtml(panel) {
+  return panel ? `<aside class="drawer card" role="dialog" aria-label="편집">
+      <button type="button" class="btn icon-btn drawer-close" data-action="closePanel" aria-label="닫기">✕</button>${panel}</aside>` : '';
+}
+
+function viewArc() {
+  const p = P();
+  const eps = p.episodes;
+  if (S.selEp && !ep(S.selEp)) S.selEp = null;
+  if (S.selAct != null && !p.arc[S.selAct]) S.selAct = null;
+  const sel = S.selEp ? ep(S.selEp) : null;
+
+  let board;
+  if (!p.arc.length) {
+    board = `<div class="card empty"><p>아직 기승전결 구조가 없어요.</p>${((b) => `<button class="btn primary" data-action="planArc"${b.attr}>${b.label}</button>`)(jobBtn('arc', null, 'AI 로 구조 만들기'))}</div>`;
+  } else {
+    board = `<div class="board-wrap">${eps.length ? '' : '<div class="note info">구간을 확인한 뒤 <strong>화별 플롯 초안 만들기</strong>를 누르면 각 구간에 화 카드가 채워집니다.</div>'}${actBoard(p.arc, eps, sel)}</div>`;
   }
 
   let panel = '';
   if (sel) panel = plotEditor(sel);
   else if (S.selAct != null) panel = actEditor(S.selAct);
-  const drawer = panel ? `<aside class="drawer card" role="dialog" aria-label="편집">
-      <button type="button" class="btn icon-btn drawer-close" data-action="closePanel" aria-label="닫기">✕</button>${panel}</aside>` : '';
+  const drawer = drawerHtml(panel);
 
   const drafts = eps.filter((e) => e.status === 'draft').length;
   const right = p.arc.length
@@ -1928,12 +2108,14 @@ function viewArc() {
 }
 
 function actEditor(i) {
-  const a = P().arc[i];
-  const b = `arc.${i}`;
+  const k = serial() ? P().story_arcs.findIndex((x) => x.number === S.selArc) : -1;
+  const a = k >= 0 ? P().story_arcs[k].acts[i] : P().arc[i];
+  if (!a) return '';
+  const b = k >= 0 ? `story_arcs.${k}.acts.${i}` : `arc.${i}`;
   const inAct = P().episodes.filter((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep);
-  return `<div class="between"><h2>${a.name} 구간</h2><span class="chip ${actClass(a.name)}">${a.start_ep}–${a.end_ep}화</span></div>
+  return `<div class="between"><h2>${k >= 0 ? `아크 ${S.selArc} · ` : ''}${a.name} 구간</h2><span class="chip ${actClass(a.name)}">${a.start_ep}–${a.end_ep}화</span></div>
     <div class="grid-2">${input('시작 화', b + '.start_ep', { type: 'number', min: 1 })}${input('끝 화', b + '.end_ep', { type: 'number', min: 1 })}</div>
-    <div class="small">기승전결 네 구간이 1화부터 마지막 화까지 빈틈없이 이어져야 저장됩니다.</div>
+    <div class="small">${k >= 0 ? '아크 안 기승전결 네 구간이 아크 첫 화부터 끝 화까지 빈틈없이 이어져야 저장됩니다.' : '기승전결 네 구간이 1화부터 마지막 화까지 빈틈없이 이어져야 저장됩니다.'}</div>
     ${input('구간 목표', b + '.goal', { rows: 5, autogrow: true, hint: '이 구간이 끝날 때 이야기가 어디까지 와 있어야 하나' })}
     ${input('전환점', b + '.key_turn', { rows: 4, autogrow: true, hint: '이 구간을 다음으로 넘기는 사건' })}
     ${inAct.length ? `<div class="field"><span class="label">이 구간의 화</span><div class="row">${inAct.map((e) => `<button type="button" class="btn small" data-action="selectEp" data-arg="${e.plot.number}">${e.plot.number}화</button>`).join('')}</div></div>` : ''}`;
@@ -1948,7 +2130,9 @@ function plotEditor(e) {
   const ro = { readonly: locked };
   const cast = P().characters.map((c) => `<label class="row" style="font-size:13px;gap:6px"><input type="checkbox" value="${esc(c.id)}" data-cast-ep="${n}"${e.plot.characters.includes(c.id) ? ' checked' : ''}${locked ? ' disabled' : ''}>${esc(c.name || c.id)}</label>`).join('');
   const act = actOf(n);
+  const arc = serial() ? arcOf(n) : null;
   return `<div class="between"><h2>${n}화 플롯</h2><span class="chip ${e.status}">${STATUS[e.status]}</span></div>
+    ${arc ? `<div class="note plain"><strong>아크 ${arc.number} ${esc(arc.title)}</strong> · ${esc(arc.goal)}</div>` : ''}
     ${act ? `<div class="note info"><strong>${act.name} 구간 목표</strong> · ${esc(act.goal)}</div>` : ''}
     ${busy ? '<div class="note warn">AI 가 이 구간의 초안을 새로 만드는 중이라 끝날 때까지 고칠 수 없어요.</div>' : locked ? '<div class="note plain">본문이 있는 화라 플롯을 고칠 수 없어요.</div>' : ''}
     ${input('제목', b + '.title', ro)}
@@ -1963,6 +2147,195 @@ function plotEditor(e) {
       ${e.status === 'confirmed' ? `<button class="btn" style="flex:1" data-action="unconfirmEp" data-arg="${n}">초안으로 되돌리기</button><a class="btn primary" style="flex:1" href="${base()}/write/${n}">${n}화 쓰기</a>` : ''}
       ${locked ? `<a class="btn" style="flex:1" href="${base()}/write/${n}">본문 보기</a>` : ''}
     </div>`;
+}
+
+// ----- 3'. 장편 연재: 부 → 아크 → 화 -----
+
+function arcFinished(a) {
+  for (let n = a.start_ep; n <= a.end_ep; n++) if (!ep(n) || ep(n).status !== 'finalized') return false;
+  return true;
+}
+
+function arcProgress(a) {
+  const nums = a.end_ep - a.start_ep + 1;
+  const inArc = P().episodes.filter((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep);
+  return { nums, plotted: inArc.length, done: inArc.filter((e) => e.status === 'finalized').length, drafts: inArc.filter((e) => e.status === 'draft').length };
+}
+
+function viewSerial() {
+  const p = P();
+  const arcs = [...p.story_arcs].sort((a, b) => a.start_ep - b.start_ep);
+  if (S.selEp && !ep(S.selEp)) S.selEp = null;
+  if (S.selArc == null || (S.selArc !== 'next' && !arcs.some((a) => a.number === S.selArc))) {
+    const cur = arcOf(currentEp());
+    S.selArc = cur ? cur.number : arcs.length ? arcs[arcs.length - 1].number : 'next';
+  }
+  const arc = arcs.find((a) => a.number === S.selArc);
+  if (S.selAct != null && !(arc && arc.acts[S.selAct])) S.selAct = null;
+  const sel = S.selEp ? ep(S.selEp) : null;
+  const planned = plannedUntil();
+  const nextStart = planned + 1;
+
+  // 부 구성
+  const partCard = (x) => {
+    const inPart = arcs.filter((a) => a.start_ep >= x.start_ep && a.start_ep <= x.end_ep);
+    const done = p.episodes.filter((e) => e.status === 'finalized' && e.plot.number >= x.start_ep && e.plot.number <= x.end_ep).length;
+    const finished = done === x.end_ep - x.start_ep + 1;
+    const here = nextStart >= x.start_ep && nextStart <= x.end_ep;
+    return `<button type="button" class="part-card${S.selPart === x.number ? ' sel' : ''}${here ? ' here' : ''}" data-action="selectPart" data-arg="${x.number}">
+      <span class="between"><strong>${x.number}부 ${esc(x.title)}</strong><span class="small">${x.start_ep}–${x.end_ep}화</span></span>
+      <span class="s">${esc(x.goal)}</span>
+      <span class="row"><span class="chip">아크 ${inPart.length}개</span><span class="chip ${done ? 'finalized' : ''}">반영 ${done}/${x.end_ep - x.start_ep + 1}</span>${finished ? (x.summary ? '<span class="chip finalized">요약 있음</span>' : '<span class="chip written">요약 필요</span>') : ''}</span>
+    </button>`;
+  };
+  const seriesDraft = S.seriesDraft ? `<div class="card proposal">
+      <div class="between"><h3>AI 부 구성 제안 <span class="chip ai">반영 전</span></h3><div class="row"><button class="btn small" data-action="dropSeries">버리기</button><button class="btn small primary" data-action="applySeries">이 부 구성 반영</button></div></div>
+      ${S.seriesDraft.parts.map((x, i) => `<div class="part-draft">
+        <div class="grid-2">${input(`${x.number}부 제목`, `parts.${i}.title`, { root: 'seriesDraft' })}<div class="grid-2">${input('시작 화', `parts.${i}.start_ep`, { root: 'seriesDraft', type: 'number' })}${input('끝 화', `parts.${i}.end_ep`, { root: 'seriesDraft', type: 'number' })}</div></div>
+        ${input('부 목표', `parts.${i}.goal`, { root: 'seriesDraft', rows: 2, autogrow: true })}
+        ${input('아크 후보', `parts.${i}.arc_ideas`, { root: 'seriesDraft', kind: 'list', rows: 3, autogrow: true })}
+      </div>`).join('')}
+      <div class="small">부는 1화부터 ${p.meta.target_episodes}화까지 빈틈없이 이어져야 반영됩니다. 이미 기획한 아크가 새 부 경계를 넘으면 반영하지 않아요.</div>
+    </div>` : '';
+  const seriesBtn = ((b) => `<button class="btn small" data-action="planSeries"${b.attr}>${b.label}</button>`)(jobBtn('series', null, p.parts.length ? '부 구성 다시 제안' : 'AI 로 부 구성 만들기'));
+  const series = `<section class="card">
+      <div class="between"><h2>부 구성 <span class="small" style="font-weight:400">총 ${p.meta.target_episodes}화 · ${planned}화까지 아크 기획</span></h2>${seriesBtn}</div>
+      ${p.parts.length ? `<div class="part-strip">${p.parts.map(partCard).join('')}</div>` : '<div class="small">무대와 판이 바뀌는 큰 단위(50~150화)예요. 없어도 아크를 이어 갈 수 있지만, 있으면 아크 기획이 부 목표를 따라갑니다.</div>'}
+      ${seriesDraft}
+    </section>`;
+
+  // 아크 목록
+  const pending = arcs.filter((a) => !a.summary && arcFinished(a));
+  const arcChip = (a) => {
+    const g = arcProgress(a);
+    const state = g.done === g.nums ? (a.summary ? 'finalized' : 'written') : g.plotted === 0 ? '' : g.drafts ? 'draft' : 'confirmed';
+    return `<button type="button" class="arc-chip${S.selArc === a.number ? ' sel' : ''}" data-action="selectArc" data-arg="${a.number}" aria-pressed="${S.selArc === a.number}">
+      <strong>아크 ${a.number}</strong> <span>${a.start_ep}–${a.end_ep}화</span> <span class="chip ${state}">${g.done === g.nums ? (a.summary ? '완료' : '요약 필요') : g.plotted ? `반영 ${g.done}/${g.nums}` : '플롯 전'}</span></button>`;
+  };
+  const rail = `<section class="card">
+      <div class="between"><h2>아크</h2><span class="small">아크 하나는 5~30화짜리 작은 이야기예요. 다음 아크의 플롯만 그때그때 만듭니다.</span></div>
+      <div class="arc-rail">${arcs.map(arcChip).join('')}${planned < p.meta.target_episodes ? `<button type="button" class="arc-chip next${S.selArc === 'next' ? ' sel' : ''}" data-action="selectArc" data-arg="next">+ 다음 아크 <span>${nextStart}화부터</span></button>` : ''}</div>
+      ${pending.length ? `<div class="note warn">끝난 아크의 요약이 필요해요: ${pending.map((a) => `<a href="#" data-action="selectArc" data-arg="${a.number}" style="color:inherit;font-weight:700">아크 ${a.number}</a>`).join(', ')}. 요약이 있어야 오래된 줄거리를 짧게 접어 넣을 수 있어요.</div>` : ''}
+    </section>`;
+
+  let body;
+  if (S.selArc === 'next' || !arc) body = nextArcPanel(nextStart);
+  else body = arcPanel(arc, sel);
+
+  let panel = '';
+  if (sel) panel = plotEditor(sel);
+  else if (S.selAct != null) panel = actEditor(S.selAct);
+  else if (S.editArc && arc) panel = arcEditor(arc);
+  else if (S.selPart != null) panel = partEditor(S.selPart);
+
+  const tools = chatButton();
+  return `${header('3단계', '부 · 아크 · 화별 플롯', '장편은 작품을 부와 아크로 나누고, 다음 아크 하나씩 기획해 그 아크의 플롯만 만듭니다. 끝난 아크는 요약으로 접혀서 몇백 화를 써도 프롬프트 크기가 일정해요.', tools)}
+    ${series}${rail}${body}${drawerHtml(panel)}${chatPanel('plot')}`;
+}
+
+function nextArcPanel(start) {
+  const p = P();
+  if (start > p.meta.target_episodes) return `<div class="card empty"><p>총 ${p.meta.target_episodes}화까지 아크가 모두 있어요.</p><span class="small">더 쓰려면 작품 홈이나 설정에서 총 화수를 늘리고 부 구성을 고치세요.</span></div>`;
+  const part = p.parts.find((x) => x.start_ep <= start && start <= x.end_ep);
+  const old = p.foreshadows.filter((f) => f.status === 'open' && start - f.planted_ep > 50);
+  const d = S.arcDraft;
+  if (d) {
+    const a = d.arc;
+    return `<section class="card proposal">
+      <div class="between"><h2>아크 ${a.number} 제안 <span class="chip ai">반영 전</span></h2><div class="row"><button class="btn small" data-action="dropArc">버리기</button><button class="btn small primary" data-action="applyArc">이 아크 반영</button></div></div>
+      ${d.reply ? `<div class="note info">${esc(d.reply).replace(/\n/g, '<br>')}</div>` : ''}
+      <div class="grid-2">${input('아크 제목', 'arc.title', { root: 'arcDraft' })}<div class="grid-2">${input('시작 화', 'arc.start_ep', { root: 'arcDraft', type: 'number', readonly: true })}${input('끝 화', 'arc.end_ep', { root: 'arcDraft', type: 'number' })}</div></div>
+      ${input('아크 목표', 'arc.goal', { root: 'arcDraft', rows: 2, autogrow: true, hint: '아크가 끝날 때 바뀌어 있어야 하는 것' })}
+      <div class="grid-2">${input('갈등', 'arc.conflict', { root: 'arcDraft', rows: 2, autogrow: true, hint: '주인공을 막는 문제나 상대' })}${input('보상 (사이다)', 'arc.payoff', { root: 'arcDraft', rows: 2, autogrow: true, hint: '클라이맥스에서 독자가 받는 것' })}</div>
+      <div class="act-strip">${a.acts.map((x, i) => `<div class="act-head ${actClass(x.name)}"><div class="between"><strong>${x.name}</strong><span class="act-meta">${x.start_ep}–${x.end_ep}화</span></div>${input('구간 목표', `arc.acts.${i}.goal`, { root: 'arcDraft', rows: 3, autogrow: true })}</div>`).join('')}</div>
+      <div class="grid-2">${input('주요 인물 id', 'arc.cast', { root: 'arcDraft', kind: 'list', rows: 3 })}${input('회수할 복선 id', 'arc.payoffs', { root: 'arcDraft', kind: 'list', rows: 3 })}</div>
+      ${d.new_characters.length ? `<div class="field"><span class="label">새 인물 (조연으로 들어와요. 주역으로 올리려면 설정 도우미에서 비중을 바꾸세요)</span>${d.new_characters.map((c) => `<div class="note plain"><strong>${esc(c.name)}</strong> <span class="small">${esc(c.id)} · ${esc(c.role)}</span><br>${esc(c.personality || c.goal)}<br><span class="small">말투: ${esc(c.speech_style)}</span></div>`).join('')}</div>` : ''}
+      <div class="small">끝 화를 바꾸면 결 구간이 따라 늘거나 줄어요. 다른 구간 범위는 반영한 뒤 구간 고치기에서 바꿀 수 있어요.</div>
+    </section>`;
+  }
+  const btn = jobBtn('nextarc', null, 'AI 로 다음 아크 제안');
+  return `<section class="card">
+    <div class="between"><h2>다음 아크 기획 <span class="small" style="font-weight:400">${start}화부터${part ? ` · ${part.number}부 ${esc(part.title)} (${part.end_ep}화까지)` : ''}</span></h2></div>
+    ${part ? `<div class="note plain"><strong>${part.number}부 목표</strong> · ${esc(part.goal)}${part.arc_ideas.length ? `<br><span class="small">아크 후보: ${part.arc_ideas.map(esc).join(' / ')}</span>` : ''}</div>` : ''}
+    ${old.length ? `<div class="note warn">50화 넘게 열린 복선이 ${old.length}개 있어요. 이번 아크에서 회수하거나 다시 떠올리도록 AI 에게 함께 보여 줍니다.</div>` : ''}
+    <div class="grid-2">${input('아크 길이 (화)', 'length', { root: 'arcForm', type: 'number', min: 0, hint: '0 이면 AI 가 내용에 맞게 (보통 10~25화)' })}<div></div></div>
+    ${input('이번 아크에 바라는 것 (선택)', 'note', { root: 'arcForm', rows: 3, autogrow: true, placeholder: '예: 학교 밖으로 무대를 넓히고, 라이벌과 처음 손잡게' })}
+    <div class="row"><button class="btn primary" data-action="planNextArc"${btn.attr}>${btn.label}</button><span class="small">지금까지 실제로 쓴 줄거리(요약), 부 목표, 열린 복선을 보고 아크 하나를 제안해요. 반영 전에 고칠 수 있어요.</span></div>
+  </section>`;
+}
+
+function arcPanel(a, sel) {
+  const p = P();
+  const k = p.story_arcs.indexOf(a);
+  const g = arcProgress(a);
+  const eps = p.episodes.filter((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep);
+  const last = Math.max(...p.story_arcs.map((x) => x.start_ep)) === a.start_ep;
+  const finished = arcFinished(a);
+  const plotsBtn = jobBtn('plots', a.number, g.plotted ? '초안 다시 만들기 (확정 화 제외)' : '화별 플롯 초안 만들기');
+  const names = (ids) => ids.map((id) => esc(charName(id))).join(', ');
+  const r = S.recapDraft && S.recapDraft.kind === 'arc' && S.recapDraft.number === a.number ? S.recapDraft : null;
+  let recap = '';
+  if (finished) {
+    const rb = jobBtn('recap_arc', a.number, a.summary ? 'AI 로 요약 다시 제안' : 'AI 로 요약 제안');
+    recap = `<div class="recap">
+      <div class="between"><h3>아크 요약 ${a.summary ? '<span class="chip finalized">있음</span>' : '<span class="chip written">필요</span>'}</h3><button class="btn small" data-action="recapArc" data-arg="${a.number}"${rb.attr}>${rb.label}</button></div>
+      ${r ? `${input('AI 요약 제안 (고친 뒤 저장)', 'summary', { root: 'recap', rows: 6, autogrow: true })}<div class="row"><button class="btn small" data-action="dropRecap">버리기</button><button class="btn small primary" data-action="applyRecap">이 요약 저장</button></div>` : ''}
+      ${input('저장된 요약', `story_arcs.${k}.summary`, { rows: 4, autogrow: true, hint: '앞으로 이 아크의 화별 요약 대신 프롬프트에 들어가요' })}
+    </div>`;
+  }
+  const right = `<div class="row">
+      <button class="btn small" data-action="editArc">아크 고치기</button>
+      <button class="btn small" data-action="draftArcPlots" data-arg="${a.number}"${plotsBtn.attr}>${plotsBtn.label}</button>
+      ${g.drafts ? `<button class="btn small primary" data-action="confirmAll" data-arg="${a.number}">초안 ${g.drafts}화 모두 확정</button>` : ''}
+      ${last && !eps.some((e) => e.status !== 'draft') ? '<button class="btn small danger" data-action="removeLastArc">지우고 다시 기획</button>' : ''}
+    </div>`;
+  return `<section class="card">
+      <div class="between"><h2>아크 ${a.number} ${esc(a.title)} <span class="small" style="font-weight:400">${a.start_ep}–${a.end_ep}화 · ${g.nums}화 · 반영 ${g.done}/${g.nums}</span></h2>${right}</div>
+      <div class="arc-facts">
+        <div><span class="act-label">아크 목표</span><p>${esc(a.goal) || '<span class="small">비어 있음</span>'}</p></div>
+        <div><span class="act-label">갈등</span><p>${esc(a.conflict) || '<span class="small">비어 있음</span>'}</p></div>
+        <div><span class="act-label">보상 (사이다)</span><p>${esc(a.payoff) || '<span class="small">비어 있음</span>'}</p></div>
+      </div>
+      <div class="small">${a.cast.length ? `주요 인물: ${names(a.cast)}` : ''}${a.payoffs.length ? ` · 회수할 복선: ${a.payoffs.map(esc).join(', ')}` : ''}</div>
+      ${recap}
+    </section>
+    <div class="board-wrap">${g.plotted ? '' : '<div class="note info">구간을 확인한 뒤 <strong>화별 플롯 초안 만들기</strong>를 누르면 이 아크의 화 카드가 채워집니다.</div>'}${actBoard(a.acts, eps, sel)}</div>`;
+}
+
+function arcEditor(a) {
+  const k = P().story_arcs.indexOf(a);
+  const b = `story_arcs.${k}`;
+  return `<div class="between"><h2>아크 ${a.number} 고치기</h2><span class="chip">${a.start_ep}–${a.end_ep}화</span></div>
+    ${input('제목', b + '.title')}
+    <div class="grid-2">${input('시작 화', b + '.start_ep', { type: 'number', readonly: true })}${input('끝 화', b + '.end_ep', { type: 'number', min: a.start_ep })}</div>
+    <div class="small">끝 화를 바꾸면 결 구간의 끝 화와 다음 아크의 시작 화도 맞춰야 저장됩니다. 길이를 크게 바꾸려면 마지막 아크를 지우고 다시 기획하는 편이 쉬워요.</div>
+    ${input('아크 목표', b + '.goal', { rows: 3, autogrow: true })}
+    ${input('갈등', b + '.conflict', { rows: 2, autogrow: true })}
+    ${input('보상 (사이다)', b + '.payoff', { rows: 2, autogrow: true })}
+    ${input('주요 인물 id', b + '.cast', { kind: 'list', rows: 3 })}
+    ${input('회수할 복선 id', b + '.payoffs', { kind: 'list', rows: 2 })}`;
+}
+
+function partEditor(number) {
+  const p = P();
+  const i = p.parts.findIndex((x) => x.number === number);
+  if (i < 0) return '';
+  const x = p.parts[i];
+  const b = `parts.${i}`;
+  const done = p.episodes.filter((e) => e.status === 'finalized' && e.plot.number >= x.start_ep && e.plot.number <= x.end_ep).length;
+  const finished = done === x.end_ep - x.start_ep + 1;
+  const r = S.recapDraft && S.recapDraft.kind === 'part' && S.recapDraft.number === number ? S.recapDraft : null;
+  const rb = jobBtn('recap_part', number, x.summary ? 'AI 로 요약 다시 제안' : 'AI 로 요약 제안');
+  return `<div class="between"><h2>${x.number}부 고치기</h2><span class="chip">${x.start_ep}–${x.end_ep}화</span></div>
+    ${input('제목', b + '.title')}
+    <div class="grid-2">${input('시작 화', b + '.start_ep', { type: 'number' })}${input('끝 화', b + '.end_ep', { type: 'number' })}</div>
+    <div class="small">부는 1화부터 마지막 화까지 빈틈없이 이어져야 저장됩니다.</div>
+    ${input('부 목표', b + '.goal', { rows: 3, autogrow: true })}
+    ${input('전환점', b + '.key_turn', { rows: 2, autogrow: true })}
+    ${input('아크 후보', b + '.arc_ideas', { kind: 'list', rows: 5, autogrow: true, hint: '다음 아크를 기획할 때 참고해요' })}
+    ${finished ? `<div class="between"><span class="label">부 요약</span><button class="btn small" data-action="recapPart" data-arg="${number}"${rb.attr}>${rb.label}</button></div>
+      ${r ? `${input('AI 요약 제안 (고친 뒤 저장)', 'summary', { root: 'recap', rows: 6, autogrow: true })}<div class="row"><button class="btn small" data-action="dropRecap">버리기</button><button class="btn small primary" data-action="applyRecap">이 요약 저장</button></div>` : ''}` : '<div class="small">부의 모든 화가 반영되면 요약을 만들 수 있어요.</div>'}
+    ${input('저장된 요약', b + '.summary', { rows: 4, autogrow: true })}`;
 }
 
 // ----- 4. 집필 -----
@@ -2066,7 +2439,7 @@ function viewReview(n) {
   }
 
   const p = P();
-  const total = d.character_updates.length + d.events.length + d.secrets_added.length + d.relationship_updates.length + d.new_facts.length + d.foreshadow_planted.length + d.foreshadow_resolved.length;
+  const total = d.character_updates.length + d.events.length + d.secrets_added.length + d.relationship_updates.length + d.new_facts.length + d.foreshadow_planted.length + d.foreshadow_resolved.length + (d.new_characters || []).length;
   if (!S.preview || S.preview.n !== n) refreshPreview(n);
   const picked = Object.values(S.picks).filter(Boolean).length;
   const box = (key) => `<input type="checkbox" id="pk-${key}" data-pick="${key}"${S.picks[key] ? ' checked' : ''}>`;
@@ -2090,6 +2463,7 @@ function viewReview(n) {
         <span class="chip" style="background:${good ? 'var(--green-soft)' : 'var(--red-soft)'};color:${good ? 'var(--green)' : 'var(--red)'}">${esc(ev.kind)}</span> <span class="small" style="font-weight:400">${INTENSITY[ev.intensity] || ev.intensity}${wit}${sec}</span></label>
       ${ev.quote ? `<div style="font-family:var(--serif);font-size:13px;line-height:1.7;color:var(--text-2)">“${esc(ev.quote)}”</div>` : ''}</div></div>`;
   }).join('');
+  const newChars = (d.new_characters || []).map((c, i) => `<div class="change">${box('n' + i)}<label for="pk-n${i}" style="font-size:13px;line-height:1.55"><strong>${esc(c.name)}</strong> <span class="small">${esc(c.id)} · ${esc(c.role)} · ${c.tier === 'minor' ? '단역' : '조연'}으로 추가</span><br>${esc(c.personality || c.appearance || c.goal)}${c.speech_style ? `<br><span class="small">말투: ${esc(c.speech_style)}</span>` : ''}</label></div>`).join('');
   const secrets = d.secrets_added.map((x, i) => `<div class="change">${box('s' + i)}<label for="pk-s${i}" style="font-size:13px;line-height:1.55"><strong>${esc(charName(x.owner))}</strong> ${esc(x.content)}<br><span class="small">모르는 인물: ${x.hidden_from.map(charName).map(esc).join(', ') || '없음'}</span></label></div>`).join('');
   const rels = d.relationship_updates.map((r, i) => {
     const cur = p.relationships.find((x) => (x.a === r.a && x.b === r.b) || (x.a === r.b && x.b === r.a));
@@ -2110,6 +2484,7 @@ function viewReview(n) {
   return top('AI 가 본문에서 뽑은 변경안입니다. 체크한 항목만 데이터에 반영되고, 반영해야 다음 화를 쓸 수 있어요.', `<span class="small">${total}건 중 <strong id="pick-count" style="color:var(--text)">${picked}</strong>건 선택</span>`) +
     (d.warnings.length ? `<section class="note warn" role="alert"><strong>경고 ${d.warnings.length}건 · 본문을 고칠지 확인하세요</strong><ul style="padding-left:18px;margin-top:6px">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul><a href="${base()}/write/${n}" style="color:inherit;font-weight:700">본문으로</a></section>` : '') +
     section('인물 상태', chars) +
+    (newChars ? section('새로 나온 인물', newChars) : '') +
     `<div class="cols">
       <section class="card col"><div class="between"><h2>관계 사건</h2><span class="small">AI 는 사건만 적고, 관계 수치는 Canon 이 계산합니다</span></div>${events || '<div class="small">이번 화에 관계 사건이 없어요</div>'}
         ${secrets ? `<h3 style="margin-top:6px">새로 생긴 비밀</h3>${secrets}` : ''}

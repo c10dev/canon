@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from .schema import (
     Act,
     ArcPlan,
+    ArcProposal,
     Character,
     CharacterState,
     ConsistencyIssue,
@@ -20,11 +21,15 @@ from .schema import (
     NameOption,
     NameOptions,
     PlotBatch,
+    Part,
     PlotRevision,
+    Recap,
     Relationship,
     Secret,
+    SeriesPlan,
     SetupSuggestion,
     StateDelta,
+    StoryArc,
     StoryEvent,
     StyleProfile,
     TextPatch,
@@ -42,16 +47,41 @@ def _delay() -> None:
     time.sleep(float(os.environ.get("CANON_MOCK_DELAY", "0") or 0))
 
 
-def _arc(total: int) -> list[Act]:
-    a = max(1, round(total * 0.2))
-    b = a + max(1, round(total * 0.38))
-    c = b + max(1, round(total * 0.24))
+def _arc(total: int, start: int = 1) -> list[Act]:
+    """start 화부터 total 화까지를 기승전결로 나눈다. 장편 아크는 start 가 아크 첫 화."""
+    size = total - start + 1
+    c = min(start - 1 + max(1, round(size * 0.2)) + max(1, round(size * 0.38)) + max(1, round(size * 0.24)), total - 1)
+    b = min(start - 1 + max(1, round(size * 0.2)) + max(1, round(size * 0.38)), c - 1)
+    a = min(start - 1 + max(1, round(size * 0.2)), b - 1)
     return [
-        Act(name="기", start_ep=1, end_ep=a, goal="주인공과 세계 소개, 사건 발생", key_turn="계기 사건"),
+        Act(name="기", start_ep=start, end_ep=a, goal="주인공과 세계 소개, 사건 발생", key_turn="계기 사건"),
         Act(name="승", start_ep=a + 1, end_ep=b, goal="갈등 심화", key_turn="중간 반전"),
         Act(name="전", start_ep=b + 1, end_ep=c, goal="위기와 클라이맥스", key_turn="최대 위기"),
         Act(name="결", start_ep=c + 1, end_ep=total, goal="해결과 여운", key_turn="결말"),
     ]
+
+
+def _series(total: int) -> SeriesPlan:
+    """100화 안팎으로 부를 나눈다."""
+    count = max(1, round(total / 100))
+    edges = [round(total * k / count) for k in range(count + 1)]
+    return SeriesPlan(parts=[
+        Part(number=k + 1, title=f"{k + 1}부", start_ep=edges[k] + 1, end_ep=edges[k + 1],
+             goal=f"{k + 1}부 목표", key_turn=f"{k + 1}부 반전", arc_ideas=["시험", "던전", "배신"])
+        for k in range(count)
+    ])
+
+
+def _next_arc(hint: dict) -> ArcProposal:
+    """다음 아크 흉내: 길이를 정하지 않으면 12화, 부 끝을 넘지 않는다. 두 번째 아크마다 새 인물이 나온다."""
+    start, limit, number = hint["start"], hint["limit"], hint["number"]
+    end = min(start + (hint["length"] or 12) - 1, limit)
+    new = [Character(id=f"guest{number}", name=f"손님{number}", role="조연", tier="main",
+                     speech_style="빠른 말투. \"얼른 와.\"")] if number % 2 == 0 else []
+    arc = StoryArc(number=number, title=f"아크 {number}", start_ep=start, end_ep=end, goal=f"아크 {number} 목표",
+                   conflict="시험관", payoff="통쾌한 역전", acts=_arc(end, start),
+                   cast=["hero", "ally"] + [c.id for c in new], payoffs=["fs-01-key"] if number == 2 else [])
+    return ArcProposal(arc=arc, new_characters=new, reply=f"{start}화부터 아크 {number}를 제안해요.")
 
 
 def _plot(n: int, act: str, note: str = "") -> EpisodePlot:
@@ -124,6 +154,12 @@ class MockLLM:
                                 sample_passages=["바람이 불었다. 서윤은 고개를 들지 않았다."])  # type: ignore[return-value]
         if schema is ArcPlan:
             return ArcPlan(acts=_arc(hint["total"]))  # type: ignore[return-value]
+        if schema is SeriesPlan:
+            return _series(hint["total"])  # type: ignore[return-value]
+        if schema is ArcProposal:
+            return _next_arc(hint)  # type: ignore[return-value]
+        if schema is Recap:
+            return Recap(summary=f"{'아크' if hint['kind'] == 'arc' else '부'} {hint['number']} 요약: 주인공이 시험을 넘겼다.")  # type: ignore[return-value]
         if schema is PlotBatch:
             acts: list[Act] = hint["arc"]
             eps = []
