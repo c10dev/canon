@@ -253,7 +253,7 @@ def story_so_far(p: Project, n: int) -> str:
     return "\n\n".join(out)
 
 
-def structure_text(p: Project, n: int) -> str:
+def structure_text(p: Project, n: int, head: str = "[지금 부와 아크]") -> str:
     """n화가 속한 부와 아크, 아크 안 기승전결. 장편 전용."""
     part, arc = p.part_for(n), p.arc_for(n)
     lines = []
@@ -261,7 +261,17 @@ def structure_text(p: Project, n: int) -> str:
         lines.append(f"[{part.number}부 {part.title} ({part.start_ep}~{part.end_ep}화)]\n목표: {part.goal}\n전환점: {part.key_turn}")
     if arc:
         lines.append(dump(arc.model_dump(exclude={"summary"}) | {"title": f"아크 {arc.number} {arc.title}"}))
-    return "[지금 부와 아크]\n" + ("\n".join(lines) or "아직 없음")
+    return head + "\n" + ("\n".join(lines) or "아직 없음")
+
+
+KNOWS_RECENT = 20  # 장편: 인물이 알게 된 정보는 최근 것만 넣는다 (확정 사실과 줄거리에 남아 있다)
+
+
+def state_view(p: Project, states: list) -> list:
+    """장편에서는 화마다 쌓이는 knows 를 최근 것만 남긴 사본을 쓴다. 저장된 상태는 그대로다."""
+    if not p.serial:
+        return states
+    return [s.model_copy(update={"knows": s.knows[-KNOWS_RECENT:]}) if len(s.knows) > KNOWS_RECENT else s for s in states]
 
 
 def static_characters(p: Project) -> list[Character]:
@@ -548,7 +558,7 @@ def build_episode_context(p: Project, n: int) -> str:
     facts, facts_cut = relevant_facts(p, cast_ids)
     fs, fs_cut = relevant_foreshadows(p, n)
     if p.serial:
-        where = structure_text(p, n) + f"\n현재 아크 안 구간: {act.name if act else '?'} ({act.start_ep if act else '?'}~{act.end_ep if act else '?'}화) 목표: {act.goal if act else ''}"
+        where = structure_text(p, n, "# 현재 부와 아크") + f"\n현재 아크 안 구간: {act.name if act else '?'} ({act.start_ep if act else '?'}~{act.end_ep if act else '?'}화) 목표: {act.goal if act else ''}"
     else:
         where = f"""# 현재 구간: {act.name if act else "?"} ({act.start_ep if act else "?"}~{act.end_ep if act else "?"}화)
 목표: {act.goal if act else ""}
@@ -563,7 +573,7 @@ def build_episode_context(p: Project, n: int) -> str:
 {cast_names or "설정의 인물 전원"}
 {f"{chr(10)}# 이번 화에 나오는 조연 · 단역 설정{chr(10)}{dump(extra)}{chr(10)}" if extra else ""}
 # 인물 현재 상태 ({n - 1}화 종료 시점)
-{dump(states) or "1화 시작 시점, 설정 그대로"}
+{dump(state_view(p, states)) or "1화 시작 시점, 설정 그대로"}
 
 # 관계 현재 상태
 {describe_relations(p, cast_ids) or dump(rels) or "없음"}
@@ -620,7 +630,7 @@ def state_prompt(p: Project, n: int) -> str:
     if p.serial:  # 장편: 이번 화에 나온 인물과 주역만 자세히, 나머지는 한 줄 목록으로
         ids = set(ep.plot.characters) | {c.id for c in static_characters(p)}
         chars = [c for c in p.characters if c.id in ids]
-        states = [s for s in p.states if s.character_id in ids]
+        states = state_view(p, [s for s in p.states if s.character_id in ids])
         relations = rels(p, ids)
         fs, _ = relevant_foreshadows(p, n)
         others = roster_line(p, ids)

@@ -121,6 +121,8 @@ def test_context_stays_bounded_at_300():
     ctx = prompts.build_episode_context(p, a.start_ep + 5)
     assert "[3부" in ctx and "아크 " in ctx
     assert len(ctx) < 30_000
+    hero = next(s for s in p.states if s.character_id == "hero")
+    assert len(hero.knows) > 200 and f'"{a.start_ep - 30}화 단서"' not in ctx  # 알게 된 정보는 최근 것만
     # 스냅샷은 시작점, 아크 끝, 최근 20개만 남는다
     assert len(p.snapshots) <= 1 + len(p.story_arcs) + pipeline.SNAPSHOT_KEEP
 
