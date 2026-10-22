@@ -1,7 +1,7 @@
 """소설 프로젝트 데이터 스키마.
 
 모든 상태는 하나의 Project 객체(project.json)에 저장된다.
-LLM 이 직접 채우는 모델(SetupSuggestion, StyleProfile, ArcPlan, PlotBatch, StateDelta)은
+LLM 이 직접 채우는 모델(SetupSuggestion, StyleProfile, ArcPlan, PlotBatch, StateDelta, ConsistencyReport)은
 Gemini 구조화 출력에 그대로 넘기므로 dict 타입 필드를 쓰지 않는다.
 """
 from __future__ import annotations
@@ -9,6 +9,8 @@ from __future__ import annotations
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
+
+from .metrics import StyleMetrics
 
 ActName = Literal["기", "승", "전", "결"]
 EpisodeStatus = Literal["draft", "confirmed", "written", "finalized"]
@@ -160,6 +162,7 @@ class StyleProfile(BaseModel):
     vocabulary: str = Field("", description="어휘 수준, 한자어/외래어, 비유 경향")
     dos: list[str] = Field(default_factory=list, description="반드시 지킬 문체 규칙")
     donts: list[str] = Field(default_factory=list, description="피해야 할 표현이나 습관")
+    banned_phrases: list[str] = Field(default_factory=list, description="본문에 나오면 안 되는 구체적 표현 (문자열 그대로 검사)")
     sample_passages: list[str] = Field(default_factory=list, description="본문 생성 때 그대로 보여줄 대표 문단 2~4개 (원문 발췌)")
 
 
@@ -194,11 +197,32 @@ class PlotBatch(BaseModel):
     episodes: list[EpisodePlot]
 
 
+# ---------- 검수 ----------
+
+IssueType = Literal["사실", "시간", "인물 정보", "말투", "세계관", "플롯"]
+
+
+class ConsistencyIssue(BaseModel):
+    type: IssueType = Field(description="사실: 확정 사실·세부 모순 / 시간: 순서·인과 / 인물 정보: 모르는 것을 앎 / 말투 / 세계관 규칙 / 플롯: 사건 누락")
+    description: str = Field(description="무엇이 어긋났는지 한 문장")
+    source_episode: int = Field(0, description="앞선 근거가 나온 화. 설정·확정 사실·인물 상태가 근거면 0")
+    source_quote: str = Field(description="앞선 근거 원문 그대로 (설정이면 해당 설정 문장)")
+    current_quote: str = Field(description="이번 화에서 어긋난 문장 원문 그대로")
+    suggestion: str = Field("", description="고치는 방법 제안")
+
+
+class ConsistencyReport(BaseModel):
+    """본문 검수 결과. 상태를 바꾸지 않는 참고용 경고라 승인 없이 저장한다."""
+    episode: int
+    issues: list[ConsistencyIssue] = Field(default_factory=list, description="근거가 분명한 모순만. 없으면 빈 목록")
+
+
 class Episode(BaseModel):
     plot: EpisodePlot
     status: EpisodeStatus = "draft"
     text: str = ""
     summary: str = ""
+    issues: list[ConsistencyIssue] = Field(default_factory=list, description="마지막 검수 결과")
 
 
 # ---------- 회차 진행 상태 ----------
@@ -251,6 +275,7 @@ class Project(BaseModel):
     characters: list[Character] = Field(default_factory=list)
     relationships: list[Relationship] = Field(default_factory=list)
     style: StyleProfile = Field(default_factory=StyleProfile)
+    style_baseline: Optional[StyleMetrics] = Field(None, description="레퍼런스 원문 전체로 잰 문체 지표 (style 명령 때 저장)")
     arc: list[Act] = Field(default_factory=list)
     episodes: list[Episode] = Field(default_factory=list)
     states: list[CharacterState] = Field(default_factory=list)

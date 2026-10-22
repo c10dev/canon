@@ -3,12 +3,17 @@
 일관성 유지의 핵심은 build_episode_context(): 매 화마다 '현재 시점의 데이터'만 골라
 같은 순서와 형식으로 넣는다. 이전 본문 전체 대신 요약 + 직전 화 끝부분만 넣어
 분량이 늘어도 컨텍스트가 일정하게 유지된다.
+검수(check_prompt)는 반대로 앞선 본문을 한도 안에서 통째로 넣는다. 쓸 때는 압축, 검사할 때는 전체.
 """
 from __future__ import annotations
 
+import json
+
+from pydantic import BaseModel
+
 from .dynamics import describe_relations
-from .llm import dump
-from .schema import Project
+from .llm import _inline_refs, dump
+from .schema import ConsistencyReport, Project, StateDelta
 
 SYSTEM_PLANNER = (
     "당신은 한국 웹소설/단편소설 기획 전문 편집자입니다. "
@@ -26,6 +31,16 @@ SYSTEM_EDITOR = (
     "당신은 연재 소설의 설정 관리 담당 편집자입니다. 본문에서 실제로 일어난 일만 근거로 "
     "인물 상태, 관계, 확정 사실, 복선을 정리합니다. 추측하지 않습니다."
 )
+
+
+SYSTEM_CHECKER = (
+    "당신은 연재 소설의 교정 편집자입니다. 이번 화 본문이 앞선 본문, 설정, 확정 사실과 모순되는지만 찾습니다. "
+    "모든 지적에는 앞선 근거와 이번 화의 문장을 원문 그대로 인용합니다. 인용할 근거가 없으면 지적하지 않습니다. "
+    "문장의 좋고 나쁨이나 취향은 평가하지 않습니다."
+)
+
+# 검수 때 앞선 본문을 통째로 넣는 한도(글자). 넘으면 오래된 화부터 요약으로 바꾼다.
+CHECK_TEXT_LIMIT = 150_000
 
 
 def setup_prompt(p: Project) -> str:
@@ -109,30 +124,24 @@ def plot_prompt(p: Project, start: int, end: int) -> str:
 
 
 def build_episode_context(p: Project, n: int) -> str:
+    """앞쪽은 화가 바뀌어도 그대로인 블록, 뒤쪽은 화마다 바뀌는 블록이다.
+    Gemini 암묵적 캐시는 앞부분이 같은 요청에 적용되므로 이 순서를 지킨다."""
     ep = p.episode(n)
     act = p.act_for(n)
-    cast = [c for c in p.characters if c.id in ep.plot.characters] or p.characters
-    cast_ids = {c.id for c in cast}
+    cast_ids = set(ep.plot.characters) or {c.id for c in p.characters}
     states = [s for s in p.states if s.character_id in cast_ids]
     rels = [r for r in p.relationships if r.a in cast_ids and r.b in cast_ids]
     prev = [e for e in p.episodes if e.plot.number < n and e.summary]
     last_text = next((e.text for e in reversed(p.episodes) if e.plot.number == n - 1 and e.text), "")
+    cast_names = ", ".join(f"{c.name}({c.id})" for c in p.characters if c.id in cast_ids)
 
-    style = p.style
-    samples = "\n\n---\n\n".join(style.sample_passages) or "없음"
-    style_rules = style.model_copy(update={"sample_passages": []})
-
-    return f"""# 작품 정보
-{dump(p.meta)}
-
-# 세계관 (깨면 안 되는 규칙 포함)
-{dump(p.world)}
+    return f"""{static_context(p)}
 
 # 확정된 사실
 {chr(10).join("- " + f for f in p.facts) or "없음"}
 
-# 등장 인물 설정
-{dump(cast)}
+# 이번 화 등장 인물
+{cast_names or "설정의 인물 전원"}
 
 # 인물 현재 상태 ({n - 1}화 종료 시점)
 {dump(states) or "1화 시작 시점, 설정 그대로"}
@@ -146,21 +155,36 @@ def build_episode_context(p: Project, n: int) -> str:
 # 지금까지의 줄거리
 {chr(10).join(f"{e.plot.number}화 {e.plot.title}: {e.summary}" for e in prev) or "없음 (첫 화)"}
 
-# 직전 화 마지막 부분
-{last_text[-1500:] or "없음"}
-
 # 현재 구간: {act.name if act else "?"} ({act.start_ep if act else "?"}~{act.end_ep if act else "?"}화)
 목표: {act.goal if act else ""}
 전환점: {act.key_turn if act else ""}
 
+# 직전 화 마지막 부분 (내용 연결용, 문체 기준은 위의 예시 문단)
+{last_text[-1500:] or "없음"}
+
 # 이번 화 플롯
-{dump(ep.plot)}
+{dump(ep.plot)}"""
+
+
+def static_context(p: Project) -> str:
+    """작품 내내 바뀌지 않는 블록: 작품 정보, 세계관, 문체, 인물 설정."""
+    style = p.style
+    samples = "\n\n---\n\n".join(style.sample_passages) or "없음"
+    style_rules = style.model_copy(update={"sample_passages": []})
+    return f"""# 작품 정보
+{dump(p.meta)}
+
+# 세계관 (깨면 안 되는 규칙 포함)
+{dump(p.world)}
 
 # 스타일 프로필
 {dump(style_rules)}
 
 # 문체 예시 (이 문체를 따를 것, 내용은 가져오지 말 것)
-{samples}"""
+{samples}
+
+# 인물 설정
+{dump(p.characters)}"""
 
 
 def episode_prompt(p: Project, n: int) -> str:
@@ -168,6 +192,7 @@ def episode_prompt(p: Project, n: int) -> str:
         build_episode_context(p, n)
         + f"\n\n위 자료를 바탕으로 {n}화 본문을 약 {p.meta.words_per_episode}자 분량으로 쓰세요. "
         "직전 화 마지막 장면과 자연스럽게 이어지고, 플롯의 ending_hook 으로 끝납니다. "
+        "문체는 스타일 프로필과 문체 예시 문단을 따르고, banned_phrases 의 표현은 쓰지 않습니다. "
         "인물의 말투는 speech_style 을 따릅니다."
     )
 
@@ -202,6 +227,50 @@ def state_prompt(p: Project, n: int) -> str:
 - warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다."""
 
 
+def check_prompt(p: Project, n: int) -> str:
+    ep = p.episode(n)
+    prior = sorted((e for e in p.episodes if e.plot.number < n and e.text), key=lambda e: e.plot.number)
+    full, budget = [], CHECK_TEXT_LIMIT
+    for e in reversed(prior):
+        if len(e.text) > budget:
+            break
+        full.append(e)
+        budget -= len(e.text)
+    full_nos = {e.plot.number for e in full}
+    past = "\n\n".join(
+        f"## {e.plot.number}화 {e.plot.title}\n{e.text if e.plot.number in full_nos else '(요약) ' + e.summary}"
+        for e in prior
+    )
+    return f"""{static_context(p)}
+
+# 확정된 사실
+{chr(10).join("- " + f for f in p.facts) or "없음"}
+
+# 인물 현재 상태 ({n - 1}화 종료 시점)
+{dump(p.states) or "1화 시작 시점, 설정 그대로"}
+
+# 관계 현재 상태
+{dump(p.relationships) or "없음"}
+
+# 비밀 (hidden_from 의 인물은 아직 모른다)
+{dump(p.secrets) or "없음"}
+
+# 앞선 본문
+{past or "없음 (첫 화)"}
+
+# {n}화 플롯
+{dump(ep.plot)}
+
+# {n}화 본문 (검수 대상)
+{ep.text}
+
+{n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
+- 확인할 것: 확정 사실과 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
+- source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 설정이나 인물 상태면 source_episode 는 0 입니다.
+- 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
+- episode 는 {n} 입니다."""
+
+
 # ---------- 작업지시서 (구독형 채팅 앱용) ----------
 # API 경로와 같은 프롬프트를 그대로 쓴다. 나중에 MCP 서버의 prompt/tool 로 옮길 때도 이 함수들을 재사용한다.
 
@@ -218,12 +287,6 @@ def episode_brief(p: Project, n: int) -> str:
 
 
 def state_brief(p: Project, n: int) -> str:
-    import json
-
-    from .llm import _inline_refs
-    from .schema import StateDelta
-
-    schema = json.dumps(_inline_refs(StateDelta.model_json_schema()), ensure_ascii=False, indent=2)
     return f"""# {p.meta.title or "작품"} {n}화 상태 정리 작업지시서
 
 ## 역할
@@ -234,5 +297,25 @@ def state_brief(p: Project, n: int) -> str:
 ## 출력 형식
 아래 JSON 스키마를 따르는 JSON 하나만 코드 블록 없이 출력하세요.
 
-{schema}
+{_schema_text(StateDelta)}
 """
+
+
+def check_brief(p: Project, n: int) -> str:
+    return f"""# {p.meta.title or "작품"} {n}화 검수 작업지시서
+
+## 역할
+{SYSTEM_CHECKER}
+
+{check_prompt(p, n)}
+
+## 출력 형식
+아래 JSON 스키마를 따르는 JSON 하나만 코드 블록 없이 출력하세요.
+
+{_schema_text(ConsistencyReport)}
+"""
+
+
+def _schema_text(model: type[BaseModel]) -> str:
+    return json.dumps(_inline_refs(model.model_json_schema()), ensure_ascii=False, indent=2)
+
