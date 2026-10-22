@@ -11,6 +11,7 @@
   python -m canon brief 내소설 3        구독형 채팅 앱용 작업지시서 출력
   python -m canon import 내소설 3 본문.txt   다른 곳에서 쓴 본문 가져오기
   python -m canon show 내소설 [섹션]
+  python -m canon serve [--port 8000]    웹 UI
 설정은 projects/<이름>/project.json 을 직접 고쳐도 된다.
 """
 from __future__ import annotations
@@ -218,6 +219,12 @@ def cmd_show(a: argparse.Namespace) -> None:
     print(f"열린 복선: {sum(f.status == 'open' for f in p.foreshadows)}  확정 사실: {len(p.facts)}")
 
 
+def cmd_serve(a: argparse.Namespace) -> None:
+    from .web import serve
+
+    serve(a.host, a.port)
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="canon", description="데이터 기반 AI 소설 생성기 (MVP)")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -255,6 +262,11 @@ def main(argv: list[str] | None = None) -> None:
     add("import", cmd_import, "n", "file", yes=False)
     sp = add("show", cmd_show, yes=False)
     sp.add_argument("section", nargs="?")
+
+    sp = sub.add_parser("serve", help="웹 UI 실행")
+    sp.add_argument("--host", default="127.0.0.1")
+    sp.add_argument("--port", type=int, default=8000)
+    sp.set_defaults(fn=cmd_serve)
 
     a = ap.parse_args(argv)
     try:
