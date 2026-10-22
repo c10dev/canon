@@ -45,6 +45,7 @@ class Policy(BaseModel):
     stop_on_warnings: bool = Field(False, description="상태 변경안에 경고(플롯 누락, 설정 위반)가 있으면 멈춤")
     confirm_plots: bool = Field(False, description="초안 플롯을 만나면 자동으로 확정하고 쓴다. 끄면 그 화에서 멈춤")
     review_every: int = Field(0, description="이번 실행에서 N화를 반영할 때마다 멈춤. 0 이면 멈추지 않음")
+    hand_pick_opening: bool = Field(True, description="1~3화는 쓰고 검수한 뒤 반영하기 전에 멈춤. 독자가 계속 읽을지 정하는 화라 작가가 읽고 고른다")
 
 
 class LogEntry(BaseModel):
@@ -158,6 +159,8 @@ def review_reasons(p: Project, delta: StateDelta, report: Optional[ConsistencyRe
     if report is not None and len(report.issues) > policy.max_issues:
         kinds = ", ".join(sorted({i.type for i in report.issues}))
         out.append(f"검수에서 어긋난 곳 {len(report.issues)}개 ({kinds})")
+    if policy.hand_pick_opening and prompts.is_opening(delta.episode):
+        out.append(f"{delta.episode}화는 초반 화라 직접 읽고 반영하도록 멈춥니다 (집필 화면에서 초반 점검과 여는 방식 비교를 쓸 수 있어요)")
     if policy.stop_on_warnings and delta.warnings:
         out.append(f"상태 변경안 경고 {len(delta.warnings)}개: {delta.warnings[0]}")
     names = _names(p)
@@ -423,6 +426,9 @@ class Runner:
         _, drift = pipeline.style_drift(q, n)
         for w in drift[:3]:
             self.log(f"문체: {w}", "warn")
+        if prompts.is_opening(n):
+            for w in pipeline.opening_metrics(q, n)[1][:3]:
+                self.log(f"초반: {w}", "warn")
 
     def _review(self, p: Project, n: int) -> None:
         self._set(n, "review")

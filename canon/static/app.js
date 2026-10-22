@@ -220,6 +220,8 @@ function applyJobResult(j) {
     convertResult(j);
   } else if (j.kind === 'storyline' && j.result) {
     S.lineDraft = { ...j.result, picks: {} };
+  } else if (['hook', 'openings', 'opening_drafts'].includes(j.kind)) {
+    openingJobResult(j);
   }
   j.applied = true;
 }
@@ -1244,6 +1246,7 @@ async function route() {
         S.context = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/context`).catch(() => null);
         if (!S.presets) S.presets = await api('GET', '/passage/presets').catch(() => []);
       }
+      if (parts[2] === 'write' || parts[2] === 'arc') await openingLoad(parts[2] === 'write' ? (n || currentEp()) : 0);
       if (parts[2] === 'research') await rsLoad();
       if (parts[2] === 'usage') await usageLoad(S.name);
       if (parts[2] === 'convert') await convertLoad();
@@ -2167,14 +2170,17 @@ function plotEditor(e) {
     ${input('사건 순서', b + '.events', { ...ro, kind: 'list', rows: 5, autogrow: true })}
     <div class="field"><span class="label">등장 인물</span><div class="row">${cast}</div></div>
     ${lineField(e)}
+    ${n <= 3 || e.plot.opening ? input('여는 장면', b + '.opening', { ...ro, hint: n <= 3 ? '초반 화는 첫 장면이 독자를 붙잡습니다' : '' }) : ''}
     ${input('감정 변화', b + '.emotional_shift', ro)}
     ${input('엔딩 훅', b + '.ending_hook', ro)}
+    ${n <= 3 || e.plot.reader_question ? input('독자가 들고 갈 질문', b + '.reader_question', { ...ro, hint: n <= 3 ? '이 화를 읽고 다음 화를 누르게 하는 질문' : '' }) : ''}
     <div class="grid-2">${input('심을 복선', b + '.foreshadow_plant', { ...ro, kind: 'list', rows: 2 })}${input('회수할 복선 id', b + '.foreshadow_payoff', { ...ro, kind: 'list', rows: 2 })}</div>
     <div class="row drawer-actions">
       ${e.status === 'draft' ? `<button class="btn primary" style="flex:1" data-action="confirmEp" data-arg="${n}"${busy ? ' disabled' : ''}>${n}화 확정</button>` : ''}
       ${e.status === 'confirmed' ? `<button class="btn" style="flex:1" data-action="unconfirmEp" data-arg="${n}">초안으로 되돌리기</button><a class="btn primary" style="flex:1" href="${base()}/write/${n}">${n}화 쓰기</a>` : ''}
       ${locked ? `<a class="btn" style="flex:1" href="${base()}/write/${n}">본문 보기</a>` : ''}
-    </div>`;
+    </div>
+    ${openingPlotBlock(e)}`;
 }
 
 // ----- 3'. 장편 연재: 부 → 아크 → 화 -----
@@ -2425,7 +2431,9 @@ function viewWrite(n) {
         <div class="field"><span class="small">사건</span><ol style="padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.5">${e.plot.events.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></div>
         <div class="field"><span class="small">등장 인물</span><div style="font-size:13px">${e.plot.characters.map(charName).map(esc).join(', ')}</div></div>
         <div class="field"><span class="small">감정 변화</span><div style="font-size:13px">${esc(e.plot.emotional_shift)}</div></div>
+        ${e.plot.opening ? `<div class="field"><span class="small">여는 장면</span><div style="font-size:13px">${esc(e.plot.opening)}</div></div>` : ''}
         <div class="field"><span class="small">엔딩 훅</span><div style="font-size:13px">${esc(e.plot.ending_hook)}</div></div>
+        ${e.plot.reader_question ? `<div class="field"><span class="small">독자가 들고 갈 질문</span><div style="font-size:13px">${esc(e.plot.reader_question)}</div></div>` : ''}
         ${e.summary ? `<div class="field"><span class="small">승인된 요약</span><div style="font-size:13px;line-height:1.6">${esc(e.summary)}</div></div>` : ''}
         ${issuesBlock(e)}
         <a href="${base()}/arc" data-action="gotoPlot" data-arg="${n}" style="font-size:13px">플롯 보기</a>
@@ -2447,6 +2455,7 @@ function viewWrite(n) {
       </aside>
     </div>
     ${editHistory(e)}
+    ${openingPanel(n)}
     ${e.text && editable ? chatPanel(`text:${n}`) : ''}`;
 }
 

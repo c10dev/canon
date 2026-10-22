@@ -3,7 +3,7 @@
 모든 상태는 하나의 Project 객체(project.json)에 저장된다.
 LLM 이 직접 채우는 모델(SetupSuggestion, StyleProfile, ArcPlan, PlotBatch, PlotRevision, NameOptions, StateDelta, ConsistencyReport,
 ImpactReport, SeriesPlan, ArcProposal, Recap, StorylineProposal, SerialConversion,
-PassageRevision)은
+PassageRevision, HookReport, OpeningPlots)은
 Gemini 구조화 출력에 그대로 넘기므로 dict 타입 필드를 쓰지 않는다.
 """
 from __future__ import annotations
@@ -273,10 +273,23 @@ class EpisodePlot(BaseModel):
     foreshadow_payoff: list[str] = Field(default_factory=list, description="이번 화에 회수하는 복선 id")
     storyline: str = Field("", description="이 화가 주로 따라가는 이야기 줄기 id. 메인 줄기 화면 비움")
     threads: list[str] = Field(default_factory=list, description="이 화 안에 장면으로 끼어드는 다른 이야기 줄기 id")
+    opening: str = Field("", description="이 화를 여는 첫 장면 한 줄. 1~3화는 꼭 적는다")
+    reader_question: str = Field("", description="이 화를 읽은 독자가 다음 화로 들고 갈 질문 하나. 1~3화는 꼭 적는다")
 
 
 class PlotBatch(BaseModel):
     episodes: list[EpisodePlot]
+
+
+class OpeningOption(BaseModel):
+    approach: str = Field(description="여는 방식 id (요청에 적힌 것 그대로)")
+    pitch: str = Field(description="이 안이 독자를 붙잡는 방법 한두 문장")
+    plot: EpisodePlot
+
+
+class OpeningPlots(BaseModel):
+    """1~3화 플롯을 여는 방식만 달리해 여러 안으로 낸 것. 작가가 하나를 골라 반영한다."""
+    options: list[OpeningOption]
 
 
 # ---------- 장편 연재: 작품 → 부 → 아크 → 화 ----------
@@ -451,6 +464,30 @@ class ConsistencyIssue(BaseModel):
     suggestion: str = Field("", description="고치는 방법 제안")
 
 
+HookAspect = Literal["첫 문단", "주인공", "전제", "설명 부담", "걸린 것", "장르 약속", "엔딩"]
+HOOK_ASPECTS: list[str] = ["첫 문단", "주인공", "전제", "설명 부담", "걸린 것", "장르 약속", "엔딩"]
+
+
+class HookItem(BaseModel):
+    aspect: HookAspect
+    score: int = Field(description="1(약함)~5(강함). 근거 없이 후하게 주지 않는다")
+    quote: str = Field("", description="판단의 근거가 되는 본문 문장을 그대로. 없으면 빈칸")
+    note: str = Field("", description="한 줄 평과 고칠 방향")
+
+
+class HookReport(BaseModel):
+    """1~3화 흡입력 판정. 참고용이라 승인 없이 화에 붙인다. 인용은 프로그램이 본문에서 확인한다."""
+    episode: int
+    items: list[HookItem] = Field(default_factory=list)
+    premise_quote: str = Field("", description="작품의 핵심 장치가 일어나거나 확정되는 문장을 본문에서 그대로. 없으면 빈칸")
+    reader_question: str = Field("", description="마지막 장면을 읽은 독자가 들고 갈 질문 한 문장. 쓸 수 없으면 빈칸")
+    next_click: bool = Field(False, description="이 화를 무료로 읽은 독자가 다음 화를 누를지")
+    reason: str = Field("", description="next_click 의 가장 큰 이유 한두 문장")
+    premise_at: int = Field(-1, description="프로그램이 계산한다 (전제 문장이 나오는 글자 위치). -1 로 둔다")
+    basis: str = Field("", description="프로그램이 채운다 (판정한 본문의 지문). 빈칸으로 둔다")
+    checked_at: str = Field("", description="프로그램이 채운다. 빈칸으로 둔다")
+
+
 class ConsistencyReport(BaseModel):
     """본문 검수 결과. 상태를 바꾸지 않는 참고용 경고라 승인 없이 저장한다."""
     episode: int
@@ -484,6 +521,7 @@ class Episode(BaseModel):
     checked_at: str = Field("", description="마지막 검수 시각. 그 뒤에 본문을 고쳤으면 검수 결과가 오래된 것")
     edits: list[TextEdit] = Field(default_factory=list, description="본문 부분 수정 기록 (최근 것만)")
     auto: bool = Field(False, description="자동 집필이 사람 검토 없이 반영한 화. 사용자가 다시 반영하면 False")
+    hook: Optional[HookReport] = Field(None, description="1~3화 흡입력 판정 (마지막 것). basis 가 지금 본문과 다르면 오래된 것")
 
 
 # ---------- 회차 진행 상태 ----------

@@ -25,6 +25,8 @@
   python -m canon auto 내소설 --to 12 [--batch]   목표 화까지 자동 집필 (정책에 걸리면 멈춤, --resume 으로 이어 가기)
   python -m canon compare 내소설 3 [--a gemini --b local]   같은 화를 두 백엔드로 써서 이름을 가리고 비교
   python -m canon compare 내소설 3 --pick 2   고른 쪽을 본문으로 쓰고 어느 백엔드였는지 공개
+  python -m canon openings 내소설 1 [--plot | --use 2] [--ways in_medias_res,lack_turn]   1~3화를 여는 방식마다 써서 가려 고르기 (--plot 은 플롯 안)
+  python -m canon hook 내소설 1 [--draft 2]   1~3화 흡입력 판정 (근거 인용, 초반 지표와 함께)
   python -m canon brief 내소설 3        구독형 채팅 앱용 작업지시서 출력 (--state, --check)
   python -m canon import 내소설 3 본문.txt   다른 곳에서 쓴 본문 가져오기
   python -m canon show 내소설 [섹션]       섹션 rel 은 관계 역학을 보여 준다
@@ -515,6 +517,13 @@ def _write(name: str, p: Project, n: int) -> None:
     print(f"{n}화 저장: {store.project_dir(name) / 'episodes' / f'{n:02d}.md'} ({len(text)}자)")
     for w in pipeline.style_drift(p, n)[1]:
         print(f"! 문체: {w}")
+    _print_opening(p, n)
+
+
+def _print_opening(p: Project, n: int, text: str | None = None, indent: str = "") -> None:
+    if prompts.is_opening(n):
+        for w in pipeline.opening_metrics(p, n, text)[1]:
+            print(f"{indent}! 초반: {w}")
 
 
 def _strip_fence(raw: str) -> str:
@@ -619,6 +628,8 @@ def cmd_stats(a: argparse.Namespace) -> None:
               f"{_num(m.comma_sentence_ratio):>5} {_num(m.short_ending_ratio):>6} {_num(m.pronoun_per_1k):>6}  {len(warns) or ''}")
         for w in warns:
             print(f"      ! {w}")
+        if label.endswith("화"):
+            _print_opening(p, int(label[:-1]), indent="      ")
     if not p.style_baseline:
         print("\n(기준은 문체 예시 발췌로 잰 값입니다. style 명령을 다시 실행하면 원문 전체로 잽니다.)")
     elif base.comma_sentence_ratio is None:
@@ -735,7 +746,8 @@ def cmd_auto(a: argparse.Namespace) -> None:
         return
     policy = autorun.Policy(check=not a.no_check, max_issues=a.max_issues, max_shift=a.max_shift,
                             stop_on_stage=a.stop_on_stage, stop_on_warnings=a.stop_on_warnings,
-                            confirm_plots=a.confirm_plots, review_every=a.review_every)
+                            confirm_plots=a.confirm_plots, review_every=a.review_every,
+                            hand_pick_opening=not a.auto_opening)
     if not a.resume:
         target = a.to or p.meta.target_episodes
         est = autorun.estimate(p, target, a.batch, policy, a.name)
@@ -787,6 +799,70 @@ def cmd_compare(a: argparse.Namespace) -> None:
             print(f"      ! {w}")
     out = research.compare_dir(a.name, a.n)
     print(f"\n저장: {out}/1.md, 2.md (key.json 은 열지 마세요)\n읽어 보고 고르세요: compare {a.name} {a.n} --pick 1|2")
+
+
+def cmd_openings(a: argparse.Namespace) -> None:
+    """1~3화를 여는 방식마다 하나씩. --plot 은 플롯 안(저장해 두고 --use 로 반영), 아니면 본문 안(compare --pick 으로 고름)."""
+    import json
+
+    p = store.load(a.name)
+    ways = [w.strip() for w in (a.ways or "").split(",") if w.strip()] or None
+    saved = research.compare_dir(a.name, a.n) / "plots.json"
+    if a.use:
+        from .schema import OpeningPlots
+
+        if not saved.exists():
+            sys.exit(f"{a.n}화 플롯 안이 없습니다. 먼저 openings {a.name} {a.n} --plot")
+        opts = OpeningPlots.model_validate_json(saved.read_text(encoding="utf-8")).options
+        if not 1 <= a.use <= len(opts):
+            sys.exit(f"1~{len(opts)} 중에서 고르세요")
+        pipeline.apply_opening(p, a.n, opts[a.use - 1].plot)
+        store.save(a.name, p)
+        print(f"{a.n}화 플롯을 {a.use}번 안({prompts.OPENING_APPROACHES.get(opts[a.use - 1].approach, ('?',))[0]})으로 바꿨습니다. 확인 후 confirm {a.name} {a.n}")
+        return
+    if a.plot:
+        print(f"{a.n}화 플롯을 여는 방식별로 만드는 중...")
+        out = pipeline.suggest_openings(get_llm("plan"), p, a.n, ways)
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        saved.write_text(out.model_dump_json(), encoding="utf-8")
+        for i, o in enumerate(out.options, 1):
+            e = o.plot
+            print(f"\n[{i}] {prompts.OPENING_APPROACHES[o.approach][0]} · {e.title}\n  {o.pitch}\n  여는 장면: {e.opening}"
+                  f"\n  사건: {' / '.join(e.events)}\n  훅: {e.ending_hook}\n  독자 질문: {e.reader_question}")
+        print(f"\n쓸 안을 고르세요: openings {a.name} {a.n} --use 번호")
+        return
+    print(f"{a.n}화를 여는 방식마다 쓰는 중...")
+    c = research.run_opening_compare(a.name, p, a.n, get_llm("write"), ways)
+    research.record(a.name, "compare", {"episode": a.n, "kind": "opening", "backends": sorted(json.loads(
+        (research.compare_dir(a.name, a.n) / "key.json").read_text(encoding="utf-8"))["order"])})  # 고르기 전이라 순서는 남기지 않는다
+    for d in c["drafts"]:
+        print(f"\n[{d['n']}] {d['chars']:,}자 · 대사 {d['dialogue_ratio']}")
+        for w in d["opening"] + d["warnings"]:
+            print(f"    ! {w}")
+    nums = "|".join(str(d["n"]) for d in c["drafts"])
+    print(f"\n저장: {research.compare_dir(a.name, a.n)}/*.md (key.json 은 열지 마세요)"
+          f"\n판정을 보려면: hook {a.name} {a.n} --draft 번호\n고르세요: compare {a.name} {a.n} --pick {nums}")
+
+
+def cmd_hook(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    text = research.compare_text(a.name, a.n, a.draft) if a.draft else None
+    print(f"{a.n}화{f' 비교본 {a.draft}번' if a.draft else ''} 흡입력 판정 중...")
+    rep = pipeline.check_hook(get_llm("check"), p, a.n, text)
+    if a.draft:
+        research.save_compare_hook(a.name, a.n, a.draft, rep)
+    else:
+        pipeline.apply_hook(p, rep)
+        store.save(a.name, p)
+    print(f"\n다음 화를 누를까: {'예' if rep.next_click else '아니오'} · {rep.reason}")
+    if rep.reader_question:
+        print(f"독자가 들고 갈 질문: {rep.reader_question}")
+    print(f"전제가 나오는 곳: {f'{rep.premise_at:,}자' if rep.premise_at >= 0 else '찾지 못함'}")
+    for it in rep.items:
+        print(f"  {it.aspect:<6} {'●' * it.score}{'○' * (5 - it.score)}  {it.note}")
+        if it.quote:
+            print(f"         \"{it.quote}\"")
+    _print_opening(p, a.n, text)
 
 
 def cmd_brief(a: argparse.Namespace) -> None:
@@ -1068,6 +1144,7 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--max-shift", type=float, default=0.3, help="관계 온기·신뢰가 한 화에 이보다 많이 바뀌면 멈춤 (0: 안 봄)")
     sp.add_argument("--stop-on-stage", action="store_true", help="관계 단계가 바뀌면 멈춤")
     sp.add_argument("--stop-on-warnings", action="store_true", help="상태 변경안 경고가 있으면 멈춤")
+    sp.add_argument("--auto-opening", action="store_true", help="1~3화도 멈추지 않고 정책대로 반영 (기본은 1~3화에서 멈춤)")
     sp.add_argument("--confirm-plots", action="store_true", help="초안 플롯을 자동 확정하고 진행")
     sp.add_argument("--review-every", type=int, default=0, help="N화마다 멈춤")
     sp.add_argument("--resume", action="store_true", help="멈춘 실행 이어 가기")
@@ -1078,7 +1155,13 @@ def main(argv: list[str] | None = None) -> None:
     sp = add("compare", cmd_compare, "n", yes=False)
     sp.add_argument("--a", default="gemini", choices=["gemini", "local", "mock"])
     sp.add_argument("--b", default="local", choices=["gemini", "local", "mock"])
-    sp.add_argument("--pick", type=int, choices=[1, 2], help="고른 번호. 본문으로 저장하고 백엔드를 공개")
+    sp.add_argument("--pick", type=int, help="고른 번호. 본문으로 저장하고 백엔드(여는 방식)를 공개")
+    sp = add("openings", cmd_openings, "n", yes=False)
+    sp.add_argument("--plot", action="store_true", help="본문 대신 플롯 안을 만든다")
+    sp.add_argument("--use", type=int, help="저장해 둔 플롯 안 가운데 이 번호를 그 화 플롯으로")
+    sp.add_argument("--ways", help="여는 방식 id 2~4개, 쉼표로: " + ", ".join(prompts.OPENING_APPROACHES))
+    sp = add("hook", cmd_hook, "n", yes=False)
+    sp.add_argument("--draft", type=int, default=0, help="그 화 본문 대신 비교본 번호를 판정")
     sp = add("brief", cmd_brief, "n", yes=False)
     sp.add_argument("--state", action="store_true", help="상태 정리용 작업지시서")
     sp.add_argument("--check", action="store_true", help="검수용 작업지시서")

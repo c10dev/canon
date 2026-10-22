@@ -30,6 +30,11 @@ def demo(tmp_path, monkeypatch):
     jobs.draining.clear()
 
 
+def Policy(**kw):
+    """1~3화에서 멈추는 기본 정책은 따로 시험하고, 나머지 시험은 꺼 둔 채로 돈다."""
+    return autorun.Policy(**{"hand_pick_opening": False, **kw})
+
+
 def wait_until(cond, timeout=10.0):
     end = time.time() + timeout
     while time.time() < end:
@@ -46,20 +51,20 @@ def idle(name):
 def test_policy_reasons(demo):
     p = store.load(demo)
     d = StateDelta(episode=1, summary="s")
-    assert autorun.review_reasons(p, d, None, autorun.Policy()) == []
+    assert autorun.review_reasons(p, d, None, Policy()) == []
     issue = ConsistencyIssue(type="말투", description="x", source_quote="a", current_quote="b")
     report = ConsistencyReport(episode=1, issues=[issue])
-    assert "검수" in autorun.review_reasons(p, d, report, autorun.Policy())[0]
-    assert autorun.review_reasons(p, d, report, autorun.Policy(max_issues=1)) == []
+    assert "검수" in autorun.review_reasons(p, d, report, Policy())[0]
+    assert autorun.review_reasons(p, d, report, Policy(max_issues=1)) == []
     big = mock.MockLLM().json("", "", StateDelta, {"episode": 1})
-    assert any("관계가 크게" in r for r in autorun.review_reasons(p, big, None, autorun.Policy(max_shift=0.1)))
-    assert autorun.review_reasons(p, big, None, autorun.Policy(max_shift=0)) == []
+    assert any("관계가 크게" in r for r in autorun.review_reasons(p, big, None, Policy(max_shift=0.1)))
+    assert autorun.review_reasons(p, big, None, Policy(max_shift=0)) == []
     d.character_updates = [big.character_updates[0].model_copy(update={"character_id": "ghost"})]
-    assert "설정에 없는 인물" in autorun.review_reasons(p, d, None, autorun.Policy(max_shift=0))[0]
+    assert "설정에 없는 인물" in autorun.review_reasons(p, d, None, Policy(max_shift=0))[0]
 
 
 def test_full_run_with_review_stop(demo):
-    run = autorun.start(demo, 4, True, autorun.Policy(), foreground=True)
+    run = autorun.start(demo, 4, True, Policy(), foreground=True)
     # mock 은 2화 검수에서 말투 문제를 낸다
     assert run.status == "review" and run.ep == 2 and run.pending is not None
     p = store.load(demo)
@@ -79,7 +84,7 @@ def test_full_run_with_review_stop(demo):
 
 
 def test_user_applies_in_review_screen_then_resume(demo):
-    autorun.start(demo, 3, False, autorun.Policy(), foreground=True)
+    autorun.start(demo, 3, False, Policy(), foreground=True)
     run = autorun.get_run(demo)
     from canon import pipeline
 
@@ -93,16 +98,16 @@ def test_draft_plot_pauses_or_confirms(demo):
     p = store.load(demo)
     p.episode(1).status = "draft"
     store.save(demo, p)
-    run = autorun.start(demo, 1, False, autorun.Policy(), foreground=True)
+    run = autorun.start(demo, 1, False, Policy(), foreground=True)
     assert run.status == "paused" and "초안" in run.reasons[0]
-    run = autorun.start(demo, 1, False, autorun.Policy(confirm_plots=True), foreground=True)
+    run = autorun.start(demo, 1, False, Policy(confirm_plots=True), foreground=True)
     assert run.status == "done"
 
 
 def test_review_every_and_rewrite(demo):
-    run = autorun.start(demo, 6, False, autorun.Policy(max_issues=5, review_every=1), foreground=True)
+    run = autorun.start(demo, 6, False, Policy(max_issues=5, review_every=1), foreground=True)
     assert run.status == "paused" and run.applied == [1]
-    run = autorun.start(demo, 3, False, autorun.Policy(), foreground=True)
+    run = autorun.start(demo, 3, False, Policy(), foreground=True)
     assert run.status == "review" and run.ep == 2
     run = autorun.resume(demo, rewrite=True, foreground=True)
     assert run.status == "review" and run.ep == 2  # mock 은 다시 써도 같은 문제를 낸다
@@ -111,7 +116,7 @@ def test_review_every_and_rewrite(demo):
 
 def test_pause_keeps_batch_and_resume_reattaches(demo, monkeypatch):
     monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "100000")
-    autorun.start(demo, 1, True, autorun.Policy())
+    autorun.start(demo, 1, True, Policy())
     wait_until(lambda: autorun.get_run(demo).batches)
     name = list(autorun.get_run(demo).batches.values())[0]
     autorun.request(demo, "pause")
@@ -129,7 +134,7 @@ def test_pause_keeps_batch_and_resume_reattaches(demo, monkeypatch):
 
 def test_stop_cancels_batch(demo, monkeypatch):
     monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "100000")
-    autorun.start(demo, 1, True, autorun.Policy())
+    autorun.start(demo, 1, True, Policy())
     wait_until(lambda: autorun.get_run(demo).batches)
     name = list(autorun.get_run(demo).batches.values())[0]
     autorun.request(demo, "stop")
@@ -140,7 +145,7 @@ def test_stop_cancels_batch(demo, monkeypatch):
 
 def test_server_restart_resumes(demo, monkeypatch):
     monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "100000")
-    autorun.start(demo, 1, True, autorun.Policy())
+    autorun.start(demo, 1, True, Policy())
     wait_until(lambda: autorun.get_run(demo).batches)
     jobs.draining.set()  # 자동 업데이트가 다시 시작하려 한다
     autorun._controls[demo].wake.set()
@@ -159,15 +164,15 @@ def test_server_restart_resumes(demo, monkeypatch):
 def test_estimate(demo, monkeypatch):
     p = store.load(demo)
     monkeypatch.setenv("CANON_LLM", "gemini")
-    off = autorun.estimate(p, 6, False, autorun.Policy())
-    on = autorun.estimate(p, 6, True, autorun.Policy())
+    off = autorun.estimate(p, 6, False, Policy())
+    on = autorun.estimate(p, 6, True, Policy())
     assert off["episodes"] == 6 and off["calls"] == {"write": 6, "check": 6, "state": 6}
     assert off["cost"] > 0 and on["cost"] == pytest.approx(off["cost"] / 2, abs=0.01)
     assert off["batch_rounds"] == 0 and on["batch_rounds"] == 12
-    no_check = autorun.estimate(p, 6, False, autorun.Policy(check=False))
+    no_check = autorun.estimate(p, 6, False, Policy(check=False))
     assert no_check["calls"]["check"] == 0 and no_check["cost"] < off["cost"]
     monkeypatch.setenv("CANON_LLM_WRITE", "local")
-    assert autorun.estimate(p, 6, True, autorun.Policy())["batch_rounds"] == 6  # 본문은 로컬이라 배치 없음
+    assert autorun.estimate(p, 6, True, Policy())["batch_rounds"] == 6  # 본문은 로컬이라 배치 없음
 
 
 def test_web_api(demo, monkeypatch):
@@ -181,7 +186,7 @@ def test_web_api(demo, monkeypatch):
     assert est["episodes"] == 3 and est["batch_rounds"] == 6
 
     monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "100000")
-    r = c.post("/api/projects/demo/auto/start", json={"target": 3, "batch": True}).json()
+    r = c.post("/api/projects/demo/auto/start", json={"target": 3, "batch": True, "policy": {"hand_pick_opening": False}}).json()
     assert r["active"] and r["run"]["status"] == "running"
     assert c.post("/api/projects/demo/auto/start", json={"target": 3}).status_code == 400  # 이미 돈다
     assert c.post("/api/projects/demo/jobs", json={"kind": "write", "ep": 1}).status_code == 400
@@ -221,7 +226,7 @@ def test_web_api(demo, monkeypatch):
 def test_batch_schema_mismatch_is_repaired(demo):
     mock.BAD_JSON[:] = ["StateDelta"]  # 실제 배치에서 본 것처럼 summary 가 빠지고 항목이 문자열
     count = len(mock.BATCHES)
-    run = autorun.start(demo, 1, True, autorun.Policy(), foreground=True)
+    run = autorun.start(demo, 1, True, Policy(), foreground=True)
     assert run.status == "done" and run.applied == [1]
     assert len(mock.BATCHES) == count + 4  # 본문, 검수, 상태, 상태 고쳐 받기
     assert any(e.level == "warn" and "형식과 맞지 않아" in e.message for e in run.log)
@@ -230,7 +235,7 @@ def test_batch_schema_mismatch_is_repaired(demo):
 
 def test_batch_schema_mismatch_twice_pauses_and_keeps_text(demo):
     mock.BAD_JSON[:] = ["StateDelta", "StateDelta"]
-    run = autorun.start(demo, 2, True, autorun.Policy(), foreground=True)
+    run = autorun.start(demo, 2, True, Policy(), foreground=True)
     assert run.status == "paused" and run.ep == 1 and "형식에 맞지 않아" in run.log[-1].message
     assert "StateDelta" in run.reasons[0] and "본문은 그대로" in run.reasons[1]
     p = store.load(demo)
@@ -279,3 +284,17 @@ def test_gemini_json_retries_with_error():
     replies[:] = [bad, bad]
     with pytest.raises(SchemaMismatch):
         llm.json("", "원래 요청", StateDelta)
+
+
+def test_opening_episodes_stop_for_hand_pick(demo):
+    """기본 정책은 1~3화를 쓰고 검수한 뒤 반영하기 전에 멈춘다. 이어 가면 4화부터는 정책대로 반영한다."""
+    run = autorun.start(demo, 4, False, autorun.Policy(max_issues=5), foreground=True)
+    assert run.status == "review" and run.ep == 1 and "초반" in run.reasons[0]
+    assert store.load(demo).episode(1).status == "written"
+    for n in (2, 3):
+        run = autorun.resume(demo, approve=True, foreground=True)
+        assert run.status == "review" and run.ep == n
+    run = autorun.resume(demo, approve=True, foreground=True)
+    assert run.status == "done"
+    p = store.load(demo)
+    assert [e.auto for e in p.episodes[:4]] == [False, False, False, True]
