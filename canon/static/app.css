@@ -206,6 +206,7 @@ pre.brief { margin: 0; padding: 16px; border-radius: 8px; background: var(--bg);
 .genre-opts button { min-height: 36px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 18px; background: var(--surface); color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer; }
 .genre-opts button:hover { border-color: var(--accent); }
 .genre-opts button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.genre-picker { display: flex; flex-direction: column; gap: 10px; }
 .genre-guides { display: flex; flex-direction: column; gap: 6px; }
 .genre-guide { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; line-height: 1.55; }
 .genre-guide summary { cursor: pointer; display: block; }

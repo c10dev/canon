@@ -154,3 +154,9 @@ def test_genres(client):
     p["meta"]["genres"] = ["mystery", "오컬트"]
     p = client.put("/api/projects/g", json=p).json()
     assert p["meta"]["genre"] == "미스터리 · 추리 · 오컬트"
+
+
+def test_create_with_genre_list(client):
+    meta = {"title": "t", "genres": ["mystery", "오컬트"], "adult": False}
+    p = client.post("/api/projects", json={"name": "gl", "meta": meta}).json()
+    assert p["meta"]["genres"] == ["mystery", "오컬트"] and p["meta"]["genre"] == "미스터리 · 추리 · 오컬트"
