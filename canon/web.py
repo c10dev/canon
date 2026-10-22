@@ -111,9 +111,9 @@ def create_project(body: NewProject) -> Project:
     p = Project(meta=body.meta)
     if not p.meta.title:
         p.meta.title = name
-    if p.meta.genre:  # 새 작품 폼은 장르를 글로 받는다: '로맨스, 회귀'
+    if p.meta.genre and p.meta.genres == [p.meta.genre.strip()]:  # 장르를 글로만 보낸 경우: '로맨스, 회귀'
         p.meta.genres = genres.parse(p.meta.genre)
-        p.meta.genre = genres.label(p.meta)
+    p.meta.genre = genres.label(p.meta)
     return _save(name, p)
 
 
