@@ -53,6 +53,9 @@ class Busy(Exception):
 
 
 _jobs: dict[str, Job] = {}
+# 자동 업데이트가 다시 시작하려고 기다리는 중. 자동 집필은 다음 단계 전에 멈추고(상태는 진행 중으로 둔 채)
+# 다시 시작한 서버가 이어 간다 (canon/autorun.py resume_all).
+draining = threading.Event()
 _lock = threading.Lock()
 _project_locks: dict[str, threading.Lock] = {}
 

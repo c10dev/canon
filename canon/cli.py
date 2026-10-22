@@ -13,6 +13,7 @@
   python -m canon stats 내소설 [3]      문체 지표를 레퍼런스와 비교
   python -m canon update 내소설 3       상태 변경안 확인 후 반영
   python -m canon run 내소설            확정된 화를 순서대로 write → check → update
+  python -m canon auto 내소설 --to 12 [--batch]   목표 화까지 자동 집필 (정책에 걸리면 멈춤, --resume 으로 이어 가기)
   python -m canon compare 내소설 3 [--a gemini --b local]   같은 화를 두 백엔드로 써서 이름을 가리고 비교
   python -m canon compare 내소설 3 --pick 2   고른 쪽을 본문으로 쓰고 어느 백엔드였는지 공개
   python -m canon brief 내소설 3        구독형 채팅 앱용 작업지시서 출력 (--state, --check)
@@ -34,7 +35,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import dynamics, genres, library, logline, metrics, naming, pipeline, prompts, research, store, updater
+from . import autorun, dynamics, genres, library, logline, metrics, naming, pipeline, prompts, research, store, updater
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, StateDelta
 
@@ -434,6 +435,67 @@ def cmd_run(a: argparse.Namespace) -> None:
     print("모든 화 완료")
 
 
+def _duration(s: float) -> str:
+    return f"{s / 3600:.1f}시간" if s >= 3600 else f"{max(1, round(s / 60))}분"
+
+
+def cmd_auto(a: argparse.Namespace) -> None:
+    """목표 화까지 자동 집필. Ctrl-C 를 누르면 지금 단계가 끝난 뒤 멈춘다 (배치는 계속 돌고 --resume 으로 받아 온다)."""
+    import signal
+    import threading
+
+    p = store.load(a.name)
+    if a.stop:
+        autorun.request(a.name, "stop")
+        print("자동 집필을 중지했습니다. 기다리던 배치 작업이 있으면 취소했습니다.")
+        return
+    if a.status:
+        run = autorun.get_run(a.name)
+        if run is None:
+            print("자동 집필 기록이 없습니다.")
+            return
+        print(f"상태: {run.status}  ({run.target}화까지, 배치 {'켬' if run.batch else '끔'}, 지금 {run.ep or '-'}화 {run.step})")
+        for r in run.reasons:
+            print(f"  ! {r}")
+        print(f"토큰 입력 {run.tokens_in:,} / 출력 {run.tokens_out:,}, 비용 약 ${run.cost:.2f}")
+        for e in run.log[-15:]:
+            print(f"  {e.at[11:19]} [{e.ep or '-'}화] {e.message}")
+        return
+    policy = autorun.Policy(check=not a.no_check, max_issues=a.max_issues, max_shift=a.max_shift,
+                            stop_on_stage=a.stop_on_stage, stop_on_warnings=a.stop_on_warnings,
+                            confirm_plots=a.confirm_plots, review_every=a.review_every)
+    if not a.resume:
+        target = a.to or p.meta.target_episodes
+        est = autorun.estimate(p, target, a.batch, policy, a.name)
+        cost = f"약 ${est['cost']:.2f}" if est["cost"] is not None else "모델 가격을 몰라 계산하지 못함"
+        when = (f"{_duration(est['seconds_min'])}~{_duration(est['seconds_max'])} (배치 {est['batch_rounds']}번 대기, 최악은 배치마다 24시간)"
+                if est["batch_rounds"] else f"약 {_duration(est['seconds_min'])}")
+        print(f"{est['from'] or '-'}~{target}화 {est['episodes']}화 남음. 토큰 입력 {est['tokens_in']:,} / 출력 {est['tokens_out']:,} (추정)")
+        print(f"비용 {cost}, 시간 {when}")
+        if est["missing"]:
+            print(f"플롯이 없는 화: {est['missing']} (그 화에서 멈춥니다)")
+        if not confirm("시작할까요?", a.yes):
+            return
+
+    def on_int(*_: object) -> None:
+        print("\n지금 단계가 끝나면 멈춥니다 (배치는 기다리기를 바로 멈추고 작업은 남겨 둡니다)...")
+        autorun.request(a.name, "pause")
+
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGINT, on_int)
+    if a.resume:
+        run = autorun.resume(a.name, approve=a.approve, rewrite=a.rewrite, foreground=True, echo=print)
+    else:
+        run = autorun.start(a.name, a.to or p.meta.target_episodes, a.batch, policy, foreground=True, echo=print)
+    if run.status == "review":
+        print(f"\n{run.ep}화 검토가 필요합니다. 고르세요:")
+        print(f"  update {a.name} {run.ep}            변경안을 보고 반영한 뒤 auto {a.name} --resume")
+        print(f"  auto {a.name} --resume --approve    변경안을 그대로 반영하고 이어 가기")
+        print(f"  auto {a.name} --resume --rewrite    {run.ep}화를 다시 쓰기")
+    elif run.status in ("paused", "error"):
+        print(f"\n이어 가려면: auto {a.name} --resume")
+
+
 def cmd_compare(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     if a.pick:
@@ -593,6 +655,21 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("n", type=int, nargs="?")
     sp = add("run", cmd_run)
     sp.add_argument("--no-check", action="store_true", help="화마다 검수 호출을 건너뜀")
+    sp = add("auto", cmd_auto)
+    sp.add_argument("--to", type=int, help="목표 화 (기본: 총 화수)")
+    sp.add_argument("--batch", action="store_true", help="Gemini Batch API 로 (비용 절반, 단계마다 몇 분~최대 24시간)")
+    sp.add_argument("--no-check", action="store_true", help="검수를 건너뜀")
+    sp.add_argument("--max-issues", type=int, default=0, help="검수 어긋남이 이보다 많으면 멈춤 (기본 0)")
+    sp.add_argument("--max-shift", type=float, default=0.3, help="관계 온기·신뢰가 한 화에 이보다 많이 바뀌면 멈춤 (0: 안 봄)")
+    sp.add_argument("--stop-on-stage", action="store_true", help="관계 단계가 바뀌면 멈춤")
+    sp.add_argument("--stop-on-warnings", action="store_true", help="상태 변경안 경고가 있으면 멈춤")
+    sp.add_argument("--confirm-plots", action="store_true", help="초안 플롯을 자동 확정하고 진행")
+    sp.add_argument("--review-every", type=int, default=0, help="N화마다 멈춤")
+    sp.add_argument("--resume", action="store_true", help="멈춘 실행 이어 가기")
+    sp.add_argument("--approve", action="store_true", help="--resume: 검토 대기 변경안을 그대로 반영")
+    sp.add_argument("--rewrite", action="store_true", help="--resume: 검토 대기 화를 다시 쓰기")
+    sp.add_argument("--status", action="store_true", help="진행 상태와 최근 로그")
+    sp.add_argument("--stop", action="store_true", help="중지 (기다리던 배치 취소)")
     sp = add("compare", cmd_compare, "n", yes=False)
     sp.add_argument("--a", default="gemini", choices=["gemini", "local", "mock"])
     sp.add_argument("--b", default="local", choices=["gemini", "local", "mock"])

@@ -98,6 +98,7 @@ python -m canon plot 등대                        # 4. 화별 플롯 초안
 python -m canon revise 등대 "3화 전개가 너무 빨라"   #    말로 고치기 (변경안 확인 후 반영)
 python -m canon confirm 등대 all                 # 5. 플롯 확정
 python -m canon run 등대                         # 6. 화마다 본문 생성 → 검수 → 상태 변경안 승인
+#    또는 python -m canon auto 등대 --to 12          기준에 걸릴 때만 멈추는 자동 집필 (아래)
 python -m canon show 등대                        # 진행 상황
 python -m canon stats 등대                       # 화별 문체 지표를 레퍼런스와 비교
 ```
@@ -105,6 +106,24 @@ python -m canon stats 등대                       # 화별 문체 지표를 레
 문체 라이브러리는 `python -m canon styles` (목록), `styles add 이름 원문.txt [--source 출처]`, `styles show <id>`, `styles rm <id>` 로도 다룬다.
 
 한 화씩 하려면 `write 등대 3` → `check 등대 3` → `update 등대 3`. `check` 는 앞선 본문·설정과의 모순을 근거 문장과 함께 보여준다 (`run --no-check` 로 생략 가능). 작품에서 쓰지 말아야 할 표현은 `project.json` 의 `style.banned_phrases` 에 넣으면 `stats` 와 본문 지시에 반영된다.
+
+## 자동 집필 (목표 화까지)
+
+웹 사이드바의 **자동 집필**에서 목표 화를 고르고 시작하면 화마다 본문 → 검수 + 상태 변경안 → 반영을 알아서 반복한다. 다른 화면으로 옮겨 가거나 창을 닫아도 서버가 계속 돈다.
+
+- **멈추는 기준**: 검수에서 어긋난 곳이 나오거나(허용 개수 조절), 관계가 한 화에 크게 움직이거나(민감도 조절), 설정에 없는 인물이 나오면 그 화에서 멈추고 변경안을 검토 대기로 둔다. 관계 단계 변화, 상태 변경안 경고, N화마다 멈춤, 초안 플롯 자동 확정은 선택. 멈추면 상태 승인 화면에서 골라 반영하고 이어 가거나, 그대로 반영하고 이어 가거나, 그 화를 다시 쓴다.
+- 검토 없이 반영한 화는 `자동 반영`으로 표시되고, 자동 집필 화면에서 그 화부터 되돌릴 수 있다(본문은 남는다).
+- **배치 켜기/끄기**: 켜면 Gemini Batch API 로 보내 비용이 절반이지만 단계마다 몇 분에서 길게는 24시간 기다린다. 끄면 일반 호출이라 빠르다. 돌고 있을 때도 바꿀 수 있고 다음 단계부터 적용된다. 화는 앞 화가 반영돼야 쓸 수 있어 배치로도 한 화씩 간다. 로컬 모델 단계는 배치 없이 돈다.
+- 시작 전에 배치 끔/켬 각각의 예상 비용과 시간을 보여 주고, 진행 중에는 단계별 로그(토큰, 걸린 시간)와 누적 비용을 보여 준다. 일시정지(배치는 남겨 두고 이어 가면 받아 옴), 중지(기다리던 배치 취소)가 있다. 서버가 다시 시작돼도 이어서 돈다. 진행 기록은 `projects/<이름>/autorun.json`.
+
+```bash
+python -m canon auto 등대 --to 12 --batch   # 예상 비용·시간을 보여 주고 시작 (Ctrl-C 는 일시정지)
+python -m canon auto 등대 --status          # 상태와 최근 로그
+python -m canon auto 등대 --resume [--approve | --rewrite]   # 이어 가기 (검토 대기면 그대로 반영 또는 다시 쓰기)
+python -m canon auto 등대 --stop            # 중지
+```
+
+기준 옵션: `--max-issues 0`, `--max-shift 0.3`(0 이면 안 봄), `--stop-on-stage`, `--stop-on-warnings`, `--confirm-plots`, `--review-every N`, `--no-check`. 가격은 `gemini-4-argon` 정가 추정치($2/$10, 100만 토큰당)로 계산하고 `CANON_PRICE="입력,출력"` 으로 바꿀 수 있다.
 
 ## AI 글티('쇠맛') 줄이기
 
@@ -183,5 +202,6 @@ canon/library.py   문체 라이브러리 (작품과 따로 저장하는 문체 
 canon/cli.py       명령줄
 canon/web.py       웹 UI 서버 (FastAPI) + canon/static/ 화면
 canon/jobs.py      웹에서 오래 걸리는 AI 작업을 백그라운드로 돌리고 진행 상황을 알려 줌
+canon/autorun.py   목표 화까지 자동 집필 (승인 정책, 배치, 비용 추정, 이어 가기)
 tests/             흐름 테스트 (mock LLM, 가짜 OpenAI 호환 서버)
 ```
