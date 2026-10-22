@@ -22,6 +22,17 @@ STATIC = Path(__file__).parent / "static"
 NAME_RE = re.compile(r"^[^/\\.][^/\\]{0,63}$")
 
 app = FastAPI(title="Canon")
+_active = 0  # 처리 중인 요청 수. 자동 업데이트는 이 값이 0일 때만 다시 시작한다.
+
+
+@app.middleware("http")
+async def _count_active(request: Request, call_next):
+    global _active
+    _active += 1
+    try:
+        return await call_next(request)
+    finally:
+        _active -= 1
 
 
 @app.exception_handler(ValueError)
@@ -355,17 +366,23 @@ def index() -> FileResponse:
     return FileResponse(STATIC / "index.html")
 
 
-def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False) -> None:
+def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
+          update_interval: float = 0) -> None:
+    """update_interval(초)이 0보다 크면 그 간격으로 origin/main 을 확인하고,
+    새 코드를 받으면 진행 중인 요청이 끝난 뒤 다시 시작한다."""
     import threading
     import time
     import webbrowser
 
     import uvicorn
 
+    from . import updater
+
     shown = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
     url = f"http://{shown}:{port}"
     print(f"Canon 웹 UI: {url}")
     server = uvicorn.Server(uvicorn.Config(app, host=host, port=port))
+    restart = threading.Event()
 
     def open_when_ready() -> None:
         # 서버가 포트를 연 뒤에 브라우저를 띄운다. 포트가 이미 쓰이고 있으면 열지 않는다.
@@ -375,6 +392,27 @@ def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False)
             time.sleep(0.1)
         webbrowser.open(url)
 
+    def watch_updates() -> None:
+        last = ""
+        while not server.should_exit:
+            time.sleep(update_interval)
+            r = updater.update()
+            if not r.updated:
+                if r.message != last:  # 같은 사유를 매번 찍지 않는다
+                    print(f"[업데이트] {r.message}")
+                last = r.message
+                continue
+            print(f"[업데이트] {r.message}. 진행 중인 작업이 끝나면 다시 시작합니다")
+            while _active and not server.should_exit:
+                time.sleep(1)
+            restart.set()
+            server.should_exit = True
+            return
+
     if open_browser:
         threading.Thread(target=open_when_ready, daemon=True).start()
+    if update_interval > 0:
+        threading.Thread(target=watch_updates, daemon=True).start()
     server.run()
+    if restart.is_set():
+        updater.restart(no_browser=True)
