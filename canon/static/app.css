@@ -319,6 +319,10 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 #jobs .x { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 14px; min-width: 32px; min-height: 32px; flex: none; }
 .spinner.sm { width: 14px; height: 14px; border-width: 2px; }
 
+/* 설정: 단계별 백엔드와 모델 */
+.stage-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+@media (max-width: 600px) { .stage-row { grid-template-columns: 1fr; } }
+
 /* 연구 (모델 실험) */
 .nav-extra { padding-top: 12px; border-top: 1px solid var(--line); }
 .nav-extra > .small { padding: 0 10px 4px; }

@@ -104,12 +104,13 @@ python -m canon recalc 등대                   # project.json 의 params 를 �
 
 ## 로컬 모델 (Ollama, llama.cpp, vLLM, LM Studio)
 
-OpenAI 호환 API 를 여는 서버면 된다. 단계마다 백엔드를 고를 수 있어서, 계획과 검수는 Gemini 에 두고 본문만 로컬 모델로 쓸 수 있다. 웹 설정 화면의 **로컬 서버**, **단계별 백엔드**에서 정하거나 환경 변수로 정한다.
+OpenAI 호환 API 를 여는 서버면 된다. 단계마다 백엔드를 고를 수 있어서, 계획과 검수는 Gemini 에 두고 본문만 로컬 모델로 쓸 수 있다. 단계마다 모델도 따로 고를 수 있다 (예: 상태 변경안만 빠르고 싼 `gemini-3.8-flash`). 웹 설정 화면의 **로컬 서버**, **단계별 백엔드와 모델**에서 정하거나 환경 변수로 정한다. 모델 칸은 Gemini API 와 로컬 서버의 모델 목록을 불러와 보여 주고, 목록에 없는 이름은 직접 적으면 된다.
 
 ```bash
 export CANON_LOCAL_URL=http://localhost:11434/v1   # Ollama. llama.cpp :8080/v1, vLLM :8000/v1
 export CANON_LOCAL_MODEL=gemma4:31b                # 비우면 서버에 하나뿐인 모델
 export CANON_LLM_WRITE=local                       # 본문만 로컬 (plan / write / check / state)
+export CANON_MODEL_STATE=gemini-3.8-flash          # 상태 변경안만 다른 모델 (CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE)
 # 전부 로컬이면 CANON_LLM=local
 
 python -m canon compare 등대 3                  # 같은 화를 gemini 와 local 로 써서 1, 2 번으로 가림
