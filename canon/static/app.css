@@ -327,6 +327,11 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .edit-row { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; gap: 6px; }
 .edit-row.undone { opacity: 0.6; }
 
+/* 복사 · 내보내기 (publish.js) */
+.export { display: flex; flex-direction: column; gap: 8px; padding-bottom: 14px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.export select { width: 100%; }
+.export .ep-num { width: 64px; min-height: 36px; padding: 0 8px; }
+
 /* 백그라운드 AI 작업 목록 (왼쪽 아래) */
 #jobs { position: fixed; left: 252px; bottom: 20px; z-index: 30; width: min(340px, calc(100vw - 40px)); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.16); font-size: 13px; overflow: hidden; }
 #jobs[hidden] { display: none; }
