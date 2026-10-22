@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import dynamics, genres, jobs, library, pipeline, prompts, research, settings, store
+from . import autorun, dynamics, genres, jobs, library, pipeline, prompts, research, settings, store
 from .llm import GeminiLLM, LocalLLM, get_llm
 from .schema import ArcPlan, Meta, Project, SetupSuggestion, StateDelta, StyleEntry, StyleProfile
 
@@ -66,8 +66,15 @@ def _save(name: str, p: Project, merged: set[str] | None = None) -> Project:
                 if n in disk:
                     mine[n] = disk[n]
             p.episodes = [mine[k] for k in sorted(mine)]
+        if merged is not None and store.exists(name):
+            autorun.protected(name, store.load(name), p)  # 자동 집필이 반영한 진행을 오래된 화면이 덮지 않게
         store.save(name, p)
     return p
+
+
+def _not_auto(name: str) -> None:
+    if autorun.active(name):
+        raise ValueError("자동 집필이 도는 중입니다. 일시정지한 뒤에 하세요")
 
 
 # ---------- 프로젝트 ----------
@@ -436,6 +443,8 @@ def start_job(name: str, body: JobIn) -> dict:
     """오래 걸리는 AI 작업을 시작하고 바로 돌아온다. 결과는 GET /api/jobs 로 본다."""
     p = _load(name)
     kind, n = body.kind, body.ep
+    if kind in ("write", "state", "plots"):
+        _not_auto(name)
     stage = {"write": "write", "state": "state"}.get(kind, "plan")  # suggest, arc, plots 는 plan
     llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
@@ -521,6 +530,7 @@ def get_job(jid: str) -> dict:
 @app.post("/api/projects/{name}/episodes/{n}/write")
 def write_episode(name: str, n: int) -> Project:
     p = _load(name)
+    _not_auto(name)
     text = pipeline.write_episode(get_llm("write"), p, n)
     ep = p.episode(n)
     ep.text, ep.status = text, "written"
@@ -593,12 +603,90 @@ def parse_state(name: str, n: int, body: Raw) -> StateDelta:
 def apply_state(name: str, n: int, d: StateDelta) -> Project:
     """화면에서 고른 항목만 담긴 변경안을 반영하고 그 화를 끝낸다."""
     p = _load(name)
+    _not_auto(name)
     ep = p.episode(n)
     if ep.status != "written":
         raise ValueError(f"{n}화는 본문이 작성된 상태가 아닙니다 (현재: {ep.status})")
     d.episode = n
     pipeline.apply_delta(p, d)
     return _save(name, p)
+
+
+@app.post("/api/projects/{name}/revert/{n}")
+def revert(name: str, n: int) -> Project:
+    """n화 반영 직후로 되돌린다. 뒤 화의 본문은 남기고 반영만 취소한다 (0 이면 1화 시작 전)."""
+    p = _load(name)
+    _not_auto(name)
+    pipeline.revert(p, n)
+    return _save(name, p)
+
+
+# ---------- 자동 집필 (canon/autorun.py) ----------
+
+class AutoIn(BaseModel):
+    target: int
+    batch: bool = False
+    policy: autorun.Policy = autorun.Policy()
+
+
+def _auto(name: str) -> dict:
+    p = _load(name)
+    run = autorun.get_run(name)
+    out = run.model_dump() if run else None
+    if out and run.pending and (run.status != "review" or p.episode(run.ep).status != "written"):
+        out["pending"] = None  # 사용자가 검토 화면에서 이미 반영했다
+    return {"run": out, "active": autorun.active(name),
+            "batch_stages": [s for s in ("write", "check", "state") if autorun.batchable(s)]}
+
+
+@app.get("/api/projects/{name}/auto")
+def auto_get(name: str) -> dict:
+    return _auto(name)
+
+
+@app.post("/api/projects/{name}/auto/estimate")
+def auto_estimate(name: str, body: AutoIn) -> dict:
+    return autorun.estimate(_load(name), body.target, body.batch, body.policy, name)
+
+
+@app.post("/api/projects/{name}/auto/start")
+def auto_start(name: str, body: AutoIn) -> dict:
+    _load(name)
+    autorun.start(name, body.target, body.batch, body.policy)
+    return _auto(name)
+
+
+class AutoResume(BaseModel):
+    approve: bool = False  # 검토 대기 변경안을 그대로 반영
+    rewrite: bool = False  # 검토 대기 화를 다시 쓰기
+
+
+@app.post("/api/projects/{name}/auto/resume")
+def auto_resume(name: str, body: AutoResume) -> dict:
+    _load(name)
+    autorun.resume(name, approve=body.approve, rewrite=body.rewrite)
+    return _auto(name)
+
+
+@app.post("/api/projects/{name}/auto/{what}")
+def auto_request(name: str, what: str) -> dict:
+    """what: pause | stop"""
+    _load(name)
+    if what not in ("pause", "stop"):
+        raise HTTPException(404, "pause 또는 stop 만 됩니다")
+    autorun.request(name, what)
+    return _auto(name)
+
+
+class AutoBatch(BaseModel):
+    batch: bool
+
+
+@app.put("/api/projects/{name}/auto/batch")
+def auto_batch(name: str, body: AutoBatch) -> dict:
+    _load(name)
+    autorun.set_batch(name, body.batch)
+    return _auto(name)
 
 
 # ---------- 관계 (canon/dynamics.py 계산값) ----------
@@ -793,6 +881,7 @@ def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
                 last = r.message
                 continue
             print(f"[업데이트] {r.message}. 진행 중인 작업이 끝나면 다시 시작합니다")
+            jobs.draining.set()  # 자동 집필은 다음 단계 전에 멈추고, 다시 시작한 서버가 이어 간다
             while (_active or jobs.running()) and not server.should_exit:
                 time.sleep(1)
             restart.set()
@@ -803,6 +892,8 @@ def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
         threading.Thread(target=open_when_ready, daemon=True).start()
     if update_interval > 0:
         threading.Thread(target=watch_updates, daemon=True).start()
+    for name in autorun.resume_all():
+        print(f"[자동 집필] {name} 을(를) 이어 갑니다")
     server.run()
     if restart.is_set():
         updater.restart(no_browser=True)

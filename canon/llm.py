@@ -43,6 +43,14 @@ def _inline_refs(schema: dict) -> dict:
     return walk(schema)
 
 
+def _usage(u: Any) -> dict | None:
+    """Gemini 토큰 수. 생각(thinking) 토큰은 출력 요금으로 매겨져 따로 센다."""
+    if not u:
+        return None
+    return {"prompt_tokens": u.prompt_token_count or 0, "completion_tokens": u.candidates_token_count or 0,
+            "thought_tokens": getattr(u, "thoughts_token_count", None) or 0}
+
+
 class GeminiLLM:
     def __init__(self, model: str | None = None, api_key: str | None = None):
         from google import genai
@@ -75,8 +83,7 @@ class GeminiLLM:
             contents=prompt,
             config=types.GenerateContentConfig(system_instruction=system, **config),
         )
-        u = resp.usage_metadata
-        self.last_usage = {"prompt_tokens": u.prompt_token_count, "completion_tokens": u.candidates_token_count} if u else None
+        self.last_usage = _usage(resp.usage_metadata)
         if not resp.text:
             raise RuntimeError(f"Gemini 응답이 비었습니다: {resp.candidates[0].finish_reason if resp.candidates else resp}")
         return resp.text
@@ -93,6 +100,106 @@ class GeminiLLM:
 
     def text(self, system: str, prompt: str) -> str:
         return self._call(system, prompt)
+
+    # ---------- Batch API (비용 절반, 결과까지 몇 분~최대 24시간) ----------
+
+    def batch_submit(self, system: str, prompt: str, schema: type[BaseModel] | None, label: str,
+                     hint: dict | None = None) -> str:
+        """요청 하나짜리 배치 작업을 만들고 작업 이름을 돌려준다. hint 는 mock 용이라 쓰지 않는다."""
+        config: dict[str, Any] = {"system_instruction": system}
+        if schema is not None:
+            config.update(response_mime_type="application/json",
+                          response_json_schema=_inline_refs(schema.model_json_schema()))
+        job = self.client.batches.create(
+            model=self.model,
+            src=[{"contents": [{"role": "user", "parts": [{"text": prompt}]}], "config": config}],
+            config={"display_name": label[:120]},
+        )
+        return job.name
+
+    def batch_poll(self, name: str) -> str | None:
+        """끝났으면 응답 글, 아직이면 None. 실패, 취소, 만료면 오류를 낸다."""
+        job = self.client.batches.get(name=name)
+        state = getattr(job.state, "name", str(job.state))
+        if state in BATCH_WAITING:
+            return None
+        if state != "JOB_STATE_SUCCEEDED":
+            raise RuntimeError(f"Gemini 배치 작업이 {state} 로 끝났습니다: {job.error or ''}".rstrip(": "))
+        out = (job.dest.inlined_responses or [None])[0] if job.dest else None
+        if out is None or out.error or out.response is None:
+            raise RuntimeError(f"Gemini 배치 응답이 없습니다: {out.error if out else job.dest}")
+        self.last_usage = _usage(out.response.usage_metadata)
+        if not out.response.text:
+            raise RuntimeError("Gemini 배치 응답이 비었습니다")
+        return out.response.text
+
+    def batch_cancel(self, name: str) -> None:
+        self.client.batches.cancel(name=name)
+
+
+BATCH_WAITING = {"JOB_STATE_UNSPECIFIED", "JOB_STATE_QUEUED", "JOB_STATE_PENDING", "JOB_STATE_RUNNING",
+                 "JOB_STATE_PAUSED", "JOB_STATE_UPDATING", "JOB_STATE_CANCELLING"}
+
+
+class Interrupted(Exception):
+    """배치 결과를 기다리다 사용자가 멈추거나 서버가 다시 시작하려 한다. cancelled 면 배치 작업도 취소했다."""
+
+    def __init__(self, cancelled: bool):
+        super().__init__("배치 작업을 취소했습니다" if cancelled else "배치 결과를 기다리다 멈췄습니다")
+        self.cancelled = cancelled
+
+
+class BatchLLM:
+    """LLM 인터페이스 그대로 배치를 쓴다. 호출 하나가 배치 작업 하나이고, 결과가 올 때까지 기다린다.
+
+    names 는 slot -> 배치 작업 이름. 호출자가 저장해 두면 프로세스가 다시 시작해도 같은 slot 으로
+    부를 때 새 작업을 만들지 않고 기다리던 작업에 다시 붙는다 (프롬프트가 같다는 전제).
+    wait(초) 는 기다리고 나서 'stop'(작업 취소) | 'pause'(작업은 두고 멈춤) | '' 를 돌려준다.
+    """
+
+    def __init__(self, inner: Any, slot: str, names: dict[str, str], on_change: Any, wait: Any,
+                 label: str = "canon", interval: float | None = None):
+        self.inner, self.slot, self.names, self.on_change, self.wait = inner, slot, names, on_change, wait
+        self.label = label
+        self.interval = interval if interval is not None else float(os.environ.get("CANON_BATCH_POLL", "30"))
+        self.last_usage: dict | None = None
+        self.last_attempts = 1
+        self.model = getattr(inner, "model", "")
+
+    def _run(self, system: str, prompt: str, schema: type[BaseModel] | None, hint: dict | None = None) -> str:
+        name = self.names.get(self.slot)
+        if not name:
+            name = self.inner.batch_submit(system, prompt, schema, f"{self.label} {self.slot}", hint=hint)
+            self.names[self.slot] = name
+            self.on_change()
+        while True:
+            try:
+                raw = self.inner.batch_poll(name)
+            except Exception:
+                self.names.pop(self.slot, None)  # 실패한 작업에 다시 붙지 않게 한다
+                self.on_change()
+                raise
+            if raw is not None:
+                self.names.pop(self.slot, None)
+                self.on_change()
+                self.last_usage = getattr(self.inner, "last_usage", None)
+                return raw
+            why = self.wait(self.interval)
+            if why == "stop":
+                try:
+                    self.inner.batch_cancel(name)
+                finally:
+                    self.names.pop(self.slot, None)
+                    self.on_change()
+                raise Interrupted(cancelled=True)
+            if why:
+                raise Interrupted(cancelled=False)
+
+    def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
+        return schema.model_validate_json(_FENCE_RE.sub("", self._run(system, prompt, schema, hint).strip()))
+
+    def text(self, system: str, prompt: str) -> str:
+        return self._run(system, prompt, None)
 
 
 def _require_all(schema: Any) -> Any:
