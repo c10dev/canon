@@ -1,14 +1,16 @@
 """생성 파이프라인. 각 단계는 Project 를 받아 제안을 만들고, 반영은 호출자가 승인 후 한다."""
 from __future__ import annotations
 
-from . import dynamics, metrics, naming, prompts
+from . import dynamics, elements, metrics, naming, prompts
 from .llm import LLM, dump
 from .schema import (
     ArcPlan,
     CharacterState,
     ChatMessage,
     ConsistencyReport,
+    ElementImpact,
     Episode,
+    ImpactReport,
     NameOptions,
     PlotBatch,
     PlotRevision,
@@ -239,6 +241,118 @@ def apply_revision(p: Project, rev: PlotRevision, acts: bool, episodes: list[int
         if act and e.status not in LOCKED:
             e.plot.act = act.name
     return applied
+
+
+# ---------- 3-2. 인과율: 새 요소가 닿는 곳 ----------
+
+def analyze_impact(llm: LLM, p: Project, eid: str) -> ImpactReport:
+    """요소 하나의 영향 보고서를 만든다. 저장하지 않는다. 근거를 찾을 수 없는 지적은 뺀다."""
+    el = elements.get(p, eid)
+    if not el.name.strip() or not el.description.strip():
+        raise ValueError("요소의 이름과 설명을 먼저 적으세요")
+    linked = {lk.episode for lk in elements.links(p, el)}
+    rep = llm.json(
+        prompts.SYSTEM_IMPACT, prompts.impact_prompt(p, el, linked), ImpactReport,
+        hint={"element": el, "episodes": p.episodes},
+    )
+    return clean_impact(p, rep)
+
+
+def _quoted(p: Project, target: str, n: int, quote: str) -> bool:
+    """지적의 인용이 실제로 그 자리에 있는가."""
+    if target == "본문":
+        e = next((e for e in p.episodes if e.plot.number == n), None)
+        return bool(e and elements.find(e.text, quote))
+    if target == "플롯":
+        e = next((e for e in p.episodes if e.plot.number == n), None)
+        return bool(e and elements.find(elements.plot_text(e), quote))
+    if target == "확정 사실":
+        return bool(elements.find("\n".join(p.facts), quote))
+    setting = p.model_dump(include={"meta": True, "world": True, "characters": True, "relationships": True, "secrets": True,
+                                    "elements": {"__all__": {"name", "aliases", "description"}}})
+    return bool(elements.find("\n".join(_strings(setting)), quote))
+
+
+def _strings(v) -> list[str]:
+    if isinstance(v, str):
+        return [v]
+    if isinstance(v, dict):
+        v = v.values()
+    return [s for x in v for s in _strings(x)] if isinstance(v, (list, tuple, type({}.values()))) else []
+
+
+def clean_impact(p: Project, rep: ImpactReport) -> ImpactReport:
+    notes: list[str] = []
+    keep = [c for c in rep.conflicts if _quoted(p, c.target, c.episode, c.quote)]
+    if len(keep) < len(rep.conflicts):
+        notes.append(f"원문에서 인용을 찾지 못한 지적 {len(rep.conflicts) - len(keep)}개는 뺐습니다.")
+    rep.conflicts = keep
+    patches, seen = [], set()
+    for t in rep.patches:
+        e = next((e for e in p.episodes if e.plot.number == t.episode), None)
+        if not e or not e.text or not elements.find(e.text, t.quote):
+            notes.append(f"{t.episode}화 본문에서 '{t.quote[:20]}' 문장을 찾지 못해 그 수정안은 뺐습니다.")
+            continue
+        if t.replacement.strip() == t.quote.strip() or (t.episode, t.quote) in seen:
+            continue
+        seen.add((t.episode, t.quote))
+        patches.append(t)
+    rep.patches = patches
+    rep.new_facts = [f for f in dict.fromkeys(x.strip() for x in rep.new_facts) if f and f not in p.facts]
+    rev = clean_revision(p, PlotRevision(reply=rep.summary, episodes=rep.episodes))
+    rep.summary, rep.episodes = rev.reply, rev.episodes
+    if notes:
+        rep.summary = rep.summary.rstrip() + "\n\n※ " + " ".join(notes)
+    return rep
+
+
+def record_impact(p: Project, eid: str, rep: ImpactReport) -> None:
+    el = elements.get(p, eid)
+    el.impact = ElementImpact(report=rep, basis=elements.basis(el), at=elements.now())
+
+
+def apply_impact(p: Project, eid: str, episodes: list[int], patches: list[int], facts: list[int]) -> list[str]:
+    """영향 보고서에서 고른 부분만 반영한다. 플롯은 apply_revision 규칙을 따르고(본문 있는 화는 그대로,
+    확정된 화는 초안으로), 본문 수정은 인용한 문장이 지금 본문에 그대로 있을 때만 바꾼다."""
+    el = elements.get(p, eid)
+    imp = el.impact
+    if imp is None:
+        raise ValueError("영향 분석을 먼저 하세요")
+    if imp.outcome:
+        raise ValueError("이미 처리한 영향 분석입니다. 다시 분석하세요")
+    rep = imp.report
+    if not (episodes or patches or facts):
+        raise ValueError("반영할 부분을 고르세요")
+    texts: dict[int, str] = {}
+    for i in patches:
+        if not 0 <= i < len(rep.patches):
+            raise ValueError(f"본문 수정안 {i} 이 없습니다")
+        t = rep.patches[i]
+        ep = p.episode(t.episode)
+        cur = texts.get(t.episode, ep.text)
+        span = elements.find(cur, t.quote)
+        if span is None:
+            raise ValueError(f"{t.episode}화 본문이 그 사이 바뀌어 '{t.quote[:20]}' 문장을 찾을 수 없습니다. 다시 분석하세요")
+        texts[t.episode] = cur[:span[0]] + t.replacement.strip() + cur[span[1]:]
+    applied: list[str] = []
+    if episodes:
+        done = apply_revision(p, PlotRevision(reply="", episodes=rep.episodes), False, episodes)
+        applied += [f"ep:{n}" for n in done]
+    for n, text in texts.items():
+        p.episode(n).text = text  # 상태 반영이 끝난 화도 작가가 고르면 고친다. 요약과 인물 상태는 그대로 둔다
+    applied += [f"patch:{i}" for i in patches]
+    for i in facts:
+        if 0 <= i < len(rep.new_facts) and rep.new_facts[i] not in p.facts:
+            p.facts.append(rep.new_facts[i])
+            applied.append(f"fact:{i}")
+    imp.outcome, imp.applied = "applied", applied
+    return applied
+
+
+def dismiss_impact(p: Project, eid: str) -> None:
+    imp = elements.get(p, eid).impact
+    if imp and not imp.outcome:
+        imp.outcome = "dismissed"
 
 
 # ---------- 4. 본문 생성 ----------
