@@ -6,9 +6,11 @@ from .llm import LLM
 from .schema import (
     ArcPlan,
     CharacterState,
+    ChatMessage,
     ConsistencyReport,
     Episode,
     PlotBatch,
+    PlotRevision,
     Project,
     SetupSuggestion,
     StateDelta,
@@ -94,6 +96,123 @@ def apply_plots(p: Project, batch: PlotBatch) -> None:
             continue
         by_no[plot.number] = Episode(plot=plot)
     p.episodes = [by_no[k] for k in sorted(by_no)]
+
+
+# ---------- 3-1. 대화로 구조와 플롯 다듬기 ----------
+
+LOCKED = ("written", "finalized")  # 본문이 있어 플롯을 바꿀 수 없는 상태
+CHAT_KEEP = 200  # 화면별로 남겨 두는 대화 수
+
+
+def revise_plot(llm: LLM, p: Project, message: str) -> PlotRevision:
+    """작가의 말에 대한 답과 변경안을 만든다. 저장하지 않는다. 쓸 수 없는 부분은 빼고 답에 이유를 덧붙인다."""
+    message = message.strip()
+    if not message:
+        raise ValueError("메시지가 비었습니다")
+    rev = llm.json(
+        prompts.SYSTEM_PLOT_CHAT, prompts.plot_chat_prompt(p, message), PlotRevision,
+        hint={"message": message, "arc": p.arc, "episodes": [e.plot for e in p.episodes], "total": p.meta.target_episodes},
+    )
+    return clean_revision(p, rev)
+
+
+def clean_revision(p: Project, rev: PlotRevision) -> PlotRevision:
+    notes: list[str] = []
+    total = rev.total_episodes if rev.total_episodes and rev.total_episodes != p.meta.target_episodes else 0
+    if total and not 1 <= total <= 100:
+        notes.append(f"총 화수 {total}화는 쓸 수 없어 뺐습니다.")
+        total = 0
+    rev.total_episodes = total
+    acts = sorted(rev.acts, key=lambda a: a.start_ep)
+    if acts and [a.model_dump() for a in acts] == [a.model_dump() for a in p.arc] and not total:
+        acts = []
+    if acts:
+        try:
+            validate_arc(ArcPlan(acts=acts), total or p.meta.target_episodes)
+        except ValueError as e:
+            notes.append(f"구조 변경안이 맞지 않아 뺐습니다: {e}")
+            acts = []
+    if total and not acts:
+        notes.append("화수를 바꾸려면 구조도 함께 바꿔야 해서 화수 변경을 뺐습니다.")
+        rev.total_episodes = total = 0
+    rev.acts = acts
+    arc = acts or p.arc
+    last = total or p.meta.target_episodes
+    status = {e.plot.number: e.status for e in p.episodes}
+    current = {e.plot.number: e.plot.model_dump() for e in p.episodes}
+    keep, seen = [], set()
+    for e in rev.episodes:
+        n = e.number
+        if n in seen or not 1 <= n <= last:
+            notes.append(f"{n}화 변경안은 범위를 벗어나 뺐습니다.")
+            continue
+        if status.get(n) in LOCKED:
+            notes.append(f"{n}화는 본문이 있어 플롯 변경안을 뺐습니다.")
+            continue
+        act = next((a for a in arc if a.start_ep <= n <= a.end_ep), None)
+        if act:
+            e.act = act.name
+        if current.get(n) == e.model_dump():
+            continue
+        seen.add(n)
+        keep.append(e)
+    rev.episodes = sorted(keep, key=lambda e: e.number)
+    if notes:
+        rev.reply = rev.reply.rstrip() + "\n\n※ " + " ".join(notes)
+    return rev
+
+
+def record_chat(p: Project, topic: str, message: str, rev: PlotRevision) -> ChatMessage:
+    """작가의 말과 AI 답을 대화 기록에 남긴다."""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    chat = p.chat(topic)
+    reply = ChatMessage(role="assistant", text=rev.reply, revision=rev, at=now)
+    if not (rev.acts or rev.episodes):
+        reply.revision = None
+    chat.messages += [ChatMessage(role="user", text=message.strip(), at=now), reply]
+    chat.messages = chat.messages[-CHAT_KEEP:]
+    return reply
+
+
+def apply_revision(p: Project, rev: PlotRevision, acts: bool, episodes: list[int]) -> list[str]:
+    """변경안에서 고른 부분만 반영한다. 본문이 있는 화는 바꾸지 않고, 확정된 화를 바꾸면 초안으로 돌린다.
+    반영한 부분 이름('acts', 화 번호)을 돌려준다."""
+    total = p.meta.target_episodes
+    arc = p.arc
+    applied: list[str] = []
+    if acts and rev.acts:
+        total = rev.total_episodes or total
+        validate_arc(ArcPlan(acts=rev.acts), total)
+        arc = [a.model_copy(deep=True) for a in rev.acts]
+    by_no = {e.plot.number: e for e in p.episodes}
+    cut = [n for n in by_no if n > total]
+    stuck = [n for n in cut if by_no[n].status != "draft"]
+    if stuck:
+        raise ValueError(f"{total}화로 줄이면 확정됐거나 본문이 있는 화({stuck})가 빠집니다. 먼저 초안으로 되돌리세요")
+    picked = {e.number: e for e in rev.episodes if e.number in set(episodes)}
+    for n, plot in picked.items():
+        if n > total:
+            raise ValueError(f"{n}화는 총 {total}화 밖입니다. 구조 변경을 함께 고르세요")
+        cur = by_no.get(n)
+        if cur and cur.status in LOCKED:
+            raise ValueError(f"{n}화는 본문이 있어 플롯을 바꿀 수 없습니다")
+    if acts and rev.acts:
+        p.arc = arc
+        p.meta.target_episodes = total
+        for n in cut:
+            del by_no[n]
+        applied.append("acts")
+    for n, plot in picked.items():
+        by_no[n] = Episode(plot=plot.model_copy(deep=True))  # 확정된 화도 내용이 바뀌면 다시 확정한다
+        applied.append(str(n))
+    p.episodes = [by_no[k] for k in sorted(by_no)]
+    for e in p.episodes:
+        act = next((a for a in p.arc if a.start_ep <= e.plot.number <= a.end_ep), None)
+        if act and e.status not in LOCKED:
+            e.plot.act = act.name
+    return applied
 
 
 # ---------- 4. 본문 생성 ----------

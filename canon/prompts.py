@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from . import genres
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
-from .schema import ConsistencyReport, Project, StateDelta
+from .schema import ChatMessage, ConsistencyReport, Project, StateDelta
 
 SYSTEM_PLANNER = (
     "당신은 한국 웹소설/단편소설 기획 전문 편집자입니다. "
@@ -147,13 +147,91 @@ def plot_prompt(p: Project, start: int, end: int) -> str:
 {dump([f for f in p.foreshadows if f.status == "open"]) or "없음"}
 
 요구사항:
-- 각 화는 소속 구간(act)의 goal 을 향해 전진해야 하며, 구간의 key_turn 은 해당 구간 안의 특정 화에 배치합니다.
+{plot_rules(p)}"""
+
+
+def plot_rules(p: Project) -> str:
+    """화별 플롯을 쓸 때 지킬 규칙. 초안 생성과 대화형 수정이 같이 쓴다."""
+    return f"""- 각 화는 소속 구간(act)의 goal 을 향해 전진해야 하며, 구간의 key_turn 은 해당 구간 안의 특정 화에 배치합니다.
 - 한 화에 사건 3~6개, 분량은 약 {p.meta.words_per_episode}자 기준.
 - 매 화 ending_hook 을 둡니다. 마지막 화는 훅 대신 여운을 둡니다.
 - emotional_shift 는 감정 이름이 아니라 감정 변화가 겉으로 드러나는 행동이나 대사로 적습니다 (예: "도현의 전화를 세 번째에야 받는다").
 - 모든 화가 같은 모양이 되지 않도록, 필요한 화에는 회상, 시간 건너뛰기, 곁가지 사건, 주인공의 잘못된 선택을 씁니다. 갈등은 너무 깔끔하게 정리하지 않습니다.
 - 복선은 심는 화와 회수하는 화를 계획하고, 결 구간까지 모두 회수합니다.
 - characters 에는 인물 id 만 씁니다."""
+
+
+# ---------- 플롯 대화 (기승전결 · 화별 플롯 화면) ----------
+
+SYSTEM_PLOT_CHAT = (
+    "당신은 작가와 함께 연재 소설의 구조를 다듬는 기획 편집자입니다. "
+    "작가의 말을 듣고 기승전결 구간과 화별 플롯을 고친 변경안을 내고, 왜 그렇게 고쳤는지 짧게 설명합니다. "
+    "변경안은 제안일 뿐이며 작가가 골라서 반영합니다. 설정과 인물, 이미 쓴 본문은 존중합니다. "
+    "모든 출력은 한국어로 작성합니다."
+)
+
+# 대화 기록은 최근 것만 넣는다. 오래된 대화의 결과는 이미 구조와 플롯에 들어가 있다.
+CHAT_HISTORY_LIMIT = 12
+
+
+def _chat_line(m: ChatMessage) -> str:
+    if m.role == "user":
+        return f"작가: {m.text}"
+    line = f"편집자: {m.text}"
+    r = m.revision
+    if r and (r.acts or r.episodes or r.total_episodes):
+        parts = (["구조"] if r.acts else []) + [f"{e.number}화" for e in r.episodes]
+        applied = ", ".join("구조" if x == "acts" else f"{x}화" for x in m.applied)
+        result = {"applied": f"작가가 반영함: {applied}", "dismissed": "작가가 반영하지 않음"}.get(m.outcome, "아직 결정 전")
+        line += f"\n  (변경안: {', '.join(parts)} / {result})"
+    return line
+
+
+def plot_chat_prompt(p: Project, message: str) -> str:
+    """앞쪽은 작품 설정(잘 바뀌지 않음), 뒤쪽은 지금 구조와 플롯, 대화. 캐시가 맞도록 이 순서를 지킨다."""
+    eps = [{"status": e.status, **e.plot.model_dump()} for e in p.episodes]
+    done = [e for e in p.episodes if e.summary]
+    locked = [e.plot.number for e in p.episodes if e.status in ("written", "finalized")]
+    confirmed = [e.plot.number for e in p.episodes if e.status == "confirmed"]
+    history = next((c.messages for c in p.chats if c.topic == "plot"), [])[-CHAT_HISTORY_LIMIT:]
+    style = p.style.model_dump(include={"narration_pov", "pacing", "scene_transition", "dialogue_ratio"})
+    open_fs = [f for f in p.foreshadows if f.status == "open"]
+    return f"""[작품]
+{meta_text(p)}
+[세계관]
+{dump(p.world)}
+[인물]
+{dump(p.characters)}
+[관계]
+{rels(p)}
+[문체 요약 (전개 속도 판단용)]
+{dump(style)}
+
+[지금 기승전결 구조] 총 {p.meta.target_episodes}화
+{dump(p.arc) if p.arc else "아직 없음"}
+[지금 화별 플롯] status: draft 초안, confirmed 작가가 확정, written 본문 있음, finalized 반영 완료
+{dump(eps) if eps else "아직 없음"}
+[이미 쓴 화의 실제 줄거리]
+{chr(10).join(f"{e.plot.number}화: {e.summary}" for e in done) or "없음"}
+[열린 복선]
+{dump(open_fs) if open_fs else "없음"}
+
+[지금까지의 대화]
+{chr(10).join(_chat_line(m) for m in history) or "없음 (첫 대화)"}
+
+[작가의 새 말]
+{message}
+
+요구사항:
+- reply 에는 작가에게 하는 대답을 2~5문장으로 씁니다. 무엇을 왜 바꿨는지, 다른 화에 어떤 영향이 있는지 말합니다.
+- 요청이 모호하면 가장 그럴듯한 해석으로 고치고, reply 에서 어떻게 해석했는지 밝힙니다. 고칠 것이 없거나 질문만 받았으면 변경 없이 대답만 합니다.
+- 바꾸는 것만 넣습니다. 구조를 바꾸면 acts 에 네 구간을 모두 넣고, 그대로면 빈 목록입니다. episodes 에는 바뀌는 화만, 모든 칸을 채운 전체 플롯으로 넣습니다.
+- 본문이 있는 화({", ".join(map(str, locked)) or "없음"})는 바꾸지 않습니다. 그 화의 내용과 이어지도록 뒤의 화를 고칩니다.
+- 작가가 확정한 화({", ".join(map(str, confirmed)) or "없음"})는 작가가 그 화를 바꿔 달라고 했을 때만 바꿉니다.
+- 한 화를 바꾸면 앞뒤 화의 엔딩 훅, 복선 심기와 회수가 어긋나지 않게 이어지는 화도 함께 고칩니다.
+- 총 화수를 바꿔야 하면 total_episodes 에 새 화수를 넣고, acts 를 새 화수에 맞추고, 새로 생기거나 내용이 밀리는 화를 episodes 에 모두 넣습니다. 화수를 바꾸지 않으면 0 입니다.
+- 구간은 기, 승, 전, 결 순서로 1화부터 마지막 화까지 빈틈없이 이어집니다.
+{plot_rules(p)}"""
 
 
 def build_episode_context(p: Project, n: int) -> str:
