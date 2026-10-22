@@ -297,3 +297,48 @@ def test_background_jobs(client, monkeypatch):
     j = _wait(client, client.post("/api/projects/bg/jobs", json={"kind": "write", "ep": 3}).json()["id"])
     assert j["status"] == "error" and "이전 화" in j["error"]
     assert any(x["id"] == j["id"] for x in client.get("/api/jobs?project=bg").json())
+
+
+def test_usage_page_records_web_calls(client, monkeypatch):
+    """웹 요청 안에서 부른 AI 호출이 작품, 화, 단계와 함께 기록되고 /api/usage 로 모여 나온다."""
+    from types import SimpleNamespace
+
+    from canon import web
+    from canon.llm import GeminiLLM
+    from canon.schema import StateDelta
+
+    meta = {"title": "등대", "genre": "미스터리", "logline": "오빠를 찾는다", "target_episodes": 4}
+    client.post("/api/projects", json={"name": "lh", "meta": meta})
+    p = client.get("/api/projects/lh").json()
+    p["arc"] = client.post("/api/projects/lh/arc").json()["acts"]
+    client.put("/api/projects/lh", json=p)
+    client.post("/api/projects/lh/plots", json={})
+    client.post("/api/projects/lh/episodes/1/confirm")
+    client.post("/api/projects/lh/episodes/1/write")
+
+    def fake(stage=None):
+        llm = object.__new__(GeminiLLM)
+        meta = SimpleNamespace(prompt_token_count=5000, candidates_token_count=800, thoughts_token_count=0,
+                               cached_content_token_count=0)
+        reply = StateDelta(episode=1, summary="s").model_dump_json()
+        llm.client = SimpleNamespace(models=SimpleNamespace(
+            generate_content=lambda **kw: SimpleNamespace(text=reply, usage_metadata=meta, candidates=[])))
+        llm.model, llm.stage, llm.last_raw = "gemini-3.8-flash", stage, ""
+        return llm
+
+    monkeypatch.setattr(web, "get_llm", fake)
+    r = client.post("/api/projects/lh/episodes/1/state")
+    assert r.status_code == 200, r.text
+    s = client.get("/api/usage?days=7").json()
+    assert s["total"]["calls"] == 1
+    assert s["by_episode"] == [dict(s["by_episode"][0], project="lh", episode=1)]
+    assert s["by_stage"][0]["stage"] == "state" and s["recent"][0]["source"] == "web"
+    assert s["total"]["cost"] == round((5000 * 0.75 + 800 * 3.75) / 1e6, 6)
+    assert client.get("/api/usage?project=없음").json()["total"]["calls"] == 0
+
+    t = client.get("/api/usage/prices").json()
+    rows = [dict(r, input=0.5) if r["model"] == "gemini-3.8-flash" and not r["since"] else r for r in t["rows"]]
+    t = client.put("/api/usage/prices", json={"rows": rows}).json()
+    assert any(r["custom"] for r in t["rows"])
+    assert client.get("/api/usage").json()["total"]["cost"] < s["total"]["cost"]
+    assert not any(r["custom"] for r in client.delete("/api/usage/prices").json()["rows"])

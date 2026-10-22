@@ -268,10 +268,17 @@ def test_gemini_json_retries_with_error():
 
     good = StateDelta(episode=1, summary="s").model_dump_json()
     bad = '{"episode": 1, "character_updates": ["cecilia: emotional_state=분노"]}'
+    from types import SimpleNamespace
+
     llm = object.__new__(GeminiLLM)
     asks = []
     replies = [bad, good]
-    llm._call = lambda system, prompt, **kw: (asks.append(prompt), replies.pop(0))[1]
+
+    def generate(model, contents, config):
+        asks.append(contents)
+        return SimpleNamespace(text=replies.pop(0), usage_metadata=None, candidates=[])
+    llm.client = SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+    llm.model = "gemini-4-argon"
     assert llm.json("", "원래 요청", StateDelta).summary == "s" and llm.last_attempts == 2
     assert asks[0] == "원래 요청" and asks[1].startswith("원래 요청") and "틀린 곳" in asks[1] and bad in asks[1]
     replies[:] = [bad, bad]

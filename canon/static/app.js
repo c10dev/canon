@@ -1208,6 +1208,11 @@ async function route() {
     if (parts[0] === 'settings') {
       S.config = await api('GET', '/config');
       loadModelList();  // 기다리지 않는다. 목록이 오면 입력칸 추천만 채운다
+      await pricesLoad().catch((e) => toast(e.message, true));
+    } else if (parts[0] === 'usage') {
+      S.name = null;
+      S.project = null;
+      await usageLoad(parts[1] || '');
     } else if (parts[0] === 'styles') {
       S.name = null;
       S.project = null;
@@ -1243,6 +1248,7 @@ async function route() {
       }
       if (parts[2] === 'write' || parts[2] === 'arc') await openingLoad(parts[2] === 'write' ? (n || currentEp()) : 0);
       if (parts[2] === 'research') await rsLoad();
+      if (parts[2] === 'usage') await usageLoad(S.name);
       if (parts[2] === 'convert') await convertLoad();
       if (parts[2] === 'causal') {
         if (parts[3]) S.causalSel = parts[3];
@@ -1278,6 +1284,10 @@ function render() {
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:820px;margin:0 auto">${viewSettings()}</main></div>`;
     return;
   }
+  if (p === 'usage') {
+    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1180px;margin:0 auto">${viewUsage()}</main></div>`;
+    return;
+  }
   if (p === 'styles') {
     const body = S.route[1] && S.lib ? viewLibEntry() : viewLibrary();
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1180px;margin:0 auto">${body}</main></div>`;
@@ -1288,7 +1298,7 @@ function render() {
     return;
   }
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, auto: viewAuto, causal: viewCausal, lines: viewLines, convert: viewConvert };
+  const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, convert: viewConvert };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${body}</main></div>`;
   syncChat();
@@ -1330,12 +1340,13 @@ function sidebar(active) {
       <div class="small">${done} / ${total}화 반영 완료</div>
     </div>
     <div class="nav">${items.map(([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}><span class="num">${num}</span>${label}</a>`).join('')}</div>
-    <div class="nav nav-extra"><span class="small">본편과 분리</span><a href="${base()}/research"${active === 'research' ? ' aria-current="page"' : ''}><span class="num">R</span>연구 · 모델 실험</a></div>
+    <div class="nav nav-extra"><span class="small">본편과 분리</span><a href="${base()}/research"${active === 'research' ? ' aria-current="page"' : ''}><span class="num">R</span>연구 · 모델 실험</a><a href="${base()}/usage"${active === 'usage' ? ' aria-current="page"' : ''}><span class="num">$</span>사용량 · 비용</a></div>
     <div class="side-foot">
       <span class="small">본문 모델</span>
       <strong style="font-size:13px">${esc(cfg.stages ? cfg.stages.write.model : cfg.model || '')}</strong>
       ${cfg.has_key ? '' : '<span style="color:var(--red)">API 키가 없습니다. 설정에서 넣거나 작업지시서를 쓰세요.</span>'}
       <a href="#/settings">모델 · API 키 설정</a>
+      <a href="#/usage">모든 작품 사용량 · 비용</a>
       <a href="#/styles">문체 라이브러리</a>
       <a href="#/">작품 목록</a>
     </div>
@@ -1408,7 +1419,9 @@ function viewSettings() {
         ${c.key_source === 'file' ? '<button class="btn danger" data-action="clearKey">저장된 키 지우기</button>' : ''}
       </div>
       <div class="small">설정 파일: ${esc(c.path)}</div>
-    </section>`;
+    </section>
+    <section class="card" id="price-box">${viewPrices()}</section>
+    <div class="small">쓴 비용은 <a href="#/usage">사용량 · 비용</a> 화면에서 봅니다.</div>`;
 }
 
 // 모델 칸 추천 목록: Gemini API 와 로컬 서버에 실제로 있는 모델. 없으면 직접 적는다.
@@ -1456,7 +1469,7 @@ function viewProjects() {
       <div class="small">${esc(x.genre || '장르 미정')} · 폴더 ${esc(x.name)}</div>
     </a>`).join('');
   const cfg = S.config || {};
-  return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편부터 300화 장편 연재까지 씁니다.', '<a class="btn" href="#/styles">문체 라이브러리</a><a class="btn" href="#/settings">모델 · API 키 설정</a>')}
+  return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편부터 300화 장편 연재까지 씁니다.', `<a class="btn" href="#/styles">문체 라이브러리</a><a class="btn" href="#/usage">사용량 · 비용</a><a class="btn" href="#/settings">모델 · API 키 설정</a>`)}
     ${cfg.has_key ? '' : '<div class="note warn">Gemini API 키가 없어요. <a href="#/settings" style="color:inherit;font-weight:700">설정</a>에서 넣으면 AI 생성을 쓸 수 있습니다. 키 없이도 채팅 앱 작업지시서로 쓸 수 있어요.</div>'}
     ${list.length ? `<div class="grid-auto">${cards}</div>` : '<div class="note plain">아직 작품이 없어요. 아래에서 새 작품을 만드세요.</div>'}
     <section class="card" style="max-width:720px">
