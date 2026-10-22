@@ -18,16 +18,18 @@
   python -m canon revert 내소설 3       3화 상태 반영 직후로 되돌리기
   python -m canon recalc 내소설         계수(params)를 바꾼 뒤 사건 로그로 관계 재계산
   python -m canon serve [--port 8000]    웹 UI (브라우저 자동 열기, 끄려면 --no-browser)
+  python -m canon upgrade               main 의 새 코드 받기 (serve 는 시작할 때와 10분마다 알아서 받는다)
 설정은 projects/<이름>/project.json 을 직접 고쳐도 된다.
 """
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
 
-from . import dynamics, genres, metrics, pipeline, prompts, store
+from . import dynamics, genres, metrics, pipeline, prompts, store, updater
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, Meta, Project, StateDelta
 
@@ -326,7 +328,21 @@ def cmd_show(a: argparse.Namespace) -> None:
 def cmd_serve(a: argparse.Namespace) -> None:
     from .web import serve
 
-    serve(a.host, a.port, open_browser=not a.no_browser)
+    no_browser = a.no_browser or bool(os.environ.pop("CANON_NO_BROWSER", ""))
+    if not a.no_update:
+        r = updater.update()
+        print(f"[업데이트] {r.message}")
+        if r.updated:  # 이미 읽은 모듈은 옛 코드라 새로 시작한다
+            updater.restart(no_browser=no_browser)
+    interval = 0 if a.no_update else a.update_interval * 60
+    serve(a.host, a.port, open_browser=not no_browser, update_interval=interval)
+
+
+def cmd_upgrade(a: argparse.Namespace) -> None:
+    r = updater.update()
+    print(r.message)
+    if r.updated:
+        print("실행 중인 serve 는 다시 켜야 반영됩니다 (자동 업데이트를 켜 두었다면 알아서 다시 시작합니다)")
 
 
 def cmd_view(a: argparse.Namespace) -> None:
@@ -411,7 +427,10 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--host", default="127.0.0.1")
     sp.add_argument("--port", type=int, default=8000)
     sp.add_argument("--no-browser", action="store_true", help="브라우저를 자동으로 열지 않음 (서버에서 상시 실행할 때)")
+    sp.add_argument("--no-update", action="store_true", help="main 의 새 코드를 자동으로 받지 않음")
+    sp.add_argument("--update-interval", type=float, default=10, help="실행 중 새 코드 확인 간격(분), 기본 10")
     sp.set_defaults(fn=cmd_serve)
+    sub.add_parser("upgrade", help="main 의 새 코드 받기 (git pull)").set_defaults(fn=cmd_upgrade)
 
     sp = add("view", cmd_view, yes=False)
     sp.add_argument("mode", choices=["numbers", "words"])
