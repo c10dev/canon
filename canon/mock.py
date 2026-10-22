@@ -25,7 +25,9 @@ from .schema import (
     PlotRevision,
     Recap,
     Relationship,
+    ScopeChange,
     Secret,
+    SerialConversion,
     SeriesPlan,
     SetupSuggestion,
     StateDelta,
@@ -35,6 +37,7 @@ from .schema import (
     StorylineProposal,
     StyleProfile,
     TextPatch,
+    TierChange,
     WorldSetting,
 )
 
@@ -84,6 +87,32 @@ def _next_arc(hint: dict) -> ArcProposal:
                    conflict="시험관", payoff="통쾌한 역전", acts=_arc(end, start),
                    cast=["hero", "ally"] + [c.id for c in new], payoffs=["fs-01-key"] if number == 2 else [])
     return ArcProposal(arc=arc, new_characters=new, reply=f"{start}화부터 아크 {number}를 제안해요.")
+
+
+def _conversion(hint: dict) -> SerialConversion:
+    """전환 흉내: 단편 뒤로 100화 안팎씩 부를 나누고, 결말을 다시 열면 떡밥·사실·마지막 미작성 화 플롯을 낸다.
+    검증 규칙을 시험하도록 없는 인물과 이미 있는 복선 id 를 섞는다."""
+    total, end, ending = hint["total"], hint["end"], hint["ending"] or "reopen"
+    parts = _series(total).parts
+    if parts and parts[0].end_ep < end:
+        parts[0].end_ep = end + (parts[1].end_ep - end) // 2 if len(parts) > 1 else total
+        if len(parts) > 1:
+            parts[1].start_ep = parts[0].end_ep + 1
+    conv = SerialConversion(
+        reply="단편을 아크 1로 두고 장편으로 늘렸어요.", ending=ending, total_episodes=total,
+        arc=StoryArc(number=9, title="등대의 여름", start_ep=1, end_ep=end, goal="오빠의 행방을 안다", conflict="숨긴 편지",
+                     payoff="편지의 진실", cast=["hero", "ally", "nobody"], summary="아크 1 요약: 서윤이 진실에 닿았다."),
+        parts=parts,
+        tiers=[TierChange(id="ally", tier="support", reason="장편에서는 조연"), TierChange(id="nobody", tier="minor")],
+        scopes=[ScopeChange(id=f, scope="series") for f in hint["open"][:1]],
+    )
+    if ending == "reopen":
+        conv.foreshadows = [Foreshadow(id="fs-s-shadow", description="등대지기의 그림자", planted_ep=end + 5, scope="series"),
+                            *([Foreshadow(id=hint["open"][0], description="이미 있는 복선", planted_ep=1)] if hint["open"] else [])]
+        conv.facts = ["오빠의 배는 끝내 발견되지 않았다"]
+        last = hint["unlocked"][-1:] if hint["unlocked"] else []
+        conv.episodes = [e.model_copy(update={"ending_hook": "수평선에 낯선 불빛이 켜졌다"}) for e in last]
+    return conv
 
 
 def _plot(n: int, act: str, note: str = "") -> EpisodePlot:
@@ -173,6 +202,8 @@ class MockLLM:
             return _series(hint["total"])  # type: ignore[return-value]
         if schema is ArcProposal:
             return _next_arc(hint)  # type: ignore[return-value]
+        if schema is SerialConversion:
+            return _conversion(hint)  # type: ignore[return-value]
         if schema is Recap:
             return Recap(summary=f"{'아크' if hint['kind'] == 'arc' else '부'} {hint['number']} 요약: 주인공이 시험을 넘겼다.")  # type: ignore[return-value]
         if schema is PlotBatch:

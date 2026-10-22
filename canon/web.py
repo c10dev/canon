@@ -16,7 +16,7 @@ from pydantic import BaseModel, ValidationError
 
 from . import autorun, dynamics, elements, genres, jobs, library, metrics, naming, pipeline, prompts, research, settings, store
 from .llm import GeminiLLM, LocalLLM, get_llm, make_llm
-from .schema import (ArcPlan, ArcProposal, Meta, Project, SeriesPlan, SetupSuggestion, StateDelta, StorylineProposal, StyleEntry,
+from .schema import (ArcPlan, ArcProposal, Meta, Project, SerialConversion, SeriesPlan, SetupSuggestion, StateDelta, StorylineProposal, StyleEntry,
                      StyleProfile)
 
 STATIC = Path(__file__).parent / "static"
@@ -432,6 +432,36 @@ def remove_last_arc(name: str) -> Project:
     return _save(name, p)
 
 
+# 단편 → 장편 전환: 제안은 백그라운드 작업(convert)으로 받고, 화면에서 뺄 것을 빼고 고친 뒤 반영한다.
+
+@app.get("/api/projects/{name}/convert")
+def conversion_status(name: str) -> dict:
+    """전환 가능한 총 화수 범위, 또는 이미 전환했다면 되돌릴 수 있는지."""
+    p = _load(name)
+    lo, hi = pipeline.convert_range(p)
+    blockers = pipeline.undo_blockers(p, store.load_backup(name, pipeline.BACKUP_TAG)) if p.conversion else []
+    return {"min": lo, "max": hi, "end": pipeline.short_end(p), "conversion": p.conversion, "undo_blockers": blockers}
+
+
+@app.post("/api/projects/{name}/convert/apply")
+def apply_conversion(name: str, prop: SerialConversion) -> Project:
+    _not_auto(name)
+    p = _load(name)
+    before = pipeline.apply_conversion(p, prop)
+    store.save_backup(name, pipeline.BACKUP_TAG, before)
+    return _save(name, p)
+
+
+@app.post("/api/projects/{name}/convert/undo")
+def undo_conversion(name: str) -> Project:
+    _not_auto(name)
+    p = _load(name)
+    q = pipeline.undo_conversion(p, store.load_backup(name, pipeline.BACKUP_TAG))  # type: ignore[arg-type]
+    out = _save(name, q)
+    store.drop_backup(name, pipeline.BACKUP_TAG)
+    return out
+
+
 class RecapIn(BaseModel):
     summary: str
 
@@ -581,12 +611,13 @@ def impact_dismiss(name: str, eid: str) -> Project:
 # ---------- 백그라운드 작업 ----------
 
 class JobIn(BaseModel):
-    kind: str  # suggest | arc | plots | write | state | impact | series | nextarc | recap_arc | recap_part | storyline
+    kind: str  # suggest | arc | plots | write | state | impact | series | nextarc | recap_arc | recap_part | storyline | convert
     ep: int | None = None  # 화 번호. plots 는 장편에서 아크 번호(없으면 초안이 있는 모든 아크), recap_* 는 아크·부 번호
     element: str = ""  # impact 일 때 요소 id
-    note: str = ""  # nextarc, storyline: 작가가 바라는 것
+    note: str = ""  # nextarc, storyline, convert: 작가가 바라는 것
     line_kind: str = ""  # storyline: 원하는 줄기 종류 (비우면 AI 가 고름)
-    length: int = 0  # nextarc: 아크 화수 (0 이면 AI 가 정함)
+    length: int = 0  # nextarc: 아크 화수 (0 이면 AI 가 정함). convert: 장편 총 화수
+    ending: str = ""  # convert: keep | reopen, 비우면 AI 가 고름
 
 
 def _edit(name: str, fn) -> Project:
@@ -646,6 +677,14 @@ def start_job(name: str, body: JobIn) -> dict:
 
         def fn(job: jobs.Job):
             return pipeline.plan_next_arc(llm, store.load(name), length, note).model_dump()
+    elif kind == "convert":
+        _not_auto(name)
+        size, ending, note = body.length, body.ending, body.note
+        pipeline.check_convertible(p, size)  # 화수가 맞지 않으면 작업을 시작하기 전에 알린다
+        label, total, owned = f"장편 {size}화로 전환 계획", 1, set()
+
+        def fn(job: jobs.Job):
+            return pipeline.propose_conversion(llm, store.load(name), size, ending, note).model_dump()
     elif kind == "storyline":
         label, total, owned = "이야기 줄기 제안", 1, set()
         note, line_kind = body.note, body.line_kind

@@ -49,3 +49,26 @@ def save(name: str, p: Project) -> Path:
                 f"# {ep.plot.number}화. {ep.plot.title}\n\n{ep.text}\n", encoding="utf-8"
             )
     return path
+
+
+def backup_path(name: str, tag: str) -> Path:
+    return project_dir(name) / f"{tag}.json"
+
+
+def save_backup(name: str, tag: str, p: Project) -> Path:
+    """되돌리기용으로 작품 전체를 따로 남긴다 (예: 단편 → 장편 전환 직전, tag='before-serial')."""
+    path = backup_path(name, tag)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(p.model_dump_json(indent=2), encoding="utf-8")
+    return path
+
+
+def load_backup(name: str, tag: str) -> Project | None:
+    path = backup_path(name, tag)
+    if not path.exists():
+        return None
+    return Project.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+def drop_backup(name: str, tag: str) -> None:
+    backup_path(name, tag).unlink(missing_ok=True)

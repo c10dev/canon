@@ -2,7 +2,7 @@
 
 모든 상태는 하나의 Project 객체(project.json)에 저장된다.
 LLM 이 직접 채우는 모델(SetupSuggestion, StyleProfile, ArcPlan, PlotBatch, PlotRevision, NameOptions, StateDelta, ConsistencyReport,
-ImpactReport, SeriesPlan, ArcProposal, Recap, StorylineProposal)은
+ImpactReport, SeriesPlan, ArcProposal, Recap, StorylineProposal, SerialConversion)은
 Gemini 구조화 출력에 그대로 넘기므로 dict 타입 필드를 쓰지 않는다.
 """
 from __future__ import annotations
@@ -349,6 +349,44 @@ class Recap(BaseModel):
     summary: str = Field(description="다음 화를 쓸 때 참고할 요약")
 
 
+# ---------- 단편 → 장편 전환 ----------
+
+class ScopeChange(BaseModel):
+    id: str = Field(description="이미 열려 있는 복선 id")
+    scope: Literal["arc", "part", "series"] = Field(description="장편에서의 회수 범위")
+    reason: str = Field("", description="왜 더 멀리(또는 가까이) 끌고 가는지 한 줄")
+
+
+class TierChange(BaseModel):
+    id: str = Field(description="인물 id")
+    tier: Literal["main", "support", "minor"] = Field(description="main 작품 전체를 끄는 주역 / support 조연 / minor 단역")
+    reason: str = Field("", description="한 줄 이유")
+
+
+class SerialConversion(BaseModel):
+    """단편을 장편 연재로 바꾸는 제안. 단편 전체는 아크 1이 된다. 작가가 고른 부분만 반영한다 (pipeline.apply_conversion)."""
+    reply: str = Field(description="작가에게 하는 설명 3~5문장: 결말을 어떻게 처리했는지, 장편 전체를 끄는 갈등, 1부가 어디서 끝나는지")
+    ending: Literal["keep", "reopen"] = Field(
+        description="keep: 단편 결말을 아크 1의 결말로 닫고 그 뒤에 새 문제를 연다 / reopen: 결말이 진짜 끝이 아니었다는 장치로 큰 갈등을 다시 연다")
+    total_episodes: int = Field(description="장편 총 화수")
+    arc: StoryArc = Field(description="아크 1: 단편 전체. acts 는 비워 두면 단편 기승전결을 그대로 쓴다")
+    parts: list[Part] = Field(default_factory=list, description="1화부터 총 화수까지의 부 구성. 1부가 아크 1을 품는다")
+    foreshadows: list[Foreshadow] = Field(default_factory=list, description="장편을 끌고 갈 새 장기 떡밥 (scope part 나 series)")
+    scopes: list[ScopeChange] = Field(default_factory=list, description="기존 열린 복선 중 회수 범위를 바꿀 것")
+    facts: list[str] = Field(default_factory=list, description="결말을 다시 열 때 이미 쓴 본문과 맞게 더할 확정 사실")
+    episodes: list[EpisodePlot] = Field(default_factory=list, description="본문이 없는 단편 화의 바뀐 전체 플롯 (결말을 열어 둘 때)")
+    tiers: list[TierChange] = Field(default_factory=list, description="인물 비중 조정. 바꾸는 인물만")
+
+
+class Conversion(BaseModel):
+    """단편에서 장편으로 바꾼 기록. 되돌릴 백업은 projects/<이름>/before-serial.json 에 따로 둔다 (store.save_backup)."""
+    at: str = ""
+    from_total: int = Field(0, description="전환 전 총 화수")
+    arc_end: int = Field(0, description="아크 1이 된 단편의 마지막 화. 구조가 없던 작품이면 0")
+    ending: str = Field("", description="keep 또는 reopen")
+    history: int = Field(0, description="전환할 때까지 반영된 화 수. 이보다 늘면 되돌리지 않는다")
+
+
 # ---------- 대화형 다듬기 ----------
 
 class PlotRevision(BaseModel):
@@ -543,6 +581,7 @@ class Project(BaseModel):
     settings: Settings = Field(default_factory=Settings)
     chats: list[Chat] = Field(default_factory=list, description="화면별 AI 대화 기록")
     elements: list[StoryElement] = Field(default_factory=list, description="인과율: 언제든 더하는 요소, 특징, 설정, 사건")
+    conversion: Optional[Conversion] = Field(None, description="단편에서 장편으로 바꾼 기록. 되돌리면 지운다")
     storylines: list[Storyline] = Field(default_factory=list, description="메인에서 갈라지는 이야기 줄기 (서브플롯, 과거 회상, 외전, 인물 이야기)")
 
     def episode(self, n: int) -> Episode:

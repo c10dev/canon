@@ -6,6 +6,7 @@
   python -m canon styles [add 이름 파일 | show ID | rm ID]   문체 라이브러리 (작품과 따로 저장)
   python -m canon arc 내소설            기승전결 구간 설계 (단편)
   python -m canon series 내소설         장편: 총 화수를 부로 나누는 부 구성 제안
+  python -m canon convert 내소설 --episodes 200 [--ending keep|reopen]   단편을 장편으로 전환 (--undo 로 되돌리기)
   python -m canon nextarc 내소설 [--len 15 --note "..." --redo]   장편: 다음 아크 하나 기획 (--redo 는 마지막 아크를 지우고 다시)
   python -m canon arcs 내소설           장편: 부와 아크 진행 보기
   python -m canon recap 내소설 [arc|part 번호]   장편: 끝난 아크·부 요약 (승인 후 저장)
@@ -328,6 +329,49 @@ def cmd_recap(a: argparse.Namespace) -> None:
             pipeline.apply_recap(p, kind, num, r.summary)
             store.save(a.name, p)
     print("저장 완료")
+
+
+def cmd_convert(a: argparse.Namespace) -> None:
+    """단편을 장편 연재로 바꾼다. 단편 전체가 아크 1이 되고, 전환 직전 작품은 before-serial.json 에 남는다."""
+    p = store.load(a.name)
+    if a.undo:
+        backup = store.load_backup(a.name, pipeline.BACKUP_TAG)
+        why = pipeline.undo_blockers(p, backup)
+        if why:
+            sys.exit("되돌릴 수 없습니다: " + " / ".join(why))
+        if confirm(f"전환 전 단편({p.conversion.from_total}화)으로 되돌릴까요? 전환한 뒤 고친 설정과 플롯도 함께 돌아갑니다", a.yes):
+            store.save(a.name, pipeline.undo_conversion(p, backup))
+            store.drop_backup(a.name, pipeline.BACKUP_TAG)
+            print("단편으로 되돌렸습니다")
+        return
+    lo, hi = pipeline.convert_range(p)
+    total = a.episodes or int(ask(f"장편 총 화수 ({lo}~{hi})", str(max(lo, 200))))
+    prop = pipeline.propose_conversion(get_llm("plan"), p, total, a.ending or "", a.note or "")
+    print(prop.reply)
+    print(f"\n결말 처리: {'닫고 다음 이야기로' if prop.ending == 'keep' else '결말 다시 열기'} · 총 {prop.total_episodes}화")
+    if p.arc:
+        _print_arc(prop.arc)
+        if prop.arc.summary:
+            print(f"  요약: {prop.arc.summary}")
+    for x in prop.parts:
+        print(f"\n{x.number}부 {x.title} ({x.start_ep}~{x.end_ep}화)\n  목표: {x.goal}")
+        for idea in x.arc_ideas:
+            print(f"  - {idea}")
+    for f in prop.foreshadows:
+        print(f"  새 떡밥 {f.id} ({f.scope}, {f.planted_ep}화): {f.description}")
+    for s in prop.scopes:
+        print(f"  복선 범위 {s.id} → {s.scope}  {s.reason}")
+    for fact in prop.facts:
+        print(f"  더할 사실: {fact}")
+    for t in prop.tiers:
+        print(f"  비중 {t.id} → {t.tier}  {t.reason}")
+    for e in prop.episodes:
+        print(f"  {e.number}화 플롯 수정: {e.title} / {e.summary} / 훅: {e.ending_hook}")
+    if confirm("이대로 장편으로 전환할까요? (전환 전 작품은 따로 남겨 convert --undo 로 되돌릴 수 있습니다)", a.yes):
+        before = pipeline.apply_conversion(p, prop)
+        store.save_backup(a.name, pipeline.BACKUP_TAG, before)
+        print(f"저장: {store.save(a.name, p)}")
+        print(f"다음: nextarc {a.name}  ({p.planned_until() + 1}화부터)" if p.story_arcs else f"다음: nextarc {a.name}")
 
 
 def cmd_lines(a: argparse.Namespace) -> None:
@@ -871,6 +915,11 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--save", metavar="이름", help="분석한 문체를 라이브러리에도 저장")
     add("arc", cmd_arc)
     add("series", cmd_series)
+    sp = add("convert", cmd_convert)
+    sp.add_argument("--episodes", type=int, help="장편 총 화수")
+    sp.add_argument("--ending", choices=["keep", "reopen"], help="keep 닫고 다음 이야기로 / reopen 결말 다시 열기 (비우면 AI 가 고름)")
+    sp.add_argument("--note", help="장편에 바라는 것")
+    sp.add_argument("--undo", action="store_true", help="전환 전 단편으로 되돌리기")
     sp = add("nextarc", cmd_nextarc)
     sp.add_argument("--len", type=int, help="아크 화수")
     sp.add_argument("--note", help="이번 아크에 바라는 것")
