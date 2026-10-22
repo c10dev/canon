@@ -203,7 +203,12 @@ def price(stage: str) -> Optional[tuple[float, float]]:
             return a, b
         except ValueError:
             pass
-    return PRICES.get(settings.model()[0])
+    return PRICES.get(gemini_model(stage))
+
+
+def gemini_model(stage: str) -> str:
+    """단계가 쓰는 Gemini 모델. 단계별 모델이 없으면 전체 모델."""
+    return settings.stage_model(stage)[0] or settings.model()[0]
 
 
 def batchable(stage: str) -> bool:
@@ -284,7 +289,7 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
         "batch_rounds": rounds, "seconds_min": round(normal + rounds * BATCH_WAIT[0]),
         "seconds_max": round(normal + rounds * BATCH_WAIT[1]), "seconds_worst": round(normal + rounds * 86400),
         "batch_avg_seconds": round(sum(waits) / len(waits)) if waits else None,
-        "measured": bool(measured), "model": settings.model()[0],
+        "measured": bool(measured), "model": gemini_model("write"),
         "stages": {s: settings.stage_provider(s)[0] for s in steps},
     }
 

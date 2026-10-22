@@ -118,7 +118,7 @@ AI 는 숫자를 매기지 않고 사건만 뽑는다. 같은 사건은 항상 �
 - `LocalLLM`: OpenAI 호환 `/v1/chat/completions` 서버(Ollama, llama.cpp, vLLM, LM Studio). 표준 라이브러리만 쓴다. 구조화 출력은 `response_format`(json_schema) 로 강제하고 pydantic 으로 검증하며, 틀리면 오류를 알려 주고 한 번 더 묻는다. 추론 모델의 `<think>` 블록은 지운다. 본문(`text`)에는 `local_sampling`(기본 temperature 1.0, top_p 0.95, min_p 0.05)을, 구조화 출력에는 temperature 0.3 을 쓴다.
 - `MockLLM`: API 키 없이 전체 흐름 확인용 (`CANON_LLM=mock`).
 
-**단계별 백엔드.** `get_llm(stage)` 는 plan(설정 제안, 문체 분석, 기승전결, 화별 플롯) / write(본문) / check(검수) / state(상태 추출) 마다 다른 백엔드를 고를 수 있다. 권장 조합은 계획·검수·상태 추출은 Gemini, 본문은 문체를 학습시킨 로컬 모델이다. 프롬프트는 `prompts.py` 한 곳을 같이 쓰므로 백엔드를 바꿔도 컨텍스트는 같다.
+**단계별 백엔드.** `get_llm(stage)` 는 plan(설정 제안, 문체 분석, 기승전결, 화별 플롯) / write(본문) / check(검수) / state(상태 추출) 마다 다른 백엔드와 모델을 고를 수 있다 (`stage_models`, `CANON_MODEL_<STAGE>`; 비우면 그 백엔드의 기본 모델). 권장 조합은 계획·검수는 Gemini Argon, 상태 추출은 Flash 급 Gemini, 본문은 문체를 학습시킨 로컬 모델이다. 프롬프트는 `prompts.py` 한 곳을 같이 쓰므로 백엔드를 바꿔도 컨텍스트는 같다.
 
 **블라인드 비교.** `compare` 는 같은 화를 두 백엔드로 쓰고 1, 2 번으로 가려 저장한 뒤 문체 지표를 보여 준다. `--pick` 으로 고르면 그 본문을 쓰고 어느 쪽이었는지 공개하며 `compare/log.jsonl` 에 누적한다. "어느 모델이 한국어 소설을 더 잘 쓰나"를 작품 안에서 직접 확인하기 위한 도구다.
 
