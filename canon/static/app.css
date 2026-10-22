@@ -169,12 +169,24 @@ details > summary { cursor: pointer; font-size: 13px; color: var(--accent); min-
 .meter { height: 8px; border-radius: 4px; background: var(--chip); position: relative; overflow: hidden; }
 .meter > i { position: absolute; top: 0; height: 8px; border-radius: 4px; }
 
-.board-wrap { flex: 3 1 640px; min-width: 0; overflow-x: auto; }
-.board { min-width: 640px; display: grid; gap: 12px; }
-.act-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.board-wrap { min-width: 0; overflow-x: auto; display: flex; flex-direction: column; gap: 12px; padding-bottom: 4px; }
+.board { display: grid; grid-template-columns: repeat(4, minmax(250px, 1fr)); gap: 14px; align-items: start; }
+.act-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .act-head { padding: 12px 14px; border-radius: 10px; display: flex; flex-direction: column; gap: 6px; }
-.act-head strong { font-size: 18px; }
-.act-head textarea, .act-head input { background: rgba(255,255,255,0.7); border-color: rgba(0,0,0,0.12); font-size: 12px; min-height: 32px; }
+.act-col .act-head { padding: 14px 16px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; border: 2px solid transparent; }
+.act-col .act-head.sel { border-color: currentColor; }
+.act-col .act-head strong { font-size: 20px; }
+.act-meta { font-size: 12px; font-weight: 700; opacity: 0.85; }
+.act-block p { margin: 2px 0 0; font-size: 13px; line-height: 1.6; color: var(--text); display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.act-block p.empty-text { color: var(--muted); }
+.act-label { font-size: 11px; font-weight: 700; letter-spacing: 0.02em; opacity: 0.85; }
+.act-edit { align-self: flex-start; background: rgba(255,255,255,0.75); border-color: rgba(0,0,0,0.12); color: inherit; }
+.act-eps { display: flex; flex-direction: column; gap: 8px; }
+.act-eps > .act-label { color: var(--muted); padding: 0 2px; }
+.ep-slot { padding: 10px 12px; border: 1px dashed var(--line-strong); border-radius: 10px; color: var(--muted); font-size: 13px; }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(480px, 100vw); z-index: 15; overflow-y: auto; border-radius: 0; box-shadow: -8px 0 32px rgba(0,0,0,0.16); padding-top: 56px; display: flex; flex-direction: column; gap: 12px; }
+.drawer-close { position: absolute; top: 10px; right: 12px; }
+@media (max-width: 760px) { .board { grid-template-columns: minmax(0, 1fr); } }
 .act-1 { background: var(--act-1); color: var(--act-1-ink); }
 .act-2 { background: var(--act-2); color: var(--act-2-ink); }
 .act-3 { background: var(--act-3); color: var(--act-3-ink); }
@@ -183,8 +195,9 @@ details > summary { cursor: pointer; font-size: 13px; color: var(--accent); min-
 .ep-card.draft { border-style: dashed; border-color: var(--line-strong); }
 .ep-card.sel { border: 2px solid var(--accent); background: #F7F9FE; }
 .ep-card .t { font-size: 14px; font-weight: 700; }
-.ep-card .s { font-size: 12px; color: var(--muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.editor-panel { flex: 1 1 320px; min-width: 0; }
+.ep-card .ep-top { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 8px; }
+.ep-card .ep-top strong { font-size: 13px; }
+.ep-card .s { font-size: 12px; color: var(--muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 
 .prose { padding: 36px clamp(20px, 6%, 64px); }
 .prose textarea, .prose .read { width: 100%; max-width: 760px; margin: 0 auto; display: block; border: none; padding: 0; font-family: var(--serif); font-size: 16px; line-height: 2; color: var(--text); background: transparent; white-space: pre-wrap; }
@@ -245,3 +258,4 @@ pre.brief { margin: 0; padding: 16px; border-radius: 8px; background: var(--bg);
 .metric-list { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 13px; }
 .metric-list dt { color: var(--muted); }
 .metric-list dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.drawer-actions { position: sticky; bottom: -20px; margin: 0 -24px -20px; padding: 12px 24px 20px; background: var(--surface); border-top: 1px solid var(--line); }

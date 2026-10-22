@@ -192,7 +192,25 @@ document.addEventListener('change', (e) => {
   }
 });
 
+// 내용 길이에 맞춰 늘어나는 입력칸
+function autosize(el) {
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 2 + 'px';
+}
+document.addEventListener('input', (e) => {
+  if (e.target.matches && e.target.matches('textarea[data-autogrow]')) autosize(e.target);
+});
+// 구간 범위나 목표를 고치면 보드도 다시 그린다 (입력이 끝났을 때만)
+document.addEventListener('change', (e) => {
+  const bind = e.target.dataset && e.target.dataset.bind;
+  if (bind && bind.startsWith('arc.') && S.route[2] === 'arc') render();
+});
+
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && (S.selEp || S.selAct != null) && S.route[2] === 'arc' && !e.isComposing) {
+    actions.closePanel();
+    return;
+  }
   if (e.key === 'Enter' && e.target.id === 'genre-custom' && !e.isComposing) {
     e.preventDefault();
     actions.addCustomGenre();
@@ -536,6 +554,17 @@ const actions = {
   },
   selectEp(n) {
     S.selEp = Number(n);
+    S.selAct = null;
+    render();
+  },
+  selectAct(i) {
+    S.selAct = Number(i);
+    S.selEp = null;
+    render();
+  },
+  closePanel() {
+    S.selEp = null;
+    S.selAct = null;
     render();
   },
   async confirmEp(n) {
@@ -865,6 +894,7 @@ function render() {
   const views = { setup: viewSetup, style: viewStyle, arc: viewArc, write: viewWrite, review: viewReview, brief: viewBrief };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${body}</main></div>`;
+  document.querySelectorAll('textarea[data-autogrow]').forEach(autosize);
   // 상태 정리 지시서 탭이 바뀌면 다시 불러온다
   if (page === 'brief' && S.briefText === null && ep(n)) {
     api('GET', `/projects/${enc(S.name)}/episodes/${n}/brief?kind=${S.briefTab}`)
@@ -1482,34 +1512,59 @@ function viewArc() {
   const p = P();
   const eps = p.episodes;
   if (S.selEp && !ep(S.selEp)) S.selEp = null;
+  if (S.selAct != null && !p.arc[S.selAct]) S.selAct = null;
   const sel = S.selEp ? ep(S.selEp) : null;
-  const card = (e) => `<button type="button" class="ep-card ${e.status}${sel && sel.plot.number === e.plot.number ? ' sel' : ''}" data-action="selectEp" data-arg="${e.plot.number}">
-      <span class="between" style="width:100%"><strong style="font-size:13px">${e.plot.number}화</strong><span class="chip ${e.status}">${STATUS[e.status]}</span></span>
-      <span class="t">${esc(e.plot.title)}</span><span class="s">${esc(e.plot.summary)}</span></button>`;
+  const card = (e) => `<button type="button" class="ep-card ${e.status}${sel && sel.plot.number === e.plot.number ? ' sel' : ''}" data-action="selectEp" data-arg="${e.plot.number}" aria-label="${e.plot.number}화 ${esc(e.plot.title)} 플롯 열기">
+      <span class="ep-top"><strong>${e.plot.number}화</strong><span class="chip ${e.status}">${STATUS[e.status]}</span></span>
+      <span class="t">${esc(e.plot.title) || '제목 없음'}</span><span class="s">${esc(e.plot.summary)}</span></button>`;
+  const slot = (n) => `<div class="ep-slot" aria-hidden="true">${n}화</div>`;
 
   let board;
   if (!p.arc.length) {
     board = `<div class="card empty"><p>아직 기승전결 구조가 없어요.</p><button class="btn primary" data-action="planArc">AI 로 구조 만들기</button></div>`;
   } else {
-    const spans = p.arc.map((a) => Math.max(1, a.end_ep - a.start_ep + 1));
     const cols = p.arc.map((a, i) => {
-      const b = `arc.${i}`;
       const inAct = eps.filter((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep);
-      return `<section class="act-col"><div class="act-head ${actClass(a.name)}">
-          <strong>${a.name}</strong><span class="act-range"><input type="number" aria-label="${a.name} 시작 화" value="${a.start_ep}" data-bind="${b}.start_ep" data-kind="int">–<input type="number" aria-label="${a.name} 끝 화" value="${a.end_ep}" data-bind="${b}.end_ep" data-kind="int">화</span>
-          <textarea rows="2" aria-label="${a.name} 구간 목표" data-bind="${b}.goal" placeholder="구간 목표">${esc(a.goal)}</textarea>
-          <textarea rows="2" aria-label="${a.name} 전환점" data-bind="${b}.key_turn" placeholder="전환점">${esc(a.key_turn)}</textarea>
-        </div>${inAct.map(card).join('')}</section>`;
+      const count = Math.max(0, a.end_ep - a.start_ep + 1);
+      const nums = Array.from({ length: count }, (_, k) => a.start_ep + k);
+      const block = (label, text) => `<div class="act-block"><span class="act-label">${label}</span><p class="${text ? '' : 'empty-text'}">${esc(text) || '비어 있음'}</p></div>`;
+      return `<section class="act-col" aria-label="${a.name} 구간">
+        <div class="act-head ${actClass(a.name)}${S.selAct === i ? ' sel' : ''}">
+          <div class="between"><strong>${a.name}</strong><span class="act-meta">${a.start_ep}–${a.end_ep}화 · ${count}화</span></div>
+          ${block('구간 목표', a.goal)}${block('전환점', a.key_turn)}
+          <button type="button" class="btn small act-edit" data-action="selectAct" data-arg="${i}">구간 고치기</button>
+        </div>
+        <div class="act-eps"><span class="act-label">화별 플롯 ${inAct.length ? `${inAct.length}화` : ''}</span>
+          ${inAct.length ? inAct.map(card).join('') : nums.map(slot).join('')}</div>
+      </section>`;
     }).join('');
-    board = `<div class="board-wrap"><div class="board" style="grid-template-columns:${spans.map((s) => `minmax(160px,${s}fr)`).join(' ')}">${cols}</div></div>`;
+    board = `<div class="board-wrap">${eps.length ? '' : '<div class="note info">구간을 확인한 뒤 <strong>화별 플롯 초안 만들기</strong>를 누르면 각 구간에 화 카드가 채워집니다.</div>'}<div class="board">${cols}</div></div>`;
   }
+
+  let panel = '';
+  if (sel) panel = plotEditor(sel);
+  else if (S.selAct != null) panel = actEditor(S.selAct);
+  const drawer = panel ? `<aside class="drawer card" role="dialog" aria-label="편집">
+      <button type="button" class="btn icon-btn drawer-close" data-action="closePanel" aria-label="닫기">✕</button>${panel}</aside>` : '';
 
   const drafts = eps.filter((e) => e.status === 'draft').length;
   const right = p.arc.length
     ? `<button class="btn" data-action="planArc">구조 다시 제안</button><button class="btn" data-action="draftPlots">${eps.length ? '초안 다시 만들기 (확정 화 제외)' : '화별 플롯 초안 만들기'}</button>${drafts ? `<button class="btn primary" data-action="confirmAll">초안 ${drafts}화 모두 확정</button>` : ''}`
     : '';
-  return `${header('3단계', '기승전결 · 화별 플롯', '구간 범위와 목표를 고치고, 화 카드를 눌러 플롯을 다듬은 뒤 확정하세요. 확정된 화만 본문을 쓸 수 있고, 초안을 다시 만들어도 확정된 화는 그대로입니다.', right)}
-    <div class="cols">${board}${sel ? `<aside class="card editor-panel" aria-label="${sel.plot.number}화 플롯 편집">${plotEditor(sel)}</aside>` : (eps.length ? '<aside class="card editor-panel note plain">화 카드를 누르면 여기서 플롯을 고칠 수 있어요.</aside>' : '')}</div>`;
+  return `${header('3단계', '기승전결 · 화별 플롯', '구간 목표를 확인하고, 화 카드를 눌러 플롯을 다듬은 뒤 확정하세요. 확정된 화만 본문을 쓸 수 있고, 초안을 다시 만들어도 확정된 화는 그대로입니다.', right)}
+    ${board}${drawer}`;
+}
+
+function actEditor(i) {
+  const a = P().arc[i];
+  const b = `arc.${i}`;
+  const inAct = P().episodes.filter((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep);
+  return `<div class="between"><h2>${a.name} 구간</h2><span class="chip ${actClass(a.name)}">${a.start_ep}–${a.end_ep}화</span></div>
+    <div class="grid-2">${input('시작 화', b + '.start_ep', { type: 'number', min: 1 })}${input('끝 화', b + '.end_ep', { type: 'number', min: 1 })}</div>
+    <div class="small">기승전결 네 구간이 1화부터 마지막 화까지 빈틈없이 이어져야 저장됩니다.</div>
+    ${input('구간 목표', b + '.goal', { rows: 5, autogrow: true, hint: '이 구간이 끝날 때 이야기가 어디까지 와 있어야 하나' })}
+    ${input('전환점', b + '.key_turn', { rows: 4, autogrow: true, hint: '이 구간을 다음으로 넘기는 사건' })}
+    ${inAct.length ? `<div class="field"><span class="label">이 구간의 화</span><div class="row">${inAct.map((e) => `<button type="button" class="btn small" data-action="selectEp" data-arg="${e.plot.number}">${e.plot.number}화</button>`).join('')}</div></div>` : ''}`;
 }
 
 function plotEditor(e) {
@@ -1524,13 +1579,13 @@ function plotEditor(e) {
     ${act ? `<div class="note info"><strong>${act.name} 구간 목표</strong> · ${esc(act.goal)}</div>` : ''}
     ${locked ? '<div class="note plain">본문이 있는 화라 플롯을 고칠 수 없어요.</div>' : ''}
     ${input('제목', b + '.title', ro)}
-    ${input('요약', b + '.summary', { ...ro, rows: 3 })}
-    ${input('사건 순서', b + '.events', { ...ro, kind: 'list', rows: 5 })}
+    ${input('요약', b + '.summary', { ...ro, rows: 3, autogrow: true })}
+    ${input('사건 순서', b + '.events', { ...ro, kind: 'list', rows: 5, autogrow: true })}
     <div class="field"><span class="label">등장 인물</span><div class="row">${cast}</div></div>
     ${input('감정 변화', b + '.emotional_shift', ro)}
     ${input('엔딩 훅', b + '.ending_hook', ro)}
     <div class="grid-2">${input('심을 복선', b + '.foreshadow_plant', { ...ro, kind: 'list', rows: 2 })}${input('회수할 복선 id', b + '.foreshadow_payoff', { ...ro, kind: 'list', rows: 2 })}</div>
-    <div class="row">
+    <div class="row drawer-actions">
       ${e.status === 'draft' ? `<button class="btn primary" style="flex:1" data-action="confirmEp" data-arg="${n}">${n}화 확정</button>` : ''}
       ${e.status === 'confirmed' ? `<button class="btn" style="flex:1" data-action="unconfirmEp" data-arg="${n}">초안으로 되돌리기</button><a class="btn primary" style="flex:1" href="${base()}/write/${n}">${n}화 쓰기</a>` : ''}
       ${locked ? `<a class="btn" style="flex:1" href="${base()}/write/${n}">본문 보기</a>` : ''}
