@@ -15,9 +15,9 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import autorun, dynamics, elements, genres, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
+from . import autorun, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, get_llm, make_llm
-from .schema import (ArcPlan, ArcProposal, EpisodePlot, Meta, Project, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
+from .schema import (ArcPlan, ArcProposal, EpisodePlot, LookSuggestion, Meta, Project, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 
 STATIC = Path(__file__).parent / "static"
@@ -1078,6 +1078,63 @@ def export_file(name: str, start: int = 0, end: int = 0, format: str = "blank", 
     out = publish.export(p, nums, format, title)
     return Response(out["text"], media_type="text/plain; charset=utf-8",
                     headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(out['filename'])}"})
+
+
+# ---------- 4-3. 삽화 프롬프트 (NovelAI, canon/illust.py) ----------
+# 본문을 바꾸지 않으므로 반영한 화에서도 만든다. 인물 외형 태그와 삽화 설정은 작품 저장(PUT)으로 저장한다.
+
+@app.get("/api/illust/models")
+def illust_models() -> list[dict]:
+    return illust.models()
+
+
+class IllustIn(BaseModel):
+    selection: Selection | None = None  # 비우면 AI 가 이 화에서 장면을 고른다
+    request: str = ""
+    model: str = ""
+
+
+@app.post("/api/projects/{name}/episodes/{n}/illust")
+def make_illust(name: str, n: int, body: IllustIn) -> Project:
+    p = _load(name)
+    if body.model and body.model not in illust.MODELS:
+        raise ValueError(f"모르는 모델입니다: {body.model}")
+    ill = pipeline.illustrate(get_llm("illustration"), p, n, body.selection, body.request, body.model)
+    return _edit(name, lambda q: pipeline.add_illustration(q, n, ill))
+
+
+class IllustModel(BaseModel):
+    model: str = ""
+
+
+@app.post("/api/projects/{name}/episodes/{n}/illust/{iid}/rebuild")
+def rebuild_illust(name: str, n: int, iid: str, body: IllustModel) -> Project:
+    """모델이나 외형 태그를 바꾼 뒤 AI 없이 다시 조립한다."""
+    _load(name).episode(n)
+    return _edit(name, lambda p: pipeline.rebuild_illustration(p, n, iid, body.model))
+
+
+class KeepLook(BaseModel):
+    character_id: str
+
+
+@app.post("/api/projects/{name}/episodes/{n}/illust/{iid}/keep-look")
+def keep_illust_look(name: str, n: int, iid: str, body: KeepLook) -> Project:
+    """삽화에서 AI 가 채운 외형 태그를 그 인물의 외형 태그로 저장한다."""
+    _load(name).episode(n)
+    return _edit(name, lambda p: pipeline.keep_illust_look(p, n, iid, body.character_id))
+
+
+@app.delete("/api/projects/{name}/episodes/{n}/illust/{iid}")
+def delete_illust(name: str, n: int, iid: str) -> Project:
+    _load(name).episode(n)
+    return _edit(name, lambda p: pipeline.remove_illustration(p, n, iid))
+
+
+@app.post("/api/projects/{name}/characters/{cid}/look")
+def suggest_look(name: str, cid: str) -> LookSuggestion:
+    """인물 설정을 외형 태그로 옮긴 제안. 저장은 화면에서 고쳐 작품 저장으로 한다."""
+    return pipeline.suggest_look(get_llm("illustration"), _load(name), cid)
 
 
 @app.get("/api/projects/{name}/episodes/{n}/prompt")

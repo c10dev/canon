@@ -148,6 +148,17 @@ AI 는 숫자를 매기지 않고 사건만 뽑는다. 같은 사건은 항상 �
 
 다 쓴 본문을 웹소설 플랫폼, 블로그, 원고 파일에 옮길 때 쓴다. LLM 을 부르지 않고 글 내용도 바꾸지 않는다. 줄 끝 공백, 보이지 않는 문자, 마크다운 제목 · 굵게 표시만 지우고, 빈 줄로 문단을 나눈 뒤 형식(`FORMATS`: 빈 줄, 빈 줄 없이, 첫 줄 들여쓰기, 원문)에 맞춰 다시 잇는다. 빈 줄이 하나도 없는 본문은 줄마다 문단으로 본다. 같은 문단 목록으로 서식 있는 편집기용 HTML(`<p>` 문단, 빈 줄은 빈 `<p>`)도 만든다. 화면 복사(`POST /export`, 저장 전 본문 포함), `.txt` 내려받기(`GET /export.txt`), CLI `export` 가 모두 `publish.export` 를 쓴다.
 
+### 삽화 프롬프트 (`canon/illust.py`)
+
+화마다 넣을 삽화를 NovelAI 로 그릴 때 쓴다. 일을 둘로 나눈다. AI(`illustration` 단계, `prompts.illust_prompt`)는 고른 장면(없으면 이 화에서 그림이 될 장면을 골라 원문 인용)을 태그로 옮긴 원안 `IllustDraft` 만 낸다: 인물별 표정 · 동작 · 시선 · 상호작용(`source#` / `target#` / `mutual#`) · 자리, 장소, 빛, 구도, 소품, 장면 부정 태그, 영어 한 문장, 등급. 인물 외형, 인물 수 태그, 등급 · 품질 태그는 `illust.assemble` 이 규칙으로 붙인다(LLM 없음).
+
+- **외형 고정.** 인물 외형은 `Project.visuals`(`CharacterVisual`: subject, 외형, 기본 옷차림, 인물 칸 부정 태그)에 작가가 정해 둔다. `Character` 에 넣지 않은 것은 본문 프롬프트와 LLM 스키마(설정 제안, 새 인물)에 영어 태그가 섞이지 않게 하려는 것이다. 저장된 외형이 있으면 AI 태그 대신 늘 그것을 넣고, 없으면 AI 태그를 쓰되 `missing_look` 으로 알려 고정하게 한다(`keep_illust_look`, 그 인물 외형이 비어 있던 삽화를 모두 다시 조립). 외형 제안(`suggest_look`, `LookSuggestion`)은 화면 칸에 채워 작가가 고쳐 저장한다.
+- **NovelAI 규칙** (docs.novelai.net, 2026-10): V4 이상은 기본 프롬프트 + 인물 프롬프트. 인물 수(`2girls, 1boy`, 사람이 없으면 `no humans`)는 기본 프롬프트 맨 앞에, 인물 칸은 숫자 없이 `girl` / `boy` / `other` 로 시작한다. 인물 칸을 쓰지 않을 때를 위해 `|` 로 나눈 한 칸 프롬프트도 만든다. V3 는 인물 칸이 없어 한 줄로 잇는다. 인물 칸 수는 V5 22개, V4 · V4.5 6개. V5 에만 영어 문장을 넣는다(자연어 이해가 나아졌고 V4.x 는 T5 토큰 한도가 빠듯하다). 품질 태그는 모델마다 NovelAI 가 붙이는 문자열(`MODELS`)을 그대로 쓰되 'Add Quality Tags' 를 끈 사람만 켠다(`IllustSettings.quality`). 기본 부정 태그도 UC 프리셋을 끈 사람만 켠다.
+- **태그 정리** (`clean`): 쉼표로 나누고 소문자, 낱말 사이 밑줄은 띄어쓰기, 한글 태그 · 겹치는 태그 · 인물 수 · `rating:` · 맨 `girl` 은 뺀다. 가중치 문법(`1.2::tag ::`)은 그대로 둔다.
+- **등급.** 성인물(`Meta.adult`)이 아니면 `general` / `sensitive` 로 묶고 부정 프롬프트 맨 앞에 `nsfw`. 성인물이면 AI 가 고른 등급을 쓰고 `explicit` 은 `nsfw` 를 더한다.
+- **저장.** `Episode.illustrations`(최근 20개)에 원안과 조립 결과를 같이 둔다. 원안이 있으니 모델 · 외형 · 화풍을 바꾸면 AI 없이 다시 조립한다(`rebuild_illustration`). 본문을 바꾸지 않으므로 반영(finalized)한 화에서도 만든다. 화면은 `static/illust.js`(고치는 본문은 `passage.js` 의 떠 있는 도구에 버튼을 더하고, 읽기 전용 본문은 자체 도구), CLI 는 `illust`, `look`.
+- NovelAI 이미지 생성 API 호출은 아직 없다. 넣는다면 `IllustCharPrompt.position` 을 `use_coords` 좌표로 옮기고 키는 설정 화면(`~/.canon/config.json`)에 둔다.
+
 ## 6. LLM 프로바이더
 
 `canon/llm.py` 의 `LLM` 인터페이스(`json`, `text`) 뒤에 구현을 둔다.
@@ -156,7 +167,7 @@ AI 는 숫자를 매기지 않고 사건만 뽑는다. 같은 사건은 항상 �
 - `LocalLLM`: OpenAI 호환 `/v1/chat/completions` 서버(Ollama, llama.cpp, vLLM, LM Studio). 표준 라이브러리만 쓴다. 구조화 출력은 `response_format`(json_schema) 로 강제하고 pydantic 으로 검증하며, 틀리면 오류를 알려 주고 한 번 더 묻는다. 추론 모델의 `<think>` 블록은 지운다. 본문(`text`)에는 `local_sampling`(기본 temperature 1.0, top_p 0.95, min_p 0.05)을, 구조화 출력에는 temperature 0.3 을 쓴다.
 - `MockLLM`: API 키 없이 전체 흐름 확인용 (`CANON_LLM=mock`).
 
-**단계별 백엔드.** `get_llm(stage)` 는 plan(설정 제안, 문체 분석, 기승전결, 화별 플롯) / write(본문) / check(검수) / state(상태 추출) / name(이름·지명 AI 추천) / revise(본문 부분 수정) 마다 다른 백엔드와 모델을 고를 수 있다 (`stage_models`, `CANON_MODEL_<STAGE>`; 비우면 그 백엔드의 기본 모델). name 은 plan 을, revise 는 write 를 따로 정하지 않으면 따른다(`settings.STAGE_PARENT`). 권장 조합은 계획·검수는 Gemini Argon, 상태 추출은 Flash 급 Gemini, 본문은 문체를 학습시킨 로컬 모델이다. 프롬프트는 `prompts.py` 한 곳을 같이 쓰므로 백엔드를 바꿔도 컨텍스트는 같다.
+**단계별 백엔드.** `get_llm(stage)` 는 plan(설정 제안, 문체 분석, 기승전결, 화별 플롯) / write(본문) / check(검수) / state(상태 추출) / name(이름·지명 AI 추천) / revise(본문 부분 수정) / illustration(삽화 프롬프트) 마다 다른 백엔드와 모델을 고를 수 있다 (`stage_models`, `CANON_MODEL_<STAGE>`; 비우면 그 백엔드의 기본 모델). name · illustration 은 plan 을, revise 는 write 를 따로 정하지 않으면 따른다(`settings.STAGE_PARENT`). 권장 조합은 계획·검수는 Gemini Argon, 상태 추출은 Flash 급 Gemini, 본문은 문체를 학습시킨 로컬 모델이다. 프롬프트는 `prompts.py` 한 곳을 같이 쓰므로 백엔드를 바꿔도 컨텍스트는 같다.
 
 **블라인드 비교.** `compare` 는 같은 화를 두 백엔드로 쓰고 1, 2 번으로 가려 저장한 뒤 문체 지표를 보여 준다. `--pick` 으로 고르면 그 본문을 쓰고 어느 쪽이었는지 공개하며 `compare/log.jsonl` 에 누적한다. "어느 모델이 한국어 소설을 더 잘 쓰나"를 작품 안에서 직접 확인하기 위한 도구다.
 

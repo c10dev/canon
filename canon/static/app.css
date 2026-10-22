@@ -489,3 +489,16 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .chip.usage-fail { background: var(--red-soft); color: var(--red); }
 .price-table input { min-height: 34px; width: 76px; }
 .price-table input[type="text"] { width: 170px; }
+
+/* 삽화 프롬프트 (illust.js) */
+.ill-list { display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }
+.ill-card { padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ill-card select { max-width: 220px; }
+.ill-quote { margin: 0; padding: 6px 10px; border-left: 3px solid var(--line-strong); color: var(--text-2); font-family: var(--serif); font-size: 13px; line-height: 1.7; white-space: pre-wrap; max-height: 120px; overflow-y: auto; }
+.ill-field { display: flex; flex-direction: column; gap: 4px; }
+.ill-field textarea { width: 100%; resize: vertical; line-height: 1.6; background: var(--bg, transparent); }
+details.vis summary { cursor: pointer; font-weight: 700; font-size: 13px; }
+details.vis summary .small { margin-left: 6px; font-weight: 400; }
+.ill-old > summary { cursor: pointer; padding: 8px 4px; }
+.ill-old > summary .small { margin-left: 6px; }
+.ill-foot { padding-top: 8px; border-top: 1px solid var(--line); }

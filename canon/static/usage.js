@@ -15,7 +15,7 @@ Object.assign(S, {
 });
 
 const USAGE_DAYS = [[1, '오늘'], [7, '7일'], [30, '30일'], [90, '90일'], [0, '전체']];
-const USAGE_STAGE = { plan: '계획', write: '본문', check: '검수', state: '상태 변경안', name: '이름 추천', revise: '부분 수정', research: '연구 · 모델 실험' };
+const USAGE_STAGE = { plan: '계획', write: '본문', check: '검수', state: '상태 변경안', name: '이름 추천', revise: '부분 수정', illustration: '삽화 프롬프트', research: '연구 · 모델 실험' };
 const USAGE_SOURCE = { web: '화면에서 직접', autorun: '자동 집필', research: '연구 화면', cli: '명령줄' };
 const USAGE_TASK = {
   suggest: '설정 제안', arc: '기승전결 구조', series: '부 구성', nextarc: '다음 아크', convert: '장편 전환', rebuild: '장편 재구성 계획', rework: '재구성 다듬기', storyline: '이야기 줄기',

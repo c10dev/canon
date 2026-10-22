@@ -46,6 +46,14 @@ Gemini API 키와 모델은 화면 오른쪽 아래 **모델 · API 키 설정**
 - 클립보드에는 텍스트와 HTML 을 함께 넣는다. 블로그나 플랫폼 에디터처럼 서식 있는 곳에 붙이면 문단이 그대로 남고, 메모장에는 텍스트로 들어간다. 저장 전에 고친 본문도 그대로 복사된다.
 - 브라우저가 복사를 막으면 **.txt** 로 내려받는다. CLI 는 `python -m canon export 등대 --from 1 --to 10 --format compact -o 등대.txt`.
 
+집필 화면에서 **NovelAI 삽화 프롬프트**를 만든다. 본문을 드래그해 **삽화 프롬프트**를 누르거나(상태 반영까지 끝난 읽기 전용 화에서도 된다), 아래 **삽화 프롬프트** 카드에서 **AI 가 장면 고르기**를 누른다.
+- AI 는 고른 장면을 Danbooru 식 영어 태그로 옮긴다: 인물마다 표정 · 자세 · 시선 · 동작, 인물끼리 주고받는 행동(`source#hug`, `target#hug`, `mutual#holding hands`), 장소 · 시간대 · 날씨, 빛, 구도 · 카메라, 소품 · 효과, 이 장면에서 나오면 안 되는 것. 바라는 것(예: 뒷모습, 두 사람만)을 덧붙일 수 있다.
+- 인물 외형은 **설정 도우미 인물 카드의 삽화 외형 태그**(외형, 기본 옷차림, 섞이면 안 되는 것)를 매번 그대로 넣어 화가 바뀌어도 같은 모습으로 나온다. **설정에서 AI 로 만들기**로 외모 · 나이 · 성별 설정을 태그로 옮긴 제안을 받아 고쳐 저장한다. 태그가 없는 인물은 AI 가 붙인 태그를 쓰고 **이 태그로 고정** 버튼을 보여 준다. 장면에서 다른 옷을 입으면 그 장면 옷이 기본 옷차림을 대신한다.
+- 결과는 NovelAI V4 이상의 칸 그대로 나온다: **기본 프롬프트**(인물 수 `1girl, 1boy`, 화풍, 장면, 등급), 인물마다 **인물 프롬프트**(`girl` / `boy` / `other` + 외형 + 이 장면의 모습, 왼쪽 · 가운데 · 오른쪽 자리 안내), **부정 프롬프트**(Undesired Content), 인물 칸 없이 쓰는 **한 칸 프롬프트**(`|` 로 나눔). 칸마다 복사 버튼이 있다.
+- 모델(V5 Full · Curated, V4.5 Full · Curated, V4 Full · Curated, V3)에 맞춰 조립한다. V5 는 장면을 영어 한 문장으로도 넣고, V3 는 인물 칸이 없어 한 줄로 잇는다. 품질 태그와 기본 부정 태그는 NovelAI 의 Add Quality Tags · UC 프리셋이 넣으므로 꺼져 있고, 그것들을 끈 사람은 켠다. 작품 공통 **화풍 태그**와 **공통 부정 태그**도 정한다.
+- 성인물이 아닌 작품은 등급을 `rating:general` · `rating:sensitive` 로 묶고 부정 프롬프트에 `nsfw` 를 넣는다. 성인물은 장면에 맞는 등급을 붙인다.
+- 만든 프롬프트는 화마다(최근 20개) 저장된다. 외형 태그나 모델을 바꾸면 **다시 조립**으로 AI 를 다시 부르지 않고 맞춘다. 쓰는 모델은 설정 화면의 **삽화 프롬프트** 단계에서 정한다 (정하지 않으면 계획 단계, `CANON_LLM_ILLUSTRATION`, `CANON_MODEL_ILLUSTRATION`). NovelAI 이미지 생성 API 는 부르지 않는다. CLI 는 `python -m canon illust 등대 3 "그릴 문장" --ask "비 오는 밤"`(문장을 비우면 AI 가 장면을 고름, `--list` 로 저장한 것 보기), 외형 태그는 `python -m canon look 등대 hero`.
+
 사이드바의 **인과율**에서는 요소, 특징, 설정, 사건을 언제든 더한다. 종류(세계 규칙, 장소, 물건, 세력, 인물 특징, 과거 사건, 예정 사건, 기타), 이름과 다른 이름, 설명, 관련 인물과 함께 **언제부터 사실인지**(처음부터 사실이었다 / n화부터 생긴다), 일어나거나 꼭 나와야 하는 화, 독자에게 드러나는 화를 적는다. 저장하면 AI 없이 이름·다른 이름·관련 인물로 찾은 **관련 화 지도**가 바로 보인다. **영향 분석**을 누르면 AI 가 이미 쓴 본문과 정해 둔 플롯을 읽고 어긋나는 곳(원문 인용), 바꿀 화별 플롯, 이미 쓴 화의 최소 본문 수정안, 모순을 설명으로 덮을 확정 사실을 낸다. 원문에서 인용을 찾지 못한 지적과 본문이 있는 화의 플롯 변경은 프로그램이 뺀다. 고른 것만 반영하고, 확정한 화의 플롯을 바꾸면 초안으로 돌아간다. 처음부터 사실인 설정이 앞 본문과 부딪치면 '언제부터'를 늦춰 n화부터 생긴 일로 바꾸는 방법도 있다. 장편 연재에서는 부 구성과 아크 목표·요약까지 읽고, 부나 아크 목표와 어긋나면 알려 준다(부와 아크는 '부 · 아크 · 플롯' 화면에서 직접 고친다). 더한 요소는 본문 쓰기(관련 있는 화만, 드러나는 화 전에는 암시만), 화별 플롯, 플롯 대화, 검수 프롬프트에 들어간다. CLI 는 `python -m canon causal 등대 add --kind 과거사건 --title 등대지기 --desc "윤만석은 서윤의 친부다" --chars hero`, `causal 등대 show el-01`, `causal 등대 impact el-01`.
 
 **문체 라이브러리**(작품 목록 위 버튼, 사이드바 아래 링크)에서는 붙여 넣어 분석한 문체를 작품과 따로 모아 두고 목록으로 본다. 항목마다 이름, 출처, 메모, 분석한 원문, 스타일 프로필, 원문으로 잰 기준 지표가 있고, 고치기·복제·삭제할 수 있다. 새 작품을 만들 때 라이브러리 문체를 고르거나, 작품의 문체 레퍼런스 화면에서 가져오거나(`적용`) 지금 문체를 라이브러리에 저장할 수 있다. 적용하면 그 시점의 문체가 `project.json` 으로 복사되므로 라이브러리를 고쳐도 쓰고 있는 작품은 다시 적용하기 전까지 그대로다. 둘이 달라지면 문체 화면에 표시되고, 어느 쪽으로 맞출지 고를 수 있다. 라이브러리는 `projects/.styles/<id>.json` 에 저장된다(`CANON_STYLES` 로 경로 변경).
@@ -120,6 +128,7 @@ python -m canon run 등대                         # 6. 화마다 본문 생성 
 python -m canon openings 등대 1 --plot           #    1~3화 여는 방식 여러 안 (아래 '초반 1~3화')
 python -m canon fix 등대 3 "고칠 문장" --ask "더 짧게"   #    본문 일부를 AI 후보로 고치기 (edits 로 기록 보기 · 되돌리기)
 python -m canon export 등대 --from 1 --to 3       #    붙여 넣기 좋게 다듬은 본문 (-o 로 .txt 저장)
+python -m canon illust 등대 3                     #    NovelAI 삽화 프롬프트 (look 등대 hero 로 인물 외형 태그)
 python -m canon show 등대                        # 진행 상황
 python -m canon stats 등대                       # 화별 문체 지표를 레퍼런스와 비교
 ```
@@ -278,8 +287,8 @@ OpenAI 호환 API 를 여는 서버면 된다. 단계마다 백엔드를 고를 
 ```bash
 export CANON_LOCAL_URL=http://localhost:11434/v1   # Ollama. llama.cpp :8080/v1, vLLM :8000/v1
 export CANON_LOCAL_MODEL=gemma4:31b                # 비우면 서버에 하나뿐인 모델
-export CANON_LLM_WRITE=local                       # 본문만 로컬 (plan / write / check / state / name / revise)
-export CANON_MODEL_STATE=gemini-3.8-flash          # 상태 변경안만 다른 모델 (CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE)
+export CANON_LLM_WRITE=local                       # 본문만 로컬 (plan / write / check / state / name / revise / illustration)
+export CANON_MODEL_STATE=gemini-3.8-flash          # 상태 변경안만 다른 모델 (CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE / _ILLUSTRATION)
 # 전부 로컬이면 CANON_LLM=local
 
 python -m canon compare 등대 3                  # 같은 화를 gemini 와 local 로 써서 1, 2 번으로 가림
@@ -341,6 +350,7 @@ canon/research.py  연구 화면 로직: 서버 점검, 샘플 비교, 단계 �
 canon/usage.py     AI 호출 기록, 가격표, 비용 추정과 사용량 모아 보기
 canon/store.py     project.json 저장, 본문을 episodes/NN.md 로 내보내기
 canon/publish.py   다른 사이트에 붙여 넣을 본문 다듬기 (줄바꿈 형식, HTML, 여러 화 잇기)
+canon/illust.py    NovelAI 삽화 프롬프트 조립 (인물 외형 태그, 인물 수, 등급, 모델별 품질 태그; LLM 없이)
 canon/library.py   문체 라이브러리 (작품과 따로 저장하는 문체 항목)
 canon/cli.py       명령줄
 canon/web.py       웹 UI 서버 (FastAPI) + canon/static/ 화면

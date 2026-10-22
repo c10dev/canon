@@ -18,8 +18,11 @@ from .schema import (
     Foreshadow,
     HookItem,
     HookReport,
+    IllustCharacter,
+    IllustDraft,
     ImpactConflict,
     ImpactReport,
+    LookSuggestion,
     NameOption,
     NameOptions,
     OpeningOption,
@@ -255,6 +258,19 @@ def _storyline(hint: dict) -> StorylineProposal:
     return StorylineProposal(storyline=s, episodes=pick + [999], threads=nxt, reply="서윤의 결핍에서 출발하는 과거 회상이에요.")
 
 
+def _illust(hint: dict) -> IllustDraft:
+    """고른 부분(없으면 본문 첫 문장)을 장면으로, 등장 인물 앞 두 명을 그린다. 첫 인물은 외형 태그도 적는다(저장 안 된 경우)."""
+    quote = hint.get("selection") or next((s for s in re.split(r"(?<=[.!?])\s+", hint.get("text", "")) if s.strip()), "")
+    cast = list(hint.get("cast") or [])[:2]
+    chars = [IllustCharacter(id=cid, subject="girl" if i == 0 else "boy", look=["black hair", "long hair", "brown eyes"] if i == 0 else [],
+                             expression=["serious"], action=["standing", "looking at another"] if len(cast) > 1 else ["standing"],
+                             position=("left", "right")[i] if len(cast) > 1 else "")
+             for i, cid in enumerate(cast)]
+    return IllustDraft(quote=quote[:200], scene="등대 앞에 선 두 사람", characters=chars, setting=["outdoors", "lighthouse", "Night"],
+                       lighting=["moonlight"], composition=["wide_shot"], mood=["wind", "1girl", "rating:explicit"],
+                       caption="A girl stands before a lighthouse at night.", negative=["umbrella"], rating="general")
+
+
 def _passage(hint: dict) -> PassageRevision:
     """고른 부분을 두 방향으로 바꾼 척한다: 요청을 덧붙인 것과, 앞 절반만 남긴 것."""
     src = hint["selection"].strip()
@@ -335,6 +351,11 @@ class MockLLM:
         if schema is NameOptions:  # 코드 후보에서 앞쪽 n 개를 고른 척한다
             names = hint["candidates"][: hint["n"]]
             return NameOptions(options=[NameOption(name=x, reason="후보 중 인물과 시대에 맞는 이름") for x in names])  # type: ignore[return-value]
+        if schema is IllustDraft:
+            return _illust(hint)  # type: ignore[return-value]
+        if schema is LookSuggestion:
+            return LookSuggestion(subject="girl", look=["Black_hair", "short hair", "brown eyes", "teenage"], outfit=["school uniform"],
+                                  note="설정에 눈 색이 없어 갈색으로 정했어요.")  # type: ignore[return-value]
         if schema is PassageRevision:
             return _passage(hint)  # type: ignore[return-value]
         if schema is HookReport:
