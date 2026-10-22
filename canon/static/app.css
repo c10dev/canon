@@ -404,3 +404,33 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .auto-list li { justify-content: space-between; font-size: 14px; }
 .rs-table tr.lv-warn td { color: var(--amber-ink); }
 .rs-table tr.lv-error td { color: var(--red); }
+
+/* ----- 이야기 줄기 ----- */
+.line-map-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.line-map { display: block; font-family: var(--sans); }
+.line-map .lm-band rect { fill: var(--act-2); }
+.line-map .lm-band.act-1 rect { fill: var(--act-1); } .line-map .lm-band.act-2 rect { fill: var(--act-2); }
+.line-map .lm-band.act-3 rect { fill: var(--act-3); } .line-map .lm-band.act-4 rect { fill: var(--act-4); }
+.line-map .lm-band text { font-size: 11px; font-weight: 700; fill: var(--text); }
+.line-map .lm-tick { font-size: 10px; fill: var(--muted); }
+.line-map .lm-label { font-size: 13px; fill: var(--text); font-weight: 700; }
+.line-map .lm-sub { font-size: 11px; fill: var(--muted); }
+.line-map .lm-main { stroke: var(--text-2); stroke-width: 5; stroke-linecap: round; }
+.line-map .lm-main.future { stroke: var(--line-strong); stroke-dasharray: 2 6; stroke-width: 3; }
+.line-map .lm-main-dot { stroke: var(--text-2); stroke-width: 2; }
+.line-map .lm-main-dot.confirmed { stroke: var(--accent); } .line-map .lm-main-dot.written { stroke: var(--amber); } .line-map .lm-main-dot.finalized { stroke: var(--green); }
+.line-map .lm-gap { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1.5; }
+.line-map .lm-node { fill: var(--surface); stroke-width: 3; }
+.line-map .lm-path { fill: none; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; opacity: .85; }
+.line-map .lm-path.sel { stroke-width: 6; opacity: 1; }
+.line-map .lm-hit { fill: transparent; }
+.line-map .lm-lane.sel .lm-hit { fill: var(--accent-soft); }
+.line-map [data-action] { cursor: pointer; }
+.line-map [data-action]:focus { outline: none; }
+.line-map [data-action]:focus-visible circle, .line-map .lm-lane:focus-visible .lm-hit { stroke: var(--accent); stroke-width: 3; }
+.line-map .lm-dot:hover circle { stroke-width: 4; }
+.line-badge { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 1px 7px; border-radius: 6px; border: 1px solid var(--lc); color: var(--text); font-size: 11px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.line-badge i { width: 8px; height: 8px; border-radius: 2px; background: var(--lc); flex: none; }
+.line-badge.scene { border-style: dashed; font-weight: 500; }
+.ep-card .line-badge { align-self: flex-start; }
+.line-ep { display: inline-flex; gap: 2px; }

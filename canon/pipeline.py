@@ -1,7 +1,7 @@
 """생성 파이프라인. 각 단계는 Project 를 받아 제안을 만들고, 반영은 호출자가 승인 후 한다."""
 from __future__ import annotations
 
-from . import dynamics, elements, metrics, naming, prompts
+from . import dynamics, elements, metrics, naming, prompts, storylines
 from .llm import LLM, dump
 from .schema import (
     Act,
@@ -24,6 +24,8 @@ from .schema import (
     StateDelta,
     StoryArc,
     StoryEvent,
+    Storyline,
+    StorylineProposal,
     StyleProfile,
 )
 
@@ -135,7 +137,10 @@ def apply_plots(p: Project, batch: PlotBatch) -> None:
         act = p.act_for(plot.number)
         if act:
             plot.act = act.name
+        if cur and (cur.plot.storyline or cur.plot.threads) and not (plot.storyline or plot.threads):
+            plot.storyline, plot.threads = cur.plot.storyline, list(cur.plot.threads)  # 작가가 붙인 줄기는 AI 초안이 지우지 않는다
         by_no[plot.number] = Episode(plot=plot)
+        storylines.clean_plot(p, by_no[plot.number])
     p.episodes = [by_no[k] for k in sorted(by_no)]
 
 
@@ -406,6 +411,9 @@ def clean_revision(p: Project, rev: PlotRevision) -> PlotRevision:
         act = next((a for a in arc if a.start_ep <= n <= a.end_ep), None)
         if act:
             e.act = act.name
+        cur = current.get(n)
+        if cur and (cur["storyline"] or cur["threads"]) and not (e.storyline or e.threads):
+            e.storyline, e.threads = cur["storyline"], list(cur["threads"])  # 작가가 붙인 줄기는 AI 가 빠뜨려도 지키기
         if current.get(n) == e.model_dump():
             continue
         seen.add(n)
@@ -469,6 +477,7 @@ def apply_revision(p: Project, rev: PlotRevision, acts: bool, episodes: list[int
         applied.append("acts")
     for n, plot in picked.items():
         by_no[n] = Episode(plot=plot.model_copy(deep=True))  # 확정된 화도 내용이 바뀌면 다시 확정한다
+        storylines.clean_plot(p, by_no[n])
         applied.append(str(n))
     p.episodes = [by_no[k] for k in sorted(by_no)]
     for e in p.episodes:
@@ -478,7 +487,85 @@ def apply_revision(p: Project, rev: PlotRevision, acts: bool, episodes: list[int
     return applied
 
 
-# ---------- 3-2. 인과율: 새 요소가 닿는 곳 ----------
+# ---------- 3-2. 이야기 줄기: 메인에서 갈라지는 서브플롯 · 회상 · 외전 ----------
+
+def suggest_storyline(llm: LLM, p: Project, note: str = "", kind: str = "") -> StorylineProposal:
+    """이야기 줄기 하나와 그 줄기가 들어갈 화를 제안한다. 저장하지 않는다."""
+    prop = llm.json(prompts.SYSTEM_PLANNER, prompts.storyline_prompt(p, note, kind), StorylineProposal,
+                    hint={"note": note, "kind": kind, "episodes": [e.plot.number for e in p.episodes],
+                          "characters": [c.id for c in p.characters], "id": storylines.new_id(p)})
+    return clean_storyline(p, prop)
+
+
+def clean_storyline(p: Project, prop: StorylineProposal) -> StorylineProposal:
+    """id 를 새로 매기고, 없는 인물과 없는 화, 본문이 있는 화를 뺀다. 뺀 이유는 reply 끝에 붙인다."""
+    s = prop.storyline
+    s.id = storylines.new_id(p)
+    ids = {c.id for c in p.characters}
+    notes = []
+    gone = [c for c in s.focus if c not in ids]
+    if gone:
+        s.focus = [c for c in s.focus if c in ids]
+        notes.append(f"없는 인물({', '.join(gone)})은 중심 인물에서 뺐어요.")
+    have = {e.plot.number: e for e in p.episodes}
+    locked = sorted({n for n in prop.episodes + prop.threads if n in have and have[n].text})
+    missing = sorted({n for n in prop.episodes + prop.threads if n not in have})
+    prop.episodes = sorted({n for n in prop.episodes if n in have and not have[n].text})
+    prop.threads = sorted({n for n in prop.threads if n in have and not have[n].text and n not in prop.episodes})
+    if locked:
+        notes.append(f"본문이 있는 화({', '.join(map(str, locked))})는 붙이지 않았어요. 필요하면 직접 표시하세요.")
+    if missing:
+        notes.append(f"아직 플롯이 없는 화({', '.join(map(str, missing))})는 뺐어요. 플롯을 만든 뒤 붙이세요.")
+    total = p.meta.target_episodes
+    s.branch_ep = s.branch_ep if 0 < s.branch_ep <= total else 0
+    s.join_ep = s.join_ep if 0 < s.join_ep <= total and s.join_ep >= s.branch_ep else 0
+    if notes:
+        prop.reply = (prop.reply + " " + " ".join(notes)).strip()
+    return prop
+
+
+def apply_storyline(p: Project, prop: StorylineProposal, episodes: list[int] | None = None,
+                    threads: list[int] | None = None) -> Storyline:
+    """줄기를 더하고 고른 화에 붙인다. 플롯 내용은 바꾸지 않으므로 확정된 화도 확정 상태를 지킨다."""
+    s = prop.storyline.model_copy(deep=True)
+    if not s.id or p.storyline(s.id):
+        s.id = storylines.new_id(p)
+    if not s.title.strip():
+        raise ValueError("줄기 이름을 적으세요")
+    episodes = prop.episodes if episodes is None else episodes
+    threads = prop.threads if threads is None else threads
+    have = {e.plot.number for e in p.episodes}
+    missing = sorted({n for n in episodes + threads if n not in have})
+    if missing:
+        raise ValueError(f"플롯이 없는 화({', '.join(map(str, missing))})에는 줄기를 붙일 수 없습니다. 플롯을 먼저 만드세요")
+    p.storylines.append(s)
+    for n in episodes:
+        storylines.tag(p, n, s.id, "main")
+    for n in threads:
+        storylines.tag(p, n, s.id, "thread")
+    return s
+
+
+def validate_storylines(p: Project) -> None:
+    """줄기 id 가 겹치지 않고, 화에 붙은 줄기가 모두 있는지 본다 (화면 저장용)."""
+    ids = [s.id for s in p.storylines]
+    dup = sorted({x for x in ids if ids.count(x) > 1})
+    if dup or "" in ids:
+        raise ValueError(f"이야기 줄기 id 가 비었거나 겹칩니다: {', '.join(dup) or '빈 id'}")
+    for e in p.episodes:
+        bad = [x for x in [e.plot.storyline, *e.plot.threads] if x and x not in ids]
+        if bad:
+            raise ValueError(f"{e.plot.number}화에 없는 이야기 줄기가 붙어 있습니다: {', '.join(bad)}")
+
+
+def remove_storyline(p: Project, sid: str) -> None:
+    """줄기를 지우고 붙은 화를 메인으로 되돌린다. 본문은 그대로다."""
+    storylines.get(p, sid)
+    storylines.untag_all(p, sid)
+    p.storylines = [s for s in p.storylines if s.id != sid]
+
+
+# ---------- 3-3. 인과율: 새 요소가 닿는 곳 ----------
 
 def analyze_impact(llm: LLM, p: Project, eid: str) -> ImpactReport:
     """요소 하나의 영향 보고서를 만든다. 저장하지 않는다. 근거를 찾을 수 없는 지적은 뺀다."""
