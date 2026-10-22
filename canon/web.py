@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import dynamics, genres, jobs, library, pipeline, prompts, research, settings, store
+from . import dynamics, elements, genres, jobs, library, pipeline, prompts, research, settings, store
 from .llm import GeminiLLM, LocalLLM, get_llm, make_llm
 from .schema import ArcPlan, Meta, Project, SetupSuggestion, StateDelta, StyleEntry, StyleProfile
 
@@ -194,7 +194,18 @@ def put_project(name: str, p: Project, merged: str = "") -> Project:
     if p.snapshot(0) is None:  # 첫 반영 전에는 설정 화면의 시작 호감이 시작 관계다
         p.ties = []
         dynamics.seed_ties(p)
+    elements.stamp(p)
+    _keep_impacts(name, p)
     return _save(name, p, merged={m for m in merged.split(",") if m})
+
+
+def _keep_impacts(name: str, p: Project) -> None:
+    """영향 분석은 백그라운드 작업이 디스크에 쓴다. 화면이 그 전에 읽은 작품을 저장해도 새 분석을 덮지 않게 한다."""
+    disk = {el.id: el.impact for el in store.load(name).elements if el.impact}
+    for el in p.elements:
+        d = disk.get(el.id)
+        if d and (el.impact is None or el.impact.at < d.at or (el.impact.at == d.at and d.outcome and not el.impact.outcome)):
+            el.impact = d
 
 
 # ---------- 1. 설정 도우미 ----------
@@ -421,11 +432,42 @@ def chat_clear(name: str, topic: str) -> Project:
     p = _load(name)
     _chat(p, topic).messages = []
     return _save(name, p)
+# ---------- 3-2. 인과율 ----------
+# 요소 자체는 작가 입력이라 작품 저장(PUT)으로 저장한다. 영향 분석은 백그라운드 작업(kind 'impact')이 요소에 붙인다.
+
+@app.get("/api/projects/{name}/elements/links")
+def element_links(name: str) -> dict:
+    """요소마다 관련 화 지도 (AI 없이 이름, 별칭, 관련 인물로 찾음)."""
+    p = _load(name)
+    return {el.id: [lk.model_dump() for lk in elements.links(p, el)] for el in p.elements}
+
+
+class ImpactApply(BaseModel):
+    episodes: list[int] = []
+    patches: list[int] = []
+    facts: list[int] = []
+
+
+@app.post("/api/projects/{name}/elements/{eid}/impact/apply")
+def impact_apply(name: str, eid: str, body: ImpactApply) -> Project:
+    p = _load(name)
+    pipeline.apply_impact(p, eid, body.episodes, body.patches, body.facts)
+    return _save(name, p)
+
+
+@app.post("/api/projects/{name}/elements/{eid}/impact/dismiss")
+def impact_dismiss(name: str, eid: str) -> Project:
+    p = _load(name)
+    pipeline.dismiss_impact(p, eid)
+    return _save(name, p)
+
+
 # ---------- 백그라운드 작업 ----------
 
 class JobIn(BaseModel):
-    kind: str  # suggest | arc | plots | write | state
+    kind: str  # suggest | arc | plots | write | state | impact
     ep: int | None = None
+    element: str = ""  # impact 일 때 요소 id
 
 
 def _edit(name: str, fn) -> Project:
@@ -510,6 +552,17 @@ def start_job(name: str, body: JobIn) -> dict:
 
             def fn(job: jobs.Job):
                 return pipeline.extract_state(llm, store.load(name), n).model_dump()
+    elif kind == "impact":
+        el = elements.get(p, body.element)
+        eid = el.id
+        if not el.name.strip() or not el.description.strip():
+            raise ValueError("요소의 이름과 설명을 적고 저장한 뒤 분석하세요")
+        label, total, owned = f"인과율: {el.name} 영향 분석", 1, set()
+
+        def fn(job: jobs.Job):
+            rep = pipeline.analyze_impact(llm, store.load(name), eid)
+            _edit(name, lambda q: pipeline.record_impact(q, eid, rep))
+            return {"element": eid}
     else:
         raise ValueError(f"모르는 작업입니다: {kind}")
 

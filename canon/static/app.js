@@ -77,6 +77,7 @@ const JOB_DONE_MSG = {
   plots: '화별 플롯 초안을 만들었습니다. 확정된 화는 그대로입니다.',
   write: (j) => `${j.ep}화 본문을 저장했습니다.`,
   state: (j) => `${j.ep}화 상태 변경안이 도착했습니다.`,
+  impact: (j) => `${j.label.replace(/^인과율: /, '')}이 끝났습니다. 인과율에서 확인하세요.`,
 };
 let jobTimer = null;
 
@@ -96,10 +97,10 @@ function jobOwns(n) {
   return !!j && P() && (!ep(n) || ep(n).status === 'draft');
 }
 
-async function startJob(kind, ep = null) {
+async function startJob(kind, ep = null, extra = {}) {
   try {
     await saveIfDirty();
-    const j = await api('POST', `/projects/${enc(S.name)}/jobs`, { kind, ep });
+    const j = await api('POST', `/projects/${enc(S.name)}/jobs`, { kind, ep, ...extra });
     if (j.already) toast(`이미 진행 중이에요: ${j.label}`);
     else toast(`${j.label}을(를) 시작했어요. 끝나면 알려 드릴게요. 그동안 다른 작업을 해도 됩니다.`);
     S.jobs = S.jobs.filter((x) => x.id !== j.id).concat(j);
@@ -127,6 +128,7 @@ async function pollJobs(soon = false) {
     if (!progressed || j.project !== S.name) continue;
     if (j.kind === 'plots') await mergeEpisodes((e) => e.status === 'draft');
     if (j.kind === 'write' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);
+    if (j.kind === 'impact' && j.status === 'done') await mergeImpacts();
     if (j.status !== 'running' && !(old && old.status !== 'running')) await finishJob(j);
     if (JOB_PAGES[j.kind].includes(S.route[2] || 'home')) redraw = true;
   }
@@ -138,7 +140,7 @@ async function pollJobs(soon = false) {
 }
 
 // 작업 결과가 보이는 화면
-const JOB_PAGES = { suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home'], write: ['write', 'home'], state: ['review'] };
+const JOB_PAGES = { suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], write: ['write', 'home', 'causal'], state: ['review'], impact: ['causal'] };
 
 // 작업이 project.json 에 쓴 화만 받아 온다 (mine 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
 async function mergeEpisodes(mine) {
@@ -195,6 +197,7 @@ const JOB_LINK = {
   plots: (j) => `#/p/${enc(j.project)}/arc`,
   write: (j) => `#/p/${enc(j.project)}/write/${j.ep}`,
   state: (j) => `#/p/${enc(j.project)}/review/${j.ep}`,
+  impact: (j) => `#/p/${enc(j.project)}/causal${j.result ? '/' + enc(j.result.element) : ''}`,
 };
 
 function renderJobs() {
@@ -418,6 +421,7 @@ async function save() {
   S.project = await api('PUT', `/projects/${enc(S.name)}?merged=${enc(merged)}`, P());
   S.dirty = false;
   if (S.route[2] === 'style') await loadStyleLink();
+  if (S.route[2] === 'causal') await causalLoad();
 }
 
 async function loadStyleLink() {
@@ -1023,6 +1027,10 @@ async function route() {
         S.context = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/context`).catch(() => null);
       }
       if (parts[2] === 'research') await rsLoad();
+      if (parts[2] === 'causal') {
+        if (parts[3]) S.causalSel = parts[3];
+        await causalLoad();
+      }
       if (parts[2] === 'brief' && n && ep(n)) {
         S.briefText = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/brief?kind=${S.briefTab}`).then((r) => r.text).catch((e) => '※ ' + e.message);
       }
@@ -1062,7 +1070,7 @@ function render() {
     return;
   }
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: viewArc, write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch };
+  const views = { setup: viewSetup, style: viewStyle, arc: viewArc, write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, causal: viewCausal };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${body}</main></div>`;
   syncChat();
@@ -1085,6 +1093,7 @@ function sidebar(active) {
     ['setup', base() + '/setup', '1', '설정 도우미'],
     ['style', base() + '/style', '2', '문체 레퍼런스'],
     ['arc', base() + '/arc', '3', '기승전결 · 플롯'],
+    ['causal', base() + '/causal', '∴', '인과율'],
     ['write', `${base()}/write/${cur}`, '4', '집필'],
     ['review', `${base()}/review/${cur}`, '5', '상태 승인'],
     ['brief', `${base()}/brief/${cur}`, '6', '작업지시서'],

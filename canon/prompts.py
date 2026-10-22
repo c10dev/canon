@@ -11,10 +11,10 @@ import json
 
 from pydantic import BaseModel
 
-from . import genres
+from . import elements, genres
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
-from .schema import ChatMessage, ConsistencyReport, Project, StateDelta
+from .schema import ChatMessage, ConsistencyReport, ImpactReport, Project, StateDelta, StoryElement
 
 SYSTEM_PLANNER = (
     "당신은 한국 웹소설/단편소설 기획 전문 편집자입니다. "
@@ -119,6 +119,8 @@ def arc_prompt(p: Project) -> str:
 {dump(p.characters)}
 [관계]
 {rels(p)}
+[이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
+{elements.plan_block(p) or "없음"}
 
 요구사항:
 - 기, 승, 전, 결 네 구간이 1화부터 {p.meta.target_episodes}화까지 빈틈없이 이어져야 합니다.
@@ -139,6 +141,8 @@ def plot_prompt(p: Project, start: int, end: int) -> str:
 {dump(p.characters)}
 [관계]
 {rels(p)}
+[이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
+{elements.plan_block(p) or "없음"}
 [기승전결 구조]
 {dump(p.arc)}
 [앞 화 플롯 (확정 또는 초안, 이어지게 쓸 것)]
@@ -158,6 +162,7 @@ def plot_rules(p: Project) -> str:
 - emotional_shift 는 감정 이름이 아니라 감정 변화가 겉으로 드러나는 행동이나 대사로 적습니다 (예: "도현의 전화를 세 번째에야 받는다").
 - 모든 화가 같은 모양이 되지 않도록, 필요한 화에는 회상, 시간 건너뛰기, 곁가지 사건, 주인공의 잘못된 선택을 씁니다. 갈등은 너무 깔끔하게 정리하지 않습니다.
 - 복선은 심는 화와 회수하는 화를 계획하고, 결 구간까지 모두 회수합니다.
+- 이야기 요소는 시점을 지킵니다. 'n화부터 생김'은 그 화 전에 사실로 쓰지 않고, '나올 화'에는 그 요소를 사건으로 넣고, '드러나는 화' 전에는 암시만 둡니다.
 - characters 에는 인물 id 만 씁니다."""
 
 
@@ -204,6 +209,8 @@ def plot_chat_prompt(p: Project, message: str) -> str:
 {dump(p.characters)}
 [관계]
 {rels(p)}
+[이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
+{elements.plan_block(p) or "없음"}
 [문체 요약 (전개 속도 판단용)]
 {dump(style)}
 
@@ -245,11 +252,13 @@ def build_episode_context(p: Project, n: int) -> str:
     prev = [e for e in p.episodes if e.plot.number < n and e.summary]
     last_text = next((e.text for e in reversed(p.episodes) if e.plot.number == n - 1 and e.text), "")
     cast_names = ", ".join(f"{c.name}({c.id})" for c in p.characters if c.id in cast_ids)
+    els = elements.episode_block(p, n)
+    els = f"\n\n# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것)\n{els}" if els else ""
 
     return f"""{static_context(p)}
 
 # 확정된 사실
-{chr(10).join("- " + f for f in p.facts) or "없음"}
+{chr(10).join("- " + f for f in p.facts) or "없음"}{els}
 
 # 이번 화 등장 인물
 {cast_names or "설정의 인물 전원"}
@@ -353,10 +362,12 @@ def check_prompt(p: Project, n: int) -> str:
         f"## {e.plot.number}화 {e.plot.title}\n{e.text if e.plot.number in full_nos else '(요약) ' + e.summary}"
         for e in prior
     )
+    els = elements.active_block(p, n)
+    els = f"\n\n# 이야기 요소 ({n}화 시점에 사실인 것)\n{els}" if els else ""
     return f"""{static_context(p)}
 
 # 확정된 사실
-{chr(10).join("- " + f for f in p.facts) or "없음"}
+{chr(10).join("- " + f for f in p.facts) or "없음"}{els}
 
 # 인물 현재 상태 ({n - 1}화 종료 시점)
 {dump(p.states) or "1화 시작 시점, 설정 그대로"}
@@ -377,10 +388,86 @@ def check_prompt(p: Project, n: int) -> str:
 {ep.text}
 
 {n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
-- 확인할 것: 확정 사실과 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
+- 확인할 것: 확정 사실, 이야기 요소와 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
 - source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 설정이나 인물 상태면 source_episode 는 0 입니다.
 - 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
 - episode 는 {n} 입니다."""
+
+
+# ---------- 인과율: 새 요소의 영향 분석 ----------
+
+SYSTEM_IMPACT = (
+    "당신은 연재 소설의 설정 편집자입니다. 작가가 새로 더하거나 고친 이야기 요소 하나가 이미 쓴 본문, "
+    "정해 둔 화별 플롯, 기존 설정과 어떻게 부딪치고 무엇을 고쳐야 하는지 찾습니다. "
+    "모든 지적은 기존 내용을 원문 그대로 인용합니다. 인용할 근거가 없으면 지적하지 않습니다. "
+    "고칠 것은 최소로 제안하고, 새 요소를 살리는 쪽으로 고칩니다. 모든 출력은 한국어로 작성합니다."
+)
+
+
+def impact_texts(p: Project, linked: set[int], limit: int = CHECK_TEXT_LIMIT) -> str:
+    """이미 쓴 화. 한도 안이면 모두 원문, 넘으면 언급이 있는 화와 최근 화부터 원문으로 넣고 나머지는 요약."""
+    written = sorted((e for e in p.episodes if e.text), key=lambda e: e.plot.number)
+    order = sorted(written, key=lambda e: (e.plot.number not in linked, -e.plot.number))
+    full, budget = set(), limit
+    for e in order:
+        if len(e.text) <= budget:
+            full.add(e.plot.number)
+            budget -= len(e.text)
+    return "\n\n".join(
+        f"## {e.plot.number}화 {e.plot.title}\n{e.text if e.plot.number in full else '(요약) ' + (e.summary or e.plot.summary)}"
+        for e in written
+    )
+
+
+def impact_prompt(p: Project, el: StoryElement, linked: set[int]) -> str:
+    """앞쪽은 작품 설정, 뒤쪽은 구조와 플롯, 이미 쓴 본문, 마지막에 분석할 요소."""
+    eps = [{"status": e.status, **e.plot.model_dump()} for e in p.episodes]
+    locked = [e.plot.number for e in p.episodes if e.status in ("written", "finalized")]
+    confirmed = [e.plot.number for e in p.episodes if e.status == "confirmed"]
+    others = "\n".join(elements.describe(p, x) for x in p.elements if x.id != el.id and x.context != "off")
+    open_fs = [f for f in p.foreshadows if f.status == "open"]
+    if el.since_ep <= 0:
+        when = ("처음부터 사실이었던 설정입니다. 이미 쓴 본문과 플롯 전체가 이 설정과 맞아야 합니다. "
+                "본문에 이 설정과 어긋나는 문장이 있으면 지적합니다.")
+    else:
+        when = (f"{el.since_ep}화부터 생기는 일입니다. {el.since_ep}화 전 본문은 이 요소가 없던 때라 모순이 아닙니다. "
+                f"다만 앞 본문이 이 일이 일어날 수 없게 못박았다면 지적합니다. {el.since_ep}화 이후 플롯에 이 요소가 반영되는지 봅니다.")
+    return f"""[작품]
+{meta_text(p)}
+[세계관]
+{dump(p.world)}
+[인물]
+{dump(p.characters)}
+[관계]
+{rels(p)}
+[확정된 사실]
+{chr(10).join("- " + f for f in p.facts) or "없음"}
+[다른 이야기 요소]
+{others or "없음"}
+
+[기승전결 구조] 총 {p.meta.target_episodes}화
+{dump(p.arc) if p.arc else "아직 없음"}
+[화별 플롯] status: draft 초안, confirmed 작가가 확정, written 본문 있음, finalized 반영 완료
+{dump(eps) if eps else "아직 없음"}
+[열린 복선]
+{dump(open_fs) if open_fs else "없음"}
+
+[이미 쓴 본문]
+{impact_texts(p, linked) or "없음 (아직 쓴 화가 없음)"}
+
+[새로 더하거나 고친 요소]
+{elements.describe(p, el)}
+이 요소는 {when}
+
+요구사항:
+- summary 에는 작가에게 2~5문장으로 영향 전체를 설명합니다. 영향이 없으면 그렇다고 말하고 나머지 목록은 비웁니다.
+- conflicts 에는 근거가 분명한 어긋남만 넣습니다. quote 는 본문, 플롯, 설정, 확정 사실의 원문을 그대로 옮기고, 본문이나 플롯이면 episode 에 화 번호를 적습니다.
+- 본문이 있는 화({", ".join(map(str, locked)) or "없음"})의 모순은 patches(본문 최소 수정), new_facts(둘을 함께 성립시키는 설명), 또는 시점 변경 중 가장 덜 고치는 쪽을 fix 로 권합니다. 본문이 있는 화의 플롯은 episodes 에 넣지 않습니다.
+- patches 의 quote 는 본문 문장을 한두 문장만 그대로 옮기고, replacement 는 같은 문체로 필요한 만큼만 고칩니다.
+- episodes 에는 이 요소 때문에 바뀌어야 하는 본문 없는 화만, 모든 칸을 채운 전체 플롯으로 넣습니다. 나올 화가 정해져 있으면 그 화 사건에 넣고, 드러나는 화 전에는 foreshadow_plant 로 암시를 심습니다.
+- 작가가 확정한 화({", ".join(map(str, confirmed)) or "없음"})는 꼭 필요할 때만 바꿉니다.
+- 바꿀 필요가 없는 화는 넣지 않습니다.
+{plot_rules(p)}"""
 
 
 # ---------- 작업지시서 (구독형 채팅 앱용) ----------
