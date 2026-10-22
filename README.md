@@ -27,6 +27,8 @@ Gemini API 키와 모델은 화면 오른쪽 아래 **모델 · API 키 설정**
 
 작품 홈, 설정 도우미, 문체 레퍼런스, 기승전결 플롯 보드, 집필, 상태 변경안 승인, 채팅 앱 작업지시서 화면이 있다. CLI 와 같은 `projects/<이름>/project.json` 을 읽고 쓴다. AI 제안은 바로 저장되지 않고, 화면에서 고르거나 고친 뒤 저장할 때 반영된다.
 
+설정 도우미에서 장르를 여러 개 고를 수 있다(로맨스 판타지, 무협 같은 큰 갈래와 회귀, 계약 관계 같은 요소). 고른 장르마다 독자가 기대하는 것, 관습, 자주 쓰는 소재, 전개 속도, 피할 것을 펼쳐 볼 수 있고, 같은 안내가 프롬프트와 작업지시서에 들어간다. 목록에 없는 장르는 직접 적는다. **성인물**을 체크하면 성인 독자 대상으로, 끄면 전연령 수위로 쓰라고 지시한다.
+
 ### 서버에서 상시 실행 (Tailscale)
 
 Vercel 같은 서버리스 호스팅은 맞지 않는다. 소설 데이터를 파일(`project.json`)에 저장하고 Gemini 호출이 길게 걸리기 때문이다. 항상 켜져 있는 리눅스 서버가 있으면 systemd 로 돌리고 Tailscale 로 내 기기에서만 연다. Canon 에는 로그인이 없으니 **Tailscale Funnel 이나 공개 포트로 열지 않는다**.
@@ -47,7 +49,8 @@ sudo tailscale serve --bg --https=8446 http://127.0.0.1:8000
 ## CLI 사용 순서
 
 ```bash
-python -m canon new 등대 -i                     # 1. 설정 도우미 (AI 가 인물/세계관 제안)
+python -m canon genres                          # 장르 목록
+python -m canon new 등대 -i --genre "미스터리, 회귀"   # 1. 설정 도우미 (AI 가 인물/세계관 제안), 성인물이면 --adult
 python -m canon style 등대 examples/sample_style.txt   # 2. 예시 텍스트로 문체 프로필
 python -m canon arc 등대                         # 3. 기승전결 구간
 python -m canon plot 등대                        # 4. 화별 플롯 초안
@@ -91,6 +94,7 @@ canon/schema.py    데이터 스키마
 canon/prompts.py   프롬프트와 컨텍스트 조립, 작업지시서
 canon/pipeline.py  단계별 생성/검증/반영 로직
 canon/metrics.py   문체 지표 (LLM 없이 계산)
+canon/genres.py    장르 목록과 장르별 안내
 canon/dynamics.py  관계 역학 수식 (사건 적용, 긴장 계산, 재생, 말로 바꾸기)
 canon/llm.py       Gemini 프로바이더 (+ mock.py)
 canon/store.py     project.json 저장, 본문을 episodes/NN.md 로 내보내기
