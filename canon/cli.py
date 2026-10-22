@@ -7,6 +7,8 @@
   python -m canon arc 내소설            기승전결 구간 설계 (단편)
   python -m canon series 내소설         장편: 총 화수를 부로 나누는 부 구성 제안
   python -m canon convert 내소설 --episodes 200 [--ending keep|reopen]   단편을 장편으로 전환 (--undo 로 되돌리기)
+  python -m canon convert 내소설 --episodes 200 --rebuild [--span 36] [--ending-at arc|part|series]   단편을 씨앗으로 앞부분 재구성
+  python -m canon rework 내소설 3                     재구성에서 다듬기로 고른 화 고치기
   python -m canon nextarc 내소설 [--len 15 --note "..." --redo]   장편: 다음 아크 하나 기획 (--redo 는 마지막 아크를 지우고 다시)
   python -m canon arcs 내소설           장편: 부와 아크 진행 보기
   python -m canon recap 내소설 [arc|part 번호]   장편: 끝난 아크·부 요약 (승인 후 저장)
@@ -348,6 +350,9 @@ def cmd_convert(a: argparse.Namespace) -> None:
         return
     lo, hi = pipeline.convert_range(p)
     total = a.episodes or int(ask(f"장편 총 화수 ({lo}~{hi})", str(max(lo, 200))))
+    if a.rebuild:
+        _rebuild(a, p, total)
+        return
     prop = pipeline.propose_conversion(get_llm("plan"), p, total, a.ending or "", a.note or "")
     print(prop.reply)
     print(f"\n결말 처리: {'닫고 다음 이야기로' if prop.ending == 'keep' else '결말 다시 열기'} · 총 {prop.total_episodes}화")
@@ -374,6 +379,50 @@ def cmd_convert(a: argparse.Namespace) -> None:
         store.save_backup(a.name, pipeline.BACKUP_TAG, before)
         print(f"저장: {store.save(a.name, p)}")
         print(f"다음: nextarc {a.name}  ({p.planned_until() + 1}화부터)" if p.story_arcs else f"다음: nextarc {a.name}")
+
+
+REBUILD_USE = {"keep": "그대로", "revise": "다듬기", "rewrite": "새로 쓰기", "new": "새 화"}
+
+
+def _rebuild(a: argparse.Namespace, p, total: int) -> None:
+    """재구성: 단편을 씨앗으로 장편 앞부분을 다시 짠다. 화 번호가 바뀌고 상태는 1화 시작 전으로 돌아간다."""
+    prop = pipeline.propose_rebuild(get_llm("plan"), p, total, a.span or 0, a.ending_at or "", a.note or "")
+    print(prop.reply)
+    where = {"arc": "첫 아크 끝", "part": "1부 끝", "series": "작품 끝"}[prop.ending_at]
+    print(f"\n총 {prop.total_episodes}화 · 앞 {prop.arcs[-1].end_ep}화를 다시 짬 · 단편 결말 → {where}")
+    for arc in prop.arcs:
+        _print_arc(arc)
+    for x in prop.parts:
+        print(f"\n{x.number}부 {x.title} ({x.start_ep}~{x.end_ep}화)\n  목표: {x.goal}")
+    print("\n화 지도:")
+    for x in prop.episodes:
+        src = f" ← 단편 {', '.join(map(str, x.sources))}화" if x.sources else ""
+        print(f"  {x.number:3d}화 [{REBUILD_USE[x.use]}]{src} {x.title}: {x.summary}" + (f"\n        메모: {x.note}" if x.note else ""))
+    if prop.dropped:
+        print(f"  쓰지 않는 단편 화: {prop.dropped}")
+    for f in prop.foreshadows:
+        print(f"  새 떡밥 {f.id} ({f.scope}, {f.planted_ep}화): {f.description}")
+    for t in prop.tiers:
+        print(f"  비중 {t.id} → {t.tier}  {t.reason}")
+    if confirm("이대로 재구성할까요? 상태와 관계는 1화 시작 전으로 돌아갑니다 (convert --undo 로 되돌릴 수 있습니다)", a.yes):
+        before, notes = pipeline.apply_rebuild(p, prop)
+        store.save_backup(a.name, pipeline.BACKUP_TAG, before)
+        print(f"저장: {store.save(a.name, p)}")
+        for n in notes:
+            print(f"  ※ {n}")
+        print(f"다음: plot {a.name} 로 새 화 플롯 초안을 만들고, 다듬기 화는 rework {a.name} N 으로 고치세요")
+
+
+def cmd_rework(a: argparse.Namespace) -> None:
+    """재구성에서 다듬기로 고른 화의 옛 본문을 새 자리에 맞게 고친다."""
+    p = store.load(a.name)
+    rw = pipeline.propose_rework(get_llm("revise"), p, a.ep)
+    if rw.reply:
+        print(rw.reply)
+    print(f"\n----- 고친 {a.ep}화 -----\n{rw.text}\n")
+    if confirm("이 본문으로 바꿀까요?", a.yes):
+        pipeline.accept_rework(p, a.ep, rw.text)
+        print(f"저장: {store.save(a.name, p)}")
 
 
 def cmd_lines(a: argparse.Namespace) -> None:
@@ -969,6 +1018,11 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--ending", choices=["keep", "reopen"], help="keep 닫고 다음 이야기로 / reopen 결말 다시 열기 (비우면 AI 가 고름)")
     sp.add_argument("--note", help="장편에 바라는 것")
     sp.add_argument("--undo", action="store_true", help="전환 전 단편으로 되돌리기")
+    sp.add_argument("--rebuild", action="store_true", help="이어 쓰기 대신 재구성: 단편을 씨앗으로 장편 앞부분을 다시 짠다")
+    sp.add_argument("--span", type=int, help="재구성: 다시 짤 앞부분 화수")
+    sp.add_argument("--ending-at", choices=["arc", "part", "series"], help="재구성: 단편 결말이 갈 곳 (첫 아크 끝 / 1부 끝 / 작품 끝)")
+    sp = add("rework", cmd_rework)
+    sp.add_argument("ep", type=int)
     sp = add("nextarc", cmd_nextarc)
     sp.add_argument("--len", type=int, help="아크 화수")
     sp.add_argument("--note", help="이번 아크에 바라는 것")

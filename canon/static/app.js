@@ -216,7 +216,7 @@ function applyJobResult(j) {
     S.recapDraft = { kind, number: j.ep, summary: j.result.summary };
     if (kind === 'arc') S.selArc = j.ep;
     else S.selPart = j.ep;
-  } else if (j.kind === 'convert' && j.result) {
+  } else if (['convert', 'rebuild', 'rework'].includes(j.kind) && j.result) {
     convertResult(j);
   } else if (j.kind === 'storyline' && j.result) {
     S.lineDraft = { ...j.result, picks: {} };
@@ -2404,6 +2404,7 @@ function viewWrite(n) {
 
   return `<header class="page-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? act.name + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:24px">${n}화 ${esc(e.plot.title)}</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}</div><div class="row">${right}</div></header>
     ${e.auto ? `<div class="note info">이 화는 자동 집필이 검토 없이 반영했어요. 읽어 보고 문제가 있으면 <a href="${base()}/auto">자동 집필</a>에서 이 화부터 되돌릴 수 있어요.</div>` : ''}
+    ${rebuildNote(n)}
     <div class="cols" style="gap:16px">
       <aside class="card tight" style="flex:1 1 260px;min-width:0" aria-label="이번 화 플롯">
         <h3>이번 화 플롯</h3>
