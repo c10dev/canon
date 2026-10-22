@@ -6,7 +6,6 @@ AI 가 만든 제안(설정, 문체, 구조, 상태 변경안)은 바로 저장�
 """
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 
@@ -15,8 +14,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import pipeline, prompts, store
-from .llm import get_llm
+from . import pipeline, prompts, settings, store
+from .llm import GeminiLLM, get_llm
 from .schema import ArcPlan, Meta, Project, SetupSuggestion, StateDelta, StyleProfile
 
 STATIC = Path(__file__).parent / "static"
@@ -58,12 +57,35 @@ class NewProject(BaseModel):
 
 @app.get("/api/config")
 def config() -> dict:
-    provider = os.environ.get("CANON_LLM", "gemini").lower()
-    return {
-        "provider": provider,
-        "model": "mock" if provider == "mock" else os.environ.get("CANON_MODEL", "gemini-2.5-pro"),
-        "has_key": provider == "mock" or bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
-    }
+    return settings.public()
+
+
+class SettingsIn(BaseModel):
+    provider: str | None = None
+    model: str | None = None
+    api_key: str | None = None  # None 이면 그대로, 값이 있으면 교체
+    clear_key: bool = False
+
+
+@app.put("/api/config")
+def put_config(body: SettingsIn) -> dict:
+    if body.provider is not None and body.provider not in ("gemini", "mock"):
+        raise HTTPException(400, "provider 는 gemini 또는 mock 입니다")
+    settings.update(provider=body.provider, model=body.model, api_key=body.api_key, clear_key=body.clear_key)
+    return settings.public()
+
+
+@app.post("/api/config/test")
+def test_config() -> dict:
+    """키와 모델로 Gemini 에 연결되는지 확인한다. 본문 생성 비용은 들지 않는다."""
+    if settings.provider()[0] == "mock":
+        return {"ok": True, "message": "mock 모드입니다. 실제 AI 를 호출하지 않습니다."}
+    llm = GeminiLLM()
+    try:
+        llm.check()
+    except Exception as e:  # SDK 오류 종류가 많아 메시지만 보여준다
+        raise HTTPException(400, f"연결 실패: {getattr(e, 'message', None) or e}")
+    return {"ok": True, "message": f"{llm.model} 에 연결됐습니다."}
 
 
 @app.get("/api/projects")

@@ -95,7 +95,7 @@ ul, ol { margin: 0; }
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .field > label, .label { font-size: 13px; font-weight: 500; }
 .field .hint { font-weight: 400; color: var(--muted); }
-input[type=text], input[type=number], textarea, select { width: 100%; min-height: 42px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 14px; }
+input[type=text], input[type=number], input[type=password], textarea, select { width: 100%; min-height: 42px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 14px; }
 textarea { padding: 10px 12px; line-height: 1.6; resize: vertical; }
 input:focus, textarea:focus, select:focus, .btn:focus-visible, .nav a:focus-visible { outline: 3px solid #9DB3EE; outline-offset: 1px; }
 input[type=checkbox] { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--accent); }
