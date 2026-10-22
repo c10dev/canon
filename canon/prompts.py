@@ -141,7 +141,7 @@ def plot_prompt(p: Project, start: int, end: int) -> str:
 {rels(p)}
 [기승전결 구조]
 {dump(p.arc)}
-[이미 확정된 이전 화 플롯]
+[앞 화 플롯 (확정 또는 초안, 이어지게 쓸 것)]
 {dump(prior) if prior else "없음"}
 [현재 열린 복선]
 {dump([f for f in p.foreshadows if f.status == "open"]) or "없음"}

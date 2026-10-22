@@ -197,3 +197,56 @@ def test_logline_parts_and_tone(client):
     from canon import prompts, store
     text = prompts.meta_text(store.load("lg"))
     assert "logline_parts" not in text and "tone_dials" not in text
+
+
+def _wait(client, jid, timeout=10):
+    import time
+
+    end = time.time() + timeout
+    while time.time() < end:
+        j = client.get(f"/api/jobs/{jid}").json()
+        if j["status"] != "running":
+            return j
+        time.sleep(0.05)
+    raise AssertionError("작업이 끝나지 않았습니다")
+
+
+def test_background_jobs(client, monkeypatch):
+    client.post("/api/projects", json={"name": "bg", "meta": {"title": "t", "target_episodes": 10}})
+    s = client.post("/api/projects/bg/suggest").json()
+    p = client.post("/api/projects/bg/suggest/apply", json=s).json()
+
+    assert client.post("/api/projects/bg/jobs", json={"kind": "plots"}).status_code == 400  # 구조 없음
+    j = _wait(client, client.post("/api/projects/bg/jobs", json={"kind": "arc"}).json()["id"])
+    assert j["status"] == "done" and len(j["result"]["acts"]) == 4
+    p["arc"] = j["result"]["acts"]
+    p = client.put("/api/projects/bg", json=p).json()
+
+    # 구간마다 따로 만들고, 같은 작업은 하나만 돈다
+    monkeypatch.setenv("CANON_MOCK_DELAY", "0.2")
+    first = client.post("/api/projects/bg/jobs", json={"kind": "plots"}).json()
+    again = client.post("/api/projects/bg/jobs", json={"kind": "plots"}).json()
+    assert first["total"] == 4 and again["already"] and again["id"] == first["id"]
+    # 작업 중에 화면이 옛 내용으로 저장해도 작업이 만든 화는 지켜진다
+    client.put("/api/projects/bg", json=p)
+    j = _wait(client, first["id"])
+    assert j["status"] == "done" and j["done"] == 4
+    p = client.get("/api/projects/bg").json()
+    assert [e["plot"]["number"] for e in p["episodes"]] == list(range(1, 11))
+    assert client.put("/api/projects/bg", json=dict(p, episodes=[])).json()["episodes"] != []  # 받아 가기 전
+    assert client.put(f"/api/projects/bg?merged={first['id']}", json=p).json()["episodes"] == p["episodes"]
+    monkeypatch.setenv("CANON_MOCK_DELAY", "0")
+
+    # 확정된 화만 남은 구간은 다시 만들지 않는다
+    for n in range(1, 11):
+        client.post(f"/api/projects/bg/episodes/{n}/confirm")
+    assert client.post("/api/projects/bg/jobs", json={"kind": "plots"}).status_code == 400
+
+    j = _wait(client, client.post("/api/projects/bg/jobs", json={"kind": "write", "ep": 1}).json()["id"])
+    assert j["status"] == "done"
+    assert client.get("/api/projects/bg").json()["episodes"][0]["status"] == "written"
+    j = _wait(client, client.post("/api/projects/bg/jobs", json={"kind": "state", "ep": 1}).json()["id"])
+    assert j["result"]["episode"] == 1
+    j = _wait(client, client.post("/api/projects/bg/jobs", json={"kind": "write", "ep": 3}).json()["id"])
+    assert j["status"] == "error" and "이전 화" in j["error"]
+    assert any(x["id"] == j["id"] for x in client.get("/api/jobs?project=bg").json())

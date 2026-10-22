@@ -24,6 +24,9 @@ const S = {
   briefTab: 'episode',
   briefText: null,
   mode: localStorage.getItem('canon.mode') || 'api',
+  jobs: [],          // 서버에서 돌고 있거나 막 끝난 AI 작업
+  jobsSeen: null,    // 화면을 연 시점에 이미 끝나 있던 작업 id (결과를 다시 적용하지 않는다)
+  jobsOpen: false,   // 작업 목록 펼침
 };
 
 const STATUS = { draft: '플롯 초안', confirmed: '플롯 확정', written: '본문 작성됨', finalized: '반영 완료' };
@@ -63,6 +66,176 @@ function toast(msg, err = false) {
   while ($('#toast').children.length > 3) $('#toast').firstChild.remove();
   setTimeout(() => el.remove(), err ? 8000 : 3500);
 }
+
+// ---------- 백그라운드 AI 작업 ----------
+// 오래 걸리는 AI 호출은 서버가 백그라운드로 돌리고, 화면은 1.5초마다 상태만 묻는다.
+// 그동안 다른 화면으로 옮겨 다니며 계속 작업할 수 있다.
+
+const JOB_DONE_MSG = {
+  suggest: '설정 제안이 도착했습니다. 설정 도우미에서 확인하세요.',
+  arc: '기승전결 구조 제안이 도착했습니다. 확인하고 저장하세요.',
+  plots: '화별 플롯 초안을 만들었습니다. 확정된 화는 그대로입니다.',
+  write: (j) => `${j.ep}화 본문을 저장했습니다.`,
+  state: (j) => `${j.ep}화 상태 변경안이 도착했습니다.`,
+};
+let jobTimer = null;
+
+function jobFor(kind, ep = null, name = S.name) {
+  return S.jobs.find((j) => j.status === 'running' && j.project === name && j.kind === kind && (ep == null || j.ep === ep));
+}
+
+// 작업이 도는 동안 버튼은 진행 상황을 보여 주고 눌리지 않게 한다
+function jobBtn(kind, ep, idle) {
+  const j = jobFor(kind, ep);
+  if (!j) return { label: idle, attr: '' };
+  return { label: `${j.label} 만드는 중…${j.total > 1 ? ` ${j.done}/${j.total}` : ''}`, attr: ' disabled aria-busy="true"' };
+}
+
+function jobOwns(n) {
+  const j = jobFor('plots');
+  return !!j && P() && (!ep(n) || ep(n).status === 'draft');
+}
+
+async function startJob(kind, ep = null) {
+  try {
+    await saveIfDirty();
+    const j = await api('POST', `/projects/${enc(S.name)}/jobs`, { kind, ep });
+    if (j.already) toast(`이미 진행 중이에요: ${j.label}`);
+    else toast(`${j.label}을(를) 시작했어요. 끝나면 알려 드릴게요. 그동안 다른 작업을 해도 됩니다.`);
+    S.jobs = S.jobs.filter((x) => x.id !== j.id).concat(j);
+    renderJobs();
+    render();
+    pollJobs(true);
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+async function pollJobs(soon = false) {
+  clearTimeout(jobTimer);
+  if (soon) { jobTimer = setTimeout(() => pollJobs(), 800); return; }
+  let list;
+  try { list = await api('GET', '/jobs'); } catch { list = S.jobs; }
+  if (S.jobsSeen === null) S.jobsSeen = new Set(list.filter((j) => j.status !== 'running').map((j) => j.id));
+  const before = new Map(S.jobs.map((j) => [j.id, j]));
+  // 화면이 목록에서 지운(닫은) 작업은 다시 보이지 않게 한다
+  S.jobs = list.filter((j) => !S.jobsSeen.has(j.id) || j.status === 'running');
+  let redraw = false;
+  for (const j of S.jobs) {
+    const old = before.get(j.id);
+    const progressed = !old || old.done !== j.done || old.status !== j.status;
+    if (!progressed || j.project !== S.name) continue;
+    if (j.kind === 'plots') await mergeEpisodes((e) => e.status === 'draft');
+    if (j.kind === 'write' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);
+    if (j.status !== 'running' && !(old && old.status !== 'running')) await finishJob(j);
+    if (JOB_PAGES[j.kind].includes(S.route[2] || 'home')) redraw = true;
+  }
+  renderJobs();
+  // 입력 중이면 화면을 다시 그리지 않는다 (글자와 커서를 잃지 않게). 데이터는 이미 반영돼 있다.
+  const typing = document.activeElement && document.activeElement.matches('#app input, #app textarea, #app select');
+  if (redraw && !typing) render();
+  if (S.jobs.some((j) => j.status === 'running')) jobTimer = setTimeout(() => pollJobs(), 1500);
+}
+
+// 작업 결과가 보이는 화면
+const JOB_PAGES = { suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home'], write: ['write', 'home'], state: ['review'] };
+
+// 작업이 project.json 에 쓴 화만 받아 온다 (mine 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
+async function mergeEpisodes(mine) {
+  if (!S.name || !P()) return;
+  try {
+    const fresh = await api('GET', `/projects/${enc(S.name)}`);
+    if (!S.dirty) { S.project = fresh; return; }
+    const local = new Map(P().episodes.map((e) => [e.plot.number, e]));
+    for (const e of fresh.episodes) {
+      const cur = local.get(e.plot.number);
+      if (!cur || mine(cur)) local.set(e.plot.number, e);
+    }
+    P().episodes = [...local.keys()].sort((a, b) => a - b).map((k) => local.get(k));
+  } catch { /* 다음 확인 때 다시 */ }
+}
+
+async function finishJob(j) {
+  const here = j.project === S.name && P();
+  if (j.status === 'error') {
+    toast(`${j.label} 실패: ${j.error}`, true);
+    return;
+  }
+  const msg = JOB_DONE_MSG[j.kind];
+  toast(typeof msg === 'function' ? msg(j) : msg);
+  setTimeout(() => {  // 끝난 작업은 잠시 뒤 목록에서 내린다 (실패는 직접 닫을 때까지 남긴다)
+    S.jobsSeen.add(j.id);
+    S.jobs = S.jobs.filter((x) => x.id !== j.id || x.status === 'running');
+    renderJobs();
+  }, 20000);
+  if (!here) return;  // 다른 작품을 보고 있으면 결과는 작업 목록에서 열어 볼 수 있다
+  applyJobResult(j);
+}
+
+function applyJobResult(j) {
+  if (j.kind === 'suggest' && j.result) {
+    S.suggestion = j.result;
+    S.suggestion.characters.forEach((c, i) => { S.picks['sc' + i] = !P().characters.some((x) => x.id === c.id); });
+    S.suggestion.relationships.forEach((r, i) => { S.picks['sr' + i] = true; });
+  } else if (j.kind === 'arc' && j.result) {
+    P().arc = j.result.acts;
+    S.dirty = true;
+  } else if (j.kind === 'write') {
+    delete S.textDraft[j.ep];
+    delete S.deltas[j.ep];
+  } else if (j.kind === 'state' && j.result) {
+    setDelta(j.ep, j.result);
+  }
+  j.applied = true;
+}
+
+const JOB_LINK = {
+  suggest: (j) => `#/p/${enc(j.project)}/setup`,
+  arc: (j) => `#/p/${enc(j.project)}/arc`,
+  plots: (j) => `#/p/${enc(j.project)}/arc`,
+  write: (j) => `#/p/${enc(j.project)}/write/${j.ep}`,
+  state: (j) => `#/p/${enc(j.project)}/review/${j.ep}`,
+};
+
+function renderJobs() {
+  let box = $('#jobs');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'jobs';
+    box.setAttribute('role', 'status');
+    box.setAttribute('aria-live', 'polite');
+    document.body.appendChild(box);
+  }
+  if (!S.jobs.length) { box.innerHTML = ''; box.hidden = true; return; }
+  box.hidden = false;
+  const running = S.jobs.filter((j) => j.status === 'running');
+  const head = running.length ? `AI 작업 ${running.length}개 진행 중` : 'AI 작업 끝남';
+  const items = S.jobs.map((j) => {
+    const pct = j.total > 1 ? ` ${j.done}/${j.total}` : '';
+    const state = j.status === 'running' ? `<span class="spinner sm" aria-hidden="true"></span>` : j.status === 'done' ? '<span class="ok">완료</span>' : '<span class="bad">실패</span>';
+    const other = j.project !== S.name ? ` <span class="small">· ${esc(j.project)}</span>` : '';
+    const sub = j.status === 'error' ? j.error : j.note;
+    const open = j.status !== 'running' && j.kind in JOB_LINK ? `<a href="${JOB_LINK[j.kind](j)}" data-job-open="${j.id}">열기</a>` : '';
+    return `<li>${state}<div class="jl"><strong>${esc(j.label)}${pct}</strong>${other}${sub ? `<div class="small">${esc(sub)}</div>` : ''}</div>${open}${j.status !== 'running' ? `<button type="button" class="x" data-job-dismiss="${j.id}" aria-label="목록에서 지우기">✕</button>` : ''}</li>`;
+  }).join('');
+  box.innerHTML = `<button type="button" class="jobs-head" aria-expanded="${S.jobsOpen || !running.length}" data-jobs-toggle>${running.length ? '<span class="spinner sm" aria-hidden="true"></span>' : ''}${head}</button>${S.jobsOpen || !running.length ? `<ul>${items}</ul>` : ''}`;
+}
+
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-jobs-toggle], [data-job-dismiss], [data-job-open]');
+  if (!t) return;
+  if (t.dataset.jobsToggle !== undefined) {
+    S.jobsOpen = !S.jobsOpen;
+  } else if (t.dataset.jobDismiss) {
+    S.jobsSeen.add(t.dataset.jobDismiss);
+    S.jobs = S.jobs.filter((j) => j.id !== t.dataset.jobDismiss);
+  } else if (t.dataset.jobOpen) {
+    // 다른 작품에서 끝난 결과는 그 작품을 연 뒤에 적용한다
+    const j = S.jobs.find((x) => x.id === t.dataset.jobOpen);
+    if (j) S.pendingJob = j;
+  }
+  renderJobs();
+});
 
 /** 버튼 동작 공통 처리: 진행 표시, 오류 알림, 다시 그리기 */
 async function run(label, fn) {
@@ -240,7 +413,9 @@ function renderSavebar() {
 }
 
 async function save() {
-  S.project = await api('PUT', `/projects/${enc(S.name)}`, P());
+  // 끝난 작업 중 결과를 이미 받아 온 것을 알려야 서버가 그 화를 덮어써도 된다고 안다
+  const merged = [...S.jobs.filter((j) => j.status !== 'running').map((j) => j.id), ...(S.jobsSeen || [])].join(',');
+  S.project = await api('PUT', `/projects/${enc(S.name)}?merged=${enc(merged)}`, P());
   S.dirty = false;
   if (S.route[2] === 'style') await loadStyleLink();
 }
@@ -281,12 +456,7 @@ const actions = {
 
   // 설정 도우미
   async suggest() {
-    await run('AI 가 설정을 제안하는 중… (최대 1분)', async () => {
-      await saveIfDirty();
-      S.suggestion = await api('POST', `/projects/${enc(S.name)}/suggest`);
-      S.suggestion.characters.forEach((c, i) => { S.picks['sc' + i] = !P().characters.some((x) => x.id === c.id); });
-      S.suggestion.relationships.forEach((r, i) => { S.picks['sr' + i] = true; });
-    });
+    await startJob('suggest');
   },
   dropSuggestion() {
     S.suggestion = null;
@@ -537,20 +707,10 @@ const actions = {
   // 구조와 플롯
   async planArc() {
     if (P().arc.length && !confirm('지금 구조를 AI 제안으로 바꿀까요? 저장 전까지는 되돌릴 수 있어요.')) return;
-    await run('기승전결 구조를 설계하는 중…', async () => {
-      await saveIfDirty();
-      const plan = await api('POST', `/projects/${enc(S.name)}/arc`);
-      P().arc = plan.acts;
-      S.dirty = true;
-      toast('구조 제안을 불러왔습니다. 확인하고 저장하세요.');
-    });
+    await startJob('arc');
   },
   async draftPlots() {
-    await run('화별 플롯 초안을 만드는 중… (화수에 따라 1~2분)', async () => {
-      await saveIfDirty();
-      S.project = await api('POST', `/projects/${enc(S.name)}/plots`, {});
-      toast('플롯 초안을 만들었습니다. 확정된 화는 그대로입니다.');
-    });
+    await startJob('plots');
   },
   selectEp(n) {
     S.selEp = Number(n);
@@ -597,13 +757,7 @@ const actions = {
   },
   async writeEp(n) {
     if (ep(n).text && !confirm(`${n}화 본문을 새로 생성할까요? 지금 본문은 사라집니다.`)) return;
-    await run(`${n}화 본문을 쓰는 중… (최대 2분)`, async () => {
-      await saveIfDirty();
-      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/write`);
-      delete S.textDraft[n];
-      delete S.deltas[n];
-      toast(`${n}화 본문을 저장했습니다`);
-    });
+    await startJob('write', n);
   },
   async saveText(n) {
     await run('본문 저장 중', async () => {
@@ -635,13 +789,15 @@ const actions = {
 
   // 상태 변경안
   async extractState(n) {
-    await run(`${n}화 상태 변경안을 뽑는 중… (최대 1분)`, async () => {
-      if (S.textDraft[n] !== undefined) {
+    if (S.textDraft[n] !== undefined) {
+      try {
         S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, { text: S.textDraft[n] });
         delete S.textDraft[n];
+      } catch (e) {
+        return toast(e.message, true);
       }
-      setDelta(n, await api('POST', `/projects/${enc(S.name)}/episodes/${n}/state`));
-    });
+    }
+    await startJob('state', n);
   },
   async applyDelta(n) {
     const out = pickedDelta(n);
@@ -847,6 +1003,8 @@ async function route() {
     } else if (parts[0] === 'p' && parts[1]) {
       if (S.name !== parts[1] || S.dirty) await loadProject(parts[1]);
       else S.project = await api('GET', `/projects/${enc(parts[1])}`);
+      if (S.pendingJob && S.pendingJob.project === S.name && !S.pendingJob.applied) applyJobResult(S.pendingJob);
+      S.pendingJob = null;
       S.dirty = false;
       const n = Number(parts[3]);
       if (!parts[2] && S.project.relationships.length) {
@@ -1335,7 +1493,7 @@ function viewSetup() {
 
   const rels = p.relationships.map(relRow).join('');
 
-  return `${header('1단계', '설정 도우미', '채운 칸은 그대로 두고, 빈칸만 AI 가 제안합니다. 제안에서 원하는 인물과 관계만 골라 반영하세요.', `<button class="btn" data-action="suggest">빈칸 AI 제안받기</button><a class="btn primary" href="${base()}/style">문체로</a>`)}
+  return `${header('1단계', '설정 도우미', '채운 칸은 그대로 두고, 빈칸만 AI 가 제안합니다. 제안에서 원하는 인물과 관계만 골라 반영하세요.', `${((b) => `<button class="btn" data-action="suggest"${b.attr}>${b.label}</button>`)(jobBtn('suggest', null, '빈칸 AI 제안받기'))}<a class="btn primary" href="${base()}/style">문체로</a>`)}
     ${S.suggestion ? viewSuggestion() : ''}
     <div class="cols">
       <div class="col">
@@ -1555,7 +1713,7 @@ function viewArc() {
 
   let board;
   if (!p.arc.length) {
-    board = `<div class="card empty"><p>아직 기승전결 구조가 없어요.</p><button class="btn primary" data-action="planArc">AI 로 구조 만들기</button></div>`;
+    board = `<div class="card empty"><p>아직 기승전결 구조가 없어요.</p>${((b) => `<button class="btn primary" data-action="planArc"${b.attr}>${b.label}</button>`)(jobBtn('arc', null, 'AI 로 구조 만들기'))}</div>`;
   } else {
     const cols = p.arc.map((a, i) => {
       const inAct = eps.filter((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep);
@@ -1583,7 +1741,7 @@ function viewArc() {
 
   const drafts = eps.filter((e) => e.status === 'draft').length;
   const right = p.arc.length
-    ? `<button class="btn" data-action="planArc">구조 다시 제안</button><button class="btn" data-action="draftPlots">${eps.length ? '초안 다시 만들기 (확정 화 제외)' : '화별 플롯 초안 만들기'}</button>${drafts ? `<button class="btn primary" data-action="confirmAll">초안 ${drafts}화 모두 확정</button>` : ''}`
+    ? `${((b) => `<button class="btn" data-action="planArc"${b.attr}>${b.label}</button>`)(jobBtn('arc', null, '구조 다시 제안'))}${((b) => `<button class="btn" data-action="draftPlots"${b.attr}>${b.label}</button>`)(jobBtn('plots', null, eps.length ? '초안 다시 만들기 (확정 화 제외)' : '화별 플롯 초안 만들기'))}${drafts ? `<button class="btn primary" data-action="confirmAll">초안 ${drafts}화 모두 확정</button>` : ''}`
     : '';
   const tools = chatButton() + right;
   return `${header('3단계', '기승전결 · 화별 플롯', '구간 목표를 확인하고, 화 카드를 눌러 플롯을 다듬은 뒤 확정하세요. 확정된 화만 본문을 쓸 수 있고, 초안을 다시 만들어도 확정된 화는 그대로입니다.', tools)}
@@ -1606,13 +1764,14 @@ function plotEditor(e) {
   const n = e.plot.number;
   const i = epIndex(n);
   const b = `episodes.${i}.plot`;
-  const locked = e.status === 'written' || e.status === 'finalized';
+  const busy = jobOwns(n);
+  const locked = e.status === 'written' || e.status === 'finalized' || busy;
   const ro = { readonly: locked };
   const cast = P().characters.map((c) => `<label class="row" style="font-size:13px;gap:6px"><input type="checkbox" value="${esc(c.id)}" data-cast-ep="${n}"${e.plot.characters.includes(c.id) ? ' checked' : ''}${locked ? ' disabled' : ''}>${esc(c.name || c.id)}</label>`).join('');
   const act = actOf(n);
   return `<div class="between"><h2>${n}화 플롯</h2><span class="chip ${e.status}">${STATUS[e.status]}</span></div>
     ${act ? `<div class="note info"><strong>${act.name} 구간 목표</strong> · ${esc(act.goal)}</div>` : ''}
-    ${locked ? '<div class="note plain">본문이 있는 화라 플롯을 고칠 수 없어요.</div>' : ''}
+    ${busy ? '<div class="note warn">AI 가 이 구간의 초안을 새로 만드는 중이라 끝날 때까지 고칠 수 없어요.</div>' : locked ? '<div class="note plain">본문이 있는 화라 플롯을 고칠 수 없어요.</div>' : ''}
     ${input('제목', b + '.title', ro)}
     ${input('요약', b + '.summary', { ...ro, rows: 3, autogrow: true })}
     ${input('사건 순서', b + '.events', { ...ro, kind: 'list', rows: 5, autogrow: true })}
@@ -1621,7 +1780,7 @@ function plotEditor(e) {
     ${input('엔딩 훅', b + '.ending_hook', ro)}
     <div class="grid-2">${input('심을 복선', b + '.foreshadow_plant', { ...ro, kind: 'list', rows: 2 })}${input('회수할 복선 id', b + '.foreshadow_payoff', { ...ro, kind: 'list', rows: 2 })}</div>
     <div class="row drawer-actions">
-      ${e.status === 'draft' ? `<button class="btn primary" style="flex:1" data-action="confirmEp" data-arg="${n}">${n}화 확정</button>` : ''}
+      ${e.status === 'draft' ? `<button class="btn primary" style="flex:1" data-action="confirmEp" data-arg="${n}"${busy ? ' disabled' : ''}>${n}화 확정</button>` : ''}
       ${e.status === 'confirmed' ? `<button class="btn" style="flex:1" data-action="unconfirmEp" data-arg="${n}">초안으로 되돌리기</button><a class="btn primary" style="flex:1" href="${base()}/write/${n}">${n}화 쓰기</a>` : ''}
       ${locked ? `<a class="btn" style="flex:1" href="${base()}/write/${n}">본문 보기</a>` : ''}
     </div>`;
@@ -1657,7 +1816,7 @@ function viewWrite(n) {
   } else if (!e.text && draft === undefined) {
     center = `<div class="empty">
       ${blocked.length ? `<div class="note warn">이전 화(${blocked.join(', ')}화)의 상태 반영이 끝나야 쓸 수 있어요. 인물 상태가 꼬이지 않게 하는 규칙입니다.</div>` : ''}
-      ${isApi ? `<p>확정된 플롯과 지금까지의 데이터로 ${n}화를 씁니다.</p><button class="btn primary" data-action="writeEp" data-arg="${n}"${blocked.length ? ' disabled' : ''}>${n}화 본문 생성</button>`
+      ${isApi ? `<p>확정된 플롯과 지금까지의 데이터로 ${n}화를 씁니다.</p>${((b) => `<button class="btn primary" data-action="writeEp" data-arg="${n}"${blocked.length ? ' disabled' : b.attr}>${b.label}</button>`)(jobBtn('write', n, `${n}화 본문 생성`))}${jobFor('write', n) ? '<div class="small">다른 화면으로 옮겨 가도 계속 씁니다. 끝나면 알려 드려요.</div>' : ''}`
         : `<p>작업지시서를 채팅 앱에 붙여 넣고, 받은 본문을 가져오세요.</p><a class="btn primary" href="${base()}/brief/${n}">작업지시서 열기</a>`}
       <button class="btn" data-action="startManual" data-arg="${n}">직접 쓰기</button>
     </div>`;
@@ -1671,7 +1830,7 @@ function viewWrite(n) {
       <div class="small">합계 ${S.context.reduce((s, c) => s + c.chars, 0).toLocaleString()}자. 이전 본문 전체 대신 이 데이터만 매번 같은 순서로 넣습니다.</div>` : '<div class="small">플롯을 확정하면 보입니다.</div>';
 
   const right = `${e.status !== 'finalized' ? `<div class="seg" role="group" aria-label="생성 방식"><button type="button" aria-pressed="${isApi}" data-action="setMode" data-arg="api">Gemini API</button><button type="button" aria-pressed="${!isApi}" data-action="setMode" data-arg="brief">채팅 앱 작업지시서</button></div>` : ''}
-    ${e.text && editable && isApi ? `<button class="btn" data-action="writeEp" data-arg="${n}">다시 생성</button>` : ''}
+    ${e.text && editable && isApi ? `${((b) => `<button class="btn" data-action="writeEp" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('write', n, '다시 생성'))}` : ''}
     ${editable && !isApi ? `<a class="btn" href="${base()}/brief/${n}">작업지시서</a>` : ''}
     ${e.status === 'written' ? `<a class="btn primary" href="${base()}/review/${n}">상태 정리로</a>` : ''}`;
 
@@ -1722,7 +1881,7 @@ function viewReview(n) {
   const d = S.deltas[n];
   if (!d) {
     return top('AI 가 본문에서 인물 상태, 관계, 확정 사실, 복선을 뽑아 변경안을 만듭니다. 승인한 항목만 데이터에 반영됩니다.') +
-      `<div class="cols"><section class="card col"><h2>AI 로 뽑기</h2><p class="desc">${esc(S.config && S.config.stages ? S.config.stages.state.model : '')} 로 ${n}화 본문을 읽고 변경안을 만듭니다.</p><div><button class="btn primary" data-action="extractState" data-arg="${n}">변경안 만들기</button></div></section>
+      `<div class="cols"><section class="card col"><h2>AI 로 뽑기</h2><p class="desc">${esc(S.config && S.config.stages ? S.config.stages.state.model : '')} 로 ${n}화 본문을 읽고 변경안을 만듭니다.</p><div>${((b) => `<button class="btn primary" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '변경안 만들기'))}</div></section>
        <section class="card col"><h2>채팅 앱에서 받은 JSON</h2><p class="desc">상태 정리 지시서를 채팅 앱에 붙여 넣고 받은 JSON 을 가져옵니다.</p><div><a class="btn" href="${base()}/brief/${n}" data-action="openStateBrief" data-arg="${n}">상태 정리 지시서 열기</a></div></section></div>`;
   }
 
@@ -1781,7 +1940,7 @@ function viewReview(n) {
     `<div class="grid-auto">${section('확정 사실', facts)}${section('복선', fs)}</div>` +
     `<section class="card"><div class="between"><label for="dsum" style="font-size:16px;font-weight:700">${n}화 요약</label><span class="small">다음 화 생성에 이 요약이 들어갑니다</span></div>
       <textarea id="dsum" rows="4" data-delta-summary="${n}">${esc(d.summary)}</textarea></section>
-    <div class="between"><div class="row"><button class="btn" data-action="extractState" data-arg="${n}">다시 추출</button><button class="btn" data-action="dropDelta" data-arg="${n}">버리기</button><a class="btn" href="${base()}/write/${n}">본문으로</a></div>
+    <div class="between"><div class="row">${((b) => `<button class="btn" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '다시 추출'))}<button class="btn" data-action="dropDelta" data-arg="${n}">버리기</button><a class="btn" href="${base()}/write/${n}">본문으로</a></div>
       <button class="btn primary" data-action="applyDelta" data-arg="${n}">선택한 항목 반영하고 ${n}화 완료</button></div>`;
 }
 
@@ -2149,3 +2308,4 @@ function viewResearch() {
 }
 
 route();
+pollJobs();
