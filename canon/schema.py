@@ -175,6 +175,19 @@ class StyleProfile(BaseModel):
     sample_passages: list[str] = Field(default_factory=list, description="본문 생성 때 그대로 보여줄 대표 문단 2~4개 (원문 발췌)")
 
 
+class StyleEntry(BaseModel):
+    """문체 라이브러리 항목 (canon/library.py). 작품과 따로 저장해 여러 작품에서 다시 쓴다."""
+    id: str
+    name: str
+    source: str = Field("", description="원문 출처: 작가, 작품 등 사용자 메모")
+    notes: str = ""
+    sample: str = Field("", description="분석에 쓴 원문 전체. 기준 지표와 다시 분석에 쓴다")
+    profile: StyleProfile = Field(default_factory=StyleProfile)
+    baseline: Optional[StyleMetrics] = Field(None, description="원문 전체로 잰 문체 지표")
+    created_at: str = ""
+    updated_at: str = ""
+
+
 # ---------- 계층형 플롯 ----------
 
 class Act(BaseModel):
@@ -285,6 +298,7 @@ class Project(BaseModel):
     relationships: list[Relationship] = Field(default_factory=list)
     style: StyleProfile = Field(default_factory=StyleProfile)
     style_baseline: Optional[StyleMetrics] = Field(None, description="레퍼런스 원문 전체로 잰 문체 지표 (style 명령 때 저장)")
+    style_id: str = Field("", description="문체 라이브러리에서 가져온 항목 id. 비어 있으면 이 작품에서 직접 만든 문체")
     arc: list[Act] = Field(default_factory=list)
     episodes: list[Episode] = Field(default_factory=list)
     states: list[CharacterState] = Field(default_factory=list)

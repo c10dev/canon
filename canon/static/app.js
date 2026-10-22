@@ -11,6 +11,10 @@ const S = {
   route: [],
   suggestion: null,  // 설정 도우미 제안 (반영 전)
   styleSample: '',
+  libs: null,        // 문체 라이브러리 목록
+  lib: null,         // 라이브러리에서 보고 있는 항목 (편집 중)
+  libDirty: false,
+  styleLink: null,   // 작품 문체와 라이브러리 항목의 관계
   selEp: null,       // 플롯 보드에서 고른 화
   deltas: {},        // 화별 상태 변경안 (반영 전)
   picks: {},         // 변경안 항목 선택 여부
@@ -117,8 +121,12 @@ function actClass(name) {
 // ---------- 입력 바인딩 ----------
 // data-bind="meta.title" data-kind="text|int|list|bool"
 
-function bindValue(path, kind) {
-  const v = getPath(P(), path);
+function bindRoot(name) {
+  return name === 'lib' ? S.lib : P();
+}
+
+function bindValue(path, kind, root) {
+  const v = getPath(bindRoot(root), path);
   if (kind === 'list') return (v || []).join('\n');
   return v ?? '';
 }
@@ -126,26 +134,31 @@ function bindValue(path, kind) {
 function input(label, path, opt = {}) {
   const id = 'f-' + path.replace(/\./g, '-');
   const kind = opt.kind || (opt.type === 'number' ? 'int' : 'text');
-  const val = esc(bindValue(path, kind));
+  const val = esc(bindValue(path, kind, opt.root));
+  const rootAttr = opt.root ? ` data-root="${opt.root}"` : '';
   const hint = opt.hint ? ` <span class="hint">${esc(opt.hint)}</span>` : '';
   const ro = opt.readonly ? ' readonly' : '';
   const ctrl = opt.rows || kind === 'list'
-    ? `<textarea id="${id}" rows="${opt.rows || 3}" data-bind="${path}" data-kind="${kind}"${ro} placeholder="${esc(opt.placeholder || (kind === 'list' ? '한 줄에 하나씩' : ''))}">${val}</textarea>`
-    : `<input id="${id}" type="${opt.type || 'text'}" value="${val}" data-bind="${path}" data-kind="${kind}"${ro}${opt.min != null ? ` min="${opt.min}"` : ''}${opt.max != null ? ` max="${opt.max}"` : ''} placeholder="${esc(opt.placeholder || '')}">`;
+    ? `<textarea id="${id}" rows="${opt.rows || 3}" data-bind="${path}" data-kind="${kind}"${rootAttr}${ro}${opt.style ? ` style="${opt.style}"` : ''} placeholder="${esc(opt.placeholder || (kind === 'list' ? '한 줄에 하나씩' : ''))}">${val}</textarea>`
+    : `<input id="${id}" type="${opt.type || 'text'}" value="${val}" data-bind="${path}" data-kind="${kind}"${rootAttr}${ro}${opt.min != null ? ` min="${opt.min}"` : ''}${opt.max != null ? ` max="${opt.max}"` : ''} placeholder="${esc(opt.placeholder || '')}">`;
   return `<div class="field${opt.cls ? ' ' + opt.cls : ''}"><label for="${id}">${esc(label)}${hint}</label>${ctrl}</div>`;
 }
 
 document.addEventListener('input', (e) => {
   const el = e.target;
-  if (el.dataset.bind && P()) {
+  const root = el.dataset.bind && bindRoot(el.dataset.root);
+  if (root) {
     const kind = el.dataset.kind;
     let v = el.value;
     if (kind === 'int') v = v === '' ? 0 : parseInt(v, 10) || 0;
     if (kind === 'float') v = parseFloat(v) || 0;
     if (kind === 'list') v = v.split('\n').map((s) => s.trim()).filter(Boolean);
     if (kind === 'bool') v = el.checked;
-    setPath(P(), el.dataset.bind, v);
-    markDirty();
+    setPath(root, el.dataset.bind, v);
+    if (el.dataset.root === 'lib') S.libDirty = true;
+    else markDirty();
+    const cnt = el.id === 'f-sample' && $('#lib-sample-count');
+    if (cnt) cnt.textContent = v.length.toLocaleString();
     const out = el.dataset.out && document.getElementById(el.dataset.out);
     if (out) out.textContent = v;
   }
@@ -208,6 +221,11 @@ function renderSavebar() {
 async function save() {
   S.project = await api('PUT', `/projects/${enc(S.name)}`, P());
   S.dirty = false;
+  if (S.route[2] === 'style') await loadStyleLink();
+}
+
+async function loadStyleLink() {
+  S.styleLink = await api('GET', `/projects/${enc(S.name)}/style/link`).catch(() => null);
 }
 
 async function saveIfDirty() {
@@ -233,8 +251,9 @@ const actions = {
       target_episodes: parseInt($('#np-eps').value, 10) || 16,
       adult: $('#np-adult').checked,
     };
+    const styleId = $('#np-style') ? $('#np-style').value : '';
     await run('만드는 중', async () => {
-      await api('POST', '/projects', { name, meta });
+      await api('POST', '/projects', { name, meta, style_id: styleId });
       S.newMeta = null;
       location.hash = `#/p/${enc(name)}/setup`;
     });
@@ -325,6 +344,126 @@ const actions = {
   removePassage(i) {
     P().style.sample_passages.splice(i, 1);
     markDirty();
+    render();
+  },
+  async useLibStyle() {
+    const id = $('#style-pick').value;
+    if (!id) return toast('적용할 문체를 고르세요', true);
+    const e = (S.libs || []).find((x) => x.id === id);
+    if (!confirm(`'${e ? e.name : id}' 문체를 이 작품에 적용할까요? 지금 작품의 스타일 프로필은 바뀝니다.`)) return;
+    await run('적용하는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/style/apply`, { style_id: id });
+      await loadStyleLink();
+      toast('라이브러리 문체를 적용했습니다');
+    });
+  },
+  async keepStyle() {
+    const name = prompt('라이브러리에 저장할 문체 이름', `${P().meta.title || S.name} 문체`);
+    if (name === null) return;
+    await run('라이브러리에 저장하는 중', async () => {
+      await saveIfDirty();
+      const r = await api('POST', `/projects/${enc(S.name)}/style/library`, { name: name.trim(), sample: S.styleSample });
+      S.project = r.project;
+      S.libs = await api('GET', '/styles');
+      await loadStyleLink();
+      toast(`라이브러리에 '${r.entry.name}' 로 저장했습니다`);
+    });
+  },
+  async pushStyle() {
+    const l = S.styleLink || {};
+    const users = ((S.libs || []).find((x) => x.id === l.id) || {}).used_by || [];
+    const others = users.filter((n) => n !== S.name);
+    const warn = others.length ? `\n다른 작품(${others.join(', ')})은 다시 적용하기 전까지 바뀌지 않습니다.` : '';
+    if (!confirm(`라이브러리의 '${l.name}' 을 이 작품의 문체로 바꿀까요?${warn}`)) return;
+    await run('라이브러리 갱신 중', async () => {
+      await saveIfDirty();
+      await api('POST', `/projects/${enc(S.name)}/style/library`, { update: true });
+      S.libs = await api('GET', '/styles');
+      await loadStyleLink();
+      toast('라이브러리 항목을 갱신했습니다');
+    });
+  },
+  async pullStyle() {
+    const l = S.styleLink || {};
+    if (!confirm(`이 작품의 문체를 라이브러리의 '${l.name}' 으로 되돌릴까요? 작품에서 고친 내용은 사라집니다.`)) return;
+    await run('적용하는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/style/apply`, { style_id: l.id });
+      await loadStyleLink();
+    });
+  },
+
+  // 문체 라이브러리
+  async libAnalyze() {
+    if ((S.lib.sample || '').trim().length < 200) return toast('원문을 200자 이상 넣어 주세요', true);
+    const has = S.lib.profile.narration_pov || S.lib.profile.sample_passages.length;
+    if (has && !confirm('분석 결과로 지금 프로필을 바꿀까요? 저장 전까지는 되돌릴 수 있어요.')) return;
+    await run('문체를 분석하는 중… (최대 1분)', async () => {
+      S.lib.profile = await api('POST', '/styles/analyze', { text: S.lib.sample });
+      S.libDirty = true;
+      toast('분석 결과를 불러왔습니다. 확인하고 저장하세요.');
+    });
+  },
+  async libSave() {
+    if (!S.lib.name.trim()) return toast('문체 이름을 입력하세요', true);
+    const body = { name: S.lib.name, source: S.lib.source, notes: S.lib.notes, sample: S.lib.sample, profile: S.lib.profile };
+    await run('저장 중', async () => {
+      const isNew = !S.lib.id;
+      S.lib = isNew ? await api('POST', '/styles', body) : await api('PUT', `/styles/${S.lib.id}`, body);
+      S.lib.used_by = S.lib.used_by || [];
+      S.libDirty = false;
+      toast('라이브러리에 저장했습니다');
+      if (isNew) location.hash = `#/styles/${S.lib.id}`;
+    });
+  },
+  async libRevert() {
+    await run('불러오는 중', async () => {
+      S.lib = await api('GET', `/styles/${S.lib.id}`);
+      S.libDirty = false;
+    });
+  },
+  async libDuplicate(id) {
+    if (S.libDirty && !confirm('저장하지 않은 변경은 사본에 들어가지 않아요. 계속할까요?')) return;
+    await run('복제하는 중', async () => {
+      const e = await api('POST', `/styles/${id}/duplicate`);
+      S.libDirty = false;
+      toast(`'${e.name}' 을 만들었습니다`);
+      location.hash = `#/styles/${e.id}`;
+    });
+  },
+  async libDelete(id) {
+    const e = (S.libs || []).find((x) => x.id === id) || S.lib || {};
+    const used = e.used_by || [];
+    const note = used.length ? `\n이 문체를 쓰는 작품(${used.join(', ')})은 복사해 둔 문체를 그대로 씁니다.` : '';
+    if (!confirm(`'${e.name}' 문체를 라이브러리에서 지울까요? 되돌릴 수 없어요.${note}`)) return;
+    await run('지우는 중', async () => {
+      await api('DELETE', `/styles/${id}`);
+      S.libDirty = false;
+      S.libs = await api('GET', '/styles');
+      toast('지웠습니다');
+      if (S.route[0] === 'styles' && S.route[1]) location.hash = '#/styles';
+    });
+  },
+  async libApplyTo() {
+    const name = $('#lib-target').value;
+    if (!name) return toast('적용할 작품을 고르세요', true);
+    if (S.libDirty) return toast('먼저 저장하세요. 저장된 문체가 작품에 복사됩니다.', true);
+    if (!confirm(`'${S.lib.name}' 문체를 '${name}' 작품에 적용할까요? 그 작품의 스타일 프로필은 바뀝니다.`)) return;
+    await run('적용하는 중', async () => {
+      await api('POST', `/projects/${enc(name)}/style/apply`, { style_id: S.lib.id });
+      S.lib = await api('GET', `/styles/${S.lib.id}`);
+      toast(`'${name}' 에 적용했습니다`);
+    });
+  },
+  libAddPassage() {
+    S.lib.profile.sample_passages.push('');
+    S.libDirty = true;
+    render();
+  },
+  libRemovePassage(i) {
+    S.lib.profile.sample_passages.splice(i, 1);
+    S.libDirty = true;
     render();
   },
 
@@ -589,11 +728,12 @@ async function loadProject(name) {
 
 let lastHash = location.hash;
 window.addEventListener('hashchange', async () => {
-  if (S.dirty && !confirm('저장하지 않은 변경이 있어요. 버리고 이동할까요?')) {
+  if ((S.dirty || S.libDirty) && !confirm('저장하지 않은 변경이 있어요. 버리고 이동할까요?')) {
     history.replaceState(null, '', lastHash);
     return;
   }
   lastHash = location.hash;
+  S.libDirty = false;
   await route();
 });
 
@@ -609,6 +749,17 @@ async function route() {
     if (!S.genres) S.genres = await api('GET', '/genres').catch(() => []);
     if (parts[0] === 'settings') {
       S.config = await api('GET', '/config');
+    } else if (parts[0] === 'styles') {
+      S.name = null;
+      S.project = null;
+      S.libs = await api('GET', '/styles');
+      if (parts[1] === 'new') {
+        S.lib = { name: '', source: '', notes: '', sample: '', profile: emptyProfile(), used_by: [] };
+      } else if (parts[1]) {
+        S.lib = await api('GET', `/styles/${enc(parts[1])}`);
+        S.projects = await api('GET', '/projects');
+      }
+      S.libDirty = false;
     } else if (parts[0] === 'p' && parts[1]) {
       if (S.name !== parts[1] || S.dirty) await loadProject(parts[1]);
       else S.project = await api('GET', `/projects/${enc(parts[1])}`);
@@ -616,6 +767,10 @@ async function route() {
       const n = Number(parts[3]);
       if (!parts[2] && S.project.relationships.length) {
         S.relations = await api('GET', `/projects/${enc(S.name)}/relations`).catch((e) => ({ error: e.message }));
+      }
+      if (parts[2] === 'style') {
+        S.libs = await api('GET', '/styles').catch(() => []);
+        await loadStyleLink();
       }
       if (parts[2] === 'write' && n && ep(n) && ep(n).status !== 'draft') {
         S.context = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/context`).catch(() => null);
@@ -627,6 +782,7 @@ async function route() {
       S.name = null;
       S.project = null;
       S.projects = await api('GET', '/projects');
+      S.libs = await api('GET', '/styles').catch(() => []);
     }
   } catch (e) {
     toast(e.message, true);
@@ -645,6 +801,11 @@ function render() {
   const [p, , page, arg] = S.route;
   if (p === 'settings') {
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:820px;margin:0 auto">${viewSettings()}</main></div>`;
+    return;
+  }
+  if (p === 'styles') {
+    const body = S.route[1] && S.lib ? viewLibEntry() : viewLibrary();
+    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1180px;margin:0 auto">${body}</main></div>`;
     return;
   }
   if (p !== 'p' || !P()) {
@@ -693,6 +854,7 @@ function sidebar(active) {
       <strong style="font-size:13px">${esc(cfg.model || '')}</strong>
       ${cfg.has_key ? '' : '<span style="color:var(--red)">API 키가 없습니다. 설정에서 넣거나 작업지시서를 쓰세요.</span>'}
       <a href="#/settings">모델 · API 키 설정</a>
+      <a href="#/styles">문체 라이브러리</a>
       <a href="#/">작품 목록</a>
     </div>
   </nav>`;
@@ -744,7 +906,7 @@ function viewProjects() {
       <div class="small">${esc(x.genre || '장르 미정')} · 폴더 ${esc(x.name)}</div>
     </a>`).join('');
   const cfg = S.config || {};
-  return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편을 씁니다.', '<a class="btn" href="#/settings">모델 · API 키 설정</a>')}
+  return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편을 씁니다.', '<a class="btn" href="#/styles">문체 라이브러리</a><a class="btn" href="#/settings">모델 · API 키 설정</a>')}
     ${cfg.has_key ? '' : '<div class="note warn">Gemini API 키가 없어요. <a href="#/settings" style="color:inherit;font-weight:700">설정</a>에서 넣으면 AI 생성을 쓸 수 있습니다. 키 없이도 채팅 앱 작업지시서로 쓸 수 있어요.</div>'}
     ${list.length ? `<div class="grid-auto">${cards}</div>` : '<div class="note plain">아직 작품이 없어요. 아래에서 새 작품을 만드세요.</div>'}
     <section class="card" style="max-width:720px">
@@ -757,6 +919,8 @@ function viewProjects() {
       <div class="field"><label for="np-logline">로그라인 <span class="hint">누가, 무엇을 원하고, 무엇이 막는가</span></label><textarea id="np-logline" rows="2"></textarea></div>
       ${genrePicker()}
       ${adultCheck('id="np-adult"')}
+      ${(S.libs || []).length ? `<div class="field"><label for="np-style">문체 <span class="hint">라이브러리에서 고르면 문체 단계를 건너뛸 수 있어요. 나중에 바꿔도 됩니다</span></label>
+        <select id="np-style"><option value="">나중에 정하기</option>${S.libs.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}${x.source ? ` · ${esc(x.source)}` : ''}</option>`).join('')}</select></div>` : ''}
       <div><button class="btn primary" data-action="createProject">만들고 설정 시작</button></div>
     </section>`;
 }
@@ -978,35 +1142,154 @@ function viewSuggestion() {
 
 // ----- 2. 문체 -----
 
+function emptyProfile() {
+  return {
+    narration_pov: '', tense: '', sentence_rhythm: '', description_density: '', dialogue_ratio: '', dialogue_style: '',
+    inner_monologue: '', pacing: '', scene_transition: '', vocabulary: '', dos: [], donts: [], banned_phrases: [], sample_passages: [],
+  };
+}
+
+/** 스타일 프로필 편집 칸. 작품 화면(base='style')과 라이브러리 화면(base='profile', root='lib')이 같이 쓴다. */
+function profileFields(base, root) {
+  const o = (x = {}) => (root ? { ...x, root } : x);
+  const prof = getPath(bindRoot(root), base);
+  const act = root ? 'libRemovePassage' : 'removePassage';
+  const passages = prof.sample_passages.map((_, i) => `<div class="row" style="align-items:flex-start;flex-wrap:nowrap">
+      <div style="flex:1">${input(`대표 문단 ${i + 1}`, `${base}.sample_passages.${i}`, o({ rows: 3 }))}</div>
+      <button class="btn icon-btn danger" style="margin-top:26px" data-action="${act}" data-arg="${i}" aria-label="대표 문단 ${i + 1} 삭제">✕</button></div>`).join('');
+  const f = (label, key, x) => input(label, `${base}.${key}`, o(x));
+  return `<div class="grid-2">
+      ${f('시점', 'narration_pov')}${f('시제', 'tense')}
+      ${f('문장 리듬', 'sentence_rhythm', { rows: 2 })}${f('묘사 밀도', 'description_density', { rows: 2 })}
+      ${f('대사 비율', 'dialogue_ratio')}${f('대사 방식', 'dialogue_style')}
+      ${f('내면 독백', 'inner_monologue')}${f('전개 속도', 'pacing')}
+      ${f('장면 전환', 'scene_transition')}${f('어휘', 'vocabulary')}
+    </div>
+    <div class="grid-2">
+      <div class="note ok">${f('지킬 것', 'dos', { kind: 'list', rows: 4 })}</div>
+      <div class="note err">${f('피할 것', 'donts', { kind: 'list', rows: 4 })}</div>
+    </div>
+    ${f('금지 표현', 'banned_phrases', { kind: 'list', rows: 2, placeholder: '본문에 나오면 경고할 표현, 한 줄에 하나씩' })}
+    <div class="between"><h3>대표 문단 <span class="small" style="font-weight:400">본문 생성 때 그대로 보여줄 원문 예시, 2~4개</span></h3><button class="btn small" data-action="${root ? 'libAddPassage' : 'addPassage'}">+ 문단</button></div>
+    ${passages || '<div class="small">아직 없어요. 문체 분석을 하면 원문에서 골라 넣습니다.</div>'}`;
+}
+
+/** 작품 문체 화면 위쪽: 라이브러리에서 가져오기, 라이브러리에 저장하기 */
+function styleLibraryCard() {
+  const libs = S.libs || [];
+  const l = S.styleLink || { state: 'none' };
+  const opts = libs.map((x) => `<option value="${esc(x.id)}"${x.id === l.id ? ' selected' : ''}>${esc(x.name)}${x.source ? ` · ${esc(x.source)}` : ''}</option>`).join('');
+  const status = {
+    none: '<span class="small">이 작품에서 직접 만든 문체예요.</span>',
+    missing: '<span class="small">가져온 라이브러리 항목이 지워졌어요. 작품에 복사된 문체는 그대로 씁니다.</span>',
+    same: `<span class="chip finalized">라이브러리와 같음</span> <a href="#/styles/${esc(l.id)}">${esc(l.name)}</a>`,
+    changed: `<span class="chip written">라이브러리와 다름</span> <a href="#/styles/${esc(l.id)}">${esc(l.name)}</a> <span class="small">이 작품에서 고쳤거나 라이브러리가 바뀌었어요</span>`,
+  }[l.state] || '';
+  const linkBtns = l.state === 'changed'
+    ? '<button class="btn small" data-action="pushStyle">라이브러리 항목 갱신</button><button class="btn small" data-action="pullStyle">라이브러리 버전으로 되돌리기</button>'
+    : '';
+  return `<section class="card tight">
+      <div class="between"><h2>문체 라이브러리</h2><a class="small" href="#/styles">라이브러리 열기</a></div>
+      <div class="row">${status}</div>
+      <div class="row" style="flex-wrap:nowrap">
+        ${libs.length
+          ? `<select id="style-pick" aria-label="라이브러리 문체" style="flex:1"><option value="">라이브러리에서 고르기</option>${opts}</select><button class="btn small" style="flex:none" data-action="useLibStyle">적용</button>`
+          : '<span class="small" style="flex:1">라이브러리가 비어 있어요. 이 작품의 문체를 저장해 두면 다른 작품에서 다시 쓸 수 있어요.</span>'}
+      </div>
+      <div class="row">${linkBtns}<button class="btn small" data-action="keepStyle">이 문체를 라이브러리에 새로 저장</button></div>
+    </section>`;
+}
+
 function viewStyle() {
-  const st = P().style;
-  const passages = st.sample_passages.map((_, i) => `<div class="row" style="align-items:flex-start;flex-wrap:nowrap">
-      <div style="flex:1">${input(`대표 문단 ${i + 1}`, `style.sample_passages.${i}`, { rows: 3 })}</div>
-      <button class="btn icon-btn danger" style="margin-top:26px" data-action="removePassage" data-arg="${i}" aria-label="대표 문단 ${i + 1} 삭제">✕</button></div>`).join('');
-  return `${header('2단계', '문체 레퍼런스', '닮고 싶은 소설 문단을 붙여 넣으면 문체 규칙을 뽑습니다. 규칙과 원문 예시가 매 화 본문 생성에 함께 들어갑니다.', `<a class="btn primary" href="${base()}/arc">기승전결로</a>`)}
+  return `${header('2단계', '문체 레퍼런스', '닮고 싶은 소설 문단을 붙여 넣으면 문체 규칙을 뽑습니다. 규칙과 원문 예시가 매 화 본문 생성에 함께 들어갑니다. 라이브러리에 저장한 문체를 그대로 가져올 수도 있어요.', `<a class="btn primary" href="${base()}/arc">기승전결로</a>`)}
     <div class="cols">
-      <section class="card col">
-        <div class="between"><h2>예시 원문</h2><span class="small"><span id="sample-count">${S.styleSample.length.toLocaleString()}</span>자 · 2,000자 이상 권장</span></div>
-        <label for="sample" class="small">소설 본문을 붙여 넣으세요. 원문은 저장되지 않고, 고른 대표 문단만 남습니다.</label>
-        <textarea id="sample" rows="16" data-local="styleSample" oninput="document.getElementById('sample-count').textContent=this.value.length.toLocaleString()" style="font-family:var(--serif);font-size:15px;line-height:1.9">${esc(S.styleSample)}</textarea>
-        <div><button class="btn dark" data-action="analyzeStyle">문체 분석</button></div>
-        <div class="note plain">원문은 문체 분석과 예시 문단으로만 쓰입니다. 내용이나 인물은 작품에 가져오지 않습니다.</div>
-      </section>
+      <div class="col">
+        ${styleLibraryCard()}
+        <section class="card">
+          <div class="between"><h2>예시 원문</h2><span class="small"><span id="sample-count">${S.styleSample.length.toLocaleString()}</span>자 · 2,000자 이상 권장</span></div>
+          <label for="sample" class="small">소설 본문을 붙여 넣으세요. 원문은 작품에 저장되지 않고 고른 대표 문단만 남습니다. 라이브러리에 저장하면 원문도 라이브러리에 함께 보관합니다.</label>
+          <textarea id="sample" rows="16" data-local="styleSample" oninput="document.getElementById('sample-count').textContent=this.value.length.toLocaleString()" style="font-family:var(--serif);font-size:15px;line-height:1.9">${esc(S.styleSample)}</textarea>
+          <div><button class="btn dark" data-action="analyzeStyle">문체 분석</button></div>
+          <div class="note plain">원문은 문체 분석과 예시 문단으로만 쓰입니다. 내용이나 인물은 작품에 가져오지 않습니다.</div>
+        </section>
+      </div>
       <section class="card col wide">
         <div class="between"><h2>스타일 프로필</h2><span class="small">모든 칸은 직접 고칠 수 있어요</span></div>
-        <div class="grid-2">
-          ${input('시점', 'style.narration_pov')}${input('시제', 'style.tense')}
-          ${input('문장 리듬', 'style.sentence_rhythm', { rows: 2 })}${input('묘사 밀도', 'style.description_density', { rows: 2 })}
-          ${input('대사 비율', 'style.dialogue_ratio')}${input('대사 방식', 'style.dialogue_style')}
-          ${input('내면 독백', 'style.inner_monologue')}${input('전개 속도', 'style.pacing')}
-          ${input('장면 전환', 'style.scene_transition')}${input('어휘', 'style.vocabulary')}
-        </div>
-        <div class="grid-2">
-          <div class="note ok">${input('지킬 것', 'style.dos', { kind: 'list', rows: 4 })}</div>
-          <div class="note err">${input('피할 것', 'style.donts', { kind: 'list', rows: 4 })}</div>
-        </div>
-        <div class="between"><h3>대표 문단 <span class="small" style="font-weight:400">본문 생성 때 그대로 보여줄 원문 예시, 2~4개</span></h3><button class="btn small" data-action="addPassage">+ 문단</button></div>
-        ${passages || '<div class="small">아직 없어요. 문체 분석을 하면 원문에서 골라 넣습니다.</div>'}
+        ${profileFields('style')}
+      </section>
+    </div>`;
+}
+
+// ----- 문체 라이브러리 -----
+
+function fmtDate(iso) {
+  return iso ? iso.slice(0, 10).replace(/-/g, '.') : '';
+}
+
+function viewLibrary() {
+  const list = S.libs || [];
+  const cards = list.map((x) => `<article class="card tight">
+      <div class="between"><h3><a href="#/styles/${esc(x.id)}" style="color:inherit;text-decoration:none">${esc(x.name)}</a></h3><span class="small">${fmtDate(x.updated_at)}</span></div>
+      ${x.source ? `<div class="small">${esc(x.source)}</div>` : ''}
+      <div class="row">
+        ${x.narration_pov ? `<span class="chip">${esc(x.narration_pov)}</span>` : ''}${x.tense ? `<span class="chip">${esc(x.tense)}</span>` : ''}
+        <span class="chip">대표 문단 ${x.passages}</span><span class="chip">규칙 ${x.rules}</span>
+        ${x.sample_chars ? `<span class="chip">원문 ${x.sample_chars.toLocaleString()}자</span>` : ''}
+      </div>
+      ${x.notes ? `<div class="small" style="white-space:pre-line">${esc(x.notes)}</div>` : ''}
+      <div class="small">${x.used_by.length ? `쓰는 작품: ${x.used_by.map((n) => `<a href="#/p/${enc(n)}/style">${esc(n)}</a>`).join(', ')}` : '아직 쓰는 작품이 없어요'}</div>
+      <div class="row"><a class="btn small" href="#/styles/${esc(x.id)}">열기</a><button class="btn small" data-action="libDuplicate" data-arg="${esc(x.id)}">복제</button><button class="btn small danger" data-action="libDelete" data-arg="${esc(x.id)}">삭제</button></div>
+    </article>`).join('');
+  return `${header('Canon', '문체 라이브러리', '붙여 넣은 원문에서 뽑은 문체를 작품과 따로 모아 둡니다. 작품에 적용하면 그 시점의 문체가 작품에 복사되고, 라이브러리를 고쳐도 쓰고 있는 작품은 다시 적용하기 전까지 그대로예요.', '<a class="btn" href="#/">작품 목록</a><a class="btn primary" href="#/styles/new">+ 새 문체</a>')}
+    ${list.length ? `<div class="grid-auto">${cards}</div>` : `<div class="card empty"><div>아직 저장한 문체가 없어요.</div><div class="small">새 문체를 만들거나, 작품의 문체 레퍼런스 화면에서 '라이브러리에 새로 저장'을 누르세요.</div><a class="btn primary" href="#/styles/new">+ 새 문체</a></div>`}`;
+}
+
+function baselineRows(b) {
+  if (!b) return '<div class="small">원문을 넣고 저장하면 문장 길이, 대사 비율 같은 기준 지표를 잽니다. 본문을 쓴 뒤 문체가 얼마나 벗어났는지 비교하는 기준이 됩니다.</div>';
+  const pct = (v) => (v == null ? '–' : `${Math.round(v * 100)}%`);
+  const rows = [
+    ['문장 평균 길이', `${b.sentence_len_mean.toFixed(1)}자`],
+    ['문장 길이 변화폭', b.sentence_len_cv.toFixed(2)],
+    ['문단 평균 길이', `${Math.round(b.paragraph_len_mean)}자`],
+    ['대사 비율', pct(b.dialogue_ratio)],
+    ['과거형 비율', pct(b.past_tense_ratio)],
+    ['어휘 다양도', b.mattr == null ? '–' : b.mattr.toFixed(2)],
+    ['쉼표 문장 비율', pct(b.comma_sentence_ratio)],
+  ];
+  return `<dl class="metric-list">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>`;
+}
+
+function viewLibEntry() {
+  const e = S.lib;
+  const isNew = !e.id;
+  const used = e.used_by || [];
+  const others = (S.projects || []).filter((x) => !used.includes(x.name));
+  const right = `<a class="btn" href="#/styles">목록으로</a>${isNew ? '' : `<button class="btn" data-action="libDuplicate" data-arg="${esc(e.id)}">복제</button><button class="btn danger" data-action="libDelete" data-arg="${esc(e.id)}">삭제</button><button class="btn" data-action="libRevert">되돌리기</button>`}<button class="btn primary" data-action="libSave">저장</button>`;
+  const apply = isNew ? '' : `<section class="card tight">
+      <h2>작품에 적용</h2>
+      <div class="small">${used.length ? `쓰는 작품: ${used.map((n) => `<a href="#/p/${enc(n)}/style">${esc(n)}</a>`).join(', ')}` : '아직 쓰는 작품이 없어요.'}</div>
+      ${used.length ? '<div class="small">여기서 고친 내용은 작품의 문체 화면에서 \'라이브러리 버전으로 되돌리기\'를 눌러야 그 작품에 들어갑니다.</div>' : ''}
+      ${(S.projects || []).length ? `<div class="row" style="flex-wrap:nowrap"><select id="lib-target" aria-label="적용할 작품" style="flex:1"><option value="">작품 고르기</option>${[...others, ...(S.projects || []).filter((x) => used.includes(x.name))].map((x) => `<option value="${esc(x.name)}">${esc(x.title || x.name)}${used.includes(x.name) ? ' (다시 적용)' : ''}</option>`).join('')}</select><button class="btn small" style="flex:none" data-action="libApplyTo">적용</button></div>` : ''}
+    </section>`;
+  return `${header('문체 라이브러리', isNew ? '새 문체' : e.name || '이름 없음', isNew ? '원문을 붙여 넣고 분석하거나, 프로필을 직접 채운 뒤 저장하세요.' : `만든 날 ${fmtDate(e.created_at)} · 고친 날 ${fmtDate(e.updated_at)}`, right)}
+    <div class="cols">
+      <div class="col">
+        <section class="card">
+          ${input('이름', 'name', { root: 'lib', placeholder: '예: 건조한 1인칭 하드보일드' })}
+          ${input('출처', 'source', { root: 'lib', hint: '작가, 작품 등 메모', placeholder: '예: 직접 쓴 단편 「등대」' })}
+          ${input('메모', 'notes', { root: 'lib', rows: 2, placeholder: '어떤 작품에 어울리는지 등' })}
+        </section>
+        <section class="card">
+          <div class="between"><h2>원문</h2><span class="small"><span id="lib-sample-count">${(e.sample || '').length.toLocaleString()}</span>자 · 2,000자 이상 권장</span></div>
+          ${input('분석할 소설 본문', 'sample', { root: 'lib', rows: 14, style: 'font-family:var(--serif);font-size:15px;line-height:1.9', hint: '이 컴퓨터의 라이브러리 폴더에만 저장됩니다' })}
+          <div><button class="btn dark" data-action="libAnalyze">문체 분석</button></div>
+        </section>
+        <section class="card tight"><h2>기준 지표</h2>${baselineRows(e.baseline)}</section>
+        ${apply}
+      </div>
+      <section class="card col wide">
+        <div class="between"><h2>스타일 프로필</h2><span class="small">모든 칸은 직접 고칠 수 있어요</span></div>
+        ${profileFields('profile', 'lib')}
       </section>
     </div>`;
 }
