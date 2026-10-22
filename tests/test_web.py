@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("CANON_LLM", "mock")
     monkeypatch.setenv("CANON_HOME", str(tmp_path))
+    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     from canon import store, web
 
     importlib.reload(store)
@@ -73,3 +74,33 @@ def test_bad_names(client):
     assert client.get("/api/projects/nope").status_code == 404
     assert client.post("/api/projects", json={"name": "../x", "meta": {}}).status_code == 400
     assert client.get("/").status_code == 200
+
+
+def test_settings(client, tmp_path, monkeypatch):
+    for name in ("CANON_LLM", "CANON_MODEL", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    c = client.get("/api/config").json()
+    assert c["provider"] == "gemini" and not c["has_key"] and c["key_source"] == "none"
+
+    c = client.put("/api/config", json={"api_key": "AIza-secret-1234", "model": "gemini-2.5-flash"}).json()
+    assert c["has_key"] and c["key_hint"] == "…1234" and c["model"] == "gemini-2.5-flash"
+    assert "secret" not in str(c)
+    cfg = tmp_path / "config.json"
+    assert oct(cfg.stat().st_mode & 0o777) == "0o600"
+
+    # 키를 비워 보내지 않으면 그대로, 환경 변수가 있으면 환경 변수가 우선
+    c = client.put("/api/config", json={"model": "gemini-2.5-pro"}).json()
+    assert c["key_source"] == "file" and c["model"] == "gemini-2.5-pro"
+    monkeypatch.setenv("GEMINI_API_KEY", "env-key-9999")
+    assert client.get("/api/config").json()["key_source"] == "env"
+    monkeypatch.delenv("GEMINI_API_KEY")
+
+    assert client.put("/api/config", json={"provider": "claude"}).status_code == 400
+    assert client.put("/api/config", json={"clear_key": True}).json()["key_source"] == "none"
+
+    # 화면에서 mock 으로 바꾸면 AI 호출도 mock 으로 간다
+    client.put("/api/config", json={"provider": "mock"})
+    assert client.post("/api/config/test").json()["ok"]
+    from canon.llm import get_llm
+    from canon.mock import MockLLM
+    assert isinstance(get_llm(), MockLLM)
