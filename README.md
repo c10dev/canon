@@ -16,13 +16,33 @@ API 키 없이 흐름만 보려면 `export CANON_LLM=mock`.
 ## 웹 UI
 
 ```bash
-python -m canon serve            # http://127.0.0.1:8000
+python -m canon serve            # http://127.0.0.1:8000 을 띄우고 브라우저를 연다
+python -m canon serve --no-browser     # 브라우저는 열지 않기
 CANON_LLM=mock python -m canon serve   # API 키 없이 화면만 둘러보기
 ```
+
+macOS 에서는 Finder 로 `scripts/canon-mac.command` 를 더블클릭해도 된다. 저장소의 `.venv` 를 켜고 서버를 띄운 뒤 브라우저를 연다(이미 켜져 있으면 브라우저만 연다). 처음 한 번은 우클릭 → 열기로 실행 허용이 필요할 수 있다. Dock 에 끌어 두면 앱처럼 쓸 수 있다.
 
 Gemini API 키와 모델은 화면 오른쪽 아래 **모델 · API 키 설정**에서 넣는다. `~/.canon/config.json` 에만 저장되고(권한 600), 환경 변수 `GEMINI_API_KEY`, `CANON_MODEL`, `CANON_LLM` 이 있으면 그 값이 우선한다. CLI 도 같은 설정을 쓴다.
 
 작품 홈, 설정 도우미, 문체 레퍼런스, 기승전결 플롯 보드, 집필, 상태 변경안 승인, 채팅 앱 작업지시서 화면이 있다. CLI 와 같은 `projects/<이름>/project.json` 을 읽고 쓴다. AI 제안은 바로 저장되지 않고, 화면에서 고르거나 고친 뒤 저장할 때 반영된다.
+
+### 서버에서 상시 실행 (Tailscale)
+
+Vercel 같은 서버리스 호스팅은 맞지 않는다. 소설 데이터를 파일(`project.json`)에 저장하고 Gemini 호출이 길게 걸리기 때문이다. 항상 켜져 있는 리눅스 서버가 있으면 systemd 로 돌리고 Tailscale 로 내 기기에서만 연다. Canon 에는 로그인이 없으니 **Tailscale Funnel 이나 공개 포트로 열지 않는다**.
+
+```bash
+# 서버에서: 저장소를 받고 가상환경 준비
+git clone https://github.com/c10dev/canon ~/canon && cd ~/canon
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+# deploy/canon.service 의 USER 와 경로를 고친 뒤 등록 (부팅 때 자동 실행)
+sudo cp deploy/canon.service /etc/systemd/system/canon.service
+sudo systemctl daemon-reload && sudo systemctl enable --now canon
+# tailnet 안에서만 HTTPS 로 열기 (8446 은 비어 있는 아무 포트)
+sudo tailscale serve --bg --https=8446 http://127.0.0.1:8000
+```
+
+그러면 같은 tailnet 의 맥, 아이폰에서 `https://<서버이름>.<tailnet>.ts.net:8446` 로 열린다. 작품은 서버의 `~/canon/projects/` 에, API 키는 서버 계정의 `~/.canon/config.json` 에 저장된다. 다른 컴퓨터에서 쓰던 작품은 `projects/<이름>/` 폴더를 그대로 복사하면 된다. 포트 대시보드(예: Portboard)를 쓰고 있으면 systemd 서비스 이름 `Canon - AI 소설 작성 웹 UI` 로 잡힌다. 로그는 `journalctl -u canon -f`.
 
 ## CLI 사용 순서
 
