@@ -16,10 +16,14 @@ from .schema import (
     ConsistencyReport,
     EpisodePlot,
     Foreshadow,
+    HookItem,
+    HookReport,
     ImpactConflict,
     ImpactReport,
     NameOption,
     NameOptions,
+    OpeningOption,
+    OpeningPlots,
     PassageCandidate,
     PassageRevision,
     PlotBatch,
@@ -161,9 +165,31 @@ def _rebuild(hint: dict) -> SerialRebuild:
 
 
 def _plot(n: int, act: str, note: str = "") -> EpisodePlot:
+    early = n <= 3  # 초반 1~3화는 여는 장면과 독자 질문을 채운다
     return EpisodePlot(number=n, act=act, title=f"{n}화 제목", summary=f"{n}화 요약{note}",
                        events=["사건 1", "사건 2", "사건 3"], characters=["hero", "ally"],
-                       emotional_shift="불안 → 결심", ending_hook="문이 열렸다")
+                       emotional_shift="불안 → 결심", ending_hook="문이 열렸다",
+                       opening=f"{n}화 여는 장면" if early else "", reader_question=f"{n}화 뒤에 무엇이 있나?" if early else "")
+
+
+def _hook(hint: dict) -> HookReport:
+    """판정 흉내: 첫 문장을 근거로, 하나는 본문에 없는 인용을 넣어 걸러지는지 시험한다."""
+    text = hint["text"].strip()
+    first = re.split(r"(?<=[.!?])\s+|\n+", text)[0].strip()
+    items = [HookItem(aspect="첫 문단", score=4, quote=first, note="움직임으로 시작한다"),
+             HookItem(aspect="주인공", score=5, quote="본문에 없는 지어낸 문장", note="걸러져야 한다"),
+             HookItem(aspect="엔딩", score=2, quote="", note="여운으로 끝나 훅이 약하다")]
+    return HookReport(episode=hint["episode"], items=items, premise_quote=first, reader_question="등대에 누가 있나?",
+                      next_click=True, reason="주인공이 바로 움직인다", premise_at=99, basis="x")
+
+
+def _openings(hint: dict) -> OpeningPlots:
+    """여는 방식마다 하나씩, 검증을 시험하도록 요청하지 않은 방식과 중복을 섞는다."""
+    n, act = hint["episode"], hint["act"]
+    opts = [OpeningOption(approach=a, pitch=f"{a} 로 붙잡는다",
+                          plot=_plot(n, act).model_copy(update={"opening": f"{a} 장면", "number": 99})) for a in hint["approaches"]]
+    opts += [OpeningOption(approach="unknown", pitch="", plot=_plot(n, act)), opts[0]]
+    return OpeningPlots(options=opts)
 
 
 def _revision(hint: dict) -> PlotRevision:
@@ -303,6 +329,10 @@ class MockLLM:
             return NameOptions(options=[NameOption(name=x, reason="후보 중 인물과 시대에 맞는 이름") for x in names])  # type: ignore[return-value]
         if schema is PassageRevision:
             return _passage(hint)  # type: ignore[return-value]
+        if schema is HookReport:
+            return _hook(hint)  # type: ignore[return-value]
+        if schema is OpeningPlots:
+            return _openings(hint)  # type: ignore[return-value]
         if schema is ConsistencyReport:
             n = hint["episode"]
             issues = [ConsistencyIssue(

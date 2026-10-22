@@ -3,7 +3,7 @@
 웹 설정 화면에서 저장하면 ~/.canon/config.json 에 들어간다 (CANON_CONFIG 로 경로 변경).
 환경 변수가 있으면 파일보다 우선한다: CANON_LLM, CANON_MODEL, GEMINI_API_KEY(또는 GOOGLE_API_KEY),
 CANON_LOCAL_URL, CANON_LOCAL_MODEL, CANON_LOCAL_KEY, CANON_LLM_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE,
-CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE (단계별 모델).
+CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE (단계별 모델). prices 는 AI 요금 가격표에서 고친 줄 (usage.py).
 파일은 작품 폴더와 따로 두어 저장소나 project.json 에 키가 섞이지 않게 한다.
 """
 from __future__ import annotations
@@ -150,6 +150,21 @@ def update(*, provider: str | None = None, model: str | None = None,
         _set_stage_map(data, "stages", stages)  # 빈 값이면 전체 provider 를 따른다
     if stage_models is not None:
         _set_stage_map(data, "stage_models", stage_models)  # 빈 값이면 백엔드 기본 모델
+    _write(data)
+
+
+def prices() -> list[dict]:
+    """사용자가 고친 AI 요금 가격표 줄 (usage.Price 모양). 기본 가격표는 canon/usage.py 에 있다."""
+    rows = _read().get("prices")
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
+def set_prices(rows: list[dict]) -> None:
+    data = _read()
+    if rows:
+        data["prices"] = rows
+    else:
+        data.pop("prices", None)
     _write(data)
 
 

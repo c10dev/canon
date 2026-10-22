@@ -466,3 +466,20 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .rb-map tr.rb-keep td:first-child { box-shadow: inset 3px 0 0 var(--green); }
 .rb-map tr.rb-revise td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .rb-map tr.rb-rewrite td:first-child { box-shadow: inset 3px 0 0 var(--amber); }
+
+/* 사용량 · 비용 */
+.usage-filters select { min-height: 36px; }
+.usage-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.usage-tile { padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); display: flex; flex-direction: column; gap: 4px; }
+.usage-num { font-size: 24px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.usage-chart { height: 140px; display: flex; align-items: flex-end; gap: 2px; padding-top: 8px; border-bottom: 1px solid var(--line-strong); }
+.usage-bar { flex: 1 1 0; min-width: 2px; height: 100%; display: flex; align-items: flex-end; cursor: default; }
+.usage-bar i { display: block; width: 100%; background: var(--accent); border-radius: 4px 4px 0 0; }
+.usage-bar:hover i, .usage-bar:focus i { background: var(--accent-ink); }
+.usage-bar:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+.usage-table td, .price-table td { font-variant-numeric: tabular-nums; }
+.usage-share { width: 80px; }
+.usage-share i { display: block; height: 8px; min-width: 2px; border-radius: 4px; background: var(--accent); opacity: 0.5; }
+.chip.usage-fail { background: var(--red-soft); color: var(--red); }
+.price-table input { min-height: 34px; width: 76px; }
+.price-table input[type="text"] { width: 170px; }

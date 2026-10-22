@@ -8,15 +8,16 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from urllib.parse import unquote
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import autorun, dynamics, elements, genres, jobs, library, metrics, naming, pipeline, prompts, research, settings, store
+from . import autorun, dynamics, elements, genres, jobs, library, metrics, naming, pipeline, prompts, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, get_llm, make_llm
-from .schema import (ArcPlan, ArcProposal, Meta, Project, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
+from .schema import (ArcPlan, ArcProposal, EpisodePlot, Meta, Project, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 
 STATIC = Path(__file__).parent / "static"
@@ -26,12 +27,34 @@ app = FastAPI(title="Canon")
 _active = 0  # 처리 중인 요청 수. 자동 업데이트는 이 값이 0일 때만 다시 시작한다.
 
 
+_PROJECT_PATH = re.compile(r"^/api/projects/([^/]+)/?(.*)$")
+_EPISODE_PATH = re.compile(r"(?:^episodes/|^research/compare/|^chat/text:)(\d+)")
+
+
+def _usage_scope(path: str) -> dict:
+    """요청 경로에서 사용량 기록에 붙일 작품, 화, 작업 이름을 읽는다. 연구 화면 호출은 단계를 research 로 적는다."""
+    if path.startswith("/api/research"):
+        return {"source": "research", "stage": "research", "task": "probe"}
+    m = _PROJECT_PATH.match(path)
+    if not m:
+        return {"source": "web"}
+    rest = m[2]
+    ep = _EPISODE_PATH.search(rest)
+    parts = rest.split("/")
+    task = parts[2] if parts[0] == "episodes" and len(parts) > 2 else parts[0].split(":")[0]
+    out = {"source": "web", "project": unquote(m[1]), "episode": int(ep[1]) if ep else None, "task": task or None}
+    if parts[0] == "research":
+        out.update(source="research", stage="research", task=parts[1] if len(parts) > 1 else "research")
+    return out
+
+
 @app.middleware("http")
 async def _count_active(request: Request, call_next):
     global _active
     _active += 1
     try:
-        return await call_next(request)
+        with usage.scope(**_usage_scope(request.url.path)):
+            return await call_next(request)
     finally:
         _active -= 1
 
@@ -209,7 +232,17 @@ def put_project(name: str, p: Project, merged: str = "") -> Project:
         dynamics.seed_ties(p)
     elements.stamp(p)
     _keep_impacts(name, p)
+    _keep_hooks(name, p)
     return _save(name, p, merged={m for m in merged.split(",") if m})
+
+
+def _keep_hooks(name: str, p: Project) -> None:
+    """흡입력 판정도 백그라운드 작업이 디스크에 쓴다. 화면이 그 전에 읽은 작품을 저장해도 새 판정을 덮지 않게 한다."""
+    disk = {e.plot.number: e.hook for e in store.load(name).episodes if e.hook}
+    for e in p.episodes:
+        d = disk.get(e.plot.number)
+        if d and (e.hook is None or e.hook.checked_at < d.checked_at):
+            e.hook = d
 
 
 def _keep_impacts(name: str, p: Project) -> None:
@@ -663,7 +696,7 @@ def impact_dismiss(name: str, eid: str) -> Project:
 # ---------- 백그라운드 작업 ----------
 
 class JobIn(BaseModel):
-    kind: str  # suggest | arc | plots | write | state | impact | series | nextarc | recap_arc | recap_part | storyline | convert | rebuild | rework
+    kind: str  # suggest | arc | plots | write | state | impact | series | nextarc | recap_arc | recap_part | storyline | convert | rebuild | rework | hook | openings | opening_drafts
     ep: int | None = None  # 화 번호. plots 는 장편에서 아크 번호(없으면 초안이 있는 모든 아크), recap_* 는 아크·부 번호
     element: str = ""  # impact 일 때 요소 id
     note: str = ""  # nextarc, storyline, convert, rebuild: 작가가 바라는 것
@@ -671,6 +704,8 @@ class JobIn(BaseModel):
     length: int = 0  # nextarc: 아크 화수 (0 이면 AI 가 정함). convert, rebuild: 장편 총 화수
     ending: str = ""  # convert: keep | reopen, rebuild: arc | part | series (단편 결말이 갈 곳). 비우면 AI 가 고름
     span: int = 0  # rebuild: 다시 짤 앞부분 화수 (0 이면 기본값)
+    approaches: list[str] = []  # openings, opening_drafts: 여는 방식 id (비우면 기본 세 가지)
+    draft: int = 0  # hook: 0 이면 그 화 본문, k 면 비교본 k 번을 판정
 
 
 def _edit(name: str, fn) -> Project:
@@ -706,7 +741,8 @@ def start_job(name: str, body: JobIn) -> dict:
     kind, n = body.kind, body.ep
     if kind in ("write", "state", "plots"):
         _not_auto(name)
-    stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "rework": "revise"}.get(kind, "plan")  # 나머지는 plan
+    stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "rework": "revise",
+             "hook": "check", "opening_drafts": "write"}.get(kind, "plan")  # 나머지는 plan
     llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
     if kind == "suggest":
@@ -816,6 +852,40 @@ def start_job(name: str, body: JobIn) -> dict:
 
             def fn(job: jobs.Job):
                 return pipeline.extract_state(llm, store.load(name), n).model_dump()
+    elif kind in ("hook", "openings", "opening_drafts"):
+        if n is None or not prompts.is_opening(n):
+            raise ValueError(f"1~{prompts.OPENING_EPISODES}화 번호(ep)가 필요합니다")
+        ways, k = body.approaches, body.draft
+        if kind == "hook":
+            if k:
+                research.compare_text(name, n, k)  # 비교본이 없으면 바로 알린다
+            elif not p.episode(n).text:
+                raise ValueError(f"{n}화 본문이 없습니다")
+            label, total, owned = f"{n}화 흡입력 판정" + (f" (비교본 {k}번)" if k else ""), 1, set()
+
+            def fn(job: jobs.Job):
+                q = store.load(name)
+                rep = pipeline.check_hook(llm, q, n, research.compare_text(name, n, k) if k else None)
+                if k:
+                    research.save_compare_hook(name, n, k, rep)
+                else:
+                    _edit(name, lambda q: pipeline.apply_hook(q, rep))
+                return rep.model_dump()
+        elif kind == "openings":
+            label, total, owned = f"{n}화 여는 방식 여러 안", 1, set()
+
+            def fn(job: jobs.Job):
+                return pipeline.suggest_openings(llm, store.load(name), n, ways).model_dump()
+        else:
+            if p.episode(n).status == "draft":
+                raise ValueError(f"{n}화 플롯이 아직 확정되지 않았습니다")
+            label, total, owned = f"{n}화 여러 안으로 쓰기", 1, set()
+
+            def fn(job: jobs.Job):
+                c = research.run_opening_compare(name, store.load(name), n, llm, ways)
+                research.record(name, "compare", {"episode": n, "kind": "opening", "backends": [
+                    prompts.OPENING_APPROACHES[a][0] for a in (ways or prompts.DEFAULT_APPROACHES) if a in prompts.OPENING_APPROACHES]})
+                return {"episode": n, "count": len(c["drafts"])}
     elif kind == "impact":
         el = elements.get(p, body.element)
         eid = el.id
@@ -831,7 +901,8 @@ def start_job(name: str, body: JobIn) -> dict:
         raise ValueError(f"모르는 작업입니다: {kind}")
 
     try:
-        job = jobs.start(name, kind, n, label, fn, total=total, owned=owned)
+        with usage.scope(episode=n if kind in ("write", "state", "rework", "hook", "openings", "opening_drafts") else None, task=kind):
+            job = jobs.start(name, kind, n, label, fn, total=total, owned=owned)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}
     return job.public()
@@ -916,11 +987,44 @@ def undo_passage(name: str, n: int, eid: str) -> Project:
     return _edit(name, lambda p: pipeline.undo_edit(p, n, eid))
 
 
+# ---------- 4-2. 초반 1~3화 ----------
+
+@app.get("/api/opening/approaches")
+def opening_approaches() -> list[dict]:
+    return [{"id": k, "label": label, "how": how, "default": k in prompts.DEFAULT_APPROACHES}
+            for k, (label, how) in prompts.OPENING_APPROACHES.items()]
+
+
+@app.get("/api/projects/{name}/episodes/{n}/opening")
+def opening_check(name: str, n: int) -> dict:
+    """1~3화 초반 지표(LLM 없음)와 마지막 흡입력 판정."""
+    p = _load(name)
+    e = p.episode(n)
+    if not prompts.is_opening(n):
+        raise ValueError(f"초반 점검은 1~{prompts.OPENING_EPISODES}화만 합니다")
+    m, warnings = pipeline.opening_metrics(p, n) if e.text else (None, [])
+    return {"metrics": m, "warnings": warnings, "hook": e.hook, "hook_stale": pipeline.hook_stale(p, n),
+            "compare": research.load_compare(name, n)}
+
+
+class OpeningPlotIn(BaseModel):
+    plot: EpisodePlot
+
+
+@app.post("/api/projects/{name}/episodes/{n}/opening-plot")
+def opening_plot(name: str, n: int, body: OpeningPlotIn) -> Project:
+    """여는 방식 여러 안에서 고른 플롯을 n화 플롯으로 쓴다 (확정했던 화는 초안으로)."""
+    _load(name)
+    _not_auto(name)
+    return _edit(name, lambda p: pipeline.apply_opening(p, n, body.plot))
+
+
 @app.get("/api/projects/{name}/episodes/{n}/context")
 def context(name: str, n: int) -> list[dict]:
     """본문 생성에 들어가는 컨텍스트를 섹션별 글자 수로 보여준다."""
     p = _load(name)
-    text = prompts.build_episode_context(p, n)
+    rules = prompts.opening_rules(p, n)
+    text = prompts.build_episode_context(p, n) + (f"\n\n{rules}" if rules else "")
     out = []
     for block in re.split(r"^# ", text, flags=re.M):
         if block.strip():
@@ -1102,6 +1206,34 @@ def brief(name: str, n: int, kind: str = "episode") -> dict:
 
 
 # ---------- 연구 (모델 실험, 작품 데이터와 분리) ----------
+
+@app.get("/api/usage")
+def usage_summary(days: int = 30, project: str | None = None) -> dict:
+    """AI 호출 기록을 기간과 작품으로 걸러 모은다. days 가 0 이면 전체."""
+    return usage.summary(days or None, project or None)
+
+
+@app.get("/api/usage/prices")
+def usage_prices() -> dict:
+    return usage.price_table()
+
+
+class PricesIn(BaseModel):
+    rows: list[usage.Price]
+
+
+@app.put("/api/usage/prices")
+def put_usage_prices(body: PricesIn) -> dict:
+    usage.save_prices(body.rows)
+    return usage.price_table()
+
+
+@app.delete("/api/usage/prices")
+def reset_usage_prices() -> dict:
+    """가격표를 기본값(Google 가격표에서 옮긴 값)으로 되돌린다."""
+    settings.set_prices([])
+    return usage.price_table()
+
 
 class Probe(BaseModel):
     url: str = ""
