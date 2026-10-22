@@ -73,17 +73,57 @@ def get_tie(ties: list[Tie], source: str, target: str) -> Tie:
     return t
 
 
+# 설정 화면에서 말로 고르는 "a 가 b 를 보는 방식". 여러 개를 고르면 온기와 서열은 더하고,
+# 신뢰는 평균, 원한은 큰 값을 쓴다. trust 가 없는 말은 신뢰를 온기에서 정한다.
+VIEWS: dict[str, dict[str, float]] = {
+    "믿는다":    {"warmth": 0.3, "trust": 0.8},
+    "좋아한다":  {"warmth": 0.6},
+    "경계한다":  {"warmth": -0.2, "trust": 0.25},
+    "미워한다":  {"warmth": -0.7, "trust": 0.2, "grievance": 0.5},
+    "빚졌다":    {"warmth": 0.2, "status": -0.3},
+    "얕본다":    {"warmth": -0.1, "status": 0.3},
+    "잘 모른다": {"familiarity": 0.05},
+}
+
+
+def view_tie(source: str, target: str, words: list[str]) -> Tie:
+    """말로 고른 보는 방식으로 시작 간선을 만든다. 모르는 말은 건너뛴다."""
+    fx = [VIEWS[w] for w in words if w in VIEWS]
+    w = clip(sum(f.get("warmth", 0.0) for f in fx))
+    trusts = [f["trust"] for f in fx if "trust" in f]
+    m = sum(trusts) / len(trusts) if trusts else 0.5 + w / 4
+    tie = Tie(source=source, target=target, warmth=w, trust_pos=1 + 2 * m, trust_neg=1 + 2 * (1 - m),
+              status=clip(sum(f.get("status", 0.0) for f in fx)),
+              grievance=max([f.get("grievance", 0.0) for f in fx] + [0.0]),
+              familiarity=min([f.get("familiarity", 0.3) for f in fx] + [0.3]))
+    tie.stage = target_stage(tie, "낯섦")
+    return tie
+
+
 def seed_ties(p: Project) -> None:
-    """설정 단계의 Relationship(affinity) 에서 아직 없는 방향 간선을 만든다. 기존 project.json 이전에도 쓴다."""
+    """설정 단계의 Relationship 에서 아직 없는 방향 간선을 만든다. 기존 project.json 이전에도 쓴다.
+
+    보는 방식(a_view, b_view)을 말로 골랐으면 그 말로, 아니면 affinity 로 만든다.
+    말로 만든 쌍은 affinity 를 두 방향 온기의 평균에 맞춘다.
+    """
     for r in p.relationships:
-        for s, t in ((r.a, r.b), (r.b, r.a)):
+        made = False
+        for s, t, words in ((r.a, r.b, r.a_view), (r.b, r.a, r.b_view)):
             if find_tie(p.ties, s, t):
+                continue
+            if words:
+                p.ties.append(view_tie(s, t, words))
+                made = True
                 continue
             w = clip(r.affinity / 5)
             m = 0.5 + r.affinity / 20  # 0.25 ~ 0.75, 증거 2개 분량
             tie = Tie(source=s, target=t, warmth=w, trust_pos=1 + 2 * m, trust_neg=1 + 2 * (1 - m), familiarity=0.3)
             tie.stage = target_stage(tie, "낯섦")
             p.ties.append(tie)
+        if made:
+            pw = pair_warmth(p.ties, r.a, r.b)
+            if pw is not None:
+                r.affinity = round(pw * 5)
 
 
 # ---------- 사건 적용 ----------

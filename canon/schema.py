@@ -18,14 +18,32 @@ EpisodeStatus = Literal["draft", "confirmed", "written", "finalized"]
 
 # ---------- 기본 설정 ----------
 
+class LoglineParts(BaseModel):
+    """로그라인을 다섯 칸으로 나눈 것. 합친 문장은 Meta.logline 에 둔다 (canon/logline.py)."""
+    who: str = Field("", description="누가: 이름보다 특징이 먼저 보이는 주인공")
+    why: str = Field("", description="무엇 때문에: 이야기를 시작하게 만드는 일")
+    goal: str = Field("", description="무엇을 하려 하나: 눈에 보이는 행동, '~한다'로 끝남")
+    block: str = Field("", description="무엇이 막나: 사람이나 힘")
+    stake: str = Field("", description="무엇이 걸렸나: 실패하거나 진실을 알면 잃는 것 (선택)")
+
+
+class ToneDials(BaseModel):
+    """톤을 양 끝 사이에서 고른 값. 0 은 고르지 않음, 1~4 는 왼쪽 끝에서 오른쪽 끝."""
+    dark: int = Field(0, description="1 밝다 ~ 4 어둡다")
+    serious: int = Field(0, description="1 가볍다 ~ 4 진지하다")
+    slow: int = Field(0, description="1 빠르다 ~ 4 느리다")
+
+
 class Meta(BaseModel):
     title: str = ""
     genre: str = Field("", description="장르 한 줄 표시. genres 를 고르면 그 이름으로 맞춘다")
     genres: list[str] = Field(default_factory=list, description="canon/genres.py 의 장르 id, 목록에 없으면 직접 적은 이름")
     adult: bool = Field(False, description="성인 독자 대상 작품인지")
     logline: str = Field("", description="한두 문장 요약: 누가, 무엇을 원하고, 무엇이 막는가")
-    theme: str = ""
+    logline_parts: LoglineParts = Field(default_factory=LoglineParts, description="설정 화면의 로그라인 다섯 칸")
+    theme: str = Field("", description="이 이야기가 끝까지 묻는 질문 하나")
     tone: str = ""
+    tone_dials: ToneDials = Field(default_factory=ToneDials, description="설정 화면에서 고른 톤 다이얼. tone 문장을 만든다")
     target_episodes: int = 16
     words_per_episode: int = Field(5000, description="화당 목표 분량(글자 수, 공백 포함)")
     notes: str = ""
@@ -69,6 +87,8 @@ class Relationship(BaseModel):
     affinity: int = Field(0, description="-5(적대) ~ 5(깊은 신뢰)")
     tension: int = Field(0, description="0(평온) ~ 10(폭발 직전)")
     goal_conflict: float = Field(0.0, description="두 인물의 목표가 부딪치는 정도 0~1")
+    a_view: list[str] = Field(default_factory=list, description="a 가 b 를 보는 방식, dynamics.VIEWS 의 말 (믿는다, 경계한다 등). 설정 단계 전용")
+    b_view: list[str] = Field(default_factory=list, description="b 가 a 를 보는 방식, dynamics.VIEWS 의 말. 설정 단계 전용")
 
 
 # ---------- 관계 역학 (canon/dynamics.py 가 계산) ----------
