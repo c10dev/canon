@@ -11,6 +11,7 @@ import json
 
 from pydantic import BaseModel
 
+from . import genres
 from .dynamics import describe_relations
 from .llm import _inline_refs, dump
 from .schema import ConsistencyReport, Project, StateDelta
@@ -59,12 +60,20 @@ SYSTEM_CHECKER = (
 CHECK_TEXT_LIMIT = 150_000
 
 
+def meta_text(p: Project) -> str:
+    """작품 정보와 장르 안내. 장르 id 대신 이름을 넣는다."""
+    view = p.meta.model_dump(exclude={"genres", "adult"})
+    view["genre"] = genres.label(p.meta)
+    view["rating"] = "성인" if p.meta.adult else "전연령"
+    return f"{dump(view)}\n\n[장르 안내]\n{genres.guide(p.meta)}"
+
+
 def setup_prompt(p: Project) -> str:
     return f"""아래는 작가가 입력한 기본 설정입니다. 비어 있거나 부족한 부분을 채워 작품 설정을 제안하세요.
 이미 입력된 내용은 바꾸지 말고 그대로 살려서 확장합니다.
 
 [기본 정보]
-{dump(p.meta)}
+{meta_text(p)}
 
 [이미 입력된 세계관]
 {dump(p.world)}
@@ -97,7 +106,7 @@ def arc_prompt(p: Project) -> str:
     return f"""아래 작품을 총 {p.meta.target_episodes}화로 완결하는 기승전결 구조를 설계하세요.
 
 [작품]
-{dump(p.meta)}
+{meta_text(p)}
 [세계관]
 {dump(p.world)}
 [인물]
@@ -117,7 +126,7 @@ def plot_prompt(p: Project, start: int, end: int) -> str:
     return f"""{start}화부터 {end}화까지 화별 플롯을 작성하세요.
 
 [작품]
-{dump(p.meta)}
+{meta_text(p)}
 [세계관]
 {dump(p.world)}
 [인물]
@@ -190,7 +199,7 @@ def static_context(p: Project) -> str:
     samples = "\n\n---\n\n".join(style.sample_passages) or "없음"
     style_rules = style.model_copy(update={"sample_passages": []})
     return f"""# 작품 정보
-{dump(p.meta)}
+{meta_text(p)}
 
 # 세계관 (깨면 안 되는 규칙 포함)
 {dump(p.world)}

@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import pipeline, prompts, settings, store
+from . import dynamics, genres, pipeline, prompts, settings, store
 from .llm import GeminiLLM, get_llm
 from .schema import ArcPlan, Meta, Project, SetupSuggestion, StateDelta, StyleProfile
 
@@ -111,7 +111,15 @@ def create_project(body: NewProject) -> Project:
     p = Project(meta=body.meta)
     if not p.meta.title:
         p.meta.title = name
+    if p.meta.genre:  # 새 작품 폼은 장르를 글로 받는다: '로맨스, 회귀'
+        p.meta.genres = genres.parse(p.meta.genre)
+        p.meta.genre = genres.label(p.meta)
     return _save(name, p)
+
+
+@app.get("/api/genres")
+def genre_list() -> list[genres.Genre]:
+    return genres.CATALOG
 
 
 @app.get("/api/projects/{name}")
@@ -126,6 +134,10 @@ def put_project(name: str, p: Project) -> Project:
     if p.arc:
         pipeline.validate_arc(ArcPlan(acts=p.arc), p.meta.target_episodes)
     pipeline._init_states(p)
+    p.meta.genre = genres.label(p.meta)
+    if p.snapshot(0) is None:  # 첫 반영 전에는 설정 화면의 시작 호감이 시작 관계다
+        p.ties = []
+        dynamics.seed_ties(p)
     return _save(name, p)
 
 
@@ -279,6 +291,45 @@ def apply_state(name: str, n: int, d: StateDelta) -> Project:
         raise ValueError(f"{n}화는 본문이 작성된 상태가 아닙니다 (현재: {ep.status})")
     d.episode = n
     pipeline.apply_delta(p, d)
+    return _save(name, p)
+
+
+# ---------- 관계 (canon/dynamics.py 계산값) ----------
+
+def _relations(p: Project) -> dict:
+    """같은 관계를 말과 숫자 두 가지로 돌려준다. 화면 토글은 둘 중 하나를 보여 준다."""
+    return {
+        "words": dynamics.describe_relations(p, numbers=False),
+        "numbers": dynamics.describe_relations(p, numbers=True),
+        "show_numbers": p.settings.show_numbers,
+    }
+
+
+@app.get("/api/projects/{name}/relations")
+def relations(name: str) -> dict:
+    p = _load(name)
+    dynamics.seed_ties(p)  # 아직 반영 전이면 설정값으로 시작 관계를 보여 준다
+    dynamics.sync_relationships(p)
+    return _relations(p)
+
+
+@app.post("/api/projects/{name}/episodes/{n}/preview")
+def preview(name: str, n: int, d: StateDelta) -> dict:
+    """화면에서 고른 변경안을 복사본에 반영해, 반영 후 계산될 관계를 미리 보여 준다. 저장하지 않는다."""
+    sim = _load(name)
+    d.episode = n
+    pipeline.apply_delta(sim, d)
+    return _relations(sim)
+
+
+class View(BaseModel):
+    show_numbers: bool
+
+
+@app.put("/api/projects/{name}/view")
+def set_view(name: str, body: View) -> Project:
+    p = _load(name)
+    p.settings.show_numbers = body.show_numbers
     return _save(name, p)
 
 
