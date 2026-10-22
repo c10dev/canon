@@ -216,6 +216,12 @@ class Settings(BaseModel):
 
 # ---------- 스타일 레퍼런스 ----------
 
+class StyleMarker(BaseModel):
+    text: str = Field(description="원문에 되풀이해 나오는 어미, 조사, 말버릇을 원문에 적힌 그대로 (예: '것이었다', '하더라'). 원문에서 글자 그대로 찾을 수 있어야 한다")
+    note: str = Field("", description="어디에 어떻게 쓰는지 한 줄")
+    per_1k: float = Field(0, description="원문 1,000자당 횟수. Canon 이 원문에서 세어 덮어쓴다")
+
+
 class StyleProfile(BaseModel):
     narration_pov: str = Field("", description="서술 시점: 1인칭 주인공, 3인칭 제한 등")
     tense: str = Field("", description="시제: 과거형, 현재형")
@@ -230,6 +236,7 @@ class StyleProfile(BaseModel):
     dos: list[str] = Field(default_factory=list, description="반드시 지킬 문체 규칙")
     donts: list[str] = Field(default_factory=list, description="피해야 할 표현이나 습관")
     banned_phrases: list[str] = Field(default_factory=list, description="본문에 나오면 안 되는 구체적 표현 (문자열 그대로 검사)")
+    markers: list[StyleMarker] = Field(default_factory=list, description="이 문체를 알아보게 하는 표지 5~10개와 원문 빈도. 빈도 안팎으로 쓰고 몰아 쓰지 않는다")
     sample_passages: list[str] = Field(default_factory=list, description="본문 생성 때 그대로 보여줄 대표 문단 2~4개 (원문 발췌)")
 
 

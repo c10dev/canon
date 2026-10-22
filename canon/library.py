@@ -75,6 +75,7 @@ def create(name: str, profile: StyleProfile, sample: str = "", source: str = "",
     sample = sample.strip()
     if sample:
         baseline = metrics.measure(sample)
+    _fill_rates(profile, sample)
     e = StyleEntry(id=uuid.uuid4().hex[:12], name=name, source=source, notes=notes,
                    sample=sample, profile=profile, baseline=baseline)
     return save(e)
@@ -86,8 +87,16 @@ def update(sid: str, name: str, profile: StyleProfile, sample: str, source: str 
     sample = sample.strip()
     if sample != e.sample:
         e.baseline = metrics.measure(sample) if sample else None
+    _fill_rates(profile, sample)
     e.name, e.profile, e.sample, e.source, e.notes = name, profile, sample, source, notes
     return save(e)
+
+
+def _fill_rates(profile: StyleProfile, sample: str) -> None:
+    """사용자가 손으로 더한 표지처럼 빈도가 비어 있으면 원문에서 센다."""
+    for m in profile.markers:
+        if sample and not m.per_1k:
+            m.per_1k = metrics.marker_rate(sample, m.text)
 
 
 def delete(sid: str) -> None:

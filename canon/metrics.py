@@ -5,12 +5,15 @@
 """
 from __future__ import annotations
 
+import math
 import re
 from collections import Counter
-from statistics import mean, pstdev
+from statistics import mean, median, pstdev
 from typing import Optional
 
 from pydantic import BaseModel, Field
+
+from .style_background import FEATURES
 
 # 한국어 소설 생성에서 자주 보이는 상투 표현. 작품별 금지 표현은 StyleProfile.banned_phrases 에 더한다.
 DEFAULT_CLICHES = [
@@ -74,6 +77,10 @@ class StyleMetrics(BaseModel):
     short_ending_ratio: Optional[float] = Field(None, description="두 문장 이상 서술 문단 중 12자 이하 짧은 문장으로 끝나는 비율 (여운 연출 남발)")
     pronoun_per_1k: Optional[float] = Field(None, description="1,000자당 '그는/그녀의' 류 대명사 수 (번역투)")
     ai_pattern_hits: list[str] = Field(default_factory=list, description="화당 상한을 넘은 쇠맛 패턴 (이름 n회, 상한 m)")
+    pattern_per_1k: dict[str, float] = Field(default_factory=dict, description="쇠맛 패턴별 1,000자당 횟수. 기준값에 있으면 원문이 원래 쓰는 만큼은 경고하지 않는다")
+    style_centroid: list[float] = Field(default_factory=list, description="2,000자 조각 3개 이상일 때 어절 끝 특징의 정규화 중심 (문체 거리 기준)")
+    style_spread: Optional[float] = Field(None, description="원문 조각들이 서로의 중심에서 떨어진 거리의 중앙값. 문체 거리 1.0 의 기준")
+    style_distance: Optional[float] = Field(None, description="기준 원문 대비 문체 거리 (style_spread 의 몇 배). 비교할 때만 채운다")
 
 
 def sentences(text: str) -> list[str]:
@@ -154,7 +161,124 @@ def measure(text: str, banned: list[str] | None = None) -> StyleMetrics:
         short_ending_ratio=_short_ending_ratio(paras),
         pronoun_per_1k=round(len(_PRONOUN.findall(text)) * 1000 / len(text), 1),
         ai_pattern_hits=_over_cap(text),
+        pattern_per_1k={k: round(v * 1000 / len(text), 2) for k, v in pattern_counts(text).items()},
+        **_style_reference(text),
     )
+
+
+# ---------- 문체 거리 ----------
+# 어절 끝 1~2음절(조사와 어미) 빈도로 잰다. 문체 반영도 연구에서 작가 8명을 가장 안정적으로 가른 특징이다.
+# 특징마다 style_background 의 평균과 표준편차로 정규화하고, 원문 2,000자 조각들의 중심까지 코사인 거리를 잰 뒤
+# 원문 조각들끼리의 거리(style_spread)로 나눈다. 1.0 이면 원문의 다른 대목만큼 가깝다.
+STYLE_CHUNK = 2000
+STYLE_MIN_CHUNKS = 3  # 원문이 6,000자보다 짧으면 기준을 만들지 않는다 (2만 자 이상이면 안정적)
+# 연구 코퍼스(원문 2만 자 기준)에서 같은 작가의 다른 작품은 중앙값 1.2 (열에 아홉은 1.4 이하), 다른 작가 글은 1.4,
+# 문체 자료 없이 쓴 AI 글은 1.3, 프로필과 예시 문단을 넣고 쓴 AI 글은 1.1 안팎이었다. 1.5 를 넘으면 경고한다.
+# 같은 작가인지 가르는 힘은 중간 정도라(작품 단위 AUC 0.8 안팎) 한 화의 값보다 화별 흐름으로 본다.
+STYLE_DISTANCE_WARN = 1.5
+
+
+def style_chunks(text: str, size: int = STYLE_CHUNK) -> list[str]:
+    out, cur = [], ""
+    for para in re.split(r"\n+", text):
+        para = para.strip()
+        if not para:
+            continue
+        cur = f"{cur}\n\n{para}" if cur else para
+        if len(cur) >= size:
+            out.append(cur)
+            cur = ""
+    return out
+
+
+def _suffix_z(text: str) -> list[float]:
+    c: Counter[str] = Counter()
+    for w in re.findall(r"[가-힣]+", text):
+        c["1:" + w[-1]] += 1
+        if len(w) >= 2:
+            c["2:" + w[-2:]] += 1
+    n = sum(c.values()) or 1
+    return [(c[k] / n - mu) / sd for k, mu, sd in FEATURES]
+
+
+def _cos_dist(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    na, nb = math.sqrt(sum(x * x for x in a)), math.sqrt(sum(y * y for y in b))
+    return 1 - dot / (na * nb) if na and nb else 1.0
+
+
+def _center(rows: list[list[float]]) -> list[float]:
+    return [mean(col) for col in zip(*rows)]
+
+
+def _style_reference(text: str) -> dict:
+    zs = [_suffix_z(c) for c in style_chunks(text)]
+    if len(zs) < STYLE_MIN_CHUNKS:
+        return {}
+    spread = median(_cos_dist(zs[i], _center(zs[:i] + zs[i + 1:])) for i in range(len(zs)))
+    return {"style_centroid": [round(x, 4) for x in _center(zs)], "style_spread": round(spread, 4)}
+
+
+def style_distance(base: StyleMetrics, text: str) -> Optional[float]:
+    """기준 원문 대비 문체 거리. 기준에 중심이 없으면(짧은 원문, 예전 기준값) None."""
+    if not base.style_centroid or not base.style_spread or len(base.style_centroid) != len(FEATURES) or not text.strip():
+        return None
+    return round(_cos_dist(_suffix_z(text), base.style_centroid) / base.style_spread, 2)
+
+
+# ---------- 문체 표지와 베끼기 ----------
+
+def _marker(marker: str) -> str:
+    return marker.strip().strip("~-…").strip()
+
+
+def marker_count(text: str, marker: str) -> int:
+    m = _marker(marker)
+    return text.count(m) if m else 0
+
+
+def marker_rate(text: str, marker: str) -> float:
+    """표지의 1,000자당 횟수."""
+    return round(marker_count(text, marker) * 1000 / len(text), 2) if text else 0.0
+
+
+def marker_warnings(markers: list, text: str) -> list[str]:
+    """원문 빈도(per_1k)가 있는 표지가 이번 본문에서 크게 넘치거나 빠졌는지. markers 는 StyleMarker 목록."""
+    out = []
+    for mk in markers:
+        if not _marker(mk.text) or not mk.per_1k:
+            continue
+        expected = mk.per_1k * len(text) / 1000
+        got = marker_count(text, mk.text)
+        if (got >= 3 and got > expected * 2.5) or (expected >= 3 and got < expected / 3):
+            out.append(f"'{_marker(mk.text)}' {got}회 (원문 빈도면 {expected:.0f}회 안팎)")
+    return out
+
+
+COPY_SPAN = 12  # 예시 문단과 이만큼(공백 빼고 글자 수) 똑같이 이어지면 베낀 것으로 본다. 연구에서 문체 자료 없이 쓴 글은 한 번도 걸리지 않았다
+
+
+def copied_sentences(text: str, passages: list[str], span: int = COPY_SPAN) -> list[str]:
+    """예시 문단에서 옮겨 온 문장: 공백을 뺀 글자가 span 자 이상 그대로 겹치는 문장.
+    문장 통째 복사와 첫 문장 틀만 바꿔 쓴 것을 함께 잡는다. 문체 예시는 따라 할 것이지 베낄 것이 아니다."""
+    grams = set()
+    for p in passages:
+        q = re.sub(r"\s+", "", p)
+        grams.update(q[i:i + span] for i in range(len(q) - span + 1))
+    if not grams:
+        return []
+    out = []
+    for s in sentences(text):
+        q = re.sub(r"\s+", "", s)
+        if any(q[i:i + span] in grams for i in range(len(q) - span + 1)):
+            out.append(s)
+    return list(dict.fromkeys(out))
+
+
+def hangul_ratio(text: str) -> float:
+    """글자 중 한글 비율. 본문 대신 영어 생각 과정이 나온 응답을 거른다."""
+    letters = [c for c in text if c.isalpha()]
+    return sum("가" <= c <= "힣" for c in letters) / len(letters) if letters else 0.0
 
 
 # 기준값과 비교할 지표: (설명, 허용 차이, 상대값 여부)
@@ -188,6 +312,20 @@ def drift(base: StyleMetrics, cur: StyleMetrics) -> list[str]:
         out.append(f"반복 구: {', '.join(cur.repeated_phrases[:5])}")
     if cur.cliche_hits:
         out.append(f"상투·금지 표현: {', '.join(cur.cliche_hits)}")
-    if cur.ai_pattern_hits:
-        out.append(f"쇠맛 패턴: {', '.join(cur.ai_pattern_hits)}")
+    hits = _over_base_cap(base, cur) if cur.pattern_per_1k else cur.ai_pattern_hits
+    if hits:
+        out.append(f"쇠맛 패턴: {', '.join(hits)}")
+    if cur.style_distance is not None and cur.style_distance > STYLE_DISTANCE_WARN:
+        out.append(f"문체 거리: {cur.style_distance} (원문 대목끼리 1.0, {STYLE_DISTANCE_WARN} 넘으면 다른 작가 글 수준)")
+    return out
+
+
+def _over_base_cap(base: StyleMetrics, cur: StyleMetrics) -> list[str]:
+    """화당 상한을 넘은 쇠맛 패턴. 원문(기준값)이 원래 그 패턴을 쓰면 원문 빈도의 1.5배까지는 봐준다."""
+    out = []
+    for name, _, cap in AI_PATTERNS:
+        n = round(cur.pattern_per_1k.get(name, 0) * cur.chars / 1000)
+        allowed = max(cap, math.ceil(base.pattern_per_1k.get(name, 0) * cur.chars / 1000 * 1.5))
+        if n > allowed:
+            out.append(f"{name} {n}회 (상한 {allowed})")
     return out

@@ -36,6 +36,11 @@ class SmokeTest(unittest.TestCase):
         self.assertTrue((store.project_dir("demo") / "briefs" / "03-episode.md").exists())
         self.assertTrue((store.project_dir("demo") / "briefs" / "03-check.md").exists())
         self.assertIsNotNone(p.style_baseline)
+        self.assertEqual([m.text for m in p.style.markers], ["않았다"])  # 원문에 없는 표지는 빠지고 빈도는 원문에서 센다
+        self.assertGreater(p.style.markers[0].per_1k, 0)
+        brief = (store.project_dir("demo") / "briefs" / "03-episode.md").read_text(encoding="utf-8")
+        self.assertIn("# 문체 표지", brief)
+        self.assertNotIn("쉼표가 둘 이상", brief)  # 문체 원문이 있는 작품은 원문과 부딪히는 기본 규칙을 뺀다
         self.assertEqual(p.episode(2).issues[0].type, "말투")
         self.assertEqual(p.episode(1).issues, [])
 

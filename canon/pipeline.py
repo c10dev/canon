@@ -91,7 +91,19 @@ def _init_states(p: Project) -> None:
 # ---------- 2. 스타일 레퍼런스 ----------
 
 def analyze_style(llm: LLM, sample: str) -> StyleProfile:
-    return llm.json(prompts.SYSTEM_PLANNER, prompts.style_prompt(sample), StyleProfile)
+    profile = llm.json(prompts.SYSTEM_PLANNER, prompts.style_prompt(sample), StyleProfile)
+    count_markers(profile, sample)
+    return profile
+
+
+def count_markers(profile: StyleProfile, sample: str) -> None:
+    """표지마다 원문 1,000자당 횟수를 센다. 모델이 적은 빈도는 믿지 않는다. 원문에 없는 표지는 뺀다."""
+    keep = []
+    for m in profile.markers:
+        if metrics.marker_count(sample, m.text):
+            m.per_1k = metrics.marker_rate(sample, m.text)
+            keep.append(m)
+    profile.markers = keep
 
 
 # ---------- 3. 기승전결 + 화별 플롯 ----------
@@ -870,6 +882,11 @@ def dismiss_impact(p: Project, eid: str) -> None:
 
 
 # ---------- 4. 본문 생성 ----------
+# 본문의 글자 중 한글이 이보다 적으면 모델이 생각 과정이나 다른 언어를 낸 것으로 보고 다시 쓴다.
+# 연구에서 Gemini 4 Argon 이 92번 중 1번 영어 생각 과정을 본문으로 냈다.
+HANGUL_MIN = 0.8
+WRITE_TRIES = 3
+
 
 def write_episode(llm: LLM, p: Project, n: int) -> str:
     ep = p.episode(n)
@@ -878,7 +895,12 @@ def write_episode(llm: LLM, p: Project, n: int) -> str:
     unfinished = [e.plot.number for e in p.episodes if e.plot.number < n and e.status != "finalized"]
     if unfinished:
         raise ValueError(f"이전 화의 상태 갱신이 끝나지 않았습니다: {unfinished}")
-    return llm.text(prompts.SYSTEM_WRITER, prompts.episode_prompt(p, n))
+    system, prompt = prompts.writer_system(p), prompts.episode_prompt(p, n)
+    for _ in range(WRITE_TRIES):
+        text = llm.text(system, prompt)
+        if metrics.hangul_ratio(text) >= HANGUL_MIN:
+            return text
+    raise ValueError(f"{n}화 본문 대신 다른 글(영어로 된 생각 과정 등)이 {WRITE_TRIES}번 나왔습니다. 다시 시도해 주세요")
 
 
 def compare_drafts(llms: dict[str, LLM], p: Project, n: int) -> dict[str, str]:
@@ -991,7 +1013,7 @@ def revise_passage(llm: LLM, p: Project, n: int, sel: Selection, message: str = 
         raise ValueError("무엇을 바꿀지 적거나 빠른 요청을 고르세요")
     ep = _editable(p, n)
     sel = Selection(start=locate(ep.text, sel.text, sel.start), text=sel.text)
-    rev = llm.json(prompts.SYSTEM_REVISER, prompts.passage_prompt(p, n, sel, message, preset), PassageRevision,
+    rev = llm.json(prompts.reviser_system(p), prompts.passage_prompt(p, n, sel, message, preset), PassageRevision,
                    hint={"selection": sel.text, "preset": preset, "message": message})
     keep, seen = [], {sel.text.strip()}
     for c in rev.candidates:
@@ -1061,8 +1083,20 @@ def style_baseline(p: Project) -> metrics.StyleMetrics:
 
 
 def style_drift(p: Project, n: int) -> tuple[metrics.StyleMetrics, list[str]]:
-    cur = metrics.measure(p.episode(n).text, p.style.banned_phrases)
-    return cur, metrics.drift(style_baseline(p), cur)
+    """이번 화 문체 지표와 경고. 기준값과의 차이, 문체 거리, 표지 빈도, 예시 문단 베끼기를 본다."""
+    text = p.episode(n).text
+    base = style_baseline(p)
+    cur = metrics.measure(text, p.style.banned_phrases)
+    cur.style_distance = metrics.style_distance(base, text)
+    warns = metrics.drift(base, cur)
+    marks = metrics.marker_warnings(p.style.markers, text)
+    if marks:
+        warns.append(f"문체 표지: {', '.join(marks)}")
+    copied = metrics.copied_sentences(text, p.style.sample_passages)
+    if copied:
+        quotes = ", ".join(f"'{s[:30]}{'…' if len(s) > 30 else ''}'" for s in copied[:3])
+        warns.append(f"예시 문단을 옮긴 문장 {len(copied)}개: {quotes}")
+    return cur, warns
 
 
 # ---------- 6. 상태 갱신 ----------
