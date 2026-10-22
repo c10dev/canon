@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
 from . import dynamics, pipeline, prompts, settings, store
-from .llm import GeminiLLM, get_llm
+from .llm import GeminiLLM, LocalLLM, get_llm
 from .schema import ArcPlan, Meta, Project, SetupSuggestion, StateDelta, StyleProfile
 
 STATIC = Path(__file__).parent / "static"
@@ -65,27 +65,41 @@ class SettingsIn(BaseModel):
     model: str | None = None
     api_key: str | None = None  # None 이면 그대로, 값이 있으면 교체
     clear_key: bool = False
+    local_url: str | None = None
+    local_model: str | None = None
+    local_key: str | None = None
+    stages: dict[str, str] | None = None  # {"write": "local"}, 빈 값이면 전체 설정을 따름
 
 
 @app.put("/api/config")
 def put_config(body: SettingsIn) -> dict:
-    if body.provider is not None and body.provider not in ("gemini", "mock"):
-        raise HTTPException(400, "provider 는 gemini 또는 mock 입니다")
-    settings.update(provider=body.provider, model=body.model, api_key=body.api_key, clear_key=body.clear_key)
+    choices = settings.PROVIDERS
+    if body.provider is not None and body.provider not in choices:
+        raise HTTPException(400, f"provider 는 {' / '.join(choices)} 중 하나입니다")
+    for stage, value in (body.stages or {}).items():
+        if stage not in settings.STAGES or (value and value not in choices):
+            raise HTTPException(400, f"단계 설정이 잘못됐습니다: {stage}={value}")
+    settings.update(provider=body.provider, model=body.model, api_key=body.api_key, clear_key=body.clear_key,
+                    local_url=body.local_url, local_model=body.local_model, local_key=body.local_key,
+                    stages=body.stages)
     return settings.public()
 
 
 @app.post("/api/config/test")
 def test_config() -> dict:
-    """키와 모델로 Gemini 에 연결되는지 확인한다. 본문 생성 비용은 들지 않는다."""
-    if settings.provider()[0] == "mock":
+    """단계에서 쓰는 백엔드마다 연결을 확인한다. 본문 생성 비용은 들지 않는다."""
+    used = {settings.stage_provider(s)[0] for s in settings.STAGES}
+    if used == {"mock"}:
         return {"ok": True, "message": "mock 모드입니다. 실제 AI 를 호출하지 않습니다."}
-    llm = GeminiLLM()
-    try:
-        llm.check()
-    except Exception as e:  # SDK 오류 종류가 많아 메시지만 보여준다
-        raise HTTPException(400, f"연결 실패: {getattr(e, 'message', None) or e}")
-    return {"ok": True, "message": f"{llm.model} 에 연결됐습니다."}
+    done = []
+    for prov in sorted(used - {"mock"}):
+        try:
+            llm = GeminiLLM() if prov == "gemini" else LocalLLM()
+            llm.check()
+        except Exception as e:  # SDK 오류 종류가 많아 메시지만 보여준다
+            raise HTTPException(400, f"{prov} 연결 실패: {getattr(e, 'message', None) or e}")
+        done.append(llm.model)
+    return {"ok": True, "message": f"{', '.join(done)} 에 연결됐습니다."}
 
 
 @app.get("/api/projects")
@@ -136,7 +150,7 @@ def put_project(name: str, p: Project) -> Project:
 
 @app.post("/api/projects/{name}/suggest")
 def suggest(name: str) -> SetupSuggestion:
-    return pipeline.suggest_setup(get_llm(), _load(name))
+    return pipeline.suggest_setup(get_llm("plan"), _load(name))
 
 
 @app.post("/api/projects/{name}/suggest/apply")
@@ -157,14 +171,14 @@ def analyze_style(name: str, body: Sample) -> StyleProfile:
     _load(name)
     if len(body.text.strip()) < 200:
         raise HTTPException(400, "예시 원문은 200자 이상 넣어 주세요")
-    return pipeline.analyze_style(get_llm(), body.text)
+    return pipeline.analyze_style(get_llm("plan"), body.text)
 
 
 # ---------- 3. 구조와 플롯 ----------
 
 @app.post("/api/projects/{name}/arc")
 def plan_arc(name: str) -> ArcPlan:
-    return pipeline.plan_arc(get_llm(), _load(name))
+    return pipeline.plan_arc(get_llm("plan"), _load(name))
 
 
 class Range(BaseModel):
@@ -176,7 +190,7 @@ class Range(BaseModel):
 def draft_plots(name: str, r: Range) -> Project:
     """확정되지 않은 화만 새 초안으로 바꾼다."""
     p = _load(name)
-    batch = pipeline.draft_plots(get_llm(), p, r.start or 1, r.end or p.meta.target_episodes)
+    batch = pipeline.draft_plots(get_llm("plan"), p, r.start or 1, r.end or p.meta.target_episodes)
     pipeline.apply_plots(p, batch)
     return _save(name, p)
 
@@ -205,7 +219,7 @@ def unconfirm_plot(name: str, n: int) -> Project:
 @app.post("/api/projects/{name}/episodes/{n}/write")
 def write_episode(name: str, n: int) -> Project:
     p = _load(name)
-    text = pipeline.write_episode(get_llm(), p, n)
+    text = pipeline.write_episode(get_llm("write"), p, n)
     ep = p.episode(n)
     ep.text, ep.status = text, "written"
     return _save(name, p)
@@ -252,7 +266,7 @@ def prompt(name: str, n: int) -> dict:
 
 @app.post("/api/projects/{name}/episodes/{n}/state")
 def extract_state(name: str, n: int) -> StateDelta:
-    return pipeline.extract_state(get_llm(), _load(name), n)
+    return pipeline.extract_state(get_llm("state"), _load(name), n)
 
 
 class Raw(BaseModel):

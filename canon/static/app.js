@@ -431,8 +431,14 @@ const actions = {
   // 설정
   async saveSettings() {
     const key = $('#set-key').value.trim();
-    const body = { provider: $('#set-provider').value, model: $('#set-model').value.trim() };
+    const body = {
+      provider: $('#set-provider').value, model: $('#set-model').value.trim(),
+      local_url: $('#set-local-url').value.trim(), local_model: $('#set-local-model').value.trim(),
+      stages: Object.fromEntries(STAGES.map(([s]) => [s, $(`#set-stage-${s}`).value])),
+    };
     if (key) body.api_key = key;
+    const lkey = $('#set-local-key').value.trim();
+    if (lkey) body.local_key = lkey;
     await run('저장 중', async () => {
       S.config = await api('PUT', '/config', body);
       toast('설정을 저장했습니다');
@@ -679,6 +685,13 @@ function header(eyebrow, title, desc, right = '') {
 
 // ----- 설정 -----
 
+const STAGES = [['plan', '계획 (설정 제안, 문체 분석, 기승전결, 화별 플롯)'], ['write', '본문 쓰기'], ['check', '검수'], ['state', '상태 변경안']];
+
+function providerOptions(cur) {
+  return [['gemini', 'Gemini API'], ['local', '로컬 서버 (OpenAI 호환)'], ['mock', 'mock (AI 호출 없이 화면 확인용)']]
+    .map(([v, l]) => `<option value="${v}"${cur === v ? ' selected' : ''}>${l}</option>`).join('');
+}
+
 function viewSettings() {
   const c = S.config || {};
   const src = { env: '환경 변수', file: '설정 파일', default: '기본값', none: '없음' };
@@ -690,17 +703,34 @@ function viewSettings() {
     <section class="card">
       <div class="field"><label for="set-provider">생성 방식</label>
         <select id="set-provider">
-          <option value="gemini"${c.provider === 'gemini' ? ' selected' : ''}>Gemini API</option>
-          <option value="mock"${c.provider === 'mock' ? ' selected' : ''}>mock (AI 호출 없이 화면 확인용)</option>
-        </select>${envNote(c.provider_source, 'CANON_LLM')}</div>
+          ${providerOptions(c.provider)}
+        </select>${envNote(c.provider_source, 'CANON_LLM')}
+        <div class="small">단계별로 다르게 쓰려면 아래 '단계별 백엔드'에서 고르세요.</div></div>
       <div class="field"><label for="set-key">Gemini API 키 <span class="hint">지금: </span>${keyState}</label>
         <input id="set-key" type="password" autocomplete="off" placeholder="${c.key_source === 'none' ? 'AIza… 로 시작하는 키' : '바꿀 때만 입력'}">
         <div class="small"><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>에서 무료로 발급받을 수 있어요. 저장한 키는 화면에 다시 보여주지 않습니다.</div>
         ${envNote(c.key_source, 'GEMINI_API_KEY')}</div>
       <div class="field"><label for="set-model">모델</label>
         <input id="set-model" type="text" list="model-list" value="${esc(c.model_setting || '')}">
-        <datalist id="model-list"><option value="gemini-2.5-pro"></option><option value="gemini-2.5-flash"></option><option value="gemini-2.5-flash-lite"></option></datalist>
-        <div class="small">pro 는 품질이 좋고, flash 는 빠르고 저렴합니다.</div>${envNote(c.model_source, 'CANON_MODEL')}</div>
+        <datalist id="model-list"><option value="gemini-4-argon"></option><option value="gemini-2.5-pro"></option><option value="gemini-2.5-flash"></option></datalist>
+        <div class="small">gemini-4-argon 이 기본입니다. 2.5 flash 는 빠르고 저렴합니다.</div>${envNote(c.model_source, 'CANON_MODEL')}</div>
+      <h2 style="margin-top:18px">로컬 서버</h2>
+      <p class="desc">Ollama, llama.cpp, vLLM, LM Studio 처럼 OpenAI 호환 API 를 여는 서버입니다. 주소는 /v1 까지 적습니다.</p>
+      <div class="field"><label for="set-local-url">서버 주소</label>
+        <input id="set-local-url" type="text" value="${esc(c.local_url || '')}" placeholder="http://localhost:11434/v1">
+        <div class="small">Ollama :11434/v1 · llama.cpp :8080/v1 · vLLM :8000/v1 · LM Studio :1234/v1</div>${envNote(c.local_url_source, 'CANON_LOCAL_URL')}</div>
+      <div class="field"><label for="set-local-model">모델 이름</label>
+        <input id="set-local-model" type="text" value="${esc(c.local_model || '')}" placeholder="비우면 서버에 하나뿐인 모델">${envNote(c.local_model_source, 'CANON_LOCAL_MODEL')}</div>
+      <div class="field"><label for="set-local-key">서버 키 <span class="hint">지금: ${c.has_local_key ? '있음' : '없음'}</span></label>
+        <input id="set-local-key" type="password" autocomplete="off" placeholder="서버가 키를 요구할 때만"></div>
+      <h2 style="margin-top:18px">단계별 백엔드</h2>
+      <p class="desc">예: 계획과 검수는 Gemini, 본문은 로컬 모델.</p>
+      ${STAGES.map(([s, label]) => {
+        const st = (c.stages || {})[s] || {};
+        return `<div class="field"><label for="set-stage-${s}">${label} <span class="hint">지금: ${esc(st.model || '')}</span></label>
+          <select id="set-stage-${s}"><option value="">위 생성 방식을 따름</option>${providerOptions((c.stage_settings || {})[s])}</select>
+          ${st.source === 'env' ? `<div class="small">환경 변수 CANON_LLM_${s.toUpperCase()} 가 우선합니다.</div>` : ''}</div>`;
+      }).join('')}
       <div class="row">
         <button class="btn primary" data-action="saveSettings">저장</button>
         <button class="btn" data-action="testSettings">연결 확인</button>
@@ -1087,7 +1117,7 @@ function viewReview(n) {
   const d = S.deltas[n];
   if (!d) {
     return top('AI 가 본문에서 인물 상태, 관계, 확정 사실, 복선을 뽑아 변경안을 만듭니다. 승인한 항목만 데이터에 반영됩니다.') +
-      `<div class="cols"><section class="card col"><h2>AI 로 뽑기</h2><p class="desc">${esc(S.config && S.config.model)} 로 ${n}화 본문을 읽고 변경안을 만듭니다.</p><div><button class="btn primary" data-action="extractState" data-arg="${n}">변경안 만들기</button></div></section>
+      `<div class="cols"><section class="card col"><h2>AI 로 뽑기</h2><p class="desc">${esc(S.config && S.config.stages ? S.config.stages.state.model : '')} 로 ${n}화 본문을 읽고 변경안을 만듭니다.</p><div><button class="btn primary" data-action="extractState" data-arg="${n}">변경안 만들기</button></div></section>
        <section class="card col"><h2>채팅 앱에서 받은 JSON</h2><p class="desc">상태 정리 지시서를 채팅 앱에 붙여 넣고 받은 JSON 을 가져옵니다.</p><div><a class="btn" href="${base()}/brief/${n}" data-action="openStateBrief" data-arg="${n}">상태 정리 지시서 열기</a></div></section></div>`;
   }
 

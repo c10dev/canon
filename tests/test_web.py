@@ -96,6 +96,18 @@ def test_settings(client, tmp_path, monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY")
 
     assert client.put("/api/config", json={"provider": "claude"}).status_code == 400
+
+    # 로컬 서버와 단계별 백엔드
+    for name in ("CANON_LOCAL_URL", "CANON_LOCAL_MODEL", "CANON_LLM_WRITE"):
+        monkeypatch.delenv(name, raising=False)
+    c = client.put("/api/config", json={"local_url": "http://nhn:8000/v1", "local_model": "gemma",
+                                        "local_key": "lk-1", "stages": {"write": "local"}}).json()
+    assert c["local_url"] == "http://nhn:8000/v1" and c["has_local_key"] and "lk-1" not in str(c)
+    assert c["stages"]["write"] == {"provider": "local", "source": "file", "model": "gemma"}
+    assert c["stages"]["plan"]["provider"] == "gemini"
+    assert client.put("/api/config", json={"stages": {"write": "claude"}}).status_code == 400
+    assert client.put("/api/config", json={"stages": {"draft": "local"}}).status_code == 400
+    assert client.put("/api/config", json={"stages": {"write": ""}}).json()["stage_settings"] == {}
     assert client.put("/api/config", json={"clear_key": True}).json()["key_source"] == "none"
 
     # 화면에서 mock 으로 바꾸면 AI 호출도 mock 으로 간다

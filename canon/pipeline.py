@@ -108,6 +108,19 @@ def write_episode(llm: LLM, p: Project, n: int) -> str:
     return llm.text(prompts.SYSTEM_WRITER, prompts.episode_prompt(p, n))
 
 
+def compare_drafts(llms: dict[str, LLM], p: Project, n: int) -> dict[str, str]:
+    """같은 화를 여러 백엔드로 쓴다. 프롬프트는 write_episode 와 같다. 저장은 호출자가 한다."""
+    return {name: write_episode(llm, p, n) for name, llm in llms.items()}
+
+
+def adopt_draft(p: Project, n: int, text: str) -> None:
+    """비교에서 고른 본문을 그 화의 본문으로 쓴다. 상태 반영이 끝난 화는 되돌린 뒤에만 바꾼다."""
+    ep = p.episode(n)
+    if ep.status == "finalized":
+        raise ValueError(f"{n}화는 상태 반영이 끝났습니다. 바꾸려면 revert {n - 1} 후 다시 하세요")
+    ep.text, ep.status = text, "written"
+
+
 # ---------- 5. 검수 (모순 찾기, 문체 지표) ----------
 
 def check_episode(llm: LLM, p: Project, n: int) -> ConsistencyReport:

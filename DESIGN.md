@@ -97,16 +97,21 @@ AI 는 숫자를 매기지 않고 사건만 뽑는다. 같은 사건은 항상 �
 
 `canon/llm.py` 의 `LLM` 인터페이스(`json`, `text`) 뒤에 구현을 둔다.
 
-- `GeminiLLM` (기본): `google-genai` SDK, 구조화 출력은 `response_json_schema` 로 pydantic 스키마를 그대로 전달. 모델은 `CANON_MODEL` 로 바꾼다.
+- `GeminiLLM` (기본): `google-genai` SDK, 구조화 출력은 `response_json_schema` 로 pydantic 스키마를 그대로 전달. 기본 모델은 `gemini-4-argon` 이고 `CANON_MODEL` 로 바꾼다.
+- `LocalLLM`: OpenAI 호환 `/v1/chat/completions` 서버(Ollama, llama.cpp, vLLM, LM Studio). 표준 라이브러리만 쓴다. 구조화 출력은 `response_format`(json_schema) 로 강제하고 pydantic 으로 검증하며, 틀리면 오류를 알려 주고 한 번 더 묻는다. 추론 모델의 `<think>` 블록은 지운다. 본문(`text`)에는 `local_sampling`(기본 temperature 1.0, top_p 0.95, min_p 0.05)을, 구조화 출력에는 temperature 0.3 을 쓴다.
 - `MockLLM`: API 키 없이 전체 흐름 확인용 (`CANON_LLM=mock`).
 
-Claude, OpenAI 구현은 같은 두 메서드만 구현하면 추가된다.
+**단계별 백엔드.** `get_llm(stage)` 는 plan(설정 제안, 문체 분석, 기승전결, 화별 플롯) / write(본문) / check(검수) / state(상태 추출) 마다 다른 백엔드를 고를 수 있다. 권장 조합은 계획·검수·상태 추출은 Gemini, 본문은 문체를 학습시킨 로컬 모델이다. 프롬프트는 `prompts.py` 한 곳을 같이 쓰므로 백엔드를 바꿔도 컨텍스트는 같다.
+
+**블라인드 비교.** `compare` 는 같은 화를 두 백엔드로 쓰고 1, 2 번으로 가려 저장한 뒤 문체 지표를 보여 준다. `--pick` 으로 고르면 그 본문을 쓰고 어느 쪽이었는지 공개하며 `compare/log.jsonl` 에 누적한다. "어느 모델이 한국어 소설을 더 잘 쓰나"를 작품 안에서 직접 확인하기 위한 도구다.
+
+Claude 등 다른 구현도 같은 두 메서드만 구현하면 추가된다.
 
 ## 7. 알려진 한계 (MVP)
 
 - 화별 스냅샷으로 상태 반영을 되돌릴 수 있지만(`revert`), 관계 역학 계수는 실제 원고로 아직 튜닝하지 않았다.
 - 화 하나를 한 번의 호출로 쓴다. 분량이 길면 장면 단위 분할 생성이 필요할 수 있다.
-- 실제 Gemini 호출은 API 키가 있는 환경에서 아직 검증하지 않았다 (mock 으로 전체 흐름만 확인).
+- 실제 Gemini 호출과 실제 로컬 서버 호출은 아직 검증하지 않았다 (mock 과 가짜 OpenAI 호환 서버로만 확인). gemini-4-argon 의 thinking 수준은 아직 설정하지 않는다.
 - 웹 UI 는 로컬 단일 사용자용이다 (로그인, 동시 편집 없음).
 
 ## 8. 로드맵 (MVP 이후)
@@ -115,3 +120,4 @@ Claude, OpenAI 구현은 같은 두 메서드만 구현하면 추가된다.
 2. **MCP 서버**: `get_episode_brief`, `submit_episode_text`, `propose_state_update`, `apply_state_update`, `get_project` 같은 tool 로 노출. Claude Desktop 등 구독형 앱이 직접 데이터를 읽고 쓰게 한다. `prompts.py` 와 `pipeline.py` 를 그대로 재사용한다.
 3. 웹 UI 다듬기: 관계도 그래프 시각화, 화별 상태 스냅샷과 되돌리기 화면.
 4. 장편 확장: 권 단위 아크, 오래된 요약의 재요약, 인물별 기억 검색.
+5. 문체 학습: AI 초안과 사용자 수정본을 함께 저장해 SFT/DPO 데이터로 내보내고, 로컬 모델에 문체 LoRA 를 붙인 뒤 `compare` 로 효과를 잰다.
