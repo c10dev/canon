@@ -81,11 +81,11 @@ Claude, OpenAI 구현은 같은 두 메서드만 구현하면 추가된다.
 - 인물 상태는 "현재 값"만 보관한다. 이미 끝난 화를 다시 쓰려면 `project.prev.json` 이나 `history` 로 되돌려야 한다. 화별 스냅샷은 다음 단계 과제다.
 - 화 하나를 한 번의 호출로 쓴다. 분량이 길면 장면 단위 분할 생성이 필요할 수 있다.
 - 실제 Gemini 호출은 API 키가 있는 환경에서 아직 검증하지 않았다 (mock 으로 전체 흐름만 확인).
-- UI 는 CLI 와 JSON 직접 편집뿐이다.
+- 웹 UI 는 로컬 단일 사용자용이다 (로그인, 동시 편집 없음).
 
 ## 8. 로드맵 (MVP 이후)
 
 1. Gemini 실호출 검증, 프롬프트 튜닝, 화별 상태 스냅샷과 되돌리기.
 2. **MCP 서버**: `get_episode_brief`, `submit_episode_text`, `propose_state_update`, `apply_state_update`, `get_project` 같은 tool 로 노출. Claude Desktop 등 구독형 앱이 직접 데이터를 읽고 쓰게 한다. `prompts.py` 와 `pipeline.py` 를 그대로 재사용한다.
-3. 웹 UI: 설정 폼, 관계도 시각화, 플롯 보드(기승전결 칸반), 상태 변경안 승인 화면.
+3. 웹 UI 다듬기: 관계도 그래프 시각화, 화별 상태 스냅샷과 되돌리기 화면.
 4. 장편 확장: 권 단위 아크, 오래된 요약의 재요약, 인물별 기억 검색.

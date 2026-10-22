@@ -12,7 +12,16 @@ export CANON_MODEL=gemini-2.5-pro # 선택, 사용할 Gemini 모델
 
 API 키 없이 흐름만 보려면 `export CANON_LLM=mock`.
 
-## 사용 순서
+## 웹 UI
+
+```bash
+python -m canon serve            # http://127.0.0.1:8000
+CANON_LLM=mock python -m canon serve   # API 키 없이 화면만 둘러보기
+```
+
+작품 홈, 설정 도우미, 문체 레퍼런스, 기승전결 플롯 보드, 집필, 상태 변경안 승인, 채팅 앱 작업지시서 화면이 있다. CLI 와 같은 `projects/<이름>/project.json` 을 읽고 쓴다. AI 제안은 바로 저장되지 않고, 화면에서 고르거나 고친 뒤 저장할 때 반영된다.
+
+## CLI 사용 순서
 
 ```bash
 python -m canon new 등대 -i                     # 1. 설정 도우미 (AI 가 인물/세계관 제안)
@@ -45,4 +54,6 @@ canon/pipeline.py  단계별 생성/검증/반영 로직
 canon/llm.py       Gemini 프로바이더 (+ mock.py)
 canon/store.py     project.json 저장, 본문을 episodes/NN.md 로 내보내기
 canon/cli.py       명령줄
+canon/web.py       웹 UI 서버 (FastAPI) + canon/static/ 화면
+tests/             웹 API 흐름 테스트 (mock LLM, pytest)
 ```
