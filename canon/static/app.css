@@ -305,3 +305,16 @@ body.chat-open .savebar { left: calc(50% - 220px); }
   .chat-panel { box-shadow: -8px 0 32px rgba(0,0,0,0.16); }
 }
 @media (max-width: 640px) { body.chat-open .main { padding-right: 16px; } }
+/* 백그라운드 AI 작업 목록 (왼쪽 아래) */
+#jobs { position: fixed; left: 252px; bottom: 20px; z-index: 30; width: min(340px, calc(100vw - 40px)); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.16); font-size: 13px; overflow: hidden; }
+#jobs[hidden] { display: none; }
+@media (max-width: 640px) { #jobs { left: 16px; bottom: 16px; width: calc(100vw - 32px); } }
+#jobs .jobs-head { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: none; background: transparent; font: inherit; font-weight: 700; color: var(--text); cursor: pointer; text-align: left; min-height: 44px; }
+#jobs ul { list-style: none; margin: 0; padding: 0 8px 8px; display: flex; flex-direction: column; gap: 4px; max-height: 50vh; overflow-y: auto; }
+#jobs li { display: flex; align-items: center; gap: 10px; padding: 8px 6px; border-top: 1px solid var(--line); }
+#jobs .jl { flex: 1; min-width: 0; line-height: 1.45; }
+#jobs .ok { color: var(--green); font-weight: 700; flex: none; }
+#jobs .bad { color: var(--red); font-weight: 700; flex: none; }
+#jobs a { font-weight: 700; flex: none; }
+#jobs .x { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 14px; min-width: 32px; min-height: 32px; flex: none; }
+.spinner.sm { width: 14px; height: 14px; border-width: 2px; }

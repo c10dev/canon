@@ -29,6 +29,14 @@ from .schema import (
 T = TypeVar("T", bound=BaseModel)
 
 
+def _delay() -> None:
+    """CANON_MOCK_DELAY=초 로 실제 호출처럼 기다리게 한다 (화면의 진행 표시 확인용)."""
+    import os
+    import time
+
+    time.sleep(float(os.environ.get("CANON_MOCK_DELAY", "0") or 0))
+
+
 def _arc(total: int) -> list[Act]:
     a = max(1, round(total * 0.2))
     b = a + max(1, round(total * 0.38))
@@ -73,6 +81,7 @@ def _revision(hint: dict) -> PlotRevision:
 
 class MockLLM:
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
+        _delay()
         hint = hint or {}
         if schema is SetupSuggestion:
             return SetupSuggestion(
@@ -128,4 +137,5 @@ class MockLLM:
         raise NotImplementedError(schema.__name__)
 
     def text(self, system: str, prompt: str) -> str:
+        _delay()
         return "바람이 불었다. 서윤은 등대 앞에 섰다.\n\n\"됐어, 내가 할게.\"\n\n(mock 본문)"
