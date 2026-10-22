@@ -104,3 +104,13 @@ def test_cli_styles(client, tmp_path, capsys):
     assert p.style_id != e.id and library.load(p.style_id).name == "새 문체"
     cli.main(["styles", "rm", e.id, "-y"])
     assert len(library.entries()) == 1
+
+
+def test_web_analysis_keeps_baseline(client):
+    """작품 화면에서 분석한 원문의 기준 지표를 project.json 에 남길 수 있다."""
+    client.post("/api/projects", json={"name": "w", "meta": {"title": "w", "target_episodes": 10}})
+    p = client.get("/api/projects/w").json()
+    p["style"] = client.post("/api/projects/w/style", json={"text": SAMPLE}).json()
+    p["style_baseline"] = client.post("/api/metrics", json={"text": SAMPLE}).json()
+    p = client.put("/api/projects/w", json=p).json()
+    assert p["style_baseline"]["chars"] >= len(SAMPLE.strip()) - 50 and p["style_baseline"]["sentences"] > 5

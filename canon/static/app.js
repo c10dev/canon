@@ -673,6 +673,8 @@ const actions = {
       await saveIfDirty();
       const prof = await api('POST', `/projects/${enc(S.name)}/style`, { text: S.styleSample });
       P().style = prof;
+      P().style_baseline = await api('POST', '/metrics', { text: S.styleSample });  // stats 가 원문 전체와 비교하도록
+      P().style_id = '';  // 새로 분석한 문체는 라이브러리 항목과 연결을 끊는다
       S.dirty = true;
       toast('분석 결과를 불러왔습니다. 확인하고 저장하세요.');
     });
