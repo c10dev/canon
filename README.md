@@ -36,6 +36,20 @@ python -m canon show 등대                        # 진행 상황
 
 한 화씩 하려면 `write 등대 3` 다음 `update 등대 3`.
 
+## 관계 역학
+
+상태 갱신 때 AI 는 관계 수치를 직접 적지 않고, 본문에서 일어난 **사건**(도움, 배신, 거짓말 발각 등과 강도, 목격자, 근거 문장)만 뽑는다. 관계 변화는 `canon/dynamics.py` 의 수식이 계산한다. 관계는 방향이 있어서 서윤→도현과 도현→서윤을 따로 본다(온기, 신뢰, 원한, 서열, 친숙도, 단계). 긴장도는 이 값들과 목표 충돌, 숨긴 비밀, 불균형 삼각관계로 계산한다.
+
+```bash
+python -m canon show 등대 rel                 # 관계 보기
+python -m canon view 등대 numbers             # 숫자로 보기 (words 는 말로 보기, 기본)
+python -m canon adjust 등대 hero ally --warmth 0.3 --trust 0.6   # hero 가 ally 를 보는 관계 직접 보정
+python -m canon revert 등대 3                 # 3화 상태 반영 직후로 되돌리기 (본문은 유지)
+python -m canon recalc 등대                   # project.json 의 params 를 바꾼 뒤 재계산
+```
+
+계수는 `project.json` 의 `params` 에 있다. 프롬프트에는 숫자 대신 "신뢰: 의심하고 있다" 같은 말로 들어간다.
+
 ## 채팅 앱(구독형)으로 쓰기
 
 ```bash
@@ -51,6 +65,7 @@ python -m canon update 등대 3 --from-json 응답.json
 canon/schema.py    데이터 스키마
 canon/prompts.py   프롬프트와 컨텍스트 조립, 작업지시서
 canon/pipeline.py  단계별 생성/검증/반영 로직
+canon/dynamics.py  관계 역학 수식 (사건 적용, 긴장 계산, 재생, 말로 바꾸기)
 canon/llm.py       Gemini 프로바이더 (+ mock.py)
 canon/store.py     project.json 저장, 본문을 episodes/NN.md 로 내보내기
 canon/cli.py       명령줄
