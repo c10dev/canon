@@ -26,7 +26,7 @@ function autoDefaults() {
     target: p.meta.target_episodes,
     batch: last ? last.batch : false,
     policy: last ? { ...last.policy } : {
-      check: true, max_issues: 0, max_shift: 0.3, stop_on_stage: false, stop_on_warnings: false, confirm_plots: false, review_every: 0,
+      check: true, max_issues: 0, max_shift: 0.3, stop_on_stage: false, stop_on_warnings: false, confirm_plots: false, review_every: 0, hand_pick_opening: true,
     },
   };
 }
@@ -119,6 +119,7 @@ function autoPolicyForm(f, disabled) {
       ${chk('stop_on_stage', '관계 단계가 바뀌면 멈추기', '호감 → 신뢰, 신뢰 → 균열처럼 관계의 단계가 바뀔 때')}
       ${chk('stop_on_warnings', '상태 변경안에 경고가 있으면 멈추기', '플롯 사건 누락, 설정이나 말투 위반을 AI 가 적었을 때')}
       ${chk('confirm_plots', '초안 플롯도 자동으로 확정하고 쓰기', '끄면 초안 플롯을 만난 화에서 멈춰요')}
+      ${chk('hand_pick_opening', '1~3화는 반영하기 전에 멈추기', '독자가 계속 읽을지 정하는 초반 화라 직접 읽고, 필요하면 여는 방식을 비교해 고르세요')}
     </div>
     <div class="field" style="max-width:360px"><label for="auto-every">몇 화마다 멈춰서 읽어 볼까요</label><select id="auto-every" data-auto="policy.review_every"${dis}>${opts([[0, '멈추지 않음'], [1, '매 화'], [2, '2화마다'], [3, '3화마다'], [5, '5화마다']], p.review_every)}</select></div>`;
 }
