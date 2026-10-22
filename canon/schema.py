@@ -509,13 +509,13 @@ class Chat(BaseModel):
 
 # ---------- 검수 ----------
 
-IssueType = Literal["사실", "시간", "인물 정보", "말투", "세계관", "플롯"]
+IssueType = Literal["사실", "시간", "인물 정보", "말투", "세계관", "플롯", "동선"]
 
 
 class ConsistencyIssue(BaseModel):
-    type: IssueType = Field(description="사실: 확정 사실·세부 모순 / 시간: 순서·인과 / 인물 정보: 모르는 것을 앎 / 말투 / 세계관 규칙 / 플롯: 사건 누락")
+    type: IssueType = Field(description="사실: 확정 사실·세부 모순 / 시간: 순서·인과 / 인물 정보: 모르는 것을 앎 / 말투 / 세계관 규칙 / 플롯: 사건 누락 / 동선: 한 장면 안에서 위치·몸이 향한 쪽·자세·손에 든 것·가려진 곳이 행동 없이 바뀜")
     description: str = Field(description="무엇이 어긋났는지 한 문장")
-    source_episode: int = Field(0, description="앞선 근거가 나온 화. 설정·확정 사실·인물 상태가 근거면 0")
+    source_episode: int = Field(0, description="앞선 근거가 나온 화. 설정·확정 사실·인물 상태가 근거면 0, 같은 화 앞 문장이면 이번 화")
     source_quote: str = Field(description="앞선 근거 원문 그대로 (설정이면 해당 설정 문장)")
     current_quote: str = Field(description="이번 화에서 어긋난 문장 원문 그대로")
     suggestion: str = Field("", description="고치는 방법 제안")

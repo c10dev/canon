@@ -30,6 +30,8 @@ class StylePromptTest(unittest.TestCase):
             self.assertIn(rule, plain)
             self.assertNotIn(rule, styled)
         self.assertIn("부정 후 재정의", styled)
+        for rules in (plain, styled):  # 동선 규칙은 문체와 부딪치지 않아 늘 들어간다
+            self.assertIn("몸이 향한 쪽", rules)
         self.assertEqual(prompts.writer_system(_project()), prompts.SYSTEM_WRITER)
         p = _project(StyleProfile(sample_passages=["바람이 불었다."]))
         self.assertNotIn("쉼표가 둘 이상", prompts.writer_system(p))
