@@ -355,8 +355,26 @@ def index() -> FileResponse:
     return FileResponse(STATIC / "index.html")
 
 
-def serve(host: str = "127.0.0.1", port: int = 8000) -> None:
+def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False) -> None:
+    import threading
+    import time
+    import webbrowser
+
     import uvicorn
 
-    print(f"Canon 웹 UI: http://{host}:{port}")
-    uvicorn.run(app, host=host, port=port)
+    shown = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
+    url = f"http://{shown}:{port}"
+    print(f"Canon 웹 UI: {url}")
+    server = uvicorn.Server(uvicorn.Config(app, host=host, port=port))
+
+    def open_when_ready() -> None:
+        # 서버가 포트를 연 뒤에 브라우저를 띄운다. 포트가 이미 쓰이고 있으면 열지 않는다.
+        while not server.started:
+            if server.should_exit:
+                return
+            time.sleep(0.1)
+        webbrowser.open(url)
+
+    if open_browser:
+        threading.Thread(target=open_when_ready, daemon=True).start()
+    server.run()

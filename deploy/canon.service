@@ -1,0 +1,19 @@
+# Canon 웹 UI 를 리눅스 서버에서 상시 실행하는 systemd 예시.
+# USER 와 경로를 고친 뒤:
+#   sudo cp deploy/canon.service /etc/systemd/system/canon.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now canon
+# 서버 안(127.0.0.1)에서만 열리므로, 다른 기기에서는 Tailscale serve 로 연다 (README 참고).
+[Unit]
+Description=Canon - AI 소설 작성 웹 UI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=USER
+WorkingDirectory=/home/USER/canon
+ExecStart=/home/USER/canon/.venv/bin/python -m canon serve --host 127.0.0.1 --port 8000 --no-browser
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

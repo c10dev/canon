@@ -17,7 +17,7 @@
   python -m canon adjust 내소설 a b --warmth 0.3 --trust 0.6   a 가 b 를 보는 관계를 직접 보정
   python -m canon revert 내소설 3       3화 상태 반영 직후로 되돌리기
   python -m canon recalc 내소설         계수(params)를 바꾼 뒤 사건 로그로 관계 재계산
-  python -m canon serve [--port 8000]    웹 UI
+  python -m canon serve [--port 8000]    웹 UI (브라우저 자동 열기, 끄려면 --no-browser)
 설정은 projects/<이름>/project.json 을 직접 고쳐도 된다.
 """
 from __future__ import annotations
@@ -326,7 +326,7 @@ def cmd_show(a: argparse.Namespace) -> None:
 def cmd_serve(a: argparse.Namespace) -> None:
     from .web import serve
 
-    serve(a.host, a.port)
+    serve(a.host, a.port, open_browser=not a.no_browser)
 
 
 def cmd_view(a: argparse.Namespace) -> None:
@@ -410,6 +410,7 @@ def main(argv: list[str] | None = None) -> None:
     sp = sub.add_parser("serve", help="웹 UI 실행")
     sp.add_argument("--host", default="127.0.0.1")
     sp.add_argument("--port", type=int, default=8000)
+    sp.add_argument("--no-browser", action="store_true", help="브라우저를 자동으로 열지 않음 (서버에서 상시 실행할 때)")
     sp.set_defaults(fn=cmd_serve)
 
     sp = add("view", cmd_view, yes=False)
