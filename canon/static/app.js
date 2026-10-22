@@ -34,6 +34,10 @@ const S = {
   arcDraft: null,    // 장편: 다음 아크 제안 (반영 전)
   arcForm: { length: 0, note: '' },  // 장편: 다음 아크 요청
   recapDraft: null,  // 장편: 아크·부 요약 제안 { kind, number, summary }
+  namingStyles: null, // 이름 스타일 목록 (서버 naming.STYLES)
+  names: {},         // 이름·지명 후보. 'c:<인물 id>' 또는 'place' → { candidates, options, ai }
+  nameCheck: null,   // 출연진 이름 점검 { warnings, style, detected }
+  placeKind: '',     // 지명 후보의 종류 (산, 마을, 문파…)
 };
 
 const STATUS = { draft: '플롯 초안', confirmed: '플롯 확정', written: '본문 작성됨', finalized: '반영 완료' };
@@ -432,6 +436,14 @@ document.addEventListener('input', (e) => {
 document.addEventListener('change', (e) => {
   const bind = e.target.dataset && e.target.dataset.bind;
   if (bind && /^(arc|story_arcs|parts)\./.test(bind) && S.route[2] === 'arc') render();
+  if (S.route[2] !== 'setup' || !bind) return;
+  if (bind === 'world.name_style') {  // 스타일을 바꾸면 이전 후보는 버리고 다시 점검한다
+    S.names = {};
+    S.placeKind = '';
+    checkNames().then(render);
+  } else if (/^characters\.\d+\.(name|age|gender)$/.test(bind) || bind === 'world.era' || bind === 'world.setting') {
+    checkNames();
+  }
 });
 
 document.addEventListener('keydown', (e) => {
@@ -544,13 +556,42 @@ const actions = {
     syncGenre();
     $('#genre-custom').focus();
   },
+  // 이름 · 지명 후보 (코드가 무작위로 뽑고, AI 추천은 '이름·지명' 단계 모델이 그중에서 고른다)
+  async nameCandidates(id) { await loadNames('c:' + id, { character: id }, false); },
+  async nameAI(id) { await loadNames('c:' + id, { character: id }, true); },
+  async placeCandidates() { await loadNames('place', { place_kind: S.placeKind || '' }, false); },
+  async placeAI() { await loadNames('place', { place_kind: S.placeKind || '' }, true); },
+  useName(arg) {
+    const [id, ...rest] = arg.split('|');
+    const c = P().characters.find((x) => x.id === id);
+    if (!c) return;
+    c.name = rest.join('|');
+    delete S.names['c:' + id];
+    markDirty();
+    render();
+    checkNames();
+  },
+  addPlace(name) {
+    const w = P().world;
+    if (!w.locations.includes(name)) w.locations.push(name);
+    S.names.place.candidates = (S.names.place.candidates || []).filter((x) => x.name !== name);
+    S.names.place.options = (S.names.place.options || []).filter((x) => x.name !== name);
+    markDirty();
+    render();
+  },
+  closeNames(key) {
+    delete S.names[key];
+    render();
+  },
+  async checkNames() { await checkNames(true); },
+
   addCharacter() {
     // id 는 관계와 플롯이 인물을 찾는 열쇠라 자동으로 짓고 화면에서는 접어 둔다
     const cs = P().characters;
     const ids = new Set(cs.map((c) => c.id));
     let id = ids.has('hero') ? '' : 'hero';
     for (let n = cs.length + 1; !id; n++) if (!ids.has('char' + n)) id = 'char' + n;
-    cs.push({ id, name: '', role: id === 'hero' ? '주인공' : '조연', age: '', appearance: '', personality: '', background: '', goal: '', wound: '', speech_style: '', secrets: [], arc: '' });
+    cs.push({ id, name: '', role: id === 'hero' ? '주인공' : '조연', age: '', gender: '', appearance: '', personality: '', background: '', goal: '', wound: '', speech_style: '', secrets: [], arc: '' });
     markDirty();
     render();
   },
@@ -982,6 +1023,7 @@ const actions = {
       provider: $('#set-provider').value, model: $('#set-model').value.trim(),
       local_url: $('#set-local-url').value.trim(), local_model: $('#set-local-model').value.trim(),
       stages: Object.fromEntries(STAGES.map(([s]) => [s, $(`#set-stage-${s}`).value])),
+      stage_models: Object.fromEntries(STAGES.map(([s]) => [s, $(`#set-stage-model-${s}`).value.trim()])),
     };
     if (key) body.api_key = key;
     const lkey = $('#set-local-key').value.trim();
@@ -997,6 +1039,9 @@ const actions = {
       S.config = await api('PUT', '/config', { clear_key: true });
       toast('키를 지웠습니다');
     });
+  },
+  async loadModels() {
+    await loadModelList(true);
   },
   async testSettings() {
     await run('연결 확인 중', async () => {
@@ -1139,8 +1184,10 @@ async function route() {
   try {
     if (!S.config) S.config = await api('GET', '/config');
     if (!S.genres) S.genres = await api('GET', '/genres').catch(() => []);
+    if (!S.namingStyles) S.namingStyles = await api('GET', '/naming/styles').catch(() => []);
     if (parts[0] === 'settings') {
       S.config = await api('GET', '/config');
+      loadModelList();  // 기다리지 않는다. 목록이 오면 입력칸 추천만 채운다
     } else if (parts[0] === 'styles') {
       S.name = null;
       S.project = null;
@@ -1161,6 +1208,10 @@ async function route() {
       const n = Number(parts[3]);
       if (!parts[2] && S.project.relationships.length) {
         S.relations = await api('GET', `/projects/${enc(S.name)}/relations`).catch((e) => ({ error: e.message }));
+      }
+      if (parts[2] === 'setup') {
+        S.names = {};
+        S.nameCheck = await api('POST', `/projects/${enc(S.name)}/names/check`, P()).catch(() => null);
       }
       if (parts[2] === 'style') {
         S.libs = await api('GET', '/styles').catch(() => []);
@@ -1265,7 +1316,8 @@ function header(eyebrow, title, desc, right = '') {
 
 // ----- 설정 -----
 
-const STAGES = [['plan', '계획 (설정 제안, 문체 분석, 기승전결, 화별 플롯)'], ['write', '본문 쓰기'], ['check', '검수'], ['state', '상태 변경안']];
+const STAGES = [['plan', '계획 (설정 제안, 문체 분석, 기승전결, 화별 플롯)'], ['write', '본문 쓰기'], ['check', '검수'], ['state', '상태 변경안'],
+  ['name', '이름·지명 AI 추천 (정하지 않으면 계획 단계를 따름)']];
 
 function providerOptions(cur) {
   return [['gemini', 'Gemini API'], ['local', '로컬 서버 (OpenAI 호환)'], ['mock', 'mock (AI 호출 없이 화면 확인용)']]
@@ -1291,26 +1343,32 @@ function viewSettings() {
         <div class="small"><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>에서 무료로 발급받을 수 있어요. 저장한 키는 화면에 다시 보여주지 않습니다.</div>
         ${envNote(c.key_source, 'GEMINI_API_KEY')}</div>
       <div class="field"><label for="set-model">모델</label>
-        <input id="set-model" type="text" list="model-list" value="${esc(c.model_setting || '')}">
-        <datalist id="model-list"><option value="gemini-4-argon"></option><option value="gemini-2.5-pro"></option><option value="gemini-2.5-flash"></option></datalist>
-        <div class="small">gemini-4-argon 이 기본입니다. 2.5 flash 는 빠르고 저렴합니다.</div>${envNote(c.model_source, 'CANON_MODEL')}</div>
+        <input id="set-model" type="text" list="model-options" value="${esc(c.model_setting || '')}">
+        ${modelDatalist()}
+        <div class="small">모든 단계의 기본 Gemini 모델입니다. gemini-4-argon 이 기본이고, 단계마다 바꾸려면 아래 '단계별 백엔드와 모델'에서 고르세요.</div>${envNote(c.model_source, 'CANON_MODEL')}</div>
       <h2 style="margin-top:18px">로컬 서버</h2>
       <p class="desc">Ollama, llama.cpp, vLLM, LM Studio 처럼 OpenAI 호환 API 를 여는 서버입니다. 주소는 /v1 까지 적습니다.</p>
       <div class="field"><label for="set-local-url">서버 주소</label>
         <input id="set-local-url" type="text" value="${esc(c.local_url || '')}" placeholder="http://localhost:11434/v1">
         <div class="small">Ollama :11434/v1 · llama.cpp :8080/v1 · vLLM :8000/v1 · LM Studio :1234/v1</div>${envNote(c.local_url_source, 'CANON_LOCAL_URL')}</div>
       <div class="field"><label for="set-local-model">모델 이름</label>
-        <input id="set-local-model" type="text" value="${esc(c.local_model || '')}" placeholder="비우면 서버에 하나뿐인 모델">${envNote(c.local_model_source, 'CANON_LOCAL_MODEL')}</div>
+        <input id="set-local-model" type="text" list="model-options" value="${esc(c.local_model || '')}" placeholder="비우면 서버에 하나뿐인 모델">${envNote(c.local_model_source, 'CANON_LOCAL_MODEL')}</div>
       <div class="field"><label for="set-local-key">서버 키 <span class="hint">지금: ${c.has_local_key ? '있음' : '없음'}</span></label>
         <input id="set-local-key" type="password" autocomplete="off" placeholder="서버가 키를 요구할 때만"></div>
-      <h2 style="margin-top:18px">단계별 백엔드</h2>
-      <p class="desc">예: 계획과 검수는 Gemini, 본문은 로컬 모델.</p>
+      <h2 style="margin-top:18px">단계별 백엔드와 모델</h2>
+      <p class="desc">예: 계획과 검수는 gemini-4-argon, 상태 변경안과 이름 추천은 빠르고 싼 gemini-3.8-flash, 본문은 로컬 모델. 모델 칸을 비우면 그 백엔드의 기본 모델(위 '모델' 또는 로컬 '모델 이름')을 씁니다.</p>
       ${STAGES.map(([s, label]) => {
         const st = (c.stages || {})[s] || {};
+        const base = st.provider === 'local' ? (c.local_model || '서버에 하나뿐인 모델') : c.model_setting;
         return `<div class="field"><label for="set-stage-${s}">${label} <span class="hint">지금: ${esc(st.model || '')}</span></label>
-          <select id="set-stage-${s}"><option value="">위 생성 방식을 따름</option>${providerOptions((c.stage_settings || {})[s])}</select>
-          ${st.source === 'env' ? `<div class="small">환경 변수 CANON_LLM_${s.toUpperCase()} 가 우선합니다.</div>` : ''}</div>`;
+          <div class="stage-row">
+            <select id="set-stage-${s}" aria-label="${esc(label)} 백엔드"><option value="">${s === 'name' ? '계획 단계를 따름' : '위 생성 방식을 따름'}</option>${providerOptions((c.stage_settings || {})[s])}</select>
+            <input id="set-stage-model-${s}" type="text" list="model-options" aria-label="${esc(label)} 모델" value="${esc((c.stage_model_settings || {})[s] || '')}" placeholder="모델: ${esc(base || '기본')}">
+          </div>
+          ${st.source === 'env' ? `<div class="small">환경 변수 CANON_LLM_${s.toUpperCase()} 가 우선합니다.</div>` : ''}
+          ${st.model_source === 'env' ? `<div class="small">환경 변수 CANON_MODEL_${s.toUpperCase()} 가 우선합니다.</div>` : ''}</div>`;
       }).join('')}
+      <div class="small" id="model-status">${modelStatus()}</div>
       <div class="row">
         <button class="btn primary" data-action="saveSettings">저장</button>
         <button class="btn" data-action="testSettings">연결 확인</button>
@@ -1318,6 +1376,42 @@ function viewSettings() {
       </div>
       <div class="small">설정 파일: ${esc(c.path)}</div>
     </section>`;
+}
+
+// 모델 칸 추천 목록: Gemini API 와 로컬 서버에 실제로 있는 모델. 없으면 직접 적는다.
+const KNOWN_MODELS = ['gemini-4-argon', 'gemini-3.8-flash'];
+
+function modelDatalist() {
+  const m = S.models || {};
+  const opts = [
+    ...(((m.gemini || {}).models || []).length ? m.gemini.models : KNOWN_MODELS).map((x) => [x, 'Gemini']),
+    ...((m.local || {}).models || []).map((x) => [x, '로컬 서버']),
+  ];
+  return `<datalist id="model-options">${opts.map(([v, l]) => `<option value="${esc(v)}" label="${l}"></option>`).join('')}</datalist>`;
+}
+
+function modelStatus() {
+  const m = S.models;
+  if (!m) return '모델 목록을 불러오는 중…';
+  const part = (name, r) => r.error ? `${name}: 목록을 못 불러옴 (${esc(r.error.slice(0, 120))})` : `${name} ${r.models.length}개`;
+  return `모델 칸을 누르면 고를 수 있어요. ${part('Gemini', m.gemini)} · ${part('로컬 서버', m.local)}. 목록에 없으면 이름을 직접 적어도 됩니다. <a href="javascript:void 0" data-action="loadModels">다시 불러오기</a>`;
+}
+
+async function loadModelList(force) {
+  if (S.models && !force) return;
+  if (force) S.models = null;
+  const st = $('#model-status');
+  if (st) st.innerHTML = modelStatus();
+  try {
+    S.models = await api('GET', '/config/models');
+  } catch (e) {
+    S.models = { gemini: { models: [], error: e.message }, local: { models: [], error: e.message } };
+  }
+  // 다시 그리면 저장 전 입력이 사라지므로 목록과 안내만 바꾼다
+  const dl = $('#model-options');
+  if (dl) dl.outerHTML = modelDatalist();
+  const st2 = $('#model-status');
+  if (st2) st2.innerHTML = modelStatus();
 }
 
 // ----- 작품 목록 -----
@@ -1639,21 +1733,83 @@ function refreshRel(i) {
   if (el) el.outerHTML = relRow(P().relationships[i], i);
 }
 
+async function loadNames(key, req, ai) {
+  await run(ai ? 'AI 가 고르는 중' : '후보 뽑는 중', async () => {
+    const r = await api('POST', `/projects/${enc(S.name)}/names`, { ...req, ai, n: 8, project: P() });
+    S.names[key] = { ...r, ai };
+    if (S.nameCheck) Object.assign(S.nameCheck, { style: r.style, detected: r.detected });
+  });
+}
+
+async function checkNames(show = false) {
+  const r = await api('POST', `/projects/${enc(S.name)}/names/check`, P()).catch(() => null);
+  if (!r) return;
+  S.nameCheck = r;
+  const box = $('#name-check');
+  if (box) box.outerHTML = nameCheckBox();
+  const auto = $('#name-style-auto');
+  if (auto) auto.textContent = `자동 (지금: ${styleLabel(r.detected)})`;
+  if (show) toast(r.warnings.length ? `이름 점검: ${r.warnings.length}건` : '이름 점검: 문제 없음');
+}
+
+function styleLabel(id) {
+  const st = (S.namingStyles || []).find((x) => x.id === id);
+  return st ? st.label : id || '';
+}
+
+function nameCheckBox() {
+  const w = (S.nameCheck || {}).warnings || [];
+  if (!w.length) return '<div id="name-check"></div>';
+  return `<div id="name-check" class="note warn"><strong>이름 점검</strong><ul style="margin:4px 0 0;padding-left:18px">${w.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>`;
+}
+
+// 후보 칩. AI 추천이면 이유를, 코드 후보면 시대·종류 메모를 같이 보여 준다
+function namePicks(key, action, argOf) {
+  const r = S.names[key];
+  if (!r) return '';
+  const items = r.ai ? (r.options || []).map((o) => ({ name: o.name, note: o.reason }))
+    : (r.candidates || []).map((c) => ({ name: c.name, note: [c.kind, c.note].filter(Boolean).join(' · ') }));
+  const chips = items.map((x) => `<button type="button" class="name-pick" data-action="${action}" data-arg="${esc(argOf(x.name))}" title="${esc(x.note)}">${esc(x.name)}${x.note ? `<small>${esc(x.note)}</small>` : ''}</button>`).join('');
+  return `<div class="name-picks-box">
+    <div class="between"><span class="small">${r.ai ? 'AI 추천' : '무작위 후보'} · ${esc(r.style_label)} · 눌러서 ${key === 'place' ? '장소에 추가' : '이름으로 쓰기'}</span>
+      <button type="button" class="btn small ghost" data-action="closeNames" data-arg="${esc(key)}">닫기</button></div>
+    <div class="name-picks">${chips || '<span class="small">후보가 없어요</span>'}</div></div>`;
+}
+
+function nameStyleField() {
+  const w = P().world;
+  const det = (S.nameCheck || {}).detected;
+  const opts = (S.namingStyles || []).map((st) => `<option value="${esc(st.id)}"${w.name_style === st.id ? ' selected' : ''}>${esc(st.label)}</option>`).join('');
+  const cur = (S.namingStyles || []).find((st) => st.id === (w.name_style || det));
+  return `<div class="field"><label for="f-name-style">이름 스타일 <span class="hint">이름과 지명 후보를 뽑는 기준</span></label>
+    <select id="f-name-style" data-bind="world.name_style" data-kind="text"><option value="" id="name-style-auto">자동 (지금: ${esc(styleLabel(det))})</option>${opts}</select>
+    ${cur ? `<div class="small">${esc(cur.summary)}</div>` : ''}</div>`;
+}
+
+function placeKindOptions() {
+  const sid = P().world.name_style || (S.nameCheck || {}).style;
+  const st = (S.namingStyles || []).find((x) => x.id === sid);
+  return ['<option value="">종류 무관</option>', ...((st && st.place_kinds) || []).map((k) => `<option value="${esc(k)}"${S.placeKind === k ? ' selected' : ''}>${esc(k)}</option>`)].join('');
+}
+
 function viewSetup() {
   const p = P();
   const chars = p.characters.map((c, i) => {
     const b = `characters.${i}`;
     return `<article class="char-card">
       <div class="between"><strong style="font-size:16px">${esc(c.name || '이름 없음')}</strong><button class="btn small danger" data-action="removeCharacter" data-arg="${i}" aria-label="${esc(c.name || c.id)} 삭제">삭제</button></div>
-      <div class="grid-2">${input('이름', b + '.name')}${input('역할', b + '.role', { placeholder: '주인공, 상대역, 조연…' })}</div>
+      <div class="grid-2">${input('이름', b + '.name')}${input('역할', b + '.role', { placeholder: '주인공, 상대역, 조력자…' })}</div>
+      <div class="grid-2">${input('나이', b + '.age', { placeholder: '예: 17세, 40대 초반' })}${input('성별', b + '.gender', { placeholder: '남 / 여' })}</div>
       ${serial() ? `<div class="field"><label for="tier-${i}">비중 <span class="hint">주역은 매 화 설정 전체가 들어가고, 조연 · 단역은 나오는 화에만 들어가요${c.first_ep ? ` · ${c.first_ep}화에 처음 나옴` : ''}</span></label>
         <select id="tier-${i}" data-bind="${b}.tier">${[['main', '주역'], ['support', '조연'], ['minor', '단역']].map(([v, l]) => `<option value="${v}"${(c.tier || 'main') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div>` : ''}
+      <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보 뽑기</button><button type="button" class="btn small" data-action="nameAI" data-arg="${esc(c.id)}">AI 이름 추천</button></div>
+      ${namePicks('c:' + c.id, 'useName', (n) => `${c.id}|${n}`)}
       ${input('원하는 것', b + '.goal', { hint: '작품 전체에서' })}
       ${input('두려운 것 · 약점', b + '.wound')}
       ${input('숨기는 것', b + '.secrets', { kind: 'list', rows: 2 })}
       ${input('말투', b + '.speech_style', { rows: 2, hint: '어미, 호칭, 대사 한 줄' })}
-      <details><summary>더 자세히: 나이, 성격, 배경, 외모, 아크</summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
-        ${input('나이', b + '.age')}${input('성격', b + '.personality', { rows: 2 })}${input('배경', b + '.background', { rows: 2 })}${input('외모', b + '.appearance')}
+      <details><summary>더 자세히: 성격, 배경, 외모, 아크</summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
+        ${input('성격', b + '.personality', { rows: 2 })}${input('배경', b + '.background', { rows: 2 })}${input('외모', b + '.appearance')}
         ${input('아크', b + '.arc', { hint: '시작 → 결말' })}${input('id', b + '.id', { hint: '관계와 플롯이 인물을 찾는 값. 보통 바꿀 필요 없어요' })}
       </div></details>
     </article>`;
@@ -1681,12 +1837,19 @@ function viewSetup() {
           <h2>세계관</h2>
           ${input('배경', 'world.setting', { rows: 2 })}${input('시대', 'world.era')}
           ${input('깨면 안 되는 규칙', 'world.rules', { kind: 'list' })}${input('장소', 'world.locations', { kind: 'list' })}
+          <div class="row"><select id="place-kind" aria-label="지명 종류" data-local="placeKind" style="width:auto;min-width:120px">${placeKindOptions()}</select>
+            <button type="button" class="btn small" data-action="placeCandidates">지명 후보 뽑기</button><button type="button" class="btn small" data-action="placeAI">AI 지명 추천</button></div>
+          ${namePicks('place', 'addPlace', (n) => n)}
+          ${nameStyleField()}
+          ${input('이름 규칙', 'world.name_rules', { kind: 'list', rows: 2, placeholder: "예: 북부 귀족은 성 앞에 '폰'을 붙인다" })}
         </section>
       </div>
       <div class="col wide">
         <section class="card">
           <div class="between"><h2>인물 <span class="small">${p.characters.length}명</span></h2><button class="btn small" data-action="addCharacter">+ 인물 추가</button></div>
           <p class="small">이름, 말투, 성격은 고정 설정입니다. 회차가 지나며 바뀌는 감정과 목표는 상태 승인 화면에서 관리합니다.</p>
+          <div class="row"><button type="button" class="btn small ghost" data-action="checkNames">이름 점검</button><span class="small">글자가 겹치는 이름, 나이와 안 맞는 이름, AI 가 자주 짓는 이름을 찾아요</span></div>
+          ${nameCheckBox()}
           ${chars ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">${chars}</div>` : '<div class="note plain">인물이 없어요. 직접 추가하거나 AI 제안을 받으세요.</div>'}
         </section>
         <section class="card">

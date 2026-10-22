@@ -11,7 +11,7 @@ import json
 
 from pydantic import BaseModel
 
-from . import genres
+from . import genres, naming
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
 from .schema import Character, ChatMessage, ConsistencyReport, Foreshadow, Project, StateDelta
@@ -49,6 +49,11 @@ SYSTEM_EDITOR = (
     "인물 상태, 관계, 확정 사실, 복선을 정리합니다. 추측하지 않습니다."
 )
 
+
+SYSTEM_NAMER = (
+    "당신은 한국 웹소설 편집자로, 인물과 장소의 이름을 고릅니다. 시대, 나이, 신분, 세계관의 말맛에 맞는 이름을 고르고 "
+    "AI 가 흔히 쓰는 이름은 피합니다. 모든 출력은 한국어로 작성합니다."
+)
 
 SYSTEM_CHECKER = (
     "당신은 연재 소설의 교정 편집자입니다. 이번 화 본문이 앞선 본문, 설정, 확정 사실과 모순되는지만 찾습니다. "
@@ -96,7 +101,12 @@ def setup_prompt(p: Project) -> str:
 - 각 인물의 speech_style 은 대사 예시 한 줄을 포함해 구체적으로 씁니다.
 - 관계는 주요 인물 쌍마다 하나씩, affinity 와 tension 은 1화 시작 시점 기준입니다.
 - a_view(a 가 b 를 보는 방식)와 b_view(b 가 a 를 보는 방식)는 {", ".join(VIEWS)} 중에서 1~2개 고릅니다. 두 방향이 달라도 됩니다.
-- 인물 id 는 영문 소문자로 짓고, 이미 있는 id 는 유지합니다."""
+- 인물 id 는 영문 소문자로 짓고, 이미 있는 id 는 유지합니다.
+- 인물에게 gender(남/여)를 적습니다. 이름과 장소는 아래 [이름·지명 후보]에서 고르거나 같은 시대와 결로 짓고, 피할 이름은 쓰지 않습니다.
+- 인물끼리 이름의 첫 글자나 끝 글자가 겹치지 않게 합니다.
+
+[이름·지명 후보]
+{naming.prompt_block(p)}"""
 
 
 def style_prompt(sample: str) -> str:
@@ -193,7 +203,7 @@ def plot_rules(p: Project) -> str:
     """화별 플롯을 쓸 때 지킬 규칙. 초안 생성과 대화형 수정이 같이 쓴다."""
     common = f"""- 각 화는 소속 구간(act)의 goal 을 향해 전진해야 하며, 구간의 key_turn 은 해당 구간 안의 특정 화에 배치합니다.
 - 한 화에 사건 3~6개, 분량은 약 {p.meta.words_per_episode}자 기준.
-- emotional_shift 는 감정 이름이 아니라 감정 변화가 겉으로 드러나는 행동이나 대사로 적습니다 (예: "도현의 전화를 세 번째에야 받는다").
+- emotional_shift 는 감정 이름이 아니라 감정 변화가 겉으로 드러나는 행동이나 대사로 적습니다 (예: "상대의 전화를 세 번째에야 받는다").
 - 모든 화가 같은 모양이 되지 않도록, 필요한 화에는 회상, 시간 건너뛰기, 곁가지 사건, 주인공의 잘못된 선택을 씁니다. 갈등은 너무 깔끔하게 정리하지 않습니다.
 - characters 에는 인물 id 만 씁니다."""
     if not p.serial:
@@ -764,3 +774,33 @@ def check_brief(p: Project, n: int) -> str:
 def _schema_text(model: type[BaseModel]) -> str:
     return json.dumps(_inline_refs(model.model_json_schema()), ensure_ascii=False, indent=2)
 
+
+
+def naming_prompt(p: Project, target: str, candidates: list, n: int) -> str:
+    """target: 이름을 지을 대상 설명. candidates: naming.Candidate 목록 (코드가 뽑은 것)."""
+    cand = "\n".join(f"- {c.name}" + (f" ({c.kind})" if c.kind else "") + (f": {c.note}" if c.note else "") for c in candidates)
+    others = ", ".join(c.name for c in p.characters if c.name) or "없음"
+    rules = "\n".join(f"- {r}" for r in p.world.name_rules) or "- 따로 없음"
+    return f"""아래 작품에 쓸 이름을 {n}개 추천하세요.
+
+[작품]
+{meta_text(p)}
+[세계관]
+배경: {p.world.setting}
+시대: {p.world.era}
+이름 스타일: {naming.style_label(naming.resolve_style(p))}
+이름 규칙:
+{rules}
+이미 있는 인물: {others}
+이미 있는 장소: {", ".join(p.world.locations) or "없음"}
+
+[대상]
+{target}
+
+[코드가 뽑은 후보]
+{cand}
+
+요구사항:
+- 절반 이상은 위 후보에서 고르고, 나머지는 같은 시대와 결로 새로 짓습니다.
+- 이미 있는 인물과 첫 글자나 끝 글자가 겹치는 이름, 이미 있는 장소와 같은 이름은 피합니다.
+- reason 에는 이 대상에 맞는 이유를 한 줄로 적습니다 (시대, 나이, 신분, 성격, 지형 등)."""

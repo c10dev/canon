@@ -103,11 +103,35 @@ def test_settings(client, tmp_path, monkeypatch):
     c = client.put("/api/config", json={"local_url": "http://nhn:8000/v1", "local_model": "gemma",
                                         "local_key": "lk-1", "stages": {"write": "local"}}).json()
     assert c["local_url"] == "http://nhn:8000/v1" and c["has_local_key"] and "lk-1" not in str(c)
-    assert c["stages"]["write"] == {"provider": "local", "source": "file", "model": "gemma"}
+    assert c["stages"]["write"] == {"provider": "local", "source": "file", "model": "gemma", "model_source": "default"}
     assert c["stages"]["plan"]["provider"] == "gemini"
+
+    # 이름·지명 단계는 따로 정하지 않으면 계획 단계를 따르고, 단계별 모델을 지정할 수 있다
+    assert c["stages"]["name"]["provider"] == "gemini"
+    c = client.put("/api/config", json={"stage_models": {"plan": "gemini-2.5-pro"}}).json()
+    assert c["stages"]["name"]["model"] == "gemini-2.5-pro"
+    c = client.put("/api/config", json={"stages": {"name": "local"}, "stage_models": {"name": "qwen3"}}).json()
+    assert c["stages"]["name"] == {"provider": "local", "source": "file", "model": "qwen3", "model_source": "file"}
+    assert c["stage_model_settings"] == {"plan": "gemini-2.5-pro", "name": "qwen3"}
+    from canon.llm import get_llm as _get
+    assert _get("name").model == "qwen3" and _get("plan").model == "gemini-2.5-pro"
+    assert client.put("/api/config", json={"stage_models": {"draft": "x"}}).status_code == 400
+    c = client.put("/api/config", json={"stages": {"name": ""}, "stage_models": {"plan": "", "name": ""}}).json()
+    assert c["stage_model_settings"] == {}
     assert client.put("/api/config", json={"stages": {"write": "claude"}}).status_code == 400
     assert client.put("/api/config", json={"stages": {"draft": "local"}}).status_code == 400
     assert client.put("/api/config", json={"stages": {"write": ""}}).json()["stage_settings"] == {}
+
+    # 단계별 모델: 상태 변경안만 Flash
+    for name in ("CANON_MODEL_STATE", "CANON_MODEL_PLAN"):
+        monkeypatch.delenv(name, raising=False)
+    c = client.put("/api/config", json={"stage_models": {"state": " gemini-3.8-flash "}}).json()
+    assert c["stages"]["state"]["model"] == "gemini-3.8-flash" and c["stages"]["plan"]["model"] == "gemini-2.5-pro"
+    assert c["stage_model_settings"] == {"state": "gemini-3.8-flash"}
+    assert client.put("/api/config", json={"stage_models": {"draft": "x"}}).status_code == 400
+    assert client.put("/api/config", json={"stage_models": {"state": ""}}).json()["stage_model_settings"] == {}
+    m = client.get("/api/config/models").json()  # 키도 서버도 없어도 화면은 열린다
+    assert set(m) == {"gemini", "local"} and m["local"]["error"]
     assert client.put("/api/config", json={"clear_key": True}).json()["key_source"] == "none"
 
     # 화면에서 mock 으로 바꾸면 AI 호출도 mock 으로 간다
@@ -116,6 +140,29 @@ def test_settings(client, tmp_path, monkeypatch):
     from canon.llm import get_llm
     from canon.mock import MockLLM
     assert isinstance(get_llm(), MockLLM)
+
+
+def test_names(client):
+    meta = {"title": "검", "genres": ["martial_arts"], "target_episodes": 10}
+    client.post("/api/projects", json={"name": "wx", "meta": meta})
+    s = client.post("/api/projects/wx/suggest").json()
+    p = client.post("/api/projects/wx/suggest/apply", json=s).json()
+    assert {x["id"] for x in client.get("/api/naming/styles").json()} >= {"korea_modern", "wuxia", "japan"}
+
+    r = client.post("/api/projects/wx/names", json={"character": "hero"}).json()
+    assert r["style"] == "wuxia" and len(r["candidates"]) == 8
+    r = client.post("/api/projects/wx/names", json={"place_kind": "문파", "ai": True, "n": 4}).json()
+    assert len(r["options"]) == 4 and all(o["reason"] for o in r["options"])
+    assert {o["name"] for o in r["options"]} <= {c["name"] for c in r["candidates"]}
+
+    # 저장 전 화면 값으로 뽑는다: 이름 스타일을 일본으로 바꾸면 일본식 이름
+    p["world"]["name_style"] = "japan"
+    r = client.post("/api/projects/wx/names", json={"character": "hero", "project": p}).json()
+    assert r["style"] == "japan" and all(" " in c["name"] for c in r["candidates"])
+    assert client.post("/api/projects/wx/names", json={"character": "nobody"}).status_code == 400
+
+    w = client.post("/api/projects/wx/names/check", json=p).json()["warnings"]
+    assert any("AI 가 자주" in x for x in w)  # mock 제안의 '서윤', '도현'
 
 
 def test_relations(client):

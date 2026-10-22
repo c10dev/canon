@@ -2,7 +2,8 @@
 
 웹 설정 화면에서 저장하면 ~/.canon/config.json 에 들어간다 (CANON_CONFIG 로 경로 변경).
 환경 변수가 있으면 파일보다 우선한다: CANON_LLM, CANON_MODEL, GEMINI_API_KEY(또는 GOOGLE_API_KEY),
-CANON_LOCAL_URL, CANON_LOCAL_MODEL, CANON_LOCAL_KEY, CANON_LLM_PLAN / _WRITE / _CHECK / _STATE.
+CANON_LOCAL_URL, CANON_LOCAL_MODEL, CANON_LOCAL_KEY, CANON_LLM_PLAN / _WRITE / _CHECK / _STATE / _NAME,
+CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME (단계별 모델).
 파일은 작품 폴더와 따로 두어 저장소나 project.json 에 키가 섞이지 않게 한다.
 """
 from __future__ import annotations
@@ -15,7 +16,10 @@ DEFAULT_MODEL = "gemini-4-argon"
 DEFAULT_LOCAL_URL = "http://localhost:11434/v1"  # Ollama. llama.cpp 는 :8080/v1, vLLM 은 :8000/v1
 PROVIDERS = ("gemini", "local", "mock")
 # 단계: plan(설정 제안, 문체 분석, 기승전결, 화별 플롯) / write(본문) / check(검수) / state(상태 추출)
-STAGES = ("plan", "write", "check", "state")
+# / name(이름·지명 AI 추천)
+STAGES = ("plan", "write", "check", "state", "name")
+# 따로 정하지 않으면 이 단계의 설정을 따른다 (이름 추천은 설정 제안과 같은 계획 단계 일이다)
+STAGE_PARENT = {"name": "plan"}
 # 로컬 본문 생성 기본 샘플링. 구조화 출력(json)에는 쓰지 않는다.
 DEFAULT_SAMPLING = {"temperature": 1.0, "top_p": 0.95, "min_p": 0.05}
 
@@ -92,13 +96,44 @@ def stage_provider(stage: str | None) -> tuple[str, str]:
     if stage not in STAGES:
         raise ValueError(f"알 수 없는 단계: {stage}")
     value, src = _pick((f"CANON_LLM_{stage.upper()}",), (_read().get("stages") or {}).get(stage))
-    return (value.lower(), src) if value else base
+    if value:
+        return value.lower(), src
+    return stage_provider(STAGE_PARENT[stage]) if stage in STAGE_PARENT else base
+
+
+def stage_model(stage: str | None) -> tuple[str, str]:
+    """단계별 모델 이름. 비어 있으면 그 단계 백엔드의 기본 모델(model 또는 local_model)을 쓴다.
+    예: 상태 변경안만 gemini-3.8-flash 로 돌려 비용과 시간을 줄인다.
+    이름 추천처럼 부모 단계가 있으면, 백엔드를 따로 정하지 않은 동안은 부모 단계 모델도 따른다."""
+    if stage is None or stage not in STAGES:
+        return "", "default"
+    value, src = _pick((f"CANON_MODEL_{stage.upper()}",), (_read().get("stage_models") or {}).get(stage))
+    parent = STAGE_PARENT.get(stage)
+    if not value and parent and stage_provider(stage) == stage_provider(parent):
+        return stage_model(parent)
+    return value, src
+
+
+def _set_stage_map(data: dict, key: str, values: dict[str, str]) -> None:
+    cur = {k: v for k, v in (data.get(key) or {}).items() if k in STAGES}
+    for stage, value in values.items():
+        if stage not in STAGES:
+            raise ValueError(f"알 수 없는 단계: {stage}")
+        if value and value.strip():
+            cur[stage] = value.strip()
+        else:
+            cur.pop(stage, None)  # 빈 값이면 기본을 따른다
+    if cur:
+        data[key] = cur
+    else:
+        data.pop(key, None)
 
 
 def update(*, provider: str | None = None, model: str | None = None,
            api_key: str | None = None, clear_key: bool = False,
            local_url: str | None = None, local_model: str | None = None,
-           local_key: str | None = None, stages: dict[str, str] | None = None) -> None:
+           local_key: str | None = None, stages: dict[str, str] | None = None,
+           stage_models: dict[str, str] | None = None) -> None:
     """None 인 값은 그대로 둔다. 빈 문자열이면 파일에서 지운다."""
     data = _read()
     for key, value in (("provider", provider), ("model", model), ("gemini_api_key", api_key),
@@ -112,18 +147,9 @@ def update(*, provider: str | None = None, model: str | None = None,
     if clear_key:
         data.pop("gemini_api_key", None)
     if stages is not None:
-        cur = {k: v for k, v in (data.get("stages") or {}).items() if k in STAGES}
-        for stage, value in stages.items():
-            if stage not in STAGES:
-                raise ValueError(f"알 수 없는 단계: {stage}")
-            if value:
-                cur[stage] = value
-            else:
-                cur.pop(stage, None)  # 빈 값이면 기본(전체 provider)을 따른다
-        if cur:
-            data["stages"] = cur
-        else:
-            data.pop("stages", None)
+        _set_stage_map(data, "stages", stages)  # 빈 값이면 전체 provider 를 따른다
+    if stage_models is not None:
+        _set_stage_map(data, "stage_models", stage_models)  # 빈 값이면 백엔드 기본 모델
     _write(data)
 
 
@@ -137,8 +163,11 @@ def public() -> dict:
     stages = {}
     for s in STAGES:
         sp, ssrc = stage_provider(s)
+        sm, smsrc = stage_model(s)
         label = {"gemini": mdl, "local": lmodel or "로컬 서버 모델", "mock": "mock"}.get(sp, sp)
-        stages[s] = {"provider": sp, "source": ssrc, "model": label}
+        if sm and sp != "mock":
+            label = sm
+        stages[s] = {"provider": sp, "source": ssrc, "model": label, "model_source": smsrc}
     return {
         "provider": prov,
         "provider_source": prov_src,
@@ -156,5 +185,6 @@ def public() -> dict:
         "has_local_key": bool(local_key()[0]),
         "stages": stages,
         "stage_settings": {k: v for k, v in (_read().get("stages") or {}).items() if k in STAGES},
+        "stage_model_settings": {k: v for k, v in (_read().get("stage_models") or {}).items() if k in STAGES},
         "path": str(config_path()),
     }
