@@ -5,7 +5,8 @@
 ## 설치
 
 ```bash
-pip install -r requirements.txt
+python3 -m venv .venv && source .venv/bin/activate   # macOS Homebrew Python 은 가상환경 필요
+python -m pip install -r requirements.txt
 export GEMINI_API_KEY=...            # https://aistudio.google.com/apikey
 export CANON_MODEL=gemini-2.5-pro # 선택, 사용할 Gemini 모델
 ```
@@ -18,6 +19,8 @@ API 키 없이 흐름만 보려면 `export CANON_LLM=mock`.
 python -m canon serve            # http://127.0.0.1:8000
 CANON_LLM=mock python -m canon serve   # API 키 없이 화면만 둘러보기
 ```
+
+Gemini API 키와 모델은 화면 오른쪽 아래 **모델 · API 키 설정**에서 넣는다. `~/.canon/config.json` 에만 저장되고(권한 600), 환경 변수 `GEMINI_API_KEY`, `CANON_MODEL`, `CANON_LLM` 이 있으면 그 값이 우선한다. CLI 도 같은 설정을 쓴다.
 
 작품 홈, 설정 도우미, 문체 레퍼런스, 기승전결 플롯 보드, 집필, 상태 변경안 승인, 채팅 앱 작업지시서 화면이 있다. CLI 와 같은 `projects/<이름>/project.json` 을 읽고 쓴다. AI 제안은 바로 저장되지 않고, 화면에서 고르거나 고친 뒤 저장할 때 반영된다.
 
