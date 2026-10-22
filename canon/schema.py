@@ -61,6 +61,8 @@ class WorldSetting(BaseModel):
     era: str = ""
     rules: list[str] = Field(default_factory=list, description="세계관 규칙, 깨지면 안 되는 설정")
     locations: list[str] = Field(default_factory=list)
+    name_style: str = Field("", description="이름 스타일 id (korea_modern, joseon, wuxia, western_fantasy, japan, sf). 비우면 장르와 배경으로 짐작")
+    name_rules: list[str] = Field(default_factory=list, description="이 세계의 이름 짓는 규칙 (예: 북부 귀족은 성 앞에 '폰')")
 
 
 class Character(BaseModel):
@@ -68,6 +70,7 @@ class Character(BaseModel):
     name: str
     role: str = Field(description="주인공 / 조연 / 적대자 등")
     age: str = ""
+    gender: str = Field("", description="남 / 여, 정하지 않았으면 빈칸")
     appearance: str = ""
     personality: str = ""
     background: str = ""
@@ -353,6 +356,16 @@ class StateDelta(BaseModel):
     foreshadow_planted: list[Foreshadow] = Field(default_factory=list)
     foreshadow_resolved: list[str] = Field(default_factory=list, description="회수된 복선 id")
     warnings: list[str] = Field(default_factory=list, description="플롯, 설정, 말투와 어긋난 부분")
+
+
+class NameOption(BaseModel):
+    name: str
+    reason: str = Field("", description="이 인물이나 장소에 맞는 이유 한 줄")
+
+
+class NameOptions(BaseModel):
+    """이름·지명 AI 추천. 코드가 뽑은 후보에서 고르거나 같은 결로 새로 짓는다 (naming.py)."""
+    options: list[NameOption]
 
 
 class SetupSuggestion(BaseModel):

@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import dynamics, genres, jobs, library, pipeline, prompts, research, settings, store
+from . import dynamics, genres, jobs, library, naming, pipeline, prompts, research, settings, store
 from .llm import GeminiLLM, LocalLLM, get_llm
 from .schema import ArcPlan, Meta, Project, SetupSuggestion, StateDelta, StyleEntry, StyleProfile
 
@@ -92,6 +92,7 @@ class SettingsIn(BaseModel):
     local_model: str | None = None
     local_key: str | None = None
     stages: dict[str, str] | None = None  # {"write": "local"}, 빈 값이면 전체 설정을 따름
+    stage_models: dict[str, str] | None = None  # {"name": "gemini-2.5-flash"}, 빈 값이면 백엔드 기본 모델
 
 
 @app.put("/api/config")
@@ -102,22 +103,25 @@ def put_config(body: SettingsIn) -> dict:
     for stage, value in (body.stages or {}).items():
         if stage not in settings.STAGES or (value and value not in choices):
             raise HTTPException(400, f"단계 설정이 잘못됐습니다: {stage}={value}")
+    for stage in body.stage_models or {}:
+        if stage not in settings.STAGES:
+            raise HTTPException(400, f"알 수 없는 단계: {stage}")
     settings.update(provider=body.provider, model=body.model, api_key=body.api_key, clear_key=body.clear_key,
                     local_url=body.local_url, local_model=body.local_model, local_key=body.local_key,
-                    stages=body.stages)
+                    stages=body.stages, stage_models=body.stage_models)
     return settings.public()
 
 
 @app.post("/api/config/test")
 def test_config() -> dict:
     """단계에서 쓰는 백엔드마다 연결을 확인한다. 본문 생성 비용은 들지 않는다."""
-    used = {settings.stage_provider(s)[0] for s in settings.STAGES}
-    if used == {"mock"}:
+    used = {(settings.stage_provider(s)[0], settings.stage_model(s)[0]) for s in settings.STAGES}
+    if {prov for prov, _ in used} == {"mock"}:
         return {"ok": True, "message": "mock 모드입니다. 실제 AI 를 호출하지 않습니다."}
     done = []
-    for prov in sorted(used - {"mock"}):
+    for prov, mdl in sorted(x for x in used if x[0] != "mock"):
         try:
-            llm = GeminiLLM() if prov == "gemini" else LocalLLM()
+            llm = GeminiLLM(model=mdl or None) if prov == "gemini" else LocalLLM(model=mdl or None)
             llm.check()
         except Exception as e:  # SDK 오류 종류가 많아 메시지만 보여준다
             raise HTTPException(400, f"{prov} 연결 실패: {getattr(e, 'message', None) or e}")
@@ -192,6 +196,42 @@ def apply_suggestion(name: str, s: SetupSuggestion) -> Project:
     p = _load(name)
     pipeline.apply_setup(p, s)
     return _save(name, p)
+
+
+# ---------- 이름 · 지명 ----------
+
+@app.get("/api/naming/styles")
+def naming_styles() -> list[dict]:
+    return [{**st.model_dump(), "place_kinds": naming.place_kinds(st.id)} for st in naming.STYLES]
+
+
+class NamesIn(BaseModel):
+    character: str = ""  # 인물 id. 비우면 지명
+    place_kind: str = ""
+    n: int = 8
+    ai: bool = False      # True 면 '이름·지명' 단계 모델이 후보에서 골라 이유를 붙인다
+    project: Project | None = None  # 저장 전 화면의 값 (나이, 성별, 이름 스타일을 고친 직후에도 맞게)
+
+
+@app.post("/api/projects/{name}/names")
+def names(name: str, body: NamesIn) -> dict:
+    p = body.project or _load(name)
+    n = max(1, min(body.n, 20))
+    out: dict = {"style": naming.resolve_style(p), "detected": naming.detect_style(p)}
+    out["style_label"] = naming.style_label(out["style"])
+    if body.ai:
+        cands, opts = pipeline.suggest_names(get_llm("name"), p, body.character, body.place_kind, min(n, 8))
+        out["candidates"] = [c.model_dump() for c in cands]
+        out["options"] = [o.model_dump() for o in opts.options]
+    else:
+        out["candidates"] = [c.model_dump() for c in pipeline.name_candidates(p, body.character, body.place_kind, n)]
+    return out
+
+
+@app.post("/api/projects/{name}/names/check")
+def names_check(name: str, p: Project | None = None) -> dict:
+    p = p or _load(name)
+    return {"warnings": naming.cast_warnings(p), "style": naming.resolve_style(p), "detected": naming.detect_style(p)}
 
 
 # ---------- 2. 문체 ----------

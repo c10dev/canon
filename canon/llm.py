@@ -238,23 +238,24 @@ class LocalLLM:
         return self._chat(system, [{"role": "user", "content": prompt}], **self.sampling)
 
 
-def make_llm(provider: str) -> LLM:
+def make_llm(provider: str, model: str | None = None) -> LLM:
+    """model: 비우면 그 백엔드의 기본 모델 (Gemini 모델 설정, 로컬 모델 이름)."""
     if provider == "mock":
         from .mock import MockLLM
 
         return MockLLM()
     if provider == "local":
-        return LocalLLM()
+        return LocalLLM(model=model or None)
     if provider == "gemini":
-        return GeminiLLM()
+        return GeminiLLM(model=model or None)
     raise ValueError(f"알 수 없는 LLM 프로바이더: {provider} (gemini | local | mock)")
 
 
 def get_llm(stage: str | None = None) -> LLM:
-    """stage: plan | write | check | state. 단계별 설정이 없으면 전체 provider 를 쓴다."""
+    """stage: plan | write | check | state | name. 단계별 설정이 없으면 전체 provider 와 기본 모델을 쓴다."""
     from . import settings
 
-    return make_llm(settings.stage_provider(stage)[0])
+    return make_llm(settings.stage_provider(stage)[0], settings.stage_model(stage)[0])
 
 
 def dump(model: BaseModel | list | dict) -> str:

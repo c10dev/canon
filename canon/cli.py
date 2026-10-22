@@ -34,7 +34,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import dynamics, genres, library, logline, metrics, pipeline, prompts, research, store, updater
+from . import dynamics, genres, library, logline, metrics, naming, pipeline, prompts, research, store, updater
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, StateDelta
 
@@ -58,7 +58,7 @@ def ask_logline(genre_ids: list[str]) -> LoglineParts:
     for ex in examples:
         print(f"  예: {logline.compose(ex)}")
     parts = LoglineParts(
-        who=ask("누가 (이름보다 특징이 먼저 보이게, 예: 사진관을 하는 서윤)"),
+        who=ask("누가 (이름보다 특징이 먼저 보이게, 예: 사진관을 하는 채은)"),
         why=ask("무엇 때문에 (이야기를 시작하게 만드는 일)"),
         goal=ask("무엇을 하려 하나 (눈에 보이는 행동, '~한다'로 끝내기)"),
         block=ask("무엇이 막나 (사람이나 힘)"),
@@ -101,7 +101,7 @@ def cmd_new(a: argparse.Namespace) -> None:
     )
     p = Project(meta=meta)
     if a.interactive:
-        hero = ask("주인공 이름과 한 줄 설명 (예: 서윤 - 사라진 오빠를 찾는 고등학생)")
+        hero = ask("주인공 이름과 한 줄 설명 (예: 채은 - 사라진 오빠를 찾는 고등학생)")
         if hero:
             p.meta.notes = f"주인공: {hero}"
     store.save(a.name, p)
@@ -295,6 +295,46 @@ def cmd_genres(a: argparse.Namespace) -> None:
             if g.kind == kind:
                 print(f"  {g.name} ({g.id}): {g.summary}")
     print("\nnew --genre '로맨스 판타지, 회귀' 처럼 쓰고, 목록에 없는 장르도 그대로 적을 수 있습니다.")
+
+
+def cmd_names(a: argparse.Namespace) -> None:
+    """세계관에 맞는 이름·지명 후보. --ai 면 '이름·지명' 단계 모델이 골라 이유를 붙인다."""
+    p = store.load(a.name)
+    if a.style and a.style not in naming.STYLE_IDS:
+        raise ValueError(f"이름 스타일은 {' | '.join(sorted(naming.STYLE_IDS))} 중 하나입니다")
+    sid = naming.resolve_style(p, a.style)
+    if a.check:
+        warns = naming.cast_warnings(p)
+        print("\n".join(f"  ! {w}" for w in warns) or "  이름 점검: 문제 없음")
+        return
+    target = f"인물 {a.character}" if a.character else f"지명{f' ({a.place})' if a.place else ''}"
+    print(f"[{naming.style_label(sid)}] {target}")
+    if a.ai:
+        cands, opts = pipeline.suggest_names(get_llm("name"), p, a.character, a.place or "", a.n, a.style)
+        picks = [o.name for o in opts.options]
+        for i, o in enumerate(opts.options, 1):
+            print(f"  {i}. {o.name}  - {o.reason}")
+    else:
+        cands = pipeline.name_candidates(p, a.character, a.place or "", a.n, a.style)
+        picks = [c.name for c in cands]
+        for i, c in enumerate(cands, 1):
+            print(f"  {i}. {c.name}" + (f" ({c.kind})" if c.kind else "") + (f"  - {c.note}" if c.note else ""))
+    if not a.pick:
+        return
+    if not 1 <= a.pick <= len(picks):
+        raise ValueError(f"--pick 은 1~{len(picks)} 사이입니다")
+    chosen = picks[a.pick - 1]
+    if a.character:
+        c = next(x for x in p.characters if x.id == a.character)
+        if not confirm(f"{c.id} 의 이름을 '{c.name or '(없음)'}' 에서 '{chosen}' 로 바꿀까요?", a.yes):
+            return
+        c.name = chosen
+    else:
+        if not confirm(f"장소에 '{chosen}' 을 추가할까요?", a.yes):
+            return
+        p.world.locations.append(chosen)
+    store.save(a.name, p)
+    print("반영했습니다.")
 
 
 def cmd_stats(a: argparse.Namespace) -> None:
@@ -526,6 +566,14 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--no-suggest", action="store_true")
     sp.add_argument("-i", "--interactive", action="store_true", help="톤, 분량, 주인공까지 질문")
     add("suggest", cmd_suggest)
+    sp = add("names", cmd_names)
+    sp.add_argument("--character", default="", help="인물 id. 비우면 지명 후보")
+    sp.add_argument("--place", default="", help="지명 종류 (예: 마을, 산, 고개, 문파, 왕국)")
+    sp.add_argument("--n", type=int, default=8)
+    sp.add_argument("--style", default="", help="이름 스타일 (비우면 세계관 설정 또는 자동 감지)")
+    sp.add_argument("--ai", action="store_true", help="'이름·지명' 단계 모델이 후보에서 골라 이유를 붙임")
+    sp.add_argument("--pick", type=int, help="고른 번호를 반영 (인물 이름 바꾸기 / 장소 추가)")
+    sp.add_argument("--check", action="store_true", help="출연진 이름 점검만")
     sp = add("style", cmd_style)
     sp.add_argument("file", nargs="?")
     sp.add_argument("--library", help="문체 라이브러리 항목 id 를 적용 (파일 대신)")
