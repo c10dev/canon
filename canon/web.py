@@ -14,9 +14,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import autorun, dynamics, elements, genres, jobs, library, naming, pipeline, prompts, research, settings, store
+from . import autorun, dynamics, elements, genres, jobs, library, metrics, naming, pipeline, prompts, research, settings, store
 from .llm import GeminiLLM, LocalLLM, get_llm, make_llm
-from .schema import ArcPlan, ArcProposal, Meta, Project, SerialConversion, SeriesPlan, SetupSuggestion, StateDelta, StyleEntry, StyleProfile
+from .schema import (ArcPlan, ArcProposal, Meta, Project, SerialConversion, SeriesPlan, SetupSuggestion, StateDelta, StorylineProposal, StyleEntry,
+                     StyleProfile)
 
 STATIC = Path(__file__).parent / "static"
 NAME_RE = re.compile(r"^[^/\\.][^/\\]{0,63}$")
@@ -200,6 +201,7 @@ def put_project(name: str, p: Project, merged: str = "") -> Project:
     if p.serial:
         pipeline.validate_parts(p.parts, p.meta.target_episodes)
         pipeline.validate_story_arcs(p)
+    pipeline.validate_storylines(p)
     pipeline._init_states(p)
     p.meta.genre = genres.label(p.meta)
     if p.snapshot(0) is None:  # 첫 반영 전에는 설정 화면의 시작 호감이 시작 관계다
@@ -281,6 +283,12 @@ def analyze_style(name: str, body: Sample) -> StyleProfile:
     if len(body.text.strip()) < 200:
         raise HTTPException(400, "예시 원문은 200자 이상 넣어 주세요")
     return pipeline.analyze_style(get_llm("plan"), body.text)
+
+
+@app.post("/api/metrics")
+def measure(body: Sample) -> metrics.StyleMetrics:
+    """원문 전체로 문체 기준 지표를 잰다 (LLM 없음). 웹에서 분석한 원문의 기준값을 작품에 남길 때 쓴다."""
+    return metrics.measure(body.text)
 
 
 @app.get("/api/projects/{name}/style/link")
@@ -465,6 +473,29 @@ def apply_recap(name: str, kind: str, number: int, body: RecapIn) -> Project:
     return _save(name, p)
 
 
+# ---------- 3-2. 이야기 줄기 ----------
+# AI 제안은 백그라운드 작업(storyline)으로 받고, 화면에서 고친 뒤 아래로 반영한다. 화에 붙이고 떼는 것은 화면이 저장(PUT)한다.
+
+class StorylineIn(BaseModel):
+    proposal: StorylineProposal
+    episodes: list[int] = []
+    threads: list[int] = []
+
+
+@app.post("/api/projects/{name}/storylines/apply")
+def apply_storyline(name: str, body: StorylineIn) -> Project:
+    p = _load(name)
+    pipeline.apply_storyline(p, body.proposal, body.episodes, body.threads)
+    return _save(name, p)
+
+
+@app.delete("/api/projects/{name}/storylines/{sid}")
+def remove_storyline(name: str, sid: str) -> Project:
+    p = _load(name)
+    pipeline.remove_storyline(p, sid)
+    return _save(name, p)
+
+
 @app.post("/api/projects/{name}/episodes/{n}/confirm")
 def confirm_plot(name: str, n: int) -> Project:
     p = _load(name)
@@ -580,10 +611,11 @@ def impact_dismiss(name: str, eid: str) -> Project:
 # ---------- 백그라운드 작업 ----------
 
 class JobIn(BaseModel):
-    kind: str  # suggest | arc | plots | write | state | impact | series | nextarc | recap_arc | recap_part | convert
+    kind: str  # suggest | arc | plots | write | state | impact | series | nextarc | recap_arc | recap_part | storyline | convert
     ep: int | None = None  # 화 번호. plots 는 장편에서 아크 번호(없으면 초안이 있는 모든 아크), recap_* 는 아크·부 번호
     element: str = ""  # impact 일 때 요소 id
-    note: str = ""  # nextarc, convert: 작가가 바라는 것
+    note: str = ""  # nextarc, storyline, convert: 작가가 바라는 것
+    line_kind: str = ""  # storyline: 원하는 줄기 종류 (비우면 AI 가 고름)
     length: int = 0  # nextarc: 아크 화수 (0 이면 AI 가 정함). convert: 장편 총 화수
     ending: str = ""  # convert: keep | reopen, 비우면 AI 가 고름
 
@@ -653,6 +685,12 @@ def start_job(name: str, body: JobIn) -> dict:
 
         def fn(job: jobs.Job):
             return pipeline.propose_conversion(llm, store.load(name), size, ending, note).model_dump()
+    elif kind == "storyline":
+        label, total, owned = "이야기 줄기 제안", 1, set()
+        note, line_kind = body.note, body.line_kind
+
+        def fn(job: jobs.Job):
+            return pipeline.suggest_storyline(llm, store.load(name), note, line_kind).model_dump()
     elif kind in ("recap_arc", "recap_part"):
         unit = kind.removeprefix("recap_")
         if n is None:

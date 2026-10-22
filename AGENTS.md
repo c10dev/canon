@@ -21,6 +21,8 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/naming.py` | 이름·지명 무작위 생성(세계관별 스타일, 나이에 맞는 한국 이름)과 출연진 이름 점검. LLM 을 부르지 않는다. 자료와 출처는 `canon/naming_data.py` |
 | `canon/dynamics.py` | 관계 역학: 사건(`StoryEvent`)으로 방향 관계(`Tie`)를 계산, 긴장도, 스냅샷 재생, 숫자를 말로 바꾸기, 말로 고른 보는 방식(`VIEWS`)으로 시작 관계 만들기. LLM 을 부르지 않는 순수 계산 |
 | `canon/elements.py` | 인과율: 작가가 언제든 더하는 이야기 요소(`StoryElement`)의 관련 화 지도(`links`), 화별로 넣을 요소(`episode_block`), 시점 설명. LLM 호출 없음. 영향 분석과 반영은 `pipeline.analyze_impact` / `apply_impact` |
+| `canon/storylines.py` | 이야기 줄기: 메인에서 갈라졌다 합류하는 서브플롯 · 과거 회상 · 외전 · 인물 이야기(`Storyline`). 화의 줄기는 `EpisodePlot.storyline`(주로 따라가는 줄기, 비면 메인)과 `threads`(끼어드는 장면). 범위(`span`), 프롬프트 블록(`plan_block`, `episode_block`, `state_rule`), 명령줄 노선도(`ascii_map`). LLM 호출 없음. 제안과 반영은 `pipeline.suggest_storyline` / `apply_storyline` |
+| `canon/static/lines.js` | 이야기 줄기 화면: SVG 노선도, 줄기 편집, 화 붙이기, AI 제안. 플롯 편집기의 줄기 칸(`lineField`)과 화 카드 표시(`lineBadge`)도 여기 있다. `storylines.span` · `tag` 와 같은 규칙이라 함께 고친다 |
 | `canon/static/causal.js` | 인과율 화면: 요소 추가·편집, 관련 화 지도, 영향 분석 변경안 고르기. `elements.basis` 와 같은 모양(`elBasis`)으로 분석이 지났는지 본다 |
 | `canon/static/convert.js` | 단편 → 장편 전환 화면: 총 화수 · 결말 처리 고르기, AI 전환 계획에서 항목 골라 반영, 되돌리기 |
 | `canon/static/chat.js` | 화면에 붙는 AI 대화 패널(지금은 기승전결 · 플롯 화면). 변경안을 칸별로 지금 값과 비교해 보여 주고 고른 것만 반영 요청. 화면 본체는 `app.js` |
@@ -34,7 +36,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/autorun.py` | 자동 집필: 목표 화까지 write → check + state → 정책(`Policy`) 통과 시 반영을 반복. 배치(`llm.BatchLLM`) 켜고 끄기, 비용·시간 추정, `autorun.json` 에 진행 기록, 서버 재시작 후 이어 가기. 화면은 `static/auto.js` |
 | `canon/updater.py` | 코드 자동 업데이트: `origin/main` fast-forward, 의존성 설치, 프로세스 재시작. `serve` 가 시작 때와 주기적으로 부른다 |
 
-흐름: `new` → `style` → `arc` → `plot` → (사용자 수정) → `confirm` → `write` → `check` → `update` 반복 (`run` 이 자동 반복). 장편(`new --serial`)은 `arc` 대신 `series` 한 번, 그리고 아크마다 `nextarc` → `plot` → `confirm` → `run` → `recap` 을 반복한다 (`arcs` 로 진행 보기). 단편은 `convert` 로 장편으로 바꿀 수 있다(단편 전체가 아크 1, `--undo` 로 되돌리기). `stats` 로 화별 문체 지표 확인. `compare` 로 같은 화를 두 백엔드로 써서 가려 비교.
+흐름: `new` → `style` → `arc` → `plot` → (사용자 수정) → `confirm` → `write` → `check` → `update` 반복 (`run` 이 자동 반복). 장편(`new --serial`)은 `arc` 대신 `series` 한 번, 그리고 아크마다 `nextarc` → `plot` → `confirm` → `run` → `recap` 을 반복한다 (`arcs` 로 진행 보기). 단편은 `convert` 로 장편으로 바꿀 수 있다(단편 전체가 아크 1, `--undo` 로 되돌리기). 서브플롯 · 과거 회상 · 외전은 `lines` 로 이야기 줄기를 만들고 화에 붙인다. `stats` 로 화별 문체 지표 확인. `compare` 로 같은 화를 두 백엔드로 써서 가려 비교.
 
 ## 설계 원칙 (깨지 않기)
 
@@ -48,7 +50,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 - **바뀌지 않는 블록이 앞, 화마다 바뀌는 블록이 뒤.** `static_context()` 를 앞에 둬야 Gemini 암묵적 캐시가 맞는다. 컨텍스트에 블록을 추가할 때 이 순서를 지킨다.
 - **API 경로와 작업지시서 경로는 같은 프롬프트를 공유한다.** 프롬프트를 고칠 때는 `prompts.py` 한 곳만 고치고, `brief` 출력도 함께 확인한다. 나중에 MCP 서버도 이 함수들을 재사용한다.
 - **LLM 호출은 `LLM` 인터페이스 뒤에만 둔다.** pipeline 이나 cli 에서 SDK 를 직접 부르지 않는다.
-- LLM 이 채우는 스키마(`SetupSuggestion`, `StyleProfile`, `ArcPlan`, `PlotBatch`, `PlotRevision`, `NameOptions`, `StateDelta`, `StoryEvent`, `ConsistencyReport`, `SeriesPlan`, `ArcProposal`, `Recap`, `ImpactReport`, `SerialConversion`)에는 dict 타입 필드를 쓰지 않는다 (Gemini 구조화 출력 호환).
+- LLM 이 채우는 스키마(`SetupSuggestion`, `StyleProfile`, `ArcPlan`, `PlotBatch`, `PlotRevision`, `NameOptions`, `StateDelta`, `StoryEvent`, `ConsistencyReport`, `SeriesPlan`, `ArcProposal`, `Recap`, `ImpactReport`, `StorylineProposal`, `SerialConversion`)에는 dict 타입 필드를 쓰지 않는다 (Gemini 구조화 출력 호환).
 
 ## 개발 명령
 

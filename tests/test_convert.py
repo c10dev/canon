@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from canon import pipeline, prompts
 from canon.mock import MockLLM
-from canon.schema import Foreshadow, Project, StoryElement
+from canon.schema import Foreshadow, Project, StoryElement, Storyline
 
 LLM = MockLLM()
 
@@ -67,6 +67,8 @@ def test_finished_short_becomes_arc_one():
 def test_reopen_unfinished_short_keeps_written_text():
     p = _short(written=8)
     p.foreshadows.append(Foreshadow(id="fs-old", description="낡은 지도", planted_ep=3))
+    p.storylines.append(Storyline(id="sl-01", title="도현의 빚", branch_ep=6, join_ep=10))
+    p.episode(9).plot.storyline = "sl-01"
     prop = pipeline.propose_conversion(LLM, p, 120, "reopen")
     assert prop.ending == "reopen"
     assert prop.arc.summary == ""  # 아직 다 쓰지 않았으면 요약하지 않는다
@@ -81,6 +83,7 @@ def test_reopen_unfinished_short_keeps_written_text():
     pipeline.apply_conversion(p, prop)
     assert p.episode(12).plot.ending_hook == "수평선에 낯선 불빛이 켜졌다" and p.episode(12).status == "draft"
     assert p.episode(8).status == "finalized" and p.episode(8).text
+    assert p.storylines[0].join_ep == 10 and p.episode(9).plot.storyline == "sl-01"  # 화 번호가 그대로라 줄기도 그대로
     assert "오빠의 배는 끝내 발견되지 않았다" not in p.facts
     assert any(f.id == "fs-s-shadow" for f in p.foreshadows)
 

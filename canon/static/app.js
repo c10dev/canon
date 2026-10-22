@@ -93,6 +93,7 @@ const JOB_DONE_MSG = {
   recap_arc: (j) => `아크 ${j.ep} 요약 제안이 도착했습니다.`,
   recap_part: (j) => `${j.ep}부 요약 제안이 도착했습니다.`,
   impact: (j) => `${j.label.replace(/^인과율: /, '')}이 끝났습니다. 인과율에서 확인하세요.`,
+  storyline: '이야기 줄기 제안이 도착했습니다. 고른 화와 함께 반영하세요.',
   auto: (j) => `자동 집필: ${j.note || '멈췄습니다'}`,
 };
 let jobTimer = null;
@@ -157,7 +158,7 @@ async function pollJobs(soon = false) {
 }
 
 // 작업 결과가 보이는 화면
-const JOB_PAGES = { suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'] };
+const JOB_PAGES = { suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], storyline: ['lines'] };
 
 // 작업이 project.json 에 쓴 화만 받아 온다 (mine 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
 async function mergeEpisodes(mine) {
@@ -216,6 +217,8 @@ function applyJobResult(j) {
     else S.selPart = j.ep;
   } else if (j.kind === 'convert' && j.result) {
     convertResult(j);
+  } else if (j.kind === 'storyline' && j.result) {
+    S.lineDraft = { ...j.result, picks: {} };
   }
   j.applied = true;
 }
@@ -231,6 +234,7 @@ const JOB_LINK = {
   recap_arc: (j) => `#/p/${enc(j.project)}/arc`,
   recap_part: (j) => `#/p/${enc(j.project)}/arc`,
   impact: (j) => `#/p/${enc(j.project)}/causal${j.result ? '/' + enc(j.result.element) : ''}`,
+  storyline: (j) => `#/p/${enc(j.project)}/lines`,
   auto: (j) => `#/p/${enc(j.project)}/auto`,
 };
 
@@ -675,6 +679,8 @@ const actions = {
       await saveIfDirty();
       const prof = await api('POST', `/projects/${enc(S.name)}/style`, { text: S.styleSample });
       P().style = prof;
+      P().style_baseline = await api('POST', '/metrics', { text: S.styleSample });  // stats 가 원문 전체와 비교하도록
+      P().style_id = '';  // 새로 분석한 문체는 라이브러리 항목과 연결을 끊는다
       S.dirty = true;
       toast('분석 결과를 불러왔습니다. 확인하고 저장하세요.');
     });
@@ -1277,7 +1283,7 @@ function render() {
     return;
   }
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, auto: viewAuto, causal: viewCausal, convert: viewConvert };
+  const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, auto: viewAuto, causal: viewCausal, lines: viewLines, convert: viewConvert };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${body}</main></div>`;
   syncChat();
@@ -1300,6 +1306,7 @@ function sidebar(active) {
     ['setup', base() + '/setup', '1', '설정 도우미'],
     ['style', base() + '/style', '2', '문체 레퍼런스'],
     ['arc', base() + '/arc', '3', serial() ? '부 · 아크 · 플롯' : '기승전결 · 플롯'],
+    ['lines', base() + '/lines', '⑂', '이야기 줄기'],
     ['causal', base() + '/causal', '∴', '인과율'],
     ['write', `${base()}/write/${cur}`, '4', '집필'],
     ['review', `${base()}/review/${cur}`, '5', '상태 승인'],
@@ -2053,7 +2060,7 @@ function viewLibEntry() {
 function epCard(e, sel) {
   return `<button type="button" class="ep-card ${e.status}${sel && sel.plot.number === e.plot.number ? ' sel' : ''}" data-action="selectEp" data-arg="${e.plot.number}" aria-label="${e.plot.number}화 ${esc(e.plot.title)} 플롯 열기">
       <span class="ep-top"><strong>${e.plot.number}화</strong><span class="chip ${e.status}">${STATUS[e.status]}</span></span>
-      <span class="t">${esc(e.plot.title) || '제목 없음'}</span><span class="s">${esc(e.plot.summary)}</span></button>`;
+      <span class="t">${esc(e.plot.title) || '제목 없음'}</span>${lineBadge(e)}<span class="s">${esc(e.plot.summary)}</span></button>`;
 }
 
 /** 기승전결 네 칸 보드. 단편은 작품 전체 구조, 장편은 고른 아크의 구조를 그린다 */
@@ -2142,6 +2149,7 @@ function plotEditor(e) {
     ${input('요약', b + '.summary', { ...ro, rows: 3, autogrow: true })}
     ${input('사건 순서', b + '.events', { ...ro, kind: 'list', rows: 5, autogrow: true })}
     <div class="field"><span class="label">등장 인물</span><div class="row">${cast}</div></div>
+    ${lineField(e)}
     ${input('감정 변화', b + '.emotional_shift', ro)}
     ${input('엔딩 훅', b + '.ending_hook', ro)}
     <div class="grid-2">${input('심을 복선', b + '.foreshadow_plant', { ...ro, kind: 'list', rows: 2 })}${input('회수할 복선 id', b + '.foreshadow_payoff', { ...ro, kind: 'list', rows: 2 })}</div>

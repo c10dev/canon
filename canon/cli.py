@@ -13,6 +13,7 @@
   python -m canon plot 내소설 [--from 1 --to 16]   화별 플롯 초안 (장편은 기본으로 플롯이 빈 아크)
   python -m canon revise 내소설 "3화 전개가 너무 빨라"   말로 구조와 플롯 고치기 (변경안 확인 후 반영, 대화는 웹과 같이 저장)
   python -m canon causal 내소설 [list | add | show ID | impact ID | rm ID]   인과율: 요소·설정·사건을 더하고 영향 분석
+  python -m canon lines 내소설 [map | suggest | add | tag ID 4,5 | rm ID]   이야기 줄기: 서브플롯 · 과거 회상 · 외전 노선도와 제안
   python -m canon confirm 내소설 all|3  플롯 확정
   python -m canon write 내소설 3        본문 생성
   python -m canon check 내소설 3        본문 검수 (앞선 본문·설정과의 모순, 근거 인용)
@@ -41,9 +42,10 @@ import re
 import sys
 from pathlib import Path
 
-from . import autorun, dynamics, elements, genres, library, logline, metrics, naming, pipeline, prompts, research, store, updater
+from . import (autorun, dynamics, elements, genres, library, logline, metrics, naming, pipeline, prompts, research, store, storylines,
+               updater)
 from .llm import dump, get_llm
-from .schema import ConsistencyReport, LoglineParts, Meta, Project, StateDelta, StoryElement
+from .schema import ConsistencyReport, LoglineParts, Meta, Project, StateDelta, StoryElement, Storyline, StorylineProposal
 
 
 def ask(label: str, default: str = "") -> str:
@@ -370,6 +372,62 @@ def cmd_convert(a: argparse.Namespace) -> None:
         store.save_backup(a.name, pipeline.BACKUP_TAG, before)
         print(f"저장: {store.save(a.name, p)}")
         print(f"다음: nextarc {a.name}  ({p.planned_until() + 1}화부터)" if p.story_arcs else f"다음: nextarc {a.name}")
+
+
+def cmd_lines(a: argparse.Namespace) -> None:
+    """이야기 줄기: 메인에서 갈라졌다 합류하는 서브플롯, 과거 회상, 외전, 인물 이야기."""
+    p = store.load(a.name)
+    act, args = a.action, a.args
+    if act == "map":
+        if not p.storylines:
+            print(f"이야기 줄기가 없습니다. python -m canon lines {a.name} suggest --note \"도현의 과거\" 로 제안을 받거나 add 로 더하세요")
+            return
+        print(storylines.ascii_map(p))
+        print("\n● 그 줄기를 따라가는 화  · 메인 화에 끼어드는 장면  ╰ 갈라지는 화  ╯ 합류하는 화\n")
+        for x in p.storylines:
+            print(storylines.describe(p, x) + ("" if storylines.is_open(p, x) else "\n  (합류함)"))
+        return
+    if act in ("suggest", "add"):
+        if act == "suggest":
+            prop = pipeline.suggest_storyline(get_llm("plan"), p, a.note or "", a.kind or "")
+            if prop.reply:
+                print(prop.reply)
+        else:
+            kind = a.kind or "서브플롯"
+            if kind not in storylines.KINDS:
+                raise ValueError(f"종류는 {', '.join(storylines.KINDS)} 중 하나입니다")
+            prop = StorylineProposal(storyline=Storyline(
+                id=storylines.new_id(p), kind=kind, title=a.title or ask("이름"), focus=[c for c in (a.focus or "").split(",") if c],
+                when=a.when or "", goal=a.goal or "", branch_ep=a.branch, join_ep=a.join, rejoin=a.rejoin or ""))
+            prop.episodes = _numbers(a.eps)
+            prop.threads = _numbers(a.scenes)
+        print(storylines.describe(p, prop.storyline))
+        print(f"  붙일 화: {', '.join(map(str, prop.episodes)) or '없음'} / 장면을 끼울 화: {', '.join(map(str, prop.threads)) or '없음'}")
+        if confirm("이 줄기를 더할까요? (화 플롯 내용은 바뀌지 않습니다)", a.yes):
+            x = pipeline.apply_storyline(p, prop)
+            print(f"저장: {store.save(a.name, p)}  ({x.id})")
+        return
+    if not args:
+        raise ValueError(f"줄기 id 를 적으세요 (python -m canon lines {a.name})")
+    sid = "" if args[0] == "main" else storylines.get(p, args[0]).id
+    if act == "rm":
+        pipeline.remove_storyline(p, sid)
+        print(f"지웠습니다: {sid} (붙은 화는 메인으로 돌아갑니다)")
+    else:  # tag: 화를 줄기에 붙인다. 줄기 id 대신 main 이면 메인으로 되돌린다
+        eps = _numbers(",".join(args[1:]))
+        if not eps:
+            raise ValueError("붙일 화를 적으세요 (예: lines 이름 tag sl-01 4,5)")
+        for n in eps:
+            if sid:
+                storylines.tag(p, n, sid, "thread" if a.scene else "main")
+            else:
+                p.episode(n).plot.storyline = ""
+        print(f"{', '.join(map(str, eps))}화 → {sid or '메인'}{' (장면)' if a.scene else ''}")
+    store.save(a.name, p)
+
+
+def _numbers(text: str | None) -> list[int]:
+    return [int(x) for x in re.split(r"[,\s]+", text or "") if x.strip().isdigit()]
 
 
 def cmd_causal(a: argparse.Namespace) -> None:
@@ -874,6 +932,21 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--from", dest="start", type=int)
     sp.add_argument("--to", dest="end", type=int)
     add("revise", cmd_revise, "message")
+    sp = add("lines", cmd_lines)
+    sp.add_argument("action", nargs="?", choices=["map", "suggest", "add", "tag", "rm"], default="map")
+    sp.add_argument("args", nargs="*")
+    sp.add_argument("--note", help="suggest: 바라는 것 (예: 도현의 과거를 7화쯤에)")
+    sp.add_argument("--kind", help="suggest, add: " + ", ".join(storylines.KINDS))
+    sp.add_argument("--title", help="add: 줄기 이름")
+    sp.add_argument("--focus", help="add: 중심 인물 id, 쉼표로")
+    sp.add_argument("--when", help="add: 이야기 속 시점 (예: 10년 전). 메인과 같으면 비움")
+    sp.add_argument("--goal", help="add: 풀어 갈 것")
+    sp.add_argument("--from", dest="branch", type=int, default=0, help="add: 갈라지는 화")
+    sp.add_argument("--to", dest="join", type=int, default=0, help="add: 합류하는 화")
+    sp.add_argument("--rejoin", help="add: 합류할 때 메인에 남기는 것")
+    sp.add_argument("--eps", help="add: 이 줄기를 따라갈 화, 쉼표로")
+    sp.add_argument("--scenes", help="add: 장면을 끼울 화, 쉼표로")
+    sp.add_argument("--scene", action="store_true", help="tag: 그 화를 따라가지 않고 장면만 끼운다")
     sp = add("causal", cmd_causal)
     sp.add_argument("action", nargs="?", choices=["list", "add", "show", "impact", "rm"], default="list")
     sp.add_argument("args", nargs="*")

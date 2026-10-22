@@ -33,6 +33,8 @@ from .schema import (
     StateDelta,
     StoryArc,
     StoryEvent,
+    Storyline,
+    StorylineProposal,
     StyleProfile,
     TextPatch,
     TierChange,
@@ -163,6 +165,19 @@ def _impact(hint: dict) -> ImpactReport:
     return rep
 
 
+def _storyline(hint: dict) -> StorylineProposal:
+    """줄기 제안 흉내: 'N화' 가 있으면 그 화, 없으면 앞쪽 두 화를 과거 회상으로, 다음 화에 장면을 끼운다.
+    검증 규칙을 시험하도록 없는 인물과 없는 화를 함께 넣는다."""
+    eps = hint["episodes"]
+    hit = re.search(r"(\d+)화", hint["note"])
+    pick = [int(hit.group(1))] if hit else eps[1:3]
+    s = Storyline(id="아무거나", kind=hint["kind"] or "과거 회상", title="서윤의 오빠가 떠난 밤", focus=["hero", "nobody"],
+                  when="10년 전", goal="오빠가 왜 떠났는지", branch_ep=pick[0] if pick else 0,
+                  join_ep=(pick[-1] + 2) if pick else 0, rejoin="서윤이 오빠의 편지를 기억해 낸다")
+    nxt = [n for n in eps if pick and n == pick[-1] + 1]
+    return StorylineProposal(storyline=s, episodes=pick + [999], threads=nxt, reply="서윤의 결핍에서 출발하는 과거 회상이에요.")
+
+
 class MockLLM:
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
         _delay()
@@ -218,6 +233,8 @@ class MockLLM:
                 foreshadow_planted=[Foreshadow(id=f"fs-{n:02d}-key", description="녹슨 열쇠", planted_ep=n)] if n == 1 else [],
                 foreshadow_resolved=["fs-01-key"] if n == 2 else [],
             )  # type: ignore[return-value]
+        if schema is StorylineProposal:
+            return _storyline(hint)  # type: ignore[return-value]
         if schema is ImpactReport:
             return _impact(hint)  # type: ignore[return-value]
         if schema is NameOptions:  # 코드 후보에서 앞쪽 n 개를 고른 척한다
