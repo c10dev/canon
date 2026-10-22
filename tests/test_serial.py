@@ -226,6 +226,27 @@ def test_story_elements_reach_serial_prompts():
     assert "탑의 문지기" in prompts.plot_chat_prompt(p, "더 빠르게")
 
 
+def test_impact_reads_parts_and_arcs():
+    p = _serial()
+    a1, a2 = _plan_arc(p), _plan_arc(p)
+    _finish(p, a1, text="문지기는 없었다. 탑은 비어 있었다.")
+    a1.summary = "첫 아크 요약: 주인공이 탑에 들어선다"
+    el = StoryElement(id="el-01", kind="세계 규칙", name="탑의 문지기", description="탑 입구에는 늘 문지기가 있다", episodes=[a2.start_ep + 1])
+    p.elements.append(el)
+    text = prompts.impact_prompt(p, el, {a2.start_ep + 1})
+    assert "[부 구성]" in text and p.parts[0].goal in text and "[기획한 아크]" in text
+    assert a1.summary in text and f"{p.planned_until() + 1}~300화는 아직 아크로 기획하지 않았습니다" in text
+    assert "부나 아크의 goal" in text
+    plots = [d["number"] for d in prompts.impact_plots(p, el, {a2.start_ep + 1})]
+    assert plots == list(range(a2.start_ep, a2.end_ep + 1))  # 요소와 관련 없는 본문 있는 화의 플롯은 뺀다
+    folded = prompts.impact_texts(p, set(), limit=0)
+    assert folded.count("## ") == 1 and a1.summary in folded and "1화" not in folded  # 원문으로 못 넣은 화는 승인된 아크 요약으로 접는다
+    assert pipeline._quoted(p, "설정", 0, p.parts[0].goal) and pipeline._quoted(p, "설정", 0, a2.goal)
+    rep = pipeline.analyze_impact(LLM, p, "el-01")
+    assert rep.summary
+    assert "[기승전결 구조]" not in text
+
+
 def test_series_rejects_gaps():
     p = _serial(300)
     plan = pipeline.plan_series(LLM, p)
