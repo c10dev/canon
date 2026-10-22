@@ -1,0 +1,48 @@
+# Canon (MVP)
+
+인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편을 AI 로 쓰는 CLI. 설계는 [DESIGN.md](DESIGN.md).
+
+## 설치
+
+```bash
+pip install -r requirements.txt
+export GEMINI_API_KEY=...            # https://aistudio.google.com/apikey
+export CANON_MODEL=gemini-2.5-pro # 선택, 사용할 Gemini 모델
+```
+
+API 키 없이 흐름만 보려면 `export CANON_LLM=mock`.
+
+## 사용 순서
+
+```bash
+python -m canon new 등대 -i                     # 1. 설정 도우미 (AI 가 인물/세계관 제안)
+python -m canon style 등대 examples/sample_style.txt   # 2. 예시 텍스트로 문체 프로필
+python -m canon arc 등대                         # 3. 기승전결 구간
+python -m canon plot 등대                        # 4. 화별 플롯 초안
+#    projects/등대/project.json 에서 플롯 수정
+python -m canon confirm 등대 all                 # 5. 플롯 확정
+python -m canon run 등대                         # 6. 화마다 본문 생성 → 상태 변경안 승인
+python -m canon show 등대                        # 진행 상황
+```
+
+한 화씩 하려면 `write 등대 3` 다음 `update 등대 3`.
+
+## 채팅 앱(구독형)으로 쓰기
+
+```bash
+python -m canon brief 등대 3            # projects/등대/briefs/03-episode.md 를 채팅에 붙여 넣기
+python -m canon import 등대 3 본문.txt   # 받은 본문 가져오기
+python -m canon brief 등대 3 --state    # 상태 정리 지시서 → 채팅 앱이 JSON 반환
+python -m canon update 등대 3 --from-json 응답.json
+```
+
+## 파일 구조
+
+```
+canon/schema.py    데이터 스키마
+canon/prompts.py   프롬프트와 컨텍스트 조립, 작업지시서
+canon/pipeline.py  단계별 생성/검증/반영 로직
+canon/llm.py       Gemini 프로바이더 (+ mock.py)
+canon/store.py     project.json 저장, 본문을 episodes/NN.md 로 내보내기
+canon/cli.py       명령줄
+```

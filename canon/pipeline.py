@@ -1,0 +1,148 @@
+"""생성 파이프라인. 각 단계는 Project 를 받아 제안을 만들고, 반영은 호출자가 승인 후 한다."""
+from __future__ import annotations
+
+from . import prompts
+from .llm import LLM
+from .schema import (
+    ArcPlan,
+    CharacterState,
+    Episode,
+    PlotBatch,
+    Project,
+    SetupSuggestion,
+    StateDelta,
+    StyleProfile,
+)
+
+
+# ---------- 1. 설정 도우미 ----------
+
+def suggest_setup(llm: LLM, p: Project) -> SetupSuggestion:
+    return llm.json(prompts.SYSTEM_PLANNER, prompts.setup_prompt(p), SetupSuggestion)
+
+
+def apply_setup(p: Project, s: SetupSuggestion) -> None:
+    """기존 입력은 유지하고 빈칸만 채운다."""
+    p.meta.theme = p.meta.theme or s.theme
+    p.meta.tone = p.meta.tone or s.tone
+    for field, value in s.world.model_dump().items():
+        if not getattr(p.world, field):
+            setattr(p.world, field, value)
+    known = {c.id for c in p.characters}
+    p.characters += [c for c in s.characters if c.id not in known]
+    pairs = {frozenset((r.a, r.b)) for r in p.relationships}
+    p.relationships += [r for r in s.relationships if frozenset((r.a, r.b)) not in pairs]
+    _init_states(p)
+
+
+def _init_states(p: Project) -> None:
+    have = {s.character_id for s in p.states}
+    for c in p.characters:
+        if c.id not in have:
+            p.states.append(CharacterState(character_id=c.id, current_goal=c.goal))
+
+
+# ---------- 2. 스타일 레퍼런스 ----------
+
+def analyze_style(llm: LLM, sample: str) -> StyleProfile:
+    return llm.json(prompts.SYSTEM_PLANNER, prompts.style_prompt(sample), StyleProfile)
+
+
+# ---------- 3. 기승전결 + 화별 플롯 ----------
+
+def plan_arc(llm: LLM, p: Project) -> ArcPlan:
+    plan = llm.json(prompts.SYSTEM_PLANNER, prompts.arc_prompt(p), ArcPlan, hint={"total": p.meta.target_episodes})
+    validate_arc(plan, p.meta.target_episodes)
+    return plan
+
+
+def validate_arc(plan: ArcPlan, total: int) -> None:
+    acts = sorted(plan.acts, key=lambda a: a.start_ep)
+    if [a.name for a in acts] != ["기", "승", "전", "결"]:
+        raise ValueError(f"기승전결 순서가 아닙니다: {[a.name for a in acts]}")
+    expected = 1
+    for a in acts:
+        if a.start_ep != expected or a.end_ep < a.start_ep:
+            raise ValueError(f"{a.name} 구간 범위 오류: {a.start_ep}~{a.end_ep}")
+        expected = a.end_ep + 1
+    if expected != total + 1:
+        raise ValueError(f"구간이 {expected - 1}화에서 끝납니다 (목표 {total}화)")
+
+
+def draft_plots(llm: LLM, p: Project, start: int, end: int) -> PlotBatch:
+    if not p.arc:
+        raise ValueError("기승전결 구조(arc)를 먼저 만드세요")
+    batch = llm.json(
+        prompts.SYSTEM_PLANNER, prompts.plot_prompt(p, start, end), PlotBatch,
+        hint={"start": start, "end": end, "arc": p.arc},
+    )
+    numbers = [e.number for e in batch.episodes]
+    if numbers != list(range(start, end + 1)):
+        raise ValueError(f"요청한 화({start}~{end})와 생성된 화({numbers})가 다릅니다")
+    return batch
+
+
+def apply_plots(p: Project, batch: PlotBatch) -> None:
+    """확정되지 않은(draft) 화만 덮어쓴다."""
+    by_no = {e.plot.number: e for e in p.episodes}
+    for plot in batch.episodes:
+        cur = by_no.get(plot.number)
+        if cur and cur.status != "draft":
+            continue
+        by_no[plot.number] = Episode(plot=plot)
+    p.episodes = [by_no[k] for k in sorted(by_no)]
+
+
+# ---------- 4. 본문 생성 ----------
+
+def write_episode(llm: LLM, p: Project, n: int) -> str:
+    ep = p.episode(n)
+    if ep.status == "draft":
+        raise ValueError(f"{n}화 플롯이 아직 확정되지 않았습니다 (confirm 먼저)")
+    unfinished = [e.plot.number for e in p.episodes if e.plot.number < n and e.status != "finalized"]
+    if unfinished:
+        raise ValueError(f"이전 화의 상태 갱신이 끝나지 않았습니다: {unfinished}")
+    return llm.text(prompts.SYSTEM_WRITER, prompts.episode_prompt(p, n))
+
+
+# ---------- 5. 상태 갱신 ----------
+
+def extract_state(llm: LLM, p: Project, n: int) -> StateDelta:
+    if not p.episode(n).text:
+        raise ValueError(f"{n}화 본문이 없습니다")
+    delta = llm.json(prompts.SYSTEM_EDITOR, prompts.state_prompt(p, n), StateDelta, hint={"episode": n})
+    delta.episode = n
+    return delta
+
+
+def apply_delta(p: Project, d: StateDelta) -> None:
+    ep = p.episode(d.episode)
+    ep.summary = d.summary
+    ep.status = "finalized"
+
+    for upd in d.character_updates:
+        cur = p.state_of(upd.character_id)
+        if cur is None:
+            p.states.append(upd)
+            continue
+        for field in ("emotional_state", "current_goal", "location", "notes"):
+            if getattr(upd, field):
+                setattr(cur, field, getattr(upd, field))
+        cur.knows += [k for k in upd.knows if k not in cur.knows]
+
+    for upd in d.relationship_updates:
+        key = frozenset((upd.a, upd.b))
+        for i, r in enumerate(p.relationships):
+            if frozenset((r.a, r.b)) == key:
+                p.relationships[i] = upd
+                break
+        else:
+            p.relationships.append(upd)
+
+    p.facts += [f for f in d.new_facts if f not in p.facts]
+    known = {f.id for f in p.foreshadows}
+    p.foreshadows += [f for f in d.foreshadow_planted if f.id not in known]
+    for f in p.foreshadows:
+        if f.id in d.foreshadow_resolved:
+            f.status, f.payoff_ep = "resolved", d.episode
+    p.history.append(d)
