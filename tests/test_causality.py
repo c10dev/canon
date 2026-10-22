@@ -98,7 +98,7 @@ def test_impact_flow(client):
     assert client.post("/api/projects/lh/elements/el-01/impact/apply", json={"facts": [0]}).status_code == 400
 
 
-def test_patch_refuses_changed_text(client):
+def test_patch_refuses_changed_text(client, monkeypatch):
     p = _serial(client)
     p["elements"] = [{"id": "el-01", "name": "통금", "description": "밤에는 나갈 수 없다", "since_ep": 2}]
     client.put("/api/projects/lh", json=p)
@@ -106,6 +106,12 @@ def test_patch_refuses_changed_text(client):
     client.put("/api/projects/lh/episodes/1/text", json={"text": "완전히 다른 본문"})
     r = client.post("/api/projects/lh/elements/el-01/impact/apply", json={"patches": [0]})
     assert r.status_code == 400 and "다시 분석" in r.json()["detail"]
+    from canon import autorun
+
+    with monkeypatch.context() as m:
+        m.setattr(autorun, "active", lambda name: True)  # 자동 집필이 도는 동안에는 반영을 막는다
+        r = client.post("/api/projects/lh/elements/el-01/impact/apply", json={"facts": [0]})
+        assert r.status_code == 400 and "자동 집필" in r.json()["detail"]
     p = client.post("/api/projects/lh/elements/el-01/impact/dismiss").json()
     assert p["elements"][0]["impact"]["outcome"] == "dismissed"
 

@@ -82,6 +82,7 @@ const JOB_DONE_MSG = {
   write: (j) => `${j.ep}화 본문을 저장했습니다.`,
   state: (j) => `${j.ep}화 상태 변경안이 도착했습니다.`,
   impact: (j) => `${j.label.replace(/^인과율: /, '')}이 끝났습니다. 인과율에서 확인하세요.`,
+  auto: (j) => `자동 집필: ${j.note || '멈췄습니다'}`,
 };
 let jobTimer = null;
 
@@ -133,6 +134,7 @@ async function pollJobs(soon = false) {
     if (j.kind === 'plots') await mergeEpisodes((e) => e.status === 'draft');
     if (j.kind === 'write' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);
     if (j.kind === 'impact' && j.status === 'done') await mergeImpacts();
+    if (j.kind === 'auto') await mergeEpisodes((e) => e.status !== 'draft');
     if (j.status !== 'running' && !(old && old.status !== 'running')) await finishJob(j);
     if (JOB_PAGES[j.kind].includes(S.route[2] || 'home')) redraw = true;
   }
@@ -144,7 +146,7 @@ async function pollJobs(soon = false) {
 }
 
 // 작업 결과가 보이는 화면
-const JOB_PAGES = { suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], write: ['write', 'home', 'causal'], state: ['review'], impact: ['causal'] };
+const JOB_PAGES = { suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal'], impact: ['causal'] };
 
 // 작업이 project.json 에 쓴 화만 받아 온다 (mine 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
 async function mergeEpisodes(mine) {
@@ -202,6 +204,7 @@ const JOB_LINK = {
   write: (j) => `#/p/${enc(j.project)}/write/${j.ep}`,
   state: (j) => `#/p/${enc(j.project)}/review/${j.ep}`,
   impact: (j) => `#/p/${enc(j.project)}/causal${j.result ? '/' + enc(j.result.element) : ''}`,
+  auto: (j) => `#/p/${enc(j.project)}/auto`,
 };
 
 function renderJobs() {
@@ -851,7 +854,9 @@ const actions = {
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/apply`, out);
       delete S.deltas[n];
       toast(`${n}화를 마쳤습니다`);
-      location.hash = base();
+      const r = S.auto && S.auto.run;
+      // 자동 집필이 이 화에서 검토를 기다리고 있었으면 자동 집필 화면으로 돌아가 이어 가게 한다
+      location.hash = r && r.status === 'review' && r.ep === n ? `${base()}/auto` : base();
     });
   },
   async toggleNumbers(v) {
@@ -1077,6 +1082,7 @@ async function route() {
         if (parts[3]) S.causalSel = parts[3];
         await causalLoad();
       }
+      if (typeof autoLoad === 'function') await autoLoad(parts[2] === 'auto');
       if (parts[2] === 'brief' && n && ep(n)) {
         S.briefText = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/brief?kind=${S.briefTab}`).then((r) => r.text).catch((e) => '※ ' + e.message);
       }
@@ -1116,7 +1122,7 @@ function render() {
     return;
   }
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: viewArc, write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, causal: viewCausal };
+  const views = { setup: viewSetup, style: viewStyle, arc: viewArc, write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, auto: viewAuto, causal: viewCausal };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${body}</main></div>`;
   syncChat();
@@ -1143,6 +1149,7 @@ function sidebar(active) {
     ['write', `${base()}/write/${cur}`, '4', '집필'],
     ['review', `${base()}/review/${cur}`, '5', '상태 승인'],
     ['brief', `${base()}/brief/${cur}`, '6', '작업지시서'],
+    ['auto', base() + '/auto', 'A', S.auto && S.auto.active ? '자동 집필 · 진행 중' : '자동 집필'],
   ];
   const cfg = S.config || {};
   return `<nav class="side" aria-label="작품 메뉴">
@@ -1335,7 +1342,7 @@ function viewHome() {
   const cells = eps.map((e) => {
     const n = e.plot.number;
     const href = e.status === 'draft' ? base() + '/arc' : e.status === 'written' ? `${base()}/review/${n}` : `${base()}/write/${n}`;
-    return `<a class="ep-cell ${e.status}${n === cur && e.status !== 'finalized' ? ' current' : ''}" href="${href}" title="${esc(e.plot.title)}"><strong>${n}</strong><span>${STATUS[e.status].replace('플롯 ', '').replace('본문 ', '')}</span></a>`;
+    return `<a class="ep-cell ${e.status}${n === cur && e.status !== 'finalized' ? ' current' : ''}" href="${href}" title="${esc(e.plot.title)}"><strong>${n}</strong><span>${e.auto ? '자동 반영' : STATUS[e.status].replace('플롯 ', '').replace('본문 ', '')}</span></a>`;
   }).join('');
 
   const states = p.characters.map((c) => {
@@ -2006,7 +2013,8 @@ function viewWrite(n) {
     ${editable && !isApi ? `<a class="btn" href="${base()}/brief/${n}">작업지시서</a>` : ''}
     ${e.status === 'written' ? `<a class="btn primary" href="${base()}/review/${n}">상태 정리로</a>` : ''}`;
 
-  return `<header class="page-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? act.name + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:24px">${n}화 ${esc(e.plot.title)}</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div><div class="row">${right}</div></header>
+  return `<header class="page-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? act.name + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:24px">${n}화 ${esc(e.plot.title)}</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}</div><div class="row">${right}</div></header>
+    ${e.auto ? `<div class="note info">이 화는 자동 집필이 검토 없이 반영했어요. 읽어 보고 문제가 있으면 <a href="${base()}/auto">자동 집필</a>에서 이 화부터 되돌릴 수 있어요.</div>` : ''}
     <div class="cols" style="gap:16px">
       <aside class="card tight" style="flex:1 1 260px;min-width:0" aria-label="이번 화 플롯">
         <h3>이번 화 플롯</h3>

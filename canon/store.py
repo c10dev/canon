@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import threading
 from pathlib import Path
 
 from .dynamics import seed_ties
@@ -35,7 +36,10 @@ def save(name: str, p: Project) -> Path:
     path = d / "project.json"
     if path.exists():
         shutil.copy(path, d / "project.prev.json")  # 직전 버전 하나는 남겨 둔다
-    path.write_text(p.model_dump_json(indent=2), encoding="utf-8")
+    # 다른 스레드(자동 집필, 백그라운드 작업)가 쓰는 도중에 읽어도 빈 파일을 보지 않게 바꿔치기로 쓴다
+    tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp.write_text(p.model_dump_json(indent=2), encoding="utf-8")
+    os.replace(tmp, path)
 
     ep_dir = d / "episodes"
     for ep in p.episodes:
