@@ -2,7 +2,7 @@
 
 모든 상태는 하나의 Project 객체(project.json)에 저장된다.
 LLM 이 직접 채우는 모델(SetupSuggestion, StyleProfile, ArcPlan, PlotBatch, PlotRevision, NameOptions, StateDelta, ConsistencyReport,
-ImpactReport, SeriesPlan, ArcProposal, Recap)은
+ImpactReport, SeriesPlan, ArcProposal, Recap, StorylineProposal)은
 Gemini 구조화 출력에 그대로 넘기므로 dict 타입 필드를 쓰지 않는다.
 """
 from __future__ import annotations
@@ -270,6 +270,8 @@ class EpisodePlot(BaseModel):
     ending_hook: str = Field(description="다음 화로 이어지는 엔딩 훅")
     foreshadow_plant: list[str] = Field(default_factory=list, description="이번 화에 심는 복선")
     foreshadow_payoff: list[str] = Field(default_factory=list, description="이번 화에 회수하는 복선 id")
+    storyline: str = Field("", description="이 화가 주로 따라가는 이야기 줄기 id. 메인 줄기 화면 비움")
+    threads: list[str] = Field(default_factory=list, description="이 화 안에 장면으로 끼어드는 다른 이야기 줄기 id")
 
 
 class PlotBatch(BaseModel):
@@ -315,6 +317,31 @@ class ArcProposal(BaseModel):
     arc: StoryArc
     new_characters: list[Character] = Field(default_factory=list, description="이 아크에서 새로 등장하는 인물. 기존 인물은 넣지 않는다")
     reply: str = Field("", description="작가에게 하는 설명: 왜 이 아크인지, 어떤 복선을 회수하고 무엇을 남기는지 2~4문장")
+
+
+StorylineKind = Literal["서브플롯", "과거 회상", "외전", "인물 이야기"]
+
+
+class Storyline(BaseModel):
+    """메인 줄기에서 갈라졌다 합류하는 이야기 줄기. 메인 줄기는 따로 두지 않는다 (화의 storyline 이 비어 있으면 메인)."""
+    id: str = Field(description="sl-01 처럼 짧은 id")
+    kind: StorylineKind = "서브플롯"
+    title: str = ""
+    focus: list[str] = Field(default_factory=list, description="중심 인물 id")
+    when: str = Field("", description="이야기 속 시점. 메인과 같은 시간이면 비움 (예: 10년 전, 본편 3년 뒤)")
+    goal: str = Field("", description="이 줄기가 풀어 가는 질문이나 목표")
+    branch_ep: int = Field(0, description="메인에서 갈라지는 화: 이 줄기를 부르는 계기가 나오는 화. 0 이면 정하지 않음")
+    join_ep: int = Field(0, description="메인에 다시 합류하는 화. 0 이면 아직 열려 있음")
+    rejoin: str = Field("", description="합류할 때 메인에 남기는 것 (드러나는 비밀, 바뀐 관계, 얻거나 잃는 것)")
+    summary: str = Field("", description="작가가 정리한 줄기 요약. 비면 화별 요약을 쓴다")
+
+
+class StorylineProposal(BaseModel):
+    """AI 가 제안하는 이야기 줄기 하나와 그 줄기가 들어갈 화."""
+    storyline: Storyline
+    episodes: list[int] = Field(default_factory=list, description="이 줄기를 주로 따라갈 화 번호. 이미 플롯이 있는 화 중에서")
+    threads: list[int] = Field(default_factory=list, description="메인 화 안에 이 줄기 장면을 끼워 넣을 화 번호")
+    reply: str = Field("", description="작가에게 하는 설명: 왜 이 줄기인지, 어디서 갈라져 어디서 합류하는지 2~4문장")
 
 
 class Recap(BaseModel):
@@ -516,6 +543,7 @@ class Project(BaseModel):
     settings: Settings = Field(default_factory=Settings)
     chats: list[Chat] = Field(default_factory=list, description="화면별 AI 대화 기록")
     elements: list[StoryElement] = Field(default_factory=list, description="인과율: 언제든 더하는 요소, 특징, 설정, 사건")
+    storylines: list[Storyline] = Field(default_factory=list, description="메인에서 갈라지는 이야기 줄기 (서브플롯, 과거 회상, 외전, 인물 이야기)")
 
     def episode(self, n: int) -> Episode:
         for ep in self.episodes:
@@ -545,6 +573,9 @@ class Project(BaseModel):
     def planned_until(self) -> int:
         """장편에서 아크로 기획한 마지막 화. 아크가 없으면 0."""
         return max((s.end_ep for s in self.story_arcs), default=0)
+
+    def storyline(self, sid: str) -> Optional[Storyline]:
+        return next((s for s in self.storylines if s.id == sid), None) if sid else None
 
     def state_of(self, cid: str) -> Optional[CharacterState]:
         return next((s for s in self.states if s.character_id == cid), None)

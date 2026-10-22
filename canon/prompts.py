@@ -11,7 +11,7 @@ import json
 
 from pydantic import BaseModel
 
-from . import elements, genres, naming
+from . import elements, genres, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
 from .schema import Character, ChatMessage, ConsistencyReport, Foreshadow, ImpactReport, Project, StateDelta, StoryElement
@@ -132,7 +132,7 @@ def arc_prompt(p: Project) -> str:
 [관계]
 {rels(p)}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
-{elements.plan_block(p) or "없음"}
+{elements.plan_block(p) or "없음"}{lines_block(p)}
 
 요구사항:
 - 기, 승, 전, 결 네 구간이 1화부터 {p.meta.target_episodes}화까지 빈틈없이 이어져야 합니다.
@@ -156,7 +156,7 @@ def plot_prompt(p: Project, start: int, end: int) -> str:
 [관계]
 {rels(p)}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
-{elements.plan_block(p) or "없음"}
+{elements.plan_block(p) or "없음"}{lines_block(p)}
 [기승전결 구조]
 {dump(p.arc)}
 [앞 화 플롯 (확정 또는 초안, 이어지게 쓸 것)]
@@ -190,7 +190,7 @@ def serial_plot_prompt(p: Project, start: int, end: int) -> str:
 [관계]
 {rels(p, ids | {c.id for c in static_characters(p)})}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
-{elements.plan_block(p) or "없음"}
+{elements.plan_block(p) or "없음"}{lines_block(p)}
 
 {structure_text(p, start)}
 
@@ -205,6 +205,12 @@ def serial_plot_prompt(p: Project, start: int, end: int) -> str:
 {plot_rules(p)}"""
 
 
+def lines_block(p: Project) -> str:
+    """기획 프롬프트에 붙는 이야기 줄기 블록. 줄기가 없으면 아무것도 넣지 않는다."""
+    b = storylines.plan_block(p)
+    return f"\n[이야기 줄기 (메인에서 갈라졌다 합류하는 서브플롯 · 회상 · 외전)]\n{b}" if b else ""
+
+
 def plot_rules(p: Project) -> str:
     """화별 플롯을 쓸 때 지킬 규칙. 초안 생성과 대화형 수정이 같이 쓴다."""
     common = f"""- 각 화는 소속 구간(act)의 goal 을 향해 전진해야 하며, 구간의 key_turn 은 해당 구간 안의 특정 화에 배치합니다.
@@ -212,7 +218,7 @@ def plot_rules(p: Project) -> str:
 - emotional_shift 는 감정 이름이 아니라 감정 변화가 겉으로 드러나는 행동이나 대사로 적습니다 (예: "상대의 전화를 세 번째에야 받는다").
 - 모든 화가 같은 모양이 되지 않도록, 필요한 화에는 회상, 시간 건너뛰기, 곁가지 사건, 주인공의 잘못된 선택을 씁니다. 갈등은 너무 깔끔하게 정리하지 않습니다.
 - 이야기 요소는 시점을 지킵니다. 'n화부터 생김'은 그 화 전에 사실로 쓰지 않고, '나올 화'에는 그 요소를 사건으로 넣고, '드러나는 화' 전에는 암시만 둡니다.
-- characters 에는 인물 id 만 씁니다."""
+- characters 에는 인물 id 만 씁니다.""" + storylines.plan_rule(p)
     if not p.serial:
         return common + """
 - 매 화 ending_hook 을 둡니다. 마지막 화는 훅 대신 여운을 둡니다.
@@ -237,7 +243,7 @@ def story_so_far(p: Project, n: int) -> str:
     """n화 직전까지의 줄거리. 단편은 화별 요약 전부. 장편은 끝난 부 → 이번 부의 끝난 아크 → 이번 아크의 화 순서로 접어서,
     300화째에도 크기가 일정하다. 요약이 아직 없는 부와 아크는 한 단계 아래 요약으로 대신한다."""
     eps = sorted((e for e in p.episodes if e.plot.number < n and e.summary), key=lambda e: e.plot.number)
-    line = lambda e: f"{e.plot.number}화 {e.plot.title}: {e.summary}"  # noqa: E731
+    line = lambda e: f"{e.plot.number}화 {storylines.summary_tag(p, e)}{e.plot.title}: {e.summary}"  # noqa: E731
     if not p.serial or not p.story_arcs:
         return "\n".join(map(line, eps))
     cur_arc = p.arc_for(n)
@@ -376,7 +382,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 [관계]
 {describe_relations(p) or rels(p)}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
-{elements.plan_block(p) or "없음"}
+{elements.plan_block(p) or "없음"}{lines_block(p)}
 [인물 현재 상태]
 {dump([s for s in p.states if s.character_id in {c.id for c in static_characters(p)}]) or "설정 그대로"}
 [부 구성]
@@ -436,6 +442,58 @@ def recap_prompt(p: Project, kind: str, number: int) -> str:
 - 화별 요약에 없는 내용은 만들지 않습니다. 해석이나 평가는 쓰지 않습니다."""
 
 
+# ---------- 이야기 줄기 제안 ----------
+
+STORYLINE_PLOTS = 60  # 줄기 제안 때 넣는 아직 안 쓴 화 플롯 수 (장편에서 크기를 묶는다)
+
+
+def storyline_prompt(p: Project, note: str, kind: str) -> str:
+    written = max((e.plot.number for e in p.episodes if e.text), default=0)
+    upcoming = [e.plot for e in sorted(p.episodes, key=lambda e: e.plot.number) if not e.text][:STORYLINE_PLOTS]
+    brief = [{"number": x.number, "title": x.title, "summary": x.summary, "characters": x.characters,
+              "storyline": x.storyline, "threads": x.threads} for x in upcoming]
+    structure = structure_text(p, written + 1) if p.serial else f"[기승전결 구조]\n{dump(p.arc) or '아직 없음'}"
+    return f"""이 작품의 메인 줄기에서 갈라졌다 다시 합류하는 이야기 줄기 하나를 기획하세요.
+
+[작품]
+{meta_text(p)}
+[세계관]
+{dump(p.world)}
+[주역]
+{dump(static_characters(p))}
+[다른 인물 (id: 이름, 역할)]
+{roster_line(p, set()) or "없음"}
+[관계]
+{describe_relations(p) or rels(p)}
+[비밀 (hidden_from 의 인물은 아직 모른다)]
+{dump(p.secrets) or "없음"}
+[이야기 요소]
+{elements.plan_block(p) or "없음"}
+[지금 이야기 줄기]
+{storylines.plan_block(p) or "없음"}
+
+{structure}
+
+[지금까지의 줄거리 ({written}화까지 씀)]
+{story_so_far(p, written + 1) or "없음 (아직 쓴 화 없음)"}
+[아직 안 쓴 화 플롯 (줄기를 붙일 수 있는 화)]
+{dump(brief) if brief else "없음"}
+[열린 복선]
+{dump([f for f in p.foreshadows if f.status == "open"][-FORESHADOW_CAP:]) or "없음"}
+[작가의 요청]
+{note.strip() or "없음"}{f"{chr(10)}[원하는 종류] {kind}" if kind else ""}
+
+요구사항:
+- kind 는 서브플롯(메인과 같은 시간에 다른 인물이나 다른 곳에서 진행), 과거 회상(인물의 과거를 보여 줌), 외전(본편 밖의 시간이나 인물), 인물 이야기(조연 한 명을 깊게 다룸) 중 하나입니다.
+- 이미 있는 줄기와 겹치지 않게 하고, 비밀, 열린 복선, 인물의 결핍(wound)처럼 메인이 이미 품고 있는 것에서 출발합니다.
+- focus 에는 중심 인물 id 를 넣습니다. when 은 메인과 다른 시점일 때만 적습니다 (예: 10년 전).
+- branch_ep 는 메인에서 이 줄기를 부르는 계기(물건, 말, 장소, 만남)가 나오는 화, join_ep 는 줄기가 끝나고 메인으로 돌아오는 화입니다. rejoin 에는 합류할 때 메인에 남기는 것(드러난 비밀, 바뀐 관계, 얻거나 잃은 것)을 적습니다.
+- episodes 에는 이 줄기를 주로 따라갈 화를, threads 에는 메인 화 안에 이 줄기 장면을 끼워 넣을 화를 위 '아직 안 쓴 화' 중에서 고릅니다. 메인을 따라가는 독자가 지치지 않게 줄기 화를 연달아 세 화 넘게 두지 않습니다. 서브플롯은 장면으로 나눠 끼우는 편이 낫습니다.
+- 고른 화의 플롯 내용은 이번에 바꾸지 않습니다. 작가가 줄기를 반영한 뒤 플롯을 다시 다듬습니다.
+- id 는 아무 값이나 두면 프로그램이 다시 매깁니다. summary 는 비워 둡니다.
+- reply 에는 왜 이 줄기인지, 어디서 갈라져 어디서 합류하며 메인에 무엇을 남기는지 2~4문장으로 씁니다."""
+
+
 # ---------- 플롯 대화 (기승전결 · 화별 플롯 화면) ----------
 
 SYSTEM_PLOT_CHAT = (
@@ -482,7 +540,7 @@ def plot_chat_prompt(p: Project, message: str) -> str:
 [관계]
 {rels(p)}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
-{elements.plan_block(p) or "없음"}
+{elements.plan_block(p) or "없음"}{lines_block(p)}
 [문체 요약 (전개 속도 판단용)]
 {dump(style)}
 
@@ -536,7 +594,7 @@ def serial_plot_chat_prompt(p: Project, message: str) -> str:
 [관계]
 {rels(p)}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
-{elements.plan_block(p) or "없음"}
+{elements.plan_block(p) or "없음"}{lines_block(p)}
 [부 구성]
 {dump(p.parts) if p.parts else "부 구성 없음"}
 
@@ -589,6 +647,8 @@ def build_episode_context(p: Project, n: int) -> str:
 
     els = elements.episode_block(p, n)
     els = f"\n\n# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것)\n{els}" if els else ""
+    line = storylines.episode_block(p, n)
+    line = f"\n\n# 이번 화의 이야기 줄기\n{line}" if line else ""
 
     return f"""{static_context(p)}
 
@@ -610,7 +670,7 @@ def build_episode_context(p: Project, n: int) -> str:
 # 지금까지의 줄거리
 {story_so_far(p, n) or "없음 (첫 화)"}
 
-{where}
+{where}{line}
 
 # 직전 화 마지막 부분 (내용 연결용, 문체 기준은 위의 예시 문단)
 {last_text[-1500:] or "없음"}
@@ -689,7 +749,7 @@ def state_prompt(p: Project, n: int) -> str:
 - 새로 생긴 비밀은 secrets_added 에 넣고, 비밀이 드러난 사건에는 reveals_secret 에 비밀 id 를 적습니다.
 - 새 복선 id 는 fs-{n:02d}-키워드 형식으로 짓습니다. 이번 아크 안에서 회수할 작은 복선은 scope 를 arc, 부나 작품 끝까지 갈 복선은 part 나 series 로 둡니다.
 - 인물 설정과 목록에 없는 인물이 이름을 갖고 처음 나왔으면 new_characters 에 넣습니다. 조연은 tier 를 support, 지나가는 인물은 minor 로 두고, 본문에서 드러난 것만 적습니다.
-- warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다."""
+- warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다.{storylines.state_rule(p, n)}"""
 
 
 def check_prompt(p: Project, n: int) -> str:
@@ -714,6 +774,8 @@ def check_prompt(p: Project, n: int) -> str:
         )
     els = elements.active_block(p, n)
     els = f"\n\n# 이야기 요소 ({n}화 시점에 사실인 것)\n{els}" if els else ""
+    line = storylines.episode_block(p, n)
+    line = f"\n\n# {n}화의 이야기 줄기\n{line}" if line else ""
     return f"""{static_context(p)}
 
 # 확정된 사실
@@ -732,7 +794,7 @@ def check_prompt(p: Project, n: int) -> str:
 {past or "없음 (첫 화)"}
 
 # {n}화 플롯
-{dump(ep.plot)}
+{dump(ep.plot)}{line}
 
 # {n}화 본문 (검수 대상)
 {ep.text}

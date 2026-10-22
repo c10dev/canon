@@ -25,6 +25,7 @@ Object.assign(S, {
 const PLOT_FIELDS = [
   ['title', '제목'], ['summary', '요약'], ['events', '사건 순서'], ['characters', '등장 인물'],
   ['emotional_shift', '감정 변화'], ['ending_hook', '엔딩 훅'], ['foreshadow_plant', '심을 복선'], ['foreshadow_payoff', '회수할 복선'],
+  ['storyline', '이야기 줄기'], ['threads', '끼어드는 줄기'],
 ];
 const ACT_FIELDS = [['goal', '구간 목표'], ['key_turn', '전환점']];
 const LOCKED_STATUS = ['written', 'finalized'];
@@ -41,8 +42,14 @@ function chatButton() {
 // ----- 변경안 비교 -----
 
 function fieldText(key, v) {
+  if (key === 'storyline') return v ? lineName(v) : '메인';
   if (!Array.isArray(v)) return String(v ?? '');
-  return (key === 'characters' ? v.map(charName) : v).join(', ');
+  return (key === 'characters' ? v.map(charName) : key === 'threads' ? v.map(lineName) : v).join(', ');
+}
+
+function lineName(id) {
+  const s = (P().storylines || []).find((x) => x.id === id);
+  return s ? s.title || id : id;
 }
 
 /** 한 칸의 바뀐 내용. 목록은 빠진 것과 더해진 것을, 글은 이전과 새 글을 보여 준다. */
@@ -52,7 +59,7 @@ function diffField(label, key, before, after) {
     const gone = before.filter((x) => !after.includes(x));
     const added = after.filter((x) => !before.includes(x));
     if (!gone.length && !added.length) return '';
-    const name = (x) => esc(key === 'characters' ? charName(x) : x);
+    const name = (x) => esc(key === 'characters' ? charName(x) : key === 'threads' ? lineName(x) : x);
     return `<div class="diff-row"><span class="act-label">${label}</span>
       ${gone.map((x) => `<del>${name(x)}</del>`).join('')}${added.map((x) => `<ins>${name(x)}</ins>`).join('')}</div>`;
   }
