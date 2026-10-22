@@ -23,26 +23,53 @@ SYSTEM_PLANNER = (
 
 # AI 글티('쇠맛')를 줄이는 기본 문체 규칙. 작품의 스타일 프로필과 부딪히면 스타일 프로필을 따른다.
 # 강한 금지어보다 담담한 지시와 대신 할 일을 함께 적는다. 측정은 metrics.AI_PATTERNS 가 맡는다.
-PROSE_RULES = """[문체 기본 규칙] 스타일 프로필과 부딪히면 스타일 프로필을 따릅니다.
-- 감정은 이름으로 말하지 않고 행동, 대사, 사물로 드러냅니다. 독자가 짐작할 수 있는 것은 설명하지 않습니다.
-- 인물은 자기 감정과 동기를 정리해서 말하지 않습니다. 대사에는 말하지 않은 것이 남습니다.
-- 장면을 주제나 교훈을 정리하는 문장으로 끝내지 않습니다. 마지막 문장은 행동이나 대사로 둡니다.
-- "단순한 A가 아니었다. B였다" 같은 부정 후 재정의, 셋씩 나열하는 수식, 문단 끝의 짧은 여운 문장은 한 화에 한 번 이하로 씁니다.
-- 문장 길이를 불규칙하게 섞습니다. 문맥으로 알 수 있는 주어는 뺍니다.
-- 한 문장에 쉼표가 둘 이상 필요하면 문장을 나눕니다.
-- '그는', '그녀의' 같은 대명사보다 이름이나 생략을 씁니다. '~를 통해', '~에 있어', '~하게 되었다' 대신 능동형 동사를 씁니다.
-- '묘한 불안감', '알 수 없는 감정' 같은 추상어 대신 이 장면에만 있는 사물, 소리, 행동을 씁니다.
-- 비유는 아끼고, 쓸 때는 이 인물이 실제로 떠올릴 법한 것에서 가져옵니다.
-- 대사의 어미, 호칭, 길이는 인물마다 다릅니다.
-- 본문에 줄표(—), 굵은 글씨, 마크다운 기호를 쓰지 않습니다."""
+# STYLED_DROP 은 문체 원문을 분석한 작품에서 빼는 규칙이다. 원문 작가가 쉼표 많은 긴 문장, 셋씩 나열, 줄표를 즐겨 쓰면
+# 이 규칙이 프로필과 부딪혀 모델이 둘 사이에서 흔들린다 (문체 반영도 연구, 2026-10).
+_PROSE_RULES = [
+    ("", "감정은 이름으로 말하지 않고 행동, 대사, 사물로 드러냅니다. 독자가 짐작할 수 있는 것은 설명하지 않습니다."),
+    ("", "인물은 자기 감정과 동기를 정리해서 말하지 않습니다. 대사에는 말하지 않은 것이 남습니다."),
+    ("", "장면을 주제나 교훈을 정리하는 문장으로 끝내지 않습니다. 마지막 문장은 행동이나 대사로 둡니다."),
+    ("plain", '"단순한 A가 아니었다. B였다" 같은 부정 후 재정의, 셋씩 나열하는 수식, 문단 끝의 짧은 여운 문장은 한 화에 한 번 이하로 씁니다.'),
+    ("styled", '"단순한 A가 아니었다. B였다" 같은 부정 후 재정의와 문단 끝의 짧은 여운 문장은 한 화에 한 번 이하로 씁니다.'),
+    ("", "문장 길이를 불규칙하게 섞습니다. 문맥으로 알 수 있는 주어는 뺍니다."),
+    ("plain", "한 문장에 쉼표가 둘 이상 필요하면 문장을 나눕니다."),
+    ("", "'그는', '그녀의' 같은 대명사보다 이름이나 생략을 씁니다. '~를 통해', '~에 있어', '~하게 되었다' 대신 능동형 동사를 씁니다."),
+    ("", "'묘한 불안감', '알 수 없는 감정' 같은 추상어 대신 이 장면에만 있는 사물, 소리, 행동을 씁니다."),
+    ("", "비유는 아끼고, 쓸 때는 이 인물이 실제로 떠올릴 법한 것에서 가져옵니다."),
+    ("", "대사의 어미, 호칭, 길이는 인물마다 다릅니다."),
+    ("plain", "본문에 줄표(—), 굵은 글씨, 마크다운 기호를 쓰지 않습니다."),
+    ("styled", "본문에 굵은 글씨, 마크다운 기호를 쓰지 않습니다."),
+]
 
-SYSTEM_WRITER = (
+
+def prose_rules(styled: bool = False) -> str:
+    """기본 문체 규칙. styled 면 문체 원문과 부딪히기 쉬운 쉼표, 셋씩 나열, 줄표 규칙을 뺀다."""
+    skip = "plain" if styled else "styled"
+    lines = [f"- {rule}" for kind, rule in _PROSE_RULES if kind != skip]
+    return "[문체 기본 규칙] 스타일 프로필과 부딪히면 스타일 프로필을 따릅니다.\n" + "\n".join(lines)
+
+
+PROSE_RULES = prose_rules()
+
+_WRITER = (
     "당신은 소설가입니다. 주어진 스타일 프로필과 예시 문단의 문체를 따르고, "
     "인물 설정과 현재 상태, 확정된 사실을 절대 어기지 않습니다. "
     "플롯의 사건은 모두 다루되, 비중과 처리 방식은 장면에 맞게 조절합니다. "
     "중요한 사건은 장면으로 풀어 쓰고, 어떤 사건은 대사나 짧은 회상으로 처리해도 됩니다. "
-    "본문만 출력하고 제목, 해설, 메모는 붙이지 않습니다.\n\n" + PROSE_RULES
+    "본문만 출력하고 제목, 해설, 메모는 붙이지 않습니다.\n\n"
 )
+SYSTEM_WRITER = _WRITER + PROSE_RULES
+
+
+def styled(p: Project) -> bool:
+    """원문을 분석한 문체가 있는 작품인지. 예시 문단이나 표지가 있으면 그렇다고 본다."""
+    return bool(p.style.sample_passages or p.style.markers)
+
+
+def writer_system(p: Project) -> str:
+    """본문 쓰기 시스템 프롬프트. 문체 원문이 있는 작품은 원문과 부딪히는 기본 규칙을 뺀다."""
+    return _WRITER + prose_rules(styled(p))
+
 
 SYSTEM_EDITOR = (
     "당신은 연재 소설의 설정 관리 담당 편집자입니다. 본문에서 실제로 일어난 일만 근거로 "
@@ -115,6 +142,9 @@ def style_prompt(sample: str) -> str:
 (예: "문장 평균 20자 안팎, 짧은 문장 연속 후 긴 문장 하나로 감정 폭발").
 sample_passages 에는 원문에서 문체가 가장 잘 드러나는 문단 2~4개를 수정 없이 발췌합니다
 (서술 위주 하나, 대화 위주 하나는 꼭 포함).
+markers 에는 이 문체를 알아보게 하는 어미, 조사, 말버릇 5~10개를 원문에 적힌 글자 그대로 적습니다
+(예: "것이었다", "하더라", "말이지"). 원문에서 여러 번 나오는 것만 고르고, 인물 이름이나 이 작품에만 있는 낱말은 넣지 않습니다.
+per_1k 는 0 으로 두세요. 원문에서 직접 셉니다.
 
 [예시 텍스트]
 {sample}"""
@@ -882,11 +912,17 @@ def serial_plot_chat_prompt(p: Project, message: str) -> str:
 
 # ---------- 본문 부분 수정 (집필 화면에서 고른 부분) ----------
 
-SYSTEM_REVISER = (
+_REVISER = (
     "당신은 작가 곁에서 원고를 다듬는 소설가입니다. 작가가 고른 부분만 다시 쓰고, 앞뒤 본문에 그대로 이어 붙을 글을 냅니다. "
     "스타일 프로필과 문체 예시를 따르고, 인물 설정과 현재 상태, 확정된 사실을 어기지 않습니다. "
-    "작가가 바꾸라고 하지 않은 사건과 사실은 바꾸지 않습니다. 모든 출력은 한국어로 작성합니다.\n\n" + PROSE_RULES
+    "작가가 바꾸라고 하지 않은 사건과 사실은 바꾸지 않습니다. 모든 출력은 한국어로 작성합니다.\n\n"
 )
+SYSTEM_REVISER = _REVISER + PROSE_RULES
+
+
+def reviser_system(p: Project) -> str:
+    return _REVISER + prose_rules(styled(p))
+
 
 # 빠른 요청: id → (버튼 이름, AI 에게 하는 말). 화면(passage.js)은 서버가 준 목록을 그대로 쓴다.
 PASSAGE_PRESETS: dict[str, tuple[str, str]] = {
@@ -1060,7 +1096,7 @@ def static_context(p: Project) -> str:
     """작품 내내 바뀌지 않는 블록: 작품 정보, 세계관, 문체, 인물 설정."""
     style = p.style
     samples = "\n\n---\n\n".join(style.sample_passages) or "없음"
-    style_rules = style.model_copy(update={"sample_passages": []})
+    style_rules = style.model_dump(exclude={"markers"}) | {"sample_passages": []}  # 표지는 marker_block 이 따로 적는다
     return f"""# 작품 정보
 {meta_text(p)}
 
@@ -1068,13 +1104,31 @@ def static_context(p: Project) -> str:
 {dump(p.world)}
 
 # 스타일 프로필
-{dump(style_rules)}
+{dump(style_rules)}{marker_block(p)}
 
 # 문체 예시 (이 문체를 따를 것, 내용은 가져오지 말 것)
 {samples}
 
 # 인물 설정{" (주역. 조연 · 단역은 나오는 화에만 뒤에 넣는다)" if len(static_characters(p)) < len(p.characters) else ""}
 {dump(static_characters(p))}"""
+
+
+def marker_block(p: Project) -> str:
+    """문체 표지와 원문 빈도를 한 화 분량 기준 횟수로 바꿔 적는다. 모델이 표지를 몰아 쓰지 않게 한다."""
+    marks = [m for m in p.style.markers if m.text.strip()]
+    if not marks:
+        return ""
+    size = p.meta.words_per_episode
+    rows = []
+    for m in marks:
+        if m.per_1k:
+            k = m.per_1k * size / 1000
+            freq = f"한 화에 {k:.0f}번 안팎" if k >= 1 else "몇 화에 한 번"
+        else:
+            freq = "원문 빈도 모름, 가끔"
+        rows.append(f"- '{m.text}': {freq}{f' ({m.note})' if m.note else ''}")
+    return (f"\n\n# 문체 표지 (원문에서 센 빈도를 이번 화 분량 약 {size}자에 맞춘 것. 이만큼 섞어 쓰고 몰아 쓰지 않습니다)\n"
+            + "\n".join(rows))
 
 
 def episode_prompt(p: Project, n: int, approach: str = "") -> str:
@@ -1371,7 +1425,7 @@ def episode_brief(p: Project, n: int) -> str:
 아래 지시를 그대로 따라 {n}화 본문을 작성해 주세요.
 
 ## 역할
-{SYSTEM_WRITER}
+{writer_system(p)}
 
 {episode_prompt(p, n)}
 """

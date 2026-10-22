@@ -1083,7 +1083,7 @@ def export_file(name: str, start: int = 0, end: int = 0, format: str = "blank", 
 @app.get("/api/projects/{name}/episodes/{n}/prompt")
 def prompt(name: str, n: int) -> dict:
     p = _load(name)
-    return {"system": prompts.SYSTEM_WRITER, "prompt": prompts.episode_prompt(p, n)}
+    return {"system": prompts.writer_system(p), "prompt": prompts.episode_prompt(p, n)}
 
 
 # ---------- 5. 상태 변경안 ----------

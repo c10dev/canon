@@ -245,7 +245,7 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
         if policy.check:
             calls.append(("check", prompts.SYSTEM_CHECKER + prompts.check_prompt(sim, n), JSON_OUTPUT_RESERVE))
         if e.status in ("draft", "confirmed"):
-            calls.append(("write", prompts.SYSTEM_WRITER + prompts.episode_prompt(sim, n), write_out))
+            calls.append(("write", prompts.writer_system(sim) + prompts.episode_prompt(sim, n), write_out))
         for step, text, out in calls:
             m = measured.get(step + (":batch" if batch and batchable(step) else "")) or measured.get(step)
             steps[step] += 1

@@ -671,19 +671,24 @@ def cmd_stats(a: argparse.Namespace) -> None:
     rows += [(f"{e.plot.number}화", *pipeline.style_drift(p, e.plot.number))
              for e in p.episodes if e.text and (a.n is None or e.plot.number == a.n)]
     print(f"{'':>5} {'문장평균':>7} {'변화폭':>6} {'문단평균':>7} {'대사':>5} {'과거형':>6} {'어휘':>6} "
-          f"{'쉼표':>5} {'짧은끝':>6} {'대명사':>6}  경고")
+          f"{'쉼표':>5} {'짧은끝':>6} {'대명사':>6} {'거리':>5}  경고")
     for label, m, warns in rows:
         print(f"{label:>5} {m.sentence_len_mean:>7} {m.sentence_len_cv:>6} {m.paragraph_len_mean:>7} "
               f"{m.dialogue_ratio:>5} {_num(m.past_tense_ratio):>6} {_num(m.mattr):>6} "
-              f"{_num(m.comma_sentence_ratio):>5} {_num(m.short_ending_ratio):>6} {_num(m.pronoun_per_1k):>6}  {len(warns) or ''}")
+              f"{_num(m.comma_sentence_ratio):>5} {_num(m.short_ending_ratio):>6} {_num(m.pronoun_per_1k):>6} {_num(m.style_distance):>5}  {len(warns) or ''}")
         for w in warns:
             print(f"      ! {w}")
         if label.endswith("화"):
             _print_opening(p, int(label[:-1]), indent="      ")
     if not p.style_baseline:
         print("\n(기준은 문체 예시 발췌로 잰 값입니다. style 명령을 다시 실행하면 원문 전체로 잽니다.)")
-    elif base.comma_sentence_ratio is None:
-        print("\n(기준값이 예전 버전이라 쉼표, 짧은끝, 대명사는 비교하지 않았습니다. style 명령을 다시 실행하면 비교합니다.)")
+        return
+    if base.comma_sentence_ratio is None:
+        print("\n(기준값이 예전 버전이라 쉼표, 짧은끝, 대명사, 거리는 비교하지 않았습니다. style 명령을 다시 실행하면 비교합니다.)")
+    elif not base.style_centroid:
+        print("\n(거리: 기준 원문이 6,000자보다 짧거나 예전 기준값이라 재지 않았습니다. 원문을 2만 자쯤 넣고 style 을 다시 실행하면 잽니다.)")
+    else:
+        print(f"\n(거리: 원문 대목끼리 떨어진 만큼이 1.0 입니다. {metrics.STYLE_DISTANCE_WARN} 를 넘으면 다른 작가 글 수준이라 경고합니다. 한 화 값보다 흐름을 보세요.)")
 
 
 def _print_delta(d: StateDelta) -> None:

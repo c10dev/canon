@@ -709,6 +709,16 @@ const actions = {
     markDirty();
     render();
   },
+  addMarker() {
+    P().style.markers.push({ text: '', note: '', per_1k: 0 });
+    markDirty();
+    render();
+  },
+  removeMarker(i) {
+    P().style.markers.splice(i, 1);
+    markDirty();
+    render();
+  },
   async useLibStyle() {
     const id = $('#style-pick').value;
     if (!id) return toast('적용할 문체를 고르세요', true);
@@ -826,6 +836,16 @@ const actions = {
   },
   libRemovePassage(i) {
     S.lib.profile.sample_passages.splice(i, 1);
+    S.libDirty = true;
+    render();
+  },
+  libAddMarker() {
+    S.lib.profile.markers.push({ text: '', note: '', per_1k: 0 });
+    S.libDirty = true;
+    render();
+  },
+  libRemoveMarker(i) {
+    S.lib.profile.markers.splice(i, 1);
     S.libDirty = true;
     render();
   },
@@ -1938,7 +1958,7 @@ function viewSuggestion() {
 function emptyProfile() {
   return {
     narration_pov: '', tense: '', sentence_rhythm: '', description_density: '', dialogue_ratio: '', dialogue_style: '',
-    inner_monologue: '', pacing: '', scene_transition: '', vocabulary: '', dos: [], donts: [], banned_phrases: [], sample_passages: [],
+    inner_monologue: '', pacing: '', scene_transition: '', vocabulary: '', dos: [], donts: [], banned_phrases: [], markers: [], sample_passages: [],
   };
 }
 
@@ -1950,6 +1970,12 @@ function profileFields(base, root) {
   const passages = prof.sample_passages.map((_, i) => `<div class="row" style="align-items:flex-start;flex-wrap:nowrap">
       <div style="flex:1">${input(`대표 문단 ${i + 1}`, `${base}.sample_passages.${i}`, o({ rows: 3 }))}</div>
       <button class="btn icon-btn danger" style="margin-top:26px" data-action="${act}" data-arg="${i}" aria-label="대표 문단 ${i + 1} 삭제">✕</button></div>`).join('');
+  prof.markers = prof.markers || [];
+  const markers = prof.markers.map((_, i) => `<div class="row" style="align-items:flex-start;flex-wrap:nowrap">
+      <div style="flex:1">${input(`표지 ${i + 1}`, `${base}.markers.${i}.text`, o({ placeholder: '원문에 적힌 그대로, 예: 것이었다' }))}</div>
+      <div style="flex:2">${input('쓰임', `${base}.markers.${i}.note`, o())}</div>
+      <div style="width:110px">${input('1,000자당', `${base}.markers.${i}.per_1k`, o({ kind: 'float' }))}</div>
+      <button class="btn icon-btn danger" style="margin-top:26px" data-action="${root ? 'libRemoveMarker' : 'removeMarker'}" data-arg="${i}" aria-label="표지 ${i + 1} 삭제">✕</button></div>`).join('');
   const f = (label, key, x) => input(label, `${base}.${key}`, o(x));
   return `<div class="grid-2">
       ${f('시점', 'narration_pov')}${f('시제', 'tense')}
@@ -1963,6 +1989,8 @@ function profileFields(base, root) {
       <div class="note err">${f('피할 것', 'donts', { kind: 'list', rows: 4 })}</div>
     </div>
     ${f('금지 표현', 'banned_phrases', { kind: 'list', rows: 2, placeholder: '본문에 나오면 경고할 표현, 한 줄에 하나씩' })}
+    <div class="between"><h3>문체 표지 <span class="small" style="font-weight:400">어미, 조사, 말버릇과 원문 빈도. 넘치거나 빠지면 경고</span></h3><button class="btn small" data-action="${root ? 'libAddMarker' : 'addMarker'}">+ 표지</button></div>
+    ${markers || '<div class="small">아직 없어요. 문체 분석을 하면 원문에서 골라 빈도를 셉니다.</div>'}
     <div class="between"><h3>대표 문단 <span class="small" style="font-weight:400">본문 생성 때 그대로 보여줄 원문 예시, 2~4개</span></h3><button class="btn small" data-action="${root ? 'libAddPassage' : 'addPassage'}">+ 문단</button></div>
     ${passages || '<div class="small">아직 없어요. 문체 분석을 하면 원문에서 골라 넣습니다.</div>'}`;
 }

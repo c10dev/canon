@@ -44,6 +44,7 @@ from .schema import (
     StoryEvent,
     Storyline,
     StorylineProposal,
+    StyleMarker,
     StyleProfile,
     TextPatch,
     TierChange,
@@ -283,6 +284,8 @@ class MockLLM:
         if schema is StyleProfile:
             return StyleProfile(narration_pov="3인칭 제한", tense="과거형", sentence_rhythm="짧은 문장 위주",
                                 dos=["감각 묘사로 장면 시작"], donts=["설명조 대사"],
+                                markers=[StyleMarker(text="않았다", note="부정으로 끝맺는 서술"),
+                                         StyleMarker(text="원문에없는표지", per_1k=9)],
                                 sample_passages=["바람이 불었다. 서윤은 고개를 들지 않았다."])  # type: ignore[return-value]
         if schema is ArcPlan:
             return ArcPlan(acts=_arc(hint["total"]))  # type: ignore[return-value]

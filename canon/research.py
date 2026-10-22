@@ -256,7 +256,7 @@ def budget(p: Project, b: Backend) -> dict:
         real = bool(e.text)
         src = p if real else proj
         row: dict[str, Any] = {"episode": n, "status": e.status, "measured": real}
-        for kind, system, fn, reserve in (("write", prompts.SYSTEM_WRITER, prompts.episode_prompt, out_tokens),
+        for kind, system, fn, reserve in (("write", prompts.writer_system(p), prompts.episode_prompt, out_tokens),
                                           ("check", prompts.SYSTEM_CHECKER, prompts.check_prompt, JSON_OUTPUT_RESERVE),
                                           ("state", prompts.SYSTEM_EDITOR, prompts.state_prompt, JSON_OUTPUT_RESERVE)):
             text = system + fn(src, n)

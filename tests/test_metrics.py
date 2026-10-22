@@ -67,5 +67,69 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(metrics.drift(m, m), [])
 
 
+
+def _prose(seed: int, kind: str, size: int = 9000) -> str:
+    """어미와 조사만 다른 두 가지 글. 문체 거리 시험용."""
+    import random
+
+    r = random.Random(seed)
+    nouns = ["바람", "서윤", "골목", "등대", "시장", "도현", "편지", "바다", "창문", "손"]
+    if kind == "a":
+        ends, parts = ["불었다", "보았다", "걸었다", "멈추었다", "웃었더라", "말았다"], ["은", "이", "을", "에"]
+    else:
+        ends, parts = ["불어요", "봤습니다", "걷지요", "멈춰요", "웃었답니다", "말았지요"], ["는", "가", "를", "에서"]
+    paras: list[str] = []
+    while sum(map(len, paras)) < size:
+        paras.append(" ".join(f"{r.choice(nouns)}{r.choice(parts)} {r.choice(nouns)}{r.choice(parts)} {r.choice(ends)}."
+                              for _ in range(4)))
+    return "\n\n".join(paras)
+
+
+class StyleReferenceTest(unittest.TestCase):
+    def test_distance_separates_styles(self):
+        base = metrics.measure(_prose(1, "a"))
+        self.assertTrue(base.style_spread and len(base.style_centroid) == len(metrics.FEATURES))
+        same = metrics.style_distance(base, _prose(2, "a", 4000))
+        other = metrics.style_distance(base, _prose(3, "b", 4000))
+        self.assertLess(same, metrics.STYLE_DISTANCE_WARN)
+        self.assertGreater(other, metrics.STYLE_DISTANCE_WARN)
+        cur = metrics.measure(_prose(3, "b", 4000))
+        cur.style_distance = other
+        self.assertTrue(any(w.startswith("문체 거리") for w in metrics.drift(base, cur)))
+
+    def test_short_or_old_baseline_has_no_distance(self):
+        self.assertEqual(metrics.measure(SAMPLE).style_centroid, [])  # 6,000자 미만은 기준을 만들지 않는다
+        self.assertIsNone(metrics.style_distance(metrics.measure(SAMPLE), SAMPLE))
+        old = metrics.StyleMetrics.model_validate({"sentence_len_mean": 20, "sentence_len_cv": 0.5})
+        self.assertIsNone(metrics.style_distance(old, SAMPLE))
+
+    def test_markers(self):
+        from canon.schema import StyleMarker
+
+        text = "그는 갔더라. " * 10 + "비가 왔다. " * 30
+        self.assertEqual(metrics.marker_count(text, "~더라"), 10)
+        mk = [StyleMarker(text="더라", per_1k=1), StyleMarker(text="왔다", per_1k=400), StyleMarker(text="없는말", per_1k=0)]
+        warns = metrics.marker_warnings(mk, text)
+        self.assertEqual(len(warns), 2)
+        self.assertIn("'더라' 10회", warns[0])  # 넘침
+        self.assertIn("'왔다' 30회", warns[1])  # 모자람
+
+    def test_copied_sentences(self):
+        passages = ["바람이 불었다. 서윤은 고개를 들지 않았다. 부두 끝에 매인 배들이 서로 몸을 부딪치며 삐걱거렸다."]
+        text = "도현이 웃었다. 부두 끝에 매인 배들이 서로 몸을 부딪쳤다. 바람이 불었다."
+        self.assertEqual(metrics.copied_sentences(text, passages), ["부두 끝에 매인 배들이 서로 몸을 부딪쳤다."])
+        self.assertEqual(metrics.copied_sentences(text, []), [])
+
+    def test_hangul_ratio(self):
+        self.assertGreater(metrics.hangul_ratio(SAMPLE), 0.95)
+        self.assertLess(metrics.hangul_ratio("**Planning the scene** I need to write 서윤 walking."), 0.3)
+
+    def test_ai_pattern_allowed_up_to_baseline_rate(self):
+        text = "그것은 단순한 위협이 아니었다. 선전포고였다. 그것은 단순한 검격이 아니었다. 결심이었다.\n\n" + SAMPLE
+        cur = metrics.measure(text)
+        self.assertTrue(any(w.startswith("쇠맛 패턴") for w in metrics.drift(metrics.measure(SAMPLE), cur)))
+        self.assertFalse(any(w.startswith("쇠맛 패턴") for w in metrics.drift(cur, cur)))  # 원문이 원래 쓰면 봐준다
+
+
 if __name__ == "__main__":
     unittest.main()
