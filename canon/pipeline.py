@@ -542,6 +542,7 @@ def apply_delta(p: Project, d: StateDelta) -> None:
     ep.summary = d.summary
     ep.status = "finalized"
     _add_characters(p, d.new_characters, d.episode)
+    ep.auto = False  # 자동 집필은 반영한 뒤 True 로 표시한다
 
     for upd in d.character_updates:
         cur = p.state_of(upd.character_id)
@@ -624,7 +625,7 @@ def revert(p: Project, n: int) -> None:
     p.snapshots = [s for s in p.snapshots if s.episode <= n]
     for ep in p.episodes:
         if ep.plot.number > n and ep.status == "finalized":
-            ep.status, ep.summary = "written", ""
+            ep.status, ep.summary, ep.auto = "written", "", False
 
 
 def recalc(p: Project) -> None:

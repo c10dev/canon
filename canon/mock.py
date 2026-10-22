@@ -180,3 +180,33 @@ class MockLLM:
     def text(self, system: str, prompt: str) -> str:
         _delay()
         return "바람이 불었다. 서윤은 등대 앞에 섰다.\n\n\"됐어, 내가 할게.\"\n\n(mock 본문)"
+
+    # Batch API 흉내. CANON_MOCK_BATCH_POLLS=n 이면 n 번 물어본 뒤에 끝난다 (기본 0: 바로 끝).
+    def batch_submit(self, system: str, prompt: str, schema: type[BaseModel] | None, label: str,
+                     hint: dict | None = None) -> str:
+        import os
+        import uuid
+
+        out = self.json(system, prompt, schema, hint).model_dump_json() if schema else self.text(system, prompt)
+        name = f"batches/mock-{uuid.uuid4().hex[:8]}"
+        BATCHES[name] = {"out": out, "polls": int(os.environ.get("CANON_MOCK_BATCH_POLLS", "0") or 0),
+                         "label": label, "cancelled": False}
+        return name
+
+    def batch_poll(self, name: str) -> str | None:
+        b = BATCHES.get(name)
+        if b is None:
+            raise RuntimeError(f"없는 배치 작업: {name}")
+        if b["cancelled"]:
+            raise RuntimeError("배치 작업이 취소됐습니다")
+        if b["polls"] > 0:
+            b["polls"] -= 1
+            return None
+        return b["out"]
+
+    def batch_cancel(self, name: str) -> None:
+        if name in BATCHES:
+            BATCHES[name]["cancelled"] = True
+
+
+BATCHES: dict[str, dict] = {}  # 프로세스 안에서만 유지되는 가짜 배치 작업

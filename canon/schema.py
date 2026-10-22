@@ -376,6 +376,7 @@ class Episode(BaseModel):
     text: str = ""
     summary: str = ""
     issues: list[ConsistencyIssue] = Field(default_factory=list, description="마지막 검수 결과")
+    auto: bool = Field(False, description="자동 집필이 사람 검토 없이 반영한 화. 사용자가 다시 반영하면 False")
 
 
 # ---------- 회차 진행 상태 ----------

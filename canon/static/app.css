@@ -370,3 +370,11 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .name-pick { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 5px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; text-align: left; max-width: 100%; }
 .name-pick:hover { border-color: var(--accent); background: var(--accent-soft); }
 .name-pick small { font-size: 11px; font-weight: 400; color: var(--muted); }
+
+/* 자동 집필 */
+.auto-opt { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; font-size: 14px; }
+.auto-opt.picked { border: 2px solid var(--accent); padding: 11px 13px; }
+.auto-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.auto-list li { justify-content: space-between; font-size: 14px; }
+.rs-table tr.lv-warn td { color: var(--amber-ink); }
+.rs-table tr.lv-error td { color: var(--red); }
