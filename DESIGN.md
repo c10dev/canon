@@ -109,6 +109,8 @@ AI 는 숫자를 매기지 않고 사건만 뽑는다. 같은 사건은 항상 �
 
 Claude 등 다른 구현도 같은 두 메서드만 구현하면 추가된다.
 
+**연구 화면.** `canon/research.py` 는 모델 실험을 본편과 분리한다. 실험은 `project.json` 을 저장하지 않고 `research/log.jsonl` 에 기록한다. 단계 시험은 pipeline 함수를 그대로 부르고 결과만 돌려준다. 빈 필드와, 필드 설명에 `a ~ b` 로 적힌 숫자가 범위를 벗어났는지 검사한다. 스키마에 기본값이 있으면 json_schema 의 required 가 비어 로컬 서버가 필드를 건너뛸 수 있어서, 이 검사로 모델별 차이를 본다. 컨텍스트 크기는 아직 안 쓴 화를 목표 분량의 글로 채운 사본으로 재서, 검수처럼 앞선 본문을 모두 넣는 단계가 몇 화부터 한도를 넘는지 미리 보여 준다. 블라인드 비교의 저장 형식(`compare/NN/`, `compare/log.jsonl`)은 CLI `compare` 와 같다. `LocalLLM`, `GeminiLLM` 은 이 화면을 위해 `last_usage`, `last_attempts`, `context_limit()`, `count_tokens()` 를 제공한다. LoRA 처럼 컨텍스트 값이 없는 모델은 부모 모델 값을 쓴다.
+
 ## 7. 알려진 한계 (MVP)
 
 - 화별 스냅샷으로 상태 반영을 되돌릴 수 있지만(`revert`), 관계 역학 계수는 실제 원고로 아직 튜닝하지 않았다.

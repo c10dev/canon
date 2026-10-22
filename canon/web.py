@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import dynamics, genres, pipeline, prompts, settings, store
+from . import dynamics, genres, pipeline, prompts, research, settings, store
 from .llm import GeminiLLM, LocalLLM, get_llm
 from .schema import ArcPlan, Meta, Project, SetupSuggestion, StateDelta, StyleProfile
 
@@ -357,6 +357,100 @@ def brief(name: str, n: int, kind: str = "episode") -> dict:
             raise ValueError(f"{n}화 본문이 없어 상태 정리 지시서를 만들 수 없습니다")
         return {"text": prompts.state_brief(p, n)}
     return {"text": prompts.episode_brief(p, n)}
+
+
+# ---------- 연구 (모델 실험, 작품 데이터와 분리) ----------
+
+class Probe(BaseModel):
+    url: str = ""
+    key: str | None = None
+
+
+@app.post("/api/research/probe")
+def research_probe(body: Probe) -> dict:
+    """로컬 서버 점검. 작품과 무관하게 쓴다."""
+    try:
+        return research.probe(body.url, body.key)
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/projects/{name}/research")
+def research_log(name: str) -> dict:
+    _load(name)
+    return {"log": research.history(name), "stages": research.STAGES}
+
+
+class SampleIn(BaseModel):
+    runs: list[research.Backend]
+    system: str = prompts.SYSTEM_WRITER
+    prompt: str
+    temperature: float | None = None
+
+
+@app.post("/api/projects/{name}/research/sample")
+def research_sample(name: str, body: SampleIn) -> dict:
+    _load(name)
+    if not body.runs or not body.prompt.strip():
+        raise ValueError("백엔드와 요청 문장을 넣으세요")
+    rows = research.sample(body.runs, body.system, body.prompt, body.temperature)
+    return research.record(name, "sample", {"system": body.system, "prompt": body.prompt,
+                                            "temperature": body.temperature, "rows": rows})
+
+
+class StageIn(BaseModel):
+    backend: research.Backend
+    stage: str
+    sample: str = ""
+
+
+@app.post("/api/projects/{name}/research/stage")
+def research_stage(name: str, body: StageIn) -> dict:
+    """설정 제안, 문체 분석, 기승전결을 저장하지 않고 돌린다."""
+    row = research.stage_trial(_load(name), body.backend, body.stage, body.sample)
+    return research.record(name, "stage", row)
+
+
+@app.post("/api/projects/{name}/research/budget")
+def research_budget(name: str, b: research.Backend) -> dict:
+    res = research.budget(_load(name), b)
+    summary = {k: res[k] for k in ("backend", "model", "limit", "first_over", "first_tight", "tokenizer")}
+    return {**research.record(name, "budget", summary), **res}
+
+
+class CompareIn(BaseModel):
+    a: research.Backend
+    b: research.Backend
+
+
+@app.get("/api/projects/{name}/research/compare/{n}")
+def research_compare_get(name: str, n: int) -> dict:
+    _load(name)
+    return {"compare": research.load_compare(name, n)}
+
+
+@app.post("/api/projects/{name}/research/compare/{n}")
+def research_compare(name: str, n: int, body: CompareIn) -> dict:
+    p = _load(name)
+    c = research.run_compare(name, p, n, body.a, body.b)
+    research.record(name, "compare", {"episode": n, "backends": [research.label(body.a), research.label(body.b)]})
+    return {"compare": c}
+
+
+class Pick(BaseModel):
+    k: int
+    adopt: bool = True
+
+
+@app.post("/api/projects/{name}/research/compare/{n}/pick")
+def research_pick(name: str, n: int, body: Pick) -> dict:
+    """고른 번호를 공개한다. adopt 면 그 본문을 그 화 본문으로 저장한다."""
+    p = _load(name)
+    r = research.pick_compare(name, p, n, body.k, body.adopt)
+    if body.adopt:
+        _save(name, p)
+    research.record(name, "pick", {"episode": n, **r})
+    return {"compare": research.load_compare(name, n), "result": r, "project": p}
 
 
 # ---------- 화면 ----------

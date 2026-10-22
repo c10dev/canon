@@ -25,15 +25,12 @@
 from __future__ import annotations
 
 import argparse
-import json
-import random
 import re
 import sys
-from datetime import datetime
 from pathlib import Path
 
-from . import dynamics, genres, metrics, pipeline, prompts, store
-from .llm import dump, get_llm, make_llm
+from . import dynamics, genres, metrics, pipeline, prompts, research, store
+from .llm import dump, get_llm
 from .schema import ConsistencyReport, Meta, Project, StateDelta
 
 
@@ -293,47 +290,23 @@ def cmd_run(a: argparse.Namespace) -> None:
 
 def cmd_compare(a: argparse.Namespace) -> None:
     p = store.load(a.name)
-    root = store.project_dir(a.name) / "compare"
-    out = root / f"{a.n:02d}"
     if a.pick:
-        _pick(a.name, p, a.n, out, root / "log.jsonl", a.pick)
+        r = research.pick_compare(a.name, p, a.n, a.pick)
+        store.save(a.name, p)
+        print(f"{a.pick}번은 {r['picked']} 였습니다 (다른 쪽: {', '.join(r['others'])}). {a.n}화 본문으로 저장했습니다.")
+        print("지금까지 고른 횟수: " + ", ".join(f"{prov} {cnt}" for prov, cnt in sorted(r["wins"].items())))
         return
     if a.a == a.b:
         sys.exit("--a 와 --b 가 같습니다")
     print(f"{a.n}화를 {a.a}, {a.b} 로 각각 쓰는 중...")
-    drafts = pipeline.compare_drafts({a.a: make_llm(a.a), a.b: make_llm(a.b)}, p, a.n)
-    order = random.sample([a.a, a.b], 2)  # 1, 2 번에 누가 들어갔는지 가린다
-    out.mkdir(parents=True, exist_ok=True)
-    for i, prov in enumerate(order, 1):
-        (out / f"{i}.md").write_text(drafts[prov], encoding="utf-8")
-    (out / "key.json").write_text(json.dumps({"order": order, "created": datetime.now().isoformat(timespec="seconds")}), encoding="utf-8")
-    base = pipeline.style_baseline(p)
+    c = research.run_compare(a.name, p, a.n, research.Backend(provider=a.a), research.Backend(provider=a.b))
     print(f"\n{'':>3} {'글자':>6} {'문장평균':>7} {'대사':>5} {'어휘':>6}  문체 경고")
-    for i, prov in enumerate(order, 1):
-        m = metrics.measure(drafts[prov], p.style.banned_phrases)
-        warns = metrics.drift(base, m)
-        print(f"{i:>3} {m.chars:>6} {m.sentence_len_mean:>7} {m.dialogue_ratio:>5} {_num(m.mattr):>6}  {len(warns) or ''}")
-        for w in warns:
+    for d in c["drafts"]:
+        print(f"{d['n']:>3} {d['chars']:>6} {d['sentence_len_mean']:>7} {d['dialogue_ratio']:>5} {_num(d['mattr']):>6}  {len(d['warnings']) or ''}")
+        for w in d["warnings"]:
             print(f"      ! {w}")
+    out = research.compare_dir(a.name, a.n)
     print(f"\n저장: {out}/1.md, 2.md (key.json 은 열지 마세요)\n읽어 보고 고르세요: compare {a.name} {a.n} --pick 1|2")
-
-
-def _pick(name: str, p: Project, n: int, out: Path, log: Path, k: int) -> None:
-    key = out / "key.json"
-    if not key.exists():
-        sys.exit(f"{n}화 비교본이 없습니다. compare {name} {n} 를 먼저 실행하세요")
-    order = json.loads(key.read_text(encoding="utf-8"))["order"]
-    pipeline.adopt_draft(p, n, (out / f"{k}.md").read_text(encoding="utf-8"))
-    store.save(name, p)
-    with log.open("a", encoding="utf-8") as f:
-        f.write(json.dumps({"episode": n, "options": order, "picked": order[k - 1],
-                            "time": datetime.now().isoformat(timespec="seconds")}, ensure_ascii=False) + "\n")
-    print(f"{k}번은 {order[k - 1]} 였습니다 (다른 쪽: {order[2 - k]}). {n}화 본문으로 저장했습니다.")
-    wins: dict[str, int] = {}
-    for line in log.read_text(encoding="utf-8").splitlines():
-        prov = json.loads(line)["picked"]
-        wins[prov] = wins.get(prov, 0) + 1
-    print("지금까지 고른 횟수: " + ", ".join(f"{prov} {cnt}" for prov, cnt in sorted(wins.items())))
 
 
 def cmd_brief(a: argparse.Namespace) -> None:
