@@ -141,6 +141,7 @@ document.addEventListener('input', (e) => {
     const kind = el.dataset.kind;
     let v = el.value;
     if (kind === 'int') v = v === '' ? 0 : parseInt(v, 10) || 0;
+    if (kind === 'float') v = parseFloat(v) || 0;
     if (kind === 'list') v = v.split('\n').map((s) => s.trim()).filter(Boolean);
     if (kind === 'bool') v = el.checked;
     setPath(P(), el.dataset.bind, v);
@@ -165,6 +166,7 @@ document.addEventListener('change', (e) => {
     S.picks[el.dataset.pick] = el.checked;
     const c = $('#pick-count');
     if (c) c.textContent = Object.values(S.picks).filter(Boolean).length;
+    if (S.route[2] === 'review' && /^[ers]\d/.test(el.dataset.pick)) refreshPreview(Number(S.route[3]));
   }
   if (el.dataset.castEp) {
     const plot = ep(Number(el.dataset.castEp)).plot;
@@ -271,7 +273,7 @@ const actions = {
   addRelationship() {
     const cs = P().characters;
     if (cs.length < 2) return toast('인물이 두 명 이상 있어야 합니다', true);
-    P().relationships.push({ a: cs[0].id, b: cs[1].id, type: '', description: '', affinity: 0, tension: 0 });
+    P().relationships.push({ a: cs[0].id, b: cs[1].id, type: '', description: '', affinity: 0, tension: 0, goal_conflict: 0 });
     markDirty();
     render();
   },
@@ -401,16 +403,7 @@ const actions = {
     });
   },
   async applyDelta(n) {
-    const d = S.deltas[n];
-    const pick = (prefix, list) => list.filter((_, i) => S.picks[prefix + i]);
-    const out = {
-      ...d,
-      character_updates: pick('c', d.character_updates),
-      relationship_updates: pick('r', d.relationship_updates),
-      new_facts: pick('f', d.new_facts),
-      foreshadow_planted: pick('p', d.foreshadow_planted),
-      foreshadow_resolved: pick('x', d.foreshadow_resolved),
-    };
+    const out = pickedDelta(n);
     await run('반영하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/apply`, out);
@@ -418,6 +411,16 @@ const actions = {
       toast(`${n}화를 마쳤습니다`);
       location.hash = base();
     });
+  },
+  async toggleNumbers(v) {
+    const show = v === 'numbers';
+    P().settings.show_numbers = show;
+    render();
+    try {
+      S.project = await api('PUT', `/projects/${enc(S.name)}/view`, { show_numbers: show });
+    } catch (e) {
+      toast(e.message, true);
+    }
   },
   dropDelta(n) {
     if (!confirm('이 변경안을 버릴까요?')) return;
@@ -498,10 +501,45 @@ const actions = {
   },
 };
 
+/** 체크한 항목만 남긴 변경안. 반영과 관계 미리 보기에 같이 쓴다. */
+function pickedDelta(n) {
+  const d = S.deltas[n];
+  const pick = (prefix, list) => list.filter((_, i) => S.picks[prefix + i]);
+  return {
+    ...d,
+    character_updates: pick('c', d.character_updates),
+    events: pick('e', d.events),
+    secrets_added: pick('s', d.secrets_added),
+    relationship_updates: pick('r', d.relationship_updates),
+    new_facts: pick('f', d.new_facts),
+    foreshadow_planted: pick('p', d.foreshadow_planted),
+    foreshadow_resolved: pick('x', d.foreshadow_resolved),
+  };
+}
+
+let previewTimer = null;
+/** 고른 변경안으로 관계를 다시 계산해 미리 보기만 바꾼다 (저장 안 함). */
+function refreshPreview(n) {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(async () => {
+    if (!S.deltas[n]) return;
+    try {
+      S.preview = { n, ...(await api('POST', `/projects/${enc(S.name)}/episodes/${n}/preview`, pickedDelta(n))) };
+    } catch (e) {
+      S.preview = { n, error: e.message };
+    }
+    const box = $('#rel-preview');
+    if (box) box.innerHTML = relationLines(S.preview);
+  }, 250);
+}
+
 function setDelta(n, d) {
   S.deltas[n] = d;
   S.picks = {};
+  S.preview = null;
   d.character_updates.forEach((_, i) => { S.picks['c' + i] = true; });
+  d.events.forEach((_, i) => { S.picks['e' + i] = true; });
+  d.secrets_added.forEach((_, i) => { S.picks['s' + i] = true; });
   d.relationship_updates.forEach((_, i) => { S.picks['r' + i] = true; });
   d.new_facts.forEach((_, i) => { S.picks['f' + i] = true; });
   d.foreshadow_planted.forEach((_, i) => { S.picks['p' + i] = true; });
@@ -541,6 +579,7 @@ async function route() {
   S.context = null;
   S.promptText = null;
   S.briefText = null;
+  S.relations = null;
   try {
     if (!S.config) S.config = await api('GET', '/config');
     if (parts[0] === 'settings') {
@@ -550,6 +589,9 @@ async function route() {
       else S.project = await api('GET', `/projects/${enc(parts[1])}`);
       S.dirty = false;
       const n = Number(parts[3]);
+      if (!parts[2] && S.project.relationships.length) {
+        S.relations = await api('GET', `/projects/${enc(S.name)}/relations`).catch((e) => ({ error: e.message }));
+      }
       if (parts[2] === 'write' && n && ep(n) && ep(n).status !== 'draft') {
         S.context = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/context`).catch(() => null);
       }
@@ -761,6 +803,7 @@ function viewHome() {
     </section>
     <div class="grid-auto">
       <section class="card"><div class="between"><h2>인물 현재 상태</h2><span class="small">${fin ? fin + '화 기준' : '시작 시점'}</span></div>${states || '<div class="small">인물이 없습니다</div>'}<a href="${base()}/setup" style="font-size:13px">인물 · 관계 전체 보기</a></section>
+      <section class="card">${relationHeader('관계')}${p.relationships.length ? relationLines(S.relations) : '<div class="small">관계가 없어요. 설정 도우미에서 관계를 추가하세요.</div>'}</section>
       <section class="card"><div class="between"><h2>열린 복선</h2><span class="small">${openFs.length}개</span></div>
         ${openFs.map((f) => `<div class="row" style="align-items:flex-start;flex-wrap:nowrap"><span class="chip">${f.planted_ep}화</span><div style="font-size:13px;line-height:1.5">${esc(f.description)}<br><span class="small">${esc(f.id)}</span></div></div>`).join('') || '<div class="small">없음</div>'}
       </section>
@@ -790,14 +833,17 @@ function viewSetup() {
   }).join('');
 
   const opts = (sel) => p.characters.map((c) => `<option value="${esc(c.id)}"${c.id === sel ? ' selected' : ''}>${esc(c.name || c.id)}</option>`).join('');
+  const started = p.snapshots.length > 0; // 첫 상태 반영 뒤에는 관계 사건으로 계산한다
   const rels = p.relationships.map((r, i) => {
     const b = `relationships.${i}`;
     return `<div class="rel-row">
       <div class="field"><label for="ra${i}">인물 A</label><select id="ra${i}" data-bind="${b}.a">${opts(r.a)}</select></div>
       <div class="field"><label for="rb${i}">인물 B</label><select id="rb${i}" data-bind="${b}.b">${opts(r.b)}</select></div>
       ${input('유형', b + '.type', { placeholder: '동료, 남매…' })}
-      <div class="field"><label for="raf${i}">호감 <output id="raf${i}o">${r.affinity}</output></label><input id="raf${i}" type="range" min="-5" max="5" value="${r.affinity}" data-bind="${b}.affinity" data-kind="int" data-out="raf${i}o"></div>
-      <div class="field"><label for="rt${i}">긴장 <output id="rt${i}o">${r.tension}</output></label><input id="rt${i}" type="range" min="0" max="10" value="${r.tension}" data-bind="${b}.tension" data-kind="int" data-out="rt${i}o"></div>
+      ${started
+        ? `<div class="field"><label>지금</label><div class="small" style="padding-top:10px">호감 ${r.affinity} · 긴장 ${r.tension}</div></div>`
+        : `<div class="field"><label for="raf${i}">시작 호감 <output id="raf${i}o">${r.affinity}</output></label><input id="raf${i}" type="range" min="-5" max="5" value="${r.affinity}" data-bind="${b}.affinity" data-kind="int" data-out="raf${i}o"></div>`}
+      <div class="field"><label for="rg${i}">목표 충돌 <output id="rg${i}o">${r.goal_conflict || 0}</output></label><input id="rg${i}" type="range" min="0" max="1" step="0.1" value="${r.goal_conflict || 0}" data-bind="${b}.goal_conflict" data-kind="float" data-out="rg${i}o"></div>
       <button class="btn icon-btn danger" data-action="removeRelationship" data-arg="${i}" aria-label="관계 삭제">✕</button>
     </div>`;
   }).join('');
@@ -828,7 +874,7 @@ function viewSetup() {
           ${chars ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">${chars}</div>` : '<div class="note plain">인물이 없어요. 직접 추가하거나 AI 제안을 받으세요.</div>'}
         </section>
         <section class="card">
-          <div class="between"><h2>관계</h2><div class="row"><span class="small">호감 -5 ~ 5 · 긴장 0 ~ 10 · 1화 시작 기준</span><button class="btn small" data-action="addRelationship">+ 관계 추가</button></div></div>
+          <div class="between"><h2>관계</h2><div class="row"><span class="small">${P().snapshots.length ? '첫 반영 뒤에는 관계 사건으로 계산됩니다' : '시작 호감 -5 ~ 5 · 목표 충돌 0 ~ 1 · 긴장은 자동 계산'}</span><button class="btn small" data-action="addRelationship">+ 관계 추가</button></div></div>
           ${rels || '<div class="small">관계가 없어요.</div>'}
         </section>
       </div>
@@ -1046,7 +1092,8 @@ function viewReview(n) {
   }
 
   const p = P();
-  const total = d.character_updates.length + d.relationship_updates.length + d.new_facts.length + d.foreshadow_planted.length + d.foreshadow_resolved.length;
+  const total = d.character_updates.length + d.events.length + d.secrets_added.length + d.relationship_updates.length + d.new_facts.length + d.foreshadow_planted.length + d.foreshadow_resolved.length;
+  if (!S.preview || S.preview.n !== n) refreshPreview(n);
   const picked = Object.values(S.picks).filter(Boolean).length;
   const box = (key) => `<input type="checkbox" id="pk-${key}" data-pick="${key}"${S.picks[key] ? ' checked' : ''}>`;
   const diff = (before, after) => before && before !== after
@@ -1061,17 +1108,19 @@ function viewReview(n) {
     return `<div class="change">${box('c' + i)}<div class="body"><label for="pk-c${i}" style="font-size:14px;font-weight:700">${esc(charName(u.character_id))}</label>${rows}${knows ? `<div class="small">알게 된 정보</div><div class="row">${knows}</div>` : ''}</div></div>`;
   }).join('');
 
+  const events = d.events.map((ev, i) => {
+    const good = GOOD_EVENTS.includes(ev.kind);
+    const wit = ev.witnesses.length ? ` · 목격: ${ev.witnesses.map(charName).map(esc).join(', ')}` : '';
+    const sec = ev.reveals_secret ? ` · 드러난 비밀: ${esc(secretLabel(ev.reveals_secret, d))}` : '';
+    return `<div class="change">${box('e' + i)}<div class="body"><label for="pk-e${i}" style="font-size:14px;font-weight:700">${esc(charName(ev.actor))} → ${esc(charName(ev.target))}
+        <span class="chip" style="background:${good ? 'var(--green-soft)' : 'var(--red-soft)'};color:${good ? 'var(--green)' : 'var(--red)'}">${esc(ev.kind)}</span> <span class="small" style="font-weight:400">${INTENSITY[ev.intensity] || ev.intensity}${wit}${sec}</span></label>
+      ${ev.quote ? `<div style="font-family:var(--serif);font-size:13px;line-height:1.7;color:var(--text-2)">“${esc(ev.quote)}”</div>` : ''}</div></div>`;
+  }).join('');
+  const secrets = d.secrets_added.map((x, i) => `<div class="change">${box('s' + i)}<label for="pk-s${i}" style="font-size:13px;line-height:1.55"><strong>${esc(charName(x.owner))}</strong> ${esc(x.content)}<br><span class="small">모르는 인물: ${x.hidden_from.map(charName).map(esc).join(', ') || '없음'}</span></label></div>`).join('');
   const rels = d.relationship_updates.map((r, i) => {
     const cur = p.relationships.find((x) => (x.a === r.a && x.b === r.b) || (x.a === r.b && x.b === r.a));
-    const bar = (label, from, to, min, max, color) => {
-      const pct = (v) => ((v - min) / (max - min)) * 100;
-      return `<div style="display:grid;grid-template-columns:40px 1fr 80px;gap:8px;align-items:center;font-size:13px"><span class="small">${label}</span>
-        <div class="meter"><i style="left:0;width:${pct(to)}%;background:${color}"></i></div>
-        <span>${from != null && from !== to ? `<span class="small">${from} →</span> ` : ''}<strong>${to}</strong></span></div>`;
-    };
-    return `<div class="change">${box('r' + i)}<div class="body"><label for="pk-r${i}" style="font-size:14px;font-weight:700">${esc(charName(r.a))} ↔ ${esc(charName(r.b))} <span class="small" style="font-weight:400">${esc(r.type)}</span></label>
-      ${bar('호감', cur && cur.affinity, r.affinity, -5, 5, 'var(--accent)')}${bar('긴장', cur && cur.tension, r.tension, 0, 10, 'var(--amber)')}
-      ${r.description ? `<div class="small">${esc(r.description)}</div>` : ''}</div></div>`;
+    return `<div class="change">${box('r' + i)}<div class="body"><label for="pk-r${i}" style="font-size:14px;font-weight:700">${esc(charName(r.a))} ↔ ${esc(charName(r.b))}</label>
+      ${diff(cur && cur.type, r.type)}${r.description ? diff(cur && cur.description, r.description) : ''}</div></div>`;
   }).join('');
 
   const facts = d.new_facts.map((f, i) => `<div class="change">${box('f' + i)}<label for="pk-f${i}" style="font-size:13px;line-height:1.55">${esc(f)}</label></div>`).join('');
@@ -1087,7 +1136,14 @@ function viewReview(n) {
   return top('AI 가 본문에서 뽑은 변경안입니다. 체크한 항목만 데이터에 반영되고, 반영해야 다음 화를 쓸 수 있어요.', `<span class="small">${total}건 중 <strong id="pick-count" style="color:var(--text)">${picked}</strong>건 선택</span>`) +
     (d.warnings.length ? `<section class="note warn" role="alert"><strong>경고 ${d.warnings.length}건 · 본문을 고칠지 확인하세요</strong><ul style="padding-left:18px;margin-top:6px">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul><a href="${base()}/write/${n}" style="color:inherit;font-weight:700">본문으로</a></section>` : '') +
     section('인물 상태', chars) +
-    `<div class="grid-auto">${section('관계', rels)}${section('확정 사실', facts)}${section('복선', fs)}</div>` +
+    `<div class="cols">
+      <section class="card col"><div class="between"><h2>관계 사건</h2><span class="small">AI 는 사건만 적고, 관계 수치는 Canon 이 계산합니다</span></div>${events || '<div class="small">이번 화에 관계 사건이 없어요</div>'}
+        ${secrets ? `<h3 style="margin-top:6px">새로 생긴 비밀</h3>${secrets}` : ''}
+        ${rels ? `<h3 style="margin-top:6px">관계 유형 · 설명 변경</h3>${rels}` : ''}</section>
+      <section class="card col">${relationHeader('반영하면 이렇게 계산됩니다')}<div id="rel-preview">${relationLines(S.preview && S.preview.n === n ? S.preview : null)}</div>
+        <div class="small">체크를 바꾸면 바로 다시 계산합니다. 저장은 반영할 때만 됩니다.</div></section>
+    </div>` +
+    `<div class="grid-auto">${section('확정 사실', facts)}${section('복선', fs)}</div>` +
     `<section class="card"><div class="between"><label for="dsum" style="font-size:16px;font-weight:700">${n}화 요약</label><span class="small">다음 화 생성에 이 요약이 들어갑니다</span></div>
       <textarea id="dsum" rows="4" data-delta-summary="${n}">${esc(d.summary)}</textarea></section>
     <div class="between"><div class="row"><button class="btn" data-action="extractState" data-arg="${n}">다시 추출</button><button class="btn" data-action="dropDelta" data-arg="${n}">버리기</button><a class="btn" href="${base()}/write/${n}">본문으로</a></div>
@@ -1099,9 +1155,34 @@ function historyView(h) {
   return `<section class="card"><h2>요약</h2><p style="font-size:14px;line-height:1.7">${esc(h.summary)}</p></section>
     <div class="grid-auto">
       <section class="card"><h2>인물 상태</h2>${li(h.character_updates.map((u) => `<strong>${esc(charName(u.character_id))}</strong> ${esc([u.emotional_state, u.current_goal, u.location].filter(Boolean).join(' / '))}${u.knows.length ? ` · 앎: ${esc(u.knows.join(', '))}` : ''}`))}</section>
-      <section class="card"><h2>관계</h2>${li(h.relationship_updates.map((r) => `${esc(charName(r.a))} ↔ ${esc(charName(r.b))} · 호감 ${r.affinity} · 긴장 ${r.tension}`))}</section>
+      <section class="card"><h2>관계 사건</h2>${li((h.events || []).map((ev) => `${esc(charName(ev.actor))} → ${esc(charName(ev.target))} · ${esc(ev.kind)} ${INTENSITY[ev.intensity] || ''}${ev.quote ? `<br><span class="small">“${esc(ev.quote)}”</span>` : ''}`))}</section>
       <section class="card"><h2>사실과 복선</h2>${li([...h.new_facts.map(esc), ...h.foreshadow_planted.map((f) => '심음: ' + esc(f.description)), ...h.foreshadow_resolved.map((id) => '회수: ' + esc(id))])}</section>
     </div>`;
+}
+
+// ----- 관계 표시 (숫자/말) -----
+
+const GOOD_EVENTS = ['도움', '희생', '약속이행', '칭찬', '진심고백', '사과', '공동경험'];
+const INTENSITY = { 1: '가벼움', 2: '보통', 3: '결정적' };
+
+function secretLabel(id, d) {
+  const x = [...P().secrets, ...((d && d.secrets_added) || [])].find((s) => s.id === id);
+  return x ? x.content : id;
+}
+
+function relationHeader(title) {
+  const num = !!P().settings.show_numbers;
+  return `<div class="between"><h2>${title}</h2><div class="seg" role="group" aria-label="관계 보기 방식">
+    <button type="button" aria-pressed="${!num}" data-action="toggleNumbers" data-arg="words">말로</button>
+    <button type="button" aria-pressed="${num}" data-action="toggleNumbers" data-arg="numbers">숫자로</button></div></div>`;
+}
+
+function relationLines(rel) {
+  if (!rel) return '<div class="small">계산하는 중…</div>';
+  if (rel.error) return `<div class="note err">${esc(rel.error)}</div>`;
+  const text = P().settings.show_numbers ? rel.numbers : rel.words;
+  if (!text) return '<div class="small">관계가 없어요. 설정 도우미에서 관계를 추가하세요.</div>';
+  return `<ul class="rel-lines">${text.split('\n').map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`;
 }
 
 // ----- 6. 작업지시서 -----
