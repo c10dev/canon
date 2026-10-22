@@ -29,9 +29,9 @@ import re
 import sys
 from pathlib import Path
 
-from . import dynamics, genres, metrics, pipeline, prompts, store, updater
+from . import dynamics, genres, logline, metrics, pipeline, prompts, store, updater
 from .llm import dump, get_llm
-from .schema import ConsistencyReport, Meta, Project, StateDelta
+from .schema import ConsistencyReport, LoglineParts, Meta, Project, StateDelta
 
 
 def ask(label: str, default: str = "") -> str:
@@ -46,6 +46,26 @@ def confirm(question: str, assume_yes: bool) -> bool:
     return input(f"{question} [y/N]: ").strip().lower() in ("y", "yes", "ㅛ")
 
 
+def ask_logline(genre_ids: list[str]) -> LoglineParts:
+    """로그라인을 다섯 칸으로 묻는다. 고른 장르의 예시를 먼저 보여 준다."""
+    examples = [ex for gid in genre_ids if gid in genres.BY_ID for ex in genres.BY_ID[gid].logline][:2]
+    print("\n로그라인을 다섯 칸으로 나눠 씁니다. 모르는 칸은 비워 두세요.")
+    for ex in examples:
+        print(f"  예: {logline.compose(ex)}")
+    parts = LoglineParts(
+        who=ask("누가 (이름보다 특징이 먼저 보이게, 예: 사진관을 하는 서윤)"),
+        why=ask("무엇 때문에 (이야기를 시작하게 만드는 일)"),
+        goal=ask("무엇을 하려 하나 (눈에 보이는 행동, '~한다'로 끝내기)"),
+        block=ask("무엇이 막나 (사람이나 힘)"),
+        stake=ask("무엇이 걸렸나 (선택)"),
+    )
+    if not logline.is_empty(parts):
+        print(f"\n로그라인: {logline.compose(parts)}")
+        for ok, label in logline.checks(parts):
+            print(f"  {'✓' if ok else '·'} {label}")
+    return parts
+
+
 # ---------- 명령 ----------
 
 def cmd_new(a: argparse.Namespace) -> None:
@@ -53,13 +73,24 @@ def cmd_new(a: argparse.Namespace) -> None:
         sys.exit(f"이미 있는 프로젝트입니다: {a.name}")
     print("기본 설정을 입력하세요. 모르는 칸은 비워 두면 AI 가 제안합니다.\n")
     genre_ids = genres.parse(a.genre or ask("장르 (쉼표로 여러 개, 목록: python -m canon genres)", "현대 드라마"))
+    title = a.title or ask("제목")
+    parts = LoglineParts()
+    if a.logline:
+        line = a.logline
+    elif a.interactive:
+        parts = ask_logline(genre_ids)
+        line = logline.compose(parts)
+    else:
+        line = ask("로그라인 (누가, 무엇 때문에, 무엇을 하려 하고, 무엇이 막는가)")
     meta = Meta(
-        title=a.title or ask("제목"),
+        title=title,
         genres=genre_ids,
         genre=" · ".join(genres.names(genre_ids)),
         adult=a.adult,
-        logline=a.logline or ask("로그라인 (누가, 무엇을 원하고, 무엇이 막는가)"),
-        tone=ask("분위기/톤") if a.interactive else "",
+        logline=line,
+        logline_parts=parts,
+        theme=ask("주제 (이 이야기가 끝까지 묻는 질문 하나, 예: 떠난 사람을 이해하면 용서할 수 있나?)") if a.interactive else "",
+        tone=ask("분위기/톤 (예: 조금 어둡고 진지하고 호흡이 느리다)") if a.interactive else "",
         target_episodes=int(a.episodes or ask("총 화수 (10~20)", "16")),
         words_per_episode=int(ask("화당 분량(자)", "5000") if a.interactive else 5000),
     )

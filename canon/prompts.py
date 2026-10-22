@@ -12,7 +12,7 @@ import json
 from pydantic import BaseModel
 
 from . import genres
-from .dynamics import describe_relations
+from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
 from .schema import ConsistencyReport, Project, StateDelta
 
@@ -62,10 +62,15 @@ CHECK_TEXT_LIMIT = 150_000
 
 def meta_text(p: Project) -> str:
     """작품 정보와 장르 안내. 장르 id 대신 이름을 넣는다."""
-    view = p.meta.model_dump(exclude={"genres", "adult"})
+    view = p.meta.model_dump(exclude={"genres", "adult", "logline_parts", "tone_dials"})
     view["genre"] = genres.label(p.meta)
     view["rating"] = "성인" if p.meta.adult else "전연령"
     return f"{dump(view)}\n\n[장르 안내]\n{genres.guide(p.meta)}"
+
+
+def rels(p: Project) -> str:
+    """관계 설정. a_view/b_view 는 시작 관계를 만드는 설정 단계 입력이라 뺀다 (지금 관계는 Tie 가 가진다)."""
+    return dump([r.model_dump(exclude={"a_view", "b_view"}) for r in p.relationships])
 
 
 def setup_prompt(p: Project) -> str:
@@ -88,6 +93,7 @@ def setup_prompt(p: Project) -> str:
 - 인물은 주인공 포함 3~6명. {p.meta.target_episodes}화 분량의 단편에 맞게 압축합니다.
 - 각 인물의 speech_style 은 대사 예시 한 줄을 포함해 구체적으로 씁니다.
 - 관계는 주요 인물 쌍마다 하나씩, affinity 와 tension 은 1화 시작 시점 기준입니다.
+- a_view(a 가 b 를 보는 방식)와 b_view(b 가 a 를 보는 방식)는 {", ".join(VIEWS)} 중에서 1~2개 고릅니다. 두 방향이 달라도 됩니다.
 - 인물 id 는 영문 소문자로 짓고, 이미 있는 id 는 유지합니다."""
 
 
@@ -112,7 +118,7 @@ def arc_prompt(p: Project) -> str:
 [인물]
 {dump(p.characters)}
 [관계]
-{dump(p.relationships)}
+{rels(p)}
 
 요구사항:
 - 기, 승, 전, 결 네 구간이 1화부터 {p.meta.target_episodes}화까지 빈틈없이 이어져야 합니다.
@@ -132,7 +138,7 @@ def plot_prompt(p: Project, start: int, end: int) -> str:
 [인물]
 {dump(p.characters)}
 [관계]
-{dump(p.relationships)}
+{rels(p)}
 [기승전결 구조]
 {dump(p.arc)}
 [이미 확정된 이전 화 플롯]
@@ -234,7 +240,7 @@ def state_prompt(p: Project, n: int) -> str:
 [이전 인물 상태]
 {dump(p.states) or "설정 그대로"}
 [이전 관계]
-{dump(p.relationships)}
+{rels(p)}
 [현재 비밀]
 {dump(p.secrets) or "없음"}
 [열린 복선]
@@ -278,7 +284,7 @@ def check_prompt(p: Project, n: int) -> str:
 {dump(p.states) or "1화 시작 시점, 설정 그대로"}
 
 # 관계 현재 상태
-{dump(p.relationships) or "없음"}
+{rels(p) if p.relationships else "없음"}
 
 # 비밀 (hidden_from 의 인물은 아직 모른다)
 {dump(p.secrets) or "없음"}

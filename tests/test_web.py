@@ -113,8 +113,15 @@ def test_relations(client):
     p = client.post("/api/projects/rel/suggest/apply", json=s).json()
     p["arc"] = client.post("/api/projects/rel/arc").json()["acts"]
 
-    # 첫 반영 전: 설정 화면의 시작 호감이 시작 관계가 된다
-    p["relationships"][0]["affinity"] = -5
+    # 첫 반영 전: 보는 방식을 말로 고르면 방향마다 다른 시작 관계가 된다
+    r = p["relationships"][0]
+    assert r["a_view"] == ["경계한다"]
+    by = {(t["source"], t["target"]): t for t in p["ties"]}
+    assert by[("hero", "ally")]["warmth"] < 0 < by[("ally", "hero")]["warmth"]
+    assert by[("ally", "hero")]["status"] < 0  # 빚졌다
+
+    # 말을 지우면 설정 화면의 시작 호감이 시작 관계가 된다
+    r.update(a_view=[], b_view=[], affinity=-5)
     p = client.put("/api/projects/rel", json=p).json()
     assert all(t["warmth"] == -1 for t in p["ties"])
     rel = client.get("/api/projects/rel/relations").json()
@@ -160,3 +167,21 @@ def test_create_with_genre_list(client):
     meta = {"title": "t", "genres": ["mystery", "오컬트"], "adult": False}
     p = client.post("/api/projects", json={"name": "gl", "meta": meta}).json()
     assert p["meta"]["genres"] == ["mystery", "오컬트"] and p["meta"]["genre"] == "미스터리 · 추리 · 오컬트"
+
+
+def test_logline_parts_and_tone(client):
+    meta = {"title": "등대", "genres": ["mystery"], "target_episodes": 10}
+    p = client.post("/api/projects", json={"name": "lg", "meta": meta}).json()
+    assert p["meta"]["logline_parts"] == {"who": "", "why": "", "goal": "", "block": "", "stake": ""}
+    mystery = next(g for g in client.get("/api/genres").json() if g["id"] == "mystery")
+    assert len(mystery["logline"]) == 2 and mystery["logline"][0]["who"]
+
+    p["meta"]["logline_parts"] = {"who": "사진관을 하는 서윤", "why": "", "goal": "오빠를 찾는다", "block": "", "stake": ""}
+    p["meta"]["tone_dials"] = {"dark": 3, "serious": 0, "slow": 4}
+    p = client.put("/api/projects/lg", json=p).json()
+    assert p["meta"]["logline_parts"]["goal"] == "오빠를 찾는다" and p["meta"]["tone_dials"]["slow"] == 4
+
+    # 작업 데이터인 칸과 다이얼은 프롬프트에 넣지 않는다
+    from canon import prompts, store
+    text = prompts.meta_text(store.load("lg"))
+    assert "logline_parts" not in text and "tone_dials" not in text

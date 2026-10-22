@@ -148,6 +148,9 @@ document.addEventListener('input', (e) => {
     markDirty();
     const out = el.dataset.out && document.getElementById(el.dataset.out);
     if (out) out.textContent = v;
+    if (el.dataset.bind.startsWith('meta.logline_parts.')) updateLogline();
+    const rel = el.dataset.bind.match(/^relationships\.(\d+)\.(a|b)$/);
+    if (rel) refreshRel(Number(rel[1]));
   }
   if (el.dataset.draft) {
     S.textDraft[el.dataset.draft] = el.value;
@@ -229,7 +232,6 @@ const actions = {
     const meta = {
       title: $('#np-title').value.trim() || name,
       genres: [...S.newMeta.genres],
-      logline: $('#np-logline').value.trim(),
       target_episodes: parseInt($('#np-eps').value, 10) || 16,
       adult: $('#np-adult').checked,
     };
@@ -280,8 +282,12 @@ const actions = {
     $('#genre-custom').focus();
   },
   addCharacter() {
-    const n = P().characters.length + 1;
-    P().characters.push({ id: 'char' + n, name: '', role: '조연', age: '', appearance: '', personality: '', background: '', goal: '', wound: '', speech_style: '', secrets: [], arc: '' });
+    // id 는 관계와 플롯이 인물을 찾는 열쇠라 자동으로 짓고 화면에서는 접어 둔다
+    const cs = P().characters;
+    const ids = new Set(cs.map((c) => c.id));
+    let id = ids.has('hero') ? '' : 'hero';
+    for (let n = cs.length + 1; !id; n++) if (!ids.has('char' + n)) id = 'char' + n;
+    cs.push({ id, name: '', role: id === 'hero' ? '주인공' : '조연', age: '', appearance: '', personality: '', background: '', goal: '', wound: '', speech_style: '', secrets: [], arc: '' });
     markDirty();
     render();
   },
@@ -297,7 +303,7 @@ const actions = {
   addRelationship() {
     const cs = P().characters;
     if (cs.length < 2) return toast('인물이 두 명 이상 있어야 합니다', true);
-    P().relationships.push({ a: cs[0].id, b: cs[1].id, type: '', description: '', affinity: 0, tension: 0, goal_conflict: 0 });
+    P().relationships.push({ a: cs[0].id, b: cs[1].id, type: '', description: '', affinity: 0, tension: 0, goal_conflict: 0, a_view: [], b_view: [] });
     markDirty();
     render();
   },
@@ -305,6 +311,49 @@ const actions = {
     P().relationships.splice(i, 1);
     markDirty();
     render();
+  },
+  fillSlot(arg) {
+    const [k, ...rest] = arg.split('|');
+    P().meta.logline_parts[k] = rest.join('|');
+    const el = $(`#f-meta-logline_parts-${k}`);
+    if (el) el.value = P().meta.logline_parts[k];
+    markDirty();
+    updateLogline();
+  },
+  useExample(i) {
+    const parts = P().meta.logline_parts;
+    if (Object.values(parts).some((v) => v.trim()) && !confirm('지금 쓴 다섯 칸을 이 예시로 바꿀까요?')) return;
+    Object.assign(parts, loglineExamples()[i]);
+    LOGLINE_SLOTS.forEach(([k]) => { const el = $(`#f-meta-logline_parts-${k}`); if (el) el.value = parts[k]; });
+    markDirty();
+    updateLogline();
+  },
+  setDial(arg) {
+    const [k, v] = arg.split('|');
+    const m = P().meta;
+    m.tone_dials[k] = m.tone_dials[k] === Number(v) ? 0 : Number(v);
+    m.tone = toneText(m.tone_dials);
+    markDirty();
+    $('#tone-box').outerHTML = toneBox();
+  },
+  setRelType(arg) {
+    const [i, type] = arg.split('|');
+    P().relationships[i].type = type;
+    markDirty();
+    refreshRel(Number(i));
+  },
+  toggleView(arg) {
+    const [i, side, word] = arg.split('|');
+    const r = P().relationships[i];
+    r[side] = r[side].includes(word) ? r[side].filter((w) => w !== word) : [...r[side], word];
+    markDirty();
+    refreshRel(Number(i));
+  },
+  setConflict(arg) {
+    const [i, v] = arg.split('|');
+    P().relationships[i].goal_conflict = Number(v);
+    markDirty();
+    refreshRel(Number(i));
   },
 
   // 문체
@@ -754,10 +803,9 @@ function viewProjects() {
         <div class="field"><label for="np-title">제목</label><input id="np-title" type="text" placeholder="등대"></div>
         <div class="field"><label for="np-eps">총 화수 (10~20)</label><input id="np-eps" type="number" min="10" max="20" value="12"></div>
       </div>
-      <div class="field"><label for="np-logline">로그라인 <span class="hint">누가, 무엇을 원하고, 무엇이 막는가</span></label><textarea id="np-logline" rows="2"></textarea></div>
       ${genrePicker()}
       ${adultCheck('id="np-adult"')}
-      <div><button class="btn primary" data-action="createProject">만들고 설정 시작</button></div>
+      <div class="row"><button class="btn primary" data-action="createProject">만들고 설정 시작</button><span class="small">로그라인은 다음 화면에서 칸을 채우며 만들어요.</span></div>
     </section>`;
 }
 
@@ -894,37 +942,170 @@ function adultCheck(attrs) {
 
 // ----- 1. 설정 도우미 -----
 
+// 로그라인 다섯 칸과 톤 다이얼. canon/logline.py 와 같은 규칙이라 함께 고친다.
+const LOGLINE_SLOTS = [
+  ['who', '누가', '이름보다 특징이 먼저 보이게'],
+  ['why', '무엇 때문에', '이야기를 시작하게 만드는 일'],
+  ['goal', '무엇을 하려 하나', "눈에 보이는 행동, '~한다'로 끝내기"],
+  ['block', '무엇이 막나', '사람이나 힘'],
+  ['stake', '무엇이 걸렸나', '선택, 비워도 돼요'],
+];
+
+function josa(word, withFinal, withoutFinal) {
+  const w = word.trim();
+  if (!w) return '';
+  const code = w.charCodeAt(w.length - 1);
+  if (code < 0xAC00 || code > 0xD7A3) return `${withFinal}(${withoutFinal})`;
+  return (code - 0xAC00) % 28 ? withFinal : withoutFinal;
+}
+
+function composeLogline(p) {
+  const [who, why, goal, block, stake] = LOGLINE_SLOTS.map(([k]) => (p[k] || '').trim().replace(/\.+$/, ''));
+  let out = '';
+  if (who) out += who + josa(who, '이', '가') + ' ';
+  if (why) out += why + ' ';
+  if (goal) out += goal + '.';
+  if (block) out += (out ? ' 하지만 ' : '') + block + '.';
+  if (stake) out += ' ' + stake + '.';
+  return out.trim();
+}
+
+function loglineChecks(p) {
+  const n = composeLogline(p).length;
+  return [
+    [p.who.trim().split(/\s+/).length > 1, '주인공에게 이름 말고 특징이 있다'],
+    [!!p.why.trim(), '이야기를 시작하게 만드는 일이 있다'],
+    [p.goal.trim().endsWith('다'), "목표가 눈에 보이는 행동이다 ('~한다'로 끝남)"],
+    [!!p.block.trim(), '목표를 막는 사람이나 힘이 있다'],
+    [n >= 40 && n <= 150, '길이가 40~150자 사이다'],
+  ];
+}
+
+const TONE_DIALS = [['dark', '밝다', '어둡다'], ['serious', '가볍다', '진지하다'], ['slow', '빠르다', '느리다']];
+const TONE_WORDS = {
+  dark: [['밝고', '밝다'], ['조금 밝고', '조금 밝다'], ['조금 어둡고', '조금 어둡다'], ['어둡고', '어둡다']],
+  serious: [['가볍고', '가볍다'], ['조금 가볍고', '조금 가볍다'], ['조금 진지하고', '조금 진지하다'], ['진지하고', '진지하다']],
+  slow: [['호흡이 빠르다', '호흡이 빠르다'], ['호흡이 조금 빠르다', '호흡이 조금 빠르다'], ['호흡이 조금 느리다', '호흡이 조금 느리다'], ['호흡이 느리다', '호흡이 느리다']],
+};
+
+function toneText(d) {
+  const words = TONE_DIALS.map(([k]) => (d[k] >= 1 && d[k] <= 4 ? TONE_WORDS[k][d[k] - 1] : null)).filter(Boolean);
+  return words.map((w, i) => (i === words.length - 1 ? w[1] : w[0])).join(' ');
+}
+
+/** 고른 장르의 로그라인 예시. 장르를 안 골랐으면 미스터리와 현대 드라마 예시 */
+function loglineExamples() {
+  const ids = P().meta.genres.filter(genreById);
+  return (ids.length ? ids : ['mystery', 'drama']).flatMap((id) => (genreById(id) || {}).logline || []);
+}
+
+function loglineBuilder() {
+  const m = P().meta;
+  const parts = m.logline_parts;
+  const exs = loglineExamples();
+  const legacy = !Object.values(parts).some((v) => v.trim()) && m.logline.trim();
+  const slots = LOGLINE_SLOTS.map(([k, label, hint]) => {
+    const chips = [...new Set(exs.map((e) => e[k]).filter(Boolean))].slice(0, 3)
+      .map((v) => `<button type="button" data-action="fillSlot" data-arg="${esc(k + '|' + v)}">${esc(v)}</button>`).join('');
+    return `<div class="slot">${input(label, 'meta.logline_parts.' + k, { hint })}${chips ? `<div class="genre-opts ex-opts" role="group" aria-label="${esc(label)} 예시">${chips}</div>` : ''}</div>`;
+  }).join('');
+  return `<div class="logline-box"><span class="label-text">로그라인 <span class="hint">다섯 칸을 채우면 한 문장으로 합쳐요. 점선 예시를 누르면 칸에 들어갑니다</span></span>
+    ${legacy ? '<div class="note plain">지금 로그라인은 한 문장으로만 저장되어 있어요. 칸을 채우면 칸 내용으로 바뀝니다.</div>' : ''}
+    ${slots}
+    <div class="logline-out"><p id="logline-preview" class="logline-preview" aria-live="polite">${esc(m.logline || LOGLINE_EMPTY)}</p><ul id="logline-checks" class="logline-checks">${loglineChecksHtml(m)}</ul></div>
+    ${exs.length ? `<details><summary>예시 로그라인 ${exs.length}개 보기</summary><div class="ex-list">${exs.map((e, i) => `<div class="ex-item"><span>${esc(composeLogline(e))}</span><button type="button" class="btn small" data-action="useExample" data-arg="${i}">이 예시로 채우기</button></div>`).join('')}</div></details>` : ''}
+    <details${legacy ? ' open' : ''}><summary>한 문장으로 직접 고쳐 쓰기</summary>${input('로그라인 문장', 'meta.logline', { rows: 3, hint: '칸을 다시 고치면 칸 내용으로 바뀝니다' })}</details>
+  </div>`;
+}
+
+const LOGLINE_EMPTY = '칸을 채우면 여기에 로그라인이 만들어져요.';
+
+function loglineChecksHtml(m) {
+  const parts = m.logline_parts;
+  if (!Object.values(parts).some((v) => v.trim())) return '';
+  return loglineChecks(parts).map(([ok, t]) => `<li class="${ok ? 'ok' : ''}">${esc(t)}</li>`).join('') + `<li class="len">${m.logline.length}자 · 점검은 참고용이에요</li>`;
+}
+
+/** 로그라인 칸이 바뀌면 합친 문장, 점검, 직접 쓰기 칸만 다시 그린다 (입력 중인 칸의 포커스 유지) */
+function updateLogline() {
+  const m = P().meta;
+  const parts = m.logline_parts;
+  const empty = !Object.values(parts).some((v) => v.trim());
+  if (!empty) {
+    m.logline = composeLogline(parts);
+    const raw = $('#f-meta-logline');
+    if (raw) raw.value = m.logline;
+  }
+  const pv = $('#logline-preview');
+  if (pv) pv.textContent = m.logline || LOGLINE_EMPTY;
+  const ck = $('#logline-checks');
+  if (ck) ck.innerHTML = loglineChecksHtml(m);
+}
+
+function toneBox() {
+  const d = P().meta.tone_dials;
+  const rows = TONE_DIALS.map(([k, l, r]) => `<div class="dial" role="group" aria-label="${l}, ${r}"><span>${l}</span>${[1, 2, 3, 4].map((v) => `<button type="button" aria-pressed="${d[k] === v}" aria-label="${l}에서 ${r} 사이 ${v}단계" data-action="setDial" data-arg="${k}|${v}"></button>`).join('')}<span>${r}</span></div>`).join('');
+  return `<div id="tone-box" class="field"><span class="label-text">톤 <span class="hint">양 끝 중 어디에 가까운가. 고르면 아래 문장이 바뀌고, 문장은 직접 고쳐도 돼요</span></span>${rows}${input('톤 문장', 'meta.tone', { placeholder: '예: 조금 어둡고 진지하고 호흡이 느리다' })}</div>`;
+}
+
+// 관계를 말로 고르기. VIEWS 는 canon/dynamics.py 의 VIEWS 와 같은 목록이다.
+const VIEWS = ['믿는다', '좋아한다', '경계한다', '미워한다', '빚졌다', '얕본다', '잘 모른다'];
+const REL_TYPES = ['가족', '친구', '동료', '연인', '옛 연인', '라이벌', '사제', '상사와 부하'];
+const CONFLICTS = [['아니다', 0], ['조금', 0.4], ['정면으로', 0.8]];
+
+function conflictWord(v) {
+  return v >= 0.6 ? '정면으로' : v > 0 ? '조금' : '아니다';
+}
+
+function relRow(r, i) {
+  const p = P();
+  const b = `relationships.${i}`;
+  const opts = (sel) => p.characters.map((c) => `<option value="${esc(c.id)}"${c.id === sel ? ' selected' : ''}>${esc(c.name || c.id)}</option>`).join('');
+  const started = p.snapshots.length > 0; // 첫 상태 반영 뒤에는 관계 사건으로 계산한다
+  const chips = (vals, on, act) => vals.map(([label, arg]) => `<button type="button" aria-pressed="${on(label)}" data-action="${act}" data-arg="${esc(`${i}|${arg}`)}">${esc(label)}</button>`).join('');
+  const view = (side, from, to) => `<div class="rel-line"><span class="label-text">${esc(charName(from) || from)} → ${esc(charName(to) || to)}</span>
+      <div class="genre-opts" role="group" aria-label="${esc(charName(from) || from)}이(가) ${esc(charName(to) || to)}을(를) 보는 방식">${chips(VIEWS.map((w) => [w, `${side}|${w}`]), (w) => (r[side] || []).includes(w), 'toggleView')}</div></div>`;
+  return `<div class="rel-card" id="rel-${i}">
+    <div class="rel-top">
+      <div class="field"><label for="ra${i}">인물 A</label><select id="ra${i}" data-bind="${b}.a">${opts(r.a)}</select></div>
+      <div class="field"><label for="rb${i}">인물 B</label><select id="rb${i}" data-bind="${b}.b">${opts(r.b)}</select></div>
+      ${input('어떤 사이', b + '.type', { placeholder: '오빠의 친구, 남매…' })}
+      <button class="btn icon-btn danger" data-action="removeRelationship" data-arg="${i}" aria-label="관계 삭제">✕</button>
+    </div>
+    <div class="genre-opts ex-opts" role="group" aria-label="어떤 사이 예시">${chips(REL_TYPES.map((t) => [t, t]), (t) => r.type === t, 'setRelType')}</div>
+    ${started ? `<div class="small">지금 호감 ${r.affinity} · 긴장 ${r.tension}. 첫 반영 뒤에는 본문의 관계 사건으로 바뀝니다.</div>` : `${view('a_view', r.a, r.b)}${view('b_view', r.b, r.a)}`}
+    <div class="rel-line"><span class="label-text">원하는 게 부딪치나</span><div class="genre-opts" role="group" aria-label="목표 충돌">${chips(CONFLICTS, (w) => conflictWord(r.goal_conflict || 0) === w, 'setConflict')}</div></div>
+    ${started ? '' : `<details><summary>숫자로 직접 정하기</summary><div class="grid-2" style="padding-top:8px">
+      <div class="field"><label for="raf${i}">시작 호감 <output id="raf${i}o">${r.affinity}</output> <span class="hint">보는 방식을 고른 방향은 고른 말이 우선</span></label><input id="raf${i}" type="range" min="-5" max="5" value="${r.affinity}" data-bind="${b}.affinity" data-kind="int" data-out="raf${i}o"></div>
+      <div class="field"><label for="rg${i}">목표 충돌 <output id="rg${i}o">${r.goal_conflict || 0}</output></label><input id="rg${i}" type="range" min="0" max="1" step="0.1" value="${r.goal_conflict || 0}" data-bind="${b}.goal_conflict" data-kind="float" data-out="rg${i}o"></div>
+    </div></details>`}
+  </div>`;
+}
+
+function refreshRel(i) {
+  const el = $(`#rel-${i}`);
+  if (el) el.outerHTML = relRow(P().relationships[i], i);
+}
+
 function viewSetup() {
   const p = P();
   const chars = p.characters.map((c, i) => {
     const b = `characters.${i}`;
     return `<article class="char-card">
       <div class="between"><strong style="font-size:16px">${esc(c.name || '이름 없음')}</strong><button class="btn small danger" data-action="removeCharacter" data-arg="${i}" aria-label="${esc(c.name || c.id)} 삭제">삭제</button></div>
-      <div class="grid-2">${input('이름', b + '.name')}${input('id', b + '.id', { hint: '영문 소문자' })}${input('역할', b + '.role')}${input('나이', b + '.age')}</div>
-      ${input('목표', b + '.goal')}
-      ${input('말투', b + '.speech_style', { rows: 2, hint: '어미, 호칭, 대사 예시' })}
-      <details><summary>성격, 배경, 결핍, 비밀, 아크</summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
-        ${input('성격', b + '.personality', { rows: 2 })}${input('배경', b + '.background', { rows: 2 })}${input('외모', b + '.appearance')}
-        ${input('결핍 · 약점', b + '.wound')}${input('비밀', b + '.secrets', { kind: 'list', rows: 2 })}${input('아크', b + '.arc', { hint: '시작 → 결말' })}
+      <div class="grid-2">${input('이름', b + '.name')}${input('역할', b + '.role', { placeholder: '주인공, 상대역, 조력자…' })}</div>
+      ${input('원하는 것', b + '.goal', { hint: '작품 전체에서' })}
+      ${input('두려운 것 · 약점', b + '.wound')}
+      ${input('숨기는 것', b + '.secrets', { kind: 'list', rows: 2 })}
+      ${input('말투', b + '.speech_style', { rows: 2, hint: '어미, 호칭, 대사 한 줄' })}
+      <details><summary>더 자세히: 나이, 성격, 배경, 외모, 아크</summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
+        ${input('나이', b + '.age')}${input('성격', b + '.personality', { rows: 2 })}${input('배경', b + '.background', { rows: 2 })}${input('외모', b + '.appearance')}
+        ${input('아크', b + '.arc', { hint: '시작 → 결말' })}${input('id', b + '.id', { hint: '관계와 플롯이 인물을 찾는 값. 보통 바꿀 필요 없어요' })}
       </div></details>
     </article>`;
   }).join('');
 
-  const opts = (sel) => p.characters.map((c) => `<option value="${esc(c.id)}"${c.id === sel ? ' selected' : ''}>${esc(c.name || c.id)}</option>`).join('');
-  const started = p.snapshots.length > 0; // 첫 상태 반영 뒤에는 관계 사건으로 계산한다
-  const rels = p.relationships.map((r, i) => {
-    const b = `relationships.${i}`;
-    return `<div class="rel-row">
-      <div class="field"><label for="ra${i}">인물 A</label><select id="ra${i}" data-bind="${b}.a">${opts(r.a)}</select></div>
-      <div class="field"><label for="rb${i}">인물 B</label><select id="rb${i}" data-bind="${b}.b">${opts(r.b)}</select></div>
-      ${input('유형', b + '.type', { placeholder: '동료, 남매…' })}
-      ${started
-        ? `<div class="field"><label>지금</label><div class="small" style="padding-top:10px">호감 ${r.affinity} · 긴장 ${r.tension}</div></div>`
-        : `<div class="field"><label for="raf${i}">시작 호감 <output id="raf${i}o">${r.affinity}</output></label><input id="raf${i}" type="range" min="-5" max="5" value="${r.affinity}" data-bind="${b}.affinity" data-kind="int" data-out="raf${i}o"></div>`}
-      <div class="field"><label for="rg${i}">목표 충돌 <output id="rg${i}o">${r.goal_conflict || 0}</output></label><input id="rg${i}" type="range" min="0" max="1" step="0.1" value="${r.goal_conflict || 0}" data-bind="${b}.goal_conflict" data-kind="float" data-out="rg${i}o"></div>
-      <button class="btn icon-btn danger" data-action="removeRelationship" data-arg="${i}" aria-label="관계 삭제">✕</button>
-    </div>`;
-  }).join('');
+  const rels = p.relationships.map(relRow).join('');
 
   return `${header('1단계', '설정 도우미', '채운 칸은 그대로 두고, 빈칸만 AI 가 제안합니다. 제안에서 원하는 인물과 관계만 골라 반영하세요.', `<button class="btn" data-action="suggest">빈칸 AI 제안받기</button><a class="btn primary" href="${base()}/style">문체로</a>`)}
     ${S.suggestion ? viewSuggestion() : ''}
@@ -936,8 +1117,9 @@ function viewSetup() {
           ${genrePicker()}
           ${adultCheck(`data-bind="meta.adult" data-kind="bool"${P().meta.adult ? ' checked' : ''}`)}
           ${input('총 화수 (10~20)', 'meta.target_episodes', { type: 'number', min: 1, max: 40 })}
-          ${input('로그라인', 'meta.logline', { rows: 3, hint: '누가, 무엇을 원하고, 무엇이 막는가' })}
-          ${input('주제', 'meta.theme')}${input('톤', 'meta.tone')}
+          ${loglineBuilder()}
+          ${input('주제', 'meta.theme', { hint: '이 이야기가 끝까지 묻는 질문 하나', placeholder: '예: 떠난 사람을 이해하면 용서할 수 있나?' })}
+          ${toneBox()}
           ${input('화당 분량', 'meta.words_per_episode', { type: 'number', hint: '공백 포함 글자 수' })}
           ${input('메모', 'meta.notes', { rows: 2 })}
         </section>
@@ -954,7 +1136,7 @@ function viewSetup() {
           ${chars ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">${chars}</div>` : '<div class="note plain">인물이 없어요. 직접 추가하거나 AI 제안을 받으세요.</div>'}
         </section>
         <section class="card">
-          <div class="between"><h2>관계</h2><div class="row"><span class="small">${P().snapshots.length ? '첫 반영 뒤에는 관계 사건으로 계산됩니다' : '시작 호감 -5 ~ 5 · 목표 충돌 0 ~ 1 · 긴장은 자동 계산'}</span><button class="btn small" data-action="addRelationship">+ 관계 추가</button></div></div>
+          <div class="between"><h2>관계</h2><div class="row"><span class="small">${P().snapshots.length ? '첫 반영 뒤에는 관계 사건으로 계산됩니다' : '서로 어떻게 보는지 고르면 시작 관계를 계산해요. 긴장은 자동 계산'}</span><button class="btn small" data-action="addRelationship">+ 관계 추가</button></div></div>
           ${rels || '<div class="small">관계가 없어요.</div>'}
         </section>
       </div>
@@ -972,7 +1154,7 @@ function viewSuggestion() {
       ${s.characters.map((c, i) => `<label class="char-card suggested" style="cursor:pointer"><span class="row"><input type="checkbox" data-pick="sc${i}"${S.picks['sc' + i] ? ' checked' : ''}${exists(c.id) ? ' disabled' : ''}><strong>${esc(c.name)}</strong><span class="small">${esc(c.role)} · ${esc(c.id)}${exists(c.id) ? ' · 이미 있음' : ''}</span></span>
         <span style="font-size:13px;line-height:1.5">목표: ${esc(c.goal)}<br>말투: ${esc(c.speech_style)}</span></label>`).join('')}
     </div>
-    ${s.relationships.map((r, i) => `<label class="row" style="font-size:13px"><input type="checkbox" data-pick="sr${i}"${S.picks['sr' + i] ? ' checked' : ''}>${esc(r.a)} ↔ ${esc(r.b)} · ${esc(r.type)} · 호감 ${r.affinity} · 긴장 ${r.tension}</label>`).join('')}
+    ${s.relationships.map((r, i) => `<label class="row" style="font-size:13px"><input type="checkbox" data-pick="sr${i}"${S.picks['sr' + i] ? ' checked' : ''}>${esc(r.a)} ↔ ${esc(r.b)} · ${esc(r.type)} · ${(r.a_view || []).length || (r.b_view || []).length ? `${esc(r.a)}→${esc(r.b)} ${esc((r.a_view || []).join(', ') || '-')} · ${esc(r.b)}→${esc(r.a)} ${esc((r.b_view || []).join(', ') || '-')}` : `호감 ${r.affinity} · 긴장 ${r.tension}`}</label>`).join('')}
   </section>`;
 }
 
