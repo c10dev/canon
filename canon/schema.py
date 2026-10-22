@@ -1,7 +1,7 @@
 """소설 프로젝트 데이터 스키마.
 
 모든 상태는 하나의 Project 객체(project.json)에 저장된다.
-LLM 이 직접 채우는 모델(SetupSuggestion, StyleProfile, ArcPlan, PlotBatch, PlotRevision, StateDelta, ConsistencyReport, ImpactReport)은
+LLM 이 직접 채우는 모델(SetupSuggestion, StyleProfile, ArcPlan, PlotBatch, PlotRevision, NameOptions, StateDelta, ConsistencyReport, ImpactReport)은
 Gemini 구조화 출력에 그대로 넘기므로 dict 타입 필드를 쓰지 않는다.
 """
 from __future__ import annotations
@@ -61,6 +61,8 @@ class WorldSetting(BaseModel):
     era: str = ""
     rules: list[str] = Field(default_factory=list, description="세계관 규칙, 깨지면 안 되는 설정")
     locations: list[str] = Field(default_factory=list)
+    name_style: str = Field("", description="이름 스타일 id (korea_modern, joseon, wuxia, western_fantasy, japan, sf). 비우면 장르와 배경으로 짐작")
+    name_rules: list[str] = Field(default_factory=list, description="이 세계의 이름 짓는 규칙 (예: 북부 귀족은 성 앞에 '폰')")
 
 
 class Character(BaseModel):
@@ -68,6 +70,7 @@ class Character(BaseModel):
     name: str
     role: str = Field(description="주인공 / 조연 / 적대자 등")
     age: str = ""
+    gender: str = Field("", description="남 / 여, 정하지 않았으면 빈칸")
     appearance: str = ""
     personality: str = ""
     background: str = ""
@@ -355,6 +358,16 @@ class StateDelta(BaseModel):
     warnings: list[str] = Field(default_factory=list, description="플롯, 설정, 말투와 어긋난 부분")
 
 
+class NameOption(BaseModel):
+    name: str
+    reason: str = Field("", description="이 인물이나 장소에 맞는 이유 한 줄")
+
+
+class NameOptions(BaseModel):
+    """이름·지명 AI 추천. 코드가 뽑은 후보에서 고르거나 같은 결로 새로 짓는다 (naming.py)."""
+    options: list[NameOption]
+
+
 # ---------- 인과율: 언제든 더하는 이야기 요소와 그 영향 ----------
 
 ElementKind = Literal["세계 규칙", "장소", "물건", "세력", "인물 특징", "과거 사건", "예정 사건", "기타"]
@@ -377,7 +390,7 @@ class TextPatch(BaseModel):
 
 
 class ImpactReport(BaseModel):
-    """요소 하나를 더하거나 바꿨을 때 AI 가 내는 영향 보고서. 작가가 고른 부분만 반영한다 (elements.apply_impact)."""
+    """요소 하나를 더하거나 바꿨을 때 AI 가 내는 영향 보고서. 작가가 고른 부분만 반영한다 (pipeline.apply_impact)."""
     summary: str = Field(description="작가에게 하는 설명 2~5문장: 어느 화와 플롯이 어떻게 흔들리고 무엇을 권하는지")
     conflicts: list[ImpactConflict] = Field(default_factory=list, description="근거를 인용할 수 있는 모순과 어긋남만")
     episodes: list[EpisodePlot] = Field(default_factory=list, description="바뀌는 화의 전체 플롯. 본문이 없는 화만")
