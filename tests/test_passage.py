@@ -1,6 +1,6 @@
 """본문 부분 수정 테스트 (mock LLM): 고른 부분 직접 고치기, AI 후보 넣기, 되돌리기, 기록. 실행: python -m pytest tests"""
 from canon import pipeline, prompts
-from canon.schema import EpisodePlot, Episode, Project, Selection
+from canon.schema import ConsistencyIssue, EpisodePlot, Episode, Project, Selection
 
 from .test_plot_chat import _project
 from .test_web import client  # noqa: F401  (pytest fixture)
@@ -97,3 +97,7 @@ def test_typed_diff_and_presets():
         pipeline.edit_text(p, 1, Selection(start=0, text=p.episodes[0].text[:1]), "AB"[k % 2])
     assert len(p.episodes[0].edits) == pipeline.EDIT_KEEP and p.episodes[0].edits[-1].id == "e61"
     assert "less_ai" in prompts.PASSAGE_PRESETS
+    assert "몸이 향한 쪽" in prompts.passage_request("", "blocking")
+    # 검수가 장면 안 동선(앞 · 뒤, 가린 곳)도 짚고, 그 지적은 부분 수정으로 이어진다
+    assert "- 동선:" in prompts.check_prompt(p, 1)
+    assert ConsistencyIssue(type="동선", description="x", source_episode=1, source_quote="a", current_quote="b").type == "동선"
