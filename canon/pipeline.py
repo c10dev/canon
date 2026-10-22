@@ -1,14 +1,15 @@
 """생성 파이프라인. 각 단계는 Project 를 받아 제안을 만들고, 반영은 호출자가 승인 후 한다."""
 from __future__ import annotations
 
-from . import dynamics, metrics, prompts
-from .llm import LLM
+from . import dynamics, metrics, naming, prompts
+from .llm import LLM, dump
 from .schema import (
     ArcPlan,
     CharacterState,
     ChatMessage,
     ConsistencyReport,
     Episode,
+    NameOptions,
     PlotBatch,
     PlotRevision,
     Project,
@@ -23,6 +24,31 @@ from .schema import (
 
 def suggest_setup(llm: LLM, p: Project) -> SetupSuggestion:
     return llm.json(prompts.SYSTEM_PLANNER, prompts.setup_prompt(p), SetupSuggestion)
+
+
+def name_candidates(p: Project, character: str = "", place_kind: str = "", n: int = 8,
+                    style: str | None = None) -> list[naming.Candidate]:
+    """코드만으로 뽑는 후보 (LLM 호출 없음). character 는 인물 id, 비우면 지명."""
+    if character:
+        c = next((x for x in p.characters if x.id == character), None)
+        if c is None:
+            raise KeyError(f"인물 {character} 이 없습니다")
+        return naming.character_candidates(p, c, n, style)
+    return naming.location_candidates(p, n, place_kind, style)
+
+
+def suggest_names(llm: LLM, p: Project, character: str = "", place_kind: str = "", n: int = 5,
+                  style: str | None = None) -> tuple[list[naming.Candidate], NameOptions]:
+    """코드가 후보를 넓게 뽑고, AI 가 대상에 맞는 것을 골라 이유를 붙인다. 반영은 작가가 한다."""
+    cands = name_candidates(p, character, place_kind, n * 3, style)
+    if character:
+        c = next(x for x in p.characters if x.id == character)
+        target = "인물 " + dump(c.model_dump(include={"id", "role", "age", "gender", "personality", "background", "goal", "wound"}))
+    else:
+        target = f"장소 ({place_kind or '종류 자유'}). 이야기에서 쓸 만한 곳으로."
+    opts = llm.json(prompts.SYSTEM_NAMER, prompts.naming_prompt(p, target, cands, n), NameOptions,
+                    hint={"candidates": [x.name for x in cands], "n": n})
+    return cands, opts
 
 
 def apply_setup(p: Project, s: SetupSuggestion) -> None:

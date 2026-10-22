@@ -15,6 +15,8 @@ from .schema import (
     ConsistencyReport,
     EpisodePlot,
     Foreshadow,
+    NameOption,
+    NameOptions,
     PlotBatch,
     PlotRevision,
     Relationship,
@@ -88,8 +90,8 @@ class MockLLM:
                 theme="상실을 받아들이는 용기", tone="잔잔하지만 긴장감 있는",
                 world=WorldSetting(setting="바닷가 소도시", era="현대", rules=["초자연 요소 없음"], locations=["등대", "수산시장"]),
                 characters=[
-                    Character(id="hero", name="서윤", role="주인공", goal="사라진 오빠를 찾는다", speech_style="짧고 건조한 반말. \"됐어, 내가 할게.\""),
-                    Character(id="ally", name="도현", role="조연", goal="서윤을 돕는다", speech_style="느긋한 존댓말. \"천천히 해요.\""),
+                    Character(id="hero", name="서윤", role="주인공", gender="여", age="19세", goal="사라진 오빠를 찾는다", speech_style="짧고 건조한 반말. \"됐어, 내가 할게.\""),
+                    Character(id="ally", name="도현", role="조연", gender="남", age="24세", goal="서윤을 돕는다", speech_style="느긋한 존댓말. \"천천히 해요.\""),
                 ],
                 relationships=[Relationship(a="hero", b="ally", type="동료", affinity=1, tension=3, a_view=["경계한다"], b_view=["좋아한다", "빚졌다"])],
             )  # type: ignore[return-value]
@@ -126,6 +128,9 @@ class MockLLM:
                 foreshadow_planted=[Foreshadow(id=f"fs-{n:02d}-key", description="녹슨 열쇠", planted_ep=n)] if n == 1 else [],
                 foreshadow_resolved=["fs-01-key"] if n == 2 else [],
             )  # type: ignore[return-value]
+        if schema is NameOptions:  # 코드 후보에서 앞쪽 n 개를 고른 척한다
+            names = hint["candidates"][: hint["n"]]
+            return NameOptions(options=[NameOption(name=x, reason="후보 중 인물과 시대에 맞는 이름") for x in names])  # type: ignore[return-value]
         if schema is ConsistencyReport:
             n = hint["episode"]
             issues = [ConsistencyIssue(

@@ -5,8 +5,8 @@
   CANON_MODEL  Gemini 모델 이름 (기본 gemini-4-argon)
   GEMINI_API_KEY  Gemini API 키
   CANON_LOCAL_URL / CANON_LOCAL_MODEL / CANON_LOCAL_KEY  로컬 서버 (Ollama, llama.cpp, vLLM, LM Studio)
-  CANON_LLM_PLAN / _WRITE / _CHECK / _STATE  단계별 백엔드 (예: CANON_LLM_WRITE=local)
-  CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE  단계별 모델 (예: CANON_MODEL_STATE=gemini-3.8-flash)
+  CANON_LLM_PLAN / _WRITE / _CHECK / _STATE / _NAME  단계별 백엔드 (예: CANON_LLM_WRITE=local)
+  CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME  단계별 모델 (예: CANON_MODEL_STATE=gemini-3.8-flash)
 """
 from __future__ import annotations
 
@@ -263,7 +263,7 @@ def make_llm(provider: str, model: str | None = None) -> LLM:
 
 
 def get_llm(stage: str | None = None) -> LLM:
-    """stage: plan | write | check | state. 단계별 백엔드와 모델 설정이 없으면 전체 설정을 쓴다."""
+    """stage: plan | write | check | state | name. 단계별 백엔드와 모델 설정이 없으면 전체 설정을 쓴다."""
     from . import settings
 
     return make_llm(settings.stage_provider(stage)[0], settings.stage_model(stage)[0])
