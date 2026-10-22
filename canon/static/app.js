@@ -1245,6 +1245,7 @@ async function route() {
       if (parts[2] === 'write' && n && ep(n) && ep(n).status !== 'draft') {
         S.context = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/context`).catch(() => null);
         if (!S.presets) S.presets = await api('GET', '/passage/presets').catch(() => []);
+        if (!S.copyFormats) S.copyFormats = await api('GET', '/publish/formats').catch(() => []);
       }
       if (parts[2] === 'write' || parts[2] === 'arc') await openingLoad(parts[2] === 'write' ? (n || currentEp()) : 0);
       if (parts[2] === 'research') await rsLoad();
@@ -2443,12 +2444,14 @@ function viewWrite(n) {
         <div class="between" style="padding:10px 16px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)">
           <span>${e.status === 'finalized' ? '상태 반영까지 끝난 화는 읽기 전용입니다' : e.text ? '고칠 부분을 드래그하면 직접 고치거나 AI 에게 맡길 수 있어요' : '본문을 직접 고친 뒤 저장할 수 있어요'}</span>
           <span class="row"><span><strong id="char-count" style="color:var(--text)">${(text || '').length.toLocaleString()}</strong> / ${Number(P().meta.words_per_episode).toLocaleString()}자</span>
+          ${text ? `<button class="btn small" data-action="copyEp" data-arg="${n}" title="고른 줄바꿈 형식으로 복사 (오른쪽 '복사 · 내보내기'에서 바꿈)">복사</button>` : ''}
           ${editable && (e.text || draft !== undefined) ? `<button class="btn small" id="save-text" data-action="saveText" data-arg="${n}"${draft === undefined ? ' disabled' : ''}>본문 저장</button>` : ''}</span>
         </div>
         ${e.text ? passageNotes(n) ? `<div style="padding:12px 16px 0;display:flex;flex-direction:column;gap:8px">${passageNotes(n)}</div>` : '' : ''}
         ${center}
       </section>
-      <aside class="card tight" style="flex:1 1 260px;min-width:0" aria-label="AI 에게 보내는 컨텍스트">
+      <aside class="card tight" style="flex:1 1 260px;min-width:0" aria-label="복사 · 내보내기와 AI 에게 보내는 컨텍스트">
+        ${exportCard(n)}
         <h3>AI 에게 보내는 컨텍스트</h3>
         ${ctx}
         ${S.context ? `<button class="btn small" data-action="togglePrompt" data-arg="${n}">${S.promptText ? '프롬프트 닫기' : '프롬프트 원문 보기'}</button>` : ''}

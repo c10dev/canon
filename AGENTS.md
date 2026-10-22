@@ -28,6 +28,8 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/static/chat.js` | 화면에 붙는 AI 대화 패널(기승전결 · 플롯 화면 `plot`, 집필 화면 `text:<화>`). 변경안을 칸별로 지금 값과 비교해 보여 주고 고른 것만 반영 요청. 주제마다 요청 내용과 변경안 그리기를 `CHAT_TOPICS` 에서 바꿔 끼운다. 화면 본체는 `app.js` |
 | `canon/static/passage.js` | 본문 부분 수정: 본문에서 고르면 뜨는 도구(직접 수정, AI에게 고치기), 후보를 원문과 단어 단위로 비교, 수정 기록과 되돌리기, 고친 뒤 다시 할 단계 알림. 서버는 `pipeline.edit_text` · `revise_passage` · `apply_passage` · `undo_edit` |
 | `canon/static/opening.js` | 초반 1~3화: 집필 화면의 초반 점검 카드(지표 경고, 흡입력 판정, 여는 방식 비교본), 플롯 편집기의 여는 방식별 플롯 안. 서버는 `pipeline.opening_metrics` · `check_hook` · `suggest_openings` · `apply_opening` · `research.run_opening_compare`. 규칙은 `prompts.opening_rules` / `OPENING_APPROACHES`, 지표는 `metrics.measure_opening` |
+| `canon/publish.py` | 복사 · 내보내기: 본문을 다른 사이트에 붙여 넣기 좋게 다듬기(줄바꿈 형식 `FORMATS`, 마크다운 흔적 지우기, HTML), 여러 화 잇기(`export`). LLM 호출 없음. 화면은 `static/publish.js` |
+| `canon/static/publish.js` | 집필 화면의 복사 · 내보내기 카드와 복사 버튼. 텍스트와 HTML 을 함께 클립보드에 넣고(보안 연결이 아니면 복사 이벤트로), 막히면 .txt 내려받기 |
 | `canon/llm.py` | LLM 프로바이더 인터페이스(`json`, `text`)와 Gemini, 로컬(OpenAI 호환) 구현, 단계별 선택(`get_llm(stage)`) |
 | `canon/usage.py` | AI 사용량과 비용: LLM 구현이 실제 호출마다 `record` 로 `projects/.usage/usage.jsonl` 에 남기고, 작품 · 화 · 작업은 `scope(...)` 로 붙인다(웹 미들웨어, `jobs.start`, 자동 집필, CLI). 가격표(`DEFAULT_PRICES` + 설정의 `prices`, 날짜별 `since`)로 볼 때 비용을 계산하고 자동 집필 추정도 같은 표를 쓴다. 화면은 `static/usage.js` |
 | `canon/research.py` | 연구 화면(모델 실험) 로직. 서버 점검, 샘플 비교, 단계 시험, 컨텍스트 크기, 블라인드 비교. 작품 데이터와 분리해 `research/log.jsonl` 에 기록 |
@@ -39,7 +41,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/autorun.py` | 자동 집필: 목표 화까지 write → check + state → 정책(`Policy`) 통과 시 반영을 반복. 배치(`llm.BatchLLM`) 켜고 끄기, 비용·시간 추정, `autorun.json` 에 진행 기록, 서버 재시작 후 이어 가기. 화면은 `static/auto.js` |
 | `canon/updater.py` | 코드 자동 업데이트: `origin/main` fast-forward, 의존성 설치, 프로세스 재시작. `serve` 가 시작 때와 주기적으로 부른다 |
 
-흐름: `new` → `style` → `arc` → `plot` → (사용자 수정) → `confirm` → `write` → `check` → `update` 반복 (`run` 이 자동 반복). 장편(`new --serial`)은 `arc` 대신 `series` 한 번, 그리고 아크마다 `nextarc` → `plot` → `confirm` → `run` → `recap` 을 반복한다 (`arcs` 로 진행 보기). 단편은 `convert` 로 장편으로 바꿀 수 있다(단편 전체가 아크 1, `--rebuild` 는 단편을 씨앗으로 앞부분을 다시 짜고 다듬기 화는 `rework`, `--undo` 로 되돌리기). 서브플롯 · 과거 회상 · 외전은 `lines` 로 이야기 줄기를 만들고 화에 붙인다. `fix` 로 본문 일부를 AI 후보로 고치고 `edits` 로 수정 기록 보기 · 되돌리기 · 내보내기. `stats` 로 화별 문체 지표 확인. 1~3화는 `openings` 로 여는 방식 여러 안(플롯 `--plot` · 본문 블라인드 비교), `hook` 으로 흡입력 판정. `usage` 로 AI 사용량과 추정 비용 보기. `compare` 로 같은 화를 두 백엔드로 써서 가려 비교.
+흐름: `new` → `style` → `arc` → `plot` → (사용자 수정) → `confirm` → `write` → `check` → `update` 반복 (`run` 이 자동 반복). 장편(`new --serial`)은 `arc` 대신 `series` 한 번, 그리고 아크마다 `nextarc` → `plot` → `confirm` → `run` → `recap` 을 반복한다 (`arcs` 로 진행 보기). 단편은 `convert` 로 장편으로 바꿀 수 있다(단편 전체가 아크 1, `--rebuild` 는 단편을 씨앗으로 앞부분을 다시 짜고 다듬기 화는 `rework`, `--undo` 로 되돌리기). 서브플롯 · 과거 회상 · 외전은 `lines` 로 이야기 줄기를 만들고 화에 붙인다. `fix` 로 본문 일부를 AI 후보로 고치고 `edits` 로 수정 기록 보기 · 되돌리기 · 내보내기. `export` 로 다른 사이트에 붙여 넣을 본문 내보내기. `stats` 로 화별 문체 지표 확인. 1~3화는 `openings` 로 여는 방식 여러 안(플롯 `--plot` · 본문 블라인드 비교), `hook` 으로 흡입력 판정. `usage` 로 AI 사용량과 추정 비용 보기. `compare` 로 같은 화를 두 백엔드로 써서 가려 비교.
 
 ## 설계 원칙 (깨지 않기)
 

@@ -31,6 +31,7 @@
   python -m canon hook 내소설 1 [--draft 2]   1~3화 흡입력 판정 (근거 인용, 초반 지표와 함께)
   python -m canon brief 내소설 3        구독형 채팅 앱용 작업지시서 출력 (--state, --check)
   python -m canon import 내소설 3 본문.txt   다른 곳에서 쓴 본문 가져오기
+  python -m canon export 내소설 [--from 1 --to 3 --format blank|compact|indent|raw -o 파일.txt]   다른 곳에 붙여 넣을 본문
   python -m canon show 내소설 [섹션]       섹션 rel 은 관계 역학을 보여 준다
   python -m canon view 내소설 numbers|words   관계를 숫자로 볼지 말로 볼지
   python -m canon adjust 내소설 a b --warmth 0.3 --trust 0.6   a 가 b 를 보는 관계를 직접 보정
@@ -49,8 +50,8 @@ import re
 import sys
 from pathlib import Path
 
-from . import (autorun, dynamics, elements, genres, library, logline, metrics, naming, pipeline, prompts, research, store, storylines,
-               updater, usage)
+from . import (autorun, dynamics, elements, genres, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
+               storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 
@@ -979,6 +980,18 @@ def cmd_edits(a: argparse.Namespace) -> None:
             print(f"{e.plot.number}화 {x.id} [{how}]{mark} {x.instruction}\n  - {x.before[:80]}\n  + {x.after[:80]}")
 
 
+def cmd_export(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    nums = [e.plot.number for e in p.episodes if e.text and (not a.start or e.plot.number >= a.start)
+            and (not a.end or e.plot.number <= a.end)]
+    out = publish.export(p, nums, a.format, not a.no_title)
+    if a.output:
+        Path(a.output).write_text(out["text"], encoding="utf-8")
+        print(f"{', '.join(map(str, out['episodes']))}화를 저장했습니다: {a.output}")
+    else:
+        sys.stdout.write(out["text"])
+
+
 def cmd_show(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     if a.section == "rel":
@@ -1227,6 +1240,12 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("n", type=int, nargs="?")
     sp.add_argument("--undo", metavar="ID", help="이 수정을 되돌림 (예: e2)")
     sp.add_argument("--jsonl", action="store_true", help="고치기 전후 쌍을 JSON Lines 로 출력")
+    sp = add("export", cmd_export, yes=False)
+    sp.add_argument("--from", dest="start", type=int, default=0)
+    sp.add_argument("--to", dest="end", type=int, default=0)
+    sp.add_argument("--format", default="blank", choices=list(publish.FORMATS), help="줄바꿈 형식 (기본: 문단 사이 빈 줄)")
+    sp.add_argument("--no-title", action="store_true", help="'N화. 제목' 줄을 넣지 않음 (한 화만 낼 때)")
+    sp.add_argument("-o", "--output", help="저장할 .txt 파일 (없으면 화면에 출력)")
     sp = add("show", cmd_show, yes=False)
     sp.add_argument("section", nargs="?")
 

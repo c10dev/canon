@@ -11,11 +11,11 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import autorun, dynamics, elements, genres, jobs, library, metrics, naming, pipeline, prompts, research, settings, store, usage
+from . import autorun, dynamics, elements, genres, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, get_llm, make_llm
 from .schema import (ArcPlan, ArcProposal, EpisodePlot, Meta, Project, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
@@ -1031,6 +1031,47 @@ def context(name: str, n: int) -> list[dict]:
             title, _, body = block.partition("\n")
             out.append({"title": title.strip(), "chars": len(body.strip())})
     return out
+
+
+# ---------- 4-2. 복사 · 내보내기 (canon/publish.py) ----------
+
+@app.get("/api/publish/formats")
+def publish_formats() -> list[dict]:
+    return [{"id": k, "label": label, "hint": hint} for k, (label, hint) in publish.FORMATS.items()]
+
+
+class ExportIn(BaseModel):
+    episodes: list[int] = []  # 비우면 본문이 있는 모든 화
+    format: str = "blank"
+    title: bool = True
+    drafts: dict[int, str] = {}  # 저장 전 화면의 본문
+
+
+def _export_numbers(p: Project, eps: list[int]) -> list[int]:
+    have = {e.plot.number for e in p.episodes}
+    bad = [n for n in eps if n not in have]
+    if bad:
+        raise ValueError(f"없는 화입니다: {', '.join(map(str, bad))}")
+    return eps or sorted(e.plot.number for e in p.episodes if e.text)
+
+
+@app.post("/api/projects/{name}/export")
+def export_text(name: str, body: ExportIn) -> dict:
+    """다른 곳에 붙여 넣을 글(텍스트와 HTML)을 만든다. 저장하지 않는다."""
+    p = _load(name)
+    return publish.export(p, _export_numbers(p, body.episodes), body.format, body.title, body.drafts)
+
+
+@app.get("/api/projects/{name}/export.txt")
+def export_file(name: str, start: int = 0, end: int = 0, format: str = "blank", title: bool = True) -> Response:
+    """.txt 로 내려받기. start~end 화 (0 이면 처음 · 끝까지)."""
+    from urllib.parse import quote
+
+    p = _load(name)
+    nums = [e.plot.number for e in p.episodes if e.text and (not start or e.plot.number >= start) and (not end or e.plot.number <= end)]
+    out = publish.export(p, nums, format, title)
+    return Response(out["text"], media_type="text/plain; charset=utf-8",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(out['filename'])}"})
 
 
 @app.get("/api/projects/{name}/episodes/{n}/prompt")
