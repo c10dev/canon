@@ -8,7 +8,7 @@
 python3 -m venv .venv && source .venv/bin/activate   # macOS Homebrew Python 은 가상환경 필요
 python -m pip install -r requirements.txt
 export GEMINI_API_KEY=...            # https://aistudio.google.com/apikey
-export CANON_MODEL=gemini-2.5-pro # 선택, 사용할 Gemini 모델
+export CANON_MODEL=gemini-4-argon # 선택, 사용할 Gemini 모델 (기본값)
 ```
 
 API 키 없이 흐름만 보려면 `export CANON_LLM=mock`.
@@ -27,7 +27,7 @@ macOS 에서는 Finder 로 `scripts/canon-mac.command` 를 더블클릭해도 �
 
 Gemini API 키와 모델은 화면 오른쪽 아래 **모델 · API 키 설정**에서 넣는다. `~/.canon/config.json` 에만 저장되고(권한 600), 환경 변수 `GEMINI_API_KEY`, `CANON_MODEL`, `CANON_LLM` 이 있으면 그 값이 우선한다. CLI 도 같은 설정을 쓴다.
 
-작품 홈, 설정 도우미, 문체 레퍼런스, 기승전결 플롯 보드, 집필, 상태 변경안 승인, 채팅 앱 작업지시서 화면이 있다. CLI 와 같은 `projects/<이름>/project.json` 을 읽고 쓴다. AI 제안은 바로 저장되지 않고, 화면에서 고르거나 고친 뒤 저장할 때 반영된다.
+작품 홈, 설정 도우미, 문체 레퍼런스, 기승전결 플롯 보드, 집필, 상태 변경안 승인, 채팅 앱 작업지시서 화면이 있다. 사이드바 아래의 **연구 · 모델 실험** 화면은 본편과 분리된 실험실이다 (아래 '연구 화면'). CLI 와 같은 `projects/<이름>/project.json` 을 읽고 쓴다. AI 제안은 바로 저장되지 않고, 화면에서 고르거나 고친 뒤 저장할 때 반영된다.
 
 기승전결 · 플롯 화면의 **대화로 다듬기**를 열면 오른쪽에 대화 패널이 붙는다. "3화 전개가 너무 빨라", "결말을 비극으로 바꿔 줘", "14화로 늘려 줘"처럼 말하면 AI 가 답과 함께 변경안을 내고, 패널에는 바뀌는 칸만 지금 값과 바꿀 값으로 나란히 보인다. 구조(구간 범위·목표·전환점, 총 화수)와 화별 플롯을 하나씩 골라 반영하고, 고르지 않은 것은 그대로다. 본문이 있는 화는 변경안에서 빠지고, 확정한 화는 처음엔 꺼져 있으며 반영하면 초안으로 돌아가 다시 확정해야 한다. 대화는 작품(`project.json` 의 `chats`)에 저장되어 다음에 열어도 이어지고, AI 는 최근 대화와 지금 설정·인물·관계·구조·플롯을 함께 본다. CLI 는 `python -m canon revise 등대 "3화 전개가 너무 빨라"` 로 같은 일을 한다.
 
@@ -102,6 +102,35 @@ python -m canon recalc 등대                   # project.json 의 params 를 �
 
 계수는 `project.json` 의 `params` 에 있다. 프롬프트에는 숫자 대신 "신뢰: 의심하고 있다" 같은 말로 들어간다.
 
+## 로컬 모델 (Ollama, llama.cpp, vLLM, LM Studio)
+
+OpenAI 호환 API 를 여는 서버면 된다. 단계마다 백엔드를 고를 수 있어서, 계획과 검수는 Gemini 에 두고 본문만 로컬 모델로 쓸 수 있다. 웹 설정 화면의 **로컬 서버**, **단계별 백엔드**에서 정하거나 환경 변수로 정한다.
+
+```bash
+export CANON_LOCAL_URL=http://localhost:11434/v1   # Ollama. llama.cpp :8080/v1, vLLM :8000/v1
+export CANON_LOCAL_MODEL=gemma4:31b                # 비우면 서버에 하나뿐인 모델
+export CANON_LLM_WRITE=local                       # 본문만 로컬 (plan / write / check / state)
+# 전부 로컬이면 CANON_LLM=local
+
+python -m canon compare 등대 3                  # 같은 화를 gemini 와 local 로 써서 1, 2 번으로 가림
+python -m canon compare 등대 3 --pick 2         # 고른 쪽을 본문으로 쓰고 어느 백엔드였는지 공개
+```
+
+본문 생성 샘플링은 `~/.canon/config.json` 의 `local_sampling` 으로 바꾼다 (기본 `{"temperature": 1.0, "top_p": 0.95, "min_p": 0.05}`). 서버가 키를 요구하면 `CANON_LOCAL_KEY`.
+
+## 연구 화면 (모델 실험)
+
+웹 사이드바의 **연구 · 모델 실험**에서 모델을 시험한다. 작품 데이터(`project.json`)는 바꾸지 않고, 결과는 `projects/<이름>/research/log.jsonl` 에 남는다. 블라인드 비교에서 '본문으로 채택'을 켜고 고를 때만 그 화 본문이 바뀐다.
+
+| 탭 | 하는 일 |
+|---|---|
+| 서버 점검 | 로컬 서버의 모델 목록, 최대 컨텍스트, 서버 종류 (생성 호출 없음) |
+| 샘플 생성 | 같은 요청을 여러 백엔드·모델에 보내 시간, 토큰, 문체 지표를 나란히 비교 |
+| 단계 시험 | 설정 제안, 문체 분석, 기승전결을 저장 없이 돌려 빈 필드, 범위 밖 숫자, 재시도 횟수 확인 |
+| 컨텍스트 크기 | 화별 본문 쓰기, 검수, 상태 추출 프롬프트 토큰을 모델 한도와 비교 (vLLM, llama.cpp 는 서버 토크나이저로 셈) |
+| 블라인드 비교 | `compare` 의 웹판. 백엔드마다 모델과 서버 주소를 따로 고를 수 있어 LoRA 끼리도 비교 |
+| 기록 | 최근 30개 실험 |
+
 ## 채팅 앱(구독형)으로 쓰기
 
 ```bash
@@ -121,10 +150,11 @@ canon/pipeline.py  단계별 생성/검증/반영 로직
 canon/metrics.py   문체 지표 (LLM 없이 계산)
 canon/genres.py    장르 목록과 장르별 안내
 canon/dynamics.py  관계 역학 수식 (사건 적용, 긴장 계산, 재생, 말로 바꾸기)
-canon/llm.py       Gemini 프로바이더 (+ mock.py)
+canon/llm.py       Gemini, 로컬(OpenAI 호환) 프로바이더와 단계별 선택 (+ mock.py)
+canon/research.py  연구 화면 로직: 서버 점검, 샘플 비교, 단계 시험, 컨텍스트 크기, 블라인드 비교
 canon/store.py     project.json 저장, 본문을 episodes/NN.md 로 내보내기
 canon/library.py   문체 라이브러리 (작품과 따로 저장하는 문체 항목)
 canon/cli.py       명령줄
 canon/web.py       웹 UI 서버 (FastAPI) + canon/static/ 화면
-tests/             웹 API 흐름 테스트 (mock LLM, pytest)
+tests/             흐름 테스트 (mock LLM, 가짜 OpenAI 호환 서버)
 ```

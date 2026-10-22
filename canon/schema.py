@@ -78,17 +78,34 @@ class Character(BaseModel):
     arc: str = Field("", description="시작 상태에서 결말 상태로의 변화")
 
 
+def _range(lo: float, hi: float) -> dict:
+    """LLM 에게 범위를 알리는 JSON 스키마 표시. 검증은 _clamp 가 한다 (예전 project.json 도 읽히게 거부 대신 자른다)."""
+    return {"minimum": lo, "maximum": hi}
+
+
+def _clamp(v, lo, hi):
+    return v if v is None else type(v)(min(max(v, lo), hi))
+
+
 class Relationship(BaseModel):
     """쌍 단위 관계 설정. 방향별 수치는 Tie 에 있고, affinity/tension 은 Tie 에서 계산해 동기화한다."""
     a: str = Field(description="인물 id")
     b: str = Field(description="인물 id")
     type: str = Field(description="연인, 라이벌, 사제, 가족 등")
     description: str = ""
-    affinity: int = Field(0, description="-5(적대) ~ 5(깊은 신뢰)")
-    tension: int = Field(0, description="0(평온) ~ 10(폭발 직전)")
-    goal_conflict: float = Field(0.0, description="두 인물의 목표가 부딪치는 정도 0~1")
+    affinity: int = Field(0, description="-5(적대) ~ 5(깊은 신뢰)", json_schema_extra=_range(-5, 5))
+    tension: int = Field(0, description="0(평온) ~ 10(폭발 직전)", json_schema_extra=_range(0, 10))
+    goal_conflict: float = Field(0.0, description="두 인물의 목표가 부딪치는 정도 0~1", json_schema_extra=_range(0, 1))
     a_view: list[str] = Field(default_factory=list, description="a 가 b 를 보는 방식, dynamics.VIEWS 의 말 (믿는다, 경계한다 등). 설정 단계 전용")
     b_view: list[str] = Field(default_factory=list, description="b 가 a 를 보는 방식, dynamics.VIEWS 의 말. 설정 단계 전용")
+
+    @model_validator(mode="after")
+    def _in_range(self) -> "Relationship":
+        # 로컬 모델이 40, 90 같은 백분율이나 음수 충돌도를 내면 관계 역학 계산이 뒤집힌다
+        self.affinity = _clamp(self.affinity, -5, 5)
+        self.tension = _clamp(self.tension, 0, 10)
+        self.goal_conflict = _clamp(self.goal_conflict, 0.0, 1.0)
+        return self
 
 
 # ---------- 관계 역학 (canon/dynamics.py 가 계산) ----------
@@ -127,7 +144,12 @@ class Secret(BaseModel):
     owner: str = Field(description="비밀을 가진 인물 id")
     content: str
     hidden_from: list[str] = Field(default_factory=list, description="아직 모르는 인물 id")
-    weight: float = Field(0.5, description="이야기에서의 무게 0~1")
+    weight: float = Field(0.5, description="이야기에서의 무게 0~1", json_schema_extra=_range(0, 1))
+
+    @model_validator(mode="after")
+    def _in_range(self) -> "Secret":
+        self.weight = _clamp(self.weight, 0.0, 1.0)
+        return self
 
 
 class StoryEvent(BaseModel):
@@ -136,12 +158,17 @@ class StoryEvent(BaseModel):
     actor: str = Field(description="행동한 인물 id")
     target: str = Field(description="행동을 받은 인물 id")
     kind: EventKind
-    intensity: int = Field(2, description="1(가벼움) ~ 3(결정적)")
+    intensity: int = Field(2, description="1(가벼움) ~ 3(결정적)", json_schema_extra=_range(1, 3))
     witnesses: list[str] = Field(default_factory=list, description="현장에서 본 다른 인물 id")
     reveals_secret: str = Field("", description="이 사건으로 드러난 비밀 id")
     quote: str = Field("", description="근거가 되는 본문 한 문장")
     set_warmth: Optional[float] = Field(None, description="수동보정 전용. AI 는 비워 둔다")
     set_trust: Optional[float] = Field(None, description="수동보정 전용. AI 는 비워 둔다")
+
+    @model_validator(mode="after")
+    def _in_range(self) -> "StoryEvent":
+        self.intensity = _clamp(self.intensity, 1, 3)
+        return self
 
 
 class ModelParams(BaseModel):
