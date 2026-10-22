@@ -883,6 +883,7 @@ async function route() {
 
 function render() {
   renderSavebar();
+  document.body.classList.remove('chat-open');
   const [p, , page, arg] = S.route;
   if (p === 'settings') {
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:820px;margin:0 auto">${viewSettings()}</main></div>`;
@@ -901,6 +902,7 @@ function render() {
   const views = { setup: viewSetup, style: viewStyle, arc: viewArc, write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${body}</main></div>`;
+  syncChat();
   document.querySelectorAll('textarea[data-autogrow]').forEach(autosize);
   // 상태 정리 지시서 탭이 바뀌면 다시 불러온다
   if (page === 'brief' && S.briefText === null && ep(n)) {
@@ -1583,8 +1585,9 @@ function viewArc() {
   const right = p.arc.length
     ? `<button class="btn" data-action="planArc">구조 다시 제안</button><button class="btn" data-action="draftPlots">${eps.length ? '초안 다시 만들기 (확정 화 제외)' : '화별 플롯 초안 만들기'}</button>${drafts ? `<button class="btn primary" data-action="confirmAll">초안 ${drafts}화 모두 확정</button>` : ''}`
     : '';
-  return `${header('3단계', '기승전결 · 화별 플롯', '구간 목표를 확인하고, 화 카드를 눌러 플롯을 다듬은 뒤 확정하세요. 확정된 화만 본문을 쓸 수 있고, 초안을 다시 만들어도 확정된 화는 그대로입니다.', right)}
-    ${board}${drawer}`;
+  const tools = chatButton() + right;
+  return `${header('3단계', '기승전결 · 화별 플롯', '구간 목표를 확인하고, 화 카드를 눌러 플롯을 다듬은 뒤 확정하세요. 확정된 화만 본문을 쓸 수 있고, 초안을 다시 만들어도 확정된 화는 그대로입니다.', tools)}
+    ${board}${drawer}${chatPanel('plot')}`;
 }
 
 function actEditor(i) {
