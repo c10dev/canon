@@ -6,6 +6,7 @@
   GEMINI_API_KEY  Gemini API 키
   CANON_LOCAL_URL / CANON_LOCAL_MODEL / CANON_LOCAL_KEY  로컬 서버 (Ollama, llama.cpp, vLLM, LM Studio)
   CANON_LLM_PLAN / _WRITE / _CHECK / _STATE  단계별 백엔드 (예: CANON_LLM_WRITE=local)
+  CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE  단계별 모델 (예: CANON_MODEL_STATE=gemini-3.8-flash)
 """
 from __future__ import annotations
 
@@ -60,6 +61,16 @@ class GeminiLLM:
     def check(self) -> None:
         """키와 모델 이름이 맞는지 가볍게 확인한다 (생성 호출 없음)."""
         self.client.models.get(model=self.model)
+
+    def models(self) -> list[str]:
+        """글을 생성할 수 있는 모델 이름. 설정 화면의 모델 목록에 쓴다."""
+        out = []
+        for m in self.client.models.list():
+            actions = getattr(m, "supported_actions", None) or []
+            if actions and "generateContent" not in actions:
+                continue
+            out.append(m.name.removeprefix("models/"))
+        return out
 
     def context_limit(self) -> int | None:
         return getattr(self.client.models.get(model=self.model), "input_token_limit", None)
@@ -238,23 +249,24 @@ class LocalLLM:
         return self._chat(system, [{"role": "user", "content": prompt}], **self.sampling)
 
 
-def make_llm(provider: str) -> LLM:
+def make_llm(provider: str, model: str | None = None) -> LLM:
+    """model 이 비어 있으면 그 백엔드의 기본 모델(설정의 model 또는 local_model)을 쓴다."""
     if provider == "mock":
         from .mock import MockLLM
 
         return MockLLM()
     if provider == "local":
-        return LocalLLM()
+        return LocalLLM(model=model or None)
     if provider == "gemini":
-        return GeminiLLM()
+        return GeminiLLM(model=model or None)
     raise ValueError(f"알 수 없는 LLM 프로바이더: {provider} (gemini | local | mock)")
 
 
 def get_llm(stage: str | None = None) -> LLM:
-    """stage: plan | write | check | state. 단계별 설정이 없으면 전체 provider 를 쓴다."""
+    """stage: plan | write | check | state. 단계별 백엔드와 모델 설정이 없으면 전체 설정을 쓴다."""
     from . import settings
 
-    return make_llm(settings.stage_provider(stage)[0])
+    return make_llm(settings.stage_provider(stage)[0], settings.stage_model(stage)[0])
 
 
 def dump(model: BaseModel | list | dict) -> str:

@@ -676,6 +676,7 @@ const actions = {
       provider: $('#set-provider').value, model: $('#set-model').value.trim(),
       local_url: $('#set-local-url').value.trim(), local_model: $('#set-local-model').value.trim(),
       stages: Object.fromEntries(STAGES.map(([s]) => [s, $(`#set-stage-${s}`).value])),
+      stage_models: Object.fromEntries(STAGES.map(([s]) => [s, $(`#set-stage-model-${s}`).value.trim()])),
     };
     if (key) body.api_key = key;
     const lkey = $('#set-local-key').value.trim();
@@ -691,6 +692,9 @@ const actions = {
       S.config = await api('PUT', '/config', { clear_key: true });
       toast('키를 지웠습니다');
     });
+  },
+  async loadModels() {
+    await loadModelList(true);
   },
   async testSettings() {
     await run('연결 확인 중', async () => {
@@ -833,6 +837,7 @@ async function route() {
     if (!S.genres) S.genres = await api('GET', '/genres').catch(() => []);
     if (parts[0] === 'settings') {
       S.config = await api('GET', '/config');
+      loadModelList();  // 기다리지 않는다. 목록이 오면 입력칸 추천만 채운다
     } else if (parts[0] === 'styles') {
       S.name = null;
       S.project = null;
@@ -981,26 +986,32 @@ function viewSettings() {
         <div class="small"><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>에서 무료로 발급받을 수 있어요. 저장한 키는 화면에 다시 보여주지 않습니다.</div>
         ${envNote(c.key_source, 'GEMINI_API_KEY')}</div>
       <div class="field"><label for="set-model">모델</label>
-        <input id="set-model" type="text" list="model-list" value="${esc(c.model_setting || '')}">
-        <datalist id="model-list"><option value="gemini-4-argon"></option><option value="gemini-2.5-pro"></option><option value="gemini-2.5-flash"></option></datalist>
-        <div class="small">gemini-4-argon 이 기본입니다. 2.5 flash 는 빠르고 저렴합니다.</div>${envNote(c.model_source, 'CANON_MODEL')}</div>
+        <input id="set-model" type="text" list="model-options" value="${esc(c.model_setting || '')}">
+        ${modelDatalist()}
+        <div class="small">모든 단계의 기본 Gemini 모델입니다. gemini-4-argon 이 기본이고, 단계마다 바꾸려면 아래 '단계별 백엔드와 모델'에서 고르세요.</div>${envNote(c.model_source, 'CANON_MODEL')}</div>
       <h2 style="margin-top:18px">로컬 서버</h2>
       <p class="desc">Ollama, llama.cpp, vLLM, LM Studio 처럼 OpenAI 호환 API 를 여는 서버입니다. 주소는 /v1 까지 적습니다.</p>
       <div class="field"><label for="set-local-url">서버 주소</label>
         <input id="set-local-url" type="text" value="${esc(c.local_url || '')}" placeholder="http://localhost:11434/v1">
         <div class="small">Ollama :11434/v1 · llama.cpp :8080/v1 · vLLM :8000/v1 · LM Studio :1234/v1</div>${envNote(c.local_url_source, 'CANON_LOCAL_URL')}</div>
       <div class="field"><label for="set-local-model">모델 이름</label>
-        <input id="set-local-model" type="text" value="${esc(c.local_model || '')}" placeholder="비우면 서버에 하나뿐인 모델">${envNote(c.local_model_source, 'CANON_LOCAL_MODEL')}</div>
+        <input id="set-local-model" type="text" list="model-options" value="${esc(c.local_model || '')}" placeholder="비우면 서버에 하나뿐인 모델">${envNote(c.local_model_source, 'CANON_LOCAL_MODEL')}</div>
       <div class="field"><label for="set-local-key">서버 키 <span class="hint">지금: ${c.has_local_key ? '있음' : '없음'}</span></label>
         <input id="set-local-key" type="password" autocomplete="off" placeholder="서버가 키를 요구할 때만"></div>
-      <h2 style="margin-top:18px">단계별 백엔드</h2>
-      <p class="desc">예: 계획과 검수는 Gemini, 본문은 로컬 모델.</p>
+      <h2 style="margin-top:18px">단계별 백엔드와 모델</h2>
+      <p class="desc">예: 계획과 검수는 gemini-4-argon, 상태 변경안은 빠르고 싼 gemini-3.8-flash, 본문은 로컬 모델. 모델 칸을 비우면 그 백엔드의 기본 모델(위 '모델' 또는 로컬 '모델 이름')을 씁니다.</p>
       ${STAGES.map(([s, label]) => {
         const st = (c.stages || {})[s] || {};
+        const base = st.provider === 'local' ? (c.local_model || '서버에 하나뿐인 모델') : c.model_setting;
         return `<div class="field"><label for="set-stage-${s}">${label} <span class="hint">지금: ${esc(st.model || '')}</span></label>
-          <select id="set-stage-${s}"><option value="">위 생성 방식을 따름</option>${providerOptions((c.stage_settings || {})[s])}</select>
-          ${st.source === 'env' ? `<div class="small">환경 변수 CANON_LLM_${s.toUpperCase()} 가 우선합니다.</div>` : ''}</div>`;
+          <div class="stage-row">
+            <select id="set-stage-${s}" aria-label="${esc(label)} 백엔드"><option value="">위 생성 방식을 따름</option>${providerOptions((c.stage_settings || {})[s])}</select>
+            <input id="set-stage-model-${s}" type="text" list="model-options" aria-label="${esc(label)} 모델" value="${esc((c.stage_model_settings || {})[s] || '')}" placeholder="모델: ${esc(base || '기본')}">
+          </div>
+          ${st.source === 'env' ? `<div class="small">환경 변수 CANON_LLM_${s.toUpperCase()} 가 우선합니다.</div>` : ''}
+          ${st.model_source === 'env' ? `<div class="small">환경 변수 CANON_MODEL_${s.toUpperCase()} 가 우선합니다.</div>` : ''}</div>`;
       }).join('')}
+      <div class="small" id="model-status">${modelStatus()}</div>
       <div class="row">
         <button class="btn primary" data-action="saveSettings">저장</button>
         <button class="btn" data-action="testSettings">연결 확인</button>
@@ -1008,6 +1019,42 @@ function viewSettings() {
       </div>
       <div class="small">설정 파일: ${esc(c.path)}</div>
     </section>`;
+}
+
+// 모델 칸 추천 목록: Gemini API 와 로컬 서버에 실제로 있는 모델. 없으면 직접 적는다.
+const KNOWN_MODELS = ['gemini-4-argon', 'gemini-3.8-flash'];
+
+function modelDatalist() {
+  const m = S.models || {};
+  const opts = [
+    ...(((m.gemini || {}).models || []).length ? m.gemini.models : KNOWN_MODELS).map((x) => [x, 'Gemini']),
+    ...((m.local || {}).models || []).map((x) => [x, '로컬 서버']),
+  ];
+  return `<datalist id="model-options">${opts.map(([v, l]) => `<option value="${esc(v)}" label="${l}"></option>`).join('')}</datalist>`;
+}
+
+function modelStatus() {
+  const m = S.models;
+  if (!m) return '모델 목록을 불러오는 중…';
+  const part = (name, r) => r.error ? `${name}: 목록을 못 불러옴 (${esc(r.error.slice(0, 120))})` : `${name} ${r.models.length}개`;
+  return `모델 칸을 누르면 고를 수 있어요. ${part('Gemini', m.gemini)} · ${part('로컬 서버', m.local)}. 목록에 없으면 이름을 직접 적어도 됩니다. <a href="javascript:void 0" data-action="loadModels">다시 불러오기</a>`;
+}
+
+async function loadModelList(force) {
+  if (S.models && !force) return;
+  if (force) S.models = null;
+  const st = $('#model-status');
+  if (st) st.innerHTML = modelStatus();
+  try {
+    S.models = await api('GET', '/config/models');
+  } catch (e) {
+    S.models = { gemini: { models: [], error: e.message }, local: { models: [], error: e.message } };
+  }
+  // 다시 그리면 저장 전 입력이 사라지므로 목록과 안내만 바꾼다
+  const dl = $('#model-options');
+  if (dl) dl.outerHTML = modelDatalist();
+  const st2 = $('#model-status');
+  if (st2) st2.innerHTML = modelStatus();
 }
 
 // ----- 작품 목록 -----

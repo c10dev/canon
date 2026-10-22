@@ -51,7 +51,7 @@ python -m unittest                  # mock LLM 으로 전체 흐름 스모크 �
 CANON_LLM=mock python -m canon ...  # 수동 확인
 ```
 
-환경 변수: `GEMINI_API_KEY`, `CANON_LLM`(gemini | local | mock), `CANON_MODEL`(기본 `gemini-4-argon`), `CANON_LOCAL_URL` / `CANON_LOCAL_MODEL` / `CANON_LOCAL_KEY`(로컬 서버), `CANON_LLM_PLAN` / `_WRITE` / `_CHECK` / `_STATE`(단계별 백엔드), `CANON_HOME`(프로젝트 저장 위치, 기본 `projects/`).
+환경 변수: `GEMINI_API_KEY`, `CANON_LLM`(gemini | local | mock), `CANON_MODEL`(기본 `gemini-4-argon`), `CANON_LOCAL_URL` / `CANON_LOCAL_MODEL` / `CANON_LOCAL_KEY`(로컬 서버), `CANON_LLM_PLAN` / `_WRITE` / `_CHECK` / `_STATE`(단계별 백엔드), `CANON_MODEL_PLAN` / `_WRITE` / `_CHECK` / `_STATE`(단계별 모델), `CANON_HOME`(프로젝트 저장 위치, 기본 `projects/`).
 
 스키마나 파이프라인을 바꾸면 `canon/mock.py` 도 맞춰 고치고 `python -m unittest` 가 통과하는지 확인한다. 실제 Gemini 호출은 키가 있을 때만 확인할 수 있으니, 확인하지 못했다면 그렇다고 밝힌다.
 

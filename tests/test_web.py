@@ -103,11 +103,22 @@ def test_settings(client, tmp_path, monkeypatch):
     c = client.put("/api/config", json={"local_url": "http://nhn:8000/v1", "local_model": "gemma",
                                         "local_key": "lk-1", "stages": {"write": "local"}}).json()
     assert c["local_url"] == "http://nhn:8000/v1" and c["has_local_key"] and "lk-1" not in str(c)
-    assert c["stages"]["write"] == {"provider": "local", "source": "file", "model": "gemma"}
+    assert c["stages"]["write"] == {"provider": "local", "source": "file", "model": "gemma", "model_source": "default"}
     assert c["stages"]["plan"]["provider"] == "gemini"
     assert client.put("/api/config", json={"stages": {"write": "claude"}}).status_code == 400
     assert client.put("/api/config", json={"stages": {"draft": "local"}}).status_code == 400
     assert client.put("/api/config", json={"stages": {"write": ""}}).json()["stage_settings"] == {}
+
+    # 단계별 모델: 상태 변경안만 Flash
+    for name in ("CANON_MODEL_STATE", "CANON_MODEL_PLAN"):
+        monkeypatch.delenv(name, raising=False)
+    c = client.put("/api/config", json={"stage_models": {"state": " gemini-3.8-flash "}}).json()
+    assert c["stages"]["state"]["model"] == "gemini-3.8-flash" and c["stages"]["plan"]["model"] == "gemini-2.5-pro"
+    assert c["stage_model_settings"] == {"state": "gemini-3.8-flash"}
+    assert client.put("/api/config", json={"stage_models": {"draft": "x"}}).status_code == 400
+    assert client.put("/api/config", json={"stage_models": {"state": ""}}).json()["stage_model_settings"] == {}
+    m = client.get("/api/config/models").json()  # 키도 서버도 없어도 화면은 열린다
+    assert set(m) == {"gemini", "local"} and m["local"]["error"]
     assert client.put("/api/config", json={"clear_key": True}).json()["key_source"] == "none"
 
     # 화면에서 mock 으로 바꾸면 AI 호출도 mock 으로 간다
