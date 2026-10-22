@@ -259,3 +259,49 @@ pre.brief { margin: 0; padding: 16px; border-radius: 8px; background: var(--bg);
 .metric-list dt { color: var(--muted); }
 .metric-list dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
 .drawer-actions { position: sticky; bottom: -20px; margin: 0 -24px -20px; padding: 12px 24px 20px; background: var(--surface); border-top: 1px solid var(--line); }
+
+/* 대화로 다듬기 (chat.js). 오른쪽에 붙는 패널이고, 열려 있으면 본문과 편집 서랍을 왼쪽으로 민다. */
+.btn.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
+.chat-panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(440px, 100vw); z-index: 14; background: var(--surface); border-left: 1px solid var(--line); display: flex; flex-direction: column; }
+.chat-head { padding: 14px 16px 12px 20px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.chat-log { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+.chat-input { padding: 12px 16px 4px 20px; border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: flex-end; }
+.chat-input textarea { flex: 1; min-height: 44px; max-height: 160px; resize: vertical; }
+.chat-hint { padding: 0 20px 12px; }
+.msg { max-width: 100%; line-height: 1.6; font-size: 14px; }
+.msg.user { align-self: flex-end; max-width: 85%; padding: 10px 14px; border-radius: 12px 12px 4px 12px; background: var(--accent); color: #fff; white-space: pre-wrap; }
+.msg.ai { align-self: stretch; display: flex; flex-direction: column; gap: 10px; }
+.msg.ai .msg-text { white-space: pre-wrap; color: var(--text); }
+.msg.pending { flex-direction: row; align-items: center; gap: 10px; color: var(--muted); }
+.spinner.small { width: 16px; height: 16px; border-width: 2px; }
+.proposal { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 12px; background: var(--bg); }
+.proposal.done { display: block; padding: 10px 12px; }
+.proposal.done[open] { display: flex; }
+.proposal.done summary { cursor: pointer; font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.proposal.done[open] summary { margin-bottom: 10px; }
+.prop-part { padding: 10px 12px; border-radius: 8px; background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.prop-head { display: flex; align-items: center; gap: 8px; font-size: 14px; flex-wrap: wrap; }
+.prop-head input { width: 18px; height: 18px; margin: 0; }
+.diff { display: flex; flex-direction: column; gap: 8px; }
+.diff-act { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.diff-act:first-child { border-top: 0; padding-top: 0; }
+.diff-act .chip { align-self: flex-start; }
+.diff-row { display: flex; flex-direction: column; gap: 3px; font-size: 13px; line-height: 1.55; }
+.diff-row del, .diff-row ins { display: block; padding: 4px 8px; border-radius: 6px; text-decoration: none; }
+.diff-row del { background: var(--red-soft); color: #7A271A; }
+.diff-row del::before { content: '지금 '; font-weight: 700; font-size: 11px; }
+.diff-row ins { background: var(--green-soft); color: var(--green-ink); }
+.diff-row ins::before { content: '바꾸면 '; font-weight: 700; font-size: 11px; }
+.diff-row ol { margin: 2px 0 0; padding-left: 20px; }
+body.chat-open .main { padding-right: 480px; }
+body.chat-open .drawer { right: 440px; }
+body.chat-open #toast { right: 460px; }
+body.chat-open .savebar { left: calc(50% - 220px); }
+@media (max-width: 1100px) {
+  body.chat-open .main { padding-right: 40px; }
+  body.chat-open .drawer { right: 0; z-index: 16; }
+  body.chat-open #toast { right: 20px; bottom: 120px; }
+  body.chat-open .savebar { left: 50%; }
+  .chat-panel { box-shadow: -8px 0 32px rgba(0,0,0,0.16); }
+}
+@media (max-width: 640px) { body.chat-open .main { padding-right: 16px; } }

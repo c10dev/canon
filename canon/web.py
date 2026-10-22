@@ -318,6 +318,69 @@ def unconfirm_plot(name: str, n: int) -> Project:
     return _save(name, p)
 
 
+# ---------- 3-1. 대화로 다듬기 ----------
+# 대화 기록은 project.json 의 chats 에 화면(topic)별로 남는다. 지금은 플롯 화면(topic='plot')만 있다.
+
+def _chat(p: Project, topic: str):
+    if topic != "plot":
+        raise HTTPException(404, f"대화 주제가 없습니다: {topic}")
+    return p.chat(topic)
+
+
+class ChatIn(BaseModel):
+    message: str
+
+
+@app.post("/api/projects/{name}/chat/{topic}")
+def chat_send(name: str, topic: str, body: ChatIn) -> Project:
+    """작가의 말을 보내고 AI 답과 변경안을 대화 기록에 남긴다. 구조와 플롯은 바꾸지 않는다."""
+    p = _load(name)
+    _chat(p, topic)
+    rev = pipeline.revise_plot(get_llm(), p, body.message)
+    pipeline.record_chat(p, topic, body.message, rev)
+    return _save(name, p)
+
+
+class ChatApply(BaseModel):
+    acts: bool = False
+    episodes: list[int] = []
+
+
+@app.post("/api/projects/{name}/chat/{topic}/{i}/apply")
+def chat_apply(name: str, topic: str, i: int, body: ChatApply) -> Project:
+    """i 번째 메시지의 변경안에서 고른 부분만 반영한다."""
+    p = _load(name)
+    msgs = _chat(p, topic).messages
+    if not 0 <= i < len(msgs) or msgs[i].revision is None:
+        raise HTTPException(404, "변경안이 있는 메시지가 아닙니다")
+    m = msgs[i]
+    if m.outcome:
+        raise ValueError("이미 처리한 변경안입니다")
+    if not body.acts and not body.episodes:
+        raise ValueError("반영할 부분을 고르세요")
+    m.applied = pipeline.apply_revision(p, m.revision, body.acts, body.episodes)
+    m.outcome = "applied"
+    return _save(name, p)
+
+
+@app.post("/api/projects/{name}/chat/{topic}/{i}/dismiss")
+def chat_dismiss(name: str, topic: str, i: int) -> Project:
+    p = _load(name)
+    msgs = _chat(p, topic).messages
+    if not 0 <= i < len(msgs) or msgs[i].revision is None:
+        raise HTTPException(404, "변경안이 있는 메시지가 아닙니다")
+    if not msgs[i].outcome:
+        msgs[i].outcome = "dismissed"
+    return _save(name, p)
+
+
+@app.delete("/api/projects/{name}/chat/{topic}")
+def chat_clear(name: str, topic: str) -> Project:
+    p = _load(name)
+    _chat(p, topic).messages = []
+    return _save(name, p)
+
+
 # ---------- 4. 본문 ----------
 
 @app.post("/api/projects/{name}/episodes/{n}/write")

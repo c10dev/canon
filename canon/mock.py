@@ -1,6 +1,7 @@
 """API 키 없이 전체 흐름을 확인하기 위한 가짜 LLM (CANON_LLM=mock)."""
 from __future__ import annotations
 
+import re
 from typing import TypeVar
 
 from pydantic import BaseModel
@@ -15,6 +16,7 @@ from .schema import (
     EpisodePlot,
     Foreshadow,
     PlotBatch,
+    PlotRevision,
     Relationship,
     Secret,
     SetupSuggestion,
@@ -37,6 +39,36 @@ def _arc(total: int) -> list[Act]:
         Act(name="전", start_ep=b + 1, end_ep=c, goal="위기와 클라이맥스", key_turn="최대 위기"),
         Act(name="결", start_ep=c + 1, end_ep=total, goal="해결과 여운", key_turn="결말"),
     ]
+
+
+def _plot(n: int, act: str, note: str = "") -> EpisodePlot:
+    return EpisodePlot(number=n, act=act, title=f"{n}화 제목", summary=f"{n}화 요약{note}",
+                       events=["사건 1", "사건 2", "사건 3"], characters=["hero", "ally"],
+                       emotional_shift="불안 → 결심", ending_hook="문이 열렸다")
+
+
+def _revision(hint: dict) -> PlotRevision:
+    """플롯 대화 흉내: 'N화로' 는 화수 변경, '결말' 은 결 구간 목표, 'N화' 는 그 화를 고친다."""
+    msg, arc, eps, total = hint["message"], hint["arc"], hint["episodes"], hint["total"]
+    rev = PlotRevision(reply=f"'{msg}' 를 반영해 고쳐 봤어요.")
+    resize = re.search(r"(\d+)화로", msg)
+    if resize or not arc:
+        new_total = int(resize.group(1)) if resize else total
+        rev.total_episodes = new_total if new_total != total else 0
+        rev.acts = _arc(new_total)
+        have = {e.number for e in eps}
+        rev.episodes = [_plot(n, next(a.name for a in rev.acts if a.start_ep <= n <= a.end_ep))
+                        for n in range(1, new_total + 1) if n not in have]
+        return rev
+    if "결말" in msg:
+        rev.acts = [a.model_copy(update={"goal": "비극으로 끝난다"} if a.name == "결" else {}) for a in arc]
+    hit = re.search(r"(\d+)화", msg)
+    target = next((e for e in eps if hit and e.number == int(hit.group(1))), None)
+    if target:
+        rev.episodes = [target.model_copy(update={"summary": target.summary + " (천천히)", "events": target.events + ["숨 고르는 장면"]})]
+    if not (rev.acts or rev.episodes):
+        rev.reply = "어느 화를 바꿀지 알려 주세요."
+    return rev
 
 
 class MockLLM:
@@ -63,10 +95,10 @@ class MockLLM:
             eps = []
             for n in range(hint["start"], hint["end"] + 1):
                 act = next(a for a in acts if a.start_ep <= n <= a.end_ep)
-                eps.append(EpisodePlot(number=n, act=act.name, title=f"{n}화 제목", summary=f"{n}화 요약",
-                                       events=["사건 1", "사건 2", "사건 3"], characters=["hero", "ally"],
-                                       emotional_shift="불안 → 결심", ending_hook="문이 열렸다"))
+                eps.append(_plot(n, act.name))
             return PlotBatch(episodes=eps)  # type: ignore[return-value]
+        if schema is PlotRevision:
+            return _revision(hint)  # type: ignore[return-value]
         if schema is StateDelta:
             n = hint["episode"]
             return StateDelta(

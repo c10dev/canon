@@ -1,7 +1,7 @@
 """소설 프로젝트 데이터 스키마.
 
 모든 상태는 하나의 Project 객체(project.json)에 저장된다.
-LLM 이 직접 채우는 모델(SetupSuggestion, StyleProfile, ArcPlan, PlotBatch, StateDelta, ConsistencyReport)은
+LLM 이 직접 채우는 모델(SetupSuggestion, StyleProfile, ArcPlan, PlotBatch, PlotRevision, StateDelta, ConsistencyReport)은
 Gemini 구조화 출력에 그대로 넘기므로 dict 타입 필드를 쓰지 않는다.
 """
 from __future__ import annotations
@@ -239,6 +239,34 @@ class PlotBatch(BaseModel):
     episodes: list[EpisodePlot]
 
 
+# ---------- 대화형 다듬기 ----------
+
+class PlotRevision(BaseModel):
+    """플롯 대화에서 AI 가 내는 답과 변경안. 사용자가 고른 부분만 반영한다 (pipeline.apply_revision)."""
+    reply: str = Field(description="작가에게 하는 대답. 무엇을 왜 바꿨는지, 또는 되묻는 말")
+    total_episodes: int = Field(0, description="총 화수를 바꿀 때만 새 화수. 바꾸지 않으면 0")
+    acts: list[Act] = Field(default_factory=list, description="구조를 바꿀 때만 네 구간 모두. 바꾸지 않으면 빈 목록")
+    episodes: list[EpisodePlot] = Field(default_factory=list, description="바뀌는 화만, 모든 칸을 채운 전체 플롯")
+
+
+ChatTopic = Literal["plot"]
+
+
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str
+    revision: Optional[PlotRevision] = Field(None, description="assistant 가 낸 변경안")
+    outcome: Literal["", "applied", "dismissed"] = Field("", description="변경안을 반영했는지, 버렸는지")
+    applied: list[str] = Field(default_factory=list, description="반영한 부분: 'acts' 또는 화 번호")
+    at: str = ""
+
+
+class Chat(BaseModel):
+    """화면별 대화 기록. 지금은 플롯 화면(topic='plot')만 쓴다."""
+    topic: ChatTopic
+    messages: list[ChatMessage] = Field(default_factory=list)
+
+
 # ---------- 검수 ----------
 
 IssueType = Literal["사실", "시간", "인물 정보", "말투", "세계관", "플롯"]
@@ -331,6 +359,7 @@ class Project(BaseModel):
     params: ModelParams = Field(default_factory=ModelParams)
     snapshots: list[Snapshot] = Field(default_factory=list)
     settings: Settings = Field(default_factory=Settings)
+    chats: list[Chat] = Field(default_factory=list, description="화면별 AI 대화 기록")
 
     def episode(self, n: int) -> Episode:
         for ep in self.episodes:
@@ -346,6 +375,13 @@ class Project(BaseModel):
 
     def snapshot(self, n: int) -> Optional[Snapshot]:
         return next((s for s in self.snapshots if s.episode == n), None)
+
+    def chat(self, topic: str) -> Chat:
+        c = next((c for c in self.chats if c.topic == topic), None)
+        if c is None:
+            c = Chat(topic=topic)  # type: ignore[arg-type]
+            self.chats.append(c)
+        return c
 
 
 Snapshot.model_rebuild()

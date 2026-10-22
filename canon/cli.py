@@ -6,6 +6,7 @@
   python -m canon styles [add 이름 파일 | show ID | rm ID]   문체 라이브러리 (작품과 따로 저장)
   python -m canon arc 내소설            기승전결 구간 설계
   python -m canon plot 내소설 [--from 1 --to 16]   화별 플롯 초안
+  python -m canon revise 내소설 "3화 전개가 너무 빨라"   말로 구조와 플롯 고치기 (변경안 확인 후 반영, 대화는 웹과 같이 저장)
   python -m canon confirm 내소설 all|3  플롯 확정
   python -m canon write 내소설 3        본문 생성
   python -m canon check 내소설 3        본문 검수 (앞선 본문·설정과의 모순, 근거 인용)
@@ -197,6 +198,27 @@ def cmd_plot(a: argparse.Namespace) -> None:
         print(f"\n{e.number}화 [{e.act}] {e.title}\n  {e.summary}\n  사건: {' / '.join(e.events)}\n  훅: {e.ending_hook}")
     pipeline.apply_plots(p, batch)
     print(f"\n초안 저장: {store.save(a.name, p)}  (수정 후 confirm 으로 확정)")
+
+
+def cmd_revise(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    rev = pipeline.revise_plot(get_llm(), p, a.message)
+    msg = pipeline.record_chat(p, "plot", a.message, rev)
+    print(rev.reply)
+    if rev.total_episodes:
+        print(f"\n총 화수: {p.meta.target_episodes}화 → {rev.total_episodes}화")
+    for act in rev.acts:
+        print(f"[{act.name}] {act.start_ep}~{act.end_ep}화  목표: {act.goal}  / 전환점: {act.key_turn}")
+    for e in rev.episodes:
+        cur = next((x for x in p.episodes if x.plot.number == e.number), None)
+        mark = f" ({cur.status})" if cur else " (새 화)"
+        print(f"\n{e.number}화{mark} {e.title}\n  {e.summary}\n  사건: {' / '.join(e.events)}\n  훅: {e.ending_hook}")
+    if msg.revision and confirm("이 변경안을 모두 반영할까요? (확정된 화는 초안으로 돌아갑니다)", a.yes):
+        msg.applied = pipeline.apply_revision(p, rev, True, [e.number for e in rev.episodes])
+        msg.outcome = "applied"
+    elif msg.revision:
+        msg.outcome = "dismissed"
+    print(f"저장: {store.save(a.name, p)}")
 
 
 def cmd_confirm(a: argparse.Namespace) -> None:
@@ -489,6 +511,7 @@ def main(argv: list[str] | None = None) -> None:
     sp = add("plot", cmd_plot, yes=False)
     sp.add_argument("--from", dest="start", type=int)
     sp.add_argument("--to", dest="end", type=int)
+    add("revise", cmd_revise, "message")
     add("confirm", cmd_confirm, "which", yes=False)
     add("write", cmd_write, "n", yes=False)
     sp = add("update", cmd_update, "n")
