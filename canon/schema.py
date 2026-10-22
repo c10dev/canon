@@ -187,7 +187,7 @@ class EpisodePlot(BaseModel):
     summary: str
     events: list[str] = Field(description="순서대로 일어나는 사건 3~6개")
     characters: list[str] = Field(description="등장 인물 id")
-    emotional_shift: str = Field(description="주요 인물의 감정 변화")
+    emotional_shift: str = Field(description="주요 인물의 감정 변화가 겉으로 드러나는 행동이나 대사 (감정 이름이 아니라 보이는 것)")
     ending_hook: str = Field(description="다음 화로 이어지는 엔딩 훅")
     foreshadow_plant: list[str] = Field(default_factory=list, description="이번 화에 심는 복선")
     foreshadow_payoff: list[str] = Field(default_factory=list, description="이번 화에 회수하는 복선 id")

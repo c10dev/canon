@@ -183,14 +183,18 @@ def cmd_stats(a: argparse.Namespace) -> None:
     rows = [("기준", base, [])]
     rows += [(f"{e.plot.number}화", *pipeline.style_drift(p, e.plot.number))
              for e in p.episodes if e.text and (a.n is None or e.plot.number == a.n)]
-    print(f"{'':>5} {'문장평균':>7} {'변화폭':>6} {'문단평균':>7} {'대사':>5} {'과거형':>6} {'어휘':>6}  경고")
+    print(f"{'':>5} {'문장평균':>7} {'변화폭':>6} {'문단평균':>7} {'대사':>5} {'과거형':>6} {'어휘':>6} "
+          f"{'쉼표':>5} {'짧은끝':>6} {'대명사':>6}  경고")
     for label, m, warns in rows:
         print(f"{label:>5} {m.sentence_len_mean:>7} {m.sentence_len_cv:>6} {m.paragraph_len_mean:>7} "
-              f"{m.dialogue_ratio:>5} {_num(m.past_tense_ratio):>6} {_num(m.mattr):>6}  {len(warns) or ''}")
+              f"{m.dialogue_ratio:>5} {_num(m.past_tense_ratio):>6} {_num(m.mattr):>6} "
+              f"{_num(m.comma_sentence_ratio):>5} {_num(m.short_ending_ratio):>6} {_num(m.pronoun_per_1k):>6}  {len(warns) or ''}")
         for w in warns:
             print(f"      ! {w}")
     if not p.style_baseline:
         print("\n(기준은 문체 예시 발췌로 잰 값입니다. style 명령을 다시 실행하면 원문 전체로 잽니다.)")
+    elif base.comma_sentence_ratio is None:
+        print("\n(기준값이 예전 버전이라 쉼표, 짧은끝, 대명사는 비교하지 않았습니다. style 명령을 다시 실행하면 비교합니다.)")
 
 
 def _print_delta(d: StateDelta) -> None:
@@ -241,6 +245,8 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
     _print_relation_preview(p, delta)
     if p.episode(n).issues:
         _print_issues(p, n)
+    for w in pipeline.style_drift(p, n)[1]:
+        print(f"! 문체: {w}")
     if not confirm("이 변경을 반영할까요? (아니오면 project.json 수정 후 다시 update)", yes):
         return False
     pipeline.apply_delta(p, delta)
