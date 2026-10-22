@@ -6,9 +6,11 @@
   python -m canon plot 내소설 [--from 1 --to 16]   화별 플롯 초안
   python -m canon confirm 내소설 all|3  플롯 확정
   python -m canon write 내소설 3        본문 생성
+  python -m canon check 내소설 3        본문 검수 (앞선 본문·설정과의 모순, 근거 인용)
+  python -m canon stats 내소설 [3]      문체 지표를 레퍼런스와 비교
   python -m canon update 내소설 3       상태 변경안 확인 후 반영
-  python -m canon run 내소설            확정된 화를 순서대로 write → update
-  python -m canon brief 내소설 3        구독형 채팅 앱용 작업지시서 출력
+  python -m canon run 내소설            확정된 화를 순서대로 write → check → update
+  python -m canon brief 내소설 3        구독형 채팅 앱용 작업지시서 출력 (--state, --check)
   python -m canon import 내소설 3 본문.txt   다른 곳에서 쓴 본문 가져오기
   python -m canon show 내소설 [섹션]
   python -m canon serve [--port 8000]    웹 UI
@@ -21,9 +23,9 @@ import re
 import sys
 from pathlib import Path
 
-from . import pipeline, prompts, store
+from . import metrics, pipeline, prompts, store
 from .llm import dump, get_llm
-from .schema import Meta, Project, StateDelta
+from .schema import ConsistencyReport, Meta, Project, StateDelta
 
 
 def ask(label: str, default: str = "") -> str:
@@ -82,6 +84,7 @@ def cmd_style(a: argparse.Namespace) -> None:
     print(dump(profile))
     if confirm("이 스타일 프로필을 저장할까요?", a.yes):
         p.style = profile
+        p.style_baseline = metrics.measure(sample)
         print(f"저장: {store.save(a.name, p)}")
 
 
@@ -127,6 +130,63 @@ def _write(name: str, p: Project, n: int) -> None:
     ep.text, ep.status = text, "written"
     store.save(name, p)
     print(f"{n}화 저장: {store.project_dir(name) / 'episodes' / f'{n:02d}.md'} ({len(text)}자)")
+    for w in pipeline.style_drift(p, n)[1]:
+        print(f"! 문체: {w}")
+
+
+def _strip_fence(raw: str) -> str:
+    return re.sub(r"^```(?:json)?\s*|\s*```\s*$", "", raw.strip())
+
+
+def cmd_check(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    if a.from_json:
+        report = ConsistencyReport.model_validate_json(_strip_fence(Path(a.from_json).read_text(encoding="utf-8")))
+        report.episode = a.n
+        pipeline.apply_check(p, report)
+        store.save(a.name, p)
+    else:
+        _check(a.name, p, a.n)
+    _print_issues(p, a.n)
+
+
+def _check(name: str, p: Project, n: int) -> None:
+    print(f"{n}화 검수 중...")
+    pipeline.apply_check(p, pipeline.check_episode(get_llm(), p, n))
+    store.save(name, p)
+
+
+def _print_issues(p: Project, n: int) -> None:
+    issues = p.episode(n).issues
+    if not issues:
+        print(f"{n}화 검수: 모순 없음")
+        return
+    print(f"\n=== {n}화 검수: {len(issues)}건 ===")
+    for i in issues:
+        src = f"{i.source_episode}화" if i.source_episode else "설정"
+        print(f"! [{i.type}] {i.description}\n    {src} 근거: {i.source_quote}\n    {n}화: {i.current_quote}")
+        if i.suggestion:
+            print(f"    제안: {i.suggestion}")
+
+
+def _num(v: float | None) -> str:
+    return "-" if v is None else str(v)
+
+
+def cmd_stats(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    base = pipeline.style_baseline(p)
+    rows = [("기준", base, [])]
+    rows += [(f"{e.plot.number}화", *pipeline.style_drift(p, e.plot.number))
+             for e in p.episodes if e.text and (a.n is None or e.plot.number == a.n)]
+    print(f"{'':>5} {'문장평균':>7} {'변화폭':>6} {'문단평균':>7} {'대사':>5} {'과거형':>6} {'어휘':>6}  경고")
+    for label, m, warns in rows:
+        print(f"{label:>5} {m.sentence_len_mean:>7} {m.sentence_len_cv:>6} {m.paragraph_len_mean:>7} "
+              f"{m.dialogue_ratio:>5} {_num(m.past_tense_ratio):>6} {_num(m.mattr):>6}  {len(warns) or ''}")
+        for w in warns:
+            print(f"      ! {w}")
+    if not p.style_baseline:
+        print("\n(기준은 문체 예시 발췌로 잰 값입니다. style 명령을 다시 실행하면 원문 전체로 잽니다.)")
 
 
 def _print_delta(d: StateDelta) -> None:
@@ -152,14 +212,14 @@ def cmd_update(a: argparse.Namespace) -> None:
 
 def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = None) -> bool:
     if from_json:
-        raw = Path(from_json).read_text(encoding="utf-8")
-        raw = re.sub(r"^```(?:json)?\s*|\s*```\s*$", "", raw.strip())
-        delta = StateDelta.model_validate_json(raw)
+        delta = StateDelta.model_validate_json(_strip_fence(Path(from_json).read_text(encoding="utf-8")))
         delta.episode = n
     else:
         print(f"{n}화 상태 추출 중...")
         delta = pipeline.extract_state(get_llm(), p, n)
     _print_delta(delta)
+    if p.episode(n).issues:
+        _print_issues(p, n)
     if not confirm("이 변경을 반영할까요? (아니오면 project.json 수정 후 다시 update)", yes):
         return False
     pipeline.apply_delta(p, delta)
@@ -179,6 +239,8 @@ def cmd_run(a: argparse.Namespace) -> None:
             return
         if ep.status == "confirmed":
             _write(a.name, p, n)
+            if not a.no_check:
+                _check(a.name, p, n)
         if not _update(a.name, p, n, a.yes):
             print("상태 반영을 보류해 멈춥니다.")
             return
@@ -187,8 +249,8 @@ def cmd_run(a: argparse.Namespace) -> None:
 
 def cmd_brief(a: argparse.Namespace) -> None:
     p = store.load(a.name)
-    text = prompts.state_brief(p, a.n) if a.state else prompts.episode_brief(p, a.n)
-    kind = "state" if a.state else "episode"
+    kind = "state" if a.state else "check" if a.check else "episode"
+    text = {"state": prompts.state_brief, "check": prompts.check_brief, "episode": prompts.episode_brief}[kind](p, a.n)
     out = store.project_dir(a.name) / "briefs" / f"{a.n:02d}-{kind}.md"
     out.parent.mkdir(exist_ok=True)
     out.write_text(text, encoding="utf-8")
@@ -256,9 +318,15 @@ def main(argv: list[str] | None = None) -> None:
     add("write", cmd_write, "n", yes=False)
     sp = add("update", cmd_update, "n")
     sp.add_argument("--from-json", help="채팅 앱에서 받은 상태 변경 JSON 파일")
-    add("run", cmd_run)
+    sp = add("check", cmd_check, "n", yes=False)
+    sp.add_argument("--from-json", help="채팅 앱에서 받은 검수 결과 JSON 파일")
+    sp = add("stats", cmd_stats, yes=False)
+    sp.add_argument("n", type=int, nargs="?")
+    sp = add("run", cmd_run)
+    sp.add_argument("--no-check", action="store_true", help="화마다 검수 호출을 건너뜀")
     sp = add("brief", cmd_brief, "n", yes=False)
     sp.add_argument("--state", action="store_true", help="상태 정리용 작업지시서")
+    sp.add_argument("--check", action="store_true", help="검수용 작업지시서")
     add("import", cmd_import, "n", "file", yes=False)
     sp = add("show", cmd_show, yes=False)
     sp.add_argument("section", nargs="?")

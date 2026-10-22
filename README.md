@@ -30,11 +30,12 @@ python -m canon arc 등대                         # 3. 기승전결 구간
 python -m canon plot 등대                        # 4. 화별 플롯 초안
 #    projects/등대/project.json 에서 플롯 수정
 python -m canon confirm 등대 all                 # 5. 플롯 확정
-python -m canon run 등대                         # 6. 화마다 본문 생성 → 상태 변경안 승인
+python -m canon run 등대                         # 6. 화마다 본문 생성 → 검수 → 상태 변경안 승인
 python -m canon show 등대                        # 진행 상황
+python -m canon stats 등대                       # 화별 문체 지표를 레퍼런스와 비교
 ```
 
-한 화씩 하려면 `write 등대 3` 다음 `update 등대 3`.
+한 화씩 하려면 `write 등대 3` → `check 등대 3` → `update 등대 3`. `check` 는 앞선 본문·설정과의 모순을 근거 문장과 함께 보여준다 (`run --no-check` 로 생략 가능). 작품에서 쓰지 말아야 할 표현은 `project.json` 의 `style.banned_phrases` 에 넣으면 `stats` 와 본문 지시에 반영된다.
 
 ## 채팅 앱(구독형)으로 쓰기
 
@@ -43,6 +44,7 @@ python -m canon brief 등대 3            # projects/등대/briefs/03-episode.md
 python -m canon import 등대 3 본문.txt   # 받은 본문 가져오기
 python -m canon brief 등대 3 --state    # 상태 정리 지시서 → 채팅 앱이 JSON 반환
 python -m canon update 등대 3 --from-json 응답.json
+python -m canon brief 등대 3 --check    # 검수 지시서 → 받은 JSON 은 check 등대 3 --from-json 응답.json
 ```
 
 ## 파일 구조
@@ -51,6 +53,7 @@ python -m canon update 등대 3 --from-json 응답.json
 canon/schema.py    데이터 스키마
 canon/prompts.py   프롬프트와 컨텍스트 조립, 작업지시서
 canon/pipeline.py  단계별 생성/검증/반영 로직
+canon/metrics.py   문체 지표 (LLM 없이 계산)
 canon/llm.py       Gemini 프로바이더 (+ mock.py)
 canon/store.py     project.json 저장, 본문을 episodes/NN.md 로 내보내기
 canon/cli.py       명령줄

@@ -25,12 +25,19 @@ class SmokeTest(unittest.TestCase):
         main(["confirm", "demo", "all"])
         main(["run", "demo", "-y"])
         main(["brief", "demo", "3"])
+        main(["brief", "demo", "3", "--check"])
+        main(["check", "demo", "1"])
+        main(["stats", "demo"])
 
         p = store.load("demo")
         self.assertEqual([e.status for e in p.episodes], ["finalized"] * 10)
         self.assertTrue(all(e.summary for e in p.episodes))
         self.assertEqual(p.foreshadows[0].status, "resolved")
         self.assertTrue((store.project_dir("demo") / "briefs" / "03-episode.md").exists())
+        self.assertTrue((store.project_dir("demo") / "briefs" / "03-check.md").exists())
+        self.assertIsNotNone(p.style_baseline)
+        self.assertEqual(p.episode(2).issues[0].type, "말투")
+        self.assertEqual(p.episode(1).issues, [])
 
 
 if __name__ == "__main__":

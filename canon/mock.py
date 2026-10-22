@@ -10,6 +10,8 @@ from .schema import (
     ArcPlan,
     Character,
     CharacterState,
+    ConsistencyIssue,
+    ConsistencyReport,
     EpisodePlot,
     Foreshadow,
     PlotBatch,
@@ -73,6 +75,14 @@ class MockLLM:
                 foreshadow_planted=[Foreshadow(id=f"fs-{n:02d}-key", description="녹슨 열쇠", planted_ep=n)] if n == 1 else [],
                 foreshadow_resolved=["fs-01-key"] if n == 2 else [],
             )  # type: ignore[return-value]
+        if schema is ConsistencyReport:
+            n = hint["episode"]
+            issues = [ConsistencyIssue(
+                type="말투", description="도현이 서윤에게 반말을 쓴다", source_episode=0,
+                source_quote="느긋한 존댓말. \"천천히 해요.\"", current_quote="\"됐어, 내가 할게.\"",
+                suggestion="도현의 대사를 존댓말로 바꾼다",
+            )] if n == 2 else []
+            return ConsistencyReport(episode=n, issues=issues)  # type: ignore[return-value]
         raise NotImplementedError(schema.__name__)
 
     def text(self, system: str, prompt: str) -> str:

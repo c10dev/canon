@@ -1,11 +1,12 @@
 """생성 파이프라인. 각 단계는 Project 를 받아 제안을 만들고, 반영은 호출자가 승인 후 한다."""
 from __future__ import annotations
 
-from . import prompts
+from . import metrics, prompts
 from .llm import LLM
 from .schema import (
     ArcPlan,
     CharacterState,
+    ConsistencyReport,
     Episode,
     PlotBatch,
     Project,
@@ -105,7 +106,32 @@ def write_episode(llm: LLM, p: Project, n: int) -> str:
     return llm.text(prompts.SYSTEM_WRITER, prompts.episode_prompt(p, n))
 
 
-# ---------- 5. 상태 갱신 ----------
+# ---------- 5. 검수 (모순 찾기, 문체 지표) ----------
+
+def check_episode(llm: LLM, p: Project, n: int) -> ConsistencyReport:
+    if not p.episode(n).text:
+        raise ValueError(f"{n}화 본문이 없습니다")
+    report = llm.json(prompts.SYSTEM_CHECKER, prompts.check_prompt(p, n), ConsistencyReport, hint={"episode": n})
+    report.episode = n
+    return report
+
+
+def apply_check(p: Project, r: ConsistencyReport) -> None:
+    """검수 결과는 참고용 경고라 승인 없이 화에 붙여 둔다. 다시 검수하면 덮어쓴다."""
+    p.episode(r.episode).issues = r.issues
+
+
+def style_baseline(p: Project) -> metrics.StyleMetrics:
+    """레퍼런스 원문 전체로 잰 값이 없으면(예전 프로젝트) 발췌 문단으로 잰다."""
+    return p.style_baseline or metrics.measure("\n\n".join(p.style.sample_passages))
+
+
+def style_drift(p: Project, n: int) -> tuple[metrics.StyleMetrics, list[str]]:
+    cur = metrics.measure(p.episode(n).text, p.style.banned_phrases)
+    return cur, metrics.drift(style_baseline(p), cur)
+
+
+# ---------- 6. 상태 갱신 ----------
 
 def extract_state(llm: LLM, p: Project, n: int) -> StateDelta:
     if not p.episode(n).text:
