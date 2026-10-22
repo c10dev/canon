@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import autorun, dynamics, elements, genres, jobs, library, naming, pipeline, prompts, research, settings, store
+from . import autorun, dynamics, elements, genres, jobs, library, metrics, naming, pipeline, prompts, research, settings, store
 from .llm import GeminiLLM, LocalLLM, get_llm, make_llm
 from .schema import ArcPlan, ArcProposal, Meta, Project, SeriesPlan, SetupSuggestion, StateDelta, StyleEntry, StyleProfile
 
@@ -281,6 +281,12 @@ def analyze_style(name: str, body: Sample) -> StyleProfile:
     if len(body.text.strip()) < 200:
         raise HTTPException(400, "예시 원문은 200자 이상 넣어 주세요")
     return pipeline.analyze_style(get_llm("plan"), body.text)
+
+
+@app.post("/api/metrics")
+def measure(body: Sample) -> metrics.StyleMetrics:
+    """원문 전체로 문체 기준 지표를 잰다 (LLM 없음). 웹에서 분석한 원문의 기준값을 작품에 남길 때 쓴다."""
+    return metrics.measure(body.text)
 
 
 @app.get("/api/projects/{name}/style/link")
