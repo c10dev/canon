@@ -14,11 +14,14 @@ import copy
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 from typing import Any, Protocol, TypeVar
 
 from pydantic import BaseModel, ValidationError
+
+from . import usage
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -44,12 +47,41 @@ def _inline_refs(schema: dict) -> dict:
     return walk(schema)
 
 
+class SchemaMismatch(RuntimeError):
+    """다시 요청해도 모델 응답이 스키마와 맞지 않는다. 자동 집필은 이 오류에서 그 화를 멈추고 기다린다."""
+
+    def __init__(self, schema: type[BaseModel], error: ValidationError, who: str = "모델"):
+        self.schema, self.brief = schema.__name__, _brief(error)
+        super().__init__(f"{who} 응답이 {self.schema} 형식과 맞지 않습니다 (다시 요청해도 같음): {self.brief}")
+
+
+def _brief(e: ValidationError, limit: int = 8) -> str:
+    """검증 오류를 위치와 이유만 짧게. 입력값 전체는 길고 본문이 섞여 있어 뺀다."""
+    errs = e.errors(include_url=False)
+    parts = [f"{'.'.join(map(str, x['loc'])) or '(전체)'}: {x['msg']}" for x in errs[:limit]]
+    return "; ".join(parts) + (f" 외 {len(errs) - limit}개" if len(errs) > limit else "")
+
+
+def repair_prompt(prompt: str, raw: str, schema: type[BaseModel], error: ValidationError) -> str:
+    """스키마와 맞지 않는 응답을 오류와 함께 돌려주며 형식만 고쳐 달라는 요청. 배치처럼 대화가 없는 곳에서도 쓴다."""
+    return (f"{prompt}\n\n---\n앞선 응답이 {schema.__name__} JSON 형식과 맞지 않았습니다.\n"
+            f"틀린 곳: {_brief(error, 20)}\n"
+            "필수 칸을 모두 채우고, 객체여야 할 자리에 문자열을 넣지 마세요. "
+            "내용은 살리고 형식만 고쳐 JSON 만 다시 내세요.\n\n"
+            f"앞선 응답:\n{raw[:12000]}")
+
+
+def _validate(schema: type[T], raw: str) -> T:
+    return schema.model_validate_json(_FENCE_RE.sub("", raw.strip()))
+
+
 def _usage(u: Any) -> dict | None:
-    """Gemini 토큰 수. 생각(thinking) 토큰은 출력 요금으로 매겨져 따로 센다."""
+    """Gemini 토큰 수. 생각(thinking) 토큰은 출력 요금으로 매겨져 따로 센다. 캐시된 토큰은 입력에 들어 있고 싸게 매겨진다."""
     if not u:
         return None
     return {"prompt_tokens": u.prompt_token_count or 0, "completion_tokens": u.candidates_token_count or 0,
-            "thought_tokens": getattr(u, "thoughts_token_count", None) or 0}
+            "thought_tokens": getattr(u, "thoughts_token_count", None) or 0,
+            "cached_tokens": getattr(u, "cached_content_token_count", None) or 0}
 
 
 class GeminiLLM:
@@ -65,6 +97,7 @@ class GeminiLLM:
         self.model = model or settings.model()[0]
         self.last_usage: dict | None = None  # 연구 화면에서 보여 줄 마지막 호출의 토큰 수
         self.last_attempts = 0
+        self.last_raw = ""
 
     def check(self) -> None:
         """키와 모델 이름이 맞는지 가볍게 확인한다 (생성 호출 없음)."""
@@ -86,47 +119,77 @@ class GeminiLLM:
     def count_tokens(self, text: str) -> int | None:
         return self.client.models.count_tokens(model=self.model, contents=text).total_tokens
 
-    def _call(self, system: str, prompt: str, **config: Any) -> str:
+    def _call(self, system: str, prompt: str, attempt: int = 1, parse: Any = None, **config: Any) -> Any:
+        """한 번 부르고 사용량을 기록한다. parse 가 있으면 응답 글을 parse 한 값을 돌려주고, parse 가 실패해도
+        (형식 불일치) 토큰은 쓴 것이라 실패로 기록한다."""
         from google.genai import types
 
-        resp = self.client.models.generate_content(
-            model=self.model,
-            contents=prompt,
-            config=types.GenerateContentConfig(system_instruction=system, **config),
-        )
-        self.last_usage = _usage(resp.usage_metadata)
-        if not resp.text:
-            raise RuntimeError(f"Gemini 응답이 비었습니다: {resp.candidates[0].finish_reason if resp.candidates else resp}")
-        return resp.text
+        t, tokens = time.time(), None
+        self.last_raw = ""
+        try:
+            resp = self.client.models.generate_content(
+                model=self.model,
+                contents=prompt,
+                config=types.GenerateContentConfig(system_instruction=system, **config),
+            )
+            tokens = self.last_usage = _usage(resp.usage_metadata)
+            if not resp.text:
+                raise RuntimeError(f"Gemini 응답이 비었습니다: {resp.candidates[0].finish_reason if resp.candidates else resp}")
+            self.last_raw = resp.text
+            out = parse(resp.text) if parse else resp.text
+        except Exception as e:
+            usage.record(self, tokens, t, ok=False, error=e, attempt=attempt)
+            raise
+        usage.record(self, tokens, t, attempt=attempt)
+        return out
 
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
-        raw = self._call(
-            system,
-            prompt,
-            response_mime_type="application/json",
-            response_json_schema=_inline_refs(schema.model_json_schema()),
-        )
-        self.last_attempts = 1
-        return schema.model_validate_json(raw)
+        """구조화 출력이 어긋나면 (모델이 스키마를 무시하는 일이 있다) 오류를 알려 주고 한 번 더 받는다."""
+        ask = prompt
+        for attempt in range(2):
+            self.last_attempts = attempt + 1
+            try:
+                return self._call(system, ask, attempt + 1, lambda raw: _validate(schema, raw),
+                                  response_mime_type="application/json",
+                                  response_json_schema=_inline_refs(schema.model_json_schema()))
+            except ValidationError as e:
+                if attempt:
+                    raise SchemaMismatch(schema, e, "Gemini") from e
+                ask = repair_prompt(prompt, self.last_raw, schema, e)
+        raise AssertionError("unreachable")
 
     def text(self, system: str, prompt: str) -> str:
+        self.last_attempts = 1
         return self._call(system, prompt)
 
     # ---------- Batch API (비용 절반, 결과까지 몇 분~최대 24시간) ----------
 
     def batch_submit(self, system: str, prompt: str, schema: type[BaseModel] | None, label: str,
                      hint: dict | None = None) -> str:
-        """요청 하나짜리 배치 작업을 만들고 작업 이름을 돌려준다. hint 는 mock 용이라 쓰지 않는다."""
-        config: dict[str, Any] = {"system_instruction": system}
-        if schema is not None:
-            config.update(response_mime_type="application/json",
-                          response_json_schema=_inline_refs(schema.model_json_schema()))
-        job = self.client.batches.create(
-            model=self.model,
-            src=[{"contents": [{"role": "user", "parts": [{"text": prompt}]}], "config": config}],
-            config={"display_name": label[:120]},
-        )
-        return job.name
+        """요청 하나짜리 배치 작업을 만들고 작업 이름을 돌려준다. hint 는 mock 용이라 쓰지 않는다.
+
+        배치는 response_schema(예전부터 배치 문서에 있는 형식)로 스키마를 보낸다. 실제 실행에서 배치가
+        response_json_schema 를 지키지 않고 목록 항목을 문자열로 낸 일이 있었다. SDK 가 스키마를 바꾸지
+        못하거나 서버가 요청을 거절(400)하면 response_json_schema 로 보낸다."""
+        from google.genai import errors
+
+        def create(fmt: dict[str, Any]) -> Any:
+            return self.client.batches.create(
+                model=self.model,
+                src=[{"contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                      "config": {"system_instruction": system, **fmt}}],
+                config={"display_name": label[:120]},
+            )
+
+        if schema is None:
+            return create({}).name
+        try:
+            return create({"response_mime_type": "application/json", "response_schema": schema}).name
+        except (TypeError, ValueError, errors.ClientError) as e:
+            if isinstance(e, errors.ClientError) and e.code != 400:
+                raise
+            return create({"response_mime_type": "application/json",
+                           "response_json_schema": _inline_refs(schema.model_json_schema())}).name
 
     def batch_poll(self, name: str) -> str | None:
         """끝났으면 응답 글, 아직이면 None. 실패, 취소, 만료면 오류를 낸다."""
@@ -166,32 +229,36 @@ class BatchLLM:
     names 는 slot -> 배치 작업 이름. 호출자가 저장해 두면 프로세스가 다시 시작해도 같은 slot 으로
     부를 때 새 작업을 만들지 않고 기다리던 작업에 다시 붙는다 (프롬프트가 같다는 전제).
     wait(초) 는 기다리고 나서 'stop'(작업 취소) | 'pause'(작업은 두고 멈춤) | '' 를 돌려준다.
+    json 응답이 스키마와 맞지 않으면 오류를 붙여 '<slot>:fix' 로 한 번 더 배치를 보내고, note(글) 로 알린다.
     """
 
     def __init__(self, inner: Any, slot: str, names: dict[str, str], on_change: Any, wait: Any,
-                 label: str = "canon", interval: float | None = None):
+                 label: str = "canon", interval: float | None = None, note: Any = None):
         self.inner, self.slot, self.names, self.on_change, self.wait = inner, slot, names, on_change, wait
-        self.label = label
+        self.label, self.note = label, note
         self.interval = interval if interval is not None else float(os.environ.get("CANON_BATCH_POLL", "30"))
         self.last_usage: dict | None = None
         self.last_attempts = 1
         self.model = getattr(inner, "model", "")
 
-    def _run(self, system: str, prompt: str, schema: type[BaseModel] | None, hint: dict | None = None) -> str:
-        name = self.names.get(self.slot)
+    def _run(self, system: str, prompt: str, schema: type[BaseModel] | None, hint: dict | None = None,
+             slot: str | None = None) -> str:
+        slot = slot or self.slot
+        name = self.names.get(slot)
         if not name:
-            name = self.inner.batch_submit(system, prompt, schema, f"{self.label} {self.slot}", hint=hint)
-            self.names[self.slot] = name
+            name = self.inner.batch_submit(system, prompt, schema, f"{self.label} {slot}", hint=hint)
+            self.names[slot] = name
             self.on_change()
         while True:
             try:
                 raw = self.inner.batch_poll(name)
-            except Exception:
-                self.names.pop(self.slot, None)  # 실패한 작업에 다시 붙지 않게 한다
+            except Exception as e:
+                self.names.pop(slot, None)  # 실패한 작업에 다시 붙지 않게 한다
                 self.on_change()
+                usage.record(self.inner, None, ok=False, error=e, attempt=self.last_attempts, batch=True)
                 raise
             if raw is not None:
-                self.names.pop(self.slot, None)
+                self.names.pop(slot, None)
                 self.on_change()
                 self.last_usage = getattr(self.inner, "last_usage", None)
                 return raw
@@ -200,17 +267,41 @@ class BatchLLM:
                 try:
                     self.inner.batch_cancel(name)
                 finally:
-                    self.names.pop(self.slot, None)
+                    self.names.pop(slot, None)
                     self.on_change()
                 raise Interrupted(cancelled=True)
             if why:
                 raise Interrupted(cancelled=False)
 
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
-        return schema.model_validate_json(_FENCE_RE.sub("", self._run(system, prompt, schema, hint).strip()))
+        fix = f"{self.slot}:fix"
+        ask = prompt  # 고쳐 달라는 작업을 기다리던 중이면 (서버 재시작) 프롬프트는 쓰이지 않는다
+        if fix not in self.names:
+            self.last_attempts = 1
+            raw = self._run(system, prompt, schema, hint)
+            try:
+                return self._done(_validate(schema, raw))
+            except ValidationError as e:
+                self._done(None, e)
+                if self.note:
+                    self.note(f"응답이 형식과 맞지 않아 ({_brief(e, 3)}) 오류를 알려 주고 한 번 더 배치로 요청합니다")
+                ask = repair_prompt(prompt, raw, schema, e)
+        self.last_attempts = 2
+        raw = self._run(system, ask, schema, hint, slot=fix)
+        try:
+            return self._done(_validate(schema, raw))
+        except ValidationError as e:
+            self._done(None, e)
+            raise SchemaMismatch(schema, e, "Gemini 배치") from e
 
     def text(self, system: str, prompt: str) -> str:
-        return self._run(system, prompt, None)
+        self.last_attempts = 1
+        return self._done(self._run(system, prompt, None))
+
+    def _done(self, out: Any, error: Exception | None = None) -> Any:
+        """받아 온 배치 결과 하나를 기록한다 (형식이 어긋났어도 토큰은 썼다)."""
+        usage.record(self.inner, self.last_usage, ok=error is None, error=error, attempt=self.last_attempts, batch=True)
+        return out
 
 
 def _require_all(schema: Any) -> Any:
@@ -228,6 +319,14 @@ def _require_all(schema: Any) -> Any:
 
 _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.S)
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```\s*$")
+
+
+def _local_usage(u: Any) -> dict | None:
+    """OpenAI 호환 usage. 캐시된 프롬프트 토큰을 주는 서버(vLLM 등)도 있다."""
+    if not isinstance(u, dict):
+        return None
+    cached = (u.get("prompt_tokens_details") or {}).get("cached_tokens") or 0
+    return {**u, "cached_tokens": cached}
 
 
 class LocalLLM:
@@ -324,35 +423,47 @@ class LocalLLM:
             raise RuntimeError(f"서버에 {self._model} 이 없습니다. 있는 모델: {names}")
         self.model  # noqa: B018  모델 이름 확정
 
-    def _chat(self, system: str, messages: list[dict], **extra: Any) -> str:
-        body = {"model": self.model, "messages": [{"role": "system", "content": system}, *messages], **extra}
-        resp = self._request("POST", "/chat/completions", body)
-        self.last_usage = resp.get("usage")
-        choice = (resp.get("choices") or [{}])[0]
-        content = (choice.get("message") or {}).get("content") or ""
-        content = _THINK_RE.sub("", content).strip()
-        if not content:
-            raise RuntimeError(f"로컬 모델 응답이 비었습니다: finish_reason={choice.get('finish_reason')}")
-        return content
+    def _chat(self, system: str, messages: list[dict], attempt: int = 1, parse: Any = None, **extra: Any) -> Any:
+        """한 번 부르고 사용량을 기록한다. parse 는 GeminiLLM._call 과 같다."""
+        t, tokens = time.time(), None
+        try:
+            body = {"model": self.model, "messages": [{"role": "system", "content": system}, *messages], **extra}
+            resp = self._request("POST", "/chat/completions", body)
+            tokens = self.last_usage = _local_usage(resp.get("usage"))
+            choice = (resp.get("choices") or [{}])[0]
+            content = (choice.get("message") or {}).get("content") or ""
+            content = _THINK_RE.sub("", content).strip()
+            if not content:
+                raise RuntimeError(f"로컬 모델 응답이 비었습니다: finish_reason={choice.get('finish_reason')}")
+            out = parse(content) if parse else content
+        except Exception as e:
+            usage.record(self, tokens, t, ok=False, error=e, attempt=attempt)
+            raise
+        usage.record(self, tokens, t, attempt=attempt)
+        return out
 
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
         js = _require_all(_inline_refs(schema.model_json_schema()))
         fmt = {"type": "json_schema", "json_schema": {"name": schema.__name__, "schema": js}}
         messages = [{"role": "user", "content": prompt}]
+
+        def parse(raw: str) -> T:
+            self.last_raw = _FENCE_RE.sub("", raw)  # 연구 화면이 검증 전 값을 본다
+            return schema.model_validate_json(self.last_raw)
+
         for attempt in range(2):
             self.last_attempts = attempt + 1
-            raw = self._chat(system, messages, response_format=fmt, temperature=0.3)
-            self.last_raw = _FENCE_RE.sub("", raw)  # 연구 화면이 검증 전 값을 본다
             try:
-                return schema.model_validate_json(self.last_raw)
+                return self._chat(system, messages, attempt + 1, parse, response_format=fmt, temperature=0.3)
             except ValidationError as e:
                 if attempt:
-                    raise RuntimeError(f"로컬 모델이 {schema.__name__} 형식을 맞추지 못했습니다: {e}") from e
-                messages += [{"role": "assistant", "content": raw},
+                    raise SchemaMismatch(schema, e, "로컬 모델") from e
+                messages += [{"role": "assistant", "content": self.last_raw},
                              {"role": "user", "content": f"JSON 이 스키마와 맞지 않습니다. 오류를 고쳐 JSON 만 다시 내세요.\n{e}"}]
         raise AssertionError("unreachable")
 
     def text(self, system: str, prompt: str) -> str:
+        self.last_attempts = 1
         return self._chat(system, [{"role": "user", "content": prompt}], **self.sampling)
 
 
@@ -373,7 +484,10 @@ def get_llm(stage: str | None = None) -> LLM:
     """stage: plan | write | check | state | name | revise. 단계별 백엔드와 모델 설정이 없으면 전체 설정을 쓴다."""
     from . import settings
 
-    return make_llm(settings.stage_provider(stage)[0], settings.stage_model(stage)[0])
+    llm = make_llm(settings.stage_provider(stage)[0], settings.stage_model(stage)[0])
+    if stage:
+        llm.stage = stage  # type: ignore[attr-defined]  # 사용량 기록이 단계를 적는다
+    return llm
 
 
 def dump(model: BaseModel | list | dict) -> str:

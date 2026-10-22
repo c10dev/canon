@@ -165,10 +165,22 @@ def arc_prompt(p: Project) -> str:
 {elements.plan_block(p) or "없음"}{lines_block(p)}
 
 요구사항:
-- 기, 승, 전, 결 네 구간이 1화부터 {p.meta.target_episodes}화까지 빈틈없이 이어져야 합니다.
-- 일반적인 비율은 기 15~20%, 승 35~40%, 전 25%, 결 15~20% 입니다.
+{arc_range_rule(p.meta.target_episodes)}
 - goal 은 그 구간이 끝날 때 도달해야 하는 이야기 상태, key_turn 은 핵심 전환점입니다.
-- 주인공의 arc 가 결 구간에서 완성되도록 합니다."""
+- 주인공의 arc 가 결 구간에서 완성되도록 합니다.
+- 기 구간은 소개가 아니라 발단입니다. 1화에 사건이 시작되고, 주인공의 결핍과 작품의 핵심 장치가 1~3화 안에 드러나며, 3화 안에 작은 보상이 하나 옵니다."""
+
+
+def arc_range_rule(total: int) -> str:
+    """구간 범위 요구사항. 4화보다 짧으면 한 화에 두 구간이 들어가야 하므로 따로 안내한다."""
+    if total >= 4:
+        return f"""- 기, 승, 전, 결 네 구간이 1화부터 {total}화까지 빈틈없이 이어져야 합니다. 구간끼리 화가 겹치면 안 됩니다.
+- 일반적인 비율은 기 15~20%, 승 35~40%, 전 25%, 결 15~20% 입니다."""
+    shape = {1: "기 1~1, 승 1~1, 전 1~1, 결 1~1 (한 화 안에 기승전결)",
+             2: "기 1~1, 승 1~1, 전 2~2, 결 2~2",
+             3: "기 1~1, 승 2~2, 전 3~3, 결 3~3"}.get(total, "")
+    return f"""- 총 {total}화라 네 구간이 한 화씩 가질 수 없습니다. 이웃한 구간이 한 화를 함께 씁니다. 범위는 {shape} 로 하세요.
+- 한 화를 함께 쓰는 구간은 그 화 안에서 차례로 지나갑니다. goal 과 key_turn 은 구간마다 따로 씁니다."""
 
 
 def plot_prompt(p: Project, start: int, end: int) -> str:
@@ -195,7 +207,7 @@ def plot_prompt(p: Project, start: int, end: int) -> str:
 {dump([f for f in p.foreshadows if f.status == "open"]) or "없음"}
 
 요구사항:
-{plot_rules(p)}"""
+{plot_rules(p, start <= OPENING_EPISODES)}"""
 
 
 def serial_plot_prompt(p: Project, start: int, end: int) -> str:
@@ -229,10 +241,34 @@ def serial_plot_prompt(p: Project, start: int, end: int) -> str:
 [바로 앞 화 플롯 (확정 또는 초안, 이어지게 쓸 것)]
 {dump(near) if near else "없음"}
 [열린 복선]{f" (그 밖에 {more}개는 이번 아크와 거리가 멀어 뺐습니다)" if more else ""}
-{dump(fs) or "없음"}
+{dump(fs) or "없음"}{rebuild_map_block(p, start, end)}
 
 요구사항:
-{plot_rules(p)}"""
+{plot_rules(p, start <= OPENING_EPISODES)}"""
+
+
+USE_LABEL = {"keep": "옛 본문 그대로", "revise": "옛 본문을 다듬음", "rewrite": "옛 화를 재료로 새로 씀", "new": "새 화"}
+
+
+def rebuild_map_block(p: Project, start: int, end: int) -> str:
+    """재구성한 작품: 이 구간 화마다 정해 둔 내용과 옛 단편 화. 본문이 있는 화의 플롯은 바꾸지 않는다."""
+    if p.archive is None:
+        return ""
+    lines = []
+    for x in p.archive.map:
+        if not start <= x.number <= end:
+            continue
+        olds = "; ".join(f"단편 {s}화 {src.plot.title}: {src.summary or src.plot.summary}"
+                         for s in x.sources if (src := p.archive.source(s)))
+        ep = next((e for e in p.episodes if e.plot.number == x.number), None)
+        fixed = " (본문이 이미 있어 플롯 고정. 위 플롯과 같은 내용으로 이어지게)" if ep and ep.text else ""
+        lines.append(f"- {x.number}화 [{USE_LABEL[x.use]}]{fixed} {x.title}: {x.summary}"
+                     + (f"\n  옛 화: {olds}" if olds else "") + (f"\n  메모: {x.note}" if x.note else ""))
+    if not lines:
+        return ""
+    fixed = [e.plot for e in p.episodes if start <= e.plot.number <= end and e.text]
+    return ("\n[재구성 지도 (단편을 장편으로 다시 짠 계획. 화마다 이 내용을 따르세요)]\n" + "\n".join(lines)
+            + (f"\n[본문이 있는 화의 플롯 (바꾸지 말고 그대로 다시 적을 것)]\n{dump(fixed)}" if fixed else ""))
 
 
 def lines_block(p: Project) -> str:
@@ -241,14 +277,15 @@ def lines_block(p: Project) -> str:
     return f"\n[이야기 줄기 (메인에서 갈라졌다 합류하는 서브플롯 · 회상 · 외전)]\n{b}" if b else ""
 
 
-def plot_rules(p: Project) -> str:
-    """화별 플롯을 쓸 때 지킬 규칙. 초안 생성과 대화형 수정이 같이 쓴다."""
+def plot_rules(p: Project, opening: bool = False) -> str:
+    """화별 플롯을 쓸 때 지킬 규칙. 초안 생성과 대화형 수정이 같이 쓴다.
+    opening 이면 1~3화 규칙과 장르별 초반 박자를 붙인다 (다룰 화에 1~3화가 있을 때만, 장편 뒤쪽 프롬프트를 키우지 않게)."""
     common = f"""- 각 화는 소속 구간(act)의 goal 을 향해 전진해야 하며, 구간의 key_turn 은 해당 구간 안의 특정 화에 배치합니다.
 - 한 화에 사건 3~6개, 분량은 약 {p.meta.words_per_episode}자 기준.
 - emotional_shift 는 감정 이름이 아니라 감정 변화가 겉으로 드러나는 행동이나 대사로 적습니다 (예: "상대의 전화를 세 번째에야 받는다").
 - 모든 화가 같은 모양이 되지 않도록, 필요한 화에는 회상, 시간 건너뛰기, 곁가지 사건, 주인공의 잘못된 선택을 씁니다. 갈등은 너무 깔끔하게 정리하지 않습니다.
 - 이야기 요소는 시점을 지킵니다. 'n화부터 생김'은 그 화 전에 사실로 쓰지 않고, '나올 화'에는 그 요소를 사건으로 넣고, '드러나는 화' 전에는 암시만 둡니다.
-- characters 에는 인물 id 만 씁니다.""" + storylines.plan_rule(p)
+- characters 에는 인물 id 만 씁니다.""" + storylines.plan_rule(p) + (opening_plot_rule(p) if opening else "")
     if not p.serial:
         return common + """
 - 매 화 ending_hook 을 둡니다. 마지막 화는 훅 대신 여운을 둡니다.
@@ -258,7 +295,81 @@ def plot_rules(p: Project) -> str:
 - 주인공이 막히는 구간은 2~3화를 넘기지 않고, 막힌 만큼 시원하게 푸는 화를 뒤에 둡니다.
 - 매 화 ending_hook 을 둡니다. 장면 한가운데나 새 정보가 드러나는 순간에 끊습니다. 아크 마지막 화는 다음 아크로 이어지는 떡밥으로 끊습니다. 작품 마지막 화({p.meta.target_episodes}화)만 훅 대신 여운을 둡니다.
 - 이 아크에서 심은 작은 복선은 아크 안에서 회수합니다. 아크의 payoffs 에 있는 복선은 아크가 끝나기 전에 회수합니다. 부나 작품 끝까지 끌고 갈 복선은 심을 때 그렇다고 밝힙니다.
-- 1~3화는 주인공의 특별함과 목표를 보여 주고, 첫 아크의 큰 보상은 25화 안에 둡니다 (연재 초반 관습)."""
+- 첫 아크의 큰 보상은 25화 안에 둡니다 (무료 공개 구간 안에 보상이 와야 계속 읽는다는 연재 관습)."""
+
+
+# ---------- 초반 1~3화: 독자가 계속 읽을지 정하는 구간 ----------
+# 무료 회차로 고르는 플랫폼에서는 1~3화에서 독자가 남을지 정한다. 이 화들에만 따로 규칙을 붙인다.
+# 규칙은 화마다 바뀌는 뒤쪽 블록에 둬서 static_context 캐시를 깨지 않는다. 연구 보고서: canon/research/opening-hook.html
+
+OPENING_EPISODES = 3
+
+OPENING_JOBS = {
+    1: "1화는 약속입니다. 주인공이 누구인지, 무엇이 없는지(결핍), 무엇이 뒤집히는지 보여 주고, 작품의 핵심 장치(회귀, 빙의, 각성, 계약, 사건 등)가 이 화 앞 절반 안에 일어나거나 확실히 예고됩니다.",
+    2: "2화는 첫 행동입니다. 주인공이 처음으로 스스로 고르고, 그 선택의 대가가 보입니다. 1화가 남긴 질문에 일부 답하고, 장치나 능력의 규칙 하나가 사건 속에서 드러납니다.",
+    3: "3화는 첫 보상입니다. 작은 보상(첫 성과, 첫 응징, 첫 설렘) 하나를 확실하게 주고, 첫 아크의 진짜 문제가 보이는 더 큰 질문으로 끊습니다.",
+}
+
+# 1화를 여는 방식. 여러 안을 써서 고를 때 안마다 하나씩 붙인다. id → (이름, 지시)
+OPENING_APPROACHES: dict[str, tuple[str, str]] = {
+    "in_medias_res": ("사건 한가운데", "위기나 갈등이 이미 벌어진 장면에서 시작합니다. 앞 사정은 장면이 진행되며 대사와 행동으로 조금씩 드러냅니다."),
+    "lack_turn": ("결핍에서 전환", "주인공의 바닥인 처지를 짧은 장면 하나로 보여 주고(앞 3분의 1 안), 그 처지를 뒤집는 사건으로 넘어갑니다. 화 끝에 작품의 핵심 장치가 확정됩니다."),
+    "premise_first": ("전제부터", "첫 문단은 작품의 핵심 장치(회귀, 빙의, 각성, 계약, 사건)가 이미 일어난 직후입니다. 주인공이 바뀐 처지를 확인하고 첫 판단을 내리는 데 이 화를 씁니다."),
+    "flash_forward": ("미래 장면 먼저", "뒤에 올 결정적 장면 하나를 화 맨 앞에 500자 안팎으로 짧게 보여 준 뒤 시간을 되돌려 시작합니다. 그 장면은 설정을 어기지 않고, 어떻게 그렇게 되는지는 숨깁니다."),
+}
+DEFAULT_APPROACHES = ["in_medias_res", "lack_turn", "premise_first"]
+
+
+def is_opening(n: int) -> bool:
+    return 1 <= n <= OPENING_EPISODES
+
+
+def opening_pending(p: Project) -> bool:
+    """1~3화 가운데 아직 본문이 없는 화가 있는가. 플롯 대화 · 영향 분석이 초반 규칙을 붙일지 정한다."""
+    written = {e.plot.number for e in p.episodes if e.text}
+    return any(n not in written for n in range(1, OPENING_EPISODES + 1))
+
+
+def opening_plot_rule(p: Project) -> str:
+    """화별 플롯 규칙에 붙는 1~3화 규칙. 장르별 박자가 있으면 함께 넣는다."""
+    beats = []
+    for n in range(1, OPENING_EPISODES + 1):
+        b = genres.opening_beats(p.meta, n)
+        if b:
+            beats.append(f"  {n}화: " + " / ".join(b))
+    return f"""
+- 1~3화는 독자가 계속 읽을지 정하는 초반입니다. {OPENING_JOBS[1]} {OPENING_JOBS[2]} {OPENING_JOBS[3]}
+- 1~3화의 '기' 구간은 소개가 아니라 발단입니다. 세계관 설명이나 인물 소개만 하는 화를 두지 않고, 설정은 사건에 필요한 만큼만 나눠 드러냅니다. 1화에 이름을 붙여 등장시키는 인물은 다섯 명 이하로 둡니다.
+- 1~3화는 opening 에 그 화를 여는 첫 장면을, reader_question 에 그 화를 읽은 독자가 다음 화로 들고 갈 질문을 적습니다. 다음 화는 앞 화의 질문에 일부 답하면서 더 큰 질문을 엽니다. 다른 화는 두 칸을 비워도 됩니다.""" + (
+        "\n- 장르별 초반 박자 (출발점이며, 이야기에 맞게 바꿔도 됩니다):\n" + "\n".join(beats) if beats else "")
+
+
+def opening_rules(p: Project, n: int, approach: str = "") -> str:
+    """n화(1~3) 본문에 붙이는 초반 규칙. 그 밖의 화는 빈 문자열. approach 는 OPENING_APPROACHES 의 id."""
+    if not is_opening(n):
+        return ""
+    beats = genres.opening_beats(p.meta, n)
+    plot = next((e.plot for e in p.episodes if e.plot.number == n), None)
+    lines = [
+        f"# 초반 규칙 ({n}화, 독자가 계속 읽을지 정하는 화)",
+        "문체는 스타일 프로필을 따르고, 사건 배치와 장면 시작 · 끝은 이 규칙을 따릅니다.",
+        f"- {OPENING_JOBS[n]}",
+        "- 첫 문단에서 주인공이 이미 무언가를 하고 있습니다. 세계관 설명, 날씨, 아침 기상, \"평범한 ~였다\" 같은 자기소개로 시작하지 않습니다.",
+        "- 세계관과 인물 설정은 어기지 말라는 자료이지 모두 설명하라는 것이 아닙니다. 이번 화에 필요한 것만 장면, 대사, 속마음 속에서 드러냅니다. 설명하는 문장을 세 문장 넘게 잇지 않습니다.",
+        "- 이름을 붙여 등장시키는 인물은 이번 화 등장 인물로 한정합니다. 주인공의 이름과 목소리(대사나 속마음)가 앞부분에 나옵니다.",
+        "- 주인공의 결핍과 걸린 것은 감정 이름이 아니라 처지와 행동으로 보입니다.",
+        "- 마지막 문단은 장면 한가운데나 새 정보가 드러나는 순간입니다. \"그때는 몰랐다\", \"이것이 시작이었다\" 같은 앞날 해설이나 정리하는 문장으로 끝내지 않습니다.",
+    ]
+    if plot and plot.opening:
+        lines.append(f"- 여는 장면: {plot.opening}")
+    if plot and plot.reader_question:
+        lines.append(f"- 이 화를 읽은 독자가 들고 갈 질문: {plot.reader_question}")
+    if beats:
+        lines.append("- 장르별 박자: " + " / ".join(beats))
+    if approach in OPENING_APPROACHES:
+        label, how = OPENING_APPROACHES[approach]
+        lines.append(f"- 여는 방식 ({label}): {how}")
+    return "\n".join(lines)
 
 
 # ---------- 장편 연재: 계층 줄거리, 관련 자료 고르기, 부 · 아크 기획 ----------
@@ -436,7 +547,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 - 지금 부의 goal 과 arc_ideas 중 아직 다루지 않은 것을 따라가되, 지금까지 실제로 쓰인 줄거리에 맞게 고칩니다.
 - 아크는 하나의 문제를 열고 해결합니다. goal 은 아크가 끝날 때 바뀌어 있어야 하는 것, conflict 는 주인공을 막는 문제나 상대, payoff 는 아크 클라이맥스에서 독자가 받는 보상(사이다)입니다.
 - acts 는 아크 안의 기승전결로, {start}화부터 end_ep 까지 기, 승, 전, 결 순서로 빈틈없이 이어집니다. 마지막 1~2화는 정리와 다음 아크 떡밥에 씁니다.
-- 직전 아크와 같은 모양의 갈등을 되풀이하지 않습니다. 걸린 것이나 상대가 조금씩 커지게 합니다.
+{"- 첫 아크입니다. 기 구간은 소개가 아니라 발단으로, 1화에 사건이 시작되고 1~3화 안에 주인공의 결핍, 작품의 핵심 장치, 작은 보상 하나가 나옵니다." + chr(10) if start == 1 else ""}- 직전 아크와 같은 모양의 갈등을 되풀이하지 않습니다. 걸린 것이나 상대가 조금씩 커지게 합니다.
 - payoffs 에는 이 아크에서 회수할 열린 복선 id 를 넣습니다. '오래됨' 표시가 있는 복선은 회수하거나 아크 안에서 다시 떠올립니다.
 - cast 에는 이 아크에 주로 나오는 인물 id 를 넣습니다. 새 인물이 필요하면 new_characters 에 전체 설정(speech_style 포함)을 넣고 tier 는 support 나 minor 로 둡니다. 이미 있는 인물을 다시 만들지 않습니다.
 - reply 에는 왜 이 아크인지, 어떤 복선을 회수하고 무엇을 다음으로 남기는지 2~4문장으로 씁니다.
@@ -599,6 +710,76 @@ def convert_prompt(p: Project, total: int, ending: str, note: str) -> str:
 - reply 는 3~5문장: 결말을 어떻게 처리했는지, 장편 전체를 끄는 갈등이 무엇인지, 1부가 어디서 끝나는지."""
 
 
+# ---------- 단편 → 장편 재구성 ----------
+
+ENDING_AT = {
+    "arc": "단편의 결말(클라이맥스와 해결)을 첫 아크 끝으로 옮깁니다. 첫 아크는 단편의 갈등을 다 풀고, 다음 아크부터 새 문제가 시작됩니다.",
+    "part": "단편의 결말을 1부 끝으로 미룹니다. 단편의 중심 갈등이 1부 전체를 끌고, 앞 아크들은 그 갈등의 단계가 됩니다. 이번에 짜는 앞부분에는 결말이 들어가지 않을 수 있습니다.",
+    "series": "단편의 결말을 작품의 결말로 미룹니다. 단편의 중심 갈등은 작품 전체의 큰 줄기가 되고, 앞부분은 그 줄기를 여는 데 씁니다. 단편 결말 장면은 이번에 짜는 앞부분에 넣지 않습니다.",
+    "": "단편의 결말을 첫 아크 끝(arc), 1부 끝(part), 작품 끝(series) 가운데 이 이야기에 맞는 곳으로 옮기고 ending_at 에 적으세요.",
+}
+
+
+def rebuild_prompt(p: Project, total: int, span: int, ending_at: str, note: str) -> str:
+    """단편을 씨앗으로 장편 앞부분을 다시 짜는 제안. 단편은 화가 적어 옛 화 전부를 넣는다."""
+    old = sorted(p.episodes, key=lambda e: e.plot.number)
+    rows = "\n".join(
+        f"- {e.plot.number}화 {e.plot.title} [{'본문 있음' if e.text else '본문 없음'}, {len(e.text):,}자]: "
+        f"{e.summary or e.plot.summary} / 엔딩 훅: {e.plot.ending_hook}" for e in old)
+    return f"""아래 단편({len(old)}화)을 총 {total}화 장편 연재로 다시 짭니다. 단편을 그대로 이어 쓰지 않고, 단편을 씨앗으로 장편의 앞부분 1~{span}화를 새로 설계하세요.
+옛 화마다 새 화 어디에 어떻게 쓸지 정합니다. 인물, 관계, 세계관, 문체는 그대로입니다.
+
+[작품]
+{meta_text(p)}
+[세계관]
+{dump(p.world)}
+[인물]
+{dump(p.characters)}
+[관계]
+{rels(p)}
+[이야기 요소 (작가가 더한 설정과 사건)]
+{elements.plan_block(p) or "없음"}{lines_block(p)}
+[단편의 기승전결]
+{dump(p.arc) if p.arc else "없음"}
+[단편의 화 (번호, 제목, 요약, 엔딩 훅)]
+{rows}
+[작가의 요청]
+{note.strip() or "없음"}
+
+결말 위치: {ENDING_AT.get(ending_at, ENDING_AT[""])}
+
+요구사항:
+- total_episodes 는 {total} 입니다. arcs 는 1화부터 {span}화까지 빈틈없이 이어지는 아크 2~5개입니다. 아크 하나는 5~30화이고, 아크마다 acts 에 기, 승, 전, 결 네 구간을 빈틈없이 채웁니다. 아크마다 goal, conflict, payoff, cast 를 적습니다.
+- episodes 는 1화부터 {span}화까지 한 화도 빠짐없이 한 줄씩 적습니다. title 과 summary(2~3문장)는 새 화 기준입니다.
+- 옛 화는 보통 새 2~4화로 늘어납니다. 단편에서 한 문단으로 지나간 장면, 인물 소개, 관계가 바뀌는 계기, 세계관을 보여 줄 사건을 화 단위로 키웁니다. 단편에 없던 사건과 인물도 넣을 수 있습니다.
+- 웹소설 연재 첫머리 규칙: 1화 안에 주인공과 이 작품의 핵심 사건(또는 능력, 계약, 비밀)을 보여 주고, 1~3화는 매 화 다음 화를 누르게 하는 훅으로 끝냅니다. 단편의 느린 도입은 뒤로 미루거나 줄입니다.
+- 화마다 use 를 정합니다. keep 은 옛 화 본문을 그대로 쓸 수 있을 때만(옛 화 하나, 새 자리에서도 앞뒤가 맞을 때), revise 는 옛 화 본문을 살리되 고칠 것이 있을 때(note 에 무엇을 고칠지), rewrite 는 옛 화를 재료로 새로 쓸 때(note 에 무엇을 살릴지), new 는 새 화입니다. 옛 화 하나의 본문은 keep 이나 revise 로 한 번만 씁니다. sources 에는 그 화에 쓰는 옛 화 번호를 넣습니다.
+- 본문이 없는 옛 화는 keep 이나 revise 로 쓸 수 없습니다. 쓰지 않는 옛 화는 dropped 에 넣습니다.
+- parts 는 1화부터 {total}화까지 빈틈없이 이어지는 부 구성이고, 위 아크들이 부 경계를 넘지 않게 합니다. 부 하나는 보통 50~150화입니다. arc_ideas 에는 {span}화 뒤에 올 아크 후보를 순서대로 적고, 새 인물이 필요하면 "새 인물: 역할" 을 함께 적습니다. summary 는 비워 둡니다.
+- foreshadows 에는 장편 전체나 한 부를 끌고 갈 새 장기 떡밥 2~5개를 넣습니다. id 는 "fs-r-" 로 시작하고, scope 는 part 나 series, planted_ep 는 그 떡밥을 심을 새 화 번호입니다.
+- tiers 는 장편에서 비중이 달라지는 인물만 넣습니다. main 은 작품 전체를 끌고 갈 2~4명입니다.
+- reply 는 3~5문장: 단편을 어떻게 늘렸는지, 결말을 어디로 옮겼는지, 1~3화 훅이 무엇인지."""
+
+
+def rework_prompt(p: Project, n: int) -> str:
+    """재구성에서 '다듬기'로 고른 화: 옛 본문을 새 자리(앞뒤 화, 새 플롯)에 맞게 최소로 고친다."""
+    x = p.archive.entry(n) if p.archive else None
+    ep = p.episode(n)
+    return (build_episode_context(p, n) + f"""
+
+# 고칠 원고 (단편 {x.sources[0] if x and x.sources else "?"}화였던 본문, 지금은 {n}화)
+{ep.text}
+
+# 고칠 것
+{(x.note if x else "") or "새 자리의 앞뒤 화와 이번 화 플롯에 맞게"}
+
+위 원고를 {n}화로 고쳐 text 에 본문 전체를 쓰세요.
+- 원고의 문장과 장면은 되도록 살리고, 고칠 것과 앞뒤 화 · 플롯 · 확정 사실과 어긋나는 부분만 바꿉니다.
+- 앞 화에서 이미 보여 준 소개나 설명은 줄이고, 아직 나오지 않은 인물이나 정보는 꺼내지 않습니다.
+- 끝은 이번 화 플롯의 ending_hook 으로 맞춥니다. 문체는 스타일 프로필을 따릅니다.
+- reply 에는 무엇을 고쳤는지 2~3문장으로 씁니다.""")
+
+
 # ---------- 플롯 대화 (기승전결 · 화별 플롯 화면) ----------
 
 SYSTEM_PLOT_CHAT = (
@@ -673,7 +854,7 @@ def plot_chat_prompt(p: Project, message: str) -> str:
 - 한 화를 바꾸면 앞뒤 화의 엔딩 훅, 복선 심기와 회수가 어긋나지 않게 이어지는 화도 함께 고칩니다.
 - 총 화수를 바꿔야 하면 total_episodes 에 새 화수를 넣고, acts 를 새 화수에 맞추고, 새로 생기거나 내용이 밀리는 화를 episodes 에 모두 넣습니다. 화수를 바꾸지 않으면 0 입니다.
 - 구간은 기, 승, 전, 결 순서로 1화부터 마지막 화까지 빈틈없이 이어집니다.
-{plot_rules(p)}"""
+{plot_rules(p, opening_pending(p))}"""
 
 
 def serial_plot_chat_prompt(p: Project, message: str) -> str:
@@ -726,7 +907,7 @@ def serial_plot_chat_prompt(p: Project, message: str) -> str:
 - 본문이 있는 화({", ".join(map(str, locked)) or "없음"})는 바꾸지 않습니다. 기획한 아크 밖의 화({p.planned_until() + 1}화부터)는 만들지 않습니다.
 - 작가가 확정한 화({", ".join(map(str, confirmed)) or "없음"})는 작가가 그 화를 바꿔 달라고 했을 때만 바꿉니다.
 - 한 화를 바꾸면 앞뒤 화의 엔딩 훅, 복선 심기와 회수가 어긋나지 않게 이어지는 화도 함께 고칩니다.
-{plot_rules(p)}"""
+{plot_rules(p, opening_pending(p))}"""
 
 
 # ---------- 본문 부분 수정 (집필 화면에서 고른 부분) ----------
@@ -833,6 +1014,7 @@ def build_episode_context(p: Project, n: int) -> str:
     장편은 줄거리를 부 → 아크 → 화로 접고, 인물·복선·사실을 이번 화에 관련된 것만 골라 크기를 일정하게 둔다."""
     ep = p.episode(n)
     act = p.act_for(n)
+    together = p.acts_for(n)[1:]  # 짧은 작품에서 이 화에 함께 들어간 뒤 구간
     cast_ids = set(ep.plot.characters) or {c.id for c in static_characters(p)} or {c.id for c in p.characters}
     states = [s for s in p.states if s.character_id in cast_ids]
     rels = [r for r in p.relationships if r.a in cast_ids and r.b in cast_ids]
@@ -847,6 +1029,12 @@ def build_episode_context(p: Project, n: int) -> str:
         where = f"""# 현재 구간: {act.name if act else "?"} ({act.start_ep if act else "?"}~{act.end_ep if act else "?"}화)
 목표: {act.goal if act else ""}
 전환점: {act.key_turn if act else ""}"""
+        for b in together:
+            where += f"""\n# 이 화에 이어서 들어갈 구간: {b.name} ({b.start_ep}~{b.end_ep}화)
+목표: {b.goal}
+전환점: {b.key_turn}"""
+        if together:
+            where += "\n한 화 안에서 위 구간들을 차례로 지나가도록 쓰세요."
 
     els = elements.episode_block(p, n)
     els = f"\n\n# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것)\n{els}" if els else ""
@@ -879,7 +1067,29 @@ def build_episode_context(p: Project, n: int) -> str:
 {last_text[-1500:] or "없음"}
 
 # 이번 화 플롯
-{dump(ep.plot)}"""
+{dump(ep.plot)}{material_block(p, n)}"""
+
+
+MATERIAL_LIMIT = 6000  # 원고 재료로 넣는 옛 화 하나의 본문 글자 수
+MATERIAL_SOURCES = 3
+
+
+def material_block(p: Project, n: int) -> str:
+    """재구성에서 '새로 쓰기'로 고른 화: 옛 단편 본문을 원고 재료로 넣는다. 아직 본문이 없을 때만."""
+    x = p.archive.entry(n) if p.archive else None
+    if x is None or x.use != "rewrite" or p.episode(n).text:
+        return ""
+    parts = []
+    for s in x.sources[:MATERIAL_SOURCES]:
+        src = p.archive.source(s)
+        if src and (src.text or src.summary or src.plot.summary):
+            body = src.text[:MATERIAL_LIMIT] + ("\n(이하 생략)" if len(src.text) > MATERIAL_LIMIT else "") if src.text \
+                else "(본문 없음. 단편 때 플롯) " + (src.summary or src.plot.summary)
+            parts.append(f"## 단편 {s}화 {src.plot.title}\n{body}")
+    if not parts:
+        return ""
+    return ("\n\n# 원고 재료 (재구성 전 단편 원고. 이번 화 플롯에 필요한 장면과 문장만 살리고, 플롯에 없는 사건은 가져오지 않는다)\n"
+            + (f"살릴 것: {x.note}\n\n" if x.note else "") + "\n\n".join(parts))
 
 
 def static_context(p: Project) -> str:
@@ -921,11 +1131,16 @@ def marker_block(p: Project) -> str:
             + "\n".join(rows))
 
 
-def episode_prompt(p: Project, n: int) -> str:
+def episode_prompt(p: Project, n: int, approach: str = "") -> str:
+    """approach 는 1~3화를 여러 안으로 쓸 때 안마다 다르게 주는 여는 방식(OPENING_APPROACHES)."""
+    rules = opening_rules(p, n, approach)
+    flow = ("첫 화이므로 앞 이야기를 요약하거나 설명으로 깔지 않고 장면으로 시작하고, " if n == 1
+            else "직전 화 마지막 장면과 자연스럽게 이어지고, ")
     return (
         build_episode_context(p, n)
+        + (f"\n\n{rules}" if rules else "")
         + f"\n\n위 자료를 바탕으로 {n}화 본문을 약 {p.meta.words_per_episode}자 분량으로 쓰세요. "
-        "직전 화 마지막 장면과 자연스럽게 이어지고, 플롯의 ending_hook 으로 끝납니다. "
+        + flow + "플롯의 ending_hook 으로 끝납니다. "
         "문체는 스타일 프로필과 문체 예시 문단을 따르고, banned_phrases 의 표현은 쓰지 않습니다. "
         "플롯의 emotional_shift 는 감정 이름으로 서술하지 말고 행동과 대사로 보여 줍니다. "
         "인물의 말투는 speech_style 을 따릅니다."
@@ -1131,7 +1346,74 @@ def impact_prompt(p: Project, el: StoryElement, linked: set[int]) -> str:
 - episodes 에는 이 요소 때문에 바뀌어야 하는 본문 없는 화만, 모든 칸을 채운 전체 플롯으로 넣습니다. 나올 화가 정해져 있으면 그 화 사건에 넣고, 드러나는 화 전에는 foreshadow_plant 로 암시를 심습니다.
 - 작가가 확정한 화({", ".join(map(str, confirmed)) or "없음"})는 꼭 필요할 때만 바꿉니다.
 - 바꿀 필요가 없는 화는 넣지 않습니다.
-{plot_rules(p)}"""
+{plot_rules(p, opening_pending(p))}"""
+
+
+# ---------- 초반 1~3화: 흡입력 판정과 여는 방식 여러 안 ----------
+
+SYSTEM_HOOK = (
+    "당신은 한국 웹소설 플랫폼의 연재 담당 편집자입니다. 무료 회차를 읽은 독자가 다음 화를 누를지 판단합니다. "
+    "모든 판단에는 본문 문장을 원문 그대로 인용하고, 근거가 없으면 점수를 낮게 줍니다. 후하게 주지 않습니다. "
+    "문장의 아름다움보다 독자가 계속 읽고 싶어지는지를 봅니다. 모든 출력은 한국어로 작성합니다."
+)
+
+HOOK_GUIDE = {
+    "첫 문단": "처음 3~5문장에 움직임, 균열, 궁금증이 있는가. 세계관 설명, 날씨, 기상, 평범한 자기소개로 시작하면 낮게",
+    "주인공": "주인공이 누구이고 무엇이 없는지(결핍)나 무엇을 원하는지가 행동과 처지로 보이는가",
+    "전제": "작품의 핵심 장치(회귀, 빙의, 각성, 계약, 사건 등)가 일어나거나 확실히 예고되는가. 늦을수록 낮게",
+    "설명 부담": "설정 설명이 덩어리로 몰려 있는가. 몰려 있으면 낮게 주고 quote 에 가장 긴 설명을 옮긴다",
+    "걸린 것": "주인공이 지금 잃을 수 있는 것이 분명한가",
+    "장르 약속": "장르 독자가 기대하는 것이 이 화에서 보이는가",
+    "엔딩": "마지막 문단이 장면 한가운데나 새 정보에서 끊기는가. 정리하거나 앞날을 해설하며 끝나면 낮게",
+}
+
+
+def hook_prompt(p: Project, n: int, text: str) -> str:
+    """1~3화 판정. 작품 소개와 주인공, 앞 화 요약, 이번 화 플롯과 본문을 넣는다. text 는 판정할 본문 (비교본일 수 있다)."""
+    ep = p.episode(n)
+    leads = [c.model_dump(include={"name", "role", "goal", "wound", "personality"}) for c in static_characters(p)] or \
+        [c.model_dump(include={"name", "role", "goal", "wound", "personality"}) for c in p.characters[:3]]
+    prior = [e for e in sorted(p.episodes, key=lambda e: e.plot.number) if e.plot.number < n]
+    before = "\n".join(f"{e.plot.number}화 {e.plot.title}: {e.summary or e.plot.summary}"
+                       + (f" (독자 질문: {e.plot.reader_question})" if e.plot.reader_question else "") for e in prior)
+    guide = "\n".join(f"- {k}: {v}" for k, v in HOOK_GUIDE.items())
+    return f"""[작품]
+{meta_text(p)}
+[주인공과 주역]
+{dump(leads)}
+
+[앞 화]
+{before or "없음 (첫 화)"}
+[{n}화 플롯]
+{dump(ep.plot)}
+
+[{n}화 본문 (판정 대상)]
+{text}
+
+{n}화는 독자가 계속 읽을지 정하는 초반입니다. {OPENING_JOBS.get(n, "")}
+아래 항목마다 items 에 하나씩 넣고 1~5점을 매기세요.
+{guide}
+
+요구사항:
+- quote 와 premise_quote 는 본문 문장을 한두 문장만, 고치지 않고 그대로 옮깁니다. 근거를 옮길 수 없으면 빈칸으로 두고 점수를 낮게 줍니다.
+- note 에는 한 줄 평과 고칠 방향을 적습니다. 좋은 점보다 고칠 점을 먼저 적습니다.
+- reader_question 에는 마지막 장면을 읽은 독자가 들고 갈 질문을 한 문장으로 적습니다. 그런 질문이 생기지 않으면 빈칸입니다.
+- next_click 은 이 화를 무료로 읽은 독자가 다음 화를 누를지, reason 은 그 가장 큰 이유입니다.
+- episode 는 {n}, premise_at 은 -1, basis 와 checked_at 은 빈칸입니다."""
+
+
+def opening_plots_prompt(p: Project, n: int, approaches: list[str]) -> str:
+    """n화(1~3) 플롯을 여는 방식만 달리해 여러 안으로. 플롯 초안과 같은 자료를 넣고 요청만 바꾼다."""
+    ways = "\n".join(f"- {a}: {OPENING_APPROACHES[a][0]}. {OPENING_APPROACHES[a][1]}" for a in approaches)
+    return f"""{plot_prompt(p, n, n)}
+
+[이번 요청]
+위 자료로 {n}화 플롯 하나를 쓰되, 아래 여는 방식마다 하나씩 모두 {len(approaches)}개의 안을 내세요. 독자가 계속 읽을지 정하는 화라서 여는 방식을 비교해 고르려고 합니다.
+{ways}
+
+- options 마다 approach 에 위 id 를 그대로, plot 에 {n}화 전체 플롯을 넣습니다. plot.number 는 {n} 입니다.
+- 안끼리 사건과 목표는 같은 이야기 안에 있어도 되지만, 첫 장면(opening), 사건 순서, 엔딩 훅은 여는 방식에 맞게 다르게 합니다.
+- pitch 에는 이 안이 독자를 어떻게 붙잡는지 한두 문장으로 적습니다."""
 
 
 # ---------- 작업지시서 (구독형 채팅 앱용) ----------

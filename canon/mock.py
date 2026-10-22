@@ -16,20 +16,27 @@ from .schema import (
     ConsistencyReport,
     EpisodePlot,
     Foreshadow,
+    HookItem,
+    HookReport,
     ImpactConflict,
     ImpactReport,
     NameOption,
     NameOptions,
+    OpeningOption,
+    OpeningPlots,
     PassageCandidate,
     PassageRevision,
     PlotBatch,
     Part,
     PlotRevision,
     Recap,
+    RebuildEpisode,
     Relationship,
+    Rework,
     ScopeChange,
     Secret,
     SerialConversion,
+    SerialRebuild,
     SeriesPlan,
     SetupSuggestion,
     StateDelta,
@@ -58,6 +65,11 @@ def _delay() -> None:
 def _arc(total: int, start: int = 1) -> list[Act]:
     """start 화부터 total 화까지를 기승전결로 나눈다. 장편 아크는 start 가 아크 첫 화."""
     size = total - start + 1
+    if size < 4:  # 짧은 작품은 이웃 구간이 한 화를 함께 쓴다
+        from .pipeline import act_ranges
+        r = act_ranges(total, start)
+        goals = [("주인공과 세계 소개, 사건 발생", "계기 사건"), ("갈등 심화", "중간 반전"), ("위기와 클라이맥스", "최대 위기"), ("해결과 여운", "결말")]
+        return [Act(name=nm, start_ep=s, end_ep=e, goal=g, key_turn=k) for nm, (s, e), (g, k) in zip("기승전결", r, goals)]
     c = min(start - 1 + max(1, round(size * 0.2)) + max(1, round(size * 0.38)) + max(1, round(size * 0.24)), total - 1)
     b = min(start - 1 + max(1, round(size * 0.2)) + max(1, round(size * 0.38)), c - 1)
     a = min(start - 1 + max(1, round(size * 0.2)), b - 1)
@@ -118,10 +130,72 @@ def _conversion(hint: dict) -> SerialConversion:
     return conv
 
 
+def _rebuild(hint: dict) -> SerialRebuild:
+    """재구성 흉내: 앞부분을 아크 둘로 나누고, 1화는 새 훅 · 옛 1화는 그대로 · 옛 2화는 다듬기 · 나머지는 재료로 새로 쓴다.
+    단편 결말(마지막 옛 화)은 첫 아크 끝으로 옮긴다. 검증 규칙을 시험하도록 옛 화 둘을 그대로 두겠다는 줄을 섞는다."""
+    total, span, old = hint["total"], hint["span"], [n for n, _ in hint["old"]]
+    cut = span // 2 if span >= 8 else span
+    arcs = [StoryArc(number=1, title="등대의 여름", start_ep=1, end_ep=cut, goal="오빠의 행방을 안다", conflict="숨긴 편지",
+                     payoff="편지의 진실", acts=_arc(cut), cast=["hero", "ally", "nobody"])]
+    if cut < span:
+        arcs.append(StoryArc(number=2, title="북쪽 항구", start_ep=cut + 1, end_ep=span, goal="오빠의 배를 쫓는다",
+                             conflict="밀수 조직", payoff="첫 단서", acts=_arc(span, cut + 1), cast=["hero", "ally"]))
+    rows: dict[int, RebuildEpisode] = {1: RebuildEpisode(number=1, title="불 꺼진 등대", summary="사건부터 연다.", use="new")}
+    plan = [("keep", [old[0]], "")] if old else []
+    if len(old) > 1:
+        plan.append(("revise", [old[1]], "도현이 무언가 숨긴다는 기색을 미리 흘린다"))
+    if len(old) > 3:
+        plan.append(("keep", [old[2], old[3]], ""))  # 옛 화 둘을 그대로 둘 수는 없다 → rewrite 로 바뀐다
+    middle = old[4:-1] if len(old) > 4 else []
+    plan += [("rewrite", [o], "옛 화의 장면을 살린다") for o in middle]
+    slot = 2
+    for use, src, note in plan:
+        if slot >= cut:
+            break
+        rows[slot] = RebuildEpisode(number=slot, title=f"{slot}화", summary=f"옛 {src}화를 쓴다.", sources=src, use=use, note=note)
+        slot += 1
+    if len(old) > 4:
+        rows[cut] = RebuildEpisode(number=cut, title="편지의 진실", summary="단편의 결말.", sources=[old[-1]], use="rewrite",
+                                   note="단편 결말을 첫 아크 끝으로 옮긴다")
+    eps = [rows.get(n) or RebuildEpisode(number=n, title=f"{n}화", summary=f"{n}화 새 이야기", use="new") for n in range(1, span + 1)]
+    parts = _series(total).parts
+    if len(parts) > 1 and parts[0].end_ep < span:
+        parts[0].end_ep = span
+        parts[1].start_ep = span + 1
+    return SerialRebuild(
+        reply="단편을 씨앗으로 앞부분을 다시 짰어요. 1화는 사건부터 열고, 단편 결말은 첫 아크 끝으로 옮겼어요.",
+        total_episodes=total, ending_at=hint["ending_at"] or "arc", parts=parts, arcs=arcs, episodes=eps,
+        foreshadows=[Foreshadow(id="fs-r-door", description="등대 아래 잠긴 문", planted_ep=1, scope="series")],
+        tiers=[TierChange(id="ally", tier="support", reason="장편에서는 조연"), TierChange(id="nobody", tier="minor")],
+    )
+
+
 def _plot(n: int, act: str, note: str = "") -> EpisodePlot:
+    early = n <= 3  # 초반 1~3화는 여는 장면과 독자 질문을 채운다
     return EpisodePlot(number=n, act=act, title=f"{n}화 제목", summary=f"{n}화 요약{note}",
                        events=["사건 1", "사건 2", "사건 3"], characters=["hero", "ally"],
-                       emotional_shift="불안 → 결심", ending_hook="문이 열렸다")
+                       emotional_shift="불안 → 결심", ending_hook="문이 열렸다",
+                       opening=f"{n}화 여는 장면" if early else "", reader_question=f"{n}화 뒤에 무엇이 있나?" if early else "")
+
+
+def _hook(hint: dict) -> HookReport:
+    """판정 흉내: 첫 문장을 근거로, 하나는 본문에 없는 인용을 넣어 걸러지는지 시험한다."""
+    text = hint["text"].strip()
+    first = re.split(r"(?<=[.!?])\s+|\n+", text)[0].strip()
+    items = [HookItem(aspect="첫 문단", score=4, quote=first, note="움직임으로 시작한다"),
+             HookItem(aspect="주인공", score=5, quote="본문에 없는 지어낸 문장", note="걸러져야 한다"),
+             HookItem(aspect="엔딩", score=2, quote="", note="여운으로 끝나 훅이 약하다")]
+    return HookReport(episode=hint["episode"], items=items, premise_quote=first, reader_question="등대에 누가 있나?",
+                      next_click=True, reason="주인공이 바로 움직인다", premise_at=99, basis="x")
+
+
+def _openings(hint: dict) -> OpeningPlots:
+    """여는 방식마다 하나씩, 검증을 시험하도록 요청하지 않은 방식과 중복을 섞는다."""
+    n, act = hint["episode"], hint["act"]
+    opts = [OpeningOption(approach=a, pitch=f"{a} 로 붙잡는다",
+                          plot=_plot(n, act).model_copy(update={"opening": f"{a} 장면", "number": 99})) for a in hint["approaches"]]
+    opts += [OpeningOption(approach="unknown", pitch="", plot=_plot(n, act)), opts[0]]
+    return OpeningPlots(options=opts)
 
 
 def _revision(hint: dict) -> PlotRevision:
@@ -221,6 +295,10 @@ class MockLLM:
             return _next_arc(hint)  # type: ignore[return-value]
         if schema is SerialConversion:
             return _conversion(hint)  # type: ignore[return-value]
+        if schema is SerialRebuild:
+            return _rebuild(hint)  # type: ignore[return-value]
+        if schema is Rework:
+            return Rework(text=hint["text"].rstrip() + "\n\n도현은 대답 대신 시선을 피했다.", reply="새 자리에 맞게 끝을 고쳤어요.")  # type: ignore[return-value]
         if schema is Recap:
             return Recap(summary=f"{'아크' if hint['kind'] == 'arc' else '부'} {hint['number']} 요약: 주인공이 시험을 넘겼다.")  # type: ignore[return-value]
         if schema is PlotBatch:
@@ -259,6 +337,10 @@ class MockLLM:
             return NameOptions(options=[NameOption(name=x, reason="후보 중 인물과 시대에 맞는 이름") for x in names])  # type: ignore[return-value]
         if schema is PassageRevision:
             return _passage(hint)  # type: ignore[return-value]
+        if schema is HookReport:
+            return _hook(hint)  # type: ignore[return-value]
+        if schema is OpeningPlots:
+            return _openings(hint)  # type: ignore[return-value]
         if schema is ConsistencyReport:
             n = hint["episode"]
             issues = [ConsistencyIssue(
@@ -280,6 +362,9 @@ class MockLLM:
         import uuid
 
         out = self.json(system, prompt, schema, hint).model_dump_json() if schema else self.text(system, prompt)
+        if schema is not None and schema.__name__ in BAD_JSON:
+            BAD_JSON.remove(schema.__name__)
+            out = _broken(out)
         name = f"batches/mock-{uuid.uuid4().hex[:8]}"
         BATCHES[name] = {"out": out, "polls": int(os.environ.get("CANON_MOCK_BATCH_POLLS", "0") or 0),
                          "label": label, "cancelled": False}
@@ -302,3 +387,16 @@ class MockLLM:
 
 
 BATCHES: dict[str, dict] = {}  # 프로세스 안에서만 유지되는 가짜 배치 작업
+BAD_JSON: list[str] = []  # 여기 넣은 스키마 이름은 다음 배치 응답 한 번을 형식이 틀리게 낸다 (넣은 만큼)
+
+
+def _broken(out: str) -> str:
+    """실제 배치에서 본 모양: 필수 칸이 빠지고 목록 항목이 "a: b=c" 같은 문자열이다."""
+    import json
+
+    d = json.loads(out)
+    d.pop("summary", None)
+    for k, v in d.items():
+        if isinstance(v, list) and v and isinstance(v[0], dict):
+            d[k] = [": ".join(str(x) for x in item.values())[:80] for item in v]
+    return json.dumps(d, ensure_ascii=False)

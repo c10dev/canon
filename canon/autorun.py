@@ -13,7 +13,6 @@ mock 제외)는 켜 둬도 일반 호출로 돈다.
 """
 from __future__ import annotations
 
-import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -22,15 +21,13 @@ from typing import Any, Callable, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from . import dynamics, jobs, pipeline, prompts, settings, store
-from .llm import BatchLLM, Interrupted, get_llm
+from . import dynamics, jobs, pipeline, prompts, settings, store, usage
+from .llm import BatchLLM, Interrupted, SchemaMismatch, get_llm
 from .research import CHARS_PER_TOKEN, JSON_OUTPUT_RESERVE, _filler
 from .schema import ConsistencyReport, Project, StateDelta
 
 LOG_KEEP = 500
-# USD / 100만 토큰 (입력, 출력). 2026-10 기준 정가 추정치, 배치는 절반. CANON_PRICE="입력,출력" 으로 바꾼다.
-PRICES = {"gemini-4-argon": (2.0, 10.0)}
-BATCH_DISCOUNT = 0.5
+STEP_NAMES = {"write": "본문", "check": "검수", "state": "상태 변경안"}
 # 측정값이 없을 때 쓰는 단계별 소요 시간 추정 (초, 일반 호출)
 SECONDS = {"write": 90.0, "check": 40.0, "state": 40.0}
 # 배치 한 번 기다리는 시간 가정 (초): 보통 범위. 최악은 24시간
@@ -48,6 +45,7 @@ class Policy(BaseModel):
     stop_on_warnings: bool = Field(False, description="상태 변경안에 경고(플롯 누락, 설정 위반)가 있으면 멈춤")
     confirm_plots: bool = Field(False, description="초안 플롯을 만나면 자동으로 확정하고 쓴다. 끄면 그 화에서 멈춤")
     review_every: int = Field(0, description="이번 실행에서 N화를 반영할 때마다 멈춤. 0 이면 멈추지 않음")
+    hand_pick_opening: bool = Field(True, description="1~3화는 쓰고 검수한 뒤 반영하기 전에 멈춤. 독자가 계속 읽을지 정하는 화라 작가가 읽고 고른다")
 
 
 class LogEntry(BaseModel):
@@ -161,6 +159,8 @@ def review_reasons(p: Project, delta: StateDelta, report: Optional[ConsistencyRe
     if report is not None and len(report.issues) > policy.max_issues:
         kinds = ", ".join(sorted({i.type for i in report.issues}))
         out.append(f"검수에서 어긋난 곳 {len(report.issues)}개 ({kinds})")
+    if policy.hand_pick_opening and prompts.is_opening(delta.episode):
+        out.append(f"{delta.episode}화는 초반 화라 직접 읽고 반영하도록 멈춥니다 (집필 화면에서 초반 점검과 여는 방식 비교를 쓸 수 있어요)")
     if policy.stop_on_warnings and delta.warnings:
         out.append(f"상태 변경안 경고 {len(delta.warnings)}개: {delta.warnings[0]}")
     names = _names(p)
@@ -191,19 +191,11 @@ def review_reasons(p: Project, delta: StateDelta, report: Optional[ConsistencyRe
 
 # ---------- 비용과 시간 추정 ----------
 
-def price(stage: str) -> Optional[tuple[float, float]]:
-    """단계가 쓰는 모델의 (입력, 출력) 가격. Gemini 가 아니거나 모르는 모델이면 None (로컬은 0원)."""
+def stage_cost(stage: str, tin: float, tout: float, batch: bool) -> Optional[float]:
+    """단계가 쓰는 모델로 tin/tout 토큰을 쓸 때의 USD. 가격은 사용량 화면과 같은 가격표(usage.prices)를 쓴다.
+    로컬은 0원, 가격표에 없는 Gemini 모델이면 None."""
     prov = settings.stage_provider(stage)[0]
-    if prov != "gemini":
-        return (0.0, 0.0)
-    env = os.environ.get("CANON_PRICE", "")
-    if env:
-        try:
-            a, b = (float(x) for x in env.split(","))
-            return a, b
-        except ValueError:
-            pass
-    return PRICES.get(gemini_model(stage))
+    return usage.stage_cost(prov, gemini_model(stage), tin, tout, batch and prov == "gemini")
 
 
 def gemini_model(stage: str) -> str:
@@ -260,13 +252,15 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
             tokens[step][0] += len(text) / CHARS_PER_TOKEN
             tokens[step][1] += m["out"] if m and m["out"] else out
     cost: Optional[float] = 0.0
+    unpriced = []
     for step, (tin, tout) in tokens.items():
-        pr = price(step)
-        if pr is None:
-            cost = None
-            break
-        k = BATCH_DISCOUNT if batch and settings.stage_provider(step)[0] == "gemini" else 1.0
-        cost += (tin * pr[0] + tout * pr[1]) / 1e6 * k
+        c = stage_cost(step, tin, tout, batch)
+        if c is None:
+            unpriced.append(gemini_model(step))
+        elif cost is not None:
+            cost += c
+    if unpriced:
+        cost = None
     eps = len(todo) - len(missing)
 
     def secs(step: str) -> float:
@@ -289,7 +283,7 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
         "batch_rounds": rounds, "seconds_min": round(normal + rounds * BATCH_WAIT[0]),
         "seconds_max": round(normal + rounds * BATCH_WAIT[1]), "seconds_worst": round(normal + rounds * 86400),
         "batch_avg_seconds": round(sum(waits) / len(waits)) if waits else None,
-        "measured": bool(measured), "model": gemini_model("write"),
+        "measured": bool(measured), "model": gemini_model("write"), "unpriced": sorted(set(unpriced)),
         "stages": {s: settings.stage_provider(s)[0] for s in steps},
     }
 
@@ -346,14 +340,25 @@ class Runner:
 
     def call(self, stage: str, n: int, fn: Callable[[Any], Any]) -> tuple[Any, dict]:
         """stage 의 백엔드로 fn(llm) 을 부르고 (결과, 토큰과 시간) 을 돌려준다. 배치가 켜져 있으면 배치로."""
+        with usage.scope(project=self.name, episode=n, source="autorun", task="auto"):
+            return self._call(stage, n, fn)
+
+    def _call(self, stage: str, n: int, fn: Callable[[Any], Any]) -> tuple[Any, dict]:
         llm = get_llm(stage)
         use_batch = self.run.batch and hasattr(llm, "batch_submit")
         if use_batch:
             llm = BatchLLM(llm, f"{n}:{stage}", self.run.batches, self.ctl.save, self.ctl.wait,
-                           label=f"canon {self.name}")
+                           label=f"canon {self.name}", note=lambda m: self.log(f"{n}화 {STEP_NAMES[stage]}: {m}", "warn"))
         t = time.time()
         try:
             out = fn(llm)
+        except SchemaMismatch as e:
+            # 본문은 그대로 두고 이 화에서 멈춘다. 이어 가면 이 단계만 새로 요청한다
+            raise _Halt("paused", f"{n}화 {STEP_NAMES[stage]} 응답이 형식에 맞지 않아 멈췄습니다", [
+                f"{n}화 {STEP_NAMES[stage]}: 다시 요청해도 모델 응답이 {e.schema} 형식과 맞지 않았습니다 ({e.brief})",
+                "쓴 본문은 그대로 있습니다. 이어 가면 이 단계만 다시 요청합니다"
+                + (". 배치에서 되풀이되면 배치를 끄고 이어 가 보세요" if use_batch else ""),
+            ])
         except Interrupted as e:
             if e.cancelled:
                 raise _Halt("stopped", "중지했습니다 (기다리던 배치 작업을 취소)")
@@ -363,13 +368,12 @@ class Runner:
         u = getattr(llm, "last_usage", None) or {}
         tin = int(u.get("prompt_tokens") or 0)
         tout = int(u.get("completion_tokens") or 0) + int(u.get("thought_tokens") or 0)
-        pr = price(stage)
+        c = stage_cost(stage, tin, tout, use_batch)
         with self.ctl.lock:
             self.run.tokens_in += tin
             self.run.tokens_out += tout
-            if pr:
-                k = BATCH_DISCOUNT if use_batch and settings.stage_provider(stage)[0] == "gemini" else 1.0
-                self.run.cost = round(self.run.cost + (tin * pr[0] + tout * pr[1]) / 1e6 * k, 4)
+            if c:
+                self.run.cost = round(self.run.cost + c, 4)
         return out, dict(step=stage, tokens_in=tin, tokens_out=tout, seconds=round(time.time() - t, 1), batch=use_batch)
 
     def loop(self) -> None:
@@ -422,6 +426,9 @@ class Runner:
         _, drift = pipeline.style_drift(q, n)
         for w in drift[:3]:
             self.log(f"문체: {w}", "warn")
+        if prompts.is_opening(n):
+            for w in pipeline.opening_metrics(q, n)[1][:3]:
+                self.log(f"초반: {w}", "warn")
 
     def _review(self, p: Project, n: int) -> None:
         self._set(n, "review")
@@ -443,6 +450,8 @@ class Runner:
                 except Exception as e:
                     errors.append(e)
             if errors:
+                if "check" in results:  # 받아 온 검수는 버리지 않는다 (참고용이라 승인 없이 저장)
+                    _edit(self.name, lambda q: pipeline.apply_check(q, results["check"][0]))
                 # 한쪽만 멈춤 요청을 받았으면 다른 쪽(기다리는 배치)도 같은 이유로 멈춘다
                 raise next((e for e in errors if not isinstance(e, _Halt)), errors[0])
         delta: StateDelta = results["state"][0]
@@ -614,7 +623,7 @@ def _cancel_batches(run: Run) -> None:
     """기다리던 배치 작업을 취소한다. 이미 끝났거나 키가 없어 취소하지 못해도 목록은 비운다."""
     for slot, bname in list(run.batches.items()):
         try:
-            get_llm(slot.split(":")[-1]).batch_cancel(bname)  # type: ignore[attr-defined]
+            get_llm(slot.split(":")[1]).batch_cancel(bname)  # type: ignore[attr-defined]  # "<화>:<단계>[:fix]"
         except Exception:
             pass
     run.batches = {}

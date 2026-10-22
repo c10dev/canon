@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import contextvars
 import threading
 import time
 import uuid
@@ -95,7 +96,9 @@ def start(project: str, kind: str, ep: int | None, label: str, fn: Callable[[Job
         finally:
             job.finished = time.time()
 
-    threading.Thread(target=run, name=f"job-{kind}-{job.id}", daemon=True).start()
+    # 사용량 기록이 어느 작품의 어떤 작업인지 알도록 부른 쪽의 컨텍스트(usage.scope)를 스레드에 넘긴다
+    ctx = contextvars.copy_context()
+    threading.Thread(target=ctx.run, args=(run,), name=f"job-{kind}-{job.id}", daemon=True).start()
     return job
 
 

@@ -5,26 +5,34 @@ from . import dynamics, elements, metrics, naming, prompts, storylines
 from .llm import LLM, dump
 from .schema import (
     Act,
-    Conversion,
     ArcPlan,
     ArcProposal,
     Character,
     CharacterState,
     ChatMessage,
     ConsistencyReport,
+    Conversion,
     ElementImpact,
     Episode,
+    EpisodePlot,
+    HookReport,
     ImpactReport,
     NameOptions,
+    OpeningPlots,
+    Part,
     PassageRevision,
     PlotBatch,
     PlotRevision,
     Project,
+    RebuildEpisode,
     Recap,
-    SerialConversion,
+    Rework,
     Selection,
+    SerialConversion,
+    SerialRebuild,
     SeriesPlan,
     SetupSuggestion,
+    ShortArchive,
     StateDelta,
     StoryArc,
     StoryEvent,
@@ -110,19 +118,76 @@ def count_markers(profile: StyleProfile, sample: str) -> None:
 
 def plan_arc(llm: LLM, p: Project) -> ArcPlan:
     plan = llm.json(prompts.SYSTEM_PLANNER, prompts.arc_prompt(p), ArcPlan, hint={"total": p.meta.target_episodes})
-    validate_arc(plan, p.meta.target_episodes)
+    fit_arc(plan, p.meta.target_episodes)
     return plan
 
 
+ACT_NAMES = ["기", "승", "전", "결"]
+SHARE_BELOW = 4  # 이보다 짧은 작품은 네 구간이 한 화씩 갖지 못하므로 이웃 구간이 한 화를 함께 쓴다
+
+
+def act_order(a: Act) -> tuple[int, int]:
+    """시작 화, 같으면 기승전결 순서. 짧은 작품에서 두 구간이 같은 화에서 시작해도 순서가 흔들리지 않는다."""
+    return a.start_ep, ACT_NAMES.index(a.name) if a.name in ACT_NAMES else len(ACT_NAMES)
+
+
+def act_ranges(total: int, start: int = 1, weights: list[float] | None = None) -> list[tuple[int, int]]:
+    """start~total 화를 기승전결 네 구간으로 나눈다. weights 는 구간별 비중(AI 가 낸 길이 등)이고 없으면 기본 비율.
+    4화보다 짧으면 정해진 틀을 쓴다: 3화는 기1 · 승2 · 전결3, 2화는 기승1 · 전결2, 1화는 네 구간 모두 1화."""
+    size = total - start + 1
+    if size < 1:
+        raise ValueError(f"구간을 나눌 화가 없습니다 ({start}~{total}화)")
+    if size < SHARE_BELOW:
+        idx = {1: [0, 0, 0, 0], 2: [0, 0, 1, 1], 3: [0, 1, 2, 2]}[size]
+        return [(start + k, start + k) for k in idx]
+    w = [max(float(x), 0.01) for x in (weights or [0.18, 0.38, 0.26, 0.18])]
+    raw = [x / sum(w) * size for x in w]
+    lens = [max(1, int(r)) for r in raw]
+    while sum(lens) < size:  # 버림으로 모자란 화는 소수점이 큰 구간부터 준다
+        k = max(range(4), key=lambda i: raw[i] - lens[i])
+        lens[k] += 1
+    while sum(lens) > size:  # 최소 1화를 채우느라 넘친 화는 가장 긴 구간에서 뺀다
+        k = max(range(4), key=lambda i: lens[i])
+        lens[k] -= 1
+    out, a = [], start
+    for n in lens:
+        out.append((a, a + n - 1))
+        a += n
+    return out
+
+
+def fit_arc(plan: ArcPlan, total: int, start: int = 1) -> bool:
+    """AI 가 낸 구간 범위가 맞지 않으면(겹침, 빈틈, 화수 불일치) 목표와 전환점은 두고 범위만 고친다.
+    AI 가 정한 구간 길이의 비율은 살린다. 고쳤으면 True. 구간 이름부터 틀리면 고치지 않고 오류를 낸다."""
+    try:
+        validate_arc(plan, total, start)
+        return False
+    except ValueError:
+        pass
+    if sorted(a.name for a in plan.acts) != sorted(ACT_NAMES):
+        raise ValueError(f"기승전결 네 구간이 아닙니다: {[a.name for a in plan.acts]}")
+    acts = sorted(plan.acts, key=lambda a: ACT_NAMES.index(a.name))
+    weights = [max(1, a.end_ep - a.start_ep + 1) for a in acts]
+    for a, (s, e) in zip(acts, act_ranges(total, start, weights)):
+        a.start_ep, a.end_ep = s, e
+    plan.acts = acts
+    validate_arc(plan, total, start)
+    return True
+
+
 def validate_arc(plan: ArcPlan, total: int, start: int = 1) -> None:
-    """기승전결 네 구간이 start 화부터 total 화까지 빈틈없이 이어지는지 본다. 장편 아크는 start 가 아크 첫 화다."""
-    acts = sorted(plan.acts, key=lambda a: a.start_ep)
-    if [a.name for a in acts] != ["기", "승", "전", "결"]:
+    """기승전결 네 구간이 start 화부터 total 화까지 빈틈없이 이어지는지 본다. 장편 아크는 start 가 아크 첫 화다.
+    4화보다 짧으면 구간이 앞 구간의 마지막 화에서 시작해도 된다(한 화에 두 구간)."""
+    acts = sorted(plan.acts, key=act_order)
+    if [a.name for a in acts] != ACT_NAMES:
         raise ValueError(f"기승전결 순서가 아닙니다: {[a.name for a in acts]}")
+    share = total - start + 1 < SHARE_BELOW
     expected = start
-    for a in acts:
-        if a.start_ep != expected or a.end_ep < a.start_ep:
-            raise ValueError(f"{a.name} 구간 범위 오류: {a.start_ep}~{a.end_ep}")
+    for i, a in enumerate(acts):
+        shared = share and i > 0 and a.start_ep == expected - 1
+        if (a.start_ep != expected and not shared) or a.end_ep < a.start_ep:
+            hint = " 4화보다 짧으면 이웃 구간끼리 한 화를 함께 쓸 수 있습니다" if share else ""
+            raise ValueError(f"{a.name} 구간 범위 오류: {a.start_ep}~{a.end_ep}화 ({expected}화부터여야 합니다){hint}")
         expected = a.end_ep + 1
     if expected != total + 1:
         raise ValueError(f"구간이 {expected - 1}화에서 끝납니다 (목표 {total}화)")
@@ -151,7 +216,7 @@ def apply_plots(p: Project, batch: PlotBatch) -> None:
         cur = by_no.get(plot.number)
         if cur and cur.status != "draft":
             continue
-        act = p.act_for(plot.number)
+        act = p.act_for(plot.number)  # 짧은 작품에서 한 화에 여러 구간이면 첫 구간
         if act:
             plot.act = act.name
         if cur and (cur.plot.storyline or cur.plot.threads) and not (plot.storyline or plot.threads):
@@ -255,7 +320,9 @@ def clean_arc(p: Project, prop: ArcProposal) -> ArcProposal:
     limit = part.end_ep if part else p.meta.target_episodes
     if a.end_ep > limit:
         raise ValueError(f"아크가 {a.end_ep}화에서 끝나 {'부' if part else '작품'} 끝({limit}화)을 넘습니다")
-    validate_arc(ArcPlan(acts=a.acts), a.end_ep, a.start_ep)
+    plan = ArcPlan(acts=a.acts)
+    fit_arc(plan, a.end_ep, a.start_ep)  # 구간 범위가 어긋났으면 비율을 살려 고친다
+    a.acts = plan.acts
     if 0 < limit - a.end_ep < ARC_MIN:  # 남는 화로는 아크를 만들 수 없으니 결 구간을 부 끝까지 늘린다
         last = max(a.acts, key=lambda x: x.start_ep)
         last.end_ep = a.end_ep = limit
@@ -410,20 +477,7 @@ def clean_conversion(p: Project, prop: SerialConversion, total: int = 0) -> Seri
         a.summary = ""
     a.summary = a.summary.strip()
 
-    parts = sorted(prop.parts, key=lambda x: x.start_ep)
-    for i, x in enumerate(parts, 1):
-        x.number, x.summary = i, ""
-    if parts:
-        parts[0].start_ep = 1
-        parts[-1].end_ep = total  # 마지막 부가 총 화수와 조금 어긋나는 것은 맞춰 준다
-    try:
-        validate_parts(parts, total)
-        if parts and end and parts[0].end_ep < end:
-            raise ValueError(f"1부가 {parts[0].end_ep}화에서 끝나 아크 1({end}화까지)을 품지 못합니다")
-    except ValueError as e:
-        notes.append(f"부 구성이 맞지 않아 뺐습니다: {e}. 전환한 뒤 부 구성을 다시 제안받으세요.")
-        parts = []
-    prop.parts = parts
+    prop.parts = _clean_parts(prop.parts, total, [prop.arc] if end else [], notes)
 
     seen = {f.id for f in p.foreshadows}
     last_text = max((e.plot.number for e in p.episodes if e.status in LOCKED), default=0)
@@ -443,13 +497,7 @@ def clean_conversion(p: Project, prop: SerialConversion, total: int = 0) -> Seri
     prop.scopes = [s for s in {s.id: s for s in prop.scopes}.values() if s.id in opened and s.scope != opened[s.id].scope]
     prop.facts = [f.strip() for f in dict.fromkeys(prop.facts) if f.strip() and f.strip() not in p.facts]
 
-    tier = {c.id: c.tier for c in p.characters}
-    tiers = [t for t in {t.id: t for t in prop.tiers}.values() if t.id in tier and t.tier != tier[t.id]]
-    after = tier | {t.id: t.tier for t in tiers}
-    if not any(v == "main" for v in after.values()) and tiers:
-        notes.append("주역이 한 명도 남지 않아 비중 조정을 뺐습니다.")
-        tiers = []
-    prop.tiers = tiers
+    prop.tiers = _clean_tiers(p, prop.tiers, notes)
 
     status = {e.plot.number: e.status for e in p.episodes}
     current = {e.plot.number: e.plot.model_dump() for e in p.episodes}
@@ -472,6 +520,42 @@ def clean_conversion(p: Project, prop: SerialConversion, total: int = 0) -> Seri
     if notes:
         prop.reply = (prop.reply.rstrip() + "\n\n※ " + " ".join(notes)).strip()
     return prop
+
+
+def _clean_parts(parts: list[Part], total: int, arcs: list[StoryArc], notes: list[str]) -> list[Part]:
+    """번호와 양 끝을 맞춘다. 빈틈이 있거나 아크가 부 경계를 넘으면 빼고 이유를 notes 에 남긴다."""
+    parts = sorted(parts, key=lambda x: x.start_ep)
+    for i, x in enumerate(parts, 1):
+        x.number, x.summary = i, ""
+    if parts:
+        parts[0].start_ep = 1
+        parts[-1].end_ep = total  # 마지막 부가 총 화수와 조금 어긋나는 것은 맞춰 준다
+    try:
+        validate_parts(parts, total)
+        for a in arcs:
+            x = next((x for x in parts if x.start_ep <= a.start_ep <= x.end_ep), None)
+            if x and a.end_ep > x.end_ep:
+                raise ValueError(f"{x.number}부가 {x.end_ep}화에서 끝나 아크 {a.number}({a.end_ep}화까지)을 품지 못합니다")
+    except ValueError as e:
+        notes.append(f"부 구성이 맞지 않아 뺐습니다: {e}. 전환한 뒤 부 구성을 다시 제안받으세요.")
+        parts = []
+    return parts
+
+
+def _clean_tiers(p: Project, tiers: list, notes: list[str]) -> list:
+    tier = {c.id: c.tier for c in p.characters}
+    tiers = [t for t in {t.id: t for t in tiers}.values() if t.id in tier and t.tier != tier[t.id]]
+    after = tier | {t.id: t.tier for t in tiers}
+    if not any(v == "main" for v in after.values()) and tiers:
+        notes.append("주역이 한 명도 남지 않아 비중 조정을 뺐습니다.")
+        tiers = []
+    return tiers
+
+
+def _stamp() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def apply_conversion(p: Project, prop: SerialConversion, at: str = "") -> Project:
@@ -519,8 +603,12 @@ def undo_blockers(p: Project, backup: Project | None) -> list[str]:
     out = []
     if len(p.history) > p.conversion.history:
         out.append(f"전환한 뒤 상태를 반영한 화가 있습니다 ({[d.episode for d in p.history[p.conversion.history:]]}화)")
-    old = {e.plot.number: e.text for e in backup.episodes}
-    changed = [e.plot.number for e in p.episodes if e.text and old.get(e.plot.number) != e.text]
+    if p.conversion.mode == "rebuild":  # 재구성은 화 번호가 바뀌므로 옛 본문 어느 것과도 같지 않은 본문을 찾는다
+        texts = {e.text for e in backup.episodes}
+        changed = [e.plot.number for e in p.episodes if e.text and e.text not in texts]
+    else:
+        old = {e.plot.number: e.text for e in backup.episodes}
+        changed = [e.plot.number for e in p.episodes if e.text and old.get(e.plot.number) != e.text]
     if changed:
         out.append(f"전환한 뒤 쓰거나 고친 본문이 있습니다 ({changed}화)")
     return out
@@ -531,7 +619,262 @@ def undo_conversion(p: Project, backup: Project) -> Project:
     why = undo_blockers(p, backup)
     if why:
         raise ValueError("되돌릴 수 없습니다: " + " / ".join(why))
-    return backup.model_copy(deep=True, update={"conversion": None})
+    return backup.model_copy(deep=True, update={"conversion": None, "archive": None})
+
+
+# ---------- 3-0''. 단편 → 장편 재구성 ----------
+# 단편을 씨앗으로 장편 앞부분(아크 몇 개)을 다시 짠다. 새 화마다 옛 화를 그대로 두기(keep), 조금 고치기(revise),
+# 재료로 새로 쓰기(rewrite), 새 화(new) 중 하나로 쓴다. 화 번호가 바뀌므로 상태 · 관계는 1화 시작 전으로 돌리고
+# 새 순서대로 다시 반영한다. 그대로 둔 화는 옛 상태 변경안을 번호만 바꿔 다시 쓴다 (carried_delta).
+
+REBUILD_MAX_SPAN = 120  # 한 번에 다시 짜는 앞부분 화수 상한 (지도 한 줄이 짧아 이 정도는 한 번에 받는다)
+
+
+def rebuild_span(p: Project) -> tuple[int, int, int]:
+    """재구성할 앞부분 화수의 (최소, 기본, 최대). 옛 화 하나가 보통 새 2~4화가 된다."""
+    old = max(len(p.episodes), short_end(p), 1)
+    return max(old, ARC_MIN), min(max(old * 3, ARC_MIN * 2), REBUILD_MAX_SPAN), REBUILD_MAX_SPAN
+
+
+def check_rebuild(p: Project, total: int, span: int = 0, ending_at: str = "") -> int:
+    """재구성할 수 있는지 보고 앞부분 화수를 돌려준다 (0 이면 기본값)."""
+    if ending_at not in ("", "arc", "part", "series"):
+        raise ValueError(f"모르는 결말 위치입니다: {ending_at}")
+    check_convertible(p, total)
+    if not p.episodes:
+        raise ValueError("재구성할 단편 화가 없습니다. 이어 쓰기로 전환하세요")
+    lo, default, hi = rebuild_span(p)
+    span = span or default
+    if not lo <= span <= min(hi, total):
+        raise ValueError(f"다시 짤 앞부분은 {lo}~{min(hi, total)}화로 정하세요")
+    return span
+
+
+def propose_rebuild(llm: LLM, p: Project, total: int, span: int = 0, ending_at: str = "", note: str = "") -> SerialRebuild:
+    """단편을 씨앗으로 장편 앞부분을 다시 짠다. 저장하지 않는다."""
+    span = check_rebuild(p, total, span, ending_at)
+    prop = llm.json(
+        prompts.SYSTEM_PLANNER, prompts.rebuild_prompt(p, total, span, ending_at, note), SerialRebuild,
+        hint={"total": total, "span": span, "ending_at": ending_at, "old": [(e.plot.number, bool(e.text)) for e in p.episodes]},
+    )
+    if ending_at:
+        prop.ending_at = ending_at  # type: ignore[assignment]
+    return clean_rebuild(p, prop, total)
+
+
+def clean_rebuild(p: Project, prop: SerialRebuild, total: int = 0) -> SerialRebuild:
+    """아크가 1화부터 이어지는지 보고, 지도를 1화부터 마지막 아크 끝까지 맞춘다. 쓸 수 없는 부분은 고치거나 빼고 reply 에 적는다."""
+    total = total or prop.total_episodes
+    check_convertible(p, total)
+    prop.total_episodes = total
+    notes: list[str] = []
+    known = {c.id for c in p.characters}
+    arcs = sorted(prop.arcs, key=lambda a: a.start_ep)
+    if not arcs:
+        raise ValueError("재구성 제안에 아크가 없습니다. 다시 제안받으세요")
+    expected = 1
+    for i, a in enumerate(arcs, 1):
+        a.number, a.summary, a.payoffs = i, "", []
+        if a.start_ep != expected:
+            raise ValueError(f"아크 {i}가 {a.start_ep}화에서 시작합니다 ({expected}화부터여야 합니다). 다시 제안받으세요")
+        validate_arc(ArcPlan(acts=a.acts), a.end_ep, a.start_ep)
+        a.acts = sorted(a.acts, key=lambda x: x.start_ep)
+        a.cast = [c for c in dict.fromkeys(a.cast) if c in known]
+        expected = a.end_ep + 1
+    last = expected - 1
+    if last > total:
+        raise ValueError(f"아크가 {last}화까지 있어 총 {total}화를 넘습니다")
+    prop.arcs = arcs
+    prop.parts = _clean_parts(prop.parts, total, arcs, notes)
+
+    old = {e.plot.number: e for e in p.episodes}
+    by_no = {}
+    for x in prop.episodes:
+        if 1 <= x.number <= last and x.number not in by_no:
+            by_no[x.number] = x
+    missing = [n for n in range(1, last + 1) if n not in by_no]
+    for n in missing:
+        by_no[n] = RebuildEpisode(number=n, title=f"{n}화", summary="", use="new")
+    if missing:
+        notes.append(f"지도에 없던 {missing}화는 새 화로 채웠습니다. 플롯 초안에서 채우세요.")
+    taken: set[int] = set()
+    changed = []
+    for n in sorted(by_no):
+        x = by_no[n]
+        x.sources = [s for s in dict.fromkeys(x.sources) if s in old]
+        before = x.use
+        if x.use in ("keep", "revise"):
+            src = x.sources[0] if len(x.sources) == 1 else None
+            if src is None or not old[src].text or src in taken:
+                x.use = "rewrite" if x.sources else "new"  # 본문을 그대로 쓸 수 있는 건 옛 화 하나, 한 번뿐이다
+            else:
+                taken.add(src)
+        if x.use == "rewrite" and not x.sources:
+            x.use = "new"
+        if x.use != before:
+            changed.append(n)
+    if changed:
+        notes.append(f"{changed}화는 옛 본문을 그대로 쓸 수 없어(옛 화가 여럿이거나, 본문이 없거나, 이미 다른 화에 씀) 쓰는 방식을 바꿨습니다.")
+    kept = [(n, by_no[n].sources[0]) for n in sorted(by_no) if by_no[n].use in ("keep", "revise")]
+    if any(a[1] > b[1] for a, b in zip(kept, kept[1:])):
+        notes.append("그대로 두거나 다듬는 옛 화의 순서가 바뀐 곳이 있습니다. 앞뒤 연결을 검수에서 확인하세요.")
+    prop.episodes = [by_no[n] for n in sorted(by_no)]
+    used = {s for x in prop.episodes for s in x.sources}
+    prop.dropped = sorted((set(prop.dropped) & set(old) - used) | (set(old) - used))
+
+    seen = {f.id for f in p.foreshadows}
+    fs = []
+    for f in prop.foreshadows:
+        if not f.id or f.id in seen or not f.description.strip():
+            continue
+        seen.add(f.id)
+        fs.append(f.model_copy(update={
+            "status": "open", "payoff_ep": None, "planted_ep": min(max(f.planted_ep, 1), last),
+            "scope": f.scope if f.scope != "arc" else "part",
+            "due_ep": f.due_ep if f.due_ep and f.planted_ep < f.due_ep <= total else None,
+        }))
+    prop.foreshadows = fs
+    prop.tiers = _clean_tiers(p, prop.tiers, notes)
+    if notes:
+        prop.reply = (prop.reply.rstrip() + "\n\n※ " + " ".join(notes)).strip()
+    return prop
+
+
+def _old_to_new(m: list[RebuildEpisode]) -> dict[int, int]:
+    """옛 화 → 그 옛 화를 쓰는 첫 새 화. 본문을 그대로 쓰는 화를 먼저 본다."""
+    out: dict[int, int] = {}
+    for x in sorted(m, key=lambda x: (x.use not in ("keep", "revise"), x.number)):
+        for s in x.sources:
+            out.setdefault(s, x.number)
+    return out
+
+
+def _remap(old: int, mapping: dict[int, int]) -> int:
+    """옛 화 번호를 새 화 번호로. 그 화가 빠졌으면 뒤로 가장 가까운 쓰인 옛 화를 쓴다. 없으면 0."""
+    if old <= 0:
+        return old
+    for o in sorted(k for k in mapping if k >= old):
+        return mapping[o]
+    return 0
+
+
+def apply_rebuild(p: Project, prop: SerialRebuild, at: str = "") -> tuple[Project, list[str]]:
+    """재구성을 반영한다. 전환 전 작품(백업할 것)과, 옮기지 못해 작가가 볼 것의 목록을 돌려준다."""
+    prop = clean_rebuild(p, prop.model_copy(deep=True))
+    validate_story_arcs(p.model_copy(update={  # 바꾸기 전에 장편 구조가 맞는지 먼저 본다
+        "meta": p.meta.model_copy(update={"form": "serial", "target_episodes": prop.total_episodes}),
+        "arc": [], "story_arcs": prop.arcs, "parts": prop.parts}))
+    before = p.model_copy(deep=True)
+    notes: list[str] = []
+    archive = ShortArchive(episodes=[e.model_copy(deep=True) for e in p.episodes], arc=[a.model_copy() for a in p.arc],
+                           history=[d.model_copy(deep=True) for d in p.history], map=prop.episodes, dropped=prop.dropped)
+    mapping = _old_to_new(prop.episodes)
+
+    # 상태 · 관계는 1화 시작 전으로 (화 번호가 바뀌어 옛 반영 기록을 그대로 둘 수 없다)
+    snap = p.snapshot(0)
+    if snap is not None:
+        p.states = [s.model_copy(deep=True) for s in snap.states]
+        p.relationships = [r.model_copy(deep=True) for r in snap.relationships]
+        p.ties = [t.model_copy(deep=True) for t in snap.ties]
+        p.secrets = [s.model_copy(deep=True) for s in snap.secrets]
+        p.facts = list(snap.facts)
+        p.foreshadows = [f.model_copy(deep=True) for f in snap.foreshadows]
+        p.snapshots = [snap]
+    p.events, p.history = [], []
+    p.foreshadows += prop.foreshadows
+    tiers = {t.id: t.tier for t in prop.tiers}
+    for c in p.characters:
+        c.tier = tiers.get(c.id, c.tier)
+
+    p.meta.form, p.meta.target_episodes = "serial", prop.total_episodes
+    p.arc, p.story_arcs, p.parts = [], prop.arcs, prop.parts
+    eps = []
+    for x in prop.episodes:
+        act = p.act_for(x.number)
+        src = archive.source(x.sources[0]) if x.sources else None
+        if x.use in ("keep", "revise") and src is not None:
+            plot = src.plot.model_copy(deep=True, update={"number": x.number, "act": act.name if act else src.plot.act})
+            eps.append(Episode(plot=plot, text=src.text, status="written"))
+        else:
+            chars = list(dict.fromkeys(c for s in x.sources if archive.source(s) for c in archive.source(s).plot.characters))
+            eps.append(Episode(plot=EpisodePlot(number=x.number, act=act.name if act else "기", title=x.title, summary=x.summary,
+                                                events=[], characters=chars, emotional_shift="", ending_hook="")))
+    p.episodes = eps
+    for e in p.episodes:
+        storylines.clean_plot(p, e)
+
+    for el in p.elements:
+        moved = {"since_ep": _remap(el.since_ep, mapping), "reveal_ep": _remap(el.reveal_ep, mapping),
+                 "episodes": sorted({_remap(n, mapping) for n in el.episodes} - {0})}
+        lost = (el.since_ep > 0 and not moved["since_ep"]) or (el.reveal_ep > 0 and not moved["reveal_ep"]) \
+            or len(moved["episodes"]) < len(set(el.episodes))
+        for k, v in moved.items():
+            setattr(el, k, v)
+        el.added_after = 0
+        if lost:
+            notes.append(f"인과율 요소 '{el.name}'의 화 번호 일부를 새 화로 옮기지 못했습니다")
+    for sl in p.storylines:
+        b, j = _remap(sl.branch_ep, mapping), _remap(sl.join_ep, mapping)
+        if (sl.branch_ep and not b) or (sl.join_ep and not j):
+            notes.append(f"이야기 줄기 '{sl.title}'의 갈라지는 화 · 합류하는 화를 새 화로 옮기지 못했습니다")
+        sl.branch_ep, sl.join_ep = b, j
+    if archive.dropped:
+        notes.append(f"쓰지 않는 옛 화: {archive.dropped}화 (원고는 보관함에 남습니다)")
+    p.archive = archive
+    p.conversion = Conversion(at=at or _stamp(), from_total=before.meta.target_episodes, arc_end=0,
+                              ending=prop.ending_at, history=0, mode="rebuild")
+    return before, notes
+
+
+def carried_delta(p: Project, n: int) -> StateDelta | None:
+    """그대로 둔 화(keep)는 본문이 옛 화와 같으면 옛 상태 변경안을 번호만 바꿔 다시 쓴다. AI 를 부르지 않는다."""
+    if p.archive is None:
+        return None
+    x = p.archive.entry(n)
+    if x is None or x.use not in ("keep", "revise") or len(x.sources) != 1:
+        return None
+    src = p.archive.source(x.sources[0])
+    old = next((d for d in reversed(p.archive.history) if d.episode == x.sources[0]), None)
+    if src is None or old is None or src.text != p.episode(n).text:
+        return None
+    d = old.model_copy(deep=True, update={"episode": n})
+    for e in d.events:
+        e.episode = n
+    for f in d.foreshadow_planted:
+        f.planted_ep = n
+    d.warnings = [f"단편 {x.sources[0]}화 때 승인한 변경안을 다시 씁니다. 앞 화가 바뀌었으니 확인하고 반영하세요."] + d.warnings
+    return d
+
+
+def propose_rework(llm: LLM, p: Project, n: int) -> Rework:
+    """'다듬기'로 고른 화의 옛 본문을 새 자리에 맞게 고친다. 저장하지 않는다."""
+    x = p.archive.entry(n) if p.archive else None
+    ep = _editable(p, n)
+    if x is None or x.use != "revise":
+        raise ValueError(f"{n}화는 재구성에서 다듬기로 고른 화가 아닙니다")
+    rw = llm.json(prompts.writer_system(p), prompts.rework_prompt(p, n), Rework, hint={"episode": n, "text": ep.text})
+    rw.text = rw.text.strip()
+    if not rw.text or rw.text == ep.text:
+        raise ValueError("고친 본문이 원문과 같습니다. 다듬을 것을 지도에 적고 다시 받으세요")
+    return rw
+
+
+def accept_rework(p: Project, n: int, text: str, proposed: str = "") -> TextEdit | None:
+    """다듬은 본문을 넣는다. proposed 는 AI 가 낸 글로, 작가가 손봤으면 수정 기록에 함께 남긴다."""
+    ep = _editable(p, n)
+    x = p.archive.entry(n) if p.archive else None
+    if x is None or x.use != "revise":
+        raise ValueError(f"{n}화는 재구성에서 다듬기로 고른 화가 아닙니다")
+    new = text.strip()
+    if not new:
+        raise ValueError("본문이 비었습니다")
+    old = ep.text
+    ep.text = new
+    edit = record_typed(p, n, old, new)
+    if edit is not None:
+        edit.source, edit.instruction = "ai", x.note or "재구성 다듬기"
+        edit.proposed = proposed.strip() if proposed.strip() and proposed.strip() != new else ""
+    return edit
 
 
 # ---------- 3-1. 대화로 구조와 플롯 다듬기 ----------
@@ -575,7 +918,7 @@ def clean_revision(p: Project, rev: PlotRevision) -> PlotRevision:
     rev.total_episodes = total
     focus = focus_arc(p) if p.serial else None
     current_acts = focus.acts if focus else p.arc
-    acts = sorted(rev.acts, key=lambda a: a.start_ep)
+    acts = sorted(rev.acts, key=act_order)
     if acts and [a.model_dump() for a in acts] == [a.model_dump() for a in current_acts] and not total:
         acts = []
     if acts and p.serial and focus is None:
@@ -888,14 +1231,15 @@ HANGUL_MIN = 0.8
 WRITE_TRIES = 3
 
 
-def write_episode(llm: LLM, p: Project, n: int) -> str:
+def write_episode(llm: LLM, p: Project, n: int, approach: str = "") -> str:
+    """approach: 1~3화를 여러 안으로 쓸 때 여는 방식 (prompts.OPENING_APPROACHES)."""
     ep = p.episode(n)
     if ep.status == "draft":
         raise ValueError(f"{n}화 플롯이 아직 확정되지 않았습니다 (confirm 먼저)")
     unfinished = [e.plot.number for e in p.episodes if e.plot.number < n and e.status != "finalized"]
     if unfinished:
         raise ValueError(f"이전 화의 상태 갱신이 끝나지 않았습니다: {unfinished}")
-    system, prompt = prompts.writer_system(p), prompts.episode_prompt(p, n)
+    system, prompt = prompts.writer_system(p), prompts.episode_prompt(p, n, approach)
     for _ in range(WRITE_TRIES):
         text = llm.text(system, prompt)
         if metrics.hangul_ratio(text) >= HANGUL_MIN:
@@ -1099,11 +1443,158 @@ def style_drift(p: Project, n: int) -> tuple[metrics.StyleMetrics, list[str]]:
     return cur, warns
 
 
+# ---------- 5-1. 초반 1~3화: 지표, 흡입력 판정, 여는 방식 여러 안 ----------
+
+def hero_name(p: Project) -> str:
+    """주인공 이름: 역할에 '주인공'이 들어간 인물, 없으면 첫 주역."""
+    lead = next((c for c in p.characters if "주인공" in c.role), None) or next(
+        (c for c in p.characters if c.tier == "main"), None)
+    return lead.name if lead else ""
+
+
+def lore_terms(p: Project) -> list[str]:
+    """설정어: 세계관 장소 이름('등대: 설명' 이면 '등대')과 이야기 요소 이름 · 다른 이름."""
+    import re
+
+    out = [re.split(r"[:(（\-–—,]", x, maxsplit=1)[0].strip() for x in p.world.locations]
+    for el in p.elements:
+        out += [el.name, *el.aliases]
+    return [x for x in dict.fromkeys(out) if len(x) >= 2]
+
+
+def opening_metrics(p: Project, n: int, text: str | None = None) -> tuple[metrics.OpeningMetrics, list[str]]:
+    """1~3화 초반 지표와 경고. text 를 주면 그 글(비교본)을 잰다."""
+    body = p.episode(n).text if text is None else text
+    hero = hero_name(p)
+    m = metrics.measure_opening(body, [c.name for c in p.characters], hero, lore_terms(p))
+    return m, metrics.opening_warnings(m, n, style_baseline(p).dialogue_ratio or None, hero)
+
+
+def text_basis(text: str) -> str:
+    import hashlib
+
+    return hashlib.sha1(text.strip().encode("utf-8")).hexdigest()[:12]
+
+
+def check_hook(llm: LLM, p: Project, n: int, text: str | None = None) -> HookReport:
+    """1~3화 흡입력 판정. 저장하지 않는다. text 를 주면 그 글(비교본)을 판정한다."""
+    if not prompts.is_opening(n):
+        raise ValueError(f"흡입력 판정은 1~{prompts.OPENING_EPISODES}화만 합니다")
+    body = p.episode(n).text if text is None else text
+    if not body.strip():
+        raise ValueError(f"{n}화 본문이 없습니다")
+    rep = llm.json(prompts.SYSTEM_HOOK, prompts.hook_prompt(p, n, body), HookReport,
+                   hint={"episode": n, "text": body})
+    return clean_hook(rep, n, body)
+
+
+def clean_hook(rep: HookReport, n: int, text: str) -> HookReport:
+    """본문에서 찾지 못한 인용은 지우고 점수를 1로 내린다 (LLM 판정자가 근거 없이 후하게 주는 것을 막는다).
+    같은 항목이 둘이면 앞의 것만, 빠진 항목은 그대로 둔다. 전제 문장의 위치를 잰다."""
+    rep.episode = n
+    seen, items = set(), []
+    for it in rep.items:
+        if it.aspect in seen:
+            continue
+        seen.add(it.aspect)
+        it.score = min(5, max(1, it.score))
+        if it.quote.strip() and not elements.find(text, it.quote):
+            it.quote, it.score = "", 1
+            it.note = (it.note + " (근거 문장을 본문에서 찾지 못해 1점으로 내림)").strip()
+        items.append(it)
+    rep.items = items
+    hit = elements.find(text, rep.premise_quote) if rep.premise_quote.strip() else None
+    if rep.premise_quote.strip() and not hit:
+        rep.premise_quote = ""
+    rep.premise_at = hit[0] if hit else -1
+    rep.basis, rep.checked_at = text_basis(text), _now()
+    return rep
+
+
+def apply_hook(p: Project, rep: HookReport) -> None:
+    """판정은 참고용이라 승인 없이 화에 붙인다. 다시 판정하면 덮어쓴다."""
+    p.episode(rep.episode).hook = rep
+
+
+def hook_stale(p: Project, n: int) -> bool:
+    e = p.episode(n)
+    return bool(e.hook) and e.hook.basis != text_basis(e.text)
+
+
+def _approaches(approaches: list[str] | None) -> list[str]:
+    picked = [a for a in dict.fromkeys(approaches or prompts.DEFAULT_APPROACHES) if a in prompts.OPENING_APPROACHES]
+    if not 2 <= len(picked) <= 4:
+        raise ValueError(f"여는 방식은 2~4개를 고르세요: {', '.join(prompts.OPENING_APPROACHES)}")
+    return picked
+
+
+def suggest_openings(llm: LLM, p: Project, n: int, approaches: list[str] | None = None) -> OpeningPlots:
+    """n화(1~3) 플롯을 여는 방식만 달리한 여러 안. 저장하지 않는다."""
+    if not prompts.is_opening(n):
+        raise ValueError(f"여는 방식 비교는 1~{prompts.OPENING_EPISODES}화만 합니다")
+    cur = next((e for e in p.episodes if e.plot.number == n), None)
+    if cur and cur.status in LOCKED:
+        raise ValueError(f"{n}화는 본문이 있어 플롯을 바꿀 수 없습니다")
+    if not p.beats() or not p.act_for(n):
+        raise ValueError("다음 아크를 먼저 기획하세요" if p.serial else "기승전결 구조(arc)를 먼저 만드세요")
+    ways = _approaches(approaches)
+    out = llm.json(prompts.SYSTEM_PLANNER, prompts.opening_plots_prompt(p, n, ways), OpeningPlots,
+                   hint={"episode": n, "approaches": ways, "act": p.act_for(n).name})
+    return clean_openings(p, n, out, ways)
+
+
+def clean_openings(p: Project, n: int, out: OpeningPlots, ways: list[str]) -> OpeningPlots:
+    """요청한 방식만 한 번씩, 화 번호와 구간은 맞추고, 작가가 붙인 이야기 줄기는 지킨다."""
+    cur = next((e for e in p.episodes if e.plot.number == n), None)
+    act = p.act_for(n)
+    keep, seen = [], set()
+    for o in out.options:
+        if o.approach not in ways or o.approach in seen:
+            continue
+        seen.add(o.approach)
+        o.plot.number = n
+        if act:
+            o.plot.act = act.name
+        if cur and (cur.plot.storyline or cur.plot.threads) and not (o.plot.storyline or o.plot.threads):
+            o.plot.storyline, o.plot.threads = cur.plot.storyline, list(cur.plot.threads)
+        keep.append(o)
+    if not keep:
+        raise ValueError("AI 가 요청한 여는 방식으로 안을 내지 않았습니다. 다시 시도하세요")
+    out.options = keep
+    return out
+
+
+def apply_opening(p: Project, n: int, plot: EpisodePlot) -> None:
+    """고른 안을 n화 플롯으로. 본문이 있는 화는 막고, 확정했던 화는 초안으로 돌린다 (플롯 대화 반영과 같은 규칙)."""
+    if plot.number != n:
+        raise ValueError(f"{n}화 플롯이 아닙니다 ({plot.number}화)")
+    by_no = {e.plot.number: e for e in p.episodes}
+    cur = by_no.get(n)
+    if cur and cur.status in LOCKED:
+        raise ValueError(f"{n}화는 본문이 있어 플롯을 바꿀 수 없습니다")
+    act = p.act_for(n)
+    if act:
+        plot.act = act.name
+    by_no[n] = Episode(plot=plot.model_copy(deep=True))
+    storylines.clean_plot(p, by_no[n])
+    p.episodes = [by_no[k] for k in sorted(by_no)]
+
+
+def opening_drafts(llm: LLM, p: Project, n: int, approaches: list[str] | None = None) -> dict[str, str]:
+    """n화(1~3) 본문을 여는 방식마다 하나씩 쓴다. 키는 방식 이름. 저장은 호출자가 한다 (research.save_compare)."""
+    if not prompts.is_opening(n):
+        raise ValueError(f"여는 방식 비교는 1~{prompts.OPENING_EPISODES}화만 합니다")
+    return {prompts.OPENING_APPROACHES[a][0]: write_episode(llm, p, n, a) for a in _approaches(approaches)}
+
+
 # ---------- 6. 상태 갱신 ----------
 
 def extract_state(llm: LLM, p: Project, n: int) -> StateDelta:
     if not p.episode(n).text:
         raise ValueError(f"{n}화 본문이 없습니다")
+    carried = carried_delta(p, n)
+    if carried is not None:
+        return carried
     delta = llm.json(prompts.SYSTEM_EDITOR, prompts.state_prompt(p, n), StateDelta, hint={"episode": n})
     delta.episode = n
     return delta

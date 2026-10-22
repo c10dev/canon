@@ -288,13 +288,21 @@ def run_compare(name: str, p: Project, n: int, a: Backend, b: Backend) -> dict:
     return save_compare(name, n, drafts)
 
 
-def save_compare(name: str, n: int, drafts: dict[str, str]) -> dict:
+def run_opening_compare(name: str, p: Project, n: int, llm: LLM, approaches: list[str] | None = None) -> dict:
+    """1~3화를 여는 방식마다 하나씩 써서 가려 저장한다. 고르기 전에는 어느 방식인지 보이지 않는다."""
+    return save_compare(name, n, pipeline.opening_drafts(llm, p, n, approaches), kind="opening")
+
+
+def save_compare(name: str, n: int, drafts: dict[str, str], kind: str = "backend") -> dict:
+    """kind: backend(백엔드 비교) 또는 opening(여는 방식 비교)."""
     order = random.sample(list(drafts), len(drafts))  # 1, 2 번에 누가 들어갔는지 가린다
     out = compare_dir(name, n)
     out.mkdir(parents=True, exist_ok=True)
+    for old in [*out.glob("*.md"), *out.glob("hook-*.json")]:
+        old.unlink()  # 앞 비교의 남은 안과 판정이 새 번호에 섞이지 않게
     for i, key in enumerate(order, 1):
         (out / f"{i}.md").write_text(drafts[key], encoding="utf-8")
-    (out / "key.json").write_text(json.dumps({"order": order, "created": datetime.now().isoformat(timespec="seconds")},
+    (out / "key.json").write_text(json.dumps({"order": order, "kind": kind, "created": datetime.now().isoformat(timespec="seconds")},
                                              ensure_ascii=False), encoding="utf-8")
     return load_compare(name, n)
 
@@ -312,12 +320,27 @@ def load_compare(name: str, n: int) -> dict | None:
     for i in range(1, len(k["order"]) + 1):
         text = (out / f"{i}.md").read_text(encoding="utf-8")
         m = metrics.measure(text, p.style.banned_phrases)
+        hook = out / f"hook-{i}.json"
         drafts.append({"n": i, "text": text, "chars": m.chars, "sentence_len_mean": m.sentence_len_mean,
-                       "dialogue_ratio": m.dialogue_ratio, "mattr": m.mattr, "warnings": metrics.drift(base, m)})
-    res = {"episode": n, "created": k.get("created"), "drafts": drafts, "picked": k.get("picked")}
+                       "dialogue_ratio": m.dialogue_ratio, "mattr": m.mattr, "warnings": metrics.drift(base, m),
+                       "opening": pipeline.opening_metrics(p, n, text)[1] if prompts.is_opening(n) else [],
+                       "hook": json.loads(hook.read_text(encoding="utf-8")) if hook.exists() else None})
+    res = {"episode": n, "kind": k.get("kind", "backend"), "created": k.get("created"), "drafts": drafts, "picked": k.get("picked")}
     if k.get("picked"):
         res["order"] = k["order"]
     return res
+
+
+def compare_text(name: str, n: int, k: int) -> str:
+    path = compare_dir(name, n) / f"{k}.md"
+    if not path.exists():
+        raise ValueError(f"{n}화 비교본 {k}번이 없습니다")
+    return path.read_text(encoding="utf-8")
+
+
+def save_compare_hook(name: str, n: int, k: int, report: BaseModel) -> None:
+    """비교본 하나의 흡입력 판정. 다음 비교를 만들면 지운다."""
+    (compare_dir(name, n) / f"hook-{k}.json").write_text(report.model_dump_json(), encoding="utf-8")
 
 
 def pick_compare(name: str, p: Project, n: int, k: int, adopt: bool = True) -> dict:
@@ -336,7 +359,7 @@ def pick_compare(name: str, p: Project, n: int, k: int, adopt: bool = True) -> d
     key_path.write_text(json.dumps(key, ensure_ascii=False), encoding="utf-8")
     log = out.parent / "log.jsonl"
     with log.open("a", encoding="utf-8") as f:
-        f.write(json.dumps({"episode": n, "options": order, "picked": order[k - 1],
+        f.write(json.dumps({"episode": n, "kind": key.get("kind", "backend"), "options": order, "picked": order[k - 1],
                             "time": datetime.now().isoformat(timespec="seconds")}, ensure_ascii=False) + "\n")
     wins: dict[str, int] = {}
     for line in log.read_text(encoding="utf-8").splitlines():

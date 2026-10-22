@@ -7,6 +7,8 @@
   python -m canon arc 내소설            기승전결 구간 설계 (단편)
   python -m canon series 내소설         장편: 총 화수를 부로 나누는 부 구성 제안
   python -m canon convert 내소설 --episodes 200 [--ending keep|reopen]   단편을 장편으로 전환 (--undo 로 되돌리기)
+  python -m canon convert 내소설 --episodes 200 --rebuild [--span 36] [--ending-at arc|part|series]   단편을 씨앗으로 앞부분 재구성
+  python -m canon rework 내소설 3                     재구성에서 다듬기로 고른 화 고치기
   python -m canon nextarc 내소설 [--len 15 --note "..." --redo]   장편: 다음 아크 하나 기획 (--redo 는 마지막 아크를 지우고 다시)
   python -m canon arcs 내소설           장편: 부와 아크 진행 보기
   python -m canon recap 내소설 [arc|part 번호]   장편: 끝난 아크·부 요약 (승인 후 저장)
@@ -25,13 +27,17 @@
   python -m canon auto 내소설 --to 12 [--batch]   목표 화까지 자동 집필 (정책에 걸리면 멈춤, --resume 으로 이어 가기)
   python -m canon compare 내소설 3 [--a gemini --b local]   같은 화를 두 백엔드로 써서 이름을 가리고 비교
   python -m canon compare 내소설 3 --pick 2   고른 쪽을 본문으로 쓰고 어느 백엔드였는지 공개
+  python -m canon openings 내소설 1 [--plot | --use 2] [--ways in_medias_res,lack_turn]   1~3화를 여는 방식마다 써서 가려 고르기 (--plot 은 플롯 안)
+  python -m canon hook 내소설 1 [--draft 2]   1~3화 흡입력 판정 (근거 인용, 초반 지표와 함께)
   python -m canon brief 내소설 3        구독형 채팅 앱용 작업지시서 출력 (--state, --check)
   python -m canon import 내소설 3 본문.txt   다른 곳에서 쓴 본문 가져오기
+  python -m canon export 내소설 [--from 1 --to 3 --format blank|compact|indent|raw -o 파일.txt]   다른 곳에 붙여 넣을 본문
   python -m canon show 내소설 [섹션]       섹션 rel 은 관계 역학을 보여 준다
   python -m canon view 내소설 numbers|words   관계를 숫자로 볼지 말로 볼지
   python -m canon adjust 내소설 a b --warmth 0.3 --trust 0.6   a 가 b 를 보는 관계를 직접 보정
   python -m canon revert 내소설 3       3화 상태 반영 직후로 되돌리기
   python -m canon recalc 내소설         계수(params)를 바꾼 뒤 사건 로그로 관계 재계산
+  python -m canon usage [--days 30 | --all] [--project 내소설] [--prices]   AI 사용량과 추정 비용 (가격표 보기)
   python -m canon serve [--port 8000]    웹 UI (브라우저 자동 열기, 끄려면 --no-browser)
   python -m canon upgrade               main 의 새 코드 받기 (serve 는 시작할 때와 10분마다 알아서 받는다)
 설정은 projects/<이름>/project.json 을 직접 고쳐도 된다.
@@ -44,8 +50,8 @@ import re
 import sys
 from pathlib import Path
 
-from . import (autorun, dynamics, elements, genres, library, logline, metrics, naming, pipeline, prompts, research, store, storylines,
-               updater)
+from . import (autorun, dynamics, elements, genres, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
+               storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 
@@ -348,6 +354,9 @@ def cmd_convert(a: argparse.Namespace) -> None:
         return
     lo, hi = pipeline.convert_range(p)
     total = a.episodes or int(ask(f"장편 총 화수 ({lo}~{hi})", str(max(lo, 200))))
+    if a.rebuild:
+        _rebuild(a, p, total)
+        return
     prop = pipeline.propose_conversion(get_llm("plan"), p, total, a.ending or "", a.note or "")
     print(prop.reply)
     print(f"\n결말 처리: {'닫고 다음 이야기로' if prop.ending == 'keep' else '결말 다시 열기'} · 총 {prop.total_episodes}화")
@@ -374,6 +383,50 @@ def cmd_convert(a: argparse.Namespace) -> None:
         store.save_backup(a.name, pipeline.BACKUP_TAG, before)
         print(f"저장: {store.save(a.name, p)}")
         print(f"다음: nextarc {a.name}  ({p.planned_until() + 1}화부터)" if p.story_arcs else f"다음: nextarc {a.name}")
+
+
+REBUILD_USE = {"keep": "그대로", "revise": "다듬기", "rewrite": "새로 쓰기", "new": "새 화"}
+
+
+def _rebuild(a: argparse.Namespace, p, total: int) -> None:
+    """재구성: 단편을 씨앗으로 장편 앞부분을 다시 짠다. 화 번호가 바뀌고 상태는 1화 시작 전으로 돌아간다."""
+    prop = pipeline.propose_rebuild(get_llm("plan"), p, total, a.span or 0, a.ending_at or "", a.note or "")
+    print(prop.reply)
+    where = {"arc": "첫 아크 끝", "part": "1부 끝", "series": "작품 끝"}[prop.ending_at]
+    print(f"\n총 {prop.total_episodes}화 · 앞 {prop.arcs[-1].end_ep}화를 다시 짬 · 단편 결말 → {where}")
+    for arc in prop.arcs:
+        _print_arc(arc)
+    for x in prop.parts:
+        print(f"\n{x.number}부 {x.title} ({x.start_ep}~{x.end_ep}화)\n  목표: {x.goal}")
+    print("\n화 지도:")
+    for x in prop.episodes:
+        src = f" ← 단편 {', '.join(map(str, x.sources))}화" if x.sources else ""
+        print(f"  {x.number:3d}화 [{REBUILD_USE[x.use]}]{src} {x.title}: {x.summary}" + (f"\n        메모: {x.note}" if x.note else ""))
+    if prop.dropped:
+        print(f"  쓰지 않는 단편 화: {prop.dropped}")
+    for f in prop.foreshadows:
+        print(f"  새 떡밥 {f.id} ({f.scope}, {f.planted_ep}화): {f.description}")
+    for t in prop.tiers:
+        print(f"  비중 {t.id} → {t.tier}  {t.reason}")
+    if confirm("이대로 재구성할까요? 상태와 관계는 1화 시작 전으로 돌아갑니다 (convert --undo 로 되돌릴 수 있습니다)", a.yes):
+        before, notes = pipeline.apply_rebuild(p, prop)
+        store.save_backup(a.name, pipeline.BACKUP_TAG, before)
+        print(f"저장: {store.save(a.name, p)}")
+        for n in notes:
+            print(f"  ※ {n}")
+        print(f"다음: plot {a.name} 로 새 화 플롯 초안을 만들고, 다듬기 화는 rework {a.name} N 으로 고치세요")
+
+
+def cmd_rework(a: argparse.Namespace) -> None:
+    """재구성에서 다듬기로 고른 화의 옛 본문을 새 자리에 맞게 고친다."""
+    p = store.load(a.name)
+    rw = pipeline.propose_rework(get_llm("revise"), p, a.ep)
+    if rw.reply:
+        print(rw.reply)
+    print(f"\n----- 고친 {a.ep}화 -----\n{rw.text}\n")
+    if confirm("이 본문으로 바꿀까요?", a.yes):
+        pipeline.accept_rework(p, a.ep, rw.text)
+        print(f"저장: {store.save(a.name, p)}")
 
 
 def cmd_lines(a: argparse.Namespace) -> None:
@@ -514,6 +567,13 @@ def _write(name: str, p: Project, n: int) -> None:
     print(f"{n}화 저장: {store.project_dir(name) / 'episodes' / f'{n:02d}.md'} ({len(text)}자)")
     for w in pipeline.style_drift(p, n)[1]:
         print(f"! 문체: {w}")
+    _print_opening(p, n)
+
+
+def _print_opening(p: Project, n: int, text: str | None = None, indent: str = "") -> None:
+    if prompts.is_opening(n):
+        for w in pipeline.opening_metrics(p, n, text)[1]:
+            print(f"{indent}! 초반: {w}")
 
 
 def _strip_fence(raw: str) -> str:
@@ -618,6 +678,8 @@ def cmd_stats(a: argparse.Namespace) -> None:
               f"{_num(m.comma_sentence_ratio):>5} {_num(m.short_ending_ratio):>6} {_num(m.pronoun_per_1k):>6} {_num(m.style_distance):>5}  {len(warns) or ''}")
         for w in warns:
             print(f"      ! {w}")
+        if label.endswith("화"):
+            _print_opening(p, int(label[:-1]), indent="      ")
     if not p.style_baseline:
         print("\n(기준은 문체 예시 발췌로 잰 값입니다. style 명령을 다시 실행하면 원문 전체로 잽니다.)")
         return
@@ -739,7 +801,8 @@ def cmd_auto(a: argparse.Namespace) -> None:
         return
     policy = autorun.Policy(check=not a.no_check, max_issues=a.max_issues, max_shift=a.max_shift,
                             stop_on_stage=a.stop_on_stage, stop_on_warnings=a.stop_on_warnings,
-                            confirm_plots=a.confirm_plots, review_every=a.review_every)
+                            confirm_plots=a.confirm_plots, review_every=a.review_every,
+                            hand_pick_opening=not a.auto_opening)
     if not a.resume:
         target = a.to or p.meta.target_episodes
         est = autorun.estimate(p, target, a.batch, policy, a.name)
@@ -791,6 +854,70 @@ def cmd_compare(a: argparse.Namespace) -> None:
             print(f"      ! {w}")
     out = research.compare_dir(a.name, a.n)
     print(f"\n저장: {out}/1.md, 2.md (key.json 은 열지 마세요)\n읽어 보고 고르세요: compare {a.name} {a.n} --pick 1|2")
+
+
+def cmd_openings(a: argparse.Namespace) -> None:
+    """1~3화를 여는 방식마다 하나씩. --plot 은 플롯 안(저장해 두고 --use 로 반영), 아니면 본문 안(compare --pick 으로 고름)."""
+    import json
+
+    p = store.load(a.name)
+    ways = [w.strip() for w in (a.ways or "").split(",") if w.strip()] or None
+    saved = research.compare_dir(a.name, a.n) / "plots.json"
+    if a.use:
+        from .schema import OpeningPlots
+
+        if not saved.exists():
+            sys.exit(f"{a.n}화 플롯 안이 없습니다. 먼저 openings {a.name} {a.n} --plot")
+        opts = OpeningPlots.model_validate_json(saved.read_text(encoding="utf-8")).options
+        if not 1 <= a.use <= len(opts):
+            sys.exit(f"1~{len(opts)} 중에서 고르세요")
+        pipeline.apply_opening(p, a.n, opts[a.use - 1].plot)
+        store.save(a.name, p)
+        print(f"{a.n}화 플롯을 {a.use}번 안({prompts.OPENING_APPROACHES.get(opts[a.use - 1].approach, ('?',))[0]})으로 바꿨습니다. 확인 후 confirm {a.name} {a.n}")
+        return
+    if a.plot:
+        print(f"{a.n}화 플롯을 여는 방식별로 만드는 중...")
+        out = pipeline.suggest_openings(get_llm("plan"), p, a.n, ways)
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        saved.write_text(out.model_dump_json(), encoding="utf-8")
+        for i, o in enumerate(out.options, 1):
+            e = o.plot
+            print(f"\n[{i}] {prompts.OPENING_APPROACHES[o.approach][0]} · {e.title}\n  {o.pitch}\n  여는 장면: {e.opening}"
+                  f"\n  사건: {' / '.join(e.events)}\n  훅: {e.ending_hook}\n  독자 질문: {e.reader_question}")
+        print(f"\n쓸 안을 고르세요: openings {a.name} {a.n} --use 번호")
+        return
+    print(f"{a.n}화를 여는 방식마다 쓰는 중...")
+    c = research.run_opening_compare(a.name, p, a.n, get_llm("write"), ways)
+    research.record(a.name, "compare", {"episode": a.n, "kind": "opening", "backends": sorted(json.loads(
+        (research.compare_dir(a.name, a.n) / "key.json").read_text(encoding="utf-8"))["order"])})  # 고르기 전이라 순서는 남기지 않는다
+    for d in c["drafts"]:
+        print(f"\n[{d['n']}] {d['chars']:,}자 · 대사 {d['dialogue_ratio']}")
+        for w in d["opening"] + d["warnings"]:
+            print(f"    ! {w}")
+    nums = "|".join(str(d["n"]) for d in c["drafts"])
+    print(f"\n저장: {research.compare_dir(a.name, a.n)}/*.md (key.json 은 열지 마세요)"
+          f"\n판정을 보려면: hook {a.name} {a.n} --draft 번호\n고르세요: compare {a.name} {a.n} --pick {nums}")
+
+
+def cmd_hook(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    text = research.compare_text(a.name, a.n, a.draft) if a.draft else None
+    print(f"{a.n}화{f' 비교본 {a.draft}번' if a.draft else ''} 흡입력 판정 중...")
+    rep = pipeline.check_hook(get_llm("check"), p, a.n, text)
+    if a.draft:
+        research.save_compare_hook(a.name, a.n, a.draft, rep)
+    else:
+        pipeline.apply_hook(p, rep)
+        store.save(a.name, p)
+    print(f"\n다음 화를 누를까: {'예' if rep.next_click else '아니오'} · {rep.reason}")
+    if rep.reader_question:
+        print(f"독자가 들고 갈 질문: {rep.reader_question}")
+    print(f"전제가 나오는 곳: {f'{rep.premise_at:,}자' if rep.premise_at >= 0 else '찾지 못함'}")
+    for it in rep.items:
+        print(f"  {it.aspect:<6} {'●' * it.score}{'○' * (5 - it.score)}  {it.note}")
+        if it.quote:
+            print(f"         \"{it.quote}\"")
+    _print_opening(p, a.n, text)
 
 
 def cmd_brief(a: argparse.Namespace) -> None:
@@ -856,6 +983,18 @@ def cmd_edits(a: argparse.Namespace) -> None:
             mark = " (되돌림)" if x.undone else ""
             how = {"manual": "직접", "ai": "AI", "typed": "본문 저장"}[x.source]
             print(f"{e.plot.number}화 {x.id} [{how}]{mark} {x.instruction}\n  - {x.before[:80]}\n  + {x.after[:80]}")
+
+
+def cmd_export(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    nums = [e.plot.number for e in p.episodes if e.text and (not a.start or e.plot.number >= a.start)
+            and (not a.end or e.plot.number <= a.end)]
+    out = publish.export(p, nums, a.format, not a.no_title)
+    if a.output:
+        Path(a.output).write_text(out["text"], encoding="utf-8")
+        print(f"{', '.join(map(str, out['episodes']))}화를 저장했습니다: {a.output}")
+    else:
+        sys.stdout.write(out["text"])
 
 
 def cmd_show(a: argparse.Namespace) -> None:
@@ -930,6 +1069,49 @@ def cmd_recalc(a: argparse.Namespace) -> None:
     print(dynamics.describe_relations(p, numbers=p.settings.show_numbers) or "관계 없음")
 
 
+STAGE_LABELS = {"plan": "계획", "write": "본문", "check": "검수", "state": "상태 변경안", "name": "이름 추천",
+                "revise": "부분 수정", "research": "연구"}
+
+
+def _usd(x: float | None) -> str:
+    return "가격 모름" if x is None else (f"${x:,.2f}" if x >= 0.995 or x == 0 else f"${x:.4f}")
+
+
+def cmd_usage(a: argparse.Namespace) -> None:
+    if a.prices:
+        t = usage.price_table()
+        print(f"USD / 100만 토큰. 기본값은 {t['checked']} Google 가격표 ({t['url']})")
+        print(f"{'모델':<26}{'적용':>11}{'입력':>8}{'출력':>8}{'캐시':>8}{'배치입력':>9}{'배치출력':>9}")
+        for r in t["rows"]:
+            mark = " (사용자 수정)" if r["custom"] else (" (예고)" if r["upcoming"] else "")
+            print(f"{r['model']:<26}{r['since'] or '처음부터':>11}{r['input']:>8g}{r['output']:>8g}{r['cached'] if r['cached'] is not None else r['input']:>8g}"
+                  f"{r['batch_input'] if r['batch_input'] is not None else r['input'] / 2:>9g}"
+                  f"{r['batch_output'] if r['batch_output'] is not None else r['output'] / 2:>9g}{mark}")
+        print("고치려면 웹 설정 화면의 'AI 요금 가격표'에서 고친다. 로컬 모델은 0원으로 센다.")
+        return
+    s = usage.summary(None if a.all else a.days, a.project or None)
+    t = s["total"]
+    span = "전체 기간" if a.all else f"최근 {a.days}일"
+    print(f"{span}{' · ' + a.project if a.project else ''}: 호출 {t['calls']}번, 추정 비용 {_usd(t['cost'])}")
+    print(f"  입력 {t['in']:,} 토큰 (캐시 {t['cached']:,}), 출력 {t['out']:,} 토큰 (생각 토큰 포함)")
+    if t["batch"]:
+        print(f"  배치 {t['batch']}번으로 아낀 비용 {_usd(t['saved'])}")
+    if t["failed"] or t["retries"]:
+        print(f"  실패 {t['failed']}번, 다시 요청 {t['retries']}번 (여기에 쓴 비용 {_usd(t['wasted'])})")
+    for title, key, label in (("작품별", "by_project", lambda r: r["project"] or "(작품 밖)"),
+                              ("단계별", "by_stage", lambda r: STAGE_LABELS.get(r["stage"], r["stage"] or "기타")),
+                              ("모델별", "by_model", lambda r: f"{r['model']} ({r['backend']})"),
+                              ("날짜별", "by_day", lambda r: r["day"])):
+        rows = s[key]
+        if rows:
+            print(f"\n{title}")
+            for r in rows:
+                print(f"  {label(r):<32} {r['calls']:>5}번 {_usd(r['cost']):>10}")
+    if s["unpriced"]:
+        print(f"\n! 가격표에 없는 모델: {', '.join(s['unpriced'])}. 이 호출은 비용에서 빠졌습니다 (웹 설정에서 가격 추가).")
+    print(f"\n추정치입니다. 실제 청구 금액은 Google AI Studio 사용량 화면에서 확인하세요: {s['billing_url']}")
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="canon", description="데이터 기반 AI 소설 생성기 (MVP)")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -974,6 +1156,11 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--ending", choices=["keep", "reopen"], help="keep 닫고 다음 이야기로 / reopen 결말 다시 열기 (비우면 AI 가 고름)")
     sp.add_argument("--note", help="장편에 바라는 것")
     sp.add_argument("--undo", action="store_true", help="전환 전 단편으로 되돌리기")
+    sp.add_argument("--rebuild", action="store_true", help="이어 쓰기 대신 재구성: 단편을 씨앗으로 장편 앞부분을 다시 짠다")
+    sp.add_argument("--span", type=int, help="재구성: 다시 짤 앞부분 화수")
+    sp.add_argument("--ending-at", choices=["arc", "part", "series"], help="재구성: 단편 결말이 갈 곳 (첫 아크 끝 / 1부 끝 / 작품 끝)")
+    sp = add("rework", cmd_rework)
+    sp.add_argument("ep", type=int)
     sp = add("nextarc", cmd_nextarc)
     sp.add_argument("--len", type=int, help="아크 화수")
     sp.add_argument("--note", help="이번 아크에 바라는 것")
@@ -1029,6 +1216,7 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--max-shift", type=float, default=0.3, help="관계 온기·신뢰가 한 화에 이보다 많이 바뀌면 멈춤 (0: 안 봄)")
     sp.add_argument("--stop-on-stage", action="store_true", help="관계 단계가 바뀌면 멈춤")
     sp.add_argument("--stop-on-warnings", action="store_true", help="상태 변경안 경고가 있으면 멈춤")
+    sp.add_argument("--auto-opening", action="store_true", help="1~3화도 멈추지 않고 정책대로 반영 (기본은 1~3화에서 멈춤)")
     sp.add_argument("--confirm-plots", action="store_true", help="초안 플롯을 자동 확정하고 진행")
     sp.add_argument("--review-every", type=int, default=0, help="N화마다 멈춤")
     sp.add_argument("--resume", action="store_true", help="멈춘 실행 이어 가기")
@@ -1039,7 +1227,13 @@ def main(argv: list[str] | None = None) -> None:
     sp = add("compare", cmd_compare, "n", yes=False)
     sp.add_argument("--a", default="gemini", choices=["gemini", "local", "mock"])
     sp.add_argument("--b", default="local", choices=["gemini", "local", "mock"])
-    sp.add_argument("--pick", type=int, choices=[1, 2], help="고른 번호. 본문으로 저장하고 백엔드를 공개")
+    sp.add_argument("--pick", type=int, help="고른 번호. 본문으로 저장하고 백엔드(여는 방식)를 공개")
+    sp = add("openings", cmd_openings, "n", yes=False)
+    sp.add_argument("--plot", action="store_true", help="본문 대신 플롯 안을 만든다")
+    sp.add_argument("--use", type=int, help="저장해 둔 플롯 안 가운데 이 번호를 그 화 플롯으로")
+    sp.add_argument("--ways", help="여는 방식 id 2~4개, 쉼표로: " + ", ".join(prompts.OPENING_APPROACHES))
+    sp = add("hook", cmd_hook, "n", yes=False)
+    sp.add_argument("--draft", type=int, default=0, help="그 화 본문 대신 비교본 번호를 판정")
     sp = add("brief", cmd_brief, "n", yes=False)
     sp.add_argument("--state", action="store_true", help="상태 정리용 작업지시서")
     sp.add_argument("--check", action="store_true", help="검수용 작업지시서")
@@ -1051,6 +1245,12 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("n", type=int, nargs="?")
     sp.add_argument("--undo", metavar="ID", help="이 수정을 되돌림 (예: e2)")
     sp.add_argument("--jsonl", action="store_true", help="고치기 전후 쌍을 JSON Lines 로 출력")
+    sp = add("export", cmd_export, yes=False)
+    sp.add_argument("--from", dest="start", type=int, default=0)
+    sp.add_argument("--to", dest="end", type=int, default=0)
+    sp.add_argument("--format", default="blank", choices=list(publish.FORMATS), help="줄바꿈 형식 (기본: 문단 사이 빈 줄)")
+    sp.add_argument("--no-title", action="store_true", help="'N화. 제목' 줄을 넣지 않음 (한 화만 낼 때)")
+    sp.add_argument("-o", "--output", help="저장할 .txt 파일 (없으면 화면에 출력)")
     sp = add("show", cmd_show, yes=False)
     sp.add_argument("section", nargs="?")
 
@@ -1070,6 +1270,12 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--update-interval", type=float, default=10, help="실행 중 새 코드 확인 간격(분), 기본 10")
     sp.set_defaults(fn=cmd_serve)
     sub.add_parser("upgrade", help="main 의 새 코드 받기 (git pull)").set_defaults(fn=cmd_upgrade)
+    sp = sub.add_parser("usage", help="AI 사용량과 추정 비용")
+    sp.add_argument("--days", type=int, default=30, help="최근 며칠 (기본 30)")
+    sp.add_argument("--all", action="store_true", help="전체 기간")
+    sp.add_argument("--project", help="이 작품만")
+    sp.add_argument("--prices", action="store_true", help="가격표 보기")
+    sp.set_defaults(fn=cmd_usage)
 
     sp = add("view", cmd_view, yes=False)
     sp.add_argument("mode", choices=["numbers", "words"])
@@ -1080,7 +1286,10 @@ def main(argv: list[str] | None = None) -> None:
     add("recalc", cmd_recalc, yes=False)
 
     a = ap.parse_args(argv)
+    ep = getattr(a, "n", None) if getattr(a, "n", None) is not None else getattr(a, "ep", None)
     try:
-        a.fn(a)
+        with usage.scope(project=getattr(a, "name", None), episode=ep if isinstance(ep, int) else None,
+                         source="cli", task=a.cmd, stage="research" if a.cmd == "compare" else None):
+            a.fn(a)
     except (ValueError, KeyError, FileNotFoundError, RuntimeError) as e:
         sys.exit(f"오류: {e}")
