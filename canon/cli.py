@@ -27,7 +27,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import dynamics, metrics, pipeline, prompts, store
+from . import dynamics, genres, metrics, pipeline, prompts, store
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, Meta, Project, StateDelta
 
@@ -50,9 +50,12 @@ def cmd_new(a: argparse.Namespace) -> None:
     if store.exists(a.name):
         sys.exit(f"이미 있는 프로젝트입니다: {a.name}")
     print("기본 설정을 입력하세요. 모르는 칸은 비워 두면 AI 가 제안합니다.\n")
+    genre_ids = genres.parse(a.genre or ask("장르 (쉼표로 여러 개, 목록: python -m canon genres)", "현대 드라마"))
     meta = Meta(
         title=a.title or ask("제목"),
-        genre=a.genre or ask("장르", "현대 드라마"),
+        genres=genre_ids,
+        genre=" · ".join(genres.names(genre_ids)),
+        adult=a.adult,
         logline=a.logline or ask("로그라인 (누가, 무엇을 원하고, 무엇이 막는가)"),
         tone=ask("분위기/톤") if a.interactive else "",
         target_episodes=int(a.episodes or ask("총 화수 (10~20)", "16")),
@@ -177,6 +180,15 @@ def _num(v: float | None) -> str:
     return "-" if v is None else str(v)
 
 
+def cmd_genres(a: argparse.Namespace) -> None:
+    for kind in ("장르", "요소"):
+        print(f"[{kind}]")
+        for g in genres.CATALOG:
+            if g.kind == kind:
+                print(f"  {g.name} ({g.id}): {g.summary}")
+    print("\nnew --genre '로맨스 판타지, 회귀' 처럼 쓰고, 목록에 없는 장르도 그대로 적을 수 있습니다.")
+
+
 def cmd_stats(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     base = pipeline.style_baseline(p)
@@ -295,7 +307,7 @@ def cmd_show(a: argparse.Namespace) -> None:
         print(dump(getattr(p, a.section)))
         return
     m = p.meta
-    print(f"《{m.title}》 {m.genre} / {m.target_episodes}화\n로그라인: {m.logline}\n")
+    print(f"《{m.title}》 {genres.label(m)}{' · 성인' if m.adult else ''} / {m.target_episodes}화\n로그라인: {m.logline}\n")
     print("인물:", ", ".join(f"{c.name}({c.id})" for c in p.characters) or "없음")
     print("스타일:", "있음" if p.style.sample_passages or p.style.narration_pov else "없음")
     for act in p.arc:
@@ -358,7 +370,8 @@ def main(argv: list[str] | None = None) -> None:
 
     sp = add("new", cmd_new)
     sp.add_argument("--title", default="")
-    sp.add_argument("--genre", default="")
+    sp.add_argument("--genre", default="", help="쉼표로 여러 개 (python -m canon genres 로 목록)")
+    sp.add_argument("--adult", action="store_true", help="성인 독자 대상 작품")
     sp.add_argument("--logline", default="")
     sp.add_argument("--episodes", default="")
     sp.add_argument("--no-suggest", action="store_true")
@@ -385,6 +398,8 @@ def main(argv: list[str] | None = None) -> None:
     add("import", cmd_import, "n", "file", yes=False)
     sp = add("show", cmd_show, yes=False)
     sp.add_argument("section", nargs="?")
+
+    sub.add_parser("genres", help="장르 목록").set_defaults(fn=cmd_genres)
 
     sp = sub.add_parser("serve", help="웹 UI 실행")
     sp.add_argument("--host", default="127.0.0.1")
