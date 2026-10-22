@@ -216,3 +216,59 @@ def test_web_api(demo, monkeypatch):
     assert [e["status"] for e in p["episodes"][:3]] == ["finalized", "finalized", "written"]
     assert not p["episodes"][2]["auto"]
     assert c.post("/api/projects/demo/auto/pause").status_code == 200
+
+
+def test_batch_schema_mismatch_is_repaired(demo):
+    mock.BAD_JSON[:] = ["StateDelta"]  # 실제 배치에서 본 것처럼 summary 가 빠지고 항목이 문자열
+    count = len(mock.BATCHES)
+    run = autorun.start(demo, 1, True, autorun.Policy(), foreground=True)
+    assert run.status == "done" and run.applied == [1]
+    assert len(mock.BATCHES) == count + 4  # 본문, 검수, 상태, 상태 고쳐 받기
+    assert any(e.level == "warn" and "형식과 맞지 않아" in e.message for e in run.log)
+    assert not run.batches
+
+
+def test_batch_schema_mismatch_twice_pauses_and_keeps_text(demo):
+    mock.BAD_JSON[:] = ["StateDelta", "StateDelta"]
+    run = autorun.start(demo, 2, True, autorun.Policy(), foreground=True)
+    assert run.status == "paused" and run.ep == 1 and "형식에 맞지 않아" in run.log[-1].message
+    assert "StateDelta" in run.reasons[0] and "본문은 그대로" in run.reasons[1]
+    p = store.load(demo)
+    text = p.episode(1).text
+    assert p.episode(1).status == "written" and text
+    run = autorun.resume(demo, foreground=True)  # 본문은 다시 쓰지 않고 상태 변경안만 새로 받는다
+    assert run.status == "review" and run.ep == 2
+    assert store.load(demo).episode(1).text == text and store.load(demo).episode(1).status == "finalized"
+
+
+def test_batch_fix_slot_reattaches_after_restart():
+    from canon.llm import BatchLLM, SchemaMismatch
+
+    m = mock.MockLLM()
+    good = m.batch_submit("", "", StateDelta, "t", hint={"episode": 3})
+    names = {"3:state:fix": good}  # 고쳐 받기를 기다리던 중에 서버가 다시 시작했다
+    count = len(mock.BATCHES)
+    b = BatchLLM(m, "3:state", names, lambda: None, lambda s: "", interval=0)
+    assert b.json("", "", StateDelta, {"episode": 3}).episode == 3
+    assert len(mock.BATCHES) == count and names == {} and b.last_attempts == 2
+
+    mock.BAD_JSON[:] = ["StateDelta", "StateDelta"]
+    with pytest.raises(SchemaMismatch) as e:
+        BatchLLM(m, "4:state", names, lambda: None, lambda s: "", interval=0).json("", "", StateDelta, {"episode": 4})
+    assert "summary" in e.value.brief and names == {}
+
+
+def test_gemini_json_retries_with_error():
+    from canon.llm import GeminiLLM, SchemaMismatch
+
+    good = StateDelta(episode=1, summary="s").model_dump_json()
+    bad = '{"episode": 1, "character_updates": ["cecilia: emotional_state=분노"]}'
+    llm = object.__new__(GeminiLLM)
+    asks = []
+    replies = [bad, good]
+    llm._call = lambda system, prompt, **kw: (asks.append(prompt), replies.pop(0))[1]
+    assert llm.json("", "원래 요청", StateDelta).summary == "s" and llm.last_attempts == 2
+    assert asks[0] == "원래 요청" and asks[1].startswith("원래 요청") and "틀린 곳" in asks[1] and bad in asks[1]
+    replies[:] = [bad, bad]
+    with pytest.raises(SchemaMismatch):
+        llm.json("", "원래 요청", StateDelta)

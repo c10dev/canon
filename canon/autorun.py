@@ -23,11 +23,12 @@ from typing import Any, Callable, Literal, Optional
 from pydantic import BaseModel, Field
 
 from . import dynamics, jobs, pipeline, prompts, settings, store
-from .llm import BatchLLM, Interrupted, get_llm
+from .llm import BatchLLM, Interrupted, SchemaMismatch, get_llm
 from .research import CHARS_PER_TOKEN, JSON_OUTPUT_RESERVE, _filler
 from .schema import ConsistencyReport, Project, StateDelta
 
 LOG_KEEP = 500
+STEP_NAMES = {"write": "본문", "check": "검수", "state": "상태 변경안"}
 # USD / 100만 토큰 (입력, 출력). 2026-10 기준 정가 추정치, 배치는 절반. CANON_PRICE="입력,출력" 으로 바꾼다.
 PRICES = {"gemini-4-argon": (2.0, 10.0)}
 BATCH_DISCOUNT = 0.5
@@ -350,10 +351,17 @@ class Runner:
         use_batch = self.run.batch and hasattr(llm, "batch_submit")
         if use_batch:
             llm = BatchLLM(llm, f"{n}:{stage}", self.run.batches, self.ctl.save, self.ctl.wait,
-                           label=f"canon {self.name}")
+                           label=f"canon {self.name}", note=lambda m: self.log(f"{n}화 {STEP_NAMES[stage]}: {m}", "warn"))
         t = time.time()
         try:
             out = fn(llm)
+        except SchemaMismatch as e:
+            # 본문은 그대로 두고 이 화에서 멈춘다. 이어 가면 이 단계만 새로 요청한다
+            raise _Halt("paused", f"{n}화 {STEP_NAMES[stage]} 응답이 형식에 맞지 않아 멈췄습니다", [
+                f"{n}화 {STEP_NAMES[stage]}: 다시 요청해도 모델 응답이 {e.schema} 형식과 맞지 않았습니다 ({e.brief})",
+                "쓴 본문은 그대로 있습니다. 이어 가면 이 단계만 다시 요청합니다"
+                + (". 배치에서 되풀이되면 배치를 끄고 이어 가 보세요" if use_batch else ""),
+            ])
         except Interrupted as e:
             if e.cancelled:
                 raise _Halt("stopped", "중지했습니다 (기다리던 배치 작업을 취소)")
@@ -443,6 +451,8 @@ class Runner:
                 except Exception as e:
                     errors.append(e)
             if errors:
+                if "check" in results:  # 받아 온 검수는 버리지 않는다 (참고용이라 승인 없이 저장)
+                    _edit(self.name, lambda q: pipeline.apply_check(q, results["check"][0]))
                 # 한쪽만 멈춤 요청을 받았으면 다른 쪽(기다리는 배치)도 같은 이유로 멈춘다
                 raise next((e for e in errors if not isinstance(e, _Halt)), errors[0])
         delta: StateDelta = results["state"][0]
@@ -614,7 +624,7 @@ def _cancel_batches(run: Run) -> None:
     """기다리던 배치 작업을 취소한다. 이미 끝났거나 키가 없어 취소하지 못해도 목록은 비운다."""
     for slot, bname in list(run.batches.items()):
         try:
-            get_llm(slot.split(":")[-1]).batch_cancel(bname)  # type: ignore[attr-defined]
+            get_llm(slot.split(":")[1]).batch_cancel(bname)  # type: ignore[attr-defined]  # "<화>:<단계>[:fix]"
         except Exception:
             pass
     run.batches = {}

@@ -277,6 +277,9 @@ class MockLLM:
         import uuid
 
         out = self.json(system, prompt, schema, hint).model_dump_json() if schema else self.text(system, prompt)
+        if schema is not None and schema.__name__ in BAD_JSON:
+            BAD_JSON.remove(schema.__name__)
+            out = _broken(out)
         name = f"batches/mock-{uuid.uuid4().hex[:8]}"
         BATCHES[name] = {"out": out, "polls": int(os.environ.get("CANON_MOCK_BATCH_POLLS", "0") or 0),
                          "label": label, "cancelled": False}
@@ -299,3 +302,16 @@ class MockLLM:
 
 
 BATCHES: dict[str, dict] = {}  # 프로세스 안에서만 유지되는 가짜 배치 작업
+BAD_JSON: list[str] = []  # 여기 넣은 스키마 이름은 다음 배치 응답 한 번을 형식이 틀리게 낸다 (넣은 만큼)
+
+
+def _broken(out: str) -> str:
+    """실제 배치에서 본 모양: 필수 칸이 빠지고 목록 항목이 "a: b=c" 같은 문자열이다."""
+    import json
+
+    d = json.loads(out)
+    d.pop("summary", None)
+    for k, v in d.items():
+        if isinstance(v, list) and v and isinstance(v[0], dict):
+            d[k] = [": ".join(str(x) for x in item.values())[:80] for item in v]
+    return json.dumps(d, ensure_ascii=False)
