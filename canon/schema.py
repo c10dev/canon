@@ -2,7 +2,8 @@
 
 모든 상태는 하나의 Project 객체(project.json)에 저장된다.
 LLM 이 직접 채우는 모델(SetupSuggestion, StyleProfile, ArcPlan, PlotBatch, PlotRevision, NameOptions, StateDelta, ConsistencyReport,
-ImpactReport, SeriesPlan, ArcProposal, Recap, StorylineProposal, SerialConversion)은
+ImpactReport, SeriesPlan, ArcProposal, Recap, StorylineProposal, SerialConversion,
+PassageRevision)은
 Gemini 구조화 출력에 그대로 넘기므로 dict 타입 필드를 쓰지 않는다.
 """
 from __future__ import annotations
@@ -397,20 +398,41 @@ class PlotRevision(BaseModel):
     episodes: list[EpisodePlot] = Field(default_factory=list, description="바뀌는 화만, 모든 칸을 채운 전체 플롯")
 
 
-ChatTopic = Literal["plot"]
+class PassageCandidate(BaseModel):
+    text: str = Field(description="고칠 부분을 대신할 새 글. 앞뒤 본문은 되풀이하지 않는다")
+    note: str = Field("", description="무엇을 어떻게 바꿨는지 한 줄")
+
+
+class PassageRevision(BaseModel):
+    """본문 부분 수정: 작가가 고른 부분을 AI 가 다시 쓴 후보. 작가가 하나를 골라야 본문에 들어간다 (pipeline.apply_passage)."""
+    reply: str = Field(description="작가에게 하는 짧은 답 1~3문장. 후보들이 어떻게 다른지")
+    candidates: list[PassageCandidate] = Field(default_factory=list, description="2~3개, 서로 다른 방향으로 고친 후보")
+
+
+class Selection(BaseModel):
+    """본문에서 고른 부분. start 는 본문 안 글자 위치, text 는 고를 때의 원문 (위치가 밀려도 원문으로 다시 찾는다)."""
+    start: int = 0
+    text: str
+
+
+# 'plot'(기승전결 · 플롯 화면) 또는 'text:<화>'(집필 화면의 본문 부분 수정). web._chat 이 검사한다
+ChatTopic = str
 
 
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
     text: str
-    revision: Optional[PlotRevision] = Field(None, description="assistant 가 낸 변경안")
+    revision: Optional[PlotRevision] = Field(None, description="assistant 가 낸 플롯 변경안")
+    passage: Optional[PassageRevision] = Field(None, description="assistant 가 낸 본문 부분 수정 후보")
+    selection: Optional[Selection] = Field(None, description="본문 부분 수정: 고친 대상")
+    preset: str = Field("", description="본문 부분 수정: 고른 빠른 요청 (prompts.PASSAGE_PRESETS)")
     outcome: Literal["", "applied", "dismissed"] = Field("", description="변경안을 반영했는지, 버렸는지")
-    applied: list[str] = Field(default_factory=list, description="반영한 부분: 'acts' 또는 화 번호")
+    applied: list[str] = Field(default_factory=list, description="반영한 부분: 'acts' 또는 화 번호, 본문 수정이면 후보 번호(0부터)")
     at: str = ""
 
 
 class Chat(BaseModel):
-    """화면별 대화 기록. 지금은 플롯 화면(topic='plot')만 쓴다."""
+    """화면별 대화 기록. 플롯 화면은 'plot', 본문 부분 수정은 화마다 'text:<화>'."""
     topic: ChatTopic
     messages: list[ChatMessage] = Field(default_factory=list)
 
@@ -435,12 +457,32 @@ class ConsistencyReport(BaseModel):
     issues: list[ConsistencyIssue] = Field(default_factory=list, description="근거가 분명한 모순만. 없으면 빈 목록")
 
 
+EditSource = Literal["manual", "ai", "typed"]
+
+
+class TextEdit(BaseModel):
+    """본문 부분 수정 기록. 되돌리기에 쓰고, 고치기 전후 쌍은 나중에 선호 · 미세 조정 자료로 쓸 수 있게 남긴다."""
+    id: str
+    at: str = ""
+    source: EditSource = Field("manual", description="manual: 고른 부분을 직접 고침 / ai: AI 후보를 고름 / typed: 본문을 직접 고쳐 저장")
+    start: int = Field(0, description="고친 자리 (본문 안 글자 위치)")
+    before: str = ""
+    after: str = ""
+    instruction: str = Field("", description="AI 에게 한 요청")
+    preset: str = ""
+    proposed: str = Field("", description="작가가 손보기 전 AI 후보 원문. 손보지 않았으면 비움")
+    rejected: list[str] = Field(default_factory=list, description="고르지 않은 AI 후보")
+    undone: bool = False
+
+
 class Episode(BaseModel):
     plot: EpisodePlot
     status: EpisodeStatus = "draft"
     text: str = ""
     summary: str = ""
     issues: list[ConsistencyIssue] = Field(default_factory=list, description="마지막 검수 결과")
+    checked_at: str = Field("", description="마지막 검수 시각. 그 뒤에 본문을 고쳤으면 검수 결과가 오래된 것")
+    edits: list[TextEdit] = Field(default_factory=list, description="본문 부분 수정 기록 (최근 것만)")
     auto: bool = Field(False, description="자동 집필이 사람 검토 없이 반영한 화. 사용자가 다시 반영하면 False")
 
 

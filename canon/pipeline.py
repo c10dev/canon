@@ -16,11 +16,13 @@ from .schema import (
     Episode,
     ImpactReport,
     NameOptions,
+    PassageRevision,
     PlotBatch,
     PlotRevision,
     Project,
     Recap,
     SerialConversion,
+    Selection,
     SeriesPlan,
     SetupSuggestion,
     StateDelta,
@@ -29,6 +31,7 @@ from .schema import (
     Storyline,
     StorylineProposal,
     StyleProfile,
+    TextEdit,
 )
 
 
@@ -891,6 +894,151 @@ def adopt_draft(p: Project, n: int, text: str) -> None:
     ep.text, ep.status = text, "written"
 
 
+# ---------- 4-1. 본문 부분 수정 ----------
+# 작가가 본문에서 고른 부분을 직접 고치거나 AI 후보로 바꾼다. 고칠 때마다 전후 쌍을 Episode.edits 에 남겨
+# 되돌릴 수 있게 하고, 나중에 선호 · 미세 조정 자료로 꺼낼 수 있게 한다 (cli edits --jsonl).
+
+EDIT_KEEP = 50  # 화마다 남기는 수정 기록 수
+
+
+def _now() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _editable(p: Project, n: int) -> Episode:
+    ep = p.episode(n)
+    if ep.status == "finalized":
+        raise ValueError(f"{n}화는 상태 반영까지 끝나 본문을 바꿀 수 없습니다. 바꾸려면 {n - 1}화 반영 직후로 되돌리세요")
+    if not ep.text:
+        raise ValueError(f"{n}화 본문이 없습니다")
+    return ep
+
+
+def locate(text: str, quote: str, start: int) -> int:
+    """quote 가 있는 자리. 본문이 앞에서 바뀌어 위치가 밀렸으면 start 에서 가장 가까운 같은 글을 찾는다."""
+    if not quote:
+        raise ValueError("고른 부분이 비었습니다")
+    if text[start:start + len(quote)] == quote:
+        return start
+    found, i = [], text.find(quote)
+    while i != -1:
+        found.append(i)
+        i = text.find(quote, i + 1)
+    if not found:
+        raise ValueError("고른 부분을 본문에서 찾을 수 없습니다. 그사이 본문이 바뀌었을 수 있어요. 다시 골라 주세요")
+    return min(found, key=lambda x: abs(x - start))
+
+
+def _record(ep: Episode, edit: TextEdit) -> TextEdit:
+    nums = [int(e.id[1:]) for e in ep.edits if e.id[1:].isdigit()]
+    edit.id = f"e{max(nums, default=0) + 1}"
+    edit.at = edit.at or _now()
+    ep.edits = (ep.edits + [edit])[-EDIT_KEEP:]
+    return edit
+
+
+def edit_text(p: Project, n: int, sel: Selection, after: str, source: str = "manual", instruction: str = "",
+              preset: str = "", proposed: str = "", rejected: list[str] | None = None) -> TextEdit:
+    """고른 부분(sel)을 after 로 바꾸고 기록을 남긴다."""
+    ep = _editable(p, n)
+    at = locate(ep.text, sel.text, sel.start)
+    if after == sel.text:
+        raise ValueError("바뀐 내용이 없습니다")
+    ep.text = ep.text[:at] + after + ep.text[at + len(sel.text):]
+    return _record(ep, TextEdit(id="", source=source, start=at, before=sel.text, after=after, instruction=instruction,  # type: ignore[arg-type]
+                                preset=preset, proposed=proposed if proposed != after else "", rejected=list(rejected or [])))
+
+
+def record_typed(p: Project, n: int, old: str, new: str) -> TextEdit | None:
+    """본문을 통째로 고쳐 저장했을 때 앞뒤가 같은 부분을 빼고 바뀐 곳만 기록한다. 처음 쓰거나 지운 것은 기록하지 않는다."""
+    if not old or not new or old == new:
+        return None
+    a = 0
+    while a < min(len(old), len(new)) and old[a] == new[a]:
+        a += 1
+    b = 0
+    while b < min(len(old), len(new)) - a and old[-1 - b] == new[-1 - b]:
+        b += 1
+    return _record(p.episode(n), TextEdit(id="", source="typed", start=a, before=old[a:len(old) - b], after=new[a:len(new) - b]))
+
+
+def undo_edit(p: Project, n: int, eid: str) -> TextEdit:
+    """수정 하나를 되돌린다. 그 뒤에 같은 자리를 또 고쳤으면 찾지 못해 되돌릴 수 없다."""
+    ep = _editable(p, n)
+    edit = next((e for e in ep.edits if e.id == eid), None)
+    if edit is None:
+        raise KeyError(f"수정 기록이 없습니다: {eid}")
+    if edit.undone:
+        raise ValueError("이미 되돌린 수정입니다")
+    if edit.after:
+        at = locate(ep.text, edit.after, edit.start)
+    elif edit.start <= len(ep.text):  # 지우기만 한 수정은 그 자리에 다시 넣는다
+        at = edit.start
+    else:
+        raise ValueError("되돌릴 자리를 찾을 수 없습니다")
+    ep.text = ep.text[:at] + edit.before + ep.text[at + len(edit.after):]
+    edit.undone = True
+    return edit
+
+
+def revise_passage(llm: LLM, p: Project, n: int, sel: Selection, message: str = "", preset: str = "") -> PassageRevision:
+    """고른 부분의 고친 후보를 만든다. 저장하지 않는다. 원문과 같거나 겹치는 후보는 뺀다."""
+    if preset and preset not in prompts.PASSAGE_PRESETS:
+        raise ValueError(f"모르는 빠른 요청입니다: {preset}")
+    if not message.strip() and not preset:
+        raise ValueError("무엇을 바꿀지 적거나 빠른 요청을 고르세요")
+    ep = _editable(p, n)
+    sel = Selection(start=locate(ep.text, sel.text, sel.start), text=sel.text)
+    rev = llm.json(prompts.SYSTEM_REVISER, prompts.passage_prompt(p, n, sel, message, preset), PassageRevision,
+                   hint={"selection": sel.text, "preset": preset, "message": message})
+    keep, seen = [], {sel.text.strip()}
+    for c in rev.candidates:
+        c.text = c.text.strip().replace("【고칠 부분】", "").replace("【여기까지】", "")
+        if c.text and c.text not in seen:
+            seen.add(c.text)
+            keep.append(c)
+    rev.candidates = keep[:3]
+    if not keep:
+        rev.reply = rev.reply.rstrip() + "\n\n※ 원문과 다른 후보가 없었어요. 요청을 조금 더 구체적으로 적어 주세요."
+    return rev
+
+
+def record_passage(p: Project, n: int, sel: Selection, message: str, preset: str, rev: PassageRevision) -> ChatMessage:
+    """작가의 요청과 AI 후보를 그 화의 부분 수정 대화('text:<화>')에 남긴다."""
+    now = _now()
+    chat = p.chat(f"text:{n}")
+    label = prompts.PASSAGE_PRESETS[preset][0] if preset in prompts.PASSAGE_PRESETS else ""
+    user = ChatMessage(role="user", text=message.strip() or label, selection=sel, preset=preset, at=now)
+    reply = ChatMessage(role="assistant", text=rev.reply, passage=rev if rev.candidates else None, selection=sel,
+                        preset=preset, at=now)
+    chat.messages += [user, reply]
+    chat.messages = chat.messages[-CHAT_KEEP:]
+    return reply
+
+
+def apply_passage(p: Project, n: int, i: int, k: int, text: str | None = None) -> TextEdit:
+    """부분 수정 대화의 i 번째 메시지에서 k 번째 후보를 본문에 넣는다. text 를 주면 작가가 손본 글을 넣는다."""
+    msgs = p.chat(f"text:{n}").messages
+    if not 0 <= i < len(msgs) or msgs[i].passage is None or msgs[i].selection is None:
+        raise KeyError("후보가 있는 메시지가 아닙니다")
+    m = msgs[i]
+    if m.outcome:
+        raise ValueError("이미 처리한 후보입니다")
+    cands = m.passage.candidates
+    if not 0 <= k < len(cands):
+        raise ValueError("후보 번호가 맞지 않습니다")
+    user = next((x for x in reversed(msgs[:i]) if x.role == "user"), None)
+    after = (text if text is not None else cands[k].text).strip()
+    if not after:
+        raise ValueError("넣을 글이 비었습니다")
+    edit = edit_text(p, n, m.selection, after, "ai", instruction=user.text if user else "", preset=m.preset,
+                     proposed=cands[k].text, rejected=[c.text for j, c in enumerate(cands) if j != k])
+    m.outcome, m.applied = "applied", [str(k)]
+    return edit
+
+
 # ---------- 5. 검수 (모순 찾기, 문체 지표) ----------
 
 def check_episode(llm: LLM, p: Project, n: int) -> ConsistencyReport:
@@ -903,7 +1051,8 @@ def check_episode(llm: LLM, p: Project, n: int) -> ConsistencyReport:
 
 def apply_check(p: Project, r: ConsistencyReport) -> None:
     """검수 결과는 참고용 경고라 승인 없이 화에 붙여 둔다. 다시 검수하면 덮어쓴다."""
-    p.episode(r.episode).issues = r.issues
+    ep = p.episode(r.episode)
+    ep.issues, ep.checked_at = r.issues, _now()
 
 
 def style_baseline(p: Project) -> metrics.StyleMetrics:
