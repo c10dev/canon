@@ -3,7 +3,7 @@
 모든 상태는 하나의 Project 객체(project.json)에 저장된다.
 LLM 이 직접 채우는 모델(SetupSuggestion, StyleProfile, ArcPlan, PlotBatch, PlotRevision, NameOptions, StateDelta, ConsistencyReport,
 ImpactReport, SeriesPlan, ArcProposal, Recap, StorylineProposal, SerialConversion,
-PassageRevision, SerialRebuild, Rework, HookReport, OpeningPlots)은
+PassageRevision, SerialRebuild, Rework, HookReport, OpeningPlots, IllustDraft, LookSuggestion)은
 Gemini 구조화 출력에 그대로 넘기므로 dict 타입 필드를 쓰지 않는다.
 """
 from __future__ import annotations
@@ -572,6 +572,7 @@ class Episode(BaseModel):
     edits: list[TextEdit] = Field(default_factory=list, description="본문 부분 수정 기록 (최근 것만)")
     auto: bool = Field(False, description="자동 집필이 사람 검토 없이 반영한 화. 사용자가 다시 반영하면 False")
     hook: Optional[HookReport] = Field(None, description="1~3화 흡입력 판정 (마지막 것). basis 가 지금 본문과 다르면 오래된 것")
+    illustrations: list["Illustration"] = Field(default_factory=list, description="삽화 프롬프트 (NovelAI)")
 
 
 # ---------- 회차 진행 상태 ----------
@@ -685,6 +686,88 @@ class SetupSuggestion(BaseModel):
     relationships: list[Relationship]
 
 
+
+# ---------- 삽화 프롬프트 (NovelAI 이미지 생성용, canon/illust.py 가 조립) ----------
+
+Subject = Literal["girl", "boy", "other"]
+
+
+class IllustCharacter(BaseModel):
+    """장면에 나오는 인물 하나. 외형은 저장된 외형 태그(CharacterVisual)를 쓰고, AI 는 이 장면의 모습만 적는다."""
+    id: str = Field("", description="인물 id. 설정에 없는 인물(행인, 군중 속 한 명)이면 빈칸")
+    subject: Subject = Field(description="girl / boy / other (사람이 아니거나 성별을 알 수 없음)")
+    look: list[str] = Field(default_factory=list, description="외형 태그 (머리, 눈, 체형, 나이대). 외형 태그가 저장된 인물은 빈 목록")
+    outfit: list[str] = Field(default_factory=list, description="이 장면의 옷차림 태그. 저장된 기본 옷차림과 같으면 빈 목록")
+    expression: list[str] = Field(default_factory=list, description="표정 태그 (smile, frown, tears, open mouth)")
+    action: list[str] = Field(default_factory=list, description="자세 · 동작 · 시선 · 손에 든 것 태그. 다른 인물과 주고받는 행동은 source#hug / target#hug / mutual#hug 처럼")
+    position: str = Field("", description="화면 속 자리: left / center / right. 정하지 않으면 빈칸")
+
+
+class IllustDraft(BaseModel):
+    """AI 가 본문 장면을 태그로 옮긴 원안. 인물 수 태그, 외형, 등급, 품질 태그는 프로그램이 붙인다."""
+    quote: str = Field(description="그릴 장면의 본문 문장을 원문 그대로 1~3문장")
+    scene: str = Field(description="그릴 장면을 한국어 한 문장으로")
+    characters: list[IllustCharacter] = Field(default_factory=list, description="그림에 보이는 인물. 화면에 안 보이면 넣지 않는다")
+    setting: list[str] = Field(default_factory=list, description="장소 · 배경 · 시간대 · 날씨 태그 (indoors, classroom, night, rain)")
+    lighting: list[str] = Field(default_factory=list, description="빛 태그 (sunlight, backlighting, dim lighting, moonlight)")
+    composition: list[str] = Field(default_factory=list, description="구도 · 카메라 태그 (cowboy shot, upper body, from above, wide shot, close-up)")
+    mood: list[str] = Field(default_factory=list, description="분위기 · 소품 · 효과 태그 (falling petals, steam, blood splatter)")
+    caption: str = Field("", description="장면을 영어 한 문장으로. 인물 이름 대신 the girl, the man 처럼")
+    negative: list[str] = Field(default_factory=list, description="이 장면에 나오면 안 되는 것 태그 (예: 모자를 벗은 장면이면 hat)")
+    rating: Literal["general", "sensitive", "questionable", "explicit"] = Field(
+        "general", description="장면의 노출 · 폭력 수위. general 일반 / sensitive 약한 노출 / questionable 노출 / explicit 성인")
+
+
+class LookSuggestion(BaseModel):
+    """인물 설정(외모, 나이, 성별)을 NovelAI 외형 태그로 옮긴 제안. 작가가 고쳐 저장한다."""
+    subject: Subject
+    look: list[str] = Field(description="바뀌지 않는 외형 태그: 머리 색과 길이, 머리 모양, 눈 색, 체형, 나이대, 특징 (흉터, 안경 등)")
+    outfit: list[str] = Field(default_factory=list, description="평소 옷차림 태그")
+    note: str = Field("", description="작가에게 하는 한두 문장: 설정에서 태그로 옮기기 어려웠던 것")
+
+
+class CharacterVisual(BaseModel):
+    """삽화마다 똑같이 넣는 인물 외형 태그. 작가가 정하고, AI 는 덮지 않는다."""
+    character_id: str
+    subject: Literal["", "girl", "boy", "other"] = Field("", description="비우면 성별로 정한다")
+    look: list[str] = Field(default_factory=list, description="외형 태그 (영어, NovelAI · Danbooru 태그)")
+    outfit: list[str] = Field(default_factory=list, description="기본 옷차림 태그. 장면에서 다른 옷을 입으면 그 장면 것을 쓴다")
+    negative: list[str] = Field(default_factory=list, description="이 인물에게 섞여 들면 안 되는 것 (인물 프롬프트의 부정 태그)")
+
+
+class IllustSettings(BaseModel):
+    model: str = Field("v4.5-full", description="NovelAI 모델 id (canon/illust.py MODELS)")
+    style: list[str] = Field(default_factory=list, description="모든 삽화에 넣는 화풍 태그 (예: watercolor, flat color)")
+    negative: list[str] = Field(default_factory=list, description="모든 삽화에 넣는 부정 태그")
+    quality: bool = Field(False, description="품질 태그를 프롬프트에 직접 넣는다 (NovelAI 의 Add Quality Tags 를 끈 경우)")
+    basic_negative: bool = Field(False, description="기본 부정 태그를 넣는다 (NovelAI 의 UC 프리셋을 끈 경우)")
+
+
+class IllustCharPrompt(BaseModel):
+    id: str = ""
+    name: str = ""
+    prompt: str = ""
+    negative: str = ""
+    position: str = ""
+
+
+class Illustration(BaseModel):
+    """화에 저장한 삽화 프롬프트. draft 에서 언제든 다시 조립할 수 있다 (모델이나 외형 태그를 바꿨을 때)."""
+    id: str
+    at: str = ""
+    model: str = ""
+    selection: Optional["Selection"] = Field(None, description="작가가 고른 부분. 비면 AI 가 장면을 골랐다 (draft.quote)")
+    request: str = Field("", description="작가가 덧붙인 요청")
+    draft: IllustDraft
+    base: str = ""
+    characters: list[IllustCharPrompt] = Field(default_factory=list)
+    negative: str = ""
+    combined: str = Field("", description="한 칸에 붙여 넣는 프롬프트 (V4 이상은 | 로 인물을 나눔)")
+    rating: str = ""
+    missing_look: list[str] = Field(default_factory=list, description="외형 태그가 저장되지 않아 AI 태그를 쓴 인물 id")
+    notes: list[str] = Field(default_factory=list, description="조립하며 알릴 것")
+
+
 # ---------- 전체 프로젝트 ----------
 
 class Project(BaseModel):
@@ -714,6 +797,8 @@ class Project(BaseModel):
     conversion: Optional[Conversion] = Field(None, description="단편에서 장편으로 바꾼 기록. 되돌리면 지운다")
     archive: Optional[ShortArchive] = Field(None, description="재구성 전 단편 원고와 새 화 지도")
     storylines: list[Storyline] = Field(default_factory=list, description="메인에서 갈라지는 이야기 줄기 (서브플롯, 과거 회상, 외전, 인물 이야기)")
+    visuals: list[CharacterVisual] = Field(default_factory=list, description="삽화용 인물 외형 태그")
+    illust: IllustSettings = Field(default_factory=IllustSettings, description="삽화 프롬프트 설정")
 
     def episode(self, n: int) -> Episode:
         for ep in self.episodes:
@@ -756,6 +841,9 @@ class Project(BaseModel):
     def snapshot(self, n: int) -> Optional[Snapshot]:
         return next((s for s in self.snapshots if s.episode == n), None)
 
+    def visual(self, cid: str) -> Optional[CharacterVisual]:
+        return next((v for v in self.visuals if v.character_id == cid), None)
+
     def chat(self, topic: str) -> Chat:
         c = next((c for c in self.chats if c.topic == topic), None)
         if c is None:
@@ -767,3 +855,4 @@ class Project(BaseModel):
 Snapshot.model_rebuild()
 SerialRebuild.model_rebuild()
 ShortArchive.model_rebuild()
+Episode.model_rebuild()

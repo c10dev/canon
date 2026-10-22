@@ -377,6 +377,7 @@ function bindRoot(name) {
 function bindValue(path, kind, root) {
   const v = getPath(bindRoot(root), path);
   if (kind === 'list') return (v || []).join('\n');
+  if (kind === 'tags') return (v || []).join(', ');
   return v ?? '';
 }
 
@@ -402,6 +403,7 @@ document.addEventListener('input', (e) => {
     if (kind === 'int') v = v === '' ? 0 : parseInt(v, 10) || 0;
     if (kind === 'float') v = parseFloat(v) || 0;
     if (kind === 'list') v = v.split('\n').map((s) => s.trim()).filter(Boolean);
+    if (kind === 'tags') v = splitTags(v);
     if (kind === 'bool') v = el.checked;
     setPath(root, el.dataset.bind, v);
     if (el.dataset.root === 'lib') S.libDirty = true;
@@ -1258,6 +1260,7 @@ async function route() {
         if (!S.presets) S.presets = await api('GET', '/passage/presets').catch(() => []);
         if (!S.copyFormats) S.copyFormats = await api('GET', '/publish/formats').catch(() => []);
       }
+      if ((parts[2] === 'write' || parts[2] === 'setup') && !S.illModels) S.illModels = await api('GET', '/illust/models').catch(() => []);
       if (parts[2] === 'write' || parts[2] === 'arc') await openingLoad(parts[2] === 'write' ? (n || currentEp()) : 0);
       if (parts[2] === 'research') await rsLoad();
       if (parts[2] === 'usage') await usageLoad(S.name);
@@ -1315,6 +1318,7 @@ function render() {
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${body}</main></div>`;
   syncChat();
   if (typeof syncPassage === 'function') syncPassage();
+  if (typeof syncIllust === 'function') syncIllust();
   document.querySelectorAll('textarea[data-autogrow]').forEach(autosize);
   // 상태 정리 지시서 탭이 바뀌면 다시 불러온다
   if (page === 'brief' && S.briefText === null && ep(n)) {
@@ -1372,7 +1376,8 @@ function header(eyebrow, title, desc, right = '') {
 // ----- 설정 -----
 
 const STAGES = [['plan', '계획 (설정 제안, 문체 분석, 기승전결, 화별 플롯)'], ['write', '본문 쓰기'], ['check', '검수'], ['state', '상태 변경안'],
-  ['name', '이름·지명 AI 추천 (정하지 않으면 계획 단계를 따름)'], ['revise', '본문 부분 수정 (정하지 않으면 본문 쓰기 단계를 따름)']];
+  ['name', '이름·지명 AI 추천 (정하지 않으면 계획 단계를 따름)'], ['revise', '본문 부분 수정 (정하지 않으면 본문 쓰기 단계를 따름)'],
+  ['illustration', '삽화 프롬프트 (정하지 않으면 계획 단계를 따름)']];
 const STAGE_PARENT_LABEL = { name: '계획 단계를 따름', revise: '본문 쓰기 단계를 따름' };
 
 function providerOptions(cur) {
@@ -1870,6 +1875,7 @@ function viewSetup() {
         ${input('성격', b + '.personality', { rows: 2 })}${input('배경', b + '.background', { rows: 2 })}${input('외모', b + '.appearance')}
         ${input('아크', b + '.arc', { hint: '시작 → 결말' })}${input('id', b + '.id', { hint: '관계와 플롯이 인물을 찾는 값. 보통 바꿀 필요 없어요' })}
       </div></details>
+      ${visualFields(c)}
     </article>`;
   }).join('');
 
@@ -2426,7 +2432,7 @@ function viewWrite(n) {
   } else {
     center = `<div class="prose">${editable
       ? `<textarea aria-label="${n}화 본문" data-draft="${n}" placeholder="여기에 본문을 쓰세요">${esc(text)}</textarea>`
-      : `<div class="read">${esc(text)}</div>`}</div>`;
+      : `<div class="read" data-read="${n}">${esc(text)}</div>`}</div>`;
   }
 
   const ctx = S.context ? `<ol class="panel-list">${S.context.map((c) => `<li><span>${esc(c.title)}</span><span class="small">${c.chars.toLocaleString()}자</span></li>`).join('')}</ol>
@@ -2458,7 +2464,7 @@ function viewWrite(n) {
       </aside>
       <section class="card" style="flex:3 1 520px;min-width:0;padding:0;gap:0" aria-label="본문">
         <div class="between" style="padding:10px 16px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)">
-          <span>${e.status === 'finalized' ? '상태 반영까지 끝난 화는 읽기 전용입니다' : e.text ? '고칠 부분을 드래그하면 직접 고치거나 AI 에게 맡길 수 있어요' : '본문을 직접 고친 뒤 저장할 수 있어요'}</span>
+          <span>${e.status === 'finalized' ? '상태 반영까지 끝난 화는 읽기 전용이에요. 드래그하면 삽화 프롬프트를 만들 수 있어요' : e.text ? '고칠 부분을 드래그하면 직접 고치거나 AI 에게 맡기거나 삽화 프롬프트를 만들 수 있어요' : '본문을 직접 고친 뒤 저장할 수 있어요'}</span>
           <span class="row"><span><strong id="char-count" style="color:var(--text)">${(text || '').length.toLocaleString()}</strong> / ${Number(P().meta.words_per_episode).toLocaleString()}자</span>
           ${text ? `<button class="btn small" data-action="copyEp" data-arg="${n}" title="고른 줄바꿈 형식으로 복사 (오른쪽 '복사 · 내보내기'에서 바꿈)">복사</button>` : ''}
           ${editable && (e.text || draft !== undefined) ? `<button class="btn small" id="save-text" data-action="saveText" data-arg="${n}"${draft === undefined ? ' disabled' : ''}>본문 저장</button>` : ''}</span>
@@ -2475,6 +2481,7 @@ function viewWrite(n) {
       </aside>
     </div>
     ${editHistory(e)}
+    ${e.text ? illustPanel(n) : ''}
     ${openingPanel(n)}
     ${e.text && editable ? chatPanel(`text:${n}`) : ''}`;
 }

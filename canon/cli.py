@@ -32,6 +32,8 @@
   python -m canon brief 내소설 3        구독형 채팅 앱용 작업지시서 출력 (--state, --check)
   python -m canon import 내소설 3 본문.txt   다른 곳에서 쓴 본문 가져오기
   python -m canon export 내소설 [--from 1 --to 3 --format blank|compact|indent|raw -o 파일.txt]   다른 곳에 붙여 넣을 본문
+  python -m canon illust 내소설 3 ["그릴 문장"] [--ask "뒷모습으로" --model v5-full | --list]   NovelAI 삽화 프롬프트 (문장이 없으면 AI 가 장면을 고름)
+  python -m canon look 내소설 hero [-y]   인물 설정을 삽화 외형 태그로 옮겨 저장 (화마다 같은 모습)
   python -m canon show 내소설 [섹션]       섹션 rel 은 관계 역학을 보여 준다
   python -m canon view 내소설 numbers|words   관계를 숫자로 볼지 말로 볼지
   python -m canon adjust 내소설 a b --warmth 0.3 --trust 0.6   a 가 b 를 보는 관계를 직접 보정
@@ -50,7 +52,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import (autorun, dynamics, elements, genres, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
+from . import (autorun, dynamics, elements, genres, illust, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
@@ -992,6 +994,61 @@ def cmd_export(a: argparse.Namespace) -> None:
         sys.stdout.write(out["text"])
 
 
+def _print_illust(p: Project, ill) -> None:
+    label = illust.model_info(ill.model)[0]
+    print(f"[{ill.id}] {label} · rating:{ill.rating} · {ill.draft.scene}")
+    print(f"  장면: {ill.draft.quote}")
+    print(f"\n기본 프롬프트\n{ill.base}")
+    for cp in ill.characters:
+        print(f"\n인물 프롬프트 · {cp.name or '이름 없는 인물'}{f' ({cp.position})' if cp.position else ''}\n{cp.prompt}")
+        if cp.negative:
+            print(f"  인물 부정: {cp.negative}")
+    print(f"\n부정 프롬프트 (Undesired Content)\n{ill.negative}")
+    if ill.characters:
+        print(f"\n한 칸에 붙여 넣기\n{ill.combined}")
+    for note in ill.notes:
+        print(f"※ {note}")
+    names = {c.id: c.name for c in p.characters}
+    if ill.missing_look:
+        print(f"※ 외형 태그가 저장되지 않아 AI 태그를 썼습니다: {', '.join(names.get(i, i) for i in ill.missing_look)}"
+              f" (고정하려면: look {{작품}} <인물 id>)")
+
+
+def cmd_illust(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    ep = p.episode(a.n)
+    if a.list:
+        for ill in ep.illustrations:
+            _print_illust(p, ill)
+            print()
+        if not ep.illustrations:
+            print(f"{a.n}화에 저장한 삽화 프롬프트가 없습니다")
+        return
+    sel = None
+    if a.quote:
+        if a.quote not in ep.text:
+            sys.exit(f"{a.n}화 본문에 그 문장이 없습니다: {a.quote}")
+        sel = Selection(start=ep.text.index(a.quote), text=a.quote)
+    ill = pipeline.illustrate(get_llm("illustration"), p, a.n, sel, a.ask or "", a.model or "")
+    pipeline.add_illustration(p, a.n, ill)
+    _print_illust(p, ill)
+    print(f"\n저장: {store.save(a.name, p)}")
+
+
+def cmd_look(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    s = pipeline.suggest_look(get_llm("illustration"), p, a.cid)
+    v = p.visual(a.cid)
+    if v and (v.look or v.outfit):
+        print(f"지금: {', '.join(v.look)}{' / 옷: ' + ', '.join(v.outfit) if v.outfit else ''}")
+    print(f"제안 ({s.subject}): {', '.join(s.look)}\n옷: {', '.join(s.outfit)}")
+    if s.note:
+        print(s.note)
+    if confirm("이 태그를 외형 태그로 저장할까요?", a.yes):
+        pipeline.save_look(p, a.cid, s.look, s.outfit, s.subject)
+        print(f"저장: {store.save(a.name, p)}")
+
+
 def cmd_show(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     if a.section == "rel":
@@ -1065,7 +1122,7 @@ def cmd_recalc(a: argparse.Namespace) -> None:
 
 
 STAGE_LABELS = {"plan": "계획", "write": "본문", "check": "검수", "state": "상태 변경안", "name": "이름 추천",
-                "revise": "부분 수정", "research": "연구"}
+                "revise": "부분 수정", "illustration": "삽화 프롬프트", "research": "연구"}
 
 
 def _usd(x: float | None) -> str:
@@ -1246,6 +1303,12 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--format", default="blank", choices=list(publish.FORMATS), help="줄바꿈 형식 (기본: 문단 사이 빈 줄)")
     sp.add_argument("--no-title", action="store_true", help="'N화. 제목' 줄을 넣지 않음 (한 화만 낼 때)")
     sp.add_argument("-o", "--output", help="저장할 .txt 파일 (없으면 화면에 출력)")
+    sp = add("illust", cmd_illust, "n", yes=False)
+    sp.add_argument("quote", nargs="?", help="그릴 본문 문장 (비우면 AI 가 이 화에서 장면을 고름)")
+    sp.add_argument("--ask", help="바라는 것 (예: 뒷모습, 비 오는 밤)")
+    sp.add_argument("--model", choices=list(illust.MODELS), help="NovelAI 모델 (기본: 작품 설정)")
+    sp.add_argument("--list", action="store_true", help="저장한 삽화 프롬프트 보기")
+    add("look", cmd_look, "cid")
     sp = add("show", cmd_show, yes=False)
     sp.add_argument("section", nargs="?")
 

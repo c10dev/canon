@@ -1,7 +1,7 @@
 """생성 파이프라인. 각 단계는 Project 를 받아 제안을 만들고, 반영은 호출자가 승인 후 한다."""
 from __future__ import annotations
 
-from . import dynamics, elements, metrics, naming, prompts, storylines
+from . import dynamics, elements, illust, metrics, naming, prompts, storylines
 from .llm import LLM, dump
 from .schema import (
     Act,
@@ -9,6 +9,7 @@ from .schema import (
     ArcProposal,
     Character,
     CharacterState,
+    CharacterVisual,
     ChatMessage,
     ConsistencyReport,
     Conversion,
@@ -16,7 +17,10 @@ from .schema import (
     Episode,
     EpisodePlot,
     HookReport,
+    IllustDraft,
+    Illustration,
     ImpactReport,
+    LookSuggestion,
     NameOptions,
     OpeningPlots,
     Part,
@@ -1381,6 +1385,96 @@ def apply_passage(p: Project, n: int, i: int, k: int, text: str | None = None) -
                      proposed=cands[k].text, rejected=[c.text for j, c in enumerate(cands) if j != k])
     m.outcome, m.applied = "applied", [str(k)]
     return edit
+
+
+# ---------- 4-3. 삽화 프롬프트 (NovelAI) ----------
+# AI 는 장면을 태그로 옮긴 원안만 낸다. 외형 · 인물 수 · 등급 · 품질 태그는 illust.assemble 이 붙인다.
+# 본문을 바꾸지 않으므로 반영(finalized)한 화에서도 만든다.
+
+def illustrate(llm: LLM, p: Project, n: int, sel: Selection | None = None, request: str = "", model: str = "") -> Illustration:
+    """고른 부분(없으면 AI 가 고른 장면)의 삽화 프롬프트를 만든다. 저장하지 않는다."""
+    ep = p.episode(n)
+    if not ep.text:
+        raise ValueError(f"{n}화 본문이 없습니다")
+    if sel is not None:
+        sel = Selection(start=locate(ep.text, sel.text, sel.start), text=sel.text)
+    draft = llm.json(prompts.SYSTEM_ILLUSTRATOR, prompts.illust_prompt(p, n, sel, request), IllustDraft,
+                     hint={"selection": sel.text if sel else "", "text": ep.text, "cast": ep.plot.characters})
+    ids = {c.id for c in p.characters}
+    for c in draft.characters:
+        if c.id and c.id not in ids:  # 이름으로 적었거나 없는 id 면 설정에 없는 인물로 본다
+            hit = next((x.id for x in p.characters if x.name and x.name == c.id), "")
+            c.id = hit
+    return illust.assemble(p, Illustration(id="", model=model or p.illust.model, selection=sel, request=request.strip(), draft=draft))
+
+
+def add_illustration(p: Project, n: int, ill: Illustration) -> Illustration:
+    ep = p.episode(n)
+    nums = [int(x.id[1:]) for x in ep.illustrations if x.id[1:].isdigit()]
+    ill.id = f"i{max(nums, default=0) + 1}"
+    ill.at = ill.at or _now()
+    ep.illustrations = (ep.illustrations + [ill])[-illust.KEEP:]
+    return ill
+
+
+def _illustration(p: Project, n: int, iid: str) -> Illustration:
+    ill = next((x for x in p.episode(n).illustrations if x.id == iid), None)
+    if ill is None:
+        raise KeyError(f"삽화 프롬프트가 없습니다: {iid}")
+    return ill
+
+
+def rebuild_illustration(p: Project, n: int, iid: str, model: str = "") -> Illustration:
+    """모델이나 외형 태그 · 화풍을 바꾼 뒤 AI 를 다시 부르지 않고 조립만 새로 한다."""
+    if model and model not in illust.MODELS:
+        raise ValueError(f"모르는 모델입니다: {model}")
+    return illust.assemble(p, _illustration(p, n, iid), model or None)
+
+
+def remove_illustration(p: Project, n: int, iid: str) -> None:
+    ep = p.episode(n)
+    _illustration(p, n, iid)
+    ep.illustrations = [x for x in ep.illustrations if x.id != iid]
+
+
+def suggest_look(llm: LLM, p: Project, cid: str) -> LookSuggestion:
+    """인물 설정을 외형 태그로 옮긴 제안. 저장하지 않는다."""
+    if not any(c.id == cid for c in p.characters):
+        raise KeyError(f"인물이 없습니다: {cid}")
+    s = llm.json(prompts.SYSTEM_ILLUSTRATOR, prompts.look_prompt(p, cid), LookSuggestion, hint={"character": cid})
+    s.look, s.outfit = illust.clean(s.look), illust.clean(s.outfit)
+    return s
+
+
+def save_look(p: Project, cid: str, look: list[str], outfit: list[str] | None = None, subject: str = "",
+              keep_outfit: bool = False) -> CharacterVisual:
+    """작가가 고른 외형 태그를 저장한다. keep_outfit 이면 이미 있는 기본 옷차림은 두고 비었을 때만 채운다."""
+    if not any(c.id == cid for c in p.characters):
+        raise KeyError(f"인물이 없습니다: {cid}")
+    v = p.visual(cid)
+    if v is None:
+        v = CharacterVisual(character_id=cid)
+        p.visuals.append(v)
+    v.look = illust.clean(look)
+    if outfit is not None and not (keep_outfit and v.outfit):
+        v.outfit = illust.clean(outfit)
+    if subject in ("girl", "boy", "other"):
+        v.subject = subject  # type: ignore[assignment]
+    return v
+
+
+def keep_illust_look(p: Project, n: int, iid: str, cid: str) -> CharacterVisual:
+    """삽화 원안에서 AI 가 채운 외형 태그를 그 인물의 외형 태그로 저장하고, 그 인물 외형이 비어 있던 삽화를 모두 다시 조립한다."""
+    ill = _illustration(p, n, iid)
+    ch = next((c for c in ill.draft.characters if c.id == cid and c.look), None)
+    if ch is None:
+        raise ValueError("이 삽화에 그 인물의 외형 태그가 없습니다")
+    v = save_look(p, cid, ch.look, ch.outfit, ch.subject, keep_outfit=True)
+    for e in p.episodes:
+        for x in e.illustrations:
+            if x is ill or cid in x.missing_look:
+                illust.assemble(p, x)
+    return v
 
 
 # ---------- 5. 검수 (모순 찾기, 문체 지표) ----------

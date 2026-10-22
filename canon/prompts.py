@@ -1440,3 +1440,108 @@ def naming_prompt(p: Project, target: str, candidates: list, n: int) -> str:
 - 절반 이상은 위 후보에서 고르고, 나머지는 같은 시대와 결로 새로 짓습니다.
 - 이미 있는 인물과 첫 글자나 끝 글자가 겹치는 이름, 이미 있는 장소와 같은 이름은 피합니다.
 - reason 에는 이 대상에 맞는 이유를 한 줄로 적습니다 (시대, 나이, 신분, 성격, 지형 등)."""
+
+
+# ---------- 삽화 프롬프트 (NovelAI) ----------
+# AI 는 장면을 태그로 옮기기만 한다. 인물 외형(저장된 태그), 인물 수, 등급, 품질 태그는 canon/illust.py 가 붙인다.
+
+SYSTEM_ILLUSTRATOR = (
+    "당신은 소설 삽화를 기획하는 일러스트 디렉터이자 NovelAI 이미지 생성 프롬프트 전문가입니다. "
+    "본문의 한 장면을 그림 한 장으로 옮길 때 무엇이 보이는지 정하고, 그것을 Danbooru 식 영어 태그로 적습니다. "
+    "태그는 영어 소문자, 낱말 사이는 띄어쓰기, 쉼표 없이 목록 원소 하나에 태그 하나입니다. "
+    "본문에 없는 사건이나 인물을 지어내지 않습니다. 설명(scene, note)은 한국어로 씁니다."
+)
+
+ILLUST_BEFORE, ILLUST_AFTER = 1_500, 600
+ILLUST_FULL_LIMIT = 12_000  # 장면을 AI 가 고를 때 넣는 본문 한도
+
+
+def _illust_cast(p: Project, n: int, text: str) -> list[dict]:
+    """이번 화 등장 인물과 본문에 이름이 나오는 인물: 설정 외모와 저장된 외형 태그, 지금 상태."""
+    ep = p.episode(n)
+    ids = list(ep.plot.characters) + [c.id for c in p.characters if c.name and c.name in text and c.id not in ep.plot.characters]
+    out = []
+    for c in p.characters:
+        if c.id not in ids:
+            continue
+        v = p.visual(c.id)
+        st = p.state_of(c.id)
+        out.append({
+            "id": c.id, "name": c.name, "gender": c.gender, "age": c.age, "appearance": c.appearance,
+            "saved_look_tags": v.look if v else [], "saved_outfit_tags": v.outfit if v else [],
+            "location_now": st.location if st else "",
+        })
+    return out
+
+
+def illust_prompt(p: Project, n: int, sel: Selection | None, request: str = "") -> str:
+    ep = p.episode(n)
+    text = ep.text
+    if sel is not None:
+        start, end = sel.start, sel.start + len(sel.text)
+        body = (f"# {n}화 본문 중 그릴 장면 (【그릴 장면】부터 【여기까지】)\n"
+                f"{text[max(0, start - ILLUST_BEFORE):start]}【그릴 장면】{sel.text}【여기까지】{text[end:end + ILLUST_AFTER]}")
+        pick = "- 【그릴 장면】 안에서 가장 그림이 되는 한순간을 고릅니다. quote 에는 그 순간의 문장을 【그릴 장면】 안에서 원문 그대로 옮깁니다."
+    else:
+        cut = len(text) > ILLUST_FULL_LIMIT
+        body = f"# {n}화 본문{' (앞부분)' if cut else ''}\n{text[:ILLUST_FULL_LIMIT]}"
+        pick = ("- 이 화에서 삽화 한 장으로 가장 좋은 장면을 고릅니다. 이 화의 핵심 사건이나 감정이 바뀌는 순간, 인물이 또렷이 보이는 순간을 고르고 "
+                "마지막 장면의 반전은 미리 보여 주지 않습니다. quote 에는 그 장면 문장을 본문에서 원문 그대로 1~3문장 옮깁니다.")
+    rating = ("성인 독자 대상 작품입니다. 장면에 맞게 general, sensitive, questionable, explicit 중에서 고릅니다."
+              if p.meta.adult else "전연령 작품입니다. general 이나 sensitive 만 씁니다. 노출과 잔혹한 묘사는 그림에서 피합니다.")
+    return f"""# 작품
+제목: {p.meta.title}
+장르: {genres.label(p.meta)}
+배경: {p.world.setting} / 시대: {p.world.era}
+장소: {", ".join(p.world.locations) or "없음"}
+
+# 인물 (saved_look_tags 는 작가가 정한 외형 태그. 프로그램이 그대로 넣는다)
+{dump(_illust_cast(p, n, text))}
+
+# 이번 화 플롯
+제목: {ep.plot.title}
+요약: {ep.plot.summary}
+
+{body}
+
+# 작가의 요청
+{request.strip() or "없음"}
+
+요구사항:
+{pick}
+- characters 에는 그림에 보이는 인물만 넣습니다. 이름이 있는 인물은 위 인물 목록의 id 를 씁니다. 목소리만 나오거나 화면 밖에 있는 인물은 넣지 않습니다.
+- 외형 태그(saved_look_tags)가 있는 인물은 look 을 빈 목록으로 둡니다. 없는 인물은 appearance, age, gender 를 보고 look 에 머리 색, 머리 길이와 모양, 눈 색, 체형, 나이대 태그를 넣습니다 (예: black hair, long hair, ponytail, brown eyes, mature female).
+- outfit 은 본문에 옷차림이 나오거나 장면에 맞는 옷이 저장된 기본 옷차림(saved_outfit_tags)과 다를 때만 적습니다 (예: school uniform, white shirt, pajamas, armor).
+- expression 과 action 은 이 순간의 모습입니다. 시선(looking at viewer, looking at another, looking away), 자세(standing, sitting, kneeling), 손(holding umbrella, hand on own chest)을 구체적으로 적습니다.
+- 두 인물이 주고받는 행동은 하는 쪽 action 에 source#행동, 받는 쪽에 target#행동, 서로 하면 둘 다 mutual#행동 으로 적습니다 (예: source#hug, target#hug, mutual#holding hands).
+- 인물이 둘 이상이면 position 에 left, center, right 중 하나를 적어 서로 겹치지 않게 합니다.
+- setting 에는 장소와 시간대, 날씨를, lighting 에는 빛을, composition 에는 구도와 카메라를 적습니다. 인물 수에 맞는 구도를 고릅니다 (한 명: upper body, cowboy shot / 여럿: wide shot, full body).
+- mood 에는 장면의 분위기를 살리는 소품과 효과를 적습니다. 본문에 나온 사물을 우선합니다.
+- 1girl, 2boys 같은 인물 수 태그, rating 태그, 품질 태그(masterpiece, best quality), 인물 이름, 작품 이름은 어디에도 넣지 않습니다. 프로그램이 붙입니다.
+- caption 은 장면을 영어 한 문장으로 씁니다. 이름 대신 the girl with black hair, the tall man 처럼 씁니다.
+- negative 에는 이 장면에서 특히 나오면 안 되는 것만 적습니다 (예: 우산을 쓰지 않은 비 장면이면 umbrella). 일반적인 품질 부정어는 넣지 않습니다.
+- rating: {rating}
+- scene 에는 고른 장면을 한국어 한 문장으로 적습니다."""
+
+
+def look_prompt(p: Project, cid: str) -> str:
+    c = next(c for c in p.characters if c.id == cid)
+    v = p.visual(cid)
+    return f"""아래 인물을 소설 삽화에서 매번 같은 모습으로 그릴 수 있게 NovelAI 외형 태그로 옮기세요.
+
+# 작품
+제목: {p.meta.title}
+장르: {genres.label(p.meta)}
+배경: {p.world.setting} / 시대: {p.world.era}
+
+# 인물
+{dump(c.model_dump(include={"id", "name", "role", "age", "gender", "appearance", "personality", "background"}))}
+{f"지금 저장된 태그: {', '.join((v.look if v else []) + (v.outfit if v else []))}" if v and (v.look or v.outfit) else ""}
+
+요구사항:
+- subject 는 여성 girl, 남성 boy, 사람이 아니거나 정할 수 없으면 other 입니다.
+- look 에는 바뀌지 않는 외형만 6~12개: 머리 색, 머리 길이, 머리 모양, 앞머리, 눈 색, 피부, 체형, 키, 나이대(child, teenage, young adult, mature female, old man 등), 흉터 · 안경 · 점 같은 특징.
+- outfit 에는 이 인물이 평소 입는 옷 2~5개를 시대와 배경에 맞게 적습니다.
+- 태그는 Danbooru 식 영어 소문자, 낱말 사이는 띄어쓰기, 원소 하나에 태그 하나입니다. 이름, 인물 수(1girl), 품질 태그는 넣지 않습니다.
+- 설정에 없는 외형은 나이, 성격, 배경에 어울리게 정하되 흔한 조합(silver hair, red eyes)으로 몰지 않습니다.
+- note 에는 설정에서 태그로 옮기기 어려웠던 것이나 새로 정한 것을 한국어 한두 문장으로 적습니다."""

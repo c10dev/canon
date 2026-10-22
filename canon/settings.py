@@ -16,10 +16,10 @@ DEFAULT_MODEL = "gemini-4-argon"
 DEFAULT_LOCAL_URL = "http://localhost:11434/v1"  # Ollama. llama.cpp 는 :8080/v1, vLLM 은 :8000/v1
 PROVIDERS = ("gemini", "local", "mock")
 # 단계: plan(설정 제안, 문체 분석, 기승전결, 화별 플롯) / write(본문) / check(검수) / state(상태 추출)
-# / name(이름·지명 AI 추천) / revise(본문 부분 수정)
-STAGES = ("plan", "write", "check", "state", "name", "revise")
-# 따로 정하지 않으면 이 단계의 설정을 따른다 (이름 추천은 계획 단계 일이고, 부분 수정은 본문 쓰기 일이다)
-STAGE_PARENT = {"name": "plan", "revise": "write"}
+# / name(이름·지명 AI 추천) / revise(본문 부분 수정) / illustration(삽화 프롬프트)
+STAGES = ("plan", "write", "check", "state", "name", "revise", "illustration")
+# 따로 정하지 않으면 이 단계의 설정을 따른다 (이름 추천 · 삽화 프롬프트는 계획 단계 일이고, 부분 수정은 본문 쓰기 일이다)
+STAGE_PARENT = {"name": "plan", "revise": "write", "illustration": "plan"}
 # 로컬 본문 생성 기본 샘플링. 구조화 출력(json)에는 쓰지 않는다.
 DEFAULT_SAMPLING = {"temperature": 1.0, "top_p": 0.95, "min_p": 0.05}
 
