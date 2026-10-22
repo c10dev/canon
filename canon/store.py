@@ -6,6 +6,7 @@ import os
 import shutil
 from pathlib import Path
 
+from .dynamics import seed_ties
 from .schema import Project
 
 ROOT = Path(os.environ.get("CANON_HOME", "projects"))
@@ -23,7 +24,9 @@ def load(name: str) -> Project:
     path = project_dir(name) / "project.json"
     if not path.exists():
         raise FileNotFoundError(f"프로젝트가 없습니다: {path}")
-    return Project.model_validate_json(path.read_text(encoding="utf-8"))
+    p = Project.model_validate_json(path.read_text(encoding="utf-8"))
+    seed_ties(p)  # 관계 역학 이전의 project.json 은 affinity 로 방향 관계를 만든다
+    return p
 
 
 def save(name: str, p: Project) -> Path:

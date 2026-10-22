@@ -10,7 +10,11 @@
   python -m canon run 내소설            확정된 화를 순서대로 write → update
   python -m canon brief 내소설 3        구독형 채팅 앱용 작업지시서 출력
   python -m canon import 내소설 3 본문.txt   다른 곳에서 쓴 본문 가져오기
-  python -m canon show 내소설 [섹션]
+  python -m canon show 내소설 [섹션]       섹션 rel 은 관계 역학을 보여 준다
+  python -m canon view 내소설 numbers|words   관계를 숫자로 볼지 말로 볼지
+  python -m canon adjust 내소설 a b --warmth 0.3 --trust 0.6   a 가 b 를 보는 관계를 직접 보정
+  python -m canon revert 내소설 3       3화 상태 반영 직후로 되돌리기
+  python -m canon recalc 내소설         계수(params)를 바꾼 뒤 사건 로그로 관계 재계산
   python -m canon serve [--port 8000]    웹 UI
 설정은 projects/<이름>/project.json 을 직접 고쳐도 된다.
 """
@@ -21,7 +25,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import pipeline, prompts, store
+from . import dynamics, pipeline, prompts, store
 from .llm import dump, get_llm
 from .schema import Meta, Project, StateDelta
 
@@ -133,8 +137,15 @@ def _print_delta(d: StateDelta) -> None:
     print(f"\n=== {d.episode}화 상태 변경안 ===\n요약: {d.summary}")
     for c in d.character_updates:
         print(f"- 인물 {c.character_id}: 감정={c.emotional_state} 목표={c.current_goal} 위치={c.location} 새로 앎={c.knows}")
+    for e in d.events:
+        extra = f" (목격: {', '.join(e.witnesses)})" if e.witnesses else ""
+        secret = f" [비밀 {e.reveals_secret} 드러남]" if e.reveals_secret else ""
+        print(f"- 사건 {e.actor} → {e.target}: {e.kind} 강도 {e.intensity}{extra}{secret}  \"{e.quote}\"")
     for r in d.relationship_updates:
-        print(f"- 관계 {r.a}↔{r.b} ({r.type}): 호감 {r.affinity}, 긴장 {r.tension}  {r.description}")
+        nums = "" if d.events else f": 호감 {r.affinity}, 긴장 {r.tension}"
+        print(f"- 관계 {r.a}↔{r.b} ({r.type}){nums}  {r.description}")
+    for s in d.secrets_added:
+        print(f"- 새 비밀 {s.id} ({s.owner}): {s.content} / 모르는 인물 {s.hidden_from}")
     for f in d.new_facts:
         print(f"- 확정 사실: {f}")
     for f in d.foreshadow_planted:
@@ -143,6 +154,15 @@ def _print_delta(d: StateDelta) -> None:
         print(f"- 복선 회수: {f}")
     for w in d.warnings:
         print(f"! 경고: {w}")
+
+
+def _print_relation_preview(p: Project, d: StateDelta) -> None:
+    """변경안을 복사본에 반영해 계산된 관계를 미리 보여 준다."""
+    sim = p.model_copy(deep=True)
+    pipeline.apply_delta(sim, d)
+    text = dynamics.describe_relations(sim, numbers=p.settings.show_numbers)
+    if text:
+        print(f"\n--- 반영하면 이렇게 계산됩니다 ---\n{text}")
 
 
 def cmd_update(a: argparse.Namespace) -> None:
@@ -160,6 +180,7 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
         print(f"{n}화 상태 추출 중...")
         delta = pipeline.extract_state(get_llm(), p, n)
     _print_delta(delta)
+    _print_relation_preview(p, delta)
     if not confirm("이 변경을 반영할까요? (아니오면 project.json 수정 후 다시 update)", yes):
         return False
     pipeline.apply_delta(p, delta)
@@ -205,6 +226,9 @@ def cmd_import(a: argparse.Namespace) -> None:
 
 def cmd_show(a: argparse.Namespace) -> None:
     p = store.load(a.name)
+    if a.section == "rel":
+        print(dynamics.describe_relations(p, numbers=p.settings.show_numbers) or "관계 없음")
+        return
     if a.section:
         print(dump(getattr(p, a.section)))
         return
@@ -223,6 +247,37 @@ def cmd_serve(a: argparse.Namespace) -> None:
     from .web import serve
 
     serve(a.host, a.port)
+
+
+def cmd_view(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    p.settings.show_numbers = a.mode == "numbers"
+    store.save(a.name, p)
+    print("관계를 " + ("숫자로" if p.settings.show_numbers else "말로") + " 보여 줍니다")
+
+
+def cmd_adjust(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    if a.warmth is None and a.trust is None:
+        sys.exit("--warmth 나 --trust 중 하나는 필요합니다")
+    pipeline.adjust_tie(p, a.source, a.target, a.warmth, a.trust)
+    store.save(a.name, p)
+    print(dynamics.describe_relations(p, [a.source, a.target], numbers=p.settings.show_numbers))
+
+
+def cmd_revert(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    if not confirm(f"{a.n}화 상태 반영 직후로 되돌릴까요? 이후 화의 상태 반영이 취소됩니다 (본문은 유지)", a.yes):
+        return
+    pipeline.revert(p, a.n)
+    print(f"되돌림 완료: {store.save(a.name, p)}")
+
+
+def cmd_recalc(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    pipeline.recalc(p)
+    store.save(a.name, p)
+    print(dynamics.describe_relations(p, numbers=p.settings.show_numbers) or "관계 없음")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -267,6 +322,14 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--host", default="127.0.0.1")
     sp.add_argument("--port", type=int, default=8000)
     sp.set_defaults(fn=cmd_serve)
+
+    sp = add("view", cmd_view, yes=False)
+    sp.add_argument("mode", choices=["numbers", "words"])
+    sp = add("adjust", cmd_adjust, "source", "target", yes=False)
+    sp.add_argument("--warmth", type=float, help="-1 ~ 1")
+    sp.add_argument("--trust", type=float, help="0 ~ 1")
+    add("revert", cmd_revert, "n")
+    add("recalc", cmd_recalc, yes=False)
 
     a = ap.parse_args(argv)
     try:
