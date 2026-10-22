@@ -139,8 +139,33 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .char-card.suggested { border: 1px dashed #7C95DB; background: #F7F9FE; }
 details > summary { cursor: pointer; font-size: 13px; color: var(--accent); min-height: 32px; display: flex; align-items: center; }
 
-.rel-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) repeat(2, minmax(0, 1.2fr)) 44px; gap: 8px; align-items: end; padding: 10px 0; border-top: 1px solid var(--line); }
-@media (max-width: 900px) { .rel-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* 설정 도우미: 로그라인 다섯 칸, 톤 다이얼, 말로 고르는 관계 */
+.logline-box { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.logline-box .label-text .hint { font-weight: 400; color: var(--muted); }
+.slot { display: flex; flex-direction: column; gap: 6px; }
+.ex-opts button { min-height: 30px; padding: 0 10px; font-size: 12.5px; border-style: dashed; text-align: left; }
+.logline-out { background: var(--bg); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.logline-preview { font-family: var(--serif); font-size: 15px; line-height: 1.8; color: var(--text); }
+.logline-checks { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--muted); }
+.logline-checks li::before { content: "·"; display: inline-block; width: 16px; font-weight: 700; }
+.logline-checks li.ok { color: var(--green-ink); }
+.logline-checks li.ok::before { content: "✓"; color: var(--green); }
+.logline-checks li.len::before { content: ""; }
+.ex-list { display: flex; flex-direction: column; gap: 8px; padding-top: 6px; }
+.ex-item { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; font-size: 13px; line-height: 1.6; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.ex-item .btn { flex: none; }
+.dial { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); }
+.dial span { width: 64px; flex: none; }
+.dial span:last-child { text-align: left; }
+.dial button { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; padding: 0; }
+.dial button:hover { border-color: var(--accent); }
+.dial button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); }
+.rel-card { display: flex; flex-direction: column; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line); }
+.rel-top { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) 44px; gap: 8px; align-items: end; }
+@media (max-width: 700px) { .rel-top { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.rel-line { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 8px; align-items: center; }
+@media (max-width: 700px) { .rel-line { grid-template-columns: minmax(0, 1fr); } }
+
 .meter { height: 8px; border-radius: 4px; background: var(--chip); position: relative; overflow: hidden; }
 .meter > i { position: absolute; top: 0; height: 8px; border-radius: 4px; }
 
@@ -206,6 +231,7 @@ pre.brief { margin: 0; padding: 16px; border-radius: 8px; background: var(--bg);
 .genre-opts button { min-height: 36px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 18px; background: var(--surface); color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer; }
 .genre-opts button:hover { border-color: var(--accent); }
 .genre-opts button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.genre-picker { display: flex; flex-direction: column; gap: 10px; }
 .genre-guides { display: flex; flex-direction: column; gap: 6px; }
 .genre-guide { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; line-height: 1.55; }
 .genre-guide summary { cursor: pointer; display: block; }
@@ -215,6 +241,10 @@ pre.brief { margin: 0; padding: 16px; border-radius: 8px; background: var(--bg);
 .check-row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 14px; cursor: pointer; }
 .check-row input { width: 18px; height: 18px; margin-top: 2px; flex: none; }
 @media (max-width: 600px) { .g-row { grid-template-columns: 1fr; gap: 2px; } }
+
+.metric-list { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 13px; }
+.metric-list dt { color: var(--muted); }
+.metric-list dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 /* 연구 (모델 실험) */
 .nav-extra { padding-top: 12px; border-top: 1px solid var(--line); }

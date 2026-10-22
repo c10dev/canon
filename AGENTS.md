@@ -16,13 +16,16 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/prompts.py` | 프롬프트 템플릿, 화별 컨텍스트 조립(`build_episode_context`), 작업지시서(`episode_brief`, `state_brief`) |
 | `canon/pipeline.py` | 단계별 로직: 설정 제안 → 스타일 분석 → 기승전결 → 화별 플롯 → 본문 → 검수 → 상태 추출/반영 |
 | `canon/metrics.py` | 문체 지표(문장 길이, 대사 비율, 과거형 비율, 어휘 다양도, 반복 구, 상투 표현, 쇠맛 패턴과 쉼표·대명사 지표)와 기준 대비 경고. LLM 호출 없음 |
-| `canon/genres.py` | 장르 목록(`CATALOG`)과 장르별 안내. 프롬프트의 장르 안내와 수위 블록(`guide`) |
-| `canon/dynamics.py` | 관계 역학: 사건(`StoryEvent`)으로 방향 관계(`Tie`)를 계산, 긴장도, 스냅샷 재생, 숫자를 말로 바꾸기. LLM 을 부르지 않는 순수 계산 |
+| `canon/genres.py` | 장르 목록(`CATALOG`)과 장르별 안내. 프롬프트의 장르 안내와 수위 블록(`guide`), 설정 화면의 장르별 로그라인 예시(`Genre.logline`) |
+| `canon/logline.py` | 로그라인 다섯 칸 합치기(`compose`, 조사 자동), 형식 점검(`checks`), 톤 다이얼 문장(`tone_text`). LLM 호출 없음. `static/app.js` 에 같은 규칙이 있어 함께 고친다 |
+| `canon/dynamics.py` | 관계 역학: 사건(`StoryEvent`)으로 방향 관계(`Tie`)를 계산, 긴장도, 스냅샷 재생, 숫자를 말로 바꾸기, 말로 고른 보는 방식(`VIEWS`)으로 시작 관계 만들기. LLM 을 부르지 않는 순수 계산 |
 | `canon/llm.py` | LLM 프로바이더 인터페이스(`json`, `text`)와 Gemini, 로컬(OpenAI 호환) 구현, 단계별 선택(`get_llm(stage)`) |
 | `canon/research.py` | 연구 화면(모델 실험) 로직. 서버 점검, 샘플 비교, 단계 시험, 컨텍스트 크기, 블라인드 비교. 작품 데이터와 분리해 `research/log.jsonl` 에 기록 |
 | `canon/mock.py` | 테스트용 가짜 LLM |
+| `canon/library.py` | 문체 라이브러리: 작품과 따로 `projects/.styles/<id>.json` 에 문체(원문, 프로필, 기준 지표)를 저장. 작품에 적용하면 복사하고 `Project.style_id` 로 출처만 기억 |
 | `canon/store.py` | `projects/<이름>/project.json` 저장, 본문을 `episodes/NN.md` 로 내보내기 |
 | `canon/cli.py` | 명령줄 (`python -m canon ...`) |
+| `canon/updater.py` | 코드 자동 업데이트: `origin/main` fast-forward, 의존성 설치, 프로세스 재시작. `serve` 가 시작 때와 주기적으로 부른다 |
 
 흐름: `new` → `style` → `arc` → `plot` → (사용자 수정) → `confirm` → `write` → `check` → `update` 반복 (`run` 이 자동 반복). `stats` 로 화별 문체 지표 확인. `compare` 로 같은 화를 두 백엔드로 써서 가려 비교.
 

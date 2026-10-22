@@ -11,6 +11,10 @@ const S = {
   route: [],
   suggestion: null,  // 설정 도우미 제안 (반영 전)
   styleSample: '',
+  libs: null,        // 문체 라이브러리 목록
+  lib: null,         // 라이브러리에서 보고 있는 항목 (편집 중)
+  libDirty: false,
+  styleLink: null,   // 작품 문체와 라이브러리 항목의 관계
   selEp: null,       // 플롯 보드에서 고른 화
   deltas: {},        // 화별 상태 변경안 (반영 전)
   picks: {},         // 변경안 항목 선택 여부
@@ -117,8 +121,12 @@ function actClass(name) {
 // ---------- 입력 바인딩 ----------
 // data-bind="meta.title" data-kind="text|int|list|bool"
 
-function bindValue(path, kind) {
-  const v = getPath(P(), path);
+function bindRoot(name) {
+  return name === 'lib' ? S.lib : P();
+}
+
+function bindValue(path, kind, root) {
+  const v = getPath(bindRoot(root), path);
   if (kind === 'list') return (v || []).join('\n');
   return v ?? '';
 }
@@ -126,28 +134,36 @@ function bindValue(path, kind) {
 function input(label, path, opt = {}) {
   const id = 'f-' + path.replace(/\./g, '-');
   const kind = opt.kind || (opt.type === 'number' ? 'int' : 'text');
-  const val = esc(bindValue(path, kind));
+  const val = esc(bindValue(path, kind, opt.root));
+  const rootAttr = opt.root ? ` data-root="${opt.root}"` : '';
   const hint = opt.hint ? ` <span class="hint">${esc(opt.hint)}</span>` : '';
   const ro = opt.readonly ? ' readonly' : '';
   const ctrl = opt.rows || kind === 'list'
-    ? `<textarea id="${id}" rows="${opt.rows || 3}" data-bind="${path}" data-kind="${kind}"${ro} placeholder="${esc(opt.placeholder || (kind === 'list' ? '한 줄에 하나씩' : ''))}">${val}</textarea>`
-    : `<input id="${id}" type="${opt.type || 'text'}" value="${val}" data-bind="${path}" data-kind="${kind}"${ro}${opt.min != null ? ` min="${opt.min}"` : ''}${opt.max != null ? ` max="${opt.max}"` : ''} placeholder="${esc(opt.placeholder || '')}">`;
+    ? `<textarea id="${id}" rows="${opt.rows || 3}" data-bind="${path}" data-kind="${kind}"${rootAttr}${ro}${opt.style ? ` style="${opt.style}"` : ''} placeholder="${esc(opt.placeholder || (kind === 'list' ? '한 줄에 하나씩' : ''))}">${val}</textarea>`
+    : `<input id="${id}" type="${opt.type || 'text'}" value="${val}" data-bind="${path}" data-kind="${kind}"${rootAttr}${ro}${opt.min != null ? ` min="${opt.min}"` : ''}${opt.max != null ? ` max="${opt.max}"` : ''} placeholder="${esc(opt.placeholder || '')}">`;
   return `<div class="field${opt.cls ? ' ' + opt.cls : ''}"><label for="${id}">${esc(label)}${hint}</label>${ctrl}</div>`;
 }
 
 document.addEventListener('input', (e) => {
   const el = e.target;
-  if (el.dataset.bind && P()) {
+  const root = el.dataset.bind && bindRoot(el.dataset.root);
+  if (root) {
     const kind = el.dataset.kind;
     let v = el.value;
     if (kind === 'int') v = v === '' ? 0 : parseInt(v, 10) || 0;
     if (kind === 'float') v = parseFloat(v) || 0;
     if (kind === 'list') v = v.split('\n').map((s) => s.trim()).filter(Boolean);
     if (kind === 'bool') v = el.checked;
-    setPath(P(), el.dataset.bind, v);
-    markDirty();
+    setPath(root, el.dataset.bind, v);
+    if (el.dataset.root === 'lib') S.libDirty = true;
+    else markDirty();
+    const cnt = el.id === 'f-sample' && $('#lib-sample-count');
+    if (cnt) cnt.textContent = v.length.toLocaleString();
     const out = el.dataset.out && document.getElementById(el.dataset.out);
     if (out) out.textContent = v;
+    if (el.dataset.bind.startsWith('meta.logline_parts.')) updateLogline();
+    const rel = el.dataset.bind.match(/^relationships\.(\d+)\.(a|b)$/);
+    if (rel) refreshRel(Number(rel[1]));
   }
   if (el.dataset.draft) {
     S.textDraft[el.dataset.draft] = el.value;
@@ -208,6 +224,11 @@ function renderSavebar() {
 async function save() {
   S.project = await api('PUT', `/projects/${enc(S.name)}`, P());
   S.dirty = false;
+  if (S.route[2] === 'style') await loadStyleLink();
+}
+
+async function loadStyleLink() {
+  S.styleLink = await api('GET', `/projects/${enc(S.name)}/style/link`).catch(() => null);
 }
 
 async function saveIfDirty() {
@@ -228,13 +249,14 @@ const actions = {
     if (!name) return toast('프로젝트 이름을 입력하세요', true);
     const meta = {
       title: $('#np-title').value.trim() || name,
-      genre: $('#np-genre').value.trim(),
-      logline: $('#np-logline').value.trim(),
+      genres: [...S.newMeta.genres],
       target_episodes: parseInt($('#np-eps').value, 10) || 16,
       adult: $('#np-adult').checked,
     };
+    const styleId = $('#np-style') ? $('#np-style').value : '';
     await run('만드는 중', async () => {
-      await api('POST', '/projects', { name, meta });
+      await api('POST', '/projects', { name, meta, style_id: styleId });
+      S.newMeta = null;
       location.hash = `#/p/${enc(name)}/setup`;
     });
   },
@@ -264,7 +286,7 @@ const actions = {
     });
   },
   toggleGenre(id) {
-    const m = P().meta;
+    const m = genreTarget();
     m.genres = m.genres.includes(id) ? m.genres.filter((g) => g !== id) : [...m.genres, id];
     syncGenre();
   },
@@ -274,12 +296,17 @@ const actions = {
     if (!v) return;
     const hit = (S.genres || []).find((g) => g.name === v || g.id === v);
     const id = hit ? hit.id : v;
-    if (!P().meta.genres.includes(id)) P().meta.genres.push(id);
+    if (!genreTarget().genres.includes(id)) genreTarget().genres.push(id);
     syncGenre();
+    $('#genre-custom').focus();
   },
   addCharacter() {
-    const n = P().characters.length + 1;
-    P().characters.push({ id: 'char' + n, name: '', role: '조연', age: '', appearance: '', personality: '', background: '', goal: '', wound: '', speech_style: '', secrets: [], arc: '' });
+    // id 는 관계와 플롯이 인물을 찾는 열쇠라 자동으로 짓고 화면에서는 접어 둔다
+    const cs = P().characters;
+    const ids = new Set(cs.map((c) => c.id));
+    let id = ids.has('hero') ? '' : 'hero';
+    for (let n = cs.length + 1; !id; n++) if (!ids.has('char' + n)) id = 'char' + n;
+    cs.push({ id, name: '', role: id === 'hero' ? '주인공' : '조연', age: '', appearance: '', personality: '', background: '', goal: '', wound: '', speech_style: '', secrets: [], arc: '' });
     markDirty();
     render();
   },
@@ -295,7 +322,7 @@ const actions = {
   addRelationship() {
     const cs = P().characters;
     if (cs.length < 2) return toast('인물이 두 명 이상 있어야 합니다', true);
-    P().relationships.push({ a: cs[0].id, b: cs[1].id, type: '', description: '', affinity: 0, tension: 0, goal_conflict: 0 });
+    P().relationships.push({ a: cs[0].id, b: cs[1].id, type: '', description: '', affinity: 0, tension: 0, goal_conflict: 0, a_view: [], b_view: [] });
     markDirty();
     render();
   },
@@ -303,6 +330,49 @@ const actions = {
     P().relationships.splice(i, 1);
     markDirty();
     render();
+  },
+  fillSlot(arg) {
+    const [k, ...rest] = arg.split('|');
+    P().meta.logline_parts[k] = rest.join('|');
+    const el = $(`#f-meta-logline_parts-${k}`);
+    if (el) el.value = P().meta.logline_parts[k];
+    markDirty();
+    updateLogline();
+  },
+  useExample(i) {
+    const parts = P().meta.logline_parts;
+    if (Object.values(parts).some((v) => v.trim()) && !confirm('지금 쓴 다섯 칸을 이 예시로 바꿀까요?')) return;
+    Object.assign(parts, loglineExamples()[i]);
+    LOGLINE_SLOTS.forEach(([k]) => { const el = $(`#f-meta-logline_parts-${k}`); if (el) el.value = parts[k]; });
+    markDirty();
+    updateLogline();
+  },
+  setDial(arg) {
+    const [k, v] = arg.split('|');
+    const m = P().meta;
+    m.tone_dials[k] = m.tone_dials[k] === Number(v) ? 0 : Number(v);
+    m.tone = toneText(m.tone_dials);
+    markDirty();
+    $('#tone-box').outerHTML = toneBox();
+  },
+  setRelType(arg) {
+    const [i, type] = arg.split('|');
+    P().relationships[i].type = type;
+    markDirty();
+    refreshRel(Number(i));
+  },
+  toggleView(arg) {
+    const [i, side, word] = arg.split('|');
+    const r = P().relationships[i];
+    r[side] = r[side].includes(word) ? r[side].filter((w) => w !== word) : [...r[side], word];
+    markDirty();
+    refreshRel(Number(i));
+  },
+  setConflict(arg) {
+    const [i, v] = arg.split('|');
+    P().relationships[i].goal_conflict = Number(v);
+    markDirty();
+    refreshRel(Number(i));
   },
 
   // 문체
@@ -323,6 +393,126 @@ const actions = {
   removePassage(i) {
     P().style.sample_passages.splice(i, 1);
     markDirty();
+    render();
+  },
+  async useLibStyle() {
+    const id = $('#style-pick').value;
+    if (!id) return toast('적용할 문체를 고르세요', true);
+    const e = (S.libs || []).find((x) => x.id === id);
+    if (!confirm(`'${e ? e.name : id}' 문체를 이 작품에 적용할까요? 지금 작품의 스타일 프로필은 바뀝니다.`)) return;
+    await run('적용하는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/style/apply`, { style_id: id });
+      await loadStyleLink();
+      toast('라이브러리 문체를 적용했습니다');
+    });
+  },
+  async keepStyle() {
+    const name = prompt('라이브러리에 저장할 문체 이름', `${P().meta.title || S.name} 문체`);
+    if (name === null) return;
+    await run('라이브러리에 저장하는 중', async () => {
+      await saveIfDirty();
+      const r = await api('POST', `/projects/${enc(S.name)}/style/library`, { name: name.trim(), sample: S.styleSample });
+      S.project = r.project;
+      S.libs = await api('GET', '/styles');
+      await loadStyleLink();
+      toast(`라이브러리에 '${r.entry.name}' 로 저장했습니다`);
+    });
+  },
+  async pushStyle() {
+    const l = S.styleLink || {};
+    const users = ((S.libs || []).find((x) => x.id === l.id) || {}).used_by || [];
+    const others = users.filter((n) => n !== S.name);
+    const warn = others.length ? `\n다른 작품(${others.join(', ')})은 다시 적용하기 전까지 바뀌지 않습니다.` : '';
+    if (!confirm(`라이브러리의 '${l.name}' 을 이 작품의 문체로 바꿀까요?${warn}`)) return;
+    await run('라이브러리 갱신 중', async () => {
+      await saveIfDirty();
+      await api('POST', `/projects/${enc(S.name)}/style/library`, { update: true });
+      S.libs = await api('GET', '/styles');
+      await loadStyleLink();
+      toast('라이브러리 항목을 갱신했습니다');
+    });
+  },
+  async pullStyle() {
+    const l = S.styleLink || {};
+    if (!confirm(`이 작품의 문체를 라이브러리의 '${l.name}' 으로 되돌릴까요? 작품에서 고친 내용은 사라집니다.`)) return;
+    await run('적용하는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/style/apply`, { style_id: l.id });
+      await loadStyleLink();
+    });
+  },
+
+  // 문체 라이브러리
+  async libAnalyze() {
+    if ((S.lib.sample || '').trim().length < 200) return toast('원문을 200자 이상 넣어 주세요', true);
+    const has = S.lib.profile.narration_pov || S.lib.profile.sample_passages.length;
+    if (has && !confirm('분석 결과로 지금 프로필을 바꿀까요? 저장 전까지는 되돌릴 수 있어요.')) return;
+    await run('문체를 분석하는 중… (최대 1분)', async () => {
+      S.lib.profile = await api('POST', '/styles/analyze', { text: S.lib.sample });
+      S.libDirty = true;
+      toast('분석 결과를 불러왔습니다. 확인하고 저장하세요.');
+    });
+  },
+  async libSave() {
+    if (!S.lib.name.trim()) return toast('문체 이름을 입력하세요', true);
+    const body = { name: S.lib.name, source: S.lib.source, notes: S.lib.notes, sample: S.lib.sample, profile: S.lib.profile };
+    await run('저장 중', async () => {
+      const isNew = !S.lib.id;
+      S.lib = isNew ? await api('POST', '/styles', body) : await api('PUT', `/styles/${S.lib.id}`, body);
+      S.lib.used_by = S.lib.used_by || [];
+      S.libDirty = false;
+      toast('라이브러리에 저장했습니다');
+      if (isNew) location.hash = `#/styles/${S.lib.id}`;
+    });
+  },
+  async libRevert() {
+    await run('불러오는 중', async () => {
+      S.lib = await api('GET', `/styles/${S.lib.id}`);
+      S.libDirty = false;
+    });
+  },
+  async libDuplicate(id) {
+    if (S.libDirty && !confirm('저장하지 않은 변경은 사본에 들어가지 않아요. 계속할까요?')) return;
+    await run('복제하는 중', async () => {
+      const e = await api('POST', `/styles/${id}/duplicate`);
+      S.libDirty = false;
+      toast(`'${e.name}' 을 만들었습니다`);
+      location.hash = `#/styles/${e.id}`;
+    });
+  },
+  async libDelete(id) {
+    const e = (S.libs || []).find((x) => x.id === id) || S.lib || {};
+    const used = e.used_by || [];
+    const note = used.length ? `\n이 문체를 쓰는 작품(${used.join(', ')})은 복사해 둔 문체를 그대로 씁니다.` : '';
+    if (!confirm(`'${e.name}' 문체를 라이브러리에서 지울까요? 되돌릴 수 없어요.${note}`)) return;
+    await run('지우는 중', async () => {
+      await api('DELETE', `/styles/${id}`);
+      S.libDirty = false;
+      S.libs = await api('GET', '/styles');
+      toast('지웠습니다');
+      if (S.route[0] === 'styles' && S.route[1]) location.hash = '#/styles';
+    });
+  },
+  async libApplyTo() {
+    const name = $('#lib-target').value;
+    if (!name) return toast('적용할 작품을 고르세요', true);
+    if (S.libDirty) return toast('먼저 저장하세요. 저장된 문체가 작품에 복사됩니다.', true);
+    if (!confirm(`'${S.lib.name}' 문체를 '${name}' 작품에 적용할까요? 그 작품의 스타일 프로필은 바뀝니다.`)) return;
+    await run('적용하는 중', async () => {
+      await api('POST', `/projects/${enc(name)}/style/apply`, { style_id: S.lib.id });
+      S.lib = await api('GET', `/styles/${S.lib.id}`);
+      toast(`'${name}' 에 적용했습니다`);
+    });
+  },
+  libAddPassage() {
+    S.lib.profile.sample_passages.push('');
+    S.libDirty = true;
+    render();
+  },
+  libRemovePassage(i) {
+    S.lib.profile.sample_passages.splice(i, 1);
+    S.libDirty = true;
     render();
   },
 
@@ -593,11 +783,12 @@ async function loadProject(name) {
 
 let lastHash = location.hash;
 window.addEventListener('hashchange', async () => {
-  if (S.dirty && !confirm('저장하지 않은 변경이 있어요. 버리고 이동할까요?')) {
+  if ((S.dirty || S.libDirty) && !confirm('저장하지 않은 변경이 있어요. 버리고 이동할까요?')) {
     history.replaceState(null, '', lastHash);
     return;
   }
   lastHash = location.hash;
+  S.libDirty = false;
   await route();
 });
 
@@ -610,9 +801,20 @@ async function route() {
   S.relations = null;
   try {
     if (!S.config) S.config = await api('GET', '/config');
-    if (!S.genres && parts[0] === 'p') S.genres = await api('GET', '/genres').catch(() => []);
+    if (!S.genres) S.genres = await api('GET', '/genres').catch(() => []);
     if (parts[0] === 'settings') {
       S.config = await api('GET', '/config');
+    } else if (parts[0] === 'styles') {
+      S.name = null;
+      S.project = null;
+      S.libs = await api('GET', '/styles');
+      if (parts[1] === 'new') {
+        S.lib = { name: '', source: '', notes: '', sample: '', profile: emptyProfile(), used_by: [] };
+      } else if (parts[1]) {
+        S.lib = await api('GET', `/styles/${enc(parts[1])}`);
+        S.projects = await api('GET', '/projects');
+      }
+      S.libDirty = false;
     } else if (parts[0] === 'p' && parts[1]) {
       if (S.name !== parts[1] || S.dirty) await loadProject(parts[1]);
       else S.project = await api('GET', `/projects/${enc(parts[1])}`);
@@ -620,6 +822,10 @@ async function route() {
       const n = Number(parts[3]);
       if (!parts[2] && S.project.relationships.length) {
         S.relations = await api('GET', `/projects/${enc(S.name)}/relations`).catch((e) => ({ error: e.message }));
+      }
+      if (parts[2] === 'style') {
+        S.libs = await api('GET', '/styles').catch(() => []);
+        await loadStyleLink();
       }
       if (parts[2] === 'write' && n && ep(n) && ep(n).status !== 'draft') {
         S.context = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/context`).catch(() => null);
@@ -632,6 +838,7 @@ async function route() {
       S.name = null;
       S.project = null;
       S.projects = await api('GET', '/projects');
+      S.libs = await api('GET', '/styles').catch(() => []);
     }
   } catch (e) {
     toast(e.message, true);
@@ -650,6 +857,11 @@ function render() {
   const [p, , page, arg] = S.route;
   if (p === 'settings') {
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:820px;margin:0 auto">${viewSettings()}</main></div>`;
+    return;
+  }
+  if (p === 'styles') {
+    const body = S.route[1] && S.lib ? viewLibEntry() : viewLibrary();
+    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1180px;margin:0 auto">${body}</main></div>`;
     return;
   }
   if (p !== 'p' || !P()) {
@@ -699,6 +911,7 @@ function sidebar(active) {
       <strong style="font-size:13px">${esc(cfg.stages ? cfg.stages.write.model : cfg.model || '')}</strong>
       ${cfg.has_key ? '' : '<span style="color:var(--red)">API 키가 없습니다. 설정에서 넣거나 작업지시서를 쓰세요.</span>'}
       <a href="#/settings">모델 · API 키 설정</a>
+      <a href="#/styles">문체 라이브러리</a>
       <a href="#/">작품 목록</a>
     </div>
   </nav>`;
@@ -774,7 +987,7 @@ function viewProjects() {
       <div class="small">${esc(x.genre || '장르 미정')} · 폴더 ${esc(x.name)}</div>
     </a>`).join('');
   const cfg = S.config || {};
-  return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편을 씁니다.', '<a class="btn" href="#/settings">모델 · API 키 설정</a>')}
+  return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편을 씁니다.', '<a class="btn" href="#/styles">문체 라이브러리</a><a class="btn" href="#/settings">모델 · API 키 설정</a>')}
     ${cfg.has_key ? '' : '<div class="note warn">Gemini API 키가 없어요. <a href="#/settings" style="color:inherit;font-weight:700">설정</a>에서 넣으면 AI 생성을 쓸 수 있습니다. 키 없이도 채팅 앱 작업지시서로 쓸 수 있어요.</div>'}
     ${list.length ? `<div class="grid-auto">${cards}</div>` : '<div class="note plain">아직 작품이 없어요. 아래에서 새 작품을 만드세요.</div>'}
     <section class="card" style="max-width:720px">
@@ -782,12 +995,13 @@ function viewProjects() {
       <div class="grid-2">
         <div class="field"><label for="np-name">폴더 이름 <span class="hint">projects/ 아래에 저장</span></label><input id="np-name" type="text" placeholder="lighthouse"></div>
         <div class="field"><label for="np-title">제목</label><input id="np-title" type="text" placeholder="등대"></div>
-        <div class="field"><label for="np-genre">장르</label><input id="np-genre" type="text" placeholder="로맨스 판타지, 회귀" aria-describedby="np-genre-hint"><span id="np-genre-hint" class="small">쉼표로 여러 개. 설정 화면에서 목록으로 고를 수 있어요</span></div>
         <div class="field"><label for="np-eps">총 화수 (10~20)</label><input id="np-eps" type="number" min="10" max="20" value="12"></div>
       </div>
-      <div class="field"><label for="np-logline">로그라인 <span class="hint">누가, 무엇을 원하고, 무엇이 막는가</span></label><textarea id="np-logline" rows="2"></textarea></div>
-      <label class="check-row"><input id="np-adult" type="checkbox"><span><strong>성인물</strong> <span class="small">성인 독자 대상</span></span></label>
-      <div><button class="btn primary" data-action="createProject">만들고 설정 시작</button></div>
+      ${genrePicker()}
+      ${adultCheck('id="np-adult"')}
+      ${(S.libs || []).length ? `<div class="field"><label for="np-style">문체 <span class="hint">라이브러리에서 고르면 문체 단계를 건너뛸 수 있어요. 나중에 바꿔도 됩니다</span></label>
+        <select id="np-style"><option value="">나중에 정하기</option>${S.libs.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}${x.source ? ` · ${esc(x.source)}` : ''}</option>`).join('')}</select></div>` : ''}
+      <div class="row"><button class="btn primary" data-action="createProject">만들고 설정 시작</button><span class="small">로그라인은 다음 화면에서 칸을 채우며 만들어요.</span></div>
     </section>`;
 }
 
@@ -880,11 +1094,21 @@ function genreLabel(m) {
   return m.genres.map((id) => (genreById(id) ? genreById(id).name : id)).join(' · ') || m.genre || '';
 }
 
+// 설정 화면에서는 작품의 meta, 작품 목록의 새 작품 폼에서는 아직 저장하지 않은 S.newMeta
+function genreTarget() {
+  if (S.route[0] === 'p' && P()) return P().meta;
+  if (!S.newMeta) S.newMeta = { genres: [], genre: '' };
+  return S.newMeta;
+}
+
+// 다른 입력칸을 지우지 않도록 장르 고르기 부분만 다시 그린다
 function syncGenre() {
-  const m = P().meta;
+  const m = genreTarget();
   m.genre = genreLabel(m);
-  markDirty();
-  render();
+  if (m !== S.newMeta) markDirty();
+  const box = $('#genre-picker');
+  if (box) box.outerHTML = genrePicker();
+  else render();
 }
 
 function genreGuide(g) {
@@ -894,22 +1118,170 @@ function genreGuide(g) {
 }
 
 function genrePicker() {
-  const m = P().meta;
+  const m = genreTarget();
   const cat = S.genres || [];
   const opts = (kind) => cat.filter((g) => g.kind === kind).map((g) => `<button type="button" aria-pressed="${m.genres.includes(g.id)}" data-action="toggleGenre" data-arg="${esc(g.id)}" title="${esc(g.summary)}">${esc(g.name)}</button>`).join('');
   const custom = m.genres.filter((id) => !genreById(id));
   const picked = m.genres.map(genreById).filter(Boolean);
-  return `<div class="field"><span class="label-text">장르 <span class="hint">여러 개 고를 수 있어요. 고른 장르의 안내가 AI 프롬프트에 들어갑니다</span></span>
+  return `<div id="genre-picker" class="genre-picker"><div class="field"><span class="label-text">장르 <span class="hint">여러 개 고를 수 있어요. 고른 장르의 안내가 AI 프롬프트에 들어갑니다</span></span>
       <div class="genre-opts" role="group" aria-label="장르">${opts('장르')}</div>
       <div class="small" style="margin-top:4px">요소</div>
       <div class="genre-opts" role="group" aria-label="요소">${opts('요소')}${custom.map((c) => `<button type="button" aria-pressed="true" data-action="toggleGenre" data-arg="${esc(c)}" title="직접 적은 장르, 누르면 빠집니다">${esc(c)} ✕</button>`).join('')}</div>
       <div class="row" style="flex-wrap:nowrap"><input id="genre-custom" type="text" aria-label="직접 적는 장르" placeholder="목록에 없으면 직접 적기 (예: 오컬트)"><button type="button" class="btn small" style="white-space:nowrap;flex:none" data-action="addCustomGenre">추가</button></div>
     </div>
-    ${picked.length ? `<div class="genre-guides">${picked.map(genreGuide).join('')}</div>` : ''}
-    <label class="check-row"><input type="checkbox" data-bind="meta.adult" data-kind="bool"${m.adult ? ' checked' : ''}><span><strong>성인물</strong> <span class="small">성인 독자 대상. 끄면 노골적인 성적 묘사와 과도한 잔혹 묘사를 피하도록 지시합니다</span></span></label>`;
+    ${picked.length ? `<div class="genre-guides">${picked.map(genreGuide).join('')}</div>` : ''}</div>`;
+}
+
+function adultCheck(attrs) {
+  return `<label class="check-row"><input type="checkbox" ${attrs}><span><strong>성인물</strong> <span class="small">성인 독자 대상. 끄면 노골적인 성적 묘사와 과도한 잔혹 묘사를 피하도록 지시합니다</span></span></label>`;
 }
 
 // ----- 1. 설정 도우미 -----
+
+// 로그라인 다섯 칸과 톤 다이얼. canon/logline.py 와 같은 규칙이라 함께 고친다.
+const LOGLINE_SLOTS = [
+  ['who', '누가', '이름보다 특징이 먼저 보이게'],
+  ['why', '무엇 때문에', '이야기를 시작하게 만드는 일'],
+  ['goal', '무엇을 하려 하나', "눈에 보이는 행동, '~한다'로 끝내기"],
+  ['block', '무엇이 막나', '사람이나 힘'],
+  ['stake', '무엇이 걸렸나', '선택, 비워도 돼요'],
+];
+
+function josa(word, withFinal, withoutFinal) {
+  const w = word.trim();
+  if (!w) return '';
+  const code = w.charCodeAt(w.length - 1);
+  if (code < 0xAC00 || code > 0xD7A3) return `${withFinal}(${withoutFinal})`;
+  return (code - 0xAC00) % 28 ? withFinal : withoutFinal;
+}
+
+function composeLogline(p) {
+  const [who, why, goal, block, stake] = LOGLINE_SLOTS.map(([k]) => (p[k] || '').trim().replace(/\.+$/, ''));
+  let out = '';
+  if (who) out += who + josa(who, '이', '가') + ' ';
+  if (why) out += why + ' ';
+  if (goal) out += goal + '.';
+  if (block) out += (out ? ' 하지만 ' : '') + block + '.';
+  if (stake) out += ' ' + stake + '.';
+  return out.trim();
+}
+
+function loglineChecks(p) {
+  const n = composeLogline(p).length;
+  return [
+    [p.who.trim().split(/\s+/).length > 1, '주인공에게 이름 말고 특징이 있다'],
+    [!!p.why.trim(), '이야기를 시작하게 만드는 일이 있다'],
+    [p.goal.trim().endsWith('다'), "목표가 눈에 보이는 행동이다 ('~한다'로 끝남)"],
+    [!!p.block.trim(), '목표를 막는 사람이나 힘이 있다'],
+    [n >= 40 && n <= 150, '길이가 40~150자 사이다'],
+  ];
+}
+
+const TONE_DIALS = [['dark', '밝다', '어둡다'], ['serious', '가볍다', '진지하다'], ['slow', '빠르다', '느리다']];
+const TONE_WORDS = {
+  dark: [['밝고', '밝다'], ['조금 밝고', '조금 밝다'], ['조금 어둡고', '조금 어둡다'], ['어둡고', '어둡다']],
+  serious: [['가볍고', '가볍다'], ['조금 가볍고', '조금 가볍다'], ['조금 진지하고', '조금 진지하다'], ['진지하고', '진지하다']],
+  slow: [['호흡이 빠르다', '호흡이 빠르다'], ['호흡이 조금 빠르다', '호흡이 조금 빠르다'], ['호흡이 조금 느리다', '호흡이 조금 느리다'], ['호흡이 느리다', '호흡이 느리다']],
+};
+
+function toneText(d) {
+  const words = TONE_DIALS.map(([k]) => (d[k] >= 1 && d[k] <= 4 ? TONE_WORDS[k][d[k] - 1] : null)).filter(Boolean);
+  return words.map((w, i) => (i === words.length - 1 ? w[1] : w[0])).join(' ');
+}
+
+/** 고른 장르의 로그라인 예시. 장르를 안 골랐으면 미스터리와 현대 드라마 예시 */
+function loglineExamples() {
+  const ids = P().meta.genres.filter(genreById);
+  return (ids.length ? ids : ['mystery', 'drama']).flatMap((id) => (genreById(id) || {}).logline || []);
+}
+
+function loglineBuilder() {
+  const m = P().meta;
+  const parts = m.logline_parts;
+  const exs = loglineExamples();
+  const legacy = !Object.values(parts).some((v) => v.trim()) && m.logline.trim();
+  const slots = LOGLINE_SLOTS.map(([k, label, hint]) => {
+    const chips = [...new Set(exs.map((e) => e[k]).filter(Boolean))].slice(0, 3)
+      .map((v) => `<button type="button" data-action="fillSlot" data-arg="${esc(k + '|' + v)}">${esc(v)}</button>`).join('');
+    return `<div class="slot">${input(label, 'meta.logline_parts.' + k, { hint })}${chips ? `<div class="genre-opts ex-opts" role="group" aria-label="${esc(label)} 예시">${chips}</div>` : ''}</div>`;
+  }).join('');
+  return `<div class="logline-box"><span class="label-text">로그라인 <span class="hint">다섯 칸을 채우면 한 문장으로 합쳐요. 점선 예시를 누르면 칸에 들어갑니다</span></span>
+    ${legacy ? '<div class="note plain">지금 로그라인은 한 문장으로만 저장되어 있어요. 칸을 채우면 칸 내용으로 바뀝니다.</div>' : ''}
+    ${slots}
+    <div class="logline-out"><p id="logline-preview" class="logline-preview" aria-live="polite">${esc(m.logline || LOGLINE_EMPTY)}</p><ul id="logline-checks" class="logline-checks">${loglineChecksHtml(m)}</ul></div>
+    ${exs.length ? `<details><summary>예시 로그라인 ${exs.length}개 보기</summary><div class="ex-list">${exs.map((e, i) => `<div class="ex-item"><span>${esc(composeLogline(e))}</span><button type="button" class="btn small" data-action="useExample" data-arg="${i}">이 예시로 채우기</button></div>`).join('')}</div></details>` : ''}
+    <details${legacy ? ' open' : ''}><summary>한 문장으로 직접 고쳐 쓰기</summary>${input('로그라인 문장', 'meta.logline', { rows: 3, hint: '칸을 다시 고치면 칸 내용으로 바뀝니다' })}</details>
+  </div>`;
+}
+
+const LOGLINE_EMPTY = '칸을 채우면 여기에 로그라인이 만들어져요.';
+
+function loglineChecksHtml(m) {
+  const parts = m.logline_parts;
+  if (!Object.values(parts).some((v) => v.trim())) return '';
+  return loglineChecks(parts).map(([ok, t]) => `<li class="${ok ? 'ok' : ''}">${esc(t)}</li>`).join('') + `<li class="len">${m.logline.length}자 · 점검은 참고용이에요</li>`;
+}
+
+/** 로그라인 칸이 바뀌면 합친 문장, 점검, 직접 쓰기 칸만 다시 그린다 (입력 중인 칸의 포커스 유지) */
+function updateLogline() {
+  const m = P().meta;
+  const parts = m.logline_parts;
+  const empty = !Object.values(parts).some((v) => v.trim());
+  if (!empty) {
+    m.logline = composeLogline(parts);
+    const raw = $('#f-meta-logline');
+    if (raw) raw.value = m.logline;
+  }
+  const pv = $('#logline-preview');
+  if (pv) pv.textContent = m.logline || LOGLINE_EMPTY;
+  const ck = $('#logline-checks');
+  if (ck) ck.innerHTML = loglineChecksHtml(m);
+}
+
+function toneBox() {
+  const d = P().meta.tone_dials;
+  const rows = TONE_DIALS.map(([k, l, r]) => `<div class="dial" role="group" aria-label="${l}, ${r}"><span>${l}</span>${[1, 2, 3, 4].map((v) => `<button type="button" aria-pressed="${d[k] === v}" aria-label="${l}에서 ${r} 사이 ${v}단계" data-action="setDial" data-arg="${k}|${v}"></button>`).join('')}<span>${r}</span></div>`).join('');
+  return `<div id="tone-box" class="field"><span class="label-text">톤 <span class="hint">양 끝 중 어디에 가까운가. 고르면 아래 문장이 바뀌고, 문장은 직접 고쳐도 돼요</span></span>${rows}${input('톤 문장', 'meta.tone', { placeholder: '예: 조금 어둡고 진지하고 호흡이 느리다' })}</div>`;
+}
+
+// 관계를 말로 고르기. VIEWS 는 canon/dynamics.py 의 VIEWS 와 같은 목록이다.
+const VIEWS = ['믿는다', '좋아한다', '경계한다', '미워한다', '빚졌다', '얕본다', '잘 모른다'];
+const REL_TYPES = ['가족', '친구', '동료', '연인', '옛 연인', '라이벌', '사제', '상사와 부하'];
+const CONFLICTS = [['아니다', 0], ['조금', 0.4], ['정면으로', 0.8]];
+
+function conflictWord(v) {
+  return v >= 0.6 ? '정면으로' : v > 0 ? '조금' : '아니다';
+}
+
+function relRow(r, i) {
+  const p = P();
+  const b = `relationships.${i}`;
+  const opts = (sel) => p.characters.map((c) => `<option value="${esc(c.id)}"${c.id === sel ? ' selected' : ''}>${esc(c.name || c.id)}</option>`).join('');
+  const started = p.snapshots.length > 0; // 첫 상태 반영 뒤에는 관계 사건으로 계산한다
+  const chips = (vals, on, act) => vals.map(([label, arg]) => `<button type="button" aria-pressed="${on(label)}" data-action="${act}" data-arg="${esc(`${i}|${arg}`)}">${esc(label)}</button>`).join('');
+  const view = (side, from, to) => `<div class="rel-line"><span class="label-text">${esc(charName(from) || from)} → ${esc(charName(to) || to)}</span>
+      <div class="genre-opts" role="group" aria-label="${esc(charName(from) || from)}이(가) ${esc(charName(to) || to)}을(를) 보는 방식">${chips(VIEWS.map((w) => [w, `${side}|${w}`]), (w) => (r[side] || []).includes(w), 'toggleView')}</div></div>`;
+  return `<div class="rel-card" id="rel-${i}">
+    <div class="rel-top">
+      <div class="field"><label for="ra${i}">인물 A</label><select id="ra${i}" data-bind="${b}.a">${opts(r.a)}</select></div>
+      <div class="field"><label for="rb${i}">인물 B</label><select id="rb${i}" data-bind="${b}.b">${opts(r.b)}</select></div>
+      ${input('어떤 사이', b + '.type', { placeholder: '오빠의 친구, 남매…' })}
+      <button class="btn icon-btn danger" data-action="removeRelationship" data-arg="${i}" aria-label="관계 삭제">✕</button>
+    </div>
+    <div class="genre-opts ex-opts" role="group" aria-label="어떤 사이 예시">${chips(REL_TYPES.map((t) => [t, t]), (t) => r.type === t, 'setRelType')}</div>
+    ${started ? `<div class="small">지금 호감 ${r.affinity} · 긴장 ${r.tension}. 첫 반영 뒤에는 본문의 관계 사건으로 바뀝니다.</div>` : `${view('a_view', r.a, r.b)}${view('b_view', r.b, r.a)}`}
+    <div class="rel-line"><span class="label-text">원하는 게 부딪치나</span><div class="genre-opts" role="group" aria-label="목표 충돌">${chips(CONFLICTS, (w) => conflictWord(r.goal_conflict || 0) === w, 'setConflict')}</div></div>
+    ${started ? '' : `<details><summary>숫자로 직접 정하기</summary><div class="grid-2" style="padding-top:8px">
+      <div class="field"><label for="raf${i}">시작 호감 <output id="raf${i}o">${r.affinity}</output> <span class="hint">보는 방식을 고른 방향은 고른 말이 우선</span></label><input id="raf${i}" type="range" min="-5" max="5" value="${r.affinity}" data-bind="${b}.affinity" data-kind="int" data-out="raf${i}o"></div>
+      <div class="field"><label for="rg${i}">목표 충돌 <output id="rg${i}o">${r.goal_conflict || 0}</output></label><input id="rg${i}" type="range" min="0" max="1" step="0.1" value="${r.goal_conflict || 0}" data-bind="${b}.goal_conflict" data-kind="float" data-out="rg${i}o"></div>
+    </div></details>`}
+  </div>`;
+}
+
+function refreshRel(i) {
+  const el = $(`#rel-${i}`);
+  if (el) el.outerHTML = relRow(P().relationships[i], i);
+}
 
 function viewSetup() {
   const p = P();
@@ -917,31 +1289,19 @@ function viewSetup() {
     const b = `characters.${i}`;
     return `<article class="char-card">
       <div class="between"><strong style="font-size:16px">${esc(c.name || '이름 없음')}</strong><button class="btn small danger" data-action="removeCharacter" data-arg="${i}" aria-label="${esc(c.name || c.id)} 삭제">삭제</button></div>
-      <div class="grid-2">${input('이름', b + '.name')}${input('id', b + '.id', { hint: '영문 소문자' })}${input('역할', b + '.role')}${input('나이', b + '.age')}</div>
-      ${input('목표', b + '.goal')}
-      ${input('말투', b + '.speech_style', { rows: 2, hint: '어미, 호칭, 대사 예시' })}
-      <details><summary>성격, 배경, 결핍, 비밀, 아크</summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
-        ${input('성격', b + '.personality', { rows: 2 })}${input('배경', b + '.background', { rows: 2 })}${input('외모', b + '.appearance')}
-        ${input('결핍 · 약점', b + '.wound')}${input('비밀', b + '.secrets', { kind: 'list', rows: 2 })}${input('아크', b + '.arc', { hint: '시작 → 결말' })}
+      <div class="grid-2">${input('이름', b + '.name')}${input('역할', b + '.role', { placeholder: '주인공, 상대역, 조력자…' })}</div>
+      ${input('원하는 것', b + '.goal', { hint: '작품 전체에서' })}
+      ${input('두려운 것 · 약점', b + '.wound')}
+      ${input('숨기는 것', b + '.secrets', { kind: 'list', rows: 2 })}
+      ${input('말투', b + '.speech_style', { rows: 2, hint: '어미, 호칭, 대사 한 줄' })}
+      <details><summary>더 자세히: 나이, 성격, 배경, 외모, 아크</summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
+        ${input('나이', b + '.age')}${input('성격', b + '.personality', { rows: 2 })}${input('배경', b + '.background', { rows: 2 })}${input('외모', b + '.appearance')}
+        ${input('아크', b + '.arc', { hint: '시작 → 결말' })}${input('id', b + '.id', { hint: '관계와 플롯이 인물을 찾는 값. 보통 바꿀 필요 없어요' })}
       </div></details>
     </article>`;
   }).join('');
 
-  const opts = (sel) => p.characters.map((c) => `<option value="${esc(c.id)}"${c.id === sel ? ' selected' : ''}>${esc(c.name || c.id)}</option>`).join('');
-  const started = p.snapshots.length > 0; // 첫 상태 반영 뒤에는 관계 사건으로 계산한다
-  const rels = p.relationships.map((r, i) => {
-    const b = `relationships.${i}`;
-    return `<div class="rel-row">
-      <div class="field"><label for="ra${i}">인물 A</label><select id="ra${i}" data-bind="${b}.a">${opts(r.a)}</select></div>
-      <div class="field"><label for="rb${i}">인물 B</label><select id="rb${i}" data-bind="${b}.b">${opts(r.b)}</select></div>
-      ${input('유형', b + '.type', { placeholder: '동료, 남매…' })}
-      ${started
-        ? `<div class="field"><label>지금</label><div class="small" style="padding-top:10px">호감 ${r.affinity} · 긴장 ${r.tension}</div></div>`
-        : `<div class="field"><label for="raf${i}">시작 호감 <output id="raf${i}o">${r.affinity}</output></label><input id="raf${i}" type="range" min="-5" max="5" value="${r.affinity}" data-bind="${b}.affinity" data-kind="int" data-out="raf${i}o"></div>`}
-      <div class="field"><label for="rg${i}">목표 충돌 <output id="rg${i}o">${r.goal_conflict || 0}</output></label><input id="rg${i}" type="range" min="0" max="1" step="0.1" value="${r.goal_conflict || 0}" data-bind="${b}.goal_conflict" data-kind="float" data-out="rg${i}o"></div>
-      <button class="btn icon-btn danger" data-action="removeRelationship" data-arg="${i}" aria-label="관계 삭제">✕</button>
-    </div>`;
-  }).join('');
+  const rels = p.relationships.map(relRow).join('');
 
   return `${header('1단계', '설정 도우미', '채운 칸은 그대로 두고, 빈칸만 AI 가 제안합니다. 제안에서 원하는 인물과 관계만 골라 반영하세요.', `<button class="btn" data-action="suggest">빈칸 AI 제안받기</button><a class="btn primary" href="${base()}/style">문체로</a>`)}
     ${S.suggestion ? viewSuggestion() : ''}
@@ -951,9 +1311,11 @@ function viewSetup() {
           <h2>기본 정보</h2>
           ${input('제목', 'meta.title')}
           ${genrePicker()}
+          ${adultCheck(`data-bind="meta.adult" data-kind="bool"${P().meta.adult ? ' checked' : ''}`)}
           ${input('총 화수 (10~20)', 'meta.target_episodes', { type: 'number', min: 1, max: 40 })}
-          ${input('로그라인', 'meta.logline', { rows: 3, hint: '누가, 무엇을 원하고, 무엇이 막는가' })}
-          ${input('주제', 'meta.theme')}${input('톤', 'meta.tone')}
+          ${loglineBuilder()}
+          ${input('주제', 'meta.theme', { hint: '이 이야기가 끝까지 묻는 질문 하나', placeholder: '예: 떠난 사람을 이해하면 용서할 수 있나?' })}
+          ${toneBox()}
           ${input('화당 분량', 'meta.words_per_episode', { type: 'number', hint: '공백 포함 글자 수' })}
           ${input('메모', 'meta.notes', { rows: 2 })}
         </section>
@@ -970,7 +1332,7 @@ function viewSetup() {
           ${chars ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">${chars}</div>` : '<div class="note plain">인물이 없어요. 직접 추가하거나 AI 제안을 받으세요.</div>'}
         </section>
         <section class="card">
-          <div class="between"><h2>관계</h2><div class="row"><span class="small">${P().snapshots.length ? '첫 반영 뒤에는 관계 사건으로 계산됩니다' : '시작 호감 -5 ~ 5 · 목표 충돌 0 ~ 1 · 긴장은 자동 계산'}</span><button class="btn small" data-action="addRelationship">+ 관계 추가</button></div></div>
+          <div class="between"><h2>관계</h2><div class="row"><span class="small">${P().snapshots.length ? '첫 반영 뒤에는 관계 사건으로 계산됩니다' : '서로 어떻게 보는지 고르면 시작 관계를 계산해요. 긴장은 자동 계산'}</span><button class="btn small" data-action="addRelationship">+ 관계 추가</button></div></div>
           ${rels || '<div class="small">관계가 없어요.</div>'}
         </section>
       </div>
@@ -988,41 +1350,160 @@ function viewSuggestion() {
       ${s.characters.map((c, i) => `<label class="char-card suggested" style="cursor:pointer"><span class="row"><input type="checkbox" data-pick="sc${i}"${S.picks['sc' + i] ? ' checked' : ''}${exists(c.id) ? ' disabled' : ''}><strong>${esc(c.name)}</strong><span class="small">${esc(c.role)} · ${esc(c.id)}${exists(c.id) ? ' · 이미 있음' : ''}</span></span>
         <span style="font-size:13px;line-height:1.5">목표: ${esc(c.goal)}<br>말투: ${esc(c.speech_style)}</span></label>`).join('')}
     </div>
-    ${s.relationships.map((r, i) => `<label class="row" style="font-size:13px"><input type="checkbox" data-pick="sr${i}"${S.picks['sr' + i] ? ' checked' : ''}>${esc(r.a)} ↔ ${esc(r.b)} · ${esc(r.type)} · 호감 ${r.affinity} · 긴장 ${r.tension}</label>`).join('')}
+    ${s.relationships.map((r, i) => `<label class="row" style="font-size:13px"><input type="checkbox" data-pick="sr${i}"${S.picks['sr' + i] ? ' checked' : ''}>${esc(r.a)} ↔ ${esc(r.b)} · ${esc(r.type)} · ${(r.a_view || []).length || (r.b_view || []).length ? `${esc(r.a)}→${esc(r.b)} ${esc((r.a_view || []).join(', ') || '-')} · ${esc(r.b)}→${esc(r.a)} ${esc((r.b_view || []).join(', ') || '-')}` : `호감 ${r.affinity} · 긴장 ${r.tension}`}</label>`).join('')}
   </section>`;
 }
 
 // ----- 2. 문체 -----
 
+function emptyProfile() {
+  return {
+    narration_pov: '', tense: '', sentence_rhythm: '', description_density: '', dialogue_ratio: '', dialogue_style: '',
+    inner_monologue: '', pacing: '', scene_transition: '', vocabulary: '', dos: [], donts: [], banned_phrases: [], sample_passages: [],
+  };
+}
+
+/** 스타일 프로필 편집 칸. 작품 화면(base='style')과 라이브러리 화면(base='profile', root='lib')이 같이 쓴다. */
+function profileFields(base, root) {
+  const o = (x = {}) => (root ? { ...x, root } : x);
+  const prof = getPath(bindRoot(root), base);
+  const act = root ? 'libRemovePassage' : 'removePassage';
+  const passages = prof.sample_passages.map((_, i) => `<div class="row" style="align-items:flex-start;flex-wrap:nowrap">
+      <div style="flex:1">${input(`대표 문단 ${i + 1}`, `${base}.sample_passages.${i}`, o({ rows: 3 }))}</div>
+      <button class="btn icon-btn danger" style="margin-top:26px" data-action="${act}" data-arg="${i}" aria-label="대표 문단 ${i + 1} 삭제">✕</button></div>`).join('');
+  const f = (label, key, x) => input(label, `${base}.${key}`, o(x));
+  return `<div class="grid-2">
+      ${f('시점', 'narration_pov')}${f('시제', 'tense')}
+      ${f('문장 리듬', 'sentence_rhythm', { rows: 2 })}${f('묘사 밀도', 'description_density', { rows: 2 })}
+      ${f('대사 비율', 'dialogue_ratio')}${f('대사 방식', 'dialogue_style')}
+      ${f('내면 독백', 'inner_monologue')}${f('전개 속도', 'pacing')}
+      ${f('장면 전환', 'scene_transition')}${f('어휘', 'vocabulary')}
+    </div>
+    <div class="grid-2">
+      <div class="note ok">${f('지킬 것', 'dos', { kind: 'list', rows: 4 })}</div>
+      <div class="note err">${f('피할 것', 'donts', { kind: 'list', rows: 4 })}</div>
+    </div>
+    ${f('금지 표현', 'banned_phrases', { kind: 'list', rows: 2, placeholder: '본문에 나오면 경고할 표현, 한 줄에 하나씩' })}
+    <div class="between"><h3>대표 문단 <span class="small" style="font-weight:400">본문 생성 때 그대로 보여줄 원문 예시, 2~4개</span></h3><button class="btn small" data-action="${root ? 'libAddPassage' : 'addPassage'}">+ 문단</button></div>
+    ${passages || '<div class="small">아직 없어요. 문체 분석을 하면 원문에서 골라 넣습니다.</div>'}`;
+}
+
+/** 작품 문체 화면 위쪽: 라이브러리에서 가져오기, 라이브러리에 저장하기 */
+function styleLibraryCard() {
+  const libs = S.libs || [];
+  const l = S.styleLink || { state: 'none' };
+  const opts = libs.map((x) => `<option value="${esc(x.id)}"${x.id === l.id ? ' selected' : ''}>${esc(x.name)}${x.source ? ` · ${esc(x.source)}` : ''}</option>`).join('');
+  const status = {
+    none: '<span class="small">이 작품에서 직접 만든 문체예요.</span>',
+    missing: '<span class="small">가져온 라이브러리 항목이 지워졌어요. 작품에 복사된 문체는 그대로 씁니다.</span>',
+    same: `<span class="chip finalized">라이브러리와 같음</span> <a href="#/styles/${esc(l.id)}">${esc(l.name)}</a>`,
+    changed: `<span class="chip written">라이브러리와 다름</span> <a href="#/styles/${esc(l.id)}">${esc(l.name)}</a> <span class="small">이 작품에서 고쳤거나 라이브러리가 바뀌었어요</span>`,
+  }[l.state] || '';
+  const linkBtns = l.state === 'changed'
+    ? '<button class="btn small" data-action="pushStyle">라이브러리 항목 갱신</button><button class="btn small" data-action="pullStyle">라이브러리 버전으로 되돌리기</button>'
+    : '';
+  return `<section class="card tight">
+      <div class="between"><h2>문체 라이브러리</h2><a class="small" href="#/styles">라이브러리 열기</a></div>
+      <div class="row">${status}</div>
+      <div class="row" style="flex-wrap:nowrap">
+        ${libs.length
+          ? `<select id="style-pick" aria-label="라이브러리 문체" style="flex:1"><option value="">라이브러리에서 고르기</option>${opts}</select><button class="btn small" style="flex:none" data-action="useLibStyle">적용</button>`
+          : '<span class="small" style="flex:1">라이브러리가 비어 있어요. 이 작품의 문체를 저장해 두면 다른 작품에서 다시 쓸 수 있어요.</span>'}
+      </div>
+      <div class="row">${linkBtns}<button class="btn small" data-action="keepStyle">이 문체를 라이브러리에 새로 저장</button></div>
+    </section>`;
+}
+
 function viewStyle() {
-  const st = P().style;
-  const passages = st.sample_passages.map((_, i) => `<div class="row" style="align-items:flex-start;flex-wrap:nowrap">
-      <div style="flex:1">${input(`대표 문단 ${i + 1}`, `style.sample_passages.${i}`, { rows: 3 })}</div>
-      <button class="btn icon-btn danger" style="margin-top:26px" data-action="removePassage" data-arg="${i}" aria-label="대표 문단 ${i + 1} 삭제">✕</button></div>`).join('');
-  return `${header('2단계', '문체 레퍼런스', '닮고 싶은 소설 문단을 붙여 넣으면 문체 규칙을 뽑습니다. 규칙과 원문 예시가 매 화 본문 생성에 함께 들어갑니다.', `<a class="btn primary" href="${base()}/arc">기승전결로</a>`)}
+  return `${header('2단계', '문체 레퍼런스', '닮고 싶은 소설 문단을 붙여 넣으면 문체 규칙을 뽑습니다. 규칙과 원문 예시가 매 화 본문 생성에 함께 들어갑니다. 라이브러리에 저장한 문체를 그대로 가져올 수도 있어요.', `<a class="btn primary" href="${base()}/arc">기승전결로</a>`)}
     <div class="cols">
-      <section class="card col">
-        <div class="between"><h2>예시 원문</h2><span class="small"><span id="sample-count">${S.styleSample.length.toLocaleString()}</span>자 · 2,000자 이상 권장</span></div>
-        <label for="sample" class="small">소설 본문을 붙여 넣으세요. 원문은 저장되지 않고, 고른 대표 문단만 남습니다.</label>
-        <textarea id="sample" rows="16" data-local="styleSample" oninput="document.getElementById('sample-count').textContent=this.value.length.toLocaleString()" style="font-family:var(--serif);font-size:15px;line-height:1.9">${esc(S.styleSample)}</textarea>
-        <div><button class="btn dark" data-action="analyzeStyle">문체 분석</button></div>
-        <div class="note plain">원문은 문체 분석과 예시 문단으로만 쓰입니다. 내용이나 인물은 작품에 가져오지 않습니다.</div>
-      </section>
+      <div class="col">
+        ${styleLibraryCard()}
+        <section class="card">
+          <div class="between"><h2>예시 원문</h2><span class="small"><span id="sample-count">${S.styleSample.length.toLocaleString()}</span>자 · 2,000자 이상 권장</span></div>
+          <label for="sample" class="small">소설 본문을 붙여 넣으세요. 원문은 작품에 저장되지 않고 고른 대표 문단만 남습니다. 라이브러리에 저장하면 원문도 라이브러리에 함께 보관합니다.</label>
+          <textarea id="sample" rows="16" data-local="styleSample" oninput="document.getElementById('sample-count').textContent=this.value.length.toLocaleString()" style="font-family:var(--serif);font-size:15px;line-height:1.9">${esc(S.styleSample)}</textarea>
+          <div><button class="btn dark" data-action="analyzeStyle">문체 분석</button></div>
+          <div class="note plain">원문은 문체 분석과 예시 문단으로만 쓰입니다. 내용이나 인물은 작품에 가져오지 않습니다.</div>
+        </section>
+      </div>
       <section class="card col wide">
         <div class="between"><h2>스타일 프로필</h2><span class="small">모든 칸은 직접 고칠 수 있어요</span></div>
-        <div class="grid-2">
-          ${input('시점', 'style.narration_pov')}${input('시제', 'style.tense')}
-          ${input('문장 리듬', 'style.sentence_rhythm', { rows: 2 })}${input('묘사 밀도', 'style.description_density', { rows: 2 })}
-          ${input('대사 비율', 'style.dialogue_ratio')}${input('대사 방식', 'style.dialogue_style')}
-          ${input('내면 독백', 'style.inner_monologue')}${input('전개 속도', 'style.pacing')}
-          ${input('장면 전환', 'style.scene_transition')}${input('어휘', 'style.vocabulary')}
-        </div>
-        <div class="grid-2">
-          <div class="note ok">${input('지킬 것', 'style.dos', { kind: 'list', rows: 4 })}</div>
-          <div class="note err">${input('피할 것', 'style.donts', { kind: 'list', rows: 4 })}</div>
-        </div>
-        <div class="between"><h3>대표 문단 <span class="small" style="font-weight:400">본문 생성 때 그대로 보여줄 원문 예시, 2~4개</span></h3><button class="btn small" data-action="addPassage">+ 문단</button></div>
-        ${passages || '<div class="small">아직 없어요. 문체 분석을 하면 원문에서 골라 넣습니다.</div>'}
+        ${profileFields('style')}
+      </section>
+    </div>`;
+}
+
+// ----- 문체 라이브러리 -----
+
+function fmtDate(iso) {
+  return iso ? iso.slice(0, 10).replace(/-/g, '.') : '';
+}
+
+function viewLibrary() {
+  const list = S.libs || [];
+  const cards = list.map((x) => `<article class="card tight">
+      <div class="between"><h3><a href="#/styles/${esc(x.id)}" style="color:inherit;text-decoration:none">${esc(x.name)}</a></h3><span class="small">${fmtDate(x.updated_at)}</span></div>
+      ${x.source ? `<div class="small">${esc(x.source)}</div>` : ''}
+      <div class="row">
+        ${x.narration_pov ? `<span class="chip">${esc(x.narration_pov)}</span>` : ''}${x.tense ? `<span class="chip">${esc(x.tense)}</span>` : ''}
+        <span class="chip">대표 문단 ${x.passages}</span><span class="chip">규칙 ${x.rules}</span>
+        ${x.sample_chars ? `<span class="chip">원문 ${x.sample_chars.toLocaleString()}자</span>` : ''}
+      </div>
+      ${x.notes ? `<div class="small" style="white-space:pre-line">${esc(x.notes)}</div>` : ''}
+      <div class="small">${x.used_by.length ? `쓰는 작품: ${x.used_by.map((n) => `<a href="#/p/${enc(n)}/style">${esc(n)}</a>`).join(', ')}` : '아직 쓰는 작품이 없어요'}</div>
+      <div class="row"><a class="btn small" href="#/styles/${esc(x.id)}">열기</a><button class="btn small" data-action="libDuplicate" data-arg="${esc(x.id)}">복제</button><button class="btn small danger" data-action="libDelete" data-arg="${esc(x.id)}">삭제</button></div>
+    </article>`).join('');
+  return `${header('Canon', '문체 라이브러리', '붙여 넣은 원문에서 뽑은 문체를 작품과 따로 모아 둡니다. 작품에 적용하면 그 시점의 문체가 작품에 복사되고, 라이브러리를 고쳐도 쓰고 있는 작품은 다시 적용하기 전까지 그대로예요.', '<a class="btn" href="#/">작품 목록</a><a class="btn primary" href="#/styles/new">+ 새 문체</a>')}
+    ${list.length ? `<div class="grid-auto">${cards}</div>` : `<div class="card empty"><div>아직 저장한 문체가 없어요.</div><div class="small">새 문체를 만들거나, 작품의 문체 레퍼런스 화면에서 '라이브러리에 새로 저장'을 누르세요.</div><a class="btn primary" href="#/styles/new">+ 새 문체</a></div>`}`;
+}
+
+function baselineRows(b) {
+  if (!b) return '<div class="small">원문을 넣고 저장하면 문장 길이, 대사 비율 같은 기준 지표를 잽니다. 본문을 쓴 뒤 문체가 얼마나 벗어났는지 비교하는 기준이 됩니다.</div>';
+  const pct = (v) => (v == null ? '–' : `${Math.round(v * 100)}%`);
+  const rows = [
+    ['문장 평균 길이', `${b.sentence_len_mean.toFixed(1)}자`],
+    ['문장 길이 변화폭', b.sentence_len_cv.toFixed(2)],
+    ['문단 평균 길이', `${Math.round(b.paragraph_len_mean)}자`],
+    ['대사 비율', pct(b.dialogue_ratio)],
+    ['과거형 비율', pct(b.past_tense_ratio)],
+    ['어휘 다양도', b.mattr == null ? '–' : b.mattr.toFixed(2)],
+    ['쉼표 문장 비율', pct(b.comma_sentence_ratio)],
+  ];
+  return `<dl class="metric-list">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>`;
+}
+
+function viewLibEntry() {
+  const e = S.lib;
+  const isNew = !e.id;
+  const used = e.used_by || [];
+  const others = (S.projects || []).filter((x) => !used.includes(x.name));
+  const right = `<a class="btn" href="#/styles">목록으로</a>${isNew ? '' : `<button class="btn" data-action="libDuplicate" data-arg="${esc(e.id)}">복제</button><button class="btn danger" data-action="libDelete" data-arg="${esc(e.id)}">삭제</button><button class="btn" data-action="libRevert">되돌리기</button>`}<button class="btn primary" data-action="libSave">저장</button>`;
+  const apply = isNew ? '' : `<section class="card tight">
+      <h2>작품에 적용</h2>
+      <div class="small">${used.length ? `쓰는 작품: ${used.map((n) => `<a href="#/p/${enc(n)}/style">${esc(n)}</a>`).join(', ')}` : '아직 쓰는 작품이 없어요.'}</div>
+      ${used.length ? '<div class="small">여기서 고친 내용은 작품의 문체 화면에서 \'라이브러리 버전으로 되돌리기\'를 눌러야 그 작품에 들어갑니다.</div>' : ''}
+      ${(S.projects || []).length ? `<div class="row" style="flex-wrap:nowrap"><select id="lib-target" aria-label="적용할 작품" style="flex:1"><option value="">작품 고르기</option>${[...others, ...(S.projects || []).filter((x) => used.includes(x.name))].map((x) => `<option value="${esc(x.name)}">${esc(x.title || x.name)}${used.includes(x.name) ? ' (다시 적용)' : ''}</option>`).join('')}</select><button class="btn small" style="flex:none" data-action="libApplyTo">적용</button></div>` : ''}
+    </section>`;
+  return `${header('문체 라이브러리', isNew ? '새 문체' : e.name || '이름 없음', isNew ? '원문을 붙여 넣고 분석하거나, 프로필을 직접 채운 뒤 저장하세요.' : `만든 날 ${fmtDate(e.created_at)} · 고친 날 ${fmtDate(e.updated_at)}`, right)}
+    <div class="cols">
+      <div class="col">
+        <section class="card">
+          ${input('이름', 'name', { root: 'lib', placeholder: '예: 건조한 1인칭 하드보일드' })}
+          ${input('출처', 'source', { root: 'lib', hint: '작가, 작품 등 메모', placeholder: '예: 직접 쓴 단편 「등대」' })}
+          ${input('메모', 'notes', { root: 'lib', rows: 2, placeholder: '어떤 작품에 어울리는지 등' })}
+        </section>
+        <section class="card">
+          <div class="between"><h2>원문</h2><span class="small"><span id="lib-sample-count">${(e.sample || '').length.toLocaleString()}</span>자 · 2,000자 이상 권장</span></div>
+          ${input('분석할 소설 본문', 'sample', { root: 'lib', rows: 14, style: 'font-family:var(--serif);font-size:15px;line-height:1.9', hint: '이 컴퓨터의 라이브러리 폴더에만 저장됩니다' })}
+          <div><button class="btn dark" data-action="libAnalyze">문체 분석</button></div>
+        </section>
+        <section class="card tight"><h2>기준 지표</h2>${baselineRows(e.baseline)}</section>
+        ${apply}
+      </div>
+      <section class="card col wide">
+        <div class="between"><h2>스타일 프로필</h2><span class="small">모든 칸은 직접 고칠 수 있어요</span></div>
+        ${profileFields('profile', 'lib')}
       </section>
     </div>`;
 }

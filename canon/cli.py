@@ -1,7 +1,9 @@
 """명령줄 인터페이스.
 
   python -m canon new 내소설           설정 도우미 (질문에 답하면 AI 가 빈칸 제안)
-  python -m canon style 내소설 sample.txt   예시 텍스트로 스타일 프로필 생성
+  python -m canon style 내소설 sample.txt   예시 텍스트로 스타일 프로필 생성 (--save 이름: 라이브러리에도 저장)
+  python -m canon style 내소설 --library ID   문체 라이브러리 항목을 작품에 적용
+  python -m canon styles [add 이름 파일 | show ID | rm ID]   문체 라이브러리 (작품과 따로 저장)
   python -m canon arc 내소설            기승전결 구간 설계
   python -m canon plot 내소설 [--from 1 --to 16]   화별 플롯 초안
   python -m canon confirm 내소설 all|3  플롯 확정
@@ -20,18 +22,20 @@
   python -m canon revert 내소설 3       3화 상태 반영 직후로 되돌리기
   python -m canon recalc 내소설         계수(params)를 바꾼 뒤 사건 로그로 관계 재계산
   python -m canon serve [--port 8000]    웹 UI (브라우저 자동 열기, 끄려면 --no-browser)
+  python -m canon upgrade               main 의 새 코드 받기 (serve 는 시작할 때와 10분마다 알아서 받는다)
 설정은 projects/<이름>/project.json 을 직접 고쳐도 된다.
 """
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
 
-from . import dynamics, genres, metrics, pipeline, prompts, research, store
+from . import dynamics, genres, library, logline, metrics, pipeline, prompts, research, store, updater
 from .llm import dump, get_llm
-from .schema import ConsistencyReport, Meta, Project, StateDelta
+from .schema import ConsistencyReport, LoglineParts, Meta, Project, StateDelta
 
 
 def ask(label: str, default: str = "") -> str:
@@ -46,6 +50,26 @@ def confirm(question: str, assume_yes: bool) -> bool:
     return input(f"{question} [y/N]: ").strip().lower() in ("y", "yes", "ㅛ")
 
 
+def ask_logline(genre_ids: list[str]) -> LoglineParts:
+    """로그라인을 다섯 칸으로 묻는다. 고른 장르의 예시를 먼저 보여 준다."""
+    examples = [ex for gid in genre_ids if gid in genres.BY_ID for ex in genres.BY_ID[gid].logline][:2]
+    print("\n로그라인을 다섯 칸으로 나눠 씁니다. 모르는 칸은 비워 두세요.")
+    for ex in examples:
+        print(f"  예: {logline.compose(ex)}")
+    parts = LoglineParts(
+        who=ask("누가 (이름보다 특징이 먼저 보이게, 예: 사진관을 하는 서윤)"),
+        why=ask("무엇 때문에 (이야기를 시작하게 만드는 일)"),
+        goal=ask("무엇을 하려 하나 (눈에 보이는 행동, '~한다'로 끝내기)"),
+        block=ask("무엇이 막나 (사람이나 힘)"),
+        stake=ask("무엇이 걸렸나 (선택)"),
+    )
+    if not logline.is_empty(parts):
+        print(f"\n로그라인: {logline.compose(parts)}")
+        for ok, label in logline.checks(parts):
+            print(f"  {'✓' if ok else '·'} {label}")
+    return parts
+
+
 # ---------- 명령 ----------
 
 def cmd_new(a: argparse.Namespace) -> None:
@@ -53,13 +77,24 @@ def cmd_new(a: argparse.Namespace) -> None:
         sys.exit(f"이미 있는 프로젝트입니다: {a.name}")
     print("기본 설정을 입력하세요. 모르는 칸은 비워 두면 AI 가 제안합니다.\n")
     genre_ids = genres.parse(a.genre or ask("장르 (쉼표로 여러 개, 목록: python -m canon genres)", "현대 드라마"))
+    title = a.title or ask("제목")
+    parts = LoglineParts()
+    if a.logline:
+        line = a.logline
+    elif a.interactive:
+        parts = ask_logline(genre_ids)
+        line = logline.compose(parts)
+    else:
+        line = ask("로그라인 (누가, 무엇 때문에, 무엇을 하려 하고, 무엇이 막는가)")
     meta = Meta(
-        title=a.title or ask("제목"),
+        title=title,
         genres=genre_ids,
         genre=" · ".join(genres.names(genre_ids)),
         adult=a.adult,
-        logline=a.logline or ask("로그라인 (누가, 무엇을 원하고, 무엇이 막는가)"),
-        tone=ask("분위기/톤") if a.interactive else "",
+        logline=line,
+        logline_parts=parts,
+        theme=ask("주제 (이 이야기가 끝까지 묻는 질문 하나, 예: 떠난 사람을 이해하면 용서할 수 있나?)") if a.interactive else "",
+        tone=ask("분위기/톤 (예: 조금 어둡고 진지하고 호흡이 느리다)") if a.interactive else "",
         target_episodes=int(a.episodes or ask("총 화수 (10~20)", "16")),
         words_per_episode=int(ask("화당 분량(자)", "5000") if a.interactive else 5000),
     )
@@ -88,13 +123,62 @@ def cmd_suggest(a: argparse.Namespace) -> None:
 
 def cmd_style(a: argparse.Namespace) -> None:
     p = store.load(a.name)
+    if a.library:
+        e = library.load(a.library)
+        print(dump(e.profile))
+        if confirm(f"라이브러리 문체 '{e.name}' 을 적용할까요? 지금 작품의 문체는 바뀝니다.", a.yes):
+            library.apply(p, e)
+            print(f"저장: {store.save(a.name, p)}")
+        return
+    if not a.file:
+        sys.exit("예시 원문 파일이나 --library ID 를 주세요 (라이브러리 목록: python -m canon styles)")
     sample = Path(a.file).read_text(encoding="utf-8")
     profile = pipeline.analyze_style(get_llm("plan"), sample)
     print(dump(profile))
     if confirm("이 스타일 프로필을 저장할까요?", a.yes):
         p.style = profile
         p.style_baseline = metrics.measure(sample)
+        p.style_id = ""
+        if a.save:
+            e = library.from_project(p, a.save, sample)
+            print(f"라이브러리에 저장: {e.name} ({e.id})")
         print(f"저장: {store.save(a.name, p)}")
+
+
+def cmd_styles(a: argparse.Namespace) -> None:
+    if a.action == "add":
+        if not a.args or len(a.args) != 2:
+            sys.exit("사용법: python -m canon styles add 이름 원문.txt")
+        name, file = a.args
+        sample = Path(file).read_text(encoding="utf-8")
+        profile = pipeline.analyze_style(get_llm("plan"), sample)
+        print(dump(profile))
+        if confirm("이 문체를 라이브러리에 저장할까요?", a.yes):
+            e = library.create(name, profile, sample, a.source)
+            print(f"저장: {e.name} ({e.id})")
+        return
+    if a.action in ("show", "rm"):
+        if len(a.args) != 1:
+            sys.exit(f"사용법: python -m canon styles {a.action} ID")
+        e = library.load(a.args[0])
+        if a.action == "show":
+            print(f"{e.name} ({e.id})  출처: {e.source or '-'}  원문 {len(e.sample):,}자")
+            print(dump(e.profile))
+            return
+        used = library.used_by(e.id)
+        note = f" 쓰는 작품({', '.join(used)})은 복사해 둔 문체를 그대로 씁니다." if used else ""
+        if confirm(f"'{e.name}' 을 라이브러리에서 지울까요?{note}", a.yes):
+            library.delete(e.id)
+            print("지웠습니다")
+        return
+    rows = library.entries()
+    if not rows:
+        print("문체 라이브러리가 비어 있습니다. styles add 이름 원문.txt 로 추가하세요.")
+    for e in rows:
+        used = library.used_by(e.id)
+        print(f"{e.id}  {e.name}  {e.profile.narration_pov or '-'} / {e.profile.tense or '-'}"
+              f"  원문 {len(e.sample):,}자  작품 {len(used)}개{'  (' + ', '.join(used) + ')' if used else ''}")
+    print(f"\n저장 위치: {library.root()}")
 
 
 def cmd_arc(a: argparse.Namespace) -> None:
@@ -349,7 +433,21 @@ def cmd_show(a: argparse.Namespace) -> None:
 def cmd_serve(a: argparse.Namespace) -> None:
     from .web import serve
 
-    serve(a.host, a.port, open_browser=not a.no_browser)
+    no_browser = a.no_browser or bool(os.environ.pop("CANON_NO_BROWSER", ""))
+    if not a.no_update:
+        r = updater.update()
+        print(f"[업데이트] {r.message}")
+        if r.updated:  # 이미 읽은 모듈은 옛 코드라 새로 시작한다
+            updater.restart(no_browser=no_browser)
+    interval = 0 if a.no_update else a.update_interval * 60
+    serve(a.host, a.port, open_browser=not no_browser, update_interval=interval)
+
+
+def cmd_upgrade(a: argparse.Namespace) -> None:
+    r = updater.update()
+    print(r.message)
+    if r.updated:
+        print("실행 중인 serve 는 다시 켜야 반영됩니다 (자동 업데이트를 켜 두었다면 알아서 다시 시작합니다)")
 
 
 def cmd_view(a: argparse.Namespace) -> None:
@@ -406,7 +504,10 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--no-suggest", action="store_true")
     sp.add_argument("-i", "--interactive", action="store_true", help="톤, 분량, 주인공까지 질문")
     add("suggest", cmd_suggest)
-    add("style", cmd_style, "file")
+    sp = add("style", cmd_style)
+    sp.add_argument("file", nargs="?")
+    sp.add_argument("--library", help="문체 라이브러리 항목 id 를 적용 (파일 대신)")
+    sp.add_argument("--save", metavar="이름", help="분석한 문체를 라이브러리에도 저장")
     add("arc", cmd_arc)
     sp = add("plot", cmd_plot, yes=False)
     sp.add_argument("--from", dest="start", type=int)
@@ -433,12 +534,21 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("section", nargs="?")
 
     sub.add_parser("genres", help="장르 목록").set_defaults(fn=cmd_genres)
+    sp = sub.add_parser("styles", help="문체 라이브러리")
+    sp.add_argument("action", nargs="?", choices=["list", "add", "show", "rm"], default="list")
+    sp.add_argument("args", nargs="*")
+    sp.add_argument("--source", default="", help="add: 원문 출처 메모")
+    sp.add_argument("-y", "--yes", action="store_true", help="확인 없이 반영")
+    sp.set_defaults(fn=cmd_styles)
 
     sp = sub.add_parser("serve", help="웹 UI 실행")
     sp.add_argument("--host", default="127.0.0.1")
     sp.add_argument("--port", type=int, default=8000)
     sp.add_argument("--no-browser", action="store_true", help="브라우저를 자동으로 열지 않음 (서버에서 상시 실행할 때)")
+    sp.add_argument("--no-update", action="store_true", help="main 의 새 코드를 자동으로 받지 않음")
+    sp.add_argument("--update-interval", type=float, default=10, help="실행 중 새 코드 확인 간격(분), 기본 10")
     sp.set_defaults(fn=cmd_serve)
+    sub.add_parser("upgrade", help="main 의 새 코드 받기 (git pull)").set_defaults(fn=cmd_upgrade)
 
     sp = add("view", cmd_view, yes=False)
     sp.add_argument("mode", choices=["numbers", "words"])

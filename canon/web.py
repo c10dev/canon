@@ -14,14 +14,25 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import dynamics, genres, pipeline, prompts, research, settings, store
+from . import dynamics, genres, library, pipeline, prompts, research, settings, store
 from .llm import GeminiLLM, LocalLLM, get_llm
-from .schema import ArcPlan, Meta, Project, SetupSuggestion, StateDelta, StyleProfile
+from .schema import ArcPlan, Meta, Project, SetupSuggestion, StateDelta, StyleEntry, StyleProfile
 
 STATIC = Path(__file__).parent / "static"
 NAME_RE = re.compile(r"^[^/\\.][^/\\]{0,63}$")
 
 app = FastAPI(title="Canon")
+_active = 0  # 처리 중인 요청 수. 자동 업데이트는 이 값이 0일 때만 다시 시작한다.
+
+
+@app.middleware("http")
+async def _count_active(request: Request, call_next):
+    global _active
+    _active += 1
+    try:
+        return await call_next(request)
+    finally:
+        _active -= 1
 
 
 @app.exception_handler(ValueError)
@@ -53,6 +64,7 @@ def _save(name: str, p: Project) -> Project:
 class NewProject(BaseModel):
     name: str
     meta: Meta
+    style_id: str = ""  # 문체 라이브러리에서 고른 항목
 
 
 @app.get("/api/config")
@@ -125,9 +137,11 @@ def create_project(body: NewProject) -> Project:
     p = Project(meta=body.meta)
     if not p.meta.title:
         p.meta.title = name
-    if p.meta.genre:  # 새 작품 폼은 장르를 글로 받는다: '로맨스, 회귀'
+    if p.meta.genre and p.meta.genres == [p.meta.genre.strip()]:  # 장르를 글로만 보낸 경우: '로맨스, 회귀'
         p.meta.genres = genres.parse(p.meta.genre)
-        p.meta.genre = genres.label(p.meta)
+    p.meta.genre = genres.label(p.meta)
+    if body.style_id:
+        library.apply(p, library.load(body.style_id))
     return _save(name, p)
 
 
@@ -181,6 +195,101 @@ def analyze_style(name: str, body: Sample) -> StyleProfile:
     if len(body.text.strip()) < 200:
         raise HTTPException(400, "예시 원문은 200자 이상 넣어 주세요")
     return pipeline.analyze_style(get_llm("plan"), body.text)
+
+
+@app.get("/api/projects/{name}/style/link")
+def style_link(name: str) -> dict:
+    return library.link_state(_load(name))
+
+
+class StyleUse(BaseModel):
+    style_id: str
+
+
+@app.post("/api/projects/{name}/style/apply")
+def apply_library_style(name: str, body: StyleUse) -> Project:
+    """라이브러리 문체를 작품에 복사한다. 지금 작품의 문체는 바뀐다."""
+    p = _load(name)
+    library.apply(p, library.load(body.style_id))
+    return _save(name, p)
+
+
+class StyleKeep(BaseModel):
+    name: str = ""
+    source: str = ""
+    sample: str = ""   # 방금 분석한 원문. 있으면 기준 지표를 이 원문으로 잰다
+    update: bool = False  # 새 항목 대신 연결된 항목을 갱신
+
+
+@app.post("/api/projects/{name}/style/library")
+def keep_style(name: str, body: StyleKeep) -> dict:
+    """작품의 지금 문체를 라이브러리에 저장한다 (작품 화면에서 저장한 뒤 부른다)."""
+    p = _load(name)
+    if body.update:
+        e = library.push_project(p)
+    else:
+        e = library.from_project(p, body.name or f"{p.meta.title or name} 문체", body.sample, body.source)
+        if body.sample.strip():  # 웹에서 분석한 원문의 기준 지표를 작품에도 남긴다
+            p.style_baseline = e.baseline
+        _save(name, p)
+    return {"entry": library.summary(e), "project": p}
+
+
+# ---------- 문체 라이브러리 ----------
+
+class StyleIn(BaseModel):
+    name: str
+    source: str = ""
+    notes: str = ""
+    sample: str = ""
+    profile: StyleProfile = StyleProfile()
+
+
+def _style_id(sid: str) -> str:
+    if not library.exists(sid):
+        raise HTTPException(404, f"문체 라이브러리에 없는 항목입니다: {sid}")
+    return sid
+
+
+@app.get("/api/styles")
+def list_styles() -> list[dict]:
+    return [library.summary(e) for e in library.entries()]
+
+
+@app.post("/api/styles/analyze")
+def analyze_library_style(body: Sample) -> StyleProfile:
+    """원문을 분석해 프로필 제안만 돌려준다. 저장은 사용자가 고친 뒤 따로 한다."""
+    if len(body.text.strip()) < 200:
+        raise HTTPException(400, "예시 원문은 200자 이상 넣어 주세요")
+    return pipeline.analyze_style(get_llm("plan"), body.text)
+
+
+@app.post("/api/styles")
+def create_style(body: StyleIn) -> StyleEntry:
+    return library.create(body.name, body.profile, body.sample, body.source, body.notes)
+
+
+@app.get("/api/styles/{sid}")
+def get_style(sid: str) -> dict:
+    e = library.load(_style_id(sid))
+    return {**e.model_dump(), "used_by": library.used_by(sid)}
+
+
+@app.put("/api/styles/{sid}")
+def put_style(sid: str, body: StyleIn) -> dict:
+    e = library.update(_style_id(sid), body.name, body.profile, body.sample, body.source, body.notes)
+    return {**e.model_dump(), "used_by": library.used_by(sid)}
+
+
+@app.delete("/api/styles/{sid}")
+def delete_style(sid: str) -> dict:
+    library.delete(_style_id(sid))
+    return {"ok": True}
+
+
+@app.post("/api/styles/{sid}/duplicate")
+def duplicate_style(sid: str) -> StyleEntry:
+    return library.duplicate(_style_id(sid))
 
 
 # ---------- 3. 구조와 플롯 ----------
@@ -463,17 +572,23 @@ def index() -> FileResponse:
     return FileResponse(STATIC / "index.html")
 
 
-def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False) -> None:
+def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
+          update_interval: float = 0) -> None:
+    """update_interval(초)이 0보다 크면 그 간격으로 origin/main 을 확인하고,
+    새 코드를 받으면 진행 중인 요청이 끝난 뒤 다시 시작한다."""
     import threading
     import time
     import webbrowser
 
     import uvicorn
 
+    from . import updater
+
     shown = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
     url = f"http://{shown}:{port}"
     print(f"Canon 웹 UI: {url}")
     server = uvicorn.Server(uvicorn.Config(app, host=host, port=port))
+    restart = threading.Event()
 
     def open_when_ready() -> None:
         # 서버가 포트를 연 뒤에 브라우저를 띄운다. 포트가 이미 쓰이고 있으면 열지 않는다.
@@ -483,6 +598,27 @@ def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False)
             time.sleep(0.1)
         webbrowser.open(url)
 
+    def watch_updates() -> None:
+        last = ""
+        while not server.should_exit:
+            time.sleep(update_interval)
+            r = updater.update()
+            if not r.updated:
+                if r.message != last:  # 같은 사유를 매번 찍지 않는다
+                    print(f"[업데이트] {r.message}")
+                last = r.message
+                continue
+            print(f"[업데이트] {r.message}. 진행 중인 작업이 끝나면 다시 시작합니다")
+            while _active and not server.should_exit:
+                time.sleep(1)
+            restart.set()
+            server.should_exit = True
+            return
+
     if open_browser:
         threading.Thread(target=open_when_ready, daemon=True).start()
+    if update_interval > 0:
+        threading.Thread(target=watch_updates, daemon=True).start()
     server.run()
+    if restart.is_set():
+        updater.restart(no_browser=True)

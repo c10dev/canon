@@ -50,7 +50,7 @@ class MockLLM:
                     Character(id="hero", name="서윤", role="주인공", goal="사라진 오빠를 찾는다", speech_style="짧고 건조한 반말. \"됐어, 내가 할게.\""),
                     Character(id="ally", name="도현", role="조연", goal="서윤을 돕는다", speech_style="느긋한 존댓말. \"천천히 해요.\""),
                 ],
-                relationships=[Relationship(a="hero", b="ally", type="동료", affinity=1, tension=3)],
+                relationships=[Relationship(a="hero", b="ally", type="동료", affinity=1, tension=3, a_view=["경계한다"], b_view=["좋아한다", "빚졌다"])],
             )  # type: ignore[return-value]
         if schema is StyleProfile:
             return StyleProfile(narration_pov="3인칭 제한", tense="과거형", sentence_rhythm="짧은 문장 위주",
