@@ -54,7 +54,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import (autorun, dynamics, elements, genres, illust, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
+from . import (autorun, cast, dynamics, elements, genres, illust, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
@@ -1209,6 +1209,26 @@ def cmd_upgrade(a: argparse.Namespace) -> None:
         print("실행 중인 serve 는 다시 켜야 반영됩니다 (자동 업데이트를 켜 두었다면 알아서 다시 시작합니다)")
 
 
+def cmd_cast(a: argparse.Namespace) -> None:
+    """인물 보기. 인물을 주면 설정, 지금 상태와 관계, 화별 타임라인. 없으면 인물 목록과 등장 화수."""
+    p = store.load(a.name)
+    numbers = a.numbers or p.settings.show_numbers
+    if a.character:
+        try:
+            print(cast.describe(p, a.character, numbers))
+        except KeyError as e:
+            sys.exit(str(e.args[0]))
+        return
+    apps = cast.appearances(p)
+    tiers = {"main": "주역", "support": "조연", "minor": "단역"}
+    for c in sorted(p.characters, key=lambda c: (list(tiers).index(c.tier), c.first_ep)):
+        rows = apps.get(c.id, [])
+        pov = sum(1 for r in rows if r["pov"])
+        span = f"{rows[0]['n']}~{rows[-1]['n']}화" if rows else "등장 화 없음"
+        print(f"  {c.name} ({c.id}) · {tiers[c.tier]} · {c.role} · 등장 {len(rows)}화 {span}{f' · 시점 {pov}화' if pov else ''}")
+    print("\n인물 하나를 자세히 보려면: cast <작품> <인물 id 나 이름>")
+
+
 def cmd_view(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     p.settings.show_numbers = a.mode == "numbers"
@@ -1462,6 +1482,9 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--prices", action="store_true", help="가격표 보기")
     sp.set_defaults(fn=cmd_usage)
 
+    sp = add("cast", cmd_cast, yes=False)
+    sp.add_argument("character", nargs="?", help="인물 id 나 이름. 비우면 인물 목록")
+    sp.add_argument("--numbers", action="store_true", help="관계를 숫자로")
     sp = add("view", cmd_view, yes=False)
     sp.add_argument("mode", choices=["numbers", "words"])
     sp = add("adjust", cmd_adjust, "source", "target", yes=False)

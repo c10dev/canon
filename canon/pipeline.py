@@ -1940,7 +1940,8 @@ def apply_delta(p: Project, d: StateDelta) -> None:
             dynamics.seed_ties(p)
 
     known_secrets = {s.id for s in p.secrets}
-    p.secrets += [s for s in d.secrets_added if s.id not in known_secrets]
+    # 복사해 넣는다. 사건이 비밀을 드러내 hidden_from 을 줄여도 기록(history)의 처음 모습은 남아야 다시 계산할 수 있다
+    p.secrets += [s.model_copy(deep=True) for s in d.secrets_added if s.id not in known_secrets]
     events = [e.model_copy(update={"episode": d.episode}) for e in d.events if e.kind != "수동보정"]
     dynamics.run_episode(p, d.episode, events, ep.plot.characters)
     p.events += events

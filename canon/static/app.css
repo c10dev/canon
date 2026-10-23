@@ -522,3 +522,77 @@ details.vis summary .small { margin-left: 6px; font-weight: 400; }
 .version-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
 .version-row { padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; gap: 4px; }
 .version-row details > div { padding-top: 4px; }
+
+/* ----- 인물 · 관계도 (cast.js) ----- */
+.cast { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+.cast-main { flex: 3 1 560px; min-width: 0; }
+.cast-side { flex: 2 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+.cast-slider { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.cast-slider input[type=range] { flex: 1 1 200px; min-width: 160px; accent-color: var(--accent); }
+.cast-slider .icon-btn { width: 38px; min-height: 38px; }
+.cast-graph-wrap { border: 1px solid var(--line); border-radius: 8px; background: #FCFCFB; }
+.cast-graph { display: block; width: 100%; height: auto; font-family: var(--sans); user-select: none; touch-action: none; }
+.cast-graph .cg-edge path { fill: none; stroke-linecap: round; }
+.cast-graph .cg-edge .cg-hit { stroke: transparent; stroke-width: 14; }
+.cast-graph .cg-edge:hover path:not(.cg-hit) { filter: drop-shadow(0 0 2px rgba(0,0,0,.25)); }
+.cast-graph .dim { opacity: .16; }
+.cast-graph .cg-tension circle { stroke: #fff; stroke-width: 2; }
+.cast-graph .cg-node { cursor: grab; }
+.cast-graph .cg-node:focus { outline: none; }
+.cast-graph .cg-node .cg-dot { fill: var(--surface); stroke: var(--text-2); stroke-width: 2; }
+.cast-graph .cg-node.main .cg-dot { stroke: var(--text); stroke-width: 3; }
+.cast-graph .cg-node.minor .cg-dot { stroke: var(--line-strong); }
+.cast-graph .cg-node.absent { opacity: .45; }
+.cast-graph .cg-node.absent .cg-dot { stroke-dasharray: 4 3; }
+.cast-graph .cg-node.sel .cg-dot, .cast-graph .cg-node:focus-visible .cg-dot { stroke: var(--accent); stroke-width: 3.5; }
+.cast-graph .cg-halo { fill: var(--accent-soft); }
+.cast-graph .cg-init { font-size: 13px; font-weight: 700; fill: var(--text); pointer-events: none; }
+.cast-graph .cg-node.support .cg-init { font-size: 12px; }
+.cast-graph .cg-name { font-size: 13px; font-weight: 700; fill: var(--text); paint-order: stroke; stroke: #FCFCFB; stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+.cast-graph [data-action] { cursor: pointer; }
+.cast-graph .cg-node[data-action] { cursor: grab; }
+.link-btn { padding: 0; border: none; background: none; font: inherit; color: var(--accent); cursor: pointer; text-align: left; }
+.link-btn:hover { text-decoration: underline; }
+.cast-kv { display: grid; grid-template-columns: 7.5em minmax(0, 1fr); gap: 10px; font-size: 13px; line-height: 1.55; }
+.cast-kv > span { color: var(--muted); }
+.cast-ul { padding-left: 18px; margin: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.55; }
+.cast-rels { list-style: none; padding: 0; display: flex; flex-direction: column; }
+.cast-rels li { padding: 9px 0; border-bottom: 1px solid #EEF0F3; display: flex; flex-direction: column; gap: 3px; }
+.cast-rels li:last-child { border-bottom: none; }
+.cast-tl { list-style: none; padding: 0; display: flex; flex-direction: column; font-size: 13px; line-height: 1.55; }
+.cast-tl li { padding: 10px 0 10px 12px; border-left: 2px solid var(--line); display: flex; flex-direction: column; gap: 3px; }
+.cast-tl li.now { border-left-color: var(--accent); background: var(--accent-soft); }
+.cast-ev { padding-left: 10px; border-left: 3px solid var(--line-strong); }
+.cast-ev.good { border-left-color: #5598E7; }
+.cast-ev.bad { border-left-color: #E0726A; }
+.cast-strip-wrap { overflow-x: auto; }
+.cast-strip { display: block; }
+.cs-off { fill: var(--chip); }
+.cs-on { stroke-width: 1; }
+.cs-on.draft { fill: #FFFFFF; stroke: var(--text-2); }
+.cs-on.confirmed { fill: var(--accent-soft); stroke: var(--accent); }
+.cs-on.written { fill: var(--amber-soft); stroke: var(--amber); }
+.cs-on.finalized { fill: var(--green-soft); stroke: var(--green); }
+.cs-pov { fill: var(--text); }
+.legend .cs-key { border: 1px solid; }
+.legend .cs-key.draft { background: #fff; border-color: var(--text-2); }
+.legend .cs-key.confirmed { background: var(--accent-soft); border-color: var(--accent); }
+.legend .cs-key.written { background: var(--amber-soft); border-color: var(--amber); }
+.legend .cs-key.finalized { background: var(--green-soft); border-color: var(--green); }
+.cast-table .ct-hit { fill: transparent; }
+.cast-table .ct-row:hover .ct-hit, .cast-table .ct-row:focus-visible .ct-hit { fill: var(--accent-soft); }
+.cast-table .ct-row:focus { outline: none; }
+.cast-table .ct-name { font-size: 13px; font-weight: 700; fill: var(--text); }
+.cast-table .ct-tier, .cast-table .ct-count { font-size: 11px; fill: var(--muted); }
+.cast-table .ct-pov { fill: var(--text); pointer-events: none; }
+.cast-chart { display: block; width: 100%; height: auto; font-family: var(--sans); }
+.cast-chart .cc-grid { stroke: #EEF0F3; }
+.cast-chart .cc-grid.zero { stroke: var(--line-strong); }
+.cast-chart .cc-tick { font-size: 11px; fill: var(--muted); }
+.cast-chart .cc-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.cast-chart .cc-dot { stroke: #fff; stroke-width: 2; }
+.cast-chart .cc-now { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; }
+.cast-chart .cc-col { fill: transparent; cursor: pointer; }
+.cast-chart .cc-col:hover { fill: rgba(43, 84, 200, .07); }
+ul.cast-ul:has(> .cast-ev) { list-style: none; padding-left: 0; }
+@media (min-width: 1101px) { .cast-main { position: sticky; top: 16px; } }
