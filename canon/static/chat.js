@@ -137,6 +137,11 @@ function proposal(m, i) {
         ${cur ? `<button type="button" class="btn small" data-action="selectEp" data-arg="${e.number}">지금 플롯</button>` : ''}</div>
       ${note}<div class="diff">${plotDiff(e)}</div></div>`);
   });
+  if ((rev.new_characters || []).length) {
+    parts.push(`<div class="prop-part"><strong>새 인물</strong>
+      ${rev.new_characters.map((c) => `<div class="note plain"><strong>${esc(c.name || c.id)}</strong> <span class="small">${esc(c.id)} · ${esc(c.role)} · ${c.tier === 'minor' ? '단역' : '조연'}</span>${c.personality || c.goal ? `<br>${esc(c.personality || c.goal)}` : ''}${c.speech_style ? `<br><span class="small">말투: ${esc(c.speech_style)}</span>` : ''}</div>`).join('')}
+      <div class="small">고른 화에 나오는 인물만 새 인물 후보로 들어가요. 그 화를 확정하거나 플롯 편집기에서 등록하면 인물이 돼요.</div></div>`);
+  }
   const done = m.outcome === 'applied'
     ? `<span class="chip finalized">반영함 · ${m.applied.map((x) => (x === 'acts' ? '구조' : `${x}화`)).join(', ')}</span>`
     : m.outcome === 'dismissed' ? '<span class="chip">반영 안 함</span>' : '';
