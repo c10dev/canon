@@ -91,7 +91,12 @@ def _save(name: str, p: Project, merged: set[str] | None = None) -> Project:
                     mine[n] = disk[n]
             p.episodes = [mine[k] for k in sorted(mine)]
         if merged is not None and store.exists(name):
-            autorun.protected(name, store.load(name), p)  # 자동 집필이 반영한 진행을 오래된 화면이 덮지 않게
+            disk = store.load(name)
+            autorun.protected(name, disk, p)  # 자동 집필이 반영한 진행을 오래된 화면이 덮지 않게
+            # 화면이 열린 동안 플롯 작업이 더한 새 인물 후보도 지킨다. 안 쓰이거나 등록된 후보는 sync 가 지운다
+            have = {c.id for c in p.cast_candidates}
+            p.cast_candidates += [c for c in disk.cast_candidates if c.id not in have]
+            pipeline.sync_candidates(p)
         store.save(name, p)
     return p
 
@@ -611,9 +616,7 @@ def remove_storyline(name: str, sid: str) -> Project:
 @app.post("/api/projects/{name}/episodes/{n}/confirm")
 def confirm_plot(name: str, n: int) -> Project:
     p = _load(name)
-    ep = p.episode(n)
-    if ep.status == "draft":
-        ep.status = "confirmed"
+    pipeline.confirm_plot(p, n)  # 그 화에 나오는 새 인물 후보도 함께 등록된다
     return _save(name, p)
 
 

@@ -396,7 +396,7 @@ class Runner:
                     if not run.policy.confirm_plots:
                         raise _Halt("paused", f"{n}화 플롯이 초안입니다",
                                     [f"{n}화 플롯이 아직 초안입니다. 확정한 뒤 이어 가세요 (또는 '초안 플롯 자동 확정'을 켜세요)"])
-                    _edit(self.name, lambda q: setattr(q.episode(n), "status", "confirmed"))
+                    _edit(self.name, lambda q: pipeline.confirm_plot(q, n))
                     self._set(n, "confirm")
                     self.log(f"{n}화 플롯을 자동으로 확정했습니다")
                     continue

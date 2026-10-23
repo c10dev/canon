@@ -292,7 +292,15 @@ def cmd_plot(a: argparse.Namespace) -> None:
     for e in batch.episodes:
         print(f"\n{e.number}화 [{e.act}] {e.title}\n  {e.summary}\n  사건: {' / '.join(e.events)}\n  훅: {e.ending_hook}{_plot_pov(e)}")
     pipeline.apply_plots(p, batch)
+    _print_candidates(p)
     print(f"\n초안 저장: {store.save(a.name, p)}  (수정 후 confirm 으로 확정)")
+
+
+def _print_candidates(p) -> None:
+    for c in p.cast_candidates:
+        eps = [e.plot.number for e in p.episodes if c.id in e.plot.characters]
+        print(f"\n새 인물 후보: {c.name}({c.id}) · {c.role} · {'단역' if c.tier == 'minor' else '조연'} · {', '.join(map(str, eps))}화"
+              f"\n  {c.personality or c.goal}  / 말투: {c.speech_style}\n  그 화를 확정하면 인물로 등록됩니다. 빼려면 플롯의 등장 인물에서 지우세요")
 
 
 def _act_pov(act) -> str:
@@ -348,9 +356,12 @@ def cmd_revise(a: argparse.Namespace) -> None:
         cur = next((x for x in p.episodes if x.plot.number == e.number), None)
         mark = f" ({cur.status})" if cur else " (새 화)"
         print(f"\n{e.number}화{mark} {e.title}\n  {e.summary}\n  사건: {' / '.join(e.events)}\n  훅: {e.ending_hook}{_plot_pov(e)}")
+    for c in rev.new_characters:
+        print(f"\n새 인물: {c.name}({c.id}) · {c.role} · {'단역' if c.tier == 'minor' else '조연'}  / 말투: {c.speech_style}")
     if msg.revision and confirm("이 변경안을 모두 반영할까요? (확정된 화는 초안으로 돌아갑니다)", a.yes):
         msg.applied = pipeline.apply_revision(p, rev, True, [e.number for e in rev.episodes])
         msg.outcome = "applied"
+        _print_candidates(p)
     elif msg.revision:
         msg.outcome = "dismissed"
     print(f"저장: {store.save(a.name, p)}")
@@ -651,10 +662,10 @@ def cmd_causal(a: argparse.Namespace) -> None:
 def cmd_confirm(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     targets = [e for e in p.episodes if a.which == "all" or e.plot.number == int(a.which)]
-    for e in targets:
-        if e.status == "draft":
-            e.status = "confirmed"
+    added = [c for e in targets for c in pipeline.confirm_plot(p, e.plot.number)]
     print(f"확정: {[e.plot.number for e in targets]}화")
+    if added:
+        print(f"새 인물 등록: {', '.join(c.name or c.id for c in p.characters if c.id in added)}")
     store.save(a.name, p)
 
 

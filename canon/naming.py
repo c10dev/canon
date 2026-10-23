@@ -374,6 +374,31 @@ def cast_warnings(p: Project) -> list[str]:
 
 # ---------- 프롬프트 블록 ----------
 
+def _new_people(p: Project, sid: str, r: random.Random, n: int = 8) -> list[str]:
+    """아직 없는 인물에 쓸 남녀 이름 후보 줄."""
+    taken = {c.name for c in p.characters + p.cast_candidates}
+    lines = []
+    for g in ("남", "여"):
+        year = None if sid != "korea_modern" else _ref_year(p.world.era) - r.choice([17, 24, 29, 35, 45])
+        cands = generate_people(sid, n, g, year, exclude=taken, rng=r)
+        if sid == "korea_modern":
+            cands += generate_people(sid, n // 2, g, None, exclude=taken | {x.name for x in cands}, rng=r)
+        lines.append(f"- 새 {g}자 인물 후보: {', '.join(x.name for x in cands)}")
+    return lines
+
+
+def new_cast_hint(p: Project, rng: random.Random | None = None) -> str:
+    """플롯이 새 인물을 들일 때 쓰는 짧은 이름 안내 (지명 후보는 넣지 않는다)."""
+    r = _rng(rng)
+    sid = resolve_style(p)
+    lines = [f"이름 스타일: {style_label(sid)}", *_new_people(p, sid, r, 6)]
+    avoid = sorted(D.WEST_CLICHE if sid == "western_fantasy" else D.AI_OVERUSED)[:12]
+    lines.append(f"- 피할 이름 (AI 가 자주 짓는 이름): {', '.join(avoid)}")
+    if p.world.name_rules:
+        lines.append("- 이 세계의 이름 규칙: " + " / ".join(p.world.name_rules))
+    return "\n".join(lines)
+
+
 def prompt_block(p: Project, rng: random.Random | None = None) -> str:
     """설정 도우미에 넣는 [이름·지명 후보]. 이름이 빈 인물은 인물별로, 없으면 성별별로 뽑는다."""
     r = _rng(rng)
@@ -384,13 +409,7 @@ def prompt_block(p: Project, rng: random.Random | None = None) -> str:
         cands = character_candidates(p, c, 6, rng=r)
         lines.append(f"- {c.id} ({c.role or '인물'}{', ' + c.age if c.age else ''}): {', '.join(x.name for x in cands)}")
     if not blank:
-        taken = {c.name for c in p.characters}
-        for g in ("남", "여"):
-            year = None if sid != "korea_modern" else _ref_year(p.world.era) - r.choice([17, 24, 29, 35, 45])
-            cands = generate_people(sid, 8, g, year, exclude=taken, rng=r)
-            if sid == "korea_modern":
-                cands += generate_people(sid, 4, g, None, exclude=taken | {x.name for x in cands}, rng=r)
-            lines.append(f"- 새 {g}자 인물 후보: {', '.join(x.name for x in cands)}")
+        lines += _new_people(p, sid, r)
     places = location_candidates(p, 6, rng=r)
     lines.append(f"- 장소 후보: {', '.join(f'{x.name}({x.kind})' for x in places)}")
     avoid = sorted(D.WEST_CLICHE if sid == "western_fantasy" else D.AI_OVERUSED)[:12]

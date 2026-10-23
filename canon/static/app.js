@@ -315,8 +315,8 @@ function ep(n) {
 }
 
 function charName(id) {
-  const c = P().characters.find((x) => x.id === id);
-  return c ? c.name : id;
+  const c = P().characters.find((x) => x.id === id) || (P().cast_candidates || []).find((x) => x.id === id);
+  return c ? c.name || id : id;
 }
 
 /** 지금 작업해야 할 화: 반영이 끝나지 않은 첫 화 */
@@ -633,6 +633,46 @@ const actions = {
     markDirty();
     render();
   },
+  // 플롯 편집기의 등장 인물: 새 인물 만들기, AI 후보 등록, 설정 없는 id 를 인물로, 이 화에서 빼기
+  newCast(n) {
+    const id = newCastId();
+    P().characters.push({ id, name: '', role: '', age: '', gender: '', appearance: '', personality: '', background: '', goal: '', wound: '', speech_style: '', secrets: [], arc: '', tier: 'minor', first_ep: Number(n) });
+    const plot = ep(Number(n)).plot;
+    plot.characters = [...plot.characters, id];
+    S.castEdit = id;
+    markDirty();
+    render();
+  },
+  registerCast(arg) {
+    const id = arg.split('|')[1];
+    const list = P().cast_candidates || [];
+    const c = list.find((x) => x.id === id);
+    if (!c) return;
+    P().cast_candidates = list.filter((x) => x.id !== id);
+    P().characters.push({ ...c, tier: c.tier === 'main' ? 'support' : c.tier, first_ep: castFirstEp(id) });
+    markDirty();
+    render();
+    toast(`${c.name || id}${josa(c.name || id, '을', '를')} ${c.tier === 'minor' ? '단역' : '조연'}으로 등록했어요. 저장하면 반영돼요`);
+  },
+  makeCast(arg) {
+    const id = arg.split('|')[1];
+    if (P().characters.some((c) => c.id === id)) return;
+    P().characters.push({ id, name: '', role: '', age: '', gender: '', appearance: '', personality: '', background: '', goal: '', wound: '', speech_style: '', secrets: [], arc: '', tier: 'minor', first_ep: castFirstEp(id) });
+    S.castEdit = id;
+    markDirty();
+    render();
+  },
+  dropCast(arg) {
+    const [n, id] = arg.split('|');
+    const plot = ep(Number(n)).plot;
+    plot.characters = plot.characters.filter((x) => x !== id);
+    markDirty();
+    render();
+  },
+  closeCastEdit() {
+    S.castEdit = '';
+    render();
+  },
   addRelationship() {
     const cs = P().characters;
     if (cs.length < 2) return toast('인물이 두 명 이상 있어야 합니다', true);
@@ -889,7 +929,9 @@ const actions = {
   async confirmEp(n) {
     await run('확정하는 중', async () => {
       await saveIfDirty();
+      const before = P().characters.length;
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/confirm`);
+      castAddedToast(before);
     });
   },
   async unconfirmEp(n) {
@@ -905,7 +947,9 @@ const actions = {
     if (!confirm(`초안 ${drafts.length}화를 모두 확정할까요?`)) return;
     await run('확정하는 중', async () => {
       await saveIfDirty();
+      const before = P().characters.length;
       for (const e of drafts) S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${e.plot.number}/confirm`);
+      castAddedToast(before);
     });
   },
 
@@ -1890,8 +1934,7 @@ function viewSetup() {
       <div class="between"><strong style="font-size:16px">${esc(c.name || '이름 없음')}</strong><button class="btn small danger" data-action="removeCharacter" data-arg="${i}" aria-label="${esc(c.name || c.id)} 삭제">삭제</button></div>
       <div class="grid-2">${input('이름', b + '.name')}${input('역할', b + '.role', { placeholder: '주인공, 상대역, 조력자…' })}</div>
       <div class="grid-2">${input('나이', b + '.age', { placeholder: '예: 17세, 40대 초반' })}${input('성별', b + '.gender', { placeholder: '남 / 여' })}</div>
-      ${serial() ? `<div class="field"><label for="tier-${i}">비중 <span class="hint">주역은 매 화 설정 전체가 들어가고, 조연 · 단역은 나오는 화에만 들어가요${c.first_ep ? ` · ${c.first_ep}화에 처음 나옴` : ''}</span></label>
-        <select id="tier-${i}" data-bind="${b}.tier">${[['main', '주역'], ['support', '조연'], ['minor', '단역']].map(([v, l]) => `<option value="${v}"${(c.tier || 'main') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div>` : ''}
+      ${tierSelect(c, b, 'tier-' + i)}
       <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보 뽑기</button><button type="button" class="btn small" data-action="nameAI" data-arg="${esc(c.id)}">AI 이름 추천</button></div>
       ${namePicks('c:' + c.id, 'useName', (n) => `${c.id}|${n}`)}
       ${input('원하는 것', b + '.goal', { hint: '작품 전체에서' })}
@@ -2259,7 +2302,6 @@ function plotEditor(e) {
   const busy = jobOwns(n);
   const locked = e.status === 'written' || e.status === 'finalized' || busy;
   const ro = { readonly: locked };
-  const cast = P().characters.map((c) => `<label class="row" style="font-size:13px;gap:6px"><input type="checkbox" value="${esc(c.id)}" data-cast-ep="${n}"${e.plot.characters.includes(c.id) ? ' checked' : ''}${locked ? ' disabled' : ''}>${esc(c.name || c.id)}</label>`).join('');
   const act = actOf(n);
   const arc = serial() ? arcOf(n) : null;
   return `<div class="between"><h2>${n}화 플롯</h2><span class="chip ${e.status}">${STATUS[e.status]}</span></div>
@@ -2269,7 +2311,7 @@ function plotEditor(e) {
     ${input('제목', b + '.title', ro)}
     ${input('요약', b + '.summary', { ...ro, rows: 3, autogrow: true })}
     ${input('사건 순서', b + '.events', { ...ro, kind: 'list', rows: 5, autogrow: true })}
-    <div class="field"><span class="label">등장 인물</span><div class="row">${cast}</div></div>
+    ${castField(e, locked)}
     ${lineField(e)}
     ${povField(e, locked)}
     ${n <= 3 || e.plot.opening ? input('여는 장면', b + '.opening', { ...ro, hint: n <= 3 ? '초반 화는 첫 장면이 독자를 붙잡습니다' : '' }) : ''}
@@ -2283,6 +2325,66 @@ function plotEditor(e) {
       ${locked ? `<a class="btn" style="flex:1" href="${base()}/write/${n}">본문 보기</a>` : ''}
     </div>
     ${openingPlotBlock(e)}`;
+}
+
+// 등장 인물: 비중별로 묶고, AI 플롯이 데려온 새 인물 후보와 설정 없는 id 를 따로 보여 준다
+const TIERS = [['main', '주역'], ['support', '조연'], ['minor', '단역']];
+
+function castField(e, locked) {
+  const n = e.plot.number;
+  const cs = P().characters;
+  const box = (c) => `<label class="row" style="font-size:13px;gap:6px"><input type="checkbox" value="${esc(c.id)}" data-cast-ep="${n}"${e.plot.characters.includes(c.id) ? ' checked' : ''}${locked ? ' disabled' : ''}>${esc(c.name || c.id)}</label>`;
+  const groups = TIERS.map(([t, l]) => [l, cs.filter((c) => (c.tier || 'main') === t)]).filter(([, g]) => g.length);
+  const boxes = groups.length > 1
+    ? groups.map(([l, g]) => `<div class="row" style="gap:10px"><span class="small" style="min-width:32px">${l}</span>${g.map(box).join('')}</div>`).join('')
+    : `<div class="row">${cs.map(box).join('')}</div>`;
+  const cands = (P().cast_candidates || []).filter((c) => e.plot.characters.includes(c.id));
+  const unknown = e.plot.characters.filter((id) => !cs.some((c) => c.id === id) && !cands.some((c) => c.id === id));
+  const btns = (pairs) => locked ? '' : `<div class="row" style="margin-top:6px">${pairs.map(([a, l, cls]) => `<button type="button" class="btn small${cls ? ' ' + cls : ''}" data-action="${a}" data-arg="${esc(n + '|' + l[1])}">${l[0]}</button>`).join('')}</div>`;
+  const candNotes = cands.map((c) => `<div class="note info"><strong>새 인물 제안 · ${esc(c.name || c.id)}</strong> <span class="small">${esc(c.role)} · ${c.tier === 'minor' ? '단역' : '조연'}</span>
+    ${c.personality || c.goal ? `<br>${esc(c.personality || c.goal)}` : ''}${c.speech_style ? `<br><span class="small">말투: ${esc(c.speech_style)}</span>` : ''}
+    <br><span class="small">AI 플롯이 데려온 인물이에요. 지금 등록하거나, 이 화를 확정하면 함께 등록돼요.</span>
+    ${btns([['registerCast', ['인물로 등록', c.id], 'primary'], ['dropCast', ['이 화에서 빼기', c.id]]])}</div>`).join('');
+  const unknownNotes = unknown.map((id) => `<div class="note warn"><strong>설정 없는 인물 · ${esc(id)}</strong><br><span class="small">플롯에 이름만 있고 인물 설정이 없어 본문을 쓸 때 이 인물 정보가 들어가지 않아요.</span>
+    ${btns([['makeCast', ['인물로 만들기', id], 'primary'], ['dropCast', ['이 화에서 빼기', id]]])}</div>`).join('');
+  const edit = cs.findIndex((c) => c.id === S.castEdit);
+  return `<div class="field"><div class="between"><span class="label">등장 인물</span>${locked ? '' : `<button type="button" class="btn small" data-action="newCast" data-arg="${n}">+ 새 인물</button>`}</div>
+    ${boxes}${candNotes}${unknownNotes}${edit >= 0 && !locked ? castQuickEdit(edit) : ''}</div>`;
+}
+
+// 플롯 편집기에서 바로 만드는 조연 · 단역. 나머지 칸은 설정 화면에서 채운다
+function castQuickEdit(i) {
+  const c = P().characters[i];
+  const b = `characters.${i}`;
+  return `<div class="note plain"><div class="between"><strong>${esc(c.name || '새 인물')}</strong><button type="button" class="btn small ghost" data-action="closeCastEdit">접기</button></div>
+    <div class="grid-2">${input('이름', b + '.name')}${input('역할', b + '.role', { placeholder: '여관 주인, 동료 기사…' })}</div>
+    <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보 뽑기</button><button type="button" class="btn small" data-action="nameAI" data-arg="${esc(c.id)}">AI 이름 추천</button></div>
+    ${namePicks('c:' + c.id, 'useName', (x) => `${c.id}|${x}`)}
+    <div class="grid-2">${tierSelect(c, b, 'cast-tier-' + i)}${input('성별', b + '.gender', { placeholder: '남 / 여' })}</div>
+    ${input('성격 · 하는 일', b + '.personality', { rows: 2 })}
+    ${input('말투', b + '.speech_style', { rows: 2, hint: '어미, 호칭, 대사 한 줄' })}
+    <div class="small">${c.first_ep ? `${c.first_ep}화에 처음 나와요. ` : ''}나이, 원하는 것, 배경은 설정 화면에서 채울 수 있어요.</div></div>`;
+}
+
+function tierSelect(c, b, id) {
+  return `<div class="field"><label for="${id}">비중 <span class="hint">주역은 매 화 설정 전체가 들어가고, 조연 · 단역은 나오는 화에만 들어가요${c.first_ep ? ` · ${c.first_ep}화에 처음 나옴` : ''}</span></label>
+    <select id="${id}" data-bind="${b}.tier">${TIERS.map(([v, l]) => `<option value="${v}"${(c.tier || 'main') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div>`;
+}
+
+// 화를 확정하면 그 화에 나오는 새 인물 후보도 등록된다
+function castAddedToast(before) {
+  const added = P().characters.slice(before);
+  if (added.length) toast(`새 인물도 등록했어요: ${added.map((c) => c.name || c.id).join(', ')}`);
+}
+
+function castFirstEp(id) {
+  const eps = P().episodes.filter((e) => e.plot.characters.includes(id)).map((e) => e.plot.number);
+  return eps.length ? Math.min(...eps) : 0;
+}
+
+function newCastId() {
+  const ids = new Set([...P().characters, ...(P().cast_candidates || [])].map((c) => c.id));
+  for (let k = P().characters.length + 1; ; k++) if (!ids.has('char' + k)) return 'char' + k;
 }
 
 // ----- 3'. 장편 연재: 부 → 아크 → 화 -----
