@@ -6,7 +6,7 @@
 
 Object.assign(S, {
   sel: null,         // AI 에게 맡길 부분 { n, start, text }
-  selTool: null,     // 떠 있는 도구 { n, start, text, mode: 'menu' | 'edit' }
+  selTool: null,     // 떠 있는 도구 { n, start, text, mode: 'menu' | 'edit', hint? } (hint: marks.js 의 밑줄에서 띄웠을 때 무엇인지)
   selFocus: null,    // 다시 그린 뒤 본문에서 골라 보여 줄 자리 { n, start, end }
   taScroll: {},      // 화별 본문 칸 스크롤 위치 (다시 그려도 읽던 자리를 지킨다)
   presets: null,     // 빠른 요청 목록 (서버 prompts.PASSAGE_PRESETS)
@@ -252,7 +252,7 @@ function showTool() {
     ? `<label class="small" for="sel-edit">고른 부분 고치기 · ${t.text.length.toLocaleString()}자</label>
        <textarea id="sel-edit" rows="${Math.min(10, Math.max(3, Math.ceil(t.text.length / 40)))}">${esc(t.text)}</textarea>
        <div class="between"><span class="small">Ctrl+Enter 바꾸기 · Esc 닫기</span><span class="row" style="gap:6px"><button type="button" class="btn small" data-action="selCancel">취소</button><button type="button" class="btn small primary" data-action="selSave">바꾸기</button></span></div>`
-    : `<button type="button" class="btn small" data-action="selManual">직접 수정</button><button type="button" class="btn small primary" data-action="selAi">AI에게 고치기</button><button type="button" class="btn small" data-action="selIllust">삽화 프롬프트</button>`;
+    : `${t.hint ? `<span class="small sel-hint">${esc(t.hint)}</span>` : ''}<button type="button" class="btn small" data-action="selManual">직접 수정</button><button type="button" class="btn small primary" data-action="selAi">AI에게 고치기</button><button type="button" class="btn small" data-action="selIllust">삽화 프롬프트</button>`;
   el.hidden = false;
   placeTool(ta, t);
   if (t.mode === 'edit') {

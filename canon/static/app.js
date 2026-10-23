@@ -1390,6 +1390,7 @@ function render() {
   syncChat();
   if (typeof syncPassage === 'function') syncPassage();
   if (typeof syncIllust === 'function') syncIllust();
+  if (typeof syncMarks === 'function') syncMarks();
   document.querySelectorAll('textarea[data-autogrow]').forEach(autosize);
   // 상태 정리 지시서 탭이 바뀌면 다시 불러온다
   if (page === 'brief' && S.briefText === null && ep(n)) {
@@ -2647,8 +2648,8 @@ function viewWrite(n) {
     </div>`;
   } else {
     center = `<div class="prose">${editable
-      ? `<textarea aria-label="${n}화 본문" data-draft="${n}" placeholder="여기에 본문을 쓰세요">${esc(text)}</textarea>`
-      : `<div class="read" data-read="${n}">${esc(text)}</div>`}</div>`;
+      ? draftBox(n, text)
+      : `<div class="read" data-read="${n}">${readHtml(n, text)}</div>`}</div>`;
   }
 
   const ctx = S.context ? `<ol class="panel-list">${S.context.map((c) => `<li><span>${esc(c.title)}</span><span class="small">${c.chars.toLocaleString()}자</span></li>`).join('')}</ol>
@@ -2677,6 +2678,7 @@ function viewWrite(n) {
         ${e.plot.reader_question ? `<div class="field"><span class="small">독자가 들고 갈 질문</span><div style="font-size:13px">${esc(e.plot.reader_question)}</div></div>` : ''}
         ${e.summary ? `<div class="field"><span class="small">승인된 요약</span><div style="font-size:13px;line-height:1.6">${esc(e.summary)}</div></div>` : ''}
         ${issuesBlock(e)}
+        ${deviceBadges(n)}
         <a href="${base()}/arc" data-action="gotoPlot" data-arg="${n}" style="font-size:13px">플롯 보기</a>
       </aside>
       <section class="card" style="flex:3 1 520px;min-width:0;padding:0;gap:0" aria-label="본문">

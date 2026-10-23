@@ -522,3 +522,22 @@ details.vis summary .small { margin-left: 6px; font-weight: 400; }
 .version-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
 .version-row { padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; gap: 4px; }
 .version-row details > div { padding-top: 4px; }
+
+/* 집필 화면 문체 표시 (marks.js): 장치 배지, 본문 밑줄 */
+.dev-list { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.dev-badge { display: flex; flex-direction: column; gap: 3px; font-size: 13px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.dev-badge.rest { background: var(--bg); }
+.dev-badge .btn.small { padding: 1px 8px; margin-left: 4px; }
+.chip.dev-warn { background: var(--amber-soft); color: var(--amber-ink); }
+.chip.dev-ban { background: var(--red-soft); color: var(--red); }
+.hl-wrap { position: relative; max-width: 760px; margin: 0 auto; }
+.hl-wrap textarea { position: relative; z-index: 1; }
+.hl-layer { position: absolute; top: 0; left: 0; z-index: 0; overflow: hidden; color: transparent; pointer-events: none; }
+mark.hl { color: inherit; background: none; border-radius: 2px; text-decoration: underline 2px; text-underline-offset: 4px; text-decoration-skip-ink: none; }
+mark.hl.device { background: var(--accent-soft); text-decoration-color: var(--accent); }
+mark.hl.rest { background: var(--amber-soft); text-decoration-color: var(--amber); }
+mark.hl.banned { background: var(--red-soft); text-decoration-color: var(--red); text-decoration-style: wavy; }
+mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
+.sel-tool { align-items: center; }
+.sel-hint { max-width: 220px; padding: 0 4px; }
+.sel-tool.edit { align-items: stretch; }
