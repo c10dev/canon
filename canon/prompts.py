@@ -146,9 +146,72 @@ sample_passages 에는 원문에서 문체가 가장 잘 드러나는 문단 2~4
 markers 에는 이 문체를 알아보게 하는 어미, 조사, 말버릇 5~10개를 원문에 적힌 글자 그대로 적습니다
 (예: "것이었다", "하더라", "말이지"). 원문에서 여러 번 나오는 것만 고르고, 인물 이름이나 이 작품에만 있는 낱말은 넣지 않습니다.
 per_1k 는 0 으로 두세요. 원문에서 직접 셉니다.
+devices 에는 원문에서 특정 상황에만 쓰는 장면 장치(예: 자문자답으로 꼬리를 무는 망상, 장면 끝 독백 한 줄)를 0~3개 적습니다.
+매 화 넣으면 버릇이 되는 것들이라 dos 나 inner_monologue 같은 칸에 규칙으로 적지 말고 devices 에만 적습니다.
+when 은 쓰는 상황, cues 는 그 장치를 알아보는 글자 1~3개(원문에 적힌 그대로), every 는 원문에서 나온 빈도로 짐작한 최소 간격(화), example 은 원문 한두 줄입니다.
+그런 장치가 담긴 문단은 sample_passages 로 고르지 않습니다.
 
 [예시 텍스트]
 {sample}"""
+
+
+SYSTEM_STYLE_EDITOR = (
+    "당신은 한 작가의 문체를 오래 봐 온 편집자입니다. 작가가 AI 초안을 고친 기록만 근거로, "
+    "작가가 되풀이해서 고치는 방향을 문체 규칙으로 정리합니다. 한 번뿐인 고침이나 내용(사건, 설정, 사실, 동선)을 "
+    "고친 것은 규칙으로 만들지 않습니다. 모든 출력은 한국어로 작성합니다."
+)
+
+EDIT_SOURCE_TEXT = {"manual": "고른 부분을 직접 고침", "typed": "본문을 직접 고쳐 저장", "ai": "AI 후보 중 골라 넣음"}
+
+
+def _clip(t: str, k: int = 400) -> str:
+    t = t.strip()
+    return t if len(t) <= k else t[:k] + "…"
+
+
+def learn_edit_line(ref: str, e) -> str:
+    """수정 기록(TextEdit) 하나를 학습 프롬프트용 글로."""
+    how = "AI 후보를 작가가 손봐 넣음" if e.source == "ai" and e.proposed else EDIT_SOURCE_TEXT.get(e.source, e.source)
+    ask = PASSAGE_PRESETS[e.preset][0] if e.preset in PASSAGE_PRESETS else ""
+    ask = " / ".join(x for x in (ask, e.instruction.strip()) if x)
+    lines = [f"[{ref}] {how}" + (f" (요청: {_clip(ask, 120)})" if ask else ""),
+             f"  고치기 전: «{_clip(e.before)}»", f"  고친 뒤: «{_clip(e.after)}»"]
+    if e.proposed:
+        lines.append(f"  AI 후보 원래 글: «{_clip(e.proposed)}»")
+    for r in e.rejected[:2]:
+        lines.append(f"  작가가 버린 후보: «{_clip(r, 200)}»")
+    return "\n".join(lines)
+
+
+def learn_prompt(p: Project, edits: list) -> str:
+    """edits 는 (ref, TextEdit) 목록, 오래된 것부터."""
+    st = p.style
+    rules = "\n".join([
+        f"지킬 것: {' / '.join(st.dos) or '없음'}",
+        f"피할 것: {' / '.join(st.donts) or '없음'}",
+        f"금지 표현: {', '.join(st.banned_phrases) or '없음'}",
+        f"문체 표지: {', '.join(m.text for m in st.markers) or '없음'}",
+        f"가끔 쓰는 장치: {', '.join(d.name for d in st.devices) or '없음'}",
+    ])
+    return f"""아래는 작가가 AI 가 쓴 본문을 고친 기록입니다. 작가가 되풀이해서 고치는 방향을 찾아 스타일 프로필에 넣을 규칙 후보로 정리하세요.
+
+[지금 스타일 프로필의 규칙]
+{rules}
+
+[수정 기록] (오래된 것부터, 대괄호 안이 화:수정 id)
+{chr(10).join(learn_edit_line(r, e) for r, e in edits)}
+
+요구사항:
+- 같은 방향의 고침이 두 번 이상 보일 때만 후보로 냅니다. evidence 에 그 수정들의 화:id 를 적힌 그대로(예: "3:e5") 두 개 이상 적습니다.
+- 사건, 설정, 사실, 인물 위치나 동선을 바꾼 고침은 문체가 아니므로 쓰지 않습니다.
+- kind 별로:
+  - do / dont: 관찰할 수 있는 규칙 한 문장 (예: "감정은 이름 대신 손이나 시선의 움직임으로 보여 준다", "문단 끝을 짧은 여운 문장으로 닫지 않는다"). "자연스럽게", "생생하게" 같은 막연한 말은 쓰지 않습니다.
+  - banned: 작가가 매번 지우거나 바꾼 구체적 표현을 고치기 전 글(또는 버린 후보)에 적힌 그대로. 고친 뒤 글에는 없어야 합니다.
+  - marker: 작가가 새로 넣은 어미, 조사, 말버릇을 고친 뒤 글에 적힌 그대로. 인물 이름이나 이 작품에만 있는 낱말은 넣지 않습니다.
+  - device: 작가가 줄이거나 지운 장면 장치(예: 자문자답으로 꼬리를 무는 망상). 아예 빼는 게 아니라 가끔만 쓰게 할 때 씁니다. text 는 장치 이름, note 는 써도 되는 상황, cues 는 그 장치를 알아보는 글자 1~3개를 고치기 전 글에 적힌 그대로, every 는 몇 화에 한 번까지인지.
+- 지금 규칙과 같은 것은 내지 않습니다. 지금 규칙과 부딪히면 replaces 에 그 규칙을 위 목록에 적힌 그대로 적습니다.
+- 많아야 8개, 근거가 많은 것부터.
+- summary 에는 작가가 AI 문장을 고치는 경향을 두세 문장으로 적습니다."""
 
 
 def arc_prompt(p: Project) -> str:
@@ -1108,6 +1171,8 @@ def build_episode_context(p: Project, n: int) -> str:
     line = f"\n\n# 이번 화의 이야기 줄기\n{line}" if line else ""
     pov = pov_block(p, n)
     pov = f"\n\n# 이번 화 서술 시점 (스타일 프로필보다 우선)\n{pov}" if pov else ""
+    dev = device_block(p, n)
+    dev = f"\n\n# 가끔 쓰는 장치 (최근 화에서 쓴 화를 센 것. 스타일 프로필과 예시 문단보다 우선)\n{dev}" if dev else ""
 
     return f"""{static_context(p)}
 
@@ -1135,7 +1200,7 @@ def build_episode_context(p: Project, n: int) -> str:
 {last_text[-1500:] or "없음"}
 
 # 이번 화 플롯
-{dump(ep.plot)}{pov}{material_block(p, n)}"""
+{dump(ep.plot)}{pov}{dev}{material_block(p, n)}"""
 
 
 MATERIAL_LIMIT = 6000  # 원고 재료로 넣는 옛 화 하나의 본문 글자 수
@@ -1164,7 +1229,7 @@ def static_context(p: Project) -> str:
     """작품 내내 바뀌지 않는 블록: 작품 정보, 세계관, 문체, 인물 설정."""
     style = p.style
     samples = "\n\n---\n\n".join(style.sample_passages) or "없음"
-    style_rules = style.model_dump(exclude={"markers"}) | {"sample_passages": []}  # 표지는 marker_block 이 따로 적는다
+    style_rules = style.model_dump(exclude={"markers", "devices"}) | {"sample_passages": []}  # 표지 · 장치는 따로 적는다
     return f"""# 작품 정보
 {meta_text(p)}
 
@@ -1179,6 +1244,27 @@ def static_context(p: Project) -> str:
 
 # 인물 설정{" (주역. 조연 · 단역은 나오는 화에만 뒤에 넣는다)" if len(static_characters(p)) < len(p.characters) else ""}
 {dump(static_characters(p))}"""
+
+
+def device_block(p: Project, n: int) -> str:
+    """가끔 쓰는 장치마다 이번 화에 써도 되는지. 최근 화 본문에서 쓴 화를 세므로 화마다 바뀐다 (뒤쪽 블록)."""
+    rows = []
+    for d in p.style.devices:
+        if not d.name.strip():
+            continue
+        last = metrics.device_last(p.episodes, d.cues, n) if d.cues else 0
+        if d.every and last and n - last < d.every:
+            rows.append(f"- {d.name}: 이번 화에는 쓰지 않습니다 ({last}화에 썼고 {d.every}화에 한 번까지)")
+            continue
+        when = f"{d.when.strip()}, 이런 상황에서만" if d.when.strip() else "꼭 맞는 상황에서만"
+        info = [f"{d.every}화에 한 번까지"] if d.every else []
+        if d.cues:
+            info.append(f"마지막으로 쓴 화 {last}화" if last else "아직 쓰지 않음")
+        row = f"- {d.name}: {when} 한 번까지 씁니다. 그런 상황이 없으면 쓰지 않습니다" + (f" ({', '.join(info)})" if info else "")
+        if d.example.strip():
+            row += f"\n  예: {d.example.strip()[:200]}"
+        rows.append(row)
+    return "\n".join(rows)
 
 
 def marker_block(p: Project) -> str:

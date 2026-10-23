@@ -47,8 +47,10 @@ from .schema import (
     StoryEvent,
     Storyline,
     StorylineProposal,
+    StyleLearning,
     StyleMarker,
     StyleProfile,
+    StyleRuleSuggestion,
     TextPatch,
     TierChange,
     WorldSetting,
@@ -283,6 +285,27 @@ def _passage(hint: dict) -> PassageRevision:
     ])
 
 
+def _learning(hint: dict) -> StyleLearning:
+    """수정 기록에서 배운 척한다: 모든 수정을 근거로 한 규칙, 두 번 이상 지운 낱말, 지운 장치, 근거 없는 후보 하나."""
+    edits = hint.get("edits", [])
+    refs = [r for r, _, _ in edits]
+    out = [StyleRuleSuggestion(kind="do", text="짧은 문장으로 끊어 쓴다", reason="작가가 긴 문장을 나눴다", evidence=refs[:3])]
+    words = {}
+    for r, before, after in edits:
+        for w in set(before.split()):
+            if len(w) >= 2 and w not in after:
+                words.setdefault(w, []).append(r)
+    gone = sorted(((w, rs) for w, rs in words.items() if len(rs) >= 2), key=lambda x: -len(x[1]))
+    if gone:
+        out.append(StyleRuleSuggestion(kind="banned", text=gone[0][0], reason="작가가 매번 지웠다", evidence=gone[0][1]))
+    dev = [r for r, before, after in edits if "다는 건" in before and "다는 건" not in after]
+    if dev:
+        out.append(StyleRuleSuggestion(kind="device", text="자문자답 망상", note="설렐 때", cues=["다는 건", "없는글자"],
+                                       every=5, reason="작가가 망상 연쇄를 줄였다", evidence=dev))
+    out.append(StyleRuleSuggestion(kind="marker", text="것이었다", reason="근거 없음 (걸러져야 함)", evidence=["99:e1", "98:e2"]))
+    return StyleLearning(summary="작가는 긴 문장을 끊고 군더더기 낱말을 지운다.", suggestions=out)
+
+
 class MockLLM:
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
         _delay()
@@ -356,6 +379,8 @@ class MockLLM:
         if schema is LookSuggestion:
             return LookSuggestion(subject="girl", look=["Black_hair", "short hair", "brown eyes", "teenage"], outfit=["school uniform"],
                                   note="설정에 눈 색이 없어 갈색으로 정했어요.")  # type: ignore[return-value]
+        if schema is StyleLearning:
+            return _learning(hint)  # type: ignore[return-value]
         if schema is PassageRevision:
             return _passage(hint)  # type: ignore[return-value]
         if schema is HookReport:
