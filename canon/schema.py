@@ -261,6 +261,7 @@ class Act(BaseModel):
     end_ep: int
     goal: str = Field(description="이 구간이 끝났을 때 이야기가 도달해야 하는 상태")
     key_turn: str = Field("", description="구간의 핵심 전환점 또는 클라이맥스")
+    pov: str = Field("", description="이 구간의 서술 시점 운용 한 줄 (예: 도현 1인칭, 서윤 3인칭 제한). 작품 기본 시점 그대로면 비움")
 
 
 class ArcPlan(BaseModel):
@@ -282,6 +283,8 @@ class EpisodePlot(BaseModel):
     threads: list[str] = Field(default_factory=list, description="이 화 안에 장면으로 끼어드는 다른 이야기 줄기 id")
     opening: str = Field("", description="이 화를 여는 첫 장면 한 줄. 1~3화는 꼭 적는다")
     reader_question: str = Field("", description="이 화를 읽은 독자가 다음 화로 들고 갈 질문 하나. 1~3화는 꼭 적는다")
+    pov: str = Field("", description="이 화의 시점 인물 id. 작품 기본 시점 그대로면 비움")
+    pov_mode: str = Field("", description="이 화의 서술 방식 (1인칭, 3인칭 제한, 3인칭 전지). 작품 기본과 같으면 비움")
 
 
 class PlotBatch(BaseModel):
@@ -330,6 +333,7 @@ class StoryArc(BaseModel):
     acts: list[Act] = Field(default_factory=list, description="아크 안의 기승전결. start_ep 부터 end_ep 까지 빈틈없이")
     cast: list[str] = Field(default_factory=list, description="이 아크에 주로 나오는 인물 id")
     payoffs: list[str] = Field(default_factory=list, description="이 아크에서 회수할 열린 복선 id")
+    pov: str = Field("", description="이 아크의 서술 시점 운용 한 줄 (예: 여주 서윤 1인칭으로 바뀜). 작품 기본 시점 그대로면 비움")
     summary: str = Field("", description="아크가 끝난 뒤의 요약. 작가가 승인한 것만 넣는다")
 
 
@@ -509,11 +513,11 @@ class Chat(BaseModel):
 
 # ---------- 검수 ----------
 
-IssueType = Literal["사실", "시간", "인물 정보", "말투", "세계관", "플롯", "동선"]
+IssueType = Literal["사실", "시간", "인물 정보", "말투", "세계관", "플롯", "동선", "시점"]
 
 
 class ConsistencyIssue(BaseModel):
-    type: IssueType = Field(description="사실: 확정 사실·세부 모순 / 시간: 순서·인과 / 인물 정보: 모르는 것을 앎 / 말투 / 세계관 규칙 / 플롯: 사건 누락 / 동선: 한 장면 안에서 위치·몸이 향한 쪽·자세·손에 든 것·가려진 곳이 행동 없이 바뀜")
+    type: IssueType = Field(description="사실: 확정 사실·세부 모순 / 시간: 순서·인과 / 인물 정보: 모르는 것을 앎 / 말투 / 세계관 규칙 / 플롯: 사건 누락 / 동선: 한 장면 안에서 위치·몸이 향한 쪽·자세·손에 든 것·가려진 곳이 행동 없이 바뀜 / 시점: 시점 인물이 볼 수 없거나 모르는 것을 서술, 1인칭의 나가 다른 인물로 바뀜, 표시 없이 시점 인물이 바뀜")
     description: str = Field(description="무엇이 어긋났는지 한 문장")
     source_episode: int = Field(0, description="앞선 근거가 나온 화. 설정·확정 사실·인물 상태가 근거면 0, 같은 화 앞 문장이면 이번 화")
     source_quote: str = Field(description="앞선 근거 원문 그대로 (설정이면 해당 설정 문장)")

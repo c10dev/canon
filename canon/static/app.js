@@ -390,7 +390,7 @@ function input(label, path, opt = {}) {
   const ro = opt.readonly ? ' readonly' : '';
   const ctrl = opt.rows || kind === 'list'
     ? `<textarea id="${id}" rows="${opt.rows || 3}" data-bind="${path}" data-kind="${kind}"${rootAttr}${ro}${opt.style ? ` style="${opt.style}"` : ''} placeholder="${esc(opt.placeholder || (kind === 'list' ? '한 줄에 하나씩' : ''))}">${val}</textarea>`
-    : `<input id="${id}" type="${opt.type || 'text'}" value="${val}" data-bind="${path}" data-kind="${kind}"${rootAttr}${ro}${opt.min != null ? ` min="${opt.min}"` : ''}${opt.max != null ? ` max="${opt.max}"` : ''} placeholder="${esc(opt.placeholder || '')}">`;
+    : `<input id="${id}" type="${opt.type || 'text'}" value="${val}" data-bind="${path}" data-kind="${kind}"${rootAttr}${ro}${opt.min != null ? ` min="${opt.min}"` : ''}${opt.max != null ? ` max="${opt.max}"` : ''}${opt.list ? ` list="${opt.list}"` : ''} placeholder="${esc(opt.placeholder || '')}">`;
   return `<div class="field${opt.cls ? ' ' + opt.cls : ''}"><label for="${id}">${esc(label)}${hint}</label>${ctrl}</div>`;
 }
 
@@ -2123,10 +2123,49 @@ function viewLibEntry() {
 
 // ----- 3. 기승전결 · 플롯 -----
 
+// ----- 서술 시점: 화 플롯 → 구간 → 아크 순서로 찾고, 비면 작품 기본 (prompts.pov_of 와 같은 규칙) -----
+
+const POV_MODES = ['1인칭', '3인칭 제한', '3인칭 전지'];
+
+function povText(n) {
+  const e = ep(n);
+  if (e && (e.plot.pov || e.plot.pov_mode)) {
+    return [e.plot.pov ? charName(e.plot.pov) : '', e.plot.pov_mode || ''].filter(Boolean).join(' · ');
+  }
+  const act = actOf(n);
+  if (act && (act.pov || '').trim()) return act.pov.trim();
+  const arc = serial() ? arcOf(n) : null;
+  return arc && (arc.pov || '').trim() ? arc.pov.trim() : '';
+}
+
+function povBadge(e) {
+  if (!e.plot.pov && !e.plot.pov_mode) return '';
+  return `<span class="line-badge pov-badge" style="--lc:var(--text-2)"><i aria-hidden="true"></i>시점 · ${esc(povText(e.plot.number))}</span>`;
+}
+
+/** 플롯 편집기의 시점 칸. 비우면 구간 · 아크 시점, 그것도 없으면 작품 기본 시점 */
+function povField(e, locked) {
+  const n = e.plot.number;
+  const b = `episodes.${epIndex(n)}.plot`;
+  const plan = (() => { const act = actOf(n); const arc = serial() ? arcOf(n) : null; return (act && act.pov) || (arc && arc.pov) || ''; })();
+  const fallback = plan ? `구간 시점 (${plan})` : `작품 기본 (${P().style.narration_pov || '정하지 않음'})`;
+  const opts = [['', fallback], ...P().characters.map((c) => [c.id, c.name || c.id])]
+    .map(([v, l]) => `<option value="${esc(v)}"${(e.plot.pov || '') === v ? ' selected' : ''}>${esc(l)}</option>`).join('');
+  return `<div class="grid-2">
+      <div class="field"><label for="pov-ep-${n}">시점 인물 <span class="hint">이 화를 누구 눈으로</span></label>
+        <select id="pov-ep-${n}" data-bind="${b}.pov" data-kind="text"${locked ? ' disabled' : ''}>${opts}</select></div>
+      ${input('서술 방식', b + '.pov_mode', { readonly: locked, list: 'pov-modes', placeholder: e.plot.pov ? (P().style.narration_pov || '1인칭') : '비우면 그대로' })}
+    </div><datalist id="pov-modes">${POV_MODES.map((m) => `<option value="${m}"></option>`).join('')}</datalist>`;
+}
+
+document.addEventListener('change', (e) => {  // 시점 인물을 바꾸면 화 카드 표시도 바로 바꾼다
+  if (e.target.id && e.target.id.startsWith('pov-ep-')) render();
+});
+
 function epCard(e, sel) {
   return `<button type="button" class="ep-card ${e.status}${sel && sel.plot.number === e.plot.number ? ' sel' : ''}" data-action="selectEp" data-arg="${e.plot.number}" aria-label="${e.plot.number}화 ${esc(e.plot.title)} 플롯 열기">
       <span class="ep-top"><strong>${e.plot.number}화</strong><span class="chip ${e.status}">${STATUS[e.status]}</span></span>
-      <span class="t">${esc(e.plot.title) || '제목 없음'}</span>${lineBadge(e)}<span class="s">${esc(e.plot.summary)}</span></button>`;
+      <span class="t">${esc(e.plot.title) || '제목 없음'}</span>${lineBadge(e)}${povBadge(e)}<span class="s">${esc(e.plot.summary)}</span></button>`;
 }
 
 /** 기승전결 네 칸 보드. 단편은 작품 전체 구조, 장편은 고른 아크의 구조를 그린다 */
@@ -2145,7 +2184,7 @@ function actBoard(acts, eps, sel) {
     return `<section class="act-col" aria-label="${a.name} 구간">
         <div class="act-head ${actClass(a.name)}${S.selAct === i ? ' sel' : ''}">
           <div class="between"><strong>${a.name}</strong><span class="act-meta">${a.start_ep}–${a.end_ep}화 · ${count}화</span></div>
-          ${block('구간 목표', a.goal)}${block('전환점', a.key_turn)}
+          ${block('구간 목표', a.goal)}${block('전환점', a.key_turn)}${a.pov ? block('서술 시점', a.pov) : ''}
           <button type="button" class="btn small act-edit" data-action="selectAct" data-arg="${i}">구간 고치기</button>
         </div>
         <div class="act-eps"><span class="act-label">화별 플롯 ${inAct.length ? `${inAct.length}화` : ''}</span>
@@ -2199,6 +2238,7 @@ function actEditor(i) {
     <div class="small">${k >= 0 ? '아크 안 기승전결 네 구간이 아크 첫 화부터 끝 화까지 빈틈없이 이어져야 저장됩니다.' : '기승전결 네 구간이 1화부터 마지막 화까지 빈틈없이 이어져야 저장됩니다.'}</div>
     ${input('구간 목표', b + '.goal', { rows: 5, autogrow: true, hint: '이 구간이 끝날 때 이야기가 어디까지 와 있어야 하나' })}
     ${input('전환점', b + '.key_turn', { rows: 4, autogrow: true, hint: '이 구간을 다음으로 넘기는 사건' })}
+    ${input('서술 시점', b + '.pov', { placeholder: `비우면 작품 기본 (${P().style.narration_pov || '정하지 않음'})`, hint: '예: 도현 1인칭. 화별 플롯을 만들 때 AI 가 이 시점을 화마다 채워요' })}
     ${inAct.length ? `<div class="field"><span class="label">이 구간의 화</span><div class="row">${inAct.map((e) => `<button type="button" class="btn small" data-action="selectEp" data-arg="${e.plot.number}">${e.plot.number}화</button>`).join('')}</div></div>` : ''}`;
 }
 
@@ -2221,6 +2261,7 @@ function plotEditor(e) {
     ${input('사건 순서', b + '.events', { ...ro, kind: 'list', rows: 5, autogrow: true })}
     <div class="field"><span class="label">등장 인물</span><div class="row">${cast}</div></div>
     ${lineField(e)}
+    ${povField(e, locked)}
     ${n <= 3 || e.plot.opening ? input('여는 장면', b + '.opening', { ...ro, hint: n <= 3 ? '초반 화는 첫 장면이 독자를 붙잡습니다' : '' }) : ''}
     ${input('감정 변화', b + '.emotional_shift', ro)}
     ${input('엔딩 훅', b + '.ending_hook', ro)}
@@ -2333,6 +2374,7 @@ function nextArcPanel(start) {
       ${input('아크 목표', 'arc.goal', { root: 'arcDraft', rows: 2, autogrow: true, hint: '아크가 끝날 때 바뀌어 있어야 하는 것' })}
       <div class="grid-2">${input('갈등', 'arc.conflict', { root: 'arcDraft', rows: 2, autogrow: true, hint: '주인공을 막는 문제나 상대' })}${input('보상 (사이다)', 'arc.payoff', { root: 'arcDraft', rows: 2, autogrow: true, hint: '클라이맥스에서 독자가 받는 것' })}</div>
       <div class="act-strip">${a.acts.map((x, i) => `<div class="act-head ${actClass(x.name)}"><div class="between"><strong>${x.name}</strong><span class="act-meta">${x.start_ep}–${x.end_ep}화</span></div>${input('구간 목표', `arc.acts.${i}.goal`, { root: 'arcDraft', rows: 3, autogrow: true })}</div>`).join('')}</div>
+      ${input('서술 시점', 'arc.pov', { root: 'arcDraft', placeholder: `비우면 작품 기본 (${P().style.narration_pov || '정하지 않음'})` })}
       <div class="grid-2">${input('주요 인물 id', 'arc.cast', { root: 'arcDraft', kind: 'list', rows: 3 })}${input('회수할 복선 id', 'arc.payoffs', { root: 'arcDraft', kind: 'list', rows: 3 })}</div>
       ${d.new_characters.length ? `<div class="field"><span class="label">새 인물 (조연으로 들어와요. 주역으로 올리려면 설정 도우미에서 비중을 바꾸세요)</span>${d.new_characters.map((c) => `<div class="note plain"><strong>${esc(c.name)}</strong> <span class="small">${esc(c.id)} · ${esc(c.role)}</span><br>${esc(c.personality || c.goal)}<br><span class="small">말투: ${esc(c.speech_style)}</span></div>`).join('')}</div>` : ''}
       <div class="small">끝 화를 바꾸면 결 구간이 따라 늘거나 줄어요. 다른 구간 범위는 반영한 뒤 구간 고치기에서 바꿀 수 있어요.</div>
@@ -2397,6 +2439,7 @@ function arcEditor(a) {
     ${input('아크 목표', b + '.goal', { rows: 3, autogrow: true })}
     ${input('갈등', b + '.conflict', { rows: 2, autogrow: true })}
     ${input('보상 (사이다)', b + '.payoff', { rows: 2, autogrow: true })}
+    ${input('서술 시점', b + '.pov', { placeholder: `비우면 작품 기본 (${P().style.narration_pov || '정하지 않음'})`, hint: '이 아크를 누구 시점으로 쓸지. 구간마다 다르면 구간 고치기에서' })}
     ${input('주요 인물 id', b + '.cast', { kind: 'list', rows: 3 })}
     ${input('회수할 복선 id', b + '.payoffs', { kind: 'list', rows: 2 })}`;
 }
@@ -2482,6 +2525,7 @@ function viewWrite(n) {
         <p style="font-size:13px;line-height:1.6;color:var(--text-2)">${esc(e.plot.summary)}</p>
         <div class="field"><span class="small">사건</span><ol style="padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.5">${e.plot.events.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></div>
         <div class="field"><span class="small">등장 인물</span><div style="font-size:13px">${e.plot.characters.map(charName).map(esc).join(', ')}</div></div>
+        ${povText(n) ? `<div class="field"><span class="small">서술 시점</span><div style="font-size:13px">${esc(povText(n))}${povText(n) !== povText(n - 1) && n > 1 ? ' <span class="chip ai">시점 바뀜</span>' : ''}</div></div>` : ''}
         <div class="field"><span class="small">감정 변화</span><div style="font-size:13px">${esc(e.plot.emotional_shift)}</div></div>
         ${e.plot.opening ? `<div class="field"><span class="small">여는 장면</span><div style="font-size:13px">${esc(e.plot.opening)}</div></div>` : ''}
         <div class="field"><span class="small">엔딩 훅</span><div style="font-size:13px">${esc(e.plot.ending_hook)}</div></div>
