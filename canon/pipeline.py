@@ -21,6 +21,7 @@ from .schema import (
     Illustration,
     ImpactReport,
     LookSuggestion,
+    VoiceSuggestion,
     NameOptions,
     OpeningPlots,
     Part,
@@ -57,7 +58,10 @@ from .schema import (
 # ---------- 1. 설정 도우미 ----------
 
 def suggest_setup(llm: LLM, p: Project) -> SetupSuggestion:
-    return llm.json(prompts.SYSTEM_PLANNER, prompts.setup_prompt(p), SetupSuggestion)
+    s = llm.json(prompts.SYSTEM_PLANNER, prompts.setup_prompt(p), SetupSuggestion)
+    for c in s.characters:  # 서술 말투는 작가가 정하거나 서술 말투 제안으로만 채운다
+        c.narration_voice = ""
+    return s
 
 
 def name_candidates(p: Project, character: str = "", place_kind: str = "", n: int = 8,
@@ -1800,6 +1804,15 @@ def remove_illustration(p: Project, n: int, iid: str) -> None:
     ep.illustrations = [x for x in ep.illustrations if x.id != iid]
 
 
+def suggest_voice(llm: LLM, p: Project, cid: str, request: str = "") -> VoiceSuggestion:
+    """인물이 시점 인물인 화의 서술 말투 초안. 저장하지 않는다 (작가가 고쳐 Character.narration_voice 에 저장)."""
+    if not any(c.id == cid for c in p.characters):
+        raise KeyError(f"인물이 없습니다: {cid}")
+    s = llm.json(prompts.SYSTEM_VOICE, prompts.voice_prompt(p, cid, request), VoiceSuggestion, hint={"character": cid})
+    s.voice = s.voice.strip()
+    return s
+
+
 def suggest_look(llm: LLM, p: Project, cid: str) -> LookSuggestion:
     """인물 설정을 외형 태그로 옮긴 제안. 저장하지 않는다."""
     if not any(c.id == cid for c in p.characters):
@@ -1861,6 +1874,9 @@ def style_baseline(p: Project) -> metrics.StyleMetrics:
     return p.style_baseline or metrics.measure("\n\n".join(p.style.sample_passages))
 
 
+VOICE_SKIP = ("과거형 서술 비율", "문체 거리")  # 서술 말투가 있는 화에서 빼는 어미 관련 경고
+
+
 def style_drift(p: Project, n: int) -> tuple[metrics.StyleMetrics, list[str]]:
     """이번 화 문체 지표와 경고. 기준값과의 차이, 문체 거리, 표지 빈도, 예시 문단 베끼기를 본다."""
     text = p.episode(n).text
@@ -1868,7 +1884,10 @@ def style_drift(p: Project, n: int) -> tuple[metrics.StyleMetrics, list[str]]:
     cur = metrics.measure(text, p.style.banned_phrases)
     cur.style_distance = metrics.style_distance(base, text)
     warns = metrics.drift(base, cur)
-    marks = metrics.marker_warnings(p.style.markers, text)
+    voiced = (c := prompts.pov_character(p, n)) is not None and bool(c.narration_voice.strip())
+    if voiced:  # 시점 인물의 서술 말투로 쓴 화는 어미가 기준 원문과 달라야 맞다
+        warns = [w for w in warns if not w.startswith(VOICE_SKIP)]
+    marks = [] if voiced else metrics.marker_warnings(p.style.markers, text)
     if marks:
         warns.append(f"문체 표지: {', '.join(marks)}")
     warns[:0] = [f"장치 {w}" for w in metrics.device_warnings(p.style.devices, p.episodes, n, text)]  # 자동 집필 기록은 앞 3개만 남긴다

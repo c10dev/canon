@@ -17,7 +17,7 @@ from pydantic import BaseModel, ValidationError
 
 from . import autorun, cast, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, get_llm, make_llm
-from .schema import (ArcPlan, ArcProposal, EpisodePlot, LookSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
+from .schema import (ArcPlan, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 
 STATIC = Path(__file__).parent / "static"
@@ -1249,6 +1249,16 @@ def keep_illust_look(name: str, n: int, iid: str, body: KeepLook) -> Project:
 def delete_illust(name: str, n: int, iid: str) -> Project:
     _load(name).episode(n)
     return _edit(name, lambda p: pipeline.remove_illustration(p, n, iid))
+
+
+class VoiceRequest(BaseModel):
+    request: str = ""
+
+
+@app.post("/api/projects/{name}/characters/{cid}/voice")
+def suggest_voice(name: str, cid: str, body: VoiceRequest | None = None) -> VoiceSuggestion:
+    """인물이 시점 인물인 화의 서술 말투 초안. 저장은 화면에서 고쳐 작품 저장으로 한다."""
+    return pipeline.suggest_voice(get_llm("plan"), _load(name), cid, body.request if body else "")
 
 
 @app.post("/api/projects/{name}/characters/{cid}/look")

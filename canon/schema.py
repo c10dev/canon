@@ -82,6 +82,8 @@ class Character(BaseModel):
     goal: str = Field("", description="작품 전체에서 원하는 것")
     wound: str = Field("", description="결핍, 트라우마, 약점")
     speech_style: str = Field("", description="말투, 어미, 호칭, 자주 쓰는 표현")
+    narration_voice: str = Field("", description="이 인물이 시점 인물인 화의 서술 말투 (서술 어미, 내면 독백 버릇, 자주 쓰는 표현, 예시 문장). "
+                                 "작가가 정하거나 서술 말투 제안으로만 채우고, 다른 제안에서는 비워 둔다")
     secrets: list[str] = Field(default_factory=list)
     arc: str = Field("", description="시작 상태에서 결말 상태로의 변화")
     tier: Literal["main", "support", "minor"] = Field(
@@ -815,6 +817,13 @@ class IllustDraft(BaseModel):
     negative: list[str] = Field(default_factory=list, description="이 장면에 나오면 안 되는 것 태그 (예: 모자를 벗은 장면이면 hat)")
     rating: Literal["general", "sensitive", "questionable", "explicit"] = Field(
         "general", description="장면의 노출 · 폭력 수위. general 일반 / sensitive 약한 노출 / questionable 노출 / explicit 성인")
+
+
+class VoiceSuggestion(BaseModel):
+    """인물 설정으로 쓴 시점 서술 말투 초안. 작가가 고쳐 저장한다 (Character.narration_voice)."""
+    voice: str = Field(description="서술 어미와 문장 끝맺음, 문장 길이와 리듬, 내면 독백 처리, 자주 쓰는 표현, 피할 것을 3~6줄로. "
+                       "마지막 줄은 '예: ' 뒤에 이 말투로 쓴 서술 문장 두 개 (대사가 아닌 지문)")
+    note: str = Field("", description="작가에게 하는 한두 문장: 이 말투를 고른 까닭, 작품 문체와 부딪히는 곳")
 
 
 class LookSuggestion(BaseModel):
