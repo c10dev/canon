@@ -48,7 +48,9 @@ from .schema import (
     StyleMarker,
     StyleProfile,
     StyleRuleSuggestion,
+    RewriteRequest,
     TextEdit,
+    TextVersion,
 )
 
 
@@ -1454,7 +1456,11 @@ def write_episode(llm: LLM, p: Project, n: int, approach: str = "") -> str:
     unfinished = [e.plot.number for e in p.episodes if e.plot.number < n and e.status != "finalized"]
     if unfinished:
         raise ValueError(f"이전 화의 상태 갱신이 끝나지 않았습니다: {unfinished}")
-    system, prompt = prompts.writer_system(p), prompts.episode_prompt(p, n, approach)
+    return _write(llm, p, n, prompts.episode_prompt(p, n, approach))
+
+
+def _write(llm: LLM, p: Project, n: int, prompt: str) -> str:
+    system = prompts.writer_system(p)
     for _ in range(WRITE_TRIES):
         text = llm.text(system, prompt)
         if metrics.hangul_ratio(text) >= HANGUL_MIN:
@@ -1472,7 +1478,131 @@ def adopt_draft(p: Project, n: int, text: str) -> None:
     ep = p.episode(n)
     if ep.status == "finalized":
         raise ValueError(f"{n}화는 상태 반영이 끝났습니다. 바꾸려면 revert {n - 1} 후 다시 하세요")
-    ep.text, ep.status = text, "written"
+    replace_text(ep, text)
+
+
+# ---------- 4-0. 다시 생성 ----------
+# 작가의 피드백, 빠른 요청, 함께 넣을 재료(검수 결과 등), 살릴 부분으로 그 화를 다시 쓴다. 새 판은 본문을 덮지 않고
+# Episode.candidate 에 두어 지금 본문과 비교해 고르게 한다. 바꾸기 전 판과 고르지 않은 판은 versions 에 남아 되돌릴 수 있다.
+
+VERSION_KEEP = 6  # 화마다 남기는 다른 판 수
+REWRITE_EDITS = 8  # 재료로 넣는 최근 수정 수
+
+
+def clean_rewrite(req: RewriteRequest) -> RewriteRequest:
+    """모르는 빠른 요청은 막고, 겹치거나 빈 것은 뺀다."""
+    bad = [x for x in req.presets if x not in prompts.REWRITE_PRESETS]
+    if bad:
+        raise ValueError(f"모르는 빠른 요청입니다: {', '.join(bad)}")
+    keep = [k.strip()[:prompts.REWRITE_KEEP_LIMIT] for k in req.keep if k.strip()]
+    return RewriteRequest(feedback=req.feedback.strip(), presets=list(dict.fromkeys(req.presets)),
+                          materials=list(dict.fromkeys(req.materials)), mode=req.mode,
+                          keep=list(dict.fromkeys(keep))[:prompts.REWRITE_KEEP])
+
+
+def text_since(ep: Episode) -> str:
+    """지금 본문이 생긴 시각: 마지막으로 판을 바꾼 때. 그 전 수정은 지난 판을 고친 것이다."""
+    return max((v.at for v in ep.versions if v.kind == "previous"), default="")
+
+
+def _hook_lines(h: HookReport) -> list[str]:
+    out = [f"- {it.aspect} {it.score}/5: {it.note}" + (f" (근거: «{prompts._clip(it.quote, 120)}»)" if it.quote else "")
+           for it in sorted(h.items, key=lambda x: x.score) if it.score <= 3]
+    if not h.next_click:
+        out.append(f"- 독자가 여기서 내릴 수 있다: {h.reason}")
+    if not h.reader_question:
+        out.append("- 마지막 장면에서 독자가 들고 갈 질문이 보이지 않는다")
+    return out
+
+
+def rewrite_materials(p: Project, n: int) -> dict[str, list[str]]:
+    """함께 넣을 수 있는 재료와 프롬프트에 들어갈 줄. 없는 재료는 빈 목록."""
+    ep = p.episode(n)
+    since = text_since(ep)
+    edits = [e for e in ep.edits if not e.undone and e.at > since and (e.before or e.after)][-REWRITE_EDITS:]
+    return {
+        "issues": [f"- [{x.type}] {x.description}" + (f" (어긋난 문장: «{prompts._clip(x.current_quote, 160)}»)" if x.current_quote else "")
+                   + (f" → {x.suggestion}" if x.suggestion else "") for x in ep.issues],
+        "hook": _hook_lines(ep.hook) if ep.hook and prompts.is_opening(n) else [],
+        "style": [f"- {w}" for w in style_drift(p, n)[1]] if ep.text else [],
+        "edits": [f"- «{prompts._clip(e.before, 200)}» → «{prompts._clip(e.after, 200)}»"
+                  + (f" (요청: {prompts._clip(e.instruction, 80)})" if e.instruction else "") for e in edits],
+    }
+
+
+def rewrite_prompt(p: Project, n: int, req: RewriteRequest) -> str:
+    return prompts.rewrite_prompt(p, n, req, rewrite_materials(p, n), p.episode(n).text)
+
+
+def rewrite_episode(llm: LLM, p: Project, n: int, req: RewriteRequest) -> str:
+    """피드백을 반영해 그 화를 다시 쓴다. 저장하지 않는다 (set_candidate 로 새 판에 둔다)."""
+    ep = _editable(p, n)
+    unfinished = [e.plot.number for e in p.episodes if e.plot.number < n and e.status != "finalized"]
+    if unfinished:
+        raise ValueError(f"이전 화의 상태 갱신이 끝나지 않았습니다: {unfinished}")
+    if req.mode == "revise" and not ep.text.strip():
+        raise ValueError("고쳐 쓸 지난 판이 없습니다")
+    return _write(llm, p, n, rewrite_prompt(p, n, clean_rewrite(req)))
+
+
+def _version_id(ep: Episode) -> str:
+    vs = ep.versions + ([ep.candidate] if ep.candidate else [])
+    nums = [int(v.id[1:]) for v in vs if v.id[1:].isdigit()]
+    return f"v{max(nums, default=0) + 1}"
+
+
+def _keep_version(ep: Episode, v: TextVersion) -> None:
+    ep.versions = (ep.versions + [v])[-VERSION_KEEP:]
+
+
+def set_candidate(p: Project, n: int, text: str, req: RewriteRequest) -> TextVersion:
+    """새 판을 고르기 대기에 둔다. 고르지 않은 앞 새 판은 versions 로 보낸다."""
+    ep = p.episode(n)
+    if ep.candidate:
+        ep.candidate.kind = "rejected"
+        _keep_version(ep, ep.candidate)
+    ep.candidate = TextVersion(id=_version_id(ep), at=_now(), text=text, request=clean_rewrite(req))
+    return ep.candidate
+
+
+def replace_text(ep: Episode, text: str, made_by: RewriteRequest | None = None) -> None:
+    """지금 본문을 versions 에 남기고 text 로 바꾼다. 검수 결과는 지난 판 것이라 지운다."""
+    if text == ep.text:
+        ep.status = "written"
+        return
+    if ep.text.strip():
+        _keep_version(ep, TextVersion(id=_version_id(ep), at=_now(), text=ep.text, kind="previous", request=ep.made_by))
+    ep.text, ep.made_by, ep.status = text, made_by, "written"
+    ep.issues, ep.checked_at = [], ""
+
+
+def adopt_candidate(p: Project, n: int) -> None:
+    """새 판을 본문으로 쓴다. 지금 본문은 versions 에 남는다."""
+    ep = _editable(p, n)
+    if ep.candidate is None:
+        raise ValueError(f"{n}화에 고를 새 판이 없습니다")
+    c, ep.candidate = ep.candidate, None
+    replace_text(ep, c.text, c.request)
+
+
+def drop_candidate(p: Project, n: int) -> None:
+    """새 판을 고르지 않고 지금 본문을 둔다. 버린 판도 versions 에 남는다."""
+    ep = p.episode(n)
+    if ep.candidate is None:
+        raise ValueError(f"{n}화에 고를 새 판이 없습니다")
+    ep.candidate.kind = "rejected"
+    _keep_version(ep, ep.candidate)
+    ep.candidate = None
+
+
+def restore_version(p: Project, n: int, vid: str) -> None:
+    """남겨 둔 판으로 되돌린다. 지금 본문은 versions 에 남는다."""
+    ep = _editable(p, n)
+    v = next((x for x in ep.versions if x.id == vid), None)
+    if v is None:
+        raise KeyError(f"남겨 둔 판이 없습니다: {vid}")
+    replace_text(ep, v.text, v.request)
+    ep.versions = [x for x in ep.versions if x is not v]
 
 
 # ---------- 4-1. 본문 부분 수정 ----------
