@@ -175,6 +175,20 @@ function versionsPanel(e) {
     <ol class="edit-list">${rows}</ol></details>`;
 }
 
+// ----- 본문 칸의 떠 있는 도구 -----
+
+// 다시 생성 패널이 열려 있으면 passage.js 의 도구 메뉴 끝에 '살리기'를 붙인다
+const rwShowTool = showTool;
+showTool = function showToolWithKeep() {
+  rwShowTool();
+  const t = S.selTool;
+  const el = document.getElementById('sel-tool');
+  const ta = t && document.querySelector(`textarea[data-draft="${t.n}"]`);
+  if (!ta || !el || el.hidden || t.mode !== 'menu' || S.rwOpen !== t.n) return;
+  el.insertAdjacentHTML('beforeend', '<button type="button" class="btn small" data-action="selKeep" title="다시 생성할 때 이 부분을 거의 그대로 살린다">살리기</button>');
+  placeTool(ta, t);  // 버튼이 늘어 폭이 바뀌었다
+};
+
 // ----- 입력 -----
 
 document.addEventListener('input', (e) => {

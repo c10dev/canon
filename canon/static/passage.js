@@ -252,7 +252,7 @@ function showTool() {
     ? `<label class="small" for="sel-edit">고른 부분 고치기 · ${t.text.length.toLocaleString()}자</label>
        <textarea id="sel-edit" rows="${Math.min(10, Math.max(3, Math.ceil(t.text.length / 40)))}">${esc(t.text)}</textarea>
        <div class="between"><span class="small">Ctrl+Enter 바꾸기 · Esc 닫기</span><span class="row" style="gap:6px"><button type="button" class="btn small" data-action="selCancel">취소</button><button type="button" class="btn small primary" data-action="selSave">바꾸기</button></span></div>`
-    : `<button type="button" class="btn small" data-action="selManual">직접 수정</button><button type="button" class="btn small primary" data-action="selAi">AI에게 고치기</button><button type="button" class="btn small" data-action="selIllust">삽화 프롬프트</button>${S.rwOpen === t.n ? '<button type="button" class="btn small" data-action="selKeep" title="다시 생성할 때 이 부분을 거의 그대로 살린다">살리기</button>' : ''}`;
+    : `<button type="button" class="btn small" data-action="selManual">직접 수정</button><button type="button" class="btn small primary" data-action="selAi">AI에게 고치기</button><button type="button" class="btn small" data-action="selIllust">삽화 프롬프트</button>`;
   el.hidden = false;
   placeTool(ta, t);
   if (t.mode === 'edit') {
