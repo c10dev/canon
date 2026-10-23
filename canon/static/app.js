@@ -1338,6 +1338,7 @@ async function route() {
       if (parts[2] === 'research') await rsLoad();
       if (parts[2] === 'usage') await usageLoad(S.name);
       if (parts[2] === 'convert') await convertLoad();
+      if (parts[2] === 'cast') await castLoad(parts[3]);
       if (parts[2] === 'causal') {
         if (parts[3]) S.causalSel = parts[3];
         await causalLoad();
@@ -1386,7 +1387,7 @@ function render() {
     return;
   }
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, convert: viewConvert };
+  const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, convert: viewConvert };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${body}</main></div>`;
   syncChat();
@@ -1412,6 +1413,7 @@ function sidebar(active) {
     ['setup', base() + '/setup', '1', '설정 도우미'],
     ['style', base() + '/style', '2', '문체 레퍼런스'],
     ['arc', base() + '/arc', '3', serial() ? '부 · 아크 · 플롯' : '기승전결 · 플롯'],
+    ['cast', base() + '/cast', '人', '인물 · 관계도'],
     ['lines', base() + '/lines', '⑂', '이야기 줄기'],
     ['causal', base() + '/causal', '∴', '인과율'],
     ['write', `${base()}/write/${cur}`, '4', '집필'],

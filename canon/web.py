@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import autorun, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
+from . import autorun, cast, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, get_llm, make_llm
 from .schema import (ArcPlan, ArcProposal, EpisodePlot, LookSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
@@ -1395,6 +1395,12 @@ def relations(name: str) -> dict:
     dynamics.seed_ties(p)  # 아직 반영 전이면 설정값으로 시작 관계를 보여 준다
     dynamics.sync_relationships(p)
     return _relations(p)
+
+
+@app.get("/api/projects/{name}/cast")
+def cast_view(name: str) -> dict:
+    """인물 화면: 화별 관계 프레임(관계도 재생), 인물별 등장 화와 타임라인 (canon/cast.py)."""
+    return cast.summary(_load(name))
 
 
 @app.post("/api/projects/{name}/episodes/{n}/preview")
