@@ -1301,6 +1301,70 @@ def episode_prompt(p: Project, n: int, approach: str = "") -> str:
     )
 
 
+# ---------- 다시 생성 ----------
+# 작가가 지난 판을 읽고 다시 써 달라고 할 때. 쓰기 프롬프트(episode_prompt)는 그대로 두고 요청을 맨 뒤에 붙인다
+# (앞부분이 같아야 캐시가 맞는다). 화면(rewrite.js)은 서버가 준 빠른 요청과 재료 목록을 그대로 쓴다.
+
+# 빠른 요청: id → (버튼 이름, AI 에게 하는 말)
+REWRITE_PRESETS: dict[str, tuple[str, str]] = {
+    "slower": ("전개 늦추기", "사건을 서두르지 않습니다. 장면마다 인물의 반응과 망설임을 보여 준 뒤 다음 사건으로 넘어갑니다."),
+    "faster": ("전개 빠르게", "설명과 겹치는 장면을 줄이고 사건으로 빨리 들어갑니다. 장면 전환 사이의 군더더기를 덜어 냅니다."),
+    "dialogue": ("대사 늘리기", "서술로 넘긴 부분을 인물의 대사와 짧은 행동으로 바꿉니다. 말투는 인물 설정의 speech_style 을 따릅니다."),
+    "emotion": ("감정선 살리기", "플롯의 emotional_shift 가 행동, 대사, 사물로 더 분명히 드러나게 합니다. 감정 이름으로 설명하지 않습니다."),
+    "hook": ("엔딩 세게", "마지막 장면을 ending_hook 으로 더 날카롭게 끊어, 독자가 다음 화를 바로 누르게 끝냅니다."),
+    "plot": ("플롯대로", "이번 화 플롯의 사건을 순서대로 빠짐없이 장면으로 씁니다. 플롯에 없는 큰 사건은 더하지 않습니다."),
+    "less_ai": ("쇠맛 줄이기", "AI 가 쓴 티가 나는 표현을 덜어 냅니다. 감정 이름, 정리하는 문장, 번역투, 셋씩 나열, 여운을 노린 짧은 끝 문장 대신 구체적인 행동과 사물을 씁니다."),
+    "style": ("문체에 맞게", "스타일 프로필과 문체 예시 문단에 더 가깝게 씁니다. 시점, 시제, 문장 리듬, 대사 처리 방식을 맞춥니다."),
+    "length": ("분량 맞추기", "목표 분량에 맞춥니다. 사건을 더하거나 빼지 말고 장면의 밀도로 조절합니다."),
+}
+
+# 함께 넣을 재료: id → (화면 이름, 프롬프트 머리말)
+REWRITE_MATERIALS: dict[str, tuple[str, str]] = {
+    "issues": ("검수에서 찾은 곳", "[검수에서 찾은 곳] 지난 판의 모순입니다. 새 판에는 같은 모순이 없게 합니다."),
+    "hook": ("흡입력 판정", "[흡입력 판정] 지난 판을 처음 보는 독자 눈으로 본 결과입니다. 점수가 낮은 항목부터 고칩니다."),
+    "style": ("문체 지표 경고", "[문체 지표 경고] 지난 판이 작품의 문체 기준에서 벗어난 곳입니다. 새 판은 기준에 가깝게 씁니다."),
+    "edits": ("내가 고친 곳", "[작가가 지난 판에서 직접 고친 곳] 작가가 바라는 방향입니다. 같은 방향으로 쓰고, 고친 뒤의 글은 되도록 살립니다."),
+}
+REWRITE_KEEP = 5  # 살릴 부분 개수
+REWRITE_KEEP_LIMIT = 1500  # 살릴 부분 하나의 글자 수
+REWRITE_FULL_LIMIT = 20_000  # 고쳐 쓸 때 넣는 지난 판 본문 한도
+
+
+def rewrite_block(p: Project, n: int, req, materials: dict[str, list[str]], old: str = "") -> str:
+    """다시 쓰기 요청 블록. materials 는 재료 id → 넣을 줄 (pipeline.rewrite_materials). old 는 고쳐 쓸 지난 판 본문."""
+    asks = []
+    for x in req.presets:
+        if x in REWRITE_PRESETS:
+            ask = REWRITE_PRESETS[x][1]
+            if x == "length" and old:
+                ask += f" 지난 판은 {len(old):,}자였고 목표는 약 {p.meta.words_per_episode:,}자입니다."
+            asks.append(ask)
+    if req.feedback.strip():
+        asks.append(req.feedback.strip())
+    parts = [f"# {n}화 다시 쓰기\n작가가 지난 판을 읽고 다시 써 달라고 했습니다. 위 자료와 지시는 그대로 지키면서 아래를 반영합니다."]
+    parts.append("[작가 요청]\n" + ("\n".join(f"- {a}" for a in asks) if asks else "- 같은 플롯으로 더 낫게 써 주세요."))
+    for key in req.materials:
+        lines = materials.get(key) or []
+        if key in REWRITE_MATERIALS and lines:
+            parts.append(REWRITE_MATERIALS[key][1] + "\n" + "\n".join(lines))
+    keep = [k.strip() for k in req.keep if k.strip()]
+    if keep:
+        parts.append("[살릴 부분] 작가가 지난 판에서 마음에 들어 한 글입니다. 거의 그대로, 흐름에 맞는 자리에 넣습니다.\n"
+                     + "\n".join(f"«{k}»" for k in keep))
+    if req.mode == "revise" and old:
+        body = old if len(old) <= REWRITE_FULL_LIMIT else old[:REWRITE_FULL_LIMIT] + "\n(이하 생략)"
+        parts.append(f"[지난 판 본문]\n{body}\n\n지난 판의 흐름과 좋은 문장은 살리고, 요청과 지적한 곳을 고쳐 처음부터 끝까지 다시 씁니다. "
+                     "바뀐 곳만이 아니라 전문을 씁니다.")
+    else:
+        parts.append("지난 판을 이어 고치지 말고 처음부터 새로 씁니다.")
+    parts.append("설명이나 머리말 없이 본문만 씁니다.")
+    return "\n\n".join(parts)
+
+
+def rewrite_prompt(p: Project, n: int, req, materials: dict[str, list[str]], old: str = "") -> str:
+    return episode_prompt(p, n) + "\n\n" + rewrite_block(p, n, req, materials, old)
+
+
 def state_prompt(p: Project, n: int) -> str:
     ep = p.episode(n)
     if p.serial:  # 장편: 이번 화에 나온 인물과 주역만 자세히, 나머지는 한 줄 목록으로

@@ -627,6 +627,31 @@ class TextEdit(BaseModel):
     undone: bool = False
 
 
+RewriteMode = Literal["fresh", "revise"]
+RewriteMaterial = Literal["issues", "hook", "style", "edits"]
+
+
+class RewriteRequest(BaseModel):
+    """다시 생성할 때 작가가 준 것. 새 판과 함께 남겨 어떤 요청으로 나온 판인지 보인다."""
+    feedback: str = Field("", description="작가가 적은 피드백")
+    presets: list[str] = Field(default_factory=list, description="빠른 요청 id (prompts.REWRITE_PRESETS)")
+    materials: list[RewriteMaterial] = Field(default_factory=list, description="함께 넣을 것: 검수 결과, 흡입력 판정, 문체 지표 경고, 작가가 고친 곳")
+    mode: RewriteMode = Field("fresh", description="fresh: 처음부터 새로 / revise: 지난 판을 넣고 고쳐 쓰기")
+    keep: list[str] = Field(default_factory=list, description="살릴 부분 (지난 판에서 고른 글 그대로)")
+
+
+VersionKind = Literal["previous", "rejected"]
+
+
+class TextVersion(BaseModel):
+    """한 화 본문의 다른 판. 다시 생성으로 나와 고르기를 기다리는 새 판, 바꾸기 전 판, 고르지 않은 새 판."""
+    id: str
+    at: str = ""
+    text: str = ""
+    kind: VersionKind = Field("previous", description="previous: 새 판으로 바꾸기 전 본문 / rejected: 고르지 않은 새 판")
+    request: Optional[RewriteRequest] = Field(None, description="이 판을 만든 다시 생성 요청 (처음 쓴 판이면 비움)")
+
+
 class Episode(BaseModel):
     plot: EpisodePlot
     status: EpisodeStatus = "draft"
@@ -638,6 +663,9 @@ class Episode(BaseModel):
     auto: bool = Field(False, description="자동 집필이 사람 검토 없이 반영한 화. 사용자가 다시 반영하면 False")
     hook: Optional[HookReport] = Field(None, description="1~3화 흡입력 판정 (마지막 것). basis 가 지금 본문과 다르면 오래된 것")
     illustrations: list["Illustration"] = Field(default_factory=list, description="삽화 프롬프트 (NovelAI)")
+    candidate: Optional[TextVersion] = Field(None, description="다시 생성으로 나와 지금 본문과 비교해 고르기를 기다리는 새 판")
+    versions: list[TextVersion] = Field(default_factory=list, description="바꾸기 전 판과 고르지 않은 새 판 (최근 것만)")
+    made_by: Optional[RewriteRequest] = Field(None, description="지금 본문을 만든 다시 생성 요청 (처음 쓴 판이나 직접 쓴 본문이면 비움)")
 
 
 # ---------- 회차 진행 상태 ----------
