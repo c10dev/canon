@@ -57,7 +57,7 @@ from pathlib import Path
 from . import (autorun, dynamics, elements, genres, illust, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
                storylines, updater, usage)
 from .llm import dump, get_llm
-from .schema import ConsistencyReport, LoglineParts, Meta, Project, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
+from .schema import ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 
 
 def ask(label: str, default: str = "") -> str:
@@ -677,13 +677,61 @@ def cmd_write(a: argparse.Namespace) -> None:
 def _write(name: str, p: Project, n: int) -> None:
     print(f"{n}화 생성 중...")
     text = pipeline.write_episode(get_llm("write"), p, n)
-    ep = p.episode(n)
-    ep.text, ep.status = text, "written"
+    pipeline.replace_text(p.episode(n), text)  # 지금 본문이 있으면 '이전 판'에 남는다
     store.save(name, p)
     print(f"{n}화 저장: {store.project_dir(name) / 'episodes' / f'{n:02d}.md'} ({len(text)}자)")
     for w in pipeline.style_drift(p, n)[1]:
         print(f"! 문체: {w}")
     _print_opening(p, n)
+
+
+def cmd_rewrite(a: argparse.Namespace) -> None:
+    """다시 생성: 피드백 · 빠른 요청 · 재료로 새 판을 만들고, 지금 본문과 바꿀지 고른다. 이전 판도 보고 되돌린다."""
+    p = store.load(a.name)
+    ep = p.episode(a.n)
+    if a.versions:
+        for v in ep.versions:
+            how = "바꾸기 전" if v.kind == "previous" else "고르지 않은 새 판"
+            print(f"{v.id} [{how}] {v.at} {len(v.text):,}자 {_rewrite_label(v.request)}\n  {v.text[:80]}")
+        if ep.candidate:
+            print(f"{ep.candidate.id} [고르기 대기] {len(ep.candidate.text):,}자 {_rewrite_label(ep.candidate.request)}")
+        return
+    if a.restore:
+        pipeline.restore_version(p, a.n, a.restore)
+        print(f"{a.n}화를 {a.restore} 판으로 되돌렸습니다 (지금 본문은 이전 판에 남김). 저장: {store.save(a.name, p)}")
+        return
+    if a.adopt or a.drop:
+        (pipeline.adopt_candidate if a.adopt else pipeline.drop_candidate)(p, a.n)
+        print(f"{a.n}화 새 판을 {'본문으로 썼습니다' if a.adopt else '버렸습니다'}. 저장: {store.save(a.name, p)}")
+        return
+    req = RewriteRequest(feedback=a.ask or "", presets=_csv(a.preset), materials=_csv(a.use),  # type: ignore[arg-type]
+                         mode="revise" if a.revise else "fresh", keep=a.keep or [])
+    req = pipeline.clean_rewrite(req)
+    print(f"{a.n}화 다시 생성 중... ({'지난 판 고쳐 쓰기' if req.mode == 'revise' else '처음부터 새로'})")
+    text = pipeline.rewrite_episode(get_llm("write"), p, a.n, req)
+    pipeline.set_candidate(p, a.n, text, req)
+    print(f"\n{text[:600]}{'…' if len(text) > 600 else ''}\n\n지금 판 {len(ep.text):,}자 → 새 판 {len(text):,}자")
+    if confirm("새 판으로 바꿀까요? (지금 본문은 이전 판에 남습니다)", a.yes):
+        pipeline.adopt_candidate(p, a.n)
+        for w in pipeline.style_drift(p, a.n)[1]:
+            print(f"! 문체: {w}")
+        _print_opening(p, a.n)
+    else:
+        print(f"새 판은 고르기 대기로 남겼습니다. 웹 집필 화면에서 비교하거나 rewrite {a.name} {a.n} --adopt / --drop")
+    print(f"저장: {store.save(a.name, p)}")
+
+
+def _csv(v: str | None) -> list[str]:
+    return [x.strip() for x in (v or "").split(",") if x.strip()]
+
+
+def _rewrite_label(r: RewriteRequest | None) -> str:
+    if r is None:
+        return ""
+    bits = [prompts.REWRITE_PRESETS[x][0] for x in r.presets if x in prompts.REWRITE_PRESETS]
+    if r.feedback:
+        bits.append(r.feedback[:40])
+    return f"({' · '.join(bits)})" if bits else ""
 
 
 def _print_opening(p: Project, n: int, text: str | None = None, indent: str = "") -> None:
@@ -1048,8 +1096,7 @@ def cmd_brief(a: argparse.Namespace) -> None:
 
 def cmd_import(a: argparse.Namespace) -> None:
     p = store.load(a.name)
-    ep = p.episode(a.n)
-    ep.text, ep.status = Path(a.file).read_text(encoding="utf-8").strip(), "written"
+    pipeline.replace_text(p.episode(a.n), Path(a.file).read_text(encoding="utf-8").strip())  # 지금 본문은 '이전 판'에 남는다
     store.save(a.name, p)
     print(f"{a.n}화 본문을 가져왔습니다. 다음: update {a.name} {a.n}  (또는 brief --state 로 채팅 앱에서 정리 후 update --from-json)")
 
@@ -1376,6 +1423,16 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--reveal", type=int, default=0, help="add: 독자에게 드러나는 화")
     add("confirm", cmd_confirm, "which", yes=False)
     add("write", cmd_write, "n", yes=False)
+    sp = add("rewrite", cmd_rewrite, "n")
+    sp.add_argument("--ask", help="피드백 (예: 서윤이 더 망설이게)")
+    sp.add_argument("--preset", help="빠른 요청, 쉼표로: " + ", ".join(prompts.REWRITE_PRESETS))
+    sp.add_argument("--use", help="함께 넣을 것, 쉼표로: " + ", ".join(prompts.REWRITE_MATERIALS))
+    sp.add_argument("--revise", action="store_true", help="처음부터 새로 쓰지 않고 지난 판을 넣어 고쳐 쓰기")
+    sp.add_argument("--keep", action="append", help="살릴 부분 (본문 글 그대로, 여러 번)")
+    sp.add_argument("--adopt", action="store_true", help="고르기 대기 중인 새 판을 본문으로")
+    sp.add_argument("--drop", action="store_true", help="고르기 대기 중인 새 판을 버림")
+    sp.add_argument("--versions", action="store_true", help="이전 판 목록")
+    sp.add_argument("--restore", metavar="ID", help="이 판으로 되돌림 (예: v2)")
     sp = add("update", cmd_update, "n")
     sp.add_argument("--from-json", help="채팅 앱에서 받은 상태 변경 JSON 파일")
     sp = add("check", cmd_check, "n", yes=False)

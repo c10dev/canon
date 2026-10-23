@@ -329,6 +329,17 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .pdiff del { background: var(--red-soft); color: #7A271A; text-decoration: line-through; text-decoration-color: rgba(122,39,26,0.5); }
 .pdiff ins { background: var(--green-soft); color: var(--green-ink); text-decoration: none; }
 .pdiff.small-diff { font-size: 13px; line-height: 1.7; }
+/* 다시 생성 (rewrite.js) */
+.rw-panel, .rw-compare { gap: 12px; margin-bottom: 16px; }
+.rw-panel textarea { width: 100%; }
+.rw-panel .seg { align-self: flex-start; }
+.rw-lines { margin-top: 6px; line-height: 1.6; max-height: 160px; overflow-y: auto; }
+.rw-keep { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.rw-keep blockquote { margin: 0; flex: 1; min-width: 0; padding: 6px 10px; border-left: 3px solid var(--green); background: var(--green-soft); border-radius: 0 6px 6px 0; font-family: var(--serif); font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
+.rw-side { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.rw-side > div { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.rw-text { font-family: var(--serif); font-size: 14px; line-height: 1.85; white-space: pre-wrap; max-height: 60vh; overflow-y: auto; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+@media (max-width: 720px) { .rw-side { grid-template-columns: 1fr; } }
 .issue-list { padding-left: 20px; margin: 4px 0 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px; line-height: 1.5; }
 .issue-list .btn { margin-top: 4px; }
 .edits summary { cursor: pointer; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }

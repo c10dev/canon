@@ -17,7 +17,7 @@ from pydantic import BaseModel, ValidationError
 
 from . import autorun, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, get_llm, make_llm
-from .schema import (ArcPlan, ArcProposal, EpisodePlot, LookSuggestion, Meta, Project, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
+from .schema import (ArcPlan, ArcProposal, EpisodePlot, LookSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 
 STATIC = Path(__file__).parent / "static"
@@ -762,6 +762,7 @@ class JobIn(BaseModel):
     span: int = 0  # rebuild: 다시 짤 앞부분 화수 (0 이면 기본값)
     approaches: list[str] = []  # openings, opening_drafts: 여는 방식 id (비우면 기본 세 가지)
     draft: int = 0  # hook: 0 이면 그 화 본문, k 면 비교본 k 번을 판정
+    rewrite: RewriteRequest | None = None  # write: 본문이 있는 화를 다시 생성. 새 판은 본문을 덮지 않고 고르기를 기다린다
 
 
 def _edit(name: str, fn) -> Project:
@@ -897,16 +898,23 @@ def start_job(name: str, body: JobIn) -> dict:
         if kind == "write":
             if e.status == "draft":
                 raise ValueError(f"{n}화 플롯이 아직 확정되지 않았습니다")
-            label, total, owned = f"{n}화 본문", 1, {n}
+            if body.rewrite is not None and e.text:  # 다시 생성: 새 판은 본문을 덮지 않고 고르기를 기다린다
+                if e.status == "finalized":
+                    raise ValueError(f"{n}화는 상태 반영까지 끝나 다시 생성할 수 없습니다")
+                req = pipeline.clean_rewrite(body.rewrite)
+                label, total, owned = f"{n}화 새 판", 1, {n}
 
-            def fn(job: jobs.Job):
-                text = pipeline.write_episode(llm, store.load(name), n)
+                def fn(job: jobs.Job):
+                    text = pipeline.rewrite_episode(llm, store.load(name), n, req)
+                    _edit(name, lambda q: pipeline.set_candidate(q, n, text, req))
+                    return {"candidate": True}
+            else:
+                label, total, owned = f"{n}화 본문", 1, {n}
 
-                def put(q: Project) -> None:
-                    ep = q.episode(n)
-                    ep.text, ep.status = text, "written"
-                _edit(name, put)
-                return None
+                def fn(job: jobs.Job):
+                    text = pipeline.write_episode(llm, store.load(name), n)
+                    _edit(name, lambda q: pipeline.replace_text(q.episode(n), text))  # 지금 본문이 있으면 '이전 판'에 남는다
+                    return None
         else:
             if not e.text:
                 raise ValueError(f"{n}화 본문이 없습니다")
@@ -990,8 +998,7 @@ def write_episode(name: str, n: int) -> Project:
     p = _load(name)
     _not_auto(name)
     text = pipeline.write_episode(get_llm("write"), p, n)
-    ep = p.episode(n)
-    ep.text, ep.status = text, "written"
+    pipeline.replace_text(p.episode(n), text)  # 지금 본문이 있으면 '이전 판'에 남는다
     return _save(name, p)
 
 
@@ -1020,8 +1027,65 @@ def put_text(name: str, n: int, body: Text) -> Project:
 
 def _text_guard(name: str, n: int) -> None:
     _not_auto(name)
-    if n in jobs.owned_episodes(name):
+    if any(j.status == "running" and n in j.owned for j in jobs.listing(name)):
         raise ValueError(f"{n}화 본문을 쓰는 작업이 도는 중입니다. 끝난 뒤에 고치세요")
+
+
+# ---------- 4-0. 다시 생성 ----------
+
+@app.get("/api/projects/{name}/episodes/{n}/rewrite")
+def rewrite_info(name: str, n: int) -> dict:
+    """다시 생성 패널: 빠른 요청과 함께 넣을 수 있는 재료(프롬프트에 들어갈 줄 그대로)."""
+    p = _load(name)
+    e = p.episode(n)
+    mats = pipeline.rewrite_materials(p, n)
+    last_edit = max((x.at for x in e.edits if not x.undone), default="")
+    notes = {"issues": "검수한 뒤 본문을 고쳐서 이미 고친 곳일 수 있어요" if e.issues and last_edit > e.checked_at else "",
+             "hook": "판정한 뒤 본문이 바뀌었어요" if mats["hook"] and pipeline.hook_stale(p, n) else ""}
+    return {
+        "presets": [{"id": k, "label": label} for k, (label, _) in prompts.REWRITE_PRESETS.items()],
+        "materials": [{"id": k, "label": label, "lines": mats.get(k, []), "note": notes.get(k, "")}
+                      for k, (label, _) in prompts.REWRITE_MATERIALS.items() if k != "hook" or prompts.is_opening(n)],
+        "keep_max": prompts.REWRITE_KEEP,
+    }
+
+
+@app.post("/api/projects/{name}/episodes/{n}/rewrite/prompt")
+def rewrite_prompt(name: str, n: int, body: RewriteRequest) -> dict:
+    """다시 생성 때 보내는 프롬프트 원문 (보내지 않고 보기만)."""
+    p = _load(name)
+    return {"system": prompts.writer_system(p), "prompt": pipeline.rewrite_prompt(p, n, pipeline.clean_rewrite(body))}
+
+
+def _no_write_job(name: str, n: int) -> None:
+    if any(j.status == "running" and n in j.owned for j in jobs.listing(name)):
+        raise ValueError(f"{n}화를 쓰는 작업이 도는 중입니다. 끝난 뒤에 하세요")
+
+
+@app.post("/api/projects/{name}/episodes/{n}/candidate/adopt")
+def adopt_candidate(name: str, n: int) -> Project:
+    """새 판을 본문으로 쓴다. 지금 본문은 '이전 판'에 남는다."""
+    _not_auto(name)
+    _no_write_job(name, n)
+    p = _load(name)
+    pipeline.adopt_candidate(p, n)
+    return _save(name, p)
+
+
+@app.delete("/api/projects/{name}/episodes/{n}/candidate")
+def drop_candidate(name: str, n: int) -> Project:
+    p = _load(name)
+    pipeline.drop_candidate(p, n)
+    return _save(name, p)
+
+
+@app.post("/api/projects/{name}/episodes/{n}/versions/{vid}/restore")
+def restore_version(name: str, n: int, vid: str) -> Project:
+    _not_auto(name)
+    _no_write_job(name, n)
+    p = _load(name)
+    pipeline.restore_version(p, n, vid)
+    return _save(name, p)
 
 
 @app.get("/api/passage/presets")

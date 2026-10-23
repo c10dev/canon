@@ -1330,6 +1330,8 @@ async function route() {
         S.context = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/context`).catch(() => null);
         if (!S.presets) S.presets = await api('GET', '/passage/presets').catch(() => []);
         if (!S.copyFormats) S.copyFormats = await api('GET', '/publish/formats').catch(() => []);
+        if (ep(n).text && (S.rwOpen === n || ep(n).candidate || (ep(n).versions || []).length)) await rwLoad(n);  // 빠른 요청 이름과 재료
+        if (S.rwOpen !== n) S.rwOpen = null;
       }
       if ((parts[2] === 'write' || parts[2] === 'setup') && !S.illModels) S.illModels = await api('GET', '/illust/models').catch(() => []);
       if (parts[2] === 'write' || parts[2] === 'arc') await openingLoad(parts[2] === 'write' ? (n || currentEp()) : 0);
@@ -2657,13 +2659,14 @@ function viewWrite(n) {
 
   const right = `${e.status !== 'finalized' ? `<div class="seg" role="group" aria-label="생성 방식"><button type="button" aria-pressed="${isApi}" data-action="setMode" data-arg="api">Gemini API</button><button type="button" aria-pressed="${!isApi}" data-action="setMode" data-arg="brief">채팅 앱 작업지시서</button></div>` : ''}
     ${e.text && editable ? chatButton(`text:${n}`) : ''}
-    ${e.text && editable && isApi ? `${((b) => `<button class="btn" data-action="writeEp" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('write', n, '다시 생성'))}` : ''}
+    ${e.text && editable && isApi ? `${((b) => `<button class="btn${S.rwOpen === n ? ' on' : ''}" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${b.attr}>${b.label}</button>`)(jobBtn('write', n, '다시 생성'))}` : ''}
     ${editable && !isApi ? `<a class="btn" href="${base()}/brief/${n}">작업지시서</a>` : ''}
     ${e.status === 'written' ? `<a class="btn primary" href="${base()}/review/${n}">상태 정리로</a>` : ''}`;
 
   return `<header class="page-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? act.name + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:24px">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}</div><div class="row">${right}</div></header>
     ${e.auto ? `<div class="note info">이 화는 자동 집필이 검토 없이 반영했어요. 읽어 보고 문제가 있으면 <a href="${base()}/auto">자동 집필</a>에서 이 화부터 되돌릴 수 있어요.</div>` : ''}
     ${rebuildNote(n)}
+    ${e.text && editable ? rewritePanel(n) + candidateCard(n) : ''}
     <div class="cols" style="gap:16px">
       <aside class="card tight" style="flex:1 1 260px;min-width:0" aria-label="이번 화 플롯">
         <h3>이번 화 플롯</h3>
@@ -2700,6 +2703,7 @@ function viewWrite(n) {
       </aside>
     </div>
     ${editHistory(e)}
+    ${versionsPanel(e)}
     ${e.text ? illustPanel(n) : ''}
     ${openingPanel(n)}
     ${e.text && editable ? chatPanel(`text:${n}`) : ''}`;
