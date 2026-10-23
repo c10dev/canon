@@ -18,6 +18,7 @@
   python -m canon revise 내소설 "3화 전개가 너무 빨라"   말로 구조와 플롯 고치기 (변경안 확인 후 반영, 대화는 웹과 같이 저장)
   python -m canon causal 내소설 [list | add | show ID | impact ID | rm ID]   인과율: 요소·설정·사건을 더하고 영향 분석
   python -m canon lines 내소설 [map | suggest | add | tag ID 4,5 | rm ID]   이야기 줄기: 서브플롯 · 과거 회상 · 외전 노선도와 제안
+  python -m canon insert 내소설 30 [--title "외전" --summary "..." --line sl-02 --ai | --remove]   안 쓴 화 앞에 새 화 넣기 · 빼기 (뒤 화 번호를 함께 옮김)
   python -m canon confirm 내소설 all|3  플롯 확정
   python -m canon write 내소설 3        본문 생성
   python -m canon fix 내소설 3 "고칠 문장" [--ask "더 짧게" --preset less_ai]   본문 일부를 AI 후보로 고치기 (고른 후보만 반영)
@@ -657,6 +658,36 @@ def cmd_causal(a: argparse.Namespace) -> None:
         done = pipeline.apply_impact(p, el.id, [e.number for e in rep.episodes], list(range(len(rep.patches))), list(range(len(rep.new_facts))))
         print(f"반영: {', '.join(done)}")
     print(f"저장: {store.save(a.name, p)}")
+
+
+def cmd_insert(a: argparse.Namespace) -> None:
+    """아직 안 쓴 화 앞에 새 화(외전, 중간 이야기)를 넣거나(--remove 면 빼고) 뒤 화 번호를 함께 옮긴다."""
+    p = store.load(a.name)
+    lo, hi = pipeline.insert_range(p)
+    if a.n is None:
+        print(f"새 화는 {lo}~{hi}화 자리에 넣을 수 있어요 ({hi}화는 마지막 화 뒤). 예: insert {a.name} {lo} --title \"외전\" --ai")
+        return
+    autorun.check_renumber(a.name)
+    n = a.n
+    trial = p.model_copy(deep=True)
+    if a.remove:
+        notes = pipeline.remove_episode(trial, n)
+        end = (lambda x: x - 1 if x >= n else x)
+    else:
+        notes = pipeline.insert_episode(trial, n, a.title or "", a.summary or "", a.line or "")
+        end = (lambda x: x + 1 if x >= n else x)
+    print("\n".join(notes))
+    if not confirm("이대로 반영할까요?", a.yes):
+        return
+    autorun.renumber(a.name, end)
+    p = trial
+    if a.ai and not a.remove:
+        batch = pipeline.draft_episode(get_llm("plan"), p, n)
+        e = batch.episodes[0]
+        print(f"\n{e.number}화 [{e.act}] {e.title}\n  {e.summary}\n  사건: {' / '.join(e.events)}\n  훅: {e.ending_hook}{_plot_pov(e)}")
+        pipeline.apply_plots(p, batch)
+        _print_candidates(p)
+    print(f"저장: {store.save(a.name, p)}" + ("" if a.remove else f"  ({n}화는 초안입니다. 다듬은 뒤 confirm {a.name} {n})"))
 
 
 def cmd_confirm(a: argparse.Namespace) -> None:
@@ -1441,6 +1472,13 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--since", type=int, default=0, help="add: n화부터 생김 (0 이면 처음부터 사실)")
     sp.add_argument("--eps", help="add: 나올 화, 쉼표로")
     sp.add_argument("--reveal", type=int, default=0, help="add: 독자에게 드러나는 화")
+    sp = add("insert", cmd_insert)
+    sp.add_argument("n", type=int, nargs="?", help="이 화 자리에 넣는다 (지금 이 화부터 뒤로 밀림). 비우면 넣을 수 있는 자리")
+    sp.add_argument("--title", help="새 화 제목")
+    sp.add_argument("--summary", help="새 화에서 일어날 일 (AI 초안의 씨앗)")
+    sp.add_argument("--line", help="새 화가 따라갈 이야기 줄기 id (외전, 과거 회상 등)")
+    sp.add_argument("--ai", action="store_true", help="앞뒤 화에 맞춰 AI 가 새 화 플롯을 채움")
+    sp.add_argument("--remove", action="store_true", help="넣는 대신 아직 안 쓴 n 화를 빼고 뒤 화를 당김")
     add("confirm", cmd_confirm, "which", yes=False)
     add("write", cmd_write, "n", yes=False)
     sp = add("rewrite", cmd_rewrite, "n")

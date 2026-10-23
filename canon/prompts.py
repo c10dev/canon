@@ -312,7 +312,28 @@ def serial_plot_prompt(p: Project, start: int, end: int) -> str:
 {plot_rules(p, start <= OPENING_EPISODES)}{new_cast_rule(p)}"""
 
 
-USE_LABEL = {"keep": "옛 본문 그대로", "revise": "옛 본문을 다듬음", "rewrite": "옛 화를 재료로 새로 씀", "new": "새 화"}
+def episode_plot_prompt(p: Project, n: int) -> str:
+    """끼워 넣은 화처럼 앞뒤가 정해진 화 하나의 플롯. 작가가 적어 둔 칸을 살리고 바로 뒤 화로 이어지게 채운다."""
+    e = p.episode(n)
+    nxt = next((x.plot for x in p.episodes if x.plot.number == n + 1), None)
+    seed = {k: v for k, v in e.plot.model_dump().items() if v and k not in ("number", "act")}
+    line = p.storyline(e.plot.storyline)
+    line_text = (f"\n[이 화가 따라가는 이야기 줄기]\n{storylines.describe(p, line)}\n"
+                 f"storyline 칸에 {line.id} 를 그대로 넣습니다." if line else "")
+    return plot_prompt(p, n, n) + f"""
+
+[작가가 이 화에 적어 둔 것 (살려서 나머지 칸을 채울 것)]
+{dump(seed) if seed else "없음. 앞뒤 화 사이에 자연스럽게 들어가는 화를 만듭니다"}
+[바로 뒤 화 플롯 (바꾸지 않음. {n}화의 끝이 이 화의 시작으로 자연스럽게 넘어가야 함)]
+{dump(nxt) if nxt else "없음 (마지막 화)"}{line_text}
+
+이 화에 대한 요구사항:
+- {n}화 하나만 씁니다. {"앞 화와 바로 뒤 화 사이에 끼워 넣는 화입니다." if nxt else "앞 화에 이어지는 화입니다."}
+- 작가가 적어 둔 제목은 그대로 쓰고, 요약 · 사건 · 등장 인물은 뜻을 바꾸지 않고 살려 다듬고 빈 칸을 채웁니다.
+- 바로 뒤 화에서 일어날 사건을 미리 일으키거나 뒤 화와 모순되는 사실을 만들지 않습니다. 엔딩 훅은 뒤 화의 시작으로 이어지게 씁니다."""
+
+
+USE_LABEL = {"keep": "옛 본문 그대로","revise": "옛 본문을 다듬음", "rewrite": "옛 화를 재료로 새로 씀", "new": "새 화"}
 
 
 def rebuild_map_block(p: Project, start: int, end: int) -> str:
