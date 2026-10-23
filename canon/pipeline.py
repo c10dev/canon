@@ -367,8 +367,9 @@ def draft_plots(llm: LLM, p: Project, start: int, end: int) -> PlotBatch:
 
 
 def apply_plots(p: Project, batch: PlotBatch) -> None:
-    """확정되지 않은(draft) 화만 덮어쓴다."""
+    """확정되지 않은(draft) 화만 덮어쓴다. 새 인물은 덮어쓴 화에 나오는 것만 후보로 둔다."""
     by_no = {e.plot.number: e for e in p.episodes}
+    applied: list[EpisodePlot] = []
     for plot in batch.episodes:
         cur = by_no.get(plot.number)
         if cur and cur.status != "draft":
@@ -380,7 +381,64 @@ def apply_plots(p: Project, batch: PlotBatch) -> None:
             plot.storyline, plot.threads = cur.plot.storyline, list(cur.plot.threads)  # 작가가 붙인 줄기는 AI 초안이 지우지 않는다
         by_no[plot.number] = Episode(plot=plot)
         storylines.clean_plot(p, by_no[plot.number])
+        applied.append(plot)
     p.episodes = [by_no[k] for k in sorted(by_no)]
+    add_candidates(p, clean_new_characters(p, batch.new_characters, applied))
+
+
+# ---------- 3'. 플롯이 데려온 새 인물 ----------
+# AI 플롯 초안과 플롯 대화가 낸 새 인물은 바로 인물 설정에 넣지 않고 후보(Project.cast_candidates)로 둔다.
+# 작가가 플롯 편집기에서 등록하거나, 그 인물이 나오는 화를 확정하면 조연 · 단역으로 등록된다.
+
+def clean_new_characters(p: Project, chars: list[Character], plots: list[EpisodePlot]) -> list[Character]:
+    """이미 있는 인물, 고른 플롯에 나오지 않는 인물은 빼고, 주역은 조연으로 내린다 (주역은 작가가 정한다)."""
+    known = {c.id for c in p.characters}
+    used = {c for e in plots for c in e.characters}
+    out: list[Character] = []
+    for c in chars:
+        if not c.id or c.id in known or c.id not in used or any(x.id == c.id for x in out):
+            continue
+        out.append(c.model_copy(update={"tier": "support" if c.tier == "main" else c.tier, "first_ep": 0}))
+    return out
+
+
+def add_candidates(p: Project, chars: list[Character]) -> None:
+    """후보를 더한다. 같은 id 의 후보가 이미 있으면 앞 플롯이 쓰고 있으니 그대로 둔다."""
+    have = {c.id for c in p.cast_candidates}
+    p.cast_candidates += [c for c in chars if c.id not in have]
+    sync_candidates(p)
+
+
+def sync_candidates(p: Project) -> None:
+    """등록됐거나 이제 어느 화 플롯에도 나오지 않는 후보는 지운다."""
+    known = {c.id for c in p.characters}
+    used = {c for e in p.episodes for c in e.plot.characters}
+    p.cast_candidates = [c for c in p.cast_candidates if c.id not in known and c.id in used]
+
+
+def register_candidates(p: Project, ids: list[str] | None = None, episode: int | None = None) -> list[str]:
+    """후보를 인물로 등록한다. ids 를 주면 그 후보만, episode 를 주면 그 화에 나오는 후보만.
+    처음 나오는 화가 first_ep 가 된다. 등록한 id 를 돌려준다."""
+    if episode is not None:
+        cast = set(p.episode(episode).plot.characters)
+        ids = [c.id for c in p.cast_candidates if c.id in cast and (ids is None or c.id in ids)]
+    want = set(ids if ids is not None else [c.id for c in p.cast_candidates])
+    done = []
+    for c in [c for c in p.cast_candidates if c.id in want]:
+        first = min((e.plot.number for e in p.episodes if c.id in e.plot.characters), default=0)
+        _add_characters(p, [c], first)
+        done.append(c.id)
+    sync_candidates(p)
+    return done
+
+
+def confirm_plot(p: Project, n: int) -> list[str]:
+    """초안 화를 확정한다. 그 화에 나오는 새 인물 후보도 함께 등록하고, 등록한 id 를 돌려준다."""
+    ep = p.episode(n)
+    if ep.status != "draft":
+        return []
+    ep.status = "confirmed"
+    return register_candidates(p, episode=n)
 
 
 # ---------- 3-0. 장편 연재: 부 구성과 굴러가는 아크 기획 ----------
@@ -1122,6 +1180,7 @@ def clean_revision(p: Project, rev: PlotRevision) -> PlotRevision:
         seen.add(n)
         keep.append(e)
     rev.episodes = sorted(keep, key=lambda e: e.number)
+    rev.new_characters = clean_new_characters(p, rev.new_characters, rev.episodes)
     if notes:
         rev.reply = rev.reply.rstrip() + "\n\n※ " + " ".join(notes)
     return rev
@@ -1183,6 +1242,7 @@ def apply_revision(p: Project, rev: PlotRevision, acts: bool, episodes: list[int
         storylines.clean_plot(p, by_no[n])
         applied.append(str(n))
     p.episodes = [by_no[k] for k in sorted(by_no)]
+    add_candidates(p, clean_new_characters(p, rev.new_characters, list(picked.values())))
     for e in p.episodes:
         act = p.act_for(e.plot.number)
         if act and e.status not in LOCKED:
@@ -1954,6 +2014,7 @@ def apply_opening(p: Project, n: int, plot: EpisodePlot) -> None:
     by_no[n] = Episode(plot=plot.model_copy(deep=True))
     storylines.clean_plot(p, by_no[n])
     p.episodes = [by_no[k] for k in sorted(by_no)]
+    sync_candidates(p)
 
 
 def opening_drafts(llm: LLM, p: Project, n: int, approaches: list[str] | None = None) -> dict[str, str]:

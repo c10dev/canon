@@ -267,12 +267,12 @@ def plot_prompt(p: Project, start: int, end: int) -> str:
 [기승전결 구조]
 {dump(p.arc)}
 [앞 화 플롯 (확정 또는 초안, 이어지게 쓸 것)]
-{dump(prior) if prior else "없음"}
+{dump(prior) if prior else "없음"}{candidates_block(p)}
 [현재 열린 복선]
 {dump([f for f in p.foreshadows if f.status == "open"]) or "없음"}
 
 요구사항:
-{plot_rules(p, start <= OPENING_EPISODES)}"""
+{plot_rules(p, start <= OPENING_EPISODES)}{new_cast_rule(p)}"""
 
 
 def serial_plot_prompt(p: Project, start: int, end: int) -> str:
@@ -304,12 +304,12 @@ def serial_plot_prompt(p: Project, start: int, end: int) -> str:
 [지금까지의 줄거리]
 {story_so_far(p, start) or "없음 (첫 화)"}
 [바로 앞 화 플롯 (확정 또는 초안, 이어지게 쓸 것)]
-{dump(near) if near else "없음"}
+{dump(near) if near else "없음"}{candidates_block(p)}
 [열린 복선]{f" (그 밖에 {more}개는 이번 아크와 거리가 멀어 뺐습니다)" if more else ""}
 {dump(fs) or "없음"}{rebuild_map_block(p, start, end)}
 
 요구사항:
-{plot_rules(p, start <= OPENING_EPISODES)}"""
+{plot_rules(p, start <= OPENING_EPISODES)}{new_cast_rule(p)}"""
 
 
 USE_LABEL = {"keep": "옛 본문 그대로", "revise": "옛 본문을 다듬음", "rewrite": "옛 화를 재료로 새로 씀", "new": "새 화"}
@@ -529,6 +529,23 @@ def static_characters(p: Project) -> list[Character]:
 def roster_line(p: Project, exclude: set[str]) -> str:
     """설정 전체를 넣지 않는 인물의 한 줄 목록. 플롯이 이미 있는 인물을 다시 만들지 않게 한다."""
     return ", ".join(f"{c.id}: {c.name}({c.role})" for c in p.characters if c.tier != "main" and c.id not in exclude)
+
+
+def candidates_block(p: Project) -> str:
+    """앞 플롯이 데려왔지만 작가가 아직 등록하지 않은 새 인물. 다음 구간 플롯이 같은 인물을 또 만들지 않게 한다."""
+    if not p.cast_candidates:
+        return ""
+    return "\n[새 인물 후보 (앞 플롯이 데려온 인물, 아직 등록 전. 다시 만들지 말고 이 id 를 씁니다)]\n" + dump(p.cast_candidates)
+
+
+def new_cast_rule(p: Project) -> str:
+    """플롯 초안과 플롯 대화가 새 인물을 들일 때의 규칙 (new_characters 칸이 있는 스키마에만 붙인다)."""
+    return f"""
+- 인물 목록에 없는 인물이 꼭 필요하면 new_characters 에 전체 설정(이름, 역할, 나이, 성별, 성격, 원하는 것, 말투 speech_style)을 넣고, 나오는 화의 characters 에 그 id 를 넣습니다. 여러 화에 걸쳐 나오면 tier 를 support, 한두 화 나오고 마는 인물이면 minor 로 둡니다.
+- 이미 있는 인물과 새 인물 후보는 다시 만들지 않습니다. 이름 없는 행인이나 군중은 인물로 만들지 않습니다. 인물 목록에 없는 id 를 characters 에 쓰면 반드시 new_characters 에도 넣습니다.
+- 새 인물 이름은 아래 후보에서 고르거나 같은 결로 짓고, 있는 인물과 이름이 같거나 첫 글자나 끝 글자가 겹치지 않게 합니다.
+[이름 후보]
+{naming.new_cast_hint(p)}"""
 
 
 def relevant_foreshadows(p: Project, n: int) -> tuple[list[Foreshadow], int]:
@@ -917,7 +934,7 @@ def plot_chat_prompt(p: Project, message: str) -> str:
 [지금 기승전결 구조] 총 {p.meta.target_episodes}화
 {dump(p.arc) if p.arc else "아직 없음"}
 [지금 화별 플롯] status: draft 초안, confirmed 작가가 확정, written 본문 있음, finalized 반영 완료
-{dump(eps) if eps else "아직 없음"}
+{dump(eps) if eps else "아직 없음"}{candidates_block(p)}
 [이미 쓴 화의 실제 줄거리]
 {chr(10).join(f"{e.plot.number}화: {e.summary}" for e in done) or "없음"}
 [열린 복선]
@@ -938,7 +955,7 @@ def plot_chat_prompt(p: Project, message: str) -> str:
 - 한 화를 바꾸면 앞뒤 화의 엔딩 훅, 복선 심기와 회수가 어긋나지 않게 이어지는 화도 함께 고칩니다.
 - 총 화수를 바꿔야 하면 total_episodes 에 새 화수를 넣고, acts 를 새 화수에 맞추고, 새로 생기거나 내용이 밀리는 화를 episodes 에 모두 넣습니다. 화수를 바꾸지 않으면 0 입니다.
 - 구간은 기, 승, 전, 결 순서로 1화부터 마지막 화까지 빈틈없이 이어집니다.
-{plot_rules(p, opening_pending(p))}"""
+{plot_rules(p, opening_pending(p))}{new_cast_rule(p)}"""
 
 
 def serial_plot_chat_prompt(p: Project, message: str) -> str:
@@ -973,7 +990,7 @@ def serial_plot_chat_prompt(p: Project, message: str) -> str:
 [고칠 수 있는 아크] 구조(acts)를 바꾸면 아크 {focus.number if focus else "?"}({focus.start_ep if focus else "?"}~{focus.end_ep if focus else "?"}화)의 기승전결 네 구간입니다
 {dump(arcs) if arcs else "아직 없음"}
 [화별 플롯] status: draft 초안, confirmed 작가가 확정, written 본문 있음, finalized 반영 완료
-{dump(eps) if eps else "아직 없음"}
+{dump(eps) if eps else "아직 없음"}{candidates_block(p)}
 [열린 복선]{f" (그 밖에 {more}개)" if more else ""}
 {dump(fs) or "없음"}
 
@@ -991,7 +1008,7 @@ def serial_plot_chat_prompt(p: Project, message: str) -> str:
 - 본문이 있는 화({", ".join(map(str, locked)) or "없음"})는 바꾸지 않습니다. 기획한 아크 밖의 화({p.planned_until() + 1}화부터)는 만들지 않습니다.
 - 작가가 확정한 화({", ".join(map(str, confirmed)) or "없음"})는 작가가 그 화를 바꿔 달라고 했을 때만 바꿉니다.
 - 한 화를 바꾸면 앞뒤 화의 엔딩 훅, 복선 심기와 회수가 어긋나지 않게 이어지는 화도 함께 고칩니다.
-{plot_rules(p, opening_pending(p))}"""
+{plot_rules(p, opening_pending(p))}{new_cast_rule(p)}"""
 
 
 # ---------- 본문 부분 수정 (집필 화면에서 고른 부분) ----------

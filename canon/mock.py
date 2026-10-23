@@ -175,6 +175,11 @@ def _rebuild(hint: dict) -> SerialRebuild:
     )
 
 
+NEW_CAST_EP = 2  # 플롯 초안이 새 인물 후보를 데려오는 화
+NEW_CAST = Character(id="innkeeper", name="곽노인", role="여관 주인", age="60대", gender="남", tier="minor",
+                     personality="말수가 적고 셈이 빠르다", speech_style="짧은 하게체. \"방은 하나 남았네.\"")
+
+
 def _plot(n: int, act: str, note: str = "") -> EpisodePlot:
     early = n <= 3  # 초반 1~3화는 여는 장면과 독자 질문을 채운다
     return EpisodePlot(number=n, act=act, title=f"{n}화 제목", summary=f"{n}화 요약{note}",
@@ -220,7 +225,10 @@ def _revision(hint: dict) -> PlotRevision:
         rev.acts = [a.model_copy(update={"goal": "비극으로 끝난다"} if a.name == "결" else {}) for a in arc]
     hit = re.search(r"(\d+)화", msg)
     target = next((e for e in eps if hit and e.number == int(hit.group(1))), None)
-    if target:
+    if target and "새 인물" in msg:  # 그 화에 새 조연을 들인다 (주역으로 내도 조연으로 내려야 한다)
+        rev.episodes = [target.model_copy(update={"characters": target.characters + ["courier"], "events": target.events + ["낯선 배달부"]})]
+        rev.new_characters = [Character(id="courier", name="반석", role="배달부", tier="main", speech_style="빠른 반말")]
+    elif target:
         rev.episodes = [target.model_copy(update={"summary": target.summary + " (천천히)", "events": target.events + ["숨 고르는 장면"]})]
     if not (rev.acts or rev.episodes):
         rev.reply = "어느 화를 바꿀지 알려 주세요."
@@ -346,7 +354,11 @@ class MockLLM:
             for n in range(hint["start"], hint["end"] + 1):
                 act = next(a for a in acts if a.start_ep <= n <= a.end_ep)
                 eps.append(_plot(n, act.name))
-            return PlotBatch(episodes=eps)  # type: ignore[return-value]
+            new = []
+            if hint["start"] <= NEW_CAST_EP <= hint["end"]:  # 새 인물 후보를 시험하도록 한 화에 단역을 데려온다
+                eps[NEW_CAST_EP - hint["start"]].characters.append(NEW_CAST.id)
+                new = [NEW_CAST]
+            return PlotBatch(episodes=eps, new_characters=new)  # type: ignore[return-value]
         if schema is PlotRevision:
             return _revision(hint)  # type: ignore[return-value]
         if schema is StateDelta:

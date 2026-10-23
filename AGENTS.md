@@ -14,7 +14,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 |---|---|
 | `canon/schema.py` | pydantic 데이터 스키마. 모든 상태는 `Project` 하나(`project.json`)에 저장 |
 | `canon/prompts.py` | 프롬프트 템플릿, 화별 컨텍스트 조립(`build_episode_context`), 작업지시서(`episode_brief`, `state_brief`) |
-| `canon/pipeline.py` | 단계별 로직: 설정 제안 → 스타일 분석 → 기승전결 → 화별 플롯(대화로 다듬기 `revise_plot`/`apply_revision` 포함) → 본문 → 검수 → 상태 추출/반영. 장편은 부 계획(`plan_series`) → 다음 아크(`plan_next_arc`/`apply_arc`) → 아크 · 부 요약(`recap`/`apply_recap`). 단편 → 장편 전환은 이어 쓰기 `propose_conversion`/`apply_conversion`, 재구성 `propose_rebuild`/`apply_rebuild`(옛 상태 변경안 재사용 `carried_delta`, 다듬기 `propose_rework`/`accept_rework`), 되돌리기 `undo_conversion` |
+| `canon/pipeline.py` | 단계별 로직: 설정 제안 → 스타일 분석 → 기승전결 → 화별 플롯(대화로 다듬기 `revise_plot`/`apply_revision` 포함, 플롯이 데려온 새 인물은 후보 `Project.cast_candidates` 로 두고 화 확정 `confirm_plot` 때 등록) → 본문 → 검수 → 상태 추출/반영. 장편은 부 계획(`plan_series`) → 다음 아크(`plan_next_arc`/`apply_arc`) → 아크 · 부 요약(`recap`/`apply_recap`). 단편 → 장편 전환은 이어 쓰기 `propose_conversion`/`apply_conversion`, 재구성 `propose_rebuild`/`apply_rebuild`(옛 상태 변경안 재사용 `carried_delta`, 다듬기 `propose_rework`/`accept_rework`), 되돌리기 `undo_conversion` |
 | `canon/metrics.py` | 문체 지표(문장 길이, 대사 비율, 과거형 비율, 어휘 다양도, 반복 구, 상투 표현, 쇠맛 패턴과 쉼표·대명사 지표, 문체 거리, 문체 표지 빈도, 예시 문단 베끼기)와 기준 대비 경고, 1~3화 초반 지표(`measure_opening`). LLM 호출 없음. 문체 거리 기준표는 `style_background.py`(`scripts/make_style_background.py` 로 생성) |
 | `canon/genres.py` | 장르 목록(`CATALOG`)과 장르별 안내. 프롬프트의 장르 안내와 수위 블록(`guide`), 설정 화면의 장르별 로그라인 예시(`Genre.logline`) |
 | `canon/logline.py` | 로그라인 다섯 칸 합치기(`compose`, 조사 자동), 형식 점검(`checks`), 톤 다이얼 문장(`tone_text`). LLM 호출 없음. `static/app.js` 에 같은 규칙이 있어 함께 고친다 |
@@ -38,6 +38,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/research.py` | 연구 화면(모델 실험) 로직. 서버 점검, 샘플 비교, 단계 시험, 컨텍스트 크기, 블라인드 비교. 작품 데이터와 분리해 `research/log.jsonl` 에 기록 |
 | `canon/mock.py` | 테스트용 가짜 LLM |
 | `canon/library.py` | 문체 라이브러리: 작품과 따로 `projects/.styles/<id>.json` 에 문체(원문, 프로필, 기준 지표)를 저장. 작품에 적용하면 복사하고 `Project.style_id` · `style_version` 으로 출처만 기억. 저장마다 버전(`StyleVersion`), 칸별 비교(`diff`), 되돌리기(`restore`) |
+| `canon/static/marks.js` | 집필 화면 문체 표시: 장치마다 이번 화 배지(`deviceBadges`), 본문에서 장치 글자 · 금지 표현 밑줄(고치는 본문은 textarea 뒤에 깐 칸 `hl-layer`, 읽기 전용은 `<mark>`), 밑줄에서 부분 수정 도구 띄우기. 쓴 화 세기와 쉬는 화 판정은 `metrics.device_hits` · `device_last` · `prompts.device_block` 과 같은 규칙이라 함께 고친다(`tests/test_marks_js.py` 가 node 로 맞춰 본다) |
 | `canon/static/mystyle.js` | 나만의 문체: 스타일 프로필의 가끔 쓰는 장치 칸(`deviceFields`), 문체 화면의 '내 수정에서 배우기' 카드(서버 `pipeline.learn_style` / `apply_learning`), 라이브러리 항목의 버전 목록. 장치의 쓴 화 세기는 `metrics.device_last` 와 같은 규칙 |
 | `canon/store.py` | `projects/<이름>/project.json` 저장, 본문을 `episodes/NN.md` 로 내보내기 |
 | `canon/cli.py` | 명령줄 (`python -m canon ...`) |

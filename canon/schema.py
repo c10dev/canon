@@ -341,8 +341,13 @@ class EpisodePlot(BaseModel):
     pov_mode: str = Field("", description="이 화의 서술 방식 (1인칭, 3인칭 제한, 3인칭 전지). 작품 기본과 같으면 비움")
 
 
+NEW_CAST_DESC = ("인물 목록에 없는 새 인물이 이 플롯에 꼭 필요할 때만, 전체 설정(speech_style 포함)과 함께. "
+                 "그 화의 characters 에 이 id 를 넣는다. 이미 있는 인물은 넣지 않는다. 조연은 support, 지나가는 인물은 minor")
+
+
 class PlotBatch(BaseModel):
     episodes: list[EpisodePlot]
+    new_characters: list[Character] = Field(default_factory=list, description=NEW_CAST_DESC)
 
 
 class OpeningOption(BaseModel):
@@ -524,6 +529,7 @@ class PlotRevision(BaseModel):
     total_episodes: int = Field(0, description="총 화수를 바꿀 때만 새 화수. 바꾸지 않으면 0")
     acts: list[Act] = Field(default_factory=list, description="구조를 바꿀 때만 네 구간 모두. 바꾸지 않으면 빈 목록")
     episodes: list[EpisodePlot] = Field(default_factory=list, description="바뀌는 화만, 모든 칸을 채운 전체 플롯")
+    new_characters: list[Character] = Field(default_factory=list, description=NEW_CAST_DESC)
 
 
 class PassageCandidate(BaseModel):
@@ -867,6 +873,8 @@ class Project(BaseModel):
     meta: Meta = Field(default_factory=Meta)
     world: WorldSetting = Field(default_factory=WorldSetting)
     characters: list[Character] = Field(default_factory=list)
+    cast_candidates: list[Character] = Field(
+        default_factory=list, description="AI 플롯이 제안한 새 인물. 작가가 등록하거나 그 인물이 나오는 화를 확정하면 characters 로 옮긴다")
     relationships: list[Relationship] = Field(default_factory=list)
     style: StyleProfile = Field(default_factory=StyleProfile)
     style_baseline: Optional[StyleMetrics] = Field(None, description="레퍼런스 원문 전체로 잰 문체 지표 (style 명령 때 저장)")
