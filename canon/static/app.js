@@ -27,7 +27,10 @@ const S = {
   mode: localStorage.getItem('canon.mode') || 'api',
   jobs: [],          // 서버에서 돌고 있거나 막 끝난 AI 작업
   jobsSeen: null,    // 화면을 연 시점에 이미 끝나 있던 작업 id (결과를 다시 적용하지 않는다)
+  jobsApplied: new Set(),  // 결과를 이미 화면에 적용한 작업 id. 폴링이 작업 객체를 새로 받아 오므로 id 로 기억한다
   jobsOpen: false,   // 작업 목록 펼침
+  briefDraft: {},    // 작업지시서 ② 칸에 붙여 넣은 글. '<작품>:<화>:<episode|state>' → 글
+  settingsDirty: false,  // 모델 · API 키 설정 화면에서 저장하지 않은 입력이 있다
   selArc: null,      // 장편: 플롯 보드에서 고른 아크 번호 ('next' 는 다음 아크 기획)
   editArc: false,    // 장편: 아크 고치기 서랍
   selPart: null,     // 장편: 고치는 부 번호
@@ -149,13 +152,19 @@ async function pollJobs(soon = false) {
     if (j.kind === 'impact' && j.status === 'done') await mergeImpacts();
     if (j.kind === 'auto') await mergeEpisodes((e) => e.status !== 'draft');
     if (j.status !== 'running' && !(old && old.status !== 'running')) await finishJob(j);
-    if (JOB_PAGES[j.kind].includes(S.route[2] || 'home')) redraw = true;
+    // 설정 · 사용량 · 문체 라이브러리처럼 작품 밖 화면은 S.name 이 남아 있어도 다시 그리지 않는다
+    if (S.route[0] === 'p' && JOB_PAGES[j.kind].includes(S.route[2] || 'home')) redraw = true;
   }
   renderJobs();
   // 입력 중이면 화면을 다시 그리지 않는다 (글자와 커서를 잃지 않게). 데이터는 이미 반영돼 있다.
-  const typing = document.activeElement && document.activeElement.matches('#app input, #app textarea, #app select');
-  if (redraw && !typing) render();
+  if (redraw && !isTyping()) render();
   if (S.jobs.some((j) => j.status === 'running')) jobTimer = setTimeout(() => pollJobs(), 1500);
+}
+
+/** 입력칸에 포커스가 있다. #app 밖 떠 있는 본문 부분 수정 칸(#sel-tool)도 센다. 읽기 전용 칸은 빼서 결과를 바로 그린다. */
+function isTyping() {
+  const el = document.activeElement;
+  return !!el && el.matches('input:not([readonly]), textarea:not([readonly]), select');
 }
 
 // 작업 결과가 보이는 화면
@@ -194,6 +203,8 @@ async function finishJob(j) {
 }
 
 function applyJobResult(j) {
+  S.jobsApplied.add(j.id);
+  if (j.status !== 'done') return;  // 실패한 작업은 아무것도 바꾸지 않았다. 열어 봐도 초안과 변경안을 그대로 둔다
   if (j.kind === 'suggest' && j.result) {
     S.suggestion = j.result;
     S.suggestion.characters.forEach((c, i) => { S.picks['sc' + i] = !P().characters.some((x) => x.id === c.id); });
@@ -201,8 +212,12 @@ function applyJobResult(j) {
   } else if (j.kind === 'arc' && j.result) {
     P().arc = j.result.acts;
     S.dirty = true;
-  } else if (j.kind === 'write') {
-    delete S.textDraft[j.ep];
+  } else if (j.kind === 'write' && !(j.result && j.result.candidate)) {
+    // AI 가 본문을 새로 썼다 (새 판 candidate 는 본문을 덮지 않으니 쓰던 초안과 변경안을 그대로 둔다).
+    // 그 화 칸에 쓰던 글이 있으면(다른 탭에서 시작한 작업 등) 버리지 않고 칸에 남긴다. 저장하면 수정 기록에 남아 되돌릴 수 있다
+    const d = S.textDraft[j.ep];
+    if (d && d.trim() && ep(j.ep) && d !== ep(j.ep).text) toast(`${j.ep}화 본문을 AI 가 새로 썼어요. 쓰던 글은 칸에 남겨 두었어요. 저장하면 AI 본문 대신 그 글이 들어갑니다`, true);
+    else delete S.textDraft[j.ep];
     delete S.deltas[j.ep];
   } else if (j.kind === 'state' && j.result) {
     setDelta(j.ep, j.result);
@@ -223,7 +238,6 @@ function applyJobResult(j) {
   } else if (['hook', 'openings', 'opening_drafts'].includes(j.kind)) {
     openingJobResult(j);
   }
-  j.applied = true;
 }
 
 const JOB_LINK = {
@@ -276,23 +290,28 @@ document.addEventListener('click', (e) => {
   } else if (t.dataset.jobOpen) {
     // 다른 작품에서 끝난 결과는 그 작품을 연 뒤에 적용한다
     const j = S.jobs.find((x) => x.id === t.dataset.jobOpen);
-    if (j) S.pendingJob = j;
+    if (j && j.status === 'done') S.pendingJob = j;
   }
   renderJobs();
 });
 
-/** 버튼 동작 공통 처리: 진행 표시, 오류 알림, 다시 그리기 */
-async function run(label, fn) {
+/** 버튼 동작 공통 처리: 진행 표시, 오류 알림, 다시 그리기. 성공하면 true.
+    opt.render: 'always'(기본) | 'success'(실패하면 다시 그리지 않아 화면에만 있는 입력을 남긴다) | 'never' */
+async function run(label, fn, opt = {}) {
+  const when = opt.render || 'always';
+  let ok = false;
   $('#busy-text').textContent = label;
   $('#busy').hidden = false;
   try {
     await fn();
+    ok = true;
   } catch (e) {
     toast(e.message, true);
   } finally {
     $('#busy').hidden = true;
-    render();
+    if (when === 'always' || (when === 'success' && ok)) render();
   }
+  return ok;
 }
 
 function getPath(obj, path) {
@@ -427,7 +446,10 @@ document.addEventListener('input', (e) => {
     if (c) c.textContent = el.value.length.toLocaleString();
     const sb = $('#save-text');
     if (sb) sb.disabled = false;
+    renderSavebar();
   }
+  if (el.dataset.brief) S.briefDraft[`${S.name}:${el.dataset.brief}`] = el.value;
+  if (S.route[0] === 'settings' && el.id && el.id.startsWith('set-')) S.settingsDirty = true;
   if (el.dataset.local) S[el.dataset.local] = el.value;
   if (el.dataset.deltaSummary) S.deltas[el.dataset.deltaSummary].summary = el.value;
 });
@@ -492,20 +514,64 @@ function markDirty() {
   }
 }
 
+/** 본문 초안이 저장한 본문과 다르다. '직접 쓰기'로 빈 칸만 연 것은 세지 않는다. */
+function textUnsaved(n) {
+  const d = S.textDraft[n];
+  if (d === undefined) return false;
+  const e = P() && ep(Number(n));
+  return e ? d.trim() !== (e.text || '').trim() : d.trim() !== '';  // 서버는 앞뒤 공백을 지워 저장한다
+}
+
 function renderSavebar() {
+  // 본문 초안은 따로 '본문 저장'으로 저장한다. 그 화를 보고 있을 때만 알린다 (다른 화면으로 가도 초안은 메모리에 남는다)
+  const [p, , page, arg] = S.route;
+  const n = p === 'p' && page === 'write' && P() ? Number(arg) || currentEp() : null;
+  const text = n !== null && textUnsaved(n) ? n : null;
   let bar = $('#savebar');
-  if (!S.dirty) {
+  if (!S.dirty && text === null) {
     if (bar) bar.remove();
     return;
   }
+  const sig = `${S.dirty}:${text}`;
+  if (bar && bar.dataset.sig === sig) return;
   if (!bar) {
     bar = document.createElement('div');
     bar.id = 'savebar';
     bar.className = 'savebar';
-    bar.innerHTML = '<span>저장하지 않은 변경이 있어요</span><button class="btn small" data-action="revert">되돌리기</button><button class="btn small primary" data-action="save">저장</button>';
     document.body.appendChild(bar);
   }
+  bar.dataset.sig = sig;
+  bar.innerHTML = (S.dirty ? '<span>저장하지 않은 변경이 있어요</span><button class="btn small" data-action="revert">되돌리기</button><button class="btn small primary" data-action="save">저장</button>' : '')
+    + (text !== null ? `<span>${text}화 본문을 저장하지 않았어요</span><button class="btn small primary" data-action="saveText" data-arg="${text}">본문 저장</button>` : '');
 }
+
+/** 지시서 ② 칸 글을 아직 쓸 수 있다. 본문 칸은 확정 · 작성 화, JSON 칸은 작성 화에서만 열린다. 다른 경로로 그 화를 끝냈으면 세지 않는다. */
+function briefPending(key, v) {
+  if (!v.trim()) return false;
+  const [name, n, tab] = key.split(':');
+  if (name !== S.name || !P()) return true;
+  const e = ep(Number(n));
+  return !!e && (tab === 'state' ? e.status === 'written' : e.status === 'confirmed' || e.status === 'written');
+}
+
+/** 반영하지 않은 상태 변경안. 변경안은 본문이 작성된 화에만 반영하므로 이미 반영이 끝난 화의 것은 세지 않는다. */
+const deltaPending = (n) => { const e = P() && ep(Number(n)); return !e || e.status === 'written'; };
+
+/** 페이지를 떠나면 사라지는 입력: 저장하지 않은 작품 · 문체 · 설정 변경, 본문 초안, 붙여 넣은 지시서 결과, 반영하지 않은 상태 변경안 */
+function hasUnsaved() {
+  return S.dirty || S.libDirty || S.settingsDirty
+    || Object.keys(S.textDraft).some(textUnsaved)
+    || Object.entries(S.briefDraft).some(([k, v]) => briefPending(k, v))
+    || Object.keys(S.deltas).some(deltaPending)
+    || Object.values(stash).some((s) => Object.keys(s.textDraft).length > 0 || Object.keys(s.deltas).length > 0);  // 보관할 때 정리했다
+}
+
+// 새로고침 · 탭 닫기 · 주소 직접 입력은 hashchange 확인을 거치지 않는다. 브라우저가 묻게 한다
+window.addEventListener('beforeunload', (e) => {
+  if (!hasUnsaved()) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
 
 async function save() {
   // 끝난 작업 중 결과를 이미 받아 온 것을 알려야 서버가 그 화를 덮어써도 된다고 안다
@@ -548,7 +614,7 @@ const actions = {
       await api('POST', '/projects', { name, meta, style_id: styleId });
       S.newMeta = null;
       location.hash = `#/p/${enc(name)}/setup`;
-    });
+    }, { render: 'success' });  // 실패하면 다시 그리지 않아 적은 이름 · 제목 · 화수가 칸에 남는다
   },
 
   // 설정 도우미
@@ -1131,8 +1197,9 @@ const actions = {
     if (lkey) body.local_key = lkey;
     await run('저장 중', async () => {
       S.config = await api('PUT', '/config', body);
+      S.settingsDirty = false;
       toast('설정을 저장했습니다');
-    });
+    }, { render: 'success' });  // 실패하면 다시 그리지 않아 적은 키와 모델이 칸에 남는다
   },
   async clearKey() {
     if (!confirm('저장된 API 키를 지울까요?')) return;
@@ -1145,10 +1212,16 @@ const actions = {
     await loadModelList(true);
   },
   async testSettings() {
+    // 서버는 저장된 설정으로 시험한다. 적기만 한 값이 있으면 먼저 저장해야 그 값의 결과가 나온다
+    if (S.settingsDirty) {
+      if (!confirm('입력한 설정을 아직 저장하지 않았어요. 저장한 뒤 연결을 확인할까요?')) return;
+      await actions.saveSettings();
+      if (S.settingsDirty) return;  // 저장하지 못했다
+    }
     await run('연결 확인 중', async () => {
       const r = await api('POST', '/config/test');
       toast(r.message);
-    });
+    }, { render: 'never' });
   },
 
   // 작업지시서
@@ -1186,6 +1259,7 @@ const actions = {
       S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, { text });
       delete S.textDraft[n];
       delete S.deltas[n];
+      delete S.briefDraft[`${S.name}:${n}:episode`];
       toast(`${n}화 본문으로 저장했습니다`);
       location.hash = `${base()}/write/${n}`;
     });
@@ -1195,6 +1269,7 @@ const actions = {
     if (!raw.trim()) return toast('JSON 을 붙여 넣으세요', true);
     await run('확인하는 중', async () => {
       setDelta(n, await api('POST', `/projects/${enc(S.name)}/episodes/${n}/state/parse`, { raw }));
+      delete S.briefDraft[`${S.name}:${n}:state`];
       location.hash = `${base()}/review/${n}`;
     });
   },
@@ -1259,20 +1334,51 @@ document.addEventListener('click', (e) => {
 
 // ---------- 라우팅 ----------
 
+// 화 번호로 키를 잡는 화면 상태는 작품마다 따로 둔다. 다른 작품으로 가면 지금 것을 보관하고 그 작품 것을 꺼낸다
+// (그러지 않으면 한 작품의 본문 초안이 다른 작품의 같은 화에 보이고 저장된다)
+const PER_PROJECT = ['textDraft', 'deltas', 'deltaBase'];
+const stash = {};       // 작품 이름 → { textDraft, deltas, deltaBase }
+let stateOwner = null;  // 지금 S.textDraft 등이 속한 작품
+
+/** 지금 작품을 떠나기 전에 부른다: 저장 본문과 같아진 초안, 이미 반영이 끝난 화의 변경안, 더 쓸 수 없는 지시서 칸 글을 버린다.
+    떠난 뒤에는 그 작품 데이터가 없어 남은 것을 '저장 안 한 입력'으로만 센다. */
+function pruneProjectState() {
+  if (!P() || !S.name) return;
+  Object.keys(S.textDraft).forEach((n) => { if (!textUnsaved(n)) delete S.textDraft[n]; });
+  Object.keys(S.deltas).forEach((n) => {  // 반영이 끝났거나 없어진 화의 변경안만 버린다
+    const e = ep(Number(n));
+    if (!e || e.status === 'finalized') { delete S.deltas[n]; delete S.deltaBase[n]; }
+  });
+  Object.entries(S.briefDraft).forEach(([k, v]) => { if (k.startsWith(`${S.name}:`) && !briefPending(k, v)) delete S.briefDraft[k]; });
+}
+
+function useProjectState(name) {
+  if (stateOwner === name) return;
+  pruneProjectState();
+  if (stateOwner) stash[stateOwner] = Object.fromEntries(PER_PROJECT.map((k) => [k, S[k]]));
+  const kept = stash[name] || {};
+  PER_PROJECT.forEach((k) => { S[k] = kept[k] || {}; });
+  delete stash[name];
+  stateOwner = name;
+}
+
 async function loadProject(name) {
-  S.project = await api('GET', `/projects/${enc(name)}`);
+  const fresh = await api('GET', `/projects/${enc(name)}`);
+  useProjectState(name);  // 떠나는 작품 데이터로 정리한 뒤 보관하므로 S.project 를 바꾸기 전에 부른다
+  S.project = fresh;
   S.name = name;
   S.dirty = false;
 }
 
 let lastHash = location.hash;
 window.addEventListener('hashchange', async () => {
-  if ((S.dirty || S.libDirty) && !confirm('저장하지 않은 변경이 있어요. 버리고 이동할까요?')) {
+  if ((S.dirty || S.libDirty || S.settingsDirty) && !confirm('저장하지 않은 변경이 있어요. 버리고 이동할까요?')) {
     history.replaceState(null, '', lastHash);
     return;
   }
   lastHash = location.hash;
   S.libDirty = false;
+  S.settingsDirty = false;
   await route();
 });
 
@@ -1283,11 +1389,13 @@ async function route() {
   S.promptText = null;
   S.briefText = null;
   S.relations = null;
+  if (parts[0] !== 'p') pruneProjectState();  // 작품 밖 화면으로 간다. 작품 데이터가 있을 때 끝난 초안을 정리한다
   try {
     if (!S.config) S.config = await api('GET', '/config');
     if (!S.genres) S.genres = await api('GET', '/genres').catch(() => []);
     if (!S.namingStyles) S.namingStyles = await api('GET', '/naming/styles').catch(() => []);
     if (parts[0] === 'settings') {
+      S.settingsDirty = false;
       S.config = await api('GET', '/config');
       loadModelList();  // 기다리지 않는다. 목록이 오면 입력칸 추천만 채운다
       await pricesLoad().catch((e) => toast(e.message, true));
@@ -1310,7 +1418,7 @@ async function route() {
     } else if (parts[0] === 'p' && parts[1]) {
       if (S.name !== parts[1] || S.dirty) await loadProject(parts[1]);
       else S.project = await api('GET', `/projects/${enc(parts[1])}`);
-      if (S.pendingJob && S.pendingJob.project === S.name && !S.pendingJob.applied) applyJobResult(S.pendingJob);
+      if (S.pendingJob && S.pendingJob.project === S.name && !S.jobsApplied.has(S.pendingJob.id)) applyJobResult(S.pendingJob);
       S.pendingJob = null;
       S.dirty = false;
       const n = Number(parts[3]);
@@ -2649,6 +2757,8 @@ function viewWrite(n) {
   const text = draft ?? e.text;
   const editable = e.status === 'confirmed' || e.status === 'written';
   const isApi = S.mode === 'api';
+  const writing = !!jobFor('write', n);
+  const locked = writing && !e.text;  // AI 가 본문을 처음 쓰는 중: 끝나면 칸이 AI 본문으로 바뀌므로 그동안 쓴 글은 남지 않는다
 
   let center;
   if (e.status === 'draft') {
@@ -2658,11 +2768,11 @@ function viewWrite(n) {
       ${blocked.length ? `<div class="note warn">이전 화(${blocked.join(', ')}화)의 상태 반영이 끝나야 쓸 수 있어요. 인물 상태가 꼬이지 않게 하는 규칙입니다.</div>` : ''}
       ${isApi ? `<p>확정된 플롯과 지금까지의 데이터로 ${n}화를 씁니다.</p>${((b) => `<button class="btn primary" data-action="writeEp" data-arg="${n}"${blocked.length ? ' disabled' : b.attr}>${b.label}</button>`)(jobBtn('write', n, `${n}화 본문 생성`))}${jobFor('write', n) ? '<div class="small">다른 화면으로 옮겨 가도 계속 씁니다. 끝나면 알려 드려요.</div>' : ''}`
         : `<p>작업지시서를 채팅 앱에 붙여 넣고, 받은 본문을 가져오세요.</p><a class="btn primary" href="${base()}/brief/${n}">작업지시서 열기</a>`}
-      <button class="btn" data-action="startManual" data-arg="${n}">직접 쓰기</button>
+      <button class="btn" data-action="startManual" data-arg="${n}"${writing ? ' disabled' : ''}>직접 쓰기</button>
     </div>`;
   } else {
     center = `<div class="prose">${editable
-      ? draftBox(n, text)
+      ? (locked ? `<div class="note info" id="draft-lock" style="margin:12px 16px 0">${n}화 본문을 만드는 중이에요. 끝나면 이 칸이 AI 본문으로 바뀌니 그때 고치세요.</div>` : '') + draftBox(n, text)
       : `<div class="read" data-read="${n}">${readHtml(n, text)}</div>`}</div>`;
   }
 
@@ -2864,12 +2974,12 @@ function viewBrief(n) {
       <section class="card" style="flex:1 1 380px;min-width:0">
         ${body ? `<h2><span class="small" style="font-weight:400">② </span>받은 본문 가져오기</h2>
           <label for="imp-body" class="small">채팅 앱이 쓴 본문을 그대로 붙여 넣으세요.</label>
-          <textarea id="imp-body" rows="12" style="font-family:var(--serif);line-height:1.8"${e.status === 'draft' || e.status === 'finalized' ? ' disabled' : ''}></textarea>
+          <textarea id="imp-body" rows="12" data-brief="${n}:episode" style="font-family:var(--serif);line-height:1.8"${e.status === 'draft' || e.status === 'finalized' ? ' disabled' : ''}>${esc(S.briefDraft[`${S.name}:${n}:episode`] || '')}</textarea>
           ${e.status === 'draft' ? '<div class="small">플롯을 확정해야 본문을 저장할 수 있어요.</div>' : ''}${e.status === 'finalized' ? '<div class="small">이미 끝난 화입니다.</div>' : ''}
           <div style="align-self:flex-end"><button class="btn primary" data-action="importText" data-arg="${n}"${e.status === 'draft' || e.status === 'finalized' ? ' disabled' : ''}>${n}화 본문으로 저장</button></div>`
         : `<h2><span class="small" style="font-weight:400">② </span>받은 JSON 가져오기</h2>
           <label for="imp-json" class="small">채팅 앱의 JSON 답변을 붙여 넣으세요. 코드 블록 표시는 자동으로 지웁니다.</label>
-          <textarea id="imp-json" rows="12" class="mono"${e.status !== 'written' ? ' disabled' : ''}></textarea>
+          <textarea id="imp-json" rows="12" data-brief="${n}:state" class="mono"${e.status !== 'written' ? ' disabled' : ''}>${esc(S.briefDraft[`${S.name}:${n}:state`] || '')}</textarea>
           ${e.status !== 'written' ? '<div class="small">본문이 작성된 화에서만 쓸 수 있어요.</div>' : ''}
           <div style="align-self:flex-end"><button class="btn primary" data-action="importJson" data-arg="${n}"${e.status !== 'written' ? ' disabled' : ''}>확인하고 변경안 검토로</button></div>`}
         <div style="padding-top:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px">

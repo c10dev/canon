@@ -64,8 +64,7 @@ function autoPoll() {
     const changed = fresh && fresh.run && fresh.run.updated !== before;
     if (changed && !S.dirty) S.project = await api('GET', `/projects/${enc(name)}`).catch(() => S.project);
     if (changed && !fresh.active && S.route[2] === 'auto') await autoEstimate();  // 멈추거나 끝나면 남은 화 추정을 새로
-    const typing = document.activeElement && document.activeElement.matches('#app input, #app textarea, #app select');
-    if (changed && !typing && ['auto', 'home', ''].includes(S.route[2] || '')) render();
+    if (changed && !isTyping() && S.route[0] === 'p' && ['auto', 'home', ''].includes(S.route[2] || '')) render();
     autoPoll();
   }, 3000);
 }

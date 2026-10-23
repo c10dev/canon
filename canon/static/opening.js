@@ -46,7 +46,7 @@ function openingJobResult(j) {
     const d = S.openingData[j.ep];
     const e = ep(j.ep);
     if (j.kind === 'hook' && d && e && !j.label.includes('비교본')) e.hook = d.hook;  // 본문 판정은 서버가 작품에 붙였다
-    render();
+    if (!isTyping()) render();  // 입력 중이면 다음에 그릴 때 보인다 (pollJobs 와 같은 규칙)
   });
 }
 
@@ -190,9 +190,11 @@ Object.assign(actions, {
   },
   async openingPick(arg) {
     const [n, k] = String(arg).split(':').map(Number);
-    if (ep(n).text && !confirm(`${k}번을 ${n}화 본문으로 바꿀까요?`)) return;
+    const unsaved = textUnsaved(n);
+    if ((ep(n).text || unsaved) && !confirm(`${k}번을 ${n}화 본문으로 바꿀까요?${unsaved ? '\n고치던 본문은 먼저 저장해 이전 판에 남깁니다.' : ''}`)) return;
     await run('공개하는 중', async () => {
       await saveIfDirty();
+      await flushText(n);  // 저장하지 않은 본문을 먼저 저장해야 바꿀 때 이전 판에 남는다 (rwAdopt 와 같다)
       const r = await api('POST', `/projects/${enc(S.name)}/research/compare/${n}/pick`, { k, adopt: true });
       S.project = r.project;
       delete S.textDraft[n];
