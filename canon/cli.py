@@ -36,6 +36,7 @@
   python -m canon export 내소설 [--from 1 --to 3 --format blank|compact|indent|raw -o 파일.txt]   다른 곳에 붙여 넣을 본문
   python -m canon illust 내소설 3 ["그릴 문장"] [--ask "뒷모습으로" --model v5-full | --list]   NovelAI 삽화 프롬프트 (문장이 없으면 AI 가 장면을 고름)
   python -m canon look 내소설 hero [-y]   인물 설정을 삽화 외형 태그로 옮겨 저장 (화마다 같은 모습)
+  python -m canon voice 내소설 heroine [--ask "..." | --set "..."]   이 인물 시점 화의 서술 말투 (AI 초안 또는 직접)
   python -m canon show 내소설 [섹션]       섹션 rel 은 관계 역학을 보여 준다
   python -m canon view 내소설 numbers|words   관계를 숫자로 볼지 말로 볼지
   python -m canon adjust 내소설 a b --warmth 0.3 --trust 0.6   a 가 b 를 보는 관계를 직접 보정
@@ -1201,6 +1202,27 @@ def cmd_illust(a: argparse.Namespace) -> None:
     print(f"\n저장: {store.save(a.name, p)}")
 
 
+def cmd_voice(a: argparse.Namespace) -> None:
+    """시점 서술 말투: 지금 값을 보이고, AI 초안을 받아 저장하거나 --set 으로 직접 적는다."""
+    p = store.load(a.name)
+    c = next((x for x in p.characters if a.cid in (x.id, x.name)), None)
+    if c is None:
+        sys.exit(f"인물을 찾지 못했습니다: {a.cid} (인물 id 나 이름)")
+    if c.narration_voice:
+        print(f"지금 {c.name} 시점 서술 말투:\n{c.narration_voice}\n")
+    if a.set is not None:
+        c.narration_voice = a.set.strip()
+        print(f"저장: {store.save(a.name, p)}")
+        return
+    s = pipeline.suggest_voice(get_llm("plan"), p, c.id, a.ask or "")
+    print(f"제안:\n{s.voice}")
+    if s.note:
+        print(f"\n{s.note}")
+    if confirm(f"{c.name} 시점 화의 서술 말투로 저장할까요?", a.yes):
+        c.narration_voice = s.voice
+        print(f"저장: {store.save(a.name, p)}")
+
+
 def cmd_look(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     s = pipeline.suggest_look(get_llm("illustration"), p, a.cid)
@@ -1513,6 +1535,9 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--model", choices=list(illust.MODELS), help="NovelAI 모델 (기본: 작품 설정)")
     sp.add_argument("--list", action="store_true", help="저장한 삽화 프롬프트 보기")
     add("look", cmd_look, "cid")
+    sp = add("voice", cmd_voice, "cid")
+    sp.add_argument("--ask", help="AI 에게 바라는 것 (예: 더 수다스럽게)")
+    sp.add_argument("--set", help="AI 없이 직접 적기 (빈 문자열이면 지움)")
     sp = add("show", cmd_show, yes=False)
     sp.add_argument("section", nargs="?")
 

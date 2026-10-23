@@ -1085,7 +1085,7 @@ def passage_prompt(p: Project, n: int, sel: Selection, message: str, preset: str
 
 # 확정된 사실{f" (이번 화와 관련된 것만, {facts_cut}개 생략)" if facts_cut else ""}
 {chr(10).join("- " + f for f in facts) or "없음"}{f"{chr(10)}{chr(10)}# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것){chr(10)}{els}" if els else ""}
-{f"{chr(10)}# 이번 화에 나오는 조연 · 단역 설정{chr(10)}{dump(extra)}{chr(10)}" if extra else ""}
+{f"{chr(10)}# 이번 화에 나오는 조연 · 단역 설정{chr(10)}{dump(cast_view(extra))}{chr(10)}" if extra else ""}
 # 인물 현재 상태 ({n - 1}화 종료 시점)
 {dump(state_view(p, states)) or "1화 시작 시점, 설정 그대로"}
 
@@ -1132,11 +1132,51 @@ def pov_of(p: Project, n: int) -> tuple[str, str]:
     return "", ""
 
 
+def char_in_text(p: Project, text: str) -> Character | None:
+    """글 속 이름(또는 id)으로 인물 찾기. 긴 이름부터 봐서 겹치는 이름을 덜 헷갈린다."""
+    if not text:
+        return None
+    return next((c for c in sorted(p.characters, key=lambda c: -len(c.name))
+                 if (c.name and c.name in text) or c.id in text), None)
+
+
+def pov_character(p: Project, n: int) -> Character | None:
+    """n화의 시점 인물. 화에 정한 인물 → 구간 · 아크 시점 글 속 인물 → 작품 기본 시점 글 속 인물(이름이 없고 '주인공'이면 역할이 주인공인 인물).
+    전지 시점이면 없음. 화면의 povChar(static/app.js)와 같은 규칙."""
+    e = next((x for x in p.episodes if x.plot.number == n), None)
+    if e and e.plot.pov:
+        return next((c for c in p.characters if e.plot.pov in (c.id, c.name)), None)
+    if e and e.plot.pov_mode:
+        return None
+    act = p.act_for(n)
+    arc = p.arc_for(n) if p.serial else None
+    plan = ((act.pov if act else "") or (arc.pov if arc else "")).strip()
+    if plan:
+        return None if "전지" in plan else char_in_text(p, plan)
+    base = p.style.narration_pov
+    if "전지" in base:
+        return None
+    lead = next((c for c in p.characters if "주인공" in c.role), None) if "주인공" in base else None
+    return char_in_text(p, base) or lead
+
+
+def voice_line(p: Project, n: int) -> str:
+    """시점 인물에게 서술 말투가 있으면 그 지시 한 줄."""
+    c = pov_character(p, n)
+    if not c or not c.narration_voice.strip():
+        return ""
+    body = "\n".join(f"  {x.strip()}" for x in c.narration_voice.strip().splitlines() if x.strip())
+    return (f"- 서술 말투 ({c.name} 시점)\n{body}\n"
+            "  지문과 내면 독백에 이 말투를 씁니다. 대사는 인물마다 speech_style 을 따릅니다. "
+            "스타일 프로필의 어미 · 시제 · 문체 표지와 부딪히면 이 말투를 따르고, 문장 리듬과 묘사 밀도는 스타일 프로필을 따릅니다.")
+
+
 def pov_block(p: Project, n: int) -> str:
-    """이번 화 서술 시점과, 직전 화와 다르면 전환 안내. 어느 화에도 시점을 따로 적지 않았으면 빈칸."""
+    """이번 화 서술 시점과, 직전 화와 다르면 전환 안내, 시점 인물의 서술 말투. 어느 것도 없으면 빈칸."""
     key, text = pov_of(p, n)
     prev_key, prev_text = pov_of(p, n - 1) if n > 1 else ("", "")
-    if not key and not prev_key:
+    voice = voice_line(p, n)
+    if not key and not prev_key and not voice:
         return ""
     default = f"작품 기본 시점({p.style.narration_pov})" if p.style.narration_pov else "작품 기본 시점"
     lines = [f"이번 화: {text or default}"]
@@ -1151,6 +1191,11 @@ def pov_block(p: Project, n: int) -> str:
     if n > 1 and key != prev_key:
         lines.append(f"- 시점이 바뀝니다 (직전 {n - 1}화: {prev_text or default}). 직전 화 끝부분의 시점을 이어받지 말고, "
                      "첫 문단에서 지금 시점 인물이 누구인지 독자가 바로 알게 씁니다.")
+        prev = pov_character(p, n - 1)
+        if voice and prev and prev.narration_voice.strip() and prev.id != pov_character(p, n).id:
+            lines.append(f"- 직전 화 끝부분은 {prev.name}의 서술 말투입니다. 그 어미를 이어 쓰지 않습니다.")
+    if voice:
+        lines.append(voice)
     return "\n".join(lines)
 
 
@@ -1198,7 +1243,7 @@ def build_episode_context(p: Project, n: int) -> str:
 
 # 이번 화 등장 인물
 {cast_names or "설정의 인물 전원"}
-{f"{chr(10)}# 이번 화에 나오는 조연 · 단역 설정{chr(10)}{dump(extra)}{chr(10)}" if extra else ""}
+{f"{chr(10)}# 이번 화에 나오는 조연 · 단역 설정{chr(10)}{dump(cast_view(extra))}{chr(10)}" if extra else ""}
 # 인물 현재 상태 ({n - 1}화 종료 시점)
 {dump(state_view(p, states)) or "1화 시작 시점, 설정 그대로"}
 
@@ -1260,7 +1305,7 @@ def static_context(p: Project) -> str:
 {samples}
 
 # 인물 설정{" (주역. 조연 · 단역은 나오는 화에만 뒤에 넣는다)" if len(static_characters(p)) < len(p.characters) else ""}
-{dump(static_characters(p))}"""
+{dump(cast_view(static_characters(p)))}"""
 
 
 def device_block(p: Project, n: int) -> str:
@@ -1475,7 +1520,7 @@ def check_prompt(p: Project, n: int) -> str:
 {n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
 - 확인할 것: 확정 사실, 이야기 요소와 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
 - 동선: 한 장면 안에서 인물의 위치, 몸이 향한 쪽(앞 · 뒤, 등 · 배), 자세, 손에 든 것, 가려진 곳이 바꾸는 행동 없이 달라지는지 봅니다. 예: 등을 돌리고 망토로 몸을 가렸는데 다음 문장에서 그 인물의 표정이나 가슴께가 보임. 이때 source_episode 는 {n}, source_quote 는 같은 화의 앞 문장입니다.
-- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜. 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.
+- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.
 - source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 설정이나 인물 상태면 source_episode 는 0 입니다.
 - 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
 - episode 는 {n} 입니다."""
@@ -1815,6 +1860,43 @@ def illust_prompt(p: Project, n: int, sel: Selection | None, request: str = "") 
 - negative 에는 이 장면에서 특히 나오면 안 되는 것만 적습니다 (예: 우산을 쓰지 않은 비 장면이면 umbrella). 일반적인 품질 부정어는 넣지 않습니다.
 - rating: {rating}
 - scene 에는 고른 장면을 한국어 한 문장으로 적습니다."""
+
+
+def cast_view(cs: list[Character]) -> list[dict]:
+    """본문 · 검수에 넣는 인물 설정. 서술 말투는 그 인물이 시점 인물인 화에만 시점 블록으로 넣는다 (다른 화에 옮아오지 않게)."""
+    return [c.model_dump(exclude={"narration_voice"}) for c in cs]
+
+
+SYSTEM_VOICE = (
+    "당신은 한국 웹소설 편집자입니다. 한 인물이 시점 인물인 화에서 서술(지문과 내면 독백)이 어떤 말투로 흘러야 "
+    "그 인물답게 읽히는지 정리합니다. 대사 말투가 아니라 서술 말투를 씁니다. 모든 출력은 한국어로 작성합니다."
+)
+
+
+def voice_prompt(p: Project, cid: str, request: str = "") -> str:
+    c = next(c for c in p.characters if c.id == cid)
+    style = p.style.model_dump(include={"narration_pov", "tense", "sentence_rhythm", "inner_monologue", "vocabulary"})
+    return f"""아래 인물이 시점 인물인 화의 서술 말투를 정해 주세요.
+
+# 작품
+{meta_text(p)}
+
+# 인물
+{dump(c.model_dump(include={"id", "name", "role", "age", "gender", "personality", "background", "goal", "wound", "speech_style", "narration_voice"}))}
+
+# 작품 기본 문체 (다른 시점 화는 이 문체로 씁니다)
+{dump(style)}
+
+# 작가의 요청
+{request.strip() or "없음"}
+
+요구사항:
+- voice 에는 서술 어미와 문장 끝맺음(예: ~했다 / ~했어요 / ~인 걸까요?), 문장 길이와 리듬, 내면 독백을 어떻게 섞는지, 자주 쓰는 표현, 피할 것을 3~6줄로 적습니다.
+- 인물의 나이, 성격, 배경, 대사 말투(speech_style)에서 출발하되 대사를 그대로 옮기지 않습니다. 서술은 대사보다 조금 차분해도 됩니다.
+- 작품 기본 시점이 3인칭이면 이 인물 화의 서술도 3인칭으로 두고, 어휘와 내면 독백으로만 인물 색을 냅니다. 1인칭이면 '나'의 말투로 씁니다.
+- 마지막 줄은 '예: ' 뒤에 이 말투로 쓴 서술 문장 두 개를 붙입니다. 대사(따옴표)는 넣지 않고, 작품의 실제 사건을 지어내지 않습니다.
+- 이미 적힌 narration_voice 가 있으면 그것을 살려 다듬습니다.
+- note 에는 이 말투를 고른 까닭과, 작품 기본 문체와 달라서 독자가 시점 전환을 알아챌 지점을 한두 문장으로 적습니다."""
 
 
 def look_prompt(p: Project, cid: str) -> str:

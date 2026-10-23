@@ -23,6 +23,7 @@ from .schema import (
     ImpactConflict,
     ImpactReport,
     LookSuggestion,
+    VoiceSuggestion,
     NameOption,
     NameOptions,
     OpeningOption,
@@ -391,6 +392,10 @@ class MockLLM:
         if schema is LookSuggestion:
             return LookSuggestion(subject="girl", look=["Black_hair", "short hair", "brown eyes", "teenage"], outfit=["school uniform"],
                                   note="설정에 눈 색이 없어 갈색으로 정했어요.")  # type: ignore[return-value]
+        if schema is VoiceSuggestion:
+            return VoiceSuggestion(voice="서술 어미는 ~했어요, ~인 걸까요? 처럼 부드럽게 끝낸다.\n짧은 문장 뒤에 스스로 묻는 문장을 하나 붙인다.\n"
+                                   "예: 바람이 차가웠어요. 그 사람도 이 바람을 맞고 있을까요?",
+                                   note="대사 말투보다 한 단계 차분하게 잡았어요.")  # type: ignore[return-value]
         if schema is StyleLearning:
             return _learning(hint)  # type: ignore[return-value]
         if schema is PassageRevision:

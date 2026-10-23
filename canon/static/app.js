@@ -1946,6 +1946,7 @@ function viewSetup() {
       ${input('두려운 것 · 약점', b + '.wound')}
       ${input('숨기는 것', b + '.secrets', { kind: 'list', rows: 2 })}
       ${input('말투', b + '.speech_style', { rows: 2, hint: '어미, 호칭, 대사 한 줄' })}
+      ${voiceField(c, b)}
       <details><summary>더 자세히: 성격, 배경, 외모, 아크</summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
         ${input('성격', b + '.personality', { rows: 2 })}${input('배경', b + '.background', { rows: 2 })}${input('외모', b + '.appearance')}
         ${input('아크', b + '.arc', { hint: '시작 → 결말' })}${input('id', b + '.id', { hint: '관계와 플롯이 인물을 찾는 값. 보통 바꿀 필요 없어요' })}
@@ -2232,6 +2233,15 @@ function povBadge(n) {
   const label = v.c ? (v.c.name || v.c.id) : '전지';
   const tip = `${label} 시점 (${v.from === '화' ? '이 화에 정함' : v.from + '에서 물려받음'})${povText(n) ? ' · ' + povText(n) : ''}`;
   return `<span class="pov-chip ${kind}${v.from === '화' ? '' : ' inherit'}" title="${esc(tip)}">${esc(label)}</span>`;
+}
+
+/** 인물 카드의 시점 서술 말투. 이 인물이 시점 인물인 화에만 본문 지시에 들어간다 (prompts.voice_line) */
+function voiceField(c, b) {
+  const note = (S.voices || {})[c.id];
+  return `${input('시점 서술 말투', b + '.narration_voice', { rows: 3, autogrow: true, hint: `${c.name || '이 인물'} 시점 화의 지문 · 내면 독백`, placeholder: '예: 서술 어미는 ~했어요, ~인 걸까요? 처럼 부드럽게. 비우면 작품 문체 그대로' })}
+    ${note ? `<div class="note info">${esc(note)}</div>` : ''}
+    <div class="between"><span class="small">대사는 위의 말투를 따라요. 이 말투로 쓴 화는 어미 관련 문체 경고(과거형 비율, 문체 거리, 표지)를 빼요.</span>
+      <button type="button" class="btn small" data-action="voiceAI" data-arg="${esc(c.id)}">설정에서 AI 로 초안</button></div>`;
 }
 
 /** 플롯 편집기의 시점 칸. 비우면 구간 · 아크 시점, 그것도 없으면 작품 기본 시점 */
@@ -2914,6 +2924,18 @@ const rsLabel = (b) => (b.model ? `${b.provider}:${b.model}` : b.provider);
 const rsNum = (v, d = 0) => (v == null ? '-' : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }));
 
 Object.assign(actions, {
+  async voiceAI(cid) {
+    const c = P().characters.find((x) => x.id === cid);
+    if (!c) return;
+    if ((c.narration_voice || '').trim() && !confirm('지금 적힌 서술 말투를 AI 초안으로 바꿀까요? 저장하기 전에는 되돌릴 수 있어요')) return;
+    await run('서술 말투 초안 만드는 중', async () => {
+      const s = await api('POST', `/projects/${enc(S.name)}/characters/${enc(cid)}/voice`);
+      c.narration_voice = s.voice;
+      S.voices = { ...(S.voices || {}), [cid]: s.note || '' };
+      markDirty();
+      toast('초안을 칸에 넣었어요. 고친 뒤 저장하세요');
+    });
+  },
   rsTab(tab) {
     S.rs.tab = tab;
     render();
