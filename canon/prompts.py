@@ -169,7 +169,8 @@ def arc_prompt(p: Project) -> str:
 {arc_range_rule(p.meta.target_episodes)}
 - goal 은 그 구간이 끝날 때 도달해야 하는 이야기 상태, key_turn 은 핵심 전환점입니다.
 - 주인공의 arc 가 결 구간에서 완성되도록 합니다.
-- 기 구간은 소개가 아니라 발단입니다. 1화에 사건이 시작되고, 주인공의 결핍과 작품의 핵심 장치가 1~3화 안에 드러나며, 3화 안에 작은 보상이 하나 옵니다."""
+- 기 구간은 소개가 아니라 발단입니다. 1화에 사건이 시작되고, 주인공의 결핍과 작품의 핵심 장치가 1~3화 안에 드러나며, 3화 안에 작은 보상이 하나 옵니다.
+{pov_plan_rule(p, "구간")}"""
 
 
 def arc_range_rule(total: int) -> str:
@@ -281,12 +282,14 @@ def lines_block(p: Project) -> str:
 def plot_rules(p: Project, opening: bool = False) -> str:
     """화별 플롯을 쓸 때 지킬 규칙. 초안 생성과 대화형 수정이 같이 쓴다.
     opening 이면 1~3화 규칙과 장르별 초반 박자를 붙인다 (다룰 화에 1~3화가 있을 때만, 장편 뒤쪽 프롬프트를 키우지 않게)."""
+    pov_rule = pov_plot_rule(p)
     common = f"""- 각 화는 소속 구간(act)의 goal 을 향해 전진해야 하며, 구간의 key_turn 은 해당 구간 안의 특정 화에 배치합니다.
 - 한 화에 사건 3~6개, 분량은 약 {p.meta.words_per_episode}자 기준.
 - emotional_shift 는 감정 이름이 아니라 감정 변화가 겉으로 드러나는 행동이나 대사로 적습니다 (예: "상대의 전화를 세 번째에야 받는다").
 - 모든 화가 같은 모양이 되지 않도록, 필요한 화에는 회상, 시간 건너뛰기, 곁가지 사건, 주인공의 잘못된 선택을 씁니다. 갈등은 너무 깔끔하게 정리하지 않습니다.
 - 이야기 요소는 시점을 지킵니다. 'n화부터 생김'은 그 화 전에 사실로 쓰지 않고, '나올 화'에는 그 요소를 사건으로 넣고, '드러나는 화' 전에는 암시만 둡니다.
-- characters 에는 인물 id 만 씁니다.""" + storylines.plan_rule(p) + (opening_plot_rule(p) if opening else "")
+- characters 에는 인물 id 만 씁니다.
+{pov_rule}""" + storylines.plan_rule(p) + (opening_plot_rule(p) if opening else "")
     if not p.serial:
         return common + """
 - 매 화 ending_hook 을 둡니다. 마지막 화는 훅 대신 여운을 둡니다.
@@ -297,6 +300,22 @@ def plot_rules(p: Project, opening: bool = False) -> str:
 - 매 화 ending_hook 을 둡니다. 장면 한가운데나 새 정보가 드러나는 순간에 끊습니다. 아크 마지막 화는 다음 아크로 이어지는 떡밥으로 끊습니다. 작품 마지막 화({p.meta.target_episodes}화)만 훅 대신 여운을 둡니다.
 - 이 아크에서 심은 작은 복선은 아크 안에서 회수합니다. 아크의 payoffs 에 있는 복선은 아크가 끝나기 전에 회수합니다. 부나 작품 끝까지 끌고 갈 복선은 심을 때 그렇다고 밝힙니다.
 - 첫 아크의 큰 보상은 25화 안에 둡니다 (무료 공개 구간 안에 보상이 와야 계속 읽는다는 연재 관습)."""
+
+
+def pov_plan_rule(p: Project, unit: str) -> str:
+    """기승전결 · 아크 기획 때 서술 시점 운용 규칙. 작가가 정한 기본 시점을 함부로 바꾸지 않게 한다."""
+    base = p.style.narration_pov or "정하지 않음"
+    return (f"- pov 에는 그 {unit}의 서술 시점 운용을 한 줄로 적습니다 (예: '도현 1인칭', '서윤 3인칭 제한, 도현 시점 장면 교차'). "
+            f"작품 기본 시점은 '{base}'입니다. 작가의 요청이나 설정에 시점 전환이 있으면 따르고, "
+            f"시점 인물을 바꾸는 것이 이야기에 분명히 도움이 될 때만 바꿉니다. 기본 시점 그대로인 {unit}은 비웁니다.")
+
+
+def pov_plot_rule(p: Project) -> str:
+    """화별 플롯의 pov · pov_mode 규칙."""
+    base = p.style.narration_pov or "정하지 않음"
+    return (f"- pov 에는 이 화의 시점 인물 id, pov_mode 에는 서술 방식(1인칭, 3인칭 제한, 3인칭 전지)을 적습니다. "
+            f"소속 구간이나 아크의 pov 를 따르고, 거기에 시점이 없으면 둘 다 비워 작품 기본 시점('{base}')으로 둡니다. "
+            "시점 인물은 그 화의 characters 에 넣습니다. 시점이 바뀌는 화는 첫 장면(opening)에서 누구의 시점인지 드러나게 합니다.")
 
 
 # ---------- 초반 1~3화: 독자가 계속 읽을지 정하는 구간 ----------
@@ -552,6 +571,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 - payoffs 에는 이 아크에서 회수할 열린 복선 id 를 넣습니다. '오래됨' 표시가 있는 복선은 회수하거나 아크 안에서 다시 떠올립니다.
 - cast 에는 이 아크에 주로 나오는 인물 id 를 넣습니다. 새 인물이 필요하면 new_characters 에 전체 설정(speech_style 포함)을 넣고 tier 는 support 나 minor 로 둡니다. 이미 있는 인물을 다시 만들지 않습니다.
 - reply 에는 왜 이 아크인지, 어떤 복선을 회수하고 무엇을 다음으로 남기는지 2~4문장으로 씁니다.
+{pov_plan_rule(p, "아크")}
 - summary 는 비워 둡니다."""
 
 
@@ -990,7 +1010,7 @@ def passage_prompt(p: Project, n: int, sel: Selection, message: str, preset: str
 {dump(state_view(p, states)) or "1화 시작 시점, 설정 그대로"}
 
 # 이번 화 플롯
-{dump(ep.plot)}
+{dump(ep.plot)}{f"{chr(10)}{chr(10)}# 이번 화 서술 시점 (스타일 프로필보다 우선){chr(10)}{pov}" if (pov := pov_block(p, n)) else ""}
 
 # {n}화 본문{cut}. 【고칠 부분】부터 【여기까지】를 고칩니다
 {before}【고칠 부분】{sel.text}【여기까지】{after}
@@ -1008,6 +1028,50 @@ def passage_prompt(p: Project, n: int, sel: Selection, message: str, preset: str
 - 작가가 요청하지 않은 사건, 사실, 인물의 행동과 결정은 바꾸지 않습니다. 확정 사실과 인물 설정을 어기지 않습니다.
 - 대사는 인물 설정의 speech_style 을 따르고, 문단은 빈 줄로 나눕니다. 마크다운 기호는 쓰지 않습니다.
 - reply 에는 후보들이 어떻게 다른지 1~3문장으로 적습니다. 요청이 모호하면 가장 그럴듯하게 해석하고 그렇게 해석했다고 밝힙니다."""
+
+
+# ---------- 서술 시점: 화마다 바뀔 수 있다 ----------
+# 작품 기본 시점은 스타일 프로필 narration_pov (static_context, 캐시). 화 · 구간 · 아크에 시점을 적으면
+# 그 화에만 뒤쪽 블록으로 덮어쓴다. 직전 화 끝부분을 이어 쓰며 시점이 따라 굳는 것을 전환 안내로 끊는다.
+
+def pov_of(p: Project, n: int) -> tuple[str, str]:
+    """n화의 서술 시점 (비교 키, 한 줄 설명). 화 플롯 → 구간 → 아크 순서로 찾고, 없으면 ("", "") 곧 작품 기본."""
+    e = next((x for x in p.episodes if x.plot.number == n), None)
+    if e and (e.plot.pov or e.plot.pov_mode):
+        c = next((c for c in p.characters if e.plot.pov in (c.id, c.name)), None) if e.plot.pov else None
+        who = f"{c.name}({c.id})" if c else e.plot.pov
+        mode = e.plot.pov_mode or (f"작품 기본({p.style.narration_pov})" if p.style.narration_pov else "")
+        text = ", ".join(x for x in [f"시점 인물 {who}" if who else "", f"서술 {mode}" if mode else ""] if x)
+        return f"{c.id if c else e.plot.pov}|{e.plot.pov_mode}", text
+    act = p.act_for(n)
+    if act and act.pov.strip():
+        return act.pov.strip(), act.pov.strip()
+    arc = p.arc_for(n) if p.serial else None
+    if arc and arc.pov.strip():
+        return arc.pov.strip(), arc.pov.strip()
+    return "", ""
+
+
+def pov_block(p: Project, n: int) -> str:
+    """이번 화 서술 시점과, 직전 화와 다르면 전환 안내. 어느 화에도 시점을 따로 적지 않았으면 빈칸."""
+    key, text = pov_of(p, n)
+    prev_key, prev_text = pov_of(p, n - 1) if n > 1 else ("", "")
+    if not key and not prev_key:
+        return ""
+    default = f"작품 기본 시점({p.style.narration_pov})" if p.style.narration_pov else "작품 기본 시점"
+    lines = [f"이번 화: {text or default}"]
+    e = next((x for x in p.episodes if x.plot.number == n), None)
+    mode = (e.plot.pov_mode or p.style.narration_pov) if e else ""
+    if key:
+        lines.append("- 스타일 프로필의 narration_pov 대신 이 시점을 따릅니다."
+                     + ("" if "전지" in mode else " 시점 인물이 보고 듣고 아는 것만 서술하고, 다른 인물의 속마음은 행동과 대사로만 드러냅니다."))
+    c = next((c for c in p.characters if e.plot.pov in (c.id, c.name)), None) if e and e.plot.pov else None
+    if c and "1인칭" in mode:
+        lines.append(f"- 1인칭의 '나'는 {c.name}입니다.")
+    if n > 1 and key != prev_key:
+        lines.append(f"- 시점이 바뀝니다 (직전 {n - 1}화: {prev_text or default}). 직전 화 끝부분의 시점을 이어받지 말고, "
+                     "첫 문단에서 지금 시점 인물이 누구인지 독자가 바로 알게 씁니다.")
+    return "\n".join(lines)
 
 
 def build_episode_context(p: Project, n: int) -> str:
@@ -1042,6 +1106,8 @@ def build_episode_context(p: Project, n: int) -> str:
     els = f"\n\n# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것)\n{els}" if els else ""
     line = storylines.episode_block(p, n)
     line = f"\n\n# 이번 화의 이야기 줄기\n{line}" if line else ""
+    pov = pov_block(p, n)
+    pov = f"\n\n# 이번 화 서술 시점 (스타일 프로필보다 우선)\n{pov}" if pov else ""
 
     return f"""{static_context(p)}
 
@@ -1069,7 +1135,7 @@ def build_episode_context(p: Project, n: int) -> str:
 {last_text[-1500:] or "없음"}
 
 # 이번 화 플롯
-{dump(ep.plot)}{material_block(p, n)}"""
+{dump(ep.plot)}{pov}{material_block(p, n)}"""
 
 
 MATERIAL_LIMIT = 6000  # 원고 재료로 넣는 옛 화 하나의 본문 글자 수
@@ -1214,6 +1280,8 @@ def check_prompt(p: Project, n: int) -> str:
     els = f"\n\n# 이야기 요소 ({n}화 시점에 사실인 것)\n{els}" if els else ""
     line = storylines.episode_block(p, n)
     line = f"\n\n# {n}화의 이야기 줄기\n{line}" if line else ""
+    pov = pov_block(p, n)
+    pov = f"\n\n# {n}화 서술 시점 (스타일 프로필보다 우선)\n{pov}" if pov else ""
     return f"""{static_context(p)}
 
 # 확정된 사실
@@ -1232,7 +1300,7 @@ def check_prompt(p: Project, n: int) -> str:
 {past or "없음 (첫 화)"}
 
 # {n}화 플롯
-{dump(ep.plot)}{line}
+{dump(ep.plot)}{line}{pov}
 
 # {n}화 본문 (검수 대상)
 {ep.text}
@@ -1240,6 +1308,7 @@ def check_prompt(p: Project, n: int) -> str:
 {n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
 - 확인할 것: 확정 사실, 이야기 요소와 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
 - 동선: 한 장면 안에서 인물의 위치, 몸이 향한 쪽(앞 · 뒤, 등 · 배), 자세, 손에 든 것, 가려진 곳이 바꾸는 행동 없이 달라지는지 봅니다. 예: 등을 돌리고 망토로 몸을 가렸는데 다음 문장에서 그 인물의 표정이나 가슴께가 보임. 이때 source_episode 는 {n}, source_quote 는 같은 화의 앞 문장입니다.
+- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜. 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.
 - source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 설정이나 인물 상태면 source_episode 는 0 입니다.
 - 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
 - episode 는 {n} 입니다."""

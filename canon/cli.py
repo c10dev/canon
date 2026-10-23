@@ -13,6 +13,7 @@
   python -m canon arcs 내소설           장편: 부와 아크 진행 보기
   python -m canon recap 내소설 [arc|part 번호]   장편: 끝난 아크·부 요약 (승인 후 저장)
   python -m canon plot 내소설 [--from 1 --to 16]   화별 플롯 초안 (장편은 기본으로 플롯이 빈 아크)
+  python -m canon pov 내소설 [6-12 ally --mode 1인칭 | --clear]   화별 서술 시점 보기 · 정하기 (남주 → 여주 시점 전환 등)
   python -m canon revise 내소설 "3화 전개가 너무 빨라"   말로 구조와 플롯 고치기 (변경안 확인 후 반영, 대화는 웹과 같이 저장)
   python -m canon causal 내소설 [list | add | show ID | impact ID | rm ID]   인과율: 요소·설정·사건을 더하고 영향 분석
   python -m canon lines 내소설 [map | suggest | add | tag ID 4,5 | rm ID]   이야기 줄기: 서브플롯 · 과거 회상 · 외전 노선도와 제안
@@ -209,7 +210,7 @@ def cmd_arc(a: argparse.Namespace) -> None:
         sys.exit("장편 연재는 작품 전체 기승전결 대신 부 구성(series)과 아크(nextarc)로 나눕니다")
     plan = pipeline.plan_arc(get_llm("plan"), p)
     for act in plan.acts:
-        print(f"[{act.name}] {act.start_ep}~{act.end_ep}화  목표: {act.goal}  / 전환점: {act.key_turn}")
+        print(f"[{act.name}] {act.start_ep}~{act.end_ep}화  목표: {act.goal}  / 전환점: {act.key_turn}{_act_pov(act)}")
     if confirm("이 구조로 확정할까요?", a.yes):
         p.arc = plan.acts
         print(f"저장: {store.save(a.name, p)}")
@@ -229,9 +230,49 @@ def cmd_plot(a: argparse.Namespace) -> None:
         start, end = a.start or 1, a.end or (p.planned_until() if p.serial else p.meta.target_episodes)
     batch = pipeline.draft_plots(get_llm("plan"), p, start, end)
     for e in batch.episodes:
-        print(f"\n{e.number}화 [{e.act}] {e.title}\n  {e.summary}\n  사건: {' / '.join(e.events)}\n  훅: {e.ending_hook}")
+        print(f"\n{e.number}화 [{e.act}] {e.title}\n  {e.summary}\n  사건: {' / '.join(e.events)}\n  훅: {e.ending_hook}{_plot_pov(e)}")
     pipeline.apply_plots(p, batch)
     print(f"\n초안 저장: {store.save(a.name, p)}  (수정 후 confirm 으로 확정)")
+
+
+def _act_pov(act) -> str:
+    return f"  / 시점: {act.pov}" if act.pov else ""
+
+
+def _plot_pov(e) -> str:
+    return f"\n  시점: {' '.join(x for x in [e.pov, e.pov_mode] if x)}" if e.pov or e.pov_mode else ""
+
+
+def cmd_pov(a: argparse.Namespace) -> None:
+    """화별 서술 시점 보기 · 정하기. 범위만 주면 보기, 인물이나 --mode 를 주면 그 화들에 적는다."""
+    p = store.load(a.name)
+    nums = sorted(e.plot.number for e in p.episodes)
+    if a.range:
+        lo, _, hi = a.range.partition("-")
+        lo_n = int(lo)
+        nums = [n for n in nums if lo_n <= n <= int(hi or lo)]
+    if a.character or a.mode is not None or a.clear:
+        if a.character and not any(a.character in (c.id, c.name) for c in p.characters):
+            sys.exit(f"인물을 찾지 못했습니다: {a.character} (인물 id 나 이름)")
+        cid = next((c.id for c in p.characters if a.character in (c.id, c.name)), "") if a.character else ""
+        done, skipped = [], []
+        for n in nums:
+            e = p.episode(n)
+            if e.status in ("written", "finalized"):
+                skipped.append(n)
+                continue
+            e.plot.pov, e.plot.pov_mode = ("", "") if a.clear else (cid or e.plot.pov, e.plot.pov_mode if a.mode is None else a.mode)
+            done.append(n)
+        if skipped:
+            print(f"본문이 있는 화는 플롯을 바꾸지 않습니다: {skipped}화")
+        print(f"시점 {'지움' if a.clear else '적음'}: {done}화")
+        store.save(a.name, p)
+    print(f"작품 기본 시점: {p.style.narration_pov or '정하지 않음'}")
+    prev = prompts.pov_of(p, nums[0] - 1)[0] if nums and nums[0] > 1 else None
+    for n in nums:
+        key, text = prompts.pov_of(p, n)
+        print(f"  {n:>3}화  {text or '작품 기본'}{'  ← 시점 바뀜' if prev is not None and key != prev else ''}")
+        prev = key
 
 
 def cmd_revise(a: argparse.Namespace) -> None:
@@ -242,11 +283,11 @@ def cmd_revise(a: argparse.Namespace) -> None:
     if rev.total_episodes:
         print(f"\n총 화수: {p.meta.target_episodes}화 → {rev.total_episodes}화")
     for act in rev.acts:
-        print(f"[{act.name}] {act.start_ep}~{act.end_ep}화  목표: {act.goal}  / 전환점: {act.key_turn}")
+        print(f"[{act.name}] {act.start_ep}~{act.end_ep}화  목표: {act.goal}  / 전환점: {act.key_turn}{_act_pov(act)}")
     for e in rev.episodes:
         cur = next((x for x in p.episodes if x.plot.number == e.number), None)
         mark = f" ({cur.status})" if cur else " (새 화)"
-        print(f"\n{e.number}화{mark} {e.title}\n  {e.summary}\n  사건: {' / '.join(e.events)}\n  훅: {e.ending_hook}")
+        print(f"\n{e.number}화{mark} {e.title}\n  {e.summary}\n  사건: {' / '.join(e.events)}\n  훅: {e.ending_hook}{_plot_pov(e)}")
     if msg.revision and confirm("이 변경안을 모두 반영할까요? (확정된 화는 초안으로 돌아갑니다)", a.yes):
         msg.applied = pipeline.apply_revision(p, rev, True, [e.number for e in rev.episodes])
         msg.outcome = "applied"
@@ -258,8 +299,10 @@ def cmd_revise(a: argparse.Namespace) -> None:
 def _print_arc(x) -> None:
     print(f"\n아크 {x.number} {x.title} ({x.start_ep}~{x.end_ep}화, {x.end_ep - x.start_ep + 1}화)")
     print(f"  목표: {x.goal}\n  갈등: {x.conflict}\n  보상: {x.payoff}")
+    if x.pov:
+        print(f"  서술 시점: {x.pov}")
     for act in x.acts:
-        print(f"  [{act.name}] {act.start_ep}~{act.end_ep}화  {act.goal}  / 전환점: {act.key_turn}")
+        print(f"  [{act.name}] {act.start_ep}~{act.end_ep}화  {act.goal}  / 전환점: {act.key_turn}{_act_pov(act)}")
     if x.cast:
         print(f"  주요 인물: {', '.join(x.cast)}")
     if x.payoffs:
@@ -1230,6 +1273,11 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--from", dest="start", type=int)
     sp.add_argument("--to", dest="end", type=int)
     add("revise", cmd_revise, "message")
+    sp = add("pov", cmd_pov, yes=False)
+    sp.add_argument("range", nargs="?", help="화 범위 (예: 6-12, 7). 비우면 전체")
+    sp.add_argument("character", nargs="?", help="시점 인물 id 나 이름")
+    sp.add_argument("--mode", help="서술 방식 (1인칭, 3인칭 제한, 3인칭 전지). 빈 문자열이면 작품 기본")
+    sp.add_argument("--clear", action="store_true", help="범위의 화 시점을 지워 구간 · 작품 기본으로 되돌림")
     sp = add("lines", cmd_lines)
     sp.add_argument("action", nargs="?", choices=["map", "suggest", "add", "tag", "rm"], default="map")
     sp.add_argument("args", nargs="*")

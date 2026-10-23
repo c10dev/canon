@@ -28,9 +28,9 @@ Object.assign(S, {
 const PLOT_FIELDS = [
   ['title', '제목'], ['summary', '요약'], ['events', '사건 순서'], ['characters', '등장 인물'],
   ['emotional_shift', '감정 변화'], ['ending_hook', '엔딩 훅'], ['foreshadow_plant', '심을 복선'], ['foreshadow_payoff', '회수할 복선'],
-  ['storyline', '이야기 줄기'], ['threads', '끼어드는 줄기'],
+  ['storyline', '이야기 줄기'], ['threads', '끼어드는 줄기'], ['pov', '시점 인물'], ['pov_mode', '서술 방식'],
 ];
-const ACT_FIELDS = [['goal', '구간 목표'], ['key_turn', '전환점']];
+const ACT_FIELDS = [['goal', '구간 목표'], ['key_turn', '전환점'], ['pov', '서술 시점']];
 const LOCKED_STATUS = ['written', 'finalized'];
 
 function chatMessages(topic) {
