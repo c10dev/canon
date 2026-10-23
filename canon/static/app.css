@@ -198,6 +198,14 @@ details > summary { cursor: pointer; font-size: 13px; color: var(--accent); min-
 .ep-card .t { font-size: 14px; font-weight: 700; }
 .ep-card .ep-top { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 8px; }
 .ep-card .ep-top strong { font-size: 13px; }
+.ep-card .ep-chips { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+/* 시점 배지: 여주인공 핑크, 남주인공 파랑, 그 밖의 인물 보라, 전지 회색. 물려받은 시점은 점선 테두리 */
+.pov-chip { display: inline-block; max-width: 7em; padding: 1px 7px; border-radius: 6px; border: 1px solid transparent; font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pov-chip.her { background: #FCE7F1; color: #9D1B5A; }
+.pov-chip.him { background: #DCE9FC; color: #1D4FA0; }
+.pov-chip.other { background: var(--act-3); color: var(--act-3-ink); }
+.pov-chip.omni { background: var(--chip); color: var(--text-2); }
+.pov-chip.inherit { border-style: dashed; border-color: currentColor; }
 .ep-card .s { font-size: 12px; color: var(--muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 
 .prose { padding: 36px clamp(20px, 6%, 64px); }
