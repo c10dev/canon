@@ -2148,9 +2148,42 @@ function povText(n) {
   return arc && (arc.pov || '').trim() ? arc.pov.trim() : '';
 }
 
-function povBadge(e) {
-  if (!e.plot.pov && !e.plot.pov_mode) return '';
-  return `<span class="line-badge pov-badge" style="--lc:var(--text-2)"><i aria-hidden="true"></i>시점 · ${esc(povText(e.plot.number))}</span>`;
+/** 글 속 이름으로 인물 찾기. 긴 이름부터 봐서 '서윤'이 '윤'보다 먼저 맞는다 */
+function charInText(text) {
+  if (!text) return null;
+  return [...P().characters].filter((c) => c.name).sort((a, b) => b.name.length - a.name.length)
+    .find((c) => text.includes(c.name) || text.includes(c.id)) || null;
+}
+
+/** n화를 누구 시점으로 쓰는지: 화에 정한 인물 → 구간 · 아크 시점 글 속 인물 → 작품 기본 시점 (주인공이면 역할이 주인공인 인물) */
+function povChar(n) {
+  const e = ep(n);
+  if (e && e.plot.pov) return { c: P().characters.find((c) => c.id === e.plot.pov) || null, omni: false, from: '화' };
+  if (e && e.plot.pov_mode) return { c: null, omni: e.plot.pov_mode.includes('전지'), from: '화' };
+  const act = actOf(n);
+  const arc = serial() ? arcOf(n) : null;
+  const plan = ((act && act.pov) || (arc && arc.pov) || '').trim();
+  if (plan) return { c: charInText(plan), omni: plan.includes('전지'), from: act && act.pov ? '구간' : '아크' };
+  const base = P().style.narration_pov || '';
+  if (base.includes('전지')) return { c: null, omni: true, from: '작품 기본' };
+  const lead = base.includes('주인공') ? P().characters.find((c) => (c.role || '').includes('주인공')) : null;
+  return { c: charInText(base) || lead || null, omni: false, from: '작품 기본' };
+}
+
+/** 성별은 설정 칸, 비었으면 역할 글(여주 · 남주)로 본다 */
+function charGender(c) {
+  const role = c.role || '';
+  return c.gender || (role.includes('여주') ? '여' : role.includes('남주') ? '남' : '');
+}
+
+/** 화 카드 위 시점 배지. 여주인공 핑크, 남주인공 파랑, 그 밖의 인물은 보라, 전지 시점은 회색. 화에 직접 정하지 않고 물려받은 시점은 점선 */
+function povBadge(n) {
+  const v = povChar(n);
+  if (!v.c && !v.omni) return '';
+  const kind = v.c ? ((v.c.tier || 'main') === 'main' ? { 여: 'her', 남: 'him' }[charGender(v.c)] || 'other' : 'other') : 'omni';
+  const label = v.c ? (v.c.name || v.c.id) : '전지';
+  const tip = `${label} 시점 (${v.from === '화' ? '이 화에 정함' : v.from + '에서 물려받음'})${povText(n) ? ' · ' + povText(n) : ''}`;
+  return `<span class="pov-chip ${kind}${v.from === '화' ? '' : ' inherit'}" title="${esc(tip)}">${esc(label)}</span>`;
 }
 
 /** 플롯 편집기의 시점 칸. 비우면 구간 · 아크 시점, 그것도 없으면 작품 기본 시점 */
@@ -2174,8 +2207,8 @@ document.addEventListener('change', (e) => {  // 시점 인물을 바꾸면 화 
 
 function epCard(e, sel) {
   return `<button type="button" class="ep-card ${e.status}${sel && sel.plot.number === e.plot.number ? ' sel' : ''}" data-action="selectEp" data-arg="${e.plot.number}" aria-label="${e.plot.number}화 ${esc(e.plot.title)} 플롯 열기">
-      <span class="ep-top"><strong>${e.plot.number}화</strong><span class="chip ${e.status}">${STATUS[e.status]}</span></span>
-      <span class="t">${esc(e.plot.title) || '제목 없음'}</span>${lineBadge(e)}${povBadge(e)}<span class="s">${esc(e.plot.summary)}</span></button>`;
+      <span class="ep-top"><strong>${e.plot.number}화</strong><span class="ep-chips">${povBadge(e.plot.number)}<span class="chip ${e.status}">${STATUS[e.status]}</span></span></span>
+      <span class="t">${esc(e.plot.title) || '제목 없음'}</span>${lineBadge(e)}<span class="s">${esc(e.plot.summary)}</span></button>`;
 }
 
 /** 기승전결 네 칸 보드. 단편은 작품 전체 구조, 장편은 고른 아크의 구조를 그린다 */
@@ -2525,7 +2558,7 @@ function viewWrite(n) {
     ${editable && !isApi ? `<a class="btn" href="${base()}/brief/${n}">작업지시서</a>` : ''}
     ${e.status === 'written' ? `<a class="btn primary" href="${base()}/review/${n}">상태 정리로</a>` : ''}`;
 
-  return `<header class="page-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? act.name + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:24px">${n}화 ${esc(e.plot.title)}</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}</div><div class="row">${right}</div></header>
+  return `<header class="page-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? act.name + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:24px">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}</div><div class="row">${right}</div></header>
     ${e.auto ? `<div class="note info">이 화는 자동 집필이 검토 없이 반영했어요. 읽어 보고 문제가 있으면 <a href="${base()}/auto">자동 집필</a>에서 이 화부터 되돌릴 수 있어요.</div>` : ''}
     ${rebuildNote(n)}
     <div class="cols" style="gap:16px">
