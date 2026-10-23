@@ -345,7 +345,8 @@ class StyleKeep(BaseModel):
     name: str = ""
     source: str = ""
     sample: str = ""   # 방금 분석한 원문. 있으면 기준 지표를 이 원문으로 잰다
-    update: bool = False  # 새 항목 대신 연결된 항목을 갱신
+    update: bool = False  # 새 항목 대신 연결된 항목을 새 버전으로 갱신
+    note: str = ""  # 갱신할 때 버전 메모
 
 
 @app.post("/api/projects/{name}/style/library")
@@ -353,13 +354,53 @@ def keep_style(name: str, body: StyleKeep) -> dict:
     """작품의 지금 문체를 라이브러리에 저장한다 (작품 화면에서 저장한 뒤 부른다)."""
     p = _load(name)
     if body.update:
-        e = library.push_project(p)
+        e = library.push_project(p, body.note)
+        _save(name, p)
     else:
         e = library.from_project(p, body.name or f"{p.meta.title or name} 문체", body.sample, body.source)
         if body.sample.strip():  # 웹에서 분석한 원문의 기준 지표를 작품에도 남긴다
             p.style_baseline = e.baseline
         _save(name, p)
     return {"entry": library.summary(e), "project": p}
+
+
+# ---------- 2-1. 내 수정에서 배우기 ----------
+
+@app.get("/api/projects/{name}/style/edits")
+def style_edit_stats(name: str) -> dict:
+    return pipeline.edit_stats(_load(name))
+
+
+@app.post("/api/projects/{name}/style/learn")
+def learn_style(name: str) -> Project:
+    """수정 기록에서 문체 규칙 후보를 찾아 작품에 붙인다. 문체는 바꾸지 않는다 (고른 것만 apply 로)."""
+    p = _load(name)
+    r = pipeline.learn_style(get_llm("plan"), p)
+    p = _load(name)  # AI 를 기다리는 사이 저장된 내용을 덮지 않는다
+    p.style_learning = r
+    return _save(name, p)
+
+
+class LearnPicks(BaseModel):
+    picks: list[int]
+    push: bool = False  # 연결된 라이브러리 항목에도 새 버전으로 올린다
+
+
+@app.post("/api/projects/{name}/style/learn/apply")
+def apply_learning(name: str, body: LearnPicks) -> dict:
+    p = _load(name)
+    done, notes = pipeline.apply_learning(p, body.picks)
+    entry = None
+    if body.push and p.style_id and library.exists(p.style_id):
+        entry = library.summary(library.push_project(p, f"수정 기록에서 배운 규칙 {len(done)}개 반영"))
+    return {"project": _save(name, p), "applied": len(done), "notes": notes, "entry": entry}
+
+
+@app.post("/api/projects/{name}/style/learn/dismiss")
+def dismiss_learning(name: str) -> Project:
+    p = _load(name)
+    p.style_learning = None
+    return _save(name, p)
 
 
 # ---------- 문체 라이브러리 ----------
@@ -370,6 +411,7 @@ class StyleIn(BaseModel):
     notes: str = ""
     sample: str = ""
     profile: StyleProfile = StyleProfile()
+    note: str = ""  # 이번 버전 메모. 비우면 바뀐 칸 이름
 
 
 def _style_id(sid: str) -> str:
@@ -404,7 +446,18 @@ def get_style(sid: str) -> dict:
 
 @app.put("/api/styles/{sid}")
 def put_style(sid: str, body: StyleIn) -> dict:
-    e = library.update(_style_id(sid), body.name, body.profile, body.sample, body.source, body.notes)
+    e = library.update(_style_id(sid), body.name, body.profile, body.sample, body.source, body.notes, body.note)
+    return {**e.model_dump(), "used_by": library.used_by(sid)}
+
+
+@app.get("/api/styles/{sid}/versions")
+def style_versions(sid: str) -> list[dict]:
+    return library.versions(library.load(_style_id(sid)))
+
+
+@app.post("/api/styles/{sid}/versions/{number}/restore")
+def restore_style(sid: str, number: int) -> dict:
+    e = library.restore(_style_id(sid), number)
     return {**e.model_dump(), "used_by": library.used_by(sid)}
 
 

@@ -512,7 +512,7 @@ async function save() {
   const merged = [...S.jobs.filter((j) => j.status !== 'running').map((j) => j.id), ...(S.jobsSeen || [])].join(',');
   S.project = await api('PUT', `/projects/${enc(S.name)}?merged=${enc(merged)}`, P());
   S.dirty = false;
-  if (S.route[2] === 'style') await loadStyleLink();
+  if (S.route[2] === 'style') { await loadStyleLink(); await learnLoad(); }
   if (S.route[2] === 'causal') await causalLoad();
 }
 
@@ -697,6 +697,7 @@ const actions = {
       P().style = prof;
       P().style_baseline = await api('POST', '/metrics', { text: S.styleSample });  // stats 가 원문 전체와 비교하도록
       P().style_id = '';  // 새로 분석한 문체는 라이브러리 항목과 연결을 끊는다
+      P().style_version = 0;
       S.dirty = true;
       toast('분석 결과를 불러왔습니다. 확인하고 저장하세요.');
     });
@@ -750,13 +751,15 @@ const actions = {
     const users = ((S.libs || []).find((x) => x.id === l.id) || {}).used_by || [];
     const others = users.filter((n) => n !== S.name);
     const warn = others.length ? `\n다른 작품(${others.join(', ')})은 다시 적용하기 전까지 바뀌지 않습니다.` : '';
-    if (!confirm(`라이브러리의 '${l.name}' 을 이 작품의 문체로 바꿀까요?${warn}`)) return;
-    await run('라이브러리 갱신 중', async () => {
+    const note = prompt(`이 작품의 문체를 라이브러리 '${l.name}' 의 새 버전으로 올립니다. 예전 버전은 남아 있어 되돌릴 수 있어요.${warn}\n\n버전 메모 (비워도 됩니다)`, '');
+    if (note === null) return;
+    await run('라이브러리에 올리는 중', async () => {
       await saveIfDirty();
-      await api('POST', `/projects/${enc(S.name)}/style/library`, { update: true });
+      const r = await api('POST', `/projects/${enc(S.name)}/style/library`, { update: true, note: note.trim() });
+      S.project = r.project;
       S.libs = await api('GET', '/styles');
       await loadStyleLink();
-      toast('라이브러리 항목을 갱신했습니다');
+      toast(`라이브러리 '${r.entry.name}' 을 ${r.entry.version}번 버전으로 올렸습니다`);
     });
   },
   async pullStyle() {
@@ -782,13 +785,15 @@ const actions = {
   },
   async libSave() {
     if (!S.lib.name.trim()) return toast('문체 이름을 입력하세요', true);
-    const body = { name: S.lib.name, source: S.lib.source, notes: S.lib.notes, sample: S.lib.sample, profile: S.lib.profile };
+    const body = { name: S.lib.name, source: S.lib.source, notes: S.lib.notes, sample: S.lib.sample, profile: S.lib.profile, note: S.libNote || '' };
     await run('저장 중', async () => {
       const isNew = !S.lib.id;
       S.lib = isNew ? await api('POST', '/styles', body) : await api('PUT', `/styles/${S.lib.id}`, body);
       S.lib.used_by = S.lib.used_by || [];
       S.libDirty = false;
-      toast('라이브러리에 저장했습니다');
+      S.libNote = '';
+      await libVersionsLoad();
+      toast(isNew ? '라이브러리에 저장했습니다' : `저장했습니다 (지금 ${S.lib.version}번 버전)`);
       if (isNew) location.hash = `#/styles/${S.lib.id}`;
     });
   },
@@ -1255,6 +1260,7 @@ async function route() {
       } else if (parts[1]) {
         S.lib = await api('GET', `/styles/${enc(parts[1])}`);
         S.projects = await api('GET', '/projects');
+        await libVersionsLoad();
       }
       S.libDirty = false;
     } else if (parts[0] === 'p' && parts[1]) {
@@ -1274,6 +1280,7 @@ async function route() {
       if (parts[2] === 'style') {
         S.libs = await api('GET', '/styles').catch(() => []);
         await loadStyleLink();
+        await learnLoad();
       }
       if (parts[2] === 'write' && n && ep(n) && ep(n).status !== 'draft') {
         S.context = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/context`).catch(() => null);
@@ -1964,7 +1971,7 @@ function viewSuggestion() {
 function emptyProfile() {
   return {
     narration_pov: '', tense: '', sentence_rhythm: '', description_density: '', dialogue_ratio: '', dialogue_style: '',
-    inner_monologue: '', pacing: '', scene_transition: '', vocabulary: '', dos: [], donts: [], banned_phrases: [], markers: [], sample_passages: [],
+    inner_monologue: '', pacing: '', scene_transition: '', vocabulary: '', dos: [], donts: [], banned_phrases: [], markers: [], devices: [], sample_passages: [],
   };
 }
 
@@ -1997,6 +2004,7 @@ function profileFields(base, root) {
     ${f('금지 표현', 'banned_phrases', { kind: 'list', rows: 2, placeholder: '본문에 나오면 경고할 표현, 한 줄에 하나씩' })}
     <div class="between"><h3>문체 표지 <span class="small" style="font-weight:400">어미, 조사, 말버릇과 원문 빈도. 넘치거나 빠지면 경고</span></h3><button class="btn small" data-action="${root ? 'libAddMarker' : 'addMarker'}">+ 표지</button></div>
     ${markers || '<div class="small">아직 없어요. 문체 분석을 하면 원문에서 골라 빈도를 셉니다.</div>'}
+    ${deviceFields(base, root)}
     <div class="between"><h3>대표 문단 <span class="small" style="font-weight:400">본문 생성 때 그대로 보여줄 원문 예시, 2~4개</span></h3><button class="btn small" data-action="${root ? 'libAddPassage' : 'addPassage'}">+ 문단</button></div>
     ${passages || '<div class="small">아직 없어요. 문체 분석을 하면 원문에서 골라 넣습니다.</div>'}`;
 }
@@ -2009,11 +2017,11 @@ function styleLibraryCard() {
   const status = {
     none: '<span class="small">이 작품에서 직접 만든 문체예요.</span>',
     missing: '<span class="small">가져온 라이브러리 항목이 지워졌어요. 작품에 복사된 문체는 그대로 씁니다.</span>',
-    same: `<span class="chip finalized">라이브러리와 같음</span> <a href="#/styles/${esc(l.id)}">${esc(l.name)}</a>`,
-    changed: `<span class="chip written">라이브러리와 다름</span> <a href="#/styles/${esc(l.id)}">${esc(l.name)}</a> <span class="small">이 작품에서 고쳤거나 라이브러리가 바뀌었어요</span>`,
+    same: `<span class="chip finalized">라이브러리와 같음</span> <a href="#/styles/${esc(l.id)}">${esc(l.name)}</a> <span class="small">${l.version}번 버전</span>`,
+    changed: `<span class="chip written">라이브러리와 다름</span> <a href="#/styles/${esc(l.id)}">${esc(l.name)}</a> <span class="small">${l.applied && l.version > l.applied ? `이 작품은 ${l.applied}번 버전, 라이브러리는 ${l.version}번 버전이에요` : '이 작품에서 고쳤거나 라이브러리가 바뀌었어요'}</span>`,
   }[l.state] || '';
   const linkBtns = l.state === 'changed'
-    ? '<button class="btn small" data-action="pushStyle">라이브러리 항목 갱신</button><button class="btn small" data-action="pullStyle">라이브러리 버전으로 되돌리기</button>'
+    ? '<button class="btn small" data-action="pushStyle">라이브러리 새 버전으로 올리기</button><button class="btn small" data-action="pullStyle">라이브러리 버전으로 되돌리기</button>'
     : '';
   return `<section class="card tight">
       <div class="between"><h2>문체 라이브러리</h2><a class="small" href="#/styles">라이브러리 열기</a></div>
@@ -2032,6 +2040,7 @@ function viewStyle() {
     <div class="cols">
       <div class="col">
         ${styleLibraryCard()}
+        ${learnCard()}
         <section class="card">
           <div class="between"><h2>예시 원문</h2><span class="small"><span id="sample-count">${S.styleSample.length.toLocaleString()}</span>자 · 2,000자 이상 권장</span></div>
           <label for="sample" class="small">소설 본문을 붙여 넣으세요. 원문은 작품에 저장되지 않고 고른 대표 문단만 남습니다. 라이브러리에 저장하면 원문도 라이브러리에 함께 보관합니다.</label>
@@ -2091,7 +2100,7 @@ function viewLibEntry() {
   const isNew = !e.id;
   const used = e.used_by || [];
   const others = (S.projects || []).filter((x) => !used.includes(x.name));
-  const right = `<a class="btn" href="#/styles">목록으로</a>${isNew ? '' : `<button class="btn" data-action="libDuplicate" data-arg="${esc(e.id)}">복제</button><button class="btn danger" data-action="libDelete" data-arg="${esc(e.id)}">삭제</button><button class="btn" data-action="libRevert">되돌리기</button>`}<button class="btn primary" data-action="libSave">저장</button>`;
+  const right = `<a class="btn" href="#/styles">목록으로</a>${isNew ? '' : `<button class="btn" data-action="libDuplicate" data-arg="${esc(e.id)}">복제</button><button class="btn danger" data-action="libDelete" data-arg="${esc(e.id)}">삭제</button><button class="btn" data-action="libRevert">저장 전으로</button>`}<button class="btn primary" data-action="libSave">저장</button>`;
   const apply = isNew ? '' : `<section class="card tight">
       <h2>작품에 적용</h2>
       <div class="small">${used.length ? `쓰는 작품: ${used.map((n) => `<a href="#/p/${enc(n)}/style">${esc(n)}</a>`).join(', ')}` : '아직 쓰는 작품이 없어요.'}</div>
@@ -2113,6 +2122,7 @@ function viewLibEntry() {
         </section>
         <section class="card tight"><h2>기준 지표</h2>${baselineRows(e.baseline)}</section>
         ${apply}
+        ${isNew ? '' : versionsCard()}
       </div>
       <section class="card col wide">
         <div class="between"><h2>스타일 프로필</h2><span class="small">모든 칸은 직접 고칠 수 있어요</span></div>

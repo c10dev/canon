@@ -42,7 +42,12 @@ from .schema import (
     StoryEvent,
     Storyline,
     StorylineProposal,
+    EditPair,
+    StyleDevice,
+    StyleLearning,
+    StyleMarker,
     StyleProfile,
+    StyleRuleSuggestion,
     TextEdit,
 )
 
@@ -116,6 +121,152 @@ def count_markers(profile: StyleProfile, sample: str) -> None:
             m.per_1k = metrics.marker_rate(sample, m.text)
             keep.append(m)
     profile.markers = keep
+    for d in profile.devices:  # 장치를 알아보는 글자도 원문에 있는 것만
+        d.cues = [c for c in d.cues if metrics.marker_count(sample, c)]
+        d.every = max(0, d.every)
+
+
+# ---------- 2-1. 내 수정에서 배우기 ----------
+# 작가가 본문을 고친 기록(TextEdit)에서 되풀이되는 고침을 찾아 규칙 후보로 낸다. 후보마다 근거 수정을 프로그램이
+# 확인하고(있는 수정인지, 금지 표현이 고치기 전에만 있는지), 작가가 고른 것만 작품 문체에 넣는다.
+
+LEARN_MIN = 5          # 쓸 수 있는 수정이 이보다 적으면 돌리지 않는다
+LEARN_LIMIT = 60       # 프롬프트에 넣는 최근 수정 수
+LEARN_SUPPORT = 2      # 후보마다 확인된 근거 수정 최소
+LEARN_MAX_CHARS = 1500  # 이보다 긴 고침은 내용을 다시 쓴 것으로 보고 뺀다
+LEARN_SKIP_PRESETS = {"blocking"}  # 문체가 아니라 동선 · 설정을 맞춘 고침
+LEARN_KEEP = 8
+RULE_LIMIT = 20  # 지킬 것 + 피할 것이 이보다 많으면 반영할 때 알린다
+
+
+def learnable_edits(p: Project) -> list[tuple[str, TextEdit]]:
+    """학습에 쓸 수정 기록 ('화:id', 수정), 오래된 것부터. 되돌린 것, 동선 맞추기, 새로 써 넣기만 한 것,
+    너무 긴 고침, 손대지 않고 넣은 유일한 AI 후보는 뺀다."""
+    out = []
+    for ep in sorted(p.episodes, key=lambda e: e.plot.number):
+        for e in ep.edits:
+            if e.undone or e.preset in LEARN_SKIP_PRESETS or not e.before.strip():
+                continue
+            if max(len(e.before), len(e.after)) > LEARN_MAX_CHARS:
+                continue
+            if e.source == "ai" and not e.proposed and not e.rejected:
+                continue
+            out.append((f"{ep.plot.number}:{e.id}", e))
+    return out[-LEARN_LIMIT:]
+
+
+def edit_stats(p: Project) -> dict:
+    total = sum(len(ep.edits) for ep in p.episodes)
+    usable = learnable_edits(p)
+    by: dict[str, int] = {}
+    for _, e in usable:
+        by[e.source] = by.get(e.source, 0) + 1
+    return {"total": total, "usable": len(usable), "min": LEARN_MIN, "by_source": by}
+
+
+def learn_style(llm: LLM, p: Project) -> StyleLearning:
+    """수정 기록에서 문체 규칙 후보를 찾는다. 저장하지 않는다."""
+    edits = learnable_edits(p)
+    if len(edits) < LEARN_MIN:
+        raise ValueError(f"쓸 수 있는 수정 기록이 {len(edits)}건이라 너무 적습니다. 본문을 {LEARN_MIN}건 이상 고친 뒤에 해 주세요 "
+                         "(되돌린 수정, 동선 맞추기, 새로 써 넣기만 한 것은 빼고 셉니다)")
+    r = llm.json(prompts.SYSTEM_STYLE_EDITOR, prompts.learn_prompt(p, edits), StyleLearning,
+                 hint={"edits": [(ref, e.before, e.after) for ref, e in edits]})
+    check_learning(p, r, dict(edits))
+    r.edits_used, r.at = len(edits), _now()
+    return r
+
+
+def _gone(text: str, e: TextEdit) -> bool:
+    """작가가 지운 표현인지: 고치기 전 글이나 버린 후보에 있고 고친 뒤 글에는 없다."""
+    return text not in e.after and (text in e.before or text in e.proposed or any(text in r for r in e.rejected))
+
+
+def _rules(st: StyleProfile) -> list[str]:
+    return st.dos + st.donts + st.banned_phrases + [m.text for m in st.markers] + [d.name for d in st.devices]
+
+
+def check_learning(p: Project, r: StyleLearning, by_ref: dict[str, TextEdit]) -> None:
+    """근거를 확인할 수 없는 후보, 지금 규칙과 같은 후보를 뺀다. 근거 쌍을 붙인다."""
+    st, keep, seen = p.style, [], set()
+    for s in r.suggestions:
+        s.text = s.text.strip()
+        if s.kind in ("banned", "marker"):
+            s.text = s.text.strip("'\"‘’“”")
+        if not s.text or (s.kind, s.text) in seen:
+            continue
+        refs = [x for x in dict.fromkeys(x.strip().strip("[]") for x in s.evidence) if x in by_ref]
+        if s.kind == "banned":
+            refs = [x for x in refs if _gone(s.text, by_ref[x])]
+            if s.text in st.banned_phrases:
+                continue
+        elif s.kind == "marker":
+            refs = [x for x in refs if metrics.marker_count(by_ref[x].after, s.text)]
+            if any(m.text == s.text for m in st.markers):
+                continue
+        elif s.kind == "device":
+            s.cues = [c.strip() for c in s.cues if c.strip()][:3]
+            s.cues = [c for c in s.cues if any(_gone(c, by_ref[x]) or c in by_ref[x].before for x in refs)]
+            s.every = max(0, s.every)
+            if any(d.name == s.text for d in st.devices):
+                continue
+        elif s.text in (st.dos if s.kind == "do" else st.donts):
+            continue
+        if s.replaces.strip() not in _rules(st):
+            s.replaces = ""
+        if len(refs) < LEARN_SUPPORT:
+            continue
+        s.evidence = refs
+        s.pairs = [EditPair(ref=x, before=prompts._clip(by_ref[x].before, 300), after=prompts._clip(by_ref[x].after, 300))
+                   for x in refs[:4]]
+        s.applied = False
+        seen.add((s.kind, s.text))
+        keep.append(s)
+    r.suggestions = keep[:LEARN_KEEP]
+
+
+def _own_text(p: Project) -> str:
+    return "\n\n".join(e.text for e in p.episodes if e.text)
+
+
+def apply_learning(p: Project, picks: list[int]) -> tuple[list[StyleRuleSuggestion], list[str]]:
+    """고른 후보를 작품 문체에 넣는다. (넣은 후보, 알림) 을 돌려준다."""
+    r = p.style_learning
+    if r is None:
+        raise ValueError("먼저 수정 기록에서 규칙을 찾으세요")
+    picks = sorted(set(picks))
+    if not picks:
+        raise ValueError("넣을 후보를 고르세요")
+    if any(not 0 <= i < len(r.suggestions) for i in picks):
+        raise ValueError("후보 번호가 맞지 않습니다")
+    st, done = p.style, []
+    for i in picks:
+        s = r.suggestions[i]
+        if s.applied:
+            continue
+        if s.replaces:
+            st.dos = [x for x in st.dos if x != s.replaces]
+            st.donts = [x for x in st.donts if x != s.replaces]
+            st.banned_phrases = [x for x in st.banned_phrases if x != s.replaces]
+            st.markers = [m for m in st.markers if m.text != s.replaces]
+            st.devices = [d for d in st.devices if d.name != s.replaces]
+        if s.kind == "do":
+            st.dos.append(s.text)
+        elif s.kind == "dont":
+            st.donts.append(s.text)
+        elif s.kind == "banned":
+            st.banned_phrases.append(s.text)
+        elif s.kind == "marker":
+            st.markers.append(StyleMarker(text=s.text, note=s.note, per_1k=metrics.marker_rate(_own_text(p), s.text)))
+        else:
+            st.devices.append(StyleDevice(name=s.text, when=s.note, cues=s.cues, every=s.every))
+        s.applied = True
+        done.append(s)
+    notes = []
+    if len(st.dos) + len(st.donts) > RULE_LIMIT:
+        notes.append(f"지킬 것 · 피할 것이 {len(st.dos) + len(st.donts)}개예요. {RULE_LIMIT}개가 넘으면 프롬프트가 길어지고 "
+                     "규칙끼리 부딪히기 쉬우니 비슷한 것을 합쳐 주세요")
+    return done, notes
 
 
 # ---------- 3. 기승전결 + 화별 플롯 ----------
@@ -1530,6 +1681,7 @@ def style_drift(p: Project, n: int) -> tuple[metrics.StyleMetrics, list[str]]:
     marks = metrics.marker_warnings(p.style.markers, text)
     if marks:
         warns.append(f"문체 표지: {', '.join(marks)}")
+    warns[:0] = [f"장치 {w}" for w in metrics.device_warnings(p.style.devices, p.episodes, n, text)]  # 자동 집필 기록은 앞 3개만 남긴다
     copied = metrics.copied_sentences(text, p.style.sample_passages)
     if copied:
         quotes = ", ".join(f"'{s[:30]}{'…' if len(s) > 30 else ''}'" for s in copied[:3])

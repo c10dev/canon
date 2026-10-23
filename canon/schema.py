@@ -222,6 +222,15 @@ class StyleMarker(BaseModel):
     per_1k: float = Field(0, description="원문 1,000자당 횟수. Canon 이 원문에서 세어 덮어쓴다")
 
 
+class StyleDevice(BaseModel):
+    """특정 상황에만, 가끔 쓰는 장면 장치 (예: 자문자답으로 꼬리를 무는 망상). 프로그램이 최근 화에서 쓴 화를 세어 이번 화 지시를 바꾼다."""
+    name: str = Field(description="장치 이름 (예: 자문자답 망상)")
+    when: str = Field("", description="쓰는 상황 (예: 상대의 작은 반응에 혼자 설렐 때)")
+    cues: list[str] = Field(default_factory=list, description="이 장치를 알아보는 글자를 원문에 적힌 그대로 1~3개 (예: '다는 건', '거지?'). 한 화에 합쳐 두 번 이상 나오면 쓴 화로 본다")
+    every: int = Field(0, description="최소 간격(화). 3 이면 3화에 한 번까지. 0 은 간격 없이 상황이 올 때만")
+    example: str = Field("", description="짧은 원문 예시. 써도 되는 화에만 보여 준다")
+
+
 class StyleProfile(BaseModel):
     narration_pov: str = Field("", description="서술 시점: 1인칭 주인공, 3인칭 제한 등")
     tense: str = Field("", description="시제: 과거형, 현재형")
@@ -237,6 +246,7 @@ class StyleProfile(BaseModel):
     donts: list[str] = Field(default_factory=list, description="피해야 할 표현이나 습관")
     banned_phrases: list[str] = Field(default_factory=list, description="본문에 나오면 안 되는 구체적 표현 (문자열 그대로 검사)")
     markers: list[StyleMarker] = Field(default_factory=list, description="이 문체를 알아보게 하는 표지 5~10개와 원문 빈도. 빈도 안팎으로 쓰고 몰아 쓰지 않는다")
+    devices: list[StyleDevice] = Field(default_factory=list, description="특정 상황에만 가끔 쓰는 장면 장치 0~3개. 매 화 쓰면 버릇이 되는 것")
     sample_passages: list[str] = Field(default_factory=list, description="본문 생성 때 그대로 보여줄 대표 문단 2~4개 (원문 발췌)")
 
 
@@ -251,6 +261,50 @@ class StyleEntry(BaseModel):
     baseline: Optional[StyleMetrics] = Field(None, description="원문 전체로 잰 문체 지표")
     created_at: str = ""
     updated_at: str = ""
+    version: int = Field(0, description="지금 버전 번호. 0 은 버전 기록이 생기기 전 항목")
+    versions: list["StyleVersion"] = Field(default_factory=list, description="프로필 · 기준 지표가 바뀔 때마다 남긴 버전 (최근 것만)")
+
+
+class StyleVersion(BaseModel):
+    """문체 라이브러리 항목의 한 버전. 원문은 넣지 않는다 (되돌리기는 프로필과 기준 지표만)."""
+    number: int
+    at: str = ""
+    note: str = Field("", description="무엇을 바꿨는지 한 줄")
+    profile: StyleProfile = Field(default_factory=StyleProfile)
+    baseline: Optional[StyleMetrics] = None
+
+
+# ---------- 내 수정에서 배우기 ----------
+# 작가가 본문을 고친 기록(TextEdit)에서 되풀이되는 고침을 찾아 문체 규칙 후보로 낸다. 고른 것만 작품 문체에 넣는다.
+
+StyleRuleKind = Literal["do", "dont", "banned", "marker", "device"]
+
+
+class EditPair(BaseModel):
+    """규칙 후보의 근거가 된 수정 하나 (프로그램이 채운다)."""
+    ref: str = Field(description="'화:수정 id' 예: '3:e5'")
+    before: str = ""
+    after: str = ""
+
+
+class StyleRuleSuggestion(BaseModel):
+    kind: StyleRuleKind = Field(description="do: 지킬 것 / dont: 피할 것 / banned: 금지 표현(글자 그대로) / marker: 문체 표지(어미 · 말버릇, 글자 그대로) / device: 가끔만 쓸 장면 장치")
+    text: str = Field(description="규칙 한 문장. banned · marker 는 본문에 적힌 글자 그대로, device 는 장치 이름")
+    note: str = Field("", description="marker: 어디에 어떻게 쓰는지 한 줄 / device: 써도 되는 상황. 다른 종류는 빈칸")
+    cues: list[str] = Field(default_factory=list, description="device 일 때만: 장치를 알아보는 글자를 고치기 전 글에 적힌 그대로 1~3개")
+    every: int = Field(0, description="device 일 때만: 몇 화에 한 번까지 (예: 5)")
+    replaces: str = Field("", description="이 후보와 부딪혀 바꿔야 할 기존 규칙을 지금 프로필에 적힌 그대로. 새로 더하는 것이면 빈칸")
+    reason: str = Field("", description="작가가 어떻게 고쳤는지 한두 문장")
+    evidence: list[str] = Field(default_factory=list, description="근거가 된 수정의 [화:id] 를 적힌 그대로 (예: '3:e5'). 두 개 이상")
+    pairs: list[EditPair] = Field(default_factory=list, description="프로그램이 채운다. 빈 목록으로 둔다")
+    applied: bool = Field(False, description="프로그램이 채운다. false 로 둔다")
+
+
+class StyleLearning(BaseModel):
+    summary: str = Field("", description="작가가 AI 문장을 고치는 경향을 두세 문장으로")
+    suggestions: list[StyleRuleSuggestion] = Field(default_factory=list, description="규칙 후보, 많아야 8개. 근거가 두 번 이상인 것만")
+    edits_used: int = Field(0, description="프로그램이 채운다. 0 으로 둔다")
+    at: str = Field("", description="프로그램이 채운다. 빈칸으로 둔다")
 
 
 # ---------- 계층형 플롯 ----------
@@ -789,6 +843,8 @@ class Project(BaseModel):
     style: StyleProfile = Field(default_factory=StyleProfile)
     style_baseline: Optional[StyleMetrics] = Field(None, description="레퍼런스 원문 전체로 잰 문체 지표 (style 명령 때 저장)")
     style_id: str = Field("", description="문체 라이브러리에서 가져온 항목 id. 비어 있으면 이 작품에서 직접 만든 문체")
+    style_version: int = Field(0, description="가져오거나 올린 라이브러리 항목의 버전 번호. 0 은 모름")
+    style_learning: Optional[StyleLearning] = Field(None, description="수정 기록에서 찾은 문체 규칙 후보 (마지막 것)")
     arc: list[Act] = Field(default_factory=list, description="단편: 작품 전체의 기승전결. 장편에서는 비워 두고 아크마다 기승전결을 둔다")
     parts: list[Part] = Field(default_factory=list, description="장편: 부 구성")
     story_arcs: list[StoryArc] = Field(default_factory=list, description="장편: 지금까지 기획한 아크. 다음 아크를 하나씩 붙인다")
@@ -867,3 +923,4 @@ Snapshot.model_rebuild()
 SerialRebuild.model_rebuild()
 ShortArchive.model_rebuild()
 Episode.model_rebuild()
+StyleEntry.model_rebuild()

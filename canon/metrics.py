@@ -255,6 +255,35 @@ def marker_warnings(markers: list, text: str) -> list[str]:
     return out
 
 
+DEVICE_HITS = 2  # 장치를 알아보는 글자가 한 화에 합쳐 이만큼 나오면 그 장치를 쓴 화로 본다
+
+
+def device_hits(text: str, cues: list[str]) -> int:
+    """가끔 쓰는 장치(StyleDevice)의 알아보는 글자가 본문에 나온 횟수 합."""
+    return sum(marker_count(text, c) for c in cues)
+
+
+def device_used(text: str, cues: list[str]) -> bool:
+    return bool(text) and device_hits(text, cues) >= DEVICE_HITS
+
+
+def device_last(episodes: list, cues: list[str], before: int) -> int:
+    """before 화 앞에서 장치를 마지막으로 쓴 화 번호. 없으면 0. episodes 는 Episode 목록."""
+    return max((e.plot.number for e in episodes if e.plot.number < before and device_used(e.text, cues)), default=0)
+
+
+def device_warnings(devices: list, episodes: list, n: int, text: str) -> list[str]:
+    """이번 화(n)가 장치를 썼는데 최소 간격 안에 또 쓴 경우. devices 는 StyleDevice 목록."""
+    out = []
+    for d in devices:
+        if not d.cues or not device_used(text, d.cues):
+            continue
+        last = device_last(episodes, d.cues, n)
+        if d.every and last and n - last < d.every:
+            out.append(f"'{d.name}' {last}화에 이어 또 씀 ({d.every}화에 한 번까지)")
+    return out
+
+
 COPY_SPAN = 12  # 예시 문단과 이만큼(공백 빼고 글자 수) 똑같이 이어지면 베낀 것으로 본다. 연구에서 문체 자료 없이 쓴 글은 한 번도 걸리지 않았다
 
 

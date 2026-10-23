@@ -3,7 +3,8 @@
   python -m canon new 내소설           설정 도우미 (질문에 답하면 AI 가 빈칸 제안)
   python -m canon style 내소설 sample.txt   예시 텍스트로 스타일 프로필 생성 (--save 이름: 라이브러리에도 저장)
   python -m canon style 내소설 --library ID   문체 라이브러리 항목을 작품에 적용
-  python -m canon styles [add 이름 파일 | show ID | rm ID]   문체 라이브러리 (작품과 따로 저장)
+  python -m canon styles [add 이름 파일 | show ID | rm ID | versions ID | restore ID 번호]   문체 라이브러리 (작품과 따로 저장, 버전 기록)
+  python -m canon learn 내소설 [--pick 1,3 | -y] [--push]   본문 수정 기록에서 문체 규칙 후보 찾기 (고른 것만 반영)
   python -m canon arc 내소설            기승전결 구간 설계 (단편)
   python -m canon series 내소설         장편: 총 화수를 부로 나누는 부 구성 제안
   python -m canon convert 내소설 --episodes 200 [--ending keep|reopen]   단편을 장편으로 전환 (--undo 로 되돌리기)
@@ -180,12 +181,32 @@ def cmd_styles(a: argparse.Namespace) -> None:
             e = library.create(name, profile, sample, a.source)
             print(f"저장: {e.name} ({e.id})")
         return
+    if a.action == "versions":
+        if len(a.args) != 1:
+            sys.exit("사용법: python -m canon styles versions ID")
+        e = library.load(a.args[0])
+        for v in library.versions(e):
+            print(f"{v['number']:>3}번  {v['at'][:16]}  {v['note']}{'  (지금)' if v['current'] else ''}")
+            for c in v["changes"]:
+                if "added" in c:
+                    print(f"       {c['label']}: " + ", ".join([f"+{x[:40]}" for x in c["added"]] + [f"-{x[:40]}" for x in c["removed"]]))
+                else:
+                    print(f"       {c['label']}: {c['before'][:40] or '(비어 있음)'} → {c['after'][:40] or '(비어 있음)'}")
+        return
+    if a.action == "restore":
+        if len(a.args) != 2 or not a.args[1].isdigit():
+            sys.exit("사용법: python -m canon styles restore ID 번호")
+        e = library.load(a.args[0])
+        if confirm(f"'{e.name}' 을 {a.args[1]}번 버전으로 되돌릴까요? 지금 상태도 버전으로 남습니다.", a.yes):
+            e = library.restore(e.id, int(a.args[1]))
+            print(f"되돌렸습니다. 지금 {e.version}번 버전 (쓰는 작품은 style --library 로 다시 적용해야 바뀝니다)")
+        return
     if a.action in ("show", "rm"):
         if len(a.args) != 1:
             sys.exit(f"사용법: python -m canon styles {a.action} ID")
         e = library.load(a.args[0])
         if a.action == "show":
-            print(f"{e.name} ({e.id})  출처: {e.source or '-'}  원문 {len(e.sample):,}자")
+            print(f"{e.name} ({e.id})  {e.version}번 버전  출처: {e.source or '-'}  원문 {len(e.sample):,}자")
             print(dump(e.profile))
             return
         used = library.used_by(e.id)
@@ -202,6 +223,45 @@ def cmd_styles(a: argparse.Namespace) -> None:
         print(f"{e.id}  {e.name}  {e.profile.narration_pov or '-'} / {e.profile.tense or '-'}"
               f"  원문 {len(e.sample):,}자  작품 {len(used)}개{'  (' + ', '.join(used) + ')' if used else ''}")
     print(f"\n저장 위치: {library.root()}")
+
+
+RULE_KIND_TEXT = {"do": "지킬 것", "dont": "피할 것", "banned": "금지 표현", "marker": "문체 표지", "device": "가끔 쓰는 장치"}
+
+
+def cmd_learn(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    st = pipeline.edit_stats(p)
+    print(f"수정 기록 {st['total']}건 중 배울 수 있는 것 {st['usable']}건")
+    r = pipeline.learn_style(get_llm("plan"), p)
+    print(f"\n{r.summary}\n")
+    if not r.suggestions:
+        print("두 번 이상 되풀이된 고침을 찾지 못했습니다")
+        return
+    for i, s in enumerate(r.suggestions, 1):
+        extra = f"  (상황: {s.note}, 글자: {', '.join(s.cues)}, {s.every}화에 한 번)" if s.kind == "device" else ""
+        print(f"{i}. [{RULE_KIND_TEXT[s.kind]}] {s.text}{extra}")
+        if s.replaces:
+            print(f"   바꿀 규칙: {s.replaces}")
+        print(f"   {s.reason}  근거: {', '.join(s.evidence)}")
+        for x in s.pairs[:2]:
+            print(f"     {x.ref}  {x.before[:50]}  →  {x.after[:50]}")
+    if a.pick:
+        picks = [int(x) - 1 for x in a.pick.split(",") if x.strip()]
+    elif a.yes:
+        picks = list(range(len(r.suggestions)))
+    else:
+        raw = ask("\n넣을 번호 (쉼표로, 비우면 넣지 않음)")
+        picks = [int(x) - 1 for x in raw.split(",") if x.strip().isdigit()]
+    p.style_learning = r
+    if picks:
+        done, notes = pipeline.apply_learning(p, picks)
+        print(f"규칙 {len(done)}개를 작품 문체에 넣었습니다")
+        for n in notes:
+            print(f"알림: {n}")
+        if a.push and p.style_id and library.exists(p.style_id):
+            e = library.push_project(p, f"수정 기록에서 배운 규칙 {len(done)}개 반영")
+            print(f"라이브러리 '{e.name}' 을 {e.version}번 버전으로 올렸습니다")
+    print(f"저장: {store.save(a.name, p)}")
 
 
 def cmd_arc(a: argparse.Namespace) -> None:
@@ -1346,6 +1406,9 @@ def main(argv: list[str] | None = None) -> None:
     sp = add("fix", cmd_fix, "n", "quote")
     sp.add_argument("--ask", help="AI 에게 바라는 것 (예: 대사로 풀어 줘)")
     sp.add_argument("--preset", choices=list(prompts.PASSAGE_PRESETS), help="빠른 요청")
+    sp = add("learn", cmd_learn)
+    sp.add_argument("--pick", help="넣을 후보 번호, 쉼표로 (예: 1,3)")
+    sp.add_argument("--push", action="store_true", help="연결된 라이브러리 항목에도 새 버전으로 올림")
     sp = add("edits", cmd_edits, yes=False)
     sp.add_argument("n", type=int, nargs="?")
     sp.add_argument("--undo", metavar="ID", help="이 수정을 되돌림 (예: e2)")
@@ -1367,7 +1430,7 @@ def main(argv: list[str] | None = None) -> None:
 
     sub.add_parser("genres", help="장르 목록").set_defaults(fn=cmd_genres)
     sp = sub.add_parser("styles", help="문체 라이브러리")
-    sp.add_argument("action", nargs="?", choices=["list", "add", "show", "rm"], default="list")
+    sp.add_argument("action", nargs="?", choices=["list", "add", "show", "rm", "versions", "restore"], default="list")
     sp.add_argument("args", nargs="*")
     sp.add_argument("--source", default="", help="add: 원문 출처 메모")
     sp.add_argument("-y", "--yes", action="store_true", help="확인 없이 반영")
