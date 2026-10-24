@@ -25,6 +25,21 @@ def _j(word: str, with_final: str, without_final: str) -> str:
     return word + josa(word, with_final, without_final)
 
 
+def _known(word: str) -> bool:
+    """받침을 알 수 있는 끝 글자다 (한글이나 숫자). 로마자 이름은 '과(와)' 대신 조사 없는 문형을 쓴다."""
+    return "(" not in josa(word, "이", "가")
+
+
+def _pair(a: str, b: str) -> str:
+    """두 이름을 문장 주어로: '서윤과 도현은', 로마자가 끼면 'Elena', 'Elise' 두 인물은."""
+    return f"{_j(a, '과', '와')} {_j(b, '은', '는')}" if _known(a) and _known(b) else f"'{a}', '{b}' 두 인물은"
+
+
+def _topic(word: str) -> str:
+    """이름 하나를 주제로: '서윤은', 로마자면 'Elena' 인물은."""
+    return _j(word, "은", "는") if _known(word) else f"'{word}' 인물은"
+
+
 class NameStyle(BaseModel):
     id: str
     label: str
@@ -32,10 +47,10 @@ class NameStyle(BaseModel):
 
 
 STYLES: list[NameStyle] = [
-    NameStyle(id="korea_modern", label="현대 한국", summary="성씨 인구 비율과 출생 연대별 흔한 이름으로 뽑습니다. 나이를 적으면 그 시대 이름이 나옵니다."),
+    NameStyle(id="korea_modern", label="현대 한국", summary="성씨 인구 비율과 출생 연대별 흔한 이름으로 뽑아요. 나이를 적으면 그 시대 이름이 나와요."),
     NameStyle(id="joseon", label="조선 · 사극", summary="양반가 이름, 아명·평민 이름, 고을·나루·주막 같은 옛 지명."),
     NameStyle(id="wuxia", label="무협 (중원)", summary="복성 포함 중원식 성명과 별호, 문파, 중원 지역과 산·곡·객잔."),
-    NameStyle(id="western_fantasy", label="서양풍 판타지", summary="음절을 조합한 이름과 가문명, 왕국·영지·요새. 흔한 판타지 이름은 뺍니다."),
+    NameStyle(id="western_fantasy", label="서양풍 판타지", summary="음절을 조합한 이름과 가문명, 왕국·영지·요새. 흔한 판타지 이름은 빼요."),
     NameStyle(id="japan", label="일본", summary="흔한 일본 성씨와 이름, 동네·학교·역 이름."),
     NameStyle(id="sf", label="SF · 우주", summary="여러 언어권이 섞인 이름과 정거장·콜로니·행성."),
 ]
@@ -392,10 +407,10 @@ def cast_issues(p: Project) -> list[dict]:
         ga, gb = _given(a.name, sid), _given(b.name, sid)
         if ga == gb:
             out.append({"kind": "given", "level": "warn", "ids": [a.id, b.id],
-                        "text": f"{_j(a.name, '과', '와')} {_j(b.name, '은', '는')} 성을 뺀 이름이 같아 독자가 헷갈려요."})
+                        "text": f"{_pair(a.name, b.name)} 성을 뺀 이름이 같아 독자가 헷갈려요."})
         elif same := _confusable(ga, gb, sid, bare=ga == a.name.strip() and gb == b.name.strip()):
             out.append({"kind": "confusable", "level": "info", "ids": [a.id, b.id],
-                        "text": f"{_j(a.name, '과', '와')} {_j(b.name, '은', '는')} 이름 {same}{josa(same, '이', '가')} 같아 헷갈리기 쉬워요."})
+                        "text": f"{_pair(a.name, b.name)} 이름 {same}{josa(same, '이', '가')} 같아 헷갈리기 쉬워요."})
     common = [c for c in people if _given(c.name, sid) in D.AI_OVERUSED or _given(c.name, sid) in D.WEST_CLICHE]
     if common:
         out.append({"kind": "overused", "level": "info", "ids": [c.id for c in common],
@@ -407,13 +422,13 @@ def cast_issues(p: Project) -> list[dict]:
             if year and eras and all(abs(e + 5 - year) > 20 for e in eras):
                 span = f"{eras[0]}년대" if len(eras) == 1 else f"{eras[0]}~{eras[-1]}년대"
                 out.append({"kind": "era", "level": "info", "ids": [c.id],
-                            "text": f"{_j(c.name, '은', '는')} {year}년생 무렵인데 '{g}'{josa(g, '은', '는')} {span} 출생에 흔한 이름이에요."})
+                            "text": f"{_topic(c.name)} {year}년생 무렵인데 '{g}'{josa(g, '은', '는')} {span} 출생에 흔한 이름이에요."})
         name = c.name.strip()
         if (sid in ("korea_modern", "joseon", "wuxia") and len(name) >= 3 and " " not in name
                 and not any(name.startswith(s) for s in {*D.KO_SURNAMES, *D.WUXIA_SURNAMES})
                 and name not in D.JOSEON_COMMON_MALE and name not in D.JOSEON_COMMON_FEMALE):
             out.append({"kind": "style", "level": "info", "ids": [c.id],
-                        "text": f"'{name}'{josa(name, '은', '는')} 지금 이름 스타일({style_label(sid)})과 달라요. 의도했다면 세계관의 이름 규칙에 적어 두세요."})
+                        "text": f"'{name}'{josa(name, '은', '는') if _known(name) else ' 이름은'} 지금 이름 스타일({style_label(sid)})과 달라요. 의도했다면 세계관의 이름 규칙에 적어 두세요."})
     return out
 
 

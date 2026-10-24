@@ -16,7 +16,7 @@ Object.assign(S, {
 });
 
 JOB_DONE_MSG.hook = (j) => `${j.label}이 끝났어요.`;
-JOB_DONE_MSG.openings = (j) => `${j.ep}화 여는 방식 플롯 안이 도착했어요. 플롯 화면에서 고르세요.`;
+JOB_DONE_MSG.openings = (j) => `${j.ep}화 여는 방식 플롯 안이 도착했어요. 플롯 화면의 ${j.ep}화 서랍 '초반 화 · 여는 방식 고르기'에서 고르세요.`;
 JOB_DONE_MSG.opening_drafts = (j) => `${j.ep}화를 여는 방식마다 썼어요. 읽고 고르세요.`;
 JOB_PAGES.hook = ['write'];
 JOB_PAGES.openings = ['arc', 'write'];
@@ -40,7 +40,11 @@ async function openingLoad(n) {
 function openingJobResult(j) {
   if (j.kind === 'openings' && j.result) {
     S.openingPlots[j.ep] = j.result.options;
-    S.selEp = j.ep;
+    if (S.selEp == null || S.selEp === j.ep) {
+      S.selEp = j.ep;
+      // 안은 서랍 아래쪽에 그려진다. 다시 그린 뒤 첫 '이 플롯으로 바꾸기' 버튼으로 옮겨 도착한 곳을 보인다
+      if (S.route[2] === 'arc') S.focusTarget = `[data-action="openingUsePlot"][data-arg^="${j.ep}:"]`;
+    } else toast(`${j.ep}화 여는 방식 안이 도착했어요. 플롯 화면에서 ${j.ep}화를 열면 보여요`);
     return;
   }
   // 판정과 여러 안 본문은 서버가 저장했다. 이 화의 점검 자료를 다시 받아 그린다.
@@ -56,7 +60,7 @@ function openingWayPicker(disabled) {
   const list = S.approaches || [];
   return `<div class="grid-2">${list.map((a) => `<label class="check-row"><input type="checkbox" data-opening-way="${esc(a.id)}"${S.openingWays.includes(a.id) ? ' checked' : ''}${disabled ? ' disabled' : ''}>
       <span><strong>${esc(a.label)}</strong><br><span class="small">${esc(a.how)}</span></span></label>`).join('')}</div>
-    <div class="small">2~4개를 고르세요. 안마다 같은 플롯과 자료로 쓰고, 여는 방식만 다르게 지시해요.</div>`;
+    <div class="small">2개 이상 고르세요 · 지금 <span data-opening-count>${S.openingWays.length}</span>개. 안마다 같은 플롯과 자료로 쓰고, 여는 방식만 다르게 지시해요.</div>`;
 }
 
 function hookView(h, stale) {
@@ -86,10 +90,11 @@ function openingPanel(n) {
   const e = ep(n);
   const d = S.openingData[n];
   const blocked = P().episodes.some((x) => x.plot.number < n && x.status !== 'finalized');
-  const canWrite = e.status !== 'draft' && !blocked && S.mode === 'api';
+  const canWrite = e.status !== 'draft' && e.status !== 'finalized' && !blocked && S.mode === 'api';
   const hookBtn = jobBtn('hook', n, e.hook ? '다시 판정' : '흡입력 판정');
   const hookRunning = !!jobFor('hook', n);
   const draftsBtn = jobBtn('opening_drafts', n, '여러 안으로 쓰기');
+  const fewWays = S.openingWays.length < 2;
   const c = d && d.compare;
   const reveal = c && c.order;
   const finalized = e.status === 'finalized';
@@ -120,8 +125,8 @@ function openingPanel(n) {
       <h3>여는 방식 비교</h3>
       <div class="small">같은 화를 여는 방식만 달리해 여러 안으로 쓰고, 어느 방식인지 가린 채 읽고 골라요. 고른 안이 이 화 본문이 돼요.</div>
       ${openingWayPicker(!canWrite)}
-      <div class="row"><button class="btn dark" data-action="openingDrafts" data-arg="${n}"${canWrite ? draftsBtn.attr : ' disabled'}>${draftsBtn.label}</button>
-        ${!canWrite ? `<span class="small">${e.status === 'draft' ? '플롯을 확정하면 쓸 수 있어요' : blocked ? '이전 화를 반영해야 쓸 수 있어요' : 'Gemini API 방식에서 쓸 수 있어요'}</span>` : ''}</div>
+      <div class="row"><button class="btn dark" data-action="openingDrafts" data-arg="${n}" data-opening-go="${canWrite ? 1 : 0}"${canWrite && !fewWays ? draftsBtn.attr : ' disabled'}>${draftsBtn.label}</button>
+        ${!canWrite ? `<span class="small">${e.status === 'draft' ? '플롯을 확정하면 쓸 수 있어요' : e.status === 'finalized' ? '반영이 끝난 화예요. 바꾸려면 상태 승인에서 이 화부터 반영을 취소하세요' : blocked ? '이전 화를 반영해야 쓸 수 있어요' : 'AI로 쓰기 방식에서 쓸 수 있어요'}</span>` : ''}</div>
       ${c ? `<div class="small">${esc(fmtDateTime(c.created))}에 쓴 ${c.kind === 'opening' ? '여는 방식' : '백엔드'} 비교본${c.picked ? '' : ' · 고르기 전까지 가려요'}${finalized && !c.picked ? ' · 반영이 끝난 화라 고를 수 없어요' : ''}</div><div class="rs-compare">${drafts}</div>` : ''}
     </section>`;
 }
@@ -138,18 +143,18 @@ function openingPlotBlock(e) {
     const diff = used === i ? '' : plotDiff(p);
     const count = (diff.match(/class="diff-row"/g) || []).length;
     return `<div class="card tight" style="gap:6px">
-        <div class="between"><strong>${esc(a ? a.label : o.approach)} · ${esc(p.title)}</strong>${used === i ? '<span class="chip confirmed">지금 플롯</span>' : `<button class="btn small primary" data-action="openingUsePlot" data-arg="${n}:${i}">이 안으로</button>`}</div>
+        <div class="between"><strong>${esc(a ? a.label : o.approach)} · ${esc(p.title)}</strong>${used === i ? '<span class="chip confirmed">지금 플롯</span>' : `<button class="btn small primary" data-action="openingUsePlot" data-arg="${n}:${i}" aria-label="${esc(a ? a.label : o.approach)} 안을 ${n}화 플롯으로">이 플롯으로 바꾸기</button>`}</div>
         <div class="small">${esc(o.pitch)}</div>
         ${p.reader_question ? `<div style="font-size:0.8125rem"><strong>독자 질문</strong> · ${esc(p.reader_question)}</div>` : ''}
         ${used === i ? '' : `<details${i === 0 ? ' open' : ''}><summary class="small">지금 플롯과 비교 · 바뀌는 칸 ${count}개</summary><div class="diff">${diff}</div></details>`}
       </div>`;
   }).join('');
   const prev = S.openingPrev[n];
-  return `<details${S.openingPlots[n] ? ' open' : ''}><summary style="font-weight:700;font-size:0.875rem">초반 화 · 여는 방식 고르기</summary>
+  return `<details${S.openingPlots[n] ? ' open' : ''}><summary style="font-weight:700;font-size:0.875rem">초반 화 · 여는 방식 고르기 <span class="small" style="font-weight:400">${S.openingPlots[n] ? `플롯 안 ${S.openingPlots[n].length}개` : `여는 방식별 플롯 안 비교${e.status === 'draft' ? ' · 확정 전에 해요' : ' · 고르면 확정이 풀려요'}`}</span></summary>
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
         <div class="small">${n}화 플롯을 여는 방식마다 하나씩 받아 비교해요. 고른 안이 이 화 플롯이 되고, 확정했던 화는 초안으로 돌아가요.</div>
         ${openingWayPicker(false)}
-        <div class="row"><button class="btn" data-action="openingPlots" data-arg="${n}"${btn.attr}>${btn.label}</button>${S.openingPlots[n] ? `<button class="btn small" data-action="openingDropPlots" data-arg="${n}">안 모두 버리기</button>` : ''}${prev ? `<button class="btn small" data-action="openingUndoPlot" data-arg="${n}">고르기 전 플롯으로 되돌리기</button>` : ''}</div>
+        <div class="row"><button class="btn" data-action="openingPlots" data-arg="${n}" data-opening-go="1"${S.openingWays.length < 2 ? ' disabled' : btn.attr}>${btn.label}</button>${S.openingPlots[n] ? `<button class="btn small" data-action="openingDropPlots" data-arg="${n}">안 모두 버리기</button>` : ''}${prev ? `<button class="btn small" data-action="openingUndoPlot" data-arg="${n}">고르기 전 플롯으로 되돌리기</button>` : ''}</div>
         ${opts}
       </div></details>`;
 }
@@ -163,25 +168,27 @@ function openingEffective(e, plot) {
 }
 
 function openingWaysOk() {
-  if (S.openingWays.length < 2 || S.openingWays.length > 4) {
-    toast('여는 방식을 2~4개 고르세요', true);
+  if (S.openingWays.length < 2) {
+    toast('여는 방식을 2개 이상 고르세요', true);
     return false;
   }
   return true;
 }
 
 Object.assign(actions, {
-  openingHook(n) {
+  async openingHook(n) {
+    try { await flushText(n); } catch (e) { return toast(e.message, true); }  // 판정은 저장된 본문을 읽는다
     startJob('hook', n);
   },
   openingHookDraft(arg) {
     const [n, k] = String(arg).split(':').map(Number);
     startJob('hook', n, { draft: k });
   },
-  openingDrafts(n) {
+  async openingDrafts(n) {
     if (!openingWaysOk()) return;
     const d = S.openingData[n];
     if (d && d.compare && !d.compare.picked && !confirm(`${n}화의 고르지 않은 비교본을 새로 쓴 것으로 바꿀까요?`)) return;
+    try { await flushText(n); } catch (e) { return toast(e.message, true); }  // 여러 안은 저장된 본문의 화 자료로 쓴다
     startJob('opening_drafts', n, { approaches: S.openingWays });
   },
   openingPlots(n) {
@@ -246,4 +253,7 @@ document.addEventListener('change', (e) => {
   if (!t.dataset || t.dataset.openingWay === undefined) return;
   const id = t.dataset.openingWay;
   S.openingWays = t.checked ? [...new Set([...S.openingWays, id])] : S.openingWays.filter((x) => x !== id);
+  // 다시 그리지 않고 고른 수와 받기 버튼만 고친다 (펼친 서랍과 포커스를 지킨다). 2개보다 적으면 받기를 끈다
+  document.querySelectorAll('[data-opening-count]').forEach((x) => { x.textContent = S.openingWays.length; });
+  document.querySelectorAll('[data-opening-go]').forEach((b) => { b.disabled = b.dataset.openingGo !== '1' || S.openingWays.length < 2; });
 });

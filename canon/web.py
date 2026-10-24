@@ -24,7 +24,9 @@ from .schema import (ArcPlan, Character, WorldSetting, ArcProposal, EpisodePlot,
                      StorylineProposal, StyleEntry, StyleProfile)
 
 STATIC = Path(__file__).parent / "static"
-NAME_RE = re.compile(r"^[^/\\.][^/\\]{0,63}$")
+# 폴더 이름: / \ 와 운영체제가 막는 : * ? " < > | 는 쓸 수 없고, . 으로 시작하지 않는다
+NAME_RE = re.compile(r'^[^/\\.:*?"<>|][^/\\:*?"<>|]{0,63}$')
+NAME_ERR = '폴더 이름에 / \\ : * ? " < > | 는 쓸 수 없고, . 으로 시작할 수 없어요 (64자까지)'
 
 app = FastAPI(title="Canon")
 # 다른 기기(Tailscale)에서 열 때 작품 JSON 과 정적 파일을 줄여 보낸다
@@ -89,7 +91,7 @@ async def _server_error(_: Request, e: Exception) -> JSONResponse:
 
 def _load(name: str) -> Project:
     if not NAME_RE.match(name) or not store.exists(name):
-        raise HTTPException(404, f"프로젝트가 없습니다: {name}")
+        raise HTTPException(404, f"프로젝트가 없어요: {name}")
     return store.load(name)
 
 
@@ -123,7 +125,7 @@ def _save(name: str, p: Project, merged: set[str] | None = None, kept: list[dict
 
 def _not_auto(name: str) -> None:
     if autorun.active(name):
-        raise ValueError("자동 집필이 도는 중입니다. 일시정지한 뒤에 하세요")
+        raise ValueError("자동 집필이 도는 중이에요. 일시정지한 뒤에 하세요")
 
 
 # ---------- 프로젝트 ----------
@@ -155,13 +157,13 @@ class SettingsIn(BaseModel):
 def put_config(body: SettingsIn) -> dict:
     choices = settings.PROVIDERS
     if body.provider is not None and body.provider not in choices:
-        raise HTTPException(400, f"provider 는 {' / '.join(choices)} 중 하나입니다")
+        raise HTTPException(400, f"provider 는 {' / '.join(choices)} 중 하나예요")
     for stage, value in (body.stages or {}).items():
         if stage not in settings.STAGES or (value and value not in choices):
-            raise HTTPException(400, f"단계 설정이 잘못됐습니다: {stage}={value}")
+            raise HTTPException(400, f"단계 설정이 잘못됐어요: {stage}={value}")
     for stage in body.stage_models or {}:
         if stage not in settings.STAGES:
-            raise HTTPException(400, f"알 수 없는 단계입니다: {stage}")
+            raise HTTPException(400, f"알 수 없는 단계예요: {stage}")
     settings.update(provider=body.provider, model=body.model, api_key=body.api_key, clear_key=body.clear_key,
                     local_url=body.local_url, local_model=body.local_model, local_key=body.local_key,
                     stages=body.stages, stage_models=body.stage_models)
@@ -174,7 +176,7 @@ def test_config() -> dict:
     used = {(settings.stage_provider(s)[0], settings.stage_model(s)[0]) for s in settings.STAGES}
     used = {u for u in used if u[0] != "mock"}
     if not used:
-        return {"ok": True, "message": "mock 모드입니다. 실제 AI 를 호출하지 않습니다."}
+        return {"ok": True, "message": "mock 모드예요. 실제 AI 를 호출하지 않아요."}
     done = []
     for prov, model in sorted(used):
         try:
@@ -183,7 +185,7 @@ def test_config() -> dict:
         except Exception as e:  # SDK 오류 종류가 많아 메시지만 보여준다
             raise HTTPException(400, f"{prov} {model or ''} 연결 실패: {getattr(e, 'message', None) or e}")
         done.append(llm.model)
-    return {"ok": True, "message": f"{', '.join(dict.fromkeys(done))} 에 연결됐습니다."}
+    return {"ok": True, "message": f"{', '.join(dict.fromkeys(done))} 에 연결됐어요."}
 
 
 @app.get("/api/config/models")
@@ -192,9 +194,10 @@ def config_models() -> dict:
     out = {}
     for prov, make in (("gemini", GeminiLLM), ("local", lambda: LocalLLM(timeout=5))):
         try:
-            out[prov] = {"models": make().models(), "error": ""}
+            out[prov] = {"models": make().models(), "error": "", "reason": ""}
         except Exception as e:  # 키가 없거나 서버가 꺼져 있어도 화면은 열려야 한다
-            out[prov] = {"models": [], "error": str(getattr(e, "message", None) or e)}
+            reason = "no_key" if isinstance(e, MissingKey) else "unreachable" if prov == "local" and "연결하지 못했" in str(e) else "other"
+            out[prov] = {"models": [], "error": str(getattr(e, "message", None) or e), "reason": reason}
     return out
 
 
@@ -215,15 +218,23 @@ def config_health() -> dict:
 
 @app.get("/api/projects")
 def list_projects() -> list[dict]:
+    """작품 카드: 형식, 다음에 할 화(open_ep · open_status, 없으면 0 · ''), 고친 시각. 최근에 고친 작품부터."""
+    from datetime import datetime, timezone
     out = []
     if store.ROOT.exists():
         for d in sorted(store.ROOT.iterdir()):
-            if (d / "project.json").exists():
+            f = d / "project.json"
+            if f.exists():
                 p = store.load(d.name)
                 done = sum(e.status == "finalized" for e in p.episodes)
-                out.append({"name": d.name, "title": p.meta.title, "genre": p.meta.genre,
-                            "episodes": p.meta.target_episodes, "finalized": done})
-    return out
+                todo = next((e for e in sorted(p.episodes, key=lambda e: e.plot.number) if e.status != "finalized"), None)
+                mtime = f.stat().st_mtime
+                out.append({"name": d.name, "title": p.meta.title, "genre": p.meta.genre, "form": p.meta.form,
+                            "episodes": p.meta.target_episodes, "finalized": done, "planned": len(p.episodes),
+                            "open_ep": todo.plot.number if todo else 0, "open_status": todo.status if todo else "",
+                            "updated_at": datetime.fromtimestamp(mtime, timezone.utc).isoformat(), "_mtime": mtime})
+    out.sort(key=lambda x: -x["_mtime"])
+    return [{k: v for k, v in x.items() if k != "_mtime"} for x in out]
 
 
 class NewName(BaseModel):
@@ -234,15 +245,15 @@ def _free(name: str) -> None:
     """작업이나 자동 집필이 이 작품을 쓰는 중이면 작품 폴더를 옮기거나 지우지 않는다."""
     _not_auto(name)
     if any(j.status == "running" for j in jobs.listing(name)):
-        raise ValueError("이 작품의 AI 작업이 도는 중입니다. 끝나거나 멈춘 뒤에 하세요")
+        raise ValueError("이 작품의 AI 작업이 도는 중이에요. 끝나거나 멈춘 뒤에 하세요")
 
 
 def _new_name(body: NewName) -> str:
     new = body.name.strip()
     if not NAME_RE.match(new):
-        raise HTTPException(400, "프로젝트 이름에 / \\ 를 쓰거나 . 으로 시작할 수 없습니다")
+        raise HTTPException(400, NAME_ERR)
     if store.exists(new):
-        raise HTTPException(409, f"이미 있는 이름입니다: {new}")
+        raise HTTPException(409, f"이미 있는 이름이에요: {new}")
     return new
 
 
@@ -296,7 +307,7 @@ def adjust_tie(name: str, body: TieFix) -> Project:
     if body.source not in ids or body.target not in ids or body.source == body.target:
         raise ValueError("두 인물을 고르세요")
     if body.warmth is not None and not -1 <= body.warmth <= 1 or body.trust is not None and not 0 <= body.trust <= 1:
-        raise ValueError("온기는 -1~1, 신뢰는 0~1 입니다")
+        raise ValueError("온기는 -1~1, 신뢰는 0~1 이에요")
     pipeline.adjust_tie(p, body.source, body.target, body.warmth, body.trust)
     return _save(name, p)
 
@@ -305,9 +316,11 @@ def adjust_tie(name: str, body: TieFix) -> Project:
 def create_project(body: NewProject) -> Project:
     name = body.name.strip()
     if not NAME_RE.match(name):
-        raise HTTPException(400, "프로젝트 이름에 / \\ 를 쓰거나 . 으로 시작할 수 없습니다")
+        raise HTTPException(400, NAME_ERR)
     if store.exists(name):
-        raise HTTPException(409, f"이미 있는 프로젝트입니다: {name}")
+        raise HTTPException(409, f"이미 있는 프로젝트예요: {name}")
+    if not 1 <= body.meta.target_episodes <= 1000:
+        raise HTTPException(400, "총 화수는 1~1000 사이로 적으세요")
     p = Project(meta=body.meta)
     if not p.meta.title:
         p.meta.title = name
@@ -357,6 +370,7 @@ def put_project(name: str, p: Project, response: Response, merged: str = "", for
         pipeline.validate_parts(p.parts, p.meta.target_episodes)
         pipeline.validate_story_arcs(p)
     pipeline.validate_storylines(p)
+    pipeline.validate_relationships(p)
     pipeline._init_states(p)
     p.meta.genre = genres.label(p.meta)
     if p.snapshot(0) is None:  # 첫 반영 전에는 설정 화면의 시작 호감이 시작 관계다
@@ -505,6 +519,8 @@ def keep_style(name: str, body: StyleKeep) -> dict:
         e = library.push_project(p, body.note)
         _save(name, p)
     else:
+        if library.blank(p.style) and not body.sample.strip():  # 원문만 있으면 라이브러리에서 나중에 분석할 수 있다
+            raise HTTPException(400, "문체가 비어 있어요. 원문을 넣거나 문체 분석 · 스타일 프로필을 채운 뒤 저장할 수 있어요")
         e = library.from_project(p, body.name or f"{p.meta.title or name} 문체", body.sample, body.source)
         if body.sample.strip():  # 웹에서 분석한 원문의 기준 지표를 작품에도 남긴다
             p.style_baseline = e.baseline
@@ -564,7 +580,7 @@ class StyleIn(BaseModel):
 
 def _style_id(sid: str) -> str:
     if not library.exists(sid):
-        raise HTTPException(404, f"문체 라이브러리에 없는 항목입니다: {sid}")
+        raise HTTPException(404, f"문체 라이브러리에 없는 항목이에요: {sid}")
     return sid
 
 
@@ -673,10 +689,13 @@ def conversion_status(name: str) -> dict:
     """전환 가능한 총 화수 범위, 또는 이미 전환했다면 되돌릴 수 있는지."""
     p = _load(name)
     lo, hi = pipeline.convert_range(p)
-    blockers = pipeline.undo_blockers(p, store.load_backup(name, pipeline.BACKUP_TAG)) if p.conversion else []
+    backup = store.load_backup(name, pipeline.BACKUP_TAG) if p.conversion else None
+    blockers = pipeline.undo_blockers(p, backup) if p.conversion else []
+    # 화면이 막힌 화로 가는 링크를 달 수 있게 이유별 화 번호도 준다
+    detail = pipeline.undo_blocker_eps(p, backup) if p.conversion and backup else {}
     span = dict(zip(("min", "default", "max"), pipeline.rebuild_span(p))) if not p.serial and p.episodes else None
     return {"min": lo, "max": hi, "end": pipeline.short_end(p), "conversion": p.conversion, "undo_blockers": blockers,
-            "rebuild": span}
+            "undo_eps": detail, "rebuild": span}
 
 
 @app.post("/api/projects/{name}/convert/apply")
@@ -758,6 +777,8 @@ def remove_storyline(name: str, sid: str) -> Project:
 
 @app.post("/api/projects/{name}/episodes/{n}/confirm")
 def confirm_plot(name: str, n: int) -> Project:
+    if n in jobs.running_owned(name):
+        raise ValueError(f"{n}화 플롯을 만드는 작업이 도는 중이에요. 끝난 뒤에 확정하세요")
     p = _load(name)
     pipeline.confirm_plot(p, n)  # 그 화에 나오는 새 인물 후보도 함께 등록된다
     return _save(name, p)
@@ -768,7 +789,7 @@ def unconfirm_plot(name: str, n: int) -> Project:
     p = _load(name)
     ep = p.episode(n)
     if ep.status != "confirmed":
-        raise ValueError(f"{n}화는 본문이 이미 있어 초안으로 되돌릴 수 없습니다")
+        raise ValueError(f"{n}화는 본문이 이미 있어 초안으로 되돌릴 수 없어요")
     ep.status = "draft"
     return _save(name, p)
 
@@ -783,7 +804,7 @@ TEXT_TOPIC = re.compile(r"^text:(\d+)$")
 def _chat(p: Project, topic: str):
     m = TEXT_TOPIC.match(topic)
     if topic != "plot" and not (m and any(e.plot.number == int(m.group(1)) for e in p.episodes)):
-        raise HTTPException(404, f"대화 주제가 없습니다: {topic}")
+        raise HTTPException(404, f"대화 주제가 없어요: {topic}")
     return p.chat(topic)
 
 
@@ -830,10 +851,10 @@ def chat_apply(name: str, topic: str, i: int, body: ChatApply) -> Project:
     p = _load(name)
     msgs = _chat(p, topic).messages
     if not 0 <= i < len(msgs) or msgs[i].revision is None:
-        raise HTTPException(404, "변경안이 있는 메시지가 아닙니다")
+        raise HTTPException(404, "변경안이 있는 메시지가 아니에요")
     m = msgs[i]
     if m.outcome:
-        raise ValueError("이미 처리한 변경안입니다")
+        raise ValueError("이미 처리한 변경안이에요")
     if not body.acts and not body.episodes:
         raise ValueError("반영할 부분을 고르세요")
     m.applied = pipeline.apply_revision(p, m.revision, body.acts, body.episodes)
@@ -848,7 +869,7 @@ def chat_dismiss(name: str, topic: str, i: int) -> Project:
     def fn(p: Project) -> None:
         msgs = p.chat(topic).messages
         if not 0 <= i < len(msgs) or (msgs[i].revision is None and msgs[i].passage is None):
-            raise HTTPException(404, "변경안이 있는 메시지가 아닙니다")
+            raise HTTPException(404, "변경안이 있는 메시지가 아니에요")
         if not msgs[i].outcome:
             msgs[i].outcome = "dismissed"
     return _edit(name, fn)
@@ -862,7 +883,7 @@ def chat_reopen(name: str, topic: str, i: int) -> Project:
     def fn(p: Project) -> None:
         msgs = p.chat(topic).messages
         if not 0 <= i < len(msgs) or msgs[i].outcome != "dismissed":
-            raise ValueError("버린 변경안이 아닙니다")
+            raise ValueError("버린 변경안이 아니에요")
         msgs[i].outcome = ""
     return _edit(name, fn)
 
@@ -944,7 +965,7 @@ def _plot_ranges(p: Project, arc: int | None = None) -> list[tuple[str, int, int
     if p.serial and arc is not None:
         s = next((x for x in p.story_arcs if x.number == arc), None)
         if s is None:
-            raise ValueError(f"아크 {arc}이(가) 없습니다")
+            raise ValueError(f"아크 {arc}이(가) 없어요")
         beats = s.acts
     groups: list[list] = []  # 화를 함께 쓰는 구간(짧은 작품)은 한 번에 만든다: [이름들, 시작, 끝]
     for a in sorted(beats, key=pipeline.act_order):
@@ -1011,10 +1032,10 @@ def start_job(name: str, body: JobIn) -> dict:
     elif kind == "rework":
         _not_auto(name)
         if n is None:
-            raise ValueError("화 번호(ep)가 필요합니다")
+            raise ValueError("화 번호(ep)가 필요해요")
         x = p.archive.entry(n) if p.archive else None
         if x is None or x.use != "revise":
-            raise ValueError(f"{n}화는 재구성에서 다듬기로 고른 화가 아닙니다")
+            raise ValueError(f"{n}화는 재구성에서 다듬기로 고른 화가 아니에요")
         label, total, owned = f"{n}화 다듬기", 1, set()
 
         def fn(job: jobs.Job):
@@ -1022,7 +1043,7 @@ def start_job(name: str, body: JobIn) -> dict:
     elif kind == "check":
         # 한 화 검수: 앞선 본문 전체와 설정에 어긋난 곳을 찾아 그 화에 붙인다 (집필 화면이 보여 주고 고칠 문장을 고르게 한다)
         if n is None or not p.episode(n).text:
-            raise ValueError("본문이 있는 화만 검수합니다")
+            raise ValueError("본문이 있는 화만 검수해요")
         label, total, owned = f"{n}화 검수", 1, set()
 
         def fn(job: jobs.Job):
@@ -1038,8 +1059,8 @@ def start_job(name: str, body: JobIn) -> dict:
     elif kind in ("recap_arc", "recap_part"):
         unit = kind.removeprefix("recap_")
         if n is None:
-            raise ValueError("아크나 부 번호(ep)가 필요합니다")
-        label, total, owned = f"{'아크' if unit == 'arc' else '부'} {n} 요약", 1, set()
+            raise ValueError("아크나 부 번호(ep)가 필요해요")
+        label, total, owned = (f"아크 {n} 요약" if unit == "arc" else f"{n}부 요약"), 1, set()  # 화면과 같은 이름 ('1부')
 
         def fn(job: jobs.Job):
             return pipeline.recap(llm, store.load(name), unit, n).model_dump()
@@ -1048,7 +1069,7 @@ def start_job(name: str, body: JobIn) -> dict:
             raise ValueError("다음 아크를 먼저 기획하세요" if p.serial else "기승전결 구조(arc)를 먼저 만들고 저장하세요")
         ranges = _plot_ranges(p, n if p.serial else None)
         if not ranges:
-            raise ValueError("모든 화가 확정되어 새로 만들 초안이 없습니다")
+            raise ValueError("모든 화가 확정되어 새로 만들 초안이 없어요")
         draft = {e.plot.number for e in p.episodes if e.status == "draft"}
         have = {e.plot.number for e in p.episodes}
         owned = {k for _, a, b in ranges for k in range(a, b + 1) if k in draft or k not in have}
@@ -1062,18 +1083,19 @@ def start_job(name: str, body: JobIn) -> dict:
                 batch = pipeline.draft_plots(llm, store.load(name), a, b)
                 _edit(name, lambda q: pipeline.apply_plots(q, batch))
                 job.done += 1
+                job.release({k for k in owned if a <= k <= b})  # 끝난 구간은 작업이 도는 중에도 확정하고 고칠 수 있다
             job.note = ""
             return None
     elif kind in ("write", "state"):
         if n is None:
-            raise ValueError("화 번호(ep)가 필요합니다")
+            raise ValueError("화 번호(ep)가 필요해요")
         e = p.episode(n)
         if kind == "write":
             if e.status == "draft":
-                raise ValueError(f"{n}화 플롯이 아직 확정되지 않았습니다")
+                raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요")
             if body.rewrite is not None and e.text:  # 다시 생성: 새 판은 본문을 덮지 않고 고르기를 기다린다
                 if e.status == "finalized":
-                    raise ValueError(f"{n}화는 상태 반영까지 끝나 다시 생성할 수 없습니다")
+                    raise ValueError(f"{n}화는 상태 반영까지 끝나 다시 생성할 수 없어요")
                 req = pipeline.clean_rewrite(body.rewrite)
                 label, total, owned = f"{n}화 새 판", 1, {n}
 
@@ -1090,20 +1112,20 @@ def start_job(name: str, body: JobIn) -> dict:
                     return None
         else:
             if not e.text:
-                raise ValueError(f"{n}화 본문이 없습니다")
+                raise ValueError(f"{n}화 본문이 없어요")
             label, total, owned = f"{n}화 상태 변경안", 1, set()
 
             def fn(job: jobs.Job):
                 return pipeline.extract_state(llm, store.load(name), n).model_dump()
     elif kind in ("hook", "openings", "opening_drafts"):
         if n is None or not prompts.is_opening(n):
-            raise ValueError(f"1~{prompts.OPENING_EPISODES}화 번호(ep)가 필요합니다")
+            raise ValueError(f"1~{prompts.OPENING_EPISODES}화 번호(ep)가 필요해요")
         ways, k = body.approaches, body.draft
         if kind == "hook":
             if k:
                 research.compare_text(name, n, k)  # 비교본이 없으면 바로 알린다
             elif not p.episode(n).text:
-                raise ValueError(f"{n}화 본문이 없습니다")
+                raise ValueError(f"{n}화 본문이 없어요")
             label, total, owned = f"{n}화 흡입력 판정" + (f" (비교본 {k}번)" if k else ""), 1, set()
 
             def fn(job: jobs.Job):
@@ -1115,14 +1137,14 @@ def start_job(name: str, body: JobIn) -> dict:
                     _edit(name, lambda q: pipeline.apply_hook(q, rep))
                 return rep.model_dump()
         elif kind == "openings":
-            label, total, owned = f"{n}화 여는 방식 여러 안", 1, set()
+            label, total, owned = f"{n}화 여는 방식 플롯 안", 1, set()
 
             def fn(job: jobs.Job):
                 return pipeline.suggest_openings(llm, store.load(name), n, ways).model_dump()
         else:
             if p.episode(n).status == "draft":
-                raise ValueError(f"{n}화 플롯이 아직 확정되지 않았습니다")
-            label, total, owned = f"{n}화 여러 안으로 쓰기", 1, set()
+                raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요")
+            label, total, owned = f"{n}화 여는 방식 본문 안", 1, set()
 
             def fn(job: jobs.Job):
                 c = research.run_opening_compare(name, store.load(name), n, llm, ways)
@@ -1141,7 +1163,7 @@ def start_job(name: str, body: JobIn) -> dict:
             _edit(name, lambda q: pipeline.record_impact(q, eid, rep))
             return {"element": eid}
     else:
-        raise ValueError(f"모르는 작업입니다: {kind}")
+        raise ValueError(f"모르는 작업이에요: {kind}")
 
     try:
         with usage.scope(episode=n if kind in ("write", "state", "rework", "hook", "openings", "opening_drafts") else None, task=kind):
@@ -1217,7 +1239,7 @@ def stop_job(jid: str) -> dict:
     """작업을 멈춘다. 이미 보낸 AI 호출의 응답은 버린다. 자동 집필은 그 화면의 일시정지 · 중지를 쓴다."""
     j = jobs.get(jid)
     if j is None:
-        raise HTTPException(404, "작업이 없습니다 (서버가 다시 시작됐을 수 있어요)")
+        raise HTTPException(404, "작업이 없어요 (서버가 다시 시작됐을 수 있어요)")
     if j.kind == "auto":
         raise ValueError("자동 집필은 자동 집필 화면의 일시정지나 중지를 쓰세요")
     return jobs.stop(jid).public()
@@ -1232,7 +1254,7 @@ def list_jobs(project: str | None = None) -> list[dict]:
 def get_job(jid: str) -> dict:
     j = jobs.get(jid)
     if j is None:
-        raise HTTPException(404, "작업이 없습니다 (서버가 다시 시작됐을 수 있어요)")
+        raise HTTPException(404, "작업이 없어요 (서버가 다시 시작됐을 수 있어요)")
     return j.public()
 
 
@@ -1261,7 +1283,7 @@ def put_text(name: str, n: int, body: Text) -> Project:
     if ep.status == "draft":
         raise ValueError(f"{n}화 플롯을 먼저 확정하세요")
     if ep.status == "finalized":
-        raise ValueError(f"{n}화는 상태 반영까지 끝나 본문을 바꿀 수 없습니다")
+        raise ValueError(f"{n}화는 상태 반영까지 끝나 본문을 바꿀 수 없어요")
     text = body.text.strip()
     if text and ep.status == "confirmed":  # 손으로 쓰거나 붙여 넣은 본문도 AI 쓰기와 같은 순서 규칙을 따른다
         pipeline.require_previous(p, n)
@@ -1277,7 +1299,7 @@ def put_text(name: str, n: int, body: Text) -> Project:
 def _text_guard(name: str, n: int) -> None:
     _not_auto(name)
     if any(j.status == "running" and n in j.owned for j in jobs.listing(name)):
-        raise ValueError(f"{n}화 본문을 쓰는 작업이 도는 중입니다. 끝난 뒤에 고치세요")
+        raise ValueError(f"{n}화 본문을 쓰는 작업이 도는 중이에요. 끝난 뒤에 고치세요")
 
 
 # ---------- 4-0. 다시 생성 ----------
@@ -1308,7 +1330,7 @@ def rewrite_prompt(name: str, n: int, body: RewriteRequest) -> dict:
 
 def _no_write_job(name: str, n: int) -> None:
     if any(j.status == "running" and n in j.owned for j in jobs.listing(name)):
-        raise ValueError(f"{n}화를 쓰는 작업이 도는 중입니다. 끝난 뒤에 하세요")
+        raise ValueError(f"{n}화를 쓰는 작업이 도는 중이에요. 끝난 뒤에 하세요")
 
 
 @app.post("/api/projects/{name}/episodes/{n}/candidate/adopt")
@@ -1383,7 +1405,7 @@ def opening_check(name: str, n: int) -> dict:
     p = _load(name)
     e = p.episode(n)
     if not prompts.is_opening(n):
-        raise ValueError(f"초반 점검은 1~{prompts.OPENING_EPISODES}화만 합니다")
+        raise ValueError(f"초반 점검은 1~{prompts.OPENING_EPISODES}화만 해요")
     m, warnings = pipeline.opening_metrics(p, n) if e.text else (None, [])
     return {"metrics": m, "warnings": warnings, "hook": e.hook, "hook_stale": pipeline.hook_stale(p, n),
             "compare": research.load_compare(name, n)}
@@ -1433,7 +1455,7 @@ def _export_numbers(p: Project, eps: list[int]) -> list[int]:
     have = {e.plot.number for e in p.episodes}
     bad = [n for n in eps if n not in have]
     if bad:
-        raise ValueError(f"없는 화입니다: {', '.join(map(str, bad))}")
+        raise ValueError(f"없는 화예요: {', '.join(map(str, bad))}")
     return eps or sorted(e.plot.number for e in p.episodes if e.text)
 
 
@@ -1474,7 +1496,7 @@ class IllustIn(BaseModel):
 def make_illust(name: str, n: int, body: IllustIn) -> Project:
     p = _load(name)
     if body.model and body.model not in illust.MODELS:
-        raise ValueError(f"모르는 모델입니다: {body.model}")
+        raise ValueError(f"모르는 모델이에요: {body.model}")
     ill = pipeline.illustrate(get_llm("illustration"), p, n, body.selection, body.request, body.model)
     return _edit(name, lambda q: pipeline.add_illustration(q, n, ill))
 
@@ -1543,16 +1565,62 @@ class Raw(BaseModel):
 
 @app.post("/api/projects/{name}/episodes/{n}/state/parse")
 def parse_state(name: str, n: int, body: Raw) -> StateDelta:
-    """채팅 앱이 돌려준 JSON 을 검사한다. 코드 블록 표시는 지운다."""
+    """채팅 앱이 돌려준 JSON 을 검사한다. 앞뒤 설명문과 코드 블록 표시는 버리고 첫 { 부터 마지막 } 까지 읽는다.
+    화 번호는 이 화로 채운다 (채팅 앱이 episode 를 빼먹어도 받는다)."""
     p = _load(name)
     p.episode(n)
-    raw = re.sub(r"^```(?:json)?\s*|\s*```\s*$", "", body.raw.strip())
+    raw = body.raw
+    a, b = raw.find("{"), raw.rfind("}")
+    if a < 0 or b < a:
+        raise HTTPException(400, "JSON을 찾지 못했어요. 채팅 앱 답에서 { 로 시작하는 부분을 붙여 넣으세요")
     try:
-        delta = StateDelta.model_validate_json(raw)
+        data = json.loads(raw[a:b + 1])
+    except json.JSONDecodeError as e:
+        # 줄 · 글자 번호는 붙여 넣은 원문 기준으로 센다 (앞 설명문이나 코드 블록 표시까지 포함)
+        pos = a + e.pos
+        line, col = raw.count("\n", 0, pos) + 1, pos - raw.rfind("\n", 0, pos)
+        raise HTTPException(400, f"JSON 형식이 맞지 않아요: {line}번째 줄 {col}번째 글자 근처에서 {_json_reason(raw, pos, e.msg)}")
+    if not isinstance(data, dict):
+        raise HTTPException(400, "JSON이 { } 로 묶인 객체가 아니에요")
+    data["episode"] = n
+    try:
+        return StateDelta.model_validate(data)
     except ValidationError as e:
-        raise HTTPException(400, f"JSON 형식이 맞지 않습니다: {e.errors()[0]['msg']} ({'.'.join(map(str, e.errors()[0]['loc']))})")
-    delta.episode = n
-    return delta
+        err = e.errors()[0]
+        loc = ".".join(map(str, err["loc"]))
+        why = _VALIDATION_REASON.get(err["type"], err["msg"])
+        raise HTTPException(400, f"JSON 내용이 맞지 않아요: {f'{loc} 칸이 ' if loc else ''}{why}")
+
+
+# json 모듈의 영어 오류 → 화면 문구
+_JSON_REASON = {
+    "Expecting ',' delimiter": "쉼표(,)가 빠졌어요",
+    "Illegal trailing comma before end of object": "마지막 항목 뒤에 쉼표가 남았어요",
+    "Illegal trailing comma before end of array": "마지막 항목 뒤에 쉼표가 남았어요",
+    "Expecting ':' delimiter": "쌍점(:)이 빠졌어요",
+    "Expecting property name enclosed in double quotes": "칸 이름을 큰따옴표로 감싸지 않았어요",
+    "Expecting value": "값이 비었거나 잘못됐어요",
+    "Extra data": "JSON이 끝난 뒤에 글이 더 있어요",
+    "Unterminated string starting at": "따옴표가 닫히지 않았어요",
+    "Invalid control character at": "글자 안에 줄바꿈 같은 제어 문자가 그대로 있어요",
+    "Invalid \\escape": "역슬래시(\\) 표기가 잘못됐어요",
+}
+# pydantic 검증 오류 종류 → 화면 문구 ('… 칸이' 뒤에 붙는다)
+_VALIDATION_REASON = {
+    "missing": "없어요", "string_type": "글자여야 해요", "int_type": "정수여야 해요", "int_parsing": "정수여야 해요",
+    "float_type": "숫자여야 해요", "float_parsing": "숫자여야 해요", "bool_type": "true 나 false 여야 해요",
+    "bool_parsing": "true 나 false 여야 해요", "list_type": "목록([ ])이어야 해요", "model_type": "{ } 로 묶인 객체여야 해요",
+    "dict_type": "{ } 로 묶인 객체여야 해요", "literal_error": "정해진 값 중 하나여야 해요", "enum": "정해진 값 중 하나여야 해요",
+    "extra_forbidden": "필요 없는 칸이에요",
+}
+
+
+def _json_reason(raw: str, pos: int, msg: str) -> str:
+    """json 오류를 한국어로. 닫는 괄호 앞에 쉼표가 남은 경우는 따로 알린다 (채팅 앱 답에 흔하다)."""
+    before = raw[:pos].rstrip()
+    if raw[pos:pos + 1] in ("}", "]") and before.endswith(","):
+        return "마지막 항목 뒤에 쉼표가 남았어요"
+    return _JSON_REASON.get(msg, msg)
 
 
 @app.post("/api/projects/{name}/episodes/{n}/apply")
@@ -1562,7 +1630,7 @@ def apply_state(name: str, n: int, d: StateDelta) -> Project:
     _not_auto(name)
     ep = p.episode(n)
     if ep.status != "written":
-        raise ValueError(f"{n}화는 본문이 작성된 상태가 아닙니다 (현재: {ep.status})")
+        raise ValueError(f"{n}화는 본문이 작성된 상태가 아니에요 (현재: {ep.status})")
     pipeline.require_previous(p, n)
     d.episode = n
     pipeline.apply_delta(p, d)
@@ -1575,7 +1643,9 @@ def revert(name: str, n: int) -> Project:
     p = _load(name)
     _not_auto(name)
     pipeline.revert(p, n)
-    return _save(name, p)
+    out = _save(name, p)
+    autorun.after_revert(name, n + 1)  # 자동 집필 실행 기록(자동 반영 목록, 로그, 끝남 상태)도 n+1화부터 맞춘다
+    return out
 
 
 # ---------- 자동 집필 (canon/autorun.py) ----------
@@ -1630,7 +1700,7 @@ def auto_request(name: str, what: str) -> dict:
     """what: pause | stop"""
     _load(name)
     if what not in ("pause", "stop"):
-        raise HTTPException(404, "pause 또는 stop 만 됩니다")
+        raise HTTPException(404, "pause 또는 stop 만 돼요")
     autorun.request(name, what)
     return _auto(name)
 
@@ -1643,6 +1713,14 @@ class AutoBatch(BaseModel):
 def auto_batch(name: str, body: AutoBatch) -> dict:
     _load(name)
     autorun.set_batch(name, body.batch)
+    return _auto(name)
+
+
+@app.put("/api/projects/{name}/auto/policy")
+def auto_policy(name: str, body: autorun.Policy) -> dict:
+    """멈춘 실행의 승인 정책을 바꾼다. 검토 대기와 기다리던 배치는 그대로 두고 다음 판정부터 적용된다."""
+    _load(name)
+    autorun.set_policy(name, body)
     return _auto(name)
 
 
@@ -1699,7 +1777,7 @@ def brief(name: str, n: int, kind: str = "episode") -> dict:
     p = _load(name)
     if kind == "state":
         if not p.episode(n).text:
-            raise ValueError(f"{n}화 본문이 없어 상태 정리 지시서를 만들 수 없습니다")
+            raise ValueError(f"{n}화 본문이 없어 상태 정리 지시서를 만들 수 없어요")
         return {"text": prompts.state_brief(p, n)}
     return {"text": prompts.episode_brief(p, n)}
 
@@ -1707,9 +1785,9 @@ def brief(name: str, n: int, kind: str = "episode") -> dict:
 # ---------- 연구 (모델 실험, 작품 데이터와 분리) ----------
 
 @app.get("/api/usage")
-def usage_summary(days: int = 30, project: str | None = None) -> dict:
-    """AI 호출 기록을 기간과 작품으로 걸러 모은다. days 가 0 이면 전체."""
-    return usage.summary(days or None, project or None)
+def usage_summary(days: int = 30, project: str | None = None, limit: int = 60) -> dict:
+    """AI 호출 기록을 기간과 작품으로 걸러 모은다. days 가 0 이면 전체. limit 은 최근 호출 목록의 길이 (1~1000)."""
+    return usage.summary(days or None, project or None, max(1, min(limit, 1000)))
 
 
 @app.get("/api/usage/prices")
@@ -1872,7 +1950,7 @@ def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
                     print(f"[업데이트] {r.message}")
                 last = r.message
                 continue
-            print(f"[업데이트] {r.message}. 진행 중인 작업이 끝나면 다시 시작합니다")
+            print(f"[업데이트] {r.message}. 진행 중인 작업이 끝나면 다시 시작해요")
             jobs.draining.set()  # 자동 집필은 다음 단계 전에 멈추고, 다시 시작한 서버가 이어 간다
             while (_active or jobs.running()) and not server.should_exit:
                 time.sleep(1)
@@ -1885,7 +1963,7 @@ def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
     if update_interval > 0:
         threading.Thread(target=watch_updates, daemon=True).start()
     for name in autorun.resume_all():
-        print(f"[자동 집필] {name} 을(를) 이어 갑니다")
+        print(f"[자동 집필] {name} 을(를) 이어 가요")
     server.run()
     if restart.is_set():
         updater.restart(no_browser=True)

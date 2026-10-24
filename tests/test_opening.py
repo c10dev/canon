@@ -46,7 +46,7 @@ def test_measure_opening_and_warnings():
     slow = "\n".join(["아주 오래전, 이 세계에서는 마법이 있었다. 사람들은 그 힘을 두려워했고 또 원했다. " * 4] * 30) + "\n\n앞으로 펼쳐질 운명을 그는 아직 알지 못했다."
     w = metrics.opening_warnings(metrics.measure_opening(slow, ["강서윤"], hero="강서윤"), 1, hero="강서윤")
     joined = " ".join(w)
-    assert "대사가 한 줄도 없습니다" in joined and "주인공 강서윤의 이름이 나오지 않습니다" in joined
+    assert "대사가 한 줄도 없어요" in joined and "주인공 강서윤의 이름이 나오지 않아요" in joined
     assert "대사 없이" in joined and "회상" in joined
     assert metrics.measure_opening("", []).chars == 0 and metrics.opening_warnings(metrics.OpeningMetrics(), 1) == []
 
@@ -113,6 +113,7 @@ def test_web_opening_flow(client):
     # 여는 방식 여러 안 → 고른 안을 플롯으로
     j = _wait(client, client.post("/api/projects/lh/jobs", json={"kind": "openings", "ep": 1}).json()["id"])
     assert j["status"] == "done" and len(j["result"]["options"]) == 3
+    assert j["label"] == "1화 여는 방식 플롯 안"  # 작업 목록에서 본문 안과 나뉘게
     plot = j["result"]["options"][0]["plot"]
     p = client.post("/api/projects/lh/episodes/1/opening-plot", json={"plot": plot}).json()
     assert p["episodes"][0]["plot"]["opening"] == plot["opening"]
@@ -123,6 +124,7 @@ def test_web_opening_flow(client):
     j = _wait(client, client.post("/api/projects/lh/jobs", json={"kind": "opening_drafts", "ep": 1,
                                                                     "approaches": ["in_medias_res", "lack_turn"]}).json()["id"])
     assert j["status"] == "done" and j["result"]["count"] == 2
+    assert j["label"] == "1화 여는 방식 본문 안"
     c = client.get("/api/projects/lh/episodes/1/opening").json()["compare"]
     assert c["kind"] == "opening" and len(c["drafts"]) == 2
 

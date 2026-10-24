@@ -63,14 +63,21 @@ function timingText(el) {
   return parts.join(' · ');
 }
 
+/** 분석이 건드리는 화. 모순 · 플롯 고치기 · 본문 고치기가 같은 화면 한 번만 센다 */
+function impactEpisodes(r) {
+  return new Set([...r.conflicts.map((c) => c.episode), ...r.episodes.map((e) => e.number), ...r.patches.map((t) => t.episode)].filter(Boolean));
+}
+
 function impactBadge(el) {
   const imp = el.impact;
   if (!imp) return el.added_after ? '<span class="chip written">분석 전</span>' : '';
+  if (causalStale(el)) return '<span class="chip written">다시 분석 필요</span>';  // 분석한 뒤 요소를 고쳤다
   if (imp.outcome === 'applied') return '<span class="chip finalized">적용함</span>';
   if (imp.outcome === 'dismissed') return '<span class="chip">분석 봄</span>';
   const r = imp.report;
-  const n = r.conflicts.length + r.episodes.length + r.patches.length;
-  return n ? `<span class="chip written">영향 ${n}곳</span>` : '<span class="chip finalized">영향 없음</span>';
+  const n = impactEpisodes(r).size;
+  if (n) return `<span class="chip written">영향 ${n}개 화</span>`;
+  return r.conflicts.length || r.new_facts.length ? '<span class="chip written">검토할 것 있음</span>' : '<span class="chip finalized">영향 없음</span>';
 }
 
 // ----- 목록 -----
@@ -80,7 +87,7 @@ function causalList() {
   const kinds = [...new Set(P().elements.map((x) => x.kind))];
   const filter = kinds.length > 1 ? `<div class="row" style="gap:6px">${['', ...EL_KINDS.filter((k) => kinds.includes(k))].map((k) => `<button type="button" class="btn small${S.causalKind === k ? ' on' : ''}" data-action="causalFilter" data-arg="${esc(k)}" aria-pressed="${S.causalKind === k}">${k || '전부'}</button>`).join('')}</div>` : '';
   const items = list.map((x) => `<button type="button" class="el-item${x.id === S.causalSel ? ' sel' : ''}" data-action="causalSelect" data-arg="${esc(x.id)}">
-      <span class="between"><span class="chip">${esc(x.kind)}</span>${impactBadge(x)}</span>
+      <span class="between"><span class="chip">${esc(x.kind)}</span><span data-el-badge>${impactBadge(x)}</span></span>
       <strong>${esc(x.name) || '이름 없음'}</strong>
       <span class="small">${esc(timingText(x))}${x.characters.length ? ' · ' + x.characters.map(charName).map(esc).join(', ') : ''}</span>
     </button>`).join('');
@@ -112,7 +119,7 @@ function causalEditor(el) {
       <span class="small">${fromStart ? '이미 쓴 화도 이 설정과 맞아야 해서, 영향 분석이 본문까지 검사해요.' : `${el.since_ep}화 전 본문은 이 요소가 없던 때라 모순으로 보지 않아요.`}</span></div>
     <div class="grid-2">
       <div class="field"><label for="el-eps">나올 화 <span class="hint">일어나거나 꼭 나와야 하는 화. 쉼표로</span></label><input id="el-eps" type="text" value="${esc(el.episodes.join(', '))}" data-el-eps placeholder="예: 7, 12"></div>
-      ${input('독자에게 드러나는 화', b + '.reveal_ep', { type: 'number', min: 0, hint: '0 이면 숨기지 않음. 그 전에는 암시만' })}
+      ${input('독자에게 드러나는 화', b + '.reveal_ep', { type: 'number', min: 0, zeroBlank: true, placeholder: '숨기지 않음', hint: '비우면 숨기지 않음. 그 전에는 암시만' })}
     </div>
     <div class="field"><span class="label">본문을 쓸 때 AI에 넣기</span><div class="seg" role="group" aria-label="AI에 넣기">${ctx.map(([k, l]) => `<button type="button" aria-pressed="${el.context === k}" data-action="causalContext" data-arg="${k}">${l}</button>`).join('')}</div>
       <span class="small">관련 있을 때: 그 화에 관련 인물이 나오거나, 플롯에 이름이 있거나, 나올 화일 때만 넣어요.</span></div>
@@ -127,24 +134,37 @@ function causalStrip(el) {
   const r = el.impact && el.impact.outcome !== 'dismissed' ? el.impact.report : null;
   const bad = new Set(r ? r.conflicts.filter((c) => c.episode).map((c) => c.episode) : []);
   const plot = new Set(r ? [...r.episodes.map((e) => e.number), ...r.patches.map((t) => t.episode)] : []);
+  // 반영한 뒤에는 분석 때의 '모순 · 고침'이 지금 일이 아니다. 반영한 화는 따로 표시하고 남은 것만 모순 · 고칠 화로 둔다
+  const done = new Set();
+  if (r && el.impact.outcome === 'applied') {
+    (el.impact.applied || []).forEach((x) => {
+      const [k, v] = x.split(':');
+      if (k === 'ep') done.add(Number(v));
+      if (k === 'patch' && r.patches[Number(v)]) done.add(r.patches[Number(v)].episode);
+    });
+    done.forEach((n) => { bad.delete(n); plot.delete(n); });
+  }
   const cells = Array.from({ length: total }, (_, k) => {
     const n = k + 1;
     const e = ep(n);
     const l = links.get(n);
-    const cls = bad.has(n) ? 'bad' : plot.has(n) ? 'plot' : l ? (l.where.length || l.planned ? 'rel' : 'rel weak') : '';
-    const tag = bad.has(n) ? '모순' : plot.has(n) ? '고침' : l ? (l.where.length ? '언급' : l.planned ? '예정' : '인물') : '';
+    const cls = bad.has(n) ? 'bad' : plot.has(n) ? 'plot' : done.has(n) ? 'done' : l ? (l.where.length || l.planned ? 'rel' : 'rel weak') : '';
+    const tag = bad.has(n) ? '모순' : plot.has(n) ? '고침' : done.has(n) ? '반영함' : l ? (l.where.length ? '언급' : l.planned ? '예정' : '인물') : '';
     const marks = (el.since_ep > 0 && n === el.since_ep ? ' since' : '') + (el.reveal_ep === n ? ' reveal' : '') + (e && e.text ? ' has-text' : '');
     const title = [`${n}화`, e ? STATUS[e.status] : '플롯 없음', l && l.terms.length ? `언급: ${l.terms.join(', ')}` : '', l && l.characters.length ? `인물: ${l.characters.map(charName).join(', ')}` : '',
       el.since_ep === n ? '이 화부터 생김' : '', el.reveal_ep === n ? '독자에게 드러남' : ''].filter(Boolean).join(' · ');
-    const href = e ? (e.text ? `${base()}/write/${n}` : `${base()}/arc`) : `${base()}/arc`;
-    return `<a class="cell ${cls}${marks}${el.since_ep > n ? ' before' : ''}" href="${href}" title="${esc(title)}" aria-label="${esc(title)}">${n}<i>${tag}</i></a>`;
+    const attrs = `class="cell ${cls}${marks}${el.since_ep > n ? ' before' : ''}" title="${esc(title)}" aria-label="${esc(title)}"`;
+    if (e && e.text) return `<a ${attrs} href="${base()}/write/${n}">${n}<i>${tag}</i></a>`;
+    // 본문이 없으면 플롯 보드에서 그 화 플롯을 연다 (노선도 점과 같은 동작). 플롯도 없는 화는 보드로만 간다
+    if (e) return `<button type="button" ${attrs} data-action="lineEp" data-arg="${n}">${n}<i>${tag}</i></button>`;
+    return `<a ${attrs} href="${base()}/arc">${n}<i>${tag}</i></a>`;
   }).join('');
   const snippets = [...links.values()].filter((l) => l.snippet).slice(0, 6)
     .map((l) => `<li><strong>${l.episode}화 ${l.where.join('·')}</strong> <span class="small">${esc(l.snippet)}</span></li>`).join('');
   return `<div class="card" style="display:flex;flex-direction:column;gap:12px">
     <div class="between"><h2>관련 화 지도</h2><span class="small">이름, 다른 이름, 관련 인물로 찾았어요 (AI 없이)</span></div>
     <div class="strip-scroll"><div class="strip" style="grid-template-columns:repeat(${Math.min(total, 25)}, minmax(30px, 1fr))">${cells}</div></div>
-    <div class="legend"><span><i style="background:var(--red-soft);border:1px solid var(--red)"></i>모순</span><span><i style="background:var(--amber-soft);border:1px solid var(--amber)"></i>고칠 화</span><span><i style="background:var(--accent-soft);border:1px solid var(--accent)"></i>언급 · 나올 화</span><span><i style="border:1px dashed var(--accent)"></i>관련 인물만 나옴</span><span><i style="border-bottom:3px solid var(--text-2)"></i>본문 있음</span>${el.since_ep > 0 ? '<span><i style="border-left:3px solid var(--accent)"></i>생기는 화</span>' : ''}${el.reveal_ep ? '<span><i style="outline:2px dashed var(--accent)"></i>드러나는 화</span>' : ''}</div>
+    <div class="legend"><span><i style="background:var(--red-soft);border:1px solid var(--red)"></i>모순</span><span><i style="background:var(--amber-soft);border:1px solid var(--amber)"></i>고칠 화</span>${done.size ? '<span><i style="background:var(--green-soft);border:1px solid var(--green)"></i>반영함</span>' : ''}<span><i style="background:var(--accent-soft);border:1px solid var(--accent)"></i>언급 · 나올 화</span><span><i style="border:1px dashed var(--accent)"></i>관련 인물만 나옴</span><span><i style="border-bottom:3px solid var(--text-2)"></i>본문 있음</span>${el.since_ep > 0 ? '<span><i style="border-left:3px solid var(--accent)"></i>생기는 화</span>' : ''}${el.reveal_ep ? '<span><i style="outline:2px dashed var(--accent)"></i>드러나는 화</span>' : ''}</div>
     ${snippets ? `<ul class="panel-list">${snippets}</ul>` : ''}
   </div>`;
 }
@@ -179,7 +199,7 @@ function causalImpact(el) {
   const open = !imp.outcome;
   if (open) initCausalPicks(el);
   const box = (part, disabled) => open ? `<input type="checkbox" data-causal-pick="${esc(pickId(el, part))}"${S.causalPicks[pickId(el, part)] && !disabled ? ' checked' : ''}${disabled ? ' disabled' : ''}>` : '';
-  const stale = causalStale(el) ? '<div class="note warn">분석한 뒤 요소를 고쳤어요. 다시 분석하면 지금 내용으로 봐요.</div>' : '';
+  const stale = `<div id="causal-stale">${staleNote(el)}</div>`;
   const conflicts = r.conflicts.map((c) => `<li class="conflict">
       <div class="row" style="gap:6px"><span class="chip">${c.target}${c.episode ? ` · ${c.episode}화` : ''}</span><span class="chip ${FIX_CLASS[c.fix] || ''}">${c.fix}</span></div>
       <blockquote>${esc(c.quote)}</blockquote><div>${esc(c.problem)}</div></li>`).join('');
@@ -197,8 +217,8 @@ function causalImpact(el) {
       ${fin && open ? '<div class="note warn">상태 반영까지 끝난 화예요. 본문만 고치고 요약과 인물 상태는 그대로 둬요.</div>' : ''}
       <div class="diff"><div class="diff-row"><del>${esc(t.quote)}</del><ins>${esc(t.replacement)}</ins></div>${t.reason ? `<div class="small">${esc(t.reason)}</div>` : ''}</div></div>`;
   }).join('');
-  const facts = r.new_facts.map((f, i) => `<div class="prop-part"><label class="prop-head">${box('fact:' + i)}<strong>확정 사실 더하기</strong></label><div class="diff"><div class="diff-row"><ins>${esc(f)}</ins></div></div></div>`).join('');
-  const done = imp.outcome === 'applied' ? `<span class="chip finalized">적용함 · ${imp.applied.map(appliedLabel).join(', ')}</span>`
+  const facts = r.new_facts.map((f, i) => `<div class="prop-part"><label class="prop-head">${box('fact:' + i)}<strong>확정 사실 더하기</strong></label><div class="diff"><div class="fact-add">${esc(f)}</div></div></div>`).join('');
+  const done = imp.outcome === 'applied' ? `<span class="chip finalized">적용함 · ${imp.applied.map((x) => appliedLabel(x, r)).join(', ')}</span>`
     : imp.outcome === 'dismissed' ? '<span class="chip">버림</span>' : '';
   const body = `${conflicts ? `<h3>어긋나는 곳 ${r.conflicts.length}</h3><ul class="conflicts">${conflicts}</ul>` : ''}
     ${plots ? `<h3>플롯 고치기</h3>${plots}` : ''}${patches ? `<h3>이미 쓴 본문 고치기</h3>${patches}` : ''}${facts ? `<h3>설명으로 덮기</h3>${facts}` : ''}`;
@@ -212,9 +232,14 @@ function causalImpact(el) {
   </div>`;
 }
 
-function appliedLabel(x) {
+function staleNote(el) {
+  return causalStale(el) ? '<div class="note warn">분석한 뒤 요소를 고쳤어요. 다시 분석하면 지금 내용으로 봐요.</div>' : '';
+}
+
+function appliedLabel(x, report) {
   const [k, v] = x.split(':');
-  return { ep: `${v}화 플롯`, patch: `본문 수정 ${Number(v) + 1}`, fact: `사실 ${Number(v) + 1}` }[k] || x;
+  const t = report && report.patches[Number(v)];
+  return { ep: `${v}화 플롯`, patch: t ? `${t.episode}화 본문 수정` : `본문 수정 ${Number(v) + 1}`, fact: `사실 ${Number(v) + 1}` }[k] || x;
 }
 
 // ----- 화면 -----
@@ -228,7 +253,7 @@ function viewCausal() {
   const desc = '요소, 특징, 설정, 사건을 언제든 더하세요. 더할 때마다 이미 쓴 화와 정해 둔 플롯 중 어디가 흔들리는지 보여 주고, 고칠 방법을 변경안으로 내요. 적용은 고른 것만 해요.';
   const gone = S.causalGone ? `<div class="note info between"><span>'${esc(S.causalGone.name || '이름 없음')}' 요소를 지웠어요.</span><button type="button" class="btn small" data-action="causalRestore">되살리기</button></div>` : '';
   if (!els.length) {
-    return `${header('요소 · 특징 · 설정 · 사건', '인과율', desc, add)}${gone}
+    return `${header('요소 · 특징 · 설정 · 사건', '인과율', desc, add.replace('btn primary', 'btn'))}${gone}
       <div class="card empty"><p>아직 더한 요소가 없어요.</p>
         <div class="small">예: "${esc(exName(2))}은(는) ${esc(exName(0))}의 친아버지다"(과거 사건, 처음부터 사실), "7화부터 마을에 통금이 생긴다"(세계 규칙, 7화부터)</div>${add}</div>`;
   }
@@ -244,12 +269,14 @@ function touchEl() {
 }
 
 Object.assign(actions, {
-  async causalNew() {
+  causalNew() {
     const kind = S.causalKind || '기타';
     const id = newElementId();
     P().elements.push({ id, kind, name: '', aliases: [], description: '', characters: [], since_ep: 0, episodes: [], reveal_ep: 0, context: 'auto', created_at: '', added_after: 0, impact: null });
     S.causalSel = id;
-    await run('더하는 중', async () => { await save(); await causalLoad(); });
+    // 바로 저장하지 않는다 (줄기 추가와 같다). 아무것도 적지 않고 떠나면 버릴지 물어 빈 요소가 쌓이지 않는다
+    markDirty();
+    render();
     document.getElementById('f-elements-' + causalIndex(id) + '-name')?.focus();
   },
   causalSelect(id) {
@@ -310,7 +337,8 @@ Object.assign(actions, {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/elements/${enc(el.id)}/impact/apply`, body);
       await causalLoad();
-      toast(`적용했어요: ${causalEl().impact.applied.map(appliedLabel).join(', ')}`);
+      const imp = causalEl().impact;
+      toast(`적용했어요: ${imp.applied.map((x) => appliedLabel(x, imp.report)).join(', ')}`);
     });
   },
   async causalReopen() {
@@ -354,9 +382,26 @@ document.addEventListener('change', (e) => {
   else if (t.dataset.elEps !== undefined) el.episodes = [...new Set(t.value.split(/[,\s]+/).map((x) => parseInt(x, 10)).filter((x) => x > 0))].sort((a, b) => a - b);
   else {
     // 글을 고친 칸은 다시 그리지 않는다: 다른 칸을 누를 때 change 가 나서 그 칸이 다시 만들어지면 커서를 잃는다
-    if ((t.dataset.bind || '').startsWith('elements.')) touchEl();
+    if ((t.dataset.bind || '').startsWith('elements.')) {
+      touchEl();
+      syncStale(el);
+    }
     return;
   }
   touchEl();
   render();
+});
+
+/** 글 칸을 고치는 동안 '지난 분석' 경고와 목록 배지만 바로 고친다 (칸을 다시 그리지 않아 커서를 잃지 않는다) */
+function syncStale(el) {
+  const box = document.getElementById('causal-stale');
+  if (box) box.innerHTML = staleNote(el);
+  const badge = document.querySelector('#app .el-item.sel [data-el-badge]');
+  if (badge) badge.innerHTML = impactBadge(el);
+}
+
+document.addEventListener('input', (e) => {
+  if (S.route[2] !== 'causal' || !(e.target.dataset && (e.target.dataset.bind || '').startsWith('elements.'))) return;
+  const el = causalEl();
+  if (el) syncStale(el);
 });

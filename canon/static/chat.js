@@ -33,6 +33,9 @@ const PLOT_FIELDS = [
 const ACT_FIELDS = [['goal', '구간 목표'], ['key_turn', '전환점'], ['pov', '서술 시점']];
 const LOCKED_STATUS = ['written', 'finalized'];
 
+/** 손가락이 주 입력인 기기(휴대폰 · 태블릿). 하드웨어 키보드를 붙인 태블릿도 여기에 들지만 버튼으로 보낼 수 있다. */
+const touchFirst = () => window.matchMedia('(pointer: coarse)').matches;
+
 function chatMessages(topic) {
   const c = (P().chats || []).find((x) => x.topic === topic);
   return c ? c.messages : [];
@@ -181,10 +184,10 @@ function chatPanel(topic) {
     <div class="chat-log" id="chat-log">${empty}${list}${pending}</div>
     ${t.inputExtra ? t.inputExtra(topic) : ''}
     <div class="chat-input">
-      <textarea id="chat-input" rows="2" data-local="chatDraft" aria-label="AI에게 할 말" placeholder="${esc(t.placeholder)}"${S.chatPending ? ' disabled' : ''}>${esc(S.chatDraft)}</textarea>
+      <textarea id="chat-input" rows="2" data-local="chatDraft" aria-label="AI에게 할 말" enterkeyhint="${touchFirst() ? 'enter' : 'send'}" placeholder="${esc(t.placeholder)}"${S.chatPending ? ' disabled' : ''}>${esc(S.chatDraft)}</textarea>
       <button type="button" class="btn primary" data-action="chatSend"${S.chatPending ? ' disabled' : ''}>보내기</button>
     </div>
-    <div class="small chat-hint">Enter 보내기 · Shift+Enter 줄바꿈 · 대화는 작품에 저장돼요</div>
+    <div class="small chat-hint">${touchFirst() ? '보내기 버튼으로 보내요 · 대화는 작품에 저장돼요' : 'Enter 보내기 · Shift+Enter 줄바꿈 · 대화는 작품에 저장돼요'}</div>
   </aside>`;
 }
 
@@ -224,12 +227,13 @@ Object.assign(actions, {
   async chatSend(preset = '') {
     const topic = S.chatTopic;
     const t = chatConf(topic);
-    const text = (S.chatDraft || '').trim();
     preset = typeof preset === 'string' ? preset : '';
+    // 빠른 요청은 그 요청만 보낸다. 입력칸에 쓰던 글은 보내지 않고 칸에 남긴다 (기록에 한쪽만 보이던 문제)
+    const text = preset ? '' : (S.chatDraft || '').trim();
     if ((!text && !preset) || S.chatPending) return;
     if (t.ready && !t.ready()) return;
     S.chatPending = text || (t.presetLabel ? t.presetLabel(preset) : preset);
-    S.chatDraft = '';
+    if (!preset) S.chatDraft = '';
     S.chatScroll = true;
     render();
     try {
@@ -244,7 +248,7 @@ Object.assign(actions, {
       else S.project = res;
     } catch (e) {
       toast(e.message, true);
-      S.chatDraft = text;
+      if (!preset) S.chatDraft = text;
     } finally {
       S.chatPending = null;
       S.chatScroll = true;
@@ -283,7 +287,10 @@ Object.assign(actions, {
   },
   async chatDismiss(i) {
     // 손보던 후보 글이 있으면 묻는다. 버린 뒤에도 '다시 검토'로 다시 열 수 있다
-    if (Object.keys(S.candEdit || {}).some((k) => k.startsWith(`${i}:`)) && !confirm('손보던 후보 글이 있어요. 버릴까요? 다시 검토로 열면 후보는 다시 보이지만 손본 글은 남지 않아요.')) return;
+    const also = S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : '';
+    if (Object.keys(S.candEdit || {}).some((k) => k.startsWith(`${i}:`))) {
+      if (!confirm(`손보던 후보 글이 있어요. 버릴까요? 다시 검토로 열면 후보는 다시 보이지만 손본 글은 남지 않아요.${also}`)) return;
+    } else if (also && !confirm(`이 변경안을 버릴까요?${also}`)) return;
     await run('정리하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(S.chatTopic)}/${i}/dismiss`);
@@ -296,7 +303,8 @@ Object.assign(actions, {
     });
   },
   async chatClear() {
-    if (!confirm(chatConf(S.chatTopic).clearAsk)) return;
+    const open = chatMessages(S.chatTopic).filter((m) => m.revision && !m.outcome).length;
+    if (!confirm(chatConf(S.chatTopic).clearAsk + (open ? `\n아직 고르지 않은 변경안 ${open}개도 함께 지워져요.` : '') + (S.dirty ? '\n저장하지 않은 다른 변경도 함께 저장해요.' : ''))) return;
     await run('지우는 중', async () => {
       await saveIfDirty();
       S.project = await api('DELETE', `/projects/${enc(S.name)}/chat/${enc(S.chatTopic)}`);
@@ -316,6 +324,18 @@ document.addEventListener('change', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.target.id !== 'chat-input' || e.key !== 'Enter' || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+  if (touchFirst()) return;  // 터치 키보드에는 Shift 가 없다. 줄바꿈은 Enter 로, 보내기는 버튼으로
   e.preventDefault();
   actions.chatSend();
 });
+
+// Esc 로 대화 패널을 닫고, 패널을 연 버튼으로 포커스를 돌린다. 다른 층이 먼저 Esc 를 받는다:
+// 플롯 서랍(app.js)과 본문 부분 수정 도구(passage.js). 그 처리기들이 상태를 지우기 전에 보려고 capture 로 듣는다
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || !S.chatOpen || !document.querySelector('.chat-panel')) return;
+  if (S.selTool) return;
+  if (S.route[2] === 'arc' && (S.selEp || S.selAct != null || S.editArc || S.selPart != null)) return;
+  e.preventDefault();
+  actions.toggleChat();
+  document.querySelector('[data-action="toggleChat"]')?.focus();
+}, true);

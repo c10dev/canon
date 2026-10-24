@@ -16,7 +16,7 @@ RECENT = 3  # 본문 컨텍스트에 넣는 그 줄기의 앞 화 요약 수
 def get(p: Project, sid: str) -> Storyline:
     s = p.storyline(sid)
     if s is None:
-        raise KeyError(f"이야기 줄기가 없습니다: {sid}")
+        raise KeyError(f"이야기 줄기가 없어요: {sid}")
     return s
 
 

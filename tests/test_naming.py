@@ -95,6 +95,15 @@ class NamingTest(unittest.TestCase):
         self.assertEqual(naming._confusable("Elena", "Mira", "western_fantasy"), "")
         self.assertEqual(naming._confusable("Elena", "Elric", "western_fantasy"), "앞 두 글자")
 
+    def test_issue_text_josa(self):
+        """숫자로 끝나는 이름은 읽는 소리로 조사, 로마자 이름은 '과(와)' 대신 조사 없는 문형."""
+        self.assertEqual(naming._pair("손님2", "손님4"), "손님2와 손님4는")
+        self.assertEqual(naming._pair("Elena", "Elise"), "'Elena', 'Elise' 두 인물은")
+        self.assertEqual(naming._topic("Elena"), "'Elena' 인물은")
+        p = project(era="2026년")
+        p.characters = [Character(id="a", name="Elena", role="x"), Character(id="b", name="Elise", role="x")]
+        self.assertFalse(any("(와)" in i["text"] or "(는)" in i["text"] for i in naming.cast_issues(p)))
+
     def test_setup_prompt_has_candidates(self):
         p = project(setting="바닷가 소도시", name_rules=["뱃사람 집안은 돌림자 '수'를 쓴다"])
         text = prompts.setup_prompt(p)

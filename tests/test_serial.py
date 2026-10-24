@@ -90,7 +90,7 @@ def test_remove_last_arc_only_when_draft():
     assert p.arc_undo[0].characters == ["newbie"]
     pipeline.apply_plots(p, pipeline.draft_plots(LLM, p, a.start_ep, a.end_ep))
     p.episode(1).status = "confirmed"
-    with pytest.raises(ValueError, match="지울 수 없습니다"):
+    with pytest.raises(ValueError, match="지울 수 없어요"):
         pipeline.remove_last_arc(p)
     p.episode(1).status = "draft"
     before = {c.id for c in p.characters}
@@ -147,6 +147,17 @@ def test_story_so_far_falls_back_to_episode_summaries():
     assert "첫 시험을 넘겼다" in text and "1화 요약" not in text
     text = prompts.story_so_far(p, b.start_ep)  # 아크 첫머리에는 직전 아크 마지막 화도 본다
     assert "12화 요약" in text
+
+
+def test_part_summary_covers_its_arcs():
+    """요약이 있는 부의 아크는 부 요약이 대신 들어가 따로 요약하라고 하지 않는다."""
+    p = _serial(300)
+    a = _plan_arc(p)
+    _finish(p, a)
+    assert ("arc", a.number) in pipeline.pending_recaps(p)
+    part = p.part_for(a.start_ep)
+    part.summary = "1부 줄거리"
+    assert ("arc", a.number) not in pipeline.pending_recaps(p)
 
 
 def test_recap_needs_finished_arc():

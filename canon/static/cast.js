@@ -27,18 +27,45 @@ let castDrag = null;
 let castDragged = false;
 let castLayoutCache = null;
 
-async function castLoad(sel) {
+/** 주소 끝 '<c:id 또는 p:a|b>?f=<시점>&tab=table' 을 읽는다. 옛 인물 링크(cast/<id>)도 받는다 */
+function castParse(arg) {
+  const [sel, q] = String(arg || '').split('?');
+  const qs = new URLSearchParams(q || '');
+  return { sel: sel && !/^[cp]:/.test(sel) ? 'c:' + sel : sel, frame: qs.has('f') ? Number(qs.get('f')) : null, tab: qs.get('tab') };
+}
+
+/** 고른 인물 · 쌍, 시점, 탭을 주소에 남긴다 (새로고침 · 링크로 다시 열게). 재생 중에는 쓰지 않는다 */
+function castSyncUrl() {
+  if (S.route[2] !== 'cast' || castTimer || !S.cast || !S.castSel) return;
+  const fs = S.cast.frames || [];
+  const q = [];
+  if (fs.length && S.castFrame < fs.length - 1) q.push('f=' + S.castFrame);  // 마지막 시점은 적지 않아 새로 반영한 화를 따라간다
+  if (S.castTab === 'table') q.push('tab=table');
+  const h = `${base()}/cast${S.castSel ? '/' + enc(S.castSel) : ''}${q.length ? '?' + q.join('&') : ''}`;
+  if (location.hash === h) return;
+  try {
+    history.replaceState(history.state, '', h);
+    lastHash = location.hash;
+  } catch (e) { /* 주소를 못 고쳐도 화면은 그대로 */ }
+}
+
+async function castLoad(arg) {
   castStop();
+  const want = castParse(arg);
   const same = S.cast && S.cast.name === S.name;
+  const wasLast = same && S.castFrame === S.cast.frames.length - 1;  // 마지막 시점을 보고 있었으면 새로 반영한 화로 따라간다
   S.cast = await api('GET', `/projects/${enc(S.name)}/cast`).catch((e) => ({ error: e.message, frames: [] }));
   S.cast.name = S.name;
-  if (!same || S.castFrame >= S.cast.frames.length) S.castFrame = Math.max(0, S.cast.frames.length - 1);
+  if (!same || wasLast || S.castFrame >= S.cast.frames.length) S.castFrame = Math.max(0, S.cast.frames.length - 1);
+  if (!same && want.frame !== null && want.frame >= 0 && want.frame < S.cast.frames.length) S.castFrame = Math.floor(want.frame);
+  if (arg) S.castTab = want.tab === 'table' ? 'table' : 'graph';  // 주소에 tab 이 없으면 관계도다
   if (!same) {
     S.castAllTl = false;
     try { S.castPos = JSON.parse(localStorage.getItem('canon-cast-pos:' + S.name) || '{}') || {}; } catch (e) { S.castPos = {}; }
   }
-  if (sel) S.castSel = 'c:' + sel;
-  const ok = (s) => (s.startsWith('c:') && P().characters.some((c) => c.id === s.slice(2))) || s.startsWith('p:');
+  if (want.sel) S.castSel = want.sel;
+  const has = (id) => P().characters.some((c) => c.id === id);
+  const ok = (s) => (s.startsWith('c:') && has(s.slice(2))) || (s.startsWith('p:') && s.slice(2).split('|').length === 2 && s.slice(2).split('|').every(has));
   if (!S.castSel || !ok(S.castSel)) {
     const first = P().characters.find((c) => c.tier === 'main') || P().characters[0];
     S.castSel = first ? 'c:' + first.id : '';
@@ -81,7 +108,7 @@ function pairOf(f, a, b) {
 
 /** 이 시점에 이미 나온 인물인지. 설정 단계 인물(first_ep 0)은 처음부터 있다 */
 function castPresent(c, f) {
-  if (!f || !f.episode || !c.first_ep) return true;
+  if (!f || !c.first_ep) return true;
   return c.first_ep <= f.episode;
 }
 
@@ -96,9 +123,9 @@ function castTieList(f) {
 function tieText(t) {
   if (!t) return '<span class="small">아직 관계가 없어요</span>';
   if (P().settings.show_numbers) {
-    return `온기 ${t.warmth >= 0 ? '+' : ''}${t.warmth.toFixed(2)} · 신뢰 ${t.trust.toFixed(2)} (증거 ${t.evidence.toFixed(1)}) · 원한 ${t.grievance.toFixed(2)} · 서열 ${t.status >= 0 ? '+' : ''}${t.status.toFixed(2)} · 친숙 ${t.familiarity.toFixed(2)} · ${esc(t.stage)}`;
+    return `온기 ${t.warmth >= 0 ? '+' : ''}${t.warmth.toFixed(2)} · 신뢰 ${t.trust.toFixed(2)} <span title="신뢰를 판단한 근거(겪은 사건)가 쌓인 양이에요. 클수록 신뢰가 쉽게 바뀌지 않아요">(증거 ${t.evidence.toFixed(1)})</span> · 원한 ${t.grievance.toFixed(2)} · <span title="보는 쪽이 느끼는 상대의 위아래예요. +면 상대를 위로, -면 아래로 봐요">서열 ${t.status >= 0 ? '+' : ''}${t.status.toFixed(2)}</span> · 친숙 ${t.familiarity.toFixed(2)} · 단계 <strong>${esc(t.stage)}</strong>`;
   }
-  return `${esc(t.warmth_word)}, ${esc(t.trust_word)}${t.grievance >= 0.3 ? ', 풀리지 않은 원한' : ''} · <strong>${esc(t.stage)}</strong>`;
+  return `${esc(t.warmth_word)}, ${esc(t.trust_word)}${t.grievance >= 0.3 ? ', 풀리지 않은 원한' : ''} · 단계 <strong>${esc(t.stage)}</strong>`;
 }
 
 function tensionText(pr) {
@@ -192,8 +219,7 @@ function castGraph() {
   const f = castFrameNow();
   const chars = castShown();
   if (!chars.length) return '<div class="small">인물이 없어요. 설정 도우미에서 인물을 더하세요.</div>';
-  const pos = castLayout(P().characters.filter((c) => S.castMinor || c.tier !== 'minor'));
-  chars.forEach((c) => { if (!pos[c.id]) pos[c.id] = [CAST_W / 2, CAST_H / 2]; });
+  const pos = castLayout(P().characters);  // 단역을 숨겨도 자리는 그대로 둔다. 숨김은 그리기에서만 거른다
   const shown = new Set(chars.map((c) => c.id));
   const selC = S.castSel.startsWith('c:') ? S.castSel.slice(2) : '';
   const selP = S.castSel.startsWith('p:') ? S.castSel.slice(2).split('|') : null;
@@ -252,6 +278,7 @@ function castGraph() {
     const title = `${c.name || c.id} · ${TIER_NAME[c.tier || 'main']} · ${c.role || ''}${st && st.emotional_state ? '\n감정: ' + st.emotional_state : ''}${here ? '' : `\n${c.first_ep}화에 처음 나와요`}`;
     out.push(`<g class="cg-node ${c.tier || 'main'}${sel ? ' sel' : ''}${here ? '' : ' absent'}" data-cast-node="${esc(c.id)}" data-action="castPick" data-arg="${esc('c:' + c.id)}" tabindex="0" role="button" aria-label="${esc((c.name || c.id) + ' 자세히 보기')}"><title>${esc(title)}</title>
       ${sel ? `<circle class="cg-halo" cx="${x}" cy="${y}" r="${r + 6}"></circle>` : ''}
+      <circle class="cg-hitnode" cx="${x}" cy="${y}" r="${Math.max(r, 22)}"></circle>
       <circle class="cg-dot" cx="${x}" cy="${y}" r="${r}"></circle>
       ${inside ? `<text class="cg-init" x="${x}" y="${y + 5}" text-anchor="middle">${esc(label)}</text>` : `<text class="cg-name" x="${x}" y="${y + r + 15}" text-anchor="middle">${esc(label)}</text>`}</g>`);
   });
@@ -278,10 +305,15 @@ function castSlider() {
   if (fs.length < 2) return '<div class="small">1화를 반영하면 화별로 관계가 어떻게 바뀌었는지 재생할 수 있어요.</div>';
   return `<div class="cast-slider">
     <button type="button" class="btn small icon-btn" data-action="castStep" data-arg="-1" aria-label="이전 시점">◀</button>
-    <input type="range" min="0" max="${fs.length - 1}" value="${S.castFrame}" data-cast-frame aria-label="관계도 시점">
+    <input type="range" min="0" max="${fs.length - 1}" value="${S.castFrame}" data-cast-frame aria-label="관계도 시점" aria-valuetext="${esc(frameLabel(castFrameNow()))}">
     <button type="button" class="btn small icon-btn" data-action="castStep" data-arg="1" aria-label="다음 시점">▶</button>
-    <button type="button" class="btn small" data-action="castPlay" id="cast-play">${castTimer ? '멈춤' : '처음부터 재생'}</button>
+    <button type="button" class="btn small" data-action="castPlay" id="cast-play">${castPlayLabel()}</button>
     <strong id="cast-frame-label">${esc(frameLabel(castFrameNow()))}</strong></div>`;
+}
+
+function castPlayLabel() {
+  if (castTimer) return '멈춤';
+  return S.castFrame >= S.cast.frames.length - 1 ? '처음부터 재생' : '여기서 재생';
 }
 
 // ----- 인물 상세 -----
@@ -333,7 +365,7 @@ function castCharDetail(c) {
   return `<section class="card">
     <div class="between"><div><h2 style="font-size:1.25rem">${esc(c.name || c.id)}</h2>
       <div class="row" style="margin-top:6px"><span class="chip">${TIER_NAME[c.tier || 'main']}</span>${c.role ? `<span class="chip">${esc(c.role)}</span>` : ''}${[c.age, c.gender].filter(Boolean).map((v) => `<span class="small">${esc(v)}</span>`).join('')}</div></div>
-      <a class="btn small" href="${base()}/setup">설정에서 고치기</a></div>
+      <a class="btn small" href="${base()}/setup/${enc(c.id)}">설정에서 고치기</a></div>
     <div class="small">${apps.length ? `플롯 등장 ${apps.length}화 (${apps[0].n}~${apps[apps.length - 1].n}화)${pov ? ` · 시점 인물 ${pov}화` : ''}` : '플롯에 나오는 화가 아직 없어요'}${c.first_ep ? ` · ${c.first_ep}화에 처음 등장` : ''}</div>
     ${apps.length ? `<div class="cast-strip-wrap">${castStrip(c.id)}</div>` : ''}
     <h3>${esc(frameLabel(f))}</h3>
@@ -385,7 +417,7 @@ function castChart(series, lo, hi, opts = {}) {
   const H = opts.h || 120;
   const L = 34;
   const T = 8;
-  const B = 18;
+  const B = 22;
   const pw = W - L - 8;
   const ph = H - T - B;
   const X = (i) => L + (fs.length < 2 ? pw / 2 : (i / (fs.length - 1)) * pw);
@@ -403,7 +435,7 @@ function castChart(series, lo, hi, opts = {}) {
   });
   const every = Math.max(1, Math.ceil(fs.length / 10));
   fs.forEach((f, i) => {
-    if (i % every === 0 || i === fs.length - 1) out.push(`<text class="cc-tick" x="${X(i)}" y="${H - 4}" text-anchor="middle">${f.episode ? f.episode + '화' : '시작'}</text>`);
+    if (i % every === 0 || i === fs.length - 1) out.push(`<text class="cc-tick" x="${X(i)}" y="${H - 4}" text-anchor="${i === 0 ? 'start' : i === fs.length - 1 ? 'end' : 'middle'}">${f.episode ? f.episode + '화' : '시작'}</text>`);
   });
   // 시점마다 세로 칸: 올리면 값, 누르면 그 시점으로
   const colW = fs.length < 2 ? pw : pw / (fs.length - 1);
@@ -488,9 +520,13 @@ function castRefresh() {
   const label = document.getElementById('cast-frame-label');
   if (label) label.textContent = frameLabel(castFrameNow());
   const range = document.querySelector('[data-cast-frame]');
-  if (range && Number(range.value) !== S.castFrame) range.value = S.castFrame;
+  if (range) {
+    if (Number(range.value) !== S.castFrame) range.value = S.castFrame;
+    range.setAttribute('aria-valuetext', frameLabel(castFrameNow()));
+  }
   const play = document.getElementById('cast-play');
-  if (play) play.textContent = castTimer ? '멈춤' : '처음부터 재생';
+  if (play) play.textContent = castPlayLabel();
+  castSyncUrl();
 }
 
 // ----- 등장표 -----
@@ -549,26 +585,30 @@ function viewCast() {
   const p = P();
   const desc = '인물 설정, 화마다 바뀐 상태, 방향 관계와 사건을 한곳에서 봐요. 관계 값은 반영한 화의 관계 사건으로 Canon 이 계산한 것이에요.';
   const tabs = `<div class="tabs" role="tablist" aria-label="인물 화면">
-    <button type="button" role="tab" aria-selected="${S.castTab === 'graph'}" data-action="castTab" data-arg="graph">관계도</button>
-    <button type="button" role="tab" aria-selected="${S.castTab === 'table'}" data-action="castTab" data-arg="table">등장표</button></div>`;
+    <button type="button" role="tab" aria-selected="${S.castTab === 'graph'}" aria-controls="cast-panel" data-action="castTab" data-arg="graph">관계도</button>
+    <button type="button" role="tab" aria-selected="${S.castTab === 'table'}" aria-controls="cast-panel" data-action="castTab" data-arg="table">등장표</button></div>`;
+  const panel = (html) => `<div role="tabpanel" id="cast-panel" aria-label="${S.castTab === 'table' ? '등장표' : '관계도'}">${html}</div>`;
   const head = header('인물', '인물 · 관계도', desc, `<a class="btn" href="${base()}/setup">인물 · 관계 설정</a>`);
   if (!p.characters.length) return `${head}<div class="card empty"><p>아직 인물이 없어요.</p><a class="btn primary" href="${base()}/setup">설정 도우미에서 인물 만들기</a></div>`;
   if (!S.cast) return `${head}<div class="small">불러오는 중…</div>`;
-  if (S.cast.error) return `${head}<div class="note err">${esc(S.cast.error)}</div>`;
-  if (S.castTab === 'table') return `${head}${tabs}${castTable()}`;
+  if (S.cast.error) {
+    return `${head}<div class="card empty" role="alert"><p>인물 화면을 계산하지 못했어요.</p><div class="note err">${esc(S.cast.error)}</div>
+      <div class="row"><button type="button" class="btn primary" data-action="castRetry">다시 불러오기</button><a class="btn" href="${base()}/setup">설정 도우미에서 인물 보기</a></div></div>`;
+  }
+  if (S.castTab === 'table') return `${head}${tabs}${panel(castTable())}`;
   const minors = p.characters.some((c) => c.tier === 'minor');
-  return `${head}${tabs}
+  return `${head}${tabs}${panel(`
     <div class="cast">
       <section class="card cast-main">
         ${relationHeader('관계도')}
         ${castSlider()}
         <div class="row">${minors ? `<label class="row" style="gap:6px;font-size:0.8125rem"><input type="checkbox" data-cast-minor${S.castMinor ? ' checked' : ''}>단역도 보기</label>` : ''}
-          ${Object.keys(S.castPos || {}).length ? '<button type="button" class="btn small ghost" data-action="castResetPos">배치 처음대로</button>' : ''}
+          <button type="button" class="btn small ghost" data-action="castResetPos"${Object.keys(S.castPos || {}).length ? '' : ' disabled'}>배치 처음대로</button>
           <span class="small">인물을 끌어 자리를 옮길 수 있어요. 누르면 자세히, 선을 누르면 두 사람 관계를 봐요.</span></div>
         <div id="cast-stage">${castStage()}</div>
       </section>
       <div id="cast-detail" class="cast-side">${castDetail()}</div>
-    </div>`;
+    </div>`)}`;
 }
 
 // ----- 동작 -----
@@ -586,13 +626,20 @@ Object.assign(actions, {
     await run('보정하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/ties/adjust`, { source, target, warmth, trust });
-      await castLoad(S.route[3]);
+      await castLoad();
       toast('관계를 보정했어요. 수동보정 사건으로 남았어요');
     });
   },
   castTab(v) {
     S.castTab = v;
     castStop();
+    render();
+    castSyncUrl();
+  },
+  async castRetry() {
+    S.cast = null;
+    render();
+    await castLoad(S.route[3]);
     render();
   },
   castPick(v) {
@@ -605,6 +652,7 @@ Object.assign(actions, {
     S.castTab = 'graph';
     S.castSel = 'c:' + id;
     render();
+    castSyncUrl();
   },
   castStep(d) {
     castStop();
@@ -622,7 +670,7 @@ Object.assign(actions, {
       castRefresh();
       return;
     }
-    S.castFrame = 0;
+    if (S.castFrame >= S.cast.frames.length - 1) S.castFrame = 0;  // 끝에 있을 때만 처음으로. 아니면 지금 시점부터 이어 간다
     castTimer = setInterval(() => {
       if (!document.getElementById('cast-stage') || S.castFrame >= S.cast.frames.length - 1) {
         castStop();
@@ -694,6 +742,8 @@ document.addEventListener('pointerup', () => {
     castDragged = true;
     setTimeout(() => { castDragged = false; }, 0);
     try { localStorage.setItem('canon-cast-pos:' + S.name, JSON.stringify(S.castPos)); } catch (e) { /* 이 브라우저에서만 쓰는 편의 기능 */ }
+    const reset = document.querySelector('[data-action="castResetPos"]');
+    if (reset) reset.disabled = false;
     castRefresh();
   }
   castDrag = null;

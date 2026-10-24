@@ -50,7 +50,7 @@ def test_clean_rules():
     prop.episodes.append(RebuildEpisode(number=500, title="범위 밖", summary="", use="new"))
     c = pipeline.clean_rebuild(p, prop)
     m = {x.number: x for x in c.episodes}
-    assert m[20].use == "new" and "[20]화는 새 화로 채웠습니다" in c.reply
+    assert m[20].use == "new" and "[20]화는 새 화로 채웠어요" in c.reply
     assert m[6].sources == [2] and m[6].use == "rewrite"
     assert 500 not in m and len(c.episodes) == 36
     assert c.dropped == [6]  # 이제 아무 화도 쓰지 않는 옛 화
@@ -152,7 +152,7 @@ def test_prompts_use_map_and_material():
 
 def test_rework():
     p, before, *_ = _rebuilt()
-    with pytest.raises(ValueError, match="다듬기로 고른 화가 아닙니다"):
+    with pytest.raises(ValueError, match="다듬기로 고른 화가 아니에요"):
         pipeline.propose_rework(LLM, p, 2)
     rw = pipeline.propose_rework(LLM, p, 3)
     assert rw.text.startswith("2화 본문") and rw.text != p.episode(3).text
@@ -162,7 +162,7 @@ def test_rework():
     assert p.episode(3).text.endswith("손봄") and edit.source == "ai" and edit.proposed == rw.text
     assert "도현" in edit.instruction
     assert "본문" in pipeline.undo_blockers(p, before)[0]  # 다듬은 본문은 옛 원고 어디에도 없다
-    with pytest.raises(ValueError, match="되돌릴 수 없습니다"):
+    with pytest.raises(ValueError, match="되돌릴 수 없어요"):
         pipeline.undo_conversion(p, before)
 
 
@@ -212,5 +212,7 @@ def test_web_rebuild_flow(client):
     p = c.post("/api/projects/lh/episodes/3/rework", json={"text": j["result"]["text"], "proposed": j["result"]["text"]}).json()
     ep3 = next(e for e in p["episodes"] if e["plot"]["number"] == 3)
     assert ep3["text"] == j["result"]["text"] and ep3["edits"][-1]["source"] == "ai"
-    assert c.get("/api/projects/lh/convert").json()["undo_blockers"]
+    st = c.get("/api/projects/lh/convert").json()
+    assert st["undo_blockers"] and st["undo_eps"] == {"applied": [], "changed": [3]}  # 화면이 막힌 화로 링크를 단다
+    assert p["conversion"]["notes"] == out["notes"]  # 옮기지 못한 것은 새로 불러와도 보인다
     assert c.post("/api/projects/lh/convert/undo").status_code == 400

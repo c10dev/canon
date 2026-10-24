@@ -188,7 +188,7 @@ def save_prices(rows: list[Price]) -> None:
         if r.since and not _is_date(r.since):
             raise ValueError(f"{r.model}: 적용 시작일은 YYYY-MM-DD 로 적어 주세요 ({r.since})")
         if min(r.input, r.output, r.cached or 0, r.batch_input or 0, r.batch_output or 0) < 0:
-            raise ValueError(f"{r.model}: 가격은 0 이상이어야 합니다")
+            raise ValueError(f"{r.model}: 가격은 0 이상이어야 해요")
         by[r.model].append(r)
     defaults: dict[str, list[dict]] = defaultdict(list)
     for d in DEFAULT_PRICES:
@@ -334,6 +334,7 @@ def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int 
         "by_stage": listing("stage"), "by_model": listing("model"), "by_source": listing("source"),
         "unpriced": sorted(unpriced),
         "trouble": trouble[::-1][:limit], "recent": recent[::-1][:limit],
+        "trouble_total": len(trouble), "limit": limit,
         "billing_url": BILLING_URL, "prices_url": PRICES_URL,
     }
 

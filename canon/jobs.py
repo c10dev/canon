@@ -38,6 +38,8 @@ class Job:
     started: float = field(default_factory=time.time)
     finished: float | None = None
     owned: set[int] = field(default_factory=set)
+    pending: list[int] = field(default_factory=list)  # 맡은 화 중 아직 결과를 쓰지 않은 화 (화면이 그 화만 잠근다)
+    released: dict[int, tuple[float, set[int]]] = field(default_factory=dict)  # 단계(done) → (내려놓은 시각, 화). release 참고
     stop: threading.Event = field(default_factory=threading.Event)  # 멈추기 신호 (cancel.current)
 
     def public(self) -> dict:
@@ -45,7 +47,15 @@ class Job:
             "id": self.id, "project": self.project, "kind": self.kind, "ep": self.ep, "label": self.label,
             "total": self.total, "done": self.done, "note": self.note, "status": self.status,
             "result": self.result, "error": self.error, "started": self.started, "finished": self.finished,
+            "pending": sorted(self.pending),
         }
+
+    def release(self, eps: set[int]) -> None:
+        """단계 하나가 eps 화의 결과를 저장했다. 작업이 도는 중에도 그 화는 확정하고 고칠 수 있게 맡은 화에서 뺀다.
+        화면이 그 단계 결과를 받아 갔다고 알릴 때까지(merged 의 '<id>:<done>') 저장에서는 OWN_GRACE 초 더 지킨다."""
+        self.owned -= eps
+        self.pending = [n for n in self.pending if n not in eps]
+        self.released[self.done] = (time.time(), set(eps))
 
 
 class Busy(Exception):
@@ -85,7 +95,7 @@ def start(project: str, kind: str, ep: int | None, label: str, fn: Callable[[Job
             if j.status == "running" and (j.project, j.kind, j.ep) == (project, kind, ep):
                 raise Busy(j)
         job = Job(id=uuid.uuid4().hex[:12], project=project, kind=kind, ep=ep, label=label,
-                  total=total, owned=set(owned or ()))
+                  total=total, owned=set(owned or ()), pending=sorted(owned or ()))
         _jobs[job.id] = job
 
     def run() -> None:
@@ -114,7 +124,7 @@ def stop(jid: str) -> Job:
     """작업을 멈춘다. 바로 멈춘 것으로 보이고, 스레드는 다음 LLM 호출이나 저장 전에 그만둔다 (그 사이 결과는 버린다)."""
     job = _jobs.get(jid)
     if job is None:
-        raise KeyError(f"작업이 없습니다: {jid}")
+        raise KeyError(f"작업이 없어요: {jid}")
     if job.status == "running":
         job.stop.set()
         job.status, job.error, job.finished = "cancelled", "멈췄어요", time.time()
@@ -136,6 +146,19 @@ def running() -> int:
     return sum(1 for j in _jobs.values() if j.status == "running")
 
 
+def running_owned(project: str) -> set[int]:
+    """지금 도는 작업이 맡은 화. 그 화를 확정하면 작업 결과가 확정 화를 덮지 못해 버려진다."""
+    return {n for j in list(_jobs.values()) if j.project == project and j.status == "running" for n in j.owned}
+
+
+def _unmerged(j: Job, merged: set[str], now: float) -> set[int]:
+    """작업이 단계마다 내려놓은 화 중 화면이 아직 받아 가지 않은 화. 화면은 '<id>:<done>' 으로 done 단계까지 받았다고 알린다."""
+    if j.id in merged:
+        return set()
+    seen = max((int(t.split(":", 1)[1]) for t in merged if t.startswith(j.id + ":") and t.split(":", 1)[1].isdigit()), default=0)
+    return {n for k, (at, eps) in j.released.items() if k > seen and now - at < OWN_GRACE for n in eps}
+
+
 def owned_episodes(project: str, merged: set[str] = frozenset()) -> set[int]:
     """화면의 저장이 덮으면 안 되는 화. 도는 작업이 맡은 화와, 끝났지만 화면이 아직 받아 가지 않은(merged 에 없는) 작업의 화."""
     now = time.time()
@@ -145,4 +168,5 @@ def owned_episodes(project: str, merged: set[str] = frozenset()) -> set[int]:
             continue
         if j.status == "running" or (j.id not in merged and j.finished and now - j.finished < OWN_GRACE):
             out |= j.owned
+        out |= _unmerged(j, merged, now)
     return out

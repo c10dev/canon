@@ -122,7 +122,7 @@ def test_review_every_and_rewrite(demo):
     run = autorun.resume(demo, rewrite=True, foreground=True)
     assert run.status == "review" and run.ep == 2  # mock 은 다시 써도 같은 문제를 낸다
     assert store.load(demo).episode(2).versions[-1].text == before  # 지운 본문은 이전 판으로 남는다
-    assert any("다시 씁니다" in e.message for e in run.log)
+    assert any("다시 써요" in e.message for e in run.log)
 
 
 def test_pause_keeps_batch_and_resume_reattaches(demo, monkeypatch):
@@ -169,7 +169,9 @@ def test_server_restart_resumes(demo, monkeypatch):
     monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "0")
     assert autorun.resume_all() == [demo]
     wait_until(idle(demo))
-    assert autorun.load_run(demo).status == "done"
+    run = autorun.load_run(demo)
+    assert run.status == "done" and run.restarts == 1
+    assert any(e.step == "restart" for e in run.log)  # 화면이 다시 시작한 것을 알 수 있게 남긴다
 
 
 def test_estimate(demo, monkeypatch):
@@ -388,3 +390,52 @@ def test_batch_poll_transient_error_keeps_name():
     with pytest.raises(RuntimeError, match="다시 붙어요"):
         b.text("s", "p")
     assert names == {"slot": "b1"}  # 이어 가면 같은 배치에 다시 붙는다
+
+
+def test_halt_kind_and_policy_change_while_paused(demo):
+    p = store.load(demo)
+    p.episode(1).status = "draft"
+    store.save(demo, p)
+    run = autorun.start(demo, 1, False, Policy(), foreground=True)
+    assert run.status == "paused" and run.halt == "plot_draft"
+    assert "'초안 플롯도 자동으로 확정하고 쓰기'" in run.reasons[0]  # 정책 칸 이름 그대로
+    run = autorun.set_policy(demo, Policy(confirm_plots=True))
+    assert run.status == "paused" and autorun.load_run(demo).policy.confirm_plots
+    assert any("승인 정책을 바꿨어요" in e.message for e in autorun.load_run(demo).log)
+    run = autorun.resume(demo, foreground=True)
+    assert run.status == "done" and run.halt == ""
+    with pytest.raises(ValueError):
+        autorun.set_policy(demo, Policy())  # 끝난 실행은 새로 시작할 때 정한다
+
+
+def test_user_saves_text_while_writing(demo, monkeypatch):
+    real = autorun.pipeline.write_episode
+
+    def write(llm, p, n):
+        q = store.load(demo)  # AI가 쓰는 사이 작가가 본문을 직접 저장했다
+        q.episode(n).text, q.episode(n).status = "작가가 쓴 본문", "written"
+        store.save(demo, q)
+        return real(llm, p, n)
+
+    monkeypatch.setattr(autorun.pipeline, "write_episode", write)
+    run = autorun.start(demo, 1, False, Policy(), foreground=True)
+    assert run.status == "paused" and run.halt == "changed"
+    assert "직접 저장" in run.reasons[0] and "written" not in run.log[-1].message
+    assert store.load(demo).episode(1).text == "작가가 쓴 본문"
+
+
+def test_revert_updates_run(demo):
+    from fastapi.testclient import TestClient
+
+    from canon import web
+
+    run = autorun.start(demo, 3, False, Policy(max_issues=5), foreground=True)
+    assert run.status == "done" and run.applied == [1, 2, 3]
+    c = TestClient(web.app)
+    assert c.post("/api/projects/demo/revert/2").status_code == 200
+    run = autorun.load_run(demo)
+    assert run.applied == [1, 2] and run.status == "paused" and run.halt == "reverted"  # 2화 반영 직후로 = 3화부터 취소
+    assert run.log[-1].message == "3화부터 반영을 취소했어요"
+    # 멈춘 실행의 정책은 이어 가기 전에 바꿀 수 있다
+    r = c.put("/api/projects/demo/auto/policy", json={"check": False, "hand_pick_opening": False}).json()
+    assert r["run"]["status"] == "paused" and r["run"]["policy"]["check"] is False
