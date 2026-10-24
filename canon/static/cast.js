@@ -551,15 +551,16 @@ function viewCast() {
   const p = P();
   const desc = '인물 설정, 화마다 바뀐 상태, 방향 관계와 사건을 한곳에서 봐요. 관계 값은 반영한 화의 관계 사건으로 Canon 이 계산한 것이에요.';
   const tabs = `<div class="tabs" role="tablist" aria-label="인물 화면">
-    <button type="button" role="tab" aria-selected="${S.castTab === 'graph'}" data-action="castTab" data-arg="graph">관계도</button>
-    <button type="button" role="tab" aria-selected="${S.castTab === 'table'}" data-action="castTab" data-arg="table">등장표</button></div>`;
+    <button type="button" role="tab" aria-selected="${S.castTab === 'graph'}" aria-controls="cast-panel" data-action="castTab" data-arg="graph">관계도</button>
+    <button type="button" role="tab" aria-selected="${S.castTab === 'table'}" aria-controls="cast-panel" data-action="castTab" data-arg="table">등장표</button></div>`;
+  const panel = (html) => `<div role="tabpanel" id="cast-panel" aria-label="${S.castTab === 'table' ? '등장표' : '관계도'}">${html}</div>`;
   const head = header('인물', '인물 · 관계도', desc, `<a class="btn" href="${base()}/setup">인물 · 관계 설정</a>`);
   if (!p.characters.length) return `${head}<div class="card empty"><p>아직 인물이 없어요.</p><a class="btn primary" href="${base()}/setup">설정 도우미에서 인물 만들기</a></div>`;
   if (!S.cast) return `${head}<div class="small">불러오는 중…</div>`;
   if (S.cast.error) return `${head}<div class="note err">${esc(S.cast.error)}</div>`;
-  if (S.castTab === 'table') return `${head}${tabs}${castTable()}`;
+  if (S.castTab === 'table') return `${head}${tabs}${panel(castTable())}`;
   const minors = p.characters.some((c) => c.tier === 'minor');
-  return `${head}${tabs}
+  return `${head}${tabs}${panel(`
     <div class="cast">
       <section class="card cast-main">
         ${relationHeader('관계도')}
@@ -570,7 +571,7 @@ function viewCast() {
         <div id="cast-stage">${castStage()}</div>
       </section>
       <div id="cast-detail" class="cast-side">${castDetail()}</div>
-    </div>`;
+    </div>`)}`;
 }
 
 // ----- 동작 -----

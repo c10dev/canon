@@ -241,8 +241,8 @@ function lineEditor(s) {
       ${input('풀어 갈 것', b + '.goal', { placeholder: '이 줄기가 답할 질문' })}
     </div>
     <div class="grid-2">
-      ${input('갈라지는 화', b + '.branch_ep', { type: 'number', min: 0, hint: '메인에서 이 줄기를 부르는 계기가 나오는 화. 0 이면 정하지 않음' })}
-      ${input('합류하는 화', b + '.join_ep', { type: 'number', min: 0, hint: '메인으로 돌아오는 화. 0 이면 아직 열림' })}
+      ${input('갈라지는 화', b + '.branch_ep', { type: 'number', min: 0, zeroBlank: true, placeholder: '정하지 않음', hint: '메인에서 이 줄기를 부르는 계기가 나오는 화' })}
+      ${input('합류하는 화', b + '.join_ep', { type: 'number', min: 0, zeroBlank: true, placeholder: '아직 열림', hint: '메인으로 돌아오는 화' })}
     </div>
     ${lineRangeNote(s, eps)}
     ${input('합류할 때 메인에 남기는 것', b + '.rejoin', { rows: 2, autogrow: true, placeholder: '드러나는 비밀, 바뀐 관계, 얻거나 잃는 것' })}
@@ -285,7 +285,7 @@ function lineDraftCard() {
     </div>
     <div class="small">중심 인물: ${s.focus.map(charName).map(esc).join(', ') || '없음'}</div>
     <div class="grid-2">${input('이야기 속 시점', 'storyline.when', { root: 'lineDraft' })}${input('풀어 갈 것', 'storyline.goal', { root: 'lineDraft' })}</div>
-    <div class="grid-2">${input('갈라지는 화', 'storyline.branch_ep', { root: 'lineDraft', type: 'number', min: 0 })}${input('합류하는 화', 'storyline.join_ep', { root: 'lineDraft', type: 'number', min: 0 })}</div>
+    <div class="grid-2">${input('갈라지는 화', 'storyline.branch_ep', { root: 'lineDraft', type: 'number', min: 0, zeroBlank: true, placeholder: '정하지 않음' })}${input('합류하는 화', 'storyline.join_ep', { root: 'lineDraft', type: 'number', min: 0, zeroBlank: true, placeholder: '아직 열림' })}</div>
     ${input('합류할 때 메인에 남기는 것', 'storyline.rejoin', { root: 'lineDraft', rows: 2 })}
     ${d.episodes.length ? `<div class="field"><span class="label">이 줄기를 따라갈 화</span><div class="row">${d.episodes.map((n) => box(n, 'main')).join('')}</div></div>` : ''}
     ${d.threads.length ? `<div class="field"><span class="label">메인 화에 장면을 끼울 화</span><div class="row">${d.threads.map((n) => box(n, 'thread')).join('')}</div></div>` : ''}

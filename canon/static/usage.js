@@ -169,12 +169,14 @@ function usageCalls(u) {
       <td>${r.seconds != null ? `${r.seconds.toFixed(1)}초` : '-'}</td><td><strong>${usd(r.cost)}</strong>${r.saved ? `<div class="small">아낌 ${usd(r.saved)}</div>` : ''}</td><td>${state}</td></tr>`;
   }).join('');
   return `<section class="card">
-    <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" aria-selected="${S.usageList === k}" data-action="usageList" data-arg="${k}">${l}</button>`).join('')}</div>
+    <div class="tabs" role="tablist" aria-label="호출 목록">${tabs.map(([k, l]) => `<button type="button" role="tab" aria-selected="${S.usageList === k}" aria-controls="usage-panel" data-action="usageList" data-arg="${k}">${l}</button>`).join('')}</div>
+    <div role="tabpanel" id="usage-panel" aria-label="${esc((tabs.find(([k]) => k === S.usageList) || [, ''])[1])}">
     ${list.length ? `<div class="rs-scroll"><table class="rs-table">
       <thead><tr><th>시각</th><th>작품</th><th>작업</th><th>모델</th><th>입력</th><th>출력</th><th>걸린 시간</th><th>추정 비용</th><th>결과</th></tr></thead>
       <tbody>${rows}</tbody></table></div>
       <div class="row small">${all.length > list.length ? `<button class="btn" data-action="usageMore">${all.length}건 모두 보기</button>` : `최근 ${list.length}건까지 보여요.`} 형식이 어긋난 응답도 토큰은 쓴 것이라 비용에 들어가요.</div>`
       : '<div class="small">실패하거나 다시 요청한 호출이 없어요.</div>'}
+    </div>
   </section>`;
 }
 

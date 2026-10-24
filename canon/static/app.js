@@ -707,7 +707,9 @@ function bindValue(path, kind, root) {
 function input(label, path, opt = {}) {
   const id = 'f-' + path.replace(/\./g, '-');
   const kind = opt.kind || (opt.type === 'number' ? 'int' : 'text');
-  const val = esc(bindValue(path, kind, opt.root));
+  // 0 이 '정하지 않음'인 화 번호 칸은 0 대신 빈칸과 안내 글을 보인다 (지우면 0 으로 저장된다)
+  const raw = bindValue(path, kind, opt.root);
+  const val = esc(opt.zeroBlank && Number(raw) === 0 ? '' : raw);
   const rootAttr = opt.root ? ` data-root="${opt.root}"` : '';
   const hint = opt.hint ? ` <span class="hint">${esc(opt.hint)}</span>` : '';
   const ro = opt.readonly ? ' readonly' : '';
@@ -3651,7 +3653,7 @@ function nextArcPanel(start) {
     <div class="between"><h2>다음 아크 기획 <span class="small" style="font-weight:400">${start}화부터${part ? ` · ${part.number}부 ${esc(part.title)} (${part.end_ep}화까지)` : ''}</span></h2></div>
     ${part ? `<div class="note plain"><strong>${part.number}부 목표</strong> · ${esc(part.goal)}${part.arc_ideas.length ? `<br><span class="small">아크 후보: ${part.arc_ideas.map(esc).join(' / ')}</span>` : ''}</div>` : ''}
     ${old.length ? `<div class="note warn">50화 넘게 열린 복선이 ${old.length}개 있어요. 이번 아크에서 회수하거나 다시 떠올리도록 AI에게 함께 보여 줘요.</div>` : ''}
-    <div class="grid-2">${input('아크 길이 (화)', 'length', { root: 'arcForm', type: 'number', min: 0, hint: '0 이면 AI가 내용에 맞게 (보통 10~25화)' })}<div></div></div>
+    <div class="grid-2">${input('아크 길이 (화)', 'length', { root: 'arcForm', type: 'number', min: 0, zeroBlank: true, placeholder: 'AI가 정함', hint: '비우면 AI가 내용에 맞게 (보통 10~25화)' })}<div></div></div>
     ${input('이번 아크에 바라는 것 (선택)', 'note', { root: 'arcForm', rows: 3, autogrow: true, placeholder: '예: 학교 밖으로 무대를 넓히고, 라이벌과 처음 손잡게' })}
     <div class="row"><button class="btn primary" data-action="planNextArc"${btn.attr}>${btn.label}</button><span class="small">지금까지 실제로 쓴 줄거리(요약), 부 목표, 열린 복선을 보고 아크 하나를 제안해요. 적용 전에 고칠 수 있어요.</span></div>
   </section>`;
@@ -4006,10 +4008,10 @@ function viewBrief(n) {
   return `<header class="page-head"><div class="row" style="gap:12px">${epNav('brief', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${n}화 ${esc(e.plot.title)} · API 없이 쓰기</div><h1 style="font-size:1.5rem">채팅 앱 작업지시서</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div></header>
     <p class="desc">Claude, Gemini, ChatGPT 구독 앱에 붙여 넣을 지시서예요. API 생성과 똑같은 컨텍스트를 써요.</p>
     <div class="tabs" role="tablist" aria-label="지시서 종류">
-      <button type="button" role="tab" aria-selected="${body}" data-action="setBriefTab" data-arg="episode">1 본문 작성 지시서</button>
-      <button type="button" role="tab" aria-selected="${!body}" data-action="setBriefTab" data-arg="state">2 상태 승인 지시서</button>
+      <button type="button" role="tab" aria-selected="${body}" aria-controls="brief-panel" data-action="setBriefTab" data-arg="episode">1 본문 작성 지시서</button>
+      <button type="button" role="tab" aria-selected="${!body}" aria-controls="brief-panel" data-action="setBriefTab" data-arg="state">2 상태 승인 지시서</button>
     </div>
-    <div class="cols" role="tabpanel" aria-label="${body ? '1 본문 작성 지시서' : '2 상태 승인 지시서'}">
+    <div class="cols" role="tabpanel" id="brief-panel" aria-label="${body ? '1 본문 작성 지시서' : '2 상태 승인 지시서'}">
       <section class="card" style="flex:1.3 1 480px;min-width:0">
         <div class="between"><h2><span class="small" style="font-weight:400">① </span>복사해서 채팅 앱에 붙여 넣기</h2>
           <div class="row"><button class="btn small" data-action="downloadBrief" data-arg="${n}"${stateBlocked ? ' disabled' : ''}>.md 내려받기</button><button class="btn small dark" data-action="copyBrief"${stateBlocked ? ' disabled' : ''}>복사</button></div></div>
@@ -4334,9 +4336,10 @@ function viewResearch() {
   if (!S.rs) return header('연구', '모델 실험', '') + '<div class="note plain">불러오는 중…</div>';
   const views = { probe: rsProbeView, sample: rsSampleView, stage: rsStageView, budget: rsBudgetView, compare: rsCompareView, log: rsLogView };
   return `${header('연구 · 본편과 분리', '모델 실험', '모델 서버를 점검하고, 같은 요청을 여러 모델로 돌려 비교해요. 여기서 돌린 결과는 작품 데이터에 들어가지 않고 실험 기록으로만 남아요. 블라인드 비교에서 채택할 때만 본문이 바뀌어요.')}
-    <div class="tabs" role="tablist" aria-label="실험 종류">${RS_TABS.map(([k, l]) => `<button type="button" role="tab" aria-selected="${S.rs.tab === k}" data-action="rsTab" data-arg="${k}">${l}</button>`).join('')}</div>
+    <div class="tabs" role="tablist" aria-label="실험 종류">${RS_TABS.map(([k, l]) => `<button type="button" role="tab" aria-selected="${S.rs.tab === k}" aria-controls="rs-panel" data-action="rsTab" data-arg="${k}">${l}</button>`).join('')}</div>
+    <div role="tabpanel" id="rs-panel" aria-label="${esc((RS_TABS.find(([k]) => k === S.rs.tab) || [, ''])[1])}">
     ${rsModelList()}
-    ${views[S.rs.tab]()}`;
+    ${views[S.rs.tab]()}</div>`;
 }
 
 route();

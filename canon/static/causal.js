@@ -112,7 +112,7 @@ function causalEditor(el) {
       <span class="small">${fromStart ? '이미 쓴 화도 이 설정과 맞아야 해서, 영향 분석이 본문까지 검사해요.' : `${el.since_ep}화 전 본문은 이 요소가 없던 때라 모순으로 보지 않아요.`}</span></div>
     <div class="grid-2">
       <div class="field"><label for="el-eps">나올 화 <span class="hint">일어나거나 꼭 나와야 하는 화. 쉼표로</span></label><input id="el-eps" type="text" value="${esc(el.episodes.join(', '))}" data-el-eps placeholder="예: 7, 12"></div>
-      ${input('독자에게 드러나는 화', b + '.reveal_ep', { type: 'number', min: 0, hint: '0 이면 숨기지 않음. 그 전에는 암시만' })}
+      ${input('독자에게 드러나는 화', b + '.reveal_ep', { type: 'number', min: 0, zeroBlank: true, placeholder: '숨기지 않음', hint: '비우면 숨기지 않음. 그 전에는 암시만' })}
     </div>
     <div class="field"><span class="label">본문을 쓸 때 AI에 넣기</span><div class="seg" role="group" aria-label="AI에 넣기">${ctx.map(([k, l]) => `<button type="button" aria-pressed="${el.context === k}" data-action="causalContext" data-arg="${k}">${l}</button>`).join('')}</div>
       <span class="small">관련 있을 때: 그 화에 관련 인물이 나오거나, 플롯에 이름이 있거나, 나올 화일 때만 넣어요.</span></div>
