@@ -299,6 +299,20 @@ pre.brief { margin: 0; padding: 16px; border-radius: 8px; background: var(--bg);
 .chat-input { padding: 12px 16px 4px 20px; border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: flex-end; }
 .chat-input textarea { flex: 1; min-height: 44px; max-height: 160px; resize: vertical; }
 .chat-hint { padding: 0 20px 12px; }
+/* 가로 휴대폰 · 200% 확대처럼 높이가 낮으면 대화 기록 칸과 서랍 내용이 보이게 고정 칸을 줄인다 */
+@media (max-height: 500px) {
+  .chat-hint { display: none; }
+  .chat-head { padding: 6px 12px 6px 16px; }
+  .chat-head h2 { font-size: 0.9375rem; }
+  .chat-input { padding: 6px 12px 6px 16px; }
+  .chat-input textarea { min-height: 36px; max-height: 72px; }
+  .sel-target { padding: 6px 12px 0 16px; gap: 4px; }
+  .sel-target blockquote { max-height: 2.4em; padding: 2px 8px; }
+  .drawer { padding-top: 12px; }
+  .drawer-close { top: 4px; }
+  .drawer-close + * { padding-right: 44px; }
+  .drawer-actions { padding: 8px 24px 12px; }
+}
 .msg { max-width: 100%; line-height: 1.6; font-size: 0.875rem; }
 .msg.user { align-self: flex-end; max-width: 85%; padding: 10px 14px; border-radius: 12px 12px 4px 12px; background: var(--accent); color: var(--on-accent); white-space: pre-wrap; }
 .msg.ai { align-self: stretch; display: flex; flex-direction: column; gap: 10px; }
@@ -388,6 +402,7 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 #jobs .jl { flex: 1; min-width: 0; line-height: 1.45; }
 #jobs .ok { color: var(--green); font-weight: 700; flex: none; }
 #jobs .bad { color: var(--red); font-weight: 700; flex: none; }
+#jobs .wait { color: var(--amber-ink); font-weight: 700; flex: none; }
 #jobs a { font-weight: 700; flex: none; }
 #jobs .x { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 0.875rem; min-width: 32px; min-height: 32px; flex: none; }
 .spinner.sm { width: 14px; height: 14px; border-width: 2px; }
@@ -478,6 +493,23 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .auto-list li { justify-content: space-between; font-size: 0.875rem; }
 .rs-table tr.lv-warn td { color: var(--amber-ink); }
 .rs-table tr.lv-error td { color: var(--red); }
+.auto-h { font-size: 0.9375rem; margin: 4px 0 0; }
+.auto-policy { display: flex; flex-direction: column; gap: 12px; }
+.auto-policy .check-row input { width: 20px; height: 20px; margin-top: 1px; }
+.auto-run-policy { border-top: 1px solid var(--line); padding-top: 10px; }
+.auto-run-policy > summary { cursor: pointer; font-weight: 700; font-size: 0.875rem; min-height: 32px; display: flex; align-items: center; }
+.auto-list a { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; }
+.rs-table.auto-log tr.run-start td { border-bottom: 2px solid var(--line-strong); }
+/* 좁은 폭: 로그 한 줄을 '시각 · 화' 한 줄과 내용 한 줄로 쌓아 내용이 가로 스크롤 뒤로 숨지 않게 한다 */
+@media (max-width: 600px) {
+  .rs-table.auto-log thead { display: none; }
+  .rs-table.auto-log tr { display: grid; grid-template-columns: auto auto 1fr; gap: 2px 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .rs-table.auto-log tr.run-start { border-bottom: 2px solid var(--line-strong); }
+  .rs-table.auto-log td { border: 0; padding: 0; white-space: normal; }
+  .rs-table.auto-log td:nth-child(3) { grid-column: 1 / -1; order: 5; overflow-wrap: anywhere; }
+  .rs-table.auto-log td:nth-child(4), .rs-table.auto-log td:nth-child(5) { order: 6; }
+  .rs-table.auto-log td:empty { display: none; }
+}
 
 /* ----- 이야기 줄기 ----- */
 .line-map-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
@@ -518,6 +550,20 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .rb-map tr.rb-keep td:first-child { box-shadow: inset 3px 0 0 var(--green); }
 .rb-map tr.rb-revise td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .rb-map tr.rb-rewrite td:first-child { box-shadow: inset 3px 0 0 var(--amber); }
+.rb-wrap { max-height: 560px; overflow: auto; }
+/* 좁은 폭: 화 지도 행을 카드처럼 쌓고, 안쪽 세로 스크롤을 풀어 페이지 스크롤 하나만 쓴다 */
+@media (max-width: 600px) {
+  .rb-wrap { max-height: none; overflow: visible; }
+  .rb-map thead { display: none; }
+  .rb-map tr { display: flex; flex-wrap: wrap; gap: 6px 10px; padding: 8px 0 8px 10px; border-bottom: 1px solid var(--line); }
+  .rb-map tr.rb-keep { box-shadow: inset 3px 0 0 var(--green); }
+  .rb-map tr.rb-revise { box-shadow: inset 3px 0 0 var(--accent); }
+  .rb-map tr.rb-rewrite { box-shadow: inset 3px 0 0 var(--amber); }
+  .rb-map td, .rb-map tr td:first-child { display: block; border: 0; padding: 0; box-shadow: none; }
+  .rb-map td::before { content: attr(data-label); display: block; font-size: 0.75rem; color: var(--muted); }
+  .rb-map td:last-child { flex: 1 1 100%; display: flex; }
+  .rb-map td:last-child input, .rb-map td:last-child textarea { width: 100%; }
+}
 
 /* 사용량 · 비용 */
 .usage-filters select { min-height: 36px; }

@@ -212,5 +212,7 @@ def test_web_rebuild_flow(client):
     p = c.post("/api/projects/lh/episodes/3/rework", json={"text": j["result"]["text"], "proposed": j["result"]["text"]}).json()
     ep3 = next(e for e in p["episodes"] if e["plot"]["number"] == 3)
     assert ep3["text"] == j["result"]["text"] and ep3["edits"][-1]["source"] == "ai"
-    assert c.get("/api/projects/lh/convert").json()["undo_blockers"]
+    st = c.get("/api/projects/lh/convert").json()
+    assert st["undo_blockers"] and st["undo_eps"] == {"applied": [], "changed": [3]}  # 화면이 막힌 화로 링크를 단다
+    assert p["conversion"]["notes"] == out["notes"]  # 옮기지 못한 것은 새로 불러와도 보인다
     assert c.post("/api/projects/lh/convert/undo").status_code == 400

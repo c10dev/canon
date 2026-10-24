@@ -676,10 +676,13 @@ def conversion_status(name: str) -> dict:
     """전환 가능한 총 화수 범위, 또는 이미 전환했다면 되돌릴 수 있는지."""
     p = _load(name)
     lo, hi = pipeline.convert_range(p)
-    blockers = pipeline.undo_blockers(p, store.load_backup(name, pipeline.BACKUP_TAG)) if p.conversion else []
+    backup = store.load_backup(name, pipeline.BACKUP_TAG) if p.conversion else None
+    blockers = pipeline.undo_blockers(p, backup) if p.conversion else []
+    # 화면이 막힌 화로 가는 링크를 달 수 있게 이유별 화 번호도 준다
+    detail = pipeline.undo_blocker_eps(p, backup) if p.conversion and backup else {}
     span = dict(zip(("min", "default", "max"), pipeline.rebuild_span(p))) if not p.serial and p.episodes else None
     return {"min": lo, "max": hi, "end": pipeline.short_end(p), "conversion": p.conversion, "undo_blockers": blockers,
-            "rebuild": span}
+            "undo_eps": detail, "rebuild": span}
 
 
 @app.post("/api/projects/{name}/convert/apply")
@@ -1589,7 +1592,9 @@ def revert(name: str, n: int) -> Project:
     p = _load(name)
     _not_auto(name)
     pipeline.revert(p, n)
-    return _save(name, p)
+    out = _save(name, p)
+    autorun.after_revert(name, n + 1)  # 자동 집필 실행 기록(자동 반영 목록, 로그, 끝남 상태)도 n+1화부터 맞춘다
+    return out
 
 
 # ---------- 자동 집필 (canon/autorun.py) ----------
@@ -1657,6 +1662,14 @@ class AutoBatch(BaseModel):
 def auto_batch(name: str, body: AutoBatch) -> dict:
     _load(name)
     autorun.set_batch(name, body.batch)
+    return _auto(name)
+
+
+@app.put("/api/projects/{name}/auto/policy")
+def auto_policy(name: str, body: autorun.Policy) -> dict:
+    """멈춘 실행의 승인 정책을 바꾼다. 검토 대기와 기다리던 배치는 그대로 두고 다음 판정부터 적용된다."""
+    _load(name)
+    autorun.set_policy(name, body)
     return _auto(name)
 
 

@@ -328,3 +328,14 @@ document.addEventListener('keydown', (e) => {
   e.preventDefault();
   actions.chatSend();
 });
+
+// Esc 로 대화 패널을 닫고, 패널을 연 버튼으로 포커스를 돌린다. 다른 층이 먼저 Esc 를 받는다:
+// 플롯 서랍(app.js)과 본문 부분 수정 도구(passage.js). 그 처리기들이 상태를 지우기 전에 보려고 capture 로 듣는다
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || !S.chatOpen || !document.querySelector('.chat-panel')) return;
+  if (S.selTool) return;
+  if (S.route[2] === 'arc' && (S.selEp || S.selAct != null || S.editArc || S.selPart != null)) return;
+  e.preventDefault();
+  actions.toggleChat();
+  document.querySelector('[data-action="toggleChat"]')?.focus();
+}, true);

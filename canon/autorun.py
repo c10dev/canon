@@ -28,6 +28,10 @@ from .schema import ConsistencyReport, Project, StateDelta, TextVersion
 
 LOG_KEEP = 500
 STEP_NAMES = {"write": "본문", "check": "검수", "state": "상태 변경안"}
+# 루프 단계(Run.step) 이름: 서버 재시작 뒤 어느 단계를 다시 하는지 알릴 때
+RUN_STEPS = {"write": "본문 쓰기", "review": "검수와 상태 변경안 만들기", "confirm": "플롯 확정"}
+# 화 상태 이름 (화면 STATUS 와 같은 말)
+EP_STATUS = {"draft": "플롯 초안", "confirmed": "플롯 확정", "written": "본문 작성됨", "finalized": "상태 반영 완료"}
 # 측정값이 없을 때 쓰는 단계별 소요 시간 추정 (초, 일반 호출)
 SECONDS = {"write": 90.0, "check": 40.0, "state": 40.0}
 # 배치 한 번 기다리는 시간 가정 (초): 보통 범위. 최악은 24시간
@@ -68,6 +72,9 @@ class Run(BaseModel):
     ep: Optional[int] = None
     step: str = ""
     reasons: list[str] = Field(default_factory=list, description="멈춘 이유")
+    halt: str = Field("", description="멈춘 종류. 화면이 고칠 곳으로 가는 버튼을 고른다: "
+                      "plot_missing | plot_draft | review | every | changed | reverted | schema | error")
+    restarts: int = Field(0, description="서버가 다시 시작돼 이어 간 횟수 (그때 하던 단계는 처음부터 다시 한다)")
     pending: Optional[StateDelta] = Field(None, description="검토 대기 중인 변경안")
     pending_text: str = Field("", description="검토 대기 변경안을 만든 본문. 그 뒤 본문을 고쳤으면 그대로 반영하지 않는다")
     batches: dict[str, str] = Field(default_factory=dict, description="기다리는 배치 작업 slot -> 이름")
@@ -296,9 +303,9 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
 class _Halt(Exception):
     """루프를 끝낸다. status 가 None 이면 상태를 바꾸지 않고(서버 재시작 대기) 나간다."""
 
-    def __init__(self, status: Optional[str], message: str = "", reasons: list[str] | None = None):
+    def __init__(self, status: Optional[str], message: str = "", reasons: list[str] | None = None, kind: str = ""):
         super().__init__(message)
-        self.status, self.message, self.reasons = status, message, reasons or []
+        self.status, self.message, self.reasons, self.kind = status, message, reasons or [], kind
 
 
 def _edit(name: str, fn: Callable[[Project], Any]) -> Project:
@@ -357,7 +364,7 @@ class Runner:
             out = fn(llm)
         except SchemaMismatch as e:
             # 본문은 그대로 두고 이 화에서 멈춘다. 이어 가면 이 단계만 새로 요청한다
-            raise _Halt("paused", f"{n}화 {STEP_NAMES[stage]} 응답이 형식에 맞지 않아 멈췄어요", [
+            raise _Halt("paused", f"{n}화 {STEP_NAMES[stage]} 응답이 형식에 맞지 않아 멈췄어요", kind="schema", reasons=[
                 f"{n}화 {STEP_NAMES[stage]}: 다시 요청해도 모델 응답이 {e.schema} 형식과 맞지 않았어요 ({e.brief})",
                 "쓴 본문은 그대로 있어요. 이어 가면 이 단계만 다시 요청해요"
                 + (". 배치에서 되풀이되면 배치를 끄고 이어 가 보세요" if use_batch else ""),
@@ -394,11 +401,13 @@ class Runner:
                 try:
                     e = p.episode(n)
                 except KeyError:
-                    raise _Halt("paused", f"{n}화 플롯이 없어요", [f"{n}화 플롯이 없어요. 플롯을 만들고 확정한 뒤 이어 가세요"])
+                    raise _Halt("paused", f"{n}화 플롯이 없어요", [f"{n}화 플롯이 없어요. 플롯을 만들고 확정한 뒤 이어 가세요"],
+                                kind="plot_missing")
                 if e.status == "draft":
                     if not run.policy.confirm_plots:
                         raise _Halt("paused", f"{n}화 플롯이 초안이에요",
-                                    [f"{n}화 플롯이 아직 초안이에요. 확정한 뒤 이어 가세요 (또는 '초안 플롯 자동 확정'을 켜세요)"])
+                                    [f"{n}화 플롯이 아직 초안이에요. 확정한 뒤 이어 가세요 (또는 '초안 플롯도 자동으로 확정하고 쓰기'를 켜세요)"],
+                                    kind="plot_draft")
                     _edit(self.name, lambda q: pipeline.confirm_plot(q, n))
                     self._set(n, "confirm")
                     self.log(f"{n}화 플롯을 자동으로 확정했어요")
@@ -413,7 +422,7 @@ class Runner:
             msg = getattr(e, "message", None) or str(e) or type(e).__name__
             hint = " 배치를 끄고 이어 가 보세요." if run.batch and "batch" in msg.lower() else ""
             # 이유 칸에도 남겨 자동 집필 카드가 무엇 때문에 멈췄는지 보인다
-            self._finish(_Halt("error", f"오류로 멈췄어요: {msg}{hint}", [f"{msg}{hint}"]), level="error")
+            self._finish(_Halt("error", f"오류로 멈췄어요: {msg}{hint}", [f"{msg}{hint}"], kind="error"), level="error")
 
     def _write(self, p: Project, n: int) -> None:
         self._set(n, "write")
@@ -423,7 +432,8 @@ class Runner:
         def put(q: Project) -> None:
             ep = q.episode(n)
             if ep.status != "confirmed":
-                raise _Halt("paused", f"{n}화 상태가 바뀌어 멈춰요 (현재: {ep.status})")
+                raise _Halt("paused", f"{n}화 상태가 '{EP_STATUS.get(ep.status, ep.status)}'(으)로 바뀌어 멈췄어요",
+                            _changed_while_writing(n, ep.status), kind="changed")
             ep.text, ep.status = text, "written"
         q = _edit(self.name, put)
         self.log(f"{n}화 본문 {len(text):,}자", **usage)
@@ -471,11 +481,14 @@ class Runner:
         if reasons:
             with self.ctl.lock:
                 run.pending, run.pending_text = delta, p.episode(n).text
-            raise _Halt("review", f"{n}화는 검토가 필요해 멈췄어요", reasons)
+            raise _Halt("review", f"{n}화는 검토가 필요해 멈췄어요", reasons, kind="review")
 
         def put(q: Project) -> None:
-            if q.episode(n).status != "written":
-                raise _Halt("paused", f"{n}화 상태가 바뀌어 멈춰요 (현재: {q.episode(n).status})")
+            st = q.episode(n).status
+            if st != "written":
+                raise _Halt("paused", f"{n}화 상태가 '{EP_STATUS.get(st, st)}'(으)로 바뀌어 멈췄어요", [
+                    f"상태 변경안을 만드는 사이 {n}화가 '{EP_STATUS.get(st, st)}' 상태로 바뀌어 만든 변경안은 버렸어요",
+                    f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"], kind="changed")
             pipeline.apply_delta(q, delta)
             q.episode(n).auto = True
         _edit(self.name, put)
@@ -486,13 +499,14 @@ class Runner:
         every = run.policy.review_every
         if every and len(run.applied) % every == 0 and _todo(store.load(self.name), run.target):
             raise _Halt("paused", f"{every}화마다 멈추도록 설정해 멈췄어요",
-                        [f"{every}화마다 검토하도록 설정했어요. 읽어 보고 이어 가세요"])
+                        [f"{every}화마다 검토하도록 설정했어요. 읽어 보고 이어 가세요"], kind="every")
 
     def _finish(self, h: _Halt, level: str = "info") -> None:
         with self.ctl.lock:
             if h.status is not None:
                 self.run.status = h.status  # type: ignore[assignment]
                 self.run.reasons = h.reasons
+                self.run.halt = h.kind
                 if h.status != "review":
                     self.run.step = "" if h.status == "done" else self.run.step
             self.ctl.save()
@@ -550,7 +564,7 @@ def start(name: str, target: int, batch: bool, policy: Policy, *, foreground: bo
     run = Run(target=target, batch=batch, policy=policy, started=_now(), log=old.log if old else [])
     ctl = _control(name, run)
     ctl.save()
-    Runner(ctl).log(f"{target}화까지 자동 집필을 시작해요 (배치 {'켬' if batch else '끔'})")
+    Runner(ctl).log(f"{target}화까지 자동 집필을 시작해요 (배치 {'켬' if batch else '끔'})", step="start")
     _launch(name, ctl, echo, foreground)
     return ctl.run
 
@@ -585,7 +599,7 @@ def resume(name: str, approve: bool = False, rewrite: bool = False, *, foregroun
         elif status == "written":
             raise ValueError(f"{n}화 변경안이 검토 대기 중이에요. 검토 화면에서 반영하거나, 그대로 반영 또는 다시 쓰기를 고르세요")
     with ctl.lock:
-        run.status, run.reasons, run.pending, run.pending_text = "running", [], None, ""
+        run.status, run.reasons, run.pending, run.pending_text, run.halt = "running", [], None, "", ""
         ctl.save()
     r.log("이어 가요")
     _launch(name, ctl, echo, foreground)
@@ -607,7 +621,7 @@ def request(name: str, what: str) -> Run:
         raise ValueError("자동 집필이 없어요")
     if what == "stop":
         _cancel_batches(run)
-        run.status, run.pending, run.pending_text, run.reasons = "stopped", None, "", []
+        run.status, run.pending, run.pending_text, run.reasons, run.halt = "stopped", None, "", [], ""
         _write(name, run)
     return run
 
@@ -628,6 +642,55 @@ def set_batch(name: str, on: bool) -> Run:
     return run
 
 
+def set_policy(name: str, policy: Policy) -> Run:
+    """멈춘 실행의 승인 정책을 바꾼다. 검토 대기 변경안과 기다리던 배치는 그대로 두고, 다음 판정부터 적용된다."""
+    run = get_run(name)
+    if run is None:
+        raise ValueError("자동 집필이 없어요")
+    if run.status in ("done", "stopped"):
+        raise ValueError("끝나거나 중지한 자동 집필이에요. 새로 시작할 때 정하세요")
+    with _lock:
+        ctl = _controls.get(name)
+    run.policy = policy
+    # 화 번호 없이 남긴다 (멈춘 화는 정책 변경과 상관없다)
+    run.log = (run.log + [LogEntry(at=_now(), step="policy", message="승인 정책을 바꿨어요. 다음 판정부터 적용돼요")])[-LOG_KEEP:]
+    if ctl:
+        ctl.save()
+    else:
+        _write(name, run)
+    return run
+
+
+def after_revert(name: str, n: int) -> Optional[Run]:
+    """화면에서 n화부터 반영을 취소한 뒤 실행 기록을 맞춘다. 이번 실행의 자동 반영 목록에서 n화 이상을 빼고 로그를 남긴다.
+    끝난 실행에 남은 화가 생기면 일시정지로 바꿔 이어 갈 수 있게 한다. 그 화들의 검토 대기 변경안은 버린다."""
+    run = get_run(name)
+    if run is None or active(name):
+        return run
+    run.applied = [x for x in run.applied if x < n]
+    entry = LogEntry(at=_now(), ep=n, step="revert", level="warn", message=f"{n}화부터 반영을 취소했어요")
+    run.log = (run.log + [entry])[-LOG_KEEP:]
+    left = _todo(store.load(name), run.target)
+    stale = run.status == "review" and run.ep is not None and run.ep >= n
+    if left and (run.status == "done" or stale):
+        run.status, run.halt, run.pending, run.pending_text = "paused", "reverted", None, ""
+        run.reasons = [f"{n}화부터 반영을 취소했어요. 이어 가면 {left[0]}화부터 다시 이어 가요"]
+    _write(name, run)
+    return run
+
+
+def _changed_while_writing(n: int, status: str) -> list[str]:
+    """본문을 쓰는 사이 사용자가 그 화를 바꿔 멈출 때의 이유. AI가 쓴 본문은 버렸다."""
+    if status == "written":
+        return [f"{n}화 본문을 직접 저장해서 멈췄어요. 직접 쓴 본문을 남기고 AI가 쓴 본문은 버렸어요",
+                "이어 가면 이 본문으로 상태 변경안을 만들어요"]
+    if status == "draft":
+        return [f"{n}화 플롯을 초안으로 되돌려서 멈췄어요. AI가 쓴 본문은 버렸어요",
+                f"플롯을 확정한 뒤 이어 가면 {n}화를 새로 써요"]
+    return [f"{n}화가 '{EP_STATUS.get(status, status)}' 상태로 바뀌어 AI가 쓴 본문은 버렸어요",
+            f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"]
+
+
 def _cancel_batches(run: Run) -> None:
     """기다리던 배치 작업을 취소한다. 이미 끝났거나 키가 없어 취소하지 못해도 목록은 비운다."""
     for slot, bname in list(run.batches.items()):
@@ -646,8 +709,12 @@ def resume_all() -> list[str]:
     for d in sorted(store.ROOT.iterdir()):
         run = load_run(d.name) if (d / "autorun.json").exists() else None
         if run and run.status == "running" and store.exists(d.name):
+            run.restarts += 1
             ctl = _control(d.name, run)
-            Runner(ctl).log("서버가 다시 시작돼 이어 가요")
+            # 기다리던 배치는 다시 붙어 결과를 받는다. 일반 호출은 끊긴 호출을 버리고 그 단계를 처음부터 다시 한다
+            redo = "" if run.batches or not run.ep or run.step not in RUN_STEPS else \
+                f". {run.ep}화 {RUN_STEPS[run.step]}를 처음부터 다시 해요 (끊긴 호출은 버려요)"
+            Runner(ctl).log("서버가 다시 시작돼 이어 가요" + redo, "warn" if redo else "info", step="restart")
             _launch(d.name, ctl)
             out.append(d.name)
     return out
