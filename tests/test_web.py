@@ -427,14 +427,14 @@ def test_setup_suggestion_id_clash_and_order_rule(client):
     client.post("/api/projects/lh/episodes/2/confirm")
     assert client.put("/api/projects/lh/episodes/1/text", json={"text": "1화 본문"}).status_code == 200
     r = client.put("/api/projects/lh/episodes/2/text", json={"text": "2화 본문"})
-    assert r.status_code == 400 and "상태 갱신" in r.json()["detail"]
+    assert r.status_code == 400 and "상태 반영이 끝나지 않았어요" in r.json()["detail"]
     # 반영도 순서를 지킨다: 1화가 written 이면 2화 변경안은 반영하지 않는다 (2화를 옛 데이터로 다시 written 으로 만든 경우)
     from canon import store
     q = store.load("lh")
     q.episode(2).text, q.episode(2).status = "2화 본문", "written"
     store.save("lh", q)
     r = client.post("/api/projects/lh/episodes/2/apply", json={"episode": 2, "summary": "요약"})
-    assert r.status_code == 400 and "상태 갱신" in r.json()["detail"]
+    assert r.status_code == 400 and "상태 반영이 끝나지 않았어요" in r.json()["detail"]
 
 
 def test_missing_key_is_settings_hint(client, monkeypatch):
