@@ -31,18 +31,18 @@ def _git(repo: Path, *args: str, timeout: float = 60) -> str:
 def update(repo: Path = REPO, install: bool = True) -> Result:
     """origin/main 을 받아 fast-forward 한다. 의존성이 바뀌었으면 설치한다."""
     if not (repo / ".git").exists():
-        return Result(False, "git 저장소가 아니라 자동 업데이트를 건너뜁니다")
+        return Result(False, "git 저장소가 아니라 자동 업데이트를 건너뛰어요")
     try:
         if _git(repo, "rev-parse", "--abbrev-ref", "HEAD") != BRANCH:
-            return Result(False, f"{BRANCH} 브랜치가 아니라 자동 업데이트를 건너뜁니다")
+            return Result(False, f"{BRANCH} 브랜치가 아니라 자동 업데이트를 건너뛰어요")
         if _git(repo, "status", "--porcelain", "--untracked-files=no"):
-            return Result(False, "고친 파일이 있어 자동 업데이트를 건너뜁니다")
+            return Result(False, "고친 파일이 있어 자동 업데이트를 건너뛰어요")
         _git(repo, "fetch", "--quiet", "origin", BRANCH)
         old, new = _git(repo, "rev-parse", "HEAD"), _git(repo, "rev-parse", f"origin/{BRANCH}")
         if old == new:
-            return Result(False, "최신 버전입니다")
+            return Result(False, "최신 버전이에요")
         if _git(repo, "merge-base", old, new) != old:
-            return Result(False, "로컬 커밋이 있어 자동 업데이트를 건너뜁니다 (git pull 로 직접 합치세요)")
+            return Result(False, "로컬 커밋이 있어 자동 업데이트를 건너뛰어요 (git pull 로 직접 합치세요)")
         changed = _git(repo, "diff", "--name-only", old, new).splitlines()
         _git(repo, "merge", "--ff-only", "--quiet", new)
     except (OSError, subprocess.SubprocessError) as e:
@@ -56,9 +56,9 @@ def update(repo: Path = REPO, install: bool = True) -> Result:
             )
         except (OSError, subprocess.SubprocessError) as e:
             _git(repo, "reset", "--keep", old)
-            return Result(False, f"의존성 설치에 실패해 이전 버전으로 돌렸습니다: {_reason(e)}")
+            return Result(False, f"의존성 설치에 실패해 이전 버전으로 돌렸어요: {_reason(e)}")
     log = _git(repo, "log", "--format=%s", f"{old}..{new}").splitlines()
-    return Result(True, f"{len(log)}개 커밋을 받았습니다: " + " / ".join(log[:3]))
+    return Result(True, f"{len(log)}개 커밋을 받았어요: " + " / ".join(log[:3]))
 
 
 def _reason(e: Exception) -> str:

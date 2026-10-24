@@ -190,7 +190,7 @@ def describe(p: Project, cid: str, numbers: bool = False) -> str:
     """명령줄 `cast <작품> <인물>`: 설정 한 줄, 등장, 지금 관계, 화별 타임라인."""
     c = next((c for c in p.characters if cid in (c.id, c.name)), None)
     if c is None:
-        raise KeyError(f"인물을 찾지 못했습니다: {cid}")
+        raise KeyError(f"인물을 찾지 못했어요: {cid}")
     name = {x.id: x.name for x in p.characters}
     nm = lambda x: name.get(x, x)  # noqa: E731
     fs = frames(p)

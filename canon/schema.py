@@ -382,6 +382,14 @@ class SeriesPlan(BaseModel):
     parts: list[Part]
 
 
+class ArcUndo(BaseModel):
+    """아크를 붙일 때 바꾼 것. 그 아크를 지우면(remove_last_arc) 되돌린다. 프로그램이 채운다."""
+    number: int
+    characters: list[str] = Field(default_factory=list, description="이 아크가 더한 인물 id")
+    foreshadows: list[str] = Field(default_factory=list, description="회수 예정 화를 바꾼 복선 id")
+    due_before: list[int] = Field(default_factory=list, description="foreshadows 와 같은 순서로, 바꾸기 전 회수 예정 화")
+
+
 class StoryArc(BaseModel):
     """아크: 화 5~30개로 된 작은 이야기. 하나의 문제를 열고 해결하며, 자체 기승전결과 클라이맥스 보상을 가진다."""
     number: int
@@ -472,6 +480,7 @@ class Conversion(BaseModel):
     ending: str = Field("", description="keep 또는 reopen")
     history: int = Field(0, description="전환할 때까지 반영된 화 수. 이보다 늘면 되돌리지 않는다")
     mode: Literal["continue", "rebuild"] = Field("continue", description="continue: 단편을 아크 1로 이어 쓰기 / rebuild: 단편을 씨앗으로 다시 짜기")
+    notes: list[str] = Field(default_factory=list, description="전환하며 옮기지 못해 작가가 볼 것 (재구성 화면에 다시 보인다)")
 
 
 # ---------- 단편 → 장편 재구성 ----------
@@ -617,14 +626,14 @@ class ConsistencyReport(BaseModel):
     issues: list[ConsistencyIssue] = Field(default_factory=list, description="근거가 분명한 모순만. 없으면 빈 목록")
 
 
-EditSource = Literal["manual", "ai", "typed"]
+EditSource = Literal["manual", "ai", "typed", "impact"]
 
 
 class TextEdit(BaseModel):
     """본문 부분 수정 기록. 되돌리기에 쓰고, 고치기 전후 쌍은 나중에 선호 · 미세 조정 자료로 쓸 수 있게 남긴다."""
     id: str
     at: str = ""
-    source: EditSource = Field("manual", description="manual: 고른 부분을 직접 고침 / ai: AI 후보를 고름 / typed: 본문을 직접 고쳐 저장")
+    source: EditSource = Field("manual", description="manual: 고른 부분을 직접 고침 / ai: AI 후보를 고름 / typed: 본문을 직접 고쳐 저장 / impact: 인과율 영향 분석의 본문 수정")
     start: int = Field(0, description="고친 자리 (본문 안 글자 위치)")
     before: str = ""
     after: str = ""
@@ -926,6 +935,7 @@ class Project(BaseModel):
     arc: list[Act] = Field(default_factory=list, description="단편: 작품 전체의 기승전결. 장편에서는 비워 두고 아크마다 기승전결을 둔다")
     parts: list[Part] = Field(default_factory=list, description="장편: 부 구성")
     story_arcs: list[StoryArc] = Field(default_factory=list, description="장편: 지금까지 기획한 아크. 다음 아크를 하나씩 붙인다")
+    arc_undo: list[ArcUndo] = Field(default_factory=list, description="아크마다 붙일 때 바꾼 것 (마지막 아크를 지우면 되돌린다)")
     episodes: list[Episode] = Field(default_factory=list)
     states: list[CharacterState] = Field(default_factory=list)
     facts: list[str] = Field(default_factory=list)
@@ -947,6 +957,9 @@ class Project(BaseModel):
     storylines: list[Storyline] = Field(default_factory=list, description="메인에서 갈라지는 이야기 줄기 (서브플롯, 과거 회상, 외전, 인물 이야기)")
     visuals: list[CharacterVisual] = Field(default_factory=list, description="삽화용 인물 외형 태그")
     illust: IllustSettings = Field(default_factory=IllustSettings, description="삽화 프롬프트 설정")
+    # 아래 두 칸은 맨 끝에 둔다. store.save 가 파일 끝만 읽어 디스크 값을 찾는다 (store._saved_mark)
+    edit_rev: int = Field(0, description="화면(브라우저 탭)이 저장한 횟수. 오래된 화면이 다른 화면의 저장을 덮지 않게 비교한다 (store.writer)")
+    saved_by: str = Field("", description="마지막으로 저장한 화면(브라우저 탭) id")
 
     def episode(self, n: int) -> Episode:
         for ep in self.episodes:

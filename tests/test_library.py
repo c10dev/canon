@@ -37,7 +37,7 @@ def test_library_crud_and_apply(client, tmp_path):
     meta = {"title": "등대", "target_episodes": 10}
     client.post("/api/projects", json={"name": "a", "meta": meta, "style_id": e["id"]})
     client.post("/api/projects", json={"name": "b", "meta": meta})
-    assert [x["name"] for x in client.get("/api/projects").json()] == ["a", "b"]
+    assert sorted(x["name"] for x in client.get("/api/projects").json()) == ["a", "b"]
 
     a = client.get("/api/projects/a").json()
     assert a["style_id"] == e["id"] and a["style"] == prof and a["style_baseline"]["sentences"] > 0
@@ -49,7 +49,15 @@ def test_library_crud_and_apply(client, tmp_path):
     up = client.put(f"/api/styles/{e['id']}", json={"name": "건조체 2", "sample": SAMPLE, "profile": changed}).json()
     assert up["used_by"] == ["a"] and up["baseline"] == e["baseline"]
     assert client.get("/api/projects/a").json()["style"]["tense"] == prof["tense"]
-    assert client.get("/api/projects/a/style/link").json()["state"] == "changed"
+    link = client.get("/api/projects/a/style/link").json()
+    assert link["state"] == "changed"
+    # 어느 쪽이 무엇을 바꿨는지: 라이브러리 쪽만 시제가 바뀌었다
+    assert link["base_known"] and [c["key"] for c in link["theirs"]] == ["tense"] and link["mine"] == []
+    a = client.get("/api/projects/a").json()
+    a["style"]["donts"] = ["작품에서 더한 규칙"]
+    client.put("/api/projects/a", json=a)
+    link = client.get("/api/projects/a/style/link").json()
+    assert [c["key"] for c in link["mine"]] == ["donts"] and [c["key"] for c in link["theirs"]] == ["tense"]
     a = client.post("/api/projects/a/style/apply", json={"style_id": e["id"]}).json()
     assert a["style"]["tense"] == "현재형"
 
@@ -66,8 +74,15 @@ def test_library_crud_and_apply(client, tmp_path):
 
     dup = client.post(f"/api/styles/{e['id']}/duplicate").json()
     assert dup["name"] == "건조체 2 사본" and dup["id"] != e["id"] and dup["profile"]["dos"] == ["짧게 쓴다"]
+    # 다시 복제하면 번호가 붙어 목록에서 가를 수 있다
+    assert client.post(f"/api/styles/{e['id']}/duplicate").json()["name"] == "건조체 2 사본 2"
+    assert client.post(f"/api/styles/{dup['id']}/duplicate").json()["name"] == "건조체 2 사본 3"  # 사본의 사본도 번호로
     listed = client.get("/api/styles").json()
-    assert len(listed) == 3 and {x["id"]: x["used_by"] for x in listed}[e["id"]] == ["a"]
+    assert len(listed) == 5 and {x["id"]: x["used_by"] for x in listed}[e["id"]] == ["a"]
+    # 목록 카드: 지킬·피할 것과 금지 표현 · 표지 · 장치를 따로 센다
+    full = client.get(f"/api/styles/{e['id']}").json()["profile"]
+    row = {x["id"]: x for x in listed}[e["id"]]
+    assert row["rules"] == len(full["dos"]) + len(full["donts"]) and row["markers"] == len(full["markers"]) and "banned" in row and "devices" in row
 
     # 지워도 작품의 복사본은 남는다
     assert client.delete(f"/api/styles/{e['id']}").json() == {"ok": True}
@@ -114,3 +129,12 @@ def test_web_analysis_keeps_baseline(client):
     p["style_baseline"] = client.post("/api/metrics", json={"text": SAMPLE}).json()
     p = client.put("/api/projects/w", json=p).json()
     assert p["style_baseline"]["chars"] >= len(SAMPLE.strip()) - 50 and p["style_baseline"]["sentences"] > 5
+
+
+def test_blank_style_not_kept(client):
+    """빈 문체(분석도 입력도 안 한 새 작품)는 원문도 없으면 라이브러리에 저장하지 않는다."""
+    client.post("/api/projects", json={"name": "n", "meta": {"title": "새", "target_episodes": 10}})
+    r = client.post("/api/projects/n/style/library", json={"name": "빈 문체"})
+    assert r.status_code == 400 and "비어" in r.json()["detail"]
+    assert client.get("/api/styles").json() == []
+    assert client.post("/api/projects/n/style/library", json={"name": "원문만", "sample": SAMPLE}).status_code == 200

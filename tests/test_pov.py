@@ -71,7 +71,7 @@ def test_cli_pov(tmp_path, monkeypatch, capsys):
     store.save("t", p)
     cli.main(["pov", "t", "1-3", "도현", "--mode", "1인칭"])
     out = capsys.readouterr().out
-    assert "본문이 있는 화는 플롯을 바꾸지 않습니다: [1]화" in out and "시점 적음: [2, 3]화" in out
+    assert "본문이 있는 화는 플롯을 바꾸지 않아요: [1]화" in out and "시점 적음: [2, 3]화" in out
     q = store.load("t")
     assert (q.episode(2).plot.pov, q.episode(2).plot.pov_mode) == ("ally", "1인칭") and q.episode(1).plot.pov == ""
     cli.main(["pov", "t", "3", "--clear"])
@@ -144,3 +144,15 @@ def test_web_voice(client):
     s = client.post("/api/projects/lh/characters/ally/voice").json()
     assert "예:" in s["voice"]
     assert client.post("/api/projects/lh/characters/nobody/voice").status_code == 400
+
+
+def test_half_set_episode_pov_inherits_the_rest_and_first_name_wins():
+    p = _short()
+    names = {c.id: c.name for c in p.characters}
+    p.arc[2].pov = f"{names['ally']} 3인칭 제한, {names['hero']} 등장"
+    n = p.arc[2].start_ep
+    assert prompts.char_in_text(p, p.arc[2].pov).id == "ally"  # 글에 먼저 나온 인물
+    _pov(p, [n], "", "1인칭")  # 서술 방식만 적은 화: 시점 인물은 구간에서
+    assert prompts.pov_character(p, n).id == "ally" and "시점 인물" in prompts.pov_of(p, n)[1]
+    _pov(p, [n], "hero", "")  # 시점 인물만 적은 화: 서술 방식은 구간에서
+    assert "서술 3인칭 제한" in prompts.pov_of(p, n)[1]

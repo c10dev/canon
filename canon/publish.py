@@ -51,7 +51,7 @@ def paragraphs(text: str) -> list[list[str]]:
 
 def format_text(text: str, fmt: str = "blank") -> str:
     if fmt not in FORMATS:
-        raise ValueError(f"모르는 형식입니다: {fmt} ({' | '.join(FORMATS)})")
+        raise ValueError(f"모르는 형식이에요: {fmt} ({' | '.join(FORMATS)})")
     if fmt == "raw":
         return text.strip()
     paras = paragraphs(text)
@@ -95,7 +95,7 @@ def export(p: Project, numbers: list[int], fmt: str = "blank", title: bool = Tru
         htmls.append(h)
         used.append(n)
     if not used:
-        raise ValueError("본문이 있는 화가 없습니다")
+        raise ValueError("본문이 있는 화가 없어요")
     name = re.sub(r'[\\/:*?"<>|]', "", p.meta.title).strip() or "canon"
     span = f"{used[0]}화" if len(used) == 1 else f"{used[0]}-{used[-1]}화"
     return {"text": "\n\n\n".join(texts) + "\n", "html": "<p><br></p><p><br></p>".join(htmls), "episodes": used,
