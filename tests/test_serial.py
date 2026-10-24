@@ -149,6 +149,17 @@ def test_story_so_far_falls_back_to_episode_summaries():
     assert "12화 요약" in text
 
 
+def test_part_summary_covers_its_arcs():
+    """요약이 있는 부의 아크는 부 요약이 대신 들어가 따로 요약하라고 하지 않는다."""
+    p = _serial(300)
+    a = _plan_arc(p)
+    _finish(p, a)
+    assert ("arc", a.number) in pipeline.pending_recaps(p)
+    part = p.part_for(a.start_ep)
+    part.summary = "1부 줄거리"
+    assert ("arc", a.number) not in pipeline.pending_recaps(p)
+
+
 def test_recap_needs_finished_arc():
     p = _serial()
     _plan_arc(p)
