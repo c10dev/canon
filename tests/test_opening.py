@@ -113,6 +113,7 @@ def test_web_opening_flow(client):
     # 여는 방식 여러 안 → 고른 안을 플롯으로
     j = _wait(client, client.post("/api/projects/lh/jobs", json={"kind": "openings", "ep": 1}).json()["id"])
     assert j["status"] == "done" and len(j["result"]["options"]) == 3
+    assert j["label"] == "1화 여는 방식 플롯 안"  # 작업 목록에서 본문 안과 나뉘게
     plot = j["result"]["options"][0]["plot"]
     p = client.post("/api/projects/lh/episodes/1/opening-plot", json={"plot": plot}).json()
     assert p["episodes"][0]["plot"]["opening"] == plot["opening"]
@@ -123,6 +124,7 @@ def test_web_opening_flow(client):
     j = _wait(client, client.post("/api/projects/lh/jobs", json={"kind": "opening_drafts", "ep": 1,
                                                                     "approaches": ["in_medias_res", "lack_turn"]}).json()["id"])
     assert j["status"] == "done" and j["result"]["count"] == 2
+    assert j["label"] == "1화 여는 방식 본문 안"
     c = client.get("/api/projects/lh/episodes/1/opening").json()["compare"]
     assert c["kind"] == "opening" and len(c["drafts"]) == 2
 

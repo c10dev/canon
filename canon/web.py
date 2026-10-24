@@ -1120,14 +1120,14 @@ def start_job(name: str, body: JobIn) -> dict:
                     _edit(name, lambda q: pipeline.apply_hook(q, rep))
                 return rep.model_dump()
         elif kind == "openings":
-            label, total, owned = f"{n}화 여는 방식 여러 안", 1, set()
+            label, total, owned = f"{n}화 여는 방식 플롯 안", 1, set()
 
             def fn(job: jobs.Job):
                 return pipeline.suggest_openings(llm, store.load(name), n, ways).model_dump()
         else:
             if p.episode(n).status == "draft":
                 raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요")
-            label, total, owned = f"{n}화 여러 안으로 쓰기", 1, set()
+            label, total, owned = f"{n}화 여는 방식 본문 안", 1, set()
 
             def fn(job: jobs.Job):
                 c = research.run_opening_compare(name, store.load(name), n, llm, ways)
