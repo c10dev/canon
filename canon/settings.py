@@ -114,6 +114,24 @@ def stage_model(stage: str | None) -> tuple[str, str]:
     return value, src
 
 
+def stage_env(stage: str, kind: str = "LLM") -> str:
+    """이 단계의 백엔드(kind="LLM") 또는 모델(kind="MODEL")을 정한 환경 변수 이름. 설정 파일이나 기본값이 정했으면 "".
+    물려받은 값이면 부모 단계나 전체 값의 변수 이름을 준다 (예: CANON_LLM 만 있으면 모든 단계가 CANON_LLM)."""
+    if kind == "LLM" and provider()[0] == "mock":
+        return "CANON_LLM" if provider()[1] == "env" else ""
+    own = f"CANON_{kind}_{stage.upper()}"
+    if os.environ.get(own):
+        return own
+    if ((_read().get("stages" if kind == "LLM" else "stage_models")) or {}).get(stage):
+        return ""
+    parent = STAGE_PARENT.get(stage)
+    if kind == "LLM":
+        if parent:
+            return stage_env(parent, kind)
+        return "CANON_LLM" if provider()[1] == "env" else ""
+    return stage_env(parent, kind) if parent and stage_provider(stage) == stage_provider(parent) else ""
+
+
 def _set_stage_map(data: dict, key: str, values: dict[str, str]) -> None:
     cur = {k: v for k, v in (data.get(key) or {}).items() if k in STAGES}
     for stage, value in values.items():
@@ -182,7 +200,8 @@ def public() -> dict:
         label = {"gemini": mdl, "local": lmodel or "로컬 서버 모델", "mock": "mock"}.get(sp, sp)
         if sm and sp != "mock":
             label = sm
-        stages[s] = {"provider": sp, "source": ssrc, "model": label, "model_source": smsrc}
+        stages[s] = {"provider": sp, "source": ssrc, "model": label, "model_source": smsrc,
+                     "env": stage_env(s), "model_env": stage_env(s, "MODEL")}
     return {
         "provider": prov,
         "provider_source": prov_src,

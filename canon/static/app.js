@@ -1781,19 +1781,28 @@ const actions = {
     if (key) body.api_key = key;
     const lkey = $('#set-local-key').value.trim();
     if (lkey) body.local_key = lkey;
-    await run('저장 중', async () => {
+    const ok = await run('저장 중', async () => {
       S.config = await api('PUT', '/config', body);
       S.health = await api('GET', '/config/health').catch(() => null);
       S.settingsDirty = false;
+      settingsSavedAt = { what: '저장했어요', at: new Date().toISOString() };
       toast('설정을 저장했어요');
     }, { render: 'success' });  // 실패하면 다시 그리지 않아 적은 키와 모델이 칸에 남는다
+    if (ok) $('[data-action="saveSettings"]')?.focus();  // 다시 그리면 초점이 페이지 처음으로 가므로 돌려준다
+    return ok;
   },
   async clearKey() {
     if (!confirm('저장된 API 키를 지울까요?')) return;
-    await run('지우는 중', async () => {
+    const ok = await run('지우는 중', async () => {
       S.config = await api('PUT', '/config', { clear_key: true });
+      settingsSavedAt = { what: '키를 지웠어요', at: new Date().toISOString() };
       toast('키를 지웠어요');
     });
+    if (ok) $('#set-key')?.focus();
+  },
+  settingsBack() {
+    if (settingsNavs > 0) history.back();
+    else location.hash = S.name ? base() : '#/';
   },
   async loadModels() {
     await loadModelList(true);
@@ -2355,9 +2364,41 @@ function header(eyebrow, title, desc, right = '') {
 // ----- 설정 -----
 
 const STAGES = [['plan', '계획 (설정 제안, 문체 분석, 기승전결, 화별 플롯)'], ['write', '본문 쓰기'], ['check', '검수'], ['state', '상태 변경안'],
-  ['name', '이름·지명 AI 추천 (정하지 않으면 계획 단계를 따름)'], ['revise', '본문 부분 수정 (정하지 않으면 본문 쓰기 단계를 따름)'],
-  ['illustration', '삽화 프롬프트 (정하지 않으면 계획 단계를 따름)']];
-const STAGE_PARENT_LABEL = { name: '계획 단계를 따름', revise: '본문 쓰기 단계를 따름' };
+  ['name', '이름·지명 AI 추천'], ['revise', '본문 부분 수정'], ['illustration', '삽화 프롬프트']];
+// 백엔드를 비우면 따르는 단계 (settings.STAGE_PARENT 와 같다)
+const STAGE_PARENT = { name: 'plan', revise: 'write', illustration: 'plan' };
+const STAGE_PARENT_LABEL = { name: '계획 단계를 따름', revise: '본문 쓰기 단계를 따름', illustration: '계획 단계를 따름' };
+
+// 단계 줄의 모델 칸 안내: 지금 고른 백엔드(비우면 부모 단계, 그다음 위 생성 방식)의 기본 모델. 저장 전에도 선택을 따라간다
+function stageModelHint(s) {
+  const c = S.config || {};
+  const val = (sel, saved) => { const el = $(sel); return el ? el.value : saved; };
+  const top = c.provider_source === 'env' ? c.provider : val('#set-provider', c.provider);
+  const prov = (x) => {
+    const st = (c.stages || {})[x] || {};
+    if (st.env === `CANON_LLM_${x.toUpperCase()}`) return st.provider;  // 단계 환경 변수가 이긴다
+    const own = val(`#set-stage-${x}`, (c.stage_settings || {})[x] || '');
+    if (own) return own;
+    return STAGE_PARENT[x] ? prov(STAGE_PARENT[x]) : top;
+  };
+  const p = top === 'mock' ? 'mock' : prov(s);  // 생성 방식이 mock 이면 모든 단계가 mock
+  if (p === 'mock') return '모델: mock';
+  if (p === 'local') return `모델: ${val('#set-local-model', c.local_model) || '서버에 하나뿐인 모델'}`;
+  return `모델: ${val('#set-model', c.model_setting) || '기본'}`;
+}
+
+document.addEventListener('change', (e) => {
+  if (S.route[0] !== 'settings' || !/^set-(stage-|provider$|model$|local-model$)/.test(e.target.id || '')) return;
+  STAGES.forEach(([s]) => {
+    const el = $(`#set-stage-model-${s}`);
+    if (el) el.placeholder = stageModelHint(s);
+  });
+});
+
+// 설정 화면 '돌아가기': 앱 안에서 넘어왔으면 뒤로, 주소로 바로 열었으면 앱 첫 화면(작품 안이면 그 작품)으로
+let settingsNavs = 0;
+window.addEventListener('hashchange', () => { settingsNavs += 1; });
+let settingsSavedAt = null;  // 저장 버튼 옆에 남기는 마지막 저장 시각
 
 function providerOptions(cur) {
   return [['gemini', 'Gemini API'], ['local', '로컬 서버 (OpenAI 호환)'], ['mock', 'mock (AI 호출 없이 화면 확인용)']]
@@ -2371,7 +2412,7 @@ function viewSettings() {
   const keyState = c.key_source === 'none'
     ? '<span class="chip" style="background:var(--red-soft);color:var(--red)">없음</span>'
     : `<span class="chip finalized">${esc(c.key_hint)}</span> <span class="small">${src[c.key_source]}</span>`;
-  return `${header('Canon', '모델 · API 키 설정', '여기서 저장한 값은 이 컴퓨터의 설정 파일에만 들어가요. 작품 폴더나 저장소에는 들어가지 않아요.', '<a class="btn" href="javascript:history.back()">돌아가기</a>')}
+  return `${header('Canon', '모델 · API 키 설정', '여기서 저장한 값은 이 컴퓨터의 설정 파일에만 들어가요. 작품 폴더나 저장소에는 들어가지 않아요.', '<button type="button" class="btn" data-action="settingsBack">돌아가기</button>')}
     <section class="card">
       <div class="field"><label for="set-provider">생성 방식</label>
         <select id="set-provider">
@@ -2399,20 +2440,24 @@ function viewSettings() {
       <p class="desc">예: 계획과 검수는 gemini-4-argon, 상태 변경안과 이름 추천은 빠르고 싼 gemini-3.8-flash, 본문은 로컬 모델. 모델 칸을 비우면 그 백엔드의 기본 모델(위 '모델' 또는 로컬 '모델 이름')을 써요.</p>
       ${STAGES.map(([s, label]) => {
         const st = (c.stages || {})[s] || {};
-        const base = st.provider === 'local' ? (c.local_model || '서버에 하나뿐인 모델') : c.model_setting;
+        // 단계 자체의 환경 변수는 선택보다 우선하고, 물려받은 환경 변수(CANON_LLM, 부모 단계)는 비워 둘 때만 따른다
+        const envLine = (name, own, what) => !name ? '' : name === own
+          ? `<div class="small">환경 변수 ${name} 가 우선해요.</div>`
+          : `<div class="small">비워 두면 환경 변수 ${name} 의 ${what}을 따라요.</div>`;
         return `<div class="field"><label for="set-stage-${s}">${label} <span class="hint">지금: ${esc(st.model || '')}</span></label>
           <div class="stage-row">
             <select id="set-stage-${s}" aria-label="${esc(label)} 백엔드"><option value="">${STAGE_PARENT_LABEL[s] || '위 생성 방식을 따름'}</option>${providerOptions((c.stage_settings || {})[s])}</select>
-            <input id="set-stage-model-${s}" type="text" list="model-options" aria-label="${esc(label)} 모델" value="${esc((c.stage_model_settings || {})[s] || '')}" placeholder="모델: ${esc(base || '기본')}">
+            <input id="set-stage-model-${s}" type="text" list="model-options" aria-label="${esc(label)} 모델" value="${esc((c.stage_model_settings || {})[s] || '')}" placeholder="${esc(stageModelHint(s))}">
           </div>
-          ${st.source === 'env' ? `<div class="small">환경 변수 CANON_LLM_${s.toUpperCase()} 가 우선해요.</div>` : ''}
-          ${st.model_source === 'env' ? `<div class="small">환경 변수 CANON_MODEL_${s.toUpperCase()} 가 우선해요.</div>` : ''}</div>`;
+          ${envLine(st.env, `CANON_LLM_${s.toUpperCase()}`, '백엔드')}
+          ${envLine(st.model_env, `CANON_MODEL_${s.toUpperCase()}`, '모델')}</div>`;
       }).join('')}
       <div class="small" id="model-status">${modelStatus()}</div>
       <div class="row">
         <button class="btn primary" data-action="saveSettings">저장</button>
         <button class="btn" data-action="testSettings">연결 확인</button>
         ${c.key_source === 'file' ? '<button class="btn danger" data-action="clearKey">저장된 키 지우기</button>' : ''}
+        <span class="small" role="status">${settingsSavedAt ? `${esc(settingsSavedAt.what)} · ${fmtDateTime(settingsSavedAt.at)}` : ''}</span>
       </div>
       <div class="small">설정 파일: ${esc(c.path)}</div>
     </section>
@@ -2436,7 +2481,7 @@ function modelStatus() {
   const m = S.models;
   if (!m) return '모델 목록을 불러오는 중…';
   const part = (name, r) => r.error ? `${name}: 목록을 못 불러옴 (${esc(r.error.slice(0, 120))})` : `${name} ${r.models.length}개`;
-  return `모델 칸을 누르면 고를 수 있어요. ${part('Gemini', m.gemini)} · ${part('로컬 서버', m.local)}. 목록에 없으면 이름을 직접 적어도 돼요. <a href="javascript:void 0" data-action="loadModels">다시 불러오기</a>`;
+  return `모델 칸을 누르면 고를 수 있어요. ${part('Gemini', m.gemini)} · ${part('로컬 서버', m.local)}. 목록에 없으면 이름을 직접 적어도 돼요. <button type="button" class="link-btn" data-action="loadModels">다시 불러오기</button>`;
 }
 
 async function loadModelList(force) {

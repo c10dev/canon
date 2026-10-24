@@ -113,7 +113,8 @@ def test_settings(client, tmp_path, monkeypatch):
     c = client.put("/api/config", json={"local_url": "http://nhn:8000/v1", "local_model": "gemma",
                                         "local_key": "lk-1", "stages": {"write": "local"}}).json()
     assert c["local_url"] == "http://nhn:8000/v1" and c["has_local_key"] and "lk-1" not in str(c)
-    assert c["stages"]["write"] == {"provider": "local", "source": "file", "model": "gemma", "model_source": "default"}
+    assert c["stages"]["write"] == {"provider": "local", "source": "file", "model": "gemma", "model_source": "default",
+                                   "env": "", "model_env": ""}
     assert c["stages"]["plan"]["provider"] == "gemini"
 
     # 이름·지명 단계는 따로 정하지 않으면 계획 단계를 따르고, 단계별 모델을 지정할 수 있다
@@ -121,7 +122,8 @@ def test_settings(client, tmp_path, monkeypatch):
     c = client.put("/api/config", json={"stage_models": {"plan": "gemini-2.5-pro"}}).json()
     assert c["stages"]["name"]["model"] == "gemini-2.5-pro"
     c = client.put("/api/config", json={"stages": {"name": "local"}, "stage_models": {"name": "qwen3"}}).json()
-    assert c["stages"]["name"] == {"provider": "local", "source": "file", "model": "qwen3", "model_source": "file"}
+    assert c["stages"]["name"] == {"provider": "local", "source": "file", "model": "qwen3", "model_source": "file",
+                                  "env": "", "model_env": ""}
     assert c["stage_model_settings"] == {"plan": "gemini-2.5-pro", "name": "qwen3"}
     from canon.llm import get_llm as _get
     assert _get("name").model == "qwen3" and _get("plan").model == "gemini-2.5-pro"
@@ -143,6 +145,18 @@ def test_settings(client, tmp_path, monkeypatch):
     m = client.get("/api/config/models").json()  # 키도 서버도 없어도 화면은 열린다
     assert set(m) == {"gemini", "local"} and m["local"]["error"]
     assert client.put("/api/config", json={"clear_key": True}).json()["key_source"] == "none"
+
+    # 환경 변수 안내는 실제로 값을 정한 변수 이름을 준다: CANON_LLM 하나면 모든 단계가 CANON_LLM, 부모 단계 변수는 물려받는다
+    monkeypatch.setenv("CANON_LLM", "local")
+    st = client.get("/api/config").json()["stages"]
+    assert {s["env"] for s in st.values()} == {"CANON_LLM"}
+    monkeypatch.setenv("CANON_LLM_PLAN", "gemini")
+    st = client.put("/api/config", json={"stages": {"write": "gemini"}}).json()["stages"]
+    assert (st["plan"]["env"], st["name"]["env"], st["write"]["env"], st["revise"]["env"], st["check"]["env"]) == \
+        ("CANON_LLM_PLAN", "CANON_LLM_PLAN", "", "", "CANON_LLM")
+    client.put("/api/config", json={"stages": {"write": ""}})
+    monkeypatch.delenv("CANON_LLM_PLAN")
+    monkeypatch.delenv("CANON_LLM")
 
     # 화면에서 mock 으로 바꾸면 AI 호출도 mock 으로 간다
     client.put("/api/config", json={"provider": "mock"})
