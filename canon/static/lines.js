@@ -356,6 +356,7 @@ Object.assign(actions, {
     await startJob('storyline', null, { note: S.lineForm.note, line_kind: S.lineForm.kind });
   },
   lineDrop() {
+    if (!confirmDrop('AI 이야기 줄기 제안')) return;
     S.lineDraft = null;
     render();
   },

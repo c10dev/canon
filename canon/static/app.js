@@ -66,7 +66,7 @@ const base = () => `#/p/${enc(S.name)}`;
 
 function fmtErr(data, status) {
   const d = data && data.detail;
-  if (Array.isArray(d)) return d.map((x) => `${(x.loc || []).slice(1).join('.')}: ${x.msg}`).join('\n');
+  if (Array.isArray(d)) return d.map((x) => { const at = (x.loc || []).slice(1).join('.'); return `입력 형식이 맞지 않습니다${at ? ` (칸: ${at})` : ''}: ${x.msg}`; }).join('\n');
   return d || `요청 실패 (${status})`;
 }
 
@@ -80,9 +80,14 @@ async function api(method, path, body, meta) {
     opt.headers['Content-Type'] = 'application/json';
     opt.body = JSON.stringify(body);
   }
-  const r = await fetch('/api' + path, opt);
+  let r;
+  try {
+    r = await fetch('/api' + path, opt);
+  } catch {  // 서버가 꺼졌거나 네트워크가 끊겼다 (브라우저마다 다른 영어 문구 대신)
+    throw Object.assign(new Error('서버에 연결하지 못했어요. 서버가 켜져 있는지, 네트워크가 연결됐는지 확인하세요'), { status: 0 });
+  }
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw Object.assign(new Error(fmtErr(data, r.status)), { status: r.status });
+  if (!r.ok) throw Object.assign(new Error(fmtErr(data, r.status)), { status: r.status, code: data && data.code });
   if (meta) meta.headers = r.headers;
   return data;
 }
@@ -137,6 +142,11 @@ const autoOn = () => !!(S.auto && S.auto.active);
 /** 자동 집필이 지금 쓰는 화. 서버는 그 화의 플롯과 관계 같은 진행 칸을 화면 저장에서 지킨다 (autorun.protected). */
 const autoEp = () => (autoOn() && S.auto.run ? S.auto.run.ep : null);
 
+/** AI 제안을 버리기 전에 묻는다. 버린 제안은 되살릴 수 없고 다시 받으려면 AI 를 다시 불러야 한다. */
+function confirmDrop(what) {
+  return confirm(`${what}을 버릴까요? 되살릴 수 없어서, 다시 보려면 AI 에게 다시 받아야 해요.`);  // 부르는 곳은 모두 받침 있는 말(제안, 계획)
+}
+
 /** 초안 다시 만들기 전에 묻는다: 확정하지 않은 초안 화는 AI 새 초안으로 바뀐다. 바뀔 초안이 없으면 묻지 않는다. */
 function confirmRedraft(eps) {
   const nums = eps.filter((e) => e.status === 'draft').map((e) => e.plot.number);
@@ -167,7 +177,7 @@ async function startJob(kind, ep = null, extra = {}) {
     render();
     pollJobs(true);
   } catch (e) {
-    toast(e.message, true);
+    showError(e);
   }
 }
 
@@ -350,6 +360,15 @@ document.addEventListener('click', (e) => {
 
 /** 버튼 동작 공통 처리: 진행 표시, 오류 알림, 다시 그리기. 성공하면 true.
     opt.render: 'always'(기본) | 'success'(실패하면 다시 그리지 않아 화면에만 있는 입력을 남긴다) | 'never' */
+/** 실패를 알린다. API 키가 없으면(첫 실행에 흔하다) 설정 화면으로 갈지 묻는다. */
+function showError(e) {
+  if (e.code === 'no_key') {
+    if (confirm(`${e.message}\n\n설정 화면으로 갈까요?`)) location.hash = '#/settings';
+    return;
+  }
+  toast(e.message, true);
+}
+
 async function run(label, fn, opt = {}) {
   const when = opt.render || 'always';
   let ok = false;
@@ -359,7 +378,7 @@ async function run(label, fn, opt = {}) {
     await fn();
     ok = true;
   } catch (e) {
-    toast(e.message, true);
+    showError(e);
   } finally {
     $('#busy').hidden = true;
     if (when === 'always' || (when === 'success' && ok)) render();
@@ -597,7 +616,7 @@ function renderSavebar() {
   const n = p === 'p' && page === 'write' && P() ? Number(arg) || currentEp() : null;
   const text = n !== null && textUnsaved(n) && editableEp(ep(n)) ? n : null;  // 반영이 끝난 화의 남은 초고는 집필 화면이 따로 꺼내 보인다
   let bar = $('#savebar');
-  if (!S.dirty && text === null) {
+  if ((!S.dirty || !P()) && text === null) {
     if (bar) bar.remove();
     return;
   }
@@ -611,7 +630,7 @@ function renderSavebar() {
   }
   bar.dataset.sig = sig;
   bar.innerHTML = (S.dirty && S.conflict ? '<span>다른 탭이나 기기에서 먼저 저장해 이 변경을 저장하지 못했어요</span><button class="btn small" data-action="revert">다시 불러오기 (이 변경 버림)</button><button class="btn small danger" data-action="saveForce">내 변경으로 덮기</button>'
-    : S.dirty ? '<span>저장하지 않은 변경이 있어요</span><button class="btn small" data-action="revert">되돌리기</button><button class="btn small primary" data-action="save">저장</button>' : '')
+    : S.dirty ? '<span>저장하지 않은 변경이 있어요</span><button class="btn small" data-action="revert">변경 모두 버리기</button><button class="btn small primary" data-action="save">저장</button>' : '')
     + (text !== null ? `<span>${text}화 본문을 저장하지 않았어요</span><button class="btn small primary" data-action="saveText" data-arg="${text}"${autoOn() ? ' disabled title="자동 집필이 도는 동안은 본문을 저장할 수 없어요"' : ''}>본문 저장</button>` : '');
 }
 
@@ -689,7 +708,11 @@ const actions = {
     await run('저장 중', async () => { if (await save() !== false) toast('저장했습니다'); });
   },
   async revert() {
+    if (S.dirty && !confirm('저장하지 않은 변경을 모두 버리고 저장된 작품을 다시 불러올까요? 되돌릴 수 없어요.')) return;
     await run('불러오는 중', async () => { await loadProject(S.name); });
+  },
+  async retryRoute() {
+    await route();
   },
   async saveForce() {
     if (!confirm('다른 탭이나 기기에서 저장한 변경을 이 화면의 작품으로 덮어쓸까요? 그쪽에서 바꾼 설정 · 플롯은 사라집니다.')) return;
@@ -734,6 +757,7 @@ const actions = {
     await startJob('suggest');
   },
   dropSuggestion() {
+    if (!confirmDrop('AI 설정 제안')) return;
     S.suggestion = null;
     render();
   },
@@ -1138,6 +1162,7 @@ const actions = {
     await startJob('series');
   },
   dropSeries() {
+    if (!confirmDrop('AI 부 구성 제안')) return;
     S.seriesDraft = null;
     render();
   },
@@ -1177,6 +1202,7 @@ const actions = {
     await startJob('nextarc', null, { length: Number(S.arcForm.length) || 0, note: S.arcForm.note || '' });
   },
   dropArc() {
+    if (!confirmDrop('AI 다음 아크 제안')) return;
     S.arcDraft = null;
     render();
   },
@@ -1212,6 +1238,7 @@ const actions = {
     await startJob('recap_part', Number(n));
   },
   dropRecap(key) {
+    if (!confirmDrop('AI 요약 제안')) return;
     delete S.recapDrafts[key];
     render();
   },
@@ -1276,6 +1303,15 @@ const actions = {
   },
   async applyDelta(n) {
     const out = pickedDelta(n);
+    // 평소에는 바로 반영한다. 고른 항목이 없거나, 경고가 남았거나, 변경안을 만든 뒤 본문을 고쳤으면 한 번 묻는다
+    const lists = ['character_updates', 'events', 'secrets_added', 'relationship_updates', 'new_facts', 'foreshadow_planted', 'foreshadow_resolved', 'new_characters'];
+    const count = lists.reduce((s, k) => s + (out[k] || []).length, 0);
+    const why = [
+      count ? '' : '고른 항목이 0건이에요. 요약만 저장하고',
+      (out.warnings || []).length ? `경고 ${out.warnings.length}건이 남아 있어요.` : '',
+      S.deltaBase[n] !== undefined && ep(n) && S.deltaBase[n] !== ep(n).text ? '변경안을 만든 뒤 본문을 고쳤어요.' : '',
+    ].filter(Boolean);
+    if (why.length && !confirm(`${why.join(' ')} ${n}화를 마칠까요? 반영하면 되돌리기로만 돌아갈 수 있어요.`)) return;
     await run('반영하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/apply`, out);
@@ -1526,6 +1562,7 @@ function route() {
 }
 
 async function routeNow() {
+  S.loadError = null;
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
   S.route = parts;
   S.context = null;
@@ -1605,10 +1642,11 @@ async function routeNow() {
       S.libs = await api('GET', '/styles').catch(() => []);
     }
   } catch (e) {
-    toast(e.message, true);
+    // 연결 실패를 '작품 없음'과 같은 화면으로 보이지 않는다. 오류 카드와 다시 시도를 그린다
+    S.loadError = e.message;
     S.name = null;
     S.project = null;
-    S.projects = [];
+    S.dirty = false;  // 대상 작품이 없으니 저장 띠도 내린다
   }
   render();
   window.scrollTo(0, 0);
@@ -1631,6 +1669,10 @@ function render() {
   if (p === 'styles') {
     const body = S.route[1] && S.lib ? viewLibEntry() : viewLibrary();
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1180px;margin:0 auto">${body}</main></div>`;
+    return;
+  }
+  if (S.loadError) {
+    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:720px;margin:0 auto"><div class="card empty" role="alert"><h2>화면을 불러오지 못했어요</h2><p>${esc(S.loadError)}</p><div class="row"><button class="btn primary" data-action="retryRoute">다시 시도</button><a class="btn" href="#/">작품 목록</a></div></div></main></div>`;
     return;
   }
   if (p !== 'p' || !P()) {

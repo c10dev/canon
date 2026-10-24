@@ -26,6 +26,10 @@ from . import usage
 T = TypeVar("T", bound=BaseModel)
 
 
+class MissingKey(RuntimeError):
+    """API 키가 없다. 웹은 서버 오류가 아니라 설정 안내로 보인다 (code no_key)."""
+
+
 class LLM(Protocol):
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T: ...
     def text(self, system: str, prompt: str) -> str: ...
@@ -92,7 +96,7 @@ class GeminiLLM:
 
         key = api_key or settings.api_key()[0]
         if not key:
-            raise RuntimeError("Gemini API 키가 없습니다. 웹 설정 화면에서 넣거나 GEMINI_API_KEY 를 설정하세요.")
+            raise MissingKey("Gemini API 키가 없습니다. 웹 설정 화면에서 넣거나 GEMINI_API_KEY 를 설정하세요.")
         self.client = genai.Client(api_key=key)
         self.model = model or settings.model()[0]
         self.last_usage: dict | None = None  # 연구 화면에서 보여 줄 마지막 호출의 토큰 수

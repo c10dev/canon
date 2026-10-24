@@ -7,6 +7,7 @@ AI 가 만든 제안(설정, 문체, 구조, 상태 변경안)은 바로 저장�
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 from urllib.parse import quote, unquote
@@ -17,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
 from . import autorun, cast, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
-from .llm import GeminiLLM, LocalLLM, get_llm, make_llm
+from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from .schema import (ArcPlan, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 
@@ -70,10 +71,17 @@ async def _bad_request(_: Request, e: Exception) -> JSONResponse:
     return JSONResponse({"detail": str(msg)}, status_code=400)
 
 
+@app.exception_handler(MissingKey)
+async def _no_key(_: Request, e: MissingKey) -> JSONResponse:
+    # 첫 실행에 흔한 상황이라 서버 오류가 아니라 설정 안내로 보인다
+    return JSONResponse({"detail": "Gemini API 키가 없어요. 오른쪽 아래 '모델 · API 키 설정'에서 넣으세요", "code": "no_key"}, status_code=400)
+
+
 @app.exception_handler(Exception)
 async def _server_error(_: Request, e: Exception) -> JSONResponse:
-    # Gemini 키 누락, 응답 실패 등을 화면에 그대로 보여준다
-    return JSONResponse({"detail": f"{type(e).__name__}: {e}"}, status_code=500)
+    # 응답 실패 등을 화면에 그대로 보여 준다. 예외 이름과 자세한 내용은 서버 로그에만 남긴다
+    logging.getLogger("canon").exception("요청 처리 중 오류")
+    return JSONResponse({"detail": str(e) or "서버에서 오류가 났어요. 서버 로그를 확인하세요"}, status_code=500)
 
 
 def _load(name: str) -> Project:

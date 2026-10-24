@@ -411,3 +411,13 @@ def test_setup_suggestion_id_clash_and_order_rule(client):
     store.save("lh", q)
     r = client.post("/api/projects/lh/episodes/2/apply", json={"episode": 2, "summary": "요약"})
     assert r.status_code == 400 and "상태 갱신" in r.json()["detail"]
+
+
+def test_missing_key_is_settings_hint(client, monkeypatch):
+    """키가 없으면 서버 오류(500, 예외 이름)가 아니라 400 과 code=no_key 로 설정을 안내한다."""
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "nk", "meta": meta})
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    r = client.post("/api/projects/nk/suggest")
+    assert r.status_code == 400 and r.json()["code"] == "no_key" and "RuntimeError" not in r.json()["detail"]

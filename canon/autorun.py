@@ -410,7 +410,8 @@ class Runner:
         except Exception as e:  # 화면과 로그에 그대로 보여 준다
             msg = getattr(e, "message", None) or str(e) or type(e).__name__
             hint = " 배치를 끄고 이어 가 보세요." if run.batch and "batch" in msg.lower() else ""
-            self._finish(_Halt("error", f"오류로 멈췄습니다: {msg}{hint}"), level="error")
+            # 이유 칸에도 남겨 자동 집필 카드가 무엇 때문에 멈췄는지 보인다
+            self._finish(_Halt("error", f"오류로 멈췄습니다: {msg}{hint}", [f"{msg}{hint}"]), level="error")
 
     def _write(self, p: Project, n: int) -> None:
         self._set(n, "write")
