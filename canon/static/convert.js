@@ -62,6 +62,7 @@ async function convertLoad() {
 function convertResult(j) {
   if (j.kind === 'rebuild') {
     S.rbDraft = j.result;
+    S.rbBad = {};
     S.convMode = 'rebuild';
   } else if (j.kind === 'rework') {
     S.reworks[j.ep] = j.result;
@@ -285,7 +286,7 @@ function rebuildProposal(d) {
     return `<tr class="rb-${x.use}">
       <td class="mono">${x.number}</td>
       <td>${rbUseSelect(i, x.use)}</td>
-      <td><input aria-label="쓰는 단편 화" value="${esc(x.sources.join(', '))}" data-rb-src="${i}" placeholder="없음" style="width:72px">${src ? `<div class="small">${src}</div>` : ''}</td>
+      <td><input aria-label="쓰는 단편 화" value="${esc(x.sources.join(', '))}" data-rb-src="${i}" placeholder="없음" style="width:72px">${src ? `<div class="small">${src}</div>` : ''}${((S.rbBad || {})[i] || []).length ? `<div class="small warn-text">단편에 없는 화: ${S.rbBad[i].join(', ')}화</div>` : ''}</td>
       <td><input aria-label="제목" value="${esc(x.title)}" data-bind="episodes.${i}.title" data-kind="text" data-root="rbDraft">
         <textarea aria-label="내용" rows="2" data-bind="episodes.${i}.summary" data-kind="text" data-root="rbDraft">${esc(x.summary)}</textarea>
         ${x.use === 'revise' || x.use === 'rewrite' ? `<input aria-label="메모" value="${esc(x.note)}" data-bind="episodes.${i}.note" data-kind="text" data-root="rbDraft" placeholder="${x.use === 'revise' ? '무엇을 고칠지' : '옛 화에서 살릴 것'}">` : ''}</td>
@@ -451,7 +452,11 @@ document.addEventListener('change', (e) => {
     render();
   }
   if (t.dataset.rbSrc !== undefined && S.rbDraft) {
-    S.rbDraft.episodes[Number(t.dataset.rbSrc)].sources = [...new Set(t.value.split(/[^0-9]+/).filter(Boolean).map(Number))];
+    const nums = [...new Set(t.value.split(/[^0-9]+/).filter(Boolean).map(Number))];
+    const have = new Set(P().episodes.map((x) => x.plot.number));
+    S.rbDraft.episodes[Number(t.dataset.rbSrc)].sources = nums.filter((n) => have.has(n));
+    // 단편에 없는 화는 서버가 말없이 버린다. 빼 두고 그 칸 아래에 알린다
+    S.rbBad = { ...(S.rbBad || {}), [t.dataset.rbSrc]: nums.filter((n) => !have.has(n)) };
     render();
   }
   if (t.dataset.convPick) S.convPicks[t.dataset.convPick] = t.checked;

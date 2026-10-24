@@ -497,7 +497,10 @@ def validate_story_arcs(p: Project) -> None:
             raise ValueError(f"아크 번호가 1부터 차례대로가 아니에요 ({s.number})")
         if s.start_ep != expected or s.end_ep < s.start_ep:
             raise ValueError(f"아크 {s.number} 범위 오류: {s.start_ep}~{s.end_ep} ({expected}화부터여야 해요)")
-        validate_arc(ArcPlan(acts=s.acts), s.end_ep, s.start_ep)
+        try:
+            validate_arc(ArcPlan(acts=s.acts), s.end_ep, s.start_ep)
+        except ValueError as e:  # 어느 아크의 구간인지 밝힌다
+            raise ValueError(f"아크 {s.number}({s.start_ep}~{s.end_ep}화) 구간: {e}") from None
         part = p.part_for(s.start_ep)
         if p.parts and (part is None or s.end_ep > part.end_ep):
             raise ValueError(f"아크 {s.number}({s.start_ep}~{s.end_ep}화)가 부 경계를 넘어요")
@@ -1365,6 +1368,20 @@ def validate_storylines(p: Project) -> None:
         bad = [x for x in [e.plot.storyline, *e.plot.threads] if x and x not in ids]
         if bad:
             raise ValueError(f"{e.plot.number}화에 없는 이야기 줄기가 붙어 있어요: {', '.join(bad)}")
+
+
+def validate_relationships(p: Project) -> None:
+    """관계는 서로 다른 두 인물 사이에 한 쌍씩만 둔다 (화면 저장용). 겹치면 관계 계산이 한쪽만 쓴다."""
+    seen: dict[frozenset, int] = {}
+    names = {c.id: c.name or c.id for c in p.characters}
+    for i, r in enumerate(p.relationships, 1):
+        who = f"{names.get(r.a, r.a)} ↔ {names.get(r.b, r.b)}"
+        if r.a == r.b:
+            raise ValueError(f"{i}번째 관계({who})가 같은 인물끼리예요. 인물 B를 바꾸거나 지우세요")
+        k = frozenset((r.a, r.b))
+        if k in seen:
+            raise ValueError(f"{who} 관계가 {seen[k]}번째와 {i}번째에 두 번 있어요. 하나를 지우세요")
+        seen[k] = i
 
 
 def remove_storyline(p: Project, sid: str) -> None:

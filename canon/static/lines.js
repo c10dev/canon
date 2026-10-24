@@ -211,6 +211,18 @@ function lineList() {
   return `<div class="el-list">${items}</div>`;
 }
 
+/** 갈라지는 화 · 합류하는 화가 맞지 않거나 범위 밖에 붙은 화. 저장은 막지 않고 고칠 곳을 알린다. */
+function lineRangeNote(s, eps) {
+  const total = P().meta.target_episodes;
+  const out = [];
+  if (s.branch_ep && s.join_ep && s.branch_ep > s.join_ep) out.push(`갈라지는 화(${s.branch_ep}화)가 합류하는 화(${s.join_ep}화)보다 뒤예요`);
+  const late = [['갈라지는 화', s.branch_ep], ['합류하는 화', s.join_ep]].filter(([, v]) => v > total).map(([k]) => k);
+  if (late.length) out.push(`${late.join(' · ')}가 총 화수(${total}화)보다 뒤예요`);
+  const outside = eps.map(({ n }) => n).filter((n) => (s.branch_ep && n < s.branch_ep) || (s.join_ep && n > s.join_ep));
+  if (outside.length) out.push(`갈라지는 화 앞이나 합류하는 화 뒤에 붙은 화가 있어요: ${rangeText(outside)}화`);
+  return out.length ? `<div class="note warn" role="status">${out.map(esc).join('<br>')}</div>` : '';
+}
+
 function lineEditor(s) {
   const i = lineIndex(s.id);
   const b = `storylines.${i}`;
@@ -232,6 +244,7 @@ function lineEditor(s) {
       ${input('갈라지는 화', b + '.branch_ep', { type: 'number', min: 0, hint: '메인에서 이 줄기를 부르는 계기가 나오는 화. 0 이면 정하지 않음' })}
       ${input('합류하는 화', b + '.join_ep', { type: 'number', min: 0, hint: '메인으로 돌아오는 화. 0 이면 아직 열림' })}
     </div>
+    ${lineRangeNote(s, eps)}
     ${input('합류할 때 메인에 남기는 것', b + '.rejoin', { rows: 2, autogrow: true, placeholder: '드러나는 비밀, 바뀐 관계, 얻거나 잃는 것' })}
     ${input('줄기 요약', b + '.summary', { rows: 3, autogrow: true, hint: '비워 두면 이 줄기 화들의 요약을 써요' })}
     <div class="field"><span class="label">붙은 화</span><div class="row">${chips || '<span class="small">아직 없어요.</span>'}</div></div>

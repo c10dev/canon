@@ -66,6 +66,9 @@ def test_full_flow(client):
     d = client.post("/api/projects/lh/episodes/2/state/parse", json={"raw": raw}).json()
     assert d["episode"] == 2
     assert client.post("/api/projects/lh/episodes/2/state/parse", json={"raw": "{oops"}).status_code == 400
+    chat = '정리했어요. 아래 JSON을 쓰세요.\n```json\n{"summary": "요약만"}\n```\n도움이 됐길 바라요.'
+    assert client.post("/api/projects/lh/episodes/2/state/parse", json={"raw": chat}).json()["summary"] == "요약만"
+    assert client.post("/api/projects/lh/episodes/2/state/parse", json={"raw": "설명만 있어요"}).status_code == 400
     p = client.post("/api/projects/lh/episodes/2/apply", json=d).json()
     assert p["foreshadows"][0]["status"] == "resolved"
 
@@ -566,3 +569,15 @@ def test_episode_count_bounds_and_confirm_during_plot_job(client):
     finally:
         jobs._jobs.pop(j.id, None)
     assert client.post("/api/projects/cj/episodes/2/confirm").status_code == 200
+
+
+def test_relationship_pairs_validated_on_save(client):
+    client.post("/api/projects", json={"name": "rp", "meta": {"title": "t", "target_episodes": 10}})
+    p = client.post("/api/projects/rp/suggest/apply", json=client.post("/api/projects/rp/suggest").json()).json()
+    a, b = p["characters"][0]["id"], p["characters"][1]["id"]
+    same = dict(p, relationships=[dict(p["relationships"][0], a=a, b=a)])
+    r = client.put("/api/projects/rp", json=same)
+    assert r.status_code == 400 and "같은 인물끼리" in r.json()["detail"]
+    dup = dict(p, relationships=[dict(p["relationships"][0], a=a, b=b), dict(p["relationships"][0], a=b, b=a)])
+    r = client.put("/api/projects/rp", json=dup)
+    assert r.status_code == 400 and "두 번" in r.json()["detail"]

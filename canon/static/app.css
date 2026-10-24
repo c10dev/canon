@@ -75,6 +75,7 @@ ul, ol { margin: 0; }
 .note { padding: 12px 14px; border-radius: 8px; font-size: 0.8125rem; line-height: 1.55; }
 .note.info { background: var(--accent-soft); color: var(--info-ink); }
 .note.warn { background: var(--amber-soft); color: var(--amber-ink); border: 1px solid var(--warn-line); }
+.warn-text { color: var(--amber-ink); }
 .note.ok { background: var(--green-soft); color: var(--green-ink); }
 .note.err { background: var(--red-soft); color: var(--err-ink); }
 .note.plain { background: var(--bg); color: var(--text-2); }
@@ -184,6 +185,11 @@ details > summary { cursor: pointer; font-size: 0.8125rem; color: var(--accent);
 
 .board-wrap { min-width: 0; overflow-x: auto; display: flex; flex-direction: column; gap: 12px; padding-bottom: 4px; }
 .board { display: grid; grid-template-columns: repeat(4, minmax(250px, 1fr)); gap: 14px; align-items: start; }
+.board.has-loose { grid-template-columns: repeat(5, minmax(250px, 1fr)); }
+/* 보드 칸 폭으로 열 수를 고른다. 1280px 창이나 대화 패널을 연 화면에서 '결' 열이 가로 스크롤 뒤로 숨지 않게 */
+.board-wrap { container-type: inline-size; }
+@container (max-width: 1080px) { .board, .board.has-loose { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: 540px) { .board, .board.has-loose { grid-template-columns: minmax(0, 1fr); } }
 .act-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .act-head { padding: 12px 14px; border-radius: 10px; display: flex; flex-direction: column; gap: 6px; }
 .act-col .act-head { padding: 14px 16px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; border: 2px solid transparent; }
@@ -277,6 +283,7 @@ pre.brief { margin: 0; padding: 16px; border-radius: 8px; background: var(--bg);
 .g-k { color: var(--muted); font-weight: 700; }
 .check-row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 0.875rem; cursor: pointer; }
 .check-row input { width: 18px; height: 18px; margin-top: 2px; flex: none; }
+.payoff-list { display: flex; flex-direction: column; gap: 6px; max-height: 15rem; overflow-y: auto; }
 @media (max-width: 600px) { .g-row { grid-template-columns: 1fr; gap: 2px; } }
 
 .metric-list { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 0.8125rem; }

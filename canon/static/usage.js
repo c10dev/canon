@@ -286,6 +286,15 @@ Object.assign(actions, {
     priceRedraw();
   },
   async priceSave() {
+    const nameless = S.priceRows.findIndex((r) => !r.model.trim() && (r.input || r.output || r.cached || r.batch_input || r.batch_output || (r.since || '').trim()));
+    if (nameless >= 0) {
+      toast(`${nameless + 1}번째 줄에 모델 이름을 적으세요. 이름이 없으면 그 줄은 저장되지 않아요`, true);
+      const el = document.querySelector(`[data-price="${nameless}.model"]`);
+      if (el) el.focus();
+      return;
+    }
+    const free = S.priceRows.filter((r) => r.model.trim() && (!(r.input > 0) || !(r.output > 0))).map((r) => r.model.trim());
+    if (free.length && !confirm(`${free.join(', ')}의 입력이나 출력 가격이 0원이에요. 비용이 0원으로 계산돼요. 이대로 저장할까요?`)) return;
     const rows = S.priceRows.filter((r) => r.model.trim()).map(({ custom, current, upcoming, ...r }) => r);
     await priceSend('가격표 저장 중', () => api('PUT', '/usage/prices', { rows }), '가격표를 저장했어요. 비용을 다시 계산했어요');
   },

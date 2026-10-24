@@ -187,6 +187,38 @@ function confirmRedraft(eps) {
 }
 
 /** [1,2,3,5,7,8] → '1~3, 5, 7~8' */
+// 아크 끝 화를 다 고치면(포커스를 옮기면) 다시 나눈 구간 범위를 화면에 보인다. 입력 중에는 다시 그리지 않는다
+document.addEventListener('change', (e) => {
+  const b = e.target.dataset && e.target.dataset.bind;
+  if (b && (b === 'arc.end_ep' || /^(story_arcs\.\d+\.(acts\.\d+\.)?|arc\.\d+\.)(start_ep|end_ep)$/.test(b))) render();
+});
+
+/** pipeline.act_ranges 와 같은 규칙: start~total 화를 weights 비율로 기승전결 네 구간에 나눈다. 함께 고친다. */
+function actRanges(total, start, weights) {
+  const size = total - start + 1;
+  if (size < 1) return null;
+  if (size < 4) return { 1: [0, 0, 0, 0], 2: [0, 0, 1, 1], 3: [0, 1, 2, 2] }[size].map((k) => [start + k, start + k]);
+  const w = (weights || [0.18, 0.38, 0.26, 0.18]).map((x) => Math.max(x, 0.01));
+  const sum = w.reduce((a, b) => a + b, 0);
+  const raw = w.map((x) => (x / sum) * size);
+  const lens = raw.map((r) => Math.max(1, Math.floor(r)));
+  const argmax = (f) => [0, 1, 2, 3].reduce((b, i) => (f(i) > f(b) ? i : b), 0);
+  while (lens.reduce((a, b) => a + b, 0) < size) lens[argmax((i) => raw[i] - lens[i])] += 1;
+  while (lens.reduce((a, b) => a + b, 0) > size) lens[argmax((i) => lens[i])] -= 1;
+  let a = start;
+  return lens.map((n) => { const r = [a, a + n - 1]; a += n; return r; });
+}
+
+/** 아크 끝 화가 바뀌었다. 결 구간만 늘이거나 줄여 맞으면 그렇게 하고, 결이 시작 화보다 앞으로 오면 구간 길이 비율대로 다시 나눈다. */
+function fitActs(arc, end) {
+  const acts = [...arc.acts].sort((x, y) => '기승전결'.indexOf(x.name) - '기승전결'.indexOf(y.name));
+  const last = acts[acts.length - 1];
+  if (!last || !(end >= arc.start_ep)) return;
+  if (end >= last.start_ep) { last.end_ep = end; return; }
+  const r = actRanges(end, arc.start_ep, acts.map((x) => Math.max(1, x.end_ep - x.start_ep + 1)));
+  if (r) acts.forEach((x, i) => { [x.start_ep, x.end_ep] = r[i]; });
+}
+
 function rangeText(nums) {
   const out = [];
   for (let i = 0; i < nums.length; i++) {
@@ -688,11 +720,9 @@ document.addEventListener('input', (e) => {
     setPath(root, el.dataset.bind, v);
     if (el.dataset.root === 'lib') { S.libDirty = true; renderSavebar(); }
     else if (!DRAFT_ROOTS[el.dataset.root]) markDirty();
-    if (el.dataset.root === 'arcDraft' && el.dataset.bind === 'arc.end_ep') {  // 아크 끝 화를 바꾸면 결 구간 끝도 따라간다
-      const acts = S.arcDraft.arc.acts;
-      const last = acts[acts.length - 1];
-      if (last && v >= last.start_ep) last.end_ep = v;
-    }
+    const arcEnd = el.dataset.root === 'arcDraft' && el.dataset.bind === 'arc.end_ep' ? S.arcDraft.arc
+      : (el.dataset.bind.match(/^story_arcs\.(\d+)\.end_ep$/) && !el.dataset.root) ? P().story_arcs[Number(el.dataset.bind.split('.')[1])] : null;
+    if (arcEnd) fitActs(arcEnd, v);  // 아크 끝 화를 바꾸면 구간도 따라간다 (서버 clean_arc · fit_arc 와 같은 결과)
     const cnt = el.id === 'f-sample' && $('#lib-sample-count');
     if (cnt) cnt.textContent = v.length.toLocaleString();
     const out = el.dataset.out && document.getElementById(el.dataset.out);
@@ -1087,6 +1117,7 @@ const actions = {
       S.suggestion = null;
       toast('빈칸을 채웠어요. 기존 입력은 그대로예요.');
     });
+    checkNames();  // 더한 인물 이름도 점검한다
   },
   toggleGenre(id) {
     const m = genreTarget();
@@ -1144,13 +1175,19 @@ const actions = {
   },
   removeCharacter(i) {
     const c = P().characters[i];
-    if (!confirm(`${c.name || c.id} 인물을 삭제할까요? 관계도 함께 삭제돼요. 저장하기 전에는 아래 띠에서 되살릴 수 있어요.`)) return;
+    // 플롯 · 반영 기록에 남은 id 는 지우지 않는다. 지우면 그 화의 등장 인물과 관계 사건이 id 로만 보인다
+    const inPlots = P().episodes.filter((e) => e.plot.characters.includes(c.id)).map((e) => e.plot.number);
+    const inHistory = [...new Set(P().history.filter((h) => (h.events || []).some((ev) => ev.actor === c.id || ev.target === c.id) || h.character_updates.some((u) => u.character_id === c.id)).map((h) => h.episode))];
+    const used = [inPlots.length ? `${rangeText(inPlots)}화 플롯의 등장 인물` : '', inHistory.length ? `${rangeText(inHistory)}화 반영 기록` : ''].filter(Boolean);
+    const warn = used.length ? `\n이 인물은 ${used.join('과 ')}에 남아 있어요. 그곳에는 이름 대신 id(${c.id})로 보여요.${inHistory.length ? ' 이미 반영한 화에 나온 인물이면 지우기보다 비중을 단역으로 낮추는 편이 안전해요.' : ''}` : '';
+    if (!confirm(`${c.name || c.id} 인물을 삭제할까요? 관계와 지금 상태도 함께 삭제돼요. 저장하기 전에는 아래 띠에서 되살릴 수 있어요.${warn}`)) return;
     rememberRemoved(`인물 ${c.name || c.id}`, ['characters', 'relationships', 'states']);
     P().characters.splice(i, 1);
     P().relationships = P().relationships.filter((r) => r.a !== c.id && r.b !== c.id);
     P().states = P().states.filter((s) => s.character_id !== c.id);
     markDirty();
     render();
+    checkNames();  // 지운 인물과 겹친다던 경고를 걷어 낸다
   },
   // 플롯 편집기의 등장 인물: 새 인물 만들기, AI 후보 등록, 설정 없는 id 를 인물로, 이 화에서 빼기
   newCast(n) {
@@ -1172,6 +1209,7 @@ const actions = {
     markDirty();
     render();
     toast(`${c.name || id}${josa(c.name || id, '을', '를')} ${c.tier === 'minor' ? '단역' : '조연'}으로 등록했어요. 저장하면 반영돼요`);
+    checkNames();
   },
   makeCast(arg) {
     const id = arg.split('|')[1];
@@ -1195,7 +1233,10 @@ const actions = {
   addRelationship() {
     const cs = P().characters;
     if (cs.length < 2) return toast('인물이 두 명 이상 있어야 해요', true);
-    P().relationships.push({ a: cs[0].id, b: cs[1].id, type: '', description: '', affinity: 0, tension: 0, goal_conflict: 0, a_view: [], b_view: [] });
+    const has = new Set(P().relationships.map((r) => [r.a, r.b].sort().join('|')));
+    const pair = cs.flatMap((x, i) => cs.slice(i + 1).map((y) => [x.id, y.id])).find(([a, b]) => !has.has([a, b].sort().join('|')));
+    if (!pair) return toast('모든 인물 쌍에 관계가 이미 있어요', true);
+    P().relationships.push({ a: pair[0], b: pair[1], type: '', description: '', affinity: 0, tension: 0, goal_conflict: 0, a_view: [], b_view: [] });
     markDirty();
     render();
   },
@@ -1696,12 +1737,18 @@ const actions = {
   // 설정
   async saveSettings() {
     const key = $('#set-key').value.trim();
+    const c = S.config || {};
     const body = {
-      provider: $('#set-provider').value, model: $('#set-model').value.trim(),
-      local_url: $('#set-local-url').value.trim(), local_model: $('#set-local-model').value.trim(),
       stages: Object.fromEntries(STAGES.map(([s]) => [s, $(`#set-stage-${s}`).value])),
       stage_models: Object.fromEntries(STAGES.map(([s]) => [s, $(`#set-stage-model-${s}`).value.trim()])),
     };
+    // 환경 변수나 기본값을 보여 주기만 한 칸은 보내지 않는다. 보내면 설정 파일에 굳어 환경 변수를 바꿔도 따라가지 않는다
+    [['provider', '#set-provider', c.provider], ['model', '#set-model', c.model_setting], ['local_url', '#set-local-url', c.local_url], ['local_model', '#set-local-model', c.local_model]]
+      .forEach(([k, sel, shown]) => {
+        const v = $(sel).value.trim();
+        if (['env', 'default'].includes(c[`${k}_source`]) && v === (shown || '')) return;
+        body[k] = v;
+      });
     if (key) body.api_key = key;
     const lkey = $('#set-local-key').value.trim();
     if (lkey) body.local_key = lkey;
@@ -2661,7 +2708,7 @@ function relRow(r, i) {
       <div class="field"><label for="rb${i}">인물 B</label><select id="rb${i}" data-bind="${b}.b">${opts(r.b)}</select></div>
       ${input('어떤 사이', b + '.type', { placeholder: '오빠의 친구, 남매…' })}
       <button class="btn icon-btn danger" data-action="removeRelationship" data-arg="${i}" aria-label="관계 삭제">✕</button>
-    </div>
+    </div>${relProblem(r, i)}
     <div class="genre-opts ex-opts" role="group" aria-label="어떤 사이 예시">${chips(REL_TYPES.map((t) => [t, t]), (t) => r.type === t, 'setRelType')}</div>
     ${started ? `<div class="small">지금 호감 ${r.affinity} · 긴장 ${r.tension}. 첫 반영 뒤에는 본문의 관계 사건으로 바뀌어요.</div>` : `${view('a_view', r.a, r.b)}${view('b_view', r.b, r.a)}`}
     <div class="rel-line"><span class="label-text">원하는 게 부딪치나</span><div class="genre-opts" role="group" aria-label="목표 충돌">${chips(CONFLICTS, (w) => conflictWord(r.goal_conflict || 0) === w, 'setConflict')}</div></div>
@@ -2672,9 +2719,24 @@ function relRow(r, i) {
   </div>`;
 }
 
+/** 같은 인물끼리이거나 앞선 관계와 같은 쌍이면 알린다. 서버는 이런 관계를 저장하지 않는다 (pipeline.validate_relationships). */
+function relProblem(r, i) {
+  if (r.a === r.b) return '<div class="note warn" role="status">같은 인물끼리는 관계를 만들 수 없어요. 인물 B를 바꾸세요.</div>';
+  const j = P().relationships.findIndex((x, k) => k !== i && [x.a, x.b].sort().join('|') === [r.a, r.b].sort().join('|'));
+  return j >= 0 ? `<div class="note warn" role="status">이 두 인물의 관계가 ${j + 1}번째에도 있어요. 하나만 남기세요.</div>` : '';
+}
+
 function refreshRel(i) {
-  const el = $(`#rel-${i}`);
-  if (el) el.outerHTML = relRow(P().relationships[i], i);
+  // 인물을 바꾸면 다른 관계와 겹치는지도 바뀐다. 바꾼 줄은 다시 그리고, 다른 줄은 알림만 고친다
+  P().relationships.forEach((r, k) => {
+    const el = $(`#rel-${k}`);
+    if (!el) return;
+    if (k === i) { el.outerHTML = relRow(r, k); return; }
+    const old = el.querySelector(':scope > .note.warn');
+    if (old) old.remove();
+    const note = relProblem(r, k);
+    if (note) el.querySelector('.rel-top').insertAdjacentHTML('afterend', note);
+  });
 }
 
 async function loadNames(key, req, ai) {
@@ -3193,7 +3255,31 @@ function actBoard(acts, eps, sel) {
           ${share}${inAct.length ? inAct.map((e) => epCard(e, sel)).join('') : nums.map(slot).join('')}</div>
       </section>`;
   }).join('');
-  return `<div class="board">${cols}</div>`;
+  // 구간 범위에 빈틈이 생기면 그 화 카드가 어느 열에도 들지 않는다. 사라지지 않게 따로 모아 보인다
+  const loose = eps.filter((e) => owner(e.plot.number) < 0);
+  const out = loose.length ? `<section class="act-col" aria-label="구간 밖"><div class="act-head"><div class="between"><strong>구간 밖</strong><span class="act-meta">${loose.length}화</span></div>
+      <div class="note warn">어느 구간에도 들지 않는 화예요. 구간 범위를 고치면 제자리로 가요.</div></div>
+      <div class="act-eps">${loose.map((e) => epCard(e, sel)).join('')}</div></section>` : '';
+  return `<div class="board${out ? ' has-loose' : ''}">${cols}${out}</div>`;
+}
+
+/** 구간 범위가 start~end 화를 빈틈 · 겹침 없이 덮는지. 문제가 있으면 고칠 곳을 문장으로 돌려준다 (서버 validate_arc 가 저장을 막는 경우). */
+function actCoverage(acts, start, end) {
+  const out = [];
+  const short = end - start + 1 < 4;  // 4화보다 짧으면 이웃 구간이 한 화를 함께 써도 된다
+  const hits = new Map();
+  acts.forEach((a) => { for (let n = a.start_ep; n <= a.end_ep && n - a.start_ep < 2000; n++) hits.set(n, (hits.get(n) || 0) + 1); });
+  const gap = [];
+  const twice = [];
+  for (let n = start; n <= end; n++) {
+    if (!hits.get(n)) gap.push(n);
+    else if (hits.get(n) > 1 && !short) twice.push(n);
+  }
+  const beyond = [...hits.keys()].filter((n) => n < start || n > end);
+  if (gap.length) out.push(`어느 구간에도 들지 않는 화: ${rangeText(gap)}화`);
+  if (twice.length) out.push(`두 구간에 겹친 화: ${rangeText(twice)}화`);
+  if (beyond.length) out.push(`범위(${start}~${end}화) 밖: ${rangeText(beyond.sort((a, b) => a - b))}화`);
+  return out;
 }
 
 function drawerHtml(panel) {
@@ -3252,11 +3338,36 @@ function actEditor(i) {
   return `<div class="between"><h2>${k >= 0 ? `아크 ${S.selArc} · ` : ''}${a.name} 구간</h2><span class="chip ${actClass(a.name)}">${a.start_ep}~${a.end_ep}화</span></div>
     <div class="grid-2">${input('시작 화', b + '.start_ep', { type: 'number', min: 1 })}${input('끝 화', b + '.end_ep', { type: 'number', min: 1 })}</div>
     <div class="small">${k >= 0 ? '아크 안 기승전결 네 구간이 아크 첫 화부터 끝 화까지 빈틈없이 이어져야 저장돼요.' : '기승전결 네 구간이 1화부터 마지막 화까지 빈틈없이 이어져야 저장돼요.'}</div>
+    ${((w) => (w.length ? `<div class="note warn" role="status">${w.map(esc).join('<br>')}</div>` : ''))(k >= 0
+      ? actCoverage(P().story_arcs[k].acts, P().story_arcs[k].start_ep, P().story_arcs[k].end_ep)
+      : actCoverage(P().arc, 1, P().meta.target_episodes))}
     ${input('구간 목표', b + '.goal', { rows: 5, autogrow: true, hint: '이 구간이 끝날 때 이야기가 어디까지 와 있어야 하나' })}
     ${input('전환점', b + '.key_turn', { rows: 4, autogrow: true, hint: '이 구간을 다음으로 넘기는 사건' })}
     ${input('서술 시점', b + '.pov', { placeholder: `비우면 작품 기본 (${P().style.narration_pov || '정하지 않음'})`, hint: `예: ${exName(1)} 1인칭. 화별 플롯을 만들 때 AI가 이 시점을 화마다 채워요` })}
     ${inAct.length ? `<div class="field"><span class="label">이 구간의 화</span><div class="row">${inAct.map((e) => `<button type="button" class="btn small" data-action="selectEp" data-arg="${e.plot.number}">${e.plot.number}화</button>`).join('')}</div></div>` : ''}`;
 }
+
+/** 회수할 복선 고르기: 열린 복선을 설명과 함께 체크로 보인다. id 를 손으로 치다 틀리면 회수가 말없이 끊긴다. */
+function payoffPicker(label, path, locked) {
+  const p = P();
+  const cur = getPath(p, path) || [];
+  const open = p.foreshadows.filter((f) => f.status === 'open');
+  const extra = cur.filter((id) => !open.some((f) => f.id === id));
+  const box = (id, text, on) => `<label class="check-row"><input type="checkbox" data-payoff="${esc(path)}" value="${esc(id)}"${on ? ' checked' : ''}${locked ? ' disabled' : ''}><span>${text}</span></label>`;
+  const rows = [
+    ...open.map((f) => box(f.id, `${esc(f.description)} <span class="small">${f.planted_ep}화에 심음${f.due_ep ? ` · ${f.due_ep}화 회수 예정` : ''}</span>`, cur.includes(f.id))),
+    ...extra.map((id) => { const f = p.foreshadows.find((x) => x.id === id); return box(id, `${esc(f ? f.description : id)} <span class="small">${f ? '이미 회수함' : '없는 복선 id'}</span>`, true); }),
+  ];
+  return `<fieldset class="field"><legend class="label">${label}</legend>${rows.length ? `<div class="payoff-list">${rows.join('')}</div>` : '<div class="small">회수할 수 있는 열린 복선이 없어요. 복선은 상태 승인에서 심으면 생겨요.</div>'}</fieldset>`;
+}
+
+document.addEventListener('change', (e) => {
+  const el = e.target;
+  if (!el.dataset || !el.dataset.payoff) return;
+  const list = getPath(P(), el.dataset.payoff) || [];
+  setPath(P(), el.dataset.payoff, el.checked ? [...new Set([...list, el.value])] : list.filter((x) => x !== el.value));
+  markDirty();
+});
 
 function plotEditor(e) {
   const n = e.plot.number;
@@ -3282,7 +3393,7 @@ function plotEditor(e) {
     ${input('감정 변화', b + '.emotional_shift', ro)}
     ${input('엔딩 훅', b + '.ending_hook', ro)}
     ${n <= 3 || e.plot.reader_question ? input('독자가 들고 갈 질문', b + '.reader_question', { ...ro, hint: n <= 3 ? '이 화를 읽고 다음 화를 누르게 하는 질문' : '' }) : ''}
-    <div class="grid-2">${input('심을 복선', b + '.foreshadow_plant', { ...ro, kind: 'list', rows: 2 })}${input('회수할 복선 id', b + '.foreshadow_payoff', { ...ro, kind: 'list', rows: 2 })}</div>
+    <div class="grid-2">${input('심을 복선', b + '.foreshadow_plant', { ...ro, kind: 'list', rows: 2 })}${payoffPicker('회수할 복선', b + '.foreshadow_payoff', locked)}</div>
     <div class="row drawer-actions">
       ${e.status === 'draft' ? `<button class="btn primary" style="flex:1" data-action="confirmEp" data-arg="${n}"${busy ? ' disabled' : ''}>${n}화 확정</button>` : ''}
       ${e.status === 'confirmed' ? `<button class="btn" style="flex:1" data-action="unconfirmEp" data-arg="${n}">초안으로 되돌리기</button><a class="btn primary" style="flex:1" href="${base()}/write/${n}">${n}화 쓰기</a>` : ''}
@@ -3514,14 +3625,14 @@ function arcEditor(a) {
   const b = `story_arcs.${k}`;
   return `<div class="between"><h2>아크 ${a.number} 고치기</h2><span class="chip">${a.start_ep}~${a.end_ep}화</span></div>
     ${input('제목', b + '.title')}
-    <div class="grid-2">${input('시작 화', b + '.start_ep', { type: 'number', readonly: true })}${input('끝 화', b + '.end_ep', { type: 'number', min: a.start_ep })}</div>
-    <div class="small">끝 화를 바꾸면 결 구간의 끝 화와 다음 아크의 시작 화도 맞춰야 저장돼요. 길이를 크게 바꾸려면 마지막 아크를 지우고 다시 기획하는 편이 쉬워요.</div>
+    <div class="grid-2">${input('시작 화', b + '.start_ep', { type: 'number', readonly: true })}${input('끝 화', b + '.end_ep', { type: 'number', min: a.start_ep, readonly: k !== P().story_arcs.length - 1 })}</div>
+    <div class="small">${k === P().story_arcs.length - 1 ? '끝 화를 바꾸면 구간도 따라 바뀌어요. 길이를 크게 바꾸려면 이 아크를 지우고 다시 기획하는 편이 쉬워요.' : '마지막 아크만 길이를 바꿀 수 있어요. 뒤 아크가 이 아크 다음 화부터 시작해요.'}</div>
     ${input('아크 목표', b + '.goal', { rows: 3, autogrow: true })}
     ${input('갈등', b + '.conflict', { rows: 2, autogrow: true })}
     ${input('보상 (사이다)', b + '.payoff', { rows: 2, autogrow: true })}
     ${input('서술 시점', b + '.pov', { placeholder: `비우면 작품 기본 (${P().style.narration_pov || '정하지 않음'})`, hint: '이 아크를 누구 시점으로 쓸지. 구간마다 다르면 구간 고치기에서' })}
     ${input('주요 인물 id', b + '.cast', { kind: 'list', rows: 3 })}
-    ${input('회수할 복선 id', b + '.payoffs', { kind: 'list', rows: 2 })}`;
+    ${payoffPicker('회수할 복선', b + '.payoffs', false)}`;
 }
 
 function partEditor(number) {

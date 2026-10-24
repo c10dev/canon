@@ -359,6 +359,7 @@ def put_project(name: str, p: Project, response: Response, merged: str = "", for
         pipeline.validate_parts(p.parts, p.meta.target_episodes)
         pipeline.validate_story_arcs(p)
     pipeline.validate_storylines(p)
+    pipeline.validate_relationships(p)
     pipeline._init_states(p)
     p.meta.genre = genres.label(p.meta)
     if p.snapshot(0) is None:  # 첫 반영 전에는 설정 화면의 시작 호감이 시작 관계다
@@ -1547,16 +1548,25 @@ class Raw(BaseModel):
 
 @app.post("/api/projects/{name}/episodes/{n}/state/parse")
 def parse_state(name: str, n: int, body: Raw) -> StateDelta:
-    """채팅 앱이 돌려준 JSON 을 검사한다. 코드 블록 표시는 지운다."""
+    """채팅 앱이 돌려준 JSON 을 검사한다. 앞뒤 설명문과 코드 블록 표시는 버리고 첫 { 부터 마지막 } 까지 읽는다.
+    화 번호는 이 화로 채운다 (채팅 앱이 episode 를 빼먹어도 받는다)."""
     p = _load(name)
     p.episode(n)
-    raw = re.sub(r"^```(?:json)?\s*|\s*```\s*$", "", body.raw.strip())
+    text = body.raw.strip()
+    a, b = text.find("{"), text.rfind("}")
+    if a < 0 or b < a:
+        raise HTTPException(400, "JSON을 찾지 못했어요. 채팅 앱 답에서 { 로 시작하는 부분을 붙여 넣으세요")
     try:
-        delta = StateDelta.model_validate_json(raw)
+        data = json.loads(text[a:b + 1])
+    except json.JSONDecodeError as e:
+        raise HTTPException(400, f"JSON 형식이 맞지 않아요: {e.msg} ({e.lineno}번째 줄 {e.colno}번째 글자)")
+    if not isinstance(data, dict):
+        raise HTTPException(400, "JSON이 { } 로 묶인 객체가 아니에요")
+    data["episode"] = n
+    try:
+        return StateDelta.model_validate(data)
     except ValidationError as e:
         raise HTTPException(400, f"JSON 형식이 맞지 않아요: {e.errors()[0]['msg']} ({'.'.join(map(str, e.errors()[0]['loc']))})")
-    delta.episode = n
-    return delta
 
 
 @app.post("/api/projects/{name}/episodes/{n}/apply")
