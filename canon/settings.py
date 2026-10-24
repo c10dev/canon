@@ -3,7 +3,9 @@
 웹 설정 화면에서 저장하면 ~/.canon/config.json 에 들어간다 (CANON_CONFIG 로 경로 변경).
 환경 변수가 있으면 파일보다 우선한다: CANON_LLM, CANON_MODEL, GEMINI_API_KEY(또는 GOOGLE_API_KEY),
 CANON_LOCAL_URL, CANON_LOCAL_MODEL, CANON_LOCAL_KEY, CANON_LLM_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE,
-CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE (단계별 모델). prices 는 AI 요금 가격표에서 고친 줄 (usage.py).
+CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE (단계별 모델), CANON_CLAUDE_MODEL, CANON_CLAUDE_BIN,
+ANTHROPIC_API_KEY (Claude 백엔드, claude.py). prices 는 AI 요금 가격표에서 고친 줄 (usage.py).
+Claude 구독 로그인은 Claude Code 가 직접 관리하므로 여기에 계정 정보나 토큰을 두지 않는다.
 파일은 작품 폴더와 따로 두어 저장소나 project.json 에 키가 섞이지 않게 한다.
 """
 from __future__ import annotations
@@ -14,7 +16,8 @@ from pathlib import Path
 
 DEFAULT_MODEL = "gemini-4-argon"
 DEFAULT_LOCAL_URL = "http://localhost:11434/v1"  # Ollama. llama.cpp 는 :8080/v1, vLLM 은 :8000/v1
-PROVIDERS = ("gemini", "local", "mock")
+# claude: 설치된 Claude Code 의 구독 로그인, claude-api: Anthropic API 키 (claude.py)
+PROVIDERS = ("gemini", "local", "claude", "claude-api", "mock")
 # 단계: plan(설정 제안, 문체 분석, 기승전결, 화별 플롯) / write(본문) / check(검수) / state(상태 추출)
 # / name(이름·지명 AI 추천) / revise(본문 부분 수정) / illustration(삽화 프롬프트)
 STAGES = ("plan", "write", "check", "state", "name", "revise", "illustration")
@@ -83,6 +86,21 @@ def local_key() -> tuple[str, str]:
     return _pick(("CANON_LOCAL_KEY",), _read().get("local_key"))
 
 
+def claude_model() -> tuple[str, str]:
+    """Claude 백엔드 기본 모델. 비우면 구독은 Claude Code 기본 모델, API 는 claude.DEFAULT_API_MODEL."""
+    return _pick(("CANON_CLAUDE_MODEL",), _read().get("claude_model"))
+
+
+def claude_bin() -> tuple[str, str]:
+    """claude 실행 파일 경로. 비우면 PATH 와 흔한 설치 위치에서 찾는다."""
+    return _pick(("CANON_CLAUDE_BIN",), _read().get("claude_bin"))
+
+
+def anthropic_key() -> tuple[str, str]:
+    """claude-api 백엔드의 Anthropic API 키 (Claude Console 에서 발급). 구독 로그인 토큰이 아니다."""
+    return _pick(("ANTHROPIC_API_KEY",), _read().get("anthropic_api_key"))
+
+
 def local_sampling() -> dict:
     """본문 생성용 샘플링 값. 설정 파일의 local_sampling 이 기본값을 덮는다."""
     return {**DEFAULT_SAMPLING, **(_read().get("local_sampling") or {})}
@@ -133,11 +151,15 @@ def update(*, provider: str | None = None, model: str | None = None,
            api_key: str | None = None, clear_key: bool = False,
            local_url: str | None = None, local_model: str | None = None,
            local_key: str | None = None, stages: dict[str, str] | None = None,
-           stage_models: dict[str, str] | None = None) -> None:
+           stage_models: dict[str, str] | None = None, claude_model: str | None = None,
+           claude_bin: str | None = None, anthropic_api_key: str | None = None,
+           clear_anthropic_key: bool = False) -> None:
     """None 인 값은 그대로 둔다. 빈 문자열이면 파일에서 지운다."""
     data = _read()
     for key, value in (("provider", provider), ("model", model), ("gemini_api_key", api_key),
-                       ("local_url", local_url), ("local_model", local_model), ("local_key", local_key)):
+                       ("local_url", local_url), ("local_model", local_model), ("local_key", local_key),
+                       ("claude_model", claude_model), ("claude_bin", claude_bin),
+                       ("anthropic_api_key", anthropic_api_key)):
         if value is None:
             continue
         if value.strip():
@@ -146,6 +168,8 @@ def update(*, provider: str | None = None, model: str | None = None,
             data.pop(key, None)
     if clear_key:
         data.pop("gemini_api_key", None)
+    if clear_anthropic_key:
+        data.pop("anthropic_api_key", None)
     if stages is not None:
         _set_stage_map(data, "stages", stages)  # 빈 값이면 전체 provider 를 따른다
     if stage_models is not None:
@@ -175,11 +199,14 @@ def public() -> dict:
     key, key_src = api_key()
     lurl, lurl_src = local_url()
     lmodel, lmodel_src = local_model()
+    cmodel, cmodel_src = claude_model()
+    akey, akey_src = anthropic_key()
     stages = {}
     for s in STAGES:
         sp, ssrc = stage_provider(s)
         sm, smsrc = stage_model(s)
-        label = {"gemini": mdl, "local": lmodel or "로컬 서버 모델", "mock": "mock"}.get(sp, sp)
+        label = {"gemini": mdl, "local": lmodel or "로컬 서버 모델", "mock": "mock",
+                 "claude": cmodel or "Claude Code 기본 모델", "claude-api": cmodel or "claude-opus-5-5"}.get(sp, sp)
         if sm and sp != "mock":
             label = sm
         stages[s] = {"provider": sp, "source": ssrc, "model": label, "model_source": smsrc}
@@ -198,6 +225,12 @@ def public() -> dict:
         "local_model": lmodel,
         "local_model_source": lmodel_src,
         "has_local_key": bool(local_key()[0]),
+        "claude_model": cmodel,
+        "claude_model_source": cmodel_src,
+        "claude_bin": claude_bin()[0],
+        "claude_bin_source": claude_bin()[1],
+        "anthropic_key_hint": f"…{akey[-4:]}" if len(akey) >= 8 else ("설정됨" if akey else ""),
+        "anthropic_key_source": akey_src if akey else "none",
         "stages": stages,
         "stage_settings": {k: v for k, v in (_read().get("stages") or {}).items() if k in STAGES},
         "stage_model_settings": {k: v for k, v in (_read().get("stage_models") or {}).items() if k in STAGES},

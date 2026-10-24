@@ -2,3 +2,4 @@ google-genai>=1.0
 pydantic>=2.7
 fastapi>=0.110
 uvicorn>=0.29
+anthropic>=1.0  # Claude API 키(claude-api) 백엔드

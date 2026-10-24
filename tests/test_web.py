@@ -95,7 +95,7 @@ def test_settings(client, tmp_path, monkeypatch):
     assert client.get("/api/config").json()["key_source"] == "env"
     monkeypatch.delenv("GEMINI_API_KEY")
 
-    assert client.put("/api/config", json={"provider": "claude"}).status_code == 400
+    assert client.put("/api/config", json={"provider": "openai"}).status_code == 400
 
     # 로컬 서버와 단계별 백엔드
     for name in ("CANON_LOCAL_URL", "CANON_LOCAL_MODEL", "CANON_LLM_WRITE"):
@@ -118,7 +118,7 @@ def test_settings(client, tmp_path, monkeypatch):
     assert client.put("/api/config", json={"stage_models": {"draft": "x"}}).status_code == 400
     c = client.put("/api/config", json={"stages": {"name": ""}, "stage_models": {"plan": "", "name": ""}}).json()
     assert c["stage_model_settings"] == {}
-    assert client.put("/api/config", json={"stages": {"write": "claude"}}).status_code == 400
+    assert client.put("/api/config", json={"stages": {"write": "openai"}}).status_code == 400
     assert client.put("/api/config", json={"stages": {"draft": "local"}}).status_code == 400
     assert client.put("/api/config", json={"stages": {"write": ""}}).json()["stage_settings"] == {}
 
@@ -131,7 +131,7 @@ def test_settings(client, tmp_path, monkeypatch):
     assert client.put("/api/config", json={"stage_models": {"draft": "x"}}).status_code == 400
     assert client.put("/api/config", json={"stage_models": {"state": ""}}).json()["stage_model_settings"] == {}
     m = client.get("/api/config/models").json()  # 키도 서버도 없어도 화면은 열린다
-    assert set(m) == {"gemini", "local"} and m["local"]["error"]
+    assert set(m) == {"gemini", "local", "claude"} and m["local"]["error"] and m["claude"]["models"]
     assert client.put("/api/config", json={"clear_key": True}).json()["key_source"] == "none"
 
     # 화면에서 mock 으로 바꾸면 AI 호출도 mock 으로 간다

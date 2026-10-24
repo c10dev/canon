@@ -36,6 +36,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/static/illust.js` | 집필 화면 삽화 프롬프트 카드(칸별 복사, 다시 조립, 외형 고정), 읽기 전용 본문에서 고르는 도구, 설정 화면 인물 카드의 삽화 외형 태그(`visualFields`). 고치는 본문의 도구 버튼은 `passage.js` |
 | `canon/static/publish.js` | 집필 화면의 복사 · 내보내기 카드와 복사 버튼. 텍스트와 HTML 을 함께 클립보드에 넣고(보안 연결이 아니면 복사 이벤트로), 막히면 .txt 내려받기 |
 | `canon/llm.py` | LLM 프로바이더 인터페이스(`json`, `text`)와 Gemini, 로컬(OpenAI 호환) 구현, 단계별 선택(`get_llm(stage)`) |
+| `canon/claude.py` | Claude 백엔드: 구독 로그인(`claude`, 설치된 Claude Code 를 `claude -p` 로 부름, 로그인 상태 `status`)과 API 키(`claude-api`, Anthropic SDK). Canon 은 Claude 계정 로그인을 직접 받거나 토큰을 저장하지 않는다(Anthropic 정책). 화면은 `static/claude.js` |
 | `canon/usage.py` | AI 사용량과 비용: LLM 구현이 실제 호출마다 `record` 로 `projects/.usage/usage.jsonl` 에 남기고, 작품 · 화 · 작업은 `scope(...)` 로 붙인다(웹 미들웨어, `jobs.start`, 자동 집필, CLI). 가격표(`DEFAULT_PRICES` + 설정의 `prices`, 날짜별 `since`)로 볼 때 비용을 계산하고 자동 집필 추정도 같은 표를 쓴다. 화면은 `static/usage.js` |
 | `canon/research.py` | 연구 화면(모델 실험) 로직. 서버 점검, 샘플 비교, 단계 시험, 컨텍스트 크기, 블라인드 비교. 작품 데이터와 분리해 `research/log.jsonl` 에 기록 |
 | `canon/mock.py` | 테스트용 가짜 LLM |
@@ -72,14 +73,14 @@ python -m unittest                  # mock LLM 으로 전체 흐름 스모크 �
 CANON_LLM=mock python -m canon ...  # 수동 확인
 ```
 
-환경 변수: `GEMINI_API_KEY`, `CANON_LLM`(gemini | local | mock), `CANON_MODEL`(기본 `gemini-4-argon`), `CANON_LOCAL_URL` / `CANON_LOCAL_MODEL` / `CANON_LOCAL_KEY`(로컬 서버), `CANON_LLM_PLAN` / `_WRITE` / `_CHECK` / `_STATE` / `_NAME` / `_REVISE` / `_ILLUSTRATION`(단계별 백엔드), `CANON_MODEL_PLAN` / `_WRITE` / `_CHECK` / `_STATE` / `_NAME` / `_REVISE` / `_ILLUSTRATION`(단계별 모델), `CANON_HOME`(프로젝트 저장 위치, 기본 `projects/`), `CANON_USAGE`(사용량 기록 파일, 기본 `projects/.usage/usage.jsonl`).
+환경 변수: `GEMINI_API_KEY`, `CANON_LLM`(gemini | local | claude | claude-api | mock), `CANON_CLAUDE_MODEL` / `CANON_CLAUDE_BIN` / `CANON_CLAUDE_TIMEOUT` / `ANTHROPIC_API_KEY`(Claude, `claude-api` 만 키를 씀), `CANON_MODEL`(기본 `gemini-4-argon`), `CANON_LOCAL_URL` / `CANON_LOCAL_MODEL` / `CANON_LOCAL_KEY`(로컬 서버), `CANON_LLM_PLAN` / `_WRITE` / `_CHECK` / `_STATE` / `_NAME` / `_REVISE` / `_ILLUSTRATION`(단계별 백엔드), `CANON_MODEL_PLAN` / `_WRITE` / `_CHECK` / `_STATE` / `_NAME` / `_REVISE` / `_ILLUSTRATION`(단계별 모델), `CANON_HOME`(프로젝트 저장 위치, 기본 `projects/`), `CANON_USAGE`(사용량 기록 파일, 기본 `projects/.usage/usage.jsonl`).
 
 스키마나 파이프라인을 바꾸면 `canon/mock.py` 도 맞춰 고치고 `python -m unittest` 가 통과하는지 확인한다. 실제 Gemini 호출은 키가 있을 때만 확인할 수 있으니, 확인하지 못했다면 그렇다고 밝힌다.
 
 ## 규칙
 
 - 사용자에게 보이는 문구, 프롬프트, 문서는 **한국어**로 쓴다. 코드 식별자는 영어.
-- 기본 LLM 은 **Gemini** 다 (사용자 결정). 다른 프로바이더는 `LLM` 구현을 추가하는 방식으로만 넣는다. 로컬 모델은 `LocalLLM`(OpenAI 호환) 하나로 Ollama, llama.cpp, vLLM, LM Studio 를 모두 다룬다. 파이프라인 호출부는 `get_llm("plan" | "write" | "check" | "state" | "name" | "revise" | "illustration")` 로 단계를 밝힌다.
+- 기본 LLM 은 **Gemini** 다 (사용자 결정). 다른 프로바이더는 `LLM` 구현을 추가하는 방식으로만 넣는다. Claude 구독 로그인은 설치된 Claude Code 를 부르는 방식만 쓴다. Claude 계정 로그인 화면을 Canon 에 만들거나 OAuth 토큰을 읽고 저장하는 코드는 넣지 않는다 (Anthropic 약관). 로컬 모델은 `LocalLLM`(OpenAI 호환) 하나로 Ollama, llama.cpp, vLLM, LM Studio 를 모두 다룬다. 파이프라인 호출부는 `get_llm("plan" | "write" | "check" | "state" | "name" | "revise" | "illustration")` 로 단계를 밝힌다.
 - **API 키, `.env`, `projects/`(사용자 소설 데이터)는 커밋하지 않는다.** `.gitignore` 에 있다.
 - 스키마 필드를 바꾸면 기존 `project.json` 이 읽히도록 기본값을 둔다.
 - 기능을 바꾸면 README.md 와 DESIGN.md 의 해당 부분도 고친다.

@@ -1129,6 +1129,7 @@ const actions = {
     if (key) body.api_key = key;
     const lkey = $('#set-local-key').value.trim();
     if (lkey) body.local_key = lkey;
+    Object.assign(body, claudeSettingsBody());
     await run('저장 중', async () => {
       S.config = await api('PUT', '/config', body);
       toast('설정을 저장했습니다');
@@ -1290,6 +1291,7 @@ async function route() {
     if (parts[0] === 'settings') {
       S.config = await api('GET', '/config');
       loadModelList();  // 기다리지 않는다. 목록이 오면 입력칸 추천만 채운다
+      claudeStatusLoad();  // Claude Code 로그인 상태도 기다리지 않는다 (claude.js)
       await pricesLoad().catch((e) => toast(e.message, true));
     } else if (parts[0] === 'usage') {
       S.name = null;
@@ -1457,7 +1459,8 @@ const STAGES = [['plan', '계획 (설정 제안, 문체 분석, 기승전결, �
 const STAGE_PARENT_LABEL = { name: '계획 단계를 따름', revise: '본문 쓰기 단계를 따름' };
 
 function providerOptions(cur) {
-  return [['gemini', 'Gemini API'], ['local', '로컬 서버 (OpenAI 호환)'], ['mock', 'mock (AI 호출 없이 화면 확인용)']]
+  return [['gemini', 'Gemini API'], ['local', '로컬 서버 (OpenAI 호환)'], ['claude', 'Claude 구독 로그인 (Claude Code)'], ['claude-api', 'Claude API 키'],
+    ['mock', 'mock (AI 호출 없이 화면 확인용)']]
     .map(([v, l]) => `<option value="${v}"${cur === v ? ' selected' : ''}>${l}</option>`).join('');
 }
 
@@ -1492,11 +1495,12 @@ function viewSettings() {
         <input id="set-local-model" type="text" list="model-options" value="${esc(c.local_model || '')}" placeholder="비우면 서버에 하나뿐인 모델">${envNote(c.local_model_source, 'CANON_LOCAL_MODEL')}</div>
       <div class="field"><label for="set-local-key">서버 키 <span class="hint">지금: ${c.has_local_key ? '있음' : '없음'}</span></label>
         <input id="set-local-key" type="password" autocomplete="off" placeholder="서버가 키를 요구할 때만"></div>
+      ${claudeSettings(c)}
       <h2 style="margin-top:18px">단계별 백엔드와 모델</h2>
       <p class="desc">예: 계획과 검수는 gemini-4-argon, 상태 변경안과 이름 추천은 빠르고 싼 gemini-3.8-flash, 본문은 로컬 모델. 모델 칸을 비우면 그 백엔드의 기본 모델(위 '모델' 또는 로컬 '모델 이름')을 씁니다.</p>
       ${STAGES.map(([s, label]) => {
         const st = (c.stages || {})[s] || {};
-        const base = st.provider === 'local' ? (c.local_model || '서버에 하나뿐인 모델') : c.model_setting;
+        const base = st.provider === 'local' ? (c.local_model || '서버에 하나뿐인 모델') : String(st.provider).startsWith('claude') ? st.model : c.model_setting;
         return `<div class="field"><label for="set-stage-${s}">${label} <span class="hint">지금: ${esc(st.model || '')}</span></label>
           <div class="stage-row">
             <select id="set-stage-${s}" aria-label="${esc(label)} 백엔드"><option value="">${STAGE_PARENT_LABEL[s] || '위 생성 방식을 따름'}</option>${providerOptions((c.stage_settings || {})[s])}</select>
@@ -1525,6 +1529,7 @@ function modelDatalist() {
   const opts = [
     ...(((m.gemini || {}).models || []).length ? m.gemini.models : KNOWN_MODELS).map((x) => [x, 'Gemini']),
     ...((m.local || {}).models || []).map((x) => [x, '로컬 서버']),
+    ...[...new Set([...((m.claude || {}).models || []), ...((m['claude-api'] || {}).models || [])])].map((x) => [x, 'Claude']),
   ];
   return `<datalist id="model-options">${opts.map(([v, l]) => `<option value="${esc(v)}" label="${l}"></option>`).join('')}</datalist>`;
 }

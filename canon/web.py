@@ -17,6 +17,7 @@ from pydantic import BaseModel, ValidationError
 
 from . import autorun, cast, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, get_llm, make_llm
+from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (ArcPlan, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 
@@ -129,6 +130,10 @@ class SettingsIn(BaseModel):
     local_key: str | None = None
     stages: dict[str, str] | None = None  # {"write": "local"}, 빈 값이면 전체 설정을 따름
     stage_models: dict[str, str] | None = None  # {"state": "gemini-3.8-flash"}, 빈 값이면 백엔드 기본 모델
+    claude_model: str | None = None
+    claude_bin: str | None = None
+    anthropic_api_key: str | None = None  # Claude Console API 키. 구독 로그인은 Claude Code 가 따로 관리
+    clear_anthropic_key: bool = False
 
 
 @app.put("/api/config")
@@ -144,7 +149,9 @@ def put_config(body: SettingsIn) -> dict:
             raise HTTPException(400, f"알 수 없는 단계입니다: {stage}")
     settings.update(provider=body.provider, model=body.model, api_key=body.api_key, clear_key=body.clear_key,
                     local_url=body.local_url, local_model=body.local_model, local_key=body.local_key,
-                    stages=body.stages, stage_models=body.stage_models)
+                    stages=body.stages, stage_models=body.stage_models, claude_model=body.claude_model,
+                    claude_bin=body.claude_bin, anthropic_api_key=body.anthropic_api_key,
+                    clear_anthropic_key=body.clear_anthropic_key)
     return settings.public()
 
 
@@ -169,13 +176,22 @@ def test_config() -> dict:
 @app.get("/api/config/models")
 def config_models() -> dict:
     """설정 화면의 모델 목록. 백엔드마다 실제로 쓸 수 있는 모델을 묻고, 실패하면 이유만 돌려준다."""
-    out = {}
-    for prov, make in (("gemini", GeminiLLM), ("local", lambda: LocalLLM(timeout=5))):
+    out = {"claude": {"models": claude.CLI_MODELS, "error": ""}}
+    makers = [("gemini", GeminiLLM), ("local", lambda: LocalLLM(timeout=5))]
+    if settings.anthropic_key()[0]:
+        makers.append(("claude-api", claude.ClaudeAPILLM))
+    for prov, make in makers:
         try:
             out[prov] = {"models": make().models(), "error": ""}
         except Exception as e:  # 키가 없거나 서버가 꺼져 있어도 화면은 열려야 한다
             out[prov] = {"models": [], "error": str(getattr(e, "message", None) or e)}
     return out
+
+
+@app.get("/api/claude/status")
+def claude_status() -> dict:
+    """Claude Code 설치와 구독 로그인 상태. 로그인은 Claude Code 가 하고 Canon 은 상태만 본다 (claude.py)."""
+    return claude.status()
 
 
 @app.get("/api/projects")

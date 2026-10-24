@@ -25,7 +25,7 @@ CANON_LLM=mock python -m canon serve   # API 키 없이 화면만 둘러보기
 
 macOS 에서는 Finder 로 `scripts/canon-mac.command` 를 더블클릭해도 된다. 저장소의 `.venv` 를 켜고 서버를 띄운 뒤 브라우저를 연다(이미 켜져 있으면 브라우저만 연다). 처음 한 번은 우클릭 → 열기로 실행 허용이 필요할 수 있다. Dock 에 끌어 두면 앱처럼 쓸 수 있다.
 
-Gemini API 키와 모델은 화면 오른쪽 아래 **모델 · API 키 설정**에서 넣는다. `~/.canon/config.json` 에만 저장되고(권한 600), 환경 변수 `GEMINI_API_KEY`, `CANON_MODEL`, `CANON_LLM` 이 있으면 그 값이 우선한다. CLI 도 같은 설정을 쓴다.
+Gemini API 키와 모델은 화면 오른쪽 아래 **모델 · API 키 설정**에서 넣는다. Claude 구독 로그인이나 API 키로 쓰려면 아래 [Claude](#claude-구독-로그인-또는-api-키) 를 본다. `~/.canon/config.json` 에만 저장되고(권한 600), 환경 변수 `GEMINI_API_KEY`, `CANON_MODEL`, `CANON_LLM` 이 있으면 그 값이 우선한다. CLI 도 같은 설정을 쓴다.
 
 작품 홈, 설정 도우미, 문체 레퍼런스, 기승전결 플롯 보드, 인물 · 관계도(관계도 재생, 인물 상세, 등장표), 이야기 줄기(서브플롯 · 회상 · 외전 노선도), 인과율(요소·설정·사건과 영향 분석), 집필, 상태 변경안 승인, 채팅 앱 작업지시서 화면이 있다. 사이드바 아래의 **연구 · 모델 실험** 화면은 본편과 분리된 실험실이다 (아래 '연구 화면'). 그 아래 **사용량 · 비용** 화면에서 AI 호출에 쓴 토큰과 추정 비용을 본다 (아래 '사용량과 비용'). CLI 와 같은 `projects/<이름>/project.json` 을 읽고 쓴다. AI 제안은 바로 저장되지 않고, 화면에서 고르거나 고친 뒤 저장할 때 반영된다.
 
@@ -368,6 +368,27 @@ python -m canon compare 등대 3 --pick 2         # 고른 쪽을 본문으로 �
 
 본문 생성 샘플링은 `~/.canon/config.json` 의 `local_sampling` 으로 바꾼다 (기본 `{"temperature": 1.0, "top_p": 0.95, "min_p": 0.05}`). 서버가 키를 요구하면 `CANON_LOCAL_KEY`.
 
+## Claude (구독 로그인 또는 API 키)
+
+Claude 는 두 가지 방식으로 쓴다. 설정 화면의 **생성 방식**이나 **단계별 백엔드**에서 고른다.
+
+- **Claude 구독 로그인** (`claude`): Canon 을 실행하는 컴퓨터에 설치하고 로그인한 [Claude Code](https://code.claude.com/docs/en/setup)를 `claude -p` 로 불러 Pro · Max 구독 한도 안에서 쓴다. 도구(파일 읽기, 명령 실행, 웹 검색)는 모두 끄고, 시스템 프롬프트를 Canon 것으로 바꾸고, 빈 임시 폴더에서 돌려 사용자 CLAUDE.md 나 훅이 섞이지 않게 한다. 사용량 화면에는 토큰만 잡히고 비용은 0원(요금제에 포함)으로 센다.
+- **Claude API 키** (`claude-api`): [Claude Console](https://platform.claude.com/settings/keys) 의 키로 Messages API 를 부른다. 종량제라 사용량 화면 가격표로 비용이 잡힌다.
+
+**로그인은 Canon 이 아니라 Claude Code 에서 한다.** Anthropic 은 다른 앱이 Claude 계정 로그인을 제공하거나, Pro · Max 로그인 토큰을 받아 보관하거나 대신 호출하는 것을 허용하지 않는다 ([Claude Code 법률 · 규정 문서](https://code.claude.com/docs/en/legal-and-compliance) 'Authentication and credential use'). 그래서 설정 화면에는 로그인 칸이 없고, Claude Code 의 로그인 상태(`claude auth status`)를 확인해 보여 주고 방법을 안내한다. Canon 은 계정 정보나 토큰을 읽거나 저장하지 않는다.
+
+```bash
+claude auth login                 # 한 번만. 브라우저에서 Anthropic 로그인 화면이 열린다 (Pro 또는 Max 계정)
+python -m canon claude            # 설치와 로그인 상태 보기 (웹 설정 화면에도 같은 내용)
+export CANON_LLM=claude           # 전부 구독으로. 단계별이면 CANON_LLM_WRITE=claude 처럼
+export CANON_CLAUDE_MODEL=opus    # 선택. 비우면 Claude Code 기본 모델 (API 키 쪽은 claude-opus-5-5)
+```
+
+- 브라우저가 없는 서버(상시 실행)에서는 아무 컴퓨터에서 `claude setup-token` 으로 1년짜리 토큰을 받아 **서버의 실행 환경 변수** `CLAUDE_CODE_OAUTH_TOKEN` 에 둔다 (systemd 의 `Environment=` 등). Canon 설정 파일에는 넣지 않는다.
+- 구독 호출에는 `ANTHROPIC_API_KEY` 를 넘기지 않는다. 넘기면 Claude Code 가 구독 대신 그 키로 과금하기 때문이다. API 키는 `claude-api` 방식에서만 쓴다 (설정 화면의 Anthropic API 키 칸 또는 `ANTHROPIC_API_KEY`).
+- 구독 한도는 평범한 개인 사용을 기준으로 한다. 자동 집필처럼 오래 도는 작업은 API 키 방식이 맞고, 한도에 걸리면 그 화에서 멈추고 이유를 알린다.
+- `claude` 가 PATH 에 없으면 설정 화면의 실행 파일 칸이나 `CANON_CLAUDE_BIN` 에 경로를 적는다. 한 번 호출 제한 시간은 `CANON_CLAUDE_TIMEOUT`(초, 기본 900).
+
 ## 연구 화면 (모델 실험)
 
 웹 사이드바의 **연구 · 모델 실험**에서 모델을 시험한다. 작품 데이터(`project.json`)는 바꾸지 않고, 결과는 `projects/<이름>/research/log.jsonl` 에 남는다. 블라인드 비교에서 '본문으로 채택'을 켜고 고를 때만 그 화 본문이 바뀐다.
@@ -418,6 +439,7 @@ canon/dynamics.py  관계 역학 수식 (사건 적용, 긴장 계산, 재생, �
 canon/cast.py      인물 화면 계산: 화별 관계 프레임, 등장 화, 인물 타임라인 (LLM 없이)
 canon/naming.py    이름·지명 무작위 생성과 출연진 이름 점검 (자료는 naming_data.py)
 canon/llm.py       Gemini, 로컬(OpenAI 호환) 프로바이더와 단계별 선택 (+ mock.py)
+canon/claude.py    Claude 백엔드: 설치된 Claude Code 구독 로그인(claude -p) 과 Anthropic API 키, 로그인 상태 확인
 canon/research.py  연구 화면 로직: 서버 점검, 샘플 비교, 단계 시험, 컨텍스트 크기, 블라인드 비교
 canon/usage.py     AI 호출 기록, 가격표, 비용 추정과 사용량 모아 보기
 canon/store.py     project.json 저장, 본문을 episodes/NN.md 로 내보내기
