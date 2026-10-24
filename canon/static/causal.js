@@ -10,7 +10,7 @@ const EL_KIND_HINT = {
   '장소': '폐쇄된 등대의 지하 창고',
   '물건': '녹슨 등대 열쇠',
   '세력': '항구를 쥔 선주 조합',
-  '인물 특징': '서윤은 왼손잡이고 피를 보면 손이 떨린다',
+  '인물 특징': '주인공은 왼손잡이고 피를 보면 손이 떨린다',
   '과거 사건': '10년 전 겨울, 등대지기가 실종됐다',
   '예정 사건': '12화에 마을에 태풍이 온다',
   '기타': '',
@@ -66,7 +66,7 @@ function timingText(el) {
 function impactBadge(el) {
   const imp = el.impact;
   if (!imp) return el.added_after ? '<span class="chip written">분석 전</span>' : '';
-  if (imp.outcome === 'applied') return '<span class="chip finalized">반영함</span>';
+  if (imp.outcome === 'applied') return '<span class="chip finalized">적용함</span>';
   if (imp.outcome === 'dismissed') return '<span class="chip">분석 봄</span>';
   const r = imp.report;
   const n = r.conflicts.length + r.episodes.length + r.patches.length;
@@ -92,7 +92,7 @@ function causalList() {
 function causalEditor(el) {
   const i = causalIndex(el.id);
   const b = `elements.${i}`;
-  const chars = P().characters.map((c) => `<label class="row" style="font-size:13px;gap:6px"><input type="checkbox" data-el-char="${esc(c.id)}"${el.characters.includes(c.id) ? ' checked' : ''}>${esc(c.name || c.id)}</label>`).join('');
+  const chars = P().characters.map((c) => `<label class="row" style="font-size:0.8125rem;gap:6px"><input type="checkbox" data-el-char="${esc(c.id)}"${el.characters.includes(c.id) ? ' checked' : ''}>${esc(c.name || c.id)}</label>`).join('');
   const fromStart = el.since_ep <= 0;
   const ctx = [['auto', '관련 있을 때'], ['always', '항상'], ['off', '넣지 않음']];
   return `<div class="card" style="display:flex;flex-direction:column;gap:14px">
@@ -105,7 +105,7 @@ function causalEditor(el) {
     ${input('다른 이름', b + '.aliases', { kind: 'list', rows: 2, hint: '본문에서 다르게 부르는 말. 두 글자 이상' })}
     <div class="field"><span class="label">관련 인물</span><div class="row">${chars || '<span class="small">인물이 아직 없어요.</span>'}</div></div>
     <div class="field"><span class="label">언제부터 사실인가요?</span>
-      <div class="row"><div class="seg" role="group" aria-label="시점">
+      <div class="row"><div class="seg" role="group" aria-label="사실이 되는 화">
         <button type="button" aria-pressed="${fromStart}" data-action="causalSince" data-arg="start">처음부터 사실이었다</button>
         <button type="button" aria-pressed="${!fromStart}" data-action="causalSince" data-arg="from">어느 화부터 생긴다</button></div>
         ${fromStart ? '' : `<label class="row" style="gap:6px"><input type="number" id="el-since" min="1" style="width:90px" value="${el.since_ep}" data-bind="${b}.since_ep" data-kind="int">화부터</label>`}</div>
@@ -114,7 +114,7 @@ function causalEditor(el) {
       <div class="field"><label for="el-eps">나올 화 <span class="hint">일어나거나 꼭 나와야 하는 화. 쉼표로</span></label><input id="el-eps" type="text" value="${esc(el.episodes.join(', '))}" data-el-eps placeholder="예: 7, 12"></div>
       ${input('독자에게 드러나는 화', b + '.reveal_ep', { type: 'number', min: 0, hint: '0 이면 숨기지 않음. 그 전에는 암시만' })}
     </div>
-    <div class="field"><span class="label">본문을 쓸 때 AI 에 넣기</span><div class="seg" role="group" aria-label="AI 에 넣기">${ctx.map(([k, l]) => `<button type="button" aria-pressed="${el.context === k}" data-action="causalContext" data-arg="${k}">${l}</button>`).join('')}</div>
+    <div class="field"><span class="label">본문을 쓸 때 AI에 넣기</span><div class="seg" role="group" aria-label="AI에 넣기">${ctx.map(([k, l]) => `<button type="button" aria-pressed="${el.context === k}" data-action="causalContext" data-arg="${k}">${l}</button>`).join('')}</div>
       <span class="small">관련 있을 때: 그 화에 관련 인물이 나오거나, 플롯에 이름이 있거나, 나올 화일 때만 넣어요.</span></div>
   </div>`;
 }
@@ -170,16 +170,16 @@ function causalImpact(el) {
   const lw = lastWritten();
   const head = `<div class="between"><h2>영향 분석</h2>${btn}</div>`;
   if (!el.impact) {
-    const why = lw ? `${lw}화까지 쓴 작품이에요. 이 요소가 이미 쓴 화, 확정한 플롯과 부딪치는지 AI 가 근거를 인용해 찾고 고칠 방법을 제안해요.`
-      : '정해 둔 플롯이 이 요소와 맞는지, 어느 화에 심고 드러내면 좋을지 AI 가 제안해요.';
-    return `<div class="card" style="display:flex;flex-direction:column;gap:12px">${head}<div class="note info">${why} 반영은 고른 것만 해요.</div></div>`;
+    const why = lw ? `${lw}화까지 쓴 작품이에요. 이 요소가 이미 쓴 화, 확정한 플롯과 부딪치는지 AI가 근거를 인용해 찾고 고칠 방법을 제안해요.`
+      : '정해 둔 플롯이 이 요소와 맞는지, 어느 화에 심고 드러내면 좋을지 AI가 제안해요.';
+    return `<div class="card" style="display:flex;flex-direction:column;gap:12px">${head}<div class="note info">${why} 적용은 고른 것만 해요.</div></div>`;
   }
   const imp = el.impact;
   const r = imp.report;
   const open = !imp.outcome;
   if (open) initCausalPicks(el);
   const box = (part, disabled) => open ? `<input type="checkbox" data-causal-pick="${esc(pickId(el, part))}"${S.causalPicks[pickId(el, part)] && !disabled ? ' checked' : ''}${disabled ? ' disabled' : ''}>` : '';
-  const stale = causalStale(el) ? '<div class="note warn">분석한 뒤 요소를 고쳤어요. 다시 분석하면 지금 내용으로 봅니다.</div>' : '';
+  const stale = causalStale(el) ? '<div class="note warn">분석한 뒤 요소를 고쳤어요. 다시 분석하면 지금 내용으로 봐요.</div>' : '';
   const conflicts = r.conflicts.map((c) => `<li class="conflict">
       <div class="row" style="gap:6px"><span class="chip">${c.target}${c.episode ? ` · ${c.episode}화` : ''}</span><span class="chip ${FIX_CLASS[c.fix] || ''}">${c.fix}</span></div>
       <blockquote>${esc(c.quote)}</blockquote><div>${esc(c.problem)}</div></li>`).join('');
@@ -187,7 +187,7 @@ function causalImpact(el) {
     const cur = ep(e.number);
     const locked = cur && LOCKED_STATUS.includes(cur.status);
     const note = locked ? '<div class="note plain">본문이 생겨서 이제는 바꿀 수 없어요.</div>'
-      : cur && cur.status === 'confirmed' && open ? '<div class="note warn">확정한 화예요. 반영하면 초안으로 돌아가 다시 확정해야 해요.</div>' : '';
+      : cur && cur.status === 'confirmed' && open ? '<div class="note warn">확정한 화예요. 적용하면 초안으로 돌아가 다시 확정해야 해요.</div>' : '';
     return `<div class="prop-part"><label class="prop-head">${box('ep:' + e.number, locked)}<strong>${e.number}화</strong> ${esc(e.title)}${cur ? ` <span class="chip ${cur.status}">${STATUS[cur.status]}</span>` : ''}</label>${note}<div class="diff">${plotDiff(e)}</div></div>`;
   }).join('');
   const patches = r.patches.map((t, i) => {
@@ -198,7 +198,7 @@ function causalImpact(el) {
       <div class="diff"><div class="diff-row"><del>${esc(t.quote)}</del><ins>${esc(t.replacement)}</ins></div>${t.reason ? `<div class="small">${esc(t.reason)}</div>` : ''}</div></div>`;
   }).join('');
   const facts = r.new_facts.map((f, i) => `<div class="prop-part"><label class="prop-head">${box('fact:' + i)}<strong>확정 사실 더하기</strong></label><div class="diff"><div class="diff-row"><ins>${esc(f)}</ins></div></div></div>`).join('');
-  const done = imp.outcome === 'applied' ? `<span class="chip finalized">반영함 · ${imp.applied.map(appliedLabel).join(', ')}</span>`
+  const done = imp.outcome === 'applied' ? `<span class="chip finalized">적용함 · ${imp.applied.map(appliedLabel).join(', ')}</span>`
     : imp.outcome === 'dismissed' ? '<span class="chip">버림</span>' : '';
   const body = `${conflicts ? `<h3>어긋나는 곳 ${r.conflicts.length}</h3><ul class="conflicts">${conflicts}</ul>` : ''}
     ${plots ? `<h3>플롯 고치기</h3>${plots}` : ''}${patches ? `<h3>이미 쓴 본문 고치기</h3>${patches}` : ''}${facts ? `<h3>설명으로 덮기</h3>${facts}` : ''}`;
@@ -224,13 +224,13 @@ function viewCausal() {
   if (S.causalSel && !causalEl()) S.causalSel = null;
   if (!S.causalSel && els.length) S.causalSel = els[0].id;
   const el = causalEl();
-  const add = '<button class="btn primary" data-action="causalNew">+ 요소 더하기</button>';
-  const desc = '요소, 특징, 설정, 사건을 언제든 더하세요. 더할 때마다 이미 쓴 화와 정해 둔 플롯 중 어디가 흔들리는지 보여 주고, 고칠 방법을 변경안으로 내요. 반영은 고른 것만 해요.';
+  const add = '<button class="btn primary" data-action="causalNew">+ 요소 추가</button>';
+  const desc = '요소, 특징, 설정, 사건을 언제든 더하세요. 더할 때마다 이미 쓴 화와 정해 둔 플롯 중 어디가 흔들리는지 보여 주고, 고칠 방법을 변경안으로 내요. 적용은 고른 것만 해요.';
   const gone = S.causalGone ? `<div class="note info between"><span>'${esc(S.causalGone.name || '이름 없음')}' 요소를 지웠어요.</span><button type="button" class="btn small" data-action="causalRestore">되살리기</button></div>` : '';
   if (!els.length) {
     return `${header('요소 · 특징 · 설정 · 사건', '인과율', desc, add)}${gone}
       <div class="card empty"><p>아직 더한 요소가 없어요.</p>
-        <div class="small">예: "윤만석은 서윤의 친아버지다"(과거 사건, 처음부터 사실), "7화부터 마을에 통금이 생긴다"(세계 규칙, 7화부터)</div>${add}</div>`;
+        <div class="small">예: "${esc(exName(2))}은(는) ${esc(exName(0))}의 친아버지다"(과거 사건, 처음부터 사실), "7화부터 마을에 통금이 생긴다"(세계 규칙, 7화부터)</div>${add}</div>`;
   }
   return `${header('요소 · 특징 · 설정 · 사건', '인과율', desc, add)}${gone}
     <div class="causal">${causalList()}
@@ -305,12 +305,12 @@ Object.assign(actions, {
       patches: r.patches.map((_, i) => i).filter((i) => picked('patch:' + i)),
       facts: r.new_facts.map((_, i) => i).filter((i) => picked('fact:' + i)),
     };
-    if (!body.episodes.length && !body.patches.length && !body.facts.length) return toast('반영할 부분을 고르세요', true);
-    await run('반영하는 중', async () => {
+    if (!body.episodes.length && !body.patches.length && !body.facts.length) return toast('적용할 부분을 고르세요', true);
+    await run('적용하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/elements/${enc(el.id)}/impact/apply`, body);
       await causalLoad();
-      toast(`반영했습니다: ${causalEl().impact.applied.map(appliedLabel).join(', ')}`);
+      toast(`적용했어요: ${causalEl().impact.applied.map(appliedLabel).join(', ')}`);
     });
   },
   async causalReopen() {

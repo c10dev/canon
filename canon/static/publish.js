@@ -42,7 +42,7 @@ function exportCard(n) {
       <input type="number" class="ep-num" min="1" value="${r.to}" data-copy="to" aria-label="끝 화">화</div>
     <div class="row" style="gap:6px"><button type="button" class="btn small" data-action="copyRange">한꺼번에 복사</button>
       <a class="btn small" href="/api/projects/${enc(S.name)}/export.txt?${exportQuery(r.from, r.to)}" download>.txt 내려받기</a></div>
-    <span class="small">여러 화는 화마다 제목 줄을 넣어 잇고, 본문이 없는 화는 건너뜁니다.</span>
+    <span class="small">여러 화는 화마다 제목 줄을 넣어 잇고, 본문이 없는 화는 건너뛰어요.</span>
   </div>`;
 }
 

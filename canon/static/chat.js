@@ -1,5 +1,5 @@
 /* 대화로 다듬기 패널. app.js 의 S, actions, api, render 를 그대로 쓴다.
-   작가가 말하면 AI 가 답과 변경안을 내고, 변경안은 바뀌는 칸만 보여 준다. 작가가 고른 부분만 반영한다.
+   작가가 말하면 AI가 답과 변경안을 내고, 변경안은 바뀌는 칸만 보여 준다. 작가가 고른 부분만 반영한다.
    기승전결 · 플롯 화면(topic 'plot')과 집필 화면의 본문 부분 수정(topic 'text:<화>', passage.js)에 붙어 있다.
    다른 화면에 붙일 때는 CHAT_TOPICS 에 항목을 더하고 서버 web.py 의 _chat 과 변경안 반영 함수를 함께 늘린다.
    주제마다 body(요청 내용), proposal(변경안 그리기), userMsg, inputExtra 를 바꿔 끼울 수 있다. */
@@ -8,10 +8,10 @@
 const CHAT_TOPICS = {
   plot: {
     title: '대화로 다듬기',
-    intro: '구조나 플롯이 마음에 들지 않으면 말로 알려 주세요. AI 가 바꿀 부분을 변경안으로 보여 주고, 고른 것만 반영합니다. 본문이 있는 화는 바뀌지 않아요.',
+    intro: '구조나 플롯이 마음에 들지 않으면 말로 알려 주세요. AI가 바꿀 부분을 변경안으로 보여 주고, 고른 것만 적용해요. 본문이 있는 화는 바뀌지 않아요.',
     examples: ['3화 전개가 너무 빨라', '결말을 비극으로 바꿔 줘', '승 구간을 한 화 늘려 줘', '주인공이 더 늦게 진실을 알게 해 줘'],
     placeholder: '예: 3화 전개가 너무 빨라',
-    clearAsk: '이 작품의 대화 기록을 지울까요? 반영한 구조와 플롯은 그대로입니다.',
+    clearAsk: '이 작품의 대화 기록을 지울까요? 반영한 구조와 플롯은 그대로예요.',
   },
 };
 
@@ -84,7 +84,7 @@ function actsDiff(rev) {
   const rows = rev.acts.map((a) => {
     const cur = P().arc.find((x) => x.name === a.name) || {};
     const range = cur.start_ep === a.start_ep && cur.end_ep === a.end_ep ? ''
-      : `<div class="diff-row"><span class="act-label">범위</span>${cur.name ? `<del>${cur.start_ep}–${cur.end_ep}화</del>` : ''}<ins>${a.start_ep}–${a.end_ep}화</ins></div>`;
+      : `<div class="diff-row"><span class="act-label">범위</span>${cur.name ? `<del>${cur.start_ep}~${cur.end_ep}화</del>` : ''}<ins>${a.start_ep}~${a.end_ep}화</ins></div>`;
     const body = range + ACT_FIELDS.map(([k, l]) => diffField(l, k, cur[k], a[k])).join('');
     return body ? `<div class="diff-act"><span class="chip ${actClass(a.name)}">${a.name}</span>${body}</div>` : '';
   }).join('');
@@ -124,14 +124,14 @@ function proposal(m, i) {
     // 변경안을 받은 뒤 화수가 바뀌었으면 이 구조는 더 이상 맞지 않는다
     const stale = !rev.total_episodes && rev.acts[rev.acts.length - 1].end_ep !== P().meta.target_episodes;
     parts.push(`<div class="prop-part"><label class="prop-head">${box(pickKey(i, 'acts'), stale)}<strong>기승전결 구조</strong>${rev.total_episodes ? `<span class="chip written">화수 바뀜</span>` : ''}</label>
-      ${stale && open ? `<div class="note plain">그 뒤에 총 화수가 ${P().meta.target_episodes}화로 바뀌어 이 구조는 반영할 수 없어요.</div>` : ''}
+      ${stale && open ? `<div class="note plain">그 뒤에 총 화수가 ${P().meta.target_episodes}화로 바뀌어 이 구조는 적용할 수 없어요.</div>` : ''}
       <div class="diff">${actsDiff(rev) || '<div class="small">지금 구조와 같아요.</div>'}</div></div>`);
   }
   rev.episodes.forEach((e) => {
     const cur = ep(e.number);
     const locked = cur && LOCKED_STATUS.includes(cur.status);
     const note = locked ? '<div class="note plain">본문이 생겨서 이제는 바꿀 수 없어요.</div>'
-      : cur && cur.status === 'confirmed' && open ? '<div class="note warn">확정한 화예요. 반영하면 초안으로 돌아가 다시 확정해야 해요.</div>' : '';
+      : cur && cur.status === 'confirmed' && open ? '<div class="note warn">확정한 화예요. 적용하면 초안으로 돌아가 다시 확정해야 해요.</div>' : '';
     // 화가 많으면 길어진다: 새 화는 접고, 바뀌는 화는 3화까지만 펼친다
     const fold = !cur || rev.episodes.length > 3;
     parts.push(`<div class="prop-part">
@@ -145,7 +145,7 @@ function proposal(m, i) {
       <div class="small">고른 화에 나오는 인물만 새 인물 후보로 들어가요. 그 화를 확정하거나 플롯 편집기에서 등록하면 인물이 돼요.</div></div>`);
   }
   const done = m.outcome === 'applied'
-    ? `<span class="chip finalized">반영함 · ${m.applied.map((x) => (x === 'acts' ? '구조' : `${x}화`)).join(', ')}</span>`
+    ? `<span class="chip finalized">적용함 · ${m.applied.map((x) => (x === 'acts' ? '구조' : `${x}화`)).join(', ')}</span>`
     : m.outcome === 'dismissed' ? '<span class="chip">버림</span>' : '';
   if (!open) {
     return `<details class="proposal done"><summary>${done} 변경안 다시 보기</summary>${parts.join('')}${m.outcome === 'dismissed' ? `<div class="row proposal-actions"><button type="button" class="btn small" data-action="chatReopen" data-arg="${i}">다시 검토</button></div>` : ''}</details>`;
@@ -181,7 +181,7 @@ function chatPanel(topic) {
     <div class="chat-log" id="chat-log">${empty}${list}${pending}</div>
     ${t.inputExtra ? t.inputExtra(topic) : ''}
     <div class="chat-input">
-      <textarea id="chat-input" rows="2" data-local="chatDraft" aria-label="AI 에게 할 말" placeholder="${esc(t.placeholder)}"${S.chatPending ? ' disabled' : ''}>${esc(S.chatDraft)}</textarea>
+      <textarea id="chat-input" rows="2" data-local="chatDraft" aria-label="AI에게 할 말" placeholder="${esc(t.placeholder)}"${S.chatPending ? ' disabled' : ''}>${esc(S.chatDraft)}</textarea>
       <button type="button" class="btn primary" data-action="chatSend"${S.chatPending ? ' disabled' : ''}>보내기</button>
     </div>
     <div class="small chat-hint">Enter 보내기 · Shift+Enter 줄바꿈 · 대화는 작품에 저장돼요</div>
@@ -265,11 +265,11 @@ Object.assign(actions, {
       const el = document.querySelector(`[data-chat-pick="${pickKey(i, n)}"]`);
       return el && el.checked && !el.disabled;
     });
-    if (!acts && !episodes.length) return toast('반영할 부분을 고르세요', true);
-    await run('변경안을 반영하는 중', async () => {
+    if (!acts && !episodes.length) return toast('적용할 부분을 고르세요', true);
+    await run('변경안을 적용하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(S.chatTopic)}/${i}/apply`, { acts, episodes });
-      toast(`반영했습니다: ${[acts ? '구조' : '', ...episodes.map((n) => `${n}화`)].filter(Boolean).join(', ')}`);
+      toast(`적용했어요: ${[acts ? '구조' : '', ...episodes.map((n) => `${n}화`)].filter(Boolean).join(', ')}`);
     });
   },
   chatPickAll(arg) {

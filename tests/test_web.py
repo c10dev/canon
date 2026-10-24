@@ -162,7 +162,7 @@ def test_names(client):
     assert client.post("/api/projects/wx/names", json={"character": "nobody"}).status_code == 400
 
     w = client.post("/api/projects/wx/names/check", json=p).json()["warnings"]
-    assert any("AI 가 자주" in x for x in w)  # mock 제안의 '서윤', '도현'
+    assert any("AI가 자주" in x for x in w)  # mock 제안의 '서윤', '도현'
 
 
 def test_relations(client):

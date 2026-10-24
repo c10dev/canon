@@ -14,11 +14,11 @@ Object.assign(S, {
   rwVersionsOpen: false,
 });
 
-JOB_DONE_MSG.write = (j) => (j.result && j.result.candidate ? `${j.ep}화 새 판이 나왔어요. 지금 판과 비교해 고르세요.` : `${j.ep}화 본문을 저장했습니다.`);
+JOB_DONE_MSG.write = (j) => (j.result && j.result.candidate ? `${j.ep}화 새 판이 나왔어요. 지금 판과 비교해 고르세요.` : `${j.ep}화 본문을 저장했어요.`);
 
 const RW_MODES = [
-  ['fresh', '처음부터 새로', '지난 판은 보내지 않고 같은 플롯으로 새로 씁니다. 전개를 크게 바꾸고 싶을 때.'],
-  ['revise', '지난 판 고쳐 쓰기', '지난 판 전문을 함께 보내 흐름과 좋은 문장은 살리고 고칩니다. 대체로 괜찮고 몇 군데만 아쉬울 때.'],
+  ['fresh', '처음부터 새로', '지난 판은 보내지 않고 같은 플롯으로 새로 써요. 전개를 크게 바꾸고 싶을 때.'],
+  ['revise', '지난 판 고쳐 쓰기', '지난 판 전문을 함께 보내 흐름과 좋은 문장은 살리고 고쳐요. 대체로 괜찮고 몇 군데만 아쉬울 때.'],
 ];
 const RW_KIND = { previous: '바꾸기 전', rejected: '고르지 않은 새 판' };
 
@@ -116,21 +116,21 @@ function rewritePanel(n) {
   const keep = r.keep.map((k, i) => `<li class="between" style="gap:8px;align-items:flex-start"><blockquote>${esc(clip(k, 200))}</blockquote><button type="button" class="btn small" data-action="rwDropKeep" data-arg="${i}" aria-label="살릴 부분 빼기">빼기</button></li>`).join('');
   return `<section class="card rw-panel" aria-label="다시 생성">
     <div class="between"><h3>${n}화 다시 생성</h3><button type="button" class="btn small" data-action="rwClose">닫기</button></div>
-    <p class="small" style="margin:0">무엇이 아쉬웠는지 알려 주면 새 판에 반영해요. 지금 본문은 그대로 두고, 새 판이 오면 비교해서 고릅니다.</p>
+    <p class="small" style="margin:0">무엇이 아쉬웠는지 알려 주면 새 판에 반영해요. 지금 본문은 그대로 두고, 새 판이 오면 비교해서 골라요.</p>
     <div class="field"><span class="small">빠른 요청 (여러 개 고를 수 있어요)</span><div class="row rw-chips" style="gap:6px">${chips}</div></div>
     <div class="field"><label class="small" for="rw-feedback">피드백</label>
-      <textarea id="rw-feedback" data-rw-feedback="${n}" rows="3" placeholder="예: 서윤이 너무 빨리 마음을 연다. 중간에 한 번 더 밀어내게 해 줘">${esc(r.feedback)}</textarea></div>
+      <textarea id="rw-feedback" data-rw-feedback="${n}" rows="3" placeholder="예: ${esc(exName(0))}이(가) 너무 빨리 마음을 연다. 중간에 한 번 더 밀어내게 해 줘">${esc(r.feedback)}</textarea></div>
     <div class="field"><span class="small">함께 넣을 것</span><div class="grid-2">${mats}</div></div>
     <div class="field"><span class="small">방식</span><div class="seg" role="group" aria-label="다시 쓰는 방식">${modes}</div>
       <span class="small">${RW_MODES.find((m) => m[0] === r.mode)[2]}</span></div>
     <div class="field"><span class="small">살릴 부분 ${r.keep.length}/${info.keep_max}</span>
       ${keep ? `<ol class="rw-keep">${keep}</ol>` : ''}
-      <span class="small">마음에 드는 문장이나 장면은 본문에서 드래그한 뒤 '살리기'를 누르면 담겨요. 새 판에 거의 그대로 들어갑니다.</span></div>
+      <span class="small">마음에 드는 문장이나 장면은 본문에서 드래그한 뒤 '살리기'를 누르면 담겨요. 새 판에 거의 그대로 들어가요.</span></div>
     <div class="between">
       <button type="button" class="btn small" data-action="rwShowPrompt" data-arg="${n}">${S.rwPrompt ? '프롬프트 닫기' : '보낼 프롬프트 보기'}</button>
       ${((b) => `<button type="button" class="btn primary" data-action="rwSubmit" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('write', n, '새 판 만들기'))}
     </div>
-    ${busy ? '<div class="small">다른 화면으로 옮겨 가도 계속 씁니다. 끝나면 알려 드려요.</div>' : ''}
+    ${busy ? '<div class="small">다른 화면으로 옮겨 가도 계속 써요. 끝나면 알려 드려요.</div>' : ''}
     ${S.rwPrompt ? `<pre class="brief mono" style="max-height:420px">${esc(S.rwPrompt)}</pre>` : ''}
   </section>`;
 }

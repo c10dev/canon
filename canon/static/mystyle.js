@@ -32,7 +32,7 @@ function deviceFields(base, root) {
       <div class="grid-2">
         ${input('장치 이름', b + '.name', o({ placeholder: '예: 자문자답 망상' }))}
         ${input('쓰는 상황', b + '.when', o({ placeholder: '예: 상대의 작은 반응에 혼자 설렐 때' }))}
-        ${input('알아보는 글자', b + '.cues', o({ kind: 'list', rows: 2, hint: '한 화에 합쳐 두 번 이상 나오면 쓴 화로 셉니다', placeholder: '예: 다는 건\n거지?' }))}
+        ${input('알아보는 글자', b + '.cues', o({ kind: 'list', rows: 2, hint: '한 화에 합쳐 두 번 이상 나오면 쓴 화로 쳐요', placeholder: '예: 다는 건\n거지?' }))}
         ${input('몇 화에 한 번까지', b + '.every', o({ type: 'number', min: 0, hint: '0 이면 간격 없이 상황이 올 때만' }))}
       </div>
       <div class="row" style="align-items:flex-start;flex-wrap:nowrap">
@@ -40,7 +40,7 @@ function deviceFields(base, root) {
         <button class="btn icon-btn danger" style="margin-top:26px" data-action="deviceRemove" data-arg="${root || ''}|${i}" aria-label="장치 ${i + 1} 삭제">✕</button>
       </div></div>`;
   }).join('');
-  return `<div class="between"><h3>가끔 쓰는 장치 <span class="small" style="font-weight:400">특정 상황에만, 몇 화에 한 번 쓰는 장면 장치. 최근 화에서 쓴 화를 세어 이번 화에 쓸지 정해 줍니다</span></h3><button class="btn small" data-action="deviceAdd" data-arg="${root || ''}">+ 장치</button></div>
+  return `<div class="between"><h3>가끔 쓰는 장치 <span class="small" style="font-weight:400">특정 상황에만, 몇 화에 한 번 쓰는 장면 장치. 최근 화에서 쓴 화를 세어 이번 화에 쓸지 정해 줘요</span></h3><button class="btn small" data-action="deviceAdd" data-arg="${root || ''}">+ 장치</button></div>
     ${rows || '<div class="small">아직 없어요. 레퍼런스의 버릇이 매 화 반복되면 규칙이나 대표 문단에서 빼고 여기에 적으세요.</div>'}`;
 }
 
@@ -84,7 +84,7 @@ function learnCard() {
       <div class="row">${open ? '<button class="btn primary small" data-action="learnApply">고른 규칙 넣기</button>' : ''}<button class="btn small" data-action="learnDismiss">후보 지우기</button></div>` : '';
   return `<section class="card tight">
       <div class="between"><h2>내 수정에서 배우기</h2><span class="small">${count}</span></div>
-      <div class="small">AI 본문을 고친 기록에서 되풀이되는 고침을 찾아 규칙 후보로 보여 줍니다. 근거가 두 번 이상인 것만 내고, 고른 것만 이 작품 문체에 넣어요. 되돌린 수정, 동선 맞추기, 새로 써 넣기만 한 것은 보지 않습니다.</div>
+      <div class="small">AI 본문을 고친 기록에서 되풀이되는 고침을 찾아 규칙 후보로 보여 줘요. 근거가 두 번 이상인 것만 내고, 고른 것만 이 작품 문체에 넣어요. 되돌린 수정, 동선 맞추기, 새로 써 넣기만 한 것은 보지 않아요.</div>
       <div><button class="btn dark small" data-action="learnRun"${short || !st ? ' disabled' : ''}>${r ? '다시 찾기' : '수정 기록에서 규칙 찾기'}</button></div>
       ${list}
     </section>`;
@@ -141,7 +141,7 @@ Object.assign(actions, {
       S.project = await api('POST', `/projects/${enc(S.name)}/style/learn`);
       S.learnPicks = {};
       const k = P().style_learning.suggestions.length;
-      toast(k ? `규칙 후보 ${k}개를 찾았어요. 고른 것만 넣습니다.` : '되풀이된 고침을 찾지 못했어요');
+      toast(k ? `규칙 후보 ${k}개를 찾았어요. 고른 것만 넣어요.` : '되풀이된 고침을 찾지 못했어요');
     });
   },
   async learnApply() {
@@ -167,8 +167,8 @@ Object.assign(actions, {
     });
   },
   async libRestore(n) {
-    const msg = S.libDirty ? '\n저장하지 않은 변경은 사라집니다.' : '';
-    const used = (S.lib.used_by || []).length ? `\n이 문체를 쓰는 작품(${S.lib.used_by.join(', ')})은 다시 적용해야 바뀝니다.` : '';
+    const msg = S.libDirty ? '\n저장하지 않은 변경은 사라져요.' : '';
+    const used = (S.lib.used_by || []).length ? `\n이 문체를 쓰는 작품(${S.lib.used_by.join(', ')})은 다시 적용해야 바뀌어요.` : '';
     if (!confirm(`${n}번 버전으로 되돌릴까요? 지금 상태도 버전으로 남아 있어 다시 돌아올 수 있어요.${msg}${used}`)) return;
     await run('되돌리는 중', async () => {
       S.lib = await api('POST', `/styles/${S.lib.id}/versions/${n}/restore`);

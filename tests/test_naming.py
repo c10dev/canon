@@ -73,8 +73,27 @@ class NamingTest(unittest.TestCase):
         w = naming.cast_warnings(p)
         self.assertTrue(any("첫 글자" in x and "한도윤과 김도진은" in x for x in w))
         self.assertTrue(any("1981년생" in x and "'도윤'은" in x for x in w))
-        self.assertTrue(any("김도진은 AI" in x for x in w))
+        self.assertTrue(any("AI가 자주 짓는 이름" in x and "김도진" in x for x in w))
         self.assertFalse(any("박영숙" in x for x in w))  # 1956년생에 영숙은 맞다
+
+    def test_cast_issues_grouped_and_styled(self):
+        p = project(era="2026년")
+        p.characters = [Character(id="a", name="서윤", role="주인공", age="19세"),
+                        Character(id="b", name="서윤", role="조연", age="60대"),
+                        Character(id="c", name="엘레나", role="조연"),
+                        Character(id="d", name="김철", role="x"), Character(id="e", name="김영", role="x")]
+        issues = naming.cast_issues(p)
+        same = [i for i in issues if i["kind"] == "same"]
+        self.assertEqual(len(same), 1)
+        self.assertEqual(same[0]["ids"], ["a", "b"])
+        self.assertIn("서윤(주인공, 19세)", same[0]["text"])  # 같은 이름은 역할 · 나이로 가른다
+        self.assertTrue(any(i["kind"] == "style" and i["ids"] == ["c"] for i in issues))
+        # 두 글자 이름의 같은 첫 글자는 성이라 헷갈리는 이름으로 보지 않는다
+        self.assertFalse(any(i["kind"] == "confusable" and set(i["ids"]) == {"d", "e"} for i in issues))
+        self.assertEqual(sum(i["kind"] == "overused" for i in issues), 1)  # 흔한 이름은 한 줄로
+        # 서양 이름은 흔한 끝 글자 하나로는 잡지 않는다
+        self.assertEqual(naming._confusable("Elena", "Mira", "western_fantasy"), "")
+        self.assertEqual(naming._confusable("Elena", "Elric", "western_fantasy"), "앞 두 글자")
 
     def test_setup_prompt_has_candidates(self):
         p = project(setting="바닷가 소도시", name_rules=["뱃사람 집안은 돌림자 '수'를 쓴다"])

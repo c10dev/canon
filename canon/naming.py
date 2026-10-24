@@ -320,8 +320,24 @@ def _given(name: str, style: str) -> str:
     return parts[0] if parts else name
 
 
-def _confusable(a: str, b: str) -> bool:
-    return bool(a and b) and a != b and (a[0] == b[0] or (len(a) > 1 and len(b) > 1 and a[-1] == b[-1]))
+def _confusable(a: str, b: str, style: str = "korea_modern", bare: bool = False) -> str:
+    """헷갈리는 이름이면 무엇이 같은지('첫 글자', '끝 글자', '앞 두 글자', '끝 두 글자'), 아니면 빈 글.
+    서양 · SF 이름은 흔한 어미(-a, -n 등)를 한 글자로 비교하면 거의 다 걸려서 두 글자로 본다.
+    성을 떼지 못한 두 글자 한국 · 무협 이름(bare: 성을 뗀 이름이 아니라 이름 전체)은 첫 글자가 성이라 첫 글자 비교를 하지 않는다."""
+    if not (a and b) or a == b:
+        return ""
+    if style in ("western_fantasy", "sf"):
+        if len(a) >= 2 and len(b) >= 2 and a[:2] == b[:2]:
+            return "앞 두 글자"
+        if len(a) >= 3 and len(b) >= 3 and a[-2:] == b[-2:]:
+            return "끝 두 글자"
+        return ""
+    surname = bare and style in ("korea_modern", "joseon", "wuxia") and len(a) == 2 and len(b) == 2 and a[0] in {*D.KO_SURNAMES, *D.WUXIA_SURNAMES}
+    if a[0] == b[0] and not surname:
+        return "첫 글자"
+    if len(a) > 1 and len(b) > 1 and a[-1] == b[-1]:
+        return "끝 글자"
+    return ""
 
 
 def character_candidates(p: Project, c: Character, n: int = 8, style: str | None = None,
@@ -331,7 +347,7 @@ def character_candidates(p: Project, c: Character, n: int = 8, style: str | None
     others = [_given(o.name, sid) for o in p.characters if o is not c and o.id != c.id and o.name]
     pool = generate_people(sid, n * 3, c.gender, birth_year(c.age, p.world.era),
                            exclude={o.name for o in p.characters}, rng=rng)
-    clear = [x for x in pool if not any(_confusable(_given(x.name, sid), o) or _given(x.name, sid) == o for o in others)]
+    clear = [x for x in pool if not any(_confusable(_given(x.name, sid), o, sid) or _given(x.name, sid) == o for o in others)]
     return (clear + [x for x in pool if x not in clear])[:n]
 
 
@@ -346,30 +362,64 @@ def _era_of(given: str) -> list[int]:
     return sorted({b for b, by in D.KO_GIVEN.items() for names in by.values() if given in names})
 
 
-def cast_warnings(p: Project) -> list[str]:
-    """이름 점검. 막지 않고 알려만 준다."""
+ISSUE_KINDS = {"same": "같은 이름", "given": "성을 뺀 이름이 같음", "confusable": "헷갈리는 이름", "era": "나이와 맞지 않는 이름",
+               "style": "이름 스타일과 다름", "overused": "흔한 이름"}
+
+
+def cast_issues(p: Project) -> list[dict]:
+    """이름 점검. 막지 않고 알려만 준다. 인물과 인물 후보(cast_candidates)를 함께 본다.
+    {kind, level(warn | info), text, ids} 목록이다. 같은 이름 · 같은 경고는 한 줄로 묶는다."""
     sid = resolve_style(p)
-    named = [c for c in p.characters if c.name.strip()]
-    out: list[str] = []
-    for a, b in combinations(named, 2):
-        ga, gb = _given(a.name, sid), _given(b.name, sid)
+    people = [c for c in p.characters if c.name.strip()]
+    have = {c.id for c in people}
+    people += [c for c in p.cast_candidates if c.name.strip() and c.id not in have]
+
+    def who(c) -> str:  # 같은 이름은 id 대신 역할 · 나이로 가른다
+        tag = ", ".join(x for x in (c.role, c.age) if x)
+        return f"{c.name}({tag})" if tag else c.name
+
+    out: list[dict] = []
+    by_name: dict[str, list] = {}
+    for c in people:
+        by_name.setdefault(c.name.strip(), []).append(c)
+    for name, cs in by_name.items():
+        if len(cs) > 1:
+            out.append({"kind": "same", "level": "warn", "ids": [c.id for c in cs],
+                        "text": f"'{name}' 이름이 {len(cs)}명에게 있어요: {' · '.join(who(c) for c in cs)}"})
+    for a, b in combinations(people, 2):
         if a.name.strip() == b.name.strip():
-            out.append(f"'{a.name}' 이름이 두 인물({a.id}, {b.id})에게 있습니다.")
-        elif ga == gb:
-            out.append(f"{_j(a.name, '과', '와')} {_j(b.name, '은', '는')} 성을 뺀 이름이 같아 독자가 헷갈립니다.")
-        elif _confusable(ga, gb):
-            same = "첫 글자" if ga[0] == gb[0] else "끝 글자"
-            out.append(f"{_j(a.name, '과', '와')} {_j(b.name, '은', '는')} 이름 {same}가 같아 헷갈리기 쉽습니다.")
-    for c in named:
+            continue
+        ga, gb = _given(a.name, sid), _given(b.name, sid)
+        if ga == gb:
+            out.append({"kind": "given", "level": "warn", "ids": [a.id, b.id],
+                        "text": f"{_j(a.name, '과', '와')} {_j(b.name, '은', '는')} 성을 뺀 이름이 같아 독자가 헷갈려요."})
+        elif same := _confusable(ga, gb, sid, bare=ga == a.name.strip() and gb == b.name.strip()):
+            out.append({"kind": "confusable", "level": "info", "ids": [a.id, b.id],
+                        "text": f"{_j(a.name, '과', '와')} {_j(b.name, '은', '는')} 이름 {same}{josa(same, '이', '가')} 같아 헷갈리기 쉬워요."})
+    common = [c for c in people if _given(c.name, sid) in D.AI_OVERUSED or _given(c.name, sid) in D.WEST_CLICHE]
+    if common:
+        out.append({"kind": "overused", "level": "info", "ids": [c.id for c in common],
+                    "text": f"AI가 자주 짓는 이름이라 다른 작품과 겹치기 쉬워요: {', '.join(dict.fromkeys(c.name for c in common))}"})
+    for c in people:
         g = _given(c.name, sid)
-        if g in D.AI_OVERUSED or g in D.WEST_CLICHE:
-            out.append(f"{_j(c.name, '은', '는')} AI 가 자주 짓는 이름이라 다른 작품과 겹치기 쉽습니다.")
         if sid == "korea_modern":
             year, eras = birth_year(c.age, p.world.era), _era_of(g)
             if year and eras and all(abs(e + 5 - year) > 20 for e in eras):
                 span = f"{eras[0]}년대" if len(eras) == 1 else f"{eras[0]}~{eras[-1]}년대"
-                out.append(f"{_j(c.name, '은', '는')} {year}년생 무렵인데 '{g}'{josa(g, '은', '는')} {span} 출생에 흔한 이름입니다.")
+                out.append({"kind": "era", "level": "info", "ids": [c.id],
+                            "text": f"{_j(c.name, '은', '는')} {year}년생 무렵인데 '{g}'{josa(g, '은', '는')} {span} 출생에 흔한 이름이에요."})
+        name = c.name.strip()
+        if (sid in ("korea_modern", "joseon", "wuxia") and len(name) >= 3 and " " not in name
+                and not any(name.startswith(s) for s in {*D.KO_SURNAMES, *D.WUXIA_SURNAMES})
+                and name not in D.JOSEON_COMMON_MALE and name not in D.JOSEON_COMMON_FEMALE):
+            out.append({"kind": "style", "level": "info", "ids": [c.id],
+                        "text": f"'{name}'{josa(name, '은', '는')} 지금 이름 스타일({style_label(sid)})과 달라요. 의도했다면 세계관의 이름 규칙에 적어 두세요."})
     return out
+
+
+def cast_warnings(p: Project) -> list[str]:
+    """이름 점검 글만 (명령줄). 화면은 cast_issues 로 종류 · 인물별로 묶어 보인다."""
+    return [i["text"] for i in cast_issues(p)]
 
 
 # ---------- 프롬프트 블록 ----------

@@ -58,16 +58,13 @@ function tok(n) {
   return Number(n || 0).toLocaleString();
 }
 
-function usageWhen(iso) {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
+const usageWhen = (iso) => fmtDateTime(iso);  // 날짜 형식은 app.js fmtDateTime 하나로
 
 function viewUsage() {
   const u = S.usage;
   const inProject = S.route[0] === 'p';
   const head = header(inProject ? esc(P().meta.title || S.name) : 'Canon', '사용량 · 비용',
-    'AI 를 부를 때마다 토큰 수를 기록하고 가격표로 비용을 계산합니다. <strong>추정치</strong>라 Google 청구 금액과 다를 수 있어요.',
+    'AI를 부를 때마다 토큰 수를 기록하고 가격표로 비용을 계산해요. <strong>추정치</strong>라 Google 청구 금액과 다를 수 있어요.',
     `<a class="btn" href="${(u && u.billing_url) || 'https://aistudio.google.com/usage'}" target="_blank" rel="noopener">AI Studio 실제 사용량 ↗</a>`);
   if (!u) return `${head}<div class="small">불러오는 중…</div>`;
   const t = u.total;
@@ -81,7 +78,7 @@ function viewUsage() {
         </select></label>
     </div>`;
   if (!t.calls) {
-    return `${head}${filters}<div class="note plain">이 기간${S.usageProject ? `에 ${esc(S.usageProject)}` : ''}의 AI 호출 기록이 없어요. 이 화면이 생긴 뒤의 호출부터 기록합니다 (mock 은 기록하지 않음).</div>
+    return `${head}${filters}<div class="note plain">이 기간${S.usageProject ? `에 ${esc(S.usageProject)}` : ''}의 AI 호출 기록이 없어요. 이 화면이 생긴 뒤의 호출부터 기록해요 (mock 은 기록하지 않음).</div>
       ${usagePriceSection()}`;
   }
   const tiles = [
@@ -93,14 +90,14 @@ function viewUsage() {
     ['실패 · 재시도 비용', usd(t.wasted), '형식 오류로 다시 받은 것 포함'],
   ];
   return `${head}${filters}
-    ${u.unpriced.length ? `<div class="note warn">가격표에 없는 모델이 있어요: ${u.unpriced.map(esc).join(', ')}. 이 호출은 비용에서 빠졌습니다. 아래 가격표에 추가하세요.</div>` : ''}
+    ${u.unpriced.length ? `<div class="note warn">가격표에 없는 모델이 있어요: ${u.unpriced.map(esc).join(', ')}. 이 호출은 비용에서 빠졌어요. 아래 가격표에 추가하세요.</div>` : ''}
     <div class="usage-tiles">${tiles.map(([k, v, s]) => `<div class="usage-tile"><div class="small">${k}</div><div class="usage-num">${v}</div><div class="small">${s}</div></div>`).join('')}</div>
     <section class="card">${usageChart(u)}</section>
     <div class="cols">
       <div class="col">${usageTable('단계별', u.by_stage, (r) => esc(USAGE_STAGE[r.stage] || r.stage || '기타'))}
         ${usageTable('모델별', u.by_model, (r) => `${esc(r.model || '(이름 없음)')} <span class="small">${r.backend === 'local' ? '로컬 · 0원' : 'Gemini'}</span>`)}</div>
       <div class="col">${S.usageProject
-        ? usageTable('화별', u.by_episode, (r) => `<a href="#/p/${enc(r.project)}/write/${r.episode}">${r.episode}화</a>`, '화가 정해지지 않은 호출(설정, 기획 등)은 빠집니다')
+        ? usageTable('화별', u.by_episode, (r) => `<a href="#/p/${enc(r.project)}/write/${r.episode}">${r.episode}화</a>`, '화가 정해지지 않은 호출(설정, 기획 등)은 빠져요')
         : usageTable('작품별', u.by_project, (r) => r.project ? `<a href="#/p/${enc(r.project)}/usage">${esc(r.project)}</a>` : '<span class="small">작품 밖 (연구 서버 점검 등)</span>')}
         ${usageTable('어디서 불렀나', u.by_source, (r) => esc(USAGE_SOURCE[r.source] || r.source || '기타'))}</div>
     </div>
@@ -110,15 +107,24 @@ function viewUsage() {
 
 // 날짜별 비용 막대. 비용이 모두 0(로컬만 씀)이면 호출 수로 그린다.
 function usageChart(u) {
-  const byDay = Object.fromEntries(u.by_day.map((r) => [r.day, r]));
-  let days = u.by_day.map((r) => r.day);
-  if (S.usageDays && S.usageDays <= 90) {
-    days = [];
-    const d = new Date();
-    for (let i = S.usageDays - 1; i >= 0; i--) {
-      const x = new Date(d.getFullYear(), d.getMonth(), d.getDate() - i);
-      days.push(`${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`);
-    }
+  let byDay = Object.fromEntries(u.by_day.map((r) => [r.day, r]));
+  const key = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+  // 기간 안의 날을 빈 날까지 모두 채운다 ('전체'는 첫 기록 날부터 오늘까지). 120일이 넘으면 주 단위로 묶는다
+  const today = new Date();
+  const from = S.usageDays ? new Date(today.getFullYear(), today.getMonth(), today.getDate() - S.usageDays + 1)
+    : u.by_day.length ? new Date(`${u.by_day.map((r) => r.day).sort()[0]}T00:00:00`) : today;
+  let days = [];
+  for (let x = new Date(from); x <= today; x = new Date(x.getFullYear(), x.getMonth(), x.getDate() + 1)) days.push(key(x));
+  if (days.length > 120) {
+    const weeks = {};
+    days.forEach((d, i) => {
+      const w = days[i - (i % 7)];
+      const r = byDay[d];
+      if (!weeks[w]) weeks[w] = { day: w, cost: 0, calls: 0, in: 0, out: 0, failed: 0 };
+      if (r) ['cost', 'calls', 'in', 'out', 'failed'].forEach((k) => { weeks[w][k] += r[k] || 0; });
+    });
+    days = Object.keys(weeks);
+    byDay = Object.fromEntries(Object.entries(weeks).filter(([, r]) => r.calls));
   }
   const byCost = u.by_day.some((r) => r.cost > 0);
   const val = (r) => (r ? (byCost ? r.cost : r.calls) : 0);
@@ -167,7 +173,7 @@ function usageCalls(u) {
     ${list.length ? `<div class="rs-scroll"><table class="rs-table">
       <thead><tr><th>시각</th><th>작품</th><th>작업</th><th>모델</th><th>입력</th><th>출력</th><th>걸린 시간</th><th>추정 비용</th><th>결과</th></tr></thead>
       <tbody>${rows}</tbody></table></div>
-      <div class="row small">${all.length > list.length ? `<button class="btn" data-action="usageMore">${all.length}건 모두 보기</button>` : `최근 ${list.length}건까지 보여요.`} 형식이 어긋난 응답도 토큰은 쓴 것이라 비용에 들어갑니다.</div>`
+      <div class="row small">${all.length > list.length ? `<button class="btn" data-action="usageMore">${all.length}건 모두 보기</button>` : `최근 ${list.length}건까지 보여요.`} 형식이 어긋난 응답도 토큰은 쓴 것이라 비용에 들어가요.</div>`
       : '<div class="small">실패하거나 다시 요청한 호출이 없어요.</div>'}
   </section>`;
 }
@@ -215,7 +221,7 @@ function viewPrices() {
       <td><button class="btn" data-action="priceRemove" data-arg="${i}" aria-label="${esc(r.model)} 줄 지우기">지우기</button></td></tr>`;
   }).join('');
   return `<div class="between"><h2>AI 요금 가격표</h2><span class="small">USD / 100만 토큰</span></div>
-    <p class="desc">기본값은 ${esc(pr.checked)}에 <a href="${pr.url}" target="_blank" rel="noopener">Google Gemini API 가격표</a>(유료 등급 표준 요금)에서 옮긴 값입니다. 가격이 바뀌면 여기서 고치세요. 적용 시작일을 적은 줄은 그날부터의 호출에 쓰고(예고된 인상), 고치면 지난 기록과 자동 집필 예상 비용도 이 표로 다시 계산합니다. 생각 토큰은 출력 요금, 배치 칸을 비우면 절반으로 셉니다. 로컬 모델은 0원이고, 표에 없는 Gemini 모델은 '가격 모름'으로 빠집니다.</p>
+    <p class="desc">기본값은 ${esc(pr.checked)}에 <a href="${pr.url}" target="_blank" rel="noopener">Google Gemini API 가격표</a>(유료 등급 표준 요금)에서 옮긴 값이에요. 가격이 바뀌면 여기서 고치세요. 적용 시작일을 적은 줄은 그날부터의 호출에 쓰고(예고된 인상), 고치면 지난 기록과 자동 집필 예상 비용도 이 표로 다시 계산해요. 생각 토큰은 출력 요금, 배치 칸을 비우면 절반으로 쳐요. 로컬 모델은 0원이고, 표에 없는 Gemini 모델은 '가격 모름'으로 빠져요.</p>
     <div class="rs-scroll"><table class="rs-table price-table">
       <thead><tr><th>모델</th><th>적용 시작일</th>${PRICE_COLS.map(([, l]) => `<th>${l}</th>`).join('')}<th></th><th></th></tr></thead>
       <tbody>${rows}</tbody></table></div>
@@ -225,7 +231,7 @@ function viewPrices() {
       ${S.priceDirty ? '<button class="btn" data-action="priceCancel">고친 것 버리기</button>' : ''}
       ${S.prices.rows.some((r) => r.custom) ? '<button class="btn danger" data-action="priceReset">기본값으로 되돌리기</button>' : ''}
     </div>
-    <div class="small">모델 이름은 정확히 같거나 그 이름으로 시작하는 모델에 씁니다 (예: gemini-4-argon 은 gemini-4-argon-001 에도). 기본 모델을 고치면 그 모델의 예고 줄까지 내 줄로 대신합니다.</div>`;
+    <div class="small">모델 이름은 정확히 같거나 그 이름으로 시작하는 모델에 써요 (예: gemini-4-argon 은 gemini-4-argon-001 에도). 기본 모델을 고치면 그 모델의 예고 줄까지 내 줄로 대신해요.</div>`;
 }
 
 document.addEventListener('input', (e) => {
@@ -281,10 +287,10 @@ Object.assign(actions, {
   },
   async priceSave() {
     const rows = S.priceRows.filter((r) => r.model.trim()).map(({ custom, current, upcoming, ...r }) => r);
-    await priceSend('가격표 저장 중', () => api('PUT', '/usage/prices', { rows }), '가격표를 저장했습니다. 비용을 다시 계산했어요');
+    await priceSend('가격표 저장 중', () => api('PUT', '/usage/prices', { rows }), '가격표를 저장했어요. 비용을 다시 계산했어요');
   },
   async priceReset() {
     if (!confirm('고친 가격을 모두 지우고 기본 가격표로 되돌릴까요?')) return;
-    await priceSend('되돌리는 중', () => api('DELETE', '/usage/prices'), '기본 가격표로 되돌렸습니다');
+    await priceSend('되돌리는 중', () => api('DELETE', '/usage/prices'), '기본 가격표로 되돌렸어요');
   },
 });

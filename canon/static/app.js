@@ -74,14 +74,14 @@ const base = () => `#/p/${enc(S.name)}`;
 
 function fmtErr(data, status) {
   const d = data && data.detail;
-  if (Array.isArray(d)) return d.map((x) => { const at = (x.loc || []).slice(1).join('.'); return `입력 형식이 맞지 않습니다${at ? ` (칸: ${at})` : ''}: ${x.msg}`; }).join('\n');
+  if (Array.isArray(d)) return d.map((x) => { const at = (x.loc || []).slice(1).join('.'); return `입력 형식이 맞지 않아요${at ? ` (칸: ${at})` : ''}: ${x.msg}`; }).join('\n');
   return d || `요청 실패 (${status})`;
 }
 
 // 이 탭의 id. 서버는 작품을 저장한 화면을 기억해, 다른 탭 · 기기가 먼저 저장했으면 오래된 화면의 저장을 409 로 막는다
 const CLIENT = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
-// 마지막으로 받은 작품 JSON 과 그 판(ETag). 같은 판이면 서버가 304 로 본문 없이 답하고 이것을 복사해 쓴다 (장편은 수 MB)
+// 마지막으로 받은 작품 JSON과 그 판(ETag). 같은 판이면 서버가 304 로 본문 없이 답하고 이것을 복사해 쓴다 (장편은 수 MB)
 let projectCache = null;  // { path, tag, data }
 
 /** meta 를 넘기면 응답 헤더를 meta.headers 에 담는다. 실패하면 Error 의 status 에 HTTP 상태를 담는다. */
@@ -130,18 +130,18 @@ function toast(msg, err = false) {
 // 그동안 다른 화면으로 옮겨 다니며 계속 작업할 수 있다.
 
 const JOB_DONE_MSG = {
-  suggest: '설정 제안이 도착했습니다. 설정 도우미에서 확인하세요.',
-  arc: '기승전결 구조 제안이 도착했습니다. 확인하고 저장하세요.',
-  plots: '화별 플롯 초안을 만들었습니다. 확정된 화는 그대로입니다.',
-  write: (j) => `${j.ep}화 본문을 저장했습니다.`,
-  state: (j) => `${j.ep}화 상태 변경안이 도착했습니다.`,
-  series: '부 구성 제안이 도착했습니다. 확인하고 반영하세요.',
-  nextarc: '다음 아크 제안이 도착했습니다. 고친 뒤 반영하세요.',
-  recap_arc: (j) => `아크 ${j.ep} 요약 제안이 도착했습니다.`,
-  recap_part: (j) => `${j.ep}부 요약 제안이 도착했습니다.`,
-  impact: (j) => `${j.label.replace(/^인과율: /, '')}이 끝났습니다. 인과율에서 확인하세요.`,
-  storyline: '이야기 줄기 제안이 도착했습니다. 고른 화와 함께 반영하세요.',
-  auto: (j) => `자동 집필: ${j.note || '멈췄습니다'}`,
+  suggest: '설정 제안이 도착했어요. 설정 도우미에서 확인하세요.',
+  arc: '기승전결 구조 제안이 도착했어요. 확인하고 저장하세요.',
+  plots: '화별 플롯 초안을 만들었어요. 확정된 화는 그대로예요.',
+  write: (j) => `${j.ep}화 본문을 저장했어요.`,
+  state: (j) => `${j.ep}화 상태 변경안이 도착했어요.`,
+  series: '부 구성 제안이 도착했어요. 확인하고 반영하세요.',
+  nextarc: '다음 아크 제안이 도착했어요. 고친 뒤 반영하세요.',
+  recap_arc: (j) => `아크 ${j.ep} 요약 제안이 도착했어요.`,
+  recap_part: (j) => `${j.ep}부 요약 제안이 도착했어요.`,
+  impact: (j) => `${j.label.replace(/^인과율: /, '')}이 끝났어요. 인과율에서 확인하세요.`,
+  storyline: '이야기 줄기 제안이 도착했어요. 고른 화와 함께 반영하세요.',
+  auto: (j) => `자동 집필: ${j.note || '멈췄어요'}`,
 };
 let jobTimer = null;
 
@@ -168,21 +168,21 @@ const autoOn = () => !!(S.auto && S.auto.active);
 const autoEp = () => (autoOn() && S.auto.run ? S.auto.run.ep : null);
 
 /** AI 제안 카드의 버튼 줄. 모든 제안 카드가 같은 순서([버리기] [반영], 오른쪽)와 같은 말을 쓴다. 각 버튼은 [action, arg]. */
-function proposalActions(drop, apply, label = '고른 것 반영') {
+function proposalActions(drop, apply, label = '고른 것 적용') {
   const b = ([action, arg], cls, text) => `<button type="button" class="btn small${cls}" data-action="${action}"${arg != null ? ` data-arg="${esc(String(arg))}"` : ''}>${text}</button>`;
   return `<div class="row proposal-actions">${b(drop, '', '버리기')}${b(apply, ' primary', label)}</div>`;
 }
 
-/** AI 제안을 버리기 전에 묻는다. 버린 제안은 되살릴 수 없고 다시 받으려면 AI 를 다시 불러야 한다. */
+/** AI 제안을 버리기 전에 묻는다. 버린 제안은 되살릴 수 없고 다시 받으려면 AI를 다시 불러야 한다. */
 function confirmDrop(what) {
-  return confirm(`${what}을 버릴까요? 되살릴 수 없어서, 다시 보려면 AI 에게 다시 받아야 해요.`);  // 부르는 곳은 모두 받침 있는 말(제안, 계획)
+  return confirm(`${what}을 버릴까요? 되살릴 수 없어서, 다시 보려면 AI에게 다시 받아야 해요.`);  // 부르는 곳은 모두 받침 있는 말(제안, 계획)
 }
 
 /** 초안 다시 만들기 전에 묻는다: 확정하지 않은 초안 화는 AI 새 초안으로 바뀐다. 바뀔 초안이 없으면 묻지 않는다. */
 function confirmRedraft(eps) {
   const nums = eps.filter((e) => e.status === 'draft').map((e) => e.plot.number);
   if (!nums.length) return true;
-  return confirm(`초안 ${nums.length}화(${rangeText(nums)}화)를 AI 새 초안으로 바꿉니다. 손본 내용도 사라져요. 지키려면 먼저 그 화를 확정하세요. 계속할까요?`);
+  return confirm(`초안 ${nums.length}화(${rangeText(nums)}화)를 AI 새 초안으로 바꿔요. 손본 내용도 사라져요. 지키려면 먼저 그 화를 확정하세요. 계속할까요?`);
 }
 
 /** [1,2,3,5,7,8] → '1~3, 5, 7~8' */
@@ -202,7 +202,7 @@ async function startJob(kind, ep = null, extra = {}) {
     await saveIfDirty();
     const j = await api('POST', `/projects/${enc(S.name)}/jobs`, { kind, ep, ...extra });
     if (j.already) toast(`이미 진행 중이에요: ${j.label}`);
-    else toast(`${j.label}을(를) 시작했어요. 끝나면 알려 드릴게요. 그동안 다른 작업을 해도 됩니다.`);
+    else toast(`${j.label}을(를) 시작했어요. 끝나면 알려 드릴게요. 그동안 다른 작업을 해도 돼요.`);
     S.jobs = S.jobs.filter((x) => x.id !== j.id).concat(j);
     S.jobArgs[j.id] = { kind, ep, extra };  // 실패하면 작업 목록의 '다시 시도'가 같은 작업을 다시 시작한다
     renderJobs();
@@ -257,7 +257,7 @@ async function pollJobs(soon = false) {
       // 자동 집필이 실제로 바꾼 화(상태나 본문)만 받아 온다. 저장하지 않은 다른 화 플롯 수정은 그대로 둔다
       const dirty = S.dirty;
       const changed = await mergeEpisodes((cur, e) => cur.status !== e.status || cur.text !== e.text || !!cur.auto !== !!e.auto);
-      if (dirty && changed.includes(S.selEp)) toast(`자동 집필이 ${S.selEp}화를 바꿨어요. 열린 플롯은 서버에 있는 것으로 바뀝니다`, true);
+      if (dirty && changed.includes(S.selEp)) toast(`자동 집필이 ${S.selEp}화를 바꿨어요. 열린 플롯은 서버에 있는 것으로 바뀌어요`, true);
     }
     if (j.status !== 'running' && !(old && old.status !== 'running')) await finishJob(j);
     // 설정 · 사용량 · 문체 라이브러리처럼 작품 밖 화면은 S.name 이 남아 있어도 다시 그리지 않는다
@@ -404,10 +404,10 @@ function applyJobResult(j) {
   } else if (j.kind === 'arc' && j.result) {
     S.arcProposal = j.result.acts;  // 바로 바꾸지 않고 지금 구조와 비교해 고르게 한다 (arcProposalCard)
   } else if (j.kind === 'write' && !(j.result && j.result.candidate)) {
-    // AI 가 본문을 새로 썼다 (새 판 candidate 는 본문을 덮지 않으니 쓰던 초안과 변경안을 그대로 둔다).
+    // AI가 본문을 새로 썼다 (새 판 candidate 는 본문을 덮지 않으니 쓰던 초안과 변경안을 그대로 둔다).
     // 그 화 칸에 쓰던 글이 있으면(다른 탭에서 시작한 작업 등) 버리지 않고 칸에 남긴다. 저장하면 수정 기록에 남아 되돌릴 수 있다
     const d = S.textDraft[j.ep];
-    if (d && d.trim() && ep(j.ep) && d !== ep(j.ep).text) toast(`${j.ep}화 본문을 AI 가 새로 썼어요. 쓰던 글은 칸에 남겨 두었어요. 저장하면 AI 본문 대신 그 글이 들어갑니다`, true);
+    if (d && d.trim() && ep(j.ep) && d !== ep(j.ep).text) toast(`${j.ep}화 본문을 AI가 새로 썼어요. 쓰던 글은 칸에 남겨 두었어요. 저장하면 AI 본문 대신 그 글이 들어가요`, true);
     else delete S.textDraft[j.ep];
     delete S.deltas[j.ep];
   } else if (j.kind === 'state' && j.result) {
@@ -749,6 +749,8 @@ document.addEventListener('input', (e) => {
 document.addEventListener('change', (e) => {
   const bind = e.target.dataset && e.target.dataset.bind;
   if (bind && /^(arc|story_arcs|parts)\./.test(bind) && S.route[2] === 'arc') render();
+  // 플롯 서랍에서 새 인물 이름을 정해도 점검한다 (장편은 인물이 주로 플롯에서 는다)
+  if (S.route[2] === 'arc' && /^characters\.\d+\.name$/.test(bind || '')) { checkNames(); return; }
   if (S.route[2] !== 'setup' || !bind) return;
   if (bind === 'world.name_style') {  // 스타일을 바꾸면 이전 후보는 버리고 다시 점검한다
     S.names = {};
@@ -757,6 +759,20 @@ document.addEventListener('change', (e) => {
   } else if (/^characters\.\d+\.(name|age|gender)$/.test(bind) || bind === 'world.era' || bind === 'world.setting') {
     checkNames();
   }
+});
+
+// 탭에서 ← → Home End 로 다른 탭을 고른다. 고른 탭은 다시 그린 뒤에도 포커스를 받는다
+document.addEventListener('keydown', (e) => {
+  const tab = e.target.closest && e.target.closest('[role="tab"]');
+  if (!tab || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+  const tabs = [...tab.closest('[role="tablist"]').querySelectorAll('[role="tab"]')];
+  const i = tabs.indexOf(tab);
+  const next = tabs[e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
+  e.preventDefault();
+  const sel = `#app [role="tab"][data-action="${CSS.escape(next.dataset.action || '')}"]${next.dataset.arg !== undefined ? `[data-arg="${CSS.escape(next.dataset.arg)}"]` : ''}`;
+  S.focusTarget = sel;
+  next.click();
+  if (document.querySelector(sel)) document.querySelector(sel).focus();  // 다시 그리지 않는 탭(같은 화면 안 전환)도 포커스를 옮긴다
 });
 
 // Ctrl+S (macOS 는 Cmd+S): 집필 화면에서 고친 본문이 있으면 본문을, 아니면 작품 변경을 저장한다. 브라우저의 '페이지 저장'은 막는다
@@ -897,7 +913,7 @@ async function saveIfDirty() {
 
 const actions = {
   async save() {
-    await run('저장 중', async () => { if (await save() !== false) toast('저장했습니다'); });
+    await run('저장 중', async () => { if (await save() !== false) toast('저장했어요'); });
   },
   async revert() {
     if (S.dirty && !confirm('저장하지 않은 변경을 모두 버리고 저장된 작품을 다시 불러올까요? 되돌릴 수 없어요.')) return;
@@ -914,8 +930,16 @@ const actions = {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/revert/${n - 1}`);
       if (h) setDelta(n, structuredClone(h));  // 반영했던 변경안을 다시 고를 수 있게 둔다
-      toast(`${rangeText(fin)}화의 반영을 취소했어요. ${n}화 변경안을 다시 골라 반영하세요`);
+      toast(`${rangeText(fin)}화의 반영을 취소했어요. ${n}화 변경안을 다시 골라 적용하세요`);
     });
+  },
+  railAll() {
+    S.railAll = true;
+    render();
+  },
+  focusName(i) {
+    const el = document.getElementById(`f-characters-${i}-name`);
+    if (el) { el.scrollIntoView({ block: 'center' }); el.focus(); }
   },
   toggleMenu() {
     S.menuOpen = !S.menuOpen;  // 좁은 폭에서만 보이는 버튼. 메뉴를 고르면 화면 이동 때 닫힌다
@@ -975,8 +999,8 @@ const actions = {
     toast(`${r.label}을(를) 되살렸어요`);
   },
   async saveForce() {
-    if (!confirm('다른 탭이나 기기에서 저장한 변경을 이 화면의 작품으로 덮어쓸까요? 그쪽에서 바꾼 설정 · 플롯은 사라집니다.')) return;
-    await run('저장 중', async () => { if (await save(true) !== false) toast('저장했습니다'); });
+    if (!confirm('다른 탭이나 기기에서 저장한 변경을 이 화면의 작품으로 덮어쓸까요? 그쪽에서 바꾼 설정 · 플롯은 사라져요.')) return;
+    await run('저장 중', async () => { if (await save(true) !== false) toast('저장했어요'); });
   },
   async copyOrphan(n) {
     const t = S.textDraft[n] || '';
@@ -1031,11 +1055,11 @@ const actions = {
     });
     s.characters = s.characters.filter((_, i) => S.picks['sc' + i]);
     s.relationships = s.relationships.filter((r, i) => S.picks['sr' + i] && sugEnd(r.a) && sugEnd(r.b));
-    await run('반영하는 중', async () => {
+    await run('적용하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/suggest/apply`, s);
       S.suggestion = null;
-      toast('빈칸을 채웠습니다. 기존 입력은 그대로입니다.');
+      toast('빈칸을 채웠어요. 기존 입력은 그대로예요.');
     });
   },
   toggleGenre(id) {
@@ -1094,7 +1118,7 @@ const actions = {
   },
   removeCharacter(i) {
     const c = P().characters[i];
-    if (!confirm(`${c.name || c.id} 인물을 지울까요? 관계도 함께 지워집니다. 저장하기 전에는 아래 띠에서 되살릴 수 있어요.`)) return;
+    if (!confirm(`${c.name || c.id} 인물을 삭제할까요? 관계도 함께 삭제돼요. 저장하기 전에는 아래 띠에서 되살릴 수 있어요.`)) return;
     rememberRemoved(`인물 ${c.name || c.id}`, ['characters', 'relationships', 'states']);
     P().characters.splice(i, 1);
     P().relationships = P().relationships.filter((r) => r.a !== c.id && r.b !== c.id);
@@ -1144,7 +1168,7 @@ const actions = {
   },
   addRelationship() {
     const cs = P().characters;
-    if (cs.length < 2) return toast('인물이 두 명 이상 있어야 합니다', true);
+    if (cs.length < 2) return toast('인물이 두 명 이상 있어야 해요', true);
     P().relationships.push({ a: cs[0].id, b: cs[1].id, type: '', description: '', affinity: 0, tension: 0, goal_conflict: 0, a_view: [], b_view: [] });
     markDirty();
     render();
@@ -1210,7 +1234,7 @@ const actions = {
       P().style_id = '';  // 새로 분석한 문체는 라이브러리 항목과 연결을 끊는다
       P().style_version = 0;
       S.dirty = true;
-      toast('분석 결과를 불러왔습니다. 확인하고 저장하세요.');
+      toast('분석 결과를 불러왔어요. 확인하고 저장하세요.');
     });
   },
   addPassage() {
@@ -1239,12 +1263,12 @@ const actions = {
     const id = $('#style-pick').value;
     if (!id) return toast('적용할 문체를 고르세요', true);
     const e = (S.libs || []).find((x) => x.id === id);
-    if (!confirm(`'${e ? e.name : id}' 문체를 이 작품에 적용할까요? 지금 작품의 스타일 프로필은 바뀝니다.`)) return;
+    if (!confirm(`'${e ? e.name : id}' 문체를 이 작품에 적용할까요? 지금 작품의 스타일 프로필은 바뀌어요.`)) return;
     await run('적용하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/style/apply`, { style_id: id });
       await loadStyleLink();
-      toast('라이브러리 문체를 적용했습니다');
+      toast('라이브러리 문체를 적용했어요');
     });
   },
   async keepStyle() {
@@ -1256,15 +1280,15 @@ const actions = {
       S.project = r.project;
       S.libs = await api('GET', '/styles');
       await loadStyleLink();
-      toast(`라이브러리에 '${r.entry.name}' 로 저장했습니다`);
+      toast(`라이브러리에 '${r.entry.name}' 로 저장했어요`);
     });
   },
   async pushStyle() {
     const l = S.styleLink || {};
     const users = ((S.libs || []).find((x) => x.id === l.id) || {}).used_by || [];
     const others = users.filter((n) => n !== S.name);
-    const warn = others.length ? `\n다른 작품(${others.join(', ')})은 다시 적용하기 전까지 바뀌지 않습니다.` : '';
-    const note = prompt(`이 작품의 문체를 라이브러리 '${l.name}' 의 새 버전으로 올립니다. 예전 버전은 남아 있어 되돌릴 수 있어요.${warn}\n\n버전 메모 (비워도 됩니다)`, '');
+    const warn = others.length ? `\n다른 작품(${others.join(', ')})은 다시 적용하기 전까지 바뀌지 않아요.` : '';
+    const note = prompt(`이 작품의 문체를 라이브러리 '${l.name}' 의 새 버전으로 올려요. 예전 버전은 남아 있어 되돌릴 수 있어요.${warn}\n\n버전 메모 (비워도 돼요)`, '');
     if (note === null) return;
     await run('라이브러리에 올리는 중', async () => {
       await saveIfDirty();
@@ -1272,12 +1296,12 @@ const actions = {
       S.project = r.project;
       S.libs = await api('GET', '/styles');
       await loadStyleLink();
-      toast(`라이브러리 '${r.entry.name}' 을 ${r.entry.version}번 버전으로 올렸습니다`);
+      toast(`라이브러리 '${r.entry.name}' 을 ${r.entry.version}번 버전으로 올렸어요`);
     });
   },
   async pullStyle() {
     const l = S.styleLink || {};
-    if (!confirm(`이 작품의 문체를 라이브러리의 '${l.name}' 으로 되돌릴까요? 작품에서 고친 내용은 사라집니다.`)) return;
+    if (!confirm(`이 작품의 문체를 라이브러리의 '${l.name}' 으로 되돌릴까요? 작품에서 고친 내용은 사라져요.`)) return;
     await run('적용하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/style/apply`, { style_id: l.id });
@@ -1293,7 +1317,7 @@ const actions = {
     await run('문체를 분석하는 중… (최대 1분)', async () => {
       S.lib.profile = await api('POST', '/styles/analyze', { text: S.lib.sample });
       S.libDirty = true;
-      toast('분석 결과를 불러왔습니다. 확인하고 저장하세요.');
+      toast('분석 결과를 불러왔어요. 확인하고 저장하세요.');
     });
   },
   async libSave() {
@@ -1306,7 +1330,7 @@ const actions = {
       S.libDirty = false;
       S.libNote = '';
       await libVersionsLoad();
-      toast(isNew ? '라이브러리에 저장했습니다' : `저장했습니다 (지금 ${S.lib.version}번 버전)`);
+      toast(isNew ? '라이브러리에 저장했어요' : `저장했어요 (지금 ${S.lib.version}번 버전)`);
       if (isNew) location.hash = `#/styles/${S.lib.id}`;
     });
   },
@@ -1321,32 +1345,32 @@ const actions = {
     await run('복제하는 중', async () => {
       const e = await api('POST', `/styles/${id}/duplicate`);
       S.libDirty = false;
-      toast(`'${e.name}' 을 만들었습니다`);
+      toast(`'${e.name}' 을 만들었어요`);
       location.hash = `#/styles/${e.id}`;
     });
   },
   async libDelete(id) {
     const e = (S.libs || []).find((x) => x.id === id) || S.lib || {};
     const used = e.used_by || [];
-    const note = used.length ? `\n이 문체를 쓰는 작품(${used.join(', ')})은 복사해 둔 문체를 그대로 씁니다.` : '';
+    const note = used.length ? `\n이 문체를 쓰는 작품(${used.join(', ')})은 복사해 둔 문체를 그대로 써요.` : '';
     if (!confirm(`'${e.name}' 문체를 라이브러리에서 지울까요? 되돌릴 수 없어요.${note}`)) return;
     await run('지우는 중', async () => {
       await api('DELETE', `/styles/${id}`);
       S.libDirty = false;
       S.libs = await api('GET', '/styles');
-      toast('지웠습니다');
+      toast('지웠어요');
       if (S.route[0] === 'styles' && S.route[1]) location.hash = '#/styles';
     });
   },
   async libApplyTo() {
     const name = $('#lib-target').value;
     if (!name) return toast('적용할 작품을 고르세요', true);
-    if (S.libDirty) return toast('먼저 저장하세요. 저장된 문체가 작품에 복사됩니다.', true);
-    if (!confirm(`'${S.lib.name}' 문체를 '${name}' 작품에 적용할까요? 그 작품의 스타일 프로필은 바뀝니다.`)) return;
+    if (S.libDirty) return toast('먼저 저장하세요. 저장된 문체가 작품에 복사돼요.', true);
+    if (!confirm(`'${S.lib.name}' 문체를 '${name}' 작품에 적용할까요? 그 작품의 스타일 프로필은 바뀌어요.`)) return;
     await run('적용하는 중', async () => {
       await api('POST', `/projects/${enc(name)}/style/apply`, { style_id: S.lib.id });
       S.lib = await api('GET', `/styles/${S.lib.id}`);
-      toast(`'${name}' 에 적용했습니다`);
+      toast(`'${name}' 에 적용했어요`);
     });
   },
   libAddPassage() {
@@ -1432,7 +1456,7 @@ const actions = {
   async confirmAll(arc) {
     const a = arc ? P().story_arcs.find((x) => x.number === Number(arc)) : null;
     const drafts = P().episodes.filter((e) => e.status === 'draft' && (!a || (e.plot.number >= a.start_ep && e.plot.number <= a.end_ep)));
-    if (!drafts.length) return toast('확정할 초안이 없습니다');
+    if (!drafts.length) return toast('확정할 초안이 없어요');
     if (!confirm(`초안 ${drafts.length}화를 모두 확정할까요?`)) return;
     await run('확정하는 중', async () => {
       await saveIfDirty();
@@ -1444,7 +1468,7 @@ const actions = {
 
   // 장편: 부 · 아크
   async planSeries() {
-    if (P().parts.length && !confirm('지금 부 구성을 AI 제안으로 바꿀까요? 반영 전에 확인할 수 있어요.')) return;
+    if (P().parts.length && !confirm('지금 부 구성을 AI 제안으로 바꿀까요? 적용 전에 확인할 수 있어요.')) return;
     await startJob('series');
   },
   dropSeries() {
@@ -1454,12 +1478,12 @@ const actions = {
   },
   async applySeries() {
     const lost = lostPartSummaries();
-    if (lost.length && !confirm(`범위가 바뀌어 저장된 ${lost.map((x) => `${x.number}부`).join(', ')} 요약이 사라집니다. 반영할까요?`)) return;
-    await run('반영하는 중', async () => {
+    if (lost.length && !confirm(`범위가 바뀌어 저장된 ${lost.map((x) => `${x.number}부`).join(', ')} 요약이 사라져요. 반영할까요?`)) return;
+    await run('적용하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/series/apply`, S.seriesDraft);
       S.seriesDraft = null;
-      toast('부 구성을 반영했어요. 이제 첫 아크를 기획하세요.');
+      toast('부 구성을 적용했어요. 이제 첫 아크를 기획하세요.');
     });
   },
   selectArc(n) {
@@ -1493,13 +1517,13 @@ const actions = {
     render();
   },
   async applyArc() {
-    await run('반영하는 중', async () => {
+    await run('적용하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/arcs/apply`, S.arcDraft);
       S.selArc = S.arcDraft.arc.number;
       S.arcDraft = null;
       S.arcForm = { length: 0, note: '' };
-      toast('아크를 반영했어요. 화별 플롯 초안을 만드세요.');
+      toast('아크를 적용했어요. 화별 플롯 초안을 만드세요.');
     });
   },
   async removeLastArc() {
@@ -1534,7 +1558,7 @@ const actions = {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/recap/${r.kind}/${r.number}`, { summary: r.summary });
       delete S.recapDrafts[key];
-      toast('요약을 저장했어요. 앞으로 이 구간 대신 요약이 프롬프트에 들어갑니다.');
+      toast('요약을 저장했어요. 앞으로 이 구간 대신 요약이 프롬프트에 들어가요.');
     });
   },
 
@@ -1545,7 +1569,7 @@ const actions = {
     render();
   },
   async writeEp(n) {
-    if (ep(n).text && !confirm(`${n}화 본문을 새로 생성할까요? 지금 본문은 사라집니다.`)) return;
+    if (ep(n).text && !confirm(`${n}화 본문을 새로 생성할까요? 지금 본문은 사라져요.`)) return;
     await startJob('write', n);
   },
   async saveText(n) {
@@ -1553,7 +1577,7 @@ const actions = {
       await saveIfDirty();
       S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, { text: S.textDraft[n] ?? ep(n).text });
       delete S.textDraft[n];  // 만들어 둔 상태 변경안은 남기고, 본문이 바뀌었다고 알린다 (passageNotes)
-      toast('본문을 저장했습니다');
+      toast('본문을 저장했어요');
     });
   },
   startManual(n) {
@@ -1602,7 +1626,7 @@ const actions = {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/apply`, out);
       delete S.deltas[n];
-      toast(`${n}화를 마쳤습니다`);
+      toast(`${n}화를 마쳤어요`);
       const r = S.auto && S.auto.run;
       // 자동 집필이 이 화에서 검토를 기다리고 있었으면 자동 집필 화면으로 돌아가 이어 가게 한다
       location.hash = r && r.status === 'review' && r.ep === n ? `${base()}/auto` : base();
@@ -1640,14 +1664,14 @@ const actions = {
       S.config = await api('PUT', '/config', body);
       S.health = await api('GET', '/config/health').catch(() => null);
       S.settingsDirty = false;
-      toast('설정을 저장했습니다');
+      toast('설정을 저장했어요');
     }, { render: 'success' });  // 실패하면 다시 그리지 않아 적은 키와 모델이 칸에 남는다
   },
   async clearKey() {
     if (!confirm('저장된 API 키를 지울까요?')) return;
     await run('지우는 중', async () => {
       S.config = await api('PUT', '/config', { clear_key: true });
-      toast('키를 지웠습니다');
+      toast('키를 지웠어요');
     });
   },
   async loadModels() {
@@ -1679,9 +1703,9 @@ const actions = {
   async copyBrief() {
     try {
       await navigator.clipboard.writeText(S.briefText || '');
-      toast('복사했습니다. 채팅 앱에 붙여 넣으세요.');
+      toast('복사했어요. 채팅 앱에 붙여 넣으세요.');
     } catch {
-      toast('복사하지 못했습니다. 내용을 직접 선택해 복사하세요.', true);
+      toast('복사하지 못했어요. 내용을 직접 선택해 복사하세요.', true);
     }
   },
   downloadBrief(n) {
@@ -1702,13 +1726,13 @@ const actions = {
       delete S.textDraft[n];
       delete S.deltas[n];
       delete S.briefDraft[`${S.name}:${n}:episode`];
-      toast(`${n}화 본문으로 저장했습니다`);
+      toast(`${n}화 본문으로 저장했어요`);
       location.hash = `${base()}/write/${n}`;
     });
   },
   async importJson(n) {
     const raw = $('#imp-json').value;
-    if (!raw.trim()) return toast('JSON 을 붙여 넣으세요', true);
+    if (!raw.trim()) return toast('JSON을 붙여 넣으세요', true);
     await run('확인하는 중', async () => {
       setDelta(n, await api('POST', `/projects/${enc(S.name)}/episodes/${n}/state/parse`, { raw }));
       delete S.briefDraft[`${S.name}:${n}:state`];
@@ -1839,6 +1863,17 @@ function lostPartSummaries() {
   return P().parts.filter((x) => x.summary && !keep.has(`${x.start_ep}-${x.end_ep}`));
 }
 
+/** 장편 아크 줄: 끝났고 요약도 있는 앞쪽 아크가 많으면 한 칩으로 접는다 (고른 아크는 늘 보인다). */
+function railChips(arcs, chip) {
+  const done = (a) => a.summary && arcFinished(a);
+  let k = 0;
+  while (k < arcs.length && done(arcs[k])) k++;
+  if (S.railAll || k <= 3) return arcs.map(chip).join('');
+  const folded = arcs.slice(0, k).filter((a) => a.number !== S.selArc);
+  const keep = arcs.slice(0, k).filter((a) => a.number === S.selArc);
+  return `<button type="button" class="arc-chip" data-action="railAll" aria-expanded="false"><strong>아크 ${arcs[0].number}~${arcs[k - 1].number}</strong> <span>완료 ${folded.length}개 · 펼치기</span></button>${keep.map(chip).join('')}${arcs.slice(k).map(chip).join('')}`;
+}
+
 // 화면 이동은 하나씩 차례로 처리한다. 늦게 끝난 앞 이동이 지금 화면의 데이터(지시서, 컨텍스트 등)를 덮지 않게 하고,
 // 기다리는 사이 또 옮겼으면 중간 화면은 건너뛴다
 let routeQueue = Promise.resolve();
@@ -1904,8 +1939,8 @@ async function routeNow() {
       if (!parts[2] && S.project.relationships.length) {
         S.relations = await api('GET', `/projects/${enc(S.name)}/relations`).catch((e) => ({ error: e.message }));
       }
-      if (parts[2] === 'setup') {
-        S.names = {};
+      if (parts[2] === 'setup') S.names = {};
+      if (parts[2] === 'setup' || parts[2] === 'arc') {  // 플롯 서랍의 새 인물 칸도 이름 점검을 보인다
         S.nameCheck = await api('POST', `/projects/${enc(S.name)}/names/check`, nameCheckBody()).catch(() => null);
       }
       if (parts[2] === 'style') {
@@ -2007,6 +2042,12 @@ function afterDraw(f) {
   const h = d && d.querySelector('h2');
   if (h) { h.id = 'drawer-title'; d.setAttribute('aria-labelledby', 'drawer-title'); d.removeAttribute('aria-label'); }
   document.title = pageTitle();
+  // 탭 묶음: 고른 탭만 Tab 으로 들어가고 나머지는 화살표로 옮긴다 (아래 keydown)
+  document.querySelectorAll('#app [role="tablist"]').forEach((list) => {
+    const tabs = [...list.querySelectorAll('[role="tab"]')];
+    const sel = tabs.find((t) => t.getAttribute('aria-selected') === 'true') || tabs[0];
+    tabs.forEach((t) => { t.tabIndex = t === sel ? 0 : -1; });
+  });
   const want = S.focusTarget;
   S.focusTarget = null;
   if (want && focusEl(document.querySelector(want))) return;
@@ -2061,8 +2102,9 @@ function drawApp() {
   if (typeof syncPassage === 'function') syncPassage();
   if (typeof syncIllust === 'function') syncIllust();
   if (typeof syncMarks === 'function') syncMarks();
+  if (typeof syncLines === 'function') syncLines();
   document.querySelectorAll('textarea[data-autogrow]').forEach(autosize);
-  // 상태 정리 지시서 탭이 바뀌면 다시 불러온다
+  // 상태 승인 지시서 탭이 바뀌면 다시 불러온다
   if (page === 'brief' && S.briefText === null && ep(n)) {
     api('GET', `/projects/${enc(S.name)}/episodes/${n}/brief?kind=${S.briefTab}`)
       .then((r) => r.text).catch((e) => '※ ' + e.message)
@@ -2075,17 +2117,20 @@ function sidebar(active) {
   const done = p.episodes.filter((e) => e.status === 'finalized').length;
   const total = p.meta.target_episodes;
   const cur = currentEp();
+  // 번호는 작업 순서(1~5)에만 붙인다. 도구는 어느 단계에서든 쓰므로 번호 없이 아래 묶음에 둔다
   const items = [
     ['home', base(), 'H', '작품 홈'],
     ['setup', base() + '/setup', '1', '설정 도우미'],
     ['style', base() + '/style', '2', '문체 레퍼런스'],
     ['arc', base() + '/arc', '3', serial() ? '부 · 아크 · 플롯' : '기승전결 · 플롯'],
-    ['cast', base() + '/cast', '人', '인물 · 관계도'],
-    ['lines', base() + '/lines', '⑂', '이야기 줄기'],
-    ['causal', base() + '/causal', '∴', '인과율'],
     ['write', `${base()}/write/${cur}`, '4', '집필'],
     ['review', `${base()}/review/${cur}`, '5', '상태 승인'],
-    ['brief', `${base()}/brief/${cur}`, '6', '작업지시서'],
+  ];
+  const tools = [
+    ['cast', base() + '/cast', '人', '인물 · 관계도'],
+    ['lines', base() + '/lines', '⑂', '이야기 줄기'],
+    ['causal', base() + '/causal', '∴', '인과율 · 설정 추가'],
+    ['brief', `${base()}/brief/${cur}`, '✎', '작업지시서 (API 없이)'],
     ['auto', base() + '/auto', 'A', autoMenuLabel()],
   ];
   const cfg = S.config || {};
@@ -2094,17 +2139,18 @@ function sidebar(active) {
     <button type="button" class="btn small menu-toggle" data-action="toggleMenu" aria-expanded="${!!S.menuOpen}" aria-controls="side-menu">메뉴</button>
     <div class="work-card">
       <div class="small">현재 작품</div>
-      <div style="font-size:16px;font-weight:700">${esc(p.meta.title || S.name)}</div>
+      <div style="font-size:1rem;font-weight:700">${esc(p.meta.title || S.name)}</div>
       <div class="small">${esc(p.meta.genre || '장르 미정')} · ${total}화</div>
       <div class="meter" aria-hidden="true"><i style="left:0;width:${Math.round((done / Math.max(total, 1)) * 100)}%;background:var(--green)"></i></div>
       <div class="small">${done} / ${total}화 반영 완료</div>
     </div>
     <div class="side-menu" id="side-menu">
     <div class="nav">${items.map(([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}><span class="num">${num}</span>${label}</a>`).join('')}</div>
+    <div class="nav nav-extra"><span class="small">작품 도구</span>${tools.map(([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}><span class="num">${num}</span>${label}</a>`).join('')}</div>
     <div class="nav nav-extra"><span class="small">본편과 분리</span><a href="${base()}/research"${active === 'research' ? ' aria-current="page"' : ''}><span class="num">R</span>연구 · 모델 실험</a><a href="${base()}/usage"${active === 'usage' ? ' aria-current="page"' : ''}><span class="num">$</span>사용량 · 비용</a></div>
     <div class="side-foot">
       <span class="small">본문 모델</span>
-      <strong style="font-size:13px">${esc(cfg.stages ? cfg.stages.write.model : cfg.model || '')}</strong>
+      <strong style="font-size:0.8125rem">${esc(cfg.stages ? cfg.stages.write.model : cfg.model || '')}</strong>
       ${aiWarning() ? `<span style="color:var(--red)">${esc(aiWarning())}</span>` : ''}
       <a href="#/settings">모델 · API 키 설정</a>
       <a href="#/usage">모든 작품 사용량 · 비용</a>
@@ -2134,11 +2180,11 @@ function providerOptions(cur) {
 function viewSettings() {
   const c = S.config || {};
   const src = { env: '환경 변수', file: '설정 파일', default: '기본값', none: '없음' };
-  const envNote = (s, name) => s === 'env' ? `<div class="small">환경 변수 ${name} 가 설정돼 있어 그 값이 우선합니다.</div>` : '';
+  const envNote = (s, name) => s === 'env' ? `<div class="small">환경 변수 ${name} 가 설정돼 있어 그 값이 우선해요.</div>` : '';
   const keyState = c.key_source === 'none'
     ? '<span class="chip" style="background:var(--red-soft);color:var(--red)">없음</span>'
     : `<span class="chip finalized">${esc(c.key_hint)}</span> <span class="small">${src[c.key_source]}</span>`;
-  return `${header('Canon', '모델 · API 키 설정', '여기서 저장한 값은 이 컴퓨터의 설정 파일에만 들어갑니다. 작품 폴더나 저장소에는 들어가지 않아요.', '<a class="btn" href="javascript:history.back()">돌아가기</a>')}
+  return `${header('Canon', '모델 · API 키 설정', '여기서 저장한 값은 이 컴퓨터의 설정 파일에만 들어가요. 작품 폴더나 저장소에는 들어가지 않아요.', '<a class="btn" href="javascript:history.back()">돌아가기</a>')}
     <section class="card">
       <div class="field"><label for="set-provider">생성 방식</label>
         <select id="set-provider">
@@ -2147,14 +2193,14 @@ function viewSettings() {
         <div class="small">단계별로 다르게 쓰려면 아래 '단계별 백엔드'에서 고르세요.</div></div>
       <div class="field"><label for="set-key">Gemini API 키 <span class="hint">지금: </span>${keyState}</label>
         <input id="set-key" type="password" autocomplete="off" placeholder="${c.key_source === 'none' ? 'AIza… 로 시작하는 키' : '바꿀 때만 입력'}">
-        <div class="small"><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>에서 무료로 발급받을 수 있어요. 저장한 키는 화면에 다시 보여주지 않습니다.</div>
+        <div class="small"><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>에서 무료로 발급받을 수 있어요. 저장한 키는 화면에 다시 보여주지 않아요.</div>
         ${envNote(c.key_source, 'GEMINI_API_KEY')}</div>
       <div class="field"><label for="set-model">모델</label>
         <input id="set-model" type="text" list="model-options" value="${esc(c.model_setting || '')}">
         ${modelDatalist()}
-        <div class="small">모든 단계의 기본 Gemini 모델입니다. gemini-4-argon 이 기본이고, 단계마다 바꾸려면 아래 '단계별 백엔드와 모델'에서 고르세요.</div>${envNote(c.model_source, 'CANON_MODEL')}</div>
+        <div class="small">모든 단계의 기본 Gemini 모델이에요. gemini-4-argon 이 기본이고, 단계마다 바꾸려면 아래 '단계별 백엔드와 모델'에서 고르세요.</div>${envNote(c.model_source, 'CANON_MODEL')}</div>
       <h2 style="margin-top:18px">로컬 서버</h2>
-      <p class="desc">Ollama, llama.cpp, vLLM, LM Studio 처럼 OpenAI 호환 API 를 여는 서버입니다. 주소는 /v1 까지 적습니다.</p>
+      <p class="desc">Ollama, llama.cpp, vLLM, LM Studio 처럼 OpenAI 호환 API 를 여는 서버예요. 주소는 /v1 까지 적어요.</p>
       <div class="field"><label for="set-local-url">서버 주소</label>
         <input id="set-local-url" type="text" value="${esc(c.local_url || '')}" placeholder="http://localhost:11434/v1">
         <div class="small">Ollama :11434/v1 · llama.cpp :8080/v1 · vLLM :8000/v1 · LM Studio :1234/v1</div>${envNote(c.local_url_source, 'CANON_LOCAL_URL')}</div>
@@ -2163,7 +2209,7 @@ function viewSettings() {
       <div class="field"><label for="set-local-key">서버 키 <span class="hint">지금: ${c.has_local_key ? '있음' : '없음'}</span></label>
         <input id="set-local-key" type="password" autocomplete="off" placeholder="서버가 키를 요구할 때만"></div>
       <h2 style="margin-top:18px">단계별 백엔드와 모델</h2>
-      <p class="desc">예: 계획과 검수는 gemini-4-argon, 상태 변경안과 이름 추천은 빠르고 싼 gemini-3.8-flash, 본문은 로컬 모델. 모델 칸을 비우면 그 백엔드의 기본 모델(위 '모델' 또는 로컬 '모델 이름')을 씁니다.</p>
+      <p class="desc">예: 계획과 검수는 gemini-4-argon, 상태 변경안과 이름 추천은 빠르고 싼 gemini-3.8-flash, 본문은 로컬 모델. 모델 칸을 비우면 그 백엔드의 기본 모델(위 '모델' 또는 로컬 '모델 이름')을 써요.</p>
       ${STAGES.map(([s, label]) => {
         const st = (c.stages || {})[s] || {};
         const base = st.provider === 'local' ? (c.local_model || '서버에 하나뿐인 모델') : c.model_setting;
@@ -2172,8 +2218,8 @@ function viewSettings() {
             <select id="set-stage-${s}" aria-label="${esc(label)} 백엔드"><option value="">${STAGE_PARENT_LABEL[s] || '위 생성 방식을 따름'}</option>${providerOptions((c.stage_settings || {})[s])}</select>
             <input id="set-stage-model-${s}" type="text" list="model-options" aria-label="${esc(label)} 모델" value="${esc((c.stage_model_settings || {})[s] || '')}" placeholder="모델: ${esc(base || '기본')}">
           </div>
-          ${st.source === 'env' ? `<div class="small">환경 변수 CANON_LLM_${s.toUpperCase()} 가 우선합니다.</div>` : ''}
-          ${st.model_source === 'env' ? `<div class="small">환경 변수 CANON_MODEL_${s.toUpperCase()} 가 우선합니다.</div>` : ''}</div>`;
+          ${st.source === 'env' ? `<div class="small">환경 변수 CANON_LLM_${s.toUpperCase()} 가 우선해요.</div>` : ''}
+          ${st.model_source === 'env' ? `<div class="small">환경 변수 CANON_MODEL_${s.toUpperCase()} 가 우선해요.</div>` : ''}</div>`;
       }).join('')}
       <div class="small" id="model-status">${modelStatus()}</div>
       <div class="row">
@@ -2184,7 +2230,7 @@ function viewSettings() {
       <div class="small">설정 파일: ${esc(c.path)}</div>
     </section>
     <section class="card" id="price-box">${viewPrices()}</section>
-    <div class="small">쓴 비용은 <a href="#/usage">사용량 · 비용</a> 화면에서 봅니다.</div>`;
+    <div class="small">쓴 비용은 <a href="#/usage">사용량 · 비용</a> 화면에서 봐요.</div>`;
 }
 
 // 모델 칸 추천 목록: Gemini API 와 로컬 서버에 실제로 있는 모델. 없으면 직접 적는다.
@@ -2203,7 +2249,7 @@ function modelStatus() {
   const m = S.models;
   if (!m) return '모델 목록을 불러오는 중…';
   const part = (name, r) => r.error ? `${name}: 목록을 못 불러옴 (${esc(r.error.slice(0, 120))})` : `${name} ${r.models.length}개`;
-  return `모델 칸을 누르면 고를 수 있어요. ${part('Gemini', m.gemini)} · ${part('로컬 서버', m.local)}. 목록에 없으면 이름을 직접 적어도 됩니다. <a href="javascript:void 0" data-action="loadModels">다시 불러오기</a>`;
+  return `모델 칸을 누르면 고를 수 있어요. ${part('Gemini', m.gemini)} · ${part('로컬 서버', m.local)}. 목록에 없으면 이름을 직접 적어도 돼요. <a href="javascript:void 0" data-action="loadModels">다시 불러오기</a>`;
 }
 
 async function loadModelList(force) {
@@ -2225,12 +2271,12 @@ async function loadModelList(force) {
 
 // ----- 작품 목록 -----
 
-/** AI 를 쓸 수 있는지 한 줄로 (작품 목록 · 사이드바). 쓸 수 있으면 빈 글. */
+/** AI를 쓸 수 있는지 한 줄로 (작품 목록 · 사이드바). 쓸 수 있으면 빈 글. */
 function aiWarning() {
   const h = S.health;
   const cfg = S.config || {};
   if (h && h.local === false) return `AI 연결 안 됨: 로컬 모델 서버가 응답하지 않아요 (${h.local_error || '주소를 확인하세요'}).`;
-  if (h && h.mock) return 'mock 모드: AI 를 부르지 않고 가짜 결과를 내요. 실제로 쓰려면 설정에서 Gemini 나 로컬을 고르세요.';
+  if (h && h.mock) return 'mock 모드: AI를 부르지 않고 가짜 결과를 내요. 실제로 쓰려면 설정에서 Gemini 나 로컬을 고르세요.';
   if (!cfg.has_key) return 'Gemini API 키가 없어요. 키 없이는 인물 · 설정을 직접 적을 수 있고, 플롯이 생긴 화부터는 채팅 앱 작업지시서로 쓸 수 있어요.';
   return '';
 }
@@ -2244,10 +2290,10 @@ function viewProjects() {
       <details class="proj-more"><summary class="small">관리</summary><div class="row" style="padding-top:6px">
         <button type="button" class="btn small" data-action="dupProject" data-arg="${esc(x.name)}">복제</button>
         <button type="button" class="btn small" data-action="renameProject" data-arg="${esc(x.name)}">폴더 이름 바꾸기</button>
-        <button type="button" class="btn small danger" data-action="deleteProject" data-arg="${esc(x.name)}">지우기</button></div></details>
+        <button type="button" class="btn small danger" data-action="deleteProject" data-arg="${esc(x.name)}">삭제</button></div></details>
     </div>`).join('');
   const cfg = S.config || {};
-  return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편부터 300화 장편 연재까지 씁니다.', `<a class="btn" href="#/styles">문체 라이브러리</a><a class="btn" href="#/usage">사용량 · 비용</a><a class="btn" href="#/settings">모델 · API 키 설정</a>`)}
+  return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편부터 300화 장편 연재까지 써요.', `<a class="btn" href="#/styles">문체 라이브러리</a><a class="btn" href="#/usage">사용량 · 비용</a><a class="btn" href="#/settings">모델 · API 키 설정</a>`)}
     ${aiWarning() ? `<div class="note warn">${esc(aiWarning())} <a href="#/settings" style="color:inherit;font-weight:700">설정</a></div>` : ''}
     ${list.length ? `<div class="grid-auto">${cards}</div>` : '<div class="note plain">아직 작품이 없어요. 아래에서 새 작품을 만드세요.</div>'}
     <section class="card" style="max-width:720px">
@@ -2263,7 +2309,7 @@ function viewProjects() {
       </fieldset>
       ${genrePicker()}
       ${adultCheck('id="np-adult"')}
-      ${(S.libs || []).length ? `<div class="field"><label for="np-style">문체 <span class="hint">라이브러리에서 고르면 문체 단계를 건너뛸 수 있어요. 나중에 바꿔도 됩니다</span></label>
+      ${(S.libs || []).length ? `<div class="field"><label for="np-style">문체 <span class="hint">라이브러리에서 고르면 문체 단계를 건너뛸 수 있어요. 나중에 바꿔도 돼요</span></label>
         <select id="np-style"><option value="">나중에 정하기</option>${S.libs.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}${x.source ? ` · ${esc(x.source)}` : ''}</option>`).join('')}</select></div>` : ''}
       <div class="row"><button class="btn primary" data-action="createProject">만들고 설정 시작</button><span class="small">로그라인은 다음 화면에서 칸을 채우며 만들어요.</span></div>
     </section>`;
@@ -2306,7 +2352,7 @@ function viewHome() {
   const written = count('written') + count('finalized');
   const fin = count('finalized');
   const hasStyle = !!(p.style.narration_pov || p.style.sample_passages.length);
-  const stage = (cls, st, title, sub, href) => `<a class="stage ${cls}" href="${href}"><div class="bar"></div><div class="st">${st}</div><div style="font-size:14px;font-weight:700">${title}</div><div class="small">${sub}</div></a>`;
+  const stage = (cls, st, title, sub, href) => `<a class="stage ${cls}" href="${href}"><div class="bar"></div><div class="st">${st}</div><div style="font-size:0.875rem;font-weight:700">${title}</div><div class="small">${sub}</div></a>`;
   const state = (ok, partial) => (ok ? ['done', '완료'] : partial ? ['doing', '진행 중'] : ['', '시작 전']);
   const [s1c, s1t] = state(p.characters.length > 0);
   const [s2c, s2t] = state(hasStyle);
@@ -2317,12 +2363,12 @@ function viewHome() {
   const cur = currentEp();
   const [nextLabel, nextHref] = nextStep();
 
-  const actBand = p.arc.length && !serial() ? `<div class="act-band" style="display:grid;grid-template-columns:repeat(${m.target_episodes},minmax(0,1fr));gap:6px">${actGroups(p.arc).map((g) => `<div class="act-head ${actClass(g.names[0])}" style="grid-column:span ${g.end - g.start + 1};padding:4px 8px;font-size:12px;font-weight:700">${g.names.join('·')} ${g.start}–${g.end}화</div>`).join('')}</div>` : '';
+  const actBand = p.arc.length && !serial() ? `<div class="act-band" style="display:grid;grid-template-columns:repeat(${m.target_episodes},minmax(0,1fr));gap:6px">${actGroups(p.arc).map((g) => `<div class="act-head ${actClass(g.names[0])}" style="grid-column:span ${g.end - g.start + 1};padding:4px 8px;font-size:0.75rem;font-weight:700">${g.names.join('·')} ${g.start}~${g.end}화</div>`).join('')}</div>` : '';
   // 장편은 지금 쓰는 부(없으면 지금 아크 근처 60화)만 칸으로 보인다
   const curPart = serial() ? p.parts.find((x) => x.start_ep <= cur && cur <= x.end_ep) : null;
   const shown = !serial() ? eps : curPart ? eps.filter((e) => e.plot.number >= curPart.start_ep && e.plot.number <= curPart.end_ep)
     : eps.filter((e) => Math.abs(e.plot.number - cur) <= 30);
-  const arcBand = serial() && p.story_arcs.length ? `<div class="arc-rail">${p.story_arcs.filter((a) => shown.some((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep)).map((a) => `<a class="arc-chip" href="${base()}/arc"><strong>아크 ${a.number}</strong> <span>${a.start_ep}–${a.end_ep}화 ${esc(a.title)}</span></a>`).join('')}</div>` : '';
+  const arcBand = serial() && p.story_arcs.length ? `<div class="arc-rail">${p.story_arcs.filter((a) => shown.some((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep)).map((a) => `<a class="arc-chip" href="${base()}/arc"><strong>아크 ${a.number}</strong> <span>${a.start_ep}~${a.end_ep}화 ${esc(a.title)}</span></a>`).join('')}</div>` : '';
   const cells = shown.map((e) => {
     const n = e.plot.number;
     const href = e.status === 'draft' ? base() + '/arc' : e.status === 'written' ? `${base()}/review/${n}` : `${base()}/write/${n}`;
@@ -2332,38 +2378,38 @@ function viewHome() {
   const states = p.characters.map((c) => {
     const s = p.states.find((x) => x.character_id === c.id) || {};
     const lines = [['감정', s.emotional_state], ['목표', s.current_goal], ['위치', s.location]].filter(([, v]) => v);
-    return `<div class="kv"><div style="font-size:14px;font-weight:700">${esc(c.name)} <span class="small" style="font-weight:400">${esc(c.role)}</span></div>${lines.map(([k, v]) => `<div class="line">${k}: ${esc(v)}</div>`).join('') || '<div class="line small">아직 변화 없음</div>'}</div>`;
+    return `<div class="kv"><div style="font-size:0.875rem;font-weight:700">${esc(c.name)} <span class="small" style="font-weight:400">${esc(c.role)}</span></div>${lines.map(([k, v]) => `<div class="line">${k}: ${esc(v)}</div>`).join('') || '<div class="line small">아직 변화 없음</div>'}</div>`;
   }).join('');
   const openFs = p.foreshadows.filter((f) => f.status === 'open');
   const lastWarn = p.history.length ? p.history[p.history.length - 1].warnings : [];
 
-  return `${header(`${esc(m.genre || '장르 미정')}${m.adult ? ' · 성인' : ''} · 전 ${m.target_episodes}화 · 화당 ${Number(m.words_per_episode).toLocaleString()}자`, m.title || S.name, esc(m.logline), `${!serial() && fin && fin === m.target_episodes ? `<a class="btn" href="${base()}/convert">장편으로 늘리기</a>` : ''}<a class="btn" href="${base()}/arc">플롯 보드</a><a class="btn primary" href="${nextHref}">${esc(nextLabel)}</a>`)}
+  return `${header(`${esc(m.genre || '장르 미정')}${m.adult ? ' · 성인' : ''} · 전 ${m.target_episodes}화 · 화당 ${Number(m.words_per_episode).toLocaleString()}자`, m.title || S.name, esc(m.logline), `${!serial() && fin && fin === m.target_episodes ? `<a class="btn" href="${base()}/convert">장편으로 늘리기</a>` : ''}<a class="btn" href="${base()}/arc">${serial() ? '부 · 아크 · 플롯' : '기승전결 · 플롯'}</a><a class="btn primary" href="${nextHref}">${esc(nextLabel)}</a>`)}
     <section class="card" aria-label="진행 단계"><div class="stages">
       ${stage(s1c, s1t, '1 설정', `인물 ${p.characters.length} · 관계 ${p.relationships.length}`, base() + '/setup')}
       ${stage(s2c, s2t, '2 문체', hasStyle ? `대표 문단 ${p.style.sample_passages.length}개` : '선택 사항', base() + '/style')}
       ${serial() ? stage(s3c, s3t, '3 부 · 아크', p.story_arcs.length ? `아크 ${p.story_arcs.length}개 · ${plannedUntil()}화까지` : '없음', base() + '/arc') : stage(s3c, s3t, '3 기승전결', p.arc.length ? '4구간' : '없음', base() + '/arc')}
-      ${stage(s4c, s4t, '플롯 확정', `${confirmed} / ${m.target_episodes}화`, base() + '/arc')}
+      ${stage(s4c, s4t, '3 플롯 확정', `${confirmed} / ${m.target_episodes}화`, base() + '/arc')}
       ${stage(s5c, s5t, '4 집필', `${written} / ${m.target_episodes}화`, `${base()}/write/${cur}`)}
-      ${stage(s6c, s6t, '5 상태 반영', `${fin} / ${m.target_episodes}화`, `${base()}/review/${cur}`)}
+      ${stage(s6c, s6t, '5 상태 승인', `${fin} / ${m.target_episodes}화`, `${base()}/review/${cur}`)}
     </div></section>
     <section class="card">
-      <div class="between"><h2>회차 진행</h2><div class="legend">
+      <div class="between"><h2>화별 진행</h2><div class="legend">
         <span><i style="background:var(--chip);border:1px solid var(--line-strong)"></i>플롯 초안</span>
         <span><i style="background:var(--accent)"></i>플롯 확정</span>
         <span><i style="background:var(--amber)"></i>본문 작성됨</span>
         <span><i style="background:var(--green)"></i>반영 완료</span></div></div>
-      ${eps.length ? `${actBand}${arcBand}<div class="ep-grid"${serial() ? '' : ` style="grid-template-columns:repeat(${m.target_episodes},minmax(0,1fr))"`}>${cells}</div>${curPart ? `<div class="small">${curPart.number}부 ${esc(curPart.title)} (${curPart.start_ep}–${curPart.end_ep}화)만 보여요. 전체는 <a href="${base()}/arc">부 · 아크</a>에서 보세요.</div>` : ''}` : `<div class="note plain">아직 화별 플롯이 없어요. <a href="${base()}/arc">기승전결 · 플롯</a>에서 만드세요.</div>`}
-      ${eps.some((e) => e.status === 'written') ? `<div class="note warn">${cur}화 본문이 작성됐습니다. 상태 변경안을 승인해야 다음 화를 쓸 수 있어요. <a href="${base()}/review/${cur}" style="color:inherit;font-weight:700">${cur}화 변경안 검토</a></div>` : ''}
+      ${eps.length ? `${actBand}${arcBand}<div class="ep-grid"${serial() ? '' : ` style="grid-template-columns:repeat(${m.target_episodes},minmax(0,1fr))"`}>${cells}</div>${curPart ? `<div class="small">${curPart.number}부 ${esc(curPart.title)} (${curPart.start_ep}~${curPart.end_ep}화)만 보여요. 전체는 <a href="${base()}/arc">부 · 아크</a>에서 보세요.</div>` : ''}` : `<div class="note plain">아직 화별 플롯이 없어요. <a href="${base()}/arc">기승전결 · 플롯</a>에서 만드세요.</div>`}
+      ${eps.some((e) => e.status === 'written') ? `<div class="note warn">${cur}화 본문이 작성됐어요. 상태 변경안을 승인해야 다음 화를 쓸 수 있어요. <a href="${base()}/review/${cur}" style="color:inherit;font-weight:700">${cur}화 상태 승인</a></div>` : ''}
     </section>
     <div class="grid-auto">
-      <section class="card"><div class="between"><h2>인물 현재 상태</h2><span class="small">${fin ? fin + '화 기준' : '시작 시점'}</span></div>${states || '<div class="small">인물이 없습니다</div>'}<a href="${base()}/setup" style="font-size:13px">인물 · 관계 전체 보기</a></section>
+      <section class="card"><div class="between"><h2>인물 현재 상태</h2><span class="small">${fin ? fin + '화 기준' : '시작 시점'}</span></div>${states || '<div class="small">인물이 없어요</div>'}<a href="${base()}/setup" style="font-size:0.8125rem">인물 · 관계 전체 보기</a></section>
       <section class="card">${relationHeader('관계')}${p.relationships.length ? relationLines(S.relations) : '<div class="small">관계가 없어요. 설정 도우미에서 관계를 추가하세요.</div>'}</section>
       <section class="card"><div class="between"><h2>열린 복선</h2><span class="small">${openFs.length}개</span></div>
-        ${openFs.map((f) => `<div class="row" style="align-items:flex-start;flex-wrap:nowrap"><span class="chip">${f.planted_ep}화</span><div style="font-size:13px;line-height:1.5">${esc(f.description)}<br><span class="small">${esc(f.id)}</span></div></div>`).join('') || '<div class="small">없음</div>'}
+        ${openFs.map((f) => `<div class="row" style="align-items:flex-start;flex-wrap:nowrap"><span class="chip">${f.planted_ep}화</span><div style="font-size:0.8125rem;line-height:1.5">${esc(f.description)}<br><span class="small">${esc(f.id)}</span></div></div>`).join('') || '<div class="small">없음</div>'}
       </section>
       <section class="card"><div class="between"><h2>확정 사실</h2><span class="small">${p.facts.length}개</span></div>
-        ${p.facts.length ? `<ul style="padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:13px;line-height:1.5;color:var(--text-2)">${p.facts.slice(-8).map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` : '<div class="small">없음</div>'}
-        ${p.facts.length > 8 ? `<details><summary class="small">전체 ${p.facts.length}개 보기</summary><ol style="padding-left:22px;display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.5;color:var(--text-2);margin-top:8px">${p.facts.map((f) => `<li>${esc(f)}</li>`).join('')}</ol></details>` : ''}
+        ${p.facts.length ? `<ul style="padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:0.8125rem;line-height:1.5;color:var(--text-2)">${p.facts.slice(-8).map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` : '<div class="small">없음</div>'}
+        ${p.facts.length > 8 ? `<details><summary class="small">전체 ${p.facts.length}개 보기</summary><ol style="padding-left:22px;display:flex;flex-direction:column;gap:6px;font-size:0.8125rem;line-height:1.5;color:var(--text-2);margin-top:8px">${p.facts.map((f) => `<li>${esc(f)}</li>`).join('')}</ol></details>` : ''}
         ${lastWarn.length ? `<div class="note warn">최근 경고: ${lastWarn.map(esc).join(' / ')}</div>` : ''}
       </section>
     </div>`;
@@ -2408,17 +2454,17 @@ function genrePicker() {
   const opts = (kind) => cat.filter((g) => g.kind === kind).map((g) => `<button type="button" aria-pressed="${m.genres.includes(g.id)}" data-action="toggleGenre" data-arg="${esc(g.id)}" title="${esc(g.summary)}">${esc(g.name)}</button>`).join('');
   const custom = m.genres.filter((id) => !genreById(id));
   const picked = m.genres.map(genreById).filter(Boolean);
-  return `<div id="genre-picker" class="genre-picker"><div class="field"><span class="label-text">장르 <span class="hint">여러 개 고를 수 있어요. 고른 장르의 안내가 AI 프롬프트에 들어갑니다</span></span>
+  return `<div id="genre-picker" class="genre-picker"><div class="field"><span class="label-text">장르 <span class="hint">여러 개 고를 수 있어요. 고른 장르의 안내가 AI 프롬프트에 들어가요</span></span>
       <div class="genre-opts" role="group" aria-label="장르">${opts('장르')}</div>
       <div class="small" style="margin-top:4px">요소</div>
-      <div class="genre-opts" role="group" aria-label="요소">${opts('요소')}${custom.map((c) => `<button type="button" aria-pressed="true" data-action="toggleGenre" data-arg="${esc(c)}" title="직접 적은 장르, 누르면 빠집니다">${esc(c)} ✕</button>`).join('')}</div>
+      <div class="genre-opts" role="group" aria-label="요소">${opts('요소')}${custom.map((c) => `<button type="button" aria-pressed="true" data-action="toggleGenre" data-arg="${esc(c)}" title="직접 적은 장르, 누르면 빠져요">${esc(c)} ✕</button>`).join('')}</div>
       <div class="row" style="flex-wrap:nowrap"><input id="genre-custom" type="text" aria-label="직접 적는 장르" placeholder="목록에 없으면 직접 적기 (예: 오컬트)"><button type="button" class="btn small" style="white-space:nowrap;flex:none" data-action="addCustomGenre">추가</button></div>
     </div>
     ${picked.length ? `<div class="genre-guides">${picked.map(genreGuide).join('')}</div>` : ''}</div>`;
 }
 
 function adultCheck(attrs) {
-  return `<label class="check-row"><input type="checkbox" ${attrs}><span><strong>성인물</strong> <span class="small">성인 독자 대상. 끄면 노골적인 성적 묘사와 과도한 잔혹 묘사를 피하도록 지시합니다</span></span></label>`;
+  return `<label class="check-row"><input type="checkbox" ${attrs}><span><strong>성인물</strong> <span class="small">성인 독자 대상. 끄면 노골적인 성적 묘사와 과도한 잔혹 묘사를 피하도록 지시해요</span></span></label>`;
 }
 
 // ----- 1. 설정 도우미 -----
@@ -2490,12 +2536,12 @@ function loglineBuilder() {
       .map((v) => `<button type="button" data-action="fillSlot" data-arg="${esc(k + '|' + v)}">${esc(v)}</button>`).join('');
     return `<div class="slot">${input(label, 'meta.logline_parts.' + k, { hint })}${chips ? `<div class="genre-opts ex-opts" role="group" aria-label="${esc(label)} 예시">${chips}</div>` : ''}</div>`;
   }).join('');
-  return `<div class="logline-box"><span class="label-text">로그라인 <span class="hint">다섯 칸을 채우면 한 문장으로 합쳐요. 점선 예시를 누르면 칸에 들어갑니다</span></span>
-    ${legacy ? '<div class="note plain">지금 로그라인은 한 문장으로만 저장되어 있어요. 칸을 채우면 칸 내용으로 바뀝니다.</div>' : ''}
+  return `<div class="logline-box"><span class="label-text">로그라인 <span class="hint">다섯 칸을 채우면 한 문장으로 합쳐요. 점선 예시를 누르면 칸에 들어가요</span></span>
+    ${legacy ? '<div class="note plain">지금 로그라인은 한 문장으로만 저장되어 있어요. 칸을 채우면 칸 내용으로 바뀌어요.</div>' : ''}
     ${slots}
     <div class="logline-out"><p id="logline-preview" class="logline-preview" aria-live="polite">${esc(m.logline || LOGLINE_EMPTY)}</p><ul id="logline-checks" class="logline-checks">${loglineChecksHtml(m)}</ul></div>
     ${exs.length ? `<details><summary>예시 로그라인 ${exs.length}개 보기</summary><div class="ex-list">${exs.map((e, i) => `<div class="ex-item"><span>${esc(composeLogline(e))}</span><button type="button" class="btn small" data-action="useExample" data-arg="${i}">이 예시로 채우기</button></div>`).join('')}</div></details>` : ''}
-    <details${legacy ? ' open' : ''}><summary>한 문장으로 직접 고쳐 쓰기</summary>${input('로그라인 문장', 'meta.logline', { rows: 3, hint: '칸을 다시 고치면 칸 내용으로 바뀝니다' })}</details>
+    <details${legacy ? ' open' : ''}><summary>한 문장으로 직접 고쳐 쓰기</summary>${input('로그라인 문장', 'meta.logline', { rows: 3, hint: '칸을 다시 고치면 칸 내용으로 바뀌어요' })}</details>
   </div>`;
 }
 
@@ -2556,7 +2602,7 @@ function relRow(r, i) {
       <button class="btn icon-btn danger" data-action="removeRelationship" data-arg="${i}" aria-label="관계 삭제">✕</button>
     </div>
     <div class="genre-opts ex-opts" role="group" aria-label="어떤 사이 예시">${chips(REL_TYPES.map((t) => [t, t]), (t) => r.type === t, 'setRelType')}</div>
-    ${started ? `<div class="small">지금 호감 ${r.affinity} · 긴장 ${r.tension}. 첫 반영 뒤에는 본문의 관계 사건으로 바뀝니다.</div>` : `${view('a_view', r.a, r.b)}${view('b_view', r.b, r.a)}`}
+    ${started ? `<div class="small">지금 호감 ${r.affinity} · 긴장 ${r.tension}. 첫 반영 뒤에는 본문의 관계 사건으로 바뀌어요.</div>` : `${view('a_view', r.a, r.b)}${view('b_view', r.b, r.a)}`}
     <div class="rel-line"><span class="label-text">원하는 게 부딪치나</span><div class="genre-opts" role="group" aria-label="목표 충돌">${chips(CONFLICTS, (w) => conflictWord(r.goal_conflict || 0) === w, 'setConflict')}</div></div>
     ${started ? '' : `<details><summary>숫자로 직접 정하기</summary><div class="grid-2" style="padding-top:8px">
       <div class="field"><label for="raf${i}">시작 호감 <output id="raf${i}o">${r.affinity}</output> <span class="hint">보는 방식을 고른 방향은 고른 말이 우선</span></label><input id="raf${i}" type="range" min="-5" max="5" value="${r.affinity}" data-bind="${b}.affinity" data-kind="int" data-out="raf${i}o"></div>
@@ -2571,7 +2617,7 @@ function refreshRel(i) {
 }
 
 async function loadNames(key, req, ai) {
-  await run(ai ? 'AI 가 고르는 중' : '후보 뽑는 중', async () => {
+  await run(ai ? 'AI가 고르는 중' : '후보 뽑는 중', async () => {
     const r = await api('POST', `/projects/${enc(S.name)}/names`, { ...req, ai, n: 8, project: P() });
     S.names[key] = { ...r, ai };
     if (S.nameCheck) Object.assign(S.nameCheck, { style: r.style, detected: r.detected });
@@ -2589,6 +2635,7 @@ async function checkNames(show = false) {
   S.nameCheck = r;
   const box = $('#name-check');
   if (box) box.outerHTML = nameCheckBox();
+  document.querySelectorAll('[data-name-issues]').forEach((el) => { el.outerHTML = nameIssuesFor(el.dataset.nameIssues); });
   const auto = $('#name-style-auto');
   if (auto) auto.textContent = `자동 (지금: ${styleLabel(r.detected)})`;
   if (show) toast(r.warnings.length ? `이름 점검: ${r.warnings.length}건` : '이름 점검: 문제 없음');
@@ -2599,10 +2646,34 @@ function styleLabel(id) {
   return st ? st.label : id || '';
 }
 
+/** 이름 점검 묶음: 종류별 소제목, 같은 이름 · 같은 성 뺀 이름만 경고 색, 나머지는 안내 색. 줄마다 그 인물 이름 칸으로 가는 버튼. */
 function nameCheckBox() {
-  const w = (S.nameCheck || {}).warnings || [];
-  if (!w.length) return '<div id="name-check"></div>';
-  return `<div id="name-check" class="note warn"><strong>이름 점검</strong><ul style="margin:4px 0 0;padding-left:18px">${w.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>`;
+  const nc = S.nameCheck || {};
+  const issues = nc.issues || (nc.warnings || []).map((text) => ({ kind: 'other', level: 'warn', text, ids: [] }));
+  if (!issues.length) return '<div id="name-check"></div>';
+  const kinds = nc.kinds || {};
+  const order = ['same', 'given', 'confusable', 'era', 'style', 'overused', 'other'];
+  const warn = issues.some((i) => i.level === 'warn');
+  const groups = order.map((k) => [k, issues.filter((i) => i.kind === k)]).filter(([, l]) => l.length);
+  const body = groups.map(([k, list]) => `<div class="small" style="margin-top:6px;font-weight:700">${esc(kinds[k] || '기타')}</div>
+    <ul style="margin:2px 0 0;padding-left:18px">${list.map((i) => `<li>${esc(i.text)} ${nameJump(i.ids)}</li>`).join('')}</ul>`).join('');
+  const head = `이름 점검 ${issues.length}건${warn ? ` · 같은 이름 ${issues.filter((i) => i.level === 'warn').length}건` : ''}`;
+  return `<div id="name-check" class="note ${warn ? 'warn' : 'info'}">${issues.length > 3
+    ? `<details${warn ? ' open' : ''}><summary><strong>${head}</strong></summary>${body}</details>` : `<strong>${head}</strong>${body}`}</div>`;
+}
+
+/** 경고 줄의 인물 이름 버튼: 누르면 그 인물 카드의 이름 칸으로 간다 (후보 인물은 카드가 없어 이름만 보인다). */
+function nameJump(ids) {
+  return (ids || []).map((id) => {
+    const i = P().characters.findIndex((c) => c.id === id);
+    return i < 0 ? '' : `<button type="button" class="link-btn small" data-action="focusName" data-arg="${i}" aria-label="${i + 1}번 인물 ${esc(P().characters[i].name || id)} 이름 칸으로">${i + 1}번 ${esc(P().characters[i].name || id)}</button>`;
+  }).join(' ');
+}
+
+/** 인물 카드 · 플롯 서랍의 새 인물 칸 아래: 그 인물에 해당하는 이름 점검만 작게 (위 묶음이 화면 밖이어도 보이게). */
+function nameIssuesFor(id) {
+  const list = ((S.nameCheck || {}).issues || []).filter((i) => (i.ids || []).includes(id));
+  return `<div data-name-issues="${esc(id)}">${list.map((i) => `<div class="small" style="color:${i.level === 'warn' ? 'var(--amber-ink)' : 'var(--muted)'}">${esc(i.text)}</div>`).join('')}</div>`;
 }
 
 // 후보 칩. AI 추천이면 이유를, 코드 후보면 시대·종류 메모를 같이 보여 준다
@@ -2639,8 +2710,9 @@ function viewSetup() {
   const chars = p.characters.map((c, i) => {
     const b = `characters.${i}`;
     return `<article class="char-card">
-      <div class="between"><strong style="font-size:16px">${esc(c.name || '이름 없음')}</strong><button class="btn small danger" data-action="removeCharacter" data-arg="${i}" aria-label="${esc(c.name || c.id)} 삭제">삭제</button></div>
+      <div class="between"><strong style="font-size:1rem">${esc(c.name || '이름 없음')}</strong><button class="btn small danger" data-action="removeCharacter" data-arg="${i}" aria-label="${esc(c.name || c.id)} 삭제">삭제</button></div>
       <div class="grid-2">${input('이름', b + '.name')}${input('역할', b + '.role', { placeholder: '주인공, 상대역, 조력자…' })}</div>
+      ${nameIssuesFor(c.id)}
       <div class="grid-2">${input('나이', b + '.age', { placeholder: '예: 17세, 40대 초반' })}${input('성별', b + '.gender', { placeholder: '남 / 여' })}</div>
       ${tierSelect(c, b, 'tier-' + i)}
       <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보 뽑기</button><button type="button" class="btn small" data-action="nameAI" data-arg="${esc(c.id)}">AI 이름 추천</button></div>
@@ -2660,7 +2732,7 @@ function viewSetup() {
 
   const rels = p.relationships.map(relRow).join('');
 
-  return `${header('1단계', '설정 도우미', '채운 칸은 그대로 두고, 빈칸만 AI 가 제안합니다. 제안에서 원하는 인물과 관계만 골라 반영하세요.', `${((b) => `<button class="btn" data-action="suggest"${b.attr}>${b.label}</button>`)(jobBtn('suggest', null, '빈칸 AI 제안받기'))}<a class="btn primary" href="${base()}/style">문체로</a>`)}
+  return `${header('1단계', '설정 도우미', '채운 칸은 그대로 두고, 빈칸만 AI가 제안해요. 제안에서 원하는 인물과 관계만 골라 적용하세요.', `${((b) => `<button class="btn" data-action="suggest"${b.attr}>${b.label}</button>`)(jobBtn('suggest', null, '빈칸 AI 제안받기'))}<a class="btn primary" href="${base()}/style">문체로</a>`)}
     ${S.suggestion ? viewSuggestion() : ''}
     <div class="cols">
       <div class="col">
@@ -2690,13 +2762,13 @@ function viewSetup() {
       <div class="col wide">
         <section class="card">
           <div class="between"><h2>인물 <span class="small">${p.characters.length}명</span></h2><button class="btn small" data-action="addCharacter">+ 인물 추가</button></div>
-          <p class="small">이름, 말투, 성격은 고정 설정입니다. 회차가 지나며 바뀌는 감정과 목표는 상태 승인 화면에서 관리합니다.</p>
-          <div class="row"><button type="button" class="btn small ghost" data-action="checkNames">이름 점검</button><span class="small">글자가 겹치는 이름, 나이와 안 맞는 이름, AI 가 자주 짓는 이름을 찾아요</span></div>
+          <p class="small">이름, 말투, 성격은 고정 설정이에요. 회차가 지나며 바뀌는 감정과 목표는 상태 승인 화면에서 관리해요.</p>
+          <div class="row"><button type="button" class="btn small ghost" data-action="checkNames">이름 점검</button><span class="small">글자가 겹치는 이름, 나이와 안 맞는 이름, AI가 자주 짓는 이름을 찾아요</span></div>
           ${nameCheckBox()}
           ${chars ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">${chars}</div>` : '<div class="note plain">인물이 없어요. 직접 추가하거나 AI 제안을 받으세요.</div>'}
         </section>
         <section class="card">
-          <div class="between"><h2>관계</h2><div class="row"><span class="small">${P().snapshots.length ? '첫 반영 뒤에는 관계 사건으로 계산됩니다' : '서로 어떻게 보는지 고르면 시작 관계를 계산해요. 긴장은 자동 계산'}</span><button class="btn small" data-action="addRelationship"${autoOn() ? ' disabled' : ''}>+ 관계 추가</button></div></div>
+          <div class="between"><h2>관계</h2><div class="row"><span class="small">${P().snapshots.length ? '첫 반영 뒤에는 관계 사건으로 계산돼요' : '서로 어떻게 보는지 고르면 시작 관계를 계산해요. 긴장은 자동 계산'}</span><button class="btn small" data-action="addRelationship"${autoOn() ? ' disabled' : ''}>+ 관계 추가</button></div></div>
           ${autoOn() ? `<div class="note warn" id="rel-lock">자동 집필이 도는 동안은 관계를 고칠 수 없어요. 반영하는 관계와 겹치지 않게 서버가 받지 않아요. 고치려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요.</div>` : ''}
           ${rels ? (autoOn() ? `<fieldset disabled class="lockset" aria-describedby="rel-lock">${rels}</fieldset>` : rels) : '<div class="small">관계가 없어요.</div>'}
         </section>
@@ -2731,8 +2803,8 @@ function viewSuggestion() {
   const exists = (c) => sameChar(c);
   const clash = (c) => !sameChar(c) && P().characters.some((x) => x.id === c.id);
   return `<section class="card" style="border:2px solid var(--accent)">
-    <div class="between"><h2>AI 제안 <span class="chip ai">반영 전</span></h2>${proposalActions(['dropSuggestion'], ['applySuggestion'])}</div>
-    <p class="small">주제, 톤, 세계관은 비어 있는 칸에만 들어갑니다. 이미 있는 인물 id 는 건너뜁니다.</p>
+    <div class="between"><h2>AI 제안 <span class="chip ai">적용 전</span></h2>${proposalActions(['dropSuggestion'], ['applySuggestion'])}</div>
+    <p class="small">주제, 톤, 세계관은 비어 있는 칸에만 들어가요. 이미 있는 인물 id 는 건너뛰어요.</p>
     <div class="sug-fields">${SUG_FIELDS.map(([k, label]) => {
     const v = sugValue(s, k);
     if (!v.length) return '';
@@ -2741,14 +2813,14 @@ function viewSuggestion() {
   }).join('')}</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
       ${s.characters.map((c, i) => `<label class="char-card suggested" style="cursor:pointer"><span class="row"><input type="checkbox" data-pick="sc${i}"${S.picks['sc' + i] ? ' checked' : ''}${exists(c) ? ' disabled' : ''}><strong>${esc(c.name)}</strong><span class="small">${esc(c.role)} · ${esc(c.id)}${exists(c) ? ' · 이미 있음' : clash(c) ? ' · 같은 id 의 다른 인물이 있어 새 id 로 넣어요' : ''}</span></span>
-        <span style="font-size:13px;line-height:1.5">목표: ${esc(c.goal)}<br>말투: ${esc(c.speech_style)}</span></label>`).join('')}
+        <span style="font-size:0.8125rem;line-height:1.5">목표: ${esc(c.goal)}<br>말투: ${esc(c.speech_style)}</span></label>`).join('')}
     </div>
     ${s.relationships.map((r, i) => {
     const a = sugEnd(r.a);
     const b = sugEnd(r.b);
     const nm = (c, id) => esc(c ? c.name || c.id : id);
     const off = !a || !b;
-    return `<label class="row" style="font-size:13px"><input type="checkbox" data-pick="sr${i}"${S.picks['sr' + i] && !off ? ' checked' : ''}${off ? ' disabled' : ''}>${nm(a, r.a)} ↔ ${nm(b, r.b)} · ${esc(r.type)} · ${(r.a_view || []).length || (r.b_view || []).length ? `${nm(a, r.a)}→${nm(b, r.b)} ${esc((r.a_view || []).join(', ') || '-')} · ${nm(b, r.b)}→${nm(a, r.a)} ${esc((r.b_view || []).join(', ') || '-')}` : `호감 ${r.affinity} · 긴장 ${r.tension}`}${off ? ' <span class="small">(고르지 않은 인물이라 넣지 않아요)</span>' : ''}</label>`;
+    return `<label class="row" style="font-size:0.8125rem"><input type="checkbox" data-pick="sr${i}"${S.picks['sr' + i] && !off ? ' checked' : ''}${off ? ' disabled' : ''}>${nm(a, r.a)} ↔ ${nm(b, r.b)} · ${esc(r.type)} · ${(r.a_view || []).length || (r.b_view || []).length ? `${nm(a, r.a)}→${nm(b, r.b)} ${esc((r.a_view || []).join(', ') || '-')} · ${nm(b, r.b)}→${nm(a, r.a)} ${esc((r.b_view || []).join(', ') || '-')}` : `호감 ${r.affinity} · 긴장 ${r.tension}`}${off ? ' <span class="small">(고르지 않은 인물이라 넣지 않아요)</span>' : ''}</label>`;
   }).join('')}
   </section>`;
 }
@@ -2790,10 +2862,10 @@ function profileFields(base, root) {
     </div>
     ${f('금지 표현', 'banned_phrases', { kind: 'list', rows: 2, placeholder: '본문에 나오면 경고할 표현, 한 줄에 하나씩' })}
     <div class="between"><h3>문체 표지 <span class="small" style="font-weight:400">어미, 조사, 말버릇과 원문 빈도. 넘치거나 빠지면 경고</span></h3><button class="btn small" data-action="${root ? 'libAddMarker' : 'addMarker'}">+ 표지</button></div>
-    ${markers || '<div class="small">아직 없어요. 문체 분석을 하면 원문에서 골라 빈도를 셉니다.</div>'}
+    ${markers || '<div class="small">아직 없어요. 문체 분석을 하면 원문에서 골라 빈도를 세어요.</div>'}
     ${deviceFields(base, root)}
     <div class="between"><h3>대표 문단 <span class="small" style="font-weight:400">본문 생성 때 그대로 보여줄 원문 예시, 2~4개</span></h3><button class="btn small" data-action="${root ? 'libAddPassage' : 'addPassage'}">+ 문단</button></div>
-    ${passages || '<div class="small">아직 없어요. 문체 분석을 하면 원문에서 골라 넣습니다.</div>'}`;
+    ${passages || '<div class="small">아직 없어요. 문체 분석을 하면 원문에서 골라 넣어요.</div>'}`;
 }
 
 /** 작품 문체 화면 위쪽: 라이브러리에서 가져오기, 라이브러리에 저장하기 */
@@ -2813,7 +2885,7 @@ function styleLibraryCard() {
   const opts = libs.map((x) => `<option value="${esc(x.id)}"${x.id === l.id ? ' selected' : ''}>${esc(x.name)}${x.source ? ` · ${esc(x.source)}` : ''}</option>`).join('');
   const status = {
     none: '<span class="small">이 작품에서 직접 만든 문체예요.</span>',
-    missing: '<span class="small">가져온 라이브러리 항목이 지워졌어요. 작품에 복사된 문체는 그대로 씁니다.</span>',
+    missing: '<span class="small">가져온 라이브러리 항목이 지워졌어요. 작품에 복사된 문체는 그대로 써요.</span>',
     same: `<span class="chip finalized">라이브러리와 같음</span> <a href="#/styles/${esc(l.id)}">${esc(l.name)}</a> <span class="small">${l.version}번 버전</span>`,
     changed: `<span class="chip written">라이브러리와 다름</span> <a href="#/styles/${esc(l.id)}">${esc(l.name)}</a> <span class="small">${styleChangeWho(l)}</span>`,
   }[l.state] || '';
@@ -2836,17 +2908,17 @@ function styleLibraryCard() {
 }
 
 function viewStyle() {
-  return `${header('2단계', '문체 레퍼런스', '닮고 싶은 소설 문단을 붙여 넣으면 문체 규칙을 뽑습니다. 규칙과 원문 예시가 매 화 본문 생성에 함께 들어갑니다. 라이브러리에 저장한 문체를 그대로 가져올 수도 있어요.', `<a class="btn primary" href="${base()}/arc">기승전결로</a>`)}
+  return `${header('2단계', '문체 레퍼런스', '닮고 싶은 소설 문단을 붙여 넣으면 문체 규칙을 뽑아요. 규칙과 원문 예시가 매 화 본문 생성에 함께 들어가요. 라이브러리에 저장한 문체를 그대로 가져올 수도 있어요.', `<a class="btn primary" href="${base()}/arc">기승전결로</a>`)}
     <div class="cols">
       <div class="col">
         ${styleLibraryCard()}
         ${learnCard()}
         <section class="card">
           <div class="between"><h2>예시 원문</h2><span class="small"><span id="sample-count">${S.styleSample.length.toLocaleString()}</span>자 · 2,000자 이상 권장</span></div>
-          <label for="sample" class="small">소설 본문을 붙여 넣으세요. 원문은 작품에 저장되지 않고 고른 대표 문단만 남습니다. 라이브러리에 저장하면 원문도 라이브러리에 함께 보관합니다.</label>
-          <textarea id="sample" rows="16" data-local="styleSample" oninput="document.getElementById('sample-count').textContent=this.value.length.toLocaleString()" style="font-family:var(--serif);font-size:15px;line-height:1.9">${esc(S.styleSample)}</textarea>
+          <label for="sample" class="small">소설 본문을 붙여 넣으세요. 원문은 작품에 저장되지 않고 고른 대표 문단만 남아요. 라이브러리에 저장하면 원문도 라이브러리에 함께 보관해요.</label>
+          <textarea id="sample" rows="16" data-local="styleSample" oninput="document.getElementById('sample-count').textContent=this.value.length.toLocaleString()" style="font-family:var(--serif);font-size:0.9375rem;line-height:1.9">${esc(S.styleSample)}</textarea>
           <div><button class="btn dark" data-action="analyzeStyle">문체 분석</button></div>
-          <div class="note plain">원문은 문체 분석과 예시 문단으로만 쓰입니다. 내용이나 인물은 작품에 가져오지 않습니다.</div>
+          <div class="note plain">원문은 문체 분석과 예시 문단으로만 쓰여요. 내용이나 인물은 작품에 가져오지 않아요.</div>
         </section>
       </div>
       <section class="card col wide">
@@ -2858,9 +2930,26 @@ function viewStyle() {
 
 // ----- 문체 라이브러리 -----
 
+/** 날짜 'YYYY.MM.DD' 와 날짜 시각 'YYYY.MM.DD HH:mm'. 서버는 UTC 로 적으므로 이 기기의 시간대로 바꿔 보인다. */
 function fmtDate(iso) {
-  return iso ? iso.slice(0, 10).replace(/-/g, '.') : '';
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return iso || '';
+  const p2 = (x) => String(x).padStart(2, '0');
+  return `${d.getFullYear()}.${p2(d.getMonth() + 1)}.${p2(d.getDate())}`;
 }
+
+function fmtDateTime(iso) {
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return iso || '';
+  const p2 = (x) => String(x).padStart(2, '0');
+  return `${fmtDate(iso)} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+}
+
+/** 예시 문구에 넣을 인물 이름: 이 작품의 i번째 인물. 없으면 '주인공', '조연' (특정 작품의 이름을 박아 두지 않는다) */
+const exName = (i = 0) => (P() && P().characters[i] && P().characters[i].name) || ['주인공', '조연', '악역'][i] || '인물';
+
+/** 화 범위 'a~b화' (한 화면 'a화'). 범위 기호는 물결표 하나로 쓴다. */
+const epRange = (a, b) => (a === b ? `${a}화` : `${a}~${b}화`);
 
 function viewLibrary() {
   const list = S.libs || [];
@@ -2876,12 +2965,12 @@ function viewLibrary() {
       <div class="small">${x.used_by.length ? `쓰는 작품: ${x.used_by.map((n) => `<a href="#/p/${enc(n)}/style">${esc(n)}</a>`).join(', ')}` : '아직 쓰는 작품이 없어요'}</div>
       <div class="row"><a class="btn small" href="#/styles/${esc(x.id)}">열기</a><button class="btn small" data-action="libDuplicate" data-arg="${esc(x.id)}">복제</button><button class="btn small danger" data-action="libDelete" data-arg="${esc(x.id)}">삭제</button></div>
     </article>`).join('');
-  return `${header('Canon', '문체 라이브러리', '붙여 넣은 원문에서 뽑은 문체를 작품과 따로 모아 둡니다. 작품에 적용하면 그 시점의 문체가 작품에 복사되고, 라이브러리를 고쳐도 쓰고 있는 작품은 다시 적용하기 전까지 그대로예요.', '<a class="btn" href="#/">작품 목록</a><a class="btn primary" href="#/styles/new">+ 새 문체</a>')}
+  return `${header('Canon', '문체 라이브러리', '붙여 넣은 원문에서 뽑은 문체를 작품과 따로 모아 둬요. 작품에 적용하면 그 시점의 문체가 작품에 복사되고, 라이브러리를 고쳐도 쓰고 있는 작품은 다시 적용하기 전까지 그대로예요.', '<a class="btn" href="#/">작품 목록</a><a class="btn primary" href="#/styles/new">+ 새 문체</a>')}
     ${list.length ? `<div class="grid-auto">${cards}</div>` : `<div class="card empty"><div>아직 저장한 문체가 없어요.</div><div class="small">새 문체를 만들거나, 작품의 문체 레퍼런스 화면에서 '라이브러리에 새로 저장'을 누르세요.</div><a class="btn primary" href="#/styles/new">+ 새 문체</a></div>`}`;
 }
 
 function baselineRows(b) {
-  if (!b) return '<div class="small">원문을 넣고 저장하면 문장 길이, 대사 비율 같은 기준 지표를 잽니다. 본문을 쓴 뒤 문체가 얼마나 벗어났는지 비교하는 기준이 됩니다.</div>';
+  if (!b) return '<div class="small">원문을 넣고 저장하면 문장 길이, 대사 비율 같은 기준 지표를 재요. 본문을 쓴 뒤 문체가 얼마나 벗어났는지 비교하는 기준이 돼요.</div>';
   const pct = (v) => (v == null ? '–' : `${Math.round(v * 100)}%`);
   const rows = [
     ['문장 평균 길이', `${b.sentence_len_mean.toFixed(1)}자`],
@@ -2904,7 +2993,7 @@ function viewLibEntry() {
   const apply = isNew ? '' : `<section class="card tight">
       <h2>작품에 적용</h2>
       <div class="small">${used.length ? `쓰는 작품: ${used.map((n) => `<a href="#/p/${enc(n)}/style">${esc(n)}</a>`).join(', ')}` : '아직 쓰는 작품이 없어요.'}</div>
-      ${used.length ? '<div class="small">여기서 고친 내용은 작품의 문체 화면에서 \'라이브러리 버전으로 되돌리기\'를 눌러야 그 작품에 들어갑니다.</div>' : ''}
+      ${used.length ? '<div class="small">여기서 고친 내용은 작품의 문체 화면에서 \'라이브러리 버전으로 되돌리기\'를 눌러야 그 작품에 들어가요.</div>' : ''}
       ${(S.projects || []).length ? `<div class="row" style="flex-wrap:nowrap"><select id="lib-target" aria-label="적용할 작품" style="flex:1"><option value="">작품 고르기</option>${[...others, ...(S.projects || []).filter((x) => used.includes(x.name))].map((x) => `<option value="${esc(x.name)}">${esc(x.title || x.name)}${used.includes(x.name) ? ' (다시 적용)' : ''}</option>`).join('')}</select><button class="btn small" style="flex:none" data-action="libApplyTo">적용</button></div>` : ''}
     </section>`;
   return `${header('문체 라이브러리', isNew ? '새 문체' : e.name || '이름 없음', isNew ? '원문을 붙여 넣고 분석하거나, 프로필을 직접 채운 뒤 저장하세요.' : `만든 날 ${fmtDate(e.created_at)} · 고친 날 ${fmtDate(e.updated_at)}`, right)}
@@ -2917,7 +3006,7 @@ function viewLibEntry() {
         </section>
         <section class="card">
           <div class="between"><h2>원문</h2><span class="small"><span id="lib-sample-count">${(e.sample || '').length.toLocaleString()}</span>자 · 2,000자 이상 권장</span></div>
-          ${input('분석할 소설 본문', 'sample', { root: 'lib', rows: 14, style: 'font-family:var(--serif);font-size:15px;line-height:1.9', hint: '이 컴퓨터의 라이브러리 폴더에만 저장됩니다' })}
+          ${input('분석할 소설 본문', 'sample', { root: 'lib', rows: 14, style: 'font-family:var(--serif);font-size:0.9375rem;line-height:1.9', hint: '이 컴퓨터의 라이브러리 폴더에만 저장돼요' })}
           <div><button class="btn dark" data-action="libAnalyze">문체 분석</button></div>
         </section>
         <section class="card tight"><h2>기준 지표</h2>${baselineRows(e.baseline)}</section>
@@ -2992,7 +3081,7 @@ function voiceField(c, b) {
   return `${input('시점 서술 말투', b + '.narration_voice', { rows: 3, autogrow: true, hint: `${c.name || '이 인물'} 시점 화의 지문 · 내면 독백`, placeholder: '예: 서술 어미는 ~했어요, ~인 걸까요? 처럼 부드럽게. 비우면 작품 문체 그대로' })}
     ${note ? `<div class="note info">${esc(note)}</div>` : ''}
     <div class="between"><span class="small">대사는 위의 말투를 따라요. 이 말투로 쓴 화는 어미 관련 문체 경고(과거형 비율, 문체 거리, 표지)를 빼요.</span>
-      <button type="button" class="btn small" data-action="voiceAI" data-arg="${esc(c.id)}">설정에서 AI 로 초안</button></div>`;
+      <button type="button" class="btn small" data-action="voiceAI" data-arg="${esc(c.id)}">설정에서 AI로 초안</button></div>`;
 }
 
 /** 플롯 편집기의 시점 칸. 비우면 구간 · 아크 시점, 그것도 없으면 작품 기본 시점 */
@@ -3035,7 +3124,7 @@ function actBoard(acts, eps, sel) {
     const block = (label, text) => `<div class="act-block"><span class="act-label">${label}</span><p class="${text ? '' : 'empty-text'}">${esc(text) || '비어 있음'}</p></div>`;
     return `<section class="act-col" aria-label="${a.name} 구간">
         <div class="act-head ${actClass(a.name)}${S.selAct === i ? ' sel' : ''}">
-          <div class="between"><strong>${a.name}</strong><span class="act-meta">${a.start_ep}–${a.end_ep}화 · ${count}화</span></div>
+          <div class="between"><strong>${a.name}</strong><span class="act-meta">${a.start_ep}~${a.end_ep}화 · ${count}화</span></div>
           ${block('구간 목표', a.goal)}${block('전환점', a.key_turn)}${a.pov ? block('서술 시점', a.pov) : ''}
           <button type="button" class="btn small act-edit" data-action="selectAct" data-arg="${i}">구간 고치기</button>
         </div>
@@ -3062,9 +3151,9 @@ function viewArc() {
   if (S.arcProposal) {
     board = arcProposalCard();
   } else if (!p.arc.length) {
-    board = `<div class="card empty"><p>아직 기승전결 구조가 없어요.</p>${((b) => `<button class="btn primary" data-action="planArc"${b.attr}>${b.label}</button>`)(jobBtn('arc', null, 'AI 로 구조 만들기'))}</div>`;
+    board = `<div class="card empty"><p>아직 기승전결 구조가 없어요.</p>${((b) => `<button class="btn primary" data-action="planArc"${b.attr}>${b.label}</button>`)(jobBtn('arc', null, 'AI로 구조 만들기'))}</div>`;
   } else {
-    board = `<div class="board-wrap">${eps.length ? '' : '<div class="note info">구간을 확인한 뒤 <strong>화별 플롯 초안 만들기</strong>를 누르면 각 구간에 화 카드가 채워집니다.</div>'}${actBoard(p.arc, eps, sel)}</div>`;
+    board = `<div class="board-wrap">${eps.length ? '' : '<div class="note info">구간을 확인한 뒤 <strong>화별 플롯 초안 만들기</strong>를 누르면 각 구간에 화 카드가 채워져요.</div>'}${actBoard(p.arc, eps, sel)}</div>`;
   }
 
   let panel = '';
@@ -3077,7 +3166,7 @@ function viewArc() {
     ? `${((b) => `<button class="btn" data-action="planArc"${b.attr}>${b.label}</button>`)(jobBtn('arc', null, '구조 다시 제안'))}${((b) => `<button class="btn" data-action="draftPlots"${b.attr}>${b.label}</button>`)(jobBtn('plots', null, eps.length ? '초안 다시 만들기 (확정 화 제외)' : '화별 플롯 초안 만들기'))}${drafts ? `<button class="btn primary" data-action="confirmAll">초안 ${drafts}화 모두 확정</button>` : ''}`
     : '';
   const tools = chatButton() + right + `<a class="btn" href="${base()}/convert">장편으로 전환</a>`;
-  return `${header('3단계', '기승전결 · 화별 플롯', '구간 목표를 확인하고, 화 카드를 눌러 플롯을 다듬은 뒤 확정하세요. 확정된 화만 본문을 쓸 수 있고, 초안을 다시 만들어도 확정된 화는 그대로입니다.', tools)}
+  return `${header('3단계', '기승전결 · 화별 플롯', '구간 목표를 확인하고, 화 카드를 눌러 플롯을 다듬은 뒤 확정하세요. 확정된 화만 본문을 쓸 수 있고, 초안을 다시 만들어도 확정된 화는 그대로예요.', tools)}
     ${board}${drawer}${chatPanel('plot')}`;
 }
 
@@ -3086,9 +3175,9 @@ function arcProposalCard() {
   const has = P().arc.length > 0;
   const diff = has ? actsDiff({ acts: S.arcProposal, total_episodes: 0 }) : '';
   const rows = has ? (diff || '<div class="small">지금 구조와 같아요.</div>')
-    : S.arcProposal.map((a) => `<div class="diff-act"><span class="chip ${actClass(a.name)}">${a.name}</span><div class="diff-row"><span class="act-label">범위</span><ins>${a.start_ep}–${a.end_ep}화</ins></div>${ACT_FIELDS.map(([k, l]) => diffField(l, k, '', a[k])).join('')}</div>`).join('');
+    : S.arcProposal.map((a) => `<div class="diff-act"><span class="chip ${actClass(a.name)}">${a.name}</span><div class="diff-row"><span class="act-label">범위</span><ins>${a.start_ep}~${a.end_ep}화</ins></div>${ACT_FIELDS.map(([k, l]) => diffField(l, k, '', a[k])).join('')}</div>`).join('');
   return `<section class="card proposal" aria-label="AI 구조 제안">
-    <div class="between"><h2>AI 구조 제안 <span class="chip ai">반영 전</span></h2>${proposalActions(['dropArcProposal'], ['useArcProposal'], has ? '이 구조로 바꾸기' : '이 구조로 시작')}</div>
+    <div class="between"><h2>AI 구조 제안 <span class="chip ai">적용 전</span></h2>${proposalActions(['dropArcProposal'], ['useArcProposal'], has ? '이 구조로 바꾸기' : '이 구조로 시작')}</div>
     <p class="small">${has ? '지우는 것은 빨강, 새로 넣는 것은 초록이에요. 바꿔도 저장하기 전에는 작품에 들어가지 않아요.' : '고르면 구조가 생기고, 저장하면 작품에 들어가요.'}</p>
     <div class="diff">${rows}</div></section>`;
 }
@@ -3099,12 +3188,12 @@ function actEditor(i) {
   if (!a) return '';
   const b = k >= 0 ? `story_arcs.${k}.acts.${i}` : `arc.${i}`;
   const inAct = P().episodes.filter((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep);
-  return `<div class="between"><h2>${k >= 0 ? `아크 ${S.selArc} · ` : ''}${a.name} 구간</h2><span class="chip ${actClass(a.name)}">${a.start_ep}–${a.end_ep}화</span></div>
+  return `<div class="between"><h2>${k >= 0 ? `아크 ${S.selArc} · ` : ''}${a.name} 구간</h2><span class="chip ${actClass(a.name)}">${a.start_ep}~${a.end_ep}화</span></div>
     <div class="grid-2">${input('시작 화', b + '.start_ep', { type: 'number', min: 1 })}${input('끝 화', b + '.end_ep', { type: 'number', min: 1 })}</div>
-    <div class="small">${k >= 0 ? '아크 안 기승전결 네 구간이 아크 첫 화부터 끝 화까지 빈틈없이 이어져야 저장됩니다.' : '기승전결 네 구간이 1화부터 마지막 화까지 빈틈없이 이어져야 저장됩니다.'}</div>
+    <div class="small">${k >= 0 ? '아크 안 기승전결 네 구간이 아크 첫 화부터 끝 화까지 빈틈없이 이어져야 저장돼요.' : '기승전결 네 구간이 1화부터 마지막 화까지 빈틈없이 이어져야 저장돼요.'}</div>
     ${input('구간 목표', b + '.goal', { rows: 5, autogrow: true, hint: '이 구간이 끝날 때 이야기가 어디까지 와 있어야 하나' })}
     ${input('전환점', b + '.key_turn', { rows: 4, autogrow: true, hint: '이 구간을 다음으로 넘기는 사건' })}
-    ${input('서술 시점', b + '.pov', { placeholder: `비우면 작품 기본 (${P().style.narration_pov || '정하지 않음'})`, hint: '예: 도현 1인칭. 화별 플롯을 만들 때 AI 가 이 시점을 화마다 채워요' })}
+    ${input('서술 시점', b + '.pov', { placeholder: `비우면 작품 기본 (${P().style.narration_pov || '정하지 않음'})`, hint: `예: ${exName(1)} 1인칭. 화별 플롯을 만들 때 AI가 이 시점을 화마다 채워요` })}
     ${inAct.length ? `<div class="field"><span class="label">이 구간의 화</span><div class="row">${inAct.map((e) => `<button type="button" class="btn small" data-action="selectEp" data-arg="${e.plot.number}">${e.plot.number}화</button>`).join('')}</div></div>` : ''}`;
 }
 
@@ -3121,14 +3210,14 @@ function plotEditor(e) {
   return `<div class="between"><h2>${n}화 플롯</h2><span class="chip ${e.status}">${STATUS[e.status]}</span></div>
     ${arc ? `<div class="note plain"><strong>아크 ${arc.number} ${esc(arc.title)}</strong> · ${esc(arc.goal)}</div>` : ''}
     ${act ? `<div class="note info"><strong>${act.name} 구간 목표</strong> · ${esc(act.goal)}</div>` : ''}
-    ${busy ? '<div class="note warn">AI 가 이 구간의 초안을 새로 만드는 중이라 끝날 때까지 고칠 수 없어요.</div>' : autoBusy ? `<div class="note warn">자동 집필이 ${n}화를 쓰는 중이라 고칠 수 없어요. 고치려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요.</div>` : locked ? '<div class="note plain">본문이 있는 화라 플롯을 고칠 수 없어요.</div>' : ''}
+    ${busy ? '<div class="note warn">AI가 이 구간의 초안을 새로 만드는 중이라 끝날 때까지 고칠 수 없어요.</div>' : autoBusy ? `<div class="note warn">자동 집필이 ${n}화를 쓰는 중이라 고칠 수 없어요. 고치려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요.</div>` : locked ? '<div class="note plain">본문이 있는 화라 플롯을 고칠 수 없어요.</div>' : ''}
     ${input('제목', b + '.title', ro)}
     ${input('요약', b + '.summary', { ...ro, rows: 3, autogrow: true })}
     ${input('사건 순서', b + '.events', { ...ro, kind: 'list', rows: 5, autogrow: true })}
     ${castField(e, locked)}
     ${lineField(e)}
     ${povField(e, locked)}
-    ${n <= 3 || e.plot.opening ? input('여는 장면', b + '.opening', { ...ro, hint: n <= 3 ? '초반 화는 첫 장면이 독자를 붙잡습니다' : '' }) : ''}
+    ${n <= 3 || e.plot.opening ? input('여는 장면', b + '.opening', { ...ro, hint: n <= 3 ? '초반 화는 첫 장면이 독자를 붙잡아요' : '' }) : ''}
     ${input('감정 변화', b + '.emotional_shift', ro)}
     ${input('엔딩 훅', b + '.ending_hook', ro)}
     ${n <= 3 || e.plot.reader_question ? input('독자가 들고 갈 질문', b + '.reader_question', { ...ro, hint: n <= 3 ? '이 화를 읽고 다음 화를 누르게 하는 질문' : '' }) : ''}
@@ -3147,7 +3236,7 @@ const TIERS = [['main', '주역'], ['support', '조연'], ['minor', '단역']];
 function castField(e, locked) {
   const n = e.plot.number;
   const cs = P().characters;
-  const box = (c) => `<label class="row" style="font-size:13px;gap:6px"><input type="checkbox" value="${esc(c.id)}" data-cast-ep="${n}"${e.plot.characters.includes(c.id) ? ' checked' : ''}${locked ? ' disabled' : ''}>${esc(c.name || c.id)}</label>`;
+  const box = (c) => `<label class="row" style="font-size:0.8125rem;gap:6px"><input type="checkbox" value="${esc(c.id)}" data-cast-ep="${n}"${e.plot.characters.includes(c.id) ? ' checked' : ''}${locked ? ' disabled' : ''}>${esc(c.name || c.id)}</label>`;
   const groups = TIERS.map(([t, l]) => [l, cs.filter((c) => (c.tier || 'main') === t)]).filter(([, g]) => g.length);
   const boxes = groups.length > 1
     ? groups.map(([l, g]) => `<div class="row" style="gap:10px"><span class="small" style="min-width:32px">${l}</span>${g.map(box).join('')}</div>`).join('')
@@ -3172,6 +3261,7 @@ function castQuickEdit(i) {
   const b = `characters.${i}`;
   return `<div class="note plain"><div class="between"><strong>${esc(c.name || '새 인물')}</strong><button type="button" class="btn small ghost" data-action="closeCastEdit">접기</button></div>
     <div class="grid-2">${input('이름', b + '.name')}${input('역할', b + '.role', { placeholder: '여관 주인, 동료 기사…' })}</div>
+    ${nameIssuesFor(c.id)}
     <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보 뽑기</button><button type="button" class="btn small" data-action="nameAI" data-arg="${esc(c.id)}">AI 이름 추천</button></div>
     ${namePicks('c:' + c.id, 'useName', (x) => `${c.id}|${x}`)}
     <div class="grid-2">${tierSelect(c, b, 'cast-tier-' + i)}${input('성별', b + '.gender', { placeholder: '남 / 여' })}</div>
@@ -3235,26 +3325,26 @@ function viewSerial() {
     const finished = done === x.end_ep - x.start_ep + 1;
     const here = nextStart >= x.start_ep && nextStart <= x.end_ep;
     return `<button type="button" class="part-card${S.selPart === x.number ? ' sel' : ''}${here ? ' here' : ''}" data-action="selectPart" data-arg="${x.number}">
-      <span class="between"><strong>${x.number}부 ${esc(x.title)}</strong><span class="small">${x.start_ep}–${x.end_ep}화</span></span>
+      <span class="between"><strong>${x.number}부 ${esc(x.title)}</strong><span class="small">${x.start_ep}~${x.end_ep}화</span></span>
       <span class="s">${esc(x.goal)}</span>
       <span class="row"><span class="chip">아크 ${inPart.length}개</span><span class="chip ${done ? 'finalized' : ''}">반영 ${done}/${x.end_ep - x.start_ep + 1}</span>${finished ? (x.summary ? '<span class="chip finalized">요약 있음</span>' : '<span class="chip written">요약 필요</span>') : ''}</span>
     </button>`;
   };
   const lost = S.seriesDraft ? lostPartSummaries() : [];
   const seriesDraft = S.seriesDraft ? `<div class="card proposal">
-      <div class="between"><h3>AI 부 구성 제안 <span class="chip ai">반영 전</span></h3><div class="row"><button class="btn small" data-action="dropSeries">버리기</button><button class="btn small primary" data-action="applySeries">이 부 구성 반영</button></div></div>
+      <div class="between"><h3>AI 부 구성 제안 <span class="chip ai">적용 전</span></h3><div class="row"><button class="btn small" data-action="dropSeries">버리기</button><button class="btn small primary" data-action="applySeries">이 부 구성 적용</button></div></div>
       ${S.seriesDraft.parts.map((x, i) => `<div class="part-draft">
         <div class="grid-2">${input(`${x.number}부 제목`, `parts.${i}.title`, { root: 'seriesDraft' })}<div class="grid-2">${input('시작 화', `parts.${i}.start_ep`, { root: 'seriesDraft', type: 'number' })}${input('끝 화', `parts.${i}.end_ep`, { root: 'seriesDraft', type: 'number' })}</div></div>
         ${input('부 목표', `parts.${i}.goal`, { root: 'seriesDraft', rows: 2, autogrow: true })}
         ${input('아크 후보', `parts.${i}.arc_ideas`, { root: 'seriesDraft', kind: 'list', rows: 3, autogrow: true })}
       </div>`).join('')}
-      <div class="small">부는 1화부터 ${p.meta.target_episodes}화까지 빈틈없이 이어져야 반영됩니다. 이미 기획한 아크가 새 부 경계를 넘으면 반영하지 않아요.</div>
+      <div class="small">부는 1화부터 ${p.meta.target_episodes}화까지 빈틈없이 이어져야 반영돼요. 이미 기획한 아크가 새 부 경계를 넘으면 반영하지 않아요.</div>
       ${lost.length ? `<div class="note warn">이 구성으로 반영하면 범위가 바뀌어 저장된 ${lost.map((x) => `${x.number}부(${x.start_ep}~${x.end_ep}화)`).join(', ')} 요약이 사라져요. 지키려면 그 부의 시작 화와 끝 화를 지금과 같게 두세요.</div>` : ''}
     </div>` : '';
-  const seriesBtn = ((b) => `<button class="btn small" data-action="planSeries"${b.attr}>${b.label}</button>`)(jobBtn('series', null, p.parts.length ? '부 구성 다시 제안' : 'AI 로 부 구성 만들기'));
+  const seriesBtn = ((b) => `<button class="btn small" data-action="planSeries"${b.attr}>${b.label}</button>`)(jobBtn('series', null, p.parts.length ? '부 구성 다시 제안' : 'AI로 부 구성 만들기'));
   const series = `<section class="card">
       <div class="between"><h2>부 구성 <span class="small" style="font-weight:400">총 ${p.meta.target_episodes}화 · ${planned}화까지 아크 기획</span></h2>${seriesBtn}</div>
-      ${p.parts.length ? `<div class="part-strip">${p.parts.map(partCard).join('')}</div>` : '<div class="small">무대와 판이 바뀌는 큰 단위(50~150화)예요. 없어도 아크를 이어 갈 수 있지만, 있으면 아크 기획이 부 목표를 따라갑니다.</div>'}
+      ${p.parts.length ? `<div class="part-strip">${p.parts.map(partCard).join('')}</div>` : '<div class="small">무대와 판이 바뀌는 큰 단위(50~150화)예요. 없어도 아크를 이어 갈 수 있지만, 있으면 아크 기획이 부 목표를 따라가요.</div>'}
       ${seriesDraft}
     </section>`;
 
@@ -3264,12 +3354,12 @@ function viewSerial() {
     const g = arcProgress(a);
     const state = g.done === g.nums ? (a.summary ? 'finalized' : 'written') : g.plotted === 0 ? '' : g.drafts ? 'draft' : 'confirmed';
     return `<button type="button" class="arc-chip${S.selArc === a.number ? ' sel' : ''}" data-action="selectArc" data-arg="${a.number}" aria-pressed="${S.selArc === a.number}">
-      <strong>아크 ${a.number}</strong> <span>${a.start_ep}–${a.end_ep}화</span> <span class="chip ${state}">${g.done === g.nums ? (a.summary ? '완료' : '요약 필요') : g.plotted ? `반영 ${g.done}/${g.nums}` : '플롯 전'}</span></button>`;
+      <strong>아크 ${a.number}</strong> <span>${a.start_ep}~${a.end_ep}화</span> <span class="chip ${state}">${g.done === g.nums ? (a.summary ? '완료' : '요약 필요') : g.plotted ? `반영 ${g.done}/${g.nums}` : '플롯 전'}</span></button>`;
   };
   const rail = `<section class="card">
-      <div class="between"><h2>아크</h2><span class="small">아크 하나는 5~30화짜리 작은 이야기예요. 다음 아크의 플롯만 그때그때 만듭니다.</span></div>
-      <div class="arc-rail">${arcs.map(arcChip).join('')}${planned < p.meta.target_episodes ? `<button type="button" class="arc-chip next${S.selArc === 'next' ? ' sel' : ''}" data-action="selectArc" data-arg="next">+ 다음 아크 <span>${nextStart}화부터</span></button>` : ''}</div>
-      ${pending.length ? `<div class="note warn">끝난 아크의 요약이 필요해요: ${pending.map((a) => `<a href="#" data-action="selectArc" data-arg="${a.number}" style="color:inherit;font-weight:700">아크 ${a.number}</a>`).join(', ')}. 요약이 있어야 오래된 줄거리를 짧게 접어 넣을 수 있어요.</div>` : ''}
+      <div class="between"><h2>아크</h2><span class="small">아크 하나는 5~30화짜리 작은 이야기예요. 다음 아크의 플롯만 그때그때 만들어요.</span></div>
+      <div class="arc-rail">${railChips(arcs, arcChip)}${planned < p.meta.target_episodes ? `<button type="button" class="arc-chip next${S.selArc === 'next' ? ' sel' : ''}" data-action="selectArc" data-arg="next">+ 다음 아크 <span>${nextStart}화부터</span></button>` : ''}</div>
+      ${pending.length ? `<div class="note warn between"><span>요약이 필요한 끝난 아크 ${pending.length}개 · 가장 오래된 <a href="#" data-action="selectArc" data-arg="${pending[0].number}" style="color:inherit;font-weight:700">아크 ${pending[0].number}</a>부터 받으세요. 요약이 있어야 오래된 줄거리를 짧게 접어 넣을 수 있어요.</span>${((b) => `<button class="btn small" data-action="recapArc" data-arg="${pending[0].number}"${b.attr}>${b.label}</button>`)(jobBtn('recap_arc', pending[0].number, `아크 ${pending[0].number} 요약 받기`))}</div>` : ''}
     </section>`;
 
   let body;
@@ -3283,7 +3373,7 @@ function viewSerial() {
   else if (S.selPart != null) panel = partEditor(S.selPart);
 
   const tools = chatButton() + (p.conversion ? `<a class="btn" href="${base()}/convert">단편에서 전환 · 되돌리기</a>` : '');
-  return `${header('3단계', '부 · 아크 · 화별 플롯', '장편은 작품을 부와 아크로 나누고, 다음 아크 하나씩 기획해 그 아크의 플롯만 만듭니다. 끝난 아크는 요약으로 접혀서 몇백 화를 써도 프롬프트 크기가 일정해요.', tools)}
+  return `${header('3단계', '부 · 아크 · 화별 플롯', '장편은 작품을 부와 아크로 나누고, 다음 아크 하나씩 기획해 그 아크의 플롯만 만들어요. 끝난 아크는 요약으로 접혀서 몇백 화를 써도 프롬프트 크기가 일정해요.', tools)}
     ${series}${rail}${body}${drawerHtml(panel)}${chatPanel('plot')}`;
 }
 
@@ -3296,26 +3386,26 @@ function nextArcPanel(start) {
   if (d) {
     const a = d.arc;
     return `<section class="card proposal">
-      <div class="between"><h2>아크 ${a.number} 제안 <span class="chip ai">반영 전</span></h2><div class="row"><button class="btn small" data-action="dropArc">버리기</button><button class="btn small primary" data-action="applyArc">이 아크 반영</button></div></div>
+      <div class="between"><h2>아크 ${a.number} 제안 <span class="chip ai">적용 전</span></h2><div class="row"><button class="btn small" data-action="dropArc">버리기</button><button class="btn small primary" data-action="applyArc">이 아크 적용</button></div></div>
       ${d.reply ? `<div class="note info">${esc(d.reply).replace(/\n/g, '<br>')}</div>` : ''}
       <div class="grid-2">${input('아크 제목', 'arc.title', { root: 'arcDraft' })}<div class="grid-2">${input('시작 화', 'arc.start_ep', { root: 'arcDraft', type: 'number', readonly: true })}${input('끝 화', 'arc.end_ep', { root: 'arcDraft', type: 'number' })}</div></div>
       ${input('아크 목표', 'arc.goal', { root: 'arcDraft', rows: 2, autogrow: true, hint: '아크가 끝날 때 바뀌어 있어야 하는 것' })}
       <div class="grid-2">${input('갈등', 'arc.conflict', { root: 'arcDraft', rows: 2, autogrow: true, hint: '주인공을 막는 문제나 상대' })}${input('보상 (사이다)', 'arc.payoff', { root: 'arcDraft', rows: 2, autogrow: true, hint: '클라이맥스에서 독자가 받는 것' })}</div>
-      <div class="act-strip">${a.acts.map((x, i) => `<div class="act-head ${actClass(x.name)}"><div class="between"><strong>${x.name}</strong><span class="act-meta">${x.start_ep}–${x.end_ep}화</span></div>${input('구간 목표', `arc.acts.${i}.goal`, { root: 'arcDraft', rows: 3, autogrow: true })}</div>`).join('')}</div>
+      <div class="act-strip">${a.acts.map((x, i) => `<div class="act-head ${actClass(x.name)}"><div class="between"><strong>${x.name}</strong><span class="act-meta">${x.start_ep}~${x.end_ep}화</span></div>${input('구간 목표', `arc.acts.${i}.goal`, { root: 'arcDraft', rows: 3, autogrow: true })}</div>`).join('')}</div>
       ${input('서술 시점', 'arc.pov', { root: 'arcDraft', placeholder: `비우면 작품 기본 (${P().style.narration_pov || '정하지 않음'})` })}
       <div class="grid-2">${input('주요 인물 id', 'arc.cast', { root: 'arcDraft', kind: 'list', rows: 3 })}${input('회수할 복선 id', 'arc.payoffs', { root: 'arcDraft', kind: 'list', rows: 3 })}</div>
       ${d.new_characters.length ? `<div class="field"><span class="label">새 인물 (조연으로 들어와요. 주역으로 올리려면 설정 도우미에서 비중을 바꾸세요)</span>${d.new_characters.map((c) => `<div class="note plain"><strong>${esc(c.name)}</strong> <span class="small">${esc(c.id)} · ${esc(c.role)}</span><br>${esc(c.personality || c.goal)}<br><span class="small">말투: ${esc(c.speech_style)}</span></div>`).join('')}</div>` : ''}
       <div class="small">끝 화를 바꾸면 결 구간이 따라 늘거나 줄어요. 다른 구간 범위는 반영한 뒤 구간 고치기에서 바꿀 수 있어요.</div>
     </section>`;
   }
-  const btn = jobBtn('nextarc', null, 'AI 로 다음 아크 제안');
+  const btn = jobBtn('nextarc', null, 'AI로 다음 아크 제안');
   return `<section class="card">
     <div class="between"><h2>다음 아크 기획 <span class="small" style="font-weight:400">${start}화부터${part ? ` · ${part.number}부 ${esc(part.title)} (${part.end_ep}화까지)` : ''}</span></h2></div>
     ${part ? `<div class="note plain"><strong>${part.number}부 목표</strong> · ${esc(part.goal)}${part.arc_ideas.length ? `<br><span class="small">아크 후보: ${part.arc_ideas.map(esc).join(' / ')}</span>` : ''}</div>` : ''}
-    ${old.length ? `<div class="note warn">50화 넘게 열린 복선이 ${old.length}개 있어요. 이번 아크에서 회수하거나 다시 떠올리도록 AI 에게 함께 보여 줍니다.</div>` : ''}
-    <div class="grid-2">${input('아크 길이 (화)', 'length', { root: 'arcForm', type: 'number', min: 0, hint: '0 이면 AI 가 내용에 맞게 (보통 10~25화)' })}<div></div></div>
+    ${old.length ? `<div class="note warn">50화 넘게 열린 복선이 ${old.length}개 있어요. 이번 아크에서 회수하거나 다시 떠올리도록 AI에게 함께 보여 줘요.</div>` : ''}
+    <div class="grid-2">${input('아크 길이 (화)', 'length', { root: 'arcForm', type: 'number', min: 0, hint: '0 이면 AI가 내용에 맞게 (보통 10~25화)' })}<div></div></div>
     ${input('이번 아크에 바라는 것 (선택)', 'note', { root: 'arcForm', rows: 3, autogrow: true, placeholder: '예: 학교 밖으로 무대를 넓히고, 라이벌과 처음 손잡게' })}
-    <div class="row"><button class="btn primary" data-action="planNextArc"${btn.attr}>${btn.label}</button><span class="small">지금까지 실제로 쓴 줄거리(요약), 부 목표, 열린 복선을 보고 아크 하나를 제안해요. 반영 전에 고칠 수 있어요.</span></div>
+    <div class="row"><button class="btn primary" data-action="planNextArc"${btn.attr}>${btn.label}</button><span class="small">지금까지 실제로 쓴 줄거리(요약), 부 목표, 열린 복선을 보고 아크 하나를 제안해요. 적용 전에 고칠 수 있어요.</span></div>
   </section>`;
 }
 
@@ -3332,7 +3422,7 @@ function arcPanel(a, sel) {
   const r = S.recapDrafts[rk];
   let recap = '';
   if (finished) {
-    const rb = jobBtn('recap_arc', a.number, a.summary ? 'AI 로 요약 다시 제안' : 'AI 로 요약 제안');
+    const rb = jobBtn('recap_arc', a.number, a.summary ? 'AI로 요약 다시 제안' : 'AI로 요약 제안');
     recap = `<div class="recap">
       <div class="between"><h3>아크 요약 ${a.summary ? '<span class="chip finalized">있음</span>' : '<span class="chip written">필요</span>'}</h3><button class="btn small" data-action="recapArc" data-arg="${a.number}"${rb.attr}>${rb.label}</button></div>
       ${r ? `${input('AI 요약 제안 (고친 뒤 저장)', `${rk}.summary`, { root: 'recaps', rows: 6, autogrow: true })}<div class="row"><button class="btn small" data-action="dropRecap" data-arg="${rk}">버리기</button><button class="btn small primary" data-action="applyRecap" data-arg="${rk}">이 요약 저장</button></div>` : ''}
@@ -3346,7 +3436,7 @@ function arcPanel(a, sel) {
       ${last && !eps.some((e) => e.status !== 'draft') ? '<button class="btn small danger" data-action="removeLastArc">지우고 다시 기획</button>' : ''}
     </div>`;
   return `<section class="card">
-      <div class="between"><h2>아크 ${a.number} ${esc(a.title)} <span class="small" style="font-weight:400">${a.start_ep}–${a.end_ep}화 · ${g.nums}화 · 반영 ${g.done}/${g.nums}</span></h2>${right}</div>
+      <div class="between"><h2>아크 ${a.number} ${esc(a.title)} <span class="small" style="font-weight:400">${a.start_ep}~${a.end_ep}화 · ${g.nums}화 · 반영 ${g.done}/${g.nums}</span></h2>${right}</div>
       <div class="arc-facts">
         <div><span class="act-label">아크 목표</span><p>${esc(a.goal) || '<span class="small">비어 있음</span>'}</p></div>
         <div><span class="act-label">갈등</span><p>${esc(a.conflict) || '<span class="small">비어 있음</span>'}</p></div>
@@ -3355,16 +3445,16 @@ function arcPanel(a, sel) {
       <div class="small">${a.cast.length ? `주요 인물: ${names(a.cast)}` : ''}${a.payoffs.length ? ` · 회수할 복선: ${a.payoffs.map(esc).join(', ')}` : ''}</div>
       ${recap}
     </section>
-    <div class="board-wrap">${g.plotted ? '' : '<div class="note info">구간을 확인한 뒤 <strong>화별 플롯 초안 만들기</strong>를 누르면 이 아크의 화 카드가 채워집니다.</div>'}${actBoard(a.acts, eps, sel)}</div>`;
+    <div class="board-wrap">${g.plotted ? '' : '<div class="note info">구간을 확인한 뒤 <strong>화별 플롯 초안 만들기</strong>를 누르면 이 아크의 화 카드가 채워져요.</div>'}${actBoard(a.acts, eps, sel)}</div>`;
 }
 
 function arcEditor(a) {
   const k = P().story_arcs.indexOf(a);
   const b = `story_arcs.${k}`;
-  return `<div class="between"><h2>아크 ${a.number} 고치기</h2><span class="chip">${a.start_ep}–${a.end_ep}화</span></div>
+  return `<div class="between"><h2>아크 ${a.number} 고치기</h2><span class="chip">${a.start_ep}~${a.end_ep}화</span></div>
     ${input('제목', b + '.title')}
     <div class="grid-2">${input('시작 화', b + '.start_ep', { type: 'number', readonly: true })}${input('끝 화', b + '.end_ep', { type: 'number', min: a.start_ep })}</div>
-    <div class="small">끝 화를 바꾸면 결 구간의 끝 화와 다음 아크의 시작 화도 맞춰야 저장됩니다. 길이를 크게 바꾸려면 마지막 아크를 지우고 다시 기획하는 편이 쉬워요.</div>
+    <div class="small">끝 화를 바꾸면 결 구간의 끝 화와 다음 아크의 시작 화도 맞춰야 저장돼요. 길이를 크게 바꾸려면 마지막 아크를 지우고 다시 기획하는 편이 쉬워요.</div>
     ${input('아크 목표', b + '.goal', { rows: 3, autogrow: true })}
     ${input('갈등', b + '.conflict', { rows: 2, autogrow: true })}
     ${input('보상 (사이다)', b + '.payoff', { rows: 2, autogrow: true })}
@@ -3383,11 +3473,11 @@ function partEditor(number) {
   const finished = done === x.end_ep - x.start_ep + 1;
   const rk = 'part' + number;
   const r = S.recapDrafts[rk];
-  const rb = jobBtn('recap_part', number, x.summary ? 'AI 로 요약 다시 제안' : 'AI 로 요약 제안');
-  return `<div class="between"><h2>${x.number}부 고치기</h2><span class="chip">${x.start_ep}–${x.end_ep}화</span></div>
+  const rb = jobBtn('recap_part', number, x.summary ? 'AI로 요약 다시 제안' : 'AI로 요약 제안');
+  return `<div class="between"><h2>${x.number}부 고치기</h2><span class="chip">${x.start_ep}~${x.end_ep}화</span></div>
     ${input('제목', b + '.title')}
     <div class="grid-2">${input('시작 화', b + '.start_ep', { type: 'number' })}${input('끝 화', b + '.end_ep', { type: 'number' })}</div>
-    <div class="small">부는 1화부터 마지막 화까지 빈틈없이 이어져야 저장됩니다.</div>
+    <div class="small">부는 1화부터 마지막 화까지 빈틈없이 이어져야 저장돼요.</div>
     ${input('부 목표', b + '.goal', { rows: 3, autogrow: true })}
     ${input('전환점', b + '.key_turn', { rows: 2, autogrow: true })}
     ${input('아크 후보', b + '.arc_ideas', { kind: 'list', rows: 5, autogrow: true, hint: '다음 아크를 기획할 때 참고해요' })}
@@ -3416,7 +3506,7 @@ const blockedBefore = (n) => P().episodes.filter((x) => x.plot.number < n && x.s
 function orderNote(blocked) {
   if (!blocked.length) return '';
   const first = ep(blocked[0]);
-  return `<div class="note warn">이전 화(${blocked.join(', ')}화)의 상태 반영이 끝나야 쓸 수 있어요. 인물 상태가 꼬이지 않게 하는 규칙입니다. <a href="${base()}/${first.status === 'written' ? 'review' : 'write'}/${blocked[0]}">${blocked[0]}화 ${first.status === 'written' ? '상태 정리로' : '집필로'}</a></div>`;
+  return `<div class="note warn">이전 화(${blocked.join(', ')}화)의 상태 반영이 끝나야 쓸 수 있어요. 인물 상태가 꼬이지 않게 하는 규칙이에요. <a href="${base()}/${first.status === 'written' ? 'review' : 'write'}/${blocked[0]}">${blocked[0]}화 ${first.status === 'written' ? '상태 승인으로' : '집필로'}</a></div>`;
 }
 
 function viewWrite(n) {
@@ -3431,15 +3521,15 @@ function viewWrite(n) {
   const text = draft ?? e.text;
   const isApi = S.mode === 'api';
   const writing = !!jobFor('write', n);
-  const locked = writing && !e.text;  // AI 가 본문을 처음 쓰는 중: 끝나면 칸이 AI 본문으로 바뀌므로 그동안 쓴 글은 남지 않는다
+  const locked = writing && !e.text;  // AI가 본문을 처음 쓰는 중: 끝나면 칸이 AI 본문으로 바뀌므로 그동안 쓴 글은 남지 않는다
 
   let center;
   if (e.status === 'draft') {
-    center = `<div class="empty"><p>${n}화 플롯이 아직 초안이에요. 확정해야 쓸 수 있습니다.</p><a class="btn primary" href="${base()}/arc">플롯 확정하러 가기</a></div>`;
+    center = `<div class="empty"><p>${n}화 플롯이 아직 초안이에요. 확정해야 쓸 수 있어요.</p><a class="btn primary" href="${base()}/arc">플롯 확정하러 가기</a></div>`;
   } else if (!e.text && draft === undefined) {
     center = `<div class="empty">
       ${orderNote(blocked)}
-      ${isApi ? `<p>확정된 플롯과 지금까지의 데이터로 ${n}화를 씁니다.</p>${((b) => `<button class="btn primary" data-action="writeEp" data-arg="${n}"${blocked.length ? ' disabled' : b.attr}>${b.label}</button>`)(jobBtn('write', n, `${n}화 본문 생성`))}${jobFor('write', n) ? '<div class="small">다른 화면으로 옮겨 가도 계속 씁니다. 끝나면 알려 드려요.</div>' : ''}`
+      ${isApi ? `<p>확정된 플롯과 지금까지의 데이터로 ${n}화를 써요.</p>${((b) => `<button class="btn primary" data-action="writeEp" data-arg="${n}"${blocked.length ? ' disabled' : b.attr}>${b.label}</button>`)(jobBtn('write', n, `${n}화 본문 생성`))}${jobFor('write', n) ? '<div class="small">다른 화면으로 옮겨 가도 계속 써요. 끝나면 알려 드려요.</div>' : ''}`
         : `<p>작업지시서를 채팅 앱에 붙여 넣고, 받은 본문을 가져오세요.</p><a class="btn primary" href="${base()}/brief/${n}">작업지시서 열기</a>`}
       <button class="btn" data-action="startManual" data-arg="${n}"${writing || blocked.length ? ' disabled' : ''}>직접 쓰기</button>
     </div>`;
@@ -3450,15 +3540,15 @@ function viewWrite(n) {
   }
 
   const ctx = S.context ? `<ol class="panel-list">${S.context.map((c) => `<li><span>${esc(c.title)}</span><span class="small">${c.chars.toLocaleString()}자</span></li>`).join('')}</ol>
-      <div class="small">합계 ${S.context.reduce((s, c) => s + c.chars, 0).toLocaleString()}자. 이전 본문 전체 대신 이 데이터만 매번 같은 순서로 넣습니다.</div>` : '<div class="small">플롯을 확정하면 보입니다.</div>';
+      <div class="small">합계 ${S.context.reduce((s, c) => s + c.chars, 0).toLocaleString()}자. 이전 본문 전체 대신 이 데이터만 매번 같은 순서로 넣어요.</div>` : '<div class="small">플롯을 확정하면 보여요.</div>';
 
   const right = `${e.status !== 'finalized' ? `<div class="seg" role="group" aria-label="생성 방식"><button type="button" aria-pressed="${isApi}" data-action="setMode" data-arg="api">Gemini API</button><button type="button" aria-pressed="${!isApi}" data-action="setMode" data-arg="brief">채팅 앱 작업지시서</button></div>` : ''}
     ${e.text && editable ? chatButton(`text:${n}`) : ''}
     ${e.text && editable && isApi ? `${((b) => `<button class="btn${S.rwOpen === n ? ' on' : ''}" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${b.attr}>${b.label}</button>`)(jobBtn('write', n, '다시 생성'))}` : ''}
     ${editable && !isApi ? `<a class="btn" href="${base()}/brief/${n}">작업지시서</a>` : ''}
-    ${e.status === 'written' ? `<a class="btn primary" href="${base()}/review/${n}">상태 정리로</a>` : ''}`;
+    ${e.status === 'written' ? `<a class="btn primary" href="${base()}/review/${n}">상태 승인으로</a>` : ''}`;
 
-  return `<header class="page-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? act.name + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:24px">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}</div><div class="row">${right}</div></header>
+  return `<header class="page-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? act.name + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}</div><div class="row">${right}</div></header>
     ${e.auto ? `<div class="note info">이 화는 자동 집필이 검토 없이 반영했어요. 읽어 보고 문제가 있으면 <a href="${base()}/auto">자동 집필</a>에서 이 화부터 되돌릴 수 있어요.</div>` : ''}
     ${rebuildNote(n)}
     ${orphan ? `<div class="note warn">저장하지 않은 ${n}화 초고가 남아 있어요. 이 화는 상태 반영이 끝나 본문으로 저장할 수 없어서, 아래에는 반영된 본문을 보여요.
@@ -3470,23 +3560,23 @@ function viewWrite(n) {
       <aside class="card tight w-plot" style="flex:1 1 260px;min-width:0" aria-label="이번 화 플롯">
         <h3>이번 화 플롯</h3>
         ${act ? `<div class="note info"><strong>구간 목표</strong> · ${esc(act.goal)}</div>` : ''}
-        <p style="font-size:13px;line-height:1.6;color:var(--text-2)">${esc(e.plot.summary)}</p>
-        <div class="field"><span class="small">사건</span><ol style="padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.5">${e.plot.events.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></div>
-        <div class="field"><span class="small">등장 인물</span><div style="font-size:13px">${e.plot.characters.map(charName).map(esc).join(', ')}</div></div>
-        ${povText(n) ? `<div class="field"><span class="small">서술 시점</span><div style="font-size:13px">${esc(povText(n))}${povText(n) !== povText(n - 1) && n > 1 ? ' <span class="chip ai">시점 바뀜</span>' : ''}</div></div>` : ''}
-        <div class="field"><span class="small">감정 변화</span><div style="font-size:13px">${esc(e.plot.emotional_shift)}</div></div>
-        ${e.plot.opening ? `<div class="field"><span class="small">여는 장면</span><div style="font-size:13px">${esc(e.plot.opening)}</div></div>` : ''}
-        <div class="field"><span class="small">엔딩 훅</span><div style="font-size:13px">${esc(e.plot.ending_hook)}</div></div>
-        ${e.plot.reader_question ? `<div class="field"><span class="small">독자가 들고 갈 질문</span><div style="font-size:13px">${esc(e.plot.reader_question)}</div></div>` : ''}
-        ${e.summary ? `<div class="field"><span class="small">승인된 요약</span><div style="font-size:13px;line-height:1.6">${esc(e.summary)}</div></div>` : ''}
+        <p style="font-size:0.8125rem;line-height:1.6;color:var(--text-2)">${esc(e.plot.summary)}</p>
+        <div class="field"><span class="small">사건</span><ol style="padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:0.8125rem;line-height:1.5">${e.plot.events.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></div>
+        <div class="field"><span class="small">등장 인물</span><div style="font-size:0.8125rem">${e.plot.characters.map(charName).map(esc).join(', ')}</div></div>
+        ${povText(n) ? `<div class="field"><span class="small">서술 시점</span><div style="font-size:0.8125rem">${esc(povText(n))}${povText(n) !== povText(n - 1) && n > 1 ? ' <span class="chip ai">시점 바뀜</span>' : ''}</div></div>` : ''}
+        <div class="field"><span class="small">감정 변화</span><div style="font-size:0.8125rem">${esc(e.plot.emotional_shift)}</div></div>
+        ${e.plot.opening ? `<div class="field"><span class="small">여는 장면</span><div style="font-size:0.8125rem">${esc(e.plot.opening)}</div></div>` : ''}
+        <div class="field"><span class="small">엔딩 훅</span><div style="font-size:0.8125rem">${esc(e.plot.ending_hook)}</div></div>
+        ${e.plot.reader_question ? `<div class="field"><span class="small">독자가 들고 갈 질문</span><div style="font-size:0.8125rem">${esc(e.plot.reader_question)}</div></div>` : ''}
+        ${e.summary ? `<div class="field"><span class="small">승인된 요약</span><div style="font-size:0.8125rem;line-height:1.6">${esc(e.summary)}</div></div>` : ''}
         ${issuesBlock(e)}
         ${e.text && !autoOn() ? ((b) => `<button class="btn small" data-action="checkEp" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('check', n, e.issues.length ? '다시 검수' : '검수하기')) : ''}
         ${deviceBadges(n)}
-        <a href="${base()}/arc" data-action="gotoPlot" data-arg="${n}" style="font-size:13px">플롯 보기</a>
+        <a href="${base()}/arc" data-action="gotoPlot" data-arg="${n}" style="font-size:0.8125rem">플롯 보기</a>
       </aside>
       <section class="card w-body" style="flex:3 1 520px;min-width:0;padding:0;gap:0" aria-label="본문">
-        <div class="between" style="padding:10px 16px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)">
-          <span>${e.status === 'finalized' ? '상태 반영까지 끝난 화는 읽기 전용이에요. 드래그하면 삽화 프롬프트를 만들 수 있어요' : e.text ? '고칠 부분을 드래그하면 직접 고치거나 AI 에게 맡기거나 삽화 프롬프트를 만들 수 있어요' : '본문을 직접 고친 뒤 저장할 수 있어요'}</span>
+        <div class="between" style="padding:10px 16px;border-bottom:1px solid var(--line);font-size:0.75rem;color:var(--muted)">
+          <span>${e.status === 'finalized' ? '상태 반영까지 끝난 화는 읽기 전용이에요. 드래그하면 삽화 프롬프트를 만들 수 있어요' : e.text ? '고칠 부분을 드래그하면 직접 고치거나 AI에게 맡기거나 삽화 프롬프트를 만들 수 있어요' : '본문을 직접 고친 뒤 저장할 수 있어요'}</span>
           <span class="row"><span><strong id="char-count" style="color:var(--text)">${(text || '').length.toLocaleString()}</strong> / ${Number(P().meta.words_per_episode).toLocaleString()}자</span>
           ${text ? `<button class="btn small" data-action="copyEp" data-arg="${n}" title="고른 줄바꿈 형식으로 복사 (오른쪽 '복사 · 내보내기'에서 바꿈)">복사</button>` : ''}
           ${editable && (e.text || draft !== undefined) ? `<button class="btn small${textUnsaved(n) && !autoOn() ? ' primary' : ''}" id="save-text" data-action="saveText" data-arg="${n}"${draft === undefined || autoOn() ? ` disabled title="${autoOn() ? '자동 집필이 도는 동안은 저장할 수 없어요' : '고친 내용이 없어요'}"` : ''}>본문 저장</button>` : ''}</span>
@@ -3494,9 +3584,9 @@ function viewWrite(n) {
         ${e.text ? passageNotes(n) ? `<div style="padding:12px 16px 0;display:flex;flex-direction:column;gap:8px">${passageNotes(n)}</div>` : '' : ''}
         ${center}
       </section>
-      <aside class="card tight w-side" style="flex:1 1 260px;min-width:0" aria-label="복사 · 내보내기와 AI 에게 보내는 컨텍스트">
+      <aside class="card tight w-side" style="flex:1 1 260px;min-width:0" aria-label="복사 · 내보내기와 AI에게 보내는 컨텍스트">
         ${exportCard(n)}
-        <h3>AI 에게 보내는 컨텍스트</h3>
+        <h3>AI에게 보내는 컨텍스트</h3>
         ${ctx}
         ${S.context ? `<button class="btn small" data-action="togglePrompt" data-arg="${n}">${S.promptText ? '프롬프트 닫기' : '프롬프트 원문 보기'}</button>` : ''}
         ${S.promptText ? `<pre class="brief mono" style="max-height:420px">${esc(S.promptText)}</pre>` : ''}
@@ -3513,16 +3603,16 @@ function viewWrite(n) {
 
 function viewReview(n) {
   const e = ep(n);
-  if (!e) return header('5단계', '상태 변경안 승인', '') + noEpisode();
-  const top = (desc, right = '') => `<header class="page-head"><div class="row" style="gap:12px">${epNav('review', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${n}화 ${esc(e.plot.title)}</div><h1 style="font-size:24px">상태 변경안 승인</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div><div class="row">${right}</div></header>${desc ? `<p class="desc">${desc}</p>` : ''}`;
+  if (!e) return header('5단계', '상태 승인', '') + noEpisode();
+  const top = (desc, right = '') => `<header class="page-head"><div class="row" style="gap:12px">${epNav('review', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${n}화 ${esc(e.plot.title)}</div><h1 style="font-size:1.5rem">상태 승인</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div><div class="row">${right}</div></header>${desc ? `<p class="desc">${desc}</p>` : ''}`;
 
   if (e.status === 'finalized') {
     const h = [...P().history].reverse().find((d) => d.episode === n);
     const canRevert = P().snapshots.some((s) => s.episode === n - 1);
-    return top('이 화는 상태 반영이 끝났어요. 반영된 내용입니다.', canRevert ? `<button class="btn" data-action="revertFrom" data-arg="${n}">${n}화부터 반영 취소</button>` : '') + (h ? historyView(h) : '<div class="note plain">반영 기록이 없습니다.</div>');
+    return top('이 화는 상태 반영이 끝났어요. 반영된 내용이에요.', canRevert ? `<button class="btn" data-action="revertFrom" data-arg="${n}">${n}화부터 반영 취소</button>` : '') + (h ? historyView(h) : '<div class="note plain">반영 기록이 없어요.</div>');
   }
   if (e.status !== 'written') {
-    return top('') + `<div class="card empty"><p>${n}화 본문이 아직 없어요. 본문을 쓴 뒤 상태를 정리합니다.</p><a class="btn primary" href="${base()}/write/${n}">${n}화 집필로</a></div>`;
+    return top('') + `<div class="card empty"><p>${n}화 본문이 아직 없어요. 본문을 쓴 뒤 상태를 정리해요.</p><a class="btn primary" href="${base()}/write/${n}">${n}화 집필로</a></div>`;
   }
   const d = S.deltas[n];
   const ar = S.auto && S.auto.run;
@@ -3532,14 +3622,14 @@ function viewReview(n) {
       `<div class="card"><div class="row"><button class="btn primary" data-action="autoOpenReview">자동 집필 변경안 불러오기</button><a class="btn" href="${base()}/auto">자동 집필로</a></div></div>`;
   }
   if (!d) {
-    return top('AI 가 본문에서 인물 상태, 관계, 확정 사실, 복선을 뽑아 변경안을 만듭니다. 승인한 항목만 데이터에 반영됩니다.') +
-      `<div class="cols"><section class="card col"><h2>AI 로 뽑기</h2><p class="desc">${esc(S.config && S.config.stages ? S.config.stages.state.model : '')} 로 ${n}화 본문을 읽고 변경안을 만듭니다.</p><div>${((b) => `<button class="btn primary" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '변경안 만들기'))}</div></section>
-       <section class="card col"><h2>채팅 앱에서 받은 JSON</h2><p class="desc">상태 정리 지시서를 채팅 앱에 붙여 넣고 받은 JSON 을 가져옵니다.</p><div><a class="btn" href="${base()}/brief/${n}" data-action="openStateBrief" data-arg="${n}">상태 정리 지시서 열기</a></div></section></div>`;
+    return top('AI가 본문에서 인물 상태, 관계, 확정 사실, 복선을 뽑아 변경안을 만들어요. 승인한 항목만 데이터에 반영돼요.') +
+      `<div class="cols"><section class="card col"><h2>AI로 만들기</h2><p class="desc">${esc(S.config && S.config.stages ? S.config.stages.state.model : '')} 로 ${n}화 본문을 읽고 변경안을 만들어요.</p><div>${((b) => `<button class="btn primary" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '변경안 만들기'))}</div></section>
+       <section class="card col"><h2>채팅 앱에서 받은 JSON</h2><p class="desc">상태 승인 지시서를 채팅 앱에 붙여 넣고 받은 JSON을 가져와요.</p><div><a class="btn" href="${base()}/brief/${n}" data-action="openStateBrief" data-arg="${n}">상태 승인 지시서 열기</a></div></section></div>`;
   }
 
   const p = P();
   const stale = S.deltaBase[n] !== undefined && S.deltaBase[n] !== e.text
-    ? `<section class="note warn" role="alert">이 변경안을 만든 뒤 본문을 고쳤어요. 고친 내용이 상태에 영향을 준다면 다시 추출하세요. ${((b) => `<button class="btn small" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '다시 추출'))}</section>` : '';
+    ? `<section class="note warn" role="alert">이 변경안을 만든 뒤 본문을 고쳤어요. 고친 내용이 상태에 영향을 준다면 변경안을 다시 만드세요. ${((b) => `<button class="btn small" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '변경안 다시 만들기'))}</section>` : '';
   const total = d.character_updates.length + d.events.length + d.secrets_added.length + d.relationship_updates.length + d.new_facts.length + d.foreshadow_planted.length + d.foreshadow_resolved.length + (d.new_characters || []).length;
   if (!S.preview || S.preview.n !== n) refreshPreview(n);
   const picked = Object.values(S.picks).filter(Boolean).length;
@@ -3553,56 +3643,56 @@ function viewReview(n) {
     const rows = [['감정', 'emotional_state'], ['목표', 'current_goal'], ['위치', 'location'], ['메모', 'notes']]
       .filter(([, f]) => u[f]).map(([k, f]) => `<div class="small">${k}</div>${diff(cur[f], u[f])}`).join('');
     const knows = u.knows.filter((k) => !(cur.knows || []).includes(k)).map((k) => `<span class="after">+ ${esc(k)}</span>`).join(' ');
-    return `<div class="change">${box('c' + i)}<div class="body"><label for="pk-c${i}" style="font-size:14px;font-weight:700">${esc(charName(u.character_id))}</label>${rows}${knows ? `<div class="small">알게 된 정보</div><div class="row">${knows}</div>` : ''}</div></div>`;
+    return `<div class="change">${box('c' + i)}<div class="body"><label for="pk-c${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(u.character_id))}</label>${rows}${knows ? `<div class="small">알게 된 정보</div><div class="row">${knows}</div>` : ''}</div></div>`;
   }).join('');
 
   const events = d.events.map((ev, i) => {
     const good = GOOD_EVENTS.includes(ev.kind);
     const wit = ev.witnesses.length ? ` · 목격: ${ev.witnesses.map(charName).map(esc).join(', ')}` : '';
     const sec = ev.reveals_secret ? ` · 드러난 비밀: ${esc(secretLabel(ev.reveals_secret, d))}` : '';
-    return `<div class="change">${box('e' + i)}<div class="body"><label for="pk-e${i}" style="font-size:14px;font-weight:700">${esc(charName(ev.actor))} → ${esc(charName(ev.target))}
+    return `<div class="change">${box('e' + i)}<div class="body"><label for="pk-e${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(ev.actor))} → ${esc(charName(ev.target))}
         <span class="chip" style="background:${good ? 'var(--green-soft)' : 'var(--red-soft)'};color:${good ? 'var(--green)' : 'var(--red)'}">${esc(ev.kind)}</span> <span class="small" style="font-weight:400">${INTENSITY[ev.intensity] || ev.intensity}${wit}${sec}</span></label>
-      ${ev.quote ? `<div style="font-family:var(--serif);font-size:13px;line-height:1.7;color:var(--text-2)">“${esc(ev.quote)}”</div>` : ''}</div></div>`;
+      ${ev.quote ? `<div style="font-family:var(--serif);font-size:0.8125rem;line-height:1.7;color:var(--text-2)">“${esc(ev.quote)}”</div>` : ''}</div></div>`;
   }).join('');
-  const newChars = (d.new_characters || []).map((c, i) => `<div class="change">${box('n' + i)}<label for="pk-n${i}" style="font-size:13px;line-height:1.55"><strong>${esc(c.name)}</strong> <span class="small">${esc(c.id)} · ${esc(c.role)} · ${c.tier === 'minor' ? '단역' : '조연'}으로 추가</span><br>${esc(c.personality || c.appearance || c.goal)}${c.speech_style ? `<br><span class="small">말투: ${esc(c.speech_style)}</span>` : ''}</label></div>`).join('');
-  const secrets = d.secrets_added.map((x, i) => `<div class="change">${box('s' + i)}<label for="pk-s${i}" style="font-size:13px;line-height:1.55"><strong>${esc(charName(x.owner))}</strong> ${esc(x.content)}<br><span class="small">모르는 인물: ${x.hidden_from.map(charName).map(esc).join(', ') || '없음'}</span></label></div>`).join('');
+  const newChars = (d.new_characters || []).map((c, i) => `<div class="change">${box('n' + i)}<label for="pk-n${i}" style="font-size:0.8125rem;line-height:1.55"><strong>${esc(c.name)}</strong> <span class="small">${esc(c.id)} · ${esc(c.role)} · ${c.tier === 'minor' ? '단역' : '조연'}으로 추가</span><br>${esc(c.personality || c.appearance || c.goal)}${c.speech_style ? `<br><span class="small">말투: ${esc(c.speech_style)}</span>` : ''}</label></div>`).join('');
+  const secrets = d.secrets_added.map((x, i) => `<div class="change">${box('s' + i)}<label for="pk-s${i}" style="font-size:0.8125rem;line-height:1.55"><strong>${esc(charName(x.owner))}</strong> ${esc(x.content)}<br><span class="small">모르는 인물: ${x.hidden_from.map(charName).map(esc).join(', ') || '없음'}</span></label></div>`).join('');
   const rels = d.relationship_updates.map((r, i) => {
     const cur = p.relationships.find((x) => (x.a === r.a && x.b === r.b) || (x.a === r.b && x.b === r.a));
-    return `<div class="change">${box('r' + i)}<div class="body"><label for="pk-r${i}" style="font-size:14px;font-weight:700">${esc(charName(r.a))} ↔ ${esc(charName(r.b))}</label>
+    return `<div class="change">${box('r' + i)}<div class="body"><label for="pk-r${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(r.a))} ↔ ${esc(charName(r.b))}</label>
       ${diff(cur && cur.type, r.type)}${r.description ? diff(cur && cur.description, r.description) : ''}</div></div>`;
   }).join('');
 
-  const facts = d.new_facts.map((f, i) => `<div class="change">${box('f' + i)}<label for="pk-f${i}" style="font-size:13px;line-height:1.55">${esc(f)}</label></div>`).join('');
+  const facts = d.new_facts.map((f, i) => `<div class="change">${box('f' + i)}<label for="pk-f${i}" style="font-size:0.8125rem;line-height:1.55">${esc(f)}</label></div>`).join('');
   const fs = [
-    ...d.foreshadow_planted.map((f, i) => `<div class="change">${box('p' + i)}<label for="pk-p${i}" style="font-size:13px;line-height:1.55"><span class="chip confirmed">심음</span> ${esc(f.description)} <span class="small">${esc(f.id)}</span></label></div>`),
+    ...d.foreshadow_planted.map((f, i) => `<div class="change">${box('p' + i)}<label for="pk-p${i}" style="font-size:0.8125rem;line-height:1.55"><span class="chip confirmed">심음</span> ${esc(f.description)} <span class="small">${esc(f.id)}</span></label></div>`),
     ...d.foreshadow_resolved.map((id, i) => {
       const f = p.foreshadows.find((x) => x.id === id);
-      return `<div class="change">${box('x' + i)}<label for="pk-x${i}" style="font-size:13px;line-height:1.55"><span class="chip finalized">회수</span> ${esc(f ? f.description : id)} ${f ? `<span class="small">${f.planted_ep}화에 심음</span>` : '<span class="small">알 수 없는 id</span>'}</label></div>`;
+      return `<div class="change">${box('x' + i)}<label for="pk-x${i}" style="font-size:0.8125rem;line-height:1.55"><span class="chip finalized">회수</span> ${esc(f ? f.description : id)} ${f ? `<span class="small">${f.planted_ep}화에 심음</span>` : '<span class="small">알 수 없는 id</span>'}</label></div>`;
     }),
   ].join('');
   const section = (title, body) => `<section class="card"><h2>${title}</h2>${body || '<div class="small">변경 없음</div>'}</section>`;
 
-  return top('AI 가 본문에서 뽑은 변경안입니다. 체크한 항목만 데이터에 반영되고, 반영해야 다음 화를 쓸 수 있어요.', `<span class="small">${total}건 중 <strong id="pick-count" style="color:var(--text)">${picked}</strong>건 선택</span>`) + stale +
+  return top('AI가 본문에서 뽑은 변경안이에요. 체크한 항목만 데이터에 반영되고, 반영해야 다음 화를 쓸 수 있어요.', `<span class="small">${total}건 중 <strong id="pick-count" style="color:var(--text)">${picked}</strong>건 선택</span>`) + stale +
     (d.warnings.length ? `<section class="note warn" role="alert"><strong>경고 ${d.warnings.length}건 · 본문을 고칠지 확인하세요</strong><ul style="padding-left:18px;margin-top:6px">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul><a href="${base()}/write/${n}" style="color:inherit;font-weight:700">본문으로</a></section>` : '') +
     section('인물 상태', chars) +
     (newChars ? section('새로 나온 인물', newChars) : '') +
     `<div class="cols">
-      <section class="card col"><div class="between"><h2>관계 사건</h2><span class="small">AI 는 사건만 적고, 관계 수치는 Canon 이 계산합니다</span></div>${events || '<div class="small">이번 화에 관계 사건이 없어요</div>'}
+      <section class="card col"><div class="between"><h2>관계 사건</h2><span class="small">AI는 사건만 적고, 관계 수치는 Canon 이 계산해요</span></div>${events || '<div class="small">이번 화에 관계 사건이 없어요</div>'}
         ${secrets ? `<h3 style="margin-top:6px">새로 생긴 비밀</h3>${secrets}` : ''}
         ${rels ? `<h3 style="margin-top:6px">관계 유형 · 설명 변경</h3>${rels}` : ''}</section>
-      <section class="card col">${relationHeader('반영하면 이렇게 계산됩니다')}<div id="rel-preview">${relationLines(S.preview && S.preview.n === n ? S.preview : null)}</div>
-        <div class="small">체크를 바꾸면 바로 다시 계산합니다. 저장은 반영할 때만 됩니다.</div></section>
+      <section class="card col">${relationHeader('반영하면 이렇게 계산돼요')}<div id="rel-preview">${relationLines(S.preview && S.preview.n === n ? S.preview : null)}</div>
+        <div class="small">체크를 바꾸면 바로 다시 계산해요. 저장은 반영할 때만 돼요.</div></section>
     </div>` +
     `<div class="grid-auto">${section('확정 사실', facts)}${section('복선', fs)}</div>` +
-    `<section class="card"><div class="between"><label for="dsum" style="font-size:16px;font-weight:700">${n}화 요약</label><span class="small">다음 화 생성에 이 요약이 들어갑니다</span></div>
+    `<section class="card"><div class="between"><label for="dsum" style="font-size:1rem;font-weight:700">${n}화 요약</label><span class="small">다음 화 생성에 이 요약이 들어가요</span></div>
       <textarea id="dsum" rows="4" data-delta-summary="${n}">${esc(d.summary)}</textarea></section>
-    <div class="between"><div class="row">${((b) => `<button class="btn" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '다시 추출'))}<button class="btn" data-action="dropDelta" data-arg="${n}">버리기</button><a class="btn" href="${base()}/write/${n}">본문으로</a></div>
+    <div class="between"><div class="row">${((b) => `<button class="btn" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '변경안 다시 만들기'))}<button class="btn" data-action="dropDelta" data-arg="${n}">버리기</button><a class="btn" href="${base()}/write/${n}">본문으로</a></div>
       <button class="btn primary" data-action="applyDelta" data-arg="${n}">선택한 항목 반영하고 ${n}화 완료</button></div>`;
 }
 
 function historyView(h) {
-  const li = (arr) => arr.length ? `<ul style="padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.5">${arr.map((x) => `<li>${x}</li>`).join('')}</ul>` : '<div class="small">없음</div>';
-  return `<section class="card"><h2>요약</h2><p style="font-size:14px;line-height:1.7">${esc(h.summary)}</p></section>
+  const li = (arr) => arr.length ? `<ul style="padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:0.8125rem;line-height:1.5">${arr.map((x) => `<li>${x}</li>`).join('')}</ul>` : '<div class="small">없음</div>';
+  return `<section class="card"><h2>요약</h2><p style="font-size:0.875rem;line-height:1.7">${esc(h.summary)}</p></section>
     <div class="grid-auto">
       <section class="card"><h2>인물 상태</h2>${li(h.character_updates.map((u) => `<strong>${esc(charName(u.character_id))}</strong> ${esc([u.emotional_state, u.current_goal, u.location].filter(Boolean).join(' / '))}${u.knows.length ? ` · 앎: ${esc(u.knows.join(', '))}` : ''}`))}</section>
       <section class="card"><h2>관계 사건</h2>${li((h.events || []).map((ev) => `${esc(charName(ev.actor))} → ${esc(charName(ev.target))} · ${esc(ev.kind)} ${INTENSITY[ev.intensity] || ''}${ev.quote ? `<br><span class="small">“${esc(ev.quote)}”</span>` : ''}`))}</section>
@@ -3650,22 +3740,22 @@ function relationLines(rel) {
 
 function viewBrief(n) {
   const e = ep(n);
-  if (!e) return header('6단계', '채팅 앱 작업지시서', '') + noEpisode();
+  if (!e) return header('작품 도구', '채팅 앱 작업지시서', '') + noEpisode();
   const body = S.briefTab === 'episode';
   const stateBlocked = !body && !e.text;
   // 앞 화 반영이 끝나지 않았으면 받은 본문 저장(처음 쓰는 화)과 변경안 반영을 서버가 막는다. 붙여 넣은 글은 칸에 남는다
   const order = (body ? e.status === 'confirmed' : e.status === 'written') ? blockedBefore(n) : [];
-  return `<header class="page-head"><div class="row" style="gap:12px">${epNav('brief', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${n}화 ${esc(e.plot.title)} · API 없이 쓰기</div><h1 style="font-size:24px">채팅 앱 작업지시서</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div></header>
-    <p class="desc">Claude, Gemini, ChatGPT 구독 앱에 붙여 넣을 지시서입니다. API 생성과 똑같은 컨텍스트를 씁니다.</p>
+  return `<header class="page-head"><div class="row" style="gap:12px">${epNav('brief', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${n}화 ${esc(e.plot.title)} · API 없이 쓰기</div><h1 style="font-size:1.5rem">채팅 앱 작업지시서</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div></header>
+    <p class="desc">Claude, Gemini, ChatGPT 구독 앱에 붙여 넣을 지시서예요. API 생성과 똑같은 컨텍스트를 써요.</p>
     <div class="tabs" role="tablist" aria-label="지시서 종류">
       <button type="button" role="tab" aria-selected="${body}" data-action="setBriefTab" data-arg="episode">1 본문 작성 지시서</button>
-      <button type="button" role="tab" aria-selected="${!body}" data-action="setBriefTab" data-arg="state">2 상태 정리 지시서</button>
+      <button type="button" role="tab" aria-selected="${!body}" data-action="setBriefTab" data-arg="state">2 상태 승인 지시서</button>
     </div>
-    <div class="cols">
+    <div class="cols" role="tabpanel" aria-label="${body ? '1 본문 작성 지시서' : '2 상태 승인 지시서'}">
       <section class="card" style="flex:1.3 1 480px;min-width:0">
         <div class="between"><h2><span class="small" style="font-weight:400">① </span>복사해서 채팅 앱에 붙여 넣기</h2>
           <div class="row"><button class="btn small" data-action="downloadBrief" data-arg="${n}"${stateBlocked ? ' disabled' : ''}>.md 내려받기</button><button class="btn small dark" data-action="copyBrief"${stateBlocked ? ' disabled' : ''}>복사</button></div></div>
-        ${e.status === 'draft' && body ? '<div class="note warn">플롯이 아직 초안이에요. 확정 전 내용으로 지시서가 만들어집니다.</div>' : ''}
+        ${e.status === 'draft' && body ? '<div class="note warn">플롯이 아직 초안이에요. 확정 전 내용으로 지시서가 만들어져요.</div>' : ''}
         <pre class="brief mono">${esc(S.briefText ?? '불러오는 중…')}</pre>
         ${S.briefText ? `<div class="small">${S.briefText.length.toLocaleString()}자</div>` : ''}
       </section>
@@ -3673,19 +3763,19 @@ function viewBrief(n) {
         ${body ? `<h2><span class="small" style="font-weight:400">② </span>받은 본문 가져오기</h2>
           <label for="imp-body" class="small">채팅 앱이 쓴 본문을 그대로 붙여 넣으세요.</label>
           <textarea id="imp-body" rows="12" data-brief="${n}:episode" style="font-family:var(--serif);line-height:1.8"${e.status === 'draft' || e.status === 'finalized' ? ' disabled' : ''}>${esc(S.briefDraft[`${S.name}:${n}:episode`] || '')}</textarea>
-          ${e.status === 'draft' ? '<div class="small">플롯을 확정해야 본문을 저장할 수 있어요.</div>' : ''}${e.status === 'finalized' ? '<div class="small">이미 끝난 화입니다.</div>' : ''}
+          ${e.status === 'draft' ? '<div class="small">플롯을 확정해야 본문을 저장할 수 있어요.</div>' : ''}${e.status === 'finalized' ? '<div class="small">이미 끝난 화예요.</div>' : ''}
           ${orderNote(order)}
           <div style="align-self:flex-end"><button class="btn primary" data-action="importText" data-arg="${n}"${e.status === 'draft' || e.status === 'finalized' || order.length ? ' disabled' : ''}>${n}화 본문으로 저장</button></div>`
         : `<h2><span class="small" style="font-weight:400">② </span>받은 JSON 가져오기</h2>
-          <label for="imp-json" class="small">채팅 앱의 JSON 답변을 붙여 넣으세요. 코드 블록 표시는 자동으로 지웁니다.</label>
+          <label for="imp-json" class="small">채팅 앱의 JSON 답변을 붙여 넣으세요. 코드 블록 표시는 자동으로 지워요.</label>
           <textarea id="imp-json" rows="12" data-brief="${n}:state" class="mono"${e.status !== 'written' ? ' disabled' : ''}>${esc(S.briefDraft[`${S.name}:${n}:state`] || '')}</textarea>
           ${e.status !== 'written' ? '<div class="small">본문이 작성된 화에서만 쓸 수 있어요.</div>' : ''}
           ${orderNote(order)}
           <div style="align-self:flex-end"><button class="btn primary" data-action="importJson" data-arg="${n}"${e.status !== 'written' || order.length ? ' disabled' : ''}>확인하고 변경안 검토로</button></div>`}
         <div style="padding-top:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px">
-          <strong style="font-size:13px">순서</strong>
-          <ol style="padding-left:20px;display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:1.55;color:var(--text-2)">
-            <li>본문 작성 지시서 → 받은 본문 저장</li><li>상태 정리 지시서 → 받은 JSON 가져오기</li><li>상태 변경안 승인 화면에서 반영</li></ol>
+          <strong style="font-size:0.8125rem">순서</strong>
+          <ol style="padding-left:20px;display:flex;flex-direction:column;gap:4px;font-size:0.8125rem;line-height:1.55;color:var(--text-2)">
+            <li>본문 작성 지시서 → 받은 본문 저장</li><li>상태 승인 지시서 → 받은 JSON 가져오기</li><li>상태 승인 화면에서 반영</li></ol>
         </div>
       </section>
     </div>`;
@@ -3758,7 +3848,7 @@ Object.assign(actions, {
   rsUseModel(id) {
     S.rs.runs.push({ provider: 'local', model: id, url: S.rs.probeUrl.trim() === (S.config.local_url || '') ? '' : S.rs.probeUrl.trim() });
     S.rs.tab = 'sample';
-    toast(`${id} 를 샘플 생성에 넣었습니다`);
+    toast(`${id} 를 샘플 생성에 넣었어요`);
     render();
   },
   rsAddRun() {
@@ -3821,7 +3911,7 @@ Object.assign(actions, {
       await rsLoadLog();
       delete S.textDraft[n];
       delete S.deltas[n];
-      toast(`${k}번은 ${r.result.picked} 였습니다${r.result.adopted ? `. ${n}화 본문으로 저장했습니다` : ''}`);
+      toast(`${k}번은 ${r.result.picked} 였어요${r.result.adopted ? `. ${n}화 본문으로 저장했어요` : ''}`);
     });
   },
 });
@@ -3855,7 +3945,7 @@ function rsProbeView() {
   const rows = r ? r.models.map((m) => `<tr><td class="mono">${esc(m.id)}</td><td>${esc(m.parent || '')}</td><td>${m.max_model_len ? rsNum(m.max_model_len) : (m.parent ? '부모와 같음' : '-')}</td><td>${esc(m.owned_by)}</td>
       <td><button class="btn small" data-action="rsUseModel" data-arg="${esc(m.id)}">샘플 생성에 넣기</button></td></tr>`).join('') : '';
   return `<section class="card">
-      <p class="desc">OpenAI 호환 서버(vLLM, Ollama, llama.cpp, LM Studio)의 모델 목록과 컨텍스트 길이를 봅니다. 생성 호출은 하지 않습니다.</p>
+      <p class="desc">OpenAI 호환 서버(vLLM, Ollama, llama.cpp, LM Studio)의 모델 목록과 컨텍스트 길이를 봐요. 생성 호출은 하지 않아요.</p>
       <div class="row" style="align-items:flex-end;flex-wrap:nowrap">
         <div class="field" style="flex:1"><label for="rs-probe-url">서버 주소 <span class="hint">/v1 까지</span></label><input id="rs-probe-url" type="text" value="${esc(S.rs.probeUrl)}" data-rs="probeUrl" placeholder="http://nhn-b200:8001/v1"></div>
         <button class="btn dark" data-action="rsProbe">점검</button>
@@ -3877,7 +3967,7 @@ function rsSampleView() {
         <div class="rs-prose">${esc(r.text)}</div>` : `<div class="note err">${esc(r.error)}</div>`}
     </section>`).join('') : '';
   return `<section class="card">
-      <p class="desc">같은 요청을 여러 백엔드에 차례로 보내 시간, 토큰, 문체 지표를 나란히 봅니다. 작품 데이터는 쓰지 않습니다.</p>
+      <p class="desc">같은 요청을 여러 백엔드에 차례로 보내 시간, 토큰, 문체 지표를 나란히 봐요. 작품 데이터는 쓰지 않아요.</p>
       ${runs || '<div class="small">백엔드를 넣으세요.</div>'}
       <div><button class="btn small ghost" data-action="rsAddRun">+ 백엔드</button></div>
       <div class="field"><label for="rs-system">시스템 지시</label><textarea id="rs-system" rows="2" data-rs="system">${esc(S.rs.system)}</textarea></div>
@@ -3902,12 +3992,12 @@ function rsStageView() {
       <div class="note ${r.empty.length ? 'warn' : 'ok'}">필드 ${r.fields}개 중 ${filled}개 채움${r.empty.length ? `, 빈 필드 ${r.empty.length}개` : ''}</div>
       ${r.empty.length ? `<div class="small mono">${r.empty.map(esc).join(' · ')}</div>` : ''}
       ${r.out_of_range.length ? `<div class="note err">범위를 벗어난 값 ${r.out_of_range.length}개 (스키마 설명의 범위 기준)<br><span class="mono">${r.out_of_range.map(esc).join('<br>')}</span></div>` : ''}
-      ${r.attempts > 1 ? '<div class="note warn">첫 응답이 스키마 검증에 실패해 한 번 더 물었습니다.</div>' : ''}
+      ${r.attempts > 1 ? '<div class="note warn">첫 응답이 스키마 검증에 실패해 한 번 더 물었어요.</div>' : ''}
       <details><summary>응답 JSON 보기</summary><pre class="brief mono">${esc(JSON.stringify(r.result, null, 2))}</pre></details>
     </section>`;
   }
   return `<section class="card">
-      <p class="desc">설정 제안, 문체 분석, 기승전결을 저장하지 않고 돌려 봅니다. 모델이 건너뛴 필드, 범위를 벗어난 숫자, 재시도 횟수를 확인합니다.</p>
+      <p class="desc">설정 제안, 문체 분석, 기승전결을 저장하지 않고 돌려 봐요. 모델이 건너뛴 필드, 범위를 벗어난 숫자, 재시도 횟수를 확인해요.</p>
       ${rsBackendFields('stageBackend', S.rs.stageBackend)}
       <div class="field" style="max-width:240px"><label for="rs-stage">단계</label><select id="rs-stage" data-rs="stage">${stages}</select></div>
       <div class="field"><label for="rs-stage-text">문체 분석 원문 <span class="hint">문체 분석에만 씀. 비우면 문체 레퍼런스의 대표 문단</span></label><textarea id="rs-stage-text" rows="5" data-rs="stageText" style="font-family:var(--serif)">${esc(S.rs.stageText)}</textarea></div>
@@ -3923,15 +4013,15 @@ function rsBudgetView() {
     const rows = r.rows.map((x) => `<tr><td>${x.episode}화</td><td><span class="chip ${x.status}">${STATUS[x.status]}</span>${x.measured ? '' : ' <span class="small">가정</span>'}</td>${cell(x.write)}${cell(x.check)}${cell(x.state)}</tr>`).join('');
     out = `<section class="card">
       <div class="between"><h2>${esc(r.backend)} · ${esc(r.model)}</h2><span class="small">최대 컨텍스트 ${r.limit ? rsNum(r.limit) + ' 토큰' : '알 수 없음'}</span></div>
-      ${r.first_over ? `<div class="note err">${r.first_over}화부터 입력만으로 한도를 넘어 서버가 요청을 거절합니다. 검수(check)는 앞선 본문 전체를 넣어 화가 갈수록 커집니다. 서버의 컨텍스트를 늘리거나, 설정의 단계별 백엔드에서 넘치는 단계를 Gemini 로 돌리세요.</div>` : ''}
-      ${r.first_tight && r.first_tight !== r.first_over ? `<div class="note warn">${r.first_tight}화부터 출력 여유까지 더하면 한도를 넘습니다. 응답이 중간에 잘릴 수 있어요.</div>` : ''}
-      ${!r.limit ? '<div class="note plain">이 백엔드는 한도를 알려 주지 않아 넘침은 판단하지 않았습니다.</div>' : (!r.first_tight ? '<div class="note ok">플롯이 있는 화는 모두 한도 안에 들어갑니다.</div>' : '')}
-      <div class="rs-scroll"><table class="rs-table"><thead><tr><th>화</th><th>상태</th><th>본문 쓰기</th><th>검수</th><th>상태 추출</th></tr></thead><tbody>${rows}</tbody></table></div>
-      <div class="small">칸마다 '입력 / 입력+출력 여유' 토큰입니다. 출력 여유는 본문 ${rsNum(r.write_reserve)}, 검수·상태 ${rsNum(r.json_reserve)} 토큰으로 잡았습니다. ${r.tokenizer ? '서버 토크나이저로 셌습니다.' : '~ 표시는 글자 수로 어림한 값입니다.'} '가정'인 화는 앞선 화가 모두 목표 분량으로 쓰였다고 보고 쟀습니다. 플롯이 있는 화만 잽니다.</div>
+      ${r.first_over ? `<div class="note err">${r.first_over}화부터 입력만으로 한도를 넘어 서버가 요청을 거절해요. 검수(check)는 앞선 본문 전체를 넣어 화가 갈수록 커져요. 서버의 컨텍스트를 늘리거나, 설정의 단계별 백엔드에서 넘치는 단계를 Gemini 로 돌리세요.</div>` : ''}
+      ${r.first_tight && r.first_tight !== r.first_over ? `<div class="note warn">${r.first_tight}화부터 출력 여유까지 더하면 한도를 넘어요. 응답이 중간에 잘릴 수 있어요.</div>` : ''}
+      ${!r.limit ? '<div class="note plain">이 백엔드는 한도를 알려 주지 않아 넘침은 판단하지 않았어요.</div>' : (!r.first_tight ? '<div class="note ok">플롯이 있는 화는 모두 한도 안에 들어가요.</div>' : '')}
+      <div class="rs-scroll"><table class="rs-table"><thead><tr><th>화</th><th>상태</th><th>본문 쓰기</th><th>검수</th><th>상태 변경안</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="small">칸마다 '입력 / 입력+출력 여유' 토큰이에요. 출력 여유는 본문 ${rsNum(r.write_reserve)}, 검수·상태 ${rsNum(r.json_reserve)} 토큰으로 잡았어요. ${r.tokenizer ? '서버 토크나이저로 셌어요.' : '~ 표시는 글자 수로 어림한 값이에요.'} '가정'인 화는 앞선 화가 모두 목표 분량으로 쓰였다고 보고 쟀어요. 플롯이 있는 화만 재요.</div>
     </section>`;
   }
   return `<section class="card">
-      <p class="desc">화마다 본문 쓰기, 검수, 상태 추출에 들어가는 프롬프트 크기를 모델의 컨텍스트 한도와 비교합니다. 생성 호출은 하지 않습니다.</p>
+      <p class="desc">화마다 본문 쓰기, 검수, 상태 변경안에 들어가는 프롬프트 크기를 모델의 컨텍스트 한도와 비교해요. 생성 호출은 하지 않아요.</p>
       ${rsBackendFields('budgetBackend', S.rs.budgetBackend)}
       <div><button class="btn dark" data-action="rsBudget">재기</button></div>
     </section>${out}`;
@@ -3952,16 +4042,16 @@ function rsCompareView() {
     </section>`).join('') : '';
   const wins = S.rs.pickResult ? Object.entries(S.rs.pickResult.wins).map(([k, v]) => `${esc(k)} ${v}`).join(', ') : '';
   return `<section class="card">
-      <p class="desc">같은 화를 두 백엔드로 쓰고 1, 2번으로 가립니다. 읽고 고르면 어느 쪽이었는지 공개합니다. 프롬프트는 집필 화면과 같습니다.</p>
+      <p class="desc">같은 화를 두 백엔드로 쓰고 1, 2번으로 가려요. 읽고 고르면 어느 쪽이었는지 공개해요. 프롬프트는 집필 화면과 같아요.</p>
       <div class="field" style="max-width:320px"><label for="rs-cmp-ep">화</label>
-        <select id="rs-cmp-ep" onchange="actions.rsCompareEp()">${eps.map((x) => `<option value="${x.plot.number}"${x.plot.number === n ? ' selected' : ''}>${x.plot.number}화 ${esc(x.plot.title)} · ${STATUS[x.status]}</option>`).join('') || '<option>확정된 화가 없습니다</option>'}</select></div>
+        <select id="rs-cmp-ep" onchange="actions.rsCompareEp()">${eps.map((x) => `<option value="${x.plot.number}"${x.plot.number === n ? ' selected' : ''}>${x.plot.number}화 ${esc(x.plot.title)} · ${STATUS[x.status]}</option>`).join('') || '<option>확정된 화가 없어요</option>'}</select></div>
       <div class="grid-2"><div><h3>A</h3>${rsBackendFields('compareA', S.rs.compareA)}</div><div><h3>B</h3>${rsBackendFields('compareB', S.rs.compareB)}</div></div>
-      <label class="check-row"><input type="checkbox" data-rs="adopt"${S.rs.adopt ? ' checked' : ''}><span><strong>고른 쪽을 본문으로 채택</strong> <span class="small">끄면 고른 기록만 남기고 작품은 그대로 둡니다. 반영이 끝난 화는 채택할 수 없어요.</span></span></label>
+      <label class="check-row"><input type="checkbox" data-rs="adopt"${S.rs.adopt ? ' checked' : ''}><span><strong>고른 쪽을 본문으로 채택</strong> <span class="small">끄면 고른 기록만 남기고 작품은 그대로 둬요. 반영이 끝난 화는 채택할 수 없어요.</span></span></label>
       <div><button class="btn dark" data-action="rsCompare"${eps.length && e && e.status !== 'draft' ? '' : ' disabled'}>${n}화 비교본 쓰기</button></div>
-      ${e && e.status === 'finalized' ? '<div class="small">이 화는 반영이 끝났습니다. 비교본을 쓰려면 이전 화들이 반영 완료여야 하고, 채택은 끈 채로 고르세요.</div>' : ''}
+      ${e && e.status === 'finalized' ? '<div class="small">이 화는 반영이 끝났어요. 비교본을 쓰려면 이전 화들이 반영 완료여야 하고, 채택은 끈 채로 고르세요.</div>' : ''}
     </section>
-    ${S.rs.pickResult ? `<div class="note ok">${esc(S.rs.pickResult.picked)} 를 골랐습니다. 지금까지 고른 횟수: ${wins}</div>` : ''}
-    ${c ? `<div class="small">${esc((c.created || '').replace('T', ' '))} 에 쓴 비교본${c.picked ? '' : ' · 고르기 전까지 백엔드를 가립니다'}</div><div class="rs-compare">${drafts}</div>` : ''}`;
+    ${S.rs.pickResult ? `<div class="note ok">${esc(S.rs.pickResult.picked)} 를 골랐어요. 지금까지 고른 횟수: ${wins}</div>` : ''}
+    ${c ? `<div class="small">${esc(fmtDateTime(c.created))}에 쓴 비교본${c.picked ? '' : ' · 고르기 전까지 백엔드를 가려요'}</div><div class="rs-compare">${drafts}</div>` : ''}`;
 }
 
 function rsLogView() {
@@ -3972,11 +4062,11 @@ function rsLogView() {
     if (x.kind === 'budget') line = `${x.backend} · 한도 ${x.limit ? rsNum(x.limit) : '알 수 없음'} · ${x.first_over ? `${x.first_over}화부터 넘침` : x.first_tight ? `${x.first_tight}화부터 빠듯함` : '넘침 없음'}`;
     if (x.kind === 'compare') line = `${x.episode}화 · ${x.backends.join(' vs ')}`;
     if (x.kind === 'pick') line = `${x.episode}화 · ${x.picked} 고름${x.adopted ? ' (본문 채택)' : ''}`;
-    return `<li><div class="between"><span><span class="chip">${RS_KIND[x.kind] || x.kind}</span> ${esc(line)}</span><span class="small">${esc(x.time.replace('T', ' '))}</span></div>
+    return `<li><div class="between"><span><span class="chip">${RS_KIND[x.kind] || x.kind}</span> ${esc(line)}</span><span class="small">${esc(fmtDateTime(x.time))}</span></div>
       <details><summary>자세히</summary><pre class="brief mono">${esc(JSON.stringify(x, null, 2))}</pre></details></li>`;
   }).join('');
   return `<section class="card">
-      <p class="desc">최근 30개 실험입니다. 전체 기록은 작품 폴더의 research/log.jsonl 에 있습니다.</p>
+      <p class="desc">최근 30개 실험이에요. 전체 기록은 작품 폴더의 research/log.jsonl 에 있어요.</p>
       ${items ? `<ul class="rs-log">${items}</ul>` : '<div class="small">아직 기록이 없어요.</div>'}
     </section>`;
 }
@@ -3984,7 +4074,7 @@ function rsLogView() {
 function viewResearch() {
   if (!S.rs) return header('연구', '모델 실험', '') + '<div class="note plain">불러오는 중…</div>';
   const views = { probe: rsProbeView, sample: rsSampleView, stage: rsStageView, budget: rsBudgetView, compare: rsCompareView, log: rsLogView };
-  return `${header('연구 · 본편과 분리', '모델 실험', '모델 서버를 점검하고, 같은 요청을 여러 모델로 돌려 비교합니다. 여기서 돌린 결과는 작품 데이터에 들어가지 않고 실험 기록으로만 남습니다. 블라인드 비교에서 채택할 때만 본문이 바뀝니다.')}
+  return `${header('연구 · 본편과 분리', '모델 실험', '모델 서버를 점검하고, 같은 요청을 여러 모델로 돌려 비교해요. 여기서 돌린 결과는 작품 데이터에 들어가지 않고 실험 기록으로만 남아요. 블라인드 비교에서 채택할 때만 본문이 바뀌어요.')}
     <div class="tabs" role="tablist" aria-label="실험 종류">${RS_TABS.map(([k, l]) => `<button type="button" role="tab" aria-selected="${S.rs.tab === k}" data-action="rsTab" data-arg="${k}">${l}</button>`).join('')}</div>
     ${rsModelList()}
     ${views[S.rs.tab]()}`;
