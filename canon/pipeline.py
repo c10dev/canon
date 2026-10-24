@@ -1825,13 +1825,16 @@ def set_candidate(p: Project, n: int, text: str, req: RewriteRequest) -> TextVer
 
 
 def replace_text(ep: Episode, text: str, made_by: RewriteRequest | None = None) -> None:
-    """지금 본문을 versions 에 남기고 text 로 바꾼다. 검수 결과는 지난 판 것이라 지운다."""
+    """지금 본문을 versions 에 남기고 text 로 바꾼다. 검수 결과는 지난 판 것이라 지운다.
+    상태 반영이 끝난 화는 반영을 그대로 두고 before_change 로 반영 뒤 고침만 표시한다."""
+    done = ep.status == "finalized"
     if text == ep.text:
-        ep.status = "written"
+        ep.status = "finalized" if done else "written"
         return
     if ep.text.strip():
         _keep_version(ep, TextVersion(id=_version_id(ep), at=_now(), text=ep.text, kind="previous", request=ep.made_by))
-    ep.text, ep.made_by, ep.status = text, made_by, "written"
+    before_change(ep)
+    ep.text, ep.made_by, ep.status = text, made_by, "finalized" if done else "written"
     ep.issues, ep.checked_at = [], ""
 
 
@@ -1878,12 +1881,22 @@ def _now() -> str:
 
 
 def _editable(p: Project, n: int) -> Episode:
+    """본문을 고칠 수 있는 화. 상태 반영이 끝난 화도 고친다 (반영된 상태는 그대로 두고 before_change 가 표시한다)."""
     ep = p.episode(n)
-    if ep.status == "finalized":
-        raise ValueError(f"{n}화는 상태 반영까지 끝나 본문을 바꿀 수 없어요. 바꾸려면 {n - 1}화 반영 직후로 되돌리세요")
     if not ep.text:
         raise ValueError(f"{n}화 본문이 없어요")
     return ep
+
+
+def before_change(ep: Episode) -> None:
+    """본문을 바꾸기 직전에 부른다. 반영이 끝난 화면 처음 고치기 전 본문을 final_text 에 남겨 반영 기준 본문과 비교할 수 있게 한다."""
+    if ep.status == "finalized" and not ep.final_text:
+        ep.final_text = ep.text
+
+
+def edited_after_final(ep: Episode) -> bool:
+    """상태 반영이 끝난 뒤 본문을 고쳐, 반영된 요약 · 상태 · 복선이 고치기 전 본문 기준이다."""
+    return ep.status == "finalized" and bool(ep.final_text) and ep.final_text != ep.text
 
 
 def locate(text: str, quote: str, start: int) -> int:
@@ -1916,6 +1929,7 @@ def edit_text(p: Project, n: int, sel: Selection, after: str, source: str = "man
     at = locate(ep.text, sel.text, sel.start)
     if after == sel.text:
         raise ValueError("바뀐 내용이 없어요")
+    before_change(ep)
     ep.text = ep.text[:at] + after + ep.text[at + len(sel.text):]
     return _record(ep, TextEdit(id="", source=source, start=at, before=sel.text, after=after, instruction=instruction,  # type: ignore[arg-type]
                                 preset=preset, proposed=proposed if proposed != after else "", rejected=list(rejected or [])))
@@ -1948,6 +1962,7 @@ def undo_edit(p: Project, n: int, eid: str) -> TextEdit:
         at = edit.start
     else:
         raise ValueError("되돌릴 자리를 찾을 수 없어요")
+    before_change(ep)
     ep.text = ep.text[:at] + edit.before + ep.text[at + len(edit.after):]
     edit.undone = True
     return edit
@@ -1967,6 +1982,7 @@ def redo_edit(p: Project, n: int, eid: str) -> TextEdit:
         at = edit.start
     else:
         raise ValueError("다시 넣을 자리를 찾을 수 없어요")
+    before_change(ep)
     ep.text = ep.text[:at] + edit.after + ep.text[at + len(edit.before):]
     edit.undone = False
     return edit
@@ -2344,7 +2360,7 @@ def apply_delta(p: Project, d: StateDelta) -> None:
     ep = p.episode(d.episode)
     dynamics.ensure_initial(p)
     ep.summary = d.summary
-    ep.status = "finalized"
+    ep.status, ep.final_text = "finalized", ""
     _add_characters(p, d.new_characters, d.episode)
     ep.auto = False  # 자동 집필은 반영한 뒤 True 로 표시한다
 
@@ -2439,8 +2455,47 @@ def revert(p: Project, n: int) -> None:
     p.snapshots = [s for s in p.snapshots if s.episode <= n]
     for ep in p.episodes:
         if ep.plot.number > n and ep.status == "finalized":
-            ep.status, ep.summary, ep.auto = "written", "", False
+            ep.status, ep.summary, ep.auto, ep.final_text = "written", "", False, ""
     sync_candidates(p)
+
+
+# ---------- 6-1. 반영 뒤 고친 화 다시 맞추기 ----------
+# 반영이 끝난 화의 본문을 고쳐도 반영된 상태는 그대로 둔다 (뒤 화가 그 위에 쌓였다). 고친 본문에서 변경안을 다시 뽑아
+# 뒤 화의 전제를 흔들지 않는 것(요약, 새 사실, 새 복선)만 골라 더한다. 인물 상태 · 관계 · 비밀까지 바꾸려면 그 화부터 반영을 취소한다.
+
+def apply_restate(p: Project, d: StateDelta) -> dict:
+    """반영 뒤 고친 화에 요약 · 새 사실 · 새 복선만 반영한다. 그 화와 뒤 화의 스냅샷 · 반영 기록에도 넣어 되돌리기와 맞춘다."""
+    n = d.episode
+    ep = p.episode(n)
+    if ep.status != "finalized":
+        raise ValueError(f"{n}화는 상태 반영이 끝난 화가 아니에요. 상태 승인 화면에서 반영하세요")
+    summary = d.summary.strip()
+    facts = list(dict.fromkeys(f for f in d.new_facts if f.strip() and f not in p.facts))
+    known = {f.id for f in p.foreshadows}
+    plants = [f.model_copy(update={"planted_ep": n, "status": "open", "payoff_ep": None}) for f in d.foreshadow_planted if f.id not in known]
+    if summary:
+        ep.summary = summary
+    p.facts += facts
+    p.foreshadows += plants
+    for snap in p.snapshots:
+        if snap.episode >= n:
+            snap.facts += [f for f in facts if f not in snap.facts]
+            snap.foreshadows += [f.model_copy(deep=True) for f in plants]
+    rec = next((h for h in reversed(p.history) if h.episode == n), None)
+    if rec is not None:
+        rec.summary = summary or rec.summary
+        rec.new_facts += facts
+        rec.foreshadow_planted += [f.model_copy(deep=True) for f in plants]
+    ep.final_text = ""
+    return {"summary": bool(summary), "facts": len(facts), "foreshadows": len(plants)}
+
+
+def keep_state(p: Project, n: int) -> None:
+    """반영 뒤 고쳤지만 상태는 그대로 둬도 된다고 정한다 (오타 · 문장 다듬기). 반영 뒤 고침 표시를 지운다."""
+    ep = p.episode(n)
+    if ep.status != "finalized":
+        raise ValueError(f"{n}화는 상태 반영이 끝난 화가 아니에요")
+    ep.final_text = ""
 
 
 def recalc(p: Project) -> None:

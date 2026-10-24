@@ -1161,9 +1161,7 @@ def start_job(name: str, body: JobIn) -> dict:
         if kind == "write":
             if e.status == "draft":
                 raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요")
-            if body.rewrite is not None and e.text:  # 다시 생성: 새 판은 본문을 덮지 않고 고르기를 기다린다
-                if e.status == "finalized":
-                    raise ValueError(f"{n}화는 상태 반영까지 끝나 다시 생성할 수 없어요")
+            if body.rewrite is not None and e.text:  # 다시 생성: 새 판은 본문을 덮지 않고 고르기를 기다린다 (반영이 끝난 화도)
                 req = pipeline.clean_rewrite(body.rewrite)
                 label, total, owned = f"{n}화 새 판", 1, {n}
 
@@ -1181,7 +1179,7 @@ def start_job(name: str, body: JobIn) -> dict:
         else:
             if not e.text:
                 raise ValueError(f"{n}화 본문이 없어요")
-            label, total, owned = f"{n}화 상태 변경안", 1, set()
+            label, total, owned = f"{n}화 {'고친 본문 다시 맞추기' if e.status == 'finalized' else '상태 변경안'}", 1, set()
 
             def fn(job: jobs.Job):
                 return pipeline.extract_state(llm, store.load(name), n).model_dump()
@@ -1284,9 +1282,9 @@ def _now() -> str:
 
 @app.get("/api/projects/{name}/pending")
 def get_pending(name: str) -> dict:
-    """검토를 기다리는 AI 결과와 실패한 작업. 이미 쓸 수 없게 된 상태 변경안(본문 작성 상태가 아닌 화)은 지운다."""
+    """검토를 기다리는 AI 결과와 실패한 작업. 이미 쓸 수 없게 된 상태 변경안(본문 작성 상태도, 반영 뒤 고친 화도 아닌 화)은 지운다."""
     p = _load(name)
-    written = {e.plot.number for e in p.episodes if e.status == "written"}
+    written = {e.plot.number for e in p.episodes if e.status == "written" or pipeline.edited_after_final(e)}
     stale = [k for k, r in store.load_pending(name)["results"].items() if r["kind"] == "state" and r["ep"] not in written]
 
     def prune(d: dict) -> None:
@@ -1350,9 +1348,14 @@ def put_text(name: str, n: int, body: Text) -> Project:
     ep = p.episode(n)
     if ep.status == "draft":
         raise ValueError(f"{n}화 플롯을 먼저 확정하세요")
-    if ep.status == "finalized":
-        raise ValueError(f"{n}화는 상태 반영까지 끝나 본문을 바꿀 수 없어요")
     text = body.text.strip()
+    if ep.status == "finalized":  # 반영이 끝난 화도 고친다. 반영된 상태는 그대로 두고 반영 뒤 고침으로 표시한다
+        if not text:
+            raise ValueError(f"{n}화는 상태 반영이 끝나 본문을 비울 수 없어요")
+        pipeline.record_typed(p, n, ep.text, text)
+        pipeline.before_change(ep)
+        ep.text = text
+        return _save(name, p)
     if text and ep.status == "confirmed":  # 손으로 쓰거나 붙여 넣은 본문도 AI 쓰기와 같은 순서 규칙을 따른다
         pipeline.require_previous(p, n)
     pipeline.record_typed(p, n, ep.text, text)
@@ -1702,6 +1705,25 @@ def apply_state(name: str, n: int, d: StateDelta) -> Project:
     pipeline.require_previous(p, n)
     d.episode = n
     pipeline.apply_delta(p, d)
+    return _save(name, p)
+
+
+@app.post("/api/projects/{name}/episodes/{n}/restate")
+def apply_restate(name: str, n: int, d: StateDelta) -> Project:
+    """반영 뒤 고친 화: 고친 본문에서 다시 뽑은 변경안 중 고른 요약 · 새 사실 · 새 복선만 반영한다."""
+    p = _load(name)
+    _not_auto(name)
+    d.episode = n
+    pipeline.apply_restate(p, d)
+    return _save(name, p)
+
+
+@app.post("/api/projects/{name}/episodes/{n}/keep-state")
+def keep_state(name: str, n: int) -> Project:
+    """반영 뒤 고쳤지만 상태는 그대로 둔다 (반영 뒤 고침 표시만 지운다)."""
+    p = _load(name)
+    _not_auto(name)
+    pipeline.keep_state(p, n)
     return _save(name, p)
 
 

@@ -77,13 +77,15 @@ def test_ai_candidates_apply(client):
     assert next(c for c in p["chats"] if c["topic"] == "text:1")["messages"] == []
 
 
-def test_finalized_is_locked(client):
+def test_finalized_can_be_edited(client):
+    """반영이 끝난 화도 고친다. 상태는 그대로 두고 처음 고치기 전 본문을 final_text 에 남긴다 (자세한 것은 test_restate)."""
     _written(client)
     d = client.post("/api/projects/lh/episodes/1/state").json()
     client.post("/api/projects/lh/episodes/1/apply", json=d)
     sel = {"start": 0, "text": "바람이 불었다."}
-    assert client.post("/api/projects/lh/episodes/1/edits", json={"selection": sel, "after": "비가 왔다."}).status_code == 400
-    assert client.post("/api/projects/lh/chat/text:1", json={"message": "x", "selection": sel}).status_code == 400
+    e = _ep(client.post("/api/projects/lh/episodes/1/edits", json={"selection": sel, "after": "비가 왔다."}).json())
+    assert e["status"] == "finalized" and e["text"].startswith("비가 왔다.") and e["final_text"] == TEXT
+    assert client.post("/api/projects/lh/chat/text:1", json={"message": "x", "selection": {"start": 0, "text": "비가 왔다."}}).status_code == 200
 
 
 def test_typed_diff_and_presets():
