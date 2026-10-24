@@ -263,7 +263,7 @@ function castLegend() {
   const warm = WARMTH_BANDS.map(([, col, word]) => `<span><i style="background:${col}"></i>${word}</span>`).join('');
   const ten = Object.entries(TENSION_FILL).map(([w, col]) => `<span><i style="background:${col};border-radius:50%"></i>긴장 ${w}</span>`).join('');
   return `<div class="legend"><strong>온기</strong>${warm}</div>
-    <div class="legend"><strong>두 사람 긴장</strong>${ten}<span><i style="border:1.5px dashed var(--line-strong);background:#fff;border-radius:50%"></i>이 시점엔 아직 안 나온 인물</span></div>
+    <div class="legend"><strong>두 사람 긴장</strong>${ten}<span><i style="border:1.5px dashed var(--line-strong);background:var(--surface);border-radius:50%"></i>이 시점엔 아직 안 나온 인물</span></div>
     <div class="small">화살표는 보는 쪽 → 보이는 쪽이에요. 색은 온기, 굵기는 함께 겪은 정도(친숙도)예요.</div>`;
 }
 
@@ -448,7 +448,7 @@ function castPairDetail(a, b) {
     ${tieFixForm(a, b, names)}
     ${multi ? `<h3>온기</h3>${legend}${castChart(two((t) => t.warmth), -1, 1, { grid: [-1, 0, 1], notes, label: '온기 추이' })}
     <h3>신뢰</h3>${castChart(two((t) => t.trust), 0, 1, { grid: [0, 0.5, 1], notes, label: '신뢰 추이' })}
-    <h3>긴장 <span class="small" style="font-weight:400">0~10, 3 · 5 · 7 에서 보통 · 높음 · 매우 높음</span></h3>${castChart([{ label: '긴장', color: '#3D4350', values: tension }], 0, 10, { grid: [0, 3, 5, 7, 10], fmt: (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1)), notes, label: '긴장 추이', h: 110 })}
+    <h3>긴장 <span class="small" style="font-weight:400">0~10, 3 · 5 · 7 에서 보통 · 높음 · 매우 높음</span></h3>${castChart([{ label: '긴장', color: 'var(--text-2)', values: tension }], 0, 10, { grid: [0, 3, 5, 7, 10], fmt: (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1)), notes, label: '긴장 추이', h: 110 })}
     <div class="small">칸에 올리면 그 시점 값과 사건, 누르면 관계도가 그 시점으로 가요.</div>` : '<div class="small">1화를 반영하면 화별 추이 그래프가 나와요.</div>'}
     <h3>두 사람 사이 관계 사건 <span class="small" style="font-weight:400">${evs.length}개</span></h3>
     ${evList ? `<ul class="cast-ul">${evList}</ul>` : '<div class="small">아직 없어요</div>'}

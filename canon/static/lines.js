@@ -14,7 +14,7 @@ const LINE_KIND_HINT = {
 };
 // 줄기 색: 흰 배경에서 대비 4.5 이상인 색만
 const LINE_COLORS = ['#B4570A', '#7A3FB0', '#1C6E45', '#B42318', '#0E6F7C', '#6E5A00', '#A3367A', '#3E5C14'];
-const DOT_FILL = { draft: '#FFFFFF', confirmed: 'var(--accent-soft)', written: 'var(--amber-soft)', finalized: 'var(--green-soft)' };
+const DOT_FILL = { draft: 'var(--surface)', confirmed: 'var(--accent-soft)', written: 'var(--amber-soft)', finalized: 'var(--green-soft)' };
 
 /** 상태를 색만이 아니라 모양으로도 보인다 (적록 색각 이상, 고대비): 반영 완료는 가운데를 채운 점, 본문 있음은 아래 반을 채운 점,
     초안은 점선 테두리, 확정은 빈 점. 범례도 같은 모양을 쓴다 (statusKey) */
@@ -166,7 +166,7 @@ function lineMap() {
       const e = byNo.get(n);
       const title = `${n}화 ${e ? e.plot.title : ''} · ${s.title}${role === 'thread' ? ' (장면)' : ''} · ${e ? STATUS[e.status] : ''}`;
       out.push(`<g class="lm-dot" data-action="lineEp" data-arg="${n}" tabindex="0" role="button" aria-label="${esc(title)}"><title>${esc(title)}</title>
-        <circle cx="${X(n)}" cy="${y}" r="${role === 'thread' ? r - 1 : r + 1}" fill="${role === 'thread' ? '#FFFFFF' : DOT_FILL[e ? e.status : 'draft']}" stroke="${c}" stroke-width="${role === 'thread' ? 2 : 3}"${role !== 'thread' && (!e || e.status === 'draft') ? ' stroke-dasharray="3 2"' : ''}></circle>${role === 'thread' ? '' : statusMark(X(n), y, r + 1, e ? e.status : 'draft')}</g>`);
+        <circle cx="${X(n)}" cy="${y}" r="${role === 'thread' ? r - 1 : r + 1}" fill="${role === 'thread' ? 'var(--surface)' : DOT_FILL[e ? e.status : 'draft']}" stroke="${c}" stroke-width="${role === 'thread' ? 2 : 3}"${role !== 'thread' && (!e || e.status === 'draft') ? ' stroke-dasharray="3 2"' : ''}></circle>${role === 'thread' ? '' : statusMark(X(n), y, r + 1, e ? e.status : 'draft')}</g>`);
     });
   });
 
@@ -187,7 +187,7 @@ function lineMap() {
   const defs = `<defs><clipPath id="lm-lclip"><rect x="0" y="0" width="${left - 14}" height="${height}"></rect></clipPath></defs>`;
   const svg = `<svg class="line-map" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="group" aria-label="이야기 줄기 노선도">${defs}${out.join('')}</svg>`;
   const zoom = `<div class="seg" role="group" aria-label="노선도 폭">${[[0, '맞춤'], [9, '좁게'], [16, '보통'], [30, '넓게']].map(([z, l]) => `<button type="button" aria-pressed="${S.lineZoom === z}" data-action="lineZoom" data-arg="${z}">${l}</button>`).join('')}</div>`;
-  const legend = `<div class="legend">${statusKey('draft', '플롯 초안')}${statusKey('confirmed', '플롯 확정')}${statusKey('written', '본문 있음')}${statusKey('finalized', '반영 완료')}<span><i style="border-radius:50%;border:2px solid var(--text-2);background:#fff"></i>작은 점: 메인 화에 끼어드는 장면</span><span><i style="border-top:2px dashed var(--text-2);height:0;width:16px;border-radius:0"></i>다른 시점(과거 · 외전)</span></div>`;
+  const legend = `<div class="legend">${statusKey('draft', '플롯 초안')}${statusKey('confirmed', '플롯 확정')}${statusKey('written', '본문 있음')}${statusKey('finalized', '반영 완료')}<span><i style="border-radius:50%;border:2px solid var(--text-2);background:var(--surface)"></i>작은 점: 메인 화에 끼어드는 장면</span><span><i style="border-top:2px dashed var(--text-2);height:0;width:16px;border-radius:0"></i>다른 시점(과거 · 외전)</span></div>`;
   return `<div class="card" style="display:flex;flex-direction:column;gap:12px">
     <div class="between"><h2>노선도</h2>${zoom}</div>
     <div class="line-map-wrap">${svg}</div>${legend}
