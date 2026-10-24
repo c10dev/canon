@@ -10,6 +10,7 @@ import threading
 from contextvars import ContextVar
 from pathlib import Path
 
+from . import cancel
 from .dynamics import seed_ties
 from .schema import Project
 
@@ -73,6 +74,7 @@ def load_pending(name: str) -> dict:
 
 def edit_pending(name: str, fn) -> dict:
     """pending.json 을 읽어 fn(d) 로 고치고 저장한다."""
+    cancel.check()
     with _pending_lock:
         d = load_pending(name)
         fn(d)
@@ -84,6 +86,7 @@ def edit_pending(name: str, fn) -> dict:
 
 
 def save(name: str, p: Project) -> Path:
+    cancel.check()  # 멈춘 작업은 저장하지 않는다
     d = project_dir(name)
     d.mkdir(parents=True, exist_ok=True)
     path = d / "project.json"

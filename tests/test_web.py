@@ -456,3 +456,23 @@ def test_pending_results_and_failures_survive_reload(client, monkeypatch):
     wait()
     d = client.get("/api/projects/pd/pending").json()
     assert d["failures"] == {} and "suggest:" in d["results"]  # 같은 작업이 성공하면 지난 실패를 지운다
+
+
+def test_stop_job_discards_result(client, monkeypatch):
+    """멈춘 작업은 바로 cancelled 로 보이고, 늦게 온 AI 응답을 저장하지 않으며 실패로도 남기지 않는다."""
+    import time
+
+    from canon import jobs
+
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "st", "meta": meta})
+    monkeypatch.setenv("CANON_MOCK_DELAY", "0.5")
+    j = client.post("/api/projects/st/jobs", json={"kind": "suggest"}).json()
+    r = client.post(f"/api/jobs/{j['id']}/stop").json()
+    assert r["status"] == "cancelled"
+    time.sleep(0.8)
+    assert jobs.get(j["id"]).status == "cancelled" and jobs.get(j["id"]).result is None
+    d = client.get("/api/projects/st/pending").json()
+    assert d["results"] == {} and d["failures"] == {}
+    # 같은 작업을 다시 시작할 수 있다
+    assert client.post("/api/projects/st/jobs", json={"kind": "suggest"}).json()["status"] == "running"

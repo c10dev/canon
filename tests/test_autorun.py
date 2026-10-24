@@ -359,3 +359,32 @@ def test_revert_removes_characters_added_by_reverted_apply_and_redo_edit(demo):
     assert "courier" in {x["id"] for x in c.get("/api/projects/demo").json()["characters"]}
     p = c.post("/api/projects/demo/revert/0").json()
     assert "courier" not in {x["id"] for x in p["characters"]} and p["episodes"][0]["status"] == "written"
+
+
+def test_batch_poll_transient_error_keeps_name():
+    """배치 조회가 잠깐 실패하면 이름을 버리지 않고 다시 묻는다. 확실히 끝난 배치(BatchGone)만 버린다."""
+    from canon import llm
+
+    class Flaky:
+        label, model = "x", "m"
+
+        def __init__(self, fails):
+            self.fails = fails
+
+        def batch_submit(self, *a, **k):
+            return "b1"
+
+        def batch_poll(self, name):
+            if self.fails:
+                self.fails -= 1
+                raise ConnectionError("잠깐 끊김")
+            return "결과"
+
+    names = {}
+    b = llm.BatchLLM(Flaky(2), "slot", names, lambda: None, lambda s: "")
+    assert b.text("s", "p") == "결과" and names == {}
+    names = {}
+    b = llm.BatchLLM(Flaky(99), "slot", names, lambda: None, lambda s: "")
+    with pytest.raises(RuntimeError, match="다시 붙어요"):
+        b.text("s", "p")
+    assert names == {"slot": "b1"}  # 이어 가면 같은 배치에 다시 붙는다

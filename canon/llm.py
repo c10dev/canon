@@ -21,7 +21,7 @@ from typing import Any, Protocol, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from . import usage
+from . import cancel, usage
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -126,6 +126,7 @@ class GeminiLLM:
     def _call(self, system: str, prompt: str, attempt: int = 1, parse: Any = None, **config: Any) -> Any:
         """한 번 부르고 사용량을 기록한다. parse 가 있으면 응답 글을 parse 한 값을 돌려주고, parse 가 실패해도
         (형식 불일치) 토큰은 쓴 것이라 실패로 기록한다."""
+        cancel.check()  # 멈춘 작업은 다음 호출을 보내지 않는다
         from google.genai import types
 
         t, tokens = time.time(), None
@@ -202,13 +203,13 @@ class GeminiLLM:
         if state in BATCH_WAITING:
             return None
         if state != "JOB_STATE_SUCCEEDED":
-            raise RuntimeError(f"Gemini 배치 작업이 {state} 로 끝났습니다: {job.error or ''}".rstrip(": "))
+            raise BatchGone(f"Gemini 배치 작업이 {state} 로 끝났습니다: {job.error or ''}".rstrip(": "))
         out = (job.dest.inlined_responses or [None])[0] if job.dest else None
         if out is None or out.error or out.response is None:
-            raise RuntimeError(f"Gemini 배치 응답이 없습니다: {out.error if out else job.dest}")
+            raise BatchGone(f"Gemini 배치 응답이 없습니다: {out.error if out else job.dest}")
         self.last_usage = _usage(out.response.usage_metadata)
         if not out.response.text:
-            raise RuntimeError("Gemini 배치 응답이 비었습니다")
+            raise BatchGone("Gemini 배치 응답이 비었습니다")
         return out.response.text
 
     def batch_cancel(self, name: str) -> None:
@@ -217,6 +218,14 @@ class GeminiLLM:
 
 BATCH_WAITING = {"JOB_STATE_UNSPECIFIED", "JOB_STATE_QUEUED", "JOB_STATE_PENDING", "JOB_STATE_RUNNING",
                  "JOB_STATE_PAUSED", "JOB_STATE_UPDATING", "JOB_STATE_CANCELLING"}
+
+
+class BatchGone(RuntimeError):
+    """배치 작업이 확실히 끝났다 (실패, 취소, 만료, 빈 응답). 다시 물어도 결과가 없으니 이름을 버린다.
+    이 밖의 조회 오류(연결, 시간 초과)는 잠깐의 문제로 보고 이름을 남겨 다시 묻는다."""
+
+
+BATCH_POLL_RETRIES = 3
 
 
 class Interrupted(Exception):
@@ -253,14 +262,25 @@ class BatchLLM:
             name = self.inner.batch_submit(system, prompt, schema, f"{self.label} {slot}", hint=hint)
             self.names[slot] = name
             self.on_change()
+        fails = 0
         while True:
             try:
                 raw = self.inner.batch_poll(name)
-            except Exception as e:
-                self.names.pop(slot, None)  # 실패한 작업에 다시 붙지 않게 한다
+            except BatchGone as e:
+                self.names.pop(slot, None)  # 끝난 작업에 다시 붙지 않게 한다
                 self.on_change()
                 usage.record(self.inner, None, ok=False, error=e, attempt=self.last_attempts, batch=True)
                 raise
+            except Exception as e:
+                # 연결이 잠깐 끊긴 것일 수 있다. 서버 쪽 배치는 계속 돌므로 이름을 남기고 몇 번 다시 묻는다
+                fails += 1
+                if fails > BATCH_POLL_RETRIES:
+                    raise RuntimeError(f"배치 결과를 묻지 못했어요 ({e}). 이어 가면 기다리던 배치에 다시 붙어요") from e
+                why = self.wait(self.interval)
+                if why:
+                    raise Interrupted(cancelled=False)
+                continue
+            fails = 0
             if raw is not None:
                 self.names.pop(slot, None)
                 self.on_change()
@@ -429,6 +449,7 @@ class LocalLLM:
 
     def _chat(self, system: str, messages: list[dict], attempt: int = 1, parse: Any = None, **extra: Any) -> Any:
         """한 번 부르고 사용량을 기록한다. parse 는 GeminiLLM._call 과 같다."""
+        cancel.check()
         t, tokens = time.time(), None
         try:
             body = {"model": self.model, "messages": [{"role": "system", "content": system}, *messages], **extra}

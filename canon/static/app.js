@@ -10,7 +10,9 @@ const S = {
   dirty: false,
   gen: 0,            // 화면 작품이 바뀔 때마다(받기 · 저장 · 입력) 오른다. 늦게 온 작품 GET 이 더 새 값을 덮지 않게 비교한다
   conflict: false,   // 다른 탭 · 기기가 먼저 저장해 이 화면의 저장이 막혔다 (409)
-  pending: { name: null, results: {}, failures: {} },  // 서버 pending.json: 검토를 기다리는 AI 결과와 실패한 작업 (새로고침에도 남는다)
+  pending: { name: null, results: {}, failures: {} },
+  jobArgs: {},       // 작업 id → 시작한 인자 { kind, ep, extra } (실패한 작업 '다시 시도')
+  jobsOffline: false, // 작업 목록을 묻지 못했다 (서버가 꺼졌거나 다시 시작하는 중)  // 서버 pending.json: 검토를 기다리는 AI 결과와 실패한 작업 (새로고침에도 남는다)
   route: [],
   suggestion: null,  // 설정 도우미 제안 (반영 전)
   styleSample: '',
@@ -31,7 +33,7 @@ const S = {
   jobs: [],          // 서버에서 돌고 있거나 막 끝난 AI 작업
   jobsSeen: null,    // 화면을 연 시점에 이미 끝나 있던 작업 id (결과를 다시 적용하지 않는다)
   jobsApplied: new Set(),  // 결과를 이미 화면에 적용한 작업 id. 폴링이 작업 객체를 새로 받아 오므로 id 로 기억한다
-  jobsOpen: false,   // 작업 목록 펼침
+  jobsOpen: null,    // 작업 목록 펼침. null 이면 넓은 화면은 펼치고 휴대폰은 접는다
   briefDraft: {},    // 작업지시서 ② 칸에 붙여 넣은 글. '<작품>:<화>:<episode|state>' → 글
   settingsDirty: false,  // 모델 · API 키 설정 화면에서 저장하지 않은 입력이 있다
   selArc: null,      // 장편: 플롯 보드에서 고른 아크 번호 ('next' 는 다음 아크 기획)
@@ -87,9 +89,12 @@ async function api(method, path, body, meta) {
     opt.body = JSON.stringify(body);
   }
   let r;
+  if (runAbort && method !== 'GET') opt.signal = runAbort.signal;  // run() 이 기다리는 요청만 '기다리지 않기'로 끊는다
   try {
     r = await fetch('/api' + path, opt);
-  } catch {  // 서버가 꺼졌거나 네트워크가 끊겼다 (브라우저마다 다른 영어 문구 대신)
+  } catch (e) {
+    if (e.name === 'AbortError') throw Object.assign(new Error('기다리지 않기로 했어요. 서버에서는 요청이 끝까지 돌 수 있으니, 잠시 뒤 결과를 확인하세요'), { status: 0, code: 'aborted' });
+    // 서버가 꺼졌거나 네트워크가 끊겼다 (브라우저마다 다른 영어 문구 대신)
     throw Object.assign(new Error('서버에 연결하지 못했어요. 서버가 켜져 있는지, 네트워크가 연결됐는지 확인하세요'), { status: 0 });
   }
   const data = await r.json().catch(() => ({}));
@@ -186,6 +191,7 @@ async function startJob(kind, ep = null, extra = {}) {
     if (j.already) toast(`이미 진행 중이에요: ${j.label}`);
     else toast(`${j.label}을(를) 시작했어요. 끝나면 알려 드릴게요. 그동안 다른 작업을 해도 됩니다.`);
     S.jobs = S.jobs.filter((x) => x.id !== j.id).concat(j);
+    S.jobArgs[j.id] = { kind, ep, extra };  // 실패하면 작업 목록의 '다시 시도'가 같은 작업을 다시 시작한다
     renderJobs();
     render();
     pollJobs(true);
@@ -198,7 +204,22 @@ async function pollJobs(soon = false) {
   clearTimeout(jobTimer);
   if (soon) { jobTimer = setTimeout(() => pollJobs(), 800); return; }
   let list;
-  try { list = await api('GET', '/jobs'); } catch { list = S.jobs; }
+  try {
+    list = await api('GET', '/jobs');
+    if (S.jobsOffline) {
+      // 다시 연결됐다. 그 사이 서버가 다시 시작돼 사라진 작업은 끝나지 못했다
+      S.jobsOffline = false;
+      const ids = new Set(list.map((j) => j.id));
+      const lost = S.jobs.filter((j) => j.status === 'running' && !ids.has(j.id));
+      if (lost.length) {
+        toast(`서버가 다시 시작돼 작업이 끝나지 못했어요: ${lost.map((j) => j.label).join(', ')}. 다시 시작하세요`, true);
+        if (S.route[0] === 'p') setTimeout(() => { if (!isTyping()) render(); });  // 잠겨 있던 버튼을 푼다
+      }
+    }
+  } catch {
+    S.jobsOffline = true;  // 작업 목록 머리에 '연결 끊김'을 보이고, 진행 중이던 작업이 있으면 계속 다시 묻는다
+    list = S.jobs;
+  }
   if (S.jobsSeen === null) S.jobsSeen = new Set(list.filter((j) => j.status !== 'running').map((j) => j.id));
   const before = new Map(S.jobs.map((j) => [j.id, j]));
   // 화면이 목록에서 지운(닫은) 작업은 다시 보이지 않게 한다
@@ -240,7 +261,7 @@ async function pollJobs(soon = false) {
     if (resultFocus && (!a || a === document.body || a.getAttribute('aria-busy') === 'true')) S.focusTarget = resultFocus;
     render();
   }
-  if (S.jobs.some((j) => j.status === 'running')) jobTimer = setTimeout(() => pollJobs(), 1500);
+  if (S.jobs.some((j) => j.status === 'running')) jobTimer = setTimeout(() => pollJobs(), S.jobsOffline ? 4000 : 1500);
 }
 
 /** 입력칸에 포커스가 있다. #app 밖 떠 있는 본문 부분 수정 칸(#sel-tool)도 센다. 읽기 전용 칸은 빼서 결과를 바로 그린다. */
@@ -284,6 +305,7 @@ async function mergeEpisodes(mine) {
 async function finishJob(j) {
   const here = j.project === S.name && P();
   const key = `${j.kind}:${j.ep ?? ''}`;
+  if (j.status === 'cancelled') return;  // 멈춘 작업은 결과가 없다 (멈추기를 누를 때 알렸다)
   if (j.status === 'error') {
     toast(`${j.label} 실패: ${j.error}`, true);
     if (here) S.pending.failures[key] = { key, kind: j.kind, ep: j.ep, label: j.label, error: j.error };
@@ -421,19 +443,28 @@ function renderJobs() {
   if (!S.jobs.length) { box.innerHTML = ''; box.hidden = true; return; }
   box.hidden = false;
   const running = S.jobs.filter((j) => j.status === 'running');
-  const head = running.length ? `AI 작업 ${running.length}개 진행 중` : 'AI 작업 끝남';
+  const head = S.jobsOffline ? '서버 연결이 끊겼어요. 다시 연결하는 중…' : running.length ? `AI 작업 ${running.length}개 진행 중` : 'AI 작업 끝남';
   const items = S.jobs.map((j) => {
     const pct = j.total > 1 ? ` ${j.done}/${j.total}` : '';
-    const state = j.status === 'running' ? `<span class="spinner sm" aria-hidden="true"></span>` : j.status === 'done' ? '<span class="ok">완료</span>' : '<span class="bad">실패</span>';
+    const state = j.status === 'running' ? `<span class="spinner sm" aria-hidden="true"></span>` : j.status === 'done' ? '<span class="ok">완료</span>' : j.status === 'cancelled' ? '<span class="small">멈춤</span>' : '<span class="bad">실패</span>';
     const other = j.project !== S.name ? ` <span class="small">· ${esc(j.project)}</span>` : '';
-    const sub = j.status === 'error' ? j.error : j.note;
-    const open = j.status !== 'running' && j.kind in JOB_LINK ? `<a href="${JOB_LINK[j.kind](j)}" data-job-open="${j.id}">열기</a>` : '';
-    return `<li>${state}<div class="jl"><strong>${esc(j.label)}${pct}</strong>${other}${sub ? `<div class="small">${esc(sub)}</div>` : ''}</div>${open}${j.status !== 'running' ? `<button type="button" class="x" data-job-dismiss="${j.id}" aria-label="목록에서 지우기">✕</button>` : ''}</li>`;
+    const sub = j.status === 'error' ? j.error : j.status === 'running' ? [j.note, `경과 ${elapsed(j)}`].filter(Boolean).join(' · ') : j.note;
+    const open = j.status === 'done' && j.kind in JOB_LINK ? `<a href="${JOB_LINK[j.kind](j)}" data-job-open="${j.id}">열기</a>` : '';
+    const retry = j.status === 'error' && S.jobArgs[j.id] ? `<button type="button" class="btn small" data-job-retry="${j.id}">다시 시도</button>` : '';
+    const keyHelp = j.status === 'error' && /API 키|연결/.test(j.error || '') ? '<a href="#/settings">설정</a>' : '';
+    const stop = j.status === 'running' && j.kind !== 'auto' ? `<button type="button" class="btn small" data-job-stop="${j.id}">멈추기</button>` : '';
+    return `<li>${state}<div class="jl"><strong>${esc(j.label)}${pct}</strong>${other}${sub ? `<div class="small">${esc(sub)}</div>` : ''}</div>${open}${retry}${keyHelp}${stop}${j.status !== 'running' ? `<button type="button" class="x" data-job-dismiss="${j.id}" aria-label="목록에서 지우기">✕</button>` : ''}</li>`;
   }).join('');
-  // 좁은 폭에서는 끝난 작업 목록도 접어 둔다 (저장 띠와 버튼을 가리지 않게). 머리를 누르면 펼친다
-  const open = S.jobsOpen || (!running.length && !narrowScreen());
+  // 넓은 화면은 펼쳐 경과 시간과 '멈추기'를 보인다. 휴대폰은 접어 둔다 (저장 띠와 버튼을 가리지 않게). 머리를 누르면 바꾼다
+  const open = S.jobsOpen === null ? !narrowScreen() : S.jobsOpen;
   box.innerHTML = `<button type="button" class="jobs-head" aria-expanded="${open}" data-jobs-toggle>${running.length ? '<span class="spinner sm" aria-hidden="true"></span>' : ''}${head}</button>${open ? `<ul>${items}</ul>` : ''}`;
   stackBottom();
+}
+
+/** 작업이 시작된 뒤 지난 시간 'm:ss' (서버 시각 기준이라 몇 초 어긋날 수 있다). */
+function elapsed(j) {
+  const s = Math.max(0, Math.round(Date.now() / 1000 - j.started));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
 const narrowScreen = () => window.matchMedia('(max-width: 640px)').matches;
@@ -449,10 +480,10 @@ function stackBottom() {
 window.addEventListener('resize', () => stackBottom());
 
 document.addEventListener('click', (e) => {
-  const t = e.target.closest('[data-jobs-toggle], [data-job-dismiss], [data-job-open]');
+  const t = e.target.closest('[data-jobs-toggle], [data-job-dismiss], [data-job-open], [data-job-stop], [data-job-retry]');
   if (!t) return;
   if (t.dataset.jobsToggle !== undefined) {
-    S.jobsOpen = !S.jobsOpen;
+    S.jobsOpen = !(S.jobsOpen === null ? !narrowScreen() : S.jobsOpen);
   } else if (t.dataset.jobDismiss) {
     S.jobsSeen.add(t.dataset.jobDismiss);
     S.jobs = S.jobs.filter((j) => j.id !== t.dataset.jobDismiss);
@@ -460,6 +491,21 @@ document.addEventListener('click', (e) => {
     // 다른 작품에서 끝난 결과는 그 작품을 연 뒤에 적용한다
     const j = S.jobs.find((x) => x.id === t.dataset.jobOpen);
     if (j && j.status === 'done') S.pendingJob = j;
+  } else if (t.dataset.jobStop) {
+    const j = S.jobs.find((x) => x.id === t.dataset.jobStop);
+    if (!j || !confirm(`${j.label}을(를) 멈출까요? 이미 보낸 AI 호출의 응답은 버려요 (비용은 들 수 있어요).`)) return;
+    api('POST', `/jobs/${j.id}/stop`).then((x) => {
+      Object.assign(j, x);
+      toast(`${j.label}을(를) 멈췄어요`);
+      renderJobs();
+      if (S.route[0] === 'p' && !isTyping()) render();  // 잠겨 있던 버튼을 푼다
+    }).catch((err) => toast(err.message, true));
+    return;
+  } else if (t.dataset.jobRetry) {
+    const a = S.jobArgs[t.dataset.jobRetry];
+    S.jobsSeen.add(t.dataset.jobRetry);
+    S.jobs = S.jobs.filter((j) => j.id !== t.dataset.jobRetry);
+    if (a) startJob(a.kind, a.ep, a.extra);
   }
   renderJobs();
 });
@@ -475,22 +521,40 @@ function showError(e) {
   toast(e.message, true);
 }
 
+// run() 이 기다리는 요청. 5초가 넘으면 화면 가운데 상자에 경과 시간과 '기다리지 않기'를 보인다 (api 가 이 신호를 쓴다)
+let runAbort = null;
+
 async function run(label, fn, opt = {}) {
   const when = opt.render || 'always';
   let ok = false;
+  const t0 = Date.now();
+  runAbort = new AbortController();
   $('#busy-text').textContent = label;
+  $('#busy-stop').hidden = true;
   $('#busy').hidden = false;
+  const tick = setInterval(() => {
+    const s = Math.round((Date.now() - t0) / 1000);
+    $('#busy-text').textContent = `${label} · ${s}초`;
+    if (s >= 5) $('#busy-stop').hidden = false;
+  }, 1000);
   try {
     await fn();
     ok = true;
   } catch (e) {
     showError(e);
   } finally {
+    clearInterval(tick);
+    runAbort = null;
     $('#busy').hidden = true;
     if (when === 'always' || (when === 'success' && ok)) render();
   }
   return ok;
 }
+
+/** '기다리지 않기': 화면 잠금을 풀고 응답을 버린다. 서버에 이미 간 요청은 끝까지 돌 수 있다. */
+document.addEventListener('click', (e) => {
+  if (e.target.id === 'busy-stop' && runAbort) runAbort.abort();
+});
 
 function getPath(obj, path) {
   return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);

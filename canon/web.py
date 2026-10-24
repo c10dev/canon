@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import autorun, cast, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
+from . import autorun, cancel, cast, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from .schema import (ArcPlan, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
@@ -1039,6 +1039,8 @@ def _keep_pending(name: str, kind: str, n: int | None, label: str, fn):
     def run(job: jobs.Job):
         try:
             out = fn(job)
+        except cancel.Cancelled:
+            raise  # 멈춘 작업은 실패로 남기지 않는다
         except Exception as e:
             fail = {"key": key, "kind": kind, "ep": n, "label": label, "error": getattr(e, "message", None) or str(e) or type(e).__name__, "at": _now()}
 
@@ -1084,6 +1086,17 @@ def drop_pending(name: str, key: str, failure: bool = False) -> dict:
     """화면이 반영하거나 버린 결과(또는 닫은 실패)를 지운다."""
     _load(name)
     return store.edit_pending(name, lambda d: d["failures" if failure else "results"].pop(key, None))
+
+
+@app.post("/api/jobs/{jid}/stop")
+def stop_job(jid: str) -> dict:
+    """작업을 멈춘다. 이미 보낸 AI 호출의 응답은 버린다. 자동 집필은 그 화면의 일시정지 · 중지를 쓴다."""
+    j = jobs.get(jid)
+    if j is None:
+        raise HTTPException(404, "작업이 없습니다 (서버가 다시 시작됐을 수 있어요)")
+    if j.kind == "auto":
+        raise ValueError("자동 집필은 자동 집필 화면의 일시정지나 중지를 쓰세요")
+    return jobs.stop(jid).public()
 
 
 @app.get("/api/jobs")
