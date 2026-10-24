@@ -90,7 +90,7 @@ def test_remove_last_arc_only_when_draft():
     assert p.arc_undo[0].characters == ["newbie"]
     pipeline.apply_plots(p, pipeline.draft_plots(LLM, p, a.start_ep, a.end_ep))
     p.episode(1).status = "confirmed"
-    with pytest.raises(ValueError, match="지울 수 없습니다"):
+    with pytest.raises(ValueError, match="지울 수 없어요"):
         pipeline.remove_last_arc(p)
     p.episode(1).status = "draft"
     before = {c.id for c in p.characters}

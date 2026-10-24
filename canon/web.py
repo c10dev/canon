@@ -89,7 +89,7 @@ async def _server_error(_: Request, e: Exception) -> JSONResponse:
 
 def _load(name: str) -> Project:
     if not NAME_RE.match(name) or not store.exists(name):
-        raise HTTPException(404, f"프로젝트가 없습니다: {name}")
+        raise HTTPException(404, f"프로젝트가 없어요: {name}")
     return store.load(name)
 
 
@@ -123,7 +123,7 @@ def _save(name: str, p: Project, merged: set[str] | None = None, kept: list[dict
 
 def _not_auto(name: str) -> None:
     if autorun.active(name):
-        raise ValueError("자동 집필이 도는 중입니다. 일시정지한 뒤에 하세요")
+        raise ValueError("자동 집필이 도는 중이에요. 일시정지한 뒤에 하세요")
 
 
 # ---------- 프로젝트 ----------
@@ -155,13 +155,13 @@ class SettingsIn(BaseModel):
 def put_config(body: SettingsIn) -> dict:
     choices = settings.PROVIDERS
     if body.provider is not None and body.provider not in choices:
-        raise HTTPException(400, f"provider 는 {' / '.join(choices)} 중 하나입니다")
+        raise HTTPException(400, f"provider 는 {' / '.join(choices)} 중 하나예요")
     for stage, value in (body.stages or {}).items():
         if stage not in settings.STAGES or (value and value not in choices):
-            raise HTTPException(400, f"단계 설정이 잘못됐습니다: {stage}={value}")
+            raise HTTPException(400, f"단계 설정이 잘못됐어요: {stage}={value}")
     for stage in body.stage_models or {}:
         if stage not in settings.STAGES:
-            raise HTTPException(400, f"알 수 없는 단계입니다: {stage}")
+            raise HTTPException(400, f"알 수 없는 단계예요: {stage}")
     settings.update(provider=body.provider, model=body.model, api_key=body.api_key, clear_key=body.clear_key,
                     local_url=body.local_url, local_model=body.local_model, local_key=body.local_key,
                     stages=body.stages, stage_models=body.stage_models)
@@ -174,7 +174,7 @@ def test_config() -> dict:
     used = {(settings.stage_provider(s)[0], settings.stage_model(s)[0]) for s in settings.STAGES}
     used = {u for u in used if u[0] != "mock"}
     if not used:
-        return {"ok": True, "message": "mock 모드입니다. 실제 AI 를 호출하지 않습니다."}
+        return {"ok": True, "message": "mock 모드예요. 실제 AI 를 호출하지 않아요."}
     done = []
     for prov, model in sorted(used):
         try:
@@ -183,7 +183,7 @@ def test_config() -> dict:
         except Exception as e:  # SDK 오류 종류가 많아 메시지만 보여준다
             raise HTTPException(400, f"{prov} {model or ''} 연결 실패: {getattr(e, 'message', None) or e}")
         done.append(llm.model)
-    return {"ok": True, "message": f"{', '.join(dict.fromkeys(done))} 에 연결됐습니다."}
+    return {"ok": True, "message": f"{', '.join(dict.fromkeys(done))} 에 연결됐어요."}
 
 
 @app.get("/api/config/models")
@@ -234,15 +234,15 @@ def _free(name: str) -> None:
     """작업이나 자동 집필이 이 작품을 쓰는 중이면 작품 폴더를 옮기거나 지우지 않는다."""
     _not_auto(name)
     if any(j.status == "running" for j in jobs.listing(name)):
-        raise ValueError("이 작품의 AI 작업이 도는 중입니다. 끝나거나 멈춘 뒤에 하세요")
+        raise ValueError("이 작품의 AI 작업이 도는 중이에요. 끝나거나 멈춘 뒤에 하세요")
 
 
 def _new_name(body: NewName) -> str:
     new = body.name.strip()
     if not NAME_RE.match(new):
-        raise HTTPException(400, "프로젝트 이름에 / \\ 를 쓰거나 . 으로 시작할 수 없습니다")
+        raise HTTPException(400, "프로젝트 이름에 / \\ 를 쓰거나 . 으로 시작할 수 없어요")
     if store.exists(new):
-        raise HTTPException(409, f"이미 있는 이름입니다: {new}")
+        raise HTTPException(409, f"이미 있는 이름이에요: {new}")
     return new
 
 
@@ -296,7 +296,7 @@ def adjust_tie(name: str, body: TieFix) -> Project:
     if body.source not in ids or body.target not in ids or body.source == body.target:
         raise ValueError("두 인물을 고르세요")
     if body.warmth is not None and not -1 <= body.warmth <= 1 or body.trust is not None and not 0 <= body.trust <= 1:
-        raise ValueError("온기는 -1~1, 신뢰는 0~1 입니다")
+        raise ValueError("온기는 -1~1, 신뢰는 0~1 이에요")
     pipeline.adjust_tie(p, body.source, body.target, body.warmth, body.trust)
     return _save(name, p)
 
@@ -305,9 +305,9 @@ def adjust_tie(name: str, body: TieFix) -> Project:
 def create_project(body: NewProject) -> Project:
     name = body.name.strip()
     if not NAME_RE.match(name):
-        raise HTTPException(400, "프로젝트 이름에 / \\ 를 쓰거나 . 으로 시작할 수 없습니다")
+        raise HTTPException(400, "프로젝트 이름에 / \\ 를 쓰거나 . 으로 시작할 수 없어요")
     if store.exists(name):
-        raise HTTPException(409, f"이미 있는 프로젝트입니다: {name}")
+        raise HTTPException(409, f"이미 있는 프로젝트예요: {name}")
     p = Project(meta=body.meta)
     if not p.meta.title:
         p.meta.title = name
@@ -564,7 +564,7 @@ class StyleIn(BaseModel):
 
 def _style_id(sid: str) -> str:
     if not library.exists(sid):
-        raise HTTPException(404, f"문체 라이브러리에 없는 항목입니다: {sid}")
+        raise HTTPException(404, f"문체 라이브러리에 없는 항목이에요: {sid}")
     return sid
 
 
@@ -768,7 +768,7 @@ def unconfirm_plot(name: str, n: int) -> Project:
     p = _load(name)
     ep = p.episode(n)
     if ep.status != "confirmed":
-        raise ValueError(f"{n}화는 본문이 이미 있어 초안으로 되돌릴 수 없습니다")
+        raise ValueError(f"{n}화는 본문이 이미 있어 초안으로 되돌릴 수 없어요")
     ep.status = "draft"
     return _save(name, p)
 
@@ -783,7 +783,7 @@ TEXT_TOPIC = re.compile(r"^text:(\d+)$")
 def _chat(p: Project, topic: str):
     m = TEXT_TOPIC.match(topic)
     if topic != "plot" and not (m and any(e.plot.number == int(m.group(1)) for e in p.episodes)):
-        raise HTTPException(404, f"대화 주제가 없습니다: {topic}")
+        raise HTTPException(404, f"대화 주제가 없어요: {topic}")
     return p.chat(topic)
 
 
@@ -830,10 +830,10 @@ def chat_apply(name: str, topic: str, i: int, body: ChatApply) -> Project:
     p = _load(name)
     msgs = _chat(p, topic).messages
     if not 0 <= i < len(msgs) or msgs[i].revision is None:
-        raise HTTPException(404, "변경안이 있는 메시지가 아닙니다")
+        raise HTTPException(404, "변경안이 있는 메시지가 아니에요")
     m = msgs[i]
     if m.outcome:
-        raise ValueError("이미 처리한 변경안입니다")
+        raise ValueError("이미 처리한 변경안이에요")
     if not body.acts and not body.episodes:
         raise ValueError("반영할 부분을 고르세요")
     m.applied = pipeline.apply_revision(p, m.revision, body.acts, body.episodes)
@@ -848,7 +848,7 @@ def chat_dismiss(name: str, topic: str, i: int) -> Project:
     def fn(p: Project) -> None:
         msgs = p.chat(topic).messages
         if not 0 <= i < len(msgs) or (msgs[i].revision is None and msgs[i].passage is None):
-            raise HTTPException(404, "변경안이 있는 메시지가 아닙니다")
+            raise HTTPException(404, "변경안이 있는 메시지가 아니에요")
         if not msgs[i].outcome:
             msgs[i].outcome = "dismissed"
     return _edit(name, fn)
@@ -862,7 +862,7 @@ def chat_reopen(name: str, topic: str, i: int) -> Project:
     def fn(p: Project) -> None:
         msgs = p.chat(topic).messages
         if not 0 <= i < len(msgs) or msgs[i].outcome != "dismissed":
-            raise ValueError("버린 변경안이 아닙니다")
+            raise ValueError("버린 변경안이 아니에요")
         msgs[i].outcome = ""
     return _edit(name, fn)
 
@@ -944,7 +944,7 @@ def _plot_ranges(p: Project, arc: int | None = None) -> list[tuple[str, int, int
     if p.serial and arc is not None:
         s = next((x for x in p.story_arcs if x.number == arc), None)
         if s is None:
-            raise ValueError(f"아크 {arc}이(가) 없습니다")
+            raise ValueError(f"아크 {arc}이(가) 없어요")
         beats = s.acts
     groups: list[list] = []  # 화를 함께 쓰는 구간(짧은 작품)은 한 번에 만든다: [이름들, 시작, 끝]
     for a in sorted(beats, key=pipeline.act_order):
@@ -1011,10 +1011,10 @@ def start_job(name: str, body: JobIn) -> dict:
     elif kind == "rework":
         _not_auto(name)
         if n is None:
-            raise ValueError("화 번호(ep)가 필요합니다")
+            raise ValueError("화 번호(ep)가 필요해요")
         x = p.archive.entry(n) if p.archive else None
         if x is None or x.use != "revise":
-            raise ValueError(f"{n}화는 재구성에서 다듬기로 고른 화가 아닙니다")
+            raise ValueError(f"{n}화는 재구성에서 다듬기로 고른 화가 아니에요")
         label, total, owned = f"{n}화 다듬기", 1, set()
 
         def fn(job: jobs.Job):
@@ -1022,7 +1022,7 @@ def start_job(name: str, body: JobIn) -> dict:
     elif kind == "check":
         # 한 화 검수: 앞선 본문 전체와 설정에 어긋난 곳을 찾아 그 화에 붙인다 (집필 화면이 보여 주고 고칠 문장을 고르게 한다)
         if n is None or not p.episode(n).text:
-            raise ValueError("본문이 있는 화만 검수합니다")
+            raise ValueError("본문이 있는 화만 검수해요")
         label, total, owned = f"{n}화 검수", 1, set()
 
         def fn(job: jobs.Job):
@@ -1038,7 +1038,7 @@ def start_job(name: str, body: JobIn) -> dict:
     elif kind in ("recap_arc", "recap_part"):
         unit = kind.removeprefix("recap_")
         if n is None:
-            raise ValueError("아크나 부 번호(ep)가 필요합니다")
+            raise ValueError("아크나 부 번호(ep)가 필요해요")
         label, total, owned = f"{'아크' if unit == 'arc' else '부'} {n} 요약", 1, set()
 
         def fn(job: jobs.Job):
@@ -1048,7 +1048,7 @@ def start_job(name: str, body: JobIn) -> dict:
             raise ValueError("다음 아크를 먼저 기획하세요" if p.serial else "기승전결 구조(arc)를 먼저 만들고 저장하세요")
         ranges = _plot_ranges(p, n if p.serial else None)
         if not ranges:
-            raise ValueError("모든 화가 확정되어 새로 만들 초안이 없습니다")
+            raise ValueError("모든 화가 확정되어 새로 만들 초안이 없어요")
         draft = {e.plot.number for e in p.episodes if e.status == "draft"}
         have = {e.plot.number for e in p.episodes}
         owned = {k for _, a, b in ranges for k in range(a, b + 1) if k in draft or k not in have}
@@ -1066,14 +1066,14 @@ def start_job(name: str, body: JobIn) -> dict:
             return None
     elif kind in ("write", "state"):
         if n is None:
-            raise ValueError("화 번호(ep)가 필요합니다")
+            raise ValueError("화 번호(ep)가 필요해요")
         e = p.episode(n)
         if kind == "write":
             if e.status == "draft":
-                raise ValueError(f"{n}화 플롯이 아직 확정되지 않았습니다")
+                raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요")
             if body.rewrite is not None and e.text:  # 다시 생성: 새 판은 본문을 덮지 않고 고르기를 기다린다
                 if e.status == "finalized":
-                    raise ValueError(f"{n}화는 상태 반영까지 끝나 다시 생성할 수 없습니다")
+                    raise ValueError(f"{n}화는 상태 반영까지 끝나 다시 생성할 수 없어요")
                 req = pipeline.clean_rewrite(body.rewrite)
                 label, total, owned = f"{n}화 새 판", 1, {n}
 
@@ -1090,20 +1090,20 @@ def start_job(name: str, body: JobIn) -> dict:
                     return None
         else:
             if not e.text:
-                raise ValueError(f"{n}화 본문이 없습니다")
+                raise ValueError(f"{n}화 본문이 없어요")
             label, total, owned = f"{n}화 상태 변경안", 1, set()
 
             def fn(job: jobs.Job):
                 return pipeline.extract_state(llm, store.load(name), n).model_dump()
     elif kind in ("hook", "openings", "opening_drafts"):
         if n is None or not prompts.is_opening(n):
-            raise ValueError(f"1~{prompts.OPENING_EPISODES}화 번호(ep)가 필요합니다")
+            raise ValueError(f"1~{prompts.OPENING_EPISODES}화 번호(ep)가 필요해요")
         ways, k = body.approaches, body.draft
         if kind == "hook":
             if k:
                 research.compare_text(name, n, k)  # 비교본이 없으면 바로 알린다
             elif not p.episode(n).text:
-                raise ValueError(f"{n}화 본문이 없습니다")
+                raise ValueError(f"{n}화 본문이 없어요")
             label, total, owned = f"{n}화 흡입력 판정" + (f" (비교본 {k}번)" if k else ""), 1, set()
 
             def fn(job: jobs.Job):
@@ -1121,7 +1121,7 @@ def start_job(name: str, body: JobIn) -> dict:
                 return pipeline.suggest_openings(llm, store.load(name), n, ways).model_dump()
         else:
             if p.episode(n).status == "draft":
-                raise ValueError(f"{n}화 플롯이 아직 확정되지 않았습니다")
+                raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요")
             label, total, owned = f"{n}화 여러 안으로 쓰기", 1, set()
 
             def fn(job: jobs.Job):
@@ -1141,7 +1141,7 @@ def start_job(name: str, body: JobIn) -> dict:
             _edit(name, lambda q: pipeline.record_impact(q, eid, rep))
             return {"element": eid}
     else:
-        raise ValueError(f"모르는 작업입니다: {kind}")
+        raise ValueError(f"모르는 작업이에요: {kind}")
 
     try:
         with usage.scope(episode=n if kind in ("write", "state", "rework", "hook", "openings", "opening_drafts") else None, task=kind):
@@ -1217,7 +1217,7 @@ def stop_job(jid: str) -> dict:
     """작업을 멈춘다. 이미 보낸 AI 호출의 응답은 버린다. 자동 집필은 그 화면의 일시정지 · 중지를 쓴다."""
     j = jobs.get(jid)
     if j is None:
-        raise HTTPException(404, "작업이 없습니다 (서버가 다시 시작됐을 수 있어요)")
+        raise HTTPException(404, "작업이 없어요 (서버가 다시 시작됐을 수 있어요)")
     if j.kind == "auto":
         raise ValueError("자동 집필은 자동 집필 화면의 일시정지나 중지를 쓰세요")
     return jobs.stop(jid).public()
@@ -1232,7 +1232,7 @@ def list_jobs(project: str | None = None) -> list[dict]:
 def get_job(jid: str) -> dict:
     j = jobs.get(jid)
     if j is None:
-        raise HTTPException(404, "작업이 없습니다 (서버가 다시 시작됐을 수 있어요)")
+        raise HTTPException(404, "작업이 없어요 (서버가 다시 시작됐을 수 있어요)")
     return j.public()
 
 
@@ -1261,7 +1261,7 @@ def put_text(name: str, n: int, body: Text) -> Project:
     if ep.status == "draft":
         raise ValueError(f"{n}화 플롯을 먼저 확정하세요")
     if ep.status == "finalized":
-        raise ValueError(f"{n}화는 상태 반영까지 끝나 본문을 바꿀 수 없습니다")
+        raise ValueError(f"{n}화는 상태 반영까지 끝나 본문을 바꿀 수 없어요")
     text = body.text.strip()
     if text and ep.status == "confirmed":  # 손으로 쓰거나 붙여 넣은 본문도 AI 쓰기와 같은 순서 규칙을 따른다
         pipeline.require_previous(p, n)
@@ -1277,7 +1277,7 @@ def put_text(name: str, n: int, body: Text) -> Project:
 def _text_guard(name: str, n: int) -> None:
     _not_auto(name)
     if any(j.status == "running" and n in j.owned for j in jobs.listing(name)):
-        raise ValueError(f"{n}화 본문을 쓰는 작업이 도는 중입니다. 끝난 뒤에 고치세요")
+        raise ValueError(f"{n}화 본문을 쓰는 작업이 도는 중이에요. 끝난 뒤에 고치세요")
 
 
 # ---------- 4-0. 다시 생성 ----------
@@ -1308,7 +1308,7 @@ def rewrite_prompt(name: str, n: int, body: RewriteRequest) -> dict:
 
 def _no_write_job(name: str, n: int) -> None:
     if any(j.status == "running" and n in j.owned for j in jobs.listing(name)):
-        raise ValueError(f"{n}화를 쓰는 작업이 도는 중입니다. 끝난 뒤에 하세요")
+        raise ValueError(f"{n}화를 쓰는 작업이 도는 중이에요. 끝난 뒤에 하세요")
 
 
 @app.post("/api/projects/{name}/episodes/{n}/candidate/adopt")
@@ -1383,7 +1383,7 @@ def opening_check(name: str, n: int) -> dict:
     p = _load(name)
     e = p.episode(n)
     if not prompts.is_opening(n):
-        raise ValueError(f"초반 점검은 1~{prompts.OPENING_EPISODES}화만 합니다")
+        raise ValueError(f"초반 점검은 1~{prompts.OPENING_EPISODES}화만 해요")
     m, warnings = pipeline.opening_metrics(p, n) if e.text else (None, [])
     return {"metrics": m, "warnings": warnings, "hook": e.hook, "hook_stale": pipeline.hook_stale(p, n),
             "compare": research.load_compare(name, n)}
@@ -1433,7 +1433,7 @@ def _export_numbers(p: Project, eps: list[int]) -> list[int]:
     have = {e.plot.number for e in p.episodes}
     bad = [n for n in eps if n not in have]
     if bad:
-        raise ValueError(f"없는 화입니다: {', '.join(map(str, bad))}")
+        raise ValueError(f"없는 화예요: {', '.join(map(str, bad))}")
     return eps or sorted(e.plot.number for e in p.episodes if e.text)
 
 
@@ -1474,7 +1474,7 @@ class IllustIn(BaseModel):
 def make_illust(name: str, n: int, body: IllustIn) -> Project:
     p = _load(name)
     if body.model and body.model not in illust.MODELS:
-        raise ValueError(f"모르는 모델입니다: {body.model}")
+        raise ValueError(f"모르는 모델이에요: {body.model}")
     ill = pipeline.illustrate(get_llm("illustration"), p, n, body.selection, body.request, body.model)
     return _edit(name, lambda q: pipeline.add_illustration(q, n, ill))
 
@@ -1550,7 +1550,7 @@ def parse_state(name: str, n: int, body: Raw) -> StateDelta:
     try:
         delta = StateDelta.model_validate_json(raw)
     except ValidationError as e:
-        raise HTTPException(400, f"JSON 형식이 맞지 않습니다: {e.errors()[0]['msg']} ({'.'.join(map(str, e.errors()[0]['loc']))})")
+        raise HTTPException(400, f"JSON 형식이 맞지 않아요: {e.errors()[0]['msg']} ({'.'.join(map(str, e.errors()[0]['loc']))})")
     delta.episode = n
     return delta
 
@@ -1562,7 +1562,7 @@ def apply_state(name: str, n: int, d: StateDelta) -> Project:
     _not_auto(name)
     ep = p.episode(n)
     if ep.status != "written":
-        raise ValueError(f"{n}화는 본문이 작성된 상태가 아닙니다 (현재: {ep.status})")
+        raise ValueError(f"{n}화는 본문이 작성된 상태가 아니에요 (현재: {ep.status})")
     pipeline.require_previous(p, n)
     d.episode = n
     pipeline.apply_delta(p, d)
@@ -1630,7 +1630,7 @@ def auto_request(name: str, what: str) -> dict:
     """what: pause | stop"""
     _load(name)
     if what not in ("pause", "stop"):
-        raise HTTPException(404, "pause 또는 stop 만 됩니다")
+        raise HTTPException(404, "pause 또는 stop 만 돼요")
     autorun.request(name, what)
     return _auto(name)
 
@@ -1699,7 +1699,7 @@ def brief(name: str, n: int, kind: str = "episode") -> dict:
     p = _load(name)
     if kind == "state":
         if not p.episode(n).text:
-            raise ValueError(f"{n}화 본문이 없어 상태 정리 지시서를 만들 수 없습니다")
+            raise ValueError(f"{n}화 본문이 없어 상태 정리 지시서를 만들 수 없어요")
         return {"text": prompts.state_brief(p, n)}
     return {"text": prompts.episode_brief(p, n)}
 
@@ -1872,7 +1872,7 @@ def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
                     print(f"[업데이트] {r.message}")
                 last = r.message
                 continue
-            print(f"[업데이트] {r.message}. 진행 중인 작업이 끝나면 다시 시작합니다")
+            print(f"[업데이트] {r.message}. 진행 중인 작업이 끝나면 다시 시작해요")
             jobs.draining.set()  # 자동 집필은 다음 단계 전에 멈추고, 다시 시작한 서버가 이어 간다
             while (_active or jobs.running()) and not server.should_exit:
                 time.sleep(1)
@@ -1885,7 +1885,7 @@ def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
     if update_interval > 0:
         threading.Thread(target=watch_updates, daemon=True).start()
     for name in autorun.resume_all():
-        print(f"[자동 집필] {name} 을(를) 이어 갑니다")
+        print(f"[자동 집필] {name} 을(를) 이어 가요")
     server.run()
     if restart.is_set():
         updater.restart(no_browser=True)

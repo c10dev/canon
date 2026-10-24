@@ -32,10 +32,10 @@ class NameStyle(BaseModel):
 
 
 STYLES: list[NameStyle] = [
-    NameStyle(id="korea_modern", label="현대 한국", summary="성씨 인구 비율과 출생 연대별 흔한 이름으로 뽑습니다. 나이를 적으면 그 시대 이름이 나옵니다."),
+    NameStyle(id="korea_modern", label="현대 한국", summary="성씨 인구 비율과 출생 연대별 흔한 이름으로 뽑아요. 나이를 적으면 그 시대 이름이 나와요."),
     NameStyle(id="joseon", label="조선 · 사극", summary="양반가 이름, 아명·평민 이름, 고을·나루·주막 같은 옛 지명."),
     NameStyle(id="wuxia", label="무협 (중원)", summary="복성 포함 중원식 성명과 별호, 문파, 중원 지역과 산·곡·객잔."),
-    NameStyle(id="western_fantasy", label="서양풍 판타지", summary="음절을 조합한 이름과 가문명, 왕국·영지·요새. 흔한 판타지 이름은 뺍니다."),
+    NameStyle(id="western_fantasy", label="서양풍 판타지", summary="음절을 조합한 이름과 가문명, 왕국·영지·요새. 흔한 판타지 이름은 빼요."),
     NameStyle(id="japan", label="일본", summary="흔한 일본 성씨와 이름, 동네·학교·역 이름."),
     NameStyle(id="sf", label="SF · 우주", summary="여러 언어권이 섞인 이름과 정거장·콜로니·행성."),
 ]

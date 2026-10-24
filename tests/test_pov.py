@@ -71,7 +71,7 @@ def test_cli_pov(tmp_path, monkeypatch, capsys):
     store.save("t", p)
     cli.main(["pov", "t", "1-3", "도현", "--mode", "1인칭"])
     out = capsys.readouterr().out
-    assert "본문이 있는 화는 플롯을 바꾸지 않습니다: [1]화" in out and "시점 적음: [2, 3]화" in out
+    assert "본문이 있는 화는 플롯을 바꾸지 않아요: [1]화" in out and "시점 적음: [2, 3]화" in out
     q = store.load("t")
     assert (q.episode(2).plot.pov, q.episode(2).plot.pov_mode) == ("ally", "1인칭") and q.episode(1).plot.pov == ""
     cli.main(["pov", "t", "3", "--clear"])

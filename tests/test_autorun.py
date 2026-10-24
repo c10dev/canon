@@ -122,7 +122,7 @@ def test_review_every_and_rewrite(demo):
     run = autorun.resume(demo, rewrite=True, foreground=True)
     assert run.status == "review" and run.ep == 2  # mock 은 다시 써도 같은 문제를 낸다
     assert store.load(demo).episode(2).versions[-1].text == before  # 지운 본문은 이전 판으로 남는다
-    assert any("다시 씁니다" in e.message for e in run.log)
+    assert any("다시 써요" in e.message for e in run.log)
 
 
 def test_pause_keeps_batch_and_resume_reattaches(demo, monkeypatch):

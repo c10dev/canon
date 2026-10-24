@@ -17,4 +17,4 @@ current: ContextVar[threading.Event | None] = ContextVar("cancel", default=None)
 def check() -> None:
     ev = current.get()
     if ev is not None and ev.is_set():
-        raise Cancelled("작업을 멈췄습니다")
+        raise Cancelled("작업을 멈췄어요")

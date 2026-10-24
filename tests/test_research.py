@@ -109,7 +109,7 @@ class ResearchTest(unittest.TestCase):
         self.assertTrue(ok["ok"] and ok["usage"]["completion_tokens"] == 20 and ok["chars"] > 0)
         self.assertTrue(mocked["ok"])
         self.assertFalse(failed["ok"])
-        self.assertIn("연결하지 못했습니다", failed["error"])
+        self.assertIn("연결하지 못했어요", failed["error"])
         log = self.c.get(f"{self.api}/research").json()["log"]
         self.assertEqual(log[0]["id"], r["id"])
 

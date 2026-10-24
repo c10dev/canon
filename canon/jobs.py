@@ -114,7 +114,7 @@ def stop(jid: str) -> Job:
     """작업을 멈춘다. 바로 멈춘 것으로 보이고, 스레드는 다음 LLM 호출이나 저장 전에 그만둔다 (그 사이 결과는 버린다)."""
     job = _jobs.get(jid)
     if job is None:
-        raise KeyError(f"작업이 없습니다: {jid}")
+        raise KeyError(f"작업이 없어요: {jid}")
     if job.status == "running":
         job.stop.set()
         job.status, job.error, job.finished = "cancelled", "멈췄어요", time.time()

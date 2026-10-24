@@ -46,7 +46,7 @@ def test_measure_opening_and_warnings():
     slow = "\n".join(["아주 오래전, 이 세계에서는 마법이 있었다. 사람들은 그 힘을 두려워했고 또 원했다. " * 4] * 30) + "\n\n앞으로 펼쳐질 운명을 그는 아직 알지 못했다."
     w = metrics.opening_warnings(metrics.measure_opening(slow, ["강서윤"], hero="강서윤"), 1, hero="강서윤")
     joined = " ".join(w)
-    assert "대사가 한 줄도 없습니다" in joined and "주인공 강서윤의 이름이 나오지 않습니다" in joined
+    assert "대사가 한 줄도 없어요" in joined and "주인공 강서윤의 이름이 나오지 않아요" in joined
     assert "대사 없이" in joined and "회상" in joined
     assert metrics.measure_opening("", []).chars == 0 and metrics.opening_warnings(metrics.OpeningMetrics(), 1) == []
 

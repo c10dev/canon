@@ -189,7 +189,7 @@ def stage_trial(p: Project, b: Backend, stage: str, sample_text: str = "") -> di
     if stage == "style":
         sample_text = sample_text.strip() or "\n\n".join(p.style.sample_passages)
         if not sample_text:
-            raise ValueError("문체 분석에 쓸 원문이 없습니다. 원문을 붙여 넣거나 문체 레퍼런스를 먼저 채우세요")
+            raise ValueError("문체 분석에 쓸 원문이 없어요. 원문을 붙여 넣거나 문체 레퍼런스를 먼저 채우세요")
     row: dict[str, Any] = {"backend": label(b), "stage": stage}
     t = time.perf_counter()
     try:
@@ -283,7 +283,7 @@ def run_compare(name: str, p: Project, n: int, a: Backend, b: Backend) -> dict:
     """같은 화를 두 백엔드로 쓰고 1, 2 번으로 가려 저장한다. 프롬프트는 write_episode 와 같다."""
     la, lb = label(a), label(b)
     if la == lb and a.url == b.url:
-        raise ValueError("두 백엔드가 같습니다")
+        raise ValueError("두 백엔드가 같아요")
     drafts = pipeline.compare_drafts({la: make_backend(a), lb: make_backend(b)}, p, n)
     return save_compare(name, n, drafts)
 
@@ -334,7 +334,7 @@ def load_compare(name: str, n: int) -> dict | None:
 def compare_text(name: str, n: int, k: int) -> str:
     path = compare_dir(name, n) / f"{k}.md"
     if not path.exists():
-        raise ValueError(f"{n}화 비교본 {k}번이 없습니다")
+        raise ValueError(f"{n}화 비교본 {k}번이 없어요")
     return path.read_text(encoding="utf-8")
 
 
@@ -348,11 +348,11 @@ def pick_compare(name: str, p: Project, n: int, k: int, adopt: bool = True) -> d
     out = compare_dir(name, n)
     key_path = out / "key.json"
     if not key_path.exists():
-        raise ValueError(f"{n}화 비교본이 없습니다. 비교를 먼저 실행하세요")
+        raise ValueError(f"{n}화 비교본이 없어요. 비교를 먼저 실행하세요")
     key = json.loads(key_path.read_text(encoding="utf-8"))
     order = key["order"]
     if not 1 <= k <= len(order):
-        raise ValueError(f"고를 수 있는 번호는 1~{len(order)} 입니다")
+        raise ValueError(f"고를 수 있는 번호는 1~{len(order)} 이에요")
     if adopt:
         pipeline.adopt_draft(p, n, (out / f"{k}.md").read_text(encoding="utf-8"))
     key["picked"] = k
