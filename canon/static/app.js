@@ -35,6 +35,8 @@ const S = {
   jobsSeen: null,    // 화면을 연 시점에 이미 끝나 있던 작업 id (결과를 다시 적용하지 않는다)
   jobsApplied: new Set(),  // 결과를 이미 화면에 적용한 작업 id. 폴링이 작업 객체를 새로 받아 오므로 id 로 기억한다
   jobsOpen: null,    // 작업 목록 펼침. null 이면 넓은 화면은 펼치고 휴대폰은 접는다
+  jobsFailed: new Set(),  // 작업 목록이 이미 본 실패 작업 id. 새 실패가 생기면 목록을 펼친다
+  starting: new Set(),    // 시작 요청을 보내고 답을 기다리는 작업 '<kind>:<ep>'
   briefDraft: {},    // 작업지시서 ② 칸에 붙여 넣은 글. '<작품>:<화>:<episode|state>' → 글
   settingsDirty: false,  // 모델 · API 키 설정 화면에서 저장하지 않은 입력이 있다
   selArc: null,      // 장편: 플롯 보드에서 고른 아크 번호 ('next' 는 다음 아크 기획)
@@ -120,10 +122,26 @@ async function api(method, path, body, meta) {
 function toast(msg, err = false) {
   const el = document.createElement('div');
   el.className = 't' + (err ? ' err' : '');
-  el.textContent = msg;
+  if (err) {
+    // 오류는 읽을 때까지 남긴다. 닫기 버튼으로 지운다
+    const t = document.createElement('span');
+    t.textContent = msg;
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'x';
+    x.setAttribute('aria-label', '닫기');
+    x.textContent = '✕';
+    x.addEventListener('click', () => el.remove());
+    el.append(t, x);
+  } else {
+    el.textContent = msg;
+  }
   $('#toast').appendChild(el);
-  while ($('#toast').children.length > 3) $('#toast').firstChild.remove();
-  setTimeout(() => el.remove(), err ? 8000 : 3500);
+  // 많이 쌓이면 오래된 알림부터 내린다. 오류는 알림이 밀어내지 않고, 오류가 다섯 개를 넘으면 오래된 오류를 내린다
+  const box = $('#toast');
+  while (box.children.length > 3 && box.querySelector('.t:not(.err)')) box.querySelector('.t:not(.err)').remove();
+  while (box.querySelectorAll('.t.err').length > 5) box.querySelector('.t.err').remove();
+  if (!err) setTimeout(() => el.remove(), 3500);
 }
 
 // ---------- 백그라운드 AI 작업 ----------
@@ -153,6 +171,7 @@ function jobFor(kind, ep = null, name = S.name) {
 // 작업이 도는 동안 버튼은 진행 상황을 보여 주고 눌리지 않게 한다
 function jobBtn(kind, ep, idle) {
   const j = jobFor(kind, ep);
+  if (!j && S.starting.has(`${kind}:${ep ?? ''}`)) return { label: `${idle} · 시작하는 중…`, attr: ' aria-disabled="true" aria-busy="true"' };
   if (!j) return { label: idle, attr: '' };
   // disabled 는 포커스를 잃게 해서 키보드 사용자가 문서 처음으로 돌아간다. aria-disabled 로 막고 포커스는 남긴다
   return { label: `${j.label} 만드는 중…${j.total > 1 ? ` ${j.done}/${j.total}` : ''}`, attr: ' aria-disabled="true" aria-busy="true"' };
@@ -233,11 +252,17 @@ function rangeText(nums) {
 async function startJob(kind, ep = null, extra = {}) {
   // 작업은 저장된 작품을 읽는다. 저장하지 않은 변경(검토 중인 AI 제안 포함)을 말없이 저장하지 않고 먼저 묻는다
   if (S.dirty && !confirm('저장하지 않은 변경이 있어요. 저장하고 작업을 시작할까요?')) return;
+  // 응답이 오기 전에 또 누르면 같은 요청을 다시 보내지 않는다 (jobBtn 이 그동안 버튼을 막는다)
+  const key = `${kind}:${ep ?? ''}`;
+  if (S.starting.has(key)) return;
+  S.starting.add(key);
+  render();
   try {
     await saveIfDirty();
     const j = await api('POST', `/projects/${enc(S.name)}/jobs`, { kind, ep, ...extra });
-    if (j.already) toast(`이미 진행 중이에요: ${j.label}`);
-    else toast(`${j.label}을(를) 시작했어요. 끝나면 알려 드릴게요. 그동안 다른 작업을 해도 돼요.`);
+    S.starting.delete(key);
+    // 이미 도는 작업이면 버튼이 진행 상황을 보여 주므로 따로 알리지 않는다
+    if (!j.already) toast(`${j.label}${josa(j.label, '을', '를')} 시작했어요. 끝나면 알려 드릴게요. 그동안 다른 작업을 해도 돼요.`);
     S.jobs = S.jobs.filter((x) => x.id !== j.id).concat(j);
     S.jobArgs[j.id] = { kind, ep, extra };  // 실패하면 작업 목록의 '다시 시도'가 같은 작업을 다시 시작한다
     renderJobs();
@@ -245,6 +270,8 @@ async function startJob(kind, ep = null, extra = {}) {
     pollJobs(true);
   } catch (e) {
     showError(e);
+  } finally {
+    if (S.starting.delete(key)) render();
   }
 }
 
@@ -279,7 +306,7 @@ async function pollJobs(soon = false) {
     const progressed = !old || old.done !== j.done || old.status !== j.status;
     if (progressed && j.project !== S.name && old && old.status === 'running' && j.status !== 'running') {
       // 다른 작품을 보는 동안 끝났다. 결과는 그 작품을 열면 다시 놓인다 (pending.json)
-      toast(j.status === 'error' ? `${j.project} · ${j.label} 실패: ${j.error}` : `${j.project} · ${j.label}이(가) 끝났어요. 그 작품을 열면 결과가 보여요`, j.status === 'error');
+      toast(j.status === 'error' ? `${j.project} · ${j.label} 실패: ${j.error}` : `${j.project} · ${j.label}${josa(j.label, '이', '가')} 끝났어요. 그 작품을 열면 결과가 보여요`, j.status === 'error');
     }
     if (!progressed || j.project !== S.name) continue;
     if (j.kind === 'plots') await mergeEpisodes((e) => e.status === 'draft');
@@ -302,8 +329,8 @@ async function pollJobs(soon = false) {
     }
   }
   renderJobs();
-  // 입력 중이면 화면을 다시 그리지 않는다 (글자와 커서를 잃지 않게). 데이터는 이미 반영돼 있고, 입력을 마치면 그린다
-  if (redraw && isTyping()) S.renderPending = true;
+  // 입력 중이거나 본문 글자를 고르고 있으면 화면을 다시 그리지 않는다 (글자 · 커서 · 선택을 잃지 않게). 데이터는 이미 반영돼 있고, 입력이나 선택을 마치면 그린다
+  if (redraw && (isTyping() || selecting())) S.renderPending = true;
   else if (redraw) {
     // 포커스가 갈 곳 없이 BODY 나 작업 버튼에 있으면 도착한 결과로 옮긴다
     const a = document.activeElement;
@@ -322,8 +349,16 @@ function isTyping() {
 // 작업이 끝나 결과를 그린 뒤 포커스를 옮길 곳 (없으면 제안 카드의 첫 버튼)
 const RESULT_FOCUS = { state: '#app [data-pick], #app [data-action="applyDelta"]', write: '#app textarea[data-draft], #app .rw-compare button' };
 
+/** #app 안에서 글자를 고르고 있다 (본문 부분 수정 · 삽화 도구를 띄우려고 드래그한 선택). */
+function selecting() {
+  const sel = document.getSelection();
+  return !!sel && sel.rangeCount > 0 && !sel.isCollapsed && !!$('#app') && $('#app').contains(sel.anchorNode);
+}
+
 // 입력을 마치면(다른 입력칸이 아닌 곳으로 포커스가 가면) 입력 중이라 미뤄 둔 다시 그리기를 한다
-document.addEventListener('focusout', () => setTimeout(() => { if (S.renderPending && !isTyping()) render(); }));
+document.addEventListener('focusout', () => setTimeout(() => { if (S.renderPending && !isTyping() && !selecting()) render(); }));
+// 글자 선택을 풀면 선택 중이라 미뤄 둔 다시 그리기를 한다
+document.addEventListener('selectionchange', () => setTimeout(() => { if (S.renderPending && !isTyping() && !selecting()) render(); }));  // 누른 버튼의 동작이 먼저 돈다
 
 // 작업 결과가 보이는 화면
 JOB_DONE_MSG.check = (j) => `${j.ep}화 검수가 끝났어요: 어긋난 곳 ${j.result ? j.result.issues : 0}개`;
@@ -494,7 +529,15 @@ function renderJobs() {
   if (!S.jobs.length) { box.innerHTML = ''; box.dataset.html = ''; box.hidden = true; return; }
   box.hidden = false;
   const running = S.jobs.filter((j) => j.status === 'running');
-  const head = S.jobsOffline ? '서버 연결이 끊겼어요. 다시 연결하는 중…' : running.length ? `AI 작업 ${running.length}개 진행 중` : 'AI 작업 끝남';
+  const failed = S.jobs.filter((j) => j.status === 'error');
+  // 접힌 머리에도 하나뿐인 작업의 이름 · 진행률과 실패 수를 보인다
+  const one = running.length === 1 ? `${running[0].label}${running[0].total > 1 ? ` ${running[0].done}/${running[0].total}` : ''}` : '';
+  const head = S.jobsOffline ? '서버 연결이 끊겼어요. 다시 연결하는 중…'
+    : running.length ? `${one ? `AI 작업 진행 중 · ${one}` : `AI 작업 ${running.length}개 진행 중`}${failed.length ? ` · ${failed.length}개 실패` : ''}`
+      : `AI 작업 끝남${failed.length ? ` · ${failed.length}개 실패` : ''}`;
+  // 새 실패가 생기면 접혀 있어도 펼쳐 알린다. 그 뒤 접고 펴기는 사용자가 정한다
+  const fresh = failed.filter((j) => !S.jobsFailed.has(j.id));
+  if (fresh.length) { fresh.forEach((j) => S.jobsFailed.add(j.id)); S.jobsOpen = true; }
   const items = S.jobs.map((j) => {
     const pct = j.total > 1 ? ` ${j.done}/${j.total}` : '';
     const state = j.status === 'running' ? `<span class="spinner sm" aria-hidden="true"></span>` : j.status === 'done' ? '<span class="ok">완료</span>' : j.status === 'cancelled' ? '<span class="small">멈춤</span>' : '<span class="bad">실패</span>';
@@ -508,7 +551,7 @@ function renderJobs() {
   }).join('');
   // 넓은 화면은 펼쳐 경과 시간과 '멈추기'를 보인다. 휴대폰은 접어 둔다 (저장 띠와 버튼을 가리지 않게). 머리를 누르면 바꾼다
   const open = S.jobsOpen === null ? !narrowScreen() : S.jobsOpen;
-  const html = `<button type="button" class="jobs-head" aria-expanded="${open}" data-jobs-toggle>${running.length ? '<span class="spinner sm" aria-hidden="true"></span>' : ''}${head}</button>${open ? `<ul>${items}</ul>` : ''}`;
+  const html = `<button type="button" class="jobs-head${failed.length ? ' bad' : ''}" aria-expanded="${open}" data-jobs-toggle>${running.length ? '<span class="spinner sm" aria-hidden="true"></span>' : ''}${head}</button>${open ? `<ul>${items}</ul>` : ''}`;
   if (box.dataset.html === html) return;
   // 목록 안 버튼(멈추기 · 다시 시도)에 있던 포커스를 다시 그린 뒤 같은 버튼에 돌려준다
   const f = box.contains(document.activeElement) ? document.activeElement : null;
@@ -555,10 +598,10 @@ document.addEventListener('click', (e) => {
     if (j && j.status === 'done') S.pendingJob = j;
   } else if (t.dataset.jobStop) {
     const j = S.jobs.find((x) => x.id === t.dataset.jobStop);
-    if (!j || !confirm(`${j.label}을(를) 멈출까요? 이미 보낸 AI 호출의 응답은 버려요 (비용은 들 수 있어요).`)) return;
+    if (!j || !confirm(`${j.label}${josa(j.label, '을', '를')} 멈출까요? 이미 보낸 AI 호출의 응답은 버려요 (비용은 들 수 있어요).`)) return;
     api('POST', `/jobs/${j.id}/stop`).then((x) => {
       Object.assign(j, x);
-      toast(`${j.label}을(를) 멈췄어요`);
+      toast(`${j.label}${josa(j.label, '을', '를')} 멈췄어요`);
       renderJobs();
       if (S.route[0] === 'p' && !isTyping()) render();  // 잠겨 있던 버튼을 푼다
     }).catch((err) => toast(err.message, true));
@@ -594,6 +637,11 @@ async function run(label, fn, opt = {}) {
   $('#busy-text').textContent = label;
   $('#busy-stop').hidden = true;
   $('#busy').hidden = false;
+  // 기다리는 동안 뒤 화면을 키보드로도 못 건드리게 막고 포커스를 상자로 옮긴다. 끝나면 누른 버튼으로 돌려준다
+  const back = document.activeElement;
+  const walls = ['#app', '#jobs', '#savebar'].map((q) => $(q)).filter(Boolean);
+  walls.forEach((el) => { el.inert = true; });
+  $('#busy .busy-box').focus();
   const tick = setInterval(() => {
     const s = Math.round((Date.now() - t0) / 1000);
     $('#busy-text').textContent = `${label} · ${s}초`;
@@ -607,7 +655,10 @@ async function run(label, fn, opt = {}) {
   } finally {
     clearInterval(tick);
     runAbort = null;
+    // 그리는 사이 새로 생긴 저장 띠 · 작업 목록도 함께 푼다
+    [...walls, ...['#app', '#jobs', '#savebar'].map((q) => $(q)).filter(Boolean)].forEach((el) => { el.inert = false; });
     $('#busy').hidden = true;
+    if (back && back.isConnected && back !== document.body) back.focus({ preventScroll: true });  // 다시 그리기가 이 자리를 기억한다
     if (when === 'always' || (when === 'success' && ok)) render();
   }
   return ok;
@@ -858,6 +909,19 @@ function textUnsaved(n) {
   return e ? d.trim() !== (e.text || '').trim() : d.trim() !== '';  // 서버는 앞뒤 공백을 지워 저장한다
 }
 
+/** 저장 띠를 만든다. 처음 뜰 때 화면 낭독기에 한 번 알린다 (띠는 문서 끝에 붙어 Tab 으로는 늦게 닿으니 Ctrl+S 도 알린다). */
+function newSavebar(shortcut = true) {
+  const bar = document.createElement('div');
+  bar.id = 'savebar';
+  bar.className = 'savebar';
+  bar.setAttribute('role', 'region');
+  bar.setAttribute('aria-label', '저장하지 않은 변경');
+  document.body.appendChild(bar);
+  const live = $('#sr-live');
+  if (live) live.textContent = `저장하지 않은 변경이 있어요.${shortcut ? ' Ctrl+S 로 저장할 수 있어요.' : ''}`;
+  return bar;
+}
+
 function renderSavebar() {
   // 본문 초안은 따로 '본문 저장'으로 저장한다. 그 화를 보고 있을 때만 알린다 (다른 화면으로 가도 초안은 메모리에 남는다)
   const [p, , page, arg] = S.route;
@@ -868,12 +932,7 @@ function renderSavebar() {
   if (rb) rb.disabled = !S.libDirty;
   let bar = $('#savebar');
   if (lib) {
-    if (!bar) {
-      bar = document.createElement('div');
-      bar.id = 'savebar';
-      bar.className = 'savebar';
-      document.body.appendChild(bar);
-    }
+    if (!bar) bar = newSavebar(false);  // 라이브러리 항목은 Ctrl+S 가 저장하지 않는다
     if (bar.dataset.sig !== 'lib') {
       bar.dataset.sig = 'lib';
       bar.innerHTML = '<span>문체를 저장하지 않았어요</span><button class="btn small" data-action="libRevert">저장 전으로</button><button class="btn small primary" data-action="libSave">저장</button>';
@@ -888,16 +947,11 @@ function renderSavebar() {
   }
   const sig = `${S.dirty}:${text}:${autoOn()}:${S.conflict}:${S.lastRemoved ? S.lastRemoved.label : ''}`;
   if (bar && bar.dataset.sig === sig) return;
-  if (!bar) {
-    bar = document.createElement('div');
-    bar.id = 'savebar';
-    bar.className = 'savebar';
-    document.body.appendChild(bar);
-  }
+  if (!bar) bar = newSavebar();
   bar.dataset.sig = sig;
   bar.innerHTML = (S.dirty && S.conflict ? '<span>다른 탭이나 기기에서 먼저 저장해 이 변경을 저장하지 못했어요</span><button class="btn small" data-action="revert">다시 불러오기 (이 변경 버림)</button><button class="btn small danger" data-action="saveForce">내 변경으로 덮기</button>'
-    : S.dirty ? `<span>저장하지 않은 변경이 있어요</span>${S.lastRemoved ? `<button class="btn small" data-action="restoreRemoved">방금 지운 ${esc(S.lastRemoved.label)} 되살리기</button>` : ''}<button class="btn small" data-action="revert">변경 모두 버리기</button><button class="btn small primary" data-action="save">저장</button>` : '')
-    + (text !== null ? `<span>${text}화 본문을 저장하지 않았어요</span><button class="btn small primary" data-action="saveText" data-arg="${text}"${autoOn() ? ' disabled title="자동 집필이 도는 동안은 본문을 저장할 수 없어요"' : ''}>본문 저장</button>` : '');
+    : S.dirty ? `<span>저장하지 않은 변경이 있어요</span>${S.lastRemoved ? `<button class="btn small" data-action="restoreRemoved">방금 지운 ${esc(S.lastRemoved.label)} 되살리기</button>` : ''}<button class="btn small" data-action="revert">변경 모두 버리기</button><button class="btn small primary" data-action="save" title="저장 (Ctrl+S)">저장</button>` : '')
+    + (text !== null ? `<span>${text}화 본문을 저장하지 않았어요</span><button class="btn small primary" data-action="saveText" data-arg="${text}"${autoOn() ? ' disabled title="자동 집필이 도는 동안은 본문을 저장할 수 없어요"' : ' title="본문 저장 (Ctrl+S)"'}>본문 저장</button>` : '');
   stackBottom();
 }
 
@@ -2241,7 +2295,7 @@ function pageTitle() {
 
 function drawApp() {
   renderSavebar();
-  document.body.classList.remove('chat-open');
+  document.body.classList.remove('chat-open', 'drawer-open');
   const [p, , page, arg] = S.route;
   if (p === 'settings') {
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:820px;margin:0 auto">${viewSettings()}</main></div>`;
@@ -2270,6 +2324,7 @@ function drawApp() {
   const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, convert: viewConvert };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${failStrip(page, n)}${body}</main></div>`;
+  document.body.classList.toggle('drawer-open', !!$('#app .drawer'));  // 넓은 화면은 보드를 서랍 폭만큼 비켜 둔다 (app.css)
   syncPending();
   syncChat();
   if (typeof syncPassage === 'function') syncPassage();
@@ -2318,9 +2373,9 @@ function sidebar(active) {
       <div class="small">${done} / ${total}화 반영 완료</div>
     </div>
     <div class="side-menu" id="side-menu">
-    <div class="nav">${items.map(([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}><span class="num">${num}</span>${label}</a>`).join('')}</div>
-    <div class="nav nav-extra"><span class="small">작품 도구</span>${tools.map(([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}><span class="num">${num}</span>${label}</a>`).join('')}</div>
-    <div class="nav nav-extra"><span class="small">본편과 분리</span><a href="${base()}/research"${active === 'research' ? ' aria-current="page"' : ''}><span class="num">R</span>연구 · 모델 실험</a><a href="${base()}/usage"${active === 'usage' ? ' aria-current="page"' : ''}><span class="num">$</span>사용량 · 비용</a></div>
+    <div class="nav">${items.map(([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}><span class="num" aria-hidden="true">${num}</span>${label}${/\d/.test(num) ? `<span class="sr-only"> (단계 ${num})</span>` : ''}</a>`).join('')}</div>
+    <div class="nav nav-extra"><span class="small">작품 도구</span>${tools.map(([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}><span class="num" aria-hidden="true">${num}</span>${label}</a>`).join('')}</div>
+    <div class="nav nav-extra"><span class="small">본편과 분리</span><a href="${base()}/research"${active === 'research' ? ' aria-current="page"' : ''}><span class="num" aria-hidden="true">R</span>연구 · 모델 실험</a><a href="${base()}/usage"${active === 'usage' ? ' aria-current="page"' : ''}><span class="num" aria-hidden="true">$</span>사용량 · 비용</a></div>
     <div class="side-foot">
       <span class="small">본문 모델</span>
       <strong style="font-size:0.8125rem">${esc(cfg.stages ? cfg.stages.write.model : cfg.model || '')}</strong>
