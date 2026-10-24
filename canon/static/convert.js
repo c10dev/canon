@@ -354,7 +354,7 @@ function rebuildNote(n) {
   if (!rw) return `<div class="note ${done ? 'plain' : 'info'}">${head}</div>`;
   return `<div class="note info" style="display:flex;flex-direction:column;gap:8px">${head}
     ${rw.reply ? `<div class="small">${esc(rw.reply)}</div>` : ''}
-    <div class="pdiff" style="max-height:360px;overflow:auto;white-space:pre-wrap;font-family:var(--serif);font-size:14px;line-height:1.8">${reworkDiff(e.text, rw.text)}</div>
+    <div class="pdiff" style="max-height:360px;overflow:auto;white-space:pre-wrap;font-family:var(--serif);font-size:0.875rem;line-height:1.8">${reworkDiff(e.text, rw.text)}</div>
     <details><summary class="small">넣기 전에 손보기</summary><textarea rows="10" data-rework="${n}" aria-label="다듬은 본문">${esc(rw.edited ?? rw.text)}</textarea></details>
     <div class="row"><button class="btn small" data-action="reworkDrop" data-arg="${n}">버리기</button><button class="btn small primary" data-action="reworkAccept" data-arg="${n}">이 본문으로 바꾸기</button><span class="small">고치기 전후는 수정 기록에 남아 되돌릴 수 있어요.</span></div>
   </div>`;

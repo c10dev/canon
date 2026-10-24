@@ -92,7 +92,7 @@ function causalList() {
 function causalEditor(el) {
   const i = causalIndex(el.id);
   const b = `elements.${i}`;
-  const chars = P().characters.map((c) => `<label class="row" style="font-size:13px;gap:6px"><input type="checkbox" data-el-char="${esc(c.id)}"${el.characters.includes(c.id) ? ' checked' : ''}>${esc(c.name || c.id)}</label>`).join('');
+  const chars = P().characters.map((c) => `<label class="row" style="font-size:0.8125rem;gap:6px"><input type="checkbox" data-el-char="${esc(c.id)}"${el.characters.includes(c.id) ? ' checked' : ''}>${esc(c.name || c.id)}</label>`).join('');
   const fromStart = el.since_ep <= 0;
   const ctx = [['auto', '관련 있을 때'], ['always', '항상'], ['off', '넣지 않음']];
   return `<div class="card" style="display:flex;flex-direction:column;gap:14px">

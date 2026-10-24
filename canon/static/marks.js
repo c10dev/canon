@@ -115,7 +115,7 @@ function deviceBadges(n) {
   return `<div class="field" id="style-marks"><div class="between"><span class="small">가끔 쓰는 장치 · 금지 표현</span>
       <button type="button" class="btn small" data-action="marksToggle" aria-pressed="${marksOn}" title="본문 밑줄 켜고 끄기">밑줄 ${marksOn ? '끄기' : '켜기'}</button></div>
     <ul class="dev-list">${rows.join('')}</ul>
-    <a href="${base()}/style" style="font-size:12px">문체 화면에서 장치 고치기</a></div>`;
+    <a href="${base()}/style" style="font-size:0.75rem">문체 화면에서 장치 고치기</a></div>`;
 }
 
 // ----- 본문 칸 뒤 밑줄 -----

@@ -249,10 +249,10 @@ function viewAuto() {
         <div class="field"><label for="auto-target">어디까지 쓸까요</label><select id="auto-target" data-auto="target">${eps.map((n) => `<option value="${n}"${n === f.target ? ' selected' : ''}>${n}화까지</option>`).join('')}</select></div>
         <div class="field"><span class="label">배치</span>${autoBatchToggle(f.batch)}<span class="small">${batchNote}</span></div>
       </div>
-      <h3 style="font-size:15px;margin:4px 0 0">이럴 때는 멈추고 저에게 물어봐 주세요</h3>
+      <h3 style="font-size:0.9375rem;margin:4px 0 0">이럴 때는 멈추고 저에게 물어봐 주세요</h3>
       <p class="desc">걸리는 게 없으면 상태 변경안을 검토 없이 반영하고 다음 화로 가요. 반영한 화는 표시해 두고, 화마다 남는 스냅샷으로 되돌릴 수 있어요.</p>
       ${autoPolicyForm(f, false)}
-      <h3 style="font-size:15px;margin:4px 0 0">예상 비용과 시간</h3>
+      <h3 style="font-size:0.9375rem;margin:4px 0 0">예상 비용과 시간</h3>
       <div id="auto-est">${autoEstCard()}</div>
       <div class="row"><button class="btn primary" data-action="autoStart">${f.target}화까지 자동 집필 시작</button></div>
     </section>` : '';

@@ -85,6 +85,14 @@ function castPresent(c, f) {
   return c.first_ep <= f.episode;
 }
 
+/** 관계도 선의 온기 · 신뢰를 글로 (색과 마우스 올리기 없이도 읽게). 지금 보는 시점 기준 */
+function castTieList(f) {
+  const ties = f ? f.ties : [];
+  if (!ties.length) return '';
+  return `<details class="cast-tie-list"><summary class="small">관계 목록 보기 (${ties.length}줄)</summary>
+    <ul class="rel-lines">${ties.map((t) => `<li>${esc(charName(t.source))} → ${esc(charName(t.target))}: ${tieText(t)}</li>`).join('')}</ul></details>`;
+}
+
 function tieText(t) {
   if (!t) return '<span class="small">아직 관계가 없어요</span>';
   if (P().settings.show_numbers) {
@@ -323,7 +331,7 @@ function castCharDetail(c) {
     ...els.map((x) => `<a class="arc-chip" href="${base()}/causal/${enc(x.id)}">${esc(x.kind)} <span>${esc(x.name || x.id)}</span></a>`),
   ].join('');
   return `<section class="card">
-    <div class="between"><div><h2 style="font-size:20px">${esc(c.name || c.id)}</h2>
+    <div class="between"><div><h2 style="font-size:1.25rem">${esc(c.name || c.id)}</h2>
       <div class="row" style="margin-top:6px"><span class="chip">${TIER_NAME[c.tier || 'main']}</span>${c.role ? `<span class="chip">${esc(c.role)}</span>` : ''}${[c.age, c.gender].filter(Boolean).map((v) => `<span class="small">${esc(v)}</span>`).join('')}</div></div>
       <a class="btn small" href="${base()}/setup">설정에서 고치기</a></div>
     <div class="small">${apps.length ? `플롯 등장 ${apps.length}화 (${apps[0].n}~${apps[apps.length - 1].n}화)${pov ? ` · 시점 인물 ${pov}화` : ''}` : '플롯에 나오는 화가 아직 없어요'}${c.first_ep ? ` · ${c.first_ep}화에 처음 등장` : ''}</div>
@@ -430,7 +438,7 @@ function castPairDetail(a, b) {
   const evList = evs.slice().sort((x, y) => x.episode - y.episode).map((e) => `<li class="cast-ev ${GOOD_EVENTS.includes(e.kind) ? 'good' : 'bad'}"><strong>${e.episode}화</strong> ${esc(charName(e.actor))} → ${esc(charName(e.target))} · ${esc(e.kind)} ${INTENSITY[e.intensity] || ''}${e.quote ? `<br><span class="small">“${esc(e.quote)}”</span>` : ''}</li>`).join('');
   const multi = fs.length > 1;
   return `<section class="card">
-    <div class="between"><div><h2 style="font-size:20px"><button type="button" class="link-btn" data-action="castPick" data-arg="${esc('c:' + a)}">${esc(charName(a))}</button> ↔ <button type="button" class="link-btn" data-action="castPick" data-arg="${esc('c:' + b)}">${esc(charName(b))}</button></h2>
+    <div class="between"><div><h2 style="font-size:1.25rem"><button type="button" class="link-btn" data-action="castPick" data-arg="${esc('c:' + a)}">${esc(charName(a))}</button> ↔ <button type="button" class="link-btn" data-action="castPick" data-arg="${esc('c:' + b)}">${esc(charName(b))}</button></h2>
       <div class="row" style="margin-top:6px">${pr && pr.type ? `<span class="chip">${esc(pr.type)}</span>` : '<span class="small">관계 설정 없이 사건으로 생긴 관계</span>'}<span class="small">${tensionText(pr)}</span></div></div>
       <a class="btn small" href="${base()}/setup">관계 설정 고치기</a></div>
     ${pr && pr.description ? `<div class="small">${esc(pr.description)}</div>` : ''}
@@ -458,7 +466,7 @@ function castDetail() {
 
 function castStage() {
   const f = castFrameNow();
-  return `<div class="cast-graph-wrap">${castGraph()}</div>${castLegend()}${castTriads(f)}`;
+  return `<div class="cast-graph-wrap">${castGraph()}</div>${castLegend()}${castTieList(f)}${castTriads(f)}`;
 }
 
 /** 시점이나 선택만 바뀌면 슬라이더는 두고 관계도와 상세만 다시 그린다 (끄는 중인 슬라이더를 지우지 않게) */
@@ -545,7 +553,7 @@ function viewCast() {
       <section class="card cast-main">
         ${relationHeader('관계도')}
         ${castSlider()}
-        <div class="row">${minors ? `<label class="row" style="gap:6px;font-size:13px"><input type="checkbox" data-cast-minor${S.castMinor ? ' checked' : ''}>단역도 보기</label>` : ''}
+        <div class="row">${minors ? `<label class="row" style="gap:6px;font-size:0.8125rem"><input type="checkbox" data-cast-minor${S.castMinor ? ' checked' : ''}>단역도 보기</label>` : ''}
           ${Object.keys(S.castPos || {}).length ? '<button type="button" class="btn small ghost" data-action="castResetPos">배치 처음대로</button>' : ''}
           <span class="small">인물을 끌어 자리를 옮길 수 있어요. 누르면 자세히, 선을 누르면 두 사람 관계를 봐요.</span></div>
         <div id="cast-stage">${castStage()}</div>

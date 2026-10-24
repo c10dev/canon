@@ -62,13 +62,13 @@ function openingWayPicker(disabled) {
 function hookView(h, stale) {
   if (!h) return '';
   const items = h.items.map((it) => `<li><div class="between"><strong>${esc(it.aspect)}</strong><span class="mono" aria-label="${it.score}점" style="letter-spacing:2px">${HOOK_DOTS(it.score)}</span></div>
-      <div style="font-size:13px;line-height:1.55">${esc(it.note)}</div>
-      ${it.quote ? `<div style="font-family:var(--serif);font-size:13px;line-height:1.7;color:var(--text-2)">“${esc(it.quote)}”</div>` : ''}</li>`).join('');
+      <div style="font-size:0.8125rem;line-height:1.55">${esc(it.note)}</div>
+      ${it.quote ? `<div style="font-family:var(--serif);font-size:0.8125rem;line-height:1.7;color:var(--text-2)">“${esc(it.quote)}”</div>` : ''}</li>`).join('');
   return `<div class="field" style="gap:8px">
       ${stale ? '<div class="note warn">판정한 뒤 본문이 바뀌었어요. 다시 판정하세요.</div>' : ''}
       <div class="row"><span class="chip ${h.next_click ? 'finalized' : 'written'}">${h.next_click ? '다음 화를 누른다' : '여기서 내릴 수 있다'}</span>
         <span class="small">전제가 나오는 곳: ${h.premise_at >= 0 ? `${h.premise_at.toLocaleString()}자` : '찾지 못함'}</span></div>
-      <div style="font-size:13px;line-height:1.6">${esc(h.reason)}</div>
+      <div style="font-size:0.8125rem;line-height:1.6">${esc(h.reason)}</div>
       ${h.reader_question ? `<div class="note plain"><strong>독자가 들고 갈 질문</strong> · ${esc(h.reader_question)}</div>` : '<div class="note warn">마지막 장면에서 독자가 들고 갈 질문이 보이지 않아요.</div>'}
       <ul class="panel-list" style="gap:0">${items}</ul>
     </div>`;
@@ -140,12 +140,12 @@ function openingPlotBlock(e) {
     return `<div class="card tight" style="gap:6px">
         <div class="between"><strong>${esc(a ? a.label : o.approach)} · ${esc(p.title)}</strong>${used === i ? '<span class="chip confirmed">지금 플롯</span>' : `<button class="btn small primary" data-action="openingUsePlot" data-arg="${n}:${i}">이 안으로</button>`}</div>
         <div class="small">${esc(o.pitch)}</div>
-        ${p.reader_question ? `<div style="font-size:13px"><strong>독자 질문</strong> · ${esc(p.reader_question)}</div>` : ''}
+        ${p.reader_question ? `<div style="font-size:0.8125rem"><strong>독자 질문</strong> · ${esc(p.reader_question)}</div>` : ''}
         ${used === i ? '' : `<details${i === 0 ? ' open' : ''}><summary class="small">지금 플롯과 비교 · 바뀌는 칸 ${count}개</summary><div class="diff">${diff}</div></details>`}
       </div>`;
   }).join('');
   const prev = S.openingPrev[n];
-  return `<details${S.openingPlots[n] ? ' open' : ''}><summary style="font-weight:700;font-size:14px">초반 화 · 여는 방식 고르기</summary>
+  return `<details${S.openingPlots[n] ? ' open' : ''}><summary style="font-weight:700;font-size:0.875rem">초반 화 · 여는 방식 고르기</summary>
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
         <div class="small">${n}화 플롯을 여는 방식마다 하나씩 받아 비교해요. 고른 안이 이 화 플롯이 되고, 확정했던 화는 초안으로 돌아가요.</div>
         ${openingWayPicker(false)}
