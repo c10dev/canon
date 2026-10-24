@@ -237,6 +237,7 @@ async function pollJobs(soon = false) {
     if (j.kind === 'plots') await mergeEpisodes((e) => e.status === 'draft');
     if (j.kind === 'write' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);
     if (j.kind === 'impact' && j.status === 'done') await mergeImpacts();
+    if (j.kind === 'check' && j.status === 'done') await mergeEpisodes((e) => e.plot.number === j.ep);  // 검수 결과는 그 화에 붙었다
     if (j.kind === 'auto') {
       // 다른 탭이나 명령줄에서 시작했어도 잠금(autoOn)이 걸리고, 끝나면 풀리게 실행 상태를 받아 온다. autoPoll 이 이어서 지켜본다
       if ((j.status === 'running') !== autoOn() && typeof autoLoad === 'function') await autoLoad(false);
@@ -277,7 +278,8 @@ const RESULT_FOCUS = { state: '#app [data-pick], #app [data-action="applyDelta"]
 document.addEventListener('focusout', () => setTimeout(() => { if (S.renderPending && !isTyping()) render(); }));
 
 // 작업 결과가 보이는 화면
-const JOB_PAGES = { suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], storyline: ['lines'] };
+JOB_DONE_MSG.check = (j) => `${j.ep}화 검수가 끝났어요: 어긋난 곳 ${j.result ? j.result.issues : 0}개`;
+const JOB_PAGES = { check: ['write'], suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], storyline: ['lines'] };
 
 // 작업이 project.json 에 쓴 화만 받아 온다 (mine(화면 화, 서버 화) 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
 // 저장하지 않은 입력이 있을 때 서버 것으로 바꾼 화 번호를 돌려준다.
@@ -421,6 +423,7 @@ const JOB_LINK = {
   arc: (j) => `#/p/${enc(j.project)}/arc`,
   plots: (j) => `#/p/${enc(j.project)}/arc`,
   write: (j) => `#/p/${enc(j.project)}/write/${j.ep}`,
+  check: (j) => `#/p/${enc(j.project)}/write/${j.ep}`,
   state: (j) => `#/p/${enc(j.project)}/review/${j.ep}`,
   series: (j) => `#/p/${enc(j.project)}/arc`,
   nextarc: (j) => `#/p/${enc(j.project)}/arc`,
@@ -904,6 +907,38 @@ const actions = {
   toggleMenu() {
     S.menuOpen = !S.menuOpen;  // 좁은 폭에서만 보이는 버튼. 메뉴를 고르면 화면 이동 때 닫힌다
     render();
+  },
+  async dupProject(name) {
+    const to = prompt(`'${name}' 의 사본 폴더 이름`, `${name}-사본`);
+    if (!to) return;
+    await run('복제하는 중', async () => {
+      await api('POST', `/projects/${enc(name)}/duplicate`, { name: to.trim() });
+      S.projects = await api('GET', '/projects');
+      toast(`'${to.trim()}' 로 복제했어요`);
+    });
+  },
+  async renameProject(name) {
+    const to = prompt(`'${name}' 의 새 폴더 이름 (주소가 바뀌어요. 작품 제목은 설정 도우미에서 바꿔요)`, name);
+    if (!to || to.trim() === name) return;
+    await run('이름을 바꾸는 중', async () => {
+      await api('POST', `/projects/${enc(name)}/rename`, { name: to.trim() });
+      S.projects = await api('GET', '/projects');
+      toast(`폴더 이름을 '${to.trim()}' 로 바꿨어요`);
+    });
+  },
+  async deleteProject(name) {
+    const x = (S.projects || []).find((y) => y.name === name) || { title: name };
+    const typed = prompt(`'${x.title || name}' 작품을 지울까요? 서버의 projects/.trash 로 옮겨 두지만 화면에서는 되살릴 수 없어요.\n지우려면 작품 제목을 그대로 적으세요.`);
+    if (typed === null) return;
+    if (typed.trim() !== (x.title || name)) return toast('제목이 달라 지우지 않았어요', true);
+    await run('지우는 중', async () => {
+      await api('DELETE', `/projects/${enc(name)}`);
+      S.projects = await api('GET', '/projects');
+      toast('작품을 지웠어요. 서버의 projects/.trash 에 남아 있어요');
+    });
+  },
+  async checkEp(n) {
+    await startJob('check', Number(n));
   },
   async retryRoute() {
     await route();
@@ -1590,6 +1625,7 @@ const actions = {
     if (lkey) body.local_key = lkey;
     await run('저장 중', async () => {
       S.config = await api('PUT', '/config', body);
+      S.health = await api('GET', '/config/health').catch(() => null);
       S.settingsDirty = false;
       toast('설정을 저장했습니다');
     }, { render: 'success' });  // 실패하면 다시 그리지 않아 적은 키와 모델이 칸에 남는다
@@ -1817,6 +1853,7 @@ async function routeNow() {
   if (parts[0] !== 'p') pruneProjectState();  // 작품 밖 화면으로 간다. 작품 데이터가 있을 때 끝난 초안을 정리한다
   try {
     if (!S.config) S.config = await api('GET', '/config');
+    if (!S.health) S.health = await api('GET', '/config/health').catch(() => null);  // 키 없음 · 로컬 서버 꺼짐 · mock 안내
     if (!S.genres) S.genres = await api('GET', '/genres').catch(() => []);
     if (!S.namingStyles) S.namingStyles = await api('GET', '/naming/styles').catch(() => []);
     if (parts[0] === 'settings') {
@@ -2052,7 +2089,7 @@ function sidebar(active) {
     <div class="side-foot">
       <span class="small">본문 모델</span>
       <strong style="font-size:13px">${esc(cfg.stages ? cfg.stages.write.model : cfg.model || '')}</strong>
-      ${cfg.has_key ? '' : '<span style="color:var(--red)">API 키가 없습니다. 설정에서 넣거나 작업지시서를 쓰세요.</span>'}
+      ${aiWarning() ? `<span style="color:var(--red)">${esc(aiWarning())}</span>` : ''}
       <a href="#/settings">모델 · API 키 설정</a>
       <a href="#/usage">모든 작품 사용량 · 비용</a>
       <a href="#/styles">문체 라이브러리</a>
@@ -2172,15 +2209,30 @@ async function loadModelList(force) {
 
 // ----- 작품 목록 -----
 
+/** AI 를 쓸 수 있는지 한 줄로 (작품 목록 · 사이드바). 쓸 수 있으면 빈 글. */
+function aiWarning() {
+  const h = S.health;
+  const cfg = S.config || {};
+  if (h && h.local === false) return `AI 연결 안 됨: 로컬 모델 서버가 응답하지 않아요 (${h.local_error || '주소를 확인하세요'}).`;
+  if (h && h.mock) return 'mock 모드: AI 를 부르지 않고 가짜 결과를 내요. 실제로 쓰려면 설정에서 Gemini 나 로컬을 고르세요.';
+  if (!cfg.has_key) return 'Gemini API 키가 없어요. 키 없이는 인물 · 설정을 직접 적을 수 있고, 플롯이 생긴 화부터는 채팅 앱 작업지시서로 쓸 수 있어요.';
+  return '';
+}
+
 function viewProjects() {
   const list = S.projects || [];
-  const cards = list.map((x) => `<a class="card tight" href="#/p/${enc(x.name)}" style="text-decoration:none;color:inherit">
+  const cards = list.map((x) => `<div class="card tight proj-card">
+      <a href="#/p/${enc(x.name)}" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:6px">
       <div class="between"><h3>${esc(x.title || x.name)}</h3><span class="small">${x.finalized} / ${x.episodes}화</span></div>
-      <div class="small">${esc(x.genre || '장르 미정')} · 폴더 ${esc(x.name)}</div>
-    </a>`).join('');
+      <div class="small">${esc(x.genre || '장르 미정')} · 폴더 ${esc(x.name)}</div></a>
+      <details class="proj-more"><summary class="small">관리</summary><div class="row" style="padding-top:6px">
+        <button type="button" class="btn small" data-action="dupProject" data-arg="${esc(x.name)}">복제</button>
+        <button type="button" class="btn small" data-action="renameProject" data-arg="${esc(x.name)}">폴더 이름 바꾸기</button>
+        <button type="button" class="btn small danger" data-action="deleteProject" data-arg="${esc(x.name)}">지우기</button></div></details>
+    </div>`).join('');
   const cfg = S.config || {};
   return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편부터 300화 장편 연재까지 씁니다.', `<a class="btn" href="#/styles">문체 라이브러리</a><a class="btn" href="#/usage">사용량 · 비용</a><a class="btn" href="#/settings">모델 · API 키 설정</a>`)}
-    ${cfg.has_key ? '' : '<div class="note warn">Gemini API 키가 없어요. <a href="#/settings" style="color:inherit;font-weight:700">설정</a>에서 넣으면 AI 생성을 쓸 수 있습니다. 키 없이도 채팅 앱 작업지시서로 쓸 수 있어요.</div>'}
+    ${aiWarning() ? `<div class="note warn">${esc(aiWarning())} <a href="#/settings" style="color:inherit;font-weight:700">설정</a></div>` : ''}
     ${list.length ? `<div class="grid-auto">${cards}</div>` : '<div class="note plain">아직 작품이 없어요. 아래에서 새 작품을 만드세요.</div>'}
     <section class="card" style="max-width:720px">
       <h2>새 작품</h2>
@@ -2295,6 +2347,7 @@ function viewHome() {
       </section>
       <section class="card"><div class="between"><h2>확정 사실</h2><span class="small">${p.facts.length}개</span></div>
         ${p.facts.length ? `<ul style="padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:13px;line-height:1.5;color:var(--text-2)">${p.facts.slice(-8).map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` : '<div class="small">없음</div>'}
+        ${p.facts.length > 8 ? `<details><summary class="small">전체 ${p.facts.length}개 보기</summary><ol style="padding-left:22px;display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.5;color:var(--text-2);margin-top:8px">${p.facts.map((f) => `<li>${esc(f)}</li>`).join('')}</ol></details>` : ''}
         ${lastWarn.length ? `<div class="note warn">최근 경고: ${lastWarn.map(esc).join(' / ')}</div>` : ''}
       </section>
     </div>`;
@@ -3408,6 +3461,7 @@ function viewWrite(n) {
         ${e.plot.reader_question ? `<div class="field"><span class="small">독자가 들고 갈 질문</span><div style="font-size:13px">${esc(e.plot.reader_question)}</div></div>` : ''}
         ${e.summary ? `<div class="field"><span class="small">승인된 요약</span><div style="font-size:13px;line-height:1.6">${esc(e.summary)}</div></div>` : ''}
         ${issuesBlock(e)}
+        ${e.text && !autoOn() ? ((b) => `<button class="btn small" data-action="checkEp" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('check', n, e.issues.length ? '다시 검수' : '검수하기')) : ''}
         ${deviceBadges(n)}
         <a href="${base()}/arc" data-action="gotoPlot" data-arg="${n}" style="font-size:13px">플롯 보기</a>
       </aside>

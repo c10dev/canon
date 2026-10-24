@@ -398,6 +398,23 @@ function castChart(series, lo, hi, opts = {}) {
   return `<svg class="cast-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.label || '')}">${out.join('')}</svg>`;
 }
 
+/** 관계 수치 직접 보정. AI 가 아니라 '수동보정' 사건으로 기록해 재생할 수 있다 (POST /ties/adjust, pipeline.adjust_tie). */
+function tieFixForm(a, b, names) {
+  const fs = S.cast.frames;
+  const last = fs[fs.length - 1];
+  const n = Math.max(0, ...P().episodes.filter((e) => e.status === 'finalized').map((e) => e.plot.number));
+  const row = (src, dst, label, k) => {
+    const t = (last && tieOf(last, src, dst)) || { warmth: 0, trust: 0.5 };
+    return `<div class="grid-2" style="align-items:end">
+      <div class="field"><label for="tf-w${k}">${esc(label)} 온기 <output id="tf-w${k}o">${Number(t.warmth).toFixed(2)}</output></label><input id="tf-w${k}" type="range" min="-1" max="1" step="0.05" value="${t.warmth}" oninput="document.getElementById('tf-w${k}o').textContent=Number(this.value).toFixed(2)"></div>
+      <div class="field"><label for="tf-t${k}">신뢰 <output id="tf-t${k}o">${Number(t.trust).toFixed(2)}</output></label><input id="tf-t${k}" type="range" min="0" max="1" step="0.05" value="${t.trust}" oninput="document.getElementById('tf-t${k}o').textContent=Number(this.value).toFixed(2)"></div>
+      <button type="button" class="btn small" data-action="tieFix" data-arg="${esc(`${src}|${dst}|${k}`)}">이 방향 보정</button></div>`;
+  };
+  return `<details class="tie-fix"><summary class="small">수치 직접 보정</summary>
+    <div class="small" style="margin:6px 0">AI 가 아니라 '수동보정' 사건으로 기록돼요. 마지막 반영 화(${n}화)에 붙고, 반영 취소로 되돌릴 수 있어요.</div>
+    ${row(a, b, names[0], 0)}${row(b, a, names[1], 1)}</details>`;
+}
+
 function castPairDetail(a, b) {
   const f = castFrameNow();
   const fs = S.cast.frames;
@@ -420,6 +437,7 @@ function castPairDetail(a, b) {
     <h3>${esc(frameLabel(f))}</h3>
     <div class="cast-kv"><span>${esc(names[0])}</span><div>${tieText(tieOf(f, a, b))}</div></div>
     <div class="cast-kv"><span>${esc(names[1])}</span><div>${tieText(tieOf(f, b, a))}</div></div>
+    ${tieFixForm(a, b, names)}
     ${multi ? `<h3>온기</h3>${legend}${castChart(two((t) => t.warmth), -1, 1, { grid: [-1, 0, 1], notes, label: '온기 추이' })}
     <h3>신뢰</h3>${castChart(two((t) => t.trust), 0, 1, { grid: [0, 0.5, 1], notes, label: '신뢰 추이' })}
     <h3>긴장 <span class="small" style="font-weight:400">0~10, 3 · 5 · 7 에서 보통 · 높음 · 매우 높음</span></h3>${castChart([{ label: '긴장', color: '#3D4350', values: tension }], 0, 10, { grid: [0, 3, 5, 7, 10], fmt: (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1)), notes, label: '긴장 추이', h: 110 })}
@@ -539,6 +557,18 @@ function viewCast() {
 // ----- 동작 -----
 
 Object.assign(actions, {
+  async tieFix(arg) {
+    const [source, target, k] = String(arg).split('|');
+    const warmth = Number($(`#tf-w${k}`).value);
+    const trust = Number($(`#tf-t${k}`).value);
+    if (!confirm(`${charName(source)} → ${charName(target)} 관계를 온기 ${warmth.toFixed(2)}, 신뢰 ${trust.toFixed(2)} 로 보정할까요?`)) return;
+    await run('보정하는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/ties/adjust`, { source, target, warmth, trust });
+      await castLoad(S.route[3]);
+      toast('관계를 보정했어요. 수동보정 사건으로 남았어요');
+    });
+  },
   castTab(v) {
     S.castTab = v;
     castStop();

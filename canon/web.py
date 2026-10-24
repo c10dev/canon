@@ -195,6 +195,21 @@ def config_models() -> dict:
     return out
 
 
+@app.get("/api/config/health")
+def config_health() -> dict:
+    """AI 를 쓸 수 있는지. 작품 목록 · 사이드바 경고에 쓴다: 키 없음, 로컬 서버 응답 없음, mock(가짜 결과)."""
+    pub = settings.public()
+    provs = {v["provider"] for v in pub["stages"].values()}
+    out = {"mock": "mock" in provs, "gemini": "gemini" in provs, "has_key": pub["has_key"], "local": None, "local_error": ""}
+    if "local" in provs:
+        try:
+            LocalLLM(timeout=2).models()
+            out["local"] = True
+        except Exception as e:  # 꺼져 있거나 주소가 틀렸다
+            out["local"], out["local_error"] = False, str(getattr(e, "message", None) or e)
+    return out
+
+
 @app.get("/api/projects")
 def list_projects() -> list[dict]:
     out = []
@@ -206,6 +221,81 @@ def list_projects() -> list[dict]:
                 out.append({"name": d.name, "title": p.meta.title, "genre": p.meta.genre,
                             "episodes": p.meta.target_episodes, "finalized": done})
     return out
+
+
+class NewName(BaseModel):
+    name: str
+
+
+def _free(name: str) -> None:
+    """작업이나 자동 집필이 이 작품을 쓰는 중이면 작품 폴더를 옮기거나 지우지 않는다."""
+    _not_auto(name)
+    if any(j.status == "running" for j in jobs.listing(name)):
+        raise ValueError("이 작품의 AI 작업이 도는 중입니다. 끝나거나 멈춘 뒤에 하세요")
+
+
+def _new_name(body: NewName) -> str:
+    new = body.name.strip()
+    if not NAME_RE.match(new):
+        raise HTTPException(400, "프로젝트 이름에 / \\ 를 쓰거나 . 으로 시작할 수 없습니다")
+    if store.exists(new):
+        raise HTTPException(409, f"이미 있는 이름입니다: {new}")
+    return new
+
+
+@app.post("/api/projects/{name}/duplicate")
+def duplicate_project(name: str, body: NewName) -> dict:
+    """작품 폴더를 통째로 복사한다 (시험해 볼 사본). 자동 집필 기록과 검토 대기 결과는 옮기지 않는다."""
+    _load(name)
+    new = _new_name(body)
+    import shutil
+    shutil.copytree(store.project_dir(name), store.project_dir(new),
+                    ignore=shutil.ignore_patterns("autorun.json", "pending.json", "*.tmp"))
+    return {"name": new}
+
+
+@app.post("/api/projects/{name}/rename")
+def rename_project(name: str, body: NewName) -> dict:
+    """작품 폴더 이름(주소)을 바꾼다. 작품 제목은 설정 도우미에서 바꾼다."""
+    _load(name)
+    _free(name)
+    new = _new_name(body)
+    store.project_dir(name).rename(store.project_dir(new))
+    return {"name": new}
+
+
+@app.delete("/api/projects/{name}")
+def delete_project(name: str) -> dict:
+    """작품을 지운다. 바로 없애지 않고 projects/.trash/<이름>-<시각> 로 옮겨 서버에서 되살릴 수 있게 한다."""
+    _load(name)
+    _free(name)
+    from datetime import datetime
+    trash = store.ROOT / ".trash"
+    trash.mkdir(parents=True, exist_ok=True)
+    dest = trash / f"{name}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    store.project_dir(name).rename(dest)
+    return {"ok": True, "trash": str(dest)}
+
+
+class TieFix(BaseModel):
+    source: str
+    target: str
+    warmth: float | None = None
+    trust: float | None = None
+
+
+@app.post("/api/projects/{name}/ties/adjust")
+def adjust_tie(name: str, body: TieFix) -> Project:
+    """관계 수치를 작가가 직접 고친다. AI 가 아니라 '수동보정' 사건으로 기록해 재생할 수 있게 한다 (pipeline.adjust_tie)."""
+    _not_auto(name)
+    p = _load(name)
+    ids = {c.id for c in p.characters}
+    if body.source not in ids or body.target not in ids or body.source == body.target:
+        raise ValueError("두 인물을 고르세요")
+    if body.warmth is not None and not -1 <= body.warmth <= 1 or body.trust is not None and not 0 <= body.trust <= 1:
+        raise ValueError("온기는 -1~1, 신뢰는 0~1 입니다")
+    pipeline.adjust_tie(p, body.source, body.target, body.warmth, body.trust)
+    return _save(name, p)
 
 
 @app.post("/api/projects")
@@ -851,10 +941,10 @@ def start_job(name: str, body: JobIn) -> dict:
     """오래 걸리는 AI 작업을 시작하고 바로 돌아온다. 결과는 GET /api/jobs 로 본다."""
     p = _load(name)
     kind, n = body.kind, body.ep
-    if kind in ("write", "state", "plots"):
+    if kind in ("write", "state", "plots", "check"):
         _not_auto(name)
     stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "rework": "revise",
-             "hook": "check", "opening_drafts": "write"}.get(kind, "plan")  # 나머지는 plan
+             "hook": "check", "check": "check", "opening_drafts": "write"}.get(kind, "plan")  # 나머지는 plan
     llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
     if kind == "suggest":
@@ -905,6 +995,16 @@ def start_job(name: str, body: JobIn) -> dict:
 
         def fn(job: jobs.Job):
             return pipeline.propose_rework(llm, store.load(name), n).model_dump()
+    elif kind == "check":
+        # 한 화 검수: 앞선 본문 전체와 설정에 어긋난 곳을 찾아 그 화에 붙인다 (집필 화면이 보여 주고 고칠 문장을 고르게 한다)
+        if n is None or not p.episode(n).text:
+            raise ValueError("본문이 있는 화만 검수합니다")
+        label, total, owned = f"{n}화 검수", 1, set()
+
+        def fn(job: jobs.Job):
+            rep = pipeline.check_episode(llm, store.load(name), n)
+            _edit(name, lambda q: pipeline.apply_check(q, rep))
+            return {"issues": len(rep.issues)}
     elif kind == "storyline":
         label, total, owned = "이야기 줄기 제안", 1, set()
         note, line_kind = body.note, body.line_kind
