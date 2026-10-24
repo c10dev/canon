@@ -29,7 +29,7 @@ CHAT_TOPICS.text = {
     await flushText(S.sel.n);
   },
   body: (text, preset) => ({ message: text, preset, selection: { start: S.sel.start, text: S.sel.text } }),
-  userMsg: (m) => `${m.selection ? `<span class="msg-quote">${esc(clip(m.selection.text, 80))}</span>` : ''}${esc(m.text)}`,
+  userMsg: (m) => `${m.selection ? `<span class="msg-quote">${esc(clip(m.selection.text, 80))}</span>` : ''}${m.preset && m.text !== CHAT_TOPICS.text.presetLabel(m.preset) ? `<span class="chip">${esc(CHAT_TOPICS.text.presetLabel(m.preset))}</span> ` : ''}${esc(m.text)}`,  // 빠른 요청과 함께 적은 글이 있으면 둘 다 보인다
   proposal: passageProposal,
   inputExtra: selTarget,
 };
@@ -161,9 +161,18 @@ function issuesBlock(e) {
   if (!e.issues || !e.issues.length) return '';
   const n = e.plot.number;
   const text = textNow(n);
-  return `<div class="field"><span class="small">검수에서 찾은 곳 ${e.issues.length}</span><ol class="issue-list">${e.issues.map((x, k) => `<li>
+  const can = editableEp(e);
+  return `<div class="field"><span class="small">검수에서 찾은 곳 ${e.issues.length}</span><ol class="issue-list">${e.issues.map((x, k) => {
+    const found = x.current_quote && text.includes(x.current_quote);
+    const src = x.source_episode ? `${x.source_episode}화` : '설정';
+    return `<li>
       <span class="chip">${esc(x.type)}</span> ${esc(x.description)}
-      ${x.current_quote && text.includes(x.current_quote) && editableEp(e) ? `<button type="button" class="btn small" data-action="selectIssue" data-arg="${k}">이 문장 고르기</button>` : ''}</li>`).join('')}</ol></div>`;
+      ${x.current_quote || x.source_quote || x.suggestion ? `<details class="issue-more"><summary class="small">근거와 고칠 방향</summary>
+        ${x.current_quote ? `<div class="small">이번 화: <q>${esc(x.current_quote)}</q>${found ? '' : ' (지금 본문에서 찾을 수 없어요)'}</div>` : ''}
+        ${x.source_quote ? `<div class="small">근거 (${src}): <q>${esc(x.source_quote)}</q></div>` : ''}
+        ${x.suggestion ? `<div class="small">→ ${esc(x.suggestion)}</div>` : ''}</details>` : ''}
+      ${found && can ? `<button type="button" class="btn small" data-action="selectIssue" data-arg="${k}">이 문장 고르기</button>${x.suggestion ? `<button type="button" class="btn small" data-action="issueAsk" data-arg="${k}">고칠 방향으로 AI에게</button>` : ''}` : ''}</li>`;
+  }).join('')}</ol></div>`;
 }
 
 const SOURCE = { manual: '직접', ai: 'AI', typed: '본문 저장', impact: '인과율' };
@@ -202,6 +211,8 @@ function toolEl() {
     el = document.createElement('div');
     el.id = 'sel-tool';
     el.className = 'sel-tool';
+    el.setAttribute('role', 'toolbar');
+    el.setAttribute('aria-label', '고른 부분 도구');
     el.hidden = true;
     document.body.appendChild(el);
   }
@@ -218,17 +229,18 @@ function hideTool() {
 function caretXY(ta, pos) {
   const cs = getComputedStyle(ta);
   const div = document.createElement('div');
-  ['boxSizing', 'width', 'fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'wordSpacing', 'textIndent',
-    'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
-    'tabSize', 'wordBreak', 'overflowWrap'].forEach((k) => { div.style[k] = cs[k]; });
-  Object.assign(div.style, { position: 'absolute', visibility: 'hidden', whiteSpace: 'pre-wrap', top: '0', left: '-9999px' });
+  ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'wordSpacing', 'textIndent',
+    'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'tabSize', 'wordBreak', 'overflowWrap'].forEach((k) => { div.style[k] = cs[k]; });
+  // 글이 줄을 바꾸는 폭은 스크롤바를 뺀 안쪽 폭(clientWidth)이다. 테두리는 빼고 재서 아래에서 clientLeft · clientTop 으로 더한다
+  Object.assign(div.style, { position: 'absolute', visibility: 'hidden', whiteSpace: 'pre-wrap', top: '0', left: '-9999px',
+    boxSizing: 'border-box', width: `${ta.clientWidth}px`, border: '0' });
   div.textContent = ta.value.slice(0, pos);
   const mark = document.createElement('span');
   mark.textContent = ta.value.slice(pos, pos + 1) || '.';
   div.appendChild(mark);
   document.body.appendChild(div);
   const r = ta.getBoundingClientRect();
-  const out = { x: r.left + mark.offsetLeft - ta.scrollLeft, y: r.top + mark.offsetTop - ta.scrollTop, h: parseFloat(cs.lineHeight) || 28, r };
+  const out = { x: r.left + ta.clientLeft + mark.offsetLeft - ta.scrollLeft, y: r.top + ta.clientTop + mark.offsetTop - ta.scrollTop, h: parseFloat(cs.lineHeight) || 28, r };
   div.remove();
   return out;
 }
@@ -255,7 +267,7 @@ function showTool() {
     ? `<label class="small" for="sel-edit">고른 부분 고치기 · ${t.text.length.toLocaleString()}자</label>
        <textarea id="sel-edit" rows="${Math.min(10, Math.max(3, Math.ceil(t.text.length / 40)))}">${esc(t.text)}</textarea>
        <div class="between"><span class="small">Ctrl+Enter 바꾸기 · Esc 닫기</span><span class="row" style="gap:6px"><button type="button" class="btn small" data-action="selCancel">취소</button><button type="button" class="btn small primary" data-action="selSave">바꾸기</button></span></div>`
-    : `${t.hint ? `<span class="small sel-hint">${esc(t.hint)}</span>` : ''}<button type="button" class="btn small" data-action="selManual">직접 수정</button><button type="button" class="btn small primary" data-action="selAi">AI에게 고치기</button><button type="button" class="btn small" data-action="selIllust">삽화 프롬프트</button>`;
+    : `${t.hint ? `<span class="small sel-hint">${esc(t.hint)}</span>` : ''}<span class="sr-only">본문 칸에서 Alt+Enter 로 이 도구에 오고 Esc 로 돌아가요.</span><button type="button" class="btn small" data-action="selManual">직접 수정</button><button type="button" class="btn small primary" data-action="selAi">AI에게 고치기</button><button type="button" class="btn small" data-action="selIllust">삽화 프롬프트</button>`;
   el.hidden = false;
   placeTool(ta, t);
   if (t.mode === 'edit') {
@@ -291,6 +303,19 @@ function onSelect(e) {
 document.addEventListener('mouseup', onSelect);
 document.addEventListener('keyup', (e) => { if (e.shiftKey || e.key === 'Shift' || (e.key === 'a' && (e.ctrlKey || e.metaKey))) onSelect(e); });
 document.addEventListener('touchend', onSelect);
+// 휴대폰에서 손잡이를 끌어 고른 범위를 넓히면 selectionchange 만 온다. 메뉴가 떠 있으면 새 범위로 바꾼다
+let selTimer = 0;
+document.addEventListener('selectionchange', () => {
+  clearTimeout(selTimer);
+  selTimer = setTimeout(() => {
+    const ta = document.activeElement;
+    if (!(ta && ta.matches && ta.matches('textarea[data-draft]')) || !S.selTool || S.selTool.mode !== 'menu') return;
+    const s = readSel(ta);
+    if (!s || (s.start === S.selTool.start && s.text === S.selTool.text)) return;
+    S.selTool = { ...S.selTool, ...s };
+    showTool();
+  }, 150);
+});
 
 document.addEventListener('mousedown', (e) => {
   if (!S.selTool || e.target.closest('#sel-tool') || (e.target.matches && e.target.matches('textarea[data-draft]'))) return;
@@ -299,7 +324,18 @@ document.addEventListener('mousedown', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (!S.selTool || e.isComposing) return;
-  if (e.key === 'Escape') { hideTool(); return; }
+  if (e.key === 'Escape') {
+    const back = e.target.closest && e.target.closest('#sel-tool') && document.querySelector(`textarea[data-draft="${S.selTool.n}"]`);
+    hideTool();
+    if (back) back.focus();  // 도구 안에서 닫으면 본문 칸으로 돌아간다
+    return;
+  }
+  // 도구는 문서 끝에 떠 있어 Tab 으로 닿기 어렵다. 본문 칸에서 Alt+Enter 로 첫 버튼에 간다
+  if (e.altKey && e.key === 'Enter' && S.selTool.mode === 'menu' && e.target.matches && e.target.matches('textarea[data-draft]')) {
+    const b = document.querySelector('#sel-tool button');
+    if (b) { e.preventDefault(); b.focus(); }
+    return;
+  }
   if (e.target.id === 'sel-edit' && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
     actions.selSave();
@@ -310,7 +346,7 @@ document.addEventListener('scroll', (e) => {
   const ta = e.target;
   if (ta.matches && ta.matches('textarea[data-draft]')) {
     S.taScroll[ta.dataset.draft] = ta.scrollTop;
-    if (S.selTool && S.selTool.mode === 'menu') hideTool();
+    if (S.selTool && S.selTool.mode === 'menu' && !taScrolling) hideTool();  // 고른 곳으로 옮기느라 낸 스크롤은 사람이 굴린 것이 아니다
   }
 }, true);
 
@@ -327,6 +363,14 @@ document.addEventListener('toggle', (e) => {
 /** render() 직후에 부른다: 도구를 닫고, 본문 칸의 스크롤과 방금 고친 자리를 되살린다.
     '직접 수정' 칸은 #app 밖에 있어 다시 그려도 남는다. 그 화 본문 칸이 아직 있으면 쓰던 글째로 자리만 다시 맞춘다
     (showTool 은 칸을 새로 만들어 쓰던 글을 지운다). */
+let taScrolling = false;
+/** 코드가 본문 칸을 굴린다. 그 스크롤 이벤트가 방금 띄운 도구를 닫지 않게 잠깐 표시해 둔다. */
+function scrollTa(ta, top) {
+  taScrolling = true;
+  ta.scrollTop = top;
+  setTimeout(() => { taScrolling = false; }, 150);
+}
+
 function syncPassage() {
   const t = S.selTool;
   const keep = t && t.mode === 'edit' && editableEp(ep(t.n)) && document.querySelector(`textarea[data-draft="${t.n}"]`);
@@ -335,14 +379,17 @@ function syncPassage() {
   const ta = document.querySelector('textarea[data-draft]');
   if (!ta) return;
   const n = ta.dataset.draft;
-  if (S.taScroll[n]) ta.scrollTop = S.taScroll[n];
+  if (S.taScroll[n]) scrollTa(ta, S.taScroll[n]);
   const f = S.selFocus;
   if (f && String(f.n) === n) {
     S.selFocus = null;
     ta.focus({ preventScroll: true });
     ta.setSelectionRange(f.start, f.end);
-    const c = caretXY(ta, f.start);
-    if (c.y < c.r.top || c.y > c.r.bottom - c.h) ta.scrollTop += c.y - c.r.top - c.r.height / 3;
+    let c = caretXY(ta, f.start);
+    if (c.y < c.r.top || c.y > c.r.bottom - c.h) scrollTa(ta, ta.scrollTop + c.y - c.r.top - c.r.height / 3);
+    // 본문 칸 자체가 화면 밖이면 페이지도 굴려 고른 문장과 도구가 보이게 한다
+    c = caretXY(ta, f.start);
+    if (c.y < 0 || c.y + c.h * 3 > window.innerHeight) window.scrollBy(0, c.y - window.innerHeight / 3);
   }
 }
 
@@ -395,6 +442,13 @@ Object.assign(actions, {
     const s = curSel();
     if (s && focusText(s.n, s.text, s.start) === -1) return toast('본문에서 찾을 수 없어요. 다시 골라 주세요', true);
     render();
+  },
+  /** 그 문장을 고르고, 검수가 낸 고칠 방향을 대화 입력칸에 넣는다. 보내기는 작가가 한다 */
+  issueAsk(k) {
+    const n = Number(S.route[3]) || currentEp();
+    const x = ep(n).issues[k];
+    S.chatDraft = `검수 지적: ${x.description} → ${x.suggestion}`;
+    actions.selectIssue(k);
   },
   selectIssue(k) {
     const n = Number(S.route[3]) || currentEp();

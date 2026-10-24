@@ -45,6 +45,19 @@ async function copyPlain(text) {
 
 // ----- 설정 화면: 인물 카드의 외형 태그 -----
 
+/** 프롬프트를 조립할 때 빠지는 태그 (illust.clean 과 같은 규칙: 한글, 인물 수, 등급, 성별 태그). 함께 고친다. */
+function dropTags(text) {
+  return splitTags(text).map((t) => t.trim().replace(/\.$/, '')).filter((t) => t && !t.includes('::')).filter((t) => {
+    const x = t.toLowerCase().replace(/(?<=[a-z0-9])_(?=[a-z0-9(])/g, ' ').replace(/\s+/g, ' ');
+    return /[ㄱ-ㆎ가-힣]/.test(x) || /^(\d+\+?|multiple|no)\s*(girls?|boys?|others?|humans)$/.test(x) || x.startsWith('rating:') || ['girl', 'boy', 'other'].includes(x);
+  });
+}
+
+const dropNote = (text) => {
+  const d = dropTags(text);
+  return d.length ? `삽화에서 빠지는 태그: ${d.map(esc).join(', ')} (한글 · 인물 수 · 성별 · 등급은 프로그램이 따로 붙여요)` : '';
+};
+
 /** 인물 카드 아래 '삽화 외형 태그'. visuals 항목은 처음 고칠 때 만든다. */
 function visualFields(c) {
   const v = ilVisual(c.id) || {};
@@ -52,9 +65,10 @@ function visualFields(c) {
   const has = (v.look || []).length > 0;
   const sub = v.subject || '';
   const area = (k, label, hint, ph) => `<div class="field"><label for="${id(k)}">${label} <span class="hint">${hint}</span></label>
-    <textarea id="${id(k)}" rows="2" class="mono" data-vis="${esc(c.id)}" data-vis-key="${k}" placeholder="${ph}">${esc((v[k] || []).join(', '))}</textarea></div>`;
+    <textarea id="${id(k)}" rows="2" class="mono" data-vis="${esc(c.id)}" data-vis-key="${k}" placeholder="${ph}">${esc((v[k] || []).join(', '))}</textarea>
+    <div class="small warn-text" data-vis-drop="${esc(c.id)}:${k}">${dropNote((v[k] || []).join(', '))}</div></div>`;
   const note = S.looks[c.id];
-  return `<details class="vis"><summary>삽화 외형 태그 <span class="small">${has ? `${v.look.length}개 · 화마다 같은 모습으로 그려요` : 'NovelAI 삽화용, 아직 없음'}</span></summary>
+  return `<details class="vis"><summary>삽화 외형 태그 <span class="small">${has ? `${v.look.length - dropTags(v.look.join(', ')).length}개 · 화마다 같은 모습으로 그려요` : 'NovelAI 삽화용, 아직 없음'}</span></summary>
     <div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
       <div class="between"><span class="small">영어 태그를 쉼표로 나눠 적어요. 삽화 프롬프트마다 그대로 들어가요.</span>
         <button type="button" class="btn small" data-action="lookAI" data-arg="${esc(c.id)}">설정에서 AI로 만들기</button></div>
@@ -81,7 +95,11 @@ function setVisual(cid, key, value) {
 
 document.addEventListener('input', (e) => {
   const el = e.target;
-  if (el.dataset && el.dataset.vis) setVisual(el.dataset.vis, el.dataset.visKey, el.value);
+  if (el.dataset && el.dataset.vis) {
+    setVisual(el.dataset.vis, el.dataset.visKey, el.value);
+    const d = document.querySelector(`[data-vis-drop="${CSS.escape(`${el.dataset.vis}:${el.dataset.visKey}`)}"]`);
+    if (d) d.innerHTML = dropNote(el.value);
+  }
   if (el.id === 'ill-ask') S.illAsk = el.value;
 });
 
@@ -209,12 +227,13 @@ function readRangeSel(div) {
   return b > a ? { n: Number(div.dataset.read), start: a, text: v.slice(a, b), rect: r.getBoundingClientRect() } : null;
 }
 
-document.addEventListener('mouseup', (e) => {
-  if (e.target.closest && e.target.closest('#ill-tool')) return;
+/** 읽기 전용 본문에서 고르면 삽화 도구를 띄운다. 마우스, 터치(길게 눌러 고르기), Shift+방향키 모두 같은 처리를 탄다. */
+function onReadSelect(e, showOnly = false) {
+  if (e && e.target && e.target.closest && e.target.closest('#ill-tool')) return;
   setTimeout(() => {
     const div = document.querySelector('.read[data-read]');
     const s = div && readRangeSel(div);
-    if (!s) return hideIlTool();
+    if (!s) return showOnly ? undefined : hideIlTool();
     S.illPending = s;
     const el = ilTool();
     el.hidden = false;
@@ -222,6 +241,16 @@ document.addEventListener('mouseup', (e) => {
     el.style.left = `${Math.min(Math.max(8, s.rect.right - w), document.documentElement.clientWidth - w - 8) + window.scrollX}px`;
     el.style.top = `${s.rect.bottom + 6 + window.scrollY}px`;
   }, 0);
+}
+
+document.addEventListener('mouseup', onReadSelect);
+document.addEventListener('touchend', onReadSelect);
+document.addEventListener('keyup', (e) => { if (e.shiftKey || e.key === 'Shift') onReadSelect(e); });
+// 휴대폰은 손잡이로 범위를 바꿀 때 selectionchange 만 온다. 여기서는 띄우기만 하고 닫지는 않는다 (도구 버튼을 누를 때 고른 것이 풀려도 남게)
+let readSelTimer = 0;
+document.addEventListener('selectionchange', () => {
+  clearTimeout(readSelTimer);
+  readSelTimer = setTimeout(() => onReadSelect(null, true), 200);
 });
 
 /** render() 직후: 떠 있는 도구를 닫고, 방금 만든 삽화가 보이게 내려간다. */

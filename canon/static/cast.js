@@ -30,9 +30,10 @@ let castLayoutCache = null;
 async function castLoad(sel) {
   castStop();
   const same = S.cast && S.cast.name === S.name;
+  const wasLast = same && S.castFrame === S.cast.frames.length - 1;  // 마지막 시점을 보고 있었으면 새로 반영한 화로 따라간다
   S.cast = await api('GET', `/projects/${enc(S.name)}/cast`).catch((e) => ({ error: e.message, frames: [] }));
   S.cast.name = S.name;
-  if (!same || S.castFrame >= S.cast.frames.length) S.castFrame = Math.max(0, S.cast.frames.length - 1);
+  if (!same || wasLast || S.castFrame >= S.cast.frames.length) S.castFrame = Math.max(0, S.cast.frames.length - 1);
   if (!same) {
     S.castAllTl = false;
     try { S.castPos = JSON.parse(localStorage.getItem('canon-cast-pos:' + S.name) || '{}') || {}; } catch (e) { S.castPos = {}; }
@@ -252,6 +253,7 @@ function castGraph() {
     const title = `${c.name || c.id} · ${TIER_NAME[c.tier || 'main']} · ${c.role || ''}${st && st.emotional_state ? '\n감정: ' + st.emotional_state : ''}${here ? '' : `\n${c.first_ep}화에 처음 나와요`}`;
     out.push(`<g class="cg-node ${c.tier || 'main'}${sel ? ' sel' : ''}${here ? '' : ' absent'}" data-cast-node="${esc(c.id)}" data-action="castPick" data-arg="${esc('c:' + c.id)}" tabindex="0" role="button" aria-label="${esc((c.name || c.id) + ' 자세히 보기')}"><title>${esc(title)}</title>
       ${sel ? `<circle class="cg-halo" cx="${x}" cy="${y}" r="${r + 6}"></circle>` : ''}
+      <circle class="cg-hitnode" cx="${x}" cy="${y}" r="${Math.max(r, 22)}"></circle>
       <circle class="cg-dot" cx="${x}" cy="${y}" r="${r}"></circle>
       ${inside ? `<text class="cg-init" x="${x}" y="${y + 5}" text-anchor="middle">${esc(label)}</text>` : `<text class="cg-name" x="${x}" y="${y + r + 15}" text-anchor="middle">${esc(label)}</text>`}</g>`);
   });

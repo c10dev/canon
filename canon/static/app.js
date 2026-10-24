@@ -485,13 +485,13 @@ const JOB_LINK = {
 function renderJobs() {
   let box = $('#jobs');
   if (!box) {
-    box = document.createElement('div');
+    // 알림 영역으로 두지 않는다. 경과 시간 때문에 자주 다시 그려 화면 낭독기가 목록을 되풀이해 읽는다. 시작 · 끝 · 실패는 토스트(#toast)가 알린다
+    box = document.createElement('section');
     box.id = 'jobs';
-    box.setAttribute('role', 'status');
-    box.setAttribute('aria-live', 'polite');
+    box.setAttribute('aria-label', 'AI 작업');
     document.body.appendChild(box);
   }
-  if (!S.jobs.length) { box.innerHTML = ''; box.hidden = true; return; }
+  if (!S.jobs.length) { box.innerHTML = ''; box.dataset.html = ''; box.hidden = true; return; }
   box.hidden = false;
   const running = S.jobs.filter((j) => j.status === 'running');
   const head = S.jobsOffline ? '서버 연결이 끊겼어요. 다시 연결하는 중…' : running.length ? `AI 작업 ${running.length}개 진행 중` : 'AI 작업 끝남';
@@ -508,7 +508,18 @@ function renderJobs() {
   }).join('');
   // 넓은 화면은 펼쳐 경과 시간과 '멈추기'를 보인다. 휴대폰은 접어 둔다 (저장 띠와 버튼을 가리지 않게). 머리를 누르면 바꾼다
   const open = S.jobsOpen === null ? !narrowScreen() : S.jobsOpen;
-  box.innerHTML = `<button type="button" class="jobs-head" aria-expanded="${open}" data-jobs-toggle>${running.length ? '<span class="spinner sm" aria-hidden="true"></span>' : ''}${head}</button>${open ? `<ul>${items}</ul>` : ''}`;
+  const html = `<button type="button" class="jobs-head" aria-expanded="${open}" data-jobs-toggle>${running.length ? '<span class="spinner sm" aria-hidden="true"></span>' : ''}${head}</button>${open ? `<ul>${items}</ul>` : ''}`;
+  if (box.dataset.html === html) return;
+  // 목록 안 버튼(멈추기 · 다시 시도)에 있던 포커스를 다시 그린 뒤 같은 버튼에 돌려준다
+  const f = box.contains(document.activeElement) ? document.activeElement : null;
+  const key = f && ['data-job-stop', 'data-job-retry', 'data-job-dismiss', 'data-job-open', 'data-jobs-toggle'].find((a) => f.hasAttribute(a));
+  const val = key ? f.getAttribute(key) : null;
+  box.dataset.html = html;
+  box.innerHTML = html;
+  if (key) {
+    const back = box.querySelector(key === 'data-jobs-toggle' ? '[data-jobs-toggle]' : `[${key}="${CSS.escape(val)}"]`) || box.querySelector('[data-jobs-toggle]');
+    if (back) back.focus();
+  }
   stackBottom();
 }
 
@@ -1026,6 +1037,14 @@ const actions = {
   },
   async checkEp(n) {
     await startJob('check', Number(n));
+  },
+  /** 긴 화면의 구역으로 간다. 해시를 바꾸면 화면 이동이 되므로 스크롤과 포커스만 옮긴다. */
+  jumpTo(id) {
+    const sec = document.getElementById(id);
+    if (!sec) return;
+    sec.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    const h = sec.querySelector('h2');
+    if (h) { h.setAttribute('tabindex', '-1'); h.focus({ preventScroll: true }); }
   },
   async retryRoute() {
     await route();
@@ -1954,11 +1973,24 @@ document.addEventListener('click', async (e) => {
   location.hash = a.getAttribute('href');
 });
 
+const navScroll = { idx: 0, max: 0, at: new Map(), restore: null };
+try { history.replaceState({ idx: 0 }, '', location.hash || '#/'); } catch { /* 기록을 못 고치면 위치 되살리기만 빠진다 */ }
+
 window.addEventListener('hashchange', async () => {
   if ((S.dirty || S.libDirty || S.settingsDirty) && !confirm('저장하지 않은 변경이 있어요. 저장하지 않고 이동하면 그 변경은 사라져요. 이동할까요?')) {
-    history.replaceState(null, '', lastHash);
+    history.replaceState({ idx: navScroll.idx }, '', lastHash);
     return;
   }
+  // 기록 칸마다 번호를 붙여 둔다. 번호가 이미 있으면 뒤로 · 앞으로 가기다 (링크로 온 새 칸은 번호가 없다)
+  navScroll.at.set(navScroll.idx, window.scrollY);
+  const st = history.state;
+  if (st && typeof st.idx === 'number') {
+    navScroll.restore = navScroll.at.get(st.idx) || 0;
+  } else {
+    history.replaceState({ idx: ++navScroll.max }, '', location.hash);
+    navScroll.restore = null;
+  }
+  navScroll.idx = history.state.idx;
   lastHash = location.hash;
   S.libDirty = false;
   S.settingsDirty = false;
@@ -1995,6 +2027,12 @@ function route() {
 let lastRoute = '';
 async function routeNow() {
   S.loadError = null;
+  S.loadMissing = false;
+  // 느린 이동에서 이전 화면이 그대로 남아 멈춘 것처럼 보이지 않게, 0.3초 넘으면 위쪽 막대와 aria-busy 로 알린다
+  const busy = setTimeout(() => { document.body.classList.add('routing'); const m = $('#app main'); if (m) m.setAttribute('aria-busy', 'true'); }, 300);
+  document.querySelectorAll('.nav a[aria-current]').forEach((a) => a.removeAttribute('aria-current'));
+  const goingTo = [...document.querySelectorAll('.nav a')].find((a) => a.getAttribute('href') === location.hash);
+  if (goingTo) goingTo.setAttribute('aria-current', 'page');
   S.menuOpen = false;
   // 다른 화면으로 옮기면 제목으로 포커스를 옮겨 스크린리더가 새 화면을 읽고, 다음 Tab 이 본문에서 시작하게 한다
   const here = location.hash.split('/').slice(0, 4).join('/');
@@ -2064,6 +2102,16 @@ async function routeNow() {
         if (S.rwOpen !== n) S.rwOpen = null;
       }
       if ((parts[2] === 'write' || parts[2] === 'setup') && !S.illModels) S.illModels = await api('GET', '/illust/models').catch(() => []);
+      if (parts[2] === 'arc' && parts[3]) {  // 홈의 아크 칩(arc/a3) · 초안 칸(arc/12)이 고른 아크나 화를 연다
+        const a = /^a\d+$/.test(parts[3]) ? Number(parts[3].slice(1)) : null;
+        if (a) { S.selArc = a; S.selEp = null; S.selAct = null; }
+        else if (n && ep(n)) {
+          S.selEp = n;
+          S.selAct = null;
+          const arc = serial() && S.project.story_arcs.find((x) => x.start_ep <= n && n <= x.end_ep);
+          if (arc) S.selArc = arc.number;
+        }
+      }
       if (parts[2] === 'write' || parts[2] === 'arc') await openingLoad(parts[2] === 'write' ? (n || currentEp()) : 0);
       if (parts[2] === 'research') await rsLoad();
       if (parts[2] === 'usage') await usageLoad(S.name);
@@ -2086,12 +2134,16 @@ async function routeNow() {
   } catch (e) {
     // 연결 실패를 '작품 없음'과 같은 화면으로 보이지 않는다. 오류 카드와 다시 시도를 그린다
     S.loadError = e.message;
+    S.loadMissing = e.status === 404 && parts[0] === 'p';  // 없는 작품: 다시 시도해도 같다
     S.name = null;
     S.project = null;
     S.dirty = false;  // 대상 작품이 없으니 저장 띠도 내린다
   }
+  clearTimeout(busy);
+  document.body.classList.remove('routing');
   render();
-  window.scrollTo(0, 0);
+  window.scrollTo(0, navScroll.restore || 0);  // 뒤로 · 앞으로 가기는 읽던 위치로
+  navScroll.restore = null;
   pollJobs();  // 다른 탭 · 기기에서 시작한 작업도 알아챈다
 }
 
@@ -2194,7 +2246,9 @@ function drawApp() {
     return;
   }
   if (S.loadError) {
-    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:720px;margin:0 auto"><div class="card empty" role="alert"><h2>화면을 불러오지 못했어요</h2><p>${esc(S.loadError)}</p><div class="row"><button class="btn primary" data-action="retryRoute">다시 시도</button><a class="btn" href="#/">작품 목록</a></div></div></main></div>`;
+    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:720px;margin:0 auto"><div class="card empty" role="alert">${S.loadMissing
+      ? `<h2>'${esc(S.route[1] || '')}' 작품을 찾지 못했어요</h2><p>주소가 틀렸거나 지운 작품이에요. 작품 목록에서 고르세요.</p><div class="row"><a class="btn primary" href="#/">작품 목록</a></div>`
+      : `<h2>화면을 불러오지 못했어요</h2><p>${esc(S.loadError)}</p><div class="row"><button class="btn primary" data-action="retryRoute">다시 시도</button><a class="btn" href="#/">작품 목록</a></div>`}</div></main></div>`;
     return;
   }
   if (p !== 'p' || !P()) {
@@ -2476,10 +2530,10 @@ function viewHome() {
   const curPart = serial() ? p.parts.find((x) => x.start_ep <= cur && cur <= x.end_ep) : null;
   const shown = !serial() ? eps : curPart ? eps.filter((e) => e.plot.number >= curPart.start_ep && e.plot.number <= curPart.end_ep)
     : eps.filter((e) => Math.abs(e.plot.number - cur) <= 30);
-  const arcBand = serial() && p.story_arcs.length ? `<div class="arc-rail">${p.story_arcs.filter((a) => shown.some((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep)).map((a) => `<a class="arc-chip" href="${base()}/arc"><strong>아크 ${a.number}</strong> <span>${a.start_ep}~${a.end_ep}화 ${esc(a.title)}</span></a>`).join('')}</div>` : '';
+  const arcBand = serial() && p.story_arcs.length ? `<div class="arc-rail">${p.story_arcs.filter((a) => shown.some((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep)).map((a) => `<a class="arc-chip" href="${base()}/arc/a${a.number}"><strong>아크 ${a.number}</strong> <span>${a.start_ep}~${a.end_ep}화 ${esc(a.title)}</span></a>`).join('')}</div>` : '';
   const cells = shown.map((e) => {
     const n = e.plot.number;
-    const href = e.status === 'draft' ? base() + '/arc' : e.status === 'written' ? `${base()}/review/${n}` : `${base()}/write/${n}`;
+    const href = e.status === 'draft' ? `${base()}/arc/${n}` : e.status === 'written' ? `${base()}/review/${n}` : `${base()}/write/${n}`;
     return `<a class="ep-cell ${e.status}${n === cur && e.status !== 'finalized' ? ' current' : ''}" href="${href}" title="${esc(e.plot.title)}"><strong>${n}</strong><span>${e.auto ? '자동 반영' : STATUS[e.status].replace('플롯 ', '').replace('본문 ', '')}</span></a>`;
   }).join('');
 
@@ -2857,9 +2911,11 @@ function viewSetup() {
 
   return `${header('1단계', '설정 도우미', '채운 칸은 그대로 두고, 빈칸만 AI가 제안해요. 제안에서 원하는 인물과 관계만 골라 적용하세요.', `${((b) => `<button class="btn" data-action="suggest"${b.attr}>${b.label}</button>`)(jobBtn('suggest', null, '빈칸 AI 제안받기'))}<a class="btn primary" href="${base()}/style">문체로</a>`)}
     ${S.suggestion ? viewSuggestion() : ''}
+    <nav class="jump-nav" aria-label="설정 구역">${[['setup-basic', '기본 정보'], ['setup-world', '세계관'], ['setup-chars', `인물 ${p.characters.length}`], ['setup-rels', `관계 ${p.relationships.length}`]]
+      .map(([id, l]) => `<button type="button" class="btn small ghost" data-action="jumpTo" data-arg="${id}">${l}</button>`).join('')}</nav>
     <div class="cols">
       <div class="col">
-        <section class="card">
+        <section class="card" id="setup-basic">
           <h2>기본 정보</h2>
           ${input('제목', 'meta.title')}
           ${genrePicker()}
@@ -2871,7 +2927,7 @@ function viewSetup() {
           ${input('화당 분량', 'meta.words_per_episode', { type: 'number', hint: '공백 포함 글자 수' })}
           ${input('메모', 'meta.notes', { rows: 2 })}
         </section>
-        <section class="card">
+        <section class="card" id="setup-world">
           <h2>세계관</h2>
           ${input('배경', 'world.setting', { rows: 2 })}${input('시대', 'world.era')}
           ${input('깨면 안 되는 규칙', 'world.rules', { kind: 'list' })}${input('장소', 'world.locations', { kind: 'list' })}
@@ -2883,14 +2939,14 @@ function viewSetup() {
         </section>
       </div>
       <div class="col wide">
-        <section class="card">
+        <section class="card" id="setup-chars">
           <div class="between"><h2>인물 <span class="small">${p.characters.length}명</span></h2><button class="btn small" data-action="addCharacter">+ 인물 추가</button></div>
           <p class="small">이름, 말투, 성격은 고정 설정이에요. 회차가 지나며 바뀌는 감정과 목표는 상태 승인 화면에서 관리해요.</p>
           <div class="row"><button type="button" class="btn small ghost" data-action="checkNames">이름 점검</button><span class="small">글자가 겹치는 이름, 나이와 안 맞는 이름, AI가 자주 짓는 이름을 찾아요</span></div>
           ${nameCheckBox()}
           ${chars ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">${chars}</div>` : '<div class="note plain">인물이 없어요. 직접 추가하거나 AI 제안을 받으세요.</div>'}
         </section>
-        <section class="card">
+        <section class="card" id="setup-rels">
           <div class="between"><h2>관계</h2><div class="row"><span class="small">${P().snapshots.length ? '첫 반영 뒤에는 관계 사건으로 계산돼요' : '서로 어떻게 보는지 고르면 시작 관계를 계산해요. 긴장은 자동 계산'}</span><button class="btn small" data-action="addRelationship"${autoOn() ? ' disabled' : ''}>+ 관계 추가</button></div></div>
           ${autoOn() ? `<div class="note warn" id="rel-lock">자동 집필이 도는 동안은 관계를 고칠 수 없어요. 반영하는 관계와 겹치지 않게 서버가 받지 않아요. 고치려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요.</div>` : ''}
           ${rels ? (autoOn() ? `<fieldset disabled class="lockset" aria-describedby="rel-lock">${rels}</fieldset>` : rels) : '<div class="small">관계가 없어요.</div>'}
@@ -2962,15 +3018,16 @@ function profileFields(base, root) {
   const o = (x = {}) => (root ? { ...x, root } : x);
   const prof = getPath(bindRoot(root), base);
   const act = root ? 'libRemovePassage' : 'removePassage';
-  const passages = prof.sample_passages.map((_, i) => `<div class="row" style="align-items:flex-start;flex-wrap:nowrap">
-      <div style="flex:1">${input(`대표 문단 ${i + 1}`, `${base}.sample_passages.${i}`, o({ rows: 3 }))}</div>
-      <button class="btn icon-btn danger" style="margin-top:26px" data-action="${act}" data-arg="${i}" aria-label="대표 문단 ${i + 1} 삭제">✕</button></div>`).join('');
+  const passages = prof.sample_passages.map((_, i) => `<div class="field-row">
+      <div class="fr-grow">${input(`대표 문단 ${i + 1}`, `${base}.sample_passages.${i}`, o({ rows: 3 }))}</div>
+      <button class="btn icon-btn danger" data-action="${act}" data-arg="${i}" aria-label="대표 문단 ${i + 1} 삭제">✕</button></div>`).join('');
   prof.markers = prof.markers || [];
-  const markers = prof.markers.map((_, i) => `<div class="row" style="align-items:flex-start;flex-wrap:nowrap">
-      <div style="flex:1">${input(`표지 ${i + 1}`, `${base}.markers.${i}.text`, o({ placeholder: '원문에 적힌 그대로, 예: 것이었다' }))}</div>
-      <div style="flex:2">${input('쓰임', `${base}.markers.${i}.note`, o())}</div>
-      <div style="width:110px">${input('1,000자당', `${base}.markers.${i}.per_1k`, o({ kind: 'float' }))}</div>
-      <button class="btn icon-btn danger" style="margin-top:26px" data-action="${root ? 'libRemoveMarker' : 'removeMarker'}" data-arg="${i}" aria-label="표지 ${i + 1} 삭제">✕</button></div>`).join('');
+  // 좁은 폭에서는 표지 · 쓰임을 한 줄씩 펼친다 (한 줄에 넷을 두면 표지 칸이 40px 남짓으로 눌린다)
+  const markers = prof.markers.map((_, i) => `<div class="field-row mk-row">
+      <div class="mk-text">${input(`표지 ${i + 1}`, `${base}.markers.${i}.text`, o({ placeholder: '원문에 적힌 그대로, 예: 것이었다' }))}</div>
+      <div class="mk-note">${input('쓰임', `${base}.markers.${i}.note`, o())}</div>
+      <div class="mk-rate">${input('1,000자당', `${base}.markers.${i}.per_1k`, o({ kind: 'float' }))}</div>
+      <button class="btn icon-btn danger" data-action="${root ? 'libRemoveMarker' : 'removeMarker'}" data-arg="${i}" aria-label="표지 ${i + 1} 삭제">✕</button></div>`).join('');
   const f = (label, key, x) => input(label, `${base}.${key}`, o(x));
   return `<div class="grid-2">
       ${f('시점', 'narration_pov')}${f('시제', 'tense')}
@@ -3161,17 +3218,33 @@ function povText(n) {
 }
 
 /** 글 속 이름으로 인물 찾기. 긴 이름부터 봐서 '서윤'이 '윤'보다 먼저 맞는다 */
+/** 글 속 이름(또는 id)으로 인물 찾기. 먼저 나온 인물, 같은 자리면 긴 이름 (prompts.char_in_text 와 같은 규칙) */
 function charInText(text) {
   if (!text) return null;
-  return [...P().characters].filter((c) => c.name).sort((a, b) => b.name.length - a.name.length)
-    .find((c) => text.includes(c.name) || text.includes(c.id)) || null;
+  let best = null;
+  P().characters.forEach((c) => [c.name, c.id].forEach((k) => {
+    const i = k ? text.indexOf(k) : -1;
+    if (i >= 0 && (!best || i < best.i || (i === best.i && k.length > best.len))) best = { i, len: k.length, c };
+  }));
+  return best ? best.c : null;
 }
+
+/** 시점 글 속 서술 방식 (prompts.mode_in 과 같은 규칙) */
+const modeIn = (t) => (t.includes('전지') ? '3인칭 전지' : t.includes('3인칭') ? '3인칭 제한' : t.includes('1인칭') ? '1인칭' : '');
 
 /** n화를 누구 시점으로 쓰는지: 화에 정한 인물 → 구간 · 아크 시점 글 속 인물 → 작품 기본 시점 (주인공이면 역할이 주인공인 인물) */
 function povChar(n) {
   const e = ep(n);
   if (e && e.plot.pov) return { c: P().characters.find((c) => c.id === e.plot.pov) || null, omni: false, from: '화' };
-  if (e && e.plot.pov_mode) return { c: null, omni: e.plot.pov_mode.includes('전지'), from: '화' };
+  if (e && e.plot.pov_mode) {  // 서술 방식만 적었으면 시점 인물은 물려받는다
+    const omni = e.plot.pov_mode.includes('전지');
+    return { c: omni ? null : inheritedPov(n).c, omni, from: '화' };
+  }
+  return inheritedPov(n);
+}
+
+/** 화에 적지 않았을 때의 시점: 구간 · 아크 시점 글 → 작품 기본 */
+function inheritedPov(n) {
   const act = actOf(n);
   const arc = serial() ? arcOf(n) : null;
   const plan = ((act && act.pov) || (arc && arc.pov) || '').trim();
@@ -3203,6 +3276,9 @@ function voiceField(c, b) {
   const note = (S.voices || {})[c.id];
   return `${input('시점 서술 말투', b + '.narration_voice', { rows: 3, autogrow: true, hint: `${c.name || '이 인물'} 시점 화의 지문 · 내면 독백`, placeholder: '예: 서술 어미는 ~했어요, ~인 걸까요? 처럼 부드럽게. 비우면 작품 문체 그대로' })}
     ${note ? `<div class="note info">${esc(note)}</div>` : ''}
+    ${((eps) => (eps.length ? `<div class="small">이 말투가 들어가는 화: ${rangeText(eps)}화</div>`
+      : (c.narration_voice || '').trim() ? `<div class="note warn">아직 ${esc(c.name || '이 인물')} 시점인 화가 없어서 이 말투는 어느 화에도 들어가지 않아요. <a href="${base()}/arc">플롯</a>에서 시점 인물을 정하세요.</div>` : ''))(
+      P().episodes.map((e) => e.plot.number).filter((n) => (povChar(n).c || {}).id === c.id))}
     <div class="between"><span class="small">대사는 위의 말투를 따라요. 이 말투로 쓴 화는 어미 관련 문체 경고(과거형 비율, 문체 거리, 표지)를 빼요.</span>
       <button type="button" class="btn small" data-action="voiceAI" data-arg="${esc(c.id)}">설정에서 AI로 초안</button></div>`;
 }
@@ -3218,7 +3294,7 @@ function povField(e, locked) {
   return `<div class="grid-2">
       <div class="field"><label for="pov-ep-${n}">시점 인물 <span class="hint">이 화를 누구 눈으로</span></label>
         <select id="pov-ep-${n}" data-bind="${b}.pov" data-kind="text"${locked ? ' disabled' : ''}>${opts}</select></div>
-      ${input('서술 방식', b + '.pov_mode', { readonly: locked, list: 'pov-modes', placeholder: e.plot.pov ? (P().style.narration_pov || '1인칭') : '비우면 그대로' })}
+      ${input('서술 방식', b + '.pov_mode', { readonly: locked, list: 'pov-modes', placeholder: `비우면 ${modeIn(plan) || P().style.narration_pov || '1인칭'}` })}
     </div><datalist id="pov-modes">${POV_MODES.map((m) => `<option value="${m}"></option>`).join('')}</datalist>`;
 }
 

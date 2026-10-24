@@ -56,7 +56,10 @@ function autoPoll() {
   const watching = S.route[2] === 'auto' || (S.auto && S.auto.active) || S.autoOffline;
   if (!watching || !S.name) return;
   S.autoTimer = setTimeout(async () => {
-    const before = S.auto && S.auto.run ? S.auto.run.updated : null;
+    // updated 는 초 단위라 같은 초 안의 일시정지 · 중지 · 끝남을 놓친다. 보이는 값들을 함께 비교한다
+    const sig = (r) => (r ? [r.updated, r.status, r.ep, r.step, (r.log || []).length].join('|') : '');
+    const before = sig(S.auto && S.auto.run);
+    const wasActive = !!(S.auto && S.auto.active);
     const name = S.name;
     let fresh;
     try {
@@ -73,7 +76,7 @@ function autoPoll() {
       if (fresh && fresh.active) toast('서버에 다시 연결됐어요. 자동 집필을 이어서 보여 드려요');
     }
     S.auto = fresh;
-    const changed = fresh && fresh.run && fresh.run.updated !== before;
+    const changed = fresh && fresh.run && (sig(fresh.run) !== before || !!fresh.active !== wasActive);
     if (changed && !S.dirty) {
       const gen = S.gen;
       const p = await api('GET', `/projects/${enc(name)}`).catch(() => null);
@@ -145,6 +148,7 @@ function autoEstCard() {
   return `<div class="small">${x.episodes ? `${x.from}~${x.to}화 ${x.episodes}화 남음 · 호출 본문 ${x.calls.write} · 검수 ${x.calls.check} · 상태 ${x.calls.state} · 토큰 입력 약 ${x.tokens_in.toLocaleString()} / 출력 약 ${x.tokens_out.toLocaleString()}` : `${x.to}화까지 남은 화가 없어요`}</div>
     <div class="grid-2">${col(e.off, false)}${col(e.on, true)}</div>
     ${x.missing.length ? `<div class="note warn">플롯이 없는 화(${rangeText(x.missing)}화)에서 멈춰요. 먼저 플롯을 만드세요.</div>` : ''}
+    ${(x.drafts || []).length ? `<div class="note warn">플롯이 초안인 ${rangeText(x.drafts)}화에서 멈춰요. 추정은 끝까지 쓴다고 보고 셌어요. 확정하거나 '초안 플롯 자동 확정'을 켜세요.</div>` : ''}
     ${local.length ? `<div class="small">${local.join(', ')} 단계는 로컬 모델이라 비용이 없고 배치도 쓰지 않아요.</div>` : ''}
     <div class="small">${x.measured ? '지난 실행에서 잰 출력량과 시간을 썼어요.' : '처음이라 화당 목표 분량으로 추정했어요.'} 가격은 <a href="#/usage">사용량 · 비용</a> 화면의 가격표(${esc(x.model)} 기준)로 계산한 추정치이고, 생각(thinking) 토큰이 많으면 더 나올 수 있어요.${x.unpriced && x.unpriced.length ? ` 가격표에 없는 모델(${x.unpriced.map(esc).join(', ')})이 있어 비용을 몰라요.` : ''}</div>`;
 }

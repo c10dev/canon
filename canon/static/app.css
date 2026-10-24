@@ -456,6 +456,7 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .strip .cell.rel { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
 .strip .cell.plot { background: var(--amber-soft); border-color: var(--amber); color: var(--amber-ink); }
 .strip .cell.bad { background: var(--red-soft); border-color: var(--red); color: var(--red); }
+.strip .cell.done { background: var(--green-soft); border-color: var(--green); color: var(--green-ink); }
 .conflicts { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .conflict { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px; background: var(--bg); font-size: 0.8125rem; line-height: 1.55; }
 .conflict blockquote { margin: 0; padding-left: 10px; border-left: 3px solid var(--line-strong); color: var(--text-2); font-family: var(--serif); }
@@ -572,7 +573,13 @@ details.vis summary .small { margin-left: 6px; font-weight: 400; }
 .cast-graph .cg-edge:hover path:not(.cg-hit) { filter: drop-shadow(0 0 2px rgba(0,0,0,.25)); }
 .cast-graph .dim { opacity: .16; }
 .cast-graph .cg-tension circle { stroke: var(--surface); stroke-width: 2; }
-.cast-graph .cg-node { cursor: grab; }
+.cast-graph .cg-node { cursor: grab; touch-action: none; }
+.cast-graph .cg-hitnode { fill: transparent; }
+/* 좁은 폭은 줄이지 않고 가로로 굴려 본다. 이름 · 점이 손가락으로 누를 만한 크기로 남는다. 점 밖을 끌면 화면이 굴러간다 */
+@media (max-width: 600px) {
+  .cast-graph-wrap { overflow-x: auto; }
+  .cast-graph { min-width: 560px; touch-action: pan-x pan-y; }
+}
 .cast-graph .cg-node:focus { outline: none; }
 .cast-graph .cg-node .cg-dot { fill: var(--surface); stroke: var(--text-2); stroke-width: 2; }
 .cast-graph .cg-node.main .cg-dot { stroke: var(--text); stroke-width: 3; }
@@ -646,6 +653,7 @@ mark.hl.device { background: var(--accent-soft); text-decoration-color: var(--ac
 mark.hl.rest { background: var(--amber-soft); text-decoration-color: var(--amber); }
 mark.hl.banned { background: var(--red-soft); text-decoration-color: var(--red); text-decoration-style: wavy; }
 mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
+.pdiff .flash { outline: 2px solid currentColor; outline-offset: 2px; }
 .sel-tool { align-items: center; }
 .sel-hint { max-width: 220px; padding: 0 4px; }
 .sel-tool.edit { align-items: stretch; }
@@ -732,4 +740,24 @@ body.chat-open .write-cols .w-body { order: -1; }
   }
   .diff-row del, .pdiff del, .learn-pair del { color: var(--del-ink); }
   .diff-row ins { color: var(--green-ink); }
+}
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+/* 화면 이동이 0.3초를 넘으면 위쪽에 진행 막대를 보인다 (routeNow) */
+body.routing::before { content: ''; position: fixed; top: 0; left: 0; height: 3px; width: 40%; z-index: 100; background: var(--accent); animation: route-bar 1.2s ease-in-out infinite; }
+@keyframes route-bar { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+@media (prefers-reduced-motion: reduce) { body.routing::before { animation: none; width: 100%; opacity: 0.6; } }
+/* 긴 화면(설정 도우미)의 구역 이동 줄. 내려가도 위에 붙어 있다 */
+.jump-nav { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0; background: var(--bg); }
+.card[id^="setup-"] { scroll-margin-top: 56px; }
+/* 칸 몇 개와 지우기 버튼을 한 줄에 둔다 (문체의 대표 문단 · 표지) */
+.field-row { display: flex; gap: 10px; align-items: flex-start; }
+.field-row > .icon-btn { margin-top: 26px; flex: none; }
+.fr-grow { flex: 1 1 0; min-width: 0; }
+.mk-text { flex: 1 1 0; min-width: 0; }
+.mk-note { flex: 2 1 0; min-width: 0; }
+.mk-rate { flex: 0 0 110px; }
+@media (max-width: 600px) {
+  .mk-row { flex-wrap: wrap; }
+  .mk-text, .mk-note { flex: 1 1 100%; }
+  .mk-rate { flex: 1 1 auto; }
 }

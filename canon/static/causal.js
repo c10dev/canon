@@ -127,12 +127,22 @@ function causalStrip(el) {
   const r = el.impact && el.impact.outcome !== 'dismissed' ? el.impact.report : null;
   const bad = new Set(r ? r.conflicts.filter((c) => c.episode).map((c) => c.episode) : []);
   const plot = new Set(r ? [...r.episodes.map((e) => e.number), ...r.patches.map((t) => t.episode)] : []);
+  // 반영한 뒤에는 분석 때의 '모순 · 고침'이 지금 일이 아니다. 반영한 화는 따로 표시하고 남은 것만 모순 · 고칠 화로 둔다
+  const done = new Set();
+  if (r && el.impact.outcome === 'applied') {
+    (el.impact.applied || []).forEach((x) => {
+      const [k, v] = x.split(':');
+      if (k === 'ep') done.add(Number(v));
+      if (k === 'patch' && r.patches[Number(v)]) done.add(r.patches[Number(v)].episode);
+    });
+    done.forEach((n) => { bad.delete(n); plot.delete(n); });
+  }
   const cells = Array.from({ length: total }, (_, k) => {
     const n = k + 1;
     const e = ep(n);
     const l = links.get(n);
-    const cls = bad.has(n) ? 'bad' : plot.has(n) ? 'plot' : l ? (l.where.length || l.planned ? 'rel' : 'rel weak') : '';
-    const tag = bad.has(n) ? '모순' : plot.has(n) ? '고침' : l ? (l.where.length ? '언급' : l.planned ? '예정' : '인물') : '';
+    const cls = bad.has(n) ? 'bad' : plot.has(n) ? 'plot' : done.has(n) ? 'done' : l ? (l.where.length || l.planned ? 'rel' : 'rel weak') : '';
+    const tag = bad.has(n) ? '모순' : plot.has(n) ? '고침' : done.has(n) ? '반영함' : l ? (l.where.length ? '언급' : l.planned ? '예정' : '인물') : '';
     const marks = (el.since_ep > 0 && n === el.since_ep ? ' since' : '') + (el.reveal_ep === n ? ' reveal' : '') + (e && e.text ? ' has-text' : '');
     const title = [`${n}화`, e ? STATUS[e.status] : '플롯 없음', l && l.terms.length ? `언급: ${l.terms.join(', ')}` : '', l && l.characters.length ? `인물: ${l.characters.map(charName).join(', ')}` : '',
       el.since_ep === n ? '이 화부터 생김' : '', el.reveal_ep === n ? '독자에게 드러남' : ''].filter(Boolean).join(' · ');
@@ -144,7 +154,7 @@ function causalStrip(el) {
   return `<div class="card" style="display:flex;flex-direction:column;gap:12px">
     <div class="between"><h2>관련 화 지도</h2><span class="small">이름, 다른 이름, 관련 인물로 찾았어요 (AI 없이)</span></div>
     <div class="strip-scroll"><div class="strip" style="grid-template-columns:repeat(${Math.min(total, 25)}, minmax(30px, 1fr))">${cells}</div></div>
-    <div class="legend"><span><i style="background:var(--red-soft);border:1px solid var(--red)"></i>모순</span><span><i style="background:var(--amber-soft);border:1px solid var(--amber)"></i>고칠 화</span><span><i style="background:var(--accent-soft);border:1px solid var(--accent)"></i>언급 · 나올 화</span><span><i style="border:1px dashed var(--accent)"></i>관련 인물만 나옴</span><span><i style="border-bottom:3px solid var(--text-2)"></i>본문 있음</span>${el.since_ep > 0 ? '<span><i style="border-left:3px solid var(--accent)"></i>생기는 화</span>' : ''}${el.reveal_ep ? '<span><i style="outline:2px dashed var(--accent)"></i>드러나는 화</span>' : ''}</div>
+    <div class="legend"><span><i style="background:var(--red-soft);border:1px solid var(--red)"></i>모순</span><span><i style="background:var(--amber-soft);border:1px solid var(--amber)"></i>고칠 화</span>${done.size ? '<span><i style="background:var(--green-soft);border:1px solid var(--green)"></i>반영함</span>' : ''}<span><i style="background:var(--accent-soft);border:1px solid var(--accent)"></i>언급 · 나올 화</span><span><i style="border:1px dashed var(--accent)"></i>관련 인물만 나옴</span><span><i style="border-bottom:3px solid var(--text-2)"></i>본문 있음</span>${el.since_ep > 0 ? '<span><i style="border-left:3px solid var(--accent)"></i>생기는 화</span>' : ''}${el.reveal_ep ? '<span><i style="outline:2px dashed var(--accent)"></i>드러나는 화</span>' : ''}</div>
     ${snippets ? `<ul class="panel-list">${snippets}</ul>` : ''}
   </div>`;
 }

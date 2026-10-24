@@ -17,10 +17,6 @@ function writtenNums() {
   return P().episodes.filter((e) => e.text || liveDraft(e.plot.number) !== undefined).map((e) => e.plot.number);
 }
 
-function exportQuery(from, to) {
-  return `start=${from}&end=${to}&format=${enc(S.copyFmt)}&title=${S.copyTitle}`;
-}
-
 /** 오른쪽 위 '복사 · 내보내기' 카드. */
 function exportCard(n) {
   const nums = writtenNums();
@@ -36,12 +32,12 @@ function exportCard(n) {
       ${hint ? `<span class="small">${esc(hint)}</span>` : ''}</div>
     <label class="row small" style="gap:6px"><input type="checkbox" data-copy="title"${S.copyTitle ? ' checked' : ''}> 맨 위에 '${n}화. 제목' 줄 넣기</label>
     ${has ? `<div class="row" style="gap:6px"><button type="button" class="btn small primary" data-action="copyEp" data-arg="${n}">이 화 복사</button>
-      <a class="btn small" href="/api/projects/${enc(S.name)}/export.txt?${exportQuery(n, n)}" download>.txt</a></div>` : ''}
+      <button type="button" class="btn small" data-action="downloadTxt" data-arg="${n}-${n}">.txt</button></div>` : ''}
     <div class="row small" style="gap:6px;margin-top:4px">여러 화
       <input type="number" class="ep-num" min="1" value="${r.from}" data-copy="from" aria-label="시작 화">~
       <input type="number" class="ep-num" min="1" value="${r.to}" data-copy="to" aria-label="끝 화">화</div>
     <div class="row" style="gap:6px"><button type="button" class="btn small" data-action="copyRange">한꺼번에 복사</button>
-      <a class="btn small" href="/api/projects/${enc(S.name)}/export.txt?${exportQuery(r.from, r.to)}" download>.txt 내려받기</a></div>
+      <button type="button" class="btn small" data-action="downloadTxt" data-arg="${r.from}-${r.to}">.txt 내려받기</button></div>
     <span class="small">여러 화는 화마다 제목 줄을 넣어 잇고, 본문이 없는 화는 건너뛰어요.</span>
   </div>`;
 }
@@ -71,10 +67,15 @@ async function copyBoth(pending) {
   return d;
 }
 
-async function copyEpisodes(episodes) {
+/** 복사와 내려받기가 같은 본문을 내보낸다: 저장하지 않은 초안이 있으면 그 초안으로. */
+function exportBody(episodes) {
   const drafts = {};
   episodes.forEach((x) => { if (liveDraft(x) !== undefined) drafts[x] = liveDraft(x); });
-  const pending = api('POST', `/projects/${enc(S.name)}/export`, { episodes, format: S.copyFmt, title: S.copyTitle, drafts });
+  return api('POST', `/projects/${enc(S.name)}/export`, { episodes, format: S.copyFmt, title: S.copyTitle, drafts });
+}
+
+async function copyEpisodes(episodes) {
+  const pending = exportBody(episodes);
   try {
     const d = await copyBoth(pending);
     const lines = d.text.split('\n').length;
@@ -85,6 +86,22 @@ async function copyEpisodes(episodes) {
 }
 
 Object.assign(actions, {
+  async downloadTxt(arg) {
+    const [a, b] = String(arg).split('-').map(Number);
+    const eps = writtenNums().filter((x) => x >= a && x <= b);
+    if (!eps.length) return toast('그 범위에 본문이 있는 화가 없어요', true);
+    try {
+      const d = await exportBody(eps);
+      const url = URL.createObjectURL(new Blob([d.text], { type: 'text/plain;charset=utf-8' }));
+      const link = Object.assign(document.createElement('a'), { href: url, download: `${S.name}-${a === b ? `${a}화` : `${a}-${b}화`}.txt` });
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      toast(e.message, true);
+    }
+  },
   copyEp(n) {
     copyEpisodes([Number(n)]);
   },

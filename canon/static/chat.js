@@ -33,6 +33,9 @@ const PLOT_FIELDS = [
 const ACT_FIELDS = [['goal', '구간 목표'], ['key_turn', '전환점'], ['pov', '서술 시점']];
 const LOCKED_STATUS = ['written', 'finalized'];
 
+/** 손가락이 주 입력인 기기(휴대폰 · 태블릿). 하드웨어 키보드를 붙인 태블릿도 여기에 들지만 버튼으로 보낼 수 있다. */
+const touchFirst = () => window.matchMedia('(pointer: coarse)').matches;
+
 function chatMessages(topic) {
   const c = (P().chats || []).find((x) => x.topic === topic);
   return c ? c.messages : [];
@@ -181,10 +184,10 @@ function chatPanel(topic) {
     <div class="chat-log" id="chat-log">${empty}${list}${pending}</div>
     ${t.inputExtra ? t.inputExtra(topic) : ''}
     <div class="chat-input">
-      <textarea id="chat-input" rows="2" data-local="chatDraft" aria-label="AI에게 할 말" placeholder="${esc(t.placeholder)}"${S.chatPending ? ' disabled' : ''}>${esc(S.chatDraft)}</textarea>
+      <textarea id="chat-input" rows="2" data-local="chatDraft" aria-label="AI에게 할 말" enterkeyhint="${touchFirst() ? 'enter' : 'send'}" placeholder="${esc(t.placeholder)}"${S.chatPending ? ' disabled' : ''}>${esc(S.chatDraft)}</textarea>
       <button type="button" class="btn primary" data-action="chatSend"${S.chatPending ? ' disabled' : ''}>보내기</button>
     </div>
-    <div class="small chat-hint">Enter 보내기 · Shift+Enter 줄바꿈 · 대화는 작품에 저장돼요</div>
+    <div class="small chat-hint">${touchFirst() ? '보내기 버튼으로 보내요 · 대화는 작품에 저장돼요' : 'Enter 보내기 · Shift+Enter 줄바꿈 · 대화는 작품에 저장돼요'}</div>
   </aside>`;
 }
 
@@ -224,12 +227,13 @@ Object.assign(actions, {
   async chatSend(preset = '') {
     const topic = S.chatTopic;
     const t = chatConf(topic);
-    const text = (S.chatDraft || '').trim();
     preset = typeof preset === 'string' ? preset : '';
+    // 빠른 요청은 그 요청만 보낸다. 입력칸에 쓰던 글은 보내지 않고 칸에 남긴다 (기록에 한쪽만 보이던 문제)
+    const text = preset ? '' : (S.chatDraft || '').trim();
     if ((!text && !preset) || S.chatPending) return;
     if (t.ready && !t.ready()) return;
     S.chatPending = text || (t.presetLabel ? t.presetLabel(preset) : preset);
-    S.chatDraft = '';
+    if (!preset) S.chatDraft = '';
     S.chatScroll = true;
     render();
     try {
@@ -244,7 +248,7 @@ Object.assign(actions, {
       else S.project = res;
     } catch (e) {
       toast(e.message, true);
-      S.chatDraft = text;
+      if (!preset) S.chatDraft = text;
     } finally {
       S.chatPending = null;
       S.chatScroll = true;
@@ -317,6 +321,7 @@ document.addEventListener('change', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.target.id !== 'chat-input' || e.key !== 'Enter' || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+  if (touchFirst()) return;  // 터치 키보드에는 Shift 가 없다. 줄바꿈은 Enter 로, 보내기는 버튼으로
   e.preventDefault();
   actions.chatSend();
 });

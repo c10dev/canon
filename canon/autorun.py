@@ -278,6 +278,8 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
     waits = [v["seconds"] for k, v in measured.items() if k.endswith(":batch")]
     return {
         "episodes": eps, "from": todo[0] if todo else None, "to": target, "missing": missing,
+        # 초안 플롯 자동 확정이 꺼져 있으면 그 화에서 멈춘다. 첫 화부터 초안이면 곧바로 멈춘다
+        "drafts": [] if policy.confirm_plots else [n for n in todo if n in have and have[n].status == "draft"],
         "calls": steps, "tokens_in": round(sum(t[0] for t in tokens.values())),
         "tokens_out": round(sum(t[1] for t in tokens.values())),
         "cost": round(cost, 2) if cost is not None else None, "batch": batch,
