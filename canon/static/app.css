@@ -87,7 +87,7 @@ ul, ol { margin: 0; }
 .btn:disabled, .btn[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
 .skip { position: absolute; left: 8px; top: -60px; z-index: 50; padding: 10px 14px; border-radius: 8px; background: var(--text); color: #fff; }
 .skip:focus { top: 8px; }
-main:focus { outline: none; }
+main:focus, h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }  /* 화면 이동 · 서랍 열기로 옮긴 포커스는 테두리 없이 */
 .icon-btn { width: 44px; padding: 0; }
 
 .seg { padding: 3px; border-radius: 10px; background: #E6E9EE; display: inline-flex; gap: 2px; }
@@ -642,3 +642,43 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
 .sug-field.skip { opacity: .6; }
 .rel-lines li.same { color: var(--text-2); }
 .rel-lines li.changed ins { text-decoration: none; font-weight: 600; }
+
+/* ----- 좁은 폭 셸: 900px 이하에서 사이드바를 위쪽 막대로 줄이고 '메뉴'로 펼친다 ----- */
+.menu-toggle { display: none; }
+.side-menu { display: flex; flex-direction: column; gap: 22px; flex: 1; }
+@media (max-width: 900px) {
+  .shell { flex-direction: column; flex-wrap: nowrap; }
+  .side { flex: none; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 16px; border-right: none; border-bottom: 1px solid var(--line); }
+  .side .brand { margin-right: auto; }
+  .side .work-card { order: -1; flex: 1 1 100%; padding: 0; border: none; background: none; }
+  .side .work-card .small, .side .work-card .meter { display: none; }
+  .menu-toggle { display: inline-flex; }
+  .side-menu { display: none; flex: 1 1 100%; flex-direction: column; gap: 12px; }
+  .side.open .side-menu { display: flex; }
+  .main { flex: 1 1 auto; }
+  #jobs { left: 16px; }
+}
+
+/* ----- 아래 고정 층 쌓기: 저장 띠 위에 작업 목록 · 알림 (stackBottom 이 --sb, --jb 를 정한다) ----- */
+#jobs { bottom: calc(20px + var(--sb, 0px)); }
+#toast { bottom: calc(20px + var(--sb, 0px) + var(--jb, 0px)); }
+.main { padding-bottom: calc(96px + var(--sb, 0px) + var(--jb, 0px)); }
+@media (max-width: 640px) { #jobs { bottom: calc(16px + var(--sb, 0px)); } #toast { left: 16px; right: 16px; max-width: none; } }
+
+/* ----- 집필 화면: 넓은 폭에서는 본문을 가운데 넓게, 플롯과 내보내기는 왼쪽에 쌓는다 ----- */
+@media (min-width: 1200px) {
+  .write-cols { display: grid; grid-template-columns: 300px minmax(0, 1fr); grid-template-areas: "plot body" "side body"; align-items: start; }
+  .write-cols .w-plot { grid-area: plot; }
+  .write-cols .w-body { grid-area: body; }
+  .write-cols .w-side { grid-area: side; }
+}
+/* AI 패널을 열면 본문을 먼저 보인다 */
+body.chat-open .write-cols { display: flex; flex-direction: column; }
+body.chat-open .write-cols .w-body { order: -1; }
+.prose textarea { min-height: max(480px, calc(100vh - 220px)); }
+
+/* 휴대폰: AI 패널은 아래쪽 시트로. 위쪽에 본문이 보인다 */
+@media (max-width: 640px) {
+  .chat-panel { top: auto; height: 60vh; width: 100vw; border-left: none; border-top: 1px solid var(--line); border-radius: 12px 12px 0 0; }
+  body.chat-open .main { padding-bottom: calc(60vh + 24px); }
+}

@@ -430,8 +430,23 @@ function renderJobs() {
     const open = j.status !== 'running' && j.kind in JOB_LINK ? `<a href="${JOB_LINK[j.kind](j)}" data-job-open="${j.id}">열기</a>` : '';
     return `<li>${state}<div class="jl"><strong>${esc(j.label)}${pct}</strong>${other}${sub ? `<div class="small">${esc(sub)}</div>` : ''}</div>${open}${j.status !== 'running' ? `<button type="button" class="x" data-job-dismiss="${j.id}" aria-label="목록에서 지우기">✕</button>` : ''}</li>`;
   }).join('');
-  box.innerHTML = `<button type="button" class="jobs-head" aria-expanded="${S.jobsOpen || !running.length}" data-jobs-toggle>${running.length ? '<span class="spinner sm" aria-hidden="true"></span>' : ''}${head}</button>${S.jobsOpen || !running.length ? `<ul>${items}</ul>` : ''}`;
+  // 좁은 폭에서는 끝난 작업 목록도 접어 둔다 (저장 띠와 버튼을 가리지 않게). 머리를 누르면 펼친다
+  const open = S.jobsOpen || (!running.length && !narrowScreen());
+  box.innerHTML = `<button type="button" class="jobs-head" aria-expanded="${open}" data-jobs-toggle>${running.length ? '<span class="spinner sm" aria-hidden="true"></span>' : ''}${head}</button>${open ? `<ul>${items}</ul>` : ''}`;
+  stackBottom();
 }
+
+const narrowScreen = () => window.matchMedia('(max-width: 640px)').matches;
+
+/** 화면 아래 고정 층(저장 띠, 작업 목록, 알림)이 서로와 본문 버튼을 가리지 않게 높이를 CSS 변수로 둔다.
+    --sb: 저장 띠 높이, --jb: 작업 목록 높이(좁은 폭에서 저장 띠 위에 쌓을 때). */
+function stackBottom() {
+  const h = (el) => (el && !el.hidden ? el.getBoundingClientRect().height + 12 : 0);
+  const st = document.body.style;
+  st.setProperty('--sb', `${h($('#savebar'))}px`);
+  st.setProperty('--jb', `${narrowScreen() ? h($('#jobs')) : 0}px`);
+}
+window.addEventListener('resize', () => stackBottom());
 
 document.addEventListener('click', (e) => {
   const t = e.target.closest('[data-jobs-toggle], [data-job-dismiss], [data-job-open]');
@@ -709,6 +724,7 @@ function renderSavebar() {
   let bar = $('#savebar');
   if ((!S.dirty || !P()) && text === null) {
     if (bar) bar.remove();
+    stackBottom();
     return;
   }
   const sig = `${S.dirty}:${text}:${autoOn()}:${S.conflict}:${S.lastRemoved ? S.lastRemoved.label : ''}`;
@@ -723,6 +739,7 @@ function renderSavebar() {
   bar.innerHTML = (S.dirty && S.conflict ? '<span>다른 탭이나 기기에서 먼저 저장해 이 변경을 저장하지 못했어요</span><button class="btn small" data-action="revert">다시 불러오기 (이 변경 버림)</button><button class="btn small danger" data-action="saveForce">내 변경으로 덮기</button>'
     : S.dirty ? `<span>저장하지 않은 변경이 있어요</span>${S.lastRemoved ? `<button class="btn small" data-action="restoreRemoved">방금 지운 ${esc(S.lastRemoved.label)} 되살리기</button>` : ''}<button class="btn small" data-action="revert">변경 모두 버리기</button><button class="btn small primary" data-action="save">저장</button>` : '')
     + (text !== null ? `<span>${text}화 본문을 저장하지 않았어요</span><button class="btn small primary" data-action="saveText" data-arg="${text}"${autoOn() ? ' disabled title="자동 집필이 도는 동안은 본문을 저장할 수 없어요"' : ''}>본문 저장</button>` : '');
+  stackBottom();
 }
 
 /** 지시서 ② 칸 글을 아직 쓸 수 있다. 본문 칸은 확정 · 작성 화, JSON 칸은 작성 화에서만 열린다. 다른 경로로 그 화를 끝냈으면 세지 않는다. */
@@ -819,6 +836,10 @@ const actions = {
       if (h) setDelta(n, structuredClone(h));  // 반영했던 변경안을 다시 고를 수 있게 둔다
       toast(`${rangeText(fin)}화의 반영을 취소했어요. ${n}화 변경안을 다시 골라 반영하세요`);
     });
+  },
+  toggleMenu() {
+    S.menuOpen = !S.menuOpen;  // 좁은 폭에서만 보이는 버튼. 메뉴를 고르면 화면 이동 때 닫힌다
+    render();
   },
   async retryRoute() {
     await route();
@@ -1718,6 +1739,7 @@ function route() {
 let lastRoute = '';
 async function routeNow() {
   S.loadError = null;
+  S.menuOpen = false;
   // 다른 화면으로 옮기면 제목으로 포커스를 옮겨 스크린리더가 새 화면을 읽고, 다음 Tab 이 본문에서 시작하게 한다
   const here = location.hash.split('/').slice(0, 4).join('/');
   if (here !== lastRoute) S.focusTarget = '#app main h1';
@@ -1950,8 +1972,9 @@ function sidebar(active) {
     ['auto', base() + '/auto', 'A', autoMenuLabel()],
   ];
   const cfg = S.config || {};
-  return `<nav class="side" aria-label="작품 메뉴">
+  return `<nav class="side${S.menuOpen ? ' open' : ''}" aria-label="작품 메뉴">
     <a class="brand" href="#/">Canon</a>
+    <button type="button" class="btn small menu-toggle" data-action="toggleMenu" aria-expanded="${!!S.menuOpen}" aria-controls="side-menu">메뉴</button>
     <div class="work-card">
       <div class="small">현재 작품</div>
       <div style="font-size:16px;font-weight:700">${esc(p.meta.title || S.name)}</div>
@@ -1959,6 +1982,7 @@ function sidebar(active) {
       <div class="meter" aria-hidden="true"><i style="left:0;width:${Math.round((done / Math.max(total, 1)) * 100)}%;background:var(--green)"></i></div>
       <div class="small">${done} / ${total}화 반영 완료</div>
     </div>
+    <div class="side-menu" id="side-menu">
     <div class="nav">${items.map(([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}><span class="num">${num}</span>${label}</a>`).join('')}</div>
     <div class="nav nav-extra"><span class="small">본편과 분리</span><a href="${base()}/research"${active === 'research' ? ' aria-current="page"' : ''}><span class="num">R</span>연구 · 모델 실험</a><a href="${base()}/usage"${active === 'usage' ? ' aria-current="page"' : ''}><span class="num">$</span>사용량 · 비용</a></div>
     <div class="side-foot">
@@ -1969,6 +1993,7 @@ function sidebar(active) {
       <a href="#/usage">모든 작품 사용량 · 비용</a>
       <a href="#/styles">문체 라이브러리</a>
       <a href="#/">작품 목록</a>
+    </div>
     </div>
   </nav>`;
 }
@@ -3305,8 +3330,8 @@ function viewWrite(n) {
       <div class="row" style="margin-top:6px"><button class="btn small" data-action="copyOrphan" data-arg="${n}">초고 복사</button><button class="btn small danger" data-action="dropOrphan" data-arg="${n}">초고 버리기</button></div></div>` : ''}
     ${editable && autoOn() ? `<div class="note warn">자동 집필이 도는 동안은 본문을 저장할 수 없어요. 쓰던 글은 이 화면에 남아 있어요. 저장하려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요.</div>` : ''}
     ${e.text && editable ? rewritePanel(n) + candidateCard(n) : ''}
-    <div class="cols" style="gap:16px">
-      <aside class="card tight" style="flex:1 1 260px;min-width:0" aria-label="이번 화 플롯">
+    <div class="cols write-cols" style="gap:16px">
+      <aside class="card tight w-plot" style="flex:1 1 260px;min-width:0" aria-label="이번 화 플롯">
         <h3>이번 화 플롯</h3>
         ${act ? `<div class="note info"><strong>구간 목표</strong> · ${esc(act.goal)}</div>` : ''}
         <p style="font-size:13px;line-height:1.6;color:var(--text-2)">${esc(e.plot.summary)}</p>
@@ -3322,7 +3347,7 @@ function viewWrite(n) {
         ${deviceBadges(n)}
         <a href="${base()}/arc" data-action="gotoPlot" data-arg="${n}" style="font-size:13px">플롯 보기</a>
       </aside>
-      <section class="card" style="flex:3 1 520px;min-width:0;padding:0;gap:0" aria-label="본문">
+      <section class="card w-body" style="flex:3 1 520px;min-width:0;padding:0;gap:0" aria-label="본문">
         <div class="between" style="padding:10px 16px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)">
           <span>${e.status === 'finalized' ? '상태 반영까지 끝난 화는 읽기 전용이에요. 드래그하면 삽화 프롬프트를 만들 수 있어요' : e.text ? '고칠 부분을 드래그하면 직접 고치거나 AI 에게 맡기거나 삽화 프롬프트를 만들 수 있어요' : '본문을 직접 고친 뒤 저장할 수 있어요'}</span>
           <span class="row"><span><strong id="char-count" style="color:var(--text)">${(text || '').length.toLocaleString()}</strong> / ${Number(P().meta.words_per_episode).toLocaleString()}자</span>
@@ -3332,7 +3357,7 @@ function viewWrite(n) {
         ${e.text ? passageNotes(n) ? `<div style="padding:12px 16px 0;display:flex;flex-direction:column;gap:8px">${passageNotes(n)}</div>` : '' : ''}
         ${center}
       </section>
-      <aside class="card tight" style="flex:1 1 260px;min-width:0" aria-label="복사 · 내보내기와 AI 에게 보내는 컨텍스트">
+      <aside class="card tight w-side" style="flex:1 1 260px;min-width:0" aria-label="복사 · 내보내기와 AI 에게 보내는 컨텍스트">
         ${exportCard(n)}
         <h3>AI 에게 보내는 컨텍스트</h3>
         ${ctx}
