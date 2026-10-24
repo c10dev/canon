@@ -1881,7 +1881,7 @@ def research_probe(body: Probe) -> dict:
 @app.get("/api/projects/{name}/research")
 def research_log(name: str) -> dict:
     _load(name)
-    return {"log": research.history(name), "stages": research.STAGES}
+    return {"log": research.history(name), "stages": research.STAGES, "check_modes": prompts.CHECK_MODES}
 
 
 class SampleIn(BaseModel):
@@ -1919,6 +1919,22 @@ def research_budget(name: str, b: research.Backend) -> dict:
     res = research.budget(_load(name), b)
     summary = {k: res[k] for k in ("backend", "model", "limit", "first_over", "first_tight", "tokenizer")}
     return {**research.record(name, "budget", summary), **res}
+
+
+class CheckTrialIn(BaseModel):
+    backend: research.Backend
+    episode: int
+    plants: int = 3
+    modes: list[str] = []
+
+
+@app.post("/api/projects/{name}/research/check")
+def research_check(name: str, body: CheckTrialIn) -> dict:
+    """검수 시험: n화에 모순을 심고 검수 방식마다 찾는지 본다. 작품에는 저장하지 않는다."""
+    if not 1 <= body.plants <= 5:
+        raise ValueError("심을 모순은 1~5개예요")
+    res = research.check_trial(_load(name), body.episode, body.backend, body.plants, body.modes or None)
+    return research.record(name, "check", res)
 
 
 class CompareIn(BaseModel):

@@ -11,7 +11,7 @@ import json
 
 from pydantic import BaseModel
 
-from . import elements, genres, metrics, naming, storylines
+from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
 from .schema import Character, ChatMessage, ConsistencyReport, Foreshadow, ImpactReport, Project, Selection, StateDelta, StoryElement
@@ -479,46 +479,74 @@ def opening_rules(p: Project, n: int, approach: str = "") -> str:
 # ---------- 장편 연재: 계층 줄거리, 관련 자료 고르기, 부 · 아크 기획 ----------
 
 FACTS_FILTER_FROM = 60  # 확정 사실이 이보다 많으면 이번 화와 관련된 것만 넣는다
-FACTS_RECENT = 30
+FACTS_RECENT = context.FACTS_RECENT
 FORESHADOW_RECENT = 30  # 이 화수 안에 심은 복선은 늘 넣는다
-FORESHADOW_CAP = 25
+FORESHADOW_CAP = context.FORESHADOW_CAP
 
 
 def story_so_far(p: Project, n: int) -> str:
     """n화 직전까지의 줄거리. 단편은 화별 요약 전부. 장편은 끝난 부 → 이번 부의 끝난 아크 → 이번 아크의 화 순서로 접어서,
-    300화째에도 크기가 일정하다. 요약이 아직 없는 부와 아크는 한 단계 아래 요약으로 대신한다."""
+    300화째에도 크기가 일정하다 (story_parts)."""
+    return "\n\n".join(x for x in story_parts(p, n) if x)
+
+
+def story_parts(p: Project, n: int) -> tuple[str, str]:
+    """(끝난 부와 아크의 접은 줄거리, 이번 아크의 화별 요약). 앞쪽은 아크가 끝날 때만 바뀌어 캐시가 맞는 자리에 둘 수 있다.
+    장편은 블록 예산(context.BUDGET)을 넘으면 오래된 것부터 더 짧게 접는다. 요약이 아직 승인되지 않은 아크는
+    화별 요약 → 화마다 첫 문장 → 아크 한 줄 순서로 줄고, 승인된 요약은 마지막에야 첫 문장으로 줄인다."""
     eps = sorted((e for e in p.episodes if e.plot.number < n and e.summary), key=lambda e: e.plot.number)
     line = lambda e: f"{e.plot.number}화 {storylines.summary_tag(p, e)}{e.plot.title}: {e.summary}"  # noqa: E731
+    short = lambda e: f"{e.plot.number}화 {storylines.summary_tag(p, e)}{e.plot.title}: {context.first_sentence(e.summary)}"  # noqa: E731
     if not p.serial or not p.story_arcs:
-        return "\n".join(map(line, eps))
+        return "", "\n".join(map(line, eps))
     cur_arc = p.arc_for(n)
     cur_part = p.part_for(n)
     arc_start = cur_arc.start_ep if cur_arc else n
     part_start = cur_part.start_ep if cur_part else 1
-    out: list[str] = []
+    entries: list[list[str]] = []  # 블록마다 [자세히, 줄임, 한 줄]
 
-    def arc_text(a) -> str:
+    def arc_entry(a) -> list[str]:
+        head = f"[아크 {a.number} {a.title} ({a.start_ep}~{a.end_ep}화)]"
         if a.summary:
-            return f"[아크 {a.number} {a.title} ({a.start_ep}~{a.end_ep}화)] {a.summary}"
-        inside = [line(e) for e in eps if a.start_ep <= e.plot.number <= a.end_ep]
-        return f"[아크 {a.number} {a.title} ({a.start_ep}~{a.end_ep}화)]\n" + "\n".join(inside)
+            return [f"{head} {a.summary}"] * 2 + [f"{head} {context.first_sentence(a.summary, 200)}"]
+        inside = [e for e in eps if a.start_ep <= e.plot.number <= a.end_ep]
+        if not inside:
+            return [head] * 3
+        return [head + "\n" + "\n".join(map(line, inside)),
+                f"{head} (아크 요약 대기: 화마다 첫 문장)\n" + "\n".join(map(short, inside)),
+                f"{head} 목표: {a.goal} (아크 요약 대기)"]
 
     for part in sorted(p.parts, key=lambda x: x.start_ep):
         if part.end_ep >= part_start:
             break
         if part.summary:
-            out.append(f"[{part.number}부 {part.title} ({part.start_ep}~{part.end_ep}화)] {part.summary}")
+            head = f"[{part.number}부 {part.title} ({part.start_ep}~{part.end_ep}화)]"
+            entries.append([f"{head} {part.summary}"] * 2 + [f"{head} {context.first_sentence(part.summary, 300)}"])
         else:
-            out += [arc_text(a) for a in p.story_arcs if part.start_ep <= a.start_ep <= part.end_ep]
+            entries += [arc_entry(a) for a in p.story_arcs if part.start_ep <= a.start_ep <= part.end_ep]
     if not p.parts:
         part_start = 1
-    out += [arc_text(a) for a in sorted(p.story_arcs, key=lambda a: a.start_ep) if part_start <= a.start_ep and a.end_ep < arc_start]
+    entries += [arc_entry(a) for a in sorted(p.story_arcs, key=lambda a: a.start_ep) if part_start <= a.start_ep and a.end_ep < arc_start]
+    level = [0] * len(entries)
+    size = lambda: sum(len(e[k]) + 2 for e, k in zip(entries, level))  # noqa: E731
+    for target in (1, 2):  # 오래된 것부터 한 단계씩 접는다
+        for i in range(len(entries)):
+            if size() <= context.BUDGET["story_past"]:
+                break
+            level[i] = max(level[i], target)
+    past = "\n\n".join(e[k] for e, k in zip(entries, level))
+
     tail = [e for e in eps if e.plot.number >= arc_start]
     if n - arc_start < 3:  # 아크 첫머리에는 직전 아크의 마지막 화들도 이어서 본다
         tail = [e for e in eps if arc_start - 3 <= e.plot.number < arc_start] + tail
-    if tail:
-        out.append(f"[이번 아크{f' {cur_arc.number} {cur_arc.title}' if cur_arc else ''}]\n" + "\n".join(map(line, tail)))
-    return "\n\n".join(out)
+    rows = [line(e) for e in tail]
+    keep = 8  # 이번 아크가 길면 최근 8화를 빼고 오래된 화부터 첫 문장으로
+    for i in range(max(0, len(tail) - keep)):
+        if sum(len(r) + 1 for r in rows) <= context.BUDGET["story_arc"]:
+            break
+        rows[i] = short(tail[i])
+    cur = f"[이번 아크{f' {cur_arc.number} {cur_arc.title}' if cur_arc else ''}]\n" + "\n".join(rows) if tail else ""
+    return past, cur
 
 
 def structure_text(p: Project, n: int, head: str = "[지금 부와 아크]") -> str:
@@ -583,14 +611,19 @@ def relevant_foreshadows(p: Project, n: int) -> tuple[list[Foreshadow], int]:
         return ((arc is not None and f.id in arc.payoffs) or (f.due_ep is not None and f.due_ep <= end)
                 or f.scope == "series" or f.planted_ep >= min(lo, n - FORESHADOW_RECENT))
 
-    picked = [f for f in opened if keep(f)][-FORESHADOW_CAP:]
+    picked = context.rank_foreshadows(p, [f for f in opened if keep(f)], n, FORESHADOW_CAP)
     return picked, len(opened) - len(picked)
 
 
-def relevant_facts(p: Project, cast: set[str]) -> tuple[list[str], int]:
-    """확정 사실이 많으면 이번 화 인물 이름이 들어간 것과 최근 것만 넣는다."""
+def relevant_facts(p: Project, cast: set[str], n: int | None = None, budget: str = "facts") -> tuple[list[str], int]:
+    """확정 사실이 많으면 이번 화 인물 이름이 들어간 것과 최근 것만 넣는다.
+    장편은 n 화 플롯과 이야기 요소로 관련 순서를 매겨 블록 예산(context.BUDGET[budget])만큼만 넣는다."""
     if len(p.facts) <= FACTS_FILTER_FROM:
         return p.facts, 0
+    if p.serial:
+        query = elements.plot_text(p.episode(n)) if n is not None and any(e.plot.number == n for e in p.episodes) else ""
+        terms = context.query_terms(p, n) if n is not None else []
+        return context.pick_facts(p, cast, query, context.BUDGET[budget], terms)
     names = [c.name for c in p.characters if c.id in cast and c.name]
     recent = set(p.facts[-FACTS_RECENT:])
     picked = [f for f in p.facts if f in recent or any(nm in f for nm in names)]
@@ -624,12 +657,17 @@ def series_prompt(p: Project) -> str:
 def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
     part = p.part_for(start)
     limit = part.end_ep if part else p.meta.target_episodes
-    opened = sorted((f for f in p.foreshadows if f.status == "open"), key=lambda f: f.planted_ep)
+    opened = [f for f in p.foreshadows if f.status == "open"]
+    fs_more = max(0, len(opened) - context.PLAN_FORESHADOW_CAP)
+    opened = context.rank_foreshadows(p, opened, start, context.PLAN_FORESHADOW_CAP)  # 끝까지 갈 큰 떡밥과 기한 지난 것 먼저
+    ids = context.planning_cast(p, start)
     fs_lines = "\n".join(
         f"- {f.id} ({f.planted_ep}화에 심음, {f.scope}{f', {f.due_ep}화 회수 예정' if f.due_ep else ''}"
         f"{', 오래됨' if start - f.planted_ep > 50 else ''}): {f.description}" for f in opened)
     prev = max(p.story_arcs, key=lambda a: a.start_ep) if p.story_arcs else None
     prev_eps = [e.plot for e in p.episodes if prev and prev.start_ep <= e.plot.number <= prev.end_ep][-3:]
+    plan_secrets, _ = context.pick_secrets(p, ids, note + "\n" + "\n".join(x.summary for x in prev_eps),
+                                           context.BUDGET["state_secrets"])
     size = f"{length}화 안팎" if length else "내용에 맞게 5~30화 (보통 10~25화). 첫 아크는 25화 안에 큰 보상이 오도록 짧고 세게"
     return f"""장편 연재의 다음 아크 하나를 기획하세요. 이 아크는 {start}화에서 시작합니다.
 
@@ -641,12 +679,12 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 {dump(static_characters(p))}
 [다른 인물 (id: 이름, 역할)]
 {roster_line(p, set()) or "없음"}
-[관계]
-{describe_relations(p) or rels(p)}
+[관계 (주역 · 조연 · 최근 아크 인물)]
+{describe_relations(p, ids, secrets=plan_secrets) or rels(p, ids)}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p) or "없음"}{lines_block(p)}
 [인물 현재 상태]
-{dump([s for s in p.states if s.character_id in {c.id for c in static_characters(p)}]) or "설정 그대로"}
+{dump(state_view(p, [s for s in p.states if s.character_id in {c.id for c in static_characters(p)}])) or "설정 그대로"}
 [부 구성]
 {dump(p.parts) if p.parts else "부 구성 없음 (작품 전체가 한 부)"}
 
@@ -656,7 +694,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 {dump(prev.model_dump(exclude={"summary"})) if prev else "없음"}
 [직전 아크의 마지막 화 플롯]
 {dump(prev_eps) if prev_eps else "없음"}
-[열린 복선]
+[열린 복선]{f" (그 밖에 {fs_more}개는 오래된 아크 단위 복선이라 뺐습니다)" if fs_more else ""}
 {fs_lines or "없음"}
 [확정된 사실 (최근)]
 {chr(10).join("- " + f for f in p.facts[-FACTS_RECENT:]) or "없음"}
@@ -716,6 +754,8 @@ def storyline_prompt(p: Project, note: str, kind: str) -> str:
     brief = [{"number": x.number, "title": x.title, "summary": x.summary, "characters": x.characters,
               "storyline": x.storyline, "threads": x.threads} for x in upcoming]
     structure = structure_text(p, written + 1) if p.serial else f"[기승전결 구조]\n{dump(p.arc) or '아직 없음'}"
+    ids = context.planning_cast(p, written + 1) if p.serial else None
+    secrets = context.open_secrets(p) if p.serial else p.secrets  # 장편: 모두에게 드러난 비밀은 뺀다
     return f"""이 작품의 메인 줄기에서 갈라졌다 다시 합류하는 이야기 줄기 하나를 기획하세요.
 
 [작품]
@@ -727,9 +767,9 @@ def storyline_prompt(p: Project, note: str, kind: str) -> str:
 [다른 인물 (id: 이름, 역할)]
 {roster_line(p, set()) or "없음"}
 [관계]
-{describe_relations(p) or rels(p)}
+{describe_relations(p, ids, secrets=[] if p.serial else None) or rels(p, ids)}
 [비밀 (hidden_from 의 인물은 아직 모른다)]
-{dump(p.secrets) or "없음"}
+{dump(secrets) or "없음"}
 [이야기 요소]
 {elements.plan_block(p) or "없음"}
 [지금 이야기 줄기]
@@ -991,6 +1031,7 @@ def serial_plot_chat_prompt(p: Project, message: str) -> str:
     history = next((c.messages for c in p.chats if c.topic == "plot"), [])[-CHAT_HISTORY_LIMIT:]
     fs, more = relevant_foreshadows(p, lo)
     arcs = [a.model_dump(exclude={"summary"}) for a in p.story_arcs if a.end_ep >= lo]
+    ids = context.planning_cast(p, lo) | {c for e in p.episodes if e.plot.number >= lo - 2 for c in e.plot.characters}
     return f"""[작품]
 {meta_text(p)}
 [세계관]
@@ -1000,7 +1041,7 @@ def serial_plot_chat_prompt(p: Project, message: str) -> str:
 [다른 인물 (id: 이름, 역할)]
 {roster_line(p, set()) or "없음"}
 [관계]
-{rels(p)}
+{rels(p, ids)}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p) or "없음"}{lines_block(p)}
 [부 구성]
@@ -1096,7 +1137,7 @@ def passage_prompt(p: Project, n: int, sel: Selection, message: str, preset: str
     cast_ids = set(ep.plot.characters) or {c.id for c in static_characters(p)} or {c.id for c in p.characters}
     states = [s for s in p.states if s.character_id in cast_ids]
     extra = [c for c in p.characters if c.id in cast_ids and c.tier != "main"]
-    facts, facts_cut = relevant_facts(p, cast_ids)
+    facts, facts_cut = relevant_facts(p, cast_ids, n)
     els = elements.episode_block(p, n)
     chat = next((c for c in p.chats if c.topic == f"text:{n}"), None)
     history = "\n".join(_passage_line(m) for m in (chat.messages[-PASSAGE_HISTORY:] if chat else []))
@@ -1259,7 +1300,7 @@ def build_episode_context(p: Project, n: int) -> str:
     last_text = next((e.text for e in reversed(p.episodes) if e.plot.number == n - 1 and e.text), "")
     cast_names = ", ".join(f"{c.name}({c.id})" for c in p.characters if c.id in cast_ids)
     extra = [c for c in p.characters if c.id in cast_ids and c.tier != "main"]
-    facts, facts_cut = relevant_facts(p, cast_ids)
+    facts, facts_cut = relevant_facts(p, cast_ids, n)
     fs, fs_cut = relevant_foreshadows(p, n)
     if p.serial:
         where = structure_text(p, n, "# 현재 부와 아크") + f"\n현재 아크 안 구간: {act.name if act else '?'} ({act.start_ep if act else '?'}~{act.end_ep if act else '?'}화) 목표: {act.goal if act else ''}"
@@ -1283,10 +1324,16 @@ def build_episode_context(p: Project, n: int) -> str:
     dev = device_block(p, n)
     dev = f"\n\n# 가끔 쓰는 장치 (최근 화에서 쓴 화를 센 것. 스타일 프로필과 예시 문단보다 우선)\n{dev}" if dev else ""
 
+    facts_text = chr(10).join("- " + f for f in facts) or "없음"
+    if p.serial:
+        return serial_episode_context(p, n, where=where, line=line, facts=facts_text, facts_cut=facts_cut, els=els,
+                                      cast_names=cast_names, extra=extra, states=states, rels=rels, cast_ids=cast_ids,
+                                      fs=fs, fs_cut=fs_cut, last_text=last_text, tail=f"{pov}{dev}{material_block(p, n)}")
+
     return f"""{static_context(p)}
 
 # 확정된 사실{f" (이번 화와 관련된 것만, {facts_cut}개 생략)" if facts_cut else ""}
-{chr(10).join("- " + f for f in facts) or "없음"}{els}
+{facts_text}{els}
 
 # 이번 화 등장 인물
 {cast_names or "설정의 인물 전원"}
@@ -1310,6 +1357,45 @@ def build_episode_context(p: Project, n: int) -> str:
 
 # 이번 화 플롯
 {dump(ep.plot)}{pov}{dev}{material_block(p, n)}"""
+
+
+def serial_episode_context(p: Project, n: int, *, where: str, line: str, facts: str, facts_cut: int, els: str,
+                           cast_names: str, extra: list, states: list, rels: list, cast_ids: set[str],
+                           fs: list, fs_cut: int, last_text: str, tail: str) -> str:
+    """장편 본문 쓰기 컨텍스트. 바뀌는 빈도 순서로 놓는다: 작품 고정(static_context) → 아크 동안 그대로인 것
+    (부 · 아크 구조, 끝난 아크의 접은 줄거리) → 화마다 바뀌는 것. 앞부분이 같을수록 Gemini 암묵적 캐시가 길게 맞는다."""
+    past, cur = story_parts(p, n)
+    secrets, _ = context.pick_secrets(p, cast_ids, elements.plot_text(p.episode(n)), context.BUDGET["secrets"])
+    return f"""{static_context(p)}
+
+{where}
+
+# 지금까지의 줄거리 (끝난 부와 아크)
+{past or "없음"}
+
+# 확정된 사실{f" (이번 화와 관련된 것만, {facts_cut}개 생략)" if facts_cut else ""}
+{facts}{els}
+
+# 이번 화 등장 인물
+{cast_names or "설정의 인물 전원"}
+{f"{chr(10)}# 이번 화에 나오는 조연 · 단역 설정{chr(10)}{dump(cast_view(extra))}{chr(10)}" if extra else ""}
+# 인물 현재 상태 ({n - 1}화 종료 시점)
+{dump(state_view(p, states)) or "1화 시작 시점, 설정 그대로"}
+
+# 관계 현재 상태
+{describe_relations(p, cast_ids, secrets=secrets) or dump(rels) or "없음"}
+
+# 열린 복선{f" (이번 아크와 관련된 것만, {fs_cut}개 생략)" if fs_cut else ""}
+{dump(fs) or "없음"}
+
+# 지금까지의 줄거리 (이번 아크)
+{cur or "없음 (첫 화)"}{line}
+
+# 직전 화 마지막 부분 (내용 연결용, 문체 기준은 위의 예시 문단)
+{last_text[-1500:] or "없음"}
+
+# 이번 화 플롯
+{dump(p.episode(n).plot)}{tail}"""
 
 
 MATERIAL_LIMIT = 6000  # 원고 재료로 넣는 옛 화 하나의 본문 글자 수
@@ -1483,9 +1569,12 @@ def state_prompt(p: Project, n: int) -> str:
         relations = rels(p, ids)
         fs, _ = relevant_foreshadows(p, n)
         others = roster_line(p, ids)
+        # 드러난 비밀, 이번 화 인물과 상관없는 비밀은 빼고 본문과 겹치는 것부터
+        secrets, _ = context.pick_secrets(p, ids, ep.text + "\n" + elements.plot_text(ep), context.BUDGET["state_secrets"])
     else:
         chars, states, relations = p.characters, p.states, rels(p)
         fs, others = [f for f in p.foreshadows if f.status == "open"], ""
+        secrets = p.secrets
     return f"""{n}화 본문을 읽고 상태 변경안을 작성하세요.
 
 [인물 설정]
@@ -1495,7 +1584,7 @@ def state_prompt(p: Project, n: int) -> str:
 [이전 관계]
 {relations}
 [현재 비밀]
-{dump(p.secrets) or "없음"}
+{dump(secrets) or "없음"}
 [열린 복선]
 {dump(fs) or "없음"}
 [이번 화 플롯]
@@ -1515,8 +1604,8 @@ def state_prompt(p: Project, n: int) -> str:
 - warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다.{storylines.state_rule(p, n)}"""
 
 
-def check_prompt(p: Project, n: int) -> str:
-    ep = p.episode(n)
+def _check_full(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
+    """검수 자료 전부: 앞선 본문은 한도(CHECK_TEXT_LIMIT)까지 최근 화부터 원문, 사실 · 상태 · 관계 · 비밀은 모두."""
     prior = sorted((e for e in p.episodes if e.plot.number < n and e.text), key=lambda e: e.plot.number)
     full, budget = [], CHECK_TEXT_LIMIT
     for e in reversed(prior):
@@ -1535,6 +1624,53 @@ def check_prompt(p: Project, n: int) -> str:
             f"## {e.plot.number}화 {e.plot.title}\n{e.text if e.plot.number in full_nos else '(요약) ' + e.summary}"
             for e in prior
         )
+    return (chr(10).join("- " + f for f in p.facts) or "없음", dump(p.states) or "1화 시작 시점, 설정 그대로",
+            rels(p) if p.relationships else "없음", dump(p.secrets) or "없음", past, "")
+
+
+def _check_budget(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
+    """장편 검수 자료: 직전 CHECK_RECENT 화는 원문, 그보다 앞은 접은 줄거리와 이번 화와 겹치는 옛 단락(context.recall),
+    사실 · 상태 · 관계 · 비밀은 이번 화 인물과 주역 것만. 예전 방식은 최근 화만 원문이라 오래된 장면과의 모순은 요약으로만 봤다."""
+    ep = p.episode(n)
+    ids = context.episode_cast(p, n)
+    prior = sorted((e for e in p.episodes if e.plot.number < n and e.text), key=lambda e: e.plot.number)
+    recent = prior[-context.CHECK_RECENT:]
+    recent_nos = {e.plot.number for e in recent}
+    first = min(recent_nos) if recent else n
+    terms = context.query_terms(p, n) + context.names_of(p, ids)[1]
+    found = context.recall(p, first, ep.text + "\n" + elements.plot_text(ep), context.BUDGET["check_recall"], recent_nos, terms)
+    title = {e.plot.number: e.plot.title for e in p.episodes}
+    parts = []
+    story = story_so_far(p, first) if first > 1 else ""
+    if story:
+        parts.append(f"## {first - 1}화까지의 줄거리 (요약)\n{story}")
+    if found:
+        parts.append("## 옛 화에서 찾은 관련 단락 (이번 화와 겹치는 인물 · 장소 · 사물이 나오는 곳. 원문 발췌)\n\n" + "\n\n".join(
+            f"### {m}화 {title.get(m, '')} (발췌)\n" + "\n…\n".join(paras) for m, paras in found))
+    parts += [f"## {e.plot.number}화 {e.plot.title}\n{e.text}" for e in recent]
+    facts, cut = relevant_facts(p, ids, n, "check_facts")
+    facts_text = (f"(이번 화와 관련된 것만, {cut}개 생략)\n" if cut else "") + (chr(10).join("- " + f for f in facts) or "없음")
+    states = dump(state_view(p, [s for s in p.states if s.character_id in ids])) or "1화 시작 시점, 설정 그대로"
+    relations = describe_relations(p, ids, secrets=[]) or rels(p, ids) or "없음"  # 비밀은 아래 비밀 칸에
+    picked, _ = context.pick_secrets(p, ids, ep.text + "\n" + elements.plot_text(ep), context.BUDGET["state_secrets"])
+    secrets = dump(picked) or "없음"
+    note = (" (직전 화는 원문, 그보다 앞은 줄거리 요약과 이번 화와 겹치는 단락 발췌. 발췌에서 인용할 때 source_episode 는 그 발췌의 화)"
+            if found or story else "")
+    return facts_text, states, relations, secrets, "\n\n".join(parts), note
+
+
+CHECK_MODES = {"full": "앞선 본문 한도까지 원문 + 자료 전부 (단편 기본)",
+               "budget": "직전 화 원문 + 옛 화에서 찾은 관련 단락 + 이번 화 인물 자료 (장편 기본)"}
+
+
+def check_prompt(p: Project, n: int, mode: str = "") -> str:
+    """검수 프롬프트. mode 를 비우면 장편은 budget, 단편은 full. 연구 화면 검수 시험이 두 방식을 견준다."""
+    mode = mode or ("budget" if p.serial else "full")
+    ep = p.episode(n)
+    if mode == "budget":
+        facts_text, states, relations, secrets, past, note = _check_budget(p, n)
+    else:
+        facts_text, states, relations, secrets, past, note = _check_full(p, n)
     els = elements.active_block(p, n)
     els = f"\n\n# 이야기 요소 ({n}화 시점에 사실인 것)\n{els}" if els else ""
     line = storylines.episode_block(p, n)
@@ -1544,18 +1680,18 @@ def check_prompt(p: Project, n: int) -> str:
     return f"""{static_context(p)}
 
 # 확정된 사실
-{chr(10).join("- " + f for f in p.facts) or "없음"}{els}
+{facts_text}{els}
 
 # 인물 현재 상태 ({n - 1}화 종료 시점)
-{dump(p.states) or "1화 시작 시점, 설정 그대로"}
+{states}
 
 # 관계 현재 상태
-{rels(p) if p.relationships else "없음"}
+{relations}
 
 # 비밀 (hidden_from 의 인물은 아직 모른다)
-{dump(p.secrets) or "없음"}
+{secrets}
 
-# 앞선 본문
+# 앞선 본문{note}
 {past or "없음 (첫 화)"}
 
 # {n}화 플롯
@@ -1571,6 +1707,49 @@ def check_prompt(p: Project, n: int) -> str:
 - source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 설정이나 인물 상태면 source_episode 는 0 입니다.
 - 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
 - episode 는 {n} 입니다."""
+
+
+# ---------- 검수 시험: 모순을 심어 검수가 찾는지 본다 (연구 화면) ----------
+
+SYSTEM_PLANTER = (
+    "당신은 소설 검수 도구를 시험하는 편집자입니다. 이번 화 본문의 문장 몇 개를 앞선 내용과 어긋나게 바꿔 "
+    "검수가 찾아내는지 봅니다. 바꾼 문장은 문체와 길이가 원래 문장과 비슷해 눈에 띄지 않아야 하고, 근거와 견주면 분명히 틀려야 합니다."
+)
+PLANT_OLD_EPISODES = 2  # 근거로 보여 줄 옛 화 수 (직전 화들은 빼고 무작위로)
+PLANT_OLD_CHARS = 6_000  # 옛 화 하나에서 보여 줄 본문 글자
+
+
+def plant_old(p: Project, n: int, seed: int) -> list:
+    """모순의 근거로 쓸 옛 화. 검수가 원문으로 넣는 직전 화는 빼고 무작위로 골라, 옛 화를 기억하는지 시험한다."""
+    import random
+    older = [e for e in sorted(p.episodes, key=lambda e: e.plot.number)
+             if e.text and e.plot.number < n - context.CHECK_RECENT]
+    picks = random.Random(seed).sample(older, min(PLANT_OLD_EPISODES, len(older)))
+    return sorted(picks, key=lambda e: e.plot.number)
+
+
+def plant_prompt(p: Project, n: int, count: int, seed: int = 0) -> str:
+    ep = p.episode(n)
+    ids = context.episode_cast(p, n)
+    old = "\n\n".join(f"## {e.plot.number}화 {e.plot.title}\n{e.text[:PLANT_OLD_CHARS]}" for e in plant_old(p, n, seed))
+    return f"""{n}화 본문의 문장 {count}개를 골라 앞선 내용과 어긋나는 문장으로 바꾸세요. 검수 시험용이라 작품에는 저장하지 않습니다.
+
+[인물 설정]
+{dump(cast_view(context.characters_by_ids(p, ids)))}
+[확정된 사실 (최근)]
+{chr(10).join("- " + f for f in p.facts[-FACTS_RECENT:]) or "없음"}
+[옛 화 본문 (일부)]
+{old or "없음"}
+
+[{n}화 본문]
+{ep.text}
+
+요구사항:
+- items 에 {count}개를 넣습니다. 근거는 고르게 씁니다: 옛 화 본문이 있으면 그중 하나 이상, 인물 설정(말투, 호칭, 성격, 외형)이나 확정 사실에서 하나 이상.
+- quote 는 {n}화 본문의 문장 하나를 글자 그대로 옮깁니다. 대사면 따옴표까지 옮깁니다.
+- replacement 는 그 문장에서 이름, 숫자, 장소, 관계, 아는 것, 말투 중 하나만 근거와 어긋나게 바꾼 문장입니다. 나머지는 그대로 둡니다.
+- type 은 모순의 종류, source_episode 와 source_quote 는 어긋나는 근거가 나온 화(설정이나 확정 사실이면 0)와 그 원문입니다.
+- 서로 다른 문장을 고르고, 앞뒤 문장을 함께 고쳐야만 말이 되는 변경은 피합니다."""
 
 
 # ---------- 인과율: 새 요소의 영향 분석 ----------
@@ -1602,7 +1781,10 @@ def impact_texts(p: Project, linked: set[int], limit: int = CHECK_TEXT_LIMIT) ->
                 folded.add(arc.number)
                 out.append(f"## 아크 {arc.number} {arc.title} ({arc.start_ep}~{arc.end_ep}화, 아크 요약)\n{arc.summary}")
             continue
-        out.append(f"## {n}화 {e.plot.title}\n{e.text if n in full else '(요약) ' + (e.summary or e.plot.summary)}")
+        summary = e.summary or e.plot.summary
+        if p.serial and n not in full and n not in linked:  # 아크 요약 대기 중인 먼 화는 첫 문장만
+            summary = context.first_sentence(summary)
+        out.append(f"## {n}화 {e.plot.title}\n{e.text if n in full else '(요약) ' + summary}")
     return "\n\n".join(out)
 
 
@@ -1636,6 +1818,22 @@ def impact_prompt(p: Project, el: StoryElement, linked: set[int]) -> str:
     confirmed = [e.plot.number for e in p.episodes if e.status == "confirmed"]
     others = "\n".join(elements.describe(p, x) for x in p.elements if x.id != el.id and x.context != "off")
     open_fs = [f for f in p.foreshadows if f.status == "open"]
+    chars, relations, facts, texts = p.characters, rels(p), p.facts, impact_texts(p, linked)
+    others_line, facts_note, fs_note = "", "", ""
+    if p.serial:  # 장편: 요소와 관련 화에 나오는 인물 설정만 자세히, 사실은 요소와 관련된 순서로 예산만큼, 본문은 한도를 줄인다
+        ids = {c.id for c in static_characters(p)} | set(el.characters) | {
+            c for e in p.episodes if e.plot.number in linked | set(el.episodes) for c in e.plot.characters}
+        chars, relations = [c for c in p.characters if c.id in ids], rels(p, ids)
+        others_line = roster_line(p, ids)
+        if len(p.facts) > FACTS_FILTER_FROM:
+            facts, cut = context.pick_facts(p, set(el.characters), f"{el.name} {el.description}",
+                                            context.BUDGET["impact_facts"], elements.terms(el))
+            facts_note = f" (요소와 관련된 것과 최근 것만, {cut}개 생략)" if cut else ""
+        texts = impact_texts(p, linked, context.BUDGET["impact_text"])
+        fs_cut = len(open_fs) - context.PLAN_FORESHADOW_CAP
+        if fs_cut > 0:
+            open_fs = context.rank_foreshadows(p, open_fs, max(linked | {1}), context.PLAN_FORESHADOW_CAP)
+            fs_note = f" (회수가 가까운 것과 큰 떡밥 먼저, {fs_cut}개 생략)"
     if el.since_ep <= 0:
         when = ("처음부터 사실이었던 설정입니다. 이미 쓴 본문과 플롯 전체가 이 설정과 맞아야 합니다. "
                 "본문에 이 설정과 어긋나는 문장이 있으면 지적합니다.")
@@ -1647,22 +1845,22 @@ def impact_prompt(p: Project, el: StoryElement, linked: set[int]) -> str:
 [세계관]
 {dump(p.world)}
 [인물]
-{dump(p.characters)}
-[관계]
-{rels(p)}
-[확정된 사실]
-{chr(10).join("- " + f for f in p.facts) or "없음"}
+{dump(chars)}
+{f"[다른 인물 (id: 이름, 역할)]{chr(10)}{others_line}{chr(10)}" if others_line else ""}[관계]
+{relations}
+[확정된 사실]{facts_note}
+{chr(10).join("- " + f for f in facts) or "없음"}
 [다른 이야기 요소]
 {others or "없음"}
 
 {impact_structure(p)}
 [화별 플롯] status: draft 초안, confirmed 작가가 확정, written 본문 있음, finalized 반영 완료{f" (요소와 관련 없는 본문 있는 화 {skipped}개의 플롯은 빼고 아래 본문과 요약으로 대신합니다)" if skipped else ""}
 {dump(eps) if eps else "아직 없음"}
-[열린 복선]
+[열린 복선]{fs_note}
 {dump(open_fs) if open_fs else "없음"}
 
 [이미 쓴 본문]
-{impact_texts(p, linked) or "없음 (아직 쓴 화가 없음)"}
+{texts or "없음 (아직 쓴 화가 없음)"}
 
 [새로 더하거나 고친 요소]
 {elements.describe(p, el)}

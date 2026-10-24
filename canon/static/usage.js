@@ -201,6 +201,15 @@ function usageTable(title, rows, label, note = '') {
     </table></div>${note ? `<div class="small">${note}</div>` : ''}</section>`;
 }
 
+// 입력 구성: 기록에 블록 크기가 있으면 가장 큰 두 블록과 전체 목록(펼치기). 크기는 글자 수
+function usageBlocks(r) {
+  if (!r.blocks || !r.blocks.length || !r.chars) return '';
+  const pct = (v) => `${Math.round((v / r.chars) * 100)}%`;
+  const top = r.blocks.slice(0, 2).map(([k, v]) => `${esc(k)} ${pct(v)}`).join(' · ');
+  const all = r.blocks.map(([k, v]) => `<li>${esc(k)} <span class="small">${v.toLocaleString()}자 · ${pct(v)}</span></li>`).join('');
+  return `<details class="small usage-blocks"><summary>${top}</summary><div>프롬프트 ${r.chars.toLocaleString()}자</div><ul>${all}</ul></details>`;
+}
+
 function usageCalls(u) {
   const all = S.usageList === 'trouble' ? u.trouble : u.recent;
   const list = S.usageMore ? all : all.slice(0, 20);
@@ -215,7 +224,7 @@ function usageCalls(u) {
     return `<tr><td>${usageWhen(r.at)}</td><td>${esc(where || '-')}</td>
       <td>${esc(USAGE_TASK[r.task] || USAGE_STAGE[r.stage] || r.task || '-')}<div class="small">${esc(USAGE_STAGE[r.stage] || r.stage || '')} · ${esc(USAGE_SOURCE[r.source] || r.source || '')}</div></td>
       <td>${esc(r.model)}${r.batch ? ' <span class="chip">배치</span>' : ''}</td>
-      <td>${tok(r.in)}${r.cached ? `<div class="small">캐시 ${tok(r.cached)}</div>` : ''}</td><td>${tok(r.out + (r.thought || 0))}${r.thought ? `<div class="small">생각 ${tok(r.thought)}</div>` : ''}</td>
+      <td>${tok(r.in)}${r.cached ? `<div class="small">캐시 ${tok(r.cached)}</div>` : ''}${usageBlocks(r)}</td><td>${tok(r.out + (r.thought || 0))}${r.thought ? `<div class="small">생각 ${tok(r.thought)}</div>` : ''}</td>
       <td>${r.seconds != null ? `${r.seconds.toFixed(1)}초` : '-'}</td><td><strong>${usd(r.cost)}</strong>${r.saved ? `<div class="small">아낌 ${usd(r.saved)}</div>` : ''}</td><td>${state}</td></tr>`;
   }).join('');
   return `<section class="card">

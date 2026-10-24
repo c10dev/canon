@@ -14,6 +14,8 @@ from .schema import (
     CharacterState,
     ConsistencyIssue,
     ConsistencyReport,
+    PlantedContradiction,
+    PlantSet,
     EpisodePlot,
     Foreshadow,
     HookItem,
@@ -189,6 +191,15 @@ def _plot(n: int, act: str, note: str = "") -> EpisodePlot:
                        events=["사건 1", "사건 2", "사건 3"], characters=["hero", "ally"],
                        emotional_shift="불안 → 결심", ending_hook="문이 열렸다",
                        opening=f"{n}화 여는 장면" if early else "", reader_question=f"{n}화 뒤에 무엇이 있나?" if early else "")
+
+
+def _plants(hint: dict) -> PlantSet:
+    """본문 앞쪽 문장들의 끝에 한 마디를 붙여 '바꾼' 문장으로 낸다."""
+    import re
+    sents = [x for x in re.findall(r"[^.!?\n]+[.!?]", hint.get("text", "")) if len(x.strip()) > 4]
+    return PlantSet(items=[PlantedContradiction(quote=x.strip(), replacement=x.strip()[:-1] + ", 사실 그는 처음 보는 사람이었다.",
+                                                type="사실", source_episode=0, source_quote="설정")
+                           for x in sents[:hint.get("count", 1)]])
 
 
 def _hook(hint: dict) -> HookReport:
@@ -406,6 +417,12 @@ class MockLLM:
             return _hook(hint)  # type: ignore[return-value]
         if schema is OpeningPlots:
             return _openings(hint)  # type: ignore[return-value]
+        if schema is PlantSet:
+            return _plants(hint)  # type: ignore[return-value]
+        if schema is ConsistencyReport and "plants" in hint:  # 검수 시험: 프롬프트에 들어간 심은 문장을 짚는다
+            return ConsistencyReport(episode=hint["episode"], issues=[ConsistencyIssue(
+                type="사실", description="심은 모순", source_episode=0, source_quote="설정", current_quote=x)
+                for x in hint["plants"] if x in prompt])  # type: ignore[return-value]
         if schema is ConsistencyReport:
             n = hint["episode"]
             issues = [ConsistencyIssue(
