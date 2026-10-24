@@ -79,9 +79,16 @@ function autoPoll() {
 async function autoFlushDrafts(upTo) {
   const nums = Object.keys(S.textDraft).map(Number).filter((n) => n <= upTo && textUnsaved(n) && editableEp(ep(n))).sort((a, b) => a - b);
   if (!nums.length) return true;
-  if (!confirm(`${nums.join(', ')}화에 저장하지 않은 본문이 있어요. 먼저 저장하고 이어 갈까요? 저장한 본문은 자동 집필이 검수합니다. 취소하면 시작하지 않아요.`)) return false;
+  // 앞 화 반영 전인 화에 처음 쓰는 본문은 서버가 저장하지 않는다 (순서 규칙). 그 초안은 자동 집필이 그 화를 쓴 뒤 집필 화면에 따로 남는다
+  const stuck = nums.filter((n) => ep(n).status === 'confirmed' && blockedBefore(n).length);
+  const save = nums.filter((n) => !stuck.includes(n));
+  const ask = [
+    save.length ? `${save.join(', ')}화에 저장하지 않은 본문이 있어요. 먼저 저장하고 이어 갈까요? 저장한 본문은 자동 집필이 검수합니다.` : '',
+    stuck.length ? `${stuck.join(', ')}화 초안은 앞 화 반영 전이라 지금 저장할 수 없어요. 자동 집필이 그 화를 쓰면 초안은 집필 화면에 따로 남아 복사할 수 있어요.` : '',
+  ].filter(Boolean).join('\n\n');
+  if (!confirm(`${ask}\n\n취소하면 시작하지 않아요.`)) return false;
   try {
-    for (const n of nums) await flushText(n);
+    for (const n of save) await flushText(n);
     return true;
   } catch (e) {
     toast(e.message, true);

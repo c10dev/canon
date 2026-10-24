@@ -2964,11 +2964,20 @@ function noEpisode() {
   return `<div class="card empty"><p>아직 화별 플롯이 없어요.</p><a class="btn primary" href="${base()}/arc">기승전결 · 플롯 만들기</a></div>`;
 }
 
+/** n화보다 앞인데 상태 반영이 끝나지 않은 화. 있으면 n화 본문을 저장하거나 반영할 수 없다 (서버 pipeline.require_previous). */
+const blockedBefore = (n) => P().episodes.filter((x) => x.plot.number < n && x.status !== 'finalized').map((x) => x.plot.number);
+
+function orderNote(blocked) {
+  if (!blocked.length) return '';
+  const first = ep(blocked[0]);
+  return `<div class="note warn">이전 화(${blocked.join(', ')}화)의 상태 반영이 끝나야 쓸 수 있어요. 인물 상태가 꼬이지 않게 하는 규칙입니다. <a href="${base()}/${first.status === 'written' ? 'review' : 'write'}/${blocked[0]}">${blocked[0]}화 ${first.status === 'written' ? '상태 정리로' : '집필로'}</a></div>`;
+}
+
 function viewWrite(n) {
   const e = ep(n);
   if (!e) return header('4단계', '집필', '') + noEpisode();
   const act = actOf(n);
-  const blocked = P().episodes.filter((x) => x.plot.number < n && x.status !== 'finalized').map((x) => x.plot.number);
+  const blocked = blockedBefore(n);
   const editable = e.status === 'confirmed' || e.status === 'written';
   // 반영이 끝난 화는 저장된 본문을 보인다. 그 화를 쓰던 중 자동 집필 · 다른 탭이 반영을 끝냈으면 초안은 따로 꺼내 보인다
   const draft = editable ? S.textDraft[n] : undefined;
@@ -2983,7 +2992,7 @@ function viewWrite(n) {
     center = `<div class="empty"><p>${n}화 플롯이 아직 초안이에요. 확정해야 쓸 수 있습니다.</p><a class="btn primary" href="${base()}/arc">플롯 확정하러 가기</a></div>`;
   } else if (!e.text && draft === undefined) {
     center = `<div class="empty">
-      ${blocked.length ? `<div class="note warn">이전 화(${blocked.join(', ')}화)의 상태 반영이 끝나야 쓸 수 있어요. 인물 상태가 꼬이지 않게 하는 규칙입니다. <a href="${base()}/${ep(blocked[0]).status === 'written' ? 'review' : 'write'}/${blocked[0]}">${blocked[0]}화 ${ep(blocked[0]).status === 'written' ? '상태 정리로' : '집필로'}</a></div>` : ''}
+      ${orderNote(blocked)}
       ${isApi ? `<p>확정된 플롯과 지금까지의 데이터로 ${n}화를 씁니다.</p>${((b) => `<button class="btn primary" data-action="writeEp" data-arg="${n}"${blocked.length ? ' disabled' : b.attr}>${b.label}</button>`)(jobBtn('write', n, `${n}화 본문 생성`))}${jobFor('write', n) ? '<div class="small">다른 화면으로 옮겨 가도 계속 씁니다. 끝나면 알려 드려요.</div>' : ''}`
         : `<p>작업지시서를 채팅 앱에 붙여 넣고, 받은 본문을 가져오세요.</p><a class="btn primary" href="${base()}/brief/${n}">작업지시서 열기</a>`}
       <button class="btn" data-action="startManual" data-arg="${n}"${writing || blocked.length ? ' disabled' : ''}>직접 쓰기</button>
@@ -3179,6 +3188,8 @@ function viewBrief(n) {
   if (!e) return header('6단계', '채팅 앱 작업지시서', '') + noEpisode();
   const body = S.briefTab === 'episode';
   const stateBlocked = !body && !e.text;
+  // 앞 화 반영이 끝나지 않았으면 받은 본문 저장(처음 쓰는 화)과 변경안 반영을 서버가 막는다. 붙여 넣은 글은 칸에 남는다
+  const order = (body ? e.status === 'confirmed' : e.status === 'written') ? blockedBefore(n) : [];
   return `<header class="page-head"><div class="row" style="gap:12px">${epNav('brief', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${n}화 ${esc(e.plot.title)} · API 없이 쓰기</div><h1 style="font-size:24px">채팅 앱 작업지시서</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div></header>
     <p class="desc">Claude, Gemini, ChatGPT 구독 앱에 붙여 넣을 지시서입니다. API 생성과 똑같은 컨텍스트를 씁니다.</p>
     <div class="tabs" role="tablist" aria-label="지시서 종류">
@@ -3198,12 +3209,14 @@ function viewBrief(n) {
           <label for="imp-body" class="small">채팅 앱이 쓴 본문을 그대로 붙여 넣으세요.</label>
           <textarea id="imp-body" rows="12" data-brief="${n}:episode" style="font-family:var(--serif);line-height:1.8"${e.status === 'draft' || e.status === 'finalized' ? ' disabled' : ''}>${esc(S.briefDraft[`${S.name}:${n}:episode`] || '')}</textarea>
           ${e.status === 'draft' ? '<div class="small">플롯을 확정해야 본문을 저장할 수 있어요.</div>' : ''}${e.status === 'finalized' ? '<div class="small">이미 끝난 화입니다.</div>' : ''}
-          <div style="align-self:flex-end"><button class="btn primary" data-action="importText" data-arg="${n}"${e.status === 'draft' || e.status === 'finalized' ? ' disabled' : ''}>${n}화 본문으로 저장</button></div>`
+          ${orderNote(order)}
+          <div style="align-self:flex-end"><button class="btn primary" data-action="importText" data-arg="${n}"${e.status === 'draft' || e.status === 'finalized' || order.length ? ' disabled' : ''}>${n}화 본문으로 저장</button></div>`
         : `<h2><span class="small" style="font-weight:400">② </span>받은 JSON 가져오기</h2>
           <label for="imp-json" class="small">채팅 앱의 JSON 답변을 붙여 넣으세요. 코드 블록 표시는 자동으로 지웁니다.</label>
           <textarea id="imp-json" rows="12" data-brief="${n}:state" class="mono"${e.status !== 'written' ? ' disabled' : ''}>${esc(S.briefDraft[`${S.name}:${n}:state`] || '')}</textarea>
           ${e.status !== 'written' ? '<div class="small">본문이 작성된 화에서만 쓸 수 있어요.</div>' : ''}
-          <div style="align-self:flex-end"><button class="btn primary" data-action="importJson" data-arg="${n}"${e.status !== 'written' ? ' disabled' : ''}>확인하고 변경안 검토로</button></div>`}
+          ${orderNote(order)}
+          <div style="align-self:flex-end"><button class="btn primary" data-action="importJson" data-arg="${n}"${e.status !== 'written' || order.length ? ' disabled' : ''}>확인하고 변경안 검토로</button></div>`}
         <div style="padding-top:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px">
           <strong style="font-size:13px">순서</strong>
           <ol style="padding-left:20px;display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:1.55;color:var(--text-2)">

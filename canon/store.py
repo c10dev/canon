@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import threading
 from contextvars import ContextVar
@@ -36,16 +37,29 @@ def load(name: str) -> Project:
     return p
 
 
+_MARK = re.compile(r'"edit_rev":\s*(\d+),\s*"saved_by":\s*("(?:[^"\\]|\\.)*")')
+
+
+def _saved_mark(path: Path) -> tuple[int, str]:
+    """디스크 작품의 (edit_rev, saved_by). 두 칸은 Project 의 마지막 필드라 파일 끝만 읽는다 (장편도 저장마다 전체를 읽지 않게)."""
+    with path.open("rb") as f:
+        f.seek(0, os.SEEK_END)
+        f.seek(max(0, f.tell() - 4096))
+        tail = f.read().decode("utf-8", errors="ignore")
+    m = _MARK.search(tail)
+    return (int(m.group(1)), json.loads(m.group(2))) if m else (0, "")
+
+
 def save(name: str, p: Project) -> Path:
     d = project_dir(name)
     d.mkdir(parents=True, exist_ok=True)
     path = d / "project.json"
     if path.exists():
-        disk = json.loads(path.read_text(encoding="utf-8"))
+        rev, by = _saved_mark(path)
         if writer.get():
-            p.edit_rev, p.saved_by = disk.get("edit_rev", 0) + 1, writer.get()
+            p.edit_rev, p.saved_by = rev + 1, writer.get()
         else:  # 작업이 오래전에 읽은 사본을 저장해도 화면 저장 기록은 디스크 것을 잇는다
-            p.edit_rev, p.saved_by = disk.get("edit_rev", 0), disk.get("saved_by", "")
+            p.edit_rev, p.saved_by = rev, by
         shutil.copy(path, d / "project.prev.json")  # 직전 버전 하나는 남겨 둔다
     # 다른 스레드(자동 집필, 백그라운드 작업)가 쓰는 도중에 읽어도 빈 파일을 보지 않게 바꿔치기로 쓴다
     tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
