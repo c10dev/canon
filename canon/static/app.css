@@ -55,6 +55,7 @@ ul, ol { margin: 0; }
 .nav a[aria-current="page"] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
 .nav a[aria-current="page"] .num { background: var(--accent); color: var(--on-accent); }
 .side-foot { margin-top: auto; padding: 12px 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; }
+.side-foot a { min-height: 32px; display: flex; align-items: center; }
 
 .page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
 .page-head .lead { display: flex; flex-direction: column; gap: 6px; }
@@ -151,6 +152,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 
 .char-card { padding: 16px; border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; gap: 10px; }
 .char-card.suggested { border: 1px dashed var(--sel-line); background: var(--sel-bg); }
+.char-card.jump { outline: 2px solid var(--accent); outline-offset: 2px; scroll-margin-top: 72px; }  /* 인물 화면에서 '설정에서 고치기'로 온 카드 */
 details > summary { cursor: pointer; font-size: 0.8125rem; color: var(--accent); min-height: 32px; display: flex; align-items: center; }
 
 /* 설정 도우미: 로그라인 다섯 칸, 톤 다이얼, 말로 고르는 관계 */
@@ -338,6 +340,8 @@ pre.brief { margin: 0; padding: 16px; border-radius: 8px; background: var(--bg);
 .diff-row ins { background: var(--green-soft); color: var(--green-ink); }
 .diff-row ins::before { content: '바꾸면 '; font-weight: 700; font-size: 0.6875rem; }
 .diff-row ol { margin: 2px 0 0; padding-left: 20px; }
+.fact-add { padding: 4px 8px; border-radius: 6px; background: var(--green-soft); color: var(--green-ink); font-size: 0.8125rem; line-height: 1.55; }
+.fact-add::before { content: '더할 사실 '; font-weight: 700; font-size: 0.6875rem; }
 body.chat-open .main { padding-right: 480px; }
 body.chat-open .drawer { right: 440px; }
 body.chat-open #toast { right: 460px; }
@@ -466,6 +470,7 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .strip { display: grid; gap: 4px; min-width: min-content; }
 .strip .cell { min-width: 30px; padding: 6px 0 4px; border: 1px solid var(--line); border-radius: 6px; text-align: center; font-size: 0.75rem; font-weight: 700; color: var(--text-2); text-decoration: none; font-variant-numeric: tabular-nums; background: var(--surface); }
 .strip .cell i { display: block; font-style: normal; font-size: 0.625rem; font-weight: 500; min-height: 14px; }
+.strip button.cell { font-family: inherit; line-height: inherit; cursor: pointer; }
 .strip .cell.has-text { border-bottom: 3px solid var(--text-2); }
 .strip .cell.before { opacity: .55; }
 .strip .cell.since { border-left: 3px solid var(--accent); }
@@ -530,11 +535,13 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .line-map .lm-path { fill: none; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; opacity: .85; }
 .line-map .lm-path.sel { stroke-width: 6; opacity: 1; }
 .line-map .lm-hit { fill: transparent; }
+.line-map .lm-dot .lm-hit { stroke: none; }
+.line-map .lm-dot circle { pointer-events: none; }  /* 누르는 자리는 화마다 겹치지 않는 .lm-hit 칸이다. 점이 옆 화 점과 겹쳐도 가까운 화가 눌린다 */
 .line-map .lm-lane.sel .lm-hit { fill: var(--accent-soft); }
 .line-map [data-action] { cursor: pointer; }
 .line-map [data-action]:focus { outline: none; }
-.line-map [data-action]:focus-visible circle, .line-map .lm-lane:focus-visible .lm-hit { stroke: var(--accent); stroke-width: 3; }
-.line-map .lm-dot:hover circle { stroke-width: 4; }
+.line-map [data-action]:focus-visible circle:not(.lm-hit), .line-map .lm-lane:focus-visible .lm-hit { stroke: var(--accent); stroke-width: 3; }
+.line-map .lm-dot:hover circle:not(.lm-hit) { stroke-width: 4; }
 .line-badge { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 1px 7px; border-radius: 6px; border: 1px solid var(--lc); color: var(--text); font-size: 0.6875rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .line-badge i { width: 8px; height: 8px; border-radius: 2px; background: var(--lc); flex: none; }
 .line-badge.scene { border-style: dashed; font-weight: 500; }
@@ -617,7 +624,7 @@ details.vis summary .small { margin-left: 6px; font-weight: 400; }
 .cast-slider input[type=range] { flex: 1 1 200px; min-width: 160px; accent-color: var(--accent); }
 .cast-slider .icon-btn { width: 38px; min-height: 38px; }
 .cast-graph-wrap { border: 1px solid var(--line); border-radius: 8px; background: var(--canvas); }
-.cast-graph { display: block; width: 100%; height: auto; font-family: var(--sans); user-select: none; touch-action: none; }
+.cast-graph { display: block; width: 100%; height: auto; font-family: var(--sans); user-select: none; touch-action: pan-x pan-y; }  /* 끌어 옮기기는 인물(.cg-node)에서만 스크롤을 막는다 */
 .cast-graph .cg-edge path { fill: none; stroke-linecap: round; }
 .cast-graph .cg-edge .cg-hit { stroke: transparent; stroke-width: 14; }
 .cast-graph .cg-edge:hover path:not(.cg-hit) { filter: drop-shadow(0 0 2px rgba(0,0,0,.25)); }
@@ -628,7 +635,7 @@ details.vis summary .small { margin-left: 6px; font-weight: 400; }
 /* 좁은 폭은 줄이지 않고 가로로 굴려 본다. 이름 · 점이 손가락으로 누를 만한 크기로 남는다. 점 밖을 끌면 화면이 굴러간다 */
 @media (max-width: 600px) {
   .cast-graph-wrap { overflow-x: auto; }
-  .cast-graph { min-width: 560px; touch-action: pan-x pan-y; }
+  .cast-graph { min-width: 560px; }
 }
 .cast-graph .cg-node:focus { outline: none; }
 .cast-graph .cg-node .cg-dot { fill: var(--surface); stroke: var(--text-2); stroke-width: 2; }

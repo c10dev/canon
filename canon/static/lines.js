@@ -108,6 +108,8 @@ function lineMap() {
   const byNo = new Map(p.episodes.map((e) => [e.plot.number, e]));
   const lastPlot = Math.max(0, ...p.episodes.map((e) => e.plot.number));
   const out = [];
+  // 화 점을 누를 자리: 세로 24px, 가로는 옆 화와 겹치지 않는 폭까지 (점이 작아도 누르기 쉽게)
+  const hit = (n, y) => { const w = Math.min(24, step); return `<rect class="lm-hit" x="${X(n) - w / 2}" y="${y - 12}" width="${w}" height="24"></rect>`; };
 
   // 위쪽 띠: 장편은 아크, 단편은 기승전결
   const bands = serial() ? (p.story_arcs || []).map((a) => [a.start_ep, a.end_ep, `아크 ${a.number} ${a.title}`, 'act-' + (((a.number - 1) % 4) + 1)])
@@ -137,7 +139,7 @@ function lineMap() {
     const c = lineColor(s.id);
     const sel = s.id === S.lineSel;
     const [lo, hi] = lineSpan(s);
-    const dash = linePast(s) ? ' stroke-dasharray="7 5"' : '';
+    const dash = linePast(s) ? ` stroke-dasharray="${sel ? '10 9' : '7 5'}"` : '';  // 고른 줄은 굵고 끝이 둥글어 틈을 넓혀야 점선으로 보인다
     const label = `${s.title || '이름 없음'}`;
     out.push(`<g class="lm-lane${sel ? ' sel' : ''}" data-action="lineSelect" data-arg="${esc(s.id)}" tabindex="0" role="button" aria-label="${esc(`${s.kind} ${label} 고치기`)}">
       <rect x="4" y="${y - 17}" width="${left - 12}" height="34" rx="6" class="lm-hit"></rect>
@@ -167,7 +169,7 @@ function lineMap() {
     lineEpisodes(s.id).forEach(({ n, role }) => {
       const e = byNo.get(n);
       const title = `${n}화 ${e ? e.plot.title : ''} · ${s.title}${role === 'thread' ? ' (장면)' : ''} · ${e ? STATUS[e.status] : ''}`;
-      out.push(`<g class="lm-dot" data-action="lineEp" data-arg="${n}" tabindex="0" role="button" aria-label="${esc(title)}"><title>${esc(title)}</title>
+      out.push(`<g class="lm-dot" data-action="lineEp" data-arg="${n}" tabindex="0" role="button" aria-label="${esc(title)}"><title>${esc(title)}</title>${hit(n, y)}
         <circle cx="${X(n)}" cy="${y}" r="${role === 'thread' ? r - 1 : r + 1}" fill="${role === 'thread' ? 'var(--surface)' : DOT_FILL[e ? e.status : 'draft']}" stroke="${c}" stroke-width="${role === 'thread' ? 2 : 3}"${role !== 'thread' && (!e || e.status === 'draft') ? ' stroke-dasharray="3 2"' : ''}></circle>${role === 'thread' ? '' : statusMark(X(n), y, r + 1, e ? e.status : 'draft')}</g>`);
     });
   });
@@ -182,7 +184,7 @@ function lineMap() {
       out.push(`<circle class="lm-gap" cx="${X(n)}" cy="${mainY}" r="${r - 1.5}"><title>${esc(title)}</title></circle>`);
       continue;
     }
-    out.push(`<g class="lm-dot" data-action="lineEp" data-arg="${n}" tabindex="0" role="button" aria-label="${esc(title)}"><title>${esc(title)}</title>
+    out.push(`<g class="lm-dot" data-action="lineEp" data-arg="${n}" tabindex="0" role="button" aria-label="${esc(title)}"><title>${esc(title)}</title>${hit(n, mainY)}
       <circle cx="${X(n)}" cy="${mainY}" r="${r}" fill="${DOT_FILL[e.status]}" class="lm-main-dot ${e.status}"${e.status === 'draft' ? ' stroke-dasharray="3 2"' : ''}></circle>${statusMark(X(n), mainY, r, e.status)}</g>`);
   }
 
@@ -203,10 +205,13 @@ function lineList() {
   const items = (P().storylines || []).map((s) => {
     const [lo, hi] = lineSpan(s);
     const n = lineEpisodes(s.id).length;
+    // 범위는 어디서 왔는지 밝힌다: 정해 둔 갈라짐 · 합류 화가 있으면 그것, 없으면 붙은 화의 범위
+    const marks = [s.branch_ep ? `갈라짐 ${s.branch_ep}화` : '', s.join_ep ? `합류 ${s.join_ep}화` : ''].filter(Boolean).join(' · ');
+    const range = marks || (n ? `${lo}~${hi}화` : '');
     return `<button type="button" class="el-item${s.id === S.lineSel ? ' sel' : ''}" data-action="lineSelect" data-arg="${esc(s.id)}">
-      <span class="between"><span class="line-badge" style="--lc:${lineColor(s.id)}"><i aria-hidden="true"></i>${esc(s.kind)}</span><span class="small">${lo ? `${lo}~${hi}화` : '화 없음'}</span></span>
+      <span class="between"><span class="line-badge" style="--lc:${lineColor(s.id)}"><i aria-hidden="true"></i>${esc(s.kind)}</span><span class="small">${range}</span></span>
       <strong>${esc(s.title) || '이름 없음'}</strong>
-      <span class="small">${s.focus.map(charName).map(esc).join(', ') || '중심 인물 없음'}${s.when ? ' · ' + esc(s.when) : ''} · ${n}화</span></button>`;
+      <span class="small">${s.focus.map(charName).map(esc).join(', ') || '중심 인물 없음'}${s.when ? ' · ' + esc(s.when) : ''} · ${n ? `붙은 화 ${n}개` : '붙은 화 없음'}</span></button>`;
   }).join('');
   return `<div class="el-list">${items}</div>`;
 }
@@ -283,7 +288,7 @@ function lineDraftCard() {
       <div class="field"><label for="line-d-kind">종류</label><select id="line-d-kind" data-line-draft-kind>${LINE_KINDS.map((k) => `<option${k === s.kind ? ' selected' : ''}>${k}</option>`).join('')}</select></div>
       ${input('이름', 'storyline.title', { root: 'lineDraft' })}
     </div>
-    <div class="small">중심 인물: ${s.focus.map(charName).map(esc).join(', ') || '없음'}</div>
+    <div class="field"><span class="label">중심 인물</span><div class="row">${P().characters.map((c) => `<label class="row" style="font-size:0.8125rem;gap:6px"><input type="checkbox" data-line-draft-focus="${esc(c.id)}"${s.focus.includes(c.id) ? ' checked' : ''}>${esc(c.name || c.id)}</label>`).join('') || '<span class="small">인물이 아직 없어요.</span>'}</div></div>
     <div class="grid-2">${input('이야기 속 시점', 'storyline.when', { root: 'lineDraft' })}${input('풀어 갈 것', 'storyline.goal', { root: 'lineDraft' })}</div>
     <div class="grid-2">${input('갈라지는 화', 'storyline.branch_ep', { root: 'lineDraft', type: 'number', min: 0, zeroBlank: true, placeholder: '정하지 않음' })}${input('합류하는 화', 'storyline.join_ep', { root: 'lineDraft', type: 'number', min: 0, zeroBlank: true, placeholder: '아직 열림' })}</div>
     ${input('합류할 때 메인에 남기는 것', 'storyline.rejoin', { root: 'lineDraft', rows: 2 })}
@@ -409,11 +414,13 @@ function lineField(e) {
   const lines = P().storylines || [];
   if (!lines.length) return '';
   const n = e.plot.number;
-  const busy = jobOwns(n);
+  const busy = jobOwns(n) || autoEp() === n;
+  // 본문이 있는 화도 줄기 표시는 바꿀 수 있다 (노선도에서 화 붙이기와 같다). 플롯 잠금 안내와 헷갈리지 않게 이유를 적는다
+  const written = !busy && (e.status === 'written' || e.status === 'finalized');
   const opts = [['', '메인 줄기'], ...lines.map((s) => [s.id, `${s.kind} · ${s.title || s.id}`])]
     .map(([id, l]) => `<option value="${esc(id)}"${(e.plot.storyline || '') === id ? ' selected' : ''}>${esc(l)}</option>`).join('');
   const scenes = lines.filter((s) => s.id !== e.plot.storyline).map((s) => `<label class="row" style="font-size:0.8125rem;gap:6px"><input type="checkbox" data-line-thread="${n}" value="${esc(s.id)}"${(e.plot.threads || []).includes(s.id) ? ' checked' : ''}${busy ? ' disabled' : ''}>${esc(s.title || s.id)}</label>`).join('');
-  return `<div class="field"><label for="line-ep-${n}">이야기 줄기 <span class="hint">이 화가 주로 따라가는 줄기</span></label>
+  return `<div class="field"><label for="line-ep-${n}">이야기 줄기 <span class="hint">${written ? '본문이 있는 화도 줄기 표시는 바꿀 수 있어요. 본문은 그대로예요' : '이 화가 주로 따라가는 줄기'}</span></label>
       <select id="line-ep-${n}" data-line-ep="${n}"${busy ? ' disabled' : ''}>${opts}</select></div>
     ${scenes ? `<div class="field"><span class="label">장면으로 끼어드는 줄기</span><div class="row">${scenes}</div></div>` : ''}`;
 }
@@ -439,6 +446,11 @@ document.addEventListener('change', (e) => {
   if (t.dataset.lineAiKind !== undefined) { S.lineForm.kind = t.value; return; }
   if (t.dataset.linePick) { S.lineDraft.picks = { ...(S.lineDraft.picks || {}), [t.dataset.linePick]: t.checked }; return; }
   if (t.dataset.lineDraftKind !== undefined) { S.lineDraft.storyline.kind = t.value; return; }
+  if (t.dataset.lineDraftFocus) {
+    const f = S.lineDraft.storyline.focus;
+    S.lineDraft.storyline.focus = t.checked ? [...new Set([...f, t.dataset.lineDraftFocus])] : f.filter((x) => x !== t.dataset.lineDraftFocus);
+    return;
+  }
   if (S.route[2] !== 'lines') return;
   const s = lineOf(S.lineSel);
   if (!s) return;
