@@ -1414,8 +1414,15 @@ document.addEventListener('click', (e) => {
 
 // 화 번호로 키를 잡는 화면 상태는 작품마다 따로 둔다. 다른 작품으로 가면 지금 것을 보관하고 그 작품 것을 꺼낸다
 // (그러지 않으면 한 작품의 본문 초안이 다른 작품의 같은 화에 보이고 저장된다)
-const PER_PROJECT = ['textDraft', 'deltas', 'deltaBase'];
-const stash = {};       // 작품 이름 → { textDraft, deltas, deltaBase }
+// 작품마다 따로 두는 화면 상태와 빈 값. 화 번호로 잡거나 반영 전 AI 제안이라, 다른 작품에 보이거나 반영되면 안 된다
+const PER_PROJECT = {
+  textDraft: () => ({}), deltas: () => ({}), deltaBase: () => ({}),
+  suggestion: () => null, picks: () => ({}), seriesDraft: () => null, arcDraft: () => null, recapDraft: () => null,
+  lineDraft: () => null, convDraft: () => null, rbDraft: () => null, reworks: () => ({}),
+  openingData: () => ({}), openingPlots: () => ({}), rw: () => ({}), rwInfo: () => ({}), looks: () => ({}),
+  causalLinks: () => ({}), causalPicks: () => ({}), chatPicks: () => ({}),
+};
+const stash = {};       // 작품 이름 → PER_PROJECT 의 값들
 let stateOwner = null;  // 지금 S.textDraft 등이 속한 작품
 
 /** 지금 작품을 떠나기 전에 부른다: 저장 본문과 같아진 초안, 이미 반영이 끝난 화의 변경안, 더 쓸 수 없는 지시서 칸 글을 버린다.
@@ -1433,9 +1440,9 @@ function pruneProjectState() {
 function useProjectState(name) {
   if (stateOwner === name) return;
   pruneProjectState();
-  if (stateOwner) stash[stateOwner] = Object.fromEntries(PER_PROJECT.map((k) => [k, S[k]]));
+  if (stateOwner) stash[stateOwner] = Object.fromEntries(Object.keys(PER_PROJECT).map((k) => [k, S[k]]));
   const kept = stash[name] || {};
-  PER_PROJECT.forEach((k) => { S[k] = kept[k] || {}; });
+  Object.entries(PER_PROJECT).forEach(([k, empty]) => { S[k] = k in kept ? kept[k] : empty(); });
   delete stash[name];
   stateOwner = name;
 }
