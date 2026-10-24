@@ -353,7 +353,8 @@ function castTimeline(c) {
   if (!rows.length) return '';
   const f = castFrameNow();
   const LABEL = { emotional_state: '감정', current_goal: '목표', location: '위치' };
-  const shown = S.castAllTl ? rows : rows.slice(-30);
+  // 고른 시점 앞뒤 10화를 보인다 (시점이 없으면 마지막 30화). 장편에서 수천 px 로 길어지지 않게
+  const shown = S.castAllTl ? rows : f && f.episode ? rows.filter((r) => Math.abs(r.n - f.episode) <= 10) : rows.slice(-30);
   const items = shown.map((r) => {
     const bits = Object.entries(r.changes).filter(([k]) => LABEL[k]).map(([k, v]) => `<div><span class="small">${LABEL[k]}</span> ${esc(v)}</div>`);
     if (r.changes.knows) bits.push(`<div><span class="small">알게 됨</span> ${r.changes.knows.map(esc).join(', ')}</div>`);
@@ -365,14 +366,21 @@ function castTimeline(c) {
     const marks = `${r.new ? '<span class="chip ai">첫 등장</span>' : ''}${r.pov ? '<span class="chip">시점</span>' : ''}`;
     return `<li class="${f && f.episode === r.n ? 'now' : ''}"><div class="row"><a href="${base()}/write/${r.n}"><strong>${r.n}화</strong></a><span class="small">${esc(r.title)}</span>${marks}</div>${bits.join('') || '<div class="small">등장</div>'}</li>`;
   }).join('');
-  const more = rows.length > shown.length ? `<button type="button" class="btn small ghost" data-action="castAllTl">앞의 ${rows.length - shown.length}화도 보기</button>` : '';
+  const more = rows.length > shown.length ? `<button type="button" class="btn small ghost" data-action="castAllTl">나머지 ${rows.length - shown.length}화도 보기</button>` : '';
   return `<section class="card"><div class="between"><h2>화별 타임라인</h2><span class="small">반영한 화에서 바뀐 것만</span></div>${more}<ol class="cast-tl">${items}</ol></section>`;
 }
 
 // ----- 쌍 상세 -----
 
 function castChart(series, lo, hi, opts = {}) {
-  const fs = S.cast.frames;
+  // 시점이 40개를 넘으면 고른 시점 앞뒤 30개만 그린다 (칸이 몇 px 로 줄지 않게). '전체' 를 누르면 다 그린다
+  const all = S.cast.frames;
+  const a0 = all.length > 40 && !S.castChartAll ? Math.max(0, Math.min(S.castFrame - 15, all.length - 31)) : 0;
+  const a1 = all.length > 40 && !S.castChartAll ? Math.min(all.length - 1, a0 + 30) : all.length - 1;
+  const fs = all.slice(a0, a1 + 1);
+  series = series.map((s) => ({ ...s, values: s.values.slice(a0, a1 + 1) }));
+  if (opts.notes) opts = { ...opts, notes: opts.notes.slice(a0, a1 + 1) };
+  const at = S.castFrame - a0;
   const W = 520;
   const H = opts.h || 120;
   const L = 34;
@@ -384,13 +392,13 @@ function castChart(series, lo, hi, opts = {}) {
   const Y = (v) => T + (1 - (v - lo) / (hi - lo)) * ph;
   const out = [];
   (opts.grid || [lo, hi]).forEach((g) => out.push(`<line class="cc-grid${g === 0 && lo < 0 ? ' zero' : ''}" x1="${L}" x2="${L + pw}" y1="${Y(g)}" y2="${Y(g)}"></line><text class="cc-tick" x="${L - 5}" y="${Y(g) + 3}" text-anchor="end">${opts.fmt ? opts.fmt(g) : g}</text>`));
-  out.push(`<line class="cc-now" x1="${X(S.castFrame)}" x2="${X(S.castFrame)}" y1="${T}" y2="${T + ph}"></line>`);
+  out.push(`<line class="cc-now" x1="${X(at)}" x2="${X(at)}" y1="${T}" y2="${T + ph}"></line>`);
   series.forEach((s) => {
     const pts = s.values.map((v, i) => (v === null ? null : [X(i), Y(v)]));
     let d = '';
     pts.forEach((pt, i) => { if (pt) d += `${d && pts[i - 1] ? 'L' : 'M'}${pt[0].toFixed(1)} ${pt[1].toFixed(1)} `; });
     if (d) out.push(`<path class="cc-line" d="${d}" stroke="${s.color}"></path>`);
-    const cur = pts[S.castFrame];
+    const cur = pts[at];
     if (cur) out.push(`<circle cx="${cur[0]}" cy="${cur[1]}" r="4" fill="${s.color}" class="cc-dot"></circle>`);
   });
   const every = Math.max(1, Math.ceil(fs.length / 10));
@@ -401,9 +409,10 @@ function castChart(series, lo, hi, opts = {}) {
   const colW = fs.length < 2 ? pw : pw / (fs.length - 1);
   fs.forEach((f, i) => {
     const tip = `${frameLabel(f)}\n` + series.map((s) => `${s.label}: ${s.values[i] === null ? '-' : (opts.fmt ? opts.fmt(s.values[i]) : s.values[i].toFixed(2))}`).join('\n') + (opts.notes && opts.notes[i] ? '\n' + opts.notes[i] : '');
-    out.push(`<rect class="cc-col" x="${X(i) - colW / 2}" y="${T}" width="${colW}" height="${ph}" data-action="castGo" data-arg="${i}"><title>${esc(tip)}</title></rect>`);
+    out.push(`<rect class="cc-col" x="${X(i) - colW / 2}" y="${T}" width="${colW}" height="${ph}" data-action="castGo" data-arg="${i + a0}"><title>${esc(tip)}</title></rect>`);
   });
-  return `<svg class="cast-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.label || '')}">${out.join('')}</svg>`;
+  const range = all.length > 40 ? `<div class="small">${S.castChartAll ? `전체 ${all.length}개 시점` : `${frameLabel(fs[0])} ~ ${frameLabel(fs[fs.length - 1])}`} <button type="button" class="link-btn" data-action="castChartAll">${S.castChartAll ? '고른 시점 주변만' : '전체 보기'}</button></div>` : '';
+  return `<svg class="cast-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.label || '')}">${out.join('')}</svg>${range}`;
 }
 
 /** 관계 수치 직접 보정. AI가 아니라 '수동보정' 사건으로 기록해 재생할 수 있다 (POST /ties/adjust, pipeline.adjust_tie). */
@@ -489,7 +498,7 @@ function castRefresh() {
 function castTable() {
   const p = P();
   const total = Math.max(p.meta.target_episodes, ...p.episodes.map((e) => e.plot.number), 1);
-  const step = total <= 40 ? 18 : total <= 120 ? 8 : 4;
+  const step = total <= 40 ? 18 : total <= 120 ? 8 : 6;  // 칸이 6px 보다 좁아지지 않게. 넘치면 가로로 스크롤한다
   const left = 150;
   const top = 34;
   const rowH = 28;
@@ -565,6 +574,10 @@ function viewCast() {
 // ----- 동작 -----
 
 Object.assign(actions, {
+  castChartAll() {
+    S.castChartAll = !S.castChartAll;
+    render();
+  },
   async tieFix(arg) {
     const [source, target, k] = String(arg).split('|');
     const warmth = Number($(`#tf-w${k}`).value);

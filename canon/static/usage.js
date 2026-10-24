@@ -107,15 +107,24 @@ function viewUsage() {
 
 // 날짜별 비용 막대. 비용이 모두 0(로컬만 씀)이면 호출 수로 그린다.
 function usageChart(u) {
-  const byDay = Object.fromEntries(u.by_day.map((r) => [r.day, r]));
-  let days = u.by_day.map((r) => r.day);
-  if (S.usageDays && S.usageDays <= 90) {
-    days = [];
-    const d = new Date();
-    for (let i = S.usageDays - 1; i >= 0; i--) {
-      const x = new Date(d.getFullYear(), d.getMonth(), d.getDate() - i);
-      days.push(`${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`);
-    }
+  let byDay = Object.fromEntries(u.by_day.map((r) => [r.day, r]));
+  const key = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+  // 기간 안의 날을 빈 날까지 모두 채운다 ('전체'는 첫 기록 날부터 오늘까지). 120일이 넘으면 주 단위로 묶는다
+  const today = new Date();
+  const from = S.usageDays ? new Date(today.getFullYear(), today.getMonth(), today.getDate() - S.usageDays + 1)
+    : u.by_day.length ? new Date(`${u.by_day.map((r) => r.day).sort()[0]}T00:00:00`) : today;
+  let days = [];
+  for (let x = new Date(from); x <= today; x = new Date(x.getFullYear(), x.getMonth(), x.getDate() + 1)) days.push(key(x));
+  if (days.length > 120) {
+    const weeks = {};
+    days.forEach((d, i) => {
+      const w = days[i - (i % 7)];
+      const r = byDay[d];
+      if (!weeks[w]) weeks[w] = { day: w, cost: 0, calls: 0, in: 0, out: 0, failed: 0 };
+      if (r) ['cost', 'calls', 'in', 'out', 'failed'].forEach((k) => { weeks[w][k] += r[k] || 0; });
+    });
+    days = Object.keys(weeks);
+    byDay = Object.fromEntries(Object.entries(weeks).filter(([, r]) => r.calls));
   }
   const byCost = u.by_day.some((r) => r.cost > 0);
   const val = (r) => (r ? (byCost ? r.cost : r.calls) : 0);

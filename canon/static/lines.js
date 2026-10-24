@@ -93,8 +93,10 @@ function lineMap() {
   const p = P();
   const lines = p.storylines || [];
   const total = Math.max(p.meta.target_episodes, ...p.episodes.map((e) => e.plot.number), 1);
-  const step = S.lineZoom || (total <= 40 ? 30 : total <= 120 ? 16 : 9);
-  const left = 168;
+  // '맞춤'은 지금 노선도 칸 폭에 맞춘다 (전에 그린 칸이나 본문 폭을 잰다). 좁은 화면은 이름 칸도 줄인다
+  const wrapW = S.lineFitW || (document.querySelector('#app .line-map-wrap') || document.querySelector('#app main') || { clientWidth: 1000 }).clientWidth;
+  const left = wrapW < 600 ? 96 : 168;
+  const step = S.lineZoom || Math.max(4, Math.min(30, (wrapW - left - 24) / total));
   const X = (n) => left + (n - 0.5) * step;
   const bandY = 8;
   const mainY = 64;
@@ -445,3 +447,14 @@ document.addEventListener('keydown', (e) => {
     e.target.closest('[data-action]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
   }
 });
+
+/** 그린 뒤에 부른다: '맞춤'인데 노선도가 칸보다 넓으면 칸 폭을 재어 한 번 더 그린다 (처음 그릴 때는 칸이 없어 본문 폭으로 짐작한다). */
+function syncLines() {
+  const wrap = document.querySelector('#app .line-map-wrap');
+  const svg = wrap && wrap.querySelector('svg');
+  if (!svg || S.lineZoom || S.lineFitW === wrap.clientWidth) return;
+  if (svg.getBoundingClientRect().width <= wrap.clientWidth + 2) return;
+  S.lineFitW = wrap.clientWidth;
+  render();
+}
+window.addEventListener('resize', () => { S.lineFitW = 0; });

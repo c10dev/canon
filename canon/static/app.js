@@ -931,6 +931,10 @@ const actions = {
       toast(`${rangeText(fin)}화의 반영을 취소했어요. ${n}화 변경안을 다시 골라 적용하세요`);
     });
   },
+  railAll() {
+    S.railAll = true;
+    render();
+  },
   toggleMenu() {
     S.menuOpen = !S.menuOpen;  // 좁은 폭에서만 보이는 버튼. 메뉴를 고르면 화면 이동 때 닫힌다
     render();
@@ -1853,6 +1857,17 @@ function lostPartSummaries() {
   return P().parts.filter((x) => x.summary && !keep.has(`${x.start_ep}-${x.end_ep}`));
 }
 
+/** 장편 아크 줄: 끝났고 요약도 있는 앞쪽 아크가 많으면 한 칩으로 접는다 (고른 아크는 늘 보인다). */
+function railChips(arcs, chip) {
+  const done = (a) => a.summary && arcFinished(a);
+  let k = 0;
+  while (k < arcs.length && done(arcs[k])) k++;
+  if (S.railAll || k <= 3) return arcs.map(chip).join('');
+  const folded = arcs.slice(0, k).filter((a) => a.number !== S.selArc);
+  const keep = arcs.slice(0, k).filter((a) => a.number === S.selArc);
+  return `<button type="button" class="arc-chip" data-action="railAll" aria-expanded="false"><strong>아크 ${arcs[0].number}~${arcs[k - 1].number}</strong> <span>완료 ${folded.length}개 · 펼치기</span></button>${keep.map(chip).join('')}${arcs.slice(k).map(chip).join('')}`;
+}
+
 // 화면 이동은 하나씩 차례로 처리한다. 늦게 끝난 앞 이동이 지금 화면의 데이터(지시서, 컨텍스트 등)를 덮지 않게 하고,
 // 기다리는 사이 또 옮겼으면 중간 화면은 건너뛴다
 let routeQueue = Promise.resolve();
@@ -2081,6 +2096,7 @@ function drawApp() {
   if (typeof syncPassage === 'function') syncPassage();
   if (typeof syncIllust === 'function') syncIllust();
   if (typeof syncMarks === 'function') syncMarks();
+  if (typeof syncLines === 'function') syncLines();
   document.querySelectorAll('textarea[data-autogrow]').forEach(autosize);
   // 상태 승인 지시서 탭이 바뀌면 다시 불러온다
   if (page === 'brief' && S.briefText === null && ep(n)) {
@@ -3309,8 +3325,8 @@ function viewSerial() {
   };
   const rail = `<section class="card">
       <div class="between"><h2>아크</h2><span class="small">아크 하나는 5~30화짜리 작은 이야기예요. 다음 아크의 플롯만 그때그때 만들어요.</span></div>
-      <div class="arc-rail">${arcs.map(arcChip).join('')}${planned < p.meta.target_episodes ? `<button type="button" class="arc-chip next${S.selArc === 'next' ? ' sel' : ''}" data-action="selectArc" data-arg="next">+ 다음 아크 <span>${nextStart}화부터</span></button>` : ''}</div>
-      ${pending.length ? `<div class="note warn">끝난 아크의 요약이 필요해요: ${pending.map((a) => `<a href="#" data-action="selectArc" data-arg="${a.number}" style="color:inherit;font-weight:700">아크 ${a.number}</a>`).join(', ')}. 요약이 있어야 오래된 줄거리를 짧게 접어 넣을 수 있어요.</div>` : ''}
+      <div class="arc-rail">${railChips(arcs, arcChip)}${planned < p.meta.target_episodes ? `<button type="button" class="arc-chip next${S.selArc === 'next' ? ' sel' : ''}" data-action="selectArc" data-arg="next">+ 다음 아크 <span>${nextStart}화부터</span></button>` : ''}</div>
+      ${pending.length ? `<div class="note warn between"><span>요약이 필요한 끝난 아크 ${pending.length}개 · 가장 오래된 <a href="#" data-action="selectArc" data-arg="${pending[0].number}" style="color:inherit;font-weight:700">아크 ${pending[0].number}</a>부터 받으세요. 요약이 있어야 오래된 줄거리를 짧게 접어 넣을 수 있어요.</span>${((b) => `<button class="btn small" data-action="recapArc" data-arg="${pending[0].number}"${b.attr}>${b.label}</button>`)(jobBtn('recap_arc', pending[0].number, `아크 ${pending[0].number} 요약 받기`))}</div>` : ''}
     </section>`;
 
   let body;

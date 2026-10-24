@@ -23,7 +23,7 @@ function autoDefaults() {
   const p = P();
   const last = S.auto && S.auto.run;
   return {
-    target: p.meta.target_episodes,
+    target: p.episodes.length ? Math.max(...p.episodes.map((e) => e.plot.number)) : p.meta.target_episodes,  // 플롯이 있는 마지막 화까지
     batch: last ? last.batch : false,
     policy: last ? { ...last.policy } : {
       check: true, max_issues: 0, max_shift: 0.3, stop_on_stage: false, stop_on_warnings: false, confirm_plots: false, review_every: 0, hand_pick_opening: true,
@@ -144,7 +144,7 @@ function autoEstCard() {
   const local = Object.entries(x.stages).filter(([, v]) => v === 'local').map(([k]) => ({ write: '본문', check: '검수', state: '상태' }[k]));
   return `<div class="small">${x.episodes ? `${x.from}~${x.to}화 ${x.episodes}화 남음 · 호출 본문 ${x.calls.write} · 검수 ${x.calls.check} · 상태 ${x.calls.state} · 토큰 입력 약 ${x.tokens_in.toLocaleString()} / 출력 약 ${x.tokens_out.toLocaleString()}` : `${x.to}화까지 남은 화가 없어요`}</div>
     <div class="grid-2">${col(e.off, false)}${col(e.on, true)}</div>
-    ${x.missing.length ? `<div class="note warn">플롯이 없는 화(${x.missing.join(', ')}화)에서 멈춰요. 먼저 플롯을 만드세요.</div>` : ''}
+    ${x.missing.length ? `<div class="note warn">플롯이 없는 화(${rangeText(x.missing)}화)에서 멈춰요. 먼저 플롯을 만드세요.</div>` : ''}
     ${local.length ? `<div class="small">${local.join(', ')} 단계는 로컬 모델이라 비용이 없고 배치도 쓰지 않아요.</div>` : ''}
     <div class="small">${x.measured ? '지난 실행에서 잰 출력량과 시간을 썼어요.' : '처음이라 화당 목표 분량으로 추정했어요.'} 가격은 <a href="#/usage">사용량 · 비용</a> 화면의 가격표(${esc(x.model)} 기준)로 계산한 추정치이고, 생각(thinking) 토큰이 많으면 더 나올 수 있어요.${x.unpriced && x.unpriced.length ? ` 가격표에 없는 모델(${x.unpriced.map(esc).join(', ')})이 있어 비용을 몰라요.` : ''}</div>`;
 }
