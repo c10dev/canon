@@ -287,7 +287,10 @@ Object.assign(actions, {
   },
   async chatDismiss(i) {
     // 손보던 후보 글이 있으면 묻는다. 버린 뒤에도 '다시 검토'로 다시 열 수 있다
-    if (Object.keys(S.candEdit || {}).some((k) => k.startsWith(`${i}:`)) && !confirm('손보던 후보 글이 있어요. 버릴까요? 다시 검토로 열면 후보는 다시 보이지만 손본 글은 남지 않아요.')) return;
+    const also = S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : '';
+    if (Object.keys(S.candEdit || {}).some((k) => k.startsWith(`${i}:`))) {
+      if (!confirm(`손보던 후보 글이 있어요. 버릴까요? 다시 검토로 열면 후보는 다시 보이지만 손본 글은 남지 않아요.${also}`)) return;
+    } else if (also && !confirm(`이 변경안을 버릴까요?${also}`)) return;
     await run('정리하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(S.chatTopic)}/${i}/dismiss`);
@@ -301,7 +304,7 @@ Object.assign(actions, {
   },
   async chatClear() {
     const open = chatMessages(S.chatTopic).filter((m) => m.revision && !m.outcome).length;
-    if (!confirm(chatConf(S.chatTopic).clearAsk + (open ? `\n아직 고르지 않은 변경안 ${open}개도 함께 지워져요.` : ''))) return;
+    if (!confirm(chatConf(S.chatTopic).clearAsk + (open ? `\n아직 고르지 않은 변경안 ${open}개도 함께 지워져요.` : '') + (S.dirty ? '\n저장하지 않은 다른 변경도 함께 저장해요.' : ''))) return;
     await run('지우는 중', async () => {
       await saveIfDirty();
       S.project = await api('DELETE', `/projects/${enc(S.name)}/chat/${enc(S.chatTopic)}`);

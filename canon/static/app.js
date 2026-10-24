@@ -3784,7 +3784,7 @@ function viewWrite(n) {
 
   let center;
   if (e.status === 'draft') {
-    center = `<div class="empty"><p>${n}화 플롯이 아직 초안이에요. 확정해야 쓸 수 있어요.</p><a class="btn primary" href="${base()}/arc">플롯 확정하러 가기</a></div>`;
+    center = `<div class="empty"><p>${n}화 플롯이 아직 초안이에요. 확정해야 쓸 수 있어요.</p><a class="btn primary" href="${base()}/arc" data-action="gotoPlot" data-arg="${n}">${n}화 플롯 확정하러 가기</a></div>`;
   } else if (!e.text && draft === undefined) {
     center = `<div class="empty">
       ${orderNote(blocked)}
@@ -3798,10 +3798,13 @@ function viewWrite(n) {
       : `<div class="read" data-read="${n}">${readHtml(n, text)}</div>`}</div>`;
   }
 
-  const ctx = S.context ? `<ol class="panel-list">${S.context.map((c) => `<li><span>${esc(c.title)}</span><span class="small">${c.chars.toLocaleString()}자</span></li>`).join('')}</ol>
-      <div class="small">합계 ${S.context.reduce((s, c) => s + c.chars, 0).toLocaleString()}자. 이전 본문 전체 대신 이 데이터만 매번 같은 순서로 넣어요.</div>` : '<div class="small">플롯을 확정하면 보여요.</div>';
+  const ctx = S.context ? `<details data-ctx-toggle${S.ctxOpen ? ' open' : ''}><summary>${S.context.length}개 블록 · 합계 ${S.context.reduce((s, c) => s + c.chars, 0).toLocaleString()}자</summary><ol class="panel-list">${S.context.map((c) => `<li><span>${esc(c.title)}</span><span class="small">${c.chars.toLocaleString()}자</span></li>`).join('')}</ol></details>
+      <div class="small">이전 본문 전체 대신 이 데이터만 매번 같은 순서로 넣어요.</div>` : '<div class="small">플롯을 확정하면 보여요.</div>';
 
-  const right = `${e.status !== 'finalized' ? `<div class="seg" role="group" aria-label="생성 방식"><button type="button" aria-pressed="${isApi}" data-action="setMode" data-arg="api">Gemini API</button><button type="button" aria-pressed="${!isApi}" data-action="setMode" data-arg="brief">채팅 앱 작업지시서</button></div>` : ''}
+  // 생성 방식 토글은 설정의 본문 단계 백엔드 이름을 보인다 (설정을 아직 받지 않았으면 이름 없이)
+  const wst = ((S.config || {}).stages || {}).write;
+  const wname = wst ? ({ gemini: 'Gemini', local: '로컬', mock: 'mock' }[wst.provider] || wst.provider) : '';
+  const right = `${e.status !== 'finalized' ? `<div class="seg" role="group" aria-label="생성 방식"><button type="button" aria-pressed="${isApi}" data-action="setMode" data-arg="api" title="${wst ? `본문 모델 ${esc(wst.model || '')} · 설정에서 바꿔요` : '설정에서 바꿔요'}">AI로 쓰기${wname ? ` · ${esc(wname)}` : ''}</button><button type="button" aria-pressed="${!isApi}" data-action="setMode" data-arg="brief">채팅 앱 작업지시서</button></div>` : ''}
     ${e.text && editable ? chatButton(`text:${n}`) : ''}
     ${e.text && editable && isApi ? `${((b) => `<button class="btn${S.rwOpen === n ? ' on' : ''}" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${b.attr}>${b.label}</button>`)(jobBtn('write', n, '다시 생성'))}` : ''}
     ${editable && !isApi ? `<a class="btn" href="${base()}/brief/${n}">작업지시서</a>` : ''}
@@ -3835,10 +3838,10 @@ function viewWrite(n) {
       </aside>
       <section class="card w-body" style="flex:3 1 520px;min-width:0;padding:0;gap:0" aria-label="본문">
         <div class="between" style="padding:10px 16px;border-bottom:1px solid var(--line);font-size:0.75rem;color:var(--muted)">
-          <span>${e.status === 'finalized' ? '상태 반영까지 끝난 화는 읽기 전용이에요. 드래그하면 삽화 프롬프트를 만들 수 있어요' : e.text ? '고칠 부분을 드래그하면 직접 고치거나 AI에게 맡기거나 삽화 프롬프트를 만들 수 있어요' : '본문을 직접 고친 뒤 저장할 수 있어요'}</span>
-          <span class="row"><span><strong id="char-count" style="color:var(--text)">${(text || '').length.toLocaleString()}</strong> / ${Number(P().meta.words_per_episode).toLocaleString()}자</span>
+          <span>${e.status === 'draft' ? '플롯을 확정하면 본문을 쓸 수 있어요' : e.status === 'finalized' ? '상태 반영까지 끝난 화는 읽기 전용이에요. 드래그하면 삽화 프롬프트를 만들 수 있어요' : e.text ? '고칠 부분을 드래그하면 직접 고치거나 AI에게 맡기거나 삽화 프롬프트를 만들 수 있어요' : '본문을 직접 고친 뒤 저장할 수 있어요'}</span>
+          ${e.status === 'draft' ? '' : `<span class="row">${(e.edits || []).length ? `<button type="button" class="btn small" data-action="openEdits" title="수정 기록을 펼쳐요">수정 기록 ${e.edits.length}</button>` : ''}<span><strong id="char-count" style="color:var(--text)">${(text || '').length.toLocaleString()}</strong> / ${Number(P().meta.words_per_episode).toLocaleString()}자</span>
           ${text ? `<button class="btn small" data-action="copyEp" data-arg="${n}" title="고른 줄바꿈 형식으로 복사 (오른쪽 '복사 · 내보내기'에서 바꿈)">복사</button>` : ''}
-          ${editable && (e.text || draft !== undefined) ? `<button class="btn small${textUnsaved(n) && !autoOn() ? ' primary' : ''}" id="save-text" data-action="saveText" data-arg="${n}"${draft === undefined || autoOn() ? ` disabled title="${autoOn() ? '자동 집필이 도는 동안은 저장할 수 없어요' : '고친 내용이 없어요'}"` : ''}>본문 저장</button>` : ''}</span>
+          ${editable && (e.text || draft !== undefined) ? `<button class="btn small${textUnsaved(n) && !autoOn() ? ' primary' : ''}" id="save-text" data-action="saveText" data-arg="${n}"${draft === undefined || autoOn() ? ` disabled title="${autoOn() ? '자동 집필이 도는 동안은 저장할 수 없어요' : '고친 내용이 없어요'}"` : ''}>본문 저장</button>` : ''}</span>`}
         </div>
         ${e.text ? passageNotes(n) ? `<div style="padding:12px 16px 0;display:flex;flex-direction:column;gap:8px">${passageNotes(n)}</div>` : '' : ''}
         ${center}

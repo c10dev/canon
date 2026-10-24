@@ -10,8 +10,13 @@ Object.assign(S, {
   copyFormats: null,                               // 서버 publish.FORMATS
   copyFmt: copyPref('canon.copyFmt', 'blank'),        // 고른 형식
   copyTitle: copyPref('canon.copyTitle', '1') === '1', // 'N화. 제목' 줄을 넣을지
-  copyRange: null,                                 // 여러 화 { from, to }
+  copyRange: {},                                   // 작품 이름 → 여러 화 { from, to }
 });
+
+/** 이 작품의 여러 화 범위. 고치지 않았으면 쓴 첫 화 ~ 마지막 화. */
+function copyRangeOf(nums) {
+  return { from: nums[0], to: nums[nums.length - 1], ...S.copyRange[S.name] };
+}
 
 function writtenNums() {
   return P().episodes.filter((e) => e.text || liveDraft(e.plot.number) !== undefined).map((e) => e.plot.number);
@@ -21,7 +26,10 @@ function writtenNums() {
 function exportCard(n) {
   const nums = writtenNums();
   if (!nums.length) return '';
-  const r = S.copyRange || { from: nums[0], to: nums[nums.length - 1] };
+  const r = copyRangeOf(nums);
+  const last = nums[nums.length - 1];
+  const bad = r.from > r.to;
+  const inv = bad ? ' aria-invalid="true" aria-describedby="copy-range-err"' : '';
   const fmts = S.copyFormats || [];
   const hint = (fmts.find((f) => f.id === S.copyFmt) || {}).hint || '';
   const has = nums.includes(n);
@@ -31,13 +39,14 @@ function exportCard(n) {
       <select id="copy-fmt" data-copy="fmt">${fmts.map((f) => `<option value="${esc(f.id)}"${f.id === S.copyFmt ? ' selected' : ''}>${esc(f.label)}</option>`).join('')}</select>
       ${hint ? `<span class="small">${esc(hint)}</span>` : ''}</div>
     <label class="row small" style="gap:6px"><input type="checkbox" data-copy="title"${S.copyTitle ? ' checked' : ''}> 맨 위에 '${n}화. 제목' 줄 넣기</label>
-    ${has ? `<div class="row" style="gap:6px"><button type="button" class="btn small primary" data-action="copyEp" data-arg="${n}">이 화 복사</button>
+    ${has ? `<div class="row" style="gap:6px"><button type="button" class="btn small" data-action="copyEp" data-arg="${n}">이 화 복사</button>
       <button type="button" class="btn small" data-action="downloadTxt" data-arg="${n}-${n}">.txt</button></div>` : ''}
     <div class="row small" style="gap:6px;margin-top:4px">여러 화
-      <input type="number" class="ep-num" min="1" value="${r.from}" data-copy="from" aria-label="시작 화">~
-      <input type="number" class="ep-num" min="1" value="${r.to}" data-copy="to" aria-label="끝 화">화</div>
-    <div class="row" style="gap:6px"><button type="button" class="btn small" data-action="copyRange">한꺼번에 복사</button>
-      <button type="button" class="btn small" data-action="downloadTxt" data-arg="${r.from}-${r.to}">.txt 내려받기</button></div>
+      <input type="number" id="copy-from" class="ep-num" min="1" max="${last}" value="${r.from}" data-copy="from" aria-label="시작 화"${inv}>~
+      <input type="number" id="copy-to" class="ep-num" min="1" max="${last}" value="${r.to}" data-copy="to" aria-label="끝 화"${inv}>화</div>
+    ${bad ? `<span class="small warn-text" id="copy-range-err">시작 화가 끝 화보다 커요. ${r.to}~${r.from}화로 바꿔 보세요</span>` : ''}
+    <div class="row" style="gap:6px"><button type="button" class="btn small" data-action="copyRange"${bad ? ' disabled' : ''}>한꺼번에 복사</button>
+      <button type="button" class="btn small" data-action="downloadTxt" data-arg="${r.from}-${r.to}"${bad ? ' disabled' : ''}>.txt 내려받기</button></div>
     <span class="small">여러 화는 화마다 제목 줄을 넣어 잇고, 본문이 없는 화는 건너뛰어요.</span>
   </div>`;
 }
@@ -107,7 +116,7 @@ Object.assign(actions, {
   },
   copyRange() {
     const nums = writtenNums();
-    const r = S.copyRange || { from: nums[0], to: nums[nums.length - 1] };
+    const r = copyRangeOf(nums);
     const eps = nums.filter((x) => x >= r.from && x <= r.to);
     if (!eps.length) return toast('그 범위에 본문이 있는 화가 없어요', true);
     copyEpisodes(eps);
@@ -121,7 +130,8 @@ document.addEventListener('change', (e) => {
   if (k === 'title') copyKeep('canon.copyTitle', (S.copyTitle = e.target.checked) ? '1' : '0');
   if (k === 'from' || k === 'to') {
     const nums = writtenNums();
-    S.copyRange = { from: nums[0], to: nums[nums.length - 1], ...S.copyRange, [k]: Math.max(1, Number(e.target.value) || 1) };
+    const last = nums[nums.length - 1];
+    S.copyRange[S.name] = { ...copyRangeOf(nums), [k]: Math.min(last, Math.max(1, Number(e.target.value) || 1)) };
   }
   render();  // 내려받기 주소와 설명을 새 값으로
 });

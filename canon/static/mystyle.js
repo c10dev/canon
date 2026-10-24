@@ -160,7 +160,7 @@ Object.assign(actions, {
     });
   },
   async learnDismiss() {
-    if (!confirm('찾은 규칙 후보를 지울까요? 이미 넣은 규칙은 그대로예요.')) return;
+    if (!confirm(`찾은 규칙 후보를 지울까요? 이미 넣은 규칙은 그대로예요.${S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : ''}`)) return;
     await run('지우는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/style/learn/dismiss`);
