@@ -1,7 +1,7 @@
 """생성 파이프라인. 각 단계는 Project 를 받아 제안을 만들고, 반영은 호출자가 승인 후 한다."""
 from __future__ import annotations
 
-from . import dynamics, elements, illust, metrics, naming, prompts, storylines
+from . import dynamics, elements, illust, metrics, naming, prompts, renumber, storylines
 from .llm import LLM, dump
 from .schema import (
     Act,
@@ -1530,6 +1530,167 @@ def dismiss_impact(p: Project, eid: str) -> None:
     imp = elements.get(p, eid).impact
     if imp and not imp.outcome:
         imp.outcome = "dismissed"
+
+
+# ---------- 3-4. 화 끼워 넣기 · 빼기 ----------
+# 아직 안 쓴 화 앞에 외전이나 새 화를 넣거나, 안 쓴 화를 뺀다. 뒤 화는 플롯과 확정 상태를 그대로 둔 채 번호만 옮기고,
+# 화 번호를 품은 곳(구간 · 아크 · 부 범위, 총 화수, 복선, 인과율 요소, 이야기 줄기, 인물 첫 등장 화)도 함께 옮긴다 (renumber.py).
+# 본문이 있거나 상태를 반영한 화는 번호를 바꾸지 않는다: 본문 파일, 스냅샷, 사건 로그까지 바꿔야 해서다.
+
+def insert_range(p: Project) -> tuple[int, int]:
+    """새 화를 넣을 수 있는 자리 (그 화 앞에 넣는다). 처음 > 끝이면 넣을 수 없다."""
+    last = max((e.plot.number for e in p.episodes), default=0)
+    return renumber.last_fixed(p) + 1, last + 1
+
+
+def _ranges_text(p: Project) -> dict[str, tuple[int, int]]:
+    out = {f"아크 {s.number} {s.title}".strip(): (s.start_ep, s.end_ep) for s in p.story_arcs}
+    out.update({f"{x.number}부 {x.title}".strip(): (x.start_ep, x.end_ep) for x in p.parts})
+    if not p.serial:
+        out.update({f"{a.name} 구간": (a.start_ep, a.end_ep) for a in p.arc})
+    return out
+
+
+def _renumber_notes(before: Project, after: Project, counts: dict[str, int]) -> list[str]:
+    notes = []
+    old, new = _ranges_text(before), _ranges_text(after)
+    grown = [f"{k} {old[k][0]}~{old[k][1]}화 → {new[k][0]}~{new[k][1]}화" for k in old
+             if k in new and old[k][1] - old[k][0] != new[k][1] - new[k][0]]
+    moved = sum(1 for k in old if k in new and old[k] != new[k]) - len(grown)
+    if grown:
+        notes.append(", ".join(grown) + (f" (뒤 범위 {moved}개는 한 칸씩 옮김)." if moved > 0 else "."))
+    if before.meta.target_episodes != after.meta.target_episodes:
+        notes.append(f"총 화수 {before.meta.target_episodes}화 → {after.meta.target_episodes}화.")
+    labels = {"foreshadows": "복선", "elements": "인과율 요소", "storylines": "이야기 줄기", "characters": "인물 첫 등장 화"}
+    also = [f"{labels[k]} {v}개" for k, v in counts.items() if v]
+    if also:
+        notes.append(" · ".join(also) + "의 화 번호도 함께 옮겼어요.")
+    return notes
+
+
+def _check_renumbered(q: Project) -> None:
+    """옮긴 뒤 구조가 맞는지 본다. 한 화를 함께 쓰던 짧은 작품의 구간은 비율을 살려 다시 나눈다."""
+    if q.serial:
+        for s in q.story_arcs:
+            plan = ArcPlan(acts=s.acts)
+            fit_arc(plan, s.end_ep, s.start_ep)
+            s.acts = plan.acts
+        if q.parts:
+            validate_parts(q.parts, q.meta.target_episodes)
+        validate_story_arcs(q)
+    elif q.arc:
+        plan = ArcPlan(acts=q.arc)
+        fit_arc(plan, q.meta.target_episodes)
+        q.arc = plan.acts
+    for e in q.episodes:
+        act = q.act_for(e.plot.number)
+        if act and e.status not in LOCKED:
+            e.plot.act = act.name
+
+
+def _renumbered(p: Project, change) -> list[str]:
+    """복사본에서 change(q) 로 번호를 옮기고 구조를 확인한 뒤에만 p 에 반영한다. 반영한 내용 설명을 돌려준다."""
+    q = p.model_copy(deep=True)
+    fresh = {el.id for el in q.elements if el.impact and not elements.stale(el)}
+    counts = change(q)
+    for el in q.elements:
+        if el.id in fresh:  # 번호만 옮긴 분석은 지난 것으로 보지 않는다
+            el.impact.basis = elements.basis(el)  # type: ignore[union-attr]
+    _check_renumbered(q)
+    notes = _renumber_notes(p, q, counts)
+    for f in Project.model_fields:
+        setattr(p, f, getattr(q, f))
+    return notes
+
+
+def insert_episode(p: Project, at: int, title: str = "", summary: str = "", storyline: str = "") -> list[str]:
+    """at 화 자리에 빈 플롯(제목 · 요약만)의 새 화를 넣고, 지금 at 화부터 뒤 화를 한 칸씩 민다.
+    새 화는 바로 뒤 화가 든 구간 · 아크 · 부에 들어가고, 맨 끝에 붙이면 마지막 범위가 늘어난다. 반영한 내용 설명을 돌려준다."""
+    lo, hi = insert_range(p)
+    if not lo <= at <= hi:
+        if at < lo:
+            raise ValueError(f"{at}화 앞에는 넣을 수 없어요. {lo - 1}화까지는 본문이 있거나 상태를 반영해 번호를 옮기지 않아요. "
+                             f"{lo}화부터 넣을 수 있어요")
+        raise ValueError(f"{at}화 자리가 없어요. {hi}화(마지막 화 뒤)까지 넣을 수 있어요")
+    if storyline:
+        storylines.get(p, storyline)
+    if p.serial and not p.story_arcs:
+        raise ValueError("아크가 없어 새 화가 들어갈 자리가 없어요. 다음 아크를 먼저 기획하세요")
+    moved = [e.plot.number for e in p.episodes if e.plot.number >= at]
+
+    def change(q: Project) -> dict[str, int]:
+        counts = renumber.move_points(q, renumber.point_insert(at))
+        if q.serial:
+            renumber.shift_ranges(q.story_arcs, at)
+            renumber.shift_ranges(q.parts, at)
+        renumber.shift_ranges(q.beats(), at)
+        if at <= q.meta.target_episodes + 1:
+            q.meta.target_episodes += 1
+        prev = next((e.plot.act for e in reversed(q.episodes) if e.plot.number < at), "기")
+        act = q.act_for(at)
+        plot = EpisodePlot(number=at, act=act.name if act else prev, title=title.strip(), summary=summary.strip(),
+                           events=[], characters=[], emotional_shift="", ending_hook="", storyline=storyline)
+        q.episodes = sorted([*q.episodes, Episode(plot=plot)], key=lambda e: e.plot.number)
+        return counts
+
+    notes = _renumbered(p, change)
+    head = f"{at}화에 새 화를 넣었어요."
+    if moved:
+        head += f" 원래 {moved[0]}~{moved[-1]}화는 {moved[0] + 1}~{moved[-1] + 1}화가 됐어요 (확정 상태 그대로)."
+    return [head, *notes]
+
+
+def remove_episode(p: Project, n: int) -> list[str]:
+    """아직 안 쓴 n 화를 빼고 뒤 화를 한 칸씩 당긴다. n 화를 가리키던 복선 · 요소 · 줄기 번호는 그 자리에 온 다음 화를 가리킨다."""
+    ep = p.episode(n)
+    lo, _ = insert_range(p)
+    if n < lo:
+        raise ValueError(f"{n}화는 뺄 수 없어요. {lo - 1}화까지는 본문이 있거나 상태를 반영해 번호를 옮기지 않아요")
+    moved = [e.plot.number for e in p.episodes if e.plot.number > n]
+
+    def change(q: Project) -> dict[str, int]:
+        q.episodes = [e for e in q.episodes if e.plot.number != n]
+        counts = renumber.move_points(q, renumber.point_remove(n), gone=n)
+        empty = []
+        if q.serial:
+            empty += [f"아크 {s.number}" for s in renumber.shrink_ranges(q.story_arcs, n)]
+            empty += [f"{x.number}부" for x in renumber.shrink_ranges(q.parts, n)]
+        empty += [f"{a.name} 구간" for a in renumber.shrink_ranges(q.beats(), n)]
+        if empty:
+            raise ValueError(f"{n}화를 빼면 {', '.join(empty)}이(가) 비어요. 구간이나 아크 범위를 먼저 늘리세요")
+        if n <= q.meta.target_episodes:
+            q.meta.target_episodes -= 1
+        sync_candidates(q)
+        return counts
+
+    notes = _renumbered(p, change)
+    head = f"{n}화 '{ep.plot.title or '제목 없음'}'을(를) 뺐어요."
+    if moved:
+        head += f" 원래 {moved[0]}~{moved[-1]}화는 {moved[0] - 1}~{moved[-1] - 1}화가 됐어요."
+    return [head, *notes]
+
+
+def draft_episode(llm: LLM, p: Project, n: int) -> PlotBatch:
+    """초안인 n 화 하나의 플롯을 앞뒤 화에 맞춰 AI 로 채운다. 작가가 적어 둔 제목 · 요약 · 줄기는 살린다. 저장하지 않는다."""
+    e = p.episode(n)
+    if e.status != "draft":
+        raise ValueError(f"{n}화는 확정된 화라 AI 초안으로 바꾸지 않아요. 초안으로 되돌린 뒤 하세요")
+    beats = p.beats()
+    if not beats:
+        raise ValueError("다음 아크를 먼저 기획하세요" if p.serial else "기승전결 구조(arc)를 먼저 만드세요")
+    batch = llm.json(prompts.SYSTEM_PLANNER, prompts.episode_plot_prompt(p, n), PlotBatch,
+                     hint={"start": n, "end": n, "arc": beats})
+    pick = [x for x in batch.episodes if x.number == n] or batch.episodes[:1]
+    if not pick:
+        raise ValueError(f"{n}화 플롯을 받지 못했어요")
+    plot = pick[0]
+    plot.number = n
+    if e.plot.title.strip():
+        plot.title = e.plot.title  # 작가가 붙인 제목은 그대로
+    if e.plot.storyline and not plot.storyline:
+        plot.storyline = e.plot.storyline
+    batch.episodes = [plot]
+    return batch
 
 
 def reopen_impact(p: Project, eid: str) -> None:

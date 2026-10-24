@@ -98,8 +98,9 @@ def backend_of(llm: Any) -> Optional[str]:
 
 
 def record(llm: Any, tokens: Optional[dict], started: Optional[float] = None, *, ok: bool = True,
-           error: Any = None, attempt: Optional[int] = None, batch: bool = False) -> None:
-    """호출 하나를 기록한다. 기록이 실패해도 생성은 계속돼야 하므로 오류를 내지 않는다."""
+           error: Any = None, attempt: Optional[int] = None, batch: bool = False, prompt: str = "") -> None:
+    """호출 하나를 기록한다. 기록이 실패해도 생성은 계속돼야 하므로 오류를 내지 않는다.
+    prompt 를 주면 글자 수와 머리글별 블록 크기(context.blocks)를 함께 남긴다. 어떤 블록이 커지는지 보려는 것."""
     backend = backend_of(llm)
     if backend is None:
         return
@@ -125,6 +126,10 @@ def record(llm: Any, tokens: Optional[dict], started: Optional[float] = None, *,
         "ok": ok,
         "error": _error_text(error) if error is not None else "",
     }
+    if prompt:
+        from .context import blocks
+        row["chars"] = len(prompt)
+        row["blocks"] = blocks(prompt, 8)
     try:
         path = log_path()
         with _lock:

@@ -413,6 +413,7 @@ class Runner:
                     self.log(f"{n}화 플롯을 자동으로 확정했어요")
                     continue
                 if e.status == "confirmed":
+                    self._recap_note(p)
                     self._write(p, n)
                     continue
                 self._review(p, n)
@@ -423,6 +424,17 @@ class Runner:
             hint = " 배치를 끄고 이어 가 보세요." if run.batch and "batch" in msg.lower() else ""
             # 이유 칸에도 남겨 자동 집필 카드가 무엇 때문에 멈췄는지 보인다
             self._finish(_Halt("error", f"오류로 멈췄어요: {msg}{hint}", [f"{msg}{hint}"], kind="error"), level="error")
+
+    def _recap_note(self, p: Project) -> None:
+        """요약을 기다리는 아크 · 부가 있으면 한 번 알린다. 멈추지는 않는다 (그동안은 화마다 첫 문장으로 접어 넣는다)."""
+        seen = self.__dict__.setdefault("_recaps_noted", set())
+        for kind, num in pipeline.pending_recaps(p):
+            if (kind, num) in seen:
+                continue
+            seen.add((kind, num))
+            unit = "아크" if kind == "arc" else "부"
+            self.log(f"{unit} {num} 요약이 아직 없어요. 요약을 저장하기 전까지 그 {unit}의 줄거리는 화마다 첫 문장으로만 "
+                     "들어가 앞 이야기가 흐려질 수 있어요. 기획 화면에서 요약을 저장해 주세요", "warn")
 
     def _write(self, p: Project, n: int) -> None:
         self._set(n, "write")
@@ -604,6 +616,29 @@ def resume(name: str, approve: bool = False, rewrite: bool = False, *, foregroun
     r.log("이어 가요")
     _launch(name, ctl, echo, foreground)
     return run
+
+
+def check_renumber(name: str) -> None:
+    """화를 끼워 넣거나 빼기 전에 본다. 도는 중이거나 결과를 기다리는 배치가 있으면 화 번호가 어긋나므로 막는다."""
+    if active(name):
+        raise ValueError("자동 집필이 도는 중이에요. 일시정지한 뒤에 하세요")
+    run = get_run(name)
+    if run and run.batches and run.status not in ("done", "stopped"):
+        raise ValueError("자동 집필이 결과를 기다리는 배치 작업이 있어요. 중지한 뒤에 하세요")
+
+
+def renumber(name: str, end: Callable[[int], int]) -> None:
+    """화를 끼워 넣거나 뺀 뒤 멈춘 실행의 목표 화를 옮긴다. end 는 '몇 화까지'를 옮기는 규칙이다."""
+    with _lock:
+        ctl = _controls.get(name)
+    run = ctl.run if ctl else load_run(name)
+    if run is None or run.status in ("done", "stopped"):
+        return
+    target = max(1, end(run.target))
+    if target == run.target:
+        return
+    run.target = target
+    _write(name, run)
 
 
 def request(name: str, what: str) -> Run:

@@ -295,9 +295,9 @@ class ClaudeCodeLLM:
             self.last_raw = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
             out = _parse(schema, raw) if schema is not None else raw
         except Exception as e:
-            usage.record(self, tokens, t, ok=False, error=e, attempt=attempt)
+            usage.record(self, tokens, t, ok=False, error=e, attempt=attempt, prompt=prompt)
             raise
-        usage.record(self, tokens, t, attempt=attempt)
+        usage.record(self, tokens, t, attempt=attempt, prompt=prompt)
         return out
 
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
@@ -391,9 +391,9 @@ class ClaudeAPILLM:
             self.last_raw = text
             out = _parse(schema, text) if schema is not None else text
         except Exception as e:
-            usage.record(self, tokens, t, ok=False, error=e, attempt=attempt)
+            usage.record(self, tokens, t, ok=False, error=e, attempt=attempt, prompt=prompt)
             raise
-        usage.record(self, tokens, t, attempt=attempt)
+        usage.record(self, tokens, t, attempt=attempt, prompt=prompt)
         return out
 
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
