@@ -21,9 +21,13 @@ from typing import Any, Protocol, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from . import usage
+from . import cancel, usage
 
 T = TypeVar("T", bound=BaseModel)
+
+
+class MissingKey(RuntimeError):
+    """API 키가 없다. 웹은 서버 오류가 아니라 설정 안내로 보인다 (code no_key)."""
 
 
 class LLM(Protocol):
@@ -52,7 +56,7 @@ class SchemaMismatch(RuntimeError):
 
     def __init__(self, schema: type[BaseModel], error: ValidationError, who: str = "모델"):
         self.schema, self.brief = schema.__name__, _brief(error)
-        super().__init__(f"{who} 응답이 {self.schema} 형식과 맞지 않습니다 (다시 요청해도 같음): {self.brief}")
+        super().__init__(f"{who} 응답이 {self.schema} 형식과 맞지 않아요 (다시 요청해도 같음): {self.brief}")
 
 
 def _brief(e: ValidationError, limit: int = 8) -> str:
@@ -92,7 +96,7 @@ class GeminiLLM:
 
         key = api_key or settings.api_key()[0]
         if not key:
-            raise RuntimeError("Gemini API 키가 없습니다. 웹 설정 화면에서 넣거나 GEMINI_API_KEY 를 설정하세요.")
+            raise MissingKey("Gemini API 키가 없어요. 웹 설정 화면에서 넣거나 GEMINI_API_KEY 를 설정하세요.")
         self.client = genai.Client(api_key=key)
         self.model = model or settings.model()[0]
         self.last_usage: dict | None = None  # 연구 화면에서 보여 줄 마지막 호출의 토큰 수
@@ -122,6 +126,7 @@ class GeminiLLM:
     def _call(self, system: str, prompt: str, attempt: int = 1, parse: Any = None, **config: Any) -> Any:
         """한 번 부르고 사용량을 기록한다. parse 가 있으면 응답 글을 parse 한 값을 돌려주고, parse 가 실패해도
         (형식 불일치) 토큰은 쓴 것이라 실패로 기록한다."""
+        cancel.check()  # 멈춘 작업은 다음 호출을 보내지 않는다
         from google.genai import types
 
         t, tokens = time.time(), None
@@ -134,7 +139,7 @@ class GeminiLLM:
             )
             tokens = self.last_usage = _usage(resp.usage_metadata)
             if not resp.text:
-                raise RuntimeError(f"Gemini 응답이 비었습니다: {resp.candidates[0].finish_reason if resp.candidates else resp}")
+                raise RuntimeError(f"Gemini 응답이 비었어요: {resp.candidates[0].finish_reason if resp.candidates else resp}")
             self.last_raw = resp.text
             out = parse(resp.text) if parse else resp.text
         except Exception as e:
@@ -198,13 +203,13 @@ class GeminiLLM:
         if state in BATCH_WAITING:
             return None
         if state != "JOB_STATE_SUCCEEDED":
-            raise RuntimeError(f"Gemini 배치 작업이 {state} 로 끝났습니다: {job.error or ''}".rstrip(": "))
+            raise BatchGone(f"Gemini 배치 작업이 {state} 로 끝났어요: {job.error or ''}".rstrip(": "))
         out = (job.dest.inlined_responses or [None])[0] if job.dest else None
         if out is None or out.error or out.response is None:
-            raise RuntimeError(f"Gemini 배치 응답이 없습니다: {out.error if out else job.dest}")
+            raise BatchGone(f"Gemini 배치 응답이 없어요: {out.error if out else job.dest}")
         self.last_usage = _usage(out.response.usage_metadata)
         if not out.response.text:
-            raise RuntimeError("Gemini 배치 응답이 비었습니다")
+            raise BatchGone("Gemini 배치 응답이 비었어요")
         return out.response.text
 
     def batch_cancel(self, name: str) -> None:
@@ -215,11 +220,19 @@ BATCH_WAITING = {"JOB_STATE_UNSPECIFIED", "JOB_STATE_QUEUED", "JOB_STATE_PENDING
                  "JOB_STATE_PAUSED", "JOB_STATE_UPDATING", "JOB_STATE_CANCELLING"}
 
 
+class BatchGone(RuntimeError):
+    """배치 작업이 확실히 끝났다 (실패, 취소, 만료, 빈 응답). 다시 물어도 결과가 없으니 이름을 버린다.
+    이 밖의 조회 오류(연결, 시간 초과)는 잠깐의 문제로 보고 이름을 남겨 다시 묻는다."""
+
+
+BATCH_POLL_RETRIES = 3
+
+
 class Interrupted(Exception):
     """배치 결과를 기다리다 사용자가 멈추거나 서버가 다시 시작하려 한다. cancelled 면 배치 작업도 취소했다."""
 
     def __init__(self, cancelled: bool):
-        super().__init__("배치 작업을 취소했습니다" if cancelled else "배치 결과를 기다리다 멈췄습니다")
+        super().__init__("배치 작업을 취소했어요" if cancelled else "배치 결과를 기다리다 멈췄어요")
         self.cancelled = cancelled
 
 
@@ -249,14 +262,25 @@ class BatchLLM:
             name = self.inner.batch_submit(system, prompt, schema, f"{self.label} {slot}", hint=hint)
             self.names[slot] = name
             self.on_change()
+        fails = 0
         while True:
             try:
                 raw = self.inner.batch_poll(name)
-            except Exception as e:
-                self.names.pop(slot, None)  # 실패한 작업에 다시 붙지 않게 한다
+            except BatchGone as e:
+                self.names.pop(slot, None)  # 끝난 작업에 다시 붙지 않게 한다
                 self.on_change()
                 usage.record(self.inner, None, ok=False, error=e, attempt=self.last_attempts, batch=True)
                 raise
+            except Exception as e:
+                # 연결이 잠깐 끊긴 것일 수 있다. 서버 쪽 배치는 계속 돌므로 이름을 남기고 몇 번 다시 묻는다
+                fails += 1
+                if fails > BATCH_POLL_RETRIES:
+                    raise RuntimeError(f"배치 결과를 묻지 못했어요 ({e}). 이어 가면 기다리던 배치에 다시 붙어요") from e
+                why = self.wait(self.interval)
+                if why:
+                    raise Interrupted(cancelled=False)
+                continue
+            fails = 0
             if raw is not None:
                 self.names.pop(slot, None)
                 self.on_change()
@@ -284,7 +308,7 @@ class BatchLLM:
             except ValidationError as e:
                 self._done(None, e)
                 if self.note:
-                    self.note(f"응답이 형식과 맞지 않아 ({_brief(e, 3)}) 오류를 알려 주고 한 번 더 배치로 요청합니다")
+                    self.note(f"응답이 형식과 맞지 않아 ({_brief(e, 3)}) 오류를 알려 주고 한 번 더 배치로 요청해요")
                 ask = repair_prompt(prompt, raw, schema, e)
         self.last_attempts = 2
         raw = self._run(system, ask, schema, hint, slot=fix)
@@ -364,11 +388,11 @@ class LocalLLM:
             detail = e.read().decode("utf-8", "replace")[:500]
             hint = ""
             if "context length" in detail or "max_model_len" in detail or "context window" in detail:
-                hint = (" 프롬프트가 서버의 컨텍스트 한도를 넘었습니다. 서버 한도를 올리거나"
+                hint = (" 프롬프트가 서버의 컨텍스트 한도를 넘었어요. 서버 한도를 올리거나"
                         " (vLLM --max-model-len, llama.cpp -c) 검수처럼 긴 단계는 Gemini 로 돌리세요 (CANON_LLM_CHECK=gemini).")
             raise RuntimeError(f"로컬 서버 오류 {e.code} ({url}): {detail}{hint}") from e
         except urllib.error.URLError as e:
-            raise RuntimeError(f"로컬 서버에 연결하지 못했습니다 ({self.base_url}): {e.reason}") from e
+            raise RuntimeError(f"로컬 서버에 연결하지 못했어요 ({self.base_url}): {e.reason}") from e
 
     def models(self) -> list[str]:
         return [m["id"] for m in self._request("GET", "/models").get("data", [])]
@@ -420,11 +444,12 @@ class LocalLLM:
     def check(self) -> None:
         names = self.models()
         if self._model and self._model not in names:
-            raise RuntimeError(f"서버에 {self._model} 이 없습니다. 있는 모델: {names}")
+            raise RuntimeError(f"서버에 {self._model} 이 없어요. 있는 모델: {names}")
         self.model  # noqa: B018  모델 이름 확정
 
     def _chat(self, system: str, messages: list[dict], attempt: int = 1, parse: Any = None, **extra: Any) -> Any:
         """한 번 부르고 사용량을 기록한다. parse 는 GeminiLLM._call 과 같다."""
+        cancel.check()
         t, tokens = time.time(), None
         try:
             body = {"model": self.model, "messages": [{"role": "system", "content": system}, *messages], **extra}
@@ -434,7 +459,7 @@ class LocalLLM:
             content = (choice.get("message") or {}).get("content") or ""
             content = _THINK_RE.sub("", content).strip()
             if not content:
-                raise RuntimeError(f"로컬 모델 응답이 비었습니다: finish_reason={choice.get('finish_reason')}")
+                raise RuntimeError(f"로컬 모델 응답이 비었어요: finish_reason={choice.get('finish_reason')}")
             out = parse(content) if parse else content
         except Exception as e:
             usage.record(self, tokens, t, ok=False, error=e, attempt=attempt)

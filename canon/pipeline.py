@@ -7,6 +7,7 @@ from .schema import (
     Act,
     ArcPlan,
     ArcProposal,
+    ArcUndo,
     Character,
     CharacterState,
     CharacterVisual,
@@ -21,6 +22,7 @@ from .schema import (
     Illustration,
     ImpactReport,
     LookSuggestion,
+    VoiceSuggestion,
     NameOptions,
     OpeningPlots,
     Part,
@@ -57,7 +59,10 @@ from .schema import (
 # ---------- 1. 설정 도우미 ----------
 
 def suggest_setup(llm: LLM, p: Project) -> SetupSuggestion:
-    return llm.json(prompts.SYSTEM_PLANNER, prompts.setup_prompt(p), SetupSuggestion)
+    s = llm.json(prompts.SYSTEM_PLANNER, prompts.setup_prompt(p), SetupSuggestion)
+    for c in s.characters:  # 서술 말투는 작가가 정하거나 서술 말투 제안으로만 채운다
+        c.narration_voice = ""
+    return s
 
 
 def name_candidates(p: Project, character: str = "", place_kind: str = "", n: int = 8,
@@ -66,7 +71,7 @@ def name_candidates(p: Project, character: str = "", place_kind: str = "", n: in
     if character:
         c = next((x for x in p.characters if x.id == character), None)
         if c is None:
-            raise KeyError(f"인물 {character} 이 없습니다")
+            raise KeyError(f"인물 {character} 이 없어요")
         return naming.character_candidates(p, c, n, style)
     return naming.location_candidates(p, n, place_kind, style)
 
@@ -85,17 +90,41 @@ def suggest_names(llm: LLM, p: Project, character: str = "", place_kind: str = "
     return cands, opts
 
 
+def require_previous(p: Project, n: int) -> None:
+    """이전 화가 모두 반영(finalized)돼야 n화를 쓰거나 반영한다. 인물 상태가 화 순서대로 쌓이게 하는 규칙이다."""
+    unfinished = [e.plot.number for e in p.episodes if e.plot.number < n and e.status != "finalized"]
+    if unfinished:
+        raise ValueError(f"이전 화({', '.join(map(str, unfinished))}화)의 상태 반영이 끝나지 않았어요")
+
+
 def apply_setup(p: Project, s: SetupSuggestion) -> None:
-    """기존 입력은 유지하고 빈칸만 채운다."""
+    """기존 입력은 유지하고 빈칸만 채운다. 제안 인물의 id 가 이미 있는 인물과 겹쳐도 이름이 다르면 다른 인물로 보고
+    새 id 를 붙여 넣고, 그 인물의 관계도 새 id 로 잇는다. 양쪽 인물이 없는 관계는 넣지 않는다."""
     p.meta.theme = p.meta.theme or s.theme
     p.meta.tone = p.meta.tone or s.tone
     for field, value in s.world.model_dump().items():
         if not getattr(p.world, field):
             setattr(p.world, field, value)
-    known = {c.id for c in p.characters}
-    p.characters += [c for c in s.characters if c.id not in known]
+    known = {c.id: c for c in p.characters}
+    remap: dict[str, str] = {}
+    for c in s.characters:
+        old = known.get(c.id)
+        if old is not None and (not c.name.strip() or old.name.strip() == c.name.strip()):
+            continue  # 같은 인물
+        if old is not None:
+            k = 2
+            while f"{c.id}{k}" in known:
+                k += 1
+            remap[c.id] = f"{c.id}{k}"
+            c = c.model_copy(update={"id": remap[c.id]})
+        p.characters.append(c)
+        known[c.id] = c
     pairs = {frozenset((r.a, r.b)) for r in p.relationships}
-    p.relationships += [r for r in s.relationships if frozenset((r.a, r.b)) not in pairs]
+    for r in s.relationships:
+        r = r.model_copy(update={"a": remap.get(r.a, r.a), "b": remap.get(r.b, r.b)})
+        if r.a in known and r.b in known and r.a != r.b and frozenset((r.a, r.b)) not in pairs:
+            p.relationships.append(r)
+            pairs.add(frozenset((r.a, r.b)))
     _init_states(p)
     dynamics.seed_ties(p)
 
@@ -170,8 +199,8 @@ def learn_style(llm: LLM, p: Project) -> StyleLearning:
     """수정 기록에서 문체 규칙 후보를 찾는다. 저장하지 않는다."""
     edits = learnable_edits(p)
     if len(edits) < LEARN_MIN:
-        raise ValueError(f"쓸 수 있는 수정 기록이 {len(edits)}건이라 너무 적습니다. 본문을 {LEARN_MIN}건 이상 고친 뒤에 해 주세요 "
-                         "(되돌린 수정, 동선 맞추기, 새로 써 넣기만 한 것은 빼고 셉니다)")
+        raise ValueError(f"쓸 수 있는 수정 기록이 {len(edits)}건이라 너무 적어요. 본문을 {LEARN_MIN}건 이상 고친 뒤에 해 주세요 "
+                         "(되돌린 수정, 동선 맞추기, 새로 써 넣기만 한 것은 빼고 세어요)")
     r = llm.json(prompts.SYSTEM_STYLE_EDITOR, prompts.learn_prompt(p, edits), StyleLearning,
                  hint={"edits": [(ref, e.before, e.after) for ref, e in edits]})
     check_learning(p, r, dict(edits))
@@ -240,7 +269,7 @@ def apply_learning(p: Project, picks: list[int]) -> tuple[list[StyleRuleSuggesti
     if not picks:
         raise ValueError("넣을 후보를 고르세요")
     if any(not 0 <= i < len(r.suggestions) for i in picks):
-        raise ValueError("후보 번호가 맞지 않습니다")
+        raise ValueError("후보 번호가 맞지 않아요")
     st, done = p.style, []
     for i in picks:
         s = r.suggestions[i]
@@ -293,7 +322,7 @@ def act_ranges(total: int, start: int = 1, weights: list[float] | None = None) -
     4화보다 짧으면 정해진 틀을 쓴다: 3화는 기1 · 승2 · 전결3, 2화는 기승1 · 전결2, 1화는 네 구간 모두 1화."""
     size = total - start + 1
     if size < 1:
-        raise ValueError(f"구간을 나눌 화가 없습니다 ({start}~{total}화)")
+        raise ValueError(f"구간을 나눌 화가 없어요 ({start}~{total}화)")
     if size < SHARE_BELOW:
         idx = {1: [0, 0, 0, 0], 2: [0, 0, 1, 1], 3: [0, 1, 2, 2]}[size]
         return [(start + k, start + k) for k in idx]
@@ -322,7 +351,7 @@ def fit_arc(plan: ArcPlan, total: int, start: int = 1) -> bool:
     except ValueError:
         pass
     if sorted(a.name for a in plan.acts) != sorted(ACT_NAMES):
-        raise ValueError(f"기승전결 네 구간이 아닙니다: {[a.name for a in plan.acts]}")
+        raise ValueError(f"기승전결 네 구간이 아니에요: {[a.name for a in plan.acts]}")
     acts = sorted(plan.acts, key=lambda a: ACT_NAMES.index(a.name))
     weights = [max(1, a.end_ep - a.start_ep + 1) for a in acts]
     for a, (s, e) in zip(acts, act_ranges(total, start, weights)):
@@ -337,17 +366,17 @@ def validate_arc(plan: ArcPlan, total: int, start: int = 1) -> None:
     4화보다 짧으면 구간이 앞 구간의 마지막 화에서 시작해도 된다(한 화에 두 구간)."""
     acts = sorted(plan.acts, key=act_order)
     if [a.name for a in acts] != ACT_NAMES:
-        raise ValueError(f"기승전결 순서가 아닙니다: {[a.name for a in acts]}")
+        raise ValueError(f"기승전결 순서가 아니에요: {[a.name for a in acts]}")
     share = total - start + 1 < SHARE_BELOW
     expected = start
     for i, a in enumerate(acts):
         shared = share and i > 0 and a.start_ep == expected - 1
         if (a.start_ep != expected and not shared) or a.end_ep < a.start_ep:
-            hint = " 4화보다 짧으면 이웃 구간끼리 한 화를 함께 쓸 수 있습니다" if share else ""
-            raise ValueError(f"{a.name} 구간 범위 오류: {a.start_ep}~{a.end_ep}화 ({expected}화부터여야 합니다){hint}")
+            hint = " 4화보다 짧으면 이웃 구간끼리 한 화를 함께 쓸 수 있어요" if share else ""
+            raise ValueError(f"{a.name} 구간 범위 오류: {a.start_ep}~{a.end_ep}화 ({expected}화부터여야 해요){hint}")
         expected = a.end_ep + 1
     if expected != total + 1:
-        raise ValueError(f"구간이 {expected - 1}화에서 끝납니다 (목표 {total}화)")
+        raise ValueError(f"구간이 {expected - 1}화에서 끝나요 (목표 {total}화)")
 
 
 def draft_plots(llm: LLM, p: Project, start: int, end: int) -> PlotBatch:
@@ -355,14 +384,14 @@ def draft_plots(llm: LLM, p: Project, start: int, end: int) -> PlotBatch:
     if not beats:
         raise ValueError("다음 아크를 먼저 기획하세요" if p.serial else "기승전결 구조(arc)를 먼저 만드세요")
     if p.serial and end > p.planned_until():
-        raise ValueError(f"{p.planned_until()}화까지만 아크가 있습니다. {end}화까지 쓰려면 다음 아크를 먼저 기획하세요")
+        raise ValueError(f"{p.planned_until()}화까지만 아크가 있어요. {end}화까지 쓰려면 다음 아크를 먼저 기획하세요")
     batch = llm.json(
         prompts.SYSTEM_PLANNER, prompts.plot_prompt(p, start, end), PlotBatch,
         hint={"start": start, "end": end, "arc": beats},
     )
     numbers = [e.number for e in batch.episodes]
     if numbers != list(range(start, end + 1)):
-        raise ValueError(f"요청한 화({start}~{end})와 생성된 화({numbers})가 다릅니다")
+        raise ValueError(f"요청한 화({start}~{end})와 생성된 화({numbers})가 달라요")
     return batch
 
 
@@ -452,12 +481,12 @@ def validate_parts(parts: list, total: int) -> None:
     expected = 1
     for i, x in enumerate(parts, 1):
         if x.number != i:
-            raise ValueError(f"부 번호가 1부터 차례대로가 아닙니다: {[y.number for y in parts]}")
+            raise ValueError(f"부 번호가 1부터 차례대로가 아니에요: {[y.number for y in parts]}")
         if x.start_ep != expected or x.end_ep < x.start_ep:
             raise ValueError(f"{x.number}부 범위 오류: {x.start_ep}~{x.end_ep}")
         expected = x.end_ep + 1
     if parts and expected != total + 1:
-        raise ValueError(f"부 구성이 {expected - 1}화에서 끝납니다 (목표 {total}화)")
+        raise ValueError(f"부 구성이 {expected - 1}화에서 끝나요 (목표 {total}화)")
 
 
 def validate_story_arcs(p: Project) -> None:
@@ -465,16 +494,19 @@ def validate_story_arcs(p: Project) -> None:
     expected = 1
     for i, s in enumerate(sorted(p.story_arcs, key=lambda s: s.start_ep), 1):
         if s.number != i:
-            raise ValueError(f"아크 번호가 1부터 차례대로가 아닙니다 ({s.number})")
+            raise ValueError(f"아크 번호가 1부터 차례대로가 아니에요 ({s.number})")
         if s.start_ep != expected or s.end_ep < s.start_ep:
-            raise ValueError(f"아크 {s.number} 범위 오류: {s.start_ep}~{s.end_ep} ({expected}화부터여야 합니다)")
-        validate_arc(ArcPlan(acts=s.acts), s.end_ep, s.start_ep)
+            raise ValueError(f"아크 {s.number} 범위 오류: {s.start_ep}~{s.end_ep} ({expected}화부터여야 해요)")
+        try:
+            validate_arc(ArcPlan(acts=s.acts), s.end_ep, s.start_ep)
+        except ValueError as e:  # 어느 아크의 구간인지 밝힌다
+            raise ValueError(f"아크 {s.number}({s.start_ep}~{s.end_ep}화) 구간: {e}") from None
         part = p.part_for(s.start_ep)
         if p.parts and (part is None or s.end_ep > part.end_ep):
-            raise ValueError(f"아크 {s.number}({s.start_ep}~{s.end_ep}화)가 부 경계를 넘습니다")
+            raise ValueError(f"아크 {s.number}({s.start_ep}~{s.end_ep}화)가 부 경계를 넘어요")
         expected = s.end_ep + 1
     if p.story_arcs and expected - 1 > p.meta.target_episodes:
-        raise ValueError(f"아크가 총 화수({p.meta.target_episodes}화)를 넘습니다")
+        raise ValueError(f"아크가 총 화수({p.meta.target_episodes}화)를 넘어요")
 
 
 def plan_series(llm: LLM, p: Project) -> SeriesPlan:
@@ -507,10 +539,10 @@ def next_arc_start(p: Project) -> int:
 def plan_next_arc(llm: LLM, p: Project, length: int = 0, note: str = "") -> ArcProposal:
     """지금까지 쓴 내용을 보고 다음 아크 하나를 제안한다. 저장하지 않는다."""
     if not p.serial:
-        raise ValueError("장편 연재(form=serial) 작품에서만 아크를 기획합니다")
+        raise ValueError("장편 연재(form=serial) 작품에서만 아크를 기획해요")
     start = next_arc_start(p)
     if start > p.meta.target_episodes:
-        raise ValueError(f"총 {p.meta.target_episodes}화까지 아크가 모두 있습니다. 더 쓰려면 총 화수를 늘리세요")
+        raise ValueError(f"총 {p.meta.target_episodes}화까지 아크가 모두 있어요. 더 쓰려면 총 화수를 늘리세요")
     length = length or p.meta.arc_length
     part = p.part_for(start)
     limit = part.end_ep if part else p.meta.target_episodes
@@ -527,21 +559,21 @@ def clean_arc(p: Project, prop: ArcProposal) -> ArcProposal:
     a.number, a.summary = len(p.story_arcs) + 1, ""
     start = next_arc_start(p)
     if a.start_ep != start:
-        raise ValueError(f"아크가 {a.start_ep}화에서 시작합니다 ({start}화부터여야 합니다)")
+        raise ValueError(f"아크가 {a.start_ep}화에서 시작해요 ({start}화부터여야 해요)")
     size = a.end_ep - a.start_ep + 1
     if not ARC_MIN <= size <= ARC_MAX:
-        raise ValueError(f"아크 길이 {size}화는 쓸 수 없습니다 ({ARC_MIN}~{ARC_MAX}화)")
+        raise ValueError(f"아크 길이 {size}화는 쓸 수 없어요 ({ARC_MIN}~{ARC_MAX}화)")
     part = p.part_for(start)
     limit = part.end_ep if part else p.meta.target_episodes
     if a.end_ep > limit:
-        raise ValueError(f"아크가 {a.end_ep}화에서 끝나 {'부' if part else '작품'} 끝({limit}화)을 넘습니다")
+        raise ValueError(f"아크가 {a.end_ep}화에서 끝나 {'부' if part else '작품'} 끝({limit}화)을 넘어요")
     plan = ArcPlan(acts=a.acts)
     fit_arc(plan, a.end_ep, a.start_ep)  # 구간 범위가 어긋났으면 비율을 살려 고친다
     a.acts = plan.acts
     if 0 < limit - a.end_ep < ARC_MIN:  # 남는 화로는 아크를 만들 수 없으니 결 구간을 부 끝까지 늘린다
         last = max(a.acts, key=lambda x: x.start_ep)
         last.end_ep = a.end_ep = limit
-        prop.reply = (prop.reply.rstrip() + f"\n\n※ {'부' if part else '작품'} 끝까지 {ARC_MIN}화가 안 남아 아크를 {limit}화까지 늘렸습니다.").strip()
+        prop.reply = (prop.reply.rstrip() + f"\n\n※ {'부' if part else '작품'} 끝까지 {ARC_MIN}화가 안 남아 아크를 {limit}화까지 늘렸어요.").strip()
     known = {c.id for c in p.characters}
     prop.new_characters = [c for c in prop.new_characters if c.id not in known]
     ids = known | {c.id for c in prop.new_characters}
@@ -575,24 +607,41 @@ def apply_arc(p: Project, prop: ArcProposal) -> StoryArc:
     except ValueError:
         p.story_arcs.pop()
         raise
+    known = {c.id for c in p.characters}
     _add_characters(p, prop.new_characters, a.start_ep)
+    undo = ArcUndo(number=a.number, characters=[c.id for c in p.characters if c.id not in known])
     for f in p.foreshadows:
         if f.id in a.payoffs and f.status == "open":
+            undo.foreshadows.append(f.id)
+            undo.due_before.append(f.due_ep)
             f.due_ep = a.end_ep
+    p.arc_undo = [u for u in p.arc_undo if u.number != a.number] + [undo]
     return a
 
 
 def remove_last_arc(p: Project) -> StoryArc:
     """마지막 아크를 지운다 (다시 기획하려고). 확정했거나 본문이 있는 화가 있으면 막는다."""
     if not p.story_arcs:
-        raise ValueError("지울 아크가 없습니다")
+        raise ValueError("지울 아크가 없어요")
     a = max(p.story_arcs, key=lambda s: s.start_ep)
     eps = [e for e in p.episodes if a.start_ep <= e.plot.number <= a.end_ep]
     stuck = [e.plot.number for e in eps if e.status != "draft"]
     if stuck:
-        raise ValueError(f"아크 {a.number}에 확정했거나 본문이 있는 화({stuck})가 있어 지울 수 없습니다")
+        raise ValueError(f"아크 {a.number}에 확정했거나 본문이 있는 화({stuck})가 있어 지울 수 없어요")
     p.story_arcs.remove(a)
     p.episodes = [e for e in p.episodes if e not in eps]
+    # 이 아크를 붙일 때 더한 인물(다른 화에 나오지 않는 것만)과 바꾼 복선 회수 예정 화를 되돌린다
+    undo = next((u for u in p.arc_undo if u.number == a.number), None)
+    if undo:
+        used = {c for e in p.episodes for c in e.plot.characters}
+        gone = {cid for cid in undo.characters if cid not in used}
+        p.characters = [c for c in p.characters if c.id not in gone]
+        p.states = [s for s in p.states if s.character_id not in gone]
+        due = dict(zip(undo.foreshadows, undo.due_before))
+        for f in p.foreshadows:
+            if f.id in due and f.due_ep == a.end_ep:
+                f.due_ep = due[f.id]
+        p.arc_undo = [u for u in p.arc_undo if u is not undo]
     return a
 
 
@@ -605,7 +654,7 @@ def recap(llm: LLM, p: Project, kind: str, number: int) -> Recap:
     """끝난 아크(kind='arc')나 부(kind='part')의 요약을 제안한다. 화별 요약(작가가 승인한 것)으로 만든다."""
     target = _recap_target(p, kind, number)
     if not arc_finished(p, target):
-        raise ValueError(f"{'아크' if kind == 'arc' else '부'} {number}의 모든 화가 상태 반영까지 끝나야 요약합니다")
+        raise ValueError(f"{'아크' if kind == 'arc' else '부'} {number}의 모든 화가 상태 반영까지 끝나야 요약해요")
     return llm.json(prompts.SYSTEM_EDITOR, prompts.recap_prompt(p, kind, number), Recap, hint={"kind": kind, "number": number})
 
 
@@ -616,16 +665,18 @@ def apply_recap(p: Project, kind: str, number: int, summary: str) -> None:
 def _recap_target(p: Project, kind: str, number: int):
     items = p.story_arcs if kind == "arc" else p.parts if kind == "part" else None
     if items is None:
-        raise ValueError(f"모르는 요약 단위입니다: {kind}")
+        raise ValueError(f"모르는 요약 단위예요: {kind}")
     hit = next((x for x in items if x.number == number), None)
     if hit is None:
-        raise ValueError(f"{'아크' if kind == 'arc' else '부'} {number}이(가) 없습니다")
+        raise ValueError(f"{'아크' if kind == 'arc' else '부'} {number}이(가) 없어요")
     return hit
 
 
 def pending_recaps(p: Project) -> list[tuple[str, int]]:
-    """모든 화가 끝났는데 요약이 없는 아크와 부."""
-    out = [("arc", a.number) for a in p.story_arcs if not a.summary and arc_finished(p, a)]
+    """모든 화가 끝났는데 요약이 없는 아크와 부. 요약이 있는 부의 아크는 부 요약이 대신 들어가므로(prompts.story_so_far) 빼 둔다."""
+    summed = [x for x in p.parts if x.summary]
+    out = [("arc", a.number) for a in p.story_arcs if not a.summary and arc_finished(p, a)
+           and not any(x.start_ep <= a.start_ep <= x.end_ep for x in summed)]
     out += [("part", x.number) for x in p.parts if not x.summary and arc_finished(p, x)]
     return out
 
@@ -650,18 +701,18 @@ def convert_range(p: Project) -> tuple[int, int]:
 
 def check_convertible(p: Project, total: int) -> None:
     if p.serial:
-        raise ValueError("이미 장편 연재 작품입니다")
+        raise ValueError("이미 장편 연재 작품이에요")
     if p.episodes and not p.arc:
-        raise ValueError("기승전결 구조 없이 플롯만 있는 작품은 전환할 수 없습니다. 구조를 먼저 저장하세요")
+        raise ValueError("기승전결 구조 없이 플롯만 있는 작품은 전환할 수 없어요. 구조를 먼저 저장하세요")
     lo, hi = convert_range(p)
     if not lo <= total <= hi:
-        raise ValueError(f"장편 총 화수는 {lo}~{hi}화로 정하세요 (단편 {short_end(p)}화 뒤에 아크가 하나 이상 들어가야 합니다)")
+        raise ValueError(f"장편 총 화수는 {lo}~{hi}화로 정하세요 (단편 {short_end(p)}화 뒤에 아크가 하나 이상 들어가야 해요)")
 
 
 def propose_conversion(llm: LLM, p: Project, total: int, ending: str = "", note: str = "") -> SerialConversion:
     """단편을 장편으로 늘리는 계획을 제안한다. 저장하지 않는다."""
     if ending not in ("", "keep", "reopen"):
-        raise ValueError(f"모르는 결말 처리입니다: {ending}")
+        raise ValueError(f"모르는 결말 처리예요: {ending}")
     check_convertible(p, total)
     prop = llm.json(
         prompts.SYSTEM_PLANNER, prompts.convert_prompt(p, total, ending, note), SerialConversion,
@@ -728,10 +779,10 @@ def clean_conversion(p: Project, prop: SerialConversion, total: int = 0) -> Seri
         if current.get(n) != e.model_dump():
             keep[n] = e
     if dropped:
-        notes.append(f"본문이 있거나 단편 범위 밖인 화({sorted(set(dropped))})의 플롯 변경안은 뺐습니다.")
+        notes.append(f"본문이 있거나 단편 범위 밖인 화({sorted(set(dropped))})의 플롯 변경안은 뺐어요.")
     prop.episodes = [keep[n] for n in sorted(keep)]
     if last_text and prop.ending == "reopen" and not (prop.foreshadows or prop.facts or prop.episodes):
-        notes.append("결말을 다시 열 장치(떡밥, 사실, 플롯 수정)가 없습니다. 다시 제안받거나 전환한 뒤 인과율에서 더하세요.")
+        notes.append("결말을 다시 열 장치(떡밥, 사실, 플롯 수정)가 없어요. 다시 제안받거나 전환한 뒤 인과율에서 더하세요.")
     if notes:
         prop.reply = (prop.reply.rstrip() + "\n\n※ " + " ".join(notes)).strip()
     return prop
@@ -750,9 +801,9 @@ def _clean_parts(parts: list[Part], total: int, arcs: list[StoryArc], notes: lis
         for a in arcs:
             x = next((x for x in parts if x.start_ep <= a.start_ep <= x.end_ep), None)
             if x and a.end_ep > x.end_ep:
-                raise ValueError(f"{x.number}부가 {x.end_ep}화에서 끝나 아크 {a.number}({a.end_ep}화까지)을 품지 못합니다")
+                raise ValueError(f"{x.number}부가 {x.end_ep}화에서 끝나 아크 {a.number}({a.end_ep}화까지)을 품지 못해요")
     except ValueError as e:
-        notes.append(f"부 구성이 맞지 않아 뺐습니다: {e}. 전환한 뒤 부 구성을 다시 제안받으세요.")
+        notes.append(f"부 구성이 맞지 않아 뺐어요: {e}. 전환한 뒤 부 구성을 다시 제안받으세요.")
         parts = []
     return parts
 
@@ -762,7 +813,7 @@ def _clean_tiers(p: Project, tiers: list, notes: list[str]) -> list:
     tiers = [t for t in {t.id: t for t in tiers}.values() if t.id in tier and t.tier != tier[t.id]]
     after = tier | {t.id: t.tier for t in tiers}
     if not any(v == "main" for v in after.values()) and tiers:
-        notes.append("주역이 한 명도 남지 않아 비중 조정을 뺐습니다.")
+        notes.append("주역이 한 명도 남지 않아 비중 조정을 뺐어요.")
         tiers = []
     return tiers
 
@@ -809,31 +860,51 @@ def apply_conversion(p: Project, prop: SerialConversion, at: str = "") -> Projec
     return before
 
 
+def ep_list(nums: list[int], most: int = 4) -> str:
+    """화 번호를 '1, 3~5화' 처럼 잇는다. 묶음이 많으면 '49~60, 62화 등 14화' 처럼 줄인다."""
+    runs: list[list[int]] = []
+    for n in sorted(set(nums)):
+        if runs and n == runs[-1][1] + 1:
+            runs[-1][1] = n
+        else:
+            runs.append([n, n])
+    text = ", ".join(f"{a}~{b}" if a != b else f"{a}" for a, b in runs[:most])
+    return f"{text}화 등 {len(set(nums))}화" if len(runs) > most else f"{text}화"
+
+
 def undo_blockers(p: Project, backup: Project | None) -> list[str]:
     """전환을 되돌리면 잃는 것이 있으면 그 이유. 비면 되돌려도 된다."""
     if p.conversion is None:
-        return ["단편에서 전환한 작품이 아닙니다"]
+        return ["단편에서 전환한 작품이 아니에요"]
     if backup is None:
-        return ["전환 전 백업(before-serial.json)이 없습니다"]
+        return ["전환 전 백업(before-serial.json)이 없어요"]
     out = []
-    if len(p.history) > p.conversion.history:
-        out.append(f"전환한 뒤 상태를 반영한 화가 있습니다 ({[d.episode for d in p.history[p.conversion.history:]]}화)")
+    eps = undo_blocker_eps(p, backup)
+    if eps["applied"]:
+        out.append(f"전환한 뒤 상태를 반영한 화가 있어요 ({ep_list(eps['applied'])})")
+    if eps["changed"]:
+        out.append(f"전환한 뒤 쓰거나 고친 본문이 있어요 ({ep_list(eps['changed'])})")
+    return out
+
+
+def undo_blocker_eps(p: Project, backup: Project) -> dict[str, list[int]]:
+    """되돌리기를 막는 화 번호. applied: 전환한 뒤 상태를 반영한 화, changed: 전환한 뒤 쓰거나 고친 본문이 있는 화."""
+    assert p.conversion is not None
+    applied = sorted({d.episode for d in p.history[p.conversion.history:]})
     if p.conversion.mode == "rebuild":  # 재구성은 화 번호가 바뀌므로 옛 본문 어느 것과도 같지 않은 본문을 찾는다
         texts = {e.text for e in backup.episodes}
         changed = [e.plot.number for e in p.episodes if e.text and e.text not in texts]
     else:
         old = {e.plot.number: e.text for e in backup.episodes}
         changed = [e.plot.number for e in p.episodes if e.text and old.get(e.plot.number) != e.text]
-    if changed:
-        out.append(f"전환한 뒤 쓰거나 고친 본문이 있습니다 ({changed}화)")
-    return out
+    return {"applied": applied, "changed": changed}
 
 
 def undo_conversion(p: Project, backup: Project) -> Project:
     """전환 전 작품을 돌려준다. 잃는 것이 있으면 막는다."""
     why = undo_blockers(p, backup)
     if why:
-        raise ValueError("되돌릴 수 없습니다: " + " / ".join(why))
+        raise ValueError("되돌릴 수 없어요: " + " / ".join(why))
     return backup.model_copy(deep=True, update={"conversion": None, "archive": None})
 
 
@@ -854,10 +925,10 @@ def rebuild_span(p: Project) -> tuple[int, int, int]:
 def check_rebuild(p: Project, total: int, span: int = 0, ending_at: str = "") -> int:
     """재구성할 수 있는지 보고 앞부분 화수를 돌려준다 (0 이면 기본값)."""
     if ending_at not in ("", "arc", "part", "series"):
-        raise ValueError(f"모르는 결말 위치입니다: {ending_at}")
+        raise ValueError(f"모르는 결말 위치예요: {ending_at}")
     check_convertible(p, total)
     if not p.episodes:
-        raise ValueError("재구성할 단편 화가 없습니다. 이어 쓰기로 전환하세요")
+        raise ValueError("재구성할 단편 화가 없어요. 이어 쓰기로 전환하세요")
     lo, default, hi = rebuild_span(p)
     span = span or default
     if not lo <= span <= min(hi, total):
@@ -886,19 +957,19 @@ def clean_rebuild(p: Project, prop: SerialRebuild, total: int = 0) -> SerialRebu
     known = {c.id for c in p.characters}
     arcs = sorted(prop.arcs, key=lambda a: a.start_ep)
     if not arcs:
-        raise ValueError("재구성 제안에 아크가 없습니다. 다시 제안받으세요")
+        raise ValueError("재구성 제안에 아크가 없어요. 다시 제안받으세요")
     expected = 1
     for i, a in enumerate(arcs, 1):
         a.number, a.summary, a.payoffs = i, "", []
         if a.start_ep != expected:
-            raise ValueError(f"아크 {i}가 {a.start_ep}화에서 시작합니다 ({expected}화부터여야 합니다). 다시 제안받으세요")
+            raise ValueError(f"아크 {i}가 {a.start_ep}화에서 시작해요 ({expected}화부터여야 해요). 다시 제안받으세요")
         validate_arc(ArcPlan(acts=a.acts), a.end_ep, a.start_ep)
         a.acts = sorted(a.acts, key=lambda x: x.start_ep)
         a.cast = [c for c in dict.fromkeys(a.cast) if c in known]
         expected = a.end_ep + 1
     last = expected - 1
     if last > total:
-        raise ValueError(f"아크가 {last}화까지 있어 총 {total}화를 넘습니다")
+        raise ValueError(f"아크가 {last}화까지 있어 총 {total}화를 넘어요")
     prop.arcs = arcs
     prop.parts = _clean_parts(prop.parts, total, arcs, notes)
 
@@ -911,7 +982,7 @@ def clean_rebuild(p: Project, prop: SerialRebuild, total: int = 0) -> SerialRebu
     for n in missing:
         by_no[n] = RebuildEpisode(number=n, title=f"{n}화", summary="", use="new")
     if missing:
-        notes.append(f"지도에 없던 {missing}화는 새 화로 채웠습니다. 플롯 초안에서 채우세요.")
+        notes.append(f"지도에 없던 {missing}화는 새 화로 채웠어요. 플롯 초안에서 채우세요.")
     taken: set[int] = set()
     changed = []
     for n in sorted(by_no):
@@ -929,10 +1000,10 @@ def clean_rebuild(p: Project, prop: SerialRebuild, total: int = 0) -> SerialRebu
         if x.use != before:
             changed.append(n)
     if changed:
-        notes.append(f"{changed}화는 옛 본문을 그대로 쓸 수 없어(옛 화가 여럿이거나, 본문이 없거나, 이미 다른 화에 씀) 쓰는 방식을 바꿨습니다.")
+        notes.append(f"{changed}화는 옛 본문을 그대로 쓸 수 없어(옛 화가 여럿이거나, 본문이 없거나, 이미 다른 화에 씀) 쓰는 방식을 바꿨어요.")
     kept = [(n, by_no[n].sources[0]) for n in sorted(by_no) if by_no[n].use in ("keep", "revise")]
     if any(a[1] > b[1] for a, b in zip(kept, kept[1:])):
-        notes.append("그대로 두거나 다듬는 옛 화의 순서가 바뀐 곳이 있습니다. 앞뒤 연결을 검수에서 확인하세요.")
+        notes.append("그대로 두거나 다듬는 옛 화의 순서가 바뀐 곳이 있어요. 앞뒤 연결을 검수에서 확인하세요.")
     prop.episodes = [by_no[n] for n in sorted(by_no)]
     used = {s for x in prop.episodes for s in x.sources}
     prop.dropped = sorted((set(prop.dropped) & set(old) - used) | (set(old) - used))
@@ -1027,17 +1098,17 @@ def apply_rebuild(p: Project, prop: SerialRebuild, at: str = "") -> tuple[Projec
             setattr(el, k, v)
         el.added_after = 0
         if lost:
-            notes.append(f"인과율 요소 '{el.name}'의 화 번호 일부를 새 화로 옮기지 못했습니다")
+            notes.append(f"인과율 요소 '{el.name}'의 화 번호 일부를 새 화로 옮기지 못했어요")
     for sl in p.storylines:
         b, j = _remap(sl.branch_ep, mapping), _remap(sl.join_ep, mapping)
         if (sl.branch_ep and not b) or (sl.join_ep and not j):
-            notes.append(f"이야기 줄기 '{sl.title}'의 갈라지는 화 · 합류하는 화를 새 화로 옮기지 못했습니다")
+            notes.append(f"이야기 줄기 '{sl.title}'의 갈라지는 화 · 합류하는 화를 새 화로 옮기지 못했어요")
         sl.branch_ep, sl.join_ep = b, j
     if archive.dropped:
-        notes.append(f"쓰지 않는 옛 화: {archive.dropped}화 (원고는 보관함에 남습니다)")
+        notes.append(f"쓰지 않는 옛 화: {', '.join(map(str, archive.dropped))}화 (원고는 보관함에 남아요)")
     p.archive = archive
     p.conversion = Conversion(at=at or _stamp(), from_total=before.meta.target_episodes, arc_end=0,
-                              ending=prop.ending_at, history=0, mode="rebuild")
+                              ending=prop.ending_at, history=0, mode="rebuild", notes=notes)
     return before, notes
 
 
@@ -1057,7 +1128,7 @@ def carried_delta(p: Project, n: int) -> StateDelta | None:
         e.episode = n
     for f in d.foreshadow_planted:
         f.planted_ep = n
-    d.warnings = [f"단편 {x.sources[0]}화 때 승인한 변경안을 다시 씁니다. 앞 화가 바뀌었으니 확인하고 반영하세요."] + d.warnings
+    d.warnings = [f"단편 {x.sources[0]}화 때 승인한 변경안을 다시 써요. 앞 화가 바뀌었으니 확인하고 반영하세요."] + d.warnings
     return d
 
 
@@ -1066,11 +1137,11 @@ def propose_rework(llm: LLM, p: Project, n: int) -> Rework:
     x = p.archive.entry(n) if p.archive else None
     ep = _editable(p, n)
     if x is None or x.use != "revise":
-        raise ValueError(f"{n}화는 재구성에서 다듬기로 고른 화가 아닙니다")
+        raise ValueError(f"{n}화는 재구성에서 다듬기로 고른 화가 아니에요")
     rw = llm.json(prompts.writer_system(p), prompts.rework_prompt(p, n), Rework, hint={"episode": n, "text": ep.text})
     rw.text = rw.text.strip()
     if not rw.text or rw.text == ep.text:
-        raise ValueError("고친 본문이 원문과 같습니다. 다듬을 것을 지도에 적고 다시 받으세요")
+        raise ValueError("고친 본문이 원문과 같아요. 다듬을 것을 지도에 적고 다시 받으세요")
     return rw
 
 
@@ -1079,10 +1150,10 @@ def accept_rework(p: Project, n: int, text: str, proposed: str = "") -> TextEdit
     ep = _editable(p, n)
     x = p.archive.entry(n) if p.archive else None
     if x is None or x.use != "revise":
-        raise ValueError(f"{n}화는 재구성에서 다듬기로 고른 화가 아닙니다")
+        raise ValueError(f"{n}화는 재구성에서 다듬기로 고른 화가 아니에요")
     new = text.strip()
     if not new:
-        raise ValueError("본문이 비었습니다")
+        raise ValueError("본문이 비었어요")
     old = ep.text
     ep.text = new
     edit = record_typed(p, n, old, new)
@@ -1102,7 +1173,7 @@ def revise_plot(llm: LLM, p: Project, message: str) -> PlotRevision:
     """작가의 말에 대한 답과 변경안을 만든다. 저장하지 않는다. 쓸 수 없는 부분은 빼고 답에 이유를 덧붙인다."""
     message = message.strip()
     if not message:
-        raise ValueError("메시지가 비었습니다")
+        raise ValueError("메시지가 비었어요")
     rev = llm.json(
         prompts.SYSTEM_PLOT_CHAT, prompts.plot_chat_prompt(p, message), PlotRevision,
         hint={"message": message, "arc": (focus_arc(p).acts if p.serial and p.story_arcs else p.arc),
@@ -1124,11 +1195,11 @@ def focus_arc(p: Project) -> StoryArc | None:
 def clean_revision(p: Project, rev: PlotRevision) -> PlotRevision:
     notes: list[str] = []
     if p.serial and rev.total_episodes:
-        notes.append("장편은 총 화수를 부 구성에서 바꿔서 화수 변경을 뺐습니다.")
+        notes.append("장편은 총 화수를 부 구성에서 바꿔서 화수 변경을 뺐어요.")
         rev.total_episodes = 0
     total = rev.total_episodes if rev.total_episodes and rev.total_episodes != p.meta.target_episodes else 0
     if total and not 1 <= total <= 100:
-        notes.append(f"총 화수 {total}화는 쓸 수 없어 뺐습니다.")
+        notes.append(f"총 화수 {total}화는 쓸 수 없어 뺐어요.")
         total = 0
     rev.total_episodes = total
     focus = focus_arc(p) if p.serial else None
@@ -1137,7 +1208,7 @@ def clean_revision(p: Project, rev: PlotRevision) -> PlotRevision:
     if acts and [a.model_dump() for a in acts] == [a.model_dump() for a in current_acts] and not total:
         acts = []
     if acts and p.serial and focus is None:
-        notes.append("아직 아크가 없어 구조 변경을 뺐습니다.")
+        notes.append("아직 아크가 없어 구조 변경을 뺐어요.")
         acts = []
     if acts:
         try:
@@ -1146,10 +1217,10 @@ def clean_revision(p: Project, rev: PlotRevision) -> PlotRevision:
             else:
                 validate_arc(ArcPlan(acts=acts), total or p.meta.target_episodes)
         except ValueError as e:
-            notes.append(f"구조 변경안이 맞지 않아 뺐습니다: {e}")
+            notes.append(f"구조 변경안이 맞지 않아 뺐어요: {e}")
             acts = []
     if total and not acts:
-        notes.append("화수를 바꾸려면 구조도 함께 바꿔야 해서 화수 변경을 뺐습니다.")
+        notes.append("화수를 바꾸려면 구조도 함께 바꿔야 해서 화수 변경을 뺐어요.")
         rev.total_episodes = total = 0
     rev.acts = acts
     if focus:
@@ -1164,10 +1235,10 @@ def clean_revision(p: Project, rev: PlotRevision) -> PlotRevision:
     for e in rev.episodes:
         n = e.number
         if n in seen or not 1 <= n <= last:
-            notes.append(f"{n}화 변경안은 범위를 벗어나 뺐습니다.")
+            notes.append(f"{n}화 변경안은 범위를 벗어나 뺐어요.")
             continue
         if status.get(n) in LOCKED:
-            notes.append(f"{n}화는 본문이 있어 플롯 변경안을 뺐습니다.")
+            notes.append(f"{n}화는 본문이 있어 플롯 변경안을 뺐어요.")
             continue
         act = next((a for a in arc if a.start_ep <= n <= a.end_ep), None)
         if act:
@@ -1220,14 +1291,14 @@ def apply_revision(p: Project, rev: PlotRevision, acts: bool, episodes: list[int
     cut = [n for n in by_no if n > total]
     stuck = [n for n in cut if by_no[n].status != "draft"]
     if stuck:
-        raise ValueError(f"{total}화로 줄이면 확정됐거나 본문이 있는 화({stuck})가 빠집니다. 먼저 초안으로 되돌리세요")
+        raise ValueError(f"{total}화로 줄이면 확정됐거나 본문이 있는 화({stuck})가 빠져요. 먼저 초안으로 되돌리세요")
     picked = {e.number: e for e in rev.episodes if e.number in set(episodes)}
     for n, plot in picked.items():
         if n > total:
-            raise ValueError(f"{n}화는 총 {total}화 밖입니다. 구조 변경을 함께 고르세요")
+            raise ValueError(f"{n}화는 총 {total}화 밖이에요. 구조 변경을 함께 고르세요")
         cur = by_no.get(n)
         if cur and cur.status in LOCKED:
-            raise ValueError(f"{n}화는 본문이 있어 플롯을 바꿀 수 없습니다")
+            raise ValueError(f"{n}화는 본문이 있어 플롯을 바꿀 수 없어요")
     if acts and rev.acts:
         if focus:
             focus.acts = arc
@@ -1300,7 +1371,7 @@ def apply_storyline(p: Project, prop: StorylineProposal, episodes: list[int] | N
     have = {e.plot.number for e in p.episodes}
     missing = sorted({n for n in episodes + threads if n not in have})
     if missing:
-        raise ValueError(f"플롯이 없는 화({', '.join(map(str, missing))})에는 줄기를 붙일 수 없습니다. 플롯을 먼저 만드세요")
+        raise ValueError(f"플롯이 없는 화({', '.join(map(str, missing))})에는 줄기를 붙일 수 없어요. 플롯을 먼저 만드세요")
     p.storylines.append(s)
     for n in episodes:
         storylines.tag(p, n, s.id, "main")
@@ -1314,11 +1385,25 @@ def validate_storylines(p: Project) -> None:
     ids = [s.id for s in p.storylines]
     dup = sorted({x for x in ids if ids.count(x) > 1})
     if dup or "" in ids:
-        raise ValueError(f"이야기 줄기 id 가 비었거나 겹칩니다: {', '.join(dup) or '빈 id'}")
+        raise ValueError(f"이야기 줄기 id 가 비었거나 겹쳐요: {', '.join(dup) or '빈 id'}")
     for e in p.episodes:
         bad = [x for x in [e.plot.storyline, *e.plot.threads] if x and x not in ids]
         if bad:
-            raise ValueError(f"{e.plot.number}화에 없는 이야기 줄기가 붙어 있습니다: {', '.join(bad)}")
+            raise ValueError(f"{e.plot.number}화에 없는 이야기 줄기가 붙어 있어요: {', '.join(bad)}")
+
+
+def validate_relationships(p: Project) -> None:
+    """관계는 서로 다른 두 인물 사이에 한 쌍씩만 둔다 (화면 저장용). 겹치면 관계 계산이 한쪽만 쓴다."""
+    seen: dict[frozenset, int] = {}
+    names = {c.id: c.name or c.id for c in p.characters}
+    for i, r in enumerate(p.relationships, 1):
+        who = f"{names.get(r.a, r.a)} ↔ {names.get(r.b, r.b)}"
+        if r.a == r.b:
+            raise ValueError(f"{i}번째 관계({who})가 같은 인물끼리예요. 인물 B를 바꾸거나 지우세요")
+        k = frozenset((r.a, r.b))
+        if k in seen:
+            raise ValueError(f"{who} 관계가 {seen[k]}번째와 {i}번째에 두 번 있어요. 하나를 지우세요")
+        seen[k] = i
 
 
 def remove_storyline(p: Project, sid: str) -> None:
@@ -1371,13 +1456,13 @@ def clean_impact(p: Project, rep: ImpactReport) -> ImpactReport:
     notes: list[str] = []
     keep = [c for c in rep.conflicts if _quoted(p, c.target, c.episode, c.quote)]
     if len(keep) < len(rep.conflicts):
-        notes.append(f"원문에서 인용을 찾지 못한 지적 {len(rep.conflicts) - len(keep)}개는 뺐습니다.")
+        notes.append(f"원문에서 인용을 찾지 못한 지적 {len(rep.conflicts) - len(keep)}개는 뺐어요.")
     rep.conflicts = keep
     patches, seen = [], set()
     for t in rep.patches:
         e = next((e for e in p.episodes if e.plot.number == t.episode), None)
         if not e or not e.text or not elements.find(e.text, t.quote):
-            notes.append(f"{t.episode}화 본문에서 '{t.quote[:20]}' 문장을 찾지 못해 그 수정안은 뺐습니다.")
+            notes.append(f"{t.episode}화 본문에서 '{t.quote[:20]}' 문장을 찾지 못해 그 수정안은 뺐어요.")
             continue
         if t.replacement.strip() == t.quote.strip() or (t.episode, t.quote) in seen:
             continue
@@ -1405,27 +1490,33 @@ def apply_impact(p: Project, eid: str, episodes: list[int], patches: list[int], 
     if imp is None:
         raise ValueError("영향 분석을 먼저 하세요")
     if imp.outcome:
-        raise ValueError("이미 처리한 영향 분석입니다. 다시 분석하세요")
+        raise ValueError("이미 처리한 영향 분석이에요. 다시 분석하세요")
     rep = imp.report
     if not (episodes or patches or facts):
         raise ValueError("반영할 부분을 고르세요")
     texts: dict[int, str] = {}
+    records: list[tuple[int, TextEdit]] = []
     for i in patches:
         if not 0 <= i < len(rep.patches):
-            raise ValueError(f"본문 수정안 {i} 이 없습니다")
+            raise ValueError(f"본문 수정안 {i} 이 없어요")
         t = rep.patches[i]
         ep = p.episode(t.episode)
         cur = texts.get(t.episode, ep.text)
         span = elements.find(cur, t.quote)
         if span is None:
-            raise ValueError(f"{t.episode}화 본문이 그 사이 바뀌어 '{t.quote[:20]}' 문장을 찾을 수 없습니다. 다시 분석하세요")
+            raise ValueError(f"{t.episode}화 본문이 그 사이 바뀌어 '{t.quote[:20]}' 문장을 찾을 수 없어요. 다시 분석하세요")
         texts[t.episode] = cur[:span[0]] + t.replacement.strip() + cur[span[1]:]
+        # 집필 화면 수정 기록에 남겨 무엇을 바꿨는지 보고 취소할 수 있게 한다
+        records.append((t.episode, TextEdit(id="", source="impact", start=span[0], before=cur[span[0]:span[1]],
+                                            after=t.replacement.strip(), instruction=f"인과율 · {el.name}")))
     applied: list[str] = []
     if episodes:
         done = apply_revision(p, PlotRevision(reply="", episodes=rep.episodes), False, episodes)
         applied += [f"ep:{n}" for n in done]
     for n, text in texts.items():
         p.episode(n).text = text  # 상태 반영이 끝난 화도 작가가 고르면 고친다. 요약과 인물 상태는 그대로 둔다
+    for n, rec in records:
+        _record(p.episode(n), rec)
     applied += [f"patch:{i}" for i in patches]
     for i in facts:
         if 0 <= i < len(rep.new_facts) and rep.new_facts[i] not in p.facts:
@@ -1518,13 +1609,13 @@ def insert_episode(p: Project, at: int, title: str = "", summary: str = "", stor
     lo, hi = insert_range(p)
     if not lo <= at <= hi:
         if at < lo:
-            raise ValueError(f"{at}화 앞에는 넣을 수 없어요. {lo - 1}화까지는 본문이 있거나 상태를 반영해 번호를 옮기지 않습니다. "
+            raise ValueError(f"{at}화 앞에는 넣을 수 없어요. {lo - 1}화까지는 본문이 있거나 상태를 반영해 번호를 옮기지 않아요. "
                              f"{lo}화부터 넣을 수 있어요")
         raise ValueError(f"{at}화 자리가 없어요. {hi}화(마지막 화 뒤)까지 넣을 수 있어요")
     if storyline:
         storylines.get(p, storyline)
     if p.serial and not p.story_arcs:
-        raise ValueError("아크가 없어 새 화가 들어갈 자리가 없습니다. 다음 아크를 먼저 기획하세요")
+        raise ValueError("아크가 없어 새 화가 들어갈 자리가 없어요. 다음 아크를 먼저 기획하세요")
     moved = [e.plot.number for e in p.episodes if e.plot.number >= at]
 
     def change(q: Project) -> dict[str, int]:
@@ -1554,7 +1645,7 @@ def remove_episode(p: Project, n: int) -> list[str]:
     ep = p.episode(n)
     lo, _ = insert_range(p)
     if n < lo:
-        raise ValueError(f"{n}화는 뺄 수 없어요. {lo - 1}화까지는 본문이 있거나 상태를 반영해 번호를 옮기지 않습니다")
+        raise ValueError(f"{n}화는 뺄 수 없어요. {lo - 1}화까지는 본문이 있거나 상태를 반영해 번호를 옮기지 않아요")
     moved = [e.plot.number for e in p.episodes if e.plot.number > n]
 
     def change(q: Project) -> dict[str, int]:
@@ -1583,7 +1674,7 @@ def draft_episode(llm: LLM, p: Project, n: int) -> PlotBatch:
     """초안인 n 화 하나의 플롯을 앞뒤 화에 맞춰 AI 로 채운다. 작가가 적어 둔 제목 · 요약 · 줄기는 살린다. 저장하지 않는다."""
     e = p.episode(n)
     if e.status != "draft":
-        raise ValueError(f"{n}화는 확정된 화라 AI 초안으로 바꾸지 않습니다. 초안으로 되돌린 뒤 하세요")
+        raise ValueError(f"{n}화는 확정된 화라 AI 초안으로 바꾸지 않아요. 초안으로 되돌린 뒤 하세요")
     beats = p.beats()
     if not beats:
         raise ValueError("다음 아크를 먼저 기획하세요" if p.serial else "기승전결 구조(arc)를 먼저 만드세요")
@@ -1591,7 +1682,7 @@ def draft_episode(llm: LLM, p: Project, n: int) -> PlotBatch:
                      hint={"start": n, "end": n, "arc": beats})
     pick = [x for x in batch.episodes if x.number == n] or batch.episodes[:1]
     if not pick:
-        raise ValueError(f"{n}화 플롯을 받지 못했습니다")
+        raise ValueError(f"{n}화 플롯을 받지 못했어요")
     plot = pick[0]
     plot.number = n
     if e.plot.title.strip():
@@ -1600,6 +1691,13 @@ def draft_episode(llm: LLM, p: Project, n: int) -> PlotBatch:
         plot.storyline = e.plot.storyline
     batch.episodes = [plot]
     return batch
+
+
+def reopen_impact(p: Project, eid: str) -> None:
+    """버린 영향 분석을 다시 검토할 수 있게 한다. 반영한 것은 다시 열지 않는다."""
+    imp = elements.get(p, eid).impact
+    if imp and imp.outcome == "dismissed":
+        imp.outcome = ""
 
 
 # ---------- 4. 본문 생성 ----------
@@ -1613,10 +1711,8 @@ def write_episode(llm: LLM, p: Project, n: int, approach: str = "") -> str:
     """approach: 1~3화를 여러 안으로 쓸 때 여는 방식 (prompts.OPENING_APPROACHES)."""
     ep = p.episode(n)
     if ep.status == "draft":
-        raise ValueError(f"{n}화 플롯이 아직 확정되지 않았습니다 (confirm 먼저)")
-    unfinished = [e.plot.number for e in p.episodes if e.plot.number < n and e.status != "finalized"]
-    if unfinished:
-        raise ValueError(f"이전 화의 상태 갱신이 끝나지 않았습니다: {unfinished}")
+        raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
+    require_previous(p, n)
     return _write(llm, p, n, prompts.episode_prompt(p, n, approach))
 
 
@@ -1626,7 +1722,7 @@ def _write(llm: LLM, p: Project, n: int, prompt: str) -> str:
         text = llm.text(system, prompt)
         if metrics.hangul_ratio(text) >= HANGUL_MIN:
             return text
-    raise ValueError(f"{n}화 본문 대신 다른 글(영어로 된 생각 과정 등)이 {WRITE_TRIES}번 나왔습니다. 다시 시도해 주세요")
+    raise ValueError(f"{n}화 본문 대신 다른 글(영어로 된 생각 과정 등)이 {WRITE_TRIES}번 나왔어요. 다시 시도해 주세요")
 
 
 def compare_drafts(llms: dict[str, LLM], p: Project, n: int) -> dict[str, str]:
@@ -1638,7 +1734,7 @@ def adopt_draft(p: Project, n: int, text: str) -> None:
     """비교에서 고른 본문을 그 화의 본문으로 쓴다. 상태 반영이 끝난 화는 되돌린 뒤에만 바꾼다."""
     ep = p.episode(n)
     if ep.status == "finalized":
-        raise ValueError(f"{n}화는 상태 반영이 끝났습니다. 바꾸려면 revert {n - 1} 후 다시 하세요")
+        raise ValueError(f"{n}화는 상태 반영이 끝났어요. 바꾸려면 상태 승인 화면에서 {n}화부터 반영을 취소한 뒤 다시 하세요 (명령줄은 revert {n - 1})")
     replace_text(ep, text)
 
 
@@ -1654,7 +1750,7 @@ def clean_rewrite(req: RewriteRequest) -> RewriteRequest:
     """모르는 빠른 요청은 막고, 겹치거나 빈 것은 뺀다."""
     bad = [x for x in req.presets if x not in prompts.REWRITE_PRESETS]
     if bad:
-        raise ValueError(f"모르는 빠른 요청입니다: {', '.join(bad)}")
+        raise ValueError(f"모르는 빠른 요청이에요: {', '.join(bad)}")
     keep = [k.strip()[:prompts.REWRITE_KEEP_LIMIT] for k in req.keep if k.strip()]
     return RewriteRequest(feedback=req.feedback.strip(), presets=list(dict.fromkeys(req.presets)),
                           materials=list(dict.fromkeys(req.materials)), mode=req.mode,
@@ -1698,11 +1794,9 @@ def rewrite_prompt(p: Project, n: int, req: RewriteRequest) -> str:
 def rewrite_episode(llm: LLM, p: Project, n: int, req: RewriteRequest) -> str:
     """피드백을 반영해 그 화를 다시 쓴다. 저장하지 않는다 (set_candidate 로 새 판에 둔다)."""
     ep = _editable(p, n)
-    unfinished = [e.plot.number for e in p.episodes if e.plot.number < n and e.status != "finalized"]
-    if unfinished:
-        raise ValueError(f"이전 화의 상태 갱신이 끝나지 않았습니다: {unfinished}")
+    require_previous(p, n)
     if req.mode == "revise" and not ep.text.strip():
-        raise ValueError("고쳐 쓸 지난 판이 없습니다")
+        raise ValueError("고쳐 쓸 지난 판이 없어요")
     return _write(llm, p, n, rewrite_prompt(p, n, clean_rewrite(req)))
 
 
@@ -1713,7 +1807,11 @@ def _version_id(ep: Episode) -> str:
 
 
 def _keep_version(ep: Episode, v: TextVersion) -> None:
-    ep.versions = (ep.versions + [v])[-VERSION_KEEP:]
+    """판을 남긴다. 한도를 넘으면 고르지 않은 새 판(rejected)부터 오래된 순으로 지우고, 바꾸기 전 본문(previous)은 마지막까지 남긴다."""
+    vs = ep.versions + [v]
+    while len(vs) > VERSION_KEEP:
+        vs.pop(next((i for i, x in enumerate(vs) if x.kind == "rejected"), 0))
+    ep.versions = vs
 
 
 def set_candidate(p: Project, n: int, text: str, req: RewriteRequest) -> TextVersion:
@@ -1741,7 +1839,7 @@ def adopt_candidate(p: Project, n: int) -> None:
     """새 판을 본문으로 쓴다. 지금 본문은 versions 에 남는다."""
     ep = _editable(p, n)
     if ep.candidate is None:
-        raise ValueError(f"{n}화에 고를 새 판이 없습니다")
+        raise ValueError(f"{n}화에 고를 새 판이 없어요")
     c, ep.candidate = ep.candidate, None
     replace_text(ep, c.text, c.request)
 
@@ -1750,7 +1848,7 @@ def drop_candidate(p: Project, n: int) -> None:
     """새 판을 고르지 않고 지금 본문을 둔다. 버린 판도 versions 에 남는다."""
     ep = p.episode(n)
     if ep.candidate is None:
-        raise ValueError(f"{n}화에 고를 새 판이 없습니다")
+        raise ValueError(f"{n}화에 고를 새 판이 없어요")
     ep.candidate.kind = "rejected"
     _keep_version(ep, ep.candidate)
     ep.candidate = None
@@ -1761,7 +1859,7 @@ def restore_version(p: Project, n: int, vid: str) -> None:
     ep = _editable(p, n)
     v = next((x for x in ep.versions if x.id == vid), None)
     if v is None:
-        raise KeyError(f"남겨 둔 판이 없습니다: {vid}")
+        raise KeyError(f"남겨 둔 판이 없어요: {vid}")
     replace_text(ep, v.text, v.request)
     ep.versions = [x for x in ep.versions if x is not v]
 
@@ -1782,16 +1880,16 @@ def _now() -> str:
 def _editable(p: Project, n: int) -> Episode:
     ep = p.episode(n)
     if ep.status == "finalized":
-        raise ValueError(f"{n}화는 상태 반영까지 끝나 본문을 바꿀 수 없습니다. 바꾸려면 {n - 1}화 반영 직후로 되돌리세요")
+        raise ValueError(f"{n}화는 상태 반영까지 끝나 본문을 바꿀 수 없어요. 바꾸려면 {n - 1}화 반영 직후로 되돌리세요")
     if not ep.text:
-        raise ValueError(f"{n}화 본문이 없습니다")
+        raise ValueError(f"{n}화 본문이 없어요")
     return ep
 
 
 def locate(text: str, quote: str, start: int) -> int:
     """quote 가 있는 자리. 본문이 앞에서 바뀌어 위치가 밀렸으면 start 에서 가장 가까운 같은 글을 찾는다."""
     if not quote:
-        raise ValueError("고른 부분이 비었습니다")
+        raise ValueError("고른 부분이 비었어요")
     if text[start:start + len(quote)] == quote:
         return start
     found, i = [], text.find(quote)
@@ -1799,7 +1897,7 @@ def locate(text: str, quote: str, start: int) -> int:
         found.append(i)
         i = text.find(quote, i + 1)
     if not found:
-        raise ValueError("고른 부분을 본문에서 찾을 수 없습니다. 그사이 본문이 바뀌었을 수 있어요. 다시 골라 주세요")
+        raise ValueError("고른 부분을 본문에서 찾을 수 없어요. 그사이 본문이 바뀌었을 수 있어요. 다시 골라 주세요")
     return min(found, key=lambda x: abs(x - start))
 
 
@@ -1817,7 +1915,7 @@ def edit_text(p: Project, n: int, sel: Selection, after: str, source: str = "man
     ep = _editable(p, n)
     at = locate(ep.text, sel.text, sel.start)
     if after == sel.text:
-        raise ValueError("바뀐 내용이 없습니다")
+        raise ValueError("바뀐 내용이 없어요")
     ep.text = ep.text[:at] + after + ep.text[at + len(sel.text):]
     return _record(ep, TextEdit(id="", source=source, start=at, before=sel.text, after=after, instruction=instruction,  # type: ignore[arg-type]
                                 preset=preset, proposed=proposed if proposed != after else "", rejected=list(rejected or [])))
@@ -1841,24 +1939,43 @@ def undo_edit(p: Project, n: int, eid: str) -> TextEdit:
     ep = _editable(p, n)
     edit = next((e for e in ep.edits if e.id == eid), None)
     if edit is None:
-        raise KeyError(f"수정 기록이 없습니다: {eid}")
+        raise KeyError(f"수정 기록이 없어요: {eid}")
     if edit.undone:
-        raise ValueError("이미 되돌린 수정입니다")
+        raise ValueError("이미 되돌린 수정이에요")
     if edit.after:
         at = locate(ep.text, edit.after, edit.start)
     elif edit.start <= len(ep.text):  # 지우기만 한 수정은 그 자리에 다시 넣는다
         at = edit.start
     else:
-        raise ValueError("되돌릴 자리를 찾을 수 없습니다")
+        raise ValueError("되돌릴 자리를 찾을 수 없어요")
     ep.text = ep.text[:at] + edit.before + ep.text[at + len(edit.after):]
     edit.undone = True
+    return edit
+
+
+def redo_edit(p: Project, n: int, eid: str) -> TextEdit:
+    """수정 취소(undo_edit)한 수정을 다시 넣는다. 그 뒤에 같은 자리를 또 고쳤으면 찾지 못해 다시 넣을 수 없다."""
+    ep = _editable(p, n)
+    edit = next((e for e in ep.edits if e.id == eid), None)
+    if edit is None:
+        raise KeyError(f"수정 기록이 없어요: {eid}")
+    if not edit.undone:
+        raise ValueError("취소하지 않은 수정이에요")
+    if edit.before:
+        at = locate(ep.text, edit.before, edit.start)
+    elif edit.start <= len(ep.text):  # 더하기만 한 수정은 그 자리에 다시 넣는다
+        at = edit.start
+    else:
+        raise ValueError("다시 넣을 자리를 찾을 수 없어요")
+    ep.text = ep.text[:at] + edit.after + ep.text[at + len(edit.before):]
+    edit.undone = False
     return edit
 
 
 def revise_passage(llm: LLM, p: Project, n: int, sel: Selection, message: str = "", preset: str = "") -> PassageRevision:
     """고른 부분의 고친 후보를 만든다. 저장하지 않는다. 원문과 같거나 겹치는 후보는 뺀다."""
     if preset and preset not in prompts.PASSAGE_PRESETS:
-        raise ValueError(f"모르는 빠른 요청입니다: {preset}")
+        raise ValueError(f"모르는 빠른 요청이에요: {preset}")
     if not message.strip() and not preset:
         raise ValueError("무엇을 바꿀지 적거나 빠른 요청을 고르세요")
     ep = _editable(p, n)
@@ -1894,17 +2011,17 @@ def apply_passage(p: Project, n: int, i: int, k: int, text: str | None = None) -
     """부분 수정 대화의 i 번째 메시지에서 k 번째 후보를 본문에 넣는다. text 를 주면 작가가 손본 글을 넣는다."""
     msgs = p.chat(f"text:{n}").messages
     if not 0 <= i < len(msgs) or msgs[i].passage is None or msgs[i].selection is None:
-        raise KeyError("후보가 있는 메시지가 아닙니다")
+        raise KeyError("후보가 있는 메시지가 아니에요")
     m = msgs[i]
     if m.outcome:
-        raise ValueError("이미 처리한 후보입니다")
+        raise ValueError("이미 처리한 후보여요")
     cands = m.passage.candidates
     if not 0 <= k < len(cands):
-        raise ValueError("후보 번호가 맞지 않습니다")
+        raise ValueError("후보 번호가 맞지 않아요")
     user = next((x for x in reversed(msgs[:i]) if x.role == "user"), None)
     after = (text if text is not None else cands[k].text).strip()
     if not after:
-        raise ValueError("넣을 글이 비었습니다")
+        raise ValueError("넣을 글이 비었어요")
     edit = edit_text(p, n, m.selection, after, "ai", instruction=user.text if user else "", preset=m.preset,
                      proposed=cands[k].text, rejected=[c.text for j, c in enumerate(cands) if j != k])
     m.outcome, m.applied = "applied", [str(k)]
@@ -1919,7 +2036,7 @@ def illustrate(llm: LLM, p: Project, n: int, sel: Selection | None = None, reque
     """고른 부분(없으면 AI 가 고른 장면)의 삽화 프롬프트를 만든다. 저장하지 않는다."""
     ep = p.episode(n)
     if not ep.text:
-        raise ValueError(f"{n}화 본문이 없습니다")
+        raise ValueError(f"{n}화 본문이 없어요")
     if sel is not None:
         sel = Selection(start=locate(ep.text, sel.text, sel.start), text=sel.text)
     draft = llm.json(prompts.SYSTEM_ILLUSTRATOR, prompts.illust_prompt(p, n, sel, request), IllustDraft,
@@ -1944,14 +2061,14 @@ def add_illustration(p: Project, n: int, ill: Illustration) -> Illustration:
 def _illustration(p: Project, n: int, iid: str) -> Illustration:
     ill = next((x for x in p.episode(n).illustrations if x.id == iid), None)
     if ill is None:
-        raise KeyError(f"삽화 프롬프트가 없습니다: {iid}")
+        raise KeyError(f"삽화 프롬프트가 없어요: {iid}")
     return ill
 
 
 def rebuild_illustration(p: Project, n: int, iid: str, model: str = "") -> Illustration:
     """모델이나 외형 태그 · 화풍을 바꾼 뒤 AI 를 다시 부르지 않고 조립만 새로 한다."""
     if model and model not in illust.MODELS:
-        raise ValueError(f"모르는 모델입니다: {model}")
+        raise ValueError(f"모르는 모델이에요: {model}")
     return illust.assemble(p, _illustration(p, n, iid), model or None)
 
 
@@ -1961,10 +2078,19 @@ def remove_illustration(p: Project, n: int, iid: str) -> None:
     ep.illustrations = [x for x in ep.illustrations if x.id != iid]
 
 
+def suggest_voice(llm: LLM, p: Project, cid: str, request: str = "") -> VoiceSuggestion:
+    """인물이 시점 인물인 화의 서술 말투 초안. 저장하지 않는다 (작가가 고쳐 Character.narration_voice 에 저장)."""
+    if not any(c.id == cid for c in p.characters):
+        raise KeyError(f"인물이 없어요: {cid}. 새로 더한 인물이면 저장한 뒤 다시 하세요")
+    s = llm.json(prompts.SYSTEM_VOICE, prompts.voice_prompt(p, cid, request), VoiceSuggestion, hint={"character": cid})
+    s.voice = s.voice.strip()
+    return s
+
+
 def suggest_look(llm: LLM, p: Project, cid: str) -> LookSuggestion:
     """인물 설정을 외형 태그로 옮긴 제안. 저장하지 않는다."""
     if not any(c.id == cid for c in p.characters):
-        raise KeyError(f"인물이 없습니다: {cid}")
+        raise KeyError(f"인물이 없어요: {cid}. 새로 더한 인물이면 저장한 뒤 다시 하세요")
     s = llm.json(prompts.SYSTEM_ILLUSTRATOR, prompts.look_prompt(p, cid), LookSuggestion, hint={"character": cid})
     s.look, s.outfit = illust.clean(s.look), illust.clean(s.outfit)
     return s
@@ -1974,7 +2100,7 @@ def save_look(p: Project, cid: str, look: list[str], outfit: list[str] | None = 
               keep_outfit: bool = False) -> CharacterVisual:
     """작가가 고른 외형 태그를 저장한다. keep_outfit 이면 이미 있는 기본 옷차림은 두고 비었을 때만 채운다."""
     if not any(c.id == cid for c in p.characters):
-        raise KeyError(f"인물이 없습니다: {cid}")
+        raise KeyError(f"인물이 없어요: {cid}. 새로 더한 인물이면 저장한 뒤 다시 하세요")
     v = p.visual(cid)
     if v is None:
         v = CharacterVisual(character_id=cid)
@@ -1987,12 +2113,16 @@ def save_look(p: Project, cid: str, look: list[str], outfit: list[str] | None = 
     return v
 
 
-def keep_illust_look(p: Project, n: int, iid: str, cid: str) -> CharacterVisual:
-    """삽화 원안에서 AI 가 채운 외형 태그를 그 인물의 외형 태그로 저장하고, 그 인물 외형이 비어 있던 삽화를 모두 다시 조립한다."""
+def keep_illust_look(p: Project, n: int, iid: str, cid: str, force: bool = False) -> CharacterVisual:
+    """삽화 원안에서 AI 가 채운 외형 태그를 그 인물의 외형 태그로 저장하고, 그 인물 외형이 비어 있던 삽화를 모두 다시 조립한다.
+    그 인물에 이미 외형 태그가 저장돼 있으면 force 일 때만 바꾼다 (작가가 적은 태그를 덮지 않게)."""
     ill = _illustration(p, n, iid)
     ch = next((c for c in ill.draft.characters if c.id == cid and c.look), None)
     if ch is None:
-        raise ValueError("이 삽화에 그 인물의 외형 태그가 없습니다")
+        raise ValueError("이 삽화에 그 인물의 외형 태그가 없어요")
+    have = p.visual(cid)
+    if have is not None and have.look and not force:
+        raise ValueError("이 인물은 이미 외형 태그가 저장돼 있어요. 다시 조립하면 저장된 태그가 들어가요")
     v = save_look(p, cid, ch.look, ch.outfit, ch.subject, keep_outfit=True)
     for e in p.episodes:
         for x in e.illustrations:
@@ -2005,7 +2135,7 @@ def keep_illust_look(p: Project, n: int, iid: str, cid: str) -> CharacterVisual:
 
 def check_episode(llm: LLM, p: Project, n: int) -> ConsistencyReport:
     if not p.episode(n).text:
-        raise ValueError(f"{n}화 본문이 없습니다")
+        raise ValueError(f"{n}화 본문이 없어요")
     report = llm.json(prompts.SYSTEM_CHECKER, prompts.check_prompt(p, n), ConsistencyReport, hint={"episode": n})
     report.episode = n
     return report
@@ -2022,6 +2152,9 @@ def style_baseline(p: Project) -> metrics.StyleMetrics:
     return p.style_baseline or metrics.measure("\n\n".join(p.style.sample_passages))
 
 
+VOICE_SKIP = ("과거형 서술 비율", "문체 거리")  # 서술 말투가 있는 화에서 빼는 어미 관련 경고
+
+
 def style_drift(p: Project, n: int) -> tuple[metrics.StyleMetrics, list[str]]:
     """이번 화 문체 지표와 경고. 기준값과의 차이, 문체 거리, 표지 빈도, 예시 문단 베끼기를 본다."""
     text = p.episode(n).text
@@ -2029,7 +2162,10 @@ def style_drift(p: Project, n: int) -> tuple[metrics.StyleMetrics, list[str]]:
     cur = metrics.measure(text, p.style.banned_phrases)
     cur.style_distance = metrics.style_distance(base, text)
     warns = metrics.drift(base, cur)
-    marks = metrics.marker_warnings(p.style.markers, text)
+    voiced = (c := prompts.pov_character(p, n)) is not None and bool(c.narration_voice.strip())
+    if voiced:  # 시점 인물의 서술 말투로 쓴 화는 어미가 기준 원문과 달라야 맞다
+        warns = [w for w in warns if not w.startswith(VOICE_SKIP)]
+    marks = [] if voiced else metrics.marker_warnings(p.style.markers, text)
     if marks:
         warns.append(f"문체 표지: {', '.join(marks)}")
     warns[:0] = [f"장치 {w}" for w in metrics.device_warnings(p.style.devices, p.episodes, n, text)]  # 자동 집필 기록은 앞 3개만 남긴다
@@ -2076,10 +2212,10 @@ def text_basis(text: str) -> str:
 def check_hook(llm: LLM, p: Project, n: int, text: str | None = None) -> HookReport:
     """1~3화 흡입력 판정. 저장하지 않는다. text 를 주면 그 글(비교본)을 판정한다."""
     if not prompts.is_opening(n):
-        raise ValueError(f"흡입력 판정은 1~{prompts.OPENING_EPISODES}화만 합니다")
+        raise ValueError(f"흡입력 판정은 1~{prompts.OPENING_EPISODES}화만 해요")
     body = p.episode(n).text if text is None else text
     if not body.strip():
-        raise ValueError(f"{n}화 본문이 없습니다")
+        raise ValueError(f"{n}화 본문이 없어요")
     rep = llm.json(prompts.SYSTEM_HOOK, prompts.hook_prompt(p, n, body), HookReport,
                    hint={"episode": n, "text": body})
     return clean_hook(rep, n, body)
@@ -2128,10 +2264,10 @@ def _approaches(approaches: list[str] | None) -> list[str]:
 def suggest_openings(llm: LLM, p: Project, n: int, approaches: list[str] | None = None) -> OpeningPlots:
     """n화(1~3) 플롯을 여는 방식만 달리한 여러 안. 저장하지 않는다."""
     if not prompts.is_opening(n):
-        raise ValueError(f"여는 방식 비교는 1~{prompts.OPENING_EPISODES}화만 합니다")
+        raise ValueError(f"여는 방식 비교는 1~{prompts.OPENING_EPISODES}화만 해요")
     cur = next((e for e in p.episodes if e.plot.number == n), None)
     if cur and cur.status in LOCKED:
-        raise ValueError(f"{n}화는 본문이 있어 플롯을 바꿀 수 없습니다")
+        raise ValueError(f"{n}화는 본문이 있어 플롯을 바꿀 수 없어요")
     if not p.beats() or not p.act_for(n):
         raise ValueError("다음 아크를 먼저 기획하세요" if p.serial else "기승전결 구조(arc)를 먼저 만드세요")
     ways = _approaches(approaches)
@@ -2156,7 +2292,7 @@ def clean_openings(p: Project, n: int, out: OpeningPlots, ways: list[str]) -> Op
             o.plot.storyline, o.plot.threads = cur.plot.storyline, list(cur.plot.threads)
         keep.append(o)
     if not keep:
-        raise ValueError("AI 가 요청한 여는 방식으로 안을 내지 않았습니다. 다시 시도하세요")
+        raise ValueError("AI 가 요청한 여는 방식으로 안을 내지 않았어요. 다시 시도하세요")
     out.options = keep
     return out
 
@@ -2164,15 +2300,21 @@ def clean_openings(p: Project, n: int, out: OpeningPlots, ways: list[str]) -> Op
 def apply_opening(p: Project, n: int, plot: EpisodePlot) -> None:
     """고른 안을 n화 플롯으로. 본문이 있는 화는 막고, 확정했던 화는 초안으로 돌린다 (플롯 대화 반영과 같은 규칙)."""
     if plot.number != n:
-        raise ValueError(f"{n}화 플롯이 아닙니다 ({plot.number}화)")
+        raise ValueError(f"{n}화 플롯이 아니에요 ({plot.number}화)")
     by_no = {e.plot.number: e for e in p.episodes}
     cur = by_no.get(n)
     if cur and cur.status in LOCKED:
-        raise ValueError(f"{n}화는 본문이 있어 플롯을 바꿀 수 없습니다")
+        raise ValueError(f"{n}화는 본문이 있어 플롯을 바꿀 수 없어요")
     act = p.act_for(n)
     if act:
         plot.act = act.name
-    by_no[n] = Episode(plot=plot.model_copy(deep=True))
+    plot = plot.model_copy(deep=True)
+    if cur:  # 여는 방식과 상관없는 칸은 작가가 정한 값을 지킨다: 시점, 서술 방식, 회수 복선, 넣어 둔 인물
+        plot.pov = cur.plot.pov or plot.pov
+        plot.pov_mode = cur.plot.pov_mode or plot.pov_mode
+        plot.foreshadow_payoff = cur.plot.foreshadow_payoff or plot.foreshadow_payoff
+        plot.characters = list(dict.fromkeys(cur.plot.characters + plot.characters))
+    by_no[n] = Episode(plot=plot)
     storylines.clean_plot(p, by_no[n])
     p.episodes = [by_no[k] for k in sorted(by_no)]
     sync_candidates(p)
@@ -2181,7 +2323,7 @@ def apply_opening(p: Project, n: int, plot: EpisodePlot) -> None:
 def opening_drafts(llm: LLM, p: Project, n: int, approaches: list[str] | None = None) -> dict[str, str]:
     """n화(1~3) 본문을 여는 방식마다 하나씩 쓴다. 키는 방식 이름. 저장은 호출자가 한다 (research.save_compare)."""
     if not prompts.is_opening(n):
-        raise ValueError(f"여는 방식 비교는 1~{prompts.OPENING_EPISODES}화만 합니다")
+        raise ValueError(f"여는 방식 비교는 1~{prompts.OPENING_EPISODES}화만 해요")
     return {prompts.OPENING_APPROACHES[a][0]: write_episode(llm, p, n, a) for a in _approaches(approaches)}
 
 
@@ -2189,7 +2331,7 @@ def opening_drafts(llm: LLM, p: Project, n: int, approaches: list[str] | None = 
 
 def extract_state(llm: LLM, p: Project, n: int) -> StateDelta:
     if not p.episode(n).text:
-        raise ValueError(f"{n}화 본문이 없습니다")
+        raise ValueError(f"{n}화 본문이 없어요")
     carried = carried_delta(p, n)
     if carried is not None:
         return carried
@@ -2217,6 +2359,8 @@ def apply_delta(p: Project, d: StateDelta) -> None:
         cur.knows += [k for k in upd.knows if k not in cur.knows]
 
     for upd in d.relationship_updates:
+        if upd.a == upd.b:  # 같은 인물끼리의 관계는 두지 않는다 (화면 저장이 막는 관계, validate_relationships)
+            continue
         key = frozenset((upd.a, upd.b))
         for r in p.relationships:
             if frozenset((r.a, r.b)) == key:
@@ -2276,7 +2420,14 @@ def revert(p: Project, n: int) -> None:
     """n화 상태 반영 직후로 되돌린다. 이후 화의 본문은 남기고 상태 반영만 취소한다."""
     snap = p.snapshot(n)
     if snap is None:
-        raise ValueError(f"{n}화 스냅샷이 없습니다 (있는 화: {[s.episode for s in p.snapshots]})")
+        raise ValueError(f"{n}화 스냅샷이 없어요 (있는 화: {[s.episode for s in p.snapshots]})")
+    # 되돌리는 반영이 더한 인물(new_characters)도 되돌린다. 뒤 화 플롯에 나오면 지우지 않고 인물 후보로 돌린다
+    added = {c.id for d in p.history if d.episode > n for c in d.new_characters}
+    if added:
+        back = [c for c in p.characters if c.id in added]
+        p.characters = [c for c in p.characters if c.id not in added]
+        have = {c.id for c in p.cast_candidates}
+        p.cast_candidates += [c for c in back if c.id not in have]
     p.states = [s.model_copy(deep=True) for s in snap.states]
     p.relationships = [r.model_copy(deep=True) for r in snap.relationships]
     p.ties = [t.model_copy(deep=True) for t in snap.ties]
@@ -2289,6 +2440,7 @@ def revert(p: Project, n: int) -> None:
     for ep in p.episodes:
         if ep.plot.number > n and ep.status == "finalized":
             ep.status, ep.summary, ep.auto = "written", "", False
+    sync_candidates(p)
 
 
 def recalc(p: Project) -> None:

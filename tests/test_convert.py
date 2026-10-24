@@ -122,7 +122,13 @@ def test_undo():
     pipeline.apply_delta(p, pipeline.extract_state(LLM, p, 5))
     with pytest.raises(ValueError, match="상태를 반영한 화"):
         pipeline.undo_conversion(p, before)
-    assert pipeline.undo_blockers(Project(), None) == ["단편에서 전환한 작품이 아닙니다"]
+    assert pipeline.undo_blockers(Project(), None) == ["단편에서 전환한 작품이 아니에요"]
+
+
+def test_ep_list_reads_like_text():
+    assert pipeline.ep_list([1]) == "1화"
+    assert pipeline.ep_list([3, 1, 4, 5]) == "1, 3~5화"
+    assert pipeline.ep_list([*range(49, 61), 62, 64, 66, 68]) == "49~60, 62, 64, 66화 등 16화"
 
 
 def test_convert_prompt_has_short_story():

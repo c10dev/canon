@@ -59,6 +59,9 @@ def test_records_calls_with_scope_and_cost():
     assert s["total"]["failed"] == 1
     assert s["by_episode"][0]["episode"] == 3
     assert s["by_stage"][0]["stage"] == "write"
+    # 최근 호출 목록은 limit 까지만, 실패 목록의 전체 수는 따로 준다
+    short = usage.summary(30, limit=1)
+    assert len(short["recent"]) == 1 and short["total"]["calls"] == 2 and short["trouble_total"] == 1
 
 
 def test_schema_retry_is_recorded_as_failed_then_retry():

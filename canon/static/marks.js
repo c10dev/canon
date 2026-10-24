@@ -76,7 +76,10 @@ function readHtml(n, text) {
 
 /** 고치는 본문 칸. 밑줄을 켜면 뒤에 같은 모양의 칸을 깐다. */
 function draftBox(n, text) {
-  const ta = `<textarea aria-label="${n}화 본문" data-draft="${n}" placeholder="여기에 본문을 쓰세요">${esc(text)}</textarea>`;
+  // AI가 본문을 처음 쓰는 중이면 끝날 때 칸이 AI 본문으로 바뀐다. 그동안 쓴 글을 잃지 않게 잠근다 (viewWrite 의 locked 와 같은 조건)
+  const e = typeof ep === 'function' ? ep(n) : null;
+  const locked = typeof jobFor === 'function' && !!jobFor('write', n) && !(e && e.text);
+  const ta = `<textarea aria-label="${n}화 본문" data-draft="${n}"${locked ? ' readonly aria-describedby="draft-lock"' : ''} placeholder="여기에 본문을 쓰세요">${esc(text)}</textarea>`;
   return marksOn && markable() ? `<div class="hl-wrap"><div class="hl-layer" aria-hidden="true"></div>${ta}</div>` : ta;
 }
 
@@ -112,7 +115,7 @@ function deviceBadges(n) {
   return `<div class="field" id="style-marks"><div class="between"><span class="small">가끔 쓰는 장치 · 금지 표현</span>
       <button type="button" class="btn small" data-action="marksToggle" aria-pressed="${marksOn}" title="본문 밑줄 켜고 끄기">밑줄 ${marksOn ? '끄기' : '켜기'}</button></div>
     <ul class="dev-list">${rows.join('')}</ul>
-    <a href="${base()}/style" style="font-size:12px">문체 화면에서 장치 고치기</a></div>`;
+    <a href="${base()}/style" style="font-size:0.75rem">문체 화면에서 장치 고치기</a></div>`;
 }
 
 // ----- 본문 칸 뒤 밑줄 -----
@@ -206,13 +209,20 @@ Object.assign(actions, {
   markNext(key) {
     const n = Number(S.route[3]) || currentEp();
     const text = textNow(n);
-    const list = markRanges(n, text).filter((r) => r.key === key);
+    // 한 문장에 알아보는 글자가 여럿이면 그 문장은 한 번만 고른다. i 는 밑줄(mark) 순서
+    const list = [];
+    markRanges(n, text).forEach((r, i) => {
+      if (r.key !== key) return;
+      const s = sentenceAt(text, r.a, r.b);
+      if (!list.length || list[list.length - 1].s.start !== s.start) list.push({ r, s, i: list.length ? list[list.length - 1].i + list[list.length - 1].k : 0, k: 1 });
+      else list[list.length - 1].k++;
+    });
     if (!list.length) return toast('본문에서 찾을 수 없어요', true);
     const k = (S.markIdx[key] ?? -1) + 1;
     S.markIdx[key] = k % list.length;
-    const r = list[S.markIdx[key]];
+    const { r, s, i } = list[S.markIdx[key]];
     if (!editableEp(ep(n))) {
-      const el = document.querySelectorAll(`.read mark[data-hl="${key}"]`)[S.markIdx[key]];
+      const el = document.querySelectorAll(`.read mark[data-hl="${key}"]`)[i];
       if (!el) return toast('밑줄을 켜면 본문에서 볼 수 있어요', true);
       el.scrollIntoView({ block: 'center', behavior: 'smooth' });
       el.classList.remove('flash');
@@ -220,13 +230,12 @@ Object.assign(actions, {
       el.classList.add('flash');
       return;
     }
-    const s = sentenceAt(text, r.a, r.b);
     S.selFocus = { n, start: s.start, end: s.end };
     render();
     const ta = document.querySelector(`textarea[data-draft="${n}"]`);
     const sel = ta && readSel(ta);
     if (sel) {
-      S.selTool = { ...sel, mode: 'menu', hint: `${markHint(r)} · ${S.markIdx[key] + 1}/${list.length}` };
+      S.selTool = { ...sel, mode: 'menu', hint: `${markHint(r)} · 문장 ${S.markIdx[key] + 1}/${list.length}` };
       showTool();
     }
   },

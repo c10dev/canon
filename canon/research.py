@@ -9,7 +9,9 @@ from __future__ import annotations
 import json
 import random
 import re
+import socket
 import time
+import urllib.error
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -84,9 +86,31 @@ def probe(url: str = "", key: str | None = None) -> dict:
     """로컬 서버의 모델 목록, 컨텍스트 길이, 서버 종류. 생성 호출은 하지 않는다."""
     llm = LocalLLM(base_url=url or None, api_key=key)
     t = time.perf_counter()
-    info = llm.server_info()
+    try:
+        info = llm.server_info()
+    except RuntimeError as e:
+        raise RuntimeError(_probe_reason(llm.base_url, e)) from e
     info["seconds"] = round(time.perf_counter() - t, 2)
     return info
+
+
+def _probe_reason(url: str, e: RuntimeError) -> str:
+    """연결 실패의 원인을 고칠 곳으로 바꿔 말한다 (Errno 같은 내부 문구 대신). HTTP 오류는 서버 답을 그대로 둔다."""
+    cause = e.__cause__
+    if not isinstance(cause, urllib.error.URLError) or isinstance(cause, urllib.error.HTTPError):
+        return str(e)
+    reason = cause.reason
+    if isinstance(reason, ConnectionRefusedError):
+        why = "서버가 꺼져 있거나 주소의 포트가 틀렸어요. 서버를 켜고 주소를 확인하세요"
+    elif isinstance(reason, socket.gaierror):
+        why = "주소의 서버 이름을 찾지 못했어요. 호스트 이름이나 IP를 확인하세요"
+    elif isinstance(reason, (TimeoutError, socket.timeout)):
+        why = "서버가 응답하지 않아요. 방화벽이 막고 있거나 주소가 틀렸을 수 있어요"
+    elif isinstance(reason, OSError) and "No route to host" in str(reason):
+        why = "그 주소로 가는 길이 없어요. 같은 네트워크에 있는지, 방화벽을 확인하세요"
+    else:
+        why = f"연결하지 못했어요 ({reason})"
+    return f"{url} 에 연결하지 못했어요. {why}"
 
 
 # ---------- 샘플 생성 ----------
@@ -189,7 +213,7 @@ def stage_trial(p: Project, b: Backend, stage: str, sample_text: str = "") -> di
     if stage == "style":
         sample_text = sample_text.strip() or "\n\n".join(p.style.sample_passages)
         if not sample_text:
-            raise ValueError("문체 분석에 쓸 원문이 없습니다. 원문을 붙여 넣거나 문체 레퍼런스를 먼저 채우세요")
+            raise ValueError("문체 분석에 쓸 원문이 없어요. 원문을 붙여 넣거나 문체 레퍼런스를 먼저 채우세요")
     row: dict[str, Any] = {"backend": label(b), "stage": stage}
     t = time.perf_counter()
     try:
@@ -283,7 +307,7 @@ def run_compare(name: str, p: Project, n: int, a: Backend, b: Backend) -> dict:
     """같은 화를 두 백엔드로 쓰고 1, 2 번으로 가려 저장한다. 프롬프트는 write_episode 와 같다."""
     la, lb = label(a), label(b)
     if la == lb and a.url == b.url:
-        raise ValueError("두 백엔드가 같습니다")
+        raise ValueError("두 백엔드가 같아요")
     drafts = pipeline.compare_drafts({la: make_backend(a), lb: make_backend(b)}, p, n)
     return save_compare(name, n, drafts)
 
@@ -334,7 +358,7 @@ def load_compare(name: str, n: int) -> dict | None:
 def compare_text(name: str, n: int, k: int) -> str:
     path = compare_dir(name, n) / f"{k}.md"
     if not path.exists():
-        raise ValueError(f"{n}화 비교본 {k}번이 없습니다")
+        raise ValueError(f"{n}화 비교본 {k}번이 없어요")
     return path.read_text(encoding="utf-8")
 
 
@@ -348,11 +372,11 @@ def pick_compare(name: str, p: Project, n: int, k: int, adopt: bool = True) -> d
     out = compare_dir(name, n)
     key_path = out / "key.json"
     if not key_path.exists():
-        raise ValueError(f"{n}화 비교본이 없습니다. 비교를 먼저 실행하세요")
+        raise ValueError(f"{n}화 비교본이 없어요. 비교를 먼저 실행하세요")
     key = json.loads(key_path.read_text(encoding="utf-8"))
     order = key["order"]
     if not 1 <= k <= len(order):
-        raise ValueError(f"고를 수 있는 번호는 1~{len(order)} 입니다")
+        raise ValueError(f"고를 수 있는 번호는 1~{len(order)} 이에요")
     if adopt:
         pipeline.adopt_draft(p, n, (out / f"{k}.md").read_text(encoding="utf-8"))
     key["picked"] = k

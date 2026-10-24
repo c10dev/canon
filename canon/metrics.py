@@ -468,28 +468,28 @@ def opening_warnings(m: OpeningMetrics, n: int, base_dialogue: Optional[float] =
     L = OPENING_LIMITS
     out = []
     if m.first_dialogue_at is None:
-        out.append("대사가 한 줄도 없습니다. 초반에는 주인공의 목소리가 들려야 합니다")
+        out.append("대사가 한 줄도 없어요. 초반에는 주인공의 목소리가 들려야 해요")
     elif m.first_dialogue_at > L["first_dialogue_at"]:
-        out.append(f"첫 대사가 {m.first_dialogue_at:,}자 뒤에 나옵니다 (기준 {L['first_dialogue_at']:,}자)")
+        out.append(f"첫 대사가 {m.first_dialogue_at:,}자 뒤에 나와요 (기준 {L['first_dialogue_at']:,}자)")
     if base_dialogue is not None and m.head_dialogue_ratio < base_dialogue - L["head_dialogue_drop"]:
         out.append(f"앞 3분의 1 대사 비율 {m.head_dialogue_ratio} (문체 기준 {base_dialogue})")
     if hero:
         if m.hero_at is None:
-            out.append(f"주인공 {hero}의 이름이 나오지 않습니다")
+            out.append(f"주인공 {hero}의 이름이 나오지 않아요")
         elif m.hero_at > L["hero_at"]:
-            out.append(f"주인공 {hero}의 이름이 {m.hero_at:,}자 뒤에 처음 나옵니다 (기준 {L['hero_at']:,}자)")
+            out.append(f"주인공 {hero}의 이름이 {m.hero_at:,}자 뒤에 처음 나와요 (기준 {L['hero_at']:,}자)")
     if n == 1 and len(m.named) > L["named_characters"]:
-        out.append(f"1화에 이름이 나온 인물이 {len(m.named)}명입니다 (기준 {L['named_characters']}명): {', '.join(m.named)}")
+        out.append(f"1화에 이름이 나온 인물이 {len(m.named)}명이에요 (기준 {L['named_characters']}명): {', '.join(m.named)}")
     if m.lore_per_1k > L["lore_per_1k"]:
-        out.append(f"앞 2,000자에 설정어가 1,000자당 {m.lore_per_1k}번 나옵니다. 설정 설명이 몰렸는지 보세요")
+        out.append(f"앞 2,000자에 설정어가 1,000자당 {m.lore_per_1k}번 나와요. 설정 설명이 몰렸는지 보세요")
     if m.longest_narration > L["longest_narration"]:
-        out.append(f"앞부분에 대사 없이 {m.longest_narration:,}자가 이어집니다 (기준 {L['longest_narration']}자)")
+        out.append(f"앞부분에 대사 없이 {m.longest_narration:,}자가 이어져요 (기준 {L['longest_narration']}자)")
     if m.backstory_hits >= L["backstory_hits"]:
-        out.append(f"앞부분에 회상 · 설명 표지가 {m.backstory_hits}번 있습니다 ('~년 전', '~었었다', '이 세계에서는' 등)")
+        out.append(f"앞부분에 회상 · 설명 표지가 {m.backstory_hits}번 있어요 ('~년 전', '~었었다', '이 세계에서는' 등)")
     if m.opening_cliches:
         out.append(f"흔한 시작: {', '.join(m.opening_cliches)}")
     if m.ending_cliches:
         out.append(f"끝 문단의 앞날 해설: {', '.join(m.ending_cliches)}")
     if m.status_ratio > L["status_ratio"]:
-        out.append(f"상태창 같은 괄호 블록이 본문의 {m.status_ratio:.0%} 입니다")
+        out.append(f"상태창 같은 괄호 블록이 본문의 {m.status_ratio:.0%}예요")
     return out

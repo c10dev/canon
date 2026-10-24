@@ -17,13 +17,22 @@ Object.assign(S, {
   autoEst: null,   // { off, on } 배치 끔/켬 추정
   autoTimer: null,
   autoFormOpen: false,
+  autoRunPolicy: null,      // 멈춘 실행의 정책을 고치는 중인 값 { started, policy }
+  autoRunPolicyOpen: false, // 그 칸을 펼쳐 둘지
 });
+
+/** 집필 · 상태 승인 · 홈 화면 위쪽 안내: 자동 집필이 돌고 있어 손으로 진행할 수 없다. 돌지 않으면 빈 문자열. */
+function autoLockNote() {
+  if (!autoOn()) return '';
+  const n = autoEp();
+  return `<div class="note warn" role="status">자동 집필이 ${n ? `${n}화를 ` : ''}쓰는 중이에요. 손으로 쓰거나 반영하려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요.</div>`;
+}
 
 function autoDefaults() {
   const p = P();
   const last = S.auto && S.auto.run;
   return {
-    target: p.meta.target_episodes,
+    target: p.episodes.length ? Math.max(...p.episodes.map((e) => e.plot.number)) : p.meta.target_episodes,  // 플롯이 있는 마지막 화까지
     batch: last ? last.batch : false,
     policy: last ? { ...last.policy } : {
       check: true, max_issues: 0, max_shift: 0.3, stop_on_stage: false, stop_on_warnings: false, confirm_plots: false, review_every: 0, hand_pick_opening: true,
@@ -51,30 +60,83 @@ async function autoEstimate() {
 }
 
 // 자동 집필 화면을 보고 있거나 실행이 돌고 있으면 3초마다 상태를 묻는다. 진행이 바뀌면 작품도 다시 받는다.
-function autoPoll() {
+// 시작 · 이어 가기 직후에는 첫 단계가 바로 보이게 1초 뒤에 묻는다.
+function autoPoll(delay = 3000) {
   clearTimeout(S.autoTimer);
-  const watching = S.route[2] === 'auto' || (S.auto && S.auto.active);
+  const watching = S.route[2] === 'auto' || (S.auto && S.auto.active) || S.autoOffline;
   if (!watching || !S.name) return;
   S.autoTimer = setTimeout(async () => {
-    const before = S.auto && S.auto.run ? S.auto.run.updated : null;
+    // updated 는 초 단위라 같은 초 안의 일시정지 · 중지 · 끝남을 놓친다. 보이는 값들을 함께 비교한다
+    const sig = (r) => (r ? [r.updated, r.status, r.ep, r.step, (r.log || []).length].join('|') : '');
+    const before = sig(S.auto && S.auto.run);
+    const wasActive = !!(S.auto && S.auto.active);
+    const restarts = S.auto && S.auto.run ? S.auto.run.restarts || 0 : null;
     const name = S.name;
-    const fresh = await api('GET', `/projects/${enc(name)}/auto`).catch(() => null);
+    let fresh;
+    try {
+      fresh = await api('GET', `/projects/${enc(name)}/auto`);
+    } catch {
+      // 서버와 연결이 끊겼다. 마지막 상태를 진행 중으로 두지 않고 '연결 끊김'으로 보인 뒤 계속 다시 묻는다
+      if (name === S.name && !S.autoOffline) { S.autoOffline = true; if (S.route[2] === 'auto' && !isTyping()) render(); }
+      autoPoll();
+      return;
+    }
     if (name !== S.name) return;
+    if (S.autoOffline) {
+      S.autoOffline = false;
+      if (fresh && fresh.active) toast('서버에 다시 연결됐어요. 자동 집필을 이어서 보여 드려요');
+    }
+    // 서버가 다시 시작돼 하던 단계를 처음부터 다시 하면 한 번 알린다 (끊긴 호출 비용은 실행 비용에 없다)
+    if (restarts != null && fresh && fresh.run && (fresh.run.restarts || 0) > restarts) {
+      toast('서버가 다시 시작돼 자동 집필을 이어 가요. 끊긴 단계는 처음부터 다시 해요. 진행 로그에서 확인하세요');
+    }
     S.auto = fresh;
-    const changed = fresh && fresh.run && fresh.run.updated !== before;
-    if (changed && !S.dirty) S.project = await api('GET', `/projects/${enc(name)}`).catch(() => S.project);
+    const changed = fresh && fresh.run && (sig(fresh.run) !== before || !!fresh.active !== wasActive);
+    if (changed && !S.dirty) {
+      const gen = S.gen;
+      const p = await api('GET', `/projects/${enc(name)}`).catch(() => null);
+      // 받는 사이 입력 · 저장이 있었으면 이 작품이 더 오래됐을 수 있다. 화는 작업 폴링(mergeEpisodes)이 맞춘다
+      if (p && name === S.name && !S.dirty && gen === S.gen) S.project = p;
+    }
     if (changed && !fresh.active && S.route[2] === 'auto') await autoEstimate();  // 멈추거나 끝나면 남은 화 추정을 새로
-    const typing = document.activeElement && document.activeElement.matches('#app input, #app textarea, #app select');
-    if (changed && !typing && ['auto', 'home', ''].includes(S.route[2] || '')) render();
+    if (changed && !isTyping() && S.route[0] === 'p' && ['auto', 'home', ''].includes(S.route[2] || '')) render();
     autoPoll();
-  }, 3000);
+  }, delay);
+}
+
+/** 자동 집필이 쓸 화에 저장하지 않은 본문 초안이 있으면 먼저 저장할지 묻는다. 자동 집필이 그 화를 쓰고 반영하면 초안은 본문이 될 수 없다.
+    저장하면 그 화는 작성 상태가 되어 자동 집필이 그 본문을 검수한다. 취소하면 false (시작하지 않는다). */
+async function autoFlushDrafts(upTo) {
+  const nums = Object.keys(S.textDraft).map(Number).filter((n) => n <= upTo && textUnsaved(n) && editableEp(ep(n))).sort((a, b) => a - b);
+  if (!nums.length) return true;
+  // 앞 화 반영 전인 화에 처음 쓰는 본문은 서버가 저장하지 않는다 (순서 규칙). 그 초안은 자동 집필이 그 화를 쓴 뒤 집필 화면에 따로 남는다
+  const stuck = nums.filter((n) => ep(n).status === 'confirmed' && blockedBefore(n).length);
+  const save = nums.filter((n) => !stuck.includes(n));
+  const ask = [
+    save.length ? `${save.join(', ')}화에 저장하지 않은 본문이 있어요. 먼저 저장하고 이어 갈까요? 저장한 본문은 자동 집필이 검수해요.` : '',
+    stuck.length ? `${stuck.join(', ')}화 초안은 앞 화 반영 전이라 지금 저장할 수 없어요. 자동 집필이 그 화를 쓰면 초안은 집필 화면에 따로 남아 복사할 수 있어요.` : '',
+  ].filter(Boolean).join('\n\n');
+  if (!confirm(`${ask}\n\n취소하면 시작하지 않아요.`)) return false;
+  try {
+    for (const n of save) await flushText(n);
+    return true;
+  } catch (e) {
+    toast(e.message, true);
+    return false;
+  }
+}
+
+/** 검토 대기 변경안을 만든 뒤 그 화 본문이 바뀌었다 (서버도 그대로 반영을 막는다, autorun.resume). */
+function pendingStale(r) {
+  const e = r.pending && r.pending_text && ep(r.ep);
+  return !!e && (e.text || '').trim() !== r.pending_text.trim();
 }
 
 function autoDuration(s) {
   if (s == null) return '';
   if (s >= 86400 * 2) return `${Math.round(s / 86400)}일`;
   if (s >= 3600) return `${(s / 3600).toFixed(1)}시간`;
-  if (s < 60) return `${Math.max(1, Math.round(s))}초`;
+  if (s < 60) return s > 0 ? `${Math.max(1, Math.round(s))}초` : '0초';
   return `${Math.round(s / 60)}분`;
 }
 
@@ -97,31 +159,70 @@ function autoEstCard() {
       <div class="line">비용 ${autoCost(x.cost)}</div><div class="line">시간 ${time}</div></div>`;
   };
   const x = e.off;
+  // 남은 화가 없으면 시간 · 비용을 적지 않고 시작 버튼도 끈다 (viewAuto)
+  if (!x.episodes && !x.missing.length) return `<div class="note plain">${x.to}화까지 남은 화가 없어요. 더 쓰려면 위에서 목표 화를 늘리세요.</div>`;
   const local = Object.entries(x.stages).filter(([, v]) => v === 'local').map(([k]) => ({ write: '본문', check: '검수', state: '상태' }[k]));
   return `<div class="small">${x.episodes ? `${x.from}~${x.to}화 ${x.episodes}화 남음 · 호출 본문 ${x.calls.write} · 검수 ${x.calls.check} · 상태 ${x.calls.state} · 토큰 입력 약 ${x.tokens_in.toLocaleString()} / 출력 약 ${x.tokens_out.toLocaleString()}` : `${x.to}화까지 남은 화가 없어요`}</div>
     <div class="grid-2">${col(e.off, false)}${col(e.on, true)}</div>
-    ${x.missing.length ? `<div class="note warn">플롯이 없는 화(${x.missing.join(', ')}화)에서 멈춥니다. 먼저 플롯을 만드세요.</div>` : ''}
+    ${x.missing.length ? `<div class="note warn">플롯이 없는 화(${rangeText(x.missing)}화)에서 멈춰요. 먼저 플롯을 만드세요.</div>` : ''}
+    ${(x.drafts || []).length ? `<div class="note warn">플롯이 초안인 ${rangeText(x.drafts)}화에서 멈춰요. 추정은 끝까지 쓴다고 보고 셌어요. 확정하거나 '초안 플롯도 자동으로 확정하고 쓰기'를 켜세요.</div>` : ''}
     ${local.length ? `<div class="small">${local.join(', ')} 단계는 로컬 모델이라 비용이 없고 배치도 쓰지 않아요.</div>` : ''}
-    <div class="small">${x.measured ? '지난 실행에서 잰 출력량과 시간을 썼어요.' : '처음이라 화당 목표 분량으로 추정했어요.'} 가격은 <a href="#/usage">사용량 · 비용</a> 화면의 가격표(${esc(x.model)} 기준)로 계산한 추정치이고, 생각(thinking) 토큰이 많으면 더 나올 수 있어요.${x.unpriced && x.unpriced.length ? ` 가격표에 없는 모델(${x.unpriced.map(esc).join(', ')})이 있어 비용을 모릅니다.` : ''}</div>`;
+    <div class="small">${x.measured ? '지난 실행에서 잰 출력량과 시간을 썼어요.' : '처음이라 화당 목표 분량으로 추정했어요.'} 가격은 <a href="#/usage">사용량 · 비용</a> 화면의 가격표(${esc(x.model)} 기준)로 계산한 추정치이고, 생각(thinking) 토큰이 많으면 더 나올 수 있어요.${x.unpriced && x.unpriced.length ? ` 가격표에 없는 모델(${x.unpriced.map(esc).join(', ')})이 있어 비용을 몰라요.` : ''}</div>`;
 }
 
-function autoPolicyForm(f, disabled) {
+/** 승인 정책 칸. '진행 방식'(켜면 더 하거나 덜 멈추는 동작)과 '멈출 때'(켜면 더 멈추는 조건)로 나눈다.
+    bind 는 'auto'(새로 시작 폼, S.autoForm) 또는 'auto-run'(멈춘 실행의 정책, S.autoRunPolicy). id 가 겹치지 않게 앞에 붙인다. */
+function autoPolicyForm(f, disabled, bind = 'auto') {
   const p = f.policy;
   const dis = disabled ? ' disabled' : '';
-  const chk = (key, label, hint) => `<label class="check-row"><input type="checkbox" data-auto="policy.${key}"${p[key] ? ' checked' : ''}${dis}><span>${label}${hint ? `<br><span class="small">${hint}</span>` : ''}</span></label>`;
+  const id = (x) => `${bind}-${x}`;
+  const chk = (key, label, hint) => `<label class="check-row"><input type="checkbox" data-${bind}="policy.${key}"${p[key] ? ' checked' : ''}${dis}><span>${label}${hint ? `<br><span class="small">${hint}</span>` : ''}</span></label>`;
   const opts = (list, cur) => list.map(([v, l]) => `<option value="${v}"${Number(cur) === v ? ' selected' : ''}>${l}</option>`).join('');
-  return `<div class="grid-2">
-      <div class="field"><label for="auto-issues">검수에서 어긋난 곳이 몇 개를 넘으면 멈출까요</label><select id="auto-issues" data-auto="policy.max_issues"${dis || (p.check ? '' : ' disabled')}>${opts([[0, '하나라도 있으면 멈춤'], [1, '1개까지 넘어감'], [2, '2개까지 넘어감'], [5, '5개까지 넘어감']], p.max_issues)}</select></div>
-      <div class="field"><label for="auto-shift">관계가 크게 움직이면 멈추기</label><select id="auto-shift" data-auto="policy.max_shift"${dis}>${opts(AUTO_SHIFT, p.max_shift)}</select></div>
-    </div>
+  return `<div class="auto-policy">
+    <h3 class="auto-h">진행 방식</h3>
     <div class="grid-2">
       ${chk('check', '화마다 검수하기', '앞선 본문·설정과 어긋나는 곳을 찾아요. 끄면 비용과 시간이 줄지만 모순을 놓칠 수 있어요.')}
+      ${chk('confirm_plots', '초안 플롯도 자동으로 확정하고 쓰기', '켜면 덜 멈춰요. 끄면 초안 플롯을 만난 화에서 멈춰요')}
+    </div>
+    <h3 class="auto-h">이럴 때는 멈추고 저에게 물어봐 주세요</h3>
+    <p class="desc">걸리는 게 없으면 상태 변경안을 검토 없이 반영하고 다음 화로 가요. 반영한 화는 표시해 두고, 화마다 남는 스냅샷으로 되돌릴 수 있어요.</p>
+    <div class="grid-2">
+      <div class="field"><label for="${id('issues')}">검수에서 어긋난 곳이 몇 개를 넘으면 멈출까요</label><select id="${id('issues')}" data-${bind}="policy.max_issues"${dis || (p.check ? '' : ' disabled')}>${opts([[0, '하나라도 있으면 멈춤'], [1, '1개까지 넘어감'], [2, '2개까지 넘어감'], [5, '5개까지 넘어감']], p.max_issues)}</select></div>
+      <div class="field"><label for="${id('shift')}">관계가 크게 움직이면 멈추기</label><select id="${id('shift')}" data-${bind}="policy.max_shift"${dis}>${opts(AUTO_SHIFT, p.max_shift)}</select></div>
+    </div>
+    <div class="grid-2">
       ${chk('stop_on_stage', '관계 단계가 바뀌면 멈추기', '호감 → 신뢰, 신뢰 → 균열처럼 관계의 단계가 바뀔 때')}
-      ${chk('stop_on_warnings', '상태 변경안에 경고가 있으면 멈추기', '플롯 사건 누락, 설정이나 말투 위반을 AI 가 적었을 때')}
-      ${chk('confirm_plots', '초안 플롯도 자동으로 확정하고 쓰기', '끄면 초안 플롯을 만난 화에서 멈춰요')}
+      ${chk('stop_on_warnings', '상태 변경안에 경고가 있으면 멈추기', '플롯 사건 누락, 설정이나 말투 위반을 AI가 적었을 때')}
       ${chk('hand_pick_opening', '1~3화는 반영하기 전에 멈추기', '독자가 계속 읽을지 정하는 초반 화라 직접 읽고, 필요하면 여는 방식을 비교해 고르세요')}
     </div>
-    <div class="field" style="max-width:360px"><label for="auto-every">몇 화마다 멈춰서 읽어 볼까요</label><select id="auto-every" data-auto="policy.review_every"${dis}>${opts([[0, '멈추지 않음'], [1, '매 화'], [2, '2화마다'], [3, '3화마다'], [5, '5화마다']], p.review_every)}</select></div>`;
+    <div class="field" style="max-width:360px"><label for="${id('every')}">몇 화마다 멈춰서 읽어 볼까요</label><select id="${id('every')}" data-${bind}="policy.review_every"${dis}>${opts([[0, '멈추지 않음'], [1, '매 화'], [2, '2화마다'], [3, '3화마다'], [5, '5화마다']], p.review_every)}</select></div>
+  </div>`;
+}
+
+/** 멈춘 이유를 고칠 화면으로 가는 버튼 (Run.halt 는 autorun._Halt 의 kind). */
+function autoHaltLinks(r) {
+  const n = r.ep;
+  if (!n) return '';
+  const go = (href, label) => `<a class="btn small" href="${href}">${label}</a>`;
+  switch (r.halt) {
+    case 'plot_draft': return go(`${base()}/arc/${n}`, `${n}화 플롯 확정하러 가기`);
+    case 'plot_missing': return go(`${base()}/arc`, `${n}화 플롯 만들러 가기`);
+    case 'review': return (ep(n) && ep(n).issues.length ? go(`${base()}/write/${n}`, `${n}화 검수 결과 보기`) : go(`${base()}/write/${n}`, `${n}화 본문 읽기`));
+    case 'every': return go(`${base()}/write/${n}`, `${n}화 읽으러 가기`);
+    case 'changed': return go(`${base()}/write/${n}`, `${n}화 집필 화면 보기`);
+    default: return '';
+  }
+}
+
+/** 멈춘 실행의 승인 정책 고치기. 새로 시작하지 않아 검토 대기와 기다리던 배치를 그대로 둔다. */
+function autoRunPolicy(r) {
+  if (!S.autoRunPolicy || S.autoRunPolicy.started !== r.started) S.autoRunPolicy = { started: r.started, policy: { ...r.policy } };
+  const changed = JSON.stringify(S.autoRunPolicy.policy) !== JSON.stringify(r.policy);
+  return `<details class="auto-run-policy"${S.autoRunPolicyOpen || r.halt === 'plot_draft' ? ' open' : ''}><summary>승인 정책 바꾸기</summary>
+    <p class="small">바꾼 정책은 다음 판정부터 적용돼요. ${r.status === 'review' ? `지금 검토를 기다리는 ${r.ep}화 변경안은 그대로 남아요.` : '검토 대기와 기다리던 배치는 그대로예요.'}</p>
+    ${autoPolicyForm(S.autoRunPolicy, false, 'auto-run')}
+    <div class="row"><button class="btn small primary" data-action="autoSetPolicy"${changed ? '' : ' disabled'}>정책 적용</button></div>
+  </details>`;
 }
 
 function autoBatchToggle(on, attrs = '') {
@@ -129,18 +230,21 @@ function autoBatchToggle(on, attrs = '') {
 }
 
 function autoRunCard(r, active) {
-  const [label, cls] = AUTO_STATUS[r.status] || [r.status, ''];
+  // 서버와 연결이 끊기면 마지막 상태를 '진행 중'으로 두지 않는다 (autoPoll 이 S.autoOffline 을 정한다)
+  const [label, cls] = S.autoOffline ? ['연결 끊김', 'draft'] : AUTO_STATUS[r.status] || [r.status, ''];
+  if (S.autoOffline) active = false;
   const p = P();
   const total = r.target;
   const done = p.episodes.filter((e) => e.plot.number <= total && e.status === 'finalized').length;
   const waiting = Object.keys(r.batches || {});
-  const step = active && r.ep ? `${r.ep}화 ${AUTO_STEP[r.step] || r.step}${waiting.length ? ' · 배치 결과 기다리는 중' : ''}` : '';
+  // 시작 직후에는 ep 가 아직 없다. 빈칸 대신 준비 중이라고 보인다
+  const step = !active ? '' : r.ep ? `${r.ep}화 ${AUTO_STEP[r.step] || r.step}${waiting.length ? ' · 배치 결과 기다리는 중' : ''}` : '첫 화를 준비하는 중';
   let buttons = '';
   if (active) {
     buttons = `<button class="btn" data-action="autoPause">일시정지</button><button class="btn" data-action="autoStop">중지</button>`;
   } else if (r.status === 'review') {
     buttons = `<button class="btn primary" data-action="autoOpenReview">${r.ep}화 변경안 검토하기</button>
-      <button class="btn" data-action="autoResume" data-arg="approve">그대로 반영하고 이어 가기</button>
+      <button class="btn" data-action="autoResume" data-arg="approve"${pendingStale(r) ? ' disabled aria-describedby="auto-stale"' : ''}>그대로 반영하고 이어 가기</button>
       <button class="btn" data-action="autoResume" data-arg="rewrite">${r.ep}화 다시 쓰기</button>
       <button class="btn" data-action="autoStop">중지</button>`;
   } else if (['paused', 'error'].includes(r.status)) {
@@ -151,34 +255,45 @@ function autoRunCard(r, active) {
     <div class="between"><h2>${total}화까지 자동 집필 <span class="chip ${cls}">${label}</span></h2>
       <div class="row"><span class="small">배치</span>${autoBatchToggle(r.batch, r.status === 'done' || r.status === 'stopped' ? ' disabled' : '')}</div></div>
     <div class="meter" aria-hidden="true"><i style="left:0;width:${Math.round((done / Math.max(total, 1)) * 100)}%;background:var(--green)"></i></div>
-    <div class="small">${done} / ${total}화 반영 완료 · 이번 실행에서 자동 반영 ${r.applied.length}화 · 토큰 입력 ${r.tokens_in.toLocaleString()} / 출력 ${r.tokens_out.toLocaleString()} · 비용 약 ${autoCost(r.cost)}</div>
+    <div class="small">${done} / ${total}화 반영 완료 · 이번 실행에서 자동 반영 ${r.applied.length}화 · 토큰 입력 ${r.tokens_in.toLocaleString()} / 출력 ${r.tokens_out.toLocaleString()} · 비용 약 ${autoCost(r.cost)}${r.restarts ? ` · <span title="서버가 다시 시작돼 하던 단계를 처음부터 다시 했어요. 끊긴 호출 비용은 여기에 없어요">서버 재시작 ${r.restarts}번</span>` : ''}</div>
+    ${S.autoOffline ? '<div class="note warn" role="status">서버와 연결이 끊겼어요. 다시 연결되면 이어서 보여 드려요. 서버가 다시 시작되면 자동 집필은 서버에서 이어 가요.</div>' : ''}
     ${step ? `<div class="row"><span class="spinner sm" aria-hidden="true"></span><strong>${esc(step)}</strong></div>` : ''}
-    ${active && r.batch ? '<div class="small">배치 결과는 몇 분에서 길게는 몇 시간 뒤에 와요. 창을 닫아도 서버가 계속 기다립니다.</div>' : ''}
-    ${r.reasons.length ? `<div class="note warn">${r.reasons.map((x) => `<div>${esc(x)}</div>`).join('')}</div>` : ''}
+    ${active && r.batch ? '<div class="small">배치 결과는 몇 분에서 길게는 몇 시간 뒤에 와요. 창을 닫아도 서버가 계속 기다려요.</div>' : ''}
+    ${r.reasons.length ? `<div class="note warn">${r.reasons.map((x) => `<div>${esc(x)}</div>`).join('')}${r.status === 'error' && r.reasons.some((x) => /API 키|연결|quota|429|403|401/i.test(x)) ? '<div><a href="#/settings">모델 · API 키 설정</a>에서 키와 모델을 확인한 뒤 이어 가세요.</div>' : ''}${!active && autoHaltLinks(r) ? `<div class="row" style="margin-top:6px">${autoHaltLinks(r)}</div>` : ''}</div>` : ''}
     ${reviewDone ? `<div class="note ok">${r.ep}화를 검토 화면에서 반영했어요. 이어 가기를 누르세요.</div>` : ''}
-    ${r.status === 'review' && r.pending ? '<div class="small">검토하기: 변경안을 상태 승인 화면에 열어요. 고른 항목만 반영한 뒤 여기로 돌아와 이어 가면 됩니다.</div>' : ''}
-    <div class="row">${reviewDone ? '<button class="btn primary" data-action="autoResume">이어 가기</button><button class="btn" data-action="autoStop">중지</button>' : buttons}</div>
+    ${r.status === 'review' && pendingStale(r) ? `<div class="note warn" id="auto-stale">변경안을 만든 뒤 ${r.ep}화 본문을 고쳤어요. 그대로 반영하면 옛 본문 기준의 요약 · 인물 상태 · 사건이 들어가서 막아 두었어요. 검토하기에서 변경안을 다시 만들거나 다시 쓰기를 고르세요.</div>` : ''}
+    ${r.status === 'review' && r.pending ? '<div class="small">검토하기: 변경안을 상태 승인 화면에 열어요. 고른 항목만 반영한 뒤 여기로 돌아와 이어 가면 돼요.</div>' : ''}
+    <div class="row">${S.autoOffline ? '' : reviewDone ? '<button class="btn primary" data-action="autoResume">이어 가기</button><button class="btn" data-action="autoStop">중지</button>' : buttons}</div>
+    ${!active && !S.autoOffline && ['paused', 'review', 'error'].includes(r.status) ? autoRunPolicy(r) : ''}
   </section>`;
 }
 
-function autoAppliedCard(active) {
+function autoAppliedCard(active, r) {
   const auto = P().episodes.filter((e) => e.auto);
   if (!auto.length) return '';
-  const rows = auto.map((e) => `<li class="row"><a href="${base()}/write/${e.plot.number}"><strong>${e.plot.number}화</strong> ${esc(e.plot.title)}</a>${e.issues.length ? `<span class="chip written">검수 ${e.issues.length}</span>` : ''}${active ? '' : `<button class="btn small" data-action="autoRevert" data-arg="${e.plot.number}">이 화부터 되돌리기</button>`}</li>`).join('');
+  // 로그에만 남는 문체 · 초반 경고를 화별로 센다 (autorun._write 가 'N화 본문' 다음에 남긴다)
+  const style = {};
+  for (const x of (r && r.log) || []) if (x.level === 'warn' && x.ep && /^(문체|초반):/.test(x.message)) style[x.ep] = (style[x.ep] || 0) + 1;
+  const rows = auto.map((e) => `<li class="row"><a href="${base()}/write/${e.plot.number}"><strong>${e.plot.number}화</strong> ${esc(e.plot.title)}</a><span class="row" style="gap:6px">${e.issues.length ? `<span class="chip written">검수 ${e.issues.length}</span>` : ''}${style[e.plot.number] ? `<span class="chip written" title="진행 로그의 문체 · 초반 경고">문체 경고 ${style[e.plot.number]}</span>` : ''}${active ? '' : `<button class="btn small" data-action="autoRevert" data-arg="${e.plot.number}">${e.plot.number}화부터 반영 취소</button>`}</span></li>`).join('');
   return `<section class="card"><div class="between"><h2>검토 없이 반영한 화</h2><span class="small">${auto.length}화</span></div>
-    <p class="desc">읽어 보고 문제가 있으면 그 화부터 되돌리세요. 그 화 직전 상태로 돌아가고, 본문은 남아 상태 승인부터 다시 할 수 있어요.</p>
+    <p class="desc">읽어 보고 문제가 있으면 그 화부터 반영을 취소하세요. 그 화 직전 상태로 돌아가고, 본문은 남아 상태 승인부터 다시 할 수 있어요.</p>
     <ul class="auto-list">${rows}</ul></section>`;
 }
 
 function autoLogCard(r) {
   if (!r || !r.log.length) return '';
   const shown = S.autoLogAll ? r.log : r.log.slice(-30);
+  const today = new Date().toDateString();
   const rows = shown.slice().reverse().map((e) => {
-    const t = new Date(e.at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const d = new Date(e.at);
+    const clock = d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    // 오늘이 아닌 줄은 날짜를 붙인다 (배치는 하루를 넘길 수 있고, 지난 실행 로그도 이어 붙는다)
+    const t = d.toDateString() === today ? clock : `${fmtDate(e.at)} ${clock}`;
     const tok = e.tokens_in || e.tokens_out ? `${e.tokens_in.toLocaleString()} / ${e.tokens_out.toLocaleString()}` : '';
-    return `<tr class="lv-${e.level}"><td class="small">${t}</td><td>${e.ep ? e.ep + '화' : ''}</td><td>${esc(e.message)}${e.batch ? ' <span class="chip">배치</span>' : ''}</td><td class="small">${tok}</td><td class="small">${e.seconds ? autoDuration(e.seconds) : ''}</td></tr>`;
+    const cls = `lv-${e.level}${e.step === 'start' ? ' run-start' : ''}`;
+    return `<tr class="${cls}"><td class="small" data-label="시각">${t}</td><td data-label="화">${e.ep ? e.ep + '화' : ''}</td><td data-label="내용">${esc(e.message)}${e.batch ? ' <span class="chip">배치</span>' : ''}</td><td class="small" data-label="토큰">${tok}</td><td class="small" data-label="걸린 시간">${e.seconds ? autoDuration(e.seconds) : ''}</td></tr>`;
   }).join('');
-  return `<section class="card"><h2>진행 로그</h2><div class="rs-scroll"><table class="rs-table"><thead><tr><th>시각</th><th>화</th><th>내용</th><th>토큰 입력 / 출력</th><th>걸린 시간</th></tr></thead><tbody>${rows}</tbody></table></div>${r.log.length > shown.length ? `<div><button class="btn small" data-action="autoLogAll">이전 로그 ${r.log.length - shown.length}줄 더 보기</button></div>` : ''}</section>`;
+  return `<section class="card"><h2>진행 로그</h2><div class="small">위가 최신이에요. 굵은 선 아래는 지난 실행이에요.</div><div class="rs-scroll"><table class="rs-table auto-log"><thead><tr><th>시각</th><th>화</th><th>내용</th><th>토큰 입력 / 출력</th><th>걸린 시간</th></tr></thead><tbody>${rows}</tbody></table></div>${r.log.length > shown.length ? `<div><button class="btn small" data-action="autoLogAll">이전 로그 ${r.log.length - shown.length}줄 더 보기</button></div>` : ''}</section>`;
 }
 
 function viewAuto() {
@@ -192,31 +307,38 @@ function viewAuto() {
   const ended = !r || ['done', 'stopped'].includes(r.status);
   const canStart = !active && (ended || S.autoFormOpen);
   const batchNote = a.batch_stages && a.batch_stages.length
-    ? '배치를 켜면 Gemini Batch API 로 보내 비용이 절반이에요. 대신 단계마다 몇 분에서 길게는 24시간까지 기다려요. 화는 앞 화가 반영돼야 쓸 수 있어 한 화씩 차례로 가고, 한 화의 검수와 상태 변경안은 함께 보냅니다.'
+    ? '배치를 켜면 Gemini Batch API 로 보내 비용이 절반이에요. 대신 단계마다 몇 분에서 길게는 24시간까지 기다려요. 화는 앞 화가 반영돼야 쓸 수 있어 한 화씩 차례로 가고, 한 화의 검수와 상태 변경안은 함께 보내요.'
     : '지금 단계들이 Gemini 가 아니라서 배치를 켜도 일반 호출로 돌아요.';
   const eps = Array.from({ length: p.meta.target_episodes }, (_, i) => i + 1);
+  const nothingLeft = !!(S.autoEst && S.autoEst.off && !S.autoEst.off.episodes && !S.autoEst.off.missing.length);
   const form = canStart ? `<section class="card">
       <div class="between"><h2>${r ? '새로 시작' : '시작하기'}</h2>${r && r.status !== 'done' && r.status !== 'stopped' ? '<span class="small">새로 시작하면 지금 실행의 검토 대기와 기다리던 배치는 버려요</span>' : ''}</div>
       <div class="grid-2">
         <div class="field"><label for="auto-target">어디까지 쓸까요</label><select id="auto-target" data-auto="target">${eps.map((n) => `<option value="${n}"${n === f.target ? ' selected' : ''}>${n}화까지</option>`).join('')}</select></div>
         <div class="field"><span class="label">배치</span>${autoBatchToggle(f.batch)}<span class="small">${batchNote}</span></div>
       </div>
-      <h3 style="font-size:15px;margin:4px 0 0">이럴 때는 멈추고 저에게 물어봐 주세요</h3>
-      <p class="desc">걸리는 게 없으면 상태 변경안을 검토 없이 반영하고 다음 화로 갑니다. 반영한 화는 표시해 두고, 화마다 남는 스냅샷으로 되돌릴 수 있어요.</p>
       ${autoPolicyForm(f, false)}
-      <h3 style="font-size:15px;margin:4px 0 0">예상 비용과 시간</h3>
+      <h3 style="font-size:0.9375rem;margin:4px 0 0">예상 비용과 시간</h3>
       <div id="auto-est">${autoEstCard()}</div>
-      <div class="row"><button class="btn primary" data-action="autoStart">${f.target}화까지 자동 집필 시작</button></div>
+      <div class="row"><button class="btn primary" data-action="autoStart"${nothingLeft ? ' disabled aria-describedby="auto-est"' : ''}>${f.target}화까지 자동 집필 시작</button></div>
     </section>` : '';
   const reopen = !active && !ended && !S.autoFormOpen ? '<div><button class="btn" data-action="autoFormOpen">설정을 바꿔 새로 시작</button></div>' : '';
-  return `${header('자동', '자동 집필', '목표 화까지 본문 쓰기, 검수, 상태 변경안, 반영을 알아서 반복합니다. 정해 둔 기준에 걸리면 그 화에서 멈추고 검토를 기다려요.')}
+  return `${header('자동', '자동 집필', '목표 화까지 본문 쓰기, 검수, 상태 변경안, 반영을 알아서 반복해요. 정해 둔 기준에 걸리면 그 화에서 멈추고 검토를 기다려요.')}
     ${r ? autoRunCard(r, active) : ''}
     ${form}${reopen}
-    ${autoAppliedCard(active)}
+    ${autoAppliedCard(active, r)}
     ${autoLogCard(r)}`;
 }
 
 document.addEventListener('change', (e) => {
+  const run = e.target.dataset && e.target.dataset.autoRun;
+  if (run && S.autoRunPolicy) {  // 멈춘 실행의 정책: '정책 적용'을 누를 때 보낸다
+    const el = e.target;
+    S.autoRunPolicy.policy[run.split('.')[1]] = el.type === 'checkbox' ? el.checked : Number(el.value);
+    S.autoRunPolicyOpen = true;
+    render();
+    return;
+  }
   const key = e.target.dataset && e.target.dataset.auto;
   if (!key || !S.autoForm) return;
   const el = e.target;
@@ -242,7 +364,7 @@ Object.assign(actions, {
     if (r && ['running', 'paused', 'review', 'error'].includes(r.status)) {
       try {
         S.auto = await api('PUT', `/projects/${enc(S.name)}/auto/batch`, { batch: on });
-        toast(on ? '배치를 켰어요. 다음 단계부터 배치로 보냅니다.' : '배치를 껐어요. 다음 단계부터 일반 호출입니다.');
+        toast(on ? '배치를 켰어요. 다음 단계부터 배치로 보내요.' : '배치를 껐어요. 다음 단계부터 일반 호출이에요.');
       } catch (e) { toast(e.message, true); }
     }
     if (S.autoForm) S.autoForm.batch = on;
@@ -250,27 +372,34 @@ Object.assign(actions, {
   },
   async autoStart() {
     const f = S.autoForm;
+    if (!(await autoFlushDrafts(f.target))) return;
     const est = S.autoEst && (f.batch ? S.autoEst.on : S.autoEst.off);
-    const msg = est && !est.error ? `${f.target}화까지 자동으로 씁니다. 예상 비용 ${autoCost(est.cost)}. 시작할까요?` : `${f.target}화까지 자동으로 씁니다. 시작할까요?`;
-    if (!confirm(msg)) return;
+    const lines = [`${f.target}화까지 자동으로 써요.`];
+    if (est && !est.error) {
+      lines.push(`남은 화 ${est.episodes}화 (${est.from}~${est.to}화)`);
+      lines.push(`예상 시간 ${est.batch_rounds ? `${autoDuration(est.seconds_min)}~${autoDuration(est.seconds_max)} (배치는 한 번에 최대 24시간까지 걸릴 수 있어요)` : `약 ${autoDuration(est.seconds_min)}`}`);
+      lines.push(`예상 비용 ${est.cost == null ? '알 수 없어요 (가격표에 없는 모델)' : autoCost(est.cost)}`);
+    }
+    lines.push('정해 둔 멈춤 조건에 걸리지 않은 화는 검토 없이 상태를 반영해요.', '시작할까요?');
+    if (!confirm(lines.join('\n'))) return;
     await run('자동 집필을 시작하는 중', async () => {
       await saveIfDirty();
       S.auto = await api('POST', `/projects/${enc(S.name)}/auto/start`, { target: f.target, batch: f.batch, policy: f.policy });
       S.autoFormOpen = false;
-      toast('자동 집필을 시작했어요. 다른 화면으로 옮겨 가도 계속 돕니다.');
+      toast('자동 집필을 시작했어요. 다른 화면으로 옮겨 가도 계속 돌아요.');
       pollJobs(true);
-      autoPoll();
+      autoPoll(1000);
     });
   },
   async autoPause() {
     try {
       S.auto = await api('POST', `/projects/${enc(S.name)}/auto/pause`);
-      toast(S.auto.run.batch ? '멈추는 중이에요. 기다리던 배치는 취소하지 않아, 이어 가면 결과를 받아 옵니다.' : '지금 단계가 끝나면 멈춰요.');
+      toast(S.auto.run.batch ? '멈추는 중이에요. 기다리던 배치는 취소하지 않아, 이어 가면 결과를 받아 와요.' : '지금 단계가 끝나면 멈춰요.');
     } catch (e) { toast(e.message, true); }
     render();
   },
   async autoStop() {
-    if (!confirm('자동 집필을 중지할까요? 기다리던 배치 작업이 있으면 취소합니다. 이미 반영한 화는 그대로예요.')) return;
+    if (!confirm('자동 집필을 중지할까요? 기다리던 배치 작업이 있으면 취소해요. 이미 반영한 화는 그대로예요.')) return;
     try {
       S.auto = await api('POST', `/projects/${enc(S.name)}/auto/stop`);
     } catch (e) { toast(e.message, true); }
@@ -280,27 +409,38 @@ Object.assign(actions, {
     const body = { approve: how === 'approve', rewrite: how === 'rewrite' };
     const r = S.auto.run;
     if (how === 'approve' && !confirm(`${r.ep}화 변경안을 보지 않고 그대로 반영할까요?`)) return;
-    if (how === 'rewrite' && !confirm(`${r.ep}화 본문을 지우고 다시 쓸까요?`)) return;
+    if (how === 'rewrite' && !confirm(`${r.ep}화를 다시 쓸까요? 지금 본문은 이전 판으로 남아 집필 화면에서 되돌릴 수 있어요.`)) return;
+    if (!(await autoFlushDrafts(r.target))) return;
     await run('이어 가는 중', async () => {
       await saveIfDirty();
       S.auto = await api('POST', `/projects/${enc(S.name)}/auto/resume`, body);
       S.project = await api('GET', `/projects/${enc(S.name)}`);
+      S.autoRunPolicyOpen = false;
       pollJobs(true);
-      autoPoll();
+      autoPoll(1000);
     });
   },
   autoOpenReview() {
     const r = S.auto.run;
     setDelta(r.ep, structuredClone(r.pending));
+    // 변경안을 만든 본문을 기준으로 둔다. 그 뒤 본문을 고쳤으면 상태 승인 화면이 '이 변경안을 만든 뒤 본문을 고쳤어요'를 알린다
+    if (r.pending_text) S.deltaBase[r.ep] = r.pending_text;
     location.hash = `${base()}/review/${r.ep}`;
   },
   async autoRevert(n) {
-    if (!confirm(`${n}화부터 되돌릴까요? ${n - 1 ? `${n - 1}화 반영 직후` : '1화 시작 전'} 상태로 돌아가고, ${n}화부터의 본문은 남아 상태 승인을 다시 하게 됩니다.`)) return;
-    await run('되돌리는 중', async () => {
-      await saveIfDirty();
-      S.project = await api('POST', `/projects/${enc(S.name)}/revert/${n - 1}`);
-      toast(`${n}화부터 반영을 취소했어요.`);
-      await autoEstimate();
-    });
+    if (!(await actions.revertFrom(n))) return;  // 상태 승인 화면의 '반영 취소'와 같은 동작
+    // 서버가 실행 기록(자동 반영 목록, 로그, 끝남 → 일시정지)도 맞췄다
+    S.auto = await api('GET', `/projects/${enc(S.name)}/auto`).catch(() => S.auto);
+    await autoEstimate();
+    render();
+  },
+  async autoSetPolicy() {
+    try {
+      S.auto = await api('PUT', `/projects/${enc(S.name)}/auto/policy`, S.autoRunPolicy.policy);
+      S.autoRunPolicy = null;
+      S.autoRunPolicyOpen = false;
+      toast('승인 정책을 바꿨어요. 다음 판정부터 적용돼요.');
+    } catch (e) { toast(e.message, true); }
+    render();
   },
 });
