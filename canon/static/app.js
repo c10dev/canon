@@ -10,6 +10,7 @@ const S = {
   dirty: false,
   gen: 0,            // 화면 작품이 바뀔 때마다(받기 · 저장 · 입력) 오른다. 늦게 온 작품 GET 이 더 새 값을 덮지 않게 비교한다
   conflict: false,   // 다른 탭 · 기기가 먼저 저장해 이 화면의 저장이 막혔다 (409)
+  pending: { name: null, results: {}, failures: {} },  // 서버 pending.json: 검토를 기다리는 AI 결과와 실패한 작업 (새로고침에도 남는다)
   route: [],
   suggestion: null,  // 설정 도우미 제안 (반영 전)
   styleSample: '',
@@ -194,6 +195,10 @@ async function pollJobs(soon = false) {
   for (const j of S.jobs) {
     const old = before.get(j.id);
     const progressed = !old || old.done !== j.done || old.status !== j.status;
+    if (progressed && j.project !== S.name && old && old.status === 'running' && j.status !== 'running') {
+      // 다른 작품을 보는 동안 끝났다. 결과는 그 작품을 열면 다시 놓인다 (pending.json)
+      toast(j.status === 'error' ? `${j.project} · ${j.label} 실패: ${j.error}` : `${j.project} · ${j.label}이(가) 끝났어요. 그 작품을 열면 결과가 보여요`, j.status === 'error');
+    }
     if (!progressed || j.project !== S.name) continue;
     if (j.kind === 'plots') await mergeEpisodes((e) => e.status === 'draft');
     if (j.kind === 'write' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);
@@ -250,9 +255,15 @@ async function mergeEpisodes(mine) {
 
 async function finishJob(j) {
   const here = j.project === S.name && P();
+  const key = `${j.kind}:${j.ep ?? ''}`;
   if (j.status === 'error') {
     toast(`${j.label} 실패: ${j.error}`, true);
+    if (here) S.pending.failures[key] = { key, kind: j.kind, ep: j.ep, label: j.label, error: j.error };
     return;
+  }
+  if (here) {  // 서버가 pending.json 에 남긴 결과를 화면도 알아 둔다. 반영하거나 버리면 syncPending 이 지운다
+    delete S.pending.failures[key];
+    if (PENDING_KINDS.includes(j.kind) && j.result) S.pending.results[key] = { key, id: j.id, kind: j.kind, ep: j.ep };
   }
   const msg = JOB_DONE_MSG[j.kind];
   toast(typeof msg === 'function' ? msg(j) : msg);
@@ -263,6 +274,58 @@ async function finishJob(j) {
   }, 20000);
   if (!here) return;  // 다른 작품을 보고 있으면 결과는 작업 목록에서 열어 볼 수 있다
   applyJobResult(j);
+}
+
+// ---------- 검토를 기다리는 결과 · 실패 (서버 pending.json, web.PENDING_KINDS 와 같은 목록) ----------
+const PENDING_KINDS = ['suggest', 'series', 'nextarc', 'convert', 'rebuild', 'rework', 'storyline', 'recap_arc', 'recap_part', 'state', 'openings'];
+
+/** 그 결과가 아직 화면에 제안으로 남아 있다. 반영하거나 버리면 false 가 된다. */
+function pendingShown(r) {
+  switch (r.kind) {
+    case 'state': return S.deltas[r.ep] !== undefined;
+    case 'suggest': return !!S.suggestion;
+    case 'series': return !!S.seriesDraft;
+    case 'nextarc': return !!S.arcDraft;
+    case 'recap_arc': return !!S.recapDrafts['arc' + r.ep];
+    case 'recap_part': return !!S.recapDrafts['part' + r.ep];
+    case 'storyline': return !!S.lineDraft;
+    case 'convert': return !!S.convDraft;
+    case 'rebuild': return !!S.rbDraft;
+    case 'rework': return !!S.reworks[r.ep];
+    case 'openings': return !!S.openingPlots[r.ep];
+    default: return false;
+  }
+}
+
+/** 작품을 열 때: 다른 탭 · 새로고침 전에 받은 결과를 다시 제안으로 놓고, 실패한 작업을 알 수 있게 받아 둔다. */
+async function loadPending() {
+  const d = await api('GET', `/projects/${enc(S.name)}/pending`).catch(() => null);
+  if (!d) return;
+  S.pending = { name: S.name, results: d.results, failures: d.failures };
+  const keep = { selEp: S.selEp, selArc: S.selArc, selPart: S.selPart };  // 되살리면서 열린 화나 아크를 옮기지 않는다
+  for (const r of Object.values(d.results)) {
+    if (pendingShown(r) || S.jobsApplied.has(r.id)) continue;
+    applyJobResult({ id: r.id, kind: r.kind, ep: r.ep, label: r.label, status: 'done', result: r.result, project: S.name });
+    if (r.kind === 'state' && r.base != null) S.deltaBase[r.ep] = r.base;  // 변경안을 만든 본문. 그 뒤 고쳤으면 승인 화면이 알린다
+  }
+  Object.assign(S, keep);
+}
+
+/** 그린 뒤에 부른다: 화면에서 반영하거나 버린 결과는 서버에서도 지운다. */
+function syncPending() {
+  if (S.pending.name !== S.name || !P()) return;
+  for (const r of Object.values(S.pending.results)) {
+    if (pendingShown(r)) continue;
+    delete S.pending.results[r.key];
+    api('DELETE', `/projects/${enc(S.name)}/pending/${enc(r.key)}`).catch(() => { /* 다음에 다시 */ });
+  }
+}
+
+/** 이 화면에서 볼 만한 지난 실패. 같은 작업이 성공하거나 닫으면 사라진다. */
+function failStrip(page, n) {
+  if (S.pending.name !== S.name) return '';
+  const list = Object.values(S.pending.failures).filter((f) => (JOB_PAGES[f.kind] || []).includes(page || 'home') && (f.ep == null || !['write', 'review', 'brief'].includes(page) || f.ep === n));
+  return list.map((f) => `<div class="note warn between" role="status"><span><strong>지난 시도 실패</strong> · ${esc(f.label)}: ${esc(f.error)}${/API 키|연결/.test(f.error) ? ' <a href="#/settings">모델 · API 키 설정</a>' : ''}</span><button type="button" class="btn small" data-action="dismissFail" data-arg="${esc(f.key)}">닫기</button></div>`).join('');
 }
 
 function applyJobResult(j) {
@@ -655,6 +718,10 @@ function hasUnsaved() {
     || Object.values(stash).some((s) => Object.keys(s.textDraft).length > 0 || Object.keys(s.deltas).length > 0);  // 보관할 때 정리했다
 }
 
+// 다른 탭 · 기기에서 시작한 작업은 이 탭이 묻기 전에는 모른다. 탭으로 돌아오면 한 번 묻는다
+window.addEventListener('focus', () => pollJobs());
+document.addEventListener('visibilitychange', () => { if (!document.hidden) pollJobs(); });
+
 // 새로고침 · 탭 닫기 · 주소 직접 입력은 hashchange 확인을 거치지 않는다. 브라우저가 묻게 한다
 window.addEventListener('beforeunload', (e) => {
   if (!hasUnsaved()) return;
@@ -713,6 +780,11 @@ const actions = {
   },
   async retryRoute() {
     await route();
+  },
+  async dismissFail(key) {
+    delete S.pending.failures[key];
+    render();
+    await api('DELETE', `/projects/${enc(S.name)}/pending/${enc(key)}?failure=true`).catch(() => {});
   },
   async saveForce() {
     if (!confirm('다른 탭이나 기기에서 저장한 변경을 이 화면의 작품으로 덮어쓸까요? 그쪽에서 바꾼 설정 · 플롯은 사라집니다.')) return;
@@ -1600,6 +1672,7 @@ async function routeNow() {
       else S.project = await api('GET', `/projects/${enc(parts[1])}`);
       if (S.pendingJob && S.pendingJob.project === S.name && !S.jobsApplied.has(S.pendingJob.id)) applyJobResult(S.pendingJob);
       S.pendingJob = null;
+      await loadPending();
       S.dirty = false;
       const n = Number(parts[3]);
       if (!parts[2] && S.project.relationships.length) {
@@ -1650,6 +1723,7 @@ async function routeNow() {
   }
   render();
   window.scrollTo(0, 0);
+  pollJobs();  // 다른 탭 · 기기에서 시작한 작업도 알아챈다
 }
 
 // ---------- 그리기 ----------
@@ -1682,7 +1756,8 @@ function render() {
   const n = Number(arg) || currentEp();
   const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, convert: viewConvert };
   const body = (views[page] || viewHome)(n);
-  $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${body}</main></div>`;
+  $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${failStrip(page, n)}${body}</main></div>`;
+  syncPending();
   syncChat();
   if (typeof syncPassage === 'function') syncPassage();
   if (typeof syncIllust === 'function') syncIllust();
@@ -1712,7 +1787,7 @@ function sidebar(active) {
     ['write', `${base()}/write/${cur}`, '4', '집필'],
     ['review', `${base()}/review/${cur}`, '5', '상태 승인'],
     ['brief', `${base()}/brief/${cur}`, '6', '작업지시서'],
-    ['auto', base() + '/auto', 'A', S.auto && S.auto.active ? '자동 집필 · 진행 중' : '자동 집필'],
+    ['auto', base() + '/auto', 'A', autoMenuLabel()],
   ];
   const cfg = S.config || {};
   return `<nav class="side" aria-label="작품 메뉴">
@@ -1879,8 +1954,18 @@ function viewProjects() {
 
 // ----- 작품 홈 -----
 
+/** 사이드바 자동 집필 메뉴: 진행 중이거나 사람을 기다리면 다른 화면에서도 보이게 상태를 붙인다. */
+function autoMenuLabel() {
+  const r = S.auto && S.auto.run;
+  if (S.auto && S.auto.active) return '자동 집필 · 진행 중';
+  const wait = r && { review: '검토 대기', paused: '일시정지', error: '오류로 멈춤' }[r.status];
+  return wait ? `자동 집필 · ${wait}` : '자동 집필';
+}
+
 function nextStep() {
   const p = P();
+  const r = S.auto && S.auto.run;
+  if (r && r.status === 'review' && r.pending && !S.deltas[r.ep]) return [`${r.ep}화 자동 집필 변경안 검토`, base() + '/auto'];
   if (!p.characters.length) return ['설정 시작', base() + '/setup'];
   if (serial()) {
     const open = p.episodes.find((e) => e.status !== 'finalized');
@@ -3077,6 +3162,12 @@ function viewReview(n) {
     return top('') + `<div class="card empty"><p>${n}화 본문이 아직 없어요. 본문을 쓴 뒤 상태를 정리합니다.</p><a class="btn primary" href="${base()}/write/${n}">${n}화 집필로</a></div>`;
   }
   const d = S.deltas[n];
+  const ar = S.auto && S.auto.run;
+  if (!d && ar && ar.status === 'review' && ar.ep === n && ar.pending) {
+    // 자동 집필이 이미 만든 변경안이 있다. 다시 만들면 AI 비용이 또 든다
+    return top('자동 집필이 이 화에서 멈추고 만든 변경안이 있어요. 불러와 고른 항목만 반영한 뒤 자동 집필에서 이어 가세요.') +
+      `<div class="card"><div class="row"><button class="btn primary" data-action="autoOpenReview">자동 집필 변경안 불러오기</button><a class="btn" href="${base()}/auto">자동 집필로</a></div></div>`;
+  }
   if (!d) {
     return top('AI 가 본문에서 인물 상태, 관계, 확정 사실, 복선을 뽑아 변경안을 만듭니다. 승인한 항목만 데이터에 반영됩니다.') +
       `<div class="cols"><section class="card col"><h2>AI 로 뽑기</h2><p class="desc">${esc(S.config && S.config.stages ? S.config.stages.state.model : '')} 로 ${n}화 본문을 읽고 변경안을 만듭니다.</p><div>${((b) => `<button class="btn primary" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '변경안 만들기'))}</div></section>

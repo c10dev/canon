@@ -421,3 +421,38 @@ def test_missing_key_is_settings_hint(client, monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     r = client.post("/api/projects/nk/suggest")
     assert r.status_code == 400 and r.json()["code"] == "no_key" and "RuntimeError" not in r.json()["detail"]
+
+
+def test_pending_results_and_failures_survive_reload(client, monkeypatch):
+    """끝난 제안 작업의 결과와 실패한 작업은 pending.json 에 남아, 새로 연 화면이 받아 간다. 반영 · 버리면 화면이 지운다."""
+    import time
+
+    from canon import jobs, mock
+
+    def wait():
+        for _ in range(500):
+            if not any(j.status == "running" for j in jobs.listing("pd")):
+                return
+            time.sleep(0.02)
+
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "pd", "meta": meta})
+    client.post("/api/projects/pd/jobs", json={"kind": "suggest"})
+    wait()
+    d = client.get("/api/projects/pd/pending").json()
+    assert d["results"]["suggest:"]["result"]["characters"] and d["failures"] == {}
+    assert client.delete("/api/projects/pd/pending/suggest:").json()["results"] == {}
+
+    def boom(*a, **k):
+        raise RuntimeError("모델 응답이 없습니다")
+    monkeypatch.setattr(mock.MockLLM, "json", boom)
+    client.post("/api/projects/pd/jobs", json={"kind": "suggest"})
+    wait()
+    d = client.get("/api/projects/pd/pending").json()
+    assert d["failures"]["suggest:"]["error"] == "모델 응답이 없습니다"
+    monkeypatch.undo()
+    monkeypatch.setenv("CANON_LLM", "mock")
+    client.post("/api/projects/pd/jobs", json={"kind": "suggest"})
+    wait()
+    d = client.get("/api/projects/pd/pending").json()
+    assert d["failures"] == {} and "suggest:" in d["results"]  # 같은 작업이 성공하면 지난 실패를 지운다

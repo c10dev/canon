@@ -1001,10 +1001,69 @@ def start_job(name: str, body: JobIn) -> dict:
 
     try:
         with usage.scope(episode=n if kind in ("write", "state", "rework", "hook", "openings", "opening_drafts") else None, task=kind):
-            job = jobs.start(name, kind, n, label, fn, total=total, owned=owned)
+            job = jobs.start(name, kind, n, label, _keep_pending(name, kind, n, label, fn), total=total, owned=owned)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}
     return job.public()
+
+
+# 결과가 반영 전 제안인 작업. 화면이 반영하거나 버릴 때까지 pending.json 에 둔다
+# (구조 제안 arc 는 화면이 바로 작품에 넣고, 본문 · 플롯 · 판정 같은 작업은 서버가 이미 작품에 썼다)
+PENDING_KINDS = {"suggest", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "state", "openings"}
+
+
+def _keep_pending(name: str, kind: str, n: int | None, label: str, fn):
+    """작업 fn 을 감싸, 끝나면 제안 결과를, 실패하면 오류를 작품의 pending.json 에 남긴다. 같은 작업이 성공하면 지난 실패를 지운다."""
+    key = f"{kind}:{n if n is not None else ''}"
+
+    def run(job: jobs.Job):
+        try:
+            out = fn(job)
+        except Exception as e:
+            fail = {"key": key, "kind": kind, "ep": n, "label": label, "error": getattr(e, "message", None) or str(e) or type(e).__name__, "at": _now()}
+
+            def put_fail(d: dict) -> None:
+                d["failures"][key] = fail
+            store.edit_pending(name, put_fail)
+            raise
+        rec = None
+        if kind in PENDING_KINDS and out is not None:
+            # 상태 변경안은 만든 본문을 함께 둔다. 그 뒤 본문을 고쳤으면 화면이 알린다
+            base = store.load(name).episode(n).text if kind == "state" else None
+            rec = {"key": key, "id": job.id, "kind": kind, "ep": n, "label": label, "result": out, "base": base, "at": _now()}
+
+        def put(d: dict) -> None:
+            d["failures"].pop(key, None)
+            if rec:
+                d["results"][key] = rec
+        store.edit_pending(name, put)
+        return out
+    return run
+
+
+def _now() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+@app.get("/api/projects/{name}/pending")
+def get_pending(name: str) -> dict:
+    """검토를 기다리는 AI 결과와 실패한 작업. 이미 쓸 수 없게 된 상태 변경안(본문 작성 상태가 아닌 화)은 지운다."""
+    p = _load(name)
+    written = {e.plot.number for e in p.episodes if e.status == "written"}
+    stale = [k for k, r in store.load_pending(name)["results"].items() if r["kind"] == "state" and r["ep"] not in written]
+
+    def prune(d: dict) -> None:
+        for k in stale:
+            d["results"].pop(k, None)
+    return store.edit_pending(name, prune) if stale else store.load_pending(name)
+
+
+@app.delete("/api/projects/{name}/pending/{key}")
+def drop_pending(name: str, key: str, failure: bool = False) -> dict:
+    """화면이 반영하거나 버린 결과(또는 닫은 실패)를 지운다."""
+    _load(name)
+    return store.edit_pending(name, lambda d: d["failures" if failure else "results"].pop(key, None))
 
 
 @app.get("/api/jobs")

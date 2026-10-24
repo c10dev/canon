@@ -50,6 +50,39 @@ def _saved_mark(path: Path) -> tuple[int, str]:
     return (int(m.group(1)), json.loads(m.group(2))) if m else (0, "")
 
 
+# ---------- 검토를 기다리는 AI 결과와 실패한 작업 ----------
+# projects/<이름>/pending.json. 작업 결과(제안)는 화면 메모리에만 있어 새로고침 · 다른 기기에서 사라졌다.
+# 작업이 끝나면 여기에 남기고, 화면이 반영하거나 버리면 지운다. 작품 데이터(project.json)는 바꾸지 않는다.
+# { "results": { "<kind>:<ep>": {...} }, "failures": { "<kind>:<ep>": {...} } }
+
+_pending_lock = threading.Lock()
+
+
+def _pending_path(name: str) -> Path:
+    return project_dir(name) / "pending.json"
+
+
+def load_pending(name: str) -> dict:
+    path = _pending_path(name)
+    try:
+        d = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except ValueError:  # 깨진 파일은 없는 것으로 본다 (다시 받으면 된다)
+        d = {}
+    return {"results": d.get("results", {}), "failures": d.get("failures", {})}
+
+
+def edit_pending(name: str, fn) -> dict:
+    """pending.json 을 읽어 fn(d) 로 고치고 저장한다."""
+    with _pending_lock:
+        d = load_pending(name)
+        fn(d)
+        path = _pending_path(name)
+        tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
+        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, path)
+        return d
+
+
 def save(name: str, p: Project) -> Path:
     d = project_dir(name)
     d.mkdir(parents=True, exist_ok=True)
