@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, storylines
 from .llm import LLM, dump
+from . import foreshadows, statwin
 from .schema import (
     Act,
     ArcPlan,
@@ -1067,6 +1068,8 @@ def apply_rebuild(p: Project, prop: SerialRebuild, at: str = "") -> tuple[Projec
         p.foreshadows = [f.model_copy(deep=True) for f in snap.foreshadows]
         p.snapshots = [snap]
     p.events, p.history = [], []
+    p.foreshadow_clues = []  # 화 번호가 바뀌어 걸어 둔 문장 자리도 맞지 않는다
+    statwin.revert(p, 0)
     p.foreshadows += prop.foreshadows
     tiers = {t.id: t.tier for t in prop.tiers}
     for c in p.characters:
@@ -2335,8 +2338,10 @@ def extract_state(llm: LLM, p: Project, n: int) -> StateDelta:
     carried = carried_delta(p, n)
     if carried is not None:
         return carried
-    delta = llm.json(prompts.SYSTEM_EDITOR, prompts.state_prompt(p, n), StateDelta, hint={"episode": n})
+    delta = llm.json(prompts.SYSTEM_EDITOR, prompts.state_prompt(p, n), StateDelta,
+                     hint={"episode": n, "stats": statwin.enabled(p)})
     delta.episode = n
+    foreshadows.clean_delta(p, delta)
     return delta
 
 
@@ -2351,12 +2356,14 @@ def apply_delta(p: Project, d: StateDelta) -> None:
     for upd in d.character_updates:
         cur = p.state_of(upd.character_id)
         if cur is None:
-            p.states.append(upd)
-            continue
-        for field in ("emotional_state", "current_goal", "location", "notes"):
-            if getattr(upd, field):
-                setattr(cur, field, getattr(upd, field))
-        cur.knows += [k for k in upd.knows if k not in cur.knows]
+            cur = upd.model_copy(deep=True, update={"stats": []})
+            p.states.append(cur)
+        else:
+            for field in ("emotional_state", "current_goal", "location", "notes"):
+                if getattr(upd, field):
+                    setattr(cur, field, getattr(upd, field))
+            cur.knows += [k for k in upd.knows if k not in cur.knows]
+        statwin.merge(p, cur, upd.stats, d.episode)  # +3 같은 바뀐 양은 여기서 값으로 바꾸고 기록한다
 
     for upd in d.relationship_updates:
         if upd.a == upd.b:  # 같은 인물끼리의 관계는 두지 않는다 (화면 저장이 막는 관계, validate_relationships)
@@ -2387,6 +2394,7 @@ def apply_delta(p: Project, d: StateDelta) -> None:
     for f in p.foreshadows:
         if f.id in d.foreshadow_resolved:
             f.status, f.payoff_ep = "resolved", d.episode
+    foreshadows.apply_delta(p, d)
     p.history.append(d)
     dynamics.take_snapshot(p, d.episode)
     if p.serial:
@@ -2437,6 +2445,8 @@ def revert(p: Project, n: int) -> None:
     p.events = [e for e in p.events if e.episode <= n]
     p.history = [d for d in p.history if d.episode <= n]
     p.snapshots = [s for s in p.snapshots if s.episode <= n]
+    foreshadows.revert(p, n)
+    statwin.revert(p, n)
     for ep in p.episodes:
         if ep.plot.number > n and ep.status == "finalized":
             ep.status, ep.summary, ep.auto = "written", "", False

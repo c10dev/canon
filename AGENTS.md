@@ -22,6 +22,10 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/naming.py` | 이름·지명 무작위 생성(세계관별 스타일, 나이에 맞는 한국 이름)과 출연진 이름 점검. LLM 을 부르지 않는다. 자료와 출처는 `canon/naming_data.py` |
 | `canon/dynamics.py` | 관계 역학: 사건(`StoryEvent`)으로 방향 관계(`Tie`)를 계산, 긴장도, 스냅샷 재생, 숫자를 말로 바꾸기, 말로 고른 보는 방식(`VIEWS`)으로 시작 관계 만들기. LLM 을 부르지 않는 순수 계산 |
 | `canon/cast.py` | 인물 화면 계산: 화별 관계 프레임(스냅샷, 지워진 화는 사건 로그로 다시 계산), 인물별 등장 화, 화별 타임라인, 명령줄 `cast` 출력. LLM 호출 없음 |
+| `canon/foreshadows.py` | 복선 센터: 복선을 본문 문장에 건다(`ForeshadowClue`, `Project.foreshadow_clues`, 본문은 바꾸지 않음). AI 문장 정리(`clean_delta`)와 반영 · 되돌리기, 작가가 걸기 · 복선 고치기(그 화 이후 스냅샷도), 센터 계산(`center`: 회수율, 끊어진 연결, 예정 지남, 오래 묵음, 플롯 회수 계획). 명령줄 `foreshadows`. LLM 호출 없음 |
+| `canon/static/foreshadow.js` | 복선 센터 화면, 본문에서 고른 문장을 '복선으로' 거는 칸(`passage.js` 도구와 `illust.js` 읽기 전용 도구에 버튼을 붙인다), 상태 승인 화면의 복선 문장 고르기(`fsClueRows`, `q` 항목) |
+| `canon/statwin.py` | 상태창 수치: 인물 상태창(`CharacterState.stats`)이 하나라도 있으면 켜짐. 바뀐 항목만 합치기(`merge`, `+3` 계산은 `resolve`), 기록(`Project.stat_log`), 작가 수정(`set_stats`), 화별 비교표, 본문 상태창 글(`render`, 서식 `Project.stat_window`), 프롬프트 규칙(`write_rule`, `state_rule`). 명령줄 `statwin`. LLM 호출 없음 |
+| `canon/static/statwin.js` | 상태창 수치 화면(항목 고치기, 틀, 복사, 서식, 화별 변화 표)과 상태 승인 화면의 상태창 줄(`swDeltaRows`). `swResolve` 는 `statwin.resolve` 와 같은 규칙 |
 | `canon/static/cast.js` | 인물 · 관계도 화면: 화 슬라이더로 재생하는 SVG 관계도(끌어 옮긴 배치는 localStorage), 인물 상세 · 타임라인, 두 사람 추이 그래프, 등장표. 온기 색 구간은 `dynamics.warmth_word` 경계와 같다 |
 | `canon/elements.py` | 인과율: 작가가 언제든 더하는 이야기 요소(`StoryElement`)의 관련 화 지도(`links`), 화별로 넣을 요소(`episode_block`), 시점 설명. LLM 호출 없음. 영향 분석과 반영은 `pipeline.analyze_impact` / `apply_impact` |
 | `canon/storylines.py` | 이야기 줄기: 메인에서 갈라졌다 합류하는 서브플롯 · 과거 회상 · 외전 · 인물 이야기(`Storyline`). 화의 줄기는 `EpisodePlot.storyline`(주로 따라가는 줄기, 비면 메인)과 `threads`(끼어드는 장면). 범위(`span`), 프롬프트 블록(`plan_block`, `episode_block`, `state_rule`), 명령줄 노선도(`ascii_map`). LLM 호출 없음. 제안과 반영은 `pipeline.suggest_storyline` / `apply_storyline` |

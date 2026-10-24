@@ -18,6 +18,7 @@ from .schema import (
     PlantSet,
     EpisodePlot,
     Foreshadow,
+    ForeshadowClue,
     HookItem,
     HookReport,
     IllustCharacter,
@@ -46,6 +47,7 @@ from .schema import (
     SeriesPlan,
     SetupSuggestion,
     StateDelta,
+    StatValue,
     StoryArc,
     StoryEvent,
     Storyline,
@@ -379,7 +381,8 @@ class MockLLM:
             n = hint["episode"]
             return StateDelta(
                 episode=n, summary=f"{n}화에서 서윤과 도현이 단서를 찾았다.",
-                character_updates=[CharacterState(character_id="hero", emotional_state=f"{n}화 이후 조금 더 단단해짐", knows=[f"{n}화 단서"])],
+                character_updates=[CharacterState(character_id="hero", emotional_state=f"{n}화 이후 조금 더 단단해짐", knows=[f"{n}화 단서"],
+                                                  stats=[StatValue(name="레벨", value="+1")] if hint.get("stats") else [])],
                 events=[
                     StoryEvent(episode=n, actor="ally", target="hero", kind="거짓말발각", intensity=3,
                                reveals_secret="sec-ally-letter", quote="그 편지, 네가 버린 거 아니었잖아.")
@@ -392,6 +395,8 @@ class MockLLM:
                 new_facts=[f"{n}화: 등대는 10년 전 폐쇄되었다"] if n == 1 else [],
                 foreshadow_planted=[Foreshadow(id=f"fs-{n:02d}-key", description="녹슨 열쇠", planted_ep=n)] if n == 1 else [],
                 foreshadow_resolved=["fs-01-key"] if n == 2 else [],
+                foreshadow_clues=[ForeshadowClue(foreshadow="fs-01-key", kind="payoff" if n == 2 else "plant", quote="서윤은 등대 앞에 섰다.")]
+                if n in (1, 2) else [],
             )  # type: ignore[return-value]
         if schema is StorylineProposal:
             return _storyline(hint)  # type: ignore[return-value]

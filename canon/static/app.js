@@ -2062,6 +2062,7 @@ function pickedDelta(n) {
     foreshadow_planted: pick('p', d.foreshadow_planted),
     foreshadow_resolved: pick('x', d.foreshadow_resolved),
     new_characters: pick('n', d.new_characters || []),
+    foreshadow_clues: pick('q', d.foreshadow_clues || []),
   };
 }
 
@@ -2082,7 +2083,7 @@ function refreshPreview(n) {
 }
 
 /** 상태 변경안 항목 체크 키 ('c0', 'e1' …). 설정 제안 키('sc0', 'sf:logline')와 섞이지 않게 센다. */
-const DELTA_PICK = /^[cesrfpxn]\d+$/;
+const DELTA_PICK = /^[cesrfpxnq]\d+$/;
 const deltaPicked = () => Object.entries(S.picks).filter(([k, v]) => v && DELTA_PICK.test(k)).length;
 
 /** source: 변경안을 어디서 받았나 ('chat' 이면 채팅 앱에서 가져온 JSON). 상태 승인 화면 설명에 쓴다 */
@@ -2102,6 +2103,7 @@ function setDelta(n, d, source = 'ai') {
   d.foreshadow_planted.forEach((_, i) => { S.picks['p' + i] = true; });
   d.foreshadow_resolved.forEach((id, i) => { S.picks['x' + i] = P().foreshadows.some((f) => f.id === id); });
   (d.new_characters || []).forEach((_, i) => { S.picks['n' + i] = true; });
+  (d.foreshadow_clues || []).forEach((_, i) => { S.picks['q' + i] = true; });
   // 받은 그대로의 요약과 체크. 다시 만들 때 고친 것을 버리는지 묻는다 (기본으로 뺀 항목은 고친 것이 아니다)
   S.deltaOrig[n] = { summary: d.summary, picks: Object.fromEntries(Object.entries(S.picks).filter(([k]) => DELTA_PICK.test(k))), source };
 }
@@ -2321,6 +2323,8 @@ async function routeNow() {
       if (parts[2] === 'usage') await usageLoad(S.name);
       if (parts[2] === 'convert') await convertLoad();
       if (parts[2] === 'cast') await castLoad(parts[3]);
+      if (parts[2] === 'foreshadow') await fsLoad();
+      if (parts[2] === 'statwin') await swLoad(parts[3]);
       if (parts[2] === 'setup' && parts[3]) {  // 인물 화면의 '설정에서 고치기'(setup/<인물 id>)는 그 인물 카드로 간다
         const i = S.project.characters.findIndex((c) => c.id === parts[3]);
         if (i >= 0) S.focusTarget = S.jumpTo = `#f-characters-${i}-name`;
@@ -2472,7 +2476,7 @@ function drawApp() {
     return;
   }
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, convert: viewConvert };
+  const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, convert: viewConvert, foreshadow: viewForeshadow, statwin: viewStatwin };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${failStrip(page, n)}${body}</main></div>`;
   document.body.classList.toggle('drawer-open', !!$('#app .drawer'));  // 넓은 화면은 보드를 서랍 폭만큼 비켜 둔다 (app.css)
@@ -2507,6 +2511,8 @@ function sidebar(active) {
   ];
   const tools = [
     ['cast', base() + '/cast', '人', '인물 · 관계도'],
+    ['foreshadow', base() + '/foreshadow', '伏', '복선 센터'],
+    ['statwin', base() + '/statwin', '#', '상태창 수치'],
     ['lines', base() + '/lines', '⑂', '이야기 줄기'],
     ['causal', base() + '/causal', '∴', '인과율 · 설정 추가'],
     ['brief', `${base()}/brief/${cur}`, '✎', '작업지시서 (API 없이)'],
@@ -2903,7 +2909,7 @@ function viewHome() {
     <div class="grid-auto">
       <section class="card"><div class="between"><h2>인물 현재 상태</h2><span class="small">${fin ? fin + '화 기준' : '시작 시점'}</span></div>${states || '<div class="small">인물이 없어요</div>'}<a href="${base()}/setup" style="font-size:0.8125rem">인물 · 관계 전체 보기</a></section>
       <section class="card">${relationHeader('관계')}${p.relationships.length ? relationLines(S.relations) : `<div class="small">관계가 없어요. <a href="${base()}/setup">설정 도우미</a>에서 관계를 추가하세요.</div>`}</section>
-      <section class="card"><div class="between"><h2>열린 복선</h2><span class="small">${openFs.length}개</span></div>
+      <section class="card"><div class="between"><h2>열린 복선</h2><a class="small" href="${base()}/foreshadow">${openFs.length}개 · 복선 센터</a></div>
         ${openFs.map((f) => `<div class="row" style="align-items:flex-start;flex-wrap:nowrap"><span class="chip">${f.planted_ep}화</span><div style="font-size:0.8125rem;line-height:1.5">${esc(f.description)}<br><span class="small">${esc(f.id)}</span></div></div>`).join('') || '<div class="small">없음</div>'}
       </section>
       <section class="card"><div class="between"><h2>확정 사실</h2><span class="small">${p.facts.length}개</span></div>
@@ -4342,7 +4348,7 @@ function viewReview(n) {
   // 검수 지적이 남아 있으면 반영 전에 본문을 고칠지 볼 수 있게 알린다 (검수 뒤 본문을 고쳤으면 지난 결과라고 밝힌다)
   const issues = (e.issues || []).length
     ? `<section class="note warn">검수 지적 ${e.issues.length}건이 남아 있어요${(e.edits || []).some((x) => x.at > (e.checked_at || '')) ? ' (검수 뒤 본문을 고쳤어요)' : ''}. <a href="${base()}/write/${n}">집필 화면에서 보기</a></section>` : '';
-  const total = d.character_updates.length + d.events.length + d.secrets_added.length + d.relationship_updates.length + d.new_facts.length + d.foreshadow_planted.length + d.foreshadow_resolved.length + (d.new_characters || []).length;
+  const total = d.character_updates.length + d.events.length + d.secrets_added.length + d.relationship_updates.length + d.new_facts.length + d.foreshadow_planted.length + d.foreshadow_resolved.length + (d.new_characters || []).length + (d.foreshadow_clues || []).length;
   if (!S.preview || S.preview.n !== n) refreshPreview(n);
   const picked = deltaPicked();
   const box = (key) => `<input type="checkbox" id="pk-${key}" data-pick="${key}"${S.picks[key] ? ' checked' : ''}>`;
@@ -4356,7 +4362,7 @@ function viewReview(n) {
       .filter(([, f]) => u[f]).map(([k, f]) => `<div class="small">${k}</div>${diff(cur[f], u[f])}`).join('');
     const knows = u.knows.filter((k) => !(cur.knows || []).includes(k)).map((k) => `<span class="after">+ ${esc(k)}</span>`).join(' ');
     const unknown = !p.characters.some((c) => c.id === u.character_id) && !(d.new_characters || []).some((c) => c.id === u.character_id);
-    return `<div class="change">${box('c' + i)}<div class="body"><label for="pk-c${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(u.character_id))}${unknown ? ' <span class="chip draft">설정에 없는 인물</span>' : ''}</label>${rows}${knows ? `<div class="small">알게 된 정보</div><div class="row">${knows}</div>` : ''}</div></div>`;
+    return `<div class="change">${box('c' + i)}<div class="body"><label for="pk-c${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(u.character_id))}${unknown ? ' <span class="chip draft">설정에 없는 인물</span>' : ''}</label>${rows}${swDeltaRows(u, cur)}${knows ? `<div class="small">알게 된 정보</div><div class="row">${knows}</div>` : ''}</div></div>`;
   }).join('');
 
   const events = d.events.map((ev, i) => {
@@ -4382,6 +4388,7 @@ function viewReview(n) {
       const f = p.foreshadows.find((x) => x.id === id);
       return `<div class="change">${box('x' + i)}<label for="pk-x${i}" style="font-size:0.8125rem;line-height:1.55"><span class="chip finalized">회수</span> ${esc(f ? f.description : id)} ${f ? `<span class="small">${f.planted_ep}화에 심음</span>` : '<span class="small">알 수 없는 id</span>'}</label></div>`;
     }),
+    fsClueRows(d, box),
   ].join('');
   const section = (title, body) => `<section class="card"><h2>${title}</h2>${body || '<div class="small">변경 없음</div>'}</section>`;
 
