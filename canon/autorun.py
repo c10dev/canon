@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 from . import dynamics, jobs, pipeline, prompts, settings, store, usage
 from .llm import BatchLLM, Interrupted, SchemaMismatch, get_llm
 from .research import CHARS_PER_TOKEN, JSON_OUTPUT_RESERVE, _filler
-from .schema import ConsistencyReport, Project, StateDelta
+from .schema import ConsistencyReport, Project, StateDelta, TextVersion
 
 LOG_KEEP = 500
 STEP_NAMES = {"write": "본문", "check": "검수", "state": "상태 변경안"}
@@ -69,6 +69,7 @@ class Run(BaseModel):
     step: str = ""
     reasons: list[str] = Field(default_factory=list, description="멈춘 이유")
     pending: Optional[StateDelta] = Field(None, description="검토 대기 중인 변경안")
+    pending_text: str = Field("", description="검토 대기 변경안을 만든 본문. 그 뒤 본문을 고쳤으면 그대로 반영하지 않는다")
     batches: dict[str, str] = Field(default_factory=dict, description="기다리는 배치 작업 slot -> 이름")
     applied: list[int] = Field(default_factory=list, description="이번 실행에서 자동 반영한 화")
     tokens_in: int = 0
@@ -409,7 +410,8 @@ class Runner:
         except Exception as e:  # 화면과 로그에 그대로 보여 준다
             msg = getattr(e, "message", None) or str(e) or type(e).__name__
             hint = " 배치를 끄고 이어 가 보세요." if run.batch and "batch" in msg.lower() else ""
-            self._finish(_Halt("error", f"오류로 멈췄습니다: {msg}{hint}"), level="error")
+            # 이유 칸에도 남겨 자동 집필 카드가 무엇 때문에 멈췄는지 보인다
+            self._finish(_Halt("error", f"오류로 멈췄습니다: {msg}{hint}", [f"{msg}{hint}"]), level="error")
 
     def _write(self, p: Project, n: int) -> None:
         self._set(n, "write")
@@ -466,7 +468,7 @@ class Runner:
         reasons = review_reasons(p, delta, report, run.policy)
         if reasons:
             with self.ctl.lock:
-                run.pending = delta
+                run.pending, run.pending_text = delta, p.episode(n).text
             raise _Halt("review", f"{n}화는 검토가 필요해 멈췄습니다", reasons)
 
         def put(q: Project) -> None:
@@ -565,18 +567,23 @@ def resume(name: str, approve: bool = False, rewrite: bool = False, *, foregroun
         status = store.load(name).episode(n).status
         if status == "written" and approve and run.pending is not None:
             d = run.pending
+            if run.pending_text and store.load(name).episode(n).text.strip() != run.pending_text.strip():
+                raise ValueError(f"변경안을 만든 뒤 {n}화 본문을 고쳤어요. 그대로 반영하면 옛 본문 기준의 요약 · 인물 상태 · 사건이 들어갑니다. "
+                                 "검토하기에서 변경안을 다시 만들거나, 다시 쓰기를 고르세요")
             _edit(name, lambda q: pipeline.apply_delta(q, d))
             r.log(f"{n}화 변경안을 검토 화면 없이 그대로 반영했습니다 (사용자 승인)")
         elif status == "written" and rewrite:
             def back(q: Project) -> None:
                 ep = q.episode(n)
+                if ep.text:  # 집필 화면의 다시 생성처럼 지금 본문을 이전 판으로 남긴다
+                    pipeline._keep_version(ep, TextVersion(id=pipeline._version_id(ep), at=pipeline._now(), text=ep.text, kind="previous"))
                 ep.text, ep.status, ep.issues = "", "confirmed", []
             _edit(name, back)
             r.log(f"{n}화를 다시 씁니다")
         elif status == "written":
             raise ValueError(f"{n}화 변경안이 검토 대기 중입니다. 검토 화면에서 반영하거나, 그대로 반영 또는 다시 쓰기를 고르세요")
     with ctl.lock:
-        run.status, run.reasons, run.pending = "running", [], None
+        run.status, run.reasons, run.pending, run.pending_text = "running", [], None, ""
         ctl.save()
     r.log("이어 갑니다")
     _launch(name, ctl, echo, foreground)
@@ -598,7 +605,7 @@ def request(name: str, what: str) -> Run:
         raise ValueError("자동 집필이 없습니다")
     if what == "stop":
         _cancel_batches(run)
-        run.status, run.pending, run.reasons = "stopped", None, []
+        run.status, run.pending, run.pending_text, run.reasons = "stopped", None, "", []
         _write(name, run)
     return run
 
@@ -652,14 +659,25 @@ def progress_mark(p: Project) -> tuple:
 PROGRESS_FIELDS = ("states", "relationships", "ties", "secrets", "events", "facts", "foreshadows", "history", "snapshots")
 
 
-def protected(name: str, disk: Project, mine: Project) -> None:
+def protected(name: str, disk: Project, mine: Project) -> list[dict]:
     """화면이 작품 전체를 저장할 때, 자동 집필이 도는 중이거나 화면이 반영 진행을 모르는(오래된) 상태면
     진행 상태(인물 상태, 관계, 사건, 스냅샷 등)와 본문이 있는 화는 디스크 것을 지킨다.
-    아직 안 쓴 화의 플롯과 다른 설정은 화면 것을 쓴다."""
+    아직 안 쓴 화의 플롯과 다른 설정은 화면 것을 쓴다.
+    화면이 고칠 수 있는 칸 중 화면 값과 다른 디스크 것을 둔 칸을 돌려준다 (화면이 고친 칸인지 가려 알린다):
+    {"field": "relationships"} · {"field": "plot", "ep": n} · {"field": "character", "name": 이름}."""
     if not active(name) and progress_mark(disk) == progress_mark(mine):
-        return
+        return []
+    kept: list[dict] = []
+    if mine.relationships != disk.relationships:  # 진행 칸 중 화면이 직접 고치는 것은 관계뿐이다
+        kept.append({"field": "relationships"})
     for f in PROGRESS_FIELDS:
         setattr(mine, f, getattr(disk, f))
+    # 승인된 변경안이 더한 인물(new_characters)도 진행이다. 화면이 그 반영 전에 읽은 인물 목록으로 덮지 않게 한다
+    added = {c.id for d in disk.history for c in d.new_characters}
+    have = {c.id for c in mine.characters}
+    back = [c for c in disk.characters if c.id in added and c.id not in have]
+    mine.characters += back
+    kept += [{"field": "character", "name": c.name or c.id} for c in back]
     run = get_run(name)
     cur = run.ep if run and active(name) else None
     d = {e.plot.number: e for e in disk.episodes}
@@ -667,5 +685,8 @@ def protected(name: str, disk: Project, mine: Project) -> None:
     body = ("written", "finalized")
     for n, e in d.items():
         if e.status in body or n == cur or (n in m and m[n].status in body):
+            if n in m and m[n].plot != e.plot:
+                kept.append({"field": "plot", "ep": n})
             m[n] = e
     mine.episodes = [m[k] for k in sorted(m)]
+    return kept

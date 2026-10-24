@@ -8,6 +8,8 @@ const S = {
   name: null,        // 현재 프로젝트 폴더 이름
   project: null,
   dirty: false,
+  gen: 0,            // 화면 작품이 바뀔 때마다(받기 · 저장 · 입력) 오른다. 늦게 온 작품 GET 이 더 새 값을 덮지 않게 비교한다
+  conflict: false,   // 다른 탭 · 기기가 먼저 저장해 이 화면의 저장이 막혔다 (409)
   route: [],
   suggestion: null,  // 설정 도우미 제안 (반영 전)
   styleSample: '',
@@ -27,19 +29,29 @@ const S = {
   mode: localStorage.getItem('canon.mode') || 'api',
   jobs: [],          // 서버에서 돌고 있거나 막 끝난 AI 작업
   jobsSeen: null,    // 화면을 연 시점에 이미 끝나 있던 작업 id (결과를 다시 적용하지 않는다)
+  jobsApplied: new Set(),  // 결과를 이미 화면에 적용한 작업 id. 폴링이 작업 객체를 새로 받아 오므로 id 로 기억한다
   jobsOpen: false,   // 작업 목록 펼침
+  briefDraft: {},    // 작업지시서 ② 칸에 붙여 넣은 글. '<작품>:<화>:<episode|state>' → 글
+  settingsDirty: false,  // 모델 · API 키 설정 화면에서 저장하지 않은 입력이 있다
   selArc: null,      // 장편: 플롯 보드에서 고른 아크 번호 ('next' 는 다음 아크 기획)
   editArc: false,    // 장편: 아크 고치기 서랍
   selPart: null,     // 장편: 고치는 부 번호
   seriesDraft: null, // 장편: 부 구성 제안 (반영 전)
   arcDraft: null,    // 장편: 다음 아크 제안 (반영 전)
   arcForm: { length: 0, note: '' },  // 장편: 다음 아크 요청
-  recapDraft: null,  // 장편: 아크·부 요약 제안 { kind, number, summary }
+  recapDrafts: {},   // 장편: 아크·부 요약 제안. 'arc1', 'part2' 같은 키 → { kind, number, summary }. 여러 개를 함께 고친다
   namingStyles: null, // 이름 스타일 목록 (서버 naming.STYLES)
   names: {},         // 이름·지명 후보. 'c:<인물 id>' 또는 'place' → { candidates, options, ai }
   nameCheck: null,   // 출연진 이름 점검 { warnings, style, detected }
   placeKind: '',     // 지명 후보의 종류 (산, 마을, 문파…)
 };
+
+// 서버에서 받은 작품의 관계와 화별 플롯. 저장할 때 화면이 실제로 고친 칸만 가려 '서버 것으로 두었어요'를 알린다 (save)
+let projectBase = null;
+const baseOf = (p) => p && { rels: JSON.stringify(p.relationships), plots: new Map(p.episodes.map((e) => [e.plot.number, JSON.stringify(e.plot)])) };
+let projectNow = S.project;
+delete S.project;
+Object.defineProperty(S, 'project', { enumerable: true, get: () => projectNow, set: (v) => { projectNow = v; projectBase = baseOf(v); S.gen++; } });
 
 const STATUS = { draft: '플롯 초안', confirmed: '플롯 확정', written: '본문 작성됨', finalized: '반영 완료' };
 const ACTS = ['기', '승', '전', '결'];
@@ -54,19 +66,29 @@ const base = () => `#/p/${enc(S.name)}`;
 
 function fmtErr(data, status) {
   const d = data && data.detail;
-  if (Array.isArray(d)) return d.map((x) => `${(x.loc || []).slice(1).join('.')}: ${x.msg}`).join('\n');
+  if (Array.isArray(d)) return d.map((x) => { const at = (x.loc || []).slice(1).join('.'); return `입력 형식이 맞지 않습니다${at ? ` (칸: ${at})` : ''}: ${x.msg}`; }).join('\n');
   return d || `요청 실패 (${status})`;
 }
 
-async function api(method, path, body) {
-  const opt = { method, headers: {} };
+// 이 탭의 id. 서버는 작품을 저장한 화면을 기억해, 다른 탭 · 기기가 먼저 저장했으면 오래된 화면의 저장을 409 로 막는다
+const CLIENT = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+
+/** meta 를 넘기면 응답 헤더를 meta.headers 에 담는다. 실패하면 Error 의 status 에 HTTP 상태를 담는다. */
+async function api(method, path, body, meta) {
+  const opt = { method, headers: { 'X-Canon-Client': CLIENT } };
   if (body !== undefined) {
     opt.headers['Content-Type'] = 'application/json';
     opt.body = JSON.stringify(body);
   }
-  const r = await fetch('/api' + path, opt);
+  let r;
+  try {
+    r = await fetch('/api' + path, opt);
+  } catch {  // 서버가 꺼졌거나 네트워크가 끊겼다 (브라우저마다 다른 영어 문구 대신)
+    throw Object.assign(new Error('서버에 연결하지 못했어요. 서버가 켜져 있는지, 네트워크가 연결됐는지 확인하세요'), { status: 0 });
+  }
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(fmtErr(data, r.status));
+  if (!r.ok) throw Object.assign(new Error(fmtErr(data, r.status)), { status: r.status, code: data && data.code });
+  if (meta) meta.headers = r.headers;
   return data;
 }
 
@@ -115,6 +137,35 @@ function jobOwns(n) {
   return !!j && P() && (!ep(n) || ep(n).status === 'draft');
 }
 
+/** 자동 집필이 이 작품을 고치는 중이다 (S.auto 는 작품을 열 때와 자동 집필 폴링 때 받는다). */
+const autoOn = () => !!(S.auto && S.auto.active);
+/** 자동 집필이 지금 쓰는 화. 서버는 그 화의 플롯과 관계 같은 진행 칸을 화면 저장에서 지킨다 (autorun.protected). */
+const autoEp = () => (autoOn() && S.auto.run ? S.auto.run.ep : null);
+
+/** AI 제안을 버리기 전에 묻는다. 버린 제안은 되살릴 수 없고 다시 받으려면 AI 를 다시 불러야 한다. */
+function confirmDrop(what) {
+  return confirm(`${what}을 버릴까요? 되살릴 수 없어서, 다시 보려면 AI 에게 다시 받아야 해요.`);  // 부르는 곳은 모두 받침 있는 말(제안, 계획)
+}
+
+/** 초안 다시 만들기 전에 묻는다: 확정하지 않은 초안 화는 AI 새 초안으로 바뀐다. 바뀔 초안이 없으면 묻지 않는다. */
+function confirmRedraft(eps) {
+  const nums = eps.filter((e) => e.status === 'draft').map((e) => e.plot.number);
+  if (!nums.length) return true;
+  return confirm(`초안 ${nums.length}화(${rangeText(nums)}화)를 AI 새 초안으로 바꿉니다. 손본 내용도 사라져요. 지키려면 먼저 그 화를 확정하세요. 계속할까요?`);
+}
+
+/** [1,2,3,5,7,8] → '1~3, 5, 7~8' */
+function rangeText(nums) {
+  const out = [];
+  for (let i = 0; i < nums.length; i++) {
+    let j = i;
+    while (j + 1 < nums.length && nums[j + 1] === nums[j] + 1) j++;
+    out.push(i === j ? `${nums[i]}` : `${nums[i]}~${nums[j]}`);
+    i = j;
+  }
+  return out.join(', ');
+}
+
 async function startJob(kind, ep = null, extra = {}) {
   try {
     await saveIfDirty();
@@ -126,7 +177,7 @@ async function startJob(kind, ep = null, extra = {}) {
     render();
     pollJobs(true);
   } catch (e) {
-    toast(e.message, true);
+    showError(e);
   }
 }
 
@@ -147,33 +198,54 @@ async function pollJobs(soon = false) {
     if (j.kind === 'plots') await mergeEpisodes((e) => e.status === 'draft');
     if (j.kind === 'write' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);
     if (j.kind === 'impact' && j.status === 'done') await mergeImpacts();
-    if (j.kind === 'auto') await mergeEpisodes((e) => e.status !== 'draft');
+    if (j.kind === 'auto') {
+      // 다른 탭이나 명령줄에서 시작했어도 잠금(autoOn)이 걸리고, 끝나면 풀리게 실행 상태를 받아 온다. autoPoll 이 이어서 지켜본다
+      if ((j.status === 'running') !== autoOn() && typeof autoLoad === 'function') await autoLoad(false);
+      // 자동 집필이 실제로 바꾼 화(상태나 본문)만 받아 온다. 저장하지 않은 다른 화 플롯 수정은 그대로 둔다
+      const dirty = S.dirty;
+      const changed = await mergeEpisodes((cur, e) => cur.status !== e.status || cur.text !== e.text || !!cur.auto !== !!e.auto);
+      if (dirty && changed.includes(S.selEp)) toast(`자동 집필이 ${S.selEp}화를 바꿨어요. 열린 플롯은 서버에 있는 것으로 바뀝니다`, true);
+    }
     if (j.status !== 'running' && !(old && old.status !== 'running')) await finishJob(j);
-    if (JOB_PAGES[j.kind].includes(S.route[2] || 'home')) redraw = true;
+    // 설정 · 사용량 · 문체 라이브러리처럼 작품 밖 화면은 S.name 이 남아 있어도 다시 그리지 않는다
+    if (S.route[0] === 'p' && JOB_PAGES[j.kind].includes(S.route[2] || 'home')) redraw = true;
   }
   renderJobs();
   // 입력 중이면 화면을 다시 그리지 않는다 (글자와 커서를 잃지 않게). 데이터는 이미 반영돼 있다.
-  const typing = document.activeElement && document.activeElement.matches('#app input, #app textarea, #app select');
-  if (redraw && !typing) render();
+  if (redraw && !isTyping()) render();
   if (S.jobs.some((j) => j.status === 'running')) jobTimer = setTimeout(() => pollJobs(), 1500);
 }
 
-// 작업 결과가 보이는 화면
-const JOB_PAGES = { suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], storyline: ['lines'] };
+/** 입력칸에 포커스가 있다. #app 밖 떠 있는 본문 부분 수정 칸(#sel-tool)도 센다. 읽기 전용 칸은 빼서 결과를 바로 그린다. */
+function isTyping() {
+  const el = document.activeElement;
+  return !!el && el.matches('input:not([readonly]), textarea:not([readonly]), select');
+}
 
-// 작업이 project.json 에 쓴 화만 받아 온다 (mine 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
+// 작업 결과가 보이는 화면
+const JOB_PAGES = { suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], storyline: ['lines'] };
+
+// 작업이 project.json 에 쓴 화만 받아 온다 (mine(화면 화, 서버 화) 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
+// 저장하지 않은 입력이 있을 때 서버 것으로 바꾼 화 번호를 돌려준다.
 async function mergeEpisodes(mine) {
-  if (!S.name || !P()) return;
+  if (!S.name || !P()) return [];
   try {
+    const gen = S.gen;
     const fresh = await api('GET', `/projects/${enc(S.name)}`);
-    if (!S.dirty) { S.project = fresh; return; }
+    // 받는 사이 저장 · 반영 응답이나 입력이 있었으면 이 응답이 더 오래됐을 수 있다. 통째로 바꾸지 않고 작업이 쓴 화만 맞춘다
+    if (!S.dirty && gen === S.gen) { S.project = fresh; return []; }
     const local = new Map(P().episodes.map((e) => [e.plot.number, e]));
+    const changed = [];
     for (const e of fresh.episodes) {
       const cur = local.get(e.plot.number);
-      if (!cur || mine(cur)) local.set(e.plot.number, e);
+      if (cur && !mine(cur, e)) continue;
+      local.set(e.plot.number, e);
+      if (projectBase) projectBase.plots.set(e.plot.number, JSON.stringify(e.plot));
+      if (cur) changed.push(e.plot.number);
     }
     P().episodes = [...local.keys()].sort((a, b) => a - b).map((k) => local.get(k));
-  } catch { /* 다음 확인 때 다시 */ }
+    return changed;
+  } catch { return []; /* 다음 확인 때 다시 */ }
 }
 
 async function finishJob(j) {
@@ -194,15 +266,21 @@ async function finishJob(j) {
 }
 
 function applyJobResult(j) {
+  S.jobsApplied.add(j.id);
+  if (j.status !== 'done') return;  // 실패한 작업은 아무것도 바꾸지 않았다. 열어 봐도 초안과 변경안을 그대로 둔다
   if (j.kind === 'suggest' && j.result) {
     S.suggestion = j.result;
-    S.suggestion.characters.forEach((c, i) => { S.picks['sc' + i] = !P().characters.some((x) => x.id === c.id); });
+    S.suggestion.characters.forEach((c, i) => { S.picks['sc' + i] = !sameChar(c); });
     S.suggestion.relationships.forEach((r, i) => { S.picks['sr' + i] = true; });
   } else if (j.kind === 'arc' && j.result) {
     P().arc = j.result.acts;
     S.dirty = true;
-  } else if (j.kind === 'write') {
-    delete S.textDraft[j.ep];
+  } else if (j.kind === 'write' && !(j.result && j.result.candidate)) {
+    // AI 가 본문을 새로 썼다 (새 판 candidate 는 본문을 덮지 않으니 쓰던 초안과 변경안을 그대로 둔다).
+    // 그 화 칸에 쓰던 글이 있으면(다른 탭에서 시작한 작업 등) 버리지 않고 칸에 남긴다. 저장하면 수정 기록에 남아 되돌릴 수 있다
+    const d = S.textDraft[j.ep];
+    if (d && d.trim() && ep(j.ep) && d !== ep(j.ep).text) toast(`${j.ep}화 본문을 AI 가 새로 썼어요. 쓰던 글은 칸에 남겨 두었어요. 저장하면 AI 본문 대신 그 글이 들어갑니다`, true);
+    else delete S.textDraft[j.ep];
     delete S.deltas[j.ep];
   } else if (j.kind === 'state' && j.result) {
     setDelta(j.ep, j.result);
@@ -213,7 +291,7 @@ function applyJobResult(j) {
     S.selArc = 'next';
   } else if (j.kind.startsWith('recap_') && j.result) {
     const kind = j.kind.slice(6);
-    S.recapDraft = { kind, number: j.ep, summary: j.result.summary };
+    S.recapDrafts[kind + j.ep] = { kind, number: j.ep, summary: j.result.summary };
     if (kind === 'arc') S.selArc = j.ep;
     else S.selPart = j.ep;
   } else if (['convert', 'rebuild', 'rework'].includes(j.kind) && j.result) {
@@ -223,7 +301,6 @@ function applyJobResult(j) {
   } else if (['hook', 'openings', 'opening_drafts'].includes(j.kind)) {
     openingJobResult(j);
   }
-  j.applied = true;
 }
 
 const JOB_LINK = {
@@ -276,23 +353,37 @@ document.addEventListener('click', (e) => {
   } else if (t.dataset.jobOpen) {
     // 다른 작품에서 끝난 결과는 그 작품을 연 뒤에 적용한다
     const j = S.jobs.find((x) => x.id === t.dataset.jobOpen);
-    if (j) S.pendingJob = j;
+    if (j && j.status === 'done') S.pendingJob = j;
   }
   renderJobs();
 });
 
-/** 버튼 동작 공통 처리: 진행 표시, 오류 알림, 다시 그리기 */
-async function run(label, fn) {
+/** 버튼 동작 공통 처리: 진행 표시, 오류 알림, 다시 그리기. 성공하면 true.
+    opt.render: 'always'(기본) | 'success'(실패하면 다시 그리지 않아 화면에만 있는 입력을 남긴다) | 'never' */
+/** 실패를 알린다. API 키가 없으면(첫 실행에 흔하다) 설정 화면으로 갈지 묻는다. */
+function showError(e) {
+  if (e.code === 'no_key') {
+    if (confirm(`${e.message}\n\n설정 화면으로 갈까요?`)) location.hash = '#/settings';
+    return;
+  }
+  toast(e.message, true);
+}
+
+async function run(label, fn, opt = {}) {
+  const when = opt.render || 'always';
+  let ok = false;
   $('#busy-text').textContent = label;
   $('#busy').hidden = false;
   try {
     await fn();
+    ok = true;
   } catch (e) {
-    toast(e.message, true);
+    showError(e);
   } finally {
     $('#busy').hidden = true;
-    render();
+    if (when === 'always' || (when === 'success' && ok)) render();
   }
+  return ok;
 }
 
 function getPath(obj, path) {
@@ -367,7 +458,7 @@ function actClass(name) {
 // data-bind="meta.title" data-kind="text|int|list|bool"
 
 // 반영 전 AI 제안도 같은 방식으로 고친다. 이 값들은 작품 저장(dirty)과 상관없다.
-const DRAFT_ROOTS = { arcDraft: () => S.arcDraft, seriesDraft: () => S.seriesDraft, recap: () => S.recapDraft, arcForm: () => S.arcForm };
+const DRAFT_ROOTS = { arcDraft: () => S.arcDraft, seriesDraft: () => S.seriesDraft, recaps: () => S.recapDrafts, arcForm: () => S.arcForm };
 
 function bindRoot(name) {
   if (DRAFT_ROOTS[name]) return DRAFT_ROOTS[name]();
@@ -426,8 +517,15 @@ document.addEventListener('input', (e) => {
     const c = $('#char-count');
     if (c) c.textContent = el.value.length.toLocaleString();
     const sb = $('#save-text');
-    if (sb) sb.disabled = false;
+    if (sb) {
+      sb.disabled = autoOn();  // 자동 집필 중에는 서버가 본문 저장을 받지 않는다
+      sb.classList.toggle('primary', textUnsaved(el.dataset.draft));  // 저장하지 않은 고침이 있으면 눈에 띄게
+      if (!autoOn()) sb.removeAttribute('title');
+    }
+    renderSavebar();
   }
+  if (el.dataset.brief) S.briefDraft[`${S.name}:${el.dataset.brief}`] = el.value;
+  if (S.route[0] === 'settings' && el.id && el.id.startsWith('set-')) S.settingsDirty = true;
   if (el.dataset.local) S[el.dataset.local] = el.value;
   if (el.dataset.deltaSummary) S.deltas[el.dataset.deltaSummary].summary = el.value;
 });
@@ -439,6 +537,7 @@ document.addEventListener('change', (e) => {
     const c = $('#pick-count');
     if (c) c.textContent = Object.values(S.picks).filter(Boolean).length;
     if (S.route[2] === 'review' && /^[ers]\d/.test(el.dataset.pick)) refreshPreview(Number(S.route[3]));
+    if (S.route[2] === 'setup' && /^sc\d/.test(el.dataset.pick)) render();  // 고른 인물에 따라 넣을 수 있는 관계가 바뀐다
   }
   if (el.name === 'np-form') {  // 형식을 바꾸면 총 화수 기본값도 바꾼다
     const eps = $('#np-eps');
@@ -474,6 +573,16 @@ document.addEventListener('change', (e) => {
   }
 });
 
+// Ctrl+S (macOS 는 Cmd+S): 집필 화면에서 고친 본문이 있으면 본문을, 아니면 작품 변경을 저장한다. 브라우저의 '페이지 저장'은 막는다
+document.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 's' || e.isComposing) return;
+  e.preventDefault();
+  const [p, , page, arg] = S.route;
+  const n = p === 'p' && page === 'write' && P() ? Number(arg) || currentEp() : null;
+  if (n !== null && textUnsaved(n) && editableEp(ep(n))) actions.saveText(n);
+  else if (S.dirty) actions.save();
+});
+
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && (S.selEp || S.selAct != null || S.editArc || S.selPart != null) && S.route[2] === 'arc' && !e.isComposing) {
     actions.closePanel();
@@ -486,34 +595,102 @@ document.addEventListener('keydown', (e) => {
 });
 
 function markDirty() {
+  S.gen++;
   if (!S.dirty) {
     S.dirty = true;
     renderSavebar();
   }
 }
 
+/** 본문 초안이 저장한 본문과 다르다. '직접 쓰기'로 빈 칸만 연 것은 세지 않는다. */
+function textUnsaved(n) {
+  const d = S.textDraft[n];
+  if (d === undefined) return false;
+  const e = P() && ep(Number(n));
+  return e ? d.trim() !== (e.text || '').trim() : d.trim() !== '';  // 서버는 앞뒤 공백을 지워 저장한다
+}
+
 function renderSavebar() {
+  // 본문 초안은 따로 '본문 저장'으로 저장한다. 그 화를 보고 있을 때만 알린다 (다른 화면으로 가도 초안은 메모리에 남는다)
+  const [p, , page, arg] = S.route;
+  const n = p === 'p' && page === 'write' && P() ? Number(arg) || currentEp() : null;
+  const text = n !== null && textUnsaved(n) && editableEp(ep(n)) ? n : null;  // 반영이 끝난 화의 남은 초고는 집필 화면이 따로 꺼내 보인다
   let bar = $('#savebar');
-  if (!S.dirty) {
+  if ((!S.dirty || !P()) && text === null) {
     if (bar) bar.remove();
     return;
   }
+  const sig = `${S.dirty}:${text}:${autoOn()}:${S.conflict}`;
+  if (bar && bar.dataset.sig === sig) return;
   if (!bar) {
     bar = document.createElement('div');
     bar.id = 'savebar';
     bar.className = 'savebar';
-    bar.innerHTML = '<span>저장하지 않은 변경이 있어요</span><button class="btn small" data-action="revert">되돌리기</button><button class="btn small primary" data-action="save">저장</button>';
     document.body.appendChild(bar);
   }
+  bar.dataset.sig = sig;
+  bar.innerHTML = (S.dirty && S.conflict ? '<span>다른 탭이나 기기에서 먼저 저장해 이 변경을 저장하지 못했어요</span><button class="btn small" data-action="revert">다시 불러오기 (이 변경 버림)</button><button class="btn small danger" data-action="saveForce">내 변경으로 덮기</button>'
+    : S.dirty ? '<span>저장하지 않은 변경이 있어요</span><button class="btn small" data-action="revert">변경 모두 버리기</button><button class="btn small primary" data-action="save">저장</button>' : '')
+    + (text !== null ? `<span>${text}화 본문을 저장하지 않았어요</span><button class="btn small primary" data-action="saveText" data-arg="${text}"${autoOn() ? ' disabled title="자동 집필이 도는 동안은 본문을 저장할 수 없어요"' : ''}>본문 저장</button>` : '');
 }
 
-async function save() {
+/** 지시서 ② 칸 글을 아직 쓸 수 있다. 본문 칸은 확정 · 작성 화, JSON 칸은 작성 화에서만 열린다. 다른 경로로 그 화를 끝냈으면 세지 않는다. */
+function briefPending(key, v) {
+  if (!v.trim()) return false;
+  const [name, n, tab] = key.split(':');
+  if (name !== S.name || !P()) return true;
+  const e = ep(Number(n));
+  return !!e && (tab === 'state' ? e.status === 'written' : e.status === 'confirmed' || e.status === 'written');
+}
+
+/** 반영하지 않은 상태 변경안. 변경안은 본문이 작성된 화에만 반영하므로 이미 반영이 끝난 화의 것은 세지 않는다. */
+const deltaPending = (n) => { const e = P() && ep(Number(n)); return !e || e.status === 'written'; };
+
+/** 페이지를 떠나면 사라지는 입력: 저장하지 않은 작품 · 문체 · 설정 변경, 본문 초안, 붙여 넣은 지시서 결과, 반영하지 않은 상태 변경안 */
+function hasUnsaved() {
+  return S.dirty || S.libDirty || S.settingsDirty
+    || Object.keys(S.textDraft).some(textUnsaved)
+    || Object.entries(S.briefDraft).some(([k, v]) => briefPending(k, v))
+    || Object.keys(S.deltas).some(deltaPending)
+    || Object.values(stash).some((s) => Object.keys(s.textDraft).length > 0 || Object.keys(s.deltas).length > 0);  // 보관할 때 정리했다
+}
+
+// 새로고침 · 탭 닫기 · 주소 직접 입력은 hashchange 확인을 거치지 않는다. 브라우저가 묻게 한다
+window.addEventListener('beforeunload', (e) => {
+  if (!hasUnsaved()) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
+
+async function save(force = false) {
   // 끝난 작업 중 결과를 이미 받아 온 것을 알려야 서버가 그 화를 덮어써도 된다고 안다
   const merged = [...S.jobs.filter((j) => j.status !== 'running').map((j) => j.id), ...(S.jobsSeen || [])].join(',');
-  S.project = await api('PUT', `/projects/${enc(S.name)}?merged=${enc(merged)}`, P());
+  const meta = {};
+  const sent = P();
+  const base = projectBase;
+  const edited = (k) => !base || (k.field === 'relationships' ? JSON.stringify(sent.relationships) !== base.rels
+    : JSON.stringify((sent.episodes.find((e) => e.plot.number === k.ep) || {}).plot) !== base.plots.get(k.ep));
+  try {
+    S.project = await api('PUT', `/projects/${enc(S.name)}?merged=${enc(merged)}${force ? '&force=true' : ''}`, sent, meta);
+  } catch (e) {
+    if (e.status === 409) {  // 다른 화면이 먼저 저장했다. 저장 띠에서 다시 불러오기와 덮어쓰기 중에 고른다
+      S.conflict = true;
+      renderSavebar();
+    }
+    throw e;
+  }
   S.dirty = false;
+  S.conflict = false;
+  // 서버가 작업 · 자동 집필 · 다른 곳의 반영을 지키느라 화면 값 대신 서버 것을 둔 칸. 화면이 고친 칸이면 성공 토스트만으로는 버린 줄 모른다
+  const head = meta.headers && meta.headers.get('X-Canon-Kept');
+  const kept = head ? JSON.parse(decodeURIComponent(head)) : [];
+  const dropped = kept.filter((k) => k.field !== 'character' && edited(k)).map((k) => (k.field === 'relationships' ? '관계' : `${k.ep}화 플롯`));
+  const kin = kept.filter((k) => k.field === 'character').map((k) => k.name);
+  if (dropped.length) toast(`작업이나 반영된 진행과 겹쳐 이 부분은 저장하지 않고 서버에 있는 것으로 두었어요: ${dropped.join(', ')}`, true);
+  if (kin.length) toast(`이 화면이 모르는 사이 반영으로 더해진 인물(${kin.join(', ')})은 지우지 않고 남겼어요`);
   if (S.route[2] === 'style') { await loadStyleLink(); await learnLoad(); }
   if (S.route[2] === 'causal') await causalLoad();
+  return !dropped.length;
 }
 
 async function loadStyleLink() {
@@ -528,10 +705,34 @@ async function saveIfDirty() {
 
 const actions = {
   async save() {
-    await run('저장 중', async () => { await save(); toast('저장했습니다'); });
+    await run('저장 중', async () => { if (await save() !== false) toast('저장했습니다'); });
   },
   async revert() {
+    if (S.dirty && !confirm('저장하지 않은 변경을 모두 버리고 저장된 작품을 다시 불러올까요? 되돌릴 수 없어요.')) return;
     await run('불러오는 중', async () => { await loadProject(S.name); });
+  },
+  async retryRoute() {
+    await route();
+  },
+  async saveForce() {
+    if (!confirm('다른 탭이나 기기에서 저장한 변경을 이 화면의 작품으로 덮어쓸까요? 그쪽에서 바꾼 설정 · 플롯은 사라집니다.')) return;
+    await run('저장 중', async () => { if (await save(true) !== false) toast('저장했습니다'); });
+  },
+  async copyOrphan(n) {
+    const t = S.textDraft[n] || '';
+    try {
+      await navigator.clipboard.writeText(t);
+    } catch {  // 보안 연결이 아니면 clipboard API 가 없다. 칸을 펼쳐 골라 복사한다
+      const ta = $(`#orphan-${n}`);
+      if (ta) { ta.closest('details').open = true; ta.select(); }
+      if (!ta || !document.execCommand('copy')) return toast('브라우저가 복사를 막았어요. 펼친 칸에서 직접 골라 복사하세요', true);
+    }
+    toast(`${n}화 남은 초고를 복사했어요 (${t.length.toLocaleString()}자)`);
+  },
+  dropOrphan(n) {
+    if (!confirm(`${n}화 남은 초고를 버릴까요? 되돌릴 수 없어요.`)) return;
+    delete S.textDraft[n];
+    render();
   },
   async createProject() {
     const name = $('#np-name').value.trim();
@@ -548,7 +749,7 @@ const actions = {
       await api('POST', '/projects', { name, meta, style_id: styleId });
       S.newMeta = null;
       location.hash = `#/p/${enc(name)}/setup`;
-    });
+    }, { render: 'success' });  // 실패하면 다시 그리지 않아 적은 이름 · 제목 · 화수가 칸에 남는다
   },
 
   // 설정 도우미
@@ -556,13 +757,14 @@ const actions = {
     await startJob('suggest');
   },
   dropSuggestion() {
+    if (!confirmDrop('AI 설정 제안')) return;
     S.suggestion = null;
     render();
   },
   async applySuggestion() {
     const s = structuredClone(S.suggestion);
     s.characters = s.characters.filter((_, i) => S.picks['sc' + i]);
-    s.relationships = s.relationships.filter((_, i) => S.picks['sr' + i]);
+    s.relationships = s.relationships.filter((r, i) => S.picks['sr' + i] && sugEnd(r.a) && sugEnd(r.b));
     await run('반영하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/suggest/apply`, s);
@@ -903,6 +1105,7 @@ const actions = {
     await startJob('arc');
   },
   async draftPlots() {
+    if (!confirmRedraft(P().episodes)) return;
     await startJob('plots');
   },
   selectEp(n) {
@@ -959,10 +1162,13 @@ const actions = {
     await startJob('series');
   },
   dropSeries() {
+    if (!confirmDrop('AI 부 구성 제안')) return;
     S.seriesDraft = null;
     render();
   },
   async applySeries() {
+    const lost = lostPartSummaries();
+    if (lost.length && !confirm(`범위가 바뀌어 저장된 ${lost.map((x) => `${x.number}부`).join(', ')} 요약이 사라집니다. 반영할까요?`)) return;
     await run('반영하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/series/apply`, S.seriesDraft);
@@ -996,6 +1202,7 @@ const actions = {
     await startJob('nextarc', null, { length: Number(S.arcForm.length) || 0, note: S.arcForm.note || '' });
   },
   dropArc() {
+    if (!confirmDrop('AI 다음 아크 제안')) return;
     S.arcDraft = null;
     render();
   },
@@ -1018,24 +1225,29 @@ const actions = {
     });
   },
   async draftArcPlots(n) {
+    const a = P().story_arcs.find((x) => x.number === Number(n));
+    if (a && !confirmRedraft(P().episodes.filter((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep))) return;
     await startJob('plots', Number(n));
   },
   async recapArc(n) {
+    if (S.recapDrafts['arc' + n] && !confirm(`아크 ${n} 요약 제안이 아직 있어요. 고친 내용을 버리고 새로 받을까요?`)) return;
     await startJob('recap_arc', Number(n));
   },
   async recapPart(n) {
+    if (S.recapDrafts['part' + n] && !confirm(`${n}부 요약 제안이 아직 있어요. 고친 내용을 버리고 새로 받을까요?`)) return;
     await startJob('recap_part', Number(n));
   },
-  dropRecap() {
-    S.recapDraft = null;
+  dropRecap(key) {
+    if (!confirmDrop('AI 요약 제안')) return;
+    delete S.recapDrafts[key];
     render();
   },
-  async applyRecap() {
-    const r = S.recapDraft;
+  async applyRecap(key) {
+    const r = S.recapDrafts[key];
     await run('저장하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/recap/${r.kind}/${r.number}`, { summary: r.summary });
-      S.recapDraft = null;
+      delete S.recapDrafts[key];
       toast('요약을 저장했어요. 앞으로 이 구간 대신 요약이 프롬프트에 들어갑니다.');
     });
   },
@@ -1091,6 +1303,15 @@ const actions = {
   },
   async applyDelta(n) {
     const out = pickedDelta(n);
+    // 평소에는 바로 반영한다. 고른 항목이 없거나, 경고가 남았거나, 변경안을 만든 뒤 본문을 고쳤으면 한 번 묻는다
+    const lists = ['character_updates', 'events', 'secrets_added', 'relationship_updates', 'new_facts', 'foreshadow_planted', 'foreshadow_resolved', 'new_characters'];
+    const count = lists.reduce((s, k) => s + (out[k] || []).length, 0);
+    const why = [
+      count ? '' : '고른 항목이 0건이에요. 요약만 저장하고',
+      (out.warnings || []).length ? `경고 ${out.warnings.length}건이 남아 있어요.` : '',
+      S.deltaBase[n] !== undefined && ep(n) && S.deltaBase[n] !== ep(n).text ? '변경안을 만든 뒤 본문을 고쳤어요.' : '',
+    ].filter(Boolean);
+    if (why.length && !confirm(`${why.join(' ')} ${n}화를 마칠까요? 반영하면 되돌리기로만 돌아갈 수 있어요.`)) return;
     await run('반영하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/apply`, out);
@@ -1131,8 +1352,9 @@ const actions = {
     if (lkey) body.local_key = lkey;
     await run('저장 중', async () => {
       S.config = await api('PUT', '/config', body);
+      S.settingsDirty = false;
       toast('설정을 저장했습니다');
-    });
+    }, { render: 'success' });  // 실패하면 다시 그리지 않아 적은 키와 모델이 칸에 남는다
   },
   async clearKey() {
     if (!confirm('저장된 API 키를 지울까요?')) return;
@@ -1145,10 +1367,16 @@ const actions = {
     await loadModelList(true);
   },
   async testSettings() {
+    // 서버는 저장된 설정으로 시험한다. 적기만 한 값이 있으면 먼저 저장해야 그 값의 결과가 나온다
+    if (S.settingsDirty) {
+      if (!confirm('입력한 설정을 아직 저장하지 않았어요. 저장한 뒤 연결을 확인할까요?')) return;
+      await actions.saveSettings();
+      if (S.settingsDirty) return;  // 저장하지 못했다
+    }
     await run('연결 확인 중', async () => {
       const r = await api('POST', '/config/test');
       toast(r.message);
-    });
+    }, { render: 'never' });
   },
 
   // 작업지시서
@@ -1186,6 +1414,7 @@ const actions = {
       S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, { text });
       delete S.textDraft[n];
       delete S.deltas[n];
+      delete S.briefDraft[`${S.name}:${n}:episode`];
       toast(`${n}화 본문으로 저장했습니다`);
       location.hash = `${base()}/write/${n}`;
     });
@@ -1195,6 +1424,7 @@ const actions = {
     if (!raw.trim()) return toast('JSON 을 붙여 넣으세요', true);
     await run('확인하는 중', async () => {
       setDelta(n, await api('POST', `/projects/${enc(S.name)}/episodes/${n}/state/parse`, { raw }));
+      delete S.briefDraft[`${S.name}:${n}:state`];
       location.hash = `${base()}/review/${n}`;
     });
   },
@@ -1259,35 +1489,93 @@ document.addEventListener('click', (e) => {
 
 // ---------- 라우팅 ----------
 
+// 화 번호로 키를 잡는 화면 상태는 작품마다 따로 둔다. 다른 작품으로 가면 지금 것을 보관하고 그 작품 것을 꺼낸다
+// (그러지 않으면 한 작품의 본문 초안이 다른 작품의 같은 화에 보이고 저장된다)
+// 작품마다 따로 두는 화면 상태와 빈 값. 화 번호로 잡거나 반영 전 AI 제안이라, 다른 작품에 보이거나 반영되면 안 된다
+const PER_PROJECT = {
+  textDraft: () => ({}), deltas: () => ({}), deltaBase: () => ({}),
+  suggestion: () => null, picks: () => ({}), seriesDraft: () => null, arcDraft: () => null, recapDrafts: () => ({}),
+  lineDraft: () => null, convDraft: () => null, rbDraft: () => null, reworks: () => ({}),
+  openingData: () => ({}), openingPlots: () => ({}), rw: () => ({}), rwInfo: () => ({}), looks: () => ({}),
+  causalLinks: () => ({}), causalPicks: () => ({}), chatPicks: () => ({}),
+};
+const stash = {};       // 작품 이름 → PER_PROJECT 의 값들
+let stateOwner = null;  // 지금 S.textDraft 등이 속한 작품
+
+/** 지금 작품을 떠나기 전에 부른다: 저장 본문과 같아진 초안, 이미 반영이 끝난 화의 변경안, 더 쓸 수 없는 지시서 칸 글을 버린다.
+    떠난 뒤에는 그 작품 데이터가 없어 남은 것을 '저장 안 한 입력'으로만 센다. */
+function pruneProjectState() {
+  if (!P() || !S.name) return;
+  Object.keys(S.textDraft).forEach((n) => { if (!textUnsaved(n)) delete S.textDraft[n]; });
+  Object.keys(S.deltas).forEach((n) => {  // 반영이 끝났거나 없어진 화의 변경안만 버린다
+    const e = ep(Number(n));
+    if (!e || e.status === 'finalized') { delete S.deltas[n]; delete S.deltaBase[n]; }
+  });
+  Object.entries(S.briefDraft).forEach(([k, v]) => { if (k.startsWith(`${S.name}:`) && !briefPending(k, v)) delete S.briefDraft[k]; });
+}
+
+function useProjectState(name) {
+  if (stateOwner === name) return;
+  pruneProjectState();
+  if (stateOwner) stash[stateOwner] = Object.fromEntries(Object.keys(PER_PROJECT).map((k) => [k, S[k]]));
+  const kept = stash[name] || {};
+  Object.entries(PER_PROJECT).forEach(([k, empty]) => { S[k] = k in kept ? kept[k] : empty(); });
+  delete stash[name];
+  stateOwner = name;
+}
+
 async function loadProject(name) {
-  S.project = await api('GET', `/projects/${enc(name)}`);
+  const fresh = await api('GET', `/projects/${enc(name)}`);
+  useProjectState(name);  // 떠나는 작품 데이터로 정리한 뒤 보관하므로 S.project 를 바꾸기 전에 부른다
+  S.project = fresh;
   S.name = name;
   S.dirty = false;
+  S.conflict = false;
 }
 
 let lastHash = location.hash;
 window.addEventListener('hashchange', async () => {
-  if ((S.dirty || S.libDirty) && !confirm('저장하지 않은 변경이 있어요. 버리고 이동할까요?')) {
+  if ((S.dirty || S.libDirty || S.settingsDirty) && !confirm('저장하지 않은 변경이 있어요. 버리고 이동할까요?')) {
     history.replaceState(null, '', lastHash);
     return;
   }
   lastHash = location.hash;
   S.libDirty = false;
+  S.settingsDirty = false;
   await route();
 });
 
-async function route() {
+/** 부 구성 제안을 반영하면 사라질 부 요약: 요약이 있는데 같은 범위의 부가 제안에 없다 (pipeline.apply_series 와 같은 규칙). */
+function lostPartSummaries() {
+  const keep = new Set((S.seriesDraft ? S.seriesDraft.parts : []).map((x) => `${x.start_ep}-${x.end_ep}`));
+  return P().parts.filter((x) => x.summary && !keep.has(`${x.start_ep}-${x.end_ep}`));
+}
+
+// 화면 이동은 하나씩 차례로 처리한다. 늦게 끝난 앞 이동이 지금 화면의 데이터(지시서, 컨텍스트 등)를 덮지 않게 하고,
+// 기다리는 사이 또 옮겼으면 중간 화면은 건너뛴다
+let routeQueue = Promise.resolve();
+let routeWanted = 0;
+function route() {
+  const my = ++routeWanted;
+  routeQueue = routeQueue.then(() => (my === routeWanted ? routeNow() : undefined)).catch((e) => toast(e.message, true));
+  return routeQueue;
+}
+
+async function routeNow() {
+  S.loadError = null;
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
   S.route = parts;
   S.context = null;
   S.promptText = null;
   S.briefText = null;
   S.relations = null;
+  if (parts[0] !== 'p') pruneProjectState();  // 작품 밖 화면으로 간다. 작품 데이터가 있을 때 끝난 초안을 정리한다
   try {
     if (!S.config) S.config = await api('GET', '/config');
     if (!S.genres) S.genres = await api('GET', '/genres').catch(() => []);
     if (!S.namingStyles) S.namingStyles = await api('GET', '/naming/styles').catch(() => []);
     if (parts[0] === 'settings') {
+      S.settingsDirty = false;
       S.config = await api('GET', '/config');
       loadModelList();  // 기다리지 않는다. 목록이 오면 입력칸 추천만 채운다
       await pricesLoad().catch((e) => toast(e.message, true));
@@ -1310,7 +1598,7 @@ async function route() {
     } else if (parts[0] === 'p' && parts[1]) {
       if (S.name !== parts[1] || S.dirty) await loadProject(parts[1]);
       else S.project = await api('GET', `/projects/${enc(parts[1])}`);
-      if (S.pendingJob && S.pendingJob.project === S.name && !S.pendingJob.applied) applyJobResult(S.pendingJob);
+      if (S.pendingJob && S.pendingJob.project === S.name && !S.jobsApplied.has(S.pendingJob.id)) applyJobResult(S.pendingJob);
       S.pendingJob = null;
       S.dirty = false;
       const n = Number(parts[3]);
@@ -1354,10 +1642,11 @@ async function route() {
       S.libs = await api('GET', '/styles').catch(() => []);
     }
   } catch (e) {
-    toast(e.message, true);
+    // 연결 실패를 '작품 없음'과 같은 화면으로 보이지 않는다. 오류 카드와 다시 시도를 그린다
+    S.loadError = e.message;
     S.name = null;
     S.project = null;
-    S.projects = [];
+    S.dirty = false;  // 대상 작품이 없으니 저장 띠도 내린다
   }
   render();
   window.scrollTo(0, 0);
@@ -1380,6 +1669,10 @@ function render() {
   if (p === 'styles') {
     const body = S.route[1] && S.lib ? viewLibEntry() : viewLibrary();
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1180px;margin:0 auto">${body}</main></div>`;
+    return;
+  }
+  if (S.loadError) {
+    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:720px;margin:0 auto"><div class="card empty" role="alert"><h2>화면을 불러오지 못했어요</h2><p>${esc(S.loadError)}</p><div class="row"><button class="btn primary" data-action="retryRoute">다시 시도</button><a class="btn" href="#/">작품 목록</a></div></div></main></div>`;
     return;
   }
   if (p !== 'p' || !P()) {
@@ -1845,7 +2138,9 @@ function conflictWord(v) {
 function relRow(r, i) {
   const p = P();
   const b = `relationships.${i}`;
-  const opts = (sel) => p.characters.map((c) => `<option value="${esc(c.id)}"${c.id === sel ? ' selected' : ''}>${esc(c.name || c.id)}</option>`).join('');
+  // 없는 인물을 가리키면 첫 인물이 고른 것처럼 보이지 않게 그 id 를 따로 보인다
+  const opts = (sel) => (p.characters.some((c) => c.id === sel) ? '' : `<option value="${esc(sel)}" selected>(없는 인물: ${esc(sel)})</option>`)
+    + p.characters.map((c) => `<option value="${esc(c.id)}"${c.id === sel ? ' selected' : ''}>${esc(c.name || c.id)}</option>`).join('');
   const started = p.snapshots.length > 0; // 첫 상태 반영 뒤에는 관계 사건으로 계산한다
   const chips = (vals, on, act) => vals.map(([label, arg]) => `<button type="button" aria-pressed="${on(label)}" data-action="${act}" data-arg="${esc(`${i}|${arg}`)}">${esc(label)}</button>`).join('');
   const view = (side, from, to) => `<div class="rel-line"><span class="label-text">${esc(charName(from) || from)} → ${esc(charName(to) || to)}</span>
@@ -1880,9 +2175,11 @@ async function loadNames(key, req, ai) {
   });
 }
 
+let nameSeq = 0;
 async function checkNames(show = false) {
+  const my = ++nameSeq;
   const r = await api('POST', `/projects/${enc(S.name)}/names/check`, P()).catch(() => null);
-  if (!r) return;
+  if (!r || my !== nameSeq) return;  // 더 나중에 보낸 점검이 있으면 그 결과를 쓴다
   S.nameCheck = r;
   const box = $('#name-check');
   if (box) box.outerHTML = nameCheckBox();
@@ -1966,7 +2263,7 @@ function viewSetup() {
           ${input('제목', 'meta.title')}
           ${genrePicker()}
           ${adultCheck(`data-bind="meta.adult" data-kind="bool"${P().meta.adult ? ' checked' : ''}`)}
-          ${input('총 화수 (10~20)', 'meta.target_episodes', { type: 'number', min: 1, max: 40 })}
+          ${serial() ? input('총 화수', 'meta.target_episodes', { type: 'number', min: 1, max: 1000, hint: '늘리거나 줄이면 마지막 부 끝 화가 따라가요' }) : input('총 화수 (10~20)', 'meta.target_episodes', { type: 'number', min: 1, max: 40 })}
           ${loglineBuilder()}
           ${input('주제', 'meta.theme', { hint: '이 이야기가 끝까지 묻는 질문 하나', placeholder: '예: 떠난 사람을 이해하면 용서할 수 있나?' })}
           ${toneBox()}
@@ -1993,25 +2290,47 @@ function viewSetup() {
           ${chars ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">${chars}</div>` : '<div class="note plain">인물이 없어요. 직접 추가하거나 AI 제안을 받으세요.</div>'}
         </section>
         <section class="card">
-          <div class="between"><h2>관계</h2><div class="row"><span class="small">${P().snapshots.length ? '첫 반영 뒤에는 관계 사건으로 계산됩니다' : '서로 어떻게 보는지 고르면 시작 관계를 계산해요. 긴장은 자동 계산'}</span><button class="btn small" data-action="addRelationship">+ 관계 추가</button></div></div>
-          ${rels || '<div class="small">관계가 없어요.</div>'}
+          <div class="between"><h2>관계</h2><div class="row"><span class="small">${P().snapshots.length ? '첫 반영 뒤에는 관계 사건으로 계산됩니다' : '서로 어떻게 보는지 고르면 시작 관계를 계산해요. 긴장은 자동 계산'}</span><button class="btn small" data-action="addRelationship"${autoOn() ? ' disabled' : ''}>+ 관계 추가</button></div></div>
+          ${autoOn() ? `<div class="note warn" id="rel-lock">자동 집필이 도는 동안은 관계를 고칠 수 없어요. 반영하는 관계와 겹치지 않게 서버가 받지 않아요. 고치려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요.</div>` : ''}
+          ${rels ? (autoOn() ? `<fieldset disabled class="lockset" aria-describedby="rel-lock">${rels}</fieldset>` : rels) : '<div class="small">관계가 없어요.</div>'}
         </section>
       </div>
     </div>`;
 }
 
+/** 제안 인물이 이미 있는 인물과 같은 사람이다: id 가 같고 이름도 같다 (이름이 다르면 서버가 새 id 로 넣는다, pipeline.apply_setup). */
+function sameChar(c) {
+  const old = P().characters.find((x) => x.id === c.id);
+  return !!old && (!(c.name || '').trim() || (old.name || '').trim() === c.name.trim());
+}
+
+/** 제안 관계의 한쪽 인물. 고른 제안 인물이면 그 인물, 아니면 이미 있는 인물. 고르지 않은 제안 인물이면 null (관계를 넣지 않는다). */
+function sugEnd(id) {
+  const s = S.suggestion;
+  const i = s.characters.findIndex((c) => c.id === id);
+  if (i >= 0 && !sameChar(s.characters[i])) return S.picks['sc' + i] ? s.characters[i] : null;
+  return P().characters.find((c) => c.id === id) || null;
+}
+
 function viewSuggestion() {
   const s = S.suggestion;
-  const exists = (id) => P().characters.some((c) => c.id === id);
+  const exists = (c) => sameChar(c);
+  const clash = (c) => !sameChar(c) && P().characters.some((x) => x.id === c.id);
   return `<section class="card" style="border:2px solid var(--accent)">
     <div class="between"><h2>AI 제안 <span class="chip ai">반영 전</span></h2><div class="row"><button class="btn small" data-action="dropSuggestion">버리기</button><button class="btn small primary" data-action="applySuggestion">선택 항목 반영</button></div></div>
     <p class="small">주제, 톤, 세계관은 비어 있는 칸에만 들어갑니다. 이미 있는 인물 id 는 건너뜁니다.</p>
     <div class="grid-2"><div class="note plain"><strong>주제</strong> ${esc(s.theme)}<br><strong>톤</strong> ${esc(s.tone)}</div><div class="note plain"><strong>배경</strong> ${esc(s.world.setting)} ${esc(s.world.era)}<br><strong>규칙</strong> ${s.world.rules.map(esc).join(', ')}</div></div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
-      ${s.characters.map((c, i) => `<label class="char-card suggested" style="cursor:pointer"><span class="row"><input type="checkbox" data-pick="sc${i}"${S.picks['sc' + i] ? ' checked' : ''}${exists(c.id) ? ' disabled' : ''}><strong>${esc(c.name)}</strong><span class="small">${esc(c.role)} · ${esc(c.id)}${exists(c.id) ? ' · 이미 있음' : ''}</span></span>
+      ${s.characters.map((c, i) => `<label class="char-card suggested" style="cursor:pointer"><span class="row"><input type="checkbox" data-pick="sc${i}"${S.picks['sc' + i] ? ' checked' : ''}${exists(c) ? ' disabled' : ''}><strong>${esc(c.name)}</strong><span class="small">${esc(c.role)} · ${esc(c.id)}${exists(c) ? ' · 이미 있음' : clash(c) ? ' · 같은 id 의 다른 인물이 있어 새 id 로 넣어요' : ''}</span></span>
         <span style="font-size:13px;line-height:1.5">목표: ${esc(c.goal)}<br>말투: ${esc(c.speech_style)}</span></label>`).join('')}
     </div>
-    ${s.relationships.map((r, i) => `<label class="row" style="font-size:13px"><input type="checkbox" data-pick="sr${i}"${S.picks['sr' + i] ? ' checked' : ''}>${esc(r.a)} ↔ ${esc(r.b)} · ${esc(r.type)} · ${(r.a_view || []).length || (r.b_view || []).length ? `${esc(r.a)}→${esc(r.b)} ${esc((r.a_view || []).join(', ') || '-')} · ${esc(r.b)}→${esc(r.a)} ${esc((r.b_view || []).join(', ') || '-')}` : `호감 ${r.affinity} · 긴장 ${r.tension}`}</label>`).join('')}
+    ${s.relationships.map((r, i) => {
+    const a = sugEnd(r.a);
+    const b = sugEnd(r.b);
+    const nm = (c, id) => esc(c ? c.name || c.id : id);
+    const off = !a || !b;
+    return `<label class="row" style="font-size:13px"><input type="checkbox" data-pick="sr${i}"${S.picks['sr' + i] && !off ? ' checked' : ''}${off ? ' disabled' : ''}>${nm(a, r.a)} ↔ ${nm(b, r.b)} · ${esc(r.type)} · ${(r.a_view || []).length || (r.b_view || []).length ? `${nm(a, r.a)}→${nm(b, r.b)} ${esc((r.a_view || []).join(', ') || '-')} · ${nm(b, r.b)}→${nm(a, r.a)} ${esc((r.b_view || []).join(', ') || '-')}` : `호감 ${r.affinity} · 긴장 ${r.tension}`}${off ? ' <span class="small">(고르지 않은 인물이라 넣지 않아요)</span>' : ''}</label>`;
+  }).join('')}
   </section>`;
 }
 
@@ -2348,14 +2667,15 @@ function plotEditor(e) {
   const i = epIndex(n);
   const b = `episodes.${i}.plot`;
   const busy = jobOwns(n);
-  const locked = e.status === 'written' || e.status === 'finalized' || busy;
+  const autoBusy = autoEp() === n;
+  const locked = e.status === 'written' || e.status === 'finalized' || busy || autoBusy;
   const ro = { readonly: locked };
   const act = actOf(n);
   const arc = serial() ? arcOf(n) : null;
   return `<div class="between"><h2>${n}화 플롯</h2><span class="chip ${e.status}">${STATUS[e.status]}</span></div>
     ${arc ? `<div class="note plain"><strong>아크 ${arc.number} ${esc(arc.title)}</strong> · ${esc(arc.goal)}</div>` : ''}
     ${act ? `<div class="note info"><strong>${act.name} 구간 목표</strong> · ${esc(act.goal)}</div>` : ''}
-    ${busy ? '<div class="note warn">AI 가 이 구간의 초안을 새로 만드는 중이라 끝날 때까지 고칠 수 없어요.</div>' : locked ? '<div class="note plain">본문이 있는 화라 플롯을 고칠 수 없어요.</div>' : ''}
+    ${busy ? '<div class="note warn">AI 가 이 구간의 초안을 새로 만드는 중이라 끝날 때까지 고칠 수 없어요.</div>' : autoBusy ? `<div class="note warn">자동 집필이 ${n}화를 쓰는 중이라 고칠 수 없어요. 고치려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요.</div>` : locked ? '<div class="note plain">본문이 있는 화라 플롯을 고칠 수 없어요.</div>' : ''}
     ${input('제목', b + '.title', ro)}
     ${input('요약', b + '.summary', { ...ro, rows: 3, autogrow: true })}
     ${input('사건 순서', b + '.events', { ...ro, kind: 'list', rows: 5, autogrow: true })}
@@ -2474,6 +2794,7 @@ function viewSerial() {
       <span class="row"><span class="chip">아크 ${inPart.length}개</span><span class="chip ${done ? 'finalized' : ''}">반영 ${done}/${x.end_ep - x.start_ep + 1}</span>${finished ? (x.summary ? '<span class="chip finalized">요약 있음</span>' : '<span class="chip written">요약 필요</span>') : ''}</span>
     </button>`;
   };
+  const lost = S.seriesDraft ? lostPartSummaries() : [];
   const seriesDraft = S.seriesDraft ? `<div class="card proposal">
       <div class="between"><h3>AI 부 구성 제안 <span class="chip ai">반영 전</span></h3><div class="row"><button class="btn small" data-action="dropSeries">버리기</button><button class="btn small primary" data-action="applySeries">이 부 구성 반영</button></div></div>
       ${S.seriesDraft.parts.map((x, i) => `<div class="part-draft">
@@ -2482,6 +2803,7 @@ function viewSerial() {
         ${input('아크 후보', `parts.${i}.arc_ideas`, { root: 'seriesDraft', kind: 'list', rows: 3, autogrow: true })}
       </div>`).join('')}
       <div class="small">부는 1화부터 ${p.meta.target_episodes}화까지 빈틈없이 이어져야 반영됩니다. 이미 기획한 아크가 새 부 경계를 넘으면 반영하지 않아요.</div>
+      ${lost.length ? `<div class="note warn">이 구성으로 반영하면 범위가 바뀌어 저장된 ${lost.map((x) => `${x.number}부(${x.start_ep}~${x.end_ep}화)`).join(', ')} 요약이 사라져요. 지키려면 그 부의 시작 화와 끝 화를 지금과 같게 두세요.</div>` : ''}
     </div>` : '';
   const seriesBtn = ((b) => `<button class="btn small" data-action="planSeries"${b.attr}>${b.label}</button>`)(jobBtn('series', null, p.parts.length ? '부 구성 다시 제안' : 'AI 로 부 구성 만들기'));
   const series = `<section class="card">
@@ -2521,7 +2843,7 @@ function viewSerial() {
 
 function nextArcPanel(start) {
   const p = P();
-  if (start > p.meta.target_episodes) return `<div class="card empty"><p>총 ${p.meta.target_episodes}화까지 아크가 모두 있어요.</p><span class="small">더 쓰려면 작품 홈이나 설정에서 총 화수를 늘리고 부 구성을 고치세요.</span></div>`;
+  if (start > p.meta.target_episodes) return `<div class="card empty"><p>총 ${p.meta.target_episodes}화까지 아크가 모두 있어요.</p><span class="small">더 쓰려면 <a href="${base()}/setup">설정 도우미</a>에서 총 화수를 늘리세요. 마지막 부 끝 화가 따라 늘어나요.</span></div>`;
   const part = p.parts.find((x) => x.start_ep <= start && start <= x.end_ep);
   const old = p.foreshadows.filter((f) => f.status === 'open' && start - f.planted_ep > 50);
   const d = S.arcDraft;
@@ -2560,13 +2882,14 @@ function arcPanel(a, sel) {
   const finished = arcFinished(a);
   const plotsBtn = jobBtn('plots', a.number, g.plotted ? '초안 다시 만들기 (확정 화 제외)' : '화별 플롯 초안 만들기');
   const names = (ids) => ids.map((id) => esc(charName(id))).join(', ');
-  const r = S.recapDraft && S.recapDraft.kind === 'arc' && S.recapDraft.number === a.number ? S.recapDraft : null;
+  const rk = 'arc' + a.number;
+  const r = S.recapDrafts[rk];
   let recap = '';
   if (finished) {
     const rb = jobBtn('recap_arc', a.number, a.summary ? 'AI 로 요약 다시 제안' : 'AI 로 요약 제안');
     recap = `<div class="recap">
       <div class="between"><h3>아크 요약 ${a.summary ? '<span class="chip finalized">있음</span>' : '<span class="chip written">필요</span>'}</h3><button class="btn small" data-action="recapArc" data-arg="${a.number}"${rb.attr}>${rb.label}</button></div>
-      ${r ? `${input('AI 요약 제안 (고친 뒤 저장)', 'summary', { root: 'recap', rows: 6, autogrow: true })}<div class="row"><button class="btn small" data-action="dropRecap">버리기</button><button class="btn small primary" data-action="applyRecap">이 요약 저장</button></div>` : ''}
+      ${r ? `${input('AI 요약 제안 (고친 뒤 저장)', `${rk}.summary`, { root: 'recaps', rows: 6, autogrow: true })}<div class="row"><button class="btn small" data-action="dropRecap" data-arg="${rk}">버리기</button><button class="btn small primary" data-action="applyRecap" data-arg="${rk}">이 요약 저장</button></div>` : ''}
       ${input('저장된 요약', `story_arcs.${k}.summary`, { rows: 4, autogrow: true, hint: '앞으로 이 아크의 화별 요약 대신 프롬프트에 들어가요' })}
     </div>`;
   }
@@ -2612,7 +2935,8 @@ function partEditor(number) {
   const b = `parts.${i}`;
   const done = p.episodes.filter((e) => e.status === 'finalized' && e.plot.number >= x.start_ep && e.plot.number <= x.end_ep).length;
   const finished = done === x.end_ep - x.start_ep + 1;
-  const r = S.recapDraft && S.recapDraft.kind === 'part' && S.recapDraft.number === number ? S.recapDraft : null;
+  const rk = 'part' + number;
+  const r = S.recapDrafts[rk];
   const rb = jobBtn('recap_part', number, x.summary ? 'AI 로 요약 다시 제안' : 'AI 로 요약 제안');
   return `<div class="between"><h2>${x.number}부 고치기</h2><span class="chip">${x.start_ep}–${x.end_ep}화</span></div>
     ${input('제목', b + '.title')}
@@ -2622,7 +2946,7 @@ function partEditor(number) {
     ${input('전환점', b + '.key_turn', { rows: 2, autogrow: true })}
     ${input('아크 후보', b + '.arc_ideas', { kind: 'list', rows: 5, autogrow: true, hint: '다음 아크를 기획할 때 참고해요' })}
     ${finished ? `<div class="between"><span class="label">부 요약</span><button class="btn small" data-action="recapPart" data-arg="${number}"${rb.attr}>${rb.label}</button></div>
-      ${r ? `${input('AI 요약 제안 (고친 뒤 저장)', 'summary', { root: 'recap', rows: 6, autogrow: true })}<div class="row"><button class="btn small" data-action="dropRecap">버리기</button><button class="btn small primary" data-action="applyRecap">이 요약 저장</button></div>` : ''}` : '<div class="small">부의 모든 화가 반영되면 요약을 만들 수 있어요.</div>'}
+      ${r ? `${input('AI 요약 제안 (고친 뒤 저장)', `${rk}.summary`, { root: 'recaps', rows: 6, autogrow: true })}<div class="row"><button class="btn small" data-action="dropRecap" data-arg="${rk}">버리기</button><button class="btn small primary" data-action="applyRecap" data-arg="${rk}">이 요약 저장</button></div>` : ''}` : '<div class="small">부의 모든 화가 반영되면 요약을 만들 수 있어요.</div>'}
     ${input('저장된 요약', b + '.summary', { rows: 4, autogrow: true })}`;
 }
 
@@ -2640,29 +2964,42 @@ function noEpisode() {
   return `<div class="card empty"><p>아직 화별 플롯이 없어요.</p><a class="btn primary" href="${base()}/arc">기승전결 · 플롯 만들기</a></div>`;
 }
 
+/** n화보다 앞인데 상태 반영이 끝나지 않은 화. 있으면 n화 본문을 저장하거나 반영할 수 없다 (서버 pipeline.require_previous). */
+const blockedBefore = (n) => P().episodes.filter((x) => x.plot.number < n && x.status !== 'finalized').map((x) => x.plot.number);
+
+function orderNote(blocked) {
+  if (!blocked.length) return '';
+  const first = ep(blocked[0]);
+  return `<div class="note warn">이전 화(${blocked.join(', ')}화)의 상태 반영이 끝나야 쓸 수 있어요. 인물 상태가 꼬이지 않게 하는 규칙입니다. <a href="${base()}/${first.status === 'written' ? 'review' : 'write'}/${blocked[0]}">${blocked[0]}화 ${first.status === 'written' ? '상태 정리로' : '집필로'}</a></div>`;
+}
+
 function viewWrite(n) {
   const e = ep(n);
   if (!e) return header('4단계', '집필', '') + noEpisode();
   const act = actOf(n);
-  const blocked = P().episodes.filter((x) => x.plot.number < n && x.status !== 'finalized').map((x) => x.plot.number);
-  const draft = S.textDraft[n];
-  const text = draft ?? e.text;
+  const blocked = blockedBefore(n);
   const editable = e.status === 'confirmed' || e.status === 'written';
+  // 반영이 끝난 화는 저장된 본문을 보인다. 그 화를 쓰던 중 자동 집필 · 다른 탭이 반영을 끝냈으면 초안은 따로 꺼내 보인다
+  const draft = editable ? S.textDraft[n] : undefined;
+  const orphan = !editable && textUnsaved(n);
+  const text = draft ?? e.text;
   const isApi = S.mode === 'api';
+  const writing = !!jobFor('write', n);
+  const locked = writing && !e.text;  // AI 가 본문을 처음 쓰는 중: 끝나면 칸이 AI 본문으로 바뀌므로 그동안 쓴 글은 남지 않는다
 
   let center;
   if (e.status === 'draft') {
     center = `<div class="empty"><p>${n}화 플롯이 아직 초안이에요. 확정해야 쓸 수 있습니다.</p><a class="btn primary" href="${base()}/arc">플롯 확정하러 가기</a></div>`;
   } else if (!e.text && draft === undefined) {
     center = `<div class="empty">
-      ${blocked.length ? `<div class="note warn">이전 화(${blocked.join(', ')}화)의 상태 반영이 끝나야 쓸 수 있어요. 인물 상태가 꼬이지 않게 하는 규칙입니다.</div>` : ''}
+      ${orderNote(blocked)}
       ${isApi ? `<p>확정된 플롯과 지금까지의 데이터로 ${n}화를 씁니다.</p>${((b) => `<button class="btn primary" data-action="writeEp" data-arg="${n}"${blocked.length ? ' disabled' : b.attr}>${b.label}</button>`)(jobBtn('write', n, `${n}화 본문 생성`))}${jobFor('write', n) ? '<div class="small">다른 화면으로 옮겨 가도 계속 씁니다. 끝나면 알려 드려요.</div>' : ''}`
         : `<p>작업지시서를 채팅 앱에 붙여 넣고, 받은 본문을 가져오세요.</p><a class="btn primary" href="${base()}/brief/${n}">작업지시서 열기</a>`}
-      <button class="btn" data-action="startManual" data-arg="${n}">직접 쓰기</button>
+      <button class="btn" data-action="startManual" data-arg="${n}"${writing || blocked.length ? ' disabled' : ''}>직접 쓰기</button>
     </div>`;
   } else {
     center = `<div class="prose">${editable
-      ? draftBox(n, text)
+      ? (locked ? `<div class="note info" id="draft-lock" style="margin:12px 16px 0">${n}화 본문을 만드는 중이에요. 끝나면 이 칸이 AI 본문으로 바뀌니 그때 고치세요.</div>` : '') + draftBox(n, text)
       : `<div class="read" data-read="${n}">${readHtml(n, text)}</div>`}</div>`;
   }
 
@@ -2678,6 +3015,10 @@ function viewWrite(n) {
   return `<header class="page-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? act.name + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:24px">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}</div><div class="row">${right}</div></header>
     ${e.auto ? `<div class="note info">이 화는 자동 집필이 검토 없이 반영했어요. 읽어 보고 문제가 있으면 <a href="${base()}/auto">자동 집필</a>에서 이 화부터 되돌릴 수 있어요.</div>` : ''}
     ${rebuildNote(n)}
+    ${orphan ? `<div class="note warn">저장하지 않은 ${n}화 초고가 남아 있어요. 이 화는 상태 반영이 끝나 본문으로 저장할 수 없어서, 아래에는 반영된 본문을 보여요.
+      <details><summary>남은 초고 보기 (${S.textDraft[n].length.toLocaleString()}자)</summary><textarea readonly id="orphan-${n}" aria-label="${n}화 남은 초고" style="width:100%;min-height:160px;margin-top:6px">${esc(S.textDraft[n])}</textarea></details>
+      <div class="row" style="margin-top:6px"><button class="btn small" data-action="copyOrphan" data-arg="${n}">초고 복사</button><button class="btn small danger" data-action="dropOrphan" data-arg="${n}">초고 버리기</button></div></div>` : ''}
+    ${editable && autoOn() ? `<div class="note warn">자동 집필이 도는 동안은 본문을 저장할 수 없어요. 쓰던 글은 이 화면에 남아 있어요. 저장하려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요.</div>` : ''}
     ${e.text && editable ? rewritePanel(n) + candidateCard(n) : ''}
     <div class="cols" style="gap:16px">
       <aside class="card tight" style="flex:1 1 260px;min-width:0" aria-label="이번 화 플롯">
@@ -2701,7 +3042,7 @@ function viewWrite(n) {
           <span>${e.status === 'finalized' ? '상태 반영까지 끝난 화는 읽기 전용이에요. 드래그하면 삽화 프롬프트를 만들 수 있어요' : e.text ? '고칠 부분을 드래그하면 직접 고치거나 AI 에게 맡기거나 삽화 프롬프트를 만들 수 있어요' : '본문을 직접 고친 뒤 저장할 수 있어요'}</span>
           <span class="row"><span><strong id="char-count" style="color:var(--text)">${(text || '').length.toLocaleString()}</strong> / ${Number(P().meta.words_per_episode).toLocaleString()}자</span>
           ${text ? `<button class="btn small" data-action="copyEp" data-arg="${n}" title="고른 줄바꿈 형식으로 복사 (오른쪽 '복사 · 내보내기'에서 바꿈)">복사</button>` : ''}
-          ${editable && (e.text || draft !== undefined) ? `<button class="btn small" id="save-text" data-action="saveText" data-arg="${n}"${draft === undefined ? ' disabled' : ''}>본문 저장</button>` : ''}</span>
+          ${editable && (e.text || draft !== undefined) ? `<button class="btn small${textUnsaved(n) && !autoOn() ? ' primary' : ''}" id="save-text" data-action="saveText" data-arg="${n}"${draft === undefined || autoOn() ? ` disabled title="${autoOn() ? '자동 집필이 도는 동안은 저장할 수 없어요' : '고친 내용이 없어요'}"` : ''}>본문 저장</button>` : ''}</span>
         </div>
         ${e.text ? passageNotes(n) ? `<div style="padding:12px 16px 0;display:flex;flex-direction:column;gap:8px">${passageNotes(n)}</div>` : '' : ''}
         ${center}
@@ -2847,6 +3188,8 @@ function viewBrief(n) {
   if (!e) return header('6단계', '채팅 앱 작업지시서', '') + noEpisode();
   const body = S.briefTab === 'episode';
   const stateBlocked = !body && !e.text;
+  // 앞 화 반영이 끝나지 않았으면 받은 본문 저장(처음 쓰는 화)과 변경안 반영을 서버가 막는다. 붙여 넣은 글은 칸에 남는다
+  const order = (body ? e.status === 'confirmed' : e.status === 'written') ? blockedBefore(n) : [];
   return `<header class="page-head"><div class="row" style="gap:12px">${epNav('brief', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${n}화 ${esc(e.plot.title)} · API 없이 쓰기</div><h1 style="font-size:24px">채팅 앱 작업지시서</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div></header>
     <p class="desc">Claude, Gemini, ChatGPT 구독 앱에 붙여 넣을 지시서입니다. API 생성과 똑같은 컨텍스트를 씁니다.</p>
     <div class="tabs" role="tablist" aria-label="지시서 종류">
@@ -2864,14 +3207,16 @@ function viewBrief(n) {
       <section class="card" style="flex:1 1 380px;min-width:0">
         ${body ? `<h2><span class="small" style="font-weight:400">② </span>받은 본문 가져오기</h2>
           <label for="imp-body" class="small">채팅 앱이 쓴 본문을 그대로 붙여 넣으세요.</label>
-          <textarea id="imp-body" rows="12" style="font-family:var(--serif);line-height:1.8"${e.status === 'draft' || e.status === 'finalized' ? ' disabled' : ''}></textarea>
+          <textarea id="imp-body" rows="12" data-brief="${n}:episode" style="font-family:var(--serif);line-height:1.8"${e.status === 'draft' || e.status === 'finalized' ? ' disabled' : ''}>${esc(S.briefDraft[`${S.name}:${n}:episode`] || '')}</textarea>
           ${e.status === 'draft' ? '<div class="small">플롯을 확정해야 본문을 저장할 수 있어요.</div>' : ''}${e.status === 'finalized' ? '<div class="small">이미 끝난 화입니다.</div>' : ''}
-          <div style="align-self:flex-end"><button class="btn primary" data-action="importText" data-arg="${n}"${e.status === 'draft' || e.status === 'finalized' ? ' disabled' : ''}>${n}화 본문으로 저장</button></div>`
+          ${orderNote(order)}
+          <div style="align-self:flex-end"><button class="btn primary" data-action="importText" data-arg="${n}"${e.status === 'draft' || e.status === 'finalized' || order.length ? ' disabled' : ''}>${n}화 본문으로 저장</button></div>`
         : `<h2><span class="small" style="font-weight:400">② </span>받은 JSON 가져오기</h2>
           <label for="imp-json" class="small">채팅 앱의 JSON 답변을 붙여 넣으세요. 코드 블록 표시는 자동으로 지웁니다.</label>
-          <textarea id="imp-json" rows="12" class="mono"${e.status !== 'written' ? ' disabled' : ''}></textarea>
+          <textarea id="imp-json" rows="12" data-brief="${n}:state" class="mono"${e.status !== 'written' ? ' disabled' : ''}>${esc(S.briefDraft[`${S.name}:${n}:state`] || '')}</textarea>
           ${e.status !== 'written' ? '<div class="small">본문이 작성된 화에서만 쓸 수 있어요.</div>' : ''}
-          <div style="align-self:flex-end"><button class="btn primary" data-action="importJson" data-arg="${n}"${e.status !== 'written' ? ' disabled' : ''}>확인하고 변경안 검토로</button></div>`}
+          ${orderNote(order)}
+          <div style="align-self:flex-end"><button class="btn primary" data-action="importJson" data-arg="${n}"${e.status !== 'written' || order.length ? ' disabled' : ''}>확인하고 변경안 검토로</button></div>`}
         <div style="padding-top:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px">
           <strong style="font-size:13px">순서</strong>
           <ol style="padding-left:20px;display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:1.55;color:var(--text-2)">

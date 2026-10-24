@@ -14,7 +14,7 @@ Object.assign(S, {
 });
 
 function writtenNums() {
-  return P().episodes.filter((e) => e.text || S.textDraft[e.plot.number] !== undefined).map((e) => e.plot.number);
+  return P().episodes.filter((e) => e.text || liveDraft(e.plot.number) !== undefined).map((e) => e.plot.number);
 }
 
 function exportQuery(from, to) {
@@ -73,7 +73,7 @@ async function copyBoth(pending) {
 
 async function copyEpisodes(episodes) {
   const drafts = {};
-  episodes.forEach((x) => { if (S.textDraft[x] !== undefined) drafts[x] = S.textDraft[x]; });
+  episodes.forEach((x) => { if (liveDraft(x) !== undefined) drafts[x] = liveDraft(x); });
   const pending = api('POST', `/projects/${enc(S.name)}/export`, { episodes, format: S.copyFmt, title: S.copyTitle, drafts });
   try {
     const d = await copyBoth(pending);

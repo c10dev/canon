@@ -35,8 +35,10 @@ CHAT_TOPICS.text = {
 };
 
 const clip = (t, n) => (t.length > n ? t.slice(0, n) + '…' : t);
-const textNow = (n) => S.textDraft[n] ?? (ep(n) ? ep(n).text : '');
 const editableEp = (e) => e && (e.status === 'confirmed' || e.status === 'written');
+/** 고칠 수 있는 화의 본문 초안. 반영이 끝난 화에 남은 초안은 본문이 아니다 (집필 화면이 따로 꺼내 보인다). */
+const liveDraft = (n) => (editableEp(ep(n)) ? S.textDraft[n] : undefined);
+const textNow = (n) => liveDraft(n) ?? (ep(n) ? ep(n).text : '');
 
 function curSel() {
   const n = Number(S.route[3]) || currentEp();
@@ -321,9 +323,14 @@ document.addEventListener('toggle', (e) => {
   if (e.target.matches && e.target.matches('[data-edits-toggle]')) S.editsOpen = e.target.open;
 }, true);
 
-/** render() 직후에 부른다: 도구를 닫고, 본문 칸의 스크롤과 방금 고친 자리를 되살린다. */
+/** render() 직후에 부른다: 도구를 닫고, 본문 칸의 스크롤과 방금 고친 자리를 되살린다.
+    '직접 수정' 칸은 #app 밖에 있어 다시 그려도 남는다. 그 화 본문 칸이 아직 있으면 쓰던 글째로 자리만 다시 맞춘다
+    (showTool 은 칸을 새로 만들어 쓰던 글을 지운다). */
 function syncPassage() {
-  hideTool();
+  const t = S.selTool;
+  const keep = t && t.mode === 'edit' && editableEp(ep(t.n)) && document.querySelector(`textarea[data-draft="${t.n}"]`);
+  if (keep) placeTool(keep, t);
+  else hideTool();
   const ta = document.querySelector('textarea[data-draft]');
   if (!ta) return;
   const n = ta.dataset.draft;
@@ -366,6 +373,7 @@ Object.assign(actions, {
       await saveIfDirty();
       await flushText(t.n);
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${t.n}/edits`, { selection: { start: t.start, text: t.text }, after });
+      hideTool();  // 바꿨으니 닫는다. 실패하면 칸을 남겨 쓰던 글을 지킨다 (syncPassage 가 edit 모드 칸은 남긴다)
       const edit = ep(t.n).edits[ep(t.n).edits.length - 1];
       focusText(t.n, after, edit.start);
       if (S.sel && S.sel.n === t.n) S.sel = { n: t.n, start: edit.start, text: after };

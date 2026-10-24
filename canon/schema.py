@@ -911,6 +911,9 @@ class Project(BaseModel):
     storylines: list[Storyline] = Field(default_factory=list, description="메인에서 갈라지는 이야기 줄기 (서브플롯, 과거 회상, 외전, 인물 이야기)")
     visuals: list[CharacterVisual] = Field(default_factory=list, description="삽화용 인물 외형 태그")
     illust: IllustSettings = Field(default_factory=IllustSettings, description="삽화 프롬프트 설정")
+    # 아래 두 칸은 맨 끝에 둔다. store.save 가 파일 끝만 읽어 디스크 값을 찾는다 (store._saved_mark)
+    edit_rev: int = Field(0, description="화면(브라우저 탭)이 저장한 횟수. 오래된 화면이 다른 화면의 저장을 덮지 않게 비교한다 (store.writer)")
+    saved_by: str = Field("", description="마지막으로 저장한 화면(브라우저 탭) id")
 
     def episode(self, n: int) -> Episode:
         for ep in self.episodes:

@@ -307,6 +307,13 @@ def test_web_serial_flow(tmp_path, monkeypatch):
     j = _wait(c, c.post("/api/projects/t/jobs", json={"kind": "series"}).json()["id"])
     p = c.post("/api/projects/t/series/apply", json=j["result"]).json()
     assert len(p["parts"]) == 2
+    # 총 화수를 바꾸면 마지막 부 끝 화가 따라간다 (설정 화면에서 총 화수만 고쳐도 저장된다)
+    p["meta"]["target_episodes"] = 220
+    p = c.put("/api/projects/t", json=p).json()
+    assert p["parts"][-1]["end_ep"] == 220
+    p["meta"]["target_episodes"] = 200
+    p = c.put("/api/projects/t", json=p).json()
+    assert p["parts"][-1]["end_ep"] == 200
     assert c.post("/api/projects/t/jobs", json={"kind": "plots"}).status_code == 400  # 아크 없음
 
     j = _wait(c, c.post("/api/projects/t/jobs", json={"kind": "nextarc", "length": 8, "note": "시험"}).json()["id"])

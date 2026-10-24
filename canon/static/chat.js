@@ -181,6 +181,16 @@ function chatPanel(topic) {
   </aside>`;
 }
 
+/** 대화 패널만 다시 그린다. 패널 밖 입력칸(본문, 플롯 서랍)은 건드리지 않는다. */
+function redrawChat() {
+  const el = document.querySelector('.chat-panel');
+  if (!el) return;
+  const html = chatPanel(S.chatTopic);
+  if (html) el.outerHTML = html;
+  else el.remove();
+  syncChat();
+}
+
 /** render() 직후에 부른다: 패널이 있으면 본문 자리를 비우고, 새 메시지가 오면 맨 아래로 내린다. */
 function syncChat() {
   const open = !!document.querySelector('.chat-panel');
@@ -219,15 +229,24 @@ Object.assign(actions, {
       await saveIfDirty();
       if (t.beforeSend) await t.beforeSend();
       const body = t.body ? t.body(text, preset) : { message: text };
-      S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(topic)}`, body);
+      const name = S.name;
+      const res = await api('POST', `/projects/${enc(name)}/chat/${enc(topic)}`, body);
+      // 서버는 대화 기록만 바꾼다. 기다리는 동안 다른 칸을 고쳤으면(저장 전) 그 입력을 지우지 않게 대화 기록만 받아 온다
+      if (name !== S.name) return;
+      if (S.dirty) P().chats = res.chats;
+      else S.project = res;
     } catch (e) {
       toast(e.message, true);
       S.chatDraft = text;
     } finally {
       S.chatPending = null;
       S.chatScroll = true;
-      render();
-      $('#chat-input')?.focus();
+      // 다른 칸에 입력하는 중이면(한글 조합 포함) 그 칸을 다시 그리거나 포커스를 빼앗지 않고 대화 패널만 바꾼다
+      if (isTyping() && document.activeElement.id !== 'chat-input') redrawChat();
+      else {
+        render();
+        $('#chat-input')?.focus();
+      }
     }
   },
   async chatApply(i) {

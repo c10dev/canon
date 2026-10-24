@@ -6,9 +6,11 @@ AI 가 만든 제안(설정, 문체, 구조, 상태 변경안)은 바로 저장�
 """
 from __future__ import annotations
 
+import json
+import logging
 import re
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -16,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
 from . import autorun, cast, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
-from .llm import GeminiLLM, LocalLLM, get_llm, make_llm
+from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from .schema import (ArcPlan, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 
@@ -52,10 +54,13 @@ def _usage_scope(path: str) -> dict:
 async def _count_active(request: Request, call_next):
     global _active
     _active += 1
+    # 화면(브라우저 탭)이 보낸 id. 이 요청이 저장하면 그 화면의 저장으로 센다 (store.writer, 오래된 화면 충돌 검사)
+    tok = store.writer.set(request.headers.get("x-canon-client", "")[:64])
     try:
         with usage.scope(**_usage_scope(request.url.path)):
             return await call_next(request)
     finally:
+        store.writer.reset(tok)
         _active -= 1
 
 
@@ -66,10 +71,17 @@ async def _bad_request(_: Request, e: Exception) -> JSONResponse:
     return JSONResponse({"detail": str(msg)}, status_code=400)
 
 
+@app.exception_handler(MissingKey)
+async def _no_key(_: Request, e: MissingKey) -> JSONResponse:
+    # 첫 실행에 흔한 상황이라 서버 오류가 아니라 설정 안내로 보인다
+    return JSONResponse({"detail": "Gemini API 키가 없어요. 오른쪽 아래 '모델 · API 키 설정'에서 넣으세요", "code": "no_key"}, status_code=400)
+
+
 @app.exception_handler(Exception)
 async def _server_error(_: Request, e: Exception) -> JSONResponse:
-    # Gemini 키 누락, 응답 실패 등을 화면에 그대로 보여준다
-    return JSONResponse({"detail": f"{type(e).__name__}: {e}"}, status_code=500)
+    # 응답 실패 등을 화면에 그대로 보여 준다. 예외 이름과 자세한 내용은 서버 로그에만 남긴다
+    logging.getLogger("canon").exception("요청 처리 중 오류")
+    return JSONResponse({"detail": str(e) or "서버에서 오류가 났어요. 서버 로그를 확인하세요"}, status_code=500)
 
 
 def _load(name: str) -> Project:
@@ -78,9 +90,11 @@ def _load(name: str) -> Project:
     return store.load(name)
 
 
-def _save(name: str, p: Project, merged: set[str] | None = None) -> Project:
+def _save(name: str, p: Project, merged: set[str] | None = None, kept: list[dict] | None = None) -> Project:
     """저장한다. 화면이 보낸 작품 전체를 저장할 때(merged 를 넘길 때)는 백그라운드 작업이 맡은 화를
-    디스크에 있는 내용(작업 결과)으로 지킨다. 다른 엔드포인트는 방금 읽은 디스크 내용을 고쳐 저장하므로 그대로 쓴다."""
+    디스크에 있는 내용(작업 결과)으로 지킨다. 다른 엔드포인트는 방금 읽은 디스크 내용을 고쳐 저장하므로 그대로 쓴다.
+    kept 를 넘기면 화면 값 대신 디스크 것으로 둔 칸을 담는다 (autorun.protected 와 같은 모양)."""
+    kept = kept if kept is not None else []
     with jobs.project_lock(name):
         owned = jobs.owned_episodes(name, merged) if merged is not None else set()
         if owned and store.exists(name):
@@ -88,11 +102,14 @@ def _save(name: str, p: Project, merged: set[str] | None = None) -> Project:
             mine = {e.plot.number: e for e in p.episodes}
             for n in owned:
                 if n in disk:
+                    if n in mine and mine[n].plot != disk[n].plot:
+                        kept.append({"field": "plot", "ep": n})
                     mine[n] = disk[n]
             p.episodes = [mine[k] for k in sorted(mine)]
         if merged is not None and store.exists(name):
             disk = store.load(name)
-            autorun.protected(name, disk, p)  # 자동 집필이 반영한 진행을 오래된 화면이 덮지 않게
+            # 자동 집필이 반영한 진행을 오래된 화면이 덮지 않게
+            kept += [k for k in autorun.protected(name, disk, p) if k not in kept]
             # 화면이 열린 동안 플롯 작업이 더한 새 인물 후보도 지킨다. 안 쓰이거나 등록된 후보는 sync 가 지운다
             have = {c.id for c in p.cast_candidates}
             p.cast_candidates += [c for c in disk.cast_candidates if c.id not in have]
@@ -220,10 +237,18 @@ def get_project(name: str) -> Project:
 
 
 @app.put("/api/projects/{name}")
-def put_project(name: str, p: Project, merged: str = "") -> Project:
+def put_project(name: str, p: Project, response: Response, merged: str = "", force: bool = False) -> Project:
     """화면에서 고친 프로젝트 전체를 저장한다. 구조(arc)가 있으면 화수와 맞는지 검사한다.
-    장편은 부 구성과 아크(아크 안 기승전결 포함)가 이어지는지 검사한다."""
-    _load(name)
+    장편은 부 구성과 아크(아크 안 기승전결 포함)가 이어지는지 검사한다.
+    다른 화면(탭 · 기기)이 이 화면이 읽은 뒤에 저장했으면 덮지 않고 409 를 돌려준다. force 면 그래도 덮는다."""
+    disk = _load(name)
+    # 장편 총 화수를 바꾸면 마지막 부 끝 화도 따라간다 (둘은 다른 화면에서 고치지만 한 번에 맞아야 저장된다)
+    last = p.parts[-1] if p.serial and p.parts else None
+    if last and last.end_ep == disk.meta.target_episodes != p.meta.target_episodes and p.meta.target_episodes >= last.start_ep:
+        last.end_ep = p.meta.target_episodes
+    me = store.writer.get()
+    if me and not force and disk.edit_rev > p.edit_rev and disk.saved_by != me:
+        raise HTTPException(409, "다른 탭이나 기기에서 이 작품을 먼저 저장했어요. 다시 불러와 그 변경을 보거나, 내 변경으로 덮어쓰세요")
     if p.arc and not p.serial:
         pipeline.validate_arc(ArcPlan(acts=p.arc), p.meta.target_episodes)
     if p.serial:
@@ -238,7 +263,11 @@ def put_project(name: str, p: Project, merged: str = "") -> Project:
     elements.stamp(p)
     _keep_impacts(name, p)
     _keep_hooks(name, p)
-    return _save(name, p, merged={m for m in merged.split(",") if m})
+    kept: list[dict] = []
+    out = _save(name, p, merged={m for m in merged.split(",") if m}, kept=kept)
+    if kept:  # 화면이 '저장했습니다' 대신 무엇을 저장하지 않았는지 알린다
+        response.headers["X-Canon-Kept"] = quote(json.dumps(kept, ensure_ascii=False))
+    return out
 
 
 def _keep_hooks(name: str, p: Project) -> None:
@@ -1008,7 +1037,9 @@ class Text(BaseModel):
 
 @app.put("/api/projects/{name}/episodes/{n}/text")
 def put_text(name: str, n: int, body: Text) -> Project:
-    """직접 고친 본문이나 채팅 앱에서 받은 본문을 저장한다."""
+    """직접 고친 본문이나 채팅 앱에서 받은 본문을 저장한다. 그 화를 쓰는 작업이나 자동 집필이 도는 중이면 막는다
+    (작업이 끝나며 쓰는 본문과 서로 덮지 않게, 고친 본문에 옛 본문 기준 변경안이 반영되지 않게)."""
+    _text_guard(name, n)
     p = _load(name)
     ep = p.episode(n)
     if ep.status == "draft":
@@ -1016,6 +1047,8 @@ def put_text(name: str, n: int, body: Text) -> Project:
     if ep.status == "finalized":
         raise ValueError(f"{n}화는 상태 반영까지 끝나 본문을 바꿀 수 없습니다")
     text = body.text.strip()
+    if text and ep.status == "confirmed":  # 손으로 쓰거나 붙여 넣은 본문도 AI 쓰기와 같은 순서 규칙을 따른다
+        pipeline.require_previous(p, n)
     pipeline.record_typed(p, n, ep.text, text)
     ep.text = text
     ep.status = "written" if ep.text else "confirmed"
@@ -1236,13 +1269,14 @@ def rebuild_illust(name: str, n: int, iid: str, body: IllustModel) -> Project:
 
 class KeepLook(BaseModel):
     character_id: str
+    force: bool = False  # 이미 저장된 외형 태그를 바꾼다
 
 
 @app.post("/api/projects/{name}/episodes/{n}/illust/{iid}/keep-look")
 def keep_illust_look(name: str, n: int, iid: str, body: KeepLook) -> Project:
     """삽화에서 AI 가 채운 외형 태그를 그 인물의 외형 태그로 저장한다."""
     _load(name).episode(n)
-    return _edit(name, lambda p: pipeline.keep_illust_look(p, n, iid, body.character_id))
+    return _edit(name, lambda p: pipeline.keep_illust_look(p, n, iid, body.character_id, body.force))
 
 
 @app.delete("/api/projects/{name}/episodes/{n}/illust/{iid}")
@@ -1306,6 +1340,7 @@ def apply_state(name: str, n: int, d: StateDelta) -> Project:
     ep = p.episode(n)
     if ep.status != "written":
         raise ValueError(f"{n}화는 본문이 작성된 상태가 아닙니다 (현재: {ep.status})")
+    pipeline.require_previous(p, n)
     d.episode = n
     pipeline.apply_delta(p, d)
     return _save(name, p)

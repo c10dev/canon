@@ -62,12 +62,44 @@ function autoPoll() {
     if (name !== S.name) return;
     S.auto = fresh;
     const changed = fresh && fresh.run && fresh.run.updated !== before;
-    if (changed && !S.dirty) S.project = await api('GET', `/projects/${enc(name)}`).catch(() => S.project);
+    if (changed && !S.dirty) {
+      const gen = S.gen;
+      const p = await api('GET', `/projects/${enc(name)}`).catch(() => null);
+      // 받는 사이 입력 · 저장이 있었으면 이 작품이 더 오래됐을 수 있다. 화는 작업 폴링(mergeEpisodes)이 맞춘다
+      if (p && name === S.name && !S.dirty && gen === S.gen) S.project = p;
+    }
     if (changed && !fresh.active && S.route[2] === 'auto') await autoEstimate();  // 멈추거나 끝나면 남은 화 추정을 새로
-    const typing = document.activeElement && document.activeElement.matches('#app input, #app textarea, #app select');
-    if (changed && !typing && ['auto', 'home', ''].includes(S.route[2] || '')) render();
+    if (changed && !isTyping() && S.route[0] === 'p' && ['auto', 'home', ''].includes(S.route[2] || '')) render();
     autoPoll();
   }, 3000);
+}
+
+/** 자동 집필이 쓸 화에 저장하지 않은 본문 초안이 있으면 먼저 저장할지 묻는다. 자동 집필이 그 화를 쓰고 반영하면 초안은 본문이 될 수 없다.
+    저장하면 그 화는 작성 상태가 되어 자동 집필이 그 본문을 검수한다. 취소하면 false (시작하지 않는다). */
+async function autoFlushDrafts(upTo) {
+  const nums = Object.keys(S.textDraft).map(Number).filter((n) => n <= upTo && textUnsaved(n) && editableEp(ep(n))).sort((a, b) => a - b);
+  if (!nums.length) return true;
+  // 앞 화 반영 전인 화에 처음 쓰는 본문은 서버가 저장하지 않는다 (순서 규칙). 그 초안은 자동 집필이 그 화를 쓴 뒤 집필 화면에 따로 남는다
+  const stuck = nums.filter((n) => ep(n).status === 'confirmed' && blockedBefore(n).length);
+  const save = nums.filter((n) => !stuck.includes(n));
+  const ask = [
+    save.length ? `${save.join(', ')}화에 저장하지 않은 본문이 있어요. 먼저 저장하고 이어 갈까요? 저장한 본문은 자동 집필이 검수합니다.` : '',
+    stuck.length ? `${stuck.join(', ')}화 초안은 앞 화 반영 전이라 지금 저장할 수 없어요. 자동 집필이 그 화를 쓰면 초안은 집필 화면에 따로 남아 복사할 수 있어요.` : '',
+  ].filter(Boolean).join('\n\n');
+  if (!confirm(`${ask}\n\n취소하면 시작하지 않아요.`)) return false;
+  try {
+    for (const n of save) await flushText(n);
+    return true;
+  } catch (e) {
+    toast(e.message, true);
+    return false;
+  }
+}
+
+/** 검토 대기 변경안을 만든 뒤 그 화 본문이 바뀌었다 (서버도 그대로 반영을 막는다, autorun.resume). */
+function pendingStale(r) {
+  const e = r.pending && r.pending_text && ep(r.ep);
+  return !!e && (e.text || '').trim() !== r.pending_text.trim();
 }
 
 function autoDuration(s) {
@@ -140,7 +172,7 @@ function autoRunCard(r, active) {
     buttons = `<button class="btn" data-action="autoPause">일시정지</button><button class="btn" data-action="autoStop">중지</button>`;
   } else if (r.status === 'review') {
     buttons = `<button class="btn primary" data-action="autoOpenReview">${r.ep}화 변경안 검토하기</button>
-      <button class="btn" data-action="autoResume" data-arg="approve">그대로 반영하고 이어 가기</button>
+      <button class="btn" data-action="autoResume" data-arg="approve"${pendingStale(r) ? ' disabled aria-describedby="auto-stale"' : ''}>그대로 반영하고 이어 가기</button>
       <button class="btn" data-action="autoResume" data-arg="rewrite">${r.ep}화 다시 쓰기</button>
       <button class="btn" data-action="autoStop">중지</button>`;
   } else if (['paused', 'error'].includes(r.status)) {
@@ -154,8 +186,9 @@ function autoRunCard(r, active) {
     <div class="small">${done} / ${total}화 반영 완료 · 이번 실행에서 자동 반영 ${r.applied.length}화 · 토큰 입력 ${r.tokens_in.toLocaleString()} / 출력 ${r.tokens_out.toLocaleString()} · 비용 약 ${autoCost(r.cost)}</div>
     ${step ? `<div class="row"><span class="spinner sm" aria-hidden="true"></span><strong>${esc(step)}</strong></div>` : ''}
     ${active && r.batch ? '<div class="small">배치 결과는 몇 분에서 길게는 몇 시간 뒤에 와요. 창을 닫아도 서버가 계속 기다립니다.</div>' : ''}
-    ${r.reasons.length ? `<div class="note warn">${r.reasons.map((x) => `<div>${esc(x)}</div>`).join('')}</div>` : ''}
+    ${r.reasons.length ? `<div class="note warn">${r.reasons.map((x) => `<div>${esc(x)}</div>`).join('')}${r.status === 'error' && r.reasons.some((x) => /API 키|연결|quota|429|403|401/i.test(x)) ? '<div><a href="#/settings">모델 · API 키 설정</a>에서 키와 모델을 확인한 뒤 이어 가세요.</div>' : ''}</div>` : ''}
     ${reviewDone ? `<div class="note ok">${r.ep}화를 검토 화면에서 반영했어요. 이어 가기를 누르세요.</div>` : ''}
+    ${r.status === 'review' && pendingStale(r) ? `<div class="note warn" id="auto-stale">변경안을 만든 뒤 ${r.ep}화 본문을 고쳤어요. 그대로 반영하면 옛 본문 기준의 요약 · 인물 상태 · 사건이 들어가서 막아 두었어요. 검토하기에서 변경안을 다시 만들거나 다시 쓰기를 고르세요.</div>` : ''}
     ${r.status === 'review' && r.pending ? '<div class="small">검토하기: 변경안을 상태 승인 화면에 열어요. 고른 항목만 반영한 뒤 여기로 돌아와 이어 가면 됩니다.</div>' : ''}
     <div class="row">${reviewDone ? '<button class="btn primary" data-action="autoResume">이어 가기</button><button class="btn" data-action="autoStop">중지</button>' : buttons}</div>
   </section>`;
@@ -250,6 +283,7 @@ Object.assign(actions, {
   },
   async autoStart() {
     const f = S.autoForm;
+    if (!(await autoFlushDrafts(f.target))) return;
     const est = S.autoEst && (f.batch ? S.autoEst.on : S.autoEst.off);
     const msg = est && !est.error ? `${f.target}화까지 자동으로 씁니다. 예상 비용 ${autoCost(est.cost)}. 시작할까요?` : `${f.target}화까지 자동으로 씁니다. 시작할까요?`;
     if (!confirm(msg)) return;
@@ -280,7 +314,8 @@ Object.assign(actions, {
     const body = { approve: how === 'approve', rewrite: how === 'rewrite' };
     const r = S.auto.run;
     if (how === 'approve' && !confirm(`${r.ep}화 변경안을 보지 않고 그대로 반영할까요?`)) return;
-    if (how === 'rewrite' && !confirm(`${r.ep}화 본문을 지우고 다시 쓸까요?`)) return;
+    if (how === 'rewrite' && !confirm(`${r.ep}화를 다시 쓸까요? 지금 본문은 이전 판으로 남아 집필 화면에서 되돌릴 수 있어요.`)) return;
+    if (!(await autoFlushDrafts(r.target))) return;
     await run('이어 가는 중', async () => {
       await saveIfDirty();
       S.auto = await api('POST', `/projects/${enc(S.name)}/auto/resume`, body);
@@ -292,6 +327,8 @@ Object.assign(actions, {
   autoOpenReview() {
     const r = S.auto.run;
     setDelta(r.ep, structuredClone(r.pending));
+    // 변경안을 만든 본문을 기준으로 둔다. 그 뒤 본문을 고쳤으면 상태 승인 화면이 '이 변경안을 만든 뒤 본문을 고쳤어요'를 알린다
+    if (r.pending_text) S.deltaBase[r.ep] = r.pending_text;
     location.hash = `${base()}/review/${r.ep}`;
   },
   async autoRevert(n) {

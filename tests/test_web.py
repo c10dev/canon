@@ -342,3 +342,82 @@ def test_usage_page_records_web_calls(client, monkeypatch):
     assert any(r["custom"] for r in t["rows"])
     assert client.get("/api/usage").json()["total"]["cost"] < s["total"]["cost"]
     assert not any(r["custom"] for r in client.delete("/api/usage/prices").json()["rows"])
+
+
+def test_stale_screen_save_conflicts(client):
+    """다른 화면(탭 · 기기)이 먼저 저장했으면 오래된 화면의 작품 전체 저장은 409. force 면 덮는다. 작업의 저장은 충돌로 세지 않는다."""
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "two", "meta": meta}, headers={"X-Canon-Client": "a"})
+    A = {"X-Canon-Client": "a"}
+    B = {"X-Canon-Client": "b"}
+    pa = client.get("/api/projects/two", headers=A).json()
+    pb = client.get("/api/projects/two", headers=B).json()
+    pa["meta"]["title"] = "A 제목"
+    pa = client.put("/api/projects/two", json=pa, headers=A).json()
+    assert pa["saved_by"] == "a" and pa["edit_rev"] > pb["edit_rev"]
+    pb["meta"]["logline"] = "B 로그라인"
+    r = client.put("/api/projects/two", json=pb, headers=B)
+    assert r.status_code == 409
+    assert client.get("/api/projects/two").json()["meta"]["title"] == "A 제목"
+    # 같은 화면이 연달아 저장하는 것은 충돌이 아니다
+    pa["meta"]["title"] = "A 제목 2"
+    assert client.put("/api/projects/two", json=pa, headers=A).status_code == 200
+    # 덮기를 고르면 저장한다
+    assert client.put("/api/projects/two?force=true", json=pb, headers=B).json()["meta"]["logline"] == "B 로그라인"
+    # 백그라운드 작업이 저장해도 화면 저장 번호는 그대로라 다음 저장이 막히지 않는다
+    import time
+
+    from canon import jobs
+    pb = client.get("/api/projects/two", headers=B).json()
+    pb["arc"] = client.post("/api/projects/two/arc", headers=B).json()["acts"]
+    pb = client.put("/api/projects/two", json=pb, headers=B).json()
+    client.post("/api/projects/two/jobs", json={"kind": "plots"}, headers=A)
+    for _ in range(500):
+        if not any(j.status == "running" for j in jobs.listing("two")):
+            break
+        time.sleep(0.02)
+    after = client.get("/api/projects/two").json()
+    assert len(after["episodes"]) == 10  # 작업이 디스크에 썼다
+    assert after["edit_rev"] == pb["edit_rev"] and after["saved_by"] == "b"
+    assert client.put("/api/projects/two", json=pb, headers=B).status_code == 200
+
+
+def test_setup_suggestion_id_clash_and_order_rule(client):
+    """제안 인물 id 가 기존 인물과 겹쳐도 이름이 다르면 새 id 로 넣고 관계도 그 인물에 잇는다. 본문 저장 · 반영은 이전 화 반영 순서를 지킨다."""
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "lh", "meta": meta})
+    s = client.post("/api/projects/lh/suggest").json()
+    p = client.post("/api/projects/lh/suggest/apply", json=s).json()
+    first = p["characters"][0]
+    s2 = dict(s, characters=[dict(first, name="다른 사람")], relationships=[dict(s["relationships"][0], a=p["characters"][1]["id"], b=first["id"]), dict(s["relationships"][0], a="ghost", b=first["id"])])
+    p = client.post("/api/projects/lh/suggest/apply", json=s2).json()
+    new = next(c for c in p["characters"] if c["name"] == "다른 사람")
+    assert new["id"] == first["id"] + "2"
+    assert any({r["a"], r["b"]} == {p["characters"][1]["id"], new["id"]} for r in p["relationships"])
+    assert not any("ghost" in (r["a"], r["b"]) for r in p["relationships"])
+
+    p["arc"] = client.post("/api/projects/lh/arc").json()["acts"]
+    client.put("/api/projects/lh", json=p)
+    client.post("/api/projects/lh/plots", json={})
+    client.post("/api/projects/lh/episodes/1/confirm")
+    client.post("/api/projects/lh/episodes/2/confirm")
+    assert client.put("/api/projects/lh/episodes/1/text", json={"text": "1화 본문"}).status_code == 200
+    r = client.put("/api/projects/lh/episodes/2/text", json={"text": "2화 본문"})
+    assert r.status_code == 400 and "상태 갱신" in r.json()["detail"]
+    # 반영도 순서를 지킨다: 1화가 written 이면 2화 변경안은 반영하지 않는다 (2화를 옛 데이터로 다시 written 으로 만든 경우)
+    from canon import store
+    q = store.load("lh")
+    q.episode(2).text, q.episode(2).status = "2화 본문", "written"
+    store.save("lh", q)
+    r = client.post("/api/projects/lh/episodes/2/apply", json={"episode": 2, "summary": "요약"})
+    assert r.status_code == 400 and "상태 갱신" in r.json()["detail"]
+
+
+def test_missing_key_is_settings_hint(client, monkeypatch):
+    """키가 없으면 서버 오류(500, 예외 이름)가 아니라 400 과 code=no_key 로 설정을 안내한다."""
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "nk", "meta": meta})
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    r = client.post("/api/projects/nk/suggest")
+    assert r.status_code == 400 and r.json()["code"] == "no_key" and "RuntimeError" not in r.json()["detail"]

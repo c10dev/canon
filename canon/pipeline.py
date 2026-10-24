@@ -89,17 +89,41 @@ def suggest_names(llm: LLM, p: Project, character: str = "", place_kind: str = "
     return cands, opts
 
 
+def require_previous(p: Project, n: int) -> None:
+    """이전 화가 모두 반영(finalized)돼야 n화를 쓰거나 반영한다. 인물 상태가 화 순서대로 쌓이게 하는 규칙이다."""
+    unfinished = [e.plot.number for e in p.episodes if e.plot.number < n and e.status != "finalized"]
+    if unfinished:
+        raise ValueError(f"이전 화의 상태 갱신이 끝나지 않았습니다: {unfinished}")
+
+
 def apply_setup(p: Project, s: SetupSuggestion) -> None:
-    """기존 입력은 유지하고 빈칸만 채운다."""
+    """기존 입력은 유지하고 빈칸만 채운다. 제안 인물의 id 가 이미 있는 인물과 겹쳐도 이름이 다르면 다른 인물로 보고
+    새 id 를 붙여 넣고, 그 인물의 관계도 새 id 로 잇는다. 양쪽 인물이 없는 관계는 넣지 않는다."""
     p.meta.theme = p.meta.theme or s.theme
     p.meta.tone = p.meta.tone or s.tone
     for field, value in s.world.model_dump().items():
         if not getattr(p.world, field):
             setattr(p.world, field, value)
-    known = {c.id for c in p.characters}
-    p.characters += [c for c in s.characters if c.id not in known]
+    known = {c.id: c for c in p.characters}
+    remap: dict[str, str] = {}
+    for c in s.characters:
+        old = known.get(c.id)
+        if old is not None and (not c.name.strip() or old.name.strip() == c.name.strip()):
+            continue  # 같은 인물
+        if old is not None:
+            k = 2
+            while f"{c.id}{k}" in known:
+                k += 1
+            remap[c.id] = f"{c.id}{k}"
+            c = c.model_copy(update={"id": remap[c.id]})
+        p.characters.append(c)
+        known[c.id] = c
     pairs = {frozenset((r.a, r.b)) for r in p.relationships}
-    p.relationships += [r for r in s.relationships if frozenset((r.a, r.b)) not in pairs]
+    for r in s.relationships:
+        r = r.model_copy(update={"a": remap.get(r.a, r.a), "b": remap.get(r.b, r.b)})
+        if r.a in known and r.b in known and r.a != r.b and frozenset((r.a, r.b)) not in pairs:
+            p.relationships.append(r)
+            pairs.add(frozenset((r.a, r.b)))
     _init_states(p)
     dynamics.seed_ties(p)
 
@@ -1457,9 +1481,7 @@ def write_episode(llm: LLM, p: Project, n: int, approach: str = "") -> str:
     ep = p.episode(n)
     if ep.status == "draft":
         raise ValueError(f"{n}화 플롯이 아직 확정되지 않았습니다 (confirm 먼저)")
-    unfinished = [e.plot.number for e in p.episodes if e.plot.number < n and e.status != "finalized"]
-    if unfinished:
-        raise ValueError(f"이전 화의 상태 갱신이 끝나지 않았습니다: {unfinished}")
+    require_previous(p, n)
     return _write(llm, p, n, prompts.episode_prompt(p, n, approach))
 
 
@@ -1541,9 +1563,7 @@ def rewrite_prompt(p: Project, n: int, req: RewriteRequest) -> str:
 def rewrite_episode(llm: LLM, p: Project, n: int, req: RewriteRequest) -> str:
     """피드백을 반영해 그 화를 다시 쓴다. 저장하지 않는다 (set_candidate 로 새 판에 둔다)."""
     ep = _editable(p, n)
-    unfinished = [e.plot.number for e in p.episodes if e.plot.number < n and e.status != "finalized"]
-    if unfinished:
-        raise ValueError(f"이전 화의 상태 갱신이 끝나지 않았습니다: {unfinished}")
+    require_previous(p, n)
     if req.mode == "revise" and not ep.text.strip():
         raise ValueError("고쳐 쓸 지난 판이 없습니다")
     return _write(llm, p, n, rewrite_prompt(p, n, clean_rewrite(req)))
@@ -1556,7 +1576,11 @@ def _version_id(ep: Episode) -> str:
 
 
 def _keep_version(ep: Episode, v: TextVersion) -> None:
-    ep.versions = (ep.versions + [v])[-VERSION_KEEP:]
+    """판을 남긴다. 한도를 넘으면 고르지 않은 새 판(rejected)부터 오래된 순으로 지우고, 바꾸기 전 본문(previous)은 마지막까지 남긴다."""
+    vs = ep.versions + [v]
+    while len(vs) > VERSION_KEEP:
+        vs.pop(next((i for i, x in enumerate(vs) if x.kind == "rejected"), 0))
+    ep.versions = vs
 
 
 def set_candidate(p: Project, n: int, text: str, req: RewriteRequest) -> TextVersion:
@@ -1839,12 +1863,16 @@ def save_look(p: Project, cid: str, look: list[str], outfit: list[str] | None = 
     return v
 
 
-def keep_illust_look(p: Project, n: int, iid: str, cid: str) -> CharacterVisual:
-    """삽화 원안에서 AI 가 채운 외형 태그를 그 인물의 외형 태그로 저장하고, 그 인물 외형이 비어 있던 삽화를 모두 다시 조립한다."""
+def keep_illust_look(p: Project, n: int, iid: str, cid: str, force: bool = False) -> CharacterVisual:
+    """삽화 원안에서 AI 가 채운 외형 태그를 그 인물의 외형 태그로 저장하고, 그 인물 외형이 비어 있던 삽화를 모두 다시 조립한다.
+    그 인물에 이미 외형 태그가 저장돼 있으면 force 일 때만 바꾼다 (작가가 적은 태그를 덮지 않게)."""
     ill = _illustration(p, n, iid)
     ch = next((c for c in ill.draft.characters if c.id == cid and c.look), None)
     if ch is None:
         raise ValueError("이 삽화에 그 인물의 외형 태그가 없습니다")
+    have = p.visual(cid)
+    if have is not None and have.look and not force:
+        raise ValueError("이 인물은 이미 외형 태그가 저장돼 있어요. 다시 조립하면 저장된 태그가 들어갑니다")
     v = save_look(p, cid, ch.look, ch.outfit, ch.subject, keep_outfit=True)
     for e in p.episodes:
         for x in e.illustrations:
@@ -2030,7 +2058,13 @@ def apply_opening(p: Project, n: int, plot: EpisodePlot) -> None:
     act = p.act_for(n)
     if act:
         plot.act = act.name
-    by_no[n] = Episode(plot=plot.model_copy(deep=True))
+    plot = plot.model_copy(deep=True)
+    if cur:  # 여는 방식과 상관없는 칸은 작가가 정한 값을 지킨다: 시점, 서술 방식, 회수 복선, 넣어 둔 인물
+        plot.pov = cur.plot.pov or plot.pov
+        plot.pov_mode = cur.plot.pov_mode or plot.pov_mode
+        plot.foreshadow_payoff = cur.plot.foreshadow_payoff or plot.foreshadow_payoff
+        plot.characters = list(dict.fromkeys(cur.plot.characters + plot.characters))
+    by_no[n] = Episode(plot=plot)
     storylines.clean_plot(p, by_no[n])
     p.episodes = [by_no[k] for k in sorted(by_no)]
     sync_candidates(p)

@@ -152,7 +152,7 @@ function candidateCard(n) {
     <div class="between"><div><h3>새 판이 나왔어요</h3><div class="row" style="gap:6px">${rwReqLabel(n, c.request)}<span class="small">${editTime(c.at)}</span></div></div>
       <div class="seg" role="group" aria-label="비교 방식"><button type="button" aria-pressed="${side}" data-action="rwViewAs" data-arg="side">나란히</button><button type="button" aria-pressed="${!side}" data-action="rwViewAs" data-arg="diff">바뀐 곳</button></div></div>
     ${body}
-    <div class="between"><span class="small" style="flex:1;min-width:200px">바꾸면 지금 판은 아래 '이전 판'에 남아 언제든 되돌릴 수 있어요. 검수 결과는 새 판 기준으로 다시 하세요.</span>
+    <div class="between"><span class="small" style="flex:1;min-width:200px">바꾸면 지금 판은 아래 '이전 판'에 남아 되돌릴 수 있어요(화마다 최근 6개, 고르지 않은 판부터 지워요). 검수 결과는 새 판 기준으로 다시 하세요.</span>
       <span class="row"><button type="button" class="btn" data-action="rwDrop" data-arg="${n}">지금 판 두기</button><button type="button" class="btn" data-action="rwAgain" data-arg="${n}">요청 고쳐 다시</button><button type="button" class="btn primary" data-action="rwAdopt" data-arg="${n}">새 판으로 바꾸기</button></span></div>
   </section>`;
 }
@@ -171,7 +171,7 @@ function versionsPanel(e) {
         ${can ? `<button type="button" class="btn small" data-action="rwRestore" data-arg="${esc(v.id)}">이 판으로 되돌리기</button>` : ''}</span></div>
       ${S.rwPeek === v.id ? `<div class="small">빨강은 지금 판에만, 초록은 이 판에만 있는 글이에요.</div><div class="pdiff small-diff rw-text">${textDiff(cur, v.text)}</div>` : ''}</li>`).join('');
   return `<details class="card edits"${S.rwVersionsOpen ? ' open' : ''} data-rw-versions>
-    <summary><strong>이전 판</strong> <span class="small">${list.length}개 · 다시 생성으로 바꾸기 전 본문과 고르지 않은 새 판${editableEp(e) && !can ? ' (저장하지 않은 본문이 있으면 먼저 저장하세요)' : ''}</span></summary>
+    <summary><strong>이전 판</strong> <span class="small">${list.length}개 · 다시 생성으로 바꾸기 전 본문과 고르지 않은 새 판. 최근 6개까지 남고, 넘치면 고르지 않은 판부터 지워요${editableEp(e) && !can ? ' (저장하지 않은 본문이 있으면 먼저 저장하세요)' : ''}</span></summary>
     <ol class="edit-list">${rows}</ol></details>`;
 }
 
@@ -290,7 +290,7 @@ Object.assign(actions, {
   async rwDrop(n) {
     await run('정리 중', async () => {
       S.project = await api('DELETE', `/projects/${enc(S.name)}/episodes/${n}/candidate`);
-      toast("새 판을 고르지 않았어요. 버린 판도 '이전 판'에 남아 있어요.");
+      toast("새 판을 고르지 않았어요. 버린 판도 '이전 판'에 남아요 (6개가 넘으면 고르지 않은 판부터 지워요).");
     });
   },
   async rwAgain(n) {

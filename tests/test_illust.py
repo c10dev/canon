@@ -86,6 +86,9 @@ def test_web_flow(client):
     assert p["visuals"][0]["look"] == ["black hair", "long hair", "brown eyes"]
     assert [x["missing_look"] for x in p["episodes"][0]["illustrations"]] == [[], []]
     assert client.post("/api/projects/lh/episodes/1/illust/i1/keep-look", json={"character_id": "ally"}).status_code == 400
+    # 이미 저장된 외형 태그는 확인(force) 없이 덮지 않는다
+    assert client.post("/api/projects/lh/episodes/1/illust/i1/keep-look", json={"character_id": "hero"}).status_code == 400
+    assert client.post("/api/projects/lh/episodes/1/illust/i1/keep-look", json={"character_id": "hero", "force": True}).status_code == 200
 
     # AI 가 장면을 고르기, 모델 바꿔 다시 조립, 지우기
     p = client.post("/api/projects/lh/episodes/1/illust", json={}).json()

@@ -198,6 +198,7 @@ Object.assign(actions, {
     await startJob('convert', null, { length: total, ending: S.convForm.ending, note: S.convForm.note || '' });
   },
   convertDrop() {
+    if (!confirmDrop('AI 전환 계획')) return;
     S.convDraft = null;
     render();
   },
@@ -387,6 +388,7 @@ Object.assign(actions, {
     await startJob('rebuild', null, { length: total, span, ending: f.ending_at, note: f.note || '' });
   },
   rebuildDrop() {
+    if (!confirmDrop('AI 재구성 계획')) return;
     S.rbDraft = null;
     S.rbPeek = 0;
     render();
@@ -417,6 +419,7 @@ Object.assign(actions, {
     await startJob('rework', Number(n));
   },
   reworkDrop(n) {
+    if (!confirmDrop(`${n}화 AI 다듬기 제안`)) return;
     delete S.reworks[n];
     render();
   },
