@@ -21,9 +21,9 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/naming.py` | 이름·지명 무작위 생성(세계관별 스타일, 나이에 맞는 한국 이름)과 출연진 이름 점검. LLM 을 부르지 않는다. 자료와 출처는 `canon/naming_data.py` |
 | `canon/dynamics.py` | 관계 역학: 사건(`StoryEvent`)으로 방향 관계(`Tie`)를 계산, 긴장도, 스냅샷 재생, 숫자를 말로 바꾸기, 말로 고른 보는 방식(`VIEWS`)으로 시작 관계 만들기. LLM 을 부르지 않는 순수 계산 |
 | `canon/cast.py` | 인물 화면 계산: 화별 관계 프레임(스냅샷, 지워진 화는 사건 로그로 다시 계산), 인물별 등장 화, 화별 타임라인, 명령줄 `cast` 출력. LLM 호출 없음 |
-| `canon/foreshadows.py` | 복선 센터: 복선을 본문 문장에 건다(`ForeshadowClue`, `Project.foreshadow_clues`, 본문은 바꾸지 않음). AI 문장 정리(`clean_delta`)와 반영 · 되돌리기, 작가가 걸기 · 복선 고치기(그 화 이후 스냅샷도), 센터 계산(`center`: 회수율, 끊어진 연결, 예정 지남, 오래 묵음, 플롯 회수 계획). LLM 호출 없음 |
+| `canon/foreshadows.py` | 복선 센터: 복선을 본문 문장에 건다(`ForeshadowClue`, `Project.foreshadow_clues`, 본문은 바꾸지 않음). AI 문장 정리(`clean_delta`)와 반영 · 되돌리기, 작가가 걸기 · 복선 고치기(그 화 이후 스냅샷도), 센터 계산(`center`: 회수율, 끊어진 연결, 예정 지남, 오래 묵음, 플롯 회수 계획). 명령줄 `foreshadows`. LLM 호출 없음 |
 | `canon/static/foreshadow.js` | 복선 센터 화면, 본문에서 고른 문장을 '복선으로' 거는 칸(`passage.js` 도구와 `illust.js` 읽기 전용 도구에 버튼을 붙인다), 상태 승인 화면의 복선 문장 고르기(`fsClueRows`, `q` 항목) |
-| `canon/statwin.py` | 상태창 수치: 인물 상태창(`CharacterState.stats`)이 하나라도 있으면 켜짐. 바뀐 항목만 합치기(`merge`, `+3` 계산은 `resolve`), 기록(`Project.stat_log`), 작가 수정(`set_stats`), 화별 비교표, 본문 상태창 글(`render`, 서식 `Project.stat_window`), 프롬프트 규칙(`write_rule`, `state_rule`). LLM 호출 없음 |
+| `canon/statwin.py` | 상태창 수치: 인물 상태창(`CharacterState.stats`)이 하나라도 있으면 켜짐. 바뀐 항목만 합치기(`merge`, `+3` 계산은 `resolve`), 기록(`Project.stat_log`), 작가 수정(`set_stats`), 화별 비교표, 본문 상태창 글(`render`, 서식 `Project.stat_window`), 프롬프트 규칙(`write_rule`, `state_rule`). 명령줄 `statwin`. LLM 호출 없음 |
 | `canon/static/statwin.js` | 상태창 수치 화면(항목 고치기, 틀, 복사, 서식, 화별 변화 표)과 상태 승인 화면의 상태창 줄(`swDeltaRows`). `swResolve` 는 `statwin.resolve` 와 같은 규칙 |
 | `canon/static/cast.js` | 인물 · 관계도 화면: 화 슬라이더로 재생하는 SVG 관계도(끌어 옮긴 배치는 localStorage), 인물 상세 · 타임라인, 두 사람 추이 그래프, 등장표. 온기 색 구간은 `dynamics.warmth_word` 경계와 같다 |
 | `canon/elements.py` | 인과율: 작가가 언제든 더하는 이야기 요소(`StoryElement`)의 관련 화 지도(`links`), 화별로 넣을 요소(`episode_block`), 시점 설명. LLM 호출 없음. 영향 분석과 반영은 `pipeline.analyze_impact` / `apply_impact` |
@@ -52,7 +52,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/autorun.py` | 자동 집필: 목표 화까지 write → check + state → 정책(`Policy`) 통과 시 반영을 반복. 배치(`llm.BatchLLM`) 켜고 끄기, 비용·시간 추정, `autorun.json` 에 진행 기록, 서버 재시작 후 이어 가기. 화면은 `static/auto.js` |
 | `canon/updater.py` | 코드 자동 업데이트: `origin/main` fast-forward, 의존성 설치, 프로세스 재시작. `serve` 가 시작 때와 주기적으로 부른다 |
 
-흐름: `new` → `style` → `arc` → `plot` → (사용자 수정) → `confirm` → `write` → `check` → `update` 반복 (`run` 이 자동 반복). 장편(`new --serial`)은 `arc` 대신 `series` 한 번, 그리고 아크마다 `nextarc` → `plot` → `confirm` → `run` → `recap` 을 반복한다 (`arcs` 로 진행 보기). 단편은 `convert` 로 장편으로 바꿀 수 있다(단편 전체가 아크 1, `--rebuild` 는 단편을 씨앗으로 앞부분을 다시 짜고 다듬기 화는 `rework`, `--undo` 로 되돌리기). 서브플롯 · 과거 회상 · 외전은 `lines` 로 이야기 줄기를 만들고 화에 붙인다. `rewrite` 로 피드백 · 검수 결과 등을 반영해 그 화를 다시 생성하고(새 판과 바꿀지 고르기, 이전 판 되돌리기), `fix` 로 본문 일부를 AI 후보로 고치고 `edits` 로 수정 기록 보기 · 되돌리기 · 내보내기. `learn` 으로 수정 기록에서 문체 규칙 후보 찾기, `styles versions` · `restore` 로 문체 버전. `export` 로 다른 사이트에 붙여 넣을 본문 내보내기. `illust` 로 NovelAI 삽화 프롬프트, `look` 으로 인물 외형 태그. `pov` 로 화별 서술 시점(남주 → 여주 등) 보기 · 정하기, `voice` 로 시점 인물별 서술 말투. `cast` 로 인물별 등장 · 지금 관계 · 화별 타임라인 보기. `foreshadows` 로 복선마다 걸린 문장과 회수율, `statwin` 으로 인물 상태창 수치 보기 · 고치기. `stats` 로 화별 문체 지표 확인. 1~3화는 `openings` 로 여는 방식 여러 안(플롯 `--plot` · 본문 블라인드 비교), `hook` 으로 흡입력 판정. `usage` 로 AI 사용량과 추정 비용 보기. `compare` 로 같은 화를 두 백엔드로 써서 가려 비교.
+흐름: `new` → `style` → `arc` → `plot` → (사용자 수정) → `confirm` → `write` → `check` → `update` 반복 (`run` 이 자동 반복). 장편(`new --serial`)은 `arc` 대신 `series` 한 번, 그리고 아크마다 `nextarc` → `plot` → `confirm` → `run` → `recap` 을 반복한다 (`arcs` 로 진행 보기). 단편은 `convert` 로 장편으로 바꿀 수 있다(단편 전체가 아크 1, `--rebuild` 는 단편을 씨앗으로 앞부분을 다시 짜고 다듬기 화는 `rework`, `--undo` 로 되돌리기). 서브플롯 · 과거 회상 · 외전은 `lines` 로 이야기 줄기를 만들고 화에 붙인다. `rewrite` 로 피드백 · 검수 결과 등을 반영해 그 화를 다시 생성하고(새 판과 바꿀지 고르기, 이전 판 되돌리기), `fix` 로 본문 일부를 AI 후보로 고치고 `edits` 로 수정 기록 보기 · 되돌리기 · 내보내기. `learn` 으로 수정 기록에서 문체 규칙 후보 찾기, `styles versions` · `restore` 로 문체 버전. `export` 로 다른 사이트에 붙여 넣을 본문 내보내기. `illust` 로 NovelAI 삽화 프롬프트, `look` 으로 인물 외형 태그. `pov` 로 화별 서술 시점(남주 → 여주 등) 보기 · 정하기, `voice` 로 시점 인물별 서술 말투. `cast` 로 인물별 등장 · 지금 관계 · 화별 타임라인 보기. `stats` 로 화별 문체 지표 확인. 1~3화는 `openings` 로 여는 방식 여러 안(플롯 `--plot` · 본문 블라인드 비교), `hook` 으로 흡입력 판정. `usage` 로 AI 사용량과 추정 비용 보기. `compare` 로 같은 화를 두 백엔드로 써서 가려 비교.
 
 ## 설계 원칙 (깨지 않기)
 
@@ -66,7 +66,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 - **바뀌지 않는 블록이 앞, 화마다 바뀌는 블록이 뒤.** `static_context()` 를 앞에 둬야 Gemini 암묵적 캐시가 맞는다. 컨텍스트에 블록을 추가할 때 이 순서를 지킨다.
 - **API 경로와 작업지시서 경로는 같은 프롬프트를 공유한다.** 프롬프트를 고칠 때는 `prompts.py` 한 곳만 고치고, `brief` 출력도 함께 확인한다. 나중에 MCP 서버도 이 함수들을 재사용한다.
 - **LLM 호출은 `LLM` 인터페이스 뒤에만 둔다.** pipeline 이나 cli 에서 SDK 를 직접 부르지 않는다. 새 LLM 구현이나 새 API 호출 경로는 `usage.record` 를 불러 사용량 화면에 잡히게 한다. 스레드를 새로 띄우면 `contextvars.copy_context()` 로 작품 · 화 정보를 넘긴다.
-- LLM 이 채우는 스키마(`SetupSuggestion`, `StyleProfile`, `ArcPlan`, `PlotBatch`, `PlotRevision`, `NameOptions`, `PassageRevision`, `StateDelta`, `StoryEvent`, `ConsistencyReport`, `SeriesPlan`, `ArcProposal`, `Recap`, `ImpactReport`, `StorylineProposal`, `SerialConversion`, `SerialRebuild`, `Rework`, `HookReport`, `OpeningPlots`, `IllustDraft`, `LookSuggestion`, `StyleLearning`, `VoiceSuggestion`, `ForeshadowClue`, `StatValue`)에는 dict 타입 필드를 쓰지 않는다 (Gemini 구조화 출력 호환).
+- LLM 이 채우는 스키마(`SetupSuggestion`, `StyleProfile`, `ArcPlan`, `PlotBatch`, `PlotRevision`, `NameOptions`, `PassageRevision`, `StateDelta`, `StoryEvent`, `ConsistencyReport`, `SeriesPlan`, `ArcProposal`, `Recap`, `ImpactReport`, `StorylineProposal`, `SerialConversion`, `SerialRebuild`, `Rework`, `HookReport`, `OpeningPlots`, `IllustDraft`, `LookSuggestion`, `StyleLearning`, `VoiceSuggestion`)에는 dict 타입 필드를 쓰지 않는다 (Gemini 구조화 출력 호환).
 
 ## 개발 명령
 

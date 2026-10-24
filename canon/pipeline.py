@@ -1,8 +1,9 @@
 """생성 파이프라인. 각 단계는 Project 를 받아 제안을 만들고, 반영은 호출자가 승인 후 한다."""
 from __future__ import annotations
 
-from . import dynamics, elements, foreshadows, illust, metrics, naming, prompts, statwin, storylines
+from . import dynamics, elements, illust, metrics, naming, prompts, storylines
 from .llm import LLM, dump
+from . import foreshadows, statwin
 from .schema import (
     Act,
     ArcPlan,
