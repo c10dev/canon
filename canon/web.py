@@ -1044,7 +1044,7 @@ def start_job(name: str, body: JobIn) -> dict:
         unit = kind.removeprefix("recap_")
         if n is None:
             raise ValueError("아크나 부 번호(ep)가 필요해요")
-        label, total, owned = f"{'아크' if unit == 'arc' else '부'} {n} 요약", 1, set()
+        label, total, owned = (f"아크 {n} 요약" if unit == "arc" else f"{n}부 요약"), 1, set()  # 화면과 같은 이름 ('1부')
 
         def fn(job: jobs.Job):
             return pipeline.recap(llm, store.load(name), unit, n).model_dump()
@@ -1067,6 +1067,7 @@ def start_job(name: str, body: JobIn) -> dict:
                 batch = pipeline.draft_plots(llm, store.load(name), a, b)
                 _edit(name, lambda q: pipeline.apply_plots(q, batch))
                 job.done += 1
+                job.release({k for k in owned if a <= k <= b})  # 끝난 구간은 작업이 도는 중에도 확정하고 고칠 수 있다
             job.note = ""
             return None
     elif kind in ("write", "state"):

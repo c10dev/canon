@@ -125,6 +125,12 @@ def test_undo():
     assert pipeline.undo_blockers(Project(), None) == ["단편에서 전환한 작품이 아니에요"]
 
 
+def test_ep_list_reads_like_text():
+    assert pipeline.ep_list([1]) == "1화"
+    assert pipeline.ep_list([3, 1, 4, 5]) == "1, 3~5화"
+    assert pipeline.ep_list([*range(49, 61), 62, 64, 66, 68]) == "49~60, 62, 64, 66화 등 16화"
+
+
 def test_convert_prompt_has_short_story():
     p = _short(written=8)
     text = prompts.convert_prompt(p, 200, "", "북쪽으로 무대를 넓혀 줘")

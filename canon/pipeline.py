@@ -673,8 +673,10 @@ def _recap_target(p: Project, kind: str, number: int):
 
 
 def pending_recaps(p: Project) -> list[tuple[str, int]]:
-    """모든 화가 끝났는데 요약이 없는 아크와 부."""
-    out = [("arc", a.number) for a in p.story_arcs if not a.summary and arc_finished(p, a)]
+    """모든 화가 끝났는데 요약이 없는 아크와 부. 요약이 있는 부의 아크는 부 요약이 대신 들어가므로(prompts.story_so_far) 빼 둔다."""
+    summed = [x for x in p.parts if x.summary]
+    out = [("arc", a.number) for a in p.story_arcs if not a.summary and arc_finished(p, a)
+           and not any(x.start_ep <= a.start_ep <= x.end_ep for x in summed)]
     out += [("part", x.number) for x in p.parts if not x.summary and arc_finished(p, x)]
     return out
 
@@ -858,6 +860,18 @@ def apply_conversion(p: Project, prop: SerialConversion, at: str = "") -> Projec
     return before
 
 
+def ep_list(nums: list[int], most: int = 4) -> str:
+    """화 번호를 '1, 3~5화' 처럼 잇는다. 묶음이 많으면 '49~60, 62화 등 14화' 처럼 줄인다."""
+    runs: list[list[int]] = []
+    for n in sorted(set(nums)):
+        if runs and n == runs[-1][1] + 1:
+            runs[-1][1] = n
+        else:
+            runs.append([n, n])
+    text = ", ".join(f"{a}~{b}" if a != b else f"{a}" for a, b in runs[:most])
+    return f"{text}화 등 {len(set(nums))}화" if len(runs) > most else f"{text}화"
+
+
 def undo_blockers(p: Project, backup: Project | None) -> list[str]:
     """전환을 되돌리면 잃는 것이 있으면 그 이유. 비면 되돌려도 된다."""
     if p.conversion is None:
@@ -866,7 +880,7 @@ def undo_blockers(p: Project, backup: Project | None) -> list[str]:
         return ["전환 전 백업(before-serial.json)이 없어요"]
     out = []
     if len(p.history) > p.conversion.history:
-        out.append(f"전환한 뒤 상태를 반영한 화가 있어요 ({[d.episode for d in p.history[p.conversion.history:]]}화)")
+        out.append(f"전환한 뒤 상태를 반영한 화가 있어요 ({ep_list([d.episode for d in p.history[p.conversion.history:]])})")
     if p.conversion.mode == "rebuild":  # 재구성은 화 번호가 바뀌므로 옛 본문 어느 것과도 같지 않은 본문을 찾는다
         texts = {e.text for e in backup.episodes}
         changed = [e.plot.number for e in p.episodes if e.text and e.text not in texts]
@@ -874,7 +888,7 @@ def undo_blockers(p: Project, backup: Project | None) -> list[str]:
         old = {e.plot.number: e.text for e in backup.episodes}
         changed = [e.plot.number for e in p.episodes if e.text and old.get(e.plot.number) != e.text]
     if changed:
-        out.append(f"전환한 뒤 쓰거나 고친 본문이 있어요 ({changed}화)")
+        out.append(f"전환한 뒤 쓰거나 고친 본문이 있어요 ({ep_list(changed)})")
     return out
 
 

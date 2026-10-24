@@ -571,6 +571,35 @@ def test_episode_count_bounds_and_confirm_during_plot_job(client):
     assert client.post("/api/projects/cj/episodes/2/confirm").status_code == 200
 
 
+def test_plot_job_releases_finished_range(client):
+    """플롯 작업이 끝낸 구간의 화는 작업이 도는 중에도 확정할 수 있고, 화면이 그 단계를 받아 간 뒤에는 저장도 받는다."""
+    client.post("/api/projects", json={"name": "rl", "meta": {"title": "등대", "target_episodes": 10}})
+    p = client.post("/api/projects/rl/suggest/apply", json=client.post("/api/projects/rl/suggest").json()).json()
+    p["arc"] = client.post("/api/projects/rl/arc").json()["acts"]
+    client.put("/api/projects/rl", json=p)
+    p = client.post("/api/projects/rl/plots", json={}).json()
+    from canon import jobs
+    j = jobs.Job(id="fake2", project="rl", kind="plots", ep=None, label="플롯 초안", owned={2, 3, 4, 5}, pending=[2, 3, 4, 5])
+    jobs._jobs[j.id] = j
+    try:
+        j.done = 1
+        j.release({2, 3})
+        assert j.public()["pending"] == [4, 5]
+        assert client.post("/api/projects/rl/episodes/4/confirm").status_code == 400
+        # 화면이 아직 1단계를 받아 가지 않았으면 2화 수정은 디스크 것으로 둔다
+        mine = client.get("/api/projects/rl").json()
+        mine["episodes"][1]["plot"]["title"] = "고친 제목"
+        r = client.put("/api/projects/rl?merged=other", json=mine)
+        assert r.json()["episodes"][1]["plot"]["title"] != "고친 제목"
+        mine = client.get("/api/projects/rl").json()
+        mine["episodes"][1]["plot"]["title"] = "고친 제목"
+        r = client.put("/api/projects/rl?merged=fake2:1", json=mine)
+        assert r.json()["episodes"][1]["plot"]["title"] == "고친 제목"
+        assert client.post("/api/projects/rl/episodes/2/confirm").status_code == 200
+    finally:
+        jobs._jobs.pop(j.id, None)
+
+
 def test_relationship_pairs_validated_on_save(client):
     client.post("/api/projects", json={"name": "rp", "meta": {"title": "t", "target_episodes": 10}})
     p = client.post("/api/projects/rp/suggest/apply", json=client.post("/api/projects/rp/suggest").json()).json()
