@@ -1433,7 +1433,13 @@ const actions = {
   },
   async libRevert() {
     if (!S.libDirty) return;
-    if (!confirm('저장하지 않은 변경을 버리고 저장된 문체로 되돌릴까요?')) return;
+    if (!confirm(S.lib.id ? '저장하지 않은 변경을 버리고 저장된 문체로 되돌릴까요?' : '적은 내용을 모두 지우고 빈 문체로 돌아갈까요?')) return;
+    if (!S.lib.id) {  // 아직 저장하지 않은 새 문체: 돌아갈 저장본이 없다
+      S.lib = { name: '', source: '', notes: '', sample: '', profile: emptyProfile(), used_by: [] };
+      S.libDirty = false;
+      render();
+      return;
+    }
     await run('불러오는 중', async () => {
       S.lib = await api('GET', `/styles/${S.lib.id}`);
       S.libDirty = false;
@@ -1706,7 +1712,9 @@ const actions = {
   // 상태 변경안
   async extractState(n) {
     const d = S.deltas[n];
-    const edited = d && ((S.deltaOrig[n] !== undefined && d.summary !== S.deltaOrig[n]) || Object.values(S.picks).some((v) => !v));
+    const o = S.deltaOrig[n];
+    // S.picks 는 설정 제안 화면과 같이 쓴다. 변경안을 받을 때 있던 칸만 비교한다
+    const edited = d && o && (d.summary !== o.summary || Object.entries(o.picks).some(([k, v]) => S.picks[k] !== v));
     if (edited && !confirm('고친 요약과 체크를 버리고 변경안을 다시 만들까요?')) return;
     if (S.textDraft[n] !== undefined) {
       try {
@@ -1890,7 +1898,6 @@ function refreshPreview(n) {
 function setDelta(n, d) {
   S.deltas[n] = d;
   S.deltaBase[n] = ep(n) ? ep(n).text : '';
-  S.deltaOrig[n] = d.summary;  // 다시 만들 때 고친 요약을 버리는지 묻는다
   S.picks = {};
   S.preview = null;
   // 설정에도 이번 새 인물에도 없는 id 의 상태는 기본으로 빼 둔다. 반영하면 누구의 것도 아닌 상태가 남는다
@@ -1903,6 +1910,8 @@ function setDelta(n, d) {
   d.foreshadow_planted.forEach((_, i) => { S.picks['p' + i] = true; });
   d.foreshadow_resolved.forEach((id, i) => { S.picks['x' + i] = P().foreshadows.some((f) => f.id === id); });
   (d.new_characters || []).forEach((_, i) => { S.picks['n' + i] = true; });
+  // 받은 그대로의 요약과 체크. 다시 만들 때 고친 것을 버리는지 묻는다 (기본으로 뺀 항목은 고친 것이 아니다)
+  S.deltaOrig[n] = { summary: d.summary, picks: { ...S.picks } };
 }
 
 document.addEventListener('click', (e) => {

@@ -2176,6 +2176,8 @@ def apply_delta(p: Project, d: StateDelta) -> None:
         cur.knows += [k for k in upd.knows if k not in cur.knows]
 
     for upd in d.relationship_updates:
+        if upd.a == upd.b:  # 같은 인물끼리의 관계는 두지 않는다 (화면 저장이 막는 관계, validate_relationships)
+            continue
         key = frozenset((upd.a, upd.b))
         for r in p.relationships:
             if frozenset((r.a, r.b)) == key:
