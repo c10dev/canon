@@ -6,9 +6,10 @@ AI 가 만든 제안(설정, 문체, 구조, 상태 변경안)은 바로 저장�
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -78,9 +79,11 @@ def _load(name: str) -> Project:
     return store.load(name)
 
 
-def _save(name: str, p: Project, merged: set[str] | None = None) -> Project:
+def _save(name: str, p: Project, merged: set[str] | None = None, kept: list[dict] | None = None) -> Project:
     """저장한다. 화면이 보낸 작품 전체를 저장할 때(merged 를 넘길 때)는 백그라운드 작업이 맡은 화를
-    디스크에 있는 내용(작업 결과)으로 지킨다. 다른 엔드포인트는 방금 읽은 디스크 내용을 고쳐 저장하므로 그대로 쓴다."""
+    디스크에 있는 내용(작업 결과)으로 지킨다. 다른 엔드포인트는 방금 읽은 디스크 내용을 고쳐 저장하므로 그대로 쓴다.
+    kept 를 넘기면 화면 값 대신 디스크 것으로 둔 칸을 담는다 (autorun.protected 와 같은 모양)."""
+    kept = kept if kept is not None else []
     with jobs.project_lock(name):
         owned = jobs.owned_episodes(name, merged) if merged is not None else set()
         if owned and store.exists(name):
@@ -88,11 +91,14 @@ def _save(name: str, p: Project, merged: set[str] | None = None) -> Project:
             mine = {e.plot.number: e for e in p.episodes}
             for n in owned:
                 if n in disk:
+                    if n in mine and mine[n].plot != disk[n].plot:
+                        kept.append({"field": "plot", "ep": n})
                     mine[n] = disk[n]
             p.episodes = [mine[k] for k in sorted(mine)]
         if merged is not None and store.exists(name):
             disk = store.load(name)
-            autorun.protected(name, disk, p)  # 자동 집필이 반영한 진행을 오래된 화면이 덮지 않게
+            # 자동 집필이 반영한 진행을 오래된 화면이 덮지 않게
+            kept += [k for k in autorun.protected(name, disk, p) if k not in kept]
             # 화면이 열린 동안 플롯 작업이 더한 새 인물 후보도 지킨다. 안 쓰이거나 등록된 후보는 sync 가 지운다
             have = {c.id for c in p.cast_candidates}
             p.cast_candidates += [c for c in disk.cast_candidates if c.id not in have]
@@ -220,7 +226,7 @@ def get_project(name: str) -> Project:
 
 
 @app.put("/api/projects/{name}")
-def put_project(name: str, p: Project, merged: str = "") -> Project:
+def put_project(name: str, p: Project, response: Response, merged: str = "") -> Project:
     """화면에서 고친 프로젝트 전체를 저장한다. 구조(arc)가 있으면 화수와 맞는지 검사한다.
     장편은 부 구성과 아크(아크 안 기승전결 포함)가 이어지는지 검사한다."""
     _load(name)
@@ -238,7 +244,11 @@ def put_project(name: str, p: Project, merged: str = "") -> Project:
     elements.stamp(p)
     _keep_impacts(name, p)
     _keep_hooks(name, p)
-    return _save(name, p, merged={m for m in merged.split(",") if m})
+    kept: list[dict] = []
+    out = _save(name, p, merged={m for m in merged.split(",") if m}, kept=kept)
+    if kept:  # 화면이 '저장했습니다' 대신 무엇을 저장하지 않았는지 알린다
+        response.headers["X-Canon-Kept"] = quote(json.dumps(kept, ensure_ascii=False))
+    return out
 
 
 def _keep_hooks(name: str, p: Project) -> None:
@@ -1008,7 +1018,9 @@ class Text(BaseModel):
 
 @app.put("/api/projects/{name}/episodes/{n}/text")
 def put_text(name: str, n: int, body: Text) -> Project:
-    """직접 고친 본문이나 채팅 앱에서 받은 본문을 저장한다."""
+    """직접 고친 본문이나 채팅 앱에서 받은 본문을 저장한다. 그 화를 쓰는 작업이나 자동 집필이 도는 중이면 막는다
+    (작업이 끝나며 쓰는 본문과 서로 덮지 않게, 고친 본문에 옛 본문 기준 변경안이 반영되지 않게)."""
+    _text_guard(name, n)
     p = _load(name)
     ep = p.episode(n)
     if ep.status == "draft":

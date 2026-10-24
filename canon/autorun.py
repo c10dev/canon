@@ -652,14 +652,25 @@ def progress_mark(p: Project) -> tuple:
 PROGRESS_FIELDS = ("states", "relationships", "ties", "secrets", "events", "facts", "foreshadows", "history", "snapshots")
 
 
-def protected(name: str, disk: Project, mine: Project) -> None:
+def protected(name: str, disk: Project, mine: Project) -> list[dict]:
     """화면이 작품 전체를 저장할 때, 자동 집필이 도는 중이거나 화면이 반영 진행을 모르는(오래된) 상태면
     진행 상태(인물 상태, 관계, 사건, 스냅샷 등)와 본문이 있는 화는 디스크 것을 지킨다.
-    아직 안 쓴 화의 플롯과 다른 설정은 화면 것을 쓴다."""
+    아직 안 쓴 화의 플롯과 다른 설정은 화면 것을 쓴다.
+    화면이 고칠 수 있는 칸 중 화면 값과 다른 디스크 것을 둔 칸을 돌려준다 (화면이 고친 칸인지 가려 알린다):
+    {"field": "relationships"} · {"field": "plot", "ep": n} · {"field": "character", "name": 이름}."""
     if not active(name) and progress_mark(disk) == progress_mark(mine):
-        return
+        return []
+    kept: list[dict] = []
+    if mine.relationships != disk.relationships:  # 진행 칸 중 화면이 직접 고치는 것은 관계뿐이다
+        kept.append({"field": "relationships"})
     for f in PROGRESS_FIELDS:
         setattr(mine, f, getattr(disk, f))
+    # 승인된 변경안이 더한 인물(new_characters)도 진행이다. 화면이 그 반영 전에 읽은 인물 목록으로 덮지 않게 한다
+    added = {c.id for d in disk.history for c in d.new_characters}
+    have = {c.id for c in mine.characters}
+    back = [c for c in disk.characters if c.id in added and c.id not in have]
+    mine.characters += back
+    kept += [{"field": "character", "name": c.name or c.id} for c in back]
     run = get_run(name)
     cur = run.ep if run and active(name) else None
     d = {e.plot.number: e for e in disk.episodes}
@@ -667,5 +678,8 @@ def protected(name: str, disk: Project, mine: Project) -> None:
     body = ("written", "finalized")
     for n, e in d.items():
         if e.status in body or n == cur or (n in m and m[n].status in body):
+            if n in m and m[n].plot != e.plot:
+                kept.append({"field": "plot", "ep": n})
             m[n] = e
     mine.episodes = [m[k] for k in sorted(m)]
+    return kept

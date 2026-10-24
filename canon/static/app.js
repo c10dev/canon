@@ -44,6 +44,13 @@ const S = {
   placeKind: '',     // 지명 후보의 종류 (산, 마을, 문파…)
 };
 
+// 서버에서 받은 작품의 관계와 화별 플롯. 저장할 때 화면이 실제로 고친 칸만 가려 '서버 것으로 두었어요'를 알린다 (save)
+let projectBase = null;
+const baseOf = (p) => p && { rels: JSON.stringify(p.relationships), plots: new Map(p.episodes.map((e) => [e.plot.number, JSON.stringify(e.plot)])) };
+let projectNow = S.project;
+delete S.project;
+Object.defineProperty(S, 'project', { enumerable: true, get: () => projectNow, set: (v) => { projectNow = v; projectBase = baseOf(v); } });
+
 const STATUS = { draft: '플롯 초안', confirmed: '플롯 확정', written: '본문 작성됨', finalized: '반영 완료' };
 const ACTS = ['기', '승', '전', '결'];
 
@@ -61,7 +68,8 @@ function fmtErr(data, status) {
   return d || `요청 실패 (${status})`;
 }
 
-async function api(method, path, body) {
+/** meta 를 넘기면 응답 헤더를 meta.headers 에 담는다. */
+async function api(method, path, body, meta) {
   const opt = { method, headers: {} };
   if (body !== undefined) {
     opt.headers['Content-Type'] = 'application/json';
@@ -70,6 +78,7 @@ async function api(method, path, body) {
   const r = await fetch('/api' + path, opt);
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(fmtErr(data, r.status));
+  if (meta) meta.headers = r.headers;
   return data;
 }
 
@@ -118,6 +127,11 @@ function jobOwns(n) {
   return !!j && P() && (!ep(n) || ep(n).status === 'draft');
 }
 
+/** 자동 집필이 이 작품을 고치는 중이다 (S.auto 는 작품을 열 때와 자동 집필 폴링 때 받는다). */
+const autoOn = () => !!(S.auto && S.auto.active);
+/** 자동 집필이 지금 쓰는 화. 서버는 그 화의 플롯과 관계 같은 진행 칸을 화면 저장에서 지킨다 (autorun.protected). */
+const autoEp = () => (autoOn() && S.auto.run ? S.auto.run.ep : null);
+
 async function startJob(kind, ep = null, extra = {}) {
   try {
     await saveIfDirty();
@@ -150,7 +164,14 @@ async function pollJobs(soon = false) {
     if (j.kind === 'plots') await mergeEpisodes((e) => e.status === 'draft');
     if (j.kind === 'write' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);
     if (j.kind === 'impact' && j.status === 'done') await mergeImpacts();
-    if (j.kind === 'auto') await mergeEpisodes((e) => e.status !== 'draft');
+    if (j.kind === 'auto') {
+      // 다른 탭이나 명령줄에서 시작했어도 잠금(autoOn)이 걸리고, 끝나면 풀리게 실행 상태를 받아 온다. autoPoll 이 이어서 지켜본다
+      if ((j.status === 'running') !== autoOn() && typeof autoLoad === 'function') await autoLoad(false);
+      // 자동 집필이 실제로 바꾼 화(상태나 본문)만 받아 온다. 저장하지 않은 다른 화 플롯 수정은 그대로 둔다
+      const dirty = S.dirty;
+      const changed = await mergeEpisodes((cur, e) => cur.status !== e.status || cur.text !== e.text || !!cur.auto !== !!e.auto);
+      if (dirty && changed.includes(S.selEp)) toast(`자동 집필이 ${S.selEp}화를 바꿨어요. 열린 플롯은 서버에 있는 것으로 바뀝니다`, true);
+    }
     if (j.status !== 'running' && !(old && old.status !== 'running')) await finishJob(j);
     // 설정 · 사용량 · 문체 라이브러리처럼 작품 밖 화면은 S.name 이 남아 있어도 다시 그리지 않는다
     if (S.route[0] === 'p' && JOB_PAGES[j.kind].includes(S.route[2] || 'home')) redraw = true;
@@ -168,21 +189,27 @@ function isTyping() {
 }
 
 // 작업 결과가 보이는 화면
-const JOB_PAGES = { suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], storyline: ['lines'] };
+const JOB_PAGES = { suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], storyline: ['lines'] };
 
-// 작업이 project.json 에 쓴 화만 받아 온다 (mine 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
+// 작업이 project.json 에 쓴 화만 받아 온다 (mine(화면 화, 서버 화) 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
+// 저장하지 않은 입력이 있을 때 서버 것으로 바꾼 화 번호를 돌려준다.
 async function mergeEpisodes(mine) {
-  if (!S.name || !P()) return;
+  if (!S.name || !P()) return [];
   try {
     const fresh = await api('GET', `/projects/${enc(S.name)}`);
-    if (!S.dirty) { S.project = fresh; return; }
+    if (!S.dirty) { S.project = fresh; return []; }
     const local = new Map(P().episodes.map((e) => [e.plot.number, e]));
+    const changed = [];
     for (const e of fresh.episodes) {
       const cur = local.get(e.plot.number);
-      if (!cur || mine(cur)) local.set(e.plot.number, e);
+      if (cur && !mine(cur, e)) continue;
+      local.set(e.plot.number, e);
+      if (projectBase) projectBase.plots.set(e.plot.number, JSON.stringify(e.plot));
+      if (cur) changed.push(e.plot.number);
     }
     P().episodes = [...local.keys()].sort((a, b) => a - b).map((k) => local.get(k));
-  } catch { /* 다음 확인 때 다시 */ }
+    return changed;
+  } catch { return []; /* 다음 확인 때 다시 */ }
 }
 
 async function finishJob(j) {
@@ -445,7 +472,7 @@ document.addEventListener('input', (e) => {
     const c = $('#char-count');
     if (c) c.textContent = el.value.length.toLocaleString();
     const sb = $('#save-text');
-    if (sb) sb.disabled = false;
+    if (sb) sb.disabled = autoOn();  // 자동 집필 중에는 서버가 본문 저장을 받지 않는다
     renderSavebar();
   }
   if (el.dataset.brief) S.briefDraft[`${S.name}:${el.dataset.brief}`] = el.value;
@@ -526,13 +553,13 @@ function renderSavebar() {
   // 본문 초안은 따로 '본문 저장'으로 저장한다. 그 화를 보고 있을 때만 알린다 (다른 화면으로 가도 초안은 메모리에 남는다)
   const [p, , page, arg] = S.route;
   const n = p === 'p' && page === 'write' && P() ? Number(arg) || currentEp() : null;
-  const text = n !== null && textUnsaved(n) ? n : null;
+  const text = n !== null && textUnsaved(n) && editableEp(ep(n)) ? n : null;  // 반영이 끝난 화의 남은 초고는 집필 화면이 따로 꺼내 보인다
   let bar = $('#savebar');
   if (!S.dirty && text === null) {
     if (bar) bar.remove();
     return;
   }
-  const sig = `${S.dirty}:${text}`;
+  const sig = `${S.dirty}:${text}:${autoOn()}`;
   if (bar && bar.dataset.sig === sig) return;
   if (!bar) {
     bar = document.createElement('div');
@@ -542,7 +569,7 @@ function renderSavebar() {
   }
   bar.dataset.sig = sig;
   bar.innerHTML = (S.dirty ? '<span>저장하지 않은 변경이 있어요</span><button class="btn small" data-action="revert">되돌리기</button><button class="btn small primary" data-action="save">저장</button>' : '')
-    + (text !== null ? `<span>${text}화 본문을 저장하지 않았어요</span><button class="btn small primary" data-action="saveText" data-arg="${text}">본문 저장</button>` : '');
+    + (text !== null ? `<span>${text}화 본문을 저장하지 않았어요</span><button class="btn small primary" data-action="saveText" data-arg="${text}"${autoOn() ? ' disabled title="자동 집필이 도는 동안은 본문을 저장할 수 없어요"' : ''}>본문 저장</button>` : '');
 }
 
 /** 지시서 ② 칸 글을 아직 쓸 수 있다. 본문 칸은 확정 · 작성 화, JSON 칸은 작성 화에서만 열린다. 다른 경로로 그 화를 끝냈으면 세지 않는다. */
@@ -576,10 +603,23 @@ window.addEventListener('beforeunload', (e) => {
 async function save() {
   // 끝난 작업 중 결과를 이미 받아 온 것을 알려야 서버가 그 화를 덮어써도 된다고 안다
   const merged = [...S.jobs.filter((j) => j.status !== 'running').map((j) => j.id), ...(S.jobsSeen || [])].join(',');
-  S.project = await api('PUT', `/projects/${enc(S.name)}?merged=${enc(merged)}`, P());
+  const meta = {};
+  const sent = P();
+  const base = projectBase;
+  const edited = (k) => !base || (k.field === 'relationships' ? JSON.stringify(sent.relationships) !== base.rels
+    : JSON.stringify((sent.episodes.find((e) => e.plot.number === k.ep) || {}).plot) !== base.plots.get(k.ep));
+  S.project = await api('PUT', `/projects/${enc(S.name)}?merged=${enc(merged)}`, sent, meta);
   S.dirty = false;
+  // 서버가 작업 · 자동 집필 · 다른 곳의 반영을 지키느라 화면 값 대신 서버 것을 둔 칸. 화면이 고친 칸이면 성공 토스트만으로는 버린 줄 모른다
+  const head = meta.headers && meta.headers.get('X-Canon-Kept');
+  const kept = head ? JSON.parse(decodeURIComponent(head)) : [];
+  const dropped = kept.filter((k) => k.field !== 'character' && edited(k)).map((k) => (k.field === 'relationships' ? '관계' : `${k.ep}화 플롯`));
+  const kin = kept.filter((k) => k.field === 'character').map((k) => k.name);
+  if (dropped.length) toast(`작업이나 반영된 진행과 겹쳐 이 부분은 저장하지 않고 서버에 있는 것으로 두었어요: ${dropped.join(', ')}`, true);
+  if (kin.length) toast(`이 화면이 모르는 사이 반영으로 더해진 인물(${kin.join(', ')})은 지우지 않고 남겼어요`);
   if (S.route[2] === 'style') { await loadStyleLink(); await learnLoad(); }
   if (S.route[2] === 'causal') await causalLoad();
+  return !dropped.length;
 }
 
 async function loadStyleLink() {
@@ -594,10 +634,26 @@ async function saveIfDirty() {
 
 const actions = {
   async save() {
-    await run('저장 중', async () => { await save(); toast('저장했습니다'); });
+    await run('저장 중', async () => { if (await save() !== false) toast('저장했습니다'); });
   },
   async revert() {
     await run('불러오는 중', async () => { await loadProject(S.name); });
+  },
+  async copyOrphan(n) {
+    const t = S.textDraft[n] || '';
+    try {
+      await navigator.clipboard.writeText(t);
+    } catch {  // 보안 연결이 아니면 clipboard API 가 없다. 칸을 펼쳐 골라 복사한다
+      const ta = $(`#orphan-${n}`);
+      if (ta) { ta.closest('details').open = true; ta.select(); }
+      if (!ta || !document.execCommand('copy')) return toast('브라우저가 복사를 막았어요. 펼친 칸에서 직접 골라 복사하세요', true);
+    }
+    toast(`${n}화 남은 초고를 복사했어요 (${t.length.toLocaleString()}자)`);
+  },
+  dropOrphan(n) {
+    if (!confirm(`${n}화 남은 초고를 버릴까요? 되돌릴 수 없어요.`)) return;
+    delete S.textDraft[n];
+    render();
   },
   async createProject() {
     const name = $('#np-name').value.trim();
@@ -2101,8 +2157,9 @@ function viewSetup() {
           ${chars ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">${chars}</div>` : '<div class="note plain">인물이 없어요. 직접 추가하거나 AI 제안을 받으세요.</div>'}
         </section>
         <section class="card">
-          <div class="between"><h2>관계</h2><div class="row"><span class="small">${P().snapshots.length ? '첫 반영 뒤에는 관계 사건으로 계산됩니다' : '서로 어떻게 보는지 고르면 시작 관계를 계산해요. 긴장은 자동 계산'}</span><button class="btn small" data-action="addRelationship">+ 관계 추가</button></div></div>
-          ${rels || '<div class="small">관계가 없어요.</div>'}
+          <div class="between"><h2>관계</h2><div class="row"><span class="small">${P().snapshots.length ? '첫 반영 뒤에는 관계 사건으로 계산됩니다' : '서로 어떻게 보는지 고르면 시작 관계를 계산해요. 긴장은 자동 계산'}</span><button class="btn small" data-action="addRelationship"${autoOn() ? ' disabled' : ''}>+ 관계 추가</button></div></div>
+          ${autoOn() ? `<div class="note warn" id="rel-lock">자동 집필이 도는 동안은 관계를 고칠 수 없어요. 반영하는 관계와 겹치지 않게 서버가 받지 않아요. 고치려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요.</div>` : ''}
+          ${rels ? (autoOn() ? `<fieldset disabled class="lockset" aria-describedby="rel-lock">${rels}</fieldset>` : rels) : '<div class="small">관계가 없어요.</div>'}
         </section>
       </div>
     </div>`;
@@ -2456,14 +2513,15 @@ function plotEditor(e) {
   const i = epIndex(n);
   const b = `episodes.${i}.plot`;
   const busy = jobOwns(n);
-  const locked = e.status === 'written' || e.status === 'finalized' || busy;
+  const autoBusy = autoEp() === n;
+  const locked = e.status === 'written' || e.status === 'finalized' || busy || autoBusy;
   const ro = { readonly: locked };
   const act = actOf(n);
   const arc = serial() ? arcOf(n) : null;
   return `<div class="between"><h2>${n}화 플롯</h2><span class="chip ${e.status}">${STATUS[e.status]}</span></div>
     ${arc ? `<div class="note plain"><strong>아크 ${arc.number} ${esc(arc.title)}</strong> · ${esc(arc.goal)}</div>` : ''}
     ${act ? `<div class="note info"><strong>${act.name} 구간 목표</strong> · ${esc(act.goal)}</div>` : ''}
-    ${busy ? '<div class="note warn">AI 가 이 구간의 초안을 새로 만드는 중이라 끝날 때까지 고칠 수 없어요.</div>' : locked ? '<div class="note plain">본문이 있는 화라 플롯을 고칠 수 없어요.</div>' : ''}
+    ${busy ? '<div class="note warn">AI 가 이 구간의 초안을 새로 만드는 중이라 끝날 때까지 고칠 수 없어요.</div>' : autoBusy ? `<div class="note warn">자동 집필이 ${n}화를 쓰는 중이라 고칠 수 없어요. 고치려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요.</div>` : locked ? '<div class="note plain">본문이 있는 화라 플롯을 고칠 수 없어요.</div>' : ''}
     ${input('제목', b + '.title', ro)}
     ${input('요약', b + '.summary', { ...ro, rows: 3, autogrow: true })}
     ${input('사건 순서', b + '.events', { ...ro, kind: 'list', rows: 5, autogrow: true })}
@@ -2753,9 +2811,11 @@ function viewWrite(n) {
   if (!e) return header('4단계', '집필', '') + noEpisode();
   const act = actOf(n);
   const blocked = P().episodes.filter((x) => x.plot.number < n && x.status !== 'finalized').map((x) => x.plot.number);
-  const draft = S.textDraft[n];
-  const text = draft ?? e.text;
   const editable = e.status === 'confirmed' || e.status === 'written';
+  // 반영이 끝난 화는 저장된 본문을 보인다. 그 화를 쓰던 중 자동 집필 · 다른 탭이 반영을 끝냈으면 초안은 따로 꺼내 보인다
+  const draft = editable ? S.textDraft[n] : undefined;
+  const orphan = !editable && textUnsaved(n);
+  const text = draft ?? e.text;
   const isApi = S.mode === 'api';
   const writing = !!jobFor('write', n);
   const locked = writing && !e.text;  // AI 가 본문을 처음 쓰는 중: 끝나면 칸이 AI 본문으로 바뀌므로 그동안 쓴 글은 남지 않는다
@@ -2788,6 +2848,10 @@ function viewWrite(n) {
   return `<header class="page-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? act.name + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:24px">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}</div><div class="row">${right}</div></header>
     ${e.auto ? `<div class="note info">이 화는 자동 집필이 검토 없이 반영했어요. 읽어 보고 문제가 있으면 <a href="${base()}/auto">자동 집필</a>에서 이 화부터 되돌릴 수 있어요.</div>` : ''}
     ${rebuildNote(n)}
+    ${orphan ? `<div class="note warn">저장하지 않은 ${n}화 초고가 남아 있어요. 이 화는 상태 반영이 끝나 본문으로 저장할 수 없어서, 아래에는 반영된 본문을 보여요.
+      <details><summary>남은 초고 보기 (${S.textDraft[n].length.toLocaleString()}자)</summary><textarea readonly id="orphan-${n}" aria-label="${n}화 남은 초고" style="width:100%;min-height:160px;margin-top:6px">${esc(S.textDraft[n])}</textarea></details>
+      <div class="row" style="margin-top:6px"><button class="btn small" data-action="copyOrphan" data-arg="${n}">초고 복사</button><button class="btn small danger" data-action="dropOrphan" data-arg="${n}">초고 버리기</button></div></div>` : ''}
+    ${editable && autoOn() ? `<div class="note warn">자동 집필이 도는 동안은 본문을 저장할 수 없어요. 쓰던 글은 이 화면에 남아 있어요. 저장하려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요.</div>` : ''}
     ${e.text && editable ? rewritePanel(n) + candidateCard(n) : ''}
     <div class="cols" style="gap:16px">
       <aside class="card tight" style="flex:1 1 260px;min-width:0" aria-label="이번 화 플롯">
@@ -2811,7 +2875,7 @@ function viewWrite(n) {
           <span>${e.status === 'finalized' ? '상태 반영까지 끝난 화는 읽기 전용이에요. 드래그하면 삽화 프롬프트를 만들 수 있어요' : e.text ? '고칠 부분을 드래그하면 직접 고치거나 AI 에게 맡기거나 삽화 프롬프트를 만들 수 있어요' : '본문을 직접 고친 뒤 저장할 수 있어요'}</span>
           <span class="row"><span><strong id="char-count" style="color:var(--text)">${(text || '').length.toLocaleString()}</strong> / ${Number(P().meta.words_per_episode).toLocaleString()}자</span>
           ${text ? `<button class="btn small" data-action="copyEp" data-arg="${n}" title="고른 줄바꿈 형식으로 복사 (오른쪽 '복사 · 내보내기'에서 바꿈)">복사</button>` : ''}
-          ${editable && (e.text || draft !== undefined) ? `<button class="btn small" id="save-text" data-action="saveText" data-arg="${n}"${draft === undefined ? ' disabled' : ''}>본문 저장</button>` : ''}</span>
+          ${editable && (e.text || draft !== undefined) ? `<button class="btn small" id="save-text" data-action="saveText" data-arg="${n}"${draft === undefined || autoOn() ? ' disabled' : ''}>본문 저장</button>` : ''}</span>
         </div>
         ${e.text ? passageNotes(n) ? `<div style="padding:12px 16px 0;display:flex;flex-direction:column;gap:8px">${passageNotes(n)}</div>` : '' : ''}
         ${center}

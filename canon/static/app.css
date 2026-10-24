@@ -72,6 +72,8 @@ ul, ol { margin: 0; }
 .note.ok { background: var(--green-soft); color: var(--green-ink); }
 .note.err { background: var(--red-soft); color: #5C1A14; }
 .note.plain { background: var(--bg); color: var(--text-2); }
+.lockset { border: 0; margin: 0; padding: 0; min-width: 0; display: contents; }
+.lockset:disabled .rel-card { opacity: .6; }
 .empty { padding: 40px 24px; text-align: center; color: var(--muted); display: flex; flex-direction: column; gap: 14px; align-items: center; }
 
 .btn { min-height: 44px; padding: 0 16px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; cursor: pointer; }

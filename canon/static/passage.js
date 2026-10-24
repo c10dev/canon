@@ -35,8 +35,10 @@ CHAT_TOPICS.text = {
 };
 
 const clip = (t, n) => (t.length > n ? t.slice(0, n) + '…' : t);
-const textNow = (n) => S.textDraft[n] ?? (ep(n) ? ep(n).text : '');
 const editableEp = (e) => e && (e.status === 'confirmed' || e.status === 'written');
+/** 고칠 수 있는 화의 본문 초안. 반영이 끝난 화에 남은 초안은 본문이 아니다 (집필 화면이 따로 꺼내 보인다). */
+const liveDraft = (n) => (editableEp(ep(n)) ? S.textDraft[n] : undefined);
+const textNow = (n) => liveDraft(n) ?? (ep(n) ? ep(n).text : '');
 
 function curSel() {
   const n = Number(S.route[3]) || currentEp();

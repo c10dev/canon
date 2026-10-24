@@ -1,6 +1,7 @@
 """자동 집필 (canon/autorun.py) 테스트. mock LLM 과 mock 배치로 돈다."""
 import contextlib
 import io
+import json
 import os
 import tempfile
 import time
@@ -191,6 +192,8 @@ def test_web_api(demo, monkeypatch):
     assert c.post("/api/projects/demo/auto/start", json={"target": 3}).status_code == 400  # 이미 돈다
     assert c.post("/api/projects/demo/jobs", json={"kind": "write", "ep": 1}).status_code == 400
     wait_until(lambda: autorun.get_run("demo").batches)
+    # 자동 집필이 도는 동안 본문 직접 저장은 막는다 (작업이 쓰는 본문과 서로 덮지 않게)
+    assert c.put("/api/projects/demo/episodes/1/text", json={"text": "손으로 쓴 본문"}).status_code == 400
 
     # 화면이 오래된 작품 전체를 저장해도 자동 집필이 쓴 진행 상태와 본문은 지킨다
     stale = c.get("/api/projects/demo").json()
@@ -298,3 +301,27 @@ def test_opening_episodes_stop_for_hand_pick(demo):
     assert run.status == "done"
     p = store.load(demo)
     assert [e.auto for e in p.episodes[:4]] == [False, False, False, True]
+
+
+def test_stale_save_keeps_characters_added_by_apply(demo):
+    """승인한 변경안이 더한 인물은 그 반영 전에 읽은 화면이 작품 전체를 저장해도 남긴다."""
+    from fastapi.testclient import TestClient
+
+    from canon import web
+
+    c = TestClient(web.app)
+    c.put("/api/projects/demo/episodes/1/text", json={"text": "1화 본문"})
+    stale = c.get("/api/projects/demo").json()
+    stale["meta"]["title"] = "새 제목"
+    delta = {"episode": 1, "summary": "1화 요약", "new_characters": [{"id": "courier", "name": "배달꾼", "role": "조연"}]}
+    assert c.post("/api/projects/demo/episodes/1/apply", json=delta).status_code == 200
+    r = c.put("/api/projects/demo", json=stale)
+    p = store.load("demo")
+    assert p.meta.title == "새 제목"
+    assert "courier" in {x.id for x in p.characters}
+    # 화면에 무엇을 서버 것으로 두었는지 알린다
+    from urllib.parse import unquote
+    assert {"field": "character", "name": "배달꾼"} in json.loads(unquote(r.headers["X-Canon-Kept"]))
+    # 오래되지 않은 화면의 저장은 아무것도 버리지 않는다
+    assert "X-Canon-Kept" not in c.put("/api/projects/demo", json=c.get("/api/projects/demo").json()).headers
+    assert p.episode(1).status == "finalized"

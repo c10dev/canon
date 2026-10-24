@@ -69,6 +69,21 @@ function autoPoll() {
   }, 3000);
 }
 
+/** 자동 집필이 쓸 화에 저장하지 않은 본문 초안이 있으면 먼저 저장할지 묻는다. 자동 집필이 그 화를 쓰고 반영하면 초안은 본문이 될 수 없다.
+    저장하면 그 화는 작성 상태가 되어 자동 집필이 그 본문을 검수한다. 취소하면 false (시작하지 않는다). */
+async function autoFlushDrafts(upTo) {
+  const nums = Object.keys(S.textDraft).map(Number).filter((n) => n <= upTo && textUnsaved(n) && editableEp(ep(n))).sort((a, b) => a - b);
+  if (!nums.length) return true;
+  if (!confirm(`${nums.join(', ')}화에 저장하지 않은 본문이 있어요. 먼저 저장하고 이어 갈까요? 저장한 본문은 자동 집필이 검수합니다. 취소하면 시작하지 않아요.`)) return false;
+  try {
+    for (const n of nums) await flushText(n);
+    return true;
+  } catch (e) {
+    toast(e.message, true);
+    return false;
+  }
+}
+
 function autoDuration(s) {
   if (s == null) return '';
   if (s >= 86400 * 2) return `${Math.round(s / 86400)}일`;
@@ -249,6 +264,7 @@ Object.assign(actions, {
   },
   async autoStart() {
     const f = S.autoForm;
+    if (!(await autoFlushDrafts(f.target))) return;
     const est = S.autoEst && (f.batch ? S.autoEst.on : S.autoEst.off);
     const msg = est && !est.error ? `${f.target}화까지 자동으로 씁니다. 예상 비용 ${autoCost(est.cost)}. 시작할까요?` : `${f.target}화까지 자동으로 씁니다. 시작할까요?`;
     if (!confirm(msg)) return;
@@ -280,6 +296,7 @@ Object.assign(actions, {
     const r = S.auto.run;
     if (how === 'approve' && !confirm(`${r.ep}화 변경안을 보지 않고 그대로 반영할까요?`)) return;
     if (how === 'rewrite' && !confirm(`${r.ep}화 본문을 지우고 다시 쓸까요?`)) return;
+    if (!(await autoFlushDrafts(r.target))) return;
     await run('이어 가는 중', async () => {
       await saveIfDirty();
       S.auto = await api('POST', `/projects/${enc(S.name)}/auto/resume`, body);
