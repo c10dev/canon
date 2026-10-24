@@ -35,7 +35,8 @@ CHAT_TOPICS.text = {
 };
 
 const clip = (t, n) => (t.length > n ? t.slice(0, n) + '…' : t);
-const editableEp = (e) => e && (e.status === 'confirmed' || e.status === 'written');
+// 반영이 끝난 화도 고친다. 반영된 상태는 그대로 두고 서버가 반영 뒤 고침으로 표시한다 (restate.js)
+const editableEp = (e) => e && (e.status === 'confirmed' || e.status === 'written' || e.status === 'finalized');
 /** 고칠 수 있는 화의 본문 초안. 반영이 끝난 화에 남은 초안은 본문이 아니다 (집필 화면이 따로 꺼내 보인다). */
 const liveDraft = (n) => (editableEp(ep(n)) ? S.textDraft[n] : undefined);
 const textNow = (n) => liveDraft(n) ?? (ep(n) ? ep(n).text : '');

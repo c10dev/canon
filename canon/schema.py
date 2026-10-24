@@ -696,6 +696,7 @@ class Episode(BaseModel):
     candidate: Optional[TextVersion] = Field(None, description="다시 생성으로 나와 지금 본문과 비교해 고르기를 기다리는 새 판")
     versions: list[TextVersion] = Field(default_factory=list, description="바꾸기 전 판과 고르지 않은 새 판 (최근 것만)")
     made_by: Optional[RewriteRequest] = Field(None, description="지금 본문을 만든 다시 생성 요청 (처음 쓴 판이나 직접 쓴 본문이면 비움)")
+    final_text: str = Field("", description="상태 반영이 끝난 뒤 본문을 처음 고치기 직전의 본문. 지금 본문과 다르면 반영된 요약 · 상태가 고치기 전 본문 기준이다. 다시 맞추거나 그대로 두기로 하면 비운다")
 
 
 # ---------- 회차 진행 상태 ----------
