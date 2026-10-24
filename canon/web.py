@@ -53,10 +53,13 @@ def _usage_scope(path: str) -> dict:
 async def _count_active(request: Request, call_next):
     global _active
     _active += 1
+    # 화면(브라우저 탭)이 보낸 id. 이 요청이 저장하면 그 화면의 저장으로 센다 (store.writer, 오래된 화면 충돌 검사)
+    tok = store.writer.set(request.headers.get("x-canon-client", "")[:64])
     try:
         with usage.scope(**_usage_scope(request.url.path)):
             return await call_next(request)
     finally:
+        store.writer.reset(tok)
         _active -= 1
 
 
@@ -226,10 +229,14 @@ def get_project(name: str) -> Project:
 
 
 @app.put("/api/projects/{name}")
-def put_project(name: str, p: Project, response: Response, merged: str = "") -> Project:
+def put_project(name: str, p: Project, response: Response, merged: str = "", force: bool = False) -> Project:
     """화면에서 고친 프로젝트 전체를 저장한다. 구조(arc)가 있으면 화수와 맞는지 검사한다.
-    장편은 부 구성과 아크(아크 안 기승전결 포함)가 이어지는지 검사한다."""
-    _load(name)
+    장편은 부 구성과 아크(아크 안 기승전결 포함)가 이어지는지 검사한다.
+    다른 화면(탭 · 기기)이 이 화면이 읽은 뒤에 저장했으면 덮지 않고 409 를 돌려준다. force 면 그래도 덮는다."""
+    disk = _load(name)
+    me = store.writer.get()
+    if me and not force and disk.edit_rev > p.edit_rev and disk.saved_by != me:
+        raise HTTPException(409, "다른 탭이나 기기에서 이 작품을 먼저 저장했어요. 다시 불러와 그 변경을 보거나, 내 변경으로 덮어쓰세요")
     if p.arc and not p.serial:
         pipeline.validate_arc(ArcPlan(acts=p.arc), p.meta.target_episodes)
     if p.serial:

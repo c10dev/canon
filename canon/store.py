@@ -2,15 +2,21 @@
 본문은 읽기 편하도록 episodes/NN.md 로도 내보낸다."""
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import threading
+from contextvars import ContextVar
 from pathlib import Path
 
 from .dynamics import seed_ties
 from .schema import Project
 
 ROOT = Path(os.environ.get("CANON_HOME", "projects"))
+
+# 지금 저장하는 화면(브라우저 탭) id. 웹 요청이 정하고, 백그라운드 작업 · 자동 집필 · CLI 는 빈 값이다.
+# 화면이 저장하면 Project.edit_rev 를 올리고 saved_by 에 남긴다. 빈 값이면 디스크의 두 값을 그대로 둔다
+writer: ContextVar[str] = ContextVar("writer", default="")
 
 
 def project_dir(name: str) -> Path:
@@ -35,6 +41,11 @@ def save(name: str, p: Project) -> Path:
     d.mkdir(parents=True, exist_ok=True)
     path = d / "project.json"
     if path.exists():
+        disk = json.loads(path.read_text(encoding="utf-8"))
+        if writer.get():
+            p.edit_rev, p.saved_by = disk.get("edit_rev", 0) + 1, writer.get()
+        else:  # 작업이 오래전에 읽은 사본을 저장해도 화면 저장 기록은 디스크 것을 잇는다
+            p.edit_rev, p.saved_by = disk.get("edit_rev", 0), disk.get("saved_by", "")
         shutil.copy(path, d / "project.prev.json")  # 직전 버전 하나는 남겨 둔다
     # 다른 스레드(자동 집필, 백그라운드 작업)가 쓰는 도중에 읽어도 빈 파일을 보지 않게 바꿔치기로 쓴다
     tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")

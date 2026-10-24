@@ -342,3 +342,41 @@ def test_usage_page_records_web_calls(client, monkeypatch):
     assert any(r["custom"] for r in t["rows"])
     assert client.get("/api/usage").json()["total"]["cost"] < s["total"]["cost"]
     assert not any(r["custom"] for r in client.delete("/api/usage/prices").json()["rows"])
+
+
+def test_stale_screen_save_conflicts(client):
+    """다른 화면(탭 · 기기)이 먼저 저장했으면 오래된 화면의 작품 전체 저장은 409. force 면 덮는다. 작업의 저장은 충돌로 세지 않는다."""
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "two", "meta": meta}, headers={"X-Canon-Client": "a"})
+    A = {"X-Canon-Client": "a"}
+    B = {"X-Canon-Client": "b"}
+    pa = client.get("/api/projects/two", headers=A).json()
+    pb = client.get("/api/projects/two", headers=B).json()
+    pa["meta"]["title"] = "A 제목"
+    pa = client.put("/api/projects/two", json=pa, headers=A).json()
+    assert pa["saved_by"] == "a" and pa["edit_rev"] > pb["edit_rev"]
+    pb["meta"]["logline"] = "B 로그라인"
+    r = client.put("/api/projects/two", json=pb, headers=B)
+    assert r.status_code == 409
+    assert client.get("/api/projects/two").json()["meta"]["title"] == "A 제목"
+    # 같은 화면이 연달아 저장하는 것은 충돌이 아니다
+    pa["meta"]["title"] = "A 제목 2"
+    assert client.put("/api/projects/two", json=pa, headers=A).status_code == 200
+    # 덮기를 고르면 저장한다
+    assert client.put("/api/projects/two?force=true", json=pb, headers=B).json()["meta"]["logline"] == "B 로그라인"
+    # 백그라운드 작업이 저장해도 화면 저장 번호는 그대로라 다음 저장이 막히지 않는다
+    import time
+
+    from canon import jobs
+    pb = client.get("/api/projects/two", headers=B).json()
+    pb["arc"] = client.post("/api/projects/two/arc", headers=B).json()["acts"]
+    pb = client.put("/api/projects/two", json=pb, headers=B).json()
+    client.post("/api/projects/two/jobs", json={"kind": "plots"}, headers=A)
+    for _ in range(500):
+        if not any(j.status == "running" for j in jobs.listing("two")):
+            break
+        time.sleep(0.02)
+    after = client.get("/api/projects/two").json()
+    assert len(after["episodes"]) == 10  # 작업이 디스크에 썼다
+    assert after["edit_rev"] == pb["edit_rev"] and after["saved_by"] == "b"
+    assert client.put("/api/projects/two", json=pb, headers=B).status_code == 200

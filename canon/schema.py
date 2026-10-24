@@ -905,6 +905,8 @@ class Project(BaseModel):
     snapshots: list[Snapshot] = Field(default_factory=list)
     settings: Settings = Field(default_factory=Settings)
     chats: list[Chat] = Field(default_factory=list, description="화면별 AI 대화 기록")
+    edit_rev: int = Field(0, description="화면(브라우저 탭)이 저장한 횟수. 오래된 화면이 다른 화면의 저장을 덮지 않게 비교한다 (store.writer)")
+    saved_by: str = Field("", description="마지막으로 저장한 화면(브라우저 탭) id")
     elements: list[StoryElement] = Field(default_factory=list, description="인과율: 언제든 더하는 요소, 특징, 설정, 사건")
     conversion: Optional[Conversion] = Field(None, description="단편에서 장편으로 바꾼 기록. 되돌리면 지운다")
     archive: Optional[ShortArchive] = Field(None, description="재구성 전 단편 원고와 새 화 지도")

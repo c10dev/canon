@@ -8,6 +8,8 @@ const S = {
   name: null,        // 현재 프로젝트 폴더 이름
   project: null,
   dirty: false,
+  gen: 0,            // 화면 작품이 바뀔 때마다(받기 · 저장 · 입력) 오른다. 늦게 온 작품 GET 이 더 새 값을 덮지 않게 비교한다
+  conflict: false,   // 다른 탭 · 기기가 먼저 저장해 이 화면의 저장이 막혔다 (409)
   route: [],
   suggestion: null,  // 설정 도우미 제안 (반영 전)
   styleSample: '',
@@ -49,7 +51,7 @@ let projectBase = null;
 const baseOf = (p) => p && { rels: JSON.stringify(p.relationships), plots: new Map(p.episodes.map((e) => [e.plot.number, JSON.stringify(e.plot)])) };
 let projectNow = S.project;
 delete S.project;
-Object.defineProperty(S, 'project', { enumerable: true, get: () => projectNow, set: (v) => { projectNow = v; projectBase = baseOf(v); } });
+Object.defineProperty(S, 'project', { enumerable: true, get: () => projectNow, set: (v) => { projectNow = v; projectBase = baseOf(v); S.gen++; } });
 
 const STATUS = { draft: '플롯 초안', confirmed: '플롯 확정', written: '본문 작성됨', finalized: '반영 완료' };
 const ACTS = ['기', '승', '전', '결'];
@@ -68,16 +70,19 @@ function fmtErr(data, status) {
   return d || `요청 실패 (${status})`;
 }
 
-/** meta 를 넘기면 응답 헤더를 meta.headers 에 담는다. */
+// 이 탭의 id. 서버는 작품을 저장한 화면을 기억해, 다른 탭 · 기기가 먼저 저장했으면 오래된 화면의 저장을 409 로 막는다
+const CLIENT = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+
+/** meta 를 넘기면 응답 헤더를 meta.headers 에 담는다. 실패하면 Error 의 status 에 HTTP 상태를 담는다. */
 async function api(method, path, body, meta) {
-  const opt = { method, headers: {} };
+  const opt = { method, headers: { 'X-Canon-Client': CLIENT } };
   if (body !== undefined) {
     opt.headers['Content-Type'] = 'application/json';
     opt.body = JSON.stringify(body);
   }
   const r = await fetch('/api' + path, opt);
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(fmtErr(data, r.status));
+  if (!r.ok) throw Object.assign(new Error(fmtErr(data, r.status)), { status: r.status });
   if (meta) meta.headers = r.headers;
   return data;
 }
@@ -196,8 +201,10 @@ const JOB_PAGES = { suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'ca
 async function mergeEpisodes(mine) {
   if (!S.name || !P()) return [];
   try {
+    const gen = S.gen;
     const fresh = await api('GET', `/projects/${enc(S.name)}`);
-    if (!S.dirty) { S.project = fresh; return []; }
+    // 받는 사이 저장 · 반영 응답이나 입력이 있었으면 이 응답이 더 오래됐을 수 있다. 통째로 바꾸지 않고 작업이 쓴 화만 맞춘다
+    if (!S.dirty && gen === S.gen) { S.project = fresh; return []; }
     const local = new Map(P().episodes.map((e) => [e.plot.number, e]));
     const changed = [];
     for (const e of fresh.episodes) {
@@ -535,6 +542,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 function markDirty() {
+  S.gen++;
   if (!S.dirty) {
     S.dirty = true;
     renderSavebar();
@@ -559,7 +567,7 @@ function renderSavebar() {
     if (bar) bar.remove();
     return;
   }
-  const sig = `${S.dirty}:${text}:${autoOn()}`;
+  const sig = `${S.dirty}:${text}:${autoOn()}:${S.conflict}`;
   if (bar && bar.dataset.sig === sig) return;
   if (!bar) {
     bar = document.createElement('div');
@@ -568,7 +576,8 @@ function renderSavebar() {
     document.body.appendChild(bar);
   }
   bar.dataset.sig = sig;
-  bar.innerHTML = (S.dirty ? '<span>저장하지 않은 변경이 있어요</span><button class="btn small" data-action="revert">되돌리기</button><button class="btn small primary" data-action="save">저장</button>' : '')
+  bar.innerHTML = (S.dirty && S.conflict ? '<span>다른 탭이나 기기에서 먼저 저장해 이 변경을 저장하지 못했어요</span><button class="btn small" data-action="revert">다시 불러오기 (이 변경 버림)</button><button class="btn small danger" data-action="saveForce">내 변경으로 덮기</button>'
+    : S.dirty ? '<span>저장하지 않은 변경이 있어요</span><button class="btn small" data-action="revert">되돌리기</button><button class="btn small primary" data-action="save">저장</button>' : '')
     + (text !== null ? `<span>${text}화 본문을 저장하지 않았어요</span><button class="btn small primary" data-action="saveText" data-arg="${text}"${autoOn() ? ' disabled title="자동 집필이 도는 동안은 본문을 저장할 수 없어요"' : ''}>본문 저장</button>` : '');
 }
 
@@ -600,7 +609,7 @@ window.addEventListener('beforeunload', (e) => {
   e.returnValue = '';
 });
 
-async function save() {
+async function save(force = false) {
   // 끝난 작업 중 결과를 이미 받아 온 것을 알려야 서버가 그 화를 덮어써도 된다고 안다
   const merged = [...S.jobs.filter((j) => j.status !== 'running').map((j) => j.id), ...(S.jobsSeen || [])].join(',');
   const meta = {};
@@ -608,8 +617,17 @@ async function save() {
   const base = projectBase;
   const edited = (k) => !base || (k.field === 'relationships' ? JSON.stringify(sent.relationships) !== base.rels
     : JSON.stringify((sent.episodes.find((e) => e.plot.number === k.ep) || {}).plot) !== base.plots.get(k.ep));
-  S.project = await api('PUT', `/projects/${enc(S.name)}?merged=${enc(merged)}`, sent, meta);
+  try {
+    S.project = await api('PUT', `/projects/${enc(S.name)}?merged=${enc(merged)}${force ? '&force=true' : ''}`, sent, meta);
+  } catch (e) {
+    if (e.status === 409) {  // 다른 화면이 먼저 저장했다. 저장 띠에서 다시 불러오기와 덮어쓰기 중에 고른다
+      S.conflict = true;
+      renderSavebar();
+    }
+    throw e;
+  }
   S.dirty = false;
+  S.conflict = false;
   // 서버가 작업 · 자동 집필 · 다른 곳의 반영을 지키느라 화면 값 대신 서버 것을 둔 칸. 화면이 고친 칸이면 성공 토스트만으로는 버린 줄 모른다
   const head = meta.headers && meta.headers.get('X-Canon-Kept');
   const kept = head ? JSON.parse(decodeURIComponent(head)) : [];
@@ -638,6 +656,10 @@ const actions = {
   },
   async revert() {
     await run('불러오는 중', async () => { await loadProject(S.name); });
+  },
+  async saveForce() {
+    if (!confirm('다른 탭이나 기기에서 저장한 변경을 이 화면의 작품으로 덮어쓸까요? 그쪽에서 바꾼 설정 · 플롯은 사라집니다.')) return;
+    await run('저장 중', async () => { if (await save(true) !== false) toast('저장했습니다'); });
   },
   async copyOrphan(n) {
     const t = S.textDraft[n] || '';
@@ -1424,6 +1446,7 @@ async function loadProject(name) {
   S.project = fresh;
   S.name = name;
   S.dirty = false;
+  S.conflict = false;
 }
 
 let lastHash = location.hash;
@@ -1438,7 +1461,17 @@ window.addEventListener('hashchange', async () => {
   await route();
 });
 
-async function route() {
+// 화면 이동은 하나씩 차례로 처리한다. 늦게 끝난 앞 이동이 지금 화면의 데이터(지시서, 컨텍스트 등)를 덮지 않게 하고,
+// 기다리는 사이 또 옮겼으면 중간 화면은 건너뛴다
+let routeQueue = Promise.resolve();
+let routeWanted = 0;
+function route() {
+  const my = ++routeWanted;
+  routeQueue = routeQueue.then(() => (my === routeWanted ? routeNow() : undefined)).catch((e) => toast(e.message, true));
+  return routeQueue;
+}
+
+async function routeNow() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
   S.route = parts;
   S.context = null;
@@ -2044,9 +2077,11 @@ async function loadNames(key, req, ai) {
   });
 }
 
+let nameSeq = 0;
 async function checkNames(show = false) {
+  const my = ++nameSeq;
   const r = await api('POST', `/projects/${enc(S.name)}/names/check`, P()).catch(() => null);
-  if (!r) return;
+  if (!r || my !== nameSeq) return;  // 더 나중에 보낸 점검이 있으면 그 결과를 쓴다
   S.nameCheck = r;
   const box = $('#name-check');
   if (box) box.outerHTML = nameCheckBox();

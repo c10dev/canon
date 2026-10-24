@@ -16,6 +16,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from . import store
+
 KEEP_SECONDS = 600  # 끝난 작업을 목록에 남겨 두는 시간
 OWN_GRACE = 30  # 끝난 뒤에도 화면이 새 내용을 받아 갈 때까지 맡은 화를 지키는 시간
 
@@ -86,6 +88,7 @@ def start(project: str, kind: str, ep: int | None, label: str, fn: Callable[[Job
         _jobs[job.id] = job
 
     def run() -> None:
+        store.writer.set("")  # 작업의 저장은 시작한 화면의 저장이 아니다 (다른 화면에 충돌로 보이지 않게)
         try:
             job.result = fn(job)
             job.done = job.total

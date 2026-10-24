@@ -227,6 +227,7 @@ pre.brief { margin: 0; padding: 16px; border-radius: 8px; background: var(--bg);
 
 .savebar { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); padding: 10px 10px 10px 18px; border-radius: 12px; background: var(--text); color: #fff; display: flex; gap: 14px; align-items: center; box-shadow: 0 6px 24px rgba(0,0,0,0.2); z-index: 20; }
 .savebar .btn { min-height: 40px; }
+.savebar .btn { white-space: nowrap; }
 #toast { position: fixed; right: 20px; bottom: 20px; max-width: 420px; z-index: 40; display: flex; flex-direction: column; gap: 8px; }
 #toast .t { padding: 12px 16px; border-radius: 10px; background: var(--text); color: #fff; font-size: 13px; line-height: 1.5; box-shadow: 0 6px 24px rgba(0,0,0,0.2); }
 #toast .t.err { background: var(--red); }
@@ -315,6 +316,8 @@ body.chat-open .savebar { left: calc(50% - 220px); }
   body.chat-open .savebar { left: 50%; }
   .chat-panel { box-shadow: -8px 0 32px rgba(0,0,0,0.16); }
 }
+/* 좁은 폭: 저장 띠를 화면 폭에 맞추고 문구와 버튼을 줄바꿈한다 */
+@media (max-width: 720px) { .savebar, body.chat-open .savebar { left: 16px; right: 16px; transform: none; flex-wrap: wrap; } .savebar > span { flex: 1 1 100%; } }
 @media (max-width: 640px) { body.chat-open .main { padding-right: 16px; } }
 /* 본문 부분 수정 (passage.js). 본문에서 고르면 뜨는 도구, 후보 비교, 수정 기록 */
 .sel-tool { position: absolute; z-index: 25; display: flex; gap: 6px; padding: 6px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,0.16); }

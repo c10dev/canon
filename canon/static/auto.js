@@ -62,7 +62,12 @@ function autoPoll() {
     if (name !== S.name) return;
     S.auto = fresh;
     const changed = fresh && fresh.run && fresh.run.updated !== before;
-    if (changed && !S.dirty) S.project = await api('GET', `/projects/${enc(name)}`).catch(() => S.project);
+    if (changed && !S.dirty) {
+      const gen = S.gen;
+      const p = await api('GET', `/projects/${enc(name)}`).catch(() => null);
+      // 받는 사이 입력 · 저장이 있었으면 이 작품이 더 오래됐을 수 있다. 화는 작업 폴링(mergeEpisodes)이 맞춘다
+      if (p && name === S.name && !S.dirty && gen === S.gen) S.project = p;
+    }
     if (changed && !fresh.active && S.route[2] === 'auto') await autoEstimate();  // 멈추거나 끝나면 남은 화 추정을 새로
     if (changed && !isTyping() && S.route[0] === 'p' && ['auto', 'home', ''].includes(S.route[2] || '')) render();
     autoPoll();
