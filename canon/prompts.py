@@ -15,6 +15,7 @@ from . import elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
 from .schema import Character, ChatMessage, ConsistencyReport, Foreshadow, ImpactReport, Project, Selection, StateDelta, StoryElement
+from . import foreshadows, statwin
 
 SYSTEM_PLANNER = (
     "당신은 한국 웹소설/단편소설 기획 전문 편집자입니다. "
@@ -1386,6 +1387,7 @@ def episode_prompt(p: Project, n: int, approach: str = "") -> str:
         "문체는 스타일 프로필과 문체 예시 문단을 따르고, banned_phrases 의 표현은 쓰지 않습니다. "
         "플롯의 emotional_shift 는 감정 이름으로 서술하지 말고 행동과 대사로 보여 줍니다. "
         "인물의 말투는 speech_style 을 따릅니다."
+        + statwin.write_rule(p)
     )
 
 
@@ -1491,7 +1493,7 @@ def state_prompt(p: Project, n: int) -> str:
 - 새로 생긴 비밀은 secrets_added 에 넣고, 비밀이 드러난 사건에는 reveals_secret 에 비밀 id 를 적습니다.
 - 새 복선 id 는 fs-{n:02d}-키워드 형식으로 짓습니다. 이번 아크 안에서 회수할 작은 복선은 scope 를 arc, 부나 작품 끝까지 갈 복선은 part 나 series 로 둡니다.
 - 인물 설정과 목록에 없는 인물이 이름을 갖고 처음 나왔으면 new_characters 에 넣습니다. 조연은 tier 를 support, 지나가는 인물은 minor 로 두고, 본문에서 드러난 것만 적습니다.
-- warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다.{storylines.state_rule(p, n)}"""
+- warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다.{storylines.state_rule(p, n)}{foreshadows.state_rule(p)}{statwin.state_rule(p)}"""
 
 
 def check_prompt(p: Project, n: int) -> str:

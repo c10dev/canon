@@ -24,6 +24,8 @@
   python -m canon edits 내소설 [3] [--undo e2 | --jsonl]   본문 부분 수정 기록 보기, 되돌리기, 고치기 전후 쌍 내보내기
   python -m canon check 내소설 3        본문 검수 (앞선 본문·설정과의 모순, 근거 인용)
   python -m canon stats 내소설 [3]      문체 지표를 레퍼런스와 비교
+  python -m canon foreshadows 내소설     복선 센터: 심은 문장 · 회수한 문장, 회수율, 끊어진 연결
+  python -m canon statwin 내소설 hero   상태창 수치와 화별 변화 (--set 레벨=1 로 만들고 고치기)
   python -m canon update 내소설 3       상태 변경안 확인 후 반영
   python -m canon run 내소설            확정된 화를 순서대로 write → check → update
   python -m canon auto 내소설 --to 12 [--batch]   목표 화까지 자동 집필 (정책에 걸리면 멈춤, --resume 으로 이어 가기)
@@ -59,6 +61,8 @@ from . import (autorun, cast, dynamics, elements, genres, illust, library, logli
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
+from . import foreshadows, statwin
+from .schema import StatValue
 
 
 def ask(label: str, default: str = "") -> str:
@@ -860,6 +864,8 @@ def _print_delta(d: StateDelta) -> None:
     print(f"\n=== {d.episode}화 상태 변경안 ===\n요약: {d.summary}")
     for c in d.character_updates:
         print(f"- 인물 {c.character_id}: 감정={c.emotional_state} 목표={c.current_goal} 위치={c.location} 새로 앎={c.knows}")
+        if c.stats:
+            print(f"  · 상태창: {', '.join(f'{x.name} {x.value or "지움"}' for x in c.stats)}")
     for e in d.events:
         extra = f" (목격: {', '.join(e.witnesses)})" if e.witnesses else ""
         secret = f" [비밀 {e.reveals_secret} 드러남]" if e.reveals_secret else ""
@@ -875,6 +881,8 @@ def _print_delta(d: StateDelta) -> None:
         print(f"- 복선 심음 {f.id}: {f.description}")
     for f in d.foreshadow_resolved:
         print(f"- 복선 회수: {f}")
+    for c in d.foreshadow_clues:
+        print(f"  · 복선 {c.foreshadow} {'회수' if c.kind == 'payoff' else '심음'} 문장: \"{c.quote}\"")
     for w in d.warnings:
         print(f"! 경고: {w}")
 
@@ -897,6 +905,7 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
     if from_json:
         delta = StateDelta.model_validate_json(_strip_fence(Path(from_json).read_text(encoding="utf-8")))
         delta.episode = n
+        foreshadows.clean_delta(p, delta)
     else:
         print(f"{n}화 상태 추출 중...")
         delta = pipeline.extract_state(get_llm("state"), p, n)
@@ -1372,6 +1381,45 @@ def cmd_usage(a: argparse.Namespace) -> None:
     print(f"\n추정치예요. 실제 청구 금액은 Google AI Studio 사용량 화면에서 확인하세요: {s['billing_url']}")
 
 
+def cmd_foreshadows(a: argparse.Namespace) -> None:
+    """복선 센터. --prune 은 본문을 고쳐 사라진 문장에 걸린 연결을 지운다."""
+    p = store.load(a.name)
+    if a.prune:
+        k = foreshadows.prune(p)
+        store.save(a.name, p)
+        print(f"끊어진 연결 {k}개를 지웠습니다.\n")
+    print(foreshadows.describe(p, a.all))
+
+
+def cmd_statwin(a: argparse.Namespace) -> None:
+    """상태창 보기와 고치기. --set 레벨=13 HP=+20 스킬= (빈 값은 항목 지우기)."""
+    p = store.load(a.name)
+    if not a.character:
+        rows = [(c, p.state_of(c.id)) for c in p.characters]
+        have = [(c, s) for c, s in rows if s and s.stats]
+        for c, s in have:
+            print(f"  {c.name} ({c.id}): {', '.join(f'{x.name} {x.value}' for x in s.stats)}")
+        print("" if have else "상태창을 만든 인물이 없습니다.", "\n인물 하나를 보거나 만들려면: statwin <작품> <인물 id> [--set 레벨=1 힘=10]")
+        return
+    c = next((x for x in p.characters if x.id == a.character or x.name == a.character), None)
+    if c is None:
+        sys.exit(f"인물이 없습니다: {a.character}")
+    if a.set:
+        st = p.state_of(c.id)
+        rows = {x.name: x.value for x in (st.stats if st else [])}
+        for kv in a.set:
+            k, eq, v = (x.strip() for x in kv.partition("="))
+            if not k or not eq:
+                sys.exit(f"항목=값 으로 적어 주세요: {kv}")
+            if v:
+                rows[k] = v  # +3 같은 값은 set_stats 가 이전 값에 더한다
+            else:
+                rows.pop(k, None)
+        statwin.set_stats(p, c.id, [StatValue(name=k, value=v) for k, v in rows.items()])
+        store.save(a.name, p)
+    print(statwin.describe(p, c.id))
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="canon", description="데이터 기반 AI 소설 생성기 (MVP)")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1564,6 +1612,12 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--prices", action="store_true", help="가격표 보기")
     sp.set_defaults(fn=cmd_usage)
 
+    sp = add("foreshadows", cmd_foreshadows, yes=False)
+    sp.add_argument("--all", action="store_true", help="회수한 복선도 보기")
+    sp.add_argument("--prune", action="store_true", help="끊어진 연결 지우기")
+    sp = add("statwin", cmd_statwin, yes=False)
+    sp.add_argument("character", nargs="?", help="인물 id 나 이름. 비우면 상태창이 있는 인물 목록")
+    sp.add_argument("--set", nargs="+", action="extend", metavar="항목=값", help="값을 바꾸거나 더한다. +3 은 더하기, 빈 값은 항목 지우기")
     sp = add("cast", cmd_cast, yes=False)
     sp.add_argument("character", nargs="?", help="인물 id 나 이름. 비우면 인물 목록")
     sp.add_argument("--numbers", action="store_true", help="관계를 숫자로")
