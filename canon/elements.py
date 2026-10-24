@@ -26,7 +26,7 @@ def get(p: Project, eid: str) -> StoryElement:
     for el in p.elements:
         if el.id == eid:
             return el
-    raise KeyError(f"요소가 없습니다: {eid}")
+    raise KeyError(f"요소가 없어요: {eid}")
 
 
 def new_id(p: Project) -> str:

@@ -1155,15 +1155,36 @@ def passage_prompt(p: Project, n: int, sel: Selection, message: str, preset: str
 # 작품 기본 시점은 스타일 프로필 narration_pov (static_context, 캐시). 화 · 구간 · 아크에 시점을 적으면
 # 그 화에만 뒤쪽 블록으로 덮어쓴다. 직전 화 끝부분을 이어 쓰며 시점이 따라 굳는 것을 전환 안내로 끊는다.
 
+def _plan_pov(p: Project, n: int) -> str:
+    """n화가 속한 구간, 장편이면 아크에 적은 시점 글."""
+    act = p.act_for(n)
+    arc = p.arc_for(n) if p.serial else None
+    return ((act.pov if act else "") or (arc.pov if arc else "")).strip()
+
+
+def mode_in(text: str) -> str:
+    """시점 글 속 서술 방식 ('1인칭' · '3인칭 제한' · '3인칭 전지'). 없으면 빈 문자열. 화면의 modeIn 과 같은 규칙."""
+    if "전지" in text:
+        return "3인칭 전지"
+    if "3인칭" in text:
+        return "3인칭 제한"
+    return "1인칭" if "1인칭" in text else ""
+
+
 def pov_of(p: Project, n: int) -> tuple[str, str]:
-    """n화의 서술 시점 (비교 키, 한 줄 설명). 화 플롯 → 구간 → 아크 순서로 찾고, 없으면 ("", "") 곧 작품 기본."""
+    """n화의 서술 시점 (비교 키, 한 줄 설명). 화 플롯 → 구간 → 아크 순서로 찾고, 없으면 ("", "") 곧 작품 기본.
+    화에 시점 인물이나 서술 방식 한쪽만 적었으면 나머지는 구간 · 아크 시점에서 물려받는다."""
     e = next((x for x in p.episodes if x.plot.number == n), None)
     if e and (e.plot.pov or e.plot.pov_mode):
-        c = next((c for c in p.characters if e.plot.pov in (c.id, c.name)), None) if e.plot.pov else None
+        plan = _plan_pov(p, n)
+        if e.plot.pov:
+            c = next((c for c in p.characters if e.plot.pov in (c.id, c.name)), None)
+        else:
+            c = None if "전지" in (e.plot.pov_mode + plan) else char_in_text(p, plan)
         who = f"{c.name}({c.id})" if c else e.plot.pov
-        mode = e.plot.pov_mode or (f"작품 기본({p.style.narration_pov})" if p.style.narration_pov else "")
+        mode = e.plot.pov_mode or mode_in(plan) or (f"작품 기본({p.style.narration_pov})" if p.style.narration_pov else "")
         text = ", ".join(x for x in [f"시점 인물 {who}" if who else "", f"서술 {mode}" if mode else ""] if x)
-        return f"{c.id if c else e.plot.pov}|{e.plot.pov_mode}", text
+        return f"{c.id if c else e.plot.pov}|{e.plot.pov_mode or mode_in(plan)}", text
     act = p.act_for(n)
     if act and act.pov.strip():
         return act.pov.strip(), act.pov.strip()
@@ -1174,11 +1195,17 @@ def pov_of(p: Project, n: int) -> tuple[str, str]:
 
 
 def char_in_text(p: Project, text: str) -> Character | None:
-    """글 속 이름(또는 id)으로 인물 찾기. 긴 이름부터 봐서 겹치는 이름을 덜 헷갈린다."""
+    """글 속 이름(또는 id)으로 인물 찾기. 글에 먼저 나온 인물을 고르고, 같은 자리면 긴 이름을 고른다
+    ('강서윤 시점, 도현 등장' 은 강서윤). 화면의 charInText 와 같은 규칙."""
     if not text:
         return None
-    return next((c for c in sorted(p.characters, key=lambda c: -len(c.name))
-                 if (c.name and c.name in text) or c.id in text), None)
+    best = None
+    for c in p.characters:
+        for key in (c.name, c.id):
+            i = text.find(key) if key else -1
+            if i >= 0 and (best is None or (i, -len(key)) < best[0]):
+                best = ((i, -len(key)), c)
+    return best[1] if best else None
 
 
 def pov_character(p: Project, n: int) -> Character | None:
@@ -1187,11 +1214,10 @@ def pov_character(p: Project, n: int) -> Character | None:
     e = next((x for x in p.episodes if x.plot.number == n), None)
     if e and e.plot.pov:
         return next((c for c in p.characters if e.plot.pov in (c.id, c.name)), None)
-    if e and e.plot.pov_mode:
+    if e and "전지" in e.plot.pov_mode:
         return None
-    act = p.act_for(n)
-    arc = p.arc_for(n) if p.serial else None
-    plan = ((act.pov if act else "") or (arc.pov if arc else "")).strip()
+    # 서술 방식만 적은 화는 시점 인물을 구간 · 아크 · 작품 기본에서 물려받는다
+    plan = _plan_pov(p, n)
     if plan:
         return None if "전지" in plan else char_in_text(p, plan)
     base = p.style.narration_pov

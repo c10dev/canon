@@ -22,6 +22,9 @@ class LoglineTest(unittest.TestCase):
         self.assertEqual(logline.josa("서윤", "이", "가"), "이")
         self.assertEqual(logline.josa("서진이", "이", "가"), "가")
         self.assertEqual(logline.josa("K", "이", "가"), "이(가)")
+        # 숫자는 읽는 소리로: 손님2(이) → 와, 손님3(삼) → 과
+        self.assertEqual(logline.josa("손님2", "과", "와"), "와")
+        self.assertEqual(logline.josa("손님3", "과", "와"), "과")
 
     def test_checks_flag_missing(self):
         oks = [ok for ok, _ in logline.checks(LoglineParts(who="서윤", goal="행복"))]

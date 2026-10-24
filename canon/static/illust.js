@@ -1,5 +1,5 @@
 /* 삽화 프롬프트 (NovelAI). 집필 화면에서 본문 일부를 고르면 그 장면을 NovelAI 에 붙여 넣을 프롬프트로 만든다.
-   AI 는 장면을 태그로 옮기기만 하고, 인물 외형 · 인물 수 · 등급 · 품질 태그는 서버 canon/illust.py 가 붙인다.
+   AI는 장면을 태그로 옮기기만 하고, 인물 외형 · 인물 수 · 등급 · 품질 태그는 서버 canon/illust.py 가 붙인다.
    인물 외형 태그(Project.visuals)는 설정 화면의 인물 카드에서 정해 두면 화가 바뀌어도 같은 모습으로 나온다.
    고치는 본문 칸에서는 passage.js 의 떠 있는 도구에 '삽화 프롬프트' 가 붙고, 반영이 끝난 읽기 전용 본문에서는 여기서 작은 도구를 띄운다. */
 'use strict';
@@ -11,6 +11,9 @@ Object.assign(S, {
   illScroll: false, // 다시 그린 뒤 삽화 카드로 내려갈지
   illRebuild: {},   // 삽화 id → 다시 조립할 모델
   looks: {},        // 인물 id → AI 외형 태그 제안 메모
+  illOpen: {},      // 화 → 삽화 카드를 펼쳤는지 (없으면 삽화나 고른 부분이 있을 때 펼침)
+  illSetOpen: false, // 삽화 카드 안 '삽화 설정'을 펼쳤는지
+  visOpen: {},      // 인물 id → 설정 화면 '삽화 외형 태그'를 펼쳤는지 (AI 작업 뒤 다시 그려도 남긴다)
 });
 
 const IL_SUBJECT = { girl: '여성 (girl)', boy: '남성 (boy)', other: '그 밖 (other)' };
@@ -45,6 +48,25 @@ async function copyPlain(text) {
 
 // ----- 설정 화면: 인물 카드의 외형 태그 -----
 
+/** 프롬프트를 조립할 때 빠지는 태그 (illust.clean 과 같은 규칙: 한글, 인물 수, 등급, 성별 태그). 함께 고친다. */
+function dropTags(text) {
+  return splitTags(text).map((t) => t.trim().replace(/\.$/, '')).filter((t) => t && !t.includes('::')).filter((t) => {
+    const x = t.toLowerCase().replace(/(?<=[a-z0-9])_(?=[a-z0-9(])/g, ' ').replace(/\s+/g, ' ');
+    return /[ㄱ-ㆎ가-힣]/.test(x) || /^(\d+\+?|multiple|no)\s*(girls?|boys?|others?|humans)$/.test(x) || x.startsWith('rating:') || ['girl', 'boy', 'other'].includes(x);
+  });
+}
+
+const dropNote = (text) => {
+  const d = dropTags(text);
+  return d.length ? `삽화에서 빠지는 태그: ${d.map(esc).join(', ')} (한글 · 인물 수 · 성별 · 등급은 프로그램이 따로 붙여요)` : '';
+};
+
+/** 접힌 '삽화 외형 태그' 제목 옆 요약. */
+function visSummary(v) {
+  const k = (v.look || []).length - dropTags((v.look || []).join(', ')).length;
+  return (v.look || []).length ? `${k}개 · 화마다 같은 모습으로 그려요` : 'NovelAI 삽화용, 아직 없음';
+}
+
 /** 인물 카드 아래 '삽화 외형 태그'. visuals 항목은 처음 고칠 때 만든다. */
 function visualFields(c) {
   const v = ilVisual(c.id) || {};
@@ -52,12 +74,13 @@ function visualFields(c) {
   const has = (v.look || []).length > 0;
   const sub = v.subject || '';
   const area = (k, label, hint, ph) => `<div class="field"><label for="${id(k)}">${label} <span class="hint">${hint}</span></label>
-    <textarea id="${id(k)}" rows="2" class="mono" data-vis="${esc(c.id)}" data-vis-key="${k}" placeholder="${ph}">${esc((v[k] || []).join(', '))}</textarea></div>`;
+    <textarea id="${id(k)}" rows="2" class="mono" data-vis="${esc(c.id)}" data-vis-key="${k}" placeholder="${ph}">${esc((v[k] || []).join(', '))}</textarea>
+    <div class="small warn-text" data-vis-drop="${esc(c.id)}:${k}">${dropNote((v[k] || []).join(', '))}</div></div>`;
   const note = S.looks[c.id];
-  return `<details class="vis"><summary>삽화 외형 태그 <span class="small">${has ? `${v.look.length}개 · 화마다 같은 모습으로 그려요` : 'NovelAI 삽화용, 아직 없음'}</span></summary>
+  return `<details class="vis" data-vis-open="${esc(c.id)}"${S.visOpen[c.id] ? ' open' : ''}><summary>삽화 외형 태그 <span class="small" data-vis-sum="${esc(c.id)}">${visSummary(v)}</span></summary>
     <div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
-      <div class="between"><span class="small">영어 태그를 쉼표로 나눠 적어요. 삽화 프롬프트마다 그대로 들어갑니다.</span>
-        <button type="button" class="btn small" data-action="lookAI" data-arg="${esc(c.id)}">설정에서 AI 로 만들기</button></div>
+      <div class="between"><span class="small">영어 태그를 쉼표로 나눠 적어요. 삽화 프롬프트마다 그대로 들어가요.</span>
+        <button type="button" class="btn small" data-action="lookAI" data-arg="${esc(c.id)}">설정에서 AI로 만들기</button></div>
       ${note ? `<div class="note info">${esc(note)}</div>` : ''}
       <div class="field"><label for="${id('subject')}">그림 속 성별 <span class="hint">비우면 성별 칸으로 정해요</span></label>
         <select id="${id('subject')}" data-vis="${esc(c.id)}" data-vis-key="subject"><option value="">자동</option>${Object.entries(IL_SUBJECT).map(([k, l]) => `<option value="${k}"${sub === k ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
@@ -81,9 +104,30 @@ function setVisual(cid, key, value) {
 
 document.addEventListener('input', (e) => {
   const el = e.target;
-  if (el.dataset && el.dataset.vis) setVisual(el.dataset.vis, el.dataset.visKey, el.value);
+  if (el.dataset && el.dataset.vis) {
+    setVisual(el.dataset.vis, el.dataset.visKey, el.value);
+    const d = document.querySelector(`[data-vis-drop="${CSS.escape(`${el.dataset.vis}:${el.dataset.visKey}`)}"]`);
+    if (d) d.innerHTML = dropNote(el.value);
+    const sum = document.querySelector(`[data-vis-sum="${CSS.escape(el.dataset.vis)}"]`);
+    if (sum) sum.textContent = visSummary(ilVisual(el.dataset.vis) || {});
+  }
   if (el.id === 'ill-ask') S.illAsk = el.value;
 });
+
+// '바라는 것' 칸에서 Enter: 고른 부분이 있으면 그 부분으로, 없으면 AI가 장면을 골라 만든다 (한글 조합 중 Enter 는 넘긴다)
+document.addEventListener('keydown', (e) => {
+  if (e.target.id !== 'ill-ask' || e.key !== 'Enter' || e.isComposing || e.keyCode === 229 || !S.illModels) return;
+  e.preventDefault();
+  actions.illMake(ilSel(ilEpNum()) ? 'sel' : 'auto');
+});
+
+document.addEventListener('toggle', (e) => {
+  const t = e.target;
+  if (!t.matches) return;
+  if (t.matches('[data-vis-open]')) S.visOpen[t.dataset.visOpen] = t.open;
+  else if (t.id === 'ill-panel') S.illOpen[t.dataset.illEp] = t.open;
+  else if (t.matches('[data-ill-settings]')) S.illSetOpen = t.open;
+}, true);
 
 document.addEventListener('change', (e) => {
   const el = e.target;
@@ -104,12 +148,16 @@ function ilCard(n, x) {
   const pick = S.illRebuild[x.id] || x.model;
   const chars = x.characters.map((c, k) => ilField(`인물 ${k + 1} · ${esc(c.name || '이름 없는 인물')}`, c.prompt, 2,
     `${c.position ? ` <span class="chip">${esc(c.position)}</span>` : ''}${c.negative ? ` <span class="small">부정: ${esc(c.negative)}</span>` : ''}`)).join('');
-  const missing = (x.missing_look || []).map((cid) => `<div class="note warn between"><span>${esc(names[cid] || cid)}: 외형 태그가 저장되지 않아 AI 가 붙인 태그를 썼어요. 다음 삽화에서 모습이 달라질 수 있어요.</span>
-      <button type="button" class="btn small" data-action="illKeepLook" data-arg="${esc(x.id)}|${esc(cid)}">이 태그로 고정</button></div>`).join('');
+  // 만들 때 외형이 없던 인물. 그 뒤 설정에 외형을 저장했으면 고정 대신 다시 조립을 권한다 (고정하면 저장한 태그를 덮는다)
+  const missing = (x.missing_look || []).map((cid) => (((ilVisual(cid) || {}).look || []).length
+    ? `<div class="note info between"><span>${esc(names[cid] || cid)}: 이 삽화를 만든 뒤 설정에 외형 태그가 생겼어요. 다시 조립하면 저장된 태그가 들어가요.</span>
+      <button type="button" class="btn small" data-action="illRebuild" data-arg="${esc(x.id)}">다시 조립</button></div>`
+    : `<div class="note warn between"><span>${esc(names[cid] || cid)}: 외형 태그가 저장되지 않아 AI가 붙인 태그를 썼어요. 다음 삽화에서 모습이 달라질 수 있어요.</span>
+      <button type="button" class="btn small" data-action="illKeepLook" data-arg="${esc(x.id)}|${esc(cid)}">이 태그로 고정</button></div>`)).join('');
   return `<article class="ill-card">
     <div class="row" style="gap:6px"><strong>${esc(x.draft.scene || '장면')}</strong>
       <span class="chip">${esc(m.label)}</span><span class="chip${x.rating === 'general' ? '' : ' written'}">${IL_RATING[x.rating] || x.rating}</span>
-      <span class="small">${x.selection ? '고른 부분' : 'AI 가 고른 장면'} · ${editTime(x.at)}</span></div>
+      <span class="small">${x.selection ? '고른 부분' : 'AI가 고른 장면'} · ${editTime(x.at)}</span></div>
     <blockquote class="ill-quote">${esc((x.selection && x.selection.text.length <= 400 ? x.selection.text : x.draft.quote) || '')}</blockquote>
     ${x.request ? `<div class="small">요청: ${esc(x.request)}</div>` : ''}
     ${missing}
@@ -121,8 +169,8 @@ function ilCard(n, x) {
     <div class="row ill-foot" style="gap:6px">
       <select aria-label="다시 조립할 모델" data-ill-rebuild="${esc(x.id)}">${(S.illModels || []).map((o) => `<option value="${esc(o.id)}"${o.id === pick ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select>
       <button type="button" class="btn small" data-action="illRebuild" data-arg="${esc(x.id)}">다시 조립</button>
-      <span class="small" style="flex:1 1 200px">AI 를 다시 부르지 않고 고른 모델과 지금 외형 태그 · 화풍으로 다시 맞춰요</span>
-      <button type="button" class="btn small danger" data-action="illDelete" data-arg="${esc(x.id)}">지우기</button></div>
+      <span class="small" style="flex:1 1 200px">AI를 다시 부르지 않고 고른 모델과 지금 외형 태그 · 화풍으로 다시 맞춰요</span>
+      <button type="button" class="btn small danger" data-action="illDelete" data-arg="${esc(x.id)}">삭제</button></div>
   </article>`;
 }
 
@@ -139,33 +187,36 @@ function illustPanel(n) {
   // 가장 최근 것만 펼치고, 앞서 만든 것은 접어 둔다
   const list = [...(e.illustrations || [])].reverse().map((x, k) => (k === 0 ? ilCard(n, x)
     : `<details class="ill-old"><summary><strong>${esc(x.draft.scene || '장면')}</strong> <span class="small">${esc(ilModel(x.model).label)} · ${editTime(x.at)} · ${esc(clip((x.selection ? x.selection.text : x.draft.quote) || '', 40))}</span></summary>${ilCard(n, x)}</details>`)).join('');
-  return `<section class="card" id="ill-panel" aria-label="삽화 프롬프트">
-    <div class="between"><h2>삽화 프롬프트 <span class="small">NovelAI</span></h2>
-      <span class="small">본문을 드래그해 '삽화 프롬프트'를 누르거나, 장면을 AI 에게 맡기세요</span></div>
+  const count = (e.illustrations || []).length;
+  const open = S.illOpen[n] ?? (count > 0 || !!sel);
+  return `<details class="card" id="ill-panel" data-ill-ep="${n}" aria-label="삽화 프롬프트"${open ? ' open' : ''}>
+    <summary class="between"><h2>삽화 프롬프트 <span class="small">NovelAI${count ? ` · ${count}개` : ''}</span></h2>
+      <span class="small">본문을 드래그해 '삽화 프롬프트'를 누르거나, 장면을 AI에게 맡기세요</span></summary>
     <div class="cols" style="gap:16px">
       <div style="flex:2 1 420px;min-width:0;display:flex;flex-direction:column;gap:10px">
         ${sel ? `<div class="sel-target" style="padding:0;border:0"><div class="between"><span class="small">그릴 부분 · ${sel.text.length.toLocaleString()}자</span><button type="button" class="btn small" data-action="illClear">고른 것 풀기</button></div>
           <blockquote>${esc(clip(sel.text, 300))}</blockquote></div>`
-        : '<div class="note plain">본문에서 그릴 부분을 드래그해 고르면 여기에 담겨요. 고르지 않으면 AI 가 이 화에서 그림이 될 장면을 골라요.</div>'}
+        : '<div class="note plain">본문에서 그릴 부분을 드래그해 고르면 여기에 담겨요. 고르지 않으면 AI가 이 화에서 그림이 될 장면을 골라요.</div>'}
         <div class="field"><label for="ill-ask">바라는 것 <span class="hint">선택. 예: 뒷모습으로, 비 오는 밤, 두 사람만</span></label>
           <input id="ill-ask" type="text" value="${esc(S.illAsk)}" placeholder="비우면 장면 그대로"></div>
         <div class="row" style="gap:6px">
           <button type="button" class="btn primary" data-action="illMake" data-arg="sel"${sel && !busy ? '' : ' disabled'}>고른 부분으로 만들기</button>
-          <button type="button" class="btn" data-action="illMake" data-arg="auto"${busy ? ' disabled' : ''}>AI 가 장면 고르기</button></div>
+          <button type="button" class="btn" data-action="illMake" data-arg="auto"${busy ? ' disabled' : ''}>AI가 장면 고르기</button></div>
         ${cast.length ? `<div class="small">이 화 인물 외형 태그: ${castLine} <a href="${base()}/setup">설정에서 고치기</a></div>` : ''}
       </div>
-      <div style="flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:8px">
+      <details data-ill-settings style="flex:1 1 260px;min-width:0"${S.illSetOpen ? ' open' : ''}><summary class="small"><strong>삽화 설정</strong> · ${esc(ilModel(s.model).label)}${(s.style || []).length ? ` · 화풍 ${s.style.length}개` : ''}</summary>
+      <div style="display:flex;flex-direction:column;gap:8px;padding-top:8px">
         <div class="field"><label for="ill-model">NovelAI 모델</label>
           <select id="ill-model" data-bind="illust.model" data-kind="text">${(S.illModels || []).map((o) => `<option value="${esc(o.id)}"${o.id === s.model ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select></div>
         ${input('화풍 태그', 'illust.style', { kind: 'tags', rows: 2, hint: '모든 삽화에 들어가요', placeholder: 'watercolor, soft lighting' })}
         ${input('공통 부정 태그', 'illust.negative', { kind: 'tags', rows: 2, placeholder: 'blurry, multiple views' })}
         <label class="row small" style="gap:6px"><input type="checkbox" data-bind="illust.quality" data-kind="bool"${s.quality ? ' checked' : ''}><span style="flex:1 1 0;min-width:0">품질 태그 직접 넣기 (NovelAI 의 Add Quality Tags 를 끈 경우)</span></label>
         <label class="row small" style="gap:6px"><input type="checkbox" data-bind="illust.basic_negative" data-kind="bool"${s.basic_negative ? ' checked' : ''}><span style="flex:1 1 0;min-width:0">기본 부정 태그 넣기 (UC 프리셋을 끈 경우)</span></label>
-        <span class="small">${P().meta.adult ? '성인 작품이라 장면에 맞는 등급(rating)을 붙여요.' : '전연령 작품이라 등급을 general · sensitive 로 묶고 부정 프롬프트에 nsfw 를 넣어요.'} 바꾼 설정은 저장한 뒤 새로 만들거나 '다시 조립'하면 들어가요.</span>
-      </div>
+        <span class="small">${P().meta.adult ? '성인 작품이라 장면에 맞는 등급(rating)을 붙여요.' : '전연령 작품이라 등급을 general · sensitive 로 묶고 부정 프롬프트에 nsfw 를 넣어요.'} 바꾼 설정은 새로 만들거나 '다시 조립'할 때 함께 저장돼요.</span>
+      </div></details>
     </div>
     ${list ? `<div class="ill-list">${list}</div>` : ''}
-  </section>`;
+  </details>`;
 }
 
 // ----- 읽기 전용 본문(반영한 화)에서 고르기 -----
@@ -205,12 +256,13 @@ function readRangeSel(div) {
   return b > a ? { n: Number(div.dataset.read), start: a, text: v.slice(a, b), rect: r.getBoundingClientRect() } : null;
 }
 
-document.addEventListener('mouseup', (e) => {
-  if (e.target.closest && e.target.closest('#ill-tool')) return;
+/** 읽기 전용 본문에서 고르면 삽화 도구를 띄운다. 마우스, 터치(길게 눌러 고르기), Shift+방향키 모두 같은 처리를 탄다. */
+function onReadSelect(e, showOnly = false) {
+  if (e && e.target && e.target.closest && e.target.closest('#ill-tool')) return;
   setTimeout(() => {
     const div = document.querySelector('.read[data-read]');
     const s = div && readRangeSel(div);
-    if (!s) return hideIlTool();
+    if (!s) return showOnly ? undefined : hideIlTool();
     S.illPending = s;
     const el = ilTool();
     el.hidden = false;
@@ -218,6 +270,16 @@ document.addEventListener('mouseup', (e) => {
     el.style.left = `${Math.min(Math.max(8, s.rect.right - w), document.documentElement.clientWidth - w - 8) + window.scrollX}px`;
     el.style.top = `${s.rect.bottom + 6 + window.scrollY}px`;
   }, 0);
+}
+
+document.addEventListener('mouseup', onReadSelect);
+document.addEventListener('touchend', onReadSelect);
+document.addEventListener('keyup', (e) => { if (e.shiftKey || e.key === 'Shift') onReadSelect(e); });
+// 휴대폰은 손잡이로 범위를 바꿀 때 selectionchange 만 온다. 여기서는 띄우기만 하고 닫지는 않는다 (도구 버튼을 누를 때 고른 것이 풀려도 남게)
+let readSelTimer = 0;
+document.addEventListener('selectionchange', () => {
+  clearTimeout(readSelTimer);
+  readSelTimer = setTimeout(() => onReadSelect(null, true), 200);
 });
 
 /** render() 직후: 떠 있는 도구를 닫고, 방금 만든 삽화가 보이게 내려간다. */
@@ -225,6 +287,8 @@ function syncIllust() {
   hideIlTool();
   if (!S.illScroll) return;
   S.illScroll = false;
+  const panel = document.getElementById('ill-panel');
+  if (panel && !panel.open) panel.open = true;
   const card = document.querySelector('#ill-panel .ill-card');
   (card || document.getElementById('ill-panel'))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -287,34 +351,51 @@ Object.assign(actions, {
     });
   },
   async illDelete(id) {
-    if (!confirm('이 삽화 프롬프트를 지울까요?')) return;
+    if (!confirm(`이 삽화 프롬프트를 지울까요?${S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : ''}`)) return;
     const n = ilEpNum();
     await run('지우는 중', async () => {
       await saveIfDirty();
       S.project = await api('DELETE', `/projects/${enc(S.name)}/episodes/${n}/illust/${enc(id)}`);
+      toast('삽화 프롬프트를 지웠어요');
     });
   },
   async illKeepLook(arg) {
     const [id, cid] = String(arg).split('|');
     const n = ilEpNum();
+    const have = ((ilVisual(cid) || {}).look || []).join(', ');
+    // 이미 저장한 외형이 있으면 지금 값과 AI 값을 보여 주고 묻는다. 서버도 확인(force) 없이는 덮지 않는다
+    const ill = (ep(n).illustrations || []).find((x) => x.id === id);
+    const ai = ill ? ((ill.draft.characters.find((c) => c.id === cid) || {}).look || []).join(', ') : '';
+    const force = !!have;
+    const also = S.dirty ? '저장하지 않은 다른 변경도 함께 저장해요.' : '';
+    if (force && !confirm(`${charName(cid)}의 외형 태그를 바꿀까요?${also ? ` ${also}` : ''}\n\n지금: ${have}\nAI: ${ai}`)) return;
+    if (!force && also && !confirm(`${charName(cid)}의 외형 태그를 이 태그로 고정할까요? ${also}`)) return;
     await run('외형 태그 저장 중', async () => {
       await saveIfDirty();
-      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/illust/${enc(id)}/keep-look`, { character_id: cid });
+      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/illust/${enc(id)}/keep-look`, { character_id: cid, force });
       toast(`${charName(cid)}의 외형 태그로 저장했어요. 설정 도우미 인물 카드에서 고칠 수 있어요`);
     });
   },
   async lookAI(cid) {
     const v = ilVisual(cid);
-    if (v && (v.look || []).length && !confirm('지금 적힌 외형 태그를 AI 제안으로 바꿀까요? 저장하기 전에는 되돌릴 수 있어요')) return;
+    const filled = v ? [['외형', v.look], ['기본 옷차림', v.outfit]].filter(([, x]) => (x || []).length).map(([k]) => k) : [];
+    if (v && v.subject) filled.push('그림 속 성별');
+    if (filled.length && !confirm(`지금 적힌 ${filled.join(' · ')}을(를) AI 제안으로 바꿀까요? 저장하기 전에는 '변경 모두 버리기'로 되돌릴 수 있어요`)) return;
     await run('외형 태그 만드는 중', async () => {
+      await saveIfDirty();  // AI는 저장된 인물 설정을 읽는다. 방금 고친 설정이나 새 인물도 보게 먼저 저장한다
       const s = await api('POST', `/projects/${enc(S.name)}/characters/${enc(cid)}/look`);
       setVisual(cid, 'look', s.look.join(', '));
       if (s.outfit.length) setVisual(cid, 'outfit', s.outfit.join(', '));
-      setVisual(cid, 'subject', s.subject);
+      // '자동'은 성별 칸으로 정한다(illust.subject_of). 같은 값이면 자동으로 둬서 성별 칸을 고치면 따라가게 한다
+      const c = P().characters.find((x) => x.id === cid);
+      const g = ((c && c.gender) || '').trim().toLowerCase();
+      const auto = g.startsWith('여') || ['f', 'female', 'woman', 'girl'].includes(g) ? 'girl' : g.startsWith('남') || ['m', 'male', 'man', 'boy'].includes(g) ? 'boy' : 'other';
+      if ((ilVisual(cid) || {}).subject || s.subject !== auto) setVisual(cid, 'subject', s.subject);
       S.looks[cid] = s.note || '';
       toast('제안을 칸에 넣었어요. 고친 뒤 저장하세요');
     });
-    const d = document.querySelector(`[data-vis="${CSS.escape(cid)}"]`)?.closest('details');
+    S.visOpen[cid] = true;
+    const d = document.querySelector(`[data-vis-open="${CSS.escape(cid)}"]`);
     if (d) d.open = true;
   },
 });

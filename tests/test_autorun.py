@@ -1,6 +1,7 @@
 """자동 집필 (canon/autorun.py) 테스트. mock LLM 과 mock 배치로 돈다."""
 import contextlib
 import io
+import json
 import os
 import tempfile
 import time
@@ -72,6 +73,14 @@ def test_full_run_with_review_stop(demo):
     assert p.episode(2).status == "written" and p.episode(2).issues
     with pytest.raises(ValueError):
         autorun.resume(demo, foreground=True)  # 검토 대기 중인데 아무것도 고르지 않았다
+    assert run.pending_text == p.episode(2).text
+    # 변경안을 만든 뒤 본문을 고쳤으면 옛 변경안을 그대로 반영하지 않는다
+    p.episode(2).text = "작가가 고친 2화 본문"
+    store.save(demo, p)
+    with pytest.raises(ValueError, match="본문을 고쳤어요"):
+        autorun.resume(demo, approve=True, foreground=True)
+    p.episode(2).text = run.pending_text
+    store.save(demo, p)
     run = autorun.resume(demo, approve=True, foreground=True)
     assert run.status == "done"
     p = store.load(demo)
@@ -109,9 +118,11 @@ def test_review_every_and_rewrite(demo):
     assert run.status == "paused" and run.applied == [1]
     run = autorun.start(demo, 3, False, Policy(), foreground=True)
     assert run.status == "review" and run.ep == 2
+    before = store.load(demo).episode(2).text
     run = autorun.resume(demo, rewrite=True, foreground=True)
     assert run.status == "review" and run.ep == 2  # mock 은 다시 써도 같은 문제를 낸다
-    assert any("다시 씁니다" in e.message for e in run.log)
+    assert store.load(demo).episode(2).versions[-1].text == before  # 지운 본문은 이전 판으로 남는다
+    assert any("다시 써요" in e.message for e in run.log)
 
 
 def test_pause_keeps_batch_and_resume_reattaches(demo, monkeypatch):
@@ -158,7 +169,9 @@ def test_server_restart_resumes(demo, monkeypatch):
     monkeypatch.setenv("CANON_MOCK_BATCH_POLLS", "0")
     assert autorun.resume_all() == [demo]
     wait_until(idle(demo))
-    assert autorun.load_run(demo).status == "done"
+    run = autorun.load_run(demo)
+    assert run.status == "done" and run.restarts == 1
+    assert any(e.step == "restart" for e in run.log)  # 화면이 다시 시작한 것을 알 수 있게 남긴다
 
 
 def test_estimate(demo, monkeypatch):
@@ -191,6 +204,8 @@ def test_web_api(demo, monkeypatch):
     assert c.post("/api/projects/demo/auto/start", json={"target": 3}).status_code == 400  # 이미 돈다
     assert c.post("/api/projects/demo/jobs", json={"kind": "write", "ep": 1}).status_code == 400
     wait_until(lambda: autorun.get_run("demo").batches)
+    # 자동 집필이 도는 동안 본문 직접 저장은 막는다 (작업이 쓰는 본문과 서로 덮지 않게)
+    assert c.put("/api/projects/demo/episodes/1/text", json={"text": "손으로 쓴 본문"}).status_code == 400
 
     # 화면이 오래된 작품 전체를 저장해도 자동 집필이 쓴 진행 상태와 본문은 지킨다
     stale = c.get("/api/projects/demo").json()
@@ -298,3 +313,129 @@ def test_opening_episodes_stop_for_hand_pick(demo):
     assert run.status == "done"
     p = store.load(demo)
     assert [e.auto for e in p.episodes[:4]] == [False, False, False, True]
+
+
+def test_stale_save_keeps_characters_added_by_apply(demo):
+    """승인한 변경안이 더한 인물은 그 반영 전에 읽은 화면이 작품 전체를 저장해도 남긴다."""
+    from fastapi.testclient import TestClient
+
+    from canon import web
+
+    c = TestClient(web.app)
+    c.put("/api/projects/demo/episodes/1/text", json={"text": "1화 본문"})
+    stale = c.get("/api/projects/demo").json()
+    stale["meta"]["title"] = "새 제목"
+    delta = {"episode": 1, "summary": "1화 요약", "new_characters": [{"id": "courier", "name": "배달꾼", "role": "조연"}]}
+    assert c.post("/api/projects/demo/episodes/1/apply", json=delta).status_code == 200
+    r = c.put("/api/projects/demo", json=stale)
+    p = store.load("demo")
+    assert p.meta.title == "새 제목"
+    assert "courier" in {x.id for x in p.characters}
+    # 화면에 무엇을 서버 것으로 두었는지 알린다
+    from urllib.parse import unquote
+    assert {"field": "character", "name": "배달꾼"} in json.loads(unquote(r.headers["X-Canon-Kept"]))
+    # 오래되지 않은 화면의 저장은 아무것도 버리지 않는다
+    assert "X-Canon-Kept" not in c.put("/api/projects/demo", json=c.get("/api/projects/demo").json()).headers
+    assert p.episode(1).status == "finalized"
+
+
+def test_revert_removes_characters_added_by_reverted_apply_and_redo_edit(demo):
+    """반영 취소는 그 반영이 더한 인물도 되돌린다. 수정 취소한 부분 수정은 다시 넣을 수 있다."""
+    from fastapi.testclient import TestClient
+
+    from canon import pipeline, web
+    from canon.schema import Selection
+
+    c = TestClient(web.app)
+    c.put("/api/projects/demo/episodes/1/text", json={"text": "1화 본문. 바람이 불었다."})
+    p = store.load(demo)
+    e = pipeline.edit_text(p, 1, Selection(start=0, text="1화 본문."), "1화 고친 본문.")
+    pipeline.undo_edit(p, 1, e.id)
+    assert p.episode(1).text.startswith("1화 본문.")
+    pipeline.redo_edit(p, 1, e.id)
+    assert p.episode(1).text.startswith("1화 고친 본문.") and not p.episode(1).edits[-1].undone
+    store.save(demo, p)
+
+    delta = {"episode": 1, "summary": "1화 요약", "new_characters": [{"id": "courier", "name": "배달꾼", "role": "조연"}]}
+    assert c.post("/api/projects/demo/episodes/1/apply", json=delta).status_code == 200
+    assert "courier" in {x["id"] for x in c.get("/api/projects/demo").json()["characters"]}
+    p = c.post("/api/projects/demo/revert/0").json()
+    assert "courier" not in {x["id"] for x in p["characters"]} and p["episodes"][0]["status"] == "written"
+
+
+def test_batch_poll_transient_error_keeps_name():
+    """배치 조회가 잠깐 실패하면 이름을 버리지 않고 다시 묻는다. 확실히 끝난 배치(BatchGone)만 버린다."""
+    from canon import llm
+
+    class Flaky:
+        label, model = "x", "m"
+
+        def __init__(self, fails):
+            self.fails = fails
+
+        def batch_submit(self, *a, **k):
+            return "b1"
+
+        def batch_poll(self, name):
+            if self.fails:
+                self.fails -= 1
+                raise ConnectionError("잠깐 끊김")
+            return "결과"
+
+    names = {}
+    b = llm.BatchLLM(Flaky(2), "slot", names, lambda: None, lambda s: "")
+    assert b.text("s", "p") == "결과" and names == {}
+    names = {}
+    b = llm.BatchLLM(Flaky(99), "slot", names, lambda: None, lambda s: "")
+    with pytest.raises(RuntimeError, match="다시 붙어요"):
+        b.text("s", "p")
+    assert names == {"slot": "b1"}  # 이어 가면 같은 배치에 다시 붙는다
+
+
+def test_halt_kind_and_policy_change_while_paused(demo):
+    p = store.load(demo)
+    p.episode(1).status = "draft"
+    store.save(demo, p)
+    run = autorun.start(demo, 1, False, Policy(), foreground=True)
+    assert run.status == "paused" and run.halt == "plot_draft"
+    assert "'초안 플롯도 자동으로 확정하고 쓰기'" in run.reasons[0]  # 정책 칸 이름 그대로
+    run = autorun.set_policy(demo, Policy(confirm_plots=True))
+    assert run.status == "paused" and autorun.load_run(demo).policy.confirm_plots
+    assert any("승인 정책을 바꿨어요" in e.message for e in autorun.load_run(demo).log)
+    run = autorun.resume(demo, foreground=True)
+    assert run.status == "done" and run.halt == ""
+    with pytest.raises(ValueError):
+        autorun.set_policy(demo, Policy())  # 끝난 실행은 새로 시작할 때 정한다
+
+
+def test_user_saves_text_while_writing(demo, monkeypatch):
+    real = autorun.pipeline.write_episode
+
+    def write(llm, p, n):
+        q = store.load(demo)  # AI가 쓰는 사이 작가가 본문을 직접 저장했다
+        q.episode(n).text, q.episode(n).status = "작가가 쓴 본문", "written"
+        store.save(demo, q)
+        return real(llm, p, n)
+
+    monkeypatch.setattr(autorun.pipeline, "write_episode", write)
+    run = autorun.start(demo, 1, False, Policy(), foreground=True)
+    assert run.status == "paused" and run.halt == "changed"
+    assert "직접 저장" in run.reasons[0] and "written" not in run.log[-1].message
+    assert store.load(demo).episode(1).text == "작가가 쓴 본문"
+
+
+def test_revert_updates_run(demo):
+    from fastapi.testclient import TestClient
+
+    from canon import web
+
+    run = autorun.start(demo, 3, False, Policy(max_issues=5), foreground=True)
+    assert run.status == "done" and run.applied == [1, 2, 3]
+    c = TestClient(web.app)
+    assert c.post("/api/projects/demo/revert/2").status_code == 200
+    run = autorun.load_run(demo)
+    assert run.applied == [1, 2] and run.status == "paused" and run.halt == "reverted"  # 2화 반영 직후로 = 3화부터 취소
+    assert run.log[-1].message == "3화부터 반영을 취소했어요"
+    # 멈춘 실행의 정책은 이어 가기 전에 바꿀 수 있다
+    r = c.put("/api/projects/demo/auto/policy", json={"check": False, "hand_pick_opening": False}).json()
+    assert r["run"]["status"] == "paused" and r["run"]["policy"]["check"] is False

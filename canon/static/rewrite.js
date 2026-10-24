@@ -12,13 +12,14 @@ Object.assign(S, {
   rwView: 'side',    // 새 판 비교: side(나란히) | diff(바뀐 곳)
   rwPeek: null,      // 이전 판 목록에서 펼친 판 id
   rwVersionsOpen: false,
+  rwSync: true,      // 나란히 비교의 두 칸을 함께 스크롤
 });
 
-JOB_DONE_MSG.write = (j) => (j.result && j.result.candidate ? `${j.ep}화 새 판이 나왔어요. 지금 판과 비교해 고르세요.` : `${j.ep}화 본문을 저장했습니다.`);
+JOB_DONE_MSG.write = (j) => (j.result && j.result.candidate ? `${j.ep}화 새 판이 나왔어요. 지금 판과 비교해 고르세요.` : `${j.ep}화 본문을 저장했어요.`);
 
 const RW_MODES = [
-  ['fresh', '처음부터 새로', '지난 판은 보내지 않고 같은 플롯으로 새로 씁니다. 전개를 크게 바꾸고 싶을 때.'],
-  ['revise', '지난 판 고쳐 쓰기', '지난 판 전문을 함께 보내 흐름과 좋은 문장은 살리고 고칩니다. 대체로 괜찮고 몇 군데만 아쉬울 때.'],
+  ['fresh', '처음부터 새로', '지난 판은 보내지 않고 같은 플롯으로 새로 써요. 전개를 크게 바꾸고 싶을 때.'],
+  ['revise', '지난 판 고쳐 쓰기', '지난 판 전문을 함께 보내 흐름과 좋은 문장은 살리고 고쳐요. 대체로 괜찮고 몇 군데만 아쉬울 때.'],
 ];
 const RW_KIND = { previous: '바꾸기 전', rejected: '고르지 않은 새 판' };
 
@@ -69,9 +70,11 @@ function textDiff(a, b) {
     for (let j = B.length - 1; j >= 0; j--) L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
   }
   const out = [];
+  let changes = 0;
   let dels = [];
   let adds = [];
   const flush = () => {
+    if (dels.length || adds.length) changes++;  // 바뀐 곳: 연달아 바뀐 문단 묶음 하나
     const k = Math.min(dels.length, adds.length);
     for (let x = 0; x < k; x++) {
       out.push(rwSimilar(dels[x], adds[x]) ? wordDiff(dels[x], adds[x]) : `${dels[x] ? `<del>${esc(dels[x])}</del>` : ''}${dels[x] && adds[x] ? '\n' : ''}${adds[x] ? `<ins>${esc(adds[x])}</ins>` : ''}`);
@@ -93,7 +96,16 @@ function textDiff(a, b) {
     else adds.push(B[j++]);
   }
   flush();
+  textDiff.changes = changes;
   return out.join('\n');
+}
+
+/** 바뀐 곳 비교와 그 머리: 바뀐 곳 개수, 이전 · 다음 바뀐 곳으로 가기. 긴 본문에서 바뀐 곳을 찾느라 끝까지 내리지 않게 한다. */
+function diffBox(a, b, cls, note) {
+  const html = textDiff(a, b);
+  const n = textDiff.changes;
+  const nav = n ? `<span class="row" style="gap:6px"><span class="small">바뀐 곳 ${n}곳</span><button type="button" class="btn small" data-diff-jump="-1" aria-label="이전 바뀐 곳">↑</button><button type="button" class="btn small" data-diff-jump="1" aria-label="다음 바뀐 곳">↓</button></span>` : '<span class="small">바뀐 곳이 없어요</span>';
+  return `<div class="diff-box"><div class="between"><div class="small">${note}</div>${nav}</div><div class="pdiff ${cls} rw-text">${html}</div></div>`;
 }
 
 // ----- 다시 생성 패널 -----
@@ -116,21 +128,21 @@ function rewritePanel(n) {
   const keep = r.keep.map((k, i) => `<li class="between" style="gap:8px;align-items:flex-start"><blockquote>${esc(clip(k, 200))}</blockquote><button type="button" class="btn small" data-action="rwDropKeep" data-arg="${i}" aria-label="살릴 부분 빼기">빼기</button></li>`).join('');
   return `<section class="card rw-panel" aria-label="다시 생성">
     <div class="between"><h3>${n}화 다시 생성</h3><button type="button" class="btn small" data-action="rwClose">닫기</button></div>
-    <p class="small" style="margin:0">무엇이 아쉬웠는지 알려 주면 새 판에 반영해요. 지금 본문은 그대로 두고, 새 판이 오면 비교해서 고릅니다.</p>
+    <p class="small" style="margin:0">무엇이 아쉬웠는지 알려 주면 새 판에 반영해요. 지금 본문은 그대로 두고, 새 판이 오면 비교해서 골라요.</p>
     <div class="field"><span class="small">빠른 요청 (여러 개 고를 수 있어요)</span><div class="row rw-chips" style="gap:6px">${chips}</div></div>
     <div class="field"><label class="small" for="rw-feedback">피드백</label>
-      <textarea id="rw-feedback" data-rw-feedback="${n}" rows="3" placeholder="예: 서윤이 너무 빨리 마음을 연다. 중간에 한 번 더 밀어내게 해 줘">${esc(r.feedback)}</textarea></div>
+      <textarea id="rw-feedback" data-rw-feedback="${n}" rows="3" placeholder="예: ${esc(exName(0))}이(가) 너무 빨리 마음을 연다. 중간에 한 번 더 밀어내게 해 줘">${esc(r.feedback)}</textarea></div>
     <div class="field"><span class="small">함께 넣을 것</span><div class="grid-2">${mats}</div></div>
     <div class="field"><span class="small">방식</span><div class="seg" role="group" aria-label="다시 쓰는 방식">${modes}</div>
       <span class="small">${RW_MODES.find((m) => m[0] === r.mode)[2]}</span></div>
     <div class="field"><span class="small">살릴 부분 ${r.keep.length}/${info.keep_max}</span>
       ${keep ? `<ol class="rw-keep">${keep}</ol>` : ''}
-      <span class="small">마음에 드는 문장이나 장면은 본문에서 드래그한 뒤 '살리기'를 누르면 담겨요. 새 판에 거의 그대로 들어갑니다.</span></div>
+      <span class="small">마음에 드는 문장이나 장면은 본문에서 드래그한 뒤 '살리기'를 누르면 담겨요. 새 판에 거의 그대로 들어가요.</span></div>
     <div class="between">
       <button type="button" class="btn small" data-action="rwShowPrompt" data-arg="${n}">${S.rwPrompt ? '프롬프트 닫기' : '보낼 프롬프트 보기'}</button>
       ${((b) => `<button type="button" class="btn primary" data-action="rwSubmit" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('write', n, '새 판 만들기'))}
     </div>
-    ${busy ? '<div class="small">다른 화면으로 옮겨 가도 계속 씁니다. 끝나면 알려 드려요.</div>' : ''}
+    ${busy ? '<div class="small">다른 화면으로 옮겨 가도 계속 써요. 끝나면 알려 드려요.</div>' : ''}
     ${S.rwPrompt ? `<pre class="brief mono" style="max-height:420px">${esc(S.rwPrompt)}</pre>` : ''}
   </section>`;
 }
@@ -147,12 +159,12 @@ function candidateCard(n) {
     ? `<div class="rw-side">
         <div><div class="small">지금 판 · ${cur.length.toLocaleString()}자</div><div class="rw-text">${esc(cur)}</div></div>
         <div><div class="small">새 판 · ${c.text.length.toLocaleString()}자</div><div class="rw-text">${esc(c.text)}</div></div></div>`
-    : `<div class="small">지금 판에서 지운 글은 빨강, 새 판에 더한 글은 초록이에요.</div><div class="pdiff rw-text">${textDiff(cur, c.text)}</div>`;
+    : diffBox(cur, c.text, '', '지금 판에서 지운 글은 빨강, 새 판에 더한 글은 초록이에요.');
   return `<section class="card rw-compare" aria-label="새 판 비교">
     <div class="between"><div><h3>새 판이 나왔어요</h3><div class="row" style="gap:6px">${rwReqLabel(n, c.request)}<span class="small">${editTime(c.at)}</span></div></div>
-      <div class="seg" role="group" aria-label="비교 방식"><button type="button" aria-pressed="${side}" data-action="rwViewAs" data-arg="side">나란히</button><button type="button" aria-pressed="${!side}" data-action="rwViewAs" data-arg="diff">바뀐 곳</button></div></div>
+      <div class="row" style="gap:6px">${side ? `<button type="button" class="btn small" aria-pressed="${S.rwSync}" data-action="rwSyncToggle" title="한 칸을 내리면 다른 칸도 같은 비율로 내려가요">스크롤 함께</button>` : ''}<div class="seg" role="group" aria-label="비교 방식"><button type="button" aria-pressed="${side}" data-action="rwViewAs" data-arg="side">나란히</button><button type="button" aria-pressed="${!side}" data-action="rwViewAs" data-arg="diff">바뀐 곳</button></div></div></div>
     ${body}
-    <div class="between"><span class="small" style="flex:1;min-width:200px">바꾸면 지금 판은 아래 '이전 판'에 남아 언제든 되돌릴 수 있어요. 검수 결과는 새 판 기준으로 다시 하세요.</span>
+    <div class="between"><span class="small" style="flex:1;min-width:200px">바꾸면 지금 판은 아래 '이전 판'에 남아 되돌릴 수 있어요(화마다 최근 6개, 고르지 않은 판부터 지워요). 검수 결과는 새 판 기준으로 다시 하세요.</span>
       <span class="row"><button type="button" class="btn" data-action="rwDrop" data-arg="${n}">지금 판 두기</button><button type="button" class="btn" data-action="rwAgain" data-arg="${n}">요청 고쳐 다시</button><button type="button" class="btn primary" data-action="rwAdopt" data-arg="${n}">새 판으로 바꾸기</button></span></div>
   </section>`;
 }
@@ -168,10 +180,10 @@ function versionsPanel(e) {
   const rows = list.map((v) => `<li class="edit-row">
       <div class="between"><span class="row" style="gap:6px"><span class="chip${v.kind === 'rejected' ? '' : ' ai'}">${RW_KIND[v.kind] || v.kind}</span><span class="small">${v.text.length.toLocaleString()}자</span>${rwReqLabel(n, v.request)}<span class="small">${editTime(v.at)}</span></span>
         <span class="row" style="gap:6px"><button type="button" class="btn small" data-action="rwPeekAt" data-arg="${esc(v.id)}">${S.rwPeek === v.id ? '접기' : '지금 판과 비교'}</button>
-        ${can ? `<button type="button" class="btn small" data-action="rwRestore" data-arg="${esc(v.id)}">이 판으로 되돌리기</button>` : ''}</span></div>
-      ${S.rwPeek === v.id ? `<div class="small">빨강은 지금 판에만, 초록은 이 판에만 있는 글이에요.</div><div class="pdiff small-diff rw-text">${textDiff(cur, v.text)}</div>` : ''}</li>`).join('');
+        ${can ? `<button type="button" class="btn small" data-action="rwRestore" data-arg="${esc(v.id)}">이 판으로 복원</button>` : ''}</span></div>
+      ${S.rwPeek === v.id ? diffBox(cur, v.text, 'small-diff', '빨강은 지금 판에만, 초록은 이 판에만 있는 글이에요.') : ''}</li>`).join('');
   return `<details class="card edits"${S.rwVersionsOpen ? ' open' : ''} data-rw-versions>
-    <summary><strong>이전 판</strong> <span class="small">${list.length}개 · 다시 생성으로 바꾸기 전 본문과 고르지 않은 새 판${editableEp(e) && !can ? ' (저장하지 않은 본문이 있으면 먼저 저장하세요)' : ''}</span></summary>
+    <summary><strong>이전 판</strong> <span class="small">${list.length}개 · 다시 생성으로 바꾸기 전 본문과 고르지 않은 새 판. 최근 6개까지 남고, 넘치면 고르지 않은 판부터 지워요${editableEp(e) && !can ? ' (저장하지 않은 본문이 있으면 먼저 저장하세요)' : ''}</span></summary>
     <ol class="edit-list">${rows}</ol></details>`;
 }
 
@@ -204,9 +216,43 @@ document.addEventListener('change', (e) => {
   S.rwPrompt = null;
 });
 
+// 나란히 비교: 한 칸을 내리면 다른 칸도 같은 비율로 맞춘다. 맞추느라 생긴 스크롤은 다시 따라가지 않는다
+let rwSyncing = null;
+document.addEventListener('scroll', (e) => {
+  const a = e.target;
+  if (!S.rwSync || !(a.matches && a.matches('.rw-side .rw-text'))) return;
+  if (rwSyncing === a) { rwSyncing = null; return; }
+  const b = [...a.closest('.rw-side').querySelectorAll('.rw-text')].find((x) => x !== a);
+  const max = a.scrollHeight - a.clientHeight;
+  if (!b || max <= 0) return;
+  const top = Math.round((a.scrollTop / max) * (b.scrollHeight - b.clientHeight));
+  if (Math.abs(b.scrollTop - top) < 1) return;
+  rwSyncing = b;
+  b.scrollTop = top;
+  requestAnimationFrame(() => { if (rwSyncing === b) rwSyncing = null; });  // 끝에 닿아 스크롤이 안 일어난 때
+}, true);
+
 document.addEventListener('toggle', (e) => {
   if (e.target.matches && e.target.matches('[data-rw-versions]')) S.rwVersionsOpen = e.target.open;
 }, true);
+
+// 바뀐 곳 사이를 오간다. 상자마다 지금 몇 번째인지 기억한다
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-diff-jump]');
+  if (!b) return;
+  const box = b.closest('.diff-box');
+  // 지운 글 바로 뒤에 넣은 글이 붙어 있으면 한 곳으로 센다
+  const marks = [...box.querySelectorAll('.pdiff del, .pdiff ins')].filter((m) => !(m.tagName === 'INS' && m.previousSibling && m.previousSibling.nodeName === 'DEL'));
+  if (!marks.length) return;
+  const cur = Number(box.dataset.at ?? -1);
+  const next = (cur + Number(b.dataset.diffJump) + marks.length) % marks.length;
+  box.dataset.at = next;
+  const m = marks[next];
+  m.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  m.classList.remove('flash');
+  void m.offsetWidth;
+  m.classList.add('flash');
+});
 
 Object.assign(actions, {
   async rwOpen(n) {
@@ -275,6 +321,10 @@ Object.assign(actions, {
     S.rwPrompt = null;
     await startJob('write', n, { rewrite: { ...r, keep: [...r.keep] } });
   },
+  rwSyncToggle() {
+    S.rwSync = !S.rwSync;
+    render();
+  },
   rwViewAs(v) {
     S.rwView = v;
     render();
@@ -290,7 +340,7 @@ Object.assign(actions, {
   async rwDrop(n) {
     await run('정리 중', async () => {
       S.project = await api('DELETE', `/projects/${enc(S.name)}/episodes/${n}/candidate`);
-      toast("새 판을 고르지 않았어요. 버린 판도 '이전 판'에 남아 있어요.");
+      toast("새 판을 고르지 않았어요. 버린 판도 '이전 판'에 남아요 (6개가 넘으면 고르지 않은 판부터 지워요).");
     });
   },
   async rwAgain(n) {
