@@ -191,9 +191,25 @@ def delete(sid: str) -> None:
     path.unlink()
 
 
+def blank(profile: StyleProfile) -> bool:
+    """칸이 모두 비었다 (문체 분석도 직접 입력도 하지 않은 새 작품). 라이브러리에 저장하지 않는다."""
+    return not any(v.strip() if isinstance(v, str) else v for v in profile.model_dump().values())
+
+
+def copy_name(name: str) -> str:
+    """'이름 사본', 이미 있으면 '이름 사본 2', '이름 사본 3' … (복제를 여러 번 해도 목록에서 가른다).
+    사본을 다시 복제해도 '사본 사본' 이 되지 않게 원래 이름에 번호를 붙인다."""
+    taken = {x.name for x in entries()}
+    name = re.sub(r" 사본(?: \d+)?$", "", name)
+    out, n = f"{name} 사본", 2
+    while out in taken:
+        out, n = f"{name} 사본 {n}", n + 1
+    return out
+
+
 def duplicate(sid: str) -> StyleEntry:
     e = load(sid)
-    return create(f"{e.name} 사본", e.profile.model_copy(deep=True), e.sample, e.source, e.notes, e.baseline,
+    return create(copy_name(e.name), e.profile.model_copy(deep=True), e.sample, e.source, e.notes, e.baseline,
                   note=f"'{e.name}' {e.version}번 버전에서 복제")
 
 
@@ -218,6 +234,7 @@ def summary(e: StyleEntry) -> dict:
         "id": e.id, "name": e.name, "source": e.source, "notes": e.notes,
         "narration_pov": e.profile.narration_pov, "tense": e.profile.tense,
         "passages": len(e.profile.sample_passages), "rules": len(e.profile.dos) + len(e.profile.donts),
+        "banned": len(e.profile.banned_phrases), "markers": len(e.profile.markers), "devices": len(e.profile.devices),
         "sample_chars": len(e.sample), "created_at": e.created_at, "updated_at": e.updated_at,
         "version": e.version, "used_by": used_by(e.id),
     }
