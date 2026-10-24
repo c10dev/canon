@@ -153,6 +153,7 @@ const JOB_DONE_MSG = {
   suggest: '설정 제안이 도착했어요. 설정 도우미에서 확인하세요.',
   arc: '기승전결 구조 제안이 도착했어요. 확인하고 저장하세요.',
   plots: '화별 플롯 초안을 만들었어요. 확정된 화는 그대로예요.',
+  plot_one: (j) => `${j.ep}화 플롯을 앞뒤 화에 맞춰 채웠어요. 다듬은 뒤 확정하세요.`,
   write: (j) => `${j.ep}화 본문을 저장했어요.`,
   state: (j) => `${j.ep}화 상태 변경안이 도착했어요.`,
   series: '부 구성 제안이 도착했어요. 확인하고 반영하세요.',
@@ -181,6 +182,7 @@ function jobBtn(kind, ep, idle) {
 
 /** 플롯 초안 작업이 아직 만들지 않은 화. 끝난 구간의 화는 작업이 도는 중에도 고치고 확정할 수 있다 (서버 job.pending). */
 function jobOwns(n) {
+  if (jobFor('plot_one', n)) return true;
   const j = jobFor('plots');
   if (!j || !P()) return false;
   if (Array.isArray(j.pending)) return j.pending.includes(n);
@@ -321,6 +323,7 @@ async function pollJobs(soon = false) {
       S.jobsMerged[j.id] = j.done;  // 저장할 때 이 단계까지 받아 왔다고 알린다 (save)
     }
     if (j.kind === 'write' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);
+    if (j.kind === 'plot_one' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);
     if (j.kind === 'impact' && j.status === 'done') await mergeImpacts();
     if (j.kind === 'check' && j.status === 'done') await mergeEpisodes((e) => e.plot.number === j.ep);  // 검수 결과는 그 화에 붙었다
     if (j.kind === 'auto') {
@@ -373,7 +376,7 @@ document.addEventListener('selectionchange', () => setTimeout(() => { if (S.rend
 
 // 작업 결과가 보이는 화면
 JOB_DONE_MSG.check = (j) => `${j.ep}화 검수가 끝났어요: 어긋난 곳 ${j.result ? j.result.issues : 0}개`;
-const JOB_PAGES = { check: ['write'], suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], storyline: ['lines'] };
+const JOB_PAGES = { check: ['write'], suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], plot_one: ['arc', 'lines'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], storyline: ['lines'] };
 
 // 작업이 project.json 에 쓴 화만 받아 온다 (mine(화면 화, 서버 화) 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
 // 저장하지 않은 입력이 있을 때 서버 것으로 바꾼 화 번호를 돌려준다.
@@ -516,6 +519,7 @@ const JOB_LINK = {
   suggest: (j) => `#/p/${enc(j.project)}/setup`,
   arc: (j) => `#/p/${enc(j.project)}/arc`,
   plots: (j) => `#/p/${enc(j.project)}/arc`,
+  plot_one: (j) => `#/p/${enc(j.project)}/arc`,
   write: (j) => `#/p/${enc(j.project)}/write/${j.ep}`,
   check: (j) => `#/p/${enc(j.project)}/write/${j.ep}`,
   state: (j) => `#/p/${enc(j.project)}/review/${j.ep}`,
@@ -3905,7 +3909,9 @@ function plotEditor(e) {
     ${input('엔딩 훅', b + '.ending_hook', ro)}
     ${n <= 3 || e.plot.reader_question ? input('독자가 들고 갈 질문', b + '.reader_question', { ...ro, hint: n <= 3 ? '이 화를 읽고 다음 화를 누르게 하는 질문' : '' }) : ''}
     <div class="grid-2">${input('심을 복선', b + '.foreshadow_plant', { ...ro, kind: 'list', rows: 2 })}${payoffPicker('회수할 복선', b + '.foreshadow_payoff', locked)}</div>
+    ${insertBlock(e)}
     <div class="row drawer-actions">
+      ${draftOneBtn(e)}
       ${e.status === 'draft' ? `<button class="btn primary" style="flex:1" data-action="confirmEp" data-arg="${n}"${busy ? ' disabled' : ''}>${n}화 확정</button>` : ''}
       ${e.status === 'confirmed' ? `<button class="btn" style="flex:1" data-action="unconfirmEp" data-arg="${n}">초안으로 되돌리기</button><a class="btn primary" style="flex:1" href="${base()}/write/${n}">${n}화 쓰기</a>` : ''}
       ${locked ? `<a class="btn" style="flex:1" href="${base()}/write/${n}">본문 보기</a>` : ''}

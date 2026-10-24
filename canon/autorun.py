@@ -606,6 +606,29 @@ def resume(name: str, approve: bool = False, rewrite: bool = False, *, foregroun
     return run
 
 
+def check_renumber(name: str) -> None:
+    """화를 끼워 넣거나 빼기 전에 본다. 도는 중이거나 결과를 기다리는 배치가 있으면 화 번호가 어긋나므로 막는다."""
+    if active(name):
+        raise ValueError("자동 집필이 도는 중이에요. 일시정지한 뒤에 하세요")
+    run = get_run(name)
+    if run and run.batches and run.status not in ("done", "stopped"):
+        raise ValueError("자동 집필이 결과를 기다리는 배치 작업이 있어요. 중지한 뒤에 하세요")
+
+
+def renumber(name: str, end: Callable[[int], int]) -> None:
+    """화를 끼워 넣거나 뺀 뒤 멈춘 실행의 목표 화를 옮긴다. end 는 '몇 화까지'를 옮기는 규칙이다."""
+    with _lock:
+        ctl = _controls.get(name)
+    run = ctl.run if ctl else load_run(name)
+    if run is None or run.status in ("done", "stopped"):
+        return
+    target = max(1, end(run.target))
+    if target == run.target:
+        return
+    run.target = target
+    _write(name, run)
+
+
 def request(name: str, what: str) -> Run:
     """일시정지(pause) 또는 중지(stop) 요청. 돌고 있지 않으면 바로 상태만 바꾼다."""
     if what not in ("pause", "stop"):

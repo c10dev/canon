@@ -794,6 +794,47 @@ def unconfirm_plot(name: str, n: int) -> Project:
     return _save(name, p)
 
 
+# 화 끼워 넣기 · 빼기: 아직 안 쓴 화의 번호를 옮긴다. 작업이 맡은 화 번호가 어긋나지 않게 도는 작업이 없을 때만 한다.
+
+class InsertIn(BaseModel):
+    at: int  # 이 화 자리에 넣는다 (지금 이 화부터 뒤로 밀린다)
+    title: str = ""
+    summary: str = ""
+    storyline: str = ""
+
+
+def _renumber_ready(name: str) -> None:
+    autorun.check_renumber(name)
+    busy = [j.label for j in jobs.listing(name) if j.status == "running"]
+    if busy:
+        raise ValueError(f"AI 작업({', '.join(busy)})이 끝난 뒤에 하세요. 화 번호가 바뀌면 작업 결과가 엉뚱한 화에 들어가요")
+
+
+@app.post("/api/projects/{name}/episodes/insert")
+def insert_episode(name: str, body: InsertIn) -> dict:
+    """새 화를 넣고 뒤 화를 한 칸씩 민다. 무엇을 옮겼는지(notes)를 함께 돌려준다."""
+    _renumber_ready(name)
+    at = body.at
+    with jobs.project_lock(name):
+        p = _load(name)
+        notes = pipeline.insert_episode(p, at, body.title, body.summary, body.storyline)
+        store.save(name, p)
+    autorun.renumber(name, lambda x: x + 1 if x >= at else x)
+    return {"project": p, "notes": notes}
+
+
+@app.delete("/api/projects/{name}/episodes/{n}")
+def remove_episode(name: str, n: int) -> dict:
+    """아직 안 쓴 화를 빼고 뒤 화를 한 칸씩 당긴다."""
+    _renumber_ready(name)
+    with jobs.project_lock(name):
+        p = _load(name)
+        notes = pipeline.remove_episode(p, n)
+        store.save(name, p)
+    autorun.renumber(name, lambda x: x - 1 if x >= n else x)
+    return {"project": p, "notes": notes}
+
+
 # ---------- 3-1. 대화로 다듬기 ----------
 # 대화 기록은 project.json 의 chats 에 화면(topic)별로 남는다. 플롯 화면은 'plot', 집필 화면의 본문 부분 수정은
 # 화마다 'text:<화>' 이다 (4-1 참고).
@@ -986,7 +1027,7 @@ def start_job(name: str, body: JobIn) -> dict:
     """오래 걸리는 AI 작업을 시작하고 바로 돌아온다. 결과는 GET /api/jobs 로 본다."""
     p = _load(name)
     kind, n = body.kind, body.ep
-    if kind in ("write", "state", "plots", "check"):
+    if kind in ("write", "state", "plots", "plot_one", "check"):
         _not_auto(name)
     stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "rework": "revise",
              "hook": "check", "check": "check", "opening_drafts": "write"}.get(kind, "plan")  # 나머지는 plan
@@ -1086,6 +1127,17 @@ def start_job(name: str, body: JobIn) -> dict:
                 job.release({k for k in owned if a <= k <= b})  # 끝난 구간은 작업이 도는 중에도 확정하고 고칠 수 있다
             job.note = ""
             return None
+    elif kind == "plot_one":
+        if n is None:
+            raise ValueError("화 번호(ep)가 필요해요")
+        if p.episode(n).status != "draft":
+            raise ValueError(f"{n}화는 확정된 화라 AI 초안으로 바꾸지 않아요. 초안으로 되돌린 뒤 하세요")
+        label, total, owned = f"{n}화 플롯 초안", 1, {n}
+
+        def fn(job: jobs.Job):
+            batch = pipeline.draft_episode(llm, store.load(name), n)
+            _edit(name, lambda q: pipeline.apply_plots(q, batch))
+            return None
     elif kind in ("write", "state"):
         if n is None:
             raise ValueError("화 번호(ep)가 필요해요")
@@ -1166,7 +1218,7 @@ def start_job(name: str, body: JobIn) -> dict:
         raise ValueError(f"모르는 작업이에요: {kind}")
 
     try:
-        with usage.scope(episode=n if kind in ("write", "state", "rework", "hook", "openings", "opening_drafts") else None, task=kind):
+        with usage.scope(episode=n if kind in ("write", "state", "rework", "hook", "openings", "opening_drafts", "plot_one") else None, task=kind):
             job = jobs.start(name, kind, n, label, _keep_pending(name, kind, n, label, fn), total=total, owned=owned)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}
