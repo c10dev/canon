@@ -1214,6 +1214,7 @@ function pickedDelta(n) {
     foreshadow_planted: pick('p', d.foreshadow_planted),
     foreshadow_resolved: pick('x', d.foreshadow_resolved),
     new_characters: pick('n', d.new_characters || []),
+    foreshadow_clues: pick('q', d.foreshadow_clues || []),
   };
 }
 
@@ -1246,6 +1247,7 @@ function setDelta(n, d) {
   d.foreshadow_planted.forEach((_, i) => { S.picks['p' + i] = true; });
   d.foreshadow_resolved.forEach((_, i) => { S.picks['x' + i] = true; });
   (d.new_characters || []).forEach((_, i) => { S.picks['n' + i] = true; });
+  (d.foreshadow_clues || []).forEach((_, i) => { S.picks['q' + i] = true; });
 }
 
 document.addEventListener('click', (e) => {
@@ -1339,6 +1341,8 @@ async function route() {
       if (parts[2] === 'usage') await usageLoad(S.name);
       if (parts[2] === 'convert') await convertLoad();
       if (parts[2] === 'cast') await castLoad(parts[3]);
+      if (parts[2] === 'foreshadow') await fsLoad();
+      if (parts[2] === 'statwin') await swLoad(parts[3]);
       if (parts[2] === 'causal') {
         if (parts[3]) S.causalSel = parts[3];
         await causalLoad();
@@ -1387,7 +1391,7 @@ function render() {
     return;
   }
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, convert: viewConvert };
+  const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, convert: viewConvert, foreshadow: viewForeshadow, statwin: viewStatwin };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${body}</main></div>`;
   syncChat();
@@ -1414,6 +1418,8 @@ function sidebar(active) {
     ['style', base() + '/style', '2', '문체 레퍼런스'],
     ['arc', base() + '/arc', '3', serial() ? '부 · 아크 · 플롯' : '기승전결 · 플롯'],
     ['cast', base() + '/cast', '人', '인물 · 관계도'],
+    ['foreshadow', base() + '/foreshadow', '伏', '복선 센터'],
+    ['statwin', base() + '/statwin', '#', '상태창 수치'],
     ['lines', base() + '/lines', '⑂', '이야기 줄기'],
     ['causal', base() + '/causal', '∴', '인과율'],
     ['write', `${base()}/write/${cur}`, '4', '집필'],
@@ -1663,7 +1669,7 @@ function viewHome() {
     <div class="grid-auto">
       <section class="card"><div class="between"><h2>인물 현재 상태</h2><span class="small">${fin ? fin + '화 기준' : '시작 시점'}</span></div>${states || '<div class="small">인물이 없습니다</div>'}<a href="${base()}/setup" style="font-size:13px">인물 · 관계 전체 보기</a></section>
       <section class="card">${relationHeader('관계')}${p.relationships.length ? relationLines(S.relations) : '<div class="small">관계가 없어요. 설정 도우미에서 관계를 추가하세요.</div>'}</section>
-      <section class="card"><div class="between"><h2>열린 복선</h2><span class="small">${openFs.length}개</span></div>
+      <section class="card"><div class="between"><h2>열린 복선</h2><a class="small" href="${base()}/foreshadow">${openFs.length}개 · 복선 센터</a></div>
         ${openFs.map((f) => `<div class="row" style="align-items:flex-start;flex-wrap:nowrap"><span class="chip">${f.planted_ep}화</span><div style="font-size:13px;line-height:1.5">${esc(f.description)}<br><span class="small">${esc(f.id)}</span></div></div>`).join('') || '<div class="small">없음</div>'}
       </section>
       <section class="card"><div class="between"><h2>확정 사실</h2><span class="small">${p.facts.length}개</span></div>
@@ -2745,7 +2751,7 @@ function viewReview(n) {
   const p = P();
   const stale = S.deltaBase[n] !== undefined && S.deltaBase[n] !== e.text
     ? `<section class="note warn" role="alert">이 변경안을 만든 뒤 본문을 고쳤어요. 고친 내용이 상태에 영향을 준다면 다시 추출하세요. ${((b) => `<button class="btn small" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '다시 추출'))}</section>` : '';
-  const total = d.character_updates.length + d.events.length + d.secrets_added.length + d.relationship_updates.length + d.new_facts.length + d.foreshadow_planted.length + d.foreshadow_resolved.length + (d.new_characters || []).length;
+  const total = d.character_updates.length + d.events.length + d.secrets_added.length + d.relationship_updates.length + d.new_facts.length + d.foreshadow_planted.length + d.foreshadow_resolved.length + (d.new_characters || []).length + (d.foreshadow_clues || []).length;
   if (!S.preview || S.preview.n !== n) refreshPreview(n);
   const picked = Object.values(S.picks).filter(Boolean).length;
   const box = (key) => `<input type="checkbox" id="pk-${key}" data-pick="${key}"${S.picks[key] ? ' checked' : ''}>`;
@@ -2758,7 +2764,7 @@ function viewReview(n) {
     const rows = [['감정', 'emotional_state'], ['목표', 'current_goal'], ['위치', 'location'], ['메모', 'notes']]
       .filter(([, f]) => u[f]).map(([k, f]) => `<div class="small">${k}</div>${diff(cur[f], u[f])}`).join('');
     const knows = u.knows.filter((k) => !(cur.knows || []).includes(k)).map((k) => `<span class="after">+ ${esc(k)}</span>`).join(' ');
-    return `<div class="change">${box('c' + i)}<div class="body"><label for="pk-c${i}" style="font-size:14px;font-weight:700">${esc(charName(u.character_id))}</label>${rows}${knows ? `<div class="small">알게 된 정보</div><div class="row">${knows}</div>` : ''}</div></div>`;
+    return `<div class="change">${box('c' + i)}<div class="body"><label for="pk-c${i}" style="font-size:14px;font-weight:700">${esc(charName(u.character_id))}</label>${rows}${swDeltaRows(u, cur)}${knows ? `<div class="small">알게 된 정보</div><div class="row">${knows}</div>` : ''}</div></div>`;
   }).join('');
 
   const events = d.events.map((ev, i) => {
@@ -2784,6 +2790,7 @@ function viewReview(n) {
       const f = p.foreshadows.find((x) => x.id === id);
       return `<div class="change">${box('x' + i)}<label for="pk-x${i}" style="font-size:13px;line-height:1.55"><span class="chip finalized">회수</span> ${esc(f ? f.description : id)} ${f ? `<span class="small">${f.planted_ep}화에 심음</span>` : '<span class="small">알 수 없는 id</span>'}</label></div>`;
     }),
+    fsClueRows(d, box),
   ].join('');
   const section = (title, body) => `<section class="card"><h2>${title}</h2>${body || '<div class="small">변경 없음</div>'}</section>`;
 

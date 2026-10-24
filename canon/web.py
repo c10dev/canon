@@ -19,6 +19,8 @@ from . import autorun, cast, dynamics, elements, genres, illust, jobs, library, 
 from .llm import GeminiLLM, LocalLLM, get_llm, make_llm
 from .schema import (ArcPlan, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
+from . import foreshadows, statwin
+from .schema import StatValue
 
 STATIC = Path(__file__).parent / "static"
 NAME_RE = re.compile(r"^[^/\\.][^/\\]{0,63}$")
@@ -1295,6 +1297,7 @@ def parse_state(name: str, n: int, body: Raw) -> StateDelta:
     except ValidationError as e:
         raise HTTPException(400, f"JSON 형식이 맞지 않습니다: {e.errors()[0]['msg']} ({'.'.join(map(str, e.errors()[0]['loc']))})")
     delta.episode = n
+    foreshadows.clean_delta(p, delta)
     return delta
 
 
@@ -1411,6 +1414,152 @@ def relations(name: str) -> dict:
 def cast_view(name: str) -> dict:
     """인물 화면: 화별 관계 프레임(관계도 재생), 인물별 등장 화와 타임라인 (canon/cast.py)."""
     return cast.summary(_load(name))
+
+
+# ---------- 복선 센터 (canon/foreshadows.py) ----------
+
+@app.get("/api/projects/{name}/foreshadows")
+def foreshadow_center(name: str) -> dict:
+    """복선마다 심은 문장 · 회수한 문장, 회수율, 끊어진 연결, 회수 예정이 지난 복선."""
+    return foreshadows.center(_load(name))
+
+
+class ForeshadowIn(BaseModel):
+    description: str
+    episode: int  # 심은 화
+    scope: str = "arc"
+    due_ep: int | None = None
+
+
+@app.post("/api/projects/{name}/foreshadows")
+def foreshadow_add(name: str, body: ForeshadowIn) -> Project:
+    p = _load(name)
+    _not_auto(name)
+    foreshadows.add(p, body.description, body.episode, body.scope, body.due_ep)
+    return _save(name, p)
+
+
+class ForeshadowEdit(BaseModel):
+    description: str | None = None
+    scope: str | None = None
+    due_ep: int | None = None
+    clear_due: bool = False
+
+
+@app.put("/api/projects/{name}/foreshadows/{fid}")
+def foreshadow_edit(name: str, fid: str, body: ForeshadowEdit) -> Project:
+    p = _load(name)
+    _not_auto(name)
+    foreshadows.update(p, fid, body.description, body.scope, body.due_ep, body.clear_due)
+    return _save(name, p)
+
+
+@app.delete("/api/projects/{name}/foreshadows/{fid}")
+def foreshadow_remove(name: str, fid: str) -> Project:
+    p = _load(name)
+    _not_auto(name)
+    foreshadows.remove(p, fid)
+    return _save(name, p)
+
+
+class EpisodeIn(BaseModel):
+    episode: int
+
+
+@app.post("/api/projects/{name}/foreshadows/{fid}/resolve")
+def foreshadow_resolve(name: str, fid: str, body: EpisodeIn) -> Project:
+    """근거 문장 없이 회수했다고만 표시한다. 문장을 함께 남기려면 /foreshadows/clues 에 payoff 로 건다."""
+    p = _load(name)
+    _not_auto(name)
+    foreshadows.resolve(p, fid, body.episode)
+    return _save(name, p)
+
+
+@app.post("/api/projects/{name}/foreshadows/{fid}/reopen")
+def foreshadow_reopen(name: str, fid: str) -> Project:
+    p = _load(name)
+    _not_auto(name)
+    foreshadows.reopen(p, fid)
+    return _save(name, p)
+
+
+class ClueIn(BaseModel):
+    episode: int
+    quote: str
+    foreshadow: str = ""  # 걸 복선 id. 비우고 description 을 주면 새 복선을 만들어 건다
+    description: str = ""
+    kind: str = "plant"
+
+
+@app.post("/api/projects/{name}/foreshadows/clues")
+def foreshadow_clue(name: str, body: ClueIn) -> Project:
+    """본문에서 고른 문장을 복선에 건다. 작가 입력이라 승인 단계 없이 저장한다."""
+    p = _load(name)
+    _not_auto(name)
+    if not body.foreshadow and body.kind == "payoff":
+        raise ValueError("회수할 복선을 골라 주세요")
+    fid = body.foreshadow or foreshadows.add(p, body.description, body.episode).id
+    foreshadows.add_clue(p, body.episode, body.quote, fid, body.kind)
+    return _save(name, p)
+
+
+class ClueKey(BaseModel):
+    foreshadow: str
+    episode: int
+    quote: str
+
+
+@app.post("/api/projects/{name}/foreshadows/clues/remove")
+def foreshadow_clue_remove(name: str, body: ClueKey) -> Project:
+    p = _load(name)
+    _not_auto(name)
+    foreshadows.remove_clue(p, body.foreshadow, body.episode, body.quote)
+    return _save(name, p)
+
+
+@app.post("/api/projects/{name}/foreshadows/prune")
+def foreshadow_prune(name: str) -> Project:
+    """본문을 고쳐 사라진 문장에 걸린 연결을 지운다."""
+    p = _load(name)
+    _not_auto(name)
+    foreshadows.prune(p)
+    return _save(name, p)
+
+
+# ---------- 상태창 (canon/statwin.py) ----------
+
+@app.get("/api/projects/{name}/statwin/{cid}")
+def statwin_view(name: str, cid: str) -> dict:
+    """인물 하나의 지금 상태창, 화별 비교표, 본문에 넣을 글."""
+    p = _load(name)
+    return {**statwin.timeline(p, cid), "text": statwin.render(p, cid), "presets": statwin.PRESETS}
+
+
+class StatsIn(BaseModel):
+    stats: list[StatValue]
+
+
+@app.put("/api/projects/{name}/statwin/{cid}")
+def statwin_set(name: str, cid: str, body: StatsIn) -> Project:
+    """작가가 상태창 항목과 값을 고친다. 마지막으로 반영한 화의 작가 기록으로 남는다."""
+    p = _load(name)
+    _not_auto(name)
+    statwin.set_stats(p, cid, body.stats)
+    return _save(name, p)
+
+
+class StatTemplate(BaseModel):
+    template: str
+    row: str = "{key}: {value}"
+
+
+@app.put("/api/projects/{name}/statwin-template")
+def statwin_template(name: str, body: StatTemplate) -> Project:
+    if "{rows}" not in body.template:
+        raise ValueError("서식에 {rows} 가 있어야 항목이 들어갑니다")
+    p = _load(name)
+    p.stat_window.template, p.stat_window.row = body.template, body.row
+    return _save(name, p)
 
 
 @app.post("/api/projects/{name}/episodes/{n}/preview")

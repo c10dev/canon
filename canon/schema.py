@@ -678,6 +678,12 @@ class Episode(BaseModel):
 
 # ---------- 회차 진행 상태 ----------
 
+class StatValue(BaseModel):
+    """상태창 한 줄 (canon/statwin.py)."""
+    name: str = Field(description="항목 이름 (예: 레벨, HP, 힘, 스킬)")
+    value: str = Field("", description="값. 변경안에서는 새 값을 적거나, 바뀐 양만 알면 +3, -10 처럼. 항목이 사라졌으면 빈 값")
+
+
 class CharacterState(BaseModel):
     character_id: str
     emotional_state: str = ""
@@ -685,6 +691,7 @@ class CharacterState(BaseModel):
     location: str = ""
     knows: list[str] = Field(default_factory=list, description="이 인물이 알게 된 핵심 정보")
     notes: str = ""
+    stats: list[StatValue] = Field(default_factory=list, description="상태창 수치. 작가가 상태창을 만든 인물만. 변경안에는 바뀐 항목만 넣는다")
 
 
 class Foreshadow(BaseModel):
@@ -695,6 +702,31 @@ class Foreshadow(BaseModel):
     status: Literal["open", "resolved"] = "open"
     scope: Literal["arc", "part", "series"] = Field("arc", description="회수 범위: arc 이번 아크 안 / part 이번 부 안 / series 작품 끝까지 가는 큰 복선")
     due_ep: Optional[int] = Field(None, description="회수 예정 화. 정하지 않았으면 비움")
+
+
+class ForeshadowClue(BaseModel):
+    """복선이 본문에 걸린 자리. 본문은 바꾸지 않고 근거 문장만 기억한다 (canon/foreshadows.py)."""
+    foreshadow: str = Field(description="복선 id")
+    kind: Literal["plant", "payoff"] = Field("plant", description="plant: 심거나 다시 떠올린 문장 / payoff: 회수한 문장")
+    quote: str = Field(description="근거가 되는 문장을 본문에서 그대로")
+    episode: int = Field(0, description="문장이 있는 화. 프로그램이 채운다")
+    by: Literal["ai", "author"] = Field("ai", description="상태 변경안에서 왔는지(ai), 작가가 본문에서 골라 붙였는지(author). 프로그램이 채운다")
+
+
+class StatRecord(BaseModel):
+    """상태창 수치가 바뀐 기록. 화별 비교는 이 기록으로 다시 그린다 (canon/statwin.py)."""
+    episode: int = Field(description="바뀐 화. 1화 전에 정한 처음 값은 0")
+    character_id: str
+    name: str
+    value: str = Field("", description="바뀐 뒤 값. 빈 값이면 항목이 사라짐")
+    before: str = ""
+    source: Literal["ai", "author"] = Field("ai", description="ai: 승인한 상태 변경안 / author: 작가가 직접 고침")
+
+
+class StatWindow(BaseModel):
+    """본문에 넣는 상태창 서식. {name} 은 인물 이름, {rows} 는 항목 줄들."""
+    template: str = "【 상태창 】\n이름: {name}\n{rows}"
+    row: str = "{key}: {value}"
 
 
 class StateDelta(BaseModel):
@@ -708,6 +740,7 @@ class StateDelta(BaseModel):
     new_facts: list[str] = Field(default_factory=list, description="본문에서 새로 확정된 사실 (이름, 장소, 과거사 등)")
     foreshadow_planted: list[Foreshadow] = Field(default_factory=list)
     foreshadow_resolved: list[str] = Field(default_factory=list, description="회수된 복선 id")
+    foreshadow_clues: list[ForeshadowClue] = Field(default_factory=list, description="복선 근거 문장: 새로 심은 복선, 다시 떠올린 열린 복선, 회수한 복선마다 본문 문장 그대로")
     new_characters: list[Character] = Field(default_factory=list, description="인물 설정에 없는데 이번 화에 이름을 갖고 처음 나온 인물. 조연은 support, 지나가는 인물은 minor")
     warnings: list[str] = Field(default_factory=list, description="플롯, 설정, 말투와 어긋난 부분")
 
@@ -897,6 +930,9 @@ class Project(BaseModel):
     states: list[CharacterState] = Field(default_factory=list)
     facts: list[str] = Field(default_factory=list)
     foreshadows: list[Foreshadow] = Field(default_factory=list)
+    foreshadow_clues: list[ForeshadowClue] = Field(default_factory=list, description="복선이 본문에 걸린 문장 (복선 센터)")
+    stat_log: list[StatRecord] = Field(default_factory=list, description="상태창 수치가 바뀐 기록")
+    stat_window: StatWindow = Field(default_factory=StatWindow, description="본문에 넣는 상태창 서식")
     history: list[StateDelta] = Field(default_factory=list, description="승인된 상태 변경 기록")
     ties: list[Tie] = Field(default_factory=list, description="방향 관계 (dynamics 가 계산)")
     secrets: list[Secret] = Field(default_factory=list)
