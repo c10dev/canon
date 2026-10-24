@@ -730,6 +730,7 @@ document.addEventListener('input', (e) => {
     if (kind === 'list') v = v.split('\n').map((s) => s.trim()).filter(Boolean);
     if (kind === 'tags') v = splitTags(v);
     if (kind === 'bool') v = el.checked;
+    const loglinePrev = el.dataset.bind.startsWith('meta.logline_parts.') ? composeLogline(P().meta.logline_parts) : undefined;
     setPath(root, el.dataset.bind, v);
     if (el.dataset.root === 'lib') { S.libDirty = true; renderSavebar(); }
     else if (!DRAFT_ROOTS[el.dataset.root]) markDirty();
@@ -740,7 +741,8 @@ document.addEventListener('input', (e) => {
     if (cnt) cnt.textContent = v.length.toLocaleString();
     const out = el.dataset.out && document.getElementById(el.dataset.out);
     if (out) out.textContent = v;
-    if (el.dataset.bind.startsWith('meta.logline_parts.')) updateLogline();
+    if (el.dataset.bind.startsWith('meta.logline_parts.')) updateLogline(loglinePrev);
+    if (el.dataset.bind === 'meta.logline') { const mn = $('#logline-manual'); if (mn) mn.innerHTML = loglineManualHtml(P().meta); }
     const rel = el.dataset.bind.match(/^relationships\.(\d+)\.(a|b)$/);
     if (rel) refreshRel(Number(rel[1]));
   }
@@ -802,9 +804,16 @@ document.addEventListener('change', (e) => {
     S.names = {};
     S.placeKind = '';
     checkNames().then(render);
-  } else if (/^characters\.\d+\.(name|age|gender)$/.test(bind) || bind === 'world.era' || bind === 'world.setting') {
-    checkNames();
+  } else if (/^characters\.\d+\.(name|age|gender)$/.test(bind) || /^world\.(era|setting|rules|locations)$/.test(bind) || /^meta\.(logline|notes|logline_parts\.\w+)$/.test(bind)) {
+    checkNames();  // naming.detect_style 이 보는 칸: 자동 이름 스타일과 경고가 바뀔 수 있다
   }
+});
+
+// 이름을 고치면 그 인물 카드 머리 이름도 바로 바꾼다 (경고 글과 카드 이름을 맞춰 보게)
+document.addEventListener('input', (e) => {
+  const m = S.route[2] === 'setup' && (e.target.dataset.bind || '').match(/^characters\.(\d+)\.name$/);
+  const head = m && document.querySelector(`[data-char-head="${m[1]}"]`);
+  if (head) head.textContent = e.target.value.trim() || '이름 없음';
 });
 
 // 탭에서 ← → Home End 로 다른 탭을 고른다. 고른 탭은 다시 그린 뒤에도 포커스를 받는다
@@ -1279,11 +1288,21 @@ const actions = {
   },
   fillSlot(arg) {
     const [k, ...rest] = arg.split('|');
+    const prev = composeLogline(P().meta.logline_parts);
     P().meta.logline_parts[k] = rest.join('|');
     const el = $(`#f-meta-logline_parts-${k}`);
     if (el) el.value = P().meta.logline_parts[k];
     markDirty();
+    updateLogline(prev);
+  },
+  rebuildLogline() {
+    const m = P().meta;
+    m.logline = composeLogline(m.logline_parts);
+    const raw = $('#f-meta-logline');
+    if (raw) raw.value = m.logline;
+    markDirty();
     updateLogline();
+    toast('칸 내용으로 로그라인을 다시 만들었어요');
   },
   useExample(i) {
     const parts = P().meta.logline_parts;
@@ -1296,7 +1315,15 @@ const actions = {
   setDial(arg) {
     const [k, v] = arg.split('|');
     const m = P().meta;
+    const prev = toneText(m.tone_dials);
     m.tone_dials[k] = m.tone_dials[k] === Number(v) ? 0 : Number(v);
+    // 직접 쓴 톤 문장은 덮지 않는다. 다이얼 문장이 다르면 칸 아래 '다이얼 문장으로 바꾸기'로 권한다
+    if (!m.tone.trim() || m.tone === prev) m.tone = toneText(m.tone_dials);
+    markDirty();
+    $('#tone-box').outerHTML = toneBox();
+  },
+  useToneText() {
+    const m = P().meta;
     m.tone = toneText(m.tone_dials);
     markDirty();
     $('#tone-box').outerHTML = toneBox();
@@ -2688,7 +2715,7 @@ function genreTarget() {
 function syncGenre() {
   const m = genreTarget();
   m.genre = genreLabel(m);
-  if (m !== S.newMeta) markDirty();
+  if (m !== S.newMeta) { markDirty(); checkNames(); }  // 장르도 자동 이름 스타일을 정한다 (naming.detect_style)
   const box = $('#genre-picker');
   if (box) box.outerHTML = genrePicker();
   else render();
@@ -2730,9 +2757,14 @@ const LOGLINE_SLOTS = [
   ['stake', '무엇이 걸렸나', '선택, 비워도 돼요'],
 ];
 
+// 숫자는 한국어로 읽은 받침이 있나: 영 일 이 삼 사 오 육 칠 팔 구 (logline.DIGIT_FINAL)
+const DIGIT_FINAL = '1101001110';
+
 function josa(word, withFinal, withoutFinal) {
   const w = word.trim();
   if (!w) return '';
+  const digit = DIGIT_FINAL['0123456789'.indexOf(w[w.length - 1])];
+  if (digit) return digit === '1' ? withFinal : withoutFinal;
   const code = w.charCodeAt(w.length - 1);
   if (code < 0xAC00 || code > 0xD7A3) return `${withFinal}(${withoutFinal})`;
   return (code - 0xAC00) % 28 ? withFinal : withoutFinal;
@@ -2793,8 +2825,19 @@ function loglineBuilder() {
     ${slots}
     <div class="logline-out"><p id="logline-preview" class="logline-preview" aria-live="polite">${esc(m.logline || LOGLINE_EMPTY)}</p><ul id="logline-checks" class="logline-checks">${loglineChecksHtml(m)}</ul></div>
     ${exs.length ? `<details><summary>예시 로그라인 ${exs.length}개 보기</summary><div class="ex-list">${exs.map((e, i) => `<div class="ex-item"><span>${esc(composeLogline(e))}</span><button type="button" class="btn small" data-action="useExample" data-arg="${i}">이 예시로 채우기</button></div>`).join('')}</div></details>` : ''}
-    <details${legacy ? ' open' : ''}><summary>한 문장으로 직접 고쳐 쓰기</summary>${input('로그라인 문장', 'meta.logline', { rows: 3, hint: '칸을 다시 고치면 칸 내용으로 바뀌어요' })}</details>
+    <div id="logline-manual">${loglineManualHtml(m)}</div>
+    <details${legacy || loglineManual(m) ? ' open' : ''}><summary>한 문장으로 직접 고쳐 쓰기</summary>${input('로그라인 문장', 'meta.logline', { rows: 3, hint: '직접 고친 문장은 칸을 고쳐도 그대로 둬요' })}</details>
   </div>`;
+}
+
+/** 직접 고친 문장을 쓰는 중: 칸 내용과 다르다. 옛 작품처럼 칸이 모두 비었으면 칸을 채울 때 칸 내용으로 바꾼다 */
+function loglineManual(m) {
+  const parts = m.logline_parts;
+  return Object.values(parts).some((v) => v.trim()) && !!m.logline.trim() && m.logline !== composeLogline(parts);
+}
+
+function loglineManualHtml(m) {
+  return loglineManual(m) ? '<div class="note info row" role="status"><span>직접 고친 문장을 쓰고 있어요. 칸을 고쳐도 이 문장은 바뀌지 않아요.</span><button type="button" class="btn small" data-action="rebuildLogline">칸 내용으로 다시 만들기</button></div>' : '';
 }
 
 const LOGLINE_EMPTY = '칸을 채우면 여기에 로그라인이 만들어져요.';
@@ -2805,12 +2848,13 @@ function loglineChecksHtml(m) {
   return loglineChecks(parts).map(([ok, t]) => `<li class="${ok ? 'ok' : ''}">${esc(t)}</li>`).join('') + `<li class="len">${m.logline.length}자 · 점검은 참고용이에요</li>`;
 }
 
-/** 로그라인 칸이 바뀌면 합친 문장, 점검, 직접 쓰기 칸만 다시 그린다 (입력 중인 칸의 포커스 유지) */
-function updateLogline() {
+/** 로그라인 칸이 바뀌면 합친 문장, 점검, 직접 쓰기 칸만 다시 그린다 (입력 중인 칸의 포커스 유지).
+    prev 는 바뀌기 전 칸으로 합친 문장: 지금 문장이 그것과 같거나 비었을 때만 새 칸 내용으로 바꾼다 (직접 고친 문장은 남긴다) */
+function updateLogline(prev) {
   const m = P().meta;
   const parts = m.logline_parts;
   const empty = !Object.values(parts).some((v) => v.trim());
-  if (!empty) {
+  if (!empty && (prev === undefined || !m.logline.trim() || m.logline === prev)) {
     m.logline = composeLogline(parts);
     const raw = $('#f-meta-logline');
     if (raw) raw.value = m.logline;
@@ -2819,12 +2863,18 @@ function updateLogline() {
   if (pv) pv.textContent = m.logline || LOGLINE_EMPTY;
   const ck = $('#logline-checks');
   if (ck) ck.innerHTML = loglineChecksHtml(m);
+  const mn = $('#logline-manual');
+  if (mn) mn.innerHTML = loglineManualHtml(m);
 }
 
 function toneBox() {
-  const d = P().meta.tone_dials;
-  const rows = TONE_DIALS.map(([k, l, r]) => `<div class="dial" role="group" aria-label="${l}, ${r}"><span>${l}</span>${[1, 2, 3, 4].map((v) => `<button type="button" aria-pressed="${d[k] === v}" aria-label="${l}에서 ${r} 사이 ${v}단계" data-action="setDial" data-arg="${k}|${v}"></button>`).join('')}<span>${r}</span></div>`).join('');
-  return `<div id="tone-box" class="field"><span class="label-text">톤 <span class="hint">양 끝 중 어디에 가까운가. 고르면 아래 문장이 바뀌고, 문장은 직접 고쳐도 돼요</span></span>${rows}${input('톤 문장', 'meta.tone', { placeholder: '예: 조금 어둡고 진지하고 호흡이 느리다' })}</div>`;
+  const m = P().meta;
+  const d = m.tone_dials;
+  const rows = TONE_DIALS.map(([k, l, r]) => `<div class="dial" role="group" aria-label="${l}, ${r}"><span>${l}</span>${[1, 2, 3, 4].map((v) => `<button type="button" aria-pressed="${d[k] === v}" aria-label="${l}에서 ${r} 사이 ${v}단계: ${TONE_WORDS[k][v - 1][1]}" title="${TONE_WORDS[k][v - 1][1]}" data-action="setDial" data-arg="${k}|${v}"></button>`).join('')}<span>${r}</span><span class="dial-now">${d[k] >= 1 && d[k] <= 4 ? TONE_WORDS[k][d[k] - 1][1] : ''}</span></div>`).join('');
+  const dialText = toneText(d);
+  const offer = dialText && m.tone.trim() && m.tone !== dialText
+    ? `<div class="row"><span class="small">다이얼 문장: ${esc(dialText)}</span><button type="button" class="btn small" data-action="useToneText">다이얼 문장으로 바꾸기</button></div>` : '';
+  return `<div id="tone-box" class="field"><span class="label-text">톤 <span class="hint">양 끝 중 어디에 가까운가. 왼쪽부터 1~4단계이고, 고른 단계를 다시 누르면 꺼져요. 문장은 직접 고쳐도 되고, 직접 쓴 문장은 다이얼이 덮지 않아요</span></span>${rows}${input('톤 문장', 'meta.tone', { placeholder: '예: 조금 어둡고 진지하고 호흡이 느리다' })}${offer}</div>`;
 }
 
 // 관계를 말로 고르기. VIEWS 는 canon/dynamics.py 의 VIEWS 와 같은 목록이다.
@@ -2897,8 +2947,17 @@ const nameCheckBody = () => ({ meta: P().meta, world: P().world, characters: P()
 let nameSeq = 0;
 async function checkNames(show = false) {
   const my = ++nameSeq;
+  const busy = $('#name-check');
+  if (show && busy) busy.innerHTML = '<span class="small">이름을 점검하는 중…</span>';
   const r = await api('POST', `/projects/${enc(S.name)}/names/check`, nameCheckBody()).catch(() => null);
-  if (!r || my !== nameSeq) return;  // 더 나중에 보낸 점검이 있으면 그 결과를 쓴다
+  if (my !== nameSeq) return;  // 더 나중에 보낸 점검이 있으면 그 결과를 쓴다
+  if (!r) {  // 실패: 이전 경고를 그대로 두지 않고 못 했다고 알린다
+    S.nameCheck = { failed: true, detected: (S.nameCheck || {}).detected };
+    const box = $('#name-check');
+    if (box) box.outerHTML = nameCheckBox();
+    if (show) toast('이름 점검을 못 했어요. 잠시 뒤 다시 해 보세요', true);
+    return;
+  }
   S.nameCheck = r;
   const box = $('#name-check');
   if (box) box.outerHTML = nameCheckBox();
@@ -2917,7 +2976,9 @@ function styleLabel(id) {
 function nameCheckBox() {
   const nc = S.nameCheck || {};
   const issues = nc.issues || (nc.warnings || []).map((text) => ({ kind: 'other', level: 'warn', text, ids: [] }));
-  if (!issues.length) return '<div id="name-check"></div>';
+  const live = 'role="status" aria-live="polite"';
+  if (nc.failed) return `<div id="name-check" class="note warn" ${live}>이름 점검을 못 했어요. <button type="button" class="link-btn small" data-action="checkNames">다시 시도</button></div>`;
+  if (!issues.length) return `<div id="name-check" ${live}>${S.nameCheck ? '<span class="small">이름 점검: 문제 없음</span>' : ''}</div>`;
   const kinds = nc.kinds || {};
   const order = ['same', 'given', 'confusable', 'era', 'style', 'overused', 'other'];
   const warn = issues.some((i) => i.level === 'warn');
@@ -2925,7 +2986,7 @@ function nameCheckBox() {
   const body = groups.map(([k, list]) => `<div class="small" style="margin-top:6px;font-weight:700">${esc(kinds[k] || '기타')}</div>
     <ul style="margin:2px 0 0;padding-left:18px">${list.map((i) => `<li>${esc(i.text)} ${nameJump(i.ids)}</li>`).join('')}</ul>`).join('');
   const head = `이름 점검 ${issues.length}건${warn ? ` · 같은 이름 ${issues.filter((i) => i.level === 'warn').length}건` : ''}`;
-  return `<div id="name-check" class="note ${warn ? 'warn' : 'info'}">${issues.length > 3
+  return `<div id="name-check" class="note ${warn ? 'warn' : 'info'}" ${live}>${issues.length > 3
     ? `<details${warn ? ' open' : ''}><summary><strong>${head}</strong></summary>${body}</details>` : `<strong>${head}</strong>${body}`}</div>`;
 }
 
@@ -2977,7 +3038,7 @@ function viewSetup() {
   const chars = p.characters.map((c, i) => {
     const b = `characters.${i}`;
     return `<article class="char-card">
-      <div class="between"><strong style="font-size:1rem">${esc(c.name || '이름 없음')}</strong><button class="btn small danger" data-action="removeCharacter" data-arg="${i}" aria-label="${esc(c.name || c.id)} 삭제">삭제</button></div>
+      <div class="between"><strong style="font-size:1rem" data-char-head="${i}">${esc(c.name || '이름 없음')}</strong><button class="btn small danger" data-action="removeCharacter" data-arg="${i}" aria-label="${esc(c.name || c.id)} 삭제">삭제</button></div>
       <div class="grid-2">${input('이름', b + '.name')}${input('역할', b + '.role', { placeholder: '주인공, 상대역, 조력자…' })}</div>
       ${nameIssuesFor(c.id)}
       <div class="grid-2">${input('나이', b + '.age', { placeholder: '예: 17세, 40대 초반' })}${input('성별', b + '.gender', { placeholder: '남 / 여' })}</div>
@@ -2987,7 +3048,7 @@ function viewSetup() {
       ${input('원하는 것', b + '.goal', { hint: '작품 전체에서' })}
       ${input('두려운 것 · 약점', b + '.wound')}
       ${input('숨기는 것', b + '.secrets', { kind: 'list', rows: 2 })}
-      ${input('말투', b + '.speech_style', { rows: 2, hint: '어미, 호칭, 대사 한 줄' })}
+      ${input('말투 (대사)', b + '.speech_style', { rows: 2, hint: '어미, 호칭, 대사 한 줄' })}
       ${voiceField(c, b)}
       <details><summary>더 자세히: 성격, 배경, 외모, 아크</summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
         ${input('성격', b + '.personality', { rows: 2 })}${input('배경', b + '.background', { rows: 2 })}${input('외모', b + '.appearance')}
@@ -2999,7 +3060,10 @@ function viewSetup() {
 
   const rels = p.relationships.map(relRow).join('');
 
-  return `${header('1단계', '설정 도우미', '채운 칸은 그대로 두고, 빈칸만 AI가 제안해요. 제안에서 원하는 인물과 관계만 골라 적용하세요.', `${((b) => `<button class="btn" data-action="suggest"${b.attr}>${b.label}</button>`)(jobBtn('suggest', null, '빈칸 AI 제안받기'))}<a class="btn primary" href="${base()}/style">문체로</a>`)}
+  // 인물이 없으면 첫 할 일은 AI 제안이다. 인물이 생기면 다음 단계(문체)를 앞세운다
+  const first = !p.characters.length;
+  return `${header('1단계', '설정 도우미', '채운 칸은 그대로 두고, 빈칸만 AI가 제안해요. 제안에서 원하는 인물과 관계만 골라 적용하세요.', `${((b) => `<button class="btn${first ? ' primary' : ''}" data-action="suggest"${b.attr}>${b.label}</button>`)(jobBtn('suggest', null, '빈칸 AI 제안받기'))}<a class="btn${first ? '' : ' primary'}" href="${base()}/style">문체로</a>`)}
+    ${aiNote()}
     ${S.suggestion ? viewSuggestion() : ''}
     <nav class="jump-nav" aria-label="설정 구역">${[['setup-basic', '기본 정보'], ['setup-world', '세계관'], ['setup-chars', `인물 ${p.characters.length}`], ['setup-rels', `관계 ${p.relationships.length}`]]
       .map(([id, l]) => `<button type="button" class="btn small ghost" data-action="jumpTo" data-arg="${id}">${l}</button>`).join('')}</nav>
@@ -3010,7 +3074,7 @@ function viewSetup() {
           ${input('제목', 'meta.title')}
           ${genrePicker()}
           ${adultCheck(`data-bind="meta.adult" data-kind="bool"${P().meta.adult ? ' checked' : ''}`)}
-          ${serial() ? input('총 화수', 'meta.target_episodes', { type: 'number', min: 1, max: 1000, hint: '늘리거나 줄이면 마지막 부 끝 화가 따라가요' }) : input('총 화수 (10~20)', 'meta.target_episodes', { type: 'number', min: 1, max: 40 })}
+          ${serial() ? input('총 화수', 'meta.target_episodes', { type: 'number', min: 1, max: 1000, hint: '늘리거나 줄이면 마지막 부 끝 화가 따라가요' }) : input('총 화수', 'meta.target_episodes', { type: 'number', min: 4, max: 40, hint: '단편은 10~20화를 권해요 · 4~40화' })}
           ${loglineBuilder()}
           ${input('주제', 'meta.theme', { hint: '이 이야기가 끝까지 묻는 질문 하나', placeholder: '예: 떠난 사람을 이해하면 용서할 수 있나?' })}
           ${toneBox()}
@@ -3357,20 +3421,41 @@ function povBadge(n) {
   if (!v.c && !v.omni) return '';
   const kind = v.c ? ((v.c.tier || 'main') === 'main' ? { 여: 'her', 남: 'him' }[charGender(v.c)] || 'other' : 'other') : 'omni';
   const label = v.c ? (v.c.name || v.c.id) : '전지';
-  const tip = `${label} 시점 (${v.from === '화' ? '이 화에 정함' : v.from + '에서 물려받음'})${povText(n) ? ' · ' + povText(n) : ''}`;
+  const e = ep(n);
+  // 화에 정했으면 '도현 · 1인칭 시점 (이 화에 정함)', 물려받았으면 구간 · 아크 시점 글이 이름과 다를 때만 덧붙인다
+  const plan = povText(n);
+  const tip = v.from === '화' ? `${[label, e && e.plot.pov_mode].filter(Boolean).join(' · ')} 시점 (${povSource(v.from)})`
+    : `${label} 시점 (${povSource(v.from)})${plan && plan !== label ? ' · ' + plan : ''}`;
   return `<span class="pov-chip ${kind}${v.from === '화' ? '' : ' inherit'}" title="${esc(tip)}">${esc(label)}</span>`;
 }
 
-/** 인물 카드의 시점 서술 말투. 이 인물이 시점 인물인 화에만 본문 지시에 들어간다 (prompts.voice_line) */
+/** 시점을 어디서 정했나: 화 · 구간 · 아크 · 작품 기본 */
+const povSource = (from) => (from === '화' ? '이 화에 정함' : from === '작품 기본' ? '작품 기본 시점' : `${from}에서 물려받음`);
+
+/** 화 카드 이름에 넣을 시점: '도현 시점(구간에서 물려받음)'. 배지가 없으면 빈 글 */
+function povSummary(n) {
+  const v = povChar(n);
+  if (!v.c && !v.omni) return '';
+  return `${v.c ? v.c.name || v.c.id : '전지'} 시점(${povSource(v.from)})`;
+}
+
+/** 플롯 보드 위 배지 범례 (색과 점선의 뜻) */
+const POV_LEGEND = '<div class="small pov-legend">시점 배지: 실선은 이 화에 정함, 점선은 구간 · 아크 · 작품 기본에서 물려받음. 분홍 여주인공, 파랑 남주인공, 보라 그 밖의 인물, 회색 전지 시점</div>';
+
+/** 인물 카드의 시점 서술 말투. 이 인물이 시점 인물인 화에만 본문 지시에 들어간다 (prompts.voice_line).
+    값도 없고 이 인물 시점인 화도 없으면 접어 둔다 (단역 카드가 길어지지 않게) */
 function voiceField(c, b) {
   const note = (S.voices || {})[c.id];
-  return `${input('시점 서술 말투', b + '.narration_voice', { rows: 3, autogrow: true, hint: `${c.name || '이 인물'} 시점 화의 지문 · 내면 독백`, placeholder: '예: 서술 어미는 ~했어요, ~인 걸까요? 처럼 부드럽게. 비우면 작품 문체 그대로' })}
+  const eps = P().episodes.map((e) => e.plot.number).filter((n) => (povChar(n).c || {}).id === c.id);
+  const body = `${input('서술 말투 (이 인물 시점 화의 지문)', b + '.narration_voice', { rows: 3, autogrow: true, hint: `${c.name || '이 인물'} 시점 화의 지문 · 내면 독백`, placeholder: '예: 서술 어미는 ~했어요, ~인 걸까요? 처럼 부드럽게. 비우면 작품 문체 그대로' })}
     ${note ? `<div class="note info">${esc(note)}</div>` : ''}
-    ${((eps) => (eps.length ? `<div class="small">이 말투가 들어가는 화: ${rangeText(eps)}화</div>`
-      : (c.narration_voice || '').trim() ? `<div class="note warn">아직 ${esc(c.name || '이 인물')} 시점인 화가 없어서 이 말투는 어느 화에도 들어가지 않아요. <a href="${base()}/arc">플롯</a>에서 시점 인물을 정하세요.</div>` : ''))(
-      P().episodes.map((e) => e.plot.number).filter((n) => (povChar(n).c || {}).id === c.id))}
-    <div class="between"><span class="small">대사는 위의 말투를 따라요. 이 말투로 쓴 화는 어미 관련 문체 경고(과거형 비율, 문체 거리, 표지)를 빼요.</span>
-      <button type="button" class="btn small" data-action="voiceAI" data-arg="${esc(c.id)}">설정에서 AI로 초안</button></div>`;
+    ${eps.length ? `<div class="small">이 말투가 들어가는 화: ${rangeText(eps)}화</div>`
+      : (c.narration_voice || '').trim() ? `<div class="note warn">아직 ${esc(c.name || '이 인물')} 시점인 화가 없어서 이 말투는 어느 화에도 들어가지 않아요. <a href="${base()}/arc">플롯</a>에서 시점 인물을 정하세요.</div>` : ''}
+    <div class="small">대사는 위의 말투(대사)를 따라요. 이 말투로 쓴 화는 어미 관련 문체 경고(과거형 비율, 문체 거리, 표지)를 빼요.</div>
+    <div class="row" style="flex-wrap:nowrap"><input type="text" id="voice-req-${esc(c.id)}" aria-label="${esc(c.name || '이 인물')} 서술 말투 AI 요청" placeholder="AI에게 바랄 점 (예: 더 냉소적으로, 문장을 짧게)" style="flex:1">
+      <button type="button" class="btn small" style="flex:none" data-action="voiceAI" data-arg="${esc(c.id)}">설정에서 AI로 초안</button></div>`;
+  return eps.length || (c.narration_voice || '').trim() || note ? body
+    : `<details class="voice-more"><summary>서술 말투 (이 인물 시점 화의 지문) <span class="small">이 인물 시점 화가 생기면 써요</span></summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">${body}</div></details>`;
 }
 
 /** 플롯 편집기의 시점 칸. 비우면 구간 · 아크 시점, 그것도 없으면 작품 기본 시점 */
@@ -3378,7 +3463,8 @@ function povField(e, locked) {
   const n = e.plot.number;
   const b = `episodes.${epIndex(n)}.plot`;
   const plan = (() => { const act = actOf(n); const arc = serial() ? arcOf(n) : null; return (act && act.pov) || (arc && arc.pov) || ''; })();
-  const fallback = plan ? `구간 시점 (${plan})` : `작품 기본 (${P().style.narration_pov || '정하지 않음'})`;
+  const from = inheritedPov(n).from;  // 구간 · 아크 · 작품 기본 중 어디서 물려받나
+  const fallback = plan ? `${from} 시점 (${plan})` : `작품 기본 (${P().style.narration_pov || '정하지 않음'})`;
   const opts = [['', fallback], ...P().characters.map((c) => [c.id, c.name || c.id])]
     .map(([v, l]) => `<option value="${esc(v)}"${(e.plot.pov || '') === v ? ' selected' : ''}>${esc(l)}</option>`).join('');
   return `<div class="grid-2">
@@ -3393,7 +3479,7 @@ document.addEventListener('change', (e) => {  // 시점 인물을 바꾸면 화 
 });
 
 function epCard(e, sel) {
-  return `<button type="button" class="ep-card ${e.status}${sel && sel.plot.number === e.plot.number ? ' sel' : ''}" data-action="selectEp" data-arg="${e.plot.number}" aria-label="${e.plot.number}화 ${esc(e.plot.title)} 플롯 열기">
+  return `<button type="button" class="ep-card ${e.status}${sel && sel.plot.number === e.plot.number ? ' sel' : ''}" data-action="selectEp" data-arg="${e.plot.number}" aria-label="${e.plot.number}화 ${esc(e.plot.title)}${povSummary(e.plot.number) ? ' · ' + esc(povSummary(e.plot.number)) : ''} 플롯 열기">
       <span class="ep-top"><strong>${e.plot.number}화</strong><span class="ep-chips">${povBadge(e.plot.number)}<span class="chip ${e.status}">${STATUS[e.status]}</span></span></span>
       <span class="t">${esc(e.plot.title) || '제목 없음'}</span>${lineBadge(e)}<span class="s">${esc(e.plot.summary)}</span></button>`;
 }
@@ -3426,7 +3512,7 @@ function actBoard(acts, eps, sel) {
   const out = loose.length ? `<section class="act-col" aria-label="구간 밖"><div class="act-head"><div class="between"><strong>구간 밖</strong><span class="act-meta">${loose.length}화</span></div>
       <div class="note warn">어느 구간에도 들지 않는 화예요. 구간 범위를 고치면 제자리로 가요.</div></div>
       <div class="act-eps">${loose.map((e) => epCard(e, sel)).join('')}</div></section>` : '';
-  return `<div class="board${out ? ' has-loose' : ''}">${cols}${out}</div>`;
+  return `${eps.some((e) => povBadge(e.plot.number)) ? POV_LEGEND : ''}<div class="board${out ? ' has-loose' : ''}">${cols}${out}</div>`;
 }
 
 /** 구간 범위가 start~end 화를 빈틈 · 겹침 없이 덮는지. 문제가 있으면 고칠 곳을 문장으로 돌려준다 (서버 validate_arc 가 저장을 막는 경우). */
@@ -4178,7 +4264,8 @@ Object.assign(actions, {
     if ((c.narration_voice || '').trim() && !confirm('지금 적힌 서술 말투를 AI 초안으로 바꿀까요? 저장하기 전에는 되돌릴 수 있어요')) return;
     await run('서술 말투 초안 만드는 중', async () => {
       await saveIfDirty();  // AI는 저장된 인물 설정을 읽는다. 방금 고친 설정이나 새 인물도 보게 먼저 저장한다
-      const s = await api('POST', `/projects/${enc(S.name)}/characters/${enc(cid)}/voice`);
+      const req = document.getElementById(`voice-req-${cid}`);
+      const s = await api('POST', `/projects/${enc(S.name)}/characters/${enc(cid)}/voice`, { request: req ? req.value.trim() : '' });
       c.narration_voice = s.voice;
       S.voices = { ...(S.voices || {}), [cid]: s.note || '' };
       markDirty();
