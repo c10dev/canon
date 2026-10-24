@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
+<a class="skip" href="#main" onclick="event.preventDefault(); const m = document.getElementById('main'); if (m) m.focus();">본문으로 건너뛰기</a>
 <div id="app"></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="busy" hidden><div class="busy-box"><div class="spinner" aria-hidden="true"></div><div id="busy-text">작업 중</div></div></div>

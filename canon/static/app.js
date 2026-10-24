@@ -135,7 +135,8 @@ function jobFor(kind, ep = null, name = S.name) {
 function jobBtn(kind, ep, idle) {
   const j = jobFor(kind, ep);
   if (!j) return { label: idle, attr: '' };
-  return { label: `${j.label} 만드는 중…${j.total > 1 ? ` ${j.done}/${j.total}` : ''}`, attr: ' disabled aria-busy="true"' };
+  // disabled 는 포커스를 잃게 해서 키보드 사용자가 문서 처음으로 돌아간다. aria-disabled 로 막고 포커스는 남긴다
+  return { label: `${j.label} 만드는 중…${j.total > 1 ? ` ${j.done}/${j.total}` : ''}`, attr: ' aria-disabled="true" aria-busy="true"' };
 }
 
 function jobOwns(n) {
@@ -203,6 +204,7 @@ async function pollJobs(soon = false) {
   // 화면이 목록에서 지운(닫은) 작업은 다시 보이지 않게 한다
   S.jobs = list.filter((j) => !S.jobsSeen.has(j.id) || j.status === 'running');
   let redraw = false;
+  let resultFocus = null;
   for (const j of S.jobs) {
     const old = before.get(j.id);
     const progressed = !old || old.done !== j.done || old.status !== j.status;
@@ -224,11 +226,20 @@ async function pollJobs(soon = false) {
     }
     if (j.status !== 'running' && !(old && old.status !== 'running')) await finishJob(j);
     // 설정 · 사용량 · 문체 라이브러리처럼 작품 밖 화면은 S.name 이 남아 있어도 다시 그리지 않는다
-    if (S.route[0] === 'p' && JOB_PAGES[j.kind].includes(S.route[2] || 'home')) redraw = true;
+    if (S.route[0] === 'p' && JOB_PAGES[j.kind].includes(S.route[2] || 'home')) {
+      redraw = true;
+      if (j.status === 'done') resultFocus = RESULT_FOCUS[j.kind] || '#app .proposal button, #app .proposal input';
+    }
   }
   renderJobs();
-  // 입력 중이면 화면을 다시 그리지 않는다 (글자와 커서를 잃지 않게). 데이터는 이미 반영돼 있다.
-  if (redraw && !isTyping()) render();
+  // 입력 중이면 화면을 다시 그리지 않는다 (글자와 커서를 잃지 않게). 데이터는 이미 반영돼 있고, 입력을 마치면 그린다
+  if (redraw && isTyping()) S.renderPending = true;
+  else if (redraw) {
+    // 포커스가 갈 곳 없이 BODY 나 작업 버튼에 있으면 도착한 결과로 옮긴다
+    const a = document.activeElement;
+    if (resultFocus && (!a || a === document.body || a.getAttribute('aria-busy') === 'true')) S.focusTarget = resultFocus;
+    render();
+  }
   if (S.jobs.some((j) => j.status === 'running')) jobTimer = setTimeout(() => pollJobs(), 1500);
 }
 
@@ -237,6 +248,12 @@ function isTyping() {
   const el = document.activeElement;
   return !!el && el.matches('input:not([readonly]), textarea:not([readonly]), select');
 }
+
+// 작업이 끝나 결과를 그린 뒤 포커스를 옮길 곳 (없으면 제안 카드의 첫 버튼)
+const RESULT_FOCUS = { state: '#app [data-pick], #app [data-action="applyDelta"]', write: '#app textarea[data-draft], #app .rw-compare button' };
+
+// 입력을 마치면(다른 입력칸이 아닌 곳으로 포커스가 가면) 입력 중이라 미뤄 둔 다시 그리기를 한다
+document.addEventListener('focusout', () => setTimeout(() => { if (S.renderPending && !isTyping()) render(); }));
 
 // 작업 결과가 보이는 화면
 const JOB_PAGES = { suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], storyline: ['lines'] };
@@ -1241,6 +1258,7 @@ const actions = {
     await startJob('plots');
   },
   selectEp(n) {
+    S.focusTarget = '#app .drawer h2';  // 서랍을 열면 제목으로 들어가 몇 화 서랍인지 읽게 한다
     S.selEp = Number(n);
     S.selAct = null;
     S.editArc = false;
@@ -1248,6 +1266,7 @@ const actions = {
     render();
   },
   selectAct(i) {
+    S.focusTarget = '#app .drawer h2';
     S.selAct = Number(i);
     S.selEp = null;
     S.editArc = false;
@@ -1255,6 +1274,8 @@ const actions = {
     render();
   },
   closePanel() {
+    // 닫으면 연 카드로 포커스를 돌린다
+    S.focusTarget = S.selEp ? `#app .ep-card[data-arg="${S.selEp}"]` : S.selAct != null ? `#app [data-action="selectAct"][data-arg="${S.selAct}"]` : null;
     S.selEp = null;
     S.selAct = null;
     S.editArc = false;
@@ -1614,6 +1635,7 @@ document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
   if (!el) return;
   e.preventDefault();
+  if (el.getAttribute('aria-disabled') === 'true') return;  // 작업 중인 버튼: 포커스는 남기고 누르지는 못한다 (jobBtn)
   const fn = actions[el.dataset.action];
   const arg = el.dataset.arg;
   if (fn) fn(arg !== undefined && /^\d+$/.test(arg) ? Number(arg) : arg);
@@ -1693,8 +1715,13 @@ function route() {
   return routeQueue;
 }
 
+let lastRoute = '';
 async function routeNow() {
   S.loadError = null;
+  // 다른 화면으로 옮기면 제목으로 포커스를 옮겨 스크린리더가 새 화면을 읽고, 다음 Tab 이 본문에서 시작하게 한다
+  const here = location.hash.split('/').slice(0, 4).join('/');
+  if (here !== lastRoute) S.focusTarget = '#app main h1';
+  lastRoute = here;
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
   S.route = parts;
   S.context = null;
@@ -1788,7 +1815,80 @@ async function routeNow() {
 
 // ---------- 그리기 ----------
 
+// ---------- 다시 그리기와 포커스 ----------
+// 화면은 #app 전체를 다시 그린다. 그때 포커스가 BODY 로 가지 않게, 그리기 전 포커스를 기억했다가 새 화면의 같은 칸 · 버튼으로 돌린다.
+// S.focusTarget 을 정하면(화면 이동, 서랍 열기 · 닫기, 작업 결과) 그 요소로 옮긴다.
+let renderQueued = false;
+
 function render() {
+  // 칸을 고치고 Tab · 클릭으로 다음 칸에 갈 때 change 가 먼저 온다. 바로 그리면 막 들어간 다음 칸이 사라지므로 포커스가 옮겨진 뒤 그린다
+  if (window.event && window.event.type === 'change') {
+    if (!renderQueued) {
+      renderQueued = true;
+      setTimeout(() => { renderQueued = false; render(); });
+    }
+    return;
+  }
+  S.renderPending = false;
+  const f = focusMark();
+  drawApp();
+  afterDraw(f);
+}
+
+/** 지금 포커스가 있는 #app 안 요소를 다시 찾을 수 있는 표시. */
+function focusMark() {
+  const el = document.activeElement;
+  if (!el || el === document.body || !el.closest('#app')) return null;
+  const d = el.dataset || {};
+  return { id: el.id, action: d.action, arg: d.arg, bind: d.bind, draft: d.draft,
+    start: el.selectionStart, end: el.selectionEnd, scroll: el.scrollTop };
+}
+
+function findMark(f) {
+  const q = (sel) => document.querySelector(`#app ${sel}`);
+  const v = (x) => CSS.escape(String(x));
+  return (f.id && document.getElementById(f.id) && document.getElementById(f.id).closest('#app') && document.getElementById(f.id))
+    || (f.action && q(`[data-action="${v(f.action)}"]${f.arg !== undefined ? `[data-arg="${v(f.arg)}"]` : ''}`))
+    || (f.bind && q(`[data-bind="${v(f.bind)}"]`))
+    || (f.draft && q(`[data-draft="${v(f.draft)}"]`));
+}
+
+function focusEl(el) {
+  if (!el) return false;
+  if (!el.matches('a, button, input, select, textarea, [tabindex]')) el.setAttribute('tabindex', '-1');
+  el.focus({ preventScroll: el.matches('h1') });
+  return document.activeElement === el;
+}
+
+function afterDraw(f) {
+  const main = $('#app main');
+  if (main) { main.id = 'main'; main.tabIndex = -1; }
+  // 서랍은 제목으로 이름을 단다 ('7화 플롯'). 스크린리더가 몇 화 서랍인지 읽는다
+  const d = $('#app .drawer');
+  const h = d && d.querySelector('h2');
+  if (h) { h.id = 'drawer-title'; d.setAttribute('aria-labelledby', 'drawer-title'); d.removeAttribute('aria-label'); }
+  document.title = pageTitle();
+  const want = S.focusTarget;
+  S.focusTarget = null;
+  if (want && focusEl(document.querySelector(want))) return;
+  if (!f) return;
+  const el = findMark(f);
+  if (!el || !focusEl(el)) return;
+  if (f.start != null && typeof el.setSelectionRange === 'function') {
+    try { el.setSelectionRange(f.start, f.end); } catch { /* 고를 수 없는 칸 */ }
+  }
+  if (f.scroll) el.scrollTop = f.scroll;
+}
+
+/** 브라우저 탭과 방문 기록의 이름: '<화면> · <작품> · Canon'. */
+function pageTitle() {
+  const h1 = $('#app main h1');
+  const name = h1 ? h1.textContent.trim().replace(/\s+/g, ' ') : '';
+  const work = P() && S.route[0] === 'p' ? P().meta.title : '';
+  return [name, work !== name ? work : '', 'Canon'].filter(Boolean).join(' · ');
+}
+
+function drawApp() {
   renderSavebar();
   document.body.classList.remove('chat-open');
   const [p, , page, arg] = S.route;
