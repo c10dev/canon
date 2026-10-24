@@ -740,6 +740,19 @@ def chat_dismiss(name: str, topic: str, i: int) -> Project:
     return _edit(name, fn)
 
 
+@app.post("/api/projects/{name}/chat/{topic}/{i}/reopen")
+def chat_reopen(name: str, topic: str, i: int) -> Project:
+    """버린 변경안을 다시 검토할 수 있게 한다. 반영한 것은 다시 열지 않는다."""
+    _chat(_load(name), topic)
+
+    def fn(p: Project) -> None:
+        msgs = p.chat(topic).messages
+        if not 0 <= i < len(msgs) or msgs[i].outcome != "dismissed":
+            raise ValueError("버린 변경안이 아닙니다")
+        msgs[i].outcome = ""
+    return _edit(name, fn)
+
+
 @app.delete("/api/projects/{name}/chat/{topic}")
 def chat_clear(name: str, topic: str) -> Project:
     _chat(_load(name), topic)
@@ -775,6 +788,13 @@ def impact_apply(name: str, eid: str, body: ImpactApply) -> Project:
 def impact_dismiss(name: str, eid: str) -> Project:
     p = _load(name)
     pipeline.dismiss_impact(p, eid)
+    return _save(name, p)
+
+
+@app.post("/api/projects/{name}/elements/{eid}/impact/reopen")
+def impact_reopen(name: str, eid: str) -> Project:
+    p = _load(name)
+    pipeline.reopen_impact(p, eid)
     return _save(name, p)
 
 
@@ -1203,6 +1223,13 @@ def undo_passage(name: str, n: int, eid: str) -> Project:
     _load(name).episode(n)
     _text_guard(name, n)
     return _edit(name, lambda p: pipeline.undo_edit(p, n, eid))
+
+
+@app.post("/api/projects/{name}/episodes/{n}/edits/{eid}/redo")
+def redo_passage(name: str, n: int, eid: str) -> Project:
+    _load(name).episode(n)
+    _text_guard(name, n)
+    return _edit(name, lambda p: pipeline.redo_edit(p, n, eid))
 
 
 # ---------- 4-2. 초반 1~3화 ----------

@@ -197,9 +197,9 @@ function autoRunCard(r, active) {
 function autoAppliedCard(active) {
   const auto = P().episodes.filter((e) => e.auto);
   if (!auto.length) return '';
-  const rows = auto.map((e) => `<li class="row"><a href="${base()}/write/${e.plot.number}"><strong>${e.plot.number}화</strong> ${esc(e.plot.title)}</a>${e.issues.length ? `<span class="chip written">검수 ${e.issues.length}</span>` : ''}${active ? '' : `<button class="btn small" data-action="autoRevert" data-arg="${e.plot.number}">이 화부터 되돌리기</button>`}</li>`).join('');
+  const rows = auto.map((e) => `<li class="row"><a href="${base()}/write/${e.plot.number}"><strong>${e.plot.number}화</strong> ${esc(e.plot.title)}</a>${e.issues.length ? `<span class="chip written">검수 ${e.issues.length}</span>` : ''}${active ? '' : `<button class="btn small" data-action="autoRevert" data-arg="${e.plot.number}">${e.plot.number}화부터 반영 취소</button>`}</li>`).join('');
   return `<section class="card"><div class="between"><h2>검토 없이 반영한 화</h2><span class="small">${auto.length}화</span></div>
-    <p class="desc">읽어 보고 문제가 있으면 그 화부터 되돌리세요. 그 화 직전 상태로 돌아가고, 본문은 남아 상태 승인부터 다시 할 수 있어요.</p>
+    <p class="desc">읽어 보고 문제가 있으면 그 화부터 반영을 취소하세요. 그 화 직전 상태로 돌아가고, 본문은 남아 상태 승인부터 다시 할 수 있어요.</p>
     <ul class="auto-list">${rows}</ul></section>`;
 }
 
@@ -332,12 +332,6 @@ Object.assign(actions, {
     location.hash = `${base()}/review/${r.ep}`;
   },
   async autoRevert(n) {
-    if (!confirm(`${n}화부터 되돌릴까요? ${n - 1 ? `${n - 1}화 반영 직후` : '1화 시작 전'} 상태로 돌아가고, ${n}화부터의 본문은 남아 상태 승인을 다시 하게 됩니다.`)) return;
-    await run('되돌리는 중', async () => {
-      await saveIfDirty();
-      S.project = await api('POST', `/projects/${enc(S.name)}/revert/${n - 1}`);
-      toast(`${n}화부터 반영을 취소했어요.`);
-      await autoEstimate();
-    });
+    if (await actions.revertFrom(n)) await autoEstimate();  // 상태 승인 화면의 '반영 취소'와 같은 동작
   },
 });

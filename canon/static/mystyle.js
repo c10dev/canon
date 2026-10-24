@@ -106,7 +106,7 @@ function versionsCard() {
     const changes = [...v.changes.map(changeLines), v.baseline_changed ? '<div class="small"><strong>기준 지표</strong> 다시 잼</div>' : ''].join('');
     return `<li class="version-row">
         <div class="between"><span><strong>${v.number}번</strong> <span class="small">${fmtDate(v.at)}</span>${v.current ? ' <span class="chip finalized">지금</span>' : ''}</span>
-          ${v.current ? '' : `<button class="btn small" data-action="libRestore" data-arg="${v.number}">이 버전으로 되돌리기</button>`}</div>
+          ${v.current ? '' : `<button class="btn small" data-action="libRestore" data-arg="${v.number}">이 버전으로 복원</button>`}</div>
         <div class="small">${esc(v.note)}</div>
         ${changes ? `<details><summary class="small">바뀐 칸 (앞 버전과 비교)</summary>${changes}</details>` : ''}
       </li>`;

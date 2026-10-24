@@ -148,7 +148,7 @@ function proposal(m, i) {
     ? `<span class="chip finalized">반영함 · ${m.applied.map((x) => (x === 'acts' ? '구조' : `${x}화`)).join(', ')}</span>`
     : m.outcome === 'dismissed' ? '<span class="chip">버림</span>' : '';
   if (!open) {
-    return `<details class="proposal done"><summary>${done} 변경안 다시 보기</summary>${parts.join('')}</details>`;
+    return `<details class="proposal done"><summary>${done} 변경안 다시 보기</summary>${parts.join('')}${m.outcome === 'dismissed' ? `<div class="row proposal-actions"><button type="button" class="btn small" data-action="chatReopen" data-arg="${i}">다시 검토</button></div>` : ''}</details>`;
   }
   // 맨 위 요약: 무엇이 바뀌는지 한 줄로 보고, 여러 화를 한 번에 고르거나 뺀다. 버튼 줄은 아래에 붙어 있다 (.proposal-actions)
   const nums = rev.episodes.map((e) => e.number);
@@ -282,9 +282,17 @@ Object.assign(actions, {
     redrawChat();
   },
   async chatDismiss(i) {
+    // 손보던 후보 글이 있으면 묻는다. 버린 뒤에도 '다시 검토'로 다시 열 수 있다
+    if (Object.keys(S.candEdit || {}).some((k) => k.startsWith(`${i}:`)) && !confirm('손보던 후보 글이 있어요. 버릴까요? 다시 검토로 열면 후보는 다시 보이지만 손본 글은 남지 않아요.')) return;
     await run('정리하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(S.chatTopic)}/${i}/dismiss`);
+    });
+  },
+  async chatReopen(i) {
+    await run('다시 여는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(S.chatTopic)}/${i}/reopen`);
     });
   },
   async chatClear() {

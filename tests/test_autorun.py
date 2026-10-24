@@ -335,3 +335,27 @@ def test_stale_save_keeps_characters_added_by_apply(demo):
     # 오래되지 않은 화면의 저장은 아무것도 버리지 않는다
     assert "X-Canon-Kept" not in c.put("/api/projects/demo", json=c.get("/api/projects/demo").json()).headers
     assert p.episode(1).status == "finalized"
+
+
+def test_revert_removes_characters_added_by_reverted_apply_and_redo_edit(demo):
+    """반영 취소는 그 반영이 더한 인물도 되돌린다. 수정 취소한 부분 수정은 다시 넣을 수 있다."""
+    from fastapi.testclient import TestClient
+
+    from canon import pipeline, web
+    from canon.schema import Selection
+
+    c = TestClient(web.app)
+    c.put("/api/projects/demo/episodes/1/text", json={"text": "1화 본문. 바람이 불었다."})
+    p = store.load(demo)
+    e = pipeline.edit_text(p, 1, Selection(start=0, text="1화 본문."), "1화 고친 본문.")
+    pipeline.undo_edit(p, 1, e.id)
+    assert p.episode(1).text.startswith("1화 본문.")
+    pipeline.redo_edit(p, 1, e.id)
+    assert p.episode(1).text.startswith("1화 고친 본문.") and not p.episode(1).edits[-1].undone
+    store.save(demo, p)
+
+    delta = {"episode": 1, "summary": "1화 요약", "new_characters": [{"id": "courier", "name": "배달꾼", "role": "조연"}]}
+    assert c.post("/api/projects/demo/episodes/1/apply", json=delta).status_code == 200
+    assert "courier" in {x["id"] for x in c.get("/api/projects/demo").json()["characters"]}
+    p = c.post("/api/projects/demo/revert/0").json()
+    assert "courier" not in {x["id"] for x in p["characters"]} and p["episodes"][0]["status"] == "written"

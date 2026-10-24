@@ -52,7 +52,12 @@ let projectBase = null;
 const baseOf = (p) => p && { rels: JSON.stringify(p.relationships), plots: new Map(p.episodes.map((e) => [e.plot.number, JSON.stringify(e.plot)])) };
 let projectNow = S.project;
 delete S.project;
-Object.defineProperty(S, 'project', { enumerable: true, get: () => projectNow, set: (v) => { projectNow = v; projectBase = baseOf(v); S.gen++; } });
+Object.defineProperty(S, 'project', { enumerable: true, get: () => projectNow, set: (v) => { projectNow = v; projectBase = baseOf(v); S.gen++; S.lastRemoved = null; } });
+
+/** 저장하기 전 목록에서 지운 것을 하나 되살릴 수 있게, 지우기 직전 그 칸들을 둔다. 저장 띠에 '되살리기'가 뜬다. */
+function rememberRemoved(label, paths) {
+  S.lastRemoved = { label, saved: paths.map((k) => [k, structuredClone(getPath(P(), k))]) };
+}
 
 const STATUS = { draft: '플롯 초안', confirmed: '플롯 확정', written: '본문 작성됨', finalized: '반영 완료' };
 const ACTS = ['기', '승', '전', '결'];
@@ -689,7 +694,7 @@ function renderSavebar() {
     if (bar) bar.remove();
     return;
   }
-  const sig = `${S.dirty}:${text}:${autoOn()}:${S.conflict}`;
+  const sig = `${S.dirty}:${text}:${autoOn()}:${S.conflict}:${S.lastRemoved ? S.lastRemoved.label : ''}`;
   if (bar && bar.dataset.sig === sig) return;
   if (!bar) {
     bar = document.createElement('div');
@@ -699,7 +704,7 @@ function renderSavebar() {
   }
   bar.dataset.sig = sig;
   bar.innerHTML = (S.dirty && S.conflict ? '<span>다른 탭이나 기기에서 먼저 저장해 이 변경을 저장하지 못했어요</span><button class="btn small" data-action="revert">다시 불러오기 (이 변경 버림)</button><button class="btn small danger" data-action="saveForce">내 변경으로 덮기</button>'
-    : S.dirty ? '<span>저장하지 않은 변경이 있어요</span><button class="btn small" data-action="revert">변경 모두 버리기</button><button class="btn small primary" data-action="save">저장</button>' : '')
+    : S.dirty ? `<span>저장하지 않은 변경이 있어요</span>${S.lastRemoved ? `<button class="btn small" data-action="restoreRemoved">방금 지운 ${esc(S.lastRemoved.label)} 되살리기</button>` : ''}<button class="btn small" data-action="revert">변경 모두 버리기</button><button class="btn small primary" data-action="save">저장</button>` : '')
     + (text !== null ? `<span>${text}화 본문을 저장하지 않았어요</span><button class="btn small primary" data-action="saveText" data-arg="${text}"${autoOn() ? ' disabled title="자동 집필이 도는 동안은 본문을 저장할 수 없어요"' : ''}>본문 저장</button>` : '');
 }
 
@@ -784,6 +789,20 @@ const actions = {
     if (S.dirty && !confirm('저장하지 않은 변경을 모두 버리고 저장된 작품을 다시 불러올까요? 되돌릴 수 없어요.')) return;
     await run('불러오는 중', async () => { await loadProject(S.name); });
   },
+  /** n화부터 상태 반영을 취소한다 (n-1화 반영 직후로). 본문은 남고, n화 변경안은 다시 골라 반영할 수 있게 채워 둔다. */
+  async revertFrom(n) {
+    n = Number(n);
+    const fin = P().episodes.filter((e) => e.status === 'finalized' && e.plot.number >= n).map((e) => e.plot.number);
+    const h = [...P().history].reverse().find((d) => d.episode === n);
+    const added = P().history.filter((d) => d.episode >= n).flatMap((d) => d.new_characters || []).map((c) => c.name || c.id);
+    if (!confirm(`${rangeText(fin)}화의 상태 반영을 취소할까요? ${n - 1 ? `${n - 1}화 반영 직후` : '1화 시작 전'} 상태로 돌아가고, 본문은 남아 상태 승인을 다시 하게 돼요.${added.length ? ` 그 반영이 더한 인물(${added.join(', ')})도 빠져요.` : ''}`)) return false;
+    return run('반영을 취소하는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/revert/${n - 1}`);
+      if (h) setDelta(n, structuredClone(h));  // 반영했던 변경안을 다시 고를 수 있게 둔다
+      toast(`${rangeText(fin)}화의 반영을 취소했어요. ${n}화 변경안을 다시 골라 반영하세요`);
+    });
+  },
   async retryRoute() {
     await route();
   },
@@ -791,6 +810,19 @@ const actions = {
     delete S.pending.failures[key];
     render();
     await api('DELETE', `/projects/${enc(S.name)}/pending/${enc(key)}?failure=true`).catch(() => {});
+  },
+  restoreRemoved() {
+    const r = S.lastRemoved;
+    if (!r) return;
+    for (const [k, v] of r.saved) {
+      const parts = k.split('.');
+      const last = parts.pop();
+      parts.reduce((o, x) => o[x], P())[last] = v;
+    }
+    S.lastRemoved = null;
+    markDirty();
+    render();
+    toast(`${r.label}을(를) 되살렸어요`);
   },
   async saveForce() {
     if (!confirm('다른 탭이나 기기에서 저장한 변경을 이 화면의 작품으로 덮어쓸까요? 그쪽에서 바꾼 설정 · 플롯은 사라집니다.')) return;
@@ -912,7 +944,8 @@ const actions = {
   },
   removeCharacter(i) {
     const c = P().characters[i];
-    if (!confirm(`${c.name || c.id} 인물을 지울까요? 관계도 함께 지워집니다.`)) return;
+    if (!confirm(`${c.name || c.id} 인물을 지울까요? 관계도 함께 지워집니다. 저장하기 전에는 아래 띠에서 되살릴 수 있어요.`)) return;
+    rememberRemoved(`인물 ${c.name || c.id}`, ['characters', 'relationships', 'states']);
     P().characters.splice(i, 1);
     P().relationships = P().relationships.filter((r) => r.a !== c.id && r.b !== c.id);
     P().states = P().states.filter((s) => s.character_id !== c.id);
@@ -967,6 +1000,8 @@ const actions = {
     render();
   },
   removeRelationship(i) {
+    const r = P().relationships[i];
+    rememberRemoved(`관계 ${charName(r.a) || r.a} ↔ ${charName(r.b) || r.b}`, ['relationships']);
     P().relationships.splice(i, 1);
     markDirty();
     render();
@@ -1034,6 +1069,7 @@ const actions = {
     render();
   },
   removePassage(i) {
+    rememberRemoved(`예시 문단 ${Number(i) + 1}`, ['style.sample_passages']);
     P().style.sample_passages.splice(i, 1);
     markDirty();
     render();
@@ -1044,6 +1080,7 @@ const actions = {
     render();
   },
   removeMarker(i) {
+    rememberRemoved('문체 표지', ['style.markers']);
     P().style.markers.splice(i, 1);
     markDirty();
     render();
@@ -1406,7 +1443,7 @@ const actions = {
       (out.warnings || []).length ? `경고 ${out.warnings.length}건이 남아 있어요.` : '',
       S.deltaBase[n] !== undefined && ep(n) && S.deltaBase[n] !== ep(n).text ? '변경안을 만든 뒤 본문을 고쳤어요.' : '',
     ].filter(Boolean);
-    if (why.length && !confirm(`${why.join(' ')} ${n}화를 마칠까요? 반영하면 되돌리기로만 돌아갈 수 있어요.`)) return;
+    if (why.length && !confirm(`${why.join(' ')} ${n}화를 마칠까요? 반영하면 반영 취소로만 돌아갈 수 있어요.`)) return;
     await run('반영하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/apply`, out);
@@ -1592,7 +1629,7 @@ const PER_PROJECT = {
   suggestion: () => null, picks: () => ({}), seriesDraft: () => null, arcDraft: () => null, arcProposal: () => null, recapDrafts: () => ({}),
   lineDraft: () => null, convDraft: () => null, rbDraft: () => null, reworks: () => ({}),
   openingData: () => ({}), openingPlots: () => ({}), openingUsed: () => ({}), openingPrev: () => ({}), rw: () => ({}), rwInfo: () => ({}), looks: () => ({}),
-  causalLinks: () => ({}), causalPicks: () => ({}), chatPicks: () => ({}),
+  causalLinks: () => ({}), causalPicks: () => ({}), causalGone: () => null, chatPicks: () => ({}),
 };
 const stash = {};       // 작품 이름 → PER_PROJECT 의 값들
 let stateOwner = null;  // 지금 S.textDraft 등이 속한 작품
@@ -3219,7 +3256,8 @@ function viewReview(n) {
 
   if (e.status === 'finalized') {
     const h = [...P().history].reverse().find((d) => d.episode === n);
-    return top('이 화는 상태 반영이 끝났어요. 반영된 내용입니다.') + (h ? historyView(h) : '<div class="note plain">반영 기록이 없습니다.</div>');
+    const canRevert = P().snapshots.some((s) => s.episode === n - 1);
+    return top('이 화는 상태 반영이 끝났어요. 반영된 내용입니다.', canRevert ? `<button class="btn" data-action="revertFrom" data-arg="${n}">${n}화부터 반영 취소</button>` : '') + (h ? historyView(h) : '<div class="note plain">반영 기록이 없습니다.</div>');
   }
   if (e.status !== 'written') {
     return top('') + `<div class="card empty"><p>${n}화 본문이 아직 없어요. 본문을 쓴 뒤 상태를 정리합니다.</p><a class="btn primary" href="${base()}/write/${n}">${n}화 집필로</a></div>`;

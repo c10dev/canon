@@ -135,7 +135,7 @@ function passageProposal(m, i) {
   }).join('');
   const done = m.outcome === 'applied' ? `<span class="chip finalized">${Number(m.applied[0]) + 1}번 후보를 넣음</span>`
     : m.outcome === 'dismissed' ? '<span class="chip">넣지 않음</span>' : '';
-  if (!open) return `<details class="proposal done"><summary>${done} 후보 다시 보기</summary>${cards}</details>`;
+  if (!open) return `<details class="proposal done"><summary>${done} 후보 다시 보기</summary>${cards}${m.outcome === 'dismissed' ? `<div class="row proposal-actions"><button type="button" class="btn small" data-action="chatReopen" data-arg="${i}">다시 검토</button></div>` : ''}</details>`;
   return `<div class="proposal">${lost ? '<div class="note plain">그사이 이 부분이 바뀌어 후보를 넣을 수 없어요. 다시 골라 요청하세요.</div>' : ''}${cards}
     <div class="row"><button class="btn small" data-action="chatDismiss" data-arg="${i}">모두 넣지 않음</button></div></div>`;
 }
@@ -166,7 +166,7 @@ function issuesBlock(e) {
       ${x.current_quote && text.includes(x.current_quote) && editableEp(e) ? `<button type="button" class="btn small" data-action="selectIssue" data-arg="${k}">이 문장 고르기</button>` : ''}</li>`).join('')}</ol></div>`;
 }
 
-const SOURCE = { manual: '직접', ai: 'AI', typed: '본문 저장' };
+const SOURCE = { manual: '직접', ai: 'AI', typed: '본문 저장', impact: '인과율' };
 
 function editTime(iso) {
   if (!iso) return '';
@@ -183,9 +183,10 @@ function editHistory(e) {
   const can = editableEp(e) && S.textDraft[n] === undefined;
   const rows = list.map((x) => {
     const findable = x.after ? text.includes(x.after) : true;
+    const redoable = x.before ? text.includes(x.before) : true;  // 다시 넣기는 취소로 돌아온 글을 찾는다 (pipeline.redo_edit)
     return `<li class="edit-row${x.undone ? ' undone' : ''}">
-      <div class="between"><span class="row" style="gap:6px"><span class="chip${x.source === 'ai' ? ' ai' : ''}">${SOURCE[x.source] || x.source}</span>${x.instruction ? `<span class="small">${esc(clip(x.instruction, 40))}</span>` : ''}<span class="small">${editTime(x.at)}</span>${x.undone ? '<span class="chip">되돌림</span>' : ''}</span>
-        ${!x.undone && can ? `<button type="button" class="btn small" data-action="undoEdit" data-arg="${esc(x.id)}"${findable ? '' : ' disabled title="그 뒤에 같은 자리를 다시 고쳐서 되돌릴 수 없어요"'}>되돌리기</button>` : ''}</div>
+      <div class="between"><span class="row" style="gap:6px"><span class="chip${x.source === 'ai' ? ' ai' : ''}">${SOURCE[x.source] || x.source}</span>${x.instruction ? `<span class="small">${esc(clip(x.instruction, 40))}</span>` : ''}<span class="small">${editTime(x.at)}</span>${x.undone ? '<span class="chip">취소함</span>' : ''}</span>
+        ${!x.undone && can ? `<button type="button" class="btn small" data-action="undoEdit" data-arg="${esc(x.id)}"${findable ? '' : ' disabled title="그 뒤에 같은 자리를 다시 고쳐서 취소할 수 없어요"'}>수정 취소</button>` : ''}${x.undone && can ? `<button type="button" class="btn small" data-action="redoEdit" data-arg="${esc(x.id)}"${redoable ? '' : ' disabled title="그 뒤에 같은 자리를 다시 고쳐서 다시 넣을 수 없어요"'}>다시 넣기</button>` : ''}</div>
       <div class="pdiff small-diff">${wordDiff(clip(x.before, 400), clip(x.after, 400))}</div></li>`;
   }).join('');
   return `<details class="card edits"${S.editsOpen ? ' open' : ''} data-edits-toggle>
@@ -436,12 +437,23 @@ Object.assign(actions, {
   async undoEdit(id) {
     const n = Number(S.route[3]) || currentEp();
     const edit = ep(n).edits.find((x) => x.id === id);
-    await run('되돌리는 중', async () => {
+    await run('수정을 취소하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/edits/${enc(id)}/undo`);
       if (edit.before) focusText(n, edit.before, edit.start);
       if (S.sel && S.sel.n === n && !textNow(n).includes(S.sel.text)) S.sel = null;
-      toast('되돌렸어요');
+      toast('수정을 취소했어요. 기록의 \'다시 넣기\'로 되돌릴 수 있어요');
+    });
+  },
+  async redoEdit(id) {
+    const n = Number(S.route[3]) || currentEp();
+    const edit = ep(n).edits.find((x) => x.id === id);
+    await run('다시 넣는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/edits/${enc(id)}/redo`);
+      if (edit.after) focusText(n, edit.after, edit.start);
+      if (S.sel && S.sel.n === n && !textNow(n).includes(S.sel.text)) S.sel = null;
+      toast('수정을 다시 넣었어요');
     });
   },
 });

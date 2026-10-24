@@ -208,7 +208,7 @@ function causalImpact(el) {
   return `<div class="card" style="display:flex;flex-direction:column;gap:12px">${head}${stale}
     <div class="small">${fmtDate(imp.at)} 분석 ${done}</div>
     <div class="msg-text" style="white-space:pre-wrap">${esc(r.summary)}</div>${timingTip}
-    ${open ? `${body}${actionsRow}` : `<details class="proposal done"><summary>분석 내용 다시 보기</summary>${body}</details>`}
+    ${open ? `${body}${actionsRow}` : `<details class="proposal done"><summary>분석 내용 다시 보기</summary>${body}${imp.outcome === 'dismissed' ? '<div class="row proposal-actions"><button type="button" class="btn small" data-action="causalReopen">다시 검토</button></div>' : ''}</details>`}
   </div>`;
 }
 
@@ -226,12 +226,13 @@ function viewCausal() {
   const el = causalEl();
   const add = '<button class="btn primary" data-action="causalNew">+ 요소 더하기</button>';
   const desc = '요소, 특징, 설정, 사건을 언제든 더하세요. 더할 때마다 이미 쓴 화와 정해 둔 플롯 중 어디가 흔들리는지 보여 주고, 고칠 방법을 변경안으로 내요. 반영은 고른 것만 해요.';
+  const gone = S.causalGone ? `<div class="note info between"><span>'${esc(S.causalGone.name || '이름 없음')}' 요소를 지웠어요.</span><button type="button" class="btn small" data-action="causalRestore">되살리기</button></div>` : '';
   if (!els.length) {
-    return `${header('요소 · 특징 · 설정 · 사건', '인과율', desc, add)}
+    return `${header('요소 · 특징 · 설정 · 사건', '인과율', desc, add)}${gone}
       <div class="card empty"><p>아직 더한 요소가 없어요.</p>
         <div class="small">예: "윤만석은 서윤의 친아버지다"(과거 사건, 처음부터 사실), "7화부터 마을에 통금이 생긴다"(세계 규칙, 7화부터)</div>${add}</div>`;
   }
-  return `${header('요소 · 특징 · 설정 · 사건', '인과율', desc, add)}
+  return `${header('요소 · 특징 · 설정 · 사건', '인과율', desc, add)}${gone}
     <div class="causal">${causalList()}
       <div class="causal-main">${el ? causalEditor(el) + causalStrip(el) + causalImpact(el) : ''}</div></div>`;
 }
@@ -261,10 +262,20 @@ Object.assign(actions, {
   },
   async causalDelete() {
     const el = causalEl();
-    if (!el || !confirm(`'${el.name || '이름 없음'}' 요소를 지울까요? 이미 반영한 플롯과 본문은 그대로예요.`)) return;
+    // 지우기는 바로 저장한다. 다른 화면에서 고친 저장 안 한 변경도 함께 저장되므로 그 사실을 알린다
+    if (!el || !confirm(`'${el.name || '이름 없음'}' 요소를 지울까요? 이미 반영한 플롯과 본문은 그대로예요.${S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : ''} 지운 뒤 이 화면에서 바로 되살릴 수 있어요.`)) return;
+    const gone = structuredClone(el);
     P().elements = P().elements.filter((x) => x.id !== el.id);
     S.causalSel = null;
-    await run('지우는 중', async () => { await save(); await causalLoad(); });
+    if (await run('지우는 중', async () => { await save(); await causalLoad(); })) S.causalGone = gone;
+  },
+  async causalRestore() {
+    const el = S.causalGone;
+    if (!el) return;
+    P().elements.push(el);
+    S.causalSel = el.id;
+    S.causalGone = null;
+    await run('되살리는 중', async () => { await save(); await causalLoad(); toast(`'${el.name || '이름 없음'}' 요소를 되살렸어요`); });
   },
   causalSince(mode) {
     const el = causalEl();
@@ -300,6 +311,13 @@ Object.assign(actions, {
       S.project = await api('POST', `/projects/${enc(S.name)}/elements/${enc(el.id)}/impact/apply`, body);
       await causalLoad();
       toast(`반영했습니다: ${causalEl().impact.applied.map(appliedLabel).join(', ')}`);
+    });
+  },
+  async causalReopen() {
+    const el = causalEl();
+    await run('다시 여는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/elements/${enc(el.id)}/impact/reopen`);
     });
   },
   async causalDismiss() {

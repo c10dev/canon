@@ -84,14 +84,22 @@ def test_arc_stretches_to_part_end_when_leftover_is_too_short():
 
 def test_remove_last_arc_only_when_draft():
     p = _serial()
-    a = pipeline.apply_arc(p, pipeline.plan_next_arc(LLM, p))
+    prop = pipeline.plan_next_arc(LLM, p)
+    prop.new_characters = [Character(id="newbie", name="신입", role="조연")]
+    a = pipeline.apply_arc(p, prop)
+    assert p.arc_undo[0].characters == ["newbie"]
     pipeline.apply_plots(p, pipeline.draft_plots(LLM, p, a.start_ep, a.end_ep))
     p.episode(1).status = "confirmed"
     with pytest.raises(ValueError, match="지울 수 없습니다"):
         pipeline.remove_last_arc(p)
     p.episode(1).status = "draft"
+    before = {c.id for c in p.characters}
+    added = p.arc_undo[0].characters
     pipeline.remove_last_arc(p)
     assert p.story_arcs == [] and p.episodes == []
+    # 이 아크가 더한 인물은 지운다 (다시 기획한 제안의 같은 id 인물이 걸러지지 않게)
+    assert not ({c.id for c in p.characters} & set(added)) and p.arc_undo == []
+    assert {c.id for c in p.characters} == before - set(added)
 
 
 def test_context_stays_bounded_at_300():
