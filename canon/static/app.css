@@ -506,6 +506,9 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .usage-share { width: 80px; }
 .usage-share i { display: block; height: 8px; min-width: 2px; border-radius: 4px; background: var(--accent); opacity: 0.5; }
 .chip.usage-fail { background: var(--red-soft); color: var(--red); }
+.usage-blocks { margin-top: 2px; max-width: 220px; }
+.usage-blocks summary { cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.usage-blocks ul { margin: 4px 0 0; padding-left: 16px; }
 .price-table input { min-height: 34px; width: 76px; }
 .price-table input[type="text"] { width: 170px; }
 

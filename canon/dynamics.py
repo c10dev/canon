@@ -387,7 +387,9 @@ def _previous(p: Project) -> tuple[Optional[Snapshot], int]:
     return p.snapshot(eps[-2]), eps[-1]
 
 
-def describe_relations(p: Project, ids: Optional[Iterable[str]] = None, numbers: bool = False) -> str:
+def describe_relations(p: Project, ids: Optional[Iterable[str]] = None, numbers: bool = False,
+                       secrets: Optional[list[Secret]] = None) -> str:
+    """관계를 말로. secrets 를 주면 그 비밀만 덧붙인다 (장편은 이번 화와 관련된 것만 골라 넘긴다, 빈 목록이면 비밀은 빼고)."""
     ids = set(ids) if ids is not None else {c.id for c in p.characters} | {t.source for t in p.ties}
     name = {c.id: c.name for c in p.characters}
     nm = lambda cid: name.get(cid, cid)  # noqa: E731
@@ -434,7 +436,7 @@ def describe_relations(p: Project, ids: Optional[Iterable[str]] = None, numbers:
             desc = ", ".join(f"{nm(x)}·{nm(y)} 가까움" for x, y in pos) + " / " + ", ".join(f"{nm(x)}·{nm(y)} 적대" for x, y in neg)
             lines.append(f"불안정한 구도 {nm(a)}·{nm(b)}·{nm(c)}: {desc}. 누군가 편을 바꾸거나, 화해하거나, 관계 하나가 끊어지는 쪽으로 압력이 있다.")
 
-    for s in p.secrets:
+    for s in p.secrets if secrets is None else secrets:
         hidden = [h for h in s.hidden_from if h in ids]
         if s.owner in ids and hidden:
             lines.append(f"숨긴 비밀 ({nm(s.owner)}): {s.content} · 아직 모르는 인물: {', '.join(nm(h) for h in hidden)}")

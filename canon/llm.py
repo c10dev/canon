@@ -138,9 +138,9 @@ class GeminiLLM:
             self.last_raw = resp.text
             out = parse(resp.text) if parse else resp.text
         except Exception as e:
-            usage.record(self, tokens, t, ok=False, error=e, attempt=attempt)
+            usage.record(self, tokens, t, ok=False, error=e, attempt=attempt, prompt=prompt)
             raise
-        usage.record(self, tokens, t, attempt=attempt)
+        usage.record(self, tokens, t, attempt=attempt, prompt=prompt)
         return out
 
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
@@ -239,11 +239,13 @@ class BatchLLM:
         self.interval = interval if interval is not None else float(os.environ.get("CANON_BATCH_POLL", "30"))
         self.last_usage: dict | None = None
         self.last_attempts = 1
+        self.last_prompt = ""  # 사용량 기록에 블록 크기를 남기려고
         self.model = getattr(inner, "model", "")
 
     def _run(self, system: str, prompt: str, schema: type[BaseModel] | None, hint: dict | None = None,
              slot: str | None = None) -> str:
         slot = slot or self.slot
+        self.last_prompt = prompt
         name = self.names.get(slot)
         if not name:
             name = self.inner.batch_submit(system, prompt, schema, f"{self.label} {slot}", hint=hint)
@@ -255,7 +257,7 @@ class BatchLLM:
             except Exception as e:
                 self.names.pop(slot, None)  # 실패한 작업에 다시 붙지 않게 한다
                 self.on_change()
-                usage.record(self.inner, None, ok=False, error=e, attempt=self.last_attempts, batch=True)
+                usage.record(self.inner, None, ok=False, error=e, attempt=self.last_attempts, batch=True, prompt=prompt)
                 raise
             if raw is not None:
                 self.names.pop(slot, None)
@@ -300,7 +302,8 @@ class BatchLLM:
 
     def _done(self, out: Any, error: Exception | None = None) -> Any:
         """받아 온 배치 결과 하나를 기록한다 (형식이 어긋났어도 토큰은 썼다)."""
-        usage.record(self.inner, self.last_usage, ok=error is None, error=error, attempt=self.last_attempts, batch=True)
+        usage.record(self.inner, self.last_usage, ok=error is None, error=error, attempt=self.last_attempts, batch=True,
+                     prompt=self.last_prompt)
         return out
 
 
@@ -319,6 +322,14 @@ def _require_all(schema: Any) -> Any:
 
 _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.S)
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```\s*$")
+
+
+def _last_user(messages: list[dict]) -> str:
+    """사용량 기록용: 마지막 사용자 메시지 (고쳐 달라는 재요청이면 그 요청)."""
+    for m in reversed(messages):
+        if m.get("role") == "user" and isinstance(m.get("content"), str):
+            return m["content"]
+    return ""
 
 
 def _local_usage(u: Any) -> dict | None:
@@ -437,9 +448,9 @@ class LocalLLM:
                 raise RuntimeError(f"로컬 모델 응답이 비었습니다: finish_reason={choice.get('finish_reason')}")
             out = parse(content) if parse else content
         except Exception as e:
-            usage.record(self, tokens, t, ok=False, error=e, attempt=attempt)
+            usage.record(self, tokens, t, ok=False, error=e, attempt=attempt, prompt=_last_user(messages))
             raise
-        usage.record(self, tokens, t, attempt=attempt)
+        usage.record(self, tokens, t, attempt=attempt, prompt=_last_user(messages))
         return out
 
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:

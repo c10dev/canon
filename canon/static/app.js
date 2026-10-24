@@ -2567,7 +2567,7 @@ function arcPanel(a, sel) {
     recap = `<div class="recap">
       <div class="between"><h3>아크 요약 ${a.summary ? '<span class="chip finalized">있음</span>' : '<span class="chip written">필요</span>'}</h3><button class="btn small" data-action="recapArc" data-arg="${a.number}"${rb.attr}>${rb.label}</button></div>
       ${r ? `${input('AI 요약 제안 (고친 뒤 저장)', 'summary', { root: 'recap', rows: 6, autogrow: true })}<div class="row"><button class="btn small" data-action="dropRecap">버리기</button><button class="btn small primary" data-action="applyRecap">이 요약 저장</button></div>` : ''}
-      ${input('저장된 요약', `story_arcs.${k}.summary`, { rows: 4, autogrow: true, hint: '앞으로 이 아크의 화별 요약 대신 프롬프트에 들어가요' })}
+      ${input('저장된 요약', `story_arcs.${k}.summary`, { rows: 4, autogrow: true, hint: '앞으로 이 아크의 화별 요약 대신 프롬프트에 들어가요. 요약이 없으면 화마다 첫 문장만 들어가 앞 이야기가 흐려져요' })}
     </div>`;
   }
   const right = `<div class="row">
@@ -2885,8 +2885,8 @@ function viewBrief(n) {
 // 본편 데이터와 분리된 실험실. 결과는 projects/<이름>/research/log.jsonl 에 남고,
 // 블라인드 비교에서 채택할 때만 작품 본문이 바뀐다.
 
-const RS_TABS = [['probe', '서버 점검'], ['sample', '샘플 생성'], ['stage', '단계 시험'], ['budget', '컨텍스트 크기'], ['compare', '블라인드 비교'], ['log', '기록']];
-const RS_KIND = { sample: '샘플 생성', stage: '단계 시험', budget: '컨텍스트 크기', compare: '블라인드 비교', pick: '비교 고르기' };
+const RS_TABS = [['probe', '서버 점검'], ['sample', '샘플 생성'], ['stage', '단계 시험'], ['budget', '컨텍스트 크기'], ['check', '검수 시험'], ['compare', '블라인드 비교'], ['log', '기록']];
+const RS_KIND = { sample: '샘플 생성', stage: '단계 시험', budget: '컨텍스트 크기', check: '검수 시험', compare: '블라인드 비교', pick: '비교 고르기' };
 
 function rsInit(name) {
   const c = S.config || {};
@@ -2896,6 +2896,7 @@ function rsInit(name) {
     runs: [backend()], system: '너는 한국어 소설가다.', prompt: '', temperature: '', sample: null,
     stageBackend: backend(), stage: 'style', stageText: '', stageResult: null,
     budgetBackend: backend(), budget: null,
+    checkBackend: backend(), checkEp: null, checkPlants: '3', check: null, checkModes: {},
     compareEp: null, compareA: { provider: 'gemini', model: '', url: '' }, compareB: backend(), compare: null, adopt: true, pickResult: null,
   };
 }
@@ -2904,6 +2905,7 @@ async function rsLoadLog() {
   const r = await api('GET', `/projects/${enc(S.name)}/research`);
   S.rs.log = r.log;
   S.rs.stages = r.stages;
+  S.rs.checkModes = r.check_modes || {};
 }
 
 async function rsLoad() {
@@ -2974,6 +2976,15 @@ Object.assign(actions, {
       S.rs.stageResult = await api('POST', `/projects/${enc(S.name)}/research/stage`,
         { backend: rsBackend(S.rs.stageBackend), stage: S.rs.stage, sample: S.rs.stageText });
       S.rs.log.unshift(S.rs.stageResult);
+    });
+  },
+  async rsCheck() {
+    const n = Number(S.rs.checkEp || ($('#rs-check-ep') || {}).value);
+    if (!n) return toast('본문이 있는 화를 고르세요', true);
+    await run(`${n}화에 모순을 심고 검수 방식마다 검수하는 중… (저장하지 않음)`, async () => {
+      S.rs.check = await api('POST', `/projects/${enc(S.name)}/research/check`,
+        { backend: rsBackend(S.rs.checkBackend), episode: n, plants: Number(S.rs.checkPlants) || 3 });
+      S.rs.log.unshift(S.rs.check);
     });
   },
   async rsBudget() {
@@ -3109,21 +3120,53 @@ function rsBudgetView() {
   const r = S.rs.budget;
   let out = '';
   if (r) {
-    const cell = (c) => `<td class="${c.over ? 'over' : c.tight ? 'tight' : ''}">${c.exact ? '' : '~'}${rsNum(c.tokens)}<span class="small"> / ${rsNum(c.total)}</span></td>`;
+    const parts = (c) => (c.blocks || []).map(([k, v]) => `${k} ${Math.round((v / c.chars) * 100)}%`).join(' · ');
+    const cell = (c) => `<td class="${c.over ? 'over' : c.tight ? 'tight' : ''}" title="${esc(parts(c))}">${c.exact ? '' : '~'}${rsNum(c.tokens)}<span class="small"> / ${rsNum(c.total)}</span></td>`;
     const rows = r.rows.map((x) => `<tr><td>${x.episode}화</td><td><span class="chip ${x.status}">${STATUS[x.status]}</span>${x.measured ? '' : ' <span class="small">가정</span>'}</td>${cell(x.write)}${cell(x.check)}${cell(x.state)}</tr>`).join('');
     out = `<section class="card">
       <div class="between"><h2>${esc(r.backend)} · ${esc(r.model)}</h2><span class="small">최대 컨텍스트 ${r.limit ? rsNum(r.limit) + ' 토큰' : '알 수 없음'}</span></div>
-      ${r.first_over ? `<div class="note err">${r.first_over}화부터 입력만으로 한도를 넘어 서버가 요청을 거절합니다. 검수(check)는 앞선 본문 전체를 넣어 화가 갈수록 커집니다. 서버의 컨텍스트를 늘리거나, 설정의 단계별 백엔드에서 넘치는 단계를 Gemini 로 돌리세요.</div>` : ''}
+      ${r.first_over ? `<div class="note err">${r.first_over}화부터 입력만으로 한도를 넘어 서버가 요청을 거절합니다. 단편의 검수(check)는 앞선 본문 전체를 넣어 화가 갈수록 커집니다. 서버의 컨텍스트를 늘리거나, 설정의 단계별 백엔드에서 넘치는 단계를 Gemini 로 돌리세요.</div>` : ''}
       ${r.first_tight && r.first_tight !== r.first_over ? `<div class="note warn">${r.first_tight}화부터 출력 여유까지 더하면 한도를 넘습니다. 응답이 중간에 잘릴 수 있어요.</div>` : ''}
       ${!r.limit ? '<div class="note plain">이 백엔드는 한도를 알려 주지 않아 넘침은 판단하지 않았습니다.</div>' : (!r.first_tight ? '<div class="note ok">플롯이 있는 화는 모두 한도 안에 들어갑니다.</div>' : '')}
       <div class="rs-scroll"><table class="rs-table"><thead><tr><th>화</th><th>상태</th><th>본문 쓰기</th><th>검수</th><th>상태 추출</th></tr></thead><tbody>${rows}</tbody></table></div>
-      <div class="small">칸마다 '입력 / 입력+출력 여유' 토큰입니다. 출력 여유는 본문 ${rsNum(r.write_reserve)}, 검수·상태 ${rsNum(r.json_reserve)} 토큰으로 잡았습니다. ${r.tokenizer ? '서버 토크나이저로 셌습니다.' : '~ 표시는 글자 수로 어림한 값입니다.'} '가정'인 화는 앞선 화가 모두 목표 분량으로 쓰였다고 보고 쟀습니다. 플롯이 있는 화만 잽니다.</div>
+      <div class="small">칸마다 '입력 / 입력+출력 여유' 토큰입니다. 출력 여유는 본문 ${rsNum(r.write_reserve)}, 검수·상태 ${rsNum(r.json_reserve)} 토큰으로 잡았습니다. ${r.tokenizer ? '서버 토크나이저로 셌습니다.' : '~ 표시는 글자 수로 어림한 값입니다.'} '가정'인 화는 앞선 화가 모두 목표 분량으로 쓰였다고 보고 쟀습니다. 플롯이 있는 화만 잽니다. 칸에 올리면 큰 블록 비중이 보여요.</div>
     </section>`;
   }
   return `<section class="card">
       <p class="desc">화마다 본문 쓰기, 검수, 상태 추출에 들어가는 프롬프트 크기를 모델의 컨텍스트 한도와 비교합니다. 생성 호출은 하지 않습니다.</p>
       ${rsBackendFields('budgetBackend', S.rs.budgetBackend)}
       <div><button class="btn dark" data-action="rsBudget">재기</button></div>
+    </section>${out}`;
+}
+
+function rsCheckView() {
+  const eps = P().episodes.filter((e) => e.text);
+  const r = S.rs.check;
+  let out = '';
+  if (r) {
+    const modes = r.runs.map((x) => `<th>${esc(x.mode)}<div class="small">~${rsNum(x.tokens)} 토큰</div></th>`).join('');
+    const rows = r.planted.map((x, i) => `<tr><td><div class="small">${esc(x.type)} · 근거: ${x.source_episode ? `${x.source_episode}화 (${x.distance}화 전)` : '설정이나 확정 사실'}</div>
+        <div class="rs-prose small"><del>${esc(x.quote)}</del><br><ins>${esc(x.replacement)}</ins></div></td>
+        ${r.runs.map((m) => `<td>${!m.ok ? '<span class="chip usage-fail">실패</span>' : m.hits[i] ? '<span class="chip finalized">찾음</span>' : '<span class="chip written">놓침</span>'}</td>`).join('')}</tr>`).join('');
+    const sum = r.runs.map((m) => `<td><strong>${m.ok ? `${m.found}/${r.planted.length}` : esc(m.error)}</strong>${m.ok ? `<div class="small">다른 지적 ${m.other.length}개 · ${m.seconds}초</div>` : ''}</td>`).join('');
+    out = `<section class="card">
+      <div class="between"><h2>${r.episode}화 · ${esc(r.backend)}</h2><span class="small">심은 모순 ${r.planted.length}개${r.skipped.length ? ` (원문을 못 찾아 ${r.skipped.length}개 뺌)` : ''} · ${r.seconds}초</span></div>
+      <div class="rs-scroll"><table class="rs-table"><thead><tr><th>심은 모순</th>${modes}</tr></thead><tbody>${rows}<tr><td>찾은 수</td>${sum}</tr></tbody></table></div>
+      ${r.runs.filter((m) => m.ok && m.other.length).map((m) => `<details><summary>${esc(m.mode)}의 다른 지적 ${m.other.length}개</summary><ul>${m.other.map((i) => `<li class="small">${esc(i.type)}: ${esc(i.description)}</li>`).join('')}</ul></details>`).join('')}
+      <div class="small">한 번으로는 우연이 커요. 여러 화에서 몇 번 돌려 기록 탭에서 찾은 비율을 견주세요. 모순을 심는 것도 같은 모델이 합니다.</div>
+    </section>`;
+  }
+  const modes = Object.entries(S.rs.checkModes).map(([k, v]) => `<li><strong>${esc(k)}</strong>: ${esc(v)}</li>`).join('');
+  return `<section class="card">
+      <p class="desc">본문이 있는 화에 모순을 몇 개 심고, 검수 방식마다 그걸 찾는지 봅니다. 장편 검수는 입력을 줄인 방식이 기본이라 줄여서 놓치는 게 없는지 확인하는 용도예요. 작품에는 저장하지 않고, 호출은 심기 1번 + 방식마다 1번입니다.</p>
+      ${modes ? `<ul class="small">${modes}</ul>` : ''}
+      ${rsBackendFields('checkBackend', S.rs.checkBackend)}
+      <div class="row">
+        <div class="field" style="max-width:320px"><label for="rs-check-ep">화</label>
+          <select id="rs-check-ep" data-rs="checkEp">${eps.map((x) => `<option value="${x.plot.number}"${String(x.plot.number) === String(S.rs.checkEp) ? ' selected' : ''}>${x.plot.number}화 ${esc(x.plot.title)}</option>`).join('') || '<option value="">본문이 있는 화가 없습니다</option>'}</select></div>
+        <div class="field" style="max-width:140px"><label for="rs-check-n">심을 모순</label><input id="rs-check-n" type="number" min="1" max="5" value="${esc(S.rs.checkPlants)}" data-rs="checkPlants"></div>
+      </div>
+      <div><button class="btn dark" data-action="rsCheck">시험</button></div>
     </section>${out}`;
 }
 
@@ -3161,6 +3204,7 @@ function rsLogView() {
     if (x.kind === 'stage') line = `${S.rs.stages[x.stage] || x.stage} · ${x.backend} · ${x.ok ? `빈 필드 ${x.empty.length}/${x.fields}, 범위 밖 ${x.out_of_range.length}, 시도 ${x.attempts}` : '실패'} · ${x.seconds}초`;
     if (x.kind === 'budget') line = `${x.backend} · 한도 ${x.limit ? rsNum(x.limit) : '알 수 없음'} · ${x.first_over ? `${x.first_over}화부터 넘침` : x.first_tight ? `${x.first_tight}화부터 빠듯함` : '넘침 없음'}`;
     if (x.kind === 'compare') line = `${x.episode}화 · ${x.backends.join(' vs ')}`;
+    if (x.kind === 'check') line = `${x.episode}화 · ${x.backend} · ${x.runs.map((m) => `${m.mode} ${m.ok ? `${m.found}/${x.planted.length}` : '실패'}`).join(', ')}`;
     if (x.kind === 'pick') line = `${x.episode}화 · ${x.picked} 고름${x.adopted ? ' (본문 채택)' : ''}`;
     return `<li><div class="between"><span><span class="chip">${RS_KIND[x.kind] || x.kind}</span> ${esc(line)}</span><span class="small">${esc(x.time.replace('T', ' '))}</span></div>
       <details><summary>자세히</summary><pre class="brief mono">${esc(JSON.stringify(x, null, 2))}</pre></details></li>`;
@@ -3173,7 +3217,7 @@ function rsLogView() {
 
 function viewResearch() {
   if (!S.rs) return header('연구', '모델 실험', '') + '<div class="note plain">불러오는 중…</div>';
-  const views = { probe: rsProbeView, sample: rsSampleView, stage: rsStageView, budget: rsBudgetView, compare: rsCompareView, log: rsLogView };
+  const views = { probe: rsProbeView, sample: rsSampleView, stage: rsStageView, budget: rsBudgetView, check: rsCheckView, compare: rsCompareView, log: rsLogView };
   return `${header('연구 · 본편과 분리', '모델 실험', '모델 서버를 점검하고, 같은 요청을 여러 모델로 돌려 비교합니다. 여기서 돌린 결과는 작품 데이터에 들어가지 않고 실험 기록으로만 남습니다. 블라인드 비교에서 채택할 때만 본문이 바뀝니다.')}
     <div class="tabs" role="tablist" aria-label="실험 종류">${RS_TABS.map(([k, l]) => `<button type="button" role="tab" aria-selected="${S.rs.tab === k}" data-action="rsTab" data-arg="${k}">${l}</button>`).join('')}</div>
     ${rsModelList()}

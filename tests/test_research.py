@@ -130,6 +130,21 @@ class ResearchTest(unittest.TestCase):
         self.assertEqual([x.split("=")[0] for x in found],
                          ["relationships[0].affinity", "relationships[0].tension", "relationships[0].goal_conflict"])
 
+    def test_check_trial_plants_and_scores_each_mode(self):
+        p = store.load(self.name)
+        e = p.episode(1)
+        e.text, e.status = "서윤은 등대 문을 열었다. 바람이 거셌다. 도현이 뒤에서 불렀다. 둘은 계단을 올랐다.", "written"
+        store.save(self.name, p)
+        r = self.c.post(f"{self.api}/research/check", json={"backend": {"provider": "mock"}, "episode": 1, "plants": 2}).json()
+        self.assertEqual(len(r["planted"]), 2)
+        self.assertEqual([m["mode"] for m in r["runs"]], ["full", "budget"])
+        self.assertTrue(all(m["ok"] and m["found"] == 2 for m in r["runs"]))
+        self.assertIn("사실 그는 처음 보는 사람이었다", r["planted"][0]["replacement"])
+        self.assertEqual(store.load(self.name).episode(1).text, e.text)  # 작품은 그대로
+        self.assertEqual(self.c.get(f"{self.api}/research").json()["log"][0]["kind"], "check")
+        bad = self.c.post(f"{self.api}/research/check", json={"backend": {"provider": "mock"}, "episode": 2})
+        self.assertEqual(bad.status_code, 400)  # 본문 없는 화
+
     def test_budget_flags_first_episode_over_limit(self):
         VllmLike.max_len = 3000
         r = self.c.post(f"{self.api}/research/budget", json={"provider": "local", "model": "base-12b"}).json()

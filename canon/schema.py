@@ -611,6 +611,19 @@ class HookReport(BaseModel):
     checked_at: str = Field("", description="프로그램이 채운다. 빈칸으로 둔다")
 
 
+class PlantedContradiction(BaseModel):
+    """검수 시험: 본문에 일부러 심는 모순 하나. 연구 화면에서만 쓰고 작품에는 저장하지 않는다."""
+    quote: str = Field(description="이번 화 본문에서 바꿀 문장 원문 그대로 (한 문장)")
+    replacement: str = Field(description="앞선 근거와 어긋나게 바꾼 문장. 같은 문체, 비슷한 길이")
+    type: IssueType = Field("사실", description="어떤 종류의 모순인지")
+    source_episode: int = Field(0, description="어긋나는 근거가 나온 화. 설정 · 확정 사실이면 0")
+    source_quote: str = Field("", description="어긋나는 근거 원문 그대로")
+
+
+class PlantSet(BaseModel):
+    items: list[PlantedContradiction] = Field(default_factory=list)
+
+
 class ConsistencyReport(BaseModel):
     """본문 검수 결과. 상태를 바꾸지 않는 참고용 경고라 승인 없이 저장한다."""
     episode: int

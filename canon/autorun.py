@@ -401,6 +401,7 @@ class Runner:
                     self.log(f"{n}화 플롯을 자동으로 확정했습니다")
                     continue
                 if e.status == "confirmed":
+                    self._recap_note(p)
                     self._write(p, n)
                     continue
                 self._review(p, n)
@@ -410,6 +411,17 @@ class Runner:
             msg = getattr(e, "message", None) or str(e) or type(e).__name__
             hint = " 배치를 끄고 이어 가 보세요." if run.batch and "batch" in msg.lower() else ""
             self._finish(_Halt("error", f"오류로 멈췄습니다: {msg}{hint}"), level="error")
+
+    def _recap_note(self, p: Project) -> None:
+        """요약을 기다리는 아크 · 부가 있으면 한 번 알린다. 멈추지는 않는다 (그동안은 화마다 첫 문장으로 접어 넣는다)."""
+        seen = self.__dict__.setdefault("_recaps_noted", set())
+        for kind, num in pipeline.pending_recaps(p):
+            if (kind, num) in seen:
+                continue
+            seen.add((kind, num))
+            unit = "아크" if kind == "arc" else "부"
+            self.log(f"{unit} {num} 요약이 아직 없습니다. 요약을 저장하기 전까지 그 {unit}의 줄거리는 화마다 첫 문장으로만 "
+                     "들어가 앞 이야기가 흐려질 수 있어요. 기획 화면에서 요약을 저장해 주세요", "warn")
 
     def _write(self, p: Project, n: int) -> None:
         self._set(n, "write")

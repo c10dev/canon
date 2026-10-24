@@ -17,11 +17,11 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from . import metrics, pipeline, prompts, settings, store
+from . import context, metrics, pipeline, prompts, settings, store
 from .llm import LLM, GeminiLLM, LocalLLM, make_llm
-from .schema import Project
+from .schema import ConsistencyReport, PlantSet, Project
 
-CHARS_PER_TOKEN = 1.7  # 토크나이저가 없을 때 한국어 추정값 (gemma 실측 1.6~1.9)
+CHARS_PER_TOKEN = context.CHARS_PER_TOKEN
 JSON_OUTPUT_RESERVE = 2000  # 검수, 상태 변경안 출력에 남겨 둘 토큰 (추정)
 STAGES = {"setup": "설정 제안", "style": "문체 분석", "arc": "기승전결"}
 _RANGE_RE = re.compile(r"(-?\d+(?:\.\d+)?)[^\d~-]{0,10}~\s*(-?\d+(?:\.\d+)?)")
@@ -263,7 +263,8 @@ def budget(p: Project, b: Backend) -> dict:
             t, exact = tokens(text)
             # over: 입력만으로 넘침 (서버가 400 을 낸다). tight: 출력 여유까지 더하면 넘침 (출력이 잘릴 수 있다)
             row[kind] = {"chars": len(text), "tokens": t, "exact": exact, "total": t + reserve,
-                         "over": bool(limit and t > limit), "tight": bool(limit and t + reserve > limit)}
+                         "over": bool(limit and t > limit), "tight": bool(limit and t + reserve > limit),
+                         "blocks": context.blocks(text, 6)}
         rows.append(row)
     def first(flag: str) -> int | None:
         return next((r["episode"] for r in rows if any(r[k][flag] for k in ("write", "check", "state"))), None)
@@ -271,6 +272,63 @@ def budget(p: Project, b: Backend) -> dict:
     return {"backend": label(b), "model": _model_name(llm), "limit": limit, "write_reserve": out_tokens,
             "json_reserve": JSON_OUTPUT_RESERVE, "tokenizer": probe_ok and counter is not None,
             "first_over": first("over"), "first_tight": first("tight"), "rows": rows}
+
+
+# ---------- 검수 시험 ----------
+# 본문에 모순을 몇 개 심고 검수 방식(prompts.CHECK_MODES)마다 찾아내는지 본다. 장편 검수는 입력을 줄인 budget 이
+# 기본이라, 줄인 만큼 놓치는 것이 없는지 실제 모델로 확인하려는 것. 작품 데이터는 바꾸지 않는다.
+
+HIT_OVERLAP = 0.5  # 검수가 짚은 문장이 심은 문장의 글 조각을 이만큼 덮으면 찾은 것으로 본다
+
+
+def _hit(found: str, planted: str) -> bool:
+    g = context.grams(planted)
+    return bool(g) and len(context.grams(found) & g) / len(g) >= HIT_OVERLAP
+
+
+def check_trial(p: Project, n: int, b: Backend, plants: int = 3, modes: list[str] | None = None, seed: int | None = None) -> dict:
+    """모순 plants 개를 심은 n화를 검수 방식마다 검수한다. 심은 것과 검수 호출은 같은 백엔드를 쓴다."""
+    ep = p.episode(n)
+    if not ep.text:
+        raise ValueError(f"{n}화 본문이 없습니다")
+    modes = modes or list(prompts.CHECK_MODES)
+    bad = [m for m in modes if m not in prompts.CHECK_MODES]
+    if bad:
+        raise ValueError(f"알 수 없는 검수 방식: {', '.join(bad)} ({' | '.join(prompts.CHECK_MODES)})")
+    seed = random.randrange(1 << 30) if seed is None else seed
+    llm = make_backend(b)
+    t = time.perf_counter()
+    plan = llm.json(prompts.SYSTEM_PLANTER, prompts.plant_prompt(p, n, plants, seed), PlantSet,
+                    hint={"episode": n, "count": plants, "text": ep.text})
+    q = p.model_copy(deep=True)
+    text, used, skipped = ep.text, [], []
+    for x in plan.items:
+        if x.quote and x.replacement and x.replacement != x.quote and x.quote in text:
+            text = text.replace(x.quote, x.replacement, 1)
+            used.append(x)
+        else:
+            skipped.append(x.quote)
+    if not used:
+        raise ValueError("모델이 본문 문장을 그대로 옮기지 않아 모순을 심지 못했습니다. 다시 시험해 보세요")
+    q.episode(n).text = text
+    planted = [{**x.model_dump(), "distance": n - x.source_episode if x.source_episode else None} for x in used]
+    runs = []
+    for mode in modes:
+        prompt = prompts.check_prompt(q, n, mode)
+        row: dict[str, Any] = {"mode": mode, "chars": len(prompt), "tokens": context.est_tokens(prompts.SYSTEM_CHECKER + prompt)}
+        t1 = time.perf_counter()
+        try:
+            rep = llm.json(prompts.SYSTEM_CHECKER, prompt, ConsistencyReport,
+                           hint={"episode": n, "plants": [x.replacement for x in used]})
+            hits = [any(_hit(i.current_quote, x.replacement) for i in rep.issues) for x in used]
+            extra = [i.model_dump() for i in rep.issues if not any(_hit(i.current_quote, x.replacement) for x in used)]
+            row.update(ok=True, hits=hits, found=sum(hits), other=extra, usage=getattr(llm, "last_usage", None))
+        except Exception as e:  # 한 방식이 실패해도 다른 방식은 돌린다
+            row.update(ok=False, error=f"{type(e).__name__}: {e}")
+        row["seconds"] = round(time.perf_counter() - t1, 2)
+        runs.append(row)
+    return {"backend": label(b), "model": _model_name(llm), "episode": n, "seed": seed, "planted": planted,
+            "skipped": skipped, "runs": runs, "seconds": round(time.perf_counter() - t, 2)}
 
 
 # ---------- 블라인드 비교 ----------
