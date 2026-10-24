@@ -1881,7 +1881,7 @@ def remove_illustration(p: Project, n: int, iid: str) -> None:
 def suggest_voice(llm: LLM, p: Project, cid: str, request: str = "") -> VoiceSuggestion:
     """인물이 시점 인물인 화의 서술 말투 초안. 저장하지 않는다 (작가가 고쳐 Character.narration_voice 에 저장)."""
     if not any(c.id == cid for c in p.characters):
-        raise KeyError(f"인물이 없어요: {cid}")
+        raise KeyError(f"인물이 없어요: {cid}. 새로 더한 인물이면 저장한 뒤 다시 하세요")
     s = llm.json(prompts.SYSTEM_VOICE, prompts.voice_prompt(p, cid, request), VoiceSuggestion, hint={"character": cid})
     s.voice = s.voice.strip()
     return s
@@ -1890,7 +1890,7 @@ def suggest_voice(llm: LLM, p: Project, cid: str, request: str = "") -> VoiceSug
 def suggest_look(llm: LLM, p: Project, cid: str) -> LookSuggestion:
     """인물 설정을 외형 태그로 옮긴 제안. 저장하지 않는다."""
     if not any(c.id == cid for c in p.characters):
-        raise KeyError(f"인물이 없어요: {cid}")
+        raise KeyError(f"인물이 없어요: {cid}. 새로 더한 인물이면 저장한 뒤 다시 하세요")
     s = llm.json(prompts.SYSTEM_ILLUSTRATOR, prompts.look_prompt(p, cid), LookSuggestion, hint={"character": cid})
     s.look, s.outfit = illust.clean(s.look), illust.clean(s.outfit)
     return s
@@ -1900,7 +1900,7 @@ def save_look(p: Project, cid: str, look: list[str], outfit: list[str] | None = 
               keep_outfit: bool = False) -> CharacterVisual:
     """작가가 고른 외형 태그를 저장한다. keep_outfit 이면 이미 있는 기본 옷차림은 두고 비었을 때만 채운다."""
     if not any(c.id == cid for c in p.characters):
-        raise KeyError(f"인물이 없어요: {cid}")
+        raise KeyError(f"인물이 없어요: {cid}. 새로 더한 인물이면 저장한 뒤 다시 하세요")
     v = p.visual(cid)
     if v is None:
         v = CharacterVisual(character_id=cid)

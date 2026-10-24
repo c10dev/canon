@@ -23,6 +23,7 @@ const S = {
   selEp: null,       // 플롯 보드에서 고른 화
   deltas: {},        // 화별 상태 변경안 (반영 전)
   deltaBase: {},     // 변경안을 만들 때의 본문. 그 뒤에 본문을 고치면 다시 만들라고 알린다
+  deltaOrig: {},     // 변경안을 받았을 때의 요약. 다시 만들기 전에 고친 요약을 버리는지 묻는다
   picks: {},         // 변경안 항목 선택 여부
   textDraft: {},     // 화별 본문 편집 중인 값
   context: null,
@@ -198,6 +199,8 @@ function rangeText(nums) {
 }
 
 async function startJob(kind, ep = null, extra = {}) {
+  // 작업은 저장된 작품을 읽는다. 저장하지 않은 변경(검토 중인 AI 제안 포함)을 말없이 저장하지 않고 먼저 묻는다
+  if (S.dirty && !confirm('저장하지 않은 변경이 있어요. 저장하고 작업을 시작할까요?')) return;
   try {
     await saveIfDirty();
     const j = await api('POST', `/projects/${enc(S.name)}/jobs`, { kind, ep, ...extra });
@@ -683,7 +686,7 @@ document.addEventListener('input', (e) => {
     if (kind === 'tags') v = splitTags(v);
     if (kind === 'bool') v = el.checked;
     setPath(root, el.dataset.bind, v);
-    if (el.dataset.root === 'lib') S.libDirty = true;
+    if (el.dataset.root === 'lib') { S.libDirty = true; renderSavebar(); }
     else if (!DRAFT_ROOTS[el.dataset.root]) markDirty();
     if (el.dataset.root === 'arcDraft' && el.dataset.bind === 'arc.end_ep') {  // 아크 끝 화를 바꾸면 결 구간 끝도 따라간다
       const acts = S.arcDraft.arc.acts;
@@ -727,7 +730,7 @@ document.addEventListener('change', (e) => {
   }
   if (el.name === 'np-form') {  // 형식을 바꾸면 총 화수 기본값도 바꾼다
     const eps = $('#np-eps');
-    if (eps) eps.value = el.value === 'serial' ? 300 : 12;
+    if (eps && ['', '12', '300'].includes(eps.value.trim())) eps.value = el.value === 'serial' ? 300 : 12;  // 직접 적은 화수는 그대로 둔다
   }
   if (el.dataset.castEp) {
     const plot = ep(Number(el.dataset.castEp)).plot;
@@ -817,7 +820,24 @@ function renderSavebar() {
   const [p, , page, arg] = S.route;
   const n = p === 'p' && page === 'write' && P() ? Number(arg) || currentEp() : null;
   const text = n !== null && textUnsaved(n) && editableEp(ep(n)) ? n : null;  // 반영이 끝난 화의 남은 초고는 집필 화면이 따로 꺼내 보인다
+  const lib = S.route[0] === 'styles' && !!S.route[1] && S.libDirty;  // 라이브러리 항목은 작품과 따로 저장한다
+  const rb = $('[data-action="libRevert"]');
+  if (rb) rb.disabled = !S.libDirty;
   let bar = $('#savebar');
+  if (lib) {
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'savebar';
+      bar.className = 'savebar';
+      document.body.appendChild(bar);
+    }
+    if (bar.dataset.sig !== 'lib') {
+      bar.dataset.sig = 'lib';
+      bar.innerHTML = '<span>문체를 저장하지 않았어요</span><button class="btn small" data-action="libRevert">저장 전으로</button><button class="btn small primary" data-action="libSave">저장</button>';
+    }
+    stackBottom();
+    return;
+  }
   if ((!S.dirty || !P()) && text === null) {
     if (bar) bar.remove();
     stackBottom();
@@ -917,7 +937,7 @@ const actions = {
   },
   async revert() {
     if (S.dirty && !confirm('저장하지 않은 변경을 모두 버리고 저장된 작품을 다시 불러올까요? 되돌릴 수 없어요.')) return;
-    await run('불러오는 중', async () => { await loadProject(S.name); });
+    await run('불러오는 중', async () => { await loadProject(S.name); if (S.route[2] === 'style') await loadStyleLink(); });
   },
   /** n화부터 상태 반영을 취소한다 (n-1화 반영 직후로). 본문은 남고, n화 변경안은 다시 골라 반영할 수 있게 채워 둔다. */
   async revertFrom(n) {
@@ -1021,10 +1041,16 @@ const actions = {
   async createProject() {
     const name = $('#np-name').value.trim();
     if (!name) return toast('프로젝트 이름을 입력하세요', true);
+    const raw = $('#np-eps').value.trim();
+    const total = Number(raw);
+    if (!/^\d+$/.test(raw) || total < 4 || total > 1000) {
+      $('#np-eps').focus();
+      return toast('총 화수는 4~1000 사이의 정수로 적으세요. 기승전결이 4구간이라 4화보다 짧게는 못 써요', true);
+    }
     const meta = {
       title: $('#np-title').value.trim() || name,
       genres: [...S.newMeta.genres],
-      target_episodes: parseInt($('#np-eps').value, 10) || 16,
+      target_episodes: total,
       adult: $('#np-adult').checked,
       form: $('#np-serial').checked ? 'serial' : 'short',
     };
@@ -1226,6 +1252,10 @@ const actions = {
 
   // 문체
   async analyzeStyle() {
+    const has = P().style.narration_pov || P().style.sample_passages.length;
+    const l = S.styleLink || {};
+    const unlink = ['same', 'changed'].includes(l.state) ? `\n라이브러리 '${l.name}' 연결도 끊겨요. 라이브러리 항목은 그대로예요.` : '';
+    if ((has || unlink) && !confirm(`분석 결과로 지금 스타일 프로필을 바꿀까요? 저장하기 전에는 '변경 모두 버리기'로 되돌릴 수 있어요.${unlink}`)) return;
     await run('문체를 분석하는 중… (최대 1분)', async () => {
       await saveIfDirty();
       const prof = await api('POST', `/projects/${enc(S.name)}/style`, { text: S.styleSample });
@@ -1233,6 +1263,7 @@ const actions = {
       P().style_baseline = await api('POST', '/metrics', { text: S.styleSample });  // stats 가 원문 전체와 비교하도록
       P().style_id = '';  // 새로 분석한 문체는 라이브러리 항목과 연결을 끊는다
       P().style_version = 0;
+      S.styleLink = { state: 'none' };  // 저장하면 서버도 같은 상태가 된다. 그 전에도 카드가 끊긴 연결을 그대로 보이지 않게
       S.dirty = true;
       toast('분석 결과를 불러왔어요. 확인하고 저장하세요.');
     });
@@ -1263,7 +1294,9 @@ const actions = {
     const id = $('#style-pick').value;
     if (!id) return toast('적용할 문체를 고르세요', true);
     const e = (S.libs || []).find((x) => x.id === id);
-    if (!confirm(`'${e ? e.name : id}' 문체를 이 작품에 적용할까요? 지금 작품의 스타일 프로필은 바뀌어요.`)) return;
+    const l = S.styleLink || { state: 'none' };
+    const lost = l.state === 'same' ? '' : '\n지금 문체는 라이브러리에 없어서 되돌릴 수 없어요. 남겨 두려면 취소하고 \'이 문체를 라이브러리에 새로 저장\'을 먼저 누르세요.';
+    if (!confirm(`'${e ? e.name : id}' 문체를 이 작품에 적용할까요? 지금 작품의 스타일 프로필은 바뀌어요.${lost}`)) return;
     await run('적용하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/style/apply`, { style_id: id });
@@ -1272,7 +1305,8 @@ const actions = {
     });
   },
   async keepStyle() {
-    const name = prompt('라이브러리에 저장할 문체 이름', `${P().meta.title || S.name} 문체`);
+    const bare = S.styleSample.trim() ? '' : '\n(이 화면에 붙여 넣은 원문이 없어 원문 없이 저장돼요)';
+    const name = prompt(`라이브러리에 저장할 문체 이름${bare}`, `${P().meta.title || S.name} 문체`);
     if (name === null) return;
     await run('라이브러리에 저장하는 중', async () => {
       await saveIfDirty();
@@ -1287,7 +1321,8 @@ const actions = {
     const l = S.styleLink || {};
     const users = ((S.libs || []).find((x) => x.id === l.id) || {}).used_by || [];
     const others = users.filter((n) => n !== S.name);
-    const warn = others.length ? `\n다른 작품(${others.join(', ')})은 다시 적용하기 전까지 바뀌지 않아요.` : '';
+    const warn = (others.length ? `\n다른 작품(${others.join(', ')})은 다시 적용하기 전까지 바뀌지 않아요.` : '')
+      + ((l.theirs || []).length ? `\n라이브러리 ${l.version}번 버전에서 바뀐 칸(${l.theirs.map((c) => c.label).join(', ')})은 이 작품 값으로 덮여요.` : '');
     const note = prompt(`이 작품의 문체를 라이브러리 '${l.name}' 의 새 버전으로 올려요. 예전 버전은 남아 있어 되돌릴 수 있어요.${warn}\n\n버전 메모 (비워도 돼요)`, '');
     if (note === null) return;
     await run('라이브러리에 올리는 중', async () => {
@@ -1335,13 +1370,19 @@ const actions = {
     });
   },
   async libRevert() {
+    if (!S.libDirty) return;
+    if (!confirm('저장하지 않은 변경을 버리고 저장된 문체로 되돌릴까요?')) return;
     await run('불러오는 중', async () => {
       S.lib = await api('GET', `/styles/${S.lib.id}`);
       S.libDirty = false;
     });
   },
   async libDuplicate(id) {
-    if (S.libDirty && !confirm('저장하지 않은 변경은 사본에 들어가지 않아요. 계속할까요?')) return;
+    if (S.libDirty && !confirm('저장하지 않은 변경이 있어요. 저장한 뒤 그 버전으로 복제할까요?')) return;
+    if (S.libDirty) {
+      await actions.libSave();
+      if (S.libDirty) return;  // 저장하지 못했다 (토스트가 이유를 알린다)
+    }
     await run('복제하는 중', async () => {
       const e = await api('POST', `/styles/${id}/duplicate`);
       S.libDirty = false;
@@ -1366,7 +1407,7 @@ const actions = {
     const name = $('#lib-target').value;
     if (!name) return toast('적용할 작품을 고르세요', true);
     if (S.libDirty) return toast('먼저 저장하세요. 저장된 문체가 작품에 복사돼요.', true);
-    if (!confirm(`'${S.lib.name}' 문체를 '${name}' 작품에 적용할까요? 그 작품의 스타일 프로필은 바뀌어요.`)) return;
+    if (!confirm(`'${S.lib.name}' 문체를 '${name}' 작품에 적용할까요? 그 작품의 스타일 프로필은 바뀌어요.\n그 작품의 지금 문체를 라이브러리에 저장해 두지 않았다면 되돌릴 수 없어요.`)) return;
     await run('적용하는 중', async () => {
       await api('POST', `/projects/${enc(name)}/style/apply`, { style_id: S.lib.id });
       S.lib = await api('GET', `/styles/${S.lib.id}`);
@@ -1457,6 +1498,7 @@ const actions = {
     const a = arc ? P().story_arcs.find((x) => x.number === Number(arc)) : null;
     const drafts = P().episodes.filter((e) => e.status === 'draft' && (!a || (e.plot.number >= a.start_ep && e.plot.number <= a.end_ep)));
     if (!drafts.length) return toast('확정할 초안이 없어요');
+    if (jobFor('plots')) return toast('플롯 초안을 만드는 중이에요. 끝난 뒤에 확정하세요', true);
     if (!confirm(`초안 ${drafts.length}화를 모두 확정할까요?`)) return;
     await run('확정하는 중', async () => {
       await saveIfDirty();
@@ -1601,6 +1643,9 @@ const actions = {
 
   // 상태 변경안
   async extractState(n) {
+    const d = S.deltas[n];
+    const edited = d && ((S.deltaOrig[n] !== undefined && d.summary !== S.deltaOrig[n]) || Object.values(S.picks).some((v) => !v));
+    if (edited && !confirm('고친 요약과 체크를 버리고 변경안을 다시 만들까요?')) return;
     if (S.textDraft[n] !== undefined) {
       try {
         S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, { text: S.textDraft[n] });
@@ -1777,15 +1822,18 @@ function refreshPreview(n) {
 function setDelta(n, d) {
   S.deltas[n] = d;
   S.deltaBase[n] = ep(n) ? ep(n).text : '';
+  S.deltaOrig[n] = d.summary;  // 다시 만들 때 고친 요약을 버리는지 묻는다
   S.picks = {};
   S.preview = null;
-  d.character_updates.forEach((_, i) => { S.picks['c' + i] = true; });
+  // 설정에도 이번 새 인물에도 없는 id 의 상태는 기본으로 빼 둔다. 반영하면 누구의 것도 아닌 상태가 남는다
+  const known = new Set([...P().characters.map((c) => c.id), ...(d.new_characters || []).map((c) => c.id)]);
+  d.character_updates.forEach((u, i) => { S.picks['c' + i] = known.has(u.character_id); });
   d.events.forEach((_, i) => { S.picks['e' + i] = true; });
   d.secrets_added.forEach((_, i) => { S.picks['s' + i] = true; });
   d.relationship_updates.forEach((_, i) => { S.picks['r' + i] = true; });
   d.new_facts.forEach((_, i) => { S.picks['f' + i] = true; });
   d.foreshadow_planted.forEach((_, i) => { S.picks['p' + i] = true; });
-  d.foreshadow_resolved.forEach((_, i) => { S.picks['x' + i] = true; });
+  d.foreshadow_resolved.forEach((id, i) => { S.picks['x' + i] = P().foreshadows.some((f) => f.id === id); });
   (d.new_characters || []).forEach((_, i) => { S.picks['n' + i] = true; });
 }
 
@@ -1805,7 +1853,7 @@ document.addEventListener('click', (e) => {
 // (그러지 않으면 한 작품의 본문 초안이 다른 작품의 같은 화에 보이고 저장된다)
 // 작품마다 따로 두는 화면 상태와 빈 값. 화 번호로 잡거나 반영 전 AI 제안이라, 다른 작품에 보이거나 반영되면 안 된다
 const PER_PROJECT = {
-  textDraft: () => ({}), deltas: () => ({}), deltaBase: () => ({}),
+  textDraft: () => ({}), deltas: () => ({}), deltaBase: () => ({}), deltaOrig: () => ({}),
   suggestion: () => null, picks: () => ({}), seriesDraft: () => null, arcDraft: () => null, arcProposal: () => null, recapDrafts: () => ({}),
   lineDraft: () => null, convDraft: () => null, rbDraft: () => null, reworks: () => ({}),
   openingData: () => ({}), openingPlots: () => ({}), openingUsed: () => ({}), openingPrev: () => ({}), rw: () => ({}), rwInfo: () => ({}), looks: () => ({}),
@@ -1846,8 +1894,21 @@ async function loadProject(name) {
 }
 
 let lastHash = location.hash;
+// 화면 머리의 다음 단계 버튼('기승전결로' 같은)은 저장하고 넘어간다. 고친 것을 들고 다음 단계로 가는 흐름이라 버릴지 묻지 않는다
+document.addEventListener('click', async (e) => {
+  const a = e.target.closest('.page-head a.btn.primary[href^="#/"]');
+  if (!a || !S.dirty || S.conflict || e.defaultPrevented) return;
+  e.preventDefault();
+  try {
+    if (await save() === false) return;  // 서버가 일부를 지켰다. 토스트를 읽게 이 화면에 남는다
+  } catch (err) {
+    return showError(err);
+  }
+  location.hash = a.getAttribute('href');
+});
+
 window.addEventListener('hashchange', async () => {
-  if ((S.dirty || S.libDirty || S.settingsDirty) && !confirm('저장하지 않은 변경이 있어요. 버리고 이동할까요?')) {
+  if ((S.dirty || S.libDirty || S.settingsDirty) && !confirm('저장하지 않은 변경이 있어요. 저장하지 않고 이동하면 그 변경은 사라져요. 이동할까요?')) {
     history.replaceState(null, '', lastHash);
     return;
   }
@@ -2915,7 +2976,7 @@ function viewStyle() {
         ${learnCard()}
         <section class="card">
           <div class="between"><h2>예시 원문</h2><span class="small"><span id="sample-count">${S.styleSample.length.toLocaleString()}</span>자 · 2,000자 이상 권장</span></div>
-          <label for="sample" class="small">소설 본문을 붙여 넣으세요. 원문은 작품에 저장되지 않고 고른 대표 문단만 남아요. 라이브러리에 저장하면 원문도 라이브러리에 함께 보관해요.</label>
+          <label for="sample" class="small">소설 본문을 붙여 넣으세요. 원문은 작품에 저장되지 않고 고른 대표 문단만 남아요. 이 칸에 원문이 남아 있을 때 라이브러리에 저장하면 원문도 함께 보관해요. 새로고침하면 이 칸은 비어요.</label>
           <textarea id="sample" rows="16" data-local="styleSample" oninput="document.getElementById('sample-count').textContent=this.value.length.toLocaleString()" style="font-family:var(--serif);font-size:0.9375rem;line-height:1.9">${esc(S.styleSample)}</textarea>
           <div><button class="btn dark" data-action="analyzeStyle">문체 분석</button></div>
           <div class="note plain">원문은 문체 분석과 예시 문단으로만 쓰여요. 내용이나 인물은 작품에 가져오지 않아요.</div>
@@ -2989,7 +3050,7 @@ function viewLibEntry() {
   const isNew = !e.id;
   const used = e.used_by || [];
   const others = (S.projects || []).filter((x) => !used.includes(x.name));
-  const right = `<a class="btn" href="#/styles">목록으로</a>${isNew ? '' : `<button class="btn" data-action="libDuplicate" data-arg="${esc(e.id)}">복제</button><button class="btn danger" data-action="libDelete" data-arg="${esc(e.id)}">삭제</button><button class="btn" data-action="libRevert">저장 전으로</button>`}<button class="btn primary" data-action="libSave">저장</button>`;
+  const right = `<a class="btn" href="#/styles">목록으로</a>${isNew ? '' : `<button class="btn" data-action="libDuplicate" data-arg="${esc(e.id)}">복제</button><button class="btn danger" data-action="libDelete" data-arg="${esc(e.id)}">삭제</button><button class="btn" data-action="libRevert"${S.libDirty ? '' : ' disabled'}>저장 전으로</button>`}<button class="btn primary" data-action="libSave">저장</button>`;
   const apply = isNew ? '' : `<section class="card tight">
       <h2>작품에 적용</h2>
       <div class="small">${used.length ? `쓰는 작품: ${used.map((n) => `<a href="#/p/${enc(n)}/style">${esc(n)}</a>`).join(', ')}` : '아직 쓰는 작품이 없어요.'}</div>
@@ -3163,7 +3224,7 @@ function viewArc() {
 
   const drafts = eps.filter((e) => e.status === 'draft').length;
   const right = p.arc.length
-    ? `${((b) => `<button class="btn" data-action="planArc"${b.attr}>${b.label}</button>`)(jobBtn('arc', null, '구조 다시 제안'))}${((b) => `<button class="btn" data-action="draftPlots"${b.attr}>${b.label}</button>`)(jobBtn('plots', null, eps.length ? '초안 다시 만들기 (확정 화 제외)' : '화별 플롯 초안 만들기'))}${drafts ? `<button class="btn primary" data-action="confirmAll">초안 ${drafts}화 모두 확정</button>` : ''}`
+    ? `${((b) => `<button class="btn" data-action="planArc"${b.attr}>${b.label}</button>`)(jobBtn('arc', null, '구조 다시 제안'))}${((b) => `<button class="btn" data-action="draftPlots"${b.attr}>${b.label}</button>`)(jobBtn('plots', null, eps.length ? '초안 다시 만들기 (확정 화 제외)' : '화별 플롯 초안 만들기'))}${drafts ? `<button class="btn primary" data-action="confirmAll"${jobFor('plots') ? ' aria-disabled="true" title="플롯 초안을 만드는 중이에요"' : ''}>초안 ${drafts}화 모두 확정</button>` : ''}`
     : '';
   const tools = chatButton() + right + `<a class="btn" href="${base()}/convert">장편으로 전환</a>`;
   return `${header('3단계', '기승전결 · 화별 플롯', '구간 목표를 확인하고, 화 카드를 눌러 플롯을 다듬은 뒤 확정하세요. 확정된 화만 본문을 쓸 수 있고, 초안을 다시 만들어도 확정된 화는 그대로예요.', tools)}
@@ -3432,7 +3493,7 @@ function arcPanel(a, sel) {
   const right = `<div class="row">
       <button class="btn small" data-action="editArc">아크 고치기</button>
       <button class="btn small" data-action="draftArcPlots" data-arg="${a.number}"${plotsBtn.attr}>${plotsBtn.label}</button>
-      ${g.drafts ? `<button class="btn small primary" data-action="confirmAll" data-arg="${a.number}">초안 ${g.drafts}화 모두 확정</button>` : ''}
+      ${g.drafts ? `<button class="btn small primary" data-action="confirmAll" data-arg="${a.number}"${jobFor('plots') ? ' aria-disabled="true" title="플롯 초안을 만드는 중이에요"' : ''}>초안 ${g.drafts}화 모두 확정</button>` : ''}
       ${last && !eps.some((e) => e.status !== 'draft') ? '<button class="btn small danger" data-action="removeLastArc">지우고 다시 기획</button>' : ''}
     </div>`;
   return `<section class="card">
@@ -3628,8 +3689,14 @@ function viewReview(n) {
   }
 
   const p = P();
-  const stale = S.deltaBase[n] !== undefined && S.deltaBase[n] !== e.text
-    ? `<section class="note warn" role="alert">이 변경안을 만든 뒤 본문을 고쳤어요. 고친 내용이 상태에 영향을 준다면 변경안을 다시 만드세요. ${((b) => `<button class="btn small" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '변경안 다시 만들기'))}</section>` : '';
+  const remake = ((b) => `<button class="btn small" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '변경안 다시 만들기'));
+  const stale = textUnsaved(n)
+    ? `<section class="note warn" role="alert">${n}화 본문에 저장하지 않은 수정이 있어요. 반영해도 그 수정은 저장되지 않아요. 변경안을 다시 만들면 본문을 먼저 저장해요. ${remake} <a href="${base()}/write/${n}">본문으로</a></section>`
+    : S.deltaBase[n] !== undefined && S.deltaBase[n] !== e.text
+      ? `<section class="note warn" role="alert">이 변경안을 만든 뒤 본문을 고쳤어요. 고친 내용이 상태에 영향을 준다면 변경안을 다시 만드세요. ${remake}</section>` : '';
+  // 검수 지적이 남아 있으면 반영 전에 본문을 고칠지 볼 수 있게 알린다 (검수 뒤 본문을 고쳤으면 지난 결과라고 밝힌다)
+  const issues = (e.issues || []).length
+    ? `<section class="note warn">검수 지적 ${e.issues.length}건이 남아 있어요${(e.edits || []).some((x) => x.at > (e.checked_at || '')) ? ' (검수 뒤 본문을 고쳤어요)' : ''}. <a href="${base()}/write/${n}">집필 화면에서 보기</a></section>` : '';
   const total = d.character_updates.length + d.events.length + d.secrets_added.length + d.relationship_updates.length + d.new_facts.length + d.foreshadow_planted.length + d.foreshadow_resolved.length + (d.new_characters || []).length;
   if (!S.preview || S.preview.n !== n) refreshPreview(n);
   const picked = Object.values(S.picks).filter(Boolean).length;
@@ -3643,7 +3710,8 @@ function viewReview(n) {
     const rows = [['감정', 'emotional_state'], ['목표', 'current_goal'], ['위치', 'location'], ['메모', 'notes']]
       .filter(([, f]) => u[f]).map(([k, f]) => `<div class="small">${k}</div>${diff(cur[f], u[f])}`).join('');
     const knows = u.knows.filter((k) => !(cur.knows || []).includes(k)).map((k) => `<span class="after">+ ${esc(k)}</span>`).join(' ');
-    return `<div class="change">${box('c' + i)}<div class="body"><label for="pk-c${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(u.character_id))}</label>${rows}${knows ? `<div class="small">알게 된 정보</div><div class="row">${knows}</div>` : ''}</div></div>`;
+    const unknown = !p.characters.some((c) => c.id === u.character_id) && !(d.new_characters || []).some((c) => c.id === u.character_id);
+    return `<div class="change">${box('c' + i)}<div class="body"><label for="pk-c${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(u.character_id))}${unknown ? ' <span class="chip draft">설정에 없는 인물</span>' : ''}</label>${rows}${knows ? `<div class="small">알게 된 정보</div><div class="row">${knows}</div>` : ''}</div></div>`;
   }).join('');
 
   const events = d.events.map((ev, i) => {
@@ -3672,7 +3740,7 @@ function viewReview(n) {
   ].join('');
   const section = (title, body) => `<section class="card"><h2>${title}</h2>${body || '<div class="small">변경 없음</div>'}</section>`;
 
-  return top('AI가 본문에서 뽑은 변경안이에요. 체크한 항목만 데이터에 반영되고, 반영해야 다음 화를 쓸 수 있어요.', `<span class="small">${total}건 중 <strong id="pick-count" style="color:var(--text)">${picked}</strong>건 선택</span>`) + stale +
+  return top('AI가 본문에서 뽑은 변경안이에요. 체크한 항목만 데이터에 반영되고, 반영해야 다음 화를 쓸 수 있어요.', `<span class="small">${total}건 중 <strong id="pick-count" style="color:var(--text)">${picked}</strong>건 선택</span>`) + stale + issues +
     (d.warnings.length ? `<section class="note warn" role="alert"><strong>경고 ${d.warnings.length}건 · 본문을 고칠지 확인하세요</strong><ul style="padding-left:18px;margin-top:6px">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul><a href="${base()}/write/${n}" style="color:inherit;font-weight:700">본문으로</a></section>` : '') +
     section('인물 상태', chars) +
     (newChars ? section('새로 나온 인물', newChars) : '') +
@@ -3695,8 +3763,11 @@ function historyView(h) {
   return `<section class="card"><h2>요약</h2><p style="font-size:0.875rem;line-height:1.7">${esc(h.summary)}</p></section>
     <div class="grid-auto">
       <section class="card"><h2>인물 상태</h2>${li(h.character_updates.map((u) => `<strong>${esc(charName(u.character_id))}</strong> ${esc([u.emotional_state, u.current_goal, u.location].filter(Boolean).join(' / '))}${u.knows.length ? ` · 앎: ${esc(u.knows.join(', '))}` : ''}`))}</section>
-      <section class="card"><h2>관계 사건</h2>${li((h.events || []).map((ev) => `${esc(charName(ev.actor))} → ${esc(charName(ev.target))} · ${esc(ev.kind)} ${INTENSITY[ev.intensity] || ''}${ev.quote ? `<br><span class="small">“${esc(ev.quote)}”</span>` : ''}`))}</section>
-      <section class="card"><h2>사실과 복선</h2>${li([...h.new_facts.map(esc), ...h.foreshadow_planted.map((f) => '심음: ' + esc(f.description)), ...h.foreshadow_resolved.map((id) => '회수: ' + esc(id))])}</section>
+      <section class="card"><h2>관계 사건</h2>${li((h.events || []).map((ev) => `${esc(charName(ev.actor))} → ${esc(charName(ev.target))} · ${esc(ev.kind)} ${INTENSITY[ev.intensity] || ''}${ev.witnesses && ev.witnesses.length ? ` · 목격: ${ev.witnesses.map(charName).map(esc).join(', ')}` : ''}${ev.reveals_secret ? ` · 드러난 비밀: ${esc(secretLabel(ev.reveals_secret, h))}` : ''}${ev.quote ? `<br><span class="small">“${esc(ev.quote)}”</span>` : ''}`))}</section>
+      <section class="card"><h2>사실과 복선</h2>${li([...h.new_facts.map(esc), ...h.foreshadow_planted.map((f) => '심음: ' + esc(f.description)), ...h.foreshadow_resolved.map((id) => { const f = P().foreshadows.find((x) => x.id === id); return '회수: ' + esc(f ? f.description : id); })])}</section>
+      ${(h.new_characters || []).length ? `<section class="card"><h2>새로 나온 인물</h2>${li(h.new_characters.map((c) => `<strong>${esc(c.name || c.id)}</strong> <span class="small">${esc(c.role || '')}</span>`))}</section>` : ''}
+      ${(h.secrets_added || []).length ? `<section class="card"><h2>새로 생긴 비밀</h2>${li(h.secrets_added.map((x) => `<strong>${esc(charName(x.owner))}</strong> ${esc(x.content)}`))}</section>` : ''}
+      ${(h.relationship_updates || []).length ? `<section class="card"><h2>관계 유형 · 설명 변경</h2>${li(h.relationship_updates.map((r) => `${esc(charName(r.a))} ↔ ${esc(charName(r.b))} · ${esc(r.type)}${r.description ? ` · ${esc(r.description)}` : ''}`))}</section>` : ''}
     </div>`;
 }
 
@@ -3829,6 +3900,7 @@ Object.assign(actions, {
     if (!c) return;
     if ((c.narration_voice || '').trim() && !confirm('지금 적힌 서술 말투를 AI 초안으로 바꿀까요? 저장하기 전에는 되돌릴 수 있어요')) return;
     await run('서술 말투 초안 만드는 중', async () => {
+      await saveIfDirty();  // AI는 저장된 인물 설정을 읽는다. 방금 고친 설정이나 새 인물도 보게 먼저 저장한다
       const s = await api('POST', `/projects/${enc(S.name)}/characters/${enc(cid)}/voice`);
       c.narration_voice = s.voice;
       S.voices = { ...(S.voices || {}), [cid]: s.note || '' };

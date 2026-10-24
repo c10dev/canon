@@ -136,6 +136,11 @@ def running() -> int:
     return sum(1 for j in _jobs.values() if j.status == "running")
 
 
+def running_owned(project: str) -> set[int]:
+    """지금 도는 작업이 맡은 화. 그 화를 확정하면 작업 결과가 확정 화를 덮지 못해 버려진다."""
+    return {n for j in list(_jobs.values()) if j.project == project and j.status == "running" for n in j.owned}
+
+
 def owned_episodes(project: str, merged: set[str] = frozenset()) -> set[int]:
     """화면의 저장이 덮으면 안 되는 화. 도는 작업이 맡은 화와, 끝났지만 화면이 아직 받아 가지 않은(merged 에 없는) 작업의 화."""
     now = time.time()

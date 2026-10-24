@@ -308,6 +308,8 @@ def create_project(body: NewProject) -> Project:
         raise HTTPException(400, "프로젝트 이름에 / \\ 를 쓰거나 . 으로 시작할 수 없어요")
     if store.exists(name):
         raise HTTPException(409, f"이미 있는 프로젝트예요: {name}")
+    if not 1 <= body.meta.target_episodes <= 1000:
+        raise HTTPException(400, "총 화수는 1~1000 사이로 적으세요")
     p = Project(meta=body.meta)
     if not p.meta.title:
         p.meta.title = name
@@ -758,6 +760,8 @@ def remove_storyline(name: str, sid: str) -> Project:
 
 @app.post("/api/projects/{name}/episodes/{n}/confirm")
 def confirm_plot(name: str, n: int) -> Project:
+    if n in jobs.running_owned(name):
+        raise ValueError(f"{n}화 플롯을 만드는 작업이 도는 중이에요. 끝난 뒤에 확정하세요")
     p = _load(name)
     pipeline.confirm_plot(p, n)  # 그 화에 나오는 새 인물 후보도 함께 등록된다
     return _save(name, p)

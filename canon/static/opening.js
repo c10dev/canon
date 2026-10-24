@@ -40,7 +40,8 @@ async function openingLoad(n) {
 function openingJobResult(j) {
   if (j.kind === 'openings' && j.result) {
     S.openingPlots[j.ep] = j.result.options;
-    S.selEp = j.ep;
+    if (S.selEp == null || S.selEp === j.ep) S.selEp = j.ep;  // 다른 화를 고치는 중이면 서랍을 바꾸지 않는다
+    else toast(`${j.ep}화 여는 방식 안이 도착했어요. 플롯 화면에서 ${j.ep}화를 열면 보여요`);
     return;
   }
   // 판정과 여러 안 본문은 서버가 저장했다. 이 화의 점검 자료를 다시 받아 그린다.
@@ -86,7 +87,7 @@ function openingPanel(n) {
   const e = ep(n);
   const d = S.openingData[n];
   const blocked = P().episodes.some((x) => x.plot.number < n && x.status !== 'finalized');
-  const canWrite = e.status !== 'draft' && !blocked && S.mode === 'api';
+  const canWrite = e.status !== 'draft' && e.status !== 'finalized' && !blocked && S.mode === 'api';
   const hookBtn = jobBtn('hook', n, e.hook ? '다시 판정' : '흡입력 판정');
   const hookRunning = !!jobFor('hook', n);
   const draftsBtn = jobBtn('opening_drafts', n, '여러 안으로 쓰기');
@@ -121,7 +122,7 @@ function openingPanel(n) {
       <div class="small">같은 화를 여는 방식만 달리해 여러 안으로 쓰고, 어느 방식인지 가린 채 읽고 골라요. 고른 안이 이 화 본문이 돼요.</div>
       ${openingWayPicker(!canWrite)}
       <div class="row"><button class="btn dark" data-action="openingDrafts" data-arg="${n}"${canWrite ? draftsBtn.attr : ' disabled'}>${draftsBtn.label}</button>
-        ${!canWrite ? `<span class="small">${e.status === 'draft' ? '플롯을 확정하면 쓸 수 있어요' : blocked ? '이전 화를 반영해야 쓸 수 있어요' : 'Gemini API 방식에서 쓸 수 있어요'}</span>` : ''}</div>
+        ${!canWrite ? `<span class="small">${e.status === 'draft' ? '플롯을 확정하면 쓸 수 있어요' : e.status === 'finalized' ? '반영이 끝난 화예요. 바꾸려면 상태 승인에서 이 화부터 반영을 취소하세요' : blocked ? '이전 화를 반영해야 쓸 수 있어요' : 'Gemini API 방식에서 쓸 수 있어요'}</span>` : ''}</div>
       ${c ? `<div class="small">${esc(fmtDateTime(c.created))}에 쓴 ${c.kind === 'opening' ? '여는 방식' : '백엔드'} 비교본${c.picked ? '' : ' · 고르기 전까지 가려요'}${finalized && !c.picked ? ' · 반영이 끝난 화라 고를 수 없어요' : ''}</div><div class="rs-compare">${drafts}</div>` : ''}
     </section>`;
 }
@@ -171,17 +172,19 @@ function openingWaysOk() {
 }
 
 Object.assign(actions, {
-  openingHook(n) {
+  async openingHook(n) {
+    try { await flushText(n); } catch (e) { return toast(e.message, true); }  // 판정은 저장된 본문을 읽는다
     startJob('hook', n);
   },
   openingHookDraft(arg) {
     const [n, k] = String(arg).split(':').map(Number);
     startJob('hook', n, { draft: k });
   },
-  openingDrafts(n) {
+  async openingDrafts(n) {
     if (!openingWaysOk()) return;
     const d = S.openingData[n];
     if (d && d.compare && !d.compare.picked && !confirm(`${n}화의 고르지 않은 비교본을 새로 쓴 것으로 바꿀까요?`)) return;
+    try { await flushText(n); } catch (e) { return toast(e.message, true); }  // 여러 안은 저장된 본문의 화 자료로 쓴다
     startJob('opening_drafts', n, { approaches: S.openingWays });
   },
   openingPlots(n) {

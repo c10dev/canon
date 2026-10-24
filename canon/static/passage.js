@@ -437,8 +437,11 @@ Object.assign(actions, {
   async undoEdit(id) {
     const n = Number(S.route[3]) || currentEp();
     const edit = ep(n).edits.find((x) => x.id === id);
+    // 칸의 초안이 서버 본문을 가린다. 먼저 저장해야 취소한 결과가 화면에 보이고, 나중에 초안을 저장해도 되살아나지 않는다
+    if (textUnsaved(n) && !confirm('저장하지 않은 본문 수정이 있어요. 먼저 저장하고 이 수정을 취소할까요?')) return;
     await run('수정을 취소하는 중', async () => {
       await saveIfDirty();
+      await flushText(n);
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/edits/${enc(id)}/undo`);
       if (edit.before) focusText(n, edit.before, edit.start);
       if (S.sel && S.sel.n === n && !textNow(n).includes(S.sel.text)) S.sel = null;
@@ -448,8 +451,10 @@ Object.assign(actions, {
   async redoEdit(id) {
     const n = Number(S.route[3]) || currentEp();
     const edit = ep(n).edits.find((x) => x.id === id);
+    if (textUnsaved(n) && !confirm('저장하지 않은 본문 수정이 있어요. 먼저 저장하고 이 수정을 다시 넣을까요?')) return;
     await run('다시 넣는 중', async () => {
       await saveIfDirty();
+      await flushText(n);
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/edits/${enc(id)}/redo`);
       if (edit.after) focusText(n, edit.after, edit.start);
       if (S.sel && S.sel.n === n && !textNow(n).includes(S.sel.text)) S.sel = null;

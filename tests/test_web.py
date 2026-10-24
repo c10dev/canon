@@ -543,3 +543,26 @@ def test_project_etag_and_gzip(client):
     # 이름 점검은 필요한 칸만 받아도 된다
     light = {k: p[k] for k in ("meta", "world", "characters", "cast_candidates")}
     assert "warnings" in client.post("/api/projects/et/names/check", json=light).json()
+
+
+def test_episode_count_bounds_and_confirm_during_plot_job(client):
+    for bad in (0, -3, 5000):
+        r = client.post("/api/projects", json={"name": f"b{bad}", "meta": {"title": "t", "target_episodes": bad}})
+        assert r.status_code == 400 and "1~1000" in r.json()["detail"]
+    meta = {"title": "등대", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "cj", "meta": meta})
+    p = client.post("/api/projects/cj/suggest/apply", json=client.post("/api/projects/cj/suggest").json()).json()
+    p["arc"] = client.post("/api/projects/cj/arc").json()["acts"]
+    client.put("/api/projects/cj", json=p)
+    assert client.post("/api/projects/cj/plots", json={}).status_code == 200
+    from canon import jobs
+    j = jobs.Job(id="fake", project="cj", kind="plots", ep=None, label="플롯 초안", owned={2, 3})
+    jobs._jobs[j.id] = j
+    try:
+        # 도는 플롯 작업이 다시 쓰는 화를 확정하면 작업 결과가 확정 화를 덮지 못해 버려진다
+        r = client.post("/api/projects/cj/episodes/2/confirm")
+        assert r.status_code == 400 and "도는 중" in r.json()["detail"]
+        assert client.post("/api/projects/cj/episodes/1/confirm").status_code == 200
+    finally:
+        jobs._jobs.pop(j.id, None)
+    assert client.post("/api/projects/cj/episodes/2/confirm").status_code == 200

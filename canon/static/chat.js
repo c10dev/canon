@@ -296,7 +296,8 @@ Object.assign(actions, {
     });
   },
   async chatClear() {
-    if (!confirm(chatConf(S.chatTopic).clearAsk)) return;
+    const open = chatMessages(S.chatTopic).filter((m) => m.revision && !m.outcome).length;
+    if (!confirm(chatConf(S.chatTopic).clearAsk + (open ? `\n아직 고르지 않은 변경안 ${open}개도 함께 지워져요.` : ''))) return;
     await run('지우는 중', async () => {
       await saveIfDirty();
       S.project = await api('DELETE', `/projects/${enc(S.name)}/chat/${enc(S.chatTopic)}`);

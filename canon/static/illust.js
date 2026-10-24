@@ -315,12 +315,19 @@ Object.assign(actions, {
   },
   async lookAI(cid) {
     const v = ilVisual(cid);
-    if (v && (v.look || []).length && !confirm('지금 적힌 외형 태그를 AI 제안으로 바꿀까요? 저장하기 전에는 되돌릴 수 있어요')) return;
+    const filled = v ? [['외형', v.look], ['기본 옷차림', v.outfit]].filter(([, x]) => (x || []).length).map(([k]) => k) : [];
+    if (v && v.subject) filled.push('그림 속 성별');
+    if (filled.length && !confirm(`지금 적힌 ${filled.join(' · ')}을(를) AI 제안으로 바꿀까요? 저장하기 전에는 '변경 모두 버리기'로 되돌릴 수 있어요`)) return;
     await run('외형 태그 만드는 중', async () => {
+      await saveIfDirty();  // AI는 저장된 인물 설정을 읽는다. 방금 고친 설정이나 새 인물도 보게 먼저 저장한다
       const s = await api('POST', `/projects/${enc(S.name)}/characters/${enc(cid)}/look`);
       setVisual(cid, 'look', s.look.join(', '));
       if (s.outfit.length) setVisual(cid, 'outfit', s.outfit.join(', '));
-      setVisual(cid, 'subject', s.subject);
+      // '자동'은 성별 칸으로 정한다(illust.subject_of). 같은 값이면 자동으로 둬서 성별 칸을 고치면 따라가게 한다
+      const c = P().characters.find((x) => x.id === cid);
+      const g = ((c && c.gender) || '').trim().toLowerCase();
+      const auto = g.startsWith('여') || ['f', 'female', 'woman', 'girl'].includes(g) ? 'girl' : g.startsWith('남') || ['m', 'male', 'man', 'boy'].includes(g) ? 'boy' : 'other';
+      if ((ilVisual(cid) || {}).subject || s.subject !== auto) setVisual(cid, 'subject', s.subject);
       S.looks[cid] = s.note || '';
       toast('제안을 칸에 넣었어요. 고친 뒤 저장하세요');
     });
