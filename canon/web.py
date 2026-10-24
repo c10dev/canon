@@ -24,7 +24,9 @@ from .schema import (ArcPlan, Character, WorldSetting, ArcProposal, EpisodePlot,
                      StorylineProposal, StyleEntry, StyleProfile)
 
 STATIC = Path(__file__).parent / "static"
-NAME_RE = re.compile(r"^[^/\\.][^/\\]{0,63}$")
+# 폴더 이름: / \ 와 운영체제가 막는 : * ? " < > | 는 쓸 수 없고, . 으로 시작하지 않는다
+NAME_RE = re.compile(r'^[^/\\.:*?"<>|][^/\\:*?"<>|]{0,63}$')
+NAME_ERR = '폴더 이름에 / \\ : * ? " < > | 는 쓸 수 없고, . 으로 시작할 수 없어요 (64자까지)'
 
 app = FastAPI(title="Canon")
 # 다른 기기(Tailscale)에서 열 때 작품 JSON 과 정적 파일을 줄여 보낸다
@@ -192,9 +194,10 @@ def config_models() -> dict:
     out = {}
     for prov, make in (("gemini", GeminiLLM), ("local", lambda: LocalLLM(timeout=5))):
         try:
-            out[prov] = {"models": make().models(), "error": ""}
+            out[prov] = {"models": make().models(), "error": "", "reason": ""}
         except Exception as e:  # 키가 없거나 서버가 꺼져 있어도 화면은 열려야 한다
-            out[prov] = {"models": [], "error": str(getattr(e, "message", None) or e)}
+            reason = "no_key" if isinstance(e, MissingKey) else "unreachable" if prov == "local" and "연결하지 못했" in str(e) else "other"
+            out[prov] = {"models": [], "error": str(getattr(e, "message", None) or e), "reason": reason}
     return out
 
 
@@ -215,15 +218,23 @@ def config_health() -> dict:
 
 @app.get("/api/projects")
 def list_projects() -> list[dict]:
+    """작품 카드: 형식, 다음에 할 화(open_ep · open_status, 없으면 0 · ''), 고친 시각. 최근에 고친 작품부터."""
+    from datetime import datetime, timezone
     out = []
     if store.ROOT.exists():
         for d in sorted(store.ROOT.iterdir()):
-            if (d / "project.json").exists():
+            f = d / "project.json"
+            if f.exists():
                 p = store.load(d.name)
                 done = sum(e.status == "finalized" for e in p.episodes)
-                out.append({"name": d.name, "title": p.meta.title, "genre": p.meta.genre,
-                            "episodes": p.meta.target_episodes, "finalized": done})
-    return out
+                todo = next((e for e in sorted(p.episodes, key=lambda e: e.plot.number) if e.status != "finalized"), None)
+                mtime = f.stat().st_mtime
+                out.append({"name": d.name, "title": p.meta.title, "genre": p.meta.genre, "form": p.meta.form,
+                            "episodes": p.meta.target_episodes, "finalized": done, "planned": len(p.episodes),
+                            "open_ep": todo.plot.number if todo else 0, "open_status": todo.status if todo else "",
+                            "updated_at": datetime.fromtimestamp(mtime, timezone.utc).isoformat(), "_mtime": mtime})
+    out.sort(key=lambda x: -x["_mtime"])
+    return [{k: v for k, v in x.items() if k != "_mtime"} for x in out]
 
 
 class NewName(BaseModel):
@@ -240,7 +251,7 @@ def _free(name: str) -> None:
 def _new_name(body: NewName) -> str:
     new = body.name.strip()
     if not NAME_RE.match(new):
-        raise HTTPException(400, "프로젝트 이름에 / \\ 를 쓰거나 . 으로 시작할 수 없어요")
+        raise HTTPException(400, NAME_ERR)
     if store.exists(new):
         raise HTTPException(409, f"이미 있는 이름이에요: {new}")
     return new
@@ -305,7 +316,7 @@ def adjust_tie(name: str, body: TieFix) -> Project:
 def create_project(body: NewProject) -> Project:
     name = body.name.strip()
     if not NAME_RE.match(name):
-        raise HTTPException(400, "프로젝트 이름에 / \\ 를 쓰거나 . 으로 시작할 수 없어요")
+        raise HTTPException(400, NAME_ERR)
     if store.exists(name):
         raise HTTPException(409, f"이미 있는 프로젝트예요: {name}")
     if not 1 <= body.meta.target_episodes <= 1000:
@@ -508,6 +519,8 @@ def keep_style(name: str, body: StyleKeep) -> dict:
         e = library.push_project(p, body.note)
         _save(name, p)
     else:
+        if library.blank(p.style) and not body.sample.strip():  # 원문만 있으면 라이브러리에서 나중에 분석할 수 있다
+            raise HTTPException(400, "문체가 비어 있어요. 원문을 넣거나 문체 분석 · 스타일 프로필을 채운 뒤 저장할 수 있어요")
         e = library.from_project(p, body.name or f"{p.meta.title or name} 문체", body.sample, body.source)
         if body.sample.strip():  # 웹에서 분석한 원문의 기준 지표를 작품에도 남긴다
             p.style_baseline = e.baseline

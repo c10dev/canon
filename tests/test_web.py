@@ -602,3 +602,19 @@ def test_relationship_pairs_validated_on_save(client):
     dup = dict(p, relationships=[dict(p["relationships"][0], a=a, b=b), dict(p["relationships"][0], a=b, b=a)])
     r = client.put("/api/projects/rp", json=dup)
     assert r.status_code == 400 and "두 번" in r.json()["detail"]
+
+
+def test_project_list_and_folder_names(client):
+    """작품 목록: 형식 · 다음 할 화 · 고친 시각, 최근에 고친 작품부터. 폴더 이름은 운영체제가 막는 글자를 받지 않는다."""
+    import time
+    meta = {"title": "등대", "target_episodes": 10}
+    for bad in ["x:y", "a*b", "q?", 'w"', "<a>", "p|q", ".hidden", "a/b"]:
+        assert client.post("/api/projects", json={"name": bad, "meta": meta}).status_code in (400, 404, 405), bad
+    assert client.post("/api/projects", json={"name": "old", "meta": meta}).status_code == 200
+    time.sleep(0.02)
+    assert client.post("/api/projects", json={"name": "새 작품", "meta": dict(meta, form="serial", target_episodes=200)}).status_code == 200
+    rows = client.get("/api/projects").json()
+    assert [x["name"] for x in rows] == ["새 작품", "old"]
+    assert rows[0]["form"] == "serial" and rows[1]["form"] == "short"
+    assert rows[1]["open_ep"] == 0 and rows[1]["planned"] == 0 and rows[1]["updated_at"]
+    assert client.post("/api/projects/old/rename", json={"name": "a:b"}).status_code == 400
