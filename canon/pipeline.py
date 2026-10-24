@@ -7,6 +7,7 @@ from .schema import (
     Act,
     ArcPlan,
     ArcProposal,
+    ArcUndo,
     Character,
     CharacterState,
     CharacterVisual,
@@ -603,10 +604,15 @@ def apply_arc(p: Project, prop: ArcProposal) -> StoryArc:
     except ValueError:
         p.story_arcs.pop()
         raise
+    known = {c.id for c in p.characters}
     _add_characters(p, prop.new_characters, a.start_ep)
+    undo = ArcUndo(number=a.number, characters=[c.id for c in p.characters if c.id not in known])
     for f in p.foreshadows:
         if f.id in a.payoffs and f.status == "open":
+            undo.foreshadows.append(f.id)
+            undo.due_before.append(f.due_ep)
             f.due_ep = a.end_ep
+    p.arc_undo = [u for u in p.arc_undo if u.number != a.number] + [undo]
     return a
 
 
@@ -621,6 +627,18 @@ def remove_last_arc(p: Project) -> StoryArc:
         raise ValueError(f"아크 {a.number}에 확정했거나 본문이 있는 화({stuck})가 있어 지울 수 없습니다")
     p.story_arcs.remove(a)
     p.episodes = [e for e in p.episodes if e not in eps]
+    # 이 아크를 붙일 때 더한 인물(다른 화에 나오지 않는 것만)과 바꾼 복선 회수 예정 화를 되돌린다
+    undo = next((u for u in p.arc_undo if u.number == a.number), None)
+    if undo:
+        used = {c for e in p.episodes for c in e.plot.characters}
+        gone = {cid for cid in undo.characters if cid not in used}
+        p.characters = [c for c in p.characters if c.id not in gone]
+        p.states = [s for s in p.states if s.character_id not in gone]
+        due = dict(zip(undo.foreshadows, undo.due_before))
+        for f in p.foreshadows:
+            if f.id in due and f.due_ep == a.end_ep:
+                f.due_ep = due[f.id]
+        p.arc_undo = [u for u in p.arc_undo if u is not undo]
     return a
 
 
@@ -1438,6 +1456,7 @@ def apply_impact(p: Project, eid: str, episodes: list[int], patches: list[int], 
     if not (episodes or patches or facts):
         raise ValueError("반영할 부분을 고르세요")
     texts: dict[int, str] = {}
+    records: list[tuple[int, TextEdit]] = []
     for i in patches:
         if not 0 <= i < len(rep.patches):
             raise ValueError(f"본문 수정안 {i} 이 없습니다")
@@ -1448,12 +1467,17 @@ def apply_impact(p: Project, eid: str, episodes: list[int], patches: list[int], 
         if span is None:
             raise ValueError(f"{t.episode}화 본문이 그 사이 바뀌어 '{t.quote[:20]}' 문장을 찾을 수 없습니다. 다시 분석하세요")
         texts[t.episode] = cur[:span[0]] + t.replacement.strip() + cur[span[1]:]
+        # 집필 화면 수정 기록에 남겨 무엇을 바꿨는지 보고 취소할 수 있게 한다
+        records.append((t.episode, TextEdit(id="", source="impact", start=span[0], before=cur[span[0]:span[1]],
+                                            after=t.replacement.strip(), instruction=f"인과율 · {el.name}")))
     applied: list[str] = []
     if episodes:
         done = apply_revision(p, PlotRevision(reply="", episodes=rep.episodes), False, episodes)
         applied += [f"ep:{n}" for n in done]
     for n, text in texts.items():
         p.episode(n).text = text  # 상태 반영이 끝난 화도 작가가 고르면 고친다. 요약과 인물 상태는 그대로 둔다
+    for n, rec in records:
+        _record(p.episode(n), rec)
     applied += [f"patch:{i}" for i in patches]
     for i in facts:
         if 0 <= i < len(rep.new_facts) and rep.new_facts[i] not in p.facts:
@@ -1467,6 +1491,13 @@ def dismiss_impact(p: Project, eid: str) -> None:
     imp = elements.get(p, eid).impact
     if imp and not imp.outcome:
         imp.outcome = "dismissed"
+
+
+def reopen_impact(p: Project, eid: str) -> None:
+    """버린 영향 분석을 다시 검토할 수 있게 한다. 반영한 것은 다시 열지 않는다."""
+    imp = elements.get(p, eid).impact
+    if imp and imp.outcome == "dismissed":
+        imp.outcome = ""
 
 
 # ---------- 4. 본문 생성 ----------
@@ -1719,6 +1750,25 @@ def undo_edit(p: Project, n: int, eid: str) -> TextEdit:
         raise ValueError("되돌릴 자리를 찾을 수 없습니다")
     ep.text = ep.text[:at] + edit.before + ep.text[at + len(edit.after):]
     edit.undone = True
+    return edit
+
+
+def redo_edit(p: Project, n: int, eid: str) -> TextEdit:
+    """수정 취소(undo_edit)한 수정을 다시 넣는다. 그 뒤에 같은 자리를 또 고쳤으면 찾지 못해 다시 넣을 수 없다."""
+    ep = _editable(p, n)
+    edit = next((e for e in ep.edits if e.id == eid), None)
+    if edit is None:
+        raise KeyError(f"수정 기록이 없습니다: {eid}")
+    if not edit.undone:
+        raise ValueError("취소하지 않은 수정입니다")
+    if edit.before:
+        at = locate(ep.text, edit.before, edit.start)
+    elif edit.start <= len(ep.text):  # 더하기만 한 수정은 그 자리에 다시 넣는다
+        at = edit.start
+    else:
+        raise ValueError("다시 넣을 자리를 찾을 수 없습니다")
+    ep.text = ep.text[:at] + edit.after + ep.text[at + len(edit.before):]
+    edit.undone = False
     return edit
 
 
@@ -2169,6 +2219,13 @@ def revert(p: Project, n: int) -> None:
     snap = p.snapshot(n)
     if snap is None:
         raise ValueError(f"{n}화 스냅샷이 없습니다 (있는 화: {[s.episode for s in p.snapshots]})")
+    # 되돌리는 반영이 더한 인물(new_characters)도 되돌린다. 뒤 화 플롯에 나오면 지우지 않고 인물 후보로 돌린다
+    added = {c.id for d in p.history if d.episode > n for c in d.new_characters}
+    if added:
+        back = [c for c in p.characters if c.id in added]
+        p.characters = [c for c in p.characters if c.id not in added]
+        have = {c.id for c in p.cast_candidates}
+        p.cast_candidates += [c for c in back if c.id not in have]
     p.states = [s.model_copy(deep=True) for s in snap.states]
     p.relationships = [r.model_copy(deep=True) for r in snap.relationships]
     p.ties = [t.model_copy(deep=True) for t in snap.ties]
@@ -2181,6 +2238,7 @@ def revert(p: Project, n: int) -> None:
     for ep in p.episodes:
         if ep.plot.number > n and ep.status == "finalized":
             ep.status, ep.summary, ep.auto = "written", "", False
+    sync_candidates(p)
 
 
 def recalc(p: Project) -> None:

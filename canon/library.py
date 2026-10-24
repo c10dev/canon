@@ -258,5 +258,12 @@ def link_state(p: Project) -> dict:
     if not exists(p.style_id):
         return {"state": "missing", "id": p.style_id}
     e = load(p.style_id)
-    return {"state": "same" if e.profile == p.style else "changed", "id": e.id, "name": e.name,
-            "updated_at": e.updated_at, "version": e.version, "applied": p.style_version}
+    out = {"state": "same" if e.profile == p.style else "changed", "id": e.id, "name": e.name,
+           "updated_at": e.updated_at, "version": e.version, "applied": p.style_version}
+    if out["state"] == "changed":
+        # 어느 쪽이 무엇을 바꿨는지: 가져온 버전이 남아 있으면 그 버전 기준으로 작품 쪽과 라이브러리 쪽을 따로 본다
+        base = next((v.profile for v in e.versions if v.number == p.style_version), None)
+        out["mine"] = diff(base, p.style) if base is not None else diff(e.profile, p.style)
+        out["theirs"] = diff(base, e.profile) if base is not None else []
+        out["base_known"] = base is not None
+    return out

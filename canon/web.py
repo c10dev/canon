@@ -13,19 +13,22 @@ from pathlib import Path
 from urllib.parse import quote, unquote
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import autorun, cast, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
+from . import autorun, cancel, cast, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
-from .schema import (ArcPlan, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
+from .schema import (ArcPlan, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 
 STATIC = Path(__file__).parent / "static"
 NAME_RE = re.compile(r"^[^/\\.][^/\\]{0,63}$")
 
 app = FastAPI(title="Canon")
+# 다른 기기(Tailscale)에서 열 때 작품 JSON 과 정적 파일을 줄여 보낸다
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 _active = 0  # 처리 중인 요청 수. 자동 업데이트는 이 값이 0일 때만 다시 시작한다.
 
 
@@ -195,6 +198,21 @@ def config_models() -> dict:
     return out
 
 
+@app.get("/api/config/health")
+def config_health() -> dict:
+    """AI 를 쓸 수 있는지. 작품 목록 · 사이드바 경고에 쓴다: 키 없음, 로컬 서버 응답 없음, mock(가짜 결과)."""
+    pub = settings.public()
+    provs = {v["provider"] for v in pub["stages"].values()}
+    out = {"mock": "mock" in provs, "gemini": "gemini" in provs, "has_key": pub["has_key"], "local": None, "local_error": ""}
+    if "local" in provs:
+        try:
+            LocalLLM(timeout=2).models()
+            out["local"] = True
+        except Exception as e:  # 꺼져 있거나 주소가 틀렸다
+            out["local"], out["local_error"] = False, str(getattr(e, "message", None) or e)
+    return out
+
+
 @app.get("/api/projects")
 def list_projects() -> list[dict]:
     out = []
@@ -206,6 +224,81 @@ def list_projects() -> list[dict]:
                 out.append({"name": d.name, "title": p.meta.title, "genre": p.meta.genre,
                             "episodes": p.meta.target_episodes, "finalized": done})
     return out
+
+
+class NewName(BaseModel):
+    name: str
+
+
+def _free(name: str) -> None:
+    """작업이나 자동 집필이 이 작품을 쓰는 중이면 작품 폴더를 옮기거나 지우지 않는다."""
+    _not_auto(name)
+    if any(j.status == "running" for j in jobs.listing(name)):
+        raise ValueError("이 작품의 AI 작업이 도는 중입니다. 끝나거나 멈춘 뒤에 하세요")
+
+
+def _new_name(body: NewName) -> str:
+    new = body.name.strip()
+    if not NAME_RE.match(new):
+        raise HTTPException(400, "프로젝트 이름에 / \\ 를 쓰거나 . 으로 시작할 수 없습니다")
+    if store.exists(new):
+        raise HTTPException(409, f"이미 있는 이름입니다: {new}")
+    return new
+
+
+@app.post("/api/projects/{name}/duplicate")
+def duplicate_project(name: str, body: NewName) -> dict:
+    """작품 폴더를 통째로 복사한다 (시험해 볼 사본). 자동 집필 기록과 검토 대기 결과는 옮기지 않는다."""
+    _load(name)
+    new = _new_name(body)
+    import shutil
+    shutil.copytree(store.project_dir(name), store.project_dir(new),
+                    ignore=shutil.ignore_patterns("autorun.json", "pending.json", "*.tmp"))
+    return {"name": new}
+
+
+@app.post("/api/projects/{name}/rename")
+def rename_project(name: str, body: NewName) -> dict:
+    """작품 폴더 이름(주소)을 바꾼다. 작품 제목은 설정 도우미에서 바꾼다."""
+    _load(name)
+    _free(name)
+    new = _new_name(body)
+    store.project_dir(name).rename(store.project_dir(new))
+    return {"name": new}
+
+
+@app.delete("/api/projects/{name}")
+def delete_project(name: str) -> dict:
+    """작품을 지운다. 바로 없애지 않고 projects/.trash/<이름>-<시각> 로 옮겨 서버에서 되살릴 수 있게 한다."""
+    _load(name)
+    _free(name)
+    from datetime import datetime
+    trash = store.ROOT / ".trash"
+    trash.mkdir(parents=True, exist_ok=True)
+    dest = trash / f"{name}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    store.project_dir(name).rename(dest)
+    return {"ok": True, "trash": str(dest)}
+
+
+class TieFix(BaseModel):
+    source: str
+    target: str
+    warmth: float | None = None
+    trust: float | None = None
+
+
+@app.post("/api/projects/{name}/ties/adjust")
+def adjust_tie(name: str, body: TieFix) -> Project:
+    """관계 수치를 작가가 직접 고친다. AI 가 아니라 '수동보정' 사건으로 기록해 재생할 수 있게 한다 (pipeline.adjust_tie)."""
+    _not_auto(name)
+    p = _load(name)
+    ids = {c.id for c in p.characters}
+    if body.source not in ids or body.target not in ids or body.source == body.target:
+        raise ValueError("두 인물을 고르세요")
+    if body.warmth is not None and not -1 <= body.warmth <= 1 or body.trust is not None and not 0 <= body.trust <= 1:
+        raise ValueError("온기는 -1~1, 신뢰는 0~1 입니다")
+    pipeline.adjust_tie(p, body.source, body.target, body.warmth, body.trust)
+    return _save(name, p)
 
 
 @app.post("/api/projects")
@@ -232,8 +325,17 @@ def genre_list() -> list[genres.Genre]:
 
 
 @app.get("/api/projects/{name}")
-def get_project(name: str) -> Project:
-    return _load(name)
+def get_project(name: str, request: Request) -> Response:
+    """작품 전체. 화면이 가진 판(ETag)과 같으면 304 로 본문 없이 답한다 (장편은 수 MB 라 화면 이동마다 받지 않게)."""
+    path = store.project_dir(name) / "project.json"
+    tag = None
+    if NAME_RE.match(name) and path.exists():
+        st = path.stat()
+        tag = f'"{st.st_mtime_ns:x}-{st.st_size:x}"'
+        if request.headers.get("if-none-match") == tag:
+            return Response(status_code=304, headers={"ETag": tag})
+    p = _load(name)
+    return JSONResponse(p.model_dump(mode="json"), headers={"ETag": tag} if tag else None)
 
 
 @app.put("/api/projects/{name}")
@@ -332,9 +434,19 @@ def names(name: str, body: NamesIn) -> dict:
     return out
 
 
+class NameCheckIn(BaseModel):
+    """이름 점검에 쓰는 칸만. 화면은 작품 전체 대신 이것만 보낸다 (장편 본문까지 보내지 않게)."""
+    meta: Meta
+    world: WorldSetting
+    characters: list[Character] = []
+    cast_candidates: list[Character] = []
+
+
 @app.post("/api/projects/{name}/names/check")
-def names_check(name: str, p: Project | None = None) -> dict:
-    p = p or _load(name)
+def names_check(name: str, body: NameCheckIn | None = None) -> dict:
+    p = _load(name)
+    if body is not None:  # 저장 전 화면 값으로 점검한다
+        p.meta, p.world, p.characters, p.cast_candidates = body.meta, body.world, body.characters, body.cast_candidates
     return {"warnings": naming.cast_warnings(p), "style": naming.resolve_style(p), "detected": naming.detect_style(p)}
 
 
@@ -740,6 +852,19 @@ def chat_dismiss(name: str, topic: str, i: int) -> Project:
     return _edit(name, fn)
 
 
+@app.post("/api/projects/{name}/chat/{topic}/{i}/reopen")
+def chat_reopen(name: str, topic: str, i: int) -> Project:
+    """버린 변경안을 다시 검토할 수 있게 한다. 반영한 것은 다시 열지 않는다."""
+    _chat(_load(name), topic)
+
+    def fn(p: Project) -> None:
+        msgs = p.chat(topic).messages
+        if not 0 <= i < len(msgs) or msgs[i].outcome != "dismissed":
+            raise ValueError("버린 변경안이 아닙니다")
+        msgs[i].outcome = ""
+    return _edit(name, fn)
+
+
 @app.delete("/api/projects/{name}/chat/{topic}")
 def chat_clear(name: str, topic: str) -> Project:
     _chat(_load(name), topic)
@@ -775,6 +900,13 @@ def impact_apply(name: str, eid: str, body: ImpactApply) -> Project:
 def impact_dismiss(name: str, eid: str) -> Project:
     p = _load(name)
     pipeline.dismiss_impact(p, eid)
+    return _save(name, p)
+
+
+@app.post("/api/projects/{name}/elements/{eid}/impact/reopen")
+def impact_reopen(name: str, eid: str) -> Project:
+    p = _load(name)
+    pipeline.reopen_impact(p, eid)
     return _save(name, p)
 
 
@@ -831,10 +963,10 @@ def start_job(name: str, body: JobIn) -> dict:
     """오래 걸리는 AI 작업을 시작하고 바로 돌아온다. 결과는 GET /api/jobs 로 본다."""
     p = _load(name)
     kind, n = body.kind, body.ep
-    if kind in ("write", "state", "plots"):
+    if kind in ("write", "state", "plots", "check"):
         _not_auto(name)
     stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "rework": "revise",
-             "hook": "check", "opening_drafts": "write"}.get(kind, "plan")  # 나머지는 plan
+             "hook": "check", "check": "check", "opening_drafts": "write"}.get(kind, "plan")  # 나머지는 plan
     llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
     if kind == "suggest":
@@ -885,6 +1017,16 @@ def start_job(name: str, body: JobIn) -> dict:
 
         def fn(job: jobs.Job):
             return pipeline.propose_rework(llm, store.load(name), n).model_dump()
+    elif kind == "check":
+        # 한 화 검수: 앞선 본문 전체와 설정에 어긋난 곳을 찾아 그 화에 붙인다 (집필 화면이 보여 주고 고칠 문장을 고르게 한다)
+        if n is None or not p.episode(n).text:
+            raise ValueError("본문이 있는 화만 검수합니다")
+        label, total, owned = f"{n}화 검수", 1, set()
+
+        def fn(job: jobs.Job):
+            rep = pipeline.check_episode(llm, store.load(name), n)
+            _edit(name, lambda q: pipeline.apply_check(q, rep))
+            return {"issues": len(rep.issues)}
     elif kind == "storyline":
         label, total, owned = "이야기 줄기 제안", 1, set()
         note, line_kind = body.note, body.line_kind
@@ -1001,10 +1143,82 @@ def start_job(name: str, body: JobIn) -> dict:
 
     try:
         with usage.scope(episode=n if kind in ("write", "state", "rework", "hook", "openings", "opening_drafts") else None, task=kind):
-            job = jobs.start(name, kind, n, label, fn, total=total, owned=owned)
+            job = jobs.start(name, kind, n, label, _keep_pending(name, kind, n, label, fn), total=total, owned=owned)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}
     return job.public()
+
+
+# 결과가 반영 전 제안인 작업. 화면이 반영하거나 버릴 때까지 pending.json 에 둔다
+# (본문 · 플롯 · 판정 같은 작업은 서버가 이미 작품에 썼다)
+PENDING_KINDS = {"arc", "suggest", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "state", "openings"}
+
+
+def _keep_pending(name: str, kind: str, n: int | None, label: str, fn):
+    """작업 fn 을 감싸, 끝나면 제안 결과를, 실패하면 오류를 작품의 pending.json 에 남긴다. 같은 작업이 성공하면 지난 실패를 지운다."""
+    key = f"{kind}:{n if n is not None else ''}"
+
+    def run(job: jobs.Job):
+        try:
+            out = fn(job)
+        except cancel.Cancelled:
+            raise  # 멈춘 작업은 실패로 남기지 않는다
+        except Exception as e:
+            fail = {"key": key, "kind": kind, "ep": n, "label": label, "error": getattr(e, "message", None) or str(e) or type(e).__name__, "at": _now()}
+
+            def put_fail(d: dict) -> None:
+                d["failures"][key] = fail
+            store.edit_pending(name, put_fail)
+            raise
+        rec = None
+        if kind in PENDING_KINDS and out is not None:
+            # 상태 변경안은 만든 본문을 함께 둔다. 그 뒤 본문을 고쳤으면 화면이 알린다
+            base = store.load(name).episode(n).text if kind == "state" else None
+            rec = {"key": key, "id": job.id, "kind": kind, "ep": n, "label": label, "result": out, "base": base, "at": _now()}
+
+        def put(d: dict) -> None:
+            d["failures"].pop(key, None)
+            if rec:
+                d["results"][key] = rec
+        store.edit_pending(name, put)
+        return out
+    return run
+
+
+def _now() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+@app.get("/api/projects/{name}/pending")
+def get_pending(name: str) -> dict:
+    """검토를 기다리는 AI 결과와 실패한 작업. 이미 쓸 수 없게 된 상태 변경안(본문 작성 상태가 아닌 화)은 지운다."""
+    p = _load(name)
+    written = {e.plot.number for e in p.episodes if e.status == "written"}
+    stale = [k for k, r in store.load_pending(name)["results"].items() if r["kind"] == "state" and r["ep"] not in written]
+
+    def prune(d: dict) -> None:
+        for k in stale:
+            d["results"].pop(k, None)
+    return store.edit_pending(name, prune) if stale else store.load_pending(name)
+
+
+@app.delete("/api/projects/{name}/pending/{key}")
+def drop_pending(name: str, key: str, failure: bool = False) -> dict:
+    """화면이 반영하거나 버린 결과(또는 닫은 실패)를 지운다."""
+    _load(name)
+    return store.edit_pending(name, lambda d: d["failures" if failure else "results"].pop(key, None))
+
+
+@app.post("/api/jobs/{jid}/stop")
+def stop_job(jid: str) -> dict:
+    """작업을 멈춘다. 이미 보낸 AI 호출의 응답은 버린다. 자동 집필은 그 화면의 일시정지 · 중지를 쓴다."""
+    j = jobs.get(jid)
+    if j is None:
+        raise HTTPException(404, "작업이 없습니다 (서버가 다시 시작됐을 수 있어요)")
+    if j.kind == "auto":
+        raise ValueError("자동 집필은 자동 집필 화면의 일시정지나 중지를 쓰세요")
+    return jobs.stop(jid).public()
 
 
 @app.get("/api/jobs")
@@ -1144,6 +1358,13 @@ def undo_passage(name: str, n: int, eid: str) -> Project:
     _load(name).episode(n)
     _text_guard(name, n)
     return _edit(name, lambda p: pipeline.undo_edit(p, n, eid))
+
+
+@app.post("/api/projects/{name}/episodes/{n}/edits/{eid}/redo")
+def redo_passage(name: str, n: int, eid: str) -> Project:
+    _load(name).episode(n)
+    _text_guard(name, n)
+    return _edit(name, lambda p: pipeline.redo_edit(p, n, eid))
 
 
 # ---------- 4-2. 초반 1~3화 ----------
@@ -1452,9 +1673,10 @@ def cast_view(name: str) -> dict:
 def preview(name: str, n: int, d: StateDelta) -> dict:
     """화면에서 고른 변경안을 복사본에 반영해, 반영 후 계산될 관계를 미리 보여 준다. 저장하지 않는다."""
     sim = _load(name)
+    before = _relations(sim)
     d.episode = n
     pipeline.apply_delta(sim, d)
-    return _relations(sim)
+    return {**_relations(sim), "before": before}  # 반영 전 관계: 화면이 줄마다 지금 → 반영 후를 비교한다
 
 
 class View(BaseModel):

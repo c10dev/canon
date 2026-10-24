@@ -168,7 +168,7 @@ function versionsPanel(e) {
   const rows = list.map((v) => `<li class="edit-row">
       <div class="between"><span class="row" style="gap:6px"><span class="chip${v.kind === 'rejected' ? '' : ' ai'}">${RW_KIND[v.kind] || v.kind}</span><span class="small">${v.text.length.toLocaleString()}자</span>${rwReqLabel(n, v.request)}<span class="small">${editTime(v.at)}</span></span>
         <span class="row" style="gap:6px"><button type="button" class="btn small" data-action="rwPeekAt" data-arg="${esc(v.id)}">${S.rwPeek === v.id ? '접기' : '지금 판과 비교'}</button>
-        ${can ? `<button type="button" class="btn small" data-action="rwRestore" data-arg="${esc(v.id)}">이 판으로 되돌리기</button>` : ''}</span></div>
+        ${can ? `<button type="button" class="btn small" data-action="rwRestore" data-arg="${esc(v.id)}">이 판으로 복원</button>` : ''}</span></div>
       ${S.rwPeek === v.id ? `<div class="small">빨강은 지금 판에만, 초록은 이 판에만 있는 글이에요.</div><div class="pdiff small-diff rw-text">${textDiff(cur, v.text)}</div>` : ''}</li>`).join('');
   return `<details class="card edits"${S.rwVersionsOpen ? ' open' : ''} data-rw-versions>
     <summary><strong>이전 판</strong> <span class="small">${list.length}개 · 다시 생성으로 바꾸기 전 본문과 고르지 않은 새 판. 최근 6개까지 남고, 넘치면 고르지 않은 판부터 지워요${editableEp(e) && !can ? ' (저장하지 않은 본문이 있으면 먼저 저장하세요)' : ''}</span></summary>

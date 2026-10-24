@@ -49,7 +49,15 @@ def test_library_crud_and_apply(client, tmp_path):
     up = client.put(f"/api/styles/{e['id']}", json={"name": "건조체 2", "sample": SAMPLE, "profile": changed}).json()
     assert up["used_by"] == ["a"] and up["baseline"] == e["baseline"]
     assert client.get("/api/projects/a").json()["style"]["tense"] == prof["tense"]
-    assert client.get("/api/projects/a/style/link").json()["state"] == "changed"
+    link = client.get("/api/projects/a/style/link").json()
+    assert link["state"] == "changed"
+    # 어느 쪽이 무엇을 바꿨는지: 라이브러리 쪽만 시제가 바뀌었다
+    assert link["base_known"] and [c["key"] for c in link["theirs"]] == ["tense"] and link["mine"] == []
+    a = client.get("/api/projects/a").json()
+    a["style"]["donts"] = ["작품에서 더한 규칙"]
+    client.put("/api/projects/a", json=a)
+    link = client.get("/api/projects/a/style/link").json()
+    assert [c["key"] for c in link["mine"]] == ["donts"] and [c["key"] for c in link["theirs"]] == ["tense"]
     a = client.post("/api/projects/a/style/apply", json={"style_id": e["id"]}).json()
     assert a["style"]["tense"] == "현재형"
 

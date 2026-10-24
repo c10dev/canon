@@ -16,7 +16,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from . import store
+from . import cancel, store
 
 KEEP_SECONDS = 600  # 끝난 작업을 목록에 남겨 두는 시간
 OWN_GRACE = 30  # 끝난 뒤에도 화면이 새 내용을 받아 갈 때까지 맡은 화를 지키는 시간
@@ -32,12 +32,13 @@ class Job:
     total: int = 1
     done: int = 0
     note: str = ""
-    status: str = "running"  # running | done | error
+    status: str = "running"  # running | done | error | cancelled
     result: Any = None
     error: str = ""
     started: float = field(default_factory=time.time)
     finished: float | None = None
     owned: set[int] = field(default_factory=set)
+    stop: threading.Event = field(default_factory=threading.Event)  # 멈추기 신호 (cancel.current)
 
     def public(self) -> dict:
         return {
@@ -89,19 +90,34 @@ def start(project: str, kind: str, ep: int | None, label: str, fn: Callable[[Job
 
     def run() -> None:
         store.writer.set("")  # 작업의 저장은 시작한 화면의 저장이 아니다 (다른 화면에 충돌로 보이지 않게)
+        cancel.current.set(job.stop)
         try:
-            job.result = fn(job)
-            job.done = job.total
-            job.status = "done"
+            out = fn(job)
+            if job.status == "running":  # 멈춘 작업은 끝나도 결과를 내지 않는다
+                job.result, job.done, job.status = out, job.total, "done"
+        except cancel.Cancelled:
+            job.status, job.error = "cancelled", "멈췄어요"
         except Exception as e:  # 화면에 그대로 보여 준다
-            job.error = getattr(e, "message", None) or str(e) or type(e).__name__
-            job.status = "error"
+            if job.status == "running":
+                job.error = getattr(e, "message", None) or str(e) or type(e).__name__
+                job.status = "error"
         finally:
-            job.finished = time.time()
+            job.finished = job.finished or time.time()
 
     # 사용량 기록이 어느 작품의 어떤 작업인지 알도록 부른 쪽의 컨텍스트(usage.scope)를 스레드에 넘긴다
     ctx = contextvars.copy_context()
     threading.Thread(target=ctx.run, args=(run,), name=f"job-{kind}-{job.id}", daemon=True).start()
+    return job
+
+
+def stop(jid: str) -> Job:
+    """작업을 멈춘다. 바로 멈춘 것으로 보이고, 스레드는 다음 LLM 호출이나 저장 전에 그만둔다 (그 사이 결과는 버린다)."""
+    job = _jobs.get(jid)
+    if job is None:
+        raise KeyError(f"작업이 없습니다: {jid}")
+    if job.status == "running":
+        job.stop.set()
+        job.status, job.error, job.finished = "cancelled", "멈췄어요", time.time()
     return job
 
 

@@ -66,6 +66,8 @@ def _delay() -> None:
     import time
 
     time.sleep(float(os.environ.get("CANON_MOCK_DELAY", "0") or 0))
+    from . import cancel
+    cancel.check()  # 실제 LLM 처럼 멈춘 작업은 응답을 쓰지 않는다
 
 
 def _arc(total: int, start: int = 1) -> list[Act]:
@@ -437,10 +439,11 @@ class MockLLM:
 
     def batch_poll(self, name: str) -> str | None:
         b = BATCHES.get(name)
+        from .llm import BatchGone
         if b is None:
-            raise RuntimeError(f"없는 배치 작업: {name}")
+            raise BatchGone(f"없는 배치 작업: {name}")
         if b["cancelled"]:
-            raise RuntimeError("배치 작업이 취소됐습니다")
+            raise BatchGone("배치 작업이 취소됐습니다")
         if b["polls"] > 0:
             b["polls"] -= 1
             return None

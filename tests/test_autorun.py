@@ -335,3 +335,56 @@ def test_stale_save_keeps_characters_added_by_apply(demo):
     # 오래되지 않은 화면의 저장은 아무것도 버리지 않는다
     assert "X-Canon-Kept" not in c.put("/api/projects/demo", json=c.get("/api/projects/demo").json()).headers
     assert p.episode(1).status == "finalized"
+
+
+def test_revert_removes_characters_added_by_reverted_apply_and_redo_edit(demo):
+    """반영 취소는 그 반영이 더한 인물도 되돌린다. 수정 취소한 부분 수정은 다시 넣을 수 있다."""
+    from fastapi.testclient import TestClient
+
+    from canon import pipeline, web
+    from canon.schema import Selection
+
+    c = TestClient(web.app)
+    c.put("/api/projects/demo/episodes/1/text", json={"text": "1화 본문. 바람이 불었다."})
+    p = store.load(demo)
+    e = pipeline.edit_text(p, 1, Selection(start=0, text="1화 본문."), "1화 고친 본문.")
+    pipeline.undo_edit(p, 1, e.id)
+    assert p.episode(1).text.startswith("1화 본문.")
+    pipeline.redo_edit(p, 1, e.id)
+    assert p.episode(1).text.startswith("1화 고친 본문.") and not p.episode(1).edits[-1].undone
+    store.save(demo, p)
+
+    delta = {"episode": 1, "summary": "1화 요약", "new_characters": [{"id": "courier", "name": "배달꾼", "role": "조연"}]}
+    assert c.post("/api/projects/demo/episodes/1/apply", json=delta).status_code == 200
+    assert "courier" in {x["id"] for x in c.get("/api/projects/demo").json()["characters"]}
+    p = c.post("/api/projects/demo/revert/0").json()
+    assert "courier" not in {x["id"] for x in p["characters"]} and p["episodes"][0]["status"] == "written"
+
+
+def test_batch_poll_transient_error_keeps_name():
+    """배치 조회가 잠깐 실패하면 이름을 버리지 않고 다시 묻는다. 확실히 끝난 배치(BatchGone)만 버린다."""
+    from canon import llm
+
+    class Flaky:
+        label, model = "x", "m"
+
+        def __init__(self, fails):
+            self.fails = fails
+
+        def batch_submit(self, *a, **k):
+            return "b1"
+
+        def batch_poll(self, name):
+            if self.fails:
+                self.fails -= 1
+                raise ConnectionError("잠깐 끊김")
+            return "결과"
+
+    names = {}
+    b = llm.BatchLLM(Flaky(2), "slot", names, lambda: None, lambda s: "")
+    assert b.text("s", "p") == "결과" and names == {}
+    names = {}
+    b = llm.BatchLLM(Flaky(99), "slot", names, lambda: None, lambda s: "")
+    with pytest.raises(RuntimeError, match="다시 붙어요"):
+        b.text("s", "p")
+    assert names == {"slot": "b1"}  # 이어 가면 같은 배치에 다시 붙는다

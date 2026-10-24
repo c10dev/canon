@@ -421,3 +421,125 @@ def test_missing_key_is_settings_hint(client, monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     r = client.post("/api/projects/nk/suggest")
     assert r.status_code == 400 and r.json()["code"] == "no_key" and "RuntimeError" not in r.json()["detail"]
+
+
+def test_pending_results_and_failures_survive_reload(client, monkeypatch):
+    """끝난 제안 작업의 결과와 실패한 작업은 pending.json 에 남아, 새로 연 화면이 받아 간다. 반영 · 버리면 화면이 지운다."""
+    import time
+
+    from canon import jobs, mock
+
+    def wait():
+        for _ in range(500):
+            if not any(j.status == "running" for j in jobs.listing("pd")):
+                return
+            time.sleep(0.02)
+
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "pd", "meta": meta})
+    client.post("/api/projects/pd/jobs", json={"kind": "suggest"})
+    wait()
+    d = client.get("/api/projects/pd/pending").json()
+    assert d["results"]["suggest:"]["result"]["characters"] and d["failures"] == {}
+    assert client.delete("/api/projects/pd/pending/suggest:").json()["results"] == {}
+
+    def boom(*a, **k):
+        raise RuntimeError("모델 응답이 없습니다")
+    monkeypatch.setattr(mock.MockLLM, "json", boom)
+    client.post("/api/projects/pd/jobs", json={"kind": "suggest"})
+    wait()
+    d = client.get("/api/projects/pd/pending").json()
+    assert d["failures"]["suggest:"]["error"] == "모델 응답이 없습니다"
+    monkeypatch.undo()
+    monkeypatch.setenv("CANON_LLM", "mock")
+    client.post("/api/projects/pd/jobs", json={"kind": "suggest"})
+    wait()
+    d = client.get("/api/projects/pd/pending").json()
+    assert d["failures"] == {} and "suggest:" in d["results"]  # 같은 작업이 성공하면 지난 실패를 지운다
+
+
+def test_stop_job_discards_result(client, monkeypatch):
+    """멈춘 작업은 바로 cancelled 로 보이고, 늦게 온 AI 응답을 저장하지 않으며 실패로도 남기지 않는다."""
+    import time
+
+    from canon import jobs
+
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "st", "meta": meta})
+    monkeypatch.setenv("CANON_MOCK_DELAY", "0.5")
+    j = client.post("/api/projects/st/jobs", json={"kind": "suggest"}).json()
+    r = client.post(f"/api/jobs/{j['id']}/stop").json()
+    assert r["status"] == "cancelled"
+    time.sleep(0.8)
+    assert jobs.get(j["id"]).status == "cancelled" and jobs.get(j["id"]).result is None
+    d = client.get("/api/projects/st/pending").json()
+    assert d["results"] == {} and d["failures"] == {}
+    # 같은 작업을 다시 시작할 수 있다
+    assert client.post("/api/projects/st/jobs", json={"kind": "suggest"}).json()["status"] == "running"
+
+
+def test_project_manage_check_job_and_tie_adjust(client, tmp_path):
+    """작품 복제 · 이름 바꾸기 · 지우기(휴지통), 한 화 검수 작업, 관계 수동보정, AI 연결 상태."""
+    import time
+
+    from canon import jobs
+
+    def wait(name):
+        for _ in range(500):
+            if not any(j.status == "running" for j in jobs.listing(name)):
+                return
+            time.sleep(0.02)
+
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "a", "meta": meta})
+    p = client.post("/api/projects/a/suggest/apply", json=client.post("/api/projects/a/suggest").json()).json()
+    p["arc"] = client.post("/api/projects/a/arc").json()["acts"]
+    client.put("/api/projects/a", json=p)
+    client.post("/api/projects/a/plots", json={})
+    client.post("/api/projects/a/episodes/1/confirm")
+    client.post("/api/projects/a/episodes/1/write")
+
+    # 한 화 검수
+    j = client.post("/api/projects/a/jobs", json={"kind": "check", "ep": 1}).json()
+    wait("a")
+    assert jobs.get(j["id"]).status == "done"
+    assert client.post("/api/projects/a/jobs", json={"kind": "check", "ep": 2}).status_code == 400  # 본문 없음
+
+    # 관계 수동보정은 사건으로 남는다
+    a, b = [c["id"] for c in p["characters"][:2]]
+    q = client.post("/api/projects/a/ties/adjust", json={"source": a, "target": b, "warmth": 0.9}).json()
+    assert q["events"][-1]["kind"] == "수동보정" and q["events"][-1]["set_warmth"] == 0.9
+    assert client.post("/api/projects/a/ties/adjust", json={"source": a, "target": b, "warmth": 3}).status_code == 400
+
+    # 복제 · 이름 바꾸기 · 지우기
+    assert client.post("/api/projects/a/duplicate", json={"name": "b"}).json() == {"name": "b"}
+    assert client.get("/api/projects/b").json()["meta"]["title"] == "등대"
+    assert client.post("/api/projects/a/duplicate", json={"name": "b"}).status_code == 409
+    assert client.post("/api/projects/b/rename", json={"name": "c"}).json() == {"name": "c"}
+    assert client.get("/api/projects/b").status_code == 404
+    assert client.delete("/api/projects/c").json()["ok"]
+    assert [x["name"] for x in client.get("/api/projects").json()] == ["a"]
+    assert list((tmp_path / ".trash").iterdir())  # 서버 휴지통에 남는다
+
+    h = client.get("/api/config/health").json()
+    assert h["mock"] and h["has_key"]
+
+
+def test_project_etag_and_gzip(client):
+    """같은 판이면 작품 GET 이 304 로 본문 없이 답하고, 저장하면 판이 바뀐다. 큰 응답은 gzip 으로 보낸다."""
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "et", "meta": meta})
+    r = client.get("/api/projects/et")
+    tag = r.headers["etag"]
+    assert r.json()["meta"]["title"] == "등대"
+    assert client.get("/api/projects/et", headers={"If-None-Match": tag}).status_code == 304
+    p = r.json()
+    p["meta"]["title"] = "등대 2"
+    client.put("/api/projects/et", json=p)
+    r2 = client.get("/api/projects/et", headers={"If-None-Match": tag})
+    assert r2.status_code == 200 and r2.headers["etag"] != tag and r2.json()["meta"]["title"] == "등대 2"
+    big = client.get("/static/app.js", headers={"Accept-Encoding": "gzip"})
+    assert big.headers.get("content-encoding") == "gzip"
+    # 이름 점검은 필요한 칸만 받아도 된다
+    light = {k: p[k] for k in ("meta", "world", "characters", "cast_candidates")}
+    assert "warnings" in client.post("/api/projects/et/names/check", json=light).json()

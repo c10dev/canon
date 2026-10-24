@@ -53,13 +53,25 @@ async function autoEstimate() {
 // 자동 집필 화면을 보고 있거나 실행이 돌고 있으면 3초마다 상태를 묻는다. 진행이 바뀌면 작품도 다시 받는다.
 function autoPoll() {
   clearTimeout(S.autoTimer);
-  const watching = S.route[2] === 'auto' || (S.auto && S.auto.active);
+  const watching = S.route[2] === 'auto' || (S.auto && S.auto.active) || S.autoOffline;
   if (!watching || !S.name) return;
   S.autoTimer = setTimeout(async () => {
     const before = S.auto && S.auto.run ? S.auto.run.updated : null;
     const name = S.name;
-    const fresh = await api('GET', `/projects/${enc(name)}/auto`).catch(() => null);
+    let fresh;
+    try {
+      fresh = await api('GET', `/projects/${enc(name)}/auto`);
+    } catch {
+      // 서버와 연결이 끊겼다. 마지막 상태를 진행 중으로 두지 않고 '연결 끊김'으로 보인 뒤 계속 다시 묻는다
+      if (name === S.name && !S.autoOffline) { S.autoOffline = true; if (S.route[2] === 'auto' && !isTyping()) render(); }
+      autoPoll();
+      return;
+    }
     if (name !== S.name) return;
+    if (S.autoOffline) {
+      S.autoOffline = false;
+      if (fresh && fresh.active) toast('서버에 다시 연결됐어요. 자동 집필을 이어서 보여 드려요');
+    }
     S.auto = fresh;
     const changed = fresh && fresh.run && fresh.run.updated !== before;
     if (changed && !S.dirty) {
@@ -161,7 +173,9 @@ function autoBatchToggle(on, attrs = '') {
 }
 
 function autoRunCard(r, active) {
-  const [label, cls] = AUTO_STATUS[r.status] || [r.status, ''];
+  // 서버와 연결이 끊기면 마지막 상태를 '진행 중'으로 두지 않는다 (autoPoll 이 S.autoOffline 을 정한다)
+  const [label, cls] = S.autoOffline ? ['연결 끊김', 'draft'] : AUTO_STATUS[r.status] || [r.status, ''];
+  if (S.autoOffline) active = false;
   const p = P();
   const total = r.target;
   const done = p.episodes.filter((e) => e.plot.number <= total && e.status === 'finalized').length;
@@ -184,22 +198,23 @@ function autoRunCard(r, active) {
       <div class="row"><span class="small">배치</span>${autoBatchToggle(r.batch, r.status === 'done' || r.status === 'stopped' ? ' disabled' : '')}</div></div>
     <div class="meter" aria-hidden="true"><i style="left:0;width:${Math.round((done / Math.max(total, 1)) * 100)}%;background:var(--green)"></i></div>
     <div class="small">${done} / ${total}화 반영 완료 · 이번 실행에서 자동 반영 ${r.applied.length}화 · 토큰 입력 ${r.tokens_in.toLocaleString()} / 출력 ${r.tokens_out.toLocaleString()} · 비용 약 ${autoCost(r.cost)}</div>
+    ${S.autoOffline ? '<div class="note warn" role="status">서버와 연결이 끊겼어요. 다시 연결되면 이어서 보여 드려요. 서버가 다시 시작되면 자동 집필은 서버에서 이어 갑니다.</div>' : ''}
     ${step ? `<div class="row"><span class="spinner sm" aria-hidden="true"></span><strong>${esc(step)}</strong></div>` : ''}
     ${active && r.batch ? '<div class="small">배치 결과는 몇 분에서 길게는 몇 시간 뒤에 와요. 창을 닫아도 서버가 계속 기다립니다.</div>' : ''}
     ${r.reasons.length ? `<div class="note warn">${r.reasons.map((x) => `<div>${esc(x)}</div>`).join('')}${r.status === 'error' && r.reasons.some((x) => /API 키|연결|quota|429|403|401/i.test(x)) ? '<div><a href="#/settings">모델 · API 키 설정</a>에서 키와 모델을 확인한 뒤 이어 가세요.</div>' : ''}</div>` : ''}
     ${reviewDone ? `<div class="note ok">${r.ep}화를 검토 화면에서 반영했어요. 이어 가기를 누르세요.</div>` : ''}
     ${r.status === 'review' && pendingStale(r) ? `<div class="note warn" id="auto-stale">변경안을 만든 뒤 ${r.ep}화 본문을 고쳤어요. 그대로 반영하면 옛 본문 기준의 요약 · 인물 상태 · 사건이 들어가서 막아 두었어요. 검토하기에서 변경안을 다시 만들거나 다시 쓰기를 고르세요.</div>` : ''}
     ${r.status === 'review' && r.pending ? '<div class="small">검토하기: 변경안을 상태 승인 화면에 열어요. 고른 항목만 반영한 뒤 여기로 돌아와 이어 가면 됩니다.</div>' : ''}
-    <div class="row">${reviewDone ? '<button class="btn primary" data-action="autoResume">이어 가기</button><button class="btn" data-action="autoStop">중지</button>' : buttons}</div>
+    <div class="row">${S.autoOffline ? '' : reviewDone ? '<button class="btn primary" data-action="autoResume">이어 가기</button><button class="btn" data-action="autoStop">중지</button>' : buttons}</div>
   </section>`;
 }
 
 function autoAppliedCard(active) {
   const auto = P().episodes.filter((e) => e.auto);
   if (!auto.length) return '';
-  const rows = auto.map((e) => `<li class="row"><a href="${base()}/write/${e.plot.number}"><strong>${e.plot.number}화</strong> ${esc(e.plot.title)}</a>${e.issues.length ? `<span class="chip written">검수 ${e.issues.length}</span>` : ''}${active ? '' : `<button class="btn small" data-action="autoRevert" data-arg="${e.plot.number}">이 화부터 되돌리기</button>`}</li>`).join('');
+  const rows = auto.map((e) => `<li class="row"><a href="${base()}/write/${e.plot.number}"><strong>${e.plot.number}화</strong> ${esc(e.plot.title)}</a>${e.issues.length ? `<span class="chip written">검수 ${e.issues.length}</span>` : ''}${active ? '' : `<button class="btn small" data-action="autoRevert" data-arg="${e.plot.number}">${e.plot.number}화부터 반영 취소</button>`}</li>`).join('');
   return `<section class="card"><div class="between"><h2>검토 없이 반영한 화</h2><span class="small">${auto.length}화</span></div>
-    <p class="desc">읽어 보고 문제가 있으면 그 화부터 되돌리세요. 그 화 직전 상태로 돌아가고, 본문은 남아 상태 승인부터 다시 할 수 있어요.</p>
+    <p class="desc">읽어 보고 문제가 있으면 그 화부터 반영을 취소하세요. 그 화 직전 상태로 돌아가고, 본문은 남아 상태 승인부터 다시 할 수 있어요.</p>
     <ul class="auto-list">${rows}</ul></section>`;
 }
 
@@ -332,12 +347,6 @@ Object.assign(actions, {
     location.hash = `${base()}/review/${r.ep}`;
   },
   async autoRevert(n) {
-    if (!confirm(`${n}화부터 되돌릴까요? ${n - 1 ? `${n - 1}화 반영 직후` : '1화 시작 전'} 상태로 돌아가고, ${n}화부터의 본문은 남아 상태 승인을 다시 하게 됩니다.`)) return;
-    await run('되돌리는 중', async () => {
-      await saveIfDirty();
-      S.project = await api('POST', `/projects/${enc(S.name)}/revert/${n - 1}`);
-      toast(`${n}화부터 반영을 취소했어요.`);
-      await autoEstimate();
-    });
+    if (await actions.revertFrom(n)) await autoEstimate();  // 상태 승인 화면의 '반영 취소'와 같은 동작
   },
 });

@@ -10,6 +10,9 @@ const S = {
   dirty: false,
   gen: 0,            // 화면 작품이 바뀔 때마다(받기 · 저장 · 입력) 오른다. 늦게 온 작품 GET 이 더 새 값을 덮지 않게 비교한다
   conflict: false,   // 다른 탭 · 기기가 먼저 저장해 이 화면의 저장이 막혔다 (409)
+  pending: { name: null, results: {}, failures: {} },
+  jobArgs: {},       // 작업 id → 시작한 인자 { kind, ep, extra } (실패한 작업 '다시 시도')
+  jobsOffline: false, // 작업 목록을 묻지 못했다 (서버가 꺼졌거나 다시 시작하는 중)  // 서버 pending.json: 검토를 기다리는 AI 결과와 실패한 작업 (새로고침에도 남는다)
   route: [],
   suggestion: null,  // 설정 도우미 제안 (반영 전)
   styleSample: '',
@@ -30,7 +33,7 @@ const S = {
   jobs: [],          // 서버에서 돌고 있거나 막 끝난 AI 작업
   jobsSeen: null,    // 화면을 연 시점에 이미 끝나 있던 작업 id (결과를 다시 적용하지 않는다)
   jobsApplied: new Set(),  // 결과를 이미 화면에 적용한 작업 id. 폴링이 작업 객체를 새로 받아 오므로 id 로 기억한다
-  jobsOpen: false,   // 작업 목록 펼침
+  jobsOpen: null,    // 작업 목록 펼침. null 이면 넓은 화면은 펼치고 휴대폰은 접는다
   briefDraft: {},    // 작업지시서 ② 칸에 붙여 넣은 글. '<작품>:<화>:<episode|state>' → 글
   settingsDirty: false,  // 모델 · API 키 설정 화면에서 저장하지 않은 입력이 있다
   selArc: null,      // 장편: 플롯 보드에서 고른 아크 번호 ('next' 는 다음 아크 기획)
@@ -51,7 +54,12 @@ let projectBase = null;
 const baseOf = (p) => p && { rels: JSON.stringify(p.relationships), plots: new Map(p.episodes.map((e) => [e.plot.number, JSON.stringify(e.plot)])) };
 let projectNow = S.project;
 delete S.project;
-Object.defineProperty(S, 'project', { enumerable: true, get: () => projectNow, set: (v) => { projectNow = v; projectBase = baseOf(v); S.gen++; } });
+Object.defineProperty(S, 'project', { enumerable: true, get: () => projectNow, set: (v) => { projectNow = v; projectBase = baseOf(v); S.gen++; S.lastRemoved = null; } });
+
+/** 저장하기 전 목록에서 지운 것을 하나 되살릴 수 있게, 지우기 직전 그 칸들을 둔다. 저장 띠에 '되살리기'가 뜬다. */
+function rememberRemoved(label, paths) {
+  S.lastRemoved = { label, saved: paths.map((k) => [k, structuredClone(getPath(P(), k))]) };
+}
 
 const STATUS = { draft: '플롯 초안', confirmed: '플롯 확정', written: '본문 작성됨', finalized: '반영 완료' };
 const ACTS = ['기', '승', '전', '결'];
@@ -73,22 +81,38 @@ function fmtErr(data, status) {
 // 이 탭의 id. 서버는 작품을 저장한 화면을 기억해, 다른 탭 · 기기가 먼저 저장했으면 오래된 화면의 저장을 409 로 막는다
 const CLIENT = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
+// 마지막으로 받은 작품 JSON 과 그 판(ETag). 같은 판이면 서버가 304 로 본문 없이 답하고 이것을 복사해 쓴다 (장편은 수 MB)
+let projectCache = null;  // { path, tag, data }
+
 /** meta 를 넘기면 응답 헤더를 meta.headers 에 담는다. 실패하면 Error 의 status 에 HTTP 상태를 담는다. */
 async function api(method, path, body, meta) {
   const opt = { method, headers: { 'X-Canon-Client': CLIENT } };
+  const whole = method === 'GET' && /^\/projects\/[^/?]+$/.test(path);  // 작품 전체 GET
+  if (whole) {
+    opt.cache = 'no-store';  // 브라우저 캐시 대신 아래 projectCache 로 판을 맞춘다
+    if (projectCache && projectCache.path === path) opt.headers['If-None-Match'] = projectCache.tag;
+  }
   if (body !== undefined) {
     opt.headers['Content-Type'] = 'application/json';
     opt.body = JSON.stringify(body);
   }
   let r;
+  if (runAbort && method !== 'GET') opt.signal = runAbort.signal;  // run() 이 기다리는 요청만 '기다리지 않기'로 끊는다
   try {
     r = await fetch('/api' + path, opt);
-  } catch {  // 서버가 꺼졌거나 네트워크가 끊겼다 (브라우저마다 다른 영어 문구 대신)
+  } catch (e) {
+    if (e.name === 'AbortError') throw Object.assign(new Error('기다리지 않기로 했어요. 서버에서는 요청이 끝까지 돌 수 있으니, 잠시 뒤 결과를 확인하세요'), { status: 0, code: 'aborted' });
+    // 서버가 꺼졌거나 네트워크가 끊겼다 (브라우저마다 다른 영어 문구 대신)
     throw Object.assign(new Error('서버에 연결하지 못했어요. 서버가 켜져 있는지, 네트워크가 연결됐는지 확인하세요'), { status: 0 });
   }
+  if (whole && r.status === 304 && projectCache && projectCache.path === path) return structuredClone(projectCache.data);
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw Object.assign(new Error(fmtErr(data, r.status)), { status: r.status, code: data && data.code });
   if (meta) meta.headers = r.headers;
+  if (whole && r.headers.get('ETag')) {
+    projectCache = { path, tag: r.headers.get('ETag'), data };
+    return structuredClone(data);  // 화면은 받은 작품을 고쳐 쓰므로 보관한 것과 나눈다
+  }
   return data;
 }
 
@@ -129,7 +153,8 @@ function jobFor(kind, ep = null, name = S.name) {
 function jobBtn(kind, ep, idle) {
   const j = jobFor(kind, ep);
   if (!j) return { label: idle, attr: '' };
-  return { label: `${j.label} 만드는 중…${j.total > 1 ? ` ${j.done}/${j.total}` : ''}`, attr: ' disabled aria-busy="true"' };
+  // disabled 는 포커스를 잃게 해서 키보드 사용자가 문서 처음으로 돌아간다. aria-disabled 로 막고 포커스는 남긴다
+  return { label: `${j.label} 만드는 중…${j.total > 1 ? ` ${j.done}/${j.total}` : ''}`, attr: ' aria-disabled="true" aria-busy="true"' };
 }
 
 function jobOwns(n) {
@@ -141,6 +166,12 @@ function jobOwns(n) {
 const autoOn = () => !!(S.auto && S.auto.active);
 /** 자동 집필이 지금 쓰는 화. 서버는 그 화의 플롯과 관계 같은 진행 칸을 화면 저장에서 지킨다 (autorun.protected). */
 const autoEp = () => (autoOn() && S.auto.run ? S.auto.run.ep : null);
+
+/** AI 제안 카드의 버튼 줄. 모든 제안 카드가 같은 순서([버리기] [반영], 오른쪽)와 같은 말을 쓴다. 각 버튼은 [action, arg]. */
+function proposalActions(drop, apply, label = '고른 것 반영') {
+  const b = ([action, arg], cls, text) => `<button type="button" class="btn small${cls}" data-action="${action}"${arg != null ? ` data-arg="${esc(String(arg))}"` : ''}>${text}</button>`;
+  return `<div class="row proposal-actions">${b(drop, '', '버리기')}${b(apply, ' primary', label)}</div>`;
+}
 
 /** AI 제안을 버리기 전에 묻는다. 버린 제안은 되살릴 수 없고 다시 받으려면 AI 를 다시 불러야 한다. */
 function confirmDrop(what) {
@@ -173,6 +204,7 @@ async function startJob(kind, ep = null, extra = {}) {
     if (j.already) toast(`이미 진행 중이에요: ${j.label}`);
     else toast(`${j.label}을(를) 시작했어요. 끝나면 알려 드릴게요. 그동안 다른 작업을 해도 됩니다.`);
     S.jobs = S.jobs.filter((x) => x.id !== j.id).concat(j);
+    S.jobArgs[j.id] = { kind, ep, extra };  // 실패하면 작업 목록의 '다시 시도'가 같은 작업을 다시 시작한다
     renderJobs();
     render();
     pollJobs(true);
@@ -185,19 +217,40 @@ async function pollJobs(soon = false) {
   clearTimeout(jobTimer);
   if (soon) { jobTimer = setTimeout(() => pollJobs(), 800); return; }
   let list;
-  try { list = await api('GET', '/jobs'); } catch { list = S.jobs; }
+  try {
+    list = await api('GET', '/jobs');
+    if (S.jobsOffline) {
+      // 다시 연결됐다. 그 사이 서버가 다시 시작돼 사라진 작업은 끝나지 못했다
+      S.jobsOffline = false;
+      const ids = new Set(list.map((j) => j.id));
+      const lost = S.jobs.filter((j) => j.status === 'running' && !ids.has(j.id));
+      if (lost.length) {
+        toast(`서버가 다시 시작돼 작업이 끝나지 못했어요: ${lost.map((j) => j.label).join(', ')}. 다시 시작하세요`, true);
+        if (S.route[0] === 'p') setTimeout(() => { if (!isTyping()) render(); });  // 잠겨 있던 버튼을 푼다
+      }
+    }
+  } catch {
+    S.jobsOffline = true;  // 작업 목록 머리에 '연결 끊김'을 보이고, 진행 중이던 작업이 있으면 계속 다시 묻는다
+    list = S.jobs;
+  }
   if (S.jobsSeen === null) S.jobsSeen = new Set(list.filter((j) => j.status !== 'running').map((j) => j.id));
   const before = new Map(S.jobs.map((j) => [j.id, j]));
   // 화면이 목록에서 지운(닫은) 작업은 다시 보이지 않게 한다
   S.jobs = list.filter((j) => !S.jobsSeen.has(j.id) || j.status === 'running');
   let redraw = false;
+  let resultFocus = null;
   for (const j of S.jobs) {
     const old = before.get(j.id);
     const progressed = !old || old.done !== j.done || old.status !== j.status;
+    if (progressed && j.project !== S.name && old && old.status === 'running' && j.status !== 'running') {
+      // 다른 작품을 보는 동안 끝났다. 결과는 그 작품을 열면 다시 놓인다 (pending.json)
+      toast(j.status === 'error' ? `${j.project} · ${j.label} 실패: ${j.error}` : `${j.project} · ${j.label}이(가) 끝났어요. 그 작품을 열면 결과가 보여요`, j.status === 'error');
+    }
     if (!progressed || j.project !== S.name) continue;
     if (j.kind === 'plots') await mergeEpisodes((e) => e.status === 'draft');
     if (j.kind === 'write' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);
     if (j.kind === 'impact' && j.status === 'done') await mergeImpacts();
+    if (j.kind === 'check' && j.status === 'done') await mergeEpisodes((e) => e.plot.number === j.ep);  // 검수 결과는 그 화에 붙었다
     if (j.kind === 'auto') {
       // 다른 탭이나 명령줄에서 시작했어도 잠금(autoOn)이 걸리고, 끝나면 풀리게 실행 상태를 받아 온다. autoPoll 이 이어서 지켜본다
       if ((j.status === 'running') !== autoOn() && typeof autoLoad === 'function') await autoLoad(false);
@@ -208,12 +261,21 @@ async function pollJobs(soon = false) {
     }
     if (j.status !== 'running' && !(old && old.status !== 'running')) await finishJob(j);
     // 설정 · 사용량 · 문체 라이브러리처럼 작품 밖 화면은 S.name 이 남아 있어도 다시 그리지 않는다
-    if (S.route[0] === 'p' && JOB_PAGES[j.kind].includes(S.route[2] || 'home')) redraw = true;
+    if (S.route[0] === 'p' && JOB_PAGES[j.kind].includes(S.route[2] || 'home')) {
+      redraw = true;
+      if (j.status === 'done') resultFocus = RESULT_FOCUS[j.kind] || '#app .proposal button, #app .proposal input';
+    }
   }
   renderJobs();
-  // 입력 중이면 화면을 다시 그리지 않는다 (글자와 커서를 잃지 않게). 데이터는 이미 반영돼 있다.
-  if (redraw && !isTyping()) render();
-  if (S.jobs.some((j) => j.status === 'running')) jobTimer = setTimeout(() => pollJobs(), 1500);
+  // 입력 중이면 화면을 다시 그리지 않는다 (글자와 커서를 잃지 않게). 데이터는 이미 반영돼 있고, 입력을 마치면 그린다
+  if (redraw && isTyping()) S.renderPending = true;
+  else if (redraw) {
+    // 포커스가 갈 곳 없이 BODY 나 작업 버튼에 있으면 도착한 결과로 옮긴다
+    const a = document.activeElement;
+    if (resultFocus && (!a || a === document.body || a.getAttribute('aria-busy') === 'true')) S.focusTarget = resultFocus;
+    render();
+  }
+  if (S.jobs.some((j) => j.status === 'running')) jobTimer = setTimeout(() => pollJobs(), S.jobsOffline ? 4000 : 1500);
 }
 
 /** 입력칸에 포커스가 있다. #app 밖 떠 있는 본문 부분 수정 칸(#sel-tool)도 센다. 읽기 전용 칸은 빼서 결과를 바로 그린다. */
@@ -222,8 +284,15 @@ function isTyping() {
   return !!el && el.matches('input:not([readonly]), textarea:not([readonly]), select');
 }
 
+// 작업이 끝나 결과를 그린 뒤 포커스를 옮길 곳 (없으면 제안 카드의 첫 버튼)
+const RESULT_FOCUS = { state: '#app [data-pick], #app [data-action="applyDelta"]', write: '#app textarea[data-draft], #app .rw-compare button' };
+
+// 입력을 마치면(다른 입력칸이 아닌 곳으로 포커스가 가면) 입력 중이라 미뤄 둔 다시 그리기를 한다
+document.addEventListener('focusout', () => setTimeout(() => { if (S.renderPending && !isTyping()) render(); }));
+
 // 작업 결과가 보이는 화면
-const JOB_PAGES = { suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], storyline: ['lines'] };
+JOB_DONE_MSG.check = (j) => `${j.ep}화 검수가 끝났어요: 어긋난 곳 ${j.result ? j.result.issues : 0}개`;
+const JOB_PAGES = { check: ['write'], suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], storyline: ['lines'] };
 
 // 작업이 project.json 에 쓴 화만 받아 온다 (mine(화면 화, 서버 화) 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
 // 저장하지 않은 입력이 있을 때 서버 것으로 바꾼 화 번호를 돌려준다.
@@ -250,9 +319,16 @@ async function mergeEpisodes(mine) {
 
 async function finishJob(j) {
   const here = j.project === S.name && P();
+  const key = `${j.kind}:${j.ep ?? ''}`;
+  if (j.status === 'cancelled') return;  // 멈춘 작업은 결과가 없다 (멈추기를 누를 때 알렸다)
   if (j.status === 'error') {
     toast(`${j.label} 실패: ${j.error}`, true);
+    if (here) S.pending.failures[key] = { key, kind: j.kind, ep: j.ep, label: j.label, error: j.error };
     return;
+  }
+  if (here) {  // 서버가 pending.json 에 남긴 결과를 화면도 알아 둔다. 반영하거나 버리면 syncPending 이 지운다
+    delete S.pending.failures[key];
+    if (PENDING_KINDS.includes(j.kind) && j.result) S.pending.results[key] = { key, id: j.id, kind: j.kind, ep: j.ep };
   }
   const msg = JOB_DONE_MSG[j.kind];
   toast(typeof msg === 'function' ? msg(j) : msg);
@@ -265,6 +341,59 @@ async function finishJob(j) {
   applyJobResult(j);
 }
 
+// ---------- 검토를 기다리는 결과 · 실패 (서버 pending.json, web.PENDING_KINDS 와 같은 목록) ----------
+const PENDING_KINDS = ['arc', 'suggest', 'series', 'nextarc', 'convert', 'rebuild', 'rework', 'storyline', 'recap_arc', 'recap_part', 'state', 'openings'];
+
+/** 그 결과가 아직 화면에 제안으로 남아 있다. 반영하거나 버리면 false 가 된다. */
+function pendingShown(r) {
+  switch (r.kind) {
+    case 'state': return S.deltas[r.ep] !== undefined;
+    case 'arc': return !!S.arcProposal;
+    case 'suggest': return !!S.suggestion;
+    case 'series': return !!S.seriesDraft;
+    case 'nextarc': return !!S.arcDraft;
+    case 'recap_arc': return !!S.recapDrafts['arc' + r.ep];
+    case 'recap_part': return !!S.recapDrafts['part' + r.ep];
+    case 'storyline': return !!S.lineDraft;
+    case 'convert': return !!S.convDraft;
+    case 'rebuild': return !!S.rbDraft;
+    case 'rework': return !!S.reworks[r.ep];
+    case 'openings': return !!S.openingPlots[r.ep];
+    default: return false;
+  }
+}
+
+/** 작품을 열 때: 다른 탭 · 새로고침 전에 받은 결과를 다시 제안으로 놓고, 실패한 작업을 알 수 있게 받아 둔다. */
+async function loadPending() {
+  const d = await api('GET', `/projects/${enc(S.name)}/pending`).catch(() => null);
+  if (!d) return;
+  S.pending = { name: S.name, results: d.results, failures: d.failures };
+  const keep = { selEp: S.selEp, selArc: S.selArc, selPart: S.selPart };  // 되살리면서 열린 화나 아크를 옮기지 않는다
+  for (const r of Object.values(d.results)) {
+    if (pendingShown(r) || S.jobsApplied.has(r.id)) continue;
+    applyJobResult({ id: r.id, kind: r.kind, ep: r.ep, label: r.label, status: 'done', result: r.result, project: S.name });
+    if (r.kind === 'state' && r.base != null) S.deltaBase[r.ep] = r.base;  // 변경안을 만든 본문. 그 뒤 고쳤으면 승인 화면이 알린다
+  }
+  Object.assign(S, keep);
+}
+
+/** 그린 뒤에 부른다: 화면에서 반영하거나 버린 결과는 서버에서도 지운다. */
+function syncPending() {
+  if (S.pending.name !== S.name || !P()) return;
+  for (const r of Object.values(S.pending.results)) {
+    if (pendingShown(r)) continue;
+    delete S.pending.results[r.key];
+    api('DELETE', `/projects/${enc(S.name)}/pending/${enc(r.key)}`).catch(() => { /* 다음에 다시 */ });
+  }
+}
+
+/** 이 화면에서 볼 만한 지난 실패. 같은 작업이 성공하거나 닫으면 사라진다. */
+function failStrip(page, n) {
+  if (S.pending.name !== S.name) return '';
+  const list = Object.values(S.pending.failures).filter((f) => (JOB_PAGES[f.kind] || []).includes(page || 'home') && (f.ep == null || !['write', 'review', 'brief'].includes(page) || f.ep === n));
+  return list.map((f) => `<div class="note warn between" role="status"><span><strong>지난 시도 실패</strong> · ${esc(f.label)}: ${esc(f.error)}${/API 키|연결/.test(f.error) ? ' <a href="#/settings">모델 · API 키 설정</a>' : ''}</span><button type="button" class="btn small" data-action="dismissFail" data-arg="${esc(f.key)}">닫기</button></div>`).join('');
+}
+
 function applyJobResult(j) {
   S.jobsApplied.add(j.id);
   if (j.status !== 'done') return;  // 실패한 작업은 아무것도 바꾸지 않았다. 열어 봐도 초안과 변경안을 그대로 둔다
@@ -273,8 +402,7 @@ function applyJobResult(j) {
     S.suggestion.characters.forEach((c, i) => { S.picks['sc' + i] = !sameChar(c); });
     S.suggestion.relationships.forEach((r, i) => { S.picks['sr' + i] = true; });
   } else if (j.kind === 'arc' && j.result) {
-    P().arc = j.result.acts;
-    S.dirty = true;
+    S.arcProposal = j.result.acts;  // 바로 바꾸지 않고 지금 구조와 비교해 고르게 한다 (arcProposalCard)
   } else if (j.kind === 'write' && !(j.result && j.result.candidate)) {
     // AI 가 본문을 새로 썼다 (새 판 candidate 는 본문을 덮지 않으니 쓰던 초안과 변경안을 그대로 둔다).
     // 그 화 칸에 쓰던 글이 있으면(다른 탭에서 시작한 작업 등) 버리지 않고 칸에 남긴다. 저장하면 수정 기록에 남아 되돌릴 수 있다
@@ -308,6 +436,7 @@ const JOB_LINK = {
   arc: (j) => `#/p/${enc(j.project)}/arc`,
   plots: (j) => `#/p/${enc(j.project)}/arc`,
   write: (j) => `#/p/${enc(j.project)}/write/${j.ep}`,
+  check: (j) => `#/p/${enc(j.project)}/write/${j.ep}`,
   state: (j) => `#/p/${enc(j.project)}/review/${j.ep}`,
   series: (j) => `#/p/${enc(j.project)}/arc`,
   nextarc: (j) => `#/p/${enc(j.project)}/arc`,
@@ -330,23 +459,47 @@ function renderJobs() {
   if (!S.jobs.length) { box.innerHTML = ''; box.hidden = true; return; }
   box.hidden = false;
   const running = S.jobs.filter((j) => j.status === 'running');
-  const head = running.length ? `AI 작업 ${running.length}개 진행 중` : 'AI 작업 끝남';
+  const head = S.jobsOffline ? '서버 연결이 끊겼어요. 다시 연결하는 중…' : running.length ? `AI 작업 ${running.length}개 진행 중` : 'AI 작업 끝남';
   const items = S.jobs.map((j) => {
     const pct = j.total > 1 ? ` ${j.done}/${j.total}` : '';
-    const state = j.status === 'running' ? `<span class="spinner sm" aria-hidden="true"></span>` : j.status === 'done' ? '<span class="ok">완료</span>' : '<span class="bad">실패</span>';
+    const state = j.status === 'running' ? `<span class="spinner sm" aria-hidden="true"></span>` : j.status === 'done' ? '<span class="ok">완료</span>' : j.status === 'cancelled' ? '<span class="small">멈춤</span>' : '<span class="bad">실패</span>';
     const other = j.project !== S.name ? ` <span class="small">· ${esc(j.project)}</span>` : '';
-    const sub = j.status === 'error' ? j.error : j.note;
-    const open = j.status !== 'running' && j.kind in JOB_LINK ? `<a href="${JOB_LINK[j.kind](j)}" data-job-open="${j.id}">열기</a>` : '';
-    return `<li>${state}<div class="jl"><strong>${esc(j.label)}${pct}</strong>${other}${sub ? `<div class="small">${esc(sub)}</div>` : ''}</div>${open}${j.status !== 'running' ? `<button type="button" class="x" data-job-dismiss="${j.id}" aria-label="목록에서 지우기">✕</button>` : ''}</li>`;
+    const sub = j.status === 'error' ? j.error : j.status === 'running' ? [j.note, `경과 ${elapsed(j)}`].filter(Boolean).join(' · ') : j.note;
+    const open = j.status === 'done' && j.kind in JOB_LINK ? `<a href="${JOB_LINK[j.kind](j)}" data-job-open="${j.id}">열기</a>` : '';
+    const retry = j.status === 'error' && S.jobArgs[j.id] ? `<button type="button" class="btn small" data-job-retry="${j.id}">다시 시도</button>` : '';
+    const keyHelp = j.status === 'error' && /API 키|연결/.test(j.error || '') ? '<a href="#/settings">설정</a>' : '';
+    const stop = j.status === 'running' && j.kind !== 'auto' ? `<button type="button" class="btn small" data-job-stop="${j.id}">멈추기</button>` : '';
+    return `<li>${state}<div class="jl"><strong>${esc(j.label)}${pct}</strong>${other}${sub ? `<div class="small">${esc(sub)}</div>` : ''}</div>${open}${retry}${keyHelp}${stop}${j.status !== 'running' ? `<button type="button" class="x" data-job-dismiss="${j.id}" aria-label="목록에서 지우기">✕</button>` : ''}</li>`;
   }).join('');
-  box.innerHTML = `<button type="button" class="jobs-head" aria-expanded="${S.jobsOpen || !running.length}" data-jobs-toggle>${running.length ? '<span class="spinner sm" aria-hidden="true"></span>' : ''}${head}</button>${S.jobsOpen || !running.length ? `<ul>${items}</ul>` : ''}`;
+  // 넓은 화면은 펼쳐 경과 시간과 '멈추기'를 보인다. 휴대폰은 접어 둔다 (저장 띠와 버튼을 가리지 않게). 머리를 누르면 바꾼다
+  const open = S.jobsOpen === null ? !narrowScreen() : S.jobsOpen;
+  box.innerHTML = `<button type="button" class="jobs-head" aria-expanded="${open}" data-jobs-toggle>${running.length ? '<span class="spinner sm" aria-hidden="true"></span>' : ''}${head}</button>${open ? `<ul>${items}</ul>` : ''}`;
+  stackBottom();
 }
 
+/** 작업이 시작된 뒤 지난 시간 'm:ss' (서버 시각 기준이라 몇 초 어긋날 수 있다). */
+function elapsed(j) {
+  const s = Math.max(0, Math.round(Date.now() / 1000 - j.started));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+const narrowScreen = () => window.matchMedia('(max-width: 640px)').matches;
+
+/** 화면 아래 고정 층(저장 띠, 작업 목록, 알림)이 서로와 본문 버튼을 가리지 않게 높이를 CSS 변수로 둔다.
+    --sb: 저장 띠 높이, --jb: 작업 목록 높이(좁은 폭에서 저장 띠 위에 쌓을 때). */
+function stackBottom() {
+  const h = (el) => (el && !el.hidden ? el.getBoundingClientRect().height + 12 : 0);
+  const st = document.body.style;
+  st.setProperty('--sb', `${h($('#savebar'))}px`);
+  st.setProperty('--jb', `${narrowScreen() ? h($('#jobs')) : 0}px`);
+}
+window.addEventListener('resize', () => stackBottom());
+
 document.addEventListener('click', (e) => {
-  const t = e.target.closest('[data-jobs-toggle], [data-job-dismiss], [data-job-open]');
+  const t = e.target.closest('[data-jobs-toggle], [data-job-dismiss], [data-job-open], [data-job-stop], [data-job-retry]');
   if (!t) return;
   if (t.dataset.jobsToggle !== undefined) {
-    S.jobsOpen = !S.jobsOpen;
+    S.jobsOpen = !(S.jobsOpen === null ? !narrowScreen() : S.jobsOpen);
   } else if (t.dataset.jobDismiss) {
     S.jobsSeen.add(t.dataset.jobDismiss);
     S.jobs = S.jobs.filter((j) => j.id !== t.dataset.jobDismiss);
@@ -354,6 +507,21 @@ document.addEventListener('click', (e) => {
     // 다른 작품에서 끝난 결과는 그 작품을 연 뒤에 적용한다
     const j = S.jobs.find((x) => x.id === t.dataset.jobOpen);
     if (j && j.status === 'done') S.pendingJob = j;
+  } else if (t.dataset.jobStop) {
+    const j = S.jobs.find((x) => x.id === t.dataset.jobStop);
+    if (!j || !confirm(`${j.label}을(를) 멈출까요? 이미 보낸 AI 호출의 응답은 버려요 (비용은 들 수 있어요).`)) return;
+    api('POST', `/jobs/${j.id}/stop`).then((x) => {
+      Object.assign(j, x);
+      toast(`${j.label}을(를) 멈췄어요`);
+      renderJobs();
+      if (S.route[0] === 'p' && !isTyping()) render();  // 잠겨 있던 버튼을 푼다
+    }).catch((err) => toast(err.message, true));
+    return;
+  } else if (t.dataset.jobRetry) {
+    const a = S.jobArgs[t.dataset.jobRetry];
+    S.jobsSeen.add(t.dataset.jobRetry);
+    S.jobs = S.jobs.filter((j) => j.id !== t.dataset.jobRetry);
+    if (a) startJob(a.kind, a.ep, a.extra);
   }
   renderJobs();
 });
@@ -369,22 +537,40 @@ function showError(e) {
   toast(e.message, true);
 }
 
+// run() 이 기다리는 요청. 5초가 넘으면 화면 가운데 상자에 경과 시간과 '기다리지 않기'를 보인다 (api 가 이 신호를 쓴다)
+let runAbort = null;
+
 async function run(label, fn, opt = {}) {
   const when = opt.render || 'always';
   let ok = false;
+  const t0 = Date.now();
+  runAbort = new AbortController();
   $('#busy-text').textContent = label;
+  $('#busy-stop').hidden = true;
   $('#busy').hidden = false;
+  const tick = setInterval(() => {
+    const s = Math.round((Date.now() - t0) / 1000);
+    $('#busy-text').textContent = `${label} · ${s}초`;
+    if (s >= 5) $('#busy-stop').hidden = false;
+  }, 1000);
   try {
     await fn();
     ok = true;
   } catch (e) {
     showError(e);
   } finally {
+    clearInterval(tick);
+    runAbort = null;
     $('#busy').hidden = true;
     if (when === 'always' || (when === 'success' && ok)) render();
   }
   return ok;
 }
+
+/** '기다리지 않기': 화면 잠금을 풀고 응답을 버린다. 서버에 이미 간 요청은 끝까지 돌 수 있다. */
+document.addEventListener('click', (e) => {
+  if (e.target.id === 'busy-stop' && runAbort) runAbort.abort();
+});
 
 function getPath(obj, path) {
   return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
@@ -618,9 +804,10 @@ function renderSavebar() {
   let bar = $('#savebar');
   if ((!S.dirty || !P()) && text === null) {
     if (bar) bar.remove();
+    stackBottom();
     return;
   }
-  const sig = `${S.dirty}:${text}:${autoOn()}:${S.conflict}`;
+  const sig = `${S.dirty}:${text}:${autoOn()}:${S.conflict}:${S.lastRemoved ? S.lastRemoved.label : ''}`;
   if (bar && bar.dataset.sig === sig) return;
   if (!bar) {
     bar = document.createElement('div');
@@ -630,8 +817,9 @@ function renderSavebar() {
   }
   bar.dataset.sig = sig;
   bar.innerHTML = (S.dirty && S.conflict ? '<span>다른 탭이나 기기에서 먼저 저장해 이 변경을 저장하지 못했어요</span><button class="btn small" data-action="revert">다시 불러오기 (이 변경 버림)</button><button class="btn small danger" data-action="saveForce">내 변경으로 덮기</button>'
-    : S.dirty ? '<span>저장하지 않은 변경이 있어요</span><button class="btn small" data-action="revert">변경 모두 버리기</button><button class="btn small primary" data-action="save">저장</button>' : '')
+    : S.dirty ? `<span>저장하지 않은 변경이 있어요</span>${S.lastRemoved ? `<button class="btn small" data-action="restoreRemoved">방금 지운 ${esc(S.lastRemoved.label)} 되살리기</button>` : ''}<button class="btn small" data-action="revert">변경 모두 버리기</button><button class="btn small primary" data-action="save">저장</button>` : '')
     + (text !== null ? `<span>${text}화 본문을 저장하지 않았어요</span><button class="btn small primary" data-action="saveText" data-arg="${text}"${autoOn() ? ' disabled title="자동 집필이 도는 동안은 본문을 저장할 수 없어요"' : ''}>본문 저장</button>` : '');
+  stackBottom();
 }
 
 /** 지시서 ② 칸 글을 아직 쓸 수 있다. 본문 칸은 확정 · 작성 화, JSON 칸은 작성 화에서만 열린다. 다른 경로로 그 화를 끝냈으면 세지 않는다. */
@@ -654,6 +842,10 @@ function hasUnsaved() {
     || Object.keys(S.deltas).some(deltaPending)
     || Object.values(stash).some((s) => Object.keys(s.textDraft).length > 0 || Object.keys(s.deltas).length > 0);  // 보관할 때 정리했다
 }
+
+// 다른 탭 · 기기에서 시작한 작업은 이 탭이 묻기 전에는 모른다. 탭으로 돌아오면 한 번 묻는다
+window.addEventListener('focus', () => pollJobs());
+document.addEventListener('visibilitychange', () => { if (!document.hidden) pollJobs(); });
 
 // 새로고침 · 탭 닫기 · 주소 직접 입력은 hashchange 확인을 거치지 않는다. 브라우저가 묻게 한다
 window.addEventListener('beforeunload', (e) => {
@@ -711,8 +903,76 @@ const actions = {
     if (S.dirty && !confirm('저장하지 않은 변경을 모두 버리고 저장된 작품을 다시 불러올까요? 되돌릴 수 없어요.')) return;
     await run('불러오는 중', async () => { await loadProject(S.name); });
   },
+  /** n화부터 상태 반영을 취소한다 (n-1화 반영 직후로). 본문은 남고, n화 변경안은 다시 골라 반영할 수 있게 채워 둔다. */
+  async revertFrom(n) {
+    n = Number(n);
+    const fin = P().episodes.filter((e) => e.status === 'finalized' && e.plot.number >= n).map((e) => e.plot.number);
+    const h = [...P().history].reverse().find((d) => d.episode === n);
+    const added = P().history.filter((d) => d.episode >= n).flatMap((d) => d.new_characters || []).map((c) => c.name || c.id);
+    if (!confirm(`${rangeText(fin)}화의 상태 반영을 취소할까요? ${n - 1 ? `${n - 1}화 반영 직후` : '1화 시작 전'} 상태로 돌아가고, 본문은 남아 상태 승인을 다시 하게 돼요.${added.length ? ` 그 반영이 더한 인물(${added.join(', ')})도 빠져요.` : ''}`)) return false;
+    return run('반영을 취소하는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/revert/${n - 1}`);
+      if (h) setDelta(n, structuredClone(h));  // 반영했던 변경안을 다시 고를 수 있게 둔다
+      toast(`${rangeText(fin)}화의 반영을 취소했어요. ${n}화 변경안을 다시 골라 반영하세요`);
+    });
+  },
+  toggleMenu() {
+    S.menuOpen = !S.menuOpen;  // 좁은 폭에서만 보이는 버튼. 메뉴를 고르면 화면 이동 때 닫힌다
+    render();
+  },
+  async dupProject(name) {
+    const to = prompt(`'${name}' 의 사본 폴더 이름`, `${name}-사본`);
+    if (!to) return;
+    await run('복제하는 중', async () => {
+      await api('POST', `/projects/${enc(name)}/duplicate`, { name: to.trim() });
+      S.projects = await api('GET', '/projects');
+      toast(`'${to.trim()}' 로 복제했어요`);
+    });
+  },
+  async renameProject(name) {
+    const to = prompt(`'${name}' 의 새 폴더 이름 (주소가 바뀌어요. 작품 제목은 설정 도우미에서 바꿔요)`, name);
+    if (!to || to.trim() === name) return;
+    await run('이름을 바꾸는 중', async () => {
+      await api('POST', `/projects/${enc(name)}/rename`, { name: to.trim() });
+      S.projects = await api('GET', '/projects');
+      toast(`폴더 이름을 '${to.trim()}' 로 바꿨어요`);
+    });
+  },
+  async deleteProject(name) {
+    const x = (S.projects || []).find((y) => y.name === name) || { title: name };
+    const typed = prompt(`'${x.title || name}' 작품을 지울까요? 서버의 projects/.trash 로 옮겨 두지만 화면에서는 되살릴 수 없어요.\n지우려면 작품 제목을 그대로 적으세요.`);
+    if (typed === null) return;
+    if (typed.trim() !== (x.title || name)) return toast('제목이 달라 지우지 않았어요', true);
+    await run('지우는 중', async () => {
+      await api('DELETE', `/projects/${enc(name)}`);
+      S.projects = await api('GET', '/projects');
+      toast('작품을 지웠어요. 서버의 projects/.trash 에 남아 있어요');
+    });
+  },
+  async checkEp(n) {
+    await startJob('check', Number(n));
+  },
   async retryRoute() {
     await route();
+  },
+  async dismissFail(key) {
+    delete S.pending.failures[key];
+    render();
+    await api('DELETE', `/projects/${enc(S.name)}/pending/${enc(key)}?failure=true`).catch(() => {});
+  },
+  restoreRemoved() {
+    const r = S.lastRemoved;
+    if (!r) return;
+    for (const [k, v] of r.saved) {
+      const parts = k.split('.');
+      const last = parts.pop();
+      parts.reduce((o, x) => o[x], P())[last] = v;
+    }
+    S.lastRemoved = null;
+    markDirty();
+    render();
+    toast(`${r.label}을(를) 되살렸어요`);
   },
   async saveForce() {
     if (!confirm('다른 탭이나 기기에서 저장한 변경을 이 화면의 작품으로 덮어쓸까요? 그쪽에서 바꾼 설정 · 플롯은 사라집니다.')) return;
@@ -763,6 +1023,12 @@ const actions = {
   },
   async applySuggestion() {
     const s = structuredClone(S.suggestion);
+    // 고르지 않은 칸은 비워 보낸다. 서버는 빈 칸을 건너뛴다
+    SUG_FIELDS.forEach(([k]) => {
+      if (S.picks['sf:' + k] !== false) return;
+      if (k.startsWith('world.')) s.world[k.slice(6)] = Array.isArray(s.world[k.slice(6)]) ? [] : '';
+      else s[k] = '';
+    });
     s.characters = s.characters.filter((_, i) => S.picks['sc' + i]);
     s.relationships = s.relationships.filter((r, i) => S.picks['sr' + i] && sugEnd(r.a) && sugEnd(r.b));
     await run('반영하는 중', async () => {
@@ -828,7 +1094,8 @@ const actions = {
   },
   removeCharacter(i) {
     const c = P().characters[i];
-    if (!confirm(`${c.name || c.id} 인물을 지울까요? 관계도 함께 지워집니다.`)) return;
+    if (!confirm(`${c.name || c.id} 인물을 지울까요? 관계도 함께 지워집니다. 저장하기 전에는 아래 띠에서 되살릴 수 있어요.`)) return;
+    rememberRemoved(`인물 ${c.name || c.id}`, ['characters', 'relationships', 'states']);
     P().characters.splice(i, 1);
     P().relationships = P().relationships.filter((r) => r.a !== c.id && r.b !== c.id);
     P().states = P().states.filter((s) => s.character_id !== c.id);
@@ -883,6 +1150,8 @@ const actions = {
     render();
   },
   removeRelationship(i) {
+    const r = P().relationships[i];
+    rememberRemoved(`관계 ${charName(r.a) || r.a} ↔ ${charName(r.b) || r.b}`, ['relationships']);
     P().relationships.splice(i, 1);
     markDirty();
     render();
@@ -950,6 +1219,7 @@ const actions = {
     render();
   },
   removePassage(i) {
+    rememberRemoved(`예시 문단 ${Number(i) + 1}`, ['style.sample_passages']);
     P().style.sample_passages.splice(i, 1);
     markDirty();
     render();
@@ -960,6 +1230,7 @@ const actions = {
     render();
   },
   removeMarker(i) {
+    rememberRemoved('문체 표지', ['style.markers']);
     P().style.markers.splice(i, 1);
     markDirty();
     render();
@@ -1101,14 +1372,26 @@ const actions = {
 
   // 구조와 플롯
   async planArc() {
-    if (P().arc.length && !confirm('지금 구조를 AI 제안으로 바꿀까요? 저장 전까지는 되돌릴 수 있어요.')) return;
-    await startJob('arc');
+    await startJob('arc');  // 도착하면 지금 구조와 비교하는 제안 카드로 보인다. 고르기 전에는 바뀌지 않는다
+  },
+  useArcProposal() {
+    P().arc = S.arcProposal;
+    S.arcProposal = null;
+    markDirty();
+    render();
+    toast('구조를 바꿨어요. 저장하면 반영돼요');
+  },
+  dropArcProposal() {
+    if (!confirmDrop('AI 구조 제안')) return;
+    S.arcProposal = null;
+    render();
   },
   async draftPlots() {
     if (!confirmRedraft(P().episodes)) return;
     await startJob('plots');
   },
   selectEp(n) {
+    S.focusTarget = '#app .drawer h2';  // 서랍을 열면 제목으로 들어가 몇 화 서랍인지 읽게 한다
     S.selEp = Number(n);
     S.selAct = null;
     S.editArc = false;
@@ -1116,6 +1399,7 @@ const actions = {
     render();
   },
   selectAct(i) {
+    S.focusTarget = '#app .drawer h2';
     S.selAct = Number(i);
     S.selEp = null;
     S.editArc = false;
@@ -1123,6 +1407,8 @@ const actions = {
     render();
   },
   closePanel() {
+    // 닫으면 연 카드로 포커스를 돌린다
+    S.focusTarget = S.selEp ? `#app .ep-card[data-arg="${S.selEp}"]` : S.selAct != null ? `#app [data-action="selectAct"][data-arg="${S.selAct}"]` : null;
     S.selEp = null;
     S.selAct = null;
     S.editArc = false;
@@ -1311,7 +1597,7 @@ const actions = {
       (out.warnings || []).length ? `경고 ${out.warnings.length}건이 남아 있어요.` : '',
       S.deltaBase[n] !== undefined && ep(n) && S.deltaBase[n] !== ep(n).text ? '변경안을 만든 뒤 본문을 고쳤어요.' : '',
     ].filter(Boolean);
-    if (why.length && !confirm(`${why.join(' ')} ${n}화를 마칠까요? 반영하면 되돌리기로만 돌아갈 수 있어요.`)) return;
+    if (why.length && !confirm(`${why.join(' ')} ${n}화를 마칠까요? 반영하면 반영 취소로만 돌아갈 수 있어요.`)) return;
     await run('반영하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/apply`, out);
@@ -1352,6 +1638,7 @@ const actions = {
     if (lkey) body.local_key = lkey;
     await run('저장 중', async () => {
       S.config = await api('PUT', '/config', body);
+      S.health = await api('GET', '/config/health').catch(() => null);
       S.settingsDirty = false;
       toast('설정을 저장했습니다');
     }, { render: 'success' });  // 실패하면 다시 그리지 않아 적은 키와 모델이 칸에 남는다
@@ -1482,6 +1769,7 @@ document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
   if (!el) return;
   e.preventDefault();
+  if (el.getAttribute('aria-disabled') === 'true') return;  // 작업 중인 버튼: 포커스는 남기고 누르지는 못한다 (jobBtn)
   const fn = actions[el.dataset.action];
   const arg = el.dataset.arg;
   if (fn) fn(arg !== undefined && /^\d+$/.test(arg) ? Number(arg) : arg);
@@ -1494,10 +1782,10 @@ document.addEventListener('click', (e) => {
 // 작품마다 따로 두는 화면 상태와 빈 값. 화 번호로 잡거나 반영 전 AI 제안이라, 다른 작품에 보이거나 반영되면 안 된다
 const PER_PROJECT = {
   textDraft: () => ({}), deltas: () => ({}), deltaBase: () => ({}),
-  suggestion: () => null, picks: () => ({}), seriesDraft: () => null, arcDraft: () => null, recapDrafts: () => ({}),
+  suggestion: () => null, picks: () => ({}), seriesDraft: () => null, arcDraft: () => null, arcProposal: () => null, recapDrafts: () => ({}),
   lineDraft: () => null, convDraft: () => null, rbDraft: () => null, reworks: () => ({}),
-  openingData: () => ({}), openingPlots: () => ({}), rw: () => ({}), rwInfo: () => ({}), looks: () => ({}),
-  causalLinks: () => ({}), causalPicks: () => ({}), chatPicks: () => ({}),
+  openingData: () => ({}), openingPlots: () => ({}), openingUsed: () => ({}), openingPrev: () => ({}), rw: () => ({}), rwInfo: () => ({}), looks: () => ({}),
+  causalLinks: () => ({}), causalPicks: () => ({}), causalGone: () => null, chatPicks: () => ({}),
 };
 const stash = {};       // 작품 이름 → PER_PROJECT 의 값들
 let stateOwner = null;  // 지금 S.textDraft 등이 속한 작품
@@ -1561,8 +1849,14 @@ function route() {
   return routeQueue;
 }
 
+let lastRoute = '';
 async function routeNow() {
   S.loadError = null;
+  S.menuOpen = false;
+  // 다른 화면으로 옮기면 제목으로 포커스를 옮겨 스크린리더가 새 화면을 읽고, 다음 Tab 이 본문에서 시작하게 한다
+  const here = location.hash.split('/').slice(0, 4).join('/');
+  if (here !== lastRoute) S.focusTarget = '#app main h1';
+  lastRoute = here;
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
   S.route = parts;
   S.context = null;
@@ -1572,6 +1866,10 @@ async function routeNow() {
   if (parts[0] !== 'p') pruneProjectState();  // 작품 밖 화면으로 간다. 작품 데이터가 있을 때 끝난 초안을 정리한다
   try {
     if (!S.config) S.config = await api('GET', '/config');
+    if (S.health === undefined) {  // 키 없음 · 로컬 서버 꺼짐 · mock 안내. 로컬 서버를 묻느라 첫 화면을 막지 않게 기다리지 않는다
+      S.health = null;
+      api('GET', '/config/health').then((h) => { S.health = h; if (!isTyping()) render(); }).catch(() => {});
+    }
     if (!S.genres) S.genres = await api('GET', '/genres').catch(() => []);
     if (!S.namingStyles) S.namingStyles = await api('GET', '/naming/styles').catch(() => []);
     if (parts[0] === 'settings') {
@@ -1600,6 +1898,7 @@ async function routeNow() {
       else S.project = await api('GET', `/projects/${enc(parts[1])}`);
       if (S.pendingJob && S.pendingJob.project === S.name && !S.jobsApplied.has(S.pendingJob.id)) applyJobResult(S.pendingJob);
       S.pendingJob = null;
+      await loadPending();
       S.dirty = false;
       const n = Number(parts[3]);
       if (!parts[2] && S.project.relationships.length) {
@@ -1607,7 +1906,7 @@ async function routeNow() {
       }
       if (parts[2] === 'setup') {
         S.names = {};
-        S.nameCheck = await api('POST', `/projects/${enc(S.name)}/names/check`, P()).catch(() => null);
+        S.nameCheck = await api('POST', `/projects/${enc(S.name)}/names/check`, nameCheckBody()).catch(() => null);
       }
       if (parts[2] === 'style') {
         S.libs = await api('GET', '/styles').catch(() => []);
@@ -1650,11 +1949,85 @@ async function routeNow() {
   }
   render();
   window.scrollTo(0, 0);
+  pollJobs();  // 다른 탭 · 기기에서 시작한 작업도 알아챈다
 }
 
 // ---------- 그리기 ----------
 
+// ---------- 다시 그리기와 포커스 ----------
+// 화면은 #app 전체를 다시 그린다. 그때 포커스가 BODY 로 가지 않게, 그리기 전 포커스를 기억했다가 새 화면의 같은 칸 · 버튼으로 돌린다.
+// S.focusTarget 을 정하면(화면 이동, 서랍 열기 · 닫기, 작업 결과) 그 요소로 옮긴다.
+let renderQueued = false;
+
 function render() {
+  // 칸을 고치고 Tab · 클릭으로 다음 칸에 갈 때 change 가 먼저 온다. 바로 그리면 막 들어간 다음 칸이 사라지므로 포커스가 옮겨진 뒤 그린다
+  if (window.event && window.event.type === 'change') {
+    if (!renderQueued) {
+      renderQueued = true;
+      setTimeout(() => { renderQueued = false; render(); });
+    }
+    return;
+  }
+  S.renderPending = false;
+  const f = focusMark();
+  drawApp();
+  afterDraw(f);
+}
+
+/** 지금 포커스가 있는 #app 안 요소를 다시 찾을 수 있는 표시. */
+function focusMark() {
+  const el = document.activeElement;
+  if (!el || el === document.body || !el.closest('#app')) return null;
+  const d = el.dataset || {};
+  return { id: el.id, action: d.action, arg: d.arg, bind: d.bind, draft: d.draft,
+    start: el.selectionStart, end: el.selectionEnd, scroll: el.scrollTop };
+}
+
+function findMark(f) {
+  const q = (sel) => document.querySelector(`#app ${sel}`);
+  const v = (x) => CSS.escape(String(x));
+  return (f.id && document.getElementById(f.id) && document.getElementById(f.id).closest('#app') && document.getElementById(f.id))
+    || (f.action && q(`[data-action="${v(f.action)}"]${f.arg !== undefined ? `[data-arg="${v(f.arg)}"]` : ''}`))
+    || (f.bind && q(`[data-bind="${v(f.bind)}"]`))
+    || (f.draft && q(`[data-draft="${v(f.draft)}"]`));
+}
+
+function focusEl(el) {
+  if (!el) return false;
+  if (!el.matches('a, button, input, select, textarea, [tabindex]')) el.setAttribute('tabindex', '-1');
+  el.focus({ preventScroll: el.matches('h1') });
+  return document.activeElement === el;
+}
+
+function afterDraw(f) {
+  const main = $('#app main');
+  if (main) { main.id = 'main'; main.tabIndex = -1; }
+  // 서랍은 제목으로 이름을 단다 ('7화 플롯'). 스크린리더가 몇 화 서랍인지 읽는다
+  const d = $('#app .drawer');
+  const h = d && d.querySelector('h2');
+  if (h) { h.id = 'drawer-title'; d.setAttribute('aria-labelledby', 'drawer-title'); d.removeAttribute('aria-label'); }
+  document.title = pageTitle();
+  const want = S.focusTarget;
+  S.focusTarget = null;
+  if (want && focusEl(document.querySelector(want))) return;
+  if (!f) return;
+  const el = findMark(f);
+  if (!el || !focusEl(el)) return;
+  if (f.start != null && typeof el.setSelectionRange === 'function') {
+    try { el.setSelectionRange(f.start, f.end); } catch { /* 고를 수 없는 칸 */ }
+  }
+  if (f.scroll) el.scrollTop = f.scroll;
+}
+
+/** 브라우저 탭과 방문 기록의 이름: '<화면> · <작품> · Canon'. */
+function pageTitle() {
+  const h1 = $('#app main h1');
+  const name = h1 ? h1.textContent.trim().replace(/\s+/g, ' ') : '';
+  const work = P() && S.route[0] === 'p' ? P().meta.title : '';
+  return [name, work !== name ? work : '', 'Canon'].filter(Boolean).join(' · ');
+}
+
+function drawApp() {
   renderSavebar();
   document.body.classList.remove('chat-open');
   const [p, , page, arg] = S.route;
@@ -1682,7 +2055,8 @@ function render() {
   const n = Number(arg) || currentEp();
   const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, convert: viewConvert };
   const body = (views[page] || viewHome)(n);
-  $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${body}</main></div>`;
+  $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${failStrip(page, n)}${body}</main></div>`;
+  syncPending();
   syncChat();
   if (typeof syncPassage === 'function') syncPassage();
   if (typeof syncIllust === 'function') syncIllust();
@@ -1712,11 +2086,12 @@ function sidebar(active) {
     ['write', `${base()}/write/${cur}`, '4', '집필'],
     ['review', `${base()}/review/${cur}`, '5', '상태 승인'],
     ['brief', `${base()}/brief/${cur}`, '6', '작업지시서'],
-    ['auto', base() + '/auto', 'A', S.auto && S.auto.active ? '자동 집필 · 진행 중' : '자동 집필'],
+    ['auto', base() + '/auto', 'A', autoMenuLabel()],
   ];
   const cfg = S.config || {};
-  return `<nav class="side" aria-label="작품 메뉴">
+  return `<nav class="side${S.menuOpen ? ' open' : ''}" aria-label="작품 메뉴">
     <a class="brand" href="#/">Canon</a>
+    <button type="button" class="btn small menu-toggle" data-action="toggleMenu" aria-expanded="${!!S.menuOpen}" aria-controls="side-menu">메뉴</button>
     <div class="work-card">
       <div class="small">현재 작품</div>
       <div style="font-size:16px;font-weight:700">${esc(p.meta.title || S.name)}</div>
@@ -1724,16 +2099,18 @@ function sidebar(active) {
       <div class="meter" aria-hidden="true"><i style="left:0;width:${Math.round((done / Math.max(total, 1)) * 100)}%;background:var(--green)"></i></div>
       <div class="small">${done} / ${total}화 반영 완료</div>
     </div>
+    <div class="side-menu" id="side-menu">
     <div class="nav">${items.map(([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}><span class="num">${num}</span>${label}</a>`).join('')}</div>
     <div class="nav nav-extra"><span class="small">본편과 분리</span><a href="${base()}/research"${active === 'research' ? ' aria-current="page"' : ''}><span class="num">R</span>연구 · 모델 실험</a><a href="${base()}/usage"${active === 'usage' ? ' aria-current="page"' : ''}><span class="num">$</span>사용량 · 비용</a></div>
     <div class="side-foot">
       <span class="small">본문 모델</span>
       <strong style="font-size:13px">${esc(cfg.stages ? cfg.stages.write.model : cfg.model || '')}</strong>
-      ${cfg.has_key ? '' : '<span style="color:var(--red)">API 키가 없습니다. 설정에서 넣거나 작업지시서를 쓰세요.</span>'}
+      ${aiWarning() ? `<span style="color:var(--red)">${esc(aiWarning())}</span>` : ''}
       <a href="#/settings">모델 · API 키 설정</a>
       <a href="#/usage">모든 작품 사용량 · 비용</a>
       <a href="#/styles">문체 라이브러리</a>
       <a href="#/">작품 목록</a>
+    </div>
     </div>
   </nav>`;
 }
@@ -1848,15 +2225,30 @@ async function loadModelList(force) {
 
 // ----- 작품 목록 -----
 
+/** AI 를 쓸 수 있는지 한 줄로 (작품 목록 · 사이드바). 쓸 수 있으면 빈 글. */
+function aiWarning() {
+  const h = S.health;
+  const cfg = S.config || {};
+  if (h && h.local === false) return `AI 연결 안 됨: 로컬 모델 서버가 응답하지 않아요 (${h.local_error || '주소를 확인하세요'}).`;
+  if (h && h.mock) return 'mock 모드: AI 를 부르지 않고 가짜 결과를 내요. 실제로 쓰려면 설정에서 Gemini 나 로컬을 고르세요.';
+  if (!cfg.has_key) return 'Gemini API 키가 없어요. 키 없이는 인물 · 설정을 직접 적을 수 있고, 플롯이 생긴 화부터는 채팅 앱 작업지시서로 쓸 수 있어요.';
+  return '';
+}
+
 function viewProjects() {
   const list = S.projects || [];
-  const cards = list.map((x) => `<a class="card tight" href="#/p/${enc(x.name)}" style="text-decoration:none;color:inherit">
+  const cards = list.map((x) => `<div class="card tight proj-card">
+      <a href="#/p/${enc(x.name)}" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:6px">
       <div class="between"><h3>${esc(x.title || x.name)}</h3><span class="small">${x.finalized} / ${x.episodes}화</span></div>
-      <div class="small">${esc(x.genre || '장르 미정')} · 폴더 ${esc(x.name)}</div>
-    </a>`).join('');
+      <div class="small">${esc(x.genre || '장르 미정')} · 폴더 ${esc(x.name)}</div></a>
+      <details class="proj-more"><summary class="small">관리</summary><div class="row" style="padding-top:6px">
+        <button type="button" class="btn small" data-action="dupProject" data-arg="${esc(x.name)}">복제</button>
+        <button type="button" class="btn small" data-action="renameProject" data-arg="${esc(x.name)}">폴더 이름 바꾸기</button>
+        <button type="button" class="btn small danger" data-action="deleteProject" data-arg="${esc(x.name)}">지우기</button></div></details>
+    </div>`).join('');
   const cfg = S.config || {};
   return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편부터 300화 장편 연재까지 씁니다.', `<a class="btn" href="#/styles">문체 라이브러리</a><a class="btn" href="#/usage">사용량 · 비용</a><a class="btn" href="#/settings">모델 · API 키 설정</a>`)}
-    ${cfg.has_key ? '' : '<div class="note warn">Gemini API 키가 없어요. <a href="#/settings" style="color:inherit;font-weight:700">설정</a>에서 넣으면 AI 생성을 쓸 수 있습니다. 키 없이도 채팅 앱 작업지시서로 쓸 수 있어요.</div>'}
+    ${aiWarning() ? `<div class="note warn">${esc(aiWarning())} <a href="#/settings" style="color:inherit;font-weight:700">설정</a></div>` : ''}
     ${list.length ? `<div class="grid-auto">${cards}</div>` : '<div class="note plain">아직 작품이 없어요. 아래에서 새 작품을 만드세요.</div>'}
     <section class="card" style="max-width:720px">
       <h2>새 작품</h2>
@@ -1879,8 +2271,18 @@ function viewProjects() {
 
 // ----- 작품 홈 -----
 
+/** 사이드바 자동 집필 메뉴: 진행 중이거나 사람을 기다리면 다른 화면에서도 보이게 상태를 붙인다. */
+function autoMenuLabel() {
+  const r = S.auto && S.auto.run;
+  if (S.auto && S.auto.active) return '자동 집필 · 진행 중';
+  const wait = r && { review: '검토 대기', paused: '일시정지', error: '오류로 멈춤' }[r.status];
+  return wait ? `자동 집필 · ${wait}` : '자동 집필';
+}
+
 function nextStep() {
   const p = P();
+  const r = S.auto && S.auto.run;
+  if (r && r.status === 'review' && r.pending && !S.deltas[r.ep]) return [`${r.ep}화 자동 집필 변경안 검토`, base() + '/auto'];
   if (!p.characters.length) return ['설정 시작', base() + '/setup'];
   if (serial()) {
     const open = p.episodes.find((e) => e.status !== 'finalized');
@@ -1961,6 +2363,7 @@ function viewHome() {
       </section>
       <section class="card"><div class="between"><h2>확정 사실</h2><span class="small">${p.facts.length}개</span></div>
         ${p.facts.length ? `<ul style="padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:13px;line-height:1.5;color:var(--text-2)">${p.facts.slice(-8).map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` : '<div class="small">없음</div>'}
+        ${p.facts.length > 8 ? `<details><summary class="small">전체 ${p.facts.length}개 보기</summary><ol style="padding-left:22px;display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.5;color:var(--text-2);margin-top:8px">${p.facts.map((f) => `<li>${esc(f)}</li>`).join('')}</ol></details>` : ''}
         ${lastWarn.length ? `<div class="note warn">최근 경고: ${lastWarn.map(esc).join(' / ')}</div>` : ''}
       </section>
     </div>`;
@@ -2175,10 +2578,13 @@ async function loadNames(key, req, ai) {
   });
 }
 
+/** 이름 점검에 필요한 칸만 (작품 전체를 보내지 않는다, web.NameCheckIn). */
+const nameCheckBody = () => ({ meta: P().meta, world: P().world, characters: P().characters, cast_candidates: P().cast_candidates });
+
 let nameSeq = 0;
 async function checkNames(show = false) {
   const my = ++nameSeq;
-  const r = await api('POST', `/projects/${enc(S.name)}/names/check`, P()).catch(() => null);
+  const r = await api('POST', `/projects/${enc(S.name)}/names/check`, nameCheckBody()).catch(() => null);
   if (!r || my !== nameSeq) return;  // 더 나중에 보낸 점검이 있으면 그 결과를 쓴다
   S.nameCheck = r;
   const box = $('#name-check');
@@ -2312,14 +2718,27 @@ function sugEnd(id) {
   return P().characters.find((c) => c.id === id) || null;
 }
 
+// 설정 제안에서 칸마다 고르는 기본 정보 · 세계관 (pipeline.apply_setup 은 빈 칸만 채운다)
+const SUG_FIELDS = [['theme', '주제'], ['tone', '톤'], ['world.setting', '배경'], ['world.era', '시대'], ['world.rules', '규칙'], ['world.locations', '장소'], ['world.name_style', '이름 스타일'], ['world.name_rules', '이름 규칙']];
+/** 제안(SetupSuggestion)이나 작품(Project)의 그 칸 글. 작품의 주제 · 톤은 meta 에 있다. */
+function sugValue(o, k) {
+  const v = k.startsWith('world.') ? o.world[k.slice(6)] : (o.meta ? o.meta[k] : o[k]);
+  return Array.isArray(v) ? v.join(', ') : String(v || '');
+}
+
 function viewSuggestion() {
   const s = S.suggestion;
   const exists = (c) => sameChar(c);
   const clash = (c) => !sameChar(c) && P().characters.some((x) => x.id === c.id);
   return `<section class="card" style="border:2px solid var(--accent)">
-    <div class="between"><h2>AI 제안 <span class="chip ai">반영 전</span></h2><div class="row"><button class="btn small" data-action="dropSuggestion">버리기</button><button class="btn small primary" data-action="applySuggestion">선택 항목 반영</button></div></div>
+    <div class="between"><h2>AI 제안 <span class="chip ai">반영 전</span></h2>${proposalActions(['dropSuggestion'], ['applySuggestion'])}</div>
     <p class="small">주제, 톤, 세계관은 비어 있는 칸에만 들어갑니다. 이미 있는 인물 id 는 건너뜁니다.</p>
-    <div class="grid-2"><div class="note plain"><strong>주제</strong> ${esc(s.theme)}<br><strong>톤</strong> ${esc(s.tone)}</div><div class="note plain"><strong>배경</strong> ${esc(s.world.setting)} ${esc(s.world.era)}<br><strong>규칙</strong> ${s.world.rules.map(esc).join(', ')}</div></div>
+    <div class="sug-fields">${SUG_FIELDS.map(([k, label]) => {
+    const v = sugValue(s, k);
+    if (!v.length) return '';
+    const have = sugValue(P(), k).length > 0;
+    return `<label class="row sug-field${have ? ' skip' : ''}"><input type="checkbox" data-pick="sf:${k}"${!have && S.picks['sf:' + k] !== false ? ' checked' : ''}${have ? ' disabled' : ''}><strong>${label}</strong> <span>${esc(v)}</span>${have ? ' <span class="small">이미 있음 · 건너뜀</span>' : ''}</label>`;
+  }).join('')}</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
       ${s.characters.map((c, i) => `<label class="char-card suggested" style="cursor:pointer"><span class="row"><input type="checkbox" data-pick="sc${i}"${S.picks['sc' + i] ? ' checked' : ''}${exists(c) ? ' disabled' : ''}><strong>${esc(c.name)}</strong><span class="small">${esc(c.role)} · ${esc(c.id)}${exists(c) ? ' · 이미 있음' : clash(c) ? ' · 같은 id 의 다른 인물이 있어 새 id 로 넣어요' : ''}</span></span>
         <span style="font-size:13px;line-height:1.5">목표: ${esc(c.goal)}<br>말투: ${esc(c.speech_style)}</span></label>`).join('')}
@@ -2378,6 +2797,16 @@ function profileFields(base, root) {
 }
 
 /** 작품 문체 화면 위쪽: 라이브러리에서 가져오기, 라이브러리에 저장하기 */
+/** 라이브러리와 다를 때 어느 쪽이 바뀌었는지 (library.link_state 의 mine · theirs). */
+function styleChangeWho(l) {
+  const mine = (l.mine || []).length > 0;
+  const theirs = (l.theirs || []).length > 0;
+  if (!l.base_known) return l.applied && l.version > l.applied ? `이 작품은 ${l.applied}번 버전, 라이브러리는 ${l.version}번 버전이에요` : '이 작품에서 고쳤거나 라이브러리가 바뀌었어요';
+  if (mine && theirs) return `이 작품도 고쳤고, 라이브러리도 ${l.applied}번 → ${l.version}번 버전으로 바뀌었어요`;
+  if (theirs) return `라이브러리가 ${l.applied}번 → ${l.version}번 버전으로 바뀌었어요. 이 작품은 그대로예요`;
+  return '이 작품에서 고쳤어요. 라이브러리는 가져온 버전 그대로예요';
+}
+
 function styleLibraryCard() {
   const libs = S.libs || [];
   const l = S.styleLink || { state: 'none' };
@@ -2386,14 +2815,17 @@ function styleLibraryCard() {
     none: '<span class="small">이 작품에서 직접 만든 문체예요.</span>',
     missing: '<span class="small">가져온 라이브러리 항목이 지워졌어요. 작품에 복사된 문체는 그대로 씁니다.</span>',
     same: `<span class="chip finalized">라이브러리와 같음</span> <a href="#/styles/${esc(l.id)}">${esc(l.name)}</a> <span class="small">${l.version}번 버전</span>`,
-    changed: `<span class="chip written">라이브러리와 다름</span> <a href="#/styles/${esc(l.id)}">${esc(l.name)}</a> <span class="small">${l.applied && l.version > l.applied ? `이 작품은 ${l.applied}번 버전, 라이브러리는 ${l.version}번 버전이에요` : '이 작품에서 고쳤거나 라이브러리가 바뀌었어요'}</span>`,
+    changed: `<span class="chip written">라이브러리와 다름</span> <a href="#/styles/${esc(l.id)}">${esc(l.name)}</a> <span class="small">${styleChangeWho(l)}</span>`,
   }[l.state] || '';
+  const fields = (list) => list.map((c) => esc(c.label)).join(', ');
+  const detail = l.state === 'changed' && ((l.mine || []).length || (l.theirs || []).length)
+    ? `<details><summary class="small">어느 칸이 다른지</summary><div class="small" style="padding-top:6px">${(l.mine || []).length ? `<div>이 작품에서 고친 칸: ${fields(l.mine)}</div>` : ''}${(l.theirs || []).length ? `<div>라이브러리 ${l.version}번 버전에서 바뀐 칸: ${fields(l.theirs)}</div>` : ''}<div>올리기는 작품 쪽을 라이브러리 새 버전으로, 되돌리기는 라이브러리 쪽을 작품에 가져와요.</div></div></details>` : '';
   const linkBtns = l.state === 'changed'
     ? '<button class="btn small" data-action="pushStyle">라이브러리 새 버전으로 올리기</button><button class="btn small" data-action="pullStyle">라이브러리 버전으로 되돌리기</button>'
     : '';
   return `<section class="card tight">
       <div class="between"><h2>문체 라이브러리</h2><a class="small" href="#/styles">라이브러리 열기</a></div>
-      <div class="row">${status}</div>
+      <div class="row">${status}</div>${detail}
       <div class="row" style="flex-wrap:nowrap">
         ${libs.length
           ? `<select id="style-pick" aria-label="라이브러리 문체" style="flex:1"><option value="">라이브러리에서 고르기</option>${opts}</select><button class="btn small" style="flex:none" data-action="useLibStyle">적용</button>`
@@ -2627,7 +3059,9 @@ function viewArc() {
   const sel = S.selEp ? ep(S.selEp) : null;
 
   let board;
-  if (!p.arc.length) {
+  if (S.arcProposal) {
+    board = arcProposalCard();
+  } else if (!p.arc.length) {
     board = `<div class="card empty"><p>아직 기승전결 구조가 없어요.</p>${((b) => `<button class="btn primary" data-action="planArc"${b.attr}>${b.label}</button>`)(jobBtn('arc', null, 'AI 로 구조 만들기'))}</div>`;
   } else {
     board = `<div class="board-wrap">${eps.length ? '' : '<div class="note info">구간을 확인한 뒤 <strong>화별 플롯 초안 만들기</strong>를 누르면 각 구간에 화 카드가 채워집니다.</div>'}${actBoard(p.arc, eps, sel)}</div>`;
@@ -2645,6 +3079,18 @@ function viewArc() {
   const tools = chatButton() + right + `<a class="btn" href="${base()}/convert">장편으로 전환</a>`;
   return `${header('3단계', '기승전결 · 화별 플롯', '구간 목표를 확인하고, 화 카드를 눌러 플롯을 다듬은 뒤 확정하세요. 확정된 화만 본문을 쓸 수 있고, 초안을 다시 만들어도 확정된 화는 그대로입니다.', tools)}
     ${board}${drawer}${chatPanel('plot')}`;
+}
+
+/** 구조 제안: 구간마다 지금 값과 바꿀 값을 나란히 보인다 (대화 변경안과 같은 비교, chat.js actsDiff). */
+function arcProposalCard() {
+  const has = P().arc.length > 0;
+  const diff = has ? actsDiff({ acts: S.arcProposal, total_episodes: 0 }) : '';
+  const rows = has ? (diff || '<div class="small">지금 구조와 같아요.</div>')
+    : S.arcProposal.map((a) => `<div class="diff-act"><span class="chip ${actClass(a.name)}">${a.name}</span><div class="diff-row"><span class="act-label">범위</span><ins>${a.start_ep}–${a.end_ep}화</ins></div>${ACT_FIELDS.map(([k, l]) => diffField(l, k, '', a[k])).join('')}</div>`).join('');
+  return `<section class="card proposal" aria-label="AI 구조 제안">
+    <div class="between"><h2>AI 구조 제안 <span class="chip ai">반영 전</span></h2>${proposalActions(['dropArcProposal'], ['useArcProposal'], has ? '이 구조로 바꾸기' : '이 구조로 시작')}</div>
+    <p class="small">${has ? '지우는 것은 빨강, 새로 넣는 것은 초록이에요. 바꿔도 저장하기 전에는 작품에 들어가지 않아요.' : '고르면 구조가 생기고, 저장하면 작품에 들어가요.'}</p>
+    <div class="diff">${rows}</div></section>`;
 }
 
 function actEditor(i) {
@@ -3020,8 +3466,8 @@ function viewWrite(n) {
       <div class="row" style="margin-top:6px"><button class="btn small" data-action="copyOrphan" data-arg="${n}">초고 복사</button><button class="btn small danger" data-action="dropOrphan" data-arg="${n}">초고 버리기</button></div></div>` : ''}
     ${editable && autoOn() ? `<div class="note warn">자동 집필이 도는 동안은 본문을 저장할 수 없어요. 쓰던 글은 이 화면에 남아 있어요. 저장하려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요.</div>` : ''}
     ${e.text && editable ? rewritePanel(n) + candidateCard(n) : ''}
-    <div class="cols" style="gap:16px">
-      <aside class="card tight" style="flex:1 1 260px;min-width:0" aria-label="이번 화 플롯">
+    <div class="cols write-cols" style="gap:16px">
+      <aside class="card tight w-plot" style="flex:1 1 260px;min-width:0" aria-label="이번 화 플롯">
         <h3>이번 화 플롯</h3>
         ${act ? `<div class="note info"><strong>구간 목표</strong> · ${esc(act.goal)}</div>` : ''}
         <p style="font-size:13px;line-height:1.6;color:var(--text-2)">${esc(e.plot.summary)}</p>
@@ -3034,10 +3480,11 @@ function viewWrite(n) {
         ${e.plot.reader_question ? `<div class="field"><span class="small">독자가 들고 갈 질문</span><div style="font-size:13px">${esc(e.plot.reader_question)}</div></div>` : ''}
         ${e.summary ? `<div class="field"><span class="small">승인된 요약</span><div style="font-size:13px;line-height:1.6">${esc(e.summary)}</div></div>` : ''}
         ${issuesBlock(e)}
+        ${e.text && !autoOn() ? ((b) => `<button class="btn small" data-action="checkEp" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('check', n, e.issues.length ? '다시 검수' : '검수하기')) : ''}
         ${deviceBadges(n)}
         <a href="${base()}/arc" data-action="gotoPlot" data-arg="${n}" style="font-size:13px">플롯 보기</a>
       </aside>
-      <section class="card" style="flex:3 1 520px;min-width:0;padding:0;gap:0" aria-label="본문">
+      <section class="card w-body" style="flex:3 1 520px;min-width:0;padding:0;gap:0" aria-label="본문">
         <div class="between" style="padding:10px 16px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)">
           <span>${e.status === 'finalized' ? '상태 반영까지 끝난 화는 읽기 전용이에요. 드래그하면 삽화 프롬프트를 만들 수 있어요' : e.text ? '고칠 부분을 드래그하면 직접 고치거나 AI 에게 맡기거나 삽화 프롬프트를 만들 수 있어요' : '본문을 직접 고친 뒤 저장할 수 있어요'}</span>
           <span class="row"><span><strong id="char-count" style="color:var(--text)">${(text || '').length.toLocaleString()}</strong> / ${Number(P().meta.words_per_episode).toLocaleString()}자</span>
@@ -3047,7 +3494,7 @@ function viewWrite(n) {
         ${e.text ? passageNotes(n) ? `<div style="padding:12px 16px 0;display:flex;flex-direction:column;gap:8px">${passageNotes(n)}</div>` : '' : ''}
         ${center}
       </section>
-      <aside class="card tight" style="flex:1 1 260px;min-width:0" aria-label="복사 · 내보내기와 AI 에게 보내는 컨텍스트">
+      <aside class="card tight w-side" style="flex:1 1 260px;min-width:0" aria-label="복사 · 내보내기와 AI 에게 보내는 컨텍스트">
         ${exportCard(n)}
         <h3>AI 에게 보내는 컨텍스트</h3>
         ${ctx}
@@ -3071,12 +3518,19 @@ function viewReview(n) {
 
   if (e.status === 'finalized') {
     const h = [...P().history].reverse().find((d) => d.episode === n);
-    return top('이 화는 상태 반영이 끝났어요. 반영된 내용입니다.') + (h ? historyView(h) : '<div class="note plain">반영 기록이 없습니다.</div>');
+    const canRevert = P().snapshots.some((s) => s.episode === n - 1);
+    return top('이 화는 상태 반영이 끝났어요. 반영된 내용입니다.', canRevert ? `<button class="btn" data-action="revertFrom" data-arg="${n}">${n}화부터 반영 취소</button>` : '') + (h ? historyView(h) : '<div class="note plain">반영 기록이 없습니다.</div>');
   }
   if (e.status !== 'written') {
     return top('') + `<div class="card empty"><p>${n}화 본문이 아직 없어요. 본문을 쓴 뒤 상태를 정리합니다.</p><a class="btn primary" href="${base()}/write/${n}">${n}화 집필로</a></div>`;
   }
   const d = S.deltas[n];
+  const ar = S.auto && S.auto.run;
+  if (!d && ar && ar.status === 'review' && ar.ep === n && ar.pending) {
+    // 자동 집필이 이미 만든 변경안이 있다. 다시 만들면 AI 비용이 또 든다
+    return top('자동 집필이 이 화에서 멈추고 만든 변경안이 있어요. 불러와 고른 항목만 반영한 뒤 자동 집필에서 이어 가세요.') +
+      `<div class="card"><div class="row"><button class="btn primary" data-action="autoOpenReview">자동 집필 변경안 불러오기</button><a class="btn" href="${base()}/auto">자동 집필로</a></div></div>`;
+  }
   if (!d) {
     return top('AI 가 본문에서 인물 상태, 관계, 확정 사실, 복선을 뽑아 변경안을 만듭니다. 승인한 항목만 데이터에 반영됩니다.') +
       `<div class="cols"><section class="card col"><h2>AI 로 뽑기</h2><p class="desc">${esc(S.config && S.config.stages ? S.config.stages.state.model : '')} 로 ${n}화 본문을 읽고 변경안을 만듭니다.</p><div>${((b) => `<button class="btn primary" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '변경안 만들기'))}</div></section>
@@ -3176,9 +3630,20 @@ function relationHeader(title) {
 function relationLines(rel) {
   if (!rel) return '<div class="small">계산하는 중…</div>';
   if (rel.error) return `<div class="note err">${esc(rel.error)}</div>`;
-  const text = P().settings.show_numbers ? rel.numbers : rel.words;
+  const key = P().settings.show_numbers ? 'numbers' : 'words';
+  const text = rel[key];
   if (!text) return '<div class="small">관계가 없어요. 설정 도우미에서 관계를 추가하세요.</div>';
-  return `<ul class="rel-lines">${text.split('\n').map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`;
+  if (!rel.before) return `<ul class="rel-lines">${text.split('\n').map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`;
+  // 미리보기: 줄마다 지금 값과 비교한다. 줄 앞 '도현 → 서윤' 같은 쌍으로 맞춘다
+  const pair = (l) => l.split(':')[0].split(' (')[0].split(' 서로')[0].trim();
+  const now = new Map((rel.before[key] || '').split('\n').filter(Boolean).map((l) => [pair(l), l]));
+  const lines = text.split('\n').filter(Boolean);
+  const changed = lines.filter((l) => now.get(pair(l)) !== l).length;
+  return `<div class="small">${changed ? `반영하면 ${changed}줄이 바뀌어요. 바뀌는 줄 아래에 지금 값을 함께 보여요.` : '반영해도 관계는 그대로예요.'}</div>
+    <ul class="rel-lines">${lines.map((l) => {
+    const was = now.get(pair(l));
+    return was === l ? `<li class="same">${esc(l)}</li>` : `<li class="changed"><ins>${esc(l)}</ins>${was ? `<div class="small">지금: ${esc(was)}</div>` : '<div class="small">새 관계</div>'}</li>`;
+  }).join('')}</ul>`;
 }
 
 // ----- 6. 작업지시서 -----

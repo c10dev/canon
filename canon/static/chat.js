@@ -26,7 +26,7 @@ Object.assign(S, {
 });
 
 const PLOT_FIELDS = [
-  ['title', '제목'], ['summary', '요약'], ['events', '사건 순서'], ['characters', '등장 인물'],
+  ['title', '제목'], ['opening', '여는 장면'], ['summary', '요약'], ['events', '사건 순서'], ['characters', '등장 인물'],
   ['emotional_shift', '감정 변화'], ['ending_hook', '엔딩 훅'], ['foreshadow_plant', '심을 복선'], ['foreshadow_payoff', '회수할 복선'],
   ['storyline', '이야기 줄기'], ['threads', '끼어드는 줄기'], ['pov', '시점 인물'], ['pov_mode', '서술 방식'],
 ];
@@ -132,10 +132,12 @@ function proposal(m, i) {
     const locked = cur && LOCKED_STATUS.includes(cur.status);
     const note = locked ? '<div class="note plain">본문이 생겨서 이제는 바꿀 수 없어요.</div>'
       : cur && cur.status === 'confirmed' && open ? '<div class="note warn">확정한 화예요. 반영하면 초안으로 돌아가 다시 확정해야 해요.</div>' : '';
+    // 화가 많으면 길어진다: 새 화는 접고, 바뀌는 화는 3화까지만 펼친다
+    const fold = !cur || rev.episodes.length > 3;
     parts.push(`<div class="prop-part">
       <div class="between"><label class="prop-head">${box(pickKey(i, e.number), locked)}<strong>${e.number}화</strong> ${esc(e.title)}${cur ? ` <span class="chip ${cur.status}">${STATUS[cur.status]}</span>` : ' <span class="chip ai">새 화</span>'}</label>
         ${cur ? `<button type="button" class="btn small" data-action="selectEp" data-arg="${e.number}">지금 플롯</button>` : ''}</div>
-      ${note}<div class="diff">${plotDiff(e)}</div></div>`);
+      ${note}${fold ? `<details><summary class="small">바뀌는 칸 보기</summary><div class="diff">${plotDiff(e)}</div></details>` : `<div class="diff">${plotDiff(e)}</div>`}</div>`);
   });
   if ((rev.new_characters || []).length) {
     parts.push(`<div class="prop-part"><strong>새 인물</strong>
@@ -144,12 +146,17 @@ function proposal(m, i) {
   }
   const done = m.outcome === 'applied'
     ? `<span class="chip finalized">반영함 · ${m.applied.map((x) => (x === 'acts' ? '구조' : `${x}화`)).join(', ')}</span>`
-    : m.outcome === 'dismissed' ? '<span class="chip">반영 안 함</span>' : '';
+    : m.outcome === 'dismissed' ? '<span class="chip">버림</span>' : '';
   if (!open) {
-    return `<details class="proposal done"><summary>${done} 변경안 다시 보기</summary>${parts.join('')}</details>`;
+    return `<details class="proposal done"><summary>${done} 변경안 다시 보기</summary>${parts.join('')}${m.outcome === 'dismissed' ? `<div class="row proposal-actions"><button type="button" class="btn small" data-action="chatReopen" data-arg="${i}">다시 검토</button></div>` : ''}</details>`;
   }
-  return `<div class="proposal">${parts.join('')}
-    <div class="row"><button class="btn small primary" data-action="chatApply" data-arg="${i}">고른 것 반영</button><button class="btn small" data-action="chatDismiss" data-arg="${i}">반영 안 함</button></div></div>`;
+  // 맨 위 요약: 무엇이 바뀌는지 한 줄로 보고, 여러 화를 한 번에 고르거나 뺀다. 버튼 줄은 아래에 붙어 있다 (.proposal-actions)
+  const nums = rev.episodes.map((e) => e.number);
+  const fresh = rev.episodes.filter((e) => !ep(e.number)).length;
+  const sum = [rev.acts.length ? '구조' : '', nums.length ? `${rangeText(nums)}화${fresh ? `(새 화 ${fresh})` : ''}` : ''].filter(Boolean).join(' · ');
+  const many = nums.length > 3 ? `<button type="button" class="btn small" data-action="chatPickAll" data-arg="${i}|1">모두 고르기</button><button type="button" class="btn small" data-action="chatPickAll" data-arg="${i}|0">모두 빼기</button>` : '';
+  return `<div class="proposal"><div class="between prop-sum"><strong>${esc(sum)}</strong><span class="row">${many}</span></div>${parts.join('')}
+    ${proposalActions(['chatDismiss', i], ['chatApply', i])}</div>`;
 }
 
 // ----- 패널 -----
@@ -265,10 +272,27 @@ Object.assign(actions, {
       toast(`반영했습니다: ${[acts ? '구조' : '', ...episodes.map((n) => `${n}화`)].filter(Boolean).join(', ')}`);
     });
   },
+  chatPickAll(arg) {
+    const [i, on] = String(arg).split('|');
+    const m = chatMessages(S.chatTopic)[Number(i)];
+    m.revision.episodes.forEach((e) => {
+      const cur = ep(e.number);
+      if (!(cur && LOCKED_STATUS.includes(cur.status))) S.chatPicks[pickKey(Number(i), e.number)] = on === '1';
+    });
+    redrawChat();
+  },
   async chatDismiss(i) {
+    // 손보던 후보 글이 있으면 묻는다. 버린 뒤에도 '다시 검토'로 다시 열 수 있다
+    if (Object.keys(S.candEdit || {}).some((k) => k.startsWith(`${i}:`)) && !confirm('손보던 후보 글이 있어요. 버릴까요? 다시 검토로 열면 후보는 다시 보이지만 손본 글은 남지 않아요.')) return;
     await run('정리하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(S.chatTopic)}/${i}/dismiss`);
+    });
+  },
+  async chatReopen(i) {
+    await run('다시 여는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(S.chatTopic)}/${i}/reopen`);
     });
   },
   async chatClear() {
