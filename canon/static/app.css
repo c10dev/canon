@@ -523,17 +523,36 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .usage-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
 .usage-tile { padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); display: flex; flex-direction: column; gap: 4px; }
 .usage-num { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.usage-chart { height: 140px; display: flex; align-items: flex-end; gap: 2px; padding-top: 8px; border-bottom: 1px solid var(--line-strong); }
-.usage-bar { flex: 1 1 0; min-width: 2px; height: 100%; display: flex; align-items: flex-end; cursor: default; }
+.usage-chart { height: 140px; display: flex; align-items: flex-end; gap: 2px; padding-top: 8px; border-bottom: 1px solid var(--line-strong); overflow: hidden; }
+.usage-bar { flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: flex-end; cursor: pointer; }
 .usage-bar i { display: block; width: 100%; background: var(--accent); border-radius: 4px 4px 0 0; }
-.usage-bar:hover i, .usage-bar:focus i { background: var(--accent-ink); }
-.usage-bar:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+.usage-bar:hover i, .usage-bar.on i { background: var(--accent-ink); }
+.usage-bar.on { box-shadow: inset 0 -3px 0 var(--accent-ink); }
+.usage-pick { min-height: 1.5em; }
+.usage-err { display: inline-block; max-width: 260px; white-space: normal; vertical-align: top; }
+.usage-err summary { cursor: pointer; }
+@media (max-width: 640px) { .usage-chart { gap: 1px; } }
 .usage-table td, .price-table td { font-variant-numeric: tabular-nums; }
 .usage-share { width: 80px; }
 .usage-share i { display: block; height: 8px; min-width: 2px; border-radius: 4px; background: var(--accent); opacity: 0.5; }
 .chip.usage-fail { background: var(--red-soft); color: var(--red); }
-.price-table input { min-height: 34px; width: 76px; }
-.price-table input[type="text"] { width: 170px; }
+.price-table input { min-height: 34px; width: 64px; }
+.price-table input[type="text"] { width: 160px; }
+.price-table input.price-since { width: 104px; }
+.price-model .small { margin-top: 4px; }
+/* 가로로 더 있을 때 오른쪽 끝에 그림자 (배경이 칸과 함께 움직이는 local 덮개가 끝에 닿으면 그림자가 드러난다) */
+.price-scroll { background: linear-gradient(to left, var(--surface) 30%, transparent) right center / 24px 100% no-repeat local,
+  radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, 0.18), transparent) right center / 12px 100% no-repeat scroll; }
+@media (max-width: 720px) {
+  /* 좁은 폭: 줄마다 카드 (모델 · 시작일 한 줄, 가격 다섯 칸은 두 열) */
+  .price-table thead { display: none; }
+  .price-table, .price-table tbody { display: block; }
+  .price-table tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .price-table td { display: block; padding: 0; border: none; }
+  .price-table td[data-label]::before { content: attr(data-label); display: block; font-size: 0.75rem; color: var(--text-2); margin-bottom: 2px; }
+  .price-table input, .price-table input[type="text"], .price-table input.price-since { width: 100%; }
+  .price-table .price-act { align-self: end; }
+}
 
 /* 삽화 프롬프트 (illust.js) */
 .ill-list { display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }

@@ -1758,9 +1758,9 @@ def brief(name: str, n: int, kind: str = "episode") -> dict:
 # ---------- 연구 (모델 실험, 작품 데이터와 분리) ----------
 
 @app.get("/api/usage")
-def usage_summary(days: int = 30, project: str | None = None) -> dict:
-    """AI 호출 기록을 기간과 작품으로 걸러 모은다. days 가 0 이면 전체."""
-    return usage.summary(days or None, project or None)
+def usage_summary(days: int = 30, project: str | None = None, limit: int = 60) -> dict:
+    """AI 호출 기록을 기간과 작품으로 걸러 모은다. days 가 0 이면 전체. limit 은 최근 호출 목록의 길이 (1~1000)."""
+    return usage.summary(days or None, project or None, max(1, min(limit, 1000)))
 
 
 @app.get("/api/usage/prices")

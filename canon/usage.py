@@ -334,6 +334,7 @@ def summary(days: Optional[int] = 30, project: Optional[str] = None, limit: int 
         "by_stage": listing("stage"), "by_model": listing("model"), "by_source": listing("source"),
         "unpriced": sorted(unpriced),
         "trouble": trouble[::-1][:limit], "recent": recent[::-1][:limit],
+        "trouble_total": len(trouble), "limit": limit,
         "billing_url": BILLING_URL, "prices_url": PRICES_URL,
     }
 
