@@ -1555,21 +1555,58 @@ def parse_state(name: str, n: int, body: Raw) -> StateDelta:
     화 번호는 이 화로 채운다 (채팅 앱이 episode 를 빼먹어도 받는다)."""
     p = _load(name)
     p.episode(n)
-    text = body.raw.strip()
-    a, b = text.find("{"), text.rfind("}")
+    raw = body.raw
+    a, b = raw.find("{"), raw.rfind("}")
     if a < 0 or b < a:
         raise HTTPException(400, "JSON을 찾지 못했어요. 채팅 앱 답에서 { 로 시작하는 부분을 붙여 넣으세요")
     try:
-        data = json.loads(text[a:b + 1])
+        data = json.loads(raw[a:b + 1])
     except json.JSONDecodeError as e:
-        raise HTTPException(400, f"JSON 형식이 맞지 않아요: {e.msg} ({e.lineno}번째 줄 {e.colno}번째 글자)")
+        # 줄 · 글자 번호는 붙여 넣은 원문 기준으로 센다 (앞 설명문이나 코드 블록 표시까지 포함)
+        pos = a + e.pos
+        line, col = raw.count("\n", 0, pos) + 1, pos - raw.rfind("\n", 0, pos)
+        raise HTTPException(400, f"JSON 형식이 맞지 않아요: {line}번째 줄 {col}번째 글자 근처에서 {_json_reason(raw, pos, e.msg)}")
     if not isinstance(data, dict):
         raise HTTPException(400, "JSON이 { } 로 묶인 객체가 아니에요")
     data["episode"] = n
     try:
         return StateDelta.model_validate(data)
     except ValidationError as e:
-        raise HTTPException(400, f"JSON 형식이 맞지 않아요: {e.errors()[0]['msg']} ({'.'.join(map(str, e.errors()[0]['loc']))})")
+        err = e.errors()[0]
+        loc = ".".join(map(str, err["loc"]))
+        why = _VALIDATION_REASON.get(err["type"], err["msg"])
+        raise HTTPException(400, f"JSON 내용이 맞지 않아요: {f'{loc} 칸이 ' if loc else ''}{why}")
+
+
+# json 모듈의 영어 오류 → 화면 문구
+_JSON_REASON = {
+    "Expecting ',' delimiter": "쉼표(,)가 빠졌어요",
+    "Illegal trailing comma before end of object": "마지막 항목 뒤에 쉼표가 남았어요",
+    "Illegal trailing comma before end of array": "마지막 항목 뒤에 쉼표가 남았어요",
+    "Expecting ':' delimiter": "쌍점(:)이 빠졌어요",
+    "Expecting property name enclosed in double quotes": "칸 이름을 큰따옴표로 감싸지 않았어요",
+    "Expecting value": "값이 비었거나 잘못됐어요",
+    "Extra data": "JSON이 끝난 뒤에 글이 더 있어요",
+    "Unterminated string starting at": "따옴표가 닫히지 않았어요",
+    "Invalid control character at": "글자 안에 줄바꿈 같은 제어 문자가 그대로 있어요",
+    "Invalid \\escape": "역슬래시(\\) 표기가 잘못됐어요",
+}
+# pydantic 검증 오류 종류 → 화면 문구 ('… 칸이' 뒤에 붙는다)
+_VALIDATION_REASON = {
+    "missing": "없어요", "string_type": "글자여야 해요", "int_type": "정수여야 해요", "int_parsing": "정수여야 해요",
+    "float_type": "숫자여야 해요", "float_parsing": "숫자여야 해요", "bool_type": "true 나 false 여야 해요",
+    "bool_parsing": "true 나 false 여야 해요", "list_type": "목록([ ])이어야 해요", "model_type": "{ } 로 묶인 객체여야 해요",
+    "dict_type": "{ } 로 묶인 객체여야 해요", "literal_error": "정해진 값 중 하나여야 해요", "enum": "정해진 값 중 하나여야 해요",
+    "extra_forbidden": "필요 없는 칸이에요",
+}
+
+
+def _json_reason(raw: str, pos: int, msg: str) -> str:
+    """json 오류를 한국어로. 닫는 괄호 앞에 쉼표가 남은 경우는 따로 알린다 (채팅 앱 답에 흔하다)."""
+    before = raw[:pos].rstrip()
+    if raw[pos:pos + 1] in ("}", "]") and before.endswith(","):
+        return "마지막 항목 뒤에 쉼표가 남았어요"
+    return _JSON_REASON.get(msg, msg)
 
 
 @app.post("/api/projects/{name}/episodes/{n}/apply")
@@ -1734,9 +1771,9 @@ def brief(name: str, n: int, kind: str = "episode") -> dict:
 # ---------- 연구 (모델 실험, 작품 데이터와 분리) ----------
 
 @app.get("/api/usage")
-def usage_summary(days: int = 30, project: str | None = None) -> dict:
-    """AI 호출 기록을 기간과 작품으로 걸러 모은다. days 가 0 이면 전체."""
-    return usage.summary(days or None, project or None)
+def usage_summary(days: int = 30, project: str | None = None, limit: int = 60) -> dict:
+    """AI 호출 기록을 기간과 작품으로 걸러 모은다. days 가 0 이면 전체. limit 은 최근 호출 목록의 길이 (1~1000)."""
+    return usage.summary(days or None, project or None, max(1, min(limit, 1000)))
 
 
 @app.get("/api/usage/prices")

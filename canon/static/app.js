@@ -1783,19 +1783,28 @@ const actions = {
     if (key) body.api_key = key;
     const lkey = $('#set-local-key').value.trim();
     if (lkey) body.local_key = lkey;
-    await run('저장 중', async () => {
+    const ok = await run('저장 중', async () => {
       S.config = await api('PUT', '/config', body);
       S.health = await api('GET', '/config/health').catch(() => null);
       S.settingsDirty = false;
+      settingsSavedAt = { what: '저장했어요', at: new Date().toISOString() };
       toast('설정을 저장했어요');
     }, { render: 'success' });  // 실패하면 다시 그리지 않아 적은 키와 모델이 칸에 남는다
+    if (ok) $('[data-action="saveSettings"]')?.focus();  // 다시 그리면 초점이 페이지 처음으로 가므로 돌려준다
+    return ok;
   },
   async clearKey() {
     if (!confirm('저장된 API 키를 지울까요?')) return;
-    await run('지우는 중', async () => {
+    const ok = await run('지우는 중', async () => {
       S.config = await api('PUT', '/config', { clear_key: true });
+      settingsSavedAt = { what: '키를 지웠어요', at: new Date().toISOString() };
       toast('키를 지웠어요');
     });
+    if (ok) $('#set-key')?.focus();
+  },
+  settingsBack() {
+    if (settingsNavs > 0) history.back();
+    else location.hash = S.name ? base() : '#/';
   },
   async loadModels() {
     await loadModelList(true);
@@ -1815,12 +1824,14 @@ const actions = {
 
   // 작업지시서
   openStateBrief(n) {
-    S.briefTab = 'state';
+    BRIEF_TABS[`${S.name}:${n}`] = 'state';
     location.hash = `${base()}/brief/${n}`;
   },
   setBriefTab(t) {
+    BRIEF_TABS[`${S.name}:${S.route[3]}`] = t;
     S.briefTab = t;
     S.briefText = null;
+    briefImportError = null;
     render();
   },
   async copyBrief() {
@@ -1856,8 +1867,18 @@ const actions = {
   async importJson(n) {
     const raw = $('#imp-json').value;
     if (!raw.trim()) return toast('JSON을 붙여 넣으세요', true);
+    if (S.deltas[n] && !confirm(`${n}화에 검토 중인 변경안이 있어요. 골라 둔 체크와 함께 가져온 JSON으로 바꿀까요?`)) return;
     await run('확인하는 중', async () => {
-      setDelta(n, await api('POST', `/projects/${enc(S.name)}/episodes/${n}/state/parse`, { raw }));
+      let d;
+      try {
+        d = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/state/parse`, { raw });
+      } catch (e) {
+        if (e.status !== 400) throw e;
+        briefImportError = { key: `${S.name}:${n}`, msg: e.message };  // 토스트는 사라지니 ② 칸 아래에 남긴다
+        return;
+      }
+      briefImportError = null;
+      setDelta(n, d, 'chat');
       delete S.briefDraft[`${S.name}:${n}:state`];
       location.hash = `${base()}/review/${n}`;
     });
@@ -1897,7 +1918,8 @@ function refreshPreview(n) {
   }, 250);
 }
 
-function setDelta(n, d) {
+/** source: 변경안을 어디서 받았나 ('chat' 이면 채팅 앱에서 가져온 JSON). 상태 승인 화면 설명에 쓴다 */
+function setDelta(n, d, source = 'ai') {
   S.deltas[n] = d;
   S.deltaBase[n] = ep(n) ? ep(n).text : '';
   S.picks = {};
@@ -1913,7 +1935,7 @@ function setDelta(n, d) {
   d.foreshadow_resolved.forEach((id, i) => { S.picks['x' + i] = P().foreshadows.some((f) => f.id === id); });
   (d.new_characters || []).forEach((_, i) => { S.picks['n' + i] = true; });
   // 받은 그대로의 요약과 체크. 다시 만들 때 고친 것을 버리는지 묻는다 (기본으로 뺀 항목은 고친 것이 아니다)
-  S.deltaOrig[n] = { summary: d.summary, picks: { ...S.picks } };
+  S.deltaOrig[n] = { summary: d.summary, picks: { ...S.picks }, source };
 }
 
 document.addEventListener('click', (e) => {
@@ -2140,6 +2162,7 @@ async function routeNow() {
       }
       if (typeof autoLoad === 'function') await autoLoad(parts[2] === 'auto');
       if (parts[2] === 'brief' && n && ep(n)) {
+        S.briefTab = briefTabFor(n);
         S.briefText = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/brief?kind=${S.briefTab}`).then((r) => r.text).catch((e) => '※ ' + e.message);
       }
     } else {
@@ -2354,9 +2377,41 @@ function header(eyebrow, title, desc, right = '') {
 // ----- 설정 -----
 
 const STAGES = [['plan', '계획 (설정 제안, 문체 분석, 기승전결, 화별 플롯)'], ['write', '본문 쓰기'], ['check', '검수'], ['state', '상태 변경안'],
-  ['name', '이름·지명 AI 추천 (정하지 않으면 계획 단계를 따름)'], ['revise', '본문 부분 수정 (정하지 않으면 본문 쓰기 단계를 따름)'],
-  ['illustration', '삽화 프롬프트 (정하지 않으면 계획 단계를 따름)']];
-const STAGE_PARENT_LABEL = { name: '계획 단계를 따름', revise: '본문 쓰기 단계를 따름' };
+  ['name', '이름·지명 AI 추천'], ['revise', '본문 부분 수정'], ['illustration', '삽화 프롬프트']];
+// 백엔드를 비우면 따르는 단계 (settings.STAGE_PARENT 와 같다)
+const STAGE_PARENT = { name: 'plan', revise: 'write', illustration: 'plan' };
+const STAGE_PARENT_LABEL = { name: '계획 단계를 따름', revise: '본문 쓰기 단계를 따름', illustration: '계획 단계를 따름' };
+
+// 단계 줄의 모델 칸 안내: 지금 고른 백엔드(비우면 부모 단계, 그다음 위 생성 방식)의 기본 모델. 저장 전에도 선택을 따라간다
+function stageModelHint(s) {
+  const c = S.config || {};
+  const val = (sel, saved) => { const el = $(sel); return el ? el.value : saved; };
+  const top = c.provider_source === 'env' ? c.provider : val('#set-provider', c.provider);
+  const prov = (x) => {
+    const st = (c.stages || {})[x] || {};
+    if (st.env === `CANON_LLM_${x.toUpperCase()}`) return st.provider;  // 단계 환경 변수가 이긴다
+    const own = val(`#set-stage-${x}`, (c.stage_settings || {})[x] || '');
+    if (own) return own;
+    return STAGE_PARENT[x] ? prov(STAGE_PARENT[x]) : top;
+  };
+  const p = top === 'mock' ? 'mock' : prov(s);  // 생성 방식이 mock 이면 모든 단계가 mock
+  if (p === 'mock') return '모델: mock';
+  if (p === 'local') return `모델: ${val('#set-local-model', c.local_model) || '서버에 하나뿐인 모델'}`;
+  return `모델: ${val('#set-model', c.model_setting) || '기본'}`;
+}
+
+document.addEventListener('change', (e) => {
+  if (S.route[0] !== 'settings' || !/^set-(stage-|provider$|model$|local-model$)/.test(e.target.id || '')) return;
+  STAGES.forEach(([s]) => {
+    const el = $(`#set-stage-model-${s}`);
+    if (el) el.placeholder = stageModelHint(s);
+  });
+});
+
+// 설정 화면 '돌아가기': 앱 안에서 넘어왔으면 뒤로, 주소로 바로 열었으면 앱 첫 화면(작품 안이면 그 작품)으로
+let settingsNavs = 0;
+window.addEventListener('hashchange', () => { settingsNavs += 1; });
+let settingsSavedAt = null;  // 저장 버튼 옆에 남기는 마지막 저장 시각
 
 function providerOptions(cur) {
   return [['gemini', 'Gemini API'], ['local', '로컬 서버 (OpenAI 호환)'], ['mock', 'mock (AI 호출 없이 화면 확인용)']]
@@ -2370,7 +2425,7 @@ function viewSettings() {
   const keyState = c.key_source === 'none'
     ? '<span class="chip" style="background:var(--red-soft);color:var(--red)">없음</span>'
     : `<span class="chip finalized">${esc(c.key_hint)}</span> <span class="small">${src[c.key_source]}</span>`;
-  return `${header('Canon', '모델 · API 키 설정', '여기서 저장한 값은 이 컴퓨터의 설정 파일에만 들어가요. 작품 폴더나 저장소에는 들어가지 않아요.', '<a class="btn" href="javascript:history.back()">돌아가기</a>')}
+  return `${header('Canon', '모델 · API 키 설정', '여기서 저장한 값은 이 컴퓨터의 설정 파일에만 들어가요. 작품 폴더나 저장소에는 들어가지 않아요.', '<button type="button" class="btn" data-action="settingsBack">돌아가기</button>')}
     <section class="card">
       <div class="field"><label for="set-provider">생성 방식</label>
         <select id="set-provider">
@@ -2398,20 +2453,24 @@ function viewSettings() {
       <p class="desc">예: 계획과 검수는 gemini-4-argon, 상태 변경안과 이름 추천은 빠르고 싼 gemini-3.8-flash, 본문은 로컬 모델. 모델 칸을 비우면 그 백엔드의 기본 모델(위 '모델' 또는 로컬 '모델 이름')을 써요.</p>
       ${STAGES.map(([s, label]) => {
         const st = (c.stages || {})[s] || {};
-        const base = st.provider === 'local' ? (c.local_model || '서버에 하나뿐인 모델') : c.model_setting;
+        // 단계 자체의 환경 변수는 선택보다 우선하고, 물려받은 환경 변수(CANON_LLM, 부모 단계)는 비워 둘 때만 따른다
+        const envLine = (name, own, what) => !name ? '' : name === own
+          ? `<div class="small">환경 변수 ${name} 가 우선해요.</div>`
+          : `<div class="small">비워 두면 환경 변수 ${name} 의 ${what} 따라요.</div>`;
         return `<div class="field"><label for="set-stage-${s}">${label} <span class="hint">지금: ${esc(st.model || '')}</span></label>
           <div class="stage-row">
             <select id="set-stage-${s}" aria-label="${esc(label)} 백엔드"><option value="">${STAGE_PARENT_LABEL[s] || '위 생성 방식을 따름'}</option>${providerOptions((c.stage_settings || {})[s])}</select>
-            <input id="set-stage-model-${s}" type="text" list="model-options" aria-label="${esc(label)} 모델" value="${esc((c.stage_model_settings || {})[s] || '')}" placeholder="모델: ${esc(base || '기본')}">
+            <input id="set-stage-model-${s}" type="text" list="model-options" aria-label="${esc(label)} 모델" value="${esc((c.stage_model_settings || {})[s] || '')}" placeholder="${esc(stageModelHint(s))}">
           </div>
-          ${st.source === 'env' ? `<div class="small">환경 변수 CANON_LLM_${s.toUpperCase()} 가 우선해요.</div>` : ''}
-          ${st.model_source === 'env' ? `<div class="small">환경 변수 CANON_MODEL_${s.toUpperCase()} 가 우선해요.</div>` : ''}</div>`;
+          ${envLine(st.env, `CANON_LLM_${s.toUpperCase()}`, '백엔드를')}
+          ${envLine(st.model_env, `CANON_MODEL_${s.toUpperCase()}`, '모델을')}</div>`;
       }).join('')}
       <div class="small" id="model-status">${modelStatus()}</div>
       <div class="row">
         <button class="btn primary" data-action="saveSettings">저장</button>
         <button class="btn" data-action="testSettings">연결 확인</button>
         ${c.key_source === 'file' ? '<button class="btn danger" data-action="clearKey">저장된 키 지우기</button>' : ''}
+        <span class="small" role="status">${settingsSavedAt ? `${esc(settingsSavedAt.what)} · ${fmtDateTime(settingsSavedAt.at)}` : ''}</span>
       </div>
       <div class="small">설정 파일: ${esc(c.path)}</div>
     </section>
@@ -2435,7 +2494,7 @@ function modelStatus() {
   const m = S.models;
   if (!m) return '모델 목록을 불러오는 중…';
   const part = (name, r) => r.error ? `${name}: 목록을 못 불러옴 (${esc(r.error.slice(0, 120))})` : `${name} ${r.models.length}개`;
-  return `모델 칸을 누르면 고를 수 있어요. ${part('Gemini', m.gemini)} · ${part('로컬 서버', m.local)}. 목록에 없으면 이름을 직접 적어도 돼요. <a href="javascript:void 0" data-action="loadModels">다시 불러오기</a>`;
+  return `모델 칸을 누르면 고를 수 있어요. ${part('Gemini', m.gemini)} · ${part('로컬 서버', m.local)}. 목록에 없으면 이름을 직접 적어도 돼요. <button type="button" class="link-btn" data-action="loadModels">다시 불러오기</button>`;
 }
 
 async function loadModelList(force) {
@@ -3956,7 +4015,7 @@ function viewReview(n) {
   ].join('');
   const section = (title, body) => `<section class="card"><h2>${title}</h2>${body || '<div class="small">변경 없음</div>'}</section>`;
 
-  return top('AI가 본문에서 뽑은 변경안이에요. 체크한 항목만 데이터에 반영되고, 반영해야 다음 화를 쓸 수 있어요.', `<span class="small">${total}건 중 <strong id="pick-count" style="color:var(--text)">${picked}</strong>건 선택</span>`) + stale + issues +
+  return top(`${(S.deltaOrig[n] || {}).source === 'chat' ? '채팅 앱에서 가져온' : 'AI가 본문에서 뽑은'} 변경안이에요. 체크한 항목만 데이터에 반영되고, 반영해야 다음 화를 쓸 수 있어요.`, `<span class="small">${total}건 중 <strong id="pick-count" style="color:var(--text)">${picked}</strong>건 선택</span>`) + stale + issues +
     (d.warnings.length ? `<section class="note warn" role="alert"><strong>경고 ${d.warnings.length}건 · 본문을 고칠지 확인하세요</strong><ul style="padding-left:18px;margin-top:6px">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul><a href="${base()}/write/${n}" style="color:inherit;font-weight:700">본문으로</a></section>` : '') +
     section('인물 상태', chars) +
     (newChars ? section('새로 나온 인물', newChars) : '') +
@@ -4025,6 +4084,11 @@ function relationLines(rel) {
 
 // ----- 6. 작업지시서 -----
 
+// 화마다 고른 지시서 탭 ('작품:화' → 'episode' | 'state'). 고른 적 없는 화는 상태로 정한다: 본문이 있으면 상태 승인 지시서
+const BRIEF_TABS = {};
+const briefTabFor = (n) => BRIEF_TABS[`${S.name}:${n}`] || (ep(n).status === 'written' ? 'state' : 'episode');
+let briefImportError = null;  // 받은 JSON 가져오기에서 서버가 거절한 이유 { key: '작품:화', msg }
+
 function viewBrief(n) {
   const e = ep(n);
   if (!e) return header('작품 도구', '채팅 앱 작업지시서', '') + noEpisode();
@@ -4043,8 +4107,10 @@ function viewBrief(n) {
         <div class="between"><h2><span class="small" style="font-weight:400">① </span>복사해서 채팅 앱에 붙여 넣기</h2>
           <div class="row"><button class="btn small" data-action="downloadBrief" data-arg="${n}"${stateBlocked ? ' disabled' : ''}>.md 내려받기</button><button class="btn small dark" data-action="copyBrief"${stateBlocked ? ' disabled' : ''}>복사</button></div></div>
         ${e.status === 'draft' && body ? '<div class="note warn">플롯이 아직 초안이에요. 확정 전 내용으로 지시서가 만들어져요.</div>' : ''}
-        <pre class="brief mono">${esc(S.briefText ?? '불러오는 중…')}</pre>
-        ${S.briefText ? `<div class="small">${S.briefText.length.toLocaleString()}자</div>` : ''}
+        ${stateBlocked
+          ? `<div class="note plain">${n}화 본문이 아직 없어 상태 승인 지시서를 만들 수 없어요. 본문을 먼저 저장하세요. <button class="btn small" data-action="setBriefTab" data-arg="episode">본문 작성 지시서로</button></div>`
+          : `<pre class="brief mono">${esc(S.briefText ?? '불러오는 중…')}</pre>
+        ${S.briefText ? `<div class="small">${S.briefText.length.toLocaleString()}자</div>` : ''}`}
       </section>
       <section class="card" style="flex:1 1 380px;min-width:0">
         ${body ? `<h2><span class="small" style="font-weight:400">② </span>받은 본문 가져오기</h2>
@@ -4057,6 +4123,7 @@ function viewBrief(n) {
           <label for="imp-json" class="small">채팅 앱의 JSON 답변을 붙여 넣으세요. 코드 블록 표시는 자동으로 지워요.</label>
           <textarea id="imp-json" rows="12" data-brief="${n}:state" class="mono"${e.status !== 'written' ? ' disabled' : ''}>${esc(S.briefDraft[`${S.name}:${n}:state`] || '')}</textarea>
           ${e.status !== 'written' ? '<div class="small">본문이 작성된 화에서만 쓸 수 있어요.</div>' : ''}
+          ${briefImportError && briefImportError.key === `${S.name}:${n}` ? `<div class="note err" role="alert">${esc(briefImportError.msg)}</div>` : ''}
           ${orderNote(order)}
           <div style="align-self:flex-end"><button class="btn primary" data-action="importJson" data-arg="${n}"${e.status !== 'written' || order.length ? ' disabled' : ''}>확인하고 변경안 검토로</button></div>`}
         <div style="padding-top:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px">
@@ -4078,12 +4145,16 @@ const RS_KIND = { sample: '샘플 생성', stage: '단계 시험', budget: '컨�
 function rsInit(name) {
   const c = S.config || {};
   const backend = () => ({ provider: c.provider === 'mock' ? 'mock' : 'local', model: c.local_model || '', url: '' });
+  // 비교 A 는 설정의 본문 쓰기 백엔드, B 는 그와 다른 백엔드 (같으면 서버가 거절한다)
+  const writeProv = ((c.stages || {}).write || {}).provider || c.provider || 'gemini';
+  const cmpA = { provider: writeProv, model: '', url: '' };
+  const cmpB = { provider: writeProv === 'local' ? 'gemini' : 'local', model: '', url: '' };
   S.rs = {
     name, tab: 'probe', log: [], stages: {}, probe: null, probeUrl: c.local_url || '',
     runs: [backend()], system: '너는 한국어 소설가다.', prompt: '', temperature: '', sample: null,
     stageBackend: backend(), stage: 'style', stageText: '', stageResult: null,
     budgetBackend: backend(), budget: null,
-    compareEp: null, compareA: { provider: 'gemini', model: '', url: '' }, compareB: backend(), compare: null, adopt: true, pickResult: null,
+    compareEp: null, compareA: cmpA, compareB: cmpB, compare: null, adopt: true, pickResult: null, probeError: null,
   };
 }
 
@@ -4130,7 +4201,14 @@ Object.assign(actions, {
   },
   async rsProbe() {
     await run('서버를 확인하는 중', async () => {
-      S.rs.probe = await api('POST', '/research/probe', { url: S.rs.probeUrl.trim() });
+      try {
+        S.rs.probe = await api('POST', '/research/probe', { url: S.rs.probeUrl.trim() });
+        S.rs.probeError = null;
+      } catch (e) {
+        if (e.status !== 400) throw e;
+        S.rs.probe = null;
+        S.rs.probeError = e.message;  // 토스트는 사라지니 카드 안에 남긴다
+      }
     });
   },
   rsUseModel(id) {
@@ -4189,10 +4267,11 @@ Object.assign(actions, {
   },
   async rsPick(k) {
     const n = S.rs.compareEp;
-    if (S.rs.adopt && ep(n).text && !confirm(`${k}번을 ${n}화 본문으로 바꿀까요?`)) return;
+    const adopt = S.rs.adopt && ep(n).status !== 'finalized';  // 반영이 끝난 화는 고른 기록만 남긴다
+    if (adopt && ep(n).text && !confirm(`${k}번을 ${n}화 본문으로 바꿀까요?`)) return;
     await run('공개하는 중', async () => {
       await saveIfDirty();
-      const r = await api('POST', `/projects/${enc(S.name)}/research/compare/${n}/pick`, { k, adopt: S.rs.adopt });
+      const r = await api('POST', `/projects/${enc(S.name)}/research/compare/${n}/pick`, { k, adopt });
       S.rs.compare = r.compare;
       S.rs.pickResult = r.result;
       S.project = r.project;
@@ -4238,6 +4317,7 @@ function rsProbeView() {
         <div class="field" style="flex:1"><label for="rs-probe-url">서버 주소 <span class="hint">/v1 까지</span></label><input id="rs-probe-url" type="text" value="${esc(S.rs.probeUrl)}" data-rs="probeUrl" placeholder="http://nhn-b200:8001/v1"></div>
         <button class="btn dark" data-action="rsProbe">점검</button>
       </div>
+      ${S.rs.probeError ? `<div class="note err" role="alert">${esc(S.rs.probeError)}</div>` : ''}
       ${r ? `<div class="note ok">${esc(r.url)} · 서버 ${esc(r.server)}${r.version ? ' ' + esc(r.version) : ''} · 모델 ${r.models.length}개 · ${r.seconds}초</div>
         <div class="rs-scroll"><table class="rs-table"><thead><tr><th>모델</th><th>부모 (LoRA)</th><th>최대 컨텍스트</th><th>제공</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
         <div class="small">컨텍스트가 작은 모델은 '컨텍스트 크기' 탭에서 몇 화부터 넘치는지 확인하세요. 서버 주소와 모델을 고정하려면 <a href="#/settings">설정</a>에 저장하세요.</div>` : ''}
@@ -4320,6 +4400,10 @@ function rsCompareView() {
   const c = S.rs.compare;
   const n = S.rs.compareEp;
   const e = ep(n);
+  // 비교본은 집필과 같은 규칙으로 쓴다: 앞 화가 모두 반영돼야 쓸 수 있다
+  const need = (num) => { const b = blockedBefore(num); return b.length ? ` (${b.length > 3 ? `${b[0]}화 등 ${b.length}개 화` : `${b.join(', ')}화`} 반영 필요)` : ''; };
+  const blocked = e ? blockedBefore(n) : [];
+  const fin = e && e.status === 'finalized';
   const reveal = c && c.order;
   const drafts = c ? c.drafts.map((d) => `<section class="card tight${c.picked === d.n ? ' rs-picked' : ''}">
       <div class="between"><h3>${d.n}번${reveal ? ` <span class="chip ai">${esc(c.order[d.n - 1])}</span>` : ''}</h3>
@@ -4332,11 +4416,11 @@ function rsCompareView() {
   return `<section class="card">
       <p class="desc">같은 화를 두 백엔드로 쓰고 1, 2번으로 가려요. 읽고 고르면 어느 쪽이었는지 공개해요. 프롬프트는 집필 화면과 같아요.</p>
       <div class="field" style="max-width:320px"><label for="rs-cmp-ep">화</label>
-        <select id="rs-cmp-ep" onchange="actions.rsCompareEp()">${eps.map((x) => `<option value="${x.plot.number}"${x.plot.number === n ? ' selected' : ''}>${x.plot.number}화 ${esc(x.plot.title)} · ${STATUS[x.status]}</option>`).join('') || '<option>확정된 화가 없어요</option>'}</select></div>
+        <select id="rs-cmp-ep" onchange="actions.rsCompareEp()">${eps.map((x) => `<option value="${x.plot.number}"${x.plot.number === n ? ' selected' : ''}>${x.plot.number}화 ${esc(x.plot.title)} · ${STATUS[x.status]}${need(x.plot.number)}</option>`).join('') || '<option>확정된 화가 없어요</option>'}</select></div>
       <div class="grid-2"><div><h3>A</h3>${rsBackendFields('compareA', S.rs.compareA)}</div><div><h3>B</h3>${rsBackendFields('compareB', S.rs.compareB)}</div></div>
-      <label class="check-row"><input type="checkbox" data-rs="adopt"${S.rs.adopt ? ' checked' : ''}><span><strong>고른 쪽을 본문으로 채택</strong> <span class="small">끄면 고른 기록만 남기고 작품은 그대로 둬요. 반영이 끝난 화는 채택할 수 없어요.</span></span></label>
-      <div><button class="btn dark" data-action="rsCompare"${eps.length && e && e.status !== 'draft' ? '' : ' disabled'}>${n}화 비교본 쓰기</button></div>
-      ${e && e.status === 'finalized' ? '<div class="small">이 화는 반영이 끝났어요. 비교본을 쓰려면 이전 화들이 반영 완료여야 하고, 채택은 끈 채로 고르세요.</div>' : ''}
+      <label class="check-row"><input type="checkbox" data-rs="adopt"${S.rs.adopt && !fin ? ' checked' : ''}${fin ? ' disabled' : ''}><span><strong>고른 쪽을 본문으로 채택</strong> <span class="small">끄면 고른 기록만 남기고 작품은 그대로 둬요. 반영이 끝난 화는 채택할 수 없어요.</span></span></label>
+      <div><button class="btn dark" data-action="rsCompare"${eps.length && e && e.status !== 'draft' && !blocked.length ? '' : ' disabled'}>${n}화 비교본 쓰기</button></div>
+      ${blocked.length ? orderNote(blocked) : fin ? '<div class="note plain">이 화는 반영이 끝난 화라 골라도 본문은 바뀌지 않고 고른 기록만 남아요.</div>' : ''}
     </section>
     ${S.rs.pickResult ? `<div class="note ok">${esc(S.rs.pickResult.picked)} 를 골랐어요. 지금까지 고른 횟수: ${wins}</div>` : ''}
     ${c ? `<div class="small">${esc(fmtDateTime(c.created))}에 쓴 비교본${c.picked ? '' : ' · 고르기 전까지 백엔드를 가려요'}</div><div class="rs-compare">${drafts}</div>` : ''}`;

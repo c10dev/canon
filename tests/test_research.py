@@ -95,6 +95,8 @@ class ResearchTest(unittest.TestCase):
         self.assertEqual([m["max_model_len"] for m in r["models"]], [4096, None])
         bad = self.c.post("/api/research/probe", json={"url": "http://127.0.0.1:9/v1"})
         self.assertEqual(bad.status_code, 400)
+        self.assertIn("서버가 꺼져 있거나", bad.json()["detail"])
+        self.assertNotIn("Errno", bad.json()["detail"])
 
     def test_lora_uses_parent_context_limit(self):
         from canon.llm import LocalLLM
@@ -167,6 +169,11 @@ class ResearchTest(unittest.TestCase):
 
         same = self.c.post(f"{self.api}/research/compare/1", json={"a": {"provider": "mock"}, "b": {"provider": "mock"}})
         self.assertEqual(same.status_code, 400)
+
+        # 앞 화 반영이 남은 화는 쓰지 않고, 막힌 화를 사람이 읽는 꼴로 알린다
+        from canon import pipeline
+        with self.assertRaisesRegex(ValueError, r"이전 화\(1화\)의 상태 반영이 끝나지 않았어요"):
+            pipeline.require_previous(store.load(self.name), 2)
 
 
 if __name__ == "__main__":

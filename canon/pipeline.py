@@ -94,7 +94,7 @@ def require_previous(p: Project, n: int) -> None:
     """이전 화가 모두 반영(finalized)돼야 n화를 쓰거나 반영한다. 인물 상태가 화 순서대로 쌓이게 하는 규칙이다."""
     unfinished = [e.plot.number for e in p.episodes if e.plot.number < n and e.status != "finalized"]
     if unfinished:
-        raise ValueError(f"이전 화의 상태 갱신이 끝나지 않았어요: {unfinished}")
+        raise ValueError(f"이전 화({', '.join(map(str, unfinished))}화)의 상태 반영이 끝나지 않았어요")
 
 
 def apply_setup(p: Project, s: SetupSuggestion) -> None:
@@ -1559,7 +1559,7 @@ def adopt_draft(p: Project, n: int, text: str) -> None:
     """비교에서 고른 본문을 그 화의 본문으로 쓴다. 상태 반영이 끝난 화는 되돌린 뒤에만 바꾼다."""
     ep = p.episode(n)
     if ep.status == "finalized":
-        raise ValueError(f"{n}화는 상태 반영이 끝났어요. 바꾸려면 revert {n - 1} 후 다시 하세요")
+        raise ValueError(f"{n}화는 상태 반영이 끝났어요. 바꾸려면 상태 승인 화면에서 {n}화부터 반영을 취소한 뒤 다시 하세요 (명령줄은 revert {n - 1})")
     replace_text(ep, text)
 
 
