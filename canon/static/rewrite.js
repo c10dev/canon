@@ -12,6 +12,7 @@ Object.assign(S, {
   rwView: 'side',    // 새 판 비교: side(나란히) | diff(바뀐 곳)
   rwPeek: null,      // 이전 판 목록에서 펼친 판 id
   rwVersionsOpen: false,
+  rwSync: true,      // 나란히 비교의 두 칸을 함께 스크롤
 });
 
 JOB_DONE_MSG.write = (j) => (j.result && j.result.candidate ? `${j.ep}화 새 판이 나왔어요. 지금 판과 비교해 고르세요.` : `${j.ep}화 본문을 저장했어요.`);
@@ -161,7 +162,7 @@ function candidateCard(n) {
     : diffBox(cur, c.text, '', '지금 판에서 지운 글은 빨강, 새 판에 더한 글은 초록이에요.');
   return `<section class="card rw-compare" aria-label="새 판 비교">
     <div class="between"><div><h3>새 판이 나왔어요</h3><div class="row" style="gap:6px">${rwReqLabel(n, c.request)}<span class="small">${editTime(c.at)}</span></div></div>
-      <div class="seg" role="group" aria-label="비교 방식"><button type="button" aria-pressed="${side}" data-action="rwViewAs" data-arg="side">나란히</button><button type="button" aria-pressed="${!side}" data-action="rwViewAs" data-arg="diff">바뀐 곳</button></div></div>
+      <div class="row" style="gap:6px">${side ? `<button type="button" class="btn small" aria-pressed="${S.rwSync}" data-action="rwSyncToggle" title="한 칸을 내리면 다른 칸도 같은 비율로 내려가요">스크롤 함께</button>` : ''}<div class="seg" role="group" aria-label="비교 방식"><button type="button" aria-pressed="${side}" data-action="rwViewAs" data-arg="side">나란히</button><button type="button" aria-pressed="${!side}" data-action="rwViewAs" data-arg="diff">바뀐 곳</button></div></div></div>
     ${body}
     <div class="between"><span class="small" style="flex:1;min-width:200px">바꾸면 지금 판은 아래 '이전 판'에 남아 되돌릴 수 있어요(화마다 최근 6개, 고르지 않은 판부터 지워요). 검수 결과는 새 판 기준으로 다시 하세요.</span>
       <span class="row"><button type="button" class="btn" data-action="rwDrop" data-arg="${n}">지금 판 두기</button><button type="button" class="btn" data-action="rwAgain" data-arg="${n}">요청 고쳐 다시</button><button type="button" class="btn primary" data-action="rwAdopt" data-arg="${n}">새 판으로 바꾸기</button></span></div>
@@ -214,6 +215,22 @@ document.addEventListener('change', (e) => {
   r.materials = e.target.checked ? [...new Set([...r.materials, id])] : r.materials.filter((x) => x !== id);
   S.rwPrompt = null;
 });
+
+// 나란히 비교: 한 칸을 내리면 다른 칸도 같은 비율로 맞춘다. 맞추느라 생긴 스크롤은 다시 따라가지 않는다
+let rwSyncing = null;
+document.addEventListener('scroll', (e) => {
+  const a = e.target;
+  if (!S.rwSync || !(a.matches && a.matches('.rw-side .rw-text'))) return;
+  if (rwSyncing === a) { rwSyncing = null; return; }
+  const b = [...a.closest('.rw-side').querySelectorAll('.rw-text')].find((x) => x !== a);
+  const max = a.scrollHeight - a.clientHeight;
+  if (!b || max <= 0) return;
+  const top = Math.round((a.scrollTop / max) * (b.scrollHeight - b.clientHeight));
+  if (Math.abs(b.scrollTop - top) < 1) return;
+  rwSyncing = b;
+  b.scrollTop = top;
+  requestAnimationFrame(() => { if (rwSyncing === b) rwSyncing = null; });  // 끝에 닿아 스크롤이 안 일어난 때
+}, true);
 
 document.addEventListener('toggle', (e) => {
   if (e.target.matches && e.target.matches('[data-rw-versions]')) S.rwVersionsOpen = e.target.open;
@@ -303,6 +320,10 @@ Object.assign(actions, {
     S.rwOpen = null;
     S.rwPrompt = null;
     await startJob('write', n, { rewrite: { ...r, keep: [...r.keep] } });
+  },
+  rwSyncToggle() {
+    S.rwSync = !S.rwSync;
+    render();
   },
   rwViewAs(v) {
     S.rwView = v;

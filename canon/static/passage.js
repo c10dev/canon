@@ -245,11 +245,15 @@ function caretXY(ta, pos) {
   return out;
 }
 
-/** 고른 부분 끝 줄 바로 아래에 둔다. 고치기 칸은 넓어서 왼쪽을 본문 칸에 맞춘다. */
+/** 고른 부분 끝 줄 바로 아래에 둔다. 화면 아래로 넘치면 고른 첫 줄 위에 둔다. 고치기 칸은 넓어서 왼쪽을 본문 칸에 맞춘다. */
 function placeTool(ta, t) {
   const el = toolEl();
   const c = caretXY(ta, t.start + t.text.length);
-  const y = Math.min(Math.max(c.y, c.r.top), c.r.bottom) + c.h + 4;
+  let y = Math.min(Math.max(c.y, c.r.top), c.r.bottom) + c.h + 4;
+  if (y + el.offsetHeight > window.innerHeight) {
+    const top = caretXY(ta, t.start).y - el.offsetHeight - 4;
+    if (top >= 0) y = top;
+  }
   const w = el.offsetWidth || 240;
   const left = t.mode === 'edit' ? Math.max(c.r.left, Math.min(caretXY(ta, t.start).x, c.x) - 12) : c.x - 40;
   const x = Math.min(Math.max(8, left), document.documentElement.clientWidth - w - 8);
@@ -266,7 +270,7 @@ function showTool() {
   el.innerHTML = t.mode === 'edit'
     ? `<label class="small" for="sel-edit">고른 부분 고치기 · ${t.text.length.toLocaleString()}자</label>
        <textarea id="sel-edit" rows="${Math.min(10, Math.max(3, Math.ceil(t.text.length / 40)))}">${esc(t.text)}</textarea>
-       <div class="between"><span class="small">Ctrl+Enter 바꾸기 · Esc 닫기</span><span class="row" style="gap:6px"><button type="button" class="btn small" data-action="selCancel">취소</button><button type="button" class="btn small primary" data-action="selSave">바꾸기</button></span></div>`
+       <div class="between"><span class="small">${matchMedia('(pointer: coarse)').matches ? '' : 'Ctrl+Enter 바꾸기 · Esc 닫기'}</span><span class="row" style="gap:6px"><button type="button" class="btn small" data-action="selCancel">취소</button><button type="button" class="btn small primary" data-action="selSave">바꾸기</button></span></div>`
     : `${t.hint ? `<span class="small sel-hint">${esc(t.hint)}</span>` : ''}<span class="sr-only">본문 칸에서 Alt+Enter 로 이 도구에 오고 Esc 로 돌아가요.</span><button type="button" class="btn small" data-action="selManual">직접 수정</button><button type="button" class="btn small primary" data-action="selAi">AI에게 고치기</button><button type="button" class="btn small" data-action="selIllust">삽화 프롬프트</button>`;
   el.hidden = false;
   placeTool(ta, t);
@@ -358,6 +362,7 @@ document.addEventListener('input', (e) => {
 
 document.addEventListener('toggle', (e) => {
   if (e.target.matches && e.target.matches('[data-edits-toggle]')) S.editsOpen = e.target.open;
+  if (e.target.matches && e.target.matches('[data-ctx-toggle]')) S.ctxOpen = e.target.open;  // 집필 화면 'AI에게 보내는 컨텍스트' 목록
 }, true);
 
 /** render() 직후에 부른다: 도구를 닫고, 본문 칸의 스크롤과 방금 고친 자리를 되살린다.
@@ -404,7 +409,29 @@ function focusText(n, text, start) {
   return at;
 }
 
+/** 방금 한 수정을 바로 되돌리는 버튼이 붙은 알림. 수정 기록은 본문 아래 접혀 있어 찾기 어렵다. 보통 알림보다 오래 둔다. */
+function undoToast(msg, id) {
+  const el = document.createElement('div');
+  el.className = 't';
+  el.innerHTML = `${esc(msg)} <button type="button" class="btn small" data-action="undoEdit" data-arg="${esc(id)}">되돌리기</button>`;
+  $('#toast').appendChild(el);
+  while ($('#toast').children.length > 3) $('#toast').firstChild.remove();
+  el.addEventListener('click', (e) => { if (e.target.closest('button')) el.remove(); });
+  setTimeout(() => el.remove(), 10000);
+}
+
 Object.assign(actions, {
+  /** 본문 칸 머리의 '수정 기록 N': 접힌 기록을 펴고 그리로 내려간다. */
+  openEdits() {
+    S.editsOpen = true;
+    render();
+    const d = document.querySelector('[data-edits-toggle]');
+    if (d) {
+      d.open = true;
+      d.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+      d.querySelector('summary').focus({ preventScroll: true });
+    }
+  },
   selManual() {
     S.selTool.mode = 'edit';
     showTool();
@@ -425,7 +452,7 @@ Object.assign(actions, {
       const edit = ep(t.n).edits[ep(t.n).edits.length - 1];
       focusText(t.n, after, edit.start);
       if (S.sel && S.sel.n === t.n) S.sel = { n: t.n, start: edit.start, text: after };
-      toast('고쳤어요. 수정 기록에서 되돌릴 수 있어요');
+      undoToast('고쳤어요.', edit.id);
     });
   },
   selAi() {
@@ -485,14 +512,15 @@ Object.assign(actions, {
       const edit = ep(n).edits[ep(n).edits.length - 1];
       S.sel = { n, start: edit.start, text: edit.after };  // 이어서 '더 짧게' 같은 요청을 하면 넣은 글을 고친다
       focusText(n, edit.after, edit.start);
-      toast(`${k + 1}번 후보를 넣었어요. 수정 기록에서 되돌릴 수 있어요`);
+      undoToast(`${k + 1}번 후보를 넣었어요.`, edit.id);
     });
   },
   async undoEdit(id) {
     const n = Number(S.route[3]) || currentEp();
-    const edit = ep(n).edits.find((x) => x.id === id);
+    const edit = (ep(n) && ep(n).edits || []).find((x) => x.id === id);
+    if (!edit) return toast('그 수정이 있는 화의 집필 화면에서 되돌리세요', true);  // 알림의 '되돌리기'를 다른 화면에서 누를 때
     // 칸의 초안이 서버 본문을 가린다. 먼저 저장해야 취소한 결과가 화면에 보이고, 나중에 초안을 저장해도 되살아나지 않는다
-    if (textUnsaved(n) && !confirm('저장하지 않은 본문 수정이 있어요. 먼저 저장하고 이 수정을 취소할까요?')) return;
+    if ((textUnsaved(n) || S.dirty) && !confirm(`${textUnsaved(n) ? '저장하지 않은 본문 수정이 있어요. 먼저 저장하고' : '저장하지 않은 다른 변경도 함께 저장하고'} 이 수정을 취소할까요?`)) return;
     await run('수정을 취소하는 중', async () => {
       await saveIfDirty();
       await flushText(n);
