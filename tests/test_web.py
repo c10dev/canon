@@ -69,6 +69,13 @@ def test_full_flow(client):
     chat = '정리했어요. 아래 JSON을 쓰세요.\n```json\n{"summary": "요약만"}\n```\n도움이 됐길 바라요.'
     assert client.post("/api/projects/lh/episodes/2/state/parse", json={"raw": chat}).json()["summary"] == "요약만"
     assert client.post("/api/projects/lh/episodes/2/state/parse", json={"raw": "설명만 있어요"}).status_code == 400
+    # 오류는 한국어로, 줄 번호는 붙여 넣은 원문 기준 (코드 블록 표시 줄 포함)
+    bad = '```json\n{\n  "summary": "요약",\n  "new_facts": [],\n}\n```'
+    r = client.post("/api/projects/lh/episodes/2/state/parse", json={"raw": bad})
+    detail = r.json()["detail"]  # 파이썬 판에 따라 쉼표(4번째 줄) 또는 닫는 괄호(5번째 줄)를 가리킨다
+    assert r.status_code == 400 and ("4번째 줄 18번째 글자" in detail or "5번째 줄 1번째 글자" in detail) and "쉼표가 남았어요" in detail
+    r = client.post("/api/projects/lh/episodes/2/state/parse", json={"raw": '{"summary": "요약", "new_facts": "하나"}'})
+    assert r.status_code == 400 and r.json()["detail"] == "JSON 내용이 맞지 않아요: new_facts 칸이 목록([ ])이어야 해요"
     p = client.post("/api/projects/lh/episodes/2/apply", json=d).json()
     assert p["foreshadows"][0]["status"] == "resolved"
 

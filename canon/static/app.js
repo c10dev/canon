@@ -1813,12 +1813,14 @@ const actions = {
 
   // 작업지시서
   openStateBrief(n) {
-    S.briefTab = 'state';
+    BRIEF_TABS[`${S.name}:${n}`] = 'state';
     location.hash = `${base()}/brief/${n}`;
   },
   setBriefTab(t) {
+    BRIEF_TABS[`${S.name}:${S.route[3]}`] = t;
     S.briefTab = t;
     S.briefText = null;
+    briefImportError = null;
     render();
   },
   async copyBrief() {
@@ -1854,8 +1856,18 @@ const actions = {
   async importJson(n) {
     const raw = $('#imp-json').value;
     if (!raw.trim()) return toast('JSON을 붙여 넣으세요', true);
+    if (S.deltas[n] && !confirm(`${n}화에 검토 중인 변경안이 있어요. 골라 둔 체크와 함께 가져온 JSON으로 바꿀까요?`)) return;
     await run('확인하는 중', async () => {
-      setDelta(n, await api('POST', `/projects/${enc(S.name)}/episodes/${n}/state/parse`, { raw }));
+      let d;
+      try {
+        d = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/state/parse`, { raw });
+      } catch (e) {
+        if (e.status !== 400) throw e;
+        briefImportError = { key: `${S.name}:${n}`, msg: e.message };  // 토스트는 사라지니 ② 칸 아래에 남긴다
+        return;
+      }
+      briefImportError = null;
+      setDelta(n, d, 'chat');
       delete S.briefDraft[`${S.name}:${n}:state`];
       location.hash = `${base()}/review/${n}`;
     });
@@ -1895,7 +1907,8 @@ function refreshPreview(n) {
   }, 250);
 }
 
-function setDelta(n, d) {
+/** source: 변경안을 어디서 받았나 ('chat' 이면 채팅 앱에서 가져온 JSON). 상태 승인 화면 설명에 쓴다 */
+function setDelta(n, d, source = 'ai') {
   S.deltas[n] = d;
   S.deltaBase[n] = ep(n) ? ep(n).text : '';
   S.picks = {};
@@ -1911,7 +1924,7 @@ function setDelta(n, d) {
   d.foreshadow_resolved.forEach((id, i) => { S.picks['x' + i] = P().foreshadows.some((f) => f.id === id); });
   (d.new_characters || []).forEach((_, i) => { S.picks['n' + i] = true; });
   // 받은 그대로의 요약과 체크. 다시 만들 때 고친 것을 버리는지 묻는다 (기본으로 뺀 항목은 고친 것이 아니다)
-  S.deltaOrig[n] = { summary: d.summary, picks: { ...S.picks } };
+  S.deltaOrig[n] = { summary: d.summary, picks: { ...S.picks }, source };
 }
 
 document.addEventListener('click', (e) => {
@@ -2134,6 +2147,7 @@ async function routeNow() {
       }
       if (typeof autoLoad === 'function') await autoLoad(parts[2] === 'auto');
       if (parts[2] === 'brief' && n && ep(n)) {
+        S.briefTab = briefTabFor(n);
         S.briefText = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/brief?kind=${S.briefTab}`).then((r) => r.text).catch((e) => '※ ' + e.message);
       }
     } else {
@@ -3938,7 +3952,7 @@ function viewReview(n) {
   ].join('');
   const section = (title, body) => `<section class="card"><h2>${title}</h2>${body || '<div class="small">변경 없음</div>'}</section>`;
 
-  return top('AI가 본문에서 뽑은 변경안이에요. 체크한 항목만 데이터에 반영되고, 반영해야 다음 화를 쓸 수 있어요.', `<span class="small">${total}건 중 <strong id="pick-count" style="color:var(--text)">${picked}</strong>건 선택</span>`) + stale + issues +
+  return top(`${(S.deltaOrig[n] || {}).source === 'chat' ? '채팅 앱에서 가져온' : 'AI가 본문에서 뽑은'} 변경안이에요. 체크한 항목만 데이터에 반영되고, 반영해야 다음 화를 쓸 수 있어요.`, `<span class="small">${total}건 중 <strong id="pick-count" style="color:var(--text)">${picked}</strong>건 선택</span>`) + stale + issues +
     (d.warnings.length ? `<section class="note warn" role="alert"><strong>경고 ${d.warnings.length}건 · 본문을 고칠지 확인하세요</strong><ul style="padding-left:18px;margin-top:6px">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul><a href="${base()}/write/${n}" style="color:inherit;font-weight:700">본문으로</a></section>` : '') +
     section('인물 상태', chars) +
     (newChars ? section('새로 나온 인물', newChars) : '') +
@@ -4007,6 +4021,11 @@ function relationLines(rel) {
 
 // ----- 6. 작업지시서 -----
 
+// 화마다 고른 지시서 탭 ('작품:화' → 'episode' | 'state'). 고른 적 없는 화는 상태로 정한다: 본문이 있으면 상태 승인 지시서
+const BRIEF_TABS = {};
+const briefTabFor = (n) => BRIEF_TABS[`${S.name}:${n}`] || (ep(n).status === 'written' ? 'state' : 'episode');
+let briefImportError = null;  // 받은 JSON 가져오기에서 서버가 거절한 이유 { key: '작품:화', msg }
+
 function viewBrief(n) {
   const e = ep(n);
   if (!e) return header('작품 도구', '채팅 앱 작업지시서', '') + noEpisode();
@@ -4025,8 +4044,10 @@ function viewBrief(n) {
         <div class="between"><h2><span class="small" style="font-weight:400">① </span>복사해서 채팅 앱에 붙여 넣기</h2>
           <div class="row"><button class="btn small" data-action="downloadBrief" data-arg="${n}"${stateBlocked ? ' disabled' : ''}>.md 내려받기</button><button class="btn small dark" data-action="copyBrief"${stateBlocked ? ' disabled' : ''}>복사</button></div></div>
         ${e.status === 'draft' && body ? '<div class="note warn">플롯이 아직 초안이에요. 확정 전 내용으로 지시서가 만들어져요.</div>' : ''}
-        <pre class="brief mono">${esc(S.briefText ?? '불러오는 중…')}</pre>
-        ${S.briefText ? `<div class="small">${S.briefText.length.toLocaleString()}자</div>` : ''}
+        ${stateBlocked
+          ? `<div class="note plain">${n}화 본문이 아직 없어 상태 승인 지시서를 만들 수 없어요. 본문을 먼저 저장하세요. <button class="btn small" data-action="setBriefTab" data-arg="episode">본문 작성 지시서로</button></div>`
+          : `<pre class="brief mono">${esc(S.briefText ?? '불러오는 중…')}</pre>
+        ${S.briefText ? `<div class="small">${S.briefText.length.toLocaleString()}자</div>` : ''}`}
       </section>
       <section class="card" style="flex:1 1 380px;min-width:0">
         ${body ? `<h2><span class="small" style="font-weight:400">② </span>받은 본문 가져오기</h2>
@@ -4039,6 +4060,7 @@ function viewBrief(n) {
           <label for="imp-json" class="small">채팅 앱의 JSON 답변을 붙여 넣으세요. 코드 블록 표시는 자동으로 지워요.</label>
           <textarea id="imp-json" rows="12" data-brief="${n}:state" class="mono"${e.status !== 'written' ? ' disabled' : ''}>${esc(S.briefDraft[`${S.name}:${n}:state`] || '')}</textarea>
           ${e.status !== 'written' ? '<div class="small">본문이 작성된 화에서만 쓸 수 있어요.</div>' : ''}
+          ${briefImportError && briefImportError.key === `${S.name}:${n}` ? `<div class="note err" role="alert">${esc(briefImportError.msg)}</div>` : ''}
           ${orderNote(order)}
           <div style="align-self:flex-end"><button class="btn primary" data-action="importJson" data-arg="${n}"${e.status !== 'written' || order.length ? ' disabled' : ''}>확인하고 변경안 검토로</button></div>`}
         <div style="padding-top:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px">
