@@ -447,7 +447,9 @@ def names_check(name: str, body: NameCheckIn | None = None) -> dict:
     p = _load(name)
     if body is not None:  # 저장 전 화면 값으로 점검한다
         p.meta, p.world, p.characters, p.cast_candidates = body.meta, body.world, body.characters, body.cast_candidates
-    return {"warnings": naming.cast_warnings(p), "style": naming.resolve_style(p), "detected": naming.detect_style(p)}
+    issues = naming.cast_issues(p)
+    return {"warnings": [i["text"] for i in issues], "issues": issues, "kinds": naming.ISSUE_KINDS,
+            "style": naming.resolve_style(p), "detected": naming.detect_style(p)}
 
 
 # ---------- 2. 문체 ----------

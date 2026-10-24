@@ -749,6 +749,8 @@ document.addEventListener('input', (e) => {
 document.addEventListener('change', (e) => {
   const bind = e.target.dataset && e.target.dataset.bind;
   if (bind && /^(arc|story_arcs|parts)\./.test(bind) && S.route[2] === 'arc') render();
+  // 플롯 서랍에서 새 인물 이름을 정해도 점검한다 (장편은 인물이 주로 플롯에서 는다)
+  if (S.route[2] === 'arc' && /^characters\.\d+\.name$/.test(bind || '')) { checkNames(); return; }
   if (S.route[2] !== 'setup' || !bind) return;
   if (bind === 'world.name_style') {  // 스타일을 바꾸면 이전 후보는 버리고 다시 점검한다
     S.names = {};
@@ -934,6 +936,10 @@ const actions = {
   railAll() {
     S.railAll = true;
     render();
+  },
+  focusName(i) {
+    const el = document.getElementById(`f-characters-${i}-name`);
+    if (el) { el.scrollIntoView({ block: 'center' }); el.focus(); }
   },
   toggleMenu() {
     S.menuOpen = !S.menuOpen;  // 좁은 폭에서만 보이는 버튼. 메뉴를 고르면 화면 이동 때 닫힌다
@@ -1933,8 +1939,8 @@ async function routeNow() {
       if (!parts[2] && S.project.relationships.length) {
         S.relations = await api('GET', `/projects/${enc(S.name)}/relations`).catch((e) => ({ error: e.message }));
       }
-      if (parts[2] === 'setup') {
-        S.names = {};
+      if (parts[2] === 'setup') S.names = {};
+      if (parts[2] === 'setup' || parts[2] === 'arc') {  // 플롯 서랍의 새 인물 칸도 이름 점검을 보인다
         S.nameCheck = await api('POST', `/projects/${enc(S.name)}/names/check`, nameCheckBody()).catch(() => null);
       }
       if (parts[2] === 'style') {
@@ -2629,6 +2635,7 @@ async function checkNames(show = false) {
   S.nameCheck = r;
   const box = $('#name-check');
   if (box) box.outerHTML = nameCheckBox();
+  document.querySelectorAll('[data-name-issues]').forEach((el) => { el.outerHTML = nameIssuesFor(el.dataset.nameIssues); });
   const auto = $('#name-style-auto');
   if (auto) auto.textContent = `자동 (지금: ${styleLabel(r.detected)})`;
   if (show) toast(r.warnings.length ? `이름 점검: ${r.warnings.length}건` : '이름 점검: 문제 없음');
@@ -2639,10 +2646,34 @@ function styleLabel(id) {
   return st ? st.label : id || '';
 }
 
+/** 이름 점검 묶음: 종류별 소제목, 같은 이름 · 같은 성 뺀 이름만 경고 색, 나머지는 안내 색. 줄마다 그 인물 이름 칸으로 가는 버튼. */
 function nameCheckBox() {
-  const w = (S.nameCheck || {}).warnings || [];
-  if (!w.length) return '<div id="name-check"></div>';
-  return `<div id="name-check" class="note warn"><strong>이름 점검</strong><ul style="margin:4px 0 0;padding-left:18px">${w.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>`;
+  const nc = S.nameCheck || {};
+  const issues = nc.issues || (nc.warnings || []).map((text) => ({ kind: 'other', level: 'warn', text, ids: [] }));
+  if (!issues.length) return '<div id="name-check"></div>';
+  const kinds = nc.kinds || {};
+  const order = ['same', 'given', 'confusable', 'era', 'style', 'overused', 'other'];
+  const warn = issues.some((i) => i.level === 'warn');
+  const groups = order.map((k) => [k, issues.filter((i) => i.kind === k)]).filter(([, l]) => l.length);
+  const body = groups.map(([k, list]) => `<div class="small" style="margin-top:6px;font-weight:700">${esc(kinds[k] || '기타')}</div>
+    <ul style="margin:2px 0 0;padding-left:18px">${list.map((i) => `<li>${esc(i.text)} ${nameJump(i.ids)}</li>`).join('')}</ul>`).join('');
+  const head = `이름 점검 ${issues.length}건${warn ? ` · 같은 이름 ${issues.filter((i) => i.level === 'warn').length}건` : ''}`;
+  return `<div id="name-check" class="note ${warn ? 'warn' : 'info'}">${issues.length > 3
+    ? `<details${warn ? ' open' : ''}><summary><strong>${head}</strong></summary>${body}</details>` : `<strong>${head}</strong>${body}`}</div>`;
+}
+
+/** 경고 줄의 인물 이름 버튼: 누르면 그 인물 카드의 이름 칸으로 간다 (후보 인물은 카드가 없어 이름만 보인다). */
+function nameJump(ids) {
+  return (ids || []).map((id) => {
+    const i = P().characters.findIndex((c) => c.id === id);
+    return i < 0 ? '' : `<button type="button" class="link-btn small" data-action="focusName" data-arg="${i}" aria-label="${i + 1}번 인물 ${esc(P().characters[i].name || id)} 이름 칸으로">${i + 1}번 ${esc(P().characters[i].name || id)}</button>`;
+  }).join(' ');
+}
+
+/** 인물 카드 · 플롯 서랍의 새 인물 칸 아래: 그 인물에 해당하는 이름 점검만 작게 (위 묶음이 화면 밖이어도 보이게). */
+function nameIssuesFor(id) {
+  const list = ((S.nameCheck || {}).issues || []).filter((i) => (i.ids || []).includes(id));
+  return `<div data-name-issues="${esc(id)}">${list.map((i) => `<div class="small" style="color:${i.level === 'warn' ? 'var(--amber-ink)' : 'var(--muted)'}">${esc(i.text)}</div>`).join('')}</div>`;
 }
 
 // 후보 칩. AI 추천이면 이유를, 코드 후보면 시대·종류 메모를 같이 보여 준다
@@ -2681,6 +2712,7 @@ function viewSetup() {
     return `<article class="char-card">
       <div class="between"><strong style="font-size:1rem">${esc(c.name || '이름 없음')}</strong><button class="btn small danger" data-action="removeCharacter" data-arg="${i}" aria-label="${esc(c.name || c.id)} 삭제">삭제</button></div>
       <div class="grid-2">${input('이름', b + '.name')}${input('역할', b + '.role', { placeholder: '주인공, 상대역, 조력자…' })}</div>
+      ${nameIssuesFor(c.id)}
       <div class="grid-2">${input('나이', b + '.age', { placeholder: '예: 17세, 40대 초반' })}${input('성별', b + '.gender', { placeholder: '남 / 여' })}</div>
       ${tierSelect(c, b, 'tier-' + i)}
       <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보 뽑기</button><button type="button" class="btn small" data-action="nameAI" data-arg="${esc(c.id)}">AI 이름 추천</button></div>
@@ -3229,6 +3261,7 @@ function castQuickEdit(i) {
   const b = `characters.${i}`;
   return `<div class="note plain"><div class="between"><strong>${esc(c.name || '새 인물')}</strong><button type="button" class="btn small ghost" data-action="closeCastEdit">접기</button></div>
     <div class="grid-2">${input('이름', b + '.name')}${input('역할', b + '.role', { placeholder: '여관 주인, 동료 기사…' })}</div>
+    ${nameIssuesFor(c.id)}
     <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보 뽑기</button><button type="button" class="btn small" data-action="nameAI" data-arg="${esc(c.id)}">AI 이름 추천</button></div>
     ${namePicks('c:' + c.id, 'useName', (x) => `${c.id}|${x}`)}
     <div class="grid-2">${tierSelect(c, b, 'cast-tier-' + i)}${input('성별', b + '.gender', { placeholder: '남 / 여' })}</div>
