@@ -456,7 +456,7 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .nav-extra { padding-top: 12px; border-top: 1px solid var(--line); }
 .nav-extra > .small { padding: 0 10px 4px; }
 .rs-backend { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
-.rs-scroll { overflow-x: auto; }
+.rs-scroll { overflow-x: auto; position: relative; }  /* 안의 화면 낭독용 글(.sr-only, absolute)이 표 밖 문서 폭을 늘리지 않게 */
 .rs-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
 .rs-table th { text-align: left; font-weight: 700; color: var(--muted); font-size: 0.75rem; padding: 6px 8px; border-bottom: 1px solid var(--line-strong); white-space: nowrap; }
 .rs-table td { padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
