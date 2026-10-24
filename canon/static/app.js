@@ -2443,14 +2443,14 @@ function viewSettings() {
         // 단계 자체의 환경 변수는 선택보다 우선하고, 물려받은 환경 변수(CANON_LLM, 부모 단계)는 비워 둘 때만 따른다
         const envLine = (name, own, what) => !name ? '' : name === own
           ? `<div class="small">환경 변수 ${name} 가 우선해요.</div>`
-          : `<div class="small">비워 두면 환경 변수 ${name} 의 ${what}을 따라요.</div>`;
+          : `<div class="small">비워 두면 환경 변수 ${name} 의 ${what} 따라요.</div>`;
         return `<div class="field"><label for="set-stage-${s}">${label} <span class="hint">지금: ${esc(st.model || '')}</span></label>
           <div class="stage-row">
             <select id="set-stage-${s}" aria-label="${esc(label)} 백엔드"><option value="">${STAGE_PARENT_LABEL[s] || '위 생성 방식을 따름'}</option>${providerOptions((c.stage_settings || {})[s])}</select>
             <input id="set-stage-model-${s}" type="text" list="model-options" aria-label="${esc(label)} 모델" value="${esc((c.stage_model_settings || {})[s] || '')}" placeholder="${esc(stageModelHint(s))}">
           </div>
-          ${envLine(st.env, `CANON_LLM_${s.toUpperCase()}`, '백엔드')}
-          ${envLine(st.model_env, `CANON_MODEL_${s.toUpperCase()}`, '모델')}</div>`;
+          ${envLine(st.env, `CANON_LLM_${s.toUpperCase()}`, '백엔드를')}
+          ${envLine(st.model_env, `CANON_MODEL_${s.toUpperCase()}`, '모델을')}</div>`;
       }).join('')}
       <div class="small" id="model-status">${modelStatus()}</div>
       <div class="row">

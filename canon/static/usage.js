@@ -277,7 +277,7 @@ function viewPrices() {
     const num = (k) => `<input type="number" min="0" step="0.001" inputmode="decimal" data-price="${i}.${k}" value="${r[k] == null ? '' : r[k]}" placeholder="${k === 'cached' ? r.input : k.startsWith('batch') ? (k === 'batch_input' ? r.input / 2 : r.output / 2) : ''}" aria-label="${esc(r.model)} ${PRICE_COLS.find(([c]) => c === k)[1]}">`;
     // 기본 줄은 지워도 저장하면 되살아난다 (기본값과 다른 줄만 설정에 남는다). 지우기 대신 고쳐 덮어쓰게 한다
     const fixed = r.custom === false;
-    return `<tr><td class="price-model" data-label="모델"><input type="text" data-price="${i}.model" value="${esc(r.model)}" aria-label="모델 이름">${st || r.note ? `<div class="small">${st}${r.note ? ` ${esc(r.note)}` : ''}</div>` : ''}</td>
+    return `<tr><td class="price-model" data-label="모델"><input type="text" data-price="${i}.model" value="${esc(r.model)}" title="${esc(r.model)}" aria-label="모델 이름">${st || r.note ? `<div class="small">${st}${r.note ? ` ${esc(r.note)}` : ''}</div>` : ''}</td>
       <td data-label="적용 시작일"><input type="text" data-price="${i}.since" value="${esc(r.since)}" placeholder="처음부터" aria-label="적용 시작일" class="price-since"></td>
       ${PRICE_COLS.map(([k, l]) => `<td data-label="${l}">${num(k)}</td>`).join('')}
       <td class="price-act">${fixed ? '<span class="small" title="기본 줄은 지울 수 없어요. 값을 고치면 내 값으로 대신해요">기본 줄</span>'
