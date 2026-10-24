@@ -9,7 +9,9 @@ from __future__ import annotations
 import json
 import random
 import re
+import socket
 import time
+import urllib.error
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -84,9 +86,31 @@ def probe(url: str = "", key: str | None = None) -> dict:
     """로컬 서버의 모델 목록, 컨텍스트 길이, 서버 종류. 생성 호출은 하지 않는다."""
     llm = LocalLLM(base_url=url or None, api_key=key)
     t = time.perf_counter()
-    info = llm.server_info()
+    try:
+        info = llm.server_info()
+    except RuntimeError as e:
+        raise RuntimeError(_probe_reason(llm.base_url, e)) from e
     info["seconds"] = round(time.perf_counter() - t, 2)
     return info
+
+
+def _probe_reason(url: str, e: RuntimeError) -> str:
+    """연결 실패의 원인을 고칠 곳으로 바꿔 말한다 (Errno 같은 내부 문구 대신). HTTP 오류는 서버 답을 그대로 둔다."""
+    cause = e.__cause__
+    if not isinstance(cause, urllib.error.URLError) or isinstance(cause, urllib.error.HTTPError):
+        return str(e)
+    reason = cause.reason
+    if isinstance(reason, ConnectionRefusedError):
+        why = "서버가 꺼져 있거나 주소의 포트가 틀렸어요. 서버를 켜고 주소를 확인하세요"
+    elif isinstance(reason, socket.gaierror):
+        why = "주소의 서버 이름을 찾지 못했어요. 호스트 이름이나 IP를 확인하세요"
+    elif isinstance(reason, (TimeoutError, socket.timeout)):
+        why = "서버가 응답하지 않아요. 방화벽이 막고 있거나 주소가 틀렸을 수 있어요"
+    elif isinstance(reason, OSError) and "No route to host" in str(reason):
+        why = "그 주소로 가는 길이 없어요. 같은 네트워크에 있는지, 방화벽을 확인하세요"
+    else:
+        why = f"연결하지 못했어요 ({reason})"
+    return f"{url} 에 연결하지 못했어요. {why}"
 
 
 # ---------- 샘플 생성 ----------
