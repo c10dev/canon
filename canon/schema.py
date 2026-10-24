@@ -480,6 +480,7 @@ class Conversion(BaseModel):
     ending: str = Field("", description="keep 또는 reopen")
     history: int = Field(0, description="전환할 때까지 반영된 화 수. 이보다 늘면 되돌리지 않는다")
     mode: Literal["continue", "rebuild"] = Field("continue", description="continue: 단편을 아크 1로 이어 쓰기 / rebuild: 단편을 씨앗으로 다시 짜기")
+    notes: list[str] = Field(default_factory=list, description="전환하며 옮기지 못해 작가가 볼 것 (재구성 화면에 다시 보인다)")
 
 
 # ---------- 단편 → 장편 재구성 ----------

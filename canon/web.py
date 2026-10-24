@@ -676,10 +676,13 @@ def conversion_status(name: str) -> dict:
     """전환 가능한 총 화수 범위, 또는 이미 전환했다면 되돌릴 수 있는지."""
     p = _load(name)
     lo, hi = pipeline.convert_range(p)
-    blockers = pipeline.undo_blockers(p, store.load_backup(name, pipeline.BACKUP_TAG)) if p.conversion else []
+    backup = store.load_backup(name, pipeline.BACKUP_TAG) if p.conversion else None
+    blockers = pipeline.undo_blockers(p, backup) if p.conversion else []
+    # 화면이 막힌 화로 가는 링크를 달 수 있게 이유별 화 번호도 준다
+    detail = pipeline.undo_blocker_eps(p, backup) if p.conversion and backup else {}
     span = dict(zip(("min", "default", "max"), pipeline.rebuild_span(p))) if not p.serial and p.episodes else None
     return {"min": lo, "max": hi, "end": pipeline.short_end(p), "conversion": p.conversion, "undo_blockers": blockers,
-            "rebuild": span}
+            "undo_eps": detail, "rebuild": span}
 
 
 @app.post("/api/projects/{name}/convert/apply")

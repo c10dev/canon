@@ -516,6 +516,20 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .rb-map tr.rb-keep td:first-child { box-shadow: inset 3px 0 0 var(--green); }
 .rb-map tr.rb-revise td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .rb-map tr.rb-rewrite td:first-child { box-shadow: inset 3px 0 0 var(--amber); }
+.rb-wrap { max-height: 560px; overflow: auto; }
+/* 좁은 폭: 화 지도 행을 카드처럼 쌓고, 안쪽 세로 스크롤을 풀어 페이지 스크롤 하나만 쓴다 */
+@media (max-width: 600px) {
+  .rb-wrap { max-height: none; overflow: visible; }
+  .rb-map thead { display: none; }
+  .rb-map tr { display: flex; flex-wrap: wrap; gap: 6px 10px; padding: 8px 0 8px 10px; border-bottom: 1px solid var(--line); }
+  .rb-map tr.rb-keep { box-shadow: inset 3px 0 0 var(--green); }
+  .rb-map tr.rb-revise { box-shadow: inset 3px 0 0 var(--accent); }
+  .rb-map tr.rb-rewrite { box-shadow: inset 3px 0 0 var(--amber); }
+  .rb-map td, .rb-map tr td:first-child { display: block; border: 0; padding: 0; box-shadow: none; }
+  .rb-map td::before { content: attr(data-label); display: block; font-size: 0.75rem; color: var(--muted); }
+  .rb-map td:last-child { flex: 1 1 100%; display: flex; }
+  .rb-map td:last-child input, .rb-map td:last-child textarea { width: 100%; }
+}
 
 /* 사용량 · 비용 */
 .usage-filters select { min-height: 36px; }

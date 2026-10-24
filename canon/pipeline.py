@@ -865,17 +865,25 @@ def undo_blockers(p: Project, backup: Project | None) -> list[str]:
     if backup is None:
         return ["전환 전 백업(before-serial.json)이 없어요"]
     out = []
-    if len(p.history) > p.conversion.history:
-        out.append(f"전환한 뒤 상태를 반영한 화가 있어요 ({[d.episode for d in p.history[p.conversion.history:]]}화)")
+    eps = undo_blocker_eps(p, backup)
+    if eps["applied"]:
+        out.append(f"전환한 뒤 상태를 반영한 화가 있어요 ({', '.join(map(str, eps['applied']))}화)")
+    if eps["changed"]:
+        out.append(f"전환한 뒤 쓰거나 고친 본문이 있어요 ({', '.join(map(str, eps['changed']))}화)")
+    return out
+
+
+def undo_blocker_eps(p: Project, backup: Project) -> dict[str, list[int]]:
+    """되돌리기를 막는 화 번호. applied: 전환한 뒤 상태를 반영한 화, changed: 전환한 뒤 쓰거나 고친 본문이 있는 화."""
+    assert p.conversion is not None
+    applied = sorted({d.episode for d in p.history[p.conversion.history:]})
     if p.conversion.mode == "rebuild":  # 재구성은 화 번호가 바뀌므로 옛 본문 어느 것과도 같지 않은 본문을 찾는다
         texts = {e.text for e in backup.episodes}
         changed = [e.plot.number for e in p.episodes if e.text and e.text not in texts]
     else:
         old = {e.plot.number: e.text for e in backup.episodes}
         changed = [e.plot.number for e in p.episodes if e.text and old.get(e.plot.number) != e.text]
-    if changed:
-        out.append(f"전환한 뒤 쓰거나 고친 본문이 있어요 ({changed}화)")
-    return out
+    return {"applied": applied, "changed": changed}
 
 
 def undo_conversion(p: Project, backup: Project) -> Project:
@@ -1083,10 +1091,10 @@ def apply_rebuild(p: Project, prop: SerialRebuild, at: str = "") -> tuple[Projec
             notes.append(f"이야기 줄기 '{sl.title}'의 갈라지는 화 · 합류하는 화를 새 화로 옮기지 못했어요")
         sl.branch_ep, sl.join_ep = b, j
     if archive.dropped:
-        notes.append(f"쓰지 않는 옛 화: {archive.dropped}화 (원고는 보관함에 남아요)")
+        notes.append(f"쓰지 않는 옛 화: {', '.join(map(str, archive.dropped))}화 (원고는 보관함에 남아요)")
     p.archive = archive
     p.conversion = Conversion(at=at or _stamp(), from_total=before.meta.target_episodes, arc_end=0,
-                              ending=prop.ending_at, history=0, mode="rebuild")
+                              ending=prop.ending_at, history=0, mode="rebuild", notes=notes)
     return before, notes
 
 

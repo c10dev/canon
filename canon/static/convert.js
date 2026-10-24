@@ -68,7 +68,8 @@ function convertResult(j) {
     S.reworks[j.ep] = j.result;
   } else {
     S.convDraft = j.result;
-    S.convPicks = {};
+    // 확정한 화의 플롯 수정은 작가가 고를 때만 넣는다 (확정된 것은 덮어쓰지 않는다)
+    S.convPicks = Object.fromEntries((j.result.episodes || []).filter((e) => ep(e.number) && ep(e.number).status === 'confirmed').map((e) => ['ep:' + e.number, false]));
   }
 }
 
@@ -87,7 +88,14 @@ function viewConvert() {
     const c = p.conversion;
     if (!c) return `${header('장편', '장편으로 전환', '이 작품은 처음부터 장편 연재예요.', `<a class="btn" href="${base()}/arc">부 · 아크로</a>`)}`;
     const why = (st && st.undo_blockers) || [];
+    const eps = (st && st.undo_eps) || {};
     const rebuilt = c.mode === 'rebuild';
+    const links = (list, page) => list.map((n) => `<a href="${base()}/${page}/${n}">${n}화</a>`).join(', ');
+    // 이유마다 그 화로 가는 링크와 푸는 방법을 단다. 서버 detail 이 없으면(백업 없음 등) 글로만 보인다
+    const whyList = (eps.applied || []).length || (eps.changed || []).length ? `<ul style="padding-left:18px;margin:6px 0 0">
+        ${(eps.applied || []).length ? `<li>전환한 뒤 상태를 반영한 화: ${links(eps.applied, 'review')}. 마지막 화부터 상태 승인 화면의 '반영 취소'로 되돌릴 수 있어요.</li>` : ''}
+        ${(eps.changed || []).length ? `<li>전환한 뒤 쓰거나 고친 본문: ${links(eps.changed, 'write')}. 집필 화면의 수정 기록에서 되돌리거나, 새로 쓴 본문은 지워야 해요.</li>` : ''}
+      </ul>` : `<div>${why.map(esc).join(' / ')}</div>`;
     const desc = rebuilt ? `${fmtDate(c.at)}에 ${c.from_total}화 단편을 씨앗으로 장편 앞부분을 다시 짰어요.`
       : `${fmtDate(c.at)}에 ${c.from_total}화 단편을 장편으로 바꿨어요. 단편 1~${c.arc_end}화가 아크 1이에요.`;
     return `${header('장편', rebuilt ? '단편에서 재구성한 작품' : '단편에서 전환한 작품', desc, `<a class="btn primary" href="${base()}/arc">부 · 아크로</a>`)}
@@ -95,9 +103,9 @@ function viewConvert() {
       <section class="card">
         <h2>되돌리기</h2>
         <div class="small">${rebuilt ? `단편 결말: ${esc(ENDING_AT.find((x) => x[0] === c.ending)?.[1] || c.ending)}` : `결말 처리: ${esc(ENDINGS.find((x) => x[0] === c.ending)?.[1] || c.ending)}`}</div>
-        ${why.length ? `<div class="note warn">되돌리면 잃는 것이 있어 막아 두었어요: ${why.map(esc).join(' / ')}</div>`
+        ${why.length ? `<div class="note warn" id="undo-why">되돌리면 잃는 것이 있어 막아 두었어요.${whyList}</div>`
           : '<div class="note plain">전환한 뒤 새로 쓰거나 반영한 화가 없어서 전환 전 단편으로 그대로 돌아갈 수 있어요. 전환한 뒤 고친 설정과 플롯도 함께 돌아가요.</div>'}
-        <div class="row"><button class="btn danger" data-action="convertUndo"${why.length ? ' disabled' : ''}>단편으로 되돌리기</button></div>
+        <div class="row"><button class="btn danger" data-action="convertUndo"${why.length ? ' disabled aria-describedby="undo-why"' : ''}>단편으로 되돌리기</button></div>
       </section>`;
   }
   const written = p.episodes.filter((e) => e.text).length;
@@ -180,7 +188,7 @@ function convertProposal(d) {
   }
   if (d.episodes.length) {
     sections.push(`<div class="field"><span class="label">본문이 없는 화의 플롯 수정 <span class="hint">확정한 화도 바꾸면 다시 초안이 돼요</span></span>${d.episodes.map((e) =>
-      `<div class="diff-act">${convBox('ep:' + e.number, `<strong>${e.number}화</strong> ${esc(e.title)}`)}<div class="diff">${plotDiff(e)}</div></div>`).join('')}</div>`);
+      `<div class="diff-act">${convBox('ep:' + e.number, `<strong>${e.number}화</strong> ${esc(e.title)}${ep(e.number) && ep(e.number).status === 'confirmed' ? ' <span class="chip confirmed">확정한 화 · 기본으로 빼 둠</span>' : ''}`)}<div class="diff">${plotDiff(e)}</div></div>`).join('')}</div>`);
   }
   return `<section class="card proposal">
       <div class="between"><h2>전환 계획 <span class="chip ai">적용 전</span> <span class="chip">${esc(ending ? ending[1] : d.ending)}</span></h2>
@@ -217,8 +225,12 @@ Object.assign(actions, {
       S.project = await api('POST', `/projects/${enc(S.name)}/convert/apply`, d);
       S.convDraft = null;
       S.convPicks = {};
-      S.selArc = 'next';
-      toast('장편으로 바꿨어요. 단편은 아크 1이 됐어요. 이제 다음 아크를 기획하세요.');
+      // 단편(아크 1)을 다 반영하지 않았으면 남은 화부터 마치도록 아크 1을 연다. 다음 아크 기획은 반영된 줄거리를 읽는다
+      const end = (P().conversion && P().conversion.arc_end) || 0;
+      const left = Array.from({ length: end }, (_, i) => i + 1).filter((n) => !ep(n) || ep(n).status !== 'finalized');
+      S.selArc = left.length ? 1 : 'next';
+      toast(left.length ? `장편으로 바꿨어요. 단편은 아크 1이 됐어요. 아크 1의 남은 화(${rangeText(left)}화)를 마친 뒤 다음 아크를 기획하세요.`
+        : '장편으로 바꿨어요. 단편은 아크 1이 됐어요. 이제 다음 아크를 기획하세요.');
       location.hash = `${base()}/arc`;
     });
   },
@@ -284,10 +296,10 @@ function rebuildProposal(d) {
   const rows = d.episodes.map((x, i) => {
     const src = x.sources.map((s) => `<a href="#" data-action="rbPeek" data-arg="${s}" title="${esc(old.get(s)?.plot.title || '')}">${s}화</a>`).join(', ');
     return `<tr class="rb-${x.use}">
-      <td class="mono">${x.number}</td>
-      <td>${rbUseSelect(i, x.use)}</td>
-      <td><input aria-label="쓰는 단편 화" value="${esc(x.sources.join(', '))}" data-rb-src="${i}" placeholder="없음" style="width:72px">${src ? `<div class="small">${src}</div>` : ''}${((S.rbBad || {})[i] || []).length ? `<div class="small warn-text">단편에 없는 화: ${S.rbBad[i].join(', ')}화</div>` : ''}</td>
-      <td><input aria-label="제목" value="${esc(x.title)}" data-bind="episodes.${i}.title" data-kind="text" data-root="rbDraft">
+      <td class="mono" data-label="새 화">${x.number}</td>
+      <td data-label="쓰는 방식">${rbUseSelect(i, x.use)}</td>
+      <td data-label="단편 화"><input aria-label="쓰는 단편 화" value="${esc(x.sources.join(', '))}" data-rb-src="${i}" placeholder="없음" style="width:72px"${x.use === 'new' ? ' disabled title="새 화는 단편 화를 쓰지 않아요"' : ''}>${src ? `<div class="small">${src}</div>` : ''}${((S.rbBad || {})[i] || []).length ? `<div class="small warn-text">단편에 없는 화: ${S.rbBad[i].join(', ')}화</div>` : ''}</td>
+      <td data-label="제목 · 내용"><input aria-label="제목" value="${esc(x.title)}" data-bind="episodes.${i}.title" data-kind="text" data-root="rbDraft">
         <textarea aria-label="내용" rows="2" data-bind="episodes.${i}.summary" data-kind="text" data-root="rbDraft">${esc(x.summary)}</textarea>
         ${x.use === 'revise' || x.use === 'rewrite' ? `<input aria-label="메모" value="${esc(x.note)}" data-bind="episodes.${i}.note" data-kind="text" data-root="rbDraft" placeholder="${x.use === 'revise' ? '무엇을 고칠지' : '옛 화에서 살릴 것'}">` : ''}</td>
     </tr>`;
@@ -307,7 +319,7 @@ function rebuildProposal(d) {
       <div class="field"><span class="label">앞 아크</span>${arcs}</div>
       <div class="field"><span class="label">부 구성</span>${parts}</div>
       <div class="field"><span class="label">화 지도 <span class="hint">${Object.values(REBUILD_USE).map(([a, b]) => `${a}: ${b}`).join(' · ')}</span></span>
-        <div class="table-wrap" style="max-height:560px;overflow:auto"><table class="rb-map"><thead><tr><th>새 화</th><th>쓰는 방식</th><th>단편 화</th><th>제목 · 내용</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <div class="table-wrap rb-wrap"><table class="rb-map"><thead><tr><th>새 화</th><th>쓰는 방식</th><th>단편 화</th><th>제목 · 내용</th></tr></thead><tbody>${rows}</tbody></table></div>
         ${peek ? `<div class="note plain"><div class="between"><strong>단편 ${S.rbPeek}화 ${esc(peek.plot.title)}</strong><button class="btn small" data-action="rbPeek" data-arg="0">닫기</button></div><div class="small">${esc(peek.summary || peek.plot.summary)}</div></div>` : ''}
       </div>
       ${fsBox}${tierBox}
@@ -320,15 +332,26 @@ function rebuildStatus(p) {
   if (!a) return '';
   const by = new Map(p.episodes.map((e) => [e.plot.number, e]));
   const todo = (u) => a.map.filter((x) => x.use === u);
-  const revise = todo('revise').filter((x) => by.get(x.number) && by.get(x.number).status !== 'finalized');
+  // 다듬기 화 중 본문이 옛 원문과 다르면 이미 다듬었다 (rebuildNote 의 done 과 같은 규칙)
+  const reworked = (x) => {
+    const e = by.get(x.number);
+    const orig = a.episodes.find((o) => o.plot.number === x.sources[0]);
+    return !!e && !!orig && e.text !== orig.text;
+  };
+  const open = todo('revise').filter((x) => by.get(x.number) && by.get(x.number).status !== 'finalized');
+  const revise = open.filter((x) => !reworked(x));
+  const polished = open.filter(reworked);
   const drafts = a.map.filter((x) => by.get(x.number) && by.get(x.number).status === 'draft').length;
-  const notes = S.rbNotes.length ? `<div class="note warn"><strong>옮기지 못한 것</strong><ul style="padding-left:18px;margin-top:6px">${S.rbNotes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></div>` : '';
+  // 반영 직후 받은 목록이 없으면(새로 불러옴) 작품에 남긴 목록을 쓴다
+  const kept = S.rbNotes.length ? S.rbNotes : (p.conversion && p.conversion.notes) || [];
+  const notes = kept.length ? `<div class="note warn"><strong>옮기지 못한 것</strong><ul style="padding-left:18px;margin-top:6px">${kept.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></div>` : '';
   return `${notes}<section class="card">
       <h2>재구성한 앞부분 (${a.map.length}화)</h2>
       <div class="small">그대로 ${todo('keep').length} · 다듬기 ${todo('revise').length} · 새로 쓰기 ${todo('rewrite').length} · 새 화 ${todo('new').length}${a.dropped.length ? ` · 쓰지 않는 단편 화 ${a.dropped.join(', ')}` : ''}</div>
       <ol class="small" style="padding-left:18px;margin:6px 0 0;line-height:1.7">
         ${drafts ? `<li>플롯 초안이 필요한 화 ${drafts}개: <a href="${base()}/arc">부 · 아크</a>에서 아크마다 'AI로 플롯 초안'을 받고 확정하세요.</li>` : ''}
         ${revise.length ? `<li>다듬기 화 ${revise.map((x) => `<a href="${base()}/write/${x.number}">${x.number}화</a>`).join(', ')}: 집필 화면에서 AI 다듬기를 받아 비교하고 넣으세요.</li>` : ''}
+        ${polished.length ? `<li>다듬음: ${polished.map((x) => `<a href="${base()}/write/${x.number}">${x.number}화</a>`).join(', ')}. 다듬은 본문이 들어가 있어요. 차례가 되면 상태를 반영하세요.</li>` : ''}
         <li>1화부터 차례로 쓰고 상태를 반영해요. 그대로 둔 화는 상태 승인에서 단편 때 변경안이 바로 나와요.</li>
       </ol>
     </section>`;
@@ -355,10 +378,16 @@ function rebuildNote(n) {
   if (!rw) return `<div class="note ${done ? 'plain' : 'info'}">${head}</div>`;
   return `<div class="note info" style="display:flex;flex-direction:column;gap:8px">${head}
     ${rw.reply ? `<div class="small">${esc(rw.reply)}</div>` : ''}
-    <div class="pdiff" style="max-height:360px;overflow:auto;white-space:pre-wrap;font-family:var(--serif);font-size:0.875rem;line-height:1.8">${reworkDiff(e.text, rw.text)}</div>
+    <div class="small" data-rework-basis="${n}">${reworkBasis(rw)}</div>
+    <div class="pdiff" data-rework-diff="${n}" style="max-height:360px;overflow:auto;white-space:pre-wrap;font-family:var(--serif);font-size:0.875rem;line-height:1.8">${reworkDiff(e.text, rw.edited ?? rw.text)}</div>
     <details><summary class="small">넣기 전에 손보기</summary><textarea rows="10" data-rework="${n}" aria-label="다듬은 본문">${esc(rw.edited ?? rw.text)}</textarea></details>
     <div class="row"><button class="btn small" data-action="reworkDrop" data-arg="${n}">버리기</button><button class="btn small primary" data-action="reworkAccept" data-arg="${n}">이 본문으로 바꾸기</button><span class="small">고치기 전후는 수정 기록에 남아 되돌릴 수 있어요.</span></div>
   </div>`;
+}
+
+/** 비교가 무엇을 기준으로 하는지. 손보기 칸을 고쳤으면 실제로 들어갈 손본 글과 비교한다. */
+function reworkBasis(rw) {
+  return rw.edited != null && rw.edited !== rw.text ? '<strong>손본 글 기준</strong> · 지금 본문과 넣을 글을 비교해요' : '지금 본문과 AI 다듬기 제안을 비교해요';
 }
 
 /** 긴 본문 비교: 앞뒤 같은 부분은 접고 바뀐 가운데만 단어 단위로 비교한다. */
@@ -440,7 +469,18 @@ Object.assign(actions, {
 
 document.addEventListener('input', (e) => {
   const t = e.target;
-  if (t.dataset && t.dataset.rework && S.reworks[t.dataset.rework]) S.reworks[t.dataset.rework].edited = t.value;
+  if (!(t.dataset && t.dataset.rework && S.reworks[t.dataset.rework])) return;
+  const n = t.dataset.rework;
+  const rw = S.reworks[n];
+  rw.edited = t.value;
+  // 손보는 칸은 다시 그리지 않고 비교 칸만 바꾼다 (입력 중 포커스 · 커서를 지킨다)
+  clearTimeout(S.reworkDiffTimer);
+  S.reworkDiffTimer = setTimeout(() => {  // 긴 본문이라 타자마다 비교하지 않고 잠깐 멈췄을 때 한 번
+    const diff = document.querySelector(`[data-rework-diff="${n}"]`);
+    const basis = document.querySelector(`[data-rework-basis="${n}"]`);
+    if (diff && ep(Number(n))) diff.innerHTML = reworkDiff(ep(Number(n)).text, rw.edited);
+    if (basis) basis.innerHTML = reworkBasis(rw);
+  }, 200);
 });
 
 document.addEventListener('change', (e) => {
@@ -448,7 +488,9 @@ document.addEventListener('change', (e) => {
   if (!t.dataset || S.route[2] !== 'convert') return;
   if (t.dataset.rbEnding !== undefined && t.checked) S.rbForm.ending_at = t.dataset.rbEnding;
   if (t.dataset.rbUse !== undefined && S.rbDraft) {
-    S.rbDraft.episodes[Number(t.dataset.rbUse)].use = t.value;
+    const x = S.rbDraft.episodes[Number(t.dataset.rbUse)];
+    x.use = t.value;
+    if (x.use === 'new') x.sources = [];  // 새 화는 단편 화를 쓰지 않는다 (칸도 꺼진다)
     render();
   }
   if (t.dataset.rbSrc !== undefined && S.rbDraft) {

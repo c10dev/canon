@@ -39,7 +39,7 @@ AI 로 소설을 길게 쓸수록 인물 말투, 관계, 심리, 복선, 문체�
 | 큰 줄기 | `Act` ×4 | 기/승/전/결 구간 범위, 구간 목표, 전환점, 서술 시점 운용(`pov`, 비면 작품 기본). 장편은 아크마다 따로 가진다 | 구조 설계 후 확정 |
 | 부 (장편) | `Part` (`parts`) | 범위, 목표, 큰 전환, 아크 아이디어, 끝난 뒤 요약 | 부 계획 승인, 요약 승인 |
 | 아크 (장편) | `StoryArc` (`story_arcs`) | 범위, 목표, 갈등, 결말, 자기 기승전결(`acts`), 주요 인물(`cast`), 회수할 떡밥(`payoffs`), 서술 시점 운용(`pov`), 끝난 뒤 요약 | 아크마다 승인, 요약 승인 |
-| 전환 기록 (장편) | `Conversion` (`conversion`) | 단편에서 장편으로 바꾼 시각, 방식(`mode`: continue 이어 쓰기 / rebuild 재구성), 전 화수, 아크 1 끝 화, 결말 처리. 되돌릴 백업은 `before-serial.json` | 전환 때, 되돌리면 지움 |
+| 전환 기록 (장편) | `Conversion` (`conversion`) | 단편에서 장편으로 바꾼 시각, 방식(`mode`: continue 이어 쓰기 / rebuild 재구성), 전 화수, 아크 1 끝 화, 결말 처리, 재구성이 옮기지 못한 것(`notes`). 되돌릴 백업은 `before-serial.json` | 전환 때, 되돌리면 지움 |
 | 옛 단편 보관함 (재구성) | `ShortArchive` (`archive`) | 재구성 전 단편의 화 · 기승전결 · 상태 변경 기록과 새 화 지도(`RebuildEpisode`), 쓰지 않는 옛 화 | 재구성 때, 되돌리면 지움 |
 | 화별 플롯 | `EpisodePlot` | 제목, 요약, 사건 목록, 등장 인물, 감정 변화, 엔딩 훅, 심을/회수할 복선, 따라가는 이야기 줄기(`storyline`, 비면 메인)와 끼어드는 줄기(`threads`), 1~3화만 여는 장면(`opening`)과 독자가 들고 갈 질문(`reader_question`), 시점 인물(`pov`)과 서술 방식(`pov_mode`, 둘 다 비면 구간 · 아크 · 작품 기본 시점) | 초안 → 사용자 확정 |
 | 회차 | `Episode` | 플롯 + 상태(draft → confirmed → written → finalized) + 본문 + 요약 + 마지막 검수 결과(`issues`) | 진행에 따라 |
@@ -224,7 +224,7 @@ Claude 등 다른 구현도 같은 두 메서드만 구현하면 추가된다.
 - **제안**(`propose_conversion` → `SerialConversion`): 결말 처리(`ending`: keep 닫고 다음 이야기로 / reopen 결말 다시 열기, 사용자가 고르거나 AI 가 고름), 아크 1의 제목 · 목표 · 갈등 · 보상 · 등장 인물, 다 쓴 단편이면 아크 1 요약, 새 총 화수의 부 구성(아크 후보에 새 인물 계획을 함께 적음), 새 장기 떡밥(`scope` part/series), 열린 복선 범위 바꾸기(`ScopeChange`), 결말을 열 때 더할 확정 사실, 본문 없는 화의 플롯 수정안, 인물 비중 조정(`TierChange`). 프롬프트(`convert_prompt`)는 단편이 짧아 화별 요약 전체, 본문 없는 화 플롯, 마지막으로 쓴 화 끝부분 1,500자를 넣는다.
 - **정리**(`clean_conversion`): 아크 1 범위와 구간은 코드가 덮어쓴다. 다 쓰지 않았으면 요약을 비운다. 부 구성은 번호와 양 끝을 맞춘 뒤 1부가 아크 1을 품지 못하거나 빈틈이 있으면 뺀다(전환 뒤 다시 제안받는다). 이미 있는 id 의 떡밥, 없는 인물, 주역이 하나도 남지 않는 비중 조정, 본문이 있는 화의 플롯 수정은 뺀다. 뺀 이유는 `reply` 에 덧붙인다.
 - **반영**(`apply_conversion`): 화면에서 뺀 항목은 반영하지 않는다. `meta.form` 을 serial 로, 총 화수를 바꾸고, `arc` 를 비운다. 전환 기록은 `Project.conversion`(시각, 전 화수, 아크 1 끝 화, 결말 처리, 그때까지 반영한 화 수)에 남긴다.
-- **되돌리기**: 반영 직전 작품 전체를 `before-serial.json`(`store.save_backup`)에 둔다. 전환 뒤 상태를 반영한 화가 늘었거나 본문이 바뀌었으면 막는다(`undo_blockers`). 되돌리면 백업을 지운다. 장편 → 단편 전환은 만들지 않는다.
+- **되돌리기**: 반영 직전 작품 전체를 `before-serial.json`(`store.save_backup`)에 둔다. 전환 뒤 상태를 반영한 화가 늘었거나 본문이 바뀌었으면 막는다(`undo_blockers`, 화면은 이유별 화 번호 `undo_blocker_eps` 로 그 화 링크를 단다). 잃는 것을 감수하고 되돌리는 강제 되돌리기는 두지 않는다. 되돌리면 백업을 지운다. 장편 → 단편 전환은 만들지 않는다.
 
 ### 단편 → 장편 재구성
 
@@ -235,6 +235,7 @@ Claude 등 다른 구현도 같은 두 메서드만 구현하면 추가된다.
 - **반영**(`apply_rebuild`): 옛 화 · 기승전결 · `history` 를 `ShortArchive` 에 넣는다. 상태 · 관계 · 비밀 · 사실 · 복선을 스냅샷 0으로 돌리고 사건 로그와 반영 기록을 비운다. keep/revise 화는 옛 플롯(번호와 구간만 바꿈)과 본문을 written 으로, 나머지는 지도 제목 · 내용만 있는 초안으로 만든다. 인과율 요소의 `since_ep` · `reveal_ep` · `episodes` 와 이야기 줄기의 `branch_ep` · `join_ep` 은 옛 화 → 그 옛 화를 쓰는 첫 새 화(본문을 그대로 쓰는 화 우선)로 옮기고, 빠진 옛 화는 뒤로 가장 가까운 쓰인 옛 화를 따른다. 옮기지 못한 것은 notes 로 돌려준다.
 - **이후 흐름**: 초안 화는 기존 `plots` 작업으로 채운다. `serial_plot_prompt` 에 `rebuild_map_block`(그 구간 지도와 본문이 있는 화의 고정 플롯)이 붙고, `apply_plots` 는 초안만 덮어 본문이 있는 화는 그대로다. rewrite 화를 쓸 때 `build_episode_context` 끝에 `material_block`(옛 원고, 화마다 최대 6천 자 · 3화)을 붙인다. 상태 정리(`extract_state`)는 keep/revise 화의 본문이 옛 본문과 같으면 `carried_delta`(옛 변경안을 번호만 바꾸고 경고 한 줄)를 AI 대신 낸다. revise 화는 `propose_rework`(`Rework`: 고친 본문 전체)를 받아 화면에서 비교하고 `accept_rework` 로 넣으며, 고치기 전후는 `TextEdit`(source ai)으로 남는다.
 - **되돌리기**: 이어 쓰기와 같은 백업을 쓴다. 화 번호가 바뀌므로 옛 본문 어느 것과도 같지 않은 본문이 있으면 막는다.
+- 반영 때 옮기지 못한 것(`notes`)은 `Conversion.notes` 에도 남겨, 새로 불러온 재구성 화면에 다시 보인다.
 
 ### 컨텍스트 (장편)
 
