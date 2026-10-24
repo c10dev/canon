@@ -199,11 +199,11 @@ function causalImpact(el) {
   }).join('');
   const facts = r.new_facts.map((f, i) => `<div class="prop-part"><label class="prop-head">${box('fact:' + i)}<strong>확정 사실 더하기</strong></label><div class="diff"><div class="diff-row"><ins>${esc(f)}</ins></div></div></div>`).join('');
   const done = imp.outcome === 'applied' ? `<span class="chip finalized">반영함 · ${imp.applied.map(appliedLabel).join(', ')}</span>`
-    : imp.outcome === 'dismissed' ? '<span class="chip">반영 안 함</span>' : '';
+    : imp.outcome === 'dismissed' ? '<span class="chip">버림</span>' : '';
   const body = `${conflicts ? `<h3>어긋나는 곳 ${r.conflicts.length}</h3><ul class="conflicts">${conflicts}</ul>` : ''}
     ${plots ? `<h3>플롯 고치기</h3>${plots}` : ''}${patches ? `<h3>이미 쓴 본문 고치기</h3>${patches}` : ''}${facts ? `<h3>설명으로 덮기</h3>${facts}` : ''}`;
   const has = r.episodes.length || r.patches.length || r.new_facts.length;
-  const actionsRow = open && has ? `<div class="row"><button class="btn primary" data-action="causalApply">고른 것 반영</button><button class="btn" data-action="causalDismiss">반영 안 함</button></div>` : '';
+  const actionsRow = open && has ? proposalActions(['causalDismiss'], ['causalApply']) : '';
   const timingTip = open && r.conflicts.some((c) => c.fix === '시점 변경') ? '<div class="note info">시점 변경을 권한 곳이 있어요. 위의 \'언제부터\'를 늦추고 저장한 뒤 다시 분석하면 앞 본문은 모순이 아니게 돼요.</div>' : '';
   return `<div class="card" style="display:flex;flex-direction:column;gap:12px">${head}${stale}
     <div class="small">${fmtDate(imp.at)} 분석 ${done}</div>

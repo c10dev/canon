@@ -9,7 +9,9 @@ const HOOK_DOTS = (k) => '●'.repeat(k) + '○'.repeat(5 - k);
 Object.assign(S, {
   openingData: {},  // 화 → GET /opening (지표 경고, 판정, 비교본)
   openingWays: [],  // 고른 여는 방식 id
-  openingPlots: {}, // 화 → 여는 방식 플롯 안 (반영 전)
+  openingPlots: {}, // 화 → 여는 방식 플롯 안 (반영 전). 하나를 골라도 다시 비교하게 남긴다
+  openingUsed: {},  // 화 → 지금 플롯으로 고른 안 번호
+  openingPrev: {},  // 화 → 안을 처음 고르기 전 플롯 (되돌리기)
   approaches: null, // 서버 OPENING_APPROACHES
 });
 
@@ -129,25 +131,35 @@ function openingPlotBlock(e) {
   const n = e.plot.number;
   if (!isOpening(n) || e.status === 'written' || e.status === 'finalized') return '';
   const btn = jobBtn('openings', n, S.openingPlots[n] ? '플롯 안 다시 받기' : '여는 방식별 플롯 안 받기');
+  const used = S.openingUsed[n];
   const opts = (S.openingPlots[n] || []).map((o, i) => {
     const a = (S.approaches || []).find((x) => x.id === o.approach);
-    const p = o.plot;
+    const p = openingEffective(e, o.plot);
+    const diff = used === i ? '' : plotDiff(p);
+    const count = (diff.match(/class="diff-row"/g) || []).length;
     return `<div class="card tight" style="gap:6px">
-        <div class="between"><strong>${esc(a ? a.label : o.approach)} · ${esc(p.title)}</strong><button class="btn small primary" data-action="openingUsePlot" data-arg="${n}:${i}">이 안으로</button></div>
+        <div class="between"><strong>${esc(a ? a.label : o.approach)} · ${esc(p.title)}</strong>${used === i ? '<span class="chip confirmed">지금 플롯</span>' : `<button class="btn small primary" data-action="openingUsePlot" data-arg="${n}:${i}">이 안으로</button>`}</div>
         <div class="small">${esc(o.pitch)}</div>
-        <div style="font-size:13px;line-height:1.55"><strong>여는 장면</strong> · ${esc(p.opening)}</div>
-        <ol style="padding-left:20px;font-size:13px;line-height:1.5">${p.events.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>
-        <div style="font-size:13px"><strong>엔딩 훅</strong> · ${esc(p.ending_hook)}</div>
         ${p.reader_question ? `<div style="font-size:13px"><strong>독자 질문</strong> · ${esc(p.reader_question)}</div>` : ''}
+        ${used === i ? '' : `<details${i === 0 ? ' open' : ''}><summary class="small">지금 플롯과 비교 · 바뀌는 칸 ${count}개</summary><div class="diff">${diff}</div></details>`}
       </div>`;
   }).join('');
+  const prev = S.openingPrev[n];
   return `<details${S.openingPlots[n] ? ' open' : ''}><summary style="font-weight:700;font-size:14px">초반 화 · 여는 방식 고르기</summary>
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
         <div class="small">${n}화 플롯을 여는 방식마다 하나씩 받아 비교합니다. 고른 안이 이 화 플롯이 되고, 확정했던 화는 초안으로 돌아가요.</div>
         ${openingWayPicker(false)}
-        <div><button class="btn" data-action="openingPlots" data-arg="${n}"${btn.attr}>${btn.label}</button></div>
+        <div class="row"><button class="btn" data-action="openingPlots" data-arg="${n}"${btn.attr}>${btn.label}</button>${S.openingPlots[n] ? `<button class="btn small" data-action="openingDropPlots" data-arg="${n}">안 모두 버리기</button>` : ''}${prev ? `<button class="btn small" data-action="openingUndoPlot" data-arg="${n}">고르기 전 플롯으로 되돌리기</button>` : ''}</div>
         ${opts}
       </div></details>`;
+}
+
+/** 안을 고르면 실제로 들어갈 플롯 (pipeline.apply_opening 과 같은 규칙: 시점, 서술 방식, 회수 복선, 넣어 둔 인물은 지금 것을 지킨다). */
+function openingEffective(e, plot) {
+  const cur = e.plot;
+  return { ...plot, pov: cur.pov || plot.pov, pov_mode: cur.pov_mode || plot.pov_mode,
+    foreshadow_payoff: cur.foreshadow_payoff.length ? cur.foreshadow_payoff : plot.foreshadow_payoff,
+    characters: [...new Set([...cur.characters, ...plot.characters])] };
 }
 
 function openingWaysOk() {
@@ -174,19 +186,43 @@ Object.assign(actions, {
   },
   openingPlots(n) {
     if (!openingWaysOk()) return;
+    const have = (S.openingPlots[n] || []).length;
+    if (have && !confirm(`받아 둔 안 ${have}개를 버리고 새로 받을까요?`)) return;
     startJob('openings', n, { approaches: S.openingWays });
   },
   async openingUsePlot(arg) {
     const [n, i] = String(arg).split(':').map(Number);
     const o = (S.openingPlots[n] || [])[i];
     if (!o) return;
+    const e = ep(n);
+    if (!confirm(`${n}화 플롯을 이 안으로 바꿀까요?${e.status === 'confirmed' ? ' 확정이 풀려 다시 확정해야 해요.' : ''} 지금 플롯은 '고르기 전 플롯으로 되돌리기'로 되찾을 수 있어요.`)) return;
     await run('플롯을 바꾸는 중', async () => {
       await saveIfDirty();
+      if (S.openingUsed[n] === undefined) S.openingPrev[n] = structuredClone(ep(n).plot);  // 처음 고를 때의 플롯을 되돌리기용으로 둔다
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/opening-plot`, { plot: o.plot });
-      delete S.openingPlots[n];
+      S.openingUsed[n] = i;  // 다른 안과 다시 비교하고 바꿀 수 있게 안은 남긴다
       S.dirty = false;
       toast(`${n}화 플롯을 바꿨습니다. 읽어 보고 확정하세요`);
     });
+  },
+  async openingUndoPlot(n) {
+    n = Number(n);
+    if (!confirm(`${n}화 플롯을 안을 고르기 전으로 되돌릴까요?`)) return;
+    await run('플롯을 되돌리는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/opening-plot`, { plot: S.openingPrev[n] });
+      delete S.openingPrev[n];
+      delete S.openingUsed[n];
+      S.dirty = false;
+      toast(`${n}화 플롯을 되돌렸어요. 확정했던 화였다면 다시 확정하세요`);
+    });
+  },
+  openingDropPlots(n) {
+    n = Number(n);
+    if (!confirmDrop(`${n}화 여는 방식 플롯 안`)) return;
+    delete S.openingPlots[n];
+    delete S.openingUsed[n];
+    render();
   },
   async openingPick(arg) {
     const [n, k] = String(arg).split(':').map(Number);

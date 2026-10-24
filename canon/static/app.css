@@ -630,3 +630,12 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
 .sel-tool { align-items: center; }
 .sel-hint { max-width: 220px; padding: 0 4px; }
 .sel-tool.edit { align-items: stretch; }
+
+/* AI 제안 카드 공통: 버튼 줄은 오른쪽 [버리기] [반영] (proposalActions) */
+.proposal-actions { justify-content: flex-end; }
+.proposal > .proposal-actions { position: sticky; bottom: 0; background: inherit; padding-top: 8px; }
+.prop-sum { padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.sug-fields { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.sug-field.skip { opacity: .6; }
+.rel-lines li.same { color: var(--text-2); }
+.rel-lines li.changed ins { text-decoration: none; font-weight: 600; }

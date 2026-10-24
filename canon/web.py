@@ -1008,8 +1008,8 @@ def start_job(name: str, body: JobIn) -> dict:
 
 
 # 결과가 반영 전 제안인 작업. 화면이 반영하거나 버릴 때까지 pending.json 에 둔다
-# (구조 제안 arc 는 화면이 바로 작품에 넣고, 본문 · 플롯 · 판정 같은 작업은 서버가 이미 작품에 썼다)
-PENDING_KINDS = {"suggest", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "state", "openings"}
+# (본문 · 플롯 · 판정 같은 작업은 서버가 이미 작품에 썼다)
+PENDING_KINDS = {"arc", "suggest", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "state", "openings"}
 
 
 def _keep_pending(name: str, kind: str, n: int | None, label: str, fn):
@@ -1511,9 +1511,10 @@ def cast_view(name: str) -> dict:
 def preview(name: str, n: int, d: StateDelta) -> dict:
     """화면에서 고른 변경안을 복사본에 반영해, 반영 후 계산될 관계를 미리 보여 준다. 저장하지 않는다."""
     sim = _load(name)
+    before = _relations(sim)
     d.episode = n
     pipeline.apply_delta(sim, d)
-    return _relations(sim)
+    return {**_relations(sim), "before": before}  # 반영 전 관계: 화면이 줄마다 지금 → 반영 후를 비교한다
 
 
 class View(BaseModel):

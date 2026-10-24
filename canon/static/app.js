@@ -143,6 +143,12 @@ const autoOn = () => !!(S.auto && S.auto.active);
 /** 자동 집필이 지금 쓰는 화. 서버는 그 화의 플롯과 관계 같은 진행 칸을 화면 저장에서 지킨다 (autorun.protected). */
 const autoEp = () => (autoOn() && S.auto.run ? S.auto.run.ep : null);
 
+/** AI 제안 카드의 버튼 줄. 모든 제안 카드가 같은 순서([버리기] [반영], 오른쪽)와 같은 말을 쓴다. 각 버튼은 [action, arg]. */
+function proposalActions(drop, apply, label = '고른 것 반영') {
+  const b = ([action, arg], cls, text) => `<button type="button" class="btn small${cls}" data-action="${action}"${arg != null ? ` data-arg="${esc(String(arg))}"` : ''}>${text}</button>`;
+  return `<div class="row proposal-actions">${b(drop, '', '버리기')}${b(apply, ' primary', label)}</div>`;
+}
+
 /** AI 제안을 버리기 전에 묻는다. 버린 제안은 되살릴 수 없고 다시 받으려면 AI 를 다시 불러야 한다. */
 function confirmDrop(what) {
   return confirm(`${what}을 버릴까요? 되살릴 수 없어서, 다시 보려면 AI 에게 다시 받아야 해요.`);  // 부르는 곳은 모두 받침 있는 말(제안, 계획)
@@ -277,12 +283,13 @@ async function finishJob(j) {
 }
 
 // ---------- 검토를 기다리는 결과 · 실패 (서버 pending.json, web.PENDING_KINDS 와 같은 목록) ----------
-const PENDING_KINDS = ['suggest', 'series', 'nextarc', 'convert', 'rebuild', 'rework', 'storyline', 'recap_arc', 'recap_part', 'state', 'openings'];
+const PENDING_KINDS = ['arc', 'suggest', 'series', 'nextarc', 'convert', 'rebuild', 'rework', 'storyline', 'recap_arc', 'recap_part', 'state', 'openings'];
 
 /** 그 결과가 아직 화면에 제안으로 남아 있다. 반영하거나 버리면 false 가 된다. */
 function pendingShown(r) {
   switch (r.kind) {
     case 'state': return S.deltas[r.ep] !== undefined;
+    case 'arc': return !!S.arcProposal;
     case 'suggest': return !!S.suggestion;
     case 'series': return !!S.seriesDraft;
     case 'nextarc': return !!S.arcDraft;
@@ -336,8 +343,7 @@ function applyJobResult(j) {
     S.suggestion.characters.forEach((c, i) => { S.picks['sc' + i] = !sameChar(c); });
     S.suggestion.relationships.forEach((r, i) => { S.picks['sr' + i] = true; });
   } else if (j.kind === 'arc' && j.result) {
-    P().arc = j.result.acts;
-    S.dirty = true;
+    S.arcProposal = j.result.acts;  // 바로 바꾸지 않고 지금 구조와 비교해 고르게 한다 (arcProposalCard)
   } else if (j.kind === 'write' && !(j.result && j.result.candidate)) {
     // AI 가 본문을 새로 썼다 (새 판 candidate 는 본문을 덮지 않으니 쓰던 초안과 변경안을 그대로 둔다).
     // 그 화 칸에 쓰던 글이 있으면(다른 탭에서 시작한 작업 등) 버리지 않고 칸에 남긴다. 저장하면 수정 기록에 남아 되돌릴 수 있다
@@ -835,6 +841,12 @@ const actions = {
   },
   async applySuggestion() {
     const s = structuredClone(S.suggestion);
+    // 고르지 않은 칸은 비워 보낸다. 서버는 빈 칸을 건너뛴다
+    SUG_FIELDS.forEach(([k]) => {
+      if (S.picks['sf:' + k] !== false) return;
+      if (k.startsWith('world.')) s.world[k.slice(6)] = Array.isArray(s.world[k.slice(6)]) ? [] : '';
+      else s[k] = '';
+    });
     s.characters = s.characters.filter((_, i) => S.picks['sc' + i]);
     s.relationships = s.relationships.filter((r, i) => S.picks['sr' + i] && sugEnd(r.a) && sugEnd(r.b));
     await run('반영하는 중', async () => {
@@ -1173,8 +1185,19 @@ const actions = {
 
   // 구조와 플롯
   async planArc() {
-    if (P().arc.length && !confirm('지금 구조를 AI 제안으로 바꿀까요? 저장 전까지는 되돌릴 수 있어요.')) return;
-    await startJob('arc');
+    await startJob('arc');  // 도착하면 지금 구조와 비교하는 제안 카드로 보인다. 고르기 전에는 바뀌지 않는다
+  },
+  useArcProposal() {
+    P().arc = S.arcProposal;
+    S.arcProposal = null;
+    markDirty();
+    render();
+    toast('구조를 바꿨어요. 저장하면 반영돼요');
+  },
+  dropArcProposal() {
+    if (!confirmDrop('AI 구조 제안')) return;
+    S.arcProposal = null;
+    render();
   },
   async draftPlots() {
     if (!confirmRedraft(P().episodes)) return;
@@ -1566,9 +1589,9 @@ document.addEventListener('click', (e) => {
 // 작품마다 따로 두는 화면 상태와 빈 값. 화 번호로 잡거나 반영 전 AI 제안이라, 다른 작품에 보이거나 반영되면 안 된다
 const PER_PROJECT = {
   textDraft: () => ({}), deltas: () => ({}), deltaBase: () => ({}),
-  suggestion: () => null, picks: () => ({}), seriesDraft: () => null, arcDraft: () => null, recapDrafts: () => ({}),
+  suggestion: () => null, picks: () => ({}), seriesDraft: () => null, arcDraft: () => null, arcProposal: () => null, recapDrafts: () => ({}),
   lineDraft: () => null, convDraft: () => null, rbDraft: () => null, reworks: () => ({}),
-  openingData: () => ({}), openingPlots: () => ({}), rw: () => ({}), rwInfo: () => ({}), looks: () => ({}),
+  openingData: () => ({}), openingPlots: () => ({}), openingUsed: () => ({}), openingPrev: () => ({}), rw: () => ({}), rwInfo: () => ({}), looks: () => ({}),
   causalLinks: () => ({}), causalPicks: () => ({}), chatPicks: () => ({}),
 };
 const stash = {};       // 작품 이름 → PER_PROJECT 의 값들
@@ -2397,14 +2420,27 @@ function sugEnd(id) {
   return P().characters.find((c) => c.id === id) || null;
 }
 
+// 설정 제안에서 칸마다 고르는 기본 정보 · 세계관 (pipeline.apply_setup 은 빈 칸만 채운다)
+const SUG_FIELDS = [['theme', '주제'], ['tone', '톤'], ['world.setting', '배경'], ['world.era', '시대'], ['world.rules', '규칙'], ['world.locations', '장소'], ['world.name_style', '이름 스타일'], ['world.name_rules', '이름 규칙']];
+/** 제안(SetupSuggestion)이나 작품(Project)의 그 칸 글. 작품의 주제 · 톤은 meta 에 있다. */
+function sugValue(o, k) {
+  const v = k.startsWith('world.') ? o.world[k.slice(6)] : (o.meta ? o.meta[k] : o[k]);
+  return Array.isArray(v) ? v.join(', ') : String(v || '');
+}
+
 function viewSuggestion() {
   const s = S.suggestion;
   const exists = (c) => sameChar(c);
   const clash = (c) => !sameChar(c) && P().characters.some((x) => x.id === c.id);
   return `<section class="card" style="border:2px solid var(--accent)">
-    <div class="between"><h2>AI 제안 <span class="chip ai">반영 전</span></h2><div class="row"><button class="btn small" data-action="dropSuggestion">버리기</button><button class="btn small primary" data-action="applySuggestion">선택 항목 반영</button></div></div>
+    <div class="between"><h2>AI 제안 <span class="chip ai">반영 전</span></h2>${proposalActions(['dropSuggestion'], ['applySuggestion'])}</div>
     <p class="small">주제, 톤, 세계관은 비어 있는 칸에만 들어갑니다. 이미 있는 인물 id 는 건너뜁니다.</p>
-    <div class="grid-2"><div class="note plain"><strong>주제</strong> ${esc(s.theme)}<br><strong>톤</strong> ${esc(s.tone)}</div><div class="note plain"><strong>배경</strong> ${esc(s.world.setting)} ${esc(s.world.era)}<br><strong>규칙</strong> ${s.world.rules.map(esc).join(', ')}</div></div>
+    <div class="sug-fields">${SUG_FIELDS.map(([k, label]) => {
+    const v = sugValue(s, k);
+    if (!v.length) return '';
+    const have = sugValue(P(), k).length > 0;
+    return `<label class="row sug-field${have ? ' skip' : ''}"><input type="checkbox" data-pick="sf:${k}"${!have && S.picks['sf:' + k] !== false ? ' checked' : ''}${have ? ' disabled' : ''}><strong>${label}</strong> <span>${esc(v)}</span>${have ? ' <span class="small">이미 있음 · 건너뜀</span>' : ''}</label>`;
+  }).join('')}</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
       ${s.characters.map((c, i) => `<label class="char-card suggested" style="cursor:pointer"><span class="row"><input type="checkbox" data-pick="sc${i}"${S.picks['sc' + i] ? ' checked' : ''}${exists(c) ? ' disabled' : ''}><strong>${esc(c.name)}</strong><span class="small">${esc(c.role)} · ${esc(c.id)}${exists(c) ? ' · 이미 있음' : clash(c) ? ' · 같은 id 의 다른 인물이 있어 새 id 로 넣어요' : ''}</span></span>
         <span style="font-size:13px;line-height:1.5">목표: ${esc(c.goal)}<br>말투: ${esc(c.speech_style)}</span></label>`).join('')}
@@ -2463,6 +2499,16 @@ function profileFields(base, root) {
 }
 
 /** 작품 문체 화면 위쪽: 라이브러리에서 가져오기, 라이브러리에 저장하기 */
+/** 라이브러리와 다를 때 어느 쪽이 바뀌었는지 (library.link_state 의 mine · theirs). */
+function styleChangeWho(l) {
+  const mine = (l.mine || []).length > 0;
+  const theirs = (l.theirs || []).length > 0;
+  if (!l.base_known) return l.applied && l.version > l.applied ? `이 작품은 ${l.applied}번 버전, 라이브러리는 ${l.version}번 버전이에요` : '이 작품에서 고쳤거나 라이브러리가 바뀌었어요';
+  if (mine && theirs) return `이 작품도 고쳤고, 라이브러리도 ${l.applied}번 → ${l.version}번 버전으로 바뀌었어요`;
+  if (theirs) return `라이브러리가 ${l.applied}번 → ${l.version}번 버전으로 바뀌었어요. 이 작품은 그대로예요`;
+  return '이 작품에서 고쳤어요. 라이브러리는 가져온 버전 그대로예요';
+}
+
 function styleLibraryCard() {
   const libs = S.libs || [];
   const l = S.styleLink || { state: 'none' };
@@ -2471,14 +2517,17 @@ function styleLibraryCard() {
     none: '<span class="small">이 작품에서 직접 만든 문체예요.</span>',
     missing: '<span class="small">가져온 라이브러리 항목이 지워졌어요. 작품에 복사된 문체는 그대로 씁니다.</span>',
     same: `<span class="chip finalized">라이브러리와 같음</span> <a href="#/styles/${esc(l.id)}">${esc(l.name)}</a> <span class="small">${l.version}번 버전</span>`,
-    changed: `<span class="chip written">라이브러리와 다름</span> <a href="#/styles/${esc(l.id)}">${esc(l.name)}</a> <span class="small">${l.applied && l.version > l.applied ? `이 작품은 ${l.applied}번 버전, 라이브러리는 ${l.version}번 버전이에요` : '이 작품에서 고쳤거나 라이브러리가 바뀌었어요'}</span>`,
+    changed: `<span class="chip written">라이브러리와 다름</span> <a href="#/styles/${esc(l.id)}">${esc(l.name)}</a> <span class="small">${styleChangeWho(l)}</span>`,
   }[l.state] || '';
+  const fields = (list) => list.map((c) => esc(c.label)).join(', ');
+  const detail = l.state === 'changed' && ((l.mine || []).length || (l.theirs || []).length)
+    ? `<details><summary class="small">어느 칸이 다른지</summary><div class="small" style="padding-top:6px">${(l.mine || []).length ? `<div>이 작품에서 고친 칸: ${fields(l.mine)}</div>` : ''}${(l.theirs || []).length ? `<div>라이브러리 ${l.version}번 버전에서 바뀐 칸: ${fields(l.theirs)}</div>` : ''}<div>올리기는 작품 쪽을 라이브러리 새 버전으로, 되돌리기는 라이브러리 쪽을 작품에 가져와요.</div></div></details>` : '';
   const linkBtns = l.state === 'changed'
     ? '<button class="btn small" data-action="pushStyle">라이브러리 새 버전으로 올리기</button><button class="btn small" data-action="pullStyle">라이브러리 버전으로 되돌리기</button>'
     : '';
   return `<section class="card tight">
       <div class="between"><h2>문체 라이브러리</h2><a class="small" href="#/styles">라이브러리 열기</a></div>
-      <div class="row">${status}</div>
+      <div class="row">${status}</div>${detail}
       <div class="row" style="flex-wrap:nowrap">
         ${libs.length
           ? `<select id="style-pick" aria-label="라이브러리 문체" style="flex:1"><option value="">라이브러리에서 고르기</option>${opts}</select><button class="btn small" style="flex:none" data-action="useLibStyle">적용</button>`
@@ -2712,7 +2761,9 @@ function viewArc() {
   const sel = S.selEp ? ep(S.selEp) : null;
 
   let board;
-  if (!p.arc.length) {
+  if (S.arcProposal) {
+    board = arcProposalCard();
+  } else if (!p.arc.length) {
     board = `<div class="card empty"><p>아직 기승전결 구조가 없어요.</p>${((b) => `<button class="btn primary" data-action="planArc"${b.attr}>${b.label}</button>`)(jobBtn('arc', null, 'AI 로 구조 만들기'))}</div>`;
   } else {
     board = `<div class="board-wrap">${eps.length ? '' : '<div class="note info">구간을 확인한 뒤 <strong>화별 플롯 초안 만들기</strong>를 누르면 각 구간에 화 카드가 채워집니다.</div>'}${actBoard(p.arc, eps, sel)}</div>`;
@@ -2730,6 +2781,18 @@ function viewArc() {
   const tools = chatButton() + right + `<a class="btn" href="${base()}/convert">장편으로 전환</a>`;
   return `${header('3단계', '기승전결 · 화별 플롯', '구간 목표를 확인하고, 화 카드를 눌러 플롯을 다듬은 뒤 확정하세요. 확정된 화만 본문을 쓸 수 있고, 초안을 다시 만들어도 확정된 화는 그대로입니다.', tools)}
     ${board}${drawer}${chatPanel('plot')}`;
+}
+
+/** 구조 제안: 구간마다 지금 값과 바꿀 값을 나란히 보인다 (대화 변경안과 같은 비교, chat.js actsDiff). */
+function arcProposalCard() {
+  const has = P().arc.length > 0;
+  const diff = has ? actsDiff({ acts: S.arcProposal, total_episodes: 0 }) : '';
+  const rows = has ? (diff || '<div class="small">지금 구조와 같아요.</div>')
+    : S.arcProposal.map((a) => `<div class="diff-act"><span class="chip ${actClass(a.name)}">${a.name}</span><div class="diff-row"><span class="act-label">범위</span><ins>${a.start_ep}–${a.end_ep}화</ins></div>${ACT_FIELDS.map(([k, l]) => diffField(l, k, '', a[k])).join('')}</div>`).join('');
+  return `<section class="card proposal" aria-label="AI 구조 제안">
+    <div class="between"><h2>AI 구조 제안 <span class="chip ai">반영 전</span></h2>${proposalActions(['dropArcProposal'], ['useArcProposal'], has ? '이 구조로 바꾸기' : '이 구조로 시작')}</div>
+    <p class="small">${has ? '지우는 것은 빨강, 새로 넣는 것은 초록이에요. 바꿔도 저장하기 전에는 작품에 들어가지 않아요.' : '고르면 구조가 생기고, 저장하면 작품에 들어가요.'}</p>
+    <div class="diff">${rows}</div></section>`;
 }
 
 function actEditor(i) {
@@ -3267,9 +3330,20 @@ function relationHeader(title) {
 function relationLines(rel) {
   if (!rel) return '<div class="small">계산하는 중…</div>';
   if (rel.error) return `<div class="note err">${esc(rel.error)}</div>`;
-  const text = P().settings.show_numbers ? rel.numbers : rel.words;
+  const key = P().settings.show_numbers ? 'numbers' : 'words';
+  const text = rel[key];
   if (!text) return '<div class="small">관계가 없어요. 설정 도우미에서 관계를 추가하세요.</div>';
-  return `<ul class="rel-lines">${text.split('\n').map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`;
+  if (!rel.before) return `<ul class="rel-lines">${text.split('\n').map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`;
+  // 미리보기: 줄마다 지금 값과 비교한다. 줄 앞 '도현 → 서윤' 같은 쌍으로 맞춘다
+  const pair = (l) => l.split(':')[0].split(' (')[0].split(' 서로')[0].trim();
+  const now = new Map((rel.before[key] || '').split('\n').filter(Boolean).map((l) => [pair(l), l]));
+  const lines = text.split('\n').filter(Boolean);
+  const changed = lines.filter((l) => now.get(pair(l)) !== l).length;
+  return `<div class="small">${changed ? `반영하면 ${changed}줄이 바뀌어요. 바뀌는 줄 아래에 지금 값을 함께 보여요.` : '반영해도 관계는 그대로예요.'}</div>
+    <ul class="rel-lines">${lines.map((l) => {
+    const was = now.get(pair(l));
+    return was === l ? `<li class="same">${esc(l)}</li>` : `<li class="changed"><ins>${esc(l)}</ins>${was ? `<div class="small">지금: ${esc(was)}</div>` : '<div class="small">새 관계</div>'}</li>`;
+  }).join('')}</ul>`;
 }
 
 // ----- 6. 작업지시서 -----

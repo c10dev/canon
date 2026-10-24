@@ -261,7 +261,7 @@ function lineDraftCard() {
     ${input('합류할 때 메인에 남기는 것', 'storyline.rejoin', { root: 'lineDraft', rows: 2 })}
     ${d.episodes.length ? `<div class="field"><span class="label">이 줄기를 따라갈 화</span><div class="row">${d.episodes.map((n) => box(n, 'main')).join('')}</div></div>` : ''}
     ${d.threads.length ? `<div class="field"><span class="label">메인 화에 장면을 끼울 화</span><div class="row">${d.threads.map((n) => box(n, 'thread')).join('')}</div></div>` : ''}
-    <div class="row"><button class="btn primary" data-action="lineApply">이 줄기 더하기</button><button class="btn" data-action="lineDrop">버리기</button></div>
+    ${proposalActions(['lineDrop'], ['lineApply'], '이 줄기 더하기')}
   </div>`;
 }
 
