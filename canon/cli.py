@@ -76,7 +76,7 @@ def confirm(question: str, assume_yes: bool) -> bool:
 def ask_logline(genre_ids: list[str]) -> LoglineParts:
     """로그라인을 다섯 칸으로 묻는다. 고른 장르의 예시를 먼저 보여 준다."""
     examples = [ex for gid in genre_ids if gid in genres.BY_ID for ex in genres.BY_ID[gid].logline][:2]
-    print("\n로그라인을 다섯 칸으로 나눠 씁니다. 모르는 칸은 비워 두세요.")
+    print("\n로그라인을 다섯 칸으로 나눠 써요. 모르는 칸은 비워 두세요.")
     for ex in examples:
         print(f"  예: {logline.compose(ex)}")
     parts = LoglineParts(
@@ -97,8 +97,8 @@ def ask_logline(genre_ids: list[str]) -> LoglineParts:
 
 def cmd_new(a: argparse.Namespace) -> None:
     if store.exists(a.name):
-        sys.exit(f"이미 있는 프로젝트입니다: {a.name}")
-    print("기본 설정을 입력하세요. 모르는 칸은 비워 두면 AI 가 제안합니다.\n")
+        sys.exit(f"이미 있는 프로젝트예요: {a.name}")
+    print("기본 설정을 입력하세요. 모르는 칸은 비워 두면 AI 가 제안해요.\n")
     genre_ids = genres.parse(a.genre or ask("장르 (쉼표로 여러 개, 목록: python -m canon genres)", "현대 드라마"))
     title = a.title or ask("제목")
     parts = LoglineParts()
@@ -151,7 +151,7 @@ def cmd_style(a: argparse.Namespace) -> None:
     if a.library:
         e = library.load(a.library)
         print(dump(e.profile))
-        if confirm(f"라이브러리 문체 '{e.name}' 을 적용할까요? 지금 작품의 문체는 바뀝니다.", a.yes):
+        if confirm(f"라이브러리 문체 '{e.name}' 을 적용할까요? 지금 작품의 문체는 바뀌어요.", a.yes):
             library.apply(p, e)
             print(f"저장: {store.save(a.name, p)}")
         return
@@ -198,9 +198,9 @@ def cmd_styles(a: argparse.Namespace) -> None:
         if len(a.args) != 2 or not a.args[1].isdigit():
             sys.exit("사용법: python -m canon styles restore ID 번호")
         e = library.load(a.args[0])
-        if confirm(f"'{e.name}' 을 {a.args[1]}번 버전으로 되돌릴까요? 지금 상태도 버전으로 남습니다.", a.yes):
+        if confirm(f"'{e.name}' 을 {a.args[1]}번 버전으로 되돌릴까요? 지금 상태도 버전으로 남아요.", a.yes):
             e = library.restore(e.id, int(a.args[1]))
-            print(f"되돌렸습니다. 지금 {e.version}번 버전 (쓰는 작품은 style --library 로 다시 적용해야 바뀝니다)")
+            print(f"되돌렸어요. 지금 {e.version}번 버전 (쓰는 작품은 style --library 로 다시 적용해야 바뀌어요)")
         return
     if a.action in ("show", "rm"):
         if len(a.args) != 1:
@@ -211,14 +211,14 @@ def cmd_styles(a: argparse.Namespace) -> None:
             print(dump(e.profile))
             return
         used = library.used_by(e.id)
-        note = f" 쓰는 작품({', '.join(used)})은 복사해 둔 문체를 그대로 씁니다." if used else ""
+        note = f" 쓰는 작품({', '.join(used)})은 복사해 둔 문체를 그대로 써요." if used else ""
         if confirm(f"'{e.name}' 을 라이브러리에서 지울까요?{note}", a.yes):
             library.delete(e.id)
-            print("지웠습니다")
+            print("지웠어요")
         return
     rows = library.entries()
     if not rows:
-        print("문체 라이브러리가 비어 있습니다. styles add 이름 원문.txt 로 추가하세요.")
+        print("문체 라이브러리가 비어 있어요. styles add 이름 원문.txt 로 추가하세요.")
     for e in rows:
         used = library.used_by(e.id)
         print(f"{e.id}  {e.name}  {e.profile.narration_pov or '-'} / {e.profile.tense or '-'}"
@@ -236,7 +236,7 @@ def cmd_learn(a: argparse.Namespace) -> None:
     r = pipeline.learn_style(get_llm("plan"), p)
     print(f"\n{r.summary}\n")
     if not r.suggestions:
-        print("두 번 이상 되풀이된 고침을 찾지 못했습니다")
+        print("두 번 이상 되풀이된 고침을 찾지 못했어요")
         return
     for i, s in enumerate(r.suggestions, 1):
         extra = f"  (상황: {s.note}, 글자: {', '.join(s.cues)}, {s.every}화에 한 번)" if s.kind == "device" else ""
@@ -256,19 +256,19 @@ def cmd_learn(a: argparse.Namespace) -> None:
     p.style_learning = r
     if picks:
         done, notes = pipeline.apply_learning(p, picks)
-        print(f"규칙 {len(done)}개를 작품 문체에 넣었습니다")
+        print(f"규칙 {len(done)}개를 작품 문체에 넣었어요")
         for n in notes:
             print(f"알림: {n}")
         if a.push and p.style_id and library.exists(p.style_id):
             e = library.push_project(p, f"수정 기록에서 배운 규칙 {len(done)}개 반영")
-            print(f"라이브러리 '{e.name}' 을 {e.version}번 버전으로 올렸습니다")
+            print(f"라이브러리 '{e.name}' 을 {e.version}번 버전으로 올렸어요")
     print(f"저장: {store.save(a.name, p)}")
 
 
 def cmd_arc(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     if p.serial:
-        sys.exit("장편 연재는 작품 전체 기승전결 대신 부 구성(series)과 아크(nextarc)로 나눕니다")
+        sys.exit("장편 연재는 작품 전체 기승전결 대신 부 구성(series)과 아크(nextarc)로 나눠요")
     plan = pipeline.plan_arc(get_llm("plan"), p)
     for act in plan.acts:
         print(f"[{act.name}] {act.start_ep}~{act.end_ep}화  목표: {act.goal}  / 전환점: {act.key_turn}{_act_pov(act)}")
@@ -284,9 +284,9 @@ def cmd_plot(a: argparse.Namespace) -> None:
         todo = next((s for s in sorted(p.story_arcs, key=lambda s: s.start_ep)
                      if any(n not in have for n in range(s.start_ep, s.end_ep + 1))), None)
         if todo is None:
-            sys.exit(f"플롯이 빈 아크가 없습니다. 다음 아크를 먼저 기획하세요: nextarc {a.name}")
+            sys.exit(f"플롯이 빈 아크가 없어요. 다음 아크를 먼저 기획하세요: nextarc {a.name}")
         start, end = todo.start_ep, todo.end_ep
-        print(f"아크 {todo.number} {todo.title} ({start}~{end}화) 플롯을 만듭니다")
+        print(f"아크 {todo.number} {todo.title} ({start}~{end}화) 플롯을 만들어요")
     else:
         start, end = a.start or 1, a.end or (p.planned_until() if p.serial else p.meta.target_episodes)
     batch = pipeline.draft_plots(get_llm("plan"), p, start, end)
@@ -301,7 +301,7 @@ def _print_candidates(p) -> None:
     for c in p.cast_candidates:
         eps = [e.plot.number for e in p.episodes if c.id in e.plot.characters]
         print(f"\n새 인물 후보: {c.name}({c.id}) · {c.role} · {'단역' if c.tier == 'minor' else '조연'} · {', '.join(map(str, eps))}화"
-              f"\n  {c.personality or c.goal}  / 말투: {c.speech_style}\n  그 화를 확정하면 인물로 등록됩니다. 빼려면 플롯의 등장 인물에서 지우세요")
+              f"\n  {c.personality or c.goal}  / 말투: {c.speech_style}\n  그 화를 확정하면 인물로 등록돼요. 빼려면 플롯의 등장 인물에서 지우세요")
 
 
 def _act_pov(act) -> str:
@@ -322,7 +322,7 @@ def cmd_pov(a: argparse.Namespace) -> None:
         nums = [n for n in nums if lo_n <= n <= int(hi or lo)]
     if a.character or a.mode is not None or a.clear:
         if a.character and not any(a.character in (c.id, c.name) for c in p.characters):
-            sys.exit(f"인물을 찾지 못했습니다: {a.character} (인물 id 나 이름)")
+            sys.exit(f"인물을 찾지 못했어요: {a.character} (인물 id 나 이름)")
         cid = next((c.id for c in p.characters if a.character in (c.id, c.name)), "") if a.character else ""
         done, skipped = [], []
         for n in nums:
@@ -333,7 +333,7 @@ def cmd_pov(a: argparse.Namespace) -> None:
             e.plot.pov, e.plot.pov_mode = ("", "") if a.clear else (cid or e.plot.pov, e.plot.pov_mode if a.mode is None else a.mode)
             done.append(n)
         if skipped:
-            print(f"본문이 있는 화는 플롯을 바꾸지 않습니다: {skipped}화")
+            print(f"본문이 있는 화는 플롯을 바꾸지 않아요: {skipped}화")
         print(f"시점 {'지움' if a.clear else '적음'}: {done}화")
         store.save(a.name, p)
     print(f"작품 기본 시점: {p.style.narration_pov or '정하지 않음'}")
@@ -359,7 +359,7 @@ def cmd_revise(a: argparse.Namespace) -> None:
         print(f"\n{e.number}화{mark} {e.title}\n  {e.summary}\n  사건: {' / '.join(e.events)}\n  훅: {e.ending_hook}{_plot_pov(e)}")
     for c in rev.new_characters:
         print(f"\n새 인물: {c.name}({c.id}) · {c.role} · {'단역' if c.tier == 'minor' else '조연'}  / 말투: {c.speech_style}")
-    if msg.revision and confirm("이 변경안을 모두 반영할까요? (확정된 화는 초안으로 돌아갑니다)", a.yes):
+    if msg.revision and confirm("이 변경안을 모두 반영할까요? (확정된 화는 초안으로 돌아가요)", a.yes):
         msg.applied = pipeline.apply_revision(p, rev, True, [e.number for e in rev.episodes])
         msg.outcome = "applied"
         _print_candidates(p)
@@ -383,7 +383,7 @@ def _print_arc(x) -> None:
 
 def _need_serial(p: Project) -> None:
     if not p.serial:
-        sys.exit("장편 연재 작품이 아닙니다. project.json 의 meta.form 을 \"serial\" 로 바꾸거나 new --serial 로 만드세요")
+        sys.exit("장편 연재 작품이 아니에요. project.json 의 meta.form 을 \"serial\" 로 바꾸거나 new --serial 로 만드세요")
 
 
 def cmd_series(a: argparse.Namespace) -> None:
@@ -404,7 +404,7 @@ def cmd_nextarc(a: argparse.Namespace) -> None:
     _need_serial(p)
     if a.redo:
         gone = pipeline.remove_last_arc(p)
-        print(f"아크 {gone.number}({gone.start_ep}~{gone.end_ep}화)를 지우고 다시 기획합니다")
+        print(f"아크 {gone.number}({gone.start_ep}~{gone.end_ep}화)를 지우고 다시 기획해요")
     prop = pipeline.plan_next_arc(get_llm("plan"), p, a.len or 0, a.note or "")
     if prop.reply:
         print(prop.reply)
@@ -435,7 +435,7 @@ def cmd_arcs(a: argparse.Namespace) -> None:
             print(f"  아크 {s.number:>2} {s.start_ep:>3}~{s.end_ep:<3}화 {s.title}  플롯 {plotted}/{len(nums)} 반영 {done}/{len(nums)}"
                   f"{'  요약 있음' if s.summary else ''}")
     for kind, num in pipeline.pending_recaps(p):
-        print(f"! {'아크' if kind == 'arc' else '부'} {num} 이 끝났습니다. 요약하세요: recap {a.name} {kind} {num}")
+        print(f"! {'아크' if kind == 'arc' else '부'} {num} 이 끝났어요. 요약하세요: recap {a.name} {kind} {num}")
     if p.planned_until() < p.meta.target_episodes:
         print(f"\n다음: nextarc {a.name}  ({p.planned_until() + 1}화부터)")
 
@@ -445,12 +445,12 @@ def cmd_recap(a: argparse.Namespace) -> None:
     _need_serial(p)
     todo = [(a.kind, a.number)] if a.kind else pipeline.pending_recaps(p)
     if not todo:
-        print("요약할 아크나 부가 없습니다 (모든 화가 반영된 아크·부만 요약합니다)")
+        print("요약할 아크나 부가 없어요 (모든 화가 반영된 아크·부만 요약해요)")
         return
     for kind, num in todo:
         r = pipeline.recap(get_llm("state"), p, kind, num)
         print(f"\n[{'아크' if kind == 'arc' else '부'} {num} 요약]\n{r.summary}")
-        if confirm("이 요약을 저장할까요? (앞으로 이 구간 대신 프롬프트에 들어갑니다)", a.yes):
+        if confirm("이 요약을 저장할까요? (앞으로 이 구간 대신 프롬프트에 들어가요)", a.yes):
             pipeline.apply_recap(p, kind, num, r.summary)
             store.save(a.name, p)
     print("저장 완료")
@@ -463,11 +463,11 @@ def cmd_convert(a: argparse.Namespace) -> None:
         backup = store.load_backup(a.name, pipeline.BACKUP_TAG)
         why = pipeline.undo_blockers(p, backup)
         if why:
-            sys.exit("되돌릴 수 없습니다: " + " / ".join(why))
-        if confirm(f"전환 전 단편({p.conversion.from_total}화)으로 되돌릴까요? 전환한 뒤 고친 설정과 플롯도 함께 돌아갑니다", a.yes):
+            sys.exit("되돌릴 수 없어요: " + " / ".join(why))
+        if confirm(f"전환 전 단편({p.conversion.from_total}화)으로 되돌릴까요? 전환한 뒤 고친 설정과 플롯도 함께 돌아가요", a.yes):
             store.save(a.name, pipeline.undo_conversion(p, backup))
             store.drop_backup(a.name, pipeline.BACKUP_TAG)
-            print("단편으로 되돌렸습니다")
+            print("단편으로 되돌렸어요")
         return
     lo, hi = pipeline.convert_range(p)
     total = a.episodes or int(ask(f"장편 총 화수 ({lo}~{hi})", str(max(lo, 200))))
@@ -495,7 +495,7 @@ def cmd_convert(a: argparse.Namespace) -> None:
         print(f"  비중 {t.id} → {t.tier}  {t.reason}")
     for e in prop.episodes:
         print(f"  {e.number}화 플롯 수정: {e.title} / {e.summary} / 훅: {e.ending_hook}")
-    if confirm("이대로 장편으로 전환할까요? (전환 전 작품은 따로 남겨 convert --undo 로 되돌릴 수 있습니다)", a.yes):
+    if confirm("이대로 장편으로 전환할까요? (전환 전 작품은 따로 남겨 convert --undo 로 되돌릴 수 있어요)", a.yes):
         before = pipeline.apply_conversion(p, prop)
         store.save_backup(a.name, pipeline.BACKUP_TAG, before)
         print(f"저장: {store.save(a.name, p)}")
@@ -525,7 +525,7 @@ def _rebuild(a: argparse.Namespace, p, total: int) -> None:
         print(f"  새 떡밥 {f.id} ({f.scope}, {f.planted_ep}화): {f.description}")
     for t in prop.tiers:
         print(f"  비중 {t.id} → {t.tier}  {t.reason}")
-    if confirm("이대로 재구성할까요? 상태와 관계는 1화 시작 전으로 돌아갑니다 (convert --undo 로 되돌릴 수 있습니다)", a.yes):
+    if confirm("이대로 재구성할까요? 상태와 관계는 1화 시작 전으로 돌아가요 (convert --undo 로 되돌릴 수 있어요)", a.yes):
         before, notes = pipeline.apply_rebuild(p, prop)
         store.save_backup(a.name, pipeline.BACKUP_TAG, before)
         print(f"저장: {store.save(a.name, p)}")
@@ -552,7 +552,7 @@ def cmd_lines(a: argparse.Namespace) -> None:
     act, args = a.action, a.args
     if act == "map":
         if not p.storylines:
-            print(f"이야기 줄기가 없습니다. python -m canon lines {a.name} suggest --note \"도현의 과거\" 로 제안을 받거나 add 로 더하세요")
+            print(f"이야기 줄기가 없어요. python -m canon lines {a.name} suggest --note \"도현의 과거\" 로 제안을 받거나 add 로 더하세요")
             return
         print(storylines.ascii_map(p))
         print("\n● 그 줄기를 따라가는 화  · 메인 화에 끼어드는 장면  ╰ 갈라지는 화  ╯ 합류하는 화\n")
@@ -567,7 +567,7 @@ def cmd_lines(a: argparse.Namespace) -> None:
         else:
             kind = a.kind or "서브플롯"
             if kind not in storylines.KINDS:
-                raise ValueError(f"종류는 {', '.join(storylines.KINDS)} 중 하나입니다")
+                raise ValueError(f"종류는 {', '.join(storylines.KINDS)} 중 하나예요")
             prop = StorylineProposal(storyline=Storyline(
                 id=storylines.new_id(p), kind=kind, title=a.title or ask("이름"), focus=[c for c in (a.focus or "").split(",") if c],
                 when=a.when or "", goal=a.goal or "", branch_ep=a.branch, join_ep=a.join, rejoin=a.rejoin or ""))
@@ -575,7 +575,7 @@ def cmd_lines(a: argparse.Namespace) -> None:
             prop.threads = _numbers(a.scenes)
         print(storylines.describe(p, prop.storyline))
         print(f"  붙일 화: {', '.join(map(str, prop.episodes)) or '없음'} / 장면을 끼울 화: {', '.join(map(str, prop.threads)) or '없음'}")
-        if confirm("이 줄기를 더할까요? (화 플롯 내용은 바뀌지 않습니다)", a.yes):
+        if confirm("이 줄기를 더할까요? (화 플롯 내용은 바뀌지 않아요)", a.yes):
             x = pipeline.apply_storyline(p, prop)
             print(f"저장: {store.save(a.name, p)}  ({x.id})")
         return
@@ -584,7 +584,7 @@ def cmd_lines(a: argparse.Namespace) -> None:
     sid = "" if args[0] == "main" else storylines.get(p, args[0]).id
     if act == "rm":
         pipeline.remove_storyline(p, sid)
-        print(f"지웠습니다: {sid} (붙은 화는 메인으로 돌아갑니다)")
+        print(f"지웠어요: {sid} (붙은 화는 메인으로 돌아가요)")
     else:  # tag: 화를 줄기에 붙인다. 줄기 id 대신 main 이면 메인으로 되돌린다
         eps = _numbers(",".join(args[1:]))
         if not eps:
@@ -611,22 +611,22 @@ def cmd_causal(a: argparse.Namespace) -> None:
             imp = (el.impact.outcome or "결정 전") + (" (요소를 고친 뒤라 지난 분석)" if elements.stale(el) else "") if el.impact else "분석 전"
             print(f"{el.id}  [{el.kind}] {el.name}  ({elements.timing(el)})  영향 분석: {imp}")
         if not p.elements:
-            print("요소가 없습니다. python -m canon causal 이름 add --kind 과거사건 --title 이름 --desc 설명")
+            print("요소가 없어요. python -m canon causal 이름 add --kind 과거사건 --title 이름 --desc 설명")
         return
     if act == "add":
         kind = (a.kind or "기타").replace(" ", "")
         kind = next((k for k in elements.KINDS if k.replace(" ", "") == kind), None)
         if kind is None:
-            raise ValueError(f"종류는 {', '.join(elements.KINDS)} 중 하나입니다")
+            raise ValueError(f"종류는 {', '.join(elements.KINDS)} 중 하나예요")
         el = StoryElement(id=elements.new_id(p), kind=kind, name=a.title or ask("이름"), description=a.desc or ask("설명"),
                           characters=[c for c in (a.chars or "").split(",") if c], since_ep=a.since,
                           episodes=[int(x) for x in (a.eps or "").split(",") if x.strip()], reveal_ep=a.reveal)
         p.elements.append(el)
         elements.stamp(p)
         store.save(a.name, p)
-        print(f"더했습니다: {el.id} {el.name} ({elements.timing(el)})")
+        print(f"더했어요: {el.id} {el.name} ({elements.timing(el)})")
         if el.added_after:
-            print(f"{el.added_after}화까지 쓴 뒤에 더했습니다. 영향을 보려면: python -m canon causal {a.name} impact {el.id}")
+            print(f"{el.added_after}화까지 쓴 뒤에 더했어요. 영향을 보려면: python -m canon causal {a.name} impact {el.id}")
         return
     if not args:
         raise ValueError("요소 id 를 적으세요 (python -m canon causal 이름 list)")
@@ -634,7 +634,7 @@ def cmd_causal(a: argparse.Namespace) -> None:
     if act == "rm":
         p.elements = [x for x in p.elements if x.id != el.id]
         store.save(a.name, p)
-        print(f"지웠습니다: {el.id}")
+        print(f"지웠어요: {el.id}")
         return
     if act == "show":
         print(elements.describe(p, el))
@@ -654,7 +654,7 @@ def cmd_causal(a: argparse.Namespace) -> None:
         print(f"\n{t.episode}화 본문 수정\n  - {t.quote}\n  + {t.replacement}")
     for f in rep.new_facts:
         print(f"\n확정 사실 더하기: {f}")
-    if (rep.episodes or rep.patches or rep.new_facts) and confirm("모두 반영할까요? (확정된 화는 초안으로, 본문은 위처럼 바뀝니다)", a.yes):
+    if (rep.episodes or rep.patches or rep.new_facts) and confirm("모두 반영할까요? (확정된 화는 초안으로, 본문은 위처럼 바뀌어요)", a.yes):
         done = pipeline.apply_impact(p, el.id, [e.number for e in rep.episodes], list(range(len(rep.patches))), list(range(len(rep.new_facts))))
         print(f"반영: {', '.join(done)}")
     print(f"저장: {store.save(a.name, p)}")
@@ -699,11 +699,11 @@ def cmd_rewrite(a: argparse.Namespace) -> None:
         return
     if a.restore:
         pipeline.restore_version(p, a.n, a.restore)
-        print(f"{a.n}화를 {a.restore} 판으로 되돌렸습니다 (지금 본문은 이전 판에 남김). 저장: {store.save(a.name, p)}")
+        print(f"{a.n}화를 {a.restore} 판으로 되돌렸어요 (지금 본문은 이전 판에 남김). 저장: {store.save(a.name, p)}")
         return
     if a.adopt or a.drop:
         (pipeline.adopt_candidate if a.adopt else pipeline.drop_candidate)(p, a.n)
-        print(f"{a.n}화 새 판을 {'본문으로 썼습니다' if a.adopt else '버렸습니다'}. 저장: {store.save(a.name, p)}")
+        print(f"{a.n}화 새 판을 {'본문으로 썼어요' if a.adopt else '버렸어요'}. 저장: {store.save(a.name, p)}")
         return
     req = RewriteRequest(feedback=a.ask or "", presets=_csv(a.preset), materials=_csv(a.use),  # type: ignore[arg-type]
                          mode="revise" if a.revise else "fresh", keep=a.keep or [])
@@ -712,13 +712,13 @@ def cmd_rewrite(a: argparse.Namespace) -> None:
     text = pipeline.rewrite_episode(get_llm("write"), p, a.n, req)
     pipeline.set_candidate(p, a.n, text, req)
     print(f"\n{text[:600]}{'…' if len(text) > 600 else ''}\n\n지금 판 {len(ep.text):,}자 → 새 판 {len(text):,}자")
-    if confirm("새 판으로 바꿀까요? (지금 본문은 이전 판에 남습니다)", a.yes):
+    if confirm("새 판으로 바꿀까요? (지금 본문은 이전 판에 남아요)", a.yes):
         pipeline.adopt_candidate(p, a.n)
         for w in pipeline.style_drift(p, a.n)[1]:
             print(f"! 문체: {w}")
         _print_opening(p, a.n)
     else:
-        print(f"새 판은 고르기 대기로 남겼습니다. 웹 집필 화면에서 비교하거나 rewrite {a.name} {a.n} --adopt / --drop")
+        print(f"새 판은 고르기 대기로 남겼어요. 웹 집필 화면에서 비교하거나 rewrite {a.name} {a.n} --adopt / --drop")
     print(f"저장: {store.save(a.name, p)}")
 
 
@@ -786,14 +786,14 @@ def cmd_genres(a: argparse.Namespace) -> None:
         for g in genres.CATALOG:
             if g.kind == kind:
                 print(f"  {g.name} ({g.id}): {g.summary}")
-    print("\nnew --genre '로맨스 판타지, 회귀' 처럼 쓰고, 목록에 없는 장르도 그대로 적을 수 있습니다.")
+    print("\nnew --genre '로맨스 판타지, 회귀' 처럼 쓰고, 목록에 없는 장르도 그대로 적을 수 있어요.")
 
 
 def cmd_names(a: argparse.Namespace) -> None:
     """세계관에 맞는 이름·지명 후보. --ai 면 '이름·지명' 단계 모델이 골라 이유를 붙인다."""
     p = store.load(a.name)
     if a.style and a.style not in naming.STYLE_IDS:
-        raise ValueError(f"이름 스타일은 {' | '.join(sorted(naming.STYLE_IDS))} 중 하나입니다")
+        raise ValueError(f"이름 스타일은 {' | '.join(sorted(naming.STYLE_IDS))} 중 하나예요")
     sid = naming.resolve_style(p, a.style)
     if a.check:
         warns = naming.cast_warnings(p)
@@ -814,7 +814,7 @@ def cmd_names(a: argparse.Namespace) -> None:
     if not a.pick:
         return
     if not 1 <= a.pick <= len(picks):
-        raise ValueError(f"--pick 은 1~{len(picks)} 사이입니다")
+        raise ValueError(f"--pick 은 1~{len(picks)} 사이예요")
     chosen = picks[a.pick - 1]
     if a.character:
         c = next(x for x in p.characters if x.id == a.character)
@@ -826,7 +826,7 @@ def cmd_names(a: argparse.Namespace) -> None:
             return
         p.world.locations.append(chosen)
     store.save(a.name, p)
-    print("반영했습니다.")
+    print("반영했어요.")
 
 
 def cmd_stats(a: argparse.Namespace) -> None:
@@ -846,14 +846,14 @@ def cmd_stats(a: argparse.Namespace) -> None:
         if label.endswith("화"):
             _print_opening(p, int(label[:-1]), indent="      ")
     if not p.style_baseline:
-        print("\n(기준은 문체 예시 발췌로 잰 값입니다. style 명령을 다시 실행하면 원문 전체로 잽니다.)")
+        print("\n(기준은 문체 예시 발췌로 잰 값이에요. style 명령을 다시 실행하면 원문 전체로 재요.)")
         return
     if base.comma_sentence_ratio is None:
-        print("\n(기준값이 예전 버전이라 쉼표, 짧은끝, 대명사, 거리는 비교하지 않았습니다. style 명령을 다시 실행하면 비교합니다.)")
+        print("\n(기준값이 예전 버전이라 쉼표, 짧은끝, 대명사, 거리는 비교하지 않았어요. style 명령을 다시 실행하면 비교해요.)")
     elif not base.style_centroid:
-        print("\n(거리: 기준 원문이 6,000자보다 짧거나 예전 기준값이라 재지 않았습니다. 원문을 2만 자쯤 넣고 style 을 다시 실행하면 잽니다.)")
+        print("\n(거리: 기준 원문이 6,000자보다 짧거나 예전 기준값이라 재지 않았어요. 원문을 2만 자쯤 넣고 style 을 다시 실행하면 재요.)")
     else:
-        print(f"\n(거리: 원문 대목끼리 떨어진 만큼이 1.0 입니다. {metrics.STYLE_DISTANCE_WARN} 를 넘으면 다른 작가 글 수준이라 경고합니다. 한 화 값보다 흐름을 보세요.)")
+        print(f"\n(거리: 원문 대목끼리 떨어진 만큼이 1.0 이에요. {metrics.STYLE_DISTANCE_WARN} 를 넘으면 다른 작가 글 수준이라 경고해요. 한 화 값보다 흐름을 보세요.)")
 
 
 def _print_delta(d: StateDelta) -> None:
@@ -885,7 +885,7 @@ def _print_relation_preview(p: Project, d: StateDelta) -> None:
     pipeline.apply_delta(sim, d)
     text = dynamics.describe_relations(sim, numbers=p.settings.show_numbers)
     if text:
-        print(f"\n--- 반영하면 이렇게 계산됩니다 ---\n{text}")
+        print(f"\n--- 반영하면 이렇게 계산돼요 ---\n{text}")
 
 
 def cmd_update(a: argparse.Namespace) -> None:
@@ -921,18 +921,18 @@ def cmd_run(a: argparse.Namespace) -> None:
         if ep.status == "finalized":
             continue
         if ep.status == "draft":
-            print(f"{n}화 플롯이 확정되지 않아 멈춥니다.")
+            print(f"{n}화 플롯이 확정되지 않아 멈춰요.")
             return
         if ep.status == "confirmed":
             _write(a.name, p, n)
             if not a.no_check:
                 _check(a.name, p, n)
         if not _update(a.name, p, n, a.yes):
-            print("상태 반영을 보류해 멈춥니다.")
+            print("상태 반영을 보류해 멈춰요.")
             return
     if p.serial and p.planned_until() < p.meta.target_episodes:
         for kind, num in pipeline.pending_recaps(p):
-            print(f"{'아크' if kind == 'arc' else '부'} {num} 이 끝났습니다. 요약: recap {a.name} {kind} {num}")
+            print(f"{'아크' if kind == 'arc' else '부'} {num} 이 끝났어요. 요약: recap {a.name} {kind} {num}")
         print(f"기획한 {p.planned_until()}화까지 완료. 다음 아크: nextarc {a.name}")
         return
     print("모든 화 완료")
@@ -950,12 +950,12 @@ def cmd_auto(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     if a.stop:
         autorun.request(a.name, "stop")
-        print("자동 집필을 중지했습니다. 기다리던 배치 작업이 있으면 취소했습니다.")
+        print("자동 집필을 중지했어요. 기다리던 배치 작업이 있으면 취소했어요.")
         return
     if a.status:
         run = autorun.get_run(a.name)
         if run is None:
-            print("자동 집필 기록이 없습니다.")
+            print("자동 집필 기록이 없어요.")
             return
         print(f"상태: {run.status}  ({run.target}화까지, 배치 {'켬' if run.batch else '끔'}, 지금 {run.ep or '-'}화 {run.step})")
         for r in run.reasons:
@@ -977,12 +977,12 @@ def cmd_auto(a: argparse.Namespace) -> None:
         print(f"{est['from'] or '-'}~{target}화 {est['episodes']}화 남음. 토큰 입력 {est['tokens_in']:,} / 출력 {est['tokens_out']:,} (추정)")
         print(f"비용 {cost}, 시간 {when}")
         if est["missing"]:
-            print(f"플롯이 없는 화: {est['missing']} (그 화에서 멈춥니다)")
+            print(f"플롯이 없는 화: {est['missing']} (그 화에서 멈춰요)")
         if not confirm("시작할까요?", a.yes):
             return
 
     def on_int(*_: object) -> None:
-        print("\n지금 단계가 끝나면 멈춥니다 (배치는 기다리기를 바로 멈추고 작업은 남겨 둡니다)...")
+        print("\n지금 단계가 끝나면 멈춰요 (배치는 기다리기를 바로 멈추고 작업은 남겨 둬요)...")
         autorun.request(a.name, "pause")
 
     if threading.current_thread() is threading.main_thread():
@@ -992,7 +992,7 @@ def cmd_auto(a: argparse.Namespace) -> None:
     else:
         run = autorun.start(a.name, a.to or p.meta.target_episodes, a.batch, policy, foreground=True, echo=print)
     if run.status == "review":
-        print(f"\n{run.ep}화 검토가 필요합니다. 고르세요:")
+        print(f"\n{run.ep}화 검토가 필요해요. 고르세요:")
         print(f"  update {a.name} {run.ep}            변경안을 보고 반영한 뒤 auto {a.name} --resume")
         print(f"  auto {a.name} --resume --approve    변경안을 그대로 반영하고 이어 가기")
         print(f"  auto {a.name} --resume --rewrite    {run.ep}화를 다시 쓰기")
@@ -1005,11 +1005,11 @@ def cmd_compare(a: argparse.Namespace) -> None:
     if a.pick:
         r = research.pick_compare(a.name, p, a.n, a.pick)
         store.save(a.name, p)
-        print(f"{a.pick}번은 {r['picked']} 였습니다 (다른 쪽: {', '.join(r['others'])}). {a.n}화 본문으로 저장했습니다.")
+        print(f"{a.pick}번은 {r['picked']} 였어요 (다른 쪽: {', '.join(r['others'])}). {a.n}화 본문으로 저장했어요.")
         print("지금까지 고른 횟수: " + ", ".join(f"{prov} {cnt}" for prov, cnt in sorted(r["wins"].items())))
         return
     if a.a == a.b:
-        sys.exit("--a 와 --b 가 같습니다")
+        sys.exit("--a 와 --b 가 같아요")
     print(f"{a.n}화를 {a.a}, {a.b} 로 각각 쓰는 중...")
     c = research.run_compare(a.name, p, a.n, research.Backend(provider=a.a), research.Backend(provider=a.b))
     print(f"\n{'':>3} {'글자':>6} {'문장평균':>7} {'대사':>5} {'어휘':>6}  문체 경고")
@@ -1032,13 +1032,13 @@ def cmd_openings(a: argparse.Namespace) -> None:
         from .schema import OpeningPlots
 
         if not saved.exists():
-            sys.exit(f"{a.n}화 플롯 안이 없습니다. 먼저 openings {a.name} {a.n} --plot")
+            sys.exit(f"{a.n}화 플롯 안이 없어요. 먼저 openings {a.name} {a.n} --plot")
         opts = OpeningPlots.model_validate_json(saved.read_text(encoding="utf-8")).options
         if not 1 <= a.use <= len(opts):
             sys.exit(f"1~{len(opts)} 중에서 고르세요")
         pipeline.apply_opening(p, a.n, opts[a.use - 1].plot)
         store.save(a.name, p)
-        print(f"{a.n}화 플롯을 {a.use}번 안({prompts.OPENING_APPROACHES.get(opts[a.use - 1].approach, ('?',))[0]})으로 바꿨습니다. 확인 후 confirm {a.name} {a.n}")
+        print(f"{a.n}화 플롯을 {a.use}번 안({prompts.OPENING_APPROACHES.get(opts[a.use - 1].approach, ('?',))[0]})으로 바꿨어요. 확인 후 confirm {a.name} {a.n}")
         return
     if a.plot:
         print(f"{a.n}화 플롯을 여는 방식별로 만드는 중...")
@@ -1099,14 +1099,14 @@ def cmd_import(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     pipeline.replace_text(p.episode(a.n), Path(a.file).read_text(encoding="utf-8").strip())  # 지금 본문은 '이전 판'에 남는다
     store.save(a.name, p)
-    print(f"{a.n}화 본문을 가져왔습니다. 다음: update {a.name} {a.n}  (또는 brief --state 로 채팅 앱에서 정리 후 update --from-json)")
+    print(f"{a.n}화 본문을 가져왔어요. 다음: update {a.name} {a.n}  (또는 brief --state 로 채팅 앱에서 정리 후 update --from-json)")
 
 
 def cmd_fix(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     text = p.episode(a.n).text
     if a.quote not in text:
-        sys.exit(f"{a.n}화 본문에 그 문장이 없습니다: {a.quote}")
+        sys.exit(f"{a.n}화 본문에 그 문장이 없어요: {a.quote}")
     sel = Selection(start=text.index(a.quote), text=a.quote)
     rev = pipeline.revise_passage(get_llm("revise"), p, a.n, sel, a.ask or "", a.preset or "")
     msg = pipeline.record_passage(p, a.n, sel, a.ask or "", a.preset or "", rev)
@@ -1118,7 +1118,7 @@ def cmd_fix(a: argparse.Namespace) -> None:
         pick = "1" if a.yes else ask(f"넣을 후보 번호 (1~{len(rev.candidates)}, 비우면 넣지 않음)")
         if pick.isdigit() and 1 <= int(pick) <= len(rev.candidates):
             edit = pipeline.apply_passage(p, a.n, i, int(pick) - 1)
-            print(f"{a.n}화에 {pick}번 후보를 넣었습니다 (되돌리기: edits {a.name} {a.n} --undo {edit.id})")
+            print(f"{a.n}화에 {pick}번 후보를 넣었어요 (되돌리기: edits {a.name} {a.n} --undo {edit.id})")
         else:
             msg.outcome = "dismissed"
     print(f"저장: {store.save(a.name, p)}")
@@ -1131,9 +1131,9 @@ def cmd_edits(a: argparse.Namespace) -> None:
     eps = [p.episode(a.n)] if a.n else p.episodes
     if a.undo:
         if not a.n:
-            sys.exit("--undo 는 화 번호와 함께 씁니다")
+            sys.exit("--undo 는 화 번호와 함께 써요")
         edit = pipeline.undo_edit(p, a.n, a.undo)
-        print(f"{a.n}화 {edit.id} 수정을 되돌렸습니다. 저장: {store.save(a.name, p)}")
+        print(f"{a.n}화 {edit.id} 수정을 되돌렸어요. 저장: {store.save(a.name, p)}")
         return
     for e in eps:
         for x in e.edits:
@@ -1156,7 +1156,7 @@ def cmd_export(a: argparse.Namespace) -> None:
     out = publish.export(p, nums, a.format, not a.no_title)
     if a.output:
         Path(a.output).write_text(out["text"], encoding="utf-8")
-        print(f"{', '.join(map(str, out['episodes']))}화를 저장했습니다: {a.output}")
+        print(f"{', '.join(map(str, out['episodes']))}화를 저장했어요: {a.output}")
     else:
         sys.stdout.write(out["text"])
 
@@ -1177,7 +1177,7 @@ def _print_illust(p: Project, ill) -> None:
         print(f"※ {note}")
     names = {c.id: c.name for c in p.characters}
     if ill.missing_look:
-        print(f"※ 외형 태그가 저장되지 않아 AI 태그를 썼습니다: {', '.join(names.get(i, i) for i in ill.missing_look)}"
+        print(f"※ 외형 태그가 저장되지 않아 AI 태그를 썼어요: {', '.join(names.get(i, i) for i in ill.missing_look)}"
               f" (고정하려면: look {{작품}} <인물 id>)")
 
 
@@ -1189,12 +1189,12 @@ def cmd_illust(a: argparse.Namespace) -> None:
             _print_illust(p, ill)
             print()
         if not ep.illustrations:
-            print(f"{a.n}화에 저장한 삽화 프롬프트가 없습니다")
+            print(f"{a.n}화에 저장한 삽화 프롬프트가 없어요")
         return
     sel = None
     if a.quote:
         if a.quote not in ep.text:
-            sys.exit(f"{a.n}화 본문에 그 문장이 없습니다: {a.quote}")
+            sys.exit(f"{a.n}화 본문에 그 문장이 없어요: {a.quote}")
         sel = Selection(start=ep.text.index(a.quote), text=a.quote)
     ill = pipeline.illustrate(get_llm("illustration"), p, a.n, sel, a.ask or "", a.model or "")
     pipeline.add_illustration(p, a.n, ill)
@@ -1207,7 +1207,7 @@ def cmd_voice(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     c = next((x for x in p.characters if a.cid in (x.id, x.name)), None)
     if c is None:
-        sys.exit(f"인물을 찾지 못했습니다: {a.cid} (인물 id 나 이름)")
+        sys.exit(f"인물을 찾지 못했어요: {a.cid} (인물 id 나 이름)")
     if c.narration_voice:
         print(f"지금 {c.name} 시점 서술 말투:\n{c.narration_voice}\n")
     if a.set is not None:
@@ -1275,7 +1275,7 @@ def cmd_upgrade(a: argparse.Namespace) -> None:
     r = updater.update()
     print(r.message)
     if r.updated:
-        print("실행 중인 serve 는 다시 켜야 반영됩니다 (자동 업데이트를 켜 두었다면 알아서 다시 시작합니다)")
+        print("실행 중인 serve 는 다시 켜야 반영돼요 (자동 업데이트를 켜 두었다면 알아서 다시 시작해요)")
 
 
 def cmd_cast(a: argparse.Namespace) -> None:
@@ -1302,13 +1302,13 @@ def cmd_view(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     p.settings.show_numbers = a.mode == "numbers"
     store.save(a.name, p)
-    print("관계를 " + ("숫자로" if p.settings.show_numbers else "말로") + " 보여 줍니다")
+    print("관계를 " + ("숫자로" if p.settings.show_numbers else "말로") + " 보여 줘요")
 
 
 def cmd_adjust(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     if a.warmth is None and a.trust is None:
-        sys.exit("--warmth 나 --trust 중 하나는 필요합니다")
+        sys.exit("--warmth 나 --trust 중 하나는 필요해요")
     pipeline.adjust_tie(p, a.source, a.target, a.warmth, a.trust)
     store.save(a.name, p)
     print(dynamics.describe_relations(p, [a.source, a.target], numbers=p.settings.show_numbers))
@@ -1316,7 +1316,7 @@ def cmd_adjust(a: argparse.Namespace) -> None:
 
 def cmd_revert(a: argparse.Namespace) -> None:
     p = store.load(a.name)
-    if not confirm(f"{a.n}화 상태 반영 직후로 되돌릴까요? 이후 화의 상태 반영이 취소됩니다 (본문은 유지)", a.yes):
+    if not confirm(f"{a.n}화 상태 반영 직후로 되돌릴까요? 이후 화의 상태 반영이 취소돼요 (본문은 유지)", a.yes):
         return
     pipeline.revert(p, a.n)
     print(f"되돌림 완료: {store.save(a.name, p)}")
@@ -1350,7 +1350,7 @@ def cmd_claude(a: argparse.Namespace) -> None:
     print(f"로그인: {'됨' if st['logged_in'] else '안 됨'}{f' ({acct})' if acct else ''}")
     print(st["message"])
     if st["api_key_ignored"]:
-        print("환경 변수 ANTHROPIC_API_KEY 는 구독 호출에 넘기지 않습니다 (claude-api 백엔드에서만 씀).")
+        print("환경 변수 ANTHROPIC_API_KEY 는 구독 호출에 넘기지 않아요 (claude-api 백엔드에서만 씀).")
     print("구독으로 쓰기: CANON_LLM=claude (단계별은 CANON_LLM_WRITE=claude 등), API 키로 쓰기: CANON_LLM=claude-api")
 
 
@@ -1385,8 +1385,8 @@ def cmd_usage(a: argparse.Namespace) -> None:
             for r in rows:
                 print(f"  {label(r):<32} {r['calls']:>5}번 {_usd(r['cost']):>10}")
     if s["unpriced"]:
-        print(f"\n! 가격표에 없는 모델: {', '.join(s['unpriced'])}. 이 호출은 비용에서 빠졌습니다 (웹 설정에서 가격 추가).")
-    print(f"\n추정치입니다. 실제 청구 금액은 Google AI Studio 사용량 화면에서 확인하세요: {s['billing_url']}")
+        print(f"\n! 가격표에 없는 모델: {', '.join(s['unpriced'])}. 이 호출은 비용에서 빠졌어요 (웹 설정에서 가격 추가).")
+    print(f"\n추정치예요. 실제 청구 금액은 Google AI Studio 사용량 화면에서 확인하세요: {s['billing_url']}")
 
 
 def main(argv: list[str] | None = None) -> None:

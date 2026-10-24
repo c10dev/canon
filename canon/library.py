@@ -35,7 +35,7 @@ def root() -> Path:
 
 def _path(sid: str) -> Path:
     if not ID_RE.match(sid):
-        raise KeyError(f"문체 라이브러리에 없는 항목입니다: {sid}")
+        raise KeyError(f"문체 라이브러리에 없는 항목이에요: {sid}")
     return root() / f"{sid}.json"
 
 
@@ -50,7 +50,7 @@ def exists(sid: str) -> bool:
 def load(sid: str) -> StyleEntry:
     path = _path(sid)
     if not path.exists():
-        raise KeyError(f"문체 라이브러리에 없는 항목입니다: {sid}")
+        raise KeyError(f"문체 라이브러리에 없는 항목이에요: {sid}")
     e = StyleEntry.model_validate_json(path.read_text(encoding="utf-8"))
     if not e.versions:  # 버전 기록 전에 만든 항목: 지금 상태를 1번으로 보고, 다음 저장 때 함께 남긴다
         e.version = 1
@@ -168,9 +168,9 @@ def restore(sid: str, number: int) -> StyleEntry:
     e = load(sid)
     v = next((x for x in e.versions if x.number == number), None)
     if v is None:
-        raise KeyError(f"{number}번 버전이 없습니다 (최근 {VERSION_KEEP}개만 남깁니다)")
+        raise KeyError(f"{number}번 버전이 없어요 (최근 {VERSION_KEEP}개만 남겨요)")
     if v.profile == e.profile and v.baseline == e.baseline:
-        raise ValueError("지금 문체와 같은 버전입니다")
+        raise ValueError("지금 문체와 같은 버전이에요")
     e.profile = v.profile.model_copy(deep=True)
     e.baseline = v.baseline.model_copy() if v.baseline else None
     return save(e, f"{number}번 버전으로 되돌림")
@@ -187,13 +187,29 @@ def delete(sid: str) -> None:
     """항목을 지운다. 이 문체를 적용한 작품은 복사해 둔 프로필을 그대로 쓴다."""
     path = _path(sid)
     if not path.exists():
-        raise KeyError(f"문체 라이브러리에 없는 항목입니다: {sid}")
+        raise KeyError(f"문체 라이브러리에 없는 항목이에요: {sid}")
     path.unlink()
+
+
+def blank(profile: StyleProfile) -> bool:
+    """칸이 모두 비었다 (문체 분석도 직접 입력도 하지 않은 새 작품). 라이브러리에 저장하지 않는다."""
+    return not any(v.strip() if isinstance(v, str) else v for v in profile.model_dump().values())
+
+
+def copy_name(name: str) -> str:
+    """'이름 사본', 이미 있으면 '이름 사본 2', '이름 사본 3' … (복제를 여러 번 해도 목록에서 가른다).
+    사본을 다시 복제해도 '사본 사본' 이 되지 않게 원래 이름에 번호를 붙인다."""
+    taken = {x.name for x in entries()}
+    name = re.sub(r" 사본(?: \d+)?$", "", name)
+    out, n = f"{name} 사본", 2
+    while out in taken:
+        out, n = f"{name} 사본 {n}", n + 1
+    return out
 
 
 def duplicate(sid: str) -> StyleEntry:
     e = load(sid)
-    return create(f"{e.name} 사본", e.profile.model_copy(deep=True), e.sample, e.source, e.notes, e.baseline,
+    return create(copy_name(e.name), e.profile.model_copy(deep=True), e.sample, e.source, e.notes, e.baseline,
                   note=f"'{e.name}' {e.version}번 버전에서 복제")
 
 
@@ -218,6 +234,7 @@ def summary(e: StyleEntry) -> dict:
         "id": e.id, "name": e.name, "source": e.source, "notes": e.notes,
         "narration_pov": e.profile.narration_pov, "tense": e.profile.tense,
         "passages": len(e.profile.sample_passages), "rules": len(e.profile.dos) + len(e.profile.donts),
+        "banned": len(e.profile.banned_phrases), "markers": len(e.profile.markers), "devices": len(e.profile.devices),
         "sample_chars": len(e.sample), "created_at": e.created_at, "updated_at": e.updated_at,
         "version": e.version, "used_by": used_by(e.id),
     }
@@ -243,7 +260,7 @@ def push_project(p: Project, note: str = "") -> StyleEntry:
     """작품에서 고친 문체를 연결된 라이브러리 항목의 새 버전으로 올린다. 원문과 기준 지표는 항목의 것을 유지한다.
     작품의 style_version 이 바뀌므로 부른 쪽이 작품을 저장한다."""
     if not p.style_id:
-        raise ValueError("이 작품은 라이브러리 문체에 연결돼 있지 않습니다")
+        raise ValueError("이 작품은 라이브러리 문체에 연결돼 있지 않아요")
     e = load(p.style_id)
     e.profile = p.style.model_copy(deep=True)
     e = save(e, note or f"작품 '{p.meta.title or '제목 없음'}' 에서 올림")
@@ -258,5 +275,12 @@ def link_state(p: Project) -> dict:
     if not exists(p.style_id):
         return {"state": "missing", "id": p.style_id}
     e = load(p.style_id)
-    return {"state": "same" if e.profile == p.style else "changed", "id": e.id, "name": e.name,
-            "updated_at": e.updated_at, "version": e.version, "applied": p.style_version}
+    out = {"state": "same" if e.profile == p.style else "changed", "id": e.id, "name": e.name,
+           "updated_at": e.updated_at, "version": e.version, "applied": p.style_version}
+    if out["state"] == "changed":
+        # 어느 쪽이 무엇을 바꿨는지: 가져온 버전이 남아 있으면 그 버전 기준으로 작품 쪽과 라이브러리 쪽을 따로 본다
+        base = next((v.profile for v in e.versions if v.number == p.style_version), None)
+        out["mine"] = diff(base, p.style) if base is not None else diff(e.profile, p.style)
+        out["theirs"] = diff(base, e.profile) if base is not None else []
+        out["base_known"] = base is not None
+    return out

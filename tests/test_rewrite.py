@@ -1,6 +1,6 @@
 """다시 생성 테스트 (mock LLM): 피드백 · 재료 · 고쳐 쓰기 프롬프트, 새 판 고르기, 이전 판 되돌리기. 실행: python -m pytest tests"""
 from canon import pipeline, prompts
-from canon.schema import ConsistencyIssue, RewriteRequest
+from canon.schema import ConsistencyIssue, RewriteRequest, TextVersion
 
 from .test_passage import TEXT, _ep, _written
 from .test_web import _wait, client  # noqa: F401  (pytest fixture)
@@ -110,6 +110,13 @@ def test_plain_write_keeps_previous(client):
         pipeline.replace_text(ep, f"본문 {k}")
     assert len(ep.versions) == pipeline.VERSION_KEEP
     assert len({v.id for v in ep.versions}) == pipeline.VERSION_KEEP
+    # 고르지 않은 새 판이 쌓여도 바꾸기 전 본문(previous)은 밀려나지 않는다
+    ep.versions = ep.versions[:1]
+    keep = ep.versions[0].id
+    for k in range(pipeline.VERSION_KEEP + 3):
+        pipeline._keep_version(ep, TextVersion(id=f"r{k}", text=f"버린 판 {k}", kind="rejected"))
+    assert len(ep.versions) == pipeline.VERSION_KEEP and ep.versions[0].id == keep
+    assert [v.id for v in ep.versions[1:]] == [f"r{k}" for k in range(4, pipeline.VERSION_KEEP + 3)]
 
 
 def test_cli_rewrite(tmp_path, monkeypatch):

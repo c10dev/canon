@@ -84,14 +84,22 @@ def test_arc_stretches_to_part_end_when_leftover_is_too_short():
 
 def test_remove_last_arc_only_when_draft():
     p = _serial()
-    a = pipeline.apply_arc(p, pipeline.plan_next_arc(LLM, p))
+    prop = pipeline.plan_next_arc(LLM, p)
+    prop.new_characters = [Character(id="newbie", name="신입", role="조연")]
+    a = pipeline.apply_arc(p, prop)
+    assert p.arc_undo[0].characters == ["newbie"]
     pipeline.apply_plots(p, pipeline.draft_plots(LLM, p, a.start_ep, a.end_ep))
     p.episode(1).status = "confirmed"
-    with pytest.raises(ValueError, match="지울 수 없습니다"):
+    with pytest.raises(ValueError, match="지울 수 없어요"):
         pipeline.remove_last_arc(p)
     p.episode(1).status = "draft"
+    before = {c.id for c in p.characters}
+    added = p.arc_undo[0].characters
     pipeline.remove_last_arc(p)
     assert p.story_arcs == [] and p.episodes == []
+    # 이 아크가 더한 인물은 지운다 (다시 기획한 제안의 같은 id 인물이 걸러지지 않게)
+    assert not ({c.id for c in p.characters} & set(added)) and p.arc_undo == []
+    assert {c.id for c in p.characters} == before - set(added)
 
 
 def test_context_stays_bounded_at_300():
@@ -139,6 +147,17 @@ def test_story_so_far_falls_back_to_episode_summaries():
     assert "첫 시험을 넘겼다" in text and "1화 요약" not in text
     text = prompts.story_so_far(p, b.start_ep)  # 아크 첫머리에는 직전 아크 마지막 화도 본다
     assert "12화 요약" in text
+
+
+def test_part_summary_covers_its_arcs():
+    """요약이 있는 부의 아크는 부 요약이 대신 들어가 따로 요약하라고 하지 않는다."""
+    p = _serial(300)
+    a = _plan_arc(p)
+    _finish(p, a)
+    assert ("arc", a.number) in pipeline.pending_recaps(p)
+    part = p.part_for(a.start_ep)
+    part.summary = "1부 줄거리"
+    assert ("arc", a.number) not in pipeline.pending_recaps(p)
 
 
 def test_recap_needs_finished_arc():
@@ -307,6 +326,13 @@ def test_web_serial_flow(tmp_path, monkeypatch):
     j = _wait(c, c.post("/api/projects/t/jobs", json={"kind": "series"}).json()["id"])
     p = c.post("/api/projects/t/series/apply", json=j["result"]).json()
     assert len(p["parts"]) == 2
+    # 총 화수를 바꾸면 마지막 부 끝 화가 따라간다 (설정 화면에서 총 화수만 고쳐도 저장된다)
+    p["meta"]["target_episodes"] = 220
+    p = c.put("/api/projects/t", json=p).json()
+    assert p["parts"][-1]["end_ep"] == 220
+    p["meta"]["target_episodes"] = 200
+    p = c.put("/api/projects/t", json=p).json()
+    assert p["parts"][-1]["end_ep"] == 200
     assert c.post("/api/projects/t/jobs", json={"kind": "plots"}).status_code == 400  # 아크 없음
 
     j = _wait(c, c.post("/api/projects/t/jobs", json={"kind": "nextarc", "length": 8, "note": "시험"}).json()["id"])

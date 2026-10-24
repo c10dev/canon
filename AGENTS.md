@@ -43,9 +43,10 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/library.py` | 문체 라이브러리: 작품과 따로 `projects/.styles/<id>.json` 에 문체(원문, 프로필, 기준 지표)를 저장. 작품에 적용하면 복사하고 `Project.style_id` · `style_version` 으로 출처만 기억. 저장마다 버전(`StyleVersion`), 칸별 비교(`diff`), 되돌리기(`restore`) |
 | `canon/static/marks.js` | 집필 화면 문체 표시: 장치마다 이번 화 배지(`deviceBadges`), 본문에서 장치 글자 · 금지 표현 밑줄(고치는 본문은 textarea 뒤에 깐 칸 `hl-layer`, 읽기 전용은 `<mark>`), 밑줄에서 부분 수정 도구 띄우기. 쓴 화 세기와 쉬는 화 판정은 `metrics.device_hits` · `device_last` · `prompts.device_block` 과 같은 규칙이라 함께 고친다(`tests/test_marks_js.py` 가 node 로 맞춰 본다) |
 | `canon/static/mystyle.js` | 나만의 문체: 스타일 프로필의 가끔 쓰는 장치 칸(`deviceFields`), 문체 화면의 '내 수정에서 배우기' 카드(서버 `pipeline.learn_style` / `apply_learning`), 라이브러리 항목의 버전 목록. 장치의 쓴 화 세기는 `metrics.device_last` 와 같은 규칙 |
-| `canon/store.py` | `projects/<이름>/project.json` 저장, 본문을 `episodes/NN.md` 로 내보내기 |
+| `canon/store.py` | `projects/<이름>/project.json` 저장, 본문을 `episodes/NN.md` 로 내보내기. 화면 저장 기록(`writer`, `edit_rev` · `saved_by`, 파일 끝만 읽음), 검토를 기다리는 AI 결과와 실패한 작업(`pending.json`, `load_pending` / `edit_pending`) |
+| `canon/cancel.py` | 웹 작업 멈추기 신호. `jobs.start` 가 스레드마다 두고, LLM 호출 전과 저장 전에 `check()` 로 확인해 멈춘 작업이 결과를 저장하지 못하게 한다 |
 | `canon/cli.py` | 명령줄 (`python -m canon ...`) |
-| `canon/jobs.py` | 웹의 오래 걸리는 AI 작업을 스레드로 돌리는 메모리 작업 목록. 중복 실행 막기, 진행률, 작업이 맡은 화를 저장 덮어쓰기에서 지키기(`owned_episodes`) |
+| `canon/jobs.py` | 웹의 오래 걸리는 AI 작업을 스레드로 돌리는 메모리 작업 목록. 중복 실행 막기, 진행률, 작업이 맡은 화를 저장 덮어쓰기에서 지키기(`owned_episodes`), 멈추기(`stop`) |
 | `canon/autorun.py` | 자동 집필: 목표 화까지 write → check + state → 정책(`Policy`) 통과 시 반영을 반복. 배치(`llm.BatchLLM`) 켜고 끄기, 비용·시간 추정, `autorun.json` 에 진행 기록, 서버 재시작 후 이어 가기. 화면은 `static/auto.js` |
 | `canon/updater.py` | 코드 자동 업데이트: `origin/main` fast-forward, 의존성 설치, 프로세스 재시작. `serve` 가 시작 때와 주기적으로 부른다 |
 
@@ -80,6 +81,7 @@ CANON_LLM=mock python -m canon ...  # 수동 확인
 ## 규칙
 
 - 사용자에게 보이는 문구, 프롬프트, 문서는 **한국어**로 쓴다. 코드 식별자는 영어.
+- 화면 문구는 해요체로 쓴다("저장했어요"). 화면에 보이는 서버 문구(오류, 작업 기록, 자동 집필 멈춤 이유, 명령줄 안내)도 같다. LLM 에게 주는 프롬프트는 이 규칙 밖이다. 영문 뒤 조사는 붙인다("AI가", "JSON을"). 단계 이름은 사이드바와 같게, '반영'은 상태 승인으로 데이터에 들어가는 뜻에만, AI 제안을 받아들이는 동작은 '적용'으로 쓴다. 날짜는 `fmtDate` · `fmtDateTime`, 화 범위는 'a~b화'.
 - 기본 LLM 은 **Gemini** 다 (사용자 결정). 다른 프로바이더는 `LLM` 구현을 추가하는 방식으로만 넣는다. Claude 구독 로그인은 설치된 Claude Code 를 부르는 방식만 쓴다. Claude 계정 로그인 화면을 Canon 에 만들거나 OAuth 토큰을 읽고 저장하는 코드는 넣지 않는다 (Anthropic 약관). 로컬 모델은 `LocalLLM`(OpenAI 호환) 하나로 Ollama, llama.cpp, vLLM, LM Studio 를 모두 다룬다. 파이프라인 호출부는 `get_llm("plan" | "write" | "check" | "state" | "name" | "revise" | "illustration")` 로 단계를 밝힌다.
 - **API 키, `.env`, `projects/`(사용자 소설 데이터)는 커밋하지 않는다.** `.gitignore` 에 있다.
 - 스키마 필드를 바꾸면 기존 `project.json` 이 읽히도록 기본값을 둔다.

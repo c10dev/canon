@@ -1,5 +1,5 @@
 /* 대화로 다듬기 패널. app.js 의 S, actions, api, render 를 그대로 쓴다.
-   작가가 말하면 AI 가 답과 변경안을 내고, 변경안은 바뀌는 칸만 보여 준다. 작가가 고른 부분만 반영한다.
+   작가가 말하면 AI가 답과 변경안을 내고, 변경안은 바뀌는 칸만 보여 준다. 작가가 고른 부분만 반영한다.
    기승전결 · 플롯 화면(topic 'plot')과 집필 화면의 본문 부분 수정(topic 'text:<화>', passage.js)에 붙어 있다.
    다른 화면에 붙일 때는 CHAT_TOPICS 에 항목을 더하고 서버 web.py 의 _chat 과 변경안 반영 함수를 함께 늘린다.
    주제마다 body(요청 내용), proposal(변경안 그리기), userMsg, inputExtra 를 바꿔 끼울 수 있다. */
@@ -8,10 +8,10 @@
 const CHAT_TOPICS = {
   plot: {
     title: '대화로 다듬기',
-    intro: '구조나 플롯이 마음에 들지 않으면 말로 알려 주세요. AI 가 바꿀 부분을 변경안으로 보여 주고, 고른 것만 반영합니다. 본문이 있는 화는 바뀌지 않아요.',
+    intro: '구조나 플롯이 마음에 들지 않으면 말로 알려 주세요. AI가 바꿀 부분을 변경안으로 보여 주고, 고른 것만 적용해요. 본문이 있는 화는 바뀌지 않아요.',
     examples: ['3화 전개가 너무 빨라', '결말을 비극으로 바꿔 줘', '승 구간을 한 화 늘려 줘', '주인공이 더 늦게 진실을 알게 해 줘'],
     placeholder: '예: 3화 전개가 너무 빨라',
-    clearAsk: '이 작품의 대화 기록을 지울까요? 반영한 구조와 플롯은 그대로입니다.',
+    clearAsk: '이 작품의 대화 기록을 지울까요? 반영한 구조와 플롯은 그대로예요.',
   },
 };
 
@@ -26,12 +26,15 @@ Object.assign(S, {
 });
 
 const PLOT_FIELDS = [
-  ['title', '제목'], ['summary', '요약'], ['events', '사건 순서'], ['characters', '등장 인물'],
+  ['title', '제목'], ['opening', '여는 장면'], ['summary', '요약'], ['events', '사건 순서'], ['characters', '등장 인물'],
   ['emotional_shift', '감정 변화'], ['ending_hook', '엔딩 훅'], ['foreshadow_plant', '심을 복선'], ['foreshadow_payoff', '회수할 복선'],
   ['storyline', '이야기 줄기'], ['threads', '끼어드는 줄기'], ['pov', '시점 인물'], ['pov_mode', '서술 방식'],
 ];
 const ACT_FIELDS = [['goal', '구간 목표'], ['key_turn', '전환점'], ['pov', '서술 시점']];
 const LOCKED_STATUS = ['written', 'finalized'];
+
+/** 손가락이 주 입력인 기기(휴대폰 · 태블릿). 하드웨어 키보드를 붙인 태블릿도 여기에 들지만 버튼으로 보낼 수 있다. */
+const touchFirst = () => window.matchMedia('(pointer: coarse)').matches;
 
 function chatMessages(topic) {
   const c = (P().chats || []).find((x) => x.topic === topic);
@@ -84,7 +87,7 @@ function actsDiff(rev) {
   const rows = rev.acts.map((a) => {
     const cur = P().arc.find((x) => x.name === a.name) || {};
     const range = cur.start_ep === a.start_ep && cur.end_ep === a.end_ep ? ''
-      : `<div class="diff-row"><span class="act-label">범위</span>${cur.name ? `<del>${cur.start_ep}–${cur.end_ep}화</del>` : ''}<ins>${a.start_ep}–${a.end_ep}화</ins></div>`;
+      : `<div class="diff-row"><span class="act-label">범위</span>${cur.name ? `<del>${cur.start_ep}~${cur.end_ep}화</del>` : ''}<ins>${a.start_ep}~${a.end_ep}화</ins></div>`;
     const body = range + ACT_FIELDS.map(([k, l]) => diffField(l, k, cur[k], a[k])).join('');
     return body ? `<div class="diff-act"><span class="chip ${actClass(a.name)}">${a.name}</span>${body}</div>` : '';
   }).join('');
@@ -124,18 +127,20 @@ function proposal(m, i) {
     // 변경안을 받은 뒤 화수가 바뀌었으면 이 구조는 더 이상 맞지 않는다
     const stale = !rev.total_episodes && rev.acts[rev.acts.length - 1].end_ep !== P().meta.target_episodes;
     parts.push(`<div class="prop-part"><label class="prop-head">${box(pickKey(i, 'acts'), stale)}<strong>기승전결 구조</strong>${rev.total_episodes ? `<span class="chip written">화수 바뀜</span>` : ''}</label>
-      ${stale && open ? `<div class="note plain">그 뒤에 총 화수가 ${P().meta.target_episodes}화로 바뀌어 이 구조는 반영할 수 없어요.</div>` : ''}
+      ${stale && open ? `<div class="note plain">그 뒤에 총 화수가 ${P().meta.target_episodes}화로 바뀌어 이 구조는 적용할 수 없어요.</div>` : ''}
       <div class="diff">${actsDiff(rev) || '<div class="small">지금 구조와 같아요.</div>'}</div></div>`);
   }
   rev.episodes.forEach((e) => {
     const cur = ep(e.number);
     const locked = cur && LOCKED_STATUS.includes(cur.status);
     const note = locked ? '<div class="note plain">본문이 생겨서 이제는 바꿀 수 없어요.</div>'
-      : cur && cur.status === 'confirmed' && open ? '<div class="note warn">확정한 화예요. 반영하면 초안으로 돌아가 다시 확정해야 해요.</div>' : '';
+      : cur && cur.status === 'confirmed' && open ? '<div class="note warn">확정한 화예요. 적용하면 초안으로 돌아가 다시 확정해야 해요.</div>' : '';
+    // 화가 많으면 길어진다: 새 화는 접고, 바뀌는 화는 3화까지만 펼친다
+    const fold = !cur || rev.episodes.length > 3;
     parts.push(`<div class="prop-part">
       <div class="between"><label class="prop-head">${box(pickKey(i, e.number), locked)}<strong>${e.number}화</strong> ${esc(e.title)}${cur ? ` <span class="chip ${cur.status}">${STATUS[cur.status]}</span>` : ' <span class="chip ai">새 화</span>'}</label>
         ${cur ? `<button type="button" class="btn small" data-action="selectEp" data-arg="${e.number}">지금 플롯</button>` : ''}</div>
-      ${note}<div class="diff">${plotDiff(e)}</div></div>`);
+      ${note}${fold ? `<details><summary class="small">바뀌는 칸 보기</summary><div class="diff">${plotDiff(e)}</div></details>` : `<div class="diff">${plotDiff(e)}</div>`}</div>`);
   });
   if ((rev.new_characters || []).length) {
     parts.push(`<div class="prop-part"><strong>새 인물</strong>
@@ -143,13 +148,18 @@ function proposal(m, i) {
       <div class="small">고른 화에 나오는 인물만 새 인물 후보로 들어가요. 그 화를 확정하거나 플롯 편집기에서 등록하면 인물이 돼요.</div></div>`);
   }
   const done = m.outcome === 'applied'
-    ? `<span class="chip finalized">반영함 · ${m.applied.map((x) => (x === 'acts' ? '구조' : `${x}화`)).join(', ')}</span>`
-    : m.outcome === 'dismissed' ? '<span class="chip">반영 안 함</span>' : '';
+    ? `<span class="chip finalized">적용함 · ${m.applied.map((x) => (x === 'acts' ? '구조' : `${x}화`)).join(', ')}</span>`
+    : m.outcome === 'dismissed' ? '<span class="chip">버림</span>' : '';
   if (!open) {
-    return `<details class="proposal done"><summary>${done} 변경안 다시 보기</summary>${parts.join('')}</details>`;
+    return `<details class="proposal done"><summary>${done} 변경안 다시 보기</summary>${parts.join('')}${m.outcome === 'dismissed' ? `<div class="row proposal-actions"><button type="button" class="btn small" data-action="chatReopen" data-arg="${i}">다시 검토</button></div>` : ''}</details>`;
   }
-  return `<div class="proposal">${parts.join('')}
-    <div class="row"><button class="btn small primary" data-action="chatApply" data-arg="${i}">고른 것 반영</button><button class="btn small" data-action="chatDismiss" data-arg="${i}">반영 안 함</button></div></div>`;
+  // 맨 위 요약: 무엇이 바뀌는지 한 줄로 보고, 여러 화를 한 번에 고르거나 뺀다. 버튼 줄은 아래에 붙어 있다 (.proposal-actions)
+  const nums = rev.episodes.map((e) => e.number);
+  const fresh = rev.episodes.filter((e) => !ep(e.number)).length;
+  const sum = [rev.acts.length ? '구조' : '', nums.length ? `${rangeText(nums)}화${fresh ? `(새 화 ${fresh})` : ''}` : ''].filter(Boolean).join(' · ');
+  const many = nums.length > 3 ? `<button type="button" class="btn small" data-action="chatPickAll" data-arg="${i}|1">모두 고르기</button><button type="button" class="btn small" data-action="chatPickAll" data-arg="${i}|0">모두 빼기</button>` : '';
+  return `<div class="proposal"><div class="between prop-sum"><strong>${esc(sum)}</strong><span class="row">${many}</span></div>${parts.join('')}
+    ${proposalActions(['chatDismiss', i], ['chatApply', i])}</div>`;
 }
 
 // ----- 패널 -----
@@ -174,11 +184,21 @@ function chatPanel(topic) {
     <div class="chat-log" id="chat-log">${empty}${list}${pending}</div>
     ${t.inputExtra ? t.inputExtra(topic) : ''}
     <div class="chat-input">
-      <textarea id="chat-input" rows="2" data-local="chatDraft" aria-label="AI 에게 할 말" placeholder="${esc(t.placeholder)}"${S.chatPending ? ' disabled' : ''}>${esc(S.chatDraft)}</textarea>
+      <textarea id="chat-input" rows="2" data-local="chatDraft" aria-label="AI에게 할 말" enterkeyhint="${touchFirst() ? 'enter' : 'send'}" placeholder="${esc(t.placeholder)}"${S.chatPending ? ' disabled' : ''}>${esc(S.chatDraft)}</textarea>
       <button type="button" class="btn primary" data-action="chatSend"${S.chatPending ? ' disabled' : ''}>보내기</button>
     </div>
-    <div class="small chat-hint">Enter 보내기 · Shift+Enter 줄바꿈 · 대화는 작품에 저장돼요</div>
+    <div class="small chat-hint">${touchFirst() ? '보내기 버튼으로 보내요 · 대화는 작품에 저장돼요' : 'Enter 보내기 · Shift+Enter 줄바꿈 · 대화는 작품에 저장돼요'}</div>
   </aside>`;
+}
+
+/** 대화 패널만 다시 그린다. 패널 밖 입력칸(본문, 플롯 서랍)은 건드리지 않는다. */
+function redrawChat() {
+  const el = document.querySelector('.chat-panel');
+  if (!el) return;
+  const html = chatPanel(S.chatTopic);
+  if (html) el.outerHTML = html;
+  else el.remove();
+  syncChat();
 }
 
 /** render() 직후에 부른다: 패널이 있으면 본문 자리를 비우고, 새 메시지가 오면 맨 아래로 내린다. */
@@ -207,27 +227,37 @@ Object.assign(actions, {
   async chatSend(preset = '') {
     const topic = S.chatTopic;
     const t = chatConf(topic);
-    const text = (S.chatDraft || '').trim();
     preset = typeof preset === 'string' ? preset : '';
+    // 빠른 요청은 그 요청만 보낸다. 입력칸에 쓰던 글은 보내지 않고 칸에 남긴다 (기록에 한쪽만 보이던 문제)
+    const text = preset ? '' : (S.chatDraft || '').trim();
     if ((!text && !preset) || S.chatPending) return;
     if (t.ready && !t.ready()) return;
     S.chatPending = text || (t.presetLabel ? t.presetLabel(preset) : preset);
-    S.chatDraft = '';
+    if (!preset) S.chatDraft = '';
     S.chatScroll = true;
     render();
     try {
       await saveIfDirty();
       if (t.beforeSend) await t.beforeSend();
       const body = t.body ? t.body(text, preset) : { message: text };
-      S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(topic)}`, body);
+      const name = S.name;
+      const res = await api('POST', `/projects/${enc(name)}/chat/${enc(topic)}`, body);
+      // 서버는 대화 기록만 바꾼다. 기다리는 동안 다른 칸을 고쳤으면(저장 전) 그 입력을 지우지 않게 대화 기록만 받아 온다
+      if (name !== S.name) return;
+      if (S.dirty) P().chats = res.chats;
+      else S.project = res;
     } catch (e) {
       toast(e.message, true);
-      S.chatDraft = text;
+      if (!preset) S.chatDraft = text;
     } finally {
       S.chatPending = null;
       S.chatScroll = true;
-      render();
-      $('#chat-input')?.focus();
+      // 다른 칸에 입력하는 중이면(한글 조합 포함) 그 칸을 다시 그리거나 포커스를 빼앗지 않고 대화 패널만 바꾼다
+      if (isTyping() && document.activeElement.id !== 'chat-input') redrawChat();
+      else {
+        render();
+        $('#chat-input')?.focus();
+      }
     }
   },
   async chatApply(i) {
@@ -239,21 +269,42 @@ Object.assign(actions, {
       const el = document.querySelector(`[data-chat-pick="${pickKey(i, n)}"]`);
       return el && el.checked && !el.disabled;
     });
-    if (!acts && !episodes.length) return toast('반영할 부분을 고르세요', true);
-    await run('변경안을 반영하는 중', async () => {
+    if (!acts && !episodes.length) return toast('적용할 부분을 고르세요', true);
+    await run('변경안을 적용하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(S.chatTopic)}/${i}/apply`, { acts, episodes });
-      toast(`반영했습니다: ${[acts ? '구조' : '', ...episodes.map((n) => `${n}화`)].filter(Boolean).join(', ')}`);
+      toast(`적용했어요: ${[acts ? '구조' : '', ...episodes.map((n) => `${n}화`)].filter(Boolean).join(', ')}`);
     });
   },
+  chatPickAll(arg) {
+    const [i, on] = String(arg).split('|');
+    const m = chatMessages(S.chatTopic)[Number(i)];
+    m.revision.episodes.forEach((e) => {
+      const cur = ep(e.number);
+      if (!(cur && LOCKED_STATUS.includes(cur.status))) S.chatPicks[pickKey(Number(i), e.number)] = on === '1';
+    });
+    redrawChat();
+  },
   async chatDismiss(i) {
+    // 손보던 후보 글이 있으면 묻는다. 버린 뒤에도 '다시 검토'로 다시 열 수 있다
+    const also = S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : '';
+    if (Object.keys(S.candEdit || {}).some((k) => k.startsWith(`${i}:`))) {
+      if (!confirm(`손보던 후보 글이 있어요. 버릴까요? 다시 검토로 열면 후보는 다시 보이지만 손본 글은 남지 않아요.${also}`)) return;
+    } else if (also && !confirm(`이 변경안을 버릴까요?${also}`)) return;
     await run('정리하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(S.chatTopic)}/${i}/dismiss`);
     });
   },
+  async chatReopen(i) {
+    await run('다시 여는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(S.chatTopic)}/${i}/reopen`);
+    });
+  },
   async chatClear() {
-    if (!confirm(chatConf(S.chatTopic).clearAsk)) return;
+    const open = chatMessages(S.chatTopic).filter((m) => m.revision && !m.outcome).length;
+    if (!confirm(chatConf(S.chatTopic).clearAsk + (open ? `\n아직 고르지 않은 변경안 ${open}개도 함께 지워져요.` : '') + (S.dirty ? '\n저장하지 않은 다른 변경도 함께 저장해요.' : ''))) return;
     await run('지우는 중', async () => {
       await saveIfDirty();
       S.project = await api('DELETE', `/projects/${enc(S.name)}/chat/${enc(S.chatTopic)}`);
@@ -273,6 +324,18 @@ document.addEventListener('change', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.target.id !== 'chat-input' || e.key !== 'Enter' || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+  if (touchFirst()) return;  // 터치 키보드에는 Shift 가 없다. 줄바꿈은 Enter 로, 보내기는 버튼으로
   e.preventDefault();
   actions.chatSend();
 });
+
+// Esc 로 대화 패널을 닫고, 패널을 연 버튼으로 포커스를 돌린다. 다른 층이 먼저 Esc 를 받는다:
+// 플롯 서랍(app.js)과 본문 부분 수정 도구(passage.js). 그 처리기들이 상태를 지우기 전에 보려고 capture 로 듣는다
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || !S.chatOpen || !document.querySelector('.chat-panel')) return;
+  if (S.selTool) return;
+  if (S.route[2] === 'arc' && (S.selEp || S.selAct != null || S.editArc || S.selPart != null)) return;
+  e.preventDefault();
+  actions.toggleChat();
+  document.querySelector('[data-action="toggleChat"]')?.focus();
+}, true);

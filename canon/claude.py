@@ -45,12 +45,12 @@ FALLBACK_BETA = "server-side-fallback-2026-07-01"
 FALLBACK_MODELS = ("claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5")
 MAX_TOKENS = 64000  # 본문 한 화와 생각을 넉넉히. 스트리밍으로 받아 시간 초과를 피한다
 
-LOGIN_HINT = ("Claude Code 에 로그인돼 있지 않습니다. 이 컴퓨터의 터미널에서 `claude auth login` 을 실행해 "
+LOGIN_HINT = ("Claude Code 에 로그인돼 있지 않아요. 이 컴퓨터의 터미널에서 `claude auth login` 을 실행해 "
               "Anthropic 로그인 화면에서 구독 계정으로 로그인하세요. 서버라면 `claude setup-token` 으로 받은 토큰을 "
               "서버 환경 변수 CLAUDE_CODE_OAUTH_TOKEN 에 두세요.")
-INSTALL_HINT = ("Claude Code(claude 명령)를 찾지 못했습니다. https://code.claude.com/docs/en/setup 에서 설치한 뒤 "
+INSTALL_HINT = ("Claude Code(claude 명령)를 찾지 못했어요. https://code.claude.com/docs/en/setup 에서 설치한 뒤 "
                 "`claude auth login` 으로 로그인하세요. PATH 밖에 있으면 설정에 실행 파일 경로를 적으세요.")
-LIMIT_HINT = "Claude 구독 사용 한도에 걸렸습니다. 한도가 풀린 뒤 다시 하거나 이 단계를 다른 백엔드로 돌리세요."
+LIMIT_HINT = "Claude 구독 사용 한도에 걸렸어요. 한도가 풀린 뒤 다시 하거나 이 단계를 다른 백엔드로 돌리세요."
 # 상태 화면에 보여 줄 칸. 토큰 같은 다른 값은 내보내지 않는다.
 STATUS_FIELDS = ("loggedIn", "authMethod", "apiProvider", "email", "orgName", "organizationName", "subscriptionType")
 
@@ -157,19 +157,19 @@ def status(binary: str | None = None) -> dict:
         base["version"] = (ver.stdout or ver.stderr).strip().splitlines()[0] if (ver.stdout or ver.stderr).strip() else ""
         st = _run([path, "auth", "status", "--json"], 30)
     except (OSError, subprocess.TimeoutExpired) as e:
-        return {**base, "reason": "error", "message": f"Claude Code 를 실행하지 못했습니다: {e}"}
+        return {**base, "reason": "error", "message": f"Claude Code 를 실행하지 못했어요: {e}"}
     try:
         data = json.loads(st.stdout)
     except json.JSONDecodeError:
         msg = (st.stderr or st.stdout).strip()[:300]
-        return {**base, "reason": "error", "message": f"로그인 상태를 읽지 못했습니다 (Claude Code 를 업데이트해 보세요: claude update). {msg}"}
+        return {**base, "reason": "error", "message": f"로그인 상태를 읽지 못했어요 (Claude Code 를 업데이트해 보세요: claude update). {msg}"}
     account = {k: data[k] for k in STATUS_FIELDS if k in data and isinstance(data[k], (str, bool, int))}
     logged = bool(data.get("loggedIn"))
     method = str(data.get("authMethod") or "")
     paid = "api" in method.lower() and "oauth" not in method.lower()
-    msg = ("로그인돼 있습니다." if logged else LOGIN_HINT)
+    msg = ("로그인돼 있어요." if logged else LOGIN_HINT)
     if logged and paid:
-        msg = ("Claude Code 가 구독이 아니라 Console API 계정으로 로그인돼 있어 종량제로 과금됩니다. "
+        msg = ("Claude Code 가 구독이 아니라 Console API 계정으로 로그인돼 있어 종량제로 과금돼요. "
                "구독으로 쓰려면 터미널에서 `claude auth logout` 후 `claude auth login` 으로 구독 계정을 고르세요.")
     reason = ("metered" if paid else "ok") if logged else "login"
     return {**base, "logged_in": logged, "account": account, "auth_method": method, "metered": paid,
@@ -252,7 +252,7 @@ class ClaudeCodeLLM:
         binary = self._bin()
         flags = _flags(binary)
         if schema is not None and "--json-schema" not in flags:
-            raise ClaudeCodeError("이 Claude Code 버전은 구조화 출력(--json-schema)을 모릅니다. `claude update` 로 올리세요.")
+            raise ClaudeCodeError("이 Claude Code 버전은 구조화 출력(--json-schema)을 몰라요. `claude update` 로 올리세요.")
         args = [binary, "-p", "--output-format", "json", "--system-prompt", system]
         if "--tools" in flags:
             args += ["--tools", ""]  # 파일 읽기, 명령 실행, 웹 검색을 모두 끈다
@@ -275,7 +275,7 @@ class ClaudeCodeLLM:
             try:
                 proc = _run(args, self.timeout, stdin=prompt)
             except subprocess.TimeoutExpired as e:
-                raise ClaudeCodeError(f"Claude Code 응답이 {int(self.timeout)}초 안에 오지 않았습니다 (CANON_CLAUDE_TIMEOUT)") from e
+                raise ClaudeCodeError(f"Claude Code 응답이 {int(self.timeout)}초 안에 오지 않았어요 (CANON_CLAUDE_TIMEOUT)") from e
             try:
                 d = json.loads(proc.stdout.strip().splitlines()[-1]) if proc.stdout.strip() else None
             except json.JSONDecodeError:
@@ -291,7 +291,7 @@ class ClaudeCodeLLM:
             if raw is None:
                 raw = str(d.get("result") or "").strip()
                 if not raw:
-                    raise ClaudeCodeError("Claude Code 응답이 비었습니다")
+                    raise ClaudeCodeError("Claude Code 응답이 비었어요")
             self.last_raw = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
             out = _parse(schema, raw) if schema is not None else raw
         except Exception as e:
@@ -349,7 +349,7 @@ class ClaudeAPILLM:
 
         key = api_key or settings.anthropic_key()[0]
         if not key:
-            raise RuntimeError("Anthropic API 키가 없습니다. 설정 화면에서 넣거나 ANTHROPIC_API_KEY 를 설정하세요.")
+            raise RuntimeError("Anthropic API 키가 없어요. 설정 화면에서 넣거나 ANTHROPIC_API_KEY 를 설정하세요.")
         self.client = anthropic.Anthropic(api_key=key, max_retries=3)
         self.model = model or settings.claude_model()[0] or DEFAULT_API_MODEL
         self.last_usage: dict | None = None
@@ -382,12 +382,12 @@ class ClaudeAPILLM:
                 msg = stream.get_final_message()
             tokens = self.last_usage = _api_usage(msg.usage)
             if msg.stop_reason == "refusal":
-                raise RuntimeError("Claude 가 이 요청을 거절했습니다 (안전 분류기). 수위나 표현을 조정하거나 다른 백엔드로 돌리세요.")
+                raise RuntimeError("Claude 가 이 요청을 거절했어요 (안전 분류기). 수위나 표현을 조정하거나 다른 백엔드로 돌리세요.")
             if msg.stop_reason == "max_tokens":
-                raise RuntimeError(f"Claude 응답이 최대 길이({MAX_TOKENS} 토큰)에서 끊겼습니다")
+                raise RuntimeError(f"Claude 응답이 최대 길이({MAX_TOKENS} 토큰)에서 끊겼어요")
             text = "".join(b.text for b in msg.content if b.type == "text").strip()
             if not text:
-                raise RuntimeError(f"Claude 응답이 비었습니다: stop_reason={msg.stop_reason}")
+                raise RuntimeError(f"Claude 응답이 비었어요: stop_reason={msg.stop_reason}")
             self.last_raw = text
             out = _parse(schema, text) if schema is not None else text
         except Exception as e:

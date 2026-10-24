@@ -18,12 +18,17 @@ def _jong(ch: str) -> int:
     return (code - HANGUL_FIRST) % 28
 
 
+# 숫자는 한국어로 읽은 받침이 있나: 영 일 이 삼 사 오 육 칠 팔 구
+DIGIT_FINAL = {"0": 1, "1": 1, "2": 0, "3": 1, "4": 0, "5": 0, "6": 1, "7": 1, "8": 1, "9": 0}
+
+
 def josa(word: str, with_final: str, without_final: str) -> str:
-    """앞말 받침에 맞는 조사. '서윤' + 이/가 → 이, '서진이' → 가. 한글이 아니면 '이(가)'."""
+    """앞말 받침에 맞는 조사. '서윤' + 이/가 → 이, '서진이' → 가, '손님2' → 가 (숫자는 읽는 소리로).
+    한글도 숫자도 아니면 '이(가)'."""
     w = word.strip()
     if not w:
         return ""
-    j = _jong(w[-1])
+    j = DIGIT_FINAL.get(w[-1], _jong(w[-1]))
     if j < 0:
         return f"{with_final}({without_final})"
     return with_final if j else without_final
