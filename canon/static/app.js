@@ -1866,7 +1866,10 @@ async function routeNow() {
   if (parts[0] !== 'p') pruneProjectState();  // 작품 밖 화면으로 간다. 작품 데이터가 있을 때 끝난 초안을 정리한다
   try {
     if (!S.config) S.config = await api('GET', '/config');
-    if (!S.health) S.health = await api('GET', '/config/health').catch(() => null);  // 키 없음 · 로컬 서버 꺼짐 · mock 안내
+    if (S.health === undefined) {  // 키 없음 · 로컬 서버 꺼짐 · mock 안내. 로컬 서버를 묻느라 첫 화면을 막지 않게 기다리지 않는다
+      S.health = null;
+      api('GET', '/config/health').then((h) => { S.health = h; if (!isTyping()) render(); }).catch(() => {});
+    }
     if (!S.genres) S.genres = await api('GET', '/genres').catch(() => []);
     if (!S.namingStyles) S.namingStyles = await api('GET', '/naming/styles').catch(() => []);
     if (parts[0] === 'settings') {
