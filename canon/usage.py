@@ -55,7 +55,12 @@ DEFAULT_PRICES: list[Price] = [
     _p("gemini-3.5-flash-lite", "", 0.30, 2.50, 0.03),
     _p("gemini-3.1-flash-lite", "", 0.25, 1.50, 0.025),
     _p("gemini-3.1-pro-preview", "", 2.0, 12.0, 0.20, "20만 토큰 이하 프롬프트 기준"),
+    # Anthropic API 키(claude-api)로 부를 때. 구독 로그인(claude)은 요금제에 포함돼 0원으로 센다.
+    _p("claude-opus-5-5", "", 4.0, 20.0, 0.20, "Anthropic API"),
+    _p("claude-sonnet-5-5", "", 2.0, 10.0, 0.20, "Anthropic API"),
+    _p("claude-haiku-5-5", "", 0.10, 0.50, 0.01, "Anthropic API, 10만 토큰 이하 프롬프트 기준"),
 ]
+PRICED = ("gemini", "claude-api")  # 토큰 요금을 매기는 백엔드. 로컬과 Claude 구독은 0원
 
 _ctx: ContextVar[dict] = ContextVar("canon_usage", default={})
 _lock = threading.Lock()
@@ -89,7 +94,7 @@ def log_path() -> Path:
 def backend_of(llm: Any) -> Optional[str]:
     """기록할 백엔드 이름. mock 처럼 실제로 부르지 않는 것은 None."""
     name = type(llm).__name__
-    return {"GeminiLLM": "gemini", "LocalLLM": "local"}.get(name)
+    return {"GeminiLLM": "gemini", "LocalLLM": "local", "ClaudeCodeLLM": "claude", "ClaudeAPILLM": "claude-api"}.get(name)
 
 
 def record(llm: Any, tokens: Optional[dict], started: Optional[float] = None, *, ok: bool = True,
@@ -240,16 +245,20 @@ def cost(p: Price, tin: float, tout: float, cached: float = 0.0, batch: bool = F
 
 
 def stage_cost(backend: str, model: str, tin: float, tout: float, batch: bool = False) -> Optional[float]:
-    """자동 집필 추정용. 로컬은 0, 가격을 모르는 Gemini 모델이면 None."""
-    if backend != "gemini":
+    """자동 집필 추정용. 로컬과 Claude 구독은 0, 가격을 모르는 모델이면 None."""
+    if backend not in PRICED:
         return 0.0
+    if backend == "claude-api":
+        from .claude import api_model
+
+        model = api_model(model)
     p = rate(model)
     return None if p is None else cost(p, tin, tout, batch=batch)
 
 
 def row_cost(r: dict, table: list[Price]) -> tuple[Optional[float], float]:
     """(실제 추정 비용, 배치로 아낀 비용). 가격을 모르면 (None, 0)."""
-    if r.get("backend") != "gemini":
+    if r.get("backend") not in PRICED:
         return 0.0, 0.0
     p = rate(r.get("model", ""), r.get("at", "")[:10], table)
     if p is None:

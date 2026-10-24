@@ -1945,6 +1945,7 @@ const actions = {
     if (key) body.api_key = key;
     const lkey = $('#set-local-key').value.trim();
     if (lkey) body.local_key = lkey;
+    Object.assign(body, claudeSettingsBody());
     const ok = await run('저장 중', async () => {
       S.config = await api('PUT', '/config', body);
       S.health = await api('GET', '/config/health').catch(() => null);
@@ -2259,6 +2260,7 @@ async function routeNow() {
       S.settingsDirty = false;
       S.config = await api('GET', '/config');
       loadModelList();  // 기다리지 않는다. 목록이 오면 입력칸 추천만 채운다
+      claudeStatusLoad();  // Claude Code 로그인 상태도 기다리지 않는다 (claude.js)
       await pricesLoad().catch((e) => toast(e.message, true));
     } else if (parts[0] === 'usage') {
       S.name = null;
@@ -2565,11 +2567,12 @@ function stageModelHint(s) {
   const p = top === 'mock' ? 'mock' : prov(s);  // 생성 방식이 mock 이면 모든 단계가 mock
   if (p === 'mock') return '모델: mock';
   if (p === 'local') return `모델: ${val('#set-local-model', c.local_model) || '서버에 하나뿐인 모델'}`;
+  if (String(p).startsWith('claude')) return `모델: ${val('#set-claude-model', c.claude_model) || 'Claude 기본'}`;
   return `모델: ${val('#set-model', c.model_setting) || '기본'}`;
 }
 
 document.addEventListener('change', (e) => {
-  if (S.route[0] !== 'settings' || !/^set-(stage-|provider$|model$|local-model$)/.test(e.target.id || '')) return;
+  if (S.route[0] !== 'settings' || !/^set-(stage-|provider$|model$|local-model$|claude-model$)/.test(e.target.id || '')) return;
   STAGES.forEach(([s]) => {
     const el = $(`#set-stage-model-${s}`);
     if (el) el.placeholder = stageModelHint(s);
@@ -2582,7 +2585,8 @@ window.addEventListener('hashchange', () => { settingsNavs += 1; });
 let settingsSavedAt = null;  // 저장 버튼 옆에 남기는 마지막 저장 시각
 
 function providerOptions(cur) {
-  return [['gemini', 'Gemini API'], ['local', '로컬 서버 (OpenAI 호환)'], ['mock', 'mock (AI 호출 없이 화면 확인용)']]
+  return [['gemini', 'Gemini API'], ['local', '로컬 서버 (OpenAI 호환)'], ['claude', 'Claude 구독 로그인 (Claude Code)'], ['claude-api', 'Claude API 키'],
+    ['mock', 'mock (AI 호출 없이 화면 확인용)']]
     .map(([v, l]) => `<option value="${v}"${cur === v ? ' selected' : ''}>${l}</option>`).join('');
 }
 
@@ -2622,6 +2626,7 @@ function viewSettings() {
       <div class="field"><label for="set-local-key">서버 키 <span class="hint">지금: ${c.has_local_key ? '있음' : '없음'}</span></label>
         <input id="set-local-key" type="password" autocomplete="off" placeholder="서버가 키를 요구할 때만"></div>
       </details>
+      ${claudeSettings(c)}
       <details class="set-more"${stageOpen ? ' open' : ''}><summary><h2>단계별 백엔드와 모델</h2> <span class="small">계획 · 본문 · 검수마다 다른 모델을 쓸 때</span></summary>
       <p class="desc">예: 계획과 검수는 gemini-4-argon, 상태 변경안과 이름 추천은 빠르고 싼 gemini-3.8-flash, 본문은 로컬 모델. 모델 칸을 비우면 그 백엔드의 기본 모델(위 '모델' 또는 로컬 '모델 이름')을 써요.</p>
       ${STAGES.map(([s, label]) => {
@@ -2659,6 +2664,7 @@ function modelDatalist() {
   const opts = [
     ...(((m.gemini || {}).models || []).length ? m.gemini.models : KNOWN_MODELS).map((x) => [x, 'Gemini']),
     ...((m.local || {}).models || []).map((x) => [x, '로컬 서버']),
+    ...[...new Set([...((m.claude || {}).models || []), ...((m['claude-api'] || {}).models || [])])].map((x) => [x, 'Claude']),
   ];
   return `<datalist id="model-options">${opts.map(([v, l]) => `<option value="${esc(v)}" label="${l}"></option>`).join('')}</datalist>`;
 }

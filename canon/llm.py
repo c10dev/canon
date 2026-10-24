@@ -1,7 +1,7 @@
 """LLM 프로바이더 추상화. 기본은 Gemini, 로컬(OpenAI 호환 서버)과 테스트용 mock 제공.
 
 설정은 웹 설정 화면(~/.canon/config.json) 또는 환경 변수로 한다. 환경 변수가 우선이다.
-  CANON_LLM    gemini(기본) | local | mock
+  CANON_LLM    gemini(기본) | local | claude (Claude Code 구독 로그인) | claude-api (Anthropic API 키) | mock
   CANON_MODEL  Gemini 모델 이름 (기본 gemini-4-argon)
   GEMINI_API_KEY  Gemini API 키
   CANON_LOCAL_URL / CANON_LOCAL_MODEL / CANON_LOCAL_KEY  로컬 서버 (Ollama, llama.cpp, vLLM, LM Studio)
@@ -513,7 +513,11 @@ def make_llm(provider: str, model: str | None = None) -> LLM:
         return LocalLLM(model=model or None)
     if provider == "gemini":
         return GeminiLLM(model=model or None)
-    raise ValueError(f"알 수 없는 LLM 프로바이더: {provider} (gemini | local | mock)")
+    if provider in ("claude", "claude-api"):
+        from .claude import ClaudeAPILLM, ClaudeCodeLLM
+
+        return ClaudeCodeLLM(model=model or None) if provider == "claude" else ClaudeAPILLM(model=model or None)
+    raise ValueError(f"알 수 없는 LLM 프로바이더: {provider} (gemini | local | claude | claude-api | mock)")
 
 
 def get_llm(stage: str | None = None) -> LLM:

@@ -1368,6 +1368,23 @@ def _usd(x: float | None) -> str:
     return "가격 모름" if x is None else (f"${x:,.2f}" if x >= 0.995 or x == 0 else f"${x:.4f}")
 
 
+def cmd_claude(a: argparse.Namespace) -> None:
+    """Claude Code 설치와 구독 로그인 상태. 로그인은 Claude Code 가 직접 한다 (claude.py)."""
+    from . import claude
+
+    st = claude.status()
+    if not st["installed"]:
+        print(st["message"])
+        return
+    print(f"Claude Code {st['version']} ({st['path']})")
+    acct = ", ".join(f"{k}={v}" for k, v in st["account"].items() if k != "loggedIn")
+    print(f"로그인: {'됨' if st['logged_in'] else '안 됨'}{f' ({acct})' if acct else ''}")
+    print(st["message"])
+    if st["api_key_ignored"]:
+        print("환경 변수 ANTHROPIC_API_KEY 는 구독 호출에 넘기지 않아요 (claude-api 백엔드에서만 씀).")
+    print("구독으로 쓰기: CANON_LLM=claude (단계별은 CANON_LLM_WRITE=claude 등), API 키로 쓰기: CANON_LLM=claude-api")
+
+
 def cmd_usage(a: argparse.Namespace) -> None:
     if a.prices:
         t = usage.price_table()
@@ -1601,6 +1618,7 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--project", help="이 작품만")
     sp.add_argument("--prices", action="store_true", help="가격표 보기")
     sp.set_defaults(fn=cmd_usage)
+    sub.add_parser("claude", help="Claude Code 구독 로그인 상태와 안내").set_defaults(fn=cmd_claude)
 
     sp = add("cast", cmd_cast, yes=False)
     sp.add_argument("character", nargs="?", help="인물 id 나 이름. 비우면 인물 목록")
