@@ -652,8 +652,10 @@ def set_policy(name: str, policy: Policy) -> Run:
     with _lock:
         ctl = _controls.get(name)
     run.policy = policy
+    # 화 번호 없이 남긴다 (멈춘 화는 정책 변경과 상관없다)
+    run.log = (run.log + [LogEntry(at=_now(), step="policy", message="승인 정책을 바꿨어요. 다음 판정부터 적용돼요")])[-LOG_KEEP:]
     if ctl:
-        Runner(ctl).log("승인 정책을 바꿨어요. 다음 판정부터 적용돼요")
+        ctl.save()
     else:
         _write(name, run)
     return run
