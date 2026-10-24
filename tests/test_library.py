@@ -37,7 +37,7 @@ def test_library_crud_and_apply(client, tmp_path):
     meta = {"title": "등대", "target_episodes": 10}
     client.post("/api/projects", json={"name": "a", "meta": meta, "style_id": e["id"]})
     client.post("/api/projects", json={"name": "b", "meta": meta})
-    assert [x["name"] for x in client.get("/api/projects").json()] == ["a", "b"]
+    assert sorted(x["name"] for x in client.get("/api/projects").json()) == ["a", "b"]
 
     a = client.get("/api/projects/a").json()
     assert a["style_id"] == e["id"] and a["style"] == prof and a["style_baseline"]["sentences"] > 0

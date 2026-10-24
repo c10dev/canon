@@ -141,6 +141,13 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .ep-cell.written { background: var(--amber); color: var(--on-accent); }
 .ep-cell.finalized { background: var(--green); color: var(--on-accent); }
 .ep-cell.current { outline: 3px solid var(--accent); outline-offset: 2px; }
+/* 단편 기승전결 구간: 칸 아래 띠 색과 머리 줄 (칸이 줄을 바꿔도 구간이 보이게) */
+.act-rail { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.act-chip { padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; }
+.ep-cell.act-1-edge { box-shadow: inset 0 -4px 0 var(--act-1-ink); }
+.ep-cell.act-2-edge { box-shadow: inset 0 -4px 0 var(--act-2-ink); }
+.ep-cell.act-3-edge { box-shadow: inset 0 -4px 0 var(--act-3-ink); }
+.ep-cell.act-4-edge { box-shadow: inset 0 -4px 0 var(--act-4-ink); }
 .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.75rem; color: var(--text-2); }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; forced-color-adjust: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.25); }
@@ -258,9 +265,11 @@ pre.brief { margin: 0; padding: 16px; border-radius: 8px; background: var(--bg);
 .act-range { display: flex; align-items: center; gap: 4px; font-size: 0.75rem; }
 .act-range input { width: 52px; min-height: 32px; padding: 0 6px; }
 @media (max-width: 640px) {
-  .act-band { display: none !important; }
   .ep-grid { grid-template-columns: repeat(6, minmax(0, 1fr)) !important; }
-  .ep-cell span { display: none; }
+  /* 상태 글자는 눈으로만 감추고 (낭독은 칸의 aria-label), 색 말고 모양으로도 가른다: 작성됨 점, 반영 완료 체크 */
+  .ep-cell span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .ep-cell.written strong::after { content: " •"; }
+  .ep-cell.finalized strong::after { content: " ✓"; }
 }
 
 /* 관계 요약 (describe_relations 한 줄씩) */
@@ -760,4 +769,23 @@ body.routing::before { content: ''; position: fixed; top: 0; left: 0; height: 3p
   .mk-row { flex-wrap: wrap; }
   .mk-text, .mk-note { flex: 1 1 100%; }
   .mk-rate { flex: 1 1 auto; }
+}
+
+/* 칸 아래 오류 글 (새 작품 폼) */
+.field-err { color: var(--red); }
+
+/* 모델 설정: 로컬 서버 · 단계별 칸 · 가격표는 접어 둔다 */
+.set-more > summary, .voice-more > summary { cursor: pointer; padding: 6px 0; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.set-more > summary h2 { display: inline; }
+.set-more[open] > summary { margin-bottom: 10px; }
+details.card.set-more { display: block; }
+
+/* 라이브러리 항목: 좁은 폭에서는 이름 → 원문 → 스타일 프로필을 먼저, 기준 지표 · 적용 · 버전은 뒤로 */
+@media (max-width: 640px) {
+  .lib-cols { flex-direction: column; align-items: stretch; }
+  .lib-left { display: contents; }
+  .lib-cols > .card, .lib-left > .card { order: 4; }
+  .lib-cols .lib-o1 { order: 1; }
+  .lib-cols .lib-o2 { order: 2; }
+  .lib-cols .lib-o3 { order: 3; }
 }
