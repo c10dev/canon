@@ -15,9 +15,9 @@ Object.assign(S, {
   approaches: null, // 서버 OPENING_APPROACHES
 });
 
-JOB_DONE_MSG.hook = (j) => `${j.label}이 끝났습니다.`;
-JOB_DONE_MSG.openings = (j) => `${j.ep}화 여는 방식 플롯 안이 도착했습니다. 플롯 화면에서 고르세요.`;
-JOB_DONE_MSG.opening_drafts = (j) => `${j.ep}화를 여는 방식마다 썼습니다. 읽고 고르세요.`;
+JOB_DONE_MSG.hook = (j) => `${j.label}이 끝났어요.`;
+JOB_DONE_MSG.openings = (j) => `${j.ep}화 여는 방식 플롯 안이 도착했어요. 플롯 화면에서 고르세요.`;
+JOB_DONE_MSG.opening_drafts = (j) => `${j.ep}화를 여는 방식마다 썼어요. 읽고 고르세요.`;
 JOB_PAGES.hook = ['write'];
 JOB_PAGES.openings = ['arc', 'write'];
 JOB_PAGES.opening_drafts = ['write'];
@@ -56,7 +56,7 @@ function openingWayPicker(disabled) {
   const list = S.approaches || [];
   return `<div class="grid-2">${list.map((a) => `<label class="check-row"><input type="checkbox" data-opening-way="${esc(a.id)}"${S.openingWays.includes(a.id) ? ' checked' : ''}${disabled ? ' disabled' : ''}>
       <span><strong>${esc(a.label)}</strong><br><span class="small">${esc(a.how)}</span></span></label>`).join('')}</div>
-    <div class="small">2~4개를 고르세요. 안마다 같은 플롯과 자료로 쓰고, 여는 방식만 다르게 지시합니다.</div>`;
+    <div class="small">2~4개를 고르세요. 안마다 같은 플롯과 자료로 쓰고, 여는 방식만 다르게 지시해요.</div>`;
 }
 
 function hookView(h, stale) {
@@ -106,23 +106,23 @@ function openingPanel(n) {
       <div class="cols" style="gap:16px">
         <div class="col" style="flex:1 1 300px;min-width:0;display:flex;flex-direction:column;gap:10px">
           <h3>지표</h3>
-          ${!e.text ? '<div class="small">본문을 쓰면 첫 대사 위치, 설정 설명 밀도, 등장인물 수, 흔한 시작과 끝을 잽니다.</div>'
+          ${!e.text ? '<div class="small">본문을 쓰면 첫 대사 위치, 설정 설명 밀도, 등장인물 수, 흔한 시작과 끝을 재요.</div>'
             : !d ? '<div class="small">재는 중…</div>'
             : d.warnings.length ? `<div class="note warn"><ul style="padding-left:18px;display:flex;flex-direction:column;gap:4px">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>` : '<div class="note ok">기준을 넘은 초반 지표가 없어요.</div>'}
           ${d && d.metrics ? openingMetricsLine(d.metrics) : ''}
-          <div class="small">AI 를 부르지 않고 잽니다. 기준은 출발점이라 작품에 맞지 않으면 무시해도 됩니다.</div>
+          <div class="small">AI를 부르지 않고 재요. 기준은 출발점이라 작품에 맞지 않으면 무시해도 돼요.</div>
         </div>
         <div class="col" style="flex:1 1 300px;min-width:0;display:flex;flex-direction:column;gap:10px">
           <div class="between"><h3>흡입력 판정</h3><button class="btn small" data-action="openingHook" data-arg="${n}"${e.text ? hookBtn.attr : ' disabled'}>${hookBtn.label}</button></div>
-          ${e.hook ? hookView(e.hook, d && d.hook_stale) : '<div class="small">AI 편집자가 첫 문단, 주인공, 전제, 설명 부담, 걸린 것, 장르 약속, 엔딩을 근거 문장과 함께 봅니다. 본문에서 찾을 수 없는 근거는 지우고 1점으로 내립니다.</div>'}
+          ${e.hook ? hookView(e.hook, d && d.hook_stale) : '<div class="small">AI 편집자가 첫 문단, 주인공, 전제, 설명 부담, 걸린 것, 장르 약속, 엔딩을 근거 문장과 함께 봐요. 본문에서 찾을 수 없는 근거는 지우고 1점으로 내려요.</div>'}
         </div>
       </div>
       <h3>여는 방식 비교</h3>
-      <div class="small">같은 화를 여는 방식만 달리해 여러 안으로 쓰고, 어느 방식인지 가린 채 읽고 고릅니다. 고른 안이 이 화 본문이 됩니다.</div>
+      <div class="small">같은 화를 여는 방식만 달리해 여러 안으로 쓰고, 어느 방식인지 가린 채 읽고 골라요. 고른 안이 이 화 본문이 돼요.</div>
       ${openingWayPicker(!canWrite)}
       <div class="row"><button class="btn dark" data-action="openingDrafts" data-arg="${n}"${canWrite ? draftsBtn.attr : ' disabled'}>${draftsBtn.label}</button>
         ${!canWrite ? `<span class="small">${e.status === 'draft' ? '플롯을 확정하면 쓸 수 있어요' : blocked ? '이전 화를 반영해야 쓸 수 있어요' : 'Gemini API 방식에서 쓸 수 있어요'}</span>` : ''}</div>
-      ${c ? `<div class="small">${esc((c.created || '').replace('T', ' '))} 에 쓴 ${c.kind === 'opening' ? '여는 방식' : '백엔드'} 비교본${c.picked ? '' : ' · 고르기 전까지 가립니다'}${finalized && !c.picked ? ' · 반영이 끝난 화라 고를 수 없어요' : ''}</div><div class="rs-compare">${drafts}</div>` : ''}
+      ${c ? `<div class="small">${esc(fmtDateTime(c.created))}에 쓴 ${c.kind === 'opening' ? '여는 방식' : '백엔드'} 비교본${c.picked ? '' : ' · 고르기 전까지 가려요'}${finalized && !c.picked ? ' · 반영이 끝난 화라 고를 수 없어요' : ''}</div><div class="rs-compare">${drafts}</div>` : ''}
     </section>`;
 }
 
@@ -147,7 +147,7 @@ function openingPlotBlock(e) {
   const prev = S.openingPrev[n];
   return `<details${S.openingPlots[n] ? ' open' : ''}><summary style="font-weight:700;font-size:14px">초반 화 · 여는 방식 고르기</summary>
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
-        <div class="small">${n}화 플롯을 여는 방식마다 하나씩 받아 비교합니다. 고른 안이 이 화 플롯이 되고, 확정했던 화는 초안으로 돌아가요.</div>
+        <div class="small">${n}화 플롯을 여는 방식마다 하나씩 받아 비교해요. 고른 안이 이 화 플롯이 되고, 확정했던 화는 초안으로 돌아가요.</div>
         ${openingWayPicker(false)}
         <div class="row"><button class="btn" data-action="openingPlots" data-arg="${n}"${btn.attr}>${btn.label}</button>${S.openingPlots[n] ? `<button class="btn small" data-action="openingDropPlots" data-arg="${n}">안 모두 버리기</button>` : ''}${prev ? `<button class="btn small" data-action="openingUndoPlot" data-arg="${n}">고르기 전 플롯으로 되돌리기</button>` : ''}</div>
         ${opts}
@@ -202,7 +202,7 @@ Object.assign(actions, {
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/opening-plot`, { plot: o.plot });
       S.openingUsed[n] = i;  // 다른 안과 다시 비교하고 바꿀 수 있게 안은 남긴다
       S.dirty = false;
-      toast(`${n}화 플롯을 바꿨습니다. 읽어 보고 확정하세요`);
+      toast(`${n}화 플롯을 바꿨어요. 읽어 보고 확정하세요`);
     });
   },
   async openingUndoPlot(n) {
@@ -227,7 +227,7 @@ Object.assign(actions, {
   async openingPick(arg) {
     const [n, k] = String(arg).split(':').map(Number);
     const unsaved = textUnsaved(n);
-    if ((ep(n).text || unsaved) && !confirm(`${k}번을 ${n}화 본문으로 바꿀까요?${unsaved ? '\n고치던 본문은 먼저 저장해 이전 판에 남깁니다.' : ''}`)) return;
+    if ((ep(n).text || unsaved) && !confirm(`${k}번을 ${n}화 본문으로 바꿀까요?${unsaved ? '\n고치던 본문은 먼저 저장해 이전 판에 남겨요.' : ''}`)) return;
     await run('공개하는 중', async () => {
       await saveIfDirty();
       await flushText(n);  // 저장하지 않은 본문을 먼저 저장해야 바꿀 때 이전 판에 남는다 (rwAdopt 와 같다)
@@ -236,7 +236,7 @@ Object.assign(actions, {
       delete S.textDraft[n];
       delete S.deltas[n];
       await openingLoad(n);
-      toast(`${k}번은 ${r.result.picked} 였습니다. ${n}화 본문으로 저장했습니다`);
+      toast(`${k}번은 ${r.result.picked} 였어요. ${n}화 본문으로 저장했어요`);
     });
   },
 });

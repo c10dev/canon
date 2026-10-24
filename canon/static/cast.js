@@ -398,7 +398,7 @@ function castChart(series, lo, hi, opts = {}) {
   return `<svg class="cast-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.label || '')}">${out.join('')}</svg>`;
 }
 
-/** 관계 수치 직접 보정. AI 가 아니라 '수동보정' 사건으로 기록해 재생할 수 있다 (POST /ties/adjust, pipeline.adjust_tie). */
+/** 관계 수치 직접 보정. AI가 아니라 '수동보정' 사건으로 기록해 재생할 수 있다 (POST /ties/adjust, pipeline.adjust_tie). */
 function tieFixForm(a, b, names) {
   const fs = S.cast.frames;
   const last = fs[fs.length - 1];
@@ -411,7 +411,7 @@ function tieFixForm(a, b, names) {
       <button type="button" class="btn small" data-action="tieFix" data-arg="${esc(`${src}|${dst}|${k}`)}">이 방향 보정</button></div>`;
   };
   return `<details class="tie-fix"><summary class="small">수치 직접 보정</summary>
-    <div class="small" style="margin:6px 0">AI 가 아니라 '수동보정' 사건으로 기록돼요. 마지막 반영 화(${n}화)에 붙고, 반영 취소로 되돌릴 수 있어요.</div>
+    <div class="small" style="margin:6px 0">AI가 아니라 '수동보정' 사건으로 기록돼요. 마지막 반영 화(${n}화)에 붙고, 반영 취소로 되돌릴 수 있어요.</div>
     ${row(a, b, names[0], 0)}${row(b, a, names[1], 1)}</details>`;
 }
 

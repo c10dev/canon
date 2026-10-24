@@ -1,5 +1,5 @@
 /* 삽화 프롬프트 (NovelAI). 집필 화면에서 본문 일부를 고르면 그 장면을 NovelAI 에 붙여 넣을 프롬프트로 만든다.
-   AI 는 장면을 태그로 옮기기만 하고, 인물 외형 · 인물 수 · 등급 · 품질 태그는 서버 canon/illust.py 가 붙인다.
+   AI는 장면을 태그로 옮기기만 하고, 인물 외형 · 인물 수 · 등급 · 품질 태그는 서버 canon/illust.py 가 붙인다.
    인물 외형 태그(Project.visuals)는 설정 화면의 인물 카드에서 정해 두면 화가 바뀌어도 같은 모습으로 나온다.
    고치는 본문 칸에서는 passage.js 의 떠 있는 도구에 '삽화 프롬프트' 가 붙고, 반영이 끝난 읽기 전용 본문에서는 여기서 작은 도구를 띄운다. */
 'use strict';
@@ -56,8 +56,8 @@ function visualFields(c) {
   const note = S.looks[c.id];
   return `<details class="vis"><summary>삽화 외형 태그 <span class="small">${has ? `${v.look.length}개 · 화마다 같은 모습으로 그려요` : 'NovelAI 삽화용, 아직 없음'}</span></summary>
     <div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
-      <div class="between"><span class="small">영어 태그를 쉼표로 나눠 적어요. 삽화 프롬프트마다 그대로 들어갑니다.</span>
-        <button type="button" class="btn small" data-action="lookAI" data-arg="${esc(c.id)}">설정에서 AI 로 만들기</button></div>
+      <div class="between"><span class="small">영어 태그를 쉼표로 나눠 적어요. 삽화 프롬프트마다 그대로 들어가요.</span>
+        <button type="button" class="btn small" data-action="lookAI" data-arg="${esc(c.id)}">설정에서 AI로 만들기</button></div>
       ${note ? `<div class="note info">${esc(note)}</div>` : ''}
       <div class="field"><label for="${id('subject')}">그림 속 성별 <span class="hint">비우면 성별 칸으로 정해요</span></label>
         <select id="${id('subject')}" data-vis="${esc(c.id)}" data-vis-key="subject"><option value="">자동</option>${Object.entries(IL_SUBJECT).map(([k, l]) => `<option value="${k}"${sub === k ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
@@ -108,12 +108,12 @@ function ilCard(n, x) {
   const missing = (x.missing_look || []).map((cid) => (((ilVisual(cid) || {}).look || []).length
     ? `<div class="note info between"><span>${esc(names[cid] || cid)}: 이 삽화를 만든 뒤 설정에 외형 태그가 생겼어요. 다시 조립하면 저장된 태그가 들어가요.</span>
       <button type="button" class="btn small" data-action="illRebuild" data-arg="${esc(x.id)}">다시 조립</button></div>`
-    : `<div class="note warn between"><span>${esc(names[cid] || cid)}: 외형 태그가 저장되지 않아 AI 가 붙인 태그를 썼어요. 다음 삽화에서 모습이 달라질 수 있어요.</span>
+    : `<div class="note warn between"><span>${esc(names[cid] || cid)}: 외형 태그가 저장되지 않아 AI가 붙인 태그를 썼어요. 다음 삽화에서 모습이 달라질 수 있어요.</span>
       <button type="button" class="btn small" data-action="illKeepLook" data-arg="${esc(x.id)}|${esc(cid)}">이 태그로 고정</button></div>`)).join('');
   return `<article class="ill-card">
     <div class="row" style="gap:6px"><strong>${esc(x.draft.scene || '장면')}</strong>
       <span class="chip">${esc(m.label)}</span><span class="chip${x.rating === 'general' ? '' : ' written'}">${IL_RATING[x.rating] || x.rating}</span>
-      <span class="small">${x.selection ? '고른 부분' : 'AI 가 고른 장면'} · ${editTime(x.at)}</span></div>
+      <span class="small">${x.selection ? '고른 부분' : 'AI가 고른 장면'} · ${editTime(x.at)}</span></div>
     <blockquote class="ill-quote">${esc((x.selection && x.selection.text.length <= 400 ? x.selection.text : x.draft.quote) || '')}</blockquote>
     ${x.request ? `<div class="small">요청: ${esc(x.request)}</div>` : ''}
     ${missing}
@@ -125,8 +125,8 @@ function ilCard(n, x) {
     <div class="row ill-foot" style="gap:6px">
       <select aria-label="다시 조립할 모델" data-ill-rebuild="${esc(x.id)}">${(S.illModels || []).map((o) => `<option value="${esc(o.id)}"${o.id === pick ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select>
       <button type="button" class="btn small" data-action="illRebuild" data-arg="${esc(x.id)}">다시 조립</button>
-      <span class="small" style="flex:1 1 200px">AI 를 다시 부르지 않고 고른 모델과 지금 외형 태그 · 화풍으로 다시 맞춰요</span>
-      <button type="button" class="btn small danger" data-action="illDelete" data-arg="${esc(x.id)}">지우기</button></div>
+      <span class="small" style="flex:1 1 200px">AI를 다시 부르지 않고 고른 모델과 지금 외형 태그 · 화풍으로 다시 맞춰요</span>
+      <button type="button" class="btn small danger" data-action="illDelete" data-arg="${esc(x.id)}">삭제</button></div>
   </article>`;
 }
 
@@ -145,17 +145,17 @@ function illustPanel(n) {
     : `<details class="ill-old"><summary><strong>${esc(x.draft.scene || '장면')}</strong> <span class="small">${esc(ilModel(x.model).label)} · ${editTime(x.at)} · ${esc(clip((x.selection ? x.selection.text : x.draft.quote) || '', 40))}</span></summary>${ilCard(n, x)}</details>`)).join('');
   return `<section class="card" id="ill-panel" aria-label="삽화 프롬프트">
     <div class="between"><h2>삽화 프롬프트 <span class="small">NovelAI</span></h2>
-      <span class="small">본문을 드래그해 '삽화 프롬프트'를 누르거나, 장면을 AI 에게 맡기세요</span></div>
+      <span class="small">본문을 드래그해 '삽화 프롬프트'를 누르거나, 장면을 AI에게 맡기세요</span></div>
     <div class="cols" style="gap:16px">
       <div style="flex:2 1 420px;min-width:0;display:flex;flex-direction:column;gap:10px">
         ${sel ? `<div class="sel-target" style="padding:0;border:0"><div class="between"><span class="small">그릴 부분 · ${sel.text.length.toLocaleString()}자</span><button type="button" class="btn small" data-action="illClear">고른 것 풀기</button></div>
           <blockquote>${esc(clip(sel.text, 300))}</blockquote></div>`
-        : '<div class="note plain">본문에서 그릴 부분을 드래그해 고르면 여기에 담겨요. 고르지 않으면 AI 가 이 화에서 그림이 될 장면을 골라요.</div>'}
+        : '<div class="note plain">본문에서 그릴 부분을 드래그해 고르면 여기에 담겨요. 고르지 않으면 AI가 이 화에서 그림이 될 장면을 골라요.</div>'}
         <div class="field"><label for="ill-ask">바라는 것 <span class="hint">선택. 예: 뒷모습으로, 비 오는 밤, 두 사람만</span></label>
           <input id="ill-ask" type="text" value="${esc(S.illAsk)}" placeholder="비우면 장면 그대로"></div>
         <div class="row" style="gap:6px">
           <button type="button" class="btn primary" data-action="illMake" data-arg="sel"${sel && !busy ? '' : ' disabled'}>고른 부분으로 만들기</button>
-          <button type="button" class="btn" data-action="illMake" data-arg="auto"${busy ? ' disabled' : ''}>AI 가 장면 고르기</button></div>
+          <button type="button" class="btn" data-action="illMake" data-arg="auto"${busy ? ' disabled' : ''}>AI가 장면 고르기</button></div>
         ${cast.length ? `<div class="small">이 화 인물 외형 태그: ${castLine} <a href="${base()}/setup">설정에서 고치기</a></div>` : ''}
       </div>
       <div style="flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:8px">

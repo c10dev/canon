@@ -19,7 +19,7 @@ const DOT_FILL = { draft: '#FFFFFF', confirmed: 'var(--accent-soft)', written: '
 Object.assign(S, {
   lineSel: null,                  // 고른 줄기 id
   lineDraft: null,                // AI 제안 (반영 전)
-  lineForm: { note: '', kind: '' }, // AI 에게 바라는 것
+  lineForm: { note: '', kind: '' }, // AI에게 바라는 것
   lineZoom: 0,                    // 한 화의 가로 폭(px). 0 이면 화수에 맞춰 정한다
 });
 DRAFT_ROOTS.lineDraft = () => S.lineDraft;
@@ -206,7 +206,7 @@ function lineEditor(s) {
     <div class="between"><h2>줄기</h2><button class="btn small danger" data-action="lineDelete">삭제</button></div>
     <div class="grid-2">
       <div class="field"><label for="line-kind">종류 <span class="hint">${esc(LINE_KIND_HINT[s.kind] || '')}</span></label><select id="line-kind" data-line-kind>${LINE_KINDS.map((k) => `<option${k === s.kind ? ' selected' : ''}>${k}</option>`).join('')}</select></div>
-      ${input('이름', b + '.title', { placeholder: '예: 도현이 진 빚' })}
+      ${input('이름', b + '.title', { placeholder: `예: ${exName(1)}이(가) 진 빚` })}
     </div>
     <div class="field"><span class="label">중심 인물</span><div class="row">${chars || '<span class="small">인물이 아직 없어요.</span>'}</div></div>
     <div class="grid-2">
@@ -225,7 +225,7 @@ function lineEditor(s) {
       <button type="button" class="btn small" data-action="lineTag" data-arg="main">이 줄기를 따라가는 화로</button>
       <button type="button" class="btn small" data-action="lineTag" data-arg="thread">메인 화에 장면으로</button>
     </div>
-    <div class="small">${linePast(s) ? '다른 시점의 줄기예요. 이 줄기 화를 쓸 때 AI 에게 그 시점에 몰랐던 것을 알지 않도록 지시하고, 상태 반영 때 인물의 지금 감정과 위치는 바꾸지 않아요.' : '메인과 같은 시간의 줄기예요. 이 줄기 화를 쓸 때 줄기 정보와 앞 화 요약이 함께 들어가요.'}</div>
+    <div class="small">${linePast(s) ? '다른 시점의 줄기예요. 이 줄기 화를 쓸 때 AI에게 그 시점에 몰랐던 것을 알지 않도록 지시하고, 상태 반영 때 인물의 지금 감정과 위치는 바꾸지 않아요.' : '메인과 같은 시간의 줄기예요. 이 줄기 화를 쓸 때 줄기 정보와 앞 화 요약이 함께 들어가요.'}</div>
   </div>`;
 }
 
@@ -234,12 +234,12 @@ function lineEditor(s) {
 function lineSuggestPanel() {
   const job = jobFor('storyline');
   const btn = job ? `<button class="btn" disabled aria-busy="true">${esc(job.label)} 중…</button>`
-    : '<button class="btn primary" data-action="lineSuggest">AI 에게 줄기 제안받기</button>';
-  const kinds = `<select id="line-ai-kind" data-line-ai-kind><option value="">AI 가 고름</option>${LINE_KINDS.map((k) => `<option${S.lineForm.kind === k ? ' selected' : ''}>${k}</option>`).join('')}</select>`;
+    : '<button class="btn primary" data-action="lineSuggest">AI에게 줄기 제안받기</button>';
+  const kinds = `<select id="line-ai-kind" data-line-ai-kind><option value="">AI가 고름</option>${LINE_KINDS.map((k) => `<option${S.lineForm.kind === k ? ' selected' : ''}>${k}</option>`).join('')}</select>`;
   return `<div class="card" style="display:flex;flex-direction:column;gap:12px">
     <h2>AI 제안</h2>
     <div class="small">비밀, 열린 복선, 인물의 결핍처럼 작품이 이미 품고 있는 것에서 줄기를 찾아, 갈라지는 화와 합류하는 화, 붙일 화까지 제안해요. 플롯 내용은 바꾸지 않아요.</div>
-    ${input('바라는 것', 'note', { root: 'lineForm', rows: 2, placeholder: '예: 도현의 과거를 7화쯤에 두 화 정도' })}
+    ${input('바라는 것', 'note', { root: 'lineForm', rows: 2, placeholder: `예: ${exName(1)}의 과거를 7화쯤에 두 화 정도` })}
     <div class="row"><label class="row" style="gap:6px" for="line-ai-kind">종류 ${kinds}</label>${btn}</div>
     ${S.lineDraft ? lineDraftCard() : ''}
   </div>`;
@@ -272,12 +272,12 @@ function viewLines() {
   if (S.lineSel && !lineOf(S.lineSel)) S.lineSel = null;
   if (!S.lineSel && lines.length) S.lineSel = lines[0].id;
   const s = lineOf(S.lineSel);
-  const add = '<button class="btn" data-action="lineNew">+ 줄기 직접 더하기</button>';
-  const desc = '메인 줄기에서 갈라졌다 다시 합류하는 서브플롯, 과거 회상, 외전, 인물 이야기를 한눈에 봐요. 화마다 어느 줄기를 따라가는지, 메인 화 안에 어느 줄기 장면이 끼어드는지 표시하면 본문을 쓸 때 AI 가 그 줄기의 맥락과 시점을 지켜요.';
+  const add = '<button class="btn" data-action="lineNew">+ 줄기 추가</button>';
+  const desc = '메인 줄기에서 갈라졌다 다시 합류하는 서브플롯, 과거 회상, 외전, 인물 이야기를 한눈에 봐요. 화마다 어느 줄기를 따라가는지, 메인 화 안에 어느 줄기 장면이 끼어드는지 표시하면 본문을 쓸 때 AI가 그 줄기의 맥락과 시점을 지켜요.';
   const noPlots = P().episodes.length ? '' : '<div class="note info">화별 플롯이 생기면 화를 줄기에 붙일 수 있어요. 줄기는 지금 만들어 둬도 돼요.</div>';
   return `${header('메인 · 서브플롯 · 회상 · 외전', '이야기 줄기', desc, add)}${noPlots}
     ${lineMap()}
-    <div class="causal">${lines.length ? lineList() : '<div class="card empty"><p>아직 갈라진 줄기가 없어요.</p><div class="small">예: 도현의 빚(서브플롯), 서윤의 오빠가 떠난 밤(과거 회상, 10년 전)</div></div>'}
+    <div class="causal">${lines.length ? lineList() : `<div class="card empty"><p>아직 갈라진 줄기가 없어요.</p><div class="small">예: ${esc(exName(1))}의 빚(서브플롯), ${esc(exName(0))}이(가) 떠난 밤(과거 회상, 10년 전)</div></div>`}
       <div class="causal-main">${s ? lineEditor(s) : ''}${lineSuggestPanel()}</div></div>`;
 }
 
@@ -371,7 +371,7 @@ Object.assign(actions, {
       });
       S.lineSel = S.project.storylines[S.project.storylines.length - 1].id;
       S.lineDraft = null;
-      toast('줄기를 더했어요. 플롯 보드에서 그 화들을 다듬으세요.');
+      toast('줄기를 더했어요. 기승전결 · 플롯 화면에서 그 화들을 다듬으세요.');
     });
   },
 });

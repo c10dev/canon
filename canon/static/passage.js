@@ -5,7 +5,7 @@
 'use strict';
 
 Object.assign(S, {
-  sel: null,         // AI 에게 맡길 부분 { n, start, text }
+  sel: null,         // AI에게 맡길 부분 { n, start, text }
   selTool: null,     // 떠 있는 도구 { n, start, text, mode: 'menu' | 'edit', hint? } (hint: marks.js 의 밑줄에서 띄웠을 때 무엇인지)
   selFocus: null,    // 다시 그린 뒤 본문에서 골라 보여 줄 자리 { n, start, end }
   taScroll: {},      // 화별 본문 칸 스크롤 위치 (다시 그려도 읽던 자리를 지킨다)
@@ -15,10 +15,10 @@ Object.assign(S, {
 
 CHAT_TOPICS.text = {
   title: 'AI에게 고치기',
-  intro: '본문에서 고칠 부분을 드래그해 고른 뒤, 바라는 것을 적거나 아래 빠른 요청을 누르세요. AI 가 후보를 2~3개 내고, 고른 후보만 본문에 들어갑니다. 넣은 뒤에도 수정 기록에서 되돌릴 수 있어요.',
+  intro: '본문에서 고칠 부분을 드래그해 고른 뒤, 바라는 것을 적거나 아래 빠른 요청을 누르세요. AI가 후보를 2~3개 내고, 고른 후보만 본문에 들어가요. 넣은 뒤에도 수정 기록에서 되돌릴 수 있어요.',
   examples: [],
-  placeholder: '예: 서윤이 더 망설이게 해 줘',
-  clearAsk: '이 화의 부분 수정 대화를 지울까요? 본문과 수정 기록은 그대로입니다.',
+  placeholder: '예: 주인공이 더 망설이게 해 줘',
+  clearAsk: '이 화의 부분 수정 대화를 지울까요? 본문과 수정 기록은 그대로예요.',
   ready() {
     if (curSel()) return true;
     toast('본문에서 고칠 부분을 먼저 드래그해 고르세요', true);
@@ -148,7 +148,7 @@ function passageNotes(n) {
   const out = [];
   const lastEdit = [...(e.edits || [])].reverse().find((x) => !x.undone);
   if (S.deltas[n] && S.deltaBase[n] !== undefined && S.deltaBase[n] !== textNow(n)) {
-    out.push(`<div class="note warn">상태 변경안을 만든 뒤 본문을 고쳤어요. 변경안은 고치기 전 본문 기준이라 <a href="${base()}/review/${n}">상태 정리</a>에서 다시 만드는 게 좋아요.</div>`);
+    out.push(`<div class="note warn">상태 변경안을 만든 뒤 본문을 고쳤어요. 변경안은 고치기 전 본문 기준이라 <a href="${base()}/review/${n}">상태 승인</a>에서 다시 만드는 게 좋아요.</div>`);
   }
   if (e.issues && e.issues.length && lastEdit && lastEdit.at > (e.checked_at || '')) {
     out.push(`<div class="note plain">검수에서 찾은 ${e.issues.length}곳은 고치기 전 본문 기준이에요. 이미 고친 곳일 수 있어요.</div>`);
@@ -172,7 +172,7 @@ function editTime(iso) {
   if (!iso) return '';
   const d = new Date(iso);
   const today = new Date().toDateString() === d.toDateString();
-  return today ? d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : fmtDate(iso);
+  return today ? fmtDateTime(iso).slice(11) : fmtDate(iso);  // 오늘이면 시각만
 }
 
 function editHistory(e) {

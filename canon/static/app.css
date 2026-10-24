@@ -656,7 +656,7 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
   .menu-toggle { display: inline-flex; }
   .side-menu { display: none; flex: 1 1 100%; flex-direction: column; gap: 12px; }
   .side.open .side-menu { display: flex; }
-  .main { flex: 1 1 auto; }
+  .main { flex: 1 1 auto; width: 100%; }  /* 세로 배치에서 margin:auto 인 화면(설정, 사용량)이 내용 폭으로 넓어지지 않게 */
   #jobs { left: 16px; }
 }
 
