@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 from . import dynamics, jobs, pipeline, prompts, settings, store, usage
 from .llm import BatchLLM, Interrupted, SchemaMismatch, get_llm
 from .research import CHARS_PER_TOKEN, JSON_OUTPUT_RESERVE, _filler
-from .schema import ConsistencyReport, Project, StateDelta
+from .schema import ConsistencyReport, Project, StateDelta, TextVersion
 
 LOG_KEEP = 500
 STEP_NAMES = {"write": "본문", "check": "검수", "state": "상태 변경안"}
@@ -69,6 +69,7 @@ class Run(BaseModel):
     step: str = ""
     reasons: list[str] = Field(default_factory=list, description="멈춘 이유")
     pending: Optional[StateDelta] = Field(None, description="검토 대기 중인 변경안")
+    pending_text: str = Field("", description="검토 대기 변경안을 만든 본문. 그 뒤 본문을 고쳤으면 그대로 반영하지 않는다")
     batches: dict[str, str] = Field(default_factory=dict, description="기다리는 배치 작업 slot -> 이름")
     applied: list[int] = Field(default_factory=list, description="이번 실행에서 자동 반영한 화")
     tokens_in: int = 0
@@ -466,7 +467,7 @@ class Runner:
         reasons = review_reasons(p, delta, report, run.policy)
         if reasons:
             with self.ctl.lock:
-                run.pending = delta
+                run.pending, run.pending_text = delta, p.episode(n).text
             raise _Halt("review", f"{n}화는 검토가 필요해 멈췄습니다", reasons)
 
         def put(q: Project) -> None:
@@ -565,18 +566,23 @@ def resume(name: str, approve: bool = False, rewrite: bool = False, *, foregroun
         status = store.load(name).episode(n).status
         if status == "written" and approve and run.pending is not None:
             d = run.pending
+            if run.pending_text and store.load(name).episode(n).text.strip() != run.pending_text.strip():
+                raise ValueError(f"변경안을 만든 뒤 {n}화 본문을 고쳤어요. 그대로 반영하면 옛 본문 기준의 요약 · 인물 상태 · 사건이 들어갑니다. "
+                                 "검토하기에서 변경안을 다시 만들거나, 다시 쓰기를 고르세요")
             _edit(name, lambda q: pipeline.apply_delta(q, d))
             r.log(f"{n}화 변경안을 검토 화면 없이 그대로 반영했습니다 (사용자 승인)")
         elif status == "written" and rewrite:
             def back(q: Project) -> None:
                 ep = q.episode(n)
+                if ep.text:  # 집필 화면의 다시 생성처럼 지금 본문을 이전 판으로 남긴다
+                    pipeline._keep_version(ep, TextVersion(id=pipeline._version_id(ep), at=pipeline._now(), text=ep.text, kind="previous"))
                 ep.text, ep.status, ep.issues = "", "confirmed", []
             _edit(name, back)
             r.log(f"{n}화를 다시 씁니다")
         elif status == "written":
             raise ValueError(f"{n}화 변경안이 검토 대기 중입니다. 검토 화면에서 반영하거나, 그대로 반영 또는 다시 쓰기를 고르세요")
     with ctl.lock:
-        run.status, run.reasons, run.pending = "running", [], None
+        run.status, run.reasons, run.pending, run.pending_text = "running", [], None, ""
         ctl.save()
     r.log("이어 갑니다")
     _launch(name, ctl, echo, foreground)
@@ -598,7 +604,7 @@ def request(name: str, what: str) -> Run:
         raise ValueError("자동 집필이 없습니다")
     if what == "stop":
         _cancel_batches(run)
-        run.status, run.pending, run.reasons = "stopped", None, []
+        run.status, run.pending, run.pending_text, run.reasons = "stopped", None, "", []
         _write(name, run)
     return run
 

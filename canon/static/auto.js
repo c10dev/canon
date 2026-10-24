@@ -89,6 +89,12 @@ async function autoFlushDrafts(upTo) {
   }
 }
 
+/** 검토 대기 변경안을 만든 뒤 그 화 본문이 바뀌었다 (서버도 그대로 반영을 막는다, autorun.resume). */
+function pendingStale(r) {
+  const e = r.pending && r.pending_text && ep(r.ep);
+  return !!e && (e.text || '').trim() !== r.pending_text.trim();
+}
+
 function autoDuration(s) {
   if (s == null) return '';
   if (s >= 86400 * 2) return `${Math.round(s / 86400)}일`;
@@ -159,7 +165,7 @@ function autoRunCard(r, active) {
     buttons = `<button class="btn" data-action="autoPause">일시정지</button><button class="btn" data-action="autoStop">중지</button>`;
   } else if (r.status === 'review') {
     buttons = `<button class="btn primary" data-action="autoOpenReview">${r.ep}화 변경안 검토하기</button>
-      <button class="btn" data-action="autoResume" data-arg="approve">그대로 반영하고 이어 가기</button>
+      <button class="btn" data-action="autoResume" data-arg="approve"${pendingStale(r) ? ' disabled aria-describedby="auto-stale"' : ''}>그대로 반영하고 이어 가기</button>
       <button class="btn" data-action="autoResume" data-arg="rewrite">${r.ep}화 다시 쓰기</button>
       <button class="btn" data-action="autoStop">중지</button>`;
   } else if (['paused', 'error'].includes(r.status)) {
@@ -175,6 +181,7 @@ function autoRunCard(r, active) {
     ${active && r.batch ? '<div class="small">배치 결과는 몇 분에서 길게는 몇 시간 뒤에 와요. 창을 닫아도 서버가 계속 기다립니다.</div>' : ''}
     ${r.reasons.length ? `<div class="note warn">${r.reasons.map((x) => `<div>${esc(x)}</div>`).join('')}</div>` : ''}
     ${reviewDone ? `<div class="note ok">${r.ep}화를 검토 화면에서 반영했어요. 이어 가기를 누르세요.</div>` : ''}
+    ${r.status === 'review' && pendingStale(r) ? `<div class="note warn" id="auto-stale">변경안을 만든 뒤 ${r.ep}화 본문을 고쳤어요. 그대로 반영하면 옛 본문 기준의 요약 · 인물 상태 · 사건이 들어가서 막아 두었어요. 검토하기에서 변경안을 다시 만들거나 다시 쓰기를 고르세요.</div>` : ''}
     ${r.status === 'review' && r.pending ? '<div class="small">검토하기: 변경안을 상태 승인 화면에 열어요. 고른 항목만 반영한 뒤 여기로 돌아와 이어 가면 됩니다.</div>' : ''}
     <div class="row">${reviewDone ? '<button class="btn primary" data-action="autoResume">이어 가기</button><button class="btn" data-action="autoStop">중지</button>' : buttons}</div>
   </section>`;
@@ -300,7 +307,7 @@ Object.assign(actions, {
     const body = { approve: how === 'approve', rewrite: how === 'rewrite' };
     const r = S.auto.run;
     if (how === 'approve' && !confirm(`${r.ep}화 변경안을 보지 않고 그대로 반영할까요?`)) return;
-    if (how === 'rewrite' && !confirm(`${r.ep}화 본문을 지우고 다시 쓸까요?`)) return;
+    if (how === 'rewrite' && !confirm(`${r.ep}화를 다시 쓸까요? 지금 본문은 이전 판으로 남아 집필 화면에서 되돌릴 수 있어요.`)) return;
     if (!(await autoFlushDrafts(r.target))) return;
     await run('이어 가는 중', async () => {
       await saveIfDirty();
@@ -313,6 +320,8 @@ Object.assign(actions, {
   autoOpenReview() {
     const r = S.auto.run;
     setDelta(r.ep, structuredClone(r.pending));
+    // 변경안을 만든 본문을 기준으로 둔다. 그 뒤 본문을 고쳤으면 상태 승인 화면이 '이 변경안을 만든 뒤 본문을 고쳤어요'를 알린다
+    if (r.pending_text) S.deltaBase[r.ep] = r.pending_text;
     location.hash = `${base()}/review/${r.ep}`;
   },
   async autoRevert(n) {

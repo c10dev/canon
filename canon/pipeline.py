@@ -1556,7 +1556,11 @@ def _version_id(ep: Episode) -> str:
 
 
 def _keep_version(ep: Episode, v: TextVersion) -> None:
-    ep.versions = (ep.versions + [v])[-VERSION_KEEP:]
+    """판을 남긴다. 한도를 넘으면 고르지 않은 새 판(rejected)부터 오래된 순으로 지우고, 바꾸기 전 본문(previous)은 마지막까지 남긴다."""
+    vs = ep.versions + [v]
+    while len(vs) > VERSION_KEEP:
+        vs.pop(next((i for i, x in enumerate(vs) if x.kind == "rejected"), 0))
+    ep.versions = vs
 
 
 def set_candidate(p: Project, n: int, text: str, req: RewriteRequest) -> TextVersion:

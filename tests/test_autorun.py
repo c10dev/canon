@@ -73,6 +73,14 @@ def test_full_run_with_review_stop(demo):
     assert p.episode(2).status == "written" and p.episode(2).issues
     with pytest.raises(ValueError):
         autorun.resume(demo, foreground=True)  # 검토 대기 중인데 아무것도 고르지 않았다
+    assert run.pending_text == p.episode(2).text
+    # 변경안을 만든 뒤 본문을 고쳤으면 옛 변경안을 그대로 반영하지 않는다
+    p.episode(2).text = "작가가 고친 2화 본문"
+    store.save(demo, p)
+    with pytest.raises(ValueError, match="본문을 고쳤어요"):
+        autorun.resume(demo, approve=True, foreground=True)
+    p.episode(2).text = run.pending_text
+    store.save(demo, p)
     run = autorun.resume(demo, approve=True, foreground=True)
     assert run.status == "done"
     p = store.load(demo)
@@ -110,8 +118,10 @@ def test_review_every_and_rewrite(demo):
     assert run.status == "paused" and run.applied == [1]
     run = autorun.start(demo, 3, False, Policy(), foreground=True)
     assert run.status == "review" and run.ep == 2
+    before = store.load(demo).episode(2).text
     run = autorun.resume(demo, rewrite=True, foreground=True)
     assert run.status == "review" and run.ep == 2  # mock 은 다시 써도 같은 문제를 낸다
+    assert store.load(demo).episode(2).versions[-1].text == before  # 지운 본문은 이전 판으로 남는다
     assert any("다시 씁니다" in e.message for e in run.log)
 
 
