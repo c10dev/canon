@@ -2128,6 +2128,10 @@ async function routeNow() {
       if (parts[2] === 'usage') await usageLoad(S.name);
       if (parts[2] === 'convert') await convertLoad();
       if (parts[2] === 'cast') await castLoad(parts[3]);
+      if (parts[2] === 'setup' && parts[3]) {  // 인물 화면의 '설정에서 고치기'(setup/<인물 id>)는 그 인물 카드로 간다
+        const i = S.project.characters.findIndex((c) => c.id === parts[3]);
+        if (i >= 0) S.focusTarget = S.jumpTo = `#f-characters-${i}-name`;
+      }
       if (parts[2] === 'causal') {
         if (parts[3]) S.causalSel = parts[3];
         await causalLoad();
@@ -2155,6 +2159,13 @@ async function routeNow() {
   render();
   window.scrollTo(0, navScroll.restore || 0);  // 뒤로 · 앞으로 가기는 읽던 위치로
   navScroll.restore = null;
+  const card = S.jumpTo && document.querySelector(S.jumpTo)?.closest('.char-card');  // 맨 위로 간 뒤 고른 카드로 내려가 잠시 테두리를 보인다
+  S.jumpTo = null;
+  if (card) {
+    card.classList.add('jump');
+    card.scrollIntoView({ block: 'start' });
+    setTimeout(() => card.classList.remove('jump'), 2000);
+  }
   pollJobs();  // 다른 탭 · 기기에서 시작한 작업도 알아챈다
 }
 
