@@ -81,9 +81,17 @@ function fmtErr(data, status) {
 // 이 탭의 id. 서버는 작품을 저장한 화면을 기억해, 다른 탭 · 기기가 먼저 저장했으면 오래된 화면의 저장을 409 로 막는다
 const CLIENT = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
+// 마지막으로 받은 작품 JSON 과 그 판(ETag). 같은 판이면 서버가 304 로 본문 없이 답하고 이것을 복사해 쓴다 (장편은 수 MB)
+let projectCache = null;  // { path, tag, data }
+
 /** meta 를 넘기면 응답 헤더를 meta.headers 에 담는다. 실패하면 Error 의 status 에 HTTP 상태를 담는다. */
 async function api(method, path, body, meta) {
   const opt = { method, headers: { 'X-Canon-Client': CLIENT } };
+  const whole = method === 'GET' && /^\/projects\/[^/?]+$/.test(path);  // 작품 전체 GET
+  if (whole) {
+    opt.cache = 'no-store';  // 브라우저 캐시 대신 아래 projectCache 로 판을 맞춘다
+    if (projectCache && projectCache.path === path) opt.headers['If-None-Match'] = projectCache.tag;
+  }
   if (body !== undefined) {
     opt.headers['Content-Type'] = 'application/json';
     opt.body = JSON.stringify(body);
@@ -97,9 +105,14 @@ async function api(method, path, body, meta) {
     // 서버가 꺼졌거나 네트워크가 끊겼다 (브라우저마다 다른 영어 문구 대신)
     throw Object.assign(new Error('서버에 연결하지 못했어요. 서버가 켜져 있는지, 네트워크가 연결됐는지 확인하세요'), { status: 0 });
   }
+  if (whole && r.status === 304 && projectCache && projectCache.path === path) return structuredClone(projectCache.data);
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw Object.assign(new Error(fmtErr(data, r.status)), { status: r.status, code: data && data.code });
   if (meta) meta.headers = r.headers;
+  if (whole && r.headers.get('ETag')) {
+    projectCache = { path, tag: r.headers.get('ETag'), data };
+    return structuredClone(data);  // 화면은 받은 작품을 고쳐 쓰므로 보관한 것과 나눈다
+  }
   return data;
 }
 
@@ -1890,7 +1903,7 @@ async function routeNow() {
       }
       if (parts[2] === 'setup') {
         S.names = {};
-        S.nameCheck = await api('POST', `/projects/${enc(S.name)}/names/check`, P()).catch(() => null);
+        S.nameCheck = await api('POST', `/projects/${enc(S.name)}/names/check`, nameCheckBody()).catch(() => null);
       }
       if (parts[2] === 'style') {
         S.libs = await api('GET', '/styles').catch(() => []);
@@ -2562,10 +2575,13 @@ async function loadNames(key, req, ai) {
   });
 }
 
+/** 이름 점검에 필요한 칸만 (작품 전체를 보내지 않는다, web.NameCheckIn). */
+const nameCheckBody = () => ({ meta: P().meta, world: P().world, characters: P().characters, cast_candidates: P().cast_candidates });
+
 let nameSeq = 0;
 async function checkNames(show = false) {
   const my = ++nameSeq;
-  const r = await api('POST', `/projects/${enc(S.name)}/names/check`, P()).catch(() => null);
+  const r = await api('POST', `/projects/${enc(S.name)}/names/check`, nameCheckBody()).catch(() => null);
   if (!r || my !== nameSeq) return;  // 더 나중에 보낸 점검이 있으면 그 결과를 쓴다
   S.nameCheck = r;
   const box = $('#name-check');

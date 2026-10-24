@@ -523,3 +523,23 @@ def test_project_manage_check_job_and_tie_adjust(client, tmp_path):
 
     h = client.get("/api/config/health").json()
     assert h["mock"] and h["has_key"]
+
+
+def test_project_etag_and_gzip(client):
+    """같은 판이면 작품 GET 이 304 로 본문 없이 답하고, 저장하면 판이 바뀐다. 큰 응답은 gzip 으로 보낸다."""
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "et", "meta": meta})
+    r = client.get("/api/projects/et")
+    tag = r.headers["etag"]
+    assert r.json()["meta"]["title"] == "등대"
+    assert client.get("/api/projects/et", headers={"If-None-Match": tag}).status_code == 304
+    p = r.json()
+    p["meta"]["title"] = "등대 2"
+    client.put("/api/projects/et", json=p)
+    r2 = client.get("/api/projects/et", headers={"If-None-Match": tag})
+    assert r2.status_code == 200 and r2.headers["etag"] != tag and r2.json()["meta"]["title"] == "등대 2"
+    big = client.get("/static/app.js", headers={"Accept-Encoding": "gzip"})
+    assert big.headers.get("content-encoding") == "gzip"
+    # 이름 점검은 필요한 칸만 받아도 된다
+    light = {k: p[k] for k in ("meta", "world", "characters", "cast_candidates")}
+    assert "warnings" in client.post("/api/projects/et/names/check", json=light).json()

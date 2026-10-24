@@ -13,19 +13,22 @@ from pathlib import Path
 from urllib.parse import quote, unquote
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
 from . import autorun, cancel, cast, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
-from .schema import (ArcPlan, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
+from .schema import (ArcPlan, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 
 STATIC = Path(__file__).parent / "static"
 NAME_RE = re.compile(r"^[^/\\.][^/\\]{0,63}$")
 
 app = FastAPI(title="Canon")
+# 다른 기기(Tailscale)에서 열 때 작품 JSON 과 정적 파일을 줄여 보낸다
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 _active = 0  # 처리 중인 요청 수. 자동 업데이트는 이 값이 0일 때만 다시 시작한다.
 
 
@@ -322,8 +325,17 @@ def genre_list() -> list[genres.Genre]:
 
 
 @app.get("/api/projects/{name}")
-def get_project(name: str) -> Project:
-    return _load(name)
+def get_project(name: str, request: Request) -> Response:
+    """작품 전체. 화면이 가진 판(ETag)과 같으면 304 로 본문 없이 답한다 (장편은 수 MB 라 화면 이동마다 받지 않게)."""
+    path = store.project_dir(name) / "project.json"
+    tag = None
+    if NAME_RE.match(name) and path.exists():
+        st = path.stat()
+        tag = f'"{st.st_mtime_ns:x}-{st.st_size:x}"'
+        if request.headers.get("if-none-match") == tag:
+            return Response(status_code=304, headers={"ETag": tag})
+    p = _load(name)
+    return JSONResponse(p.model_dump(mode="json"), headers={"ETag": tag} if tag else None)
 
 
 @app.put("/api/projects/{name}")
@@ -422,9 +434,19 @@ def names(name: str, body: NamesIn) -> dict:
     return out
 
 
+class NameCheckIn(BaseModel):
+    """이름 점검에 쓰는 칸만. 화면은 작품 전체 대신 이것만 보낸다 (장편 본문까지 보내지 않게)."""
+    meta: Meta
+    world: WorldSetting
+    characters: list[Character] = []
+    cast_candidates: list[Character] = []
+
+
 @app.post("/api/projects/{name}/names/check")
-def names_check(name: str, p: Project | None = None) -> dict:
-    p = p or _load(name)
+def names_check(name: str, body: NameCheckIn | None = None) -> dict:
+    p = _load(name)
+    if body is not None:  # 저장 전 화면 값으로 점검한다
+        p.meta, p.world, p.characters, p.cast_candidates = body.meta, body.world, body.characters, body.cast_candidates
     return {"warnings": naming.cast_warnings(p), "style": naming.resolve_style(p), "detected": naming.detect_style(p)}
 
 
