@@ -86,12 +86,17 @@ def test_suggest_and_apply_opening(client):
     _project(client)
     p = store.load("lh")
     p.episodes[0].plot.storyline = "past"
+    p.episodes[0].plot.pov, p.episodes[0].plot.pov_mode = "ally", "3인칭 제한"
+    p.episodes[0].plot.characters = ["ally", "extra"]
     out = pipeline.suggest_openings(MockLLM(), p, 1, ["in_medias_res", "lack_turn", "nope"])
     assert [o.approach for o in out.options] == ["in_medias_res", "lack_turn"]  # 모르는 방식 · 중복은 버린다
     assert all(o.plot.number == 1 and o.plot.storyline == "past" for o in out.options)
     pick = out.options[1].plot
     pipeline.apply_opening(p, 1, pick)
     assert p.episodes[0].plot.opening == "lack_turn 장면" and p.episodes[0].status == "draft"
+    # 여는 방식과 상관없는 칸(시점, 서술 방식, 넣어 둔 인물)은 작가가 정한 값을 지킨다
+    e = p.episodes[0].plot
+    assert (e.pov, e.pov_mode) == ("ally", "3인칭 제한") and e.characters[:2] == ["ally", "extra"]
     try:
         pipeline.apply_opening(p, 1, EpisodePlot(number=2, title="x"))
         raise AssertionError("화 번호가 다르면 막는다")

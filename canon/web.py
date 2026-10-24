@@ -234,6 +234,10 @@ def put_project(name: str, p: Project, response: Response, merged: str = "", for
     장편은 부 구성과 아크(아크 안 기승전결 포함)가 이어지는지 검사한다.
     다른 화면(탭 · 기기)이 이 화면이 읽은 뒤에 저장했으면 덮지 않고 409 를 돌려준다. force 면 그래도 덮는다."""
     disk = _load(name)
+    # 장편 총 화수를 바꾸면 마지막 부 끝 화도 따라간다 (둘은 다른 화면에서 고치지만 한 번에 맞아야 저장된다)
+    last = p.parts[-1] if p.serial and p.parts else None
+    if last and last.end_ep == disk.meta.target_episodes != p.meta.target_episodes and p.meta.target_episodes >= last.start_ep:
+        last.end_ep = p.meta.target_episodes
     me = store.writer.get()
     if me and not force and disk.edit_rev > p.edit_rev and disk.saved_by != me:
         raise HTTPException(409, "다른 탭이나 기기에서 이 작품을 먼저 저장했어요. 다시 불러와 그 변경을 보거나, 내 변경으로 덮어쓰세요")
@@ -1035,6 +1039,8 @@ def put_text(name: str, n: int, body: Text) -> Project:
     if ep.status == "finalized":
         raise ValueError(f"{n}화는 상태 반영까지 끝나 본문을 바꿀 수 없습니다")
     text = body.text.strip()
+    if text and ep.status == "confirmed":  # 손으로 쓰거나 붙여 넣은 본문도 AI 쓰기와 같은 순서 규칙을 따른다
+        pipeline.require_previous(p, n)
     pipeline.record_typed(p, n, ep.text, text)
     ep.text = text
     ep.status = "written" if ep.text else "confirmed"
@@ -1255,13 +1261,14 @@ def rebuild_illust(name: str, n: int, iid: str, body: IllustModel) -> Project:
 
 class KeepLook(BaseModel):
     character_id: str
+    force: bool = False  # 이미 저장된 외형 태그를 바꾼다
 
 
 @app.post("/api/projects/{name}/episodes/{n}/illust/{iid}/keep-look")
 def keep_illust_look(name: str, n: int, iid: str, body: KeepLook) -> Project:
     """삽화에서 AI 가 채운 외형 태그를 그 인물의 외형 태그로 저장한다."""
     _load(name).episode(n)
-    return _edit(name, lambda p: pipeline.keep_illust_look(p, n, iid, body.character_id))
+    return _edit(name, lambda p: pipeline.keep_illust_look(p, n, iid, body.character_id, body.force))
 
 
 @app.delete("/api/projects/{name}/episodes/{n}/illust/{iid}")
@@ -1325,6 +1332,7 @@ def apply_state(name: str, n: int, d: StateDelta) -> Project:
     ep = p.episode(n)
     if ep.status != "written":
         raise ValueError(f"{n}화는 본문이 작성된 상태가 아닙니다 (현재: {ep.status})")
+    pipeline.require_previous(p, n)
     d.episode = n
     pipeline.apply_delta(p, d)
     return _save(name, p)

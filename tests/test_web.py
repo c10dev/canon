@@ -380,3 +380,34 @@ def test_stale_screen_save_conflicts(client):
     assert len(after["episodes"]) == 10  # 작업이 디스크에 썼다
     assert after["edit_rev"] == pb["edit_rev"] and after["saved_by"] == "b"
     assert client.put("/api/projects/two", json=pb, headers=B).status_code == 200
+
+
+def test_setup_suggestion_id_clash_and_order_rule(client):
+    """제안 인물 id 가 기존 인물과 겹쳐도 이름이 다르면 새 id 로 넣고 관계도 그 인물에 잇는다. 본문 저장 · 반영은 이전 화 반영 순서를 지킨다."""
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "lh", "meta": meta})
+    s = client.post("/api/projects/lh/suggest").json()
+    p = client.post("/api/projects/lh/suggest/apply", json=s).json()
+    first = p["characters"][0]
+    s2 = dict(s, characters=[dict(first, name="다른 사람")], relationships=[dict(s["relationships"][0], a=p["characters"][1]["id"], b=first["id"]), dict(s["relationships"][0], a="ghost", b=first["id"])])
+    p = client.post("/api/projects/lh/suggest/apply", json=s2).json()
+    new = next(c for c in p["characters"] if c["name"] == "다른 사람")
+    assert new["id"] == first["id"] + "2"
+    assert any({r["a"], r["b"]} == {p["characters"][1]["id"], new["id"]} for r in p["relationships"])
+    assert not any("ghost" in (r["a"], r["b"]) for r in p["relationships"])
+
+    p["arc"] = client.post("/api/projects/lh/arc").json()["acts"]
+    client.put("/api/projects/lh", json=p)
+    client.post("/api/projects/lh/plots", json={})
+    client.post("/api/projects/lh/episodes/1/confirm")
+    client.post("/api/projects/lh/episodes/2/confirm")
+    assert client.put("/api/projects/lh/episodes/1/text", json={"text": "1화 본문"}).status_code == 200
+    r = client.put("/api/projects/lh/episodes/2/text", json={"text": "2화 본문"})
+    assert r.status_code == 400 and "상태 갱신" in r.json()["detail"]
+    # 반영도 순서를 지킨다: 1화가 written 이면 2화 변경안은 반영하지 않는다 (2화를 옛 데이터로 다시 written 으로 만든 경우)
+    from canon import store
+    q = store.load("lh")
+    q.episode(2).text, q.episode(2).status = "2화 본문", "written"
+    store.save("lh", q)
+    r = client.post("/api/projects/lh/episodes/2/apply", json={"episode": 2, "summary": "요약"})
+    assert r.status_code == 400 and "상태 갱신" in r.json()["detail"]

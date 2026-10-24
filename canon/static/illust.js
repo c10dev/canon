@@ -104,8 +104,12 @@ function ilCard(n, x) {
   const pick = S.illRebuild[x.id] || x.model;
   const chars = x.characters.map((c, k) => ilField(`인물 ${k + 1} · ${esc(c.name || '이름 없는 인물')}`, c.prompt, 2,
     `${c.position ? ` <span class="chip">${esc(c.position)}</span>` : ''}${c.negative ? ` <span class="small">부정: ${esc(c.negative)}</span>` : ''}`)).join('');
-  const missing = (x.missing_look || []).map((cid) => `<div class="note warn between"><span>${esc(names[cid] || cid)}: 외형 태그가 저장되지 않아 AI 가 붙인 태그를 썼어요. 다음 삽화에서 모습이 달라질 수 있어요.</span>
-      <button type="button" class="btn small" data-action="illKeepLook" data-arg="${esc(x.id)}|${esc(cid)}">이 태그로 고정</button></div>`).join('');
+  // 만들 때 외형이 없던 인물. 그 뒤 설정에 외형을 저장했으면 고정 대신 다시 조립을 권한다 (고정하면 저장한 태그를 덮는다)
+  const missing = (x.missing_look || []).map((cid) => (((ilVisual(cid) || {}).look || []).length
+    ? `<div class="note info between"><span>${esc(names[cid] || cid)}: 이 삽화를 만든 뒤 설정에 외형 태그가 생겼어요. 다시 조립하면 저장된 태그가 들어가요.</span>
+      <button type="button" class="btn small" data-action="illRebuild" data-arg="${esc(x.id)}">다시 조립</button></div>`
+    : `<div class="note warn between"><span>${esc(names[cid] || cid)}: 외형 태그가 저장되지 않아 AI 가 붙인 태그를 썼어요. 다음 삽화에서 모습이 달라질 수 있어요.</span>
+      <button type="button" class="btn small" data-action="illKeepLook" data-arg="${esc(x.id)}|${esc(cid)}">이 태그로 고정</button></div>`)).join('');
   return `<article class="ill-card">
     <div class="row" style="gap:6px"><strong>${esc(x.draft.scene || '장면')}</strong>
       <span class="chip">${esc(m.label)}</span><span class="chip${x.rating === 'general' ? '' : ' written'}">${IL_RATING[x.rating] || x.rating}</span>
@@ -297,9 +301,15 @@ Object.assign(actions, {
   async illKeepLook(arg) {
     const [id, cid] = String(arg).split('|');
     const n = ilEpNum();
+    const have = ((ilVisual(cid) || {}).look || []).join(', ');
+    // 이미 저장한 외형이 있으면 지금 값과 AI 값을 보여 주고 묻는다. 서버도 확인(force) 없이는 덮지 않는다
+    const ill = (ep(n).illustrations || []).find((x) => x.id === id);
+    const ai = ill ? ((ill.draft.characters.find((c) => c.id === cid) || {}).look || []).join(', ') : '';
+    const force = !!have;
+    if (force && !confirm(`${charName(cid)}의 외형 태그를 바꿀까요?\n\n지금: ${have}\nAI: ${ai}`)) return;
     await run('외형 태그 저장 중', async () => {
       await saveIfDirty();
-      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/illust/${enc(id)}/keep-look`, { character_id: cid });
+      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/illust/${enc(id)}/keep-look`, { character_id: cid, force });
       toast(`${charName(cid)}의 외형 태그로 저장했어요. 설정 도우미 인물 카드에서 고칠 수 있어요`);
     });
   },

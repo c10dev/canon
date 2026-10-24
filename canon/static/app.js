@@ -39,7 +39,7 @@ const S = {
   seriesDraft: null, // 장편: 부 구성 제안 (반영 전)
   arcDraft: null,    // 장편: 다음 아크 제안 (반영 전)
   arcForm: { length: 0, note: '' },  // 장편: 다음 아크 요청
-  recapDraft: null,  // 장편: 아크·부 요약 제안 { kind, number, summary }
+  recapDrafts: {},   // 장편: 아크·부 요약 제안. 'arc1', 'part2' 같은 키 → { kind, number, summary }. 여러 개를 함께 고친다
   namingStyles: null, // 이름 스타일 목록 (서버 naming.STYLES)
   names: {},         // 이름·지명 후보. 'c:<인물 id>' 또는 'place' → { candidates, options, ai }
   nameCheck: null,   // 출연진 이름 점검 { warnings, style, detected }
@@ -136,6 +136,25 @@ function jobOwns(n) {
 const autoOn = () => !!(S.auto && S.auto.active);
 /** 자동 집필이 지금 쓰는 화. 서버는 그 화의 플롯과 관계 같은 진행 칸을 화면 저장에서 지킨다 (autorun.protected). */
 const autoEp = () => (autoOn() && S.auto.run ? S.auto.run.ep : null);
+
+/** 초안 다시 만들기 전에 묻는다: 확정하지 않은 초안 화는 AI 새 초안으로 바뀐다. 바뀔 초안이 없으면 묻지 않는다. */
+function confirmRedraft(eps) {
+  const nums = eps.filter((e) => e.status === 'draft').map((e) => e.plot.number);
+  if (!nums.length) return true;
+  return confirm(`초안 ${nums.length}화(${rangeText(nums)}화)를 AI 새 초안으로 바꿉니다. 손본 내용도 사라져요. 지키려면 먼저 그 화를 확정하세요. 계속할까요?`);
+}
+
+/** [1,2,3,5,7,8] → '1~3, 5, 7~8' */
+function rangeText(nums) {
+  const out = [];
+  for (let i = 0; i < nums.length; i++) {
+    let j = i;
+    while (j + 1 < nums.length && nums[j + 1] === nums[j] + 1) j++;
+    out.push(i === j ? `${nums[i]}` : `${nums[i]}~${nums[j]}`);
+    i = j;
+  }
+  return out.join(', ');
+}
 
 async function startJob(kind, ep = null, extra = {}) {
   try {
@@ -241,7 +260,7 @@ function applyJobResult(j) {
   if (j.status !== 'done') return;  // 실패한 작업은 아무것도 바꾸지 않았다. 열어 봐도 초안과 변경안을 그대로 둔다
   if (j.kind === 'suggest' && j.result) {
     S.suggestion = j.result;
-    S.suggestion.characters.forEach((c, i) => { S.picks['sc' + i] = !P().characters.some((x) => x.id === c.id); });
+    S.suggestion.characters.forEach((c, i) => { S.picks['sc' + i] = !sameChar(c); });
     S.suggestion.relationships.forEach((r, i) => { S.picks['sr' + i] = true; });
   } else if (j.kind === 'arc' && j.result) {
     P().arc = j.result.acts;
@@ -262,7 +281,7 @@ function applyJobResult(j) {
     S.selArc = 'next';
   } else if (j.kind.startsWith('recap_') && j.result) {
     const kind = j.kind.slice(6);
-    S.recapDraft = { kind, number: j.ep, summary: j.result.summary };
+    S.recapDrafts[kind + j.ep] = { kind, number: j.ep, summary: j.result.summary };
     if (kind === 'arc') S.selArc = j.ep;
     else S.selPart = j.ep;
   } else if (['convert', 'rebuild', 'rework'].includes(j.kind) && j.result) {
@@ -420,7 +439,7 @@ function actClass(name) {
 // data-bind="meta.title" data-kind="text|int|list|bool"
 
 // 반영 전 AI 제안도 같은 방식으로 고친다. 이 값들은 작품 저장(dirty)과 상관없다.
-const DRAFT_ROOTS = { arcDraft: () => S.arcDraft, seriesDraft: () => S.seriesDraft, recap: () => S.recapDraft, arcForm: () => S.arcForm };
+const DRAFT_ROOTS = { arcDraft: () => S.arcDraft, seriesDraft: () => S.seriesDraft, recaps: () => S.recapDrafts, arcForm: () => S.arcForm };
 
 function bindRoot(name) {
   if (DRAFT_ROOTS[name]) return DRAFT_ROOTS[name]();
@@ -479,7 +498,11 @@ document.addEventListener('input', (e) => {
     const c = $('#char-count');
     if (c) c.textContent = el.value.length.toLocaleString();
     const sb = $('#save-text');
-    if (sb) sb.disabled = autoOn();  // 자동 집필 중에는 서버가 본문 저장을 받지 않는다
+    if (sb) {
+      sb.disabled = autoOn();  // 자동 집필 중에는 서버가 본문 저장을 받지 않는다
+      sb.classList.toggle('primary', textUnsaved(el.dataset.draft));  // 저장하지 않은 고침이 있으면 눈에 띄게
+      if (!autoOn()) sb.removeAttribute('title');
+    }
     renderSavebar();
   }
   if (el.dataset.brief) S.briefDraft[`${S.name}:${el.dataset.brief}`] = el.value;
@@ -495,6 +518,7 @@ document.addEventListener('change', (e) => {
     const c = $('#pick-count');
     if (c) c.textContent = Object.values(S.picks).filter(Boolean).length;
     if (S.route[2] === 'review' && /^[ers]\d/.test(el.dataset.pick)) refreshPreview(Number(S.route[3]));
+    if (S.route[2] === 'setup' && /^sc\d/.test(el.dataset.pick)) render();  // 고른 인물에 따라 넣을 수 있는 관계가 바뀐다
   }
   if (el.name === 'np-form') {  // 형식을 바꾸면 총 화수 기본값도 바꾼다
     const eps = $('#np-eps');
@@ -528,6 +552,16 @@ document.addEventListener('change', (e) => {
   } else if (/^characters\.\d+\.(name|age|gender)$/.test(bind) || bind === 'world.era' || bind === 'world.setting') {
     checkNames();
   }
+});
+
+// Ctrl+S (macOS 는 Cmd+S): 집필 화면에서 고친 본문이 있으면 본문을, 아니면 작품 변경을 저장한다. 브라우저의 '페이지 저장'은 막는다
+document.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 's' || e.isComposing) return;
+  e.preventDefault();
+  const [p, , page, arg] = S.route;
+  const n = p === 'p' && page === 'write' && P() ? Number(arg) || currentEp() : null;
+  if (n !== null && textUnsaved(n) && editableEp(ep(n))) actions.saveText(n);
+  else if (S.dirty) actions.save();
 });
 
 document.addEventListener('keydown', (e) => {
@@ -706,7 +740,7 @@ const actions = {
   async applySuggestion() {
     const s = structuredClone(S.suggestion);
     s.characters = s.characters.filter((_, i) => S.picks['sc' + i]);
-    s.relationships = s.relationships.filter((_, i) => S.picks['sr' + i]);
+    s.relationships = s.relationships.filter((r, i) => S.picks['sr' + i] && sugEnd(r.a) && sugEnd(r.b));
     await run('반영하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/suggest/apply`, s);
@@ -1047,6 +1081,7 @@ const actions = {
     await startJob('arc');
   },
   async draftPlots() {
+    if (!confirmRedraft(P().episodes)) return;
     await startJob('plots');
   },
   selectEp(n) {
@@ -1107,6 +1142,8 @@ const actions = {
     render();
   },
   async applySeries() {
+    const lost = lostPartSummaries();
+    if (lost.length && !confirm(`범위가 바뀌어 저장된 ${lost.map((x) => `${x.number}부`).join(', ')} 요약이 사라집니다. 반영할까요?`)) return;
     await run('반영하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/series/apply`, S.seriesDraft);
@@ -1162,24 +1199,28 @@ const actions = {
     });
   },
   async draftArcPlots(n) {
+    const a = P().story_arcs.find((x) => x.number === Number(n));
+    if (a && !confirmRedraft(P().episodes.filter((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep))) return;
     await startJob('plots', Number(n));
   },
   async recapArc(n) {
+    if (S.recapDrafts['arc' + n] && !confirm(`아크 ${n} 요약 제안이 아직 있어요. 고친 내용을 버리고 새로 받을까요?`)) return;
     await startJob('recap_arc', Number(n));
   },
   async recapPart(n) {
+    if (S.recapDrafts['part' + n] && !confirm(`${n}부 요약 제안이 아직 있어요. 고친 내용을 버리고 새로 받을까요?`)) return;
     await startJob('recap_part', Number(n));
   },
-  dropRecap() {
-    S.recapDraft = null;
+  dropRecap(key) {
+    delete S.recapDrafts[key];
     render();
   },
-  async applyRecap() {
-    const r = S.recapDraft;
+  async applyRecap(key) {
+    const r = S.recapDrafts[key];
     await run('저장하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/recap/${r.kind}/${r.number}`, { summary: r.summary });
-      S.recapDraft = null;
+      delete S.recapDrafts[key];
       toast('요약을 저장했어요. 앞으로 이 구간 대신 요약이 프롬프트에 들어갑니다.');
     });
   },
@@ -1417,7 +1458,7 @@ document.addEventListener('click', (e) => {
 // 작품마다 따로 두는 화면 상태와 빈 값. 화 번호로 잡거나 반영 전 AI 제안이라, 다른 작품에 보이거나 반영되면 안 된다
 const PER_PROJECT = {
   textDraft: () => ({}), deltas: () => ({}), deltaBase: () => ({}),
-  suggestion: () => null, picks: () => ({}), seriesDraft: () => null, arcDraft: () => null, recapDraft: () => null,
+  suggestion: () => null, picks: () => ({}), seriesDraft: () => null, arcDraft: () => null, recapDrafts: () => ({}),
   lineDraft: () => null, convDraft: () => null, rbDraft: () => null, reworks: () => ({}),
   openingData: () => ({}), openingPlots: () => ({}), rw: () => ({}), rwInfo: () => ({}), looks: () => ({}),
   causalLinks: () => ({}), causalPicks: () => ({}), chatPicks: () => ({}),
@@ -1467,6 +1508,12 @@ window.addEventListener('hashchange', async () => {
   S.settingsDirty = false;
   await route();
 });
+
+/** 부 구성 제안을 반영하면 사라질 부 요약: 요약이 있는데 같은 범위의 부가 제안에 없다 (pipeline.apply_series 와 같은 규칙). */
+function lostPartSummaries() {
+  const keep = new Set((S.seriesDraft ? S.seriesDraft.parts : []).map((x) => `${x.start_ep}-${x.end_ep}`));
+  return P().parts.filter((x) => x.summary && !keep.has(`${x.start_ep}-${x.end_ep}`));
+}
 
 // 화면 이동은 하나씩 차례로 처리한다. 늦게 끝난 앞 이동이 지금 화면의 데이터(지시서, 컨텍스트 등)를 덮지 않게 하고,
 // 기다리는 사이 또 옮겼으면 중간 화면은 건너뛴다
@@ -2049,7 +2096,9 @@ function conflictWord(v) {
 function relRow(r, i) {
   const p = P();
   const b = `relationships.${i}`;
-  const opts = (sel) => p.characters.map((c) => `<option value="${esc(c.id)}"${c.id === sel ? ' selected' : ''}>${esc(c.name || c.id)}</option>`).join('');
+  // 없는 인물을 가리키면 첫 인물이 고른 것처럼 보이지 않게 그 id 를 따로 보인다
+  const opts = (sel) => (p.characters.some((c) => c.id === sel) ? '' : `<option value="${esc(sel)}" selected>(없는 인물: ${esc(sel)})</option>`)
+    + p.characters.map((c) => `<option value="${esc(c.id)}"${c.id === sel ? ' selected' : ''}>${esc(c.name || c.id)}</option>`).join('');
   const started = p.snapshots.length > 0; // 첫 상태 반영 뒤에는 관계 사건으로 계산한다
   const chips = (vals, on, act) => vals.map(([label, arg]) => `<button type="button" aria-pressed="${on(label)}" data-action="${act}" data-arg="${esc(`${i}|${arg}`)}">${esc(label)}</button>`).join('');
   const view = (side, from, to) => `<div class="rel-line"><span class="label-text">${esc(charName(from) || from)} → ${esc(charName(to) || to)}</span>
@@ -2172,7 +2221,7 @@ function viewSetup() {
           ${input('제목', 'meta.title')}
           ${genrePicker()}
           ${adultCheck(`data-bind="meta.adult" data-kind="bool"${P().meta.adult ? ' checked' : ''}`)}
-          ${input('총 화수 (10~20)', 'meta.target_episodes', { type: 'number', min: 1, max: 40 })}
+          ${serial() ? input('총 화수', 'meta.target_episodes', { type: 'number', min: 1, max: 1000, hint: '늘리거나 줄이면 마지막 부 끝 화가 따라가요' }) : input('총 화수 (10~20)', 'meta.target_episodes', { type: 'number', min: 1, max: 40 })}
           ${loglineBuilder()}
           ${input('주제', 'meta.theme', { hint: '이 이야기가 끝까지 묻는 질문 하나', placeholder: '예: 떠난 사람을 이해하면 용서할 수 있나?' })}
           ${toneBox()}
@@ -2207,18 +2256,39 @@ function viewSetup() {
     </div>`;
 }
 
+/** 제안 인물이 이미 있는 인물과 같은 사람이다: id 가 같고 이름도 같다 (이름이 다르면 서버가 새 id 로 넣는다, pipeline.apply_setup). */
+function sameChar(c) {
+  const old = P().characters.find((x) => x.id === c.id);
+  return !!old && (!(c.name || '').trim() || (old.name || '').trim() === c.name.trim());
+}
+
+/** 제안 관계의 한쪽 인물. 고른 제안 인물이면 그 인물, 아니면 이미 있는 인물. 고르지 않은 제안 인물이면 null (관계를 넣지 않는다). */
+function sugEnd(id) {
+  const s = S.suggestion;
+  const i = s.characters.findIndex((c) => c.id === id);
+  if (i >= 0 && !sameChar(s.characters[i])) return S.picks['sc' + i] ? s.characters[i] : null;
+  return P().characters.find((c) => c.id === id) || null;
+}
+
 function viewSuggestion() {
   const s = S.suggestion;
-  const exists = (id) => P().characters.some((c) => c.id === id);
+  const exists = (c) => sameChar(c);
+  const clash = (c) => !sameChar(c) && P().characters.some((x) => x.id === c.id);
   return `<section class="card" style="border:2px solid var(--accent)">
     <div class="between"><h2>AI 제안 <span class="chip ai">반영 전</span></h2><div class="row"><button class="btn small" data-action="dropSuggestion">버리기</button><button class="btn small primary" data-action="applySuggestion">선택 항목 반영</button></div></div>
     <p class="small">주제, 톤, 세계관은 비어 있는 칸에만 들어갑니다. 이미 있는 인물 id 는 건너뜁니다.</p>
     <div class="grid-2"><div class="note plain"><strong>주제</strong> ${esc(s.theme)}<br><strong>톤</strong> ${esc(s.tone)}</div><div class="note plain"><strong>배경</strong> ${esc(s.world.setting)} ${esc(s.world.era)}<br><strong>규칙</strong> ${s.world.rules.map(esc).join(', ')}</div></div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
-      ${s.characters.map((c, i) => `<label class="char-card suggested" style="cursor:pointer"><span class="row"><input type="checkbox" data-pick="sc${i}"${S.picks['sc' + i] ? ' checked' : ''}${exists(c.id) ? ' disabled' : ''}><strong>${esc(c.name)}</strong><span class="small">${esc(c.role)} · ${esc(c.id)}${exists(c.id) ? ' · 이미 있음' : ''}</span></span>
+      ${s.characters.map((c, i) => `<label class="char-card suggested" style="cursor:pointer"><span class="row"><input type="checkbox" data-pick="sc${i}"${S.picks['sc' + i] ? ' checked' : ''}${exists(c) ? ' disabled' : ''}><strong>${esc(c.name)}</strong><span class="small">${esc(c.role)} · ${esc(c.id)}${exists(c) ? ' · 이미 있음' : clash(c) ? ' · 같은 id 의 다른 인물이 있어 새 id 로 넣어요' : ''}</span></span>
         <span style="font-size:13px;line-height:1.5">목표: ${esc(c.goal)}<br>말투: ${esc(c.speech_style)}</span></label>`).join('')}
     </div>
-    ${s.relationships.map((r, i) => `<label class="row" style="font-size:13px"><input type="checkbox" data-pick="sr${i}"${S.picks['sr' + i] ? ' checked' : ''}>${esc(r.a)} ↔ ${esc(r.b)} · ${esc(r.type)} · ${(r.a_view || []).length || (r.b_view || []).length ? `${esc(r.a)}→${esc(r.b)} ${esc((r.a_view || []).join(', ') || '-')} · ${esc(r.b)}→${esc(r.a)} ${esc((r.b_view || []).join(', ') || '-')}` : `호감 ${r.affinity} · 긴장 ${r.tension}`}</label>`).join('')}
+    ${s.relationships.map((r, i) => {
+    const a = sugEnd(r.a);
+    const b = sugEnd(r.b);
+    const nm = (c, id) => esc(c ? c.name || c.id : id);
+    const off = !a || !b;
+    return `<label class="row" style="font-size:13px"><input type="checkbox" data-pick="sr${i}"${S.picks['sr' + i] && !off ? ' checked' : ''}${off ? ' disabled' : ''}>${nm(a, r.a)} ↔ ${nm(b, r.b)} · ${esc(r.type)} · ${(r.a_view || []).length || (r.b_view || []).length ? `${nm(a, r.a)}→${nm(b, r.b)} ${esc((r.a_view || []).join(', ') || '-')} · ${nm(b, r.b)}→${nm(a, r.a)} ${esc((r.b_view || []).join(', ') || '-')}` : `호감 ${r.affinity} · 긴장 ${r.tension}`}${off ? ' <span class="small">(고르지 않은 인물이라 넣지 않아요)</span>' : ''}</label>`;
+  }).join('')}
   </section>`;
 }
 
@@ -2682,6 +2752,7 @@ function viewSerial() {
       <span class="row"><span class="chip">아크 ${inPart.length}개</span><span class="chip ${done ? 'finalized' : ''}">반영 ${done}/${x.end_ep - x.start_ep + 1}</span>${finished ? (x.summary ? '<span class="chip finalized">요약 있음</span>' : '<span class="chip written">요약 필요</span>') : ''}</span>
     </button>`;
   };
+  const lost = S.seriesDraft ? lostPartSummaries() : [];
   const seriesDraft = S.seriesDraft ? `<div class="card proposal">
       <div class="between"><h3>AI 부 구성 제안 <span class="chip ai">반영 전</span></h3><div class="row"><button class="btn small" data-action="dropSeries">버리기</button><button class="btn small primary" data-action="applySeries">이 부 구성 반영</button></div></div>
       ${S.seriesDraft.parts.map((x, i) => `<div class="part-draft">
@@ -2690,6 +2761,7 @@ function viewSerial() {
         ${input('아크 후보', `parts.${i}.arc_ideas`, { root: 'seriesDraft', kind: 'list', rows: 3, autogrow: true })}
       </div>`).join('')}
       <div class="small">부는 1화부터 ${p.meta.target_episodes}화까지 빈틈없이 이어져야 반영됩니다. 이미 기획한 아크가 새 부 경계를 넘으면 반영하지 않아요.</div>
+      ${lost.length ? `<div class="note warn">이 구성으로 반영하면 범위가 바뀌어 저장된 ${lost.map((x) => `${x.number}부(${x.start_ep}~${x.end_ep}화)`).join(', ')} 요약이 사라져요. 지키려면 그 부의 시작 화와 끝 화를 지금과 같게 두세요.</div>` : ''}
     </div>` : '';
   const seriesBtn = ((b) => `<button class="btn small" data-action="planSeries"${b.attr}>${b.label}</button>`)(jobBtn('series', null, p.parts.length ? '부 구성 다시 제안' : 'AI 로 부 구성 만들기'));
   const series = `<section class="card">
@@ -2729,7 +2801,7 @@ function viewSerial() {
 
 function nextArcPanel(start) {
   const p = P();
-  if (start > p.meta.target_episodes) return `<div class="card empty"><p>총 ${p.meta.target_episodes}화까지 아크가 모두 있어요.</p><span class="small">더 쓰려면 작품 홈이나 설정에서 총 화수를 늘리고 부 구성을 고치세요.</span></div>`;
+  if (start > p.meta.target_episodes) return `<div class="card empty"><p>총 ${p.meta.target_episodes}화까지 아크가 모두 있어요.</p><span class="small">더 쓰려면 <a href="${base()}/setup">설정 도우미</a>에서 총 화수를 늘리세요. 마지막 부 끝 화가 따라 늘어나요.</span></div>`;
   const part = p.parts.find((x) => x.start_ep <= start && start <= x.end_ep);
   const old = p.foreshadows.filter((f) => f.status === 'open' && start - f.planted_ep > 50);
   const d = S.arcDraft;
@@ -2768,13 +2840,14 @@ function arcPanel(a, sel) {
   const finished = arcFinished(a);
   const plotsBtn = jobBtn('plots', a.number, g.plotted ? '초안 다시 만들기 (확정 화 제외)' : '화별 플롯 초안 만들기');
   const names = (ids) => ids.map((id) => esc(charName(id))).join(', ');
-  const r = S.recapDraft && S.recapDraft.kind === 'arc' && S.recapDraft.number === a.number ? S.recapDraft : null;
+  const rk = 'arc' + a.number;
+  const r = S.recapDrafts[rk];
   let recap = '';
   if (finished) {
     const rb = jobBtn('recap_arc', a.number, a.summary ? 'AI 로 요약 다시 제안' : 'AI 로 요약 제안');
     recap = `<div class="recap">
       <div class="between"><h3>아크 요약 ${a.summary ? '<span class="chip finalized">있음</span>' : '<span class="chip written">필요</span>'}</h3><button class="btn small" data-action="recapArc" data-arg="${a.number}"${rb.attr}>${rb.label}</button></div>
-      ${r ? `${input('AI 요약 제안 (고친 뒤 저장)', 'summary', { root: 'recap', rows: 6, autogrow: true })}<div class="row"><button class="btn small" data-action="dropRecap">버리기</button><button class="btn small primary" data-action="applyRecap">이 요약 저장</button></div>` : ''}
+      ${r ? `${input('AI 요약 제안 (고친 뒤 저장)', `${rk}.summary`, { root: 'recaps', rows: 6, autogrow: true })}<div class="row"><button class="btn small" data-action="dropRecap" data-arg="${rk}">버리기</button><button class="btn small primary" data-action="applyRecap" data-arg="${rk}">이 요약 저장</button></div>` : ''}
       ${input('저장된 요약', `story_arcs.${k}.summary`, { rows: 4, autogrow: true, hint: '앞으로 이 아크의 화별 요약 대신 프롬프트에 들어가요' })}
     </div>`;
   }
@@ -2820,7 +2893,8 @@ function partEditor(number) {
   const b = `parts.${i}`;
   const done = p.episodes.filter((e) => e.status === 'finalized' && e.plot.number >= x.start_ep && e.plot.number <= x.end_ep).length;
   const finished = done === x.end_ep - x.start_ep + 1;
-  const r = S.recapDraft && S.recapDraft.kind === 'part' && S.recapDraft.number === number ? S.recapDraft : null;
+  const rk = 'part' + number;
+  const r = S.recapDrafts[rk];
   const rb = jobBtn('recap_part', number, x.summary ? 'AI 로 요약 다시 제안' : 'AI 로 요약 제안');
   return `<div class="between"><h2>${x.number}부 고치기</h2><span class="chip">${x.start_ep}–${x.end_ep}화</span></div>
     ${input('제목', b + '.title')}
@@ -2830,7 +2904,7 @@ function partEditor(number) {
     ${input('전환점', b + '.key_turn', { rows: 2, autogrow: true })}
     ${input('아크 후보', b + '.arc_ideas', { kind: 'list', rows: 5, autogrow: true, hint: '다음 아크를 기획할 때 참고해요' })}
     ${finished ? `<div class="between"><span class="label">부 요약</span><button class="btn small" data-action="recapPart" data-arg="${number}"${rb.attr}>${rb.label}</button></div>
-      ${r ? `${input('AI 요약 제안 (고친 뒤 저장)', 'summary', { root: 'recap', rows: 6, autogrow: true })}<div class="row"><button class="btn small" data-action="dropRecap">버리기</button><button class="btn small primary" data-action="applyRecap">이 요약 저장</button></div>` : ''}` : '<div class="small">부의 모든 화가 반영되면 요약을 만들 수 있어요.</div>'}
+      ${r ? `${input('AI 요약 제안 (고친 뒤 저장)', `${rk}.summary`, { root: 'recaps', rows: 6, autogrow: true })}<div class="row"><button class="btn small" data-action="dropRecap" data-arg="${rk}">버리기</button><button class="btn small primary" data-action="applyRecap" data-arg="${rk}">이 요약 저장</button></div>` : ''}` : '<div class="small">부의 모든 화가 반영되면 요약을 만들 수 있어요.</div>'}
     ${input('저장된 요약', b + '.summary', { rows: 4, autogrow: true })}`;
 }
 
@@ -2867,10 +2941,10 @@ function viewWrite(n) {
     center = `<div class="empty"><p>${n}화 플롯이 아직 초안이에요. 확정해야 쓸 수 있습니다.</p><a class="btn primary" href="${base()}/arc">플롯 확정하러 가기</a></div>`;
   } else if (!e.text && draft === undefined) {
     center = `<div class="empty">
-      ${blocked.length ? `<div class="note warn">이전 화(${blocked.join(', ')}화)의 상태 반영이 끝나야 쓸 수 있어요. 인물 상태가 꼬이지 않게 하는 규칙입니다.</div>` : ''}
+      ${blocked.length ? `<div class="note warn">이전 화(${blocked.join(', ')}화)의 상태 반영이 끝나야 쓸 수 있어요. 인물 상태가 꼬이지 않게 하는 규칙입니다. <a href="${base()}/${ep(blocked[0]).status === 'written' ? 'review' : 'write'}/${blocked[0]}">${blocked[0]}화 ${ep(blocked[0]).status === 'written' ? '상태 정리로' : '집필로'}</a></div>` : ''}
       ${isApi ? `<p>확정된 플롯과 지금까지의 데이터로 ${n}화를 씁니다.</p>${((b) => `<button class="btn primary" data-action="writeEp" data-arg="${n}"${blocked.length ? ' disabled' : b.attr}>${b.label}</button>`)(jobBtn('write', n, `${n}화 본문 생성`))}${jobFor('write', n) ? '<div class="small">다른 화면으로 옮겨 가도 계속 씁니다. 끝나면 알려 드려요.</div>' : ''}`
         : `<p>작업지시서를 채팅 앱에 붙여 넣고, 받은 본문을 가져오세요.</p><a class="btn primary" href="${base()}/brief/${n}">작업지시서 열기</a>`}
-      <button class="btn" data-action="startManual" data-arg="${n}"${writing ? ' disabled' : ''}>직접 쓰기</button>
+      <button class="btn" data-action="startManual" data-arg="${n}"${writing || blocked.length ? ' disabled' : ''}>직접 쓰기</button>
     </div>`;
   } else {
     center = `<div class="prose">${editable
@@ -2917,7 +2991,7 @@ function viewWrite(n) {
           <span>${e.status === 'finalized' ? '상태 반영까지 끝난 화는 읽기 전용이에요. 드래그하면 삽화 프롬프트를 만들 수 있어요' : e.text ? '고칠 부분을 드래그하면 직접 고치거나 AI 에게 맡기거나 삽화 프롬프트를 만들 수 있어요' : '본문을 직접 고친 뒤 저장할 수 있어요'}</span>
           <span class="row"><span><strong id="char-count" style="color:var(--text)">${(text || '').length.toLocaleString()}</strong> / ${Number(P().meta.words_per_episode).toLocaleString()}자</span>
           ${text ? `<button class="btn small" data-action="copyEp" data-arg="${n}" title="고른 줄바꿈 형식으로 복사 (오른쪽 '복사 · 내보내기'에서 바꿈)">복사</button>` : ''}
-          ${editable && (e.text || draft !== undefined) ? `<button class="btn small" id="save-text" data-action="saveText" data-arg="${n}"${draft === undefined || autoOn() ? ' disabled' : ''}>본문 저장</button>` : ''}</span>
+          ${editable && (e.text || draft !== undefined) ? `<button class="btn small${textUnsaved(n) && !autoOn() ? ' primary' : ''}" id="save-text" data-action="saveText" data-arg="${n}"${draft === undefined || autoOn() ? ` disabled title="${autoOn() ? '자동 집필이 도는 동안은 저장할 수 없어요' : '고친 내용이 없어요'}"` : ''}>본문 저장</button>` : ''}</span>
         </div>
         ${e.text ? passageNotes(n) ? `<div style="padding:12px 16px 0;display:flex;flex-direction:column;gap:8px">${passageNotes(n)}</div>` : '' : ''}
         ${center}
