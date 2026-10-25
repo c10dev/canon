@@ -368,7 +368,67 @@ def character_candidates(p: Project, c: Character, n: int = 8, style: str | None
 
 def location_candidates(p: Project, n: int = 8, kind: str = "", style: str | None = None,
                         rng: random.Random | None = None) -> list[Candidate]:
-    return generate_places(resolve_style(p, style), n, kind, exclude=set(p.world.locations), rng=rng)
+    return generate_places(resolve_style(p, style), n, kind, exclude=set(known_places(p)), rng=rng)
+
+
+# ---------- 이미 있는 장소와 비슷한 이름 ----------
+# 연재가 길어지면 같은 곳을 '흑송촌', '흑송마을', '흑송 마을'처럼 흔들려 쓴다. 띄어쓰기와 같은 갈래의 끝말(마을 · 촌 · 리)만
+# 다른 이름을 비슷하다고 본다. '흑송산'과 '흑송촌'처럼 갈래가 다르면 다른 곳으로 둔다.
+
+PLACE_TAILS = [
+    ("마을", "부락", "촌", "리", "동", "읍", "면", "골"),
+    ("고개", "산", "봉", "령", "재", "악"),
+    ("강", "천", "내", "호", "못", "늪"),
+    ("숲", "림"),
+    ("성", "궁", "전", "각", "루", "관", "원"),
+    ("객잔", "주막", "여관", "여각"),
+]
+
+
+def place_key(name: str) -> str:
+    """띄어쓰기와 가운뎃점, 따옴표를 뺀 비교용 이름."""
+    return re.sub(r"[\s·・\-_'\"“”‘’]+", "", name)
+
+
+def place_base(x: str) -> str:
+    """설정 장소 칸의 '등대: 설명' 이면 '등대'."""
+    return re.split(r"[:(（\-–—,]", x, maxsplit=1)[0].strip()
+
+
+def known_places(p: Project) -> list[str]:
+    """이미 있는 장소 이름: 설정의 장소 칸과 인과율 '장소' 요소의 이름 · 다른 이름."""
+    out = [place_base(x) for x in p.world.locations]
+    for el in p.elements:
+        if el.kind == "장소":
+            out += [el.name, *el.aliases]
+    return [x for x in dict.fromkeys(x.strip() for x in out) if x]
+
+
+def _tail(key: str) -> tuple[str, int]:
+    """(끝말을 뺀 이름, 끝말 갈래). 갈래가 없으면 -1."""
+    for i, group in enumerate(PLACE_TAILS):
+        for t in sorted(group, key=len, reverse=True):
+            if key.endswith(t) and len(key) - len(t) >= 2:
+                return key[:-len(t)], i
+    return key, -1
+
+
+def similar_place(name: str, known: list[str]) -> str:
+    """name 과 같은 곳을 달리 쓴 듯한 이미 있는 장소 이름. 없으면 빈 문자열. 완전히 같은 이름은 여기서 보지 않는다."""
+    k = place_key(name)
+    core, g = _tail(k)
+    for other in known:
+        o = place_key(other)
+        if not o or o == k:
+            continue
+        oc, og = _tail(o)
+        if len(core) >= 2 and core == oc and (g == og or -1 in (g, og)):
+            return other
+    return ""
+
+
+def similar_warning(name: str, other: str) -> str:
+    return f"새 장소 '{name}'{josa(name, '은', '는')} 이미 있는 '{other}'{josa(other, '과', '와')} 이름이 비슷해요. 같은 곳이면 한 이름으로 맞추세요"
 
 
 # ---------- 점검 ----------

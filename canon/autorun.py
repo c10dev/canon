@@ -782,6 +782,9 @@ def protected(name: str, disk: Project, mine: Project) -> list[dict]:
     back = [c for c in disk.characters if c.id in added and c.id not in have]
     mine.characters += back
     kept += [{"field": "character", "name": c.name or c.id} for c in back]
+    # 승인된 변경안이 본문에서 등록한 장소(인과율 '장소' 요소)도 진행이다
+    ids = {el.id for el in mine.elements}
+    mine.elements += [el for el in disk.elements if el.found_in == "본문" and el.id not in ids]
     run = get_run(name)
     cur = run.ep if run and active(name) else None
     d = {e.plot.number: e for e in disk.episodes}

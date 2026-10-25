@@ -582,10 +582,22 @@ def roster_line(p: Project, exclude: set[str]) -> str:
 
 
 def candidates_block(p: Project) -> str:
-    """앞 플롯이 데려왔지만 작가가 아직 등록하지 않은 새 인물. 다음 구간 플롯이 같은 인물을 또 만들지 않게 한다."""
-    if not p.cast_candidates:
-        return ""
-    return "\n[새 인물 후보 (앞 플롯이 데려온 인물, 아직 등록 전. 다시 만들지 말고 이 id 를 씁니다)]\n" + dump(p.cast_candidates)
+    """앞 플롯이 데려왔지만 아직 등록하지 않은 새 인물과 새 장소. 다음 구간 플롯이 같은 인물이나 장소를 또 만들지 않게 한다."""
+    out = ""
+    if p.cast_candidates:
+        out += "\n[새 인물 후보 (앞 플롯이 데려온 인물, 아직 등록 전. 다시 만들지 말고 이 id 를 씁니다)]\n" + dump(p.cast_candidates)
+    if p.place_candidates:
+        out += "\n[새 장소 후보 (앞 플롯이 지은 장소, 아직 등록 전. 다시 만들지 말고 이 이름을 씁니다)]\n" + dump(p.place_candidates)
+    return out
+
+
+def places_line(p: Project, text: str = "") -> str:
+    """이미 있는 장소 이름 한 줄. 장편은 예산까지 (text 에 나오는 이름 먼저) 넣고 뺀 수를 적는다."""
+    if p.serial:
+        names, more = context.pick_places(p, text, context.BUDGET["places"])
+    else:
+        names, more = naming.known_places(p), 0
+    return (", ".join(names) or "없음") + (f" (그 밖에 {more}곳은 이번 화와 멀어 뺐습니다)" if more else "")
 
 
 def new_cast_rule(p: Project) -> str:
@@ -593,6 +605,8 @@ def new_cast_rule(p: Project) -> str:
     return f"""
 - 인물 목록에 없는 인물이 꼭 필요하면 new_characters 에 전체 설정(이름, 역할, 나이, 성별, 성격, 원하는 것, 말투 speech_style)을 넣고, 나오는 화의 characters 에 그 id 를 넣습니다. 여러 화에 걸쳐 나오면 tier 를 support, 한두 화 나오고 마는 인물이면 minor 로 둡니다.
 - 이미 있는 인물과 새 인물 후보는 다시 만들지 않습니다. 이름 없는 행인이나 군중은 인물로 만들지 않습니다. 인물 목록에 없는 id 를 characters 에 쓰면 반드시 new_characters 에도 넣습니다.
+- 장소 목록, 이야기 요소의 장소, 새 장소 후보에 있는 곳은 그 이름 그대로 씁니다 (띄어쓰기와 '마을', '촌' 같은 끝말도 바꾸지 않습니다).
+- 이름을 붙인 새 장소(지형, 마을, 건물, 가게 등)가 필요하면 new_places 에 플롯에 쓴 이름 그대로, kind 에 종류 한 단어, description 에 어떤 곳인지 한 줄을 넣습니다.
 - 새 인물 이름은 아래 후보에서 고르거나 같은 결로 짓고, 있는 인물과 이름이 같거나 첫 글자나 끝 글자가 겹치지 않게 합니다.
 [이름 후보]
 {naming.new_cast_hint(p)}"""
@@ -1591,6 +1605,8 @@ def state_prompt(p: Project, n: int) -> str:
 {dump(fs) or "없음"}
 [이번 화 플롯]
 {dump(ep.plot)}
+[이미 있는 장소]
+{places_line(p, ep.text)}
 
 [{n}화 본문]
 {ep.text}
@@ -1603,6 +1619,8 @@ def state_prompt(p: Project, n: int) -> str:
 - 새로 생긴 비밀은 secrets_added 에 넣고, 비밀이 드러난 사건에는 reveals_secret 에 비밀 id 를 적습니다.
 - 새 복선 id 는 fs-{n:02d}-키워드 형식으로 짓습니다. 이번 아크 안에서 회수할 작은 복선은 scope 를 arc, 부나 작품 끝까지 갈 복선은 part 나 series 로 둡니다.
 - 인물 설정과 목록에 없는 인물이 이름을 갖고 처음 나왔으면 new_characters 에 넣습니다. 조연은 tier 를 support, 지나가는 인물은 minor 로 두고, 본문에서 드러난 것만 적습니다.
+- 아래 [이미 있는 장소]에 없는 장소(지형, 마을, 건물, 가게 등)가 이름을 갖고 처음 나왔으면 new_places 에 넣습니다. name 은 본문에 쓴 그대로, kind 는 종류 한 단어, description 은 본문에서 드러난 것만 한 줄입니다. 이름 없는 길, 방, 골목은 넣지 않습니다.
+- 이미 있는 장소를 다른 이름이나 표기로 부른 것이면 new_places 에 넣지 않고 warnings 에 적습니다.
 - warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다.{storylines.state_rule(p, n)}{foreshadows.state_rule(p)}{statwin.state_rule(p)}"""
 
 
@@ -2013,7 +2031,7 @@ def naming_prompt(p: Project, target: str, candidates: list, n: int) -> str:
 이름 규칙:
 {rules}
 이미 있는 인물: {others}
-이미 있는 장소: {", ".join(p.world.locations) or "없음"}
+이미 있는 장소: {places_line(p)}
 
 [대상]
 {target}

@@ -60,6 +60,7 @@ function timingText(el) {
   const parts = [el.since_ep > 0 ? `${el.since_ep}화부터` : '처음부터'];
   if (el.episodes.length) parts.push(`나올 화 ${el.episodes.join(', ')}`);
   if (el.reveal_ep) parts.push(`${el.reveal_ep}화 공개`);
+  if (el.found_in) parts.push(`${el.found_ep}화 ${el.found_in}에 처음 나옴`);
   return parts.join(' · ');
 }
 
@@ -70,6 +71,7 @@ function impactEpisodes(r) {
 
 function impactBadge(el) {
   const imp = el.impact;
+  if (!imp && el.found_in) return `<span class="chip">${el.found_ep}화 ${esc(el.found_in)}에서</span>`;  // 본문 · 플롯에서 처음 나와 등록된 장소
   if (!imp) return el.added_after ? '<span class="chip written">분석 전</span>' : '';
   if (causalStale(el)) return '<span class="chip written">다시 분석 필요</span>';  // 분석한 뒤 요소를 고쳤다
   if (imp.outcome === 'applied') return '<span class="chip finalized">적용함</span>';
@@ -104,6 +106,7 @@ function causalEditor(el) {
   const ctx = [['auto', '관련 있을 때'], ['always', '항상'], ['off', '넣지 않음']];
   return `<div class="card" style="display:flex;flex-direction:column;gap:14px">
     <div class="between"><h2>요소</h2><button class="btn small danger" data-action="causalDelete">삭제</button></div>
+    ${el.found_in ? `<div class="note plain">${el.found_ep}화 ${esc(el.found_in)}에 처음 나와 ${el.found_in === '본문' ? '상태 승인 때' : '화를 확정할 때'} 등록한 장소예요. 이름이나 설명을 고쳐도 돼요.${el.found_in === '본문' ? ` ${el.found_ep}화부터 반영을 취소하면 빠져요 (시점이나 관련 인물을 더했으면 남아요).` : ''}</div>` : ''}
     <div class="grid-2">
       <div class="field"><label for="el-kind">종류</label><select id="el-kind" data-el-kind>${EL_KINDS.map((k) => `<option${k === el.kind ? ' selected' : ''}>${k}</option>`).join('')}</select></div>
       ${input('이름', b + '.name', { placeholder: '본문과 플롯에서 찾을 이름' })}

@@ -121,6 +121,8 @@ def _save(name: str, p: Project, merged: set[str] | None = None, kept: list[dict
             # 화면이 열린 동안 플롯 작업이 더한 새 인물 후보도 지킨다. 안 쓰이거나 등록된 후보는 sync 가 지운다
             have = {c.id for c in p.cast_candidates}
             p.cast_candidates += [c for c in disk.cast_candidates if c.id not in have]
+            have = {x.name for x in p.place_candidates}
+            p.place_candidates += [x for x in disk.place_candidates if x.name not in have]
             pipeline.sync_candidates(p)
         store.save(name, p)
     return p
@@ -1663,7 +1665,7 @@ def parse_state(name: str, n: int, body: Raw) -> StateDelta:
         loc = ".".join(map(str, err["loc"]))
         why = _VALIDATION_REASON.get(err["type"], err["msg"])
         raise HTTPException(400, f"JSON 내용이 맞지 않아요: {f'{loc} 칸이 ' if loc else ''}{why}")
-    foreshadows.clean_delta(p, delta)
+    pipeline.clean_delta(p, delta)
     return delta
 
 
