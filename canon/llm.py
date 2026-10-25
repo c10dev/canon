@@ -4,6 +4,8 @@
   CANON_LLM    gemini(기본) | local | claude (Claude Code 구독 로그인) | claude-api (Anthropic API 키) | mock
   CANON_MODEL  Gemini 모델 이름 (기본 gemini-4-argon)
   GEMINI_API_KEY  Gemini API 키
+  CANON_GEMINI_AUTH=vertex  키 대신 Google Cloud 서비스 계정으로 Vertex AI 의 Gemini 를 부른다
+    (CANON_VERTEX_CREDENTIALS 또는 GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION)
   CANON_LOCAL_URL / CANON_LOCAL_MODEL / CANON_LOCAL_KEY  로컬 서버 (Ollama, llama.cpp, vLLM, LM Studio)
   CANON_LLM_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE  단계별 백엔드 (예: CANON_LLM_WRITE=local)
   CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE  단계별 모델 (예: CANON_MODEL_STATE=gemini-3.8-flash)
@@ -88,16 +90,46 @@ def _usage(u: Any) -> dict | None:
             "cached_tokens": getattr(u, "cached_content_token_count", None) or 0}
 
 
+def _vertex_client() -> Any:
+    """서비스 계정 키 파일(없으면 gcloud 기본 자격 증명)로 Vertex AI 클라이언트를 만든다.
+    키 파일은 설정에 경로만 있고, 여기서 google-auth 가 읽는다."""
+    from google import genai
+
+    from . import settings
+
+    path = settings.vertex_credentials()[0]
+    creds = None
+    if path:
+        if not os.path.isfile(path):
+            raise MissingKey(f"서비스 계정 키 파일을 찾지 못했어요: {path}")
+        from google.oauth2 import service_account
+
+        try:
+            creds = service_account.Credentials.from_service_account_file(
+                path, scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        except (ValueError, KeyError) as e:
+            raise MissingKey(f"서비스 계정 키 파일이 아니에요 ({path}): {e}") from e
+    project = settings.vertex_project()[0]
+    if not project:
+        raise MissingKey("Vertex AI 프로젝트 ID가 없어요. 설정 화면에서 서비스 계정 키 파일이나 프로젝트 ID를 넣으세요.")
+    return genai.Client(vertexai=True, project=project, location=settings.vertex_location()[0], credentials=creds)
+
+
 class GeminiLLM:
     def __init__(self, model: str | None = None, api_key: str | None = None):
         from google import genai
 
         from . import settings
 
-        key = api_key or settings.api_key()[0]
-        if not key:
-            raise MissingKey("Gemini API 키가 없어요. 웹 설정 화면에서 넣거나 GEMINI_API_KEY 를 설정하세요.")
-        self.client = genai.Client(api_key=key)
+        # api_key 를 직접 넘기면(연구 화면 등) 늘 키 방식이다
+        self.vertex = not api_key and settings.gemini_auth()[0] == "vertex"
+        if self.vertex:
+            self.client = _vertex_client()
+        else:
+            key = api_key or settings.api_key()[0]
+            if not key:
+                raise MissingKey("Gemini API 키가 없어요. 웹 설정 화면에서 넣거나 GEMINI_API_KEY 를 설정하세요.")
+            self.client = genai.Client(api_key=key)
         self.model = model or settings.model()[0]
         self.last_usage: dict | None = None  # 연구 화면에서 보여 줄 마지막 호출의 토큰 수
         self.last_attempts = 0
@@ -114,7 +146,7 @@ class GeminiLLM:
             actions = getattr(m, "supported_actions", None) or []
             if actions and "generateContent" not in actions:
                 continue
-            out.append(m.name.removeprefix("models/"))
+            out.append(m.name.removeprefix("models/").removeprefix("publishers/google/models/"))
         return out
 
     def context_limit(self) -> int | None:
@@ -168,6 +200,11 @@ class GeminiLLM:
         return self._call(system, prompt)
 
     # ---------- Batch API (비용 절반, 결과까지 몇 분~최대 24시간) ----------
+
+    @property
+    def can_batch(self) -> bool:
+        """Vertex AI 배치는 요청을 Cloud Storage · BigQuery 로만 받아 지금은 쓰지 않는다 (자동 집필은 일반 호출로)."""
+        return not self.vertex
 
     def batch_submit(self, system: str, prompt: str, schema: type[BaseModel] | None, label: str,
                      hint: dict | None = None) -> str:

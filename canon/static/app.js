@@ -1946,7 +1946,7 @@ const actions = {
     if (key) body.api_key = key;
     const lkey = $('#set-local-key').value.trim();
     if (lkey) body.local_key = lkey;
-    Object.assign(body, claudeSettingsBody());
+    Object.assign(body, claudeSettingsBody(), geminiAuthBody(c));
     const ok = await run('저장 중', async () => {
       S.config = await api('PUT', '/config', body);
       S.health = await api('GET', '/config/health').catch(() => null);
@@ -2632,10 +2632,10 @@ function viewSettings() {
           ${providerOptions(c.provider)}
         </select>${envNote(c.provider_source, 'CANON_LLM')}
         <div class="small">단계별로 다르게 쓰려면 아래 '단계별 백엔드'에서 고르세요.</div></div>
-      <div class="field"><label for="set-key">Gemini API 키 <span class="hint">지금: </span>${keyState}</label>
+      ${geminiAuthSettings(c, `<div class="field"><label for="set-key">Gemini API 키 <span class="hint">지금: </span>${keyState}</label>
         <input id="set-key" type="password" autocomplete="off" placeholder="${c.key_source === 'none' ? 'AIza… 로 시작하는 키' : '바꿀 때만 입력'}">
         <div class="small"><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>에서 무료로 발급받을 수 있어요. 저장한 키는 화면에 다시 보여주지 않아요.</div>
-        ${envNote(c.key_source, 'GEMINI_API_KEY')}</div>
+        ${envNote(c.key_source, 'GEMINI_API_KEY')}</div>`)}
       <div class="field"><label for="set-model">모델</label>
         <input id="set-model" type="text" list="model-options" value="${esc(c.model_setting || '')}">
         ${modelDatalist()}
@@ -2700,7 +2700,7 @@ function modelStatus() {
   // 단계에서 쓰는 백엔드만 알린다 (Gemini 만 쓰면 꺼진 로컬 서버 오류는 보이지 않는다)
   const c = S.config || {};
   const used = new Set([c.provider, ...Object.values(c.stages || {}).map((x) => x.provider)]);
-  const why = (r) => ({ no_key: 'API 키를 넣고 저장하면 목록을 불러와요', unreachable: '로컬 서버가 응답하지 않아요. 주소를 확인하세요' }[r.reason] || `목록을 못 불러왔어요 (${esc((r.error || '').slice(0, 120))})`);
+  const why = (r) => ({ no_key: c.gemini_auth === 'vertex' ? '서비스 계정 키 파일과 프로젝트 ID를 넣고 저장하면 목록을 불러와요' : 'API 키를 넣고 저장하면 목록을 불러와요', unreachable: '로컬 서버가 응답하지 않아요. 주소를 확인하세요' }[r.reason] || `목록을 못 불러왔어요 (${esc((r.error || '').slice(0, 120))})`);
   const part = (name, r) => (r.error ? `${name}: ${why(r)}` : `${name} ${r.models.length}개`);
   const parts = [['gemini', 'Gemini'], ['local', '로컬 서버']].filter(([k]) => used.has(k) && m[k]).map(([k, name]) => part(name, m[k]));
   return `모델 칸을 누르면 고를 수 있어요. ${parts.length ? parts.join(' · ') + '. ' : ''}목록에 없으면 이름을 직접 적어도 돼요. <button type="button" class="link-btn" data-action="loadModels">다시 불러오기</button>`;
@@ -2731,6 +2731,7 @@ function aiWarning() {
   const cfg = S.config || {};
   if (h && h.local === false) return `AI 연결 안 됨: 로컬 모델 서버가 응답하지 않아요 (${h.local_error || '주소를 확인하세요'}).`;
   if (h && h.mock) return 'mock 모드: AI를 부르지 않고 가짜 결과를 내요. 실제로 쓰려면 설정에서 Gemini 나 로컬을 고르세요.';
+  if (!cfg.has_key && cfg.gemini_auth === 'vertex') return 'Vertex AI 설정이 덜 됐어요. 설정에서 서비스 계정 키 파일 경로와 프로젝트 ID를 확인하세요.';
   if (!cfg.has_key) return 'Gemini API 키가 없어요. 키 없이는 인물 · 설정을 직접 적을 수 있고, 플롯이 생긴 화부터는 채팅 앱 작업지시서로 쓸 수 있어요.';
   return '';
 }
