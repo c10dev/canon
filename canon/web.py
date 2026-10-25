@@ -10,6 +10,7 @@ import json
 import logging
 import re
 from pathlib import Path
+from typing import Literal
 from urllib.parse import quote, unquote
 
 from fastapi import FastAPI, HTTPException, Request
@@ -24,7 +25,7 @@ from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록
 from .schema import (ArcPlan, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 from . import atlas, foreshadows, statwin
-from .schema import MapPin, StatValue
+from .schema import ChatScope, MapPin, StatValue
 
 STATIC = Path(__file__).parent / "static"
 # 폴더 이름: / \ 와 운영체제가 막는 : * ? " < > | 는 쓸 수 없고, . 으로 시작하지 않는다
@@ -873,6 +874,12 @@ class ChatIn(BaseModel):
     message: str = ""
     selection: Selection | None = None  # 본문 부분 수정: 고른 부분
     preset: str = ""  # 본문 부분 수정: 빠른 요청 id (prompts.PASSAGE_PRESETS)
+    # 플롯 대화: 화면이 알려 주는 대상과 보던 곳 (schema.ChatScope)
+    target: str = ""  # '' 기본, 'arc:3' 고른 아크, 'next' 다음 아크 기획
+    act: str = ""  # 연 구간 이름
+    episode: int = 0  # 연 화
+    mode: Literal["", "options"] = ""  # options: 방향 여러 안
+    draft: ArcProposal | None = None  # target 'next': 화면의 다음 아크 초안
 
 
 @app.post("/api/projects/{name}/chat/{topic}")
@@ -887,14 +894,19 @@ def chat_send(name: str, topic: str, body: ChatIn) -> Project:
         sel = Selection(start=pipeline.locate(p.episode(n).text, body.selection.text, body.selection.start), text=body.selection.text)
         rev = pipeline.revise_passage(get_llm("revise"), p, n, sel, body.message, body.preset)
         return _edit(name, lambda q: pipeline.record_passage(q, n, sel, body.message, body.preset, rev))
-    rev = pipeline.revise_plot(get_llm("plan"), p, body.message)
+    target, _ = pipeline.chat_target(p, body.target)  # 기다리는 동안 아크가 붙어도 처음 대상을 기록한다
+    scope = ChatScope(target=target, act=body.act, episode=body.episode, mode=body.mode, draft=body.draft)
+    rev = pipeline.revise_plot(get_llm("plan"), p, body.message, scope)
     # AI 를 기다리는 동안 백그라운드 작업이 저장했을 수 있으니 최신 내용에 대화만 덧붙인다
-    return _edit(name, lambda q: pipeline.record_chat(q, topic, body.message, rev))
+    return _edit(name, lambda q: pipeline.record_chat(q, topic, body.message, rev, scope))
 
 
 class ChatApply(BaseModel):
     acts: bool = False
     episodes: list[int] = []
+    arc: bool = False  # 장편: 아크 칸
+    parts: bool = False  # 장편: 부 구성
+    draft: list[str] = []  # 다음 아크 변경안: 화면이 초안에 넣은 부분 ('arc'). 작품은 바꾸지 않고 기록만 한다
     candidate: int | None = None  # 본문 부분 수정: 넣을 후보 번호 (0부터)
     text: str | None = None  # 본문 부분 수정: 작가가 손본 후보
 
@@ -916,9 +928,11 @@ def chat_apply(name: str, topic: str, i: int, body: ChatApply) -> Project:
     m = msgs[i]
     if m.outcome:
         raise ValueError("이미 처리한 변경안이에요")
-    if not body.acts and not body.episodes:
+    drafted = [x for x in body.draft if x == "arc"] if m.target == "next" and m.revision.arc.title else []
+    if not (body.acts or body.episodes or body.arc or body.parts or drafted):
         raise ValueError("반영할 부분을 고르세요")
-    m.applied = pipeline.apply_revision(p, m.revision, body.acts, body.episodes)
+    done = pipeline.apply_revision(p, m.revision, body.acts, body.episodes, arc=body.arc, parts=body.parts, target=m.target)
+    m.applied = drafted + done
     m.outcome = "applied"
     return _save(name, p)
 
@@ -1000,7 +1014,7 @@ class JobIn(BaseModel):
     kind: str  # suggest | arc | plots | write | state | impact | series | nextarc | recap_arc | recap_part | storyline | convert | rebuild | rework | hook | openings | opening_drafts
     ep: int | None = None  # 화 번호. plots 는 장편에서 아크 번호(없으면 초안이 있는 모든 아크), recap_* 는 아크·부 번호
     element: str = ""  # impact 일 때 요소 id
-    note: str = ""  # nextarc, storyline, convert, rebuild: 작가가 바라는 것
+    note: str = ""  # arc, series, plots, nextarc, storyline, convert, rebuild: 작가가 바라는 것
     line_kind: str = ""  # storyline: 원하는 줄기 종류 (비우면 AI 가 고름)
     length: int = 0  # nextarc: 아크 화수 (0 이면 AI 가 정함). convert, rebuild: 장편 총 화수
     ending: str = ""  # convert: keep | reopen, rebuild: arc | part | series (단편 결말이 갈 곳). 비우면 AI 가 고름
@@ -1060,14 +1074,16 @@ def start_job(name: str, body: JobIn) -> dict:
             return pipeline.suggest_setup(llm, store.load(name)).model_dump()
     elif kind == "arc":
         label, total, owned = "기승전결 구조 제안", 1, set()
+        note = body.note
 
         def fn(job: jobs.Job):
-            return pipeline.plan_arc(llm, store.load(name)).model_dump()
+            return pipeline.plan_arc(llm, store.load(name), note).model_dump()
     elif kind == "series":
         label, total, owned = "부 구성 제안", 1, set()
+        note = body.note
 
         def fn(job: jobs.Job):
-            return pipeline.plan_series(llm, store.load(name)).model_dump()
+            return pipeline.plan_series(llm, store.load(name), note).model_dump()
     elif kind == "nextarc":
         label, total, owned = f"{pipeline.next_arc_start(p)}화부터 다음 아크 제안", 1, set()
         note, length = body.note, body.length
@@ -1135,13 +1151,14 @@ def start_job(name: str, body: JobIn) -> dict:
         have = {e.plot.number for e in p.episodes}
         owned = {k for _, a, b in ranges for k in range(a, b + 1) if k in draft or k not in have}
         label, total = "화별 플롯 초안", len(ranges)
+        note = body.note
 
         def fn(job: jobs.Job):
             # 구간마다 따로 부른다: 한 번에 20화를 받는 것보다 빠르게 첫 결과가 오고, 실패해도 앞 구간은 남는다
             for act, a, b in ranges:
                 arc = store.load(name).arc_for(a)
                 job.note = f"{f'아크 {arc.number} ' if arc else ''}{act} 구간 ({a}~{b}화) 만드는 중"
-                batch = pipeline.draft_plots(llm, store.load(name), a, b)
+                batch = pipeline.draft_plots(llm, store.load(name), a, b, note)
                 _edit(name, lambda q: pipeline.apply_plots(q, batch))
                 job.done += 1
                 job.release({k for k in owned if a <= k <= b})  # 끝난 구간은 작업이 도는 중에도 확정하고 고칠 수 있다
