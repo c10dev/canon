@@ -161,6 +161,10 @@ class SettingsIn(BaseModel):
     claude_bin: str | None = None
     anthropic_api_key: str | None = None  # Claude Console API 키. 구독 로그인은 Claude Code 가 따로 관리
     clear_anthropic_key: bool = False
+    gemini_auth: str | None = None  # key | vertex
+    vertex_credentials: str | None = None  # 서비스 계정 JSON 키 파일 경로 (내용이 아니라 경로)
+    vertex_project: str | None = None
+    vertex_location: str | None = None
 
 
 @app.put("/api/config")
@@ -174,11 +178,17 @@ def put_config(body: SettingsIn) -> dict:
     for stage in body.stage_models or {}:
         if stage not in settings.STAGES:
             raise HTTPException(400, f"알 수 없는 단계예요: {stage}")
+    if body.gemini_auth not in (None, "", "key", "vertex"):
+        raise HTTPException(400, "Gemini 연결 방식은 key / vertex 중 하나예요")
+    if body.vertex_credentials and body.vertex_credentials.lstrip().startswith("{"):
+        raise HTTPException(400, "키 파일 내용 말고 파일 경로를 적어 주세요 (예: ~/.canon/vertex-key.json)")
     settings.update(provider=body.provider, model=body.model, api_key=body.api_key, clear_key=body.clear_key,
                     local_url=body.local_url, local_model=body.local_model, local_key=body.local_key,
                     stages=body.stages, stage_models=body.stage_models, claude_model=body.claude_model,
                     claude_bin=body.claude_bin, anthropic_api_key=body.anthropic_api_key,
-                    clear_anthropic_key=body.clear_anthropic_key)
+                    clear_anthropic_key=body.clear_anthropic_key, gemini_auth=body.gemini_auth,
+                    vertex_credentials=body.vertex_credentials, vertex_project=body.vertex_project,
+                    vertex_location=body.vertex_location)
     return settings.public()
 
 

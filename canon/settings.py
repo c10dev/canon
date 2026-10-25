@@ -4,7 +4,8 @@
 환경 변수가 있으면 파일보다 우선한다: CANON_LLM, CANON_MODEL, GEMINI_API_KEY(또는 GOOGLE_API_KEY),
 CANON_LOCAL_URL, CANON_LOCAL_MODEL, CANON_LOCAL_KEY, CANON_LLM_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE,
 CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE (단계별 모델), CANON_CLAUDE_MODEL, CANON_CLAUDE_BIN,
-ANTHROPIC_API_KEY (Claude 백엔드, claude.py). prices 는 AI 요금 가격표에서 고친 줄 (usage.py).
+ANTHROPIC_API_KEY (Claude 백엔드, claude.py), CANON_GEMINI_AUTH(key | vertex, 또는 GOOGLE_GENAI_USE_VERTEXAI=true),
+CANON_VERTEX_CREDENTIALS(또는 GOOGLE_APPLICATION_CREDENTIALS), GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION (Vertex AI). prices 는 AI 요금 가격표에서 고친 줄 (usage.py).
 Claude 구독 로그인은 Claude Code 가 직접 관리하므로 여기에 계정 정보나 토큰을 두지 않는다.
 파일은 작품 폴더와 따로 두어 저장소나 project.json 에 키가 섞이지 않게 한다.
 """
@@ -15,6 +16,7 @@ import os
 from pathlib import Path
 
 DEFAULT_MODEL = "gemini-4-argon"
+DEFAULT_VERTEX_LOCATION = "global"  # 새 Gemini 모델은 global 엔드포인트에 먼저 나온다
 DEFAULT_LOCAL_URL = "http://localhost:11434/v1"  # Ollama. llama.cpp 는 :8080/v1, vLLM 은 :8000/v1
 # claude: 설치된 Claude Code 의 구독 로그인, claude-api: Anthropic API 키 (claude.py)
 PROVIDERS = ("gemini", "local", "claude", "claude-api", "mock")
@@ -69,6 +71,43 @@ def model() -> tuple[str, str]:
 
 def api_key() -> tuple[str, str]:
     return _pick(("GEMINI_API_KEY", "GOOGLE_API_KEY"), _read().get("gemini_api_key"))
+
+
+def gemini_auth() -> tuple[str, str]:
+    """Gemini 를 부르는 방식. key: AI Studio API 키 / vertex: Google Cloud 서비스 계정(Vertex AI)."""
+    value, src = _pick(("CANON_GEMINI_AUTH",), _read().get("gemini_auth"), "key")
+    if src != "env" and os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").lower() in ("1", "true", "yes"):
+        value, src = "vertex", "env"  # google-genai 가 쓰는 환경 변수도 따른다
+    value = value.lower()
+    return (value if value in ("key", "vertex") else "key"), src
+
+
+def vertex_credentials() -> tuple[str, str]:
+    """서비스 계정 JSON 키 파일 경로. 파일 내용은 설정에 옮기지 않고 경로만 둔다.
+    비우면 gcloud auth application-default login 으로 만든 기본 자격 증명을 쓴다."""
+    value, src = _pick(("CANON_VERTEX_CREDENTIALS", "GOOGLE_APPLICATION_CREDENTIALS"), _read().get("vertex_credentials"))
+    return (str(Path(value).expanduser()) if value else ""), src
+
+
+def _key_file_project(path: str) -> str:
+    """서비스 계정 키 파일의 project_id. 다른 칸(비밀 키)은 읽어 두지 않는다."""
+    try:
+        return str(json.loads(Path(path).read_text(encoding="utf-8")).get("project_id") or "")
+    except (OSError, ValueError, AttributeError):
+        return ""
+
+
+def vertex_project() -> tuple[str, str]:
+    """Google Cloud 프로젝트 ID. 비우면 키 파일의 project_id 를 쓴다 (출처 key_file)."""
+    value, src = _pick(("GOOGLE_CLOUD_PROJECT",), _read().get("vertex_project"))
+    if value:
+        return value, src
+    from_file = _key_file_project(vertex_credentials()[0]) if vertex_credentials()[0] else ""
+    return (from_file, "key_file") if from_file else ("", "default")
+
+
+def vertex_location() -> tuple[str, str]:
+    return _pick(("GOOGLE_CLOUD_LOCATION",), _read().get("vertex_location"), DEFAULT_VERTEX_LOCATION)
 
 
 def local_url() -> tuple[str, str]:
@@ -171,13 +210,17 @@ def update(*, provider: str | None = None, model: str | None = None,
            local_key: str | None = None, stages: dict[str, str] | None = None,
            stage_models: dict[str, str] | None = None, claude_model: str | None = None,
            claude_bin: str | None = None, anthropic_api_key: str | None = None,
-           clear_anthropic_key: bool = False) -> None:
+           clear_anthropic_key: bool = False, gemini_auth: str | None = None,
+           vertex_credentials: str | None = None, vertex_project: str | None = None,
+           vertex_location: str | None = None) -> None:
     """None 인 값은 그대로 둔다. 빈 문자열이면 파일에서 지운다."""
     data = _read()
     for key, value in (("provider", provider), ("model", model), ("gemini_api_key", api_key),
                        ("local_url", local_url), ("local_model", local_model), ("local_key", local_key),
                        ("claude_model", claude_model), ("claude_bin", claude_bin),
-                       ("anthropic_api_key", anthropic_api_key)):
+                       ("anthropic_api_key", anthropic_api_key), ("gemini_auth", gemini_auth),
+                       ("vertex_credentials", vertex_credentials), ("vertex_project", vertex_project),
+                       ("vertex_location", vertex_location)):
         if value is None:
             continue
         if value.strip():
@@ -219,6 +262,12 @@ def public() -> dict:
     lmodel, lmodel_src = local_model()
     cmodel, cmodel_src = claude_model()
     akey, akey_src = anthropic_key()
+    auth, auth_src = gemini_auth()
+    vcred, vcred_src = vertex_credentials()
+    vproj, vproj_src = vertex_project()
+    vloc, vloc_src = vertex_location()
+    # Vertex 는 키 문자열 대신 프로젝트(와 키 파일 또는 기본 자격 증명)가 있으면 부를 수 있다
+    gemini_ready = bool(vproj) and (not vcred or Path(vcred).is_file()) if auth == "vertex" else bool(key)
     stages = {}
     for s in STAGES:
         sp, ssrc = stage_provider(s)
@@ -236,9 +285,18 @@ def public() -> dict:
         "model_setting": mdl,
         "model_source": mdl_src,
         # 모든 단계를 로컬로 돌리면 Gemini 키가 없어도 된다
-        "has_key": prov == "mock" or bool(key) or all(v["provider"] != "gemini" for v in stages.values()),
+        "has_key": prov == "mock" or gemini_ready or all(v["provider"] != "gemini" for v in stages.values()),
         "key_hint": f"…{key[-4:]}" if len(key) >= 8 else ("설정됨" if key else ""),
         "key_source": key_src if key else "none",
+        "gemini_auth": auth,
+        "gemini_auth_source": auth_src,
+        "vertex_credentials": vcred,
+        "vertex_credentials_source": vcred_src if vcred else "none",
+        "vertex_credentials_found": bool(vcred) and Path(vcred).is_file(),
+        "vertex_project": vproj,
+        "vertex_project_source": vproj_src,
+        "vertex_location": vloc,
+        "vertex_location_source": vloc_src,
         "local_url": lurl,
         "local_url_source": lurl_src,
         "local_model": lmodel,

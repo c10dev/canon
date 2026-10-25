@@ -470,6 +470,16 @@ python -m canon compare 등대 3 --pick 2         # 고른 쪽을 본문으로 �
 
 본문 생성 샘플링은 `~/.canon/config.json` 의 `local_sampling` 으로 바꾼다 (기본 `{"temperature": 1.0, "top_p": 0.95, "min_p": 0.05}`). 서버가 키를 요구하면 `CANON_LOCAL_KEY`.
 
+## Gemini 를 Google Cloud 서비스 계정(Vertex AI)으로
+
+AI Studio 의 `AIza…` 키 대신 Google Cloud 에서 받은 서비스 계정 JSON 키 파일로도 Gemini 를 부를 수 있다. 같은 모델을 Vertex AI 로 부르고, 요금은 그 Cloud 프로젝트의 결제 계정으로 나간다.
+
+1. Google Cloud 콘솔에서 프로젝트의 **Vertex AI API** 를 켜고, 서비스 계정에 **Vertex AI 사용자**(`roles/aiplatform.user`) 역할을 준다.
+2. 키 파일을 canon 폴더(저장소) 밖에 둔다. 예: `mkdir -p ~/.canon && mv ~/Downloads/<키 파일>.json ~/.canon/vertex-key.json && chmod 600 ~/.canon/vertex-key.json`
+3. 설정 화면에서 **Gemini 연결 방식**을 '서비스 계정 (Google Cloud Vertex AI)' 으로 고르고, **키 파일 경로**에 `~/.canon/vertex-key.json` 을 적고 저장한 뒤 **연결 확인**을 누른다. 프로젝트 ID 는 비우면 키 파일의 `project_id` 를 쓰고, 리전은 기본 `global` 이다.
+
+설정 파일에는 경로만 들어가고 키 내용은 옮기지 않는다. 키 파일 경로를 비우면 `gcloud auth application-default login` 으로 만든 기본 자격 증명을 쓴다. 환경 변수로는 `CANON_GEMINI_AUTH=vertex`(또는 `GOOGLE_GENAI_USE_VERTEXAI=true`), `CANON_VERTEX_CREDENTIALS`(또는 `GOOGLE_APPLICATION_CREDENTIALS`), `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`. Vertex AI 배치는 요청을 Cloud Storage · BigQuery 로만 받아서, 자동 집필에서 배치를 켜도 Vertex 로 부르는 단계는 일반 호출로 진행한다(시작할 때 알린다).
+
 ## Claude (구독 로그인 또는 API 키)
 
 Claude 는 두 가지 방식으로 쓴다. 설정 화면의 **생성 방식**이나 **단계별 백엔드**에서 고른다.
