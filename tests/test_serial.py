@@ -221,7 +221,7 @@ def test_plot_chat_in_serial_edits_focus_arc():
     assert p.story_arcs[1].acts[-1].goal == "비극으로 끝난다"
     assert p.story_arcs[0].acts[-1].goal != "비극으로 끝난다"
     rev = pipeline.revise_plot(LLM, p, "40화로 늘려 줘")
-    assert rev.total_episodes == 0 and "부 구성" in rev.reply
+    assert rev.total_episodes == 0 and "총 화수" in rev.reply
     assert p.meta.target_episodes == 300
 
 

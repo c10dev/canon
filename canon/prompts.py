@@ -961,7 +961,8 @@ def rework_prompt(p: Project, n: int) -> str:
 
 SYSTEM_PLOT_CHAT = (
     "당신은 작가와 함께 연재 소설의 구조를 다듬는 기획 편집자입니다. "
-    "작가의 말을 듣고 기승전결 구간과 화별 플롯을 고친 변경안을 내고, 왜 그렇게 고쳤는지 짧게 설명합니다. "
+    "작가의 말을 듣고 부 구성, 아크, 기승전결 구간, 화별 플롯을 고친 변경안을 내고, 왜 그렇게 고쳤는지 짧게 설명합니다. "
+    "작가가 방향을 청하면 변경안 대신 서로 분명히 다른 방향 여러 안을 내서 고르거나 섞게 합니다. "
     "변경안은 제안일 뿐이며 작가가 골라서 반영합니다. 설정과 인물, 이미 쓴 본문은 존중합니다. "
     "모든 출력은 한국어로 작성합니다."
 )
@@ -969,31 +970,82 @@ SYSTEM_PLOT_CHAT = (
 # 대화 기록은 최근 것만 넣는다. 오래된 대화의 결과는 이미 구조와 플롯에 들어가 있다.
 CHAT_HISTORY_LIMIT = 12
 
+APPLIED_LABEL = {"acts": "구조", "arc": "아크 칸", "parts": "부 구성"}
+
 
 def _chat_line(m: ChatMessage) -> str:
     if m.role == "user":
-        return f"작가: {m.text}"
+        seen = f" (보던 곳: {m.where})" if m.where else ""
+        return f"작가{seen}{' [방향 여러 안 요청]' if m.mode == 'options' else ''}: {m.text}"
     line = f"편집자: {m.text}"
     r = m.revision
-    if r and (r.acts or r.episodes or r.total_episodes):
-        parts = (["구조"] if r.acts else []) + [f"{e.number}화" for e in r.episodes]
-        applied = ", ".join("구조" if x == "acts" else f"{x}화" for x in m.applied)
+    if r and r.options:
+        line += "\n  (방향 안: " + " / ".join(f"{i}. {x.title}" for i, x in enumerate(r.options, 1)) + ")"
+    elif r and (r.has_changes() or r.total_episodes):
+        parts = (["부 구성"] if r.parts else []) + (["아크 칸"] if r.arc.title else []) + (["구조"] if r.acts else []) \
+            + [f"{e.number}화" for e in r.episodes]
+        applied = ", ".join(APPLIED_LABEL.get(x, f"{x}화") for x in m.applied)
         result = {"applied": f"작가가 반영함: {applied}", "dismissed": "작가가 반영하지 않음"}.get(m.outcome, "아직 결정 전")
-        line += f"\n  (변경안: {', '.join(parts)} / {result})"
+        target = {"next": "다음 아크 초안"}.get(m.target, m.target.replace("arc:", "아크 ") if m.target else "")
+        line += f"\n  (변경안{f' [{target}]' if target else ''}: {', '.join(parts)} / {result})"
     return line
 
 
-def plot_chat_prompt(p: Project, message: str) -> str:
-    """앞쪽은 작품 설정(잘 바뀌지 않음), 뒤쪽은 지금 구조와 플롯, 대화. 캐시가 맞도록 이 순서를 지킨다."""
+def request_block(note: str) -> str:
+    """구조 · 부 구성 · 플롯 초안을 만들 때 작가가 함께 보낸 요청. 프롬프트 맨 끝에 붙여 앞쪽 캐시를 지킨다."""
+    note = (note or "").strip()
+    return f"\n\n[작가의 요청]\n{note}\n- 위 요구사항과 부딪히지 않는 한 작가의 요청을 먼저 따릅니다." if note else ""
+
+
+def _chat_tail(p: Project, message: str, scope, rules: str, options_scope: str) -> str:
+    """대화 기록 · 보던 곳 · 새 말 · 요구사항. 화마다 바뀌는 부분이라 맨 뒤에 둔다."""
+    from .pipeline import chat_where
+
+    history = next((c.messages for c in p.chats if c.topic == "plot"), [])[-CHAT_HISTORY_LIMIT:]
+    where = chat_where(p, scope)
+    locked = [e.plot.number for e in p.episodes if e.status in ("written", "finalized")]
+    head = f"""[지금까지의 대화]
+{chr(10).join(_chat_line(m) for m in history) or "없음 (첫 대화)"}
+{f"[작가가 보고 있는 곳] {where} (작가가 '이 화', '여기', '이 구간'이라고 하면 이곳입니다){chr(10)}" if where else ""}
+[작가의 새 말]
+{message}
+
+요구사항:
+"""
+    if scope.mode == "options":
+        return head + f"""- 작가가 방향 여러 안을 청했습니다. options 에 서로 분명히 다른 방향 2~3개를 넣습니다. 같은 방향의 강약 조절이 아니라 갈등, 인물의 선택, 사건 순서, 결말처럼 줄기가 다르게 갈라지게 합니다.
+- 각 안의 idea 에는 그 방향이면 이야기가 어떻게 되는지, changes 에는 바뀌는 {options_scope}을(를) 한 줄씩, tradeoff 에는 얻는 것과 잃는 것을 씁니다.
+- 본문이 있는 화({", ".join(map(str, locked)) or "없음"})와 어긋나는 방향은 내지 않습니다.
+- acts, episodes, arc, parts, new_characters, new_places 는 모두 비우고 total_episodes 는 0 입니다. 작가가 안을 고르면 그때 변경안을 만듭니다.
+- reply 에는 안들을 어떤 기준으로 나눴는지 1~2문장으로 씁니다."""
+    return head + f"""- reply 에는 작가에게 하는 대답을 2~5문장으로 씁니다. 무엇을 왜 바꿨는지, 다른 화에 어떤 영향이 있는지 말합니다.
+- 요청이 모호하면 가장 그럴듯한 해석으로 고치고, reply 에서 어떻게 해석했는지 밝힙니다. 고칠 것이 없거나 질문만 받았으면 변경 없이 대답만 합니다.
+- 작가가 앞서 낸 방향 안 중 하나를 고르거나 섞어 달라고 하면 그 방향으로 변경안을 만듭니다. options 는 비웁니다.
+{rules}"""
+
+
+def plot_chat_prompt(p: Project, message: str, scope=None) -> str:
+    """앞쪽은 작품 설정(잘 바뀌지 않음), 뒤쪽은 지금 구조와 플롯, 대화. 캐시가 맞도록 이 순서를 지킨다.
+    scope 는 schema.ChatScope (대상 아크, 보던 구간 · 화, 방향 여러 안 모드, 다음 아크 초안)."""
+    from .schema import ChatScope
+
+    scope = scope or ChatScope()
     if p.serial:
-        return serial_plot_chat_prompt(p, message)
+        return serial_plot_chat_prompt(p, message, scope)
     eps = [{"status": e.status, **e.plot.model_dump()} for e in p.episodes]
     done = [e for e in p.episodes if e.summary]
     locked = [e.plot.number for e in p.episodes if e.status in ("written", "finalized")]
     confirmed = [e.plot.number for e in p.episodes if e.status == "confirmed"]
-    history = next((c.messages for c in p.chats if c.topic == "plot"), [])[-CHAT_HISTORY_LIMIT:]
     style = p.style.model_dump(include={"narration_pov", "pacing", "scene_transition", "dialogue_ratio"})
     open_fs = [f for f in p.foreshadows if f.status == "open"]
+    rules = f"""- 바꾸는 것만 넣습니다. 구조를 바꾸면 acts 에 네 구간을 모두 넣고, 그대로면 빈 목록입니다. episodes 에는 바뀌는 화만, 모든 칸을 채운 전체 플롯으로 넣습니다.
+{"- 아직 구조가 없습니다. 작가의 말에 맞춰 acts 에 기승전결 네 구간을 새로 짭니다. 화별 플롯은 작가가 청할 때만 넣습니다." + chr(10) if not p.arc else ""}- 본문이 있는 화({", ".join(map(str, locked)) or "없음"})는 바꾸지 않습니다. 그 화의 내용과 이어지도록 뒤의 화를 고칩니다.
+- 작가가 확정한 화({", ".join(map(str, confirmed)) or "없음"})는 작가가 그 화를 바꿔 달라고 했을 때만 바꿉니다.
+- 한 화를 바꾸면 앞뒤 화의 엔딩 훅, 복선 심기와 회수가 어긋나지 않게 이어지는 화도 함께 고칩니다.
+- 총 화수를 바꿔야 하면 total_episodes 에 새 화수를 넣고, acts 를 새 화수에 맞추고, 새로 생기거나 내용이 밀리는 화를 episodes 에 모두 넣습니다. 화수를 바꾸지 않으면 0 입니다.
+- 구간은 기, 승, 전, 결 순서로 1화부터 마지막 화까지 빈틈없이 이어집니다.
+- arc 와 parts 는 장편에서만 씁니다. arc.title 은 비우고 parts 는 빈 목록입니다.
+{plot_rules(p, opening_pending(p))}{new_cast_rule(p)}"""
     return f"""[작품]
 {meta_text(p)}
 [세계관]
@@ -1016,37 +1068,58 @@ def plot_chat_prompt(p: Project, message: str) -> str:
 [열린 복선]
 {dump(open_fs) if open_fs else "없음"}
 
-[지금까지의 대화]
-{chr(10).join(_chat_line(m) for m in history) or "없음 (첫 대화)"}
+""" + _chat_tail(p, message, scope, rules, "구간 · 화")
 
-[작가의 새 말]
-{message}
 
-요구사항:
-- reply 에는 작가에게 하는 대답을 2~5문장으로 씁니다. 무엇을 왜 바꿨는지, 다른 화에 어떤 영향이 있는지 말합니다.
-- 요청이 모호하면 가장 그럴듯한 해석으로 고치고, reply 에서 어떻게 해석했는지 밝힙니다. 고칠 것이 없거나 질문만 받았으면 변경 없이 대답만 합니다.
-- 바꾸는 것만 넣습니다. 구조를 바꾸면 acts 에 네 구간을 모두 넣고, 그대로면 빈 목록입니다. episodes 에는 바뀌는 화만, 모든 칸을 채운 전체 플롯으로 넣습니다.
-- 본문이 있는 화({", ".join(map(str, locked)) or "없음"})는 바꾸지 않습니다. 그 화의 내용과 이어지도록 뒤의 화를 고칩니다.
+def serial_plot_chat_prompt(p: Project, message: str, scope=None) -> str:
+    """장편: 고칠 대상은 화면에서 고른 아크(없으면 pipeline.focus_arc)나 다음 아크 초안, 그리고 부 구성이다.
+    앞선 내용은 접은 줄거리로 보고, 화별 플롯은 대상 아크부터 기획한 끝까지만 넣는다 (옛 아크를 고르면 그 아크 범위만)."""
+    from .pipeline import ARC_MAX, ARC_MIN, chat_next_limit, chat_target, focus_arc, next_arc_start
+    from .schema import ChatScope
+
+    scope = scope or ChatScope()
+    target, focus = chat_target(p, scope.target)
+    planned = p.planned_until()
+    start = next_arc_start(p)
+    lo = focus.start_ep if focus else start
+    default = focus_arc(p)
+    hi = focus.end_ep + 2 if focus and default and focus.start_ep < default.start_ep else planned
+    eps = [{"status": e.status, **e.plot.model_dump()} for e in p.episodes if lo - 2 <= e.plot.number <= hi]
+    locked = [e.plot.number for e in p.episodes if e.status in ("written", "finalized") and lo <= e.plot.number <= hi]
+    confirmed = [e.plot.number for e in p.episodes if e.status == "confirmed"]
+    fs, more = relevant_foreshadows(p, lo)
+    arcs = [a.model_dump(exclude={"summary"}) for a in p.story_arcs if a.end_ep >= lo - 1 and a.start_ep <= hi]
+    ids = context.planning_cast(p, lo) | {c for e in p.episodes if lo - 2 <= e.plot.number <= hi for c in e.plot.characters}
+    limit = chat_next_limit(p) if start <= p.meta.target_episodes else 0
+    if focus:
+        last = focus.start_ep == max(a.start_ep for a in p.story_arcs)
+        part = p.part_for(focus.start_ep)
+        end_limit = part.end_ep if part else p.meta.target_episodes
+        target_block = f"""[고칠 아크] 아크 {focus.number} ({focus.start_ep}~{focus.end_ep}화). 구조(acts)와 아크 칸(arc)을 바꾸면 이 아크에 들어갑니다
+{dump(focus.model_dump(exclude={"summary"}))}"""
+        target_rules = f"""- acts 는 아크 {focus.number}의 기승전결을 바꿀 때만 네 구간 모두, 그대로면 빈 목록입니다. 구간은 {focus.start_ep}화부터 아크 끝 화까지 기, 승, 전, 결 순서로 빈틈없이 이어집니다.
+- 아크 칸(제목, 목표, 갈등, 보상, 주요 인물, 회수할 복선, 서술 시점)을 바꿀 때만 arc 에 모든 칸을 채웁니다. 바꾸지 않는 칸은 지금 값을 그대로 씁니다. 그대로면 arc.title 을 비웁니다. cast 에는 이미 있는 인물 id 만 넣습니다.
+""" + (f"- 아크 끝 화를 바꾸려면 arc.end_ep 에 새 끝 화({focus.start_ep + ARC_MIN - 1}~{min(end_limit, focus.start_ep + ARC_MAX - 1)}화)를 넣고 acts 도 새 범위에 맞춥니다. 그대로면 0 입니다. 줄일 때 확정했거나 본문이 있는 화는 빼지 않습니다.\n"
+       if last else f"- 아크 {focus.number} 뒤에 다음 아크가 이어져 끝 화는 바꿀 수 없습니다. arc.end_ep 는 0 입니다.\n") \
+            + f"- 기획한 아크 밖의 화({planned + 1}화부터)는 만들지 않습니다. 그 뒤 아크는 '다음 아크'를 골라 기획합니다."
+    else:
+        d = scope.draft
+        where = f"{limit}화({'부' if p.part_for(start) else '작품'} 끝)"
+        target_block = f"""[다음 아크 기획] 아크 {len(p.story_arcs) + 1}, {start}화부터 시작해 {where}까지 끝낼 수 있습니다. 보통 {p.meta.arc_length}화 안팎
+[지금 다음 아크 초안 (적용 전, 작가가 손봤을 수 있음)]
+{dump({"arc": d.arc.model_dump(exclude={"summary", "number", "start_ep"}), "new_characters": [c.model_dump(include={"id", "name", "role"}) for c in d.new_characters]}) if d else "아직 없음. 작가와 이야기하며 새로 짭니다"}"""
+        target_rules = f"""- 다음 아크를 짜거나 고칠 때 arc 에 모든 칸을 채우고 arc.end_ep 에 끝 화({start + ARC_MIN - 1}~{min(limit, start + ARC_MAX - 1)}화)를, acts 에 {start}화부터 끝 화까지 기, 승, 전, 결 네 구간을 넣습니다.{" 초안이 있으면 작가가 말하지 않은 칸은 초안 값을 그대로 둡니다." if d else ""}
+- 아크는 하나의 문제를 열고 해결합니다. goal 은 아크가 끝날 때 바뀌어 있어야 하는 것, conflict 는 주인공을 막는 문제나 상대, payoff 는 클라이맥스에서 독자가 받는 보상입니다. 직전 아크와 같은 모양의 갈등을 되풀이하지 않습니다.
+- payoffs 에는 열린 복선 id 만 넣습니다. 새 인물이 필요하면 new_characters 에 전체 설정(speech_style 포함)을 넣고 cast 에 그 id 를 넣습니다. tier 는 support 나 minor 입니다.
+- 다음 아크의 화별 플롯은 만들지 않습니다 (아크를 적용한 뒤 초안을 만듭니다). episodes 는 이미 기획한 화({planned}화까지) 중 다음 아크와 이어지게 고칠 화가 있을 때만 넣습니다."""
+    rules = f"""- 바꾸는 것만 넣습니다. episodes 에는 바뀌는 화만, 모든 칸을 채운 전체 플롯으로 넣습니다.
+- 장편이라 total_episodes 는 늘 0 입니다. 총 화수는 설정에서 바꿉니다.
+{target_rules}
+- 부 구성(부 제목, 범위, 목표, 전환점, 아크 후보)을 바꿔야 할 때만 parts 에 모든 부를 넣습니다. 1화부터 {p.meta.target_episodes}화까지 빈틈없이 이어지고, 이미 기획한 아크(1~{planned}화)의 경계를 넘지 않습니다. summary 는 비웁니다. 그대로면 빈 목록입니다.
+- 본문이 있는 화({", ".join(map(str, locked)) or "없음"})는 바꾸지 않습니다.
 - 작가가 확정한 화({", ".join(map(str, confirmed)) or "없음"})는 작가가 그 화를 바꿔 달라고 했을 때만 바꿉니다.
 - 한 화를 바꾸면 앞뒤 화의 엔딩 훅, 복선 심기와 회수가 어긋나지 않게 이어지는 화도 함께 고칩니다.
-- 총 화수를 바꿔야 하면 total_episodes 에 새 화수를 넣고, acts 를 새 화수에 맞추고, 새로 생기거나 내용이 밀리는 화를 episodes 에 모두 넣습니다. 화수를 바꾸지 않으면 0 입니다.
-- 구간은 기, 승, 전, 결 순서로 1화부터 마지막 화까지 빈틈없이 이어집니다.
 {plot_rules(p, opening_pending(p))}{new_cast_rule(p)}"""
-
-
-def serial_plot_chat_prompt(p: Project, message: str) -> str:
-    """장편: 고칠 대상은 아직 본문이 없는 첫 아크(pipeline.focus_arc)와 그 뒤에 기획한 아크다. 앞선 내용은 접은 줄거리로 본다."""
-    from .pipeline import focus_arc
-
-    focus = focus_arc(p)
-    lo = focus.start_ep if focus else 1
-    eps = [{"status": e.status, **e.plot.model_dump()} for e in p.episodes if e.plot.number >= lo - 2]
-    locked = [e.plot.number for e in p.episodes if e.status in ("written", "finalized") and e.plot.number >= lo]
-    confirmed = [e.plot.number for e in p.episodes if e.status == "confirmed"]
-    history = next((c.messages for c in p.chats if c.topic == "plot"), [])[-CHAT_HISTORY_LIMIT:]
-    fs, more = relevant_foreshadows(p, lo)
-    arcs = [a.model_dump(exclude={"summary"}) for a in p.story_arcs if a.end_ep >= lo]
-    ids = context.planning_cast(p, lo) | {c for e in p.episodes if e.plot.number >= lo - 2 for c in e.plot.characters}
     return f"""[작품]
 {meta_text(p)}
 [세계관]
@@ -1064,28 +1137,15 @@ def serial_plot_chat_prompt(p: Project, message: str) -> str:
 
 [지금까지의 줄거리]
 {story_so_far(p, lo) or "없음"}
-[고칠 수 있는 아크] 구조(acts)를 바꾸면 아크 {focus.number if focus else "?"}({focus.start_ep if focus else "?"}~{focus.end_ep if focus else "?"}화)의 기승전결 네 구간입니다
+{target_block}
+[가까운 아크]
 {dump(arcs) if arcs else "아직 없음"}
 [화별 플롯] status: draft 초안, confirmed 작가가 확정, written 본문 있음, finalized 반영 완료
 {dump(eps) if eps else "아직 없음"}{candidates_block(p)}
 [열린 복선]{f" (그 밖에 {more}개)" if more else ""}
 {dump(fs) or "없음"}
 
-[지금까지의 대화]
-{chr(10).join(_chat_line(m) for m in history) or "없음 (첫 대화)"}
-
-[작가의 새 말]
-{message}
-
-요구사항:
-- reply 에는 작가에게 하는 대답을 2~5문장으로 씁니다. 무엇을 왜 바꿨는지, 다른 화에 어떤 영향이 있는지 말합니다.
-- 요청이 모호하면 가장 그럴듯한 해석으로 고치고, reply 에서 어떻게 해석했는지 밝힙니다. 고칠 것이 없거나 질문만 받았으면 변경 없이 대답만 합니다.
-- 바꾸는 것만 넣습니다. acts 는 위 아크의 기승전결을 바꿀 때만 네 구간 모두, 그대로면 빈 목록입니다. episodes 에는 바뀌는 화만, 모든 칸을 채운 전체 플롯으로 넣습니다.
-- 장편이라 total_episodes 는 늘 0 입니다. 아크를 새로 만들거나 길이를 바꾸는 것은 다음 아크 기획에서 합니다.
-- 본문이 있는 화({", ".join(map(str, locked)) or "없음"})는 바꾸지 않습니다. 기획한 아크 밖의 화({p.planned_until() + 1}화부터)는 만들지 않습니다.
-- 작가가 확정한 화({", ".join(map(str, confirmed)) or "없음"})는 작가가 그 화를 바꿔 달라고 했을 때만 바꿉니다.
-- 한 화를 바꾸면 앞뒤 화의 엔딩 훅, 복선 심기와 회수가 어긋나지 않게 이어지는 화도 함께 고칩니다.
-{plot_rules(p, opening_pending(p))}{new_cast_rule(p)}"""
+""" + _chat_tail(p, message, scope, rules, "부 · 아크 · 구간 · 화")
 
 
 # ---------- 본문 부분 수정 (집필 화면에서 고른 부분) ----------

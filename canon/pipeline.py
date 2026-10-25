@@ -6,6 +6,7 @@ from .llm import LLM, dump
 from . import foreshadows, statwin
 from .schema import (
     Act,
+    ArcEdit,
     ArcPlan,
     ArcProposal,
     ArcUndo,
@@ -13,6 +14,7 @@ from .schema import (
     CharacterState,
     CharacterVisual,
     ChatMessage,
+    ChatScope,
     ConsistencyReport,
     Conversion,
     ElementImpact,
@@ -304,8 +306,10 @@ def apply_learning(p: Project, picks: list[int]) -> tuple[list[StyleRuleSuggesti
 
 # ---------- 3. 기승전결 + 화별 플롯 ----------
 
-def plan_arc(llm: LLM, p: Project) -> ArcPlan:
-    plan = llm.json(prompts.SYSTEM_PLANNER, prompts.arc_prompt(p), ArcPlan, hint={"total": p.meta.target_episodes})
+def plan_arc(llm: LLM, p: Project, note: str = "") -> ArcPlan:
+    """note: 작가가 바라는 것 (비우면 AI 가 정한다)."""
+    plan = llm.json(prompts.SYSTEM_PLANNER, prompts.arc_prompt(p) + prompts.request_block(note), ArcPlan,
+                    hint={"total": p.meta.target_episodes, "note": note})
     fit_arc(plan, p.meta.target_episodes)
     return plan
 
@@ -381,15 +385,15 @@ def validate_arc(plan: ArcPlan, total: int, start: int = 1) -> None:
         raise ValueError(f"구간이 {expected - 1}화에서 끝나요 (목표 {total}화)")
 
 
-def draft_plots(llm: LLM, p: Project, start: int, end: int) -> PlotBatch:
+def draft_plots(llm: LLM, p: Project, start: int, end: int, note: str = "") -> PlotBatch:
     beats = p.beats()
     if not beats:
         raise ValueError("다음 아크를 먼저 기획하세요" if p.serial else "기승전결 구조(arc)를 먼저 만드세요")
     if p.serial and end > p.planned_until():
         raise ValueError(f"{p.planned_until()}화까지만 아크가 있어요. {end}화까지 쓰려면 다음 아크를 먼저 기획하세요")
     batch = llm.json(
-        prompts.SYSTEM_PLANNER, prompts.plot_prompt(p, start, end), PlotBatch,
-        hint={"start": start, "end": end, "arc": beats},
+        prompts.SYSTEM_PLANNER, prompts.plot_prompt(p, start, end) + prompts.request_block(note), PlotBatch,
+        hint={"start": start, "end": end, "arc": beats, "note": note},
     )
     numbers = [e.number for e in batch.episodes]
     if numbers != list(range(start, end + 1)):
@@ -518,9 +522,10 @@ def validate_story_arcs(p: Project) -> None:
         raise ValueError(f"아크가 총 화수({p.meta.target_episodes}화)를 넘어요")
 
 
-def plan_series(llm: LLM, p: Project) -> SeriesPlan:
+def plan_series(llm: LLM, p: Project, note: str = "") -> SeriesPlan:
     total = p.meta.target_episodes
-    plan = llm.json(prompts.SYSTEM_PLANNER, prompts.series_prompt(p), SeriesPlan, hint={"total": total})
+    plan = llm.json(prompts.SYSTEM_PLANNER, prompts.series_prompt(p) + prompts.request_block(note), SeriesPlan,
+                    hint={"total": total, "note": note})
     for x in plan.parts:
         x.summary = ""
     validate_parts(plan.parts, total)
@@ -1180,21 +1185,29 @@ LOCKED = ("written", "finalized")  # 본문이 있어 플롯을 바꿀 수 없�
 CHAT_KEEP = 200  # 화면별로 남겨 두는 대화 수
 
 
-def revise_plot(llm: LLM, p: Project, message: str) -> PlotRevision:
-    """작가의 말에 대한 답과 변경안을 만든다. 저장하지 않는다. 쓸 수 없는 부분은 빼고 답에 이유를 덧붙인다."""
+def revise_plot(llm: LLM, p: Project, message: str, scope: ChatScope | None = None) -> PlotRevision:
+    """작가의 말에 대한 답과 변경안을 만든다. 저장하지 않는다. 쓸 수 없는 부분은 빼고 답에 이유를 덧붙인다.
+    scope 는 화면이 알려 주는 대상(고른 아크, 다음 아크 초안)과 보고 있는 구간 · 화, 방향 여러 안 모드다."""
     message = message.strip()
     if not message:
         raise ValueError("메시지가 비었어요")
+    scope = scope or ChatScope()
+    target, focus = chat_target(p, scope.target)
+    scope = scope.model_copy(update={"target": target})
+    if target == "next" and scope.draft is not None and scope.draft.arc.start_ep != next_arc_start(p):
+        scope.draft = None  # 그 사이 아크가 붙어 초안 자리가 맞지 않는다
     rev = llm.json(
-        prompts.SYSTEM_PLOT_CHAT, prompts.plot_chat_prompt(p, message), PlotRevision,
-        hint={"message": message, "arc": (focus_arc(p).acts if p.serial and p.story_arcs else p.arc),
-              "episodes": [e.plot for e in p.episodes], "total": p.meta.target_episodes, "serial": p.serial},
+        prompts.SYSTEM_PLOT_CHAT, prompts.plot_chat_prompt(p, message, scope), PlotRevision,
+        hint={"message": message, "arc": (focus.acts if focus else scope.draft.arc.acts if scope.draft else [] if p.serial else p.arc),
+              "episodes": [e.plot for e in p.episodes], "total": p.meta.target_episodes, "serial": p.serial,
+              "target": target, "focus": focus, "draft": scope.draft, "mode": scope.mode, "parts": p.parts,
+              "start": next_arc_start(p) if p.serial else 0, "limit": chat_next_limit(p) if p.serial else 0},
     )
-    return clean_revision(p, rev)
+    return clean_revision(p, rev, scope)
 
 
 def focus_arc(p: Project) -> StoryArc | None:
-    """장편 플롯 대화가 구조를 고치는 아크: 아직 본문이 없는 화가 있는 첫 아크, 없으면 마지막 아크."""
+    """장편 플롯 대화가 따로 고르지 않았을 때 고치는 아크: 아직 본문이 없는 화가 있는 첫 아크, 없으면 마지막 아크."""
     status = {e.plot.number: e.status for e in p.episodes}
     arcs = sorted(p.story_arcs, key=lambda s: s.start_ep)
     for a in arcs:
@@ -1203,43 +1216,215 @@ def focus_arc(p: Project) -> StoryArc | None:
     return arcs[-1] if arcs else None
 
 
-def clean_revision(p: Project, rev: PlotRevision) -> PlotRevision:
+def chat_target(p: Project, target: str = "") -> tuple[str, StoryArc | None]:
+    """플롯 대화가 겨냥하는 곳과 그 아크. 돌려주는 이름은 기록에 남길 실제 대상이다:
+    단편은 늘 '' (작품 전체), 장편은 'arc:N' 이나 'next' (다음 아크 기획). 비우면 focus_arc, 아크가 없으면 다음 아크."""
+    if not p.serial:
+        return "", None
+    target = (target or "").strip()
+    if target.startswith("arc:"):
+        try:
+            number = int(target[4:])
+        except ValueError:
+            raise ValueError(f"모르는 대화 대상이에요: {target}") from None
+        a = next((x for x in p.story_arcs if x.number == number), None)
+        if a is None:
+            raise ValueError(f"아크 {number}이(가) 없어요. 아크를 다시 고르세요")
+        return f"arc:{a.number}", a
+    if target not in ("", "next"):
+        raise ValueError(f"모르는 대화 대상이에요: {target}")
+    a = focus_arc(p) if target == "" else None
+    if a:
+        return f"arc:{a.number}", a
+    if next_arc_start(p) > p.meta.target_episodes:
+        raise ValueError(f"총 {p.meta.target_episodes}화까지 아크가 모두 있어요. 고칠 아크를 고르세요")
+    return "next", None
+
+
+def chat_next_limit(p: Project) -> int:
+    """다음 아크가 끝날 수 있는 마지막 화: 그 화가 든 부의 끝, 부가 없으면 작품 끝."""
+    part = p.part_for(next_arc_start(p))
+    return part.end_ep if part else p.meta.target_episodes
+
+
+def chat_where(p: Project, scope: ChatScope) -> str:
+    """작가가 보낼 때 보고 있던 곳 한 줄 (예: 아크 3 (25~40화) · 승 구간 (28~33화) · 30화 「시험장」)."""
+    target, focus = chat_target(p, scope.target)
+    out = []
+    if focus:
+        out.append(f"아크 {focus.number} ({focus.start_ep}~{focus.end_ep}화)")
+    elif target == "next":
+        out.append(f"다음 아크 기획 ({next_arc_start(p)}화부터)")
+    acts = focus.acts if focus else [] if p.serial else p.arc
+    act = next((a for a in acts if a.name == scope.act), None)
+    if act:
+        out.append(f"{act.name} 구간 ({act.start_ep}~{act.end_ep}화)")
+    e = next((x for x in p.episodes if x.plot.number == scope.episode), None) if scope.episode else None
+    if e:
+        out.append(f"{e.plot.number}화" + (f" 「{e.plot.title}」" if e.plot.title else ""))
+    return " · ".join(out)
+
+
+ARC_EDIT_FIELDS = ("title", "goal", "conflict", "payoff", "cast", "payoffs", "pov")
+
+
+def arc_end_problem(p: Project, a: StoryArc, end: int) -> str:
+    """아크 a 의 끝 화를 end 로 바꿀 수 없는 까닭. 바꿀 수 있으면 빈 글."""
+    if a.start_ep != max(x.start_ep for x in p.story_arcs):
+        return f"아크 {a.number} 뒤에 다음 아크가 이어져 끝 화는 바꾸지 않았어요."
+    size = end - a.start_ep + 1
+    if not ARC_MIN <= size <= ARC_MAX:
+        return f"아크 길이 {size}화는 쓸 수 없어 끝 화는 그대로 뒀어요 ({ARC_MIN}~{ARC_MAX}화)."
+    part = p.part_for(a.start_ep)
+    limit = part.end_ep if part else p.meta.target_episodes
+    if end > limit:
+        return f"{end}화는 {'부' if part else '작품'} 끝({limit}화)을 넘어 끝 화는 그대로 뒀어요."
+    stuck = [e.plot.number for e in p.episodes if end < e.plot.number <= a.end_ep and e.status != "draft"]
+    if stuck:
+        return f"{end}화로 줄이면 확정했거나 본문이 있는 화({stuck})가 빠져 끝 화는 그대로 뒀어요."
+    return ""
+
+
+def _clean_arc_edit(p: Project, rev: PlotRevision, a: StoryArc, notes: list[str]) -> int:
+    """이미 있는 아크의 칸 변경안을 다듬고, 변경안을 적용했을 때의 끝 화를 돌려준다."""
+    e = rev.arc
+    if not e.title.strip():
+        rev.arc = ArcEdit()
+        return a.end_ep
+    end = e.end_ep or a.end_ep
+    if end != a.end_ep and (why := arc_end_problem(p, a, end)):
+        notes.append(why)
+        end = a.end_ep
+    e.end_ep = end if end != a.end_ep else 0
+    known = {c.id for c in p.characters} | {c.id for c in p.cast_candidates}
+    e.cast = [c for c in dict.fromkeys(e.cast) if c in known]
+    open_fs = {f.id for f in p.foreshadows if f.status == "open"} | set(a.payoffs)
+    e.payoffs = [f for f in dict.fromkeys(e.payoffs) if f in open_fs]
+    if not e.end_ep and all(getattr(e, k) == getattr(a, k) for k in ARC_EDIT_FIELDS):
+        rev.arc = ArcEdit()
+    return end
+
+
+def _clean_next_arc(p: Project, rev: PlotRevision, draft: ArcProposal | None, notes: list[str]) -> None:
+    """다음 아크 안: 아크 칸과 구조를 한 덩어리(제안 ArcProposal)로 맞춘다. 칸이 비면 지금 초안의 칸을 쓴다."""
+    if not rev.arc.title.strip() and not rev.acts:
+        rev.arc, rev.acts = ArcEdit(), []
+        return
+    base = draft.arc if draft else None
+    fields = rev.arc if rev.arc.title.strip() else (ArcEdit(**base.model_dump(include=set(ARC_EDIT_FIELDS))) if base else None)
+    if fields is None:
+        notes.append("다음 아크의 제목과 목표가 없어 구조 변경안을 뺐어요.")
+        rev.arc, rev.acts = ArcEdit(), []
+        return
+    start = next_arc_start(p)
+    end = rev.arc.end_ep or (base.end_ep if base else 0)
+    if not end:
+        size = max(rev.acts, key=lambda x: x.end_ep).end_ep - start + 1 if rev.acts else p.meta.arc_length
+        end = start + max(size, ARC_MIN) - 1
+    end = min(end, chat_next_limit(p))
+    acts = rev.acts or (base.acts if base else [])  # 끝 화만 바뀌면 clean_arc 가 구간 비율을 살려 맞춘다
+    if not acts:
+        acts = [Act(name=n, start_ep=s, end_ep=t, goal="") for n, (s, t) in zip(ACT_NAMES, act_ranges(end, start))]
+    arc = StoryArc(number=len(p.story_arcs) + 1, start_ep=start, end_ep=end, acts=[x.model_copy(deep=True) for x in acts],
+                   **fields.model_dump(include=set(ARC_EDIT_FIELDS)))
+    chars = {c.id: c for c in (draft.new_characters if draft else [])} | {c.id: c for c in rev.new_characters}
+    try:
+        prop = clean_arc(p, ArcProposal(arc=arc, new_characters=list(chars.values())))
+    except ValueError as e:
+        notes.append(f"다음 아크 안이 맞지 않아 뺐어요: {e}")
+        rev.arc, rev.acts = ArcEdit(), []
+        return
+    if prop.reply:
+        notes.append(prop.reply.replace("※", "").strip())
+    rev.arc = ArcEdit(**prop.arc.model_dump(include=set(ARC_EDIT_FIELDS)), end_ep=prop.arc.end_ep)
+    rev.acts = prop.arc.acts
+    rev.new_characters = prop.new_characters
+    if base and rev.arc.model_dump() == ArcEdit(**base.model_dump(include=set(ARC_EDIT_FIELDS)), end_ep=base.end_ep).model_dump() \
+            and [x.model_dump() for x in rev.acts] == [x.model_dump() for x in base.acts]:
+        rev.arc, rev.acts = ArcEdit(), []
+
+
+def _clean_parts_edit(p: Project, rev: PlotRevision, notes: list[str]) -> None:
+    if not rev.parts:
+        return
+    parts = sorted(rev.parts, key=lambda x: x.start_ep)
+    for i, x in enumerate(parts, 1):
+        x.number, x.summary = i, ""
+    rev.parts = parts
+    if [x.model_dump(exclude={"summary"}) for x in parts] == [x.model_dump(exclude={"summary"}) for x in p.parts]:
+        rev.parts = []
+        return
+    try:
+        apply_series(p.model_copy(deep=True), SeriesPlan(parts=parts))
+    except ValueError as e:
+        notes.append(f"부 구성 변경안이 맞지 않아 뺐어요: {e}")
+        rev.parts = []
+
+
+def clean_revision(p: Project, rev: PlotRevision, scope: ChatScope | None = None) -> PlotRevision:
+    scope = scope or ChatScope()
     notes: list[str] = []
+    target, focus = chat_target(p, scope.target)
+    if scope.mode == "options":  # 방향만 받는다. 변경안은 작가가 방향을 고른 뒤 따로 만든다
+        rev.options = [x for x in rev.options if x.title.strip()][:4]
+        rev.total_episodes, rev.acts, rev.episodes, rev.arc, rev.parts = 0, [], [], ArcEdit(), []
+        rev.new_characters, rev.new_places = [], []
+        return rev
+    rev.options = []
+    if not p.serial:
+        rev.arc, rev.parts = ArcEdit(), []
     if p.serial and rev.total_episodes:
-        notes.append("장편은 총 화수를 부 구성에서 바꿔서 화수 변경을 뺐어요.")
+        notes.append("장편은 총 화수를 설정 도우미에서 바꿔서 화수 변경을 뺐어요.")
         rev.total_episodes = 0
     total = rev.total_episodes if rev.total_episodes and rev.total_episodes != p.meta.target_episodes else 0
     if total and not 1 <= total <= 100:
         notes.append(f"총 화수 {total}화는 쓸 수 없어 뺐어요.")
         total = 0
     rev.total_episodes = total
-    focus = focus_arc(p) if p.serial else None
-    current_acts = focus.acts if focus else p.arc
-    acts = sorted(rev.acts, key=act_order)
-    if acts and [a.model_dump() for a in acts] == [a.model_dump() for a in current_acts] and not total:
-        acts = []
-    if acts and p.serial and focus is None:
-        notes.append("아직 아크가 없어 구조 변경을 뺐어요.")
-        acts = []
-    if acts:
-        try:
-            if focus:
-                validate_arc(ArcPlan(acts=acts), focus.end_ep, focus.start_ep)
-            else:
-                validate_arc(ArcPlan(acts=acts), total or p.meta.target_episodes)
-        except ValueError as e:
-            notes.append(f"구조 변경안이 맞지 않아 뺐어요: {e}")
-            acts = []
-    if total and not acts:
-        notes.append("화수를 바꾸려면 구조도 함께 바꿔야 해서 화수 변경을 뺐어요.")
-        rev.total_episodes = total = 0
-    rev.acts = acts
-    if focus:
-        arc = [a for a in p.beats() if not focus.start_ep <= a.start_ep <= focus.end_ep] + acts if acts else p.beats()
-        last = p.planned_until()
+    _clean_parts_edit(p, rev, notes)
+    last = total or p.meta.target_episodes
+    arc = p.arc
+    if target == "next":
+        _clean_next_arc(p, rev, scope.draft, notes)
+        arc, last = p.beats(), p.planned_until()
     else:
-        arc = acts or p.arc
-        last = total or p.meta.target_episodes
+        end = _clean_arc_edit(p, rev, focus, notes) if focus else 0
+        current_acts = focus.acts if focus else p.arc
+        acts = sorted(rev.acts, key=act_order)
+        if focus and end != focus.end_ep and not acts:
+            plan = ArcPlan(acts=[x.model_copy(deep=True) for x in focus.acts])
+            fit_arc(plan, end, focus.start_ep)  # 끝 화만 바꾸면 구간 비율을 살려 새 범위에 맞춘다
+            acts = plan.acts
+        if acts and [a.model_dump() for a in acts] == [a.model_dump() for a in current_acts] and not total:
+            acts = []
+        if acts:
+            try:
+                if focus and end != focus.end_ep:
+                    plan = ArcPlan(acts=acts)
+                    fit_arc(plan, end, focus.start_ep)  # 끝 화가 바뀌면 AI 가 낸 구간 비율을 새 범위에 맞춘다
+                    acts = plan.acts
+                elif focus:
+                    validate_arc(ArcPlan(acts=acts), focus.end_ep, focus.start_ep)
+                else:
+                    validate_arc(ArcPlan(acts=acts), total or p.meta.target_episodes)
+            except ValueError as e:
+                notes.append(f"구조 변경안이 맞지 않아 뺐어요: {e}")
+                acts = []
+                if focus and end != focus.end_ep:
+                    notes.append("끝 화 변경도 구조와 함께여야 해서 뺐어요.")
+                    rev.arc.end_ep, end = 0, focus.end_ep
+                    if all(getattr(rev.arc, k) == getattr(focus, k) for k in ARC_EDIT_FIELDS):
+                        rev.arc = ArcEdit()
+        if total and not acts:
+            notes.append("화수를 바꾸려면 구조도 함께 바꿔야 해서 화수 변경을 뺐어요.")
+            rev.total_episodes = total = 0
+            last = p.meta.target_episodes
+        rev.acts = acts
+        if focus:
+            arc = [a for a in p.beats() if not focus.start_ep <= a.start_ep <= focus.end_ep] + (acts or focus.acts)
+            last = end if focus.end_ep == p.planned_until() else p.planned_until()
+        else:
+            arc = acts or p.arc
     status = {e.plot.number: e.status for e in p.episodes}
     current = {e.plot.number: e.plot.model_dump() for e in p.episodes}
     keep, seen = [], set()
@@ -1262,43 +1447,62 @@ def clean_revision(p: Project, rev: PlotRevision) -> PlotRevision:
         seen.add(n)
         keep.append(e)
     rev.episodes = sorted(keep, key=lambda e: e.number)
-    rev.new_characters = clean_new_characters(p, rev.new_characters, rev.episodes)
+    arc_chars = rev.new_characters if target == "next" and rev.arc.title else []
+    rev.new_characters = arc_chars + [c for c in clean_new_characters(p, rev.new_characters, rev.episodes)
+                                      if c.id not in {x.id for x in arc_chars}]
     rev.new_places, _ = elements.clean_places(p, rev.new_places, plots_text(rev.episodes))
     if notes:
         rev.reply = rev.reply.rstrip() + "\n\n※ " + " ".join(notes)
     return rev
 
 
-def record_chat(p: Project, topic: str, message: str, rev: PlotRevision) -> ChatMessage:
-    """작가의 말과 AI 답을 대화 기록에 남긴다."""
+def record_chat(p: Project, topic: str, message: str, rev: PlotRevision, scope: ChatScope | None = None) -> ChatMessage:
+    """작가의 말과 AI 답을 대화 기록에 남긴다. 대상(아크 · 다음 아크)과 보던 곳도 함께 남겨 반영과 다음 대화에 쓴다."""
     from datetime import datetime, timezone
 
+    scope = scope or ChatScope()
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     chat = p.chat(topic)
-    reply = ChatMessage(role="assistant", text=rev.reply, revision=rev, at=now)
-    if not (rev.acts or rev.episodes):
+    target, _ = chat_target(p, scope.target)
+    reply = ChatMessage(role="assistant", text=rev.reply, revision=rev, at=now, target=target, mode=scope.mode)
+    if not (rev.has_changes() or rev.options):
         reply.revision = None
-    chat.messages += [ChatMessage(role="user", text=message.strip(), at=now), reply]
+    asked = ChatMessage(role="user", text=message.strip(), at=now, where=chat_where(p, scope), mode=scope.mode)
+    chat.messages += [asked, reply]
     chat.messages = chat.messages[-CHAT_KEEP:]
     return reply
 
 
-def apply_revision(p: Project, rev: PlotRevision, acts: bool, episodes: list[int]) -> list[str]:
+def apply_revision(p: Project, rev: PlotRevision, acts: bool, episodes: list[int], *,
+                   arc: bool = False, parts: bool = False, target: str = "") -> list[str]:
     """변경안에서 고른 부분만 반영한다. 본문이 있는 화는 바꾸지 않고, 확정된 화를 바꾸면 초안으로 돌린다.
-    반영한 부분 이름('acts', 화 번호)을 돌려준다."""
-    total = p.meta.target_episodes
-    arc = p.arc
+    target 은 변경안을 만들 때의 대상(ChatMessage.target). 다음 아크('next')의 아크 칸과 구조는 화면의 초안에 들어가므로
+    여기서는 부 구성과 화만 반영한다. 반영한 부분 이름('parts', 'arc', 'acts', 화 번호)을 돌려준다."""
+    target, focus = chat_target(p, target)
     applied: list[str] = []
-    focus = focus_arc(p) if p.serial else None
+    if target == "next":
+        acts = arc = False
+    if focus and rev.arc.end_ep and (arc or acts):
+        acts = arc = True  # 끝 화가 바뀌면 구간 범위도 함께 바뀐다
+    if parts and rev.parts:
+        apply_series(p, SeriesPlan(parts=rev.parts))
+        applied.append("parts")
+    total = p.meta.target_episodes
+    new_arc = p.arc
+    end = focus.end_ep if focus else 0
+    if focus and arc and rev.arc.title:
+        if rev.arc.end_ep and (why := arc_end_problem(p, focus, rev.arc.end_ep)):
+            raise ValueError(why.replace("그대로 뒀어요", "바꿀 수 없어요").replace("바꾸지 않았어요", "바꿀 수 없어요"))
+        end = rev.arc.end_ep or focus.end_ep
     if acts and rev.acts:
         if focus:
-            validate_arc(ArcPlan(acts=rev.acts), focus.end_ep, focus.start_ep)
+            validate_arc(ArcPlan(acts=rev.acts), end, focus.start_ep)
         else:
             total = rev.total_episodes or total
             validate_arc(ArcPlan(acts=rev.acts), total)
-        arc = [a.model_copy(deep=True) for a in rev.acts]
-    if p.serial:
-        total = p.planned_until()
+        new_arc = [a.model_copy(deep=True) for a in rev.acts]
+    if p.serial:  # 마지막 아크의 끝 화를 바꾸면 기획한 화도 따라 늘거나 준다
+        total = end if focus and focus.end_ep == p.planned_until() else p.planned_until()
     by_no = {e.plot.number: e for e in p.episodes}
     cut = [n for n in by_no if n > total]
     stuck = [n for n in cut if by_no[n].status != "draft"]
@@ -1311,15 +1515,27 @@ def apply_revision(p: Project, rev: PlotRevision, acts: bool, episodes: list[int
         cur = by_no.get(n)
         if cur and cur.status in LOCKED:
             raise ValueError(f"{n}화는 본문이 있어 플롯을 바꿀 수 없어요")
+    if focus and arc and rev.arc.title:
+        old_end = focus.end_ep
+        for k in ARC_EDIT_FIELDS:
+            setattr(focus, k, list(getattr(rev.arc, k)) if isinstance(getattr(rev.arc, k), list) else getattr(rev.arc, k))
+        focus.end_ep = end
+        for f in p.foreshadows:  # 새로 회수하기로 한 복선과 끝 화를 따라가던 회수 예정 화를 맞춘다
+            if f.id in focus.payoffs and f.status == "open" and f.due_ep in (0, old_end):
+                f.due_ep = end
+        applied.append("arc")
     if acts and rev.acts:
         if focus:
-            focus.acts = arc
+            focus.acts = new_arc
         else:
-            p.arc = arc
+            p.arc = new_arc
             p.meta.target_episodes = total
+        applied.append("acts")
+    if "acts" in applied or "arc" in applied:
         for n in cut:
             del by_no[n]
-        applied.append("acts")
+    if focus and "arc" in applied:
+        validate_story_arcs(p)
     for n, plot in picked.items():
         by_no[n] = Episode(plot=plot.model_copy(deep=True))  # 확정된 화도 내용이 바뀌면 다시 확정한다
         storylines.clean_plot(p, by_no[n])

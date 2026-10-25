@@ -562,6 +562,26 @@ class ShortArchive(BaseModel):
 
 # ---------- 대화형 다듬기 ----------
 
+class ArcEdit(BaseModel):
+    """플롯 대화에서 고치거나 새로 짜는 아크의 칸 (장편). 바꾸지 않으면 title 을 비운다."""
+    title: str = Field("", description="아크 칸을 바꿀 때만 채운다. 바꾸지 않으면 비움")
+    goal: str = Field("", description="아크가 끝날 때 바뀌어 있어야 하는 것")
+    conflict: str = Field("", description="주인공을 막는 문제나 상대")
+    payoff: str = Field("", description="아크 클라이맥스에서 독자가 받는 보상(사이다)")
+    cast: list[str] = Field(default_factory=list, description="이 아크에 주로 나오는 인물 id")
+    payoffs: list[str] = Field(default_factory=list, description="이 아크에서 회수할 열린 복선 id")
+    pov: str = Field("", description="이 아크의 서술 시점 운용 한 줄. 작품 기본 시점 그대로면 비움")
+    end_ep: int = Field(0, description="아크 끝 화를 바꿀 때만 새 끝 화. 그대로면 0. 다음 아크를 짤 때는 꼭 넣는다")
+
+
+class Direction(BaseModel):
+    """플롯 대화의 '방향 여러 안': 변경안을 만들기 전에 작가가 고르거나 섞을 방향 하나."""
+    title: str = Field(description="방향 이름 한 줄")
+    idea: str = Field(description="이 방향이면 이야기가 어떻게 되는지 2~3문장")
+    changes: list[str] = Field(default_factory=list, description="바뀌는 부 · 아크 · 구간 · 화를 한 줄씩 (예: '승 구간: 배신을 중반으로 당김')")
+    tradeoff: str = Field("", description="얻는 것과 잃는 것 한 줄")
+
+
 class PlotRevision(BaseModel):
     """플롯 대화에서 AI 가 내는 답과 변경안. 사용자가 고른 부분만 반영한다 (pipeline.apply_revision)."""
     reply: str = Field(description="작가에게 하는 대답. 무엇을 왜 바꿨는지, 또는 되묻는 말")
@@ -570,6 +590,22 @@ class PlotRevision(BaseModel):
     episodes: list[EpisodePlot] = Field(default_factory=list, description="바뀌는 화만, 모든 칸을 채운 전체 플롯")
     new_characters: list[Character] = Field(default_factory=list, description=NEW_CAST_DESC)
     new_places: list[NewPlace] = Field(default_factory=list, description=NEW_PLACE_DESC)
+    arc: ArcEdit = Field(default_factory=ArcEdit, description="장편: 아크 칸을 바꾸거나 다음 아크를 짤 때만 모든 칸을 채운다. 그대로면 title 을 비움")
+    parts: list[Part] = Field(default_factory=list, description="장편: 부 구성을 바꿀 때만 모든 부. 그대로면 빈 목록")
+    options: list[Direction] = Field(default_factory=list, description="작가가 방향 여러 안을 청했을 때만 서로 다른 방향 2~3개. 그때는 다른 변경 칸을 모두 비움")
+
+    def has_changes(self) -> bool:
+        return bool(self.acts or self.episodes or self.arc.title or self.parts)
+
+
+class ChatScope(BaseModel):
+    """플롯 대화를 보낼 때 화면이 알려 주는 것 (AI 가 채우지 않는다).
+    target: '' 기본(단편은 작품 전체, 장편은 본문이 없는 첫 아크), 'arc:3' 그 아크, 'next' 다음 아크 기획."""
+    target: str = ""
+    act: str = ""  # 화면에서 연 구간 이름 (기 · 승 · 전 · 결)
+    episode: int = 0  # 화면에서 연 화
+    mode: Literal["", "options"] = ""  # options: 변경안 대신 방향 여러 안을 받는다
+    draft: Optional[ArcProposal] = None  # target 'next': 화면에 있는 다음 아크 초안 (적용 전)
 
 
 class PassageCandidate(BaseModel):
@@ -601,7 +637,10 @@ class ChatMessage(BaseModel):
     selection: Optional[Selection] = Field(None, description="본문 부분 수정: 고친 대상")
     preset: str = Field("", description="본문 부분 수정: 고른 빠른 요청 (prompts.PASSAGE_PRESETS)")
     outcome: Literal["", "applied", "dismissed"] = Field("", description="변경안을 반영했는지, 버렸는지")
-    applied: list[str] = Field(default_factory=list, description="반영한 부분: 'acts' 또는 화 번호, 본문 수정이면 후보 번호(0부터)")
+    applied: list[str] = Field(default_factory=list, description="반영한 부분: 'acts' 구조, 'arc' 아크 칸, 'parts' 부 구성, 화 번호. 본문 수정이면 후보 번호(0부터)")
+    target: str = Field("", description="플롯 대화: 변경안이 겨냥한 곳 (ChatScope.target, 기본이면 기록할 때의 실제 대상)")
+    where: str = Field("", description="플롯 대화: 작가가 보낼 때 보고 있던 곳 (예: 아크 3 · 승 구간 · 15화)")
+    mode: str = Field("", description="플롯 대화: 'options' 면 방향 여러 안을 청한 말")
     at: str = ""
 
 

@@ -8,12 +8,14 @@ from pydantic import BaseModel
 
 from .schema import (
     Act,
+    ArcEdit,
     ArcPlan,
     ArcProposal,
     Character,
     CharacterState,
     ConsistencyIssue,
     ConsistencyReport,
+    Direction,
     PlantedContradiction,
     PlantSet,
     PlaceGuess,
@@ -228,10 +230,54 @@ def _openings(hint: dict) -> OpeningPlots:
     return OpeningPlots(options=opts)
 
 
+def _serial_revision(hint: dict, rev: PlotRevision) -> bool:
+    """장편 흉내. 다음 아크: 'N화짜리' 길이로 새로 짜거나 '갈등' 으로 초안을 고친다.
+    고른 아크: '갈등' 은 아크 칸, '끝 화 N' 은 끝 화. '부 구성' 은 1부 목표를 고친다. 처리했으면 True."""
+    msg, focus, draft = hint["message"], hint.get("focus"), hint.get("draft")
+    done = False
+    if "부 구성" in msg and hint.get("parts"):
+        rev.parts = [x.model_copy(update={"goal": x.goal + " (대화로 고침)"} if x.number == 1 else {}) for x in hint["parts"]]
+        done = True
+    if hint.get("target") == "next":
+        start, limit = hint["start"], hint["limit"]
+        size = re.search(r"(\d+)화짜리", msg)
+        if draft and not size:
+            a = draft.arc
+            rev.arc = ArcEdit(**a.model_dump(include={"title", "goal", "conflict", "payoff", "cast", "payoffs", "pov"}), end_ep=a.end_ep)
+            if "갈등" in msg:
+                rev.arc.conflict = "옛 동료의 배신"
+            rev.acts = [x.model_copy(deep=True) for x in a.acts]
+        else:
+            end = min(start + (int(size.group(1)) if size else 10) - 1, limit)
+            rev.arc = ArcEdit(title="대화로 짠 아크", goal="시험을 통과한다", conflict="라이벌", payoff="역전승",
+                              cast=["hero", "rival9"], end_ep=end)
+            rev.acts = _arc(end, start)
+            rev.new_characters = [Character(id="rival9", name="라이벌", role="라이벌", tier="main", speech_style="짧은 반말")]
+        return True
+    if focus and ("갈등" in msg or "끝 화" in msg):
+        rev.arc = ArcEdit(**focus.model_dump(include={"title", "goal", "conflict", "payoff", "cast", "payoffs", "pov"}))
+        if "갈등" in msg:
+            rev.arc.conflict = "옛 동료의 배신"
+        hit = re.search(r"끝 화 (\d+)", msg)
+        if hit:
+            rev.arc.end_ep = int(hit.group(1))
+        done = True
+    return done
+
+
 def _revision(hint: dict) -> PlotRevision:
-    """플롯 대화 흉내: 'N화로' 는 화수 변경, '결말' 은 결 구간 목표, 'N화' 는 그 화를 고친다."""
+    """플롯 대화 흉내: 'N화로' 는 화수 변경, '결말' 은 결 구간 목표, 'N화' 는 그 화를 고친다.
+    방향 여러 안을 청하면 세 방향을 낸다 (구조 칸도 함께 채워 걸러지는지 본다)."""
     msg, arc, eps, total = hint["message"], hint["arc"], hint["episodes"], hint["total"]
     rev = PlotRevision(reply=f"'{msg}' 를 반영해 고쳐 봤어요.")
+    if hint.get("mode") == "options":
+        rev.reply = "갈등의 출처로 나눠 봤어요."
+        rev.options = [Direction(title=t, idea=f"{t} 쪽으로 간다.", changes=["승 구간: 사건 순서 바꿈"], tradeoff="속도 대신 깊이")
+                       for t in ("배신", "추격", "고백")]
+        rev.acts = list(arc)
+        return rev
+    if hint.get("serial") and _serial_revision(hint, rev):
+        return rev
     resize = re.search(r"(\d+)화로", msg)
     if resize or not arc:
         new_total = int(resize.group(1)) if resize else total

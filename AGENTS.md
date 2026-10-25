@@ -14,7 +14,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 |---|---|
 | `canon/schema.py` | pydantic 데이터 스키마. 모든 상태는 `Project` 하나(`project.json`)에 저장 |
 | `canon/prompts.py` | 프롬프트 템플릿, 화별 컨텍스트 조립(`build_episode_context`), 작업지시서(`episode_brief`, `state_brief`) |
-| `canon/pipeline.py` | 단계별 로직: 설정 제안 → 스타일 분석 → 기승전결 → 화별 플롯(대화로 다듬기 `revise_plot`/`apply_revision` 포함, 플롯이 데려온 새 인물은 후보 `Project.cast_candidates`, 새 장소는 `Project.place_candidates` 로 두고 화 확정 `confirm_plot` 때 등록. 상태 변경안 정리 `clean_delta`) → 본문 → 검수 → 상태 추출/반영. 장편은 부 계획(`plan_series`) → 다음 아크(`plan_next_arc`/`apply_arc`) → 아크 · 부 요약(`recap`/`apply_recap`). 단편 → 장편 전환은 이어 쓰기 `propose_conversion`/`apply_conversion`, 재구성 `propose_rebuild`/`apply_rebuild`(옛 상태 변경안 재사용 `carried_delta`, 다듬기 `propose_rework`/`accept_rework`), 되돌리기 `undo_conversion` |
+| `canon/pipeline.py` | 단계별 로직: 설정 제안 → 스타일 분석 → 기승전결 → 화별 플롯(대화로 다듬기 `revise_plot`/`apply_revision` 포함, 대상 `chat_target`: 고른 아크 · 다음 아크, 아크 칸 · 부 구성 변경안, 방향 여러 안, 플롯이 데려온 새 인물은 후보 `Project.cast_candidates`, 새 장소는 `Project.place_candidates` 로 두고 화 확정 `confirm_plot` 때 등록. 상태 변경안 정리 `clean_delta`) → 본문 → 검수 → 상태 추출/반영. 장편은 부 계획(`plan_series`) → 다음 아크(`plan_next_arc`/`apply_arc`) → 아크 · 부 요약(`recap`/`apply_recap`). 단편 → 장편 전환은 이어 쓰기 `propose_conversion`/`apply_conversion`, 재구성 `propose_rebuild`/`apply_rebuild`(옛 상태 변경안 재사용 `carried_delta`, 다듬기 `propose_rework`/`accept_rework`), 되돌리기 `undo_conversion` |
 | `canon/context.py` | 장편 프롬프트 크기 관리: 블록 재기(`blocks`, 사용량 기록 · 연구 화면), 블록 글자 예산(`BUDGET`), 관련 사실(`pick_facts`) · 비밀(`pick_secrets`) · 떡밥(`rank_foreshadows`) 고르기, 기획 프롬프트 인물(`planning_cast`), 검수용 옛 본문 단락 찾기(`recall`). LLM 호출 없음. 단편 경로는 쓰지 않는다 |
 | `canon/metrics.py` | 문체 지표(문장 길이, 대사 비율, 과거형 비율, 어휘 다양도, 반복 구, 상투 표현, 쇠맛 패턴과 쉼표·대명사 지표, 문체 거리, 문체 표지 빈도, 예시 문단 베끼기)와 기준 대비 경고, 1~3화 초반 지표(`measure_opening`). LLM 호출 없음. 문체 거리 기준표는 `style_background.py`(`scripts/make_style_background.py` 로 생성) |
 | `canon/genres.py` | 장르 목록(`CATALOG`)과 장르별 안내. 프롬프트의 장르 안내와 수위 블록(`guide`), 설정 화면의 장르별 로그라인 예시(`Genre.logline`) |
@@ -34,7 +34,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/static/lines.js` | 이야기 줄기 화면: SVG 노선도, 줄기 편집, 화 붙이기, AI 제안. 플롯 편집기의 줄기 칸(`lineField`)과 화 카드 표시(`lineBadge`)도 여기 있다. `storylines.span` · `tag` 와 같은 규칙이라 함께 고친다 |
 | `canon/static/causal.js` | 인과율 화면: 요소 추가·편집, 관련 화 지도, 영향 분석 변경안 고르기. `elements.basis` 와 같은 모양(`elBasis`)으로 분석이 지났는지 본다 |
 | `canon/static/convert.js` | 단편 → 장편 전환 화면: 이어 쓰기(총 화수 · 결말 처리, AI 전환 계획에서 항목 골라 반영)와 재구성(화 지도 고치기, 반영), 되돌리기. 집필 화면의 재구성 안내 · 다듬기 비교(`rebuildNote`)도 여기 있다 |
-| `canon/static/chat.js` | 화면에 붙는 AI 대화 패널(기승전결 · 플롯 화면 `plot`, 집필 화면 `text:<화>`). 변경안을 칸별로 지금 값과 비교해 보여 주고 고른 것만 반영 요청. 주제마다 요청 내용과 변경안 그리기를 `CHAT_TOPICS` 에서 바꿔 끼운다. 화면 본체는 `app.js` |
+| `canon/static/chat.js` | 화면에 붙는 AI 대화 패널(기승전결 · 플롯 화면 `plot`, 집필 화면 `text:<화>`). 변경안을 칸별로 지금 값과 비교해 보여 주고 고른 것만 반영 요청. 주제마다 요청 내용과 변경안 그리기를 `CHAT_TOPICS` 에서 바꿔 끼운다. 플롯 대화는 대상(`plotScope`: 고른 아크 · 다음 아크 초안, 연 구간 · 화)을 함께 보내고, 아크 칸 · 부 구성 변경안, 방향 여러 안(`optionsCard`), 다음 아크 안을 초안으로 놓기(`draftFromRev`)를 그린다. 서버 `pipeline.chat_target` · `chat_where` 와 같은 규칙. 화면 본체는 `app.js` |
 | `canon/static/rewrite.js` | 다시 생성: 집필 화면의 다시 생성 패널(빠른 요청, 피드백, 함께 넣을 재료, 처음부터 / 고쳐 쓰기, 살릴 부분), 새 판 비교(나란히 · 바뀐 곳 `textDiff`)와 고르기, 이전 판 목록과 되돌리기. 서버는 `pipeline.rewrite_episode` · `set_candidate` · `adopt_candidate` · `drop_candidate` · `restore_version`, 프롬프트는 `prompts.rewrite_prompt` |
 | `canon/static/restate.js` | 반영 뒤 고친 화: 반영이 끝난 화를 고쳤을 때 집필 화면 알림(`restateNote`, 뒤 화 검수 권유), 상태 승인 화면의 다시 맞추기 카드(`restateCard`: 요약 · 새 사실 · 새 복선만 고르기, 그대로 두기). 서버는 `pipeline.apply_restate` · `keep_state`, 표시는 `Episode.final_text` (`edited_after_final` 과 같은 규칙) |
 | `canon/static/passage.js` | 본문 부분 수정: 본문에서 고르면 뜨는 도구(직접 수정, AI에게 고치기), 후보를 원문과 단어 단위로 비교, 수정 기록과 되돌리기, 고친 뒤 다시 할 단계 알림. 서버는 `pipeline.edit_text` · `revise_passage` · `apply_passage` · `undo_edit` |
@@ -43,7 +43,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/illust.py` | NovelAI 삽화 프롬프트 조립: AI 원안(`IllustDraft`)에 저장된 인물 외형 태그(`Project.visuals`), 인물 수, 등급, 모델별 품질 태그(`MODELS`)를 붙여 기본 · 인물 · 부정 프롬프트로(`assemble`), 태그 정리(`clean`). LLM 호출 없음. AI 호출은 `pipeline.illustrate` / `suggest_look` (`illustration` 단계) |
 | `canon/static/illust.js` | 집필 화면 삽화 프롬프트 카드(칸별 복사, 다시 조립, 외형 고정), 읽기 전용 본문에서 고르는 도구, 설정 화면 인물 카드의 삽화 외형 태그(`visualFields`). 고치는 본문의 도구 버튼은 `passage.js` |
 | `canon/static/publish.js` | 집필 화면의 복사 · 내보내기 카드와 복사 버튼. 텍스트와 HTML 을 함께 클립보드에 넣고(보안 연결이 아니면 복사 이벤트로), 막히면 .txt 내려받기 |
-| `canon/llm.py` | LLM 프로바이더 인터페이스(`json`, `text`)와 Gemini, 로컬(OpenAI 호환) 구현, 단계별 선택(`get_llm(stage)`) |
+| `canon/llm.py` | LLM 프로바이더 인터페이스(`json`, `text`)와 Gemini(API 키 또는 Vertex AI 서비스 계정 `_vertex_client`), 로컬(OpenAI 호환) 구현, 단계별 선택(`get_llm(stage)`). 설정 화면의 Gemini 연결 방식은 `static/vertex.js` |
 | `canon/claude.py` | Claude 백엔드: 구독 로그인(`claude`, 설치된 Claude Code 를 `claude -p` 로 부름, 로그인 상태 `status`)과 API 키(`claude-api`, Anthropic SDK). Canon 은 Claude 계정 로그인을 직접 받거나 토큰을 저장하지 않는다(Anthropic 정책). 화면은 `static/claude.js` |
 | `canon/usage.py` | AI 사용량과 비용: LLM 구현이 실제 호출마다 `record` 로 `projects/.usage/usage.jsonl` 에 남기고, 작품 · 화 · 작업은 `scope(...)` 로 붙인다(웹 미들웨어, `jobs.start`, 자동 집필, CLI). 가격표(`DEFAULT_PRICES` + 설정의 `prices`, 날짜별 `since`)로 볼 때 비용을 계산하고 자동 집필 추정도 같은 표를 쓴다. 화면은 `static/usage.js` |
 | `canon/research.py` | 연구 화면(모델 실험) 로직. 서버 점검, 샘플 비교, 단계 시험, 컨텍스트 크기, 검수 시험(모순을 심고 `prompts.CHECK_MODES` 마다 찾는지, `check_trial`), 블라인드 비교. 작품 데이터와 분리해 `research/log.jsonl` 에 기록 |
@@ -82,7 +82,7 @@ python -m unittest                  # mock LLM 으로 전체 흐름 스모크 �
 CANON_LLM=mock python -m canon ...  # 수동 확인
 ```
 
-환경 변수: `GEMINI_API_KEY`, `CANON_LLM`(gemini | local | claude | claude-api | mock), `CANON_CLAUDE_MODEL` / `CANON_CLAUDE_BIN` / `CANON_CLAUDE_TIMEOUT` / `ANTHROPIC_API_KEY`(Claude, `claude-api` 만 키를 씀), `CANON_MODEL`(기본 `gemini-4-argon`), `CANON_LOCAL_URL` / `CANON_LOCAL_MODEL` / `CANON_LOCAL_KEY`(로컬 서버), `CANON_LLM_PLAN` / `_WRITE` / `_CHECK` / `_STATE` / `_NAME` / `_REVISE` / `_ILLUSTRATION`(단계별 백엔드), `CANON_MODEL_PLAN` / `_WRITE` / `_CHECK` / `_STATE` / `_NAME` / `_REVISE` / `_ILLUSTRATION`(단계별 모델), `CANON_HOME`(프로젝트 저장 위치, 기본 `projects/`), `CANON_USAGE`(사용량 기록 파일, 기본 `projects/.usage/usage.jsonl`).
+환경 변수: `GEMINI_API_KEY`, `CANON_GEMINI_AUTH`(key | vertex) / `CANON_VERTEX_CREDENTIALS` / `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION`(Vertex AI 서비스 계정), `CANON_LLM`(gemini | local | claude | claude-api | mock), `CANON_CLAUDE_MODEL` / `CANON_CLAUDE_BIN` / `CANON_CLAUDE_TIMEOUT` / `ANTHROPIC_API_KEY`(Claude, `claude-api` 만 키를 씀), `CANON_MODEL`(기본 `gemini-4-argon`), `CANON_LOCAL_URL` / `CANON_LOCAL_MODEL` / `CANON_LOCAL_KEY`(로컬 서버), `CANON_LLM_PLAN` / `_WRITE` / `_CHECK` / `_STATE` / `_NAME` / `_REVISE` / `_ILLUSTRATION`(단계별 백엔드), `CANON_MODEL_PLAN` / `_WRITE` / `_CHECK` / `_STATE` / `_NAME` / `_REVISE` / `_ILLUSTRATION`(단계별 모델), `CANON_HOME`(프로젝트 저장 위치, 기본 `projects/`), `CANON_USAGE`(사용량 기록 파일, 기본 `projects/.usage/usage.jsonl`).
 
 스키마나 파이프라인을 바꾸면 `canon/mock.py` 도 맞춰 고치고 `python -m unittest` 가 통과하는지 확인한다. 실제 Gemini 호출은 키가 있을 때만 확인할 수 있으니, 확인하지 못했다면 그렇다고 밝힌다.
 

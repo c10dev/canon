@@ -45,6 +45,7 @@ const S = {
   selPart: null,     // 장편: 고치는 부 번호
   seriesDraft: null, // 장편: 부 구성 제안 (반영 전)
   arcDraft: null,    // 장편: 다음 아크 제안 (반영 전)
+  planNote: '',      // 구조 다시 제안 · 플롯 초안 · 부 구성 제안에 함께 보낼 작가 요청
   arcForm: { length: 0, note: '' },  // 장편: 다음 아크 요청
   recapDrafts: {},   // 장편: 아크·부 요약 제안. 'arc1', 'part2' 같은 키 → { kind, number, summary }. 여러 개를 함께 고친다
   namingStyles: null, // 이름 스타일 목록 (서버 naming.STYLES)
@@ -1655,7 +1656,7 @@ const actions = {
 
   // 구조와 플롯
   async planArc() {
-    await startJob('arc');  // 도착하면 지금 구조와 비교하는 제안 카드로 보인다. 고르기 전에는 바뀌지 않는다
+    await startJob('arc', null, { note: S.planNote || '' });  // 도착하면 지금 구조와 비교하는 제안 카드로 보인다. 고르기 전에는 바뀌지 않는다
   },
   splitArc() {
     // AI 없이 총 화수를 기승전결 네 구간으로 나눈다 (pipeline.act_ranges 와 같은 비율). 목표는 구간 고치기에서 적는다
@@ -1682,7 +1683,7 @@ const actions = {
   },
   async draftPlots() {
     if (!confirmRedraft(P().episodes)) return;
-    await startJob('plots');
+    await startJob('plots', null, { note: S.planNote || '' });
   },
   selectEp(n) {
     S.focusTarget = '#app .drawer h2';  // 서랍을 열면 제목으로 들어가 몇 화 서랍인지 읽게 한다
@@ -1741,7 +1742,7 @@ const actions = {
   // 장편: 부 · 아크
   async planSeries() {
     if (P().parts.length && !confirm('지금 부 구성을 AI 제안으로 바꿀까요? 적용 전에 확인할 수 있어요.')) return;
-    await startJob('series');
+    await startJob('series', null, { note: S.planNote || '' });
   },
   dropSeries() {
     if (!confirmDrop('AI 부 구성 제안')) return;
@@ -1810,7 +1811,7 @@ const actions = {
   async draftArcPlots(n) {
     const a = P().story_arcs.find((x) => x.number === Number(n));
     if (a && !confirmRedraft(P().episodes.filter((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep))) return;
-    await startJob('plots', Number(n));
+    await startJob('plots', Number(n), { note: S.planNote || '' });
   },
   async recapArc(n) {
     if (S.recapDrafts['arc' + n] && !confirm(`아크 ${n} 요약 제안이 아직 있어요. 고친 내용을 버리고 새로 받을까요?`)) return;
@@ -1946,7 +1947,7 @@ const actions = {
     if (key) body.api_key = key;
     const lkey = $('#set-local-key').value.trim();
     if (lkey) body.local_key = lkey;
-    Object.assign(body, claudeSettingsBody());
+    Object.assign(body, claudeSettingsBody(), geminiAuthBody(c));
     const ok = await run('저장 중', async () => {
       S.config = await api('PUT', '/config', body);
       S.health = await api('GET', '/config/health').catch(() => null);
@@ -2632,10 +2633,10 @@ function viewSettings() {
           ${providerOptions(c.provider)}
         </select>${envNote(c.provider_source, 'CANON_LLM')}
         <div class="small">단계별로 다르게 쓰려면 아래 '단계별 백엔드'에서 고르세요.</div></div>
-      <div class="field"><label for="set-key">Gemini API 키 <span class="hint">지금: </span>${keyState}</label>
+      ${geminiAuthSettings(c, `<div class="field"><label for="set-key">Gemini API 키 <span class="hint">지금: </span>${keyState}</label>
         <input id="set-key" type="password" autocomplete="off" placeholder="${c.key_source === 'none' ? 'AIza… 로 시작하는 키' : '바꿀 때만 입력'}">
         <div class="small"><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>에서 무료로 발급받을 수 있어요. 저장한 키는 화면에 다시 보여주지 않아요.</div>
-        ${envNote(c.key_source, 'GEMINI_API_KEY')}</div>
+        ${envNote(c.key_source, 'GEMINI_API_KEY')}</div>`)}
       <div class="field"><label for="set-model">모델</label>
         <input id="set-model" type="text" list="model-options" value="${esc(c.model_setting || '')}">
         ${modelDatalist()}
@@ -2700,7 +2701,7 @@ function modelStatus() {
   // 단계에서 쓰는 백엔드만 알린다 (Gemini 만 쓰면 꺼진 로컬 서버 오류는 보이지 않는다)
   const c = S.config || {};
   const used = new Set([c.provider, ...Object.values(c.stages || {}).map((x) => x.provider)]);
-  const why = (r) => ({ no_key: 'API 키를 넣고 저장하면 목록을 불러와요', unreachable: '로컬 서버가 응답하지 않아요. 주소를 확인하세요' }[r.reason] || `목록을 못 불러왔어요 (${esc((r.error || '').slice(0, 120))})`);
+  const why = (r) => ({ no_key: c.gemini_auth === 'vertex' ? '서비스 계정 키 파일과 프로젝트 ID를 넣고 저장하면 목록을 불러와요' : 'API 키를 넣고 저장하면 목록을 불러와요', unreachable: '로컬 서버가 응답하지 않아요. 주소를 확인하세요' }[r.reason] || `목록을 못 불러왔어요 (${esc((r.error || '').slice(0, 120))})`);
   const part = (name, r) => (r.error ? `${name}: ${why(r)}` : `${name} ${r.models.length}개`);
   const parts = [['gemini', 'Gemini'], ['local', '로컬 서버']].filter(([k]) => used.has(k) && m[k]).map(([k, name]) => part(name, m[k]));
   return `모델 칸을 누르면 고를 수 있어요. ${parts.length ? parts.join(' · ') + '. ' : ''}목록에 없으면 이름을 직접 적어도 돼요. <button type="button" class="link-btn" data-action="loadModels">다시 불러오기</button>`;
@@ -2731,6 +2732,7 @@ function aiWarning() {
   const cfg = S.config || {};
   if (h && h.local === false) return `AI 연결 안 됨: 로컬 모델 서버가 응답하지 않아요 (${h.local_error || '주소를 확인하세요'}).`;
   if (h && h.mock) return 'mock 모드: AI를 부르지 않고 가짜 결과를 내요. 실제로 쓰려면 설정에서 Gemini 나 로컬을 고르세요.';
+  if (!cfg.has_key && cfg.gemini_auth === 'vertex') return 'Vertex AI 설정이 덜 됐어요. 설정에서 서비스 계정 키 파일 경로와 프로젝트 ID를 확인하세요.';
   if (!cfg.has_key) return 'Gemini API 키가 없어요. 키 없이는 인물 · 설정을 직접 적을 수 있고, 플롯이 생긴 화부터는 채팅 앱 작업지시서로 쓸 수 있어요.';
   return '';
 }
@@ -3819,7 +3821,7 @@ function viewArc() {
     board = `<div class="card empty"><p>아직 기승전결 구조가 없어요.</p>
       ${thin ? `<div class="note warn"><a href="${base()}/setup">설정 도우미</a>에서 로그라인과 인물을 먼저 채우면 AI가 더 맞는 구조를 만들어요.</div>` : ''}
       <div class="row">${((b) => `<button class="btn primary" data-action="planArc"${b.attr}>${b.label}</button>`)(jobBtn('arc', null, 'AI로 구조 만들기'))}<button class="btn" data-action="splitArc">직접 나누기</button></div>
-      <span class="small">직접 나누면 ${p.meta.target_episodes}화를 기 · 승 · 전 · 결 네 구간으로 나눠요. 구간 목표는 구간 고치기에서 적어요.</span></div>`;
+      <span class="small">직접 나누면 ${p.meta.target_episodes}화를 기 · 승 · 전 · 결 네 구간으로 나눠요. 구간 목표는 구간 고치기에서 적어요. <strong>대화로 다듬기</strong>에서 말로 함께 짤 수도 있어요.</span></div>`;
   } else {
     const pj = jobFor('plots');
     const note = pj ? `<div class="note info">구간마다 초안을 만드는 중이에요${pj.note ? ` (${esc(pj.note)})` : ''}. 끝난 구간부터 카드가 채워지고, 채워진 화는 바로 고칠 수 있어요.</div>`
@@ -3839,9 +3841,15 @@ function viewArc() {
     : '';
   // 장편으로 늘리기는 모든 화를 반영한 뒤에 쓸 수 있다 (작품 홈과 같은 이름)
   const fin = eps.length && eps.every((e) => e.status === 'finalized') && eps.length === p.meta.target_episodes;
-  const tools = (p.arc.length ? chatButton() : '') + right + (fin ? `<a class="btn" href="${base()}/convert">장편으로 늘리기</a>` : '');
+  const tools = chatButton() + right + (fin ? `<a class="btn" href="${base()}/convert">장편으로 늘리기</a>` : '');
   return `${header('3단계', '기승전결 · 화별 플롯', '구간 목표를 확인하고, 화 카드를 눌러 플롯을 다듬은 뒤 확정하세요. 확정된 화만 본문을 쓸 수 있고, 초안을 다시 만들어도 확정된 화는 그대로예요.', tools)}
-    ${board}${drawer}${chatPanel('plot')}`;
+    ${p.arc.length && !S.arcProposal ? planNoteField('구조 다시 제안 · 초안 만들기') : ''}${board}${drawer}${chatPanel('plot')}`;
+}
+
+/** AI 로 구조 · 부 구성 · 플롯 초안을 다시 받을 때 함께 보낼 한 줄 요청. 비우면 AI 가 정한다 (prompts.request_block). */
+function planNoteField(what) {
+  return `<label class="plan-note"><span class="small">${what}에 함께 보낼 요청 (선택)</span>
+    <input type="text" data-local="planNote" value="${esc(S.planNote || '')}" placeholder="예: 3화 안에 첫 반전, 로맨스 비중은 줄이기"></label>`;
 }
 
 /** start~end 화 중 플롯 초안 작업이 새로 만들 화가 있다 (없는 화나 초안). 없으면 서버도 '새로 만들 초안이 없어요'로 막는다 (web._plot_ranges). */
@@ -4102,8 +4110,9 @@ function viewSerial() {
   else if (S.selPart != null) panel = partEditor(S.selPart);
 
   const tools = chatButton() + (p.conversion ? `<a class="btn" href="${base()}/convert">단편에서 전환 · 되돌리기</a>` : '');
+  const note = planNoteField(arc && S.selArc !== 'next' ? '부 구성 제안 · 이 아크 초안 만들기' : '부 구성 제안');
   return `${header('3단계', '부 · 아크 · 화별 플롯', '장편은 작품을 부와 아크로 나누고, 다음 아크 하나씩 기획해 그 아크의 플롯만 만들어요. 끝난 아크는 요약으로 접혀서 몇백 화를 써도 프롬프트 크기가 일정해요.', tools)}
-    ${series}${rail}${body}${drawerHtml(panel)}${chatPanel('plot')}`;
+    ${note}${series}${rail}${body}${drawerHtml(panel)}${chatPanel('plot')}`;
 }
 
 function nextArcPanel(start) {

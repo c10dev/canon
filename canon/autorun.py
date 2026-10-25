@@ -203,7 +203,7 @@ def stage_cost(stage: str, tin: float, tout: float, batch: bool) -> Optional[flo
     """단계가 쓰는 모델로 tin/tout 토큰을 쓸 때의 USD. 가격은 사용량 화면과 같은 가격표(usage.prices)를 쓴다.
     로컬은 0원, 가격표에 없는 Gemini 모델이면 None."""
     prov = settings.stage_provider(stage)[0]
-    return usage.stage_cost(prov, gemini_model(stage), tin, tout, batch and prov == "gemini")
+    return usage.stage_cost(prov, gemini_model(stage), tin, tout, batch and prov == "gemini" and batchable(stage))
 
 
 def gemini_model(stage: str) -> str:
@@ -212,7 +212,9 @@ def gemini_model(stage: str) -> str:
 
 
 def batchable(stage: str) -> bool:
-    return settings.stage_provider(stage)[0] in ("gemini", "mock")
+    prov = settings.stage_provider(stage)[0]
+    # Vertex AI 배치는 Cloud Storage 를 거쳐야 해서 지원하지 않는다 (llm.GeminiLLM.can_batch)
+    return prov == "mock" or (prov == "gemini" and settings.gemini_auth()[0] != "vertex")
 
 
 def _todo(p: Project, target: int) -> list[int]:
@@ -355,7 +357,7 @@ class Runner:
 
     def _call(self, stage: str, n: int, fn: Callable[[Any], Any]) -> tuple[Any, dict]:
         llm = get_llm(stage)
-        use_batch = self.run.batch and hasattr(llm, "batch_submit")
+        use_batch = self.run.batch and hasattr(llm, "batch_submit") and getattr(llm, "can_batch", True)
         if use_batch:
             llm = BatchLLM(llm, f"{n}:{stage}", self.run.batches, self.ctl.save, self.ctl.wait,
                            label=f"canon {self.name}", note=lambda m: self.log(f"{n}화 {STEP_NAMES[stage]}: {m}", "warn"))
@@ -577,6 +579,8 @@ def start(name: str, target: int, batch: bool, policy: Policy, *, foreground: bo
     ctl = _control(name, run)
     ctl.save()
     Runner(ctl).log(f"{target}화까지 자동 집필을 시작해요 (배치 {'켬' if batch else '끔'})", step="start")
+    if batch and any(settings.stage_provider(s)[0] == "gemini" and not batchable(s) for s in STEP_NAMES):
+        Runner(ctl).log("Vertex AI 로 부르는 Gemini 는 배치를 지원하지 않아 그 단계는 일반 호출로 진행해요", "warn")
     _launch(name, ctl, echo, foreground)
     return ctl.run
 
