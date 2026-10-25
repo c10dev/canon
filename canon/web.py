@@ -24,7 +24,7 @@ from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록
 from .schema import (ArcPlan, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 from . import atlas, foreshadows, statwin
-from .schema import MapPin, StatValue
+from .schema import MapPin, NewPlace, StatValue
 
 STATIC = Path(__file__).parent / "static"
 # 폴더 이름: / \ 와 운영체제가 막는 : * ? " < > | 는 쓸 수 없고, . 으로 시작하지 않는다
@@ -1877,6 +1877,40 @@ def atlas_link(name: str, body: LinkIn) -> Project:
     p = _load(name)
     atlas.set_link(p, body.text, body.place)
     return _save(name, p)
+
+
+class SortIn(BaseModel):
+    texts: list[str] | None = None  # 이 위치 글만 정리 (비우면 맞지 않은 글 모두)
+
+
+@app.post("/api/projects/{name}/atlas/sort")
+def atlas_sort(name: str, body: SortIn) -> dict:
+    """장소와 맞지 않은 위치 글을 AI 가 장소에 맞춘 제안. 저장하지 않는다."""
+    return pipeline.sort_places(get_llm("state"), _load(name), body.texts)
+
+
+class SortPlace(NewPlace):
+    first_ep: int = 0
+
+
+class SortPick(BaseModel):
+    text: str
+    place: str = ""  # 장소 키
+    new_place: str = ""  # 함께 등록할 새 장소 이름. 둘 다 비면 지도에 그리지 않음
+
+
+class SortApplyIn(BaseModel):
+    new_places: list[SortPlace] = []
+    picks: list[SortPick]
+
+
+@app.post("/api/projects/{name}/atlas/sort/apply")
+def atlas_sort_apply(name: str, body: SortApplyIn) -> dict:
+    """고른 위치 글을 한 번에 잇고, 고른 글이 쓰는 새 장소는 인과율 '장소'로 등록한다."""
+    p = _load(name)
+    done = atlas.apply_sort(p, [(NewPlace(**x.model_dump(exclude={"first_ep"})), x.first_ep) for x in body.new_places],
+                            [(x.text, x.place, x.new_place) for x in body.picks])
+    return {**done, "project": _save(name, p)}
 
 
 class MapImageIn(BaseModel):

@@ -3,7 +3,7 @@
 모든 상태는 하나의 Project 객체(project.json)에 저장된다.
 LLM 이 직접 채우는 모델(SetupSuggestion, StyleProfile, ArcPlan, PlotBatch, PlotRevision, NameOptions, StateDelta, ConsistencyReport,
 ImpactReport, SeriesPlan, ArcProposal, Recap, StorylineProposal, SerialConversion,
-PassageRevision, SerialRebuild, Rework, HookReport, OpeningPlots, IllustDraft, LookSuggestion)은
+PassageRevision, SerialRebuild, Rework, HookReport, OpeningPlots, IllustDraft, LookSuggestion, PlaceSort)은
 Gemini 구조화 출력에 그대로 넘기므로 dict 타입 필드를 쓰지 않는다.
 """
 from __future__ import annotations
@@ -357,6 +357,21 @@ class NewPlace(BaseModel):
 
 NEW_PLACE_DESC = ("장소 목록, 이야기 요소, 새 장소 후보에 없는 지형 · 마을 · 건물 · 가게 등이 이 플롯에 이름을 갖고 새로 나올 때만. "
                   "플롯 글에 쓴 이름 그대로. 이름 없는 길이나 방은 넣지 않는다")
+
+
+class PlaceGuess(BaseModel):
+    """장소와 맞지 않은 인물 위치 글 하나를 어디에 이을지 (지도 화면의 'AI로 한 번에 정리')."""
+    text: str = Field(description="받은 위치 글 그대로")
+    place: str = Field("", description="이 글이 가리키는 [장소 목록]의 이름 그대로. 새 장소나 그리지 않음이면 비운다")
+    new_place: str = Field("", description="장소 목록에 없는 곳이면 new_places 에 넣은 이름 그대로")
+    skip: bool = Field(False, description="이동 중, 알 수 없음, 꿈속처럼 지도의 한 곳으로 그릴 수 없으면 true")
+    note: str = Field("", description="애매할 때만 한 줄: 왜 그렇게 봤는지")
+
+
+class PlaceSort(BaseModel):
+    """위치 글 묶음을 장소에 맞춘 제안. 저장하지 않고 작가가 골라 적용한다 (atlas.apply_sort)."""
+    matches: list[PlaceGuess] = Field(default_factory=list)
+    new_places: list[NewPlace] = Field(default_factory=list, description="여러 위치 글이 가리키는데 장소 목록에 없는 곳만. 방 하나, 길 위 같은 곳은 넣지 않는다")
 
 
 class PlotBatch(BaseModel):

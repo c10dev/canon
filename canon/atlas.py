@@ -11,11 +11,12 @@ from __future__ import annotations
 
 from typing import Optional
 
-from . import cast, naming
-from .schema import MapPin, PlaceLink, Project
+from . import cast, elements, naming
+from .schema import MapPin, NewPlace, PlaceLink, PlaceSort, Project
 
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
 IMAGE_LIMIT = 15 * 1024 * 1024
+SORT_CHUNK = 60  # AI 정리 한 번에 보낼 위치 글 수
 
 
 def places(p: Project) -> list[dict]:
@@ -154,6 +155,73 @@ def prune(p: Project) -> None:
     keys = {pl["key"] for pl in places(p)}
     p.atlas.pins = [pin for pin in p.atlas.pins if pin.place in keys]
     p.atlas.links = [ln for ln in p.atlas.links if not ln.place or ln.place in keys]
+
+
+# ---------- 맞지 않은 위치 글 한 번에 정리 (AI 제안은 pipeline.sort_places) ----------
+
+def place_by_name(name: str, pls: list[dict]) -> str:
+    """이름이나 다른 이름이 같은(띄어쓰기 무시) 장소 키. 없으면 빈 문자열."""
+    k = naming.place_key(name.strip())
+    if len(k) < 2:
+        return ""
+    return next((pl["key"] for pl in pls if any(naming.place_key(t) == k for t in [pl["name"], *pl["aliases"]])), "")
+
+
+def clean_sort(p: Project, items: list[dict], outs: list[PlaceSort]) -> dict:
+    """AI 제안을 화면에 보일 모양으로. 장소 이름은 키로 바꾸고, 이미 있는 이름의 새 장소는 그 장소로 돌린다.
+    rows: 위치 글마다 {text, characters, episodes, place(키), new_place(이름), skip, note}.
+    new_places: 실제로 쓰인 새 장소만, first_ep(그 장소로 이은 위치 글이 처음 나온 화)를 붙여서."""
+    pls = places(p)
+    guesses = {g.text.strip(): g for s in outs for g in s.matches}
+    new: dict[str, NewPlace] = {}
+    for s in outs:
+        for x in s.new_places:
+            k = naming.place_key(x.name.strip())
+            if len(k) >= 2 and k not in new and not place_by_name(x.name, pls):
+                new[k] = x.model_copy(update={"name": x.name.strip(), "description": x.description.strip(), "kind": x.kind.strip()})
+    rows, first = [], {}
+    for it in items:
+        g = guesses.get(it["text"])
+        place = place_by_name(g.place, pls) if g and g.place.strip() else ""
+        newp = ""
+        if not place and g and g.new_place.strip():
+            place = place_by_name(g.new_place, pls)
+            k = naming.place_key(g.new_place.strip())
+            if not place and len(k) >= 2:
+                new.setdefault(k, NewPlace(name=g.new_place.strip()))  # new_places 에 빠뜨린 이름
+                newp = new[k].name
+                eps = [n for n in it["episodes"] if n] or [0]
+                first[k] = min(first.get(k, eps[0]), *eps)
+        rows.append({**it, "place": place, "new_place": newp, "skip": bool(g and g.skip and not place and not newp),
+                     "note": g.note.strip() if g else ""})
+    return {"rows": rows, "new_places": [{**x.model_dump(), "first_ep": first[k]} for k, x in new.items() if k in first]}
+
+
+def apply_sort(p: Project, new_places: list[tuple[NewPlace, int]], picks: list[tuple[str, str, str]]) -> dict:
+    """작가가 고른 정리를 적용한다. new_places: (새 장소, 처음 나온 화). 고른 위치 글이 쓰는 것만 '장소' 요소로 등록한다.
+    picks: (위치 글, 장소 키, 새 장소 이름). 장소 키와 새 장소 이름이 모두 비면 '지도에 그리지 않음'."""
+    wanted = {naming.place_key(nw) for _, _, nw in picks if nw.strip()}
+    added = []
+    for x, n in new_places:
+        if naming.place_key(x.name) in wanted:
+            added += elements.add_places(p, [x], max(0, n), "본문")
+    pls = places(p)
+    keys = {pl["key"] for pl in pls}
+    linked = 0
+    for text, place, nw in picks:
+        if nw.strip():
+            place = place_by_name(nw, pls)
+            if not place:
+                raise ValueError(f"새 장소를 찾지 못했어요: {nw}")
+        elif place and place not in keys:
+            raise ValueError(f"장소를 찾지 못했어요: {place}")
+        t = text.strip()
+        if not t:
+            continue
+        p.atlas.links = [ln for ln in p.atlas.links if ln.text.strip() != t]
+        p.atlas.links.append(PlaceLink(text=t, place=place))
+        linked += 1
+    return {"added": added, "linked": linked}
 
 
 # ---------- 명령줄 ----------
