@@ -1,0 +1,189 @@
+"""지도: 장소를 지도 위에 놓고, 화별 인물 위치를 재생한다. LLM 을 부르지 않는다.
+
+장소는 따로 정의하지 않는다. 설정의 장소 칸(world.locations)과 인과율 '장소' 요소가 장소이고,
+지도(Project.atlas)는 그 위에 자리(pins), 배경 그림, 위치 글 잇기(links)만 더한다.
+인물 위치는 상태 변경안이 적은 CharacterState.location 글을 화별 상태(cast.walk)에서 읽어 장소 이름과 맞춘다.
+'하르덴에서 벨라 항구로 가는 길'처럼 두 곳이 나오면 뒤에 나온 곳을 지금 자리로, 앞의 곳을 거쳐 온 곳으로 본다.
+
+화면은 canon/static/atlas.js, 명령줄은 `map`.
+"""
+from __future__ import annotations
+
+from typing import Optional
+
+from . import cast, naming
+from .schema import MapPin, PlaceLink, Project
+
+IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
+IMAGE_LIMIT = 15 * 1024 * 1024
+
+
+def places(p: Project) -> list[dict]:
+    """지도에 놓을 수 있는 장소. 인과율 장소 요소 먼저, 그다음 요소와 겹치지 않는 설정 장소 칸.
+    known_from 은 독자가 이 장소를 아는 화(0 이면 처음부터): 생긴 화, 처음 나온 화, 드러나는 화 중 가장 늦은 것."""
+    out, seen = [], set()
+    for el in p.elements:
+        if el.kind != "장소" or not el.name.strip():
+            continue
+        seen |= {naming.place_key(t) for t in [el.name, *el.aliases] if t.strip()}
+        out.append({"key": el.id, "name": el.name.strip(), "aliases": [a for a in el.aliases if a.strip()],
+                    "description": el.description, "since_ep": el.since_ep, "found_ep": el.found_ep,
+                    "reveal_ep": el.reveal_ep, "known_from": max(el.since_ep, el.found_ep, el.reveal_ep, 0), "source": "요소"})
+    for raw in p.world.locations:
+        name = naming.place_base(raw)
+        k = naming.place_key(name)
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        desc = raw.strip()[len(name):].strip().lstrip(":：-–—,").strip()
+        out.append({"key": "w:" + name, "name": name, "aliases": [], "description": desc, "since_ep": 0,
+                    "found_ep": 0, "reveal_ep": 0, "known_from": 0, "source": "설정"})
+    return out
+
+
+def match(p: Project, text: str, pls: Optional[list[dict]] = None) -> list[str]:
+    """위치 글에 나오는 장소 키를 글 순서대로. 작가가 이어 둔 글(atlas.links)이 먼저다.
+    띄어쓰기는 무시하고, 다른 장소 이름 안에 든 짧은 이름(하르덴 왕궁 안의 하르덴)은 뺀다."""
+    t = text.strip()
+    if not t:
+        return []
+    link = next((ln for ln in p.atlas.links if ln.text.strip() == t), None)
+    if link is not None:
+        return [link.place] if link.place else []
+    key = naming.place_key(t)
+    hits = []
+    for pl in pls if pls is not None else places(p):
+        for term in [pl["name"], *pl["aliases"]]:
+            k = naming.place_key(term)
+            i = key.find(k) if len(k) >= 2 else -1
+            if i >= 0:
+                hits.append((i, i + len(k), pl["key"]))
+    inner = lambda h: any(o[0] <= h[0] and h[1] <= o[1] and o[1] - o[0] > h[1] - h[0] for o in hits)  # noqa: E731
+    out: list[str] = []
+    for _, _, pk in sorted(h for h in hits if not inner(h)):
+        if pk not in out:
+            out.append(pk)
+    return out
+
+
+def mentions(text: str, pls: list[dict]) -> list[str]:
+    """본문이나 플롯 글에 이름이 나오는 장소 키."""
+    return [pl["key"] for pl in pls if any(len(term.strip()) >= 2 and term.strip() in text for term in [pl["name"], *pl["aliases"]])]
+
+
+def frames(p: Project, pls: Optional[list[dict]] = None) -> list[dict]:
+    """화별 인물 자리. 0 은 1화 시작 전, n 은 n화 반영 뒤 (인물 · 관계도 화면과 같은 시점).
+    rows: 인물마다 위치 글, 맞춘 장소(place), 거쳐 온 곳(via), 앞 시점과 장소가 바뀌었는지(moved).
+    mentioned: n화 본문(없으면 플롯)에 이름이 나온 장소."""
+    pls = pls if pls is not None else places(p)
+    out, prev = [], {}
+    for n, sim in cast.walk(p):
+        rows = []
+        for s in sim.states:
+            loc = s.location.strip()
+            keys = match(p, loc, pls)
+            at = keys[-1] if keys else ""
+            before = prev.get(s.character_id, "")
+            rows.append({"cid": s.character_id, "location": loc, "place": at, "via": keys[:-1],
+                         "moved": bool(at and before and before != at)})
+            if at:
+                prev[s.character_id] = at
+        e = p.episode(n) if n else None
+        text = (e.text or "\n".join([e.plot.title, e.plot.summary, *e.plot.events])) if e else ""
+        out.append({"episode": n, "rows": rows, "mentioned": mentions(text, pls) if text else []})
+    return out
+
+
+def unmatched(p: Project, fs: list[dict]) -> list[dict]:
+    """어느 장소와도 맞지 않은 위치 글 (작가가 '그리지 않음'으로 이은 글은 뺀다). 처음 나온 화 순."""
+    linked = {ln.text.strip() for ln in p.atlas.links}
+    seen: dict[str, dict] = {}
+    for f in fs:
+        for r in f["rows"]:
+            if not r["location"] or r["place"] or r["location"] in linked:
+                continue
+            x = seen.setdefault(r["location"], {"text": r["location"], "episodes": [], "characters": []})
+            if f["episode"] not in x["episodes"]:
+                x["episodes"].append(f["episode"])
+            if r["cid"] not in x["characters"]:
+                x["characters"].append(r["cid"])
+    return list(seen.values())
+
+
+def summary(p: Project) -> dict:
+    """지도 화면 한 번에 필요한 계산값."""
+    pls = places(p)
+    pins = {pin.place: [pin.x, pin.y] for pin in p.atlas.pins}
+    for pl in pls:
+        pl["pin"] = pins.get(pl["key"])
+    fs = frames(p, pls)
+    return {"places": pls, "frames": fs, "unmatched": unmatched(p, fs), "image": p.atlas.image,
+            "aspect": p.atlas.aspect, "links": [ln.model_dump() for ln in p.atlas.links]}
+
+
+# ---------- 작가가 고치기 ----------
+
+def _clamp(v: float) -> float:
+    return min(1.0, max(0.0, float(v)))
+
+
+def set_pins(p: Project, pins: list[MapPin]) -> None:
+    """장소 자리를 통째로 바꾼다. 없는 장소와 겹친 자리는 뺀다 (뒤에 온 것이 이긴다)."""
+    keys = {pl["key"] for pl in places(p)}
+    out: dict[str, MapPin] = {}
+    for pin in pins:
+        if pin.place in keys:
+            out[pin.place] = MapPin(place=pin.place, x=_clamp(pin.x), y=_clamp(pin.y))
+    p.atlas.pins = list(out.values())
+
+
+def set_link(p: Project, text: str, place: Optional[str]) -> None:
+    """위치 글 하나를 장소에 잇는다. place 가 None 이면 잇기를 지우고, 빈 문자열이면 '지도에 그리지 않음'."""
+    t = text.strip()
+    if not t:
+        raise ValueError("위치 글이 비어 있어요")
+    if place and place not in {pl["key"] for pl in places(p)}:
+        raise ValueError(f"장소를 찾지 못했어요: {place}")
+    p.atlas.links = [ln for ln in p.atlas.links if ln.text.strip() != t]
+    if place is not None:
+        p.atlas.links.append(PlaceLink(text=t, place=place))
+
+
+def prune(p: Project) -> None:
+    """지워진 장소의 자리와 잇기를 정리한다 (지도 화면을 저장할 때)."""
+    keys = {pl["key"] for pl in places(p)}
+    p.atlas.pins = [pin for pin in p.atlas.pins if pin.place in keys]
+    p.atlas.links = [ln for ln in p.atlas.links if not ln.place or ln.place in keys]
+
+
+# ---------- 명령줄 ----------
+
+def describe(p: Project) -> str:
+    """명령줄 `map <작품>`: 장소(지도에 놓았는지), 인물별 옮겨 다닌 길, 장소와 맞지 않은 위치 글."""
+    s = summary(p)
+    pls = {pl["key"]: pl for pl in s["places"]}
+    if not pls:
+        return "장소가 아직 없어요. 설정의 장소 칸이나 인과율 '장소'에 더하면 지도에 놓을 수 있어요."
+    lines = ["장소"]
+    for pl in s["places"]:
+        when = f" · {pl['known_from']}화부터 독자가 앎" if pl["known_from"] else ""
+        lines.append(f"  {pl['name']} ({pl['source']}){when}{'' if pl['pin'] else ' · 지도에 아직 안 놓음'}")
+    name = {c.id: c.name or c.id for c in p.characters}
+    walks: dict[str, list[str]] = {}
+    for f in s["frames"]:
+        for r in f["rows"]:
+            path = walks.setdefault(r["cid"], [])
+            last = path[-1].split(" ", 1)[1] if path else ""
+            here = pls[r["place"]]["name"] if r["place"] else (f"'{r['location']}'" if r["location"] else "")
+            if here and here != last:
+                path.append(f"{f['episode'] or '시작'}{'화' if f['episode'] else ''} {here}")
+    if walks:
+        lines.append("\n인물이 있던 곳 (반영한 화 기준, 바뀐 화만)")
+        for cid, path in walks.items():
+            if path:
+                lines.append(f"  {name.get(cid, cid)}: " + " → ".join(path))
+    if s["unmatched"]:
+        lines.append("\n장소와 맞지 않은 위치 글 (웹 지도 화면에서 장소에 이을 수 있어요)")
+        for u in s["unmatched"]:
+            lines.append(f"  '{u['text']}' · {', '.join(name.get(c, c) for c in u['characters'])} · {', '.join(f'{n}화' if n else '시작' for n in u['episodes'])}")
+    return "\n".join(lines)
