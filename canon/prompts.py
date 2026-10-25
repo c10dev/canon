@@ -2246,3 +2246,54 @@ def look_prompt(p: Project, cid: str) -> str:
 - 태그는 Danbooru 식 영어 소문자, 낱말 사이는 띄어쓰기, 원소 하나에 태그 하나입니다. 이름, 인물 수(1girl), 품질 태그는 넣지 않습니다.
 - 설정에 없는 외형은 나이, 성격, 배경에 어울리게 정하되 흔한 조합(silver hair, red eyes)으로 몰지 않습니다.
 - note 에는 설정에서 태그로 옮기기 어려웠던 것이나 새로 정한 것을 한국어 한두 문장으로 적습니다."""
+
+
+# ---------- 지도: 장소와 맞지 않은 위치 글 정리 ----------
+
+SYSTEM_PLACE_SORTER = (
+    "당신은 연재 소설의 설정 관리 담당 편집자입니다. 상태 기록에 적힌 인물 위치 글이 작품의 어느 장소를 가리키는지 "
+    "작품 설정과 화별 요약만 근거로 정리합니다. 근거가 없으면 짐작해 잇지 않습니다."
+)
+
+
+def place_sort_prompt(p: Project, items: list[dict], places: list[dict]) -> str:
+    """items: atlas.unmatched 의 {text, characters, episodes}. places: atlas.places."""
+    name = {c.id: c.name or c.id for c in p.characters}
+    eps = sorted({n for it in items for n in it["episodes"] if n})
+    summaries = []
+    for n in eps:
+        e = p.episode(n) if any(x.plot.number == n for x in p.episodes) else None
+        s = (e.summary or e.plot.summary).strip() if e else ""
+        if s:
+            summaries.append(f"{n}화: {s[:160]}")
+    place_lines = []
+    for pl in places:
+        alias = f" (다른 이름: {', '.join(pl['aliases'])})" if pl["aliases"] else ""
+        desc = f": {pl['description'][:80]}" if pl["description"] else ""
+        place_lines.append(f"- {pl['name']}{alias}{desc}")
+    rows = []
+    for i, it in enumerate(items, 1):
+        who = ", ".join(name.get(c, c) for c in it["characters"])
+        when = ", ".join(f"{n}화" if n else "시작" for n in it["episodes"][:6]) + (" 등" if len(it["episodes"]) > 6 else "")
+        rows.append(f"{i}. {it['text']} — {who} · {when}")
+    return f"""인물 위치 글마다 작품의 어느 장소인지 정해 주세요. 지도에 인물을 그리는 데 씁니다.
+
+# 작품
+제목: {p.meta.title}
+배경: {p.world.setting} / 시대: {p.world.era}
+
+# 장소 목록
+{chr(10).join(place_lines) or "(아직 없음)"}
+
+# 화별 요약
+{chr(10).join(summaries) or "(없음)"}
+
+# 위치 글 (글 — 그 위치에 있던 인물 · 화)
+{chr(10).join(rows)}
+
+요구사항:
+- 위치 글마다 matches 에 하나씩, text 는 받은 글 그대로 씁니다.
+- '서재', '2층 복도', '기숙사 방'처럼 장소 안의 한 곳이면 그곳을 품은 장소를 place 에 [장소 목록]의 이름 그대로 씁니다. 화별 요약과 인물로 어디인지 알 수 있을 때만 잇습니다.
+- 장소 목록에 없는 곳을 여러 위치 글이 가리키거나 이야기에서 중요한 곳이면 new_places 에 하나만 넣고 그 글들의 new_place 에 같은 이름을 씁니다. 이름은 위치 글에 나온 이름을 그대로 쓰고 지어내지 않습니다. 방 하나, 길 위, '집'처럼 이름 없는 곳은 새 장소로 만들지 말고 품은 장소에 잇거나 비웁니다.
+- 옮겨 가는 중이면 가는 곳에 잇습니다. 꿈속, 회상 속, 알 수 없는 곳처럼 지도의 한 곳으로 그릴 수 없으면 skip 을 true 로 둡니다.
+- 정할 근거가 없으면 place, new_place 를 비우고 skip 도 false 로 둡니다. 작가가 직접 고릅니다."""

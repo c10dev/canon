@@ -18,6 +18,8 @@ from .schema import (
     Direction,
     PlantedContradiction,
     PlantSet,
+    PlaceGuess,
+    PlaceSort,
     EpisodePlot,
     NewPlace,
     Foreshadow,
@@ -457,6 +459,20 @@ class MockLLM:
             return NameOptions(options=[NameOption(name=x, reason="후보 중 인물과 시대에 맞는 이름") for x in names])  # type: ignore[return-value]
         if schema is IllustDraft:
             return _illust(hint)  # type: ignore[return-value]
+        if schema is PlaceSort:
+            out, new = [], []
+            for t in hint.get("texts", []):
+                at = next((pl for pl in hint.get("places", []) if pl[:2] in t), "")
+                if at:
+                    out.append(PlaceGuess(text=t, place=at))
+                elif "모를" in t or "가는" in t:
+                    out.append(PlaceGuess(text=t, skip=True, note="한 곳으로 그릴 수 없어요"))
+                else:
+                    name = t.split()[0]
+                    out.append(PlaceGuess(text=t, new_place=name))
+                    if name not in [x.name for x in new]:
+                        new.append(NewPlace(name=name, kind="건물", description="위치 글에서 나온 곳"))
+            return PlaceSort(matches=out, new_places=new)  # type: ignore[return-value]
         if schema is LookSuggestion:
             return LookSuggestion(subject="girl", look=["Black_hair", "short hair", "brown eyes", "teenage"], outfit=["school uniform"],
                                   note="설정에 눈 색이 없어 갈색으로 정했어요.")  # type: ignore[return-value]

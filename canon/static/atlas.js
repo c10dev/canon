@@ -14,6 +14,8 @@ Object.assign(S, {
   atlasPick: '',     // 지도에 놓으려고 고른 장소 키
   atlasSel: '',      // 자세히 보는 장소 키
   atlasFocus: '',    // 길을 굵게 볼 인물 id
+  atlasDraft: {},    // 맞지 않은 위치 글마다 고른 장소 (atlasDraft())
+  atlasNew: [],      // AI가 제안한 새 장소 (적용할 때 고른 글이 쓰는 것만 등록)
 });
 
 const ATLAS_W = 1000;
@@ -31,7 +33,7 @@ async function atlasLoad() {
   S.atlas = await api('GET', `/projects/${enc(S.name)}/atlas`).catch((e) => ({ error: e.message, frames: [], places: [], unmatched: [] }));
   S.atlas.name = S.name;
   if (!same || wasLast || S.atlasFrame >= S.atlas.frames.length) S.atlasFrame = Math.max(0, S.atlas.frames.length - 1);
-  if (!same) { S.atlasPick = ''; S.atlasSel = ''; S.atlasFocus = ''; }
+  if (!same) { S.atlasPick = ''; S.atlasSel = ''; S.atlasFocus = ''; S.atlasDraft = {}; S.atlasNew = []; }
 }
 
 function atlasStop() {
@@ -199,19 +201,72 @@ function atlasBackground() {
       ${S.atlas.image ? '<button type="button" class="btn small ghost" data-action="atlasDropImage">그림 지우기</button>' : ''}</div></div>`;
 }
 
+// ----- 장소와 맞지 않은 위치: 골라서 한 번에 잇기, AI 제안 -----
+
+/** 위치 글마다 고른 값. v: 장소 키 | '-'(그리지 않음) | 'new:이름'(AI가 제안한 새 장소), on: 적용할 글 */
+function atlasDraft(text) {
+  S.atlasDraft = S.atlasDraft || {};
+  return S.atlasDraft[text] || (S.atlasDraft[text] = { v: '', on: false });
+}
+
+function atlasPicked() {
+  const list = S.atlas.unmatched || [];
+  return list.filter((u) => { const d = atlasDraft(u.text); return d.on && d.v; });
+}
+
 function atlasUnmatched() {
   const list = S.atlas.unmatched || [];
   const links = S.atlas.links || [];
   if (!list.length && !links.length) return '';
-  const opts = (sel) => `<option value="">장소 고르기</option>${(S.atlas.places || []).map((pl) => `<option value="${esc(pl.key)}"${sel === pl.key ? ' selected' : ''}>${esc(pl.name)}</option>`).join('')}<option value="-">지도에 그리지 않음</option>`;
-  const rows = list.map((u, i) => `<div class="at-um">
-      <div><strong>${esc(u.text)}</strong><div class="small">${u.characters.map((c) => esc(charName(c))).join(', ')} · ${u.episodes.map((n) => (n ? n + '화' : '시작')).join(', ')}</div></div>
-      <div class="row"><select id="at-um-${i}" aria-label="${esc(u.text)} 장소">${opts('')}</select><button type="button" class="btn small" data-action="atlasLink" data-arg="${i}">잇기</button></div></div>`).join('');
+  const fresh = (S.atlasNew || []).filter((x) => list.some((u) => atlasDraft(u.text).v === 'new:' + x.name));
+  const opts = (sel) => `<option value="">장소 고르기</option>${(S.atlas.places || []).map((pl) => `<option value="${esc(pl.key)}"${sel === pl.key ? ' selected' : ''}>${esc(pl.name)}</option>`).join('')}`
+    + fresh.map((x) => `<option value="${esc('new:' + x.name)}"${sel === 'new:' + x.name ? ' selected' : ''}>새 장소: ${esc(x.name)}</option>`).join('')
+    + `<option value="-"${sel === '-' ? ' selected' : ''}>지도에 그리지 않음</option>`;
+  const rows = list.map((u, i) => {
+    const d = atlasDraft(u.text);
+    return `<div class="at-um${d.on ? ' on' : ''}">
+      <input type="checkbox" data-at-on="${i}" aria-label="${esc(u.text)} 고르기"${d.on ? ' checked' : ''}>
+      <div class="at-um-text"><strong>${esc(u.text)}</strong><div class="small">${u.characters.map((c) => esc(charName(c))).join(', ')} · ${u.episodes.map((n) => (n ? n + '화' : '시작')).join(', ')}</div>
+        ${d.note ? `<div class="small at-um-note">AI: ${esc(d.note)}</div>` : ''}</div>
+      <select data-at-um="${i}" aria-label="${esc(u.text)} 장소">${opts(d.v)}</select></div>`;
+  }).join('');
   const done = links.map((ln, i) => `<li>${esc(ln.text)} → ${ln.place ? esc((atlasPlace(ln.place) || { name: ln.place }).name) : '지도에 그리지 않음'} <button type="button" class="btn small ghost" data-action="atlasUnlink" data-arg="${i}">풀기</button></li>`).join('');
-  return `<section class="card"><h2>장소와 맞지 않은 위치 (${list.length})</h2>
-    <div class="small">상태 변경안이 적은 인물 위치에 장소 이름이 없으면 지도에 그리지 못해요. 장소에 이어 두면 같은 글은 다음부터 그 장소로 그려요. 새 장소라면 인과율에서 '장소'로 더하세요.</div>
-    ${rows}
+  const picked = atlasPicked().length;
+  const all = list.length && list.every((u) => atlasDraft(u.text).on);
+  const newBox = fresh.length ? `<div class="at-box"><h3>함께 등록할 새 장소 (${fresh.length})</h3>
+      <div class="small">고른 위치 글이 이 장소를 쓰면 적용할 때 인과율 '장소'로 등록해요. 이름이나 설명은 인과율에서 고칠 수 있어요.</div>
+      <ul class="at-list">${fresh.map((x) => `<li><strong>${esc(x.name)}</strong>${x.kind ? ` · ${esc(x.kind)}` : ''}${x.description ? ` · ${esc(x.description)}` : ''} <span class="small">(${x.first_ep ? x.first_ep + '화부터' : '처음부터'})</span></li>`).join('')}</ul></div>` : '';
+  return `<section class="card" id="at-unmatched"><h2>장소와 맞지 않은 위치 (${list.length})</h2>
+    <div class="small">상태 변경안이 적은 인물 위치에 장소 이름이 없으면 지도에 그리지 못해요. 장소에 이어 두면 같은 글은 다음부터 그 장소로 그려요.</div>
+    ${list.length ? `<div class="row"><button type="button" class="btn primary" data-action="atlasSort">AI로 한 번에 정리</button>
+      <span class="small">AI가 화별 요약을 보고 위치 글마다 장소를 골라 채워요. 없는 장소는 새 장소로 제안해요. 확인하고 고른 것만 적용해요.</span></div>
+    ${newBox}
+    <div class="at-um-bar">
+      <label><input type="checkbox" data-at-all${all ? ' checked' : ''}> 모두 고르기</label>
+      <span class="row">고른 글의 장소를 <select id="at-um-bulk" aria-label="고른 위치 글을 이을 장소">${opts('')}</select><button type="button" class="btn small" data-action="atlasBulk">바꾸기</button></span>
+      <button type="button" class="btn primary" data-action="atlasApply" id="at-um-apply"${picked ? '' : ' disabled'}>고른 ${picked}개 적용</button>
+    </div>
+    <div class="at-um-list">${rows}</div>` : ''}
     ${links.length ? `<details><summary class="small">이어 둔 위치 글 (${links.length})</summary><ul class="at-list">${done}</ul></details>` : ''}</section>`;
+}
+
+/** 고른 수만 다시 쓴다 (목록을 다시 그리면 굴린 자리를 잃는다) */
+function atlasPickCount() {
+  const b = $('#at-um-apply');
+  if (!b) return;
+  const n = atlasPicked().length;
+  b.textContent = `고른 ${n}개 적용`;
+  b.disabled = !n;
+}
+
+function atlasRerenderUnmatched() {
+  const el = $('#at-unmatched');
+  if (!el) { render(); return; }
+  const list = el.querySelector('.at-um-list');
+  const top = list ? list.scrollTop : 0;
+  el.outerHTML = atlasUnmatched();
+  const again = document.querySelector('#at-unmatched .at-um-list');
+  if (again) again.scrollTop = top;
 }
 
 // ----- 어디에 있었나 표 -----
@@ -399,15 +454,50 @@ Object.assign(actions, {
     const pl = atlasPlace(key);
     await atlasSavePins(atlasPins().filter((x) => x.place !== key), `'${pl ? pl.name : key}'을(를) 지도에서 뺐어요`);
   },
-  async atlasLink(i) {
-    const u = S.atlas.unmatched[Number(i)];
-    const v = $(`#at-um-${i}`).value;
-    if (!u || !v) { toast('이을 장소를 고르세요', true); return; }
+  async atlasSort() {
+    const list = S.atlas.unmatched || [];
+    await run(`AI가 위치 글 ${list.length}개를 정리하는 중`, async () => {
+      await saveIfDirty();
+      const r = await api('POST', `/projects/${enc(S.name)}/atlas/sort`, {});
+      S.atlasNew = r.new_places || [];
+      let filled = 0;
+      for (const row of r.rows || []) {
+        const v = row.place || (row.new_place ? 'new:' + row.new_place : row.skip ? '-' : '');
+        const d = atlasDraft(row.text);
+        d.note = row.note || '';
+        if (!v || d.v) continue;  // 작가가 이미 고른 글은 덮지 않는다
+        d.v = v;
+        d.on = true;
+        filled++;
+      }
+      const empty = list.filter((u) => !atlasDraft(u.text).v).length;
+      toast(filled ? `${filled}개를 채웠어요. 확인하고 '적용'을 누르세요${empty ? `. ${empty}개는 AI가 정하지 못했어요` : ''}` : 'AI가 새로 채운 위치 글이 없어요', !filled);
+    });
+  },
+  atlasBulk() {
+    const v = $('#at-um-bulk').value;
+    if (!v) { toast('바꿀 장소를 고르세요', true); return; }
+    const sel = (S.atlas.unmatched || []).filter((u) => atlasDraft(u.text).on);
+    if (!sel.length) { toast('먼저 위치 글을 고르세요', true); return; }
+    sel.forEach((u) => { atlasDraft(u.text).v = v; });
+    atlasRerenderUnmatched();
+  },
+  async atlasApply() {
+    const picks = atlasPicked().map((u) => {
+      const v = atlasDraft(u.text).v;
+      return { text: u.text, place: v === '-' || v.startsWith('new:') ? '' : v, new_place: v.startsWith('new:') ? v.slice(4) : '' };
+    });
+    if (!picks.length) return;
+    const used = new Set(picks.map((x) => x.new_place).filter(Boolean));
+    const fresh = (S.atlasNew || []).filter((x) => used.has(x.name));
     await run('잇는 중', async () => {
       await saveIfDirty();
-      S.project = await api('PUT', `/projects/${enc(S.name)}/atlas/links`, { text: u.text, place: v === '-' ? '' : v });
+      const r = await api('POST', `/projects/${enc(S.name)}/atlas/sort/apply`, { picks, new_places: fresh });
+      S.project = r.project;
+      picks.forEach((x) => { delete S.atlasDraft[x.text]; });
+      S.atlasNew = (S.atlasNew || []).filter((x) => !used.has(x.name));
       await atlasLoad();
-      toast(v === '-' ? '지도에 그리지 않을 위치로 뒀어요' : '장소에 이었어요');
+      toast(`${r.linked}개를 이었어요${r.added.length ? ` · 새 장소 ${r.added.length}곳을 등록했어요 (지도에 놓아 주세요)` : ''}`);
     });
   },
   async atlasUnlink(i) {
@@ -440,6 +530,29 @@ document.addEventListener('input', (e) => {
 
 document.addEventListener('change', async (e) => {
   const t = e.target;
+  if (t.matches('[data-at-um]')) {
+    const u = S.atlas.unmatched[Number(t.dataset.atUm)];
+    const d = atlasDraft(u.text);
+    d.v = t.value;
+    d.on = !!t.value;
+    const box = t.closest('.at-um');
+    box.classList.toggle('on', d.on);
+    box.querySelector('[data-at-on]').checked = d.on;
+    atlasPickCount();
+    return;
+  }
+  if (t.matches('[data-at-on]')) {
+    const d = atlasDraft(S.atlas.unmatched[Number(t.dataset.atOn)].text);
+    d.on = t.checked;
+    t.closest('.at-um').classList.toggle('on', d.on);
+    atlasPickCount();
+    return;
+  }
+  if (t.matches('[data-at-all]')) {
+    (S.atlas.unmatched || []).forEach((u) => { atlasDraft(u.text).on = t.checked; });
+    atlasRerenderUnmatched();
+    return;
+  }
   if (t.matches('[data-atlas-opt]')) {
     S[t.dataset.atlasOpt] = t.checked;
     if (S.atlasTab === 'table') render(); else atlasRefresh();
@@ -587,9 +700,18 @@ document.addEventListener('keydown', (e) => {
 .at-map .at-tok { cursor: pointer; }
 .at-map .at-tok circle { stroke: var(--surface); stroke-width: 2.5; }
 .at-map .at-tok text { font-size: 12px; font-weight: 700; fill: #fff; pointer-events: none; }
-.at-um { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line); }
-.at-um .row { flex-wrap: nowrap; }
-.at-um select { max-width: 200px; }
+.at-um-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 0.8125rem; }
+.at-um-bar label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.at-um-bar .row { flex-wrap: nowrap; gap: 6px; white-space: nowrap; }
+.at-um-bar .btn { flex: none; white-space: nowrap; }
+.at-um-bar select { min-width: 0; }
+.at-um-bar #at-um-apply { margin-left: auto; }
+.at-um-bar select, .at-um select { max-width: 200px; }
+.at-um-list { max-height: 60vh; overflow-y: auto; }
+.at-um { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid var(--line); }
+.at-um.on { background: var(--accent-soft); }
+.at-um-note { color: var(--muted); }
+@media (max-width: 600px) { .at-um { grid-template-columns: auto minmax(0, 1fr); } .at-um select { grid-column: 2; max-width: 100%; } .at-um-bar #at-um-apply { margin-left: 0; } }
 .at-table-wrap { overflow-x: auto; }
 .at-table { border-collapse: collapse; font-size: 0.75rem; }
 .at-table th, .at-table td { padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; text-align: left; }

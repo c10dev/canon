@@ -25,6 +25,7 @@ from .schema import (
     Illustration,
     ImpactReport,
     LookSuggestion,
+    PlaceSort,
     VoiceSuggestion,
     NameOptions,
     OpeningPlots,
@@ -2329,6 +2330,26 @@ def suggest_voice(llm: LLM, p: Project, cid: str, request: str = "") -> VoiceSug
     s = llm.json(prompts.SYSTEM_VOICE, prompts.voice_prompt(p, cid, request), VoiceSuggestion, hint={"character": cid})
     s.voice = s.voice.strip()
     return s
+
+
+def sort_places(llm: LLM, p: Project, texts: list[str] | None = None) -> dict:
+    """장소와 맞지 않은 인물 위치 글을 AI 가 장소에 맞춘 제안 (atlas.clean_sort 모양). 저장하지 않는다.
+    texts 를 주면 그 글만. 많으면 atlas.SORT_CHUNK 개씩 나눠 부른다."""
+    from . import atlas
+
+    pls = atlas.places(p)
+    items = atlas.unmatched(p, atlas.frames(p, pls))
+    if texts is not None:
+        want = {t.strip() for t in texts}
+        items = [it for it in items if it["text"] in want]
+    if not items:
+        raise ValueError("장소와 맞지 않은 위치 글이 없어요")
+    outs = []
+    for i in range(0, len(items), atlas.SORT_CHUNK):
+        part = items[i:i + atlas.SORT_CHUNK]
+        outs.append(llm.json(prompts.SYSTEM_PLACE_SORTER, prompts.place_sort_prompt(p, part, pls), PlaceSort,
+                             hint={"texts": [it["text"] for it in part], "places": [pl["name"] for pl in pls]}))
+    return atlas.clean_sort(p, items, outs)
 
 
 def suggest_look(llm: LLM, p: Project, cid: str) -> LookSuggestion:
