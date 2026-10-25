@@ -1570,7 +1570,7 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--note", help="AI 에게 바라는 것")
     sp = add("revise", cmd_revise, "message")
     sp.add_argument("--arc", type=int, help="장편: 고칠 아크 번호 (비우면 본문이 없는 첫 아크)")
-    sp.add_argument("--next", action="store_true", help="장편: 다음 아크를 대화로 짜기 (반영하면 바로 아크로 붙임)")
+    sp.add_argument("--next", action="store_true", help="장편: 다음 아크를 대화로 짜기 (적용하면 바로 아크로 붙여요)")
     sp.add_argument("--options", action="store_true", help="변경안 대신 서로 다른 방향 2~3개 받기")
     sp = add("pov", cmd_pov, yes=False)
     sp.add_argument("range", nargs="?", help="화 범위 (예: 6-12, 7). 비우면 전체")
