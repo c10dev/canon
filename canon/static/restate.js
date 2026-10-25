@@ -2,7 +2,7 @@
    passage.js 의 textNow 를 그대로 쓴다.
    반영이 끝난 화도 본문을 고칠 수 있다. 반영된 요약 · 인물 상태 · 관계 · 복선은 그대로 두고(뒤 화가 그 위에 쌓였다),
    서버가 처음 고치기 전 본문을 Episode.final_text 에 남긴다. 작가는 '그대로 두기'를 고르거나, 고친 본문에서 변경안을 다시 뽑아
-   요약 · 새 사실 · 새 복선만 골라 반영한다 (pipeline.apply_restate). 인물 상태 · 관계까지 바꾸려면 그 화부터 반영을 취소한다. */
+   요약 · 새 사실 · 새 복선 · 새 장소만 골라 반영한다 (pipeline.apply_restate). 인물 상태 · 관계까지 바꾸려면 그 화부터 반영을 취소한다. */
 'use strict';
 
 Object.assign(S, {
@@ -16,7 +16,7 @@ const editedAfterFinal = (e) => !!e && e.status === 'finalized' && !!e.final_tex
 /** n화 뒤에 본문이 있는 화. 고치기 전 n화를 이어 쓴 화들이다. */
 const laterWritten = (n) => P().episodes.filter((x) => x.plot.number > n && x.text).map((x) => x.plot.number).sort((a, b) => a - b);
 
-/** 고친 본문에서 다시 뽑은 변경안 중 이미 있는 것을 뺀 새 사실 · 새 복선. */
+/** 고친 본문에서 다시 뽑은 변경안 중 이미 있는 것을 뺀 새 사실 · 새 복선 · 새 장소 (장소는 서버가 이미 있는 이름을 뺐다). */
 function rsItems(n) {
   const d = S.deltas[n];
   const facts = new Set(P().facts);
@@ -24,13 +24,14 @@ function rsItems(n) {
   return {
     facts: d.new_facts.map((f, i) => ({ f, i })).filter((x) => x.f.trim() && !facts.has(x.f)),
     plants: d.foreshadow_planted.map((f, i) => ({ f, i })).filter((x) => !fs.has(x.f.id)),
+    places: (d.new_places || []).map((f, i) => ({ f, i })),
   };
 }
 
 function rsPicks(n) {
   if (S.rsFor[n] !== S.deltas[n]) {
     const it = rsItems(n);
-    S.rsPick[n] = { sum: true, ...Object.fromEntries(it.facts.map((x) => ['f' + x.i, true])), ...Object.fromEntries(it.plants.map((x) => ['p' + x.i, true])) };
+    S.rsPick[n] = { sum: true, ...Object.fromEntries([...it.facts.map((x) => 'f' + x.i), ...it.plants.map((x) => 'p' + x.i), ...it.places.map((x) => 'l' + x.i)].map((k) => [k, true])) };
     S.rsFor[n] = S.deltas[n];
   }
   return S.rsPick[n];
@@ -55,7 +56,7 @@ function restateCard(n) {
   if (!editedAfterFinal(e)) return '';
   const d = S.deltas[n];
   const later = laterWritten(n);
-  const intro = `<p class="desc">${n}화는 반영한 뒤 본문을 고쳤어요. 인물 상태 · 관계 · 비밀은 ${later.length ? `뒤 화(${rangeText(later)}화)가 그 위에 쌓아서 ` : ''}여기서 바꾸지 않아요. 고친 본문에서 변경안을 다시 뽑아 요약 · 새 사실 · 새 복선만 골라 반영할 수 있어요. 인물 상태까지 바꿔야 하면 아래 '${n}화부터 반영 취소'를 쓰세요.</p>`;
+  const intro = `<p class="desc">${n}화는 반영한 뒤 본문을 고쳤어요. 인물 상태 · 관계 · 비밀은 ${later.length ? `뒤 화(${rangeText(later)}화)가 그 위에 쌓아서 ` : ''}여기서 바꾸지 않아요. 고친 본문에서 변경안을 다시 뽑아 요약 · 새 사실 · 새 복선 · 새 장소만 골라 반영할 수 있어요. 인물 상태까지 바꿔야 하면 아래 '${n}화부터 반영 취소'를 쓰세요.</p>`;
   if (!d) {
     return `<section class="card"><h2>고친 본문으로 다시 맞추기</h2>${intro}
       <div class="row">${((b) => `<button class="btn primary" data-action="restateEp" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '고친 본문에서 다시 뽑기'))}
@@ -73,6 +74,7 @@ function restateCard(n) {
       <textarea rows="4" data-rs-summary="${n}" aria-label="${n}화 새 요약">${esc(d.summary)}</textarea></div>
     <div class="field"><span class="small">새 사실 ${it.facts.length}</span>${it.facts.length ? it.facts.map((x) => box('f' + x.i, esc(x.f))).join('') : '<div class="small">새로 나온 사실이 없어요.</div>'}</div>
     <div class="field"><span class="small">새 복선 ${it.plants.length}</span>${it.plants.length ? it.plants.map((x) => box('p' + x.i, `심음: ${esc(x.f.description)}`)).join('') : '<div class="small">새로 심은 복선이 없어요.</div>'}</div>
+    ${it.places.length ? `<div class="field"><span class="small">새 장소 ${it.places.length}</span>${it.places.map((x) => box('l' + x.i, placeLabel(x.f))).join('')}</div>` : ''}
     ${skipped.length ? `<div class="note plain">반영하지 않는 항목: ${skipped.join(', ')}. 뒤 화가 이미 그 상태로 쓰였어요.</div>` : ''}
     ${(d.warnings || []).length ? `<div class="note warn">${d.warnings.map(esc).join('<br>')}</div>` : ''}
     <div class="row">${((b) => `<button class="btn" data-action="restateEp" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '다시 뽑기'))}<button class="btn" data-action="dropDelta" data-arg="${n}">버리기</button></div>
@@ -110,12 +112,13 @@ Object.assign(actions, {
       summary: pk.sum ? d.summary : '',
       new_facts: d.new_facts.filter((_, i) => pk['f' + i]),
       foreshadow_planted: d.foreshadow_planted.filter((_, i) => pk['p' + i]),
+      new_places: (d.new_places || []).filter((_, i) => pk['l' + i]),
     };
     return run('반영하는 중', async () => {
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/restate`, body);
       delete S.deltas[n];
       delete S.deltaBase[n];
-      const what = [pk.sum && d.summary.trim() ? '요약' : '', body.new_facts.length ? `새 사실 ${body.new_facts.length}건` : '', body.foreshadow_planted.length ? `새 복선 ${body.foreshadow_planted.length}건` : ''].filter(Boolean);
+      const what = [pk.sum && d.summary.trim() ? '요약' : '', body.new_facts.length ? `새 사실 ${body.new_facts.length}건` : '', body.foreshadow_planted.length ? `새 복선 ${body.foreshadow_planted.length}건` : '', body.new_places.length ? `새 장소 ${body.new_places.length}곳` : ''].filter(Boolean);
       toast(what.length ? `${n}화 ${what.join(', ')}을 반영했어요` : `${n}화 반영 뒤 고침 표시를 지웠어요`);
     });
   },

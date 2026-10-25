@@ -414,6 +414,11 @@ def apply_plots(p: Project, batch: PlotBatch) -> None:
         applied.append(plot)
     p.episodes = [by_no[k] for k in sorted(by_no)]
     add_candidates(p, clean_new_characters(p, batch.new_characters, applied))
+    elements.add_place_candidates(p, batch.new_places, plots_text(applied))
+
+
+def plots_text(plots: list[EpisodePlot]) -> str:
+    return "\n".join(elements.plot_text(Episode(plot=x)) for x in plots)
 
 
 # ---------- 3'. 플롯이 데려온 새 인물 ----------
@@ -440,10 +445,11 @@ def add_candidates(p: Project, chars: list[Character]) -> None:
 
 
 def sync_candidates(p: Project) -> None:
-    """등록됐거나 이제 어느 화 플롯에도 나오지 않는 후보는 지운다."""
+    """등록됐거나 이제 어느 화 플롯에도 나오지 않는 인물 · 장소 후보는 지운다."""
     known = {c.id for c in p.characters}
     used = {c for e in p.episodes for c in e.plot.characters}
     p.cast_candidates = [c for c in p.cast_candidates if c.id not in known and c.id in used]
+    elements.sync_place_candidates(p)
 
 
 def register_candidates(p: Project, ids: list[str] | None = None, episode: int | None = None) -> list[str]:
@@ -463,11 +469,12 @@ def register_candidates(p: Project, ids: list[str] | None = None, episode: int |
 
 
 def confirm_plot(p: Project, n: int) -> list[str]:
-    """초안 화를 확정한다. 그 화에 나오는 새 인물 후보도 함께 등록하고, 등록한 id 를 돌려준다."""
+    """초안 화를 확정한다. 그 화에 나오는 새 인물 후보와 새 장소 후보도 함께 등록하고, 등록한 인물 id 를 돌려준다."""
     ep = p.episode(n)
     if ep.status != "draft":
         return []
     ep.status = "confirmed"
+    elements.register_place_candidates(p, n)
     return register_candidates(p, episode=n)
 
 
@@ -1255,6 +1262,7 @@ def clean_revision(p: Project, rev: PlotRevision) -> PlotRevision:
         keep.append(e)
     rev.episodes = sorted(keep, key=lambda e: e.number)
     rev.new_characters = clean_new_characters(p, rev.new_characters, rev.episodes)
+    rev.new_places, _ = elements.clean_places(p, rev.new_places, plots_text(rev.episodes))
     if notes:
         rev.reply = rev.reply.rstrip() + "\n\n※ " + " ".join(notes)
     return rev
@@ -1317,6 +1325,7 @@ def apply_revision(p: Project, rev: PlotRevision, acts: bool, episodes: list[int
         applied.append(str(n))
     p.episodes = [by_no[k] for k in sorted(by_no)]
     add_candidates(p, clean_new_characters(p, rev.new_characters, list(picked.values())))
+    elements.add_place_candidates(p, rev.new_places, plots_text(list(picked.values())))
     for e in p.episodes:
         act = p.act_for(e.plot.number)
         if act and e.status not in LOCKED:
@@ -2357,8 +2366,16 @@ def extract_state(llm: LLM, p: Project, n: int) -> StateDelta:
     delta = llm.json(prompts.SYSTEM_EDITOR, prompts.state_prompt(p, n), StateDelta,
                      hint={"episode": n, "stats": statwin.enabled(p)})
     delta.episode = n
-    foreshadows.clean_delta(p, delta)
+    clean_delta(p, delta)
     return delta
+
+
+def clean_delta(p: Project, d: StateDelta) -> None:
+    """AI 나 채팅 앱이 낸 상태 변경안 정리: 복선 문장을 본문에 맞추고(foreshadows.clean_delta),
+    새 장소는 본문에 나오고 아직 없는 것만 남기고 이미 있는 장소와 비슷한 이름은 경고로 알린다."""
+    foreshadows.clean_delta(p, d)
+    d.new_places, warns = elements.clean_places(p, d.new_places, p.episode(d.episode).text)
+    d.warnings += [w for w in warns if w not in d.warnings]
 
 
 def apply_delta(p: Project, d: StateDelta) -> None:
@@ -2367,6 +2384,7 @@ def apply_delta(p: Project, d: StateDelta) -> None:
     ep.summary = d.summary
     ep.status, ep.final_text = "finalized", ""
     _add_characters(p, d.new_characters, d.episode)
+    elements.add_places(p, d.new_places, d.episode, "본문")
     ep.auto = False  # 자동 집필은 반영한 뒤 True 로 표시한다
 
     for upd in d.character_updates:
@@ -2452,6 +2470,7 @@ def revert(p: Project, n: int) -> None:
         p.characters = [c for c in p.characters if c.id not in added]
         have = {c.id for c in p.cast_candidates}
         p.cast_candidates += [c for c in back if c.id not in have]
+    elements.unregister_places(p, n)  # 뒤 반영이 본문에서 등록한 장소
     p.states = [s.model_copy(deep=True) for s in snap.states]
     p.relationships = [r.model_copy(deep=True) for r in snap.relationships]
     p.ties = [t.model_copy(deep=True) for t in snap.ties]
@@ -2471,10 +2490,10 @@ def revert(p: Project, n: int) -> None:
 
 # ---------- 6-1. 반영 뒤 고친 화 다시 맞추기 ----------
 # 반영이 끝난 화의 본문을 고쳐도 반영된 상태는 그대로 둔다 (뒤 화가 그 위에 쌓였다). 고친 본문에서 변경안을 다시 뽑아
-# 뒤 화의 전제를 흔들지 않는 것(요약, 새 사실, 새 복선)만 골라 더한다. 인물 상태 · 관계 · 비밀까지 바꾸려면 그 화부터 반영을 취소한다.
+# 뒤 화의 전제를 흔들지 않는 것(요약, 새 사실, 새 복선, 새 장소)만 골라 더한다. 인물 상태 · 관계 · 비밀까지 바꾸려면 그 화부터 반영을 취소한다.
 
 def apply_restate(p: Project, d: StateDelta) -> dict:
-    """반영 뒤 고친 화에 요약 · 새 사실 · 새 복선만 반영한다. 그 화와 뒤 화의 스냅샷 · 반영 기록에도 넣어 되돌리기와 맞춘다."""
+    """반영 뒤 고친 화에 요약 · 새 사실 · 새 복선 · 새 장소만 반영한다. 그 화와 뒤 화의 스냅샷 · 반영 기록에도 넣어 되돌리기와 맞춘다."""
     n = d.episode
     ep = p.episode(n)
     if ep.status != "finalized":
@@ -2487,6 +2506,8 @@ def apply_restate(p: Project, d: StateDelta) -> dict:
         ep.summary = summary
     p.facts += facts
     p.foreshadows += plants
+    added = elements.add_places(p, d.new_places, n, "본문")
+    places = [x for x in d.new_places if x.name.strip() in added]
     for snap in p.snapshots:
         if snap.episode >= n:
             snap.facts += [f for f in facts if f not in snap.facts]
@@ -2496,8 +2517,9 @@ def apply_restate(p: Project, d: StateDelta) -> dict:
         rec.summary = summary or rec.summary
         rec.new_facts += facts
         rec.foreshadow_planted += [f.model_copy(deep=True) for f in plants]
+        rec.new_places += [x.model_copy(deep=True) for x in places]
     ep.final_text = ""
-    return {"summary": bool(summary), "facts": len(facts), "foreshadows": len(plants)}
+    return {"summary": bool(summary), "facts": len(facts), "foreshadows": len(plants), "places": len(places)}
 
 
 def keep_state(p: Project, n: int) -> None:

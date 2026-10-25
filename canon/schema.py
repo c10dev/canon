@@ -347,9 +347,22 @@ NEW_CAST_DESC = ("인물 목록에 없는 새 인물이 이 플롯에 꼭 필요
                  "그 화의 characters 에 이 id 를 넣는다. 이미 있는 인물은 넣지 않는다. 조연은 support, 지나가는 인물은 minor")
 
 
+class NewPlace(BaseModel):
+    """본문이나 플롯에 이름을 갖고 처음 나온 장소. 등록하면 인과율 '장소' 요소가 된다 (elements.add_places)."""
+    name: str = Field(description="본문이나 플롯에 쓴 그대로의 이름")
+    kind: str = Field("", description="종류 한 단어 (마을, 산, 강, 고개, 숲, 건물, 가게, 학교, 문파 등)")
+    description: str = Field("", description="드러난 것만 한 줄: 어디에 있고 어떤 곳인지")
+    aliases: list[str] = Field(default_factory=list, description="같은 곳을 달리 부른 이름")
+
+
+NEW_PLACE_DESC = ("장소 목록, 이야기 요소, 새 장소 후보에 없는 지형 · 마을 · 건물 · 가게 등이 이 플롯에 이름을 갖고 새로 나올 때만. "
+                  "플롯 글에 쓴 이름 그대로. 이름 없는 길이나 방은 넣지 않는다")
+
+
 class PlotBatch(BaseModel):
     episodes: list[EpisodePlot]
     new_characters: list[Character] = Field(default_factory=list, description=NEW_CAST_DESC)
+    new_places: list[NewPlace] = Field(default_factory=list, description=NEW_PLACE_DESC)
 
 
 class OpeningOption(BaseModel):
@@ -541,6 +554,7 @@ class PlotRevision(BaseModel):
     acts: list[Act] = Field(default_factory=list, description="구조를 바꿀 때만 네 구간 모두. 바꾸지 않으면 빈 목록")
     episodes: list[EpisodePlot] = Field(default_factory=list, description="바뀌는 화만, 모든 칸을 채운 전체 플롯")
     new_characters: list[Character] = Field(default_factory=list, description=NEW_CAST_DESC)
+    new_places: list[NewPlace] = Field(default_factory=list, description=NEW_PLACE_DESC)
 
 
 class PassageCandidate(BaseModel):
@@ -765,6 +779,7 @@ class StateDelta(BaseModel):
     foreshadow_resolved: list[str] = Field(default_factory=list, description="회수된 복선 id")
     foreshadow_clues: list[ForeshadowClue] = Field(default_factory=list, description="복선 근거 문장: 새로 심은 복선, 다시 떠올린 열린 복선, 회수한 복선마다 본문 문장 그대로")
     new_characters: list[Character] = Field(default_factory=list, description="인물 설정에 없는데 이번 화에 이름을 갖고 처음 나온 인물. 조연은 support, 지나가는 인물은 minor")
+    new_places: list[NewPlace] = Field(default_factory=list, description="장소 목록과 이야기 요소에 없는데 이번 화에 이름을 갖고 처음 나온 장소 (지형, 마을, 건물, 가게 등)")
     warnings: list[str] = Field(default_factory=list, description="플롯, 설정, 말투와 어긋난 부분")
 
 
@@ -832,6 +847,8 @@ class StoryElement(BaseModel):
     created_at: str = ""
     added_after: int = Field(0, description="더할 때 본문이 있던 마지막 화. 0 이면 연재 전에 더함")
     impact: Optional[ElementImpact] = None
+    found_in: Literal["", "본문", "플롯"] = Field("", description="본문(상태 반영)이나 플롯(화 확정)에서 처음 나와 등록된 장소. 비면 작가가 더한 요소")
+    found_ep: int = Field(0, description="처음 나와 등록된 화")
 
 
 class SetupSuggestion(BaseModel):
@@ -940,6 +957,8 @@ class Project(BaseModel):
     characters: list[Character] = Field(default_factory=list)
     cast_candidates: list[Character] = Field(
         default_factory=list, description="AI 플롯이 제안한 새 인물. 작가가 등록하거나 그 인물이 나오는 화를 확정하면 characters 로 옮긴다")
+    place_candidates: list[NewPlace] = Field(
+        default_factory=list, description="AI 플롯이 지은 새 장소. 그 장소가 나오는 화를 확정하면 인과율 '장소' 요소로 옮긴다")
     relationships: list[Relationship] = Field(default_factory=list)
     style: StyleProfile = Field(default_factory=StyleProfile)
     style_baseline: Optional[StyleMetrics] = Field(None, description="레퍼런스 원문 전체로 잰 문체 지표 (style 명령 때 저장)")

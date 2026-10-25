@@ -78,11 +78,12 @@ def move_points(p: Project, f: Point, gone: int = 0) -> dict[str, int]:
         fs.due_ep = f(fs.due_ep) if fs.due_ep else fs.due_ep
         count["foreshadows"] += before != (fs.planted_ep, fs.payoff_ep, fs.due_ep)
     for el in p.elements:
-        before = (el.since_ep, list(el.episodes), el.reveal_ep)
+        before = (el.since_ep, list(el.episodes), el.reveal_ep, el.found_ep)
         el.since_ep = f(el.since_ep)
         el.episodes = sorted({f(x) for x in el.episodes})
         el.reveal_ep = f(el.reveal_ep)
-        count["elements"] += before != (el.since_ep, el.episodes, el.reveal_ep)
+        el.found_ep = f(el.found_ep)
+        count["elements"] += before != (el.since_ep, el.episodes, el.reveal_ep, el.found_ep)
         if el.impact:
             rep = el.impact.report
             for c in rep.conflicts:

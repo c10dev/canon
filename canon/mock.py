@@ -17,6 +17,7 @@ from .schema import (
     PlantedContradiction,
     PlantSet,
     EpisodePlot,
+    NewPlace,
     Foreshadow,
     ForeshadowClue,
     HookItem,
@@ -183,6 +184,7 @@ def _rebuild(hint: dict) -> SerialRebuild:
 
 
 NEW_CAST_EP = 2  # 플롯 초안이 새 인물 후보를 데려오는 화
+NEW_PLACE = NewPlace(name="물새집", kind="여관", description="항구 뒤 골목의 낡은 여관")  # 그 화에 함께 나오는 새 장소
 NEW_CAST = Character(id="innkeeper", name="곽노인", role="여관 주인", age="60대", gender="남", tier="minor",
                      personality="말수가 적고 셈이 빠르다", speech_style="짧은 하게체. \"방은 하나 남았네.\"")
 
@@ -373,8 +375,10 @@ class MockLLM:
             new = []
             if hint["start"] <= NEW_CAST_EP <= hint["end"]:  # 새 인물 후보를 시험하도록 한 화에 단역을 데려온다
                 eps[NEW_CAST_EP - hint["start"]].characters.append(NEW_CAST.id)
+                eps[NEW_CAST_EP - hint["start"]].events.append(f"{NEW_PLACE.name}에 묵는다")
                 new = [NEW_CAST]
-            return PlotBatch(episodes=eps, new_characters=new)  # type: ignore[return-value]
+            places = [NEW_PLACE] if new else []
+            return PlotBatch(episodes=eps, new_characters=new, new_places=places)  # type: ignore[return-value]
         if schema is PlotRevision:
             return _revision(hint)  # type: ignore[return-value]
         if schema is StateDelta:

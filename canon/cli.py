@@ -307,6 +307,10 @@ def _print_candidates(p) -> None:
         eps = [e.plot.number for e in p.episodes if c.id in e.plot.characters]
         print(f"\n새 인물 후보: {c.name}({c.id}) · {c.role} · {'단역' if c.tier == 'minor' else '조연'} · {', '.join(map(str, eps))}화"
               f"\n  {c.personality or c.goal}  / 말투: {c.speech_style}\n  그 화를 확정하면 인물로 등록돼요. 빼려면 플롯의 등장 인물에서 지우세요")
+    for x in p.place_candidates:
+        eps = [e.plot.number for e in p.episodes if elements.mentioned(x, elements.plot_text(e))]
+        print(f"\n새 장소 후보: {x.name}{f' ({x.kind})' if x.kind else ''} · {', '.join(map(str, eps))}화\n  {x.description}"
+              "\n  그 화를 확정하면 인과율에 장소로 등록돼요. 빼려면 플롯에서 이름을 지우세요")
 
 
 def _act_pov(act) -> str:
@@ -364,6 +368,8 @@ def cmd_revise(a: argparse.Namespace) -> None:
         print(f"\n{e.number}화{mark} {e.title}\n  {e.summary}\n  사건: {' / '.join(e.events)}\n  훅: {e.ending_hook}{_plot_pov(e)}")
     for c in rev.new_characters:
         print(f"\n새 인물: {c.name}({c.id}) · {c.role} · {'단역' if c.tier == 'minor' else '조연'}  / 말투: {c.speech_style}")
+    for x in rev.new_places:
+        print(f"\n새 장소: {x.name}{f' ({x.kind})' if x.kind else ''}  {x.description}")
     if msg.revision and confirm("이 변경안을 모두 반영할까요? (확정된 화는 초안으로 돌아가요)", a.yes):
         msg.applied = pipeline.apply_revision(p, rev, True, [e.number for e in rev.episodes])
         msg.outcome = "applied"
@@ -698,10 +704,13 @@ def cmd_insert(a: argparse.Namespace) -> None:
 def cmd_confirm(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     targets = [e for e in p.episodes if a.which == "all" or e.plot.number == int(a.which)]
+    places = len(p.elements)
     added = [c for e in targets for c in pipeline.confirm_plot(p, e.plot.number)]
     print(f"확정: {[e.plot.number for e in targets]}화")
     if added:
         print(f"새 인물 등록: {', '.join(c.name or c.id for c in p.characters if c.id in added)}")
+    if len(p.elements) > places:
+        print(f"새 장소 등록 (인과율): {', '.join(el.name for el in p.elements[places:])}")
     store.save(a.name, p)
 
 
@@ -914,6 +923,8 @@ def _print_delta(d: StateDelta) -> None:
         print(f"- 복선 회수: {f}")
     for c in d.foreshadow_clues:
         print(f"  · 복선 {c.foreshadow} {'회수' if c.kind == 'payoff' else '심음'} 문장: \"{c.quote}\"")
+    for x in d.new_places:
+        print(f"- 새 장소 {x.name}{f' ({x.kind})' if x.kind else ''}: {x.description}")
     for w in d.warnings:
         print(f"! 경고: {w}")
 
@@ -936,7 +947,7 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
     if from_json:
         delta = StateDelta.model_validate_json(_strip_fence(Path(from_json).read_text(encoding="utf-8")))
         delta.episode = n
-        foreshadows.clean_delta(p, delta)
+        pipeline.clean_delta(p, delta)
     else:
         print(f"{n}화 상태 추출 중...")
         delta = pipeline.extract_state(get_llm("state"), p, n)

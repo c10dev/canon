@@ -28,6 +28,7 @@ BUDGET = {
     "impact_text": 90_000,  # 인과율 영향 분석: 이미 쓴 본문
     "secrets": 2_500,       # 본문 쓰기의 관계 블록에 붙는 숨긴 비밀
     "state_secrets": 6_000,  # 상태 변경안 · 검수의 비밀 목록
+    "places": 3_000,        # 기획 · 검수 · 상태 변경안에 넣는 본문 · 플롯에서 나온 장소
 }
 FACTS_RECENT = 30  # 최근 사실은 예산과 상관없이 넣는다
 CHECK_RECENT = 3  # 검수에 원문 그대로 넣는 직전 화 수
@@ -108,6 +109,21 @@ def query_terms(p: Project, n: int) -> list[str]:
     out = [t for el in elements.for_episode(p, n) for t in elements.terms(el)]
     out += [loc for loc in p.world.locations if loc and loc in plot + e.text]
     return list(dict.fromkeys(out))
+
+
+def pick_places(p: Project, text: str, budget: int) -> tuple[list[str], int]:
+    """이미 있는 장소 이름을 예산(글자)만큼. text 에 나오는 이름 먼저, 그다음 설정 장소 칸, 최근에 처음 나온 곳. (이름들, 뺀 수)"""
+    from . import naming
+
+    names = naming.known_places(p)
+    found = {t: el.found_ep for el in p.elements if el.kind == "장소" for t in [el.name, *el.aliases]}
+    ranked = sorted(names, key=lambda x: (x not in text, found.get(x, 0) > 0, -found.get(x, 0)))
+    out, used = [], 0
+    for x in ranked:
+        if used + len(x) + 2 <= budget:
+            out.append(x)
+            used += len(x) + 2
+    return out, len(names) - len(out)
 
 
 def pick_facts(p: Project, ids: set[str], query: str, budget: int, terms: Iterable[str] = ()) -> tuple[list[str], int]:
