@@ -64,7 +64,7 @@ from . import (autorun, cast, dynamics, elements, genres, illust, library, logli
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 from . import atlas, foreshadows, statwin
-from .schema import StatValue
+from .schema import ArcProposal, ChatScope, StatValue, StoryArc
 
 
 def ask(label: str, default: str = "") -> str:
@@ -275,7 +275,7 @@ def cmd_arc(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     if p.serial:
         sys.exit("장편 연재는 작품 전체 기승전결 대신 부 구성(series)과 아크(nextarc)로 나눠요")
-    plan = pipeline.plan_arc(get_llm("plan"), p)
+    plan = pipeline.plan_arc(get_llm("plan"), p, a.note or "")
     for act in plan.acts:
         print(f"[{act.name}] {act.start_ep}~{act.end_ep}화  목표: {act.goal}  / 전환점: {act.key_turn}{_act_pov(act)}")
     if confirm("이 구조로 확정할까요?", a.yes):
@@ -295,7 +295,7 @@ def cmd_plot(a: argparse.Namespace) -> None:
         print(f"아크 {todo.number} {todo.title} ({start}~{end}화) 플롯을 만들어요")
     else:
         start, end = a.start or 1, a.end or (p.planned_until() if p.serial else p.meta.target_episodes)
-    batch = pipeline.draft_plots(get_llm("plan"), p, start, end)
+    batch = pipeline.draft_plots(get_llm("plan"), p, start, end, a.note or "")
     for e in batch.episodes:
         print(f"\n{e.number}화 [{e.act}] {e.title}\n  {e.summary}\n  사건: {' / '.join(e.events)}\n  훅: {e.ending_hook}{_plot_pov(e)}")
     pipeline.apply_plots(p, batch)
@@ -356,9 +356,22 @@ def cmd_pov(a: argparse.Namespace) -> None:
 
 def cmd_revise(a: argparse.Namespace) -> None:
     p = store.load(a.name)
-    rev = pipeline.revise_plot(get_llm("plan"), p, a.message)
-    msg = pipeline.record_chat(p, "plot", a.message, rev)
+    target = "next" if a.next else f"arc:{a.arc}" if a.arc else ""
+    target, focus = pipeline.chat_target(p, target)
+    scope = ChatScope(target=target, mode="options" if a.options else "")
+    rev = pipeline.revise_plot(get_llm("plan"), p, a.message, scope)
+    msg = pipeline.record_chat(p, "plot", a.message, rev, scope)
     print(rev.reply)
+    for i, o in enumerate(rev.options, 1):
+        print(f"\n{i}안 {o.title}\n  {o.idea}" + "".join(f"\n  - {x}" for x in o.changes) + (f"\n  얻고 잃는 것: {o.tradeoff}" if o.tradeoff else ""))
+    if rev.options:
+        print(f"\n고른 방향으로 다시 청하세요: revise {a.name} \"2안 방향으로 변경안을 만들어 줘\"" + (f" --arc {focus.number}" if focus else " --next" if target == "next" else ""))
+    for x in rev.parts:
+        print(f"\n[부 구성] {x.number}부 {x.title} ({x.start_ep}~{x.end_ep}화)  목표: {x.goal}  / 전환점: {x.key_turn}")
+    if rev.arc.title:
+        print(f"\n[{'다음 아크' if target == 'next' else f'아크 {focus.number} 칸'}] {rev.arc.title}{f' (끝 화 {rev.arc.end_ep}화)' if rev.arc.end_ep else ''}"
+              f"\n  목표: {rev.arc.goal}\n  갈등: {rev.arc.conflict}\n  보상: {rev.arc.payoff}"
+              + (f"\n  주요 인물: {', '.join(rev.arc.cast)}" if rev.arc.cast else "") + (f"\n  회수할 복선: {', '.join(rev.arc.payoffs)}" if rev.arc.payoffs else ""))
     if rev.total_episodes:
         print(f"\n총 화수: {p.meta.target_episodes}화 → {rev.total_episodes}화")
     for act in rev.acts:
@@ -371,11 +384,18 @@ def cmd_revise(a: argparse.Namespace) -> None:
         print(f"\n새 인물: {c.name}({c.id}) · {c.role} · {'단역' if c.tier == 'minor' else '조연'}  / 말투: {c.speech_style}")
     for x in rev.new_places:
         print(f"\n새 장소: {x.name}{f' ({x.kind})' if x.kind else ''}  {x.description}")
-    if msg.revision and confirm("이 변경안을 모두 반영할까요? (확정된 화는 초안으로 돌아가요)", a.yes):
-        msg.applied = pipeline.apply_revision(p, rev, True, [e.number for e in rev.episodes])
+    if msg.revision and rev.has_changes() and confirm("이 변경안을 모두 반영할까요? (확정된 화는 초안으로 돌아가요)", a.yes):
+        msg.applied = pipeline.apply_revision(p, rev, True, [e.number for e in rev.episodes], arc=True, parts=True, target=target)
+        if target == "next" and rev.arc.title:  # 화면은 초안에 두지만 명령줄은 바로 다음 아크로 붙인다
+            fields = rev.arc.model_dump(exclude={"end_ep"})
+            start = pipeline.next_arc_start(p)
+            arc = StoryArc(number=len(p.story_arcs) + 1, start_ep=start, end_ep=rev.arc.end_ep, acts=rev.acts, **fields)
+            pipeline.apply_arc(p, ArcProposal(arc=arc, new_characters=rev.new_characters))
+            msg.applied = ["arc"] + msg.applied
+            _print_arc(arc)
         msg.outcome = "applied"
         _print_candidates(p)
-    elif msg.revision:
+    elif msg.revision and rev.has_changes():
         msg.outcome = "dismissed"
     print(f"저장: {store.save(a.name, p)}")
 
@@ -401,7 +421,7 @@ def _need_serial(p: Project) -> None:
 def cmd_series(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     _need_serial(p)
-    plan = pipeline.plan_series(get_llm("plan"), p)
+    plan = pipeline.plan_series(get_llm("plan"), p, a.note or "")
     for x in plan.parts:
         print(f"\n{x.number}부 {x.title} ({x.start_ep}~{x.end_ep}화)\n  목표: {x.goal}\n  전환점: {x.key_turn}")
         for idea in x.arc_ideas:
@@ -1522,8 +1542,10 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("file", nargs="?")
     sp.add_argument("--library", help="문체 라이브러리 항목 id 를 적용 (파일 대신)")
     sp.add_argument("--save", metavar="이름", help="분석한 문체를 라이브러리에도 저장")
-    add("arc", cmd_arc)
-    add("series", cmd_series)
+    sp = add("arc", cmd_arc)
+    sp.add_argument("--note", help="AI 에게 바라는 것 (예: 3화 안에 첫 반전)")
+    sp = add("series", cmd_series)
+    sp.add_argument("--note", help="AI 에게 바라는 것")
     sp = add("convert", cmd_convert)
     sp.add_argument("--episodes", type=int, help="장편 총 화수")
     sp.add_argument("--ending", choices=["keep", "reopen"], help="keep 닫고 다음 이야기로 / reopen 결말 다시 열기 (비우면 AI 가 고름)")
@@ -1545,7 +1567,11 @@ def main(argv: list[str] | None = None) -> None:
     sp = add("plot", cmd_plot, yes=False)
     sp.add_argument("--from", dest="start", type=int)
     sp.add_argument("--to", dest="end", type=int)
-    add("revise", cmd_revise, "message")
+    sp.add_argument("--note", help="AI 에게 바라는 것")
+    sp = add("revise", cmd_revise, "message")
+    sp.add_argument("--arc", type=int, help="장편: 고칠 아크 번호 (비우면 본문이 없는 첫 아크)")
+    sp.add_argument("--next", action="store_true", help="장편: 다음 아크를 대화로 짜기 (반영하면 바로 아크로 붙임)")
+    sp.add_argument("--options", action="store_true", help="변경안 대신 서로 다른 방향 2~3개 받기")
     sp = add("pov", cmd_pov, yes=False)
     sp.add_argument("range", nargs="?", help="화 범위 (예: 6-12, 7). 비우면 전체")
     sp.add_argument("character", nargs="?", help="시점 인물 id 나 이름")
