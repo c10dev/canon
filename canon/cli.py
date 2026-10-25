@@ -27,6 +27,7 @@
   python -m canon stats 내소설 [3]      문체 지표를 레퍼런스와 비교
   python -m canon foreshadows 내소설     복선 센터: 심은 문장 · 회수한 문장, 회수율, 끊어진 연결
   python -m canon statwin 내소설 hero   상태창 수치와 화별 변화 (--set 레벨=1 로 만들고 고치기)
+  python -m canon map 내소설            지도: 장소, 인물별로 옮겨 다닌 길, 장소와 맞지 않은 위치 글
   python -m canon update 내소설 3       상태 변경안 확인 후 반영
   python -m canon run 내소설            확정된 화를 순서대로 write → check → update
   python -m canon auto 내소설 --to 12 [--batch]   목표 화까지 자동 집필 (정책에 걸리면 멈춤, --resume 으로 이어 가기)
@@ -62,7 +63,7 @@ from . import (autorun, cast, dynamics, elements, genres, illust, library, logli
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
-from . import foreshadows, statwin
+from . import atlas, foreshadows, statwin
 from .schema import StatValue
 
 
@@ -1349,6 +1350,11 @@ def cmd_cast(a: argparse.Namespace) -> None:
     print("\n인물 하나를 자세히 보려면: cast <작품> <인물 id 나 이름>")
 
 
+def cmd_map(a: argparse.Namespace) -> None:
+    """지도 보기: 장소와 지도에 놓았는지, 인물별로 옮겨 다닌 길, 장소와 맞지 않은 위치 글."""
+    print(atlas.describe(store.load(a.name)))
+
+
 def cmd_view(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     p.settings.show_numbers = a.mode == "numbers"
@@ -1688,6 +1694,7 @@ def main(argv: list[str] | None = None) -> None:
     sp = add("cast", cmd_cast, yes=False)
     sp.add_argument("character", nargs="?", help="인물 id 나 이름. 비우면 인물 목록")
     sp.add_argument("--numbers", action="store_true", help="관계를 숫자로")
+    add("map", cmd_map, yes=False)
     sp = add("view", cmd_view, yes=False)
     sp.add_argument("mode", choices=["numbers", "words"])
     sp = add("adjust", cmd_adjust, "source", "target", yes=False)

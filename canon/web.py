@@ -23,8 +23,8 @@ from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (ArcPlan, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
-from . import foreshadows, statwin
-from .schema import StatValue
+from . import atlas, foreshadows, statwin
+from .schema import MapPin, StatValue
 
 STATIC = Path(__file__).parent / "static"
 # 폴더 이름: / \ 와 운영체제가 막는 : * ? " < > | 는 쓸 수 없고, . 으로 시작하지 않는다
@@ -1843,6 +1843,96 @@ def relations(name: str) -> dict:
 def cast_view(name: str) -> dict:
     """인물 화면: 화별 관계 프레임(관계도 재생), 인물별 등장 화와 타임라인 (canon/cast.py)."""
     return cast.summary(_load(name))
+
+
+# ---------- 지도 (canon/atlas.py) ----------
+
+@app.get("/api/projects/{name}/atlas")
+def atlas_view(name: str) -> dict:
+    """지도 화면: 장소와 자리, 화별 인물 자리, 장소와 맞지 않은 위치 글."""
+    return atlas.summary(_load(name))
+
+
+class PinsIn(BaseModel):
+    pins: list[MapPin]
+
+
+@app.put("/api/projects/{name}/atlas/pins")
+def atlas_pins(name: str, body: PinsIn) -> Project:
+    """장소 자리를 통째로 저장한다 (놓기, 끌어 옮기기, 지도에서 빼기)."""
+    p = _load(name)
+    atlas.set_pins(p, body.pins)
+    atlas.prune(p)
+    return _save(name, p)
+
+
+class LinkIn(BaseModel):
+    text: str
+    place: str | None = None  # None 이면 잇기를 지운다, "" 이면 지도에 그리지 않는 위치
+
+
+@app.put("/api/projects/{name}/atlas/links")
+def atlas_link(name: str, body: LinkIn) -> Project:
+    """장소 이름과 맞지 않은 인물 위치 글을 장소에 잇는다."""
+    p = _load(name)
+    atlas.set_link(p, body.text, body.place)
+    return _save(name, p)
+
+
+class MapImageIn(BaseModel):
+    data: str  # data:image/png;base64,...
+    aspect: float  # 그림 가로 / 세로
+
+
+def _map_dir(name: str) -> Path:
+    return store.project_dir(name) / "map"
+
+
+@app.put("/api/projects/{name}/atlas/image")
+def atlas_image_set(name: str, body: MapImageIn) -> Project:
+    """지도 배경 그림을 올린다. 작품 폴더의 map/ 에 파일로 두고 project.json 에는 이름만 적는다."""
+    import base64
+    import time
+
+    m = re.match(r"data:([\w/+.-]+);base64,(.*)$", body.data, re.S)
+    if not m or m.group(1) not in atlas.IMAGE_TYPES:
+        raise ValueError("PNG, JPG, WEBP, GIF 그림만 올릴 수 있어요")
+    raw = base64.b64decode(m.group(2), validate=False)
+    if len(raw) > atlas.IMAGE_LIMIT:
+        raise ValueError(f"그림이 너무 커요. {atlas.IMAGE_LIMIT // (1024 * 1024)}MB 이하로 올리세요")
+    if not 0.1 <= body.aspect <= 10:
+        raise ValueError("그림 비율을 읽지 못했어요")
+    p = _load(name)
+    d = _map_dir(name)
+    d.mkdir(parents=True, exist_ok=True)
+    fname = f"map-{int(time.time())}.{atlas.IMAGE_TYPES[m.group(1)]}"
+    (d / fname).write_bytes(raw)
+    old = p.atlas.image
+    p.atlas.image, p.atlas.aspect = fname, round(body.aspect, 4)
+    out = _save(name, p)
+    if old and old != fname and (d / old).is_file():
+        (d / old).unlink()
+    return out
+
+
+@app.delete("/api/projects/{name}/atlas/image")
+def atlas_image_drop(name: str) -> Project:
+    """배경 그림을 지우고 빈 캔버스로 돌아간다. 장소 자리는 그대로 둔다."""
+    p = _load(name)
+    old, p.atlas.image = p.atlas.image, ""
+    out = _save(name, p)
+    if old and (_map_dir(name) / old).is_file():
+        (_map_dir(name) / old).unlink()
+    return out
+
+
+@app.get("/api/projects/{name}/atlas/image")
+def atlas_image_get(name: str) -> FileResponse:
+    p = _load(name)
+    path = _map_dir(name) / p.atlas.image if p.atlas.image else None
+    if path is None or not path.is_file() or path.parent != _map_dir(name):
+        raise HTTPException(404, "지도 그림이 없어요")
+    return FileResponse(path, headers={"Cache-Control": "private, max-age=86400"})
 
 
 # ---------- 복선 센터 (canon/foreshadows.py) ----------

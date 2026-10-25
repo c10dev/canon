@@ -951,6 +951,29 @@ class Illustration(BaseModel):
 
 # ---------- 전체 프로젝트 ----------
 
+# ---------- 지도 (canon/atlas.py) ----------
+# 장소는 설정의 장소 칸과 인과율 '장소' 요소다. 지도는 그 위에 자리와 배경 그림, 위치 글 잇기만 더한다.
+
+class MapPin(BaseModel):
+    """장소의 지도 위 자리. 0~1 비율 좌표라 배경 그림 크기와 상관없다."""
+    place: str = Field(description="장소 키: 인과율 장소 요소 id, 설정 장소 칸이면 'w:' + 이름")
+    x: float = 0.5
+    y: float = 0.5
+
+
+class PlaceLink(BaseModel):
+    """작가가 정한 '이 위치 글은 이 장소'. 이름으로 맞추지 못한 인물 위치(CharacterState.location)를 잇는다."""
+    text: str
+    place: str = Field("", description="장소 키. 비우면 지도에 그리지 않는 위치 (이동 중, 알 수 없음 등)")
+
+
+class Atlas(BaseModel):
+    image: str = Field("", description="배경 그림 파일 이름 (projects/<작품>/map/ 아래). 비면 빈 캔버스")
+    aspect: float = Field(1.5, description="지도 가로 / 세로. 배경 그림을 올리면 그림 비율")
+    pins: list[MapPin] = Field(default_factory=list)
+    links: list[PlaceLink] = Field(default_factory=list)
+
+
 class Project(BaseModel):
     meta: Meta = Field(default_factory=Meta)
     world: WorldSetting = Field(default_factory=WorldSetting)
@@ -990,6 +1013,7 @@ class Project(BaseModel):
     storylines: list[Storyline] = Field(default_factory=list, description="메인에서 갈라지는 이야기 줄기 (서브플롯, 과거 회상, 외전, 인물 이야기)")
     visuals: list[CharacterVisual] = Field(default_factory=list, description="삽화용 인물 외형 태그")
     illust: IllustSettings = Field(default_factory=IllustSettings, description="삽화 프롬프트 설정")
+    atlas: Atlas = Field(default_factory=Atlas, description="지도: 장소 자리, 배경 그림, 위치 글 잇기")
     # 아래 두 칸은 맨 끝에 둔다. store.save 가 파일 끝만 읽어 디스크 값을 찾는다 (store._saved_mark)
     edit_rev: int = Field(0, description="화면(브라우저 탭)이 저장한 횟수. 오래된 화면이 다른 화면의 저장을 덮지 않게 비교한다 (store.writer)")
     saved_by: str = Field("", description="마지막으로 저장한 화면(브라우저 탭) id")
