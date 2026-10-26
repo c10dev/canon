@@ -102,6 +102,20 @@ def test_remove_last_arc_only_when_draft():
     assert {c.id for c in p.characters} == before - set(added)
 
 
+def test_arc_paying_off_undated_foreshadow_still_saves():
+    """회수 예정 화가 없던 복선을 아크가 회수하면, 되돌리기 기록에 null 이 들어가도 project.json 이 다시 읽혀야 한다."""
+    p = _serial()
+    p.foreshadows.append(Foreshadow(id="fs-x", description="낡은 열쇠", planted_ep=1))
+    prop = pipeline.plan_next_arc(LLM, p)
+    prop.arc.payoffs = ["fs-x"]
+    a = pipeline.apply_arc(p, prop)
+    assert p.foreshadows[-1].due_ep == a.end_ep
+    q = Project.model_validate_json(p.model_dump_json())
+    assert q.arc_undo[0].due_before == [None]
+    pipeline.remove_last_arc(q)
+    assert q.foreshadows[-1].due_ep is None  # 정하지 않았던 대로 돌아간다
+
+
 def test_context_stays_bounded_at_300():
     p = _serial(300)
     sizes = {}

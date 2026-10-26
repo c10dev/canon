@@ -94,7 +94,8 @@ def log_path() -> Path:
 def backend_of(llm: Any) -> Optional[str]:
     """기록할 백엔드 이름. mock 처럼 실제로 부르지 않는 것은 None."""
     name = type(llm).__name__
-    return {"GeminiLLM": "gemini", "LocalLLM": "local", "ClaudeCodeLLM": "claude", "ClaudeAPILLM": "claude-api"}.get(name)
+    return {"GeminiLLM": "gemini", "LocalLLM": "local", "ClaudeCodeLLM": "claude", "ClaudeAPILLM": "claude-api",
+            "LocalJudge": "local"}.get(name)
 
 
 def record(llm: Any, tokens: Optional[dict], started: Optional[float] = None, *, ok: bool = True,
