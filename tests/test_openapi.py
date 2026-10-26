@@ -15,6 +15,15 @@ class OpenAPITest(unittest.TestCase):
         have = make_openapi.OUT.read_text(encoding="utf-8")
         self.assertEqual(have, want, "web.py 가 바뀌었어요. python scripts/make_openapi.py 로 openapi.json 을 다시 만드세요")
 
+    def test_no_null_schema(self):
+        # 생성기는 null 을 읽지 못해 그 칸을 빼고, 앱이 작품을 저장하면 그 칸이 지워진다
+        import json
+        s = json.loads(make_openapi.spec())
+        self.assertNotIn('{"type": "null"}', json.dumps(s))
+        fs = s["components"]["schemas"]["Foreshadow"]
+        self.assertEqual(fs["properties"]["payoff_ep"]["type"], "integer")
+        self.assertNotIn("payoff_ep", fs.get("required", []))
+
     def test_operation_ids_are_function_names(self):
         import json
         ops = [o["operationId"] for p in json.loads(make_openapi.spec())["paths"].values() for o in p.values()]
