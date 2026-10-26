@@ -311,23 +311,39 @@ def recall(p: Project, n: int, query: str, budget: int, skip: set[int], terms: I
     return PassageIndex(p, n, skip).find(query, budget, terms)
 
 
-def related_facts(p: Project, query: str, budget: int) -> list[str]:
-    """query 와 글 조각이 많이 겹치는 확정 사실을 예산만큼, 원래 순서로. 겹치는 것이 없으면 넣지 않는다."""
-    q = grams(query)
+_COUNT = re.compile(r"\d|하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름|일주일|[한두세네]\s?달|"
+                    r"(?:[한두세네]|다섯|여섯|일곱|여덟|아홉|열|스물|서른|마흔|쉰|예순|일흔|여든|아흔)\s?(?:살|해|명|번|시간)")
+
+
+def has_count(text: str) -> bool:
+    """기간 · 나이 · 인원 · 횟수 같은 셈이 들어 있는지. '사흘'과 '일주일'처럼 글 조각은 안 겹쳐도 같은 거리를 묻는 문장을 잇는다."""
+    return bool(_COUNT.search(text))
+
+
+def related_lines(lines: list[str], query: str, budget: int) -> list[str]:
+    """query 와 글 조각이 많이 겹치는 줄을 예산만큼, 원래 순서로. 겹치는 것이 없으면 넣지 않는다.
+    query 에 셈(기간, 나이, 인원)이 있으면 셈이 있는 줄을 한 조각 더 겹친 것으로 본다."""
+    q, count = grams(query), has_count(query)
     scored = []
-    for i, f in enumerate(p.facts):
-        g = grams(f)
+    for i, line in enumerate(lines):
+        g = grams(line)
         hit = len(g & q)
         if hit:
+            hit += count and has_count(line)
             scored.append((hit / math.sqrt(len(g) or 1), i))
     scored.sort(key=lambda x: (-x[0], -x[1]))
     keep, used = [], 0
     for _, i in scored:
-        cost = len(p.facts[i]) + 3
+        cost = len(lines[i]) + 3
         if used + cost <= budget:
             keep.append(i)
             used += cost
-    return [p.facts[i] for i in sorted(keep)]
+    return [lines[i] for i in sorted(keep)]
+
+
+def related_facts(p: Project, query: str, budget: int) -> list[str]:
+    """query 와 겹치는 확정 사실 (related_lines)."""
+    return related_lines(p.facts, query, budget)
 
 
 def characters_by_ids(p: Project, ids: set[str]) -> list[Character]:

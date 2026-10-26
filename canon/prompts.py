@@ -1848,9 +1848,9 @@ SYSTEM_CLAIMS = (
 )
 
 SYSTEM_JUDGE_CHECK = (
-    "당신은 소설 검수용 판단기입니다. 물음의 진술이 자료(앞선 화 발췌, 인물 설정, 확정 사실, 비밀)와 맞는지 고릅니다. "
+    "당신은 소설 검수용 판단기입니다. 물음의 진술이 자료(앞선 화 발췌, 인물 설정, 작품 설정, 확정 사실, 비밀)와 맞는지 고릅니다. "
     "자료에 같은 대상에 대한 다른 내용이 있으면 어긋남, 같은 내용이 있으면 맞음, 자료가 그 대상을 다루지 않으면 없음입니다. "
-    "이름, 숫자, 호칭, 존댓말과 반말, 다친 곳, 물건의 주인, 누가 무엇을 아는지가 다르면 어긋남입니다."
+    "이름, 숫자, 기간(사흘과 일주일), 나이, 호칭, 존댓말과 반말, 다친 곳, 물건의 주인, 누가 무엇을 아는지가 다르면 어긋남입니다."
 )
 
 
@@ -1866,22 +1866,44 @@ def claims_prompt(p: Project, n: int) -> str:
 {ep.text}
 
 요구사항:
-- 견줄 거리가 있는 문장을 고릅니다: 인물의 이름 · 나이 · 외모 · 관계 · 호칭, 몸 상태와 다친 곳, 장소와 거리, 물건과 그 주인, 날짜와 시간 순서, 누가 무엇을 알고 모르는지, 세계관 규칙, 말투(존댓말 · 반말 · 호칭이 드러나는 대사).
+- 견줄 거리가 있는 문장을 고릅니다: 인물의 이름 · 나이 · 외모 · 관계 · 호칭, 몸 상태와 다친 곳, 장소와 거리, 물건과 그 주인, 날짜와 시간 순서, 기간과 횟수(사흘, 일주일, 몇 년 전, 몇 번), 누가 무엇을 알고 모르는지, 세계관 규칙, 말투(존댓말 · 반말 · 호칭이 드러나는 대사).
+- 숫자 · 기간 · 나이 · 인원이 나오는 문장은 빠짐없이 뽑고, claim 에도 그 숫자를 그대로 씁니다.
 - 분위기 묘사, 감정, 이번 화 안에서만 쓰이는 사소한 동작은 뽑지 않습니다.
 - quote 는 본문 문장을 글자 그대로 옮깁니다. 대사면 따옴표까지 옮깁니다.
 - claim 은 그 문장이 단정하는 사실을 짧은 평서문 하나로 씁니다. '그', '그녀' 대신 이름을 씁니다. 말투가 거리면 "서윤이 도현에게 반말을 한다"처럼 씁니다.
 - 본문 순서대로 씁니다."""
 
 
+def setting_lines(p: Project) -> list[str]:
+    """근거로 고를 작품 설정 줄: 세계관(배경, 시대, 규칙, 장소), 인물의 성격 · 배경 · 목표 · 상처 · 변화, 관계 설명. 문장 단위로 나눈다."""
+    out = []
+    w = p.world
+    out += [f"배경: {x}" for x in metrics.sentences(w.setting)]
+    out += [f"시대: {w.era}"] if w.era else []
+    out += [f"규칙: {x}" for x in w.rules if x]
+    out += [f"장소: {x}" for x in w.locations if x]
+    for c in p.characters:
+        for label, v in (("성격", c.personality), ("배경", c.background), ("목표", c.goal), ("상처", c.wound), ("변화", c.arc)):
+            out += [f"{c.name} {label}: {x}" for x in metrics.sentences(v)]
+    names = {c.id: c.name for c in p.characters}
+    out += [f"{names.get(r.a, r.a)}와 {names.get(r.b, r.b)}({r.type}): {x}" for r in p.relationships for x in metrics.sentences(r.description)]
+    return out
+
+
 def claim_evidence(p: Project, n: int, claim: Claim, index: context.PassageIndex, budget: int = TWOSTEP_EVIDENCE) -> str:
-    """진술 하나에 붙일 근거: 진술에 이름이 나온 인물의 설정, 겹치는 확정 사실 · 비밀, 옛 화에서 찾은 단락. LLM 호출 없음."""
+    """진술 하나에 붙일 근거: 진술에 이름이 나온 인물의 설정, 겹치는 작품 설정 줄 · 확정 사실 · 비밀, 옛 화에서 찾은 단락. LLM 호출 없음."""
     text = f"{claim.quote}\n{claim.claim}"
     people = [c for c in p.characters if c.name and c.name in text]
     parts, used = [], 0
     if people:
-        rows = "\n".join(f"- {c.name}: " + " / ".join(x for x in (c.role, c.age, c.appearance, f"말투: {c.speech_style}" if c.speech_style else "") if x)
+        rows = "\n".join(f"- {c.name}: " + " / ".join(x for x in (c.role, c.age, c.gender, c.appearance, f"말투: {c.speech_style}" if c.speech_style else "") if x)
                          for c in people)[: budget // 4]
         parts.append(f"[인물 설정]\n{rows}")
+        used += len(rows)
+    lines = context.related_lines(setting_lines(p), text, budget // 5)
+    if lines:
+        rows = "\n".join("- " + x for x in lines)
+        parts.append(f"[작품 설정]\n{rows}")
         used += len(rows)
     facts = context.related_facts(p, text, budget // 4)
     if facts:
@@ -1895,7 +1917,7 @@ def claim_evidence(p: Project, n: int, claim: Claim, index: context.PassageIndex
             rows = "\n".join(f"- {s.content} (모르는 인물: {', '.join(names.get(x, x) for x in s.hidden_from)})" for s in picked)
             parts.append(f"[비밀]\n{rows}")
             used += len(rows)
-    found = index.find(text, budget - used, [c.name for c in people])
+    found = index.find(text, max(0, budget - used), [c.name for c in people])
     parts += [f"[{m}화 발췌]\n" + "\n…\n".join(paras) for m, paras in found]
     return "\n\n".join(parts) or "자료 없음"
 
@@ -1927,7 +1949,7 @@ def verdict_prompt(p: Project, n: int, items: list[tuple[Claim, str, float]]) ->
 
 위 의심 진술마다 근거 자료와 견줘 실제로 어긋나는 것만 보고하세요.
 - 판단기는 틀릴 수 있습니다. 근거를 직접 읽고 판단합니다. 이야기 안에서 바뀐 까닭이 본문에 있으면 모순이 아닙니다.
-- source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 발췌면 source_episode 는 그 발췌의 화, 인물 설정 · 확정 사실 · 비밀 · 세계관이면 0 입니다.
+- source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 발췌면 source_episode 는 그 발췌의 화, 인물 설정 · 작품 설정 · 확정 사실 · 비밀 · 세계관이면 0 입니다.
 - 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
 - episode 는 {n} 입니다."""
 

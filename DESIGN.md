@@ -310,7 +310,7 @@ AI 는 숫자를 매기지 않고 사건만 뽑는다. 같은 사건은 항상 �
 - **기획 인물**(`context.planning_cast`): 다음 아크 · 이야기 줄기 · 플롯 대화의 관계 블록은 주역, 직전 · 지금 아크 인물, 최근 20화와 이후 플롯에 나온 인물만 본다.
 - **인물 상태**(`state_view`): 알게 된 정보는 최근 20개만.
 - **검수**(`check_prompt(p, n, mode)`, `CHECK_MODES`): 장편 기본은 `budget` 이다. 직전 3화(`CHECK_RECENT`)만 원문, 그 앞은 접은 줄거리, 그리고 옛 화 본문에서 이번 화와 겹치는 단락을 찾아 2.4만 자까지 발췌로 넣는다(`context.recall`: 한글 3글자 조각의 희소도 합을 단락 길이로 누른 점수, 조연 이름 · 이야기 요소 · 장소가 나오면 더한다. LLM 을 부르지 않는다). 사실 · 상태 · 관계 · 비밀은 이번 화 인물 것만. 단편은 예전처럼 `full`(앞선 본문 15만 자까지 원문). 줄인 만큼 놓치는 모순이 없는지는 연구 화면의 검수 시험으로 잰다.
-- **두 걸음 검수**(실험, `pipeline.check_two_step`): 검수 모델은 진술 뽑기(`claims_prompt` → `ClaimSet`)와 의심 판정(`verdict_prompt` → `ConsistencyReport`)만 하고, 그 사이에 판단기(`judge.py`)가 진술마다 근거 묶음(`claim_evidence`, 3천 자: 인물 설정, `context.related_facts`, 비밀, `context.PassageIndex` 로 직전 화까지 찾은 단락)과 견줘 '맞음 / 어긋남 / 없음' 확률을 낸다. 색인은 한 번 만들어 진술마다 쓴다. 판단기는 거르기만 하므로 문턱(`TWOSTEP_FLAG` 0.25)을 낮게 잡아 놓치지 않는 쪽으로 둔다. 연구 화면 검수 시험의 `twostep` 으로만 쓰고, 실제 검수 경로는 시험 결과를 본 뒤 정한다.
+- **두 걸음 검수**(실험, `pipeline.check_two_step`): 검수 모델은 진술 뽑기(`claims_prompt` → `ClaimSet`)와 의심 판정(`verdict_prompt` → `ConsistencyReport`)만 하고, 그 사이에 판단기(`judge.py`)가 진술마다 근거 묶음(`claim_evidence`, 3천 자: 인물 설정, 겹치는 작품 설정 줄 `setting_lines`(세계관 · 인물 배경 · 관계 설명, 기간 · 나이 같은 셈은 `context.has_count` 로 이어 줌), `context.related_facts`, 비밀, `context.PassageIndex` 로 직전 화까지 찾은 단락)과 견줘 '맞음 / 어긋남 / 없음' 확률을 낸다. 색인은 한 번 만들어 진술마다 쓴다. 판단기는 거르기만 하므로 문턱(`TWOSTEP_FLAG` 0.25)을 낮게 잡아 놓치지 않는 쪽으로 둔다. 연구 화면 검수 시험의 `twostep` 으로만 쓰고, 실제 검수 경로는 시험 결과를 본 뒤 정한다.
 - **영향 분석**(`impact_prompt`): 장편은 열린 떡밥 60개, 사실 예산(`impact_facts`), 본문 9만 자, 요약을 기다리는 먼 화는 첫 문장만.
 - **스냅샷**: 장편은 최근 20화(`SNAPSHOT_KEEP`)와 0화, 아크 끝 화 스냅샷만 남긴다.
 

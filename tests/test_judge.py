@@ -125,6 +125,23 @@ class JudgeTest(unittest.TestCase):
         self.assertIn("서윤은 왼손을 다쳤다", ev)  # 겹치는 확정 사실
         self.assertIn("[인물 설정]", ev)
 
+    def test_claim_evidence_brings_setting_lines_with_counts(self):
+        p = Project(meta=Meta(title="t", form="serial"),
+                    characters=[Character(id="a", name="서윤", role="주인공", speech_style="존댓말",
+                                          background="서윤은 사흘 동안 앓아누웠다. 고향은 바닷가다.")],
+                    episodes=[Episode(plot=_plot(1, ["a"]), status="written", text="서윤은 일주일 동안 앓았다.")])
+        p.world.rules = ["마법은 해가 진 뒤에만 쓸 수 있다"]
+        claim = pipeline.ClaimSet.model_validate({"claims": [{"quote": "서윤은 일주일 동안 앓았다.", "claim": "서윤이 일주일 동안 앓았다"}]}).claims[0]
+        ev = prompts.claim_evidence(p, 1, claim, context.PassageIndex(p, 1))
+        self.assertIn("[작품 설정]", ev)
+        self.assertIn("서윤 배경: 서윤은 사흘 동안 앓아누웠다.", ev)
+        self.assertNotIn("마법은", ev)  # 겹치지 않는 설정 줄은 넣지 않는다
+        self.assertTrue(context.has_count("일주일 동안") and context.has_count("열일곱 살") and not context.has_count("바닷가"))
+        # 셈이 있는 진술이면 셈이 있는 줄을 앞세운다
+        self.assertEqual(context.related_lines(["서윤은 바닷가에서 자랐다", "서윤은 사흘 앓았다"], "서윤은 일주일", 20),
+                         ["서윤은 사흘 앓았다"])
+        self.assertIn("기간과 횟수", prompts.claims_prompt(p, 1))
+
     def test_two_step_without_flags_skips_verdict(self):
         p = Project(meta=Meta(title="t"), episodes=[Episode(plot=_plot(1), status="written",
                                                             text="바람이 불었다. 비가 왔다.")])
