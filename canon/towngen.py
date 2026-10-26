@@ -16,7 +16,7 @@ from . import geom
 from .geom import Point, Poly
 from .schema import MapSpec
 
-VERSION = 2  # 2: 바닷가 마을을 해안에 붙이고 바다로 가는 길 · 부두, 물가 장소를 물가에
+VERSION = 3  # 2: 바닷가 마을을 해안에 붙이고 바다로 가는 길 · 부두, 물가 장소를 물가에. 3: 숲 덩어리 · 생울타리 · 과수원, 길로 자른 큰 밭, 등대는 바다에만
 GENERATOR = "canon-village"
 
 SIZES = {"small": (25, 320), "medium": (60, 440), "large": (120, 600)}  # 목표 집 수, 영역 세로(m)
@@ -515,10 +515,11 @@ def _village(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
         if sp.get("lot") is not None:
             sp["at"] = geom.centroid(sp["lot"]["houses"][0])
 
-    # 밭 · 풀밭
-    fields, greens = _fields(spec, rng("fields"), w, h, c, reach, water, roads, lot_grid, squares)
-    field_grid = geom.Grid(40)
-    for poly in fields + greens:
+    # 밭 · 풀밭 (숲이 될 곳은 비운다)
+    forest = geom.Noise(rng("forest"))
+    fields, greens, edge_trees = _fields(spec, rng("fields"), w, h, c, reach, water, roads, lot_grid, squares, forest)
+    field_grid = geom.Grid(40)  # 나무가 들어서지 않는 밭 (풀밭에는 과수원 · 외딴 나무가 선다)
+    for poly in fields:
         field_grid.add(geom.bbox(poly), poly)
     for sp in spots:
         if sp["kind"] == "field" and sp.get("at") is None:
@@ -528,7 +529,7 @@ def _village(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
                 missing.append({"key": sp["key"], "name": sp["name"], "reason": "밭이 없어요. 밭을 늘려 보세요"})
 
     # 나무
-    trees = _trees(spec, rng("trees"), w, h, water, roads, lot_grid, field_grid, squares)
+    trees = _trees(spec, rng("trees"), w, h, water, roads, lot_grid, field_grid, squares, forest, edge_trees)
     for sp in spots:
         if sp["kind"] == "forest" and sp.get("at") is None:
             if trees:
@@ -741,6 +742,9 @@ def _place_spots(places: list[dict], lots: list[dict], roads: _Roads, water: _Wa
             pick = min(cand, key=near_water) if shore else max(cand, key=lambda lot: lot["dist"])
         elif kind == "shore":
             word = pl.get("word", "")
+            if word in LIGHT_WORDS and sea_dir is None:  # 등대는 바다에만 선다
+                missing.append({"key": sp["key"], "name": sp["name"], "reason": "바다가 없어요. 물을 바다로 바꿔 보세요"})
+                continue
             if word in LIGHT_WORDS and (t := tower_at()):
                 p, poly = t
                 sp["at"], sp["tower"] = point_at(p), poly
@@ -781,62 +785,127 @@ def _strips(poly: Poly, angle: float, depth: int = 0) -> list[Poly]:
     return [s for half in (left, right) if half for s in _strips(half, angle, depth + 1)]
 
 
+def _forest_at(forest: geom.Noise, q: Point) -> float:
+    return forest.fbm(q[0] / 140, q[1] / 140)
+
+
+def _cut_by_roads(poly: Poly, roads: _Roads, tries: int = 4) -> list[Poly]:
+    """볼록 다각형을 지나는 길로 자른다: 길 선을 길 폭의 반 + 1.5m 만큼 양쪽으로 밀어 두 쪽을 남긴다 (밭이 길가까지 온다).
+    tries 번 자른 뒤에도 길에 걸린 조각은 버린다."""
+    pieces, done = [poly], []
+    for _ in range(tries):
+        nxt = []
+        for pc in pieces:
+            x0, y0, x1, y1 = geom.bbox(pc)
+            hit = next(((a, b, rd) for a, b, rd in roads.near((x0, y0), (x1, y1), 8)
+                        if geom.poly_seg_near(pc, a, b, rd["width"] / 2 + 1)), None)
+            if not hit:
+                done.append(pc)
+                continue
+            a, b, rd = hit
+            ln = math.dist(a, b) or 1
+            n = (-(b[1] - a[1]) / ln, (b[0] - a[0]) / ln)
+            off = rd["width"] / 2 + 1.5
+            left, _ = geom.split_convex(pc, (a[0] + n[0] * off, a[1] + n[1] * off), (b[0] + n[0] * off, b[1] + n[1] * off))
+            _, right = geom.split_convex(pc, (a[0] - n[0] * off, a[1] - n[1] * off), (b[0] - n[0] * off, b[1] - n[1] * off))
+            nxt += [x for x in (left, right) if x and abs(geom.area(x)) > 150]
+        pieces = nxt
+        if not pieces:
+            break
+    return done
+
+
+def _edge_points(poly: Poly, step: float) -> list[Point]:
+    """다각형 테두리를 따라 step 간격의 점."""
+    out = []
+    for i, b in enumerate(poly):
+        a = poly[i - 1]
+        n = max(1, int(math.dist(a, b) / step))
+        out += [geom.lerp(a, b, k / n) for k in range(n)]
+    return out
+
+
 def _fields(spec: MapSpec, r: random.Random, w: float, h: float, c: Point, reach: float, water: _Water, roads: _Roads,
-            lot_grid: geom.Grid, squares: list[Poly]) -> tuple[list[Poly], list[Poly]]:
-    """밭 · 풀밭: Voronoi 칸을 조금 줄여 틈을 내고, 길 · 필지 · 물과 겹치는 칸은 뺀다. 밭은 띠로 나눈다."""
-    seeds = geom.poisson(r, w, h, 38)
+            lot_grid: geom.Grid, squares: list[Poly], forest: geom.Noise) -> tuple[list[Poly], list[Poly], list[Point]]:
+    """밭 · 풀밭과 생울타리 · 과수원 나무 자리.
+    큰 Voronoi 칸(약 50m)을 길로 잘라 길가까지 채우고, 마을에서 멀거나 숲이 될 곳은 비운다. 밭은 이랑 띠로 나누고,
+    밭 테두리 절반쯤에 생울타리 나무를 세운다. 마을 안 빈터 일부는 풀밭, 그 가운데 일부는 과수원(줄 맞춘 나무)."""
+    seeds = geom.poisson(r, w, h, 50)
     cells = geom.voronoi(seeds, (0, 0, w, h))
     share = FIELD_SHARE[spec.fields]
+    level = FOREST_LEVEL[spec.forest]
+    far = reach * (1.35 + 0.5 * share)  # 밭이 있는 가장 먼 거리
     fields: list[Poly] = []
     greens: list[Poly] = []
+    edge: list[Point] = []
     for seed_pt, cell in zip(seeds, cells):
         if len(cell) < 3:
             continue
         d = math.dist(seed_pt, c)
         roll = r.random()
-        is_green = d < reach * 0.8
-        if is_green and roll > 0.25:
-            continue
-        if not is_green and (d < reach * 0.55 or roll > share * max(0.0, min(1.0, 2.2 - d / reach / 1.2))):
-            continue
-        poly = geom.scale(cell, 0.9 if not is_green else 0.85)
-        x0, y0, x1, y1 = geom.bbox(poly)
-        if any(water.wet(q, 2) for q in poly + [geom.centroid(poly)]):
-            continue
-        if any(geom.convex_overlap(poly, sq, 2) for sq in squares):
-            continue
-        if any(geom.convex_overlap(poly, lot["poly"], 1) for lot in lot_grid.near((x0, y0, x1, y1), 2)):
-            continue
-        if any(geom.poly_seg_near(poly, a, b, rd["width"] / 2 + 1) for a, b, rd in roads.near((x0, y0), (x1, y1), 8)):
-            continue
-        if is_green:
-            greens.append(poly)
+        if _forest_at(forest, seed_pt) > level - 0.04:
+            continue  # 숲 자리
+        if d < reach * 0.45:  # 마을 한가운데: 빈터면 풀밭
+            is_green = roll < 0.45
+        elif d <= far:  # 둘레: 풀밭 조금, 나머지는 밭 양에 따라
+            is_green = roll < 0.25
+            if not is_green and roll > 0.25 + share * 0.75:
+                continue
         else:
+            continue
+        if d < reach * 0.45 and not is_green:
+            continue
+        for piece in _cut_by_roads(cell, roads):
+            poly = geom.scale(piece, 0.94)
+            x0, y0, x1, y1 = geom.bbox(poly)
+            if any(water.wet(q, 2) for q in poly + [geom.centroid(poly)]):
+                continue
+            if any(geom.convex_overlap(poly, sq, 2) for sq in squares):
+                continue
+            if any(geom.convex_overlap(poly, lot["poly"], 1) for lot in lot_grid.near((x0, y0, x1, y1), 2)):
+                continue
+            if is_green:
+                greens.append(poly)
+                if r.random() < 0.4:  # 과수원: 7m 간격 줄
+                    edge += [(x, y) for x in _frange(x0 + 4, x1 - 2, 7) for y in _frange(y0 + 4, y1 - 2, 7)
+                             if geom.inside((x, y), geom.scale(poly, 0.85))]
+                continue
             angle = r.uniform(0, math.pi)
             fields += [geom.scale(s, 0.93) for s in _strips(poly, angle)]
-    return fields, greens
+            if r.random() < 0.55:  # 생울타리
+                edge += _edge_points(geom.scale(piece, 0.99), 6.0)
+    return fields, greens, edge
+
+
+def _frange(a: float, b: float, step: float) -> list[float]:
+    return [a + i * step for i in range(max(0, int((b - a) / step) + 1))]
 
 
 def _trees(spec: MapSpec, r: random.Random, w: float, h: float, water: _Water, roads: _Roads, lot_grid: geom.Grid,
-           field_grid: geom.Grid, squares: list[Poly]) -> list[Point]:
-    """나무: 숲 노이즈가 높은 곳에 Poisson disk 로 뿌린다. 집 근처에는 드문드문."""
-    forest = geom.Noise(r)
+           field_grid: geom.Grid, squares: list[Poly], forest: geom.Noise, extra: list[Point]) -> list[Point]:
+    """나무: 숲 노이즈가 높은 곳은 촘촘한 숲(5m 간격), 숲 가장자리는 성기게, 그 밖은 아주 드물게.
+    extra(생울타리 · 과수원 자리)도 같은 검사를 거쳐 더한다."""
     level = FOREST_LEVEL[spec.forest]
     out = []
-    for q in geom.poisson(r, w, h, 7):
-        f = forest.fbm(q[0] / 140, q[1] / 140)
-        if f <= level and r.random() > 0.03:
-            continue
+
+    def ok(q: Point, in_forest: bool) -> bool:
+        if not (0 <= q[0] <= w and 0 <= q[1] <= h):
+            return False
         box = (q[0], q[1], q[0], q[1])
         if water.wet(q, 2) or any(geom.inside(q, sq) for sq in squares):
-            continue
-        if any(geom.inside(q, lot["poly"]) for lot in lot_grid.near(box)) and f <= level:
-            continue
-        if any(geom.inside(q, hs) for lot in lot_grid.near(box) for hs in lot.get("houses", [])):
-            continue
+            return False
+        if not in_forest and any(geom.inside(q, lot["poly"]) for lot in lot_grid.near(box)):
+            return False
+        if any(geom.inside(q, hs) for lot in lot_grid.near(box, 3) for hs in lot.get("houses", [])):
+            return False
         if any(geom.inside(q, poly) for poly in field_grid.near(box)):
-            continue
-        if any(geom.seg_dist(q, a, b) < rd["width"] / 2 + 2 for a, b, rd in roads.near(q, q, 6)):
-            continue
-        out.append(q)
+            return False
+        return not any(geom.seg_dist(q, a, b) < rd["width"] / 2 + 2.5 for a, b, rd in roads.near(q, q, 6))
+
+    for q in geom.poisson(r, w, h, 5):
+        f = _forest_at(forest, q)
+        keep = 1.0 if f > level else 0.35 if f > level - 0.06 else 0.004
+        if r.random() < keep and ok(q, f > level):
+            out.append(q)
+    out += [q for q in extra if ok(q, False)]
     return out

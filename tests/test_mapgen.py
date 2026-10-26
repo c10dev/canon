@@ -124,7 +124,7 @@ def test_far_place_goes_to_the_road_out():
 def test_village_summary_snapshot():
     """알고리즘을 바꾸면 이 값이 바뀐다. 그때 VERSION 을 올리고 함께 고친다."""
     lo = towngen.village(MapSpec(seed=7, water="river"), SPOTS)
-    assert towngen.VERSION == 2
+    assert towngen.VERSION == 3
     assert (lo["houses"], len(lo["buildings"]), len(lo["roads"]), lo["retries"]) == SNAPSHOT
     sea = towngen.village(MapSpec(seed=7, water="sea"), SPOTS)
     assert (sea["houses"], len(sea["buildings"]), len(sea["roads"]), sea["retries"]) == SEA_SNAPSHOT
@@ -353,3 +353,31 @@ def test_shore_place_without_harbor_goes_to_waterline():
     lake = [_m(lo, q) for q in lo["water"][0]]
     q = _m(lo, (lo["spots"][0]["x"], lo["spots"][0]["y"]))
     assert min(math.dist(q, c) for c in lake) < 45 and not any(r["kind"] == "bridge" for r in lo["roads"])  # 호수에는 부두를 내지 않는다
+
+
+def test_lighthouse_needs_the_sea():
+    lo = towngen.village(MapSpec(seed=2, water="river"), [{"key": "l", "name": "등대", "kind": "shore", "word": "등대"}])
+    assert not lo["spots"] and lo["missing"] == [{"key": "l", "name": "등대", "reason": "바다가 없어요. 물을 바다로 바꿔 보세요"}]
+
+
+@pytest.mark.parametrize("forest", ["few", "some", "many"])
+def test_trees_and_fields_keep_their_place(forest):
+    """나무는 밭 · 집 · 물 · 길 위에 서지 않고, 숲이 많을수록 나무가 많다. 밭은 마을 둘레에 모인다."""
+    spec = MapSpec(seed=6, forest=forest, water="river")
+    lo = towngen.village(spec, [])
+    fields = [[_m(lo, q) for q in poly] for poly in lo["fields"]]
+    houses = [[_m(lo, q) for q in poly] for poly in lo["buildings"]]
+    fg, hg = geom.Grid(40), geom.Grid(30)
+    for poly in fields:
+        fg.add(geom.bbox(poly), poly)
+    for poly in houses:
+        hg.add(geom.bbox(poly), poly)
+    for t in lo["trees"]:
+        q = _m(lo, t)
+        box = (q[0], q[1], q[0], q[1])
+        assert not any(geom.inside(q, poly) for poly in fg.near(box)) and not any(geom.inside(q, poly) for poly in hg.near(box))
+    reach = towngen.SIZES[spec.size][1] * 0.42
+    c = _m(lo, lo["roads"][0]["points"][0])  # 간선은 마을 가운데에서 시작한다
+    assert all(math.dist(geom.centroid(poly), c) < reach * 2.4 for poly in fields)
+    counts = {f: len(towngen.village(spec.model_copy(update={"forest": f}), [])["trees"]) for f in ("few", "many")}
+    assert counts["few"] < counts["many"]

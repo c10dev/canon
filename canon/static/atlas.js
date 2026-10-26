@@ -91,24 +91,121 @@ function atlasSnap(pt) {
   return [ring.reduce((n, q) => n + q[0], 0) / ring.length, ring.reduce((n, q) => n + q[1], 0) / ring.length];
 }
 
-/** 마을 바탕: 땅, 밭 · 풀밭 · 광장, 물, 강, 길, 다리, 성벽, 건물, 나무 */
+/** 번호 i 로 고르는 0~1 값. 같은 마을이면 건물 · 나무 · 밭이 늘 같은 모양 · 색으로 그려진다 */
+const atlasHash = (i, salt = 0) => ((Math.imul(i + 1, 2654435761) ^ Math.imul(salt + 7, 40503)) >>> 0) / 4294967296;
+
+/** 마을 바탕: 풀밭 땅, 밭(이랑 무늬) · 풀밭 · 광장, 모래톱과 물결이 있는 물, 강, 테두리 있는 길, 널다리, 성벽,
+    두 색 지붕과 그림자가 있는 건물, 그림자 · 수관 · 밝은 점으로 된 나무. 1단위 = 1m 기준 크기 (k: 화면 단위 / m) */
 function atlasVillageSvg(v, W, H) {
-  const k = W / v.w; // 원래 단위 → 지도 화면 단위
+  const k = W / v.w;
+  const P = (q) => [q[0] * W, q[1] * H];
   const pts = (ln) => ln.map((q) => `${(q[0] * W).toFixed(1)},${(q[1] * H).toFixed(1)}`).join(' ');
-  const out = [`<rect class="at-ground" x="0" y="0" width="${W}" height="${H}"></rect>`];
-  const area = (key, cls) => (v[key] || []).forEach((ln) => out.push(`<polygon class="${cls}" points="${pts(ln)}"></polygon>`));
-  const stroke = (list, cls, min) => (list || []).forEach((r) => out.push(`<polyline class="${cls}" points="${pts(r.points)}" stroke-width="${Math.max(min, r.width * k).toFixed(1)}"></polyline>`));
-  area('fields', 'at-v-field');
-  area('greens', 'at-v-green');
-  area('squares', 'at-v-square');
-  area('water', 'at-v-water');
-  stroke(v.rivers, 'at-v-river', 3);
-  stroke(v.roads.filter((r) => r.kind === 'road'), 'at-v-road', 3);
-  stroke(v.roads.filter((r) => r.kind === 'bridge'), 'at-v-bridge', 3);
-  stroke(v.walls, 'at-v-wall', 2);
-  area('buildings', 'at-v-house');
-  if (v.trees && v.trees.length) out.push(`<g class="at-v-tree">${v.trees.map((q) => `<circle cx="${(q[0] * W).toFixed(1)}" cy="${(q[1] * H).toFixed(1)}" r="${Math.max(2, 1.6 * k).toFixed(1)}"></circle>`).join('')}</g>`);
-  return out.join('');
+  const m = (meters, min = 0.6) => Math.max(min, meters * k).toFixed(1);
+  const defs = [];
+  const out = [`<rect class="at-v-ground" x="0" y="0" width="${W}" height="${H}"></rect>`];
+  const stroke = (list, cls, w, min) => (list || []).forEach((r) => out.push(`<polyline class="${cls}" points="${pts(r.points)}" stroke-width="${m(w(r), min)}"></polyline>`));
+
+  // 밭: 긴 변 방향으로 돌린 이랑 무늬 (15° 단위로 묶어 무늬 수를 줄인다), 세 가지 작물 색
+  const pats = new Set();
+  (v.fields || []).forEach((ln, i) => {
+    let best = 0;
+    let deg = 0;
+    ln.forEach((q, j) => {
+      const [ax, ay] = P(ln[j ? j - 1 : ln.length - 1]);
+      const [bx, by] = P(q);
+      const len = Math.hypot(bx - ax, by - ay);
+      if (len > best) { best = len; deg = (Math.atan2(by - ay, bx - ax) * 180) / Math.PI; }
+    });
+    const a = ((Math.round(deg / 15) * 15) % 180 + 180) % 180;
+    // 작물 색은 자리(60m 칸)로 고른다: 한 밭을 나눈 이랑 띠들이 같은 색이 되게
+    const cx = ln.reduce((n, q) => n + q[0], 0) / ln.length * v.w;
+    const cy = ln.reduce((n, q) => n + q[1], 0) / ln.length * v.h;
+    const tone = Math.floor(atlasHash(Math.floor(cx / 60) * 7919 + Math.floor(cy / 60), 3) * 3);
+    const id = `at-fur-${a}-${tone}`;
+    if (!pats.has(id)) {
+      pats.add(id);
+      const sp = m(2.4, 3);
+      defs.push(`<pattern id="${id}" patternUnits="userSpaceOnUse" width="${sp}" height="${sp}" patternTransform="rotate(${a})"><rect class="at-v-field t${tone}" width="${sp}" height="${sp}"></rect><line class="at-v-furrow" x1="0" y1="0.5" x2="${sp}" y2="0.5"></line></pattern>`);
+    }
+    out.push(`<polygon class="at-v-field-edge" points="${pts(ln)}" fill="url(#${id})"></polygon>`);
+  });
+  (v.greens || []).forEach((ln) => out.push(`<polygon class="at-v-green" points="${pts(ln)}"></polygon>`));
+  (v.squares || []).forEach((ln) => out.push(`<polygon class="at-v-square" points="${pts(ln)}"></polygon>`));
+
+  // 물: 바깥으로 모래톱, 안쪽으로 물가와 나란한 물결 선 두 줄 (물 다각형으로 잘라 안쪽만 보인다)
+  // 물가 선: 지도 테두리를 따라가는 변은 물가가 아니라서 뺀다 (바다를 지도 가장자리에서 닫은 변)
+  const rim = (q) => q[0] <= 0.001 || q[0] >= 0.999 || q[1] <= 0.001 || q[1] >= 0.999;
+  const shoreline = (ln) => {
+    const segs = [];
+    ln.forEach((q, j) => {
+      const prev = ln[j ? j - 1 : ln.length - 1];
+      if (!(rim(prev) && rim(q))) segs.push(`M${P(prev).map((x) => x.toFixed(1)).join(',')}L${P(q).map((x) => x.toFixed(1)).join(',')}`);
+    });
+    return segs.join('');
+  };
+  (v.water || []).forEach((ln, i) => {
+    const p = pts(ln);
+    const edge = shoreline(ln);
+    defs.push(`<clipPath id="at-wclip-${i}"><polygon points="${p}"></polygon></clipPath>`);
+    out.push(`<path class="at-v-sand" d="${edge}" stroke-width="${m(9, 4)}"></path><polygon class="at-v-water" points="${p}"></polygon>`);
+    out.push(`<g clip-path="url(#at-wclip-${i})">${[5, 12].map((d) => `<path class="at-v-wave" d="${edge}" stroke-width="${m(2 * d + 1.4, 3)}"></path><path class="at-v-water-line" d="${edge}" stroke-width="${m(2 * d - 1.4, 1.5)}"></path>`).join('')}</g>`);
+  });
+  stroke(v.rivers, 'at-v-sand', (r) => r.width + 5, 5);
+  stroke(v.rivers, 'at-v-river', (r) => r.width, 3);
+  stroke(v.rivers, 'at-v-river-line', (r) => r.width * 0.45, 1);
+
+  // 길: 어두운 테두리 위에 길 색. 다리: 널판 색 위에 널판 틈
+  const roads = (v.roads || []).filter((r) => r.kind === 'road');
+  const bridges = (v.roads || []).filter((r) => r.kind === 'bridge');
+  stroke(roads, 'at-v-road-edge', (r) => r.width + 1.6, 3);
+  stroke(roads, 'at-v-road', (r) => r.width, 2);
+  stroke(bridges, 'at-v-bridge', (r) => r.width + 1, 3);
+  stroke(bridges, 'at-v-planks', (r) => r.width + 1, 3);
+  stroke(v.walls, 'at-v-wall', () => 2, 2);
+
+  // 건물: 그림자 → 지붕 → 어두운 반쪽 → 마루선. 꼭짓점이 넷이 아니면 한 색 지붕
+  const shade = (dx, dy) => (v.buildings || []).map((ln) => `M${ln.map((q) => `${(q[0] * W + dx).toFixed(1)},${(q[1] * H + dy).toFixed(1)}`).join('L')}Z`).join('');
+  out.push(`<path class="at-v-shadow" d="${shade(1.4 * k, 1.8 * k)}"></path>`);
+  const roofs = [[], [], [], []];
+  const dark = [];
+  const ridges = [];
+  (v.buildings || []).forEach((ln, i) => {
+    const ring = ln.length > 4 && ln[0][0] === ln[ln.length - 1][0] && ln[0][1] === ln[ln.length - 1][1] ? ln.slice(0, -1) : ln;
+    const q = ring.map(P);
+    roofs[Math.floor(atlasHash(i, 1) * 4)].push(`M${q.map((p) => p.map((x) => x.toFixed(1)).join(',')).join('L')}Z`);
+    if (q.length !== 4) return;
+    const long01 = Math.hypot(q[1][0] - q[0][0], q[1][1] - q[0][1]) >= Math.hypot(q[2][0] - q[1][0], q[2][1] - q[1][1]);
+    const [a, b, c, d] = long01 ? q : [q[1], q[2], q[3], q[0]];  // a-b 가 긴 변
+    const mid = (u, w) => [(u[0] + w[0]) / 2, (u[1] + w[1]) / 2];
+    const r1 = mid(d, a);
+    const r2 = mid(b, c);
+    const h1 = [a, b, r2, r1];
+    const h2 = [r1, r2, c, d];
+    const sum = (h) => h.reduce((n, p) => n + p[0] + p[1], 0);
+    const low = sum(h1) > sum(h2) ? h1 : h2;  // 빛은 왼쪽 위에서: 오른쪽 아래 반쪽이 어둡다
+    dark.push(`M${low.map((p) => p.map((x) => x.toFixed(1)).join(',')).join('L')}Z`);
+    ridges.push(`M${r1.map((x) => x.toFixed(1)).join(',')}L${r2.map((x) => x.toFixed(1)).join(',')}`);
+  });
+  roofs.forEach((d, t) => { if (d.length) out.push(`<path class="at-v-house t${t}" d="${d.join('')}"></path>`); });
+  if (dark.length) out.push(`<path class="at-v-roof-dark" d="${dark.join('')}"></path><path class="at-v-ridge" d="${ridges.join('')}"></path>`);
+
+  // 나무: 크기가 다른 수관을 겹쳐 덩어리로. 그림자 · 수관 · 밝은 점을 각각 한 path 로 모은다
+  const trees = v.trees || [];
+  if (trees.length) {
+    const circ = (x, y, r) => `M${(x - r).toFixed(1)},${y.toFixed(1)}a${r.toFixed(1)},${r.toFixed(1)} 0 1 0 ${(2 * r).toFixed(1)},0a${r.toFixed(1)},${r.toFixed(1)} 0 1 0 ${(-2 * r).toFixed(1)},0`;
+    const sh = [];
+    const cr = [];
+    const hi = [];
+    trees.forEach((t, i) => {
+      const [x, y] = P(t);
+      const r = Math.max(1.8, (3.2 + atlasHash(i, 2) * 2) * k);
+      sh.push(circ(x + r * 0.35, y + r * 0.45, r));
+      cr.push(circ(x, y, r));
+      hi.push(circ(x - r * 0.3, y - r * 0.3, r * 0.45));
+    });
+    out.push(`<path class="at-v-tree-shadow" d="${sh.join('')}"></path><path class="at-v-tree" d="${cr.join('')}"></path><path class="at-v-tree-hi" d="${hi.join('')}"></path>`);
+  }
+  return (defs.length ? `<defs>${defs.join('')}</defs>` : '') + out.join('');
 }
 
 /** 이 시점에 독자가 아는 장소인가 (생긴 화, 처음 나온 화, 드러나는 화 중 가장 늦은 화부터) */
@@ -1014,16 +1111,36 @@ document.addEventListener('keydown', (e) => {
 @media (max-width: 600px) { .at-map-wrap { overflow-x: auto; } .at-map { min-width: 640px; } }
 .at-map .at-ground { fill: var(--canvas); }
 .at-map .at-grid { stroke: var(--rule); stroke-width: 1; }
-.at-map .at-v-field { fill: color-mix(in srgb, #9BB36B 22%, var(--canvas)); stroke: color-mix(in srgb, #9BB36B 45%, var(--canvas)); stroke-width: 1; }
-.at-map .at-v-green { fill: color-mix(in srgb, #6E9F5A 22%, var(--canvas)); }
-.at-map .at-v-square { fill: color-mix(in srgb, var(--muted) 14%, var(--canvas)); }
-.at-map .at-v-water { fill: color-mix(in srgb, #4A86C5 35%, var(--canvas)); }
-.at-map .at-v-river { fill: none; stroke: color-mix(in srgb, #4A86C5 35%, var(--canvas)); stroke-linecap: round; stroke-linejoin: round; }
-.at-map .at-v-road { fill: none; stroke: color-mix(in srgb, #B08A55 45%, var(--canvas)); stroke-linecap: round; stroke-linejoin: round; }
-.at-map .at-v-bridge { fill: none; stroke: color-mix(in srgb, #7A5A33 60%, var(--canvas)); stroke-linecap: butt; }
+.at-map .at-v-ground { fill: color-mix(in srgb, #8DB06A 26%, var(--canvas)); }
+.at-map .at-v-field.t0 { fill: color-mix(in srgb, #A0805E 42%, var(--canvas)); }
+.at-map .at-v-field.t1 { fill: color-mix(in srgb, #D2B865 45%, var(--canvas)); }
+.at-map .at-v-field.t2 { fill: color-mix(in srgb, #8FB25C 45%, var(--canvas)); }
+.at-map .at-v-furrow { stroke: color-mix(in srgb, #5B4630 30%, transparent); stroke-width: 1; }
+.at-map .at-v-field-edge { stroke: color-mix(in srgb, #5B4630 35%, var(--canvas)); stroke-width: 1; }
+.at-map .at-v-green { fill: color-mix(in srgb, #6E9F5A 30%, var(--canvas)); }
+.at-map .at-v-square { fill: color-mix(in srgb, #C9B48E 40%, var(--canvas)); stroke: color-mix(in srgb, #8C7A5A 40%, var(--canvas)); stroke-width: 1; }
+.at-map .at-v-sand { fill: none; stroke: color-mix(in srgb, #D9C28C 70%, var(--canvas)); stroke-linejoin: round; stroke-linecap: round; }
+.at-map .at-v-water { fill: color-mix(in srgb, #4A86C5 55%, var(--canvas)); }
+.at-map .at-v-wave { fill: none; stroke: color-mix(in srgb, #FFFFFF 45%, transparent); stroke-linejoin: round; stroke-linecap: round; }
+.at-map .at-v-water-line { fill: none; stroke: color-mix(in srgb, #4A86C5 55%, var(--canvas)); stroke-linejoin: round; stroke-linecap: round; }
+.at-map .at-v-river { fill: none; stroke: color-mix(in srgb, #4A86C5 55%, var(--canvas)); stroke-linecap: round; stroke-linejoin: round; }
+.at-map .at-v-river-line { fill: none; stroke: color-mix(in srgb, #FFFFFF 22%, transparent); stroke-linecap: round; stroke-linejoin: round; }
+.at-map .at-v-road-edge { fill: none; stroke: color-mix(in srgb, #7A6040 55%, var(--canvas)); stroke-linecap: round; stroke-linejoin: round; }
+.at-map .at-v-road { fill: none; stroke: color-mix(in srgb, #E2CFA4 85%, var(--canvas)); stroke-linecap: round; stroke-linejoin: round; }
+.at-map .at-v-bridge { fill: none; stroke: color-mix(in srgb, #8A6436 85%, var(--canvas)); stroke-linecap: butt; }
+.at-map .at-v-planks { fill: none; stroke: color-mix(in srgb, #4A3418 70%, transparent); stroke-linecap: butt; stroke-dasharray: 1 3; }
 .at-map .at-v-wall { fill: none; stroke: color-mix(in srgb, var(--text) 45%, var(--canvas)); stroke-linejoin: round; }
-.at-map .at-v-house { fill: color-mix(in srgb, var(--text) 30%, var(--canvas)); stroke: color-mix(in srgb, var(--text) 55%, var(--canvas)); stroke-width: 1; }
-.at-map .at-v-tree circle { fill: color-mix(in srgb, #4F7A3A 40%, var(--canvas)); }
+.at-map .at-v-shadow { fill: color-mix(in srgb, #000000 26%, transparent); }
+.at-map .at-v-house { stroke: color-mix(in srgb, #2B1D12 70%, var(--canvas)); stroke-width: 1; stroke-linejoin: round; }
+.at-map .at-v-house.t0 { fill: color-mix(in srgb, #B5653A 80%, var(--canvas)); }
+.at-map .at-v-house.t1 { fill: color-mix(in srgb, #9A7448 80%, var(--canvas)); }
+.at-map .at-v-house.t2 { fill: color-mix(in srgb, #6F7C8A 80%, var(--canvas)); }
+.at-map .at-v-house.t3 { fill: color-mix(in srgb, #A88A52 80%, var(--canvas)); }
+.at-map .at-v-roof-dark { fill: color-mix(in srgb, #000000 22%, transparent); }
+.at-map .at-v-ridge { fill: none; stroke: color-mix(in srgb, #2B1D12 60%, transparent); stroke-width: 1; }
+.at-map .at-v-tree-shadow { fill: color-mix(in srgb, #000000 18%, transparent); }
+.at-map .at-v-tree { fill: color-mix(in srgb, #3F6B35 80%, var(--canvas)); stroke: color-mix(in srgb, #20381A 70%, var(--canvas)); stroke-width: 0.8; }
+.at-map .at-v-tree-hi { fill: color-mix(in srgb, #8DBA62 45%, transparent); }
 .at-map .at-pin.old { opacity: .35; }
 .at-map .at-sug circle { fill: var(--accent); stroke: var(--surface); stroke-width: 2.5; stroke-dasharray: 4 2; }
 .at-gen-opts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
