@@ -91,7 +91,7 @@ class LocalJudge:
         from .llm import LocalLLM
 
         self._llm = LocalLLM(base_url=base_url, model=model, api_key=api_key, sampling={}, timeout=timeout)
-        self.workers = workers or int(os.environ.get("CANON_JUDGE_WORKERS", "4"))
+        self.workers = workers or int(os.environ.get("CANON_JUDGE_WORKERS", "16"))
         self.stage = "judge"
         self.calls = 0
 
