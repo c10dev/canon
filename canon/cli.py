@@ -5,6 +5,7 @@
   python -m canon style 내소설 --library ID   문체 라이브러리 항목을 작품에 적용
   python -m canon styles [add 이름 파일 | show ID | rm ID | versions ID | restore ID 번호]   문체 라이브러리 (작품과 따로 저장, 버전 기록)
   python -m canon learn 내소설 [--pick 1,3 | -y] [--push]   본문 수정 기록에서 문체 규칙 후보 찾기 (고른 것만 반영)
+  python -m canon stylechat 내소설 "대사를 더 짧게" [--ep 3] [--pick 1,2 | -y] [--push]   대화로 문체 다듬기 (--example 이면 지금 문체로 예시 글)
   python -m canon arc 내소설            기승전결 구간 설계 (단편)
   python -m canon series 내소설         장편: 총 화수를 부로 나누는 부 구성 제안
   python -m canon convert 내소설 --episodes 200 [--ending keep|reopen]   단편을 장편으로 전환 (--undo 로 되돌리기)
@@ -271,6 +272,51 @@ def cmd_learn(a: argparse.Namespace) -> None:
         if a.push and p.style_id and library.exists(p.style_id):
             e = library.push_project(p, f"수정 기록에서 배운 규칙 {len(done)}개 반영")
             print(f"라이브러리 '{e.name}' 을 {e.version}번 버전으로 올렸어요")
+    print(f"저장: {store.save(a.name, p)}")
+
+
+def _style_value_text(v) -> str:
+    if isinstance(v, list):
+        return " / ".join(library._item(x) for x in v) or "(비움)"
+    return v or "(비움)"
+
+
+def cmd_stylechat(a: argparse.Namespace) -> None:
+    """대화로 문체 다듬기. --example 이면 지금 문체로 예시 글을 쓴다."""
+    p = store.load(a.name)
+    if a.example:
+        ex = pipeline.style_example(get_llm("write"), p, a.message or "", a.ep or 0)
+        if ex.source:
+            print(f"[{ex.episode}화 원래 대목]\n{ex.source}\n")
+        print(ex.text)
+        p.style_example = ex
+        print(f"\n저장: {store.save(a.name, p)}")
+        return
+    if not a.message:
+        sys.exit("바라는 것을 적어 주세요 (예: stylechat 작품 \"대사를 더 짧게\")")
+    rev = pipeline.revise_style(get_llm("plan"), p, a.message, a.ep or 0)
+    msg = pipeline.record_style_chat(p, a.message, a.ep or 0, rev)
+    print(rev.reply)
+    for k, e in enumerate(rev.edits, 1):
+        label = prompts.STYLE_KEY_LABELS.get(e.key, e.key)
+        print(f"\n{k}. [{label}]{f' {e.why}' if e.why else ''}\n   지금: {_style_value_text(getattr(p.style, e.key))}"
+              f"\n   바꾸면: {_style_value_text(pipeline.style_value(e))}")
+    if rev.preview:
+        print(f"\n[시험 문단]\n{rev.preview}")
+    i = len(p.chat("style").messages) - 1
+    if msg.style:
+        if a.pick:
+            keys = [rev.edits[int(x) - 1].key for x in a.pick.split(",") if x.strip().isdigit() and 0 < int(x) <= len(rev.edits)]
+        elif confirm("이 변경안을 모두 적용할까요?", a.yes):
+            keys = [e.key for e in rev.edits]
+        else:
+            keys = []
+        if keys:
+            pipeline.apply_style_chat(p, i, keys)
+            print(f"적용했어요: {', '.join(prompts.STYLE_KEY_LABELS[k] for k in keys)}")
+            if a.push and p.style_id and library.exists(p.style_id):
+                e = library.push_project(p, f"대화로 다듬음: {a.message[:60]}")
+                print(f"라이브러리 '{e.name}' 을 {e.version}번 버전으로 올렸어요")
     print(f"저장: {store.save(a.name, p)}")
 
 
@@ -1761,6 +1807,12 @@ def main(argv: list[str] | None = None) -> None:
     sp = add("learn", cmd_learn)
     sp.add_argument("--pick", help="넣을 후보 번호, 쉼표로 (예: 1,3)")
     sp.add_argument("--push", action="store_true", help="연결된 라이브러리 항목에도 새 버전으로 올림")
+    sp = add("stylechat", cmd_stylechat)
+    sp.add_argument("message", nargs="?", help="AI 에게 바라는 것 (예: 대사를 더 짧게). --example 이면 바라는 장면")
+    sp.add_argument("--ep", type=int, help="참고할 화 (본문이 있는 화). --example 이면 이 화 한 대목을 고쳐 씀")
+    sp.add_argument("--pick", help="적용할 칸 번호, 쉼표로 (예: 1,3)")
+    sp.add_argument("--push", action="store_true", help="연결된 라이브러리 항목에도 새 버전으로 올림")
+    sp.add_argument("--example", action="store_true", help="지금 문체로 예시 글 쓰기")
     sp = add("edits", cmd_edits, yes=False)
     sp.add_argument("n", type=int, nargs="?")
     sp.add_argument("--undo", metavar="ID", help="이 수정을 되돌림 (예: e2)")

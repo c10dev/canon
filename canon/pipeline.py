@@ -56,6 +56,9 @@ from .schema import (
     EditPair,
     StyleDevice,
     StyleLearning,
+    StyleRevision,
+    StyleExample,
+    StyleSample,
     StyleMarker,
     StyleProfile,
     StyleRuleSuggestion,
@@ -307,6 +310,220 @@ def apply_learning(p: Project, picks: list[int]) -> tuple[list[StyleRuleSuggesti
         notes.append(f"지킬 것 · 피할 것이 {len(st.dos) + len(st.donts)}개예요. {RULE_LIMIT}개가 넘으면 프롬프트가 길어지고 "
                      "규칙끼리 부딪히기 쉬우니 비슷한 것을 합쳐 주세요")
     return done, notes
+
+
+# ---------- 2-2. 대화로 문체 다듬기 ----------
+# 작가가 문체 화면에서 말하면 AI 가 프로필에서 바꿀 칸과 시험 문단을 낸다(대화 'style'). 프로그램이 지금 값과 같은 칸,
+# 모르는 칸을 빼고, 작가가 고른 칸만 작품 문체에 넣는다. 적용하기 전 문체를 메시지에 남겨 그 변경안 단위로 취소할 수 있다.
+
+STYLE_TEXT_KEYS = ("narration_pov", "tense", "sentence_rhythm", "description_density", "dialogue_ratio", "dialogue_style",
+                   "inner_monologue", "pacing", "scene_transition", "vocabulary")
+STYLE_LIST_KEYS = ("dos", "donts", "banned_phrases")
+STYLE_KEYS = STYLE_TEXT_KEYS + STYLE_LIST_KEYS + ("markers", "devices")
+STYLE_RECENT = 3  # 문체 대화에 지표와 경고를 넣는 최근 화 수
+
+
+def style_chat_recent(p: Project) -> list[str]:
+    """최근 쓴 화의 문체 지표와 경고 줄. 문체 대화 프롬프트가 쓴다 (LLM 없음)."""
+    eps = sorted((e for e in p.episodes if e.text.strip()), key=lambda e: e.plot.number)[-STYLE_RECENT:]
+    if not eps:
+        return []
+    base = style_baseline(p)
+    out = [f"기준: 문장 평균 {base.sentence_len_mean:.1f}자, 대사 비율 {base.dialogue_ratio:.0%}"] if base.chars else []
+    for e in eps:
+        cur, warns = style_drift(p, e.plot.number)
+        out.append(f"{e.plot.number}화: 문장 평균 {cur.sentence_len_mean:.1f}자, 대사 비율 {cur.dialogue_ratio:.0%}"
+                   + (f" / 경고: {' · '.join(warns[:6])}" if warns else " / 경고 없음"))
+    return out
+
+
+def style_value(e):
+    """StyleEdit 이 칸에 넣을 값."""
+    if e.key in STYLE_TEXT_KEYS:
+        return e.text
+    if e.key in STYLE_LIST_KEYS:
+        return e.items
+    return e.markers if e.key == "markers" else e.devices
+
+
+def _style_same(key: str, a, b) -> bool:
+    if key == "markers":  # 빈도는 프로그램이 세므로 글자와 쓰임만 본다
+        return [(m.text, m.note) for m in a] == [(m.text, m.note) for m in b]
+    if key == "devices":
+        return [d.model_dump() for d in a] == [d.model_dump() for d in b]
+    return a == b
+
+
+def clean_style_revision(p: Project, rev: StyleRevision, ref_text: str = "") -> StyleRevision:
+    """모르는 칸, 지금 값과 같은 칸을 빼고 값을 다듬는다. 같은 칸이 두 번이면 뒤의 것을 쓴다.
+    ref_text 는 참고한 화 본문: 시험 문단의 원래 대목이 거기 없으면 비운다."""
+    st, keep = p.style, {}
+    for e in rev.edits:
+        if e.key not in STYLE_KEYS:
+            continue
+        if e.key in STYLE_TEXT_KEYS:
+            e.text = e.text.strip()
+        elif e.key in STYLE_LIST_KEYS:
+            items = [x.strip() for x in e.items]
+            if e.key == "banned_phrases":
+                items = [x.strip("'\"‘’“”") for x in items]
+            e.items = list(dict.fromkeys(x for x in items if x))
+        elif e.key == "markers":
+            now = {m.text: m.per_1k for m in st.markers}
+            seen, ms = set(), []
+            for m in e.markers:
+                m.text, m.note = m.text.strip().strip("'\"‘’“”"), m.note.strip()
+                if m.text and m.text not in seen:
+                    seen.add(m.text)
+                    m.per_1k = now.get(m.text, 0)  # 모델이 적은 빈도는 믿지 않는다. 새 표지는 적용할 때 센다
+                    ms.append(m)
+            e.markers = ms
+        else:
+            ds, seen = [], set()
+            for d in e.devices:
+                d.name, d.when, d.example = d.name.strip(), d.when.strip(), d.example.strip()
+                d.cues = [c.strip() for c in d.cues if c.strip()][:3]
+                d.every = max(0, d.every)
+                if d.name and d.name not in seen:
+                    seen.add(d.name)
+                    ds.append(d)
+            e.devices = ds
+        # 다른 자리에 적은 값은 지운다 (칸 종류에 맞는 자리 하나만 남긴다)
+        payload = {"text": "", "items": [], "markers": [], "devices": []}
+        slot = "text" if e.key in STYLE_TEXT_KEYS else "items" if e.key in STYLE_LIST_KEYS else e.key
+        for k, v in payload.items():
+            if k != slot:
+                setattr(e, k, v)
+        e.why = e.why.strip()
+        if _style_same(e.key, getattr(st, e.key), style_value(e)):
+            keep.pop(e.key, None)
+            continue
+        keep[e.key] = e
+    rev.edits = [keep[k] for k in STYLE_KEYS if k in keep]
+    rev.preview_source = rev.preview_source.strip()
+    if rev.preview_source and rev.preview_source not in ref_text:
+        rev.preview_source = ""
+    rev.preview = rev.preview.strip()
+    if not rev.edits:
+        rev.preview_source = rev.preview = ""
+    return rev
+
+
+def revise_style(llm: LLM, p: Project, message: str, episode: int = 0) -> StyleRevision:
+    """작가의 말로 문체 변경안을 만든다. 저장하지 않는다. episode 는 참고할 화 (본문이 있어야 한다)."""
+    if not message.strip():
+        raise ValueError("바라는 것을 적어 주세요")
+    ref = ""
+    if episode:
+        ep = next((e for e in p.episodes if e.plot.number == episode), None)
+        if ep is None or not ep.text.strip():
+            raise ValueError(f"{episode}화에 본문이 없어요. 본문이 있는 화를 참고로 고르세요")
+        ref = ep.text
+    rev = llm.json(prompts.SYSTEM_STYLE_COACH, prompts.style_chat_prompt(p, message, episode, style_chat_recent(p)), StyleRevision,
+                   hint={"message": message, "style": p.style.model_dump(), "ref": ref[:prompts.STYLE_REF_LIMIT]})
+    return clean_style_revision(p, rev, ref)
+
+
+def record_style_chat(p: Project, message: str, episode: int, rev: StyleRevision) -> ChatMessage:
+    """작가의 말과 AI 답을 문체 대화('style')에 남긴다."""
+    now = _now()
+    chat = p.chat("style")
+    reply = ChatMessage(role="assistant", text=rev.reply, style=rev if rev.has_changes() else None, at=now)
+    asked = ChatMessage(role="user", text=message.strip(), episode=episode, where=f"{episode}화 참고" if episode else "", at=now)
+    chat.messages += [asked, reply]
+    chat.messages = chat.messages[-CHAT_KEEP:]
+    return reply
+
+
+def _style_message(p: Project, i: int) -> ChatMessage:
+    msgs = p.chat("style").messages
+    if not 0 <= i < len(msgs) or msgs[i].style is None:
+        raise KeyError("문체 변경안이 있는 메시지가 아니에요")
+    return msgs[i]
+
+
+def _marker_source(p: Project) -> str:
+    """새 표지의 빈도를 셀 글: 연결된 라이브러리 원문, 없으면 이 작품 본문."""
+    from . import library
+
+    if p.style_id and library.exists(p.style_id):
+        sample = library.load(p.style_id).sample
+        if sample:
+            return sample
+    return _own_text(p)
+
+
+def apply_style_chat(p: Project, i: int, keys: list[str]) -> list[str]:
+    """i 번째 메시지의 문체 변경안에서 고른 칸만 작품 문체에 넣는다. 적용하기 전 문체를 메시지에 남긴다. 넣은 칸 이름을 돌려준다."""
+    m = _style_message(p, i)
+    if m.outcome:
+        raise ValueError("이미 처리한 변경안이에요")
+    picked = [e for e in m.style.edits if e.key in set(keys)]
+    if not picked:
+        raise ValueError("적용할 칸을 고르세요")
+    m.style_before = p.style.model_copy(deep=True)
+    src = None
+    for e in picked:
+        value = [x.model_copy(deep=True) for x in style_value(e)] if e.key in ("markers", "devices") else \
+            list(style_value(e)) if e.key in STYLE_LIST_KEYS else style_value(e)
+        if e.key == "markers":
+            for mk in value:
+                if not mk.per_1k:
+                    src = _marker_source(p) if src is None else src
+                    mk.per_1k = metrics.marker_rate(src, mk.text)
+        setattr(p.style, e.key, value)
+    m.applied, m.outcome = [e.key for e in picked], "applied"
+    if m.style.preview and len(picked) == len(m.style.edits):  # 시험 문단이 그린 문체가 그대로 들어갔으면 예시 칸으로 옮긴다
+        asked = p.chat("style").messages[i - 1] if i else None
+        p.style_example = StyleExample(text=m.style.preview, source=m.style.preview_source,
+                                       episode=asked.episode if asked and m.style.preview_source else 0,
+                                       by="chat", profile=p.style.model_copy(deep=True), at=_now())
+    return m.applied
+
+
+def undo_style_chat(p: Project, i: int) -> tuple[list[str], list[str]]:
+    """적용한 문체 변경안을 취소한다. 그 뒤에 다시 고친 칸은 건드리지 않는다. (되돌린 칸, 그대로 둔 칸) 을 돌려준다.
+    변경안은 다시 고를 수 있게 연다."""
+    m = _style_message(p, i)
+    if m.outcome != "applied" or m.style_before is None:
+        raise ValueError("적용한 변경안이 아니에요")
+    by = {e.key: e for e in m.style.edits}
+    done, kept = [], []
+    for k in m.applied:
+        now = getattr(p.style, k)
+        if k in by and _style_same(k, now, style_value(by[k])):
+            setattr(p.style, k, getattr(m.style_before, k))
+            done.append(k)
+        else:
+            kept.append(k)
+    m.outcome, m.applied, m.style_before = "", [], None
+    return done, kept
+
+
+def style_example(llm: LLM, p: Project, scene: str = "", episode: int = 0) -> StyleExample:
+    """지금 문체로 예시 글을 쓴다 (write 단계). 저장하지 않는다. episode 를 주면 그 화 한 대목을 고쳐 쓴다."""
+    ref = ""
+    if episode:
+        ep = next((e for e in p.episodes if e.plot.number == episode), None)
+        if ep is None or not ep.text.strip():
+            raise ValueError(f"{episode}화에 본문이 없어요. 본문이 있는 화를 고르세요")
+        ref = ep.text
+    if library_blank(p.style):
+        raise ValueError("문체가 비어 있어요. 문체 분석을 하거나 스타일 프로필을 채운 뒤 예시를 써 볼 수 있어요")
+    r = llm.json(prompts.writer_system(p), prompts.style_example_prompt(p, scene.strip(), episode), StyleSample,
+                 hint={"scene": scene, "ref": ref[:prompts.STYLE_REF_LIMIT]})
+    text = r.text.strip()
+    if not text:
+        raise ValueError("AI가 예시 글을 내지 않았어요. 다시 해 보세요")
+    source = r.source.strip()
+    return StyleExample(text=text, source=source if source and source in ref else "", episode=episode if ref else 0,
+                        scene=scene.strip(), by="example", profile=p.style.model_copy(deep=True), at=_now())
+
+
+def library_blank(st: StyleProfile) -> bool:
+    from . import library
+
+    return library.blank(st)
 
 
 # ---------- 3. 기승전결 + 화별 플롯 ----------
