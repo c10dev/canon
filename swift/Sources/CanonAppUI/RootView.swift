@@ -29,7 +29,7 @@ public struct RootView: View {
     @ViewBuilder
     private var sidebar: some View {
         if let name = model.project {
-            List(selection: $model.screen) {
+            List(selection: selectedScreen) {
                 Section { ForEach(Screen.allCases.filter { $0.group == .steps }) { item($0) } }
                 Section("작품 도구") { ForEach(Screen.allCases.filter { $0.group == .tools }) { item($0) } }
                 Section("본편과 분리") { ForEach(Screen.allCases.filter { $0.group == .separate }) { item($0) } }
@@ -47,6 +47,11 @@ public struct RootView: View {
                 Button("서버") { showServer = true }
             }
         }
+    }
+
+    /// iOS 의 `List(selection:)` 은 옵셔널 선택만 받는다. 선택을 지우는 동작(nil)은 무시한다.
+    private var selectedScreen: Binding<Screen?> {
+        Binding(get: { model.screen }, set: { if let s = $0 { model.screen = s } })
     }
 
     private func item(_ screen: Screen) -> some View {

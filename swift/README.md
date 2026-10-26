@@ -126,6 +126,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 ## 알려진 한계
 
 - SwiftUI 화면은 Mac 에서만 빌드된다. Linux 에서는 Model 과 시험만 확인한다.
+- `swift test` 는 macOS 로만 빌드한다. iOS 에만 없는 API 는 iOS 대상 빌드에서만 드러난다. 예: iOS 의 `List(selection:)` 은 옵셔널 선택만 받는다. 화면을 고치면 iPad 시뮬레이터로도 빌드한다.
 - 서버 주소에 하위 경로(`https://host/canon`)를 쓰면 `ProjectLoader` · `CanonServer.get` 이 경로를 잃는다. 지금 서버는 루트에 연다.
 - `openapi.json` 은 설치된 FastAPI · pydantic 판에 따라 글이 조금 달라질 수 있다 (`requirements.txt` 는 가장 낮은 판만 정한다). 다른 기기에서 `tests/test_openapi.py` 가 코드 변경 없이 실패하면 그 기기에서 명세를 다시 만들고 차이를 본다. 2026-10-26 명세는 FastAPI 0.159.1, pydantic 2.14.1 로 만들었다.
 - 생성기는 빌드 때 `Schema "null" is not supported` 경고를 낸다 (68곳, `str | None` 같은 칸의 `anyOf` 에 든 `null`). 그 칸은 Swift 옵셔널이 되고 `null` 값도 읽힌다 (`canon-probe` 로 작품 전체를 읽어 확인).
