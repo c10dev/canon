@@ -32,14 +32,27 @@ let package = Package(
         ),
         // 여러 화면이 함께 쓰는 SwiftUI 조각
         .target(name: "CanonUI", dependencies: ["CanonCore"]),
-        // 화면 모듈: Model(순수 Swift) + View(SwiftUI). CanonCore · CanonAPI · CanonUI 에만 기댄다
+        // 열어 둔 작품: 받기 · 고친 표시 · 저장(409 충돌, 서버가 지킨 칸). 여러 화면이 함께 쓴다
+        .target(name: "CanonStore", dependencies: ["CanonCore", "CanonAPI"]),
+        // 화면 모듈: Model(순수 Swift) + View(SwiftUI). CanonCore · CanonAPI · CanonUI · CanonStore 에만 기댄다
         .target(name: "FeatureProjects", dependencies: ["CanonCore", "CanonAPI", "CanonUI"]),
+        .target(name: "FeatureHome", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "CanonStore"]),
+        .target(name: "FeatureStatWin", dependencies: ["CanonCore", "CanonAPI", "CanonUI"]),
+        .target(name: "FeatureForeshadow", dependencies: ["CanonCore", "CanonAPI", "CanonUI"]),
+        .target(name: "FeatureUsage", dependencies: ["CanonCore", "CanonAPI", "CanonUI"]),
+        .target(name: "FeatureCast", dependencies: ["CanonCore", "CanonAPI", "CanonUI"]),
         // 앱 뼈대: 서버 설정, 사이드바, 화면 잇기. Xcode 앱(App/)은 이것 하나만 가져온다
-        .target(name: "CanonAppUI", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "FeatureProjects"]),
+        .target(name: "CanonAppUI", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "CanonStore", "FeatureProjects", "FeatureHome", "FeatureStatWin", "FeatureForeshadow", "FeatureUsage", "FeatureCast"]),
         // 개발용: 실제 서버에 붙어 응답이 타입대로 읽히는지 본다
         .executableTarget(name: "canon-probe", dependencies: ["CanonAPI", "CanonCore"]),
         .testTarget(name: "CanonCoreTests", dependencies: ["CanonCore"]),
         .testTarget(name: "CanonAPITests", dependencies: ["CanonAPI"]),
+        .testTarget(name: "CanonStoreTests", dependencies: ["CanonStore"]),
         .testTarget(name: "FeatureProjectsTests", dependencies: ["FeatureProjects"]),
+        .testTarget(name: "FeatureHomeTests", dependencies: ["FeatureHome", "CanonStore"]),
+        .testTarget(name: "FeatureStatWinTests", dependencies: ["FeatureStatWin"]),
+        .testTarget(name: "FeatureForeshadowTests", dependencies: ["FeatureForeshadow"]),
+        .testTarget(name: "FeatureUsageTests", dependencies: ["FeatureUsage"]),
+        .testTarget(name: "FeatureCastTests", dependencies: ["FeatureCast"]),
     ]
 )

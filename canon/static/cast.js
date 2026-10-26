@@ -16,7 +16,7 @@ Object.assign(S, {
 
 const CAST_W = 760;
 const CAST_H = 540;
-// 온기 다섯 구간 (dynamics.warmth_word 와 같은 경계): 빨강 ↔ 회색 ↔ 파랑
+// 온기 다섯 구간 (dynamics.warmth_word 와 같은 경계): 빨강 ↔ 회색 ↔ 파랑. Swift 앱 WarmthBand 도 함께 고친다
 const WARMTH_BANDS = [[-0.6, '#B42318', '적대한다'], [-0.2, '#E0726A', '반감이 있다'], [0.2, '#9A9890', '무덤덤하다'], [0.6, '#5598E7', '호감이 있다'], [Infinity, '#1C5CAB', '깊이 아낀다']];
 const TENSION_FILL = { '보통': '#F2C894', '높음': '#C2620A', '매우 높음': '#B42318' };
 const PAIR_COLORS = ['#2A78D6', '#EB6834'];  // 쌍 그래프: 앞 인물 → 뒤 인물, 뒤 → 앞
