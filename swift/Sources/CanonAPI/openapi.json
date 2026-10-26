@@ -2230,6 +2230,55 @@
     }
    }
   },
+  "/api/projects/{name}/episodes/{n}/realign/clear": {
+   "post": {
+    "summary": "Clear Realign",
+    "description": "앞 화를 다시 짜며 남긴 '다시 맞추기' 표시를 작가가 확인하고 지운다.",
+    "operationId": "clear_realign",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/episodes/insert": {
    "post": {
     "summary": "Insert Episode",
@@ -8868,6 +8917,12 @@
       "title": "Final Text",
       "description": "상태 반영이 끝난 뒤 본문을 처음 고치기 직전의 본문. 지금 본문과 다르면 반영된 요약 · 상태가 고치기 전 본문 기준이다. 다시 맞추거나 그대로 두기로 하면 비운다",
       "default": ""
+     },
+     "realign": {
+      "type": "string",
+      "title": "Realign",
+      "description": "앞 화 플롯을 뒤 화에 맞추지 않고 다시 짜면서 이 화와 어긋나게 된 점. 이 화 플롯을 다시 짜거나 작가가 확인하면 비운다",
+      "default": ""
      }
     },
     "type": "object",
@@ -10150,6 +10205,11 @@
      },
      "rewrite": {
       "$ref": "#/components/schemas/RewriteRequest"
+     },
+     "fit_next": {
+      "type": "boolean",
+      "title": "Fit Next",
+      "default": true
      }
     },
     "type": "object",

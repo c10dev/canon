@@ -77,7 +77,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 - **바뀌지 않는 블록이 앞, 화마다 바뀌는 블록이 뒤.** `static_context()` 를 앞에 둬야 Gemini 암묵적 캐시가 맞는다. 컨텍스트에 블록을 추가할 때 이 순서를 지킨다.
 - **API 경로와 작업지시서 경로는 같은 프롬프트를 공유한다.** 프롬프트를 고칠 때는 `prompts.py` 한 곳만 고치고, `brief` 출력도 함께 확인한다. 나중에 MCP 서버도 이 함수들을 재사용한다.
 - **LLM 호출은 `LLM` 인터페이스 뒤에만 둔다.** pipeline 이나 cli 에서 SDK 를 직접 부르지 않는다. 새 LLM 구현이나 새 API 호출 경로는 `usage.record` 를 불러 사용량 화면에 잡히게 한다. 스레드를 새로 띄우면 `contextvars.copy_context()` 로 작품 · 화 정보를 넘긴다.
-- LLM 이 채우는 스키마(`SetupSuggestion`, `StyleProfile`, `ArcPlan`, `PlotBatch`, `PlotRevision`, `NameOptions`, `PassageRevision`, `StateDelta`, `NewPlace`, `StoryEvent`, `ConsistencyReport`, `SeriesPlan`, `ArcProposal`, `Recap`, `ImpactReport`, `StorylineProposal`, `SerialConversion`, `SerialRebuild`, `Rework`, `HookReport`, `OpeningPlots`, `IllustDraft`, `LookSuggestion`, `StyleLearning`, `VoiceSuggestion`, `PlantSet`, `PlaceSort`, `MapSuggestion`)에는 dict 타입 필드를 쓰지 않는다 (Gemini 구조화 출력 호환).
+- LLM 이 채우는 스키마(`SetupSuggestion`, `StyleProfile`, `ArcPlan`, `PlotBatch`, `EpisodeDraft`, `PlotRevision`, `NameOptions`, `PassageRevision`, `StateDelta`, `NewPlace`, `StoryEvent`, `ConsistencyReport`, `SeriesPlan`, `ArcProposal`, `Recap`, `ImpactReport`, `StorylineProposal`, `SerialConversion`, `SerialRebuild`, `Rework`, `HookReport`, `OpeningPlots`, `IllustDraft`, `LookSuggestion`, `StyleLearning`, `VoiceSuggestion`, `PlantSet`, `PlaceSort`, `MapSuggestion`)에는 dict 타입 필드를 쓰지 않는다 (Gemini 구조화 출력 호환).
 
 ## 개발 명령
 

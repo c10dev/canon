@@ -401,6 +401,11 @@ class PlotBatch(BaseModel):
     new_places: list[NewPlace] = Field(default_factory=list, description=NEW_PLACE_DESC)
 
 
+class EpisodeDraft(PlotBatch):
+    """화 하나를 작가가 적은 것 우선으로 채운 것 (pipeline.draft_episode, 뒤 화에 맞추지 않을 때)."""
+    next_gap: str = Field("", description="이 화를 작가 뜻대로 마무리하면서 바로 뒤 화 플롯과 어긋나게 된 점. 뒤 화에서 고칠 것을 한두 문장으로. 어긋나지 않으면 비움")
+
+
 class OpeningOption(BaseModel):
     approach: str = Field(description="여는 방식 id (요청에 적힌 것 그대로)")
     pitch: str = Field(description="이 안이 독자를 붙잡는 방법 한두 문장")
@@ -786,6 +791,7 @@ class Episode(BaseModel):
     versions: list[TextVersion] = Field(default_factory=list, description="바꾸기 전 판과 고르지 않은 새 판 (최근 것만)")
     made_by: Optional[RewriteRequest] = Field(None, description="지금 본문을 만든 다시 생성 요청 (처음 쓴 판이나 직접 쓴 본문이면 비움)")
     final_text: str = Field("", description="상태 반영이 끝난 뒤 본문을 처음 고치기 직전의 본문. 지금 본문과 다르면 반영된 요약 · 상태가 고치기 전 본문 기준이다. 다시 맞추거나 그대로 두기로 하면 비운다")
+    realign: str = Field("", description="앞 화 플롯을 뒤 화에 맞추지 않고 다시 짜면서 이 화와 어긋나게 된 점. 이 화 플롯을 다시 짜거나 작가가 확인하면 비운다")
 
 
 # ---------- 회차 진행 상태 ----------
