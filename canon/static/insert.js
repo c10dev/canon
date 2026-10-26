@@ -7,6 +7,7 @@
 
 Object.assign(S, {
   insForm: null,  // { at, title, summary, storyline, ai } 새 화 넣기 양식
+  fitNext: false,  // 플롯 편집기의 'AI 로 이 화 채우기'가 뒤 화에 맞출지 (끼워 넣은 새 화는 늘 맞춘다)
 });
 DRAFT_ROOTS.insForm = () => S.insForm;
 
@@ -75,6 +76,31 @@ function draftOneBtn(e) {
   return `<button type="button" class="btn" style="flex:1" data-action="insDraft" data-arg="${e.plot.number}"${b.attr}>${b.label}</button>`;
 }
 
+/** 'AI 로 이 화 채우기'가 뒤 화를 바꾸지 않는 화로 보고 맞출지. 끄면(기본) 작가가 적은 요약대로 마무리하고 뒤 화에 어긋난 점을 남긴다 */
+function fitNextField(e) {
+  const n = e.plot.number;
+  if (e.status !== 'draft' || !ep(n + 1)) return '';
+  return `<label class="small row" style="gap:6px;margin-top:8px"><input type="checkbox" data-fit-next${S.fitNext ? ' checked' : ''}> AI로 채울 때 ${n + 1}화에 맞추기</label>
+    <div class="small">${S.fitNext ? `${n + 1}화를 바꾸지 않는 화로 보고, 그 시작으로 이어지게 채워요. ${n + 1}화에서 일어날 일은 이 화에서 일으키지 않아요.` : `적어 둔 요약대로 이 화를 마무리해요. ${n + 1}화와 어긋나게 된 점은 ${n + 1}화에 '다시 맞추기'로 표시해요.`}</div>`;
+}
+
+/** 앞 화를 뒤 화에 맞추지 않고 다시 짜며 남긴 표시. 이 화 플롯을 AI 로 다시 짜면 서버가 지우고, 확인했어요로도 지운다 */
+function realignNote(e) {
+  if (!e.realign) return '';
+  const n = e.plot.number;
+  const how = e.status === 'draft' ? `'AI 로 이 화 채우기'를 누르면 바뀐 ${n - 1}화에 이어지게 다시 짜요. 직접 고치거나 대화로 다듬기에서 고쳐도 돼요.`
+    : e.status === 'confirmed' ? `직접 고치거나, 초안으로 되돌린 뒤 'AI 로 이 화 채우기'로 다시 짜요. 대화로 다듬기에서 고쳐도 돼요.`
+      : '본문이 있는 화라 플롯은 그대로예요. 집필 화면의 다시 생성으로 본문을 맞추세요.';
+  return `<div class="note warn"><strong>${n - 1}화를 다시 짜며 이 화와 어긋난 점</strong> · ${esc(e.realign)}
+    <div class="between" style="margin-top:6px;gap:8px"><span class="small">${how}</span><button type="button" class="btn small" data-action="clearRealign" data-arg="${n}">확인했어요</button></div></div>`;
+}
+
+document.addEventListener('change', (e) => {
+  if (!e.target.dataset || e.target.dataset.fitNext === undefined) return;
+  S.fitNext = e.target.checked;
+  render();
+});
+
 document.addEventListener('change', (e) => {
   const t = e.target;
   if (!S.insForm || !t.dataset) return;
@@ -121,6 +147,12 @@ Object.assign(actions, {
     });
   },
   async insDraft(n) {
-    await startJob('plot_one', Number(n));
+    await startJob('plot_one', Number(n), { fit_next: !!S.fitNext });
+  },
+  async clearRealign(n) {
+    await run('표시를 지우는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/realign/clear`);
+    });
   },
 });
