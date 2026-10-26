@@ -779,6 +779,9 @@ details.vis summary .small { margin-left: 6px; font-weight: 400; }
 .csh-id { flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .csh-id h2 { font-size: 1.5rem; font-weight: 800; }
 .csh-side { flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+/* 설정 도우미: 신체 프로필 AI 제안 칸 고르기 */
+.body-sug { display: flex; gap: 8px; align-items: flex-start; line-height: 1.5; }
+.body-sug input { margin-top: 3px; }
 .csh-body { display: flex; flex-direction: column; gap: 6px; }
 .csh-body dl { margin: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .csh-body dl > div { padding: 5px 10px; border-radius: 8px; background: var(--bg); display: flex; gap: 6px; align-items: baseline; }

@@ -33,6 +33,7 @@ from .schema import (
     ImpactConflict,
     ImpactReport,
     LookSuggestion,
+    BodySuggestion,
     VoiceSuggestion,
     NameOption,
     NameOptions,
@@ -543,6 +544,9 @@ class MockLLM:
                     if name not in [x.name for x in new]:
                         new.append(NewPlace(name=name, kind="건물", description="위치 글에서 나온 곳"))
             return PlaceSort(matches=out, new_places=new)  # type: ignore[return-value]
+        if schema is BodySuggestion:
+            return BodySuggestion(height="163cm", weight="50kg", build="마른 근육형", measurements="82-60-86",
+                                  features="왼손잡이, 오른쪽 손목에 점", note="외모 칸의 흉터와 성격에 맞춰 활동적인 체형으로 정했어요.")  # type: ignore[return-value]
         if schema is LookSuggestion:
             return LookSuggestion(subject="girl", look=["Black_hair", "short hair", "brown eyes", "teenage"], outfit=["school uniform"],
                                   note="설정에 눈 색이 없어 갈색으로 정했어요.")  # type: ignore[return-value]

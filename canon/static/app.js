@@ -712,23 +712,6 @@ function ep(n) {
   return P().episodes.find((e) => e.plot.number === n);
 }
 
-// 신체 프로필 칸 (Character.body). 작가가 정하고 인물 상태창에만 보인다. 프롬프트에는 넣지 않는다
-const BODY_FIELDS = [['height', '키'], ['weight', '몸무게'], ['build', '체형'], ['measurements', '쓰리사이즈'], ['features', '신체 특징']];
-
-/** 나이 칸으로 미성년인지. 19 미만 숫자, 10대, 학생 · 아이 같은 말이면 미성년이다. 모르면 false.
-    미성년 인물은 쓰리사이즈 칸을 보이지도 받지도 않는다 */
-function isMinorAge(age) {
-  const a = String(age || '');
-  if (/초등|중학|고등|고교|소년|소녀|어린|아이|미성년|10\s*대/.test(a)) return true;
-  const m = a.match(/\d+/);
-  return !!m && Number(m[0]) < 19;
-}
-
-function bodyRows(c) {
-  const b = c.body || {};
-  return BODY_FIELDS.filter(([k]) => (b[k] || '').trim() && !(k === 'measurements' && isMinorAge(c.age))).map(([k, label]) => [k, label, b[k].trim()]);
-}
-
 function charName(id) {
   const c = P().characters.find((x) => x.id === id) || (P().cast_candidates || []).find((x) => x.id === id);
   return c ? c.name || id : id;
@@ -3324,12 +3307,31 @@ function bodyFields(c, b) {
   if (!c.body || typeof c.body !== 'object') c.body = {};  // 예전 화면에서 만든 인물도 칸을 고칠 수 있게
   const minor = isMinorAge(c.age);
   const filled = bodyRows(c).length;
-  return `<details><summary>신체 프로필 <span class="small">${filled ? `· ${filled}칸 채움 ` : ''}· 인물 상태창에만 보여요</span></summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
+  const open = (S.bodySug || {})[c.id] || (S.bodyOpen || {})[c.id];  // 제안을 받거나 적용한 뒤 다시 그려도 펼친 채로
+  return `<details${open ? ' open' : ''}><summary>신체 프로필 <span class="small">${filled ? `· ${filled}칸 채움 ` : ''}· 인물 상태창에만 보여요</span></summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
     <div class="grid-2">${input('키', b + '.body.height', { placeholder: '예: 165cm' })}${input('몸무게', b + '.body.weight', { placeholder: '예: 48kg' })}</div>
     <div class="grid-2">${input('체형', b + '.body.build', { placeholder: '예: 마른 근육형' })}${minor ? '' : input('쓰리사이즈', b + '.body.measurements', { placeholder: '예: 84-58-86' })}</div>
     ${minor ? '<div class="small">나이로 보아 미성년 인물이라 쓰리사이즈 칸은 두지 않아요.</div>' : ''}
     ${input('신체 특징', b + '.body.features', { rows: 2, placeholder: '예: 왼손잡이, 오른쪽 어깨에 화상 자국' })}
+    <div class="row"><button type="button" class="btn small" data-action="bodyAI" data-arg="${esc(c.id)}">AI 제안</button><span class="small">설정에 맞춰 칸을 제안해요. 고른 칸만 적용해요${minor ? ' · 쓰리사이즈는 제안하지 않아요' : ''}</span></div>
+    ${bodySuggestCard(c)}
     <div class="small">AI 프롬프트에는 넣지 않아요. 본문에 이어지게 할 외모는 위 '외모' 칸에 적어요.</div></div></details>`;
+}
+
+/** 신체 프로필 AI 제안: 칸별로 지금 값과 비교해 고른다. 비어 있는 칸만 기본으로 고른다 */
+function bodySuggestCard(c) {
+  const s = (S.bodySug || {})[c.id];
+  if (!s) return '';
+  const minor = isMinorAge(c.age);
+  const rows = BODY_FIELDS.filter(([k]) => (s[k] || '').trim() && !(k === 'measurements' && minor)).map(([k, label]) => {
+    const now = ((c.body || {})[k] || '').trim();
+    const same = now === s[k].trim();
+    return `<label class="body-sug"><input type="checkbox" data-body-pick="${esc(c.id)}" value="${k}"${now || same ? '' : ' checked'}${same ? ' disabled' : ''}>
+      <span><strong>${label}</strong> ${now ? `<span class="before">${esc(now)}</span> → ` : ''}<span class="after">${esc(s[k])}</span>${same ? ' <span class="small">지금과 같아요</span>' : ''}</span></label>`;
+  }).join('');
+  return `<div class="note info" style="display:flex;flex-direction:column;gap:8px"><strong>AI 제안</strong>${s.note ? `<span>${esc(s.note)}</span>` : ''}
+    ${rows || '<span>제안한 칸이 없어요</span>'}
+    <div class="row"><button type="button" class="btn small primary" data-action="bodyApply" data-arg="${esc(c.id)}"${rows ? '' : ' disabled'}>고른 칸 적용</button><button type="button" class="btn small" data-action="bodyDismiss" data-arg="${esc(c.id)}">닫기</button></div></div>`;
 }
 
 function viewSetup() {
@@ -4672,6 +4674,33 @@ const rsLabel = (b) => (b.model ? `${b.provider}:${b.model}` : b.provider);
 const rsNum = (v, d = 0) => (v == null ? '-' : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }));
 
 Object.assign(actions, {
+  async bodyAI(cid) {
+    if (!P().characters.some((x) => x.id === cid)) return;
+    await run('신체 프로필 제안 만드는 중', async () => {
+      await saveIfDirty();  // AI는 저장된 인물 설정을 읽는다. 방금 고친 나이 · 외모도 보게 먼저 저장한다
+      const s = await api('POST', `/projects/${enc(S.name)}/characters/${enc(cid)}/body`);
+      S.bodySug = { ...(S.bodySug || {}), [cid]: s };
+      S.bodyOpen = { ...(S.bodyOpen || {}), [cid]: true };
+    });
+  },
+  bodyApply(cid) {
+    const c = P().characters.find((x) => x.id === cid);
+    const s = (S.bodySug || {})[cid];
+    if (!c || !s) return;
+    const picked = [...document.querySelectorAll(`[data-body-pick="${CSS.escape(cid)}"]:checked`)].map((x) => x.value)
+      .filter((k) => !(k === 'measurements' && isMinorAge(c.age)));
+    if (!picked.length) { toast('적용할 칸을 고르세요', true); return; }
+    c.body = { ...(c.body || {}) };
+    picked.forEach((k) => { c.body[k] = s[k]; });
+    delete S.bodySug[cid];
+    markDirty();
+    render();
+    toast(`${picked.length}칸을 적용했어요. 저장하면 남아요`);
+  },
+  bodyDismiss(cid) {
+    if (S.bodySug) delete S.bodySug[cid];
+    render();
+  },
   async voiceAI(cid) {
     const c = P().characters.find((x) => x.id === cid);
     if (!c) return;

@@ -2629,6 +2629,30 @@ def look_prompt(p: Project, cid: str) -> str:
 - note 에는 설정에서 태그로 옮기기 어려웠던 것이나 새로 정한 것을 한국어 한두 문장으로 적습니다."""
 
 
+def body_prompt(p: Project, cid: str, minor: bool) -> str:
+    """신체 프로필 제안 (pipeline.suggest_body). 신체 프로필은 다른 프롬프트에는 넣지 않고 이 제안에만 쓴다."""
+    c = next(c for c in p.characters if c.id == cid)
+    have = {k: v for k, v in c.body.model_dump().items() if v.strip()}
+    return f"""아래 인물의 신체 프로필(키, 몸무게, 체형, 쓰리사이즈, 신체 특징)을 작품 설정에 맞게 제안하세요. 작가가 칸별로 골라 씁니다.
+
+# 작품
+제목: {p.meta.title}
+장르: {genres.label(p.meta)}
+배경: {p.world.setting} / 시대: {p.world.era}
+
+# 인물
+{dump(c.model_dump(include={"name", "role", "age", "gender", "appearance", "personality", "background"}))}
+{f"작가가 이미 적은 신체 프로필: {dump(have)}" if have else "작가가 적은 신체 프로필 없음"}
+
+요구사항:
+- 설정에 적힌 외모 · 나이 · 성별 · 역할과 어긋나지 않게 정합니다. 작가가 이미 적은 값은 그대로 두고 비어 있는 칸을 채웁니다.
+- height 는 cm, weight 는 kg 단위 숫자로 적습니다 (예: 165cm, 48kg). 시대와 나이에 그럴듯한 값으로, 극단으로 몰지 않습니다.
+- build 는 체형을 한 줄로 적습니다 (예: 마른 근육형, 어깨가 넓고 다부지다).
+{"- 이 인물은 미성년이라 measurements 는 반드시 빈 문자열로 둡니다. 다른 칸에도 몸매를 성적으로 묘사하지 않습니다." if minor else "- measurements 는 가슴-허리-엉덩이 cm 를 하이픈으로 잇습니다 (예: 84-58-86). 성별과 체형에 맞게 적고, 덧붙이는 말은 넣지 않습니다."}
+- features 에는 본문에서 이어질 만한 바뀌지 않는 신체 특징 1~3개를 쉼표로 적습니다 (예: 왼손잡이, 오른쪽 손목에 점). 선정적인 묘사는 쓰지 않습니다.
+- note 에는 무엇을 근거로 정했는지 한국어 한두 문장으로 적습니다."""
+
+
 # ---------- 지도: 장소와 맞지 않은 위치 글 정리 ----------
 
 SYSTEM_PLACE_SORTER = (
