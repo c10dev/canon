@@ -1,0 +1,38 @@
+# Xcode 프로젝트 만들기 (Mac): brew install xcodegen && cd swift/App && xcodegen
+# 만든 Canon.xcodeproj 는 커밋하지 않는다 (.gitignore). 이 파일을 고친다.
+name: Canon
+options:
+  bundleIdPrefix: dev.c10
+  deploymentTarget:
+    iOS: "17.0"
+    macOS: "14.0"
+packages:
+  CanonKit:
+    path: ..
+targets:
+  Canon:
+    type: application
+    supportedDestinations: [iOS, macOS]
+    sources: [CanonApp]
+    dependencies:
+      - package: CanonKit
+        product: CanonAppUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.c10.canon
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "6.0"
+    info:
+      path: CanonApp/Info.plist
+      properties:
+        CFBundleDisplayName: Canon
+        UILaunchScreen: {}
+        # 같은 기기 서버(http://127.0.0.1)와 Tailscale 안 주소(http)를 연다
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    entitlements:
+      path: CanonApp/Canon.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true

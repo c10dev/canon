@@ -4,3 +4,10 @@ __pycache__/
 .env
 projects/
 *.zip
+
+# Swift 앱 (swift/)
+swift/.build/
+swift/.swiftpm/
+swift/App/*.xcodeproj/
+swift/App/CanonApp/Info.plist
+swift/App/CanonApp/Canon.entitlements

@@ -32,7 +32,8 @@ STATIC = Path(__file__).parent / "static"
 NAME_RE = re.compile(r'^[^/\\.:*?"<>|][^/\\:*?"<>|]{0,63}$')
 NAME_ERR = '폴더 이름에 / \\ : * ? " < > | 는 쓸 수 없고, . 으로 시작할 수 없어요 (64자까지)'
 
-app = FastAPI(title="Canon")
+# 연산 이름(operationId)은 함수 이름이다. Swift 앱(swift/)이 openapi.json 으로 클라이언트를 만들 때 이 이름을 쓴다
+app = FastAPI(title="Canon", generate_unique_id_function=lambda route: route.name)
 # 다른 기기(Tailscale)에서 열 때 작품 JSON 과 정적 파일을 줄여 보낸다
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 _active = 0  # 처리 중인 요청 수. 자동 업데이트는 이 값이 0일 때만 다시 시작한다.
@@ -247,8 +248,22 @@ def claude_status() -> dict:
     return claude.status()
 
 
+class ProjectCard(BaseModel):
+    """작품 목록의 카드 한 장."""
+    name: str
+    title: str
+    genre: str
+    form: str
+    episodes: int
+    finalized: int
+    planned: int
+    open_ep: int
+    open_status: str
+    updated_at: str
+
+
 @app.get("/api/projects")
-def list_projects() -> list[dict]:
+def list_projects() -> list[ProjectCard]:
     """작품 카드: 형식, 다음에 할 화(open_ep · open_status, 없으면 0 · ''), 고친 시각. 최근에 고친 작품부터."""
     from datetime import datetime, timezone
     out = []

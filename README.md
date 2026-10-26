@@ -539,6 +539,11 @@ python -m canon update 등대 3 --from-json 응답.json
 python -m canon brief 등대 3 --check    # 검수 지시서 → 받은 JSON 은 check 등대 3 --from-json 응답.json
 ```
 
+## Swift 앱 (준비 중)
+
+`swift/` 에 macOS · iPad · iPhone 용 SwiftUI 앱을 만들고 있다. 앱은 이 서버에 붙는 클라이언트라 서버를 먼저 띄운다 (위 '서버에서 상시 실행'의 Tailscale 주소를 앱에 적는다). 지금은 작품 목록만 옮겼고 나머지 화면은 웹에서 쓴다. 모듈 구조, 빌드 명령, 화면 옮기는 순서는 [swift/README.md](swift/README.md).
+
+
 ## 파일 구조
 
 ```
@@ -570,4 +575,5 @@ canon/web.py       웹 UI 서버 (FastAPI) + canon/static/ 화면
 canon/jobs.py      웹에서 오래 걸리는 AI 작업을 백그라운드로 돌리고 진행 상황을 알려 줌
 canon/autorun.py   목표 화까지 자동 집필 (승인 정책, 배치, 비용 추정, 이어 가기, 1~3화 멈춤)
 tests/             흐름 테스트 (mock LLM, 가짜 OpenAI 호환 서버)
+swift/             SwiftUI 앱 (서버 클라이언트, 모듈 패키지 CanonKit). 명세는 scripts/make_openapi.py 로 만든다
 ```
