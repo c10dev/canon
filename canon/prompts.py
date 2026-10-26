@@ -138,6 +138,99 @@ def setup_prompt(p: Project) -> str:
 {naming.prompt_block(p)}"""
 
 
+# ---------- 설정 도우미 대화 ----------
+# 앞쪽은 지금 설정(작품 · 세계관 · 인물 · 관계), 뒤쪽은 쓴 화 · 이름 후보(뽑을 때마다 바뀜) · 대화 · 새 말.
+
+SYSTEM_SETUP_CHAT = (
+    "당신은 작가와 함께 소설의 기획 설정(로그라인, 주제, 톤, 세계관, 인물, 관계)을 다듬어 가는 기획 편집자입니다. "
+    "작가의 말을 듣고 바꿀 칸만 고친 변경안을 내고, 왜 그렇게 고쳤는지 짧게 설명합니다. "
+    "작가가 방향을 청하면 변경안 대신 서로 분명히 다른 방향 여러 안을 내서 고르거나 섞게 합니다. "
+    "변경안은 제안일 뿐이며 작가가 골라서 적용합니다. 작가가 채운 설정은 존중합니다. 모든 출력은 한국어로 작성합니다."
+)
+
+SETUP_CHAT_HISTORY = 12  # 설정 대화에서 넣는 최근 메시지 수
+SETUP_CHAT_RECENT = 5    # 쓴 화 요약을 넣는 최근 화 수
+
+
+def _setup_chat_line(p: Project, m: ChatMessage) -> str:
+    from . import setupchat
+
+    if m.role == "user":
+        return f"작가{' [방향 여러 안 요청]' if m.mode == 'options' else ''}: {m.text}"
+    line = f"편집자: {m.text}"
+    r = m.setup
+    if r and r.options:
+        line += "\n  (방향 안: " + " / ".join(f"{i}. {x.title}" for i, x in enumerate(r.options, 1)) + ")"
+    elif r:
+        parts = ", ".join(setupchat.label(p, r, x) for x in setupchat.part_ids(r))
+        applied = ", ".join(setupchat.label(p, r, x) for x in m.applied)
+        result = {"applied": f"작가가 적용함: {applied}", "dismissed": "작가가 적용하지 않음"}.get(m.outcome, "아직 결정 전")
+        line += f"\n  (변경안: {parts} / {result})"
+    return line
+
+
+def setup_chat_prompt(p: Project, message: str, mode: str = "") -> str:
+    """설정 도우미 대화. mode 'options' 면 변경안 대신 방향 여러 안을 청한다."""
+    from . import setupchat
+
+    begun = setupchat.started(p)
+    chars = [c.model_dump(exclude={"narration_voice", "first_ep"}) for c in p.characters]
+    relations = [r.model_dump(exclude={"a_view", "b_view"} if begun else set()) for r in p.relationships]
+    written = sorted((e for e in p.episodes if e.text.strip()), key=lambda e: e.plot.number)
+    story = ""
+    if written:
+        lines = [f"- {e.plot.number}화 {e.plot.title}: {_clip(e.summary or e.plot.summary, 200)}" for e in written[-SETUP_CHAT_RECENT:]]
+        story = f"\n[이미 쓴 화] 본문이 있는 화 {len(written)}개 (마지막 {written[-1].plot.number}화). 최근 화:\n" + "\n".join(lines) + "\n"
+    chat = next((c for c in p.chats if c.topic == "setup"), None)
+    history = "\n".join(_setup_chat_line(p, m) for m in (chat.messages[-SETUP_CHAT_HISTORY:] if chat else []))
+    head = f"""[작품]
+{meta_text(p)}
+
+[로그라인 다섯 칸] (위 logline 은 이 칸을 합친 문장)
+{dump(p.meta.logline_parts)}
+
+[세계관]
+{dump(p.world)}
+
+[인물]
+{dump(chars) if chars else "아직 없음"}
+
+[관계]
+{dump(relations) if relations else "아직 없음"}
+{story}
+[이름·지명 후보]
+{naming.prompt_block(p)}
+
+[지금까지의 대화]
+{history or "없음 (첫 대화)"}
+
+[작가의 새 말]
+{message}
+
+요구사항:
+"""
+    if mode == "options":
+        return head + """- 작가가 방향 여러 안을 청했습니다. options 에 서로 분명히 다른 방향 2~3개를 넣습니다. 같은 방향의 강약 조절이 아니라 인물의 욕망과 결핍, 갈등의 축, 세계의 규칙, 톤처럼 줄기가 다르게 갈라지게 합니다.
+- 각 안의 title 은 방향 이름 한 줄, idea 에는 이 설정이면 어떤 이야기가 되는지 2~3문장, changes 에는 바뀌는 칸을 한 줄씩 (예: '주인공 약점: 남을 믿지 못함 → 거절을 못 함'), tradeoff 에는 얻는 것과 잃는 것을 씁니다.
+- 작가가 채운 칸은 작가가 바꾸자고 한 것이 아니면 살리는 방향을 먼저 냅니다.
+- edits, characters, new_characters, relationships 는 모두 비웁니다. 작가가 안을 고르면 그때 변경안을 만듭니다.
+- reply 에는 안들을 어떤 기준으로 나눴는지 1~2문장으로 씁니다."""
+    rel_rule = ("- 1화 상태를 반영한 뒤라 지금 관계는 본문의 관계 사건으로 계산됩니다. 관계는 type, description, goal_conflict 만 고치고 a_view, b_view 는 비웁니다. 관계 수치는 적지 않습니다."
+                if begun else
+                f"- 관계의 a_view(a 가 b 를 보는 방식)와 b_view(b 가 a 를 보는 방식)는 {', '.join(VIEWS)} 중에서 1~2개 고릅니다. 시작 호감은 프로그램이 보는 방식으로 계산합니다.")
+    return head + f"""- reply 에는 작가에게 하는 대답을 2~5문장으로 씁니다. 무엇을 왜 바꿨는지, 이야기에 어떤 차이가 생기는지 말합니다. 요청이 모호하면 가장 그럴듯하게 해석해 고치고 어떻게 해석했는지 밝힙니다. 질문만 받았으면 변경 없이 대답만 합니다. 작가에게 더 물어볼 것이 있으면 reply 끝에 짧은 질문 하나를 붙입니다.
+- 작가가 앞서 낸 방향 안 중 하나를 고르거나 섞어 달라고 하면 그 방향으로 변경안을 만듭니다. options 는 비웁니다.
+- 바뀌는 칸만 넣고, 칸마다 바뀐 뒤 값 전체를 씁니다. 작가가 채운 칸은 작가가 바꾸자고 했거나 요청을 이루는 데 꼭 필요할 때만 바꿉니다. 칸을 비우는 변경은 내지 않습니다.
+- edits 의 key: title 제목, logline.who 누가(이름보다 특징이 먼저 보이게), logline.why 무엇 때문에, logline.goal 무엇을 하려 하나('~한다'로 끝나는 눈에 보이는 행동), logline.block 무엇이 막나(사람이나 힘), logline.stake 무엇이 걸렸나, theme 주제(이야기가 끝까지 묻는 질문 하나), tone 톤 문장, notes 메모, world.setting 배경, world.era 시대, world.rules 깨면 안 되는 규칙, world.locations 장소, world.name_rules 이름 규칙. 로그라인은 다섯 칸으로만 고칩니다 (한 문장은 프로그램이 합칩니다). 다섯 칸이 비어 있고 logline 문장만 있으면 로그라인을 고칠 때 그 문장을 다섯 칸으로 나눠 함께 채웁니다.
+- 글 칸은 text, world.rules · world.locations · world.name_rules 는 items 에 씁니다. 목록은 그대로 둘 항목도 빠짐없이 넣습니다. 빠진 항목은 지워집니다.
+- characters 에는 이미 있는 인물의 바뀌는 칸만 (id, field) 하나씩 넣습니다. field 는 name, role, age, gender, appearance, personality, background, goal, wound, speech_style, secrets(목록, items), arc 입니다. id 와 서술 말투는 바꾸지 않습니다. speech_style 은 대사 예시 한 줄을 포함해 구체적으로 씁니다.
+- new_characters 에는 작가가 청했거나 요청을 이루는 데 꼭 필요한 인물만, 모든 칸을 채워 넣습니다. id 는 이미 있는 인물과 겹치지 않는 영문 소문자이고 narration_voice 는 비웁니다. gender(남/여)를 적고, 이름은 위 [이름·지명 후보]에서 고르거나 같은 시대와 결로 짓습니다. 다른 인물과 이름의 첫 글자나 끝 글자가 겹치지 않게 합니다.
+- relationships 에는 바뀌는 관계와 새 관계만, 두 인물 id 와 바뀐 뒤 값 전체를 넣습니다. 같은 두 인물이면 그 관계를 고칩니다. 새 인물을 넣으면 그 인물과 이미 있는 인물의 관계도 하나 이상 넣습니다.
+{rel_rule}
+- 인물이나 관계를 지우는 제안은 하지 않습니다. 지워야 한다고 보면 reply 에서 말하면 작가가 화면에서 지웁니다.
+{"- 이미 쓴 화의 본문은 바뀌지 않습니다. 쓴 내용과 어긋나는 설정 변경이면 reply 에서 어느 화와 어긋나는지 알립니다." + chr(10) if written else ""}- options 는 비웁니다."""
+
+
 def style_prompt(sample: str) -> str:
     return f"""아래 예시 소설 텍스트의 문체를 분석해 스타일 프로필을 만드세요.
 다른 작품을 쓸 때 이 문체를 재현할 수 있도록, 관찰 가능한 특징을 구체적으로 적습니다
@@ -1947,7 +2040,7 @@ def check_prompt(p: Project, n: int, mode: str = "") -> str:
 {n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
 - 확인할 것: 확정 사실, 이야기 요소와 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
 - 동선: 한 장면 안에서 인물의 위치, 몸이 향한 쪽(앞 · 뒤, 등 · 배), 자세, 손에 든 것, 가려진 곳이 바꾸는 행동 없이 달라지는지 봅니다. 예: 등을 돌리고 망토로 몸을 가렸는데 다음 문장에서 그 인물의 표정이나 가슴께가 보임. 이때 source_episode 는 {n}, source_quote 는 같은 화의 앞 문장입니다.
-- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{timeline.check_rule(p, n)}{attire_check_rule(p)}
+- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{timeline.check_rule(p, n)}{attire_check_rule(p)}{statwin.check_rule(p)}
 - source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 설정이나 인물 상태면 source_episode 는 0 입니다.
 - 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
 - episode 는 {n} 입니다."""

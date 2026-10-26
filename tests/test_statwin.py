@@ -27,16 +27,73 @@ def _stats(p, cid="hero"):
 
 def test_resolve():
     assert statwin.resolve("10", "+3") == "13"
-    assert statwin.resolve("1,200", "-200") == "1000"
+    assert statwin.resolve("1,200", "-200") == "1,000"  # 자릿수 쉼표는 이전 값을 따른다
     assert statwin.resolve("1.5", "+0.25") == "1.75"
     assert statwin.resolve("B급", "+1") == "+1"  # 이전 값이 숫자가 아니면 적은 그대로
     assert statwin.resolve("3", "A급") == "A급"
 
 
+# (이전 값, 적은 값, 새 값). tests/test_statwin_js.py 가 statwin.js 의 swResolve 도 같은지 본다
+RESOLVE_CASES = [
+    ("10", "+3", "13"), ("1,200", "-200", "1,000"), ("1.5", "+0.25", "1.75"), ("B급", "+1", "+1"), ("3", "A급", "A급"),
+    ("", "+3", "+3"), ("5", "-5", "0"), ("2", "-3.5", "-1.5"), ("10", "-", "-"),
+    # 단위가 붙은 수치
+    ("1200골드", "+300", "1500골드"), ("1,200골드", "+300골드", "1,500골드"), ("1,200 G", "-1,500", "-300 G"),
+    ("₩5000", "+500", "₩5500"), ("Lv.3", "+1", "Lv.4"), ("1200골드", "+3G", "+3G"), ("999,500원", "+700", "1,000,200원"),
+    # 목록 항목
+    ("화염구 Lv3, 은신", "+독 내성", "화염구 Lv3, 은신, 독 내성"),
+    ("화염구 Lv3, 은신", "+화염구 Lv4, -은신", "화염구 Lv4"),
+    ("", "+화염구, +은신", "화염구, 은신"),
+    ("검 · 방패", "+포션 3개", "검 · 방패 · 포션 3개"),
+    ("포션 3개, 검", "+포션 5개", "포션 5개, 검"),
+    ("화염구(B급)", "+화염구(A급)", "화염구(A급)"),
+    ("화염구, 은신", "-없는 것", "화염구, 은신"),
+    ("화염구, 은신", "-은신, -화염구", ""),
+    ("화염구 Lv3", "화염구 Lv5", "화염구 Lv5"),
+    ("1200", "+독", "+독"), ("화염구", "+독, 은신", "+독, 은신"),
+]
+
+
+def test_resolve_units_and_lists():
+    for before, value, want in RESOLVE_CASES:
+        assert statwin.resolve(before, value) == want, (before, value)
+
+
+def test_list_items_through_review_and_timeline():
+    p = _short(8)
+    statwin.set_stats(p, "hero", [StatValue(name="스킬", value="화염구 Lv3, 은신"), StatValue(name="골드", value="1,200골드")])
+    _play(p, 1, 1)
+    pipeline.confirm_plot(p, 2)
+    p.episode(2).text = pipeline.write_episode(LLM, p, 2)
+    p.episode(2).status = "written"
+    d = pipeline.extract_state(LLM, p, 2)
+    hero = next(u for u in d.character_updates if u.character_id == "hero")
+    hero.stats = [StatValue(name="스킬", value="+독 내성, -은신"), StatValue(name="골드", value="+300")]
+    pipeline.apply_delta(p, d)
+    assert _stats(p)["스킬"] == "화염구 Lv3, 독 내성" and _stats(p)["골드"] == "1,500골드"
+    ch = statwin.timeline(p, "hero")["columns"][-1]["changed"]
+    assert ch["스킬"]["added"] == ["독 내성"] and ch["스킬"]["removed"] == ["은신"]
+    assert "added" not in ch["골드"]  # 수치는 이전 → 새 값만
+    out = statwin.describe(p, "hero")
+    assert "스킬 +독 내성 -은신" in out and "골드 1,200골드 → 1,500골드" in out
+
+
+def test_inventory_splits_attire_rule():
+    p = _short(8)
+    statwin.set_stats(p, "hero", [StatValue(name="레벨", value="1")])
+    assert not statwin.inventory(p) and statwin.check_rule(p) == "" and "attire 에는 입고 있거나" not in statwin.state_rule(p)
+    statwin.set_stats(p, "hero", [StatValue(name="레벨", value="1"), StatValue(name="인벤토리", value="포션 3개")])
+    assert statwin.inventory(p)
+    assert "attire 에는 입고 있거나" in statwin.state_rule(p)
+    assert "attire 에 없어도" in statwin.write_rule(p) and "인벤토리:" in statwin.check_rule(p)
+    _play(p, 1, 1)
+    assert "인벤토리:" in prompts.check_prompt(p, 1) and "attire 에는 입고 있거나" in prompts.state_prompt(p, 1)
+
+
 def test_off_until_author_sets_stats():
     p = _play(_short(8), 1, 1)
     assert not statwin.enabled(p) and p.stat_log == [] and _stats(p) == {}
-    assert statwin.write_rule(p) == "" and statwin.state_rule(p) == ""
+    assert statwin.write_rule(p) == "" and statwin.state_rule(p) == "" and statwin.check_rule(p) == ""
     assert "상태창" not in prompts.episode_prompt(p, 2)
 
 
@@ -93,7 +150,7 @@ def test_cli_and_web(tmp_path, monkeypatch, capsys):
     importlib.reload(web)
     c = TestClient(web.app)
     r = c.get("/api/projects/sw/statwin/hero").json()
-    assert r["names"] == ["레벨", "HP"] and "HP: 70" in r["text"] and "game" in r["presets"]
+    assert r["names"] == ["레벨", "HP"] and "HP: 70" in r["text"] and "growth" in r["presets"]
     p = c.put("/api/projects/sw/statwin/hero", json={"stats": [{"name": "레벨", "value": "6"}]}).json()
     assert [s["name"] for s in next(s for s in p["states"] if s["character_id"] == "hero")["stats"]] == ["레벨"]
     assert c.put("/api/projects/sw/statwin-template", json={"template": "없음"}).status_code == 400

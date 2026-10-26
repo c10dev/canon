@@ -1,6 +1,7 @@
 /* 대화로 다듬기 패널. app.js 의 S, actions, api, render 를 그대로 쓴다.
    작가가 말하면 AI가 답과 변경안을 내고, 변경안은 바뀌는 칸만 보여 준다. 작가가 고른 부분만 반영한다.
-   기승전결 · 플롯 화면(topic 'plot'), 집필 화면의 본문 부분 수정(topic 'text:<화>', passage.js), 문체 화면(topic 'style', stylechat.js)에 붙어 있다.
+   기승전결 · 플롯 화면(topic 'plot'), 집필 화면의 본문 부분 수정(topic 'text:<화>', passage.js), 문체 화면(topic 'style', stylechat.js),
+   설정 도우미(topic 'setup', setupchat.js)에 붙어 있다.
    다른 화면에 붙일 때는 CHAT_TOPICS 에 항목을 더하고 서버 web.py 의 _chat 과 변경안 반영 함수를 함께 늘린다.
    주제마다 body(요청 내용), proposal(변경안 그리기), userMsg, inputExtra 를 바꿔 끼울 수 있다. */
 'use strict';
@@ -203,10 +204,13 @@ function partsDiff(rev) {
   return rows + (gone.length ? `<div class="diff-row"><span class="act-label">없어지는 부</span>${gone.map((y) => `<del>${y.number}부 ${esc(y.title)}</del>`).join('')}</div>` : '');
 }
 
+/** 방향 여러 안 (플롯 대화는 revision, 설정 대화는 setup 에 있다). */
+const chatOptionsOf = (m) => ((m.revision || m.setup || {}).options || []);
+
 /** 방향 여러 안: 고르면 그 방향으로, 여럿 고르면 섞어서 변경안을 청한다 (보내는 말은 그대로 대화에 남는다). */
 function optionsCard(m, i) {
   const busy = S.chatPending ? ' disabled' : '';
-  const cards = m.revision.options.map((o, k) => `<div class="prop-part">
+  const cards = chatOptionsOf(m).map((o, k) => `<div class="prop-part">
     <label class="prop-head"><input type="checkbox" data-chat-pick="${pickKey(i, `opt${k}`)}"${S.chatPicks[pickKey(i, `opt${k}`)] ? ' checked' : ''}><strong>${k + 1}안 · ${esc(o.title)}</strong></label>
     <div>${esc(o.idea)}</div>
     ${o.changes.length ? `<ul class="small option-changes">${o.changes.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
@@ -337,7 +341,7 @@ function chatPanel(topic) {
   const msgs = chatMessages(topic);
   const list = msgs.map((m, i) => m.role === 'user'
     ? `<div class="msg user">${t.userMsg ? t.userMsg(m) : esc(m.text)}</div>`
-    : `<div class="msg ai"><div class="msg-text">${esc(m.text)}</div>${m.revision ? proposal(m, i) : (m.passage || m.style) && t.proposal ? t.proposal(m, i) : ''}</div>`).join('');
+    : `<div class="msg ai"><div class="msg-text">${esc(m.text)}</div>${m.revision ? proposal(m, i) : (m.passage || m.style || m.setup) && t.proposal ? t.proposal(m, i) : ''}</div>`).join('');
   const empty = msgs.length || S.chatPending ? '' : `<div class="note info">${esc(t.intro)}</div>
     ${t.examples.length ? `<div class="row">${t.examples.map((x) => `<button type="button" class="btn small" data-action="chatExample" data-arg="${esc(x)}">${esc(x)}</button>`).join('')}</div>` : ''}`;
   const pending = S.chatPending ? `<div class="msg user">${esc(S.chatPending)}</div><div class="msg ai pending" role="status"><span class="spinner small" aria-hidden="true"></span>생각하는 중… (최대 1분)</div>` : '';
@@ -468,11 +472,11 @@ Object.assign(actions, {
   },
   chatDirection(arg) {
     const [i, k] = String(arg).split('|').map(Number);
-    const o = chatMessages(S.chatTopic)[i].revision.options[k];
+    const o = chatOptionsOf(chatMessages(S.chatTopic)[i])[k];
     sendDirection(`${k + 1}안 '${o.title}' 방향으로 변경안을 만들어 줘.`);
   },
   chatMixDirections(i) {
-    const opts = chatMessages(S.chatTopic)[Number(i)].revision.options;
+    const opts = chatOptionsOf(chatMessages(S.chatTopic)[Number(i)]);
     const ks = opts.map((_, k) => k).filter((k) => S.chatPicks[pickKey(Number(i), `opt${k}`)]);
     if (!ks.length) return toast('섞을 안을 체크해서 고르세요', true);
     const names = ks.map((k) => `${k + 1}안 '${opts[k].title}'`);
@@ -505,7 +509,7 @@ Object.assign(actions, {
     });
   },
   async chatClear() {
-    const open = chatMessages(S.chatTopic).filter((m) => ((m.revision && !(m.revision.options || []).length) || m.style) && !m.outcome).length;
+    const open = chatMessages(S.chatTopic).filter((m) => ((m.revision || m.setup) && !chatOptionsOf(m).length || m.style) && !m.outcome).length;
     if (!confirm(chatConf(S.chatTopic).clearAsk + (open ? `\n아직 고르지 않은 변경안 ${open}개도 함께 지워져요.` : '') + (S.dirty ? '\n저장하지 않은 다른 변경도 함께 저장해요.' : ''))) return;
     await run('지우는 중', async () => {
       await saveIfDirty();

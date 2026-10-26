@@ -124,7 +124,7 @@ public final class StatWinModel {
 
     public var presetKeys: [String] { StatWinText.presetOrder(view?.presets.additionalProperties.keys.map { $0 } ?? []) }
 
-    /// 지금 항목을 저장한다. '+3' 은 저장한 값 기준으로 계산해서 보낸다 (웹 `swSave`).
+    /// 지금 항목을 저장한다. '+3' · '+독 내성' 은 서버가 저장한 값 기준으로 계산한다.
     public func save() async {
         guard let view else { return }
         let stats = StatWinText.outgoing(rows, current: view.current)
@@ -181,48 +181,24 @@ public enum StatWinText {
         return (people.first { $0.count > 0 } ?? people.first { $0.isMain } ?? people.first)?.id ?? ""
     }
 
-    /// `statwin.resolve` 와 같은 규칙: 이전 값이 숫자일 때만 '+3', '-10' 을 더하고 뺀다. 그 밖에는 적은 값 그대로 (웹 `swResolve`).
-    public static func resolve(_ before: String, _ value: String) -> String {
-        let v = value.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: "")
-        let b = before.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: "")
-        if let first = v.first, "+-".contains(first), isNumber(v), isNumber(b), let x = Double(v), let y = Double(b) {
-            return format(x + y)
-        }
-        return value.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// 서버로 보낼 항목: 이름이 빈 줄은 빼고, 값은 저장한 값 기준으로 계산한다 (웹 `swSave`).
+    /// 서버로 보낼 항목: 이름이 빈 줄은 빼고, 값은 적은 그대로 보낸다.
+    /// '+3', '+300', '+독 내성', '-은신' 은 서버가 저장한 값에 맞춰 계산한다 (`statwin.resolve`, `set_stats`).
     public static func outgoing(_ rows: [StatRow], current: [StatValue]) -> [StatValue] {
-        let before = Dictionary(current.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { a, _ in a })
-        return rows.compactMap { r in
+        rows.compactMap { r in
             let name = r.name.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { return nil }
-            return StatValue(name: name, value: resolve(before[name] ?? "", r.value))
+            return StatValue(name: name, value: r.value.trimmingCharacters(in: .whitespacesAndNewlines))
         }
-    }
-
-    /// '^[+-]?\d+(?:\.\d+)?$'
-    static func isNumber(_ s: String) -> Bool {
-        s.range(of: #"^[+-]?\d+(?:\.\d+)?$"#, options: .regularExpression) != nil
-    }
-
-    /// 정수면 소수점 없이, 아니면 소수 둘째 자리까지 (끝의 0 은 뺀다).
-    static func format(_ x: Double) -> String {
-        if x == x.rounded(), abs(x) < 1e15 { return String(Int(x)) }
-        var s = String(format: "%.2f", x)
-        while s.hasSuffix("0") { s.removeLast() }
-        if s.hasSuffix(".") { s.removeLast() }
-        return s
     }
 
     /// 틀 이름 (웹 `swEditor` 의 틀 버튼).
     public static func presetLabel(_ key: String) -> String {
-        ["game": "게임 판타지", "hunter": "헌터물", "simple": "레벨 · 스킬"][key] ?? key
+        ["game": "게임 판타지", "hunter": "헌터물", "simple": "레벨 · 스킬", "growth": "스킬 · 특성 · 돈"][key] ?? key
     }
 
-    /// 서버는 틀을 dict 로 보내 순서가 사라진다. 서버 `PRESETS` 순서(게임 판타지, 헌터물, 레벨 · 스킬)로, 모르는 틀은 뒤에 이름 순으로.
+    /// 서버는 틀을 dict 로 보내 순서가 사라진다. 서버 `PRESETS` 순서(게임 판타지, 헌터물, 레벨 · 스킬, 스킬 · 특성 · 돈)로, 모르는 틀은 뒤에 이름 순으로.
     public static func presetOrder(_ keys: [String]) -> [String] {
-        let known = ["game", "hunter", "simple"]
+        let known = ["game", "hunter", "simple", "growth"]
         return known.filter(keys.contains) + keys.filter { !known.contains($0) }.sorted()
     }
 

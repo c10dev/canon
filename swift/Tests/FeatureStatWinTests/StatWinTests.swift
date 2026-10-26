@@ -63,29 +63,14 @@ actor FakeSource: StatWinSource {
     }
 }
 
-@Suite struct ResolveTests {
-    /// tests/test_statwin.py 의 test_resolve 와 같은 사례.
-    @Test func sameAsServer() {
-        #expect(StatWinText.resolve("10", "+3") == "13")
-        #expect(StatWinText.resolve("1,200", "-200") == "1000")
-        #expect(StatWinText.resolve("1.5", "+0.25") == "1.75")
-        #expect(StatWinText.resolve("B급", "+1") == "+1")
-        #expect(StatWinText.resolve("3", "A급") == "A급")
-    }
-
-    @Test func edges() {
-        #expect(StatWinText.resolve("", "+3") == "+3")  // 이전 값이 없으면 적은 그대로
-        #expect(StatWinText.resolve("10", " 12 ") == "12")
-        #expect(StatWinText.resolve("0.1", "+0.2") == "0.3")
-        #expect(StatWinText.resolve("5", "-5") == "0")
-        #expect(StatWinText.resolve("2", "-3.5") == "-1.5")
-    }
-
-    @Test func outgoingSkipsBlankNamesAndResolves() {
-        let rows = [StatRow(name: " 레벨 ", value: "+2"), StatRow(name: "", value: "9"), StatRow(name: "힘", value: "")]
+@Suite struct OutgoingTests {
+    /// '+2' · '+독 내성' 은 서버가 계산하니 적은 그대로 보낸다.
+    @Test func skipsBlankNamesAndKeepsValues() {
+        let rows = [StatRow(name: " 레벨 ", value: "+2"), StatRow(name: "", value: "9"), StatRow(name: "힘", value: ""),
+                    StatRow(name: "스킬", value: " +독 내성 ")]
         let out = StatWinText.outgoing(rows, current: [StatValue(name: "레벨", value: "3")])
-        #expect(out.map(\.name) == ["레벨", "힘"])
-        #expect(out.map(\.value) == ["5", ""])
+        #expect(out.map(\.name) == ["레벨", "힘", "스킬"])
+        #expect(out.map(\.value) == ["+2", "", "+독 내성"])
     }
 }
 
@@ -108,7 +93,8 @@ actor FakeSource: StatWinSource {
         #expect(StatWinText.count(0) == "")
         #expect(StatWinText.count(2) == "2항목")
         #expect(StatWinText.preview(try decode(emptyView)) == "(값이 있는 항목이 없어요)")
-        #expect(StatWinText.presetOrder(["simple", "zeta", "game", "hunter"]) == ["game", "hunter", "simple", "zeta"])
+        #expect(StatWinText.presetOrder(["simple", "zeta", "growth", "game", "hunter"]) == ["game", "hunter", "simple", "growth", "zeta"])
+        #expect(StatWinText.presetLabel("growth") == "스킬 · 특성 · 돈")
         #expect(StatWinText.presetLabel("hunter") == "헌터물")
     }
 

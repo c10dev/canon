@@ -1,7 +1,7 @@
 """생성 파이프라인. 각 단계는 Project 를 받아 제안을 만들고, 반영은 호출자가 승인 후 한다."""
 from __future__ import annotations
 
-from . import dynamics, elements, illust, metrics, naming, prompts, renumber, storylines
+from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
 from .llm import LLM, dump
 from . import charlog, foreshadows, statwin, timeline
@@ -46,6 +46,7 @@ from .schema import (
     SerialConversion,
     SerialRebuild,
     SeriesPlan,
+    SetupRevision,
     SetupSuggestion,
     ShortArchive,
     StateDelta,
@@ -75,6 +76,17 @@ def suggest_setup(llm: LLM, p: Project) -> SetupSuggestion:
     for c in s.characters:  # 서술 말투는 작가가 정하거나 서술 말투 제안으로만 채운다
         c.narration_voice = ""
     return s
+
+
+def revise_setup(llm: LLM, p: Project, message: str, mode: str = "") -> SetupRevision:
+    """설정 도우미 대화: 작가의 말로 설정 변경안이나 방향 여러 안(mode 'options')을 만든다. 저장하지 않는다.
+    정리 · 적용 · 적용 취소는 canon/setupchat.py."""
+    if not message.strip():
+        raise ValueError("바라는 것을 적어 주세요")
+    rev = llm.json(prompts.SYSTEM_SETUP_CHAT, prompts.setup_chat_prompt(p, message, mode), SetupRevision,
+                   hint={"message": message, "mode": mode,
+                         "project": p.model_dump(include={"meta", "world", "characters", "relationships"})})
+    return setupchat.clean(p, rev, mode)
 
 
 def name_candidates(p: Project, character: str = "", place_kind: str = "", n: int = 8,
