@@ -57,6 +57,7 @@ from .schema import (
     SeriesPlan,
     SetupSuggestion,
     Deadline,
+    SettingChange,
     StateDelta,
     StatValue,
     StoryTime,
@@ -407,6 +408,7 @@ def _style_revision(hint: dict) -> StyleRevision:
 
 
 # 상태 변경안의 지금 차림: 1화에 처음 적고 2화에 찢어진다. 그 밖의 화는 비워 그대로 둔다
+MOCK_LOOK = "어깨에 닿던 머리를 짧게 자른 단발"  # 2화 설정 바꾸기 제안 (외모)
 MOCK_ATTIRE = {1: "젖은 회색 코트, 손전등", 2: "젖은 회색 코트(오른쪽 소매 찢어짐), 손전등, 녹슨 열쇠"}
 
 class MockLLM:
@@ -482,6 +484,8 @@ class MockLLM:
                 foreshadow_resolved=["fs-01-key"] if n == 2 else [],
                 foreshadow_clues=[ForeshadowClue(foreshadow="fs-01-key", kind="payoff" if n == 2 else "plant", quote="서윤은 등대 앞에 섰다.")]
                 if n in (1, 2) else [],
+                setting_changes=[SettingChange(character_id="hero", field="appearance", value=MOCK_LOOK, reason="등대에서 머리를 짧게 잘랐다",
+                                               quote="서윤은 등대 앞에 섰다.")] if n == 2 else [],
                 time=StoryTime(day=n, part="밤"),
                 deadlines_added=[Deadline(id="dl-01-festival", what="등대 축제", day=5, note="닷새 뒤 축제")] if n == 1 else [],
                 deadlines_done=["dl-01-festival"] if n == 3 else [],
