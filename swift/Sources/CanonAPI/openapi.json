@@ -9174,6 +9174,9 @@
       "title": "First Ep",
       "description": "처음 나온 화. 설정 단계 인물은 0",
       "default": 0
+     },
+     "body": {
+      "$ref": "#/components/schemas/CharacterBody"
      }
     },
     "type": "object",
