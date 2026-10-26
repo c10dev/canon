@@ -741,6 +741,116 @@
     }
    }
   },
+  "/api/archetypes": {
+   "get": {
+    "summary": "Dex Catalog",
+    "operationId": "dex_catalog",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DexCatalog"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/archetypes/fill": {
+   "post": {
+    "summary": "Dex Fill",
+    "description": "인물 하나의 빈 칸에 도감 예시를 넣어 돌려준다. 저장하지 않는다 (설정 화면이 받아 저장한다).",
+    "operationId": "dex_fill",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DexFillIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DexFillOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/archetypes/roll": {
+   "post": {
+    "summary": "Dex Roll",
+    "operationId": "dex_roll",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DexRollIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Roll"
+         },
+         "title": "Response Dex Roll"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/style": {
    "post": {
     "summary": "Analyze Style",
@@ -7823,6 +7933,171 @@
     "title": "ArcUndo",
     "description": "아크를 붙일 때 바꾼 것. 그 아크를 지우면(remove_last_arc) 되돌린다. 프로그램이 채운다."
    },
+   "Archetype": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "group": {
+      "type": "string",
+      "title": "Group"
+     },
+     "aliases": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Aliases",
+      "description": "일반 원형 이름 등 다른 이름"
+     },
+     "genres": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Genres",
+      "description": "잘 맞는 장르 id (genres.CATALOG). 비면 모든 장르"
+     },
+     "role": {
+      "type": "string",
+      "title": "Role",
+      "default": ""
+     },
+     "gender": {
+      "type": "string",
+      "enum": [
+       "",
+       "남",
+       "여"
+      ],
+      "title": "Gender",
+      "default": ""
+     },
+     "tier": {
+      "type": "string",
+      "enum": [
+       "main",
+       "support",
+       "minor"
+      ],
+      "title": "Tier",
+      "default": "main"
+     },
+     "summary": {
+      "type": "string",
+      "title": "Summary"
+     },
+     "goal": {
+      "type": "string",
+      "title": "Goal",
+      "default": ""
+     },
+     "wound": {
+      "type": "string",
+      "title": "Wound",
+      "default": ""
+     },
+     "personality": {
+      "type": "string",
+      "title": "Personality",
+      "default": ""
+     },
+     "speech": {
+      "type": "string",
+      "title": "Speech",
+      "default": ""
+     },
+     "secret": {
+      "type": "string",
+      "title": "Secret",
+      "description": "흔히 숨기는 것. 인물의 숨기는 것 칸이 비어 있을 때만 넣는다",
+      "default": ""
+     },
+     "arc": {
+      "type": "string",
+      "title": "Arc",
+      "default": ""
+     },
+     "pressure": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Pressure",
+      "description": "흔들리는 상황"
+     },
+     "twists": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Twists",
+      "description": "비틀어 보기"
+     },
+     "avoid": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Avoid",
+      "description": "피할 것"
+     },
+     "views": {
+      "items": {
+       "$ref": "#/components/schemas/StartView"
+      },
+      "type": "array",
+      "title": "Views"
+     },
+     "must": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Must",
+      "description": "이 원형이면 꼭 채울 것과 Canon 에서 넣을 곳"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "group",
+     "summary"
+    ],
+    "title": "Archetype"
+   },
+   "ArchetypePick": {
+    "properties": {
+     "character_id": {
+      "type": "string",
+      "title": "Character Id"
+     },
+     "archetype": {
+      "type": "string",
+      "title": "Archetype",
+      "description": "archetypes.CATALOG 의 id"
+     },
+     "twist": {
+      "type": "string",
+      "title": "Twist",
+      "description": "고른 비틀기. 아크 칸에도 한 줄로 붙는다",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "character_id",
+     "archetype"
+    ],
+    "title": "ArchetypePick",
+    "description": "설정 화면에서 인물에게 고른 원형 도감 카드 (canon/archetypes.py). 작가가 고른 것만 남고 프롬프트에는 넣지 않는다."
+   },
    "Atlas": {
     "properties": {
      "image": {
@@ -9071,6 +9346,140 @@
      "what"
     ],
     "title": "DeadlineIn"
+   },
+   "DexCatalog": {
+    "properties": {
+     "groups": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Groups"
+     },
+     "archetypes": {
+      "items": {
+       "$ref": "#/components/schemas/Archetype"
+      },
+      "type": "array",
+      "title": "Archetypes"
+     },
+     "wounds": {
+      "items": {
+       "$ref": "#/components/schemas/Wound"
+      },
+      "type": "array",
+      "title": "Wounds"
+     },
+     "speech": {
+      "items": {
+       "$ref": "#/components/schemas/SpeechKit"
+      },
+      "type": "array",
+      "title": "Speech"
+     },
+     "fill_labels": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Fill Labels"
+     }
+    },
+    "type": "object",
+    "required": [
+     "groups",
+     "archetypes",
+     "wounds",
+     "speech",
+     "fill_labels"
+    ],
+    "title": "DexCatalog"
+   },
+   "DexFillIn": {
+    "properties": {
+     "character": {
+      "$ref": "#/components/schemas/Character"
+     },
+     "archetype": {
+      "type": "string",
+      "title": "Archetype",
+      "default": ""
+     },
+     "wound": {
+      "type": "string",
+      "title": "Wound",
+      "default": ""
+     },
+     "speech": {
+      "type": "string",
+      "title": "Speech",
+      "default": ""
+     },
+     "twist": {
+      "type": "string",
+      "title": "Twist",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "character"
+    ],
+    "title": "DexFillIn"
+   },
+   "DexFillOut": {
+    "properties": {
+     "character": {
+      "$ref": "#/components/schemas/Character"
+     },
+     "filled": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Filled"
+     }
+    },
+    "type": "object",
+    "required": [
+     "character",
+     "filled"
+    ],
+    "title": "DexFillOut"
+   },
+   "DexRollIn": {
+    "properties": {
+     "n": {
+      "type": "integer",
+      "title": "N",
+      "default": 3
+     },
+     "archetype": {
+      "type": "string",
+      "title": "Archetype",
+      "default": ""
+     },
+     "seed": {
+      "type": "integer",
+      "title": "Seed"
+     },
+     "meta": {
+      "$ref": "#/components/schemas/Meta"
+     },
+     "world": {
+      "$ref": "#/components/schemas/WorldSetting"
+     },
+     "characters": {
+      "items": {
+       "$ref": "#/components/schemas/Character"
+      },
+      "type": "array",
+      "title": "Characters",
+      "default": []
+     }
+    },
+    "type": "object",
+    "title": "DexRollIn"
    },
    "Direction": {
     "properties": {
@@ -11733,6 +12142,14 @@
       "title": "Cast Candidates",
       "description": "AI 플롯이 제안한 새 인물. 작가가 등록하거나 그 인물이 나오는 화를 확정하면 characters 로 옮긴다"
      },
+     "cast_archetypes": {
+      "items": {
+       "$ref": "#/components/schemas/ArchetypePick"
+      },
+      "type": "array",
+      "title": "Cast Archetypes",
+      "description": "인물마다 원형 도감에서 고른 원형. 프롬프트에는 넣지 않는다"
+     },
      "place_candidates": {
       "items": {
        "$ref": "#/components/schemas/NewPlace"
@@ -12276,6 +12693,40 @@
     "type": "object",
     "title": "RewriteRequest",
     "description": "다시 생성할 때 작가가 준 것. 새 판과 함께 남겨 어떤 요청으로 나온 판인지 보인다."
+   },
+   "Roll": {
+    "properties": {
+     "archetype": {
+      "type": "string",
+      "title": "Archetype"
+     },
+     "wound": {
+      "type": "string",
+      "title": "Wound"
+     },
+     "speech": {
+      "type": "string",
+      "title": "Speech"
+     },
+     "twist": {
+      "type": "string",
+      "title": "Twist",
+      "default": ""
+     },
+     "name": {
+      "type": "string",
+      "title": "Name",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "archetype",
+     "wound",
+     "speech"
+    ],
+    "title": "Roll",
+    "description": "주사위 한 번: 원형 + 상처 + 말투 틀 + 비틀기 (+ 이름 후보)."
    },
    "Sample": {
     "properties": {
@@ -13042,6 +13493,43 @@
     ],
     "title": "SortPlace"
    },
+   "SpeechKit": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "rule": {
+      "type": "string",
+      "title": "Rule"
+     },
+     "sample": {
+      "type": "string",
+      "title": "Sample"
+     },
+     "genres": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Genres",
+      "description": "잘 맞는 장르 id. 비면 모든 장르"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "rule",
+     "sample"
+    ],
+    "title": "SpeechKit",
+    "description": "말투 틀: 어미 · 호칭 규칙과 대사 한 줄."
+   },
    "StageIn": {
     "properties": {
      "backend": {
@@ -13063,6 +13551,37 @@
      "stage"
     ],
     "title": "StageIn"
+   },
+   "StartView": {
+    "properties": {
+     "toward": {
+      "type": "string",
+      "title": "Toward",
+      "description": "상대 (예: 여주, 주인공)"
+     },
+     "words": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Words",
+      "description": "이 인물이 상대를 보는 방식"
+     },
+     "back": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Back",
+      "description": "상대가 이 인물을 보는 방식"
+     }
+    },
+    "type": "object",
+    "required": [
+     "toward"
+    ],
+    "title": "StartView",
+    "description": "시작 관계 예시. 설정 화면 관계 칸의 '보는 방식' 말(dynamics.VIEWS)을 쓴다."
    },
    "StatChange": {
     "properties": {
@@ -15683,6 +16202,40 @@
     },
     "type": "object",
     "title": "WorldSetting"
+   },
+   "Wound": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "belief": {
+      "type": "string",
+      "title": "Belief"
+     },
+     "shows": {
+      "type": "string",
+      "title": "Shows"
+     },
+     "heal": {
+      "type": "string",
+      "title": "Heal"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "belief",
+     "shows",
+     "heal"
+    ],
+    "title": "Wound",
+    "description": "상처 부품: 상처가 된 일 → 잘못된 믿음 → 행동에 남은 흔적 → 회복 방향."
    }
   }
  }
