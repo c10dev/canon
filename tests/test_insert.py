@@ -116,6 +116,43 @@ def test_draft_episode_bridges_and_keeps_author_fields():
         pipeline.draft_episode(LLM, p, 7)
 
 
+def test_draft_episode_without_fitting_next_marks_next():
+    p = _short()
+    p.episode(8).plot.summary = "서윤이 오빠의 편지를 찾아 모든 걸 알게 된다"
+    fit = prompts.episode_plot_prompt(p, 8)
+    free = prompts.episode_plot_prompt(p, 8, fit_next=False)
+    assert "바꾸지 않음" in fit and "next_gap" not in fit
+    assert "참고만" in free and "next_gap" in free and "뒤 화로 미루지 않습니다" in free
+    assert p.episode(9).plot.title in free
+    batch = pipeline.draft_episode(LLM, p, 8, fit_next=False)
+    assert batch.next_gap
+    assert pipeline.apply_draft(p, batch) == 9
+    assert p.episode(9).realign == batch.next_gap and not p.episode(8).realign
+    # 뒤 화를 다시 짜면 표시가 지워진다
+    pipeline.apply_draft(p, pipeline.draft_episode(LLM, p, 9))
+    assert not p.episode(9).realign
+    # 맞추기를 켜거나 뒤 화가 없으면 표시하지 않는다
+    assert pipeline.apply_draft(p, pipeline.draft_episode(LLM, p, 10)) is None
+    last = p.meta.target_episodes
+    batch = pipeline.draft_episode(LLM, p, last, fit_next=False)
+    assert not getattr(batch, "next_gap", "") and pipeline.apply_draft(p, batch) is None
+
+
+def test_web_realign_mark_survives_save_and_clears(client):
+    from canon import store
+
+    store.save("rea", _short())
+    j = client.post("/api/projects/rea/jobs", json={"kind": "plot_one", "ep": 8, "fit_next": False}).json()
+    done = _wait(client, j["id"])
+    assert done["status"] == "done" and done["result"]["realign"] == 9 and done["result"]["gap"]
+    p = client.get("/api/projects/rea").json()
+    assert p["episodes"][8]["realign"]
+    p["episodes"][8]["realign"] = ""  # 표시를 받기 전에 읽은 화면이 저장해도 지우지 않는다
+    assert client.put("/api/projects/rea", json=p).json()["episodes"][8]["realign"]
+    r = client.post("/api/projects/rea/episodes/9/realign/clear")
+    assert r.status_code == 200 and r.json()["episodes"][8]["realign"] == ""
+
+
 def test_serial_insert_at_arc_start_grows_that_arc_and_total():
     p = _serial(300)
     a1 = _plan_arc(p)
