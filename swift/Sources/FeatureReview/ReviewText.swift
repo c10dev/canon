@@ -204,24 +204,101 @@ public enum ReviewText {
         }
     }
 
-    /// 서버 `statwin.resolve` 와 같은 규칙 (웹 `swResolve`, `FeatureStatWin` 의 `StatWinText.resolve`):
-    /// 이전 값이 숫자일 때만 '+3', '-10' 을 더하고 뺀다. 그 밖에는 적은 값 그대로.
+    /// 서버 `statwin.resolve` 와 같은 규칙 (웹 `swResolve`). 화면에 보일 바뀐 뒤 값이고, 반영은 서버가 다시 계산한다.
+    /// - 수치: '+3', '-10' 은 이전 값이 수치일 때 더하고 뺀다. 단위와 자릿수 쉼표는 이전 값을 따른다 ('1,200골드' + '+300' → '1,500골드').
+    /// - 목록: '+독 내성' 은 붙이고 '-은신' 은 뺀다. '+화염구 Lv4' 처럼 이미 있는 것의 등급만 다르면 바꾼다.
+    /// - 그 밖에는 적은 값 그대로.
     public static func resolve(_ before: String, _ value: String) -> String {
-        let v = value.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: "")
-        let b = before.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: "")
-        if let first = v.first, "+-".contains(first), isNumber(v), isNumber(b), let x = Double(v), let y = Double(b) {
-            let sum = x + y
-            if sum == sum.rounded(), abs(sum) < 1e15 { return String(Int(sum)) }
-            var s = String(format: "%.2f", sum)
-            while s.hasSuffix("0") { s.removeLast() }
-            if s.hasSuffix(".") { s.removeLast() }
-            return s
+        let v = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let b = before.trimmingCharacters(in: .whitespacesAndNewlines)
+        let a = match(Stat.amount, b)
+        if let d = match(Stat.delta, v), let a, d[2].isEmpty || d[2] == a[1], d[4].isEmpty || d[4] == a[5],
+           let x = Double(a[3].replacingOccurrences(of: ",", with: "")), let y = Double(d[3].replacingOccurrences(of: ",", with: "")) {
+            return "\(a[1])\(a[2])\(statFormat(x + (d[1] == "+" ? y : -y), commas: a[3].contains(",")))\(a[4])\(a[5])"
         }
-        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+        var ops: [(String, String)] = []
+        for part in statItems(v) {
+            let name = String(part.dropFirst()).trimmingCharacters(in: .whitespaces)
+            guard let op = part.first, "+-".contains(op), let c = name.first, !c.isNumber else { return v }
+            ops.append((String(op), name))
+        }
+        if ops.isEmpty || a != nil { return v }
+        var cur = statItems(b)
+        for (op, name) in ops {
+            let at = cur.firstIndex(of: name) ?? cur.firstIndex { statKey($0) == statKey(name) }
+            if op == "-" {
+                if let at { cur.remove(at: at) }
+            } else if let at {
+                cur[at] = name
+            } else {
+                cur.append(name)
+            }
+        }
+        let sep: String
+        if let r = b.range(of: Stat.split, options: .regularExpression) {
+            sep = ["、": "、", "·": " · "][b[r].trimmingCharacters(in: .whitespaces)] ?? ", "
+        } else {
+            sep = ", "
+        }
+        return cur.joined(separator: sep)
     }
 
-    static func isNumber(_ s: String) -> Bool {
-        s.range(of: #"^[+-]?\d+(?:\.\d+)?$"#, options: .regularExpression) != nil
+    /// 웹 `SW_AMOUNT` · `SW_DELTA` · `SW_SPLIT` · `SW_GRADE` (서버 `statwin._AMOUNT` · `_DELTA` · `_SPLIT` · `_GRADE`).
+    enum Stat {
+        static let amount = #"^([^\d\s,+-]{0,4})(\s?)(-?\d[\d,]*(?:\.\d+)?)(\s?)([^\d\s,]{0,6})$"#
+        static let delta = #"^([+-])\s?([^\d\s,+-]{0,4})\s?(\d[\d,]*(?:\.\d+)?)\s?([^\d\s,]{0,6})$"#
+        static let split = #"\s*(?:,|、| · )\s*"#
+        static let grade = #"\s*(?:\([^()]*\)|\[[^\[\]]*\]|lv\.?\s*\d+|\+\d+|\d+\s*(?:레벨|단계|성|강|개))$"#
+    }
+
+    /// 정규식이 글 전체에 맞으면 무리마다 글 (0 은 전체, 빠진 무리는 빈칸).
+    static func match(_ pattern: String, _ text: String) -> [String]? {
+        guard let re = try? NSRegularExpression(pattern: pattern),
+              let m = re.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) else { return nil }
+        return (0..<m.numberOfRanges).map { i in Range(m.range(at: i), in: text).map { String(text[$0]) } ?? "" }
+    }
+
+    static func statItems(_ text: String) -> [String] {
+        guard let re = try? NSRegularExpression(pattern: Stat.split) else { return [text] }
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var out: [String] = []
+        var last = t.startIndex
+        for m in re.matches(in: t, range: NSRange(t.startIndex..., in: t)) {
+            guard let r = Range(m.range, in: t) else { continue }
+            out.append(String(t[last..<r.lowerBound]))
+            last = r.upperBound
+        }
+        out.append(String(t[last...]))
+        return out.filter { !$0.isEmpty }
+    }
+
+    /// 등급 표시('Lv3', '(B급)', '+2', '3개')를 뗀 이름. 같은 것끼리 맞출 때 쓴다 (웹 `swKey`).
+    static func statKey(_ item: String) -> String {
+        var k = item.trimmingCharacters(in: .whitespaces)
+        while true {
+            let k2 = k.replacingOccurrences(of: Stat.grade, with: "", options: [.regularExpression, .caseInsensitive]).trimmingCharacters(in: .whitespaces)
+            if k2 == k || k2.isEmpty { return k.lowercased() }
+            k = k2
+        }
+    }
+
+    /// 소수 둘째 자리까지, 끝의 0 은 뺀다. 이전 값에 자릿수 쉼표가 있으면 붙인다 (웹 `swFmt`).
+    static func statFormat(_ x: Double, commas: Bool) -> String {
+        var s = String(format: "%.2f", x)
+        if commas {
+            let parts = s.split(separator: ".", maxSplits: 1).map(String.init)
+            let neg = parts[0].hasPrefix("-")
+            let digits = Array(neg ? String(parts[0].dropFirst()) : parts[0])
+            var grouped = ""
+            for (i, ch) in digits.enumerated() {
+                if i > 0, (digits.count - i) % 3 == 0 { grouped += "," }
+                grouped.append(ch)
+            }
+            s = (neg ? "-" : "") + grouped + "." + parts[1]
+        }
+        while s.hasSuffix("0") { s.removeLast() }
+        if s.hasSuffix(".") { s.removeLast() }
+        return s == "-0" || s.isEmpty ? "0" : s
     }
 
     /// AI 가 본문에서 찾은 복선 문장 한 줄 (웹 `fsClueRows`).
