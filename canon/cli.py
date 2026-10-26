@@ -63,7 +63,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import (autorun, cast, dynamics, elements, genres, illust, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
+from . import (archetypes, autorun, cast, charlog, dynamics, elements, genres, illust, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
@@ -903,6 +903,72 @@ def cmd_genres(a: argparse.Namespace) -> None:
     print("\nnew --genre '로맨스 판타지, 회귀' 처럼 쓰고, 목록에 없는 장르도 그대로 적을 수 있어요.")
 
 
+def cmd_dex(a: argparse.Namespace) -> None:
+    """원형 도감: list [--genre] · show <원형> · use <작품> <인물> <원형> · roll <작품>. LLM 을 부르지 않는다."""
+    args = a.args
+    if a.action == "list":
+        ids = genres.parse(a.genre) if a.genre else []
+        shown = archetypes.match(ids)
+        for g in archetypes.GROUPS:
+            rows = [x for x in shown if x.group == g]
+            if rows:
+                print(f"[{g}]")
+                print("\n".join(f"  {x.name} ({x.id}): {x.summary}" for x in rows))
+        print("\n자세히: dex show <id> · 인물에 쓰기: dex use <작품> <인물 id> <원형 id> · 섞어 뽑기: dex roll <작품>")
+        return
+    if a.action == "show":
+        if len(args) != 1:
+            raise ValueError("dex show <원형 id> 로 써요")
+        print(archetypes.card(archetypes.get(args[0])))
+        if a.parts:
+            print("\n[상처]\n" + "\n".join(f"  {w.id}: {archetypes.wound_text(w)}" for w in archetypes.WOUNDS))
+            print("\n[말투 틀]\n" + "\n".join(f"  {s.id}: {archetypes.speech_text(s)}" for s in archetypes.SPEECH))
+        return
+    if a.action == "use":
+        if len(args) != 3:
+            raise ValueError("dex use <작품> <인물 id> <원형 id> 로 써요")
+        p = store.load(args[0])
+        x = archetypes.get(args[2])
+        twist = ""
+        if a.twist:
+            if not 1 <= a.twist <= len(x.twists):
+                raise ValueError(f"--twist 는 1~{len(x.twists)} 사이예요")
+            twist = x.twists[a.twist - 1]
+        before = next((c for c in p.characters if c.id == args[1]), None)
+        if before is None:
+            raise KeyError(f"인물이 없어요: {args[1]}")
+        before = before.model_copy(deep=True)
+        filled = archetypes.apply(p, args[1], x.id, a.wound, a.speech, twist)
+        c = next(c for c in p.characters if c.id == args[1])
+        if not filled:
+            print("채울 빈 칸이 없어요. 원형만 기록해요.")
+        for f in filled:
+            show = lambda v: " / ".join(v) if isinstance(v, list) else str(v).replace("\n", " / ")
+            print(f"  {archetypes.FILL_LABELS.get(f, f)}: {show(getattr(before, f)) or '(비어 있음)'} → {show(getattr(c, f))}")
+        if not confirm(f"'{x.name}' 원형을 {c.name or c.id}에게 쓸까요?", a.yes):
+            return
+        store.save(args[0], p)
+        print("저장했어요.")
+        return
+    if len(args) != 1:
+        raise ValueError("dex roll <작품> 으로 써요")
+    p = store.load(args[0])
+    rolls = archetypes.roll(p.meta.genres, a.n, random.Random(a.seed) if a.seed is not None else None, a.archetype, p)
+    for i, r in enumerate(rolls, 1):
+        x, w, s = archetypes.get(r.archetype), archetypes.WOUND_BY_ID[r.wound], archetypes.SPEECH_BY_ID[r.speech]
+        print(f"{i}. {r.name or '(이름 없음)'} · {x.name}\n   상처: {w.name} · 말투: {s.name}" + (f"\n   비틀기: {r.twist}" if r.twist else ""))
+    if not a.pick:
+        return
+    if not 1 <= a.pick <= len(rolls):
+        raise ValueError(f"--pick 은 1~{len(rolls)} 사이예요")
+    if not confirm(f"{a.pick}번을 새 인물로 넣을까요?", a.yes):
+        return
+    c = archetypes.new_character(p, rolls[a.pick - 1])
+    pipeline._init_states(p)
+    store.save(args[0], p)
+    print(f"새 인물을 넣었어요: {c.name or '(이름 없음)'} ({c.id})")
+
+
 def cmd_names(a: argparse.Namespace) -> None:
     """세계관에 맞는 이름·지명 후보. --ai 면 '이름·지명' 단계 모델이 골라 이유를 붙인다."""
     p = store.load(a.name)
@@ -1034,12 +1100,37 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
         _print_issues(p, n)
     for w in pipeline.style_drift(p, n)[1]:
         print(f"! 문체: {w}")
+    _print_settings(p, delta)
     if not confirm("이 변경을 반영할까요? (아니오면 project.json 수정 후 다시 update)", yes):
         return False
+    held = 0
+    if delta.setting_changes:
+        if yes:  # -y 는 자동 집필처럼 인물 설정을 바꾸지 않고 남겨 둔다
+            held = charlog.hold(p, delta)
+        elif not confirm(f"설정 바꾸기 제안 {len(delta.setting_changes)}개도 인물 설정에 반영할까요? (아니오면 빼고 반영해요)", False):
+            delta.setting_changes = []
     pipeline.apply_delta(p, delta)
     store.save(name, p)
     print(f"{n}화 확정 완료")
+    if held:
+        print(f"설정 바꾸기 제안 {held}개는 반영하지 않고 남겨 뒀어요. 웹의 인물 · 관계도 화면에서 적용하거나 버리세요")
     return True
+
+
+def _print_settings(p: Project, d: StateDelta) -> None:
+    """설정 바꾸기 제안을 지금 설정과 나란히 보여 준다."""
+    if not d.setting_changes:
+        return
+    name = {c.id: c for c in p.characters}
+    print("\n--- 설정 바꾸기 제안 (지금 → 바꾼 뒤) ---")
+    for x in d.setting_changes:
+        c = name.get(x.character_id)
+        before = getattr(c, x.field, "") if c else ""
+        print(f"- {c.name if c else x.character_id} {charlog.label(x.field)}: {before or '(비어 있음)'} → {x.value}")
+        if x.reason:
+            print(f"  · 이유: {x.reason}")
+        if x.quote:
+            print(f"  · 근거: \"{x.quote}\"")
 
 
 def cmd_run(a: argparse.Namespace) -> None:
@@ -1818,6 +1909,20 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("section", nargs="?")
 
     sub.add_parser("genres", help="장르 목록").set_defaults(fn=cmd_genres)
+    sp = sub.add_parser("dex", help="원형 도감 (인물 만들 때 고르는 유형 카드)")
+    sp.add_argument("action", nargs="?", choices=["list", "show", "use", "roll"], default="list")
+    sp.add_argument("args", nargs="*")
+    sp.add_argument("--genre", default="", help="list: 장르로 거르기 (쉼표로 여러 개)")
+    sp.add_argument("--parts", action="store_true", help="show: 상처 · 말투 틀 목록도")
+    sp.add_argument("--wound", default="", help="use: 상처 부품 id (dex show <원형> --parts)")
+    sp.add_argument("--speech", default="", help="use: 말투 틀 id")
+    sp.add_argument("--twist", type=int, help="use: 비틀기 번호 (아크 칸 끝에 붙음)")
+    sp.add_argument("--n", type=int, default=3, help="roll: 뽑을 개수")
+    sp.add_argument("--seed", type=int, help="roll: 같은 결과를 다시 보려면")
+    sp.add_argument("--archetype", default="", help="roll: 이 원형은 두고 나머지만 굴림")
+    sp.add_argument("--pick", type=int, help="roll: 고른 번호를 새 인물로 넣음")
+    sp.add_argument("-y", "--yes", action="store_true", help="확인 없이 반영")
+    sp.set_defaults(fn=cmd_dex)
     sp = sub.add_parser("styles", help="문체 라이브러리")
     sp.add_argument("action", nargs="?", choices=["list", "add", "show", "rm", "versions", "restore"], default="list")
     sp.add_argument("args", nargs="*")

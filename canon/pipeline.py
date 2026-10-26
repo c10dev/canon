@@ -4,7 +4,7 @@ from __future__ import annotations
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, storylines
 from .judge import Judge, Question
 from .llm import LLM, dump
-from . import foreshadows, statwin, timeline
+from . import charlog, foreshadows, statwin, timeline
 from .schema import (
     Act,
     ArcEdit,
@@ -1303,6 +1303,7 @@ def apply_rebuild(p: Project, prop: SerialRebuild, at: str = "") -> tuple[Projec
     p.events, p.history = [], []
     p.foreshadow_clues = []  # 화 번호가 바뀌어 걸어 둔 문장 자리도 맞지 않는다
     statwin.revert(p, 0)
+    charlog.revert(p, 0)  # 그대로 둔 화는 옛 변경안을 다시 반영하며 설정 바꾸기도 새 화 번호로 다시 들어간다
     p.timeline.deadlines = []  # 그대로 둔 화는 옛 변경안을 다시 반영하며 기한도 새 화 번호로 생긴다
     p.foreshadows += prop.foreshadows
     tiers = {t.id: t.tier for t in prop.tiers}
@@ -2885,6 +2886,7 @@ def clean_delta(p: Project, d: StateDelta) -> None:
     새 장소는 본문에 나오고 아직 없는 것만 남기고 이미 있는 장소와 비슷한 이름은 경고로 알린다."""
     foreshadows.clean_delta(p, d)
     timeline.clean_delta(p, d)
+    charlog.clean_delta(p, d)
     d.new_places, warns = elements.clean_places(p, d.new_places, p.episode(d.episode).text)
     d.warnings += [w for w in warns if w not in d.warnings]
 
@@ -2895,6 +2897,7 @@ def apply_delta(p: Project, d: StateDelta) -> None:
     ep.summary = d.summary
     ep.status, ep.final_text = "finalized", ""
     _add_characters(p, d.new_characters, d.episode)
+    charlog.apply_delta(p, d)  # 작가가 고른 설정 바꾸기 제안만 온다 (자동 집필은 charlog.hold 로 미리 뺀다)
     elements.add_places(p, d.new_places, d.episode, "본문")
     ep.auto = False  # 자동 집필은 반영한 뒤 True 로 표시한다
 
@@ -2995,6 +2998,7 @@ def revert(p: Project, n: int) -> None:
     foreshadows.revert(p, n)
     statwin.revert(p, n)
     timeline.revert(p, n, snap.deadlines)
+    charlog.revert(p, n)
     for ep in p.episodes:
         if ep.plot.number > n and ep.status == "finalized":
             ep.status, ep.summary, ep.auto, ep.final_text = "written", "", False, ""

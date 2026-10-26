@@ -914,6 +914,31 @@ class StatWindow(BaseModel):
     row: str = "{key}: {value}"
 
 
+SettingField = Literal["age", "role", "appearance", "personality", "speech_style", "background", "goal", "wound"]
+
+
+class SettingChange(BaseModel):
+    """본문에서 뒤 화까지 이어지게 바뀐 인물 설정 한 칸. 작가가 상태 승인 화면에서 골라야 반영한다 (canon/charlog.py)."""
+    character_id: str
+    field: SettingField = Field(description="바뀐 인물 설정 칸 이름 ([인물 설정]의 키 그대로)")
+    value: str = Field(description="바뀐 뒤 이 칸 전체. 바뀌지 않은 부분도 이어서 다시 적는다")
+    reason: str = Field("", description="무엇이 왜 바뀌었는지 한 줄")
+    quote: str = Field("", description="근거가 되는 본문 문장 그대로")
+    episode: int = Field(0, description="바뀐 화. 프로그램이 채운다")
+
+
+class SettingRecord(BaseModel):
+    """인물 설정이 바뀐 기록. 전후 비교, 되돌리기, 인물 화면 타임라인에 쓴다 (canon/charlog.py)."""
+    episode: int = Field(description="바뀐 화. 작가가 고쳤으면 그때 마지막으로 반영한 화")
+    character_id: str
+    field: str
+    before: str = ""
+    after: str = ""
+    source: Literal["ai", "author"] = Field("ai", description="ai: 승인한 설정 바꾸기 제안 / author: 작가가 설정 화면에서 고침")
+    reason: str = ""
+    quote: str = ""
+
+
 class StateDelta(BaseModel):
     """한 화를 쓴 뒤 AI 가 제안하는 상태 변경안. 사용자가 승인하면 반영된다."""
     episode: int
@@ -928,6 +953,7 @@ class StateDelta(BaseModel):
     foreshadow_clues: list[ForeshadowClue] = Field(default_factory=list, description="복선 근거 문장: 새로 심은 복선, 다시 떠올린 열린 복선, 회수한 복선마다 본문 문장 그대로")
     new_characters: list[Character] = Field(default_factory=list, description="인물 설정에 없는데 이번 화에 이름을 갖고 처음 나온 인물. 조연은 support, 지나가는 인물은 minor")
     new_places: list[NewPlace] = Field(default_factory=list, description="장소 목록과 이야기 요소에 없는데 이번 화에 이름을 갖고 처음 나온 장소 (지형, 마을, 건물, 가게 등)")
+    setting_changes: list[SettingChange] = Field(default_factory=list, description="인물 설정(외모, 성격, 말투 등)이 뒤 화까지 이어지게 바뀐 칸만. 대부분의 화는 비어 있다")
     time: StoryTime = Field(default_factory=StoryTime, description="이번 화가 끝난 작품 속 시점")
     deadlines_added: list[Deadline] = Field(default_factory=list, description="이번 화에 새로 생기거나 날이 바뀐 기한. 바뀐 기한은 같은 id 로")
     deadlines_done: list[str] = Field(default_factory=list, description="이번 화에 닫힌 기한 id (그날이 와서 일이 일어났거나 기한이 없어짐)")
@@ -1058,6 +1084,13 @@ class LookSuggestion(BaseModel):
     note: str = Field("", description="작가에게 하는 한두 문장: 설정에서 태그로 옮기기 어려웠던 것")
 
 
+class ArchetypePick(BaseModel):
+    """설정 화면에서 인물에게 고른 원형 도감 카드 (canon/archetypes.py). 작가가 고른 것만 남고 프롬프트에는 넣지 않는다."""
+    character_id: str
+    archetype: str = Field(description="archetypes.CATALOG 의 id")
+    twist: str = Field("", description="고른 비틀기. 아크 칸에도 한 줄로 붙는다")
+
+
 class CharacterVisual(BaseModel):
     """삽화마다 똑같이 넣는 인물 외형 태그. 작가가 정하고, AI 는 덮지 않는다."""
     character_id: str
@@ -1154,6 +1187,7 @@ class Project(BaseModel):
     characters: list[Character] = Field(default_factory=list)
     cast_candidates: list[Character] = Field(
         default_factory=list, description="AI 플롯이 제안한 새 인물. 작가가 등록하거나 그 인물이 나오는 화를 확정하면 characters 로 옮긴다")
+    cast_archetypes: list[ArchetypePick] = Field(default_factory=list, description="인물마다 원형 도감에서 고른 원형. 프롬프트에는 넣지 않는다")
     place_candidates: list[NewPlace] = Field(
         default_factory=list, description="AI 플롯이 지은 새 장소. 그 장소가 나오는 화를 확정하면 인과율 '장소' 요소로 옮긴다")
     relationships: list[Relationship] = Field(default_factory=list)
@@ -1174,6 +1208,8 @@ class Project(BaseModel):
     foreshadow_clues: list[ForeshadowClue] = Field(default_factory=list, description="복선이 본문에 걸린 문장 (복선 센터)")
     stat_log: list[StatRecord] = Field(default_factory=list, description="상태창 수치가 바뀐 기록")
     stat_window: StatWindow = Field(default_factory=StatWindow, description="본문에 넣는 상태창 서식")
+    setting_log: list[SettingRecord] = Field(default_factory=list, description="인물 설정이 바뀐 기록 (승인한 설정 바꾸기 제안, 1화 반영 뒤 작가가 고친 것)")
+    setting_held: list[SettingChange] = Field(default_factory=list, description="자동 집필이 반영하지 않고 남겨 둔 설정 바꾸기 제안. 작가가 인물 화면에서 적용하거나 버린다")
     history: list[StateDelta] = Field(default_factory=list, description="승인된 상태 변경 기록")
     ties: list[Tie] = Field(default_factory=list, description="방향 관계 (dynamics 가 계산)")
     secrets: list[Secret] = Field(default_factory=list)

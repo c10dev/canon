@@ -52,6 +52,9 @@ const S = {
   names: {},         // 이름·지명 후보. 'c:<인물 id>' 또는 'place' → { candidates, options, ai }
   nameCheck: null,   // 출연진 이름 점검 { warnings, style, detected }
   placeKind: '',     // 지명 후보의 종류 (산, 마을, 문파…)
+  dex: null,         // 원형 도감 목록 (서버 archetypes, archetypes.js)
+  dexOpen: null,     // 도감을 연 인물 카드 { cid, aid, twist, wound, speech, all }
+  dexRolls: null,    // 도감 주사위 결과 { list, archetype }
 };
 
 // 서버에서 받은 작품의 관계와 화별 플롯. 저장할 때 화면이 실제로 고친 칸만 가려 '서버 것으로 두었어요'를 알린다 (save)
@@ -1902,7 +1905,7 @@ const actions = {
   async applyDelta(n) {
     const out = pickedDelta(n);
     // 평소에는 바로 반영한다. 고른 항목이 없거나, 경고가 남았거나, 변경안을 만든 뒤 본문을 고쳤으면 한 번 묻는다
-    const lists = ['character_updates', 'events', 'secrets_added', 'relationship_updates', 'new_facts', 'foreshadow_planted', 'foreshadow_resolved', 'new_characters', 'new_places', 'deadlines_added', 'deadlines_done'];
+    const lists = ['character_updates', 'events', 'secrets_added', 'relationship_updates', 'new_facts', 'foreshadow_planted', 'foreshadow_resolved', 'new_characters', 'new_places', 'deadlines_added', 'deadlines_done', 'setting_changes'];
     const count = lists.reduce((s, k) => s + (out[k] || []).length, 0);
     const why = [
       count ? '' : '고른 항목이 0건이에요. 요약만 저장하고',
@@ -2077,6 +2080,7 @@ function pickedDelta(n) {
     foreshadow_clues: pick('q', d.foreshadow_clues || []),
     deadlines_added: pick('k', d.deadlines_added || []),
     deadlines_done: pick('o', d.deadlines_done || []),
+    setting_changes: pick('t', d.setting_changes || []),
   };
 }
 
@@ -2111,7 +2115,7 @@ function refreshPreview(n) {
 }
 
 /** 상태 변경안 항목 체크 키 ('c0', 'e1' …). 설정 제안 키('sc0', 'sf:logline')와 섞이지 않게 센다. */
-const DELTA_PICK = /^[cesrfpxnqlko]\d+$/;
+const DELTA_PICK = /^[cesrfpxnqlkot]\d+$/;
 const deltaPicked = () => Object.entries(S.picks).filter(([k, v]) => v && DELTA_PICK.test(k)).length;
 
 /** source: 변경안을 어디서 받았나 ('chat' 이면 채팅 앱에서 가져온 JSON). 상태 승인 화면 설명에 쓴다 */
@@ -2135,6 +2139,7 @@ function setDelta(n, d, source = 'ai') {
   (d.foreshadow_clues || []).forEach((_, i) => { S.picks['q' + i] = true; });
   (d.deadlines_added || []).forEach((_, i) => { S.picks['k' + i] = true; });
   (d.deadlines_done || []).forEach((id, i) => { S.picks['o' + i] = P().timeline.deadlines.some((x) => x.id === id) || (d.deadlines_added || []).some((x) => x.id === id); });
+  (d.setting_changes || []).forEach((_, i) => { S.picks['t' + i] = false; });  // 인물 설정은 작가가 직접 골라야 바뀐다
   // 받은 그대로의 요약과 체크. 다시 만들 때 고친 것을 버리는지 묻는다 (기본으로 뺀 항목은 고친 것이 아니다)
   S.deltaOrig[n] = { summary: d.summary, picks: Object.fromEntries(Object.entries(S.picks).filter(([k]) => DELTA_PICK.test(k))), source };
 }
@@ -2322,7 +2327,11 @@ async function routeNow() {
       if (!parts[2] && S.project.relationships.length) {
         S.relations = await api('GET', `/projects/${enc(S.name)}/relations`).catch((e) => ({ error: e.message }));
       }
-      if (parts[2] === 'setup') S.names = {};
+      if (parts[2] === 'setup') {
+        S.names = {};
+        S.dexOpen = null;
+        S.dexRolls = null;
+      }
       if (parts[2] === 'setup' || parts[2] === 'arc') {  // 플롯 서랍의 새 인물 칸도 이름 점검을 보인다
         S.nameCheck = await api('POST', `/projects/${enc(S.name)}/names/check`, nameCheckBody()).catch(() => null);
       }
@@ -3305,6 +3314,7 @@ function viewSetup() {
       ${tierSelect(c, b, 'tier-' + i)}
       <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보 뽑기</button><button type="button" class="btn small" data-action="nameAI" data-arg="${esc(c.id)}">AI 이름 추천</button></div>
       ${namePicks('c:' + c.id, 'useName', (n) => `${c.id}|${n}`)}
+      ${dexField(c)}
       ${input('원하는 것', b + '.goal', { hint: '작품 전체에서' })}
       ${input('두려운 것 · 약점', b + '.wound')}
       ${input('숨기는 것', b + '.secrets', { kind: 'list', rows: 2 })}
@@ -3354,10 +3364,11 @@ function viewSetup() {
       </div>
       <div class="col wide">
         <section class="card" id="setup-chars">
-          <div class="between"><h2>인물 <span class="small">${p.characters.length}명</span></h2><button class="btn small" data-action="addCharacter">+ 인물 추가</button></div>
+          <div class="between"><h2>인물 <span class="small">${p.characters.length}명</span></h2><div class="row"><button class="btn small" data-action="dexRoll" title="원형 · 상처 · 말투 · 비틀기 · 이름을 무작위로 섞어 3안을 보여 줘요">도감 주사위</button><button class="btn small" data-action="addCharacter">+ 인물 추가</button></div></div>
           <p class="small">이름, 말투, 성격은 고정 설정이에요. 회차가 지나며 바뀌는 감정과 목표는 상태 승인 화면에서 관리해요.</p>
           <div class="row"><button type="button" class="btn small ghost" data-action="checkNames">이름 점검</button><span class="small">글자가 겹치는 이름, 나이와 안 맞는 이름, AI가 자주 짓는 이름을 찾아요</span></div>
           ${nameCheckBox()}
+          ${dexRollBox()}
           ${chars ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">${chars}</div>` : '<div class="note plain">인물이 없어요. 직접 추가하거나 AI 제안을 받으세요.</div>'}
         </section>
         <section class="card" id="setup-rels">
@@ -4399,7 +4410,7 @@ function viewReview(n) {
   // 검수 지적이 남아 있으면 반영 전에 본문을 고칠지 볼 수 있게 알린다 (검수 뒤 본문을 고쳤으면 지난 결과라고 밝힌다)
   const issues = (e.issues || []).length
     ? `<section class="note warn">검수 지적 ${e.issues.length}건이 남아 있어요${(e.edits || []).some((x) => x.at > (e.checked_at || '')) ? ' (검수 뒤 본문을 고쳤어요)' : ''}. <a href="${base()}/write/${n}">집필 화면에서 보기</a></section>` : '';
-  const total = d.character_updates.length + d.events.length + d.secrets_added.length + d.relationship_updates.length + d.new_facts.length + d.foreshadow_planted.length + d.foreshadow_resolved.length + (d.new_characters || []).length + (d.new_places || []).length + (d.foreshadow_clues || []).length + (d.deadlines_added || []).length + (d.deadlines_done || []).length;
+  const total = d.character_updates.length + d.events.length + d.secrets_added.length + d.relationship_updates.length + d.new_facts.length + d.foreshadow_planted.length + d.foreshadow_resolved.length + (d.new_characters || []).length + (d.new_places || []).length + (d.foreshadow_clues || []).length + (d.deadlines_added || []).length + (d.deadlines_done || []).length + (d.setting_changes || []).length;
   if (!S.preview || S.preview.n !== n) refreshPreview(n);
   const picked = deltaPicked();
   const box = (key) => `<input type="checkbox" id="pk-${key}" data-pick="${key}"${S.picks[key] ? ' checked' : ''}>`;
@@ -4448,7 +4459,7 @@ function viewReview(n) {
 
   return top(`${(S.deltaOrig[n] || {}).source === 'chat' ? '채팅 앱에서 가져온' : 'AI가 본문에서 뽑은'} 변경안이에요. 체크한 항목만 데이터에 반영되고, 반영해야 다음 화를 쓸 수 있어요.`, `<span class="small">${total}건 중 <strong class="pick-count" style="color:var(--text)">${picked}</strong>건 선택</span>`) + stale + issues +
     (d.warnings.length ? `<section class="note warn"><strong>경고 ${d.warnings.length}건 · 본문을 고칠지 확인하세요</strong><ul style="padding-left:18px;margin-top:6px">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul><a href="${base()}/write/${n}" style="color:inherit;font-weight:700">본문으로</a></section>` : '') +
-    section('인물 상태', chars) +
+    section('인물 상태', chars) + scDeltaCard(n, d, box) +
     (newChars ? section('새로 나온 인물', newChars) : '') +
     (newPlaces ? section('새로 나온 장소', `<div class="small">반영하면 인과율에 장소로 등록돼요. 그 뒤로는 이 장소가 나오는 화를 쓸 때 설명이 함께 들어가요.</div>${newPlaces}`) : '') +
     `<div class="cols">
@@ -4475,7 +4486,7 @@ function historyView(h) {
       <section class="card"><h2>사실과 복선</h2>${li([...h.new_facts.map(esc), ...h.foreshadow_planted.map((f) => '심음: ' + esc(f.description)), ...h.foreshadow_resolved.map((id) => { const f = P().foreshadows.find((x) => x.id === id); return '회수: ' + esc(f ? f.description : id); })])}</section>
       ${(h.new_characters || []).length ? `<section class="card"><h2>새로 나온 인물</h2>${li(h.new_characters.map((c) => `<strong>${esc(c.name || c.id)}</strong> <span class="small">${esc(c.role || '')}</span>`))}</section>` : ''}
       ${(h.new_places || []).length ? `<section class="card"><h2>새로 나온 장소</h2>${li(h.new_places.map(placeLabel))}</section>` : ''}
-      ${tlHistory(h)}
+      ${tlHistory(h)}${scHistory(h)}
       ${(h.secrets_added || []).length ? `<section class="card"><h2>새로 생긴 비밀</h2>${li(h.secrets_added.map((x) => `<strong>${esc(charName(x.owner))}</strong> ${esc(x.content)}`))}</section>` : ''}
       ${(h.relationship_updates || []).length ? `<section class="card"><h2>관계 유형 · 설명 변경</h2>${li(h.relationship_updates.map((r) => `${esc(charName(r.a))} ↔ ${esc(charName(r.b))} · ${esc(r.type)}${r.description ? ` · ${esc(r.description)}` : ''}`))}</section>` : ''}
     </div>`;
