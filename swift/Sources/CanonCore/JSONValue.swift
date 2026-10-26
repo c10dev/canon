@@ -43,6 +43,17 @@ public indirect enum JSONValue: Codable, Equatable, Sendable {
         return nil
     }
 
+    /// JavaScript 에서 참으로 치는 값인가 (null · false · 0 · 빈 글자가 아니다).
+    public var truthy: Bool {
+        switch self {
+        case .null: false
+        case let .bool(b): b
+        case let .number(n): n != 0
+        case let .string(s): !s.isEmpty
+        case .array, .object: true
+        }
+    }
+
     public var int: Int? {
         if case let .number(n) = self { return Int(n) }
         return nil

@@ -112,6 +112,10 @@ import Testing
         write.kind = "write"
         write.ep = 3
         #expect(JobText.done(write) == "3화 본문을 저장했어요.")
+        write.result = .object(["candidate": .object(["text": .string("새 판")])])
+        #expect(JobText.done(write) == "3화 새 판이 나왔어요. 지금 판과 비교해 고르세요.")
+        write.result = .object(["candidate": .null])
+        #expect(JobText.done(write) == "3화 본문을 저장했어요.")
         var other = job("a", .done)
         other.kind = "hook"
         #expect(JobText.done(other) == "3화 본문이 끝났어요")

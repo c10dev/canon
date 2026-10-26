@@ -138,7 +138,7 @@ public enum JobText {
         "\(label)\(KoreanText.josa(label, "을", "를")) 시작했어요. 끝나면 알려 드릴게요. 그동안 다른 작업을 해도 돼요."
     }
 
-    /// 이 작품의 작업이 끝났을 때 (웹 `JOB_DONE_MSG`). 목록에 없는 작업은 '<label>이 끝났어요'.
+    /// 이 작품의 작업이 끝났을 때 (웹 `JOB_DONE_MSG`, `app.js` · `rewrite.js` · `convert.js` · `opening.js`). 목록에 없는 작업은 '<label>이 끝났어요'.
     public static func done(_ job: Job) -> String {
         let ep = job.ep.map(String.init) ?? ""
         switch job.kind {
@@ -146,7 +146,9 @@ public enum JobText {
         case "arc": return "기승전결 구조 제안이 도착했어요. 확인하고 저장하세요."
         case "plots": return "화별 플롯 초안을 만들었어요. 확정된 화는 그대로예요."
         case "plot_one": return "\(ep)화 플롯을 앞뒤 화에 맞춰 채웠어요. 다듬은 뒤 확정하세요."
-        case "write": return "\(ep)화 본문을 저장했어요."
+        case "write":
+            // 본문이 있는 화를 다시 생성하면 새 판은 본문을 덮지 않고 고르기를 기다린다 (웹 rewrite.js 의 JOB_DONE_MSG.write)
+            return job.result?["candidate"]?.truthy == true ? "\(ep)화 새 판이 나왔어요. 지금 판과 비교해 고르세요." : "\(ep)화 본문을 저장했어요."
         case "state": return "\(ep)화 상태 변경안이 도착했어요."
         case "series": return "부 구성 제안이 도착했어요. 확인하고 반영하세요."
         case "nextarc": return "다음 아크 제안이 도착했어요. 고친 뒤 반영하세요."
@@ -156,6 +158,11 @@ public enum JobText {
             let name = job.label.hasPrefix("인과율: ") ? String(job.label.dropFirst("인과율: ".count)) : job.label
             return "\(name)이 끝났어요. 인과율에서 확인하세요."
         case "storyline": return "이야기 줄기 제안이 도착했어요. 고른 화와 함께 반영하세요."
+        case "convert": return "장편 전환 계획이 도착했어요. 확인하고 고른 것만 적용하세요."
+        case "rebuild": return "재구성 계획이 도착했어요. 화 지도를 확인하고 적용하세요."
+        case "rework": return "\(ep)화 다듬기 제안이 도착했어요. 집필 화면에서 비교하세요."
+        case "openings": return "\(ep)화 여는 방식 플롯 안이 도착했어요. 플롯 화면의 \(ep)화 서랍 '초반 화 · 여는 방식 고르기'에서 고르세요."
+        case "opening_drafts": return "\(ep)화를 여는 방식마다 썼어요. 읽고 고르세요."
         case "check": return "\(ep)화 검수가 끝났어요: 어긋난 곳 \(job.result?["issues"]?.int ?? 0)개"
         case "auto":
             let status = job.result?["status"].flatMap { if case let .string(s) = $0 { s } else { nil } }
