@@ -141,6 +141,7 @@ class JudgeTest(unittest.TestCase):
         self.assertEqual(context.related_lines(["서윤은 바닷가에서 자랐다", "서윤은 사흘 앓았다"], "서윤은 일주일", 20),
                          ["서윤은 사흘 앓았다"])
         self.assertIn("기간과 횟수", prompts.claims_prompt(p, 1))
+        self.assertIn("사실 하나만", prompts.claims_prompt(p, 1))
 
     def test_two_step_without_flags_skips_verdict(self):
         p = Project(meta=Meta(title="t"), episodes=[Episode(plot=_plot(1), status="written",
