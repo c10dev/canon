@@ -2608,7 +2608,7 @@ def research_probe(body: Probe) -> dict:
 @app.get("/api/projects/{name}/research")
 def research_log(name: str) -> dict:
     _load(name)
-    return {"log": research.history(name), "stages": research.STAGES, "check_modes": prompts.CHECK_MODES}
+    return {"log": research.history(name), "stages": research.STAGES, "check_modes": research.TRIAL_MODES}
 
 
 class SampleIn(BaseModel):
@@ -2653,6 +2653,7 @@ class CheckTrialIn(BaseModel):
     episode: int
     plants: int = 3
     modes: list[str] = []
+    judge: research.Backend | None = None  # 주면 두 걸음 검수(판단기)도 시험한다
 
 
 @app.post("/api/projects/{name}/research/check")
@@ -2660,7 +2661,7 @@ def research_check(name: str, body: CheckTrialIn) -> dict:
     """검수 시험: n화에 모순을 심고 검수 방식마다 찾는지 본다. 작품에는 저장하지 않는다."""
     if not 1 <= body.plants <= 5:
         raise ValueError("심을 모순은 1~5개예요")
-    res = research.check_trial(_load(name), body.episode, body.backend, body.plants, body.modes or None)
+    res = research.check_trial(_load(name), body.episode, body.backend, body.plants, body.modes or None, judge=body.judge)
     return research.record(name, "check", res)
 
 
@@ -2701,12 +2702,24 @@ def research_pick(name: str, n: int, body: Pick) -> dict:
 
 # ---------- 화면 ----------
 
-app.mount("/static", StaticFiles(directory=STATIC), name="static")
+NO_CACHE = {"Cache-Control": "no-cache"}  # 쓰기 전에 매번 ETag 로 새 판인지 묻는다 (안 바뀌었으면 304)
+
+
+class _Static(StaticFiles):
+    """화면 파일. 서버를 업데이트한 뒤에도 브라우저가 캐시의 옛 화면 코드를 쓰지 않게 한다."""
+
+    def file_response(self, *args, **kwargs) -> Response:
+        r = super().file_response(*args, **kwargs)
+        r.headers.update(NO_CACHE)
+        return r
+
+
+app.mount("/static", _Static(directory=STATIC), name="static")
 
 
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(STATIC / "index.html")
+    return FileResponse(STATIC / "index.html", headers=NO_CACHE)
 
 
 def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,

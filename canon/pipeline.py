@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, storylines
+from .judge import Judge, Question
 from .llm import LLM, dump
 from . import foreshadows, statwin
 from .schema import (
     Act,
     ArcEdit,
     ArcPlan,
+    ClaimSet,
     ArcProposal,
     ArcUndo,
     Character,
@@ -2452,6 +2454,42 @@ def check_episode(llm: LLM, p: Project, n: int) -> ConsistencyReport:
     report = llm.json(prompts.SYSTEM_CHECKER, prompts.check_prompt(p, n), ConsistencyReport, hint={"episode": n})
     report.episode = n
     return report
+
+
+def check_two_step(llm: LLM, judge: Judge, p: Project, n: int, hint: dict | None = None) -> tuple[ConsistencyReport, dict]:
+    """두 걸음 검수 (연구 화면에서만 씀): 검수 모델이 이번 화의 사실 진술을 뽑고, 판단기가 진술마다 옛 화 · 설정 · 사실과 견줘
+    '어긋남' 확률을 내고, 의심 진술만 근거와 함께 검수 모델이 판정한다. 옛 화는 직전 화까지 모두 찾아본다.
+    같은 화 안의 동선 · 시점처럼 옛 자료와 견주지 않는 검사는 하지 않는다. (보고서, 단계별 크기 · 판단 기록)"""
+    from .context import PassageIndex, est_tokens
+
+    ep = p.episode(n)
+    if not ep.text:
+        raise ValueError(f"{n}화 본문이 없어요")
+    hint = hint or {}
+    first = prompts.claims_prompt(p, n)
+    claims = llm.json(prompts.SYSTEM_CLAIMS, first, ClaimSet, hint={"episode": n, "text": ep.text}).claims
+    claims = [c for c in claims if c.quote.strip() and c.claim.strip()][:prompts.TWOSTEP_CLAIMS]
+    index = PassageIndex(p, n)
+    evidence = [prompts.claim_evidence(p, n, c, index) for c in claims]
+    qs = [Question(id=str(i), state=ev, text=prompts.claim_question(c), options=prompts.CLAIM_OPTIONS)
+          for i, (c, ev) in enumerate(zip(claims, evidence))]
+    answers = judge.decide(prompts.SYSTEM_JUDGE_CHECK, qs) if qs else []
+    bad = [a.probs[1] if len(a.probs) > 1 else 0.0 for a in answers]
+    order = sorted((i for i, x in enumerate(bad) if x >= prompts.TWOSTEP_FLAG), key=lambda i: -bad[i])[:prompts.TWOSTEP_FLAG_MAX]
+    flagged = sorted(order)
+    stats = {"claims": len(claims), "flagged": len(flagged),
+             "first_tokens": est_tokens(prompts.SYSTEM_CLAIMS + first),
+             "judge_tokens": sum(est_tokens(prompts.SYSTEM_JUDGE_CHECK + prompts.judge_message(q.state, q.text, q.options)) for q in qs),
+             "verdict_tokens": 0,
+             "judged": [{"quote": c.quote, "claim": c.claim, "probs": a.probs, "mass": a.mass, "flagged": i in flagged}
+                        for i, (c, a) in enumerate(zip(claims, answers))]}
+    if not flagged:
+        return ConsistencyReport(episode=n, issues=[]), stats
+    last = prompts.verdict_prompt(p, n, [(claims[i], evidence[i], bad[i]) for i in flagged])
+    stats["verdict_tokens"] = est_tokens(prompts.SYSTEM_CHECKER + last)
+    report = llm.json(prompts.SYSTEM_CHECKER, last, ConsistencyReport, hint={"episode": n, **hint})
+    report.episode = n
+    return report, stats
 
 
 def apply_check(p: Project, r: ConsistencyReport) -> None:

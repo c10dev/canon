@@ -13,6 +13,8 @@ from .schema import (
     ArcProposal,
     Character,
     CharacterState,
+    Claim,
+    ClaimSet,
     ConsistencyIssue,
     ConsistencyReport,
     Direction,
@@ -504,6 +506,9 @@ class MockLLM:
             return _openings(hint)  # type: ignore[return-value]
         if schema is PlantSet:
             return _plants(hint)  # type: ignore[return-value]
+        if schema is ClaimSet:  # 두 걸음 검수: 본문 문장마다 진술 하나
+            sents = [x.strip() for x in re.findall(r"[^.!?\n]+[.!?]", hint.get("text", "")) if len(x.strip()) > 4]
+            return ClaimSet(claims=[Claim(quote=x, claim=x) for x in sents[:30]])  # type: ignore[return-value]
         if schema is ConsistencyReport and "plants" in hint:  # 검수 시험: 프롬프트에 들어간 심은 문장을 짚는다
             return ConsistencyReport(episode=hint["episode"], issues=[ConsistencyIssue(
                 type="사실", description="심은 모순", source_episode=0, source_quote="설정", current_quote=x)
