@@ -38,6 +38,7 @@ from .schema import (
     OpeningPlots,
     PassageCandidate,
     PassageRevision,
+    EpisodeDraft,
     PlotBatch,
     Part,
     PlotRevision,
@@ -416,7 +417,7 @@ class MockLLM:
             return Rework(text=hint["text"].rstrip() + "\n\n도현은 대답 대신 시선을 피했다.", reply="새 자리에 맞게 끝을 고쳤어요.")  # type: ignore[return-value]
         if schema is Recap:
             return Recap(summary=f"{'아크' if hint['kind'] == 'arc' else '부'} {hint['number']} 요약: 주인공이 시험을 넘겼다.")  # type: ignore[return-value]
-        if schema is PlotBatch:
+        if schema is PlotBatch or schema is EpisodeDraft:
             acts: list[Act] = hint["arc"]
             eps = []
             for n in range(hint["start"], hint["end"] + 1):
@@ -428,6 +429,9 @@ class MockLLM:
                 eps[NEW_CAST_EP - hint["start"]].events.append(f"{NEW_PLACE.name}에 묵는다")
                 new = [NEW_CAST]
             places = [NEW_PLACE] if new else []
+            if schema is EpisodeDraft:  # 뒤 화에 맞추지 않고 채운 화: 뒤 화와 어긋난 점을 함께 낸다
+                return EpisodeDraft(episodes=eps, new_characters=new, new_places=places,
+                                    next_gap=f"{hint['end'] + 1}화 첫 장면이 이미 끝난 갈등으로 시작해요.")  # type: ignore[return-value]
             return PlotBatch(episodes=eps, new_characters=new, new_places=places)  # type: ignore[return-value]
         if schema is PlotRevision:
             return _revision(hint)  # type: ignore[return-value]

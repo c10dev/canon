@@ -19,6 +19,7 @@ from .schema import (
     Conversion,
     ElementImpact,
     Episode,
+    EpisodeDraft,
     EpisodePlot,
     HookReport,
     IllustDraft,
@@ -1900,16 +1901,19 @@ def remove_episode(p: Project, n: int) -> list[str]:
     return [head, *notes]
 
 
-def draft_episode(llm: LLM, p: Project, n: int) -> PlotBatch:
-    """초안인 n 화 하나의 플롯을 앞뒤 화에 맞춰 AI 로 채운다. 작가가 적어 둔 제목 · 요약 · 줄기는 살린다. 저장하지 않는다."""
+def draft_episode(llm: LLM, p: Project, n: int, fit_next: bool = True) -> PlotBatch:
+    """초안인 n 화 하나의 플롯을 앞뒤 화에 맞춰 AI 로 채운다. 작가가 적어 둔 제목 · 요약 · 줄기는 살린다. 저장하지 않는다.
+    fit_next=False 면 뒤 화에 맞추지 않고 작가가 적은 것대로 마무리한다. 뒤 화와 어긋난 점은 EpisodeDraft.next_gap 에
+    담겨 오고, apply_draft 가 뒤 화에 '다시 맞추기' 표시로 남긴다."""
     e = p.episode(n)
     if e.status != "draft":
         raise ValueError(f"{n}화는 확정된 화라 AI 초안으로 바꾸지 않아요. 초안으로 되돌린 뒤 하세요")
     beats = p.beats()
     if not beats:
         raise ValueError("다음 아크를 먼저 기획하세요" if p.serial else "기승전결 구조(arc)를 먼저 만드세요")
-    batch = llm.json(prompts.SYSTEM_PLANNER, prompts.episode_plot_prompt(p, n), PlotBatch,
-                     hint={"start": n, "end": n, "arc": beats})
+    free = not fit_next and any(x.plot.number == n + 1 for x in p.episodes)
+    batch = llm.json(prompts.SYSTEM_PLANNER, prompts.episode_plot_prompt(p, n, fit_next), EpisodeDraft if free else PlotBatch,
+                     hint={"start": n, "end": n, "arc": beats, "free": free})
     pick = [x for x in batch.episodes if x.number == n] or batch.episodes[:1]
     if not pick:
         raise ValueError(f"{n}화 플롯을 받지 못했어요")
@@ -1921,6 +1925,19 @@ def draft_episode(llm: LLM, p: Project, n: int) -> PlotBatch:
         plot.storyline = e.plot.storyline
     batch.episodes = [plot]
     return batch
+
+
+def apply_draft(p: Project, batch: PlotBatch) -> int | None:
+    """draft_episode 결과를 반영한다. 뒤 화와 어긋난 점이 있으면 뒤 화에 표시하고 그 화 번호를 돌려준다."""
+    apply_plots(p, batch)
+    gap = getattr(batch, "next_gap", "").strip()
+    if not gap or not batch.episodes:
+        return None
+    nxt = next((x for x in p.episodes if x.plot.number == batch.episodes[0].number + 1), None)
+    if nxt is None:
+        return None
+    nxt.realign = gap
+    return nxt.plot.number
 
 
 def reopen_impact(p: Project, eid: str) -> None:

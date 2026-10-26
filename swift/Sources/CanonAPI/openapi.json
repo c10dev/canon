@@ -2230,6 +2230,55 @@
     }
    }
   },
+  "/api/projects/{name}/episodes/{n}/realign/clear": {
+   "post": {
+    "summary": "Clear Realign",
+    "description": "앞 화를 다시 짜며 남긴 '다시 맞추기' 표시를 작가가 확인하고 지운다.",
+    "operationId": "clear_realign",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/episodes/insert": {
    "post": {
     "summary": "Insert Episode",
@@ -8886,6 +8935,12 @@
      "time": {
       "$ref": "#/components/schemas/StoryTime",
       "description": "이 화가 끝난 작품 속 시점. 상태 반영 때 채운다"
+     },
+     "realign": {
+      "type": "string",
+      "title": "Realign",
+      "description": "앞 화 플롯을 뒤 화에 맞추지 않고 다시 짜면서 이 화와 어긋나게 된 점. 이 화 플롯을 다시 짜거나 작가가 확인하면 비운다",
+      "default": ""
      }
     },
     "type": "object",
@@ -10174,6 +10229,11 @@
      },
      "rewrite": {
       "$ref": "#/components/schemas/RewriteRequest"
+     },
+     "fit_next": {
+      "type": "boolean",
+      "title": "Fit Next",
+      "default": true
      }
     },
     "type": "object",

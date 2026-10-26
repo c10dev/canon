@@ -313,18 +313,32 @@ def serial_plot_prompt(p: Project, start: int, end: int) -> str:
 {plot_rules(p, start <= OPENING_EPISODES)}{new_cast_rule(p)}"""
 
 
-def episode_plot_prompt(p: Project, n: int) -> str:
-    """끼워 넣은 화처럼 앞뒤가 정해진 화 하나의 플롯. 작가가 적어 둔 칸을 살리고 바로 뒤 화로 이어지게 채운다."""
+def episode_plot_prompt(p: Project, n: int, fit_next: bool = True) -> str:
+    """앞뒤가 정해진 화 하나의 플롯. 작가가 적어 둔 칸을 살려 나머지를 채운다.
+    fit_next: 바로 뒤 화를 바꾸지 않는 화로 보고 그 시작으로 이어지게 한다 (끼워 넣은 화).
+    끄면 작가가 적은 것대로 이 화를 마무리하고, 뒤 화와 어긋나는 점은 next_gap 으로 받는다 (EpisodeDraft)."""
     e = p.episode(n)
     nxt = next((x.plot for x in p.episodes if x.plot.number == n + 1), None)
     seed = {k: v for k, v in e.plot.model_dump().items() if v and k not in ("number", "act")}
     line = p.storyline(e.plot.storyline)
     line_text = (f"\n[이 화가 따라가는 이야기 줄기]\n{storylines.describe(p, line)}\n"
                  f"storyline 칸에 {line.id} 를 그대로 넣습니다." if line else "")
-    return plot_prompt(p, n, n) + f"""
+    head = plot_prompt(p, n, n) + f"""
 
 [작가가 이 화에 적어 둔 것 (살려서 나머지 칸을 채울 것)]
-{dump(seed) if seed else "없음. 앞뒤 화 사이에 자연스럽게 들어가는 화를 만듭니다"}
+{dump(seed) if seed else "없음. 앞뒤 화 사이에 자연스럽게 들어가는 화를 만듭니다"}"""
+    if nxt and not fit_next:
+        return head + f"""
+[바로 뒤 화 플롯 (참고만. 작가가 이 화에 적은 것이 우선)]
+{dump(nxt)}{line_text}
+
+이 화에 대한 요구사항:
+- {n}화 하나만 씁니다.
+- 작가가 적어 둔 제목은 그대로 쓰고, 요약 · 사건 · 등장 인물은 뜻을 바꾸지 않고 살려 다듬고 빈 칸을 채웁니다.
+- 작가가 적은 요약이 이 화에서 끝내려는 일을 이 화 안에서 끝까지 마무리합니다. 뒤 화에서 일어나기로 되어 있던 일이라도 작가 요약에 있으면 이 화에서 일으키고, 뒤 화로 미루지 않습니다.
+- 작가가 적은 것과 부딪치지 않는 한 뒤 화 시작으로 자연스럽게 넘어가게 엔딩 훅을 씁니다.
+- 이 화를 이렇게 마무리해서 뒤 화 플롯과 어긋나게 된 점(뒤 화에서 다시 일어나게 되는 사건, 이어지지 않는 첫 장면, 이미 풀린 갈등 등)을 next_gap 에 뒤 화에서 고칠 것 위주로 한두 문장 적습니다. 어긋나지 않으면 비웁니다."""
+    return head + f"""
 [바로 뒤 화 플롯 (바꾸지 않음. {n}화의 끝이 이 화의 시작으로 자연스럽게 넘어가야 함)]
 {dump(nxt) if nxt else "없음 (마지막 화)"}{line_text}
 
