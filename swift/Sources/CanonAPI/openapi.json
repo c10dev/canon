@@ -5258,6 +5258,108 @@
     }
    }
   },
+  "/api/projects/{name}/atlas/generate/preview": {
+   "post": {
+    "summary": "Atlas Generate Preview",
+    "description": "지도 만들기 미리보기: 마을과 장소 자리 제안을 돌려준다. 저장하지 않는다.",
+    "operationId": "atlas_generate_preview",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MapSpec"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Atlas Generate Preview"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/atlas/generate": {
+   "post": {
+    "summary": "Atlas Generate",
+    "description": "지도 만들기 적용: 같은 입력으로 마을을 다시 만들어 map/ 에 저장하고, 고른 장소만 새 자리에 놓는다.",
+    "operationId": "atlas_generate",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/GenerateIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/atlas/pins": {
    "put": {
     "summary": "Atlas Pins",
@@ -7361,6 +7463,10 @@
       "title": "Meters",
       "description": "마을 데이터 1단위가 몇 m 인지 (거리 · 걷는 시간 계산)",
       "default": 1.0
+     },
+     "spec": {
+      "$ref": "#/components/schemas/MapSpec",
+      "description": "지도 만들기로 만든 마을이면 그 입력. 파일을 올렸거나 지도가 없으면 비움"
      }
     },
     "type": "object",
@@ -8695,6 +8801,26 @@
     ],
     "title": "ForeshadowIn"
    },
+   "GenerateIn": {
+    "properties": {
+     "spec": {
+      "$ref": "#/components/schemas/MapSpec"
+     },
+     "pins": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Pins",
+      "default": []
+     }
+    },
+    "type": "object",
+    "required": [
+     "spec"
+    ],
+    "title": "GenerateIn"
+   },
    "Genre": {
     "properties": {
      "id": {
@@ -9682,6 +9808,120 @@
     ],
     "title": "MapPin",
     "description": "장소의 지도 위 자리. 0~1 비율 좌표라 배경 그림 크기와 상관없다."
+   },
+   "MapPlace": {
+    "properties": {
+     "key": {
+      "type": "string",
+      "title": "Key",
+      "description": "장소 키 (atlas.places)"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind",
+      "description": "종류 id (towngen.CATEGORIES). 비면 이름 · 설명에서 찾는다",
+      "default": ""
+     },
+     "put": {
+      "type": "boolean",
+      "title": "Put",
+      "description": "이 지도에 놓을지. 비면 종류로 정한다 (마을 밖 장소는 놓지 않음)"
+     }
+    },
+    "type": "object",
+    "required": [
+     "key"
+    ],
+    "title": "MapPlace",
+    "description": "지도 만들기에서 작가가 고친 장소 하나: 종류와 이 지도에 놓을지."
+   },
+   "MapSpec": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "village",
+       "city",
+       "realm"
+      ],
+      "title": "Kind",
+      "default": "village"
+     },
+     "seed": {
+      "type": "integer",
+      "maximum": 2147483647.0,
+      "minimum": 0.0,
+      "title": "Seed",
+      "default": 1
+     },
+     "version": {
+      "type": "integer",
+      "title": "Version",
+      "description": "이 지도를 만든 생성기 알고리즘 버전 (적용할 때 적는다)",
+      "default": 0
+     },
+     "size": {
+      "type": "string",
+      "enum": [
+       "small",
+       "medium",
+       "large"
+      ],
+      "title": "Size",
+      "default": "medium"
+     },
+     "roads": {
+      "type": "string",
+      "enum": [
+       "line",
+       "cross",
+       "square"
+      ],
+      "title": "Roads",
+      "default": "cross"
+     },
+     "water": {
+      "type": "string",
+      "enum": [
+       "none",
+       "river",
+       "lake",
+       "sea"
+      ],
+      "title": "Water",
+      "default": "none"
+     },
+     "fields": {
+      "type": "string",
+      "enum": [
+       "few",
+       "some",
+       "many"
+      ],
+      "title": "Fields",
+      "default": "some"
+     },
+     "forest": {
+      "type": "string",
+      "enum": [
+       "few",
+       "some",
+       "many"
+      ],
+      "title": "Forest",
+      "default": "some"
+     },
+     "places": {
+      "items": {
+       "$ref": "#/components/schemas/MapPlace"
+      },
+      "type": "array",
+      "title": "Places"
+     }
+    },
+    "type": "object",
+    "title": "MapSpec",
+    "description": "지도 생성기 입력 (canon/towngen.py). 같은 값이면 언제나 같은 지도가 나온다."
    },
    "Meta": {
     "properties": {
