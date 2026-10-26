@@ -2928,6 +2928,57 @@
     }
    }
   },
+  "/api/projects/{name}/chat/setup/{i}/undo": {
+   "post": {
+    "summary": "Setup Chat Undo",
+    "description": "적용한 설정 변경안을 취소한다. 그 뒤에 다시 고친 부분과 이미 쓰이는 새 인물은 그대로 둔다. 변경안은 다시 고를 수 있게 열린다.",
+    "operationId": "setup_chat_undo",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "i",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "I"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Setup Chat Undo"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/elements/links": {
    "get": {
     "summary": "Element Links",
@@ -8730,6 +8781,61 @@
     ],
     "title": "Character"
    },
+   "CharacterEdit": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id",
+      "description": "[인물]에 있는 인물 id"
+     },
+     "field": {
+      "type": "string",
+      "enum": [
+       "name",
+       "role",
+       "age",
+       "gender",
+       "appearance",
+       "personality",
+       "background",
+       "goal",
+       "wound",
+       "speech_style",
+       "secrets",
+       "arc"
+      ],
+      "title": "Field",
+      "description": "바꿀 칸 이름"
+     },
+     "text": {
+      "type": "string",
+      "title": "Text",
+      "description": "글 칸일 때: 바뀐 뒤 글 전체",
+      "default": ""
+     },
+     "items": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Items",
+      "description": "secrets 일 때: 바뀐 뒤 목록 전체"
+     },
+     "why": {
+      "type": "string",
+      "title": "Why",
+      "description": "왜 이렇게 바꾸는지 한 줄",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "field"
+    ],
+    "title": "CharacterEdit",
+    "description": "이미 있는 인물 한 칸의 바뀐 뒤 값."
+   },
    "CharacterState": {
     "properties": {
      "character_id": {
@@ -8854,7 +8960,7 @@
      "topic"
     ],
     "title": "Chat",
-    "description": "화면별 대화 기록. 플롯 화면은 'plot', 본문 부분 수정은 화마다 'text:<화>', 문체 화면은 'style'."
+    "description": "화면별 대화 기록. 플롯 화면은 'plot', 본문 부분 수정은 화마다 'text:<화>', 문체 화면은 'style', 설정 도우미는 'setup'."
    },
    "ChatApply": {
     "properties": {
@@ -8990,6 +9096,14 @@
       "$ref": "#/components/schemas/StyleProfile",
       "description": "문체 대화: 변경안을 적용하기 전 작품 문체 (적용 취소용)"
      },
+     "setup": {
+      "$ref": "#/components/schemas/SetupRevision",
+      "description": "assistant 가 낸 설정 변경안이나 방향 여러 안"
+     },
+     "setup_before": {
+      "$ref": "#/components/schemas/SetupBefore",
+      "description": "설정 대화: 변경안을 적용하기 전 설정 (적용 취소용)"
+     },
      "episode": {
       "type": "integer",
       "title": "Episode",
@@ -9023,7 +9137,7 @@
       },
       "type": "array",
       "title": "Applied",
-      "description": "반영한 부분: 'acts' 구조, 'arc' 아크 칸, 'parts' 부 구성, 화 번호. 본문 수정이면 후보 번호(0부터), 문체 대화면 칸 이름"
+      "description": "반영한 부분: 'acts' 구조, 'arc' 아크 칸, 'parts' 부 구성, 화 번호. 본문 수정이면 후보 번호(0부터), 문체 대화면 칸 이름, 설정 대화면 부분 id (setupchat.part_ids)"
      },
      "target": {
       "type": "string",
@@ -9040,7 +9154,7 @@
      "mode": {
       "type": "string",
       "title": "Mode",
-      "description": "플롯 대화: 'options' 면 방향 여러 안을 청한 말",
+      "description": "플롯 · 설정 대화: 'options' 면 방향 여러 안을 청한 말",
       "default": ""
      },
      "at": {
@@ -13247,6 +13361,139 @@
     },
     "type": "object",
     "title": "SettingsIn"
+   },
+   "SetupBefore": {
+    "properties": {
+     "meta": {
+      "$ref": "#/components/schemas/Meta"
+     },
+     "world": {
+      "$ref": "#/components/schemas/WorldSetting"
+     },
+     "characters": {
+      "items": {
+       "$ref": "#/components/schemas/Character"
+      },
+      "type": "array",
+      "title": "Characters"
+     },
+     "relationships": {
+      "items": {
+       "$ref": "#/components/schemas/Relationship"
+      },
+      "type": "array",
+      "title": "Relationships"
+     }
+    },
+    "type": "object",
+    "title": "SetupBefore",
+    "description": "설정 대화 변경안을 적용하기 전 설정 (적용 취소용)."
+   },
+   "SetupEdit": {
+    "properties": {
+     "key": {
+      "type": "string",
+      "enum": [
+       "title",
+       "logline.who",
+       "logline.why",
+       "logline.goal",
+       "logline.block",
+       "logline.stake",
+       "theme",
+       "tone",
+       "notes",
+       "world.setting",
+       "world.era",
+       "world.rules",
+       "world.locations",
+       "world.name_rules"
+      ],
+      "title": "Key",
+      "description": "바꿀 칸 이름"
+     },
+     "text": {
+      "type": "string",
+      "title": "Text",
+      "description": "글 칸일 때: 바뀐 뒤 글 전체",
+      "default": ""
+     },
+     "items": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Items",
+      "description": "world.rules · world.locations · world.name_rules 일 때: 바뀐 뒤 목록 전체 (그대로 둘 항목도 모두 넣는다)"
+     },
+     "why": {
+      "type": "string",
+      "title": "Why",
+      "description": "왜 이렇게 바꾸는지 한 줄",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "key"
+    ],
+    "title": "SetupEdit",
+    "description": "기본 정보 · 세계관 한 칸의 바뀐 뒤 값."
+   },
+   "SetupRevision": {
+    "properties": {
+     "reply": {
+      "type": "string",
+      "title": "Reply",
+      "description": "작가에게 하는 대답 2~5문장. 무엇을 왜 바꿨는지, 또는 되묻는 말"
+     },
+     "edits": {
+      "items": {
+       "$ref": "#/components/schemas/SetupEdit"
+      },
+      "type": "array",
+      "title": "Edits",
+      "description": "바뀌는 기본 정보 · 세계관 칸만"
+     },
+     "characters": {
+      "items": {
+       "$ref": "#/components/schemas/CharacterEdit"
+      },
+      "type": "array",
+      "title": "Characters",
+      "description": "바뀌는 이미 있는 인물의 칸만"
+     },
+     "new_characters": {
+      "items": {
+       "$ref": "#/components/schemas/Character"
+      },
+      "type": "array",
+      "title": "New Characters",
+      "description": "새로 더할 인물만, 모든 칸을 채운 설정. id 는 이미 있는 인물과 겹치지 않는 영문 소문자"
+     },
+     "relationships": {
+      "items": {
+       "$ref": "#/components/schemas/Relationship"
+      },
+      "type": "array",
+      "title": "Relationships",
+      "description": "바뀌는 관계나 새 관계만, 바뀐 뒤 값 전체. 같은 두 인물이면 그 관계를 바꾼다"
+     },
+     "options": {
+      "items": {
+       "$ref": "#/components/schemas/Direction"
+      },
+      "type": "array",
+      "title": "Options",
+      "description": "작가가 방향 여러 안을 청했을 때만 서로 다른 방향 2~3개. 그때는 다른 변경 칸을 모두 비움"
+     }
+    },
+    "type": "object",
+    "required": [
+     "reply"
+    ],
+    "title": "SetupRevision",
+    "description": "설정 도우미 대화에서 AI 가 내는 답과 변경안. 작가가 고른 칸만 적용한다 (setupchat.clean · apply)."
    },
    "SetupSuggestion": {
     "properties": {

@@ -53,7 +53,10 @@ from .schema import (
     SerialConversion,
     SerialRebuild,
     SeriesPlan,
+    SetupRevision,
     SetupSuggestion,
+    SetupEdit,
+    CharacterEdit,
     Deadline,
     SettingChange,
     StateDelta,
@@ -405,6 +408,35 @@ def _style_revision(hint: dict) -> StyleRevision:
         preview="그는 문을 열었다. 바람이 들었다.\n\n\"왔어?\" 그녀가 물었다.")
 
 
+def _setup_revision(hint: dict) -> SetupRevision:
+    """설정 대화: 주제를 채우고, 규칙 하나와 첫 인물의 약점을 고치고, 조력자 한 명과 관계를 더한 척한다.
+    지금 값과 같은 톤 칸도 섞어 걸러지는지 본다. '?' 로 끝나면 대답만, 방향 여러 안이면 안 세 개."""
+    msg = hint.get("message", "").strip()
+    p = hint.get("project", {})
+    if hint.get("mode") == "options":
+        return SetupRevision(reply="갈등의 축으로 나눠 봤어요.", options=[
+            Direction(title="복수", idea="주인공이 잃은 것을 되찾으려 한다.", changes=["주인공 원하는 것: 복수"], tradeoff="속도는 빠르지만 어두워진다"),
+            Direction(title="구원", idea="주인공이 적을 이해하게 된다.", changes=["주제: 용서할 수 있나"], tradeoff="여운은 크지만 느리다"),
+            Direction(title="비밀", idea="세계의 규칙이 거짓이었다.", changes=["규칙: 바다는 사람을 돌려보낸다"], tradeoff="반전이 크지만 설명이 는다"),
+        ])
+    if msg.endswith("?"):
+        return SetupRevision(reply="지금 설정은 주인공의 결핍이 아직 흐려요. 어느 쪽으로 다듬고 싶은지 말해 주세요.")
+    meta, world, chars = p.get("meta", {}), p.get("world", {}), p.get("characters", [])
+    edits = [SetupEdit(key="theme", text=f"잃은 것을 놓아줄 수 있나 ({msg})", why="요청"),
+             SetupEdit(key="tone", text=meta.get("tone", ""), why="그대로 (걸러져야 함)"),
+             SetupEdit(key="logline.block", text="바다를 지키는 마을 사람들", why="막는 힘을 분명히"),
+             SetupEdit(key="world.rules", items=list(world.get("rules", [])) + ["밤에는 등대 불을 끄지 않는다"], why="규칙 하나 더")]
+    out = SetupRevision(reply=f"'{msg}' 에 맞춰 주제와 규칙, 인물을 다듬었어요.", edits=edits)
+    if chars:
+        hero = chars[0]
+        out.characters = [CharacterEdit(id=hero["id"], field="wound", text=f"버려질까 두렵다 ({msg})", why="결핍을 분명히"),
+                          CharacterEdit(id="nobody", field="goal", text="없는 인물")]
+        out.new_characters = [Character(id="mentor", name="한결", role="조력자", gender="남", age="60대", goal="마을의 비밀을 지킨다",
+                                        speech_style="느린 반말. \"물때를 봐라.\"", tier="support", narration_voice="걸러져야 함")]
+        out.relationships = [Relationship(a=hero["id"], b="mentor", type="사제", a_view=["믿는다"], b_view=["빚졌다", "없는 말"])]
+    return out
+
+
 # 상태 변경안의 지금 차림: 1화에 처음 적고 2화에 찢어진다. 그 밖의 화는 비워 그대로 둔다
 MOCK_LOOK = "어깨에 닿던 머리를 짧게 자른 단발"  # 2화 설정 바꾸기 제안 (외모)
 MOCK_ATTIRE = {1: "젖은 회색 코트, 손전등", 2: "젖은 회색 코트(오른쪽 소매 찢어짐), 손전등, 녹슨 열쇠"}
@@ -522,6 +554,8 @@ class MockLLM:
             return _learning(hint)  # type: ignore[return-value]
         if schema is StyleRevision:
             return _style_revision(hint)  # type: ignore[return-value]
+        if schema is SetupRevision:
+            return _setup_revision(hint)  # type: ignore[return-value]
         if schema is StyleSample:  # 참고한 화가 있으면 그 앞부분을 고쳐 쓴 척한다
             ref = hint.get("ref", "")[:80].strip()
             return StyleSample(text=f"바람이 찼다. 그는 걸음을 늦췄다.\n\n\"늦었네.\" {hint.get('scene', '')}".strip(),
