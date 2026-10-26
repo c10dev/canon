@@ -122,3 +122,24 @@ func job(_ id: String, _ kind: String, ep: Int? = nil, status: Job.Status = .run
         #expect(v["a"] != nil)
     }
 }
+
+@MainActor
+@Suite struct NoticeLifetimeTests {
+    // 웹 toast 처럼 알림은 잠시 뒤 사라지고, 오류는 닫을 때까지 남는다
+    @Test func plainNoticeFadesErrorStays() async throws {
+        let jobs = FakeJobs()
+        let center = JobCenter(service: jobs)
+        center.noticeLifetime = .milliseconds(20)
+        await center.open(ProjectDocument(name: "등대", store: FakeStore(project())))
+        #expect(await center.start(JobRequest(kind: "write", ep: 2)))
+        #expect(center.notice != nil)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(center.notice == nil)
+        jobs.list = [job("p", "plots")]
+        await center.refresh()
+        jobs.list = [job("p", "plots", status: .error)]
+        await center.refresh()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(center.notice?.isError == true)
+    }
+}

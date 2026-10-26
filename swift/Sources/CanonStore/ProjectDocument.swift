@@ -28,6 +28,9 @@ public final class ProjectDocument {
     public private(set) var error: String?
     /// 저장 뒤 알림 (저장했어요, 서버 것으로 둔 칸).
     public private(set) var notice: (text: String, isError: Bool)?
+    /// 오류가 아닌 알림이 떠 있는 시간. 시험에서 줄인다.
+    public var noticeLifetime: Duration = .milliseconds(3500)
+    private var noticeToken = 0
     /// 작업 id → 이 화면이 결과를 받아 온 단계 수 (웹 `S.jobsMerged`). 저장할 때 도는 작업만 `<id>:<done>` 으로 알린다.
     public private(set) var mergedSteps: [String: Int] = [:]
     /// 지금 도는 작업 id. `JobCenter` 가 작업 목록을 받을 때마다 맞춘다.
@@ -117,9 +120,9 @@ public final class ProjectDocument {
             base = result.project
             let dropped = SaveText.dropped(result.kept) { Self.edited($0, sent: sent, base: old) }
             if let text = dropped {
-                notice = (text, true)
+                show(text, isError: true)
             } else {
-                notice = (SaveText.keptCharacters(result.kept) ?? SaveText.saved, false)
+                show(SaveText.keptCharacters(result.kept) ?? SaveText.saved, isError: false)
             }
             return dropped == nil
         } catch {
@@ -130,6 +133,20 @@ public final class ProjectDocument {
     }
 
     public func dismissNotice() { notice = nil }
+
+    /// 알림을 보인다. 오류는 닫을 때까지 남고, 다른 알림은 `noticeLifetime` 뒤 사라진다 (웹 `toast`: 3.5초).
+    private func show(_ text: String, isError: Bool) {
+        notice = (text, isError)
+        noticeToken += 1
+        guard !isError else { return }
+        let token = noticeToken
+        let life = noticeLifetime
+        Task { [weak self] in
+            try? await Task.sleep(for: life)
+            if self?.noticeToken == token { self?.notice = nil }
+        }
+    }
+
 
     private func fetch() async {
         busy = true

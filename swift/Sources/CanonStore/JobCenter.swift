@@ -22,6 +22,9 @@ public final class JobCenter {
     public private(set) var tracker = JobTracker()
     /// 화면 위쪽 알림 (시작, 끝남, 실패).
     public private(set) var notice: (text: String, isError: Bool)?
+    /// 오류가 아닌 알림이 떠 있는 시간. 시험에서 줄인다.
+    public var noticeLifetime: Duration = .milliseconds(3500)
+    private var noticeToken = 0
     /// 연 작품의 검토를 기다리는 결과. 열쇠는 `Job.key`.
     public private(set) var results: [String: PendingResult] = [:]
     /// 연 작품의 실패한 작업. 같은 작업이 성공하면 사라진다.
@@ -76,11 +79,11 @@ public final class JobCenter {
         if doc.dirty, await doc.save() == false, doc.dirty { return false }
         do {
             let (job, already) = try await service.startJob(doc.name, request)
-            if !already { notice = (JobText.started(job.label), false) }
+            if !already { show(JobText.started(job.label), isError: false) }
             await refresh()
             return true
         } catch {
-            notice = (CanonError.message(error), true)
+            show(CanonError.message(error), isError: true)
             return false
         }
     }
@@ -88,9 +91,9 @@ public final class JobCenter {
     public func stop(_ job: Job) async {
         do {
             _ = try await service.stopJob(job.id)
-            notice = ("\(job.label)\(KoreanText.josa(job.label, "을", "를")) 멈췄어요", false)
+            show("\(job.label)\(KoreanText.josa(job.label, "을", "를")) 멈췄어요", isError: false)
         } catch {
-            notice = (CanonError.message(error), true)
+            show(CanonError.message(error), isError: true)
         }
         await refresh()
     }
@@ -109,6 +112,20 @@ public final class JobCenter {
     }
 
     public func dismissNotice() { notice = nil }
+
+    /// 알림을 보인다. 오류는 닫을 때까지 남고, 다른 알림은 `noticeLifetime` 뒤 사라진다 (웹 `toast`: 3.5초).
+    private func show(_ text: String, isError: Bool) {
+        notice = (text, isError)
+        noticeToken += 1
+        guard !isError else { return }
+        let token = noticeToken
+        let life = noticeLifetime
+        Task { [weak self] in
+            try? await Task.sleep(for: life)
+            if self?.noticeToken == token { self?.notice = nil }
+        }
+    }
+
 
     /// 작업 목록을 계속 지켜본다. 진행 중인 작업이 없으면 15초마다 묻는다 (다른 기기에서 시작한 작업도 알아채게).
     public func watch() async {
@@ -130,7 +147,7 @@ public final class JobCenter {
         let events = tracker.received(list)
         document?.runningJobs = Set(tracker.jobs.filter { $0.isRunning && $0.project == project }.map(\.id))
         for event in events {
-            if let n = JobText.notice(event, currentProject: project) { notice = n }
+            if let n = JobText.notice(event, currentProject: project) { show(n.text, isError: n.isError) }
             switch event {
             case let .progressed(job): await apply(job, was: before[job.id])
             case let .finished(job): await apply(job, was: before[job.id])
