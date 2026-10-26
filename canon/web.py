@@ -2256,25 +2256,10 @@ def brief(name: str, n: int, kind: str = "episode") -> dict:
 
 # ---------- 연구 (모델 실험, 작품 데이터와 분리) ----------
 
-def _nullable_optional(schema: dict) -> None:
-    """null 이 될 수 있는 칸(`anyOf [X, null]`)을 명세에서 '필수가 아닌 X' 로 적는다.
-    Swift 생성기는 `anyOf` 의 null 을 읽지 못해 그 칸을 타입에서 빼 버린다. 옵셔널 칸은 null 값도 nil 로 읽는다."""
-    nullable = set()
-    for k, v in schema.get("properties", {}).items():
-        rest = [x for x in v.get("anyOf", []) if x != {"type": "null"}]
-        if len(rest) == 1 and len(v["anyOf"]) == 2:
-            del v["anyOf"]
-            v.update(rest[0])
-            nullable.add(k)
-    if "required" in schema:
-        schema["required"] = [k for k in schema["required"] if k not in nullable]
-
-
 class _Out(BaseModel):
     """응답 모델: 기본값이 있는 칸도 응답에는 늘 있으니 명세에서 필수로 적는다 (Swift 타입이 옵셔널이 되지 않게).
-    null 이 될 수 있는 칸만 옵셔널로 둔다."""
-    model_config = ConfigDict(json_schema_serialization_defaults_required=True, populate_by_name=True,
-                              json_schema_extra=_nullable_optional)
+    null 이 될 수 있는 칸은 scripts/make_openapi.py 의 drop_null 이 옵셔널로 바꾼다."""
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True, populate_by_name=True)
 
 
 class UsageBucket(_Out):
@@ -2367,7 +2352,7 @@ class PriceTable(_Out):
 
 
 @app.get("/api/usage")
-def usage_summary(days: int = 30, project: str = "", limit: int = 60) -> UsageSummary:
+def usage_summary(days: int = 30, project: str | None = None, limit: int = 60) -> UsageSummary:
     """AI 호출 기록을 기간과 작품으로 걸러 모은다. days 가 0 이면 전체. limit 은 최근 호출 목록의 길이 (1~1000)."""
     return usage.summary(days or None, project or None, max(1, min(limit, 1000)))
 
@@ -2377,13 +2362,8 @@ def usage_prices() -> PriceTable:
     return usage.price_table()
 
 
-class PriceIn(usage.Price):
-    """가격표 줄 (usage.Price 와 같다). 명세에서 null 칸을 Swift 가 읽게 적는다."""
-    model_config = ConfigDict(json_schema_extra=_nullable_optional)
-
-
 class PricesIn(BaseModel):
-    rows: list[PriceIn]
+    rows: list[usage.Price]
 
 
 @app.put("/api/usage/prices")

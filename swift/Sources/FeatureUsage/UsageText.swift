@@ -8,7 +8,7 @@ public typealias UsageGroup = Components.Schemas.UsageGroup
 public typealias UsageCall = Components.Schemas.UsageCall
 public typealias PriceTable = Components.Schemas.PriceTable
 public typealias PriceRow = Components.Schemas.PriceRow
-public typealias PriceIn = Components.Schemas.PriceIn
+public typealias PriceIn = Components.Schemas.Price
 
 /// 사용량 화면 문구. 웹 화면(`canon/static/usage.js`)과 같은 규칙이라 함께 고친다.
 /// 비용은 서버(`usage.py`)가 계산한 값을 그대로 쓴다. 여기서는 보여 주는 글만 만든다.

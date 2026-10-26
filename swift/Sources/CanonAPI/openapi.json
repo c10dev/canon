@@ -709,14 +709,7 @@
      "content": {
       "application/json": {
        "schema": {
-        "anyOf": [
-         {
-          "$ref": "#/components/schemas/NameCheckIn"
-         },
-         {
-          "type": "null"
-         }
-        ],
+        "$ref": "#/components/schemas/NameCheckIn",
         "title": "Body"
        }
       }
@@ -3032,14 +3025,7 @@
       "in": "query",
       "required": false,
       "schema": {
-       "anyOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ],
+       "type": "string",
        "title": "Project"
       }
      }
@@ -4326,14 +4312,7 @@
      "content": {
       "application/json": {
        "schema": {
-        "anyOf": [
-         {
-          "$ref": "#/components/schemas/VoiceRequest"
-         },
-         {
-          "type": "null"
-         }
-        ],
+        "$ref": "#/components/schemas/VoiceRequest",
         "title": "Body"
        }
       }
@@ -6551,7 +6530,6 @@
       "required": false,
       "schema": {
        "type": "string",
-       "default": "",
        "title": "Project"
       }
      },
@@ -7693,25 +7671,11 @@
       "default": []
      },
      "candidate": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "integer",
       "title": "Candidate"
      },
      "text": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "string",
       "title": "Text"
      }
     },
@@ -7726,14 +7690,7 @@
       "default": ""
      },
      "selection": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/Selection"
-       },
-       {
-        "type": "null"
-       }
-      ]
+      "$ref": "#/components/schemas/Selection"
      },
      "preset": {
       "type": "string",
@@ -7765,14 +7722,7 @@
       "default": ""
      },
      "draft": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/ArcProposal"
-       },
-       {
-        "type": "null"
-       }
-      ]
+      "$ref": "#/components/schemas/ArcProposal"
      }
     },
     "type": "object",
@@ -7793,36 +7743,15 @@
       "title": "Text"
      },
      "revision": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/PlotRevision"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "$ref": "#/components/schemas/PlotRevision",
       "description": "assistant 가 낸 플롯 변경안"
      },
      "passage": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/PassageRevision"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "$ref": "#/components/schemas/PassageRevision",
       "description": "assistant 가 낸 본문 부분 수정 후보"
      },
      "selection": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/Selection"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "$ref": "#/components/schemas/Selection",
       "description": "본문 부분 수정: 고친 대상"
      },
      "preset": {
@@ -8265,14 +8194,7 @@
       "default": false
      },
      "hook": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/HookReport"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "$ref": "#/components/schemas/HookReport",
       "description": "1~3화 흡입력 판정 (마지막 것). basis 가 지금 본문과 다르면 오래된 것"
      },
      "illustrations": {
@@ -8284,14 +8206,7 @@
       "description": "삽화 프롬프트 (NovelAI)"
      },
      "candidate": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/TextVersion"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "$ref": "#/components/schemas/TextVersion",
       "description": "다시 생성으로 나와 지금 본문과 비교해 고르기를 기다리는 새 판"
      },
      "versions": {
@@ -8303,14 +8218,7 @@
       "description": "바꾸기 전 판과 고르지 않은 새 판 (최근 것만)"
      },
      "made_by": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/RewriteRequest"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "$ref": "#/components/schemas/RewriteRequest",
       "description": "지금 본문을 만든 다시 생성 요청 (처음 쓴 판이나 직접 쓴 본문이면 비움)"
      },
      "final_text": {
@@ -8505,14 +8413,7 @@
       "title": "Planted Ep"
      },
      "payoff_ep": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "integer",
       "title": "Payoff Ep"
      },
      "status": {
@@ -8536,14 +8437,7 @@
       "default": "arc"
      },
      "due_ep": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "integer",
       "title": "Due Ep",
       "description": "회수 예정 화. 정하지 않았으면 비움"
      }
@@ -8606,36 +8500,15 @@
    "ForeshadowEdit": {
     "properties": {
      "description": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "string",
       "title": "Description"
      },
      "scope": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "string",
       "title": "Scope"
      },
      "due_ep": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "integer",
       "title": "Due Ep"
      },
      "clear_due": {
@@ -8663,14 +8536,7 @@
       "default": "arc"
      },
      "due_ep": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "integer",
       "title": "Due Ep"
      }
     },
@@ -9075,14 +8941,7 @@
    "IllustIn": {
     "properties": {
      "selection": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/Selection"
-       },
-       {
-        "type": "null"
-       }
-      ]
+      "$ref": "#/components/schemas/Selection"
      },
      "request": {
       "type": "string",
@@ -9166,14 +9025,7 @@
       "default": ""
      },
      "selection": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/Selection"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "$ref": "#/components/schemas/Selection",
       "description": "작가가 고른 부분. 비면 AI 가 장면을 골랐다 (draft.quote)"
      },
      "request": {
@@ -9401,14 +9253,7 @@
       "title": "Kind"
      },
      "ep": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "integer",
       "title": "Ep"
      },
      "element": {
@@ -9455,14 +9300,7 @@
       "default": 0
      },
      "rewrite": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/RewriteRequest"
-       },
-       {
-        "type": "null"
-       }
-      ]
+      "$ref": "#/components/schemas/RewriteRequest"
      }
     },
     "type": "object",
@@ -9530,14 +9368,7 @@
       "title": "Text"
      },
      "place": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "string",
       "title": "Place"
      }
     },
@@ -9903,14 +9734,7 @@
       "default": false
      },
      "project": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/Project"
-       },
-       {
-        "type": "null"
-       }
-      ]
+      "$ref": "#/components/schemas/Project"
      }
     },
     "type": "object",
@@ -10278,7 +10102,7 @@
     "title": "Policy",
     "description": "사람 검토 없이 반영할지 정하는 기준. 하나라도 걸리면 그 화에서 멈춘다."
    },
-   "PriceIn": {
+   "Price": {
     "properties": {
      "model": {
       "type": "string",
@@ -10326,8 +10150,8 @@
     "required": [
      "model"
     ],
-    "title": "PriceIn",
-    "description": "가격표 줄 (usage.Price 와 같다). 명세에서 null 칸을 Swift 가 읽게 적는다."
+    "title": "Price",
+    "description": "USD / 100만 토큰. since 부터 적용한다 (비면 처음부터). 생각(thinking) 토큰은 출력 요금이다."
    },
    "PriceRow": {
     "properties": {
@@ -10439,7 +10263,7 @@
     "properties": {
      "rows": {
       "items": {
-       "$ref": "#/components/schemas/PriceIn"
+       "$ref": "#/components/schemas/Price"
       },
       "type": "array",
       "title": "Rows"
@@ -10459,14 +10283,7 @@
       "default": ""
      },
      "key": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "string",
       "title": "Key"
      }
     },
@@ -10515,14 +10332,7 @@
       "$ref": "#/components/schemas/StyleProfile"
      },
      "style_baseline": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/StyleMetrics"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "$ref": "#/components/schemas/StyleMetrics",
       "description": "레퍼런스 원문 전체로 잰 문체 지표 (style 명령 때 저장)"
      },
      "style_id": {
@@ -10538,14 +10348,7 @@
       "default": 0
      },
      "style_learning": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/StyleLearning"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "$ref": "#/components/schemas/StyleLearning",
       "description": "수정 기록에서 찾은 문체 규칙 후보 (마지막 것)"
      },
      "arc": {
@@ -10689,25 +10492,11 @@
       "description": "인과율: 언제든 더하는 요소, 특징, 설정, 사건"
      },
      "conversion": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/Conversion"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "$ref": "#/components/schemas/Conversion",
       "description": "단편에서 장편으로 바꾼 기록. 되돌리면 지운다"
      },
      "archive": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/ShortArchive"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "$ref": "#/components/schemas/ShortArchive",
       "description": "재구성 전 단편 원고와 새 화 지도"
      },
      "storylines": {
@@ -10812,25 +10601,11 @@
    "Range": {
     "properties": {
      "start": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "integer",
       "title": "Start"
      },
      "end": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "integer",
       "title": "End"
      }
     },
@@ -11090,14 +10865,7 @@
       "title": "Prompt"
      },
      "temperature": {
-      "anyOf": [
-       {
-        "type": "number"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "number",
       "title": "Temperature"
      }
     },
@@ -11397,36 +11165,15 @@
    "SettingsIn": {
     "properties": {
      "provider": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "string",
       "title": "Provider"
      },
      "model": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "string",
       "title": "Model"
      },
      "api_key": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "string",
       "title": "Api Key"
      },
      "clear_key": {
@@ -11435,97 +11182,41 @@
       "default": false
      },
      "local_url": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "string",
       "title": "Local Url"
      },
      "local_model": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "string",
       "title": "Local Model"
      },
      "local_key": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "string",
       "title": "Local Key"
      },
      "stages": {
-      "anyOf": [
-       {
-        "additionalProperties": {
-         "type": "string"
-        },
-        "type": "object"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
       "title": "Stages"
      },
      "stage_models": {
-      "anyOf": [
-       {
-        "additionalProperties": {
-         "type": "string"
-        },
-        "type": "object"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
       "title": "Stage Models"
      },
      "claude_model": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "string",
       "title": "Claude Model"
      },
      "claude_bin": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "string",
       "title": "Claude Bin"
      },
      "anthropic_api_key": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "string",
       "title": "Anthropic Api Key"
      },
      "clear_anthropic_key": {
@@ -11534,47 +11225,19 @@
       "default": false
      },
      "gemini_auth": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "string",
       "title": "Gemini Auth"
      },
      "vertex_credentials": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "string",
       "title": "Vertex Credentials"
      },
      "vertex_project": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "string",
       "title": "Vertex Project"
      },
      "vertex_location": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "string",
       "title": "Vertex Location"
      }
     },
@@ -11746,17 +11409,10 @@
    "SortIn": {
     "properties": {
      "texts": {
-      "anyOf": [
-       {
-        "items": {
-         "type": "string"
-        },
-        "type": "array"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
       "title": "Texts"
      }
     },
@@ -12245,14 +11901,7 @@
       "default": 0
      },
      "impact": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/ElementImpact"
-       },
-       {
-        "type": "null"
-       }
-      ]
+      "$ref": "#/components/schemas/ElementImpact"
      },
      "found_in": {
       "type": "string",
@@ -12345,26 +11994,12 @@
       "default": ""
      },
      "set_warmth": {
-      "anyOf": [
-       {
-        "type": "number"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "number",
       "title": "Set Warmth",
       "description": "수동보정 전용. AI 는 비워 둔다"
      },
      "set_trust": {
-      "anyOf": [
-       {
-        "type": "number"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "number",
       "title": "Set Trust",
       "description": "수동보정 전용. AI 는 비워 둔다"
      }
@@ -12589,14 +12224,7 @@
       "$ref": "#/components/schemas/StyleProfile"
      },
      "baseline": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/StyleMetrics"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "$ref": "#/components/schemas/StyleMetrics",
       "description": "원문 전체로 잰 문체 지표"
      },
      "created_at": {
@@ -12812,26 +12440,12 @@
       "default": 0
      },
      "past_tense_ratio": {
-      "anyOf": [
-       {
-        "type": "number"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "number",
       "title": "Past Tense Ratio",
       "description": "'~다' 로 끝나는 서술 문장 중 과거형(받침 ㅆ + 다) 비율"
      },
      "mattr": {
-      "anyOf": [
-       {
-        "type": "number"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "number",
       "title": "Mattr",
       "description": "어절 기준 이동 창 어휘 다양도 (창 100). 100어절 미만이면 재지 않음"
      },
@@ -12852,38 +12466,17 @@
       "description": "상투·금지 표현 적중"
      },
      "comma_sentence_ratio": {
-      "anyOf": [
-       {
-        "type": "number"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "number",
       "title": "Comma Sentence Ratio",
       "description": "서술 문장 중 쉼표가 있는 문장 비율. AI 한국어 글은 사람보다 높다"
      },
      "short_ending_ratio": {
-      "anyOf": [
-       {
-        "type": "number"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "number",
       "title": "Short Ending Ratio",
       "description": "두 문장 이상 서술 문단 중 12자 이하 짧은 문장으로 끝나는 비율 (여운 연출 남발)"
      },
      "pronoun_per_1k": {
-      "anyOf": [
-       {
-        "type": "number"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "number",
       "title": "Pronoun Per 1K",
       "description": "1,000자당 '그는/그녀의' 류 대명사 수 (번역투)"
      },
@@ -12912,26 +12505,12 @@
       "description": "2,000자 조각 3개 이상일 때 어절 끝 특징의 정규화 중심 (문체 거리 기준)"
      },
      "style_spread": {
-      "anyOf": [
-       {
-        "type": "number"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "number",
       "title": "Style Spread",
       "description": "원문 조각들이 서로의 중심에서 떨어진 거리의 중앙값. 문체 거리 1.0 의 기준"
      },
      "style_distance": {
-      "anyOf": [
-       {
-        "type": "number"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "number",
       "title": "Style Distance",
       "description": "기준 원문 대비 문체 거리 (style_spread 의 몇 배). 비교할 때만 채운다"
      }
@@ -13168,14 +12747,7 @@
       "$ref": "#/components/schemas/StyleProfile"
      },
      "baseline": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/StyleMetrics"
-       },
-       {
-        "type": "null"
-       }
-      ]
+      "$ref": "#/components/schemas/StyleMetrics"
      }
     },
     "type": "object",
@@ -13334,14 +12906,7 @@
       "default": "previous"
      },
      "request": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/RewriteRequest"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "$ref": "#/components/schemas/RewriteRequest",
       "description": "이 판을 만든 다시 생성 요청 (처음 쓴 판이면 비움)"
      }
     },
@@ -13432,25 +12997,11 @@
       "title": "Target"
      },
      "warmth": {
-      "anyOf": [
-       {
-        "type": "number"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "number",
       "title": "Warmth"
      },
      "trust": {
-      "anyOf": [
-       {
-        "type": "number"
-       },
-       {
-        "type": "null"
-       }
-      ],
+      "type": "number",
       "title": "Trust"
      }
     },
