@@ -2663,12 +2663,24 @@ def research_pick(name: str, n: int, body: Pick) -> dict:
 
 # ---------- 화면 ----------
 
-app.mount("/static", StaticFiles(directory=STATIC), name="static")
+NO_CACHE = {"Cache-Control": "no-cache"}  # 쓰기 전에 매번 ETag 로 새 판인지 묻는다 (안 바뀌었으면 304)
+
+
+class _Static(StaticFiles):
+    """화면 파일. 서버를 업데이트한 뒤에도 브라우저가 캐시의 옛 화면 코드를 쓰지 않게 한다."""
+
+    def file_response(self, *args, **kwargs) -> Response:
+        r = super().file_response(*args, **kwargs)
+        r.headers.update(NO_CACHE)
+        return r
+
+
+app.mount("/static", _Static(directory=STATIC), name="static")
 
 
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(STATIC / "index.html")
+    return FileResponse(STATIC / "index.html", headers=NO_CACHE)
 
 
 def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,

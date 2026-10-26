@@ -564,6 +564,9 @@ def test_project_etag_and_gzip(client):
     assert r2.status_code == 200 and r2.headers["etag"] != tag and r2.json()["meta"]["title"] == "등대 2"
     big = client.get("/static/app.js", headers={"Accept-Encoding": "gzip"})
     assert big.headers.get("content-encoding") == "gzip"
+    # 화면 파일은 매번 새 판인지 묻는다 (업데이트 뒤 옛 화면 코드를 쓰지 않게). 안 바뀌었으면 304
+    assert big.headers["cache-control"] == "no-cache" and client.get("/").headers["cache-control"] == "no-cache"
+    assert client.get("/static/app.js", headers={"If-None-Match": big.headers["etag"]}).status_code == 304
     # 이름 점검은 필요한 칸만 받아도 된다
     light = {k: p[k] for k in ("meta", "world", "characters", "cast_candidates")}
     assert "warnings" in client.post("/api/projects/et/names/check", json=light).json()
