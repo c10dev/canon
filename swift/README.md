@@ -51,6 +51,8 @@ canon-probe            개발용: 실제 서버 응답이 타입대로 읽히는
 | `FeaturePlot` | 기승전결 · 플롯 (장편은 부 · 아크 · 플롯): `PlotModel`(구간 · 화 · 아크 · 부 고치기, 확정, 작업 결과를 제안으로 받기 · 적용 · 버리기, 화 끼워 넣기 · 빼기), `PlotRules`(웹 `actRanges` · `fitActs` · `actCoverage` 등), `PlotBoard` · `PlotEditorInfo` · `EpisodeCard`(보드 · 편집기 · 화 카드), `LivePlotService`, `PlotScreen` |
 | `FeatureSetup` | 설정 도우미: `SetupModel`(작품 정보 · 인물 · 관계 고치기, 이름 후보 · 점검, AI 설정 제안 고르기), `Logline` · `LoglineField` · `Tone` · `ToneDial`(로그라인 합치기 · 점검, 톤 다이얼), `SetupRules`(새 인물 id, 관계 쌍 · 문제, 장르, 지우기 질문), `SuggestionPicks`, `NameCheckGroups`, `LiveSetupService`, `SetupView` |
 | `FeatureStyle` | 문체 레퍼런스: `StyleModel`(원문 분석, 라이브러리 고르기 · 저장 · 올리기 · 가져오기, 프로필 · 표지 · 장치 · 대표 문단 고치기), `StyleText`(웹 `styleBlank` · `styleChangeWho` · `baselineRows` 문구), `LiveStyleService`, `StyleView` |
+| `FeatureCausal` | 인과율: `CausalModel`(요소 더하기 · 고치기 · 지우기 · 되살리기, 영향 분석 작업 `impact` 시작, 끝나면 분석만 받아 오기, 변경안 고르기 · 적용 · 버리기 · 다시 검토), `CausalText`(웹 `causal.js` 문구, `elBasis` · 배지 · 관련 화 지도 칸, `chat.js` `plotDiff`), `LiveCausalService`, `CausalView` |
+| `FeatureBrief` | 작업지시서 (API 없이): `BriefModel`(화 · 지시서 종류 고르기, 지시서 받기, 받은 본문 저장, 받은 JSON 서버 검사), `BriefText`(웹 `viewBrief` 문구), `LiveBriefService`, `BriefView`(복사 · .md 내려받기) |
 | `CanonAppUI` | `AppModel`(서버 · 작품 · 화면 · 작업 · 연 작품), `RootView`, 저장 띠 `SaveBar`, 서버 주소 화면 |
 
 ## 개발 명령
@@ -114,7 +116,9 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | 7 | `FeatureCast` | 인물 · 관계도 (관계도 재생, 인물 · 두 사람 상세, 추이 그래프, 등장표) | `cast.js` | `cast_view`(`CastView`) — **됨**. 수치 직접 보정(`adjust_tie`)과 말로 · 숫자로 저장(`PUT .../view`)은 아직 웹에서 |
 | 7 | `FeatureForeshadow` | 복선 센터 | `foreshadow.js` | `foreshadow_*` — **됨** (본문에서 문장 골라 걸기는 3, `fsClueRows` 는 4에서) |
 | 7 | `FeatureStatWin` | 상태창 수치 (항목 고치기, 틀, 복사, 서식, 화별 변화 표) | `statwin.js` (`swDeltaRows` 는 4 상태 승인) | `statwin_view`(`StatwinView`), `statwin_set`, `statwin_template` — **됨** |
-| 7 | 작품 도구 (남은 것) | 지도, 이야기 줄기, 인과율, 작업지시서, 자동 집필 | `atlas.js` `lines.js` `causal.js` `auto.js` | 각 화면 |
+| 7 | `FeatureCausal` | 인과율 · 설정 추가 (요소, 관련 화 지도, 영향 분석) | `causal.js` | `element_links`(`ElementLink`), 작업 `impact`, `impact_apply` · `impact_dismiss` · `impact_reopen` — **됨**. 지도 칸에서 그 화로 바로 가기는 화면만 옮긴다 (화를 고르지 않음) |
+| 7 | `FeatureBrief` | 작업지시서 (API 없이) | `app.js` `viewBrief` | `brief`(`BriefText`), `put_text`, `parse_state` — **일부 됨**. 받은 JSON 은 서버가 검사까지 하고, 상태 승인 화면으로 넘기는 연결(`BriefView` 의 `handOff`)은 아직 없다 (FeatureReview 가 밖에서 받은 변경안을 받지 못함) |
+| 7 | 작품 도구 (남은 것) | 지도, 이야기 줄기, 자동 집필 | `atlas.js` `lines.js` `auto.js` | 각 화면 |
 | 8 | `FeatureUsage` | 사용량 · 비용 | `usage.js` | `usage_summary` · `usage_prices` — **됨** |
 | 8 | 본편과 분리 · 설정 (남은 것) | 연구, 모델 · API 키 설정 | `claude.js` `vertex.js` | `research`, `config` |
 
@@ -175,6 +179,11 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | `PlotModel.syncResults` · `start` | `applyJobResult` · `loadPending`(되살린 결과는 고른 아크를 옮기지 않음) · `startJob`(저장하지 않은 변경을 먼저 묻기) |
 | `Logline` · `LoglineField` · `Tone` · `ToneDial` | `composeLogline` · `loglineChecks` · `updateLogline` · `toneText` · `setDial` · `LOGLINE_SLOTS` · `TONE_WORDS`, 서버 `canon/logline.py` (셋을 함께 고친다. 시험은 `tests/test_logline.py` 와 같은 사례, `test_logline.py` 가 Swift 톤 말도 본다) |
 | `SetupRules`, `SuggestionPicks`, `NameCheckGroups` | `addCharacter` · `removeCharacter` · `addRelationship` · `relProblem` · `conflictWord` · `REL_TYPES` · `CONFLICTS` · `TIERS` · `genreLabel` · `loglineExamples` · `rangeText`, `viewSuggestion` · `sameChar` · `sugEnd` · `SUG_FIELDS` · `applySuggestion`, `nameCheckBox` |
+| `CausalText.basis` · `stale` | `causal.js` `elBasis` · `causalStale` (서버 `elements.basis`. 시험 기대값은 node `JSON.stringify` 와 python `json.dumps` 로 돌린 결과, 따옴표 · 줄바꿈 · 조종 문자 · 이모지 사례) |
+| `CausalText.badge` · `timing` · `strip` · `snippets` · `defaultPicks` · `picked` · `appliedLabel` · `since` · `newID` | `causal.js` `impactBadge` · `timingText` · `causalStrip` · `initCausalPicks` · `causalApply` · `appliedLabel` · `causalSince` · `newElementId` (서버 `elements.new_id`) |
+| `CausalText.plotDiff` | `chat.js` `plotDiff` · `diffField` · `PLOT_FIELDS` |
+| `CausalModel.mergeImpacts` | `causal.js` `mergeImpacts` (저장하지 않은 요소 편집은 두고 분석만 받기) |
+| `BriefText` (`defaultKind` · `count` · `orderNote` · `filename`) | `app.js` `briefTabFor` · `importCount` · `blockedBefore` · `orderNote` · `downloadBrief` · `copyBrief` · `importText` · `importJson` 문구 |
 | `StyleText` | `styleBlank`(서버 `library.blank`) · `styleChangeWho` · `styleLibraryCard` · `baselineRows`, `analyzeStyle` · `useLibStyle` · `keepStyle` · `pushStyle` · `pullStyle` 의 묻는 말 |
 
 ## 알려진 한계

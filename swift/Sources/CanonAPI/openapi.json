@@ -2654,7 +2654,12 @@
        "application/json": {
         "schema": {
          "type": "object",
-         "additionalProperties": true,
+         "additionalProperties": {
+          "type": "array",
+          "items": {
+           "$ref": "#/components/schemas/ElementLink"
+          }
+         },
          "title": "Response Element Links"
         }
        }
@@ -6583,9 +6588,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Brief"
+         "$ref": "#/components/schemas/BriefText"
         }
        }
       }
@@ -7510,6 +7513,19 @@
     "type": "object",
     "title": "Backend",
     "description": "실험에 쓸 백엔드. model, url 이 비면 설정 화면 값을 쓴다."
+   },
+   "BriefText": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "title": "Text"
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "BriefText"
    },
    "Candidate": {
     "properties": {
@@ -8600,6 +8616,60 @@
     ],
     "title": "ElementImpact",
     "description": "요소에 붙여 두는 마지막 영향 분석. 반영 결과와, 분석할 때의 요소 내용(basis)을 함께 남긴다."
+   },
+   "ElementLink": {
+    "properties": {
+     "episode": {
+      "type": "integer",
+      "title": "Episode"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "where": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Where"
+     },
+     "terms": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Terms"
+     },
+     "characters": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Characters"
+     },
+     "planned": {
+      "type": "boolean",
+      "title": "Planned"
+     },
+     "snippet": {
+      "type": "string",
+      "title": "Snippet",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "episode",
+     "status",
+     "where",
+     "terms",
+     "characters",
+     "planned",
+     "snippet"
+    ],
+    "title": "ElementLink",
+    "description": "관련 화 지도의 한 화 (elements.Link). snippet 도 응답에는 늘 있다."
    },
    "Episode": {
     "properties": {

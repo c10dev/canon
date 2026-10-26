@@ -5,6 +5,8 @@ import CanonUI
 import FeatureForeshadow
 import FeatureHome
 import FeatureCast
+import FeatureCausal
+import FeatureBrief
 import FeaturePlot
 import FeatureProjects
 import FeatureReview
@@ -92,6 +94,8 @@ public struct RootView: View {
         case .review: if let doc = model.document { ReviewView(document: doc, jobs: model.jobs, service: LiveReviewService(server: model.server)) { model.screen = $0 } }
         case .write: if let doc = model.document { WriteView(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
         case .arc: if let doc = model.document { PlotScreen(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
+        case .causal: if let doc = model.document { CausalView(document: doc, jobs: model.jobs, service: LiveCausalService(server: model.server)) { model.screen = $0 } }
+        case .brief: if let doc = model.document { BriefView(document: doc, service: LiveBriefService(server: model.server)) { model.screen = $0 } }
         default:
             NotPortedYet(screen.label(serial: false))
         }
