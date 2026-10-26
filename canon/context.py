@@ -265,40 +265,69 @@ def _paragraphs(text: str) -> list[str]:
     return out
 
 
+class PassageIndex:
+    """n화 앞 본문(skip 화 제외)의 단락과 글 조각 빈도. 질문 여러 개를 같은 색인으로 찾을 때(두 걸음 검수) 한 번만 만든다."""
+
+    def __init__(self, p: Project, n: int, skip: set[int] = frozenset()):
+        self.paras: list[tuple[int, int, str, set[str]]] = []
+        for e in sorted(p.episodes, key=lambda e: e.plot.number):
+            m = e.plot.number
+            if m >= n or m in skip or not e.text:
+                continue
+            for k, para in enumerate(_paragraphs(e.text)):
+                self.paras.append((m, k, para, grams(para)))
+        self.df: Counter = Counter()
+        for *_, g in self.paras:
+            self.df.update(g)
+
+    def find(self, query: str, budget: int, terms: Iterable[str] = ()) -> list[tuple[int, list[str]]]:
+        """query 와 겹치는 단락을 예산만큼. [(화, [단락...])] 화 순서.
+        점수는 겹치는 글 조각의 희소도(idf) 합을 단락 길이로 누른 값, terms(조연 이름, 이야기 요소, 장소)가 있으면 더 준다."""
+        if not self.paras or budget <= 0:
+            return []
+        df, total = self.df, len(self.paras)
+        q = {g for g in grams(query) if df[g] and df[g] <= COMMON * total}
+        idf = {g: math.log(1 + total / df[g]) for g in q}
+        terms = [t for t in terms if t]
+        scored = []
+        for m, k, para, g in self.paras:
+            s = sum(idf[x] for x in g & q) / math.sqrt(1 + len(g) / 120)
+            s += sum(4.0 for t in terms if t in para)
+            if s > 0:
+                scored.append((s, m, k, para))
+        scored.sort(key=lambda x: -x[0])
+        picked: dict[int, list[tuple[int, str]]] = {}
+        used = 0
+        for s, m, k, para in scored:
+            if used + len(para) > budget:
+                continue
+            picked.setdefault(m, []).append((k, para))
+            used += len(para)
+        return [(m, [para for _, para in sorted(picked[m])]) for m in sorted(picked)]
+
+
 def recall(p: Project, n: int, query: str, budget: int, skip: set[int], terms: Iterable[str] = ()) -> list[tuple[int, list[str]]]:
-    """n화 앞의 본문(skip 화 제외)에서 query 와 겹치는 단락을 예산만큼 찾는다. [(화, [단락...])] 화 순서.
-    점수는 겹치는 글 조각의 희소도(idf) 합을 단락 길이로 누른 값, terms(조연 이름, 이야기 요소, 장소)가 있으면 더 준다."""
-    paras: list[tuple[int, int, str, set[str]]] = []
-    for e in sorted(p.episodes, key=lambda e: e.plot.number):
-        m = e.plot.number
-        if m >= n or m in skip or not e.text:
-            continue
-        for k, para in enumerate(_paragraphs(e.text)):
-            paras.append((m, k, para, grams(para)))
-    if not paras or budget <= 0:
-        return []
-    df: Counter = Counter()
-    for *_, g in paras:
-        df.update(g)
-    total = len(paras)
-    q = {g for g in grams(query) if df[g] and df[g] <= COMMON * total}
-    idf = {g: math.log(1 + total / df[g]) for g in q}
-    terms = [t for t in terms if t]
+    """n화 앞의 본문(skip 화 제외)에서 query 와 겹치는 단락을 예산만큼 찾는다. [(화, [단락...])] 화 순서."""
+    return PassageIndex(p, n, skip).find(query, budget, terms)
+
+
+def related_facts(p: Project, query: str, budget: int) -> list[str]:
+    """query 와 글 조각이 많이 겹치는 확정 사실을 예산만큼, 원래 순서로. 겹치는 것이 없으면 넣지 않는다."""
+    q = grams(query)
     scored = []
-    for m, k, para, g in paras:
-        s = sum(idf[x] for x in g & q) / math.sqrt(1 + len(g) / 120)
-        s += sum(4.0 for t in terms if t in para)
-        if s > 0:
-            scored.append((s, m, k, para))
-    scored.sort(key=lambda x: -x[0])
-    picked: dict[int, list[tuple[int, str]]] = {}
-    used = 0
-    for s, m, k, para in scored:
-        if used + len(para) > budget:
-            continue
-        picked.setdefault(m, []).append((k, para))
-        used += len(para)
-    return [(m, [para for _, para in sorted(picked[m])]) for m in sorted(picked)]
+    for i, f in enumerate(p.facts):
+        g = grams(f)
+        hit = len(g & q)
+        if hit:
+            scored.append((hit / math.sqrt(len(g) or 1), i))
+    scored.sort(key=lambda x: (-x[0], -x[1]))
+    keep, used = [], 0
+    for _, i in scored:
+        cost = len(p.facts[i]) + 3
+        if used + cost <= budget:
+            keep.append(i)
+            used += cost
+    return [p.facts[i] for i in sorted(keep)]
 
 
 def characters_by_ids(p: Project, ids: set[str]) -> list[Character]:

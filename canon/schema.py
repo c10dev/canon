@@ -701,6 +701,16 @@ class PlantSet(BaseModel):
     items: list[PlantedContradiction] = Field(default_factory=list)
 
 
+class Claim(BaseModel):
+    """두 걸음 검수 1단계: 이번 화 본문에서 뽑은 사실 진술 하나. 판단기가 옛 내용과 맞는지 따로 본다."""
+    quote: str = Field(description="이번 화 본문의 문장 원문 그대로 (한 문장)")
+    claim: str = Field(description="그 문장이 단정하는 사실을 짧은 평서문 하나로. 인물은 이름으로 쓴다")
+
+
+class ClaimSet(BaseModel):
+    claims: list[Claim] = Field(default_factory=list)
+
+
 class ConsistencyReport(BaseModel):
     """본문 검수 결과. 상태를 바꾸지 않는 참고용 경고라 승인 없이 저장한다."""
     episode: int

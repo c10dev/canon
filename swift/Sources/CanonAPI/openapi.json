@@ -7916,6 +7916,16 @@
       "type": "array",
       "title": "Modes",
       "default": []
+     },
+     "judge": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Backend"
+       },
+       {
+        "type": "null"
+       }
+      ]
      }
     },
     "type": "object",
