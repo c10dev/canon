@@ -17,7 +17,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from . import autorun, cancel, cast, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
@@ -25,7 +25,8 @@ from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록
 from .schema import (ArcPlan, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 from . import atlas, foreshadows, statwin
-from .schema import ChatScope, MapPin, MapSpec, NewPlace, StatValue
+from .schema import ChatScope, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
+from .schema import CharacterState, StoryEvent
 
 STATIC = Path(__file__).parent / "static"
 # 폴더 이름: / \ 와 운영체제가 막는 : * ? " < > | 는 쓸 수 없고, . 으로 시작하지 않는다
@@ -1881,8 +1882,82 @@ def relations(name: str) -> dict:
     return _relations(p)
 
 
-@app.get("/api/projects/{name}/cast")
-def cast_view(name: str) -> dict:
+class CastTie(BaseModel):
+    """한 시점의 방향 관계 (cast.frame). 말은 dynamics 의 구간 표현."""
+    source: str
+    target: str
+    stage: str
+    warmth: float
+    trust: float
+    evidence: float
+    grievance: float
+    status: float
+    familiarity: float
+    warmth_word: str
+    trust_word: str
+
+
+class CastPair(BaseModel):
+    """두 사람 쌍의 긴장. 관계 설정이 없고 사건으로만 생긴 쌍은 type · description 이 빈칸."""
+    a: str
+    b: str
+    type: str
+    description: str
+    goal_conflict: float
+    tension: float
+    tension_word: str
+
+
+class CastSecret(BaseModel):
+    id: str
+    owner: str
+    content: str
+    hidden_from: list[str]
+
+
+class CastFrame(BaseModel):
+    """한 시점(0 = 1화 시작 전, n = n화 반영 뒤)의 관계 그림."""
+    episode: int
+    ties: list[CastTie]
+    pairs: list[CastPair]
+    triads: list[list[str]]
+    secrets: list[CastSecret]
+    states: list[CharacterState]
+
+
+class CastAppearance(BaseModel):
+    n: int
+    status: str
+    pov: bool
+
+
+class CastChanges(BaseModel):
+    """그 화에서 바뀐 상태. 바뀐 칸만 온다 (응답은 exclude_unset)."""
+    emotional_state: str = ""
+    current_goal: str = ""
+    location: str = ""
+    knows: list[str] = []
+
+
+class CastTimelineRow(BaseModel):
+    n: int
+    title: str
+    appears: bool
+    pov: bool
+    changes: CastChanges
+    events: list[StoryEvent]
+    secrets: list[str]
+    new: bool
+
+
+class CastView(BaseModel):
+    frames: list[CastFrame]
+    appearances: dict[str, list[CastAppearance]]
+    timelines: dict[str, list[CastTimelineRow]]
+
+
+@app.get("/api/projects/{name}/cast", response_model_exclude_unset=True)
+def cast_view(name: str) -> CastView:
     """인물 화면: 화별 관계 프레임(관계도 재생), 인물별 등장 화와 타임라인 (canon/cast.py)."""
     return cast.summary(_load(name))
 
@@ -2138,8 +2213,43 @@ def atlas_meters(name: str, body: MetersIn) -> Project:
 
 # ---------- 복선 센터 (canon/foreshadows.py) ----------
 
+class ForeshadowCenterClue(BaseModel):
+    """복선에 걸린 문장 하나."""
+    episode: int
+    quote: str
+    by: str  # ai | author
+    broken: bool  # 본문을 고쳐 문장이 사라졌다
+
+
+class ForeshadowCenterItem(Foreshadow):
+    """복선 하나와 계산값. 서버가 늘 채우는 칸은 앱에서 옵셔널이 되지 않게 기본값을 뺀다."""
+    status: Literal["open", "resolved"]
+    scope: Literal["arc", "part", "series"]
+    plants: list[ForeshadowCenterClue]
+    payoffs: list[ForeshadowCenterClue]
+    last_seen: int  # 마지막으로 다시 떠올린 화
+    planned: list[int]  # 플롯에서 회수할 예정인 화
+    overdue: bool
+    stale: bool
+    broken: int  # 끊어진 연결 수
+
+
+class ForeshadowCenter(BaseModel):
+    """복선 센터 계산값 (foreshadows.center)."""
+    total: int
+    open: int
+    resolved: int
+    rate: float | None  # 복선이 없으면 비움
+    broken: int
+    overdue: int
+    stale: int
+    done: int  # 마지막으로 반영한 화
+    last_ep: int  # 화 줄의 끝
+    items: list[ForeshadowCenterItem]
+
+
 @app.get("/api/projects/{name}/foreshadows")
-def foreshadow_center(name: str) -> dict:
+def foreshadow_center(name: str) -> ForeshadowCenter:
     """복선마다 심은 문장 · 회수한 문장, 회수율, 끊어진 연결, 회수 예정이 지난 복선."""
     return foreshadows.center(_load(name))
 
@@ -2248,8 +2358,30 @@ def foreshadow_prune(name: str) -> Project:
 
 # ---------- 상태창 (canon/statwin.py) ----------
 
+class StatChange(BaseModel):
+    """화별 비교표에서 그 화에 바뀐 칸 하나."""
+    before: str
+    source: Literal["ai", "author", "both"]
+
+
+class StatColumn(BaseModel):
+    """화별 비교표의 한 화. values 는 그 화가 끝났을 때의 값, changed 는 그 화에 바뀐 항목."""
+    episode: int
+    values: dict[str, str]
+    changed: dict[str, StatChange]
+
+
+class StatwinView(BaseModel):
+    """인물 하나의 상태창 화면 (statwin.timeline + render + PRESETS)."""
+    names: list[str]
+    columns: list[StatColumn]
+    current: list[StatValue]
+    text: str
+    presets: dict[str, list[str]]
+
+
 @app.get("/api/projects/{name}/statwin/{cid}")
-def statwin_view(name: str, cid: str) -> dict:
+def statwin_view(name: str, cid: str) -> StatwinView:
     """인물 하나의 지금 상태창, 화별 비교표, 본문에 넣을 글."""
     p = _load(name)
     return {**statwin.timeline(p, cid), "text": statwin.render(p, cid), "presets": statwin.PRESETS}
@@ -2317,14 +2449,109 @@ def brief(name: str, n: int, kind: str = "episode") -> dict:
 
 # ---------- 연구 (모델 실험, 작품 데이터와 분리) ----------
 
+class _Out(BaseModel):
+    """응답 모델: 기본값이 있는 칸도 응답에는 늘 있으니 명세에서 필수로 적는다 (Swift 타입이 옵셔널이 되지 않게).
+    null 이 될 수 있는 칸은 scripts/make_openapi.py 의 drop_null 이 옵셔널로 바꾼다."""
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True, populate_by_name=True)
+
+
+class UsageBucket(_Out):
+    """사용량 묶음 하나의 합계 (usage.summary 의 bucket)."""
+    calls: int = 0
+    failed: int = 0
+    retries: int = 0
+    in_: int = Field(0, alias="in")
+    out: int = Field(0, description="생각 토큰을 포함한 출력")
+    cached: int = 0
+    cost: float = 0.0
+    saved: float = 0.0
+    unpriced: int = 0
+    seconds: float = 0.0
+    batch: int = 0
+
+
+class UsageTotal(UsageBucket):
+    wasted: float = Field(0.0, description="실패 · 재시도 호출의 비용")
+
+
+class UsageGroup(UsageBucket):
+    """날짜 · 작품 · 화 · 단계 · 모델 · 부른 곳별 줄. 그 묶음의 열쇠 칸만 값이 있다."""
+    day: str | None = None
+    project: str | None = None
+    episode: int | None = None
+    stage: str | None = None
+    backend: str | None = None
+    model: str | None = None
+    source: str | None = None
+
+
+class UsageCall(_Out):
+    """AI 호출 기록 한 줄 (usage.record) 과 볼 때 계산한 비용. 옛 기록에 없는 칸은 기본값."""
+    at: str = ""
+    project: str = ""
+    episode: int | None = None
+    stage: str = ""
+    task: str = ""
+    source: str = ""
+    backend: str = ""
+    model: str = ""
+    batch: bool = False
+    attempt: int = 1
+    in_: int = Field(0, alias="in")
+    out: int = 0
+    thought: int = 0
+    cached: int = 0
+    seconds: float | None = None
+    ok: bool = True
+    error: str = ""
+    chars: int | None = None
+    blocks: list[list[str | int]] | None = Field(None, description="프롬프트 머리글별 글자 수 [이름, 글자 수], 큰 것부터")
+    cost: float | None = Field(None, description="추정 비용 USD. 가격을 모르면 null")
+    saved: float = 0.0
+
+
+class UsageSummary(_Out):
+    days: int | None
+    since: str
+    project: str | None
+    projects: list[str]
+    total: UsageTotal
+    by_day: list[UsageGroup]
+    by_project: list[UsageGroup]
+    by_episode: list[UsageGroup]
+    by_stage: list[UsageGroup]
+    by_model: list[UsageGroup]
+    by_source: list[UsageGroup]
+    unpriced: list[str]
+    trouble: list[UsageCall]
+    recent: list[UsageCall]
+    trouble_total: int
+    limit: int
+    billing_url: str
+    prices_url: str
+
+
+class PriceRow(usage.Price, _Out):
+    custom: bool = Field(False, description="사용자가 고친 모델")
+    current: bool = Field(False, description="오늘 적용되는 줄")
+    upcoming: bool = Field(False, description="적용 시작일이 아직 오지 않은 줄")
+
+
+class PriceTable(_Out):
+    rows: list[PriceRow]
+    checked: str
+    url: str
+    billing_url: str
+
+
 @app.get("/api/usage")
-def usage_summary(days: int = 30, project: str | None = None, limit: int = 60) -> dict:
+def usage_summary(days: int = 30, project: str | None = None, limit: int = 60) -> UsageSummary:
     """AI 호출 기록을 기간과 작품으로 걸러 모은다. days 가 0 이면 전체. limit 은 최근 호출 목록의 길이 (1~1000)."""
     return usage.summary(days or None, project or None, max(1, min(limit, 1000)))
 
 
 @app.get("/api/usage/prices")
-def usage_prices() -> dict:
+def usage_prices() -> PriceTable:
     return usage.price_table()
 
 
@@ -2333,13 +2560,13 @@ class PricesIn(BaseModel):
 
 
 @app.put("/api/usage/prices")
-def put_usage_prices(body: PricesIn) -> dict:
+def put_usage_prices(body: PricesIn) -> PriceTable:
     usage.save_prices(body.rows)
     return usage.price_table()
 
 
 @app.delete("/api/usage/prices")
-def reset_usage_prices() -> dict:
+def reset_usage_prices() -> PriceTable:
     """가격표를 기본값(Google 가격표에서 옮긴 값)으로 되돌린다."""
     settings.set_prices([])
     return usage.price_table()
