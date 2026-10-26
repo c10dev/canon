@@ -1,6 +1,6 @@
 /* 대화로 다듬기 패널. app.js 의 S, actions, api, render 를 그대로 쓴다.
    작가가 말하면 AI가 답과 변경안을 내고, 변경안은 바뀌는 칸만 보여 준다. 작가가 고른 부분만 반영한다.
-   기승전결 · 플롯 화면(topic 'plot')과 집필 화면의 본문 부분 수정(topic 'text:<화>', passage.js)에 붙어 있다.
+   기승전결 · 플롯 화면(topic 'plot'), 집필 화면의 본문 부분 수정(topic 'text:<화>', passage.js), 문체 화면(topic 'style', stylechat.js)에 붙어 있다.
    다른 화면에 붙일 때는 CHAT_TOPICS 에 항목을 더하고 서버 web.py 의 _chat 과 변경안 반영 함수를 함께 늘린다.
    주제마다 body(요청 내용), proposal(변경안 그리기), userMsg, inputExtra 를 바꿔 끼울 수 있다. */
 'use strict';
@@ -337,7 +337,7 @@ function chatPanel(topic) {
   const msgs = chatMessages(topic);
   const list = msgs.map((m, i) => m.role === 'user'
     ? `<div class="msg user">${t.userMsg ? t.userMsg(m) : esc(m.text)}</div>`
-    : `<div class="msg ai"><div class="msg-text">${esc(m.text)}</div>${m.revision ? proposal(m, i) : m.passage && t.proposal ? t.proposal(m, i) : ''}</div>`).join('');
+    : `<div class="msg ai"><div class="msg-text">${esc(m.text)}</div>${m.revision ? proposal(m, i) : (m.passage || m.style) && t.proposal ? t.proposal(m, i) : ''}</div>`).join('');
   const empty = msgs.length || S.chatPending ? '' : `<div class="note info">${esc(t.intro)}</div>
     ${t.examples.length ? `<div class="row">${t.examples.map((x) => `<button type="button" class="btn small" data-action="chatExample" data-arg="${esc(x)}">${esc(x)}</button>`).join('')}</div>` : ''}`;
   const pending = S.chatPending ? `<div class="msg user">${esc(S.chatPending)}</div><div class="msg ai pending" role="status"><span class="spinner small" aria-hidden="true"></span>생각하는 중… (최대 1분)</div>` : '';
@@ -505,7 +505,7 @@ Object.assign(actions, {
     });
   },
   async chatClear() {
-    const open = chatMessages(S.chatTopic).filter((m) => m.revision && !m.outcome && !(m.revision.options || []).length).length;
+    const open = chatMessages(S.chatTopic).filter((m) => ((m.revision && !(m.revision.options || []).length) || m.style) && !m.outcome).length;
     if (!confirm(chatConf(S.chatTopic).clearAsk + (open ? `\n아직 고르지 않은 변경안 ${open}개도 함께 지워져요.` : '') + (S.dirty ? '\n저장하지 않은 다른 변경도 함께 저장해요.' : ''))) return;
     await run('지우는 중', async () => {
       await saveIfDirty();

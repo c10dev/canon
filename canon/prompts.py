@@ -215,6 +215,111 @@ def learn_prompt(p: Project, edits: list) -> str:
 - summary 에는 작가가 AI 문장을 고치는 경향을 두세 문장으로 적습니다."""
 
 
+# ---------- 대화로 문체 다듬기 ----------
+# 앞쪽은 작품 정보와 지금 프로필(잘 바뀌지 않음), 뒤쪽은 최근 화 지표 · 참고할 화 · 대화 · 새 말. 캐시가 맞도록 이 순서를 지킨다.
+
+SYSTEM_STYLE_COACH = (
+    "당신은 작가와 함께 문체를 다듬어 가는 편집자입니다. 작가가 말로 바라는 것을 듣고, 스타일 프로필에서 바꿀 칸만 "
+    "고쳐 제안하고, 바뀐 문체로 짧은 시험 문단을 써서 보여 줍니다. 규칙은 다음 화를 쓰는 AI 가 그대로 따를 수 있게 "
+    "관찰할 수 있는 말로 씁니다. 모든 출력은 한국어로 작성합니다."
+)
+
+STYLE_CHAT_HISTORY = 10   # 문체 대화에서 넣는 최근 메시지 수
+STYLE_REF_LIMIT = 4000    # 참고할 화 본문을 이만큼까지 넣는다
+STYLE_KEY_LABELS = {
+    "narration_pov": "시점", "tense": "시제", "sentence_rhythm": "문장 리듬", "description_density": "묘사 밀도",
+    "dialogue_ratio": "대사 비율", "dialogue_style": "대사 방식", "inner_monologue": "내면 독백", "pacing": "전개 속도",
+    "scene_transition": "장면 전환", "vocabulary": "어휘", "dos": "지킬 것", "donts": "피할 것",
+    "banned_phrases": "금지 표현", "markers": "문체 표지", "devices": "가끔 쓰는 장치",
+}
+
+
+def _style_chat_line(m: ChatMessage) -> str:
+    if m.role == "user":
+        return f"작가{f' ({m.episode}화 참고)' if m.episode else ''}: {m.text}"
+    line = f"편집자: {m.text}"
+    if m.style and m.style.edits:
+        keys = ", ".join(STYLE_KEY_LABELS.get(e.key, e.key) for e in m.style.edits)
+        applied = ", ".join(STYLE_KEY_LABELS.get(x, x) for x in m.applied)
+        result = {"applied": f"작가가 적용함: {applied}", "dismissed": "작가가 적용하지 않음"}.get(m.outcome, "아직 결정 전")
+        line += f"\n  (변경안: {keys} / {result})"
+    return line
+
+
+def style_chat_prompt(p: Project, message: str, episode: int = 0, recent: list[str] | None = None) -> str:
+    """recent: 최근 화 문체 지표와 경고 줄 (pipeline.style_chat_recent). episode: 작가가 참고하라고 고른 화."""
+    st = p.style
+    voices = [f"- {c.name}: {_clip(c.narration_voice, 200)}" for c in p.characters if c.narration_voice.strip()]
+    samples = "\n\n---\n\n".join(_clip(x, 600) for x in st.sample_passages) or "없음"
+    chat = next((c for c in p.chats if c.topic == "style"), None)
+    history = "\n".join(_style_chat_line(m) for m in (chat.messages[-STYLE_CHAT_HISTORY:] if chat else []))
+    ref = ""
+    if episode and (ep := next((e for e in p.episodes if e.plot.number == episode and e.text), None)):
+        body = ep.text if len(ep.text) <= STYLE_REF_LIMIT else ep.text[:STYLE_REF_LIMIT] + "\n…(뒤 생략)"
+        ref = f"\n[작가가 참고하라고 고른 {episode}화 본문]\n{body}\n"
+    preview_rule = (f"- preview_source 에는 위 {episode}화 본문에서 이번 변경이 가장 잘 드러날 한 대목(200~500자)을 글자 그대로 옮기고, "
+                    "preview 에는 그 대목을 같은 내용, 같은 사건으로 바뀐 문체에 맞춰 고쳐 씁니다." if ref else
+                    "- preview_source 는 비웁니다. preview 에는 이 작품의 인물과 세계로 짧은 장면을 바뀐 문체로 씁니다. 이미 쓴 화의 사건을 새로 만들지 않습니다.")
+    return f"""[작품]
+{meta_text(p)}
+
+[지금 스타일 프로필] (sample_passages 는 아래 대표 문단)
+{dump(st.model_dump(exclude={"sample_passages"}))}
+
+[대표 문단] (원문 발췌. 고치지 않는다)
+{samples}
+{f"{chr(10)}[시점 인물별 서술 말투] (인물 설정에 있는 칸. 그 인물이 시점인 화에서는 프로필보다 앞선다. 여기서는 바꾸지 않는다){chr(10)}{chr(10).join(voices)}{chr(10)}" if voices else ""}
+[최근 화 문체 지표] (기준은 레퍼런스 원문)
+{chr(10).join(recent or []) or "아직 쓴 화가 없음"}
+{ref}
+[지금까지의 대화]
+{history or "없음 (첫 대화)"}
+
+[작가의 새 말]
+{message}
+
+요구사항:
+- reply 에는 작가에게 하는 대답을 2~5문장으로 씁니다. 무엇을 왜 바꿨는지, 다음 화에 어떻게 달라질지 말합니다. 요청이 모호하면 가장 그럴듯하게 해석해 고치고 어떻게 해석했는지 밝힙니다. 질문만 받았거나 되물어야 하면 edits 를 비우고 대답만 합니다.
+- edits 에는 바뀌는 칸만 넣고, 칸마다 바뀐 뒤 값 전체를 씁니다. 글 칸은 text, dos · donts · banned_phrases 는 items, markers 는 markers, devices 는 devices 하나만 채웁니다. 목록 칸은 그대로 둘 항목도 빠짐없이 넣습니다. 빠진 항목은 지워집니다.
+- 규칙은 관찰할 수 있게 씁니다 (예: "문장은 대개 25자 안팎, 감정이 터질 때만 한 문장을 길게"). "자연스럽게", "생생하게" 같은 막연한 말은 쓰지 않습니다.
+- 새 규칙이 지금 규칙과 부딪히면 지금 규칙을 고치거나 뺍니다. 같은 뜻의 규칙을 두 칸에 겹쳐 쓰지 않습니다.
+- banned_phrases 와 markers 의 text 는 본문에서 글자 그대로 찾을 표현입니다. markers 의 per_1k 는 지금 값을 그대로 두고 새 표지는 0 으로 둡니다.
+- 특정 상황에만 가끔 쓰는 장면 장치는 dos 나 inner_monologue 에 규칙으로 적지 말고 devices 에 적습니다 (when, cues 1~3개, every).
+- 대표 문단은 원문 발췌라 바꾸지 않습니다. 대표 문단과 부딪히는 규칙을 만들면 reply 에서 알립니다.
+- 시점 인물별 서술 말투와 부딪히는 변경이면 reply 에서 알립니다.
+{preview_rule}
+- 변경이 없으면 preview_source 와 preview 를 모두 비웁니다. 시험 문단에는 마크다운 기호를 쓰지 않고 문단은 빈 줄로 나눕니다."""
+
+
+STYLE_EXAMPLE_CHARS = (600, 900)  # 예시 글 길이
+
+
+def style_example_prompt(p: Project, scene: str = "", episode: int = 0) -> str:
+    """지금 문체로 예시 글을 쓰게 한다. 앞쪽은 본문 쓰기와 같은 static_context (캐시), 뒤쪽은 장면 요청."""
+    lo, hi = STYLE_EXAMPLE_CHARS
+    ep = next((e for e in p.episodes if e.plot.number == episode and e.text), None) if episode else None
+    if ep:
+        body = ep.text if len(ep.text) <= STYLE_REF_LIMIT else ep.text[:STYLE_REF_LIMIT] + "\n…(뒤 생략)"
+        task = f"""# {episode}화 본문
+{body}
+
+# 할 일
+위 {episode}화 본문에서 문체가 가장 잘 드러날 한 대목(300~600자)을 골라 source 에 글자 그대로 옮기고,
+text 에는 그 대목을 같은 내용, 같은 사건, 같은 인물로 위 스타일 프로필에 맞춰 고쳐 씁니다.{f"{chr(10)}작가가 바라는 장면: {scene}" if scene else ""}"""
+    else:
+        task = f"""# 할 일
+이 작품의 인물과 세계로 짧은 장면을 위 스타일 프로필대로 {lo}~{hi}자 씁니다. source 는 비웁니다.
+{f"장면: {scene}" if scene else "장면은 서술과 대사가 함께 있는 일상적인 순간으로 고릅니다. 이미 쓴 화의 큰 사건을 새로 만들지 않습니다."}"""
+    return f"""{static_context(p)}
+
+{task}
+
+요구사항:
+- 문체 예시를 보여 주는 글입니다. 스타일 프로필의 시점, 시제, 문장 리듬, 대사 방식, 지킬 것과 피할 것, 문체 표지를 따릅니다. 금지 표현은 쓰지 않습니다.
+- 문체 예시 문단의 문장을 그대로 옮기지 않습니다.
+- 대사는 인물 설정의 speech_style 을 따르고, 문단은 빈 줄로 나눕니다. 제목, 해설, 마크다운 기호는 쓰지 않습니다."""
+
+
 def arc_prompt(p: Project) -> str:
     return f"""아래 작품을 총 {p.meta.target_episodes}화로 완결하는 기승전결 구조를 설계하세요.
 

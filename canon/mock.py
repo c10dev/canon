@@ -64,6 +64,9 @@ from .schema import (
     Storyline,
     StorylineProposal,
     StyleLearning,
+    StyleEdit,
+    StyleRevision,
+    StyleSample,
     StyleMarker,
     StyleProfile,
     StyleRuleSuggestion,
@@ -386,6 +389,22 @@ def _learning(hint: dict) -> StyleLearning:
     return StyleLearning(summary="작가는 긴 문장을 끊고 군더더기 낱말을 지운다.", suggestions=out)
 
 
+def _style_revision(hint: dict) -> StyleRevision:
+    """문체 대화: 문장 리듬을 바꾸고 지킬 것을 하나 더한 척한다. 지금 값과 같은 시제 칸도 섞어 걸러지는지 본다."""
+    msg = hint.get("message", "").strip()
+    st = hint.get("style", {})
+    ref = hint.get("ref", "")
+    if msg.endswith("?"):  # 질문에는 대답만
+        return StyleRevision(reply="지금 프로필은 짧은 문장 위주예요. 바꾸고 싶은 쪽을 말해 주세요.")
+    return StyleRevision(
+        reply=f"'{msg}' 에 맞춰 문장 리듬과 규칙을 고쳤어요.",
+        edits=[StyleEdit(key="sentence_rhythm", text=f"짧은 문장 위주, 감정이 터질 때만 길게 ({msg})", why="요청"),
+               StyleEdit(key="dos", items=list(st.get("dos", [])) + ["대사는 한 줄을 넘기지 않는다"], why="대사 템포"),
+               StyleEdit(key="tense", text=st.get("tense", ""), why="그대로 (걸러져야 함)")],
+        preview_source=ref[:120].strip() if ref else "",
+        preview="그는 문을 열었다. 바람이 들었다.\n\n\"왔어?\" 그녀가 물었다.")
+
+
 # 상태 변경안의 지금 차림: 1화에 처음 적고 2화에 찢어진다. 그 밖의 화는 비워 그대로 둔다
 MOCK_LOOK = "어깨에 닿던 머리를 짧게 자른 단발"  # 2화 설정 바꾸기 제안 (외모)
 MOCK_ATTIRE = {1: "젖은 회색 코트, 손전등", 2: "젖은 회색 코트(오른쪽 소매 찢어짐), 손전등, 녹슨 열쇠"}
@@ -501,6 +520,12 @@ class MockLLM:
                                    note="대사 말투보다 한 단계 차분하게 잡았어요.")  # type: ignore[return-value]
         if schema is StyleLearning:
             return _learning(hint)  # type: ignore[return-value]
+        if schema is StyleRevision:
+            return _style_revision(hint)  # type: ignore[return-value]
+        if schema is StyleSample:  # 참고한 화가 있으면 그 앞부분을 고쳐 쓴 척한다
+            ref = hint.get("ref", "")[:80].strip()
+            return StyleSample(text=f"바람이 찼다. 그는 걸음을 늦췄다.\n\n\"늦었네.\" {hint.get('scene', '')}".strip(),
+                               source=ref)  # type: ignore[return-value]
         if schema is PassageRevision:
             return _passage(hint)  # type: ignore[return-value]
         if schema is HookReport:

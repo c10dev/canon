@@ -3522,7 +3522,7 @@ document.addEventListener('input', (e) => {
 const styleBlank = (st) => !Object.values(st || {}).some((v) => (typeof v === 'string' ? v.trim() : Array.isArray(v) ? v.length : v));
 
 function viewStyle() {
-  return `${header('2단계', '문체 레퍼런스', '닮고 싶은 소설 문단을 붙여 넣으면 문체 규칙을 뽑아요. 규칙과 원문 예시가 매 화 본문 생성에 함께 들어가요. 라이브러리에 저장한 문체를 그대로 가져올 수도 있어요.', `<a class="btn primary" href="${base()}/arc">기승전결로</a>`)}
+  return `${header('2단계', '문체 레퍼런스', '닮고 싶은 소설 문단을 붙여 넣으면 문체 규칙을 뽑아요. 규칙과 원문 예시가 매 화 본문 생성에 함께 들어가요. 라이브러리에 저장한 문체를 그대로 가져올 수도 있고, 대화로 다듬어 갈 수도 있어요.', `${chatButton('style')}<a class="btn primary" href="${base()}/arc">기승전결로</a>`)}
     <div class="cols">
       <div class="col">
         ${styleLibraryCard()}
@@ -3536,11 +3536,14 @@ function viewStyle() {
         </section>
         <section class="card tight"><h2>기준 지표</h2><div class="small">본문 문체 경고는 이 값과 비교해요.</div>${baselineRows(P().style_baseline)}</section>
       </div>
-      <section class="card col wide">
-        <div class="between"><h2>스타일 프로필</h2><span class="small">모든 칸은 직접 고칠 수 있어요</span></div>
-        ${profileFields('style')}
-      </section>
-    </div>`;
+      <div class="col wide">
+        ${styleExampleCard()}
+        <section class="card">
+          <div class="between"><h2>스타일 프로필</h2><span class="small">모든 칸은 직접 고칠 수 있어요</span></div>
+          ${profileFields('style')}
+        </section>
+      </div>
+    </div>${chatPanel('style')}`;
 }
 
 // ----- 문체 라이브러리 -----

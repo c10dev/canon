@@ -1143,6 +1143,93 @@
     }
    }
   },
+  "/api/projects/{name}/style/example": {
+   "post": {
+    "summary": "Write Style Example",
+    "description": "지금 문체로 예시 글을 써서 문체 화면의 예시 칸에 둔다. 본문과 문체는 바꾸지 않는다.",
+    "operationId": "write_style_example",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ExampleIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Clear Style Example",
+    "operationId": "clear_style_example",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/styles": {
    "get": {
     "summary": "List Styles",
@@ -2653,6 +2740,67 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/chat/style/{i}/undo": {
+   "post": {
+    "summary": "Style Chat Undo",
+    "description": "적용한 문체 변경안을 취소한다. 그 뒤에 다시 고친 칸은 그대로 둔다. 변경안은 다시 고를 수 있게 열린다.",
+    "operationId": "style_chat_undo",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "i",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "I"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StyleUndo"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Style Chat Undo"
         }
        }
       }
@@ -8431,7 +8579,7 @@
      "topic"
     ],
     "title": "Chat",
-    "description": "화면별 대화 기록. 플롯 화면은 'plot', 본문 부분 수정은 화마다 'text:<화>'."
+    "description": "화면별 대화 기록. 플롯 화면은 'plot', 본문 부분 수정은 화마다 'text:<화>', 문체 화면은 'style'."
    },
    "ChatApply": {
     "properties": {
@@ -8473,6 +8621,19 @@
      "text": {
       "type": "string",
       "title": "Text"
+     },
+     "fields": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Fields",
+      "default": []
+     },
+     "push": {
+      "type": "boolean",
+      "title": "Push",
+      "default": false
      }
     },
     "type": "object",
@@ -8546,6 +8707,20 @@
       "$ref": "#/components/schemas/PassageRevision",
       "description": "assistant 가 낸 본문 부분 수정 후보"
      },
+     "style": {
+      "$ref": "#/components/schemas/StyleRevision",
+      "description": "assistant 가 낸 문체 변경안"
+     },
+     "style_before": {
+      "$ref": "#/components/schemas/StyleProfile",
+      "description": "문체 대화: 변경안을 적용하기 전 작품 문체 (적용 취소용)"
+     },
+     "episode": {
+      "type": "integer",
+      "title": "Episode",
+      "description": "문체 대화: 작가가 참고하라고 고른 화",
+      "default": 0
+     },
      "selection": {
       "$ref": "#/components/schemas/Selection",
       "description": "본문 부분 수정: 고친 대상"
@@ -8573,7 +8748,7 @@
       },
       "type": "array",
       "title": "Applied",
-      "description": "반영한 부분: 'acts' 구조, 'arc' 아크 칸, 'parts' 부 구성, 화 번호. 본문 수정이면 후보 번호(0부터)"
+      "description": "반영한 부분: 'acts' 구조, 'arc' 아크 칸, 'parts' 부 구성, 화 번호. 본문 수정이면 후보 번호(0부터), 문체 대화면 칸 이름"
      },
      "target": {
       "type": "string",
@@ -9257,6 +9432,22 @@
      "ending_hook"
     ],
     "title": "EpisodePlot"
+   },
+   "ExampleIn": {
+    "properties": {
+     "scene": {
+      "type": "string",
+      "title": "Scene",
+      "default": ""
+     },
+     "episode": {
+      "type": "integer",
+      "title": "Episode",
+      "default": 0
+     }
+    },
+    "type": "object",
+    "title": "ExampleIn"
    },
    "ExportIn": {
     "properties": {
@@ -11576,6 +11767,10 @@
       "description": "가져오거나 올린 라이브러리 항목의 버전 번호. 0 은 모름",
       "default": 0
      },
+     "style_example": {
+      "$ref": "#/components/schemas/StyleExample",
+      "description": "문체 화면의 '이 문체로 쓴 예시'"
+     },
      "style_learning": {
       "$ref": "#/components/schemas/StyleLearning",
       "description": "수정 기록에서 찾은 문체 규칙 후보 (마지막 것)"
@@ -13715,6 +13910,74 @@
     "title": "StyleDevice",
     "description": "특정 상황에만, 가끔 쓰는 장면 장치 (예: 자문자답으로 꼬리를 무는 망상). 프로그램이 최근 화에서 쓴 화를 세어 이번 화 지시를 바꾼다."
    },
+   "StyleEdit": {
+    "properties": {
+     "key": {
+      "type": "string",
+      "enum": [
+       "narration_pov",
+       "tense",
+       "sentence_rhythm",
+       "description_density",
+       "dialogue_ratio",
+       "dialogue_style",
+       "inner_monologue",
+       "pacing",
+       "scene_transition",
+       "vocabulary",
+       "dos",
+       "donts",
+       "banned_phrases",
+       "markers",
+       "devices"
+      ],
+      "title": "Key",
+      "description": "바꿀 칸 이름"
+     },
+     "text": {
+      "type": "string",
+      "title": "Text",
+      "description": "글 칸(narration_pov ~ vocabulary)일 때: 바뀐 뒤 글 전체",
+      "default": ""
+     },
+     "items": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Items",
+      "description": "dos · donts · banned_phrases 일 때: 바뀐 뒤 목록 전체 (그대로 둘 항목도 모두 넣는다)"
+     },
+     "markers": {
+      "items": {
+       "$ref": "#/components/schemas/StyleMarker"
+      },
+      "type": "array",
+      "title": "Markers",
+      "description": "markers 일 때: 바뀐 뒤 표지 목록 전체. per_1k 는 지금 값 그대로, 새 표지는 0"
+     },
+     "devices": {
+      "items": {
+       "$ref": "#/components/schemas/StyleDevice"
+      },
+      "type": "array",
+      "title": "Devices",
+      "description": "devices 일 때: 바뀐 뒤 장치 목록 전체"
+     },
+     "why": {
+      "type": "string",
+      "title": "Why",
+      "description": "왜 이렇게 바꾸는지 한 줄",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "key"
+    ],
+    "title": "StyleEdit",
+    "description": "스타일 프로필 한 칸의 바뀐 뒤 값. 칸 종류에 맞는 자리 하나만 채운다."
+   },
    "StyleEntry": {
     "properties": {
      "id": {
@@ -13781,6 +14044,56 @@
     ],
     "title": "StyleEntry",
     "description": "문체 라이브러리 항목 (canon/library.py). 작품과 따로 저장해 여러 작품에서 다시 쓴다."
+   },
+   "StyleExample": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "title": "Text",
+      "default": ""
+     },
+     "source": {
+      "type": "string",
+      "title": "Source",
+      "description": "고쳐 쓴 원래 대목 (참고한 화가 있을 때)",
+      "default": ""
+     },
+     "episode": {
+      "type": "integer",
+      "title": "Episode",
+      "description": "참고한 화. 0 이면 새 장면",
+      "default": 0
+     },
+     "scene": {
+      "type": "string",
+      "title": "Scene",
+      "description": "작가가 청한 장면",
+      "default": ""
+     },
+     "by": {
+      "type": "string",
+      "enum": [
+       "",
+       "example",
+       "chat"
+      ],
+      "title": "By",
+      "description": "example: 예시 칸에서 씀, chat: 문체 대화의 시험 문단을 적용과 함께 옮김",
+      "default": ""
+     },
+     "profile": {
+      "$ref": "#/components/schemas/StyleProfile",
+      "description": "쓸 때의 스타일 프로필"
+     },
+     "at": {
+      "type": "string",
+      "title": "At",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "StyleExample",
+    "description": "문체 화면의 '이 문체로 쓴 예시' 칸 (Project.style_example). 쓸 때의 프로필을 남겨 문체가 바뀌었는지 본다."
    },
    "StyleIn": {
     "properties": {
@@ -14154,6 +14467,41 @@
     "type": "object",
     "title": "StyleProfile"
    },
+   "StyleRevision": {
+    "properties": {
+     "reply": {
+      "type": "string",
+      "title": "Reply",
+      "description": "작가에게 하는 대답 2~5문장. 무엇을 왜 바꿨는지, 또는 되묻는 말"
+     },
+     "edits": {
+      "items": {
+       "$ref": "#/components/schemas/StyleEdit"
+      },
+      "type": "array",
+      "title": "Edits",
+      "description": "바뀌는 칸만. 질문에 답하거나 되물을 때는 빈 목록"
+     },
+     "preview_source": {
+      "type": "string",
+      "title": "Preview Source",
+      "description": "참고할 화가 주어졌을 때만: 시험 문단으로 고쳐 쓸 그 화 본문 한 대목을 적힌 그대로 (200~500자). 아니면 빈칸",
+      "default": ""
+     },
+     "preview": {
+      "type": "string",
+      "title": "Preview",
+      "description": "바뀐 문체로 쓴 시험 문단 4~8문장. preview_source 가 있으면 그 대목을 같은 내용으로 고쳐 쓴 글",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "reply"
+    ],
+    "title": "StyleRevision",
+    "description": "문체 대화에서 AI 가 내는 답과 변경안 (pipeline.clean_style_revision 이 지금 값과 같은 칸을 뺀다)."
+   },
    "StyleRuleSuggestion": {
     "properties": {
      "kind": {
@@ -14234,6 +14582,17 @@
      "text"
     ],
     "title": "StyleRuleSuggestion"
+   },
+   "StyleUndo": {
+    "properties": {
+     "push": {
+      "type": "boolean",
+      "title": "Push",
+      "default": false
+     }
+    },
+    "type": "object",
+    "title": "StyleUndo"
    },
    "StyleUse": {
     "properties": {

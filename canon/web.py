@@ -625,6 +625,26 @@ def dismiss_learning(name: str) -> Project:
     return _save(name, p)
 
 
+# ---------- 2-2. 이 문체로 쓴 예시 ----------
+# 문체 대화(chat 'style')는 3-1 의 대화 엔드포인트를 함께 쓴다.
+
+class ExampleIn(BaseModel):
+    scene: str = ""  # 바라는 장면 (비우면 AI 가 고른다)
+    episode: int = 0  # 이 화 한 대목을 고쳐 쓴다
+
+
+@app.post("/api/projects/{name}/style/example")
+def write_style_example(name: str, body: ExampleIn) -> Project:
+    """지금 문체로 예시 글을 써서 문체 화면의 예시 칸에 둔다. 본문과 문체는 바꾸지 않는다."""
+    ex = pipeline.style_example(get_llm("write"), _load(name), body.scene, body.episode)
+    return _edit(name, lambda p: setattr(p, "style_example", ex))
+
+
+@app.delete("/api/projects/{name}/style/example")
+def clear_style_example(name: str) -> Project:
+    return _edit(name, lambda p: setattr(p, "style_example", None))
+
+
 # ---------- 문체 라이브러리 ----------
 
 class StyleIn(BaseModel):
@@ -902,14 +922,14 @@ def remove_episode(name: str, n: int) -> dict:
 
 # ---------- 3-1. 대화로 다듬기 ----------
 # 대화 기록은 project.json 의 chats 에 화면(topic)별로 남는다. 플롯 화면은 'plot', 집필 화면의 본문 부분 수정은
-# 화마다 'text:<화>' 이다 (4-1 참고).
+# 화마다 'text:<화>', 문체 화면은 'style' 이다 (4-1 · 2-2 참고).
 
 TEXT_TOPIC = re.compile(r"^text:(\d+)$")
 
 
 def _chat(p: Project, topic: str):
     m = TEXT_TOPIC.match(topic)
-    if topic != "plot" and not (m and any(e.plot.number == int(m.group(1)) for e in p.episodes)):
+    if topic not in ("plot", "style") and not (m and any(e.plot.number == int(m.group(1)) for e in p.episodes)):
         raise HTTPException(404, f"대화 주제가 없어요: {topic}")
     return p.chat(topic)
 
@@ -921,7 +941,7 @@ class ChatIn(BaseModel):
     # 플롯 대화: 화면이 알려 주는 대상과 보던 곳 (schema.ChatScope)
     target: str = ""  # '' 기본, 'arc:3' 고른 아크, 'next' 다음 아크 기획
     act: str = ""  # 연 구간 이름
-    episode: int = 0  # 연 화
+    episode: int = 0  # 연 화. 문체 대화면 참고할 화
     mode: Literal["", "options"] = ""  # options: 방향 여러 안
     draft: ArcProposal | None = None  # target 'next': 화면의 다음 아크 초안
 
@@ -938,6 +958,9 @@ def chat_send(name: str, topic: str, body: ChatIn) -> Project:
         sel = Selection(start=pipeline.locate(p.episode(n).text, body.selection.text, body.selection.start), text=body.selection.text)
         rev = pipeline.revise_passage(get_llm("revise"), p, n, sel, body.message, body.preset)
         return _edit(name, lambda q: pipeline.record_passage(q, n, sel, body.message, body.preset, rev))
+    if topic == "style":
+        rev = pipeline.revise_style(get_llm("plan"), p, body.message, body.episode)
+        return _edit(name, lambda q: pipeline.record_style_chat(q, body.message, body.episode, rev))
     target, _ = pipeline.chat_target(p, body.target)  # 기다리는 동안 아크가 붙어도 처음 대상을 기록한다
     scope = ChatScope(target=target, act=body.act, episode=body.episode, mode=body.mode, draft=body.draft)
     rev = pipeline.revise_plot(get_llm("plan"), p, body.message, scope)
@@ -953,6 +976,13 @@ class ChatApply(BaseModel):
     draft: list[str] = []  # 다음 아크 변경안: 화면이 초안에 넣은 부분 ('arc'). 작품은 바꾸지 않고 기록만 한다
     candidate: int | None = None  # 본문 부분 수정: 넣을 후보 번호 (0부터)
     text: str | None = None  # 본문 부분 수정: 작가가 손본 후보
+    fields: list[str] = []  # 문체 대화: 적용할 칸 이름 (StyleProfile 칸)
+    push: bool = False  # 문체 대화: 연결된 라이브러리 항목에도 새 버전으로 올린다
+
+
+def _style_push(p: Project, note: str) -> None:
+    if p.style_id and library.exists(p.style_id):
+        library.push_project(p, note)
 
 
 @app.post("/api/projects/{name}/chat/{topic}/{i}/apply")
@@ -965,6 +995,13 @@ def chat_apply(name: str, topic: str, i: int, body: ChatApply) -> Project:
         _text_guard(name, n)
         _chat(_load(name), topic)
         return _edit(name, lambda q: pipeline.apply_passage(q, n, i, body.candidate, body.text))
+    if topic == "style":
+        def fn(q: Project) -> None:
+            done = pipeline.apply_style_chat(q, i, body.fields)
+            if body.push:
+                asked = q.chat("style").messages[i - 1].text if i else ""
+                _style_push(q, f"대화로 다듬음: {asked[:60]}" if asked else f"대화로 다듬음 ({len(done)}칸)")
+        return _edit(name, fn)
     p = _load(name)
     msgs = _chat(p, topic).messages
     if not 0 <= i < len(msgs) or msgs[i].revision is None:
@@ -987,7 +1024,7 @@ def chat_dismiss(name: str, topic: str, i: int) -> Project:
 
     def fn(p: Project) -> None:
         msgs = p.chat(topic).messages
-        if not 0 <= i < len(msgs) or (msgs[i].revision is None and msgs[i].passage is None):
+        if not 0 <= i < len(msgs) or (msgs[i].revision is None and msgs[i].passage is None and msgs[i].style is None):
             raise HTTPException(404, "변경안이 있는 메시지가 아니에요")
         if not msgs[i].outcome:
             msgs[i].outcome = "dismissed"
@@ -1005,6 +1042,23 @@ def chat_reopen(name: str, topic: str, i: int) -> Project:
             raise ValueError("버린 변경안이 아니에요")
         msgs[i].outcome = ""
     return _edit(name, fn)
+
+
+class StyleUndo(BaseModel):
+    push: bool = False  # 연결된 라이브러리 항목에도 새 버전으로 올린다
+
+
+@app.post("/api/projects/{name}/chat/style/{i}/undo")
+def style_chat_undo(name: str, i: int, body: StyleUndo) -> dict:
+    """적용한 문체 변경안을 취소한다. 그 뒤에 다시 고친 칸은 그대로 둔다. 변경안은 다시 고를 수 있게 열린다."""
+    out: dict = {}
+
+    def fn(p: Project) -> None:
+        out["restored"], out["kept"] = pipeline.undo_style_chat(p, i)
+        if body.push and out["restored"]:
+            _style_push(p, "대화로 다듬은 것 취소")
+    p = _edit(name, fn)
+    return {"project": p, **out}
 
 
 @app.delete("/api/projects/{name}/chat/{topic}")
