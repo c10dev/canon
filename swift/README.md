@@ -107,7 +107,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 2. 그 화면이 쓰는 dict 응답에 pydantic 응답 모델을 달고 `python scripts/make_openapi.py` 를 돌린다.
 3. Model 을 쓴다. 서버 호출은 프로토콜 뒤에 두고, 웹 화면의 문구 규칙은 웹과 같은 문구로 시험한다.
 4. View 를 `#if canImport(SwiftUI)` 안에 쓴다. 화면 문구는 웹과 같은 해요체다.
-5. `CanonAppUI` 의 `RootView.detail` 에서 그 화면을 잇는다.
+5. `CanonAppUI` 의 `RootView.screen(_:project:)` 에 `case` 한 줄을 더해 그 화면을 잇는다. 모듈은 `CanonAppUI` 의존에 더한다.
 6. Linux Docker 시험과 `canon-probe` 를 돌리고, Mac 에서 화면을 본다.
 
 ## 웹과 같은 규칙 (함께 고친다)

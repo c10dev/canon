@@ -62,10 +62,20 @@ public struct RootView: View {
 
     @ViewBuilder
     private var detail: some View {
-        if model.project == nil {
-            ContentUnavailableView("작품을 고르세요", systemImage: "books.vertical")
+        if let name = model.project {
+            screen(model.screen, project: name).id("\(name)/\(model.screen.rawValue)")
         } else {
-            NotPortedYet(model.screen.label(serial: false))
+            ContentUnavailableView("작품을 고르세요", systemImage: "books.vertical")
+        }
+    }
+
+    /// 화면 잇기. 화면 모듈을 옮기면 case 한 줄을 더한다 (README '새 화면 모듈을 만들 때' 5).
+    /// 화면은 `server` 와 작품 이름을 받아 필요한 것을 스스로 받아 온다.
+    @ViewBuilder
+    private func screen(_ screen: Screen, project: String) -> some View {
+        switch screen {
+        default:
+            NotPortedYet(screen.label(serial: false))
         }
     }
 }
