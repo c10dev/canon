@@ -1,6 +1,7 @@
 #if canImport(SwiftUI)
 import CanonCore
 import CanonUI
+import FeatureCast
 import FeatureProjects
 import SwiftUI
 
@@ -74,6 +75,7 @@ public struct RootView: View {
     @ViewBuilder
     private func screen(_ screen: Screen, project: String) -> some View {
         switch screen {
+        case .cast: CastScreen(server: model.server, project: project) { model.screen = $0 }
         default:
             NotPortedYet(screen.label(serial: false))
         }

@@ -34,12 +34,14 @@ let package = Package(
         .target(name: "CanonUI", dependencies: ["CanonCore"]),
         // 화면 모듈: Model(순수 Swift) + View(SwiftUI). CanonCore · CanonAPI · CanonUI 에만 기댄다
         .target(name: "FeatureProjects", dependencies: ["CanonCore", "CanonAPI", "CanonUI"]),
+        .target(name: "FeatureCast", dependencies: ["CanonCore", "CanonAPI", "CanonUI"]),
         // 앱 뼈대: 서버 설정, 사이드바, 화면 잇기. Xcode 앱(App/)은 이것 하나만 가져온다
-        .target(name: "CanonAppUI", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "FeatureProjects"]),
+        .target(name: "CanonAppUI", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "FeatureProjects", "FeatureCast"]),
         // 개발용: 실제 서버에 붙어 응답이 타입대로 읽히는지 본다
         .executableTarget(name: "canon-probe", dependencies: ["CanonAPI", "CanonCore"]),
         .testTarget(name: "CanonCoreTests", dependencies: ["CanonCore"]),
         .testTarget(name: "CanonAPITests", dependencies: ["CanonAPI"]),
         .testTarget(name: "FeatureProjectsTests", dependencies: ["FeatureProjects"]),
+        .testTarget(name: "FeatureCastTests", dependencies: ["FeatureCast"]),
     ]
 )

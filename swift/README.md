@@ -40,6 +40,7 @@ canon-probe            개발용: 실제 서버 응답이 타입대로 읽히는
 | `CanonAPI` | 생성된 `Client`(빌드 때 `openapi.json` 에서), `CanonServer`(헤더, 오류 바꾸기, 타입 없는 GET), `ProjectLoader`(작품 전체를 ETag 로) |
 | `CanonUI` | `Notice`, `NotPortedYet` |
 | `FeatureProjects` | 작품 목록: `ProjectsModel`, `ProjectCardText`(웹 `projectNext`), `LiveProjectListing`, `ProjectsView` |
+| `FeatureCast` | 인물 · 관계도: `CastModel`(시점 재생, 고르기, 배치), `CastText`(웹 `cast.js` 문구), `WarmthBand`, `CastLayout`(힘 배치 · 선 모양), `CastHit`, `LiveCastSource`(작품 전체 + `cast_view`), `DefaultsLayoutStore`, `CastScreen` |
 | `CanonAppUI` | `AppModel`(서버 · 작품 · 화면 · 작업), `RootView`, 서버 주소 화면 |
 
 ## 개발 명령
@@ -99,6 +100,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | 5 | `FeaturePlot` | 기승전결 · 플롯 / 부 · 아크 · 플롯, AI 대화 | `app.js` `chat.js` `insert.js` `convert.js` | `plots`, `chat`, `series`, `arcs` |
 | 6 | `FeatureSetup`, `FeatureStyle` | 설정 도우미, 문체 레퍼런스 | `app.js` `mystyle.js` | `suggest`, `style`, `styles` |
 | 7 | 작품 도구 | 인물 · 관계도, 지도, 복선 센터, 상태창 수치, 이야기 줄기, 인과율, 작업지시서, 자동 집필 | `cast.js` `atlas.js` `foreshadow.js` `statwin.js` `lines.js` `causal.js` `auto.js` | 각 화면 |
+| 7 | `FeatureCast` | 인물 · 관계도 (관계도 재생, 인물 · 두 사람 상세, 추이 그래프, 등장표) | `cast.js` | `cast_view`(`CastView`) — **됨**. 수치 직접 보정(`adjust_tie`)과 말로 · 숫자로 저장(`PUT .../view`)은 아직 웹에서 |
 | 8 | 본편과 분리 · 설정 | 연구, 사용량, 모델 · API 키 설정 | `usage.js` `claude.js` `vertex.js` | `research`, `usage`, `config` |
 
 새 화면 모듈을 만들 때:
@@ -122,6 +124,9 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | `Screen` | `sidebar` 의 `items` · `tools` |
 | `JobTracker` · `JobText` | `pollJobs` · `finishJob` |
 | `ProjectCardText` | `viewProjects` · `projectNext` |
+| `WarmthBand` (경계 -0.6 · -0.2 · 0.2 · 0.6, 값이 경계보다 작으면 그 구간) | `cast.js` `WARMTH_BANDS`, 서버 `dynamics.warmth_word` |
+| `CastText`, `CastText.fixed`(JS `toFixed` 반올림) | `cast.js` `tieText` · `tensionText` · `frameLabel` · `castTimeline` · `castChart` 범위, `app.js` `GOOD_EVENTS` · `INTENSITY` |
+| `CastLayout.force` · `curve` | `cast.js` `castForce` · 간선 곡선 |
 
 ## 알려진 한계
 
