@@ -28,7 +28,7 @@ canon-probe            개발용: 실제 서버 응답이 타입대로 읽히는
 규칙:
 
 1. `CanonCore` 는 다른 모듈에 기대지 않는다. Foundation 만 쓴다.
-2. `Feature*` 끼리는 서로 기대지 않는다. 화면을 잇는 일은 `CanonAppUI` 가 한다.
+2. `Feature*` 끼리는 서로 기대지 않는다. 화면을 잇는 일은 `CanonAppUI` 가 한다. 작품 전체를 함께 쓰는 화면은 `CanonStore.ProjectDocument` 하나를 받는다 (`AppModel.document`).
 3. Model 은 SwiftUI 를 가져오지 않는다. 서버는 프로토콜(예: `ProjectListing`) 뒤에 두고 시험에서 가짜로 바꾼다.
 4. View 파일은 `#if canImport(SwiftUI)` 로 감싼다. 그래서 Model 과 시험은 Linux 에서도 빌드된다.
 5. 서버 타입을 손으로 다시 정의하지 않는다. `Components.Schemas.*` (생성된 타입)를 쓴다.
@@ -39,8 +39,10 @@ canon-probe            개발용: 실제 서버 응답이 타입대로 읽히는
 | `CanonCore` | `ServerConfig`, `ClientIdentity`, `CanonError`(웹 `fmtErr` 와 같은 문구), `APIPath`(작품 이름 인코딩), `Job` · `JobTracker` · `JobText`(웹 `pollJobs`), `KoreanText`(조사, 'a~b화', 날짜), `EpisodeStatus`, `Screen`(사이드바) |
 | `CanonAPI` | 생성된 `Client`(빌드 때 `openapi.json` 에서), `CanonServer`(헤더, 오류 바꾸기, 타입 없는 GET), `ProjectLoader`(작품 전체를 ETag 로) |
 | `CanonUI` | `Notice`, `NotPortedYet` |
+| `CanonStore` | `ProjectDocument`(연 작품: 받기, `edit`, 고친 표시, `save` 의 409 충돌 · 덮기, 서버가 지킨 칸 알림), `ProjectStoring` |
 | `FeatureProjects` | 작품 목록: `ProjectsModel`, `ProjectCardText`(웹 `projectNext`), `LiveProjectListing`, `ProjectsView` |
-| `CanonAppUI` | `AppModel`(서버 · 작품 · 화면 · 작업), `RootView`, 서버 주소 화면 |
+| `FeatureHome` | 작품 홈: `HomeSummary`(웹 `viewHome` · `nextStep` · `currentEp`), `HomeView` |
+| `CanonAppUI` | `AppModel`(서버 · 작품 · 화면 · 작업 · 연 작품), `RootView`, 저장 띠 `SaveBar`, 서버 주소 화면 |
 
 ## 개발 명령
 
@@ -54,6 +56,8 @@ docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v "$PWD/swift":/src -w /src s
 # 실제 서버에 붙어 보기 (서버를 먼저 띄운다)
 docker run --rm --network host -u $(id -u):$(id -g) -e HOME=/tmp -v "$PWD/swift":/src -w /src swift:6.3.3-noble swift run canon-probe http://127.0.0.1:8000
 ```
+
+저장과 409 충돌까지 보려면 시험 서버에서 `--save <작품>` 을 붙인다 (그 작품을 바꾸지 않고 두 번 저장한다). `canon-probe` 는 작품마다 저장 왕복(받은 JSON 을 생성 타입으로 읽고 다시 써서 빠지는 칸이 있는지)도 본다.
 
 Mac (Xcode 16 이상):
 
@@ -93,7 +97,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | 순서 | 모듈 | 화면 (사이드바 이름) | 웹 파일 | 서버 |
 |---|---|---|---|---|
 | 1 | `FeatureProjects` | 작품 목록 | `app.js` `viewProjects` | `list_projects` — **됨** |
-| 2 | `FeatureHome` | 작품 홈, 작품 저장(409 · merged) | `app.js` | `get_project`, `put_project` |
+| 2 | `FeatureHome`, `CanonStore` | 작품 홈, 작품 저장(409 · merged) | `app.js` `viewHome` `save` | `get_project`, `put_project` — **됨** (남음: 홈의 자동 집필 줄 · 관계 카드 · 장편 전환 단추, 작업 결과를 받아 `merged` 로 알리기) |
 | 3 | `FeatureWrite` | 집필 (부분 수정, 다시 생성, 문체 표시, 복사, 삽화) | `passage.js` `rewrite.js` `marks.js` `publish.js` `illust.js` `opening.js` `restate.js` | `pipeline.edit_text` 등 |
 | 4 | `FeatureReview` | 상태 승인 | `app.js` `restate.js` `statwin.js`(`swDeltaRows`) `foreshadow.js`(`fsClueRows`) | `.../state`, `.../apply` |
 | 5 | `FeaturePlot` | 기승전결 · 플롯 / 부 · 아크 · 플롯, AI 대화 | `app.js` `chat.js` `insert.js` `convert.js` | `plots`, `chat`, `series`, `arcs` |
@@ -122,6 +126,8 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | `Screen` | `sidebar` 의 `items` · `tools` |
 | `JobTracker` · `JobText` | `pollJobs` · `finishJob` |
 | `ProjectCardText` | `viewProjects` · `projectNext` |
+| `HomeSummary` | `viewHome` · `nextStep` · `currentEp` · `actGroups` |
+| `SaveText` · `ProjectDocument.edited` | `save()` 의 토스트와 `edited` |
 
 ## 알려진 한계
 

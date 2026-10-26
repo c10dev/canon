@@ -1,6 +1,8 @@
 #if canImport(SwiftUI)
 import CanonCore
+import CanonStore
 import CanonUI
+import FeatureHome
 import FeatureProjects
 import SwiftUI
 
@@ -19,6 +21,7 @@ public struct RootView: View {
                 if let n = model.notice {
                     Notice(n.text, isError: n.isError) { model.dismissNotice() }.padding()
                 }
+                if let doc = model.document { SaveBar(document: doc).padding(.horizontal) }
                 detail.frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -36,13 +39,10 @@ public struct RootView: View {
             }
             .navigationTitle(name)
             .toolbar {
-                Button("작품 목록") { model.project = nil }
+                Button("작품 목록") { model.open(nil) }
             }
         } else {
-            ProjectsView(model: model.projects) { card in
-                model.project = card.name
-                model.screen = .home
-            }
+            ProjectsView(model: model.projects) { card in model.open(card.name) }
             .toolbar {
                 Button("서버") { showServer = true }
             }
@@ -55,8 +55,7 @@ public struct RootView: View {
     }
 
     private func item(_ screen: Screen) -> some View {
-        // 장편 여부는 작품을 받아 오면 알 수 있다. 작품 홈을 옮길 때 작품 전체를 받아 serial 을 넘긴다
-        Label { Text(screen.label(serial: false)) } icon: { Text(screen.mark).font(.caption.monospaced()) }
+        Label { Text(screen.label(serial: model.document?.serial ?? false)) } icon: { Text(screen.mark).font(.caption.monospaced()) }
             .tag(screen)
     }
 
@@ -70,12 +69,51 @@ public struct RootView: View {
     }
 
     /// 화면 잇기. 화면 모듈을 옮기면 case 한 줄을 더한다 (README '새 화면 모듈을 만들 때' 5).
-    /// 화면은 `server` 와 작품 이름을 받아 필요한 것을 스스로 받아 온다.
+    /// 화면은 `model.server` 와 작품 이름을 받아 필요한 것을 스스로 받아 오거나, 작품 전체는 `model.document` 를 함께 쓴다.
     @ViewBuilder
     private func screen(_ screen: Screen, project: String) -> some View {
         switch screen {
+        case .home: if let doc = model.document { HomeView(document: doc) { model.screen = $0 } }
         default:
             NotPortedYet(screen.label(serial: false))
+        }
+    }
+}
+
+/// 저장 띠: 저장하지 않은 변경, 다른 화면이 먼저 저장함(409), 저장 결과 알림 (웹 `renderSavebar`).
+struct SaveBar: View {
+    let document: ProjectDocument
+    @State private var confirmRevert = false
+
+    var body: some View {
+        VStack(spacing: 8) {
+            if let n = document.notice {
+                Notice(n.text, isError: n.isError) { document.dismissNotice() }
+            }
+            if document.conflict {
+                HStack {
+                    Text(document.error ?? SaveText.conflictChoices).frame(maxWidth: .infinity, alignment: .leading)
+                    Button("다시 불러오기") { Task { await document.reload() } }
+                    Button("내 변경으로 덮기") { Task { await document.save(force: true) } }
+                }
+                .padding(10)
+                .background(.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
+            } else if document.dirty {
+                HStack {
+                    Text("저장하지 않은 변경이 있어요").frame(maxWidth: .infinity, alignment: .leading)
+                    Button("되돌리기") { confirmRevert = true }
+                    Button("저장") { Task { await document.save() } }.buttonStyle(.borderedProminent)
+                }
+                .disabled(document.busy)
+                .padding(10)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            } else if let error = document.error, document.project != nil {
+                Notice(error, isError: true)
+            }
+        }
+        .padding(.top, 8)
+        .confirmationDialog("저장하지 않은 변경을 모두 버리고 저장된 작품을 다시 불러올까요? 되돌릴 수 없어요.", isPresented: $confirmRevert, titleVisibility: .visible) {
+            Button("버리고 다시 불러오기", role: .destructive) { Task { await document.reload() } }
         }
     }
 }
