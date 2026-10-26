@@ -22,14 +22,14 @@ public struct RootView: View {
             sidebar
         } detail: {
             VStack(spacing: 0) {
-                if let n = model.notice {
-                    Notice(n.text, isError: n.isError) { model.dismissNotice() }.padding()
+                if let n = model.jobs.notice {
+                    Notice(n.text, isError: n.isError) { model.jobs.dismissNotice() }.padding()
                 }
                 if let doc = model.document { SaveBar(document: doc).padding(.horizontal) }
                 detail.frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task(id: model.server.config) { await model.watchJobs() }
+        .task(id: model.server.config) { await model.jobs.watch() }
         .sheet(isPresented: $showServer) { ServerSettingsView(model: model) }
     }
 

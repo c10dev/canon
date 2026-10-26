@@ -1,6 +1,7 @@
 // 실제 서버에 붙어 응답이 앱의 타입대로 읽히는지 본다. 서버를 고친 뒤 openapi.json 을 다시 만들었으면 돌려 본다.
 //   swift run canon-probe http://127.0.0.1:8000
 //   swift run canon-probe http://127.0.0.1:8000 --save <작품>   저장과 409 충돌도 본다 (그 작품을 바꾸지 않고 두 번 저장한다. 시험 서버에서만)
+//   swift run canon-probe http://127.0.0.1:8000 --job <작품> <kind> [화]   작업을 시작해 끝날 때까지 보고 결과 · 검토 대기를 본다 (시험 서버에서만)
 import CanonAPI
 import CanonCore
 import Foundation
@@ -51,6 +52,22 @@ do {
         }
         let forced = try await b.save(name, pb, force: true)
         print("덮기: 판 \(forced.project.editRev ?? 0)")
+    }
+    if let i = CommandLine.arguments.firstIndex(of: "--job"), i + 2 < CommandLine.arguments.count {
+        let args = CommandLine.arguments
+        let name = args[i + 1]
+        var request = JobRequest(kind: args[i + 2])
+        if i + 3 < args.count { request.ep = Int(args[i + 3]) }
+        let (job, already) = try await server.startJob(name, request)
+        print("작업 시작: \(job.label) (\(job.id))\(already ? ", 이미 도는 중" : "")")
+        var last = job
+        while last.isRunning {
+            try await Task.sleep(for: .milliseconds(500))
+            last = try await server.get("/api/jobs/\(job.id)", as: Job.self)
+        }
+        print("끝: \(last.status.rawValue) \(last.error) · 결과 칸: \(last.result.map { if case let .object(o) = $0 { o.keys.sorted().joined(separator: ", ") } else { "\($0)" } } ?? "없음")")
+        let pending = try await server.pending(name)
+        print("검토 대기: \(pending.results.keys.sorted()) · 실패: \(pending.failures.keys.sorted())")
     }
 } catch {
     print("실패: \(CanonError.message(error))")

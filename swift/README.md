@@ -36,10 +36,10 @@ canon-probe            개발용: 실제 서버 응답이 타입대로 읽히는
 
 | 모듈 | 들어 있는 것 |
 |---|---|
-| `CanonCore` | `ServerConfig`, `ClientIdentity`, `CanonError`(웹 `fmtErr` 와 같은 문구), `APIPath`(작품 이름 인코딩), `Job` · `JobTracker` · `JobText`(웹 `pollJobs`), `KoreanText`(조사, 'a~b화', 날짜), `EpisodeStatus`, `Screen`(사이드바) |
+| `CanonCore` | `ServerConfig`, `ClientIdentity`, `CanonError`(웹 `fmtErr` 와 같은 문구), `APIPath`(작품 이름 인코딩), `Job` · `JobRequest` · `JobTracker` · `JobText`(웹 `pollJobs`, `JOB_DONE_MSG`), `PendingList`, `JSONValue`(모양을 모르는 작업 결과), `KoreanText`(조사, 'a~b화', 날짜), `EpisodeStatus`, `Screen`(사이드바) |
 | `CanonAPI` | 생성된 `Client`(빌드 때 `openapi.json` 에서), `CanonServer`(헤더, 오류 바꾸기, 타입 없는 GET), `ProjectLoader`(작품 전체를 ETag 로) |
 | `CanonUI` | `Notice`, `NotPortedYet` |
-| `CanonStore` | `ProjectDocument`(연 작품: 받기, `edit`, 고친 표시, `save` 의 409 충돌 · 덮기, 서버가 지킨 칸 알림), `ProjectStoring` |
+| `CanonStore` | `ProjectDocument`(연 작품: 받기, `edit`, 고친 표시, `save` 의 409 충돌 · 덮기, 서버가 지킨 칸 알림, 작업이 쓴 화만 받기 `merge`), `JobCenter`(작업 시작 · 멈추기 · 지켜보기, 검토를 기다리는 결과 `results` 와 실패 `failures`), `ProjectStoring` · `JobServing` |
 | `FeatureProjects` | 작품 목록: `ProjectsModel`, `ProjectCardText`(웹 `projectNext`), `LiveProjectListing`, `ProjectsView` |
 | `FeatureHome` | 작품 홈: `HomeSummary`(웹 `viewHome` · `nextStep` · `currentEp`), `HomeView` |
 | `FeatureStatWin` | 상태창 수치: `StatWinModel`, `StatWinText`(웹 `swResolve` 등), `StatCell`(비교표 칸), `LiveStatWin`, `StatWinScreen` |
@@ -61,7 +61,7 @@ docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v "$PWD/swift":/src -w /src s
 docker run --rm --network host -u $(id -u):$(id -g) -e HOME=/tmp -v "$PWD/swift":/src -w /src swift:6.3.3-noble swift run canon-probe http://127.0.0.1:8000
 ```
 
-저장과 409 충돌까지 보려면 시험 서버에서 `--save <작품>` 을 붙인다 (그 작품을 바꾸지 않고 두 번 저장한다). `canon-probe` 는 작품마다 저장 왕복(받은 JSON 을 생성 타입으로 읽고 다시 써서 빠지는 칸이 있는지)도 본다.
+저장과 409 충돌까지 보려면 시험 서버에서 `--save <작품>` 을 붙인다 (그 작품을 바꾸지 않고 두 번 저장한다). `--job <작품> <kind> [화]` 는 작업을 시작해 끝날 때까지 보고 결과와 검토 대기를 보인다 (mock 서버에서). `canon-probe` 는 작품마다 저장 왕복(받은 JSON 을 생성 타입으로 읽고 다시 써서 빠지는 칸이 있는지)도 본다.
 
 Mac (Xcode 16 이상):
 
@@ -101,7 +101,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | 순서 | 모듈 | 화면 (사이드바 이름) | 웹 파일 | 서버 |
 |---|---|---|---|---|
 | 1 | `FeatureProjects` | 작품 목록 | `app.js` `viewProjects` | `list_projects` — **됨** |
-| 2 | `FeatureHome`, `CanonStore` | 작품 홈, 작품 저장(409 · merged) | `app.js` `viewHome` `save` | `get_project`, `put_project` — **됨** (남음: 홈의 자동 집필 줄 · 관계 카드 · 장편 전환 단추, 작업 결과를 받아 `merged` 로 알리기) |
+| 2 | `FeatureHome`, `CanonStore` | 작품 홈, 작품 저장(409 · merged) | `app.js` `viewHome` `save` | `get_project`, `put_project` — **됨** (남음: 홈의 자동 집필 줄 · 관계 카드 · 장편 전환 단추) |
 | 3 | `FeatureWrite` | 집필 (부분 수정, 다시 생성, 문체 표시, 복사, 삽화) | `passage.js` `rewrite.js` `marks.js` `publish.js` `illust.js` `opening.js` `restate.js` | `pipeline.edit_text` 등 |
 | 4 | `FeatureReview` | 상태 승인 | `app.js` `restate.js` `statwin.js`(`swDeltaRows`) `foreshadow.js`(`fsClueRows`) | `.../state`, `.../apply` |
 | 5 | `FeaturePlot` | 기승전결 · 플롯 / 부 · 아크 · 플롯, AI 대화 | `app.js` `chat.js` `insert.js` `convert.js` | `plots`, `chat`, `series`, `arcs` |
@@ -122,6 +122,16 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 5. `CanonAppUI` 의 `RootView.screen(_:project:)` 에 `case` 한 줄을 더해 그 화면을 잇는다. 모듈은 `CanonAppUI` 의존에 더한다.
 6. Linux Docker 시험과 `canon-probe` 를 돌리고, Mac 에서 화면을 본다.
 
+## AI 작업을 쓰는 화면
+
+`AppModel.jobs`(`JobCenter`) 하나를 함께 쓴다. 웹 `startJob` · `pollJobs` · `finishJob` 와 같다.
+
+1. 시작: `await jobs.start(JobRequest(kind: "write", ep: 3))`. 저장하지 않은 변경이 있으면 먼저 묻고(화면), `start` 가 저장한다. 버튼 글자는 `jobs.busyLabel(kind, ep:)`, 막을지는 그 값이 있는지로 본다.
+2. 작업이 작품에 쓰는 것(본문, 플롯, 검수, 자동 집필)은 `JobCenter` 가 `ProjectDocument.merge` 로 그 화만 받아 온다. 화면이 따로 받지 않는다.
+3. 검토할 제안(`JobText.pendingKinds`)은 `jobs.results[Job.key(kind, ep)]` 에 남는다. `result.result.decode(Components.Schemas.StateDelta.self)` 처럼 생성 타입으로 읽는다. 생성 타입이 없으면 그 작업 결과 모델을 서버 응답 모델로 명세에 드러낸다.
+4. 사용자가 고른 것만 적용하고(설계 원칙: AI 출력은 제안), 적용하거나 버리면 `await jobs.drop(kind, ep:)` 로 서버의 `pending.json` 에서도 지운다.
+5. 실패는 `jobs.failures[key]` 에 남는다. 화면은 '다시 시도'와 '닫기'(`dismissFailure`)를 보인다.
+
 ## 웹과 같은 규칙 (함께 고친다)
 
 앱에 옮긴 표시 규칙은 웹 화면과 같아야 한다. 웹을 고치면 여기도 고친다.
@@ -132,7 +142,8 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | `KoreanText.josa` · `episodeRange` · `date` · `dateTime` | `josa` · `epRange` · `fmtDate` · `fmtDateTime` |
 | `EpisodeStatus` | `STATUS`, `projectNext` 의 대기 문구 |
 | `Screen` | `sidebar` 의 `items` · `tools` |
-| `JobTracker` · `JobText` | `pollJobs` · `finishJob` |
+| `JobTracker` · `JobText` | `pollJobs` · `finishJob` · `JOB_DONE_MSG` · `PENDING_KINDS`(서버 `web.PENDING_KINDS`) |
+| `JobCenter` · `ProjectDocument.merge` | `startJob` · `pollJobs` 의 화 받아 오기 · `mergeEpisodes` · `loadPending` · `jobFor` · `jobOwns` · `jobBtn` |
 | `ProjectCardText` | `viewProjects` · `projectNext` |
 | `HomeSummary` | `viewHome` · `nextStep` · `currentEp` · `actGroups` |
 | `SaveText` · `ProjectDocument.edited` | `save()` 의 토스트와 `edited` |
@@ -149,4 +160,3 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 - 서버 주소에 하위 경로(`https://host/canon`)를 쓰면 `ProjectLoader` · `CanonServer.get` 이 경로를 잃는다. 지금 서버는 루트에 연다.
 - `openapi.json` 은 설치된 FastAPI · pydantic 판에 따라 글이 조금 달라질 수 있다 (`requirements.txt` 는 가장 낮은 판만 정한다). 다른 기기에서 `tests/test_openapi.py` 가 코드 변경 없이 실패하면 그 기기에서 명세를 다시 만들고 차이를 본다. 2026-10-26 명세는 FastAPI 0.159.1, pydantic 2.14.1 로 만들었다.
 - 서버의 `str | None` 같은 칸은 명세에서 `anyOf` 의 `null` 을 빼고 옵셔널로 둔다 (`scripts/make_openapi.py` 의 `drop_null`, 68곳). 생성기는 `null` 을 읽지 못해 그대로 두면 그 칸을 생성 타입에서 빼고, 앱이 작품을 저장할 때 그 칸이 지워진다. 서버의 `null` 은 `nil` 로 읽히고, `nil` 은 칸을 빼고 보내 서버 기본값이 된다.
-- 작업별 완료 문구(웹 `JOB_DONE_MSG`)와 작업 결과 받아 오기(웹 `mergeEpisodes`)는 아직 없다. 집필 · 플롯 화면을 옮길 때 더한다.

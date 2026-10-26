@@ -106,7 +106,15 @@ import Testing
     }
 
     @Test func noticeText() {
-        #expect(JobText.notice(.finished(job("a", .done)), currentProject: "등대")?.text == "3화 본문이 끝났어요")
+        // 이 작품의 작업은 작업마다 정한 문구 (웹 JOB_DONE_MSG), 목록에 없는 작업은 '<이름>이 끝났어요'
+        #expect(JobText.notice(.finished(job("a", .done)), currentProject: "등대")?.text == JobText.done(job("a", .done)))
+        var write = job("a", .done)
+        write.kind = "write"
+        write.ep = 3
+        #expect(JobText.done(write) == "3화 본문을 저장했어요.")
+        var other = job("a", .done)
+        other.kind = "hook"
+        #expect(JobText.done(other) == "3화 본문이 끝났어요")
         #expect(JobText.notice(.finished(job("a", .done)), currentProject: nil)?.text == "등대 · 3화 본문이 끝났어요. 그 작품을 열면 결과가 보여요")
         var failed = job("a", .error)
         failed.error = "키가 없어요"
