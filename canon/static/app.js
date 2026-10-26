@@ -2994,7 +2994,7 @@ function adultCheck(attrs) {
 
 // ----- 1. 설정 도우미 -----
 
-// 로그라인 다섯 칸과 톤 다이얼. canon/logline.py 와 같은 규칙이라 함께 고친다.
+// 로그라인 다섯 칸과 톤 다이얼. canon/logline.py, Swift 앱 FeatureSetup/Logline.swift 와 같은 규칙이라 함께 고친다.
 const LOGLINE_SLOTS = [
   ['who', '누가', '이름보다 특징이 먼저 보이게'],
   ['why', '무엇 때문에', '이야기를 시작하게 만드는 일'],
