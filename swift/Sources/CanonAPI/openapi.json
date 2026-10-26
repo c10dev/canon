@@ -7368,14 +7368,7 @@
      },
      "due_before": {
       "items": {
-       "anyOf": [
-        {
-         "type": "integer"
-        },
-        {
-         "type": "null"
-        }
-       ]
+       "type": "integer"
       },
       "type": "array",
       "title": "Due Before",
@@ -8280,14 +8273,7 @@
       "default": []
      },
      "judge": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/Backend"
-       },
-       {
-        "type": "null"
-       }
-      ]
+      "$ref": "#/components/schemas/Backend"
      }
     },
     "type": "object",
