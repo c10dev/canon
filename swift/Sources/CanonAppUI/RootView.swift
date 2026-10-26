@@ -4,6 +4,7 @@ import CanonStore
 import CanonUI
 import FeatureForeshadow
 import FeatureHome
+import FeatureCast
 import FeatureProjects
 import FeatureStatWin
 import FeatureUsage
@@ -80,6 +81,7 @@ public struct RootView: View {
         case .statwin: StatWinScreen(server: model.server, project: project)
         case .foreshadow: ForeshadowView(server: model.server, project: project)
         case .usage: UsageView(model: UsageModel(source: LiveUsageSource(server: model.server), project: project))
+        case .cast: CastScreen(server: model.server, project: project) { model.screen = $0 }
         default:
             NotPortedYet(screen.label(serial: false))
         }

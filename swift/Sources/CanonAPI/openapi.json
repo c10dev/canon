@@ -5175,9 +5175,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Cast View"
+         "$ref": "#/components/schemas/CastView"
         }
        }
       }
@@ -7407,6 +7405,346 @@
     "type": "object",
     "title": "Backend",
     "description": "실험에 쓸 백엔드. model, url 이 비면 설정 화면 값을 쓴다."
+   },
+   "CastAppearance": {
+    "properties": {
+     "n": {
+      "type": "integer",
+      "title": "N"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "pov": {
+      "type": "boolean",
+      "title": "Pov"
+     }
+    },
+    "type": "object",
+    "required": [
+     "n",
+     "status",
+     "pov"
+    ],
+    "title": "CastAppearance"
+   },
+   "CastChanges": {
+    "properties": {
+     "emotional_state": {
+      "type": "string",
+      "title": "Emotional State",
+      "default": ""
+     },
+     "current_goal": {
+      "type": "string",
+      "title": "Current Goal",
+      "default": ""
+     },
+     "location": {
+      "type": "string",
+      "title": "Location",
+      "default": ""
+     },
+     "knows": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Knows",
+      "default": []
+     }
+    },
+    "type": "object",
+    "title": "CastChanges",
+    "description": "그 화에서 바뀐 상태. 바뀐 칸만 온다 (응답은 exclude_unset)."
+   },
+   "CastFrame": {
+    "properties": {
+     "episode": {
+      "type": "integer",
+      "title": "Episode"
+     },
+     "ties": {
+      "items": {
+       "$ref": "#/components/schemas/CastTie"
+      },
+      "type": "array",
+      "title": "Ties"
+     },
+     "pairs": {
+      "items": {
+       "$ref": "#/components/schemas/CastPair"
+      },
+      "type": "array",
+      "title": "Pairs"
+     },
+     "triads": {
+      "items": {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      "type": "array",
+      "title": "Triads"
+     },
+     "secrets": {
+      "items": {
+       "$ref": "#/components/schemas/CastSecret"
+      },
+      "type": "array",
+      "title": "Secrets"
+     },
+     "states": {
+      "items": {
+       "$ref": "#/components/schemas/CharacterState"
+      },
+      "type": "array",
+      "title": "States"
+     }
+    },
+    "type": "object",
+    "required": [
+     "episode",
+     "ties",
+     "pairs",
+     "triads",
+     "secrets",
+     "states"
+    ],
+    "title": "CastFrame",
+    "description": "한 시점(0 = 1화 시작 전, n = n화 반영 뒤)의 관계 그림."
+   },
+   "CastPair": {
+    "properties": {
+     "a": {
+      "type": "string",
+      "title": "A"
+     },
+     "b": {
+      "type": "string",
+      "title": "B"
+     },
+     "type": {
+      "type": "string",
+      "title": "Type"
+     },
+     "description": {
+      "type": "string",
+      "title": "Description"
+     },
+     "goal_conflict": {
+      "type": "number",
+      "title": "Goal Conflict"
+     },
+     "tension": {
+      "type": "number",
+      "title": "Tension"
+     },
+     "tension_word": {
+      "type": "string",
+      "title": "Tension Word"
+     }
+    },
+    "type": "object",
+    "required": [
+     "a",
+     "b",
+     "type",
+     "description",
+     "goal_conflict",
+     "tension",
+     "tension_word"
+    ],
+    "title": "CastPair",
+    "description": "두 사람 쌍의 긴장. 관계 설정이 없고 사건으로만 생긴 쌍은 type · description 이 빈칸."
+   },
+   "CastSecret": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "owner": {
+      "type": "string",
+      "title": "Owner"
+     },
+     "content": {
+      "type": "string",
+      "title": "Content"
+     },
+     "hidden_from": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Hidden From"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "owner",
+     "content",
+     "hidden_from"
+    ],
+    "title": "CastSecret"
+   },
+   "CastTie": {
+    "properties": {
+     "source": {
+      "type": "string",
+      "title": "Source"
+     },
+     "target": {
+      "type": "string",
+      "title": "Target"
+     },
+     "stage": {
+      "type": "string",
+      "title": "Stage"
+     },
+     "warmth": {
+      "type": "number",
+      "title": "Warmth"
+     },
+     "trust": {
+      "type": "number",
+      "title": "Trust"
+     },
+     "evidence": {
+      "type": "number",
+      "title": "Evidence"
+     },
+     "grievance": {
+      "type": "number",
+      "title": "Grievance"
+     },
+     "status": {
+      "type": "number",
+      "title": "Status"
+     },
+     "familiarity": {
+      "type": "number",
+      "title": "Familiarity"
+     },
+     "warmth_word": {
+      "type": "string",
+      "title": "Warmth Word"
+     },
+     "trust_word": {
+      "type": "string",
+      "title": "Trust Word"
+     }
+    },
+    "type": "object",
+    "required": [
+     "source",
+     "target",
+     "stage",
+     "warmth",
+     "trust",
+     "evidence",
+     "grievance",
+     "status",
+     "familiarity",
+     "warmth_word",
+     "trust_word"
+    ],
+    "title": "CastTie",
+    "description": "한 시점의 방향 관계 (cast.frame). 말은 dynamics 의 구간 표현."
+   },
+   "CastTimelineRow": {
+    "properties": {
+     "n": {
+      "type": "integer",
+      "title": "N"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "appears": {
+      "type": "boolean",
+      "title": "Appears"
+     },
+     "pov": {
+      "type": "boolean",
+      "title": "Pov"
+     },
+     "changes": {
+      "$ref": "#/components/schemas/CastChanges"
+     },
+     "events": {
+      "items": {
+       "$ref": "#/components/schemas/StoryEvent"
+      },
+      "type": "array",
+      "title": "Events"
+     },
+     "secrets": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Secrets"
+     },
+     "new": {
+      "type": "boolean",
+      "title": "New"
+     }
+    },
+    "type": "object",
+    "required": [
+     "n",
+     "title",
+     "appears",
+     "pov",
+     "changes",
+     "events",
+     "secrets",
+     "new"
+    ],
+    "title": "CastTimelineRow"
+   },
+   "CastView": {
+    "properties": {
+     "frames": {
+      "items": {
+       "$ref": "#/components/schemas/CastFrame"
+      },
+      "type": "array",
+      "title": "Frames"
+     },
+     "appearances": {
+      "additionalProperties": {
+       "items": {
+        "$ref": "#/components/schemas/CastAppearance"
+       },
+       "type": "array"
+      },
+      "type": "object",
+      "title": "Appearances"
+     },
+     "timelines": {
+      "additionalProperties": {
+       "items": {
+        "$ref": "#/components/schemas/CastTimelineRow"
+       },
+       "type": "array"
+      },
+      "type": "object",
+      "title": "Timelines"
+     }
+    },
+    "type": "object",
+    "required": [
+     "frames",
+     "appearances",
+     "timelines"
+    ],
+    "title": "CastView"
    },
    "Character": {
     "properties": {
