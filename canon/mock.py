@@ -385,6 +385,9 @@ def _learning(hint: dict) -> StyleLearning:
     return StyleLearning(summary="작가는 긴 문장을 끊고 군더더기 낱말을 지운다.", suggestions=out)
 
 
+# 상태 변경안의 지금 차림: 1화에 처음 적고 2화에 찢어진다. 그 밖의 화는 비워 그대로 둔다
+MOCK_ATTIRE = {1: "젖은 회색 코트, 손전등", 2: "젖은 회색 코트(오른쪽 소매 찢어짐), 손전등, 녹슨 열쇠"}
+
 class MockLLM:
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
         _delay()
@@ -442,6 +445,7 @@ class MockLLM:
             return StateDelta(
                 episode=n, summary=f"{n}화에서 서윤과 도현이 단서를 찾았다.",
                 character_updates=[CharacterState(character_id="hero", emotional_state=f"{n}화 이후 조금 더 단단해짐", knows=[f"{n}화 단서"],
+                                                  attire=MOCK_ATTIRE.get(n, ""),
                                                   stats=[StatValue(name="레벨", value="+1")] if hint.get("stats") else [])],
                 events=[
                     StoryEvent(episode=n, actor="ally", target="hero", kind="거짓말발각", intensity=3,

@@ -7739,6 +7739,11 @@
       "title": "Location",
       "default": ""
      },
+     "attire": {
+      "type": "string",
+      "title": "Attire",
+      "default": ""
+     },
      "knows": {
       "items": {
        "type": "string"
@@ -8163,6 +8168,12 @@
      "location": {
       "type": "string",
       "title": "Location",
+      "default": ""
+     },
+     "attire": {
+      "type": "string",
+      "title": "Attire",
+      "description": "지금 차림: 옷, 몸에 남은 상처 · 얼룩 · 찢어짐, 지니고 다니는 물건. 변경안에는 바뀐 인물만, 이어지는 것까지 다시 적는다",
       "default": ""
      },
      "knows": {
