@@ -1,6 +1,7 @@
 """명령줄 인터페이스.
 
   python -m canon new 내소설           설정 도우미 (질문에 답하면 AI 가 빈칸 제안)
+  python -m canon setupchat 내소설 "주인공 약점을 더 어둡게" [--options] [--pick 1,2 | -y] [--undo 3]   대화로 설정 다듬기 (칸별 변경안, 방향 여러 안)
   python -m canon style 내소설 sample.txt   예시 텍스트로 스타일 프로필 생성 (--save 이름: 라이브러리에도 저장)
   python -m canon style 내소설 --library ID   문체 라이브러리 항목을 작품에 적용
   python -m canon styles [add 이름 파일 | show ID | rm ID | versions ID | restore ID 번호]   문체 라이브러리 (작품과 따로 저장, 버전 기록)
@@ -67,7 +68,7 @@ from . import (autorun, cast, charlog, dynamics, elements, genres, illust, libra
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
-from . import atlas, foreshadows, statwin, timeline, towngen
+from . import atlas, foreshadows, setupchat, statwin, timeline, towngen
 from .schema import ArcProposal, ChatScope, Deadline, MapSpec, StatValue, StoryArc
 
 
@@ -317,6 +318,63 @@ def cmd_stylechat(a: argparse.Namespace) -> None:
             if a.push and p.style_id and library.exists(p.style_id):
                 e = library.push_project(p, f"대화로 다듬음: {a.message[:60]}")
                 print(f"라이브러리 '{e.name}' 을 {e.version}번 버전으로 올렸어요")
+    print(f"저장: {store.save(a.name, p)}")
+
+
+def _setup_value_text(v) -> str:
+    if isinstance(v, list):
+        return " / ".join(v) or "(비움)"
+    return str(v) if v not in ("", None) else "(비움)"
+
+
+def cmd_setupchat(a: argparse.Namespace) -> None:
+    """대화로 설정 다듬기. --options 면 변경안 대신 방향 여러 안, --undo 는 그 메시지 번호의 적용 취소."""
+    p = store.load(a.name)
+    if a.undo is not None:
+        done, kept = setupchat.undo(p, a.undo)
+        rev = p.chat(setupchat.TOPIC).messages[a.undo].setup
+        names = lambda xs: ", ".join(setupchat.label(p, rev, x) for x in xs)  # noqa: E731
+        print(f"되돌렸어요: {names(done) or '없음'}" + (f" · 그대로 둔 것: {names(kept)}" if kept else ""))
+        print(f"저장: {store.save(a.name, p)}")
+        return
+    if not a.message:
+        sys.exit("바라는 것을 적어 주세요 (예: setupchat 작품 \"주인공 약점을 더 어둡게\")")
+    mode = "options" if a.options else ""
+    rev = pipeline.revise_setup(get_llm("plan"), p, a.message, mode)
+    msg = setupchat.record(p, a.message, mode, rev)
+    i = len(p.chat(setupchat.TOPIC).messages) - 1
+    print(rev.reply)
+    for k, o in enumerate(rev.options, 1):
+        print(f"\n{k}안 · {o.title}\n   {o.idea}" + "".join(f"\n   - {x}" for x in o.changes) + (f"\n   얻는 것과 잃는 것: {o.tradeoff}" if o.tradeoff else ""))
+    if rev.options:
+        print("\n고른 안으로 변경안을 받으려면: setupchat 작품 \"1안 방향으로 변경안을 만들어 줘\"")
+    ids = setupchat.part_ids(rev) if msg.setup and not rev.options else []
+    chars = {c.id: c for c in p.characters}
+    for k, pid in enumerate(ids, 1):
+        print(f"\n{k}. [{setupchat.label(p, rev, pid)}]")
+        if pid in setupchat.KEY_LABELS:
+            e = next(x for x in rev.edits if x.key == pid)
+            print(f"   지금: {_setup_value_text(setupchat.key_value(p, pid))}\n   바꾸면: {_setup_value_text(setupchat.edit_value(e))}")
+        elif pid.startswith("c:"):
+            x = next(x for x in rev.characters if setupchat.char_id(x) == pid)
+            print(f"   지금: {_setup_value_text(getattr(chars[x.id], x.field))}\n   바꾸면: {_setup_value_text(setupchat.char_value(x))}")
+        elif pid.startswith("new:"):
+            c = next(c for c in rev.new_characters if f"new:{c.id}" == pid)
+            print(f"   {c.role} · {c.gender} {c.age} · 원하는 것: {c.goal}\n   말투: {c.speech_style}")
+        else:
+            r = next(r for r in rev.relationships if setupchat.rel_id(r) == pid)
+            print(f"   {r.type}{f' · {r.description}' if r.description else ''}"
+                  + (f"\n   보는 방식: {', '.join(r.a_view) or '-'} / {', '.join(r.b_view) or '-'}" if r.a_view or r.b_view else ""))
+    if ids:
+        if a.pick:
+            picked = [ids[int(x) - 1] for x in a.pick.split(",") if x.strip().isdigit() and 0 < int(x) <= len(ids)]
+        elif confirm("이 변경안을 모두 적용할까요?", a.yes):
+            picked = ids
+        else:
+            picked = []
+        if picked:
+            setupchat.apply(p, i, picked)
+            print(f"적용했어요: {', '.join(setupchat.label(p, rev, x) for x in picked)} (취소: setupchat {a.name} --undo {i})")
     print(f"저장: {store.save(a.name, p)}")
 
 
@@ -1820,6 +1878,11 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--pick", help="적용할 칸 번호, 쉼표로 (예: 1,3)")
     sp.add_argument("--push", action="store_true", help="연결된 라이브러리 항목에도 새 버전으로 올림")
     sp.add_argument("--example", action="store_true", help="지금 문체로 예시 글 쓰기")
+    sp = add("setupchat", cmd_setupchat)
+    sp.add_argument("message", nargs="?", help="AI 에게 바라는 것 (예: 주인공 약점을 더 어둡게)")
+    sp.add_argument("--options", action="store_true", help="변경안 대신 서로 다른 방향 2~3개를 받기")
+    sp.add_argument("--pick", help="적용할 부분 번호, 쉼표로 (예: 1,3)")
+    sp.add_argument("--undo", type=int, metavar="번호", help="이 번호 메시지의 변경안 적용을 취소")
     sp = add("edits", cmd_edits, yes=False)
     sp.add_argument("n", type=int, nargs="?")
     sp.add_argument("--undo", metavar="ID", help="이 수정을 되돌림 (예: e2)")

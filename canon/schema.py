@@ -652,6 +652,52 @@ class PlotRevision(BaseModel):
         return bool(self.acts or self.episodes or self.arc.title or self.parts)
 
 
+# ---------- 설정 도우미 대화 (canon/setupchat.py 가 정리 · 적용 · 적용 취소) ----------
+
+SetupKey = Literal["title", "logline.who", "logline.why", "logline.goal", "logline.block", "logline.stake", "theme", "tone", "notes",
+                   "world.setting", "world.era", "world.rules", "world.locations", "world.name_rules"]
+CharField = Literal["name", "role", "age", "gender", "appearance", "personality", "background", "goal", "wound", "speech_style",
+                    "secrets", "arc"]
+
+
+class SetupEdit(BaseModel):
+    """기본 정보 · 세계관 한 칸의 바뀐 뒤 값."""
+    key: SetupKey = Field(description="바꿀 칸 이름")
+    text: str = Field("", description="글 칸일 때: 바뀐 뒤 글 전체")
+    items: list[str] = Field(default_factory=list, description="world.rules · world.locations · world.name_rules 일 때: 바뀐 뒤 목록 전체 (그대로 둘 항목도 모두 넣는다)")
+    why: str = Field("", description="왜 이렇게 바꾸는지 한 줄")
+
+
+class CharacterEdit(BaseModel):
+    """이미 있는 인물 한 칸의 바뀐 뒤 값."""
+    id: str = Field(description="[인물]에 있는 인물 id")
+    field: CharField = Field(description="바꿀 칸 이름")
+    text: str = Field("", description="글 칸일 때: 바뀐 뒤 글 전체")
+    items: list[str] = Field(default_factory=list, description="secrets 일 때: 바뀐 뒤 목록 전체")
+    why: str = Field("", description="왜 이렇게 바꾸는지 한 줄")
+
+
+class SetupRevision(BaseModel):
+    """설정 도우미 대화에서 AI 가 내는 답과 변경안. 작가가 고른 칸만 적용한다 (setupchat.clean · apply)."""
+    reply: str = Field(description="작가에게 하는 대답 2~5문장. 무엇을 왜 바꿨는지, 또는 되묻는 말")
+    edits: list[SetupEdit] = Field(default_factory=list, description="바뀌는 기본 정보 · 세계관 칸만")
+    characters: list[CharacterEdit] = Field(default_factory=list, description="바뀌는 이미 있는 인물의 칸만")
+    new_characters: list[Character] = Field(default_factory=list, description="새로 더할 인물만, 모든 칸을 채운 설정. id 는 이미 있는 인물과 겹치지 않는 영문 소문자")
+    relationships: list[Relationship] = Field(default_factory=list, description="바뀌는 관계나 새 관계만, 바뀐 뒤 값 전체. 같은 두 인물이면 그 관계를 바꾼다")
+    options: list[Direction] = Field(default_factory=list, description="작가가 방향 여러 안을 청했을 때만 서로 다른 방향 2~3개. 그때는 다른 변경 칸을 모두 비움")
+
+    def has_changes(self) -> bool:
+        return bool(self.edits or self.characters or self.new_characters or self.relationships)
+
+
+class SetupBefore(BaseModel):
+    """설정 대화 변경안을 적용하기 전 설정 (적용 취소용)."""
+    meta: Meta = Field(default_factory=Meta)
+    world: WorldSetting = Field(default_factory=WorldSetting)
+    characters: list[Character] = Field(default_factory=list)
+    relationships: list[Relationship] = Field(default_factory=list)
+
+
 class ChatScope(BaseModel):
     """플롯 대화를 보낼 때 화면이 알려 주는 것 (AI 가 채우지 않는다).
     target: '' 기본(단편은 작품 전체, 장편은 본문이 없는 첫 아크), 'arc:3' 그 아크, 'next' 다음 아크 기획."""
@@ -679,7 +725,7 @@ class Selection(BaseModel):
     text: str
 
 
-# 'plot'(기승전결 · 플롯 화면), 'text:<화>'(집필 화면의 본문 부분 수정), 'style'(문체 화면). web._chat 이 검사한다
+# 'plot'(기승전결 · 플롯 화면), 'text:<화>'(집필 화면의 본문 부분 수정), 'style'(문체 화면), 'setup'(설정 도우미). web._chat 이 검사한다
 ChatTopic = str
 
 
@@ -690,19 +736,22 @@ class ChatMessage(BaseModel):
     passage: Optional[PassageRevision] = Field(None, description="assistant 가 낸 본문 부분 수정 후보")
     style: Optional[StyleRevision] = Field(None, description="assistant 가 낸 문체 변경안")
     style_before: Optional[StyleProfile] = Field(None, description="문체 대화: 변경안을 적용하기 전 작품 문체 (적용 취소용)")
+    setup: Optional[SetupRevision] = Field(None, description="assistant 가 낸 설정 변경안이나 방향 여러 안")
+    setup_before: Optional[SetupBefore] = Field(None, description="설정 대화: 변경안을 적용하기 전 설정 (적용 취소용)")
     episode: int = Field(0, description="문체 대화: 작가가 참고하라고 고른 화")
     selection: Optional[Selection] = Field(None, description="본문 부분 수정: 고친 대상")
     preset: str = Field("", description="본문 부분 수정: 고른 빠른 요청 (prompts.PASSAGE_PRESETS)")
     outcome: Literal["", "applied", "dismissed"] = Field("", description="변경안을 반영했는지, 버렸는지")
-    applied: list[str] = Field(default_factory=list, description="반영한 부분: 'acts' 구조, 'arc' 아크 칸, 'parts' 부 구성, 화 번호. 본문 수정이면 후보 번호(0부터), 문체 대화면 칸 이름")
+    applied: list[str] = Field(default_factory=list, description="반영한 부분: 'acts' 구조, 'arc' 아크 칸, 'parts' 부 구성, 화 번호. 본문 수정이면 후보 번호(0부터), 문체 대화면 칸 이름, "
+                                                                 "설정 대화면 부분 id (setupchat.part_ids)")
     target: str = Field("", description="플롯 대화: 변경안이 겨냥한 곳 (ChatScope.target, 기본이면 기록할 때의 실제 대상)")
     where: str = Field("", description="플롯 대화: 작가가 보낼 때 보고 있던 곳 (예: 아크 3 · 승 구간 · 15화)")
-    mode: str = Field("", description="플롯 대화: 'options' 면 방향 여러 안을 청한 말")
+    mode: str = Field("", description="플롯 · 설정 대화: 'options' 면 방향 여러 안을 청한 말")
     at: str = ""
 
 
 class Chat(BaseModel):
-    """화면별 대화 기록. 플롯 화면은 'plot', 본문 부분 수정은 화마다 'text:<화>', 문체 화면은 'style'."""
+    """화면별 대화 기록. 플롯 화면은 'plot', 본문 부분 수정은 화마다 'text:<화>', 문체 화면은 'style', 설정 도우미는 'setup'."""
     topic: ChatTopic
     messages: list[ChatMessage] = Field(default_factory=list)
 
