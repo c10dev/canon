@@ -137,6 +137,12 @@ def _not_auto(name: str) -> None:
         raise ValueError("자동 집필이 도는 중이에요. 일시정지한 뒤에 하세요")
 
 
+class _Out(BaseModel):
+    """응답 모델: 기본값이 있는 칸도 응답에는 늘 있으니 명세에서 필수로 적는다 (Swift 타입이 옵셔널이 되지 않게).
+    null 이 될 수 있는 칸은 scripts/make_openapi.py 의 drop_null 이 옵셔널로 바꾼다."""
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True, populate_by_name=True)
+
+
 # ---------- 프로젝트 ----------
 
 class NewProject(BaseModel):
@@ -145,8 +151,103 @@ class NewProject(BaseModel):
     style_id: str = ""  # 문체 라이브러리에서 고른 항목
 
 
+class StageConfig(_Out):
+    """단계 하나가 지금 쓰는 백엔드와 모델 (settings.public 의 stages)."""
+    provider: str
+    source: str
+    model: str  # 화면에 보일 모델 이름
+    model_source: str
+    env: str  # 백엔드를 정한 환경 변수 이름. 없으면 ""
+    model_env: str
+
+
+class ConfigView(_Out):
+    """설정 화면이 보는 값 (settings.public). 키 원문은 없고 끝 네 글자(`key_hint`)와 출처만 있다."""
+    provider: str
+    provider_source: str
+    model: str
+    model_setting: str
+    model_source: str
+    has_key: bool
+    key_hint: str
+    key_source: str
+    gemini_auth: str
+    gemini_auth_source: str
+    vertex_credentials: str  # 키 파일 경로 (내용이 아님)
+    vertex_credentials_source: str
+    vertex_credentials_found: bool
+    vertex_project: str
+    vertex_project_source: str
+    vertex_location: str
+    vertex_location_source: str
+    local_url: str
+    local_url_source: str
+    local_model: str
+    local_model_source: str
+    has_local_key: bool
+    claude_model: str
+    claude_model_source: str
+    claude_bin: str
+    claude_bin_source: str
+    anthropic_key_hint: str
+    anthropic_key_source: str
+    stages: dict[str, StageConfig]
+    stage_settings: dict[str, str]  # 설정 파일에 적은 단계별 백엔드
+    stage_model_settings: dict[str, str]
+    path: str  # 설정 파일 경로
+
+
+class ConfigTest(_Out):
+    ok: bool
+    message: str
+
+
+class ModelList(_Out):
+    """백엔드 하나의 모델 목록. 못 불러오면 models 가 비고 error · reason(no_key | unreachable | other)이 찬다."""
+    models: list[str] = []
+    error: str = ""
+    reason: str = ""
+
+
+class ConfigHealth(_Out):
+    """AI 를 쓸 수 있는지 (작품 목록 · 사이드바 경고). local 은 로컬을 쓰지 않으면 null."""
+    mock: bool
+    gemini: bool
+    has_key: bool
+    local: bool | None = None
+    local_error: str = ""
+
+
+class ClaudeAccount(_Out):
+    """Claude Code `auth status` 에서 화면에 보일 칸만 (claude.STATUS_FIELDS)."""
+    loggedIn: bool = False
+    authMethod: str = ""
+    apiProvider: str = ""
+    email: str = ""
+    orgName: str = ""
+    organizationName: str = ""
+    subscriptionType: str = ""
+
+
+class ClaudeStatus(_Out):
+    """Claude Code 설치와 구독 로그인 상태 (claude.status). reason: ok | login | metered | install | error."""
+    installed: bool
+    path: str
+    version: str
+    logged_in: bool
+    account: ClaudeAccount = ClaudeAccount()
+    env_token: bool
+    api_key_ignored: bool
+    message: str
+    reason: str
+    login_command: str
+    token_command: str
+    auth_method: str = ""
+    metered: bool = False
+
+
 @app.get("/api/config")
-def config() -> dict:
+def config() -> ConfigView:
     return settings.public()
 
 
@@ -171,7 +272,7 @@ class SettingsIn(BaseModel):
 
 
 @app.put("/api/config")
-def put_config(body: SettingsIn) -> dict:
+def put_config(body: SettingsIn) -> ConfigView:
     choices = settings.PROVIDERS
     if body.provider is not None and body.provider not in choices:
         raise HTTPException(400, f"provider 는 {' / '.join(choices)} 중 하나예요")
@@ -196,7 +297,7 @@ def put_config(body: SettingsIn) -> dict:
 
 
 @app.post("/api/config/test")
-def test_config() -> dict:
+def test_config() -> ConfigTest:
     """단계에서 쓰는 백엔드와 모델마다 연결을 확인한다. 본문 생성 비용은 들지 않는다."""
     used = {(settings.stage_provider(s)[0], settings.stage_model(s)[0]) for s in settings.STAGES}
     used = {u for u in used if u[0] != "mock"}
@@ -214,7 +315,7 @@ def test_config() -> dict:
 
 
 @app.get("/api/config/models")
-def config_models() -> dict:
+def config_models() -> dict[str, ModelList]:
     """설정 화면의 모델 목록. 백엔드마다 실제로 쓸 수 있는 모델을 묻고, 실패하면 이유만 돌려준다."""
     out = {"claude": {"models": claude.CLI_MODELS, "error": ""}}
     makers = [("gemini", GeminiLLM), ("local", lambda: LocalLLM(timeout=5))]
@@ -230,7 +331,7 @@ def config_models() -> dict:
 
 
 @app.get("/api/config/health")
-def config_health() -> dict:
+def config_health() -> ConfigHealth:
     """AI 를 쓸 수 있는지. 작품 목록 · 사이드바 경고에 쓴다: 키 없음, 로컬 서버 응답 없음, mock(가짜 결과)."""
     pub = settings.public()
     provs = {v["provider"] for v in pub["stages"].values()}
@@ -245,7 +346,7 @@ def config_health() -> dict:
 
 
 @app.get("/api/claude/status")
-def claude_status() -> dict:
+def claude_status() -> ClaudeStatus:
     """Claude Code 설치와 구독 로그인 상태. 로그인은 Claude Code 가 하고 Canon 은 상태만 본다 (claude.py)."""
     return claude.status()
 
@@ -2550,12 +2651,6 @@ def brief(name: str, n: int, kind: str = "episode") -> dict:
 
 
 # ---------- 연구 (모델 실험, 작품 데이터와 분리) ----------
-
-class _Out(BaseModel):
-    """응답 모델: 기본값이 있는 칸도 응답에는 늘 있으니 명세에서 필수로 적는다 (Swift 타입이 옵셔널이 되지 않게).
-    null 이 될 수 있는 칸은 scripts/make_openapi.py 의 drop_null 이 옵셔널로 바꾼다."""
-    model_config = ConfigDict(json_schema_serialization_defaults_required=True, populate_by_name=True)
-
 
 class UsageBucket(_Out):
     """사용량 묶음 하나의 합계 (usage.summary 의 bucket)."""

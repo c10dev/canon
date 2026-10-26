@@ -8,6 +8,7 @@ import FeatureCast
 import FeaturePlot
 import FeatureProjects
 import FeatureReview
+import FeatureSettings
 import FeatureSetup
 import FeatureStatWin
 import FeatureStyle
@@ -19,6 +20,7 @@ import SwiftUI
 public struct RootView: View {
     @State private var model = AppModel()
     @State private var showServer = false
+    @State private var showSettings = false
 
     public init() {}
 
@@ -36,6 +38,7 @@ public struct RootView: View {
         }
         .task(id: model.server.config) { await model.jobs.watch() }
         .sheet(isPresented: $showServer) { ServerSettingsView(model: model) }
+        .sheet(isPresented: $showSettings) { SettingsView(server: model.server) }
     }
 
     @ViewBuilder
@@ -49,11 +52,13 @@ public struct RootView: View {
             .navigationTitle(name)
             .toolbar {
                 Button("작품 목록") { model.open(nil) }
+                Button("모델 · API 키") { showSettings = true }
             }
         } else {
             ProjectsView(model: model.projects) { card in model.open(card.name) }
             .toolbar {
                 Button("서버") { showServer = true }
+                Button("모델 · API 키") { showSettings = true }
             }
         }
     }
