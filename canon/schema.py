@@ -420,7 +420,7 @@ class ArcUndo(BaseModel):
     number: int
     characters: list[str] = Field(default_factory=list, description="이 아크가 더한 인물 id")
     foreshadows: list[str] = Field(default_factory=list, description="회수 예정 화를 바꾼 복선 id")
-    due_before: list[int] = Field(default_factory=list, description="foreshadows 와 같은 순서로, 바꾸기 전 회수 예정 화")
+    due_before: list[Optional[int]] = Field(default_factory=list, description="foreshadows 와 같은 순서로, 바꾸기 전 회수 예정 화 (정하지 않았으면 null)")
 
 
 class StoryArc(BaseModel):
@@ -704,6 +704,16 @@ class PlantedContradiction(BaseModel):
 
 class PlantSet(BaseModel):
     items: list[PlantedContradiction] = Field(default_factory=list)
+
+
+class Claim(BaseModel):
+    """두 걸음 검수 1단계: 이번 화 본문에서 뽑은 사실 진술 하나. 판단기가 옛 내용과 맞는지 따로 본다."""
+    quote: str = Field(description="이번 화 본문의 문장 원문 그대로 (한 문장)")
+    claim: str = Field(description="그 문장이 단정하는 사실을 짧은 평서문 하나로. 인물은 이름으로 쓴다")
+
+
+class ClaimSet(BaseModel):
+    claims: list[Claim] = Field(default_factory=list)
 
 
 class ConsistencyReport(BaseModel):
