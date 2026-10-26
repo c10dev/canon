@@ -381,3 +381,56 @@ def test_trees_and_fields_keep_their_place(forest):
     assert all(math.dist(geom.centroid(poly), c) < reach * 2.4 for poly in fields)
     counts = {f: len(towngen.village(spec.model_copy(update={"forest": f}), [])["trees"]) for f in ("few", "many")}
     assert counts["few"] < counts["many"]
+
+
+# ---------- 마을 이름 · 인구, 지도에서 장소 더하기, 집 번호 ----------
+
+def test_title_population_and_numbers():
+    p = _project()
+    out = atlas.generate(p, MapSpec(seed=3, water="sea"))
+    lo = out["layout"]
+    assert len(lo["numbers"]) == lo["houses"] == len(set(lo["numbers"]))
+    assert all(0 <= i < len(lo["buildings"]) for i in lo["numbers"])
+    t = out["title"]
+    assert t == {"title": "흑송촌", "custom": False, "houses": lo["houses"], "population": int(round(lo["houses"] * 5.5, -1))}
+    atlas.set_title(p, "  흑송   나루마을 ")
+    assert p.atlas.title == "흑송 나루마을" and atlas.village_title(p, lo)["custom"]
+    with pytest.raises(ValueError):
+        atlas.set_title(p, "가" * 41)
+    up = {"buildings": [[[0, 0], [1, 0], [1, 1]]] * 4, "roads": []}  # 올린 파일: 집 수가 없으면 건물 수
+    assert atlas.village_title(p, up)["houses"] == 4
+    assert atlas.summary(p)["title"] is None  # 마을이 없으면 제목도 없다
+
+
+def test_add_place_from_map_and_name_ideas():
+    p = _project()
+    key = atlas.add_place(p, " 파도  여관 ", 0.3, 0.4, "여관")
+    el = next(e for e in p.elements if e.id == key)
+    assert (el.kind, el.name, el.found_in, el.description) == ("장소", "파도 여관", "", "여관. 지도에서 더한 곳")
+    assert {pin.place: (pin.x, pin.y) for pin in p.atlas.pins}[key] == (0.3, 0.4)
+    for bad in ("", "파도여관", "흑송 마을"):  # 빈 이름, 띄어쓰기만 다른 이름, 다른 이름(aliases)
+        with pytest.raises(ValueError):
+            atlas.add_place(p, bad, 0.1, 0.1)
+    ideas = atlas.name_ideas(p)
+    assert len(ideas) == 6 and not set(ideas) & {pl["name"] for pl in atlas.places(p)}
+
+
+def test_web_title_places_ideas(tmp_path, monkeypatch):
+    monkeypatch.setenv("CANON_HOME", str(tmp_path))
+    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
+    from canon import store as st, web
+
+    importlib.reload(st)
+    importlib.reload(web)
+    st.save("t", _project())
+    c = TestClient(web.app)
+    assert c.post("/api/projects/t/atlas/generate", json={"spec": {"seed": 5, "water": "river"}, "pins": []}).status_code == 200
+    v = c.get("/api/projects/t/atlas").json()
+    assert v["title"]["title"] == "흑송촌" and v["title"]["population"] > 0
+    assert c.put("/api/projects/t/atlas/title", json={"title": "검은솔 마을"}).json()["atlas"]["title"] == "검은솔 마을"
+    assert c.get("/api/projects/t/atlas").json()["title"] == {**v["title"], "title": "검은솔 마을", "custom": True}
+    assert c.put("/api/projects/t/atlas/title", json={"title": "가" * 41}).status_code == 400
+    assert len(c.get("/api/projects/t/atlas/name-ideas").json()["names"]) == 6
+    r = c.post("/api/projects/t/atlas/places", json={"name": "물레방앗간", "x": 0.4, "y": 0.6}).json()
+    assert r["key"] and {p["place"]: (p["x"], p["y"]) for p in r["project"]["atlas"]["pins"]}[r["key"]] == (0.4, 0.6)
+    assert c.post("/api/projects/t/atlas/places", json={"name": "물레방앗간", "x": 0.1, "y": 0.1}).status_code == 400

@@ -508,7 +508,9 @@ def _village(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
     # 집
     hr = rng("houses")
     buildings: list[Poly] = []
+    numbers: list[int] = []  # 집 번호를 붙일 건물 (필지마다 본채 하나, 붙은 채 · 등대 탑은 뺀다)
     for lot in lots:
+        numbers.append(len(buildings))
         buildings += _houses(lot, hr)
     buildings += [sp["tower"] for sp in spots if sp.get("tower")]
     for sp in spots:
@@ -570,7 +572,7 @@ def _village(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
         "spots": [{"key": sp["key"], "name": sp["name"], "kind": sp["kind"], "x": nx(sp["at"])[0], "y": nx(sp["at"])[1]}
                   for sp in spots if sp.get("at") is not None],
         "missing": missing,
-        "houses": len(lots), "target": target,
+        "houses": len(lots), "target": target, "numbers": numbers,
     }
 
 

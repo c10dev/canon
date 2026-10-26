@@ -134,7 +134,7 @@ def summary(p: Project, layout: Optional[dict] = None) -> dict:
     aspect = round(layout["w"] / layout["h"], 4) if layout else p.atlas.aspect  # 마을 데이터가 있으면 마을을 그린다
     return {"places": pls, "frames": fs, "unmatched": unmatched(p, fs), "image": p.atlas.image,
             "aspect": aspect, "links": [ln.model_dump() for ln in p.atlas.links],
-            "layout": layout_info(p, layout) if layout else None}
+            "layout": layout_info(p, layout) if layout else None, "title": village_title(p, layout) if layout else None}
 
 
 # ---------- 마을 · 도시 데이터 (Watabou 생성기 JSON) ----------
@@ -362,6 +362,49 @@ def add_routes(fs: list[dict], pins: dict, g: dict, meters: float) -> None:
                 r["route"] = {"points": pts, "meters": round(m), "minutes": max(1, round(m / WALK_MPS / 60))}
 
 
+# ---------- 마을 이름 · 인구, 지도에서 장소 더하기 ----------
+
+POP_PER_HOUSE = 5.5  # 집 한 채에 사는 사람 (어림. Watabou 마을의 인구 표시와 비슷한 규모)
+
+
+def village_title(p: Project, layout: dict) -> dict:
+    """지도 위 제목: 작가가 정한 이름, 없으면 '마을 가운데' 종류 장소 이름. 인구는 집 수 × POP_PER_HOUSE 를 10 단위로."""
+    name = p.atlas.title
+    if not name:
+        name = next((x["name"] for x in gen_places(p, p.atlas.spec) if x["kind"] == "center" and x["put"]), "")
+    houses = layout.get("houses") or len(layout.get("numbers") or layout.get("buildings") or [])
+    return {"title": name, "custom": bool(p.atlas.title), "houses": houses, "population": int(round(houses * POP_PER_HOUSE, -1))}
+
+
+def set_title(p: Project, title: str) -> None:
+    t = " ".join(title.split())
+    if len(t) > 40:
+        raise ValueError("마을 이름은 40자까지 적을 수 있어요")
+    p.atlas.title = t
+
+
+def add_place(p: Project, name: str, x: float, y: float, kind: str = "") -> str:
+    """지도에서 고른 자리(건물 등)를 새 장소로 등록하고 그 자리에 놓는다. 인과율 '장소' 요소가 된다 (작가가 더한 요소).
+    돌려주는 것: 새 장소 키."""
+    n = " ".join(name.split())
+    if not n:
+        raise ValueError("장소 이름을 적어 주세요")
+    pls = places(p)
+    if place_by_name(n, pls):
+        raise ValueError(f"이미 있는 장소예요: {n}")
+    if not elements.add_places(p, [NewPlace(name=n, kind=kind.strip(), description="지도에서 더한 곳")], 0, ""):
+        raise ValueError(f"비슷한 이름의 장소가 이미 있어요: {n}")
+    key = place_by_name(n, places(p))
+    set_pins(p, [*p.atlas.pins, MapPin(place=key, x=x, y=y)])
+    return key
+
+
+def name_ideas(p: Project, n: int = 6) -> list[str]:
+    """새 장소 이름 후보 (작품 이름 스타일, 이미 있는 장소 이름은 뺀다). LLM 을 부르지 않는다."""
+    have = {pl["name"] for pl in places(p)}
+    return [c.name for c in naming.generate_places(naming.resolve_style(p), n, exclude=have)]
+
+
 # ---------- 지도 만들기 (마을 생성기 canon/towngen.py) ----------
 
 def gen_places(p: Project, spec: Optional[MapSpec] = None) -> list[dict]:
@@ -413,6 +456,7 @@ def generate(p: Project, spec: MapSpec) -> dict:
                      for s in lo["spots"]],
             "missing": lo["missing"],
             "blocked": [{"place": k, "name": names.get(k, k)} for k, xy in pins.items() if k not in spots and _blocked(lo, xy)],
+            "title": village_title(p, lo),
             "info": {"houses": lo["houses"], "buildings": len(lo["buildings"]), "roads": sum(r["kind"] == "road" for r in lo["roads"]),
                      "bridges": sum(r["kind"] == "bridge" for r in lo["roads"]), "width_m": round(lo["w"]), "height_m": round(lo["h"])}}
 
