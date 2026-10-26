@@ -28,7 +28,7 @@ canon-probe            개발용: 실제 서버 응답이 타입대로 읽히는
 규칙:
 
 1. `CanonCore` 는 다른 모듈에 기대지 않는다. Foundation 만 쓴다.
-2. `Feature*` 끼리는 서로 기대지 않는다. 화면을 잇는 일은 `CanonAppUI` 가 한다.
+2. `Feature*` 끼리는 서로 기대지 않는다. 화면을 잇는 일은 `CanonAppUI` 가 한다. 작품 전체를 함께 쓰는 화면은 `CanonStore.ProjectDocument` 하나를 받는다 (`AppModel.document`).
 3. Model 은 SwiftUI 를 가져오지 않는다. 서버는 프로토콜(예: `ProjectListing`) 뒤에 두고 시험에서 가짜로 바꾼다.
 4. View 파일은 `#if canImport(SwiftUI)` 로 감싼다. 그래서 Model 과 시험은 Linux 에서도 빌드된다.
 5. 서버 타입을 손으로 다시 정의하지 않는다. `Components.Schemas.*` (생성된 타입)를 쓴다.
@@ -39,8 +39,14 @@ canon-probe            개발용: 실제 서버 응답이 타입대로 읽히는
 | `CanonCore` | `ServerConfig`, `ClientIdentity`, `CanonError`(웹 `fmtErr` 와 같은 문구), `APIPath`(작품 이름 인코딩), `Job` · `JobTracker` · `JobText`(웹 `pollJobs`), `KoreanText`(조사, 'a~b화', 날짜), `EpisodeStatus`, `Screen`(사이드바) |
 | `CanonAPI` | 생성된 `Client`(빌드 때 `openapi.json` 에서), `CanonServer`(헤더, 오류 바꾸기, 타입 없는 GET), `ProjectLoader`(작품 전체를 ETag 로) |
 | `CanonUI` | `Notice`, `NotPortedYet` |
+| `CanonStore` | `ProjectDocument`(연 작품: 받기, `edit`, 고친 표시, `save` 의 409 충돌 · 덮기, 서버가 지킨 칸 알림), `ProjectStoring` |
 | `FeatureProjects` | 작품 목록: `ProjectsModel`, `ProjectCardText`(웹 `projectNext`), `LiveProjectListing`, `ProjectsView` |
-| `CanonAppUI` | `AppModel`(서버 · 작품 · 화면 · 작업), `RootView`, 서버 주소 화면 |
+| `FeatureHome` | 작품 홈: `HomeSummary`(웹 `viewHome` · `nextStep` · `currentEp`), `HomeView` |
+| `FeatureStatWin` | 상태창 수치: `StatWinModel`, `StatWinText`(웹 `swResolve` 등), `StatCell`(비교표 칸), `LiveStatWin`, `StatWinScreen` |
+| `FeatureForeshadow` | 복선 센터: `ForeshadowModel`, `ForeshadowChange`(고치기 · 걸린 문장 지우기 · 정리), `ForeshadowText`(웹 `fsItem` · `fsShown`), `ForeshadowTrack`(웹 `fsTrack`), `LiveForeshadowService`, `ForeshadowView` |
+| `FeatureUsage` | 사용량 · 비용: `UsageModel`(기간 · 작품 거르기, 가격표 고치기 · 되돌리기), `UsageText` · `UsageChart`(웹 `usage.js` 문구 · 막대), `LiveUsageSource`, `UsageView` |
+| `FeatureCast` | 인물 · 관계도: `CastModel`(시점 재생, 고르기, 배치), `CastText`(웹 `cast.js` 문구), `WarmthBand`, `CastLayout`(힘 배치 · 선 모양), `CastHit`, `LiveCastSource`(작품 전체 + `cast_view`), `DefaultsLayoutStore`, `CastScreen` |
+| `CanonAppUI` | `AppModel`(서버 · 작품 · 화면 · 작업 · 연 작품), `RootView`, 저장 띠 `SaveBar`, 서버 주소 화면 |
 
 ## 개발 명령
 
@@ -54,6 +60,8 @@ docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v "$PWD/swift":/src -w /src s
 # 실제 서버에 붙어 보기 (서버를 먼저 띄운다)
 docker run --rm --network host -u $(id -u):$(id -g) -e HOME=/tmp -v "$PWD/swift":/src -w /src swift:6.3.3-noble swift run canon-probe http://127.0.0.1:8000
 ```
+
+저장과 409 충돌까지 보려면 시험 서버에서 `--save <작품>` 을 붙인다 (그 작품을 바꾸지 않고 두 번 저장한다). `canon-probe` 는 작품마다 저장 왕복(받은 JSON 을 생성 타입으로 읽고 다시 써서 빠지는 칸이 있는지)도 본다.
 
 Mac (Xcode 16 이상):
 
@@ -93,13 +101,17 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | 순서 | 모듈 | 화면 (사이드바 이름) | 웹 파일 | 서버 |
 |---|---|---|---|---|
 | 1 | `FeatureProjects` | 작품 목록 | `app.js` `viewProjects` | `list_projects` — **됨** |
-| 2 | `FeatureHome` | 작품 홈, 작품 저장(409 · merged) | `app.js` | `get_project`, `put_project` |
+| 2 | `FeatureHome`, `CanonStore` | 작품 홈, 작품 저장(409 · merged) | `app.js` `viewHome` `save` | `get_project`, `put_project` — **됨** (남음: 홈의 자동 집필 줄 · 관계 카드 · 장편 전환 단추, 작업 결과를 받아 `merged` 로 알리기) |
 | 3 | `FeatureWrite` | 집필 (부분 수정, 다시 생성, 문체 표시, 복사, 삽화) | `passage.js` `rewrite.js` `marks.js` `publish.js` `illust.js` `opening.js` `restate.js` | `pipeline.edit_text` 등 |
 | 4 | `FeatureReview` | 상태 승인 | `app.js` `restate.js` `statwin.js`(`swDeltaRows`) `foreshadow.js`(`fsClueRows`) | `.../state`, `.../apply` |
 | 5 | `FeaturePlot` | 기승전결 · 플롯 / 부 · 아크 · 플롯, AI 대화 | `app.js` `chat.js` `insert.js` `convert.js` | `plots`, `chat`, `series`, `arcs` |
 | 6 | `FeatureSetup`, `FeatureStyle` | 설정 도우미, 문체 레퍼런스 | `app.js` `mystyle.js` | `suggest`, `style`, `styles` |
-| 7 | 작품 도구 | 인물 · 관계도, 지도, 복선 센터, 상태창 수치, 이야기 줄기, 인과율, 작업지시서, 자동 집필 | `cast.js` `atlas.js` `foreshadow.js` `statwin.js` `lines.js` `causal.js` `auto.js` | 각 화면 |
-| 8 | 본편과 분리 · 설정 | 연구, 사용량, 모델 · API 키 설정 | `usage.js` `claude.js` `vertex.js` | `research`, `usage`, `config` |
+| 7 | `FeatureCast` | 인물 · 관계도 (관계도 재생, 인물 · 두 사람 상세, 추이 그래프, 등장표) | `cast.js` | `cast_view`(`CastView`) — **됨**. 수치 직접 보정(`adjust_tie`)과 말로 · 숫자로 저장(`PUT .../view`)은 아직 웹에서 |
+| 7 | `FeatureForeshadow` | 복선 센터 | `foreshadow.js` | `foreshadow_*` — **됨** (본문에서 문장 골라 걸기는 3, `fsClueRows` 는 4에서) |
+| 7 | `FeatureStatWin` | 상태창 수치 (항목 고치기, 틀, 복사, 서식, 화별 변화 표) | `statwin.js` (`swDeltaRows` 는 4 상태 승인) | `statwin_view`(`StatwinView`), `statwin_set`, `statwin_template` — **됨** |
+| 7 | 작품 도구 (남은 것) | 지도, 이야기 줄기, 인과율, 작업지시서, 자동 집필 | `atlas.js` `lines.js` `causal.js` `auto.js` | 각 화면 |
+| 8 | `FeatureUsage` | 사용량 · 비용 | `usage.js` | `usage_summary` · `usage_prices` — **됨** |
+| 8 | 본편과 분리 · 설정 (남은 것) | 연구, 모델 · API 키 설정 | `claude.js` `vertex.js` | `research`, `config` |
 
 새 화면 모듈을 만들 때:
 
@@ -107,7 +119,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 2. 그 화면이 쓰는 dict 응답에 pydantic 응답 모델을 달고 `python scripts/make_openapi.py` 를 돌린다.
 3. Model 을 쓴다. 서버 호출은 프로토콜 뒤에 두고, 웹 화면의 문구 규칙은 웹과 같은 문구로 시험한다.
 4. View 를 `#if canImport(SwiftUI)` 안에 쓴다. 화면 문구는 웹과 같은 해요체다.
-5. `CanonAppUI` 의 `RootView.detail` 에서 그 화면을 잇는다.
+5. `CanonAppUI` 의 `RootView.screen(_:project:)` 에 `case` 한 줄을 더해 그 화면을 잇는다. 모듈은 `CanonAppUI` 의존에 더한다.
 6. Linux Docker 시험과 `canon-probe` 를 돌리고, Mac 에서 화면을 본다.
 
 ## 웹과 같은 규칙 (함께 고친다)
@@ -122,6 +134,13 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | `Screen` | `sidebar` 의 `items` · `tools` |
 | `JobTracker` · `JobText` | `pollJobs` · `finishJob` |
 | `ProjectCardText` | `viewProjects` · `projectNext` |
+| `HomeSummary` | `viewHome` · `nextStep` · `currentEp` · `actGroups` |
+| `SaveText` · `ProjectDocument.edited` | `save()` 의 토스트와 `edited` |
+| `StatWinText.resolve` | `statwin.js` `swResolve` (서버 `statwin.resolve`, 시험은 `tests/test_statwin.py` 의 `test_resolve` 와 같은 사례) |
+| `StatWinText.pick` · `outgoing` · `presetLabel`, `StatCell` | `statwin.js` `swLoad` · `swSave` · `swEditor` · `swTimeline` |
+| `WarmthBand` (경계 -0.6 · -0.2 · 0.2 · 0.6, 값이 경계보다 작으면 그 구간) | `cast.js` `WARMTH_BANDS`, 서버 `dynamics.warmth_word` |
+| `CastText`, `CastText.fixed`(JS `toFixed` 반올림) | `cast.js` `tieText` · `tensionText` · `frameLabel` · `castTimeline` · `castChart` 범위, `app.js` `GOOD_EVENTS` · `INTENSITY` |
+| `CastLayout.force` · `curve` | `cast.js` `castForce` · 간선 곡선 |
 
 ## 알려진 한계
 
@@ -129,5 +148,5 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 - `swift test` 는 macOS 로만 빌드한다. iOS 에만 없는 API 는 iOS 대상 빌드에서만 드러난다. 예: iOS 의 `List(selection:)` 은 옵셔널 선택만 받는다. 화면을 고치면 iPad 시뮬레이터로도 빌드한다.
 - 서버 주소에 하위 경로(`https://host/canon`)를 쓰면 `ProjectLoader` · `CanonServer.get` 이 경로를 잃는다. 지금 서버는 루트에 연다.
 - `openapi.json` 은 설치된 FastAPI · pydantic 판에 따라 글이 조금 달라질 수 있다 (`requirements.txt` 는 가장 낮은 판만 정한다). 다른 기기에서 `tests/test_openapi.py` 가 코드 변경 없이 실패하면 그 기기에서 명세를 다시 만들고 차이를 본다. 2026-10-26 명세는 FastAPI 0.159.1, pydantic 2.14.1 로 만들었다.
-- 생성기는 빌드 때 `Schema "null" is not supported` 경고를 낸다 (68곳, `str | None` 같은 칸의 `anyOf` 에 든 `null`). 그 칸은 Swift 옵셔널이 되고 `null` 값도 읽힌다 (`canon-probe` 로 작품 전체를 읽어 확인).
+- 서버의 `str | None` 같은 칸은 명세에서 `anyOf` 의 `null` 을 빼고 옵셔널로 둔다 (`scripts/make_openapi.py` 의 `drop_null`, 68곳). 생성기는 `null` 을 읽지 못해 그대로 두면 그 칸을 생성 타입에서 빼고, 앱이 작품을 저장할 때 그 칸이 지워진다. 서버의 `null` 은 `nil` 로 읽히고, `nil` 은 칸을 빼고 보내 서버 기본값이 된다.
 - 작업별 완료 문구(웹 `JOB_DONE_MSG`)와 작업 결과 받아 오기(웹 `mergeEpisodes`)는 아직 없다. 집필 · 플롯 화면을 옮길 때 더한다.
