@@ -2632,7 +2632,7 @@ def apply_delta(p: Project, d: StateDelta) -> None:
             cur = upd.model_copy(deep=True, update={"stats": []})
             p.states.append(cur)
         else:
-            for field in ("emotional_state", "current_goal", "location", "notes"):
+            for field in ("emotional_state", "current_goal", "location", "attire", "notes"):
                 if getattr(upd, field):
                     setattr(cur, field, getattr(upd, field))
             cur.knows += [k for k in upd.knows if k not in cur.knows]

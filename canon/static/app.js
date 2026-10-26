@@ -835,6 +835,11 @@ document.addEventListener('input', (e) => {
     const c = $('#dsum-count');
     if (c) c.textContent = el.value.length.toLocaleString();
   }
+  if (el.dataset.attire != null) {  // 상태 승인 화면에서 고친 지금 차림 (반영 때 변경안 그대로 보낸다)
+    const d = S.deltas[el.dataset.attireEp];
+    const u = d && d.character_updates[+el.dataset.attire];
+    if (u) u.attire = el.value;
+  }
 });
 
 document.addEventListener('change', (e) => {
@@ -2904,7 +2909,7 @@ function viewHome() {
 
   const states = p.characters.map((c) => {
     const s = p.states.find((x) => x.character_id === c.id) || {};
-    const lines = [['감정', s.emotional_state], ['목표', s.current_goal], ['위치', s.location]].filter(([, v]) => v);
+    const lines = [['감정', s.emotional_state], ['목표', s.current_goal], ['위치', s.location], ['차림', s.attire]].filter(([, v]) => v);
     return `<div class="kv"><div style="font-size:0.875rem;font-weight:700">${esc(c.name)} <span class="small" style="font-weight:400">${esc(c.role)}</span></div>${lines.map(([k, v]) => `<div class="line">${k}: ${esc(v)}</div>`).join('') || '<div class="line small">아직 변화 없음</div>'}</div>`;
   }).join('');
   const openFs = p.foreshadows.filter((f) => f.status === 'open');
@@ -4398,8 +4403,10 @@ function viewReview(n) {
     const rows = [['감정', 'emotional_state'], ['목표', 'current_goal'], ['위치', 'location'], ['메모', 'notes']]
       .filter(([, f]) => u[f]).map(([k, f]) => `<div class="small">${k}</div>${diff(cur[f], u[f])}`).join('');
     const knows = u.knows.filter((k) => !(cur.knows || []).includes(k)).map((k) => `<span class="after">+ ${esc(k)}</span>`).join(' ');
+    // 지금 차림은 AI 가 틀리게 적었으면 여기서 고쳐 반영한다 (data-attire 입력이 변경안을 바로 고친다)
+    const attire = u.attire ? `<div class="small"><label for="at-${i}">차림</label></div>${cur.attire && cur.attire !== u.attire ? `<div class="row"><span class="before">${esc(cur.attire)}</span><span class="small">→</span></div>` : ''}<input id="at-${i}" data-attire="${i}" data-attire-ep="${n}" value="${esc(u.attire)}">` : '';
     const unknown = !p.characters.some((c) => c.id === u.character_id) && !(d.new_characters || []).some((c) => c.id === u.character_id);
-    return `<div class="change">${box('c' + i)}<div class="body"><label for="pk-c${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(u.character_id))}${unknown ? ' <span class="chip draft">설정에 없는 인물</span>' : ''}</label>${rows}${swDeltaRows(u, cur)}${knows ? `<div class="small">알게 된 정보</div><div class="row">${knows}</div>` : ''}</div></div>`;
+    return `<div class="change">${box('c' + i)}<div class="body"><label for="pk-c${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(u.character_id))}${unknown ? ' <span class="chip draft">설정에 없는 인물</span>' : ''}</label>${rows}${attire}${swDeltaRows(u, cur)}${knows ? `<div class="small">알게 된 정보</div><div class="row">${knows}</div>` : ''}</div></div>`;
   }).join('');
 
   const events = d.events.map((ev, i) => {
@@ -4454,7 +4461,7 @@ function historyView(h) {
   const li = (arr) => arr.length ? `<ul style="padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:0.8125rem;line-height:1.5">${arr.map((x) => `<li>${x}</li>`).join('')}</ul>` : '<div class="small">없음</div>';
   return `<section class="card"><h2>요약</h2><p style="font-size:0.875rem;line-height:1.7">${esc(h.summary)}</p></section>
     <div class="grid-auto">
-      <section class="card"><h2>인물 상태</h2>${li(h.character_updates.map((u) => `<strong>${esc(charName(u.character_id))}</strong> ${esc([u.emotional_state, u.current_goal, u.location].filter(Boolean).join(' / '))}${u.knows.length ? ` · 앎: ${esc(u.knows.join(', '))}` : ''}`))}</section>
+      <section class="card"><h2>인물 상태</h2>${li(h.character_updates.map((u) => `<strong>${esc(charName(u.character_id))}</strong> ${esc([u.emotional_state, u.current_goal, u.location].filter(Boolean).join(' / '))}${u.attire ? ` · 차림: ${esc(u.attire)}` : ''}${u.knows.length ? ` · 앎: ${esc(u.knows.join(', '))}` : ''}`))}</section>
       <section class="card"><h2>관계 사건</h2>${li((h.events || []).map((ev) => `${esc(charName(ev.actor))} → ${esc(charName(ev.target))} · ${esc(ev.kind)} ${INTENSITY[ev.intensity] || ''}${ev.witnesses && ev.witnesses.length ? ` · 목격: ${ev.witnesses.map(charName).map(esc).join(', ')}` : ''}${ev.reveals_secret ? ` · 드러난 비밀: ${esc(secretLabel(ev.reveals_secret, h))}` : ''}${ev.quote ? `<br><span class="small">“${esc(ev.quote)}”</span>` : ''}`))}</section>
       <section class="card"><h2>사실과 복선</h2>${li([...h.new_facts.map(esc), ...h.foreshadow_planted.map((f) => '심음: ' + esc(f.description)), ...h.foreshadow_resolved.map((id) => { const f = P().foreshadows.find((x) => x.id === id); return '회수: ' + esc(f ? f.description : id); })])}</section>
       ${(h.new_characters || []).length ? `<section class="card"><h2>새로 나온 인물</h2>${li(h.new_characters.map((c) => `<strong>${esc(c.name || c.id)}</strong> <span class="small">${esc(c.role || '')}</span>`))}</section>` : ''}

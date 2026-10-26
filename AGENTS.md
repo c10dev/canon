@@ -12,7 +12,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 
 | 파일 | 역할 |
 |---|---|
-| `canon/schema.py` | pydantic 데이터 스키마. 모든 상태는 `Project` 하나(`project.json`)에 저장 |
+| `canon/schema.py` | pydantic 데이터 스키마. 모든 상태는 `Project` 하나(`project.json`)에 저장. 인물 지금 차림(`CharacterState.attire`, 옷 · 상처 · 지닌 물건)은 지금 값만 덮어쓰고 지난 값은 스냅샷, 규칙은 `prompts.ATTIRE_STATE_RULE` · `attire_write_rule` · `attire_check_rule` |
 | `canon/prompts.py` | 프롬프트 템플릿, 화별 컨텍스트 조립(`build_episode_context`), 작업지시서(`episode_brief`, `state_brief`) |
 | `canon/pipeline.py` | 단계별 로직: 설정 제안 → 스타일 분석 → 기승전결 → 화별 플롯(대화로 다듬기 `revise_plot`/`apply_revision` 포함, 대상 `chat_target`: 고른 아크 · 다음 아크, 아크 칸 · 부 구성 변경안, 방향 여러 안, 플롯이 데려온 새 인물은 후보 `Project.cast_candidates`, 새 장소는 `Project.place_candidates` 로 두고 화 확정 `confirm_plot` 때 등록. 상태 변경안 정리 `clean_delta`) → 본문 → 검수 → 상태 추출/반영. 장편은 부 계획(`plan_series`) → 다음 아크(`plan_next_arc`/`apply_arc`) → 아크 · 부 요약(`recap`/`apply_recap`). 단편 → 장편 전환은 이어 쓰기 `propose_conversion`/`apply_conversion`, 재구성 `propose_rebuild`/`apply_rebuild`(옛 상태 변경안 재사용 `carried_delta`, 다듬기 `propose_rework`/`accept_rework`), 되돌리기 `undo_conversion` |
 | `canon/context.py` | 장편 프롬프트 크기 관리: 블록 재기(`blocks`, 사용량 기록 · 연구 화면), 블록 글자 예산(`BUDGET`), 관련 사실(`pick_facts`) · 비밀(`pick_secrets`) · 떡밥(`rank_foreshadows`) 고르기, 기획 프롬프트 인물(`planning_cast`), 검수용 옛 본문 단락 찾기(`recall`). LLM 호출 없음. 단편 경로는 쓰지 않는다 |

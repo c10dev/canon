@@ -927,7 +927,8 @@ def cmd_stats(a: argparse.Namespace) -> None:
 def _print_delta(d: StateDelta) -> None:
     print(f"\n=== {d.episode}화 상태 변경안 ===\n요약: {d.summary}")
     for c in d.character_updates:
-        print(f"- 인물 {c.character_id}: 감정={c.emotional_state} 목표={c.current_goal} 위치={c.location} 새로 앎={c.knows}")
+        print(f"- 인물 {c.character_id}: 감정={c.emotional_state} 목표={c.current_goal} 위치={c.location}"
+              + (f" 차림={c.attire}" if c.attire else "") + f" 새로 앎={c.knows}")
         if c.stats:
             print(f"  · 상태창: {', '.join(f'{x.name} {x.value or "지움"}' for x in c.stats)}")
     for e in d.events:

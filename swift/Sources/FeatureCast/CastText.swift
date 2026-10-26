@@ -141,6 +141,7 @@ public enum CastText {
         if let v = r.changes.emotionalState { out.append(("감정", v)) }
         if let v = r.changes.currentGoal { out.append(("목표", v)) }
         if let v = r.changes.location { out.append(("위치", v)) }
+        if let v = r.changes.attire { out.append(("차림", v)) }
         if let k = r.changes.knows { out.append(("알게 됨", k.joined(separator: ", "))) }
         for s in r.secrets { out.append(("비밀 생김", s)) }
         return out

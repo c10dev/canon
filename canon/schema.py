@@ -783,6 +783,7 @@ class CharacterState(BaseModel):
     emotional_state: str = ""
     current_goal: str = ""
     location: str = ""
+    attire: str = Field("", description="지금 차림: 옷, 몸에 남은 상처 · 얼룩 · 찢어짐, 지니고 다니는 물건. 변경안에는 바뀐 인물만, 이어지는 것까지 다시 적는다")
     knows: list[str] = Field(default_factory=list, description="이 인물이 알게 된 핵심 정보")
     notes: str = ""
     stats: list[StatValue] = Field(default_factory=list, description="상태창 수치. 작가가 상태창을 만든 인물만. 변경안에는 바뀐 항목만 넣는다")

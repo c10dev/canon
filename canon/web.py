@@ -1936,6 +1936,7 @@ class CastChanges(BaseModel):
     emotional_state: str = ""
     current_goal: str = ""
     location: str = ""
+    attire: str = ""
     knows: list[str] = []
 
 
