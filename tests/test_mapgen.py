@@ -124,14 +124,14 @@ def test_far_place_goes_to_the_road_out():
 def test_village_summary_snapshot():
     """알고리즘을 바꾸면 이 값이 바뀐다. 그때 VERSION 을 올리고 함께 고친다."""
     lo = towngen.village(MapSpec(seed=7, water="river"), SPOTS)
-    assert towngen.VERSION == 3
+    assert towngen.VERSION == 4
     assert (lo["houses"], len(lo["buildings"]), len(lo["roads"]), lo["retries"]) == SNAPSHOT
     sea = towngen.village(MapSpec(seed=7, water="sea"), SPOTS)
     assert (sea["houses"], len(sea["buildings"]), len(sea["roads"]), sea["retries"]) == SEA_SNAPSHOT
 
 
-SNAPSHOT = (53, 69, 29, 0)
-SEA_SNAPSHOT = (44, 59, 27, 0)
+SNAPSHOT = (63, 89, 16, 0)
+SEA_SNAPSHOT = (69, 93, 17, 0)
 
 
 @pytest.mark.skipif(os.environ.get("CANON_PERF") != "1", reason="CANON_PERF=1 일 때만 잰다")
@@ -434,3 +434,20 @@ def test_web_title_places_ideas(tmp_path, monkeypatch):
     r = c.post("/api/projects/t/atlas/places", json={"name": "물레방앗간", "x": 0.4, "y": 0.6}).json()
     assert r["key"] and {p["place"]: (p["x"], p["y"]) for p in r["project"]["atlas"]["pins"]}[r["key"]] == (0.4, 0.6)
     assert c.post("/api/projects/t/atlas/places", json={"name": "물레방앗간", "x": 0.1, "y": 0.1}).status_code == 400
+
+
+# ---------- 연립 줄 · 헛간 · 상징 건물 ----------
+
+@pytest.mark.parametrize("seed,water,roads", [(7, "river", "cross"), (2, "none", "square"), (4, "sea", "line")])
+def test_village_rows_barns_landmark(seed, water, roads):
+    """가운데는 집이 맞붙은 연립 줄, 바깥 농가에는 긴 헛간, 가운데 가까이 상징 건물(신전 · 사당 장소가 차지한다)."""
+    lo = towngen.village(MapSpec(seed=seed, water=water, roads=roads), SPOTS)
+    blds = [[_m(lo, q) for q in poly] for poly in lo["buildings"]]
+    mains = [blds[i] for i in lo["numbers"]]
+    assert sum(1 for i, a in enumerate(mains) for b in mains[i + 1:] if geom.convex_overlap(a, b, 0.5)) >= 5  # 맞붙은 본채
+    numbered = set(lo["numbers"])
+    sides = [sorted((math.dist(b[0], b[1]), math.dist(b[1], b[2]))) for i, b in enumerate(blds) if i not in numbered and len(b) == 4]
+    assert any(long >= 12 and long >= 2 * short for short, long in sides)  # 헛간
+    at = {s["key"]: _m(lo, (s["x"], s["y"])) for s in lo["spots"]}
+    assert geom.inside(at["b"], max(blds, key=lambda p: abs(geom.area(p))))  # 신전 = 가장 큰 건물
+    assert math.dist(at["b"], at["a"]) < 60
