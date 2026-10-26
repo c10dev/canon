@@ -51,6 +51,7 @@ from .schema import (
     StoryArc,
     StoryEvent,
     Storyline,
+    StoryTime,
     StorylineProposal,
     EditPair,
     StyleDevice,
@@ -2131,6 +2132,49 @@ def remove_episode(p: Project, n: int) -> list[str]:
     if moved:
         head += f" 원래 {moved[0]}~{moved[-1]}화는 {moved[0] - 1}~{moved[-1] - 1}화가 됐어요."
     return [head, *notes]
+
+
+def delete_last(p: Project, n: int, keep_plot: bool = False) -> list[str]:
+    """본문이 있거나 상태를 반영한 마지막 n 화를 지운다: n 화부터 반영을 취소하고(revert), 본문 · 수정 기록 · 이전 판 · 삽화 ·
+    검수 결과를 비운 뒤 화를 뺀다(remove_episode). keep_plot 이면 빼지 않고 확정된 플롯으로 남겨 다시 쓸 수 있게 한다.
+    중간 화는 뒤 화가 그 화 위에 쌓여 있어 지우지 않는다. 중간에 막히면 아무것도 바꾸지 않는다. 반영한 내용 설명을 돌려준다."""
+    q = p.model_copy(deep=True)
+    notes = _delete_last(q, n, keep_plot)
+    for f in Project.model_fields:
+        setattr(p, f, getattr(q, f))
+    return notes
+
+
+def _delete_last(p: Project, n: int, keep_plot: bool) -> list[str]:
+    ep = p.episode(n)
+    last = renumber.last_fixed(p)
+    if n != last:
+        if n < last:
+            raise ValueError(f"{n}화는 뒤에 본문이 있거나 반영한 화({last}화까지)가 있어 지울 수 없어요. 마지막 화부터 지우세요")
+        raise ValueError(f"{n}화는 본문도 반영도 없어요. 플롯을 빼려면 화 빼기를 쓰세요")
+    notes = []
+    applied = ep.status == "finalized" or any(x.episode >= n for x in [*p.history, *p.snapshots, *p.events])
+    if applied:
+        if p.snapshot(n - 1) is None:
+            raise ValueError(f"{n - 1}화 스냅샷이 없어 {n}화 반영을 취소할 수 없어요")
+        added = [c.name or c.id for d in p.history if d.episode >= n for c in d.new_characters]
+        revert(p, n - 1)
+        notes.append(f"{n}화 상태 반영을 취소했어요 ({f'{n - 1}화 반영 직후' if n > 1 else '1화 시작 전'}로)."
+                     + (f" 그 반영이 더한 인물({', '.join(added)})도 빠졌어요." if added else ""))
+    chars = len(ep.text)
+    ep.text, ep.status, ep.summary, ep.auto, ep.final_text = "", "confirmed", "", False, ""
+    ep.issues, ep.checked_at, ep.edits, ep.hook, ep.illustrations = [], "", [], None, []
+    ep.candidate, ep.versions, ep.made_by, ep.time = None, [], None, StoryTime()
+    p.foreshadow_clues = [c for c in p.foreshadow_clues if c.episode != n]  # 지운 본문 문장에 건 복선 근거
+    p.chats = [c for c in p.chats if c.topic != f"text:{n}"]
+    if chars:
+        notes.append(f"본문 {chars:,}자와 수정 기록 · 이전 판 · 삽화 프롬프트를 지웠어요.")
+    if keep_plot:
+        return [*notes, f"{n}화 '{ep.plot.title or '제목 없음'}' 플롯은 확정된 채로 남겼어요."]
+    try:
+        return [*notes, *remove_episode(p, n)]
+    except ValueError as e:
+        raise ValueError(f"{e}. 플롯을 남기고 본문만 지울 수는 있어요") from e
 
 
 def draft_episode(llm: LLM, p: Project, n: int, fit_next: bool = True) -> PlotBatch:

@@ -2579,6 +2579,67 @@
     }
    }
   },
+  "/api/projects/{name}/episodes/{n}/delete": {
+   "post": {
+    "summary": "Delete Episode",
+    "description": "본문이 있거나 반영한 마지막 화를 지운다: 반영 취소 → 본문 비우기 → 화 빼기. 지우기 전 작품은 before-delete-<화>.json 으로 남긴다.",
+    "operationId": "delete_episode",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DeleteIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Delete Episode"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/chat/{topic}": {
    "post": {
     "summary": "Chat Send",
@@ -9460,6 +9521,17 @@
      "what"
     ],
     "title": "DeadlineIn"
+   },
+   "DeleteIn": {
+    "properties": {
+     "keep_plot": {
+      "type": "boolean",
+      "title": "Keep Plot",
+      "default": false
+     }
+    },
+    "type": "object",
+    "title": "DeleteIn"
    },
    "DexCatalog": {
     "properties": {

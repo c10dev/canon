@@ -109,6 +109,11 @@ def save(name: str, p: Project) -> Path:
             (ep_dir / f"{ep.plot.number:02d}.md").write_text(
                 f"# {ep.plot.number}화. {ep.plot.title}\n\n{ep.text}\n", encoding="utf-8"
             )
+    if ep_dir.is_dir():  # 본문을 지운 화나 빠진 화의 내보낸 파일은 지운다 (NN.md 만, 작가가 둔 다른 파일은 그대로)
+        have = {e.plot.number for e in p.episodes if e.text}
+        for f in ep_dir.glob("*.md"):
+            if f.stem.isdigit() and int(f.stem) not in have:
+                f.unlink(missing_ok=True)
     return path
 
 

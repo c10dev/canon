@@ -21,6 +21,7 @@
   python -m canon causal 내소설 [list | add | show ID | impact ID | rm ID]   인과율: 요소·설정·사건을 더하고 영향 분석
   python -m canon lines 내소설 [map | suggest | add | tag ID 4,5 | rm ID]   이야기 줄기: 서브플롯 · 과거 회상 · 외전 노선도와 제안
   python -m canon insert 내소설 30 [--title "외전" --summary "..." --line sl-02 --ai | --remove]   안 쓴 화 앞에 새 화 넣기 · 빼기 (뒤 화 번호를 함께 옮김)
+  python -m canon insert 내소설 12 --delete [--keep-plot]   본문이 있거나 반영한 마지막 화 지우기 (반영 취소 → 본문 비우기 → 화 빼기)
   python -m canon confirm 내소설 all|3  플롯 확정
   python -m canon write 내소설 3        본문 생성
   python -m canon fix 내소설 3 "고칠 문장" [--ask "더 짧게" --preset less_ai]   본문 일부를 AI 후보로 고치기 (고른 후보만 반영)
@@ -800,7 +801,7 @@ def cmd_causal(a: argparse.Namespace) -> None:
 
 
 def cmd_insert(a: argparse.Namespace) -> None:
-    """아직 안 쓴 화 앞에 새 화(외전, 중간 이야기)를 넣거나(--remove 면 빼고) 뒤 화 번호를 함께 옮긴다."""
+    """아직 안 쓴 화 앞에 새 화(외전, 중간 이야기)를 넣거나(--remove 면 빼고) 뒤 화 번호를 함께 옮긴다. --delete 는 본문이 있거나 반영한 마지막 화를 지운다."""
     p = store.load(a.name)
     lo, hi = pipeline.insert_range(p)
     if a.n is None:
@@ -809,7 +810,10 @@ def cmd_insert(a: argparse.Namespace) -> None:
     autorun.check_renumber(a.name)
     n = a.n
     trial = p.model_copy(deep=True)
-    if a.remove:
+    if a.delete:
+        notes = pipeline.delete_last(trial, n, a.keep_plot)
+        end = (lambda x: x - 1 if x >= n else x) if not a.keep_plot else None
+    elif a.remove:
         notes = pipeline.remove_episode(trial, n)
         end = (lambda x: x - 1 if x >= n else x)
     else:
@@ -818,7 +822,16 @@ def cmd_insert(a: argparse.Namespace) -> None:
     print("\n".join(notes))
     if not confirm("이대로 반영할까요?", a.yes):
         return
-    autorun.renumber(a.name, end)
+    if a.delete:
+        print(f"지우기 전 작품: {store.save_backup(a.name, f'before-delete-{n}', p)}")
+        print(f"저장: {store.save(a.name, trial)}")
+        if p.episode(n).status == "finalized":
+            autorun.after_revert(a.name, n)
+        if end:
+            autorun.renumber(a.name, end)
+        return
+    if end:
+        autorun.renumber(a.name, end)
     p = trial
     if a.ai and not a.remove:
         batch = pipeline.draft_episode(get_llm("plan"), p, n)
@@ -1882,6 +1895,8 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--line", help="새 화가 따라갈 이야기 줄기 id (외전, 과거 회상 등)")
     sp.add_argument("--ai", action="store_true", help="앞뒤 화에 맞춰 AI 가 새 화 플롯을 채움")
     sp.add_argument("--remove", action="store_true", help="넣는 대신 아직 안 쓴 n 화를 빼고 뒤 화를 당김")
+    sp.add_argument("--delete", action="store_true", help="본문이 있거나 반영한 마지막 n 화를 지움 (반영 취소 → 본문 비우기 → 화 빼기)")
+    sp.add_argument("--keep-plot", action="store_true", help="--delete 와 함께: 화를 빼지 않고 확정된 플롯으로 남김")
     add("confirm", cmd_confirm, "which", yes=False)
     add("write", cmd_write, "n", yes=False)
     sp = add("rewrite", cmd_rewrite, "n")

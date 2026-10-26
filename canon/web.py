@@ -986,6 +986,28 @@ def remove_episode(name: str, n: int) -> dict:
     return {"project": p, "notes": notes}
 
 
+class DeleteIn(BaseModel):
+    keep_plot: bool = False  # 화를 빼지 않고 확정된 플롯으로 남긴다
+
+
+@app.post("/api/projects/{name}/episodes/{n}/delete")
+def delete_episode(name: str, n: int, body: DeleteIn) -> dict:
+    """본문이 있거나 반영한 마지막 화를 지운다: 반영 취소 → 본문 비우기 → 화 빼기. 지우기 전 작품은 before-delete-<화>.json 으로 남긴다."""
+    _renumber_ready(name)
+    _text_guard(name, n)
+    with jobs.project_lock(name):
+        p = _load(name)
+        before = p.model_copy(deep=True)
+        notes = pipeline.delete_last(p, n, body.keep_plot)
+        path = store.save_backup(name, f"before-delete-{n}", before)
+        store.save(name, p)
+    if before.episode(n).status == "finalized":
+        autorun.after_revert(name, n)
+    if not body.keep_plot:
+        autorun.renumber(name, lambda x: x - 1 if x >= n else x)
+    return {"project": p, "notes": [*notes, f"지우기 전 작품은 {path.name} 으로 남겨 뒀어요."]}
+
+
 # ---------- 3-1. 대화로 다듬기 ----------
 # 대화 기록은 project.json 의 chats 에 화면(topic)별로 남는다. 플롯 화면은 'plot', 집필 화면의 본문 부분 수정은
 # 화마다 'text:<화>', 문체 화면은 'style', 설정 도우미는 'setup' 이다 (4-1 · 2-2 · canon/setupchat.py 참고).
