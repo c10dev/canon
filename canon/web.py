@@ -2375,8 +2375,20 @@ def statwin_template(name: str, body: StatTemplate) -> Project:
     return _save(name, p)
 
 
+class Relations(BaseModel):
+    """같은 관계를 말과 숫자로 (`_relations`)."""
+    words: str
+    numbers: str
+    show_numbers: bool
+
+
+class RelationPreview(Relations):
+    """상태 승인 화면 미리 보기: 반영하면 계산될 관계와 반영 전 관계."""
+    before: Relations
+
+
 @app.post("/api/projects/{name}/episodes/{n}/preview")
-def preview(name: str, n: int, d: StateDelta) -> dict:
+def preview(name: str, n: int, d: StateDelta) -> RelationPreview:
     """화면에서 고른 변경안을 복사본에 반영해, 반영 후 계산될 관계를 미리 보여 준다. 저장하지 않는다."""
     sim = _load(name)
     before = _relations(sim)

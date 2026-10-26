@@ -6475,9 +6475,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Preview"
+         "$ref": "#/components/schemas/RelationPreview"
         }
        }
       }
@@ -11450,6 +11448,58 @@
      "summary"
     ],
     "title": "RecapIn"
+   },
+   "RelationPreview": {
+    "properties": {
+     "words": {
+      "type": "string",
+      "title": "Words"
+     },
+     "numbers": {
+      "type": "string",
+      "title": "Numbers"
+     },
+     "show_numbers": {
+      "type": "boolean",
+      "title": "Show Numbers"
+     },
+     "before": {
+      "$ref": "#/components/schemas/Relations"
+     }
+    },
+    "type": "object",
+    "required": [
+     "words",
+     "numbers",
+     "show_numbers",
+     "before"
+    ],
+    "title": "RelationPreview",
+    "description": "상태 승인 화면 미리 보기: 반영하면 계산될 관계와 반영 전 관계."
+   },
+   "Relations": {
+    "properties": {
+     "words": {
+      "type": "string",
+      "title": "Words"
+     },
+     "numbers": {
+      "type": "string",
+      "title": "Numbers"
+     },
+     "show_numbers": {
+      "type": "boolean",
+      "title": "Show Numbers"
+     }
+    },
+    "type": "object",
+    "required": [
+     "words",
+     "numbers",
+     "show_numbers"
+    ],
+    "title": "Relations",
+    "description": "같은 관계를 말과 숫자로 (`_relations`)."
    },
    "Relationship": {
     "properties": {

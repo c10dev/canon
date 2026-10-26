@@ -6,6 +6,7 @@ import FeatureForeshadow
 import FeatureHome
 import FeatureCast
 import FeatureProjects
+import FeatureReview
 import FeatureStatWin
 import FeatureUsage
 import SwiftUI
@@ -82,6 +83,7 @@ public struct RootView: View {
         case .foreshadow: ForeshadowView(server: model.server, project: project)
         case .usage: UsageView(model: UsageModel(source: LiveUsageSource(server: model.server), project: project))
         case .cast: CastScreen(server: model.server, project: project) { model.screen = $0 }
+        case .review: if let doc = model.document { ReviewView(document: doc, jobs: model.jobs, service: LiveReviewService(server: model.server)) { model.screen = $0 } }
         default:
             NotPortedYet(screen.label(serial: false))
         }

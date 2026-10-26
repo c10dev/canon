@@ -46,6 +46,7 @@ canon-probe            개발용: 실제 서버 응답이 타입대로 읽히는
 | `FeatureForeshadow` | 복선 센터: `ForeshadowModel`, `ForeshadowChange`(고치기 · 걸린 문장 지우기 · 정리), `ForeshadowText`(웹 `fsItem` · `fsShown`), `ForeshadowTrack`(웹 `fsTrack`), `LiveForeshadowService`, `ForeshadowView` |
 | `FeatureUsage` | 사용량 · 비용: `UsageModel`(기간 · 작품 거르기, 가격표 고치기 · 되돌리기), `UsageText` · `UsageChart`(웹 `usage.js` 문구 · 막대), `LiveUsageSource`, `UsageView` |
 | `FeatureCast` | 인물 · 관계도: `CastModel`(시점 재생, 고르기, 배치), `CastText`(웹 `cast.js` 문구), `WarmthBand`, `CastLayout`(힘 배치 · 선 모양), `CastHit`, `LiveCastSource`(작품 전체 + `cast_view`), `DefaultsLayoutStore`, `CastScreen` |
+| `FeatureReview` | 상태 승인: `ReviewModel`(작업 결과 `state:<화>` 읽기, 고르기 · 고치기, 반영 · 다시 맞추기 · 그대로 두기 · 반영 취소, 관계 미리 보기), `ReviewText`(웹 `setDelta` · `pickedDelta` · `relationLines` · `swDeltaRows` · `fsClueRows` · `restate.js`), `LiveReviewService`, `ReviewView` |
 | `CanonAppUI` | `AppModel`(서버 · 작품 · 화면 · 작업 · 연 작품), `RootView`, 저장 띠 `SaveBar`, 서버 주소 화면 |
 
 ## 개발 명령
@@ -103,7 +104,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | 1 | `FeatureProjects` | 작품 목록 | `app.js` `viewProjects` | `list_projects` — **됨** |
 | 2 | `FeatureHome`, `CanonStore` | 작품 홈, 작품 저장(409 · merged) | `app.js` `viewHome` `save` | `get_project`, `put_project` — **됨** (남음: 홈의 자동 집필 줄 · 관계 카드 · 장편 전환 단추) |
 | 3 | `FeatureWrite` | 집필 (부분 수정, 다시 생성, 문체 표시, 복사, 삽화) | `passage.js` `rewrite.js` `marks.js` `publish.js` `illust.js` `opening.js` `restate.js` | `pipeline.edit_text` 등 |
-| 4 | `FeatureReview` | 상태 승인 | `app.js` `restate.js` `statwin.js`(`swDeltaRows`) `foreshadow.js`(`fsClueRows`) | `.../state`, `.../apply` |
+| 4 | `FeatureReview` | 상태 승인 (변경안 만들기 · 고르기 · 고치기 · 반영, 관계 미리 보기, 상태창 줄, 복선 문장, 반영 뒤 고친 화 다시 맞추기, 반영 취소) | `app.js` `restate.js` `statwin.js`(`swDeltaRows`) `foreshadow.js`(`fsClueRows`) | 작업 `state`, `apply_state`, `apply_restate`, `keep_state`, `revert`, `preview`(`RelationPreview`) — **됨**. 채팅 앱 JSON 가져오기(`state/parse`)와 자동 집필 변경안 불러오기는 아직 웹에서 |
 | 5 | `FeaturePlot` | 기승전결 · 플롯 / 부 · 아크 · 플롯, AI 대화 | `app.js` `chat.js` `insert.js` `convert.js` | `plots`, `chat`, `series`, `arcs` |
 | 6 | `FeatureSetup`, `FeatureStyle` | 설정 도우미, 문체 레퍼런스 | `app.js` `mystyle.js` | `suggest`, `style`, `styles` |
 | 7 | `FeatureCast` | 인물 · 관계도 (관계도 재생, 인물 · 두 사람 상세, 추이 그래프, 등장표) | `cast.js` | `cast_view`(`CastView`) — **됨**. 수치 직접 보정(`adjust_tie`)과 말로 · 숫자로 저장(`PUT .../view`)은 아직 웹에서 |
@@ -152,6 +153,13 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | `WarmthBand` (경계 -0.6 · -0.2 · 0.2 · 0.6, 값이 경계보다 작으면 그 구간) | `cast.js` `WARMTH_BANDS`, 서버 `dynamics.warmth_word` |
 | `CastText`, `CastText.fixed`(JS `toFixed` 반올림) | `cast.js` `tieText` · `tensionText` · `frameLabel` · `castTimeline` · `castChart` 범위, `app.js` `GOOD_EVENTS` · `INTENSITY` |
 | `CastLayout.force` · `curve` | `cast.js` `castForce` · 간선 곡선 |
+| `ReviewText.defaultPicks` · `picked` · `total` · `applyReasons` | `app.js` `setDelta` · `pickedDelta` · `viewReview` 의 `total` · `applyDelta` 의 묻는 말 |
+| `ReviewText.stateRows` · `newKnows` · `unknown` · `relation` · `name` · `secret` · `goodEvents` · `intensity` | `viewReview` 의 인물 · 관계 줄, `charName` · `secretLabel` · `GOOD_EVENTS` · `INTENSITY` |
+| `ReviewText.relationLines` (`pair`) | `relationLines` |
+| `ReviewText.statRows` · `resolve` | `statwin.js` `swDeltaRows` · `swResolve` (서버 `statwin.resolve`, 시험은 `tests/test_statwin.py` 의 `test_resolve` 와 같은 사례. `StatWinText.resolve` 와 같은 규칙) |
+| `ReviewText.clueRows` | `foreshadow.js` `fsClueRows` |
+| `ReviewText.editedAfterFinal` · `laterWritten` · `restateItems` · `restatePicks` · `restateBody` · `restateSkipped` · `restateDone` | `restate.js` `editedAfterFinal`(서버 `pipeline.edited_after_final`) · `laterWritten` · `rsItems` · `rsPicks` · `applyRestate` · `restateCard` |
+| `ReviewText.rangeText` · `revertQuestion` · `revertDone` | `rangeText` · `revertFrom` |
 
 ## 알려진 한계
 
