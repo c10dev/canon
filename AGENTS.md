@@ -54,6 +54,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/mock.py` | 테스트용 가짜 LLM |
 | `canon/library.py` | 문체 라이브러리: 작품과 따로 `projects/.styles/<id>.json` 에 문체(원문, 프로필, 기준 지표)를 저장. 작품에 적용하면 복사하고 `Project.style_id` · `style_version` 으로 출처만 기억. 저장마다 버전(`StyleVersion`), 칸별 비교(`diff`), 되돌리기(`restore`) |
 | `canon/static/marks.js` | 집필 화면 문체 표시: 장치마다 이번 화 배지(`deviceBadges`), 본문에서 장치 글자 · 금지 표현 밑줄(고치는 본문은 textarea 뒤에 깐 칸 `hl-layer`, 읽기 전용은 `<mark>`), 밑줄에서 부분 수정 도구 띄우기. 쓴 화 세기와 쉬는 화 판정은 `metrics.device_hits` · `device_last` · `prompts.device_block` 과 같은 규칙이라 함께 고친다(`tests/test_marks_js.py` 가 node 로 맞춰 본다) |
+| `canon/static/stylechat.js` | 문체 화면의 대화로 다듬기(대화 주제 `style`: 칸별 변경안과 지금 값 비교, 시험 문단, 고른 칸 적용 · 적용 취소, 라이브러리 새 버전)와 '이 문체로 쓴 예시' 카드. 서버는 `pipeline.revise_style` · `apply_style_chat` · `undo_style_chat` · `style_example`. 칸 이름은 `prompts.STYLE_KEY_LABELS` 와 같다 |
 | `canon/static/mystyle.js` | 나만의 문체: 스타일 프로필의 가끔 쓰는 장치 칸(`deviceFields`), 문체 화면의 '내 수정에서 배우기' 카드(서버 `pipeline.learn_style` / `apply_learning`), 라이브러리 항목의 버전 목록. 장치의 쓴 화 세기는 `metrics.device_last` 와 같은 규칙 |
 | `canon/store.py` | `projects/<이름>/project.json` 저장, 본문을 `episodes/NN.md` 로 내보내기. 화면 저장 기록(`writer`, `edit_rev` · `saved_by`, 파일 끝만 읽음), 검토를 기다리는 AI 결과와 실패한 작업(`pending.json`, `load_pending` / `edit_pending`) |
 | `canon/cancel.py` | 웹 작업 멈추기 신호. `jobs.start` 가 스레드마다 두고, LLM 호출 전과 저장 전에 `check()` 로 확인해 멈춘 작업이 결과를 저장하지 못하게 한다 |
@@ -77,7 +78,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 - **바뀌지 않는 블록이 앞, 화마다 바뀌는 블록이 뒤.** `static_context()` 를 앞에 둬야 Gemini 암묵적 캐시가 맞는다. 컨텍스트에 블록을 추가할 때 이 순서를 지킨다.
 - **API 경로와 작업지시서 경로는 같은 프롬프트를 공유한다.** 프롬프트를 고칠 때는 `prompts.py` 한 곳만 고치고, `brief` 출력도 함께 확인한다. 나중에 MCP 서버도 이 함수들을 재사용한다.
 - **LLM 호출은 `LLM` 인터페이스 뒤에만 둔다.** pipeline 이나 cli 에서 SDK 를 직접 부르지 않는다. 새 LLM 구현이나 새 API 호출 경로는 `usage.record` 를 불러 사용량 화면에 잡히게 한다. 스레드를 새로 띄우면 `contextvars.copy_context()` 로 작품 · 화 정보를 넘긴다.
-- LLM 이 채우는 스키마(`SetupSuggestion`, `StyleProfile`, `ArcPlan`, `PlotBatch`, `EpisodeDraft`, `PlotRevision`, `NameOptions`, `PassageRevision`, `StateDelta`, `NewPlace`, `StoryEvent`, `ConsistencyReport`, `SeriesPlan`, `ArcProposal`, `Recap`, `ImpactReport`, `StorylineProposal`, `SerialConversion`, `SerialRebuild`, `Rework`, `HookReport`, `OpeningPlots`, `IllustDraft`, `LookSuggestion`, `StyleLearning`, `VoiceSuggestion`, `PlantSet`, `PlaceSort`, `ClaimSet`, `StoryTime`, `Deadline`)에는 dict 타입 필드를 쓰지 않는다 (Gemini 구조화 출력 호환).
+- LLM 이 채우는 스키마(`SetupSuggestion`, `StyleProfile`, `ArcPlan`, `PlotBatch`, `EpisodeDraft`, `PlotRevision`, `NameOptions`, `PassageRevision`, `StateDelta`, `NewPlace`, `StoryEvent`, `ConsistencyReport`, `SeriesPlan`, `ArcProposal`, `Recap`, `ImpactReport`, `StorylineProposal`, `SerialConversion`, `SerialRebuild`, `Rework`, `HookReport`, `OpeningPlots`, `IllustDraft`, `LookSuggestion`, `StyleLearning`, `StyleRevision`, `StyleEdit`, `StyleSample`, `VoiceSuggestion`, `PlantSet`, `PlaceSort`, `ClaimSet`, `StoryTime`, `Deadline`)에는 dict 타입 필드를 쓰지 않는다 (Gemini 구조화 출력 호환).
 
 ## 개발 명령
 
