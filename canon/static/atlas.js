@@ -200,9 +200,49 @@ function atlasWalls(v, out, { P, m, k, lw }) {
 /** 번호 i 로 고르는 0~1 값. 같은 마을이면 건물 · 나무 · 밭이 늘 같은 모양 · 색으로 그려진다 */
 const atlasHash = (i, salt = 0) => ((Math.imul(i + 1, 2654435761) ^ Math.imul(salt + 7, 40503)) >>> 0) / 4294967296;
 
+/** 집 번호 글자 크기 (지도 단위). 3.4m(최소 7단위)로 쓰되 보통 집 폭의 0.42 를 넘지 않게 줄이고(도시는 집이 작아 번호가 넘친다),
+    화면에서 6px 보다 작으면 0 (그리지 않는다). 보통 집 폭은 번호 붙은 집 넓이의 제곱근 가운데값 (앞 200채). px: 지도 단위 1 의 화면 px */
+function atlasNumFont(v, W, z, px) {
+  const k = W / v.w;
+  const idx = (v.numbers || (v.buildings || []).map((_, i) => i)).slice(0, 200);
+  const sizes = idx.map((bi) => {
+    const ln = (v.buildings || [])[bi] || [];
+    let a = 0;
+    ln.forEach((q, j) => { const p = ln[(j + 1) % ln.length]; a += q[0] * p[1] - p[0] * q[1]; });
+    return Math.sqrt(Math.abs(a / 2) * v.w * v.h);
+  }).filter((x) => x > 0).sort((a, b) => a - b);
+  if (!sizes.length) return 0;
+  const fs = Math.min(Math.max(3.4 * k, 7), 0.42 * sizes[Math.floor(sizes.length / 2)] * k);
+  return fs * z * px >= 6 ? fs : 0;
+}
+
+/** 집 번호를 켰는데 지금 배율에서는 작아서 그리지 않으면 알린다 */
+function atlasNumHint(layer) {
+  const v = atlasVillage();
+  if (layer !== 'numbers' || !S.atlasLayers.numbers || !v) return;
+  if (!atlasNumFont(v, ATLAS_W, atlasViewNow().z, atlasStageW ? atlasStageW / ATLAS_W : 1)) toast('집 번호는 더 확대하면 보여요');
+}
+
+/** 구역 이름 (도시 생성기의 wards, 성안만): 넓이 가운데에 장소 이름표보다 조금 작게. 장소 점 · 이름표 · 다른 구역 이름과
+    겹치면 뺀다 (taken: atlasLabels 가 차지한 상자 [x0, y0, x1, y1], 여기서 놓은 상자도 더한다) */
+function atlasWardLabels(v, W, H, fs, taken) {
+  const names = (S.atlas && S.atlas.gen && S.atlas.gen.wards) || {};
+  const out = [];
+  (v.wards || []).forEach((wd) => {
+    if (ATLAS_WARD_OUT.has(wd.kind) || !names[wd.kind]) return;
+    const [cx, cy] = atlasMid(wd.shape).map((q, i) => q * (i ? H : W));
+    const w = atlasTextW(names[wd.kind], fs) * 1.2;  // 글자 사이를 띄운 만큼
+    const b = [cx - w / 2, cy - fs * 0.6, cx + w / 2, cy + fs * 0.6];
+    if (taken.some((p) => b[0] < p[2] && b[2] > p[0] && b[1] < p[3] && b[3] > p[1])) return;
+    taken.push(b);
+    out.push(`<text x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" text-anchor="middle" dominant-baseline="central">${esc(names[wd.kind])}</text>`);
+  });
+  return out.length ? `<g class="at-v-ward-label" font-size="${fs.toFixed(2)}" stroke-width="${(fs * 0.3).toFixed(2)}" letter-spacing="${(fs * 0.15).toFixed(2)}">${out.join('')}</g>` : '';
+}
+
 /** 마을 바탕: 풀밭 땅, 밭(이랑 무늬) · 풀밭 · 광장, 모래톱과 물결이 있는 물, 강, 테두리 있는 길, 널다리, 성벽,
     두 색 지붕과 그림자가 있는 건물, 그림자 · 수관 · 밝은 점으로 된 나무. 1단위 = 1m 기준 크기 (k: 화면 단위 / m)
-    layers: 겹 끄고 켜기와 화풍 그림 옵션 (lamps: 불 켜진 창, lw: 길 테두리 · 성벽 굵기 배율, z: 확대 배율 — 구역 이름 크기) */
+    layers: 겹 끄고 켜기와 화풍 그림 옵션 (lamps: 불 켜진 창, lw: 길 테두리 · 성벽 굵기 배율, z: 확대 배율, px: 지도 단위 1 의 화면 px — 집 번호) */
 function atlasVillageSvg(v, W, H, layers = {}) {
   const on = (key) => layers[key] !== false;
   const lw = layers.lw || 1;
@@ -331,19 +371,11 @@ function atlasVillageSvg(v, W, H, layers = {}) {
     });
     out.push(`${on('shadows') ? `<path class="at-v-tree-shadow" d="${sh.join('')}"></path>` : ''}<path class="at-v-tree" d="${cr.join('')}"></path><path class="at-v-tree-hi" d="${hi.join('')}"></path>`);
   }
-  // 구역 이름: 성안 구역 가운데에 (같은 종류가 붙어 있어도 구역마다)
-  const wardNames = (S.atlas && S.atlas.gen && S.atlas.gen.wards) || {};
-  if (on('wards') && v.wards) {
-    const fs = 15 / (layers.z || 1);  // 이름표처럼 확대해도 화면에서 같은 크기
-    out.push(`<g class="at-v-ward-label" font-size="${fs.toFixed(2)}" stroke-width="${(fs * 0.25).toFixed(2)}">${v.wards.filter((wd) => !ATLAS_WARD_OUT.has(wd.kind) && wardNames[wd.kind]).map((wd) => {
-      const [cx, cy] = atlasMid(wd.shape);
-      return `<text x="${(cx * W).toFixed(1)}" y="${(cy * H).toFixed(1)}" text-anchor="middle" dominant-baseline="central">${esc(wardNames[wd.kind])}</text>`;
-    }).join('')}</g>`);
-  }
-  // 집 번호: 만든 마을은 필지마다 본채(numbers), 올린 파일은 건물마다
-  if (layers.numbers) {
+  // 집 번호: 만든 마을은 필지마다 본채(numbers), 올린 파일은 건물마다. 화면에서 읽을 수 있을 만큼 커졌을 때만 (atlasNumFont)
+  const numFs = layers.numbers ? atlasNumFont(v, W, layers.z || 1, layers.px || 1) : 0;
+  if (numFs) {
     const idx = v.numbers || (v.buildings || []).map((_, i) => i);
-    out.push(`<g class="at-v-num" font-size="${m(3.4, 7)}">${idx.map((bi, n) => {
+    out.push(`<g class="at-v-num" font-size="${numFs.toFixed(2)}">${idx.map((bi, n) => {
       const ln = (v.buildings || [])[bi];
       if (!ln) return '';
       const cx = (ln.reduce((a, q) => a + q[0], 0) / ln.length) * W;
@@ -384,7 +416,9 @@ function atlasSvg() {
   const out = [];
   const village = atlasVillage();
   const style = ATLAS_STYLES[S.atlasStyle] || ATLAS_STYLES.base;
-  if (village) out.push(atlasVillageSvg(village, W, H, { ...S.atlasLayers, lamps: !!style.lamps, lw: style.lw || 1, z: atlasViewNow().z }));
+  const fs = atlasLabelFs(atlasViewNow().z);  // 화면 폭을 먼저 잰다 (집 번호 크기에도 쓴다)
+  const px = atlasExporting || !atlasStageW ? 1 : atlasStageW / W;
+  if (village) out.push(atlasVillageSvg(village, W, H, { ...S.atlasLayers, lamps: !!style.lamps, lw: style.lw || 1, z: atlasViewNow().z, px }));
   else if (S.atlas.image) out.push(`<image href="${esc(atlasImageUrl())}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="none"></image>`);
   else {
     out.push(`<rect class="at-ground" x="0" y="0" width="${W}" height="${H}"></rect>`);
@@ -464,7 +498,11 @@ function atlasSvg() {
       <circle class="at-dot" cx="${x}" cy="${y}" r="${((sel ? 9 : 7) * sc).toFixed(2)}" stroke-width="${(2.5 * sc).toFixed(2)}"></circle></g>`);
     labels.push({ x, y, text: pl.name + (old ? ' (지금 자리)' : ''), cls: `${later ? ' later' : ''}${old ? ' old' : ''}`, first: sel });
   });
-  out.push(atlasLabels(labels, sc, atlasLabelFs(z)));
+  // 구역 이름은 장소 이름표가 자리를 잡은 뒤 남는 곳에만 (장소 이름표 아래 겹)
+  const taken = [];
+  const names = atlasLabels(labels, sc, fs, taken);
+  if (village && S.atlasLayers.wards !== false) out.push(atlasWardLabels(village, W, H, fs * 0.85, taken));
+  out.push(names);
 
   // 인물: 같은 장소에 모이면 둘레에 나눠 놓는다
   const groups = {};
@@ -603,7 +641,7 @@ const atlasTextW = (t, fs) => [...t].reduce((n, ch) => n + (ch.charCodeAt(0) > 0
 
 /** 이름표를 서로 · 다른 점과 겹치지 않게 놓는다. 점 둘레 여덟 자리를 먼저 보고, 다 막히면 점점 먼 고리에서 빈자리를 찾아
     지시선을 긋는다. 끝내 못 찾으면 마지막 자리에 겹쳐 둔다. sc: 핀 크기 배율(1/확대), fs: 글자 크기(지도 단위) */
-function atlasLabels(list, sc, fs = 15 * sc) {
+function atlasLabels(list, sc, fs = 15 * sc, taken = []) {
   const g = 14 * sc;
   const dots = list.map((l) => [l.x - 7 * sc, l.y - 7 * sc, l.x + 7 * sc, l.y + 7 * sc]);
   const placed = [];
@@ -635,6 +673,7 @@ function atlasLabels(list, sc, fs = 15 * sc) {
     placed.push(boxOf(spots[k]));
     out.push(`${k >= near.length ? `<line class="at-leader" x1="${l.x.toFixed(1)}" y1="${l.y.toFixed(1)}" x2="${(l.x + dx).toFixed(1)}" y2="${(l.y + dy - fs * 0.4).toFixed(1)}" stroke-width="${sc.toFixed(2)}"></line>` : ''}<text class="at-name${l.cls}" x="${(l.x + dx).toFixed(1)}" y="${(l.y + dy).toFixed(1)}" text-anchor="${a}" font-size="${fs.toFixed(2)}" stroke-width="${(fs * 0.27).toFixed(2)}">${esc(l.text)}</text>`);
   });
+  taken.push(...placed, ...dots);  // 뒤에 놓는 구역 이름이 비켜 가도록
   return `<g class="at-labels">${out.join('')}</g>`;
 }
 
@@ -1635,6 +1674,7 @@ document.addEventListener('change', async (e) => {
     S.atlasLayers[t.dataset.atlasLayer] = t.checked;
     atlasLayersSave();
     atlasRedraw();
+    atlasNumHint(t.dataset.atlasLayer);
     return;
   }
   if (t.matches('[data-atlas-opt]')) {
@@ -1851,6 +1891,7 @@ document.addEventListener('keydown', (e) => {
     const box = document.querySelector(`[data-atlas-layer="${layer}"]`);
     if (box) box.checked = S.atlasLayers[layer];
     atlasRedraw();
+    atlasNumHint(layer);
   }
 });
 
@@ -2090,7 +2131,7 @@ document.addEventListener('keydown', (e) => {
 .at-map .at-v-ward.k-harbor { fill: var(--v-sand); }
 .at-map .at-v-ward.k-craft { fill: var(--v-field1); }
 .at-map .at-v-ward.k-slum { fill: var(--v-field0); }
-.at-map .at-v-ward-label { fill: var(--text); fill-opacity: 0.7; stroke: var(--canvas); stroke-opacity: 0.8; paint-order: stroke; stroke-linejoin: round; font-weight: 600; pointer-events: none; }
+.at-map .at-v-ward-label { fill: var(--text); fill-opacity: 0.8; stroke: var(--canvas); stroke-opacity: 0.85; paint-order: stroke; stroke-linejoin: round; font-weight: 600; pointer-events: none; }
 .at-map .at-v-shadow { fill: var(--v-shadow); }
 .at-map .at-v-house { stroke: var(--v-house-edge); stroke-width: calc(var(--v-lw) * 1px); stroke-linejoin: round; }
 .at-map .at-v-house.t0 { fill: var(--v-house0); }
