@@ -7308,11 +7308,18 @@
      },
      "due_before": {
       "items": {
-       "type": "integer"
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ]
       },
       "type": "array",
       "title": "Due Before",
-      "description": "foreshadows 와 같은 순서로, 바꾸기 전 회수 예정 화"
+      "description": "foreshadows 와 같은 순서로, 바꾸기 전 회수 예정 화 (정하지 않았으면 null)"
      }
     },
     "type": "object",

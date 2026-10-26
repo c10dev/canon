@@ -415,7 +415,7 @@ class ArcUndo(BaseModel):
     number: int
     characters: list[str] = Field(default_factory=list, description="이 아크가 더한 인물 id")
     foreshadows: list[str] = Field(default_factory=list, description="회수 예정 화를 바꾼 복선 id")
-    due_before: list[int] = Field(default_factory=list, description="foreshadows 와 같은 순서로, 바꾸기 전 회수 예정 화")
+    due_before: list[Optional[int]] = Field(default_factory=list, description="foreshadows 와 같은 순서로, 바꾸기 전 회수 예정 화 (정하지 않았으면 null)")
 
 
 class StoryArc(BaseModel):
