@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Iterator, Optional
 
-from . import dynamics
+from . import charlog, dynamics
 from .schema import CharacterState, Project, Snapshot, StateDelta
 
 STATE_FIELDS = ("emotional_state", "current_goal", "location", "attire")
@@ -153,7 +153,7 @@ def _changes(prev: Optional[CharacterState], cur: Optional[CharacterState]) -> d
 
 
 def timeline(p: Project, cid: str, frames_: Optional[list[dict]] = None) -> list[dict]:
-    """반영이 끝난 화마다 이 인물에게 일어난 일: 상태 변화, 알게 된 것, 관계 사건, 생긴 비밀, 첫 등장."""
+    """반영이 끝난 화마다 이 인물에게 일어난 일: 상태 변화, 알게 된 것, 관계 사건, 생긴 비밀, 첫 등장, 바뀐 설정."""
     fs = frames_ if frames_ is not None else frames(p)
     states = {f["episode"]: next((CharacterState(**s) for s in f["states"] if s["character_id"] == cid), None) for f in fs}
     order = [f["episode"] for f in fs]
@@ -166,11 +166,13 @@ def timeline(p: Project, cid: str, frames_: Optional[list[dict]] = None) -> list
         events = [ev.model_dump() for ev in p.events if ev.episode == n and cid in (ev.actor, ev.target, *ev.witnesses)]
         secrets = [s.content for s in (delta.secrets_added if delta else []) if s.owner == cid]
         new = bool(delta and any(c.id == cid for c in delta.new_characters))
+        settings = [r for r in charlog.history(p, cid) if r["episode"] == n]
         row = {
             "n": n, "title": e.plot.title, "appears": cid in e.plot.characters, "pov": e.plot.pov == cid,
             "changes": _changes(states.get(order[i - 1]), states.get(n)), "events": events, "secrets": secrets, "new": new,
+            "settings": settings,
         }
-        if row["appears"] or row["changes"] or events or secrets or new:
+        if row["appears"] or row["changes"] or events or secrets or new or settings:
             out.append(row)
     return out
 
@@ -197,9 +199,12 @@ def describe(p: Project, cid: str, numbers: bool = False) -> str:
     last = fs[-1]
     apps = appearances(p).get(c.id, [])
     lines = [f"{c.name} ({c.id}) · {c.role} · {dict(main='주역', support='조연', minor='단역')[c.tier]}"]
-    for label, v in (("성격", c.personality), ("목표", c.goal), ("결핍", c.wound), ("말투", c.speech_style), ("아크", c.arc)):
+    for label, v in (("외모", c.appearance), ("성격", c.personality), ("목표", c.goal), ("결핍", c.wound), ("말투", c.speech_style), ("아크", c.arc)):
         if v:
             lines.append(f"  {label}: {v}")
+    held = [x for x in p.setting_held if x.character_id == c.id]
+    for x in held:
+        lines.append(f"  ! 남겨 둔 설정 바꾸기 제안 ({x.episode}화): {charlog.label(x.field)} → {x.value}")
     pov = [a["n"] for a in apps if a["pov"]]
     lines.append(f"등장 {len(apps)}화 ({apps[0]['n']}~{apps[-1]['n']}화)" + (f" · 시점 {len(pov)}화" if pov else "") if apps else "플롯에 나오는 화가 아직 없어요")
     st = next((s for s in last["states"] if s["character_id"] == c.id), None)
@@ -230,6 +235,7 @@ def describe(p: Project, cid: str, numbers: bool = False) -> str:
             bits.append("알게 됨 " + ", ".join(row["changes"]["knows"]))
         bits += [f"{nm(ev['actor'])}→{nm(ev['target'])} {ev['kind']}" for ev in row["events"]]
         bits += [f"비밀 생김 {s}" for s in row["secrets"]]
+        bits += [f"{r['label']} {r['before'] or '(비어 있음)'} → {r['after'] or '(비움)'}{' (작가)' if r['source'] == 'author' else ''}" for r in row["settings"]]
         mark = ("첫 등장 " if row["new"] else "") + ("시점 " if row["pov"] else "")
         lines.append(f"  {row['n']:>3}화 {mark}{' · '.join(bits) or ('등장' if row['appears'] else '')}")
     return "\n".join(lines)

@@ -356,6 +356,13 @@ function castCharDetail(c) {
     ...hidden.map((s) => `<li>모름: ${esc(s.content)} <span class="small">${esc(nm(s.owner))}의 비밀</span></li>`),
   ].join('');
   const field = (label, v) => (v ? `<div class="cast-kv"><span>${label}</span><div>${esc(v)}</div></div>` : '');
+  // 설정은 보는 시점의 값으로 (charlog 기록을 거꾸로 되돌림). 그 뒤에 바뀐 칸은 지금 값도 함께 보인다
+  const at = scAt(c, f ? f.episode : Infinity);
+  const setField = (label, fl) => {
+    const v = at.c[fl];
+    if (!at.changed.has(fl)) return field(label, v);
+    return `<div class="cast-kv"><span>${label}</span><div>${esc(v || '(비어 있음)')}<div class="small">지금: ${esc(c[fl] || '(비어 있음)')}</div></div></div>`;
+  };
   const lines = (P().storylines || []).filter((s) => (s.focus || []).includes(c.id));
   const els = (P().elements || []).filter((x) => (x.characters || []).includes(c.id));
   const links = [
@@ -373,11 +380,11 @@ function castCharDetail(c) {
     ${st && st.knows.length ? `<details><summary>아는 것 ${st.knows.length}개</summary><ul class="cast-ul">${st.knows.map((k) => `<li>${esc(k)}</li>`).join('')}</ul></details>` : ''}
     <h3>관계</h3>${rels ? `<ul class="cast-rels">${rels}</ul>` : '<div class="small">이 시점에 관계가 없어요</div>'}
     ${secrets ? `<h3>비밀</h3><ul class="cast-ul">${secrets}</ul>` : ''}
-    <details><summary>바뀌지 않는 설정</summary><div class="col" style="gap:8px;margin-top:8px">
-      ${field('성격', c.personality)}${field('말투', c.speech_style)}${field('목표', c.goal)}${field('결핍', c.wound)}${field('아크', c.arc)}${field('배경', c.background)}${field('외모', c.appearance)}
+    <details${at.changed.size ? ' open' : ''}><summary>설정${at.changed.size ? ` <span class="small">· 이 시점 뒤에 ${at.changed.size}칸 바뀜</span>` : ''}</summary><div class="col" style="gap:8px;margin-top:8px">
+      ${[['외모', 'appearance'], ['성격', 'personality'], ['말투', 'speech_style'], ['목표', 'goal'], ['결핍', 'wound'], ['아크', 'arc'], ['배경', 'background']].map(([k, fl]) => setField(k, fl)).join('')}
       ${(c.secrets || []).length ? `<div class="cast-kv"><span>설정 비밀</span><div>${c.secrets.map(esc).join('<br>')}</div></div>` : ''}</div></details>
     ${links ? `<div class="row">${links}</div>` : ''}
-  </section>${castTimeline(c)}`;
+  </section>${scHeldCard(c)}${castTimeline(c)}${scLogCard(c)}`;
 }
 
 function castTimeline(c) {
@@ -391,6 +398,7 @@ function castTimeline(c) {
     const bits = Object.entries(r.changes).filter(([k]) => LABEL[k]).map(([k, v]) => `<div><span class="small">${LABEL[k]}</span> ${esc(v)}</div>`);
     if (r.changes.knows) bits.push(`<div><span class="small">알게 됨</span> ${r.changes.knows.map(esc).join(', ')}</div>`);
     r.secrets.forEach((s) => bits.push(`<div><span class="small">비밀 생김</span> ${esc(s)}</div>`));
+    (r.settings || []).forEach((x) => bits.push(`<div><span class="small">${esc(x.label)} 바뀜${x.source === 'author' ? ' (작가)' : ''}</span> ${scArrow(x.before, x.after)}</div>`));
     r.events.forEach((e) => {
       const role = e.actor === c.id ? '' : e.target === c.id ? '' : ' (목격)';
       bits.push(`<div class="cast-ev ${GOOD_EVENTS.includes(e.kind) ? 'good' : 'bad'}">${esc(charName(e.actor))} → ${esc(charName(e.target))} · ${esc(e.kind)} ${INTENSITY[e.intensity] || ''}${role}${e.quote ? `<br><span class="small">“${esc(e.quote)}”</span>` : ''}</div>`);
