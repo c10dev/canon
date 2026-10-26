@@ -53,6 +53,7 @@ canon-probe            개발용: 실제 서버 응답이 타입대로 읽히는
 | `FeatureStyle` | 문체 레퍼런스: `StyleModel`(원문 분석, 라이브러리 고르기 · 저장 · 올리기 · 가져오기, 프로필 · 표지 · 장치 · 대표 문단 고치기), `StyleText`(웹 `styleBlank` · `styleChangeWho` · `baselineRows` 문구), `LiveStyleService`, `StyleView` |
 | `FeatureSettings` | 모델 · API 키 설정 (작품 목록 · 작품 사이드바 툴바의 '모델 · API 키' 시트): `SettingsModel`(불러오기, 저장 · 키 지우기, 연결 확인, 모델 목록, Claude 상태), `SettingsDraft`(고치는 칸, 보낼 값 `body`, 단계 비우기), `SettingsText`(웹 문구 · 규칙), `LiveSettingsService`, `SettingsView`. 키는 칸에만 들고 있다가 서버로 보내고 저장하면 비운다. 다시 보일 때는 서버의 끝 네 글자(`key_hint`)만 |
 | `FeatureAuto` | 자동 집필: `AutoModel`(실행 상태 3초마다 묻기 · 연결 끊김, 시작 · 일시정지 · 이어 가기 · 중지, 새로 시작 칸 · 배치 끔/켬 추정, 멈춘 실행의 정책 고치기, 검토 대기 변경안을 상태 승인으로 보내기, 자동 반영한 화 반영 취소), `AutoText`(웹 `auto.js` 문구), `LiveAutoService`, `AutoScreen` · `PolicyForm` |
+| `FeatureLines` | 이야기 줄기: `LinesModel`(줄기 고르기 · 고치기 · 지우기, 화 붙이기 · 빼기, AI 제안 `storyline` 받기 · 고른 화와 함께 적용 · 버리기), `LineRules`(웹 `lines.js` 규칙 · 문구), `LineMapLayout`(노선도 자리 · 누른 곳), `LiveLinesService`, `LinesScreen`. 다른 화면이 쓰는 `LineField`(플롯 편집기 줄기 칸) · `LineBadges`(화 카드 줄기 표시) |
 | `CanonAppUI` | `AppModel`(서버 · 작품 · 화면 · 작업 · 연 작품), `RootView`, 저장 띠 `SaveBar`, 서버 주소 화면 |
 
 ## 개발 명령
@@ -118,6 +119,8 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | 7 | `FeatureStatWin` | 상태창 수치 (항목 고치기, 틀, 복사, 서식, 화별 변화 표) | `statwin.js` (`swDeltaRows` 는 4 상태 승인) | `statwin_view`(`StatwinView`), `statwin_set`, `statwin_template` — **됨** |
 | 7 | `FeatureAuto` | 자동 집필 (실행 상태 · 진행 로그, 시작 · 일시정지 · 이어 가기 · 중지, 승인 정책, 비용 · 시간 추정, 배치, 검토 대기 화, 검토 없이 반영한 화) | `auto.js` | `auto_*`(`AutoView` · `AutoEstimate`), 검토 대기 변경안을 상태 승인 결과로 두기 `auto_review` — **됨**. 남음: 시작 전 집필 화면의 저장하지 않은 본문 초안 저장(`autoFlushDrafts`), 집필 · 플롯 · 홈 화면의 잠금 안내(`autoLockNote` · `autoEp`, 상태 승인은 됨), 홈의 자동 집필 줄, 오류 안내의 '모델 · API 키 설정' 단추 |
 | 7 | 작품 도구 (남은 것) | 지도, 이야기 줄기, 인과율, 작업지시서 | `atlas.js` `lines.js` `causal.js` | 각 화면 |
+| 7 | `FeatureLines` | 이야기 줄기 (노선도, 줄기 목록 · 편집, 화 붙이기, AI 제안) | `lines.js` | 작업 `storyline`, `apply_storyline`, `remove_storyline` — **됨**. 플롯 편집기의 줄기 칸 `lineField` · 화 카드 `lineBadge` 는 `LineField` · `LineBadges` 로 만들어 두었고 `FeaturePlot` 에 잇는 일이 남음. 화 점을 누르면 플롯 화면으로만 옮기고 그 화를 열지는 않음 |
+| 7 | 작품 도구 (남은 것) | 지도, 인과율, 작업지시서, 자동 집필 | `atlas.js` `causal.js` `auto.js` | 각 화면 |
 | 8 | `FeatureUsage` | 사용량 · 비용 | `usage.js` | `usage_summary` · `usage_prices` — **됨** |
 | 8 | `FeatureSettings` | 모델 · API 키 설정 (사이드바 칸이 아니라 툴바 시트) | `app.js` `viewSettings` `claude.js` `vertex.js` | `config` · `put_config`(`ConfigView`, 본문 `SettingsIn`), `test_config`(`ConfigTest`), `config_models`(`ModelList`), `config_health`(`ConfigHealth`), `claude_status`(`ClaudeStatus`) — **됨** (가격표 칸은 사용량 화면에서) |
 | 8 | 본편과 분리 (남은 것) | 연구 | | `research` |
@@ -184,6 +187,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | `AutoText.defaults` · `estimateLine` · `estimateTime` · `estimateWarnings` · `estimateNotes` · `startQuestion` · `nothingLeft` | `autoDefaults`(기본 정책은 웹은 화면에, 앱은 서버 `policy_defaults`) · `autoEstCard` · `autoStart` · `viewAuto` 의 `nothingLeft` |
 | `AutoText.progressLine` · `needsSettings` · `reviewDone` · `pendingStale` · `haltLink` · `runPolicyNote` · `paused` · `signature` · 알림 문구, `AutoModel.refresh` | `autoRunCard` · `pendingStale` · `autoHaltLinks` · `autoRunPolicy` · `actions.auto*` · `autoPoll` |
 | `AutoText.styleWarnings` · `revertQuestion` · `revertDone` · `logTime` · `logTokens` | `autoAppliedCard` · `revertFrom`(`ReviewText.revertQuestion` 과 같은 말) · `autoLogCard` |
+| `LineRules` (`episodes` · `span` · `isPast` · `newID` · `tag` · `untag` · `parseEpisodes` · `rangeNotes` · `badges` · `fieldOptions`), `LineMapLayout` | `lines.js` `lineEpisodes` · `lineSpan` · `linePast` · `newLineId` · `tagEp` · `lineUntag` · `parseEps` · `lineRangeNote` · `lineBadge` · `lineField` · `lineMap` (서버 `storylines.episodes_of` · `span` · `past` · `new_id` · `tag`. 시험 기대값은 node 로 돌린 웹 결과와 `tests/test_storylines.py` 사례) |
 | `StyleText` | `styleBlank`(서버 `library.blank`) · `styleChangeWho` · `styleLibraryCard` · `baselineRows`, `analyzeStyle` · `useLibStyle` · `keepStyle` · `pushStyle` · `pullStyle` 의 묻는 말 |
 | `SettingsText` (`providers` · `stages` · `stageParent` · `followLabel` · `stageModelHint` · `stageEnvLines` · `localOpen` · `stageOpen` · `claudeOpen` · `modelOptions` · `modelStatus` · `aiWarning` · `claudeCard` · 키 칩), `SettingsDraft.body` | `app.js` `providerOptions` · `STAGES` · `STAGE_PARENT`(서버 `settings.STAGE_PARENT`) · `STAGE_PARENT_LABEL` · `stageModelHint` · `viewSettings` · `modelDatalist` · `KNOWN_MODELS` · `modelStatus` · `aiWarning` · `saveSettings`(환경 변수 · 기본값을 보이기만 한 칸은 보내지 않음), `vertex.js` `geminiAuthSettings` · `geminiAuthBody` · `VERTEX_SRC`, `claude.js` `claudeStatusView` · `claudeSettings` · `claudeSettingsBody` |
 

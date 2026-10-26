@@ -5,6 +5,7 @@ import CanonUI
 import FeatureAuto
 import FeatureForeshadow
 import FeatureHome
+import FeatureLines
 import FeatureCast
 import FeaturePlot
 import FeatureProjects
@@ -99,6 +100,7 @@ public struct RootView: View {
         case .write: if let doc = model.document { WriteView(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
         case .arc: if let doc = model.document { PlotScreen(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
         case .auto: if let doc = model.document { AutoScreen(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
+        case .lines: if let doc = model.document { LinesScreen(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
         default:
             NotPortedYet(screen.label(serial: false))
         }
