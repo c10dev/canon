@@ -425,6 +425,7 @@ def put_project(name: str, p: Project, response: Response, merged: str = "", for
     elements.stamp(p)
     _keep_impacts(name, p)
     _keep_hooks(name, p)
+    _keep_realign(name, p)
     kept: list[dict] = []
     out = _save(name, p, merged={m for m in merged.split(",") if m}, kept=kept)
     if kept:  # 화면이 '저장했습니다' 대신 무엇을 저장하지 않았는지 알린다
@@ -439,6 +440,13 @@ def _keep_hooks(name: str, p: Project) -> None:
         d = disk.get(e.plot.number)
         if d and (e.hook is None or e.hook.checked_at < d.checked_at):
             e.hook = d
+
+
+def _keep_realign(name: str, p: Project) -> None:
+    """뒤 화의 '다시 맞추기' 표시는 플롯 작업이 디스크에 쓰고 지우기는 clear_realign 으로만 한다. 화면 저장이 덮지 않는다."""
+    disk = {e.plot.number: e.realign for e in store.load(name).episodes}
+    for e in p.episodes:
+        e.realign = disk.get(e.plot.number, "")
 
 
 def _keep_impacts(name: str, p: Project) -> None:
@@ -840,6 +848,13 @@ def unconfirm_plot(name: str, n: int) -> Project:
     return _save(name, p)
 
 
+@app.post("/api/projects/{name}/episodes/{n}/realign/clear")
+def clear_realign(name: str, n: int) -> Project:
+    """앞 화를 다시 짜며 남긴 '다시 맞추기' 표시를 작가가 확인하고 지운다."""
+    _load(name).episode(n)  # 없는 작품 · 화면 알린다
+    return _edit(name, lambda p: setattr(p.episode(n), "realign", ""))
+
+
 # 화 끼워 넣기 · 빼기: 아직 안 쓴 화의 번호를 옮긴다. 작업이 맡은 화 번호가 어긋나지 않게 도는 작업이 없을 때만 한다.
 
 class InsertIn(BaseModel):
@@ -1047,6 +1062,7 @@ class JobIn(BaseModel):
     approaches: list[str] = []  # openings, opening_drafts: 여는 방식 id (비우면 기본 세 가지)
     draft: int = 0  # hook: 0 이면 그 화 본문, k 면 비교본 k 번을 판정
     rewrite: RewriteRequest | None = None  # write: 본문이 있는 화를 다시 생성. 새 판은 본문을 덮지 않고 고르기를 기다린다
+    fit_next: bool = True  # plot_one: 바로 뒤 화를 바꾸지 않는 화로 보고 맞춘다. 끄면 작가가 적은 것대로 마무리하고 뒤 화에 어긋난 점을 표시한다
 
 
 def _edit(name: str, fn) -> Project:
@@ -1197,9 +1213,12 @@ def start_job(name: str, body: JobIn) -> dict:
         label, total, owned = f"{n}화 플롯 초안", 1, {n}
 
         def fn(job: jobs.Job):
-            batch = pipeline.draft_episode(llm, store.load(name), n)
-            _edit(name, lambda q: pipeline.apply_plots(q, batch))
-            return None
+            batch = pipeline.draft_episode(llm, store.load(name), n, body.fit_next)
+            out: dict = {}
+            _edit(name, lambda q: out.update(realign=pipeline.apply_draft(q, batch)))
+            if not out.get("realign"):
+                return None
+            return {"realign": out["realign"], "gap": batch.next_gap}  # type: ignore[attr-defined]
     elif kind in ("write", "state"):
         if n is None:
             raise ValueError("화 번호(ep)가 필요해요")
