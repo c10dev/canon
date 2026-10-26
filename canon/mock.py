@@ -35,6 +35,7 @@ from .schema import (
     ImpactConflict,
     ImpactReport,
     LookSuggestion,
+    BodySuggestion,
     VoiceSuggestion,
     NameOption,
     NameOptions,
@@ -553,6 +554,9 @@ class MockLLM:
             water = towngen.water_for(rows)
             return MapSuggestion(size="small", roads="square", water=water, fields="some", forest="few", places=guesses,  # type: ignore[return-value]
                                  reason=f"장소 목록을 보고 물을 {towngen.OPTIONS['water'][water]}(으)로 정했어요.")
+        if schema is BodySuggestion:
+            return BodySuggestion(height="163cm", weight="50kg", build="마른 근육형", measurements="82-60-86",
+                                  features="왼손잡이, 오른쪽 손목에 점", note="외모 칸의 흉터와 성격에 맞춰 활동적인 체형으로 정했어요.")  # type: ignore[return-value]
         if schema is LookSuggestion:
             return LookSuggestion(subject="girl", look=["Black_hair", "short hair", "brown eyes", "teenage"], outfit=["school uniform"],
                                   note="설정에 눈 색이 없어 갈색으로 정했어요.")  # type: ignore[return-value]

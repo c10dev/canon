@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from . import archetypes, autorun, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
-from .schema import (ArcPlan, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
+from .schema import (ArcPlan, BodySuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 from . import atlas, foreshadows, setupchat, statwin, timeline
 from .schema import ChatScope, Deadline, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
@@ -1820,6 +1820,12 @@ class VoiceRequest(BaseModel):
 def suggest_voice(name: str, cid: str, body: VoiceRequest | None = None) -> VoiceSuggestion:
     """인물이 시점 인물인 화의 서술 말투 초안. 저장은 화면에서 고쳐 작품 저장으로 한다."""
     return pipeline.suggest_voice(get_llm("plan"), _load(name), cid, body.request if body else "")
+
+
+@app.post("/api/projects/{name}/characters/{cid}/body")
+def suggest_body(name: str, cid: str) -> BodySuggestion:
+    """신체 프로필 제안. 미성년 인물은 쓰리사이즈를 비운다. 작가가 칸별로 골라 작품 저장으로 남긴다."""
+    return pipeline.suggest_body(get_llm("plan"), _load(name), cid)
 
 
 @app.post("/api/projects/{name}/characters/{cid}/look")

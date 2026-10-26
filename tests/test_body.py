@@ -4,6 +4,8 @@ import json
 from canon import prompts
 from canon.schema import Character, PlotBatch, Project, SetupRevision, SetupSuggestion
 
+from .test_web import client  # noqa: F401  (pytest fixture)
+
 
 def _hero(**body):
     return Character.model_validate({"id": "hero", "name": "서윤", "role": "주인공", "age": "24세", "body": body})
@@ -32,3 +34,32 @@ def test_prompts_leave_body_out():
     text = json.dumps(prompts.cast_view(p.characters), ensure_ascii=False)
     assert "84-58-86" not in text and "왼손잡이" not in text
     assert "84-58-86" not in prompts.setup_prompt(p)
+
+
+MINOR_CASES = ["17세", "19세", "18", "10대 후반", "20대 초반", "고등학생", "대학생", "", "천 살 먹은 용", "1000세", "어린 왕자", "40대"]
+
+
+def test_minor_age():
+    from canon import cast
+    got = {a: cast.is_minor_age(a) for a in MINOR_CASES}
+    assert got == {"17세": True, "19세": False, "18": True, "10대 후반": True, "20대 초반": False, "고등학생": True, "대학생": False,
+                   "": False, "천 살 먹은 용": False, "1000세": False, "어린 왕자": True, "40대": False}
+
+
+def test_suggest_body_keeps_measurements_for_adults_only():
+    from canon import pipeline
+    from canon.mock import MockLLM
+    p = Project(characters=[_hero(height="165cm"), Character(id="kid", name="하나", role="동생", age="15세")])
+    s = pipeline.suggest_body(MockLLM(), p, "hero")
+    assert s.height and s.measurements and s.note
+    assert pipeline.suggest_body(MockLLM(), p, "kid").measurements == ""
+    assert "measurements 는 반드시 빈 문자열" in prompts.body_prompt(p, "kid", True)
+    assert "165cm" in prompts.body_prompt(p, "hero", False)  # 작가가 적은 값은 이 제안에만 보인다
+
+
+def test_web_body(client):
+    from .test_plot_chat import _project
+    _project(client)
+    s = client.post("/api/projects/lh/characters/ally/body").json()
+    assert s["height"] and "measurements" in s
+    assert client.post("/api/projects/lh/characters/nobody/body").status_code == 400

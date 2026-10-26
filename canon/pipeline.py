@@ -30,6 +30,7 @@ from .schema import (
     LookSuggestion,
     MapSpec,
     MapSuggestion,
+    BodySuggestion,
     PlaceSort,
     VoiceSuggestion,
     NameOptions,
@@ -2639,6 +2640,23 @@ def suggest_look(llm: LLM, p: Project, cid: str) -> LookSuggestion:
         raise KeyError(f"인물이 없어요: {cid}. 새로 더한 인물이면 저장한 뒤 다시 하세요")
     s = llm.json(prompts.SYSTEM_ILLUSTRATOR, prompts.look_prompt(p, cid), LookSuggestion, hint={"character": cid})
     s.look, s.outfit = illust.clean(s.look), illust.clean(s.outfit)
+    return s
+
+
+def suggest_body(llm: LLM, p: Project, cid: str) -> BodySuggestion:
+    """신체 프로필 제안. 저장하지 않는다 (작가가 칸별로 골라 Character.body 에 넣고 작품을 저장한다).
+    미성년 인물은 쓰리사이즈를 묻지 않고, 모델이 적어 와도 비운다."""
+    from . import cast
+
+    c = next((c for c in p.characters if c.id == cid), None)
+    if c is None:
+        raise KeyError(f"인물이 없어요: {cid}. 새로 더한 인물이면 저장한 뒤 다시 하세요")
+    minor = cast.is_minor_age(c.age)
+    s = llm.json(prompts.SYSTEM_PLANNER, prompts.body_prompt(p, cid, minor), BodySuggestion, hint={"character": cid})
+    for k in ("height", "weight", "build", "measurements", "features", "note"):
+        setattr(s, k, getattr(s, k).strip())
+    if minor:
+        s.measurements = ""
     return s
 
 

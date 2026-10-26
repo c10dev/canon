@@ -80,6 +80,16 @@ class CharacterBody(BaseModel):
     features: str = ""
 
 
+class BodySuggestion(BaseModel):
+    """신체 프로필 AI 제안. 작가가 칸별로 골라 적용한다 (pipeline.suggest_body). 미성년 인물은 measurements 를 비운다."""
+    height: str = Field("", description="키 (예: 165cm)")
+    weight: str = Field("", description="몸무게 (예: 48kg)")
+    build: str = Field("", description="체형 한 줄 (예: 마른 근육형, 어깨가 넓다)")
+    measurements: str = Field("", description="쓰리사이즈 가슴-허리-엉덩이 cm (예: 84-58-86). 미성년 인물이면 빈칸")
+    features: str = Field("", description="바뀌지 않는 신체 특징 1~3개를 쉼표로 (손잡이, 점 · 흉터 위치, 목소리 등)")
+    note: str = Field("", description="작가에게 하는 한두 문장: 설정에서 무엇을 근거로 정했는지")
+
+
 class Character(BaseModel):
     id: str = Field(description="영문 소문자 식별자, 예: hero, rival")
     name: str
