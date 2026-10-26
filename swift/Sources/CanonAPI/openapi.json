@@ -7465,7 +7465,14 @@
       "default": 1.0
      },
      "spec": {
-      "$ref": "#/components/schemas/MapSpec",
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/MapSpec"
+       },
+       {
+        "type": "null"
+       }
+      ],
       "description": "지도 만들기로 만든 마을이면 그 입력. 파일을 올렸거나 지도가 없으면 비움"
      }
     },
@@ -9823,7 +9830,14 @@
       "default": ""
      },
      "put": {
-      "type": "boolean",
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
       "title": "Put",
       "description": "이 지도에 놓을지. 비면 종류로 정한다 (마을 밖 장소는 놓지 않음)"
      }

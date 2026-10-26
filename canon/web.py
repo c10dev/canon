@@ -25,7 +25,7 @@ from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록
 from .schema import (ArcPlan, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 from . import atlas, foreshadows, statwin
-from .schema import ChatScope, MapPin, NewPlace, StatValue
+from .schema import ChatScope, MapPin, MapSpec, NewPlace, StatValue
 
 STATIC = Path(__file__).parent / "static"
 # 폴더 이름: / \ 와 운영체제가 막는 : * ? " < > | 는 쓸 수 없고, . 으로 시작하지 않는다
@@ -1893,7 +1893,29 @@ def cast_view(name: str) -> dict:
 def atlas_view(name: str) -> dict:
     """지도 화면: 장소와 자리, 화별 인물 자리, 장소와 맞지 않은 위치 글. 마을 데이터가 있으면 길 따라 걸은 경로도."""
     p = _load(name)
-    return atlas.summary(p, atlas.load_layout(_map_dir(name), p))
+    return {**atlas.summary(p, atlas.load_layout(_map_dir(name), p)), "gen": atlas.gen_info(p)}
+
+
+@app.post("/api/projects/{name}/atlas/generate/preview")
+def atlas_generate_preview(name: str, body: MapSpec) -> dict:
+    """지도 만들기 미리보기: 마을과 장소 자리 제안을 돌려준다. 저장하지 않는다."""
+    return atlas.generate(_load(name), body)
+
+
+class GenerateIn(BaseModel):
+    spec: MapSpec
+    pins: list[str] = []  # 생성기가 고른 자리에 놓을 (이미 놓았으면 옮길) 장소 키
+
+
+@app.post("/api/projects/{name}/atlas/generate")
+def atlas_generate(name: str, body: GenerateIn) -> Project:
+    """지도 만들기 적용: 같은 입력으로 마을을 다시 만들어 map/ 에 저장하고, 고른 장소만 새 자리에 놓는다."""
+    p = _load(name)
+    old = atlas.apply_generated(_map_dir(name), p, body.spec, body.pins)
+    out = _save(name, p)
+    if old and (_map_dir(name) / old).is_file():
+        (_map_dir(name) / old).unlink()
+    return out
 
 
 class PinsIn(BaseModel):
@@ -2035,7 +2057,7 @@ def atlas_layout_set(name: str, body: LayoutIn) -> Project:
     fname = f"layout-{int(time.time())}.json"
     (d / fname).write_text(json.dumps(layout, ensure_ascii=False), encoding="utf-8")
     old = p.atlas.layout
-    p.atlas.layout = fname
+    p.atlas.layout, p.atlas.spec = fname, None
     out = _save(name, p)
     if old and old != fname and (d / old).is_file():
         (d / old).unlink()
@@ -2046,7 +2068,7 @@ def atlas_layout_set(name: str, body: LayoutIn) -> Project:
 def atlas_layout_drop(name: str) -> Project:
     """마을 데이터를 지운다. 장소 자리는 그대로 둔다."""
     p = _load(name)
-    old, p.atlas.layout = p.atlas.layout, ""
+    old, p.atlas.layout, p.atlas.spec = p.atlas.layout, "", None
     out = _save(name, p)
     if old and (_map_dir(name) / old).is_file():
         (_map_dir(name) / old).unlink()
