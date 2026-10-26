@@ -10,14 +10,14 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import quote, unquote
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, WithJsonSchema
 
 from . import autorun, cancel, cast, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
@@ -25,7 +25,7 @@ from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록
 from .schema import (ArcPlan, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 from . import atlas, foreshadows, statwin
-from .schema import ChatScope, MapPin, NewPlace, StatValue
+from .schema import ChatScope, Foreshadow, MapPin, NewPlace, StatValue
 
 STATIC = Path(__file__).parent / "static"
 # 폴더 이름: / \ 와 운영체제가 막는 : * ? " < > | 는 쓸 수 없고, . 으로 시작하지 않는다
@@ -2077,8 +2077,51 @@ def atlas_meters(name: str, body: MetersIn) -> Project:
 
 # ---------- 복선 센터 (canon/foreshadows.py) ----------
 
+# Swift 앱의 생성기(swift-openapi-generator)는 anyOf 에 든 null 을 읽지 못해 `int | None` 칸을 타입에서 통째로 뺀다.
+# 명세에는 바탕 타입만 적고 필수에서 뺀다. 그러면 Swift 옵셔널이 되고 null 도 nil 로 읽힌다. 서버 검사는 그대로다.
+OptInt = Annotated[int | None, WithJsonSchema({"type": "integer"})]
+OptFloat = Annotated[float | None, WithJsonSchema({"type": "number"})]
+OptStr = Annotated[str | None, WithJsonSchema({"type": "string"})]
+
+class ForeshadowCenterClue(BaseModel):
+    """복선에 걸린 문장 하나."""
+    episode: int
+    quote: str
+    by: str  # ai | author
+    broken: bool  # 본문을 고쳐 문장이 사라졌다
+
+
+class ForeshadowCenterItem(Foreshadow):
+    """복선 하나와 계산값. 서버가 늘 채우는 칸은 앱에서 옵셔널이 되지 않게 기본값을 뺀다."""
+    status: Literal["open", "resolved"]
+    scope: Literal["arc", "part", "series"]
+    payoff_ep: OptInt = None
+    due_ep: OptInt = None
+    plants: list[ForeshadowCenterClue]
+    payoffs: list[ForeshadowCenterClue]
+    last_seen: int  # 마지막으로 다시 떠올린 화
+    planned: list[int]  # 플롯에서 회수할 예정인 화
+    overdue: bool
+    stale: bool
+    broken: int  # 끊어진 연결 수
+
+
+class ForeshadowCenter(BaseModel):
+    """복선 센터 계산값 (foreshadows.center)."""
+    total: int
+    open: int
+    resolved: int
+    rate: OptFloat = None  # 복선이 없으면 비움
+    broken: int
+    overdue: int
+    stale: int
+    done: int  # 마지막으로 반영한 화
+    last_ep: int  # 화 줄의 끝
+    items: list[ForeshadowCenterItem]
+
+
 @app.get("/api/projects/{name}/foreshadows")
-def foreshadow_center(name: str) -> dict:
+def foreshadow_center(name: str) -> ForeshadowCenter:
     """복선마다 심은 문장 · 회수한 문장, 회수율, 끊어진 연결, 회수 예정이 지난 복선."""
     return foreshadows.center(_load(name))
 
@@ -2087,7 +2130,7 @@ class ForeshadowIn(BaseModel):
     description: str
     episode: int  # 심은 화
     scope: str = "arc"
-    due_ep: int | None = None
+    due_ep: OptInt = None
 
 
 @app.post("/api/projects/{name}/foreshadows")
@@ -2099,9 +2142,9 @@ def foreshadow_add(name: str, body: ForeshadowIn) -> Project:
 
 
 class ForeshadowEdit(BaseModel):
-    description: str | None = None
-    scope: str | None = None
-    due_ep: int | None = None
+    description: OptStr = None
+    scope: OptStr = None
+    due_ep: OptInt = None
     clear_due: bool = False
 
 

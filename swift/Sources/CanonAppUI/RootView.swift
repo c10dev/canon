@@ -1,6 +1,7 @@
 #if canImport(SwiftUI)
 import CanonCore
 import CanonUI
+import FeatureForeshadow
 import FeatureProjects
 import SwiftUI
 
@@ -74,6 +75,7 @@ public struct RootView: View {
     @ViewBuilder
     private func screen(_ screen: Screen, project: String) -> some View {
         switch screen {
+        case .foreshadow: ForeshadowView(server: model.server, project: project)
         default:
             NotPortedYet(screen.label(serial: false))
         }

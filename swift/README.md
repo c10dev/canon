@@ -40,6 +40,7 @@ canon-probe            개발용: 실제 서버 응답이 타입대로 읽히는
 | `CanonAPI` | 생성된 `Client`(빌드 때 `openapi.json` 에서), `CanonServer`(헤더, 오류 바꾸기, 타입 없는 GET), `ProjectLoader`(작품 전체를 ETag 로) |
 | `CanonUI` | `Notice`, `NotPortedYet` |
 | `FeatureProjects` | 작품 목록: `ProjectsModel`, `ProjectCardText`(웹 `projectNext`), `LiveProjectListing`, `ProjectsView` |
+| `FeatureForeshadow` | 복선 센터: `ForeshadowModel`, `ForeshadowChange`(고치기 · 걸린 문장 지우기 · 정리), `ForeshadowText`(웹 `fsItem` · `fsShown`), `ForeshadowTrack`(웹 `fsTrack`), `LiveForeshadowService`, `ForeshadowView` |
 | `CanonAppUI` | `AppModel`(서버 · 작품 · 화면 · 작업), `RootView`, 서버 주소 화면 |
 
 ## 개발 명령
@@ -98,7 +99,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | 4 | `FeatureReview` | 상태 승인 | `app.js` `restate.js` `statwin.js`(`swDeltaRows`) `foreshadow.js`(`fsClueRows`) | `.../state`, `.../apply` |
 | 5 | `FeaturePlot` | 기승전결 · 플롯 / 부 · 아크 · 플롯, AI 대화 | `app.js` `chat.js` `insert.js` `convert.js` | `plots`, `chat`, `series`, `arcs` |
 | 6 | `FeatureSetup`, `FeatureStyle` | 설정 도우미, 문체 레퍼런스 | `app.js` `mystyle.js` | `suggest`, `style`, `styles` |
-| 7 | 작품 도구 | 인물 · 관계도, 지도, 복선 센터, 상태창 수치, 이야기 줄기, 인과율, 작업지시서, 자동 집필 | `cast.js` `atlas.js` `foreshadow.js` `statwin.js` `lines.js` `causal.js` `auto.js` | 각 화면 |
+| 7 | 작품 도구 (`FeatureForeshadow` …) | 인물 · 관계도, 지도, 복선 센터, 상태창 수치, 이야기 줄기, 인과율, 작업지시서, 자동 집필 | `cast.js` `atlas.js` `foreshadow.js` `statwin.js` `lines.js` `causal.js` `auto.js` | 각 화면. 복선 센터는 `foreshadow_*` — **됨** (본문에서 문장 골라 걸기는 3, `fsClueRows` 는 4에서) |
 | 8 | 본편과 분리 · 설정 | 연구, 사용량, 모델 · API 키 설정 | `usage.js` `claude.js` `vertex.js` | `research`, `usage`, `config` |
 
 새 화면 모듈을 만들 때:
