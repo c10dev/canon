@@ -224,6 +224,11 @@ def test_web_api(demo, monkeypatch):
     r = c.get("/api/projects/demo/auto").json()["run"]
     assert r["status"] == "review" and r["ep"] == 2 and r["pending"] and not r["batch"]
 
+    # 앱: 검토 대기 변경안을 검토를 기다리는 결과로 옮기면 상태 승인 화면이 작업 결과처럼 읽는다
+    assert c.post("/api/projects/demo/auto/review").status_code == 200
+    rec = c.get("/api/projects/demo/pending").json()["results"]["state:2"]
+    assert rec["result"] == r["pending"] and rec["base"] == r["pending_text"] and rec["kind"] == "state"
+
     # 검토 화면에서 반영하면 pending 은 더 보이지 않고, 이어 가면 끝난다
     d = r["pending"]
     c.post("/api/projects/demo/episodes/2/apply", json=d)
@@ -236,6 +241,7 @@ def test_web_api(demo, monkeypatch):
     assert [e["status"] for e in p["episodes"][:3]] == ["finalized", "finalized", "written"]
     assert not p["episodes"][2]["auto"]
     assert c.post("/api/projects/demo/auto/pause").status_code == 200
+    assert c.post("/api/projects/demo/auto/review").status_code == 400  # 검토 대기가 없다
 
 
 def test_batch_schema_mismatch_is_repaired(demo):

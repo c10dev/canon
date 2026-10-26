@@ -1924,6 +1924,53 @@ class AutoIn(BaseModel):
     policy: autorun.Policy = autorun.Policy()
 
 
+# 응답 모델: 기본값이 있는 칸도 응답에는 늘 있으니 명세에서 필수로 적는다 (Swift 타입이 옵셔널이 되지 않게)
+_AUTO_OUT = ConfigDict(json_schema_serialization_defaults_required=True, populate_by_name=True)
+
+
+class AutoLog(autorun.LogEntry):
+    model_config = _AUTO_OUT
+
+
+class AutoRun(autorun.Run):
+    """autorun.Run 과 같은 칸. 명세에서 칸을 필수로 적으려고 따로 둔다."""
+    model_config = _AUTO_OUT
+    log: list[AutoLog] = Field(default_factory=list)
+
+
+class AutoView(BaseModel):
+    """자동 집필 화면이 받는 것: 마지막 실행, 도는 중인지, 배치를 쓸 수 있는 단계, 새로 시작할 때의 서버 기본 정책."""
+    model_config = _AUTO_OUT
+    run: AutoRun | None = None
+    active: bool
+    batch_stages: list[str]
+    policy_defaults: autorun.Policy = Field(default_factory=autorun.Policy)
+
+
+class AutoEstimate(BaseModel):
+    """남은 화를 끝까지 쓸 때의 추정 (autorun.estimate)."""
+    model_config = _AUTO_OUT
+    episodes: int
+    from_: int | None = Field(None, alias="from")
+    to: int
+    missing: list[int]
+    drafts: list[int]
+    calls: dict[str, int]
+    tokens_in: int
+    tokens_out: int
+    cost: float | None = Field(None, description="USD. 가격표에 없는 모델이 있으면 null")
+    batch: bool
+    batch_rounds: int
+    seconds_min: int
+    seconds_max: int
+    seconds_worst: int
+    batch_avg_seconds: int | None = None
+    measured: bool
+    model: str
+    unpriced: list[str]
+    stages: dict[str, str]
+
+
 def _auto(name: str) -> dict:
     p = _load(name)
     run = autorun.get_run(name)
@@ -1931,21 +1978,21 @@ def _auto(name: str) -> dict:
     if out and run.pending and (run.status != "review" or p.episode(run.ep).status != "written"):
         out["pending"] = None  # 사용자가 검토 화면에서 이미 반영했다
     return {"run": out, "active": autorun.active(name),
-            "batch_stages": [s for s in ("write", "check", "state") if autorun.batchable(s)]}
+            "batch_stages": [s for s in ("write", "check", "state") if autorun.batchable(s)], "policy_defaults": autorun.Policy()}
 
 
 @app.get("/api/projects/{name}/auto")
-def auto_get(name: str) -> dict:
+def auto_get(name: str) -> AutoView:
     return _auto(name)
 
 
 @app.post("/api/projects/{name}/auto/estimate")
-def auto_estimate(name: str, body: AutoIn) -> dict:
+def auto_estimate(name: str, body: AutoIn) -> AutoEstimate:
     return autorun.estimate(_load(name), body.target, body.batch, body.policy, name)
 
 
 @app.post("/api/projects/{name}/auto/start")
-def auto_start(name: str, body: AutoIn) -> dict:
+def auto_start(name: str, body: AutoIn) -> AutoView:
     _load(name)
     autorun.start(name, body.target, body.batch, body.policy)
     return _auto(name)
@@ -1957,14 +2004,29 @@ class AutoResume(BaseModel):
 
 
 @app.post("/api/projects/{name}/auto/resume")
-def auto_resume(name: str, body: AutoResume) -> dict:
+def auto_resume(name: str, body: AutoResume) -> AutoView:
     _load(name)
     autorun.resume(name, approve=body.approve, rewrite=body.rewrite)
     return _auto(name)
 
 
+@app.post("/api/projects/{name}/auto/review")
+def auto_review(name: str) -> AutoView:
+    """검토 대기 변경안을 검토를 기다리는 결과(pending.json 의 state:<화>)로 둔다. 상태 승인 화면이 작업 결과처럼 읽는다.
+    웹은 화면 메모리로 넘기고(auto.js autoOpenReview), 앱은 이것을 부른 뒤 상태 승인 화면으로 간다."""
+    p = _load(name)
+    run = autorun.get_run(name)
+    if run is None or run.status != "review" or run.pending is None or run.ep is None or p.episode(run.ep).status != "written":
+        raise ValueError("검토를 기다리는 변경안이 없어요")
+    n, key = run.ep, f"state:{run.ep}"
+    rec = {"key": key, "id": f"auto:{run.started}:{n}", "kind": "state", "ep": n, "label": f"{n}화 상태 변경안",
+           "result": run.pending.model_dump(), "base": run.pending_text or None, "at": _now()}
+    store.edit_pending(name, lambda d: d["results"].__setitem__(key, rec))
+    return _auto(name)
+
+
 @app.post("/api/projects/{name}/auto/{what}")
-def auto_request(name: str, what: str) -> dict:
+def auto_request(name: str, what: str) -> AutoView:
     """what: pause | stop"""
     _load(name)
     if what not in ("pause", "stop"):
@@ -1978,14 +2040,14 @@ class AutoBatch(BaseModel):
 
 
 @app.put("/api/projects/{name}/auto/batch")
-def auto_batch(name: str, body: AutoBatch) -> dict:
+def auto_batch(name: str, body: AutoBatch) -> AutoView:
     _load(name)
     autorun.set_batch(name, body.batch)
     return _auto(name)
 
 
 @app.put("/api/projects/{name}/auto/policy")
-def auto_policy(name: str, body: autorun.Policy) -> dict:
+def auto_policy(name: str, body: autorun.Policy) -> AutoView:
     """멈춘 실행의 승인 정책을 바꾼다. 검토 대기와 기다리던 배치는 그대로 두고 다음 판정부터 적용된다."""
     _load(name)
     autorun.set_policy(name, body)
