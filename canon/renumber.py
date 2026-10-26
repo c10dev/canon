@@ -77,6 +77,9 @@ def move_points(p: Project, f: Point, gone: int = 0) -> dict[str, int]:
         fs.payoff_ep = f(fs.payoff_ep) if fs.payoff_ep else fs.payoff_ep
         fs.due_ep = f(fs.due_ep) if fs.due_ep else fs.due_ep
         count["foreshadows"] += before != (fs.planted_ep, fs.payoff_ep, fs.due_ep)
+    for d in [*p.timeline.deadlines, *(x for snap in p.snapshots for x in snap.deadlines or [])]:
+        d.set_ep = f(d.set_ep) if d.set_ep else d.set_ep
+        d.done_ep = f(d.done_ep) if d.done_ep else d.done_ep
     for el in p.elements:
         before = (el.since_ep, list(el.episodes), el.reveal_ep, el.found_ep)
         el.since_ep = f(el.since_ep)

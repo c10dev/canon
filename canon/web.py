@@ -24,8 +24,8 @@ from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (ArcPlan, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
-from . import atlas, foreshadows, statwin
-from .schema import ChatScope, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
+from . import atlas, foreshadows, statwin, timeline
+from .schema import ChatScope, Deadline, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .schema import CharacterState, StoryEvent
 
 STATIC = Path(__file__).parent / "static"
@@ -2372,6 +2372,65 @@ def statwin_template(name: str, body: StatTemplate) -> Project:
         raise ValueError("서식에 {rows} 가 있어야 항목이 들어갑니다")
     p = _load(name)
     p.stat_window.template, p.stat_window.row = body.template, body.row
+    return _save(name, p)
+
+
+# ---------- 작품 속 시간 (canon/timeline.py) ----------
+# 켜고 끄기, 기준 날짜, 화가 끝난 시점, 플롯의 시점은 작품 전체 저장(PUT /projects/<이름>)으로 고친다.
+# 기한은 스냅샷과 함께 고쳐야 되돌리기와 맞아서 따로 둔다.
+
+class TimelineRow(BaseModel):
+    """화 하나의 시점: 플롯의 시점(plan), 끝난 시점(time), 날수를 아는 앞 화에서 지난 날(gap)."""
+    episode: int
+    title: str
+    status: str
+    plan: str
+    time: StoryTime
+    text: str
+    gap: int | None  # 날수를 모르면 비움
+
+
+class TimelineDeadline(Deadline):
+    """기한 하나와 남은 날 ('4일 남음', '오늘', '2일 지남'. 닫혔거나 날수를 모르면 빈칸)."""
+    left: str
+
+
+class TimelineView(BaseModel):
+    """작품 속 시간 화면 계산값 (timeline.view)."""
+    day: int  # 다음에 쓸 화 직전의 날수. 모르면 0
+    now: str
+    rows: list[TimelineRow]
+    deadlines: list[TimelineDeadline]
+
+
+@app.get("/api/projects/{name}/timeline")
+def timeline_view(name: str) -> TimelineView:
+    """화별 작품 속 시점과 기한 (남은 날 포함)."""
+    return timeline.view(_load(name))
+
+
+class DeadlineIn(BaseModel):
+    id: str = ""  # 비우면 새 기한 (마지막으로 반영한 화에 생긴 것으로)
+    what: str
+    day: int = 0
+    note: str = ""
+    done_ep: int = 0
+
+
+@app.put("/api/projects/{name}/timeline/deadlines")
+def deadline_put(name: str, body: DeadlineIn) -> Project:
+    """작가가 기한을 더하거나 고친다. 스냅샷에도 같이 적어 되돌려도 남는다."""
+    p = _load(name)
+    _not_auto(name)
+    timeline.upsert(p, Deadline(**body.model_dump()))
+    return _save(name, p)
+
+
+@app.delete("/api/projects/{name}/timeline/deadlines/{did}")
+def deadline_remove(name: str, did: str) -> Project:
+    p = _load(name)
+    _not_auto(name)
+    timeline.remove(p, did)
     return _save(name, p)
 
 

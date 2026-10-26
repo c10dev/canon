@@ -51,8 +51,10 @@ from .schema import (
     SerialRebuild,
     SeriesPlan,
     SetupSuggestion,
+    Deadline,
     StateDelta,
     StatValue,
+    StoryTime,
     StoryArc,
     StoryEvent,
     Storyline,
@@ -449,6 +451,9 @@ class MockLLM:
                 foreshadow_resolved=["fs-01-key"] if n == 2 else [],
                 foreshadow_clues=[ForeshadowClue(foreshadow="fs-01-key", kind="payoff" if n == 2 else "plant", quote="서윤은 등대 앞에 섰다.")]
                 if n in (1, 2) else [],
+                time=StoryTime(day=n, part="밤"),
+                deadlines_added=[Deadline(id="dl-01-festival", what="등대 축제", day=5, note="닷새 뒤 축제")] if n == 1 else [],
+                deadlines_done=["dl-01-festival"] if n == 3 else [],
             )  # type: ignore[return-value]
         if schema is StorylineProposal:
             return _storyline(hint)  # type: ignore[return-value]

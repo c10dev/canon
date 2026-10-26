@@ -300,6 +300,7 @@ def take_snapshot(p: Project, n: int) -> None:
         secrets=[s.model_copy(deep=True) for s in p.secrets],
         facts=list(p.facts),
         foreshadows=[f.model_copy(deep=True) for f in p.foreshadows],
+        deadlines=[d.model_copy(deep=True) for d in p.timeline.deadlines],
     )
     p.snapshots = [s for s in p.snapshots if s.episode != n] + [snap]
     p.snapshots.sort(key=lambda s: s.episode)
