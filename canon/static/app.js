@@ -712,6 +712,23 @@ function ep(n) {
   return P().episodes.find((e) => e.plot.number === n);
 }
 
+// 신체 프로필 칸 (Character.body). 작가가 정하고 인물 상태창에만 보인다. 프롬프트에는 넣지 않는다
+const BODY_FIELDS = [['height', '키'], ['weight', '몸무게'], ['build', '체형'], ['measurements', '쓰리사이즈'], ['features', '신체 특징']];
+
+/** 나이 칸으로 미성년인지. 19 미만 숫자, 10대, 학생 · 아이 같은 말이면 미성년이다. 모르면 false.
+    미성년 인물은 쓰리사이즈 칸을 보이지도 받지도 않는다 */
+function isMinorAge(age) {
+  const a = String(age || '');
+  if (/초등|중학|고등|고교|소년|소녀|어린|아이|미성년|10\s*대/.test(a)) return true;
+  const m = a.match(/\d+/);
+  return !!m && Number(m[0]) < 19;
+}
+
+function bodyRows(c) {
+  const b = c.body || {};
+  return BODY_FIELDS.filter(([k]) => (b[k] || '').trim() && !(k === 'measurements' && isMinorAge(c.age))).map(([k, label]) => [k, label, b[k].trim()]);
+}
+
 function charName(id) {
   const c = P().characters.find((x) => x.id === id) || (P().cast_candidates || []).find((x) => x.id === id);
   return c ? c.name || id : id;
@@ -1298,7 +1315,7 @@ const actions = {
     const ids = new Set(cs.map((c) => c.id));
     let id = ids.has('hero') ? '' : 'hero';
     for (let n = cs.length + 1; !id; n++) if (!ids.has('char' + n)) id = 'char' + n;
-    cs.push({ id, name: '', role: id === 'hero' ? '주인공' : '조연', age: '', gender: '', appearance: '', personality: '', background: '', goal: '', wound: '', speech_style: '', secrets: [], arc: '' });
+    cs.push({ id, name: '', role: id === 'hero' ? '주인공' : '조연', age: '', gender: '', appearance: '', personality: '', background: '', goal: '', wound: '', speech_style: '', secrets: [], arc: '', body: {} });
     markDirty();
     render();
   },
@@ -3302,6 +3319,19 @@ function placeKindOptions() {
   return ['<option value="">종류 무관</option>', ...((st && st.place_kinds) || []).map((k) => `<option value="${esc(k)}"${S.placeKind === k ? ' selected' : ''}>${esc(k)}</option>`)].join('');
 }
 
+/** 설정 도우미 인물 카드의 신체 프로필. 미성년 인물은 쓰리사이즈 칸을 두지 않는다 */
+function bodyFields(c, b) {
+  if (!c.body || typeof c.body !== 'object') c.body = {};  // 예전 화면에서 만든 인물도 칸을 고칠 수 있게
+  const minor = isMinorAge(c.age);
+  const filled = bodyRows(c).length;
+  return `<details><summary>신체 프로필 <span class="small">${filled ? `· ${filled}칸 채움 ` : ''}· 인물 상태창에만 보여요</span></summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
+    <div class="grid-2">${input('키', b + '.body.height', { placeholder: '예: 165cm' })}${input('몸무게', b + '.body.weight', { placeholder: '예: 48kg' })}</div>
+    <div class="grid-2">${input('체형', b + '.body.build', { placeholder: '예: 마른 근육형' })}${minor ? '' : input('쓰리사이즈', b + '.body.measurements', { placeholder: '예: 84-58-86' })}</div>
+    ${minor ? '<div class="small">나이로 보아 미성년 인물이라 쓰리사이즈 칸은 두지 않아요.</div>' : ''}
+    ${input('신체 특징', b + '.body.features', { rows: 2, placeholder: '예: 왼손잡이, 오른쪽 어깨에 화상 자국' })}
+    <div class="small">AI 프롬프트에는 넣지 않아요. 본문에 이어지게 할 외모는 위 '외모' 칸에 적어요.</div></div></details>`;
+}
+
 function viewSetup() {
   const p = P();
   const chars = p.characters.map((c, i) => {
@@ -3324,6 +3354,7 @@ function viewSetup() {
         ${input('성격', b + '.personality', { rows: 2 })}${input('배경', b + '.background', { rows: 2 })}${input('외모', b + '.appearance')}
         ${input('아크', b + '.arc', { hint: '시작 → 결말' })}${input('id', b + '.id', { hint: '관계와 플롯이 인물을 찾는 값. 보통 바꿀 필요 없어요' })}
       </div></details>
+      ${bodyFields(c, b)}
       ${visualFields(c)}
     </article>`;
   }).join('');

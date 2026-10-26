@@ -759,6 +759,90 @@ details.vis summary .small { margin-left: 6px; font-weight: 400; }
 .legend .cs-key.confirmed { background: var(--accent-soft); border-color: var(--accent); }
 .legend .cs-key.written { background: var(--amber-soft); border-color: var(--amber); }
 .legend .cs-key.finalized { background: var(--green-soft); border-color: var(--green); }
+.cs-mark { fill: none; stroke: var(--accent); stroke-width: 2; }
+
+/* ----- 인물 상태창 (cast.js castSheet): 인물 하나의 설정 · 지금 상태 · 상태창 수치 · 관계 · 비밀 · 기록 ----- */
+.csh { display: flex; flex-direction: column; gap: 20px; }
+.csh-roster { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; }
+.csh-pick { flex: none; min-height: 52px; padding: 6px 14px 6px 6px; display: flex; align-items: center; gap: 10px; border-radius: 999px; border: 1.5px solid var(--line); background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.csh-pick:hover { border-color: var(--line-strong); }
+.csh-pick[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.csh-pick-text { display: flex; flex-direction: column; gap: 1px; }
+/* 얼굴 자리: 주역 · 조연 · 단역 색. 흰 글자 대비가 두 테마 모두 4.5:1 이상인 고정 색 */
+.csh-ava, .csh-portrait { flex: none; display: flex; align-items: center; justify-content: center; color: #FFFFFF; font-weight: 800; forced-color-adjust: none; }
+.csh-ava { width: 40px; height: 40px; border-radius: 50%; font-size: 1rem; }
+.csh-ava.t-main, .csh-portrait.t-main { background: #2B54C8; }
+.csh-ava.t-support, .csh-portrait.t-support { background: #1C6E45; }
+.csh-ava.t-minor, .csh-portrait.t-minor { background: #8A4205; }
+.card.csh-head { flex-direction: row; flex-wrap: wrap; gap: 24px; align-items: stretch; }
+.csh-portrait { flex-basis: 120px; height: 150px; border-radius: 12px; font-size: 3rem; }
+.csh-id { flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.csh-id h2 { font-size: 1.5rem; font-weight: 800; }
+.csh-side { flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.csh-body { display: flex; flex-direction: column; gap: 6px; }
+.csh-body dl { margin: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.csh-body dl > div { padding: 5px 10px; border-radius: 8px; background: var(--bg); display: flex; gap: 6px; align-items: baseline; }
+.csh-body dt { font-size: 0.6875rem; font-weight: 700; color: var(--muted); }
+.csh-body dd { margin: 0; font-size: 0.875rem; font-weight: 700; }
+.csh-body .small strong { color: var(--text-2); margin-right: 4px; }
+.csh-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.csh-fact { padding: 10px 12px; border-radius: 10px; background: var(--bg); display: flex; flex-direction: column; gap: 2px; }
+.csh-fact span { font-size: 0.6875rem; color: var(--muted); }
+.csh-fact strong { font-size: 1.25rem; font-weight: 800; }
+.csh-fact small { margin-left: 1px; font-size: 0.75rem; font-weight: 500; }
+.chip.csh-arc { white-space: normal; background: var(--act-3); color: var(--act-3-ink); }
+.chip.csh-own { background: var(--act-3); color: var(--act-3-ink); }
+.chip.warn { background: var(--amber-soft); color: var(--amber-ink); }
+.csh-cols { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+.csh-col { flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+.csh-row { display: grid; grid-template-columns: 6.5em minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 10px 0; border-bottom: 1px solid var(--rule); font-size: 0.875rem; line-height: 1.55; }
+.csh-row:last-child { border-bottom: none; }
+.csh-row > span:first-child { padding-top: 2px; font-size: 0.75rem; font-weight: 700; color: var(--muted); }
+.csh-val { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.csh-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.csh-know { padding: 3px 9px; border-radius: 6px; background: var(--bg); color: var(--text-2); font-size: 0.8125rem; }
+.csh-know.new { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
+.card.csh-empty { border-style: dashed; }
+.csh-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
+.csh-stat { min-width: 0; padding: 10px 12px; border-radius: 10px; background: var(--bg); display: flex; flex-direction: column; gap: 4px; }
+.csh-stat strong { font-size: 1.125rem; font-weight: 800; overflow-wrap: anywhere; }
+.csh-stat.wide { grid-column: 1 / -1; }
+.csh-stat .csh-know { border: 1px solid var(--line); background: var(--surface); }
+.csh-stat.moved { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.csh-delta { padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); font-size: 0.6875rem; font-weight: 700; white-space: nowrap; }
+.csh-bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.csh-bar i { display: block; height: 100%; background: var(--green); }
+/* 시스템 창 테마: 웹소설 상태창처럼 어두운 창. 밝은 · 어두운 테마 모두 같은 색이다 */
+.sw-sys { padding: 20px 24px; border: 1px solid #3FA9E0; border-radius: 6px; background: #0B1626; color: #E6F0FF; display: flex; flex-direction: column; gap: 12px; font-family: ui-monospace, Menlo, Consolas, var(--sans); forced-color-adjust: none; }
+.sw-sys-title { padding-bottom: 10px; border-bottom: 1px solid #24496B; text-align: center; letter-spacing: 0.2em; color: #7FD4FF; font-family: var(--sans); font-weight: 700; }
+.sw-sys dl { margin: 0; display: grid; grid-template-columns: minmax(4em, auto) minmax(0, 1fr); gap: 10px 16px; align-items: center; }
+.sw-sys dt { color: #9FB3C8; font-family: var(--sans); font-size: 0.8125rem; }
+.sw-sys dd { margin: 0; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 0.9375rem; overflow-wrap: anywhere; }
+.sw-sys s { color: #9FB3C8; }
+.sw-sys .csh-delta { background: #7FD4FF; color: #0B1626; }
+.sw-sys-tag { padding: 1px 8px; border: 1px solid #3FA9E0; border-radius: 4px; font-family: var(--sans); font-size: 0.8125rem; }
+.sw-sys-bar { flex: 1 1 120px; height: 8px; border-radius: 2px; background: #1A2E45; overflow: hidden; }
+.sw-sys-bar i { display: block; height: 100%; background: #4FD18B; }
+.sw-sys-foot { padding-top: 10px; border-top: 1px solid #24496B; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; color: #9FB3C8; font-family: var(--sans); font-size: 0.75rem; }
+.csh-rels, .csh-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.csh-rels { gap: 14px; }
+.csh-rels li { display: flex; flex-direction: column; gap: 8px; }
+.csh-dir { padding: 10px 12px; border-radius: 10px; background: var(--sel-bg); display: flex; flex-direction: column; gap: 6px; font-size: 0.8125rem; }
+.csh-meter { display: grid; grid-template-columns: 2.5em minmax(0, 1fr); gap: 8px; align-items: center; font-size: 0.75rem; color: var(--muted); }
+.csh-track { position: relative; height: 8px; border-radius: 999px; background: var(--seg); overflow: hidden; }
+.csh-track i { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 999px; background: var(--accent); }
+.csh-track.warm::before { content: ''; position: absolute; z-index: 1; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--line-strong); }
+.csh-list { gap: 8px; font-size: 0.875rem; line-height: 1.55; }
+.csh-list li { padding: 10px 12px; border-radius: 10px; background: var(--bg); }
+.csh-held { padding: 10px 12px; border: 1px solid var(--warn-line); border-radius: 8px; background: var(--amber-soft); color: var(--amber-ink); display: flex; flex-direction: column; gap: 6px; }
+@media (max-width: 640px) {
+  .card.csh-head { gap: 14px; }
+  .csh-portrait { flex-basis: 72px; height: 90px; font-size: 2rem; }
+  .csh-row { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; }
+  .csh-row > span:first-child { grid-column: 1 / -1; padding-top: 0; }
+  .csh-row > .csh-val { grid-column: 1 / -1; }
+}
+
 .cast-table .ct-hit { fill: transparent; }
 .cast-table .ct-row:hover .ct-hit, .cast-table .ct-row:focus-visible .ct-hit { fill: var(--accent-soft); }
 .cast-table .ct-row:focus { outline: none; }
