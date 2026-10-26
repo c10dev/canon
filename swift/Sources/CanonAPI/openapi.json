@@ -4700,6 +4700,55 @@
     }
    }
   },
+  "/api/projects/{name}/characters/{cid}/body": {
+   "post": {
+    "summary": "Suggest Body",
+    "description": "신체 프로필 제안. 미성년 인물은 쓰리사이즈를 비운다. 작가가 칸별로 골라 작품 저장으로 남긴다.",
+    "operationId": "suggest_body",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "cid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Cid"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/BodySuggestion"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/characters/{cid}/look": {
    "post": {
     "summary": "Suggest Look",
@@ -8278,6 +8327,49 @@
     "type": "object",
     "title": "Backend",
     "description": "실험에 쓸 백엔드. model, url 이 비면 설정 화면 값을 쓴다."
+   },
+   "BodySuggestion": {
+    "properties": {
+     "height": {
+      "type": "string",
+      "title": "Height",
+      "description": "키 (예: 165cm)",
+      "default": ""
+     },
+     "weight": {
+      "type": "string",
+      "title": "Weight",
+      "description": "몸무게 (예: 48kg)",
+      "default": ""
+     },
+     "build": {
+      "type": "string",
+      "title": "Build",
+      "description": "체형 한 줄 (예: 마른 근육형, 어깨가 넓다)",
+      "default": ""
+     },
+     "measurements": {
+      "type": "string",
+      "title": "Measurements",
+      "description": "쓰리사이즈 가슴-허리-엉덩이 cm (예: 84-58-86). 미성년 인물이면 빈칸",
+      "default": ""
+     },
+     "features": {
+      "type": "string",
+      "title": "Features",
+      "description": "바뀌지 않는 신체 특징 1~3개를 쉼표로 (손잡이, 점 · 흉터 위치, 목소리 등)",
+      "default": ""
+     },
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "description": "작가에게 하는 한두 문장: 설정에서 무엇을 근거로 정했는지",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "BodySuggestion",
+    "description": "신체 프로필 AI 제안. 작가가 칸별로 골라 적용한다 (pipeline.suggest_body). 미성년 인물은 measurements 를 비운다."
    },
    "CastAppearance": {
     "properties": {

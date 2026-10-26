@@ -9,12 +9,25 @@
 """
 from __future__ import annotations
 
+import re
 from typing import Iterator, Optional
 
 from . import charlog, dynamics
 from .schema import CharacterState, Project, Snapshot, StateDelta
 
 STATE_FIELDS = ("emotional_state", "current_goal", "location", "attire")
+# 나이 칸으로 미성년을 가리는 말. static/cast.js 의 isMinorAge 와 같은 규칙이라 함께 고친다
+_MINOR_WORDS = re.compile(r"초등|중학|고등|고교|소년|소녀|어린|아이|미성년|10\s*대")
+
+
+def is_minor_age(age: str) -> bool:
+    """나이 칸으로 미성년인지. 19 미만 숫자, 10대, 학생 · 아이 같은 말이면 미성년이다. 모르면 False.
+    미성년 인물은 신체 프로필의 쓰리사이즈를 받지도 제안하지도 않는다."""
+    a = age or ""
+    if _MINOR_WORDS.search(a):
+        return True
+    m = re.search(r"\d+", a)
+    return bool(m) and int(m.group()) < 19
 
 
 def _sim(p: Project, snap: Snapshot) -> Project:

@@ -18,7 +18,7 @@ const ctx = { data, S: {}, actions: {}, document: { ...noop, createElement: () =
 vm.createContext(ctx);
 const src = process.argv.slice(1).map((f) => fs.readFileSync(f, 'utf8')).join('\\n;\\n');
 vm.runInContext(src + `
-;globalThis.out = data.cases.map(([b, a]) => castStatDelta(b === null ? undefined : b, a));`, ctx);
+;globalThis.out = data.ages ? data.ages.map(isMinorAge) : data.cases.map(([b, a]) => castStatDelta(b === null ? undefined : b, a));`, ctx);
 process.stdout.write(JSON.stringify(ctx.out));
 """
 
@@ -46,3 +46,14 @@ def test_stat_delta():
     assert run.returncode == 0, run.stderr
     for (b, a, want), got in zip(CASES, json.loads(run.stdout)):
         assert got == want, (b, a, got)
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
+def test_minor_age_matches_server():
+    from canon import cast
+
+    from .test_body import MINOR_CASES
+    run = subprocess.run(["node", "-e", HARNESS, str(STATIC / "statwin.js"), str(STATIC / "cast.js")],
+                         input=json.dumps({"ages": MINOR_CASES}), capture_output=True, text=True, encoding="utf-8")
+    assert run.returncode == 0, run.stderr
+    assert json.loads(run.stdout) == [cast.is_minor_age(a) for a in MINOR_CASES]

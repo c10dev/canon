@@ -422,6 +422,23 @@ function castTimeline(c) {
 }
 
 // ----- 인물 상태창 -----
+// 신체 프로필 칸 (Character.body). 작가가 정하고(AI 제안은 칸별로 골라 적용) 인물 상태창에만 보인다. 프롬프트에는 넣지 않는다
+const BODY_FIELDS = [['height', '키'], ['weight', '몸무게'], ['build', '체형'], ['measurements', '쓰리사이즈'], ['features', '신체 특징']];
+
+/** 나이 칸으로 미성년인지. cast.is_minor_age 와 같은 규칙이라 함께 고친다 (tests/test_cast_js.py). 19 미만 숫자, 10대, 학생 · 아이 같은 말이면 미성년이다. 모르면 false.
+    미성년 인물은 쓰리사이즈 칸을 보이지도 받지도 않는다 */
+function isMinorAge(age) {
+  const a = String(age || '');
+  if (/초등|중학|고등|고교|소년|소녀|어린|아이|미성년|10\s*대/.test(a)) return true;
+  const m = a.match(/\d+/);
+  return !!m && Number(m[0]) < 19;
+}
+
+function bodyRows(c) {
+  const b = c.body || {};
+  return BODY_FIELDS.filter(([k]) => (b[k] || '').trim() && !(k === 'measurements' && isMinorAge(c.age))).map(([k, label]) => [k, label, b[k].trim()]);
+}
+
 // 인물 하나의 설정(고정) · 지금 상태 · 상태창 수치 · 관계 · 비밀 · 기록을 한 장에. 값은 모두 보는 시점(frame)의 것
 
 const SHEET_STATE = [['감정', 'emotional_state'], ['목표', 'current_goal'], ['위치', 'location'], ['차림', 'attire']];
