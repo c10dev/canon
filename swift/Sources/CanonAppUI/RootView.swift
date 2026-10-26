@@ -5,6 +5,7 @@ import CanonUI
 import FeatureForeshadow
 import FeatureHome
 import FeatureCast
+import FeaturePlot
 import FeatureProjects
 import FeatureReview
 import FeatureStatWin
@@ -86,6 +87,7 @@ public struct RootView: View {
         case .cast: CastScreen(server: model.server, project: project) { model.screen = $0 }
         case .review: if let doc = model.document { ReviewView(document: doc, jobs: model.jobs, service: LiveReviewService(server: model.server)) { model.screen = $0 } }
         case .write: if let doc = model.document { WriteView(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
+        case .arc: if let doc = model.document { PlotScreen(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
         default:
             NotPortedYet(screen.label(serial: false))
         }

@@ -48,6 +48,7 @@ canon-probe            개발용: 실제 서버 응답이 타입대로 읽히는
 | `FeatureCast` | 인물 · 관계도: `CastModel`(시점 재생, 고르기, 배치), `CastText`(웹 `cast.js` 문구), `WarmthBand`, `CastLayout`(힘 배치 · 선 모양), `CastHit`, `LiveCastSource`(작품 전체 + `cast_view`), `DefaultsLayoutStore`, `CastScreen` |
 | `FeatureReview` | 상태 승인: `ReviewModel`(작업 결과 `state:<화>` 읽기, 고르기 · 고치기, 반영 · 다시 맞추기 · 그대로 두기 · 반영 취소, 관계 미리 보기), `ReviewText`(웹 `setDelta` · `pickedDelta` · `relationLines` · `swDeltaRows` · `fsClueRows` · `restate.js`), `LiveReviewService`, `ReviewView` |
 | `FeatureWrite` | 집필: `WriteModel`(화 고르기, 본문 초안과 '본문 저장', 쓰기 · 검수 작업, 다시 생성, 복사 · 내보내기), `WriteText` · `RewriteText` · `PublishText`(웹 문구), `RewriteDraft`, `TextDiff`(새 판 비교), `LiveWriteService`, `WriteView` |
+| `FeaturePlot` | 기승전결 · 플롯 (장편은 부 · 아크 · 플롯): `PlotModel`(구간 · 화 · 아크 · 부 고치기, 확정, 작업 결과를 제안으로 받기 · 적용 · 버리기, 화 끼워 넣기 · 빼기), `PlotRules`(웹 `actRanges` · `fitActs` · `actCoverage` 등), `PlotBoard` · `PlotEditorInfo` · `EpisodeCard`(보드 · 편집기 · 화 카드), `LivePlotService`, `PlotScreen` |
 | `CanonAppUI` | `AppModel`(서버 · 작품 · 화면 · 작업 · 연 작품), `RootView`, 저장 띠 `SaveBar`, 서버 주소 화면 |
 
 ## 개발 명령
@@ -106,7 +107,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | 2 | `FeatureHome`, `CanonStore` | 작품 홈, 작품 저장(409 · merged) | `app.js` `viewHome` `save` | `get_project`, `put_project` — **됨** (남음: 홈의 자동 집필 줄 · 관계 카드 · 장편 전환 단추) |
 | 3 | `FeatureWrite` | 집필 (부분 수정, 다시 생성, 문체 표시, 복사, 삽화) | `passage.js` `rewrite.js` `marks.js` `publish.js` `illust.js` `opening.js` `restate.js` | `put_text`, `rewrite_info`, `export_text` 등 — **일부 됨**: 본문 보기 · 고치기, 쓰기 · 검수, 다시 생성, 복사 · 내보내기. 남음: 부분 수정 `passage.js`, 문체 표시 `marks.js`, 삽화 `illust.js`, 초반 1~3화 `opening.js`, 반영 뒤 고친 화 `restate.js`, AI 대화 패널, 작업지시서 방식, 컨텍스트 블록 보기 |
 | 4 | `FeatureReview` | 상태 승인 (변경안 만들기 · 고르기 · 고치기 · 반영, 관계 미리 보기, 상태창 줄, 복선 문장, 반영 뒤 고친 화 다시 맞추기, 반영 취소) | `app.js` `restate.js` `statwin.js`(`swDeltaRows`) `foreshadow.js`(`fsClueRows`) | 작업 `state`, `apply_state`, `apply_restate`, `keep_state`, `revert`, `preview`(`RelationPreview`) — **됨**. 채팅 앱 JSON 가져오기(`state/parse`)와 자동 집필 변경안 불러오기는 아직 웹에서 |
-| 5 | `FeaturePlot` | 기승전결 · 플롯 / 부 · 아크 · 플롯, AI 대화 | `app.js` `chat.js` `insert.js` `convert.js` | `plots`, `chat`, `series`, `arcs` |
+| 5 | `FeaturePlot` | 기승전결 · 플롯 / 부 · 아크 · 플롯, AI 대화 | `app.js` `chat.js` `insert.js` `convert.js` | `plots`, `chat`, `series`, `arcs` — **됨** (`viewArc` · `viewSerial` · `insert.js`, 응답 `Renumbered` · 본문 `Recap`). 남음: AI 대화 `chat.js`, 줄기 칸 `lines.js` `lineField`, 단편 → 장편 전환 `convert.js`, 여는 방식 `opening.js`, 화별 시점 칸 `povField`, 새 인물 만들기 · 등록(`castQuickEdit`), 새 장소 후보 안내(`placeCandNotes`), 자동 집필 중인 화 잠금(`autoEp`) |
 | 6 | `FeatureSetup`, `FeatureStyle` | 설정 도우미, 문체 레퍼런스 | `app.js` `mystyle.js` | `suggest`, `style`, `styles` |
 | 7 | `FeatureCast` | 인물 · 관계도 (관계도 재생, 인물 · 두 사람 상세, 추이 그래프, 등장표) | `cast.js` | `cast_view`(`CastView`) — **됨**. 수치 직접 보정(`adjust_tie`)과 말로 · 숫자로 저장(`PUT .../view`)은 아직 웹에서 |
 | 7 | `FeatureForeshadow` | 복선 센터 | `foreshadow.js` | `foreshadow_*` — **됨** (본문에서 문장 골라 걸기는 3, `fsClueRows` 는 4에서) |
@@ -164,6 +165,12 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | `WriteText` (`blockedBefore` · `orderNote` · `unsaved` · `issue` · `when`), `WriteModel` 의 본문 초안 | `app.js` `blockedBefore` · `orderNote` · `textUnsaved` · `viewWrite`, `passage.js` `editableEp` · `issuesBlock` · `clip` · `editTime` · `flushText` |
 | `TextDiff.lines` · `words` · `tokens`, `RewriteDraft` · `RewriteText` | `rewrite.js` `textDiff` · `rwSimilar` · `rwReq` · `rwReqLabel` · `RW_MODES` · `RW_KIND`, `passage.js` `wordDiff` · `tokens` (시험 기대값은 node 로 돌린 웹 결과) |
 | `PublishText` | `publish.js` `copyRangeOf` · `copyEpisodes` · `downloadTxt` 문구 (다듬기 규칙은 서버 `publish.py`) |
+| `PlotRules.actRanges` · `setArcEnd` | `actRanges` · `fitActs` (서버 `pipeline.act_ranges` · `fit_arc`, 시험은 서버 값과 같은 사례) |
+| `PlotRules.coverage` · `rangeText` · `needsDraft` · `redraftQuestion` · `writeNext` | `actCoverage` · `rangeText` · `needsDraft` · `confirmRedraft` · `writeNextBtn` |
+| `PlotRules.pendingRecaps` · `arcChip` · `rail` · `lostPartSummaries` · `progress` | `viewSerial` 의 요약 안내 · `arcChip` · `railChips` · `lostPartSummaries` · `arcProgress` (서버 `pipeline.pending_recaps`) |
+| `PlotRules.lastFixed` · `insertSlots` · `insertNote` | `insert.js` `lastFixed` · `insertBlock` · `insertForm` (서버 `renumber.last_fixed`) |
+| `PlotBoard`, `PlotEditorInfo`, `EpisodeCard` | `actBoard`, `plotEditor` · `payoffPicker` · `castField`, `epCard` |
+| `PlotModel.syncResults` · `start` | `applyJobResult` · `loadPending`(되살린 결과는 고른 아크를 옮기지 않음) · `startJob`(저장하지 않은 변경을 먼저 묻기) |
 
 ## 알려진 한계
 

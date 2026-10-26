@@ -27,6 +27,7 @@ from .schema import (ArcPlan, Character, WorldSetting, ArcProposal, EpisodePlot,
 from . import atlas, foreshadows, statwin
 from .schema import ChatScope, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .schema import CharacterState, StoryEvent
+from .schema import Recap
 
 STATIC = Path(__file__).parent / "static"
 # 폴더 이름: / \ 와 운영체제가 막는 : * ? " < > | 는 쓸 수 없고, . 으로 시작하지 않는다
@@ -788,12 +789,9 @@ def undo_conversion(name: str) -> Project:
     return out
 
 
-class RecapIn(BaseModel):
-    summary: str
-
-
 @app.post("/api/projects/{name}/recap/{kind}/{number}")
-def apply_recap(name: str, kind: str, number: int, body: RecapIn) -> Project:
+def apply_recap(name: str, kind: str, number: int, body: Recap) -> Project:
+    """작가가 고친 요약을 저장한다. 본문 모양은 요약 작업(recap_arc, recap_part)의 결과와 같다."""
     p = _load(name)
     pipeline.apply_recap(p, kind, number, body.summary)
     return _save(name, p)
@@ -857,8 +855,14 @@ def _renumber_ready(name: str) -> None:
         raise ValueError(f"AI 작업({', '.join(busy)})이 끝난 뒤에 하세요. 화 번호가 바뀌면 작업 결과가 엉뚱한 화에 들어가요")
 
 
+class Renumbered(BaseModel):
+    """화를 넣거나 뺀 뒤의 작품과 무엇을 옮겼는지."""
+    project: Project
+    notes: list[str]
+
+
 @app.post("/api/projects/{name}/episodes/insert")
-def insert_episode(name: str, body: InsertIn) -> dict:
+def insert_episode(name: str, body: InsertIn) -> Renumbered:
     """새 화를 넣고 뒤 화를 한 칸씩 민다. 무엇을 옮겼는지(notes)를 함께 돌려준다."""
     _renumber_ready(name)
     at = body.at
@@ -871,7 +875,7 @@ def insert_episode(name: str, body: InsertIn) -> dict:
 
 
 @app.delete("/api/projects/{name}/episodes/{n}")
-def remove_episode(name: str, n: int) -> dict:
+def remove_episode(name: str, n: int) -> Renumbered:
     """아직 안 쓴 화를 빼고 뒤 화를 한 칸씩 당긴다."""
     _renumber_ready(name)
     with jobs.project_lock(name):

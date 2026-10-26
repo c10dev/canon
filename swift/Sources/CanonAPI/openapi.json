@@ -1973,6 +1973,7 @@
   "/api/projects/{name}/recap/{kind}/{number}": {
    "post": {
     "summary": "Apply Recap",
+    "description": "작가가 고친 요약을 저장한다. 본문 모양은 요약 작업(recap_arc, recap_part)의 결과와 같다.",
     "operationId": "apply_recap",
     "parameters": [
      {
@@ -2008,7 +2009,7 @@
      "content": {
       "application/json": {
        "schema": {
-        "$ref": "#/components/schemas/RecapIn"
+        "$ref": "#/components/schemas/Recap"
        }
       }
      }
@@ -2262,9 +2263,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Insert Episode"
+         "$ref": "#/components/schemas/Renumbered"
         }
        }
       }
@@ -2313,9 +2312,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Remove Episode"
+         "$ref": "#/components/schemas/Renumbered"
         }
        }
       }
@@ -11502,18 +11499,20 @@
     "title": "RebuildEpisode",
     "description": "재구성 지도의 한 줄: 새 화 하나와 그 화에 쓰는 옛 단편 화."
    },
-   "RecapIn": {
+   "Recap": {
     "properties": {
      "summary": {
       "type": "string",
-      "title": "Summary"
+      "title": "Summary",
+      "description": "다음 화를 쓸 때 참고할 요약"
      }
     },
     "type": "object",
     "required": [
      "summary"
     ],
-    "title": "RecapIn"
+    "title": "Recap",
+    "description": "아크나 부가 끝난 뒤의 요약 제안."
    },
    "RelationPreview": {
     "properties": {
@@ -11638,6 +11637,27 @@
     ],
     "title": "Relationship",
     "description": "쌍 단위 관계 설정. 방향별 수치는 Tie 에 있고, affinity/tension 은 Tie 에서 계산해 동기화한다."
+   },
+   "Renumbered": {
+    "properties": {
+     "project": {
+      "$ref": "#/components/schemas/Project"
+     },
+     "notes": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Notes"
+     }
+    },
+    "type": "object",
+    "required": [
+     "project",
+     "notes"
+    ],
+    "title": "Renumbered",
+    "description": "화를 넣거나 뺀 뒤의 작품과 무엇을 옮겼는지."
    },
    "ReworkIn": {
     "properties": {
