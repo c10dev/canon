@@ -336,3 +336,29 @@ def test_web_atlas_layout(tmp_path, monkeypatch):
     pr = c.delete("/api/projects/v/atlas/layout").json()
     assert pr["atlas"]["layout"] == "" and not (tmp_path / "v" / "map" / name).exists() and len(pr["atlas"]["pins"]) == 2
     assert c.get("/api/projects/v/atlas").json()["layout"] is None
+
+
+def test_offroad_walk_goes_around_water():
+    """길에서 떨어진 집: 길까지 곧장 가면 물을 건너는 곳은 물을 돌아 걷는다."""
+    raw = {"type": "FeatureCollection", "features": [
+        {"type": "Polygon", "id": "earth", "coordinates": [[[-50, -50], [50, -50], [50, 50], [-50, 50], [-50, -50]]]},
+        {"type": "GeometryCollection", "id": "roads", "geometries": [
+            {"type": "LineString", "width": 1.4, "coordinates": [[-50, 0], [0, 0], [50, 0]]}]},
+        {"type": "MultiPolygon", "id": "water", "coordinates": [[[[-20, 5], [20, 5], [20, 15], [-20, 15], [-20, 5]]]]},
+        {"type": "MultiPolygon", "id": "buildings", "coordinates": [[[[-3, 22], [3, 22], [3, 28], [-3, 28], [-3, 22]]]]},
+    ]}
+    g = atlas.road_graph(atlas.read_layout(raw))
+    house, shop = [0.5, 0.75], [0.9, 0.48]  # 물 너머 집 (0, 25), 길가 가게 (40, -2)
+    r = atlas.route(g, house, shop)
+    assert r and r["points"][0] == house and r["points"][-1] == shop
+    in_water = lambda q: -20 < q[0] * 100 - 50 < 20 and 5 < q[1] * 100 - 50 < 15  # noqa: E731
+    pts = r["points"]
+    for a, b in zip(pts, pts[1:]):  # 꺾인 점 사이 선도 물 위를 지나지 않는다
+        assert not any(in_water([a[0] + (b[0] - a[0]) * k / 20, a[1] + (b[1] - a[1]) * k / 20]) for k in range(21))
+    assert len(pts) > 4 and r["length"] > 48.3  # 물 끝을 돌아간다 (집 → 가게 직선은 48.3)
+    # 길에서 가까운 곳은 그대로 곧장 길로 간다
+    near = atlas.route(g, [0.1, 0.45], [0.9, 0.48])
+    assert near["points"][:2] == [[0.1, 0.45], [0.1, 0.5]]
+    # 물에 갇혀 길에 닿을 수 없으면 경로를 붙이지 않는다
+    raw["features"][2]["coordinates"] = [[[[-30, 5], [30, 5], [30, 50], [-30, 50], [-30, 5]]]]
+    assert atlas.route(atlas.road_graph(atlas.read_layout(raw)), house, shop) is None

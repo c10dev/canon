@@ -268,7 +268,7 @@ def road_graph(layout: dict) -> dict:
         if len(comp) > len(best):
             best = comp
     segs = [(i, j) for i in best for j in adj[i] if i < j]
-    return {"w": w, "h": h, "nodes": nodes, "adj": adj, "segs": segs}
+    return {"w": w, "h": h, "nodes": nodes, "adj": adj, "segs": segs, "layout": layout}
 
 
 def _snap(g: dict, q: tuple) -> tuple:
@@ -285,17 +285,160 @@ def _snap(g: dict, q: tuple) -> tuple:
     return best  # type: ignore[return-value]
 
 
+# ---------- 길 밖 걷기 (길에서 떨어진 집 · 장소) ----------
+# 마을 데이터에는 큰길만 있고 골목 · 오솔길이 없어 길에서 멀리 떨어진 집이 많다. 길까지는 물 · 성벽 · 다른 건물을
+# 피해 빈 땅을 걷는다: 칸 격자(_grid)에서 가장 가까운 길 칸까지 찾고(_offroad), 보이는 점끼리 줄여(_pull) 매끈하게 한다.
+
+GRID_CELLS = 300  # 격자 긴 변 칸 수 (마을 크기와 상관없이 일정한 계산량)
+FREE, BLOCK, ROAD = 0, 1, 2
+
+
+def _fill(grid: list, cell: float, nx: int, ny: int, poly: list, val) -> None:
+    """다각형 안 칸(가운데 점 기준)을 val 로 채운다. 원래 단위 좌표."""
+    ys = [q[1] for q in poly]
+    for cy in range(max(0, int(min(ys) / cell)), min(ny, int(max(ys) / cell) + 1)):
+        y = (cy + 0.5) * cell
+        xs = []
+        for (x1, y1), (x2, y2) in zip(poly, poly[1:] + poly[:1]):
+            if (y1 > y) != (y2 > y):
+                xs.append(x1 + (y - y1) * (x2 - x1) / (y2 - y1))
+        xs.sort()
+        for x1, x2 in zip(xs[::2], xs[1::2]):
+            for cx in range(max(0, math.ceil(x1 / cell - 0.5)), min(nx, math.floor(x2 / cell - 0.5) + 1)):
+                grid[cy][cx] = val(grid[cy][cx]) if callable(val) else val
+
+
+def _stroke(grid: list, cell: float, nx: int, ny: int, a: tuple, b: tuple, half: float, val: int) -> None:
+    """선분 둘레 half 안 칸을 val 로."""
+    n = max(1, int(math.dist(a, b) / (cell / 2)))
+    r = max(0, int(half / cell))
+    for k in range(n + 1):
+        x, y = a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n
+        cx, cy = int(x / cell), int(y / cell)
+        for yy in range(max(0, cy - r), min(ny, cy + r + 1)):
+            for xx in range(max(0, cx - r), min(nx, cx + r + 1)):
+                grid[yy][xx] = val
+
+
+def _grid(g: dict) -> dict:
+    """걷기 격자: 물 · 강 · 성벽 · 건물은 막힘, 길 · 다리는 길 칸. 건물 칸에는 건물 번호를 따로 적어
+    제 집에서 나올 때는 지나갈 수 있게 한다. 한 번 만들면 g 에 둔다."""
+    if "grid" in g:
+        return g["grid"]
+    lo, w, h = g["layout"], g["w"], g["h"]
+    cell = max(w, h) / GRID_CELLS
+    nx, ny = max(1, math.ceil(w / cell)), max(1, math.ceil(h / cell))
+    grid = [[FREE] * nx for _ in range(ny)]
+    home = [[-1] * nx for _ in range(ny)]
+    up = lambda ln: [(q[0] * w, q[1] * h) for q in ln]  # noqa: E731
+    for poly in lo.get("water", []):
+        _fill(grid, cell, nx, ny, up(poly), BLOCK)
+    for key in ("rivers", "walls"):
+        for r in lo.get(key, []):
+            pts = up(r["points"])
+            for a, b in zip(pts, pts[1:]):
+                _stroke(grid, cell, nx, ny, a, b, r["width"] / 2, BLOCK)
+    for i, poly in enumerate(lo.get("buildings", [])):
+        _fill(grid, cell, nx, ny, up(poly), BLOCK)
+        _fill(home, cell, nx, ny, up(poly), i)
+    nodes = g["nodes"]
+    for i, j in g["segs"]:  # 길찾기에 쓰는 길만 (다리 포함. 물 위 다리, 성문을 지나는 길이 열린다)
+        _stroke(grid, cell, nx, ny, nodes[i], nodes[j], cell * 0.75, ROAD)
+    g["grid"] = {"cell": cell, "nx": nx, "ny": ny, "grid": grid, "home": home}
+    return g["grid"]
+
+
+def _cell(G: dict, q: tuple) -> tuple:
+    return min(G["nx"] - 1, max(0, int(q[0] / G["cell"]))), min(G["ny"] - 1, max(0, int(q[1] / G["cell"])))
+
+
+def _home(G: dict, q: tuple) -> int:
+    """q 가 안에 있는 건물 번호 (없으면 -1)."""
+    cx, cy = _cell(G, q)
+    return G["home"][cy][cx]
+
+
+def _clear(G: dict, a: tuple, b: tuple, own: int) -> bool:
+    """a 에서 b 까지 곧장 걸을 수 있나 (막힌 칸을 지나지 않나. 제 집 칸은 지나간다)."""
+    n = max(1, int(math.dist(a, b) / (G["cell"] / 3)))
+    for k in range(n + 1):
+        cx, cy = _cell(G, (a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n))
+        if G["grid"][cy][cx] == BLOCK and (own < 0 or G["home"][cy][cx] != own):
+            return False
+    return True
+
+
+def _pull(G: dict, pts: list, own: int) -> list:
+    """보이는 점끼리 이어 격자 계단을 줄인다."""
+    out, i = [pts[0]], 0
+    while i < len(pts) - 1:
+        j = len(pts) - 1
+        while j > i + 1 and not _clear(G, pts[i], pts[j], own):
+            j -= 1
+        out.append(pts[j])
+        i = j
+    return out
+
+
+def _offroad(g: dict, q: tuple) -> Optional[tuple]:
+    """q 에서 길까지 걷는 길: (거리, 구간 i, j, 길 위 점, 점 목록). 곧장 갈 수 있으면 가장 가까운 길 위 점으로 곧장,
+    아니면 막힌 곳을 피해 가장 가까운 길 칸까지. 길에 닿을 수 없으면 None."""
+    G = _grid(g)
+    cx, cy = _cell(G, q)
+    own = _home(G, q)
+    d, i, j, s = _snap(g, q)
+    if _clear(G, q, s, own):
+        return d, i, j, s, [q, s]
+    cell, grid, home, nx, ny = G["cell"], G["grid"], G["home"], G["nx"], G["ny"]
+    dist, prev, heap = {(cx, cy): 0.0}, {}, [(0.0, (cx, cy))]
+    goal = None
+    while heap:
+        c, u = heapq.heappop(heap)
+        if c > dist.get(u, math.inf):
+            continue
+        if grid[u[1]][u[0]] == ROAD:
+            goal = u
+            break
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+            v = (u[0] + dx, u[1] + dy)
+            if not (0 <= v[0] < nx and 0 <= v[1] < ny):
+                continue
+            if grid[v[1]][v[0]] == BLOCK and (own < 0 or home[v[1]][v[0]] != own):
+                continue
+            nc = c + (1.4142 if dx and dy else 1.0)
+            if nc < dist.get(v, math.inf):
+                dist[v], prev[v] = nc, u
+                heapq.heappush(heap, (nc, v))
+    if goal is None:
+        return None
+    path, u = [], goal
+    while u != (cx, cy):
+        path.append(((u[0] + 0.5) * cell, (u[1] + 0.5) * cell))
+        u = prev[u]
+    path.reverse()
+    _, i, j, s = _snap(g, path[-1])
+    pts = _pull(G, [q, *path, s], own)
+    return sum(math.dist(x, y) for x, y in zip(pts, pts[1:])), i, j, s, pts
+
+
 def route(g: dict, a: list, b: list) -> Optional[dict]:
-    """0~1 좌표 a 에서 b 까지 길을 따라 가는 경로. 길까지는 곧장 걷는다 (길보다 서로 가까우면 곧장).
-    돌려주는 것: points(0~1), length(원래 단위). 길이 없으면 None."""
+    """0~1 좌표 a 에서 b 까지 길을 따라 가는 경로. 길까지는 물 · 건물을 피해 빈 땅을 걷는다(_offroad).
+    서로 곧장 보이고 길까지 가는 것보다 가까우면 곧장 걷는다(같은 곳, 이웃한 집).
+    돌려주는 것: points(0~1), length(원래 단위). 길이 없거나 길에 닿을 수 없으면 None."""
     if not g["segs"]:
         return None
     w, h = g["w"], g["h"]
     pa, pb = (a[0] * w, a[1] * h), (b[0] * w, b[1] * h)
-    da, ia, ja, sa = _snap(g, pa)
-    db, ib, jb, sb = _snap(g, pb)
-    if math.dist(pa, pb) <= da + db:  # 길까지 가는 것보다 서로 가까우면 곧장 걷는다 (같은 곳, 이웃한 집)
-        return {"points": [[round(a[0], 5), round(a[1], 5)], [round(b[0], 5), round(b[1], 5)]], "length": math.dist(pa, pb)}
+    oa, ob = _offroad(g, pa), _offroad(g, pb)
+    if oa is None or ob is None:
+        return None
+    da, ia, ja, sa, wa = oa
+    db, ib, jb, sb, wb = ob
+    if math.dist(pa, pb) <= da + db:
+        G = _grid(g)
+        ha, hb = _home(G, pa), _home(G, pb)
+        if ha == hb or _clear(G, pa, pb, ha) and _clear(G, pb, pa, hb):
+            return {"points": [[round(a[0], 5), round(a[1], 5)], [round(b[0], 5), round(b[1], 5)]], "length": math.dist(pa, pb)}
     nodes, adj = g["nodes"], g["adj"]
     S, T = -1, -2
     ext: dict[int, dict] = {S: {ia: math.dist(sa, nodes[ia]), ja: math.dist(sa, nodes[ja])}}
@@ -323,7 +466,7 @@ def route(g: dict, a: list, b: list) -> Optional[dict]:
         u = prev[u]
         if u >= 0:
             chain.append(nodes[u])
-    pts = [pa, sa, *reversed(chain), sb, pb]
+    pts = [*wa, *reversed(chain), *reversed(wb)]
     clean = [pts[0]]
     for q in pts[1:]:
         if math.dist(q, clean[-1]) > 1e-6:
