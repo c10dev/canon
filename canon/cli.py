@@ -1372,7 +1372,8 @@ def cmd_cast(a: argparse.Namespace) -> None:
 
 def cmd_map(a: argparse.Namespace) -> None:
     """지도 보기: 장소와 지도에 놓았는지, 인물별로 옮겨 다닌 길, 장소와 맞지 않은 위치 글."""
-    print(atlas.describe(store.load(a.name)))
+    p = store.load(a.name)
+    print(atlas.describe(p, atlas.load_layout(store.project_dir(a.name) / "map", p)))
 
 
 def cmd_view(a: argparse.Namespace) -> None:

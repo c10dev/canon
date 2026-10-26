@@ -1876,8 +1876,9 @@ def cast_view(name: str) -> dict:
 
 @app.get("/api/projects/{name}/atlas")
 def atlas_view(name: str) -> dict:
-    """지도 화면: 장소와 자리, 화별 인물 자리, 장소와 맞지 않은 위치 글."""
-    return atlas.summary(_load(name))
+    """지도 화면: 장소와 자리, 화별 인물 자리, 장소와 맞지 않은 위치 글. 마을 데이터가 있으면 길 따라 걸은 경로도."""
+    p = _load(name)
+    return atlas.summary(p, atlas.load_layout(_map_dir(name), p))
 
 
 class PinsIn(BaseModel):
@@ -1994,6 +1995,69 @@ def atlas_image_get(name: str) -> FileResponse:
     if path is None or not path.is_file() or path.parent != _map_dir(name):
         raise HTTPException(404, "지도 그림이 없어요")
     return FileResponse(path, headers={"Cache-Control": "private, max-age=86400"})
+
+
+class LayoutIn(BaseModel):
+    data: str  # Watabou 생성기가 내보낸 JSON 글
+
+
+@app.put("/api/projects/{name}/atlas/layout")
+def atlas_layout_set(name: str, body: LayoutIn) -> Project:
+    """마을 · 도시 데이터를 올린다. 그릴 모양으로 바꿔(atlas.read_layout) map/ 에 둔다.
+    마을 데이터가 있으면 지도는 배경 그림 대신 마을을 그리고 비율도 마을을 따른다."""
+    import time
+
+    if len(body.data.encode("utf-8")) > atlas.LAYOUT_LIMIT:
+        raise ValueError(f"파일이 너무 커요. {atlas.LAYOUT_LIMIT // (1024 * 1024)}MB 이하로 올리세요")
+    try:
+        raw = json.loads(body.data)
+    except ValueError:
+        raise ValueError("JSON 파일을 읽지 못했어요") from None
+    layout = atlas.read_layout(raw)
+    p = _load(name)
+    d = _map_dir(name)
+    d.mkdir(parents=True, exist_ok=True)
+    fname = f"layout-{int(time.time())}.json"
+    (d / fname).write_text(json.dumps(layout, ensure_ascii=False), encoding="utf-8")
+    old = p.atlas.layout
+    p.atlas.layout = fname
+    out = _save(name, p)
+    if old and old != fname and (d / old).is_file():
+        (d / old).unlink()
+    return out
+
+
+@app.delete("/api/projects/{name}/atlas/layout")
+def atlas_layout_drop(name: str) -> Project:
+    """마을 데이터를 지운다. 장소 자리는 그대로 둔다."""
+    p = _load(name)
+    old, p.atlas.layout = p.atlas.layout, ""
+    out = _save(name, p)
+    if old and (_map_dir(name) / old).is_file():
+        (_map_dir(name) / old).unlink()
+    return out
+
+
+@app.get("/api/projects/{name}/atlas/layout")
+def atlas_layout_get(name: str) -> dict:
+    """그릴 모양으로 바꾼 마을 데이터 (길 · 건물 · 물 · 밭 · 나무)."""
+    p = _load(name)
+    layout = atlas.load_layout(_map_dir(name), p)
+    if layout is None:
+        raise HTTPException(404, "마을 데이터가 없어요")
+    return layout
+
+
+class MetersIn(BaseModel):
+    meters: float
+
+
+@app.put("/api/projects/{name}/atlas/meters")
+def atlas_meters(name: str, body: MetersIn) -> Project:
+    """마을 데이터 1단위가 몇 m 인지 (거리 · 걷는 시간)."""
+    p = _load(name)
+    atlas.set_meters(p, body.meters)
+    return _save(name, p)
 
 
 # ---------- 복선 센터 (canon/foreshadows.py) ----------

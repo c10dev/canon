@@ -1,7 +1,8 @@
 /* 지도. app.js 의 S, actions, api, run, render, header, esc, P 와 cast.js 의 frameLabel 을 쓴다.
    장소(설정의 장소 칸, 인과율 '장소' 요소)를 지도 위에 놓고, 화별 인물 자리를 관계도처럼 슬라이더로 재생한다.
    계산값은 서버 canon/atlas.py 의 /atlas 한 번으로 받는다 (places, frames: 화별 인물 자리, unmatched: 장소와 맞지 않은 위치 글).
-   장소 자리는 0~1 비율 좌표로 작품에 저장한다 (Project.atlas.pins). 배경 그림은 작품 폴더 map/ 에 파일로 둔다. */
+   장소 자리는 0~1 비율 좌표로 작품에 저장한다 (Project.atlas.pins). 배경 그림은 작품 폴더 map/ 에 파일로 둔다.
+   마을 데이터(Watabou 생성기 JSON, /atlas/layout)가 있으면 그림 대신 마을을 그리고, 옮겨 간 인물은 서버가 길 따라 찾은 경로(row.route)로 잇는다. */
 'use strict';
 
 Object.assign(S, {
@@ -16,6 +17,7 @@ Object.assign(S, {
   atlasFocus: '',    // 길을 굵게 볼 인물 id
   atlasDraft: {},    // 맞지 않은 위치 글마다 고른 장소 (atlasDraft())
   atlasNew: [],      // AI가 제안한 새 장소 (적용할 때 고른 글이 쓰는 것만 등록)
+  atlasLayout: null, // 마을 데이터 { file, data } (파일 이름이 바뀌면 다시 받는다)
 });
 
 const ATLAS_W = 1000;
@@ -34,6 +36,12 @@ async function atlasLoad() {
   S.atlas.name = S.name;
   if (!same || wasLast || S.atlasFrame >= S.atlas.frames.length) S.atlasFrame = Math.max(0, S.atlas.frames.length - 1);
   if (!same) { S.atlasPick = ''; S.atlasSel = ''; S.atlasFocus = ''; S.atlasDraft = {}; S.atlasNew = []; }
+  const file = S.atlas.layout && S.atlas.layout.file;
+  if (!file) S.atlasLayout = null;
+  else if (!S.atlasLayout || S.atlasLayout.file !== file || S.atlasLayout.name !== S.name) {
+    const data = await api('GET', `/projects/${enc(S.name)}/atlas/layout`).catch(() => null);
+    S.atlasLayout = data && { file, name: S.name, data };
+  }
 }
 
 function atlasStop() {
@@ -46,6 +54,52 @@ const atlasH = () => Math.round(ATLAS_W / ((S.atlas && S.atlas.aspect) || 1.5));
 const atlasPlace = (key) => (S.atlas.places || []).find((pl) => pl.key === key);
 const atlasFrameNow = () => S.atlas.frames[Math.min(S.atlasFrame, S.atlas.frames.length - 1)] || { episode: 0, rows: [], mentioned: [] };
 const atlasImageUrl = () => `/api/projects/${enc(S.name)}/atlas/image?v=${enc(S.atlas.image)}`;
+const atlasVillage = () => (S.atlas && S.atlas.layout && S.atlasLayout ? S.atlasLayout.data : null);
+
+/** 걸은 거리 글: 1km 부터는 km */
+function atlasMeters(m) {
+  return m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${m}m`;
+}
+
+/** 0~1 좌표 점이 다각형 안인가 (비율 좌표라도 안팎은 같다) */
+function atlasInside(q, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i];
+    const [xj, yj] = poly[j];
+    if ((yi > q[1]) !== (yj > q[1]) && q[0] < ((xj - xi) * (q[1] - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/** 마을이 있으면 건물 안을 누른 자리는 그 건물 가운데로 맞춘다 */
+function atlasSnap(pt) {
+  const v = atlasVillage();
+  const b = v && (v.buildings || []).find((poly) => atlasInside(pt, poly));
+  if (!b) return pt;
+  const ring = b.length > 3 && b[0][0] === b[b.length - 1][0] && b[0][1] === b[b.length - 1][1] ? b.slice(0, -1) : b;
+  return [ring.reduce((n, q) => n + q[0], 0) / ring.length, ring.reduce((n, q) => n + q[1], 0) / ring.length];
+}
+
+/** 마을 바탕: 땅, 밭 · 풀밭 · 광장, 물, 강, 길, 다리, 성벽, 건물, 나무 */
+function atlasVillageSvg(v, W, H) {
+  const k = W / v.w; // 원래 단위 → 지도 화면 단위
+  const pts = (ln) => ln.map((q) => `${(q[0] * W).toFixed(1)},${(q[1] * H).toFixed(1)}`).join(' ');
+  const out = [`<rect class="at-ground" x="0" y="0" width="${W}" height="${H}"></rect>`];
+  const area = (key, cls) => (v[key] || []).forEach((ln) => out.push(`<polygon class="${cls}" points="${pts(ln)}"></polygon>`));
+  const stroke = (list, cls, min) => (list || []).forEach((r) => out.push(`<polyline class="${cls}" points="${pts(r.points)}" stroke-width="${Math.max(min, r.width * k).toFixed(1)}"></polyline>`));
+  area('fields', 'at-v-field');
+  area('greens', 'at-v-green');
+  area('squares', 'at-v-square');
+  area('water', 'at-v-water');
+  stroke(v.rivers, 'at-v-river', 3);
+  stroke(v.roads.filter((r) => r.kind === 'road'), 'at-v-road', 3);
+  stroke(v.roads.filter((r) => r.kind === 'bridge'), 'at-v-bridge', 3);
+  stroke(v.walls, 'at-v-wall', 2);
+  area('buildings', 'at-v-house');
+  if (v.trees && v.trees.length) out.push(`<g class="at-v-tree">${v.trees.map((q) => `<circle cx="${(q[0] * W).toFixed(1)}" cy="${(q[1] * H).toFixed(1)}" r="${Math.max(2, 1.6 * k).toFixed(1)}"></circle>`).join('')}</g>`);
+  return out.join('');
+}
 
 /** 이 시점에 독자가 아는 장소인가 (생긴 화, 처음 나온 화, 드러나는 화 중 가장 늦은 화부터) */
 function atlasKnown(pl, f) {
@@ -75,7 +129,9 @@ function atlasSvg() {
   const H = atlasH();
   const f = atlasFrameNow();
   const out = [];
-  if (S.atlas.image) out.push(`<image href="${esc(atlasImageUrl())}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="none"></image>`);
+  const village = atlasVillage();
+  if (village) out.push(atlasVillageSvg(village, W, H));
+  else if (S.atlas.image) out.push(`<image href="${esc(atlasImageUrl())}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="none"></image>`);
   else {
     out.push(`<rect class="at-ground" x="0" y="0" width="${W}" height="${H}"></rect>`);
     for (let x = 100; x < W; x += 100) out.push(`<line class="at-grid" x1="${x}" y1="0" x2="${x}" y2="${H}"></line>`);
@@ -85,25 +141,43 @@ function atlasSvg() {
   const hidden = (pl) => S.atlasFog && !atlasKnown(pl, f);
   const chars = atlasChars();
 
-  // 지나온 길: 시작부터 지금 시점까지 놓인 장소를 차례로 잇는다 (거쳐 온 곳 포함)
+  // 지나온 길: 시작부터 지금 시점까지 놓인 장소를 차례로 잇는다 (거쳐 온 곳 포함).
+  // 마을 데이터가 있으면 서버가 찾은 길 따라 경로(row.route)로 잇는다
   if (S.atlasTrail) {
     chars.forEach((c, ci) => {
       const pts = [];
+      const names = [];
+      let last = '';
+      let walked = 0;
+      const push = (q) => {
+        const e = pts[pts.length - 1];
+        if (!e || Math.hypot(e[0] - q[0], e[1] - q[1]) > 0.5) pts.push(q);
+      };
       S.atlas.frames.slice(0, S.atlasFrame + 1).forEach((fr) => {
         const r = atlasRow(fr, c.id);
         if (!r || !r.place) return;
-        [...r.via, r.place].forEach((k) => {
-          const pl = atlasPlace(k);
-          if (!pl || !pl.pin || hidden(pl)) return;
-          if (pts.length && pts[pts.length - 1] === k) return;
-          pts.push(k);
+        const stops = [...r.via, r.place].map(atlasPlace);
+        const start = r.route && [r.route.points[0][0] * W, r.route.points[0][1] * H];
+        const end = pts[pts.length - 1];
+        if (start && end && Math.hypot(end[0] - start[0], end[1] - start[1]) < 1 && stops.every((pl) => pl && pl.pin && !hidden(pl))) {
+          r.route.points.forEach((q) => push([q[0] * W, q[1] * H]));
+          stops.forEach((pl) => { if (pl.key !== last) names.push(pl.name); last = pl.key; });
+          walked += r.route.meters;
+          return;
+        }
+        stops.forEach((pl) => {
+          if (!pl || !pl.pin || hidden(pl) || pl.key === last) return;
+          push(xy(pl));
+          names.push(pl.name);
+          last = pl.key;
         });
       });
       if (pts.length < 2) return;
       const off = ((ci % 5) - 2) * 3;
       const focus = S.atlasFocus === c.id;
       const dim = S.atlasFocus && !focus;
-      out.push(`<polyline class="at-trail${dim ? ' dim' : ''}" points="${pts.map((k) => xy(atlasPlace(k)).map((v) => (v + off).toFixed(1)).join(',')).join(' ')}" stroke="${atlasColor(c.id)}" stroke-width="${focus ? 5 : 3}"><title>${esc(c.name || c.id)}: ${esc(pts.map((k) => atlasPlace(k).name).join(' → '))}</title></polyline>`);
+      const tip = `${c.name || c.id}: ${names.join(' → ')}${walked ? `\n길 따라 ${atlasMeters(walked)}` : ''}`;
+      out.push(`<polyline class="at-trail${dim ? ' dim' : ''}" points="${pts.map((q) => q.map((v) => (v + off).toFixed(1)).join(',')).join(' ')}" stroke="${atlasColor(c.id)}" stroke-width="${focus ? 5 : 3}"><title>${esc(tip)}</title></polyline>`);
     });
   }
 
@@ -160,7 +234,10 @@ function atlasWho() {
       where = S.atlasFog && !atlasKnown(pl, f) ? '<span class="small">독자가 아직 모르는 곳</span>' : `<strong>${esc(pl.name)}</strong>${pl.pin ? '' : ' <span class="small">(지도에 안 놓음)</span>'}`;
       const before = prev && atlasRow(prev, c.id);
       const from = r.moved && before && before.place ? atlasPlace(before.place) : null;
-      if (from && !(S.atlasFog && !atlasKnown(from, f))) where += ` <span class="small">← ${esc(from.name)}에서 옮김</span>`;
+      if (from && !(S.atlasFog && !atlasKnown(from, f))) {
+        where += ` <span class="small">← ${esc(from.name)}에서 옮김</span>`;
+        if (r.route) where += ` <span class="small at-walk">길 따라 ${atlasMeters(r.route.meters)} · 걸어서 약 ${r.route.minutes}분</span>`;
+      }
     }
     const on = S.atlasFocus === c.id;
     return `<li><button type="button" class="at-who${on ? ' on' : ''}" data-action="atlasFocus" data-arg="${esc(c.id)}" aria-pressed="${on}"><i style="background:${atlasColor(c.id)}"></i>${esc(c.name || c.id)}</button> ${where}</li>`;
@@ -194,7 +271,27 @@ function atlasLoose() {
     <div class="at-chips">${loose.map((pl) => `<button type="button" class="btn small${S.atlasPick === pl.key ? ' primary' : ''}" data-action="atlasPick" data-arg="${esc(pl.key)}" aria-pressed="${S.atlasPick === pl.key}">${esc(pl.name)}</button>`).join('')}</div></div>`;
 }
 
+function atlasLayoutBox() {
+  const lo = S.atlas.layout;
+  const input = '<input id="at-layout" type="file" accept=".json,application/json,application/geo+json" data-atlas-layout hidden>';
+  if (!lo) {
+    return `<div class="at-box"><h3>마을 데이터</h3>
+      <div class="small">Watabou 마을 · 도시 생성기에서 Menu → Export as → JSON으로 받은 파일을 올리면 건물 · 길 · 물을 그려요. 장소를 건물에 놓으면 인물이 옮겨 간 길을 실제 길을 따라 그리고 거리와 걷는 시간을 보여 줘요.</div>
+      <div class="row"><label class="btn small" for="at-layout">마을 데이터 올리기</label>${input}</div></div>`;
+  }
+  const missing = !S.atlasLayout ? '<div class="note err" role="alert">마을 데이터 파일을 읽지 못했어요. 다시 올려 주세요.</div>' : '';
+  return `<div class="at-box"><h3>마을 데이터</h3>${missing}
+    <div class="small">길 ${lo.roads}개${lo.bridges ? ` · 다리 ${lo.bridges}개` : ''} · 건물 ${lo.buildings}채 · 약 ${atlasMeters(lo.width_m)} × ${atlasMeters(lo.height_m)}</div>
+    <label class="at-scale small">1단위 = <input type="number" min="0.01" max="1000" step="0.1" value="${lo.meters}" data-atlas-meters aria-label="마을 데이터 1단위가 몇 m인지"> m</label>
+    <div class="small">거리가 어색하면 축척을 바꾸세요. 걷는 시간은 초속 1.3m로 셈해요. 건물 안을 누르면 장소가 그 건물 가운데에 놓여요.</div>
+    <div class="row"><label class="btn small" for="at-layout">다른 파일 올리기</label>${input}
+      <button type="button" class="btn small ghost" data-action="atlasDropLayout">마을 지우기</button></div></div>`;
+}
+
 function atlasBackground() {
+  if (S.atlas.layout) {
+    return S.atlas.image ? '<div class="at-box"><h3>배경 그림</h3><div class="small">마을 데이터가 있는 동안은 배경 그림 대신 마을을 그려요. 마을을 지우면 그림이 다시 보여요.</div></div>' : '';
+  }
   return `<div class="at-box"><h3>배경 그림</h3>
     <div class="small">직접 그리거나 다른 도구(Azgaar, Inkarnate 등)로 만든 지도 그림을 올리면 그 위에 장소를 놓아요. PNG · JPG · WEBP, 15MB까지.</div>
     <div class="row"><label class="btn small" for="at-image">${S.atlas.image ? '그림 바꾸기' : '그림 올리기'}</label><input id="at-image" type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-atlas-image hidden>
@@ -322,7 +419,7 @@ function atlasStage() {
 }
 
 function atlasSide() {
-  return atlasPlaceBox() + atlasWho() + atlasLoose() + atlasBackground();
+  return atlasPlaceBox() + atlasWho() + atlasLoose() + atlasLayoutBox() + atlasBackground();
 }
 
 /** 시점 · 선택만 바뀌면 슬라이더는 두고 지도와 옆 칸만 다시 그린다 (끄는 중인 슬라이더를 지우지 않게) */
@@ -510,6 +607,15 @@ Object.assign(actions, {
       toast('잇기를 풀었어요');
     });
   },
+  async atlasDropLayout() {
+    if (!confirm('마을 데이터를 지울까요? 장소 자리는 그대로 남아요.')) return;
+    await run('지우는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('DELETE', `/projects/${enc(S.name)}/atlas/layout`);
+      await atlasLoad();
+      toast('마을 데이터를 지웠어요');
+    });
+  },
   async atlasDropImage() {
     if (!confirm('배경 그림을 지울까요? 장소 자리는 그대로 남아요.')) return;
     await run('지우는 중', async () => {
@@ -556,6 +662,31 @@ document.addEventListener('change', async (e) => {
   if (t.matches('[data-atlas-opt]')) {
     S[t.dataset.atlasOpt] = t.checked;
     if (S.atlasTab === 'table') render(); else atlasRefresh();
+    return;
+  }
+  if (t.matches('[data-atlas-meters]')) {
+    const meters = Number(t.value);
+    if (!(meters >= 0.01 && meters <= 1000)) { toast('축척은 1단위에 0.01~1000m 사이로 정하세요', true); return; }
+    await run('저장하는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('PUT', `/projects/${enc(S.name)}/atlas/meters`, { meters });
+      await atlasLoad();
+      toast('축척을 바꿨어요');
+    });
+    return;
+  }
+  if (t.matches('[data-atlas-layout]') && t.files && t.files[0]) {
+    const file = t.files[0];
+    t.value = '';
+    if (file.size > 8 * 1024 * 1024) { toast('파일이 너무 커요. 8MB 이하로 올리세요', true); return; }
+    await run('마을 올리는 중', async () => {
+      const data = await file.text();
+      const had = (S.atlas.places || []).some((pl) => pl.pin);
+      await saveIfDirty();
+      S.project = await api('PUT', `/projects/${enc(S.name)}/atlas/layout`, { data });
+      await atlasLoad();
+      toast(had ? '마을을 올렸어요. 장소 자리가 마을과 맞지 않으면 건물 위로 옮겨 주세요' : '마을을 올렸어요. 장소를 골라 건물 위에 놓으세요');
+    });
     return;
   }
   if (!t.matches('[data-atlas-image]') || !t.files || !t.files[0]) return;
@@ -609,6 +740,8 @@ document.addEventListener('pointerup', async () => {
   if (!d.moved) return;
   atlasDragged = true;
   setTimeout(() => { atlasDragged = false; }, 0);
+  const pl = atlasPlace(d.key);
+  if (pl && pl.pin) pl.pin = atlasSnap(pl.pin);
   await atlasSavePins(atlasPins());
 });
 
@@ -627,7 +760,7 @@ document.addEventListener('click', async (e) => {
   if (!pt || !pl) return;
   S.atlasPick = '';
   S.atlasSel = pl.key;
-  pl.pin = pt;
+  pl.pin = atlasSnap(pt);
   await atlasSavePins(atlasPins(), `'${pl.name}'을(를) 지도에 놓았어요`);
 });
 
@@ -685,6 +818,19 @@ document.addEventListener('keydown', (e) => {
 @media (max-width: 600px) { .at-map-wrap { overflow-x: auto; } .at-map { min-width: 640px; } }
 .at-map .at-ground { fill: var(--canvas); }
 .at-map .at-grid { stroke: var(--rule); stroke-width: 1; }
+.at-map .at-v-field { fill: color-mix(in srgb, #9BB36B 22%, var(--canvas)); stroke: color-mix(in srgb, #9BB36B 45%, var(--canvas)); stroke-width: 1; }
+.at-map .at-v-green { fill: color-mix(in srgb, #6E9F5A 22%, var(--canvas)); }
+.at-map .at-v-square { fill: color-mix(in srgb, var(--muted) 14%, var(--canvas)); }
+.at-map .at-v-water { fill: color-mix(in srgb, #4A86C5 35%, var(--canvas)); }
+.at-map .at-v-river { fill: none; stroke: color-mix(in srgb, #4A86C5 35%, var(--canvas)); stroke-linecap: round; stroke-linejoin: round; }
+.at-map .at-v-road { fill: none; stroke: color-mix(in srgb, #B08A55 45%, var(--canvas)); stroke-linecap: round; stroke-linejoin: round; }
+.at-map .at-v-bridge { fill: none; stroke: color-mix(in srgb, #7A5A33 60%, var(--canvas)); stroke-linecap: butt; }
+.at-map .at-v-wall { fill: none; stroke: color-mix(in srgb, var(--text) 45%, var(--canvas)); stroke-linejoin: round; }
+.at-map .at-v-house { fill: color-mix(in srgb, var(--text) 30%, var(--canvas)); stroke: color-mix(in srgb, var(--text) 55%, var(--canvas)); stroke-width: 1; }
+.at-map .at-v-tree circle { fill: color-mix(in srgb, #4F7A3A 40%, var(--canvas)); }
+.at-scale { display: inline-flex; align-items: center; gap: 6px; }
+.at-scale input { width: 80px; }
+.at-walk { display: block; padding-left: 16px; }
 .at-map .at-trail { fill: none; stroke-linecap: round; stroke-linejoin: round; opacity: .6; }
 .at-map .dim { opacity: .18; }
 .at-map .at-pin { cursor: grab; touch-action: none; }

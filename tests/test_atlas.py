@@ -240,3 +240,99 @@ def test_web_atlas_sort(tmp_path, monkeypatch):
     v = c.get("/api/projects/s/atlas").json()
     assert v["unmatched"] == [] and any(pl["name"] == "지하 창고" and pl["known_from"] == 3 for pl in v["places"])
     assert c.post("/api/projects/s/atlas/sort", json={}).status_code == 400  # 이제 정리할 글이 없다
+
+
+# ---------- 마을 데이터 (Watabou 생성기 JSON) ----------
+
+def _village() -> dict:
+    """Watabou 마을 생성기 내보내기와 같은 모양. -50~50 정사각형, 가운데 (0, 0) 에서 만나는 십자 길,
+    다른 길과 닿지 않는 다리 하나, 건물 둘."""
+    return {"type": "FeatureCollection", "features": [
+        {"type": "Feature", "id": "values", "generator": "vg", "version": "1.6.9", "roadWidth": 7},
+        {"type": "Polygon", "id": "earth", "coordinates": [[[-50, -50], [50, -50], [50, 50], [-50, 50], [-50, -50]]]},
+        {"type": "MultiPolygon", "id": "buildings", "coordinates": [
+            [[[-44, -14], [-36, -14], [-36, -6], [-44, -6], [-44, -14]]],
+            [[[6, 36], [14, 36], [14, 44], [6, 44], [6, 36]]]]},
+        {"type": "MultiPoint", "id": "trees", "coordinates": [[20, -20], [25, -25]]},
+        {"type": "GeometryCollection", "id": "roads", "geometries": [
+            {"type": "LineString", "width": 1.4, "coordinates": [[-50, 0], [0, 0], [50, 0]]},
+            {"type": "LineString", "width": 1.4, "coordinates": [[0, -50], [0, 0]]},
+            {"type": "LineString", "width": 1.4, "coordinates": [[0, 0], [0, 50]]}]},
+        {"type": "GeometryCollection", "id": "planks", "geometries": [
+            {"type": "LineString", "width": 3.5, "coordinates": [[30, 30], [35, 30]]}]},
+        {"type": "MultiPolygon", "id": "water", "coordinates": [[[[30, 20], [40, 20], [40, 40], [30, 40], [30, 20]]]]},
+        {"type": "MultiPolygon", "id": "fields", "coordinates": []},
+    ]}
+
+
+def test_read_layout_and_route():
+    lo = atlas.read_layout(_village())
+    assert (lo["w"], lo["h"], lo["generator"]) == (100, 100, "vg")
+    assert [r["kind"] for r in lo["roads"]] == ["road", "road", "road", "bridge"]
+    assert lo["roads"][0]["points"] == [[0, 0.5], [0.5, 0.5], [1, 0.5]]  # 0~1, y 는 아래로
+    assert len(lo["buildings"]) == 2 and len(lo["water"]) == 1 and lo["trees"] == [[0.7, 0.3], [0.75, 0.25]]
+    g = atlas.road_graph(lo)
+    assert len(g["segs"]) == 4  # 닿지 않은 다리는 뺀다
+    # 건물 가운데 (-40, -10) → 길 (-40, 0) → (0, 0) → (0, 40) → 건물 가운데 (10, 40)
+    r = atlas.route(g, [0.1, 0.4], [0.6, 0.9])
+    assert round(r["length"], 6) == 100
+    assert r["points"] == [[0.1, 0.4], [0.1, 0.5], [0.5, 0.5], [0.5, 0.9], [0.6, 0.9]]
+    assert atlas.route(g, [0.1, 0.4], [0.1, 0.4])["length"] == 0
+    for bad in ({}, {"type": "FeatureCollection", "features": [{"type": "Polygon", "id": "earth", "coordinates": [[[0, 0], [1, 0], [1, 1]]]}]}):
+        try:
+            atlas.read_layout(bad)
+            raise AssertionError("잘못된 파일을 읽었다")
+        except ValueError:
+            pass
+
+
+def test_routes_on_frames():
+    p = _played()
+    atlas.set_pins(p, [MapPin(place="el-2", x=0.1, y=0.4), MapPin(place="el-1", x=0.6, y=0.9)])  # 등대, 흑송촌
+    s = atlas.summary(p, atlas.read_layout(_village()))
+    row = lambda f, cid: next(r for r in f["rows"] if r["cid"] == cid)  # noqa: E731
+    assert "route" not in row(s["frames"][1], "hero")  # 처음 자리는 옮긴 게 아니다
+    assert row(s["frames"][2], "hero")["route"] == {"points": [[0.1, 0.4], [0.1, 0.5], [0.5, 0.5], [0.5, 0.9], [0.6, 0.9]],
+                                                     "meters": 100, "minutes": 1}
+    assert row(s["frames"][3], "hero")["route"]["points"][0] == [0.6, 0.9]  # 흑송촌에서 등대로 돌아온다
+    assert s["aspect"] == 1 and s["layout"]["roads"] == 3 and s["layout"]["bridges"] == 1 and s["layout"]["width_m"] == 100
+    atlas.set_meters(p, 2.5)
+    s = atlas.summary(p, atlas.read_layout(_village()))
+    assert row(s["frames"][2], "hero")["route"]["meters"] == 250 and row(s["frames"][2], "hero")["route"]["minutes"] == 3
+    assert "길 따라 250m · 약 3분" in atlas.describe(p, atlas.read_layout(_village()))
+    try:
+        atlas.set_meters(p, 0)
+        raise AssertionError("0m 축척을 받았다")
+    except ValueError:
+        pass
+    q = Project.model_validate({"meta": {"title": "옛 작품"}})
+    assert q.atlas.layout == "" and q.atlas.meters == 1.0 and atlas.summary(q)["layout"] is None
+
+
+def test_web_atlas_layout(tmp_path, monkeypatch):
+    import json
+
+    monkeypatch.setenv("CANON_HOME", str(tmp_path))
+    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
+    from canon import store as st, web
+
+    importlib.reload(st)
+    importlib.reload(web)
+    st.save("v", _played())
+    c = TestClient(web.app)
+    assert c.get("/api/projects/v/atlas/layout").status_code == 404
+    assert c.put("/api/projects/v/atlas/layout", json={"data": "{not json"}).status_code == 400
+    assert c.put("/api/projects/v/atlas/layout", json={"data": json.dumps({"type": "Feature"})}).status_code == 400
+    pr = c.put("/api/projects/v/atlas/layout", json={"data": json.dumps(_village())}).json()
+    name = pr["atlas"]["layout"]
+    assert name.startswith("layout-") and (tmp_path / "v" / "map" / name).is_file()
+    assert c.get("/api/projects/v/atlas/layout").json()["roads"][0]["kind"] == "road"
+    c.put("/api/projects/v/atlas/pins", json={"pins": [{"place": "el-2", "x": 0.1, "y": 0.4}, {"place": "el-1", "x": 0.6, "y": 0.9}]})
+    v = c.get("/api/projects/v/atlas").json()
+    hero = next(r for r in v["frames"][2]["rows"] if r["cid"] == "hero")
+    assert v["layout"]["file"] == name and hero["route"]["meters"] == 100
+    assert c.put("/api/projects/v/atlas/meters", json={"meters": 2}).json()["atlas"]["meters"] == 2
+    assert c.put("/api/projects/v/atlas/meters", json={"meters": -1}).status_code == 400
+    pr = c.delete("/api/projects/v/atlas/layout").json()
+    assert pr["atlas"]["layout"] == "" and not (tmp_path / "v" / "map" / name).exists() and len(pr["atlas"]["pins"]) == 2
+    assert c.get("/api/projects/v/atlas").json()["layout"] is None
