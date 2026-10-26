@@ -3238,9 +3238,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Rewrite Info"
+         "$ref": "#/components/schemas/RewriteInfo"
         }
        }
       }
@@ -3299,9 +3297,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Rewrite Prompt"
+         "$ref": "#/components/schemas/PromptText"
         }
        }
       }
@@ -3867,8 +3863,7 @@
        "application/json": {
         "schema": {
          "items": {
-          "additionalProperties": true,
-          "type": "object"
+          "$ref": "#/components/schemas/PublishFormat"
          },
          "type": "array",
          "title": "Response Publish Formats"
@@ -3911,9 +3906,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Export Text"
+         "$ref": "#/components/schemas/ExportOut"
         }
        }
       }
@@ -4421,9 +4414,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Prompt"
+         "$ref": "#/components/schemas/PromptText"
         }
        }
       }
@@ -8837,6 +8828,38 @@
     "type": "object",
     "title": "ExportIn"
    },
+   "ExportOut": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "html": {
+      "type": "string",
+      "title": "Html"
+     },
+     "episodes": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Episodes"
+     },
+     "filename": {
+      "type": "string",
+      "title": "Filename"
+     }
+    },
+    "type": "object",
+    "required": [
+     "text",
+     "html",
+     "episodes",
+     "filename"
+    ],
+    "title": "ExportOut",
+    "description": "붙여 넣을 글. episodes 는 실제로 넣은 화 (본문이 없는 화는 빠진다)."
+   },
    "Foreshadow": {
     "properties": {
      "id": {
@@ -11359,6 +11382,49 @@
     "title": "ProjectCard",
     "description": "작품 목록의 카드 한 장."
    },
+   "PromptText": {
+    "properties": {
+     "system": {
+      "type": "string",
+      "title": "System"
+     },
+     "prompt": {
+      "type": "string",
+      "title": "Prompt"
+     }
+    },
+    "type": "object",
+    "required": [
+     "system",
+     "prompt"
+    ],
+    "title": "PromptText",
+    "description": "보내지 않고 보기만 하는 프롬프트 원문."
+   },
+   "PublishFormat": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "hint": {
+      "type": "string",
+      "title": "Hint"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "label",
+     "hint"
+    ],
+    "title": "PublishFormat",
+    "description": "줄바꿈 형식 하나 (publish.FORMATS)."
+   },
    "Range": {
     "properties": {
      "start": {
@@ -11540,6 +11606,86 @@
      "text"
     ],
     "title": "ReworkIn"
+   },
+   "RewriteInfo": {
+    "properties": {
+     "presets": {
+      "items": {
+       "$ref": "#/components/schemas/RewritePreset"
+      },
+      "type": "array",
+      "title": "Presets"
+     },
+     "materials": {
+      "items": {
+       "$ref": "#/components/schemas/RewriteMaterialInfo"
+      },
+      "type": "array",
+      "title": "Materials"
+     },
+     "keep_max": {
+      "type": "integer",
+      "title": "Keep Max"
+     }
+    },
+    "type": "object",
+    "required": [
+     "presets",
+     "materials",
+     "keep_max"
+    ],
+    "title": "RewriteInfo"
+   },
+   "RewriteMaterialInfo": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "lines": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Lines"
+     },
+     "note": {
+      "type": "string",
+      "title": "Note"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "label",
+     "lines",
+     "note"
+    ],
+    "title": "RewriteMaterialInfo",
+    "description": "함께 넣을 수 있는 재료 하나. lines 는 프롬프트에 들어갈 줄 그대로, 비면 넣을 것이 없다."
+   },
+   "RewritePreset": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "label"
+    ],
+    "title": "RewritePreset",
+    "description": "빠른 요청 하나 (prompts.REWRITE_PRESETS)."
    },
    "RewriteRequest": {
     "properties": {

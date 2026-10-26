@@ -1422,8 +1422,34 @@ def _text_guard(name: str, n: int) -> None:
 
 # ---------- 4-0. 다시 생성 ----------
 
+class RewritePreset(BaseModel):
+    """빠른 요청 하나 (prompts.REWRITE_PRESETS)."""
+    id: str
+    label: str
+
+
+class RewriteMaterialInfo(BaseModel):
+    """함께 넣을 수 있는 재료 하나. lines 는 프롬프트에 들어갈 줄 그대로, 비면 넣을 것이 없다."""
+    id: str
+    label: str
+    lines: list[str]
+    note: str
+
+
+class RewriteInfo(BaseModel):
+    presets: list[RewritePreset]
+    materials: list[RewriteMaterialInfo]
+    keep_max: int
+
+
+class PromptText(BaseModel):
+    """보내지 않고 보기만 하는 프롬프트 원문."""
+    system: str
+    prompt: str
+
+
 @app.get("/api/projects/{name}/episodes/{n}/rewrite")
-def rewrite_info(name: str, n: int) -> dict:
+def rewrite_info(name: str, n: int) -> RewriteInfo:
     """다시 생성 패널: 빠른 요청과 함께 넣을 수 있는 재료(프롬프트에 들어갈 줄 그대로)."""
     p = _load(name)
     e = p.episode(n)
@@ -1440,7 +1466,7 @@ def rewrite_info(name: str, n: int) -> dict:
 
 
 @app.post("/api/projects/{name}/episodes/{n}/rewrite/prompt")
-def rewrite_prompt(name: str, n: int, body: RewriteRequest) -> dict:
+def rewrite_prompt(name: str, n: int, body: RewriteRequest) -> PromptText:
     """다시 생성 때 보내는 프롬프트 원문 (보내지 않고 보기만)."""
     p = _load(name)
     return {"system": prompts.writer_system(p), "prompt": pipeline.rewrite_prompt(p, n, pipeline.clean_rewrite(body))}
@@ -1557,8 +1583,23 @@ def context(name: str, n: int) -> list[dict]:
 
 # ---------- 4-2. 복사 · 내보내기 (canon/publish.py) ----------
 
+class PublishFormat(BaseModel):
+    """줄바꿈 형식 하나 (publish.FORMATS)."""
+    id: str
+    label: str
+    hint: str
+
+
+class ExportOut(BaseModel):
+    """붙여 넣을 글. episodes 는 실제로 넣은 화 (본문이 없는 화는 빠진다)."""
+    text: str
+    html: str
+    episodes: list[int]
+    filename: str
+
+
 @app.get("/api/publish/formats")
-def publish_formats() -> list[dict]:
+def publish_formats() -> list[PublishFormat]:
     return [{"id": k, "label": label, "hint": hint} for k, (label, hint) in publish.FORMATS.items()]
 
 
@@ -1578,7 +1619,7 @@ def _export_numbers(p: Project, eps: list[int]) -> list[int]:
 
 
 @app.post("/api/projects/{name}/export")
-def export_text(name: str, body: ExportIn) -> dict:
+def export_text(name: str, body: ExportIn) -> ExportOut:
     """다른 곳에 붙여 넣을 글(텍스트와 HTML)을 만든다. 저장하지 않는다."""
     p = _load(name)
     return publish.export(p, _export_numbers(p, body.episodes), body.format, body.title, body.drafts)
@@ -1665,7 +1706,7 @@ def suggest_look(name: str, cid: str) -> LookSuggestion:
 
 
 @app.get("/api/projects/{name}/episodes/{n}/prompt")
-def prompt(name: str, n: int) -> dict:
+def prompt(name: str, n: int) -> PromptText:
     p = _load(name)
     return {"system": prompts.writer_system(p), "prompt": prompts.episode_prompt(p, n)}
 

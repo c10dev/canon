@@ -8,6 +8,7 @@ import FeatureCast
 import FeatureProjects
 import FeatureStatWin
 import FeatureUsage
+import FeatureWrite
 import SwiftUI
 
 /// 앱 첫 화면: 왼쪽은 작품 목록이나 작품 메뉴, 오른쪽은 고른 화면.
@@ -82,6 +83,7 @@ public struct RootView: View {
         case .foreshadow: ForeshadowView(server: model.server, project: project)
         case .usage: UsageView(model: UsageModel(source: LiveUsageSource(server: model.server), project: project))
         case .cast: CastScreen(server: model.server, project: project) { model.screen = $0 }
+        case .write: if let doc = model.document { WriteView(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
         default:
             NotPortedYet(screen.label(serial: false))
         }
