@@ -2497,9 +2497,11 @@ def foreshadow_prune(name: str) -> Project:
 # ---------- 상태창 (canon/statwin.py) ----------
 
 class StatChange(BaseModel):
-    """화별 비교표에서 그 화에 바뀐 칸 하나."""
+    """화별 비교표에서 그 화에 바뀐 칸 하나. 목록 항목(스킬 · 특성 · 인벤토리)은 더한 것 · 뺀 것도."""
     before: str
     source: Literal["ai", "author", "both"]
+    added: list[str] = []
+    removed: list[str] = []
 
 
 class StatColumn(BaseModel):

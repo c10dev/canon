@@ -1,5 +1,5 @@
 /* 상태창 수치. app.js 의 S, actions, api, run, render, header, esc, P 를 쓴다.
-   게임 판타지 · 헌터물처럼 레벨, 능력치, 스킬이 숫자로 나오는 작품에서 인물별 상태창(CharacterState.stats)을 정하고,
+   게임 판타지 · 헌터물처럼 레벨, 능력치, 스킬 · 특성 · 칭호 목록, 돈, 인벤토리가 나오는 작품에서 인물별 상태창(CharacterState.stats)을 정하고,
    화마다 바뀐 기록(Project.stat_log)으로 비교표를 그린다. 본문에 넣을 상태창 글을 복사한다.
    서버는 canon/statwin.py (/statwin/<인물 id>). AI 가 적은 바뀐 값은 상태 승인 화면에서 고른 뒤에만 반영된다(swDeltaRows). */
 'use strict';
@@ -30,7 +30,8 @@ Object.assign(S, {
 .sw-table th:first-child { position: sticky; left: 0; }
 .sw-table td.ch { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
 .sw-table td.ch.author { background: var(--amber-soft); color: var(--amber-ink); }
-.sw-table td.gone { color: var(--muted); text-decoration: line-through; }`;
+.sw-table td.gone { color: var(--muted); text-decoration: line-through; }
+.sw-diff { font-size: 12px; font-weight: 400; }`;
   const el = document.createElement('style');
   el.textContent = css;
   document.head.appendChild(el);
@@ -47,25 +48,67 @@ async function swLoad(cid) {
   S.swDirty = false;
 }
 
-const SW_NUM = /^[+-]?\d+(?:\.\d+)?$/;
+// statwin.py 의 _AMOUNT · _DELTA · _SPLIT · _GRADE 와 같다
+const SW_AMOUNT = /^([^\d\s,+-]{0,4})(\s?)(-?\d[\d,]*(?:\.\d+)?)(\s?)([^\d\s,]{0,6})$/;
+const SW_DELTA = /^([+-])\s?([^\d\s,+-]{0,4})\s?(\d[\d,]*(?:\.\d+)?)\s?([^\d\s,]{0,6})$/;
+const SW_SPLIT = /\s*(?:,|、| · )\s*/;
+const SW_GRADE = /\s*(?:\([^()]*\)|\[[^[\]]*\]|lv\.?\s*\d+|\+\d+|\d+\s*(?:레벨|단계|성|강|개))$/i;
 
-/** statwin.resolve 와 같은 규칙: 이전 값이 숫자일 때만 +3, -10 을 더하고 뺀다. */
-function swResolve(before, value) {
-  const v = String(value).trim().replace(/,/g, '');
-  const b = String(before || '').trim().replace(/,/g, '');
-  if ('+-'.includes(v[0]) && SW_NUM.test(v) && SW_NUM.test(b)) {
-    const x = Number(b) + Number(v);
-    return Number.isInteger(x) ? String(x) : String(Number(x.toFixed(2)));
+function swFmt(x, commas) {
+  let s = x.toFixed(2);
+  if (commas) {
+    const [i, f] = s.split('.');
+    s = `${i.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${f}`;
   }
-  return String(value).trim();
+  s = s.replace(/0+$/, '').replace(/\.$/, '');
+  return s === '-0' || s === '' ? '0' : s;
+}
+
+function swItems(text) { return String(text || '').trim().split(SW_SPLIT).filter(Boolean); }
+
+function swKey(item) {
+  let k = item.trim();
+  for (;;) {
+    const k2 = k.replace(SW_GRADE, '').trim();
+    if (k2 === k || !k2) return k.toLowerCase();
+    k = k2;
+  }
+}
+
+/** statwin.resolve 와 같은 규칙: 수치는 +3 · +300 을 단위와 쉼표를 지켜 계산하고, 목록은 +이름 붙이기 · -이름 빼기. 그 밖에는 적은 그대로. */
+function swResolve(before, value) {
+  const v = String(value).trim();
+  const b = String(before || '').trim();
+  const d = v.match(SW_DELTA);
+  const a = b.match(SW_AMOUNT);
+  if (d && a && (!d[2] || d[2] === a[1]) && (!d[4] || d[4] === a[5])) {
+    const x = Number(a[3].replace(/,/g, '')) + (d[1] === '+' ? 1 : -1) * Number(d[3].replace(/,/g, ''));
+    return `${a[1]}${a[2]}${swFmt(x, a[3].includes(','))}${a[4]}${a[5]}`;
+  }
+  const ops = [];
+  for (const part of swItems(v)) {
+    const name = part.slice(1).trim();
+    if (!'+-'.includes(part[0]) || !name || /^\d/.test(name)) return v;
+    ops.push([part[0], name]);
+  }
+  if (!ops.length || a) return v;
+  const cur = swItems(b);
+  for (const [op, name] of ops) {
+    let at = cur.indexOf(name);
+    if (at < 0) at = cur.findIndex((x) => swKey(x) === swKey(name));
+    if (op === '-') { if (at >= 0) cur.splice(at, 1); } else if (at < 0) cur.push(name); else cur[at] = name;
+  }
+  const m = b.match(SW_SPLIT);
+  const sep = m ? ({ '、': '、', '·': ' · ' }[m[0].trim()] || ', ') : ', ';
+  return cur.join(sep);
 }
 
 function swEditor() {
   const rows = S.swRows.map((r, i) => `<div class="sw-row">
       <input type="text" data-sw-name="${i}" value="${esc(r.name)}" aria-label="항목 이름" placeholder="항목 (예: 레벨)">
-      <input type="text" data-sw-value="${i}" value="${esc(r.value)}" aria-label="${esc(r.name || '항목')} 값" placeholder="값 (+3 처럼 적으면 더함)">
+      <input type="text" data-sw-value="${i}" value="${esc(r.value)}" aria-label="${esc(r.name || '항목')} 값" placeholder="값 (+3 은 더하기, 목록은 +독 내성 · -은신)">
       <button type="button" class="btn small ghost" data-action="swDel" data-arg="${i}" aria-label="${esc(r.name || '항목')} 지우기">지우기</button></div>`).join('');
-  const presets = Object.entries((S.sw && S.sw.presets) || {}).map(([k, names]) => `<button type="button" class="btn small" data-action="swPreset" data-arg="${k}" title="${esc(names.join(', '))}">${{ game: '게임 판타지', hunter: '헌터물', simple: '레벨 · 스킬' }[k] || k}</button>`).join('');
+  const presets = Object.entries((S.sw && S.sw.presets) || {}).map(([k, names]) => `<button type="button" class="btn small" data-action="swPreset" data-arg="${k}" title="${esc(names.join(', '))}">${{ game: '게임 판타지', hunter: '헌터물', simple: '레벨 · 스킬', growth: '스킬 · 특성 · 돈' }[k] || k}</button>`).join('');
   return `<section class="card"><div class="between"><h2>지금 상태창</h2><span class="small">${S.sw.columns.length ? `${S.sw.columns[S.sw.columns.length - 1].episode}화까지 기록` : '기록 없음'}</span></div>
     <div class="sw-rows">${rows || '<div class="small">항목이 없어요. 아래에서 항목을 더하거나 틀을 고르세요.</div>'}</div>
     <div class="row"><button type="button" class="btn small" data-action="swAdd">+ 항목</button>${S.swRows.length ? '' : `<span class="small">틀:</span>${presets}`}</div>
@@ -95,7 +138,9 @@ function swTimeline() {
     if (!ch) return `<td>${esc(v || '')}</td>`;
     const src = ch.source === 'ai' ? '' : ' author';
     const tip = `${ch.before || '없음'} → ${v || '지움'}${{ ai: '', author: ' (작가)', both: ' (승인 뒤 작가가 고침)' }[ch.source] || ''}`;
-    return v ? `<td class="ch${src}" title="${esc(tip)}">${esc(v)}</td>` : `<td class="gone" title="${esc(tip)}">${esc(ch.before)}</td>`;
+    const lst = [...(ch.added || []).map((x) => `+${x}`), ...(ch.removed || []).map((x) => `−${x}`)];
+    const sub = lst.length ? `<div class="sw-diff">${esc(lst.join(' '))}</div>` : '';
+    return v ? `<td class="ch${src}" title="${esc(tip)}">${esc(v)}${sub}</td>` : `<td class="gone" title="${esc(tip)}">${esc(ch.before)}</td>`;
   }).join('')}</tr>`).join('');
   return `<section class="card"><div class="between"><h2>화별 변화</h2><div class="legend"><span><i style="background:var(--accent-soft);border:1px solid var(--accent)"></i>AI 변경안으로 바뀜</span><span><i style="background:var(--amber-soft);border:1px solid var(--amber)"></i>작가가 고침</span></div></div>
     <div class="sw-table-wrap"><table class="sw-table">${head}${body}</table></div>
@@ -104,7 +149,7 @@ function swTimeline() {
 
 function viewStatwin() {
   const p = P();
-  const head = header('상태창', '상태창 수치', '레벨, 능력치, 스킬처럼 본문에 숫자로 나오는 값을 인물마다 화별로 기록해요. 항목을 하나라도 정하면 AI 가 본문을 쓸 때 이 값을 따르고, 바뀐 값만 상태 변경안에 적어요. 반영은 승인한 뒤에만 돼요.');
+  const head = header('상태창', '상태창 수치', '레벨, 능력치, 스킬, 특성, 칭호, 돈, 인벤토리처럼 본문 상태창에 나오는 값을 인물마다 화별로 기록해요. 항목을 하나라도 정하면 AI 가 본문을 쓸 때 이 값을 따르고, 바뀐 값만 상태 변경안에 적어요. 반영은 승인한 뒤에만 돼요.');
   if (!p.characters.length) return `${head}<div class="card empty"><p>아직 인물이 없어요.</p><a class="btn primary" href="${base()}/setup">설정 도우미에서 인물 만들기</a></div>`;
   const who = p.characters.map((c) => {
     const n = ((p.states.find((s) => s.character_id === c.id) || {}).stats || []).length;
