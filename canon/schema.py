@@ -1105,6 +1105,13 @@ class LookSuggestion(BaseModel):
     note: str = Field("", description="작가에게 하는 한두 문장: 설정에서 태그로 옮기기 어려웠던 것")
 
 
+class ArchetypePick(BaseModel):
+    """설정 화면에서 인물에게 고른 원형 도감 카드 (canon/archetypes.py). 작가가 고른 것만 남고 프롬프트에는 넣지 않는다."""
+    character_id: str
+    archetype: str = Field(description="archetypes.CATALOG 의 id")
+    twist: str = Field("", description="고른 비틀기. 아크 칸에도 한 줄로 붙는다")
+
+
 class CharacterVisual(BaseModel):
     """삽화마다 똑같이 넣는 인물 외형 태그. 작가가 정하고, AI 는 덮지 않는다."""
     character_id: str
@@ -1202,6 +1209,7 @@ class Project(BaseModel):
     characters: list[Character] = Field(default_factory=list)
     cast_candidates: list[Character] = Field(
         default_factory=list, description="AI 플롯이 제안한 새 인물. 작가가 등록하거나 그 인물이 나오는 화를 확정하면 characters 로 옮긴다")
+    cast_archetypes: list[ArchetypePick] = Field(default_factory=list, description="인물마다 원형 도감에서 고른 원형. 프롬프트에는 넣지 않는다")
     place_candidates: list[NewPlace] = Field(
         default_factory=list, description="AI 플롯이 지은 새 장소. 그 장소가 나오는 화를 확정하면 인과율 '장소' 요소로 옮긴다")
     relationships: list[Relationship] = Field(default_factory=list)
