@@ -6233,9 +6233,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Statwin View"
+         "$ref": "#/components/schemas/StatwinView"
         }
        }
       }
@@ -11776,6 +11774,60 @@
     ],
     "title": "StageIn"
    },
+   "StatChange": {
+    "properties": {
+     "before": {
+      "type": "string",
+      "title": "Before"
+     },
+     "source": {
+      "type": "string",
+      "enum": [
+       "ai",
+       "author",
+       "both"
+      ],
+      "title": "Source"
+     }
+    },
+    "type": "object",
+    "required": [
+     "before",
+     "source"
+    ],
+    "title": "StatChange",
+    "description": "화별 비교표에서 그 화에 바뀐 칸 하나."
+   },
+   "StatColumn": {
+    "properties": {
+     "episode": {
+      "type": "integer",
+      "title": "Episode"
+     },
+     "values": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Values"
+     },
+     "changed": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/StatChange"
+      },
+      "type": "object",
+      "title": "Changed"
+     }
+    },
+    "type": "object",
+    "required": [
+     "episode",
+     "values",
+     "changed"
+    ],
+    "title": "StatColumn",
+    "description": "화별 비교표의 한 화. values 는 그 화가 끝났을 때의 값, changed 는 그 화에 바뀐 항목."
+   },
    "StatRecord": {
     "properties": {
      "episode": {
@@ -12000,6 +12052,55 @@
      "stats"
     ],
     "title": "StatsIn"
+   },
+   "StatwinView": {
+    "properties": {
+     "names": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Names"
+     },
+     "columns": {
+      "items": {
+       "$ref": "#/components/schemas/StatColumn"
+      },
+      "type": "array",
+      "title": "Columns"
+     },
+     "current": {
+      "items": {
+       "$ref": "#/components/schemas/StatValue"
+      },
+      "type": "array",
+      "title": "Current"
+     },
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "presets": {
+      "additionalProperties": {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      "type": "object",
+      "title": "Presets"
+     }
+    },
+    "type": "object",
+    "required": [
+     "names",
+     "columns",
+     "current",
+     "text",
+     "presets"
+    ],
+    "title": "StatwinView",
+    "description": "인물 하나의 상태창 화면 (statwin.timeline + render + PRESETS)."
    },
    "StoryArc": {
     "properties": {
