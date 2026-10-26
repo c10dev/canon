@@ -8983,6 +8983,38 @@
     ],
     "title": "Character"
    },
+   "CharacterBody": {
+    "properties": {
+     "height": {
+      "type": "string",
+      "title": "Height",
+      "default": ""
+     },
+     "weight": {
+      "type": "string",
+      "title": "Weight",
+      "default": ""
+     },
+     "build": {
+      "type": "string",
+      "title": "Build",
+      "default": ""
+     },
+     "measurements": {
+      "type": "string",
+      "title": "Measurements",
+      "default": ""
+     },
+     "features": {
+      "type": "string",
+      "title": "Features",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "CharacterBody",
+    "description": "신체 프로필. 작가가 정하고 인물 상태창에만 보인다. 프롬프트에 넣지 않고 AI 응답 형식에서도 뺀다 (Character.body)."
+   },
    "CharacterEdit": {
     "properties": {
      "id": {

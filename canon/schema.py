@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, SerializationInfo, SerializerFunctionWrapHandler, model_serializer, model_validator
+from pydantic.json_schema import SkipJsonSchema
 
 from .metrics import StyleMetrics
 
@@ -70,6 +71,15 @@ class WorldSetting(BaseModel):
     name_rules: list[str] = Field(default_factory=list, description="이 세계의 이름 짓는 규칙 (예: 북부 귀족은 성 앞에 '폰')")
 
 
+class CharacterBody(BaseModel):
+    """신체 프로필. 작가가 정하고 인물 상태창에만 보인다. 프롬프트에 넣지 않고 AI 응답 형식에서도 뺀다 (Character.body)."""
+    height: str = ""
+    weight: str = ""
+    build: str = ""
+    measurements: str = ""
+    features: str = ""
+
+
 class Character(BaseModel):
     id: str = Field(description="영문 소문자 식별자, 예: hero, rival")
     name: str
@@ -89,6 +99,16 @@ class Character(BaseModel):
     tier: Literal["main", "support", "minor"] = Field(
         "main", description="main 주역(매 화 설정 전체를 넣음) / support 조연 / minor 단역 (나오는 화에만 넣음)")
     first_ep: int = Field(0, description="처음 나온 화. 설정 단계 인물은 0")
+    # 작가만 채운다. JSON 스키마에서 빼서 AI 가 채우지 않게 한다 (저장 · 화면 검증은 그대로)
+    body: SkipJsonSchema[CharacterBody] = Field(default_factory=CharacterBody)
+
+    @model_serializer(mode="wrap")
+    def _prompt_view(self, handler: SerializerFunctionWrapHandler, info: SerializationInfo):
+        """프롬프트용 직렬화(llm.dump 의 context prompt)에서는 신체 프로필을 뺀다. 저장과 화면 응답은 그대로."""
+        data = handler(self)
+        if isinstance(data, dict) and info.context and info.context.get("prompt"):
+            data.pop("body", None)
+        return data
 
 
 def _range(lo: float, hi: float) -> dict:
