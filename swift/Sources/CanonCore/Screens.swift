@@ -3,7 +3,7 @@ public enum Screen: String, CaseIterable, Sendable, Identifiable {
     // 작업 순서 (번호가 붙는다)
     case home, setup, style, arc, write, review
     // 작품 도구
-    case cast, atlas, foreshadow, statwin, lines, causal, brief, auto
+    case cast, atlas, foreshadow, statwin, timeline, lines, causal, brief, auto
     // 본편과 분리
     case research, usage
 
@@ -32,6 +32,7 @@ public enum Screen: String, CaseIterable, Sendable, Identifiable {
         case .atlas: "地"
         case .foreshadow: "伏"
         case .statwin: "#"
+        case .timeline: "時"
         case .lines: "⑂"
         case .causal: "∴"
         case .brief: "✎"
@@ -54,6 +55,7 @@ public enum Screen: String, CaseIterable, Sendable, Identifiable {
         case .atlas: "지도"
         case .foreshadow: "복선 센터"
         case .statwin: "상태창 수치"
+        case .timeline: "작품 속 시간"
         case .lines: "이야기 줄기"
         case .causal: "인과율 · 설정 추가"
         case .brief: "작업지시서 (API 없이)"

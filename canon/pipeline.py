@@ -4,7 +4,7 @@ from __future__ import annotations
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, storylines
 from .judge import Judge, Question
 from .llm import LLM, dump
-from . import foreshadows, statwin
+from . import foreshadows, statwin, timeline
 from .schema import (
     Act,
     ArcEdit,
@@ -1088,6 +1088,7 @@ def apply_rebuild(p: Project, prop: SerialRebuild, at: str = "") -> tuple[Projec
     p.events, p.history = [], []
     p.foreshadow_clues = []  # 화 번호가 바뀌어 걸어 둔 문장 자리도 맞지 않는다
     statwin.revert(p, 0)
+    p.timeline.deadlines = []  # 그대로 둔 화는 옛 변경안을 다시 반영하며 기한도 새 화 번호로 생긴다
     p.foreshadows += prop.foreshadows
     tiers = {t.id: t.tier for t in prop.tiers}
     for c in p.characters:
@@ -2697,6 +2698,7 @@ def clean_delta(p: Project, d: StateDelta) -> None:
     """AI 나 채팅 앱이 낸 상태 변경안 정리: 복선 문장을 본문에 맞추고(foreshadows.clean_delta),
     새 장소는 본문에 나오고 아직 없는 것만 남기고 이미 있는 장소와 비슷한 이름은 경고로 알린다."""
     foreshadows.clean_delta(p, d)
+    timeline.clean_delta(p, d)
     d.new_places, warns = elements.clean_places(p, d.new_places, p.episode(d.episode).text)
     d.warnings += [w for w in warns if w not in d.warnings]
 
@@ -2716,7 +2718,7 @@ def apply_delta(p: Project, d: StateDelta) -> None:
             cur = upd.model_copy(deep=True, update={"stats": []})
             p.states.append(cur)
         else:
-            for field in ("emotional_state", "current_goal", "location", "notes"):
+            for field in ("emotional_state", "current_goal", "location", "attire", "notes"):
                 if getattr(upd, field):
                     setattr(cur, field, getattr(upd, field))
             cur.knows += [k for k in upd.knows if k not in cur.knows]
@@ -2752,6 +2754,7 @@ def apply_delta(p: Project, d: StateDelta) -> None:
         if f.id in d.foreshadow_resolved:
             f.status, f.payoff_ep = "resolved", d.episode
     foreshadows.apply_delta(p, d)
+    timeline.apply_delta(p, d)
     p.history.append(d)
     dynamics.take_snapshot(p, d.episode)
     if p.serial:
@@ -2805,6 +2808,7 @@ def revert(p: Project, n: int) -> None:
     p.snapshots = [s for s in p.snapshots if s.episode <= n]
     foreshadows.revert(p, n)
     statwin.revert(p, n)
+    timeline.revert(p, n, snap.deadlines)
     for ep in p.episodes:
         if ep.plot.number > n and ep.status == "finalized":
             ep.status, ep.summary, ep.auto, ep.final_text = "written", "", False, ""

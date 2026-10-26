@@ -56,8 +56,10 @@ from .schema import (
     SerialRebuild,
     SeriesPlan,
     SetupSuggestion,
+    Deadline,
     StateDelta,
     StatValue,
+    StoryTime,
     StoryArc,
     StoryEvent,
     Storyline,
@@ -385,6 +387,9 @@ def _learning(hint: dict) -> StyleLearning:
     return StyleLearning(summary="작가는 긴 문장을 끊고 군더더기 낱말을 지운다.", suggestions=out)
 
 
+# 상태 변경안의 지금 차림: 1화에 처음 적고 2화에 찢어진다. 그 밖의 화는 비워 그대로 둔다
+MOCK_ATTIRE = {1: "젖은 회색 코트, 손전등", 2: "젖은 회색 코트(오른쪽 소매 찢어짐), 손전등, 녹슨 열쇠"}
+
 class MockLLM:
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
         _delay()
@@ -442,6 +447,7 @@ class MockLLM:
             return StateDelta(
                 episode=n, summary=f"{n}화에서 서윤과 도현이 단서를 찾았다.",
                 character_updates=[CharacterState(character_id="hero", emotional_state=f"{n}화 이후 조금 더 단단해짐", knows=[f"{n}화 단서"],
+                                                  attire=MOCK_ATTIRE.get(n, ""),
                                                   stats=[StatValue(name="레벨", value="+1")] if hint.get("stats") else [])],
                 events=[
                     StoryEvent(episode=n, actor="ally", target="hero", kind="거짓말발각", intensity=3,
@@ -457,6 +463,9 @@ class MockLLM:
                 foreshadow_resolved=["fs-01-key"] if n == 2 else [],
                 foreshadow_clues=[ForeshadowClue(foreshadow="fs-01-key", kind="payoff" if n == 2 else "plant", quote="서윤은 등대 앞에 섰다.")]
                 if n in (1, 2) else [],
+                time=StoryTime(day=n, part="밤"),
+                deadlines_added=[Deadline(id="dl-01-festival", what="등대 축제", day=5, note="닷새 뒤 축제")] if n == 1 else [],
+                deadlines_done=["dl-01-festival"] if n == 3 else [],
             )  # type: ignore[return-value]
         if schema is StorylineProposal:
             return _storyline(hint)  # type: ignore[return-value]

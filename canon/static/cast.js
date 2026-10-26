@@ -369,7 +369,7 @@ function castCharDetail(c) {
     <div class="small">${apps.length ? `플롯 등장 ${apps.length}화 (${apps[0].n}~${apps[apps.length - 1].n}화)${pov ? ` · 시점 인물 ${pov}화` : ''}` : '플롯에 나오는 화가 아직 없어요'}${c.first_ep ? ` · ${c.first_ep}화에 처음 등장` : ''}</div>
     ${apps.length ? `<div class="cast-strip-wrap">${castStrip(c.id)}</div>` : ''}
     <h3>${esc(frameLabel(f))}</h3>
-    ${st && (st.emotional_state || st.current_goal || st.location) ? `${field('감정', st.emotional_state)}${field('목표', st.current_goal)}${field('위치', st.location)}` : '<div class="small">기록된 상태가 없어요</div>'}
+    ${st && (st.emotional_state || st.current_goal || st.location || st.attire) ? `${field('감정', st.emotional_state)}${field('목표', st.current_goal)}${field('위치', st.location)}${field('차림', st.attire)}` : '<div class="small">기록된 상태가 없어요</div>'}
     ${st && st.knows.length ? `<details><summary>아는 것 ${st.knows.length}개</summary><ul class="cast-ul">${st.knows.map((k) => `<li>${esc(k)}</li>`).join('')}</ul></details>` : ''}
     <h3>관계</h3>${rels ? `<ul class="cast-rels">${rels}</ul>` : '<div class="small">이 시점에 관계가 없어요</div>'}
     ${secrets ? `<h3>비밀</h3><ul class="cast-ul">${secrets}</ul>` : ''}
@@ -384,7 +384,7 @@ function castTimeline(c) {
   const rows = (S.cast.timelines || {})[c.id] || [];
   if (!rows.length) return '';
   const f = castFrameNow();
-  const LABEL = { emotional_state: '감정', current_goal: '목표', location: '위치' };
+  const LABEL = { emotional_state: '감정', current_goal: '목표', location: '위치', attire: '차림' };
   // 고른 시점 앞뒤 10화를 보인다 (시점이 없으면 마지막 30화). 장편에서 수천 px 로 길어지지 않게
   const shown = S.castAllTl ? rows : f && f.episode ? rows.filter((r) => Math.abs(r.n - f.episode) <= 10) : rows.slice(-30);
   const items = shown.map((r) => {

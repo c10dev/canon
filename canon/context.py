@@ -29,6 +29,7 @@ BUDGET = {
     "secrets": 2_500,       # 본문 쓰기의 관계 블록에 붙는 숨긴 비밀
     "state_secrets": 6_000,  # 상태 변경안 · 검수의 비밀 목록
     "places": 3_000,        # 기획 · 검수 · 상태 변경안에 넣는 본문 · 플롯에서 나온 장소
+    "deadlines": 1_200,     # 쓰기 · 검수 · 기획 · 상태 변경안의 작품 속 열린 기한 (timeline.deadline_lines, 단편도)
 }
 FACTS_RECENT = 30  # 최근 사실은 예산과 상관없이 넣는다
 CHECK_RECENT = 3  # 검수에 원문 그대로 넣는 직전 화 수

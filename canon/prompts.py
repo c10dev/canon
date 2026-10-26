@@ -15,7 +15,7 @@ from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
 from .schema import Character, ChatMessage, Claim, ConsistencyReport, Foreshadow, ImpactReport, Project, Selection, StateDelta, StoryElement
-from . import foreshadows, statwin
+from . import foreshadows, statwin, timeline
 
 SYSTEM_PLANNER = (
     "당신은 한국 웹소설/단편소설 기획 전문 편집자입니다. "
@@ -270,7 +270,7 @@ def plot_prompt(p: Project, start: int, end: int) -> str:
 [앞 화 플롯 (확정 또는 초안, 이어지게 쓸 것)]
 {dump(prior) if prior else "없음"}{candidates_block(p)}
 [현재 열린 복선]
-{dump([f for f in p.foreshadows if f.status == "open"]) or "없음"}
+{dump([f for f in p.foreshadows if f.status == "open"]) or "없음"}{time_plan(p, start)}
 
 요구사항:
 {plot_rules(p, start <= OPENING_EPISODES)}{new_cast_rule(p)}"""
@@ -307,7 +307,7 @@ def serial_plot_prompt(p: Project, start: int, end: int) -> str:
 [바로 앞 화 플롯 (확정 또는 초안, 이어지게 쓸 것)]
 {dump(near) if near else "없음"}{candidates_block(p)}
 [열린 복선]{f" (그 밖에 {more}개는 이번 아크와 거리가 멀어 뺐습니다)" if more else ""}
-{dump(fs) or "없음"}{rebuild_map_block(p, start, end)}
+{dump(fs) or "없음"}{time_plan(p, start)}{rebuild_map_block(p, start, end)}
 
 요구사항:
 {plot_rules(p, start <= OPENING_EPISODES)}{new_cast_rule(p)}"""
@@ -370,6 +370,12 @@ def rebuild_map_block(p: Project, start: int, end: int) -> str:
     fixed = [e.plot for e in p.episodes if start <= e.plot.number <= end and e.text]
     return ("\n[재구성 지도 (단편을 장편으로 다시 짠 계획. 화마다 이 내용을 따르세요)]\n" + "\n".join(lines)
             + (f"\n[본문이 있는 화의 플롯 (바꾸지 말고 그대로 다시 적을 것)]\n{dump(fixed)}" if fixed else ""))
+
+
+def time_plan(p: Project, start: int) -> str:
+    """기획 프롬프트에 붙는 작품 속 시간 블록 (timeline.plan_block). 기록이 없으면 아무것도 넣지 않는다."""
+    b = timeline.plan_block(p, start)
+    return f"\n[작품 속 시간 ({start}화 직전)]\n{b}" if b else ""
 
 
 def lines_block(p: Project) -> str:
@@ -510,8 +516,8 @@ def story_parts(p: Project, n: int) -> tuple[str, str]:
     장편은 블록 예산(context.BUDGET)을 넘으면 오래된 것부터 더 짧게 접는다. 요약이 아직 승인되지 않은 아크는
     화별 요약 → 화마다 첫 문장 → 아크 한 줄 순서로 줄고, 승인된 요약은 마지막에야 첫 문장으로 줄인다."""
     eps = sorted((e for e in p.episodes if e.plot.number < n and e.summary), key=lambda e: e.plot.number)
-    line = lambda e: f"{e.plot.number}화 {storylines.summary_tag(p, e)}{e.plot.title}: {e.summary}"  # noqa: E731
-    short = lambda e: f"{e.plot.number}화 {storylines.summary_tag(p, e)}{e.plot.title}: {context.first_sentence(e.summary)}"  # noqa: E731
+    line = lambda e: f"{e.plot.number}화 {storylines.summary_tag(p, e)}{timeline.tag(p, e)}{e.plot.title}: {e.summary}"  # noqa: E731
+    short = lambda e: f"{e.plot.number}화 {storylines.summary_tag(p, e)}{timeline.tag(p, e)}{e.plot.title}: {context.first_sentence(e.summary)}"  # noqa: E731
     if not p.serial or not p.story_arcs:
         return "", "\n".join(map(line, eps))
     cur_arc = p.arc_for(n)
@@ -583,6 +589,39 @@ def state_view(p: Project, states: list) -> list:
     if not p.serial:
         return states
     return [s.model_copy(update={"knows": s.knows[-KNOWS_RECENT:]}) if len(s.knows) > KNOWS_RECENT else s for s in states]
+
+
+# ---------- 지금 차림 (CharacterState.attire) ----------
+# 옷 · 상처 · 지닌 물건은 화가 넘어가면 요약에서 빠진다. 지금 값만 상태에 덮어써 두고(기록은 화별 스냅샷),
+# 쓰기 · 검수 규칙은 차림이 하나라도 기록된 작품에만 붙인다. 상태 변경안은 늘 차림을 적게 한다.
+
+def has_attire(p: Project) -> bool:
+    return any(s.attire for s in p.states)
+
+
+def attire_write_rule(p: Project) -> str:
+    """본문 쓰기 프롬프트 끝에 붙는 규칙. 기록된 차림이 없으면 빈 글."""
+    if not has_attire(p):
+        return ""
+    return ("\n\n차림: [인물 현재 상태]의 attire 는 직전 화가 끝났을 때 그 인물의 옷, 몸에 남은 상처 · 얼룩, 지닌 물건입니다. "
+            "장면이 이어지면 그대로 지키고, 달라지려면 갈아입거나 다치거나 물건을 잃는 행동을 본문에 보여 줍니다. "
+            "날이 바뀌면 옷은 갈아입었을 수 있지만 상처와 지닌 물건은 이어집니다. 차림을 장면마다 묘사하지 않고 필요할 때만 씁니다.")
+
+
+def attire_check_rule(p: Project) -> str:
+    """검수 요구사항에 붙는 한 줄. 기록된 차림이 없으면 빈 글."""
+    if not has_attire(p):
+        return ""
+    return ("\n- 차림: [인물 현재 상태]의 attire(직전 화가 끝났을 때의 옷, 상처, 지닌 물건)와 어긋나는 차림이 갈아입거나 다치거나 잃는 행동 없이 나오는지 봅니다. "
+            "날이 바뀌어 옷만 달라진 것은 모순이 아닙니다. type 은 사실, source_episode 는 0, source_quote 는 그 attire 문구입니다.")
+
+
+ATTIRE_STATE_RULE = (
+    "\n- character_updates 의 attire 에는 이번 화가 끝났을 때 그 인물의 옷차림, 몸에 남은 상처 · 얼룩 · 찢어짐, 지니고 다니는 중요한 물건을 "
+    "40자 안팎으로 적습니다 (예: '젖은 검은 코트, 왼쪽 소매 찢어짐, 오른손 붕대, 허리에 아버지의 단검'). "
+    "본문에서 차림이 처음 드러났거나 바뀐 인물만 적고 그대로면 비웁니다. 바꿀 때는 이어지는 상처와 물건도 함께 다시 적습니다. "
+    "본문의 차림이 [이전 인물 상태]의 attire 와 설명 없이 어긋나면 warnings 에 적습니다."
+)
 
 
 def static_characters(p: Project) -> list[Character]:
@@ -1408,6 +1447,8 @@ def build_episode_context(p: Project, n: int) -> str:
     els = f"\n\n# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것)\n{els}" if els else ""
     line = storylines.episode_block(p, n)
     line = f"\n\n# 이번 화의 이야기 줄기\n{line}" if line else ""
+    tl = timeline.episode_block(p, n)
+    line += f"\n\n# 작품 속 시간 (어기지 말 것)\n{tl}" if tl else ""
     pov = pov_block(p, n)
     pov = f"\n\n# 이번 화 서술 시점 (스타일 프로필보다 우선)\n{pov}" if pov else ""
     dev = device_block(p, n)
@@ -1583,6 +1624,7 @@ def episode_prompt(p: Project, n: int, approach: str = "") -> str:
         "플롯의 emotional_shift 는 감정 이름으로 서술하지 말고 행동과 대사로 보여 줍니다. "
         "인물의 말투는 speech_style 을 따릅니다."
         + statwin.write_rule(p)
+        + attire_write_rule(p)
     )
 
 
@@ -1681,7 +1723,7 @@ def state_prompt(p: Project, n: int) -> str:
 {dump(ep.plot)}
 [이미 있는 장소]
 {places_line(p, ep.text)}
-
+{f"[작품 속 시간]{chr(10)}{timeline.state_block(p, n)}{chr(10)}" if timeline.enabled(p) else ""}
 [{n}화 본문]
 {ep.text}
 
@@ -1696,7 +1738,7 @@ def state_prompt(p: Project, n: int) -> str:
 - 아래 [이미 있는 장소]에 없는 장소(지형, 마을, 건물, 가게 등)가 이름을 갖고 처음 나왔으면 new_places 에 넣습니다. name 은 본문에 쓴 그대로, kind 는 종류 한 단어, description 은 본문에서 드러난 것만 한 줄입니다. 이름 없는 길, 방, 골목은 넣지 않습니다.
 - 이미 있는 장소를 다른 이름이나 표기로 부른 것이면 new_places 에 넣지 않고 warnings 에 적습니다.
 - character_updates 의 location 에는 [이미 있는 장소]나 new_places 의 이름을 표기 그대로 앞에 씁니다 (예: '하르덴 왕궁 서재'). 옮겨 가는 중이면 '하르덴에서 벨라 항구로 가는 배 위'처럼 떠난 곳과 갈 곳을 함께 씁니다.
-- warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다.{storylines.state_rule(p, n)}{foreshadows.state_rule(p)}{statwin.state_rule(p)}"""
+- warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다.{storylines.state_rule(p, n)}{foreshadows.state_rule(p)}{statwin.state_rule(p)}{ATTIRE_STATE_RULE}{timeline.state_rule(p, n)}"""
 
 
 def _check_full(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
@@ -1713,10 +1755,10 @@ def _check_full(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
         # 장편: 통째로 못 넣는 오래된 부분은 화별 요약 대신 접은 줄거리로 본다
         first = min(full_nos)
         past = f"## {first - 1}화까지의 줄거리 (요약)\n{story_so_far(p, first)}\n\n" + "\n\n".join(
-            f"## {e.plot.number}화 {e.plot.title}\n{e.text}" for e in prior if e.plot.number in full_nos)
+            f"## {e.plot.number}화 {timeline.tag(p, e)}{e.plot.title}\n{e.text}" for e in prior if e.plot.number in full_nos)
     else:
         past = "\n\n".join(
-            f"## {e.plot.number}화 {e.plot.title}\n{e.text if e.plot.number in full_nos else '(요약) ' + e.summary}"
+            f"## {e.plot.number}화 {timeline.tag(p, e)}{e.plot.title}\n{e.text if e.plot.number in full_nos else '(요약) ' + e.summary}"
             for e in prior
         )
     return (chr(10).join("- " + f for f in p.facts) or "없음", dump(p.states) or "1화 시작 시점, 설정 그대로",
@@ -1742,7 +1784,7 @@ def _check_budget(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
     if found:
         parts.append("## 옛 화에서 찾은 관련 단락 (이번 화와 겹치는 인물 · 장소 · 사물이 나오는 곳. 원문 발췌)\n\n" + "\n\n".join(
             f"### {m}화 {title.get(m, '')} (발췌)\n" + "\n…\n".join(paras) for m, paras in found))
-    parts += [f"## {e.plot.number}화 {e.plot.title}\n{e.text}" for e in recent]
+    parts += [f"## {e.plot.number}화 {timeline.tag(p, e)}{e.plot.title}\n{e.text}" for e in recent]
     facts, cut = relevant_facts(p, ids, n, "check_facts")
     facts_text = (f"(이번 화와 관련된 것만, {cut}개 생략)\n" if cut else "") + (chr(10).join("- " + f for f in facts) or "없음")
     states = dump(state_view(p, [s for s in p.states if s.character_id in ids])) or "1화 시작 시점, 설정 그대로"
@@ -1770,6 +1812,8 @@ def check_prompt(p: Project, n: int, mode: str = "") -> str:
     els = f"\n\n# 이야기 요소 ({n}화 시점에 사실인 것)\n{els}" if els else ""
     line = storylines.episode_block(p, n)
     line = f"\n\n# {n}화의 이야기 줄기\n{line}" if line else ""
+    tl = timeline.episode_block(p, n)
+    line += f"\n\n# 작품 속 시간\n{tl}" if tl else ""
     pov = pov_block(p, n)
     pov = f"\n\n# {n}화 서술 시점 (스타일 프로필보다 우선)\n{pov}" if pov else ""
     return f"""{static_context(p)}
@@ -1798,7 +1842,7 @@ def check_prompt(p: Project, n: int, mode: str = "") -> str:
 {n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
 - 확인할 것: 확정 사실, 이야기 요소와 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
 - 동선: 한 장면 안에서 인물의 위치, 몸이 향한 쪽(앞 · 뒤, 등 · 배), 자세, 손에 든 것, 가려진 곳이 바꾸는 행동 없이 달라지는지 봅니다. 예: 등을 돌리고 망토로 몸을 가렸는데 다음 문장에서 그 인물의 표정이나 가슴께가 보임. 이때 source_episode 는 {n}, source_quote 는 같은 화의 앞 문장입니다.
-- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.
+- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{timeline.check_rule(p, n)}{attire_check_rule(p)}
 - source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 설정이나 인물 상태면 source_episode 는 0 입니다.
 - 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
 - episode 는 {n} 입니다."""
@@ -2270,6 +2314,7 @@ def _illust_cast(p: Project, n: int, text: str) -> list[dict]:
             "id": c.id, "name": c.name, "gender": c.gender, "age": c.age, "appearance": c.appearance,
             "saved_look_tags": v.look if v else [], "saved_outfit_tags": v.outfit if v else [],
             "location_now": st.location if st else "",
+            "attire_now": st.attire if st else "",
         })
     return out
 
@@ -2312,6 +2357,7 @@ def illust_prompt(p: Project, n: int, sel: Selection | None, request: str = "") 
 - characters 에는 그림에 보이는 인물만 넣습니다. 이름이 있는 인물은 위 인물 목록의 id 를 씁니다. 목소리만 나오거나 화면 밖에 있는 인물은 넣지 않습니다.
 - 외형 태그(saved_look_tags)가 있는 인물은 look 을 빈 목록으로 둡니다. 없는 인물은 appearance, age, gender 를 보고 look 에 머리 색, 머리 길이와 모양, 눈 색, 체형, 나이대 태그를 넣습니다 (예: black hair, long hair, ponytail, brown eyes, mature female).
 - outfit 은 본문에 옷차림이 나오거나 장면에 맞는 옷이 저장된 기본 옷차림(saved_outfit_tags)과 다를 때만 적습니다 (예: school uniform, white shirt, pajamas, armor).
+- attire_now 는 가장 최근에 반영한 그 인물의 차림(옷, 상처, 지닌 물건)입니다. 장면 본문이 다르게 말하면 본문을 따르고, 본문에 없으면 attire_now 를 태그로 옮깁니다 (예: torn sleeve, bandaged hand, dagger at hip).
 - expression 과 action 은 이 순간의 모습입니다. 시선(looking at viewer, looking at another, looking away), 자세(standing, sitting, kneeling), 손(holding umbrella, hand on own chest)을 구체적으로 적습니다.
 - 두 인물이 주고받는 행동은 하는 쪽 action 에 source#행동, 받는 쪽에 target#행동, 서로 하면 둘 다 mutual#행동 으로 적습니다 (예: source#hug, target#hug, mutual#holding hands).
 - 인물이 둘 이상이면 position 에 left, center, right 중 하나를 적어 서로 겹치지 않게 합니다.

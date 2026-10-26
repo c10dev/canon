@@ -27,6 +27,7 @@
   python -m canon stats 내소설 [3]      문체 지표를 레퍼런스와 비교
   python -m canon foreshadows 내소설     복선 센터: 심은 문장 · 회수한 문장, 회수율, 끊어진 연결
   python -m canon statwin 내소설 hero   상태창 수치와 화별 변화 (--set 레벨=1 로 만들고 고치기)
+  python -m canon time 내소설           작품 속 시간: 화별로 끝난 시점과 기한 (--start, --add '축제@7', --close ID)
   python -m canon map 내소설            지도: 장소, 인물별로 옮겨 다닌 길, 장소와 맞지 않은 위치 글
   python -m canon map 내소설 gen --size 보통 --water 강   마을 생성기로 마을 만들기 (--seed, --roads, --fields, --forest, --move, --ai)
   python -m canon update 내소설 3       상태 변경안 확인 후 반영
@@ -65,8 +66,8 @@ from . import (autorun, cast, dynamics, elements, genres, illust, library, logli
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
-from . import atlas, citygen, foreshadows, statwin, towngen
-from .schema import ArcProposal, ChatScope, MapPlace, StatValue, StoryArc
+from . import atlas, citygen, foreshadows, statwin, timeline, towngen
+from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StoryArc
 
 
 def ask(label: str, default: str = "") -> str:
@@ -926,7 +927,8 @@ def cmd_stats(a: argparse.Namespace) -> None:
 def _print_delta(d: StateDelta) -> None:
     print(f"\n=== {d.episode}화 상태 변경안 ===\n요약: {d.summary}")
     for c in d.character_updates:
-        print(f"- 인물 {c.character_id}: 감정={c.emotional_state} 목표={c.current_goal} 위치={c.location} 새로 앎={c.knows}")
+        print(f"- 인물 {c.character_id}: 감정={c.emotional_state} 목표={c.current_goal} 위치={c.location}"
+              + (f" 차림={c.attire}" if c.attire else "") + f" 새로 앎={c.knows}")
         if c.stats:
             print(f"  · 상태창: {', '.join(f'{x.name} {x.value or "지움"}' for x in c.stats)}")
     for e in d.events:
@@ -948,6 +950,12 @@ def _print_delta(d: StateDelta) -> None:
         print(f"  · 복선 {c.foreshadow} {'회수' if c.kind == 'payoff' else '심음'} 문장: \"{c.quote}\"")
     for x in d.new_places:
         print(f"- 새 장소 {x.name}{f' ({x.kind})' if x.kind else ''}: {x.description}")
+    if timeline.known(d.time):
+        print(f"- 끝난 시점: {timeline.fmt(d.time)}")
+    for x in d.deadlines_added:
+        print(f"- 기한 {x.id}: {x.what}{f' ({x.day}일째)' if x.day else ''}{f' · {x.note}' if x.note else ''}")
+    for x in d.deadlines_done:
+        print(f"- 기한 닫힘: {x}")
     for w in d.warnings:
         print(f"! 경고: {w}")
 
@@ -1564,6 +1572,35 @@ def cmd_statwin(a: argparse.Namespace) -> None:
     print(statwin.describe(p, c.id))
 
 
+def cmd_time(a: argparse.Namespace) -> None:
+    """작품 속 시간 보기와 고치기. --add '축제 첫날@7' 은 7일째에 오는 기한."""
+    p = store.load(a.name)
+    changed = False
+    if a.on or a.off:
+        p.timeline.enabled, changed = bool(a.on), True
+    if a.start is not None:
+        p.timeline.start, changed = a.start.strip(), True
+    for x in a.add or []:
+        what, _, day = x.rpartition("@") if "@" in x else (x, "", "")
+        if day and not day.strip().isdigit():
+            sys.exit(f"'무엇@날수' 로 적어 주세요 (예: 축제 첫날@7): {x}")
+        d = timeline.upsert(p, Deadline(id="", what=what, day=int(day or 0)))
+        print(f"기한을 더했어요: {d.id}")
+        changed = True
+    for i in a.close or []:
+        d = next((x for x in p.timeline.deadlines if x.id == i), None)
+        if d is None:
+            sys.exit(f"없는 기한이에요: {i}")
+        timeline.upsert(p, d.model_copy(update={"done_ep": max(timeline.last_done(p), d.set_ep)}))
+        changed = True
+    for i in a.drop or []:
+        timeline.remove(p, i)
+        changed = True
+    if changed:
+        store.save(a.name, p)
+    print(timeline.describe(p))
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="canon", description="데이터 기반 AI 소설 생성기 (MVP)")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1776,6 +1813,13 @@ def main(argv: list[str] | None = None) -> None:
     sp = add("statwin", cmd_statwin, yes=False)
     sp.add_argument("character", nargs="?", help="인물 id 나 이름. 비우면 상태창이 있는 인물 목록")
     sp.add_argument("--set", nargs="+", action="extend", metavar="항목=값", help="값을 바꾸거나 더한다. +3 은 더하기, 빈 값은 항목 지우기")
+    sp = add("time", cmd_time, yes=False)
+    sp.add_argument("--start", help="1일째가 언제인지 (예: '2024년 3월 2일 토요일, 늦겨울'). 빈 값이면 지움")
+    sp.add_argument("--on", action="store_true", help="작품 속 시간 기록 켜기")
+    sp.add_argument("--off", action="store_true", help="끄기 (상태 변경안에 시점을 적지 않고, 쓰기 · 검수에 시간 블록을 넣지 않음)")
+    sp.add_argument("--add", nargs="+", action="extend", metavar="무엇@날수", help="기한 더하기 (날수를 모르면 @ 없이)")
+    sp.add_argument("--close", nargs="+", action="extend", metavar="ID", help="기한 닫기 (마지막으로 반영한 화에)")
+    sp.add_argument("--drop", nargs="+", action="extend", metavar="ID", help="기한 지우기")
     sp = add("cast", cmd_cast, yes=False)
     sp.add_argument("character", nargs="?", help="인물 id 나 이름. 비우면 인물 목록")
     sp.add_argument("--numbers", action="store_true", help="관계를 숫자로")
