@@ -143,3 +143,20 @@ func job(_ id: String, _ kind: String, ep: Int? = nil, status: Job.Status = .run
         #expect(center.notice?.isError == true)
     }
 }
+
+@MainActor
+@Suite struct OfferTests {
+    // 작업지시서로 받은 변경안은 작업 결과처럼 검토 대기에 놓이고, 적용하면 같은 방법으로 지운다
+    @Test func offeredProposalWaitsForReview() async {
+        let jobs = FakeJobs()
+        let center = JobCenter(service: jobs)
+        await center.open(ProjectDocument(name: "등대", store: FakeStore(project())))
+        let delta = JSONValue.object(["episode": .number(2), "summary": .string("채팅 앱 요약")])
+        center.offer(PendingResult(key: "state:2", id: "chat:2", kind: "state", ep: 2, label: "2화 상태 변경안", result: delta, base: "본문"))
+        let d = try? center.results["state:2"]?.result.decode(Components.Schemas.StateDelta.self)
+        #expect(d?.summary == "채팅 앱 요약")
+        #expect(center.results["state:2"]?.base == "본문")
+        await center.drop("state", ep: 2)
+        #expect(center.results.isEmpty)
+    }
+}

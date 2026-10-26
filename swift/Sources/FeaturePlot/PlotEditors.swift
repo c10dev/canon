@@ -34,6 +34,7 @@ struct PlotEditor: View {
     let project: Project
     let episode: Episode
     let go: (Screen) -> Void
+    @Environment(\.plotSlots) private var slots
 
     var body: some View {
         let n = episode.plot.number
@@ -58,6 +59,11 @@ struct PlotEditor: View {
                 TextRow(label: "요약", text: field(n, \.summary), lines: 3)
                 ListRow(label: "사건 순서", value: model.project?.episodes?.first { $0.plot.number == n }?.plot.events ?? [], set: { v in model.editPlot(n) { $0.events = v } }, lines: 5)
                 castField(info, plot)
+            }
+            .disabled(info.locked)
+            // 이야기 줄기 칸: 본문이 있는 화도 줄기 표시는 바꿀 수 있다. 작업이 이 화를 쓰는 중일 때만 막는다 (웹 lineField)
+            slots.episodeField(project, plot, busy, !busy && [.written, .finalized].contains(episode.status ?? .draft)) { change in model.editPlot(n, change) }
+            Group {
                 if info.showOpening { TextRow(label: "여는 장면", text: optField(n, \.opening), hint: n <= 3 ? "초반 화는 첫 장면이 독자를 붙잡아요" : nil) }
                 TextRow(label: "감정 변화", text: field(n, \.emotionalShift))
                 TextRow(label: "엔딩 훅", text: field(n, \.endingHook))

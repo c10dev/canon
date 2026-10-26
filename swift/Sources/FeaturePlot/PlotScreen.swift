@@ -240,6 +240,7 @@ struct ArcProposalCard: View {
 struct BoardView: View {
     let model: PlotModel
     let board: PlotBoard
+    @Environment(\.plotSlots) private var slots
 
     var body: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), alignment: .top)], alignment: .leading, spacing: 12) {
@@ -301,6 +302,7 @@ struct BoardView: View {
 
     private func card(_ e: Episode) -> some View {
         let c = EpisodeCard(e, busy: model.owns(e.plot.number))
+        let badges = model.project.map { slots.cardBadges($0, e.plot) } ?? AnyView(EmptyView())
         let selected = model.panel == .episode(c.number)
         return Button { model.select(.episode(c.number)) } label: {
             VStack(alignment: .leading, spacing: 4) {
@@ -310,7 +312,10 @@ struct BoardView: View {
                     if c.busy { ProgressView().controlSize(.mini); Chip(text: "새로 만드는 중", color: .purple) }
                     Chip(text: c.status.label, color: c.status.color)
                 }
-                Text(c.title).font(.subheadline)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(c.title).font(.subheadline)
+                    badges
+                }
                 if !c.summary.isEmpty { Text(c.summary).font(.caption).foregroundStyle(.secondary).lineLimit(3) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

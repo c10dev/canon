@@ -98,6 +98,12 @@ public final class JobCenter {
         await refresh()
     }
 
+    /// 작업 밖에서 받은 제안을 검토를 기다리는 결과로 둔다 (웹 `setDelta(n, d, 'chat')`: 작업지시서로 채팅 앱에서 받은 상태 변경안).
+    /// 같은 열쇠의 결과가 있으면 바꾼다. 서버의 `pending.json` 에는 쓰지 않는다 (웹도 화면 메모리에만 둔다).
+    public func offer(_ result: PendingResult) {
+        results[result.key] = result
+    }
+
     /// 반영하거나 버린 결과를 지운다.
     public func drop(_ kind: String, ep: Int? = nil) async {
         let key = Job.key(kind, ep)
