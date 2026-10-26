@@ -1021,6 +1021,26 @@ class PlaceLink(BaseModel):
     place: str = Field("", description="장소 키. 비우면 지도에 그리지 않는 위치 (이동 중, 알 수 없음 등)")
 
 
+class MapPlace(BaseModel):
+    """지도 만들기에서 작가가 고친 장소 하나: 종류와 이 지도에 놓을지."""
+    key: str = Field(description="장소 키 (atlas.places)")
+    kind: str = Field("", description="종류 id (towngen.CATEGORIES). 비면 이름 · 설명에서 찾는다")
+    put: Optional[bool] = Field(None, description="이 지도에 놓을지. 비면 종류로 정한다 (마을 밖 장소는 놓지 않음)")
+
+
+class MapSpec(BaseModel):
+    """지도 생성기 입력 (canon/towngen.py). 같은 값이면 언제나 같은 지도가 나온다."""
+    kind: Literal["village", "city", "realm"] = "village"
+    seed: int = Field(1, ge=0, le=2**31 - 1)
+    version: int = Field(0, description="이 지도를 만든 생성기 알고리즘 버전 (적용할 때 적는다)")
+    size: Literal["small", "medium", "large"] = "medium"
+    roads: Literal["line", "cross", "square"] = "cross"
+    water: Literal["none", "river", "lake", "sea"] = "none"
+    fields: Literal["few", "some", "many"] = "some"
+    forest: Literal["few", "some", "many"] = "some"
+    places: list[MapPlace] = Field(default_factory=list)
+
+
 class Atlas(BaseModel):
     image: str = Field("", description="배경 그림 파일 이름 (projects/<작품>/map/ 아래). 비면 빈 캔버스")
     aspect: float = Field(1.5, description="지도 가로 / 세로. 배경 그림을 올리면 그림 비율")
@@ -1028,6 +1048,7 @@ class Atlas(BaseModel):
     links: list[PlaceLink] = Field(default_factory=list)
     layout: str = Field("", description="마을 · 도시 데이터 파일 이름 (projects/<작품>/map/ 아래, atlas.read_layout 으로 바꾼 길 · 건물). 비면 없음")
     meters: float = Field(1.0, description="마을 데이터 1단위가 몇 m 인지 (거리 · 걷는 시간 계산)")
+    spec: Optional[MapSpec] = Field(None, description="지도 만들기로 만든 마을이면 그 입력. 파일을 올렸거나 지도가 없으면 비움")
 
 
 class Project(BaseModel):
