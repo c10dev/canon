@@ -15,9 +15,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "type": "object",
-         "title": "Response Config"
+         "$ref": "#/components/schemas/ConfigView"
         }
        }
       }
@@ -43,9 +41,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "type": "object",
-         "title": "Response Put Config"
+         "$ref": "#/components/schemas/ConfigView"
         }
        }
       }
@@ -74,9 +70,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "type": "object",
-         "title": "Response Test Config"
+         "$ref": "#/components/schemas/ConfigTest"
         }
        }
       }
@@ -95,7 +89,9 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ModelList"
+         },
          "type": "object",
          "title": "Response Config Models"
         }
@@ -116,9 +112,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "type": "object",
-         "title": "Response Config Health"
+         "$ref": "#/components/schemas/ConfigHealth"
         }
        }
       }
@@ -137,9 +131,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "type": "object",
-         "title": "Response Claude Status"
+         "$ref": "#/components/schemas/ClaudeStatus"
         }
        }
       }
@@ -8302,6 +8294,141 @@
     ],
     "title": "CheckTrialIn"
    },
+   "ClaudeAccount": {
+    "properties": {
+     "loggedIn": {
+      "type": "boolean",
+      "title": "Loggedin",
+      "default": false
+     },
+     "authMethod": {
+      "type": "string",
+      "title": "Authmethod",
+      "default": ""
+     },
+     "apiProvider": {
+      "type": "string",
+      "title": "Apiprovider",
+      "default": ""
+     },
+     "email": {
+      "type": "string",
+      "title": "Email",
+      "default": ""
+     },
+     "orgName": {
+      "type": "string",
+      "title": "Orgname",
+      "default": ""
+     },
+     "organizationName": {
+      "type": "string",
+      "title": "Organizationname",
+      "default": ""
+     },
+     "subscriptionType": {
+      "type": "string",
+      "title": "Subscriptiontype",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "loggedIn",
+     "authMethod",
+     "apiProvider",
+     "email",
+     "orgName",
+     "organizationName",
+     "subscriptionType"
+    ],
+    "title": "ClaudeAccount",
+    "description": "Claude Code `auth status` 에서 화면에 보일 칸만 (claude.STATUS_FIELDS)."
+   },
+   "ClaudeStatus": {
+    "properties": {
+     "installed": {
+      "type": "boolean",
+      "title": "Installed"
+     },
+     "path": {
+      "type": "string",
+      "title": "Path"
+     },
+     "version": {
+      "type": "string",
+      "title": "Version"
+     },
+     "logged_in": {
+      "type": "boolean",
+      "title": "Logged In"
+     },
+     "account": {
+      "$ref": "#/components/schemas/ClaudeAccount",
+      "default": {
+       "loggedIn": false,
+       "authMethod": "",
+       "apiProvider": "",
+       "email": "",
+       "orgName": "",
+       "organizationName": "",
+       "subscriptionType": ""
+      }
+     },
+     "env_token": {
+      "type": "boolean",
+      "title": "Env Token"
+     },
+     "api_key_ignored": {
+      "type": "boolean",
+      "title": "Api Key Ignored"
+     },
+     "message": {
+      "type": "string",
+      "title": "Message"
+     },
+     "reason": {
+      "type": "string",
+      "title": "Reason"
+     },
+     "login_command": {
+      "type": "string",
+      "title": "Login Command"
+     },
+     "token_command": {
+      "type": "string",
+      "title": "Token Command"
+     },
+     "auth_method": {
+      "type": "string",
+      "title": "Auth Method",
+      "default": ""
+     },
+     "metered": {
+      "type": "boolean",
+      "title": "Metered",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "installed",
+     "path",
+     "version",
+     "logged_in",
+     "account",
+     "env_token",
+     "api_key_ignored",
+     "message",
+     "reason",
+     "login_command",
+     "token_command",
+     "auth_method",
+     "metered"
+    ],
+    "title": "ClaudeStatus",
+    "description": "Claude Code 설치와 구독 로그인 상태 (claude.status). reason: ok | login | metered | install | error."
+   },
    "ClueIn": {
     "properties": {
      "episode": {
@@ -8373,6 +8500,236 @@
      "b"
     ],
     "title": "CompareIn"
+   },
+   "ConfigHealth": {
+    "properties": {
+     "mock": {
+      "type": "boolean",
+      "title": "Mock"
+     },
+     "gemini": {
+      "type": "boolean",
+      "title": "Gemini"
+     },
+     "has_key": {
+      "type": "boolean",
+      "title": "Has Key"
+     },
+     "local": {
+      "type": "boolean",
+      "title": "Local"
+     },
+     "local_error": {
+      "type": "string",
+      "title": "Local Error",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "mock",
+     "gemini",
+     "has_key",
+     "local_error"
+    ],
+    "title": "ConfigHealth",
+    "description": "AI 를 쓸 수 있는지 (작품 목록 · 사이드바 경고). local 은 로컬을 쓰지 않으면 null."
+   },
+   "ConfigTest": {
+    "properties": {
+     "ok": {
+      "type": "boolean",
+      "title": "Ok"
+     },
+     "message": {
+      "type": "string",
+      "title": "Message"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ok",
+     "message"
+    ],
+    "title": "ConfigTest"
+   },
+   "ConfigView": {
+    "properties": {
+     "provider": {
+      "type": "string",
+      "title": "Provider"
+     },
+     "provider_source": {
+      "type": "string",
+      "title": "Provider Source"
+     },
+     "model": {
+      "type": "string",
+      "title": "Model"
+     },
+     "model_setting": {
+      "type": "string",
+      "title": "Model Setting"
+     },
+     "model_source": {
+      "type": "string",
+      "title": "Model Source"
+     },
+     "has_key": {
+      "type": "boolean",
+      "title": "Has Key"
+     },
+     "key_hint": {
+      "type": "string",
+      "title": "Key Hint"
+     },
+     "key_source": {
+      "type": "string",
+      "title": "Key Source"
+     },
+     "gemini_auth": {
+      "type": "string",
+      "title": "Gemini Auth"
+     },
+     "gemini_auth_source": {
+      "type": "string",
+      "title": "Gemini Auth Source"
+     },
+     "vertex_credentials": {
+      "type": "string",
+      "title": "Vertex Credentials"
+     },
+     "vertex_credentials_source": {
+      "type": "string",
+      "title": "Vertex Credentials Source"
+     },
+     "vertex_credentials_found": {
+      "type": "boolean",
+      "title": "Vertex Credentials Found"
+     },
+     "vertex_project": {
+      "type": "string",
+      "title": "Vertex Project"
+     },
+     "vertex_project_source": {
+      "type": "string",
+      "title": "Vertex Project Source"
+     },
+     "vertex_location": {
+      "type": "string",
+      "title": "Vertex Location"
+     },
+     "vertex_location_source": {
+      "type": "string",
+      "title": "Vertex Location Source"
+     },
+     "local_url": {
+      "type": "string",
+      "title": "Local Url"
+     },
+     "local_url_source": {
+      "type": "string",
+      "title": "Local Url Source"
+     },
+     "local_model": {
+      "type": "string",
+      "title": "Local Model"
+     },
+     "local_model_source": {
+      "type": "string",
+      "title": "Local Model Source"
+     },
+     "has_local_key": {
+      "type": "boolean",
+      "title": "Has Local Key"
+     },
+     "claude_model": {
+      "type": "string",
+      "title": "Claude Model"
+     },
+     "claude_model_source": {
+      "type": "string",
+      "title": "Claude Model Source"
+     },
+     "claude_bin": {
+      "type": "string",
+      "title": "Claude Bin"
+     },
+     "claude_bin_source": {
+      "type": "string",
+      "title": "Claude Bin Source"
+     },
+     "anthropic_key_hint": {
+      "type": "string",
+      "title": "Anthropic Key Hint"
+     },
+     "anthropic_key_source": {
+      "type": "string",
+      "title": "Anthropic Key Source"
+     },
+     "stages": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/StageConfig"
+      },
+      "type": "object",
+      "title": "Stages"
+     },
+     "stage_settings": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Stage Settings"
+     },
+     "stage_model_settings": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Stage Model Settings"
+     },
+     "path": {
+      "type": "string",
+      "title": "Path"
+     }
+    },
+    "type": "object",
+    "required": [
+     "provider",
+     "provider_source",
+     "model",
+     "model_setting",
+     "model_source",
+     "has_key",
+     "key_hint",
+     "key_source",
+     "gemini_auth",
+     "gemini_auth_source",
+     "vertex_credentials",
+     "vertex_credentials_source",
+     "vertex_credentials_found",
+     "vertex_project",
+     "vertex_project_source",
+     "vertex_location",
+     "vertex_location_source",
+     "local_url",
+     "local_url_source",
+     "local_model",
+     "local_model_source",
+     "has_local_key",
+     "claude_model",
+     "claude_model_source",
+     "claude_bin",
+     "claude_bin_source",
+     "anthropic_key_hint",
+     "anthropic_key_source",
+     "stages",
+     "stage_settings",
+     "stage_model_settings",
+     "path"
+    ],
+    "title": "ConfigView",
+    "description": "설정 화면이 보는 값 (settings.public). 키 원문은 없고 끝 네 글자(`key_hint`)와 출처만 있다."
    },
    "ConsistencyIssue": {
     "properties": {
@@ -10415,6 +10772,36 @@
      "meters"
     ],
     "title": "MetersIn"
+   },
+   "ModelList": {
+    "properties": {
+     "models": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Models",
+      "default": []
+     },
+     "error": {
+      "type": "string",
+      "title": "Error",
+      "default": ""
+     },
+     "reason": {
+      "type": "string",
+      "title": "Reason",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "models",
+     "error",
+     "reason"
+    ],
+    "title": "ModelList",
+    "description": "백엔드 하나의 모델 목록. 못 불러오면 models 가 비고 error · reason(no_key | unreachable | other)이 찬다."
    },
    "ModelParams": {
     "properties": {
@@ -12658,6 +13045,45 @@
      "name"
     ],
     "title": "SortPlace"
+   },
+   "StageConfig": {
+    "properties": {
+     "provider": {
+      "type": "string",
+      "title": "Provider"
+     },
+     "source": {
+      "type": "string",
+      "title": "Source"
+     },
+     "model": {
+      "type": "string",
+      "title": "Model"
+     },
+     "model_source": {
+      "type": "string",
+      "title": "Model Source"
+     },
+     "env": {
+      "type": "string",
+      "title": "Env"
+     },
+     "model_env": {
+      "type": "string",
+      "title": "Model Env"
+     }
+    },
+    "type": "object",
+    "required": [
+     "provider",
+     "source",
+     "model",
+     "model_source",
+     "env",
+     "model_env"
+    ],
+    "title": "StageConfig",
+    "description": "단계 하나가 지금 쓰는 백엔드와 모델 (settings.public 의 stages)."
    },
    "StageIn": {
     "properties": {

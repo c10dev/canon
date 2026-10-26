@@ -51,6 +51,7 @@ canon-probe            개발용: 실제 서버 응답이 타입대로 읽히는
 | `FeaturePlot` | 기승전결 · 플롯 (장편은 부 · 아크 · 플롯): `PlotModel`(구간 · 화 · 아크 · 부 고치기, 확정, 작업 결과를 제안으로 받기 · 적용 · 버리기, 화 끼워 넣기 · 빼기), `PlotRules`(웹 `actRanges` · `fitActs` · `actCoverage` 등), `PlotBoard` · `PlotEditorInfo` · `EpisodeCard`(보드 · 편집기 · 화 카드), `LivePlotService`, `PlotScreen` |
 | `FeatureSetup` | 설정 도우미: `SetupModel`(작품 정보 · 인물 · 관계 고치기, 이름 후보 · 점검, AI 설정 제안 고르기), `Logline` · `LoglineField` · `Tone` · `ToneDial`(로그라인 합치기 · 점검, 톤 다이얼), `SetupRules`(새 인물 id, 관계 쌍 · 문제, 장르, 지우기 질문), `SuggestionPicks`, `NameCheckGroups`, `LiveSetupService`, `SetupView` |
 | `FeatureStyle` | 문체 레퍼런스: `StyleModel`(원문 분석, 라이브러리 고르기 · 저장 · 올리기 · 가져오기, 프로필 · 표지 · 장치 · 대표 문단 고치기), `StyleText`(웹 `styleBlank` · `styleChangeWho` · `baselineRows` 문구), `LiveStyleService`, `StyleView` |
+| `FeatureSettings` | 모델 · API 키 설정 (작품 목록 · 작품 사이드바 툴바의 '모델 · API 키' 시트): `SettingsModel`(불러오기, 저장 · 키 지우기, 연결 확인, 모델 목록, Claude 상태), `SettingsDraft`(고치는 칸, 보낼 값 `body`, 단계 비우기), `SettingsText`(웹 문구 · 규칙), `LiveSettingsService`, `SettingsView`. 키는 칸에만 들고 있다가 서버로 보내고 저장하면 비운다. 다시 보일 때는 서버의 끝 네 글자(`key_hint`)만 |
 | `CanonAppUI` | `AppModel`(서버 · 작품 · 화면 · 작업 · 연 작품), `RootView`, 저장 띠 `SaveBar`, 서버 주소 화면 |
 
 ## 개발 명령
@@ -116,7 +117,8 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | 7 | `FeatureStatWin` | 상태창 수치 (항목 고치기, 틀, 복사, 서식, 화별 변화 표) | `statwin.js` (`swDeltaRows` 는 4 상태 승인) | `statwin_view`(`StatwinView`), `statwin_set`, `statwin_template` — **됨** |
 | 7 | 작품 도구 (남은 것) | 지도, 이야기 줄기, 인과율, 작업지시서, 자동 집필 | `atlas.js` `lines.js` `causal.js` `auto.js` | 각 화면 |
 | 8 | `FeatureUsage` | 사용량 · 비용 | `usage.js` | `usage_summary` · `usage_prices` — **됨** |
-| 8 | 본편과 분리 · 설정 (남은 것) | 연구, 모델 · API 키 설정 | `claude.js` `vertex.js` | `research`, `config` |
+| 8 | `FeatureSettings` | 모델 · API 키 설정 (사이드바 칸이 아니라 툴바 시트) | `app.js` `viewSettings` `claude.js` `vertex.js` | `config` · `put_config`(`ConfigView`, 본문 `SettingsIn`), `test_config`(`ConfigTest`), `config_models`(`ModelList`), `config_health`(`ConfigHealth`), `claude_status`(`ClaudeStatus`) — **됨** (가격표 칸은 사용량 화면에서) |
+| 8 | 본편과 분리 (남은 것) | 연구 | | `research` |
 
 새 화면 모듈을 만들 때:
 
@@ -176,6 +178,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | `Logline` · `LoglineField` · `Tone` · `ToneDial` | `composeLogline` · `loglineChecks` · `updateLogline` · `toneText` · `setDial` · `LOGLINE_SLOTS` · `TONE_WORDS`, 서버 `canon/logline.py` (셋을 함께 고친다. 시험은 `tests/test_logline.py` 와 같은 사례, `test_logline.py` 가 Swift 톤 말도 본다) |
 | `SetupRules`, `SuggestionPicks`, `NameCheckGroups` | `addCharacter` · `removeCharacter` · `addRelationship` · `relProblem` · `conflictWord` · `REL_TYPES` · `CONFLICTS` · `TIERS` · `genreLabel` · `loglineExamples` · `rangeText`, `viewSuggestion` · `sameChar` · `sugEnd` · `SUG_FIELDS` · `applySuggestion`, `nameCheckBox` |
 | `StyleText` | `styleBlank`(서버 `library.blank`) · `styleChangeWho` · `styleLibraryCard` · `baselineRows`, `analyzeStyle` · `useLibStyle` · `keepStyle` · `pushStyle` · `pullStyle` 의 묻는 말 |
+| `SettingsText` (`providers` · `stages` · `stageParent` · `followLabel` · `stageModelHint` · `stageEnvLines` · `localOpen` · `stageOpen` · `claudeOpen` · `modelOptions` · `modelStatus` · `aiWarning` · `claudeCard` · 키 칩), `SettingsDraft.body` | `app.js` `providerOptions` · `STAGES` · `STAGE_PARENT`(서버 `settings.STAGE_PARENT`) · `STAGE_PARENT_LABEL` · `stageModelHint` · `viewSettings` · `modelDatalist` · `KNOWN_MODELS` · `modelStatus` · `aiWarning` · `saveSettings`(환경 변수 · 기본값을 보이기만 한 칸은 보내지 않음), `vertex.js` `geminiAuthSettings` · `geminiAuthBody` · `VERTEX_SRC`, `claude.js` `claudeStatusView` · `claudeSettings` · `claudeSettingsBody` |
 
 ## 알려진 한계
 
