@@ -25,6 +25,8 @@ from .schema import (
     Illustration,
     ImpactReport,
     LookSuggestion,
+    MapSpec,
+    MapSuggestion,
     PlaceSort,
     VoiceSuggestion,
     NameOptions,
@@ -2350,6 +2352,32 @@ def sort_places(llm: LLM, p: Project, texts: list[str] | None = None) -> dict:
         outs.append(llm.json(prompts.SYSTEM_PLACE_SORTER, prompts.place_sort_prompt(p, part, pls), PlaceSort,
                              hint={"texts": [it["text"] for it in part], "places": [pl["name"] for pl in pls]}))
     return atlas.clean_sort(p, items, outs)
+
+
+def suggest_map(llm: LLM, p: Project, spec: MapSpec | None = None) -> dict:
+    """지도 만들기 설정 제안 (MapSuggestion). 저장하지 않는다. 좌표는 마을 생성기가 정한다.
+    돌려주는 것: 설정 칸(size, roads, water, fields, forest), places [{key, name, kind, put, note}], reason.
+    장소 이름은 키로 바꾸고, 모르는 장소 · 모르는 종류 id 는 뺀다 (지금 값을 그대로 둔다)."""
+    from . import atlas, towngen
+
+    pls = atlas.places(p)
+    if not pls:
+        raise ValueError("장소가 아직 없어요. 장소를 더한 뒤 제안을 받으세요")
+    rows = atlas.gen_places(p, spec)
+    kinds = [(cid, label) for cid, label, _ in towngen.CATEGORIES]
+    s = llm.json(prompts.SYSTEM_MAP_PLANNER, prompts.map_suggest_prompt(p, rows, pls, kinds, towngen.OPTIONS), MapSuggestion,
+                 hint={"places": [r["name"] for r in rows]})
+    names = {pl["key"]: pl["name"] for pl in pls}
+    out, seen = [], set()
+    for g in s.places:
+        key = atlas.place_by_name(g.name, pls)
+        kind = g.kind.strip()
+        if not key or key in seen or kind not in towngen.CATEGORY_IDS:
+            continue
+        seen.add(key)
+        out.append({"key": key, "name": names[key], "kind": kind, "put": bool(g.put), "note": g.note.strip()})
+    return {"size": s.size, "roads": s.roads, "water": s.water, "fields": s.fields, "forest": s.forest,
+            "places": out, "reason": s.reason.strip()}
 
 
 def suggest_look(llm: LLM, p: Project, cid: str) -> LookSuggestion:

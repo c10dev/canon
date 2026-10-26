@@ -16,7 +16,7 @@ from . import geom
 from .geom import Point, Poly
 from .schema import MapSpec
 
-VERSION = 1
+VERSION = 2  # 2: 바닷가 마을을 해안에 붙이고 바다로 가는 길 · 부두, 물가 장소를 물가에
 GENERATOR = "canon-village"
 
 SIZES = {"small": (25, 320), "medium": (60, 440), "large": (120, 600)}  # 목표 집 수, 영역 세로(m)
@@ -41,7 +41,7 @@ CATEGORIES: list[tuple[str, str, tuple[str, ...]]] = [
     ("mill", "방앗간", ("방앗간", "물레방아", "풍차", "제분소")),
     ("manor", "저택 · 관아", ("저택", "영주", "관아", "장원", "대감", "촌장", "이장", "지주", "별장")),
     ("home", "집 · 가게", ("집", "가게", "상점", "빵집", "약방", "의원", "학당", "서당", "학교", "댁")),
-    ("shore", "나루 · 부두", ("나루", "부두", "포구", "선착장", "항구", "등대", "해변", "바닷가", "어시장", "방파제")),
+    ("shore", "나루 · 부두", ("나루", "부두", "포구", "선착장", "항구", "등대", "해변", "바닷가", "어시장", "수산시장", "어판장", "방파제", "갯벌", "염전")),
     ("bridge", "다리", ("다리", "징검다리")),
     ("river", "강가", ("강", "강가", "개울", "냇가", "시냇가", "하천", "시내")),
     ("pond", "호수 · 연못", ("호수", "연못", "늪", "저수지")),
@@ -73,6 +73,28 @@ def default_put(kind: str) -> bool:
     return kind != "far"
 
 
+RIVER_SHORE = ("나루", "선착장")  # 물가 종류 가운데 강에 어울리는 단어 (나머지는 바다)
+LIGHT_WORDS = ("등대", "방파제")  # 물가 종류 가운데 해안 끝(곶)에 서는 것
+BEACH_WORDS = ("해변", "바닷가", "갯벌", "염전")  # 물가 종류 가운데 물가 자체 (필지가 아님). 나머지 물가 종류는 부두 옆
+
+
+def water_for(rows: list[dict]) -> str:
+    """놓을 장소가 물을 바라면 그 물 (sea | river | lake), 아니면 none. 지도 만들기 물 칸의 기본값.
+    rows: [{kind, word, put}]. 여러 물을 바라면 많이 바라는 쪽, 같으면 바다 > 강 > 호수."""
+    votes = {"sea": 0, "river": 0, "lake": 0}
+    for r in rows:
+        if not r.get("put"):
+            continue
+        if r["kind"] == "shore":
+            votes["river" if r.get("word") in RIVER_SHORE else "sea"] += 1
+        elif r["kind"] in ("bridge", "river"):
+            votes["river"] += 1
+        elif r["kind"] == "pond":
+            votes["lake"] += 1
+    best = max(votes, key=lambda k: (votes[k], -list(votes).index(k)))
+    return best if votes[best] else "none"
+
+
 # ---------- 물 ----------
 
 class _Water:
@@ -80,6 +102,7 @@ class _Water:
     RES = 3.0
 
     def __init__(self, w: float, h: float):
+        self.w, self.h = w, h
         self.cols, self.rows = int(w / self.RES) + 2, int(h / self.RES) + 2
         self.still = bytearray(self.cols * self.rows)
         self.river = bytearray(self.cols * self.rows)
@@ -130,6 +153,21 @@ class _Water:
 
     def on_river(self, q: Point) -> bool:
         return self._hit(self.river, q, 0)
+
+    def edge(self) -> list[Point]:
+        """물가 점: 호수 · 바다 테두리와 강 선의 점 가운데 지도 안에 있는 것 (바다를 지도 밖으로 닫은 꼭짓점은 뺀다)."""
+        pts = [q for poly in self.polys for q in poly] + [q for rv in self.rivers for q in rv["points"]]
+        return [q for q in pts if 0 < q[0] < self.w and 0 < q[1] < self.h]
+
+    def inland(self, q: Point, toward: Point, margin: float = 1.5) -> Point:
+        """물가 점 q 에서 toward 쪽으로 1m 씩 옮겨 margin 안에 물이 없는 첫 점."""
+        d = math.dist(q, toward) or 1
+        u = ((toward[0] - q[0]) / d, (toward[1] - q[1]) / d)
+        for k in range(int(d)):
+            p = (q[0] + u[0] * k, q[1] + u[1] * k)
+            if not self.wet(p, margin):
+                return p
+        return toward
 
 
 def _make_water(kind: str, rng: random.Random, noise: geom.Noise, w: float, h: float, e: float, c: Point) -> tuple[_Water, Optional[float]]:
@@ -249,6 +287,37 @@ def _walk(start: Point, heading: float, steps: int, step: float, noise: geom.Noi
     return pts
 
 
+def _harbor(c: Point, sea_dir: float, r: random.Random, water: _Water, roads: _Roads, w: float, h: float) -> Optional[dict]:
+    """바다로 가는 길과 부두. 가운데에서 바다 쪽으로 곧게 걸어 물가 앞에서 멈추고(길), 거기서 물 위로 20~35m 부두(bridge)를 낸다.
+    길 끝 = 부두 뿌리를 두 길이 함께 써서 이어진다. 물가 앞에는 부둣가 빈터(quay)를 둔다. 바다에 닿지 못하면 None."""
+    a = sea_dir + r.uniform(-0.2, 0.2)
+    u = (math.cos(a), math.sin(a))
+    pts = [c]
+    while len(pts) < 40:
+        q = (pts[-1][0] + u[0] * 6, pts[-1][1] + u[1] * 6)
+        if water.wet(q, 3, river=False) or not (2 < q[0] < w - 2 and 2 < q[1] < h - 2):
+            break
+        pts.append(q)
+    root = pts[-1]
+    length = r.uniform(20, 35)
+    out, wet = root, 0.0
+    for _ in range(40):
+        q = (out[0] + u[0] * 3, out[1] + u[1] * 3)
+        if not (0 <= q[0] <= w and 0 <= q[1] <= h):
+            break
+        out = q
+        if water.wet(q, 0, river=False):
+            wet += 3
+            if wet >= length:
+                break
+    if len(pts) < 3 or wet < 12:
+        return None
+    roads.add("road", r.uniform(5.5, 6.5), pts, main=True)
+    roads.add("bridge", 4.0, [root, out], main=True)
+    quay = geom.rect((root[0] - u[0] * 7, root[1] - u[1] * 7), u, r.uniform(24, 32), 12)
+    return {"root": root, "end": out, "dir": u, "quay": quay}
+
+
 def _bridge_runs(pts: list[Point], water: _Water) -> list[tuple[str, list[Point]]]:
     """길 점들을 뭍 · 강 구간으로 나눈다. 강 구간(다리)은 양쪽 뭍 점을 끝점으로 갖는다. 강에서 끝나는 꼬리는 버린다."""
     wet = [water.on_river(q) for q in pts]
@@ -292,15 +361,27 @@ def _village(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
     c = (w / 2 + base.uniform(-0.05, 0.05) * w, h / 2 + base.uniform(-0.05, 0.05) * h)
     reach = e * 0.42  # 집이 드문드문해지는 반지름
     water, sea_dir = _make_water(spec.water, rng("water"), noise, w, h, e, c)
+    if sea_dir is not None:  # 바닷가 마을은 해안에 붙는다: 바다 쪽으로 걸어 해안을 찾고 40~60m 안쪽을 가운데로
+        sd = (math.cos(sea_dir), math.sin(sea_dir))
+        q = c
+        for _ in range(int(e)):
+            nq = (q[0] + sd[0] * 2, q[1] + sd[1] * 2)
+            if water.wet(nq, 0, river=False) or not (0 < nq[0] < w and 0 < nq[1] < h):
+                break
+            q = nq
+        back = rng("coast").uniform(40, 60)
+        c = (q[0] - sd[0] * back, q[1] - sd[1] * back)
     if water.wet(c, 25):
         return None
 
     roads = _Roads()
     plaza: Optional[Poly] = None
+    squares: list[Poly] = []  # 집 · 밭 · 나무가 들어서지 않는 빈터 (광장, 부둣가)
     if spec.roads == "square":
         pr = rng("plaza").uniform(16, 24)
         plaza = [(c[0] + math.cos(t) * pr * (1 + 0.15 * noise.value(t, 5.5)), c[1] + math.sin(t) * pr * (1 + 0.15 * noise.value(t, 5.5)))
                  for t in (i * 2 * math.pi / 10 for i in range(10))]
+        squares.append(plaza)
 
     # 간선: 가운데에서 가장자리로
     r = rng("arms")
@@ -326,6 +407,9 @@ def _village(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
         return None
     if not arm_ends:
         return None
+    harbor = _harbor(c, sea_dir, rng("harbor"), water, roads, w, h) if sea_dir is not None else None
+    if harbor:
+        squares.append(harbor["quay"])
 
     lots: list[dict] = []
     lot_grid = geom.Grid(30)
@@ -337,7 +421,7 @@ def _village(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
             return False
         if any(water.wet(q, 3) for q in poly + [geom.centroid(poly)]):
             return False
-        if plaza and geom.convex_overlap(poly, plaza, 2):
+        if any(geom.convex_overlap(poly, sq, 2) for sq in squares):
             return False
         for a, b, road in roads.near((x0, y0), (x1, y1), 10):
             if geom.poly_seg_near(poly, a, b, road["width"] / 2 + 0.8):
@@ -394,7 +478,7 @@ def _village(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
         a, b = pts[k - 1], pts[k + 1]
         heading = math.atan2(b[1] - a[1], b[0] - a[0]) + br.choice((1, -1)) * (math.pi / 2 + br.uniform(-0.3, 0.3))
         length = br.uniform(50, 130) * (1 - 0.4 * dist / reach)
-        return _branch(p, heading, length, roads, lot_grid, water, plaza, branch_noise, tries, w, h)
+        return _branch(p, heading, length, roads, lot_grid, water, squares, branch_noise, tries, w, h)
 
     def frontage() -> float:  # 집이 들어설 만한 길 길이 (가운데에 가까운 구간만)
         return sum(math.dist(a, b) for rd in roads.list if rd["kind"] == "road"
@@ -419,19 +503,20 @@ def _village(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
             lot_grid.add(geom.bbox(lot["poly"]), lot)
 
     # 이야기 장소 자리
-    spots, missing = _place_spots(places, lots, roads, water, plaza, c, arm_ends, reach, rng("spots"))
+    spots, missing = _place_spots(places, lots, roads, water, plaza, c, arm_ends, reach, rng("spots"), harbor, sea_dir, lot_grid)
 
     # 집
     hr = rng("houses")
     buildings: list[Poly] = []
     for lot in lots:
         buildings += _houses(lot, hr)
+    buildings += [sp["tower"] for sp in spots if sp.get("tower")]
     for sp in spots:
         if sp.get("lot") is not None:
             sp["at"] = geom.centroid(sp["lot"]["houses"][0])
 
     # 밭 · 풀밭
-    fields, greens = _fields(spec, rng("fields"), w, h, c, reach, water, roads, lot_grid, plaza)
+    fields, greens = _fields(spec, rng("fields"), w, h, c, reach, water, roads, lot_grid, squares)
     field_grid = geom.Grid(40)
     for poly in fields + greens:
         field_grid.add(geom.bbox(poly), poly)
@@ -443,7 +528,7 @@ def _village(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
                 missing.append({"key": sp["key"], "name": sp["name"], "reason": "밭이 없어요. 밭을 늘려 보세요"})
 
     # 나무
-    trees = _trees(spec, rng("trees"), w, h, water, roads, lot_grid, field_grid, plaza)
+    trees = _trees(spec, rng("trees"), w, h, water, roads, lot_grid, field_grid, squares)
     for sp in spots:
         if sp["kind"] == "forest" and sp.get("at") is None:
             if trees:
@@ -477,7 +562,7 @@ def _village(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
         "buildings": [[nx(q) for q in poly] for poly in buildings],
         "water": [[nx(q) for q in cp] for cp in (geom.clip_convex(poly, clip) for poly in water.polys) if len(cp) >= 3],
         "rivers": [{"width": round(rv["width"], 2), "points": [nx(q) for q in rv["points"]]} for rv in water.rivers],
-        "squares": [[nx(q) for q in plaza]] if plaza else [],
+        "squares": [[nx(q) for q in sq] for sq in squares],
         "fields": [[nx(q) for q in poly] for poly in fields],
         "greens": [[nx(q) for q in poly] for poly in greens],
         "trees": [nx(q) for q in trees],
@@ -489,7 +574,7 @@ def _village(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
 
 
 def _branch(p: Point, heading: float, length: float, roads: _Roads, lot_grid: geom.Grid, water: _Water,
-            plaza: Optional[Poly], noise: geom.Noise, salt: int, w: float, h: float) -> Optional[dict]:
+            squares: list[Poly], noise: geom.Noise, salt: int, w: float, h: float) -> Optional[dict]:
     """가지길 하나를 낸다. 다른 길에 가까워지면 그 길에 이어 붙이고(갈림길), 물 · 필지 · 영역 끝에 막히면 멈춘다.
     짧으면 버린다 (None)."""
     step, width = 8.0, 4.0
@@ -501,7 +586,7 @@ def _branch(p: Point, heading: float, length: float, roads: _Roads, lot_grid: ge
         q = (q0[0] + math.cos(a) * step, q0[1] + math.sin(a) * step)
         if not (8 <= q[0] <= w - 8 and 8 <= q[1] <= h - 8) or water.wet(q, 4):
             break
-        if plaza and geom.inside(q, plaza):
+        if any(geom.inside(q, sq) for sq in squares):
             break
         if any(geom.poly_seg_near(lot["poly"], q0, q, 1.5) for lot in lot_grid.near(geom.bbox([q0, q]), 2)):
             break
@@ -556,14 +641,41 @@ def _houses(lot: dict, r: random.Random) -> list[Poly]:
 
 
 def _place_spots(places: list[dict], lots: list[dict], roads: _Roads, water: _Water, plaza: Optional[Poly],
-                 c: Point, arm_ends: list[Point], reach: float, r: random.Random) -> tuple[list[dict], list[dict]]:
+                 c: Point, arm_ends: list[Point], reach: float, r: random.Random, harbor: Optional[dict] = None,
+                 sea_dir: Optional[float] = None, lot_grid: Optional[geom.Grid] = None) -> tuple[list[dict], list[dict]]:
     """이야기 장소마다 자리를 고른다. 필지가 필요한 종류는 필지를 하나씩 차지한다 (집은 뒤에 짓는다).
-    spots: {key, name, kind, at(점) 또는 lot}, missing: {key, name, reason}."""
+    물가 종류는 단어로 나눈다: 등대 · 방파제는 해안 끝(곶)에 탑을 세우고, 해변 · 갯벌은 물가 자체, 나머지(부두 · 수산시장 등)는
+    부두 옆 필지 (부두가 없으면 물가에 가장 가까운 필지, 그것도 40m 넘게 떨어지면 물가 자체).
+    spots: {key, name, kind, at(점) 또는 lot, tower(등대 건물)}, missing: {key, name, reason}."""
     spots: list[dict] = []
     missing: list[dict] = []
     free = lambda: [lot for lot in lots if not lot["use"]]  # noqa: E731
-    shore = [q for poly in water.polys for q in poly] + [q for rv in water.rivers for q in rv["points"]]
+    shore = water.edge()
     used_pts: list[Point] = []
+
+    def waterline(q: Point) -> Point:
+        """물가 점에서 마을 쪽으로 물이 없는 곳까지 옮긴 점."""
+        return water.inland(q, c)
+
+    def tower_at() -> Optional[tuple[Point, Poly]]:
+        """해안 끝 자리와 등대 탑. 마을 가운데에서 0.3~0.8 반지름 거리의 물가 가운데 바다 쪽으로 가장 튀어나온 곳부터,
+        길 · 필지와 겹치지 않는 첫 자리."""
+        sd = (math.cos(sea_dir), math.sin(sea_dir)) if sea_dir is not None else None
+        ring = [q for q in shore if 0.3 * reach <= math.dist(q, c) <= 0.8 * reach] or shore
+        score = (lambda q: q[0] * sd[0] + q[1] * sd[1]) if sd else (lambda q: math.dist(q, c))  # noqa: E731
+        for q in sorted(ring, key=score, reverse=True)[:40]:
+            p = waterline(q)
+            d = math.dist(p, c) or 1
+            poly = geom.rect(p, ((c[0] - p[0]) / d, (c[1] - p[1]) / d), 7, 7)
+            box = geom.bbox(poly)
+            if any(geom.poly_seg_near(poly, a, b, rd["width"] / 2 + 1) for a, b, rd in roads.near(box[:2], box[2:], 8)):
+                continue
+            if lot_grid and any(geom.convex_overlap(poly, lot["poly"], 1) for lot in lot_grid.near(box, 2)):
+                continue
+            if any(math.dist(p, u) < 30 for u in used_pts):
+                continue
+            return p, poly
+        return None
 
     def near_water(lot: dict) -> float:
         return min((math.dist(lot["front"], q) for q in shore), default=math.inf)
@@ -628,7 +740,25 @@ def _place_spots(places: list[dict], lots: list[dict], roads: _Roads, water: _Wa
         elif kind == "mill":
             pick = min(cand, key=near_water) if shore else max(cand, key=lambda lot: lot["dist"])
         elif kind == "shore":
-            pick = min(cand, key=near_water)
+            word = pl.get("word", "")
+            if word in LIGHT_WORDS and (t := tower_at()):
+                p, poly = t
+                sp["at"], sp["tower"] = point_at(p), poly
+                if lot_grid is not None:  # 밭 · 나무가 탑을 비켜 가게
+                    lot_grid.add(geom.bbox(poly), {"poly": poly, "houses": [poly]})
+            elif word in BEACH_WORDS:
+                sp["at"] = point_at(waterline(min(shore, key=lambda q: math.dist(q, c))))
+            elif harbor:
+                quay = [lot for lot in cand if math.dist(lot["front"], harbor["root"]) < 50]
+                if quay:
+                    pick = min(quay, key=lambda lot: math.dist(lot["front"], harbor["root"]))
+                else:
+                    sp["at"] = point_at(geom.centroid(harbor["quay"]))
+            else:
+                pick = min(cand, key=near_water)
+                if near_water(pick) > 40:
+                    pick = None
+                    sp["at"] = point_at(waterline(min(shore, key=lambda q: math.dist(q, c))))
         else:  # home
             pick = min(cand, key=lambda lot: lot["dist"] + r.uniform(0, 40))
         if pick is not None:
@@ -652,7 +782,7 @@ def _strips(poly: Poly, angle: float, depth: int = 0) -> list[Poly]:
 
 
 def _fields(spec: MapSpec, r: random.Random, w: float, h: float, c: Point, reach: float, water: _Water, roads: _Roads,
-            lot_grid: geom.Grid, plaza: Optional[Poly]) -> tuple[list[Poly], list[Poly]]:
+            lot_grid: geom.Grid, squares: list[Poly]) -> tuple[list[Poly], list[Poly]]:
     """밭 · 풀밭: Voronoi 칸을 조금 줄여 틈을 내고, 길 · 필지 · 물과 겹치는 칸은 뺀다. 밭은 띠로 나눈다."""
     seeds = geom.poisson(r, w, h, 38)
     cells = geom.voronoi(seeds, (0, 0, w, h))
@@ -673,7 +803,7 @@ def _fields(spec: MapSpec, r: random.Random, w: float, h: float, c: Point, reach
         x0, y0, x1, y1 = geom.bbox(poly)
         if any(water.wet(q, 2) for q in poly + [geom.centroid(poly)]):
             continue
-        if plaza and geom.convex_overlap(poly, plaza, 2):
+        if any(geom.convex_overlap(poly, sq, 2) for sq in squares):
             continue
         if any(geom.convex_overlap(poly, lot["poly"], 1) for lot in lot_grid.near((x0, y0, x1, y1), 2)):
             continue
@@ -688,7 +818,7 @@ def _fields(spec: MapSpec, r: random.Random, w: float, h: float, c: Point, reach
 
 
 def _trees(spec: MapSpec, r: random.Random, w: float, h: float, water: _Water, roads: _Roads, lot_grid: geom.Grid,
-           field_grid: geom.Grid, plaza: Optional[Poly]) -> list[Point]:
+           field_grid: geom.Grid, squares: list[Poly]) -> list[Point]:
     """나무: 숲 노이즈가 높은 곳에 Poisson disk 로 뿌린다. 집 근처에는 드문드문."""
     forest = geom.Noise(r)
     level = FOREST_LEVEL[spec.forest]
@@ -698,7 +828,7 @@ def _trees(spec: MapSpec, r: random.Random, w: float, h: float, water: _Water, r
         if f <= level and r.random() > 0.03:
             continue
         box = (q[0], q[1], q[0], q[1])
-        if water.wet(q, 2) or (plaza and geom.inside(q, plaza)):
+        if water.wet(q, 2) or any(geom.inside(q, sq) for sq in squares):
             continue
         if any(geom.inside(q, lot["poly"]) for lot in lot_grid.near(box)) and f <= level:
             continue

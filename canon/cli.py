@@ -28,7 +28,7 @@
   python -m canon foreshadows 내소설     복선 센터: 심은 문장 · 회수한 문장, 회수율, 끊어진 연결
   python -m canon statwin 내소설 hero   상태창 수치와 화별 변화 (--set 레벨=1 로 만들고 고치기)
   python -m canon map 내소설            지도: 장소, 인물별로 옮겨 다닌 길, 장소와 맞지 않은 위치 글
-  python -m canon map 내소설 gen --size 보통 --water 강   마을 생성기로 마을 만들기 (--seed, --roads, --fields, --forest, --move)
+  python -m canon map 내소설 gen --size 보통 --water 강   마을 생성기로 마을 만들기 (--seed, --roads, --fields, --forest, --move, --ai)
   python -m canon update 내소설 3       상태 변경안 확인 후 반영
   python -m canon run 내소설            확정된 화를 순서대로 write → check → update
   python -m canon auto 내소설 --to 12 [--batch]   목표 화까지 자동 집필 (정책에 걸리면 멈춤, --resume 으로 이어 가기)
@@ -66,7 +66,7 @@ from . import (autorun, cast, dynamics, elements, genres, illust, library, logli
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 from . import atlas, foreshadows, statwin, towngen
-from .schema import ArcProposal, ChatScope, MapSpec, StatValue, StoryArc
+from .schema import ArcProposal, ChatScope, MapPlace, StatValue, StoryArc
 
 
 def ask(label: str, default: str = "") -> str:
@@ -1391,8 +1391,18 @@ def cmd_map(a: argparse.Namespace) -> None:
     if a.action != "gen":
         print(atlas.describe(p, atlas.load_layout(folder, p)))
         return
-    base = p.atlas.spec or MapSpec()
+    base = atlas.default_spec(p)
     change = {k: v for k, v in ((k, _map_option(k, getattr(a, k))) for k in towngen.OPTIONS) if v}
+    if a.ai:  # AI 제안을 채우고, 직접 적은 칸(--size 등)이 이긴다
+        sug = pipeline.suggest_map(get_llm("plan"), p, base)
+        print(f"AI 제안: {sug['reason']}" if sug["reason"] else "AI 제안을 받았어요")
+        for g in sug["places"]:
+            if g["note"]:
+                print(f"  {g['name']}: {g['note']}")
+        mine = {x.key: x for x in base.places}
+        places = [*(MapPlace(key=g["key"], kind=g["kind"], put=g["put"]) for g in sug["places"]),
+                  *(x for k, x in mine.items() if k not in {g["key"] for g in sug["places"]})]
+        change = {**{k: sug[k] for k in towngen.OPTIONS}, "places": places, **change}
     spec = base.model_copy(update={**change, "kind": a.kind, "seed": a.seed if a.seed is not None else random.randrange(1, 2**31 - 1)})
     out = atlas.generate(p, spec)
     info = out["info"]
@@ -1768,6 +1778,7 @@ def main(argv: list[str] | None = None) -> None:
     for key, opts in towngen.OPTIONS.items():
         sp.add_argument(f"--{key}", help=", ".join(label.split(" (")[0] for label in opts.values()))
     sp.add_argument("--move", action="store_true", help="이미 지도에 놓은 장소도 생성기가 고른 자리로 옮기기")
+    sp.add_argument("--ai", action="store_true", help="AI가 작품 설정과 장소 설명을 보고 설정 칸 · 장소 종류를 제안 (직접 적은 칸이 이긴다)")
     sp = add("view", cmd_view, yes=False)
     sp.add_argument("mode", choices=["numbers", "words"])
     sp = add("adjust", cmd_adjust, "source", "target", yes=False)

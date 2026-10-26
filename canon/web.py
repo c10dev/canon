@@ -1902,6 +1902,12 @@ def atlas_generate_preview(name: str, body: MapSpec) -> dict:
     return atlas.generate(_load(name), body)
 
 
+@app.post("/api/projects/{name}/atlas/generate/suggest")
+def atlas_generate_suggest(name: str, body: MapSpec) -> dict:
+    """지도 만들기 설정 AI 제안 (크기 · 길 · 물 · 밭 · 숲, 장소마다 종류 · 놓기, 까닭). 저장하지 않는다."""
+    return pipeline.suggest_map(get_llm("plan"), _load(name), body)
+
+
 class GenerateIn(BaseModel):
     spec: MapSpec
     pins: list[str] = []  # 생성기가 고른 자리에 놓을 (이미 놓았으면 옮길) 장소 키

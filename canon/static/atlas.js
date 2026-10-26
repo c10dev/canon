@@ -18,7 +18,7 @@ Object.assign(S, {
   atlasDraft: {},    // 맞지 않은 위치 글마다 고른 장소 (atlasDraft())
   atlasNew: [],      // AI가 제안한 새 장소 (적용할 때 고른 글이 쓰는 것만 등록)
   atlasLayout: null, // 마을 데이터 { file, data } (파일 이름이 바뀌면 다시 받는다)
-  atlasGen: null,    // 지도 만들기 { name, open, spec, preview, take: {장소 키: 새 자리에 놓기} } (atlasGenState())
+  atlasGen: null,    // 지도 만들기 { name, open, spec, preview, take: {장소 키: 새 자리에 놓기}, touched: 작가가 고친 칸, ai: AI 제안 { reason, notes } } (atlasGenState())
 });
 
 const ATLAS_W = 1000;
@@ -208,12 +208,13 @@ function atlasSvg() {
     const later = !atlasKnown(pl, f);
     const hot = f.episode && f.mentioned.includes(pl.key);
     const sel = S.atlasSel === pl.key;
-    const tip = `${pl.name}${pl.description ? ' · ' + pl.description : ''}${later ? `\n${pl.known_from}화부터 독자가 알아요` : ''}${hot ? `\n${f.episode}화에 나와요` : ''}`;
-    out.push(`<g class="at-pin${later ? ' later' : ''}${sel ? ' sel' : ''}" data-atlas-pin="${esc(pl.key)}" tabindex="0" role="button" aria-label="${esc(pl.name + ' 자세히 보기. 화살표로 옮겨요')}"><title>${esc(tip)}</title>
+    const old = !!pv;  // 미리보기에서 옮기지 않는 장소: 지금(옛 마을) 자리라 흐리게
+    const tip = `${pl.name}${old ? ' (지금 자리. 적용해도 그대로예요)' : ''}${pl.description ? ' · ' + pl.description : ''}${later ? `\n${pl.known_from}화부터 독자가 알아요` : ''}${hot ? `\n${f.episode}화에 나와요` : ''}`;
+    out.push(`<g class="at-pin${later ? ' later' : ''}${sel ? ' sel' : ''}${old ? ' old' : ''}" data-atlas-pin="${esc(pl.key)}" tabindex="0" role="button" aria-label="${esc(pl.name + ' 자세히 보기. 화살표로 옮겨요')}"><title>${esc(tip)}</title>
       <circle class="at-hit" cx="${x}" cy="${y}" r="20"></circle>
       ${hot ? `<circle class="at-hot" cx="${x}" cy="${y}" r="16"></circle>` : ''}
       <circle class="at-dot" cx="${x}" cy="${y}" r="${sel ? 9 : 7}"></circle>
-      <text class="at-name" x="${x}" y="${y - 14}" text-anchor="middle">${esc(pl.name)}</text></g>`);
+      <text class="at-name" x="${x}" y="${y - 14}" text-anchor="middle">${esc(pl.name)}${old ? ' (지금 자리)' : ''}</text></g>`);
   });
 
   // 인물: 같은 장소에 모이면 둘레에 나눠 놓는다
@@ -318,7 +319,7 @@ function atlasGenState() {
   if (!S.atlasGen || S.atlasGen.name !== S.name) {
     const spec = { ...g.spec, places: rows() };
     if (!g.made) spec.seed = atlasNewSeed();
-    S.atlasGen = { name: S.name, open: false, spec, preview: null, take: {} };
+    S.atlasGen = { name: S.name, open: false, spec, preview: null, take: {}, touched: {}, ai: null };
   } else if (S.atlasGen.spec.places.map((x) => x.key).join('\n') !== g.places.map((x) => x.key).join('\n')) {
     S.atlasGen.spec.places = rows();  // 장소가 더해지거나 빠졌으면 표를 새로 (설정 · 시드는 그대로)
     S.atlasGen.preview = null;
@@ -333,17 +334,25 @@ const atlasKindLabel = (id) => ((S.atlas.gen.kinds || []).find((k) => k.id === i
 function atlasGenForm(st) {
   const sel = (key, label) => `<label class="at-gen-opt small">${label}
     <select data-at-gen="${key}">${Object.keys(S.atlas.gen.options[key]).map((id) => `<option value="${esc(id)}"${st.spec[key] === id ? ' selected' : ''}>${esc(atlasGenLabel(key, id))}</option>`).join('')}</select></label>`;
+  const notes = (st.ai && st.ai.notes) || {};
   const rows = S.atlas.gen.places.map((pl, i) => {
     const mine = st.spec.places[i];
     return `<div class="at-gen-place"><label class="small"><input type="checkbox" data-at-gen-put="${i}"${mine.put ? ' checked' : ''}> ${esc(pl.name)}</label>
-      <select data-at-gen-kind="${i}" aria-label="${esc(pl.name)} 종류">${S.atlas.gen.kinds.map((k) => `<option value="${esc(k.id)}"${mine.kind === k.id ? ' selected' : ''}>${esc(k.label)}</option>`).join('')}</select></div>`;
+      <select data-at-gen-kind="${i}" aria-label="${esc(pl.name)} 종류">${S.atlas.gen.kinds.map((k) => `<option value="${esc(k.id)}"${mine.kind === k.id ? ' selected' : ''}>${esc(k.label)}</option>`).join('')}</select>
+      ${notes[pl.key] ? `<div class="small at-um-note at-gen-note">${esc(notes[pl.key])}</div>` : ''}</div>`;
   }).join('');
+  const why = st.ai && st.ai.reason
+    ? `<div class="note" role="status">AI 제안: ${esc(st.ai.reason)}</div>`
+    : !S.atlas.gen.made && S.atlas.gen.spec.water !== 'none' && !st.touched.water
+      ? `<div class="small">물가가 필요한 장소가 있어 물을 '${esc(atlasGenLabel('water', S.atlas.gen.spec.water))}'(으)로 골라 뒀어요.</div>` : '';
   return `<div class="at-gen-opts">${sel('size', '크기')}${sel('roads', '길 모양')}${sel('water', '물')}${sel('fields', '밭')}${sel('forest', '숲')}
       <label class="at-gen-opt small">시드 <span class="row"><input type="number" min="0" max="2147483647" step="1" value="${st.spec.seed}" data-at-gen-seed aria-label="시드">
         <button type="button" class="btn small ghost" data-action="atlasGenSeed">새 시드</button></span></label></div>
-    <div class="small">같은 시드와 설정이면 언제나 같은 마을이 나와요. 장소 종류는 이름에서 찾았어요. 틀리면 고르세요.</div>
+    ${why}
+    <div class="small">같은 시드와 설정이면 언제나 같은 마을이 나와요. 장소 종류는 이름에서 찾았어요. 틀리면 고르거나 AI 제안을 받아 보세요.</div>
     <div class="at-gen-places">${rows}</div>
     <div class="row"><button type="button" class="btn small primary" data-action="atlasGenPreview">미리보기</button>
+      <button type="button" class="btn small" data-action="atlasGenSuggest">AI로 설정 제안</button>
       <button type="button" class="btn small ghost" data-action="atlasGenOpen" data-arg="">닫기</button></div>`;
 }
 
@@ -721,6 +730,28 @@ Object.assign(actions, {
   async atlasGenPreview() {
     await atlasGenRun();
   },
+  async atlasGenSuggest() {
+    const st = atlasGenState();
+    await run('AI가 마을 설정을 고르는 중', async () => {
+      const r = await api('POST', `/projects/${enc(S.name)}/atlas/generate/suggest`, st.spec);
+      let changed = 0;
+      Object.keys(S.atlas.gen.options).forEach((k) => {  // 작가가 고른 칸은 덮지 않는다
+        if (!st.touched[k] && r[k] && st.spec[k] !== r[k]) { st.spec[k] = r[k]; changed++; }
+      });
+      const notes = {};
+      r.places.forEach((g) => {
+        const row = st.spec.places.find((x) => x.key === g.key);
+        if (g.note) notes[g.key] = g.note;
+        if (!row || st.touched['p:' + g.key] || (row.kind === g.kind && row.put === g.put)) return;
+        row.kind = g.kind;
+        row.put = g.put;
+        changed++;
+      });
+      st.ai = { reason: r.reason, notes };
+      atlasRefresh();
+      toast(changed ? `AI 제안으로 ${changed}칸을 바꿨어요. 확인하고 미리보기를 누르세요` : 'AI 제안이 지금 설정과 같아요');
+    });
+  },
   atlasGenEdit() {
     atlasGenState().preview = null;
     atlasRefresh();
@@ -791,7 +822,9 @@ document.addEventListener('change', async (e) => {
     return;
   }
   if (t.matches('[data-at-gen]')) {
-    atlasGenState().spec[t.dataset.atGen] = t.value;
+    const st = atlasGenState();
+    st.spec[t.dataset.atGen] = t.value;
+    st.touched[t.dataset.atGen] = true;
     return;
   }
   if (t.matches('[data-at-gen-seed]')) {
@@ -801,14 +834,19 @@ document.addEventListener('change', async (e) => {
     return;
   }
   if (t.matches('[data-at-gen-kind]')) {
-    const row = atlasGenState().spec.places[Number(t.dataset.atGenKind)];
+    const st = atlasGenState();
+    const row = st.spec.places[Number(t.dataset.atGenKind)];
     row.kind = t.value;
     row.put = t.value !== 'far';  // 마을 밖 장소는 놓지 않는 게 기본
+    st.touched['p:' + row.key] = true;
     atlasRefresh();
     return;
   }
   if (t.matches('[data-at-gen-put]')) {
-    atlasGenState().spec.places[Number(t.dataset.atGenPut)].put = t.checked;
+    const st = atlasGenState();
+    const row = st.spec.places[Number(t.dataset.atGenPut)];
+    row.put = t.checked;
+    st.touched['p:' + row.key] = true;
     return;
   }
   if (t.matches('[data-at-gen-take]')) {
@@ -986,6 +1024,7 @@ document.addEventListener('keydown', (e) => {
 .at-map .at-v-wall { fill: none; stroke: color-mix(in srgb, var(--text) 45%, var(--canvas)); stroke-linejoin: round; }
 .at-map .at-v-house { fill: color-mix(in srgb, var(--text) 30%, var(--canvas)); stroke: color-mix(in srgb, var(--text) 55%, var(--canvas)); stroke-width: 1; }
 .at-map .at-v-tree circle { fill: color-mix(in srgb, #4F7A3A 40%, var(--canvas)); }
+.at-map .at-pin.old { opacity: .35; }
 .at-map .at-sug circle { fill: var(--accent); stroke: var(--surface); stroke-width: 2.5; stroke-dasharray: 4 2; }
 .at-gen-opts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .at-gen-opt { display: flex; flex-direction: column; gap: 4px; }
@@ -997,6 +1036,7 @@ document.addEventListener('keydown', (e) => {
 .at-gen-place { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
 .at-gen-place select { max-width: 140px; }
 .at-gen-take { display: flex; align-items: baseline; gap: 6px; }
+.at-gen-note { grid-column: 1 / -1; margin-top: -2px; }
 .at-scale { display: inline-flex; align-items: center; gap: 6px; }
 .at-scale input { width: 80px; }
 .at-walk { display: block; padding-left: 16px; }
