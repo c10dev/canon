@@ -964,7 +964,8 @@ class Deadline(BaseModel):
 class Timeline(BaseModel):
     """작품 속 시간: 화가 끝난 시점(Episode.time)과 기한을 기록해 쓰기 · 검수 프롬프트에 넣는다."""
     enabled: bool = Field(True, description="켜면 상태 변경안에 이 화가 끝난 시점과 기한을 적고, 쓰기 · 검수에 시간 블록을 넣는다")
-    start: str = Field("", description="1일째가 언제인지 (예: 2024년 3월 2일 토요일, 늦겨울). 비면 날수만 센다")
+    start: str = Field("", description="1일째가 언제인지 글로 (예: 늦겨울, 왕국력 312년). start_date 가 없으면 여기 적은 날짜 · 요일을 읽는다")
+    start_date: str = Field("", description="1일째 날짜 YYYY-MM-DD. 있으면 화마다 날짜로 보이고 날짜 · 요일 · 남은 날을 Canon 이 계산한다. 비면 날수(며칠째)로 센다")
     deadlines: list[Deadline] = Field(default_factory=list)
 
 
