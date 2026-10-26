@@ -42,6 +42,51 @@ function tlFmt(t) {
   return head && label ? `${head} (${label})` : head || label;
 }
 
+// ----- 달력: timeline.calendar · day_label · when 과 같은 규칙 -----
+const TL_WEEKDAYS = '월화수목금토일';
+
+/** 기준 글에서 { first: 1일째 Date(UTC) | null, year: 연도를 아는지, wd: 1일째 요일 0=월 | null }. */
+function tlCalendar() {
+  const text = (P().timeline || {}).start || '';
+  const w = text.match(/([월화수목금토일])요일/);
+  const wd = w ? TL_WEEKDAYS.indexOf(w[1]) : null;
+  const make = (y, m, d) => {
+    const x = new Date(Date.UTC(2000, m - 1, d));
+    x.setUTCFullYear(y, m - 1, d);  // Date.UTC 는 0~99년을 1900년대로 읽는다
+    return x.getUTCMonth() === m - 1 && x.getUTCDate() === d ? x : null;  // 2월 30일 같은 날은 없음
+  };
+  let m = text.match(/(\d{1,4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  if (m) {
+    const first = make(+m[1], +m[2], +m[3]);
+    return first ? { first, year: true, wd: (first.getUTCDay() + 6) % 7 } : { first: null, year: false, wd };
+  }
+  m = text.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  if (m) return { first: make(+m[1] === 2 && +m[2] === 29 ? 2000 : 2001, +m[1], +m[2]), year: false, wd };
+  return { first: null, year: false, wd };
+}
+
+/** 날수의 날짜와 요일 ('3월 31일 화요일'). 모르면 ''. */
+function tlDayLabel(day) {
+  if (!(day > 0)) return '';
+  const c = tlCalendar();
+  const out = [];
+  if (c.first) {
+    const x = new Date(c.first.getTime() + (day - 1) * 86400000);
+    out.push(`${c.year && x.getUTCFullYear() !== c.first.getUTCFullYear() ? `${x.getUTCFullYear()}년 ` : ''}${x.getUTCMonth() + 1}월 ${x.getUTCDate()}일`);
+  }
+  if (c.wd != null) out.push(TL_WEEKDAYS[(c.wd + day - 1) % 7] + '요일');
+  return out.join(' ');
+}
+
+/** tlFmt 에 계산한 날짜 · 요일을 붙인다 (timeline.when). */
+function tlWhen(t) {
+  const cal = t ? tlDayLabel(t.day) : '';
+  if (!cal) return tlFmt(t);
+  const extra = (t.label || '').trim();
+  const head = [`${t.day}일째`, (t.part || '').trim()].filter(Boolean).join(' ');
+  return `${head} (${cal}${extra && !/\d+\s*(?:년|월|일)|요일/.test(extra) ? `, ${extra}` : ''})`;
+}
+
 const tlKnown = (t) => !!(t && (t.day > 0 || (t.part || '').trim() || (t.label || '').trim()));
 
 /** n화보다 앞에서 시점을 아는 마지막 화 (timeline.prev_end). */
@@ -72,7 +117,7 @@ function tlDeadlineRow(d, day) {
   const left = done ? `${d.done_ep}화에 닫힘` : tlLeft(d, day) || '열림';
   const warn = !done && /지남/.test(left);
   if (S.tlEdit === d.id) return tlForm(d);
-  return `<div class="tl-dl${done ? ' done' : ''}"><div><strong>${esc(d.what)}</strong>${d.day > 0 ? ` <span class="small">${d.day}일째</span>` : ''}
+  return `<div class="tl-dl${done ? ' done' : ''}"><div><strong>${esc(d.what)}</strong>${d.day > 0 ? ` <span class="small">${d.day}일째${tlDayLabel(d.day) ? ` · ${esc(tlDayLabel(d.day))}` : ''}</span>` : ''}
       <span class="chip${warn ? ' draft' : ''}" style="${warn ? 'background:var(--amber-soft);color:var(--amber-ink)' : ''}">${esc(left)}</span>
       ${d.note ? `<div class="small">“${esc(d.note)}”</div>` : ''}<div class="small">${d.set_ep ? `${d.set_ep}화에 생김` : '처음부터'} · ${esc(d.id)}</div></div>
     <span class="row" style="gap:6px;flex-wrap:nowrap"><button type="button" class="btn small" data-action="tlEditOpen" data-arg="${esc(d.id)}">고치기</button>
@@ -104,7 +149,7 @@ function tlRows() {
     const gapText = gap == null ? '' : gap < 0 ? `${gap}일 · 거꾸로` : gap === 0 ? '같은 날' : `+${gap}일`;
     return `<tr><th scope="row"><a href="${base()}/review/${n}">${n}화</a></th><td>${esc(e.plot.title)}</td>
       <td>${e.text ? `<span class="small">${esc(e.plot.time || '바로 이어짐')}</span>` : `<input type="text" data-bind="episodes.${i}.plot.time" data-kind="text" value="${esc(e.plot.time || '')}" placeholder="바로 이어짐" aria-label="${n}화 플롯의 시점">`}</td>
-      ${fin ? `<td>${cell('day', 'int', '모름', '끝난 날수')}</td><td>${cell('part', 'text', '시간대', '끝난 시간대')}</td><td>${cell('label', 'text', '날짜 · 계절', '끝난 날짜')}</td>`
+      ${fin ? `<td>${cell('day', 'int', '모름', '끝난 날수')}${tlDayLabel(t.day) ? `<div class="small">${esc(tlDayLabel(t.day))}</div>` : ''}</td><td>${cell('part', 'text', '시간대', '끝난 시간대')}</td><td>${cell('label', 'text', '날짜 · 계절', '끝난 날짜')}</td>`
     : '<td colspan="3" class="small">반영하면 채워져요</td>'}
       <td class="tl-gap${gap != null && gap < 0 ? ' back' : ''}">${gapText}</td></tr>`;
   }).join('');
@@ -120,11 +165,11 @@ function viewTimeline() {
   const open = tl.deadlines.filter((d) => tlIsOpen(d, n));
   const near = open.filter((d) => d.day > 0 && day > 0 && d.day - day <= 3).length;
   const sum = `<section class="card"><div class="tl-now">
-      <div><div class="small">지금 (${prev ? `${prev.plot.number}화 끝` : '기록 없음'})</div><div class="num">${esc(prev ? tlFmt(prev.time) : '-')}</div></div>
+      <div><div class="small">지금 (${prev ? `${prev.plot.number}화 끝` : '기록 없음'})</div><div class="num">${esc(prev ? tlWhen(prev.time) : '-')}</div></div>
       <div><div class="small">열린 기한</div><div class="num">${open.length}</div></div>
       <div><div class="small">사흘 안 · 지난 기한</div><div class="num" style="${near ? 'color:var(--amber)' : ''}">${near}</div></div></div>
     <label class="check-row"><input type="checkbox" data-bind="timeline.enabled" data-kind="bool"${tl.enabled ? ' checked' : ''}> 작품 속 시간 기록하기 <span class="small">끄면 상태 변경안에 시점을 적지 않고, 쓰기 · 검수에 시간 블록을 넣지 않아요</span></label>
-    ${input('1일째가 언제인가요', 'timeline.start', { hint: '비우면 날수만 세요', placeholder: '예: 2024년 3월 2일 토요일, 늦겨울' })}</section>`;
+    ${input('1일째가 언제인가요', 'timeline.start', { hint: '날짜나 요일을 적으면 날마다 날짜 · 요일은 Canon 이 계산해요. 비우면 날수만 세요', placeholder: '예: 2024년 3월 4일 월요일, 초봄' })}</section>`;
   const sorted = [...tl.deadlines].sort((a, b) => (a.done_ep > 0) - (b.done_ep > 0) || (a.day <= 0) - (b.day <= 0) || a.day - b.day || a.set_ep - b.set_ep);
   const dls = `<section class="card"><div class="between"><h2>기한</h2>${S.tlEdit === 'new' ? '' : '<button type="button" class="btn small" data-action="tlEditOpen" data-arg="new">+ 기한 더하기</button>'}</div>
     <div class="small">축제, 결혼식, '사흘 안에' 같은 약속처럼 앞으로 올 날이에요. AI 가 본문에서 찾은 기한은 상태 승인에서 골라 반영돼요. 직접 더한 기한은 ${tlLastDone() || 0}화에 생긴 것으로 기록돼요.</div>
@@ -201,8 +246,9 @@ function tlDeltaCard(n, d, box) {
       return `<div class="change">${box('o' + i)}<label for="pk-o${i}" style="font-size:0.8125rem;line-height:1.55"><span class="chip finalized">닫힘</span> ${esc(x ? x.what : id)} <span class="small">${x && x.day > 0 ? `${x.day}일째` : ''}</span></label></div>`;
     }),
   ].join('');
-  return `<section class="card"><div class="between"><h2>작품 속 시간</h2><span class="small">${prev ? `직전 ${prev.plot.number}화 끝: ${esc(tlFmt(prev.time))}` : '앞 화 시점 기록 없음'}${ep(n) && ep(n).plot.time ? ` · 플롯: ${esc(ep(n).plot.time)}` : ''}</span></div>
+  return `<section class="card"><div class="between"><h2>작품 속 시간</h2><span class="small">${prev ? `직전 ${prev.plot.number}화 끝: ${esc(tlWhen(prev.time))}` : '앞 화 시점 기록 없음'}${ep(n) && ep(n).plot.time ? ` · 플롯: ${esc(ep(n).plot.time)}` : ''}</span></div>
     <div class="small">${n}화가 끝난 시점이에요. 반영하면 다음 화를 쓸 때 들어가요. 틀렸으면 고치세요.${gap != null ? ` <strong style="color:${gap < 0 ? 'var(--red)' : 'inherit'}">직전 화에서 ${gap < 0 ? `${-gap}일 거꾸로` : gap === 0 ? '같은 날' : `${gap}일 지남`}</strong>` : ''}</div>
+    ${tlDayLabel(t.day) ? `<div class="small">${t.day}일째는 ${esc(tlDayLabel(t.day))}이에요 (기준으로 계산)</div>` : ''}
     <div class="tl-time">${cell('day', 'int', '며칠째', '모름')}${cell('part', 'text', '시간대', '예: 밤, 오후 3시쯤')}${cell('label', 'text', '날짜 · 계절', '예: 3월 5일 화요일, 늦봄')}</div>
     ${rows ? `<h3 style="margin-top:6px">기한</h3>${rows}` : ''}</section>`;
 }
@@ -219,7 +265,7 @@ document.addEventListener('input', (e) => {
 /** 반영 기록의 시점과 기한 (없으면 빈칸). */
 function tlHistory(h) {
   const items = [
-    ...(tlKnown(h.time) ? [`끝난 시점: ${esc(tlFmt(h.time))}`] : []),
+    ...(tlKnown(h.time) ? [`끝난 시점: ${esc(tlWhen(h.time))}`] : []),
     ...(h.deadlines_added || []).map((x) => `기한: ${esc(x.what)}${x.day > 0 ? ` (${x.day}일째)` : ''}`),
     ...(h.deadlines_done || []).map((id) => { const x = P().timeline.deadlines.find((y) => y.id === id); return `기한 닫힘: ${esc(x ? x.what : id)}`; }),
   ];
@@ -236,9 +282,9 @@ function tlAside(n) {
   const day = tlDay(n);
   const near = P().timeline.deadlines.filter((d) => tlIsOpen(d, n) && d.day > 0 && day > 0 && d.day - day <= 3);
   const parts = [
-    prev ? `직전 화 끝: ${esc(tlFmt(prev.time))}` : '',
+    prev ? `직전 화 끝: ${esc(tlWhen(prev.time))}` : '',
     e.plot.time ? `플롯: ${esc(e.plot.time)}` : '',
-    tlKnown(e.time) ? `이 화 끝: ${esc(tlFmt(e.time))}` : '',
+    tlKnown(e.time) ? `이 화 끝: ${esc(tlWhen(e.time))}` : '',
     ...near.map((d) => `${esc(d.what)} ${esc(tlLeft(d, day))}`),
   ].filter(Boolean);
   return parts.length ? `<div class="field"><span class="small">작품 속 시간</span><div style="font-size:0.8125rem;line-height:1.6">${parts.join('<br>')}</div></div>` : '';
