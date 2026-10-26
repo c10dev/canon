@@ -210,6 +210,7 @@ class Snapshot(BaseModel):
     secrets: list[Secret] = Field(default_factory=list)
     facts: list[str] = Field(default_factory=list)
     foreshadows: list["Foreshadow"] = Field(default_factory=list)
+    deadlines: Optional[list["Deadline"]] = Field(None, description="작품 속 기한. 기한이 생기기 전에 찍은 스냅샷이면 비움 (timeline.revert 가 화 번호로 거른다)")
 
 
 class Settings(BaseModel):
@@ -341,6 +342,7 @@ class EpisodePlot(BaseModel):
     reader_question: str = Field("", description="이 화를 읽은 독자가 다음 화로 들고 갈 질문 하나. 1~3화는 꼭 적는다")
     pov: str = Field("", description="이 화의 시점 인물 id. 작품 기본 시점 그대로면 비움")
     pov_mode: str = Field("", description="이 화의 서술 방식 (1인칭, 3인칭 제한, 3인칭 전지). 작품 기본과 같으면 비움")
+    time: str = Field("", description="이 화가 시작하는 작품 속 시점: 직전 화에서 얼마나 지났는지나 시간대 (예: 다음 날 아침, 사흘 뒤 밤, 1년 뒤). 직전 화에서 바로 이어지면 비움")
 
 
 NEW_CAST_DESC = ("인물 목록에 없는 새 인물이 이 플롯에 꼭 필요할 때만, 전체 설정(speech_style 포함)과 함께. "
@@ -380,6 +382,11 @@ class PlotBatch(BaseModel):
     new_places: list[NewPlace] = Field(default_factory=list, description=NEW_PLACE_DESC)
 
 
+class EpisodeDraft(PlotBatch):
+    """화 하나를 작가가 적은 것 우선으로 채운 것 (pipeline.draft_episode, 뒤 화에 맞추지 않을 때)."""
+    next_gap: str = Field("", description="이 화를 작가 뜻대로 마무리하면서 바로 뒤 화 플롯과 어긋나게 된 점. 뒤 화에서 고칠 것을 한두 문장으로. 어긋나지 않으면 비움")
+
+
 class OpeningOption(BaseModel):
     approach: str = Field(description="여는 방식 id (요청에 적힌 것 그대로)")
     pitch: str = Field(description="이 안이 독자를 붙잡는 방법 한두 문장")
@@ -415,7 +422,7 @@ class ArcUndo(BaseModel):
     number: int
     characters: list[str] = Field(default_factory=list, description="이 아크가 더한 인물 id")
     foreshadows: list[str] = Field(default_factory=list, description="회수 예정 화를 바꾼 복선 id")
-    due_before: list[int] = Field(default_factory=list, description="foreshadows 와 같은 순서로, 바꾸기 전 회수 예정 화")
+    due_before: list[Optional[int]] = Field(default_factory=list, description="foreshadows 와 같은 순서로, 바꾸기 전 회수 예정 화 (정하지 않았으면 null)")
 
 
 class StoryArc(BaseModel):
@@ -701,6 +708,16 @@ class PlantSet(BaseModel):
     items: list[PlantedContradiction] = Field(default_factory=list)
 
 
+class Claim(BaseModel):
+    """두 걸음 검수 1단계: 이번 화 본문에서 뽑은 사실 진술 하나. 판단기가 옛 내용과 맞는지 따로 본다."""
+    quote: str = Field(description="이번 화 본문의 문장 원문 그대로 (한 문장)")
+    claim: str = Field(description="그 문장이 단정하는 사실을 짧은 평서문 하나로. 인물은 이름으로 쓴다")
+
+
+class ClaimSet(BaseModel):
+    claims: list[Claim] = Field(default_factory=list)
+
+
 class ConsistencyReport(BaseModel):
     """본문 검수 결과. 상태를 바꾸지 않는 참고용 경고라 승인 없이 저장한다."""
     episode: int
@@ -765,6 +782,8 @@ class Episode(BaseModel):
     versions: list[TextVersion] = Field(default_factory=list, description="바꾸기 전 판과 고르지 않은 새 판 (최근 것만)")
     made_by: Optional[RewriteRequest] = Field(None, description="지금 본문을 만든 다시 생성 요청 (처음 쓴 판이나 직접 쓴 본문이면 비움)")
     final_text: str = Field("", description="상태 반영이 끝난 뒤 본문을 처음 고치기 직전의 본문. 지금 본문과 다르면 반영된 요약 · 상태가 고치기 전 본문 기준이다. 다시 맞추거나 그대로 두기로 하면 비운다")
+    time: "StoryTime" = Field(default_factory=lambda: StoryTime(), description="이 화가 끝난 작품 속 시점. 상태 반영 때 채운다")
+    realign: str = Field("", description="앞 화 플롯을 뒤 화에 맞추지 않고 다시 짜면서 이 화와 어긋나게 된 점. 이 화 플롯을 다시 짜거나 작가가 확인하면 비운다")
 
 
 # ---------- 회차 진행 상태 ----------
@@ -780,6 +799,7 @@ class CharacterState(BaseModel):
     emotional_state: str = ""
     current_goal: str = ""
     location: str = ""
+    attire: str = Field("", description="지금 차림: 옷, 몸에 남은 상처 · 얼룩 · 찢어짐, 지니고 다니는 물건. 변경안에는 바뀐 인물만, 이어지는 것까지 다시 적는다")
     knows: list[str] = Field(default_factory=list, description="이 인물이 알게 된 핵심 정보")
     notes: str = ""
     stats: list[StatValue] = Field(default_factory=list, description="상태창 수치. 작가가 상태창을 만든 인물만. 변경안에는 바뀐 항목만 넣는다")
@@ -793,6 +813,30 @@ class Foreshadow(BaseModel):
     status: Literal["open", "resolved"] = "open"
     scope: Literal["arc", "part", "series"] = Field("arc", description="회수 범위: arc 이번 아크 안 / part 이번 부 안 / series 작품 끝까지 가는 큰 복선")
     due_ep: Optional[int] = Field(None, description="회수 예정 화. 정하지 않았으면 비움")
+
+
+class StoryTime(BaseModel):
+    """작품 속 시점. 날수는 1화가 시작한 날을 1일째로 센다 (timeline.py)."""
+    day: int = Field(0, description="1화가 시작한 날을 1일째로 센 날수. 모르면 0")
+    part: str = Field("", description="시간대 (새벽, 아침, 낮, 오후, 저녁, 밤, 한밤) 또는 '오후 3시쯤'")
+    label: str = Field("", description="본문이나 기준에서 드러난 날짜 · 요일 · 계절 (예: 3월 5일 화요일, 늦봄). 모르면 비움")
+
+
+class Deadline(BaseModel):
+    """작품 속 기한: 축제, 결혼식, 계약 만료, 사흘 안에 갚을 빚처럼 앞으로 올 날."""
+    id: str = Field(description="예: dl-05-festival")
+    what: str = Field(description="무엇의 기한인지 한 줄 (예: 왕성 축제 첫날, 빚 갚을 날)")
+    day: int = Field(0, description="그 일이 오는 날의 날수 (StoryTime.day 와 같은 셈). 모르면 0")
+    note: str = Field("", description="본문에 나온 말 그대로 (예: 사흘 뒤 자정까지)")
+    set_ep: int = Field(0, description="기한이 생긴 화. 프로그램이 채운다")
+    done_ep: int = Field(0, description="기한이 닫힌 화 (그날이 와서 일이 일어났거나 없어짐). 열려 있으면 0. 프로그램이 채운다")
+
+
+class Timeline(BaseModel):
+    """작품 속 시간: 화가 끝난 시점(Episode.time)과 기한을 기록해 쓰기 · 검수 프롬프트에 넣는다."""
+    enabled: bool = Field(True, description="켜면 상태 변경안에 이 화가 끝난 시점과 기한을 적고, 쓰기 · 검수에 시간 블록을 넣는다")
+    start: str = Field("", description="1일째가 언제인지 (예: 2024년 3월 2일 토요일, 늦겨울). 비면 날수만 센다")
+    deadlines: list[Deadline] = Field(default_factory=list)
 
 
 class ForeshadowClue(BaseModel):
@@ -834,6 +878,9 @@ class StateDelta(BaseModel):
     foreshadow_clues: list[ForeshadowClue] = Field(default_factory=list, description="복선 근거 문장: 새로 심은 복선, 다시 떠올린 열린 복선, 회수한 복선마다 본문 문장 그대로")
     new_characters: list[Character] = Field(default_factory=list, description="인물 설정에 없는데 이번 화에 이름을 갖고 처음 나온 인물. 조연은 support, 지나가는 인물은 minor")
     new_places: list[NewPlace] = Field(default_factory=list, description="장소 목록과 이야기 요소에 없는데 이번 화에 이름을 갖고 처음 나온 장소 (지형, 마을, 건물, 가게 등)")
+    time: StoryTime = Field(default_factory=StoryTime, description="이번 화가 끝난 작품 속 시점")
+    deadlines_added: list[Deadline] = Field(default_factory=list, description="이번 화에 새로 생기거나 날이 바뀐 기한. 바뀐 기한은 같은 id 로")
+    deadlines_done: list[str] = Field(default_factory=list, description="이번 화에 닫힌 기한 id (그날이 와서 일이 일어났거나 기한이 없어짐)")
     warnings: list[str] = Field(default_factory=list, description="플롯, 설정, 말투와 어긋난 부분")
 
 
@@ -1091,6 +1138,7 @@ class Project(BaseModel):
     visuals: list[CharacterVisual] = Field(default_factory=list, description="삽화용 인물 외형 태그")
     illust: IllustSettings = Field(default_factory=IllustSettings, description="삽화 프롬프트 설정")
     atlas: Atlas = Field(default_factory=Atlas, description="지도: 장소 자리, 배경 그림, 위치 글 잇기")
+    timeline: Timeline = Field(default_factory=Timeline, description="작품 속 시간: 기준 날짜와 기한")
     # 아래 두 칸은 맨 끝에 둔다. store.save 가 파일 끝만 읽어 디스크 값을 찾는다 (store._saved_mark)
     edit_rev: int = Field(0, description="화면(브라우저 탭)이 저장한 횟수. 오래된 화면이 다른 화면의 저장을 덮지 않게 비교한다 (store.writer)")
     saved_by: str = Field("", description="마지막으로 저장한 화면(브라우저 탭) id")

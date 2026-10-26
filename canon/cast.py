@@ -14,7 +14,7 @@ from typing import Iterator, Optional
 from . import dynamics
 from .schema import CharacterState, Project, Snapshot, StateDelta
 
-STATE_FIELDS = ("emotional_state", "current_goal", "location")
+STATE_FIELDS = ("emotional_state", "current_goal", "location", "attire")
 
 
 def _sim(p: Project, snap: Snapshot) -> Project:
@@ -206,7 +206,7 @@ def describe(p: Project, cid: str, numbers: bool = False) -> str:
     where = f"{last['episode']}화 반영 뒤" if last["episode"] else "1화 시작 전"
     if st:
         lines.append(f"\n지금 상태 ({where})")
-        for f, label in (("emotional_state", "감정"), ("current_goal", "목표"), ("location", "위치")):
+        for f, label in (("emotional_state", "감정"), ("current_goal", "목표"), ("location", "위치"), ("attire", "차림")):
             if st[f]:
                 lines.append(f"  {label}: {st[f]}")
         if st["knows"]:
@@ -223,7 +223,7 @@ def describe(p: Project, cid: str, numbers: bool = False) -> str:
     tl = timeline(p, c.id, fs)
     if tl:
         lines.append("\n화별")
-    labels = {"emotional_state": "감정", "current_goal": "목표", "location": "위치"}
+    labels = {"emotional_state": "감정", "current_goal": "목표", "location": "위치", "attire": "차림"}
     for row in tl:
         bits = [f"{labels[k]} {v}" for k, v in row["changes"].items() if k in labels]
         if row["changes"].get("knows"):

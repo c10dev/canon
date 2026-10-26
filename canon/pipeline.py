@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, storylines
+from .judge import Judge, Question
 from .llm import LLM, dump
-from . import foreshadows, statwin
+from . import foreshadows, statwin, timeline
 from .schema import (
     Act,
     ArcEdit,
     ArcPlan,
+    ClaimSet,
     ArcProposal,
     ArcUndo,
     Character,
@@ -19,6 +21,7 @@ from .schema import (
     Conversion,
     ElementImpact,
     Episode,
+    EpisodeDraft,
     EpisodePlot,
     HookReport,
     IllustDraft,
@@ -1083,6 +1086,7 @@ def apply_rebuild(p: Project, prop: SerialRebuild, at: str = "") -> tuple[Projec
     p.events, p.history = [], []
     p.foreshadow_clues = []  # 화 번호가 바뀌어 걸어 둔 문장 자리도 맞지 않는다
     statwin.revert(p, 0)
+    p.timeline.deadlines = []  # 그대로 둔 화는 옛 변경안을 다시 반영하며 기한도 새 화 번호로 생긴다
     p.foreshadows += prop.foreshadows
     tiers = {t.id: t.tier for t in prop.tiers}
     for c in p.characters:
@@ -1899,16 +1903,19 @@ def remove_episode(p: Project, n: int) -> list[str]:
     return [head, *notes]
 
 
-def draft_episode(llm: LLM, p: Project, n: int) -> PlotBatch:
-    """초안인 n 화 하나의 플롯을 앞뒤 화에 맞춰 AI 로 채운다. 작가가 적어 둔 제목 · 요약 · 줄기는 살린다. 저장하지 않는다."""
+def draft_episode(llm: LLM, p: Project, n: int, fit_next: bool = True) -> PlotBatch:
+    """초안인 n 화 하나의 플롯을 앞뒤 화에 맞춰 AI 로 채운다. 작가가 적어 둔 제목 · 요약 · 줄기는 살린다. 저장하지 않는다.
+    fit_next=False 면 뒤 화에 맞추지 않고 작가가 적은 것대로 마무리한다. 뒤 화와 어긋난 점은 EpisodeDraft.next_gap 에
+    담겨 오고, apply_draft 가 뒤 화에 '다시 맞추기' 표시로 남긴다."""
     e = p.episode(n)
     if e.status != "draft":
         raise ValueError(f"{n}화는 확정된 화라 AI 초안으로 바꾸지 않아요. 초안으로 되돌린 뒤 하세요")
     beats = p.beats()
     if not beats:
         raise ValueError("다음 아크를 먼저 기획하세요" if p.serial else "기승전결 구조(arc)를 먼저 만드세요")
-    batch = llm.json(prompts.SYSTEM_PLANNER, prompts.episode_plot_prompt(p, n), PlotBatch,
-                     hint={"start": n, "end": n, "arc": beats})
+    free = not fit_next and any(x.plot.number == n + 1 for x in p.episodes)
+    batch = llm.json(prompts.SYSTEM_PLANNER, prompts.episode_plot_prompt(p, n, fit_next), EpisodeDraft if free else PlotBatch,
+                     hint={"start": n, "end": n, "arc": beats, "free": free})
     pick = [x for x in batch.episodes if x.number == n] or batch.episodes[:1]
     if not pick:
         raise ValueError(f"{n}화 플롯을 받지 못했어요")
@@ -1920,6 +1927,19 @@ def draft_episode(llm: LLM, p: Project, n: int) -> PlotBatch:
         plot.storyline = e.plot.storyline
     batch.episodes = [plot]
     return batch
+
+
+def apply_draft(p: Project, batch: PlotBatch) -> int | None:
+    """draft_episode 결과를 반영한다. 뒤 화와 어긋난 점이 있으면 뒤 화에 표시하고 그 화 번호를 돌려준다."""
+    apply_plots(p, batch)
+    gap = getattr(batch, "next_gap", "").strip()
+    if not gap or not batch.episodes:
+        return None
+    nxt = next((x for x in p.episodes if x.plot.number == batch.episodes[0].number + 1), None)
+    if nxt is None:
+        return None
+    nxt.realign = gap
+    return nxt.plot.number
 
 
 def reopen_impact(p: Project, eid: str) -> None:
@@ -2406,6 +2426,42 @@ def check_episode(llm: LLM, p: Project, n: int) -> ConsistencyReport:
     return report
 
 
+def check_two_step(llm: LLM, judge: Judge, p: Project, n: int, hint: dict | None = None) -> tuple[ConsistencyReport, dict]:
+    """두 걸음 검수 (연구 화면에서만 씀): 검수 모델이 이번 화의 사실 진술을 뽑고, 판단기가 진술마다 옛 화 · 설정 · 사실과 견줘
+    '어긋남' 확률을 내고, 의심 진술만 근거와 함께 검수 모델이 판정한다. 옛 화는 직전 화까지 모두 찾아본다.
+    같은 화 안의 동선 · 시점처럼 옛 자료와 견주지 않는 검사는 하지 않는다. (보고서, 단계별 크기 · 판단 기록)"""
+    from .context import PassageIndex, est_tokens
+
+    ep = p.episode(n)
+    if not ep.text:
+        raise ValueError(f"{n}화 본문이 없어요")
+    hint = hint or {}
+    first = prompts.claims_prompt(p, n)
+    claims = llm.json(prompts.SYSTEM_CLAIMS, first, ClaimSet, hint={"episode": n, "text": ep.text}).claims
+    claims = [c for c in claims if c.quote.strip() and c.claim.strip()][:prompts.TWOSTEP_CLAIMS]
+    index = PassageIndex(p, n)
+    evidence = [prompts.claim_evidence(p, n, c, index) for c in claims]
+    qs = [Question(id=str(i), state=ev, text=prompts.claim_question(c), options=prompts.CLAIM_OPTIONS)
+          for i, (c, ev) in enumerate(zip(claims, evidence))]
+    answers = judge.decide(prompts.SYSTEM_JUDGE_CHECK, qs) if qs else []
+    bad = [a.probs[1] if len(a.probs) > 1 else 0.0 for a in answers]
+    order = sorted((i for i, x in enumerate(bad) if x >= prompts.TWOSTEP_FLAG), key=lambda i: -bad[i])[:prompts.TWOSTEP_FLAG_MAX]
+    flagged = sorted(order)
+    stats = {"claims": len(claims), "flagged": len(flagged),
+             "first_tokens": est_tokens(prompts.SYSTEM_CLAIMS + first),
+             "judge_tokens": sum(est_tokens(prompts.SYSTEM_JUDGE_CHECK + prompts.judge_message(q.state, q.text, q.options)) for q in qs),
+             "verdict_tokens": 0,
+             "judged": [{"quote": c.quote, "claim": c.claim, "probs": a.probs, "mass": a.mass, "flagged": i in flagged}
+                        for i, (c, a) in enumerate(zip(claims, answers))]}
+    if not flagged:
+        return ConsistencyReport(episode=n, issues=[]), stats
+    last = prompts.verdict_prompt(p, n, [(claims[i], evidence[i], bad[i]) for i in flagged])
+    stats["verdict_tokens"] = est_tokens(prompts.SYSTEM_CHECKER + last)
+    report = llm.json(prompts.SYSTEM_CHECKER, last, ConsistencyReport, hint={"episode": n, **hint})
+    report.episode = n
+    return report, stats
+
+
 def apply_check(p: Project, r: ConsistencyReport) -> None:
     """검수 결과는 참고용 경고라 승인 없이 화에 붙여 둔다. 다시 검수하면 덮어쓴다."""
     ep = p.episode(r.episode)
@@ -2611,6 +2667,7 @@ def clean_delta(p: Project, d: StateDelta) -> None:
     """AI 나 채팅 앱이 낸 상태 변경안 정리: 복선 문장을 본문에 맞추고(foreshadows.clean_delta),
     새 장소는 본문에 나오고 아직 없는 것만 남기고 이미 있는 장소와 비슷한 이름은 경고로 알린다."""
     foreshadows.clean_delta(p, d)
+    timeline.clean_delta(p, d)
     d.new_places, warns = elements.clean_places(p, d.new_places, p.episode(d.episode).text)
     d.warnings += [w for w in warns if w not in d.warnings]
 
@@ -2630,7 +2687,7 @@ def apply_delta(p: Project, d: StateDelta) -> None:
             cur = upd.model_copy(deep=True, update={"stats": []})
             p.states.append(cur)
         else:
-            for field in ("emotional_state", "current_goal", "location", "notes"):
+            for field in ("emotional_state", "current_goal", "location", "attire", "notes"):
                 if getattr(upd, field):
                     setattr(cur, field, getattr(upd, field))
             cur.knows += [k for k in upd.knows if k not in cur.knows]
@@ -2666,6 +2723,7 @@ def apply_delta(p: Project, d: StateDelta) -> None:
         if f.id in d.foreshadow_resolved:
             f.status, f.payoff_ep = "resolved", d.episode
     foreshadows.apply_delta(p, d)
+    timeline.apply_delta(p, d)
     p.history.append(d)
     dynamics.take_snapshot(p, d.episode)
     if p.serial:
@@ -2719,6 +2777,7 @@ def revert(p: Project, n: int) -> None:
     p.snapshots = [s for s in p.snapshots if s.episode <= n]
     foreshadows.revert(p, n)
     statwin.revert(p, n)
+    timeline.revert(p, n, snap.deadlines)
     for ep in p.episodes:
         if ep.plot.number > n and ep.status == "finalized":
             ep.status, ep.summary, ep.auto, ep.final_text = "written", "", False, ""

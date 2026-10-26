@@ -132,6 +132,6 @@ import Testing
         #expect(Screen.allCases.filter { $0.group == .steps }.map { $0.label(serial: false) }
             == ["작품 홈", "설정 도우미", "문체 레퍼런스", "기승전결 · 플롯", "집필", "상태 승인"])
         #expect(Screen.arc.label(serial: true) == "부 · 아크 · 플롯")
-        #expect(Screen.allCases.count == 16)
+        #expect(Screen.allCases.count == 17)
     }
 }

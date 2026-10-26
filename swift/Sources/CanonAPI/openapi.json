@@ -2236,6 +2236,55 @@
     }
    }
   },
+  "/api/projects/{name}/episodes/{n}/realign/clear": {
+   "post": {
+    "summary": "Clear Realign",
+    "description": "앞 화를 다시 짜며 남긴 '다시 맞추기' 표시를 작가가 확인하고 지운다.",
+    "operationId": "clear_realign",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/episodes/insert": {
    "post": {
     "summary": "Insert Episode",
@@ -6458,6 +6507,144 @@
     }
    }
   },
+  "/api/projects/{name}/timeline": {
+   "get": {
+    "summary": "Timeline View",
+    "description": "화별 작품 속 시점과 기한 (남은 날 포함).",
+    "operationId": "timeline_view",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TimelineView"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/timeline/deadlines": {
+   "put": {
+    "summary": "Deadline Put",
+    "description": "작가가 기한을 더하거나 고친다. 스냅샷에도 같이 적어 되돌려도 남는다.",
+    "operationId": "deadline_put",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DeadlineIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/timeline/deadlines/{did}": {
+   "delete": {
+    "summary": "Deadline Remove",
+    "operationId": "deadline_remove",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "did",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Did"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/episodes/{n}/preview": {
    "post": {
     "summary": "Preview",
@@ -7392,7 +7579,7 @@
       },
       "type": "array",
       "title": "Due Before",
-      "description": "foreshadows 와 같은 순서로, 바꾸기 전 회수 예정 화"
+      "description": "foreshadows 와 같은 순서로, 바꾸기 전 회수 예정 화 (정하지 않았으면 null)"
      }
     },
     "type": "object",
@@ -7955,6 +8142,11 @@
       "title": "Location",
       "default": ""
      },
+     "attire": {
+      "type": "string",
+      "title": "Attire",
+      "default": ""
+     },
      "knows": {
       "items": {
        "type": "string"
@@ -8381,6 +8573,12 @@
       "title": "Location",
       "default": ""
      },
+     "attire": {
+      "type": "string",
+      "title": "Attire",
+      "description": "지금 차림: 옷, 몸에 남은 상처 · 얼룩 · 찢어짐, 지니고 다니는 물건. 변경안에는 바뀐 인물만, 이어지는 것까지 다시 적는다",
+      "default": ""
+     },
      "knows": {
       "items": {
        "type": "string"
@@ -8674,6 +8872,9 @@
       "type": "array",
       "title": "Modes",
       "default": []
+     },
+     "judge": {
+      "$ref": "#/components/schemas/Backend"
      }
     },
     "type": "object",
@@ -9228,6 +9429,84 @@
     "title": "Conversion",
     "description": "단편에서 장편으로 바꾼 기록. 되돌릴 백업은 projects/<이름>/before-serial.json 에 따로 둔다 (store.save_backup)."
    },
+   "Deadline": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id",
+      "description": "예: dl-05-festival"
+     },
+     "what": {
+      "type": "string",
+      "title": "What",
+      "description": "무엇의 기한인지 한 줄 (예: 왕성 축제 첫날, 빚 갚을 날)"
+     },
+     "day": {
+      "type": "integer",
+      "title": "Day",
+      "description": "그 일이 오는 날의 날수 (StoryTime.day 와 같은 셈). 모르면 0",
+      "default": 0
+     },
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "description": "본문에 나온 말 그대로 (예: 사흘 뒤 자정까지)",
+      "default": ""
+     },
+     "set_ep": {
+      "type": "integer",
+      "title": "Set Ep",
+      "description": "기한이 생긴 화. 프로그램이 채운다",
+      "default": 0
+     },
+     "done_ep": {
+      "type": "integer",
+      "title": "Done Ep",
+      "description": "기한이 닫힌 화 (그날이 와서 일이 일어났거나 없어짐). 열려 있으면 0. 프로그램이 채운다",
+      "default": 0
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "what"
+    ],
+    "title": "Deadline",
+    "description": "작품 속 기한: 축제, 결혼식, 계약 만료, 사흘 안에 갚을 빚처럼 앞으로 올 날."
+   },
+   "DeadlineIn": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id",
+      "default": ""
+     },
+     "what": {
+      "type": "string",
+      "title": "What"
+     },
+     "day": {
+      "type": "integer",
+      "title": "Day",
+      "default": 0
+     },
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "default": ""
+     },
+     "done_ep": {
+      "type": "integer",
+      "title": "Done Ep",
+      "default": 0
+     }
+    },
+    "type": "object",
+    "required": [
+     "what"
+    ],
+    "title": "DeadlineIn"
+   },
    "Direction": {
     "properties": {
      "title": {
@@ -9488,6 +9767,16 @@
       "title": "Final Text",
       "description": "상태 반영이 끝난 뒤 본문을 처음 고치기 직전의 본문. 지금 본문과 다르면 반영된 요약 · 상태가 고치기 전 본문 기준이다. 다시 맞추거나 그대로 두기로 하면 비운다",
       "default": ""
+     },
+     "time": {
+      "$ref": "#/components/schemas/StoryTime",
+      "description": "이 화가 끝난 작품 속 시점. 상태 반영 때 채운다"
+     },
+     "realign": {
+      "type": "string",
+      "title": "Realign",
+      "description": "앞 화 플롯을 뒤 화에 맞추지 않고 다시 짜면서 이 화와 어긋나게 된 점. 이 화 플롯을 다시 짜거나 작가가 확인하면 비운다",
+      "default": ""
      }
     },
     "type": "object",
@@ -9611,6 +9900,12 @@
       "type": "string",
       "title": "Pov Mode",
       "description": "이 화의 서술 방식 (1인칭, 3인칭 제한, 3인칭 전지). 작품 기본과 같으면 비움",
+      "default": ""
+     },
+     "time": {
+      "type": "string",
+      "title": "Time",
+      "description": "이 화가 시작하는 작품 속 시점: 직전 화에서 얼마나 지났는지나 시간대 (예: 다음 날 아침, 사흘 뒤 밤, 1년 뒤). 직전 화에서 바로 이어지면 비움",
       "default": ""
      }
     },
@@ -10802,6 +11097,11 @@
      },
      "rewrite": {
       "$ref": "#/components/schemas/RewriteRequest"
+     },
+     "fit_next": {
+      "type": "boolean",
+      "title": "Fit Next",
+      "default": true
      }
     },
     "type": "object",
@@ -12333,6 +12633,10 @@
       "$ref": "#/components/schemas/Atlas",
       "description": "지도: 장소 자리, 배경 그림, 위치 글 잇기"
      },
+     "timeline": {
+      "$ref": "#/components/schemas/Timeline",
+      "description": "작품 속 시간: 기준 날짜와 기한"
+     },
      "edit_rev": {
       "type": "integer",
       "title": "Edit Rev",
@@ -13381,6 +13685,14 @@
       },
       "type": "array",
       "title": "Foreshadows"
+     },
+     "deadlines": {
+      "items": {
+       "$ref": "#/components/schemas/Deadline"
+      },
+      "type": "array",
+      "title": "Deadlines",
+      "description": "작품 속 기한. 기한이 생기기 전에 찍은 스냅샷이면 비움 (timeline.revert 가 화 번호로 거른다)"
      }
     },
     "type": "object",
@@ -13796,6 +14108,26 @@
       "title": "New Places",
       "description": "장소 목록과 이야기 요소에 없는데 이번 화에 이름을 갖고 처음 나온 장소 (지형, 마을, 건물, 가게 등)"
      },
+     "time": {
+      "$ref": "#/components/schemas/StoryTime",
+      "description": "이번 화가 끝난 작품 속 시점"
+     },
+     "deadlines_added": {
+      "items": {
+       "$ref": "#/components/schemas/Deadline"
+      },
+      "type": "array",
+      "title": "Deadlines Added",
+      "description": "이번 화에 새로 생기거나 날이 바뀐 기한. 바뀐 기한은 같은 id 로"
+     },
+     "deadlines_done": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Deadlines Done",
+      "description": "이번 화에 닫힌 기한 id (그날이 와서 일이 일어났거나 기한이 없어짐)"
+     },
      "warnings": {
       "items": {
        "type": "string"
@@ -14163,6 +14495,31 @@
     ],
     "title": "StoryEvent",
     "description": "본문에서 일어난 관계 사건. AI 는 사건만 적고, 수치 변화는 dynamics 가 계산한다."
+   },
+   "StoryTime": {
+    "properties": {
+     "day": {
+      "type": "integer",
+      "title": "Day",
+      "description": "1화가 시작한 날을 1일째로 센 날수. 모르면 0",
+      "default": 0
+     },
+     "part": {
+      "type": "string",
+      "title": "Part",
+      "description": "시간대 (새벽, 아침, 낮, 오후, 저녁, 밤, 한밤) 또는 '오후 3시쯤'",
+      "default": ""
+     },
+     "label": {
+      "type": "string",
+      "title": "Label",
+      "description": "본문이나 기준에서 드러난 날짜 · 요일 · 계절 (예: 3월 5일 화요일, 늦봄). 모르면 비움",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "StoryTime",
+    "description": "작품 속 시점. 날수는 1화가 시작한 날을 1일째로 센다 (timeline.py)."
    },
    "Storyline": {
     "properties": {
@@ -15405,6 +15762,159 @@
      "tier"
     ],
     "title": "TierChange"
+   },
+   "Timeline": {
+    "properties": {
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "description": "켜면 상태 변경안에 이 화가 끝난 시점과 기한을 적고, 쓰기 · 검수에 시간 블록을 넣는다",
+      "default": true
+     },
+     "start": {
+      "type": "string",
+      "title": "Start",
+      "description": "1일째가 언제인지 (예: 2024년 3월 2일 토요일, 늦겨울). 비면 날수만 센다",
+      "default": ""
+     },
+     "deadlines": {
+      "items": {
+       "$ref": "#/components/schemas/Deadline"
+      },
+      "type": "array",
+      "title": "Deadlines"
+     }
+    },
+    "type": "object",
+    "title": "Timeline",
+    "description": "작품 속 시간: 화가 끝난 시점(Episode.time)과 기한을 기록해 쓰기 · 검수 프롬프트에 넣는다."
+   },
+   "TimelineDeadline": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id",
+      "description": "예: dl-05-festival"
+     },
+     "what": {
+      "type": "string",
+      "title": "What",
+      "description": "무엇의 기한인지 한 줄 (예: 왕성 축제 첫날, 빚 갚을 날)"
+     },
+     "day": {
+      "type": "integer",
+      "title": "Day",
+      "description": "그 일이 오는 날의 날수 (StoryTime.day 와 같은 셈). 모르면 0",
+      "default": 0
+     },
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "description": "본문에 나온 말 그대로 (예: 사흘 뒤 자정까지)",
+      "default": ""
+     },
+     "set_ep": {
+      "type": "integer",
+      "title": "Set Ep",
+      "description": "기한이 생긴 화. 프로그램이 채운다",
+      "default": 0
+     },
+     "done_ep": {
+      "type": "integer",
+      "title": "Done Ep",
+      "description": "기한이 닫힌 화 (그날이 와서 일이 일어났거나 없어짐). 열려 있으면 0. 프로그램이 채운다",
+      "default": 0
+     },
+     "left": {
+      "type": "string",
+      "title": "Left"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "what",
+     "left"
+    ],
+    "title": "TimelineDeadline",
+    "description": "기한 하나와 남은 날 ('4일 남음', '오늘', '2일 지남'. 닫혔거나 날수를 모르면 빈칸)."
+   },
+   "TimelineRow": {
+    "properties": {
+     "episode": {
+      "type": "integer",
+      "title": "Episode"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "plan": {
+      "type": "string",
+      "title": "Plan"
+     },
+     "time": {
+      "$ref": "#/components/schemas/StoryTime"
+     },
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "gap": {
+      "type": "integer",
+      "title": "Gap"
+     }
+    },
+    "type": "object",
+    "required": [
+     "episode",
+     "title",
+     "status",
+     "plan",
+     "time",
+     "text"
+    ],
+    "title": "TimelineRow",
+    "description": "화 하나의 시점: 플롯의 시점(plan), 끝난 시점(time), 날수를 아는 앞 화에서 지난 날(gap)."
+   },
+   "TimelineView": {
+    "properties": {
+     "day": {
+      "type": "integer",
+      "title": "Day"
+     },
+     "now": {
+      "type": "string",
+      "title": "Now"
+     },
+     "rows": {
+      "items": {
+       "$ref": "#/components/schemas/TimelineRow"
+      },
+      "type": "array",
+      "title": "Rows"
+     },
+     "deadlines": {
+      "items": {
+       "$ref": "#/components/schemas/TimelineDeadline"
+      },
+      "type": "array",
+      "title": "Deadlines"
+     }
+    },
+    "type": "object",
+    "required": [
+     "day",
+     "now",
+     "rows",
+     "deadlines"
+    ],
+    "title": "TimelineView",
+    "description": "작품 속 시간 화면 계산값 (timeline.view)."
    },
    "ToneDials": {
     "properties": {

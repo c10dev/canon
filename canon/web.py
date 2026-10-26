@@ -24,8 +24,8 @@ from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (ArcPlan, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
-from . import atlas, foreshadows, statwin
-from .schema import ChatScope, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
+from . import atlas, foreshadows, statwin, timeline
+from .schema import ChatScope, Deadline, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .schema import CharacterState, StoryEvent
 from .schema import NameOption, Recap
 
@@ -528,6 +528,7 @@ def put_project(name: str, p: Project, response: Response, merged: str = "", for
     elements.stamp(p)
     _keep_impacts(name, p)
     _keep_hooks(name, p)
+    _keep_realign(name, p)
     kept: list[dict] = []
     out = _save(name, p, merged={m for m in merged.split(",") if m}, kept=kept)
     if kept:  # 화면이 '저장했습니다' 대신 무엇을 저장하지 않았는지 알린다
@@ -542,6 +543,13 @@ def _keep_hooks(name: str, p: Project) -> None:
         d = disk.get(e.plot.number)
         if d and (e.hook is None or e.hook.checked_at < d.checked_at):
             e.hook = d
+
+
+def _keep_realign(name: str, p: Project) -> None:
+    """뒤 화의 '다시 맞추기' 표시는 플롯 작업이 디스크에 쓰고 지우기는 clear_realign 으로만 한다. 화면 저장이 덮지 않는다."""
+    disk = {e.plot.number: e.realign for e in store.load(name).episodes}
+    for e in p.episodes:
+        e.realign = disk.get(e.plot.number, "")
 
 
 def _keep_impacts(name: str, p: Project) -> None:
@@ -1024,6 +1032,13 @@ def unconfirm_plot(name: str, n: int) -> Project:
     return _save(name, p)
 
 
+@app.post("/api/projects/{name}/episodes/{n}/realign/clear")
+def clear_realign(name: str, n: int) -> Project:
+    """앞 화를 다시 짜며 남긴 '다시 맞추기' 표시를 작가가 확인하고 지운다."""
+    _load(name).episode(n)  # 없는 작품 · 화면 알린다
+    return _edit(name, lambda p: setattr(p.episode(n), "realign", ""))
+
+
 # 화 끼워 넣기 · 빼기: 아직 안 쓴 화의 번호를 옮긴다. 작업이 맡은 화 번호가 어긋나지 않게 도는 작업이 없을 때만 한다.
 
 class InsertIn(BaseModel):
@@ -1242,6 +1257,7 @@ class JobIn(BaseModel):
     approaches: list[str] = []  # openings, opening_drafts: 여는 방식 id (비우면 기본 세 가지)
     draft: int = 0  # hook: 0 이면 그 화 본문, k 면 비교본 k 번을 판정
     rewrite: RewriteRequest | None = None  # write: 본문이 있는 화를 다시 생성. 새 판은 본문을 덮지 않고 고르기를 기다린다
+    fit_next: bool = True  # plot_one: 바로 뒤 화를 바꾸지 않는 화로 보고 맞춘다. 끄면 작가가 적은 것대로 마무리하고 뒤 화에 어긋난 점을 표시한다
 
 
 def _edit(name: str, fn) -> Project:
@@ -1392,9 +1408,12 @@ def start_job(name: str, body: JobIn) -> dict:
         label, total, owned = f"{n}화 플롯 초안", 1, {n}
 
         def fn(job: jobs.Job):
-            batch = pipeline.draft_episode(llm, store.load(name), n)
-            _edit(name, lambda q: pipeline.apply_plots(q, batch))
-            return None
+            batch = pipeline.draft_episode(llm, store.load(name), n, body.fit_next)
+            out: dict = {}
+            _edit(name, lambda q: out.update(realign=pipeline.apply_draft(q, batch)))
+            if not out.get("realign"):
+                return None
+            return {"realign": out["realign"], "gap": batch.next_gap}  # type: ignore[attr-defined]
     elif kind in ("write", "state"):
         if n is None:
             raise ValueError("화 번호(ep)가 필요해요")
@@ -2233,6 +2252,7 @@ class CastChanges(BaseModel):
     emotional_state: str = ""
     current_goal: str = ""
     location: str = ""
+    attire: str = ""
     knows: list[str] = []
 
 
@@ -2672,6 +2692,65 @@ def statwin_template(name: str, body: StatTemplate) -> Project:
     return _save(name, p)
 
 
+# ---------- 작품 속 시간 (canon/timeline.py) ----------
+# 켜고 끄기, 기준 날짜, 화가 끝난 시점, 플롯의 시점은 작품 전체 저장(PUT /projects/<이름>)으로 고친다.
+# 기한은 스냅샷과 함께 고쳐야 되돌리기와 맞아서 따로 둔다.
+
+class TimelineRow(BaseModel):
+    """화 하나의 시점: 플롯의 시점(plan), 끝난 시점(time), 날수를 아는 앞 화에서 지난 날(gap)."""
+    episode: int
+    title: str
+    status: str
+    plan: str
+    time: StoryTime
+    text: str
+    gap: int | None  # 날수를 모르면 비움
+
+
+class TimelineDeadline(Deadline):
+    """기한 하나와 남은 날 ('4일 남음', '오늘', '2일 지남'. 닫혔거나 날수를 모르면 빈칸)."""
+    left: str
+
+
+class TimelineView(BaseModel):
+    """작품 속 시간 화면 계산값 (timeline.view)."""
+    day: int  # 다음에 쓸 화 직전의 날수. 모르면 0
+    now: str
+    rows: list[TimelineRow]
+    deadlines: list[TimelineDeadline]
+
+
+@app.get("/api/projects/{name}/timeline")
+def timeline_view(name: str) -> TimelineView:
+    """화별 작품 속 시점과 기한 (남은 날 포함)."""
+    return timeline.view(_load(name))
+
+
+class DeadlineIn(BaseModel):
+    id: str = ""  # 비우면 새 기한 (마지막으로 반영한 화에 생긴 것으로)
+    what: str
+    day: int = 0
+    note: str = ""
+    done_ep: int = 0
+
+
+@app.put("/api/projects/{name}/timeline/deadlines")
+def deadline_put(name: str, body: DeadlineIn) -> Project:
+    """작가가 기한을 더하거나 고친다. 스냅샷에도 같이 적어 되돌려도 남는다."""
+    p = _load(name)
+    _not_auto(name)
+    timeline.upsert(p, Deadline(**body.model_dump()))
+    return _save(name, p)
+
+
+@app.delete("/api/projects/{name}/timeline/deadlines/{did}")
+def deadline_remove(name: str, did: str) -> Project:
+    p = _load(name)
+    _not_auto(name)
+    timeline.remove(p, did)
+    return _save(name, p)
+
+
 class Relations(BaseModel):
     """같은 관계를 말과 숫자로 (`_relations`)."""
     words: str
@@ -2857,7 +2936,7 @@ def research_probe(body: Probe) -> dict:
 @app.get("/api/projects/{name}/research")
 def research_log(name: str) -> dict:
     _load(name)
-    return {"log": research.history(name), "stages": research.STAGES, "check_modes": prompts.CHECK_MODES}
+    return {"log": research.history(name), "stages": research.STAGES, "check_modes": research.TRIAL_MODES}
 
 
 class SampleIn(BaseModel):
@@ -2902,6 +2981,7 @@ class CheckTrialIn(BaseModel):
     episode: int
     plants: int = 3
     modes: list[str] = []
+    judge: research.Backend | None = None  # 주면 두 걸음 검수(판단기)도 시험한다
 
 
 @app.post("/api/projects/{name}/research/check")
@@ -2909,7 +2989,7 @@ def research_check(name: str, body: CheckTrialIn) -> dict:
     """검수 시험: n화에 모순을 심고 검수 방식마다 찾는지 본다. 작품에는 저장하지 않는다."""
     if not 1 <= body.plants <= 5:
         raise ValueError("심을 모순은 1~5개예요")
-    res = research.check_trial(_load(name), body.episode, body.backend, body.plants, body.modes or None)
+    res = research.check_trial(_load(name), body.episode, body.backend, body.plants, body.modes or None, judge=body.judge)
     return research.record(name, "check", res)
 
 
@@ -2950,12 +3030,24 @@ def research_pick(name: str, n: int, body: Pick) -> dict:
 
 # ---------- 화면 ----------
 
-app.mount("/static", StaticFiles(directory=STATIC), name="static")
+NO_CACHE = {"Cache-Control": "no-cache"}  # 쓰기 전에 매번 ETag 로 새 판인지 묻는다 (안 바뀌었으면 304)
+
+
+class _Static(StaticFiles):
+    """화면 파일. 서버를 업데이트한 뒤에도 브라우저가 캐시의 옛 화면 코드를 쓰지 않게 한다."""
+
+    def file_response(self, *args, **kwargs) -> Response:
+        r = super().file_response(*args, **kwargs)
+        r.headers.update(NO_CACHE)
+        return r
+
+
+app.mount("/static", _Static(directory=STATIC), name="static")
 
 
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(STATIC / "index.html")
+    return FileResponse(STATIC / "index.html", headers=NO_CACHE)
 
 
 def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,

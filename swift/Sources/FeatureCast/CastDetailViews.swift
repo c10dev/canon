@@ -104,7 +104,7 @@ struct CharacterDetail: View {
         if !apps.isEmpty { AppearanceStrip(model: model, id: c.id) }
 
         Text(model.label(f)).font(.headline).padding(.top, 4)
-        let fields = [("감정", st?.emotionalState), ("목표", st?.currentGoal), ("위치", st?.location)].compactMap { l, v in v.flatMap { $0.isEmpty ? nil : (l, $0) } }
+        let fields = [("감정", st?.emotionalState), ("목표", st?.currentGoal), ("위치", st?.location), ("차림", st?.attire)].compactMap { l, v in v.flatMap { $0.isEmpty ? nil : (l, $0) } }
         if fields.isEmpty {
             Text("기록된 상태가 없어요").font(.caption).foregroundStyle(.secondary)
         } else {

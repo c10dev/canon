@@ -164,7 +164,7 @@ public struct HomeSummary: Equatable, Sendable {
         statesBasis = fin > 0 ? "\(fin)화 기준" : "시작 시점"
         characters = (p.characters ?? []).map { c in
             let s = p.states?.first { $0.characterId == c.id }
-            let lines = [("감정", s?.emotionalState), ("목표", s?.currentGoal), ("위치", s?.location)]
+            let lines = [("감정", s?.emotionalState), ("목표", s?.currentGoal), ("위치", s?.location), ("차림", s?.attire)]
                 .compactMap { k, v in (v ?? "").isEmpty ? nil : "\(k): \(v!)" }
             return CharacterLine(name: c.name, role: c.role, lines: lines)
         }

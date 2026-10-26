@@ -154,7 +154,7 @@ const JOB_DONE_MSG = {
   suggest: '설정 제안이 도착했어요. 설정 도우미에서 확인하세요.',
   arc: '기승전결 구조 제안이 도착했어요. 확인하고 저장하세요.',
   plots: '화별 플롯 초안을 만들었어요. 확정된 화는 그대로예요.',
-  plot_one: (j) => `${j.ep}화 플롯을 앞뒤 화에 맞춰 채웠어요. 다듬은 뒤 확정하세요.`,
+  plot_one: (j) => (j.result && j.result.realign ? `${j.ep}화 플롯을 요약대로 채웠어요. ${j.result.realign}화와 어긋난 점은 ${j.result.realign}화에 '다시 맞추기'로 표시했어요.` : `${j.ep}화 플롯을 채웠어요. 다듬은 뒤 확정하세요.`),
   write: (j) => `${j.ep}화 본문을 저장했어요.`,
   state: (j) => `${j.ep}화 상태 변경안이 도착했어요.`,
   series: '부 구성 제안이 도착했어요. 확인하고 반영하세요.',
@@ -324,7 +324,11 @@ async function pollJobs(soon = false) {
       S.jobsMerged[j.id] = j.done;  // 저장할 때 이 단계까지 받아 왔다고 알린다 (save)
     }
     if (j.kind === 'write' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);
-    if (j.kind === 'plot_one' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);
+    if (j.kind === 'plot_one' && j.status !== 'running') {
+      await mergeEpisodes((e) => e.plot.number === j.ep);
+      const r = j.result && j.result.realign && ep(j.result.realign);  // 뒤 화에 남긴 표시는 고치던 그 화 플롯을 덮지 않고 표시만 받는다
+      if (r) r.realign = j.result.gap;
+    }
     if (j.kind === 'impact' && j.status === 'done') await mergeImpacts();
     if (j.kind === 'check' && j.status === 'done') await mergeEpisodes((e) => e.plot.number === j.ep);  // 검수 결과는 그 화에 붙었다
     if (j.kind === 'auto') {
@@ -834,6 +838,11 @@ document.addEventListener('input', (e) => {
     S.deltas[el.dataset.deltaSummary].summary = el.value;
     const c = $('#dsum-count');
     if (c) c.textContent = el.value.length.toLocaleString();
+  }
+  if (el.dataset.attire != null) {  // 상태 승인 화면에서 고친 지금 차림 (반영 때 변경안 그대로 보낸다)
+    const d = S.deltas[el.dataset.attireEp];
+    const u = d && d.character_updates[+el.dataset.attire];
+    if (u) u.attire = el.value;
   }
 });
 
@@ -1893,7 +1902,7 @@ const actions = {
   async applyDelta(n) {
     const out = pickedDelta(n);
     // 평소에는 바로 반영한다. 고른 항목이 없거나, 경고가 남았거나, 변경안을 만든 뒤 본문을 고쳤으면 한 번 묻는다
-    const lists = ['character_updates', 'events', 'secrets_added', 'relationship_updates', 'new_facts', 'foreshadow_planted', 'foreshadow_resolved', 'new_characters', 'new_places'];
+    const lists = ['character_updates', 'events', 'secrets_added', 'relationship_updates', 'new_facts', 'foreshadow_planted', 'foreshadow_resolved', 'new_characters', 'new_places', 'deadlines_added', 'deadlines_done'];
     const count = lists.reduce((s, k) => s + (out[k] || []).length, 0);
     const why = [
       count ? '' : '고른 항목이 0건이에요. 요약만 저장하고',
@@ -2066,6 +2075,8 @@ function pickedDelta(n) {
     new_characters: pick('n', d.new_characters || []),
     new_places: pick('l', d.new_places || []),
     foreshadow_clues: pick('q', d.foreshadow_clues || []),
+    deadlines_added: pick('k', d.deadlines_added || []),
+    deadlines_done: pick('o', d.deadlines_done || []),
   };
 }
 
@@ -2100,7 +2111,7 @@ function refreshPreview(n) {
 }
 
 /** 상태 변경안 항목 체크 키 ('c0', 'e1' …). 설정 제안 키('sc0', 'sf:logline')와 섞이지 않게 센다. */
-const DELTA_PICK = /^[cesrfpxnql]\d+$/;
+const DELTA_PICK = /^[cesrfpxnqlko]\d+$/;
 const deltaPicked = () => Object.entries(S.picks).filter(([k, v]) => v && DELTA_PICK.test(k)).length;
 
 /** source: 변경안을 어디서 받았나 ('chat' 이면 채팅 앱에서 가져온 JSON). 상태 승인 화면 설명에 쓴다 */
@@ -2122,6 +2133,8 @@ function setDelta(n, d, source = 'ai') {
   (d.new_characters || []).forEach((_, i) => { S.picks['n' + i] = true; });
   (d.new_places || []).forEach((_, i) => { S.picks['l' + i] = true; });
   (d.foreshadow_clues || []).forEach((_, i) => { S.picks['q' + i] = true; });
+  (d.deadlines_added || []).forEach((_, i) => { S.picks['k' + i] = true; });
+  (d.deadlines_done || []).forEach((id, i) => { S.picks['o' + i] = P().timeline.deadlines.some((x) => x.id === id) || (d.deadlines_added || []).some((x) => x.id === id); });
   // 받은 그대로의 요약과 체크. 다시 만들 때 고친 것을 버리는지 묻는다 (기본으로 뺀 항목은 고친 것이 아니다)
   S.deltaOrig[n] = { summary: d.summary, picks: Object.fromEntries(Object.entries(S.picks).filter(([k]) => DELTA_PICK.test(k))), source };
 }
@@ -2495,7 +2508,7 @@ function drawApp() {
     return;
   }
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, statwin: viewStatwin };
+  const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, statwin: viewStatwin, timeline: viewTimeline };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${failStrip(page, n)}${body}</main></div>`;
   document.body.classList.toggle('drawer-open', !!$('#app .drawer'));  // 넓은 화면은 보드를 서랍 폭만큼 비켜 둔다 (app.css)
@@ -2533,6 +2546,7 @@ function sidebar(active) {
     ['atlas', base() + '/atlas', '地', '지도'],
     ['foreshadow', base() + '/foreshadow', '伏', '복선 센터'],
     ['statwin', base() + '/statwin', '#', '상태창 수치'],
+    ['timeline', base() + '/timeline', '時', '작품 속 시간'],
     ['lines', base() + '/lines', '⑂', '이야기 줄기'],
     ['causal', base() + '/causal', '∴', '인과율 · 설정 추가'],
     ['brief', `${base()}/brief/${cur}`, '✎', '작업지시서 (API 없이)'],
@@ -2899,7 +2913,7 @@ function viewHome() {
 
   const states = p.characters.map((c) => {
     const s = p.states.find((x) => x.character_id === c.id) || {};
-    const lines = [['감정', s.emotional_state], ['목표', s.current_goal], ['위치', s.location]].filter(([, v]) => v);
+    const lines = [['감정', s.emotional_state], ['목표', s.current_goal], ['위치', s.location], ['차림', s.attire]].filter(([, v]) => v);
     return `<div class="kv"><div style="font-size:0.875rem;font-weight:700">${esc(c.name)} <span class="small" style="font-weight:400">${esc(c.role)}</span></div>${lines.map(([k, v]) => `<div class="line">${k}: ${esc(v)}</div>`).join('') || '<div class="line small">아직 변화 없음</div>'}</div>`;
   }).join('');
   const openFs = p.foreshadows.filter((f) => f.status === 'open');
@@ -3746,7 +3760,7 @@ document.addEventListener('change', (e) => {  // 시점 인물을 바꾸면 화 
 
 function epCard(e, sel) {
   return `<button type="button" class="ep-card ${e.status}${sel && sel.plot.number === e.plot.number ? ' sel' : ''}" data-action="selectEp" data-arg="${e.plot.number}" aria-label="${e.plot.number}화 ${esc(e.plot.title)}${povSummary(e.plot.number) ? ' · ' + esc(povSummary(e.plot.number)) : ''} 플롯 열기">
-      <span class="ep-top"><strong>${e.plot.number}화</strong><span class="ep-chips">${povBadge(e.plot.number)}${jobOwns(e.plot.number) ? '<span class="chip ai"><span class="spinner sm" aria-hidden="true"></span>새로 만드는 중</span>' : ''}<span class="chip ${e.status}">${STATUS[e.status]}</span></span></span>
+      <span class="ep-top"><strong>${e.plot.number}화</strong><span class="ep-chips">${povBadge(e.plot.number)}${e.realign ? `<span class="chip written" title="${esc(e.realign)}">다시 맞추기</span>` : ''}${jobOwns(e.plot.number) ? '<span class="chip ai"><span class="spinner sm" aria-hidden="true"></span>새로 만드는 중</span>' : ''}<span class="chip ${e.status}">${STATUS[e.status]}</span></span></span>
       <span class="t">${esc(e.plot.title) || '제목 없음'}</span>${lineBadge(e)}<span class="s">${esc(e.plot.summary)}</span></button>`;
 }
 
@@ -3937,6 +3951,7 @@ function plotEditor(e) {
     ${arc ? `<div class="note plain"><strong>아크 ${arc.number} ${esc(arc.title)}</strong> · ${esc(arc.goal)}</div>` : ''}
     ${act ? `<div class="note info"><strong>${act.name} 구간 목표</strong> · ${esc(act.goal)}</div>` : ''}
     ${busy ? `<div class="note warn">AI가 이 화의 초안을 새로 만드는 중이라 끝날 때까지 고칠 수 없어요${pj && pj.note ? ` (${esc(pj.note)})` : ''}. 먼저 끝난 구간의 화는 지금 고칠 수 있어요.</div>` : autoBusy ? `<div class="note warn">자동 집필이 ${n}화를 쓰는 중이라 고칠 수 없어요. 고치려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요.</div>` : locked ? '<div class="note plain">본문이 있는 화라 플롯을 고칠 수 없어요.</div>' : ''}
+    ${realignNote(e)}
     ${input('제목', b + '.title', ro)}
     ${input('요약', b + '.summary', { ...ro, rows: 3, autogrow: true })}
     ${input('사건 순서', b + '.events', { ...ro, kind: 'list', rows: 5, autogrow: true })}
@@ -3944,12 +3959,14 @@ function plotEditor(e) {
     ${placeCandNotes(e)}
     ${lineField(e)}
     ${povField(e, locked)}
+    ${tlOn() || e.plot.time ? input('작품 속 시점', b + '.time', { ...ro, hint: '직전 화에서 얼마나 지났는지. 바로 이어지면 비워요', placeholder: '예: 다음 날 아침, 사흘 뒤 밤' }) : ''}
     ${n <= 3 || e.plot.opening ? input('여는 장면', b + '.opening', { ...ro, hint: n <= 3 ? '초반 화는 첫 장면이 독자를 붙잡아요' : '' }) : ''}
     ${input('감정 변화', b + '.emotional_shift', ro)}
     ${input('엔딩 훅', b + '.ending_hook', ro)}
     ${n <= 3 || e.plot.reader_question ? input('독자가 들고 갈 질문', b + '.reader_question', { ...ro, hint: n <= 3 ? '이 화를 읽고 다음 화를 누르게 하는 질문' : '' }) : ''}
     <div class="grid-2">${input('심을 복선', b + '.foreshadow_plant', { ...ro, kind: 'list', rows: 2 })}${payoffPicker('회수할 복선', b + '.foreshadow_payoff', locked)}</div>
     ${insertBlock(e)}
+    ${fitNextField(e)}
     <div class="row drawer-actions">
       ${draftOneBtn(e)}
       ${e.status === 'draft' ? `<button class="btn primary" style="flex:1" data-action="confirmEp" data-arg="${n}"${busy ? ' disabled' : ''}>${n}화 확정</button>` : ''}
@@ -4306,6 +4323,7 @@ function viewWrite(n) {
         <div class="field"><span class="small">사건</span><ol style="padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:0.8125rem;line-height:1.5">${e.plot.events.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></div>
         <div class="field"><span class="small">등장 인물</span><div style="font-size:0.8125rem">${e.plot.characters.map(charName).map(esc).join(', ')}</div></div>
         ${povText(n) ? `<div class="field"><span class="small">서술 시점</span><div style="font-size:0.8125rem">${esc(povText(n))}${povText(n) !== povText(n - 1) && n > 1 ? ' <span class="chip ai">시점 바뀜</span>' : ''}</div></div>` : ''}
+        ${tlAside(n)}
         <div class="field"><span class="small">감정 변화</span><div style="font-size:0.8125rem">${esc(e.plot.emotional_shift)}</div></div>
         ${e.plot.opening ? `<div class="field"><span class="small">여는 장면</span><div style="font-size:0.8125rem">${esc(e.plot.opening)}</div></div>` : ''}
         <div class="field"><span class="small">엔딩 훅</span><div style="font-size:0.8125rem">${esc(e.plot.ending_hook)}</div></div>
@@ -4378,7 +4396,7 @@ function viewReview(n) {
   // 검수 지적이 남아 있으면 반영 전에 본문을 고칠지 볼 수 있게 알린다 (검수 뒤 본문을 고쳤으면 지난 결과라고 밝힌다)
   const issues = (e.issues || []).length
     ? `<section class="note warn">검수 지적 ${e.issues.length}건이 남아 있어요${(e.edits || []).some((x) => x.at > (e.checked_at || '')) ? ' (검수 뒤 본문을 고쳤어요)' : ''}. <a href="${base()}/write/${n}">집필 화면에서 보기</a></section>` : '';
-  const total = d.character_updates.length + d.events.length + d.secrets_added.length + d.relationship_updates.length + d.new_facts.length + d.foreshadow_planted.length + d.foreshadow_resolved.length + (d.new_characters || []).length + (d.new_places || []).length + (d.foreshadow_clues || []).length;
+  const total = d.character_updates.length + d.events.length + d.secrets_added.length + d.relationship_updates.length + d.new_facts.length + d.foreshadow_planted.length + d.foreshadow_resolved.length + (d.new_characters || []).length + (d.new_places || []).length + (d.foreshadow_clues || []).length + (d.deadlines_added || []).length + (d.deadlines_done || []).length;
   if (!S.preview || S.preview.n !== n) refreshPreview(n);
   const picked = deltaPicked();
   const box = (key) => `<input type="checkbox" id="pk-${key}" data-pick="${key}"${S.picks[key] ? ' checked' : ''}>`;
@@ -4391,8 +4409,10 @@ function viewReview(n) {
     const rows = [['감정', 'emotional_state'], ['목표', 'current_goal'], ['위치', 'location'], ['메모', 'notes']]
       .filter(([, f]) => u[f]).map(([k, f]) => `<div class="small">${k}</div>${diff(cur[f], u[f])}`).join('');
     const knows = u.knows.filter((k) => !(cur.knows || []).includes(k)).map((k) => `<span class="after">+ ${esc(k)}</span>`).join(' ');
+    // 지금 차림은 AI 가 틀리게 적었으면 여기서 고쳐 반영한다 (data-attire 입력이 변경안을 바로 고친다)
+    const attire = u.attire ? `<div class="small"><label for="at-${i}">차림</label></div>${cur.attire && cur.attire !== u.attire ? `<div class="row"><span class="before">${esc(cur.attire)}</span><span class="small">→</span></div>` : ''}<input id="at-${i}" data-attire="${i}" data-attire-ep="${n}" value="${esc(u.attire)}">` : '';
     const unknown = !p.characters.some((c) => c.id === u.character_id) && !(d.new_characters || []).some((c) => c.id === u.character_id);
-    return `<div class="change">${box('c' + i)}<div class="body"><label for="pk-c${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(u.character_id))}${unknown ? ' <span class="chip draft">설정에 없는 인물</span>' : ''}</label>${rows}${swDeltaRows(u, cur)}${knows ? `<div class="small">알게 된 정보</div><div class="row">${knows}</div>` : ''}</div></div>`;
+    return `<div class="change">${box('c' + i)}<div class="body"><label for="pk-c${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(u.character_id))}${unknown ? ' <span class="chip draft">설정에 없는 인물</span>' : ''}</label>${rows}${attire}${swDeltaRows(u, cur)}${knows ? `<div class="small">알게 된 정보</div><div class="row">${knows}</div>` : ''}</div></div>`;
   }).join('');
 
   const events = d.events.map((ev, i) => {
@@ -4435,7 +4455,7 @@ function viewReview(n) {
       <section class="card col">${relationHeader('반영하면 이렇게 계산돼요')}<div id="rel-preview">${relationLines(S.preview && S.preview.n === n ? S.preview : null)}</div>
         <div class="small">체크를 바꾸면 바로 다시 계산해요. 저장은 반영할 때만 돼요.</div></section>
     </div>` +
-    `<div class="grid-auto">${section('확정 사실', facts)}${section('복선', fs)}</div>` +
+    `<div class="grid-auto">${section('확정 사실', facts)}${section('복선', fs)}</div>` + tlDeltaCard(n, d, box) +
     `<section class="card"><div class="between"><label for="dsum" style="font-size:1rem;font-weight:700">${n}화 요약</label><span class="small"><span id="dsum-count">${d.summary.length.toLocaleString()}</span>자 · 다음 화 생성에 이 요약이 들어가요</span></div>
       <textarea id="dsum" rows="4" data-autogrow data-delta-summary="${n}">${esc(d.summary)}</textarea></section>
     <div class="row">${((b) => `<button class="btn" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '변경안 다시 만들기'))}<button class="btn" data-action="dropDelta" data-arg="${n}">버리기</button><a class="btn" href="${base()}/write/${n}">본문으로</a></div>
@@ -4447,11 +4467,12 @@ function historyView(h) {
   const li = (arr) => arr.length ? `<ul style="padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:0.8125rem;line-height:1.5">${arr.map((x) => `<li>${x}</li>`).join('')}</ul>` : '<div class="small">없음</div>';
   return `<section class="card"><h2>요약</h2><p style="font-size:0.875rem;line-height:1.7">${esc(h.summary)}</p></section>
     <div class="grid-auto">
-      <section class="card"><h2>인물 상태</h2>${li(h.character_updates.map((u) => `<strong>${esc(charName(u.character_id))}</strong> ${esc([u.emotional_state, u.current_goal, u.location].filter(Boolean).join(' / '))}${u.knows.length ? ` · 앎: ${esc(u.knows.join(', '))}` : ''}`))}</section>
+      <section class="card"><h2>인물 상태</h2>${li(h.character_updates.map((u) => `<strong>${esc(charName(u.character_id))}</strong> ${esc([u.emotional_state, u.current_goal, u.location].filter(Boolean).join(' / '))}${u.attire ? ` · 차림: ${esc(u.attire)}` : ''}${u.knows.length ? ` · 앎: ${esc(u.knows.join(', '))}` : ''}`))}</section>
       <section class="card"><h2>관계 사건</h2>${li((h.events || []).map((ev) => `${esc(charName(ev.actor))} → ${esc(charName(ev.target))} · ${esc(ev.kind)} ${INTENSITY[ev.intensity] || ''}${ev.witnesses && ev.witnesses.length ? ` · 목격: ${ev.witnesses.map(charName).map(esc).join(', ')}` : ''}${ev.reveals_secret ? ` · 드러난 비밀: ${esc(secretLabel(ev.reveals_secret, h))}` : ''}${ev.quote ? `<br><span class="small">“${esc(ev.quote)}”</span>` : ''}`))}</section>
       <section class="card"><h2>사실과 복선</h2>${li([...h.new_facts.map(esc), ...h.foreshadow_planted.map((f) => '심음: ' + esc(f.description)), ...h.foreshadow_resolved.map((id) => { const f = P().foreshadows.find((x) => x.id === id); return '회수: ' + esc(f ? f.description : id); })])}</section>
       ${(h.new_characters || []).length ? `<section class="card"><h2>새로 나온 인물</h2>${li(h.new_characters.map((c) => `<strong>${esc(c.name || c.id)}</strong> <span class="small">${esc(c.role || '')}</span>`))}</section>` : ''}
       ${(h.new_places || []).length ? `<section class="card"><h2>새로 나온 장소</h2>${li(h.new_places.map(placeLabel))}</section>` : ''}
+      ${tlHistory(h)}
       ${(h.secrets_added || []).length ? `<section class="card"><h2>새로 생긴 비밀</h2>${li(h.secrets_added.map((x) => `<strong>${esc(charName(x.owner))}</strong> ${esc(x.content)}`))}</section>` : ''}
       ${(h.relationship_updates || []).length ? `<section class="card"><h2>관계 유형 · 설명 변경</h2>${li(h.relationship_updates.map((r) => `${esc(charName(r.a))} ↔ ${esc(charName(r.b))} · ${esc(r.type)}${r.description ? ` · ${esc(r.description)}` : ''}`))}</section>` : ''}
     </div>`;
@@ -4575,6 +4596,7 @@ function rsInit(name) {
     stageBackend: backend(), stage: 'style', stageText: '', stageResult: null,
     budgetBackend: backend(), budget: null,
     checkBackend: backend(), checkEp: null, checkPlants: '3', check: null, checkModes: {},
+    checkJudge: backend(), checkTwoStep: false,
     compareEp: null, compareA: cmpA, compareB: cmpB, compare: null, adopt: true, pickResult: null, probeError: null,
   };
 }
@@ -4670,7 +4692,8 @@ Object.assign(actions, {
     if (!n) return toast('본문이 있는 화를 고르세요', true);
     await run(`${n}화에 모순을 심고 검수 방식마다 검수하는 중… (저장하지 않음)`, async () => {
       S.rs.check = await api('POST', `/projects/${enc(S.name)}/research/check`,
-        { backend: rsBackend(S.rs.checkBackend), episode: n, plants: Number(S.rs.checkPlants) || 3 });
+        { backend: rsBackend(S.rs.checkBackend), episode: n, plants: Number(S.rs.checkPlants) || 3,
+          ...(S.rs.checkTwoStep ? { judge: rsBackend(S.rs.checkJudge) } : {}) });
       S.rs.log.unshift(S.rs.check);
     });
   },
@@ -4715,9 +4738,9 @@ Object.assign(actions, {
   },
 });
 
-function rsBackendFields(path, b) {
+function rsBackendFields(path, b, kinds = [['local', '로컬 서버'], ['gemini', 'Gemini'], ['mock', 'mock']]) {
   const id = 'rs-' + path.replace(/\W/g, '-');
-  const opts = [['local', '로컬 서버'], ['gemini', 'Gemini'], ['mock', 'mock']]
+  const opts = kinds
     .map(([v, l]) => `<option value="${v}"${b.provider === v ? ' selected' : ''}>${l}</option>`).join('');
   return `<div class="rs-backend">
     <div class="field"><label for="${id}-p">백엔드</label><select id="${id}-p" data-rs="${path}.provider">${opts}</select></div>
@@ -4833,15 +4856,16 @@ function rsCheckView() {
   const r = S.rs.check;
   let out = '';
   if (r) {
-    const modes = r.runs.map((x) => `<th>${esc(x.mode)}<div class="small">~${rsNum(x.tokens)} 토큰</div></th>`).join('');
+    const modes = r.runs.map((x) => `<th>${esc(x.mode)}<div class="small">${x.tokens == null ? '' : `~${rsNum(x.tokens)} 토큰`}</div>${x.mode === 'twostep' && x.ok ? `<div class="small">판단기 ~${rsNum(x.judge_tokens)} 토큰 · 진술 ${x.claims}개 중 ${x.flagged}개 의심</div>` : ''}</th>`).join('');
     const rows = r.planted.map((x, i) => `<tr><td><div class="small">${esc(x.type)} · 근거: ${x.source_episode ? `${x.source_episode}화 (${x.distance}화 전)` : '설정이나 확정 사실'}</div>
         <div class="rs-prose small"><del>${esc(x.quote)}</del><br><ins>${esc(x.replacement)}</ins></div></td>
-        ${r.runs.map((m) => `<td>${!m.ok ? '<span class="chip usage-fail">실패</span>' : m.hits[i] ? '<span class="chip finalized">찾음</span>' : '<span class="chip written">놓침</span>'}</td>`).join('')}</tr>`).join('');
+        ${r.runs.map((m) => `<td>${!m.ok ? '<span class="chip usage-fail">실패</span>' : m.hits[i] ? '<span class="chip finalized">찾음</span>' : '<span class="chip written">놓침</span>'}${m.ok && m.raised && !m.hits[i] ? `<div class="small">${m.raised[i] ? '판단기는 올림' : '판단기가 놓침'}</div>` : ''}</td>`).join('')}</tr>`).join('');
     const sum = r.runs.map((m) => `<td><strong>${m.ok ? `${m.found}/${r.planted.length}` : esc(m.error)}</strong>${m.ok ? `<div class="small">다른 지적 ${m.other.length}개 · ${m.seconds}초</div>` : ''}</td>`).join('');
     out = `<section class="card">
       <div class="between"><h2>${r.episode}화 · ${esc(r.backend)}</h2><span class="small">심은 모순 ${r.planted.length}개${r.skipped.length ? ` (원문을 못 찾아 ${r.skipped.length}개 뺌)` : ''} · ${r.seconds}초</span></div>
       <div class="rs-scroll"><table class="rs-table"><thead><tr><th>심은 모순</th>${modes}</tr></thead><tbody>${rows}<tr><td>찾은 수</td>${sum}</tr></tbody></table></div>
       ${r.runs.filter((m) => m.ok && m.other.length).map((m) => `<details><summary>${esc(m.mode)}의 다른 지적 ${m.other.length}개</summary><ul>${m.other.map((i) => `<li class="small">${esc(i.type)}: ${esc(i.description)}</li>`).join('')}</ul></details>`).join('')}
+      ${r.runs.filter((m) => m.mode === 'twostep' && m.ok && m.judged.length).map((m) => `<details><summary>판단기가 본 진술 ${m.judged.length}개 (${esc(m.judge)})</summary><ul>${m.judged.map((j) => `<li class="small">${j.flagged ? '<span class="chip written">의심</span> ' : ''}어긋남 ${Math.round((j.probs[1] || 0) * 100)}% · ${esc(j.claim)}${j.mass < 0.5 ? ' <span class="hint">선택지 밖 답이 많았어요</span>' : ''}</li>`).join('')}</ul></details>`).join('')}
       <div class="small">한 번으로는 우연이 커요. 여러 화에서 몇 번 돌려 기록 탭에서 찾은 비율을 견주세요. 모순을 심는 것도 같은 모델이 해요.</div>
     </section>`;
   }
@@ -4850,6 +4874,8 @@ function rsCheckView() {
       <p class="desc">본문이 있는 화에 모순을 몇 개 심고, 검수 방식마다 그걸 찾는지 봐요. 장편 검수는 입력을 줄인 방식이 기본이라 줄여서 놓치는 게 없는지 확인하는 용도예요. 작품에는 저장하지 않고, 호출은 심기 1번 + 방식마다 1번이에요.</p>
       ${modes ? `<ul class="small">${modes}</ul>` : ''}
       ${rsBackendFields('checkBackend', S.rs.checkBackend)}
+      <label class="check-row"><input type="checkbox" data-rs="checkTwoStep" onchange="render()"${S.rs.checkTwoStep ? ' checked' : ''}><span><strong>두 걸음 검수도 시험</strong> <span class="small">위 백엔드가 진술을 뽑고 의심만 판정해요. 그 사이에 판단기가 진술마다 선택지 확률만 내요(로컬 서버는 logprobs 지원 필요). 검수 모델 호출 2번 + 판단기 호출 진술 수만큼 늘어요.</span></span></label>
+      ${S.rs.checkTwoStep ? `<h3>판단기</h3>${rsBackendFields('checkJudge', S.rs.checkJudge, [['local', '로컬 서버'], ['mock', 'mock']])}` : ''}
       <div class="row">
         <div class="field" style="max-width:320px"><label for="rs-check-ep">화</label>
           <select id="rs-check-ep" data-rs="checkEp">${eps.map((x) => `<option value="${x.plot.number}"${String(x.plot.number) === String(S.rs.checkEp) ? ' selected' : ''}>${x.plot.number}화 ${esc(x.plot.title)}</option>`).join('') || '<option value="">본문이 있는 화가 없어요</option>'}</select></div>
