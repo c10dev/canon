@@ -13078,6 +13078,22 @@
        "both"
       ],
       "title": "Source"
+     },
+     "added": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Added",
+      "default": []
+     },
+     "removed": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Removed",
+      "default": []
      }
     },
     "type": "object",
@@ -13086,7 +13102,7 @@
      "source"
     ],
     "title": "StatChange",
-    "description": "화별 비교표에서 그 화에 바뀐 칸 하나."
+    "description": "화별 비교표에서 그 화에 바뀐 칸 하나. 목록 항목(스킬 · 특성 · 인벤토리)은 더한 것 · 뺀 것도."
    },
    "StatColumn": {
     "properties": {
