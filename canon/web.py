@@ -25,7 +25,7 @@ from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (ArcPlan, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
-from . import atlas, foreshadows, statwin, timeline
+from . import atlas, foreshadows, setupchat, statwin, timeline
 from .schema import ChatScope, Deadline, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .schema import CharacterState, StoryEvent
 from .schema import NameOption, Recap
@@ -1177,14 +1177,14 @@ def remove_episode(name: str, n: int) -> Renumbered:
 
 # ---------- 3-1. 대화로 다듬기 ----------
 # 대화 기록은 project.json 의 chats 에 화면(topic)별로 남는다. 플롯 화면은 'plot', 집필 화면의 본문 부분 수정은
-# 화마다 'text:<화>', 문체 화면은 'style' 이다 (4-1 · 2-2 참고).
+# 화마다 'text:<화>', 문체 화면은 'style', 설정 도우미는 'setup' 이다 (4-1 · 2-2 · canon/setupchat.py 참고).
 
 TEXT_TOPIC = re.compile(r"^text:(\d+)$")
 
 
 def _chat(p: Project, topic: str):
     m = TEXT_TOPIC.match(topic)
-    if topic not in ("plot", "style") and not (m and any(e.plot.number == int(m.group(1)) for e in p.episodes)):
+    if topic not in ("plot", "style", setupchat.TOPIC) and not (m and any(e.plot.number == int(m.group(1)) for e in p.episodes)):
         raise HTTPException(404, f"대화 주제가 없어요: {topic}")
     return p.chat(topic)
 
@@ -1197,7 +1197,7 @@ class ChatIn(BaseModel):
     target: str = ""  # '' 기본, 'arc:3' 고른 아크, 'next' 다음 아크 기획
     act: str = ""  # 연 구간 이름
     episode: int = 0  # 연 화. 문체 대화면 참고할 화
-    mode: Literal["", "options"] = ""  # options: 방향 여러 안
+    mode: Literal["", "options"] = ""  # options: 방향 여러 안 (플롯 · 설정 대화)
     draft: ArcProposal | None = None  # target 'next': 화면의 다음 아크 초안
 
 
@@ -1216,6 +1216,9 @@ def chat_send(name: str, topic: str, body: ChatIn) -> Project:
     if topic == "style":
         rev = pipeline.revise_style(get_llm("plan"), p, body.message, body.episode)
         return _edit(name, lambda q: pipeline.record_style_chat(q, body.message, body.episode, rev))
+    if topic == setupchat.TOPIC:
+        rev = pipeline.revise_setup(get_llm("plan"), p, body.message, body.mode)
+        return _edit(name, lambda q: setupchat.record(q, body.message, body.mode, rev))
     target, _ = pipeline.chat_target(p, body.target)  # 기다리는 동안 아크가 붙어도 처음 대상을 기록한다
     scope = ChatScope(target=target, act=body.act, episode=body.episode, mode=body.mode, draft=body.draft)
     rev = pipeline.revise_plot(get_llm("plan"), p, body.message, scope)
@@ -1231,7 +1234,7 @@ class ChatApply(BaseModel):
     draft: list[str] = []  # 다음 아크 변경안: 화면이 초안에 넣은 부분 ('arc'). 작품은 바꾸지 않고 기록만 한다
     candidate: int | None = None  # 본문 부분 수정: 넣을 후보 번호 (0부터)
     text: str | None = None  # 본문 부분 수정: 작가가 손본 후보
-    fields: list[str] = []  # 문체 대화: 적용할 칸 이름 (StyleProfile 칸)
+    fields: list[str] = []  # 문체 대화: 적용할 칸 이름 (StyleProfile 칸). 설정 대화: 적용할 부분 id (setupchat.part_ids)
     push: bool = False  # 문체 대화: 연결된 라이브러리 항목에도 새 버전으로 올린다
 
 
@@ -1257,6 +1260,10 @@ def chat_apply(name: str, topic: str, i: int, body: ChatApply) -> Project:
                 asked = q.chat("style").messages[i - 1].text if i else ""
                 _style_push(q, f"대화로 다듬음: {asked[:60]}" if asked else f"대화로 다듬음 ({len(done)}칸)")
         return _edit(name, fn)
+    if topic == setupchat.TOPIC:
+        if any(x.startswith("r:") for x in body.fields):  # 자동 집필이 반영하는 관계와 겹치지 않게
+            _not_auto(name)
+        return _edit(name, lambda q: setupchat.apply(q, i, body.fields))
     p = _load(name)
     msgs = _chat(p, topic).messages
     if not 0 <= i < len(msgs) or msgs[i].revision is None:
@@ -1279,7 +1286,8 @@ def chat_dismiss(name: str, topic: str, i: int) -> Project:
 
     def fn(p: Project) -> None:
         msgs = p.chat(topic).messages
-        if not 0 <= i < len(msgs) or (msgs[i].revision is None and msgs[i].passage is None and msgs[i].style is None):
+        if not 0 <= i < len(msgs) or (msgs[i].revision is None and msgs[i].passage is None and msgs[i].style is None
+                                      and msgs[i].setup is None):
             raise HTTPException(404, "변경안이 있는 메시지가 아니에요")
         if not msgs[i].outcome:
             msgs[i].outcome = "dismissed"
@@ -1312,6 +1320,20 @@ def style_chat_undo(name: str, i: int, body: StyleUndo) -> dict:
         out["restored"], out["kept"] = pipeline.undo_style_chat(p, i)
         if body.push and out["restored"]:
             _style_push(p, "대화로 다듬은 것 취소")
+    p = _edit(name, fn)
+    return {"project": p, **out}
+
+
+@app.post("/api/projects/{name}/chat/setup/{i}/undo")
+def setup_chat_undo(name: str, i: int) -> dict:
+    """적용한 설정 변경안을 취소한다. 그 뒤에 다시 고친 부분과 이미 쓰이는 새 인물은 그대로 둔다. 변경안은 다시 고를 수 있게 열린다."""
+    out: dict = {}
+
+    def fn(p: Project) -> None:
+        msg = setupchat.message(p, i)
+        if any(x.startswith("r:") for x in msg.applied):
+            _not_auto(name)
+        out["restored"], out["kept"] = setupchat.undo(p, i)
     p = _edit(name, fn)
     return {"project": p, **out}
 
@@ -2794,9 +2816,11 @@ def foreshadow_prune(name: str) -> Project:
 # ---------- 상태창 (canon/statwin.py) ----------
 
 class StatChange(BaseModel):
-    """화별 비교표에서 그 화에 바뀐 칸 하나."""
+    """화별 비교표에서 그 화에 바뀐 칸 하나. 목록 항목(스킬 · 특성 · 인벤토리)은 더한 것 · 뺀 것도."""
     before: str
     source: Literal["ai", "author", "both"]
+    added: list[str] = []
+    removed: list[str] = []
 
 
 class StatColumn(BaseModel):

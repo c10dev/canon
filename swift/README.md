@@ -42,7 +42,7 @@ canon-probe            개발용: 실제 서버 응답이 타입대로 읽히는
 | `CanonStore` | `ProjectDocument`(연 작품: 받기, `edit`, 고친 표시, `save` 의 409 충돌 · 덮기, 서버가 지킨 칸 알림, 작업이 쓴 화만 받기 `merge`), `JobCenter`(작업 시작 · 멈추기 · 지켜보기, 검토를 기다리는 결과 `results` 와 실패 `failures`), `ProjectStoring` · `JobServing` |
 | `FeatureProjects` | 작품 목록: `ProjectsModel`, `ProjectCardText`(웹 `projectNext`), `LiveProjectListing`, `ProjectsView` |
 | `FeatureHome` | 작품 홈: `HomeSummary`(웹 `viewHome` · `nextStep` · `currentEp`), `HomeView` |
-| `FeatureStatWin` | 상태창 수치: `StatWinModel`, `StatWinText`(웹 `swResolve` 등), `StatCell`(비교표 칸), `LiveStatWin`, `StatWinScreen` |
+| `FeatureStatWin` | 상태창 수치: `StatWinModel`, `StatWinText`(틀 이름 · 순서, 보낼 값. `+3` · `+독 내성` 계산은 서버 `statwin.resolve` 가 한다), `StatCell`(비교표 칸), `LiveStatWin`, `StatWinScreen` |
 | `FeatureForeshadow` | 복선 센터: `ForeshadowModel`, `ForeshadowChange`(고치기 · 걸린 문장 지우기 · 정리), `ForeshadowText`(웹 `fsItem` · `fsShown`), `ForeshadowTrack`(웹 `fsTrack`), `LiveForeshadowService`, `ForeshadowView` |
 | `FeatureUsage` | 사용량 · 비용: `UsageModel`(기간 · 작품 거르기, 가격표 고치기 · 되돌리기), `UsageText` · `UsageChart`(웹 `usage.js` 문구 · 막대), `LiveUsageSource`, `UsageView` |
 | `FeatureCast` | 인물 · 관계도: `CastModel`(시점 재생, 고르기, 배치), `CastText`(웹 `cast.js` 문구), `WarmthBand`, `CastLayout`(힘 배치 · 선 모양), `CastHit`, `LiveCastSource`(작품 전체 + `cast_view`), `DefaultsLayoutStore`, `CastScreen` |
@@ -116,7 +116,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | 4 | `FeatureReview` | 상태 승인 (변경안 만들기 · 고르기 · 고치기 · 반영, 관계 미리 보기, 상태창 줄, 복선 문장, 반영 뒤 고친 화 다시 맞추기, 반영 취소) | `app.js` `restate.js` `statwin.js`(`swDeltaRows`) `foreshadow.js`(`fsClueRows`) | 작업 `state`, `apply_state`, `apply_restate`, `keep_state`, `revert`, `preview`(`RelationPreview`) — **됨**. 채팅 앱 JSON 은 작업지시서 화면이, 자동 집필 변경안은 자동 집필 화면(`auto/review`)이 검토 대기로 넘긴다 |
 | 5 | `FeaturePlot` | 기승전결 · 플롯 / 부 · 아크 · 플롯, AI 대화 | `app.js` `chat.js` `insert.js` `convert.js` | `plots`, `chat`, `series`, `arcs` — **됨** (`viewArc` · `viewSerial` · `insert.js`, 응답 `Renumbered` · 본문 `Recap`). 남음: AI 대화 `chat.js`, 단편 → 장편 전환 `convert.js`, 여는 방식 `opening.js`, 화별 시점 칸 `povField`, 새 인물 만들기 · 등록(`castQuickEdit`), 새 장소 후보 안내(`placeCandNotes`), 자동 집필 중인 화 잠금(`autoEp`) |
 | 6 | `FeatureSetup`, `FeatureStyle` | 설정 도우미, 문체 레퍼런스 | `app.js` `mystyle.js` | `suggest`, `names`, `relation_views`, `style`, `styles` — **됨** (남음: 인물 서술 말투 `voiceField`, 삽화 외형 태그 `visualFields`, 이름 칸으로 가기 단추, '내 수정에서 배우기' 카드, 문체 라이브러리 화면 · 버전 목록) |
-| 7 | `FeatureCast` | 인물 · 관계도 (관계도 재생, 인물 · 두 사람 상세, 추이 그래프, 등장표) | `cast.js` | `cast_view`(`CastView`) — **됨**. 수치 직접 보정(`adjust_tie`)과 말로 · 숫자로 저장(`PUT .../view`)은 아직 웹에서 |
+| 7 | `FeatureCast` | 인물 · 관계도 (관계도 재생, 인물 · 두 사람 상세, 추이 그래프, 등장표) | `cast.js` | `cast_view`(`CastView`) — **됨**. 수치 직접 보정(`adjust_tie`)과 말로 · 숫자로 저장(`PUT .../view`), 인물 상태창 탭(`castSheet`)은 아직 웹에서 |
 | 7 | `FeatureForeshadow` | 복선 센터 | `foreshadow.js` | `foreshadow_*` — **됨** (본문에서 문장 골라 걸기는 3, `fsClueRows` 는 4에서) |
 | 7 | `FeatureStatWin` | 상태창 수치 (항목 고치기, 틀, 복사, 서식, 화별 변화 표) | `statwin.js` (`swDeltaRows` 는 4 상태 승인) | `statwin_view`(`StatwinView`), `statwin_set`, `statwin_template` — **됨** |
 | 7 | `FeatureAuto` | 자동 집필 (실행 상태 · 진행 로그, 시작 · 일시정지 · 이어 가기 · 중지, 승인 정책, 비용 · 시간 추정, 배치, 검토 대기 화, 검토 없이 반영한 화) | `auto.js` | `auto_*`(`AutoView` · `AutoEstimate`), 검토 대기 변경안을 상태 승인 결과로 두기 `auto_review` — **됨**. 남음: 시작 전 집필 화면의 저장하지 않은 본문 초안 저장(`autoFlushDrafts`), 집필 · 플롯 · 홈 화면의 잠금 안내(`autoLockNote` · `autoEp`, 상태 승인은 됨), 홈의 자동 집필 줄, 오류 안내의 '모델 · API 키 설정' 단추 |
@@ -162,7 +162,6 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | `ProjectCardText` | `viewProjects` · `projectNext` |
 | `HomeSummary` | `viewHome` · `nextStep` · `currentEp` · `actGroups` |
 | `SaveText` · `ProjectDocument.edited` | `save()` 의 토스트와 `edited` |
-| `StatWinText.resolve` | `statwin.js` `swResolve` (서버 `statwin.resolve`, 시험은 `tests/test_statwin.py` 의 `test_resolve` 와 같은 사례) |
 | `StatWinText.pick` · `outgoing` · `presetLabel`, `StatCell` | `statwin.js` `swLoad` · `swSave` · `swEditor` · `swTimeline` |
 | `WarmthBand` (경계 -0.6 · -0.2 · 0.2 · 0.6, 값이 경계보다 작으면 그 구간) | `cast.js` `WARMTH_BANDS`, 서버 `dynamics.warmth_word` |
 | `CastText`, `CastText.fixed`(JS `toFixed` 반올림) | `cast.js` `tieText` · `tensionText` · `frameLabel` · `castTimeline` · `castChart` 범위, `app.js` `GOOD_EVENTS` · `INTENSITY` |
@@ -170,7 +169,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | `ReviewText.defaultPicks` · `picked` · `total` · `applyReasons` | `app.js` `setDelta` · `pickedDelta` · `viewReview` 의 `total` · `applyDelta` 의 묻는 말 |
 | `ReviewText.stateRows` · `newKnows` · `unknown` · `relation` · `name` · `secret` · `goodEvents` · `intensity` | `viewReview` 의 인물 · 관계 줄, `charName` · `secretLabel` · `GOOD_EVENTS` · `INTENSITY` |
 | `ReviewText.relationLines` (`pair`) | `relationLines` |
-| `ReviewText.statRows` · `resolve` | `statwin.js` `swDeltaRows` · `swResolve` (서버 `statwin.resolve`, 시험은 `tests/test_statwin.py` 의 `test_resolve` 와 같은 사례. `StatWinText.resolve` 와 같은 규칙) |
+| `ReviewText.statRows` · `resolve` | `statwin.js` `swDeltaRows` · `swResolve` (서버 `statwin.resolve`, 시험은 `tests/test_statwin.py` 의 `RESOLVE_CASES` 와 같은 사례. 반영은 서버가 다시 계산한다) |
 | `ReviewText.clueRows` | `foreshadow.js` `fsClueRows` |
 | `ReviewText` 의 k · o · t 고르기, `settingLabel` · `settingValue` · `timeText` · `deadlineDay` | `timeline.js` `tlDeltaCard`, `charlog.js` `scDeltaCard` · `SC_LABELS`(서버 `charlog.LOG_FIELDS`). 인물 설정 바꾸기(t)는 기본으로 고르지 않는다 |
 | `ReviewText.editedAfterFinal` · `laterWritten` · `restateItems` · `restatePicks` · `restateBody` · `restateSkipped` · `restateDone` | `restate.js` `editedAfterFinal`(서버 `pipeline.edited_after_final`) · `laterWritten` · `rsItems` · `rsPicks` · `applyRestate` · `restateCard` |

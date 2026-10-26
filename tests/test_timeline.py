@@ -143,3 +143,28 @@ def test_cli_and_web(tmp_path, monkeypatch, capsys):
     p = c.delete(f"/api/projects/tl/timeline/deadlines/{new['id']}").json()
     assert all(d["what"] != "결혼식" for d in p["timeline"]["deadlines"])
     assert c.put("/api/projects/tl/timeline/deadlines", json={"what": ""}).status_code == 400
+
+
+def test_calendar_weekdays_in_blocks():
+    p = _short(8)
+    assert timeline.calendar(p) == (None, False, None) and timeline.day_label(p, 3) == "" and timeline.weekday_hint(p, 3) == ""
+    p.timeline.start = "1일째 월요일"
+    assert timeline.day_label(p, 30) == "화요일"  # 월요일로부터 29일 뒤
+    assert timeline.weekday_hint(p, 2) == "2일째는 화요일. 같은 요일: 9 · 16 · 23 · 30 · 37일째"
+    p.timeline.start = "2024년 3월 4일 금요일"  # 연도가 있으면 날짜로 요일을 센다
+    assert timeline.calendar(p)[2] == 0 and timeline.day_label(p, 1) == "3월 4일 월요일"
+    p.timeline.start = "2024년 12월 30일"
+    assert timeline.day_label(p, 3) == "2025년 1월 1일 수요일"
+    p.timeline.start = "2월 29일"
+    assert timeline.day_label(p, 2) == "3월 1일"
+
+    p = _play(_short(8), 1, 2)
+    p.timeline.start = "2024년 3월 4일 월요일"
+    p.episode(2).time.label = "화요일 저녁"  # AI 가 적은 요일 글은 계산한 것으로 바뀐다
+    assert timeline.when(p, p.episode(2).time) == "2일째 밤 (3월 5일 화요일)"
+    block = timeline.episode_block(p, 3)
+    assert "직전 화(2화) 끝: 2일째 밤 (3월 5일 화요일)" in block and "요일 셈: 2일째는 화요일" in block
+    assert "등대 축제 (5일째 = 3월 8일 금요일, 3일 남음" in block
+    assert "Canon 이 계산합니다" in timeline.state_rule(p, 3) and "«»" in timeline.state_rule(p, 3)
+    assert "직접 셈하지 말고" in timeline.check_rule(p, 3)
+    assert "«»" in prompts.state_prompt(p, 3)

@@ -7,6 +7,7 @@ AI 는 상태 변경안에 이번 화가 끝난 시점(며칠째, 시간대)과 
 from __future__ import annotations
 
 import re
+from datetime import date, timedelta
 
 from . import context
 from .schema import Deadline, Episode, Project, StateDelta, StoryTime
@@ -25,6 +26,77 @@ def fmt(t: StoryTime | None) -> str:
     if head and label:
         return f"{head} ({label})"
     return head or label
+
+
+# ---------- 달력: 기준(start)에서 날짜 · 요일 계산 ----------
+# AI 는 날짜 셈을 자주 틀린다(월요일에서 29일 뒤를 금요일로). 기준에 날짜나 요일이 있으면 Canon 이 센다.
+# 화면 tlCalendar · tlDayLabel(static/timeline.js)과 같은 규칙이라 함께 고친다.
+
+WEEKDAYS = "월화수목금토일"
+_YMD = re.compile(r"(\d{1,4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일")
+_MD = re.compile(r"(\d{1,2})\s*월\s*(\d{1,2})\s*일")
+_WD = re.compile(r"([월화수목금토일])요일")
+_DATE_WORDS = re.compile(r"\d+\s*(?:년|월|일)|요일")
+
+
+def calendar(p: Project) -> tuple[date | None, bool, int | None]:
+    """기준 글에서 (1일째 날짜, 연도를 아는지, 1일째 요일 0=월). 연도 없이 '3월 2일'만 있으면 2001년(2월 29일은 2000년)으로 센다.
+    연도가 있으면 요일은 날짜로 계산하고, 적은 요일은 무시한다. 모르면 None."""
+    text = p.timeline.start
+    wd_m = _WD.search(text)
+    wd = WEEKDAYS.index(wd_m.group(1)) if wd_m else None
+    m = _YMD.search(text)
+    if m:
+        try:
+            first = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            return first, True, first.weekday()
+        except ValueError:
+            return None, False, wd
+    m = _MD.search(text)
+    if m:
+        mo, d = int(m.group(1)), int(m.group(2))
+        try:
+            return date(2000 if (mo, d) == (2, 29) else 2001, mo, d), False, wd
+        except ValueError:
+            return None, False, wd
+    return None, False, wd
+
+
+def day_label(p: Project, day: int) -> str:
+    """날수의 날짜와 요일 ('3월 31일 화요일', 해가 바뀌면 '2025년 1월 2일 목요일', 요일만 알면 '화요일'). 모르면 빈 문자열."""
+    if day <= 0:
+        return ""
+    first, has_year, wd = calendar(p)
+    parts = []
+    if first:
+        x = first + timedelta(days=day - 1)
+        parts.append(f"{x.year}년 {x.month}월 {x.day}일" if has_year and x.year != first.year else f"{x.month}월 {x.day}일")
+    if wd is not None:
+        parts.append(WEEKDAYS[(wd + day - 1) % 7] + "요일")
+    return " ".join(parts)
+
+
+def when(p: Project, t: StoryTime | None) -> str:
+    """fmt 에 기준으로 계산한 날짜 · 요일을 붙인다. AI 가 적은 날짜 · 요일 글은 계산한 것으로 바꾸고 계절 같은 글만 남긴다."""
+    if t is None:
+        return ""
+    cal = day_label(p, t.day)
+    if not cal:
+        return fmt(t)
+    extra = t.label.strip()
+    if extra and not _DATE_WORDS.search(extra):
+        cal += f", {extra}"
+    head = " ".join(x for x in (f"{t.day}일째", t.part.strip()) if x)
+    return f"{head} ({cal})"
+
+
+def weekday_hint(p: Project, day: int, weeks: int = 5) -> str:
+    """'오늘(3일째)은 수요일. 같은 요일: 10 · 17 · 24 · 31 · 38일째'. 요일을 모르면 빈 문자열."""
+    _, _, wd = calendar(p)
+    if wd is None or day <= 0:
+        return ""
+    same = " · ".join(str(day + 7 * k) for k in range(1, weeks + 1))
+    return f"{day}일째는 {WEEKDAYS[(wd + day - 1) % 7]}요일. 같은 요일: {same}일째"
 
 
 def known(t: StoryTime | None) -> bool:
@@ -77,10 +149,11 @@ def open_deadlines(p: Project, n: int) -> list[Deadline]:
     return sorted(out, key=lambda d: (d.day <= 0, d.day, d.set_ep))
 
 
-def deadline_line(d: Deadline, day: int, ids: bool = False) -> str:
-    """'- 왕성 축제 첫날 (9일째, 6일 남음, '사흘 뒤')'. ids 는 상태 변경안처럼 id 로 가리켜야 할 때만."""
-    when = f"{d.day}일째" if d.day > 0 else ""
-    extra = ", ".join(x for x in (when, left(d, day), d.note.strip() and f"'{d.note.strip()}'") if x)
+def deadline_line(d: Deadline, day: int, ids: bool = False, p: Project | None = None) -> str:
+    """'- 왕성 축제 첫날 (9일째 = 3월 10일 일요일, 6일 남음, '사흘 뒤')'. ids 는 상태 변경안처럼 id 로 가리켜야 할 때만."""
+    cal = day_label(p, d.day) if p is not None else ""
+    at = (f"{d.day}일째" + (f" = {cal}" if cal else "")) if d.day > 0 else ""
+    extra = ", ".join(x for x in (at, left(d, day), d.note.strip() and f"'{d.note.strip()}'") if x)
     return f"- {d.what}{f' ({extra})' if extra else ''}{f' [{d.id}]' if ids else ''}"
 
 
@@ -91,7 +164,7 @@ def deadline_lines(p: Project, n: int, budget: int = 0, ids: bool = False) -> tu
     day = current_day(p, n)
     rows, size, cut = [], 0, 0
     for d in open_deadlines(p, n):
-        line = deadline_line(d, day, ids)
+        line = deadline_line(d, day, ids, p)
         if size + len(line) > budget and rows:
             cut += 1
             continue
@@ -113,19 +186,23 @@ def episode_block(p: Project, n: int) -> str:
     prev = prev_end(p, n)
     plan = _plot_time(p, n)
     rows, cut = deadline_lines(p, n)
-    if not (prev or plan or rows):
+    hint = weekday_hint(p, current_day(p, n) or (1 if n == 1 else 0))  # 1화는 1일째에서 시작한다
+    if not (prev or plan or rows or hint):
         return ""
     lines = []
     if p.timeline.start.strip():
         lines.append(f"기준: 1일째 = {p.timeline.start.strip()}")
     if prev:
         gap = "" if prev[0] == n - 1 else f" ({prev[0] + 1}화는 시점 기록 없음)" if prev[0] == n - 2 else f" ({prev[0] + 1}~{n - 1}화는 시점 기록 없음)"
-        lines.append(f"직전 화({prev[0]}화) 끝: {fmt(prev[1])}{gap}")
+        lines.append(f"직전 화({prev[0]}화) 끝: {when(p, prev[1])}{gap}")
     lines.append(f"이번 화 플롯의 시점: {plan}" if plan else "이번 화 플롯의 시점: 따로 없음 (직전 화 끝에서 바로 이어짐)")
+    if hint:
+        lines.append(f"요일 셈: {hint}")
     if rows:
         lines.append(f"열린 기한{f' (먼 것 {cut}개 생략)' if cut else ''}:")
         lines += rows
-    lines.append("- 지난 시간에 맞게 빛, 날씨, 계절, 피로, 상처, 배고픔이 달라집니다. 인물이 기한까지 남은 날을 말하면 위 날수와 맞춥니다.")
+    lines.append("- 지난 시간에 맞게 빛, 날씨, 계절, 피로, 상처, 배고픔이 달라집니다. 인물이 기한까지 남은 날을 말하면 위 날수와 맞춥니다."
+                 + (" 본문에서 날짜나 요일을 새로 말할 때는 위 요일 셈과 날짜를 따릅니다 (N일 뒤는 날수에 N을 더한 날)." if hint else ""))
     return "\n".join(lines)
 
 
@@ -137,7 +214,7 @@ def plan_block(p: Project, n: int) -> str:
     rows, cut = deadline_lines(p, n)
     if not (prev or rows):
         return ""
-    lines = [f"{prev[0]}화 끝: {fmt(prev[1])}"] if prev else []
+    lines = [f"{prev[0]}화 끝: {when(p, prev[1])}"] if prev else []
     if rows:
         lines.append(f"열린 기한{f' (먼 것 {cut}개 생략)' if cut else ''}:")
         lines += rows
@@ -155,7 +232,7 @@ def state_block(p: Project, n: int) -> str:
     lines = []
     if p.timeline.start.strip():
         lines.append(f"기준: 1일째 = {p.timeline.start.strip()}")
-    lines.append(f"직전 화({prev[0]}화) 끝: {fmt(prev[1])}" if prev else "앞 화 시점 기록 없음")
+    lines.append(f"직전 화({prev[0]}화) 끝: {when(p, prev[1])}" if prev else "앞 화 시점 기록 없음")
     if plan:
         lines.append(f"이번 화 플롯의 시점: {plan}")
     lines.append(f"열린 기한{f' (먼 것 {cut}개 생략)' if cut else ''}:\n" + "\n".join(rows) if rows else "열린 기한: 없음")
@@ -170,10 +247,12 @@ def state_rule(p: Project, n: int) -> str:
     count = (f"직전 화 끝 {prev[1].day}일째에서 이어 셉니다" if prev and prev[1].day > 0
              else "앞 화 기록이 없으면 1화가 시작한 날을 1일째로 보고 줄거리에서 짐작합니다")
     return (f"\n- time 에는 이번 화가 끝난 작품 속 시점을 적습니다. day 는 날수({count}), part 는 시간대(새벽, 아침, 낮, 오후, 저녁, 밤, 한밤 또는 '오후 3시쯤'), "
-            "label 은 본문이나 기준에서 드러난 날짜 · 요일 · 계절만 적습니다. 회상 · 외전처럼 메인 시간 밖의 화면 메인 시간 기준으로 적습니다(보통 직전 화 끝 그대로)."
+            + ("label 에는 계절이나 날씨처럼 날짜 밖의 것만 적습니다(날짜 · 요일은 기준으로 Canon 이 계산합니다). " if calendar(p) != (None, False, None)
+               else "label 은 본문이나 기준에서 드러난 날짜 · 요일 · 계절만 적습니다. ")
+            + "회상 · 외전처럼 메인 시간 밖의 화면 메인 시간 기준으로 적습니다(보통 직전 화 끝 그대로)."
             f"\n- 본문에서 앞으로 올 날이 정해지면(축제, 결혼식, '사흘 안에' 같은 약속이나 마감) deadlines_added 에 넣습니다. id 는 dl-{n:02d}-키워드, "
             "day 는 그날의 날수, note 는 본문에 나온 말 그대로입니다. 열린 기한의 날이 바뀌면 같은 id 로 넣고, 그날이 와서 일이 일어났거나 기한이 없어졌으면 deadlines_done 에 id 를 넣습니다."
-            "\n- 본문 속 시간이 직전 화 끝이나 열린 기한과 어긋나면(밤이었는데 설명 없이 낮, 남은 날 수가 틀림) warnings 에 적습니다.")
+            "\n- 본문 속 시간이 직전 화 끝이나 열린 기한과 어긋나면(밤이었는데 설명 없이 낮, 남은 날 수나 요일이 틀림) warnings 에 적고, 어긋난 본문 문장을 «» 안에 글자 그대로 넣습니다.")
 
 
 def check_rule(p: Project, n: int) -> str:
@@ -182,6 +261,7 @@ def check_rule(p: Project, n: int) -> str:
         return ""
     return ("\n- 작품 속 시간: 위 '작품 속 시간'의 직전 화 끝 시점, 이번 화 플롯의 시점, 기한까지 남은 날과 어긋나는지, "
             "한 화 안에서 시간대가 설명 없이 뒤바뀌는지(밤 장면이 다음 문단에 한낮), 지난 시간에 맞지 않는 상처 · 날씨 · 계절이 있는지 봅니다. "
+            "날짜 · 요일은 직접 셈하지 말고 위 요일 셈과 날짜를 근거로 봅니다. "
             "근거가 시간 기록이면 source_episode 는 0, source_quote 는 그 줄입니다.")
 
 
@@ -301,7 +381,7 @@ def rows(p: Project) -> list[dict]:
     for e in sorted(p.episodes, key=lambda x: x.plot.number):
         gap = e.time.day - last if e.time.day > 0 and last > 0 else None
         out.append({"episode": e.plot.number, "title": e.plot.title, "status": e.status, "plan": e.plot.time,
-                    "time": e.time, "text": fmt(e.time), "gap": gap})
+                    "time": e.time, "text": when(p, e.time), "gap": gap})
         if e.time.day > 0:
             last = e.time.day
     return out
@@ -315,7 +395,7 @@ def view(p: Project) -> dict:
     for d in sorted(p.timeline.deadlines, key=lambda d: (bool(d.done_ep), d.day <= 0, d.day, d.set_ep)):
         items.append({**d.model_dump(), "left": "" if d.done_ep else left(d, day)})
     prev = prev_end(p, n)
-    return {"day": day, "now": fmt(prev[1]) if prev else "", "rows": rows(p), "deadlines": items}
+    return {"day": day, "now": when(p, prev[1]) if prev else "", "rows": rows(p), "deadlines": items}
 
 
 def describe(p: Project) -> str:

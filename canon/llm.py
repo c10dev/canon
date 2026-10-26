@@ -567,12 +567,15 @@ def get_llm(stage: str | None = None) -> LLM:
     return llm
 
 
+_PROMPT = {"prompt": True}  # 프롬프트에 넣지 않는 칸(인물 신체 프로필 등)을 모델이 빼게 하는 표시
+
+
 def dump(model: BaseModel | list | dict) -> str:
     """프롬프트에 넣을 JSON 문자열."""
     if isinstance(model, BaseModel):
-        data = model.model_dump(exclude_defaults=False)
+        data = model.model_dump(exclude_defaults=False, context=_PROMPT)
     elif isinstance(model, list):
-        data = [m.model_dump() if isinstance(m, BaseModel) else m for m in model]
+        data = [m.model_dump(context=_PROMPT) if isinstance(m, BaseModel) else m for m in model]
     else:
         data = model
     return json.dumps(data, ensure_ascii=False, indent=2)

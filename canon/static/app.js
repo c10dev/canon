@@ -712,6 +712,23 @@ function ep(n) {
   return P().episodes.find((e) => e.plot.number === n);
 }
 
+// 신체 프로필 칸 (Character.body). 작가가 정하고 인물 상태창에만 보인다. 프롬프트에는 넣지 않는다
+const BODY_FIELDS = [['height', '키'], ['weight', '몸무게'], ['build', '체형'], ['measurements', '쓰리사이즈'], ['features', '신체 특징']];
+
+/** 나이 칸으로 미성년인지. 19 미만 숫자, 10대, 학생 · 아이 같은 말이면 미성년이다. 모르면 false.
+    미성년 인물은 쓰리사이즈 칸을 보이지도 받지도 않는다 */
+function isMinorAge(age) {
+  const a = String(age || '');
+  if (/초등|중학|고등|고교|소년|소녀|어린|아이|미성년|10\s*대/.test(a)) return true;
+  const m = a.match(/\d+/);
+  return !!m && Number(m[0]) < 19;
+}
+
+function bodyRows(c) {
+  const b = c.body || {};
+  return BODY_FIELDS.filter(([k]) => (b[k] || '').trim() && !(k === 'measurements' && isMinorAge(c.age))).map(([k, label]) => [k, label, b[k].trim()]);
+}
+
 function charName(id) {
   const c = P().characters.find((x) => x.id === id) || (P().cast_candidates || []).find((x) => x.id === id);
   return c ? c.name || id : id;
@@ -1298,7 +1315,7 @@ const actions = {
     const ids = new Set(cs.map((c) => c.id));
     let id = ids.has('hero') ? '' : 'hero';
     for (let n = cs.length + 1; !id; n++) if (!ids.has('char' + n)) id = 'char' + n;
-    cs.push({ id, name: '', role: id === 'hero' ? '주인공' : '조연', age: '', gender: '', appearance: '', personality: '', background: '', goal: '', wound: '', speech_style: '', secrets: [], arc: '' });
+    cs.push({ id, name: '', role: id === 'hero' ? '주인공' : '조연', age: '', gender: '', appearance: '', personality: '', background: '', goal: '', wound: '', speech_style: '', secrets: [], arc: '', body: {} });
     markDirty();
     render();
   },
@@ -3302,6 +3319,19 @@ function placeKindOptions() {
   return ['<option value="">종류 무관</option>', ...((st && st.place_kinds) || []).map((k) => `<option value="${esc(k)}"${S.placeKind === k ? ' selected' : ''}>${esc(k)}</option>`)].join('');
 }
 
+/** 설정 도우미 인물 카드의 신체 프로필. 미성년 인물은 쓰리사이즈 칸을 두지 않는다 */
+function bodyFields(c, b) {
+  if (!c.body || typeof c.body !== 'object') c.body = {};  // 예전 화면에서 만든 인물도 칸을 고칠 수 있게
+  const minor = isMinorAge(c.age);
+  const filled = bodyRows(c).length;
+  return `<details><summary>신체 프로필 <span class="small">${filled ? `· ${filled}칸 채움 ` : ''}· 인물 상태창에만 보여요</span></summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
+    <div class="grid-2">${input('키', b + '.body.height', { placeholder: '예: 165cm' })}${input('몸무게', b + '.body.weight', { placeholder: '예: 48kg' })}</div>
+    <div class="grid-2">${input('체형', b + '.body.build', { placeholder: '예: 마른 근육형' })}${minor ? '' : input('쓰리사이즈', b + '.body.measurements', { placeholder: '예: 84-58-86' })}</div>
+    ${minor ? '<div class="small">나이로 보아 미성년 인물이라 쓰리사이즈 칸은 두지 않아요.</div>' : ''}
+    ${input('신체 특징', b + '.body.features', { rows: 2, placeholder: '예: 왼손잡이, 오른쪽 어깨에 화상 자국' })}
+    <div class="small">AI 프롬프트에는 넣지 않아요. 본문에 이어지게 할 외모는 위 '외모' 칸에 적어요.</div></div></details>`;
+}
+
 function viewSetup() {
   const p = P();
   const chars = p.characters.map((c, i) => {
@@ -3324,6 +3354,7 @@ function viewSetup() {
         ${input('성격', b + '.personality', { rows: 2 })}${input('배경', b + '.background', { rows: 2 })}${input('외모', b + '.appearance')}
         ${input('아크', b + '.arc', { hint: '시작 → 결말' })}${input('id', b + '.id', { hint: '관계와 플롯이 인물을 찾는 값. 보통 바꿀 필요 없어요' })}
       </div></details>
+      ${bodyFields(c, b)}
       ${visualFields(c)}
     </article>`;
   }).join('');
@@ -3332,7 +3363,7 @@ function viewSetup() {
 
   // 인물이 없으면 첫 할 일은 AI 제안이다. 인물이 생기면 다음 단계(문체)를 앞세운다
   const first = !p.characters.length;
-  return `${header('1단계', '설정 도우미', '채운 칸은 그대로 두고, 빈칸만 AI가 제안해요. 제안에서 원하는 인물과 관계만 골라 적용하세요.', `${((b) => `<button class="btn${first ? ' primary' : ''}" data-action="suggest"${b.attr}>${b.label}</button>`)(jobBtn('suggest', null, '빈칸 AI 제안받기'))}<a class="btn${first ? '' : ' primary'}" href="${base()}/style">문체로</a>`)}
+  return `${header('1단계', '설정 도우미', '채운 칸은 그대로 두고, 빈칸만 AI가 제안해요. 제안에서 원하는 인물과 관계만 골라 적용하세요. 말로 고쳐 가려면 대화로 다듬기를 여세요.', `${((b) => `<button class="btn${first ? ' primary' : ''}" data-action="suggest"${b.attr}>${b.label}</button>`)(jobBtn('suggest', null, '빈칸 AI 제안받기'))}${chatButton('setup')}<a class="btn${first ? '' : ' primary'}" href="${base()}/style">문체로</a>`)}
     ${aiNote()}
     ${S.suggestion ? viewSuggestion() : ''}
     <nav class="jump-nav" aria-label="설정 구역">${[['setup-basic', '기본 정보'], ['setup-world', '세계관'], ['setup-chars', `인물 ${p.characters.length}`], ['setup-rels', `관계 ${p.relationships.length}`]]
@@ -3377,7 +3408,7 @@ function viewSetup() {
           ${rels ? (autoOn() ? `<fieldset disabled class="lockset" aria-describedby="rel-lock">${rels}</fieldset>` : rels) : '<div class="small">관계가 없어요.</div>'}
         </section>
       </div>
-    </div>`;
+    </div>${chatPanel('setup')}`;
 }
 
 /** 제안 인물이 이미 있는 인물과 같은 사람이다: id 가 같고 이름도 같다 (이름이 다르면 서버가 새 id 로 넣는다, pipeline.apply_setup). */
@@ -4344,6 +4375,7 @@ function viewWrite(n) {
         ${e.plot.reader_question ? `<div class="field"><span class="small">독자가 들고 갈 질문</span><div style="font-size:0.8125rem">${esc(e.plot.reader_question)}</div></div>` : ''}
         ${e.summary ? `<div class="field"><span class="small">승인된 요약</span><div style="font-size:0.8125rem;line-height:1.6">${esc(e.summary)}</div></div>` : ''}
         ${issuesBlock(e)}
+        ${warnBlock(e)}
         ${e.text && !autoOn() ? ((b) => `<button class="btn small" data-action="checkEp" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('check', n, e.issues.length ? '다시 검수' : '검수하기')) : ''}
         ${deviceBadges(n)}
         <a href="${base()}/arc" data-action="gotoPlot" data-arg="${n}" style="font-size:0.8125rem">플롯 보기</a>
@@ -4458,7 +4490,7 @@ function viewReview(n) {
   const section = (title, body) => `<section class="card"><h2>${title}</h2>${body || '<div class="small">변경 없음</div>'}</section>`;
 
   return top(`${(S.deltaOrig[n] || {}).source === 'chat' ? '채팅 앱에서 가져온' : 'AI가 본문에서 뽑은'} 변경안이에요. 체크한 항목만 데이터에 반영되고, 반영해야 다음 화를 쓸 수 있어요.`, `<span class="small">${total}건 중 <strong class="pick-count" style="color:var(--text)">${picked}</strong>건 선택</span>`) + stale + issues +
-    (d.warnings.length ? `<section class="note warn"><strong>경고 ${d.warnings.length}건 · 본문을 고칠지 확인하세요</strong><ul style="padding-left:18px;margin-top:6px">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul><a href="${base()}/write/${n}" style="color:inherit;font-weight:700">본문으로</a></section>` : '') +
+    (d.warnings.length ? `<section class="note warn"><strong>경고 ${d.warnings.length}건 · 본문을 고칠지 확인하세요</strong><ul style="padding-left:18px;margin-top:6px">${warnItems(n, d.warnings)}</ul><a href="${base()}/write/${n}" style="color:inherit;font-weight:700">본문으로</a></section>` : '') +
     section('인물 상태', chars) + scDeltaCard(n, d, box) +
     (newChars ? section('새로 나온 인물', newChars) : '') +
     (newPlaces ? section('새로 나온 장소', `<div class="small">반영하면 인과율에 장소로 등록돼요. 그 뒤로는 이 장소가 나오는 화를 쓸 때 설명이 함께 들어가요.</div>${newPlaces}`) : '') +
