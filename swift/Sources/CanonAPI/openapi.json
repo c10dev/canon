@@ -5764,9 +5764,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Foreshadow Center"
+         "$ref": "#/components/schemas/ForeshadowCenter"
         }
        }
       }
@@ -8455,6 +8453,193 @@
      "planted_ep"
     ],
     "title": "Foreshadow"
+   },
+   "ForeshadowCenter": {
+    "properties": {
+     "total": {
+      "type": "integer",
+      "title": "Total"
+     },
+     "open": {
+      "type": "integer",
+      "title": "Open"
+     },
+     "resolved": {
+      "type": "integer",
+      "title": "Resolved"
+     },
+     "rate": {
+      "type": "number",
+      "title": "Rate"
+     },
+     "broken": {
+      "type": "integer",
+      "title": "Broken"
+     },
+     "overdue": {
+      "type": "integer",
+      "title": "Overdue"
+     },
+     "stale": {
+      "type": "integer",
+      "title": "Stale"
+     },
+     "done": {
+      "type": "integer",
+      "title": "Done"
+     },
+     "last_ep": {
+      "type": "integer",
+      "title": "Last Ep"
+     },
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/ForeshadowCenterItem"
+      },
+      "type": "array",
+      "title": "Items"
+     }
+    },
+    "type": "object",
+    "required": [
+     "total",
+     "open",
+     "resolved",
+     "broken",
+     "overdue",
+     "stale",
+     "done",
+     "last_ep",
+     "items"
+    ],
+    "title": "ForeshadowCenter",
+    "description": "복선 센터 계산값 (foreshadows.center)."
+   },
+   "ForeshadowCenterClue": {
+    "properties": {
+     "episode": {
+      "type": "integer",
+      "title": "Episode"
+     },
+     "quote": {
+      "type": "string",
+      "title": "Quote"
+     },
+     "by": {
+      "type": "string",
+      "title": "By"
+     },
+     "broken": {
+      "type": "boolean",
+      "title": "Broken"
+     }
+    },
+    "type": "object",
+    "required": [
+     "episode",
+     "quote",
+     "by",
+     "broken"
+    ],
+    "title": "ForeshadowCenterClue",
+    "description": "복선에 걸린 문장 하나."
+   },
+   "ForeshadowCenterItem": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id",
+      "description": "예: fs-03-locket"
+     },
+     "description": {
+      "type": "string",
+      "title": "Description"
+     },
+     "planted_ep": {
+      "type": "integer",
+      "title": "Planted Ep"
+     },
+     "payoff_ep": {
+      "type": "integer",
+      "title": "Payoff Ep"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "open",
+       "resolved"
+      ],
+      "title": "Status"
+     },
+     "scope": {
+      "type": "string",
+      "enum": [
+       "arc",
+       "part",
+       "series"
+      ],
+      "title": "Scope"
+     },
+     "due_ep": {
+      "type": "integer",
+      "title": "Due Ep",
+      "description": "회수 예정 화. 정하지 않았으면 비움"
+     },
+     "plants": {
+      "items": {
+       "$ref": "#/components/schemas/ForeshadowCenterClue"
+      },
+      "type": "array",
+      "title": "Plants"
+     },
+     "payoffs": {
+      "items": {
+       "$ref": "#/components/schemas/ForeshadowCenterClue"
+      },
+      "type": "array",
+      "title": "Payoffs"
+     },
+     "last_seen": {
+      "type": "integer",
+      "title": "Last Seen"
+     },
+     "planned": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Planned"
+     },
+     "overdue": {
+      "type": "boolean",
+      "title": "Overdue"
+     },
+     "stale": {
+      "type": "boolean",
+      "title": "Stale"
+     },
+     "broken": {
+      "type": "integer",
+      "title": "Broken"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "description",
+     "planted_ep",
+     "status",
+     "scope",
+     "plants",
+     "payoffs",
+     "last_seen",
+     "planned",
+     "overdue",
+     "stale",
+     "broken"
+    ],
+    "title": "ForeshadowCenterItem",
+    "description": "복선 하나와 계산값. 서버가 늘 채우는 칸은 앱에서 옵셔널이 되지 않게 기본값을 뺀다."
    },
    "ForeshadowClue": {
     "properties": {

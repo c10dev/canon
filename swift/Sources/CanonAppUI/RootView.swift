@@ -2,6 +2,7 @@
 import CanonCore
 import CanonStore
 import CanonUI
+import FeatureForeshadow
 import FeatureHome
 import FeatureProjects
 import FeatureStatWin
@@ -76,6 +77,7 @@ public struct RootView: View {
         switch screen {
         case .home: if let doc = model.document { HomeView(document: doc) { model.screen = $0 } }
         case .statwin: StatWinScreen(server: model.server, project: project)
+        case .foreshadow: ForeshadowView(server: model.server, project: project)
         default:
             NotPortedYet(screen.label(serial: false))
         }

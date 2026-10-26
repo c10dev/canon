@@ -43,6 +43,7 @@ canon-probe            개발용: 실제 서버 응답이 타입대로 읽히는
 | `FeatureProjects` | 작품 목록: `ProjectsModel`, `ProjectCardText`(웹 `projectNext`), `LiveProjectListing`, `ProjectsView` |
 | `FeatureHome` | 작품 홈: `HomeSummary`(웹 `viewHome` · `nextStep` · `currentEp`), `HomeView` |
 | `FeatureStatWin` | 상태창 수치: `StatWinModel`, `StatWinText`(웹 `swResolve` 등), `StatCell`(비교표 칸), `LiveStatWin`, `StatWinScreen` |
+| `FeatureForeshadow` | 복선 센터: `ForeshadowModel`, `ForeshadowChange`(고치기 · 걸린 문장 지우기 · 정리), `ForeshadowText`(웹 `fsItem` · `fsShown`), `ForeshadowTrack`(웹 `fsTrack`), `LiveForeshadowService`, `ForeshadowView` |
 | `CanonAppUI` | `AppModel`(서버 · 작품 · 화면 · 작업 · 연 작품), `RootView`, 저장 띠 `SaveBar`, 서버 주소 화면 |
 
 ## 개발 명령
@@ -105,6 +106,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | 6 | `FeatureSetup`, `FeatureStyle` | 설정 도우미, 문체 레퍼런스 | `app.js` `mystyle.js` | `suggest`, `style`, `styles` |
 | 7 | 작품 도구 | 인물 · 관계도, 지도, 복선 센터, 상태창 수치, 이야기 줄기, 인과율, 작업지시서, 자동 집필 | `cast.js` `atlas.js` `foreshadow.js` `statwin.js` `lines.js` `causal.js` `auto.js` | 각 화면 |
 | 7 | `FeatureStatWin` | 상태창 수치 (항목 고치기, 틀, 복사, 서식, 화별 변화 표) | `statwin.js` (`swDeltaRows` 는 4 상태 승인) | `statwin_view`(`StatwinView`), `statwin_set`, `statwin_template` — **됨** |
+| 7 | 작품 도구 (`FeatureForeshadow` …) | 인물 · 관계도, 지도, 복선 센터, 상태창 수치, 이야기 줄기, 인과율, 작업지시서, 자동 집필 | `cast.js` `atlas.js` `foreshadow.js` `statwin.js` `lines.js` `causal.js` `auto.js` | 각 화면. 복선 센터는 `foreshadow_*` — **됨** (본문에서 문장 골라 걸기는 3, `fsClueRows` 는 4에서) |
 | 8 | 본편과 분리 · 설정 | 연구, 사용량, 모델 · API 키 설정 | `usage.js` `claude.js` `vertex.js` | `research`, `usage`, `config` |
 
 새 화면 모듈을 만들 때:
