@@ -4,6 +4,7 @@ import CanonStore
 import CanonUI
 import FeatureHome
 import FeatureProjects
+import FeatureStatWin
 import SwiftUI
 
 /// 앱 첫 화면: 왼쪽은 작품 목록이나 작품 메뉴, 오른쪽은 고른 화면.
@@ -74,6 +75,7 @@ public struct RootView: View {
     private func screen(_ screen: Screen, project: String) -> some View {
         switch screen {
         case .home: if let doc = model.document { HomeView(document: doc) { model.screen = $0 } }
+        case .statwin: StatWinScreen(server: model.server, project: project)
         default:
             NotPortedYet(screen.label(serial: false))
         }

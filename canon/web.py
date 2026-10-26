@@ -2187,8 +2187,30 @@ def foreshadow_prune(name: str) -> Project:
 
 # ---------- 상태창 (canon/statwin.py) ----------
 
+class StatChange(BaseModel):
+    """화별 비교표에서 그 화에 바뀐 칸 하나."""
+    before: str
+    source: Literal["ai", "author", "both"]
+
+
+class StatColumn(BaseModel):
+    """화별 비교표의 한 화. values 는 그 화가 끝났을 때의 값, changed 는 그 화에 바뀐 항목."""
+    episode: int
+    values: dict[str, str]
+    changed: dict[str, StatChange]
+
+
+class StatwinView(BaseModel):
+    """인물 하나의 상태창 화면 (statwin.timeline + render + PRESETS)."""
+    names: list[str]
+    columns: list[StatColumn]
+    current: list[StatValue]
+    text: str
+    presets: dict[str, list[str]]
+
+
 @app.get("/api/projects/{name}/statwin/{cid}")
-def statwin_view(name: str, cid: str) -> dict:
+def statwin_view(name: str, cid: str) -> StatwinView:
     """인물 하나의 지금 상태창, 화별 비교표, 본문에 넣을 글."""
     p = _load(name)
     return {**statwin.timeline(p, cid), "text": statwin.render(p, cid), "presets": statwin.PRESETS}
