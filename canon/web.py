@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import autorun, cancel, cast, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
+from . import autorun, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (ArcPlan, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
@@ -426,6 +426,9 @@ def put_project(name: str, p: Project, response: Response, merged: str = "", for
     elements.stamp(p)
     _keep_impacts(name, p)
     _keep_hooks(name, p)
+    # 설정 변경 기록과 남겨 둔 제안은 화면이 직접 고치지 않는다. 디스크 것에 이번 저장이 고친 인물 설정만 작가 기록으로 더한다
+    p.setting_log, p.setting_held = disk.setting_log, disk.setting_held
+    charlog.record_author(disk, p)
     kept: list[dict] = []
     out = _save(name, p, merged={m for m in merged.split(",") if m}, kept=kept)
     if kept:  # 화면이 '저장했습니다' 대신 무엇을 저장하지 않았는지 알린다
@@ -1940,6 +1943,17 @@ class CastChanges(BaseModel):
     knows: list[str] = []
 
 
+class CastSettingChange(BaseModel):
+    """그 화에 바뀐 인물 설정 한 칸 (charlog.history 한 줄)."""
+    field: str
+    label: str
+    before: str
+    after: str
+    source: str
+    reason: str = ""
+    quote: str = ""
+
+
 class CastTimelineRow(BaseModel):
     n: int
     title: str
@@ -1949,6 +1963,7 @@ class CastTimelineRow(BaseModel):
     events: list[StoryEvent]
     secrets: list[str]
     new: bool
+    settings: list[CastSettingChange] = []
 
 
 class CastView(BaseModel):
@@ -1961,6 +1976,28 @@ class CastView(BaseModel):
 def cast_view(name: str) -> CastView:
     """인물 화면: 화별 관계 프레임(관계도 재생), 인물별 등장 화와 타임라인 (canon/cast.py)."""
     return cast.summary(_load(name))
+
+
+class HeldIn(BaseModel):
+    value: str | None = None  # 고친 값으로 적용할 때만
+
+
+@app.post("/api/projects/{name}/setting-held/{i}")
+def take_held_setting(name: str, i: int, body: HeldIn) -> Project:
+    """자동 집필이 남겨 둔 설정 바꾸기 제안 하나를 적용한다. 그 화의 설정 변경 기록으로 남는다."""
+    p = _load(name)
+    _not_auto(name)
+    charlog.take_held(p, i, body.value)
+    return _save(name, p)
+
+
+@app.delete("/api/projects/{name}/setting-held/{i}")
+def drop_held_setting(name: str, i: int) -> Project:
+    """남겨 둔 설정 바꾸기 제안 하나를 버린다."""
+    p = _load(name)
+    _not_auto(name)
+    charlog.drop_held(p, i)
+    return _save(name, p)
 
 
 # ---------- 지도 (canon/atlas.py) ----------
