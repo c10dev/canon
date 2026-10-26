@@ -176,6 +176,50 @@ function issuesBlock(e) {
   }).join('')}</ol></div>`;
 }
 
+/** 상태 변경안 경고 속 본문 문장. «» · 따옴표 안 문구를 길이 순으로 본문에서 찾고, 그대로 없으면 낱말이 가장 많이 겹치는 문장. 못 찾으면 ''. */
+function warnQuote(w, text) {
+  if (!w || !text) return '';
+  const quotes = [];
+  for (const re of [/«([^»]+)»/g, /[“"]([^”"]+)[”"]/g, /[‘']([^’']+)[’']/g, /「([^」]+)」/g, /『([^』]+)』/g]) {
+    for (const m of w.matchAll(re)) quotes.push(m[1].trim());
+  }
+  const qs = quotes.filter((q) => q.length >= 2).sort((a, b) => b.length - a.length);
+  const exact = qs.find((q) => text.includes(q));
+  if (exact) return exact;
+  // AI가 문장을 조금 바꿔 옮겼을 때: 낱말 열에 여섯 이상 들어 있는 문장
+  const sentences = text.split(/\n+|(?<=[.!?…]['"’”」』]?)\s+/).map((s) => s.trim()).filter(Boolean);
+  let best = '';
+  let score = 0;
+  for (const q of qs) {
+    const words = [...new Set(q.split(/[\s,.!?…'"“”‘’()]+/).filter((x) => x.length >= 2))];
+    if (words.length < 2) continue;
+    const need = Math.max(2, Math.ceil(words.length * 0.6));
+    for (const s of sentences) {
+      const k = words.filter((x) => s.includes(x)).length;
+      if (k >= need && k > score) { score = k; best = s; }
+    }
+  }
+  return best;
+}
+
+/** 상태 변경안 경고 목록. 본문 문장이 걸린 경고에는 그 문장을 골라 부분 수정 도구를 여는 버튼을 단다. */
+function warnItems(n, warnings) {
+  const text = textNow(n);
+  const can = editableEp(ep(n));
+  return warnings.map((w, k) => {
+    const q = can && warnQuote(w, text);
+    return `<li>${esc(w)}${q ? ` <span class="row" style="gap:6px;display:inline-flex"><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}">이 문장 고르기</button><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}:ask">AI에게 고치기</button></span>` : ''}</li>`;
+  }).join('');
+}
+
+/** 집필 화면: 상태 정리에서 나온 경고. 상태 승인 화면에 가지 않고 본문에서 바로 고친다. */
+function warnBlock(e) {
+  const n = e.plot.number;
+  const d = S.deltas[n];
+  if (!d || !d.warnings || !d.warnings.length || e.status !== 'written') return '';
+  return `<div class="field"><span class="small">상태 정리 경고 ${d.warnings.length}</span><ol class="issue-list">${warnItems(n, d.warnings)}</ol></div>`;
+}
+
 const SOURCE = { manual: '직접', ai: 'AI', typed: '본문 저장', impact: '인과율' };
 
 function editTime(iso) {
@@ -396,6 +440,11 @@ function syncPassage() {
     // 본문 칸 자체가 화면 밖이면 페이지도 굴려 고른 문장과 도구가 보이게 한다
     c = caretXY(ta, f.start);
     if (c.y < 0 || c.y + c.h * 3 > window.innerHeight) window.scrollBy(0, c.y - window.innerHeight / 3);
+    const s = f.menu && readSel(ta);  // 경고에서 온 것은 다른 화면에서 넘어와 다시 그린 뒤에 도구를 연다
+    if (s) {
+      S.selTool = { ...s, mode: 'menu' };
+      showTool();
+    }
   }
 }
 
@@ -477,6 +526,24 @@ Object.assign(actions, {
     const x = ep(n).issues[k];
     S.chatDraft = `검수 지적: ${x.description} → ${x.suggestion}`;
     actions.selectIssue(k);
+  },
+  /** 상태 정리 경고가 가리킨 문장을 집필 화면 본문에서 고르고 부분 수정 도구를 연다. ask 면 경고를 대화 입력칸에 넣는다 */
+  warnPick(arg) {
+    const [n, k, ask] = String(arg).split(':');
+    const num = Number(n);
+    const w = ((S.deltas[num] || {}).warnings || [])[Number(k)];
+    const q = warnQuote(w, textNow(num));
+    if (!q || !textNow(num).includes(q)) return toast('본문에서 그 문장을 찾을 수 없어요', true);
+    if (ask) S.chatDraft = `상태 정리 경고: ${w}`;
+    const go = () => {
+      if (S.route[2] !== 'write' || Number(S.route[3]) !== num || focusText(num, q, 0) === -1) return;
+      S.selFocus.menu = true;
+      render();
+    };
+    if (S.route[2] === 'write' && Number(S.route[3]) === num) return go();
+    // 상태 승인 화면에서 왔다: 집필 화면을 다 그리고 맨 위로 굴린 뒤에 고른다
+    window.addEventListener('hashchange', () => routeQueue.then(go), { once: true });
+    location.hash = `${base()}/write/${num}`;
   },
   selectIssue(k) {
     const n = Number(S.route[3]) || currentEp();

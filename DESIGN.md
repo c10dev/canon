@@ -234,6 +234,8 @@ AI 는 숫자를 매기지 않고 사건만 뽑는다. 같은 사건은 항상 �
 - 상태 변경안이 `time`(이번 화가 끝난 시점), `deadlines_added`(새 기한, 날이 바뀐 기한은 같은 id), `deadlines_done`(닫힌 기한 id)을 낸다. `clean_delta` 가 빈 기한, 겹친 id, 없는 기한 닫기를 지우고, `apply_delta` 가 `Episode.time` 과 기한에 반영한다. 기한은 스냅샷(`Snapshot.deadlines`)에 함께 찍혀 `revert` 로 돌아간다. 기한이 생기기 전 판의 스냅샷(`None`)이면 생긴 화 · 닫힌 화 번호로 거른다.
 - 쓰기 · 검수 프롬프트는 화마다 바뀌는 뒤쪽(이야기 줄기 블록 다음)에 `episode_block` 을 넣는다: 기준, 직전 화 끝 시점, 이번 화 플롯의 시점, 열린 기한(날수, 남은 날, 본문의 말). 줄거리 요약 줄과 검수의 화 머리에는 끝난 시점(`tag`, '[3일째 밤]')이 붙는다. 기획 프롬프트(`plot_prompt`)에는 `plan_block`, 상태 변경안에는 기한 id 가 붙은 `state_block` 과 `state_rule`.
 - 꺼졌거나(`enabled`) 기록이 하나도 없으면 블록이 비어 프롬프트가 예전과 같다. 기한은 `context.BUDGET["deadlines"]` 까지만 넣고(단편도), 먼 것부터 뺀 수를 적는다. 늘어나는 양은 쓰기 기준 블록 300자 안팎과 요약 줄마다 10자쯤이다.
+- 날짜 · 요일도 Canon 이 센다. `calendar` 가 `Timeline.start` 에서 1일째 날짜(연도가 없으면 2001년, 2월 29일은 2000년)와 요일을 읽고(연도가 있으면 요일은 날짜로 계산), `day_label` · `when` 이 날수에 날짜 · 요일을 붙인다. AI 가 `label` 에 적은 날짜 · 요일 글은 계산한 값으로 바꾸고 계절 같은 글만 남긴다. 쓰기 블록에는 `weekday_hint`('2일째는 화요일. 같은 요일: 9 · 16 …일째')를, 상태 규칙에는 label 에 날짜를 적지 말라는 말을, 검수 규칙에는 직접 셈하지 말고 계산한 날짜를 근거로 보라는 말을 넣는다. 화면은 `tlCalendar` · `tlDayLabel` · `tlWhen` 이 같은 규칙(`tests/test_timeline_js.py`).
+- 상태 정리 경고는 글 한 줄(`StateDelta.warnings`)이라 검수 이슈처럼 문장 칸이 없다. 그래서 경고에 걸린 본문 문장을 «» 안에 옮겨 적게 하고(`prompts` 상태 규칙, `state_rule`), 화면의 `warnQuote`(`static/passage.js`)가 «» · 따옴표 안 문구를 본문에서 찾는다(그대로 없으면 낱말이 60% 넘게 겹치는 문장). 상태 승인 화면과 집필 화면(`warnBlock`)의 경고에서 그 문장을 고르면 집필 화면으로 옮겨 부분 수정 도구를 연다(`warnPick`, `S.selFocus.menu`). 스키마는 바꾸지 않는다.
 - 작가가 기한을 더하거나 고치면(`upsert`) 마지막으로 반영한 화에 생긴 것으로 보고 그 화 이후 스냅샷에도 적는다. 켜고 끄기, 기준, 화별 시점은 작품 저장으로 고친다. 화면의 남은 날 계산(`tlLeft`, `tlDay`)은 `left` · `current_day` 와 같은 규칙이다.
 
 ### 지금 차림 (`CharacterState.attire`)
