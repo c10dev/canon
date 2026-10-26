@@ -28,6 +28,7 @@
   python -m canon foreshadows 내소설     복선 센터: 심은 문장 · 회수한 문장, 회수율, 끊어진 연결
   python -m canon statwin 내소설 hero   상태창 수치와 화별 변화 (--set 레벨=1 로 만들고 고치기)
   python -m canon map 내소설            지도: 장소, 인물별로 옮겨 다닌 길, 장소와 맞지 않은 위치 글
+  python -m canon map 내소설 gen --size 보통 --water 강   마을 생성기로 마을 만들기 (--seed, --roads, --fields, --forest, --move)
   python -m canon update 내소설 3       상태 변경안 확인 후 반영
   python -m canon run 내소설            확정된 화를 순서대로 write → check → update
   python -m canon auto 내소설 --to 12 [--batch]   목표 화까지 자동 집필 (정책에 걸리면 멈춤, --resume 으로 이어 가기)
@@ -55,6 +56,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import random
 import re
 import sys
 from pathlib import Path
@@ -63,8 +65,8 @@ from . import (autorun, cast, dynamics, elements, genres, illust, library, logli
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
-from . import atlas, foreshadows, statwin
-from .schema import ArcProposal, ChatScope, StatValue, StoryArc
+from . import atlas, foreshadows, statwin, towngen
+from .schema import ArcProposal, ChatScope, MapSpec, StatValue, StoryArc
 
 
 def ask(label: str, default: str = "") -> str:
@@ -1370,10 +1372,48 @@ def cmd_cast(a: argparse.Namespace) -> None:
     print("\n인물 하나를 자세히 보려면: cast <작품> <인물 id 나 이름>")
 
 
+def _map_option(key: str, value: str | None) -> str | None:
+    """--size 보통 처럼 화면 이름이나 id(medium)를 받아 id 로."""
+    if not value:
+        return None
+    opts = towngen.OPTIONS[key]
+    for oid, label in opts.items():
+        if value in (oid, label.split(" (")[0]):
+            return oid
+    raise ValueError(f"--{key} 는 {', '.join(label.split(' (')[0] for label in opts.values())} 중 하나예요")
+
+
 def cmd_map(a: argparse.Namespace) -> None:
-    """지도 보기: 장소와 지도에 놓았는지, 인물별로 옮겨 다닌 길, 장소와 맞지 않은 위치 글."""
+    """지도 보기: 장소와 지도에 놓았는지, 인물별로 옮겨 다닌 길, 장소와 맞지 않은 위치 글.
+    gen: 마을 생성기로 마을을 만든다 (미리보기를 보여 주고 확인을 받아 적용)."""
     p = store.load(a.name)
-    print(atlas.describe(p, atlas.load_layout(store.project_dir(a.name) / "map", p)))
+    folder = store.project_dir(a.name) / "map"
+    if a.action != "gen":
+        print(atlas.describe(p, atlas.load_layout(folder, p)))
+        return
+    base = p.atlas.spec or MapSpec()
+    change = {k: v for k, v in ((k, _map_option(k, getattr(a, k))) for k in towngen.OPTIONS) if v}
+    spec = base.model_copy(update={**change, "kind": a.kind, "seed": a.seed if a.seed is not None else random.randrange(1, 2**31 - 1)})
+    out = atlas.generate(p, spec)
+    info = out["info"]
+    print(f"마을 (시드 {spec.seed}): 집 {info['houses']}채 · 건물 {info['buildings']}채 · 길 {info['roads']}개"
+          f"{f' · 다리 {info['bridges']}개' if info['bridges'] else ''} · 약 {info['width_m']}×{info['height_m']}m")
+    print("  " + " · ".join(towngen.OPTIONS[k][getattr(spec, k)].split(" (")[0] for k in ("size", "roads", "water", "fields", "forest")))
+    kinds = {cid: label for cid, label, _ in towngen.CATEGORIES}
+    take = [s["place"] for s in out["pins"] if a.move or not s["had"]]
+    for s in out["pins"]:
+        note = "" if s["place"] in take else " (지도에 놓은 자리가 있어 그대로 둬요. 옮기려면 --move)"
+        print(f"  {s['name']} → {kinds.get(s['kind'], s['kind'])} 자리{note}")
+    for m in out["missing"]:
+        print(f"  {m['name']}: 놓지 못했어요. {m['reason']}")
+    for b in out["blocked"]:
+        print(f"  {b['name']}: 지금 자리가 새 마을의 건물이나 물 위예요. 웹 지도 화면에서 옮겨 주세요")
+    if not confirm("이 마을을 적용할까요? 지금 마을 데이터는 바뀌어요", a.yes):
+        return
+    old = atlas.apply_generated(folder, p, spec, take)
+    print(f"저장: {store.save(a.name, p)}")
+    if old and (folder / old).is_file():
+        (folder / old).unlink()
 
 
 def cmd_view(a: argparse.Namespace) -> None:
@@ -1721,7 +1761,13 @@ def main(argv: list[str] | None = None) -> None:
     sp = add("cast", cmd_cast, yes=False)
     sp.add_argument("character", nargs="?", help="인물 id 나 이름. 비우면 인물 목록")
     sp.add_argument("--numbers", action="store_true", help="관계를 숫자로")
-    add("map", cmd_map, yes=False)
+    sp = add("map", cmd_map)
+    sp.add_argument("action", nargs="?", choices=["gen"], help="gen: 마을 생성기로 마을 만들기. 비우면 지도 보기")
+    sp.add_argument("kind", nargs="?", choices=["village"], default="village", help="만들 지도 (지금은 village 만)")
+    sp.add_argument("--seed", type=int, help="같은 시드면 같은 마을. 비우면 새로 뽑는다")
+    for key, opts in towngen.OPTIONS.items():
+        sp.add_argument(f"--{key}", help=", ".join(label.split(" (")[0] for label in opts.values()))
+    sp.add_argument("--move", action="store_true", help="이미 지도에 놓은 장소도 생성기가 고른 자리로 옮기기")
     sp = add("view", cmd_view, yes=False)
     sp.add_argument("mode", choices=["numbers", "words"])
     sp = add("adjust", cmd_adjust, "source", "target", yes=False)

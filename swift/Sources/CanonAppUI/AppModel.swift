@@ -1,5 +1,6 @@
 import CanonAPI
 import CanonCore
+import CanonStore
 import FeatureProjects
 import Foundation
 import Observation
@@ -10,7 +11,11 @@ import Observation
 public final class AppModel {
     public private(set) var server: CanonServer
     public private(set) var projects: ProjectsModel
-    public var project: String?
+    /// 연 작품의 이름. 바꿀 때는 `open` 을 쓴다.
+    public private(set) var project: String?
+    /// 연 작품. 화면들이 함께 쓴다.
+    public private(set) var document: ProjectDocument?
+    private var loader: ProjectLoader
     public var screen: Screen = .home
     public private(set) var jobs = JobTracker()
     public private(set) var notice: (text: String, isError: Bool)?
@@ -22,7 +27,15 @@ public final class AppModel {
         let saved = defaults.string(forKey: Self.serverKey).flatMap(ServerConfig.parse) ?? .local
         let server = CanonServer(config: saved)
         self.server = server
+        self.loader = ProjectLoader(server: server)
         self.projects = ProjectsModel(source: LiveProjectListing(server: server))
+    }
+
+    /// 작품을 연다 (nil 이면 작품 목록으로). 저장하지 않은 변경이 있어도 닫는다. 묻는 일은 화면이 한다.
+    public func open(_ name: String?) {
+        project = name
+        document = name.map { ProjectDocument(name: $0, store: loader) }
+        screen = .home
     }
 
     /// 서버 주소를 바꾼다. 읽을 수 없는 주소면 false.
@@ -31,8 +44,9 @@ public final class AppModel {
         guard let config = ServerConfig.parse(text) else { return false }
         defaults.set(config.baseURL.absoluteString, forKey: Self.serverKey)
         server = CanonServer(config: config)
+        loader = ProjectLoader(server: server)
         projects = ProjectsModel(source: LiveProjectListing(server: server))
-        project = nil
+        open(nil)
         jobs = JobTracker()
         return true
     }
