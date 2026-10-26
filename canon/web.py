@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import re
 from pathlib import Path
 from typing import Literal
@@ -19,7 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import autorun, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
+from . import archetypes, autorun, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (ArcPlan, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
@@ -430,6 +431,7 @@ def put_project(name: str, p: Project, response: Response, merged: str = "", for
     # 설정 변경 기록과 남겨 둔 제안은 화면이 직접 고치지 않는다. 디스크 것에 이번 저장이 고친 인물 설정만 작가 기록으로 더한다
     p.setting_log, p.setting_held = disk.setting_log, disk.setting_held
     charlog.record_author(disk, p)
+    archetypes.prune(p)
     kept: list[dict] = []
     out = _save(name, p, merged={m for m in merged.split(",") if m}, kept=kept)
     if kept:  # 화면이 '저장했습니다' 대신 무엇을 저장하지 않았는지 알린다
@@ -522,6 +524,70 @@ def names_check(name: str, body: NameCheckIn | None = None) -> dict:
     issues = naming.cast_issues(p)
     return {"warnings": [i["text"] for i in issues], "issues": issues, "kinds": naming.ISSUE_KINDS,
             "style": naming.resolve_style(p), "detected": naming.detect_style(p)}
+
+
+# ---------- 원형 도감 ----------
+
+class DexCatalog(BaseModel):
+    groups: list[str]
+    archetypes: list[archetypes.Archetype]
+    wounds: list[archetypes.Wound]
+    speech: list[archetypes.SpeechKit]
+    fill_labels: dict[str, str]
+
+
+@app.get("/api/archetypes")
+def dex_catalog() -> DexCatalog:
+    return DexCatalog(groups=archetypes.GROUPS, archetypes=archetypes.CATALOG, wounds=archetypes.WOUNDS,
+                      speech=archetypes.SPEECH, fill_labels=archetypes.FILL_LABELS)
+
+
+class DexFillIn(BaseModel):
+    character: Character
+    archetype: str = ""
+    wound: str = ""
+    speech: str = ""
+    twist: str = ""
+
+
+class DexFillOut(BaseModel):
+    character: Character
+    filled: list[str]
+
+
+@app.post("/api/archetypes/fill")
+def dex_fill(body: DexFillIn) -> DexFillOut:
+    """인물 하나의 빈 칸에 도감 예시를 넣어 돌려준다. 저장하지 않는다 (설정 화면이 받아 저장한다)."""
+    p = Project(characters=[body.character])
+    try:
+        filled = archetypes.apply(p, body.character.id, body.archetype, body.wound, body.speech, body.twist)
+    except KeyError as e:
+        raise HTTPException(404, str(e.args[0]))
+    return DexFillOut(character=p.characters[0], filled=filled)
+
+
+class DexRollIn(BaseModel):
+    n: int = 3
+    archetype: str = ""  # 비우지 않으면 이 원형은 두고 상처 · 말투 · 비틀기 · 이름만 굴린다
+    seed: int | None = None
+    meta: Meta | None = None  # 저장 전 화면 값 (장르, 이름 스타일)
+    world: WorldSetting | None = None
+    characters: list[Character] = []
+
+
+@app.post("/api/projects/{name}/archetypes/roll")
+def dex_roll(name: str, body: DexRollIn) -> list[archetypes.Roll]:
+    p = _load(name)
+    if body.meta is not None:
+        p.meta = body.meta
+    if body.world is not None:
+        p.world = body.world
+    if body.characters:
+        p.characters = body.characters
+    if body.archetype and body.archetype not in archetypes.BY_ID:
+        raise HTTPException(404, f"도감에 없는 원형이에요: {body.archetype}")
+    rng = random.Random(body.seed) if body.seed is not None else None
+    return archetypes.roll(p.meta.genres, max(1, min(body.n, 6)), rng, body.archetype, p)
 
 
 # ---------- 2. 문체 ----------

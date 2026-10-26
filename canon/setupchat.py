@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 
-from . import charlog, dynamics, logline
+from . import archetypes, charlog, dynamics, logline
 from .schema import (
     Character,
     CharacterEdit,
@@ -411,6 +411,7 @@ def undo(p: Project, i: int) -> tuple[list[str], list[str]]:
             done.append(pid)
 
     _reseed(p)
+    archetypes.prune(p)  # 지운 새 인물에 골라 둔 원형
     charlog.record_author(old, p)
     m.outcome, m.applied, m.setup_before = "", [], None
     order = part_ids(rev)

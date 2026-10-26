@@ -3,9 +3,9 @@
 import contextlib
 import io
 
-from canon import logline, pipeline, prompts, setupchat, store
+from canon import archetypes, logline, pipeline, prompts, setupchat, store
 from canon.cli import main
-from canon.schema import Character, CharacterEdit, Relationship, SetupEdit, SetupRevision
+from canon.schema import ArchetypePick, Character, CharacterEdit, Relationship, SetupEdit, SetupRevision
 
 from .test_storylines import _short
 from .test_timeline import LLM, _play
@@ -86,7 +86,9 @@ def test_apply_picked_and_undo():
         pass
 
     p.characters[0].wound = "작가가 다시 고침"
+    p.cast_archetypes.append(ArchetypePick(character_id="mentor", archetype=archetypes.CATALOG[0].id))
     done, kept = setupchat.undo(p, i)
+    assert p.cast_archetypes == []  # 지운 새 인물의 원형 기록도 지운다
     assert done == ["logline.block", "new:mentor", "r:hero:mentor"] and kept == ["c:hero:wound"]
     assert p.meta.logline == "말 없는 소녀가 오빠를 찾는다." and p.meta.logline_parts.block == ""
     assert [c.id for c in p.characters] == ["hero", "ally"] and not any(t.source == "mentor" for t in p.ties)
