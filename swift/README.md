@@ -51,6 +51,7 @@ canon-probe            개발용: 실제 서버 응답이 타입대로 읽히는
 | `FeaturePlot` | 기승전결 · 플롯 (장편은 부 · 아크 · 플롯): `PlotModel`(구간 · 화 · 아크 · 부 고치기, 확정, 작업 결과를 제안으로 받기 · 적용 · 버리기, 화 끼워 넣기 · 빼기), `PlotRules`(웹 `actRanges` · `fitActs` · `actCoverage` 등), `PlotBoard` · `PlotEditorInfo` · `EpisodeCard`(보드 · 편집기 · 화 카드), `LivePlotService`, `PlotScreen` |
 | `FeatureSetup` | 설정 도우미: `SetupModel`(작품 정보 · 인물 · 관계 고치기, 이름 후보 · 점검, AI 설정 제안 고르기), `Logline` · `LoglineField` · `Tone` · `ToneDial`(로그라인 합치기 · 점검, 톤 다이얼), `SetupRules`(새 인물 id, 관계 쌍 · 문제, 장르, 지우기 질문), `SuggestionPicks`, `NameCheckGroups`, `LiveSetupService`, `SetupView` |
 | `FeatureStyle` | 문체 레퍼런스: `StyleModel`(원문 분석, 라이브러리 고르기 · 저장 · 올리기 · 가져오기, 프로필 · 표지 · 장치 · 대표 문단 고치기), `StyleText`(웹 `styleBlank` · `styleChangeWho` · `baselineRows` 문구), `LiveStyleService`, `StyleView` |
+| `FeatureLines` | 이야기 줄기: `LinesModel`(줄기 고르기 · 고치기 · 지우기, 화 붙이기 · 빼기, AI 제안 `storyline` 받기 · 고른 화와 함께 적용 · 버리기), `LineRules`(웹 `lines.js` 규칙 · 문구), `LineMapLayout`(노선도 자리 · 누른 곳), `LiveLinesService`, `LinesScreen`. 다른 화면이 쓰는 `LineField`(플롯 편집기 줄기 칸) · `LineBadges`(화 카드 줄기 표시) |
 | `CanonAppUI` | `AppModel`(서버 · 작품 · 화면 · 작업 · 연 작품), `RootView`, 저장 띠 `SaveBar`, 서버 주소 화면 |
 
 ## 개발 명령
@@ -114,7 +115,8 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | 7 | `FeatureCast` | 인물 · 관계도 (관계도 재생, 인물 · 두 사람 상세, 추이 그래프, 등장표) | `cast.js` | `cast_view`(`CastView`) — **됨**. 수치 직접 보정(`adjust_tie`)과 말로 · 숫자로 저장(`PUT .../view`)은 아직 웹에서 |
 | 7 | `FeatureForeshadow` | 복선 센터 | `foreshadow.js` | `foreshadow_*` — **됨** (본문에서 문장 골라 걸기는 3, `fsClueRows` 는 4에서) |
 | 7 | `FeatureStatWin` | 상태창 수치 (항목 고치기, 틀, 복사, 서식, 화별 변화 표) | `statwin.js` (`swDeltaRows` 는 4 상태 승인) | `statwin_view`(`StatwinView`), `statwin_set`, `statwin_template` — **됨** |
-| 7 | 작품 도구 (남은 것) | 지도, 이야기 줄기, 인과율, 작업지시서, 자동 집필 | `atlas.js` `lines.js` `causal.js` `auto.js` | 각 화면 |
+| 7 | `FeatureLines` | 이야기 줄기 (노선도, 줄기 목록 · 편집, 화 붙이기, AI 제안) | `lines.js` | 작업 `storyline`, `apply_storyline`, `remove_storyline` — **됨**. 플롯 편집기의 줄기 칸 `lineField` · 화 카드 `lineBadge` 는 `LineField` · `LineBadges` 로 만들어 두었고 `FeaturePlot` 에 잇는 일이 남음. 화 점을 누르면 플롯 화면으로만 옮기고 그 화를 열지는 않음 |
+| 7 | 작품 도구 (남은 것) | 지도, 인과율, 작업지시서, 자동 집필 | `atlas.js` `causal.js` `auto.js` | 각 화면 |
 | 8 | `FeatureUsage` | 사용량 · 비용 | `usage.js` | `usage_summary` · `usage_prices` — **됨** |
 | 8 | 본편과 분리 · 설정 (남은 것) | 연구, 모델 · API 키 설정 | `claude.js` `vertex.js` | `research`, `config` |
 
@@ -175,6 +177,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | `PlotModel.syncResults` · `start` | `applyJobResult` · `loadPending`(되살린 결과는 고른 아크를 옮기지 않음) · `startJob`(저장하지 않은 변경을 먼저 묻기) |
 | `Logline` · `LoglineField` · `Tone` · `ToneDial` | `composeLogline` · `loglineChecks` · `updateLogline` · `toneText` · `setDial` · `LOGLINE_SLOTS` · `TONE_WORDS`, 서버 `canon/logline.py` (셋을 함께 고친다. 시험은 `tests/test_logline.py` 와 같은 사례, `test_logline.py` 가 Swift 톤 말도 본다) |
 | `SetupRules`, `SuggestionPicks`, `NameCheckGroups` | `addCharacter` · `removeCharacter` · `addRelationship` · `relProblem` · `conflictWord` · `REL_TYPES` · `CONFLICTS` · `TIERS` · `genreLabel` · `loglineExamples` · `rangeText`, `viewSuggestion` · `sameChar` · `sugEnd` · `SUG_FIELDS` · `applySuggestion`, `nameCheckBox` |
+| `LineRules` (`episodes` · `span` · `isPast` · `newID` · `tag` · `untag` · `parseEpisodes` · `rangeNotes` · `badges` · `fieldOptions`), `LineMapLayout` | `lines.js` `lineEpisodes` · `lineSpan` · `linePast` · `newLineId` · `tagEp` · `lineUntag` · `parseEps` · `lineRangeNote` · `lineBadge` · `lineField` · `lineMap` (서버 `storylines.episodes_of` · `span` · `past` · `new_id` · `tag`. 시험 기대값은 node 로 돌린 웹 결과와 `tests/test_storylines.py` 사례) |
 | `StyleText` | `styleBlank`(서버 `library.blank`) · `styleChangeWho` · `styleLibraryCard` · `baselineRows`, `analyzeStyle` · `useLibStyle` · `keepStyle` · `pushStyle` · `pullStyle` 의 묻는 말 |
 
 ## 알려진 한계
