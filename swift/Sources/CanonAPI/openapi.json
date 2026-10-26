@@ -4778,9 +4778,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Auto Get"
+         "$ref": "#/components/schemas/AutoView"
         }
        }
       }
@@ -4829,9 +4827,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Auto Estimate"
+         "$ref": "#/components/schemas/AutoEstimate"
         }
        }
       }
@@ -4880,9 +4876,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Auto Start"
+         "$ref": "#/components/schemas/AutoView"
         }
        }
       }
@@ -4931,9 +4925,47 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Auto Resume"
+         "$ref": "#/components/schemas/AutoView"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/auto/review": {
+   "post": {
+    "summary": "Auto Review",
+    "description": "검토 대기 변경안을 검토를 기다리는 결과(pending.json 의 state:<화>)로 둔다. 상태 승인 화면이 작업 결과처럼 읽는다.\n웹은 화면 메모리로 넘기고(auto.js autoOpenReview), 앱은 이것을 부른 뒤 상태 승인 화면으로 간다.",
+    "operationId": "auto_review",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AutoView"
         }
        }
       }
@@ -4982,9 +5014,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Auto Request"
+         "$ref": "#/components/schemas/AutoView"
         }
        }
       }
@@ -5033,9 +5063,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Auto Batch"
+         "$ref": "#/components/schemas/AutoView"
         }
        }
       }
@@ -5085,9 +5113,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Auto Policy"
+         "$ref": "#/components/schemas/AutoView"
         }
        }
       }
@@ -7434,6 +7460,123 @@
     ],
     "title": "AutoBatch"
    },
+   "AutoEstimate": {
+    "properties": {
+     "episodes": {
+      "type": "integer",
+      "title": "Episodes"
+     },
+     "from": {
+      "type": "integer",
+      "title": "From"
+     },
+     "to": {
+      "type": "integer",
+      "title": "To"
+     },
+     "missing": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Missing"
+     },
+     "drafts": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Drafts"
+     },
+     "calls": {
+      "additionalProperties": {
+       "type": "integer"
+      },
+      "type": "object",
+      "title": "Calls"
+     },
+     "tokens_in": {
+      "type": "integer",
+      "title": "Tokens In"
+     },
+     "tokens_out": {
+      "type": "integer",
+      "title": "Tokens Out"
+     },
+     "cost": {
+      "type": "number",
+      "title": "Cost",
+      "description": "USD. 가격표에 없는 모델이 있으면 null"
+     },
+     "batch": {
+      "type": "boolean",
+      "title": "Batch"
+     },
+     "batch_rounds": {
+      "type": "integer",
+      "title": "Batch Rounds"
+     },
+     "seconds_min": {
+      "type": "integer",
+      "title": "Seconds Min"
+     },
+     "seconds_max": {
+      "type": "integer",
+      "title": "Seconds Max"
+     },
+     "seconds_worst": {
+      "type": "integer",
+      "title": "Seconds Worst"
+     },
+     "batch_avg_seconds": {
+      "type": "integer",
+      "title": "Batch Avg Seconds"
+     },
+     "measured": {
+      "type": "boolean",
+      "title": "Measured"
+     },
+     "model": {
+      "type": "string",
+      "title": "Model"
+     },
+     "unpriced": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Unpriced"
+     },
+     "stages": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Stages"
+     }
+    },
+    "type": "object",
+    "required": [
+     "episodes",
+     "to",
+     "missing",
+     "drafts",
+     "calls",
+     "tokens_in",
+     "tokens_out",
+     "batch",
+     "batch_rounds",
+     "seconds_min",
+     "seconds_max",
+     "seconds_worst",
+     "measured",
+     "model",
+     "unpriced",
+     "stages"
+    ],
+    "title": "AutoEstimate",
+    "description": "남은 화를 끝까지 쓸 때의 추정 (autorun.estimate)."
+   },
    "AutoIn": {
     "properties": {
      "target": {
@@ -7465,6 +7608,69 @@
     ],
     "title": "AutoIn"
    },
+   "AutoLog": {
+    "properties": {
+     "at": {
+      "type": "string",
+      "title": "At"
+     },
+     "ep": {
+      "type": "integer",
+      "title": "Ep"
+     },
+     "step": {
+      "type": "string",
+      "title": "Step",
+      "default": ""
+     },
+     "level": {
+      "type": "string",
+      "enum": [
+       "info",
+       "warn",
+       "error"
+      ],
+      "title": "Level",
+      "default": "info"
+     },
+     "message": {
+      "type": "string",
+      "title": "Message"
+     },
+     "tokens_in": {
+      "type": "integer",
+      "title": "Tokens In",
+      "default": 0
+     },
+     "tokens_out": {
+      "type": "integer",
+      "title": "Tokens Out",
+      "default": 0
+     },
+     "seconds": {
+      "type": "number",
+      "title": "Seconds",
+      "default": 0.0
+     },
+     "batch": {
+      "type": "boolean",
+      "title": "Batch",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "at",
+     "step",
+     "level",
+     "message",
+     "tokens_in",
+     "tokens_out",
+     "seconds",
+     "batch"
+    ],
+    "title": "AutoLog"
+   },
    "AutoResume": {
     "properties": {
      "approve": {
@@ -7480,6 +7686,173 @@
     },
     "type": "object",
     "title": "AutoResume"
+   },
+   "AutoRun": {
+    "properties": {
+     "target": {
+      "type": "integer",
+      "title": "Target"
+     },
+     "batch": {
+      "type": "boolean",
+      "title": "Batch",
+      "default": false
+     },
+     "policy": {
+      "$ref": "#/components/schemas/Policy"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "running",
+       "paused",
+       "review",
+       "stopped",
+       "done",
+       "error"
+      ],
+      "title": "Status",
+      "default": "running"
+     },
+     "ep": {
+      "type": "integer",
+      "title": "Ep"
+     },
+     "step": {
+      "type": "string",
+      "title": "Step",
+      "default": ""
+     },
+     "reasons": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Reasons",
+      "description": "멈춘 이유"
+     },
+     "halt": {
+      "type": "string",
+      "title": "Halt",
+      "description": "멈춘 종류. 화면이 고칠 곳으로 가는 버튼을 고른다: plot_missing | plot_draft | review | every | changed | reverted | schema | error",
+      "default": ""
+     },
+     "restarts": {
+      "type": "integer",
+      "title": "Restarts",
+      "description": "서버가 다시 시작돼 이어 간 횟수 (그때 하던 단계는 처음부터 다시 한다)",
+      "default": 0
+     },
+     "pending": {
+      "$ref": "#/components/schemas/StateDelta",
+      "description": "검토 대기 중인 변경안"
+     },
+     "pending_text": {
+      "type": "string",
+      "title": "Pending Text",
+      "description": "검토 대기 변경안을 만든 본문. 그 뒤 본문을 고쳤으면 그대로 반영하지 않는다",
+      "default": ""
+     },
+     "batches": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Batches",
+      "description": "기다리는 배치 작업 slot -> 이름"
+     },
+     "applied": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Applied",
+      "description": "이번 실행에서 자동 반영한 화"
+     },
+     "tokens_in": {
+      "type": "integer",
+      "title": "Tokens In",
+      "default": 0
+     },
+     "tokens_out": {
+      "type": "integer",
+      "title": "Tokens Out",
+      "default": 0
+     },
+     "cost": {
+      "type": "number",
+      "title": "Cost",
+      "default": 0.0
+     },
+     "started": {
+      "type": "string",
+      "title": "Started",
+      "default": ""
+     },
+     "updated": {
+      "type": "string",
+      "title": "Updated",
+      "default": ""
+     },
+     "log": {
+      "items": {
+       "$ref": "#/components/schemas/AutoLog"
+      },
+      "type": "array",
+      "title": "Log"
+     }
+    },
+    "type": "object",
+    "required": [
+     "target",
+     "batch",
+     "policy",
+     "status",
+     "step",
+     "reasons",
+     "halt",
+     "restarts",
+     "pending_text",
+     "batches",
+     "applied",
+     "tokens_in",
+     "tokens_out",
+     "cost",
+     "started",
+     "updated",
+     "log"
+    ],
+    "title": "AutoRun",
+    "description": "autorun.Run 과 같은 칸. 명세에서 칸을 필수로 적으려고 따로 둔다."
+   },
+   "AutoView": {
+    "properties": {
+     "run": {
+      "$ref": "#/components/schemas/AutoRun"
+     },
+     "active": {
+      "type": "boolean",
+      "title": "Active"
+     },
+     "batch_stages": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Batch Stages"
+     },
+     "policy_defaults": {
+      "$ref": "#/components/schemas/Policy"
+     }
+    },
+    "type": "object",
+    "required": [
+     "active",
+     "batch_stages",
+     "policy_defaults"
+    ],
+    "title": "AutoView",
+    "description": "자동 집필 화면이 받는 것: 마지막 실행, 도는 중인지, 배치를 쓸 수 있는 단계, 새로 시작할 때의 서버 기본 정책."
    },
    "Backend": {
     "properties": {

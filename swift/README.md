@@ -52,6 +52,7 @@ canon-probe            개발용: 실제 서버 응답이 타입대로 읽히는
 | `FeatureSetup` | 설정 도우미: `SetupModel`(작품 정보 · 인물 · 관계 고치기, 이름 후보 · 점검, AI 설정 제안 고르기), `Logline` · `LoglineField` · `Tone` · `ToneDial`(로그라인 합치기 · 점검, 톤 다이얼), `SetupRules`(새 인물 id, 관계 쌍 · 문제, 장르, 지우기 질문), `SuggestionPicks`, `NameCheckGroups`, `LiveSetupService`, `SetupView` |
 | `FeatureStyle` | 문체 레퍼런스: `StyleModel`(원문 분석, 라이브러리 고르기 · 저장 · 올리기 · 가져오기, 프로필 · 표지 · 장치 · 대표 문단 고치기), `StyleText`(웹 `styleBlank` · `styleChangeWho` · `baselineRows` 문구), `LiveStyleService`, `StyleView` |
 | `FeatureSettings` | 모델 · API 키 설정 (작품 목록 · 작품 사이드바 툴바의 '모델 · API 키' 시트): `SettingsModel`(불러오기, 저장 · 키 지우기, 연결 확인, 모델 목록, Claude 상태), `SettingsDraft`(고치는 칸, 보낼 값 `body`, 단계 비우기), `SettingsText`(웹 문구 · 규칙), `LiveSettingsService`, `SettingsView`. 키는 칸에만 들고 있다가 서버로 보내고 저장하면 비운다. 다시 보일 때는 서버의 끝 네 글자(`key_hint`)만 |
+| `FeatureAuto` | 자동 집필: `AutoModel`(실행 상태 3초마다 묻기 · 연결 끊김, 시작 · 일시정지 · 이어 가기 · 중지, 새로 시작 칸 · 배치 끔/켬 추정, 멈춘 실행의 정책 고치기, 검토 대기 변경안을 상태 승인으로 보내기, 자동 반영한 화 반영 취소), `AutoText`(웹 `auto.js` 문구), `LiveAutoService`, `AutoScreen` · `PolicyForm` |
 | `CanonAppUI` | `AppModel`(서버 · 작품 · 화면 · 작업 · 연 작품), `RootView`, 저장 띠 `SaveBar`, 서버 주소 화면 |
 
 ## 개발 명령
@@ -115,7 +116,8 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | 7 | `FeatureCast` | 인물 · 관계도 (관계도 재생, 인물 · 두 사람 상세, 추이 그래프, 등장표) | `cast.js` | `cast_view`(`CastView`) — **됨**. 수치 직접 보정(`adjust_tie`)과 말로 · 숫자로 저장(`PUT .../view`)은 아직 웹에서 |
 | 7 | `FeatureForeshadow` | 복선 센터 | `foreshadow.js` | `foreshadow_*` — **됨** (본문에서 문장 골라 걸기는 3, `fsClueRows` 는 4에서) |
 | 7 | `FeatureStatWin` | 상태창 수치 (항목 고치기, 틀, 복사, 서식, 화별 변화 표) | `statwin.js` (`swDeltaRows` 는 4 상태 승인) | `statwin_view`(`StatwinView`), `statwin_set`, `statwin_template` — **됨** |
-| 7 | 작품 도구 (남은 것) | 지도, 이야기 줄기, 인과율, 작업지시서, 자동 집필 | `atlas.js` `lines.js` `causal.js` `auto.js` | 각 화면 |
+| 7 | `FeatureAuto` | 자동 집필 (실행 상태 · 진행 로그, 시작 · 일시정지 · 이어 가기 · 중지, 승인 정책, 비용 · 시간 추정, 배치, 검토 대기 화, 검토 없이 반영한 화) | `auto.js` | `auto_*`(`AutoView` · `AutoEstimate`), 검토 대기 변경안을 상태 승인 결과로 두기 `auto_review` — **됨**. 남음: 시작 전 집필 화면의 저장하지 않은 본문 초안 저장(`autoFlushDrafts`), 집필 · 플롯 · 홈 화면의 잠금 안내(`autoLockNote` · `autoEp`, 상태 승인은 됨), 홈의 자동 집필 줄, 오류 안내의 '모델 · API 키 설정' 단추 |
+| 7 | 작품 도구 (남은 것) | 지도, 이야기 줄기, 인과율, 작업지시서 | `atlas.js` `lines.js` `causal.js` | 각 화면 |
 | 8 | `FeatureUsage` | 사용량 · 비용 | `usage.js` | `usage_summary` · `usage_prices` — **됨** |
 | 8 | `FeatureSettings` | 모델 · API 키 설정 (사이드바 칸이 아니라 툴바 시트) | `app.js` `viewSettings` `claude.js` `vertex.js` | `config` · `put_config`(`ConfigView`, 본문 `SettingsIn`), `test_config`(`ConfigTest`), `config_models`(`ModelList`), `config_health`(`ConfigHealth`), `claude_status`(`ClaudeStatus`) — **됨** (가격표 칸은 사용량 화면에서) |
 | 8 | 본편과 분리 (남은 것) | 연구 | | `research` |
@@ -177,6 +179,11 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | `PlotModel.syncResults` · `start` | `applyJobResult` · `loadPending`(되살린 결과는 고른 아크를 옮기지 않음) · `startJob`(저장하지 않은 변경을 먼저 묻기) |
 | `Logline` · `LoglineField` · `Tone` · `ToneDial` | `composeLogline` · `loglineChecks` · `updateLogline` · `toneText` · `setDial` · `LOGLINE_SLOTS` · `TONE_WORDS`, 서버 `canon/logline.py` (셋을 함께 고친다. 시험은 `tests/test_logline.py` 와 같은 사례, `test_logline.py` 가 Swift 톤 말도 본다) |
 | `SetupRules`, `SuggestionPicks`, `NameCheckGroups` | `addCharacter` · `removeCharacter` · `addRelationship` · `relProblem` · `conflictWord` · `REL_TYPES` · `CONFLICTS` · `TIERS` · `genreLabel` · `loglineExamples` · `rangeText`, `viewSuggestion` · `sameChar` · `sugEnd` · `SUG_FIELDS` · `applySuggestion`, `nameCheckBox` |
+| `AutoText.status` · `step` · `stepLine` · `shiftOptions` · `issueOptions` · `everyOptions` | `auto.js` `AUTO_STATUS` · `AUTO_STEP` · `AUTO_SHIFT` · `autoRunCard` 의 `step` · `autoPolicyForm` |
+| `AutoText.duration` · `cost` · `number` · `rangeText` | `auto.js` `autoDuration` · `autoCost`, `toLocaleString`, `app.js` `rangeText` (시험 기대값은 node 로 돌린 웹 결과) |
+| `AutoText.defaults` · `estimateLine` · `estimateTime` · `estimateWarnings` · `estimateNotes` · `startQuestion` · `nothingLeft` | `autoDefaults`(기본 정책은 웹은 화면에, 앱은 서버 `policy_defaults`) · `autoEstCard` · `autoStart` · `viewAuto` 의 `nothingLeft` |
+| `AutoText.progressLine` · `needsSettings` · `reviewDone` · `pendingStale` · `haltLink` · `runPolicyNote` · `paused` · `signature` · 알림 문구, `AutoModel.refresh` | `autoRunCard` · `pendingStale` · `autoHaltLinks` · `autoRunPolicy` · `actions.auto*` · `autoPoll` |
+| `AutoText.styleWarnings` · `revertQuestion` · `revertDone` · `logTime` · `logTokens` | `autoAppliedCard` · `revertFrom`(`ReviewText.revertQuestion` 과 같은 말) · `autoLogCard` |
 | `StyleText` | `styleBlank`(서버 `library.blank`) · `styleChangeWho` · `styleLibraryCard` · `baselineRows`, `analyzeStyle` · `useLibStyle` · `keepStyle` · `pushStyle` · `pullStyle` 의 묻는 말 |
 | `SettingsText` (`providers` · `stages` · `stageParent` · `followLabel` · `stageModelHint` · `stageEnvLines` · `localOpen` · `stageOpen` · `claudeOpen` · `modelOptions` · `modelStatus` · `aiWarning` · `claudeCard` · 키 칩), `SettingsDraft.body` | `app.js` `providerOptions` · `STAGES` · `STAGE_PARENT`(서버 `settings.STAGE_PARENT`) · `STAGE_PARENT_LABEL` · `stageModelHint` · `viewSettings` · `modelDatalist` · `KNOWN_MODELS` · `modelStatus` · `aiWarning` · `saveSettings`(환경 변수 · 기본값을 보이기만 한 칸은 보내지 않음), `vertex.js` `geminiAuthSettings` · `geminiAuthBody` · `VERTEX_SRC`, `claude.js` `claudeStatusView` · `claudeSettings` · `claudeSettingsBody` |
 
