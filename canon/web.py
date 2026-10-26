@@ -17,7 +17,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from . import autorun, cancel, cast, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
@@ -2313,14 +2313,109 @@ def brief(name: str, n: int, kind: str = "episode") -> dict:
 
 # ---------- 연구 (모델 실험, 작품 데이터와 분리) ----------
 
+class _Out(BaseModel):
+    """응답 모델: 기본값이 있는 칸도 응답에는 늘 있으니 명세에서 필수로 적는다 (Swift 타입이 옵셔널이 되지 않게).
+    null 이 될 수 있는 칸은 scripts/make_openapi.py 의 drop_null 이 옵셔널로 바꾼다."""
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True, populate_by_name=True)
+
+
+class UsageBucket(_Out):
+    """사용량 묶음 하나의 합계 (usage.summary 의 bucket)."""
+    calls: int = 0
+    failed: int = 0
+    retries: int = 0
+    in_: int = Field(0, alias="in")
+    out: int = Field(0, description="생각 토큰을 포함한 출력")
+    cached: int = 0
+    cost: float = 0.0
+    saved: float = 0.0
+    unpriced: int = 0
+    seconds: float = 0.0
+    batch: int = 0
+
+
+class UsageTotal(UsageBucket):
+    wasted: float = Field(0.0, description="실패 · 재시도 호출의 비용")
+
+
+class UsageGroup(UsageBucket):
+    """날짜 · 작품 · 화 · 단계 · 모델 · 부른 곳별 줄. 그 묶음의 열쇠 칸만 값이 있다."""
+    day: str | None = None
+    project: str | None = None
+    episode: int | None = None
+    stage: str | None = None
+    backend: str | None = None
+    model: str | None = None
+    source: str | None = None
+
+
+class UsageCall(_Out):
+    """AI 호출 기록 한 줄 (usage.record) 과 볼 때 계산한 비용. 옛 기록에 없는 칸은 기본값."""
+    at: str = ""
+    project: str = ""
+    episode: int | None = None
+    stage: str = ""
+    task: str = ""
+    source: str = ""
+    backend: str = ""
+    model: str = ""
+    batch: bool = False
+    attempt: int = 1
+    in_: int = Field(0, alias="in")
+    out: int = 0
+    thought: int = 0
+    cached: int = 0
+    seconds: float | None = None
+    ok: bool = True
+    error: str = ""
+    chars: int | None = None
+    blocks: list[list[str | int]] | None = Field(None, description="프롬프트 머리글별 글자 수 [이름, 글자 수], 큰 것부터")
+    cost: float | None = Field(None, description="추정 비용 USD. 가격을 모르면 null")
+    saved: float = 0.0
+
+
+class UsageSummary(_Out):
+    days: int | None
+    since: str
+    project: str | None
+    projects: list[str]
+    total: UsageTotal
+    by_day: list[UsageGroup]
+    by_project: list[UsageGroup]
+    by_episode: list[UsageGroup]
+    by_stage: list[UsageGroup]
+    by_model: list[UsageGroup]
+    by_source: list[UsageGroup]
+    unpriced: list[str]
+    trouble: list[UsageCall]
+    recent: list[UsageCall]
+    trouble_total: int
+    limit: int
+    billing_url: str
+    prices_url: str
+
+
+class PriceRow(usage.Price, _Out):
+    custom: bool = Field(False, description="사용자가 고친 모델")
+    current: bool = Field(False, description="오늘 적용되는 줄")
+    upcoming: bool = Field(False, description="적용 시작일이 아직 오지 않은 줄")
+
+
+class PriceTable(_Out):
+    rows: list[PriceRow]
+    checked: str
+    url: str
+    billing_url: str
+
+
 @app.get("/api/usage")
-def usage_summary(days: int = 30, project: str | None = None, limit: int = 60) -> dict:
+def usage_summary(days: int = 30, project: str | None = None, limit: int = 60) -> UsageSummary:
     """AI 호출 기록을 기간과 작품으로 걸러 모은다. days 가 0 이면 전체. limit 은 최근 호출 목록의 길이 (1~1000)."""
     return usage.summary(days or None, project or None, max(1, min(limit, 1000)))
 
 
 @app.get("/api/usage/prices")
-def usage_prices() -> dict:
+def usage_prices() -> PriceTable:
     return usage.price_table()
 
 
@@ -2329,13 +2424,13 @@ class PricesIn(BaseModel):
 
 
 @app.put("/api/usage/prices")
-def put_usage_prices(body: PricesIn) -> dict:
+def put_usage_prices(body: PricesIn) -> PriceTable:
     usage.save_prices(body.rows)
     return usage.price_table()
 
 
 @app.delete("/api/usage/prices")
-def reset_usage_prices() -> dict:
+def reset_usage_prices() -> PriceTable:
     """가격표를 기본값(Google 가격표에서 옮긴 값)으로 되돌린다."""
     settings.set_prices([])
     return usage.price_table()

@@ -6546,9 +6546,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Usage Summary"
+         "$ref": "#/components/schemas/UsageSummary"
         }
        }
       }
@@ -6576,9 +6574,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "type": "object",
-         "title": "Response Usage Prices"
+         "$ref": "#/components/schemas/PriceTable"
         }
        }
       }
@@ -6604,9 +6600,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "type": "object",
-         "title": "Response Put Usage Prices"
+         "$ref": "#/components/schemas/PriceTable"
         }
        }
       }
@@ -6633,9 +6627,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "type": "object",
-         "title": "Response Reset Usage Prices"
+         "$ref": "#/components/schemas/PriceTable"
         }
        }
       }
@@ -10344,6 +10336,112 @@
     "title": "Price",
     "description": "USD / 100만 토큰. since 부터 적용한다 (비면 처음부터). 생각(thinking) 토큰은 출력 요금이다."
    },
+   "PriceRow": {
+    "properties": {
+     "model": {
+      "type": "string",
+      "title": "Model",
+      "description": "모델 이름. 정확히 같거나 이 이름으로 시작하는 모델에 쓴다"
+     },
+     "since": {
+      "type": "string",
+      "title": "Since",
+      "description": "적용 시작일 YYYY-MM-DD",
+      "default": ""
+     },
+     "input": {
+      "type": "number",
+      "title": "Input",
+      "default": 0.0
+     },
+     "output": {
+      "type": "number",
+      "title": "Output",
+      "default": 0.0
+     },
+     "cached": {
+      "type": "number",
+      "title": "Cached",
+      "description": "캐시된 입력. 비면 입력 가격"
+     },
+     "batch_input": {
+      "type": "number",
+      "title": "Batch Input",
+      "description": "배치 입력. 비면 입력의 절반"
+     },
+     "batch_output": {
+      "type": "number",
+      "title": "Batch Output",
+      "description": "배치 출력. 비면 출력의 절반"
+     },
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "default": ""
+     },
+     "custom": {
+      "type": "boolean",
+      "title": "Custom",
+      "description": "사용자가 고친 모델",
+      "default": false
+     },
+     "current": {
+      "type": "boolean",
+      "title": "Current",
+      "description": "오늘 적용되는 줄",
+      "default": false
+     },
+     "upcoming": {
+      "type": "boolean",
+      "title": "Upcoming",
+      "description": "적용 시작일이 아직 오지 않은 줄",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "model",
+     "since",
+     "input",
+     "output",
+     "note",
+     "custom",
+     "current",
+     "upcoming"
+    ],
+    "title": "PriceRow"
+   },
+   "PriceTable": {
+    "properties": {
+     "rows": {
+      "items": {
+       "$ref": "#/components/schemas/PriceRow"
+      },
+      "type": "array",
+      "title": "Rows"
+     },
+     "checked": {
+      "type": "string",
+      "title": "Checked"
+     },
+     "url": {
+      "type": "string",
+      "title": "Url"
+     },
+     "billing_url": {
+      "type": "string",
+      "title": "Billing Url"
+     }
+    },
+    "type": "object",
+    "required": [
+     "rows",
+     "checked",
+     "url",
+     "billing_url"
+    ],
+    "title": "PriceTable"
+   },
    "PricesIn": {
     "properties": {
      "rows": {
@@ -13255,6 +13353,457 @@
     "type": "object",
     "title": "ToneDials",
     "description": "톤을 양 끝 사이에서 고른 값. 0 은 고르지 않음, 1~4 는 왼쪽 끝에서 오른쪽 끝."
+   },
+   "UsageCall": {
+    "properties": {
+     "at": {
+      "type": "string",
+      "title": "At",
+      "default": ""
+     },
+     "project": {
+      "type": "string",
+      "title": "Project",
+      "default": ""
+     },
+     "episode": {
+      "type": "integer",
+      "title": "Episode"
+     },
+     "stage": {
+      "type": "string",
+      "title": "Stage",
+      "default": ""
+     },
+     "task": {
+      "type": "string",
+      "title": "Task",
+      "default": ""
+     },
+     "source": {
+      "type": "string",
+      "title": "Source",
+      "default": ""
+     },
+     "backend": {
+      "type": "string",
+      "title": "Backend",
+      "default": ""
+     },
+     "model": {
+      "type": "string",
+      "title": "Model",
+      "default": ""
+     },
+     "batch": {
+      "type": "boolean",
+      "title": "Batch",
+      "default": false
+     },
+     "attempt": {
+      "type": "integer",
+      "title": "Attempt",
+      "default": 1
+     },
+     "in": {
+      "type": "integer",
+      "title": "In",
+      "default": 0
+     },
+     "out": {
+      "type": "integer",
+      "title": "Out",
+      "default": 0
+     },
+     "thought": {
+      "type": "integer",
+      "title": "Thought",
+      "default": 0
+     },
+     "cached": {
+      "type": "integer",
+      "title": "Cached",
+      "default": 0
+     },
+     "seconds": {
+      "type": "number",
+      "title": "Seconds"
+     },
+     "ok": {
+      "type": "boolean",
+      "title": "Ok",
+      "default": true
+     },
+     "error": {
+      "type": "string",
+      "title": "Error",
+      "default": ""
+     },
+     "chars": {
+      "type": "integer",
+      "title": "Chars"
+     },
+     "blocks": {
+      "items": {
+       "items": {
+        "anyOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "integer"
+         }
+        ]
+       },
+       "type": "array"
+      },
+      "type": "array",
+      "title": "Blocks",
+      "description": "프롬프트 머리글별 글자 수 [이름, 글자 수], 큰 것부터"
+     },
+     "cost": {
+      "type": "number",
+      "title": "Cost",
+      "description": "추정 비용 USD. 가격을 모르면 null"
+     },
+     "saved": {
+      "type": "number",
+      "title": "Saved",
+      "default": 0.0
+     }
+    },
+    "type": "object",
+    "required": [
+     "at",
+     "project",
+     "stage",
+     "task",
+     "source",
+     "backend",
+     "model",
+     "batch",
+     "attempt",
+     "in",
+     "out",
+     "thought",
+     "cached",
+     "ok",
+     "error",
+     "saved"
+    ],
+    "title": "UsageCall",
+    "description": "AI 호출 기록 한 줄 (usage.record) 과 볼 때 계산한 비용. 옛 기록에 없는 칸은 기본값."
+   },
+   "UsageGroup": {
+    "properties": {
+     "calls": {
+      "type": "integer",
+      "title": "Calls",
+      "default": 0
+     },
+     "failed": {
+      "type": "integer",
+      "title": "Failed",
+      "default": 0
+     },
+     "retries": {
+      "type": "integer",
+      "title": "Retries",
+      "default": 0
+     },
+     "in": {
+      "type": "integer",
+      "title": "In",
+      "default": 0
+     },
+     "out": {
+      "type": "integer",
+      "title": "Out",
+      "description": "생각 토큰을 포함한 출력",
+      "default": 0
+     },
+     "cached": {
+      "type": "integer",
+      "title": "Cached",
+      "default": 0
+     },
+     "cost": {
+      "type": "number",
+      "title": "Cost",
+      "default": 0.0
+     },
+     "saved": {
+      "type": "number",
+      "title": "Saved",
+      "default": 0.0
+     },
+     "unpriced": {
+      "type": "integer",
+      "title": "Unpriced",
+      "default": 0
+     },
+     "seconds": {
+      "type": "number",
+      "title": "Seconds",
+      "default": 0.0
+     },
+     "batch": {
+      "type": "integer",
+      "title": "Batch",
+      "default": 0
+     },
+     "day": {
+      "type": "string",
+      "title": "Day"
+     },
+     "project": {
+      "type": "string",
+      "title": "Project"
+     },
+     "episode": {
+      "type": "integer",
+      "title": "Episode"
+     },
+     "stage": {
+      "type": "string",
+      "title": "Stage"
+     },
+     "backend": {
+      "type": "string",
+      "title": "Backend"
+     },
+     "model": {
+      "type": "string",
+      "title": "Model"
+     },
+     "source": {
+      "type": "string",
+      "title": "Source"
+     }
+    },
+    "type": "object",
+    "required": [
+     "calls",
+     "failed",
+     "retries",
+     "in",
+     "out",
+     "cached",
+     "cost",
+     "saved",
+     "unpriced",
+     "seconds",
+     "batch"
+    ],
+    "title": "UsageGroup",
+    "description": "날짜 · 작품 · 화 · 단계 · 모델 · 부른 곳별 줄. 그 묶음의 열쇠 칸만 값이 있다."
+   },
+   "UsageSummary": {
+    "properties": {
+     "days": {
+      "type": "integer",
+      "title": "Days"
+     },
+     "since": {
+      "type": "string",
+      "title": "Since"
+     },
+     "project": {
+      "type": "string",
+      "title": "Project"
+     },
+     "projects": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Projects"
+     },
+     "total": {
+      "$ref": "#/components/schemas/UsageTotal"
+     },
+     "by_day": {
+      "items": {
+       "$ref": "#/components/schemas/UsageGroup"
+      },
+      "type": "array",
+      "title": "By Day"
+     },
+     "by_project": {
+      "items": {
+       "$ref": "#/components/schemas/UsageGroup"
+      },
+      "type": "array",
+      "title": "By Project"
+     },
+     "by_episode": {
+      "items": {
+       "$ref": "#/components/schemas/UsageGroup"
+      },
+      "type": "array",
+      "title": "By Episode"
+     },
+     "by_stage": {
+      "items": {
+       "$ref": "#/components/schemas/UsageGroup"
+      },
+      "type": "array",
+      "title": "By Stage"
+     },
+     "by_model": {
+      "items": {
+       "$ref": "#/components/schemas/UsageGroup"
+      },
+      "type": "array",
+      "title": "By Model"
+     },
+     "by_source": {
+      "items": {
+       "$ref": "#/components/schemas/UsageGroup"
+      },
+      "type": "array",
+      "title": "By Source"
+     },
+     "unpriced": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Unpriced"
+     },
+     "trouble": {
+      "items": {
+       "$ref": "#/components/schemas/UsageCall"
+      },
+      "type": "array",
+      "title": "Trouble"
+     },
+     "recent": {
+      "items": {
+       "$ref": "#/components/schemas/UsageCall"
+      },
+      "type": "array",
+      "title": "Recent"
+     },
+     "trouble_total": {
+      "type": "integer",
+      "title": "Trouble Total"
+     },
+     "limit": {
+      "type": "integer",
+      "title": "Limit"
+     },
+     "billing_url": {
+      "type": "string",
+      "title": "Billing Url"
+     },
+     "prices_url": {
+      "type": "string",
+      "title": "Prices Url"
+     }
+    },
+    "type": "object",
+    "required": [
+     "since",
+     "projects",
+     "total",
+     "by_day",
+     "by_project",
+     "by_episode",
+     "by_stage",
+     "by_model",
+     "by_source",
+     "unpriced",
+     "trouble",
+     "recent",
+     "trouble_total",
+     "limit",
+     "billing_url",
+     "prices_url"
+    ],
+    "title": "UsageSummary"
+   },
+   "UsageTotal": {
+    "properties": {
+     "calls": {
+      "type": "integer",
+      "title": "Calls",
+      "default": 0
+     },
+     "failed": {
+      "type": "integer",
+      "title": "Failed",
+      "default": 0
+     },
+     "retries": {
+      "type": "integer",
+      "title": "Retries",
+      "default": 0
+     },
+     "in": {
+      "type": "integer",
+      "title": "In",
+      "default": 0
+     },
+     "out": {
+      "type": "integer",
+      "title": "Out",
+      "description": "생각 토큰을 포함한 출력",
+      "default": 0
+     },
+     "cached": {
+      "type": "integer",
+      "title": "Cached",
+      "default": 0
+     },
+     "cost": {
+      "type": "number",
+      "title": "Cost",
+      "default": 0.0
+     },
+     "saved": {
+      "type": "number",
+      "title": "Saved",
+      "default": 0.0
+     },
+     "unpriced": {
+      "type": "integer",
+      "title": "Unpriced",
+      "default": 0
+     },
+     "seconds": {
+      "type": "number",
+      "title": "Seconds",
+      "default": 0.0
+     },
+     "batch": {
+      "type": "integer",
+      "title": "Batch",
+      "default": 0
+     },
+     "wasted": {
+      "type": "number",
+      "title": "Wasted",
+      "description": "실패 · 재시도 호출의 비용",
+      "default": 0.0
+     }
+    },
+    "type": "object",
+    "required": [
+     "calls",
+     "failed",
+     "retries",
+     "in",
+     "out",
+     "cached",
+     "cost",
+     "saved",
+     "unpriced",
+     "seconds",
+     "batch",
+     "wasted"
+    ],
+    "title": "UsageTotal"
    },
    "ValidationError": {
     "properties": {
