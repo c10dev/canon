@@ -1187,8 +1187,13 @@ def chat_clear(name: str, topic: str) -> Project:
 # ---------- 3-2. 인과율 ----------
 # 요소 자체는 작가 입력이라 작품 저장(PUT)으로 저장한다. 영향 분석은 백그라운드 작업(kind 'impact')이 요소에 붙인다.
 
+class ElementLink(elements.Link):
+    """관련 화 지도의 한 화 (elements.Link). snippet 도 응답에는 늘 있다."""
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+
 @app.get("/api/projects/{name}/elements/links")
-def element_links(name: str) -> dict:
+def element_links(name: str) -> dict[str, list[ElementLink]]:
     """요소마다 관련 화 지도 (AI 없이 이름, 별칭, 관련 인물로 찾음)."""
     p = _load(name)
     return {el.id: [lk.model_dump() for lk in elements.links(p, el)] for el in p.elements}
@@ -2702,8 +2707,12 @@ def set_view(name: str, body: View) -> Project:
 
 # ---------- 작업지시서 ----------
 
+class BriefText(BaseModel):
+    text: str
+
+
 @app.get("/api/projects/{name}/episodes/{n}/brief")
-def brief(name: str, n: int, kind: str = "episode") -> dict:
+def brief(name: str, n: int, kind: str = "episode") -> BriefText:
     p = _load(name)
     if kind == "state":
         if not p.episode(n).text:

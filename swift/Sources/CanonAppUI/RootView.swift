@@ -7,6 +7,8 @@ import FeatureForeshadow
 import FeatureHome
 import FeatureLines
 import FeatureCast
+import FeatureCausal
+import FeatureBrief
 import FeaturePlot
 import FeatureProjects
 import FeatureReview
@@ -101,6 +103,8 @@ public struct RootView: View {
         case .arc: if let doc = model.document { PlotScreen(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
         case .auto: if let doc = model.document { AutoScreen(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
         case .lines: if let doc = model.document { LinesScreen(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
+        case .causal: if let doc = model.document { CausalView(document: doc, jobs: model.jobs, service: LiveCausalService(server: model.server)) { model.screen = $0 } }
+        case .brief: if let doc = model.document { BriefView(document: doc, service: LiveBriefService(server: model.server)) { model.screen = $0 } }
         default:
             NotPortedYet(screen.label(serial: false))
         }

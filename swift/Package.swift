@@ -49,8 +49,10 @@ let package = Package(
         .target(name: "FeatureSettings", dependencies: ["CanonCore", "CanonAPI", "CanonUI"]),
         .target(name: "FeatureAuto", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "CanonStore"]),
         .target(name: "FeatureLines", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "CanonStore"]),
+        .target(name: "FeatureCausal", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "CanonStore"]),
+        .target(name: "FeatureBrief", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "CanonStore"]),
         // 앱 뼈대: 서버 설정, 사이드바, 화면 잇기. Xcode 앱(App/)은 이것 하나만 가져온다
-        .target(name: "CanonAppUI", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "CanonStore", "FeatureProjects", "FeatureHome", "FeatureStatWin", "FeatureForeshadow", "FeatureUsage", "FeatureCast", "FeatureReview", "FeatureWrite", "FeaturePlot", "FeatureSetup", "FeatureStyle", "FeatureSettings", "FeatureAuto", "FeatureLines"]),
+        .target(name: "CanonAppUI", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "CanonStore", "FeatureProjects", "FeatureHome", "FeatureStatWin", "FeatureForeshadow", "FeatureUsage", "FeatureCast", "FeatureReview", "FeatureWrite", "FeaturePlot", "FeatureSetup", "FeatureStyle", "FeatureSettings", "FeatureAuto", "FeatureLines", "FeatureCausal", "FeatureBrief"]),
         // 개발용: 실제 서버에 붙어 응답이 타입대로 읽히는지 본다
         .executableTarget(name: "canon-probe", dependencies: ["CanonAPI", "CanonCore"]),
         .testTarget(name: "CanonCoreTests", dependencies: ["CanonCore"]),
@@ -70,5 +72,7 @@ let package = Package(
         .testTarget(name: "FeatureSettingsTests", dependencies: ["FeatureSettings"]),
         .testTarget(name: "FeatureAutoTests", dependencies: ["FeatureAuto", "CanonStore"]),
         .testTarget(name: "FeatureLinesTests", dependencies: ["FeatureLines", "CanonStore"]),
+        .testTarget(name: "FeatureCausalTests", dependencies: ["FeatureCausal", "CanonStore"]),
+        .testTarget(name: "FeatureBriefTests", dependencies: ["FeatureBrief", "CanonStore"]),
     ]
 )

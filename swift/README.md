@@ -54,6 +54,8 @@ canon-probe            개발용: 실제 서버 응답이 타입대로 읽히는
 | `FeatureSettings` | 모델 · API 키 설정 (작품 목록 · 작품 사이드바 툴바의 '모델 · API 키' 시트): `SettingsModel`(불러오기, 저장 · 키 지우기, 연결 확인, 모델 목록, Claude 상태), `SettingsDraft`(고치는 칸, 보낼 값 `body`, 단계 비우기), `SettingsText`(웹 문구 · 규칙), `LiveSettingsService`, `SettingsView`. 키는 칸에만 들고 있다가 서버로 보내고 저장하면 비운다. 다시 보일 때는 서버의 끝 네 글자(`key_hint`)만 |
 | `FeatureAuto` | 자동 집필: `AutoModel`(실행 상태 3초마다 묻기 · 연결 끊김, 시작 · 일시정지 · 이어 가기 · 중지, 새로 시작 칸 · 배치 끔/켬 추정, 멈춘 실행의 정책 고치기, 검토 대기 변경안을 상태 승인으로 보내기, 자동 반영한 화 반영 취소), `AutoText`(웹 `auto.js` 문구), `LiveAutoService`, `AutoScreen` · `PolicyForm` |
 | `FeatureLines` | 이야기 줄기: `LinesModel`(줄기 고르기 · 고치기 · 지우기, 화 붙이기 · 빼기, AI 제안 `storyline` 받기 · 고른 화와 함께 적용 · 버리기), `LineRules`(웹 `lines.js` 규칙 · 문구), `LineMapLayout`(노선도 자리 · 누른 곳), `LiveLinesService`, `LinesScreen`. 다른 화면이 쓰는 `LineField`(플롯 편집기 줄기 칸) · `LineBadges`(화 카드 줄기 표시) |
+| `FeatureCausal` | 인과율: `CausalModel`(요소 더하기 · 고치기 · 지우기 · 되살리기, 영향 분석 작업 `impact` 시작, 끝나면 분석만 받아 오기, 변경안 고르기 · 적용 · 버리기 · 다시 검토), `CausalText`(웹 `causal.js` 문구, `elBasis` · 배지 · 관련 화 지도 칸, `chat.js` `plotDiff`), `LiveCausalService`, `CausalView` |
+| `FeatureBrief` | 작업지시서 (API 없이): `BriefModel`(화 · 지시서 종류 고르기, 지시서 받기, 받은 본문 저장, 받은 JSON 서버 검사), `BriefText`(웹 `viewBrief` 문구), `LiveBriefService`, `BriefView`(복사 · .md 내려받기) |
 | `CanonAppUI` | `AppModel`(서버 · 작품 · 화면 · 작업 · 연 작품), `RootView`, 저장 띠 `SaveBar`, 서버 주소 화면 |
 
 ## 개발 명령
@@ -121,6 +123,9 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | 7 | 작품 도구 (남은 것) | 지도, 이야기 줄기, 인과율, 작업지시서 | `atlas.js` `lines.js` `causal.js` | 각 화면 |
 | 7 | `FeatureLines` | 이야기 줄기 (노선도, 줄기 목록 · 편집, 화 붙이기, AI 제안) | `lines.js` | 작업 `storyline`, `apply_storyline`, `remove_storyline` — **됨**. 플롯 편집기의 줄기 칸 `lineField` · 화 카드 `lineBadge` 는 `LineField` · `LineBadges` 로 만들어 두었고 `FeaturePlot` 에 잇는 일이 남음. 화 점을 누르면 플롯 화면으로만 옮기고 그 화를 열지는 않음 |
 | 7 | 작품 도구 (남은 것) | 지도, 인과율, 작업지시서, 자동 집필 | `atlas.js` `causal.js` `auto.js` | 각 화면 |
+| 7 | `FeatureCausal` | 인과율 · 설정 추가 (요소, 관련 화 지도, 영향 분석) | `causal.js` | `element_links`(`ElementLink`), 작업 `impact`, `impact_apply` · `impact_dismiss` · `impact_reopen` — **됨**. 지도 칸에서 그 화로 바로 가기는 화면만 옮긴다 (화를 고르지 않음) |
+| 7 | `FeatureBrief` | 작업지시서 (API 없이) | `app.js` `viewBrief` | `brief`(`BriefText`), `put_text`, `parse_state` — **일부 됨**. 받은 JSON 은 서버가 검사까지 하고, 상태 승인 화면으로 넘기는 연결(`BriefView` 의 `handOff`)은 아직 없다 (FeatureReview 가 밖에서 받은 변경안을 받지 못함) |
+| 7 | 작품 도구 (남은 것) | 지도, 이야기 줄기, 자동 집필 | `atlas.js` `lines.js` `auto.js` | 각 화면 |
 | 8 | `FeatureUsage` | 사용량 · 비용 | `usage.js` | `usage_summary` · `usage_prices` — **됨** |
 | 8 | `FeatureSettings` | 모델 · API 키 설정 (사이드바 칸이 아니라 툴바 시트) | `app.js` `viewSettings` `claude.js` `vertex.js` | `config` · `put_config`(`ConfigView`, 본문 `SettingsIn`), `test_config`(`ConfigTest`), `config_models`(`ModelList`), `config_health`(`ConfigHealth`), `claude_status`(`ClaudeStatus`) — **됨** (가격표 칸은 사용량 화면에서) |
 | 8 | 본편과 분리 (남은 것) | 연구 | | `research` |
@@ -188,6 +193,11 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | `AutoText.progressLine` · `needsSettings` · `reviewDone` · `pendingStale` · `haltLink` · `runPolicyNote` · `paused` · `signature` · 알림 문구, `AutoModel.refresh` | `autoRunCard` · `pendingStale` · `autoHaltLinks` · `autoRunPolicy` · `actions.auto*` · `autoPoll` |
 | `AutoText.styleWarnings` · `revertQuestion` · `revertDone` · `logTime` · `logTokens` | `autoAppliedCard` · `revertFrom`(`ReviewText.revertQuestion` 과 같은 말) · `autoLogCard` |
 | `LineRules` (`episodes` · `span` · `isPast` · `newID` · `tag` · `untag` · `parseEpisodes` · `rangeNotes` · `badges` · `fieldOptions`), `LineMapLayout` | `lines.js` `lineEpisodes` · `lineSpan` · `linePast` · `newLineId` · `tagEp` · `lineUntag` · `parseEps` · `lineRangeNote` · `lineBadge` · `lineField` · `lineMap` (서버 `storylines.episodes_of` · `span` · `past` · `new_id` · `tag`. 시험 기대값은 node 로 돌린 웹 결과와 `tests/test_storylines.py` 사례) |
+| `CausalText.basis` · `stale` | `causal.js` `elBasis` · `causalStale` (서버 `elements.basis`. 시험 기대값은 node `JSON.stringify` 와 python `json.dumps` 로 돌린 결과, 따옴표 · 줄바꿈 · 조종 문자 · 이모지 사례) |
+| `CausalText.badge` · `timing` · `strip` · `snippets` · `defaultPicks` · `picked` · `appliedLabel` · `since` · `newID` | `causal.js` `impactBadge` · `timingText` · `causalStrip` · `initCausalPicks` · `causalApply` · `appliedLabel` · `causalSince` · `newElementId` (서버 `elements.new_id`) |
+| `CausalText.plotDiff` | `chat.js` `plotDiff` · `diffField` · `PLOT_FIELDS` |
+| `CausalModel.mergeImpacts` | `causal.js` `mergeImpacts` (저장하지 않은 요소 편집은 두고 분석만 받기) |
+| `BriefText` (`defaultKind` · `count` · `orderNote` · `filename`) | `app.js` `briefTabFor` · `importCount` · `blockedBefore` · `orderNote` · `downloadBrief` · `copyBrief` · `importText` · `importJson` 문구 |
 | `StyleText` | `styleBlank`(서버 `library.blank`) · `styleChangeWho` · `styleLibraryCard` · `baselineRows`, `analyzeStyle` · `useLibStyle` · `keepStyle` · `pushStyle` · `pullStyle` 의 묻는 말 |
 | `SettingsText` (`providers` · `stages` · `stageParent` · `followLabel` · `stageModelHint` · `stageEnvLines` · `localOpen` · `stageOpen` · `claudeOpen` · `modelOptions` · `modelStatus` · `aiWarning` · `claudeCard` · 키 칩), `SettingsDraft.body` | `app.js` `providerOptions` · `STAGES` · `STAGE_PARENT`(서버 `settings.STAGE_PARENT`) · `STAGE_PARENT_LABEL` · `stageModelHint` · `viewSettings` · `modelDatalist` · `KNOWN_MODELS` · `modelStatus` · `aiWarning` · `saveSettings`(환경 변수 · 기본값을 보이기만 한 칸은 보내지 않음), `vertex.js` `geminiAuthSettings` · `geminiAuthBody` · `VERTEX_SRC`, `claude.js` `claudeStatusView` · `claudeSettings` · `claudeSettingsBody` |
 
