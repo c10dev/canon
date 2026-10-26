@@ -1026,6 +1026,8 @@ class Atlas(BaseModel):
     aspect: float = Field(1.5, description="지도 가로 / 세로. 배경 그림을 올리면 그림 비율")
     pins: list[MapPin] = Field(default_factory=list)
     links: list[PlaceLink] = Field(default_factory=list)
+    layout: str = Field("", description="마을 · 도시 데이터 파일 이름 (projects/<작품>/map/ 아래, atlas.read_layout 으로 바꾼 길 · 건물). 비면 없음")
+    meters: float = Field(1.0, description="마을 데이터 1단위가 몇 m 인지 (거리 · 걷는 시간 계산)")
 
 
 class Project(BaseModel):

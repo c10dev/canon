@@ -5,10 +5,17 @@
 인물 위치는 상태 변경안이 적은 CharacterState.location 글을 화별 상태(cast.walk)에서 읽어 장소 이름과 맞춘다.
 '하르덴에서 벨라 항구로 가는 길'처럼 두 곳이 나오면 뒤에 나온 곳을 지금 자리로, 앞의 곳을 거쳐 온 곳으로 본다.
 
+마을 · 도시 데이터(Watabou 마을 · 도시 생성기의 JSON 내보내기)를 올리면 건물 · 길 · 물을 바탕으로 그리고,
+화별로 옮겨 간 인물은 길을 따라 걸은 경로(route)와 거리 · 걷는 시간을 붙인다 (read_layout, road_graph, route).
+
 화면은 canon/static/atlas.js, 명령줄은 `map`.
 """
 from __future__ import annotations
 
+import heapq
+import json
+import math
+from pathlib import Path
 from typing import Optional
 
 from . import cast, elements, naming
@@ -17,6 +24,8 @@ from .schema import MapPin, NewPlace, PlaceLink, PlaceSort, Project
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
 IMAGE_LIMIT = 15 * 1024 * 1024
 SORT_CHUNK = 60  # AI 정리 한 번에 보낼 위치 글 수
+LAYOUT_LIMIT = 8 * 1024 * 1024  # 마을 데이터 파일 크기
+WALK_MPS = 1.3  # 걷는 속도 (m/초)
 
 
 def places(p: Project) -> list[dict]:
@@ -111,15 +120,250 @@ def unmatched(p: Project, fs: list[dict]) -> list[dict]:
     return list(seen.values())
 
 
-def summary(p: Project) -> dict:
-    """지도 화면 한 번에 필요한 계산값."""
+def summary(p: Project, layout: Optional[dict] = None) -> dict:
+    """지도 화면 한 번에 필요한 계산값. layout(read_layout 결과)을 주면 옮겨 간 인물에 길 따라 걸은 경로를 붙인다."""
     pls = places(p)
     pins = {pin.place: [pin.x, pin.y] for pin in p.atlas.pins}
     for pl in pls:
         pl["pin"] = pins.get(pl["key"])
     fs = frames(p, pls)
+    if layout:
+        add_routes(fs, pins, road_graph(layout), p.atlas.meters)
+    aspect = round(layout["w"] / layout["h"], 4) if layout else p.atlas.aspect  # 마을 데이터가 있으면 마을을 그린다
     return {"places": pls, "frames": fs, "unmatched": unmatched(p, fs), "image": p.atlas.image,
-            "aspect": p.atlas.aspect, "links": [ln.model_dump() for ln in p.atlas.links]}
+            "aspect": aspect, "links": [ln.model_dump() for ln in p.atlas.links],
+            "layout": layout_info(p, layout) if layout else None}
+
+
+# ---------- 마을 · 도시 데이터 (Watabou 생성기 JSON) ----------
+
+WALKABLE = {"roads": "road", "streets": "road", "alleys": "road", "planks": "bridge", "bridges": "bridge"}
+AREAS = {"buildings": "buildings", "prisms": "buildings", "water": "water", "fields": "fields",
+         "greens": "greens", "squares": "squares", "plazas": "squares"}
+STROKES = {"rivers": "rivers", "walls": "walls"}  # 폭이 있는 선으로 그린다 (도시 생성기의 강 · 성벽)
+
+
+def _lines(g: dict) -> list[list]:
+    """GeoJSON 도형에서 선(점 목록)들. 다각형은 바깥 테두리를 선으로 본다."""
+    t, c = g.get("type"), g.get("coordinates") or []
+    if t == "GeometryCollection":
+        return [ln for x in g.get("geometries") or [] for ln in _lines(x)]
+    if t == "LineString":
+        return [c]
+    if t == "MultiLineString":
+        return list(c)
+    if t == "Polygon":
+        return c[:1]
+    if t == "MultiPolygon":
+        return [poly[0] for poly in c if poly]
+    return []
+
+
+def read_layout(raw: dict) -> dict:
+    """Watabou 마을 · 도시 생성기가 내보낸 JSON 을 지도 화면이 그릴 모양으로 바꾼다.
+    좌표는 0~1 비율 (x 는 폭, y 는 높이 기준. 생성기 화면처럼 y 가 아래로 커진다).
+    w, h 는 원래 단위의 폭 · 높이 (거리 계산), road 선마다 폭 width (원래 단위)."""
+    if not isinstance(raw, dict) or raw.get("type") != "FeatureCollection" or not isinstance(raw.get("features"), list):
+        raise ValueError("Watabou 생성기에서 Export as → JSON 으로 받은 파일을 올리세요 (GeoJSON FeatureCollection)")
+    feats = {}
+    meta = {}
+    for f in raw["features"]:
+        if not isinstance(f, dict):
+            continue
+        g = f.get("geometry") if isinstance(f.get("geometry"), dict) else f
+        fid = str(f.get("id") or (f.get("properties") or {}).get("id") or "")
+        if fid == "values":
+            meta = {k: v for k, v in f.items() if k in ("generator", "version", "roadWidth")}
+            continue
+        feats[fid] = g
+    pts = [pt for g in feats.values() for ln in _lines(g) for pt in ln if isinstance(pt, list) and len(pt) >= 2]
+    earth = _lines(feats["earth"])[0] if "earth" in feats and _lines(feats["earth"]) else pts
+    if not earth:
+        raise ValueError("파일에 좌표가 없어요")
+    xs, ys = [float(q[0]) for q in earth], [float(q[1]) for q in earth]
+    x0, y0, w, h = min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)
+    if w <= 0 or h <= 0:
+        raise ValueError("지도 범위를 알 수 없어요")
+    norm = lambda ln: [[round((float(q[0]) - x0) / w, 5), round((float(q[1]) - y0) / h, 5)] for q in ln if len(q) >= 2]  # noqa: E731
+    out: dict = {"w": round(w, 3), "h": round(h, 3), "generator": str(meta.get("generator", "")),
+                 "version": str(meta.get("version", "")), "roads": [], "trees": []}
+    for fid, kind in WALKABLE.items():
+        g = feats.get(fid)
+        for x in (g.get("geometries") or [g]) if g else []:
+            for ln in _lines(x):
+                if len(ln) >= 2:
+                    out["roads"].append({"kind": kind, "width": float(x.get("width") or 1), "points": norm(ln)})
+    for fid, key in AREAS.items():
+        g = feats.get(fid)
+        if g:
+            out.setdefault(key, []).extend(norm(ln) for ln in _lines(g) if len(ln) >= 3)
+    for fid, key in STROKES.items():
+        g = feats.get(fid)
+        for x in (g.get("geometries") or [g]) if g else []:
+            for ln in _lines(x):
+                if len(ln) >= 2:
+                    out.setdefault(key, []).append({"width": float(x.get("width") or 1), "points": norm(ln)})
+    if "trees" in feats and feats["trees"].get("type") == "MultiPoint":
+        out["trees"] = norm(feats["trees"].get("coordinates") or [])
+    if not out["roads"]:
+        raise ValueError("파일에 길(roads)이 없어요. 마을 · 도시 생성기의 JSON 을 올리세요")
+    return out
+
+
+def load_layout(folder: Path, p: Project) -> Optional[dict]:
+    """작품 폴더 map/ 의 마을 데이터. 없거나 읽지 못하면 None."""
+    if not p.atlas.layout:
+        return None
+    path = folder / p.atlas.layout
+    try:
+        return json.loads(path.read_text(encoding="utf-8")) if path.is_file() and path.parent == folder else None
+    except (OSError, ValueError):
+        return None
+
+
+def layout_info(p: Project, layout: dict) -> dict:
+    """화면 · 명령줄에 보일 요약."""
+    m = p.atlas.meters
+    return {"file": p.atlas.layout, "roads": sum(r["kind"] == "road" for r in layout["roads"]),
+            "bridges": sum(r["kind"] == "bridge" for r in layout["roads"]), "buildings": len(layout.get("buildings", [])),
+            "width_m": round(layout["w"] * m), "height_m": round(layout["h"] * m), "meters": m,
+            "generator": layout.get("generator", "")}
+
+
+def road_graph(layout: dict) -> dict:
+    """길을 길찾기 그래프로. 좌표는 원래 단위(거리 그대로). 끝이 맞닿은 길끼리 잇고, 가장 큰 덩어리에 속한 길만 쓴다
+    (다른 길과 이어지지 않은 다리 같은 조각에 장소가 붙어 길을 못 찾는 일이 없게)."""
+    w, h = layout["w"], layout["h"]
+    ids: dict[tuple, int] = {}
+    nodes: list[tuple] = []
+    adj: list[dict] = []
+
+    def node(q):
+        k = (round(q[0] * w, 2), round(q[1] * h, 2))
+        if k not in ids:
+            ids[k] = len(nodes)
+            nodes.append(k)
+            adj.append({})
+        return ids[k]
+
+    for r in layout["roads"]:
+        for a, b in zip(r["points"], r["points"][1:]):
+            i, j = node(a), node(b)
+            if i != j:
+                d = math.dist(nodes[i], nodes[j])
+                adj[i][j] = adj[j][i] = min(d, adj[i].get(j, d))
+    # 가장 큰 덩어리
+    seen, best = set(), set()
+    for s in range(len(nodes)):
+        if s in seen:
+            continue
+        comp, stack = set(), [s]
+        while stack:
+            u = stack.pop()
+            if u in comp:
+                continue
+            comp.add(u)
+            stack.extend(v for v in adj[u] if v not in comp)
+        seen |= comp
+        if len(comp) > len(best):
+            best = comp
+    segs = [(i, j) for i in best for j in adj[i] if i < j]
+    return {"w": w, "h": h, "nodes": nodes, "adj": adj, "segs": segs}
+
+
+def _snap(g: dict, q: tuple) -> tuple:
+    """점에서 가장 가까운 길 위의 점: (거리, 구간 i, j, 그 점)."""
+    best = None
+    for i, j in g["segs"]:
+        (ax, ay), (bx, by) = g["nodes"][i], g["nodes"][j]
+        dx, dy = bx - ax, by - ay
+        t = max(0.0, min(1.0, ((q[0] - ax) * dx + (q[1] - ay) * dy) / (dx * dx + dy * dy or 1)))
+        pt = (ax + t * dx, ay + t * dy)
+        d = math.dist(q, pt)
+        if best is None or d < best[0]:
+            best = (d, i, j, pt)
+    return best  # type: ignore[return-value]
+
+
+def route(g: dict, a: list, b: list) -> Optional[dict]:
+    """0~1 좌표 a 에서 b 까지 길을 따라 가는 경로. 길까지는 곧장 걷는다 (길보다 서로 가까우면 곧장).
+    돌려주는 것: points(0~1), length(원래 단위). 길이 없으면 None."""
+    if not g["segs"]:
+        return None
+    w, h = g["w"], g["h"]
+    pa, pb = (a[0] * w, a[1] * h), (b[0] * w, b[1] * h)
+    da, ia, ja, sa = _snap(g, pa)
+    db, ib, jb, sb = _snap(g, pb)
+    if math.dist(pa, pb) <= da + db:  # 길까지 가는 것보다 서로 가까우면 곧장 걷는다 (같은 곳, 이웃한 집)
+        return {"points": [[round(a[0], 5), round(a[1], 5)], [round(b[0], 5), round(b[1], 5)]], "length": math.dist(pa, pb)}
+    nodes, adj = g["nodes"], g["adj"]
+    S, T = -1, -2
+    ext: dict[int, dict] = {S: {ia: math.dist(sa, nodes[ia]), ja: math.dist(sa, nodes[ja])}}
+    into_t = {ib: math.dist(sb, nodes[ib]), jb: math.dist(sb, nodes[jb])}
+    if {ia, ja} == {ib, jb}:
+        ext[S][T] = math.dist(sa, sb)
+    dist, prev, heap = {S: 0.0}, {}, [(0.0, S)]
+    while heap:
+        d, u = heapq.heappop(heap)
+        if u == T:
+            break
+        if d > dist.get(u, math.inf):
+            continue
+        nxt = dict(ext.get(u, {})) if u < 0 else dict(adj[u])
+        if u in into_t:
+            nxt[T] = into_t[u]
+        for v, c in nxt.items():
+            if d + c < dist.get(v, math.inf):
+                dist[v], prev[v] = d + c, u
+                heapq.heappush(heap, (d + c, v))
+    if T not in dist:
+        return None
+    chain, u = [], T
+    while u != S:
+        u = prev[u]
+        if u >= 0:
+            chain.append(nodes[u])
+    pts = [pa, sa, *reversed(chain), sb, pb]
+    clean = [pts[0]]
+    for q in pts[1:]:
+        if math.dist(q, clean[-1]) > 1e-6:
+            clean.append(q)
+    return {"points": [[round(x / w, 5), round(y / h, 5)] for x, y in clean], "length": da + dist[T] + db}
+
+
+def add_routes(fs: list[dict], pins: dict, g: dict, meters: float) -> None:
+    """옮겨 간 인물(moved)의 줄에 앞 장소에서 거쳐 온 곳을 지나 지금 장소까지 길 따라 걸은 경로를 붙인다.
+    route: {points, meters, minutes}. 어느 장소라도 지도에 안 놓였으면 붙이지 않는다."""
+    cache: dict[tuple, Optional[dict]] = {}
+    last: dict[str, str] = {}
+    for f in fs:
+        for r in f["rows"]:
+            at, before = r["place"], last.get(r["cid"], "")
+            if at:
+                last[r["cid"]] = at
+            if not (r["moved"] and before):
+                continue
+            stops = [before, *[k for k in r["via"] if k != before], at]
+            if not all(k in pins for k in stops):
+                continue
+            pts, length = [], 0.0
+            for x, y in zip(stops, stops[1:]):
+                if (x, y) not in cache:
+                    cache[(x, y)] = route(g, pins[x], pins[y])
+                leg = cache[(x, y)]
+                if leg is None:
+                    break
+                pts += leg["points"] if not pts else leg["points"][1:]
+                length += leg["length"]
+            else:
+                m = length * meters
+                r["route"] = {"points": pts, "meters": round(m), "minutes": max(1, round(m / WALK_MPS / 60))}
+
+
+def set_meters(p: Project, meters: float) -> None:
+    if not 0.01 <= meters <= 1000:
+        raise ValueError("축척은 1단위에 0.01~1000m 사이로 정하세요")
+    p.atlas.meters = round(float(meters), 3)
 
 
 # ---------- 작가가 고치기 ----------
@@ -226,25 +470,33 @@ def apply_sort(p: Project, new_places: list[tuple[NewPlace, int]], picks: list[t
 
 # ---------- 명령줄 ----------
 
-def describe(p: Project) -> str:
-    """명령줄 `map <작품>`: 장소(지도에 놓았는지), 인물별 옮겨 다닌 길, 장소와 맞지 않은 위치 글."""
-    s = summary(p)
+def describe(p: Project, layout: Optional[dict] = None) -> str:
+    """명령줄 `map <작품>`: 장소(지도에 놓았는지), 인물별 옮겨 다닌 길, 장소와 맞지 않은 위치 글.
+    마을 데이터를 주면 옮긴 화마다 길 따라 걸은 거리 · 시간도."""
+    s = summary(p, layout)
     pls = {pl["key"]: pl for pl in s["places"]}
     if not pls:
         return "장소가 아직 없어요. 설정의 장소 칸이나 인과율 '장소'에 더하면 지도에 놓을 수 있어요."
-    lines = ["장소"]
+    lines = []
+    if s["layout"]:
+        lo = s["layout"]
+        lines.append(f"마을 데이터: 길 {lo['roads']}개 · 다리 {lo['bridges']}개 · 건물 {lo['buildings']}채 · "
+                     f"약 {lo['width_m']}×{lo['height_m']}m\n")
+    lines.append("장소")
     for pl in s["places"]:
         when = f" · {pl['known_from']}화부터 독자가 앎" if pl["known_from"] else ""
         lines.append(f"  {pl['name']} ({pl['source']}){when}{'' if pl['pin'] else ' · 지도에 아직 안 놓음'}")
     name = {c.id: c.name or c.id for c in p.characters}
     walks: dict[str, list[str]] = {}
+    lastat: dict[str, str] = {}
     for f in s["frames"]:
         for r in f["rows"]:
             path = walks.setdefault(r["cid"], [])
-            last = path[-1].split(" ", 1)[1] if path else ""
             here = pls[r["place"]]["name"] if r["place"] else (f"'{r['location']}'" if r["location"] else "")
-            if here and here != last:
-                path.append(f"{f['episode'] or '시작'}{'화' if f['episode'] else ''} {here}")
+            if here and here != lastat.get(r["cid"]):
+                lastat[r["cid"]] = here
+                walk = f" (길 따라 {r['route']['meters']}m · 약 {r['route']['minutes']}분)" if r.get("route") else ""
+                path.append(f"{f['episode'] or '시작'}{'화' if f['episode'] else ''} {here}{walk}")
     if walks:
         lines.append("\n인물이 있던 곳 (반영한 화 기준, 바뀐 화만)")
         for cid, path in walks.items():
