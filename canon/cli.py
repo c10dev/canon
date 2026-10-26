@@ -65,7 +65,7 @@ from . import (autorun, cast, dynamics, elements, genres, illust, library, logli
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
-from . import atlas, foreshadows, statwin, towngen
+from . import atlas, citygen, foreshadows, statwin, towngen
 from .schema import ArcProposal, ChatScope, MapPlace, StatValue, StoryArc
 
 
@@ -1372,11 +1372,13 @@ def cmd_cast(a: argparse.Namespace) -> None:
     print("\n인물 하나를 자세히 보려면: cast <작품> <인물 id 나 이름>")
 
 
-def _map_option(key: str, value: str | None) -> str | None:
-    """--size 보통 처럼 화면 이름이나 id(medium)를 받아 id 로."""
+def _map_option(key: str, value: str | None, kind: str = "village") -> str | None:
+    """--size 보통 처럼 화면 이름이나 id(medium)를 받아 id 로. kind: 지도 종류 (도시는 길 모양 칸이 없다)."""
     if not value:
         return None
-    opts = towngen.OPTIONS[key]
+    opts = atlas.MAKERS[kind][1].OPTIONS.get(key)
+    if opts is None:
+        raise ValueError(f"--{key} 는 {atlas.MAKERS[kind][0]}에 쓰지 않아요")
     for oid, label in opts.items():
         if value in (oid, label.split(" (")[0]):
             return oid
@@ -1385,16 +1387,18 @@ def _map_option(key: str, value: str | None) -> str | None:
 
 def cmd_map(a: argparse.Namespace) -> None:
     """지도 보기: 장소와 지도에 놓았는지, 인물별로 옮겨 다닌 길, 장소와 맞지 않은 위치 글.
-    gen: 마을 생성기로 마을을 만든다 (미리보기를 보여 주고 확인을 받아 적용)."""
+    gen: 마을 · 도시 생성기로 지도를 만든다 (미리보기를 보여 주고 확인을 받아 적용)."""
     p = store.load(a.name)
     folder = store.project_dir(a.name) / "map"
     if a.action != "gen":
         print(atlas.describe(p, atlas.load_layout(folder, p)))
         return
     base = atlas.default_spec(p)
-    change = {k: v for k, v in ((k, _map_option(k, getattr(a, k))) for k in towngen.OPTIONS) if v}
-    if a.ai:  # AI 제안을 채우고, 직접 적은 칸(--size 등)이 이긴다
-        sug = pipeline.suggest_map(get_llm("plan"), p, base)
+    sug = pipeline.suggest_map(get_llm("plan"), p, base) if a.ai else None
+    kind = a.kind or (sug["kind"] if sug else base.kind)
+    opts = atlas.MAKERS[kind][1].OPTIONS
+    change = {k: v for k, v in ((k, _map_option(k, getattr(a, k), kind)) for k in towngen.OPTIONS) if v}
+    if sug:  # AI 제안을 채우고, 직접 적은 칸(--size 등)이 이긴다
         print(f"AI 제안: {sug['reason']}" if sug["reason"] else "AI 제안을 받았어요")
         for g in sug["places"]:
             if g["note"]:
@@ -1403,12 +1407,16 @@ def cmd_map(a: argparse.Namespace) -> None:
         places = [*(MapPlace(key=g["key"], kind=g["kind"], put=g["put"]) for g in sug["places"]),
                   *(x for k, x in mine.items() if k not in {g["key"] for g in sug["places"]})]
         change = {**{k: sug[k] for k in towngen.OPTIONS}, "places": places, **change}
-    spec = base.model_copy(update={**change, "kind": a.kind, "seed": a.seed if a.seed is not None else random.randrange(1, 2**31 - 1)})
+    if kind == "city" and change.get("water", base.water) == "lake":
+        change["water"] = "river"  # 도시 생성기는 호수를 강으로 본다
+    spec = base.model_copy(update={**change, "kind": kind, "seed": a.seed if a.seed is not None else random.randrange(1, 2**31 - 1)})
+    word = atlas.MAKERS[kind][0]
     out = atlas.generate(p, spec)
     info = out["info"]
-    print(f"마을 (시드 {spec.seed}): 집 {info['houses']}채 · 건물 {info['buildings']}채 · 길 {info['roads']}개"
-          f"{f' · 다리 {info['bridges']}개' if info['bridges'] else ''} · 약 {info['width_m']}×{info['height_m']}m")
-    print("  " + " · ".join(towngen.OPTIONS[k][getattr(spec, k)].split(" (")[0] for k in ("size", "roads", "water", "fields", "forest")))
+    walls = f" · 구역 {info['wards']}곳 · 성문 {info['gates']}곳" if kind == "city" else ""
+    print(f"{word} (시드 {spec.seed}): 집 {info['houses']}채 · 건물 {info['buildings']}채 · 길 {info['roads']}개"
+          f"{f' · 다리 {info['bridges']}개' if info['bridges'] else ''}{walls} · 약 {info['width_m']}×{info['height_m']}m")
+    print("  " + " · ".join(opts[k][getattr(spec, k)].split(" (")[0] for k in ("size", "roads", "water", "fields", "forest") if k in opts))
     kinds = {cid: label for cid, label, _ in towngen.CATEGORIES}
     take = [s["place"] for s in out["pins"] if a.move or not s["had"]]
     for s in out["pins"]:
@@ -1417,8 +1425,8 @@ def cmd_map(a: argparse.Namespace) -> None:
     for m in out["missing"]:
         print(f"  {m['name']}: 놓지 못했어요. {m['reason']}")
     for b in out["blocked"]:
-        print(f"  {b['name']}: 지금 자리가 새 마을의 건물이나 물 위예요. 웹 지도 화면에서 옮겨 주세요")
-    if not confirm("이 마을을 적용할까요? 지금 마을 데이터는 바뀌어요", a.yes):
+        print(f"  {b['name']}: 지금 자리가 새 {word}의 건물이나 물 위예요. 웹 지도 화면에서 옮겨 주세요")
+    if not confirm(f"이 {word}{'을' if kind == 'village' else '를'} 적용할까요? 지금 지도 데이터는 바뀌어요", a.yes):
         return
     old = atlas.apply_generated(folder, p, spec, take)
     print(f"저장: {store.save(a.name, p)}")
@@ -1772,11 +1780,12 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("character", nargs="?", help="인물 id 나 이름. 비우면 인물 목록")
     sp.add_argument("--numbers", action="store_true", help="관계를 숫자로")
     sp = add("map", cmd_map)
-    sp.add_argument("action", nargs="?", choices=["gen"], help="gen: 마을 생성기로 마을 만들기. 비우면 지도 보기")
-    sp.add_argument("kind", nargs="?", choices=["village"], default="village", help="만들 지도 (지금은 village 만)")
-    sp.add_argument("--seed", type=int, help="같은 시드면 같은 마을. 비우면 새로 뽑는다")
+    sp.add_argument("action", nargs="?", choices=["gen"], help="gen: 마을 · 도시 생성기로 지도 만들기. 비우면 지도 보기")
+    sp.add_argument("kind", nargs="?", choices=list(atlas.MAKERS), help="만들 지도: village 마을, city 도시. 비우면 지난번 지도 종류 (--ai 면 AI 제안)")
+    sp.add_argument("--seed", type=int, help="같은 시드면 같은 지도. 비우면 새로 뽑는다")
     for key, opts in towngen.OPTIONS.items():
-        sp.add_argument(f"--{key}", help=", ".join(label.split(" (")[0] for label in opts.values()))
+        city = citygen.OPTIONS.get(key)
+        sp.add_argument(f"--{key}", help=", ".join(label.split(" (")[0] for label in opts.values()) + ("" if city else " (마을만)"))
     sp.add_argument("--move", action="store_true", help="이미 지도에 놓은 장소도 생성기가 고른 자리로 옮기기")
     sp.add_argument("--ai", action="store_true", help="AI가 작품 설정과 장소 설명을 보고 설정 칸 · 장소 종류를 제안 (직접 적은 칸이 이긴다)")
     sp = add("view", cmd_view, yes=False)

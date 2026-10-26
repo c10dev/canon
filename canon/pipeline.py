@@ -2355,8 +2355,9 @@ def sort_places(llm: LLM, p: Project, texts: list[str] | None = None) -> dict:
 
 
 def suggest_map(llm: LLM, p: Project, spec: MapSpec | None = None) -> dict:
-    """지도 만들기 설정 제안 (MapSuggestion). 저장하지 않는다. 좌표는 마을 생성기가 정한다.
-    돌려주는 것: 설정 칸(size, roads, water, fields, forest), places [{key, name, kind, put, note}], reason.
+    """지도 만들기 설정 제안 (MapSuggestion). 저장하지 않는다. 좌표는 마을 · 도시 생성기가 정한다.
+    돌려주는 것: 지도 종류 kind(village | city), 설정 칸(size, roads, water, fields, forest), places [{key, name, kind, put, note}], reason.
+    도시에 호수를 고르면 강으로 바꾼다 (도시 생성기에는 호수 칸이 없다).
     장소 이름은 키로 바꾸고, 모르는 장소 · 모르는 종류 id 는 뺀다 (지금 값을 그대로 둔다)."""
     from . import atlas, towngen
 
@@ -2365,7 +2366,8 @@ def suggest_map(llm: LLM, p: Project, spec: MapSpec | None = None) -> dict:
         raise ValueError("장소가 아직 없어요. 장소를 더한 뒤 제안을 받으세요")
     rows = atlas.gen_places(p, spec)
     kinds = [(cid, label) for cid, label, _ in towngen.CATEGORIES]
-    s = llm.json(prompts.SYSTEM_MAP_PLANNER, prompts.map_suggest_prompt(p, rows, pls, kinds, towngen.OPTIONS), MapSuggestion,
+    options = {k: m[1].OPTIONS for k, m in atlas.MAKERS.items()}
+    s = llm.json(prompts.SYSTEM_MAP_PLANNER, prompts.map_suggest_prompt(p, rows, pls, kinds, options), MapSuggestion,
                  hint={"places": [r["name"] for r in rows]})
     names = {pl["key"]: pl["name"] for pl in pls}
     out, seen = [], set()
@@ -2376,7 +2378,8 @@ def suggest_map(llm: LLM, p: Project, spec: MapSpec | None = None) -> dict:
             continue
         seen.add(key)
         out.append({"key": key, "name": names[key], "kind": kind, "put": bool(g.put), "note": g.note.strip()})
-    return {"size": s.size, "roads": s.roads, "water": s.water, "fields": s.fields, "forest": s.forest,
+    water = "river" if s.kind == "city" and s.water == "lake" else s.water
+    return {"kind": s.kind, "size": s.size, "roads": s.roads, "water": water, "fields": s.fields, "forest": s.forest,
             "places": out, "reason": s.reason.strip()}
 
 

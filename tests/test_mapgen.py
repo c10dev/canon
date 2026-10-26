@@ -14,7 +14,7 @@ os.environ.setdefault("CANON_LLM", "mock")
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from canon import atlas, cli, geom, pipeline, prompts, store, towngen  # noqa: E402
+from canon import atlas, citygen, cli, geom, pipeline, prompts, store, towngen  # noqa: E402
 from canon.llm import get_llm  # noqa: E402
 from canon.schema import MapPin, MapPlace, MapPlaceGuess, MapSpec, MapSuggestion, Project, StoryElement  # noqa: E402
 
@@ -164,7 +164,7 @@ def test_gen_places_and_overrides():
     assert rows["el-9"]["kind"] == "temple" and rows["el-9"]["found"] == "inn"
     assert rows["el-10"]["put"] and rows["el-1"]["kind"] == "center"  # 모르는 종류 id 는 찾은 값으로
     info = atlas.gen_info(p)
-    assert not info["made"] and info["spec"]["kind"] == "village" and info["options"]["water"]["sea"] == "바다"
+    assert not info["made"] and info["spec"]["kind"] == "village" and info["options"]["village"]["water"]["sea"] == "바다" and "lake" not in info["options"]["city"]["water"]
     assert {"id": "inn", "label": "여관 · 주막"} in info["kinds"]
 
 
@@ -251,6 +251,68 @@ def test_cli_map_gen(capsys, monkeypatch, tmp_path):
     assert "--water 는 없음, 강, 호수, 바다 중 하나예요" in str(e.value)
 
 
+# ---------- 도시 지도 (citygen 을 지도 만들기에 연결) ----------
+
+def test_generate_city_preview_and_apply(tmp_path):
+    p = _project()
+    spec = MapSpec(kind="city", seed=3, size="small", water="lake")  # 도시는 호수를 강으로 본다
+    out = atlas.generate(p, spec)
+    lo = out["layout"]
+    assert lo["generator"] == citygen.GENERATOR and lo["rivers"] and lo["walls"] and lo["wards"] and not p.atlas.layout
+    assert out["info"]["wards"] == len(lo["wards"]) and out["info"]["gates"] == len(lo["gates"]) >= 3
+    assert {s["place"] for s in out["pins"]} >= {"el-1", "el-9"} and "el-10" not in {s["place"] for s in out["pins"]}
+    t = out["title"]
+    assert t["kind"] == "도시" and t["population"] == int(round(lo["houses"] * atlas.CITY_POP_PER_HOUSE, -1))
+
+    assert atlas.apply_generated(tmp_path, p, spec, ["el-1"]) == ""
+    assert p.atlas.layout == "gen-city-3.json" and p.atlas.spec.kind == "city" and p.atlas.spec.version == citygen.VERSION
+    saved = atlas.load_layout(tmp_path, p)
+    assert saved["generator"] == citygen.GENERATOR and "도시 데이터 (지도 만들기, 시드 3)" in atlas.describe(p, saved)
+    info = atlas.gen_info(p)
+    assert info["made"] and info["spec"]["kind"] == "city" and info["version"]["city"] == citygen.VERSION
+    assert {"id": "city", "label": "도시"} in info["maps"] and "roads" not in info["options"]["city"] and info["wards"]["noble"] == "귀족"
+    assert atlas.summary(p, saved)["title"]["kind"] == "도시"
+    with pytest.raises(ValueError, match="아직 만들 수 없는 지도"):
+        atlas.generate(p, MapSpec(kind="realm"))
+
+
+def test_web_and_cli_city(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("CANON_HOME", str(tmp_path))
+    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
+    from canon import store as st, web
+
+    importlib.reload(st)
+    importlib.reload(web)
+    st.save("c", _project())
+    c = TestClient(web.app)
+    spec = {**c.get("/api/projects/c/atlas").json()["gen"]["spec"], "kind": "city", "seed": 9, "size": "small"}
+    pv = c.post("/api/projects/c/atlas/generate/preview", json=spec).json()
+    assert pv["layout"]["generator"] == "canon-city" and pv["info"]["gates"] and pv["title"]["kind"] == "도시"
+
+    monkeypatch.setattr(store, "ROOT", tmp_path)
+    cli.main(["map", "c", "gen", "city", "--seed", "4", "--size", "작음", "--water", "강", "-y"])
+    out = capsys.readouterr().out
+    assert "도시 (시드 4)" in out and "성문" in out and "작음 · 강 · " in out
+    q = store.load("c")
+    assert q.atlas.spec.kind == "city" and q.atlas.layout == "gen-city-4.json"
+    cli.main(["map", "c", "gen", "--seed", "5", "-y"])  # 종류를 비우면 지난번 종류
+    assert store.load("c").atlas.layout == "gen-city-5.json"
+    with pytest.raises(SystemExit) as e:
+        cli.main(["map", "c", "gen", "city", "--roads", "광장", "-y"])
+    assert "--roads 는 도시에 쓰지 않아요" in str(e.value)
+
+
+def test_suggest_map_kind():
+    class Fake:
+        def json(self, system, prompt, schema, hint=None):
+            return MapSuggestion(kind="city", size="large", roads="cross", water="lake", fields="few", forest="few",
+                                 places=[MapPlaceGuess(name="흑송촌", kind="center")], reason="성이 있는 도시예요.")
+
+    r = pipeline.suggest_map(Fake(), _project())
+    assert r["kind"] == "city" and r["water"] == "river" and r["places"][0]["key"] == "el-1"
+    assert pipeline.suggest_map(get_llm("plan"), _project())["kind"] == "village"
+
+
 # ---------- 물 기본값 · AI 설정 제안 ----------
 
 def test_water_default_follows_places():
@@ -299,8 +361,10 @@ def test_suggest_map_cleans_names_and_kinds():
 
 def test_map_suggest_prompt_has_setting():
     p = _project()
-    text = prompts.map_suggest_prompt(p, atlas.gen_places(p), atlas.places(p), [(c, l) for c, l, _ in towngen.CATEGORIES], towngen.OPTIONS)
+    text = prompts.map_suggest_prompt(p, atlas.gen_places(p), atlas.places(p), [(c, l) for c, l, _ in towngen.CATEGORIES],
+                                  {"village": towngen.OPTIONS, "city": citygen.OPTIONS})
     assert f"배경: {p.world.setting}" in text and "장르: " in text and "- 흑송촌 (다른 이름: 흑송 마을): 산 아래 마을" in text
+    assert "## 도시 (kind=city)" in text and "roads" not in text.split("## 도시")[1].split("요구사항")[0]
 
 
 def test_web_suggest_and_cli_ai(tmp_path, monkeypatch, capsys):
@@ -392,7 +456,7 @@ def test_title_population_and_numbers():
     assert len(lo["numbers"]) == lo["houses"] == len(set(lo["numbers"]))
     assert all(0 <= i < len(lo["buildings"]) for i in lo["numbers"])
     t = out["title"]
-    assert t == {"title": "흑송촌", "custom": False, "houses": lo["houses"], "population": int(round(lo["houses"] * 5.5, -1))}
+    assert t == {"title": "흑송촌", "custom": False, "houses": lo["houses"], "population": int(round(lo["houses"] * 5.5, -1)), "kind": "마을"}
     atlas.set_title(p, "  흑송   나루마을 ")
     assert p.atlas.title == "흑송 나루마을" and atlas.village_title(p, lo)["custom"]
     with pytest.raises(ValueError):

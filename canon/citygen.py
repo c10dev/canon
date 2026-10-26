@@ -7,7 +7,8 @@
 결과는 atlas.read_layout 이 내놓는 것과 같은 모양 (+ wards, gates, spots, missing, houses, numbers). 좌표는 m 로 계산하고
 마지막에 0~1 로 나눈다. 단계마다 난수원을 따로 두어(f"{seed}:{단계}") 같은 MapSpec 이면 언제나 같은 도시가 나온다.
 
-Watabou 도시 생성기의 결과물에서 보이는 흐름을 참고했지만 그 코드(GPL)는 읽지도 옮기지도 않았다. 아직 지도 화면에 붙이지 않았다.
+Watabou 도시 생성기의 결과물에서 보이는 흐름을 참고했지만 그 코드(GPL)는 읽지도 옮기지도 않았다. 지도 화면 · 명령줄은 atlas.generate 가
+MapSpec.kind 로 마을 생성기(towngen)와 갈라 부른다.
 """
 from __future__ import annotations
 
@@ -24,6 +25,12 @@ from .towngen import CATEGORIES
 VERSION = 1
 GENERATOR = "canon-city"
 
+OPTIONS = {  # 지도 만들기 칸 (towngen.OPTIONS 와 같은 모양. 도시는 길 모양을 고르지 않고, 호수는 강으로 본다)
+    "size": {"small": "작음 (집 500~750채)", "medium": "보통 (1,000~1,300채)", "large": "큼 (2,000~2,500채)"},  # 물 셋 × 시드 5개씩 재 본 범위
+    "water": {"none": "없음", "river": "강", "sea": "바다"},
+    "fields": {"few": "적음", "some": "보통", "many": "많음"},
+    "forest": {"few": "적음", "some": "보통", "many": "많음"},
+}
 SIZES = {"small": 15, "medium": 30, "large": 60}  # 성안 구역 수 (강 건너는 자리 · 성문 안쪽에서 둘로 나뉜 구역은 따로 센다)
 WARD_AREA = 4200.0  # 성안 구역 하나의 넓이 (m²)
 OUTER_AREA = 3.2  # 성 밖 구역은 이만큼 배 넓다

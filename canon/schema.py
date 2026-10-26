@@ -384,9 +384,11 @@ class MapPlaceGuess(BaseModel):
 
 class MapSuggestion(BaseModel):
     """지도 만들기 설정 제안 (pipeline.suggest_map). 저장하지 않고 작가가 지도 화면 칸에 채워 본다. 좌표는 생성기가 정한다."""
-    size: Literal["small", "medium", "large"] = Field(description="마을 크기: small 집 20~30채 / medium 30~60채 / large 50~110채")
-    roads: Literal["line", "cross", "square"] = Field(description="길 모양: line 한길을 따라 / cross 교차로 / square 가운데 광장")
-    water: Literal["none", "river", "lake", "sea"] = Field(description="물: none 없음 / river 강 / lake 호수 / sea 바다")
+    kind: Literal["village", "city"] = Field("village", description="지도 종류: village 마을 / city 성벽이 있는 도시")
+    size: Literal["small", "medium", "large"] = Field(description="크기. 마을: small 집 25~30채 / medium 60~70채 / large 100~140채. "
+                                                      "도시: small 500~750채 / medium 1,000~1,300채 / large 2,000~2,500채")
+    roads: Literal["line", "cross", "square"] = Field(description="길 모양 (마을만): line 한길을 따라 / cross 교차로 / square 가운데 광장")
+    water: Literal["none", "river", "lake", "sea"] = Field(description="물: none 없음 / river 강 / lake 호수(마을만) / sea 바다")
     fields: Literal["few", "some", "many"] = Field(description="밭 양")
     forest: Literal["few", "some", "many"] = Field(description="숲 양")
     places: list[MapPlaceGuess] = Field(default_factory=list, description="[장소 목록]의 장소마다 하나")
