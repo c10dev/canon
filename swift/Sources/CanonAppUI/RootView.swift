@@ -8,7 +8,9 @@ import FeatureCast
 import FeaturePlot
 import FeatureProjects
 import FeatureReview
+import FeatureSetup
 import FeatureStatWin
+import FeatureStyle
 import FeatureUsage
 import FeatureWrite
 import SwiftUI
@@ -81,6 +83,8 @@ public struct RootView: View {
     private func screen(_ screen: Screen, project: String) -> some View {
         switch screen {
         case .home: if let doc = model.document { HomeView(document: doc) { model.screen = $0 } }
+        case .setup: if let doc = model.document { SetupView(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
+        case .style: if let doc = model.document { StyleView(document: doc, server: model.server) { model.screen = $0 } }
         case .statwin: StatWinScreen(server: model.server, project: project)
         case .foreshadow: ForeshadowView(server: model.server, project: project)
         case .usage: UsageView(model: UsageModel(source: LiveUsageSource(server: model.server), project: project))

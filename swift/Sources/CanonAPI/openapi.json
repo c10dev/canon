@@ -528,6 +528,29 @@
     }
    }
   },
+  "/api/relation_views": {
+   "get": {
+    "summary": "Relation Views",
+    "description": "관계를 말로 고르는 보는 방식 (dynamics.VIEWS 의 말, 순서 그대로). 설정 화면이 시작 관계를 고를 때 쓴다.",
+    "operationId": "relation_views",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "type": "string"
+         },
+         "type": "array",
+         "title": "Response Relation Views"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/suggest": {
    "post": {
     "summary": "Suggest",
@@ -627,8 +650,7 @@
        "application/json": {
         "schema": {
          "items": {
-          "additionalProperties": true,
-          "type": "object"
+          "$ref": "#/components/schemas/NamingStyleOut"
          },
          "type": "array",
          "title": "Response Naming Styles"
@@ -670,9 +692,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Names"
+         "$ref": "#/components/schemas/NamesOut"
         }
        }
       }
@@ -721,9 +741,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Names Check"
+         "$ref": "#/components/schemas/NameCheckOut"
         }
        }
       }
@@ -850,9 +868,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Style Link"
+         "$ref": "#/components/schemas/StyleLink"
         }
        }
       }
@@ -952,9 +968,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Keep Style"
+         "$ref": "#/components/schemas/StyleKept"
         }
        }
       }
@@ -1154,8 +1168,7 @@
        "application/json": {
         "schema": {
          "items": {
-          "additionalProperties": true,
-          "type": "object"
+          "$ref": "#/components/schemas/StyleSummary"
          },
          "type": "array",
          "title": "Response List Styles"
@@ -7498,6 +7511,29 @@
     "title": "Backend",
     "description": "실험에 쓸 백엔드. model, url 이 비면 설정 화면 값을 쓴다."
    },
+   "Candidate": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "default": ""
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "name"
+    ],
+    "title": "Candidate"
+   },
    "CastAppearance": {
     "properties": {
      "n": {
@@ -10490,6 +10526,99 @@
     "title": "NameCheckIn",
     "description": "이름 점검에 쓰는 칸만. 화면은 작품 전체 대신 이것만 보낸다 (장편 본문까지 보내지 않게)."
    },
+   "NameCheckOut": {
+    "properties": {
+     "warnings": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Warnings"
+     },
+     "issues": {
+      "items": {
+       "$ref": "#/components/schemas/NameIssue"
+      },
+      "type": "array",
+      "title": "Issues"
+     },
+     "kinds": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Kinds"
+     },
+     "style": {
+      "type": "string",
+      "title": "Style"
+     },
+     "detected": {
+      "type": "string",
+      "title": "Detected"
+     }
+    },
+    "type": "object",
+    "required": [
+     "warnings",
+     "issues",
+     "kinds",
+     "style",
+     "detected"
+    ],
+    "title": "NameCheckOut"
+   },
+   "NameIssue": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "level": {
+      "type": "string",
+      "title": "Level"
+     },
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "ids": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Ids"
+     }
+    },
+    "type": "object",
+    "required": [
+     "kind",
+     "level",
+     "text",
+     "ids"
+    ],
+    "title": "NameIssue",
+    "description": "이름 점검 한 줄 (naming.cast_issues)."
+   },
+   "NameOption": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "reason": {
+      "type": "string",
+      "title": "Reason",
+      "description": "이 인물이나 장소에 맞는 이유 한 줄",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "name"
+    ],
+    "title": "NameOption"
+   },
    "NamesIn": {
     "properties": {
      "character": {
@@ -10518,6 +10647,78 @@
     },
     "type": "object",
     "title": "NamesIn"
+   },
+   "NamesOut": {
+    "properties": {
+     "style": {
+      "type": "string",
+      "title": "Style"
+     },
+     "detected": {
+      "type": "string",
+      "title": "Detected"
+     },
+     "style_label": {
+      "type": "string",
+      "title": "Style Label"
+     },
+     "candidates": {
+      "items": {
+       "$ref": "#/components/schemas/Candidate"
+      },
+      "type": "array",
+      "title": "Candidates"
+     },
+     "options": {
+      "items": {
+       "$ref": "#/components/schemas/NameOption"
+      },
+      "type": "array",
+      "title": "Options",
+      "default": []
+     }
+    },
+    "type": "object",
+    "required": [
+     "style",
+     "detected",
+     "style_label",
+     "candidates"
+    ],
+    "title": "NamesOut",
+    "description": "이름 · 지명 후보. ai 면 options 에 AI 가 고른 이름과 이유가 있다."
+   },
+   "NamingStyleOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "summary": {
+      "type": "string",
+      "title": "Summary"
+     },
+     "place_kinds": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Place Kinds"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "label",
+     "summary",
+     "place_kinds"
+    ],
+    "title": "NamingStyleOut",
+    "description": "이름 스타일 하나와 고를 수 있는 지명 종류."
    },
    "NewName": {
     "properties": {
@@ -13340,6 +13541,51 @@
     "title": "StyleEntry",
     "description": "문체 라이브러리 항목 (canon/library.py). 작품과 따로 저장해 여러 작품에서 다시 쓴다."
    },
+   "StyleFieldDiff": {
+    "properties": {
+     "key": {
+      "type": "string",
+      "title": "Key"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "before": {
+      "type": "string",
+      "title": "Before",
+      "default": ""
+     },
+     "after": {
+      "type": "string",
+      "title": "After",
+      "default": ""
+     },
+     "added": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Added",
+      "default": []
+     },
+     "removed": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Removed",
+      "default": []
+     }
+    },
+    "type": "object",
+    "required": [
+     "key",
+     "label"
+    ],
+    "title": "StyleFieldDiff",
+    "description": "라이브러리와 다른 칸 하나 (library.diff). 글 칸은 before/after, 목록 칸은 added/removed."
+   },
    "StyleIn": {
     "properties": {
      "name": {
@@ -13425,6 +13671,22 @@
     "type": "object",
     "title": "StyleKeep"
    },
+   "StyleKept": {
+    "properties": {
+     "entry": {
+      "$ref": "#/components/schemas/StyleSummary"
+     },
+     "project": {
+      "$ref": "#/components/schemas/Project"
+     }
+    },
+    "type": "object",
+    "required": [
+     "entry",
+     "project"
+    ],
+    "title": "StyleKept"
+   },
    "StyleLearning": {
     "properties": {
      "summary": {
@@ -13456,6 +13718,66 @@
     },
     "type": "object",
     "title": "StyleLearning"
+   },
+   "StyleLink": {
+    "properties": {
+     "state": {
+      "type": "string",
+      "title": "State"
+     },
+     "id": {
+      "type": "string",
+      "title": "Id",
+      "default": ""
+     },
+     "name": {
+      "type": "string",
+      "title": "Name",
+      "default": ""
+     },
+     "updated_at": {
+      "type": "string",
+      "title": "Updated At",
+      "default": ""
+     },
+     "version": {
+      "type": "integer",
+      "title": "Version",
+      "default": 0
+     },
+     "applied": {
+      "type": "integer",
+      "title": "Applied",
+      "default": 0
+     },
+     "mine": {
+      "items": {
+       "$ref": "#/components/schemas/StyleFieldDiff"
+      },
+      "type": "array",
+      "title": "Mine",
+      "default": []
+     },
+     "theirs": {
+      "items": {
+       "$ref": "#/components/schemas/StyleFieldDiff"
+      },
+      "type": "array",
+      "title": "Theirs",
+      "default": []
+     },
+     "base_known": {
+      "type": "boolean",
+      "title": "Base Known",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "state"
+    ],
+    "title": "StyleLink",
+    "description": "작품 문체와 라이브러리 항목의 관계 (library.link_state). state: none | missing | same | changed"
    },
    "StyleMarker": {
     "properties": {
@@ -13792,6 +14114,98 @@
      "text"
     ],
     "title": "StyleRuleSuggestion"
+   },
+   "StyleSummary": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "source": {
+      "type": "string",
+      "title": "Source"
+     },
+     "notes": {
+      "type": "string",
+      "title": "Notes"
+     },
+     "narration_pov": {
+      "type": "string",
+      "title": "Narration Pov"
+     },
+     "tense": {
+      "type": "string",
+      "title": "Tense"
+     },
+     "passages": {
+      "type": "integer",
+      "title": "Passages"
+     },
+     "rules": {
+      "type": "integer",
+      "title": "Rules"
+     },
+     "banned": {
+      "type": "integer",
+      "title": "Banned"
+     },
+     "markers": {
+      "type": "integer",
+      "title": "Markers"
+     },
+     "devices": {
+      "type": "integer",
+      "title": "Devices"
+     },
+     "sample_chars": {
+      "type": "integer",
+      "title": "Sample Chars"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     },
+     "updated_at": {
+      "type": "string",
+      "title": "Updated At"
+     },
+     "version": {
+      "type": "integer",
+      "title": "Version"
+     },
+     "used_by": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Used By"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "source",
+     "notes",
+     "narration_pov",
+     "tense",
+     "passages",
+     "rules",
+     "banned",
+     "markers",
+     "devices",
+     "sample_chars",
+     "created_at",
+     "updated_at",
+     "version",
+     "used_by"
+    ],
+    "title": "StyleSummary",
+    "description": "문체 라이브러리 목록의 항목 하나 (library.summary)."
    },
    "StyleUse": {
     "properties": {

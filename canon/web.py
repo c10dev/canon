@@ -27,7 +27,7 @@ from .schema import (ArcPlan, Character, WorldSetting, ArcProposal, EpisodePlot,
 from . import atlas, foreshadows, statwin
 from .schema import ChatScope, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .schema import CharacterState, StoryEvent
-from .schema import Recap
+from .schema import NameOption, Recap
 
 STATIC = Path(__file__).parent / "static"
 # 폴더 이름: / \ 와 운영체제가 막는 : * ? " < > | 는 쓸 수 없고, . 으로 시작하지 않는다
@@ -454,6 +454,12 @@ def _keep_impacts(name: str, p: Project) -> None:
 
 # ---------- 1. 설정 도우미 ----------
 
+@app.get("/api/relation_views")
+def relation_views() -> list[str]:
+    """관계를 말로 고르는 보는 방식 (dynamics.VIEWS 의 말, 순서 그대로). 설정 화면이 시작 관계를 고를 때 쓴다."""
+    return list(dynamics.VIEWS)
+
+
 @app.post("/api/projects/{name}/suggest")
 def suggest(name: str) -> SetupSuggestion:
     return pipeline.suggest_setup(get_llm("plan"), _load(name))
@@ -468,8 +474,13 @@ def apply_suggestion(name: str, s: SetupSuggestion) -> Project:
 
 # ---------- 이름 · 지명 ----------
 
+class NamingStyleOut(naming.NameStyle):
+    """이름 스타일 하나와 고를 수 있는 지명 종류."""
+    place_kinds: list[str]
+
+
 @app.get("/api/naming/styles")
-def naming_styles() -> list[dict]:
+def naming_styles() -> list[NamingStyleOut]:
     return [{**st.model_dump(), "place_kinds": naming.place_kinds(st.id)} for st in naming.STYLES]
 
 
@@ -481,8 +492,17 @@ class NamesIn(BaseModel):
     project: Project | None = None  # 저장 전 화면의 값 (나이, 성별, 이름 스타일을 고친 직후에도 맞게)
 
 
-@app.post("/api/projects/{name}/names")
-def names(name: str, body: NamesIn) -> dict:
+class NamesOut(BaseModel):
+    """이름 · 지명 후보. ai 면 options 에 AI 가 고른 이름과 이유가 있다."""
+    style: str
+    detected: str
+    style_label: str
+    candidates: list[naming.Candidate]
+    options: list[NameOption] = []
+
+
+@app.post("/api/projects/{name}/names", response_model_exclude_unset=True)  # options 는 ai 일 때만
+def names(name: str, body: NamesIn) -> NamesOut:
     p = body.project or _load(name)
     n = max(1, min(body.n, 20))
     out: dict = {"style": naming.resolve_style(p), "detected": naming.detect_style(p)}
@@ -504,8 +524,24 @@ class NameCheckIn(BaseModel):
     cast_candidates: list[Character] = []
 
 
+class NameIssue(BaseModel):
+    """이름 점검 한 줄 (naming.cast_issues)."""
+    kind: str
+    level: str  # warn | info
+    text: str
+    ids: list[str]
+
+
+class NameCheckOut(BaseModel):
+    warnings: list[str]
+    issues: list[NameIssue]
+    kinds: dict[str, str]
+    style: str
+    detected: str
+
+
 @app.post("/api/projects/{name}/names/check")
-def names_check(name: str, body: NameCheckIn | None = None) -> dict:
+def names_check(name: str, body: NameCheckIn | None = None) -> NameCheckOut:
     p = _load(name)
     if body is not None:  # 저장 전 화면 값으로 점검한다
         p.meta, p.world, p.characters, p.cast_candidates = body.meta, body.world, body.characters, body.cast_candidates
@@ -534,8 +570,31 @@ def measure(body: Sample) -> metrics.StyleMetrics:
     return metrics.measure(body.text)
 
 
-@app.get("/api/projects/{name}/style/link")
-def style_link(name: str) -> dict:
+class StyleFieldDiff(BaseModel):
+    """라이브러리와 다른 칸 하나 (library.diff). 글 칸은 before/after, 목록 칸은 added/removed."""
+    key: str
+    label: str
+    before: str = ""
+    after: str = ""
+    added: list[str] = []
+    removed: list[str] = []
+
+
+class StyleLink(BaseModel):
+    """작품 문체와 라이브러리 항목의 관계 (library.link_state). state: none | missing | same | changed"""
+    state: str
+    id: str = ""
+    name: str = ""
+    updated_at: str = ""
+    version: int = 0
+    applied: int = 0
+    mine: list[StyleFieldDiff] = []
+    theirs: list[StyleFieldDiff] = []
+    base_known: bool = False
+
+
+@app.get("/api/projects/{name}/style/link", response_model_exclude_unset=True)  # state 가 none · missing 이면 그 칸만
+def style_link(name: str) -> StyleLink:
     return library.link_state(_load(name))
 
 
@@ -559,8 +618,33 @@ class StyleKeep(BaseModel):
     note: str = ""  # 갱신할 때 버전 메모
 
 
+class StyleSummary(BaseModel):
+    """문체 라이브러리 목록의 항목 하나 (library.summary)."""
+    id: str
+    name: str
+    source: str
+    notes: str
+    narration_pov: str
+    tense: str
+    passages: int
+    rules: int
+    banned: int
+    markers: int
+    devices: int
+    sample_chars: int
+    created_at: str
+    updated_at: str
+    version: int
+    used_by: list[str]
+
+
+class StyleKept(BaseModel):
+    entry: StyleSummary
+    project: Project
+
+
 @app.post("/api/projects/{name}/style/library")
-def keep_style(name: str, body: StyleKeep) -> dict:
+def keep_style(name: str, body: StyleKeep) -> StyleKept:
     """작품의 지금 문체를 라이브러리에 저장한다 (작품 화면에서 저장한 뒤 부른다)."""
     p = _load(name)
     if body.update:
@@ -633,7 +717,7 @@ def _style_id(sid: str) -> str:
 
 
 @app.get("/api/styles")
-def list_styles() -> list[dict]:
+def list_styles() -> list[StyleSummary]:
     return [library.summary(e) for e in library.entries()]
 
 
