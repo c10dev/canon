@@ -69,6 +69,31 @@ let sampleDelta = delta(#"""
         #expect(out.summary == "2화 요약" && out.warnings == ["말투가 어긋남"])
     }
 
+    /// 웹 `setDelta` · `pickedDelta`: 인물 설정 바꾸기(t)는 고르지 않고 시작한다. 기한(k)은 고르고, 닫힘(o)은 아는 기한만.
+    /// 고르지 않은 설정 바꾸기는 반영 요청에 들어가지 않는다 (작가가 골라야 설정이 바뀐다).
+    @Test func settingChangesWaitForAuthorAndDeadlinesArePicked() {
+        let p = project(#"{"characters":[{"id":"dh","name":"도현","role":"주인공","speech_style":"반말"}],"timeline":{"deadlines":[{"id":"dl-1","what":"축제","day":5}]}}"#)
+        let d = delta(#"""
+        {"episode":2,"summary":"요약",
+         "setting_changes":[{"character_id":"dh","field":"speech_style","value":"존댓말","reason":"직장에 들어감","quote":"말씀 드리겠습니다"}],
+         "deadlines_added":[{"id":"dl-1","what":"축제","day":7},{"id":"dl-2","what":"빚 갚을 날","day":3}],
+         "deadlines_done":["dl-1","dl-9"],
+         "time":{"day":2,"part":"밤","label":""}}
+        """#)
+        let picks = ReviewText.defaultPicks(d, project: p)
+        #expect(picks == ["k0", "k1", "o0"])
+        let out = ReviewText.picked(d, picks)
+        #expect(out.settingChanges == [])
+        #expect(out.deadlinesAdded?.map(\.id) == ["dl-1", "dl-2"])
+        #expect(out.deadlinesDone == ["dl-1"])
+        #expect(ReviewText.picked(d, picks.union(["t0"])).settingChanges?.first?.value == "존댓말")
+        #expect(ReviewText.total(d) == 5)
+        #expect(ReviewText.settingLabel("speech_style") == "말투")
+        #expect(ReviewText.settingValue(p.characters![0], "speech_style") == "반말")
+        #expect(ReviewText.timeText(d.time) == "2일째 · 밤")
+        #expect(ReviewText.deadlineDay(d.deadlinesAdded![0], old: p.timeline?.deadlines?.first) == "5일째 → 7일째")
+    }
+
     /// 웹 `applyDelta` 의 묻는 말.
     @Test func applyAsksWhenEmptyWarnedOrStale() {
         let none = ReviewText.picked(sampleDelta, ["q0"])

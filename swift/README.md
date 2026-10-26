@@ -172,6 +172,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | `ReviewText.relationLines` (`pair`) | `relationLines` |
 | `ReviewText.statRows` · `resolve` | `statwin.js` `swDeltaRows` · `swResolve` (서버 `statwin.resolve`, 시험은 `tests/test_statwin.py` 의 `test_resolve` 와 같은 사례. `StatWinText.resolve` 와 같은 규칙) |
 | `ReviewText.clueRows` | `foreshadow.js` `fsClueRows` |
+| `ReviewText` 의 k · o · t 고르기, `settingLabel` · `settingValue` · `timeText` · `deadlineDay` | `timeline.js` `tlDeltaCard`, `charlog.js` `scDeltaCard` · `SC_LABELS`(서버 `charlog.LOG_FIELDS`). 인물 설정 바꾸기(t)는 기본으로 고르지 않는다 |
 | `ReviewText.editedAfterFinal` · `laterWritten` · `restateItems` · `restatePicks` · `restateBody` · `restateSkipped` · `restateDone` | `restate.js` `editedAfterFinal`(서버 `pipeline.edited_after_final`) · `laterWritten` · `rsItems` · `rsPicks` · `applyRestate` · `restateCard` |
 | `ReviewText.rangeText` · `revertQuestion` · `revertDone` | `rangeText` · `revertFrom` |
 | `WriteText` (`blockedBefore` · `orderNote` · `unsaved` · `issue` · `when`), `WriteModel` 의 본문 초안 | `app.js` `blockedBefore` · `orderNote` · `textUnsaved` · `viewWrite`, `passage.js` `editableEp` · `issuesBlock` · `clip` · `editTime` · `flushText` |

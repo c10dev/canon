@@ -28,6 +28,12 @@ public enum ReviewText {
                                     ("f", d.newFacts?.count ?? 0), ("p", d.foreshadowPlanted?.count ?? 0), ("n", d.newCharacters?.count ?? 0),
                                     ("l", d.newPlaces?.count ?? 0), ("q", d.foreshadowClues?.count ?? 0)]
         for (prefix, count) in all { for i in 0..<count { out.insert("\(prefix)\(i)") } }
+        // 기한: 새로 생기거나 날이 바뀐 기한은 고르고, 닫힘은 아는 기한만 고른다
+        let added = d.deadlinesAdded ?? []
+        let deadlines = Set((p.timeline?.deadlines ?? []).map(\.id) + added.map(\.id))
+        for i in added.indices { out.insert("k\(i)") }
+        for (i, id) in (d.deadlinesDone ?? []).enumerated() where deadlines.contains(id) { out.insert("o\(i)") }
+        // 인물 설정 바꾸기(t)는 작가가 직접 골라야 바뀐다. 기본으로 고르지 않는다
         return out
     }
 
@@ -47,13 +53,17 @@ public enum ReviewText {
         out.newCharacters = keep("n", d.newCharacters)
         out.newPlaces = keep("l", d.newPlaces)
         out.foreshadowClues = keep("q", d.foreshadowClues)
+        out.deadlinesAdded = keep("k", d.deadlinesAdded)
+        out.deadlinesDone = keep("o", d.deadlinesDone)
+        out.settingChanges = keep("t", d.settingChanges)
         return out
     }
 
     /// 변경안 항목 수 (웹 `viewReview` 의 `total`).
     public static func total(_ d: StateDelta) -> Int {
         let counts: [Int?] = [d.characterUpdates?.count, d.events?.count, d.secretsAdded?.count, d.relationshipUpdates?.count, d.newFacts?.count,
-                              d.foreshadowPlanted?.count, d.foreshadowResolved?.count, d.newCharacters?.count, d.newPlaces?.count, d.foreshadowClues?.count]
+                              d.foreshadowPlanted?.count, d.foreshadowResolved?.count, d.newCharacters?.count, d.newPlaces?.count, d.foreshadowClues?.count,
+                              d.deadlinesAdded?.count, d.deadlinesDone?.count, d.settingChanges?.count]
         return counts.reduce(0) { $0 + ($1 ?? 0) }
     }
 
@@ -61,7 +71,7 @@ public enum ReviewText {
     public static func applyReasons(_ out: StateDelta, textChanged: Bool) -> [String] {
         let counts: [Int?] = [out.characterUpdates?.count, out.events?.count, out.secretsAdded?.count, out.relationshipUpdates?.count,
                               out.newFacts?.count, out.foreshadowPlanted?.count, out.foreshadowResolved?.count, out.newCharacters?.count,
-                              out.newPlaces?.count]
+                              out.newPlaces?.count, out.deadlinesAdded?.count, out.deadlinesDone?.count, out.settingChanges?.count]
         let count = counts.reduce(0) { $0 + ($1 ?? 0) }
         let warnings = out.warnings?.count ?? 0
         return [count == 0 ? "고른 항목이 0건이에요. 요약만 저장하고" : "",
@@ -71,6 +81,46 @@ public enum ReviewText {
 
     public static func applyQuestion(_ reasons: [String], ep n: Int) -> String {
         "\(reasons.joined(separator: " ")) \(n)화를 마칠까요? 반영하면 반영 취소로만 돌아갈 수 있어요."
+    }
+
+    // MARK: 인물 설정 바꾸기 · 작품 속 시간 (웹 charlog.js scDeltaCard, timeline.js tlDeltaCard)
+
+    /// 인물 설정 칸 이름 (웹 `SC_LABELS`, 서버 `charlog.LOG_FIELDS`). 모르는 칸은 그대로.
+    public static func settingLabel(_ field: String) -> String {
+        ["name": "이름", "gender": "성별", "age": "나이", "role": "역할", "appearance": "외모", "personality": "성격", "speech_style": "말투",
+         "background": "배경", "goal": "원하는 것", "wound": "두려운 것 · 약점", "arc": "아크", "narration_voice": "서술 말투"][field] ?? field
+    }
+
+    /// 인물의 지금 설정 값 (바꾸기 전). 설정 바꾸기가 다루는 칸만 (schema `SettingField`).
+    public static func settingValue(_ c: Components.Schemas.Character, _ field: String) -> String? {
+        switch field {
+        case "age": c.age
+        case "role": c.role
+        case "appearance": c.appearance
+        case "personality": c.personality
+        case "speech_style": c.speechStyle
+        case "background": c.background
+        case "goal": c.goal
+        case "wound": c.wound
+        default: nil
+        }
+    }
+
+    public static let settingNote = "본문에서 뒤 화까지 이어지게 바뀐 설정이에요. 고르면 인물 설정이 바뀌고 다음 화부터 바뀐 설정으로 써요. 바뀐 기록은 인물 · 관계도 화면에 남고, 반영을 취소하면 되돌아가요."
+
+    /// 작품 속 시점 한 줄 ('3일째 · 밤 · 늦봄'). 모르면 nil.
+    public static func timeText(_ t: Components.Schemas.StoryTime?) -> String? {
+        guard let t else { return nil }
+        let parts = [(t.day ?? 0) > 0 ? "\(t.day!)일째" : "", t.part ?? "", t.label ?? ""].filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// 기한 줄의 날 ('5일째', 날이 바뀌면 '3일째 → 5일째', 모르면 '날 모름').
+    public static func deadlineDay(_ x: Components.Schemas.Deadline, old: Components.Schemas.Deadline?) -> String {
+        let day = x.day ?? 0
+        guard day > 0 else { return "날 모름" }
+        if let o = old?.day, o > 0, o != day { return "\(o)일째 → \(day)일째" }
+        return "\(day)일째"
     }
 
     // MARK: 이름과 줄

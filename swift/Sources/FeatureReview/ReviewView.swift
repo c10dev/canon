@@ -332,6 +332,8 @@ public struct ReviewView: View {
             Card("확정 사실") { facts(d) }
             Card("복선") { foreshadows(d, p) }
         }
+        timeCard(d, p)
+        settingCard(d, p)
         Card {
             HStack {
                 Text("\(n)화 요약").font(.headline)
@@ -556,6 +558,75 @@ public struct ReviewView: View {
                     }
                     Spacer()
                     editButton("f\(i)")
+                }
+            }
+        }
+    }
+
+    /// 작품 속 시간: 이 화가 끝난 시점과 기한 고르기 (웹 `tlDeltaCard`, 키 k · o). 시점은 보기만 하고 고치기는 웹에서.
+    @ViewBuilder
+    private func timeCard(_ d: StateDelta, _ p: Project) -> some View {
+        let added = d.deadlinesAdded ?? []
+        let done = d.deadlinesDone ?? []
+        let time = ReviewText.timeText(d.time)
+        if time != nil || !added.isEmpty || !done.isEmpty {
+            Card("작품 속 시간") {
+                if let time { Text("\(model.ep)화가 끝난 시점: \(time)").font(.callout) }
+                let have = p.timeline?.deadlines ?? []
+                ForEach(Array(added.enumerated()), id: \.offset) { i, x in
+                    let old = have.first { $0.id == x.id }
+                    pick("k\(i)") {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Chip(old == nil ? "새 기한" : "날 바뀜", tint: .blue)
+                                Text(x.what).bold()
+                                Text(ReviewText.deadlineDay(x, old: old)).font(.caption).foregroundStyle(.secondary)
+                            }
+                            if let note = x.note, !note.isEmpty { Text("“\(note)”").font(.caption).foregroundStyle(.secondary) }
+                        }
+                    }
+                }
+                ForEach(Array(done.enumerated()), id: \.offset) { i, id in
+                    let x = have.first { $0.id == id } ?? added.first { $0.id == id }
+                    pick("o\(i)") {
+                        HStack {
+                            Chip("닫힘", tint: .green)
+                            Text(x?.what ?? id)
+                            if let day = x?.day, day > 0 { Text("\(day)일째").font(.caption).foregroundStyle(.secondary) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// 인물 설정 바꾸기 (웹 `scDeltaCard`, 키 t). 기본으로 고르지 않는다. 바꾼 뒤 값은 고칠 수 있다.
+    @ViewBuilder
+    private func settingCard(_ d: StateDelta, _ p: Project) -> some View {
+        let list = d.settingChanges ?? []
+        if !list.isEmpty {
+            Card("인물 설정 바꾸기") {
+                Text("기본으로 고르지 않았어요. \(ReviewText.settingNote)").font(.caption).foregroundStyle(.secondary)
+                ForEach(Array(list.enumerated()), id: \.offset) { i, x in
+                    let field = x.field.rawValue
+                    let before = (p.characters ?? []).first { $0.id == x.characterId }.flatMap { ReviewText.settingValue($0, field) }
+                    pick("t\(i)") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("\(ReviewText.name(x.characterId, p)) · \(ReviewText.settingLabel(field))").bold()
+                                Spacer()
+                                editButton("t\(i)")
+                            }
+                            if let before, !before.isEmpty { Text("\(before) →").font(.caption).foregroundStyle(.secondary) } else { Text("지금은 비어 있어요").font(.caption).foregroundStyle(.secondary) }
+                            if editing.contains("t\(i)") {
+                                TextField("바꾼 뒤", text: Binding(get: { model.draft?.settingChanges?[i].value ?? "" }, set: { v in model.edit { $0.settingChanges?[i].value = v } }), axis: .vertical)
+                            } else {
+                                Text(x.value)
+                            }
+                            if let r = x.reason, !r.isEmpty { Text(r).font(.caption).foregroundStyle(.secondary) }
+                            if let q = x.quote, !q.isEmpty { Text("“\(q)”").font(.callout.italic()).foregroundStyle(.secondary) }
+                        }
+                    }
                 }
             }
         }
