@@ -147,6 +147,17 @@ class ResearchTest(unittest.TestCase):
         bad = self.c.post(f"{self.api}/research/check", json={"backend": {"provider": "mock"}, "episode": 2})
         self.assertEqual(bad.status_code, 400)  # 본문 없는 화
 
+        r = self.c.post(f"{self.api}/research/check", json={"backend": {"provider": "mock"}, "episode": 1, "plants": 2,
+                                                             "judge": {"provider": "mock"}}).json()
+        self.assertEqual([m["mode"] for m in r["runs"]], ["full", "budget", "twostep"])
+        two = r["runs"][2]
+        self.assertTrue(two["ok"], two.get("error"))
+        self.assertEqual((two["found"], two["raised"], two["flagged"]), (2, [True, True], 2))
+        self.assertEqual(two["claims"], 4)
+        self.assertGreater(two["judge_tokens"], 0)
+        self.assertEqual(r["judge"], "mock")
+        self.assertIn("twostep", self.c.get(f"{self.api}/research").json()["check_modes"])
+
     def test_budget_flags_first_episode_over_limit(self):
         VllmLike.max_len = 3000
         r = self.c.post(f"{self.api}/research/budget", json={"provider": "local", "model": "base-12b"}).json()
