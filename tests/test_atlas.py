@@ -286,6 +286,26 @@ def test_read_layout_and_route():
             pass
 
 
+
+def test_route_walks_around_buildings_and_water():
+    """길까지 가는 구간이 다른 건물 · 물을 지나면 돌아간다. 출발 건물은 지나갈 수 있다."""
+    v = _village()
+    blocks = v["features"][2]["coordinates"]
+    blocks.append([[[-48, -5], [-32, -5], [-32, -2], [-48, -2], [-48, -5]]])  # 집 (-40, -10) 과 길 (y=0) 사이를 막는 긴 건물
+    lo = atlas.read_layout(v)
+    g = atlas.road_graph(lo)
+    r = atlas.route(g, [0.1, 0.4], [0.6, 0.9])
+    assert r["length"] > 101  # 곧장 내려가면 100
+    inside = lambda q: 0.02 < q[0] < 0.18 and 0.45 < q[1] < 0.48  # noqa: E731  막는 건물 (0~1)
+    for (ax, ay), (bx, by) in zip(r["points"], r["points"][1:]):
+        assert not any(inside((ax + (bx - ax) * s / 50, ay + (by - ay) * s / 50)) for s in range(51))
+    assert r["points"][0] == [0.1, 0.4] and r["points"][-1] == [0.6, 0.9]
+    # 물 (30~40, 20~40) 건너편 두 자리는 길을 타지 않고 물을 돌아간다
+    pts, length = atlas._walk(g, (78, 75), (92, 75))
+    assert length > 14 and all(not (80 < x < 90 and 70 < y < 90) for x, y in pts)
+    # 물 한가운데 놓인 자리는 나갈 빈 땅이 가까이 없으니 곧장 걷는다
+    assert atlas._walk(g, (85, 80), (60, 80)) == ([(85, 80), (60, 80)], 25)
+
 def test_routes_on_frames():
     p = _played()
     atlas.set_pins(p, [MapPin(place="el-2", x=0.1, y=0.4), MapPin(place="el-1", x=0.6, y=0.9)])  # 등대, 흑송촌

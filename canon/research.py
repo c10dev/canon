@@ -20,6 +20,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from . import context, metrics, pipeline, prompts, settings, store
+from .judge import make_judge
 from .llm import LLM, GeminiLLM, LocalLLM, make_llm
 from .schema import ConsistencyReport, PlantSet, Project
 
@@ -310,15 +311,23 @@ def _hit(found: str, planted: str) -> bool:
     return bool(g) and len(context.grams(found) & g) / len(g) >= HIT_OVERLAP
 
 
-def check_trial(p: Project, n: int, b: Backend, plants: int = 3, modes: list[str] | None = None, seed: int | None = None) -> dict:
-    """모순 plants 개를 심은 n화를 검수 방식마다 검수한다. 심은 것과 검수 호출은 같은 백엔드를 쓴다."""
+TRIAL_MODES = {**prompts.CHECK_MODES,
+               "twostep": "진술 뽑기 → 판단기가 옛 화 전부와 견줘 거르기 → 의심만 검수 모델이 판정 (판단기 시험)"}
+
+
+def check_trial(p: Project, n: int, b: Backend, plants: int = 3, modes: list[str] | None = None, seed: int | None = None,
+                judge: Backend | None = None) -> dict:
+    """모순 plants 개를 심은 n화를 검수 방식마다 검수한다. 심은 것과 검수 호출은 같은 백엔드를 쓴다.
+    judge 를 주면 두 걸음 검수(twostep)도 돌린다. 판단기는 local 또는 mock."""
     ep = p.episode(n)
     if not ep.text:
         raise ValueError(f"{n}화 본문이 없어요")
-    modes = modes or list(prompts.CHECK_MODES)
-    bad = [m for m in modes if m not in prompts.CHECK_MODES]
+    modes = modes or list(prompts.CHECK_MODES) + (["twostep"] if judge else [])
+    bad = [m for m in modes if m not in TRIAL_MODES]
     if bad:
-        raise ValueError(f"알 수 없는 검수 방식: {', '.join(bad)} ({' | '.join(prompts.CHECK_MODES)})")
+        raise ValueError(f"알 수 없는 검수 방식: {', '.join(bad)} ({' | '.join(TRIAL_MODES)})")
+    if "twostep" in modes and judge is None:
+        judge = Backend(provider="mock" if b.provider == "mock" else "local")
     seed = random.randrange(1 << 30) if seed is None else seed
     llm = make_backend(b)
     t = time.perf_counter()
@@ -338,6 +347,9 @@ def check_trial(p: Project, n: int, b: Backend, plants: int = 3, modes: list[str
     planted = [{**x.model_dump(), "distance": n - x.source_episode if x.source_episode else None} for x in used]
     runs = []
     for mode in modes:
+        if mode == "twostep":
+            runs.append(_two_step_run(llm, judge, q, n, used))
+            continue
         prompt = prompts.check_prompt(q, n, mode)
         row: dict[str, Any] = {"mode": mode, "chars": len(prompt), "tokens": context.est_tokens(prompts.SYSTEM_CHECKER + prompt)}
         t1 = time.perf_counter()
@@ -352,7 +364,27 @@ def check_trial(p: Project, n: int, b: Backend, plants: int = 3, modes: list[str
         row["seconds"] = round(time.perf_counter() - t1, 2)
         runs.append(row)
     return {"backend": label(b), "model": _model_name(llm), "episode": n, "seed": seed, "planted": planted,
-            "skipped": skipped, "runs": runs, "seconds": round(time.perf_counter() - t, 2)}
+            "skipped": skipped, "runs": runs, "seconds": round(time.perf_counter() - t, 2),
+            "judge": label(judge) if judge and "twostep" in modes else None}
+
+
+def _two_step_run(llm: LLM, jb: Backend, q: Project, n: int, used: list) -> dict:
+    """두 걸음 검수 한 번. tokens 는 검수 모델 입력(진술 뽑기 + 의심 판정), judge_tokens 는 판단기 입력 (모두 추정)."""
+    row: dict[str, Any] = {"mode": "twostep", "judge": label(jb)}
+    t1 = time.perf_counter()
+    try:
+        jg = make_judge(jb.provider, jb.model or None, jb.url or None, contradicts=[x.replacement for x in used])
+        rep, st = pipeline.check_two_step(llm, jg, q, n, hint={"plants": [x.replacement for x in used]})
+        hits = [any(_hit(i.current_quote, x.replacement) for i in rep.issues) for x in used]
+        extra = [i.model_dump() for i in rep.issues if not any(_hit(i.current_quote, x.replacement) for x in used)]
+        # 판단기가 심은 문장을 의심으로 올렸는지 (검수 모델이 놓쳤어도 판단기 단계에서 걸렀는지 본다)
+        raised = [any(j["flagged"] and _hit(j["quote"], x.replacement) for j in st["judged"]) for x in used]
+        row.update(ok=True, hits=hits, found=sum(hits), other=extra, raised=raised,
+                   tokens=st["first_tokens"] + st["verdict_tokens"], **st)
+    except Exception as e:
+        row.update(ok=False, error=f"{type(e).__name__}: {e}")
+    row["seconds"] = round(time.perf_counter() - t1, 2)
+    return row
 
 
 # ---------- 블라인드 비교 ----------

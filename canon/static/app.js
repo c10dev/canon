@@ -4596,6 +4596,7 @@ function rsInit(name) {
     stageBackend: backend(), stage: 'style', stageText: '', stageResult: null,
     budgetBackend: backend(), budget: null,
     checkBackend: backend(), checkEp: null, checkPlants: '3', check: null, checkModes: {},
+    checkJudge: backend(), checkTwoStep: false,
     compareEp: null, compareA: cmpA, compareB: cmpB, compare: null, adopt: true, pickResult: null, probeError: null,
   };
 }
@@ -4691,7 +4692,8 @@ Object.assign(actions, {
     if (!n) return toast('본문이 있는 화를 고르세요', true);
     await run(`${n}화에 모순을 심고 검수 방식마다 검수하는 중… (저장하지 않음)`, async () => {
       S.rs.check = await api('POST', `/projects/${enc(S.name)}/research/check`,
-        { backend: rsBackend(S.rs.checkBackend), episode: n, plants: Number(S.rs.checkPlants) || 3 });
+        { backend: rsBackend(S.rs.checkBackend), episode: n, plants: Number(S.rs.checkPlants) || 3,
+          ...(S.rs.checkTwoStep ? { judge: rsBackend(S.rs.checkJudge) } : {}) });
       S.rs.log.unshift(S.rs.check);
     });
   },
@@ -4736,9 +4738,9 @@ Object.assign(actions, {
   },
 });
 
-function rsBackendFields(path, b) {
+function rsBackendFields(path, b, kinds = [['local', '로컬 서버'], ['gemini', 'Gemini'], ['mock', 'mock']]) {
   const id = 'rs-' + path.replace(/\W/g, '-');
-  const opts = [['local', '로컬 서버'], ['gemini', 'Gemini'], ['mock', 'mock']]
+  const opts = kinds
     .map(([v, l]) => `<option value="${v}"${b.provider === v ? ' selected' : ''}>${l}</option>`).join('');
   return `<div class="rs-backend">
     <div class="field"><label for="${id}-p">백엔드</label><select id="${id}-p" data-rs="${path}.provider">${opts}</select></div>
@@ -4854,15 +4856,16 @@ function rsCheckView() {
   const r = S.rs.check;
   let out = '';
   if (r) {
-    const modes = r.runs.map((x) => `<th>${esc(x.mode)}<div class="small">~${rsNum(x.tokens)} 토큰</div></th>`).join('');
+    const modes = r.runs.map((x) => `<th>${esc(x.mode)}<div class="small">${x.tokens == null ? '' : `~${rsNum(x.tokens)} 토큰`}</div>${x.mode === 'twostep' && x.ok ? `<div class="small">판단기 ~${rsNum(x.judge_tokens)} 토큰 · 진술 ${x.claims}개 중 ${x.flagged}개 의심</div>` : ''}</th>`).join('');
     const rows = r.planted.map((x, i) => `<tr><td><div class="small">${esc(x.type)} · 근거: ${x.source_episode ? `${x.source_episode}화 (${x.distance}화 전)` : '설정이나 확정 사실'}</div>
         <div class="rs-prose small"><del>${esc(x.quote)}</del><br><ins>${esc(x.replacement)}</ins></div></td>
-        ${r.runs.map((m) => `<td>${!m.ok ? '<span class="chip usage-fail">실패</span>' : m.hits[i] ? '<span class="chip finalized">찾음</span>' : '<span class="chip written">놓침</span>'}</td>`).join('')}</tr>`).join('');
+        ${r.runs.map((m) => `<td>${!m.ok ? '<span class="chip usage-fail">실패</span>' : m.hits[i] ? '<span class="chip finalized">찾음</span>' : '<span class="chip written">놓침</span>'}${m.ok && m.raised && !m.hits[i] ? `<div class="small">${m.raised[i] ? '판단기는 올림' : '판단기가 놓침'}</div>` : ''}</td>`).join('')}</tr>`).join('');
     const sum = r.runs.map((m) => `<td><strong>${m.ok ? `${m.found}/${r.planted.length}` : esc(m.error)}</strong>${m.ok ? `<div class="small">다른 지적 ${m.other.length}개 · ${m.seconds}초</div>` : ''}</td>`).join('');
     out = `<section class="card">
       <div class="between"><h2>${r.episode}화 · ${esc(r.backend)}</h2><span class="small">심은 모순 ${r.planted.length}개${r.skipped.length ? ` (원문을 못 찾아 ${r.skipped.length}개 뺌)` : ''} · ${r.seconds}초</span></div>
       <div class="rs-scroll"><table class="rs-table"><thead><tr><th>심은 모순</th>${modes}</tr></thead><tbody>${rows}<tr><td>찾은 수</td>${sum}</tr></tbody></table></div>
       ${r.runs.filter((m) => m.ok && m.other.length).map((m) => `<details><summary>${esc(m.mode)}의 다른 지적 ${m.other.length}개</summary><ul>${m.other.map((i) => `<li class="small">${esc(i.type)}: ${esc(i.description)}</li>`).join('')}</ul></details>`).join('')}
+      ${r.runs.filter((m) => m.mode === 'twostep' && m.ok && m.judged.length).map((m) => `<details><summary>판단기가 본 진술 ${m.judged.length}개 (${esc(m.judge)})</summary><ul>${m.judged.map((j) => `<li class="small">${j.flagged ? '<span class="chip written">의심</span> ' : ''}어긋남 ${Math.round((j.probs[1] || 0) * 100)}% · ${esc(j.claim)}${j.mass < 0.5 ? ' <span class="hint">선택지 밖 답이 많았어요</span>' : ''}</li>`).join('')}</ul></details>`).join('')}
       <div class="small">한 번으로는 우연이 커요. 여러 화에서 몇 번 돌려 기록 탭에서 찾은 비율을 견주세요. 모순을 심는 것도 같은 모델이 해요.</div>
     </section>`;
   }
@@ -4871,6 +4874,8 @@ function rsCheckView() {
       <p class="desc">본문이 있는 화에 모순을 몇 개 심고, 검수 방식마다 그걸 찾는지 봐요. 장편 검수는 입력을 줄인 방식이 기본이라 줄여서 놓치는 게 없는지 확인하는 용도예요. 작품에는 저장하지 않고, 호출은 심기 1번 + 방식마다 1번이에요.</p>
       ${modes ? `<ul class="small">${modes}</ul>` : ''}
       ${rsBackendFields('checkBackend', S.rs.checkBackend)}
+      <label class="check-row"><input type="checkbox" data-rs="checkTwoStep" onchange="render()"${S.rs.checkTwoStep ? ' checked' : ''}><span><strong>두 걸음 검수도 시험</strong> <span class="small">위 백엔드가 진술을 뽑고 의심만 판정해요. 그 사이에 판단기가 진술마다 선택지 확률만 내요(로컬 서버는 logprobs 지원 필요). 검수 모델 호출 2번 + 판단기 호출 진술 수만큼 늘어요.</span></span></label>
+      ${S.rs.checkTwoStep ? `<h3>판단기</h3>${rsBackendFields('checkJudge', S.rs.checkJudge, [['local', '로컬 서버'], ['mock', 'mock']])}` : ''}
       <div class="row">
         <div class="field" style="max-width:320px"><label for="rs-check-ep">화</label>
           <select id="rs-check-ep" data-rs="checkEp">${eps.map((x) => `<option value="${x.plot.number}"${String(x.plot.number) === String(S.rs.checkEp) ? ' selected' : ''}>${x.plot.number}화 ${esc(x.plot.title)}</option>`).join('') || '<option value="">본문이 있는 화가 없어요</option>'}</select></div>
