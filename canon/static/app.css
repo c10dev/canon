@@ -414,6 +414,8 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .pdiff del { background: var(--red-soft); color: var(--del-ink); text-decoration: line-through; text-decoration-color: rgba(122,39,26,0.5); }
 .pdiff ins { background: var(--green-soft); color: var(--green-ink); text-decoration: none; }
 .pdiff.small-diff { font-size: 0.8125rem; line-height: 1.7; }
+.style-sample { padding: 10px 12px; border-radius: 8px; background: var(--surface); border: 1px solid var(--line); max-height: 360px; overflow-y: auto; }
+.prop-part .style-sample { background: var(--bg); }
 /* 다시 생성 (rewrite.js) */
 .rw-panel, .rw-compare { gap: 12px; margin-bottom: 16px; }
 .rw-panel textarea { width: 100%; }

@@ -310,6 +310,53 @@ class StyleLearning(BaseModel):
     at: str = Field("", description="프로그램이 채운다. 빈칸으로 둔다")
 
 
+# ---------- 대화로 문체 다듬기 ----------
+# 작가가 문체 화면에서 말로 바라는 것을 말하면 AI 가 스타일 프로필에서 바꿀 칸과 시험 문단을 낸다. 고른 칸만 작품 문체에 넣는다
+# (pipeline.revise_style · apply_style_chat). 대표 문단은 원문 발췌라 AI 가 고치지 않는다.
+
+StyleKey = Literal["narration_pov", "tense", "sentence_rhythm", "description_density", "dialogue_ratio", "dialogue_style",
+                   "inner_monologue", "pacing", "scene_transition", "vocabulary", "dos", "donts", "banned_phrases",
+                   "markers", "devices"]
+
+
+class StyleEdit(BaseModel):
+    """스타일 프로필 한 칸의 바뀐 뒤 값. 칸 종류에 맞는 자리 하나만 채운다."""
+    key: StyleKey = Field(description="바꿀 칸 이름")
+    text: str = Field("", description="글 칸(narration_pov ~ vocabulary)일 때: 바뀐 뒤 글 전체")
+    items: list[str] = Field(default_factory=list, description="dos · donts · banned_phrases 일 때: 바뀐 뒤 목록 전체 (그대로 둘 항목도 모두 넣는다)")
+    markers: list[StyleMarker] = Field(default_factory=list, description="markers 일 때: 바뀐 뒤 표지 목록 전체. per_1k 는 지금 값 그대로, 새 표지는 0")
+    devices: list[StyleDevice] = Field(default_factory=list, description="devices 일 때: 바뀐 뒤 장치 목록 전체")
+    why: str = Field("", description="왜 이렇게 바꾸는지 한 줄")
+
+
+class StyleRevision(BaseModel):
+    """문체 대화에서 AI 가 내는 답과 변경안 (pipeline.clean_style_revision 이 지금 값과 같은 칸을 뺀다)."""
+    reply: str = Field(description="작가에게 하는 대답 2~5문장. 무엇을 왜 바꿨는지, 또는 되묻는 말")
+    edits: list[StyleEdit] = Field(default_factory=list, description="바뀌는 칸만. 질문에 답하거나 되물을 때는 빈 목록")
+    preview_source: str = Field("", description="참고할 화가 주어졌을 때만: 시험 문단으로 고쳐 쓸 그 화 본문 한 대목을 적힌 그대로 (200~500자). 아니면 빈칸")
+    preview: str = Field("", description="바뀐 문체로 쓴 시험 문단 4~8문장. preview_source 가 있으면 그 대목을 같은 내용으로 고쳐 쓴 글")
+
+    def has_changes(self) -> bool:
+        return bool(self.edits)
+
+
+class StyleSample(BaseModel):
+    """지금 문체로 쓴 예시 글 (AI 가 채운다). 작가가 문체가 실제로 어떻게 읽히는지 보는 용도이고 본문에는 들어가지 않는다."""
+    text: str = Field(description="이 문체로 쓴 예시 글. 문단은 빈 줄로 나눈다")
+    source: str = Field("", description="참고할 화가 주어졌을 때만: 고쳐 쓴 그 화 본문 대목을 적힌 그대로. 아니면 빈칸")
+
+
+class StyleExample(BaseModel):
+    """문체 화면의 '이 문체로 쓴 예시' 칸 (Project.style_example). 쓸 때의 프로필을 남겨 문체가 바뀌었는지 본다."""
+    text: str = ""
+    source: str = Field("", description="고쳐 쓴 원래 대목 (참고한 화가 있을 때)")
+    episode: int = Field(0, description="참고한 화. 0 이면 새 장면")
+    scene: str = Field("", description="작가가 청한 장면")
+    by: Literal["", "example", "chat"] = Field("", description="example: 예시 칸에서 씀, chat: 문체 대화의 시험 문단을 적용과 함께 옮김")
+    profile: StyleProfile = Field(default_factory=StyleProfile, description="쓸 때의 스타일 프로필")
+    at: str = ""
+
+
 # ---------- 계층형 플롯 ----------
 
 class Act(BaseModel):
@@ -632,7 +679,7 @@ class Selection(BaseModel):
     text: str
 
 
-# 'plot'(기승전결 · 플롯 화면) 또는 'text:<화>'(집필 화면의 본문 부분 수정). web._chat 이 검사한다
+# 'plot'(기승전결 · 플롯 화면), 'text:<화>'(집필 화면의 본문 부분 수정), 'style'(문체 화면). web._chat 이 검사한다
 ChatTopic = str
 
 
@@ -641,10 +688,13 @@ class ChatMessage(BaseModel):
     text: str
     revision: Optional[PlotRevision] = Field(None, description="assistant 가 낸 플롯 변경안")
     passage: Optional[PassageRevision] = Field(None, description="assistant 가 낸 본문 부분 수정 후보")
+    style: Optional[StyleRevision] = Field(None, description="assistant 가 낸 문체 변경안")
+    style_before: Optional[StyleProfile] = Field(None, description="문체 대화: 변경안을 적용하기 전 작품 문체 (적용 취소용)")
+    episode: int = Field(0, description="문체 대화: 작가가 참고하라고 고른 화")
     selection: Optional[Selection] = Field(None, description="본문 부분 수정: 고친 대상")
     preset: str = Field("", description="본문 부분 수정: 고른 빠른 요청 (prompts.PASSAGE_PRESETS)")
     outcome: Literal["", "applied", "dismissed"] = Field("", description="변경안을 반영했는지, 버렸는지")
-    applied: list[str] = Field(default_factory=list, description="반영한 부분: 'acts' 구조, 'arc' 아크 칸, 'parts' 부 구성, 화 번호. 본문 수정이면 후보 번호(0부터)")
+    applied: list[str] = Field(default_factory=list, description="반영한 부분: 'acts' 구조, 'arc' 아크 칸, 'parts' 부 구성, 화 번호. 본문 수정이면 후보 번호(0부터), 문체 대화면 칸 이름")
     target: str = Field("", description="플롯 대화: 변경안이 겨냥한 곳 (ChatScope.target, 기본이면 기록할 때의 실제 대상)")
     where: str = Field("", description="플롯 대화: 작가가 보낼 때 보고 있던 곳 (예: 아크 3 · 승 구간 · 15화)")
     mode: str = Field("", description="플롯 대화: 'options' 면 방향 여러 안을 청한 말")
@@ -652,7 +702,7 @@ class ChatMessage(BaseModel):
 
 
 class Chat(BaseModel):
-    """화면별 대화 기록. 플롯 화면은 'plot', 본문 부분 수정은 화마다 'text:<화>'."""
+    """화면별 대화 기록. 플롯 화면은 'plot', 본문 부분 수정은 화마다 'text:<화>', 문체 화면은 'style'."""
     topic: ChatTopic
     messages: list[ChatMessage] = Field(default_factory=list)
 
@@ -1111,6 +1161,7 @@ class Project(BaseModel):
     style_baseline: Optional[StyleMetrics] = Field(None, description="레퍼런스 원문 전체로 잰 문체 지표 (style 명령 때 저장)")
     style_id: str = Field("", description="문체 라이브러리에서 가져온 항목 id. 비어 있으면 이 작품에서 직접 만든 문체")
     style_version: int = Field(0, description="가져오거나 올린 라이브러리 항목의 버전 번호. 0 은 모름")
+    style_example: Optional[StyleExample] = Field(None, description="문체 화면의 '이 문체로 쓴 예시'")
     style_learning: Optional[StyleLearning] = Field(None, description="수정 기록에서 찾은 문체 규칙 후보 (마지막 것)")
     arc: list[Act] = Field(default_factory=list, description="단편: 작품 전체의 기승전결. 장편에서는 비워 두고 아크마다 기승전결을 둔다")
     parts: list[Part] = Field(default_factory=list, description="장편: 부 구성")
