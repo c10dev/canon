@@ -57,6 +57,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/jobs.py` | 웹의 오래 걸리는 AI 작업을 스레드로 돌리는 메모리 작업 목록. 중복 실행 막기, 진행률, 작업이 맡은 화를 저장 덮어쓰기에서 지키기(`owned_episodes`), 멈추기(`stop`) |
 | `canon/autorun.py` | 자동 집필: 목표 화까지 write → check + state → 정책(`Policy`) 통과 시 반영을 반복. 배치(`llm.BatchLLM`) 켜고 끄기, 비용·시간 추정, `autorun.json` 에 진행 기록, 서버 재시작 후 이어 가기. 화면은 `static/auto.js` |
 | `canon/updater.py` | 코드 자동 업데이트: `origin/main` fast-forward, 의존성 설치, 프로세스 재시작. `serve` 가 시작 때와 주기적으로 부른다 |
+| `swift/` | SwiftUI 앱(macOS · iOS · iPadOS): 서버에 붙는 클라이언트, 패키지 `CanonKit`. 순수 Swift `CanonCore`(오류 문구 · 작업 추적 · 조사 · 날짜 · 사이드바 `Screen`), 생성 클라이언트 `CanonAPI`(`Sources/CanonAPI/openapi.json`), 화면마다 `Feature*` 모듈, 앱 뼈대 `CanonAppUI`, Xcode 껍데기 `App/project.yml`. 계산 · 프롬프트는 옮기지 않는다. `CanonCore` 의 표시 규칙은 `app.js` 와 같아 함께 고친다(표는 `swift/README.md`). 설계는 `swift/README.md` |
 
 흐름: `new` → `style` → `arc` → `plot` → (사용자 수정) → `confirm` → `write` → `check` → `update` 반복 (`run` 이 자동 반복). 장편(`new --serial`)은 `arc` 대신 `series` 한 번, 그리고 아크마다 `nextarc` → `plot` → `confirm` → `run` → `recap` 을 반복한다 (`arcs` 로 진행 보기). 단편은 `convert` 로 장편으로 바꿀 수 있다(단편 전체가 아크 1, `--rebuild` 는 단편을 씨앗으로 앞부분을 다시 짜고 다듬기 화는 `rework`, `--undo` 로 되돌리기). 서브플롯 · 과거 회상 · 외전은 `lines` 로 이야기 줄기를 만들고 화에 붙인다. 이미 짜 둔 플롯 사이에 외전이나 새 화를 넣거나 안 쓴 화를 빼려면 `insert`(뒤 화 번호와 범위 · 복선 · 요소 · 줄기를 함께 옮김). `rewrite` 로 피드백 · 검수 결과 등을 반영해 그 화를 다시 생성하고(새 판과 바꿀지 고르기, 이전 판 되돌리기), `fix` 로 본문 일부를 AI 후보로 고치고 `edits` 로 수정 기록 보기 · 되돌리기 · 내보내기. `learn` 으로 수정 기록에서 문체 규칙 후보 찾기, `styles versions` · `restore` 로 문체 버전. `export` 로 다른 사이트에 붙여 넣을 본문 내보내기. `illust` 로 NovelAI 삽화 프롬프트, `look` 으로 인물 외형 태그. `pov` 로 화별 서술 시점(남주 → 여주 등) 보기 · 정하기, `voice` 로 시점 인물별 서술 말투. `cast` 로 인물별 등장 · 지금 관계 · 화별 타임라인 보기, `map` 으로 장소와 인물별로 옮겨 다닌 길 보기. `stats` 로 화별 문체 지표 확인. 1~3화는 `openings` 로 여는 방식 여러 안(플롯 `--plot` · 본문 블라인드 비교), `hook` 으로 흡입력 판정. `usage` 로 AI 사용량과 추정 비용 보기. `compare` 로 같은 화를 두 백엔드로 써서 가려 비교.
 
@@ -84,7 +85,7 @@ CANON_LLM=mock python -m canon ...  # 수동 확인
 
 환경 변수: `GEMINI_API_KEY`, `CANON_GEMINI_AUTH`(key | vertex) / `CANON_VERTEX_CREDENTIALS` / `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION`(Vertex AI 서비스 계정), `CANON_LLM`(gemini | local | claude | claude-api | mock), `CANON_CLAUDE_MODEL` / `CANON_CLAUDE_BIN` / `CANON_CLAUDE_TIMEOUT` / `ANTHROPIC_API_KEY`(Claude, `claude-api` 만 키를 씀), `CANON_MODEL`(기본 `gemini-4-argon`), `CANON_LOCAL_URL` / `CANON_LOCAL_MODEL` / `CANON_LOCAL_KEY`(로컬 서버), `CANON_LLM_PLAN` / `_WRITE` / `_CHECK` / `_STATE` / `_NAME` / `_REVISE` / `_ILLUSTRATION`(단계별 백엔드), `CANON_MODEL_PLAN` / `_WRITE` / `_CHECK` / `_STATE` / `_NAME` / `_REVISE` / `_ILLUSTRATION`(단계별 모델), `CANON_HOME`(프로젝트 저장 위치, 기본 `projects/`), `CANON_USAGE`(사용량 기록 파일, 기본 `projects/.usage/usage.jsonl`).
 
-스키마나 파이프라인을 바꾸면 `canon/mock.py` 도 맞춰 고치고 `python -m unittest` 가 통과하는지 확인한다. 실제 Gemini 호출은 키가 있을 때만 확인할 수 있으니, 확인하지 못했다면 그렇다고 밝힌다.
+스키마나 파이프라인을 바꾸면 `canon/mock.py` 도 맞춰 고치고 `python -m unittest` 가 통과하는지 확인한다. `web.py` 의 엔드포인트나 응답 모델을 바꾸면 `python scripts/make_openapi.py` 로 Swift 앱의 명세를 다시 만든다(`tests/test_openapi.py` 가 본다). 연산 이름은 함수 이름이라 웹 함수 이름을 바꾸면 Swift 호출부도 바뀐다. 실제 Gemini 호출은 키가 있을 때만 확인할 수 있으니, 확인하지 못했다면 그렇다고 밝힌다.
 
 ## 규칙
 
