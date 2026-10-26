@@ -60,3 +60,15 @@ final class RecordingTransport: ClientTransport, @unchecked Sendable {
         #expect(error == .server(status: 404, message: "프로젝트가 없어요: x", code: nil))
     }
 }
+
+@Suite struct NullableFieldTests {
+    // 서버의 `int | None` 칸이 생성 타입에 남아야 작품을 저장할 때 지워지지 않는다 (scripts/make_openapi.py 의 drop_null)
+    @Test func keepsNullableFieldsThroughSave() throws {
+        let json = #"[{"id":"fs-1","description":"열쇠","planted_ep":2,"payoff_ep":9,"due_ep":null}]"#
+        let items = try JSONDecoder().decode([Components.Schemas.Foreshadow].self, from: Data(json.utf8))
+        #expect(items[0].payoffEp == 9)
+        #expect(items[0].dueEp == nil)
+        let again = try JSONSerialization.jsonObject(with: JSONEncoder().encode(items)) as? [[String: Any]]
+        #expect(again?[0]["payoff_ep"] as? Int == 9)
+    }
+}
