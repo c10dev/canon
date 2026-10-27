@@ -259,7 +259,9 @@ body.chat-open .drawer { width: min(400px, 100vw); }
 .ep-card { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); display: flex; flex-direction: column; gap: 6px; text-align: left; font: inherit; color: var(--text); cursor: pointer; }
 .ep-card.draft { border-style: dashed; border-color: var(--line-strong); }
 .ep-card.sel { border: 2px solid var(--accent); background: var(--sel-bg); }
-.ep-card .t { font-size: 0.875rem; font-weight: 700; }
+.ep-card .t { font-size: 0.875rem; font-weight: 700; line-height: 1.45; }
+/* 한글은 낱말 중간에서 끊지 않는다 ('잃었/다'). 띄어쓰기 없이 긴 글만 칸 끝에서 끊는다 */
+.board, .drawer, .arc-facts, .part-card, .chat-panel .diff, .drawer textarea { word-break: keep-all; overflow-wrap: anywhere; }
 .ep-card .ep-top { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 8px; }
 .ep-card .ep-top strong { font-size: 0.8125rem; }
 .ep-card .ep-chips { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
@@ -271,7 +273,7 @@ body.chat-open .drawer { width: min(400px, 100vw); }
 .pov-chip.omni { background: var(--chip); color: var(--text-2); }
 .pov-chip.inherit { border-style: dashed; border-color: currentColor; }
 .pov-legend { margin-bottom: 8px; }
-.ep-card .s { font-size: 0.75rem; color: var(--muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.ep-card .s { font-size: 0.8125rem; color: var(--text-2); line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
 
 .prose { padding: 36px clamp(20px, 6%, 64px); }
 .prose textarea, .prose .read { width: 100%; max-width: 760px; margin: 0 auto; display: block; border: none; padding: 0; font-family: var(--serif); font-size: 1rem; line-height: 2; color: var(--text); background: transparent; white-space: pre-wrap; }

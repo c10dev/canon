@@ -807,7 +807,7 @@ function input(label, path, opt = {}) {
   const hint = opt.hint ? ` <span class="hint">${esc(opt.hint)}</span>` : '';
   const ro = opt.readonly ? ' readonly' : '';
   const ctrl = opt.rows || kind === 'list'
-    ? `<textarea id="${id}" rows="${opt.rows || 3}" data-bind="${path}" data-kind="${kind}"${rootAttr}${ro}${opt.style ? ` style="${opt.style}"` : ''} placeholder="${esc(opt.placeholder || (kind === 'list' ? '한 줄에 하나씩' : ''))}">${val}</textarea>`
+    ? `<textarea id="${id}" rows="${opt.rows || 3}" data-bind="${path}" data-kind="${kind}"${rootAttr}${ro}${opt.autogrow ? ' data-autogrow' : ''}${opt.style ? ` style="${opt.style}"` : ''} placeholder="${esc(opt.placeholder || (kind === 'list' ? '한 줄에 하나씩' : ''))}">${val}</textarea>`
     : `<input id="${id}" type="${opt.type || 'text'}" value="${val}" data-bind="${path}" data-kind="${kind}"${rootAttr}${ro}${opt.min != null ? ` min="${opt.min}"` : ''}${opt.max != null ? ` max="${opt.max}"` : ''}${opt.list ? ` list="${opt.list}"` : ''} placeholder="${esc(opt.placeholder || '')}">`;
   return `<div class="field${opt.cls ? ' ' + opt.cls : ''}"><label for="${id}">${esc(label)}${hint}</label>${ctrl}</div>`;
 }
@@ -890,12 +890,17 @@ document.addEventListener('change', (e) => {
 
 // 내용 길이에 맞춰 늘어나는 입력칸
 function autosize(el) {
+  // 접힌 칸(닫힌 details 안)은 높이를 잴 수 없다. 2px 로 줄지 않게 두고, 펼칠 때 잰다 (아래 toggle)
+  if (!el.offsetParent) return;
   el.style.height = 'auto';
   el.style.height = el.scrollHeight + 2 + 'px';
 }
 document.addEventListener('input', (e) => {
   if (e.target.matches && e.target.matches('textarea[data-autogrow]')) autosize(e.target);
 });
+document.addEventListener('toggle', (e) => {
+  if (e.target.open) e.target.querySelectorAll('textarea[data-autogrow]').forEach(autosize);
+}, true);
 // 구간 범위나 목표를 고치면 보드도 다시 그린다 (입력이 끝났을 때만)
 document.addEventListener('change', (e) => {
   const bind = e.target.dataset && e.target.dataset.bind;
