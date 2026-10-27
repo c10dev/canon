@@ -9,5 +9,6 @@ projects/
 swift/.build/
 swift/.swiftpm/
 swift/App/*.xcodeproj/
+swift/App/build/
 swift/App/CanonApp/Info.plist
 swift/App/CanonApp/Canon.entitlements
