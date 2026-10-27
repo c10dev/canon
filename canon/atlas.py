@@ -20,7 +20,7 @@ import math
 from pathlib import Path
 from typing import Optional
 
-from . import bldgs, cast, citygen, elements, geom, naming, towngen
+from . import bldgs, cast, citygen, elements, geom, naming, towngen, travel
 from .schema import BuildingNote, MapPin, MapSpec, NewPlace, PlaceLink, PlaceSort, Project
 
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
@@ -132,10 +132,13 @@ def summary(p: Project, layout: Optional[dict] = None) -> dict:
     fs = frames(p, pls)
     if layout:
         add_routes(fs, pins, road_graph(layout), p.atlas.meters)
+        if not p.atlas.layout_size:  # 이 칸이 생기기 전에 올린 마을 데이터 (저장은 다음에 지도를 고칠 때)
+            p.atlas.layout_size = [layout["w"], layout["h"]]
     aspect = round(layout["w"] / layout["h"], 4) if layout else p.atlas.aspect  # 마을 데이터가 있으면 마을을 그린다
     return {"places": pls, "frames": fs, "unmatched": unmatched(p, fs), "image": p.atlas.image,
             "aspect": aspect, "links": [ln.model_dump() for ln in p.atlas.links],
-            "layout": layout_info(p, layout) if layout else None, "title": village_title(p, layout) if layout else None}
+            "layout": layout_info(p, layout) if layout else None, "title": village_title(p, layout) if layout else None,
+            "travel": travel.view(p, fs, pls)}
 
 
 # ---------- 마을 · 도시 데이터 (Watabou 생성기 JSON) ----------
@@ -718,6 +721,7 @@ def apply_generated(folder: Path, p: Project, spec: MapSpec, take: list[str]) ->
     if old != fname:
         p.atlas.buildings = []  # 건물 번호가 바뀌므로 고친 건물도 비운다
     p.atlas.layout, p.atlas.meters = fname, 1.0
+    p.atlas.layout_size = [out["layout"]["w"], out["layout"]["h"]]
     p.atlas.spec = spec.model_copy(update={"version": _maker(spec.kind)[1].VERSION})
     chosen = set(take)
     keep = [pin for pin in p.atlas.pins if pin.place not in chosen]

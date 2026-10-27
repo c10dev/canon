@@ -7023,6 +7023,106 @@
     }
    }
   },
+  "/api/projects/{name}/atlas/travel": {
+   "put": {
+    "summary": "Atlas Travel",
+    "description": "이동 시간 검사 설정: 켜기, 가장 빠른 탈것, 직접 정한 빠르기, 지도 가로 km (canon/travel.py).",
+    "operationId": "atlas_travel",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TravelIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/atlas/travel/ok": {
+   "put": {
+    "summary": "Atlas Travel Ok",
+    "description": "이동 하나를 '괜찮아요'(순간 이동 등)로 두거나 되돌린다. 그 이동은 경고에서 빠진다.",
+    "operationId": "atlas_travel_ok",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TravelOkIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/atlas/meters": {
    "put": {
     "summary": "Atlas Meters",
@@ -8969,6 +9069,23 @@
       "type": "array",
       "title": "Buildings",
       "description": "작가가 고친 건물. 마을 데이터 파일이 바뀌면 비운다"
+     },
+     "span_km": {
+      "type": "number",
+      "title": "Span Km",
+      "description": "지도 가로가 몇 km 인지 (마을 데이터가 없을 때 이동 거리 계산). 0 이면 모름",
+      "default": 0
+     },
+     "layout_size": {
+      "items": {
+       "type": "number"
+      },
+      "type": "array",
+      "title": "Layout Size",
+      "description": "마을 데이터의 [가로, 세로] (원래 단위). 마을 데이터를 놓을 때 채운다"
+     },
+     "travel": {
+      "$ref": "#/components/schemas/TravelSetting"
      }
     },
     "type": "object",
@@ -18783,6 +18900,99 @@
     "type": "object",
     "title": "ToneDials",
     "description": "톤을 양 끝 사이에서 고른 값. 0 은 고르지 않음, 1~4 는 왼쪽 끝에서 오른쪽 끝."
+   },
+   "TravelIn": {
+    "properties": {
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "default": true
+     },
+     "mode": {
+      "type": "string",
+      "title": "Mode",
+      "default": "horse"
+     },
+     "kmh": {
+      "type": "number",
+      "title": "Kmh",
+      "default": 0
+     },
+     "day_km": {
+      "type": "number",
+      "title": "Day Km",
+      "default": 0
+     },
+     "span_km": {
+      "type": "number",
+      "title": "Span Km",
+      "default": 0
+     }
+    },
+    "type": "object",
+    "title": "TravelIn"
+   },
+   "TravelOkIn": {
+    "properties": {
+     "cid": {
+      "type": "string",
+      "title": "Cid"
+     },
+     "episode": {
+      "type": "integer",
+      "title": "Episode"
+     },
+     "ok": {
+      "type": "boolean",
+      "title": "Ok",
+      "default": true
+     }
+    },
+    "type": "object",
+    "required": [
+     "cid",
+     "episode"
+    ],
+    "title": "TravelOkIn"
+   },
+   "TravelSetting": {
+    "properties": {
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "description": "끄면 지도 화면 · 상태 변경안 경고 · 프롬프트의 이동 거리를 모두 뺀다 (순간 이동이 흔한 작품 등)",
+      "default": true
+     },
+     "mode": {
+      "type": "string",
+      "title": "Mode",
+      "description": "이 세계에서 인물이 쓰는 가장 빠른 탈것 (travel.MODES 의 id)",
+      "default": "horse"
+     },
+     "kmh": {
+      "type": "number",
+      "title": "Kmh",
+      "description": "작가가 정한 이동 빠르기 (km/시). 0 이면 탈것의 기본값",
+      "default": 0
+     },
+     "day_km": {
+      "type": "number",
+      "title": "Day Km",
+      "description": "작가가 정한 하루 이동 거리 (km). 0 이면 탈것의 기본값",
+      "default": 0
+     },
+     "ok": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Ok",
+      "description": "작가가 '괜찮아요'로 둔 이동 ('인물 id:화'). 경고에서 뺀다"
+     }
+    },
+    "type": "object",
+    "title": "TravelSetting",
+    "description": "이동 시간 검사 설정 (canon/travel.py). 지도 거리와 작품 속 시간을 견줘 너무 빠른 이동을 찾는다."
    },
    "UsageCall": {
     "properties": {
