@@ -1,0 +1,304 @@
+/* 5단계 상태 승인: 상태 변경안 고르기 · 반영, 관계 계산 미리보기, 관계 표시(숫자/말). app.js 의 S, actions, api, render, input, header 를 그대로 쓴다. */
+'use strict';
+
+
+/** 체크한 항목만 남긴 변경안. 반영과 관계 미리 보기에 같이 쓴다. */
+function pickedDelta(n) {
+  const d = S.deltas[n];
+  const pick = (prefix, list) => list.filter((_, i) => S.picks[prefix + i]);
+  return {
+    ...d,
+    character_updates: pick('c', d.character_updates),
+    events: pick('e', d.events),
+    secrets_added: pick('s', d.secrets_added),
+    relationship_updates: pick('r', d.relationship_updates),
+    new_facts: pick('f', d.new_facts),
+    foreshadow_planted: pick('p', d.foreshadow_planted),
+    foreshadow_resolved: pick('x', d.foreshadow_resolved),
+    new_characters: pick('n', d.new_characters || []),
+    new_places: pick('l', d.new_places || []),
+    foreshadow_clues: pick('q', d.foreshadow_clues || []),
+    deadlines_added: pick('k', d.deadlines_added || []),
+    deadlines_done: pick('o', d.deadlines_done || []),
+    setting_changes: pick('t', d.setting_changes || []),
+  };
+}
+
+/** 화 플롯 글 (서버 elements.plot_text 와 같은 칸). */
+const plotText = (pl) => [pl.title, pl.summary, ...pl.events, pl.emotional_shift, pl.ending_hook, ...(pl.foreshadow_plant || [])].join('\n');
+
+/** 이 화 플롯에 나오는 장소 후보 (AI 플롯이 지은 새 장소). 확정하면 인과율 장소로 등록된다 (pipeline.confirm_plot). */
+function placeCandNotes(e) {
+  const text = plotText(e.plot);
+  const cands = (P().place_candidates || []).filter((x) => [x.name, ...(x.aliases || [])].some((t) => t && text.includes(t)));
+  return cands.length ? `<div class="field"><span class="label">새 장소</span>${cands.map((x) => `<div class="note info"><strong>새 장소 제안 · ${esc(x.name)}</strong>${x.kind ? ` <span class="small">${esc(x.kind)}</span>` : ''}${x.description ? `<br>${esc(x.description)}` : ''}
+    <br><span class="small">AI 플롯이 지은 장소예요. 이 화를 확정하면 인과율에 장소로 등록돼요. 빼려면 플롯에서 이름을 지우세요.</span></div>`).join('')}</div>` : '';
+}
+
+/** 새 장소 한 줄: 이름, 종류, 다른 이름, 설명. 상태 승인 · 다시 맞추기 화면이 같이 쓴다. */
+const placeLabel = (x) => `<strong>${esc(x.name)}</strong>${x.kind ? ` <span class="small">${esc(x.kind)}</span>` : ''}${(x.aliases || []).length ? ` <span class="small">다른 이름: ${x.aliases.map(esc).join(', ')}</span>` : ''}${x.description ? `<br>${esc(x.description)}` : ''}`;
+
+let previewTimer = null;
+/** 고른 변경안으로 관계를 다시 계산해 미리 보기만 바꾼다 (저장 안 함). */
+function refreshPreview(n) {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(async () => {
+    if (!S.deltas[n]) return;
+    try {
+      S.preview = { n, ...(await api('POST', `/projects/${enc(S.name)}/episodes/${n}/preview`, pickedDelta(n))) };
+    } catch (e) {
+      S.preview = { n, error: e.message };
+    }
+    const box = $('#rel-preview');
+    if (box) box.innerHTML = relationLines(S.preview);
+  }, 250);
+}
+
+/** 상태 변경안 항목 체크 키 ('c0', 'e1' …). 설정 제안 키('sc0', 'sf:logline')와 섞이지 않게 센다. */
+const DELTA_PICK = /^[cesrfpxnqlkot]\d+$/;
+/** 상태 변경안에서 하나씩 골라 반영하는 목록 (StateDelta 의 목록 칸 중 warnings 를 뺀 것, tests/test_delta_count.py 가 맞춰 본다) */
+const DELTA_LISTS = ['character_updates', 'events', 'secrets_added', 'relationship_updates', 'new_facts', 'foreshadow_planted', 'foreshadow_resolved', 'foreshadow_clues', 'new_characters', 'new_places', 'deadlines_added', 'deadlines_done', 'setting_changes'];
+/** 변경안 항목 수. 상태 승인 화면의 'n건 중'과 반영 확인창의 '0건'이 같은 셈을 쓴다 */
+const deltaCount = (d) => DELTA_LISTS.reduce((s, k) => s + (d[k] || []).length, 0);
+const deltaPicked = () => Object.entries(S.picks).filter(([k, v]) => v && DELTA_PICK.test(k)).length;
+
+/** source: 변경안을 어디서 받았나 ('chat' 이면 채팅 앱에서 가져온 JSON). 상태 승인 화면 설명에 쓴다 */
+function setDelta(n, d, source = 'ai') {
+  S.deltas[n] = d;
+  S.deltaBase[n] = ep(n) ? ep(n).text : '';
+  // S.picks 는 설정 제안(sc · sr · sf: 키)과 같이 쓴다. 변경안 키만 지워 설정 화면의 체크를 남긴다
+  for (const k of Object.keys(S.picks)) if (DELTA_PICK.test(k)) delete S.picks[k];
+  S.preview = null;
+  // 설정에도 이번 새 인물에도 없는 id 의 상태는 기본으로 빼 둔다. 반영하면 누구의 것도 아닌 상태가 남는다
+  const known = new Set([...P().characters.map((c) => c.id), ...(d.new_characters || []).map((c) => c.id)]);
+  d.character_updates.forEach((u, i) => { S.picks['c' + i] = known.has(u.character_id); });
+  d.events.forEach((_, i) => { S.picks['e' + i] = true; });
+  d.secrets_added.forEach((_, i) => { S.picks['s' + i] = true; });
+  d.relationship_updates.forEach((_, i) => { S.picks['r' + i] = true; });
+  d.new_facts.forEach((_, i) => { S.picks['f' + i] = true; });
+  d.foreshadow_planted.forEach((_, i) => { S.picks['p' + i] = true; });
+  d.foreshadow_resolved.forEach((id, i) => { S.picks['x' + i] = P().foreshadows.some((f) => f.id === id); });
+  (d.new_characters || []).forEach((_, i) => { S.picks['n' + i] = true; });
+  (d.new_places || []).forEach((_, i) => { S.picks['l' + i] = true; });
+  (d.foreshadow_clues || []).forEach((_, i) => { S.picks['q' + i] = true; });
+  (d.deadlines_added || []).forEach((_, i) => { S.picks['k' + i] = true; });
+  (d.deadlines_done || []).forEach((id, i) => { S.picks['o' + i] = P().timeline.deadlines.some((x) => x.id === id) || (d.deadlines_added || []).some((x) => x.id === id); });
+  (d.setting_changes || []).forEach((_, i) => { S.picks['t' + i] = false; });  // 인물 설정은 작가가 직접 골라야 바뀐다
+  // 받은 그대로의 요약과 체크. 다시 만들 때 고친 것을 버리는지 묻는다 (기본으로 뺀 항목은 고친 것이 아니다)
+  S.deltaOrig[n] = { summary: d.summary, picks: Object.fromEntries(Object.entries(S.picks).filter(([k]) => DELTA_PICK.test(k))), source };
+}
+
+// ----- 5. 상태 승인 -----
+
+function viewReview(n) {
+  const e = ep(n);
+  if (!e) return header('5단계', '상태 승인', '') + noEpisode();
+  const top = (desc, right = '') => `<header class="page-head"><div class="row" style="gap:12px">${epNav('review', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${n}화 ${esc(e.plot.title)}</div><h1 style="font-size:1.5rem">상태 승인</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div><div class="row">${right}</div></header>${autoLockNote()}${desc ? `<p class="desc">${desc}</p>` : ''}`;
+
+  if (e.status === 'finalized') {
+    const h = [...P().history].reverse().find((d) => d.episode === n);
+    const canRevert = P().snapshots.some((s) => s.episode === n - 1);
+    // 반영 취소는 n화와 그 뒤 반영한 화를 모두 되돌린다. 되돌리는 범위를 버튼에 적는다 (revertFrom 과 같은 셈)
+    const undo = P().episodes.filter((x) => x.status === 'finalized' && x.plot.number >= n).map((x) => x.plot.number);
+    return top('이 화는 상태 반영이 끝났어요. 반영된 내용이에요.', `${canRevert ? `<button class="btn danger" data-action="revertFrom" data-arg="${n}">${rangeText(undo)}화 반영 취소</button>` : ''}${nextStepBtn()}`) + restateCard(n) + (h ? historyView(h) : '<div class="note plain">반영 기록이 없어요.</div>');
+  }
+  if (e.status !== 'written') {
+    return top('') + `<div class="card empty"><p>${n}화 본문이 아직 없어요. 본문을 쓴 뒤 상태를 정리해요.</p><a class="btn primary" href="${base()}/write/${n}">${n}화 집필로</a></div>`;
+  }
+  const d = S.deltas[n];
+  const ar = S.auto && S.auto.run;
+  if (!d && ar && ar.status === 'review' && ar.ep === n && ar.pending) {
+    // 자동 집필이 이미 만든 변경안이 있다. 다시 만들면 AI 비용이 또 든다
+    return top('자동 집필이 이 화에서 멈추고 만든 변경안이 있어요. 불러와 고른 항목만 반영한 뒤 자동 집필에서 이어 가세요.') +
+      `<div class="card"><div class="row"><button class="btn primary" data-action="autoOpenReview">자동 집필 변경안 불러오기</button><a class="btn" href="${base()}/auto">자동 집필로</a></div></div>`;
+  }
+  if (!d) {
+    return top('AI가 본문에서 인물 상태, 관계, 확정 사실, 복선을 뽑아 변경안을 만들어요. 승인한 항목만 데이터에 반영돼요.') +
+      `${ep(n + 1) ? `<div class="note info">${n}화 상태를 반영해야 ${n + 1}화를 쓸 수 있어요.</div>` : ''}<div class="cols"><section class="card col"><h2>AI로 만들기</h2><p class="desc">${n}화 본문을 읽고 변경안을 만들어요.${S.config && S.config.stages ? ` <span class="small">모델: ${esc(S.config.stages.state.model)}</span>` : ''}</p><div>${((b) => `<button class="btn primary" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '변경안 만들기'))}</div></section>
+       <section class="card col"><h2>채팅 앱에서 받은 JSON</h2><p class="desc">상태 승인 지시서를 채팅 앱에 붙여 넣고 받은 JSON을 가져와요.</p><div><a class="btn" href="${base()}/brief/${n}" data-action="openStateBrief" data-arg="${n}">상태 승인 지시서 열기</a></div></section></div>`;
+  }
+
+  const p = P();
+  const remake = ((b) => `<button class="btn small" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '변경안 다시 만들기'));
+  const stale = textUnsaved(n)
+    ? `<section class="note warn">${n}화 본문에 저장하지 않은 수정이 있어요. 반영해도 그 수정은 저장되지 않아요. 변경안을 다시 만들면 본문을 먼저 저장해요. ${remake} <a href="${base()}/write/${n}">본문으로</a></section>`
+    : S.deltaBase[n] !== undefined && S.deltaBase[n] !== e.text
+      ? `<section class="note warn">이 변경안을 만든 뒤 본문을 고쳤어요. 고친 내용이 상태에 영향을 준다면 변경안을 다시 만드세요. ${remake}</section>` : '';
+  // 검수 지적이 남아 있으면 반영 전에 본문을 고칠지 볼 수 있게 알린다 (검수 뒤 본문을 고쳤으면 지난 결과라고 밝힌다)
+  const issues = (e.issues || []).length
+    ? `<section class="note warn">검수 지적 ${e.issues.length}건이 남아 있어요${(e.edits || []).some((x) => x.at > (e.checked_at || '')) ? ' (검수 뒤 본문을 고쳤어요)' : ''}. <a href="${base()}/write/${n}">집필 화면에서 보기</a></section>` : '';
+  const total = deltaCount(d);
+  if (!S.preview || S.preview.n !== n) refreshPreview(n);
+  const picked = deltaPicked();
+  const box = (key) => `<input type="checkbox" id="pk-${key}" data-pick="${key}"${S.picks[key] ? ' checked' : ''}>`;
+  const diff = (before, after) => before && before !== after
+    ? `<div class="row"><span class="before">${esc(before)}</span><span class="small">→</span><span class="after">${esc(after)}</span></div>`
+    : `<div class="row"><span class="after">${esc(after)}</span></div>`;
+
+  const chars = d.character_updates.map((u, i) => {
+    const cur = p.states.find((s) => s.character_id === u.character_id) || {};
+    const rows = [['감정', 'emotional_state'], ['목표', 'current_goal'], ['위치', 'location'], ['메모', 'notes']]
+      .filter(([, f]) => u[f]).map(([k, f]) => `<div class="small">${k}</div>${diff(cur[f], u[f])}`).join('');
+    const knows = u.knows.filter((k) => !(cur.knows || []).includes(k)).map((k) => `<span class="after">+ ${esc(k)}</span>`).join(' ');
+    // 지금 차림은 AI 가 틀리게 적었으면 여기서 고쳐 반영한다 (data-attire 입력이 변경안을 바로 고친다)
+    const attire = u.attire ? `<div class="small"><label for="at-${i}">차림</label></div>${cur.attire && cur.attire !== u.attire ? `<div class="row"><span class="before">${esc(cur.attire)}</span><span class="small">→</span></div>` : ''}<input id="at-${i}" data-attire="${i}" data-attire-ep="${n}" value="${esc(u.attire)}">` : '';
+    const unknown = !p.characters.some((c) => c.id === u.character_id) && !(d.new_characters || []).some((c) => c.id === u.character_id);
+    return `<div class="change">${box('c' + i)}<div class="body"><label for="pk-c${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(u.character_id))}${unknown ? ' <span class="chip draft">설정에 없는 인물</span>' : ''}</label>${rows}${attire}${swDeltaRows(u, cur)}${knows ? `<div class="small">알게 된 정보</div><div class="row">${knows}</div>` : ''}</div></div>`;
+  }).join('');
+
+  const events = d.events.map((ev, i) => {
+    const good = GOOD_EVENTS.includes(ev.kind);
+    const wit = ev.witnesses.length ? ` · 목격: ${ev.witnesses.map(charName).map(esc).join(', ')}` : '';
+    const sec = ev.reveals_secret ? ` · 드러난 비밀: ${esc(secretLabel(ev.reveals_secret, d))}` : '';
+    return `<div class="change">${box('e' + i)}<div class="body"><label for="pk-e${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(ev.actor))} → ${esc(charName(ev.target))}
+        <span class="chip" style="background:${good ? 'var(--green-soft)' : 'var(--red-soft)'};color:${good ? 'var(--green)' : 'var(--red)'}">${esc(ev.kind)}</span> <span class="small" style="font-weight:400">${INTENSITY[ev.intensity] || ev.intensity}${wit}${sec}</span></label>
+      ${ev.quote ? `<div style="font-family:var(--serif);font-size:0.8125rem;line-height:1.7;color:var(--text-2)">“${esc(ev.quote)}”</div>` : ''}</div></div>`;
+  }).join('');
+  const newChars = (d.new_characters || []).map((c, i) => `<div class="change">${box('n' + i)}<label for="pk-n${i}" style="font-size:0.8125rem;line-height:1.55"><strong>${esc(c.name)}</strong> <span class="small">${esc(c.id)} · ${esc(c.role)} · ${c.tier === 'minor' ? '단역' : '조연'}으로 추가</span><br>${esc(c.personality || c.appearance || c.goal)}${c.speech_style ? `<br><span class="small">말투: ${esc(c.speech_style)}</span>` : ''}</label></div>`).join('');
+  const newPlaces = (d.new_places || []).map((x, i) => `<div class="change">${box('l' + i)}<label for="pk-l${i}" style="font-size:0.8125rem;line-height:1.55">${placeLabel(x)}</label></div>`).join('');
+  const secrets = d.secrets_added.map((x, i) => `<div class="change">${box('s' + i)}<label for="pk-s${i}" style="font-size:0.8125rem;line-height:1.55"><strong>${esc(charName(x.owner))}</strong> ${esc(x.content)}<br><span class="small">모르는 인물: ${x.hidden_from.map(charName).map(esc).join(', ') || '없음'}</span></label></div>`).join('');
+  const rels = d.relationship_updates.map((r, i) => {
+    const cur = p.relationships.find((x) => (x.a === r.a && x.b === r.b) || (x.a === r.b && x.b === r.a));
+    return `<div class="change">${box('r' + i)}<div class="body"><label for="pk-r${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(r.a))} ↔ ${esc(charName(r.b))}</label>
+      ${diff(cur && cur.type, r.type)}${r.description ? diff(cur && cur.description, r.description) : ''}</div></div>`;
+  }).join('');
+
+  const facts = d.new_facts.map((f, i) => `<div class="change">${box('f' + i)}<label for="pk-f${i}" style="font-size:0.8125rem;line-height:1.55">${esc(f)}</label></div>`).join('');
+  const fs = [
+    ...d.foreshadow_planted.map((f, i) => `<div class="change">${box('p' + i)}<label for="pk-p${i}" style="font-size:0.8125rem;line-height:1.55"><span class="chip confirmed">심음</span> ${esc(f.description)} <span class="small">${esc(f.id)}</span></label></div>`),
+    ...d.foreshadow_resolved.map((id, i) => {
+      const f = p.foreshadows.find((x) => x.id === id);
+      return `<div class="change">${box('x' + i)}<label for="pk-x${i}" style="font-size:0.8125rem;line-height:1.55"><span class="chip finalized">회수</span> ${esc(f ? f.description : id)} ${f ? `<span class="small">${f.planted_ep}화에 심음</span>` : '<span class="small">알 수 없는 id</span>'}</label></div>`;
+    }),
+    fsClueRows(d, box),
+  ].join('');
+  const section = (title, body) => `<section class="card"><h2>${title}</h2>${body || '<div class="small">변경 없음</div>'}</section>`;
+
+  return top(`${(S.deltaOrig[n] || {}).source === 'chat' ? '채팅 앱에서 가져온' : 'AI가 본문에서 뽑은'} 변경안이에요. 체크한 항목만 데이터에 반영되고, 반영해야 다음 화를 쓸 수 있어요.`, `<span class="small">${total}건 중 <strong class="pick-count" style="color:var(--text)">${picked}</strong>건 선택</span>`) + stale + issues +
+    (d.warnings.length ? `<section class="note warn"><strong>경고 ${d.warnings.length}건 · 본문을 고칠지 확인하세요</strong><ul style="padding-left:18px;margin-top:6px">${warnItems(n, d.warnings)}</ul><a href="${base()}/write/${n}" style="color:inherit;font-weight:700">본문으로</a></section>` : '') +
+    section('인물 상태', chars) + scDeltaCard(n, d, box) +
+    (newChars ? section('새로 나온 인물', newChars) : '') +
+    (newPlaces ? section('새로 나온 장소', `<div class="small">반영하면 인과율에 장소로 등록돼요. 그 뒤로는 이 장소가 나오는 화를 쓸 때 설명이 함께 들어가요.</div>${newPlaces}`) : '') +
+    `<div class="cols">
+      <section class="card col"><div class="between"><h2>관계 사건</h2><span class="small">AI는 사건만 적고, 관계 수치는 Canon이 계산해요</span></div>${events || '<div class="small">이번 화에 관계 사건이 없어요</div>'}
+        ${secrets ? `<h3 style="margin-top:6px">새로 생긴 비밀</h3>${secrets}` : ''}
+        ${rels ? `<h3 style="margin-top:6px">관계 유형 · 설명 변경</h3>${rels}` : ''}</section>
+      <section class="card col">${relationHeader('반영하면 이렇게 계산돼요')}<div id="rel-preview">${relationLines(S.preview && S.preview.n === n ? S.preview : null)}</div>
+        <div class="small">체크를 바꾸면 바로 다시 계산해요. 저장은 반영할 때만 돼요.</div></section>
+    </div>` +
+    `<div class="grid-auto">${section('확정 사실', facts)}${section('복선', fs)}</div>` + tlDeltaCard(n, d, box) +
+    `<section class="card"><div class="between"><label for="dsum" style="font-size:1rem;font-weight:700">${n}화 요약</label><span class="small"><span id="dsum-count">${d.summary.length.toLocaleString()}</span>자 · 다음 화 생성에 이 요약이 들어가요</span></div>
+      <textarea id="dsum" rows="4" data-autogrow data-delta-summary="${n}">${esc(d.summary)}</textarea></section>
+    <div class="row">${((b) => `<button class="btn" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '변경안 다시 만들기'))}<button class="btn" data-action="dropDelta" data-arg="${n}">버리기</button><a class="btn" href="${base()}/write/${n}">본문으로</a></div>
+    <div class="apply-bar"><span class="small">${total}건 중 <strong class="pick-count" style="color:var(--text)">${picked}</strong>건 선택</span>
+      <button class="btn primary" data-action="applyDelta" data-arg="${n}"${autoOn() ? ' disabled' : ''}>선택한 항목 반영하고 ${n}화 완료</button></div>`;
+}
+
+function historyView(h) {
+  const li = (arr) => arr.length ? `<ul style="padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:0.8125rem;line-height:1.5">${arr.map((x) => `<li>${x}</li>`).join('')}</ul>` : '<div class="small">없음</div>';
+  return `<section class="card"><h2>요약</h2><p style="font-size:0.875rem;line-height:1.7">${esc(h.summary)}</p></section>
+    <div class="grid-auto">
+      <section class="card"><h2>인물 상태</h2>${li(h.character_updates.map((u) => `<strong>${esc(charName(u.character_id))}</strong> ${esc([u.emotional_state, u.current_goal, u.location].filter(Boolean).join(' / '))}${u.attire ? ` · 차림: ${esc(u.attire)}` : ''}${u.knows.length ? ` · 앎: ${esc(u.knows.join(', '))}` : ''}`))}</section>
+      <section class="card"><h2>관계 사건</h2>${li((h.events || []).map((ev) => `${esc(charName(ev.actor))} → ${esc(charName(ev.target))} · ${esc(ev.kind)} ${INTENSITY[ev.intensity] || ''}${ev.witnesses && ev.witnesses.length ? ` · 목격: ${ev.witnesses.map(charName).map(esc).join(', ')}` : ''}${ev.reveals_secret ? ` · 드러난 비밀: ${esc(secretLabel(ev.reveals_secret, h))}` : ''}${ev.quote ? `<br><span class="small">“${esc(ev.quote)}”</span>` : ''}`))}</section>
+      <section class="card"><h2>사실과 복선</h2>${li([...h.new_facts.map(esc), ...h.foreshadow_planted.map((f) => '심음: ' + esc(f.description)), ...h.foreshadow_resolved.map((id) => { const f = P().foreshadows.find((x) => x.id === id); return '회수: ' + esc(f ? f.description : id); })])}</section>
+      ${(h.new_characters || []).length ? `<section class="card"><h2>새로 나온 인물</h2>${li(h.new_characters.map((c) => `<strong>${esc(c.name || c.id)}</strong> <span class="small">${esc(c.role || '')}</span>`))}</section>` : ''}
+      ${(h.new_places || []).length ? `<section class="card"><h2>새로 나온 장소</h2>${li(h.new_places.map(placeLabel))}</section>` : ''}
+      ${tlHistory(h)}${scHistory(h)}
+      ${(h.secrets_added || []).length ? `<section class="card"><h2>새로 생긴 비밀</h2>${li(h.secrets_added.map((x) => `<strong>${esc(charName(x.owner))}</strong> ${esc(x.content)}`))}</section>` : ''}
+      ${(h.relationship_updates || []).length ? `<section class="card"><h2>관계 유형 · 설명 변경</h2>${li(h.relationship_updates.map((r) => `${esc(charName(r.a))} ↔ ${esc(charName(r.b))} · ${esc(r.type)}${r.description ? ` · ${esc(r.description)}` : ''}`))}</section>` : ''}
+    </div>`;
+}
+
+// ----- 관계 표시 (숫자/말) -----
+
+const GOOD_EVENTS = ['도움', '희생', '약속이행', '칭찬', '진심고백', '사과', '공동경험'];
+const INTENSITY = { 1: '가벼움', 2: '보통', 3: '결정적' };
+
+function secretLabel(id, d) {
+  const x = [...P().secrets, ...((d && d.secrets_added) || [])].find((s) => s.id === id);
+  return x ? x.content : id;
+}
+
+function relationHeader(title) {
+  const num = !!P().settings.show_numbers;
+  return `<div class="between"><h2>${title}</h2><div class="seg" role="group" aria-label="관계 보기 방식">
+    <button type="button" aria-pressed="${!num}" data-action="toggleNumbers" data-arg="words">말로</button>
+    <button type="button" aria-pressed="${num}" data-action="toggleNumbers" data-arg="numbers">숫자로</button></div></div>`;
+}
+
+function relationLines(rel) {
+  if (!rel) return '<div class="small">계산하는 중…</div>';
+  if (rel.error) return `<div class="note err">${esc(rel.error)}</div>`;
+  const key = P().settings.show_numbers ? 'numbers' : 'words';
+  const text = rel[key];
+  if (!text) return '<div class="small">관계가 없어요. 설정 도우미에서 관계를 추가하세요.</div>';
+  if (!rel.before) return `<ul class="rel-lines">${text.split('\n').map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`;
+  // 미리보기: 줄마다 지금 값과 비교한다. 줄 앞 '도현 → 서윤' 같은 쌍으로 맞춘다
+  const pair = (l) => l.split(':')[0].split(' (')[0].split(' 서로')[0].trim();
+  const now = new Map((rel.before[key] || '').split('\n').filter(Boolean).map((l) => [pair(l), l]));
+  const lines = text.split('\n').filter(Boolean);
+  const changed = lines.filter((l) => now.get(pair(l)) !== l).length;
+  return `<div class="small">${changed ? `반영하면 ${changed}줄이 바뀌어요. 바뀌는 줄 아래에 지금 값을 함께 보여요.` : '반영해도 관계는 그대로예요.'}</div>
+    <ul class="rel-lines">${lines.map((l) => {
+    const was = now.get(pair(l));
+    return was === l ? `<li class="same">${esc(l)}</li>` : `<li class="changed"><ins>${esc(l)}</ins>${was ? `<div class="small">지금: ${esc(was)}</div>` : '<div class="small">새 관계</div>'}</li>`;
+  }).join('')}</ul>`;
+}
+
+
+Object.assign(actions, {
+  // 상태 변경안
+  async extractState(n) {
+    const d = S.deltas[n];
+    const o = S.deltaOrig[n];
+    // S.picks 는 설정 제안 화면과 같이 쓴다. 변경안을 받을 때 있던 칸만 비교한다
+    const edited = d && o && (d.summary !== o.summary || Object.entries(o.picks).some(([k, v]) => S.picks[k] !== v));
+    if (edited && !confirm('고친 요약과 체크를 버리고 변경안을 다시 만들까요?')) return;
+    if (S.textDraft[n] !== undefined) {
+      try {
+        S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, { text: S.textDraft[n] });
+        delete S.textDraft[n];
+      } catch (e) {
+        return toast(e.message, true);
+      }
+    }
+    await startJob('state', n);
+  },
+  async applyDelta(n) {
+    const out = pickedDelta(n);
+    // 평소에는 바로 반영한다. 고른 항목이 없거나, 경고가 남았거나, 변경안을 만든 뒤 본문을 고쳤으면 한 번 묻는다
+    const count = deltaCount(out);
+    const why = [
+      count ? '' : '고른 항목이 0건이에요. 요약만 저장하고',
+      (out.warnings || []).length ? `경고 ${out.warnings.length}건이 남아 있어요.` : '',
+      S.deltaBase[n] !== undefined && ep(n) && S.deltaBase[n] !== ep(n).text ? '변경안을 만든 뒤 본문을 고쳤어요.' : '',
+    ].filter(Boolean);
+    if (why.length && !confirm(`${why.join(' ')} ${n}화를 마칠까요? 반영하면 반영 취소로만 돌아갈 수 있어요.`)) return;
+    await run('반영하는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/apply`, out);
+      delete S.deltas[n];
+      toast(ep(n + 1) && ep(n + 1).status === 'confirmed' ? `${n}화를 마쳤어요. ${n + 1}화 집필로 왔어요` : `${n}화를 마쳤어요`);
+      const r = S.auto && S.auto.run;
+      // 자동 집필이 이 화에서 검토를 기다리고 있었으면 자동 집필 화면으로 돌아가 이어 가게 한다.
+      // 아니면 다음 할 일로 바로 간다: 다음 화가 확정이면 그 화 집필, 초안이면 플롯, 없으면 홈 (nextStep)
+      const next = ep(n + 1);
+      location.hash = r && r.status === 'review' && r.ep === n ? `${base()}/auto` : next && ['confirmed', 'draft'].includes(next.status) ? nextStep()[1] : base();
+    });
+  },
+  async toggleNumbers(v) {
+    const show = v === 'numbers';
+    P().settings.show_numbers = show;
+    render();
+    try {
+      S.project = await api('PUT', `/projects/${enc(S.name)}/view`, { show_numbers: show });
+    } catch (e) {
+      toast(e.message, true);
+    }
+  },
+  dropDelta(n) {
+    if (!confirm('이 변경안을 버릴까요?')) return;
+    delete S.deltas[n];
+    render();
+  },
+});

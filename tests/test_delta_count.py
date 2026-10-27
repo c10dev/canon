@@ -1,4 +1,4 @@
-"""상태 승인 화면(static/app.js)이 변경안 항목을 빠짐없이 세는지. 화면의 'n건 중'과 반영 확인창의 '0건'이 같은 목록(DELTA_LISTS)을 쓴다."""
+"""상태 승인 화면(static/review.js)이 변경안 항목을 빠짐없이 세는지. 화면의 'n건 중'과 반영 확인창의 '0건'이 같은 목록(DELTA_LISTS)을 쓴다."""
 import json
 import re
 import shutil
@@ -10,13 +10,13 @@ import pytest
 
 from canon.schema import StateDelta
 
-APP = Path(__file__).resolve().parent.parent / "canon" / "static" / "app.js"
+APP = Path(__file__).resolve().parent.parent / "canon" / "static" / "review.js"
 
 
 def _source(name):
     src = APP.read_text(encoding="utf-8")
     m = re.search(rf"^const {name} = .*?;$", src, re.M)
-    assert m, f"app.js 에 {name} 가 없어요"
+    assert m, f"review.js 에 {name} 가 없어요"
     return m.group(0)
 
 

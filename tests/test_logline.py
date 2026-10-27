@@ -69,6 +69,6 @@ class ViewTest(unittest.TestCase):
         self.assertEqual(dynamics.find_tie(p.ties, "b", "a").warmth, 1)  # 말이 없는 쪽은 affinity
 
     def test_web_lists_match(self):
-        js = (Path(__file__).parent.parent / "canon" / "static" / "app.js").read_text(encoding="utf-8")
+        js = (Path(__file__).parent.parent / "canon" / "static" / "setup.js").read_text(encoding="utf-8")
         views = re.search(r"const VIEWS = \[(.*?)\];", js).group(1)
         self.assertEqual(re.findall(r"'([^']+)'", views), list(dynamics.VIEWS))
