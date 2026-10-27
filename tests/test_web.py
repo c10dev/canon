@@ -1,4 +1,5 @@
 """웹 API 전체 흐름 테스트 (mock LLM). 실행: python -m pytest tests"""
+import copy
 import importlib
 import os
 
@@ -636,6 +637,33 @@ def test_relationship_pairs_validated_on_save(client):
     assert r.status_code == 400 and "두 번" in r.json()["detail"]
 
 
+def test_character_ids_checked_on_save(client):
+    """인물 id 를 바꾸거나 비우거나 겹치게 저장하면 관계 · 상태가 끊기므로 받지 않는다. 이미 끊겨 있던 관계는 저장을 막지 않는다."""
+    client.post("/api/projects", json={"name": "ci", "meta": {"title": "t", "target_episodes": 10}})
+    p = client.post("/api/projects/ci/suggest/apply", json=client.post("/api/projects/ci/suggest").json()).json()
+    old = p["characters"][0]["id"]
+    assert any(old in (r["a"], r["b"]) for r in p["relationships"])
+    renamed = copy.deepcopy(p)
+    renamed["characters"][0]["id"] = "renamed"
+    r = client.put("/api/projects/ci", json=renamed)
+    assert r.status_code == 400 and "없는 인물" in r.json()["detail"]
+    assert client.get("/api/projects/ci").json()["characters"][0]["id"] == old
+    for bad, word in [("", "비었어요"), (p["characters"][1]["id"], "겹쳐요")]:
+        q = copy.deepcopy(p)
+        q["characters"][0]["id"] = bad
+        q["relationships"] = []
+        r = client.put("/api/projects/ci", json=q)
+        assert r.status_code == 400 and word in r.json()["detail"], bad
+    # 디스크에 이미 끊긴 관계가 있던 작품(옛 데이터)은 그대로 저장된다
+    from canon import store
+    disk = store.load("ci")
+    disk.relationships.append(disk.relationships[0].model_copy(update={"a": "ghost"}))
+    store.save("ci", disk)
+    legacy = client.get("/api/projects/ci").json()
+    legacy["meta"]["title"] = "고친 제목"
+    assert client.put("/api/projects/ci", json=legacy).status_code == 200
+
+
 def test_project_list_and_folder_names(client):
     """작품 목록: 형식 · 다음 할 화 · 고친 시각, 최근에 고친 작품부터. 폴더 이름은 운영체제가 막는 글자를 받지 않는다."""
     import time
@@ -650,3 +678,33 @@ def test_project_list_and_folder_names(client):
     assert rows[0]["form"] == "serial" and rows[1]["form"] == "short"
     assert rows[1]["open_ep"] == 0 and rows[1]["planned"] == 0 and rows[1]["updated_at"]
     assert client.post("/api/projects/old/rename", json={"name": "a:b"}).status_code == 400
+
+
+def test_apply_edited_delta(client):
+    """상태 승인 화면에서 고친 사건 종류 · 강도, 사실, 감정, 알게 된 정보가 미리 보기와 반영에 그대로 쓰인다."""
+    client.post("/api/projects", json={"name": "ed", "meta": {"title": "등대", "target_episodes": 10}})
+    p = client.post("/api/projects/ed/suggest/apply", json=client.post("/api/projects/ed/suggest").json()).json()
+    p["arc"] = client.post("/api/projects/ed/arc").json()["acts"]
+    client.put("/api/projects/ed", json=p)
+    client.post("/api/projects/ed/plots", json={})
+    client.post("/api/projects/ed/episodes/1/confirm")
+    client.post("/api/projects/ed/episodes/1/write")
+    d = client.post("/api/projects/ed/episodes/1/state").json()
+    assert d["events"] and d["new_facts"] and d["character_updates"]
+
+    ev = d["events"][0]
+    edited = copy.deepcopy(d)
+    edited["events"][0].update(kind="배신" if ev["kind"] != "배신" else "도움", intensity=3)
+    edited["new_facts"][0] = "작가가 고친 사실"
+    edited["character_updates"][0].update(emotional_state="작가가 고친 감정", knows=["작가가 고친 정보"])
+    before = client.post("/api/projects/ed/episodes/1/preview", json=d).json()
+    after = client.post("/api/projects/ed/episodes/1/preview", json=edited).json()
+    assert after["numbers"] != before["numbers"]  # 고친 사건으로 관계를 다시 계산한다
+
+    p = client.post("/api/projects/ed/episodes/1/apply", json=edited).json()
+    got = [e for e in p["events"] if e["episode"] == 1][0]
+    assert (got["kind"], got["intensity"]) == (edited["events"][0]["kind"], 3)
+    assert "작가가 고친 사실" in p["facts"] and d["new_facts"][0] not in p["facts"]
+    st = next(s for s in p["states"] if s["character_id"] == edited["character_updates"][0]["character_id"])
+    assert st["emotional_state"] == "작가가 고친 감정" and "작가가 고친 정보" in st["knows"]
+    assert client.get("/api/projects/ed/relations").json()["numbers"] == after["numbers"]

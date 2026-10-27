@@ -152,3 +152,21 @@ def test_research_opening_compare_hides_until_pick(client):
     # 새 비교를 만들면 앞 판정은 지운다
     c = research.run_opening_compare("lh", p, 1, MockLLM(), ["in_medias_res", "lack_turn", "premise_first"])
     assert len(c["drafts"]) == 3 and not any(d["hook"] for d in c["drafts"])
+
+
+def test_opening_plot_undo_survives_reload(client):
+    before = _project(client)["episodes"][0]["plot"]
+    client.post("/api/projects/lh/episodes/1/confirm")
+    j = _wait(client, client.post("/api/projects/lh/jobs", json={"kind": "openings", "ep": 1}).json()["id"])
+    first, second = (o["plot"] for o in j["result"]["options"][:2])
+    p = client.post("/api/projects/lh/episodes/1/opening-plot", json={"plot": first}).json()
+    assert p["episodes"][0]["opening_prev"] == before  # 처음 고르기 전 플롯은 서버에 남는다
+    p = client.post("/api/projects/lh/episodes/1/opening-plot", json={"plot": second}).json()
+    assert p["episodes"][0]["opening_prev"] == before  # 다른 안으로 바꿔도 처음 플롯을 지킨다
+
+    p = client.get("/api/projects/lh").json()  # 새로고침해도 되돌릴 수 있다
+    assert p["episodes"][0]["opening_prev"] == before
+    p = client.post("/api/projects/lh/episodes/1/opening-plot/undo").json()
+    e = p["episodes"][0]
+    assert e["plot"] == before and e["opening_prev"] is None and e["status"] == "draft"
+    assert client.post("/api/projects/lh/episodes/1/opening-plot/undo").status_code == 400

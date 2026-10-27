@@ -1,6 +1,8 @@
 """마을 생성기: 시드 하나로 길 · 필지 · 집 · 밭 · 물 · 나무가 있는 마을을 만든다. LLM 을 부르지 않는다.
 
-순서: 바탕(물) → 간선(가장자리에서 들어와 마을 가운데서 만나는 길) → 가지길 → 길가 필지와 집 → 이야기 장소 자리 → 밭 · 풀밭 → 나무.
+순서: 바탕(물) → 간선(가장자리에서 들어와 마을 가운데서 만나는 길) → 상징 건물 자리 → 가지길(roadnet: Parish–Müller 식으로
+함께 키우고 막다른 끝을 이어 고리를 만든다) → 길가 필지와 집(가운데는 연립 줄, 바깥은 성기게, 농가는 헛간) → 이야기 장소 자리 →
+밭 · 풀밭 → 나무.
 결과는 atlas.read_layout 이 내놓는 것과 같은 모양이라 지도 그리기 · 길찾기 · 인물 동선을 그대로 쓴다.
 좌표는 m 로 계산하고 마지막에 0~1 로 나눈다. 단계마다 난수원을 따로 두어(f"{seed}:{단계}") 같은 MapSpec 이면 언제나 같은 마을이 나온다.
 
@@ -12,21 +14,25 @@ import math
 import random
 from typing import Optional
 
-from . import geom
+from . import geom, roadnet
 from .geom import Point, Poly
 from .schema import MapSpec
 
-VERSION = 1
+VERSION = 4  # 2: 바닷가 마을을 해안에 붙이고 바다로 가는 길 · 부두, 물가 장소를 물가에. 3: 숲 덩어리 · 생울타리 · 과수원, 길로 자른 큰 밭, 등대는 바다에만
+# 4: 길망을 roadnet 으로 (고리 · 둘레길), 가운데 연립 줄, 농가 헛간, 상징 건물
 GENERATOR = "canon-village"
 
 SIZES = {"small": (25, 320), "medium": (60, 440), "large": (120, 600)}  # 목표 집 수, 영역 세로(m)
 OPTIONS = {
-    "size": {"small": "작음 (집 20~30채)", "medium": "보통 (30~60채)", "large": "큼 (50~110채)"},  # 시드 5개씩 재 본 범위. 한길은 적은 쪽
+    "size": {"small": "작음 (집 25~30채)", "medium": "보통 (60~70채)", "large": "큼 (100~140채)"},  # 시드 5개씩 재 본 범위. 한길은 적은 쪽
     "roads": {"line": "한길", "cross": "교차로", "square": "광장"},
     "water": {"none": "없음", "river": "강", "lake": "호수", "sea": "바다"},
     "fields": {"few": "적음", "some": "보통", "many": "많음"},
     "forest": {"few": "적음", "some": "보통", "many": "많음"},
 }
+MIN_DEPTH = 11.0  # 가장 얕은 필지 (m)
+ROW_SHARE = 0.45  # 연립 줄 집의 몫 (목표 집 수에 대해)
+LANES = 7.0  # 집 한 채에 가지길 몇 m (마을 반지름 안)
 FIELD_SHARE = {"few": 0.35, "some": 0.65, "many": 0.9}
 FOREST_LEVEL = {"few": 0.32, "some": 0.18, "many": 0.04}  # 노이즈가 이 값을 넘는 곳이 숲
 
@@ -41,7 +47,7 @@ CATEGORIES: list[tuple[str, str, tuple[str, ...]]] = [
     ("mill", "방앗간", ("방앗간", "물레방아", "풍차", "제분소")),
     ("manor", "저택 · 관아", ("저택", "영주", "관아", "장원", "대감", "촌장", "이장", "지주", "별장")),
     ("home", "집 · 가게", ("집", "가게", "상점", "빵집", "약방", "의원", "학당", "서당", "학교", "댁")),
-    ("shore", "나루 · 부두", ("나루", "부두", "포구", "선착장", "항구", "등대", "해변", "바닷가", "어시장", "방파제")),
+    ("shore", "나루 · 부두", ("나루", "부두", "포구", "선착장", "항구", "등대", "해변", "바닷가", "어시장", "수산시장", "어판장", "방파제", "갯벌", "염전")),
     ("bridge", "다리", ("다리", "징검다리")),
     ("river", "강가", ("강", "강가", "개울", "냇가", "시냇가", "하천", "시내")),
     ("pond", "호수 · 연못", ("호수", "연못", "늪", "저수지")),
@@ -73,6 +79,28 @@ def default_put(kind: str) -> bool:
     return kind != "far"
 
 
+RIVER_SHORE = ("나루", "선착장")  # 물가 종류 가운데 강에 어울리는 단어 (나머지는 바다)
+LIGHT_WORDS = ("등대", "방파제")  # 물가 종류 가운데 해안 끝(곶)에 서는 것
+BEACH_WORDS = ("해변", "바닷가", "갯벌", "염전")  # 물가 종류 가운데 물가 자체 (필지가 아님). 나머지 물가 종류는 부두 옆
+
+
+def water_for(rows: list[dict]) -> str:
+    """놓을 장소가 물을 바라면 그 물 (sea | river | lake), 아니면 none. 지도 만들기 물 칸의 기본값.
+    rows: [{kind, word, put}]. 여러 물을 바라면 많이 바라는 쪽, 같으면 바다 > 강 > 호수."""
+    votes = {"sea": 0, "river": 0, "lake": 0}
+    for r in rows:
+        if not r.get("put"):
+            continue
+        if r["kind"] == "shore":
+            votes["river" if r.get("word") in RIVER_SHORE else "sea"] += 1
+        elif r["kind"] in ("bridge", "river"):
+            votes["river"] += 1
+        elif r["kind"] == "pond":
+            votes["lake"] += 1
+    best = max(votes, key=lambda k: (votes[k], -list(votes).index(k)))
+    return best if votes[best] else "none"
+
+
 # ---------- 물 ----------
 
 class _Water:
@@ -80,6 +108,7 @@ class _Water:
     RES = 3.0
 
     def __init__(self, w: float, h: float):
+        self.w, self.h = w, h
         self.cols, self.rows = int(w / self.RES) + 2, int(h / self.RES) + 2
         self.still = bytearray(self.cols * self.rows)
         self.river = bytearray(self.cols * self.rows)
@@ -130,6 +159,21 @@ class _Water:
 
     def on_river(self, q: Point) -> bool:
         return self._hit(self.river, q, 0)
+
+    def edge(self) -> list[Point]:
+        """물가 점: 호수 · 바다 테두리와 강 선의 점 가운데 지도 안에 있는 것 (바다를 지도 밖으로 닫은 꼭짓점은 뺀다)."""
+        pts = [q for poly in self.polys for q in poly] + [q for rv in self.rivers for q in rv["points"]]
+        return [q for q in pts if 0 < q[0] < self.w and 0 < q[1] < self.h]
+
+    def inland(self, q: Point, toward: Point, margin: float = 1.5) -> Point:
+        """물가 점 q 에서 toward 쪽으로 1m 씩 옮겨 margin 안에 물이 없는 첫 점."""
+        d = math.dist(q, toward) or 1
+        u = ((toward[0] - q[0]) / d, (toward[1] - q[1]) / d)
+        for k in range(int(d)):
+            p = (q[0] + u[0] * k, q[1] + u[1] * k)
+            if not self.wet(p, margin):
+                return p
+        return toward
 
 
 def _make_water(kind: str, rng: random.Random, noise: geom.Noise, w: float, h: float, e: float, c: Point) -> tuple[_Water, Optional[float]]:
@@ -194,79 +238,35 @@ def _make_water(kind: str, rng: random.Random, noise: geom.Noise, w: float, h: f
 
 # ---------- 길 ----------
 
-class _Roads:
-    """길 목록과 선분 격자. 선분은 [a, b, 길] 목록이라 갈림길을 넣을 때 제자리에서 둘로 나눈다."""
-
-    def __init__(self):
-        self.list: list[dict] = []
-        self.grid = geom.Grid(30)
-
-    def add(self, kind: str, width: float, pts: list[Point], main: bool = False) -> dict:
-        road = {"kind": kind, "width": width, "pts": pts, "main": main}
-        self.list.append(road)
-        for a, b in zip(pts, pts[1:]):
-            self.grid.add(geom.bbox([a, b]), [a, b, road])
-        return road
-
-    def near(self, a: Point, b: Point, pad: float) -> list[list]:
-        return self.grid.near(geom.bbox([a, b]), pad)
-
-    def split(self, seg: list, x: Point) -> None:
-        """선분 seg 위의 점 x 를 그 길의 꼭짓점으로 넣는다 (갈림길이 이어지게)."""
-        a, b, road = seg
-        if x in (a, b):
-            return
-        pts = road["pts"]
-        i = next(k for k in range(len(pts) - 1) if pts[k] == a and pts[k + 1] == b)
-        pts.insert(i + 1, x)
-        seg[1] = x
-        self.grid.add(geom.bbox([x, b]), [x, b, road])
-
-
-def _walk(start: Point, heading: float, steps: int, step: float, noise: geom.Noise, salt: float, wiggle: float,
-          ok, w: float, h: float) -> list[Point]:
-    """start 에서 heading 쪽으로 걷는 길. ok(점) 가 거짓이면 방향을 조금씩 틀어 보고, 다 막히면 멈춘다.
-    영역 밖으로 나가면 가장자리에서 멈춘다."""
-    pts = [start]
-    a0 = heading
-    for i in range(steps):
-        p = pts[-1]
-        a = heading + noise.value(p[0] / 70 + salt, p[1] / 70 - salt) * wiggle
-        for turn in (0, 0.3, -0.3, 0.6, -0.6, 0.9, -0.9, 1.2, -1.2):
-            q = (p[0] + math.cos(a + turn) * step, p[1] + math.sin(a + turn) * step)
-            if ok(q):
-                break
-        else:
-            break
-        heading = a + turn
-        heading += (a0 - heading) * 0.15  # 원래 방향으로 조금 돌아온다
-        if not (0 <= q[0] <= w and 0 <= q[1] <= h):
-            t = min(((w if q[0] > w else 0) - p[0]) / (q[0] - p[0]) if not 0 <= q[0] <= w else 1,
-                    ((h if q[1] > h else 0) - p[1]) / (q[1] - p[1]) if not 0 <= q[1] <= h else 1)
-            pts.append(geom.lerp(p, q, t))
+def _harbor(c: Point, sea_dir: float, r: random.Random, water: _Water, roads: roadnet.Net, w: float, h: float) -> Optional[dict]:
+    """바다로 가는 길과 부두. 가운데에서 바다 쪽으로 곧게 걸어 물가 앞에서 멈추고(길), 거기서 물 위로 20~35m 부두(bridge)를 낸다.
+    길 끝 = 부두 뿌리를 두 길이 함께 써서 이어진다. 물가 앞에는 부둣가 빈터(quay)를 둔다. 바다에 닿지 못하면 None."""
+    a = sea_dir + r.uniform(-0.2, 0.2)
+    u = (math.cos(a), math.sin(a))
+    pts = [c]
+    while len(pts) < 40:
+        q = (pts[-1][0] + u[0] * 6, pts[-1][1] + u[1] * 6)
+        if water.wet(q, 3, river=False) or not (2 < q[0] < w - 2 and 2 < q[1] < h - 2):
             break
         pts.append(q)
-    return pts
-
-
-def _bridge_runs(pts: list[Point], water: _Water) -> list[tuple[str, list[Point]]]:
-    """길 점들을 뭍 · 강 구간으로 나눈다. 강 구간(다리)은 양쪽 뭍 점을 끝점으로 갖는다. 강에서 끝나는 꼬리는 버린다."""
-    wet = [water.on_river(q) for q in pts]
-    runs: list[tuple[str, list[Point]]] = []
-    i = 0
-    while i < len(pts):
-        j = i
-        while j + 1 < len(pts) and wet[j + 1] == wet[i]:
-            j += 1
-        if not wet[i]:
-            runs.append(("road", pts[i:j + 1]))
-        elif i > 0 and j + 1 < len(pts):
-            runs.append(("bridge", pts[i - 1:j + 2]))
-        else:
-            break  # 강에서 끝나거나 강에서 시작하면 그 뒤는 버린다
-        i = j + 1
-    return [(k, ln) for k, ln in runs if len(ln) >= 2]
-
+    root = pts[-1]
+    length = r.uniform(20, 35)
+    out, wet = root, 0.0
+    for _ in range(40):
+        q = (out[0] + u[0] * 3, out[1] + u[1] * 3)
+        if not (0 <= q[0] <= w and 0 <= q[1] <= h):
+            break
+        out = q
+        if water.wet(q, 0, river=False):
+            wet += 3
+            if wet >= length:
+                break
+    if len(pts) < 3 or wet < 12:
+        return None
+    roads.add("road", r.uniform(5.5, 6.5), pts, main=True)
+    roads.add("bridge", 4.0, [root, out], main=True)
+    quay = geom.rect((root[0] - u[0] * 7, root[1] - u[1] * 7), u, r.uniform(24, 32), 12)
+    return {"root": root, "end": out, "dir": u, "quay": quay}
 
 # ---------- 마을 ----------
 
@@ -292,15 +292,27 @@ def _village(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
     c = (w / 2 + base.uniform(-0.05, 0.05) * w, h / 2 + base.uniform(-0.05, 0.05) * h)
     reach = e * 0.42  # 집이 드문드문해지는 반지름
     water, sea_dir = _make_water(spec.water, rng("water"), noise, w, h, e, c)
+    if sea_dir is not None:  # 바닷가 마을은 해안에 붙는다: 바다 쪽으로 걸어 해안을 찾고 40~60m 안쪽을 가운데로
+        sd = (math.cos(sea_dir), math.sin(sea_dir))
+        q = c
+        for _ in range(int(e)):
+            nq = (q[0] + sd[0] * 2, q[1] + sd[1] * 2)
+            if water.wet(nq, 0, river=False) or not (0 < nq[0] < w and 0 < nq[1] < h):
+                break
+            q = nq
+        back = rng("coast").uniform(40, 60)
+        c = (q[0] - sd[0] * back, q[1] - sd[1] * back)
     if water.wet(c, 25):
         return None
 
-    roads = _Roads()
+    roads = roadnet.Net(w, h)
     plaza: Optional[Poly] = None
+    squares: list[Poly] = []  # 집 · 밭 · 나무가 들어서지 않는 빈터 (광장, 부둣가)
     if spec.roads == "square":
         pr = rng("plaza").uniform(16, 24)
         plaza = [(c[0] + math.cos(t) * pr * (1 + 0.15 * noise.value(t, 5.5)), c[1] + math.sin(t) * pr * (1 + 0.15 * noise.value(t, 5.5)))
                  for t in (i * 2 * math.pi / 10 for i in range(10))]
+        squares.append(plaza)
 
     # 간선: 가운데에서 가장자리로
     r = rng("arms")
@@ -316,124 +328,234 @@ def _village(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
     dry = lambda q: not water.wet(q, 4, river=False)  # noqa: E731  간선은 강을 다리로 건넌다
     arm_ends: list[Point] = []
     for i, a in enumerate(angles):
-        pts = _walk(c, a, int(e * 1.2 / 10), 10, noise, 3.1 * i, 0.5, dry, w, h)
+        pts = roadnet.walk(c, a, int(e * 1.2 / 10), 10, noise, 3.1 * i, 0.5, dry, w, h)
         if len(pts) < 4:
             continue
-        for kind, ln in _bridge_runs(pts, water):
-            roads.add(kind, r.uniform(6, 7.5) if kind == "road" else 6, ln, main=True)
+        roads.add("road", r.uniform(6, 7.5), pts, main=True)
         arm_ends.append(pts[-1])
     if len(arm_ends) < 2 and spec.roads != "line":
         return None
     if not arm_ends:
         return None
+    harbor = _harbor(c, sea_dir, rng("harbor"), water, roads, w, h) if sea_dir is not None else None
+    if harbor:
+        squares.append(harbor["quay"])
 
     lots: list[dict] = []
     lot_grid = geom.Grid(30)
     lr = rng("lots")
 
-    def free(poly: Poly) -> bool:
+    def free(poly: Poly, gap: float = 0.6) -> bool:
         x0, y0, x1, y1 = geom.bbox(poly)
         if x0 < 4 or y0 < 4 or x1 > w - 4 or y1 > h - 4:
             return False
         if any(water.wet(q, 3) for q in poly + [geom.centroid(poly)]):
             return False
-        if plaza and geom.convex_overlap(poly, plaza, 2):
+        if any(geom.convex_overlap(poly, sq, 2) for sq in squares):
+            return False
+        if any(geom.convex_overlap(poly, lot["poly"], gap) for lot in lot_grid.near((x0, y0, x1, y1), 2)):
             return False
         for a, b, road in roads.near((x0, y0), (x1, y1), 10):
-            if geom.poly_seg_near(poly, a, b, road["width"] / 2 + 0.8):
+            g = road["width"] / 2 + 0.8
+            if (max(a[0], b[0]) < x0 - g or min(a[0], b[0]) > x1 + g or max(a[1], b[1]) < y0 - g
+                    or min(a[1], b[1]) > y1 + g):
+                continue  # bbox 가 닿지 않는 선분은 건너뛴다
+            if geom.poly_seg_near(poly, a, b, g):
                 return False
-        return not any(geom.convex_overlap(poly, lot["poly"], 0.6) for lot in lot_grid.near((x0, y0, x1, y1), 2))
+        return True
+
+    def put(lot: dict) -> None:
+        lots.append(lot)
+        lot_grid.add(geom.bbox(lot["poly"]), lot)
+
+    # 상징 건물 (교회 · 사당): 광장이나 갈림길 가에, 간선 사이 가장 넓은 쪽
+    landmark = _landmark(c, roads, plaza, rng("landmark"), free)
+    if landmark:
+        put(landmark)
+
+    def blocked(a: Point, b: Point) -> bool:
+        """가지길이 들어설 수 없는 곳: 영역 끝, 물(강 포함), 빈터, 필지."""
+        if not (8 <= b[0] <= w - 8 and 8 <= b[1] <= h - 8) or water.wet(b, 4):
+            return True
+        if any(geom.inside(b, sq) for sq in squares):
+            return True
+        return any(geom.poly_seg_near(lot["poly"], a, b, 1.5) for lot in lot_grid.near(geom.bbox([a, b]), 2))
+
+    core = reach * 0.35  # 집이 줄지어 붙는 마을 가운데
 
     def lots_along(road: dict) -> None:
         pts = road["pts"]
         if road["kind"] != "road":
             return
-        for side in (1, -1):
-            s = lr.uniform(4, 10)
-            seglens = [math.dist(a, b) for a, b in zip(pts, pts[1:])]
-            total = sum(seglens)
-            while s < total - 6:
-                k, acc = 0, 0.0
-                while k < len(seglens) - 1 and acc + seglens[k] < s:
-                    acc += seglens[k]
-                    k += 1
-                a, b = pts[k], pts[k + 1]
-                p = geom.lerp(a, b, (s - acc) / (seglens[k] or 1))
-                ln = seglens[k] or 1
-                d = ((b[0] - a[0]) / ln, (b[1] - a[1]) / ln)
-                nrm = (-d[1] * side, d[0] * side)
-                dist = math.dist(p, c)
-                front = lr.uniform(9, 14) * (1 + 0.5 * dist / reach)
-                depth = lr.uniform(14, 22) * (1 + 0.3 * dist / reach)
-                keep = max(0.0, min(1.0, 1.3 - (dist / reach) ** 2))
-                if plaza is None or dist > 30:
-                    off = road["width"] / 2 + 1.5 + depth / 2
-                    poly = geom.rect((p[0] + nrm[0] * off, p[1] + nrm[1] * off), nrm, front, depth)
-                    if lr.random() < keep and free(poly):
-                        lot = {"poly": poly, "front": p, "n": nrm, "d": d, "w": front, "depth": depth, "dist": dist,
-                               "main": road["main"], "use": "", "road": road}
-                        lots.append(lot)
-                        lot_grid.add(geom.bbox(poly), lot)
-                s += front + lr.uniform(0, 4)
+        seglens = [math.dist(a, b) for a, b in zip(pts, pts[1:])]
+        total = sum(seglens)
+        edge = road["width"] / 2 + 1.5  # 길 가운데에서 필지 앞선까지
 
-    # 가지길: 있는 길의 꼭짓점에서 옆으로. 길을 먼저 다 내고 필지를 붙인다 (필지가 먼저 있으면 가지길이 막힌다)
+        def at(s: float) -> tuple[Point, Point]:
+            k, acc = 0, 0.0
+            while k < len(seglens) - 1 and acc + seglens[k] < s:
+                acc += seglens[k]
+                k += 1
+            a, b = pts[k], pts[k + 1]
+            ln = seglens[k] or 1
+            return geom.lerp(a, b, (s - acc) / ln), ((b[0] - a[0]) / ln, (b[1] - a[1]) / ln)
+
+        def normal(s: float, side: int) -> Point:  # 앞뒤 3m 를 이은 방향의 수직 (꺾인 곳에서 이웃 필지와 옆선을 함께 쓴다)
+            a, b = at(max(0.0, s - 3))[0], at(min(total, s + 3))[0]
+            ln = math.dist(a, b) or 1
+            return (-(b[1] - a[1]) / ln * side, (b[0] - a[0]) / ln * side)
+
+        for side in (1, -1):
+            s = lr.uniform(2, 8)
+            setback = lr.uniform(0.3, 1.2)  # 연립 줄은 앞선을 맞춘다
+            while s < total - 6:
+                dist = math.dist(at(s)[0], c)
+                row = dist < core
+                farm = not row and dist > reach * 0.5 and lr.random() < 0.4
+                if row:
+                    front, depth, gap = lr.uniform(6, 8.5), lr.uniform(12, 15), 0.0
+                elif farm:
+                    front, depth, gap = lr.uniform(20, 28), lr.uniform(22, 30), lr.uniform(2, 8)
+                else:
+                    front = lr.uniform(9, 14) * (1 + 0.5 * dist / reach)
+                    depth = lr.uniform(14, 22) * (1 + 0.3 * dist / reach)
+                    gap = lr.uniform(0.5, 4) * (1 + dist / reach)
+                if s + front > total - 4:
+                    break
+                p, d = at(s + front / 2)
+                dist = math.dist(p, c)
+                keep = 1.0 if row else max(0.0, min(1.0, 1.3 - (dist / reach) ** 2))
+                placed = False
+                if (plaza is None or dist > 30) and lr.random() < keep:
+                    if row:  # 연립 줄: 앞선은 길을 따라, 옆선은 이웃과 함께 쓰는 사다리꼴
+                        p0, p1 = at(s)[0], at(s + front)[0]
+                        n0, n1 = normal(s, side), normal(s + front, side)
+                        if roadnet._ang(n0, n1) < 0.25:
+                            for dp in (depth, MIN_DEPTH):
+                                poly = [(p0[0] + n0[0] * edge, p0[1] + n0[1] * edge), (p1[0] + n1[0] * edge, p1[1] + n1[1] * edge),
+                                        (p1[0] + n1[0] * (edge + dp), p1[1] + n1[1] * (edge + dp)),
+                                        (p0[0] + n0[0] * (edge + dp), p0[1] + n0[1] * (edge + dp))]
+                                if geom.area(poly) < 0:
+                                    poly.reverse()
+                                if free(poly, -0.05):
+                                    nrm = (n0[0] + n1[0], n0[1] + n1[1])
+                                    ln = math.hypot(*nrm) or 1
+                                    put({"poly": poly, "front": p, "n": (nrm[0] / ln, nrm[1] / ln), "d": d, "w": front, "depth": dp,
+                                         "dist": dist, "main": road["main"], "use": "", "road": road, "row": True, "farm": False,
+                                         "setback": setback, "ends": (p0, p1, n0, n1, edge)})
+                                    placed = True
+                                    break
+                    else:
+                        nrm = (-d[1] * side, d[0] * side)
+                        for dp in (depth, max(MIN_DEPTH, depth * 0.75), MIN_DEPTH):  # 뒤가 막히면 얕게
+                            off = edge + dp / 2
+                            poly = geom.rect((p[0] + nrm[0] * off, p[1] + nrm[1] * off), nrm, front, dp)
+                            if free(poly):
+                                put({"poly": poly, "front": p, "n": nrm, "d": d, "w": front, "depth": dp, "dist": dist,
+                                     "main": road["main"], "use": "", "road": road, "row": False, "farm": farm and dp >= 18,
+                                     "setback": setback})
+                                placed = True
+                                break
+                s += front + gap if placed or not row else 1.5  # 연립 줄은 막힌 곳만 조금씩 비켜 다시 본다
+
+    # 가지길: 간선을 따라 씨앗을 뿌리고 Parish–Müller 식으로 함께 키운다. 길을 먼저 다 내고 필지를 붙인다
     br = rng("branches")
     branch_noise = geom.Noise(br)
-    tries = 0
+    seeds = []
+    for road in roads.list:
+        if not road["main"] or road["kind"] != "road":
+            continue
+        pts = road["pts"]
+        nxt = br.uniform(15, 35)
+        run = 0.0
+        for k in range(1, len(pts) - 1):
+            run += math.dist(pts[k - 1], pts[k])
+            if run < nxt:
+                continue
+            p = pts[k]
+            dist = math.dist(p, c)
+            nxt = run + br.uniform(30, 55) * (1 + 0.6 * dist / reach)
+            if dist > reach * 1.1 or (plaza and dist < 30) or dist < 15:
+                continue
+            a = math.atan2(pts[k + 1][1] - pts[k - 1][1], pts[k + 1][0] - pts[k - 1][0])
+            for side in (1, -1):
+                if br.random() < 0.75 - 0.35 * dist / reach:
+                    heading = a + side * (math.pi / 2 + br.uniform(-0.25, 0.25))
+                    if 0.2 * reach < dist < 0.8 * reach and br.random() < 0.6:  # 둘레길: 가운데를 돌아 이웃 간선에 닿는다
+                        rad = math.atan2(p[1] - c[1], p[0] - c[0])
+                        sense = 1 if math.cos(heading - rad - math.pi / 2) > 0 else -1
+                        seeds.append((dist / 10 + br.uniform(0, 3), p, heading, dist * 2.4, 4.5, _around(c, sense)))
+                    else:
+                        seeds.append((dist / 10 + br.uniform(0, 3), p, heading, br.uniform(60, 150) * (1 - 0.4 * dist / reach), 4.5, None))
 
-    def grow() -> Optional[dict]:
+    def lanes() -> float:  # 가지길 길이 (가운데에 가까운 구간만)
+        return sum(math.dist(a, b) for rd in roads.list if rd["kind"] == "road" and not rd["main"]
+                   for a, b in zip(rd["pts"], rd["pts"][1:]) if math.dist(geom.lerp(a, b, 0.5), c) < reach)
+
+    roads.grow(seeds, br, branch_noise, blocked, lambda: lanes() >= target * LANES)
+    roads.close_loops(blocked)
+    roads.bridges(water.on_river)
+    for road in list(roads.list):
+        lots_along(road)
+    rows = sorted((lot for lot in lots if lot["row"]), key=lambda lot: lot["dist"])
+    if len(rows) > target * ROW_SHARE:  # 연립 줄은 집의 절반 남짓까지: 먼 줄 끝부터 비운다
+        drop = {id(lot) for lot in rows[round(target * ROW_SHARE):]}
+        lots = [lot for lot in lots if id(lot) not in drop]
+        lot_grid = geom.Grid(30)
+        for lot in lots:
+            lot_grid.add(geom.bbox(lot["poly"]), lot)
+
+    tries = 0
+    while len(lots) < target and tries < target * 4:  # 모자라면 빈 곳에 가지길을 더 낸다
+        tries += 1
         road = br.choice([x for x in roads.list if x["kind"] == "road"])
         pts = road["pts"]
         if len(pts) < 5:
-            return None
+            continue
         k = br.randrange(2, len(pts) - 2)
         p = pts[k]
         dist = math.dist(p, c)
         if dist > reach * 1.1 or (plaza and dist < 30) or dist < 15:
-            return None
-        a, b = pts[k - 1], pts[k + 1]
-        heading = math.atan2(b[1] - a[1], b[0] - a[0]) + br.choice((1, -1)) * (math.pi / 2 + br.uniform(-0.3, 0.3))
-        length = br.uniform(50, 130) * (1 - 0.4 * dist / reach)
-        return _branch(p, heading, length, roads, lot_grid, water, plaza, branch_noise, tries, w, h)
-
-    def frontage() -> float:  # 집이 들어설 만한 길 길이 (가운데에 가까운 구간만)
-        return sum(math.dist(a, b) for rd in roads.list if rd["kind"] == "road"
-                   for a, b in zip(rd["pts"], rd["pts"][1:]) if math.dist(geom.lerp(a, b, 0.5), c) < reach)
-
-    while frontage() < target * 11 and tries < target * 4:
-        tries += 1
-        grow()
-    for road in list(roads.list):
-        lots_along(road)
-    while len(lots) < target and tries < target * 6:  # 모자라면 빈 곳에 가지길을 더 낸다
-        tries += 1
-        built = grow()
-        if built:
+            continue
+        a = math.atan2(pts[k + 1][1] - pts[k - 1][1], pts[k + 1][0] - pts[k - 1][0])
+        a += br.choice((1, -1)) * (math.pi / 2 + br.uniform(-0.3, 0.3))
+        for built in roads.grow([(0, p, a, br.uniform(50, 130) * (1 - 0.4 * dist / reach), 4.0, None)], br, branch_noise, blocked, fork=0):
+            had = len(lots)
             lots_along(built)
+            if len(lots) == had:  # 집이 하나도 붙지 않은 길은 지운다
+                roads.remove(built)
+    roads.close_loops(blocked)
 
-    if len(lots) > target * 1.15:  # 너무 많으면 먼 필지부터 비운다
-        lots.sort(key=lambda lot: lot["dist"])
-        lots = lots[:round(target * 1.15)]
+    if len(lots) > target * 1.15:  # 너무 많으면 연립 줄 · 상징 건물이 아닌 필지 가운데 먼 것부터 (조금 섞어) 비운다
+        tr = rng("trim")
+        loose = sorted((lot for lot in lots if not lot["row"] and not lot.get("landmark")),
+                       key=lambda lot: lot["dist"] * tr.uniform(0.75, 1.25), reverse=True)
+        drop = {id(lot) for lot in loose[:len(lots) - round(target * 1.15)]}
+        lots = [lot for lot in lots if id(lot) not in drop]
         lot_grid = geom.Grid(30)
         for lot in lots:
             lot_grid.add(geom.bbox(lot["poly"]), lot)
 
     # 이야기 장소 자리
-    spots, missing = _place_spots(places, lots, roads, water, plaza, c, arm_ends, reach, rng("spots"))
+    spots, missing = _place_spots(places, lots, roads, water, plaza, c, arm_ends, reach, rng("spots"), harbor, sea_dir, lot_grid)
 
     # 집
     hr = rng("houses")
     buildings: list[Poly] = []
+    numbers: list[int] = []  # 집 번호를 붙일 건물 (필지마다 본채 하나, 붙은 채 · 등대 탑은 뺀다)
     for lot in lots:
+        numbers.append(len(buildings))
         buildings += _houses(lot, hr)
+    buildings += [sp["tower"] for sp in spots if sp.get("tower")]
     for sp in spots:
         if sp.get("lot") is not None:
             sp["at"] = geom.centroid(sp["lot"]["houses"][0])
 
-    # 밭 · 풀밭
-    fields, greens = _fields(spec, rng("fields"), w, h, c, reach, water, roads, lot_grid, plaza)
-    field_grid = geom.Grid(40)
-    for poly in fields + greens:
+    # 밭 · 풀밭 (숲이 될 곳은 비운다)
+    forest = geom.Noise(rng("forest"))
+    fields, greens, edge_trees = _fields(spec, rng("fields"), w, h, c, reach, water, roads, lot_grid, squares, forest)
+    field_grid = geom.Grid(40)  # 나무가 들어서지 않는 밭 (풀밭에는 과수원 · 외딴 나무가 선다)
+    for poly in fields:
         field_grid.add(geom.bbox(poly), poly)
     for sp in spots:
         if sp["kind"] == "field" and sp.get("at") is None:
@@ -443,7 +565,7 @@ def _village(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
                 missing.append({"key": sp["key"], "name": sp["name"], "reason": "밭이 없어요. 밭을 늘려 보세요"})
 
     # 나무
-    trees = _trees(spec, rng("trees"), w, h, water, roads, lot_grid, field_grid, plaza)
+    trees = _trees(spec, rng("trees"), w, h, water, roads, lot_grid, field_grid, squares, forest, edge_trees)
     for sp in spots:
         if sp["kind"] == "forest" and sp.get("at") is None:
             if trees:
@@ -477,93 +599,154 @@ def _village(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
         "buildings": [[nx(q) for q in poly] for poly in buildings],
         "water": [[nx(q) for q in cp] for cp in (geom.clip_convex(poly, clip) for poly in water.polys) if len(cp) >= 3],
         "rivers": [{"width": round(rv["width"], 2), "points": [nx(q) for q in rv["points"]]} for rv in water.rivers],
-        "squares": [[nx(q) for q in plaza]] if plaza else [],
+        "squares": [[nx(q) for q in sq] for sq in squares],
         "fields": [[nx(q) for q in poly] for poly in fields],
         "greens": [[nx(q) for q in poly] for poly in greens],
         "trees": [nx(q) for q in trees],
         "spots": [{"key": sp["key"], "name": sp["name"], "kind": sp["kind"], "x": nx(sp["at"])[0], "y": nx(sp["at"])[1]}
                   for sp in spots if sp.get("at") is not None],
         "missing": missing,
-        "houses": len(lots), "target": target,
+        "houses": len(lots), "target": target, "numbers": numbers,
     }
 
 
-def _branch(p: Point, heading: float, length: float, roads: _Roads, lot_grid: geom.Grid, water: _Water,
-            plaza: Optional[Poly], noise: geom.Noise, salt: int, w: float, h: float) -> Optional[dict]:
-    """가지길 하나를 낸다. 다른 길에 가까워지면 그 길에 이어 붙이고(갈림길), 물 · 필지 · 영역 끝에 막히면 멈춘다.
-    짧으면 버린다 (None)."""
-    step, width = 8.0, 4.0
-    pts = [p]
-    hit: Optional[tuple[list, Point]] = None
-    for i in range(int(length / step)):
-        q0 = pts[-1]
-        a = heading + noise.value(q0[0] / 60 + salt, q0[1] / 60) * 0.35
-        q = (q0[0] + math.cos(a) * step, q0[1] + math.sin(a) * step)
-        if not (8 <= q[0] <= w - 8 and 8 <= q[1] <= h - 8) or water.wet(q, 4):
-            break
-        if plaza and geom.inside(q, plaza):
-            break
-        if any(geom.poly_seg_near(lot["poly"], q0, q, 1.5) for lot in lot_grid.near(geom.bbox([q0, q]), 2)):
-            break
-        # 다른 길과 만나거나 가까워지면 이어 붙인다 (처음 두 걸음은 나온 길을 빼고 본다)
-        ahead = (q0[0] + math.cos(a) * 30, q0[1] + math.sin(a) * 30)
-        near = [s for s in roads.near(q0, ahead, 2) if not (i < 2 and min(geom.seg_dist(p, s[0], s[1]), math.dist(p, s[0])) < 14)]
-        cross = None
-        for s in near:
-            x = geom.seg_cross(q0, ahead, s[0], s[1])
-            if x and (cross is None or x[0] < cross[0]):
-                cross = (x[0], s, x[2])
-        if cross and cross[0] * 30 <= step * 2.5:
-            hit = (cross[1], cross[2])
-            break
-        if any(geom.seg_dist(q, s[0], s[1]) < 20 for s in near):
-            break
-        pts.append(q)
-        heading = a
-    if hit:
-        seg, x = hit
-        q0 = pts[-1]
-        if math.dist(q0, x) < 0.1 or any(geom.poly_seg_near(lot["poly"], q0, x, 1.5) for lot in lot_grid.near(geom.bbox([q0, x]), 2)):
-            hit = None  # 이어 붙일 길 사이에 필지가 있으면 막다른 길로 둔다
-        else:
-            roads.split(seg, x)
-            pts.append(x)
-    if len(pts) < 4 and not (hit and len(pts) >= 2):
+def _around(c: Point, sense: int):
+    """둘레길의 전역 목표: c 를 sense 쪽(1 이면 각도가 커지는 쪽)으로 도는 방향."""
+    return lambda p: math.atan2(p[1] - c[1], p[0] - c[0]) + sense * math.pi / 2
+
+
+def _landmark(c: Point, roads: roadnet.Net, plaza: Optional[Poly], r: random.Random, free) -> Optional[dict]:
+    """상징 건물(교회 · 사당) 필지: 마을 가운데의 광장 가장자리나 갈림길 모퉁이에서, 간선 사이가 가장 넓은 쪽에 가운데를 보고 선다.
+    자리가 없으면 조금씩 물리고 줄여 보고, 그래도 없으면 None."""
+    dirs = sorted(math.atan2(q[1] - c[1], q[0] - c[0]) for q in roads.adj.get(c, []))
+    if not dirs:
         return None
-    return roads.add("road", width, pts)
+    gaps = sorted(((dirs[(i + 1) % len(dirs)] + (2 * math.pi if i + 1 == len(dirs) else 0) - a, i) for i, a in enumerate(dirs)),
+                  reverse=True)
+    base = max(math.dist(q, c) for q in plaza) + 3 if plaza else 6
+    wd, dp = r.uniform(11, 14), r.uniform(20, 26)
+    for k in (1.0, 0.85, 0.7):
+        for gap, i in gaps[:3]:
+            mid = dirs[i] + gap / 2
+            n = (math.cos(mid), math.sin(mid))
+            for push in (0, 4, 8, 12, 16, 20):
+                cw, cd = wd * k, dp * k
+                t = cw * 0.45
+                lw, ld = cw * 1.6 + 3, 2 + t + cd + 2
+                front = (c[0] + n[0] * (base + push), c[1] + n[1] * (base + push))
+                poly = geom.rect((front[0] + n[0] * ld / 2, front[1] + n[1] * ld / 2), n, lw, ld)
+                if free(poly):
+                    return {"poly": poly, "front": front, "n": n, "d": (-n[1], n[0]), "w": lw, "depth": ld, "dist": base + push,
+                            "main": False, "use": "", "road": None, "row": False, "farm": False, "setback": 0.0,
+                            "landmark": True, "church": (cw, cd, t)}
+    return None
+
+
+def _church(lot: dict) -> list[Poly]:
+    """상징 건물: 가운데를 보는 탑, 그 뒤로 긴 본당, 본당 양옆 날개. 서로 맞닿기만 한다. 첫 건물(본당)이 집 번호를 받는다."""
+    n, d = lot["n"], lot["d"]
+    fx, fy = lot["front"]
+    cw, cd, t = lot["church"]
+    at = lambda along, back: (fx + d[0] * along + n[0] * back, fy + d[1] * along + n[1] * back)  # noqa: E731
+    arm, armd, pos = cw * 0.3, cw * 0.55, 2 + t + cd * 0.68
+    return [geom.rect(at(0, 2 + t + cd / 2), n, cw, cd), geom.rect(at(0, 2 + t / 2), n, t, t),
+            geom.rect(at(-(cw + arm) / 2, pos), n, arm, armd), geom.rect(at((cw + arm) / 2, pos), n, arm, armd)]
 
 
 def _houses(lot: dict, r: random.Random) -> list[Poly]:
-    """필지 안 길 쪽에 집 한 채 (가끔 뒤에 붙은 채 하나 더). 장소가 놓인 필지는 크게."""
+    """필지 안 길 쪽에 집. 첫 건물이 본채(집 번호), 나머지는 붙은 채 · 헛간.
+    연립 줄(row)은 필지 폭을 다 채워 이웃 집과 맞붙고, 바깥 농가(farm)는 집 옆에 세로로 또는 뒤에 가로로 긴 헛간을 둔다.
+    그 밖은 집 한 채 (가끔 뒤에 붙은 채 하나 더). 장소가 놓인 필지는 크게. 상징 건물 필지는 _church."""
+    if lot.get("landmark"):
+        lot["houses"] = _church(lot)
+        return lot["houses"]
     n, d = lot["n"], lot["d"]
-    big = lot["use"] in ("temple", "manor")
-    bw = min(lot["w"] - (3 if big else 2), r.uniform(6, 11) * (1.6 if big else 1.15 if lot["use"] else 1))
-    bd = min(lot["depth"] - 4, r.uniform(5.5, 9) * (1.6 if big else 1.15 if lot["use"] else 1))
-    shift = r.uniform(-1, 1) * (lot["w"] - bw) / 4
     fx, fy = lot["front"]
-    off = lot["road"]["width"] / 2 + 1.5 + r.uniform(0.5, 2) + bd / 2
-    cx, cy = fx + n[0] * off + d[0] * shift, fy + n[1] * off + d[1] * shift
-    out = [geom.rect((cx, cy), n, bw, bd)]
-    room = lot["depth"] - (off - lot["road"]["width"] / 2 - 1.5) - bd / 2 - 1.5
-    if r.random() < 0.3 and room > 4 and not big:
-        bd2 = min(room, r.uniform(3.5, 6))
-        bw2 = bw * r.uniform(0.4, 0.6)
-        side = r.choice((1, -1)) * (bw - bw2) / 2
-        c2 = (cx + n[0] * (bd / 2 + bd2 / 2) + d[0] * side, cy + n[1] * (bd / 2 + bd2 / 2) + d[1] * side)
-        out.append(geom.rect(c2, n, bw2, bd2))
+    edge = lot["road"]["width"] / 2 + 1.5  # 길 가운데에서 필지 앞선까지
+    at = lambda along, back: (fx + d[0] * along + n[0] * (edge + back), fy + d[1] * along + n[1] * (edge + back))  # noqa: E731
+    big = lot["use"] in ("temple", "manor")
+    if lot["row"]:  # 필지 옆선에서 0.08m 씩 안으로 (이웃 집과 거의 맞붙는다). 뒤채도 같은 사다리꼴 틀에서
+        p0, p1, n0, n1, e = lot["ends"]
+        t = ((p1[0] - p0[0]) / lot["w"], (p1[1] - p0[1]) / lot["w"])
+        q0, q1 = (p0[0] + t[0] * 0.08, p0[1] + t[1] * 0.08), (p1[0] - t[0] * 0.08, p1[1] - t[1] * 0.08)
+
+        def quad(u0: float, u1: float, b0: float, b1: float) -> Poly:  # 앞선 비율 u0~u1, 길에서 b0~b1 m
+            pt = lambda u, b: geom.lerp((q0[0] + n0[0] * b, q0[1] + n0[1] * b), (q1[0] + n1[0] * b, q1[1] + n1[1] * b), u)  # noqa: E731
+            poly = [pt(u0, b0), pt(u1, b0), pt(u1, b1), pt(u0, b1)]
+            return poly[::-1] if geom.area(poly) < 0 else poly
+
+        sb = e + lot["setback"]
+        bd = min(lot["depth"] - lot["setback"] - 1, r.uniform(7, 10) * (1.15 if lot["use"] else 1))
+        out = [quad(0, 1, sb, sb + bd)]
+        room = lot["depth"] - lot["setback"] - bd - 1
+        if r.random() < 0.35 and room > 3:
+            k = r.uniform(0.4, 0.6)
+            u0 = 0 if r.random() < 0.5 else 1 - k
+            out.append(quad(u0, u0 + k, sb + bd, sb + bd + min(room, r.uniform(3, 5))))
+    elif lot["farm"] and not big:
+        side = r.choice((1, -1))
+        bw, bd, sb = r.uniform(7, 10), r.uniform(6, 8.5), r.uniform(1, 3)
+        out = [geom.rect(at(side * (lot["w"] / 2 - bw / 2 - 1), sb + bd / 2), n, bw, bd)]
+        gd = r.uniform(5.5, 7.5)
+        back = sb + bd + r.uniform(2, 4)
+        if r.random() < 0.5 and back + gd < lot["depth"] - 1:  # 뒤에 가로로
+            gw = min(lot["w"] - 2, r.uniform(13, 19))
+            out.append(geom.rect(at(r.uniform(-1, 1) * (lot["w"] - 2 - gw) / 2, back + gd / 2), n, gw, gd))
+        else:  # 옆에 세로로
+            gl = min(lot["depth"] - 4, r.uniform(13, 19))
+            gb = r.uniform(1, 3)
+            out.append(geom.rect(at(-side * (lot["w"] / 2 - gd / 2 - 1), gb + gl / 2), n, gd, gl))
+    else:
+        bw = min(lot["w"] - (3 if big else 2), r.uniform(6, 11) * (1.6 if big else 1.15 if lot["use"] else 1))
+        bd = min(lot["depth"] - 4, r.uniform(5.5, 9) * (1.6 if big else 1.15 if lot["use"] else 1))
+        shift = r.uniform(-1, 1) * (lot["w"] - bw) / 4
+        sb = r.uniform(0.5, 2)
+        out = [geom.rect(at(shift, sb + bd / 2), n, bw, bd)]
+        room = lot["depth"] - sb - bd - 1.5
+        if r.random() < 0.3 and room > 4 and not big:
+            bd2 = min(room, r.uniform(3.5, 6))
+            bw2 = bw * r.uniform(0.4, 0.6)
+            out.append(geom.rect(at(shift + r.choice((1, -1)) * (bw - bw2) / 2, sb + bd + bd2 / 2), n, bw2, bd2))
     lot["houses"] = out
     return out
 
 
-def _place_spots(places: list[dict], lots: list[dict], roads: _Roads, water: _Water, plaza: Optional[Poly],
-                 c: Point, arm_ends: list[Point], reach: float, r: random.Random) -> tuple[list[dict], list[dict]]:
+def _place_spots(places: list[dict], lots: list[dict], roads: roadnet.Net, water: _Water, plaza: Optional[Poly],
+                 c: Point, arm_ends: list[Point], reach: float, r: random.Random, harbor: Optional[dict] = None,
+                 sea_dir: Optional[float] = None, lot_grid: Optional[geom.Grid] = None) -> tuple[list[dict], list[dict]]:
     """이야기 장소마다 자리를 고른다. 필지가 필요한 종류는 필지를 하나씩 차지한다 (집은 뒤에 짓는다).
-    spots: {key, name, kind, at(점) 또는 lot}, missing: {key, name, reason}."""
+    물가 종류는 단어로 나눈다: 등대 · 방파제는 해안 끝(곶)에 탑을 세우고, 해변 · 갯벌은 물가 자체, 나머지(부두 · 수산시장 등)는
+    부두 옆 필지 (부두가 없으면 물가에 가장 가까운 필지, 그것도 40m 넘게 떨어지면 물가 자체).
+    spots: {key, name, kind, at(점) 또는 lot, tower(등대 건물)}, missing: {key, name, reason}."""
     spots: list[dict] = []
     missing: list[dict] = []
     free = lambda: [lot for lot in lots if not lot["use"]]  # noqa: E731
-    shore = [q for poly in water.polys for q in poly] + [q for rv in water.rivers for q in rv["points"]]
+    shore = water.edge()
     used_pts: list[Point] = []
+
+    def waterline(q: Point) -> Point:
+        """물가 점에서 마을 쪽으로 물이 없는 곳까지 옮긴 점."""
+        return water.inland(q, c)
+
+    def tower_at() -> Optional[tuple[Point, Poly]]:
+        """해안 끝 자리와 등대 탑. 마을 가운데에서 0.3~0.8 반지름 거리의 물가 가운데 바다 쪽으로 가장 튀어나온 곳부터,
+        길 · 필지와 겹치지 않는 첫 자리."""
+        sd = (math.cos(sea_dir), math.sin(sea_dir)) if sea_dir is not None else None
+        ring = [q for q in shore if 0.3 * reach <= math.dist(q, c) <= 0.8 * reach] or shore
+        score = (lambda q: q[0] * sd[0] + q[1] * sd[1]) if sd else (lambda q: math.dist(q, c))  # noqa: E731
+        for q in sorted(ring, key=score, reverse=True)[:40]:
+            p = waterline(q)
+            d = math.dist(p, c) or 1
+            poly = geom.rect(p, ((c[0] - p[0]) / d, (c[1] - p[1]) / d), 7, 7)
+            box = geom.bbox(poly)
+            if any(geom.poly_seg_near(poly, a, b, rd["width"] / 2 + 1) for a, b, rd in roads.near(box[:2], box[2:], 8)):
+                continue
+            if lot_grid and any(geom.convex_overlap(poly, lot["poly"], 1) for lot in lot_grid.near(box, 2)):
+                continue
+            if any(math.dist(p, u) < 30 for u in used_pts):
+                continue
+            return p, poly
+        return None
 
     def near_water(lot: dict) -> float:
         return min((math.dist(lot["front"], q) for q in shore), default=math.inf)
@@ -579,7 +762,9 @@ def _place_spots(places: list[dict], lots: list[dict], roads: _Roads, water: _Wa
         sp = {"key": pl["key"], "name": pl["name"], "kind": kind, "at": None, "lot": None}
         pick: Optional[dict] = None
         # 다른 장소와 30m 안의 필지는 남는 게 없을 때만 (이름표가 겹쳐 읽히지 않게)
-        cand = [lot for lot in free() if all(math.dist(lot["front"], u) > 30 for u in used_pts)] or free()
+        # 상징 건물 필지는 신전 · 사당에만 준다
+        mine = [lot for lot in free() if not lot.get("landmark") or kind == "temple"]
+        cand = [lot for lot in mine if all(math.dist(lot["front"], u) > 30 for u in used_pts)] or mine
         if kind == "center":
             sp["at"] = point_at(geom.centroid(plaza) if plaza else c)
         elif kind in ("market", "well"):  # 마을 가운데 둘레, 다른 장소와 떨어진 쪽
@@ -616,8 +801,9 @@ def _place_spots(places: list[dict], lots: list[dict], roads: _Roads, water: _Wa
         elif not cand:
             missing.append({"key": sp["key"], "name": sp["name"], "reason": "놓을 필지가 모자라요. 마을을 크게 해 보세요"})
             continue
-        elif kind == "temple":
-            pick = max(cand, key=lambda lot: lot["w"] * lot["depth"] / (1 + lot["dist"] / 40))
+        elif kind == "temple":  # 상징 건물이 비어 있으면 그것, 아니면 가운데 가까운 큰 필지
+            pick = next((lot for lot in mine if lot.get("landmark")), None) or \
+                max(cand, key=lambda lot: lot["w"] * lot["depth"] / (1 + lot["dist"] / 40))
         elif kind == "manor":
             ring = [lot for lot in cand if 0.25 * reach <= lot["dist"] <= 0.6 * reach] or cand
             pick = max(ring, key=lambda lot: lot["w"] * lot["depth"])
@@ -628,7 +814,28 @@ def _place_spots(places: list[dict], lots: list[dict], roads: _Roads, water: _Wa
         elif kind == "mill":
             pick = min(cand, key=near_water) if shore else max(cand, key=lambda lot: lot["dist"])
         elif kind == "shore":
-            pick = min(cand, key=near_water)
+            word = pl.get("word", "")
+            if word in LIGHT_WORDS and sea_dir is None:  # 등대는 바다에만 선다
+                missing.append({"key": sp["key"], "name": sp["name"], "reason": "바다가 없어요. 물을 바다로 바꿔 보세요"})
+                continue
+            if word in LIGHT_WORDS and (t := tower_at()):
+                p, poly = t
+                sp["at"], sp["tower"] = point_at(p), poly
+                if lot_grid is not None:  # 밭 · 나무가 탑을 비켜 가게
+                    lot_grid.add(geom.bbox(poly), {"poly": poly, "houses": [poly]})
+            elif word in BEACH_WORDS:
+                sp["at"] = point_at(waterline(min(shore, key=lambda q: math.dist(q, c))))
+            elif harbor:
+                quay = [lot for lot in cand if math.dist(lot["front"], harbor["root"]) < 50]
+                if quay:
+                    pick = min(quay, key=lambda lot: math.dist(lot["front"], harbor["root"]))
+                else:
+                    sp["at"] = point_at(geom.centroid(harbor["quay"]))
+            else:
+                pick = min(cand, key=near_water)
+                if near_water(pick) > 40:
+                    pick = None
+                    sp["at"] = point_at(waterline(min(shore, key=lambda q: math.dist(q, c))))
         else:  # home
             pick = min(cand, key=lambda lot: lot["dist"] + r.uniform(0, 40))
         if pick is not None:
@@ -651,62 +858,127 @@ def _strips(poly: Poly, angle: float, depth: int = 0) -> list[Poly]:
     return [s for half in (left, right) if half for s in _strips(half, angle, depth + 1)]
 
 
-def _fields(spec: MapSpec, r: random.Random, w: float, h: float, c: Point, reach: float, water: _Water, roads: _Roads,
-            lot_grid: geom.Grid, plaza: Optional[Poly]) -> tuple[list[Poly], list[Poly]]:
-    """밭 · 풀밭: Voronoi 칸을 조금 줄여 틈을 내고, 길 · 필지 · 물과 겹치는 칸은 뺀다. 밭은 띠로 나눈다."""
-    seeds = geom.poisson(r, w, h, 38)
+def _forest_at(forest: geom.Noise, q: Point) -> float:
+    return forest.fbm(q[0] / 140, q[1] / 140)
+
+
+def _cut_by_roads(poly: Poly, roads: roadnet.Net, tries: int = 4) -> list[Poly]:
+    """볼록 다각형을 지나는 길로 자른다: 길 선을 길 폭의 반 + 1.5m 만큼 양쪽으로 밀어 두 쪽을 남긴다 (밭이 길가까지 온다).
+    tries 번 자른 뒤에도 길에 걸린 조각은 버린다."""
+    pieces, done = [poly], []
+    for _ in range(tries):
+        nxt = []
+        for pc in pieces:
+            x0, y0, x1, y1 = geom.bbox(pc)
+            hit = next(((a, b, rd) for a, b, rd in roads.near((x0, y0), (x1, y1), 8)
+                        if geom.poly_seg_near(pc, a, b, rd["width"] / 2 + 1)), None)
+            if not hit:
+                done.append(pc)
+                continue
+            a, b, rd = hit
+            ln = math.dist(a, b) or 1
+            n = (-(b[1] - a[1]) / ln, (b[0] - a[0]) / ln)
+            off = rd["width"] / 2 + 1.5
+            left, _ = geom.split_convex(pc, (a[0] + n[0] * off, a[1] + n[1] * off), (b[0] + n[0] * off, b[1] + n[1] * off))
+            _, right = geom.split_convex(pc, (a[0] - n[0] * off, a[1] - n[1] * off), (b[0] - n[0] * off, b[1] - n[1] * off))
+            nxt += [x for x in (left, right) if x and abs(geom.area(x)) > 150]
+        pieces = nxt
+        if not pieces:
+            break
+    return done
+
+
+def _edge_points(poly: Poly, step: float) -> list[Point]:
+    """다각형 테두리를 따라 step 간격의 점."""
+    out = []
+    for i, b in enumerate(poly):
+        a = poly[i - 1]
+        n = max(1, int(math.dist(a, b) / step))
+        out += [geom.lerp(a, b, k / n) for k in range(n)]
+    return out
+
+
+def _fields(spec: MapSpec, r: random.Random, w: float, h: float, c: Point, reach: float, water: _Water, roads: roadnet.Net,
+            lot_grid: geom.Grid, squares: list[Poly], forest: geom.Noise) -> tuple[list[Poly], list[Poly], list[Point]]:
+    """밭 · 풀밭과 생울타리 · 과수원 나무 자리.
+    큰 Voronoi 칸(약 50m)을 길로 잘라 길가까지 채우고, 마을에서 멀거나 숲이 될 곳은 비운다. 밭은 이랑 띠로 나누고,
+    밭 테두리 절반쯤에 생울타리 나무를 세운다. 마을 안 빈터 일부는 풀밭, 그 가운데 일부는 과수원(줄 맞춘 나무)."""
+    seeds = geom.poisson(r, w, h, 50)
     cells = geom.voronoi(seeds, (0, 0, w, h))
     share = FIELD_SHARE[spec.fields]
+    level = FOREST_LEVEL[spec.forest]
+    far = reach * (1.35 + 0.5 * share)  # 밭이 있는 가장 먼 거리
     fields: list[Poly] = []
     greens: list[Poly] = []
+    edge: list[Point] = []
     for seed_pt, cell in zip(seeds, cells):
         if len(cell) < 3:
             continue
         d = math.dist(seed_pt, c)
         roll = r.random()
-        is_green = d < reach * 0.8
-        if is_green and roll > 0.25:
-            continue
-        if not is_green and (d < reach * 0.55 or roll > share * max(0.0, min(1.0, 2.2 - d / reach / 1.2))):
-            continue
-        poly = geom.scale(cell, 0.9 if not is_green else 0.85)
-        x0, y0, x1, y1 = geom.bbox(poly)
-        if any(water.wet(q, 2) for q in poly + [geom.centroid(poly)]):
-            continue
-        if plaza and geom.convex_overlap(poly, plaza, 2):
-            continue
-        if any(geom.convex_overlap(poly, lot["poly"], 1) for lot in lot_grid.near((x0, y0, x1, y1), 2)):
-            continue
-        if any(geom.poly_seg_near(poly, a, b, rd["width"] / 2 + 1) for a, b, rd in roads.near((x0, y0), (x1, y1), 8)):
-            continue
-        if is_green:
-            greens.append(poly)
+        if _forest_at(forest, seed_pt) > level - 0.04:
+            continue  # 숲 자리
+        if d < reach * 0.45:  # 마을 한가운데: 빈터면 풀밭
+            is_green = roll < 0.45
+        elif d <= far:  # 둘레: 풀밭 조금, 나머지는 밭 양에 따라
+            is_green = roll < 0.25
+            if not is_green and roll > 0.25 + share * 0.75:
+                continue
         else:
+            continue
+        if d < reach * 0.45 and not is_green:
+            continue
+        for piece in _cut_by_roads(cell, roads):
+            poly = geom.scale(piece, 0.94)
+            x0, y0, x1, y1 = geom.bbox(poly)
+            if any(water.wet(q, 2) for q in poly + [geom.centroid(poly)]):
+                continue
+            if any(geom.convex_overlap(poly, sq, 2) for sq in squares):
+                continue
+            if any(geom.convex_overlap(poly, lot["poly"], 1) for lot in lot_grid.near((x0, y0, x1, y1), 2)):
+                continue
+            if is_green:
+                greens.append(poly)
+                if r.random() < 0.4:  # 과수원: 7m 간격 줄
+                    edge += [(x, y) for x in _frange(x0 + 4, x1 - 2, 7) for y in _frange(y0 + 4, y1 - 2, 7)
+                             if geom.inside((x, y), geom.scale(poly, 0.85))]
+                continue
             angle = r.uniform(0, math.pi)
             fields += [geom.scale(s, 0.93) for s in _strips(poly, angle)]
-    return fields, greens
+            if r.random() < 0.55:  # 생울타리
+                edge += _edge_points(geom.scale(piece, 0.99), 6.0)
+    return fields, greens, edge
 
 
-def _trees(spec: MapSpec, r: random.Random, w: float, h: float, water: _Water, roads: _Roads, lot_grid: geom.Grid,
-           field_grid: geom.Grid, plaza: Optional[Poly]) -> list[Point]:
-    """나무: 숲 노이즈가 높은 곳에 Poisson disk 로 뿌린다. 집 근처에는 드문드문."""
-    forest = geom.Noise(r)
+def _frange(a: float, b: float, step: float) -> list[float]:
+    return [a + i * step for i in range(max(0, int((b - a) / step) + 1))]
+
+
+def _trees(spec: MapSpec, r: random.Random, w: float, h: float, water: _Water, roads: roadnet.Net, lot_grid: geom.Grid,
+           field_grid: geom.Grid, squares: list[Poly], forest: geom.Noise, extra: list[Point]) -> list[Point]:
+    """나무: 숲 노이즈가 높은 곳은 촘촘한 숲(5m 간격), 숲 가장자리는 성기게, 그 밖은 아주 드물게.
+    extra(생울타리 · 과수원 자리)도 같은 검사를 거쳐 더한다."""
     level = FOREST_LEVEL[spec.forest]
     out = []
-    for q in geom.poisson(r, w, h, 7):
-        f = forest.fbm(q[0] / 140, q[1] / 140)
-        if f <= level and r.random() > 0.03:
-            continue
+
+    def ok(q: Point, in_forest: bool) -> bool:
+        if not (0 <= q[0] <= w and 0 <= q[1] <= h):
+            return False
         box = (q[0], q[1], q[0], q[1])
-        if water.wet(q, 2) or (plaza and geom.inside(q, plaza)):
-            continue
-        if any(geom.inside(q, lot["poly"]) for lot in lot_grid.near(box)) and f <= level:
-            continue
-        if any(geom.inside(q, hs) for lot in lot_grid.near(box) for hs in lot.get("houses", [])):
-            continue
+        if water.wet(q, 2) or any(geom.inside(q, sq) for sq in squares):
+            return False
+        if not in_forest and any(geom.inside(q, lot["poly"]) for lot in lot_grid.near(box)):
+            return False
+        if any(geom.inside(q, hs) for lot in lot_grid.near(box, 3) for hs in lot.get("houses", [])):
+            return False
         if any(geom.inside(q, poly) for poly in field_grid.near(box)):
-            continue
-        if any(geom.seg_dist(q, a, b) < rd["width"] / 2 + 2 for a, b, rd in roads.near(q, q, 6)):
-            continue
-        out.append(q)
+            return False
+        return not any(geom.seg_dist(q, a, b) < rd["width"] / 2 + 2.5 for a, b, rd in roads.near(q, q, 6))
+
+    for q in geom.poisson(r, w, h, 5):
+        f = _forest_at(forest, q)
+        keep = 1.0 if f > level else 0.35 if f > level - 0.06 else 0.004
+        if r.random() < keep and ok(q, f > level):
+            out.append(q)
+    out += [q for q in extra if ok(q, False)]
     return out

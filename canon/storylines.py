@@ -4,6 +4,7 @@ LLM 을 부르지 않는 부분만 둔다. 화가 어느 줄기에 속하는지(
 프롬프트에 넣을 블록(plan_block, episode_block), 명령줄 노선도(ascii_map)를 만든다.
 AI 제안과 반영은 pipeline.suggest_storyline / apply_storyline 이 맡는다.
 화의 줄기는 EpisodePlot.storyline(그 화가 주로 따라가는 줄기, 비면 메인)과 threads(끼어드는 장면)로 적는다.
+span · tag · episodes_of 는 웹 static/lines.js 와 Swift 앱 swift/Sources/FeatureLines/LineRules.swift 에도 있어 함께 고친다.
 """
 from __future__ import annotations
 

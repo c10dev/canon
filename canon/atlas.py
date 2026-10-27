@@ -7,7 +7,7 @@
 
 마을 · 도시 데이터(Watabou 마을 · 도시 생성기의 JSON 내보내기)를 올리면 건물 · 길 · 물을 바탕으로 그리고,
 화별로 옮겨 간 인물은 길을 따라 걸은 경로(route)와 거리 · 걷는 시간을 붙인다 (read_layout, road_graph, route).
-마을은 지도 만들기(towngen 마을 생성기)로 직접 만들 수도 있다: 미리보기(generate)는 저장하지 않고,
+마을 · 도시는 지도 만들기(towngen 마을 생성기, citygen 도시 생성기)로 직접 만들 수도 있다: 미리보기(generate)는 저장하지 않고,
 적용(apply_generated)하면 같은 입력으로 다시 만들어 저장하고 고른 장소만 생성기가 고른 자리에 놓는다.
 
 화면은 canon/static/atlas.js, 명령줄은 `map`.
@@ -20,7 +20,7 @@ import math
 from pathlib import Path
 from typing import Optional
 
-from . import cast, elements, geom, naming, towngen
+from . import cast, citygen, elements, geom, naming, towngen
 from .schema import MapPin, MapSpec, NewPlace, PlaceLink, PlaceSort, Project
 
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
@@ -135,7 +135,7 @@ def summary(p: Project, layout: Optional[dict] = None) -> dict:
     aspect = round(layout["w"] / layout["h"], 4) if layout else p.atlas.aspect  # 마을 데이터가 있으면 마을을 그린다
     return {"places": pls, "frames": fs, "unmatched": unmatched(p, fs), "image": p.atlas.image,
             "aspect": aspect, "links": [ln.model_dump() for ln in p.atlas.links],
-            "layout": layout_info(p, layout) if layout else None}
+            "layout": layout_info(p, layout) if layout else None, "title": village_title(p, layout) if layout else None}
 
 
 # ---------- 마을 · 도시 데이터 (Watabou 생성기 JSON) ----------
@@ -167,7 +167,7 @@ def read_layout(raw: dict) -> dict:
     좌표는 0~1 비율 (x 는 폭, y 는 높이 기준. 생성기 화면처럼 y 가 아래로 커진다).
     w, h 는 원래 단위의 폭 · 높이 (거리 계산), road 선마다 폭 width (원래 단위)."""
     if not isinstance(raw, dict) or raw.get("type") != "FeatureCollection" or not isinstance(raw.get("features"), list):
-        raise ValueError("Watabou 생성기에서 Export as → JSON 으로 받은 파일을 올리세요 (GeoJSON FeatureCollection)")
+        raise ValueError("Watabou 생성기에서 Export as → JSON으로 받은 파일을 올리세요 (GeoJSON FeatureCollection)")
     feats = {}
     meta = {}
     for f in raw["features"]:
@@ -209,7 +209,7 @@ def read_layout(raw: dict) -> dict:
     if "trees" in feats and feats["trees"].get("type") == "MultiPoint":
         out["trees"] = norm(feats["trees"].get("coordinates") or [])
     if not out["roads"]:
-        raise ValueError("파일에 길(roads)이 없어요. 마을 · 도시 생성기의 JSON 을 올리세요")
+        raise ValueError("파일에 길(roads)이 없어요. 마을 · 도시 생성기의 JSON을 올리세요")
     return out
 
 
@@ -515,7 +515,65 @@ def add_routes(fs: list[dict], pins: dict, g: dict, meters: float) -> None:
                 r["route"] = {"points": pts, "meters": round(m), "minutes": max(1, round(m / WALK_MPS / 60))}
 
 
-# ---------- 지도 만들기 (마을 생성기 canon/towngen.py) ----------
+# ---------- 마을 이름 · 인구, 지도에서 장소 더하기 ----------
+
+POP_PER_HOUSE = 5.5  # 집 한 채에 사는 사람 (어림. Watabou 마을의 인구 표시와 비슷한 규모)
+CITY_POP_PER_HOUSE = 8.0  # 도시 집은 층이 높고 세 든 사람이 많다 (어림)
+
+
+def village_title(p: Project, layout: dict) -> dict:
+    """지도 위 제목: 작가가 정한 이름, 없으면 '마을 가운데' 종류 장소 이름. 인구는 집 수 × 집 한 채에 사는 사람을 10 단위로
+    (도시 생성기가 만든 지도는 CITY_POP_PER_HOUSE). kind: 이름 칸에 쓸 말 (마을 · 도시)."""
+    name = p.atlas.title
+    if not name:
+        name = next((x["name"] for x in gen_places(p, p.atlas.spec) if x["kind"] == "center" and x["put"]), "")
+    houses = layout.get("houses") or len(layout.get("numbers") or layout.get("buildings") or [])
+    city = layout.get("generator") == citygen.GENERATOR
+    per = CITY_POP_PER_HOUSE if city else POP_PER_HOUSE
+    return {"title": name, "custom": bool(p.atlas.title), "houses": houses, "population": int(round(houses * per, -1)),
+            "kind": "도시" if city else "마을"}
+
+
+def set_title(p: Project, title: str) -> None:
+    t = " ".join(title.split())
+    if len(t) > 40:
+        raise ValueError("지도 이름은 40자까지 적을 수 있어요")
+    p.atlas.title = t
+
+
+def add_place(p: Project, name: str, x: float, y: float, kind: str = "") -> str:
+    """지도에서 고른 자리(건물 등)를 새 장소로 등록하고 그 자리에 놓는다. 인과율 '장소' 요소가 된다 (작가가 더한 요소).
+    돌려주는 것: 새 장소 키."""
+    n = " ".join(name.split())
+    if not n:
+        raise ValueError("장소 이름을 적어 주세요")
+    pls = places(p)
+    if place_by_name(n, pls):
+        raise ValueError(f"이미 있는 장소예요: {n}")
+    if not elements.add_places(p, [NewPlace(name=n, kind=kind.strip(), description="지도에서 더한 곳")], 0, ""):
+        raise ValueError(f"비슷한 이름의 장소가 이미 있어요: {n}")
+    key = place_by_name(n, places(p))
+    set_pins(p, [*p.atlas.pins, MapPin(place=key, x=x, y=y)])
+    return key
+
+
+def name_ideas(p: Project, n: int = 6) -> list[str]:
+    """새 장소 이름 후보 (작품 이름 스타일, 이미 있는 장소 이름은 뺀다). LLM 을 부르지 않는다."""
+    have = {pl["name"] for pl in places(p)}
+    return [c.name for c in naming.generate_places(naming.resolve_style(p), n, exclude=have)]
+
+
+# ---------- 지도 만들기 (마을 생성기 canon/towngen.py, 도시 생성기 canon/citygen.py) ----------
+
+MAKERS = {"village": ("마을", towngen, towngen.village), "city": ("도시", citygen, citygen.city)}
+# MapSpec.kind → (화면 이름, 생성기 모듈(OPTIONS · VERSION), 만드는 함수). 왕국은 다음 단계
+
+
+def _maker(kind: str):
+    if kind not in MAKERS:
+        raise ValueError(f"아직 만들 수 없는 지도예요: {kind}. 마을이나 도시를 고르세요")
+    return MAKERS[kind]
+
 
 def gen_places(p: Project, spec: Optional[MapSpec] = None) -> list[dict]:
     """지도 만들기의 장소 표. 장소마다 종류(작가가 고친 값, 없으면 이름 · 설명에서 찾은 값)와 이 지도에 놓을지."""
@@ -530,12 +588,23 @@ def gen_places(p: Project, spec: Optional[MapSpec] = None) -> list[dict]:
     return out
 
 
+def default_spec(p: Project) -> MapSpec:
+    """지도 만들기 입력. 만든 적이 있으면 그 입력, 없으면 기본값에 물만 장소를 보고 정한다 (등대 · 어시장이면 바다)."""
+    if p.atlas.spec:
+        return p.atlas.spec
+    return MapSpec(water=towngen.water_for(gen_places(p)))
+
+
 def gen_info(p: Project) -> dict:
-    """지도 화면의 '지도 만들기' 칸: 지금 입력(만든 적 없으면 기본값), 장소 표, 옵션 · 종류 이름."""
-    spec = p.atlas.spec or MapSpec()
+    """지도 화면의 '지도 만들기' 칸: 지금 입력(만든 적 없으면 기본값), 장소 표, 종류 이름.
+    maps: 만들 수 있는 지도 [{id, label}], options · version: 지도 종류(MapSpec.kind)마다 설정 칸과 생성기 버전,
+    wards: 도시 구역 종류 이름 (지도에 구역 이름을 쓴다)."""
+    spec = default_spec(p)
     return {"spec": spec.model_dump(), "made": p.atlas.spec is not None, "places": gen_places(p, spec),
-            "options": towngen.OPTIONS, "kinds": [{"id": cid, "label": label} for cid, label, _ in towngen.CATEGORIES],
-            "version": towngen.VERSION}
+            "maps": [{"id": k, "label": m[0]} for k, m in MAKERS.items()],
+            "options": {k: m[1].OPTIONS for k, m in MAKERS.items()},
+            "kinds": [{"id": cid, "label": label} for cid, label, _ in towngen.CATEGORIES],
+            "version": {k: m[1].VERSION for k, m in MAKERS.items()}, "wards": citygen.WARD_KINDS}
 
 
 def _blocked(lo: dict, xy: tuple[float, float]) -> bool:
@@ -548,9 +617,11 @@ def _blocked(lo: dict, xy: tuple[float, float]) -> bool:
 
 
 def generate(p: Project, spec: MapSpec) -> dict:
-    """미리보기 (저장하지 않음). layout: read_layout 과 같은 모양의 마을, pins: 생성기가 고른 장소 자리
+    """미리보기 (저장하지 않음). spec.kind 로 마을 · 도시 생성기를 고른다.
+    layout: read_layout 과 같은 모양의 지도, pins: 생성기가 고른 장소 자리
     (had: 이미 지도에 놓은 장소), missing: 놓지 못한 장소와 까닭, blocked: 새 마을에서 건물 · 물 위에 놓이는 옛 자리."""
-    lo = towngen.village(spec, [x for x in gen_places(p, spec) if x["put"]])
+    put = [x for x in gen_places(p, spec) if x["put"]]
+    lo = _maker(spec.kind)[2](spec, put)
     pins = {pin.place: (pin.x, pin.y) for pin in p.atlas.pins}
     spots = {s["key"] for s in lo["spots"]}
     names = {pl["key"]: pl["name"] for pl in places(p)}
@@ -559,8 +630,10 @@ def generate(p: Project, spec: MapSpec) -> dict:
                      for s in lo["spots"]],
             "missing": lo["missing"],
             "blocked": [{"place": k, "name": names.get(k, k)} for k, xy in pins.items() if k not in spots and _blocked(lo, xy)],
+            "title": village_title(p, lo),
             "info": {"houses": lo["houses"], "buildings": len(lo["buildings"]), "roads": sum(r["kind"] == "road" for r in lo["roads"]),
-                     "bridges": sum(r["kind"] == "bridge" for r in lo["roads"]), "width_m": round(lo["w"]), "height_m": round(lo["h"])}}
+                     "bridges": sum(r["kind"] == "bridge" for r in lo["roads"]), "width_m": round(lo["w"]), "height_m": round(lo["h"]),
+                     "wards": len(lo.get("wards", [])), "gates": len(lo.get("gates", []))}}
 
 
 def apply_generated(folder: Path, p: Project, spec: MapSpec, take: list[str]) -> str:
@@ -572,7 +645,7 @@ def apply_generated(folder: Path, p: Project, spec: MapSpec, take: list[str]) ->
     (folder / fname).write_text(json.dumps(out["layout"], ensure_ascii=False), encoding="utf-8")
     old = p.atlas.layout
     p.atlas.layout, p.atlas.meters = fname, 1.0
-    p.atlas.spec = spec.model_copy(update={"version": towngen.VERSION})
+    p.atlas.spec = spec.model_copy(update={"version": _maker(spec.kind)[1].VERSION})
     chosen = set(take)
     keep = [pin for pin in p.atlas.pins if pin.place not in chosen]
     set_pins(p, keep + [MapPin(place=s["place"], x=s["x"], y=s["y"]) for s in out["pins"] if s["place"] in chosen])
@@ -700,7 +773,8 @@ def describe(p: Project, layout: Optional[dict] = None) -> str:
     if s["layout"]:
         lo = s["layout"]
         made = f" (지도 만들기, 시드 {p.atlas.spec.seed})" if p.atlas.spec else ""
-        lines.append(f"마을 데이터{made}: 길 {lo['roads']}개 · 다리 {lo['bridges']}개 · 건물 {lo['buildings']}채 · "
+        what = "도시" if lo["generator"] == citygen.GENERATOR else "마을"
+        lines.append(f"{what} 데이터{made}: 길 {lo['roads']}개 · 다리 {lo['bridges']}개 · 건물 {lo['buildings']}채 · "
                      f"약 {lo['width_m']}×{lo['height_m']}m\n")
     lines.append("장소")
     for pl in s["places"]:

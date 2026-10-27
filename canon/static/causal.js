@@ -1,5 +1,5 @@
 /* 인과율 화면. app.js 의 S, actions, api, render 와 chat.js 의 plotDiff 를 그대로 쓴다.
-   작가가 요소, 특징, 설정, 사건을 언제든 더하고(작품 저장으로 바로 저장), 요소마다
+   작가가 요소, 특징, 설정, 사건을 언제든 더하고(화면 아래 저장 띠의 작품 저장으로 저장), 요소마다
    관련 화 지도(AI 없이, 서버 elements.links)와 영향 분석(백그라운드 작업 'impact')을 본다.
    영향 분석의 변경안은 고른 것만 반영한다. */
 'use strict';
@@ -106,9 +106,11 @@ function causalEditor(el) {
   const ctx = [['auto', '관련 있을 때'], ['always', '항상'], ['off', '넣지 않음']];
   return `<div class="card" style="display:flex;flex-direction:column;gap:14px">
     <div class="between"><h2>요소</h2><button class="btn small danger" data-action="causalDelete">삭제</button></div>
+    <div class="small">고친 내용은 화면 아래 저장 띠로 저장해요.</div>
     ${el.found_in ? `<div class="note plain">${el.found_ep}화 ${esc(el.found_in)}에 처음 나와 ${el.found_in === '본문' ? '상태 승인 때' : '화를 확정할 때'} 등록한 장소예요. 이름이나 설명을 고쳐도 돼요.${el.found_in === '본문' ? ` ${el.found_ep}화부터 반영을 취소하면 빠져요 (시점이나 관련 인물을 더했으면 남아요).` : ''}</div>` : ''}
     <div class="grid-2">
-      <div class="field"><label for="el-kind">종류</label><select id="el-kind" data-el-kind>${EL_KINDS.map((k) => `<option${k === el.kind ? ' selected' : ''}>${k}</option>`).join('')}</select></div>
+      <div class="field"><label for="el-kind">종류</label><select id="el-kind" data-el-kind>${EL_KINDS.map((k) => `<option${k === el.kind ? ' selected' : ''}>${k}</option>`).join('')}</select>
+        ${el.kind === '예정 사건' ? `<span class="small">그 화에 꼭 일어날 사건은 여기에, 날짜가 정해진 약속은 <a href="${base()}/timeline">작품 속 시간</a>의 기한, 복선 회수는 <a href="${base()}/foreshadow">복선 센터</a>에 적어요.</span>` : ''}</div>
       ${input('이름', b + '.name', { placeholder: '본문과 플롯에서 찾을 이름' })}
     </div>
     ${input('설명', b + '.description', { rows: 3, autogrow: true, placeholder: EL_KIND_HINT[el.kind] || '', hint: '지켜야 할 내용을 구체적으로' })}
@@ -152,7 +154,7 @@ function causalStrip(el) {
     const e = ep(n);
     const l = links.get(n);
     const cls = bad.has(n) ? 'bad' : plot.has(n) ? 'plot' : done.has(n) ? 'done' : l ? (l.where.length || l.planned ? 'rel' : 'rel weak') : '';
-    const tag = bad.has(n) ? '모순' : plot.has(n) ? '고침' : done.has(n) ? '반영함' : l ? (l.where.length ? '언급' : l.planned ? '예정' : '인물') : '';
+    const tag = bad.has(n) ? '모순' : plot.has(n) ? '고침' : done.has(n) ? '적용함' : l ? (l.where.length ? '언급' : l.planned ? '예정' : '인물') : '';
     const marks = (el.since_ep > 0 && n === el.since_ep ? ' since' : '') + (el.reveal_ep === n ? ' reveal' : '') + (e && e.text ? ' has-text' : '');
     const title = [`${n}화`, e ? STATUS[e.status] : '플롯 없음', l && l.terms.length ? `언급: ${l.terms.join(', ')}` : '', l && l.characters.length ? `인물: ${l.characters.map(charName).join(', ')}` : '',
       el.since_ep === n ? '이 화부터 생김' : '', el.reveal_ep === n ? '독자에게 드러남' : ''].filter(Boolean).join(' · ');
@@ -167,7 +169,7 @@ function causalStrip(el) {
   return `<div class="card" style="display:flex;flex-direction:column;gap:12px">
     <div class="between"><h2>관련 화 지도</h2><span class="small">이름, 다른 이름, 관련 인물로 찾았어요 (AI 없이)</span></div>
     <div class="strip-scroll"><div class="strip" style="grid-template-columns:repeat(${Math.min(total, 25)}, minmax(30px, 1fr))">${cells}</div></div>
-    <div class="legend"><span><i style="background:var(--red-soft);border:1px solid var(--red)"></i>모순</span><span><i style="background:var(--amber-soft);border:1px solid var(--amber)"></i>고칠 화</span>${done.size ? '<span><i style="background:var(--green-soft);border:1px solid var(--green)"></i>반영함</span>' : ''}<span><i style="background:var(--accent-soft);border:1px solid var(--accent)"></i>언급 · 나올 화</span><span><i style="border:1px dashed var(--accent)"></i>관련 인물만 나옴</span><span><i style="border-bottom:3px solid var(--text-2)"></i>본문 있음</span>${el.since_ep > 0 ? '<span><i style="border-left:3px solid var(--accent)"></i>생기는 화</span>' : ''}${el.reveal_ep ? '<span><i style="outline:2px dashed var(--accent)"></i>드러나는 화</span>' : ''}</div>
+    <div class="legend"><span><i style="background:var(--red-soft);border:1px solid var(--red)"></i>모순</span><span><i style="background:var(--amber-soft);border:1px solid var(--amber)"></i>고칠 화</span>${done.size ? '<span><i style="background:var(--green-soft);border:1px solid var(--green)"></i>적용함</span>' : ''}<span><i style="background:var(--accent-soft);border:1px solid var(--accent)"></i>언급 · 나올 화</span><span><i style="border:1px dashed var(--accent)"></i>관련 인물만 나옴</span><span><i style="border-bottom:3px solid var(--text-2)"></i>본문 있음</span>${el.since_ep > 0 ? '<span><i style="border-left:3px solid var(--accent)"></i>생기는 화</span>' : ''}${el.reveal_ep ? '<span><i style="outline:2px dashed var(--accent)"></i>드러나는 화</span>' : ''}</div>
     ${snippets ? `<ul class="panel-list">${snippets}</ul>` : ''}
   </div>`;
 }

@@ -1,19 +1,32 @@
 #if canImport(SwiftUI)
+import CanonAPI
 import CanonCore
 import CanonStore
 import CanonUI
+import FeatureAuto
 import FeatureForeshadow
 import FeatureHome
+import FeatureLines
 import FeatureCast
+import FeatureCausal
+import FeatureBrief
+import FeaturePlot
 import FeatureProjects
+import FeatureReview
+import FeatureSettings
+import FeatureSetup
 import FeatureStatWin
+import FeatureStyle
 import FeatureUsage
+import FeatureWrite
+import Foundation
 import SwiftUI
 
 /// 앱 첫 화면: 왼쪽은 작품 목록이나 작품 메뉴, 오른쪽은 고른 화면.
 public struct RootView: View {
     @State private var model = AppModel()
     @State private var showServer = false
+    @State private var showSettings = false
 
     public init() {}
 
@@ -22,15 +35,16 @@ public struct RootView: View {
             sidebar
         } detail: {
             VStack(spacing: 0) {
-                if let n = model.notice {
-                    Notice(n.text, isError: n.isError) { model.dismissNotice() }.padding()
+                if let n = model.jobs.notice {
+                    Notice(n.text, isError: n.isError) { model.jobs.dismissNotice() }.padding()
                 }
                 if let doc = model.document { SaveBar(document: doc).padding(.horizontal) }
                 detail.frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task(id: model.server.config) { await model.watchJobs() }
+        .task(id: model.server.config) { await model.jobs.watch() }
         .sheet(isPresented: $showServer) { ServerSettingsView(model: model) }
+        .sheet(isPresented: $showSettings) { SettingsView(server: model.server) }
     }
 
     @ViewBuilder
@@ -38,17 +52,20 @@ public struct RootView: View {
         if let name = model.project {
             List(selection: selectedScreen) {
                 Section { ForEach(Screen.allCases.filter { $0.group == .steps }) { item($0) } }
+                Section { ForEach(Screen.allCases.filter { $0.group == .autoRun }) { item($0) } }
                 Section("작품 도구") { ForEach(Screen.allCases.filter { $0.group == .tools }) { item($0) } }
                 Section("본편과 분리") { ForEach(Screen.allCases.filter { $0.group == .separate }) { item($0) } }
             }
             .navigationTitle(name)
             .toolbar {
                 Button("작품 목록") { model.open(nil) }
+                Button("모델 · API 키") { showSettings = true }
             }
         } else {
             ProjectsView(model: model.projects) { card in model.open(card.name) }
             .toolbar {
                 Button("서버") { showServer = true }
+                Button("모델 · API 키") { showSettings = true }
             }
         }
     }
@@ -72,16 +89,38 @@ public struct RootView: View {
         }
     }
 
+    /// 작업지시서에서 확인한 상태 변경안을 상태 승인 화면의 검토 대기로 넘긴다 (웹 `importJson` → `setDelta(n, d, 'chat')`).
+    /// 변경안을 만든 본문은 지금 본문이다. 그 뒤 본문을 고치면 상태 승인 화면이 알린다.
+    private func handOff(_ doc: ProjectDocument, _ n: Int, _ delta: Components.Schemas.StateDelta) {
+        guard let result = try? JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(delta)) else { return }
+        let text = doc.project?.episodes?.first { $0.plot.number == n }?.text
+        model.jobs.offer(PendingResult(key: Job.key("state", n), id: "chat:\(n)", kind: "state", ep: n, label: "\(n)화 상태 변경안", result: result, base: text))
+    }
+
+    /// 플롯 화면에 끼우는 이야기 줄기 칸 · 화 카드 표시 (FeatureLines). 화면 모듈끼리는 서로 기대지 않아 여기서 잇는다.
+    static let plotSlots = PlotSlots(
+        episodeField: { p, plot, locked, written, change in AnyView(LineField(project: p, plot: plot, locked: locked, written: written, change: change)) },
+        cardBadges: { p, plot in AnyView(LineBadges(project: p, plot: plot)) })
+
     /// 화면 잇기. 화면 모듈을 옮기면 case 한 줄을 더한다 (README '새 화면 모듈을 만들 때' 5).
     /// 화면은 `model.server` 와 작품 이름을 받아 필요한 것을 스스로 받아 오거나, 작품 전체는 `model.document` 를 함께 쓴다.
     @ViewBuilder
     private func screen(_ screen: Screen, project: String) -> some View {
         switch screen {
         case .home: if let doc = model.document { HomeView(document: doc) { model.screen = $0 } }
+        case .setup: if let doc = model.document { SetupView(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
+        case .style: if let doc = model.document { StyleView(document: doc, server: model.server) { model.screen = $0 } }
         case .statwin: StatWinScreen(server: model.server, project: project)
         case .foreshadow: ForeshadowView(server: model.server, project: project)
         case .usage: UsageView(model: UsageModel(source: LiveUsageSource(server: model.server), project: project))
         case .cast: CastScreen(server: model.server, project: project) { model.screen = $0 }
+        case .review: if let doc = model.document { ReviewView(document: doc, jobs: model.jobs, service: LiveReviewService(server: model.server)) { model.screen = $0 } }
+        case .write: if let doc = model.document { WriteView(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
+        case .arc: if let doc = model.document { PlotScreen(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 }.environment(\.plotSlots, Self.plotSlots) }
+        case .auto: if let doc = model.document { AutoScreen(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
+        case .lines: if let doc = model.document { LinesScreen(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
+        case .causal: if let doc = model.document { CausalView(document: doc, jobs: model.jobs, service: LiveCausalService(server: model.server)) { model.screen = $0 } }
+        case .brief: if let doc = model.document { BriefView(document: doc, service: LiveBriefService(server: model.server), go: { model.screen = $0 }, handOff: { n, d in handOff(doc, n, d) }) }
         default:
             NotPortedYet(screen.label(serial: false))
         }

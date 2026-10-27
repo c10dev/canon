@@ -69,12 +69,16 @@ const usageWhen = (iso) => fmtDateTime(iso);  // 날짜 형식은 app.js fmtDate
 let usageTitles = {};  // 폴더 이름 → 작품 제목
 const usageName = (p) => (usageTitles[p] && usageTitles[p] !== p ? `${usageTitles[p]} (${p})` : p);
 
+// 모델별 표의 백엔드 이름 (usage.backend_of 의 이름). Swift 앱 UsageText.backendLabel 과 같다
+const USAGE_BACKEND = { local: '로컬 · 0원', claude: 'Claude 구독', 'claude-api': 'Claude API' };
+
 function viewUsage() {
   const u = S.usage;
   const inProject = S.route[0] === 'p';
   const head = header(inProject ? esc(P().meta.title || S.name) : 'Canon', '사용량 · 비용',
     'AI를 부를 때마다 토큰 수를 기록하고 가격표로 비용을 계산해요. <strong>추정치</strong>라 Google 청구 금액과 다를 수 있어요.',
-    `<a class="btn" href="${(u && u.billing_url) || 'https://aistudio.google.com/usage'}" target="_blank" rel="noopener">AI Studio 실제 사용량 ↗</a>`);
+    // 작품 밖에서는 사이드바가 없어 작품 목록으로 가는 버튼을 둔다
+    `<a class="btn" href="${(u && u.billing_url) || 'https://aistudio.google.com/usage'}" target="_blank" rel="noopener">AI Studio 실제 사용량 ↗</a>${inProject ? '' : '<a class="btn" href="#/">작품 목록</a>'}`);
   if (!u) return `${head}<div class="small">불러오는 중…</div>`;
   const t = u.total;
   const projects = [...new Set([...Object.keys(usageTitles), ...(u.projects || []), ...(S.usageProject ? [S.usageProject] : [])])].sort();
@@ -87,7 +91,7 @@ function viewUsage() {
         </select></label>
     </div>`;
   if (!t.calls) {
-    return `${head}${filters}<div class="note plain">이 기간${S.usageProject ? `에 ${esc(usageName(S.usageProject))}` : ''}의 AI 호출 기록이 없어요. 이 화면이 생긴 뒤의 호출부터 기록해요 (mock 은 기록하지 않음).</div>
+    return `${head}${filters}<div class="note plain">이 기간${S.usageProject ? `에 ${esc(usageName(S.usageProject))}` : ''}의 AI 호출 기록이 없어요. 이 화면이 생긴 뒤의 호출부터 기록해요 (mock은 기록하지 않음).</div>
       ${usagePriceSection()}`;
   }
   const tiles = [
@@ -105,7 +109,7 @@ function viewUsage() {
     <section class="card">${usageChart(u)}</section>
     <div class="cols">
       <div class="col">${usageTable('단계별', u.by_stage, (r) => esc(USAGE_STAGE[r.stage] || r.stage || '기타'))}
-        ${usageTable('모델별', u.by_model, (r) => `${esc(r.model || '(이름 없음)')} <span class="small">${r.backend === 'local' ? '로컬 · 0원' : 'Gemini'}</span>`)}</div>
+        ${usageTable('모델별', u.by_model, (r) => `${esc(r.model || '(이름 없음)')} <span class="small">${USAGE_BACKEND[r.backend] || 'Gemini'}</span>`)}</div>
       <div class="col">${S.usageProject
         ? usageTable('화별', u.by_episode, (r) => `<a href="#/p/${enc(r.project)}/write/${r.episode}">${r.episode}화</a>`, '화가 정해지지 않은 호출(설정, 기획 등)은 빠져요')
         : usageTable('작품별', u.by_project, (r) => r.project ? `<a href="#/p/${enc(r.project)}/usage">${esc(usageName(r.project))}</a>` : '<span class="small">작품 밖 (연구 서버 점검 등)</span>')}
@@ -303,7 +307,7 @@ function viewPrices() {
       ${S.priceDirty ? '<button class="btn" data-action="priceCancel">고친 것 버리기</button>' : ''}
       ${S.prices.rows.some((r) => r.custom) ? '<button class="btn danger" data-action="priceReset">기본값으로 되돌리기</button>' : ''}
     </div>
-    <div class="small">모델 이름은 정확히 같거나 그 이름으로 시작하는 모델에 써요 (예: gemini-4-argon 은 gemini-4-argon-001 에도). 기본 모델을 고치면 그 모델의 예고 줄까지 내 줄로 대신해요. 기본 줄은 지울 수 없고, 값을 고치면 내 값으로 대신해요.</div>`;
+    <div class="small">모델 이름은 정확히 같거나 그 이름으로 시작하는 모델에 써요 (예: gemini-4-argon은 gemini-4-argon-001 에도). 기본 모델을 고치면 그 모델의 예고 줄까지 내 줄로 대신해요. 기본 줄은 지울 수 없고, 값을 고치면 내 값으로 대신해요.</div>`;
 }
 
 document.addEventListener('input', (e) => {

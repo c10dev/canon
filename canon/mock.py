@@ -20,6 +20,8 @@ from .schema import (
     Direction,
     PlantedContradiction,
     PlantSet,
+    MapPlaceGuess,
+    MapSuggestion,
     PlaceGuess,
     PlaceSort,
     EpisodePlot,
@@ -33,6 +35,7 @@ from .schema import (
     ImpactConflict,
     ImpactReport,
     LookSuggestion,
+    BodySuggestion,
     VoiceSuggestion,
     NameOption,
     NameOptions,
@@ -543,6 +546,17 @@ class MockLLM:
                     if name not in [x.name for x in new]:
                         new.append(NewPlace(name=name, kind="건물", description="위치 글에서 나온 곳"))
             return PlaceSort(matches=out, new_places=new)  # type: ignore[return-value]
+        if schema is MapSuggestion:  # 이름 단어로 종류를 고르고, 바다 쪽 장소가 있으면 바닷가 마을로
+            from . import towngen
+
+            guesses = [MapPlaceGuess(name=n, kind=towngen.classify(n)[0], put=towngen.classify(n)[0] != "far") for n in hint.get("places", [])]
+            rows = [{"kind": g.kind, "word": towngen.classify(g.name)[1], "put": g.put} for g in guesses]
+            water = towngen.water_for(rows)
+            return MapSuggestion(size="small", roads="square", water=water, fields="some", forest="few", places=guesses,  # type: ignore[return-value]
+                                 reason=f"장소 목록을 보고 물을 {towngen.OPTIONS['water'][water]}(으)로 정했어요.")
+        if schema is BodySuggestion:
+            return BodySuggestion(height="163cm", weight="50kg", build="마른 근육형", measurements="82-60-86",
+                                  features="왼손잡이, 오른쪽 손목에 점", note="외모 칸의 흉터와 성격에 맞춰 활동적인 체형으로 정했어요.")  # type: ignore[return-value]
         if schema is LookSuggestion:
             return LookSuggestion(subject="girl", look=["Black_hair", "short hair", "brown eyes", "teenage"], outfit=["school uniform"],
                                   note="설정에 눈 색이 없어 갈색으로 정했어요.")  # type: ignore[return-value]

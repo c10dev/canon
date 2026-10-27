@@ -106,7 +106,19 @@ import Testing
     }
 
     @Test func noticeText() {
-        #expect(JobText.notice(.finished(job("a", .done)), currentProject: "등대")?.text == "3화 본문이 끝났어요")
+        // 이 작품의 작업은 작업마다 정한 문구 (웹 JOB_DONE_MSG), 목록에 없는 작업은 '<이름>이 끝났어요'
+        #expect(JobText.notice(.finished(job("a", .done)), currentProject: "등대")?.text == JobText.done(job("a", .done)))
+        var write = job("a", .done)
+        write.kind = "write"
+        write.ep = 3
+        #expect(JobText.done(write) == "3화 본문을 저장했어요.")
+        write.result = .object(["candidate": .object(["text": .string("새 판")])])
+        #expect(JobText.done(write) == "3화 새 판이 나왔어요. 지금 판과 비교해 고르세요.")
+        write.result = .object(["candidate": .null])
+        #expect(JobText.done(write) == "3화 본문을 저장했어요.")
+        var other = job("a", .done)
+        other.kind = "hook"
+        #expect(JobText.done(other) == "3화 본문이 끝났어요")
         #expect(JobText.notice(.finished(job("a", .done)), currentProject: nil)?.text == "등대 · 3화 본문이 끝났어요. 그 작품을 열면 결과가 보여요")
         var failed = job("a", .error)
         failed.error = "키가 없어요"
@@ -120,6 +132,9 @@ import Testing
         #expect(Screen.allCases.filter { $0.group == .steps }.map { $0.label(serial: false) }
             == ["작품 홈", "설정 도우미", "문체 레퍼런스", "기승전결 · 플롯", "집필", "상태 승인"])
         #expect(Screen.arc.label(serial: true) == "부 · 아크 · 플롯")
+        #expect(Screen.allCases.filter { $0.group == .autoRun } == [.auto])
+        #expect(Screen.allCases.filter { $0.group == .tools }.map { $0.label(serial: false) }
+            == ["인물 · 관계도", "지도", "복선 센터", "상태창 수치", "작품 속 시간", "이야기 줄기", "인과율", "작업지시서 (API 없이)"])
         #expect(Screen.allCases.count == 17)
     }
 }

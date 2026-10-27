@@ -174,7 +174,7 @@ def setup_chat_prompt(p: Project, message: str, mode: str = "") -> str:
     from . import setupchat
 
     begun = setupchat.started(p)
-    chars = [c.model_dump(exclude={"narration_voice", "first_ep"}) for c in p.characters]
+    chars = [c.model_dump(exclude={"narration_voice", "first_ep", "body"}) for c in p.characters]
     relations = [r.model_dump(exclude={"a_view", "b_view"} if begun else set()) for r in p.relationships]
     written = sorted((e for e in p.episodes if e.text.strip()), key=lambda e: e.plot.number)
     story = ""
@@ -2569,8 +2569,9 @@ def illust_prompt(p: Project, n: int, sel: Selection | None, request: str = "") 
 
 
 def cast_view(cs: list[Character]) -> list[dict]:
-    """본문 · 검수에 넣는 인물 설정. 서술 말투는 그 인물이 시점 인물인 화에만 시점 블록으로 넣는다 (다른 화에 옮아오지 않게)."""
-    return [c.model_dump(exclude={"narration_voice"}) for c in cs]
+    """본문 · 검수에 넣는 인물 설정. 서술 말투는 그 인물이 시점 인물인 화에만 시점 블록으로 넣는다 (다른 화에 옮아오지 않게).
+    신체 프로필(body)은 인물 카드에만 보이는 작가 메모라 넣지 않는다."""
+    return [c.model_dump(exclude={"narration_voice", "body"}) for c in cs]
 
 
 SYSTEM_VOICE = (
@@ -2628,6 +2629,30 @@ def look_prompt(p: Project, cid: str) -> str:
 - note 에는 설정에서 태그로 옮기기 어려웠던 것이나 새로 정한 것을 한국어 한두 문장으로 적습니다."""
 
 
+def body_prompt(p: Project, cid: str, minor: bool) -> str:
+    """신체 프로필 제안 (pipeline.suggest_body). 신체 프로필은 다른 프롬프트에는 넣지 않고 이 제안에만 쓴다."""
+    c = next(c for c in p.characters if c.id == cid)
+    have = {k: v for k, v in c.body.model_dump().items() if v.strip()}
+    return f"""아래 인물의 신체 프로필(키, 몸무게, 체형, 쓰리사이즈, 신체 특징)을 작품 설정에 맞게 제안하세요. 작가가 칸별로 골라 씁니다.
+
+# 작품
+제목: {p.meta.title}
+장르: {genres.label(p.meta)}
+배경: {p.world.setting} / 시대: {p.world.era}
+
+# 인물
+{dump(c.model_dump(include={"name", "role", "age", "gender", "appearance", "personality", "background"}))}
+{f"작가가 이미 적은 신체 프로필: {dump(have)}" if have else "작가가 적은 신체 프로필 없음"}
+
+요구사항:
+- 설정에 적힌 외모 · 나이 · 성별 · 역할과 어긋나지 않게 정합니다. 작가가 이미 적은 값은 그대로 두고 비어 있는 칸을 채웁니다.
+- height 는 cm, weight 는 kg 단위 숫자로 적습니다 (예: 165cm, 48kg). 시대와 나이에 그럴듯한 값으로, 극단으로 몰지 않습니다.
+- build 는 체형을 한 줄로 적습니다 (예: 마른 근육형, 어깨가 넓고 다부지다).
+{"- 이 인물은 미성년이라 measurements 는 반드시 빈 문자열로 둡니다. 다른 칸에도 몸매를 성적으로 묘사하지 않습니다." if minor else "- measurements 는 가슴-허리-엉덩이 cm 를 하이픈으로 잇습니다 (예: 84-58-86). 성별과 체형에 맞게 적고, 덧붙이는 말은 넣지 않습니다."}
+- features 에는 본문에서 이어질 만한 바뀌지 않는 신체 특징 1~3개를 쉼표로 적습니다 (예: 왼손잡이, 오른쪽 손목에 점). 선정적인 묘사는 쓰지 않습니다.
+- note 에는 무엇을 근거로 정했는지 한국어 한두 문장으로 적습니다."""
+
+
 # ---------- 지도: 장소와 맞지 않은 위치 글 정리 ----------
 
 SYSTEM_PLACE_SORTER = (
@@ -2677,3 +2702,54 @@ def place_sort_prompt(p: Project, items: list[dict], places: list[dict]) -> str:
 - 장소 목록에 없는 곳을 여러 위치 글이 가리키거나 이야기에서 중요한 곳이면 new_places 에 하나만 넣고 그 글들의 new_place 에 같은 이름을 씁니다. 이름은 위치 글에 나온 이름을 그대로 쓰고 지어내지 않습니다. 방 하나, 길 위, '집'처럼 이름 없는 곳은 새 장소로 만들지 말고 품은 장소에 잇거나 비웁니다.
 - 옮겨 가는 중이면 가는 곳에 잇습니다. 꿈속, 회상 속, 알 수 없는 곳처럼 지도의 한 곳으로 그릴 수 없으면 skip 을 true 로 둡니다.
 - 정할 근거가 없으면 place, new_place 를 비우고 skip 도 false 로 둡니다. 작가가 직접 고릅니다."""
+
+
+# ---------- 지도: 마을 만들기 설정 제안 ----------
+
+SYSTEM_MAP_PLANNER = (
+    "당신은 소설 배경 지도를 기획하는 편집자입니다. 작품 설정과 장소 설명만 근거로 이 이야기의 마을이나 도시가 어떤 모습인지 정합니다. "
+    "좌표나 건물 배치는 프로그램이 정하므로 정하지 않습니다."
+)
+
+
+def map_suggest_prompt(p: Project, rows: list[dict], places: list[dict], kinds: list[tuple[str, str]], options: dict) -> str:
+    """rows: atlas.gen_places (지금 고른 종류), places: atlas.places (설명), kinds: (id, 이름),
+    options: 지도 종류(village, city)마다 설정 칸 (towngen.OPTIONS, citygen.OPTIONS)."""
+    desc = {pl["key"]: pl for pl in places}
+    lines = []
+    for r in rows:
+        pl = desc.get(r["key"], {})
+        alias = f" (다른 이름: {', '.join(pl['aliases'])})" if pl.get("aliases") else ""
+        about = f": {pl['description'][:100]}" if pl.get("description") else ""
+        lines.append(f"- {r['name']}{alias}{about}")
+    names = {"village": "마을", "city": "도시"}
+    opt = "\n".join(f"## {names.get(kind, kind)} (kind={kind})\n" + "\n".join(
+        f"- {key}: " + ", ".join(f"{oid}({label})" for oid, label in vals.items()) for key, vals in opts.items())
+        for kind, opts in options.items())
+    kind_lines = "\n".join(f"- {cid}: {label}" for cid, label in kinds)
+    rules = [r for r in p.world.rules if r.strip()][:8]
+    return f"""이 작품의 주 무대가 되는 마을이나 도시 지도를 만들려고 합니다. 지도 생성기에 넣을 설정과 장소마다 종류를 정해 주세요.
+
+# 작품
+제목: {p.meta.title}
+장르: {genres.label(p.meta) or "정하지 않음"}
+배경: {p.world.setting} / 시대: {p.world.era}
+{("세계 규칙:" + chr(10) + chr(10).join("- " + r for r in rules)) if rules else ""}
+
+# 장소 목록
+{chr(10).join(lines) or "(아직 없음)"}
+
+# 설정 칸 (id(뜻))
+{opt}
+
+# 종류 (id: 뜻)
+{kind_lines}
+
+요구사항:
+- kind 는 village(마을) 나 city(성벽이 있는 도시)입니다. 배경이 도시이거나 성문 · 대성당 · 귀족 저택 · 큰 시장처럼 도시를 바라는 장소가 여럿이면 city, 아니면 village 입니다.
+- size, water, fields, forest 는 고른 kind 의 [설정 칸]에서 id 하나씩입니다. roads 는 마을에만 쓰고, 도시면 cross 로 둡니다. 장소 목록과 배경에 맞게 고릅니다.
+- 등대, 항구, 어시장, 포구처럼 바다를 바라는 장소가 있으면 water 는 sea, 다리 · 나루 · 방앗간 · 강가가 있으면 river 처럼 장소가 바라는 물을 고릅니다. 근거가 없으면 none 입니다.
+- 장소 목록의 장소마다 places 에 하나씩 넣고 name 은 목록의 이름 그대로 씁니다. kind 는 [종류]의 id 하나입니다. 이름에 종류 낱말이 없어도 설명으로 판단합니다 (예: '검은 파도'가 술을 파는 곳이면 inn).
+- 왕궁, 다른 도시, 먼 산처럼 이 지도 안에 둘 수 없는 곳은 kind 를 far, put 을 false 로 둡니다. 이 마을이나 도시 자체를 가리키는 이름은 center 입니다.
+- 정할 근거가 없으면 kind 는 home, put 은 true 로 둡니다.
+- reason 에는 왜 이 설정인지 한국어 한두 문장으로, 장소 설명이나 배경에서 근거를 들어 적습니다."""
