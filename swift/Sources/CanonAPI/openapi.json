@@ -11784,6 +11784,11 @@
      },
      "judge": {
       "$ref": "#/components/schemas/Backend"
+     },
+     "scene": {
+      "type": "boolean",
+      "title": "Scene",
+      "default": false
      }
     },
     "type": "object",

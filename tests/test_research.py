@@ -142,8 +142,17 @@ class ResearchTest(unittest.TestCase):
         self.assertEqual([m["mode"] for m in r["runs"]], ["full", "budget"])
         self.assertTrue(all(m["ok"] and m["found"] == 2 for m in r["runs"]))
         self.assertIn("사실 그는 처음 보는 사람이었다", r["planted"][0]["replacement"])
+        # 동선 모순은 몸 · 접촉 · 물건 갈래로 세고, 근거는 같은 화 앞 문장
+        self.assertEqual([(x["kind"], x["source_episode"], x["distance"]) for x in r["planted"]], [("사실", 0, None), ("동선 · 접촉", 1, 0)])
+        self.assertEqual(r["runs"][0]["by_kind"], [{"kind": "사실", "found": 1, "planted": 1}, {"kind": "동선 · 접촉", "found": 1, "planted": 1}])
         self.assertEqual(store.load(self.name).episode(1).text, e.text)  # 작품은 그대로
-        self.assertEqual(self.c.get(f"{self.api}/research").json()["log"][0]["kind"], "check")
+        got = self.c.get(f"{self.api}/research").json()
+        self.assertEqual(got["log"][0]["kind"], "check")
+        self.assertIn({"mode": "budget", "kind": "동선 · 접촉", "found": 1, "planted": 1, "trials": 1}, got["check_totals"])
+        # 갈래를 적기 전 기록은 모순 종류로 센다
+        research.record(self.name, "check", {"planted": [{"type": "말투"}], "runs": [{"mode": "full", "ok": True, "hits": [False]},
+                                                                                {"mode": "budget", "ok": False}]})
+        self.assertIn({"mode": "full", "kind": "말투", "found": 0, "planted": 1, "trials": 1}, research.check_totals(self.name))
         bad = self.c.post(f"{self.api}/research/check", json={"backend": {"provider": "mock"}, "episode": 2})
         self.assertEqual(bad.status_code, 400)  # 본문 없는 화
 
@@ -157,6 +166,21 @@ class ResearchTest(unittest.TestCase):
         self.assertGreater(two["judge_tokens"], 0)
         self.assertEqual(r["judge"], "mock")
         self.assertIn("twostep", self.c.get(f"{self.api}/research").json()["check_modes"])
+
+        # 장면 상태표 검수: 상태표를 먼저 적고 동선만 본다. 프롬프트에는 이번 화 본문만 들어간다
+        r = self.c.post(f"{self.api}/research/check", json={"backend": {"provider": "mock"}, "episode": 1, "plants": 2, "scene": True}).json()
+        self.assertEqual([m["mode"] for m in r["runs"]], ["full", "budget", "scene"])
+        sc = r["runs"][2]
+        self.assertTrue(sc["ok"], sc.get("error"))
+        self.assertEqual(sc["beats"][0]["bodies"][0]["hands"], "한 손 문고리")
+        self.assertEqual([(k["kind"], k["found"]) for k in sc["by_kind"]], [("사실", 1), ("동선 · 접촉", 1)])
+        self.assertTrue(all(i["type"] == "동선" for i in sc["other"]))
+        self.assertIn({"mode": "scene", "kind": "동선 · 접촉", "found": 1, "planted": 1, "trials": 1},
+                      self.c.get(f"{self.api}/research").json()["check_totals"])
+        from canon import prompts
+        sp = prompts.scene_prompt(store.load(self.name), 1)
+        self.assertIn("서윤은 등대 문을 열었다", sp)
+        self.assertNotIn("# 확정된 사실", sp)
 
     def test_budget_flags_first_episode_over_limit(self):
         VllmLike.max_len = 3000

@@ -19,6 +19,9 @@ from .schema import (
     ConsistencyReport,
     Direction,
     PlantedContradiction,
+    SceneBeat,
+    SceneCheck,
+    BodyState,
     PlantSet,
     MapPlaceGuess,
     MapSuggestion,
@@ -221,12 +224,21 @@ def _plot(n: int, act: str, note: str = "") -> EpisodePlot:
 
 
 def _plants(hint: dict) -> PlantSet:
-    """본문 앞쪽 문장들의 끝에 한 마디를 붙여 '바꾼' 문장으로 낸다."""
+    """본문 앞쪽 문장들의 끝에 한 마디를 붙여 '바꾼' 문장으로 낸다. 첫째는 설정 모순, 둘째부터는 같은 화 동선(접촉 · 물건)."""
     import re
     sents = [x for x in re.findall(r"[^.!?\n]+[.!?]", hint.get("text", "")) if len(x.strip()) > 4]
-    return PlantSet(items=[PlantedContradiction(quote=x.strip(), replacement=x.strip()[:-1] + ", 사실 그는 처음 보는 사람이었다.",
-                                                type="사실", source_episode=0, source_quote="설정")
-                           for x in sents[:hint.get("count", 1)]])
+    n = hint.get("episode", 0)
+    items = []
+    for i, x in enumerate(sents[:hint.get("count", 1)]):
+        x = x.strip()
+        if i == 0:
+            items.append(PlantedContradiction(quote=x, replacement=x[:-1] + ", 사실 그는 처음 보는 사람이었다.",
+                                              type="사실", source_episode=0, source_quote="설정"))
+        else:
+            part = "접촉" if i % 2 else "물건"
+            items.append(PlantedContradiction(quote=x, replacement=x[:-1] + (", 잡은 손을 놓지 않은 채 두 손으로 문을 밀었다." if part == "접촉" else ", 내려놓은 가방에서 열쇠를 꺼냈다."),
+                                              type="동선", part=part, source_episode=n, source_quote=sents[0].strip()))
+    return PlantSet(items=items)
 
 
 def _hook(hint: dict) -> HookReport:
@@ -604,6 +616,13 @@ class MockLLM:
         if schema is ClaimSet:  # 두 걸음 검수: 본문 문장마다 진술 하나
             sents = [x.strip() for x in re.findall(r"[^.!?\n]+[.!?]", hint.get("text", "")) if len(x.strip()) > 4]
             return ClaimSet(claims=[Claim(quote=x, claim=x) for x in sents[:30]])  # type: ignore[return-value]
+        if schema is SceneCheck:  # 장면 상태표 검수: 첫 문장 상태 한 줄, 프롬프트에 들어간 심은 문장을 동선으로 짚는다
+            sents = [x.strip() for x in re.findall(r"[^.!?\n]+[.!?]", hint.get("text", "")) if len(x.strip()) > 4]
+            n = hint.get("episode", 0)
+            return SceneCheck(beats=[SceneBeat(quote=sents[0], bodies=[BodyState(name="서윤", facing="문을 향함", hands="한 손 문고리")])] if sents else [],
+                              issues=[ConsistencyIssue(type="동선", description="상태표와 어긋남", source_episode=n,
+                                                       source_quote=sents[0] if sents else "", current_quote=x)
+                                      for x in hint.get("plants", []) if x in prompt])  # type: ignore[return-value]
         if schema is ConsistencyReport and "plants" in hint:  # 검수 시험: 프롬프트에 들어간 심은 문장을 짚는다
             return ConsistencyReport(episode=hint["episode"], issues=[ConsistencyIssue(
                 type="사실", description="심은 모순", source_episode=0, source_quote="설정", current_quote=x)

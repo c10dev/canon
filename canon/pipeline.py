@@ -18,6 +18,7 @@ from .schema import (
     ChatMessage,
     ChatScope,
     ConsistencyReport,
+    SceneCheck,
     Conversion,
     ElementImpact,
     Episode,
@@ -3017,6 +3018,21 @@ def widen_check(llm: LLM, p: Project, n: int, report: ConsistencyReport, hint: d
             issues.append(x)
     stats["added"] = len(issues) - len(report.issues)
     return ConsistencyReport(episode=n, issues=issues), stats
+
+
+def check_scene(llm: LLM, p: Project, n: int, hint: dict | None = None) -> tuple[ConsistencyReport, dict]:
+    """장면 상태표 검수 (연구 화면에서만 씀): 검수 모델이 이번 화 본문을 장면 상태표(향한 쪽, 두 손, 착용 겹침,
+    몸 앞뒤, 물건 자리)로 먼저 옮겨 적고, 그 표와 어긋나는 동선만 찾는다. 옛 화 · 설정은 넣지 않는다. (보고서, 상태표와 크기)"""
+    from .context import est_tokens
+
+    ep = p.episode(n)
+    if not ep.text:
+        raise ValueError(f"{n}화 본문이 없어요")
+    prompt = prompts.scene_prompt(p, n)
+    sc = llm.json(prompts.SYSTEM_SCENE, prompt, SceneCheck, hint={"episode": n, "text": ep.text, **(hint or {})})
+    beats = sc.beats[:prompts.SCENE_BEATS]
+    stats = {"chars": len(prompt), "tokens": est_tokens(prompts.SYSTEM_SCENE + prompt), "beats": [b.model_dump() for b in beats]}
+    return ConsistencyReport(episode=n, issues=sc.issues), stats
 
 
 def check_two_step(llm: LLM, judge: Judge, p: Project, n: int, hint: dict | None = None) -> tuple[ConsistencyReport, dict]:

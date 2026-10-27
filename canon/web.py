@@ -3582,7 +3582,8 @@ def research_probe(body: Probe) -> dict:
 @app.get("/api/projects/{name}/research")
 def research_log(name: str) -> dict:
     _load(name)
-    return {"log": research.history(name), "stages": research.STAGES, "check_modes": research.TRIAL_MODES}
+    return {"log": research.history(name), "stages": research.STAGES, "check_modes": research.TRIAL_MODES,
+            "check_totals": research.check_totals(name)}
 
 
 class SampleIn(BaseModel):
@@ -3628,6 +3629,7 @@ class CheckTrialIn(BaseModel):
     plants: int = 3
     modes: list[str] = []
     judge: research.Backend | None = None  # 주면 두 걸음 검수(판단기)도 시험한다
+    scene: bool = False  # 켜면 장면 상태표 검수도 시험한다
 
 
 @app.post("/api/projects/{name}/research/check")
@@ -3635,7 +3637,7 @@ def research_check(name: str, body: CheckTrialIn) -> dict:
     """검수 시험: n화에 모순을 심고 검수 방식마다 찾는지 본다. 작품에는 저장하지 않는다."""
     if not 1 <= body.plants <= 5:
         raise ValueError("심을 모순은 1~5개예요")
-    res = research.check_trial(_load(name), body.episode, body.backend, body.plants, body.modes or None, judge=body.judge)
+    res = research.check_trial(_load(name), body.episode, body.backend, body.plants, body.modes or None, judge=body.judge, scene=body.scene)
     return research.record(name, "check", res)
 
 

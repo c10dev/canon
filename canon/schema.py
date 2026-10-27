@@ -876,8 +876,17 @@ class PlantedContradiction(BaseModel):
     quote: str = Field(description="이번 화 본문에서 바꿀 문장 원문 그대로 (한 문장)")
     replacement: str = Field(description="앞선 근거와 어긋나게 바꾼 문장. 같은 문체, 비슷한 길이")
     type: IssueType = Field("사실", description="어떤 종류의 모순인지")
-    source_episode: int = Field(0, description="어긋나는 근거가 나온 화. 설정 · 확정 사실이면 0")
+    part: Literal["", "몸", "접촉", "물건"] = Field("", description="type 이 동선일 때만: 몸(한 인물의 위치 · 몸이 향한 쪽 · 자세 · 가려진 곳) / 접촉(두 인물이 맞닿은 상태, 그동안 쓸 수 있는 손) / 물건(인물과 가방 · 무기 · 문 같은 물건의 상태, 옷과 멘 것의 겹침 순서, 밀착한 몸 사이의 자리). 동선이 아니면 빈칸")
+    source_episode: int = Field(0, description="어긋나는 근거가 나온 화. 설정 · 확정 사실이면 0, 같은 화 앞 문장이면 이번 화")
     source_quote: str = Field("", description="어긋나는 근거 원문 그대로")
+
+
+PLANT_PARTS = ["몸", "접촉", "물건"]
+
+
+def plant_kind(x: PlantedContradiction) -> str:
+    """검수 시험 집계에 쓰는 갈래. 동선은 몸 · 접촉 · 물건으로 나눈다 (갈래를 비우면 몸)."""
+    return f"동선 · {x.part or '몸'}" if x.type == "동선" else x.type
 
 
 class PlantSet(BaseModel):
@@ -898,6 +907,28 @@ class ConsistencyReport(BaseModel):
     """본문 검수 결과. 상태를 바꾸지 않는 참고용 경고라 승인 없이 저장한다."""
     episode: int
     issues: list[ConsistencyIssue] = Field(default_factory=list, description="근거가 분명한 모순만. 없으면 빈 목록")
+
+
+class BodyState(BaseModel):
+    """장면 상태표의 한 인물. 본문이 말하지 않은 칸은 비운다."""
+    name: str = Field(description="인물 이름")
+    facing: str = Field("", description="누구 · 무엇을 향했는지 (예: 도현을 마주 봄, 도현에게 등을 댐)")
+    hands: str = Field("", description="두 손 각각 하는 일 (예: 한 손 도현의 손목, 다른 손 빈 손)")
+    worn: str = Field("", description="걸친 것을 안쪽에서 바깥 순서로 (예: 셔츠 → 외투 → 백팩 끈)")
+    front: str = Field("", description="몸 앞에 맞닿거나 놓인 사람 · 물건")
+    back: str = Field("", description="몸 뒤에 맞닿거나 놓인 사람 · 물건")
+    items: str = Field("", description="그 밖의 물건 자리 (예: 열쇠 바지 앞주머니, 가방 의자 위)")
+
+
+class SceneBeat(BaseModel):
+    quote: str = Field(description="상태를 정하거나 바꾼 본문 문장 원문 그대로 (한 문장)")
+    bodies: list[BodyState] = Field(default_factory=list, description="그 문장 뒤의 상태. 바뀐 인물만, 적지 않은 인물과 칸은 앞 줄 그대로")
+
+
+class SceneCheck(BaseModel):
+    """검수 시험 scene 방식: 본문을 장면 상태표로 옮겨 적은 뒤 상태표와 어긋나는 동선만 찾는다. 연구 화면에서만 쓴다."""
+    beats: list[SceneBeat] = Field(default_factory=list, description="먼저 적는 장면 상태표")
+    issues: list[ConsistencyIssue] = Field(default_factory=list, description="상태표와 어긋나는 문장. 근거가 분명한 것만, 없으면 빈 목록")
 
 
 EditSource = Literal["manual", "ai", "typed", "impact"]
