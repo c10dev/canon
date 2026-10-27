@@ -15,6 +15,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | `canon/schema.py` | pydantic 데이터 스키마. 모든 상태는 `Project` 하나(`project.json`)에 저장. 인물 신체 프로필(`Character.body`)은 작가 메모라 AI 응답 형식(`SkipJsonSchema`)과 프롬프트(`llm.dump` 의 context `prompt`)에서 빠진다. 이 칸을 다루는 AI 호출은 신체 프로필 제안(`pipeline.suggest_body`)뿐이고, 미성년(`cast.is_minor_age`)이면 쓰리사이즈를 제안하지 않는다. 인물 프롬프트 넣기(`Character.context`: auto 비중대로 · always 늘 · off 이름만)도 작가 전용이라 같은 방식으로 빠지고, 고르는 규칙은 `context.core_ids` · `off_ids` · `without_off`(모두 auto 면 예전 규칙과 같다). 인물 지금 차림(`CharacterState.attire`, 옷 · 상처 · 지닌 물건)은 지금 값만 덮어쓰고 지난 값은 스냅샷, 규칙은 `prompts.ATTIRE_STATE_RULE` · `attire_write_rule` · `attire_check_rule` |
 | `canon/prompts.py` | 프롬프트 템플릿, 화별 컨텍스트 조립(`build_episode_context`), 작업지시서(`episode_brief`, `state_brief`). 인물 고르기는 `static_characters` · `side_characters` · `roster_line` · `cast_block` 이 `Character.context` 를 따른다 |
 | `canon/pipeline.py` | 단계별 로직: 설정 제안 → 스타일 분석 → 기승전결 → 화별 플롯(대화로 다듬기 `revise_plot`/`apply_revision` 포함, 대상 `chat_target`: 고른 아크 · 다음 아크, 아크 칸 · 부 구성 변경안, 방향 여러 안, 플롯이 데려온 새 인물은 후보 `Project.cast_candidates`, 새 장소는 `Project.place_candidates` 로 두고 화 확정 `confirm_plot` 때 등록. 상태 변경안 정리 `clean_delta`) → 본문 → 검수 → 상태 추출/반영. 장편은 부 계획(`plan_series`) → 다음 아크(`plan_next_arc`/`apply_arc`) → 아크 · 부 요약(`recap`/`apply_recap`). 단편 → 장편 전환은 이어 쓰기 `propose_conversion`/`apply_conversion`, 재구성 `propose_rebuild`/`apply_rebuild`(옛 상태 변경안 재사용 `carried_delta`, 다듬기 `propose_rework`/`accept_rework`), 되돌리기 `undo_conversion` |
+| `canon/features.py` | 상태 변경안 수명 주기에 기능이 끼어드는 자리: 정리(`CLEAN`) · 반영(`APPLY_FIRST` 새 인물 직후, `APPLY_LAST` 기록 전) · 되돌리기(`REVERT_FIRST` 스냅샷으로 덮기 전, `REVERT_LAST` 뒤) 목록. `pipeline.clean_delta` · `apply_delta` · `revert` 가 목록을 차례로 부른다. 상태를 가진 기능을 더할 때는 `pipeline.py` 를 고치지 않고 기능 모듈에 훅을 두고 이 목록에 넣는다(목록 순서가 부르는 순서). LLM 호출 없음 |
 | `canon/context.py` | 장편 프롬프트 크기 관리: 블록 재기(`blocks`, 사용량 기록 · 연구 화면), 블록 글자 예산(`BUDGET`), 관련 사실(`pick_facts`) · 비밀(`pick_secrets`) · 떡밥(`rank_foreshadows`) 고르기, 기획 프롬프트 인물(`planning_cast`), 검수용 옛 본문 단락 찾기(`recall`, 질문 여러 개는 색인 `PassageIndex` 하나로), 진술과 겹치는 줄 · 사실(`related_lines` · `related_facts`, 셈이 있는 진술은 셈이 있는 줄을 앞세움 `has_count`). LLM 호출 없음. 단편 경로는 쓰지 않는다 |
 | `canon/metrics.py` | 문체 지표(문장 길이, 대사 비율, 과거형 비율, 어휘 다양도, 반복 구, 상투 표현, 쇠맛 패턴과 쉼표·대명사 지표, 문체 거리, 문체 표지 빈도, 예시 문단 베끼기)와 기준 대비 경고, 1~3화 초반 지표(`measure_opening`). LLM 호출 없음. 문체 거리 기준표는 `style_background.py`(`scripts/make_style_background.py` 로 생성) |
 | `canon/genres.py` | 장르 목록(`CATALOG`)과 장르별 안내. 프롬프트의 장르 안내와 수위 블록(`guide`), 설정 화면의 장르별 로그라인 예시(`Genre.logline`) |
@@ -90,7 +91,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 - **관계 수치는 AI 가 적지 않는다.** AI 는 사건만 뽑고 `dynamics.py` 가 계산한다. 사용자가 고칠 때는 `수동보정` 사건으로 기록해 재생할 수 있게 한다.
 - **컨텍스트는 일정한 크기로.** 이전 본문 전체가 아니라 화별 요약 + 직전 화 끝부분 + 현재 데이터만 넣는다. (검수는 예외로 앞선 본문 전체를 본다.)
 - **장편은 줄거리를 접는다.** 화별 요약을 다 넣지 않고 `story_so_far`(끝난 부 · 아크 요약 + 지금 아크 화별 요약)를 쓴다. 인물 · 떡밥 · 사실 · 비밀 · 알게 된 정보도 `prompts.py` 의 필터와 `context.BUDGET` 예산을 거친다. 장편 검수는 `budget` 방식(직전 3화 원문 + 옛 화 관련 단락)이 기본이다. 새 블록도 화수에 따라 끝없이 커지지 않게 하고, 예산을 넘겨 뺐으면 몇 개 뺐는지 적는다. 단편(`form = "short"`) 경로는 바꾸지 않는다.
-- **바뀌지 않는 블록이 앞, 화마다 바뀌는 블록이 뒤.** `static_context()` 를 앞에 둬야 Gemini 암묵적 캐시가 맞는다. 컨텍스트에 블록을 추가할 때 이 순서를 지킨다.
+- **바뀌지 않는 블록이 앞, 화마다 바뀌는 블록이 뒤.** `static_context()` 를 앞에 둬야 화 사이 Claude API 캐시(`claude.cache_blocks`)가 맞는다. Gemini 4 암묵적 캐시는 화 사이에 겹치는 앞부분(약 6,700토큰)을 재사용하지 않고, 앞 요청을 통째로 품은 요청(다시 생성, 요청 칸, 형식 고치기 재시도)에만 맞는다(2026-10-27 실측, DESIGN.md). 그래서 요청이나 재료는 프롬프트 맨 뒤에 덧붙인다. 컨텍스트에 블록을 추가할 때 이 순서를 지킨다.
 - **API 경로와 작업지시서 경로는 같은 프롬프트를 공유한다.** 프롬프트를 고칠 때는 `prompts.py` 한 곳만 고치고, `brief` 출력도 함께 확인한다. 나중에 MCP 서버도 이 함수들을 재사용한다.
 - **LLM 호출은 `LLM` 인터페이스 뒤에만 둔다.** pipeline 이나 cli 에서 SDK 를 직접 부르지 않는다. 새 LLM 구현이나 새 API 호출 경로는 `usage.record` 를 불러 사용량 화면에 잡히게 한다. 스레드를 새로 띄우면 `contextvars.copy_context()` 로 작품 · 화 정보를 넘긴다.
 - LLM 이 채우는 스키마(`SetupSuggestion`, `StyleProfile`, `ArcPlan`, `PlotBatch`, `EpisodeDraft`, `PlotRevision`, `NameOptions`, `PassageRevision`, `StateDelta`, `NewPlace`, `StoryEvent`, `ConsistencyReport`, `SeriesPlan`, `ArcProposal`, `Recap`, `ImpactReport`, `StorylineProposal`, `SerialConversion`, `SerialRebuild`, `Rework`, `HookReport`, `OpeningPlots`, `IllustDraft`, `LookSuggestion`, `StyleLearning`, `StyleRevision`, `StyleEdit`, `StyleSample`, `SetupRevision`, `SetupEdit`, `CharacterEdit`, `VoiceSuggestion`, `PlantSet`, `PlaceSort`, `ClaimSet`, `StoryTime`, `Deadline`, `BodySuggestion`, `MapSuggestion`, `StatWindowSuggestion`, `StatWindowOption`, `StatInitSuggestion`, `StatInitCharacter`)에는 dict 타입 필드를 쓰지 않는다 (Gemini 구조화 출력 호환).
@@ -99,13 +100,14 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 
 ```bash
 pip install -r requirements.txt
-python -m unittest                  # mock LLM 으로 전체 흐름 스모크 테스트 (API 키 불필요)
+CANON_HOME=$(mktemp -d) python -m pytest -q tests        # 전체 시험 (mock LLM, API 키 불필요, 1~2분)
+CANON_HOME=$(mktemp -d) python -m pytest -q tests/test_timeline.py  # 고친 기능의 시험만 빠르게
 CANON_LLM=mock python -m canon ...  # 수동 확인
 ```
 
 환경 변수: `GEMINI_API_KEY`, `CANON_GEMINI_AUTH`(key | vertex) / `CANON_VERTEX_CREDENTIALS` / `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION`(Vertex AI 서비스 계정), `CANON_LLM`(gemini | local | claude | claude-api | mock), `CANON_CLAUDE_MODEL` / `CANON_CLAUDE_BIN` / `CANON_CLAUDE_TIMEOUT` / `ANTHROPIC_API_KEY`(Claude, `claude-api` 만 키를 씀), `CANON_MODEL`(기본 `gemini-4-argon`), `CANON_LOCAL_URL` / `CANON_LOCAL_MODEL` / `CANON_LOCAL_KEY`(로컬 서버), `CANON_LLM_PLAN` / `_WRITE` / `_CHECK` / `_STATE` / `_NAME` / `_REVISE` / `_ILLUSTRATION`(단계별 백엔드), `CANON_MODEL_PLAN` / `_WRITE` / `_CHECK` / `_STATE` / `_NAME` / `_REVISE` / `_ILLUSTRATION`(단계별 모델), `CANON_HOME`(프로젝트 저장 위치, 기본 `projects/`), `CANON_USAGE`(사용량 기록 파일, 기본 `projects/.usage/usage.jsonl`).
 
-스키마나 파이프라인을 바꾸면 `canon/mock.py` 도 맞춰 고치고 `python -m unittest` 가 통과하는지 확인한다. `web.py` 의 엔드포인트나 응답 모델을 바꾸면 `python scripts/make_openapi.py` 로 Swift 앱의 명세를 다시 만든다(`tests/test_openapi.py` 가 본다). 연산 이름은 함수 이름이라 웹 함수 이름을 바꾸면 Swift 호출부도 바뀐다. 실제 Gemini 호출은 키가 있을 때만 확인할 수 있으니, 확인하지 못했다면 그렇다고 밝힌다.
+스키마나 파이프라인을 바꾸면 `canon/mock.py` 도 맞춰 고치고 전체 시험(`python -m pytest -q tests`)이 통과하는지 확인한다. `python -m unittest` 는 시험 대부분(pytest 형식 함수)을 건너뛰므로 쓰지 않는다. 시험은 `CANON_HOME` 을 임시 폴더로 두고 돌린다(몇몇 시험이 `canon` 을 먼저 불러 실제 `projects/` 에 작품을 만들 수 있다). `web.py` 의 엔드포인트나 응답 모델을 바꾸면 `python scripts/make_openapi.py` 로 Swift 앱의 명세를 다시 만든다(`tests/test_openapi.py` 가 본다). 연산 이름은 함수 이름이라 웹 함수 이름을 바꾸면 Swift 호출부도 바뀐다. 실제 Gemini 호출은 키가 있을 때만 확인할 수 있으니, 확인하지 못했다면 그렇다고 밝힌다.
 
 ## 규칙
 

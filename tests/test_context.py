@@ -79,11 +79,12 @@ def test_serial_write_context_order_and_size():
         e.text, e.status, e.summary = "본문", "finalized", "요약"
     p.facts = [f"사실 {i} " + "가" * 80 for i in range(400)]
     ctx = prompts.build_episode_context(p, n)
-    heads = ["# 지금까지의 줄거리 (끝난 부와 아크)", "# 확정된 사실", "# 관계 현재 상태", "# 열린 복선",
+    heads = ["# 현재 부와 아크", "# 지금까지의 줄거리 (끝난 부와 아크)", "# 이번 화 위치", "# 확정된 사실", "# 관계 현재 상태", "# 열린 복선",
              "# 지금까지의 줄거리 (이번 아크)", "# 직전 화 마지막 부분", "# 이번 화 플롯"]
     pos = [ctx.index(h) for h in heads]
     assert pos == sorted(pos)  # 아크 동안 그대로인 것이 앞, 화마다 바뀌는 것이 뒤
     assert ctx.index(prompts.static_context(p)) == 0
+    assert "현재 아크 안 구간" not in ctx[:ctx.index("# 이번 화 위치")]  # 아크 안에서 바뀌는 줄이 접은 줄거리 앞을 깨지 않게
     facts = ctx[ctx.index("# 확정된 사실"):ctx.index("# 이번 화 등장 인물")]
     assert len(facts) < context.BUDGET["facts"] + 4_000 and "개 생략" in facts
 

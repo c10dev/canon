@@ -255,6 +255,23 @@ class ClaudeAPITest(unittest.TestCase):
         self.assertNotIn("fallbacks", self.reqs[0])
         self.assertFalse(usage.read()[-1]["ok"])
 
+    def test_cache_mark_on_prefix_shared_with_previous_request(self):
+        claude._SEEN.clear()
+        head = "# 작품 정보\n" + "가" * 3000
+        llm = self.make(_msg("1화"), _msg("2화"), _msg("3화"), _msg("다른 지시"))
+        llm.text("쓰기", head + "\n\n# 이번 화 플롯\n1화")
+        llm.text("쓰기", head + "\n\n# 이번 화 플롯\n2화")
+        llm.text("쓰기", head + "\n\n# 이번 화 플롯\n3화")
+        llm.text("검수", head + "\n\n# 검수 대상\n3화")
+        first, second, third, other = (r["messages"][0]["content"] for r in self.reqs)
+        self.assertIsInstance(first, str)  # 처음 보는 종류는 겹칠 앞 요청이 없다
+        mark = {"type": "text", "text": head, "cache_control": {"type": "ephemeral"}}
+        self.assertEqual(second, [mark, {"type": "text", "text": "\n\n# 이번 화 플롯\n2화"}])
+        self.assertEqual(third[0], mark)  # 같은 자리에 표시해야 앞 요청이 쓴 캐시를 읽는다
+        self.assertEqual("".join(b["text"] for b in third), head + "\n\n# 이번 화 플롯\n3화")
+        self.assertIsInstance(other, str)  # 시스템 프롬프트가 다르면 따로 센다
+        self.assertEqual(claude.cache_blocks(("k",), "짧은 글\n\n끝"), "짧은 글\n\n끝")
+
     def test_stage_cost_uses_claude_price(self):
         self.assertAlmostEqual(usage.stage_cost("claude-api", "gemini-4-argon", 1e6, 0), 4.0)
         self.assertEqual(usage.stage_cost("claude", "", 1e6, 1e6), 0.0)
