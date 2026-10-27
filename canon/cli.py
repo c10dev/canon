@@ -73,7 +73,7 @@ from . import (archetypes, autorun, branches, cast, charlog, dynamics, elements,
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
-from . import atlas, citygen, foreshadows, setupchat, statwin, timeline, towngen
+from . import atlas, citygen, foreshadows, setupchat, statwin, timeline, towngen, travel
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StoryArc
 
 
@@ -1612,6 +1612,9 @@ def cmd_map(a: argparse.Namespace) -> None:
     gen: 마을 · 도시 생성기로 지도를 만든다 (미리보기를 보여 주고 확인을 받아 적용)."""
     p = store.load(a.name)
     folder = store.project_dir(a.name) / "map"
+    if a.action == "travel":
+        _map_travel(a, p)
+        return
     if a.action != "gen":
         print(atlas.describe(p, atlas.load_layout(folder, p)))
         return
@@ -1654,6 +1657,29 @@ def cmd_map(a: argparse.Namespace) -> None:
     print(f"저장: {store.save(a.name, p)}")
     if old and (folder / old).is_file():
         (folder / old).unlink()
+
+
+def _map_travel(a: argparse.Namespace, p) -> None:
+    """map <작품> travel: 이동 시간 검사 보기와 설정 (canon/travel.py)."""
+    t = p.atlas.travel
+    changed = any(x is not None for x in (a.mode, a.span, a.kmh, a.day_km, a.check, a.ok, a.unok))
+    if a.mode is not None or a.span is not None or a.kmh is not None or a.day_km is not None or a.check is not None:
+        travel.set_setting(p, t.enabled if a.check is None else a.check == "on", a.mode or t.mode,
+                           t.kmh if a.kmh is None else a.kmh, t.day_km if a.day_km is None else a.day_km,
+                           p.atlas.span_km if a.span is None else a.span)
+    for key, ok in ((a.ok, True), (a.unok, False)):
+        if key:
+            cid, _, n = key.partition(":")
+            if not n.isdigit():
+                sys.exit("인물 id:화 로 적어 주세요 (예: hero:12)")
+            travel.accept(p, cid, int(n), ok)
+    if changed:
+        store.save(a.name, p)
+    folder = store.project_dir(a.name) / "map"
+    layout = atlas.load_layout(folder, p)
+    if layout and not p.atlas.layout_size:
+        p.atlas.layout_size = [layout["w"], layout["h"]]
+    print(travel.describe(p))
 
 
 def cmd_view(a: argparse.Namespace) -> None:
@@ -2156,7 +2182,8 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("character", nargs="?", help="인물 id 나 이름. 비우면 인물 목록")
     sp.add_argument("--numbers", action="store_true", help="관계를 숫자로")
     sp = add("map", cmd_map)
-    sp.add_argument("action", nargs="?", choices=["gen"], help="gen: 마을 · 도시 생성기로 지도 만들기. 비우면 지도 보기")
+    sp.add_argument("action", nargs="?", choices=["gen", "travel"],
+                    help="gen: 마을 · 도시 생성기로 지도 만들기, travel: 이동 시간 검사 보기 · 설정. 비우면 지도 보기")
     sp.add_argument("kind", nargs="?", choices=list(atlas.MAKERS), help="만들 지도: village 마을, city 도시. 비우면 지난번 지도 종류 (--ai 면 AI 제안)")
     sp.add_argument("--seed", type=int, help="같은 시드면 같은 지도. 비우면 새로 뽑는다")
     for key, opts in towngen.OPTIONS.items():
@@ -2164,6 +2191,13 @@ def main(argv: list[str] | None = None) -> None:
         sp.add_argument(f"--{key}", help=", ".join(label.split(" (")[0] for label in opts.values()) + ("" if city else " (마을만)"))
     sp.add_argument("--move", action="store_true", help="이미 지도에 놓은 장소도 생성기가 고른 자리로 옮기기")
     sp.add_argument("--ai", action="store_true", help="AI가 작품 설정과 장소 설명을 보고 설정 칸 · 장소 종류를 제안 (직접 적은 칸이 이긴다)")
+    sp.add_argument("--mode", choices=list(travel.MODES), help="travel: 이 세계에서 가장 빠른 탈것 (" + ", ".join(f"{k} {v}" for k, v in travel.MODE_NAMES.items()) + ")")
+    sp.add_argument("--span", type=float, help="travel: 지도 가로가 몇 km 인지 (마을 데이터가 없을 때). 0 이면 모름")
+    sp.add_argument("--kmh", type=float, help="travel: 직접 정한 빠르기 km/시 (0 이면 탈것 기본값)")
+    sp.add_argument("--day-km", dest="day_km", type=float, help="travel: 직접 정한 하루 이동 km (0 이면 탈것 기본값)")
+    sp.add_argument("--check", choices=["on", "off"], help="travel: 이동 시간 검사 켜기 · 끄기")
+    sp.add_argument("--ok", help="travel: 이 이동을 '괜찮아요'로 두기 (인물 id:화, 예: hero:12)")
+    sp.add_argument("--unok", help="travel: '괜찮아요'를 되돌리기 (인물 id:화)")
     sp = add("view", cmd_view, yes=False)
     sp.add_argument("mode", choices=["numbers", "words"])
     sp = add("adjust", cmd_adjust, "source", "target", yes=False)

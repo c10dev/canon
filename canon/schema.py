@@ -1306,6 +1306,15 @@ class MapSpec(BaseModel):
     places: list[MapPlace] = Field(default_factory=list)
 
 
+class TravelSetting(BaseModel):
+    """이동 시간 검사 설정 (canon/travel.py). 지도 거리와 작품 속 시간을 견줘 너무 빠른 이동을 찾는다."""
+    enabled: bool = Field(True, description="끄면 지도 화면 · 상태 변경안 경고 · 프롬프트의 이동 거리를 모두 뺀다 (순간 이동이 흔한 작품 등)")
+    mode: str = Field("horse", description="이 세계에서 인물이 쓰는 가장 빠른 탈것 (travel.MODES 의 id)")
+    kmh: float = Field(0, description="작가가 정한 이동 빠르기 (km/시). 0 이면 탈것의 기본값")
+    day_km: float = Field(0, description="작가가 정한 하루 이동 거리 (km). 0 이면 탈것의 기본값")
+    ok: list[str] = Field(default_factory=list, description="작가가 '괜찮아요'로 둔 이동 ('인물 id:화'). 경고에서 뺀다")
+
+
 class Atlas(BaseModel):
     image: str = Field("", description="배경 그림 파일 이름 (projects/<작품>/map/ 아래). 비면 빈 캔버스")
     aspect: float = Field(1.5, description="지도 가로 / 세로. 배경 그림을 올리면 그림 비율")
@@ -1316,6 +1325,9 @@ class Atlas(BaseModel):
     spec: Optional[MapSpec] = Field(None, description="지도 만들기로 만든 마을이면 그 입력. 파일을 올렸거나 지도가 없으면 비움")
     title: str = Field("", description="지도 위에 적는 마을 이름. 비면 '마을 가운데' 종류의 장소 이름")
     buildings: list[BuildingNote] = Field(default_factory=list, description="작가가 고친 건물. 마을 데이터 파일이 바뀌면 비운다")
+    span_km: float = Field(0, description="지도 가로가 몇 km 인지 (마을 데이터가 없을 때 이동 거리 계산). 0 이면 모름")
+    layout_size: list[float] = Field(default_factory=list, description="마을 데이터의 [가로, 세로] (원래 단위). 마을 데이터를 놓을 때 채운다")
+    travel: TravelSetting = Field(default_factory=TravelSetting)
 
 
 class ReleasePlan(BaseModel):
