@@ -71,6 +71,7 @@ function setDelta(n, d, source = 'ai') {
   // S.picks 는 설정 제안(sc · sr · sf: 키)과 같이 쓴다. 변경안 키만 지워 설정 화면의 체크를 남긴다
   for (const k of Object.keys(S.picks)) if (DELTA_PICK.test(k)) delete S.picks[k];
   S.preview = null;
+  S.rvPage = null;  // 좁은 화면 카드 넘기기는 첫 장부터
   // 설정에도 이번 새 인물에도 없는 id 의 상태는 기본으로 빼 둔다. 반영하면 누구의 것도 아닌 상태가 남는다
   const known = new Set([...P().characters.map((c) => c.id), ...(d.new_characters || []).map((c) => c.id)]);
   d.character_updates.forEach((u, i) => { S.picks['c' + i] = known.has(u.character_id); });
@@ -225,25 +226,160 @@ function viewReview(n) {
   const section = (title, body, foot = '') => `<section class="card"><h2>${title}</h2>${body || '<div class="small">변경 없음</div>'}${foot}</section>`;
   const castLink = toolLink('cast', '인물 · 관계도');
 
+  const relCard = `<section class="card col"><div class="between"><h2>관계 사건</h2><span class="small">AI는 사건만 적고, 관계 수치는 Canon이 계산해요</span></div>${events || '<div class="small">이번 화에 관계 사건이 없어요</div>'}
+        ${secrets ? `<h3 style="margin-top:6px">새로 생긴 비밀</h3>${secrets}` : ''}
+        ${rels ? `<h3 style="margin-top:6px">관계 유형 · 설명 변경</h3>${rels}` : ''}${toolFoot(castLink)}</section>`;
+  const previewCard = `<section class="card col">${relationHeader('반영하면 이렇게 계산돼요')}<div id="rel-preview">${relationLines(S.preview && S.preview.n === n ? S.preview : null)}</div>
+        <div class="small">체크를 바꾸면 바로 다시 계산해요. 저장은 반영할 때만 돼요.</div></section>`;
+  const factCard = section('확정 사실', facts);
+  const fsCard = section('복선', fs, toolFoot(toolLink('foreshadow', '복선 센터')));
+  const summaryCard = `<section class="card"><div class="between"><label for="dsum" style="font-size:1rem;font-weight:700">${n}화 요약</label><span class="small"><span id="dsum-count">${d.summary.length.toLocaleString()}</span>자 · 다음 화 생성에 이 요약이 들어가요</span></div>
+      <textarea id="dsum" rows="4" data-autogrow data-delta-summary="${n}">${esc(d.summary)}</textarea></section>
+    <div class="row">${((b) => `<button class="btn" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '변경안 다시 만들기'))}<button class="btn" data-action="dropDelta" data-arg="${n}">버리기</button><a class="btn" href="${base()}/write/${n}">본문으로</a></div>`;
+  // 카드 묶음: [이름, 글]. 빈 글은 그리지 않는다. 좁은 화면은 한 장씩 넘기고, 넓은 화면은 지금처럼 이어 그린다
+  const cards = [
+    ['인물 상태', section('인물 상태', chars, toolFoot(castLink, statLink(d.character_updates)))],
+    ['인물 설정 바꾸기', withFoot(scDeltaCard(n, d, box), castLink)],
+    ['새로 나온 인물', newChars ? section('새로 나온 인물', newChars, toolFoot(castLink)) : ''],
+    ['새로 나온 장소', newPlaces ? section('새로 나온 장소', `<div class="small">반영하면 인과율에 장소로 등록돼요. 그 뒤로는 이 장소가 나오는 화를 쓸 때 설명이 함께 들어가요.</div>${newPlaces}`) : ''],
+    ['관계 사건', `<div class="cols">
+      ${relCard}
+      ${previewCard}
+    </div>`],
+    ['확정 사실', factCard],
+    ['복선', fsCard],
+    ['작품 속 시간', withFoot(tlDeltaCard(n, d, box), toolLink('timeline', '작품 속 시간'))],
+    [`${n}화 요약`, summaryCard],
+  ].filter(([, html]) => html);
+  const deck = narrowScreen();
+  if (deck) rvStyle();
+  const pg = deck ? rvPageAt(n, cards.length) : 0;
+  const last = pg === cards.length - 1;
+  const body = deck
+    ? cards.map(([label, html], i) => `<div class="rv-page" data-rv-page="${i}" data-rv-label="${esc(label)}" role="group" aria-label="${i + 1} / ${cards.length} · ${esc(label)}"${i === pg ? '' : ' hidden'}>${html}</div>`).join('')
+    // 넓은 화면: 확정 사실 · 복선은 한 줄에 나란히 (지금 배치 그대로)
+    : cards.map(([label, html]) => label === '확정 사실' ? `<div class="grid-auto">${factCard}${fsCard}</div>` : label === '복선' ? '' : html).join('');
+  // 좁은 화면은 반영 줄에 이전 · 다음을 둔다. 마지막 장에서 반영 버튼이 주 버튼이 된다
+  const pager = deck ? `<div class="rv-pager" role="group" aria-label="변경안 카드 넘기기"><button type="button" class="btn small" data-action="rvPage" data-arg="prev"${pg ? '' : ' disabled'}>이전</button>
+      <span class="rv-pos"><strong>${pg + 1}</strong> / ${cards.length} · ${esc(cards[pg][0])}</span>
+      <button type="button" class="btn small${last ? '' : ' primary'}" data-action="rvPage" data-arg="next"${last ? ' disabled' : ''}>다음</button></div>` : '';
+
   return top(`${(S.deltaOrig[n] || {}).source === 'chat' ? '채팅 앱에서 가져온' : 'AI가 본문에서 뽑은'} 변경안이에요. 체크한 항목만 데이터에 반영되고, 반영해야 다음 화를 쓸 수 있어요.`, `<span class="small">${total}건 중 <strong class="pick-count" style="color:var(--text)">${picked}</strong>건 선택</span>`) + stale + issues +
     (d.warnings.length ? `<section class="note warn"><strong>경고 ${d.warnings.length}건 · 본문을 고칠지 확인하세요</strong><ul style="padding-left:18px;margin-top:6px">${warnItems(n, d.warnings)}</ul><a href="${base()}/write/${n}" style="color:inherit;font-weight:700">본문으로</a></section>` : '') +
-    `<p class="small" id="review-keys">단축키: <kbd>j</kbd> · <kbd>k</kbd> 다음 · 이전 항목, <kbd>x</kbd> 체크 켜기 · 끄기. 입력칸 밖에서 써요.</p>` +
-    section('인물 상태', chars, toolFoot(castLink, statLink(d.character_updates))) + withFoot(scDeltaCard(n, d, box), castLink) +
-    (newChars ? section('새로 나온 인물', newChars, toolFoot(castLink)) : '') +
-    (newPlaces ? section('새로 나온 장소', `<div class="small">반영하면 인과율에 장소로 등록돼요. 그 뒤로는 이 장소가 나오는 화를 쓸 때 설명이 함께 들어가요.</div>${newPlaces}`) : '') +
-    `<div class="cols">
-      <section class="card col"><div class="between"><h2>관계 사건</h2><span class="small">AI는 사건만 적고, 관계 수치는 Canon이 계산해요</span></div>${events || '<div class="small">이번 화에 관계 사건이 없어요</div>'}
-        ${secrets ? `<h3 style="margin-top:6px">새로 생긴 비밀</h3>${secrets}` : ''}
-        ${rels ? `<h3 style="margin-top:6px">관계 유형 · 설명 변경</h3>${rels}` : ''}${toolFoot(castLink)}</section>
-      <section class="card col">${relationHeader('반영하면 이렇게 계산돼요')}<div id="rel-preview">${relationLines(S.preview && S.preview.n === n ? S.preview : null)}</div>
-        <div class="small">체크를 바꾸면 바로 다시 계산해요. 저장은 반영할 때만 돼요.</div></section>
-    </div>` +
-    `<div class="grid-auto">${section('확정 사실', facts)}${section('복선', fs, toolFoot(toolLink('foreshadow', '복선 센터')))}</div>` + withFoot(tlDeltaCard(n, d, box), toolLink('timeline', '작품 속 시간')) +
-    `<section class="card"><div class="between"><label for="dsum" style="font-size:1rem;font-weight:700">${n}화 요약</label><span class="small"><span id="dsum-count">${d.summary.length.toLocaleString()}</span>자 · 다음 화 생성에 이 요약이 들어가요</span></div>
-      <textarea id="dsum" rows="4" data-autogrow data-delta-summary="${n}">${esc(d.summary)}</textarea></section>
-    <div class="row">${((b) => `<button class="btn" data-action="extractState" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '변경안 다시 만들기'))}<button class="btn" data-action="dropDelta" data-arg="${n}">버리기</button><a class="btn" href="${base()}/write/${n}">본문으로</a></div>
-    <div class="apply-bar"><span class="small">${total}건 중 <strong class="pick-count" style="color:var(--text)">${picked}</strong>건 선택</span>
-      <button class="btn primary" data-action="applyDelta" data-arg="${n}"${autoOn() ? ' disabled' : ''}>선택한 항목 반영하고 ${n}화 완료</button></div>`;
+    `<p class="small" id="review-keys">단축키: <kbd>j</kbd> · <kbd>k</kbd> 다음 · 이전 항목, <kbd>x</kbd> 체크 켜기 · 끄기. 입력칸 밖에서 써요.${deck ? ' 카드는 아래 이전 · 다음 버튼이나 옆으로 밀어 넘겨요.' : ''}</p>` +
+    body +
+    `<div class="apply-bar${deck ? ' rv-deck-bar' : ''}">${pager}<span class="small">${total}건 중 <strong class="pick-count" style="color:var(--text)">${picked}</strong>건 선택</span>
+      <button class="btn${!deck || last ? ' primary' : ''}" data-action="applyDelta" data-arg="${n}"${autoOn() ? ' disabled' : ''}>선택한 항목 반영하고 ${n}화 완료</button></div>`;
+}
+
+// ----- 좁은 화면 카드 넘기기 -----
+// 640px 이하에서 변경안 카드를 한 장씩 보인다. 체크와 고친 값은 S.picks · S.deltas 에 있어 장을 넘겨도 남는다
+
+/** 지금 보는 장. 화가 바뀌거나 새 변경안을 받으면 첫 장으로 (setDelta) */
+function rvPageAt(n, count) {
+  if (!S.rvPage || S.rvPage.n !== n || S.rvPage.name !== S.name) S.rvPage = { n, name: S.name, i: 0 };
+  S.rvPage.i = Math.min(Math.max(S.rvPage.i, 0), count - 1);
+  return S.rvPage.i;
+}
+
+/** i 장으로 넘긴다. 넘긴 장의 머리가 화면 위로 지나갔으면 끌어 올리고, 화면 낭독기에 몇 번째 장인지 알린다 */
+function rvGo(i, focus = null) {
+  const pages = document.querySelectorAll('#app .rv-page');
+  if (!pages.length || !S.rvPage) return;
+  S.rvPage.i = Math.min(Math.max(i, 0), pages.length - 1);
+  if (focus) S.focusTarget = focus;
+  render();
+  const page = $(`#app .rv-page[data-rv-page="${S.rvPage.i}"]`);
+  if (!page) return;
+  const top = page.getBoundingClientRect().top;
+  if (top < 0 || top > window.innerHeight * 0.6) window.scrollBy(0, top - 16);
+  const live = $('#sr-live');
+  if (live) live.textContent = `${S.rvPage.i + 1} / ${pages.length} · ${page.dataset.rvLabel}`;
+}
+
+/** 화면 폭이 640px 를 넘나들면 카드 넘기기를 켜고 끈다 */
+if (typeof window !== 'undefined' && window.matchMedia) {
+  window.matchMedia('(max-width: 640px)').addEventListener('change', () => {
+    if (S.route[2] === 'review' && S.deltas[S.route[3]] && !isTyping()) render();
+  });
+}
+
+// 옆으로 밀어 넘기기. 입력칸에서 시작한 밀기(글 고르기)와 위아래 스크롤은 넘기지 않는다
+let rvTouch = null;
+if (typeof document.addEventListener === 'function') {
+  document.addEventListener('touchstart', (e) => {
+    const t = e.target;
+    rvTouch = e.touches.length === 1 && t.closest && t.closest('#app .rv-page') && !t.closest('input, textarea, select, [contenteditable]')
+      ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if (!rvTouch || !S.rvPage) return;
+    const dx = e.changedTouches[0].clientX - rvTouch.x;
+    const dy = e.changedTouches[0].clientY - rvTouch.y;
+    rvTouch = null;
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    rvGo(S.rvPage.i + (dx < 0 ? 1 : -1));
+  }, { passive: true });
+}
+
+// ----- 반영 직후 되돌리기 알림 -----
+// 반영하면 다음 화 화면으로 넘어간다. 그 화면 아래 알림 줄(#toast)에 'n화를 반영했어요 · 되돌리기'를 10초 띄운다.
+// #toast 안에 두어 stackBottom 이 쌓는 저장 띠 · 반영 줄 · 작업 목록 위에 놓이고, #toast 의 aria-live 로 읽힌다.
+// 클래스를 .t 로 두지 않아 toast() 가 오래된 알림을 내릴 때 함께 내려가지 않는다
+
+const RV_UNDO_MS = 10000;
+let rvUndoTimer = null;
+
+/** 화면 아래 알림과 카드 넘기기 모양. 장이 짧으면 sticky 반영 줄이 화면 가운데에 서서 작업 목록 · 알림이 덮으니, 넘기기 반영 줄(.rv-deck-bar)은 화면 아래에 붙여 stackBottom 이 그 위로 쌓게 한다 */
+function rvStyle() {
+  if (document.getElementById('rv-style')) return;
+  const el = document.createElement('style');
+  el.id = 'rv-style';
+  el.textContent = `
+#toast .rv-undo { display: flex; gap: 12px; align-items: center; padding: 8px 8px 8px 16px; border-radius: 10px; background: var(--inverse-bg); color: var(--inverse-ink); font-size: 0.8125rem; line-height: 1.5; box-shadow: 0 6px 24px rgba(0,0,0,0.2); border: 1px solid transparent; }
+#toast .rv-undo span { flex: 1; }
+#toast .rv-undo .btn { min-height: 40px; white-space: nowrap; }
+#toast .rv-undo .x { border: none; background: transparent; color: inherit; cursor: pointer; font-size: 0.875rem; min-width: 40px; min-height: 40px; }
+@media (forced-colors: active) { #toast .rv-undo { border-color: CanvasText; } }
+.rv-page[hidden] { display: none; }
+.rv-page { display: flex; flex-direction: column; gap: 22px; }
+.rv-deck-bar { position: fixed; left: 16px; right: 16px; bottom: calc(8px + var(--sb, 0px)); justify-content: space-between; }
+.rv-pager { display: flex; align-items: center; gap: 8px; flex: 1 1 100%; }
+.rv-pager .rv-pos { flex: 1; text-align: center; font-size: 0.8125rem; color: var(--text-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-pager .btn { min-height: 40px; min-width: 64px; }
+.rv-deck-bar > .btn { flex: 1 1 auto; }`;
+  document.head.appendChild(el);
+}
+
+function rvUndoClose(focusBack = true) {
+  clearTimeout(rvUndoTimer);
+  const el = document.querySelector('#toast .rv-undo');
+  if (!el) return;
+  const had = el.contains(document.activeElement);
+  el.remove();
+  if (had && focusBack) { const m = document.getElementById('main'); if (m) m.focus({ preventScroll: true }); }
+}
+
+function rvUndoArm() {
+  clearTimeout(rvUndoTimer);
+  rvUndoTimer = setTimeout(() => rvUndoClose(), RV_UNDO_MS);
+}
+
+/** 반영 직후 알림. 마우스를 올리거나 포커스가 들어가 있는 동안은 닫지 않는다 */
+function rvUndoShow(n) {
+  rvStyle();
+  rvUndoClose(false);
+  const el = document.createElement('div');
+  el.className = 'rv-undo';
+  el.dataset.name = S.name;
+  el.innerHTML = `<span>${n}화를 반영했어요</span><button type="button" class="btn small" data-action="rvUndo" data-arg="${n}">되돌리기</button><button type="button" class="x" data-rv-close aria-label="알림 닫기">✕</button>`;
+  el.querySelector('[data-rv-close]').addEventListener('click', () => rvUndoClose());
+  el.addEventListener('mouseenter', () => clearTimeout(rvUndoTimer));
+  el.addEventListener('mouseleave', () => { if (!el.contains(document.activeElement)) rvUndoArm(); });
+  el.addEventListener('focusin', () => clearTimeout(rvUndoTimer));
+  el.addEventListener('focusout', (e) => { if (!el.contains(e.relatedTarget) && !el.matches(':hover')) rvUndoArm(); });
+  $('#toast').appendChild(el);
+  rvUndoArm();
 }
 
 function historyView(h) {
@@ -331,12 +467,15 @@ Object.assign(actions, {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/apply`, out);
       delete S.deltas[n];
-      toast(ep(n + 1) && ep(n + 1).status === 'confirmed' ? `${n}화를 마쳤어요. ${n + 1}화 집필로 왔어요` : `${n}화를 마쳤어요`);
       const r = S.auto && S.auto.run;
+      const forAuto = r && r.status === 'review' && r.ep === n;
+      // 넘어간 화면 아래에 되돌리기 알림을 띄운다. 자동 집필이 맡은 화와 되돌릴 스냅샷이 없는 화는 알림만 띄운다
+      if (!forAuto && !(ep(n) || {}).auto && P().snapshots.some((s) => s.episode === n - 1)) rvUndoShow(n);
+      else toast(ep(n + 1) && ep(n + 1).status === 'confirmed' ? `${n}화를 마쳤어요. ${n + 1}화 집필로 왔어요` : `${n}화를 마쳤어요`);
       // 자동 집필이 이 화에서 검토를 기다리고 있었으면 자동 집필 화면으로 돌아가 이어 가게 한다.
       // 아니면 다음 할 일로 바로 간다: 다음 화가 확정이면 그 화 집필, 초안이면 플롯, 없으면 홈 (nextStep)
       const next = ep(n + 1);
-      location.hash = r && r.status === 'review' && r.ep === n ? `${base()}/auto` : next && ['confirmed', 'draft'].includes(next.status) ? nextStep()[1] : base();
+      location.hash = forAuto ? `${base()}/auto` : next && ['confirmed', 'draft'].includes(next.status) ? nextStep()[1] : base();
     });
   },
   async toggleNumbers(v) {
@@ -348,6 +487,29 @@ Object.assign(actions, {
     } catch (e) {
       toast(e.message, true);
     }
+  },
+  /** 좁은 화면 카드 넘기기: 'prev' · 'next' */
+  rvPage(dir) {
+    if (!S.rvPage) return;
+    const i = S.rvPage.i + (dir === 'prev' ? -1 : 1);
+    const count = document.querySelectorAll('#app .rv-page').length;
+    // 끝 장에서는 누른 버튼이 잠기니 포커스를 반영 버튼(마지막 장) · 다음 버튼(첫 장)으로 옮긴다
+    rvGo(i, i >= count - 1 ? '#app [data-action="applyDelta"]' : i <= 0 ? '#app [data-action="rvPage"][data-arg="next"]' : null);
+  },
+  /** 반영 직후 알림의 '되돌리기'. 확인 창은 revertFrom 이 띄운다. 취소하면 알림을 다시 10초 둔다 */
+  async rvUndo(n) {
+    const el = document.querySelector('#toast .rv-undo');
+    if (!el || el.dataset.name !== S.name || !P() || (ep(n) || {}).status !== 'finalized') {
+      rvUndoClose();
+      return toast('이 알림의 화는 이미 바뀌었어요. 상태 승인 화면에서 반영 취소를 써 주세요', true);
+    }
+    clearTimeout(rvUndoTimer);
+    if (!(await actions.revertFrom(n))) {
+      if (el.isConnected && !el.matches(':hover') && !el.contains(document.activeElement)) rvUndoArm();
+      return;
+    }
+    rvUndoClose(false);
+    location.hash = `${base()}/review/${n}`;  // 다시 고를 변경안이 있는 화면으로
   },
   dropDelta(n) {
     if (!confirm('이 변경안을 버릴까요?')) return;
@@ -399,6 +561,14 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   const next = boxes[i < 0 ? (step > 0 ? 0 : boxes.length - 1) : Math.min(Math.max(i + step, 0), boxes.length - 1)];
+  // 좁은 화면에서 다음 항목이 다른 장에 있으면 그 장으로 넘긴 뒤 포커스를 옮긴다
+  const page = next.closest('.rv-page[hidden]');
+  if (page) {
+    rvGo(Number(page.dataset.rvPage), `#${CSS.escape(next.id)}`);
+    const b = document.getElementById(next.id);
+    if (b) { b.style.scrollMargin = '96px 0 120px'; b.scrollIntoView({ block: 'nearest' }); }
+    return;
+  }
   next.style.scrollMargin = '96px 0 120px';  // 위 머리 줄과 아래 반영 줄에 가리지 않게
   next.focus();
   next.scrollIntoView({ block: 'nearest' });
