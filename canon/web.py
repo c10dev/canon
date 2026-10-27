@@ -520,6 +520,7 @@ def put_project(name: str, p: Project, response: Response, merged: str = "", for
         pipeline.validate_parts(p.parts, p.meta.target_episodes)
         pipeline.validate_story_arcs(p)
     pipeline.validate_storylines(p)
+    pipeline.validate_characters(p, disk)
     pipeline.validate_relationships(p)
     pipeline._init_states(p)
     p.meta.genre = genres.label(p.meta)

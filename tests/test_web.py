@@ -1,4 +1,5 @@
 """웹 API 전체 흐름 테스트 (mock LLM). 실행: python -m pytest tests"""
+import copy
 import importlib
 import os
 
@@ -634,6 +635,33 @@ def test_relationship_pairs_validated_on_save(client):
     dup = dict(p, relationships=[dict(p["relationships"][0], a=a, b=b), dict(p["relationships"][0], a=b, b=a)])
     r = client.put("/api/projects/rp", json=dup)
     assert r.status_code == 400 and "두 번" in r.json()["detail"]
+
+
+def test_character_ids_checked_on_save(client):
+    """인물 id 를 바꾸거나 비우거나 겹치게 저장하면 관계 · 상태가 끊기므로 받지 않는다. 이미 끊겨 있던 관계는 저장을 막지 않는다."""
+    client.post("/api/projects", json={"name": "ci", "meta": {"title": "t", "target_episodes": 10}})
+    p = client.post("/api/projects/ci/suggest/apply", json=client.post("/api/projects/ci/suggest").json()).json()
+    old = p["characters"][0]["id"]
+    assert any(old in (r["a"], r["b"]) for r in p["relationships"])
+    renamed = copy.deepcopy(p)
+    renamed["characters"][0]["id"] = "renamed"
+    r = client.put("/api/projects/ci", json=renamed)
+    assert r.status_code == 400 and "없는 인물" in r.json()["detail"]
+    assert client.get("/api/projects/ci").json()["characters"][0]["id"] == old
+    for bad, word in [("", "비었어요"), (p["characters"][1]["id"], "겹쳐요")]:
+        q = copy.deepcopy(p)
+        q["characters"][0]["id"] = bad
+        q["relationships"] = []
+        r = client.put("/api/projects/ci", json=q)
+        assert r.status_code == 400 and word in r.json()["detail"], bad
+    # 디스크에 이미 끊긴 관계가 있던 작품(옛 데이터)은 그대로 저장된다
+    from canon import store
+    disk = store.load("ci")
+    disk.relationships.append(disk.relationships[0].model_copy(update={"a": "ghost"}))
+    store.save("ci", disk)
+    legacy = client.get("/api/projects/ci").json()
+    legacy["meta"]["title"] = "고친 제목"
+    assert client.put("/api/projects/ci", json=legacy).status_code == 200
 
 
 def test_project_list_and_folder_names(client):
