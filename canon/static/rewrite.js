@@ -113,7 +113,7 @@ function diffBox(a, b, cls, note) {
 function rewritePanel(n) {
   if (S.rwOpen !== n) return '';
   const info = S.rwInfo[n];
-  if (!info) return '<section class="card"><div class="small">불러오는 중…</div></section>';
+  if (!info) return rwColumn(n, '<div class="small">불러오는 중…</div>', '');
   const r = rwReq(n);
   const busy = !!jobFor('write', n);
   const chips = info.presets.map((x) => `<button type="button" class="btn small${r.presets.includes(x.id) ? ' on' : ''}" aria-pressed="${r.presets.includes(x.id)}" data-action="rwPreset" data-arg="${esc(x.id)}">${esc(x.label)}</button>`).join('');
@@ -126,9 +126,7 @@ function rewritePanel(n) {
   }).join('');
   const modes = RW_MODES.map(([id, label]) => `<button type="button" aria-pressed="${r.mode === id}" data-action="rwMode" data-arg="${id}">${label}</button>`).join('');
   const keep = r.keep.map((k, i) => `<li class="between" style="gap:8px;align-items:flex-start"><blockquote>${esc(clip(k, 200))}</blockquote><button type="button" class="btn small" data-action="rwDropKeep" data-arg="${i}" aria-label="살릴 부분 빼기">빼기</button></li>`).join('');
-  return `<section class="card rw-panel" aria-label="다시 생성">
-    <div class="between"><h3>${n}화 다시 생성</h3><button type="button" class="btn small" data-action="rwClose">닫기</button></div>
-    <p class="small" style="margin:0">무엇이 아쉬웠는지 알려 주면 새 판을 쓸 때 참고해요. 지금 본문은 그대로 두고, 새 판이 오면 비교해서 골라요.</p>
+  return rwColumn(n, `<p class="small" style="margin:0">무엇이 아쉬웠는지 알려 주면 새 판을 쓸 때 참고해요. 지금 본문은 그대로 두고, 새 판이 오면 비교해서 골라요.</p>
     <div class="field"><span class="small">빠른 요청 (여러 개 고를 수 있어요)</span><div class="row rw-chips" style="gap:6px">${chips}</div></div>
     <div class="field"><label class="small" for="rw-feedback">피드백</label>
       <textarea id="rw-feedback" data-rw-feedback="${n}" rows="3" placeholder="예: ${esc(exName(0))}이(가) 너무 빨리 마음을 연다. 중간에 한 번 더 밀어내게 해 줘">${esc(r.feedback)}</textarea></div>
@@ -138,13 +136,19 @@ function rewritePanel(n) {
     <div class="field"><span class="small">살릴 부분 ${r.keep.length}/${info.keep_max}</span>
       ${keep ? `<ol class="rw-keep">${keep}</ol>` : ''}
       <span class="small">마음에 드는 문장이나 장면은 본문에서 드래그한 뒤 '살리기'를 누르면 담겨요. 새 판에 거의 그대로 들어가요.</span></div>
-    <div class="between">
-      <button type="button" class="btn small" data-action="rwShowPrompt" data-arg="${n}">${S.rwPrompt ? '프롬프트 닫기' : '보낼 프롬프트 보기'}</button>
-      ${((b) => `<button type="button" class="btn primary" data-action="rwSubmit" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('write', n, '새 판 만들기'))}
-    </div>
     ${busy ? '<div class="small">다른 화면으로 옮겨 가도 계속 써요. 끝나면 알려 드려요.</div>' : ''}
-    ${S.rwPrompt ? `<pre class="brief mono" style="max-height:420px">${esc(S.rwPrompt)}</pre>` : ''}
-  </section>`;
+    ${S.rwPrompt ? `<pre class="brief mono" style="max-height:420px">${esc(S.rwPrompt)}</pre>` : ''}`,
+    `<button type="button" class="btn small" data-action="rwShowPrompt" data-arg="${n}">${S.rwPrompt ? '프롬프트 닫기' : '보낼 프롬프트 보기'}</button>
+      ${((b) => `<button type="button" class="btn primary" data-action="rwSubmit" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('write', n, '새 판 만들기'))}`);
+}
+
+/** 다시 생성 열: 대화 패널 자리(오른쪽, 휴대폰은 아래 시트)에 뜬다. 본문을 아래로 밀지 않아 고르며 '살리기'를 담을 수 있다. */
+function rwColumn(n, body, foot) {
+  return `<aside class="tool-col rw-panel" aria-label="${n}화 다시 생성">
+    <div class="chat-head"><h2>${n}화 다시 생성</h2><button type="button" class="btn icon-btn" data-action="rwClose" aria-label="닫기">✕</button></div>
+    <div class="tool-body">${body}</div>
+    ${foot ? `<div class="tool-foot between">${foot}</div>` : ''}
+  </aside>`;
 }
 
 // ----- 새 판 비교 -----
@@ -260,6 +264,7 @@ Object.assign(actions, {
     if (S.rwOpen === n) return actions.rwClose();
     S.rwOpen = n;
     S.rwPrompt = null;
+    S.chatOpen = false;  // 다시 생성 열은 대화 패널 자리에 뜬다. 하나만 연다
     render();
     await rwLoad(n);  // 재료는 본문과 수정 기록에 따라 바뀌니 열 때마다 새로 받는다
     render();

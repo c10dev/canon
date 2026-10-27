@@ -22,7 +22,7 @@ function writtenNums() {
   return P().episodes.filter((e) => e.text || liveDraft(e.plot.number) !== undefined).map((e) => e.plot.number);
 }
 
-/** 오른쪽 위 '복사 · 내보내기' 카드. */
+/** 집필 화면 왼쪽 칸의 '복사 · 내보내기' 카드. */
 function exportCard(n) {
   const nums = writtenNums();
   if (!nums.length) return '';
