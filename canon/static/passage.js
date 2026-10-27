@@ -310,6 +310,7 @@ function showTool() {
   const t = S.selTool;
   const ta = document.querySelector(`textarea[data-draft="${t.n}"]`);
   if (!ta) return hideTool();
+  if (typeof mentionClose === 'function') mentionClose();  // 고른 부분 도구와 이름 카드(mentions.js)는 한 번에 하나만
   const el = toolEl();
   el.classList.toggle('edit', t.mode === 'edit');
   el.innerHTML = t.mode === 'edit'
