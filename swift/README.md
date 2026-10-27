@@ -134,6 +134,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | 7 | `FeatureCausal` | 인과율 (요소, 관련 화 지도, 영향 분석) | `causal.js` | `element_links`(`ElementLink`), 작업 `impact`, `impact_apply` · `impact_dismiss` · `impact_reopen` — **됨**. 지도 칸에서 그 화로 바로 가기는 화면만 옮긴다 (화를 고르지 않음) |
 | 7 | `FeatureBrief` | 작업지시서 (API 없이) | `write.js` `viewBrief` | `brief`(`BriefText`), `put_text`, `parse_state` — **됨**. 받은 JSON 은 서버가 검사하고, `CanonAppUI` 가 `BriefView` 의 `handOff` 로 `JobCenter.offer` 에 놓아 상태 승인 화면의 검토 대기(`state:<화>`)가 된다 (웹 `setDelta(n, d, 'chat')`, 화면 메모리에만) |
 | 7 | `FeatureBranches` | 갈래 비교 (작품 머리 띠, 사이드바 갈래 줄, 작품 목록 묶기, 작품 홈 갈래 카드, 갈래 만들기, 비교) | `branches.js`, `home.js` `viewProjects`, `app.js` `sidebar` | `branch_family` · `make_branch` · `compare_branches` · `promote_branch` · `detach_branch`(`BranchFamily` · `BranchMember` · `BranchDiff`) — **됨**. 웹은 갈래가 없으면 사이드바의 '갈래 비교'를 '더 보기'로 접지만 앱은 다른 도구처럼 늘 보인다. 비교 화면의 '집필로'는 그 화를 고르지 않고 화면만 옮긴다 |
+| 7 | 작품 도구 (남은 것) | 스킬 도감 | `abilities.js` | `abilities_view`(`AbilitiesView`), `abilities_lookup`, `abilities_save`, `abilities_delete` |
 | 7 | 작품 도구 (남은 것) | 지도 | `atlas.js` | `atlas` 엔드포인트 (지도 생성기는 다른 세션이 고치는 중) |
 | 8 | `FeatureUsage` | 사용량 · 비용 | `usage.js` | `usage_summary` · `usage_prices` — **됨** |
 | 8 | `FeatureSettings` | 모델 · API 키 설정 (사이드바 칸이 아니라 툴바 시트) | `settings.js` `viewSettings` `claude.js` `vertex.js` | `config` · `put_config`(`ConfigView`, 본문 `SettingsIn`), `test_config`(`ConfigTest`), `config_models`(`ModelList`), `config_health`(`ConfigHealth`), `claude_status`(`ClaudeStatus`) — **됨** (가격표 칸은 사용량 화면에서) |

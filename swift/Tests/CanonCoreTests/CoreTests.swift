@@ -134,7 +134,7 @@ import Testing
         #expect(Screen.arc.label(serial: true) == "부 · 아크 · 플롯")
         #expect(Screen.allCases.filter { $0.group == .autoRun } == [.auto])
         #expect(Screen.allCases.filter { $0.group == .tools }.map { $0.label(serial: false) }
-            == ["인물 · 관계도", "지도", "복선 센터", "상태창 수치", "작품 속 시간", "이야기 줄기", "인과율", "갈래 비교", "작업지시서 (API 없이)"])
-        #expect(Screen.allCases.count == 18)
+            == ["인물 · 관계도", "지도", "복선 센터", "상태창 수치", "스킬 도감", "작품 속 시간", "이야기 줄기", "인과율", "갈래 비교", "작업지시서 (API 없이)"])
+        #expect(Screen.allCases.count == 19)
     }
 }

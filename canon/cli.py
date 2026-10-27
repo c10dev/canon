@@ -30,6 +30,7 @@
   python -m canon stats 내소설 [3]      문체 지표를 레퍼런스와 비교
   python -m canon foreshadows 내소설     복선 센터: 심은 문장 · 회수한 문장, 회수율, 끊어진 연결
   python -m canon statwin 내소설 hero   상태창 수치와 화별 변화 (--set 레벨=1 로 만들고 고치기)
+  python -m canon abilities 내소설      스킬 · 특성 도감: 설명 · 효과 · 대가, 가진 인물과 얻은 화, 도감에 없는 항목
   python -m canon time 내소설           작품 속 시간: 화별로 끝난 시점과 기한 (--date 2024-03-04, --add '축제@7' 이나 '축제@2024-03-10', --close ID)
   python -m canon map 내소설            지도: 장소, 인물별로 옮겨 다닌 길, 장소와 맞지 않은 위치 글
   python -m canon map 내소설 gen --size 보통 --water 강   마을 생성기로 마을 만들기 (--seed, --roads, --fields, --forest, --move, --ai)
@@ -73,7 +74,7 @@ from . import (archetypes, autorun, branches, cast, charlog, dynamics, elements,
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
-from . import atlas, citygen, foreshadows, setupchat, statwin, timeline, towngen, travel
+from . import abilities, atlas, citygen, foreshadows, setupchat, statwin, timeline, towngen, travel
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StoryArc
 
 
@@ -1867,6 +1868,10 @@ def cmd_foreshadows(a: argparse.Namespace) -> None:
     print(foreshadows.describe(p, a.all))
 
 
+def cmd_abilities(a: argparse.Namespace) -> None:
+    print(abilities.describe(store.load(a.name)))
+
+
 def cmd_statwin(a: argparse.Namespace) -> None:
     """상태창 보기와 고치기. --set 레벨=13 HP=+20 스킬= (빈 값은 항목 지우기)."""
     p = store.load(a.name)
@@ -2175,6 +2180,7 @@ def main(argv: list[str] | None = None) -> None:
     sp = add("statwin", cmd_statwin, yes=False)
     sp.add_argument("character", nargs="?", help="인물 id 나 이름. 비우면 상태창이 있는 인물 목록")
     sp.add_argument("--set", nargs="+", action="extend", metavar="항목=값", help="값을 바꾸거나 더한다. +3 은 더하기, 빈 값은 항목 지우기")
+    add("abilities", cmd_abilities, yes=False)
     sp = add("time", cmd_time, yes=False)
     sp.add_argument("--date", help="1일째 날짜 YYYY-MM-DD. 정하면 화마다 날짜로 보이고 요일 · 남은 날은 Canon 이 계산해요. 빈 값이면 지움")
     sp.add_argument("--start", help="1일째에 붙일 글 (예: '늦겨울', '왕국력 312년'). 빈 값이면 지움")

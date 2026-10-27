@@ -23,9 +23,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from . import archetypes, autorun, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
-from .schema import (ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
+from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
-from . import atlas, foreshadows, setupchat, statwin, timeline, travel
+from . import abilities, atlas, foreshadows, setupchat, statwin, timeline, travel
 from .schema import ChatScope, Deadline, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .schema import CharacterState, StoryEvent
 from .schema import NameOption, Recap
@@ -3161,6 +3161,86 @@ def statwin_suggest(name: str, body: StatStyleRequest | None = None) -> StatWind
 def statwin_init(name: str, body: StatStyleRequest | None = None) -> StatInitSuggestion:
     """1화 전 인물들의 상태창 처음 수치 제안. 저장하지 않는다 (작가가 고른 인물의 값을 PUT .../statwin/<인물> 로 저장)."""
     return pipeline.suggest_initial_stats(get_llm("plan"), _load(name), body.request if body else "")
+
+
+# ---------- 스킬 · 특성 도감 (canon/abilities.py) ----------
+
+class AbilityEvent(BaseModel):
+    episode: int
+    kind: Literal["얻음", "바뀜", "잃음"]
+    item: str
+    before: str
+
+
+class AbilityOwner(BaseModel):
+    """도감 항목을 지금 가진 인물. acquired 는 지금 가진 것을 얻은 화 (0 은 1화 전, 기록이 없으면 null)."""
+    character_id: str
+    stat: str
+    item: str
+    grade: str
+    grade_effect: str
+    acquired: int | None
+    history: list[AbilityEvent] = []
+
+
+class AbilityRow(BaseModel):
+    """line 은 AI 에게 보이는 한 줄 (abilities.line). 설명 · 효과 · 대가가 모두 비면 빈 글."""
+    ability: Ability
+    owners: list[AbilityOwner]
+    line: str = ""
+
+
+class AbilityUnlinked(BaseModel):
+    """도감에 없는 상태창 조각. 등급 꼬리를 뗀 이름이 같으면 하나로 묶는다."""
+    name: str
+    stat: str
+    items: list[str]
+    characters: list[str]
+
+
+class AbilitiesView(BaseModel):
+    abilities: list[AbilityRow]
+    unlinked: list[AbilityUnlinked]
+    lists: list[str]
+
+
+class AbilityLookup(BaseModel):
+    """칩 카드: 상태창 조각 하나. ability 가 없으면 도감에 없는 조각."""
+    item: str
+    name: str
+    grade: str
+    stat: str
+    ability: Ability | None
+    grade_effect: str = ""
+    acquired: int | None = None
+    history: list[AbilityEvent] = []
+
+
+@app.get("/api/projects/{name}/abilities")
+def abilities_view(name: str) -> AbilitiesView:
+    """도감 항목마다 가진 인물(등급 · 등급 효과 · 얻은 화)과, 도감에 없는 상태창 조각."""
+    return abilities.catalog(_load(name))
+
+
+@app.get("/api/projects/{name}/abilities/lookup")
+def abilities_lookup(name: str, item: str, cid: str = "", stat: str = "") -> AbilityLookup:
+    """상태창 조각 하나(예: 화염구 Lv4)의 도감 항목과, 그 인물의 등급 효과 · 얻은 화 · 바뀐 기록."""
+    return abilities.lookup(_load(name), item, cid, stat)
+
+
+@app.put("/api/projects/{name}/abilities")
+def abilities_save(name: str, body: Ability) -> Project:
+    """도감 항목을 만들거나(id 가 비었거나 없는 id) 고친다. 작가 입력이라 바로 저장한다."""
+    p = _load(name)
+    abilities.upsert(p, body)
+    return _save(name, p)
+
+
+@app.delete("/api/projects/{name}/abilities/{aid}")
+def abilities_delete(name: str, aid: str) -> Project:
+    p = _load(name)
+    abilities.remove(p, aid)
+    return _save(name, p)
 
 
 # ---------- 작품 속 시간 (canon/timeline.py) ----------

@@ -1597,6 +1597,7 @@ async function routeNow() {
       if (parts[2] === 'atlas') await atlasLoad();
       if (parts[2] === 'foreshadow') await fsLoad();
       if (parts[2] === 'statwin') await swLoad(parts[3]);
+      if (parts[2] === 'abilities') await abLoad(parts[3]);
       if (parts[2] === 'setup' && parts[3]) {  // 인물 화면의 '설정에서 고치기'(setup/<인물 id>)는 그 인물 카드로 간다
         const i = S.project.characters.findIndex((c) => c.id === parts[3]);
         if (i >= 0) S.focusTarget = S.jumpTo = `#f-characters-${i}-name`;
@@ -1750,7 +1751,7 @@ function drawApp() {
     return;
   }
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, statwin: viewStatwin, timeline: viewTimeline, branches: viewBranches };
+  const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${branchStrip(page)}${failStrip(page, n)}${draftStrip(page, n)}${body}</main></div>`;
   document.body.classList.toggle('drawer-open', !!$('#app .drawer'));  // 넓은 화면은 보드를 서랍 폭만큼 비켜 둔다 (app.css)
@@ -1810,6 +1811,7 @@ function navItems() {
     ['atlas', base() + '/atlas', '地', '지도', has(p.world.locations) || (p.elements || []).some((el) => el.kind === '장소')],
     ['foreshadow', base() + '/foreshadow', '伏', '복선 센터', has(p.foreshadows)],
     ['statwin', base() + '/statwin', '#', '상태창 수치', (p.states || []).some((s) => has(s.stats))],
+    ['abilities', base() + '/abilities', '技', '스킬 도감', has(p.abilities)],
     ['timeline', base() + '/timeline', '時', '작품 속 시간', has((p.timeline || {}).deadlines) || p.episodes.some((e) => e.time && (e.time.day > 0 || e.time.part || e.time.label))],
     ['lines', base() + '/lines', '⑂', '이야기 줄기', has(p.storylines)],
     ['causal', base() + '/causal', '∴', '인과율', has(p.elements)],

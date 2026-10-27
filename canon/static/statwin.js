@@ -2,6 +2,7 @@
    게임 판타지 · 헌터물처럼 레벨, 능력치, 스킬 · 특성 · 칭호 목록, 돈, 인벤토리가 나오는 작품에서 인물별 상태창(CharacterState.stats)을 정하고,
    화마다 바뀐 기록(Project.stat_log)으로 비교표를 그린다. 본문에 넣을 상태창 글을 복사한다.
    설정 화면의 상태창 카드(swSetupCard): 1화 전에 작품 틀과 인물별 처음 수치를 표로 정하고, AI 처음 수치 제안을 인물마다 골라 넣는다.
+   스킬 · 특성 도감은 도구 화면 static/abilities.js 에 있고, 여기에는 그 화면으로 가는 카드(swDexLink)만 둔다.
    꾸미기: 작품 설정에 맞춘 본문 서식 · 창 이름 · 작품 틀 · 화면 스킨 안을 AI 에게 받아 고른 안만 적용한다(swDecor).
    서버는 canon/statwin.py (/statwin/<인물 id>, /statwin-suggest). AI 가 적은 바뀐 값은 상태 승인 화면에서 고른 뒤에만 반영된다(swDeltaRows). */
 'use strict';
@@ -234,7 +235,7 @@ function viewStatwin() {
   let main;
   if (!S.sw) main = '<div class="small">불러오는 중…</div>';
   else if (S.sw.error) main = `<div class="note err">${esc(S.sw.error)}</div>`;
-  else main = swEditor() + swDecor() + swPreview() + swTimeline();
+  else main = swEditor() + swDexLink() + swDecor() + swPreview() + swTimeline();
   return `${head}<div class="sw"><nav class="card tight sw-who" aria-label="인물">${who}</nav><div style="display:flex;flex-direction:column;gap:16px;min-width:0">${main}</div></div>`;
 }
 
@@ -323,6 +324,15 @@ async function swPut(patch, msg) {
     if (dirty) { S.swRows = rows; S.swDirty = true; }
     toast(msg);
   });
+}
+
+/** 스킬 도감 화면으로 가는 카드. 목록 항목(스킬 · 특성 · 칭호)이 있거나 도감 항목이 있을 때만 */
+function swDexLink() {
+  const n = (P().abilities || []).length;
+  const lists = (S.swRows || []).some((r) => abListName(r.name));
+  if (!n && !lists) return '';
+  return `<section class="card"><div class="between"><span><strong>스킬 · 특성 도감</strong> <span class="small">${n ? `${n}개 항목` : '아직 항목이 없어요'} · 스킬마다 설명 · 효과 · 대가를 적어요</span></span>
+    <a class="btn small" href="${base()}/abilities">도감 열기</a></div></section>`;
 }
 
 // ----- 설정 화면: 작품 틀과 처음 수치 -----

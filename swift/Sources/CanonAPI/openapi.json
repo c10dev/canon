@@ -7865,6 +7865,211 @@
     }
    }
   },
+  "/api/projects/{name}/abilities": {
+   "get": {
+    "summary": "Abilities View",
+    "description": "도감 항목마다 가진 인물(등급 · 등급 효과 · 얻은 화)과, 도감에 없는 상태창 조각.",
+    "operationId": "abilities_view",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AbilitiesView"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "put": {
+    "summary": "Abilities Save",
+    "description": "도감 항목을 만들거나(id 가 비었거나 없는 id) 고친다. 작가 입력이라 바로 저장한다.",
+    "operationId": "abilities_save",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Ability"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/abilities/lookup": {
+   "get": {
+    "summary": "Abilities Lookup",
+    "description": "상태창 조각 하나(예: 화염구 Lv4)의 도감 항목과, 그 인물의 등급 효과 · 얻은 화 · 바뀐 기록.",
+    "operationId": "abilities_lookup",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "item",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Item"
+      }
+     },
+     {
+      "name": "cid",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Cid"
+      }
+     },
+     {
+      "name": "stat",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Stat"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AbilityLookup"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/abilities/{aid}": {
+   "delete": {
+    "summary": "Abilities Delete",
+    "operationId": "abilities_delete",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "aid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Aid"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/timeline": {
    "get": {
     "summary": "Timeline View",
@@ -8810,6 +9015,331 @@
  },
  "components": {
   "schemas": {
+   "AbilitiesView": {
+    "properties": {
+     "abilities": {
+      "items": {
+       "$ref": "#/components/schemas/AbilityRow"
+      },
+      "type": "array",
+      "title": "Abilities"
+     },
+     "unlinked": {
+      "items": {
+       "$ref": "#/components/schemas/AbilityUnlinked"
+      },
+      "type": "array",
+      "title": "Unlinked"
+     },
+     "lists": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Lists"
+     }
+    },
+    "type": "object",
+    "required": [
+     "abilities",
+     "unlinked",
+     "lists"
+    ],
+    "title": "AbilitiesView"
+   },
+   "Ability": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name",
+      "description": "상태창 목록에 쓰는 이름 (등급 꼬리 없이, 예: 화염구)"
+     },
+     "aliases": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Aliases",
+      "description": "다른 이름. 상태창 조각과 본문에서 같은 것으로 본다"
+     },
+     "stat": {
+      "type": "string",
+      "title": "Stat",
+      "description": "속하는 상태창 항목 (스킬, 특성, 칭호). 비면 어느 목록이든",
+      "default": ""
+     },
+     "description": {
+      "type": "string",
+      "title": "Description",
+      "default": ""
+     },
+     "effect": {
+      "type": "string",
+      "title": "Effect",
+      "description": "효과",
+      "default": ""
+     },
+     "cost": {
+      "type": "string",
+      "title": "Cost",
+      "description": "대가 · 제약 (쿨타임, 마력 소모, 수명 등)",
+      "default": ""
+     },
+     "grades": {
+      "items": {
+       "$ref": "#/components/schemas/AbilityGrade"
+      },
+      "type": "array",
+      "title": "Grades",
+      "description": "등급별 효과"
+     },
+     "context": {
+      "type": "string",
+      "enum": [
+       "auto",
+       "always",
+       "off"
+      ],
+      "title": "Context",
+      "description": "프롬프트에 넣기: 관련 있을 때, 항상, 넣지 않음",
+      "default": "auto"
+     },
+     "source": {
+      "type": "string",
+      "enum": [
+       "author",
+       "ai"
+      ],
+      "title": "Source",
+      "default": "author"
+     },
+     "created_ep": {
+      "type": "integer",
+      "title": "Created Ep",
+      "description": "상태 변경안에서 생겼으면 그 화. 작가가 만들면 0",
+      "default": 0
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name"
+    ],
+    "title": "Ability",
+    "description": "스킬 · 특성 · 칭호 도감 한 항목 (canon/abilities.py). 정의는 인물 사이에 하나로 두고,\n누가 어느 등급을 가졌는지와 얻은 화는 상태창 값(CharacterState.stats)과 기록(stat_log)에서 계산한다."
+   },
+   "AbilityEvent": {
+    "properties": {
+     "episode": {
+      "type": "integer",
+      "title": "Episode"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "얻음",
+       "바뀜",
+       "잃음"
+      ],
+      "title": "Kind"
+     },
+     "item": {
+      "type": "string",
+      "title": "Item"
+     },
+     "before": {
+      "type": "string",
+      "title": "Before"
+     }
+    },
+    "type": "object",
+    "required": [
+     "episode",
+     "kind",
+     "item",
+     "before"
+    ],
+    "title": "AbilityEvent"
+   },
+   "AbilityGrade": {
+    "properties": {
+     "grade": {
+      "type": "string",
+      "title": "Grade"
+     },
+     "effect": {
+      "type": "string",
+      "title": "Effect",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "grade"
+    ],
+    "title": "AbilityGrade",
+    "description": "스킬 등급 하나의 효과 (canon/abilities.py). grade 는 상태창 조각의 꼬리와 같게 (Lv3, B급, 3성)."
+   },
+   "AbilityLookup": {
+    "properties": {
+     "item": {
+      "type": "string",
+      "title": "Item"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "grade": {
+      "type": "string",
+      "title": "Grade"
+     },
+     "stat": {
+      "type": "string",
+      "title": "Stat"
+     },
+     "ability": {
+      "$ref": "#/components/schemas/Ability"
+     },
+     "grade_effect": {
+      "type": "string",
+      "title": "Grade Effect",
+      "default": ""
+     },
+     "acquired": {
+      "type": "integer",
+      "title": "Acquired"
+     },
+     "history": {
+      "items": {
+       "$ref": "#/components/schemas/AbilityEvent"
+      },
+      "type": "array",
+      "title": "History",
+      "default": []
+     }
+    },
+    "type": "object",
+    "required": [
+     "item",
+     "name",
+     "grade",
+     "stat"
+    ],
+    "title": "AbilityLookup",
+    "description": "칩 카드: 상태창 조각 하나. ability 가 없으면 도감에 없는 조각."
+   },
+   "AbilityOwner": {
+    "properties": {
+     "character_id": {
+      "type": "string",
+      "title": "Character Id"
+     },
+     "stat": {
+      "type": "string",
+      "title": "Stat"
+     },
+     "item": {
+      "type": "string",
+      "title": "Item"
+     },
+     "grade": {
+      "type": "string",
+      "title": "Grade"
+     },
+     "grade_effect": {
+      "type": "string",
+      "title": "Grade Effect"
+     },
+     "acquired": {
+      "type": "integer",
+      "title": "Acquired"
+     },
+     "history": {
+      "items": {
+       "$ref": "#/components/schemas/AbilityEvent"
+      },
+      "type": "array",
+      "title": "History",
+      "default": []
+     }
+    },
+    "type": "object",
+    "required": [
+     "character_id",
+     "stat",
+     "item",
+     "grade",
+     "grade_effect"
+    ],
+    "title": "AbilityOwner",
+    "description": "도감 항목을 지금 가진 인물. acquired 는 지금 가진 것을 얻은 화 (0 은 1화 전, 기록이 없으면 null)."
+   },
+   "AbilityRow": {
+    "properties": {
+     "ability": {
+      "$ref": "#/components/schemas/Ability"
+     },
+     "owners": {
+      "items": {
+       "$ref": "#/components/schemas/AbilityOwner"
+      },
+      "type": "array",
+      "title": "Owners"
+     },
+     "line": {
+      "type": "string",
+      "title": "Line",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "ability",
+     "owners"
+    ],
+    "title": "AbilityRow",
+    "description": "line 은 AI 에게 보이는 한 줄 (abilities.line). 설명 · 효과 · 대가가 모두 비면 빈 글."
+   },
+   "AbilityUnlinked": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "stat": {
+      "type": "string",
+      "title": "Stat"
+     },
+     "items": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Items"
+     },
+     "characters": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Characters"
+     }
+    },
+    "type": "object",
+    "required": [
+     "name",
+     "stat",
+     "items",
+     "characters"
+    ],
+    "title": "AbilityUnlinked",
+    "description": "도감에 없는 상태창 조각. 등급 꼬리를 뗀 이름이 같으면 하나로 묶는다."
+   },
    "Act": {
     "properties": {
      "name": {
@@ -15069,6 +15599,14 @@
      "stat_window": {
       "$ref": "#/components/schemas/StatWindow",
       "description": "본문에 넣는 상태창 서식"
+     },
+     "abilities": {
+      "items": {
+       "$ref": "#/components/schemas/Ability"
+      },
+      "type": "array",
+      "title": "Abilities",
+      "description": "스킬 · 특성 · 칭호 도감 (canon/abilities.py)"
      },
      "setting_log": {
       "items": {

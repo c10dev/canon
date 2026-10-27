@@ -1062,6 +1062,28 @@ class StatWindowSuggestion(BaseModel):
     options: list[StatWindowOption] = Field(default_factory=list, description="서로 다른 분위기의 안 2~3개")
 
 
+class AbilityGrade(BaseModel):
+    """스킬 등급 하나의 효과 (canon/abilities.py). grade 는 상태창 조각의 꼬리와 같게 (Lv3, B급, 3성)."""
+    grade: str
+    effect: str = ""
+
+
+class Ability(BaseModel):
+    """스킬 · 특성 · 칭호 도감 한 항목 (canon/abilities.py). 정의는 인물 사이에 하나로 두고,
+    누가 어느 등급을 가졌는지와 얻은 화는 상태창 값(CharacterState.stats)과 기록(stat_log)에서 계산한다."""
+    id: str
+    name: str = Field(description="상태창 목록에 쓰는 이름 (등급 꼬리 없이, 예: 화염구)")
+    aliases: list[str] = Field(default_factory=list, description="다른 이름. 상태창 조각과 본문에서 같은 것으로 본다")
+    stat: str = Field("", description="속하는 상태창 항목 (스킬, 특성, 칭호). 비면 어느 목록이든")
+    description: str = ""
+    effect: str = Field("", description="효과")
+    cost: str = Field("", description="대가 · 제약 (쿨타임, 마력 소모, 수명 등)")
+    grades: list[AbilityGrade] = Field(default_factory=list, description="등급별 효과")
+    context: Literal["auto", "always", "off"] = Field("auto", description="프롬프트에 넣기: 관련 있을 때, 항상, 넣지 않음")
+    source: Literal["author", "ai"] = "author"
+    created_ep: int = Field(0, description="상태 변경안에서 생겼으면 그 화. 작가가 만들면 0")
+
+
 class StatInitCharacter(BaseModel):
     """한 인물의 1화 시작 상태창 수치 제안."""
     character_id: str = Field(description="인물 id")
@@ -1398,6 +1420,7 @@ class Project(BaseModel):
     foreshadow_clues: list[ForeshadowClue] = Field(default_factory=list, description="복선이 본문에 걸린 문장 (복선 센터)")
     stat_log: list[StatRecord] = Field(default_factory=list, description="상태창 수치가 바뀐 기록")
     stat_window: StatWindow = Field(default_factory=StatWindow, description="본문에 넣는 상태창 서식")
+    abilities: list[Ability] = Field(default_factory=list, description="스킬 · 특성 · 칭호 도감 (canon/abilities.py)")
     setting_log: list[SettingRecord] = Field(default_factory=list, description="인물 설정이 바뀐 기록 (승인한 설정 바꾸기 제안, 1화 반영 뒤 작가가 고친 것)")
     setting_held: list[SettingChange] = Field(default_factory=list, description="자동 집필이 반영하지 않고 남겨 둔 설정 바꾸기 제안. 작가가 인물 화면에서 적용하거나 버린다")
     history: list[StateDelta] = Field(default_factory=list, description="승인된 상태 변경 기록")
