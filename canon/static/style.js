@@ -103,6 +103,7 @@ document.addEventListener('input', (e) => {
 const styleBlank = (st) => !Object.values(st || {}).some((v) => (typeof v === 'string' ? v.trim() : Array.isArray(v) ? v.length : v));
 
 function viewStyle() {
+  styleSeen = { name: S.name, title: P().meta.title || S.name };
   // 문체가 비었으면 예시 원문 붙여 넣기가 지금 할 일이다: 그 카드를 맨 위로 올리고 '문체 분석'을 primary 로 둔다
   const blank = styleBlank(P().style);
   const next = stepLabel('arc');
@@ -155,6 +156,31 @@ const exName = (i = 0) => (P() && P().characters[i] && P().characters[i].name) |
 /** 화 범위 'a~b화' (한 화면 'a화'). 범위 기호는 물결표 하나로 쓴다. */
 const epRange = (a, b) => (a === b ? `${a}화` : `${a}~${b}화`);
 
+// ----- 라이브러리에서 들어온 작품으로 돌아가기 -----
+// 작품 문체 화면에서 라이브러리(#/styles)로 오면 그 작품을 기억한다. 라이브러리 밖으로 나가면 잊는다.
+// 라이브러리 화면은 S.name 을 비우므로 작품 이름은 이동 전 주소(oldURL)에서 읽고, 제목은 문체 화면을 그릴 때 적어 둔다
+let libFrom = (() => { try { return JSON.parse(sessionStorage.getItem('canon.libFrom') || 'null'); } catch { return null; } })();
+let styleSeen = null;  // 마지막으로 그린 작품 문체 화면 { name, title }
+
+function setLibFrom(v) {
+  libFrom = v;
+  try { if (v) sessionStorage.setItem('canon.libFrom', JSON.stringify(v)); else sessionStorage.removeItem('canon.libFrom'); } catch { /* 저장 못 해도 이번 화면에서는 돌아갈 수 있다 */ }
+}
+
+window.addEventListener('hashchange', (e) => {
+  const hashOf = (url) => { const i = String(url || '').indexOf('#'); return i < 0 ? '' : String(url).slice(i); };
+  if (!/^#\/styles(\/|$)/.test(location.hash)) return setLibFrom(null);
+  const m = /^#\/p\/([^/]+)\/style$/.exec(hashOf(e.oldURL));
+  if (!m) return;
+  const name = decodeURIComponent(m[1]);
+  setLibFrom({ name, title: styleSeen && styleSeen.name === name ? styleSeen.title : name });
+});
+
+/** 들어온 작품의 문체 화면으로 가는 버튼. 작품 문체 화면에서 오지 않았으면 빈 글 */
+function libBackBtn() {
+  return libFrom ? `<a class="btn" href="#/p/${enc(libFrom.name)}/style">‘${esc(libFrom.title)}’ 문체로 돌아가기</a>` : '';
+}
+
 function viewLibrary() {
   const list = S.libs || [];
   const cards = list.map((x) => `<article class="card tight">
@@ -170,23 +196,25 @@ function viewLibrary() {
       <div class="row"><a class="btn small" href="#/styles/${esc(x.id)}">열기</a><button class="btn small" data-action="libDuplicate" data-arg="${esc(x.id)}">복제</button><button class="btn small danger" data-action="libDelete" data-arg="${esc(x.id)}">삭제</button></div>
     </article>`).join('');
   // 비었을 때는 빈 카드의 버튼 하나만 주 버튼으로 둔다
-  return `${header('Canon', '문체 라이브러리', '붙여 넣은 원문에서 뽑은 문체를 작품과 따로 모아 둬요. 작품에 적용하면 그 시점의 문체가 작품에 복사되고, 라이브러리를 고쳐도 쓰고 있는 작품은 다시 적용하기 전까지 그대로예요.', `<a class="btn" href="#/">작품 목록</a>${list.length ? '<a class="btn primary" href="#/styles/new">+ 새 문체</a>' : ''}`)}
+  return `${header('Canon', '문체 라이브러리', '붙여 넣은 원문에서 뽑은 문체를 작품과 따로 모아 둬요. 작품에 적용하면 그 시점의 문체가 작품에 복사되고, 라이브러리를 고쳐도 쓰고 있는 작품은 다시 적용하기 전까지 그대로예요.', `${libBackBtn()}<a class="btn" href="#/">작품 목록</a>${list.length ? '<a class="btn primary" href="#/styles/new">+ 새 문체</a>' : ''}`)}
     ${list.length ? `<div class="grid-auto">${cards}</div>` : `<div class="card empty"><div>아직 저장한 문체가 없어요.</div><div class="small">새 문체를 만들거나, 작품의 문체 레퍼런스 화면에서 '이 문체를 라이브러리에 새로 저장'을 누르세요.</div><a class="btn primary" href="#/styles/new">+ 새 문체</a></div>`}`;
 }
 
-function baselineRows(b) {
-  if (!b) return '<div class="small">원문을 넣고 저장하면 문장 길이, 대사 비율 같은 기준 지표를 재요. 본문을 쓴 뒤 문체가 얼마나 벗어났는지 비교하는 기준이 돼요.</div>';
+/** 기준 지표 표. 지표마다 무엇을 쟀는지 한 줄 풀이를 붙인다 (metrics.measure 의 계산과 같게 쓴다).
+    when 은 비었을 때 언제 재는지: 작품은 '문체 분석을 하면', 라이브러리는 원문을 넣고 저장할 때 잰다 (library.create · update). */
+function baselineRows(b, when = '문체 분석을 하면') {
+  if (!b) return `<div class="small">${when} 문장 길이, 대사 비율 같은 기준 지표를 재요. 본문을 쓴 뒤 문체가 얼마나 벗어났는지 비교하는 기준이 돼요.</div>`;
   const pct = (v) => (v == null ? '–' : `${Math.round(v * 100)}%`);
   const rows = [
-    ['문장 평균 길이', `${b.sentence_len_mean.toFixed(1)}자`],
-    ['문장 길이 변화폭', b.sentence_len_cv.toFixed(2)],
-    ['문단 평균 길이', `${Math.round(b.paragraph_len_mean)}자`],
-    ['대사 비율', pct(b.dialogue_ratio)],
-    ['과거형 비율', pct(b.past_tense_ratio)],
-    ['어휘 다양도', b.mattr == null ? '–' : b.mattr.toFixed(2)],
-    ['쉼표 문장 비율', pct(b.comma_sentence_ratio)],
+    ['문장 평균 길이', `${b.sentence_len_mean.toFixed(1)}자`, '문장 하나의 평균 글자 수예요. 띄어쓰기도 세요.'],
+    ['문장 길이 변화폭', b.sentence_len_cv.toFixed(2), '문장 길이의 표준편차를 평균으로 나눈 값이에요. 0에 가까울수록 문장 길이가 고르고 리듬이 단조로워요. 클수록 짧은 문장과 긴 문장이 많이 섞여요.'],
+    ['문단 평균 길이', `${Math.round(b.paragraph_len_mean)}자`, '빈 줄로 나뉜 문단 하나의 평균 글자 수예요.'],
+    ['대사 비율', pct(b.dialogue_ratio), '전체 글자 중 따옴표("…", “…”, 「…」, 『…』) 안 글자의 비율이에요.'],
+    ['과거형 비율', pct(b.past_tense_ratio), "'~다'로 끝나는 서술 문장 중 '~했다', '~었다'처럼 과거형으로 끝나는 비율이에요. 그런 문장이 없으면 –로 보여요."],
+    ['어휘 다양도', b.mattr == null ? '–' : b.mattr.toFixed(2), '어절 100개씩 창을 옮기며 잰 서로 다른 어절의 비율이에요(0~1). 높을수록 같은 말을 덜 되풀이해요. 100어절보다 짧으면 재지 않아요.'],
+    ['쉼표 문장 비율', pct(b.comma_sentence_ratio), '대사를 뺀 서술 문장 중 쉼표가 들어간 문장의 비율이에요. AI가 쓴 한국어 글은 사람 글보다 높은 편이에요.'],
   ];
-  return `<dl class="metric-list">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>`;
+  return `<dl class="metric-list">${rows.map(([k, v, why]) => `<dt title="${esc(why)}">${k}</dt><dd>${v}<span class="small" style="display:block;font-weight:400">${esc(why)}</span></dd>`).join('')}</dl>`;
 }
 
 function viewLibEntry() {
@@ -194,7 +222,7 @@ function viewLibEntry() {
   const isNew = !e.id;
   const used = e.used_by || [];
   const others = (S.projects || []).filter((x) => !used.includes(x.name));
-  const right = `<a class="btn" href="#/styles">목록으로</a>${isNew ? '' : `<button class="btn" data-action="libDuplicate" data-arg="${esc(e.id)}">복제</button><button class="btn danger" data-action="libDelete" data-arg="${esc(e.id)}">삭제</button><button class="btn" data-action="libRevert"${S.libDirty ? '' : ' disabled'}>저장 전으로</button>`}<button class="btn primary" data-action="libSave">저장</button>`;
+  const right = `${libBackBtn()}<a class="btn" href="#/styles">목록으로</a>${isNew ? '' : `<button class="btn" data-action="libDuplicate" data-arg="${esc(e.id)}">복제</button><button class="btn danger" data-action="libDelete" data-arg="${esc(e.id)}">삭제</button><button class="btn" data-action="libRevert"${S.libDirty ? '' : ' disabled'}>저장 전으로</button>`}<button class="btn primary" data-action="libSave">저장</button>`;
   const apply = isNew ? '' : `<section class="card tight">
       <h2>작품에 적용</h2>
       <div class="small">${used.length ? `쓰는 작품: ${used.map((n) => `<a href="#/p/${enc(n)}/style">${esc(n)}</a>`).join(', ')}` : '아직 쓰는 작품이 없어요.'}</div>
@@ -214,7 +242,7 @@ function viewLibEntry() {
           ${input('분석할 소설 본문', 'sample', { root: 'lib', rows: 14, style: 'font-family:var(--serif);font-size:0.9375rem;line-height:1.9', hint: '이 컴퓨터의 라이브러리 폴더에만 저장돼요' })}
           <div><button class="btn dark" data-action="libAnalyze">문체 분석</button></div>
         </section>
-        <section class="card tight"><h2>기준 지표</h2>${baselineRows(e.baseline)}</section>
+        <section class="card tight"><h2>기준 지표</h2>${baselineRows(e.baseline, '원문을 넣고 저장하면')}</section>
         ${apply}
         ${isNew ? '' : versionsCard()}
       </div>
