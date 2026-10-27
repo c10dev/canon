@@ -1045,6 +1045,7 @@ class StatWindow(BaseModel):
     title: str = Field("상태창", description="화면의 상태창 머리에 보이는 창 이름 (예: 상태창, 무공록)")
     skin: StatSkin = Field("system", description="화면에서 상태창을 그리는 모양 (statwin.SKINS)")
     names: list[str] = Field(default_factory=list, description="작품 틀: 인물 상태창에 넣을 항목 이름. 비면 기본 틀만 보인다")
+    prompt: Literal["json", "lines", "none"] = Field("json", description="쓰기 프롬프트에 상태창 수치를 넣는 방식: json 인물 상태 안에 그대로 / lines 이번 화 인물만 줄 형식과 도감 줄 / none 넣지 않음 (statwin.write_rule, 연구 화면 상태창 시험)")
 
 
 class StatWindowOption(BaseModel):

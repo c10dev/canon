@@ -5,7 +5,7 @@
 // 본편 데이터와 분리된 실험실. 결과는 projects/<이름>/research/log.jsonl 에 남고,
 // 블라인드 비교에서 채택할 때만 작품 본문이 바뀐다.
 
-const RS_TABS = [['probe', '서버 점검'], ['sample', '샘플 생성'], ['stage', '단계 시험'], ['budget', '컨텍스트 크기'], ['check', '검수 시험'], ['compare', '블라인드 비교'], ['log', '기록']];
+const RS_TABS = [['probe', '서버 점검'], ['sample', '샘플 생성'], ['stage', '단계 시험'], ['budget', '컨텍스트 크기'], ['check', '검수 시험'], ['compare', '블라인드 비교'], ['stattrial', '상태창 시험'], ['log', '기록']];
 const RS_KIND = { sample: '샘플 생성', stage: '단계 시험', budget: '컨텍스트 크기', check: '검수 시험', compare: '블라인드 비교', pick: '비교 고르기' };
 
 function rsInit(name) {
@@ -92,8 +92,9 @@ Object.assign(actions, {
       toast('초안을 칸에 넣었어요. 고친 뒤 저장하세요');
     });
   },
-  rsTab(tab) {
+  async rsTab(tab) {
     S.rs.tab = tab;
+    if (tab === 'stattrial' && !S.st) await stLoad();  // static/stattrial.js
     render();
   },
   async rsProbe() {
@@ -388,7 +389,7 @@ function rsLogView() {
 
 function viewResearch() {
   if (!S.rs) return header('연구', '모델 실험', '') + '<div class="note plain">불러오는 중…</div>';
-  const views = { probe: rsProbeView, sample: rsSampleView, stage: rsStageView, budget: rsBudgetView, check: rsCheckView, compare: rsCompareView, log: rsLogView };
+  const views = { probe: rsProbeView, sample: rsSampleView, stage: rsStageView, budget: rsBudgetView, check: rsCheckView, compare: rsCompareView, stattrial: stView, log: rsLogView };
   return `${header('연구 · 본편과 분리', '모델 실험', '모델 서버를 점검하고, 같은 요청을 여러 모델로 돌려 비교해요. 여기서 돌린 결과는 작품 데이터에 들어가지 않고 실험 기록으로만 남아요. 블라인드 비교에서 채택할 때만 본문이 바뀌어요.')}
     <div class="tabs wrap" role="tablist" aria-label="실험 종류">${RS_TABS.map(([k, l]) => `<button type="button" role="tab" aria-selected="${S.rs.tab === k}" aria-controls="rs-panel" data-action="rsTab" data-arg="${k}">${l}</button>`).join('')}</div>
     <div role="tabpanel" id="rs-panel" aria-label="${esc((RS_TABS.find(([k]) => k === S.rs.tab) || [, ''])[1])}">

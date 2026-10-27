@@ -8070,6 +8070,98 @@
     }
    }
   },
+  "/api/projects/{name}/stattrial": {
+   "get": {
+    "summary": "Stattrial View",
+    "description": "상태창 시험 화면: 조건, 시험할 수 있는 화, 추천 고르기, 지난 시험(실험 기록 kind statwin, 최근 10개).",
+    "operationId": "stattrial_view",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/StatTrialView"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/stattrial/estimate": {
+   "post": {
+    "summary": "Stattrial Estimate",
+    "description": "쓰기 호출 수와 비용 추정. AI 를 부르지 않는다.",
+    "operationId": "stattrial_estimate",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StatTrialIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Stattrial Estimate"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/timeline": {
    "get": {
     "summary": "Timeline View",
@@ -14075,6 +14167,27 @@
       "type": "boolean",
       "title": "Fit Next",
       "default": true
+     },
+     "episodes": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Episodes",
+      "default": []
+     },
+     "repeats": {
+      "type": "integer",
+      "title": "Repeats",
+      "default": 1
+     },
+     "conditions": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Conditions",
+      "default": []
      }
     },
     "type": "object",
@@ -17542,6 +17655,128 @@
     "title": "StatTemplate",
     "description": "상태창 서식. title · skin · names 를 빼고 보내면 지금 값을 둔다."
    },
+   "StatTrialCandidate": {
+    "properties": {
+     "episode": {
+      "type": "integer",
+      "title": "Episode"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "changed": {
+      "type": "boolean",
+      "title": "Changed"
+     },
+     "wants": {
+      "type": "boolean",
+      "title": "Wants"
+     }
+    },
+    "type": "object",
+    "required": [
+     "episode",
+     "title",
+     "changed",
+     "wants"
+    ],
+    "title": "StatTrialCandidate",
+    "description": "시험할 수 있는 화. changed: 원래 반영에서 수치가 바뀐 화, wants: 플롯에 상태창 장면이 있는 화."
+   },
+   "StatTrialCondition": {
+    "properties": {
+     "key": {
+      "type": "string",
+      "title": "Key"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "about": {
+      "type": "string",
+      "title": "About"
+     }
+    },
+    "type": "object",
+    "required": [
+     "key",
+     "label",
+     "about"
+    ],
+    "title": "StatTrialCondition"
+   },
+   "StatTrialIn": {
+    "properties": {
+     "episodes": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Episodes"
+     },
+     "repeats": {
+      "type": "integer",
+      "title": "Repeats",
+      "default": 1
+     },
+     "conditions": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Conditions",
+      "default": []
+     }
+    },
+    "type": "object",
+    "required": [
+     "episodes"
+    ],
+    "title": "StatTrialIn"
+   },
+   "StatTrialView": {
+    "properties": {
+     "conditions": {
+      "items": {
+       "$ref": "#/components/schemas/StatTrialCondition"
+      },
+      "type": "array",
+      "title": "Conditions"
+     },
+     "candidates": {
+      "items": {
+       "$ref": "#/components/schemas/StatTrialCandidate"
+      },
+      "type": "array",
+      "title": "Candidates"
+     },
+     "pick": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Pick"
+     },
+     "runs": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array",
+      "title": "Runs"
+     }
+    },
+    "type": "object",
+    "required": [
+     "conditions",
+     "candidates",
+     "pick",
+     "runs"
+    ],
+    "title": "StatTrialView"
+   },
    "StatValue": {
     "properties": {
      "name": {
@@ -17601,6 +17836,17 @@
       "type": "array",
       "title": "Names",
       "description": "작품 틀: 인물 상태창에 넣을 항목 이름. 비면 기본 틀만 보인다"
+     },
+     "prompt": {
+      "type": "string",
+      "enum": [
+       "json",
+       "lines",
+       "none"
+      ],
+      "title": "Prompt",
+      "description": "쓰기 프롬프트에 상태창 수치를 넣는 방식: json 인물 상태 안에 그대로 / lines 이번 화 인물만 줄 형식과 도감 줄 / none 넣지 않음 (statwin.write_rule, 연구 화면 상태창 시험)",
+      "default": "json"
      }
     },
     "type": "object",
