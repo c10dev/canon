@@ -7665,6 +7665,56 @@
     }
    }
   },
+  "/api/projects/{name}/statwin-suggest": {
+   "post": {
+    "summary": "Statwin Suggest",
+    "description": "작품 설정에 맞춘 상태창 꾸미기 안. 저장하지 않는다 (작가가 고른 안을 statwin-template 로 저장).",
+    "operationId": "statwin_suggest",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StatStyleRequest",
+        "title": "Body"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/StatWindowSuggestion"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/timeline": {
    "get": {
     "summary": "Timeline View",
@@ -16614,6 +16664,17 @@
     "title": "StatRecord",
     "description": "상태창 수치가 바뀐 기록. 화별 비교는 이 기록으로 다시 그린다 (canon/statwin.py)."
    },
+   "StatStyleRequest": {
+    "properties": {
+     "request": {
+      "type": "string",
+      "title": "Request",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "StatStyleRequest"
+   },
    "StatTemplate": {
     "properties": {
      "template": {
@@ -16624,13 +16685,36 @@
       "type": "string",
       "title": "Row",
       "default": "{key}: {value}"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "skin": {
+      "type": "string",
+      "enum": [
+       "system",
+       "parchment",
+       "scroll",
+       "neon",
+       "plain"
+      ],
+      "title": "Skin"
+     },
+     "names": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Names"
      }
     },
     "type": "object",
     "required": [
      "template"
     ],
-    "title": "StatTemplate"
+    "title": "StatTemplate",
+    "description": "상태창 서식. title · skin · names 를 빼고 보내면 지금 값을 둔다."
    },
    "StatValue": {
     "properties": {
@@ -16664,11 +16748,112 @@
       "type": "string",
       "title": "Row",
       "default": "{key}: {value}"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title",
+      "description": "화면의 상태창 머리에 보이는 창 이름 (예: 상태창, 무공록)",
+      "default": "상태창"
+     },
+     "skin": {
+      "type": "string",
+      "enum": [
+       "system",
+       "parchment",
+       "scroll",
+       "neon",
+       "plain"
+      ],
+      "title": "Skin",
+      "description": "화면에서 상태창을 그리는 모양 (statwin.SKINS)",
+      "default": "system"
+     },
+     "names": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Names",
+      "description": "작품 틀: 인물 상태창에 넣을 항목 이름. 비면 기본 틀만 보인다"
      }
     },
     "type": "object",
     "title": "StatWindow",
-    "description": "본문에 넣는 상태창 서식. {name} 은 인물 이름, {rows} 는 항목 줄들."
+    "description": "본문에 넣는 상태창 서식. {name} 은 인물 이름, {rows} 는 항목 줄들. 화면에서 상태창을 그리는 모양(창 이름 · 스킨)과 작품 틀도 둔다."
+   },
+   "StatWindowOption": {
+    "properties": {
+     "label": {
+      "type": "string",
+      "title": "Label",
+      "description": "안 이름 한두 낱말 (예: 무공록, 헌터 협회 등록증)"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title",
+      "description": "상태창 창 이름. 본문 서식 머리와 같게 (예: 무공록)"
+     },
+     "template": {
+      "type": "string",
+      "title": "Template",
+      "description": "본문에 넣는 상태창 전체 서식. {name} 은 인물 이름, {rows} 는 항목 줄들이 들어갈 자리. 줄바꿈은 \\n"
+     },
+     "row": {
+      "type": "string",
+      "title": "Row",
+      "description": "항목 한 줄 서식. {key} 는 항목 이름, {value} 는 값 (예: ▸ {key} ┃ {value})"
+     },
+     "names": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Names",
+      "description": "이 세계관에 맞는 항목 이름 4~8개 (예: 경지, 내공, 무공, 독문 절기)"
+     },
+     "skin": {
+      "type": "string",
+      "enum": [
+       "system",
+       "parchment",
+       "scroll",
+       "neon",
+       "plain"
+      ],
+      "title": "Skin",
+      "description": "화면 스킨: system 시스템 창 / parchment 양피지 / scroll 두루마리 / neon 네온 / plain 담백한 서류"
+     },
+     "why": {
+      "type": "string",
+      "title": "Why",
+      "description": "작품 설정의 무엇에 맞췄는지 한국어 한 문장",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "label",
+     "title",
+     "template",
+     "row",
+     "skin"
+    ],
+    "title": "StatWindowOption",
+    "description": "세계관에 맞춘 상태창 꾸미기 한 안 (pipeline.suggest_stat_window). 작가가 골라 적용한다."
+   },
+   "StatWindowSuggestion": {
+    "properties": {
+     "options": {
+      "items": {
+       "$ref": "#/components/schemas/StatWindowOption"
+      },
+      "type": "array",
+      "title": "Options",
+      "description": "서로 다른 분위기의 안 2~3개"
+     }
+    },
+    "type": "object",
+    "title": "StatWindowSuggestion"
    },
    "StateDelta": {
     "properties": {

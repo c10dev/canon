@@ -1,6 +1,6 @@
 /* 인물 화면. app.js 의 S, actions, api, render, header 와 review.js 의 relationHeader 를 그대로 쓴다.
    관계도(방향 관계를 화별로 재생, 옆 칸은 인물 요약), 인물 카드(인물 하나의 설정 · 지금 상태 · 상태창 수치 · 관계 · 비밀 ·
-   남겨 둔 설정 바꾸기 · 화별 타임라인을 보는 시점 기준으로 한 장에, 상태창 수치는 시스템 창 테마로도), 쌍 상세(온기 · 신뢰 · 긴장 추이), 등장표.
+   남겨 둔 설정 바꾸기 · 화별 타임라인을 보는 시점 기준으로 한 장에, 상태창 수치는 작품 스킨 창으로도), 쌍 상세(온기 · 신뢰 · 긴장 추이), 등장표.
    계산값은 서버 canon/cast.py 의 /cast 한 번으로 받는다 (frames: 화별 관계, appearances, timelines).
    인물 설정 · 플롯 · 사건 원본은 작품(P())에서 직접 읽는다. 관계도 배치는 이 브라우저에만 저장한다. */
 'use strict';
@@ -10,7 +10,7 @@ Object.assign(S, {
   castFrame: 0,      // frames 의 몇 번째 시점을 보는지
   castSel: '',       // 'c:<인물 id>' 또는 'p:<a>|<b>'
   castTab: 'graph',  // graph | sheet | table
-  castTheme: '',     // 인물 카드의 상태창 수치 보기: '' 기본 | 'system' 시스템 창. 이 브라우저에만 저장
+  castTheme: '',     // 인물 카드의 상태창 수치 보기: '' 기본 | 'system' 작품 스킨 창(statwin.js swSkin). 이 브라우저에만 저장
   castMinor: true,   // 단역도 관계도에 그린다
   castAllTies: false,  // 인물이 많아도 모든 선을 그린다 (CAST_DENSE)
   castAllTl: false,  // 타임라인 전체 보기
@@ -581,7 +581,7 @@ function castSheetStats(c, f) {
   const system = S.castTheme === 'system';
   const deltaTag = (x) => (x.delta ? `<span class="csh-delta" title="${esc(`${f.episode}화에 바뀜${x.from ? ' · ' + x.from : ''}`)}">${esc(x.delta)}</span>` : '');
   const body = system
-    ? `<div class="sw-sys" role="group" aria-label="${esc(c.name)} 상태창"><div class="sw-sys-title">【 상태창 】</div>
+    ? `<div class="sw-sys sw-skin-${swSkin()}" role="group" aria-label="${esc(c.name)} ${esc(swTitle())}"><div class="sw-sys-title">【 ${esc(swTitle())} 】</div>
         <dl><dt>이름</dt><dd>${esc(c.name || c.id)}</dd>${items.map((x) => `<dt>${esc(x.name)}</dt><dd>${x.pct !== null ? `<span class="sw-sys-bar" aria-hidden="true"><i style="width:${x.pct}%"></i></span>` : ''}${x.list ? x.list.map((v) => `<span class="sw-sys-tag">${esc(v)}</span>`).join('') : `<span>${esc(x.value || '—')}</span>`}${deltaTag(x)}</dd>`).join('')}
         ${gone.map((k) => `<dt>${esc(k)}</dt><dd><s>${esc(before[k])}</s><span class="csh-delta">지움</span></dd>`).join('')}</dl>
         <div class="sw-sys-foot"><span>${esc(frameLabel(f))}</span><span>${moved ? `이번 화에 ${moved}항목 바뀜` : ''}</span></div></div>`
@@ -591,7 +591,7 @@ function castSheetStats(c, f) {
         ${gone.map((k) => `<div class="csh-stat moved"><div class="between"><span class="small">${esc(k)}</span><span class="csh-delta">지움</span></div><s class="small">${esc(before[k])}</s></div>`).join('')}</div>`;
   return `<section class="card"><div class="between"><h2>상태창</h2><span class="row" style="gap:6px">
       ${moved ? `<span class="small">이번 화에 ${moved}항목 바뀜</span>` : ''}
-      <button type="button" class="btn small" data-action="castTheme" aria-pressed="${system}">${system ? '기본으로 보기' : '시스템 창으로 보기'}</button>
+      <button type="button" class="btn small" data-action="castTheme" aria-pressed="${system}">${system ? '기본으로 보기' : `${SW_SKINS[swSkin()]}${josa(SW_SKINS[swSkin()], '으로', '로')} 보기`}</button>
       <a class="btn small" href="${link}">수치 고치기</a></span></div>${body}</section>`;
 }
 

@@ -1034,10 +1034,31 @@ class StatRecord(BaseModel):
     source: Literal["ai", "author"] = Field("ai", description="ai: 승인한 상태 변경안 / author: 작가가 직접 고침")
 
 
+StatSkin = Literal["system", "parchment", "scroll", "neon", "plain"]
+
+
 class StatWindow(BaseModel):
-    """본문에 넣는 상태창 서식. {name} 은 인물 이름, {rows} 는 항목 줄들."""
+    """본문에 넣는 상태창 서식. {name} 은 인물 이름, {rows} 는 항목 줄들. 화면에서 상태창을 그리는 모양(창 이름 · 스킨)과 작품 틀도 둔다."""
     template: str = "【 상태창 】\n이름: {name}\n{rows}"
     row: str = "{key}: {value}"
+    title: str = Field("상태창", description="화면의 상태창 머리에 보이는 창 이름 (예: 상태창, 무공록)")
+    skin: StatSkin = Field("system", description="화면에서 상태창을 그리는 모양 (statwin.SKINS)")
+    names: list[str] = Field(default_factory=list, description="작품 틀: 인물 상태창에 넣을 항목 이름. 비면 기본 틀만 보인다")
+
+
+class StatWindowOption(BaseModel):
+    """세계관에 맞춘 상태창 꾸미기 한 안 (pipeline.suggest_stat_window). 작가가 골라 적용한다."""
+    label: str = Field(description="안 이름 한두 낱말 (예: 무공록, 헌터 협회 등록증)")
+    title: str = Field(description="상태창 창 이름. 본문 서식 머리와 같게 (예: 무공록)")
+    template: str = Field(description="본문에 넣는 상태창 전체 서식. {name} 은 인물 이름, {rows} 는 항목 줄들이 들어갈 자리. 줄바꿈은 \\n")
+    row: str = Field(description="항목 한 줄 서식. {key} 는 항목 이름, {value} 는 값 (예: ▸ {key} ┃ {value})")
+    names: list[str] = Field(default_factory=list, description="이 세계관에 맞는 항목 이름 4~8개 (예: 경지, 내공, 무공, 독문 절기)")
+    skin: StatSkin = Field(description="화면 스킨: system 시스템 창 / parchment 양피지 / scroll 두루마리 / neon 네온 / plain 담백한 서류")
+    why: str = Field("", description="작품 설정의 무엇에 맞췄는지 한국어 한 문장")
+
+
+class StatWindowSuggestion(BaseModel):
+    options: list[StatWindowOption] = Field(default_factory=list, description="서로 다른 분위기의 안 2~3개")
 
 
 SettingField = Literal["age", "role", "appearance", "personality", "speech_style", "background", "goal", "wound"]

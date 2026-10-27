@@ -81,13 +81,26 @@ def test_list_items_through_review_and_timeline():
 def test_inventory_splits_attire_rule():
     p = _short(8)
     statwin.set_stats(p, "hero", [StatValue(name="레벨", value="1")])
-    assert not statwin.inventory(p) and statwin.check_rule(p) == "" and "attire 에는 입고 있거나" not in statwin.state_rule(p)
+    assert not statwin.inventory(p) and "인벤토리:" not in statwin.check_rule(p) and "attire 에는 입고 있거나" not in statwin.state_rule(p)
     statwin.set_stats(p, "hero", [StatValue(name="레벨", value="1"), StatValue(name="인벤토리", value="포션 3개")])
     assert statwin.inventory(p)
     assert "attire 에는 입고 있거나" in statwin.state_rule(p)
     assert "attire 에 없어도" in statwin.write_rule(p) and "인벤토리:" in statwin.check_rule(p)
     _play(p, 1, 1)
     assert "인벤토리:" in prompts.check_prompt(p, 1) and "attire 에는 입고 있거나" in prompts.state_prompt(p, 1)
+
+
+def test_check_compares_stats():
+    p = _short(8)
+    assert "- 상태창:" not in prompts.check_prompt(_play(_short(8), 1, 1), 1)  # 꺼진 작품의 검수는 그대로
+    statwin.set_stats(p, "hero", [StatValue(name="레벨", value="4"), StatValue(name="스킬", value="은신")])
+    rule = statwin.check_rule(p)
+    assert "- 상태창:" in rule and "이번 화 사건으로 바뀐 값은 모순이 아닙니다" in rule and "인벤토리:" not in rule
+    _play(p, 1, 1)
+    p.episode(2).text = "dummy"
+    c = prompts.check_prompt(p, 2)
+    assert "- 상태창:" in c and '"레벨"' in c  # 규칙과 대조할 직전 화 수치가 함께 들어간다
+    assert "- 상태창:" in prompts.check_brief(p, 2)
 
 
 def test_off_until_author_sets_stats():
@@ -156,3 +169,35 @@ def test_cli_and_web(tmp_path, monkeypatch, capsys):
     assert c.put("/api/projects/sw/statwin-template", json={"template": "없음"}).status_code == 400
     c.put("/api/projects/sw/statwin-template", json={"template": "[{name}]\n{rows}", "row": "· {key} {value}"})
     assert c.get("/api/projects/sw/statwin/hero").json()["text"] == "[서윤]\n· 레벨 6"
+
+
+def test_decor_suggestion_is_cleaned_and_not_saved():
+    p = _short(8)
+    statwin.set_stats(p, "hero", [StatValue(name="레벨", value="4")])
+    before = p.stat_window.model_dump()
+    prompt = prompts.stat_window_prompt(p, "더 어둡게")
+    assert "더 어둡게" in prompt and "레벨: 4" in prompt and "scroll" in prompt  # 지금 서식 예와 스킨 목록이 들어간다
+    s = pipeline.suggest_stat_window(LLM, p, "더 어둡게")
+    a, b = s.options
+    assert a.template.count("\n") == 4 and "\\n" not in a.template and a.skin == "scroll"  # 글자 그대로 온 \n 을 줄바꿈으로
+    assert b.template.endswith("\n{rows}") and b.row == "{key}: {value}" and b.names == ["등급", "레벨", "스킬"]
+    assert p.stat_window.model_dump() == before  # 제안은 저장하지 않는다
+
+
+def test_decor_web(tmp_path, monkeypatch):
+    monkeypatch.setenv("CANON_LLM", "mock")
+    monkeypatch.setenv("CANON_HOME", str(tmp_path))
+    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
+    importlib.reload(store)
+    store.save("sw", _short(8))
+    from canon import web
+    importlib.reload(web)
+    c = TestClient(web.app)
+    o = c.post("/api/projects/sw/statwin-suggest", json={"request": ""}).json()["options"][0]
+    assert store.load("sw").stat_window.skin == "system"
+    w = c.put("/api/projects/sw/statwin-template", json={k: o[k] for k in ("template", "row", "title", "skin", "names")}).json()["stat_window"]
+    assert (w["title"], w["skin"], w["names"]) == ("무공록", "scroll", ["경지", "내공", "무공"])
+    w = c.put("/api/projects/sw/statwin-template", json={"template": "{rows}"}).json()["stat_window"]
+    assert (w["title"], w["skin"], w["row"]) == ("무공록", "scroll", "{key}: {value}")  # 빼고 보낸 칸은 그대로
+    assert c.put("/api/projects/sw/statwin-template", json={"template": "{rows}", "skin": "gold"}).status_code == 422
+    assert c.put("/api/projects/sw/statwin-template", json={"template": "{rows}", "row": "{key}"}).status_code == 400
