@@ -1,7 +1,8 @@
-/* 화 끼워 넣기 · 빼기. app.js 의 S, actions, api, render, input 을 그대로 쓴다.
+/* 화 끼워 넣기 · 빼기 · 마지막 화 지우기. app.js 의 S, actions, api, render, input 을 그대로 쓴다.
    아직 안 쓴 화 앞(또는 마지막 화 뒤)에 외전이나 중간 이야기를 넣으면 뒤 화가 플롯과 확정 상태를 그대로 둔 채 한 칸씩 밀리고,
    구간 · 아크 · 부 범위, 총 화수, 복선 · 인과율 요소 · 이야기 줄기의 화 번호도 함께 옮겨진다.
    서버는 pipeline.insert_episode / remove_episode, 새 화 AI 초안은 백그라운드 작업 'plot_one' (pipeline.draft_episode).
+   본문이 있거나 반영한 마지막 화는 '이 화 지우기'(pipeline.delete_last: 반영 취소 → 본문 비우기 → 화 빼기)로 지운다.
    넣을 수 있는 자리는 pipeline.insert_range · renumber.last_fixed 와 같은 규칙이라 함께 고친다. */
 'use strict';
 
@@ -46,6 +47,24 @@ function insertBlock(e) {
         ${after ? `<button type="button" class="btn small" data-action="insOpen" data-arg="${n + 1}"${dis}>${n}화 뒤에 새 화 넣기</button>` : ''}
         ${before ? `<button type="button" class="btn small danger" data-action="insRemove" data-arg="${n}"${dis}>${n}화 빼기</button>` : ''}
       </div></div>`;
+}
+
+/** 본문이 있거나 반영한 마지막 화 지우기 (pipeline.delete_last): 반영 취소 → 본문 비우기 → 화 빼기. 중간 화는 지우지 않는다 */
+function deleteBlock(e) {
+  const n = e.plot.number;
+  if (n !== lastFixed() || !(e.text || e.status === 'written' || e.status === 'finalized' || e.candidate)) return '';
+  const p = P();
+  const applied = e.status === 'finalized' || [...(p.history || []), ...(p.snapshots || []), ...(p.events || [])].some((x) => x.episode >= n);
+  const why = projectBusy() ? 'AI 작업이 끝난 뒤에 할 수 있어요'
+    : autoOn() ? '자동 집필을 일시정지한 뒤에 할 수 있어요'
+      : applied && !(p.snapshots || []).some((s) => s.episode === n - 1) ? `${n - 1}화 스냅샷이 없어 반영을 취소할 수 없어요` : '';
+  const dis = why ? ` disabled title="${why}"` : '';
+  return `<details class="field delete-tools"><summary class="small">이 화 지우기</summary>
+      <div class="small" style="margin:6px 0">마지막으로 쓴 화만 지울 수 있어요. ${applied ? '상태 반영을 취소하고 ' : ''}본문 · 수정 기록 · 이전 판 · 삽화 프롬프트를 지워요. 지우기 전 작품 전체는 백업 파일로 남겨요.</div>
+      <div class="row">
+        <button type="button" class="btn small danger" data-action="delLast" data-arg="${n}"${dis}>${n}화 지우기</button>
+        <button type="button" class="btn small" data-action="delLastText" data-arg="${n}"${dis}>본문만 지우고 플롯 남기기</button>
+      </div></details>`;
 }
 
 function insertForm(f) {
@@ -93,6 +112,33 @@ function realignNote(e) {
       : '본문이 있는 화라 플롯은 그대로예요. 집필 화면의 다시 생성으로 본문을 맞추세요.';
   return `<div class="note warn"><strong>${n - 1}화를 다시 짜며 이 화와 어긋난 점</strong> · ${esc(e.realign)}
     <div class="between" style="margin-top:6px;gap:8px"><span class="small">${how}</span><button type="button" class="btn small" data-action="clearRealign" data-arg="${n}">확인했어요</button></div></div>`;
+}
+
+async function delLast(n, keepPlot) {
+  const p = P();
+  const e = ep(n);
+  const parts = [];
+  if (e.status === 'finalized') {
+    parts.push(`${n}화 상태 반영을 취소해요 (${n > 1 ? `${n - 1}화 반영 직후` : '1화 시작 전'}로).`);
+    const added = (p.history || []).filter((d) => d.episode >= n).flatMap((d) => d.new_characters || []).map((c) => c.name || c.id);
+    const places = (p.elements || []).filter((el) => el.found_in === '본문' && el.found_ep >= n).map((el) => el.name);
+    if (added.length) parts.push(`그 반영이 더한 인물(${added.join(', ')})도 빠져요.`);
+    if (places.length) parts.push(`본문에서 등록한 장소(${places.join(', ')})도 빠져요.`);
+  }
+  if (e.text) parts.push(`본문 ${e.text.length.toLocaleString()}자와 수정 기록 · 이전 판 · 삽화 프롬프트를 지워요.`);
+  parts.push(keepPlot ? '플롯은 확정된 채로 남아 다시 쓸 수 있어요.' : `플롯도 빼고${ep(n + 1) ? ' 뒤 화를 한 칸씩 당기고' : ''} 총 화수가 1 줄어요.`);
+  if (!confirm(`${n}화 '${e.plot.title || '제목 없음'}'을(를) 지울까요?\n\n${parts.join('\n')}\n\n지우기 전 작품은 백업 파일로 남지만 화면에서 되돌릴 수는 없어요.`)) return;
+  await run('화를 지우는 중', async () => {
+    await saveIfDirty();
+    const r = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/delete`, { keep_plot: keepPlot });
+    S.project = r.project;
+    delete S.textDraft[n];
+    delete S.deltas[n];
+    delete S.deltaOrig[n];
+    if (!keepPlot) S.selEp = null;
+    toast(r.notes.join(' '));
+    if (!keepPlot && ['write', 'review'].includes(S.route[2])) location.hash = `${base()}/arc`;
+  });
 }
 
 document.addEventListener('change', (e) => {
@@ -152,6 +198,12 @@ Object.assign(actions, {
       S.selEp = null;
       toast(r.notes.join(' '));
     });
+  },
+  delLast(n) {
+    return delLast(Number(n), false);
+  },
+  delLastText(n) {
+    return delLast(Number(n), true);
   },
   async insDraft(n) {
     await startJob('plot_one', Number(n), { fit_next: !!S.fitNext });

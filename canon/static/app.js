@@ -558,7 +558,7 @@ function renderJobs() {
   const running = S.jobs.filter((j) => j.status === 'running');
   const failed = S.jobs.filter((j) => j.status === 'error');
   // 접힌 머리에도 하나뿐인 작업의 이름 · 진행률과 실패 수를 보인다
-  const one = running.length === 1 ? `${running[0].label}${running[0].total > 1 ? ` ${running[0].done}/${running[0].total}` : ''}` : '';
+  const one = running.length === 1 ? [`${running[0].label}${running[0].total > 1 ? ` ${running[0].done}/${running[0].total}` : ''}`, jobLeft(running[0], Date.now() / 1000)].filter(Boolean).join(' · ') : '';
   const head = S.jobsOffline ? '서버 연결이 끊겼어요. 다시 연결하는 중…'
     : running.length ? `${one ? `AI 작업 진행 중 · ${one}` : `AI 작업 ${running.length}개 진행 중`}${failed.length ? ` · ${failed.length}개 실패` : ''}`
       : `AI 작업 끝남${failed.length ? ` · ${failed.length}개 실패` : ''}`;
@@ -570,7 +570,7 @@ function renderJobs() {
     const wait = j.kind === 'auto' && j.status === 'done' && j.result && { review: '검토 필요', paused: '멈춤', error: '오류' }[j.result.status];
     const state = j.status === 'running' ? `<span class="spinner sm" aria-hidden="true"></span>` : wait ? `<span class="wait">${wait}</span>` : j.status === 'done' ? '<span class="ok">완료</span>' : j.status === 'cancelled' ? '<span class="small">멈춤</span>' : '<span class="bad">실패</span>';
     const other = j.project !== S.name ? ` <span class="small">· ${esc(j.project)}</span>` : '';
-    const sub = j.status === 'error' ? j.error : j.status === 'running' ? [j.note, `경과 ${elapsed(j)}`].filter(Boolean).join(' · ') : j.note;
+    const sub = j.status === 'error' ? j.error : j.status === 'running' ? [j.note, `경과 ${elapsed(j)}`, jobLeft(j, Date.now() / 1000)].filter(Boolean).join(' · ') : j.note;
     const open = j.status === 'done' && j.kind in JOB_LINK ? `<a href="${JOB_LINK[j.kind](j)}" data-job-open="${j.id}">열기</a>` : '';
     const retry = j.status === 'error' && S.jobArgs[j.id] ? `<button type="button" class="btn small" data-job-retry="${j.id}">다시 시도</button>` : '';
     const keyHelp = j.status === 'error' && /API 키|연결/.test(j.error || '') ? '<a href="#/settings">설정</a>' : '';
@@ -592,6 +592,15 @@ function renderJobs() {
     if (back) back.focus();
   }
   stackBottom();
+}
+
+/** 작업 목록의 남은 시간: 지금까지 한 단계 평균으로 남은 단계를 어림한다. 단계가 하나뿐이거나 아직 하나도 끝나지 않았으면 ''.
+    now 는 초 단위 시각. 1분보다 적게 남았으면 '곧 끝나요'. */
+function jobLeft(j, now) {
+  if (!(j.total > 1 && j.done >= 1)) return '';
+  const per = Math.max(0, now - j.started) / j.done;
+  const left = per * Math.max(0, j.total - j.done);
+  return left < 60 ? '곧 끝나요' : `약 ${Math.round(left / 60)}분 남음`;
 }
 
 /** 작업이 시작된 뒤 지난 시간 'm:ss' (서버 시각 기준이라 몇 초 어긋날 수 있다). */
@@ -924,14 +933,22 @@ document.addEventListener('keydown', (e) => {
   if (document.querySelector(sel)) document.querySelector(sel).focus();  // 다시 그리지 않는 탭(같은 화면 안 전환)도 포커스를 옮긴다
 });
 
-// Ctrl+S (macOS 는 Cmd+S): 집필 화면에서 고친 본문이 있으면 본문을, 아니면 작품 변경을 저장한다. 브라우저의 '페이지 저장'은 막는다
+/** 집필 화면에서 고친 본문이 있으면 본문을, 아니면 작품 변경을 저장한다. 저장할 것이 없으면 false (Ctrl+S, 명령 팔레트 '저장').
+    dry 이면 저장하지 않고 저장할 것이 있는지만 답한다. */
+function saveShortcut(dry = false) {
+  const [p, , page, arg] = S.route;
+  const n = p === 'p' && page === 'write' && P() ? Number(arg) || currentEp() : null;
+  const text = n !== null && textUnsaved(n) && editableEp(ep(n));
+  if (!text && !S.dirty) return false;
+  if (!dry) { if (text) actions.saveText(n); else actions.save(); }
+  return true;
+}
+
+// Ctrl+S (macOS 는 Cmd+S): saveShortcut. 브라우저의 '페이지 저장'은 막는다
 document.addEventListener('keydown', (e) => {
   if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 's' || e.isComposing) return;
   e.preventDefault();
-  const [p, , page, arg] = S.route;
-  const n = p === 'p' && page === 'write' && P() ? Number(arg) || currentEp() : null;
-  if (n !== null && textUnsaved(n) && editableEp(ep(n))) actions.saveText(n);
-  else if (S.dirty) actions.save();
+  saveShortcut();
 });
 
 document.addEventListener('keydown', (e) => {
@@ -1769,13 +1786,14 @@ document.addEventListener('click', (e) => {
   });
 });
 
-function sidebar(active) {
+/** 사이드바 항목. palette.js 의 명령 팔레트도 같은 이름 · 주소를 쓴다.
+    steps: 작품 홈과 단계 [id, 주소, 기호, 이름], auto: 자동 집필, tools: 작품 도구 [..., 데이터가 있는지],
+    apart: 본편과 분리한 화면, foot: 사이드바 아래 링크 [주소, 이름]. */
+function navItems() {
   const p = P();
-  const done = p.episodes.filter((e) => e.status === 'finalized').length;
-  const total = p.meta.target_episodes;
   const cur = currentEp();
   // 번호는 작업 순서(1~5)에만 붙인다. 도구는 어느 단계에서든 쓰므로 번호 없이 아래 묶음에 둔다
-  const items = [
+  const steps = [
     ['home', base(), 'H', '작품 홈'],
     ['setup', base() + '/setup', '1', stepLabel('setup')],
     ['style', base() + '/style', '2', stepLabel('style')],
@@ -1795,6 +1813,20 @@ function sidebar(active) {
     ['causal', base() + '/causal', '∴', '인과율', has(p.elements)],
     ['brief', `${base()}/brief/${cur}`, '✎', '작업지시서 (API 없이)', true],
   ];
+  return {
+    steps,
+    auto: ['auto', base() + '/auto', 'A', autoMenuLabel()],
+    tools,
+    apart: [['research', base() + '/research', 'R', '연구 · 모델 실험'], ['usage', base() + '/usage', '$', '사용량 · 비용']],
+    foot: [['#/settings', '모델 · API 키 설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/', '작품 목록']],
+  };
+}
+
+function sidebar(active) {
+  const p = P();
+  const done = p.episodes.filter((e) => e.status === 'finalized').length;
+  const total = p.meta.target_episodes;
+  const { steps, auto, tools, apart, foot } = navItems();
   const link = ([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}><span class="num" aria-hidden="true">${num}</span>${label}</a>`;
   const shown = tools.filter((t) => t[4]);
   const folded = tools.filter((t) => !t[4]);
@@ -1802,6 +1834,7 @@ function sidebar(active) {
   const cfg = S.config || {};
   return `<nav class="side${S.menuOpen ? ' open' : ''}" aria-label="작품 메뉴">
     <a class="brand" href="#/">Canon</a>
+    <button type="button" class="btn small menu-toggle pal-open" data-action="openPalette" aria-haspopup="dialog">찾기</button>
     <button type="button" class="btn small menu-toggle" data-action="toggleMenu" aria-expanded="${!!S.menuOpen}" aria-controls="side-menu">메뉴</button>
     <div class="work-card">
       <div class="small">현재 작품</div>
@@ -1811,19 +1844,16 @@ function sidebar(active) {
       <div class="small">${done} / ${total}화 반영 완료</div>
     </div>
     <div class="side-menu" id="side-menu">
-    <div class="nav">${items.map(([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}><span class="num" aria-hidden="true">${num}</span>${label}${/\d/.test(num) ? `<span class="sr-only"> (단계 ${num})</span>` : ''}</a>`).join('')}</div>
-    <div class="nav nav-auto">${link(['auto', base() + '/auto', 'A', autoMenuLabel()])}</div>
+    <div class="nav">${steps.map(([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}><span class="num" aria-hidden="true">${num}</span>${label}${/\d/.test(num) ? `<span class="sr-only"> (단계 ${num})</span>` : ''}</a>`).join('')}</div>
+    <div class="nav nav-auto">${link(auto)}</div>
     <div class="nav nav-extra"><span class="small">작품 도구</span>${shown.map(link).join('')}
       ${folded.length ? `<details class="nav-more" data-nav-more${moreOpen ? ' open' : ''}><summary>더 보기 <span class="small">아직 데이터가 없는 도구 ${folded.length}개</span></summary>${folded.map(link).join('')}</details>` : ''}</div>
-    <div class="nav nav-extra"><span class="small">본편과 분리</span><a href="${base()}/research"${active === 'research' ? ' aria-current="page"' : ''}><span class="num" aria-hidden="true">R</span>연구 · 모델 실험</a><a href="${base()}/usage"${active === 'usage' ? ' aria-current="page"' : ''}><span class="num" aria-hidden="true">$</span>사용량 · 비용</a></div>
+    <div class="nav nav-extra"><span class="small">본편과 분리</span>${apart.map(link).join('')}</div>
     <div class="side-foot">
       <span class="small">본문 모델</span>
       <strong style="font-size:0.8125rem">${esc(cfg.stages ? cfg.stages.write.model : cfg.model || '')}</strong>
       ${aiWarning() ? `<span style="color:var(--red)">${esc(aiWarning())}</span>` : ''}
-      <a href="#/settings">모델 · API 키 설정</a>
-      <a href="#/usage">모든 작품 사용량 · 비용</a>
-      <a href="#/styles">문체 라이브러리</a>
-      <a href="#/">작품 목록</a>
+      ${foot.map(([href, label]) => `<a href="${href}">${label}</a>`).join('\n      ')}
     </div>
     </div>
   </nav>`;

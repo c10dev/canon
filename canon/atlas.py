@@ -20,8 +20,8 @@ import math
 from pathlib import Path
 from typing import Optional
 
-from . import cast, citygen, elements, geom, naming, towngen
-from .schema import MapPin, MapSpec, NewPlace, PlaceLink, PlaceSort, Project
+from . import bldgs, cast, citygen, elements, geom, naming, towngen
+from .schema import BuildingNote, MapPin, MapSpec, NewPlace, PlaceLink, PlaceSort, Project
 
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
 IMAGE_LIMIT = 15 * 1024 * 1024
@@ -214,14 +214,82 @@ def read_layout(raw: dict) -> dict:
 
 
 def load_layout(folder: Path, p: Project) -> Optional[dict]:
-    """작품 폴더 map/ 의 마을 데이터. 없거나 읽지 못하면 None."""
+    """작품 폴더 map/ 의 마을 데이터. 없거나 읽지 못하면 None.
+    건물 정보(blds, streets)가 없거나 옛 판이면 만들어 파일에 다시 쓴다 (이 기능 전에 만든 · 올린 지도)."""
     if not p.atlas.layout:
         return None
     path = folder / p.atlas.layout
     try:
-        return json.loads(path.read_text(encoding="utf-8")) if path.is_file() and path.parent == folder else None
+        lo = json.loads(path.read_text(encoding="utf-8")) if path.is_file() and path.parent == folder else None
     except (OSError, ValueError):
         return None
+    if lo is not None and lo.get("bver") != bldgs.VERSION:
+        enrich(p, lo, p.atlas.spec.seed if p.atlas.spec else p.atlas.layout)
+        try:
+            path.write_text(json.dumps(lo, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass
+    return lo
+
+
+def enrich(p: Project, lo: dict, seed) -> dict:
+    """마을 데이터에 건물 쓰임 · 층수 · 사는 사람 · 주소와 거리 이름을 더한다 (canon/bldgs.py). 작품 이름 스타일을 따른다."""
+    lo.update(bldgs.describe(lo, seed, naming.resolve_style(p)))
+    return lo
+
+
+def building(p: Project, layout: dict, i: int) -> dict:
+    """건물 하나의 정보: 생성기 값에 작가가 고친 값(Atlas.buildings)을 덮는다. 곁채는 본채 정보를 쓴다.
+    돌려주는 것: {i, main, use, label, group, floors, people, street, no, name, note, residents, place, edited}."""
+    blds = layout.get("blds") or []
+    if not 0 <= i < len(blds):
+        raise KeyError(f"건물이 없어요: {i}")
+    main = blds[i].get("of", i)
+    b = dict(blds[main])
+    mine = next((x for x in p.atlas.buildings if x.i == main), None)
+    style = naming.resolve_style(p)
+    use = (mine.use if mine and mine.use else "") or b.get("use", "home")
+    streets = layout.get("streets") or []
+    st = streets[b["street"]]["name"] if isinstance(b.get("street"), int) and b["street"] < len(streets) else ""
+    return {"i": i, "main": main, "use": use, "label": bldgs.label(use, style), "group": bldgs.USES.get(use, ("", "home"))[1],
+            "floors": b.get("floors", 1), "people": b.get("people", 0), "street": st, "no": b.get("no", 0),
+            "name": (mine.name if mine and mine.name else "") or b.get("name", ""), "note": mine.note if mine else "",
+            "residents": list(mine.residents) if mine else [], "place": b.get("place", ""), "edited": bool(mine)}
+
+
+def building_counts(p: Project, layout: dict) -> list[tuple[str, int]]:
+    """본채 쓰임별 수 (작가가 고친 값 반영), 많은 것부터. 집 · 농가 · 셋집은 뒤로."""
+    blds = layout.get("blds") or []
+    mine = {x.i: x.use for x in p.atlas.buildings if x.use}
+    style = naming.resolve_style(p)
+    count: dict[str, int] = {}
+    for i, b in enumerate(blds):
+        if "of" in b:
+            continue
+        u = mine.get(i) or b.get("use", "home")
+        count[u] = count.get(u, 0) + 1
+    homes = ("home", "farm", "tenement")
+    order = sorted(count.items(), key=lambda kv: (kv[0] in homes, -kv[1], kv[0]))
+    return [(bldgs.label(u, style), n) for u, n in order]
+
+
+def set_building(p: Project, layout: dict, i: int, use: str, name: str, note: str, residents: list[str]) -> None:
+    """작가가 건물 하나를 고친다. 곁채를 고르면 본채를 고친다. 모두 비우면 고친 기록을 지운다."""
+    blds = layout.get("blds") or []
+    if not 0 <= i < len(blds):
+        raise KeyError(f"건물이 없어요: {i}")
+    main = blds[i].get("of", i)
+    if use and use not in bldgs.USES:
+        raise ValueError(f"모르는 쓰임이에요: {use}")
+    name, note = " ".join(name.split())[:40], note.strip()[:500]
+    cids = {c.id for c in p.characters}
+    bad = [c for c in residents if c not in cids]
+    if bad:
+        raise ValueError(f"없는 인물이에요: {', '.join(bad)}")
+    rest = [x for x in p.atlas.buildings if x.i != main]
+    if use or name or note or residents:
+        rest.append(BuildingNote(i=main, use=use, name=name, note=note, residents=list(dict.fromkeys(residents))))
+    p.atlas.buildings = sorted(rest, key=lambda x: x.i)
 
 
 def layout_info(p: Project, layout: dict) -> dict:
@@ -530,7 +598,8 @@ def village_title(p: Project, layout: dict) -> dict:
     houses = layout.get("houses") or len(layout.get("numbers") or layout.get("buildings") or [])
     city = layout.get("generator") == citygen.GENERATOR
     per = CITY_POP_PER_HOUSE if city else POP_PER_HOUSE
-    return {"title": name, "custom": bool(p.atlas.title), "houses": houses, "population": int(round(houses * per, -1)),
+    people = sum(b.get("people", 0) for b in layout.get("blds") or [])  # 건물마다 센 사람이 있으면 그 합
+    return {"title": name, "custom": bool(p.atlas.title), "houses": houses, "population": int(round(people or houses * per, -1)),
             "kind": "도시" if city else "마을"}
 
 
@@ -598,13 +667,15 @@ def default_spec(p: Project) -> MapSpec:
 def gen_info(p: Project) -> dict:
     """지도 화면의 '지도 만들기' 칸: 지금 입력(만든 적 없으면 기본값), 장소 표, 종류 이름.
     maps: 만들 수 있는 지도 [{id, label}], options · version: 지도 종류(MapSpec.kind)마다 설정 칸과 생성기 버전,
-    wards: 도시 구역 종류 이름 (지도에 구역 이름을 쓴다)."""
+    wards: 도시 구역 종류 이름 (지도에 구역 이름을 쓴다), uses: 건물 쓰임 id → [작품 스타일에 맞는 이름, 묶음]."""
     spec = default_spec(p)
+    style = naming.resolve_style(p)
     return {"spec": spec.model_dump(), "made": p.atlas.spec is not None, "places": gen_places(p, spec),
             "maps": [{"id": k, "label": m[0]} for k, m in MAKERS.items()],
             "options": {k: m[1].OPTIONS for k, m in MAKERS.items()},
             "kinds": [{"id": cid, "label": label} for cid, label, _ in towngen.CATEGORIES],
-            "version": {k: m[1].VERSION for k, m in MAKERS.items()}, "wards": citygen.WARD_KINDS}
+            "version": {k: m[1].VERSION for k, m in MAKERS.items()}, "wards": citygen.WARD_KINDS,
+            "uses": {u: [bldgs.label(u, style), grp] for u, (_, grp) in bldgs.USES.items()}}
 
 
 def _blocked(lo: dict, xy: tuple[float, float]) -> bool:
@@ -621,7 +692,7 @@ def generate(p: Project, spec: MapSpec) -> dict:
     layout: read_layout 과 같은 모양의 지도, pins: 생성기가 고른 장소 자리
     (had: 이미 지도에 놓은 장소), missing: 놓지 못한 장소와 까닭, blocked: 새 마을에서 건물 · 물 위에 놓이는 옛 자리."""
     put = [x for x in gen_places(p, spec) if x["put"]]
-    lo = _maker(spec.kind)[2](spec, put)
+    lo = enrich(p, _maker(spec.kind)[2](spec, put), spec.seed)
     pins = {pin.place: (pin.x, pin.y) for pin in p.atlas.pins}
     spots = {s["key"] for s in lo["spots"]}
     names = {pl["key"]: pl["name"] for pl in places(p)}
@@ -644,6 +715,8 @@ def apply_generated(folder: Path, p: Project, spec: MapSpec, take: list[str]) ->
     fname = f"gen-{spec.kind}-{spec.seed}.json"
     (folder / fname).write_text(json.dumps(out["layout"], ensure_ascii=False), encoding="utf-8")
     old = p.atlas.layout
+    if old != fname:
+        p.atlas.buildings = []  # 건물 번호가 바뀌므로 고친 건물도 비운다
     p.atlas.layout, p.atlas.meters = fname, 1.0
     p.atlas.spec = spec.model_copy(update={"version": _maker(spec.kind)[1].VERSION})
     chosen = set(take)
@@ -775,7 +848,11 @@ def describe(p: Project, layout: Optional[dict] = None) -> str:
         made = f" (지도 만들기, 시드 {p.atlas.spec.seed})" if p.atlas.spec else ""
         what = "도시" if lo["generator"] == citygen.GENERATOR else "마을"
         lines.append(f"{what} 데이터{made}: 길 {lo['roads']}개 · 다리 {lo['bridges']}개 · 건물 {lo['buildings']}채 · "
-                     f"약 {lo['width_m']}×{lo['height_m']}m\n")
+                     f"약 {lo['width_m']}×{lo['height_m']}m")
+        uses = building_counts(p, layout)
+        if uses:
+            lines.append("건물 쓰임: " + " · ".join(f"{label} {n}" for label, n in uses[:12]) + (" 등" if len(uses) > 12 else ""))
+        lines.append("")
     lines.append("장소")
     for pl in s["places"]:
         when = f" · {pl['known_from']}화부터 독자가 앎" if pl["known_from"] else ""

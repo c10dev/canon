@@ -1010,7 +1010,8 @@ class Deadline(BaseModel):
 class Timeline(BaseModel):
     """작품 속 시간: 화가 끝난 시점(Episode.time)과 기한을 기록해 쓰기 · 검수 프롬프트에 넣는다."""
     enabled: bool = Field(True, description="켜면 상태 변경안에 이 화가 끝난 시점과 기한을 적고, 쓰기 · 검수에 시간 블록을 넣는다")
-    start: str = Field("", description="1일째가 언제인지 (예: 2024년 3월 2일 토요일, 늦겨울). 비면 날수만 센다")
+    start: str = Field("", description="1일째가 언제인지 글로 (예: 늦겨울, 왕국력 312년). start_date 가 없으면 여기 적은 날짜 · 요일을 읽는다")
+    start_date: str = Field("", description="1일째 날짜 YYYY-MM-DD. 있으면 화마다 날짜로 보이고 날짜 · 요일 · 남은 날을 Canon 이 계산한다. 비면 날수(며칠째)로 센다")
     deadlines: list[Deadline] = Field(default_factory=list)
 
 
@@ -1263,6 +1264,15 @@ class Illustration(BaseModel):
 # ---------- 지도 (canon/atlas.py) ----------
 # 장소는 설정의 장소 칸과 인과율 '장소' 요소다. 지도는 그 위에 자리와 배경 그림, 위치 글 잇기만 더한다.
 
+class BuildingNote(BaseModel):
+    """작가가 고친 건물 하나 (지금 마을 · 도시 데이터의 건물 번호 기준). 빈 칸은 생성기가 정한 값(canon/bldgs.py)을 쓴다."""
+    i: int = Field(description="건물 번호 (마을 데이터 buildings 의 순서)")
+    use: str = Field("", description="쓰임 id (bldgs.USES). 비면 생성기 값")
+    name: str = Field("", description="집 이름 · 간판. 비면 생성기 값")
+    note: str = Field("", description="작가 메모")
+    residents: list[str] = Field(default_factory=list, description="여기 사는 · 일하는 인물 id")
+
+
 class MapPin(BaseModel):
     """장소의 지도 위 자리. 0~1 비율 좌표라 배경 그림 크기와 상관없다."""
     place: str = Field(description="장소 키: 인과율 장소 요소 id, 설정 장소 칸이면 'w:' + 이름")
@@ -1305,6 +1315,7 @@ class Atlas(BaseModel):
     meters: float = Field(1.0, description="마을 데이터 1단위가 몇 m 인지 (거리 · 걷는 시간 계산)")
     spec: Optional[MapSpec] = Field(None, description="지도 만들기로 만든 마을이면 그 입력. 파일을 올렸거나 지도가 없으면 비움")
     title: str = Field("", description="지도 위에 적는 마을 이름. 비면 '마을 가운데' 종류의 장소 이름")
+    buildings: list[BuildingNote] = Field(default_factory=list, description="작가가 고친 건물. 마을 데이터 파일이 바뀌면 비운다")
 
 
 class ReleasePlan(BaseModel):

@@ -83,6 +83,15 @@ brew install xcodegen && cd swift/App && xcodegen && open Canon.xcodeproj
 Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을 바꿔 실행한다. 앱의 '서버' 버튼으로 서버 주소를 적는다.
 번들 id(`dev.c10.canon`)와 서명 팀은 `App/project.yml` 에서 고친다. xcodegen 이 만드는 `Canon.xcodeproj`, `Info.plist`, `Canon.entitlements` 는 커밋하지 않는다 (`.gitignore`).
 
+### TestFlight (iPhone · iPad)
+
+1. App Store Connect 에서 번들 id `dev.c10.canon` 으로 앱을 만든다.
+2. `App/project.yml` 의 `CURRENT_PROJECT_VERSION` 을 지난번 올린 수보다 크게 한다 (또는 xcodebuild 에 `CURRENT_PROJECT_VERSION=<수>` 를 붙인다).
+3. Xcode 에서 실행 대상을 Any iOS Device 로 두고 Product → Archive → Distribute App → TestFlight.
+
+준비된 것: 임시 앱 아이콘(`App/CanonApp/Assets.xcassets`, 진짜 아이콘이 생기면 `AppIcon.appiconset` 의 PNG 를 바꾼다), 수출 규정 질문을 건너뛰는 `ITSAppUsesNonExemptEncryption: false`(HTTPS 말고 다른 암호화를 쓰지 않는다), iOS 빌드에서 뺀 macOS 권한(앱 샌드박스).
+테스터는 아이폰에도 Tailscale 을 켜고 서버의 `https://…ts.net:8446` 주소를 적는다. 외부 테스터는 Apple 의 베타 심사를 거치는데 심사자가 Tailscale 서버에 붙지 못하므로, 내부 테스터(App Store Connect 팀원)로 시작한다.
+
 `python -m unittest` 의 `tests/test_openapi.py` 가 `openapi.json` 이 지금 서버와 같은지 본다. web.py 를 고치고 명세를 다시 만들지 않으면 실패한다.
 
 ## 서버 계약 (앱이 지킬 것)

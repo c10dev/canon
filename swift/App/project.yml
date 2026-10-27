@@ -21,13 +21,21 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.c10.canon
         MARKETING_VERSION: "0.1.0"
+        # TestFlight 에 올릴 때마다 더 큰 수여야 한다. xcodebuild 에 CURRENT_PROJECT_VERSION=<수> 를 붙여 바꿀 수 있다
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "6.0"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # 아래 entitlements(앱 샌드박스)는 macOS 권한이다. iOS 빌드에는 넣지 않는다
+        # (xcodegen 이 CODE_SIGN_ENTITLEMENTS 를 모든 플랫폼에 두어 iOS SDK 에서만 비운다)
+        "CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]": ""
+        "CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]": ""
     info:
       path: CanonApp/Info.plist
       properties:
         CFBundleDisplayName: Canon
         UILaunchScreen: {}
+        # HTTPS 말고 다른 암호화를 쓰지 않는다. TestFlight · App Store 에 올릴 때 수출 규정 질문을 건너뛴다
+        ITSAppUsesNonExemptEncryption: false
         # 같은 기기 서버(http://127.0.0.1)와 Tailscale 안 주소(http)를 연다
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
