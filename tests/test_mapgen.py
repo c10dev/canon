@@ -262,7 +262,7 @@ def test_generate_city_preview_and_apply(tmp_path):
     assert out["info"]["wards"] == len(lo["wards"]) and out["info"]["gates"] == len(lo["gates"]) >= 3
     assert {s["place"] for s in out["pins"]} >= {"el-1", "el-9"} and "el-10" not in {s["place"] for s in out["pins"]}
     t = out["title"]
-    assert t["kind"] == "도시" and t["population"] == int(round(lo["houses"] * atlas.CITY_POP_PER_HOUSE, -1))
+    assert t["kind"] == "도시" and t["population"] == int(round(sum(b.get("people", 0) for b in lo["blds"]), -1))  # 건물마다 센 사람의 합
 
     assert atlas.apply_generated(tmp_path, p, spec, ["el-1"]) == ""
     assert p.atlas.layout == "gen-city-3.json" and p.atlas.spec.kind == "city" and p.atlas.spec.version == citygen.VERSION
@@ -456,7 +456,8 @@ def test_title_population_and_numbers():
     assert len(lo["numbers"]) == lo["houses"] == len(set(lo["numbers"]))
     assert all(0 <= i < len(lo["buildings"]) for i in lo["numbers"])
     t = out["title"]
-    assert t == {"title": "흑송촌", "custom": False, "houses": lo["houses"], "population": int(round(lo["houses"] * 5.5, -1)), "kind": "마을"}
+    people = sum(b.get("people", 0) for b in lo["blds"])  # 건물마다 센 사람의 합 (canon/bldgs.py)
+    assert t == {"title": "흑송촌", "custom": False, "houses": lo["houses"], "population": int(round(people, -1)), "kind": "마을"}
     atlas.set_title(p, "  흑송   나루마을 ")
     assert p.atlas.title == "흑송 나루마을" and atlas.village_title(p, lo)["custom"]
     with pytest.raises(ValueError):

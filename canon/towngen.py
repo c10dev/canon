@@ -543,10 +543,19 @@ def _village(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
     hr = rng("houses")
     buildings: list[Poly] = []
     numbers: list[int] = []  # 집 번호를 붙일 건물 (필지마다 본채 하나, 붙은 채 · 등대 탑은 뺀다)
-    for lot in lots:
+    parts: list[dict] = []  # 건물마다 어느 필지의 무엇인지 (buildings 와 같은 순서, canon/bldgs.py 가 쓴다)
+    for k, lot in enumerate(lots):
         numbers.append(len(buildings))
-        buildings += _houses(lot, hr)
-    buildings += [sp["tower"] for sp in spots if sp.get("tower")]
+        made = _houses(lot, hr)
+        buildings += made
+        zone = "landmark" if lot.get("landmark") else "row" if lot["row"] else "farm" if lot["farm"] else "house"
+        for j in range(len(made)):
+            part = "main" if j == 0 else "barn" if zone == "farm" else "annex"
+            parts.append({"lot": k, "part": part, "zone": zone, "use": lot["use"]})
+    for sp in spots:
+        if sp.get("tower"):
+            buildings.append(sp["tower"])
+            parts.append({"lot": -1, "part": "tower", "zone": "shore", "use": "shore"})
     for sp in spots:
         if sp.get("lot") is not None:
             sp["at"] = geom.centroid(sp["lot"]["houses"][0])
@@ -606,7 +615,7 @@ def _village(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
         "spots": [{"key": sp["key"], "name": sp["name"], "kind": sp["kind"], "x": nx(sp["at"])[0], "y": nx(sp["at"])[1]}
                   for sp in spots if sp.get("at") is not None],
         "missing": missing,
-        "houses": len(lots), "target": target, "numbers": numbers,
+        "houses": len(lots), "target": target, "numbers": numbers, "parts": parts,
     }
 
 

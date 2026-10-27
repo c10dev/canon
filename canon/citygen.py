@@ -851,6 +851,9 @@ def _city(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
         return None
 
     buildings = [hs["poly"] for hs in houses] + [lm["poly"] for lm in landmarks]
+    # 건물마다 어느 구역의 무엇인지 (buildings 와 같은 순서, canon/bldgs.py 가 쓴다). 집은 필지마다 한 채라 lot 은 건물 번호
+    parts = [{"lot": k, "part": "main", "zone": hs["kind"], "use": ""} for k, hs in enumerate(houses)]
+    parts += [{"lot": -1, "part": "hall" if lm["kind"] == "market" else "temple", "zone": lm["kind"], "use": lm["kind"]} for lm in landmarks]
     water_out = [_union(mesh, sea)] if sea else []
     return {
         "w": w, "h": h, "generator": GENERATOR, "version": str(VERSION), "seed": spec.seed,
@@ -868,7 +871,7 @@ def _city(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
         "spots": [{"key": sp["key"], "name": sp["name"], "kind": sp["kind"], "x": nx(sp["at"])[0], "y": nx(sp["at"])[1]}
                   for sp in spots],
         "missing": missing,
-        "houses": len(houses), "numbers": list(range(len(houses))),
+        "houses": len(houses), "numbers": list(range(len(houses))), "parts": parts,
     }
 
 
