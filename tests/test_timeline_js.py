@@ -1,4 +1,5 @@
 """작품 속 시간 화면(static/timeline.js)의 달력이 timeline.calendar · day_label · when 과 같게 세는지,
+tlLeft · tlDay · tlPrev · tlIsOpen · tlFmt 가 left · current_day · prev_end · is_open · fmt 와 같은지,
 상태 정리 경고에서 본문 문장을 찾는 passage.js warnQuote 가 맞게 찾는지. node 가 있을 때만 돈다."""
 import json
 import shutil
@@ -8,7 +9,9 @@ from pathlib import Path
 import pytest
 
 from canon import timeline
-from canon.schema import Project, StoryTime
+from canon.schema import Deadline, Project, StoryTime
+
+from .jsvm import dump, episode, needs_node, run_js
 
 STATIC = Path(__file__).resolve().parent.parent / "canon" / "static"
 
@@ -93,51 +96,55 @@ def test_timeline_js_calendar_and_warn_quote():
     assert out["quotes"][3:] == ["", ""]
 
 
-# tlCalendar · tlDay · tlLeft 를 timeline.calendar · current_day · left 와 직접 맞춰 본다 (AGENTS.md 의 "같은 규칙")
-RULES = """
-const vm = require('vm');
-const fs = require('fs');
-const data = JSON.parse(fs.readFileSync(0, 'utf8'));
-const el = () => ({ appendChild() {}, set textContent(v) {} });
-const ctx = {
-  data, S: {}, actions: {}, CHAT_TOPICS: {}, P: () => data.project, ep: () => null,
-  document: { addEventListener() {}, createElement: el, head: el() },
-};
-vm.createContext(ctx);
-vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), ctx);
-vm.runInContext(`globalThis.out = {
-  calendars: data.cases.map((c) => {
-    Object.assign(data.project.timeline, c);
-    const x = tlCalendar();
-    return [x.first ? x.first.toISOString().slice(0, 10) : null, x.year, x.wd];
-  }),
-  days: data.ns.map(tlDay),
-  lefts: data.lefts.map(([d, day]) => tlLeft({ day: d }, day)),
-};`, ctx);
-process.stdout.write(JSON.stringify(ctx.out));
-"""
+# tlCalendar 의 1일째 Date 를 timeline.calendar 와 같은 (ISO 날짜, 연도를 아는지, 요일) 로
+CAL_ROW = ("const calRow = () => { const c = tlCalendar(); const f = c.first;"
+           " return [f ? `${String(f.getUTCFullYear()).padStart(4, '0')}-${f.toISOString().slice(-19, -14)}` : null, c.year, c.wd]; };")
+TIMES = [StoryTime(day=3, part="밤", label="비 옴"), StoryTime(day=0, part=" 새벽 "), StoryTime(label="그날"), StoryTime(),
+         StoryTime(day=7), StoryTime(day=-1, label=" ")]
+NS = [0, 1, 2, 3, 4, 5, 6, 9]
 
 
-@pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
-def test_timeline_js_calendar_day_left_match_python():
-    from canon.schema import Deadline, Episode, EpisodePlot
-
-    p = Project()
-    days = {1: 1, 2: 0, 3: 4, 5: 0, 6: 9}  # 2화 · 5화는 날수를 모른다, 4화는 화가 없다
-    p.episodes = [Episode(plot=EpisodePlot(number=n, act="기", title=f"{n}화", summary="", events=[], characters=[],
-                                         emotional_shift="", ending_hook=""), time=StoryTime(day=d)) for n, d in days.items()]
-    lefts = [(5, 3), (3, 3), (2, 5), (0, 3), (4, 0), (10, 1)]
-    ns = [1, 2, 3, 4, 5, 6, 7]
-    data = {"project": json.loads(p.model_dump_json()), "cases": [{"start": s, "start_date": d} for s, d in CASES],
-            "ns": ns, "lefts": lefts}
-    run = subprocess.run(["node", "-e", RULES, str(STATIC / "timeline.js")], input=json.dumps(data),
-                         capture_output=True, text=True, encoding="utf-8")
-    assert run.returncode == 0, run.stderr
-    out = json.loads(run.stdout)
-
-    for (start, iso), got in zip(CASES, out["calendars"]):
+def _calendar_rows(p, cases):
+    out = []
+    for start, iso in cases:
         p.timeline.start, p.timeline.start_date = start, iso
         first, year, wd = timeline.calendar(p)
-        assert got == [first.isoformat() if first else None, year, wd], (start, iso)
-    assert out["days"] == [timeline.current_day(p, n) for n in ns]
-    assert out["lefts"] == [timeline.left(Deadline(id="d", what="x", day=d), day) for d, day in lefts]
+        out.append([first.isoformat() if first else None, year, wd])
+    return out
+
+
+def _js_calendar_rows(p, cases):
+    expr = CAL_ROW + "S.project = data.project; data.cases.map((c) => { Object.assign(P().timeline, c); return calRow(); })"
+    return run_js(["app.js", "timeline.js"], expr, {"project": dump(p), "cases": [{"start": s, "start_date": d} for s, d in cases]})
+
+
+@needs_node
+def test_timeline_js_calendar_left_day_match_server():
+    p = Project(episodes=[episode(1, time=StoryTime(day=2)), episode(2, time=StoryTime(part="밤")), episode(3),
+                          episode(6, time=StoryTime(day=9)), episode(5, time=StoryTime(day=6, label="장날"))])  # 4화는 없다
+    assert _js_calendar_rows(p, CASES) == _calendar_rows(p, CASES)
+
+    deadlines = [Deadline(id=f"d{i}", what="x", day=d, set_ep=s, done_ep=e)
+                 for i, (d, s, e) in enumerate([(9, 0, 0), (4, 2, 0), (0, 1, 3), (6, 4, 4), (6, 5, 9)])]
+    days = [-1, 0, 1, 4, 6, 9]
+    data = {"project": dump(p), "times": [dump(t) for t in TIMES], "deadlines": [dump(d) for d in deadlines], "days": days, "ns": NS}
+    out = run_js(["app.js", "timeline.js"], """S.project = data.project; ({
+      fmt: data.times.map(tlFmt),
+      day: data.ns.map(tlDay),
+      prev: data.ns.map((n) => (tlPrev(n) || { plot: {} }).plot.number || null),
+      left: data.deadlines.map((d) => data.days.map((x) => tlLeft(d, x))),
+      open: data.deadlines.map((d) => data.ns.map((n) => tlIsOpen(d, n))),
+    })""", data)
+    assert out["fmt"] == [timeline.fmt(t) for t in TIMES]
+    assert out["day"] == [timeline.current_day(p, n) for n in NS]
+    assert out["prev"] == [(timeline.prev_end(p, n) or (None,))[0] for n in NS]
+    assert out["left"] == [[timeline.left(d, x) for x in days] for d in deadlines]
+    assert out["open"] == [[timeline.is_open(d, n) for n in NS] for d in deadlines]
+
+
+@needs_node
+@pytest.mark.xfail(strict=True, reason="어긋남: Python 정규식 \\d 는 전각 · 아랍 숫자도 읽고 JS 는 ASCII 만 읽는다. "
+                   "0년은 JS Date 로는 만들어지고 Python date 로는 안 된다")
+def test_timeline_js_calendar_edge_match_server():
+    cases = [("２０２４년 ３월 ４일", ""), ("", "0000-03-04"), ("0년 3월 4일", "")]
+    assert _js_calendar_rows(Project(), cases) == _calendar_rows(Project(), cases)
