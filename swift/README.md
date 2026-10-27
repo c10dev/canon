@@ -87,7 +87,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 
 ## 서버 계약 (앱이 지킬 것)
 
-웹 화면(`app.js`)이 지키는 약속이다. 앱도 같게 한다.
+웹 화면(`app.js` 와 화면별 파일)이 지키는 약속이다. 앱도 같게 한다.
 
 1. **화면 id 헤더.** 모든 요청에 `X-Canon-Client: <실행마다 새 id>` 를 붙인다 (`CanonServer` 가 붙인다).
    서버는 작품을 마지막으로 저장한 화면을 기억한다.
@@ -110,22 +110,22 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 
 | 순서 | 모듈 | 화면 (사이드바 이름) | 웹 파일 | 서버 |
 |---|---|---|---|---|
-| 1 | `FeatureProjects` | 작품 목록 | `app.js` `viewProjects` | `list_projects` — **됨** |
-| 2 | `FeatureHome`, `CanonStore` | 작품 홈, 작품 저장(409 · merged) | `app.js` `viewHome` `save` | `get_project`, `put_project` — **됨** (남음: 홈의 자동 집필 줄 · 관계 카드 · 장편 전환 단추) |
+| 1 | `FeatureProjects` | 작품 목록 | `home.js` `viewProjects` | `list_projects` — **됨** |
+| 2 | `FeatureHome`, `CanonStore` | 작품 홈, 작품 저장(409 · merged) | `home.js` `viewHome`, `app.js` `save` | `get_project`, `put_project` — **됨** (남음: 홈의 자동 집필 줄 · 관계 카드 · 장편 전환 단추) |
 | 3 | `FeatureWrite` | 집필 (부분 수정, 다시 생성, 문체 표시, 복사, 삽화) | `passage.js` `rewrite.js` `marks.js` `publish.js` `illust.js` `opening.js` `restate.js` | `put_text`, `rewrite_info`, `export_text` 등 — **일부 됨**: 본문 보기 · 고치기, 쓰기 · 검수, 다시 생성, 복사 · 내보내기. 남음: 부분 수정 `passage.js`, 문체 표시 `marks.js`, 삽화 `illust.js`, 초반 1~3화 `opening.js`, 반영 뒤 고친 화 `restate.js`, AI 대화 패널, 작업지시서 방식, 컨텍스트 블록 보기 |
-| 4 | `FeatureReview` | 상태 승인 (변경안 만들기 · 고르기 · 고치기 · 반영, 관계 미리 보기, 상태창 줄, 복선 문장, 반영 뒤 고친 화 다시 맞추기, 반영 취소) | `app.js` `restate.js` `statwin.js`(`swDeltaRows`) `foreshadow.js`(`fsClueRows`) | 작업 `state`, `apply_state`, `apply_restate`, `keep_state`, `revert`, `preview`(`RelationPreview`) — **됨**. 채팅 앱 JSON 은 작업지시서 화면이, 자동 집필 변경안은 자동 집필 화면(`auto/review`)이 검토 대기로 넘긴다 |
-| 5 | `FeaturePlot` | 기승전결 · 플롯 / 부 · 아크 · 플롯, AI 대화 | `app.js` `chat.js` `insert.js` `convert.js` | `plots`, `chat`, `series`, `arcs` — **됨** (`viewArc` · `viewSerial` · `insert.js`, 응답 `Renumbered` · 본문 `Recap`). 남음: AI 대화 `chat.js`, 단편 → 장편 전환 `convert.js`, 여는 방식 `opening.js`, 화별 시점 칸 `povField`, 새 인물 만들기 · 등록(`castQuickEdit`), 새 장소 후보 안내(`placeCandNotes`), 자동 집필 중인 화 잠금(`autoEp`) |
-| 6 | `FeatureSetup`, `FeatureStyle` | 설정 도우미, 문체 레퍼런스 | `app.js` `mystyle.js` | `suggest`, `names`, `relation_views`, `style`, `styles` — **됨** (남음: 인물 서술 말투 `voiceField`, 삽화 외형 태그 `visualFields`, 이름 칸으로 가기 단추, '내 수정에서 배우기' 카드, 문체 라이브러리 화면 · 버전 목록) |
+| 4 | `FeatureReview` | 상태 승인 (변경안 만들기 · 고르기 · 고치기 · 반영, 관계 미리 보기, 상태창 줄, 복선 문장, 반영 뒤 고친 화 다시 맞추기, 반영 취소) | `review.js` `restate.js` `statwin.js`(`swDeltaRows`) `foreshadow.js`(`fsClueRows`) | 작업 `state`, `apply_state`, `apply_restate`, `keep_state`, `revert`, `preview`(`RelationPreview`) — **됨**. 채팅 앱 JSON 은 작업지시서 화면이, 자동 집필 변경안은 자동 집필 화면(`auto/review`)이 검토 대기로 넘긴다 |
+| 5 | `FeaturePlot` | 기승전결 · 플롯 / 부 · 아크 · 플롯, AI 대화 | `plot.js` `chat.js` `insert.js` `convert.js` | `plots`, `chat`, `series`, `arcs` — **됨** (`viewArc` · `viewSerial` · `insert.js`, 응답 `Renumbered` · 본문 `Recap`). 남음: AI 대화 `chat.js`, 단편 → 장편 전환 `convert.js`, 여는 방식 `opening.js`, 화별 시점 칸 `povField`, 새 인물 만들기 · 등록(`castQuickEdit`), 새 장소 후보 안내(`placeCandNotes`), 자동 집필 중인 화 잠금(`autoEp`) |
+| 6 | `FeatureSetup`, `FeatureStyle` | 설정 도우미, 문체 레퍼런스 | `setup.js` `style.js` `mystyle.js` | `suggest`, `names`, `relation_views`, `style`, `styles` — **됨** (남음: 인물 서술 말투 `voiceField`, 삽화 외형 태그 `visualFields`, 이름 칸으로 가기 단추, '내 수정에서 배우기' 카드, 문체 라이브러리 화면 · 버전 목록) |
 | 7 | `FeatureCast` | 인물 · 관계도 (관계도 재생, 인물 · 두 사람 상세, 추이 그래프, 등장표) | `cast.js` | `cast_view`(`CastView`) — **됨**. 수치 직접 보정(`adjust_tie`)과 말로 · 숫자로 저장(`PUT .../view`), 인물 카드 탭(`castSheet`)은 아직 웹에서 |
 | 7 | `FeatureForeshadow` | 복선 센터 | `foreshadow.js` | `foreshadow_*` — **됨** (본문에서 문장 골라 걸기는 3, `fsClueRows` 는 4에서) |
 | 7 | `FeatureStatWin` | 상태창 수치 (항목 고치기, 틀, 복사, 서식, 화별 변화 표) | `statwin.js` (`swDeltaRows` 는 4 상태 승인) | `statwin_view`(`StatwinView`), `statwin_set`, `statwin_template` — **됨** |
 | 7 | `FeatureAuto` | 자동 집필 (실행 상태 · 진행 로그, 시작 · 일시정지 · 이어 가기 · 중지, 승인 정책, 비용 · 시간 추정, 배치, 검토 대기 화, 검토 없이 반영한 화) | `auto.js` | `auto_*`(`AutoView` · `AutoEstimate`), 검토 대기 변경안을 상태 승인 결과로 두기 `auto_review` — **됨**. 남음: 시작 전 집필 화면의 저장하지 않은 본문 초안 저장(`autoFlushDrafts`), 집필 · 플롯 · 홈 화면의 잠금 안내(`autoLockNote` · `autoEp`, 상태 승인은 됨), 홈의 자동 집필 줄, 오류 안내의 '모델 · API 키 설정' 단추 |
 | 7 | `FeatureLines` | 이야기 줄기 (노선도, 줄기 목록 · 편집, 화 붙이기, AI 제안) | `lines.js` | 작업 `storyline`, `apply_storyline`, `remove_storyline` — **됨**. 플롯 편집기의 줄기 칸 `lineField` · 화 카드 `lineBadge` 는 `LineField` · `LineBadges` 이고, `CanonAppUI` 가 `PlotSlots`(환경 값 `plotSlots`)로 `FeaturePlot` 에 끼운다. 화 점을 누르면 플롯 화면으로만 옮기고 그 화를 열지는 않음 |
 | 7 | `FeatureCausal` | 인과율 (요소, 관련 화 지도, 영향 분석) | `causal.js` | `element_links`(`ElementLink`), 작업 `impact`, `impact_apply` · `impact_dismiss` · `impact_reopen` — **됨**. 지도 칸에서 그 화로 바로 가기는 화면만 옮긴다 (화를 고르지 않음) |
-| 7 | `FeatureBrief` | 작업지시서 (API 없이) | `app.js` `viewBrief` | `brief`(`BriefText`), `put_text`, `parse_state` — **됨**. 받은 JSON 은 서버가 검사하고, `CanonAppUI` 가 `BriefView` 의 `handOff` 로 `JobCenter.offer` 에 놓아 상태 승인 화면의 검토 대기(`state:<화>`)가 된다 (웹 `setDelta(n, d, 'chat')`, 화면 메모리에만) |
+| 7 | `FeatureBrief` | 작업지시서 (API 없이) | `write.js` `viewBrief` | `brief`(`BriefText`), `put_text`, `parse_state` — **됨**. 받은 JSON 은 서버가 검사하고, `CanonAppUI` 가 `BriefView` 의 `handOff` 로 `JobCenter.offer` 에 놓아 상태 승인 화면의 검토 대기(`state:<화>`)가 된다 (웹 `setDelta(n, d, 'chat')`, 화면 메모리에만) |
 | 7 | 작품 도구 (남은 것) | 지도 | `atlas.js` | `atlas` 엔드포인트 (지도 생성기는 다른 세션이 고치는 중) |
 | 8 | `FeatureUsage` | 사용량 · 비용 | `usage.js` | `usage_summary` · `usage_prices` — **됨** |
-| 8 | `FeatureSettings` | 모델 · API 키 설정 (사이드바 칸이 아니라 툴바 시트) | `app.js` `viewSettings` `claude.js` `vertex.js` | `config` · `put_config`(`ConfigView`, 본문 `SettingsIn`), `test_config`(`ConfigTest`), `config_models`(`ModelList`), `config_health`(`ConfigHealth`), `claude_status`(`ClaudeStatus`) — **됨** (가격표 칸은 사용량 화면에서) |
+| 8 | `FeatureSettings` | 모델 · API 키 설정 (사이드바 칸이 아니라 툴바 시트) | `settings.js` `viewSettings` `claude.js` `vertex.js` | `config` · `put_config`(`ConfigView`, 본문 `SettingsIn`), `test_config`(`ConfigTest`), `config_models`(`ModelList`), `config_health`(`ConfigHealth`), `claude_status`(`ClaudeStatus`) — **됨** (가격표 칸은 사용량 화면에서) |
 | 8 | 본편과 분리 (남은 것) | 연구 | | `research` |
 
 새 화면 모듈을 만들 때:
@@ -151,7 +151,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 
 앱에 옮긴 표시 규칙은 웹 화면과 같아야 한다. 웹을 고치면 여기도 고친다.
 
-| Swift | 웹 (`canon/static/app.js`) |
+| Swift | 웹 (`canon/static/*.js`) |
 |---|---|
 | `CanonError.from` | `fmtErr` |
 | `KoreanText.josa` · `episodeRange` · `date` · `dateTime` | `josa` · `epRange` · `fmtDate` · `fmtDateTime` |
@@ -164,9 +164,9 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | `SaveText` · `ProjectDocument.edited` | `save()` 의 토스트와 `edited` |
 | `StatWinText.pick` · `outgoing` · `presetLabel`, `StatCell` | `statwin.js` `swLoad` · `swSave` · `swEditor` · `swTimeline` |
 | `WarmthBand` (경계 -0.6 · -0.2 · 0.2 · 0.6, 값이 경계보다 작으면 그 구간) | `cast.js` `WARMTH_BANDS`, 서버 `dynamics.warmth_word` |
-| `CastText`, `CastText.fixed`(JS `toFixed` 반올림) | `cast.js` `tieText` · `tensionText` · `frameLabel` · `castTimeline` · `castChart` 범위, `app.js` `GOOD_EVENTS` · `INTENSITY` |
+| `CastText`, `CastText.fixed`(JS `toFixed` 반올림) | `cast.js` `tieText` · `tensionText` · `frameLabel` · `castTimeline` · `castChart` 범위, `review.js` `GOOD_EVENTS` · `INTENSITY` |
 | `CastLayout.force` · `curve` | `cast.js` `castForce` · 간선 곡선 |
-| `ReviewText.defaultPicks` · `picked` · `total` · `applyReasons` | `app.js` `setDelta` · `pickedDelta` · `viewReview` 의 `total` · `applyDelta` 의 묻는 말 |
+| `ReviewText.defaultPicks` · `picked` · `total` · `applyReasons` | `review.js` `setDelta` · `pickedDelta` · `viewReview` 의 `total` · `applyDelta` 의 묻는 말 |
 | `ReviewText.stateRows` · `newKnows` · `unknown` · `relation` · `name` · `secret` · `goodEvents` · `intensity` | `viewReview` 의 인물 · 관계 줄, `charName` · `secretLabel` · `GOOD_EVENTS` · `INTENSITY` |
 | `ReviewText.relationLines` (`pair`) | `relationLines` |
 | `ReviewText.statRows` · `resolve` | `statwin.js` `swDeltaRows` · `swResolve` (서버 `statwin.resolve`, 시험은 `tests/test_statwin.py` 의 `RESOLVE_CASES` 와 같은 사례. 반영은 서버가 다시 계산한다) |
@@ -174,7 +174,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | `ReviewText` 의 k · o · t 고르기, `settingLabel` · `settingValue` · `timeText` · `deadlineDay` | `timeline.js` `tlDeltaCard`, `charlog.js` `scDeltaCard` · `SC_LABELS`(서버 `charlog.LOG_FIELDS`). 인물 설정 바꾸기(t)는 기본으로 고르지 않는다 |
 | `ReviewText.editedAfterFinal` · `laterWritten` · `restateItems` · `restatePicks` · `restateBody` · `restateSkipped` · `restateDone` | `restate.js` `editedAfterFinal`(서버 `pipeline.edited_after_final`) · `laterWritten` · `rsItems` · `rsPicks` · `applyRestate` · `restateCard` |
 | `ReviewText.rangeText` · `revertQuestion` · `revertDone` | `rangeText` · `revertFrom` |
-| `WriteText` (`blockedBefore` · `orderNote` · `unsaved` · `issue` · `when`), `WriteModel` 의 본문 초안 | `app.js` `blockedBefore` · `orderNote` · `textUnsaved` · `viewWrite`, `passage.js` `editableEp` · `issuesBlock` · `clip` · `editTime` · `flushText` |
+| `WriteText` (`blockedBefore` · `orderNote` · `unsaved` · `issue` · `when`), `WriteModel` 의 본문 초안 | `write.js` `blockedBefore` · `orderNote` · `viewWrite`, `app.js` `textUnsaved`, `passage.js` `editableEp` · `issuesBlock` · `clip` · `editTime` · `flushText` |
 | `TextDiff.lines` · `words` · `tokens`, `RewriteDraft` · `RewriteText` | `rewrite.js` `textDiff` · `rwSimilar` · `rwReq` · `rwReqLabel` · `RW_MODES` · `RW_KIND`, `passage.js` `wordDiff` · `tokens` (시험 기대값은 node 로 돌린 웹 결과) |
 | `PublishText` | `publish.js` `copyRangeOf` · `copyEpisodes` · `downloadTxt` 문구 (다듬기 규칙은 서버 `publish.py`) |
 | `PlotRules.actRanges` · `setArcEnd` | `actRanges` · `fitActs` (서버 `pipeline.act_ranges` · `fit_arc`, 시험은 서버 값과 같은 사례) |
@@ -195,9 +195,9 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | `CausalText.badge` · `timing` · `strip` · `snippets` · `defaultPicks` · `picked` · `appliedLabel` · `since` · `newID` | `causal.js` `impactBadge` · `timingText` · `causalStrip` · `initCausalPicks` · `causalApply` · `appliedLabel` · `causalSince` · `newElementId` (서버 `elements.new_id`) |
 | `CausalText.plotDiff` | `chat.js` `plotDiff` · `diffField` · `PLOT_FIELDS` |
 | `CausalModel.mergeImpacts` | `causal.js` `mergeImpacts` (저장하지 않은 요소 편집은 두고 분석만 받기) |
-| `BriefText` (`defaultKind` · `count` · `orderNote` · `filename`) | `app.js` `briefTabFor` · `importCount` · `blockedBefore` · `orderNote` · `downloadBrief` · `copyBrief` · `importText` · `importJson` 문구 |
+| `BriefText` (`defaultKind` · `count` · `orderNote` · `filename`) | `write.js` `briefTabFor` · `importCount` · `blockedBefore` · `orderNote` · `downloadBrief` · `copyBrief` · `importText` · `importJson` 문구 |
 | `StyleText` | `styleBlank`(서버 `library.blank`) · `styleChangeWho` · `styleLibraryCard` · `baselineRows`, `analyzeStyle` · `useLibStyle` · `keepStyle` · `pushStyle` · `pullStyle` 의 묻는 말 |
-| `SettingsText` (`providers` · `stages` · `stageParent` · `followLabel` · `stageModelHint` · `stageEnvLines` · `localOpen` · `stageOpen` · `claudeOpen` · `modelOptions` · `modelStatus` · `aiWarning` · `claudeCard` · 키 칩), `SettingsDraft.body` | `app.js` `providerOptions` · `STAGES` · `STAGE_PARENT`(서버 `settings.STAGE_PARENT`) · `STAGE_PARENT_LABEL` · `stageModelHint` · `viewSettings` · `modelDatalist` · `KNOWN_MODELS` · `modelStatus` · `aiWarning` · `saveSettings`(환경 변수 · 기본값을 보이기만 한 칸은 보내지 않음), `vertex.js` `geminiAuthSettings` · `geminiAuthBody` · `VERTEX_SRC`, `claude.js` `claudeStatusView` · `claudeSettings` · `claudeSettingsBody` |
+| `SettingsText` (`providers` · `stages` · `stageParent` · `followLabel` · `stageModelHint` · `stageEnvLines` · `localOpen` · `stageOpen` · `claudeOpen` · `modelOptions` · `modelStatus` · `aiWarning` · `claudeCard` · 키 칩), `SettingsDraft.body` | `settings.js` `providerOptions` · `STAGES` · `STAGE_PARENT`(서버 `settings.STAGE_PARENT`) · `STAGE_PARENT_LABEL` · `stageModelHint` · `viewSettings` · `modelDatalist` · `KNOWN_MODELS` · `modelStatus` · `saveSettings`(환경 변수 · 기본값을 보이기만 한 칸은 보내지 않음), `home.js` `aiWarning`, `vertex.js` `geminiAuthSettings` · `geminiAuthBody` · `VERTEX_SRC`, `claude.js` `claudeStatusView` · `claudeSettings` · `claudeSettingsBody` |
 
 ## 알려진 한계
 
