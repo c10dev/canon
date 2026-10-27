@@ -102,6 +102,7 @@ function viewWrite(n) {
         ${issuesBlock(e)}
         ${warnBlock(e)}
         ${e.text && !autoOn() && !headCheck ? ((b) => `<button class="btn small" data-action="checkEp" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('check', n, e.checked_at ? '다시 검수' : '검수하기')) : ''}
+        ${e.text && serial() ? widenToggle() : ''}
         ${deviceBadges(n)}
         <a href="${base()}/arc" data-action="gotoPlot" data-arg="${n}" style="font-size:0.8125rem">플롯 보기</a>
         ${deleteBlock(e)}
@@ -194,7 +195,23 @@ function viewBrief(n) {
 }
 
 
+/** 장편 검수 넓히기 켜기 · 끄기 (Settings.check_widen). 작품 설정이라 자동 집필 검수도 따른다 */
+function widenToggle() {
+  const on = !!P().settings.check_widen;
+  return `<button type="button" class="btn small" aria-pressed="${on}" data-action="toggleWiden" title="검수 뒤 이번 화 진술마다 옛 화를 더 찾아, 처음 검수에 넣지 못한 근거가 나온 진술만 다시 물어요. 검수 호출이 2번 늘어요">넓혀 찾기 ${on ? '켜짐' : '꺼짐'}</button>`;
+}
+
 Object.assign(actions, {
+  async toggleWiden() {
+    const on = !P().settings.check_widen;
+    P().settings.check_widen = on;
+    render();
+    try {
+      S.project = await api('PUT', `/projects/${enc(S.name)}/check-widen`, { on });
+    } catch (e) {
+      toast(e.message, true);
+    }
+  },
   // 집필
   setMode(m) {
     S.mode = m;

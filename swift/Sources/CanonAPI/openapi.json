@@ -8111,6 +8111,56 @@
     }
    }
   },
+  "/api/projects/{name}/check-widen": {
+   "put": {
+    "summary": "Set Check Widen",
+    "description": "장편 검수 넓히기 켜기 · 끄기 (Settings.check_widen). 자동 집필 검수도 따른다.",
+    "operationId": "set_check_widen",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CheckWiden"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/episodes/{n}/brief": {
    "get": {
     "summary": "Brief",
@@ -11070,6 +11120,19 @@
      "episode"
     ],
     "title": "CheckTrialIn"
+   },
+   "CheckWiden": {
+    "properties": {
+     "on": {
+      "type": "boolean",
+      "title": "On"
+     }
+    },
+    "type": "object",
+    "required": [
+     "on"
+    ],
+    "title": "CheckWiden"
    },
    "ClaudeAccount": {
     "properties": {
@@ -16120,6 +16183,12 @@
       "type": "boolean",
       "title": "Show Numbers",
       "description": "CLI 에서 관계를 숫자로 보여줄지(True), 말로 보여줄지(False)",
+      "default": false
+     },
+     "check_widen": {
+      "type": "boolean",
+      "title": "Check Widen",
+      "description": "장편 검수 넓히기: 검수 뒤 진술마다 옛 화를 더 찾아, 첫 검수에 없던 근거가 나온 진술만 다시 묻는다 (검수 호출 2번 더)",
       "default": false
      }
     },

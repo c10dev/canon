@@ -336,6 +336,13 @@ class BatchLLM:
             if why:
                 raise Interrupted(cancelled=False)
 
+    def part(self, name: str) -> "BatchLLM":
+        """같은 작업 기록(names)을 쓰는 다른 slot. 한 단계가 차례로 여러 번 부를 때(검수 넓히기) 서버를 다시 시작해도
+        앞 호출의 slot 에 뒤 호출의 작업이 붙지 않게 한다."""
+        out = copy.copy(self)
+        out.slot = f"{self.slot}:{name}"
+        return out
+
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
         fix = f"{self.slot}:fix"
         ask = prompt  # 고쳐 달라는 작업을 기다리던 중이면 (서버 재시작) 프롬프트는 쓰이지 않는다

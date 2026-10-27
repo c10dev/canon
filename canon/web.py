@@ -1780,7 +1780,7 @@ def start_job(name: str, body: JobIn) -> dict:
         raise ValueError(f"모르는 작업이에요: {kind}")
 
     try:
-        with usage.scope(episode=n if kind in ("write", "state", "rework", "hook", "openings", "opening_drafts", "plot_one") else None, task=kind):
+        with usage.scope(episode=n if kind in ("write", "state", "check", "rework", "hook", "openings", "opening_drafts", "plot_one") else None, task=kind):
             job = jobs.start(name, kind, n, label, _keep_pending(name, kind, n, label, fn), total=total, owned=owned)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}
@@ -3252,6 +3252,18 @@ class View(BaseModel):
 def set_view(name: str, body: View) -> Project:
     p = _load(name)
     p.settings.show_numbers = body.show_numbers
+    return _save(name, p)
+
+
+class CheckWiden(BaseModel):
+    on: bool
+
+
+@app.put("/api/projects/{name}/check-widen")
+def set_check_widen(name: str, body: CheckWiden) -> Project:
+    """장편 검수 넓히기 켜기 · 끄기 (Settings.check_widen). 자동 집필 검수도 따른다."""
+    p = _load(name)
+    p.settings.check_widen = body.on
     return _save(name, p)
 
 

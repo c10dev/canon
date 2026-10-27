@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
-from .schema import Character, ChatMessage, Claim, ConsistencyReport, Foreshadow, ImpactReport, Project, Selection, StateDelta, StoryElement
+from .schema import Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, ImpactReport, Project, Selection, StateDelta, StoryElement
 from . import charlog, foreshadows, statwin, timeline, travel
 
 SYSTEM_PLANNER = (
@@ -2031,9 +2031,8 @@ def _check_full(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
             relations if p.relationships else "없음", dump(p.secrets) or "없음", past, "")
 
 
-def _check_budget(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
-    """장편 검수 자료: 직전 CHECK_RECENT 화는 원문, 그보다 앞은 접은 줄거리와 이번 화와 겹치는 옛 단락(context.recall),
-    사실 · 상태 · 관계 · 비밀은 이번 화 인물과 주역 것만. 예전 방식은 최근 화만 원문이라 오래된 장면과의 모순은 요약으로만 봤다."""
+def check_recall(p: Project, n: int) -> tuple[list, list[tuple[int, list[str]]]]:
+    """장편 검수(budget)가 원문으로 넣는 직전 화와 옛 화에서 찾은 단락. 검수 넓히기(pipeline.widen_check)가 첫 검수에 없던 단락을 가려낼 때도 쓴다."""
     ep = p.episode(n)
     ids = context.episode_cast(p, n)
     prior = sorted((e for e in p.episodes if e.plot.number < n and e.text), key=lambda e: e.plot.number)
@@ -2041,7 +2040,17 @@ def _check_budget(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
     recent_nos = {e.plot.number for e in recent}
     first = min(recent_nos) if recent else n
     terms = context.query_terms(p, n) + context.names_of(p, ids)[1]
-    found = context.recall(p, first, ep.text + "\n" + elements.plot_text(ep), context.BUDGET["check_recall"], recent_nos, terms)
+    return recent, context.recall(p, first, ep.text + "\n" + elements.plot_text(ep), context.BUDGET["check_recall"], recent_nos, terms)
+
+
+def _check_budget(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
+    """장편 검수 자료: 직전 CHECK_RECENT 화는 원문, 그보다 앞은 접은 줄거리와 이번 화와 겹치는 옛 단락(context.recall),
+    사실 · 상태 · 관계 · 비밀은 이번 화 인물과 주역 것만. 예전 방식은 최근 화만 원문이라 오래된 장면과의 모순은 요약으로만 봤다."""
+    ep = p.episode(n)
+    ids = context.episode_cast(p, n)
+    recent, found = check_recall(p, n)
+    recent_nos = {e.plot.number for e in recent}
+    first = min(recent_nos) if recent else n
     title = {e.plot.number: e.plot.title for e in p.episodes}
     parts = []
     story = story_so_far(p, first) if first > 1 else ""
@@ -2220,6 +2229,17 @@ def setting_lines(p: Project) -> list[str]:
 
 def claim_evidence(p: Project, n: int, claim: Claim, index: context.PassageIndex, budget: int = TWOSTEP_EVIDENCE) -> str:
     """진술 하나에 붙일 근거: 진술에 이름이 나온 인물의 설정, 겹치는 작품 설정 줄 · 확정 사실 · 비밀, 옛 화에서 찾은 단락. LLM 호출 없음."""
+    return evidence_text(*claim_sources(p, n, claim, index, budget))
+
+
+def evidence_text(parts: list[str], found: list[tuple[int, list[str]]]) -> str:
+    parts = parts + [f"[{m}화 발췌]\n" + "\n…\n".join(paras) for m, paras in found]
+    return "\n\n".join(parts) or "자료 없음"
+
+
+def claim_sources(p: Project, n: int, claim: Claim, index: context.PassageIndex,
+                  budget: int = TWOSTEP_EVIDENCE) -> tuple[list[str], list[tuple[int, list[str]]]]:
+    """claim_evidence 의 재료: (설정 · 사실 · 비밀 블록, 옛 화에서 찾은 단락 [(화, [단락...])]). 단락을 따로 돌려 검수 넓히기가 새 단락인지 본다."""
     text = f"{claim.quote}\n{claim.claim}"
     people = [c for c in p.characters if c.name and c.name in text]
     parts, used = [], 0
@@ -2245,9 +2265,7 @@ def claim_evidence(p: Project, n: int, claim: Claim, index: context.PassageIndex
             rows = "\n".join(f"- {s.content} (모르는 인물: {', '.join(names.get(x, x) for x in s.hidden_from)})" for s in picked)
             parts.append(f"[비밀]\n{rows}")
             used += len(rows)
-    found = index.find(text, max(0, budget - used), [c.name for c in people])
-    parts += [f"[{m}화 발췌]\n" + "\n…\n".join(paras) for m, paras in found]
-    return "\n\n".join(parts) or "자료 없음"
+    return parts, index.find(text, max(0, budget - used), [c.name for c in people])
 
 
 def judge_message(state: str, text: str, options: list[str]) -> str:
@@ -2277,6 +2295,35 @@ def verdict_prompt(p: Project, n: int, items: list[tuple[Claim, str, float]]) ->
 
 위 의심 진술마다 근거 자료와 견줘 실제로 어긋나는 것만 보고하세요.
 - 판단기는 틀릴 수 있습니다. 근거를 직접 읽고 판단합니다. 이야기 안에서 바뀐 까닭이 본문에 있으면 모순이 아닙니다.
+- source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 발췌면 source_episode 는 그 발췌의 화, 인물 설정 · 작품 설정 · 확정 사실 · 비밀 · 세계관이면 0 입니다.
+- 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
+- episode 는 {n} 입니다."""
+
+
+# ---------- 검수 넓히기: 장편 검수(budget)에서 근거를 못 넣은 진술만 옛 화를 더 찾아 다시 묻는다 ----------
+# 첫 검수는 이번 화 전체로 한 번 찾은 단락(check_recall)만 본다. 진술마다 따로 찾으면 그때 빠진 단락이 나온다 (Self-Route).
+
+WIDEN_MAX = 8  # 다시 묻는 진술 수 상한. 첫 검수에서 근거를 하나도 못 본 진술부터
+
+
+def widen_prompt(p: Project, n: int, items: list[tuple[Claim, str]], known: list[ConsistencyIssue]) -> str:
+    """검수 넓히기 마지막: 첫 검수에 넣지 않은 옛 단락이 근거로 나온 진술만 그 근거와 함께 검수 모델에 넣는다. 출력은 ConsistencyReport."""
+    ep = p.episode(n)
+    rows = "\n\n".join(f"## {i}. {c.claim}\n이번 화 문장: {c.quote}\n\n{ev}" for i, (c, ev) in enumerate(items, 1))
+    seen = "\n".join(f"- {x.current_quote}" for x in known)
+    seen = f"\n\n# 이미 보고한 문장 (다시 넣지 않습니다)\n{seen}" if seen else ""
+    return f"""# 세계관 (깨면 안 되는 규칙 포함)
+{dump(p.world)}
+
+# 진술과 더 찾은 근거 ({n}화 본문에서 뽑은 진술마다 옛 화 단락을 더 넓게 찾은 것. 대부분은 앞선 검수에서 보지 못한 단락)
+{rows}{seen}
+
+# {n}화 본문 (검수 대상)
+{ep.text}
+
+위 진술마다 근거 자료와 견줘 실제로 어긋나는 것만 보고하세요.
+- 같은 대상(이름, 숫자, 기간, 나이, 호칭, 존댓말과 반말, 다친 곳, 물건의 주인, 누가 무엇을 아는지)에 대한 다른 내용이 근거에 있을 때만 어긋남입니다. 근거가 그 대상을 다루지 않으면 넣지 않습니다.
+- 이야기 안에서 바뀐 까닭이 본문에 있으면 모순이 아닙니다.
 - source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 발췌면 source_episode 는 그 발췌의 화, 인물 설정 · 작품 설정 · 확정 사실 · 비밀 · 세계관이면 0 입니다.
 - 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
 - episode 는 {n} 입니다."""
