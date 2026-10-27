@@ -30,6 +30,7 @@ BUDGET = {
     "state_secrets": 6_000,  # 상태 변경안 · 검수의 비밀 목록
     "places": 3_000,        # 기획 · 검수 · 상태 변경안에 넣는 본문 · 플롯에서 나온 장소
     "deadlines": 1_200,     # 쓰기 · 검수 · 기획 · 상태 변경안의 작품 속 열린 기한 (timeline.deadline_lines, 단편도)
+    "cast": 8_000,          # 본문 쓰기: '항상' 넣는 조연 · 단역과 이번 화 조연 · 단역의 설정. '항상' 조연 · 단역이 있을 때만 센다 (fit_cast)
 }
 FACTS_RECENT = 30  # 최근 사실은 예산과 상관없이 넣는다
 CHECK_RECENT = 3  # 검수에 원문 그대로 넣는 직전 화 수
@@ -221,29 +222,73 @@ def pick_secrets(p: Project, ids: set[str], query: str, budget: int) -> tuple[li
     return [cand[i] for i in sorted(keep)], len(cand) - len(keep)
 
 
+# ---------- 인물 넣기 방식 (Character.context) ----------
+# auto 는 비중대로 (주역은 매 화, 조연 · 단역은 나오는 화에만), always 는 비중과 상관없이 주역처럼 매 화,
+# off 는 비중과 상관없이 설정 · 상태 · 관계를 빼고 이름만 (등장 인물 줄, 다시 만들지 않게 하는 한 줄 목록).
+# 모두 auto 면 아래 함수는 예전 규칙(tier == "main")과 같은 결과를 내서 프롬프트가 한 글자도 바뀌지 않는다.
+
+def core_ids(p: Project) -> set[str]:
+    """매 화 설정을 넣는 인물: 주역과 '항상' 인물. '넣지 않음' 주역은 뺀다."""
+    return {c.id for c in p.characters if c.context == "always" or (c.tier == "main" and c.context != "off")}
+
+
+def off_ids(p: Project) -> set[str]:
+    """'넣지 않음' 인물."""
+    return {c.id for c in p.characters if c.context == "off"}
+
+
+def without_off(p: Project, ids: set[str] | None) -> set[str] | None:
+    """ids 에서 '넣지 않음' 인물을 뺀다. None 은 '모두'라서 '넣지 않음' 인물이 없으면 그대로 None,
+    있으면 인물 · 관계 · Tie 에 나오는 id 전부에서 뺀 것 (설정에 없는 id 의 관계도 예전처럼 남긴다)."""
+    off = off_ids(p)
+    if not off:
+        return ids
+    if ids is None:
+        ids = {c.id for c in p.characters} | {x for t in p.ties for x in (t.source, t.target)} \
+            | {x for r in p.relationships for x in (r.a, r.b)}
+    return set(ids) - off
+
+
+def fit_cast(extra: list[Character], used: int, size, budget: int) -> tuple[list[Character], int]:
+    """'항상' 넣는 조연 · 단역 설정(used 글자)과 이번 화 조연 · 단역(extra) 설정을 합쳐 예산(글자) 안에 맞춘다.
+    넘치면 단역 먼저, 같은 비중이면 뒤에 있는 인물부터 뺀다. size(인물) 는 그 인물 설정의 글자 수. (넣을 인물, 뺀 수)
+    '항상' 조연 · 단역이 없으면(used 0) 예전처럼 다 넣는다."""
+    if not used:
+        return extra, 0
+    order = sorted(range(len(extra)), key=lambda i: (extra[i].tier == "minor", i))
+    keep, total = set(), used
+    for i in order:
+        cost = size(extra[i])
+        if total + cost > budget:
+            continue
+        keep.add(i)
+        total += cost
+    return [c for i, c in enumerate(extra) if i in keep], len(extra) - len(keep)
+
+
 PLAN_RECENT = 20  # 기획 프롬프트: 최근 몇 화 플롯에 나온 인물까지 관계를 본다
 
 
 def planning_cast(p: Project, n: int) -> set[str]:
-    """기획 프롬프트에서 관계를 볼 인물: 주역, 직전 아크와 지금 아크의 주요 인물, 최근 PLAN_RECENT 화와 이후 플롯에 나온 인물.
-    조연을 다 넣으면 300화쯤에 관계 블록만 2만 자가 넘는다."""
-    ids = {c.id for c in p.characters if c.tier == "main"}
+    """기획 프롬프트에서 관계를 볼 인물: 주역('항상' 인물 포함), 직전 아크와 지금 아크의 주요 인물, 최근 PLAN_RECENT 화와 이후 플롯에 나온 인물.
+    '넣지 않음' 인물은 뺀다. 조연을 다 넣으면 300화쯤에 관계 블록만 2만 자가 넘는다."""
+    ids = core_ids(p)
     arcs = sorted((a for a in p.story_arcs if a.start_ep < n + 30), key=lambda a: a.start_ep)[-2:]
     for a in arcs:
         ids |= set(a.cast)
     for e in p.episodes:
         if e.plot.number >= n - PLAN_RECENT:
             ids |= set(e.plot.characters)
-    return ids
+    return ids - off_ids(p)
 
 
 def episode_cast(p: Project, n: int) -> set[str]:
-    """이번 화 등장 인물과 주역."""
+    """이번 화 등장 인물과 주역('항상' 인물 포함). '넣지 않음' 인물은 뺀다."""
     try:
         cast = set(p.episode(n).plot.characters)
     except KeyError:
         cast = set()
-    return cast | {c.id for c in p.characters if c.tier == "main"}
+    return (cast | core_ids(p)) - off_ids(p)
 
 
 # ---------- 옛 본문 단락 찾기 ----------
