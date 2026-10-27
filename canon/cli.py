@@ -50,6 +50,10 @@
   python -m canon view 내소설 numbers|words   관계를 숫자로 볼지 말로 볼지
   python -m canon adjust 내소설 a b --warmth 0.3 --trust 0.6   a 가 b 를 보는 관계를 직접 보정
   python -m canon revert 내소설 3       3화 상태 반영 직후로 되돌리기
+  python -m canon branch 내소설 3 내소설-B [--label "B안" --keep]   3화부터 다른 전개를 쓰는 갈래 (원본은 그대로, 기본은 3화부터 본문을 이전 판으로 남기고 비움)
+  python -m canon branches 내소설       갈래 집안: 본편과 갈래, 몇 화부터 갈라졌는지
+  python -m canon branch-compare 내소설 내소설-B [--ep 3 --text]   두 갈래의 화별 줄거리와 그 화 반영 직후 상태 차이
+  python -m canon promote 내소설-B      갈래를 본편으로 올리기 (갈래 정보만 바뀜)
   python -m canon recalc 내소설         계수(params)를 바꾼 뒤 사건 로그로 관계 재계산
   python -m canon usage [--days 30 | --all] [--project 내소설] [--prices]   AI 사용량과 추정 비용 (가격표 보기)
   python -m canon serve [--port 8000]    웹 UI (브라우저 자동 열기, 끄려면 --no-browser)
@@ -65,7 +69,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import (archetypes, autorun, cast, charlog, dynamics, elements, genres, illust, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
+from . import (archetypes, autorun, branches, cast, charlog, dynamics, elements, genres, illust, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
@@ -1676,6 +1680,87 @@ def cmd_revert(a: argparse.Namespace) -> None:
     print(f"되돌림 완료: {store.save(a.name, p)}")
 
 
+def cmd_branch(a: argparse.Namespace) -> None:
+    keep = a.keep
+    q, info = branches.make(a.name, a.to, a.n, "keep" if keep else "clear", a.label)
+    print(f"갈래를 만들었어요: {a.to} ({info.label + ', ' if info.label else ''}{a.n}화부터). 원본 작품은 그대로예요")
+    if keep:
+        print(f"{a.n}화부터 본문을 남겼어요. 상태 승인부터 다시 하세요: python -m canon update {a.to} {a.n}")
+    else:
+        print(f"{a.n}화부터 본문을 이전 판으로 남기고 비웠어요. 이어 쓰기: python -m canon write {a.to} {a.n}")
+
+
+def cmd_branches(a: argparse.Namespace) -> None:
+    fam = branches.family(branches.infos(), a.name)
+    if len(fam) < 2:
+        print(f"갈래가 없어요. 만들기: python -m canon branch {a.name} <화> <새 폴더>")
+        return
+    by_id = {v.id: k for k, v in fam.items()}
+    loaded = {k: store.load(k) for k in fam}
+    for k, depth in branches.order(fam):
+        b, p = fam[k], loaded[k]
+        up = by_id.get(b.parent, "")
+        pad = "  " * depth
+        fin = sum(e.status == "finalized" for e in p.episodes)
+        where = f"{b.from_ep}화부터" if b.parent else "본편"
+        title = b.label or ("" if b.parent else p.meta.title)  # 이름 없는 갈래는 제목이 본편과 같아 폴더 이름으로 부른다
+        print(f"{pad}{'└ ' if depth else ''}{f'{title} ({k})' if title else k} · {where} · {fin} / {p.meta.target_episodes}화 반영{'  ← 지금' if k == a.name else ''}")
+        shared = f"1~{b.from_ep - 1}화" if b.from_ep > 2 else "1화"
+        if branches.shared_edited(p, b):
+            print(f"{pad}  ! 갈라진 뒤 이 갈래에서 {shared}를 고쳤어요. 다른 갈래에는 들어가지 않아요")
+        if up and branches.shared_edited(loaded[up], b):
+            print(f"{pad}  ! 갈라진 뒤 {up}에서 {shared}를 고쳤어요. 이 갈래에는 들어가지 않아요")
+
+
+BRANCH_KIND = {"character": "인물", "tie": "관계", "fact": "사실", "foreshadow": "복선", "time": "시간", "setting": "설정"}
+
+
+def cmd_branch_compare(a: argparse.Namespace) -> None:
+    d = branches.compare_saved(a.name, a.other, a.ep)
+    n = d.episode
+    print(f"{a.name} · {a.other}: {d.from_ep}화부터 달라요" + (f" ({'1' if d.from_ep == 2 else f'1~{d.from_ep - 1}'}화는 함께 써요)" if d.from_ep > 1 else ""))
+
+    def side(s) -> str:
+        if s is None:
+            return "없음"
+        return f"{s.title} ({autorun.EP_STATUS.get(s.status, s.status)})" + (f" {s.summary}" if s.summary else "")
+
+    print("\n[화별 줄거리]")
+    idle = []
+    for e in d.episodes:
+        if e.number != n and all(s is None or s.status == "draft" for s in (e.a, e.b)):
+            idle.append(e.number)
+            continue
+        print(f"{e.number}화{'  ← 견주는 화' if e.number == n else ''}")
+        print(f"  {a.name}: {side(e.a)}")
+        print(f"  {a.other}: {side(e.b)}")
+    if idle:
+        print(f"({idle[0]}~{idle[-1]}화 중 양쪽 모두 플롯 초안인 {len(idle)}개 화는 뺐어요)" if len(idle) > 1 else f"({idle[0]}화는 양쪽 모두 플롯 초안이라 뺐어요)")
+
+    print(f"\n[{n}화 반영 직후 상태]")
+    late = [x for x, ok in ((a.name, d.ready_a), (a.other, d.ready_b)) if not ok]
+    if late:
+        print(f"{', '.join(late)}에서 {n}화를 아직 반영하지 않아 상태는 견줄 수 없어요")
+    elif not d.rows:
+        print("같아요")
+    for r in d.rows:
+        what = " · ".join(x for x in (r.who, r.field) if x)
+        print(f"- {BRANCH_KIND[r.kind]} {what}")
+        print(f"    {a.name}: {r.a or '없음'}")
+        print(f"    {a.other}: {r.b or '없음'}")
+    if a.text:
+        for who, t in ((a.name, d.text_a), (a.other, d.text_b)):
+            print(f"\n[{who} · {n}화 본문]\n{t or '본문이 없어요'}")
+
+
+def cmd_promote(a: argparse.Namespace) -> None:
+    if not confirm(f"{a.name}{logline.josa(a.name, '을', '를')} 본편으로 올릴까요? 갈래 정보만 바뀌고 작품 내용과 폴더 이름은 그대로예요", a.yes):
+        return
+    branches.promote_saved(a.name)
+    print("본편으로 올렸어요")
+    cmd_branches(a)
+
+
 def cmd_recalc(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     pipeline.recalc(p)
@@ -2085,6 +2170,14 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--warmth", type=float, help="-1 ~ 1")
     sp.add_argument("--trust", type=float, help="0 ~ 1")
     add("revert", cmd_revert, "n")
+    sp = add("branch", cmd_branch, "n", "to", yes=False)
+    sp.add_argument("--label", default="", help="갈래 이름 (예: B안 - 세린이 떠난다)")
+    sp.add_argument("--keep", action="store_true", help="n화부터 본문을 남기고 상태 승인부터 다시 (기본은 본문을 이전 판으로 남기고 비움)")
+    add("branches", cmd_branches, yes=False)
+    sp = add("branch-compare", cmd_branch_compare, "other", yes=False)
+    sp.add_argument("--ep", type=int, default=0, help="견줄 화 (기본: 두 작품이 함께 반영한 마지막 화)")
+    sp.add_argument("--text", action="store_true", help="그 화 본문도 보이기")
+    add("promote", cmd_promote)
     add("recalc", cmd_recalc, yes=False)
 
     a = ap.parse_args(argv)

@@ -29,6 +29,8 @@ from . import atlas, foreshadows, setupchat, statwin, timeline
 from .schema import ChatScope, Deadline, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .schema import CharacterState, StoryEvent
 from .schema import NameOption, Recap
+from . import branches
+from .schema import BranchDiff, BranchInfo, ForkMode
 
 STATIC = Path(__file__).parent / "static"
 # 폴더 이름: / \ 와 운영체제가 막는 : * ? " < > | 는 쓸 수 없고, . 으로 시작하지 않는다
@@ -364,13 +366,15 @@ class ProjectCard(BaseModel):
     open_ep: int
     open_status: str
     updated_at: str
+    branch: BranchInfo | None = Field(None, description="갈래 정보. 갈래가 없는 작품이면 비움 (같은 family 끼리 묶어 보인다)")
 
 
 @app.get("/api/projects")
 def list_projects() -> list[ProjectCard]:
-    """작품 카드: 형식, 다음에 할 화(open_ep · open_status, 없으면 0 · ''), 고친 시각. 최근에 고친 작품부터."""
+    """작품 카드: 형식, 다음에 할 화(open_ep · open_status, 없으면 0 · ''), 고친 시각, 갈래 정보. 최근에 고친 작품부터."""
     from datetime import datetime, timezone
     out = []
+    tree = branches.infos()
     if store.ROOT.exists():
         for d in sorted(store.ROOT.iterdir()):
             f = d / "project.json"
@@ -382,7 +386,8 @@ def list_projects() -> list[ProjectCard]:
                 out.append({"name": d.name, "title": p.meta.title, "genre": p.meta.genre, "form": p.meta.form,
                             "episodes": p.meta.target_episodes, "finalized": done, "planned": len(p.episodes),
                             "open_ep": todo.plot.number if todo else 0, "open_status": todo.status if todo else "",
-                            "updated_at": datetime.fromtimestamp(mtime, timezone.utc).isoformat(), "_mtime": mtime})
+                            "updated_at": datetime.fromtimestamp(mtime, timezone.utc).isoformat(), "_mtime": mtime,
+                            "branch": tree.get(d.name)})
     out.sort(key=lambda x: -x["_mtime"])
     return [{k: v for k, v in x.items() if k != "_mtime"} for x in out]
 
@@ -409,13 +414,117 @@ def _new_name(body: NewName) -> str:
 
 @app.post("/api/projects/{name}/duplicate")
 def duplicate_project(name: str, body: NewName) -> dict:
-    """작품 폴더를 통째로 복사한다 (시험해 볼 사본). 자동 집필 기록과 검토 대기 결과는 옮기지 않는다."""
+    """작품 폴더를 통째로 복사한다 (시험해 볼 사본). 자동 집필 기록과 검토 대기 결과는 옮기지 않는다.
+    갈래 정보(branch.json)도 옮기지 않는다. 같은 id 가 둘이 되면 갈래 집안이 꼬인다. 갈래는 make_branch 로 만든다."""
     _load(name)
     new = _new_name(body)
     import shutil
     shutil.copytree(store.project_dir(name), store.project_dir(new),
-                    ignore=shutil.ignore_patterns("autorun.json", "pending.json", "*.tmp"))
+                    ignore=shutil.ignore_patterns(*branches.COPY_SKIP, "branch.json"))
     return {"name": new}
+
+
+# ---------- 갈래 (canon/branches.py) ----------
+# 갈래 정보는 작품 폴더의 branch.json 에 있어 화면이 작품을 저장해도 덮지 않는다. 원본 project.json 은 바꾸지 않는다.
+
+class BranchIn(BaseModel):
+    to: str = Field(description="갈래 작품의 폴더 이름")
+    from_ep: int = Field(description="이 화부터 갈라진다")
+    mode: ForkMode = Field("clear", description="clear: 이 화부터의 본문을 이전 판으로 남기고 비운다 / keep: 본문을 남기고 상태 승인을 다시 한다")
+    label: str = Field("", description="갈래 이름")
+
+
+class BranchMember(BaseModel):
+    """갈래 집안의 작품 하나."""
+    name: str
+    title: str
+    info: BranchInfo
+    parent_name: str = Field("", description="갈라져 나온 작품의 폴더 이름. 본편이거나 그 작품을 지웠으면 빈 값")
+    depth: int = Field(0, description="본편에서 몇 번 갈라졌는지 (본편 0)")
+    finalized: int = 0
+    planned: int = 0
+    episodes: int = Field(0, description="총 화수")
+    shared_edited: bool = Field(False, description="이 갈래에서 함께 쓰는 앞 화(1~(from_ep-1)화)를 갈라진 뒤에 고쳤다")
+    parent_edited: bool = Field(False, description="갈라져 나온 작품에서 함께 쓰는 앞 화를 갈라진 뒤에 고쳤다")
+
+
+class BranchFamily(BaseModel):
+    main: str = Field("", description="본편 폴더 이름. 갈래가 없으면 빈 값")
+    members: list[BranchMember] = Field(default_factory=list, description="본편부터 차례로. 자식 갈래는 갈라진 화 순서로 부모 바로 뒤에")
+
+
+def _family(name: str) -> BranchFamily:
+    fam = branches.family(branches.infos(), name)
+    if not fam:
+        return BranchFamily()
+    by_id = {v.id: k for k, v in fam.items()}
+    loaded = {k: store.load(k) for k in fam}
+    members = []
+    for k, depth in branches.order(fam):
+        b, p = fam[k], loaded[k]
+        up = by_id.get(b.parent, "")
+        members.append(BranchMember(
+            name=k, title=p.meta.title, info=b, parent_name=up, depth=depth,
+            finalized=sum(e.status == "finalized" for e in p.episodes), planned=len(p.episodes), episodes=p.meta.target_episodes,
+            shared_edited=branches.shared_edited(p, b), parent_edited=bool(up) and branches.shared_edited(loaded[up], b)))
+    return BranchFamily(main=branches.main_of(fam), members=members)
+
+
+def _relink(fam: dict[str, BranchInfo], name: str) -> None:
+    """name 을 갈래 집안(fam)에서 빼고 남은 갈래를 다시 잇는다. 혼자 남은 작품은 갈래 정보를 지운다."""
+    if name not in fam:
+        return
+    for k, v in branches.remove(fam, name).items():
+        store.save_branch(k, v)
+    rest = [k for k in fam if k != name]
+    if len(rest) == 1:
+        store.drop_branch(rest[0])
+
+
+@app.post("/api/projects/{name}/branch")
+def make_branch(name: str, body: BranchIn) -> BranchMember:
+    """n화부터 갈래를 만든다. 작품 폴더를 복사하고 사본을 n-1화 반영 직후로 되돌린다. 원본 project.json 은 그대로다."""
+    _load(name)
+    _free(name)
+    to = _new_name(NewName(name=body.to))
+    with jobs.project_lock(name):
+        branches.make(name, to, body.from_ep, body.mode, body.label)
+    return next(m for m in _family(to).members if m.name == to)
+
+
+@app.get("/api/projects/{name}/branches")
+def branch_family(name: str) -> BranchFamily:
+    """이 작품이 속한 갈래 집안. 갈래가 없으면 빈 목록."""
+    _load(name)
+    return _family(name)
+
+
+@app.get("/api/projects/{name}/compare/{other}")
+def compare_branches(name: str, other: str, ep: int = 0) -> BranchDiff:
+    """같은 집안의 두 작품을 견준다. ep 를 주지 않으면 두 작품이 함께 반영한 마지막 화(갈라진 화보다 앞이면 갈라진 화)."""
+    _load(name)
+    _load(other)
+    return branches.compare_saved(name, other, ep)
+
+
+@app.post("/api/projects/{name}/promote")
+def promote_branch(name: str) -> BranchFamily:
+    """이 갈래를 본편으로 올린다. 갈래 정보만 바꾸고 폴더 이름과 작품 데이터는 그대로다."""
+    _load(name)
+    branches.promote_saved(name)
+    return _family(name)
+
+
+@app.post("/api/projects/{name}/detach")
+def detach_branch(name: str) -> BranchFamily:
+    """갈래를 끊어 따로 선 작품으로 만든다. 이 작품에서 갈라진 갈래는 이 작품의 부모에 다시 잇는다. 작품 데이터는 그대로다."""
+    _load(name)
+    fam = branches.family(branches.infos(), name)
+    if name not in fam:
+        raise ValueError("갈래가 없는 작품이에요")
+    _relink(fam, name)
+    store.drop_branch(name)
+    return _family(name)
 
 
 @app.post("/api/projects/{name}/rename")
@@ -434,10 +543,12 @@ def delete_project(name: str) -> dict:
     _load(name)
     _free(name)
     from datetime import datetime
+    fam = branches.family(branches.infos(), name)  # 옮기기 전에 읽는다 (휴지통의 branch.json 은 집안에서 빠진다)
     trash = store.ROOT / ".trash"
     trash.mkdir(parents=True, exist_ok=True)
     dest = trash / f"{name}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     store.project_dir(name).rename(dest)
+    _relink(fam, name)  # 이 작품에서 갈라진 갈래는 이 작품의 부모에 다시 잇는다
     return {"ok": True, "trash": str(dest)}
 
 

@@ -1046,6 +1046,36 @@ details.card.set-more { display: block; }
 .proj-more > summary.btn::-webkit-details-marker { display: none; }
 .proj-more[open] > summary.btn { background: var(--bg); }
 .note .btn { margin-left: 4px; }
+
+/* 갈래 (branches.js): 작품 머리 띠, 작품 목록 카드 안의 갈래 줄 (깊이만큼 들여 쓴다) */
+.branch-strip { display: flex; flex-direction: column; gap: 4px; }
+.branch-strip .row { gap: 4px 14px; }
+.branch-list > summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; }
+.branch-list ul { list-style: none; padding: 0; margin: 4px 0 0; display: flex; flex-direction: column; }
+.branch-row { display: flex; flex-direction: column; gap: 2px; padding: 8px 0 0 calc(var(--depth, 0) * 16px); margin-top: 8px; border-top: 1px solid var(--line); }
+.branch-row > a { text-decoration: none; color: inherit; }
+.branch-row .proj-more { border-top: 0; margin-top: 0; padding-top: 0; }
+/* 작품 홈 갈래 카드: 이름 | 화 축 위의 줄 | 버튼. 좁은 화면은 위아래로 쌓는다 */
+.bm-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
+.bm-row { display: grid; grid-template-columns: minmax(140px, 220px) minmax(0, 1fr) auto; gap: 6px 16px; align-items: center; padding: 10px 0 10px calc(var(--depth, 0) * 14px); border-bottom: 1px solid var(--line); }
+.bm-row.me .bm-name strong { color: var(--accent-ink); }
+.bm-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bm-track { position: relative; height: 14px; }
+.bm-track i { position: absolute; top: 50%; transform: translateY(-50%); }
+.bm-shared { left: 0; border-top: 2px dashed var(--line-strong); }
+.bm-line { height: 4px; border-radius: 2px; background: var(--chip); border: 1px solid var(--line-strong); }
+.bm-done { height: 10px; border-radius: 3px; background: var(--green); }
+.bm-acts { gap: 6px; justify-content: flex-end; }
+@media (max-width: 640px) { .bm-row { grid-template-columns: minmax(0, 1fr); } .bm-acts { justify-content: flex-start; } }
+/* 갈래 비교: 긴 글은 줄을 바꾸고, 고른 화 줄을 칠한다. 본문은 나란히 (좁으면 grid-2 가 그대로 두 칸이라 한 칸으로) */
+.bc-table td, .bc-table th { white-space: normal; vertical-align: top; }
+.bc-table td:first-child, .bc-table th:first-child { white-space: nowrap; }
+.bc-eps tr.on { background: var(--accent-soft); }
+.bc-sum { margin-top: 4px; line-height: 1.5; }
+.bc-col h3 { font-size: 0.875rem; margin-bottom: 8px; }
+.bc-text { max-height: 60vh; overflow-y: auto; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; font-family: var(--serif, inherit); line-height: 1.8; font-size: 0.9375rem; }
+.bc-text p + p { margin-top: 0.8em; }
+@media (max-width: 640px) { .bc-texts { grid-template-columns: minmax(0, 1fr); } }
 .card-more { font-size: 0.8125rem; align-self: flex-start; }
 
 /* 모델 설정: 고른 생성 방식에 쓰지 않는 칸 묶음은 숨긴다 (syncProviderGroups) */

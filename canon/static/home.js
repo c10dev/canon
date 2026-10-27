@@ -36,15 +36,22 @@ function aiNote() {
 
 function viewProjects() {
   const list = S.projects || [];
-  const cards = list.map((x) => `<div class="card tight proj-card">
-      <a href="#/p/${enc(x.name)}" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:6px">
-      <div class="between"><h3>${esc(x.title || x.name)}</h3><span class="small">${x.finalized} / ${x.episodes}화</span></div>
-      <div class="small">${x.form === 'serial' ? '장편' : '단편'} · ${esc(projectNext(x))}</div>
-      <div class="small">${esc(x.genre || '장르 미정')} · 폴더 ${esc(x.name)}${x.updated_at ? ` · 고친 때 ${fmtDateTime(x.updated_at)}` : ''}</div></a>
-      <details class="proj-more"><summary class="btn small" aria-label="${esc(x.title || x.name)} 관리">⋯ 관리</summary><div class="row" style="padding-top:8px">
+  const manage = (x, label) => `<details class="proj-more"><summary class="btn small" aria-label="${esc(label)} 관리">⋯ 관리</summary><div class="row" style="padding-top:8px">
         <button type="button" class="btn small" data-action="dupProject" data-arg="${esc(x.name)}">복제</button>
         <button type="button" class="btn small" data-action="renameProject" data-arg="${esc(x.name)}">폴더 이름 바꾸기</button>
-        <button type="button" class="btn small danger" data-action="deleteProject" data-arg="${esc(x.name)}">삭제</button></div></details>
+        <button type="button" class="btn small danger" data-action="deleteProject" data-arg="${esc(x.name)}">삭제</button></div></details>`;
+  // 같은 갈래 집안은 본편 카드 하나에 묶고, 갈래는 카드 안에 갈라진 화 순서로 (branches.js)
+  const branchRow = ({ card: y, depth }) => `<li class="branch-row" style="--depth:${depth}">
+      <a href="#/p/${enc(y.name)}"><strong>${esc(y.branch.label || y.name)}</strong> <span class="small">${y.branch.from_ep}화부터 · ${y.finalized} / ${y.episodes}화 · ${esc(projectNext(y))}</span></a>
+      <span class="small">폴더 ${esc(y.name)}${y.updated_at ? ` · 고친 때 ${fmtDateTime(y.updated_at)}` : ''}</span>
+      ${manage(y, y.branch.label || y.name)}</li>`;
+  const cards = branchGroups(list).map(({ card: x, branches }) => `<div class="card tight proj-card">
+      <a href="#/p/${enc(x.name)}" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:6px">
+      <div class="between"><h3>${esc(x.title || x.name)}</h3><span class="small">${x.finalized} / ${x.episodes}화</span></div>
+      <div class="small">${x.form === 'serial' ? '장편' : '단편'} · ${esc(projectNext(x))}${branches.length ? ` · 갈래 ${branches.length}개` : ''}</div>
+      <div class="small">${esc(x.genre || '장르 미정')} · 폴더 ${esc(x.name)}${x.updated_at ? ` · 고친 때 ${fmtDateTime(x.updated_at)}` : ''}</div></a>
+      ${manage(x, x.title || x.name)}
+      ${branches.length ? `<details class="branch-list"><summary class="small">갈래 ${branches.length}개 보기</summary><ul>${branches.map(branchRow).join('')}</ul></details>` : ''}
     </div>`).join('');
   const f = newForm();
   const err = S.newErr || {};
@@ -246,7 +253,7 @@ function viewHome() {
   const last = p.history.length ? p.history[p.history.length - 1] : null;
   const lastWarn = last ? last.warnings : [];
 
-  return `${header(`${esc(m.genre || '장르 미정')}${m.adult ? ' · 성인' : ''} · 전 ${m.target_episodes}화 · 화당 ${Number(m.words_per_episode).toLocaleString()}자`, m.title || S.name, esc(m.logline), `${!serial() && fin && fin === m.target_episodes ? `<a class="btn" href="${base()}/convert">장편으로 늘리기</a>` : ''}${nextHref === `${base()}/arc` ? '' : `<a class="btn" href="${base()}/arc">${stepLabel('arc')}</a>`}${recapBtn}<a class="btn primary" href="${nextHref}">${esc(nextLabel)}</a>`)}
+  return `${header(`${esc(m.genre || '장르 미정')}${m.adult ? ' · 성인' : ''} · 전 ${m.target_episodes}화 · 화당 ${Number(m.words_per_episode).toLocaleString()}자`, m.title || S.name, esc(m.logline), `${!serial() && fin && fin === m.target_episodes ? `<a class="btn" href="${base()}/convert">장편으로 늘리기</a>` : ''}${nextHref === `${base()}/arc` ? '' : `<a class="btn" href="${base()}/arc">${stepLabel('arc')}</a>`}${fin ? '<button type="button" class="btn" data-action="branchOpen" title="이 작품은 그대로 두고, 사본에서 다른 전개를 써요">갈래 만들기</button>' : ''}${recapBtn}<a class="btn primary" href="${nextHref}">${esc(nextLabel)}</a>`)}
     ${autoLockNote()}
     ${aiNote()}
     <section class="card" aria-label="진행 단계"><div class="stages">
@@ -269,6 +276,7 @@ function viewHome() {
       ${lastWarn.length ? `<div class="note warn">${last.episode}화 반영 때 검수 경고: ${lastWarn.map(esc).join(' / ')} <a href="${base()}/write/${last.episode}" style="color:inherit;font-weight:700">${last.episode}화 보기</a></div>` : ''}
       ${eps.some((e) => e.status === 'written') ? `<div class="note warn">${cur}화 본문이 작성됐어요. 상태 변경안을 승인해야 다음 화를 쓸 수 있어요. <a href="${base()}/review/${cur}" style="color:inherit;font-weight:700">${cur}화 상태 승인</a></div>` : ''}
     </section>
+    ${branchHomeCard()}
     <div class="grid-auto">
       <section class="card"><div class="between"><h2>인물 현재 상태</h2><span class="small">${fin ? fin + '화 기준' : '시작 시점'}</span></div>${states || '<div class="small">인물이 없어요</div>'}<a class="card-more" href="${base()}/cast">인물 · 관계 전체 보기</a></section>
       <section class="card">${relationHeader('관계')}${p.relationships.length ? relationLines(S.relations) : `<div class="small">관계가 없어요. <a href="${base()}/setup">설정 도우미</a>에서 관계를 추가하세요.</div>`}</section>
