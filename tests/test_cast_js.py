@@ -1,4 +1,4 @@
-"""인물 상태창(static/cast.js)의 castStatDelta 가 상태창 수치의 바뀐 양을 맞게 적는지. node 가 있을 때만 돈다."""
+"""인물 카드(static/cast.js)의 castStatDelta 가 상태창 수치의 바뀐 양을 맞게 적는지. node 가 있을 때만 돈다."""
 import json
 import shutil
 import subprocess

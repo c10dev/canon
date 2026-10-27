@@ -131,7 +131,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .chip.finalized { background: var(--green-soft); color: var(--green); }
 .chip.ai { background: var(--accent-soft); color: var(--accent-ink); font-size: 0.6875rem; }
 
-.stages { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+.stages { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
 @media (max-width: 900px) { .stages { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .stage { display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: var(--text); }
 .stage .bar { height: 4px; border-radius: 2px; background: var(--chip); }
@@ -276,7 +276,7 @@ pre.brief { margin: 0; padding: 16px; border-radius: 8px; background: var(--bg);
 .savebar .btn { min-height: 40px; }
 .savebar .btn { white-space: nowrap; }
 /* 상태 승인: 고른 수와 반영 버튼을 화면 아래에 붙여 둔다 (저장 띠 · 작업 목록 위) */
-.apply-bar { position: sticky; bottom: calc(8px + var(--sb, 0px) + var(--jb, 0px)); z-index: 5; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 12px; padding: 10px 14px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.12); }
+.apply-bar { position: sticky; bottom: calc(8px + var(--sb, 0px)); z-index: 5; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 12px; padding: 10px 14px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.12); }
 #toast { position: fixed; right: 20px; bottom: 20px; max-width: 420px; z-index: 40; display: flex; flex-direction: column; gap: 8px; }
 #toast .t { padding: 12px 16px; border-radius: 10px; background: var(--inverse-bg); color: var(--inverse-ink); font-size: 0.8125rem; line-height: 1.5; box-shadow: 0 6px 24px rgba(0,0,0,0.2); }
 #toast .t.err { background: var(--red); }
@@ -761,7 +761,7 @@ details.vis summary .small { margin-left: 6px; font-weight: 400; }
 .legend .cs-key.finalized { background: var(--green-soft); border-color: var(--green); }
 .cs-mark { fill: none; stroke: var(--accent); stroke-width: 2; }
 
-/* ----- 인물 상태창 (cast.js castSheet): 인물 하나의 설정 · 지금 상태 · 상태창 수치 · 관계 · 비밀 · 기록 ----- */
+/* ----- 인물 카드 (cast.js castSheet): 인물 하나의 설정 · 지금 상태 · 상태창 수치 · 관계 · 비밀 · 기록 ----- */
 .csh { display: flex; flex-direction: column; gap: 20px; }
 .csh-roster { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; }
 .csh-pick { flex: none; min-height: 52px; padding: 6px 14px 6px 6px; display: flex; align-items: center; gap: 10px; border-radius: 999px; border: 1.5px solid var(--line); background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
@@ -908,11 +908,12 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
   #jobs { left: 16px; }
 }
 
-/* ----- 아래 고정 층 쌓기: 저장 띠 위에 작업 목록 · 알림 (stackBottom 이 --sb, --jb 를 정한다) ----- */
-#jobs { bottom: calc(20px + var(--sb, 0px)); }
-#toast { bottom: calc(20px + var(--sb, 0px) + var(--jb, 0px)); }
-.main { padding-bottom: calc(96px + var(--sb, 0px) + var(--jb, 0px)); }
-@media (max-width: 640px) { #jobs { bottom: calc(16px + var(--sb, 0px)); } #toast { left: 16px; right: 16px; max-width: none; } }
+/* ----- 아래 고정 층 쌓기: 저장 띠 → 반영 줄 → 작업 목록 → 알림 (stackBottom 이 --sb, --ab, --jb 를 정한다) ----- */
+#jobs { bottom: calc(20px + var(--sb, 0px) + var(--ab, 0px)); }
+#toast { bottom: calc(20px + var(--sb, 0px) + var(--ab, 0px) + var(--jb, 0px)); }
+/* 반영 줄이 맨 끝 제자리에 섰을 때도 작업 목록 · 알림 아래로 들어가지 않게 그 높이만큼 더 띄운다 */
+.main { padding-bottom: calc(96px + var(--sb, 0px) + var(--ab, 0px) + max(var(--jb, 0px), var(--jh, 0px))); }
+@media (max-width: 640px) { #jobs { bottom: calc(16px + var(--sb, 0px) + var(--ab, 0px)); } #toast { left: 16px; right: 16px; max-width: none; } }
 
 /* ----- 집필 화면: 넓은 폭에서는 본문을 가운데 넓게, 플롯과 내보내기는 왼쪽에 쌓는다 ----- */
 @media (min-width: 1200px) {

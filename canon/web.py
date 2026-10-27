@@ -520,6 +520,7 @@ def put_project(name: str, p: Project, response: Response, merged: str = "", for
         pipeline.validate_parts(p.parts, p.meta.target_episodes)
         pipeline.validate_story_arcs(p)
     pipeline.validate_storylines(p)
+    pipeline.validate_characters(p, disk)
     pipeline.validate_relationships(p)
     pipeline._init_states(p)
     p.meta.genre = genres.label(p.meta)
@@ -1265,18 +1266,8 @@ def chat_apply(name: str, topic: str, i: int, body: ChatApply) -> Project:
             _not_auto(name)
         return _edit(name, lambda q: setupchat.apply(q, i, body.fields))
     p = _load(name)
-    msgs = _chat(p, topic).messages
-    if not 0 <= i < len(msgs) or msgs[i].revision is None:
-        raise HTTPException(404, "변경안이 있는 메시지가 아니에요")
-    m = msgs[i]
-    if m.outcome:
-        raise ValueError("이미 처리한 변경안이에요")
-    drafted = [x for x in body.draft if x == "arc"] if m.target == "next" and m.revision.arc.title else []
-    if not (body.acts or body.episodes or body.arc or body.parts or drafted):
-        raise ValueError("반영할 부분을 고르세요")
-    done = pipeline.apply_revision(p, m.revision, body.acts, body.episodes, arc=body.arc, parts=body.parts, target=m.target)
-    m.applied = drafted + done
-    m.outcome = "applied"
+    _plot_revision(p, topic, i)
+    pipeline.apply_plot_chat(p, i, body.acts, body.episodes, arc=body.arc, parts=body.parts, draft=body.draft, topic=topic)
     return _save(name, p)
 
 
@@ -1334,6 +1325,25 @@ def setup_chat_undo(name: str, i: int) -> dict:
         if any(x.startswith("r:") for x in msg.applied):
             _not_auto(name)
         out["restored"], out["kept"] = setupchat.undo(p, i)
+    p = _edit(name, fn)
+    return {"project": p, **out}
+
+
+def _plot_revision(p: Project, topic: str, i: int) -> None:
+    msgs = _chat(p, topic).messages
+    if not 0 <= i < len(msgs) or msgs[i].revision is None:
+        raise HTTPException(404, "변경안이 있는 메시지가 아니에요")
+
+
+@app.post("/api/projects/{name}/chat/plot/{i}/undo")
+def plot_chat_undo(name: str, i: int) -> dict:
+    """적용한 플롯 변경안을 취소한다. 그 뒤에 다시 고쳤거나 확정한 화, 본문을 쓴 화와 그 때문에 줄일 수 없는 구조는 그대로 두고
+    까닭(reasons, kept 와 같은 순서)을 알려 준다. 변경안은 다시 고를 수 있게 열린다."""
+    _plot_revision(_load(name), "plot", i)
+    out: dict = {}
+
+    def fn(p: Project) -> None:
+        out["restored"], out["kept"], out["reasons"] = pipeline.undo_plot_chat(p, i)
     p = _edit(name, fn)
     return {"project": p, **out}
 
@@ -1923,6 +1933,14 @@ def opening_plot(name: str, n: int, body: OpeningPlotIn) -> Project:
     _load(name)
     _not_auto(name)
     return _edit(name, lambda p: pipeline.apply_opening(p, n, body.plot))
+
+
+@app.post("/api/projects/{name}/episodes/{n}/opening-plot/undo")
+def opening_plot_undo(name: str, n: int) -> Project:
+    """n화 플롯을 여는 방식 안을 처음 고르기 전으로 되돌린다 (Episode.opening_prev). 화는 초안이 된다."""
+    _load(name)
+    _not_auto(name)
+    return _edit(name, lambda p: pipeline.undo_opening(p, n))
 
 
 @app.get("/api/projects/{name}/episodes/{n}/context")

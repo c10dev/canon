@@ -57,7 +57,7 @@ public enum Screen: String, CaseIterable, Sendable, Identifiable {
         case .statwin: "상태창 수치"
         case .timeline: "작품 속 시간"
         case .lines: "이야기 줄기"
-        case .causal: "인과율 · 설정 추가"
+        case .causal: "인과율"
         case .brief: "작업지시서 (API 없이)"
         case .auto: "자동 집필"
         case .research: "연구 · 모델 실험"

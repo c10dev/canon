@@ -1,6 +1,6 @@
 /* 작품 속 시간. app.js 의 S, actions, api, run, render, header, esc, P, input, base, ep, epIndex, saveIfDirty, toast 를 쓴다.
    화가 끝난 시점(Episode.time)과 앞으로 올 기한(Project.timeline.deadlines)을 보고 고친다. 서버는 canon/timeline.py.
-   켜고 끄기 · 기준 · 화별 시점은 작품 저장(저장 막대)으로, 기한은 /timeline/deadlines 로 고친다(스냅샷도 함께).
+   켜고 끄기 · 기준 · 화별 시점은 작품 저장(저장 띠)으로, 기한은 /timeline/deadlines 로 고친다(스냅샷도 함께).
    남은 날 · 지금 날수 계산(tlLeft, tlDay)은 timeline.left · current_day 와 같은 규칙이라 함께 고친다.
    상태 승인 화면의 시점 칸과 기한 고르기(tlDeltaCard, 키 k · o), 반영 기록(tlHistory), 집필 화면 플롯 칸(tlAside)도 여기 있다. */
 'use strict';
@@ -169,14 +169,15 @@ function viewTimeline() {
       <div><div class="small">열린 기한</div><div class="num">${open.length}</div></div>
       <div><div class="small">사흘 안 · 지난 기한</div><div class="num" style="${near ? 'color:var(--amber)' : ''}">${near}</div></div></div>
     <label class="check-row"><input type="checkbox" data-bind="timeline.enabled" data-kind="bool"${tl.enabled ? ' checked' : ''}> 작품 속 시간 기록하기 <span class="small">끄면 상태 변경안에 시점을 적지 않고, 쓰기 · 검수에 시간 블록을 넣지 않아요</span></label>
-    ${input('1일째가 언제인가요', 'timeline.start', { hint: '날짜나 요일을 적으면 날마다 날짜 · 요일은 Canon이 계산해요. 비우면 날수만 세요', placeholder: '예: 2024년 3월 4일 월요일, 초봄' })}</section>`;
+    ${input('1일째가 언제인가요', 'timeline.start', { hint: '날짜나 요일을 적으면 날마다 날짜 · 요일은 Canon이 계산해요. 비우면 날수만 세요', placeholder: '예: 2024년 3월 4일 월요일, 초봄' })}
+    <div class="small">켜고 끄기와 1일째는 화면 아래 저장 띠로 저장해요. 기한은 바로 저장해요.</div></section>`;
   const sorted = [...tl.deadlines].sort((a, b) => (a.done_ep > 0) - (b.done_ep > 0) || (a.day <= 0) - (b.day <= 0) || a.day - b.day || a.set_ep - b.set_ep);
   const dls = `<section class="card"><div class="between"><h2>기한</h2>${S.tlEdit === 'new' ? '' : '<button type="button" class="btn small" data-action="tlEditOpen" data-arg="new">+ 기한 더하기</button>'}</div>
     <div class="small">축제, 결혼식, '사흘 안에' 같은 약속처럼 앞으로 올 날이에요. AI가 본문에서 찾은 기한은 상태 승인에서 골라 반영돼요. 직접 더한 기한은 ${tlLastDone() || 0}화에 생긴 것으로 기록돼요.</div>
     ${S.tlEdit === 'new' ? tlForm(null) : ''}
     ${sorted.map((d) => tlDeadlineRow(d, day)).join('') || (S.tlEdit === 'new' ? '' : '<div class="small" style="padding:8px 0">기한이 없어요.</div>')}</section>`;
   const table = p.episodes.length ? `<section class="card"><h2>화별 시점</h2>
-    <div class="small">플롯의 시점은 직전 화에서 얼마나 지났는지(비우면 바로 이어짐), 끝난 시점은 반영한 화가 끝났을 때예요. 고치면 저장 막대로 저장해요.</div>
+    <div class="small">플롯의 시점은 직전 화에서 얼마나 지났는지(비우면 바로 이어짐), 끝난 시점은 반영한 화가 끝났을 때예요. 고치면 화면 아래 저장 띠로 저장해요.</div>
     <div class="tl-table-wrap"><table class="tl-table"><thead><tr><th scope="col">화</th><th scope="col">제목</th><th scope="col">플롯의 시점</th><th scope="col">며칠째</th><th scope="col">시간대</th><th scope="col">날짜 · 계절</th><th scope="col">지난 날</th></tr></thead>
     <tbody>${tlRows()}</tbody></table></div></section>` : '';
   return `${head}${sum}${dls}${table}`;

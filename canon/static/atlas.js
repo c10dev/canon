@@ -1166,6 +1166,7 @@ async function atlasKeySave() {
     S.project = await api('PUT', `/projects/${enc(S.name)}/atlas/pins`, { pins });
     const pl = atlasPlace(before.key);
     atlasRecord(before.map, `'${pl ? pl.name : before.key}' 옮기기`, after);
+    toast('저장했어요');
   } catch (err) {
     toast(err.message, true);
   }
@@ -1917,7 +1918,7 @@ document.addEventListener('pointerup', async () => {
   setTimeout(() => { atlasDragged = false; }, 0);
   const pl = atlasPlace(d.key);
   if (pl && pl.pin) pl.pin = atlasSnap(pl.pin);
-  await atlasSavePins(atlasPins(), '', pl && { before: d.before, label: `'${pl.name}' 옮기기` });
+  await atlasSavePins(atlasPins(), '저장했어요', pl && { before: d.before, label: `'${pl.name}' 옮기기` });
 });
 
 document.addEventListener('click', async (e) => {

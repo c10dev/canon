@@ -2570,7 +2570,7 @@ def illust_prompt(p: Project, n: int, sel: Selection | None, request: str = "") 
 
 def cast_view(cs: list[Character]) -> list[dict]:
     """본문 · 검수에 넣는 인물 설정. 서술 말투는 그 인물이 시점 인물인 화에만 시점 블록으로 넣는다 (다른 화에 옮아오지 않게).
-    신체 프로필(body)은 인물 상태창에만 보이는 작가 메모라 넣지 않는다."""
+    신체 프로필(body)은 인물 카드에만 보이는 작가 메모라 넣지 않는다."""
     return [c.model_dump(exclude={"narration_voice", "body"}) for c in cs]
 
 

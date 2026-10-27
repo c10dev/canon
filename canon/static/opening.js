@@ -1,6 +1,7 @@
 /* 초반 1~3화: 집필 화면의 초반 점검 카드(지표, 흡입력 판정, 여는 방식 여러 안)와 플롯 편집기의 여는 방식 플롯 안.
    app.js 의 S, actions, api, render, startJob, jobBtn 을 그대로 쓴다. 서버는 web.py 의 '4-2. 초반 1~3화'.
-   여러 안 본문은 연구 화면의 블라인드 비교와 같은 저장소(compare/NN)를 쓰고, 고르기도 같은 API 로 한다. */
+   여러 안 본문은 연구 화면의 블라인드 비교와 같은 저장소(compare/NN)를 쓰고, 고르기도 같은 API 로 한다.
+   플롯 안을 처음 고르기 전 플롯은 서버가 Episode.opening_prev 에 남겨 새로고침 뒤에도 되돌릴 수 있다. */
 'use strict';
 
 const OPENING_EPISODES = 3;
@@ -11,7 +12,6 @@ Object.assign(S, {
   openingWays: [],  // 고른 여는 방식 id
   openingPlots: {}, // 화 → 여는 방식 플롯 안 (반영 전). 하나를 골라도 다시 비교하게 남긴다
   openingUsed: {},  // 화 → 지금 플롯으로 고른 안 번호
-  openingPrev: {},  // 화 → 안을 처음 고르기 전 플롯 (되돌리기)
   approaches: null, // 서버 OPENING_APPROACHES
 });
 
@@ -122,12 +122,12 @@ function openingPanel(n) {
           ${e.hook ? hookView(e.hook, d && d.hook_stale) : '<div class="small">AI 편집자가 첫 문단, 주인공, 전제, 설명 부담, 걸린 것, 장르 약속, 엔딩을 근거 문장과 함께 봐요. 본문에서 찾을 수 없는 근거는 지우고 1점으로 내려요.</div>'}
         </div>
       </div>
-      <h3>여는 방식 비교</h3>
+      ${finalized ? `<div class="small">반영이 끝난 화라 여는 방식 비교는 감췄어요. 바꾸려면 상태 승인에서 이 화부터 반영을 취소하세요.</div>` : `<h3>여는 방식 비교</h3>
       <div class="small">같은 화를 여는 방식만 달리해 여러 안으로 쓰고, 어느 방식인지 가린 채 읽고 골라요. 고른 안이 이 화 본문이 돼요.</div>
       ${openingWayPicker(!canWrite)}
       <div class="row"><button class="btn dark" data-action="openingDrafts" data-arg="${n}" data-opening-go="${canWrite ? 1 : 0}"${canWrite && !fewWays ? draftsBtn.attr : ' disabled'}>${draftsBtn.label}</button>
-        ${!canWrite ? `<span class="small">${e.status === 'draft' ? '플롯을 확정하면 쓸 수 있어요' : e.status === 'finalized' ? '반영이 끝난 화예요. 바꾸려면 상태 승인에서 이 화부터 반영을 취소하세요' : blocked ? '이전 화를 반영해야 쓸 수 있어요' : 'AI로 쓰기 방식에서 쓸 수 있어요'}</span>` : ''}</div>
-      ${c ? `<div class="small">${esc(fmtDateTime(c.created))}에 쓴 ${c.kind === 'opening' ? '여는 방식' : '백엔드'} 비교본${c.picked ? '' : ' · 고르기 전까지 가려요'}${finalized && !c.picked ? ' · 반영이 끝난 화라 고를 수 없어요' : ''}</div><div class="rs-compare">${drafts}</div>` : ''}
+        ${!canWrite ? `<span class="small">${e.status === 'draft' ? '플롯을 확정하면 쓸 수 있어요' : blocked ? '이전 화를 반영해야 쓸 수 있어요' : 'AI로 쓰기 방식에서 쓸 수 있어요'}</span>` : ''}</div>
+      ${c ? `<div class="small">${esc(fmtDateTime(c.created))}에 쓴 ${c.kind === 'opening' ? '여는 방식' : '백엔드'} 비교본${c.picked ? '' : ' · 고르기 전까지 가려요'}</div><div class="rs-compare">${drafts}</div>` : ''}`}
     </section>`;
 }
 
@@ -149,8 +149,9 @@ function openingPlotBlock(e) {
         ${used === i ? '' : `<details${i === 0 ? ' open' : ''}><summary class="small">지금 플롯과 비교 · 바뀌는 칸 ${count}개</summary><div class="diff">${diff}</div></details>`}
       </div>`;
   }).join('');
-  const prev = S.openingPrev[n];
-  return `<details${S.openingPlots[n] ? ' open' : ''}><summary style="font-weight:700;font-size:0.875rem">초반 화 · 여는 방식 고르기 <span class="small" style="font-weight:400">${S.openingPlots[n] ? `플롯 안 ${S.openingPlots[n].length}개` : `여는 방식별 플롯 안 비교${e.status === 'draft' ? ' · 확정 전에 해요' : ' · 고르면 확정이 풀려요'}`}</span></summary>
+  const prev = e.opening_prev;
+  // 고르기 전 플롯이 남아 있으면 안을 버렸어도 되돌리기 버튼이 보이게 연다
+  return `<details${S.openingPlots[n] || prev ? ' open' : ''}><summary style="font-weight:700;font-size:0.875rem">초반 화 · 여는 방식 고르기 <span class="small" style="font-weight:400">${S.openingPlots[n] ? `플롯 안 ${S.openingPlots[n].length}개` : `여는 방식별 플롯 안 비교${e.status === 'draft' ? ' · 확정 전에 해요' : ' · 고르면 확정이 풀려요'}`}</span></summary>
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
         <div class="small">${n}화 플롯을 여는 방식마다 하나씩 받아 비교해요. 고른 안이 이 화 플롯이 되고, 확정했던 화는 초안으로 돌아가요.</div>
         ${openingWayPicker(false)}
@@ -202,10 +203,9 @@ Object.assign(actions, {
     const o = (S.openingPlots[n] || [])[i];
     if (!o) return;
     const e = ep(n);
-    if (!confirm(`${n}화 플롯을 이 안으로 바꿀까요?${e.status === 'confirmed' ? ' 확정이 풀려 다시 확정해야 해요.' : ''} 지금 플롯은 '고르기 전 플롯으로 되돌리기'로 되찾을 수 있어요.`)) return;
+    if (!confirm(`${n}화 플롯을 이 안으로 바꿀까요?${e.status === 'confirmed' ? ' 확정이 풀려 다시 확정해야 해요.' : ''} ${e.opening_prev ? '안을 처음 고르기 전 플롯' : '지금 플롯'}은 '고르기 전 플롯으로 되돌리기'로 되찾을 수 있어요.`)) return;
     await run('플롯을 바꾸는 중', async () => {
       await saveIfDirty();
-      if (S.openingUsed[n] === undefined) S.openingPrev[n] = structuredClone(ep(n).plot);  // 처음 고를 때의 플롯을 되돌리기용으로 둔다
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/opening-plot`, { plot: o.plot });
       S.openingUsed[n] = i;  // 다른 안과 다시 비교하고 바꿀 수 있게 안은 남긴다
       S.dirty = false;
@@ -217,8 +217,7 @@ Object.assign(actions, {
     if (!confirm(`${n}화 플롯을 안을 고르기 전으로 되돌릴까요?`)) return;
     await run('플롯을 되돌리는 중', async () => {
       await saveIfDirty();
-      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/opening-plot`, { plot: S.openingPrev[n] });
-      delete S.openingPrev[n];
+      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/opening-plot/undo`);
       delete S.openingUsed[n];
       S.dirty = false;
       toast(`${n}화 플롯을 되돌렸어요. 확정했던 화였다면 다시 확정하세요`);

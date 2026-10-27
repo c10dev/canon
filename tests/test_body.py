@@ -1,4 +1,4 @@
-"""인물 신체 프로필(Character.body): 작가만 채우고 인물 상태창에만 보인다. AI 응답 형식과 프롬프트에는 들어가지 않는다."""
+"""인물 신체 프로필(Character.body): 작가만 채우고 인물 카드에만 보인다. AI 응답 형식과 프롬프트에는 들어가지 않는다."""
 import json
 
 from canon import prompts
