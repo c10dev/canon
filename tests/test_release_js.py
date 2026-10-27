@@ -75,3 +75,9 @@ def test_release_plan():
     p.release.released = 12
     plan = _run(p)["plan"]
     assert plan["buffer"] == 0 and plan["over"] and plan["bufferDays"] == 0
+    # 손으로 적은 값이 범위를 벗어나도 계산은 0~70 화로 맞춘다 (서버는 막지 않는다)
+    p.release.per_week, p.release.released = -3, -1
+    plan = _run(p)["plan"]
+    assert plan["perWeek"] == 0 and plan["released"] == 0 and plan["bufferDays"] is None
+    p.release.per_week = 99
+    assert _run(p)["plan"]["perWeek"] == 70

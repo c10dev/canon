@@ -156,7 +156,7 @@ function stepText(e) {
     (순서 규칙상 반영은 1화부터 차례로 끝난다). 일정이 없으면(per_week 0) 비축 일수를 계산하지 않는다. */
 function releasePlan(p) {
   const r = p.release || {};
-  const perWeek = Math.max(0, Number(r.per_week) || 0);
+  const perWeek = Math.min(70, Math.max(0, Number(r.per_week) || 0));
   const released = Math.max(0, Number(r.released) || 0);
   const fin = new Set(p.episodes.filter((e) => e.status === 'finalized').map((e) => e.plot.number));
   let ready = 0;

@@ -1304,8 +1304,8 @@ class Atlas(BaseModel):
 
 class ReleasePlan(BaseModel):
     """연재 일정. 작가가 적는 값이라 프롬프트에 넣지 않는다. 비축분 · 하루 목표는 화면이 계산한다 (static/home.js releasePlan)."""
-    per_week: int = Field(0, ge=0, le=70, description="일주일에 올리는 화 수. 0 이면 정하지 않음")
-    released: int = Field(0, ge=0, description="연재처에 올린 마지막 화. 0 이면 아직 올린 화가 없음")
+    per_week: int = Field(0, description="일주일에 올리는 화 수. 0 이하면 정하지 않음 (화면이 0~70 으로 맞춰 셈)")
+    released: int = Field(0, description="연재처에 올린 마지막 화. 0 이하면 아직 올린 화가 없음")
 
 
 class Project(BaseModel):

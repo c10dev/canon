@@ -14424,17 +14424,14 @@
     "properties": {
      "per_week": {
       "type": "integer",
-      "maximum": 70.0,
-      "minimum": 0.0,
       "title": "Per Week",
-      "description": "일주일에 올리는 화 수. 0 이면 정하지 않음",
+      "description": "일주일에 올리는 화 수. 0 이하면 정하지 않음 (화면이 0~70 으로 맞춰 셈)",
       "default": 0
      },
      "released": {
       "type": "integer",
-      "minimum": 0.0,
       "title": "Released",
-      "description": "연재처에 올린 마지막 화. 0 이면 아직 올린 화가 없음",
+      "description": "연재처에 올린 마지막 화. 0 이하면 아직 올린 화가 없음",
       "default": 0
      }
     },
