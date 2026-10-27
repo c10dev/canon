@@ -4,7 +4,7 @@ from __future__ import annotations
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
 from .llm import LLM, dump
-from . import charlog, foreshadows, statwin, timeline
+from . import charlog, foreshadows, statwin, timeline, travel
 from .schema import (
     Act,
     ArcEdit,
@@ -3208,11 +3208,13 @@ def extract_state(llm: LLM, p: Project, n: int) -> StateDelta:
 def clean_delta(p: Project, d: StateDelta) -> None:
     """AI 나 채팅 앱이 낸 상태 변경안 정리: 복선 문장을 본문에 맞추고(foreshadows.clean_delta),
     새 장소는 본문에 나오고 아직 없는 것만 남기고 이미 있는 장소와 비슷한 이름은 경고로 알린다.
+    지도 거리와 작품 속 시간으로 보아 너무 빨리 옮겨 간 인물도 경고로 알린다(travel.delta_warnings).
     본문 상태창이 반영할 값과 다르면 경고로 알린다(statwin.window_warnings)."""
     foreshadows.clean_delta(p, d)
     timeline.clean_delta(p, d)
     charlog.clean_delta(p, d)
     d.new_places, warns = elements.clean_places(p, d.new_places, p.episode(d.episode).text)
+    warns += travel.delta_warnings(p, d)
     warns += statwin.window_warnings(p, d)
     d.warnings += [w for w in warns if w not in d.warnings]
 

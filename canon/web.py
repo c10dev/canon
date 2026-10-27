@@ -25,7 +25,7 @@ from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (ArcPlan, BodySuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
-from . import atlas, foreshadows, setupchat, statwin, timeline
+from . import atlas, foreshadows, setupchat, statwin, timeline, travel
 from .schema import ChatScope, Deadline, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .schema import CharacterState, StoryEvent
 from .schema import NameOption, Recap
@@ -2825,7 +2825,7 @@ def atlas_layout_set(name: str, body: LayoutIn) -> Project:
     atlas.enrich(p, layout, fname)
     (d / fname).write_text(json.dumps(layout, ensure_ascii=False), encoding="utf-8")
     old = p.atlas.layout
-    p.atlas.layout, p.atlas.spec, p.atlas.buildings = fname, None, []
+    p.atlas.layout, p.atlas.spec, p.atlas.buildings, p.atlas.layout_size = fname, None, [], [layout["w"], layout["h"]]
     out = _save(name, p)
     if old and old != fname and (d / old).is_file():
         (d / old).unlink()
@@ -2836,7 +2836,7 @@ def atlas_layout_set(name: str, body: LayoutIn) -> Project:
 def atlas_layout_drop(name: str) -> Project:
     """마을 데이터를 지운다. 장소 자리는 그대로 둔다."""
     p = _load(name)
-    old, p.atlas.layout, p.atlas.spec, p.atlas.buildings = p.atlas.layout, "", None, []
+    old, p.atlas.layout, p.atlas.spec, p.atlas.buildings, p.atlas.layout_size = p.atlas.layout, "", None, [], []
     out = _save(name, p)
     if old and (_map_dir(name) / old).is_file():
         (_map_dir(name) / old).unlink()
@@ -2884,6 +2884,36 @@ def atlas_building_set(name: str, i: int, body: BuildingIn) -> Project:
         atlas.set_building(p, layout, i, body.use, body.name, body.note, body.residents)
     except KeyError as e:
         raise HTTPException(404, str(e.args[0])) from None
+    return _save(name, p)
+
+
+class TravelIn(BaseModel):
+    enabled: bool = True
+    mode: str = "horse"
+    kmh: float = 0
+    day_km: float = 0
+    span_km: float = 0
+
+
+@app.put("/api/projects/{name}/atlas/travel")
+def atlas_travel(name: str, body: TravelIn) -> Project:
+    """이동 시간 검사 설정: 켜기, 가장 빠른 탈것, 직접 정한 빠르기, 지도 가로 km (canon/travel.py)."""
+    p = _load(name)
+    travel.set_setting(p, body.enabled, body.mode, body.kmh, body.day_km, body.span_km)
+    return _save(name, p)
+
+
+class TravelOkIn(BaseModel):
+    cid: str
+    episode: int
+    ok: bool = True
+
+
+@app.put("/api/projects/{name}/atlas/travel/ok")
+def atlas_travel_ok(name: str, body: TravelOkIn) -> Project:
+    """이동 하나를 '괜찮아요'(순간 이동 등)로 두거나 되돌린다. 그 이동은 경고에서 빠진다."""
+    p = _load(name)
+    travel.accept(p, body.cid, body.episode, body.ok)
     return _save(name, p)
 
 
