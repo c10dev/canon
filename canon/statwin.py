@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import re
 
-from . import dynamics
-from .schema import CharacterState, Project, StatRecord, StatValue, StatWindowOption, StatWindowSuggestion
+from . import dynamics, logline
+from .schema import CharacterState, Project, StatRecord, StateDelta, StatValue, StatWindowOption, StatWindowSuggestion
 
 PRESETS: dict[str, list[str]] = {
     "game": ["레벨", "HP", "MP", "힘", "민첩", "체력", "지능", "스킬"],
@@ -313,6 +313,141 @@ def sample_rows(p: Project) -> list[StatValue]:
     if st:
         return [x for x in st.stats if x.value.strip()]
     return [StatValue(name=x, value="") for x in p.stat_window.names]
+
+
+# ---------- 본문 상태창 읽기: 반영 뒤 값과 대조 (LLM 없음) ----------
+
+def _pattern(line: str, slots: dict[str, str]) -> re.Pattern:
+    """서식 한 줄 → 정규식. 글자는 그대로, 빈칸은 있어도 없어도 되고, {이름} 은 잡는 칸."""
+    out, i = "", 0
+    for m in re.finditer(r"\{(\w+)\}", line):
+        out += _literal(line[i:m.start()])
+        out += slots.get(m.group(1), _literal(m.group(0)))
+        i = m.end()
+    return re.compile("^" + out + _literal(line[i:]) + "$")
+
+
+def _literal(s: str) -> str:
+    return r"\s*".join(re.escape(x) for x in re.split(r"\s+", s.strip())) if s.strip() else r"\s*"
+
+
+def read_windows(p: Project, text: str) -> list[dict]:
+    """본문에서 stat_window 서식으로 쓴 상태창을 찾는다. [{name, rows: [(항목, 값, 원문 줄)]}].
+
+    서식의 {rows} 앞 줄 가운데 글자가 있는 첫 줄(예: 【 상태창 】)로 상태창 시작을 찾는다. 그런 줄이 없으면 찾지 않는다.
+    머리의 다른 줄은 맞으면 읽고(이름), 없어도 넘어간다. 그 뒤로 항목 줄 서식에 맞는 줄을 읽고, 맞지 않는 줄에서 끝낸다(빈 줄은 건너뜀).
+    """
+    w = p.stat_window
+    lines = w.template.split("\n")
+    at = next((i for i, x in enumerate(lines) if "{rows}" in x), len(lines))
+    head = [x for x in lines[:at] if x.strip()]
+    anchor = next((i for i, x in enumerate(head) if re.sub(r"\{\w+\}|\s", "", x)), None)
+    if anchor is None:
+        return []
+    heads = [_pattern(x, {"name": r"(?P<name>.+?)"}) for x in head]
+    row = _pattern(w.row, {"key": r"(?P<key>.+?)", "value": r"(?P<value>.*?)"})
+    stat_names = {_canon(x.name) for s in p.states for x in s.stats}
+    people = {_canon(c.name) for c in p.characters if c.name}
+    body = text.split("\n")
+    out, i = [], 0
+    while i < len(body):
+        m = heads[anchor].match(body[i].strip())
+        if not m:
+            i += 1
+            continue
+        name = m.groupdict().get("name") or ""
+        i += 1
+        rest = heads[anchor + 1:]
+        rows: list[tuple[str, str, str]] = []
+        while i < len(body):
+            s = body[i].strip()
+            if not s:
+                i += 1
+                continue
+            hm = next((h.match(s) for h in rest if h.match(s)), None)
+            if hm and not rows:  # 이름 줄 같은 머리 줄
+                name = name or hm.groupdict().get("name") or ""
+                i += 1
+                continue
+            rm = row.match(s)
+            if not rm or not rm.group("key").strip():
+                break
+            if not rows and not name and _canon(rm.group("key")) not in stat_names and _canon(rm.group("value")) in people:
+                name = rm.group("value")  # 서식에 없는 '이름: 서윤' 줄
+                i += 1
+                continue
+            rows.append((rm.group("key").strip(), rm.group("value").strip(), s))
+            i += 1
+        if rows:
+            out.append({"name": name.strip(), "rows": rows})
+    return out
+
+
+def _canon(x: str) -> str:
+    return re.sub(r"\s+", "", x).casefold()
+
+
+def same(shown: str, value: str) -> bool:
+    """본문에 보인 값과 기록 값이 같은지. 수치는 쉼표 · 빈칸을 무시하고, 목록은 순서를 무시한다."""
+    a, b = _amount(shown), _amount(value)
+    if a and b:
+        return a[2] == b[2] and _canon(a[0]) == _canon(b[0]) and _canon(a[4]) == _canon(b[4])
+    xs, ys = items(shown), items(value)
+    if len(xs) > 1 or len(ys) > 1:
+        return sorted(map(_canon, xs)) == sorted(map(_canon, ys))
+    return _canon(shown) == _canon(value)
+
+
+def after_delta(p: Project, d: StateDelta) -> dict[str, dict[str, str]]:
+    """변경안을 반영하면 될 상태창 값. {인물 id: {항목: 값}}. 상태창이 있거나 변경안에 수치가 있는 인물만."""
+    out = {s.character_id: {x.name: x.value for x in s.stats} for s in p.states if s.stats}
+    for u in d.character_updates:
+        cur = out.setdefault(u.character_id, {})
+        for s in u.stats:
+            name = s.name.strip()
+            if not name:
+                continue
+            if not s.value.strip():
+                cur.pop(name, None)
+            else:
+                cur[name] = resolve(cur.get(name, ""), s.value)
+    return {k: v for k, v in out.items() if v}
+
+
+def _who(p: Project, name: str, have: dict[str, dict[str, str]]) -> str:
+    """상태창 머리의 이름 → 인물 id. 서식에 이름이 없으면 상태창이 있는 인물이 하나일 때만 그 인물."""
+    if not name:
+        return next(iter(have)) if len(have) == 1 else ""
+    n = _canon(name)
+    c = next((c for c in p.characters if _canon(c.name) == n or c.id.casefold() == n), None)
+    c = c or next((c for c in p.characters if c.name and _canon(c.name) in n), None)
+    return c.id if c else ""
+
+
+def window_warnings(p: Project, d: StateDelta) -> list[str]:
+    """본문 상태창과 변경안을 반영한 값이 다른 곳. 인물마다 이 화의 마지막 상태창만 본다 (앞 상태창은 오르기 전 값일 수 있다).
+    문장은 «» 에 본문 줄을 그대로 넣어 승인 화면이 그 줄을 찾게 한다."""
+    if not enabled(p) and not any(u.stats for u in d.character_updates):
+        return []
+    have = after_delta(p, d)
+    last: dict[str, dict] = {}
+    for win in read_windows(p, p.episode(d.episode).text):
+        cid = _who(p, win["name"], have)
+        if cid:
+            last[cid] = win
+    out = []
+    for cid, win in last.items():
+        name = next((c.name for c in p.characters if c.id == cid), cid) or cid
+        vals = have.get(cid, {})
+        keys = {_canon(k): k for k in vals}
+        for key, shown, line in win["rows"]:
+            k = keys.get(_canon(key))
+            if k is None:
+                if vals:
+                    out.append(f"{name} 상태창: 본문 «{line}»의 '{key}' 항목은 상태창 기록에 없어요. 이 화에 생긴 항목이면 변경안에 넣으세요.")
+            elif not same(shown, vals[k]):
+                out.append(f"{name} 상태창: 본문은 «{line}»인데 반영하면 {k}{logline.josa(k, '이', '가')} {vals[k]}{logline.josa(vals[k], '이에요', '예요')}.")
+    return out
 
 
 def _change(ch: dict, after: str) -> str:
