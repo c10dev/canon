@@ -2,6 +2,8 @@
    게임 판타지 · 헌터물처럼 레벨, 능력치, 스킬 · 특성 · 칭호 목록, 돈, 인벤토리가 나오는 작품에서 인물별 상태창(CharacterState.stats)을 정하고,
    화마다 바뀐 기록(Project.stat_log)으로 비교표를 그린다. 본문에 넣을 상태창 글을 복사한다.
    설정 화면의 상태창 카드(swSetupCard): 1화 전에 작품 틀과 인물별 처음 수치를 표로 정하고, AI 처음 수치 제안을 인물마다 골라 넣는다.
+   스킬 · 특성 도감(swDex): 목록 항목 조각마다 설명 · 효과 · 대가 · 등급별 효과를 둔다. 정의는 인물 사이에 하나, 얻은 화는 서버가 기록에서 계산한다
+   (canon/abilities.py, /abilities). 상태창 칩을 누르면 뜨는 도감 카드는 abShow.
    꾸미기: 작품 설정에 맞춘 본문 서식 · 창 이름 · 작품 틀 · 화면 스킨 안을 AI 에게 받아 고른 안만 적용한다(swDecor).
    서버는 canon/statwin.py (/statwin/<인물 id>, /statwin-suggest). AI 가 적은 바뀐 값은 상태 승인 화면에서 고른 뒤에만 반영된다(swDeltaRows). */
 'use strict';
@@ -18,6 +20,8 @@ Object.assign(S, {
   swInitDirty: false,
   swInitSug: null,   // AI 처음 수치 제안 { names, characters } (저장하지 않음)
   swInitAll: false,  // 단역도 표에 보이기
+  ab: null,          // 도감 서버 값 { abilities: [{ ability, owners }], unlinked, lists }
+  abEdit: null,      // 고치는 중인 도감 항목 (Ability 모양). 새 항목은 id ''
 });
 
 // 상태창 틀. statwin.PRESETS 와 같다 (tests/test_statwin_js.py)
@@ -61,13 +65,28 @@ const swTitle = () => (swWin().title || '').trim() || '상태창';
 .sw-opt { padding: 14px; border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .sw-opt h3 { margin: 0; font-size: 15px; }
 .sw-opt .sw-text { font-size: 13px; overflow-x: auto; }
-.sw-opt .sw-sys { padding: 12px 14px; gap: 8px; font-size: 13px; }`;
+.sw-opt .sw-sys { padding: 12px 14px; gap: 8px; font-size: 13px; }
+.ab-list { display: flex; flex-direction: column; gap: 10px; }
+.ab-item { padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; gap: 6px; }
+.ab-item dl, .ab-pop dl { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; font-size: 14px; }
+.ab-item dt, .ab-pop dt { color: var(--text-2); font-size: 13px; }
+.ab-item dd, .ab-pop dd { margin: 0; overflow-wrap: anywhere; }
+.ab-grade { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+button.ab-chip { font: inherit; cursor: pointer; background: transparent; color: inherit; }
+button.ab-chip:hover, button.ab-chip:focus-visible { text-decoration: underline; }
+dialog.ab-pop { width: min(440px, calc(100vw - 32px)); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; background: var(--surface); color: var(--text); }
+dialog.ab-pop::backdrop { background: rgba(0, 0, 0, 0.35); }
+.ab-pop .ab-body { display: flex; flex-direction: column; gap: 10px; }`;
   const el = document.createElement('style');
   el.textContent = css;
   document.head.appendChild(el);
 }());
 
 async function swLoad(cid) {
+  S.ab = await api('GET', `/projects/${enc(S.name)}/abilities`).catch((e) => ({ error: e.message }));
+  const open = S.abOpenId && ((S.ab || {}).abilities || []).find((x) => x.ability.id === S.abOpenId);
+  if (open) S.abEdit = JSON.parse(JSON.stringify(open.ability));
+  S.abOpenId = null;
   const chars = P().characters;
   const has = (id) => (P().states.find((s) => s.character_id === id) || {}).stats?.length;
   if (cid) S.swCid = cid;
@@ -234,7 +253,7 @@ function viewStatwin() {
   let main;
   if (!S.sw) main = '<div class="small">불러오는 중…</div>';
   else if (S.sw.error) main = `<div class="note err">${esc(S.sw.error)}</div>`;
-  else main = swEditor() + swDecor() + swPreview() + swTimeline();
+  else main = swEditor() + swDex() + swDecor() + swPreview() + swTimeline();
   return `${head}<div class="sw"><nav class="card tight sw-who" aria-label="인물">${who}</nav><div style="display:flex;flex-direction:column;gap:16px;min-width:0">${main}</div></div>`;
 }
 
@@ -324,6 +343,173 @@ async function swPut(patch, msg) {
     toast(msg);
   });
 }
+
+// ----- 스킬 · 특성 도감 -----
+
+// 이름만 봐도 목록인 상태창 항목. abilities.LIST_NAMES 와 같다 (tests/test_statwin_js.py)
+const AB_LIST_NAMES = ['스킬', '특성', '칭호', '능력', '특기', '기술', '무공', '절기', '마법', '축복', '권능', '재능'];
+const abListName = (name) => AB_LIST_NAMES.some((w) => String(name).includes(w));
+const abWho = (id) => (P().characters.find((c) => c.id === id) || {}).name || id;
+const abWhen = (ep) => (ep === null || ep === undefined ? '' : ep === 0 ? '시작 때 얻음' : `${ep}화에 얻음`);
+
+function swDex() {
+  const d = S.ab;
+  if (!d) return '';
+  if (d.error) return `<section class="card"><h2>스킬 · 특성 도감</h2><div class="note err">${esc(d.error)}</div></section>`;
+  if (!d.lists.length && !d.abilities.length && !S.abEdit) return '';
+  const miss = d.unlinked.map((m) => `<button type="button" class="btn small" data-action="abNew" data-arg="${esc(`${m.stat}|${m.name}`)}" title="${esc(m.items.join(', '))} · ${esc(m.characters.map(abWho).join(', '))}">+ ${esc(m.name)} <span class="small">${esc(m.stat)}</span></button>`).join('');
+  const rows = d.abilities.map(({ ability: a, owners }) => `<div class="ab-item">
+      <div class="between"><strong>${esc(a.name)}${a.aliases.length ? ` <span class="small">(${esc(a.aliases.join(', '))})</span>` : ''}</strong>
+        <span class="row" style="gap:6px">${a.stat ? `<span class="small">${esc(a.stat)}</span>` : ''}<button type="button" class="btn small" data-action="abEditOpen" data-arg="${esc(a.id)}">고치기</button></span></div>
+      ${abFields(a)}
+      ${owners.length ? `<div class="small">${owners.map((o) => `${esc(abWho(o.character_id))} ${esc(o.item)}${o.acquired !== null ? ` · ${abWhen(o.acquired)}` : ''}${o.grade_effect ? ` · ${esc(o.grade)}: ${esc(o.grade_effect)}` : ''}`).join(' / ')}</div>` : '<div class="small">지금 가진 인물이 없어요.</div>'}
+    </div>`).join('');
+  return `<section class="card" id="sw-dex"><div class="between"><h2>스킬 · 특성 도감</h2><button type="button" class="btn small" data-action="abNew" data-arg="">+ 항목</button></div>
+    <div class="small">상태창 ${d.lists.length ? esc(d.lists.join(' · ')) : '목록'} 조각마다 설명 · 효과 · 대가를 적어요. 등급 꼬리(Lv3, B급, 3성)를 뗀 이름이 같으면 모든 인물에 같은 설명을 써요. 얻은 화는 상태창 기록에서 계산해요.</div>
+    ${S.abEdit ? abForm() : ''}
+    ${miss ? `<div class="field"><span class="label">도감에 없는 항목 ${d.unlinked.length}개 <span class="hint">누르면 그 이름으로 만들어요</span></span><div class="row" style="flex-wrap:wrap;gap:6px">${miss}</div></div>` : ''}
+    ${rows ? `<div class="ab-list">${rows}</div>` : '<div class="small">아직 도감 항목이 없어요.</div>'}
+  </section>`;
+}
+
+/** 설명 · 효과 · 대가 · 등급별 효과. 빈 칸은 뺀다. here 는 강조할 등급 */
+function abFields(a, here = '') {
+  const row = (k, v) => (v ? `<dt>${k}</dt><dd>${esc(v)}</dd>` : '');
+  const gs = (a.grades || []).map((g) => `<dt>${esc(g.grade)}</dt><dd>${g.grade === here ? `<strong>${esc(g.effect)}</strong>` : esc(g.effect)}</dd>`).join('');
+  const all = row('설명', a.description) + row('효과', a.effect) + row('대가', a.cost) + gs;
+  return all ? `<dl>${all}</dl>` : '<div class="small">설명이 비어 있어요.</div>';
+}
+
+function abForm() {
+  const a = S.abEdit;
+  const lists = (S.ab && S.ab.lists) || [];
+  const opts = ['', ...new Set([...lists, ...(a.stat ? [a.stat] : [])])].map((x) => `<option value="${esc(x)}"${x === a.stat ? ' selected' : ''}>${x ? esc(x) : '어느 목록이든'}</option>`).join('');
+  const grades = a.grades.map((g, i) => `<div class="ab-grade"><input type="text" data-ab-grade="${i}" data-ab-gkey="grade" value="${esc(g.grade)}" placeholder="등급 (예: Lv3)" aria-label="등급 ${i + 1}">
+      <input type="text" data-ab-grade="${i}" data-ab-gkey="effect" value="${esc(g.effect)}" placeholder="이 등급의 효과" aria-label="등급 ${i + 1} 효과">
+      <button type="button" class="btn small ghost" data-action="abGradeDel" data-arg="${i}" aria-label="등급 ${i + 1} 지우기">지우기</button></div>`).join('');
+  const f = (k, label, hint, rows) => `<div class="field"><label for="ab-${k}">${label}${hint ? ` <span class="hint">${hint}</span>` : ''}</label>${rows
+    ? `<textarea id="ab-${k}" data-ab-field="${k}" rows="${rows}">${esc(a[k])}</textarea>` : `<input id="ab-${k}" type="text" data-ab-field="${k}" value="${esc(a[k])}">`}</div>`;
+  return `<div class="ab-item" style="border-color:var(--accent)">
+    <div class="grid-2">${f('name', '이름', '등급 꼬리 없이 (예: 화염구)')}<div class="field"><label for="ab-stat">상태창 항목</label><select id="ab-stat" data-ab-field="stat">${opts}</select></div></div>
+    <div class="field"><label for="ab-aliases">다른 이름 <span class="hint">쉼표로. 상태창이나 본문에서 이 이름도 같은 것으로 봐요</span></label><input id="ab-aliases" type="text" data-ab-field="aliases" value="${esc(a.aliases.join(', '))}"></div>
+    ${f('description', '설명', '', 2)}${f('effect', '효과', '', 2)}${f('cost', '대가 · 제약', '쿨타임, 마력 소모, 수명 같은 것', 2)}
+    <div class="field"><span class="label">등급별 효과 <span class="hint">상태창 조각의 꼬리와 같게 적으면 그 등급 효과를 함께 보여요</span></span>${grades}<div><button type="button" class="btn small" data-action="abGradeAdd">+ 등급</button></div></div>
+    <div class="between">${a.id ? '<button type="button" class="btn small danger" data-action="abDelete">삭제</button>' : '<span></span>'}
+      <span class="row" style="gap:6px"><button type="button" class="btn small ghost" data-action="abCancel">취소</button><button type="button" class="btn small primary" data-action="abSave">저장</button></span></div>
+  </div>`;
+}
+
+const abBlank = (name = '', stat = '') => ({ id: '', name, aliases: [], stat, description: '', effect: '', cost: '', grades: [], context: 'auto', source: 'author', created_ep: 0 });
+
+/** 상태창 칩: 누르면 도감 카드. 목록 항목 조각에만 쓴다 */
+function abChip(cid, stat, item, cls) {
+  return `<button type="button" class="${cls} ab-chip" data-action="abShow" data-arg="${esc([cid, stat, item].map(encodeURIComponent).join('|'))}" aria-haspopup="dialog">${esc(item)}</button>`;
+}
+
+function abDialog() {
+  let el = document.getElementById('ab-pop');
+  if (!el) {
+    el = document.createElement('dialog');
+    el.id = 'ab-pop';
+    el.className = 'ab-pop';
+    el.setAttribute('aria-labelledby', 'ab-pop-title');
+    el.addEventListener('click', (e) => { if (e.target === el) el.close(); });  // 바깥(배경)을 누르면 닫는다
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+document.addEventListener('input', (e) => {
+  const d = e.target.dataset || {};
+  if (!S.abEdit) return;
+  if (d.abField) S.abEdit[d.abField] = d.abField === 'aliases' ? e.target.value.split(/\s*,\s*/).filter(Boolean) : e.target.value;
+  if (d.abGrade !== undefined) S.abEdit.grades[Number(d.abGrade)][d.abGkey] = e.target.value;
+});
+document.addEventListener('change', (e) => {
+  if (S.abEdit && e.target.dataset && e.target.dataset.abField === 'stat') S.abEdit.stat = e.target.value;
+});
+
+Object.assign(actions, {
+  abNew(arg) {
+    const [stat, ...rest] = String(arg || '').split('|');
+    S.abEdit = abBlank(rest.join('|'), arg ? stat : '');
+    render();
+    setTimeout(() => { const el = document.getElementById('ab-name'); if (el) el.focus(); }, 0);
+  },
+  abEditOpen(id) {
+    const row = ((S.ab || {}).abilities || []).find((x) => x.ability.id === id);
+    if (!row) return;
+    S.abEdit = JSON.parse(JSON.stringify(row.ability));
+    render();
+    setTimeout(() => { const el = document.getElementById('ab-name'); if (el) el.focus(); }, 0);
+  },
+  abCancel() { S.abEdit = null; render(); },
+  abGradeAdd() { S.abEdit.grades.push({ grade: '', effect: '' }); render(); },
+  abGradeDel(i) { S.abEdit.grades.splice(Number(i), 1); render(); },
+  async abSave() {
+    const a = S.abEdit;
+    if (!a.name.trim()) { toast('이름을 적어 주세요', true); return; }
+    await run('도감 저장 중', async () => {
+      await saveIfDirty();
+      S.project = await api('PUT', `/projects/${enc(S.name)}/abilities`, a);
+      S.abEdit = null;
+      S.ab = await api('GET', `/projects/${enc(S.name)}/abilities`);
+      toast(`'${a.name.trim()}' 도감 항목을 저장했어요`);
+    });
+  },
+  async abDelete() {
+    const a = S.abEdit;
+    if (!a || !a.id || !confirm(`'${a.name}' 도감 항목을 지울까요? 상태창 값은 그대로예요.`)) return;
+    await run('도감 항목 지우는 중', async () => {
+      S.project = await api('DELETE', `/projects/${enc(S.name)}/abilities/${enc(a.id)}`);
+      S.abEdit = null;
+      S.ab = await api('GET', `/projects/${enc(S.name)}/abilities`);
+      toast('도감 항목을 지웠어요');
+    });
+  },
+  async abShow(arg) {
+    const [cid, stat, item] = String(arg).split('|').map(decodeURIComponent);
+    const el = abDialog();
+    const back = document.activeElement;
+    el.innerHTML = '<div class="small" role="status">불러오는 중…</div>';
+    if (!el.open) el.showModal();
+    el.onclose = () => { if (back && back.focus) back.focus(); };
+    let r;
+    try {
+      r = await api('GET', `/projects/${enc(S.name)}/abilities/lookup?item=${encodeURIComponent(item)}&cid=${encodeURIComponent(cid)}&stat=${encodeURIComponent(stat)}`);
+    } catch (e) {
+      el.innerHTML = `<div class="note err">${esc(e.message)}</div><button type="button" class="btn small" data-action="abClose">닫기</button>`;
+      return;
+    }
+    const head = `<div class="between"><strong id="ab-pop-title">${esc(r.name)}${r.grade ? ` <span class="small">${esc(r.grade)}</span>` : ''}</strong><button type="button" class="btn small" data-action="abClose">닫기</button></div>
+      <div class="small">${esc(abWho(cid))} · ${esc(stat)}</div>`;
+    if (!r.ability) {
+      el.innerHTML = `<div class="ab-body">${head}<div class="small">도감에 없는 항목이에요. 설명 · 효과 · 대가를 적어 두면 화면에서 바로 볼 수 있어요.</div>
+        <div><button type="button" class="btn small primary" data-action="abFromPop" data-arg="${esc(`${encodeURIComponent(cid)}|${encodeURIComponent(stat)}|${encodeURIComponent(r.name)}`)}">도감에 만들기</button></div></div>`;
+      return;
+    }
+    const hist = (r.history || []).map((h) => `<li>${h.episode ? `${h.episode}화` : '시작 때'} · ${h.kind === '얻음' ? `얻음 ${esc(h.item)}` : h.kind === '잃음' ? `잃음 ${esc(h.before)}` : `${esc(h.before)} → ${esc(h.item)}`}</li>`).join('');
+    el.innerHTML = `<div class="ab-body">${head}
+      ${r.grade_effect ? `<div class="note plain"><strong>${esc(r.grade)}</strong> ${esc(r.grade_effect)}</div>` : ''}
+      ${abFields(r.ability, r.grade)}
+      ${r.acquired !== null && r.acquired !== undefined ? `<div class="small">${abWhen(r.acquired)}</div>` : ''}
+      ${hist ? `<details><summary class="small">바뀐 기록 ${r.history.length}</summary><ul class="small" style="padding-left:18px;margin:6px 0 0">${hist}</ul></details>` : ''}
+      <div><button type="button" class="btn small" data-action="abGoEdit" data-arg="${esc(`${encodeURIComponent(cid)}|${r.ability.id}`)}">도감에서 고치기</button></div></div>`;
+  },
+  abGoEdit(arg) {
+    const [cid, id] = String(arg).split('|').map(decodeURIComponent);
+    actions.abClose();
+    S.abOpenId = id;  // swLoad 가 도감을 받은 뒤 고치기 칸을 연다
+    location.hash = `${base()}/statwin/${enc(cid)}`;
+  },
+  abClose() { const el = document.getElementById('ab-pop'); if (el && el.open) el.close(); },
+  abFromPop(arg) {
+    const [cid, stat, name] = String(arg).split('|').map(decodeURIComponent);
+    actions.abClose();
+    S.abEdit = abBlank(name, stat);
+    location.hash = `${base()}/statwin/${enc(cid)}`;
+  },
+});
 
 // ----- 설정 화면: 작품 틀과 처음 수치 -----
 

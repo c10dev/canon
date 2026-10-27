@@ -573,7 +573,7 @@ function castSheetStats(c, f) {
     const list = s.value.match(SW_AMOUNT) ? [] : swItems(s.value);  // 3,000원 같은 금액은 쉼표가 있어도 목록이 아니다
     const num = (x) => Number(x.replace(/,/g, ''));
     const pct = frac && num(frac[2]) > 0 ? Math.max(0, Math.min(100, Math.round((num(frac[1]) / num(frac[2])) * 100))) : null;
-    return { name: s.name, value: s.value, delta, from: delta ? src(s.name) : '', pct, list: list.length > 1 ? list : null };
+    return { name: s.name, value: s.value, delta, from: delta ? src(s.name) : '', pct, list: list.length > 1 || (list.length && abListName(s.name)) ? list : null };
   }).sort((x, y) => !!x.list - !!y.list);  // 한 줄을 다 쓰는 목록 항목은 뒤로 모은다
   // 다 지운 항목은 이 시점 값에 없으니 앞 시점에서 찾아 '지움'으로 보인다
   const gone = before ? Object.keys(before).filter((k) => before[k] && !stats.some((s) => s.name === k)) : [];
@@ -582,11 +582,11 @@ function castSheetStats(c, f) {
   const deltaTag = (x) => (x.delta ? `<span class="csh-delta" title="${esc(`${f.episode}화에 바뀜${x.from ? ' · ' + x.from : ''}`)}">${esc(x.delta)}</span>` : '');
   const body = system
     ? `<div class="sw-sys sw-skin-${swSkin()}" role="group" aria-label="${esc(c.name)} ${esc(swTitle())}"><div class="sw-sys-title">【 ${esc(swTitle())} 】</div>
-        <dl><dt>이름</dt><dd>${esc(c.name || c.id)}</dd>${items.map((x) => `<dt>${esc(x.name)}</dt><dd>${x.pct !== null ? `<span class="sw-sys-bar" aria-hidden="true"><i style="width:${x.pct}%"></i></span>` : ''}${x.list ? x.list.map((v) => `<span class="sw-sys-tag">${esc(v)}</span>`).join('') : `<span>${esc(x.value || '—')}</span>`}${deltaTag(x)}</dd>`).join('')}
+        <dl><dt>이름</dt><dd>${esc(c.name || c.id)}</dd>${items.map((x) => `<dt>${esc(x.name)}</dt><dd>${x.pct !== null ? `<span class="sw-sys-bar" aria-hidden="true"><i style="width:${x.pct}%"></i></span>` : ''}${x.list ? x.list.map((v) => abChip(c.id, x.name, v, 'sw-sys-tag')).join('') : `<span>${esc(x.value || '—')}</span>`}${deltaTag(x)}</dd>`).join('')}
         ${gone.map((k) => `<dt>${esc(k)}</dt><dd><s>${esc(before[k])}</s><span class="csh-delta">지움</span></dd>`).join('')}</dl>
         <div class="sw-sys-foot"><span>${esc(frameLabel(f))}</span><span>${moved ? `이번 화에 ${moved}항목 바뀜` : ''}</span></div></div>`
     : `<div class="csh-stats">${items.map((x) => `<div class="csh-stat${x.list ? ' wide' : ''}${x.delta ? ' moved' : ''}"><div class="between"><span class="small">${esc(x.name)}</span>${deltaTag(x)}</div>
-        ${x.list ? `<div class="csh-chips">${x.list.map((v) => `<span class="csh-know">${esc(v)}</span>`).join('')}</div>` : `<strong>${esc(x.value || '—')}</strong>`}
+        ${x.list ? `<div class="csh-chips">${x.list.map((v) => abChip(c.id, x.name, v, 'csh-know')).join('')}</div>` : `<strong>${esc(x.value || '—')}</strong>`}
         ${x.pct !== null ? `<div class="csh-bar" aria-hidden="true"><i style="width:${x.pct}%"></i></div>` : ''}</div>`).join('')}
         ${gone.map((k) => `<div class="csh-stat moved"><div class="between"><span class="small">${esc(k)}</span><span class="csh-delta">지움</span></div><s class="small">${esc(before[k])}</s></div>`).join('')}</div>`;
   return `<section class="card"><div class="between"><h2>상태창</h2><span class="row" style="gap:6px">
