@@ -604,7 +604,7 @@ def cmd_convert(a: argparse.Namespace) -> None:
         why = pipeline.undo_blockers(p, backup)
         if why:
             sys.exit("되돌릴 수 없어요: " + " / ".join(why))
-        if confirm(f"전환 전 단편({p.conversion.from_total}화)으로 되돌릴까요? 전환한 뒤 고친 설정과 플롯도 함께 돌아가요", a.yes):
+        if confirm(f"전환 전 단편({p.conversion.from_total}화)으로 되돌릴까요? 전환한 뒤 고친 설정과 플롯은 사라지고 전환 직전 값으로 돌아가요", a.yes):
             store.save(a.name, pipeline.undo_conversion(p, backup))
             store.drop_backup(a.name, pipeline.BACKUP_TAG)
             print("단편으로 되돌렸어요")
