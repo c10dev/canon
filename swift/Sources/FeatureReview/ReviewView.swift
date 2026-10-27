@@ -10,6 +10,7 @@ public struct ReviewView: View {
     @State private var model: ReviewModel
     let go: (Screen) -> Void
     @State private var ask: Question?
+    @Environment(\.openBranchForm) private var openBranchForm
     /// 고치는 중인 항목 키.
     @State private var editing: Set<String> = []
 
@@ -161,6 +162,10 @@ public struct ReviewView: View {
     private func finalized(_ e: Episode, _ p: Project) -> some View {
         HStack {
             Text("이 화는 상태 반영이 끝났어요. 반영된 내용이에요.").foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+            if let openBranchForm {
+                Button("\(model.ep)화부터 갈래 만들기") { openBranchForm(model.ep) }
+                    .help("이 작품은 그대로 두고, 사본에서 \(model.ep)화부터 다른 전개를 써요")
+            }
             if model.canRevert {
                 Button("\(model.ep)화부터 반영 취소") {
                     ask = Question(text: ReviewText.revertQuestion(model.ep, p), button: "반영 취소", destructive: true) { await model.revert() }

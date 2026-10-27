@@ -4,10 +4,28 @@ import CanonStore
 import CanonUI
 import SwiftUI
 
+/// 작품 홈에 다른 화면 모듈이 끼우는 칸. 화면 모듈끼리는 서로 기대지 않아 `CanonAppUI` 가 채운다.
+public struct HomeSlots: Sendable {
+    /// 화별 진행 아래 (웹 `viewHome` 의 `branchHomeCard`).
+    public var branchCard: @MainActor @Sendable () -> AnyView
+
+    public init(branchCard: @escaping @MainActor @Sendable () -> AnyView) {
+        self.branchCard = branchCard
+    }
+
+    public static let none = HomeSlots(branchCard: { AnyView(EmptyView()) })
+}
+
+extension EnvironmentValues {
+    @Entry public var homeSlots: HomeSlots = .none
+}
+
 /// 작품 홈: 진행 단계, 화별 진행, 인물 현재 상태, 열린 복선, 확정 사실 (웹 `viewHome`).
 public struct HomeView: View {
     let document: ProjectDocument
     let go: (Screen) -> Void
+    @Environment(\.homeSlots) private var slots
+    @Environment(\.openBranchForm) private var openBranchForm
 
     public init(document: ProjectDocument, go: @escaping (Screen) -> Void) {
         self.document = document
@@ -34,6 +52,7 @@ public struct HomeView: View {
                 header(s)
                 stages(s)
                 episodes(s)
+                slots.branchCard()
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), alignment: .top)], alignment: .leading, spacing: 16) {
                     characters(s)
                     clues(s)
@@ -52,6 +71,10 @@ public struct HomeView: View {
             if !s.logline.isEmpty { Text(s.logline).foregroundStyle(.secondary) }
             HStack {
                 Button(s.serial ? "부 · 아크 · 플롯" : "기승전결 · 플롯") { go(.arc) }
+                if s.finalized > 0, let openBranchForm {
+                    Button("갈래 만들기") { openBranchForm() }
+                        .help("이 작품은 그대로 두고, 사본에서 다른 전개를 써요")
+                }
                 if let recap = s.recap { Button(recap) { go(.arc) } }
                 Button(s.next.label) { go(s.next.screen) }.buttonStyle(.borderedProminent)
             }
