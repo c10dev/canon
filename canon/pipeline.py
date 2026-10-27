@@ -32,6 +32,7 @@ from .schema import (
     MapSpec,
     MapSuggestion,
     BodySuggestion,
+    StatInitSuggestion,
     StatWindowSuggestion,
     PlaceSort,
     VoiceSuggestion,
@@ -2904,6 +2905,18 @@ def suggest_stat_window(llm: LLM, p: Project, request: str = "") -> StatWindowSu
     """상태창 꾸미기 안 (본문 서식 · 창 이름 · 항목 틀 · 화면 스킨). 저장하지 않는다 (작가가 고른 안만 statwin-template 로 저장)."""
     s = llm.json(prompts.SYSTEM_PLANNER, prompts.stat_window_prompt(p, request), StatWindowSuggestion, hint={"request": request})
     return statwin.clean_options(s)
+
+def suggest_initial_stats(llm: LLM, p: Project, request: str = "") -> StatInitSuggestion:
+    """1화 전 상태창 처음 수치 제안. 저장하지 않는다 (작가가 고른 인물의 값을 statwin.set_stats 로 저장).
+    1화를 반영한 뒤에는 처음 값이 아니라 그 화의 작가 수정이 되므로 막는다."""
+    if statwin.last_done(p):
+        raise ValueError("1화를 반영한 뒤에는 처음 수치를 제안하지 않아요. 상태창 수치 화면에서 고쳐요")
+    if not p.characters:
+        raise ValueError("인물이 없어요. 인물을 먼저 만드세요")
+    s = llm.json(prompts.SYSTEM_PLANNER, prompts.stat_init_prompt(p, request), StatInitSuggestion,
+                 hint={"characters": [c.id for c in p.characters], "names": p.stat_window.names})
+    return statwin.clean_init(p, s)
+
 
 def save_look(p: Project, cid: str, look: list[str], outfit: list[str] | None = None, subject: str = "",
               keep_outfit: bool = False) -> CharacterVisual:

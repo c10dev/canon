@@ -269,3 +269,41 @@ def test_window_warnings_reach_review():
     assert "서윤 상태창: 본문은 «레벨: 9»인데 반영하면 레벨이 6이에요." in d.warnings
     pipeline.clean_delta(p, d)  # 다시 정리해도 겹치지 않는다
     assert sum("레벨: 9" in x for x in d.warnings) == 1
+
+
+def test_initial_stats_suggestion():
+    p = _short(8)
+    p.characters[0].body.height = "163cm"
+    prompt = prompts.stat_init_prompt(p, "주인공은 F급에서 시작")
+    assert "F급에서 시작" in prompt and "163cm" not in prompt and "작품 틀이 없습니다" in prompt  # 신체 프로필은 넣지 않는다
+    s = pipeline.suggest_initial_stats(LLM, p)
+    assert [c.character_id for c in s.characters] == ["hero"]  # 없는 인물은 버린다
+    assert {x.name: x.value for x in s.characters[0].stats} == {"레벨": "1", "HP": "100/100", "스킬": "은신", "틀 밖": "1"}  # +1 → 1
+    p.stat_window.names = ["레벨", "HP"]
+    s = pipeline.suggest_initial_stats(LLM, p)
+    assert s.names == ["레벨", "HP"] and [x.name for x in s.characters[0].stats] == ["레벨", "HP"]  # 작품 틀 밖 항목은 뺀다
+    assert p.stat_log == [] and not statwin.enabled(p)  # 제안은 저장하지 않는다
+    statwin.set_stats(p, "hero", s.characters[0].stats)
+    assert [(r.episode, r.source) for r in p.stat_log] == [(0, "author"), (0, "author")]  # 1화 전 저장은 '시작' 값
+    _play(p, 1, 1)
+    try:
+        pipeline.suggest_initial_stats(LLM, p)
+        raise AssertionError("1화 반영 뒤에는 막혀야 한다")
+    except ValueError as e:
+        assert "1화를 반영한 뒤" in str(e)
+
+
+def test_initial_stats_web(tmp_path, monkeypatch):
+    monkeypatch.setenv("CANON_LLM", "mock")
+    monkeypatch.setenv("CANON_HOME", str(tmp_path))
+    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
+    importlib.reload(store)
+    store.save("sw", _short(8))
+    from canon import web
+    importlib.reload(web)
+    c = TestClient(web.app)
+    w = c.put("/api/projects/sw/statwin-template", json={"template": "【 상태창 】\n{rows}", "names": ["레벨", " 레벨", "HP", ""]}).json()["stat_window"]
+    assert w["names"] == ["레벨", "HP"]
+    r = c.post("/api/projects/sw/statwin-init", json={"request": ""}).json()
+    assert r["names"] == ["레벨", "HP"] and r["characters"][0]["stats"] == [{"name": "레벨", "value": "1"}, {"name": "HP", "value": "100/100"}]
+    assert store.load("sw").stat_log == []

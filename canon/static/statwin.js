@@ -1,6 +1,7 @@
 /* 상태창 수치. app.js 의 S, actions, api, run, render, header, esc, P 를 쓴다.
    게임 판타지 · 헌터물처럼 레벨, 능력치, 스킬 · 특성 · 칭호 목록, 돈, 인벤토리가 나오는 작품에서 인물별 상태창(CharacterState.stats)을 정하고,
    화마다 바뀐 기록(Project.stat_log)으로 비교표를 그린다. 본문에 넣을 상태창 글을 복사한다.
+   설정 화면의 상태창 카드(swSetupCard): 1화 전에 작품 틀과 인물별 처음 수치를 표로 정하고, AI 처음 수치 제안을 인물마다 골라 넣는다.
    꾸미기: 작품 설정에 맞춘 본문 서식 · 창 이름 · 작품 틀 · 화면 스킨 안을 AI 에게 받아 고른 안만 적용한다(swDecor).
    서버는 canon/statwin.py (/statwin/<인물 id>, /statwin-suggest). AI 가 적은 바뀐 값은 상태 승인 화면에서 고른 뒤에만 반영된다(swDeltaRows). */
 'use strict';
@@ -13,7 +14,20 @@ Object.assign(S, {
   swTpl: false,      // 서식 고치기 칸 열림
   swSug: null,       // AI 꾸미기 안 { options } (저장하지 않음)
   swPrev: null,      // 마지막으로 적용한 꾸미기 안 앞의 서식 (적용 취소용)
+  swInit: null,      // 설정 화면 처음 수치 표의 고치는 중인 값 { 인물 id: { 항목: 값 } }. null 이면 작품에서 다시 읽는다
+  swInitDirty: false,
+  swInitSug: null,   // AI 처음 수치 제안 { names, characters } (저장하지 않음)
+  swInitAll: false,  // 단역도 표에 보이기
 });
+
+// 상태창 틀. statwin.PRESETS 와 같다 (tests/test_statwin_js.py)
+const SW_PRESETS = {
+  game: ['레벨', 'HP', 'MP', '힘', '민첩', '체력', '지능', '스킬'],
+  hunter: ['등급', '레벨', '마력', '스킬', '칭호'],
+  simple: ['레벨', '스킬'],
+  growth: ['레벨', '스킬', '특성', '칭호', '골드', '인벤토리'],
+};
+const SW_PRESET_LABELS = { game: '게임 판타지', hunter: '헌터물', simple: '레벨 · 스킬', growth: '스킬 · 특성 · 돈' };
 
 // 화면 스킨 이름. statwin.SKINS 와 같은 키
 const SW_SKINS = { system: '시스템 창', parchment: '양피지', scroll: '두루마리', neon: '네온', plain: '담백한 서류' };
@@ -170,7 +184,7 @@ function swEditor() {
       <button type="button" class="btn small ghost" data-action="swDel" data-arg="${i}" aria-label="${esc(r.name || '항목')} 지우기">지우기</button></div>`).join('');
   const work = (swWin().names || []).filter((x) => !S.swRows.some((r) => r.name === x));
   const workBtn = work.length ? `<button type="button" class="btn small" data-action="swPreset" data-arg="_work" title="${esc(work.join(', '))}">작품 틀</button>` : '';
-  const presets = Object.entries((S.sw && S.sw.presets) || {}).map(([k, names]) => `<button type="button" class="btn small" data-action="swPreset" data-arg="${k}" title="${esc(names.join(', '))}">${{ game: '게임 판타지', hunter: '헌터물', simple: '레벨 · 스킬', growth: '스킬 · 특성 · 돈' }[k] || k}</button>`).join('');
+  const presets = Object.entries((S.sw && S.sw.presets) || {}).map(([k, names]) => `<button type="button" class="btn small" data-action="swPreset" data-arg="${k}" title="${esc(names.join(', '))}">${SW_PRESET_LABELS[k] || k}</button>`).join('');
   return `<section class="card"><div class="between"><h2>지금 상태창</h2><span class="small">${S.sw.columns.length ? `${S.sw.columns[S.sw.columns.length - 1].episode}화까지 기록` : '기록 없음'}</span></div>
     <div class="sw-rows">${rows || '<div class="small">항목이 없어요. 아래에서 항목을 더하거나 틀을 고르세요.</div>'}</div>
     <div class="row"><button type="button" class="btn small" data-action="swAdd">+ 항목</button>${S.swRows.length ? workBtn : `<span class="small">틀:</span>${workBtn}${presets}`}</div>
@@ -310,6 +324,180 @@ async function swPut(patch, msg) {
     toast(msg);
   });
 }
+
+// ----- 설정 화면: 작품 틀과 처음 수치 -----
+
+/** 1화를 반영했으면 처음 수치는 더 고치지 않는다 (그 뒤 고친 값은 상태창 수치 화면에서 작가 기록으로) */
+const swLocked = () => P().episodes.some((e) => e.status === 'finalized');
+
+/** 상태창을 자주 쓰는 작품인지: 현대 판타지 장르, 또는 설정 글에 상태창 · 레벨업 · 시스템 창 */
+function swWanted(p) {
+  const text = [p.meta.genre, p.meta.logline, p.meta.notes, p.world.setting, ...(p.world.rules || [])].join(' ');
+  return (p.meta.genres || []).includes('modern_fantasy') || /상태창|상태 창|레벨\s?업|시스템 창/.test(text);
+}
+
+/** 고치는 중이 아니면 늘 작품에서 다시 읽는다 (상태창 수치 화면에서 고친 값도 따라오게) */
+function swInitDraft() {
+  if (!S.swInit || !S.swInitDirty) {
+    S.swInit = Object.fromEntries(P().states.filter((s) => (s.stats || []).length)
+      .map((s) => [s.character_id, Object.fromEntries(s.stats.map((x) => [x.name, x.value]))]));
+    S.swInitDirty = false;
+  }
+  return S.swInit;
+}
+
+/** 표의 열: 작품 틀, 그다음 인물들이 가진 항목 */
+function swInitCols() {
+  const cols = [...(swWin().names || [])];
+  for (const row of Object.values(swInitDraft())) for (const k of Object.keys(row)) if (!cols.includes(k)) cols.push(k);
+  return cols;
+}
+
+function swInitRows() {
+  const order = { main: 0, support: 1, minor: 2 };
+  const d = swInitDraft();
+  const filled = (c) => Object.values(d[c.id] || {}).some((v) => String(v).trim());
+  return [...P().characters].sort((a, b) => (order[a.tier] ?? 1) - (order[b.tier] ?? 1))
+    .filter((c) => S.swInitAll || c.tier !== 'minor' || filled(c));
+}
+
+function swSetupCard() {
+  const p = P();
+  const has = p.states.some((s) => (s.stats || []).length);
+  const names = swWin().names || [];
+  const open = has || names.length || swWanted(p) || S.swInitSug;
+  const locked = swLocked();
+  const cols = swInitCols();
+  const d = swInitDraft();
+  const chips = names.map((x, i) => `<span class="csh-know">${esc(x)} <button type="button" class="btn small ghost" data-action="swNameDel" data-arg="${i}" aria-label="${esc(x)} 빼기"${locked ? ' disabled' : ''}>×</button></span>`).join('');
+  const presets = Object.entries(SW_PRESETS).map(([k, xs]) => `<button type="button" class="btn small" data-action="swNamePreset" data-arg="${k}" title="${esc(xs.join(', '))}"${locked ? ' disabled' : ''}>${SW_PRESET_LABELS[k]}</button>`).join('');
+  const rows = swInitRows();
+  const minor = p.characters.some((c) => c.tier === 'minor');
+  const table = cols.length && rows.length ? `<div class="sw-table-wrap"><table class="sw-table"><thead><tr><th scope="col">인물</th>${cols.map((k) => `<th scope="col">${esc(k)}</th>`).join('')}</tr></thead><tbody>
+      ${rows.map((c) => `<tr><th scope="row">${esc(c.name || c.id)}</th>${cols.map((k) => `<td><input type="text" data-swi-cid="${esc(c.id)}" data-swi-key="${esc(k)}" value="${esc((d[c.id] || {})[k] || '')}" aria-label="${esc(c.name || c.id)} ${esc(k)}" style="min-width:90px"${locked ? ' readonly' : ''}></td>`).join('')}</tr>`).join('')}
+    </tbody></table></div>` : '';
+  const body = locked
+    ? `<div class="note plain">1화를 반영한 뒤라 처음 수치는 고치지 않아요. 지금 수치는 <a href="${base()}/statwin">상태창 수치</a>에서 고쳐요(그 화의 작가 기록으로 남아요).</div>${table}`
+    : `<div class="field"><span class="label">작품 틀 <span class="hint">모든 인물 상태창에 쓰는 항목이에요. 표의 열이 돼요</span></span>
+        <div class="row" style="flex-wrap:wrap;gap:6px">${chips || '<span class="small">아직 없어요.</span>'}</div>
+        <div class="row"><input id="swi-name" type="text" placeholder="항목 이름 (예: 레벨, 내공)" aria-label="작품 틀에 더할 항목" style="max-width:220px"><button type="button" class="btn small" data-action="swNameAdd">더하기</button><span class="small">틀:</span>${presets}</div></div>
+      ${table || (cols.length ? '' : '<div class="small">작품 틀을 정하거나 AI 제안을 받으면 인물마다 처음 수치를 적는 표가 생겨요.</div>')}
+      ${minor ? `<button type="button" class="btn small ghost" data-action="swInitAllToggle">${S.swInitAll ? '단역 숨기기' : '단역도 보기'}</button>` : ''}
+      <div class="field"><label for="swi-req">AI 처음 수치 제안 <span class="hint">로그라인 · 배경 · 인물 설정을 읽고 1화 시작 값을 인물마다 제안해요. 이미 적은 값은 그대로 둬요</span></label>
+        <div class="row"><input id="swi-req" type="text" placeholder="요청 (비워도 돼요. 예: 주인공은 F급에서 시작)"><button type="button" class="btn small" data-action="swInitAI">AI 제안 받기</button></div></div>
+      ${swInitSugBox()}
+      <div class="between"><span class="small">저장하면 1화 시작 값(상태창 수치 화면의 '시작' 열)으로 남아요. 값을 모두 비운 인물은 상태창이 없어져요.</span>
+        <button type="button" class="btn primary small" data-action="swInitSave"${S.swInitDirty ? '' : ' disabled'}>처음 수치 저장</button></div>`;
+  return `<section class="card" id="setup-stats"><details${open ? ' open' : ''}><summary><h2 style="display:inline;margin-right:8px">상태창</h2><span class="small">레벨 · 스킬처럼 본문 상태창에 나오는 값${has ? ` · ${p.states.filter((s) => (s.stats || []).length).length}명` : ''}</span></summary>
+    <div style="display:flex;flex-direction:column;gap:12px;padding-top:10px">
+    ${!has && !names.length && swWanted(p) ? '<div class="note">이 작품은 상태창을 쓰는 장르예요. 1화 전에 처음 수치를 정해 두면 AI가 본문을 쓸 때 이 값을 따라요.</div>' : ''}
+    ${body}</div></details></section>`;
+}
+
+function swInitSugBox() {
+  const s = S.swInitSug;
+  if (!s) return '';
+  const who = (id) => (P().characters.find((c) => c.id === id) || {}).name || id;
+  const d = swInitDraft();
+  const rows = s.characters.map((c) => {
+    const cur = d[c.character_id] || {};
+    const empty = !Object.values(cur).some((v) => String(v).trim());
+    const cells = c.stats.map((x) => {
+      const now = String(cur[x.name] || '').trim();
+      return `<span class="small">${esc(x.name)}</span> ${now && now !== x.value ? `<span class="before">${esc(now)}</span> → ` : ''}<strong>${esc(x.value)}</strong>`;
+    }).join(' · ');
+    return `<li><label class="row" style="align-items:flex-start;gap:8px"><input type="checkbox" data-swi-pick="${esc(c.character_id)}"${empty ? ' checked' : ''}>
+      <span><strong>${esc(who(c.character_id))}</strong>${empty ? '' : ' <span class="small">(이미 값이 있어 기본으로 고르지 않았어요)</span>'}<br>${cells}${c.note ? `<br><span class="small">${esc(c.note)}</span>` : ''}</span></label></li>`;
+  }).join('');
+  return `<div class="note plain"><strong>AI 처음 수치 제안</strong>${rows ? `<ul style="list-style:none;padding:0;margin:8px 0;display:flex;flex-direction:column;gap:8px">${rows}</ul>
+      <div class="row"><button type="button" class="btn small primary" data-action="swInitUse">고른 인물에 적용</button><button type="button" class="btn small ghost" data-action="swInitDrop">닫기</button><span class="small">표에 넣기만 해요. 저장해야 남아요.</span></div>`
+    : '<div class="small">상태창이 있는 인물을 찾지 못했어요. 요청에 누가 상태창을 보는지 적어 다시 받아 보세요.</div>'}</div>`;
+}
+
+/** 작품 틀만 저장 (서식 · 창 이름 · 스킨은 그대로) */
+async function swNamesPut(names, msg) {
+  const w = swWin();
+  return run('저장 중', async () => {
+    await saveIfDirty();
+    S.project = await api('PUT', `/projects/${enc(S.name)}/statwin-template`, { template: w.template, row: w.row, names });
+    toast(msg);
+  });
+}
+
+document.addEventListener('input', (e) => {
+  const d = e.target.dataset || {};
+  if (d.swiCid === undefined) return;
+  const draft = swInitDraft();
+  (draft[d.swiCid] = draft[d.swiCid] || {})[d.swiKey] = e.target.value;
+  if (!S.swInitDirty) {
+    S.swInitDirty = true;  // 이제부터 swInitDraft 가 작품에서 다시 읽지 않는다
+    const b = document.querySelector('[data-action="swInitSave"]');
+    if (b) b.disabled = false;
+  }
+});
+
+Object.assign(actions, {
+  async swNameAdd() {
+    const x = ($('#swi-name') || {}).value || '';
+    const names = swWin().names || [];
+    if (!x.trim() || names.includes(x.trim())) return;
+    await swNamesPut([...names, x.trim()], `'${x.trim()}' 항목을 더했어요`);
+  },
+  async swNameDel(i) {
+    const names = [...(swWin().names || [])];
+    const [x] = names.splice(Number(i), 1);
+    await swNamesPut(names, `'${x}' 항목을 틀에서 뺐어요. 인물에게 적은 값은 남아 있어요`);
+  },
+  async swNamePreset(k) {
+    const names = swWin().names || [];
+    await swNamesPut([...names, ...SW_PRESETS[k].filter((x) => !names.includes(x))], `${SW_PRESET_LABELS[k]} 틀을 더했어요`);
+  },
+  swInitAllToggle() { S.swInitAll = !S.swInitAll; render(); },
+  async swInitAI() {
+    const request = (($('#swi-req') || {}).value || '').trim();
+    await run('처음 수치 제안 만드는 중', async () => {
+      await saveIfDirty();  // AI는 저장된 인물 설정을 읽는다
+      S.swInitSug = await api('POST', `/projects/${enc(S.name)}/statwin-init`, { request });
+    });
+  },
+  swInitUse() {
+    const s = S.swInitSug;
+    if (!s) return;
+    const picked = new Set([...document.querySelectorAll('[data-swi-pick]:checked')].map((x) => x.dataset.swiPick));
+    if (!picked.size) { toast('적용할 인물을 고르세요', true); return; }
+    const d = swInitDraft();
+    for (const c of s.characters.filter((x) => picked.has(x.character_id))) {
+      d[c.character_id] = { ...(d[c.character_id] || {}), ...Object.fromEntries(c.stats.map((x) => [x.name, x.value])) };
+    }
+    S.swInitSug = null;
+    S.swInitDirty = true;
+    render();
+    toast('표에 넣었어요. 처음 수치 저장을 눌러야 남아요');
+  },
+  swInitDrop() { S.swInitSug = null; render(); },
+  async swInitSave() {
+    const d = swInitDraft();
+    const cols = swInitCols();
+    const now = Object.fromEntries(P().states.map((s) => [s.character_id, Object.fromEntries((s.stats || []).map((x) => [x.name, x.value]))]));
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const jobs = Object.entries(d).map(([cid, row]) => {
+      const stats = cols.filter((k) => String(row[k] || '').trim()).map((k) => ({ name: k, value: String(row[k]).trim() }));
+      return [cid, stats];
+    }).filter(([cid, stats]) => P().characters.some((c) => c.id === cid) && !same(Object.fromEntries(stats.map((x) => [x.name, x.value])), Object.fromEntries(Object.entries(now[cid] || {}).filter(([, v]) => String(v).trim()))));
+    const names = swWin().names || [];
+    const extra = cols.filter((k) => !names.includes(k));
+    await run('처음 수치 저장 중', async () => {
+      await saveIfDirty();
+      if (!names.length && extra.length) {  // AI 제안으로 생긴 항목을 작품 틀로
+        const w = swWin();
+        S.project = await api('PUT', `/projects/${enc(S.name)}/statwin-template`, { template: w.template, row: w.row, names: extra });
+      }
+      for (const [cid, stats] of jobs) S.project = await api('PUT', `/projects/${enc(S.name)}/statwin/${enc(cid)}`, { stats });
+      S.swInit = null;
+      toast(jobs.length ? `${jobs.length}명의 처음 수치를 저장했어요` : '바뀐 값이 없어요');
+    });
+  },
+});
 
 // ----- 상태 승인 화면 -----
 

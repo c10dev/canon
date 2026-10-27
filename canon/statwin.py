@@ -9,7 +9,8 @@ from __future__ import annotations
 import re
 
 from . import dynamics, logline
-from .schema import CharacterState, Project, StatRecord, StateDelta, StatValue, StatWindowOption, StatWindowSuggestion
+from .schema import (CharacterState, Project, StatInitCharacter, StatInitSuggestion, StatRecord, StateDelta, StatValue,
+                     StatWindowOption, StatWindowSuggestion)
 
 PRESETS: dict[str, list[str]] = {
     "game": ["레벨", "HP", "MP", "힘", "민첩", "체력", "지능", "스킬"],
@@ -305,6 +306,30 @@ def clean_options(s: StatWindowSuggestion) -> StatWindowSuggestion:
         out.append(StatWindowOption(label=o.label.strip() or o.title.strip() or "상태창", title=o.title.strip() or "상태창",
                                     template=tpl, row=row, names=names[:12], skin=o.skin if o.skin in SKINS else "system", why=o.why.strip()))
     return StatWindowSuggestion(options=out)
+
+
+def clean_init(p: Project, s: StatInitSuggestion) -> StatInitSuggestion:
+    """AI 가 낸 처음 수치 정리: 없는 인물과 빈 값은 버린다. 작품 틀이 있으면 그 항목만, 그 순서로 둔다.
+    +3 처럼 바뀐 양으로 적은 값은 앞의 + 를 뗀다 (처음 값이라 더할 값이 없다)."""
+    names = [x.strip() for x in (p.stat_window.names or s.names) if x.strip()]
+    names = list(dict.fromkeys(names))
+    ids = {c.id for c in p.characters}
+    out: dict[str, StatInitCharacter] = {}
+    for c in s.characters:
+        if c.character_id not in ids or c.character_id in out:
+            continue
+        vals: dict[str, str] = {}
+        for x in c.stats:
+            k, v = x.name.strip(), re.sub(r"^\+\s*(?=\d)", "", x.value.strip())
+            if k and v and k not in vals and (k in names or not p.stat_window.names):
+                vals[k] = v
+        if not vals:
+            continue
+        order = [k for k in names if k in vals] + [k for k in vals if k not in names]
+        out[c.character_id] = StatInitCharacter(character_id=c.character_id, stats=[StatValue(name=k, value=vals[k]) for k in order],
+                                                 note=c.note.strip())
+    names += [x.name for c in out.values() for x in c.stats if x.name not in names]
+    return StatInitSuggestion(names=list(dict.fromkeys(names)), characters=list(out.values()))
 
 
 def sample_rows(p: Project) -> list[StatValue]:
