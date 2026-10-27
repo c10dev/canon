@@ -37,9 +37,13 @@ function branchStrip(page) {
     me.shared_edited && shared ? `갈라진 뒤 이 갈래에서 ${shared}를 고쳤어요. 다른 갈래에는 들어가지 않아요.` : '',
     me.parent_edited && shared && parent ? `갈라진 뒤 '${esc(branchName(parent))}'에서 ${shared}를 고쳤어요. 이 갈래에는 들어가지 않아요.` : '',
   ].filter(Boolean);
+  // '남겨 두고' 만든 갈래: 갈라진 화부터 본문은 있고 상태 반영이 없는 화. 화마다 승인하거나 자동 집필로 이어서 다시 승인한다
+  const left = P().episodes.filter((e) => e.plot.number >= me.info.from_ep && e.status === 'written').map((e) => e.plot.number).sort((a, b) => a - b);
+  const resume = left.length ? `<div>${rangeText(left)}화 본문이 남아 있어요. 화마다 상태 승인을 하거나, 자동 집필로 ${left[left.length - 1]}화까지 이어서 다시 승인해요.</div>
+    <div class="row"><a class="btn small" href="${base()}/review/${left[0]}">${left[0]}화 상태 승인</a>${left.length > 1 ? `<button type="button" class="btn small" data-action="branchResume" data-arg="${left[left.length - 1]}">자동 집필로 이어 가기</button>` : ''}</div>` : '';
   return `<div class="note info branch-strip" role="note"><div><strong>갈래 · ${esc(me.info.label || S.name)}</strong> · ${me.info.from_ep}화부터 ${parent ? `'${esc(branchName(parent))}'${josa(branchName(parent), '과', '와')} 달라요` : '갈라졌어요'}${shared ? ` (${shared}는 함께 써요)` : ''}</div>
     <div class="row small">${parent ? `<a href="#/p/${enc(parent.name)}">갈라져 나온 작품 열기</a>` : ''}${main && main !== parent ? `<a href="#/p/${enc(main.name)}">본편 열기</a>` : ''}${others.length > 1 ? `<span>집안: ${others.map(link).join(' · ')}</span>` : ''}</div>
-    ${warn.map((w) => `<div>${w}</div>`).join('')}</div>${form}`;
+    ${warn.map((w) => `<div>${w}</div>`).join('')}${resume}</div>${form}`;
 }
 
 /** 사이드바 작품 카드의 갈래 줄. 갈래는 본편과 제목이 같아 이 줄로 가른다. */
@@ -137,6 +141,11 @@ function branchGroups(list) {
 }
 
 Object.assign(actions, {
+  /** 자동 집필 화면을 목표 화 n 으로 연다. 시작은 그 화면에서 작가가 누른다 (남은 '쓴 화'는 상태 변경안부터 이어 간다, autorun._review) */
+  branchResume(n) {
+    S.autoForm = { ...autoDefaults(), project: S.name, target: Number(n) };
+    location.hash = `${base()}/auto`;
+  },
   /** 갈래 만들기 칸을 연다. n 을 주지 않으면 마지막으로 반영한 화부터 (그 화를 다르게 다시 쓰는 흐름) */
   branchOpen(n) {
     const last = lastFinal();
