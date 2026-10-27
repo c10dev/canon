@@ -14080,6 +14080,10 @@
       "$ref": "#/components/schemas/Timeline",
       "description": "작품 속 시간: 기준 날짜와 기한"
      },
+     "release": {
+      "$ref": "#/components/schemas/ReleasePlan",
+      "description": "연재 일정: 일주일에 올리는 화 수와 올린 마지막 화"
+     },
      "edit_rev": {
       "type": "integer",
       "title": "Edit Rev",
@@ -14415,6 +14419,28 @@
     ],
     "title": "Relationship",
     "description": "쌍 단위 관계 설정. 방향별 수치는 Tie 에 있고, affinity/tension 은 Tie 에서 계산해 동기화한다."
+   },
+   "ReleasePlan": {
+    "properties": {
+     "per_week": {
+      "type": "integer",
+      "maximum": 70.0,
+      "minimum": 0.0,
+      "title": "Per Week",
+      "description": "일주일에 올리는 화 수. 0 이면 정하지 않음",
+      "default": 0
+     },
+     "released": {
+      "type": "integer",
+      "minimum": 0.0,
+      "title": "Released",
+      "description": "연재처에 올린 마지막 화. 0 이면 아직 올린 화가 없음",
+      "default": 0
+     }
+    },
+    "type": "object",
+    "title": "ReleasePlan",
+    "description": "연재 일정. 작가가 적는 값이라 프롬프트에 넣지 않는다. 비축분 · 하루 목표는 화면이 계산한다 (static/home.js releasePlan)."
    },
    "Renumbered": {
     "properties": {

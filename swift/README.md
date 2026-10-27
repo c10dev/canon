@@ -111,7 +111,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | 순서 | 모듈 | 화면 (사이드바 이름) | 웹 파일 | 서버 |
 |---|---|---|---|---|
 | 1 | `FeatureProjects` | 작품 목록 | `home.js` `viewProjects` | `list_projects` — **됨** |
-| 2 | `FeatureHome`, `CanonStore` | 작품 홈, 작품 저장(409 · merged) | `home.js` `viewHome`, `app.js` `save` | `get_project`, `put_project` — **됨** (남음: 홈의 자동 집필 줄 · 관계 카드 · 장편 전환 단추) |
+| 2 | `FeatureHome`, `CanonStore` | 작품 홈, 작품 저장(409 · merged) | `home.js` `viewHome`, `app.js` `save` | `get_project`, `put_project` — **됨** (남음: 홈의 자동 집필 줄 · 관계 카드 · 장편 전환 단추 · 화 진행 막대 · 연재 일정) |
 | 3 | `FeatureWrite` | 집필 (부분 수정, 다시 생성, 문체 표시, 복사, 삽화) | `passage.js` `rewrite.js` `marks.js` `publish.js` `illust.js` `opening.js` `restate.js` | `put_text`, `rewrite_info`, `export_text` 등 — **일부 됨**: 본문 보기 · 고치기, 쓰기 · 검수, 다시 생성, 복사 · 내보내기. 남음: 부분 수정 `passage.js`, 문체 표시 `marks.js`, 삽화 `illust.js`, 초반 1~3화 `opening.js`, 반영 뒤 고친 화 `restate.js`, AI 대화 패널, 작업지시서 방식, 컨텍스트 블록 보기 |
 | 4 | `FeatureReview` | 상태 승인 (변경안 만들기 · 고르기 · 고치기 · 반영, 관계 미리 보기, 상태창 줄, 복선 문장, 반영 뒤 고친 화 다시 맞추기, 반영 취소) | `review.js` `restate.js` `statwin.js`(`swDeltaRows`) `foreshadow.js`(`fsClueRows`) | 작업 `state`, `apply_state`, `apply_restate`, `keep_state`, `revert`, `preview`(`RelationPreview`) — **됨**. 채팅 앱 JSON 은 작업지시서 화면이, 자동 집필 변경안은 자동 집필 화면(`auto/review`)이 검토 대기로 넘긴다 |
 | 5 | `FeaturePlot` | 기승전결 · 플롯 / 부 · 아크 · 플롯, AI 대화 | `plot.js` `chat.js` `insert.js` `convert.js` | `plots`, `chat`, `series`, `arcs` — **됨** (`viewArc` · `viewSerial` · `insert.js`, 응답 `Renumbered` · 본문 `Recap`). 남음: AI 대화 `chat.js`, 단편 → 장편 전환 `convert.js`, 여는 방식 `opening.js`, 화별 시점 칸 `povField`, 새 인물 만들기 · 등록(`castQuickEdit`), 새 장소 후보 안내(`placeCandNotes`), 자동 집필 중인 화 잠금(`autoEp`) |

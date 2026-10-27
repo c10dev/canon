@@ -152,6 +152,21 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .ep-cell.written { background: var(--amber); color: var(--on-accent); }
 .ep-cell.finalized { background: var(--green); color: var(--on-accent); }
 .ep-cell.current { outline: 3px solid var(--accent); outline-offset: 2px; }
+/* 화 진행 막대 (home.js stepBar): 플롯 확정 · 집필 · 검수 · 승인 네 칸. 칸 글자색을 따라 어느 배경에서도 읽힌다 */
+.ep-cell { position: relative; }
+.ep-steps { display: flex; gap: 2px; width: 70%; margin-top: 3px; }
+.ep-steps i { flex: 1; height: 3px; border-radius: 2px; background: currentColor; opacity: 0.28; }
+.ep-steps i.on { opacity: 1; }
+.ep-card .ep-steps { width: 100%; margin-top: 6px; color: var(--text-2); }
+.ep-cell.released::before { content: '↑'; position: absolute; top: 2px; right: 5px; font-size: 0.6875rem; font-weight: 700; }
+.legend-steps { display: inline-flex; gap: 2px; margin-right: 4px; vertical-align: middle; }
+.legend-steps b { width: 8px; height: 3px; border-radius: 2px; background: var(--text-2); }
+.legend-steps b.off { opacity: 0.28; }
+/* 작품 홈 연재 일정 줄 (home.js releaseRow) */
+.release-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin: 4px 0 8px; font-size: 0.875rem; }
+.release-row .btn { margin-left: auto; }
+.release-edit { margin-bottom: 10px; }
+.release-edit .field { max-width: 220px; }
 /* 단편 기승전결 구간: 칸 아래 띠 색과 머리 줄 (칸이 줄을 바꿔도 구간이 보이게) */
 .act-rail { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .act-chip { padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; }
@@ -302,6 +317,7 @@ pre.brief { margin: 0; padding: 16px; border-radius: 8px; background: var(--bg);
   .ep-cell span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
   .ep-cell.written strong::after { content: " •"; }
   .ep-cell.finalized strong::after { content: " ✓"; }
+  .ep-cell .ep-steps { position: static; width: 70%; height: auto; overflow: visible; clip: auto; white-space: normal; }  /* 상태 글자는 숨겨도 진행 막대는 보인다 */
 }
 
 /* 관계 요약 (describe_relations 한 줄씩) */
@@ -468,12 +484,12 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 /* 자동 집필은 단계 묶음 바로 아래에 둔다. 묶음 사이 간격(22px)보다 붙여 단계의 이어짐으로 보인다 */
 .side-menu > .nav-auto { margin-top: -16px; }
 /* 데이터가 없는 도구를 접는 '더 보기' */
-.nav-more > summary { min-height: 44px; padding: 0 10px; border-radius: 8px; display: flex; align-items: center; gap: 8px; color: var(--text-2); font-weight: 500; cursor: pointer; list-style: none; }
+.nav-more > summary { min-height: 44px; padding: 0 10px; border-radius: 8px; display: flex; align-items: center; gap: 8px; color: var(--text-2); font-weight: 500; cursor: pointer; list-style: none; white-space: nowrap; }
 .nav-more > summary::-webkit-details-marker { display: none; }
 .nav-more > summary::before { content: '▸'; width: 22px; text-align: center; color: var(--muted); }
 .nav-more[open] > summary::before { content: '▾'; }
 .nav-more > summary:hover { background: var(--bg); color: var(--text); }
-.nav-more > summary .small { margin-left: auto; text-align: right; }
+.nav-more > summary .small { margin-left: auto; text-align: right; white-space: normal; }
 .nav-more > a { padding-left: 20px; }
 .rs-backend { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
 .rs-scroll { overflow-x: auto; position: relative; }  /* 안의 화면 낭독용 글(.sr-only, absolute)이 표 밖 문서 폭을 늘리지 않게 */

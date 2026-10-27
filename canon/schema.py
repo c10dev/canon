@@ -1302,6 +1302,12 @@ class Atlas(BaseModel):
     title: str = Field("", description="지도 위에 적는 마을 이름. 비면 '마을 가운데' 종류의 장소 이름")
 
 
+class ReleasePlan(BaseModel):
+    """연재 일정. 작가가 적는 값이라 프롬프트에 넣지 않는다. 비축분 · 하루 목표는 화면이 계산한다 (static/home.js releasePlan)."""
+    per_week: int = Field(0, ge=0, le=70, description="일주일에 올리는 화 수. 0 이면 정하지 않음")
+    released: int = Field(0, ge=0, description="연재처에 올린 마지막 화. 0 이면 아직 올린 화가 없음")
+
+
 class Project(BaseModel):
     meta: Meta = Field(default_factory=Meta)
     world: WorldSetting = Field(default_factory=WorldSetting)
@@ -1347,6 +1353,7 @@ class Project(BaseModel):
     illust: IllustSettings = Field(default_factory=IllustSettings, description="삽화 프롬프트 설정")
     atlas: Atlas = Field(default_factory=Atlas, description="지도: 장소 자리, 배경 그림, 위치 글 잇기")
     timeline: Timeline = Field(default_factory=Timeline, description="작품 속 시간: 기준 날짜와 기한")
+    release: ReleasePlan = Field(default_factory=ReleasePlan, description="연재 일정: 일주일에 올리는 화 수와 올린 마지막 화")
     # 아래 두 칸은 맨 끝에 둔다. store.save 가 파일 끝만 읽어 디스크 값을 찾는다 (store._saved_mark)
     edit_rev: int = Field(0, description="화면(브라우저 탭)이 저장한 횟수. 오래된 화면이 다른 화면의 저장을 덮지 않게 비교한다 (store.writer)")
     saved_by: str = Field("", description="마지막으로 저장한 화면(브라우저 탭) id")
