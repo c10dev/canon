@@ -2742,6 +2742,39 @@ def stat_window_prompt(p: Project, request: str = "") -> str:
 - skin 은 위 목록에서 세계관에 가장 맞는 것을 고릅니다.
 - why 에는 작품 설정의 무엇에 맞췄는지 한국어 한 문장으로 적습니다."""
 
+
+def stat_init_prompt(p: Project, request: str = "") -> str:
+    """1화 전 상태창 처음 수치 제안 (pipeline.suggest_initial_stats). 신체 프로필은 넣지 않는다."""
+    keys = {"id", "name", "role", "tier", "age", "gender", "personality", "background", "goal", "wound", "arc"}
+    cast = "\n".join(dump(c.model_dump(include=keys)) for c in p.characters)
+    have = "\n".join(f"- {s.character_id}: " + ", ".join(f"{x.name} {x.value or '(빈칸)'}" for x in s.stats) for s in p.states if s.stats)
+    names = p.stat_window.names
+    rules = "\n".join(f"- {r}" for r in p.world.rules[:8])
+    return f"""아래 작품의 1화가 시작할 때 인물들의 상태창 수치를 제안하세요. 작가가 인물마다 골라 씁니다.
+
+# 작품
+제목: {p.meta.title}
+장르: {genres.label(p.meta)}
+로그라인: {p.meta.logline}
+배경: {p.world.setting} / 시대: {p.world.era}
+{f"세계관 규칙:{chr(10)}{rules}" if rules else ""}
+
+# 인물
+{cast}
+
+# 상태창 항목
+{f"작품 틀(이 항목만, 이 이름 그대로): {', '.join(names)}" if names else "작품 틀이 없습니다. 이 세계관에 맞는 항목 이름 4~8개를 names 에 정합니다."}
+{f"작가가 이미 적은 값:{chr(10)}{have}" if have else "작가가 적은 값 없음"}
+{f"{chr(10)}# 작가 요청{chr(10)}{request.strip()}{chr(10)}" if request.strip() else ""}
+요구사항:
+- 상태창이 있는 인물만 characters 에 넣습니다. 세계관 규칙상 상태창을 볼 수 있거나 수치로 재는 인물입니다(흔히 주인공 하나). 단역은 넣지 않습니다.
+- 값은 1화가 시작할 때의 값입니다. +3 같은 바뀐 양이 아니라 값 그대로 적습니다(레벨 1, HP 100/100, 1,200골드).
+- 로그라인과 배경의 처지에 맞춥니다. 바닥에서 시작하는 주인공은 낮게, 회귀 · 빙의 주인공은 기억은 있어도 몸의 수치는 낮게 둡니다. 성장할 여지를 남깁니다.
+- 스킬 · 칭호 · 인벤토리처럼 늘어놓는 항목은 쉼표로 잇습니다. 1화 전에 얻지 않은 것은 넣지 않습니다.
+- 작가가 이미 적은 값은 바꾸지 말고 그대로 적습니다. 빈칸만 채웁니다.
+- 숫자 단위와 표기는 인물 사이에 맞춥니다(한 인물이 HP 100/100 이면 다른 인물도 같은 꼴).
+- note 에는 설정의 무엇을 근거로 정했는지 한국어 한 문장으로 적습니다."""
+
 # ---------- 지도: 장소와 맞지 않은 위치 글 정리 ----------
 
 SYSTEM_PLACE_SORTER = (

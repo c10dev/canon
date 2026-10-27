@@ -1061,6 +1061,19 @@ class StatWindowSuggestion(BaseModel):
     options: list[StatWindowOption] = Field(default_factory=list, description="서로 다른 분위기의 안 2~3개")
 
 
+class StatInitCharacter(BaseModel):
+    """한 인물의 1화 시작 상태창 수치 제안."""
+    character_id: str = Field(description="인물 id")
+    stats: list[StatValue] = Field(default_factory=list, description="1화 시작 때 값. +3 같은 바뀐 양이 아니라 값 그대로")
+    note: str = Field("", description="설정의 무엇을 근거로 정했는지 한국어 한 문장")
+
+
+class StatInitSuggestion(BaseModel):
+    """1화 전 상태창 처음 수치 제안 (pipeline.suggest_initial_stats). 작가가 인물마다 골라 적용한다."""
+    names: list[str] = Field(default_factory=list, description="항목 이름. 작품 틀이 있으면 그대로, 없으면 세계관에 맞게 4~8개")
+    characters: list[StatInitCharacter] = Field(default_factory=list, description="상태창이 있는 인물만")
+
+
 SettingField = Literal["age", "role", "appearance", "personality", "speech_style", "background", "goal", "wound"]
 
 

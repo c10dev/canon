@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from . import archetypes, autorun, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
-from .schema import (ArcPlan, BodySuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
+from .schema import (ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 from . import atlas, foreshadows, setupchat, statwin, timeline, travel
 from .schema import ChatScope, Deadline, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
@@ -3155,6 +3155,12 @@ class StatStyleRequest(BaseModel):
 def statwin_suggest(name: str, body: StatStyleRequest | None = None) -> StatWindowSuggestion:
     """작품 설정에 맞춘 상태창 꾸미기 안. 저장하지 않는다 (작가가 고른 안을 statwin-template 로 저장)."""
     return pipeline.suggest_stat_window(get_llm("plan"), _load(name), body.request if body else "")
+
+
+@app.post("/api/projects/{name}/statwin-init")
+def statwin_init(name: str, body: StatStyleRequest | None = None) -> StatInitSuggestion:
+    """1화 전 인물들의 상태창 처음 수치 제안. 저장하지 않는다 (작가가 고른 인물의 값을 PUT .../statwin/<인물> 로 저장)."""
+    return pipeline.suggest_initial_stats(get_llm("plan"), _load(name), body.request if body else "")
 
 
 # ---------- 작품 속 시간 (canon/timeline.py) ----------

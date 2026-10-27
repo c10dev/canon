@@ -36,6 +36,8 @@ from .schema import (
     ImpactReport,
     LookSuggestion,
     BodySuggestion,
+    StatInitCharacter,
+    StatInitSuggestion,
     StatWindowOption,
     StatWindowSuggestion,
     VoiceSuggestion,
@@ -559,6 +561,14 @@ class MockLLM:
         if schema is BodySuggestion:
             return BodySuggestion(height="163cm", weight="50kg", build="마른 근육형", measurements="82-60-86",
                                   features="왼손잡이, 오른쪽 손목에 점", note="외모 칸의 흉터와 성격에 맞춰 활동적인 체형으로 정했어요.")  # type: ignore[return-value]
+        if schema is StatInitSuggestion:  # 첫 인물만, 바뀐 양으로 적은 값 하나와 틀 밖 항목 하나 (정리가 고치는지)
+            ids = hint.get("characters", [])
+            names = hint.get("names") or ["레벨", "HP", "스킬"]
+            rows = [StatValue(name=names[0], value="+1"), StatValue(name="HP", value="100/100"), StatValue(name="스킬", value="은신"),
+                    StatValue(name="틀 밖", value="1")]
+            return StatInitSuggestion(names=["레벨", "HP", "스킬"], characters=[  # type: ignore[return-value]
+                StatInitCharacter(character_id=ids[0] if ids else "hero", stats=rows, note="바닥에서 시작하는 주인공이라 낮게 정했어요."),
+                StatInitCharacter(character_id="nobody", stats=rows)])
         if schema is StatWindowSuggestion:  # 장식이 붙은 안 하나와 {rows} 를 빠뜨린 안 하나 (정리가 고치는지)
             return StatWindowSuggestion(options=[  # type: ignore[return-value]
                 StatWindowOption(label="무공록", title="무공록", template="━━━━━━━━━━━━\\n【 무공록 】 {name}\\n━━━━━━━━━━━━\\n{rows}\\n━━━━━━━━━━━━",

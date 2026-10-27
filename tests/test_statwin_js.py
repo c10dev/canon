@@ -33,3 +33,11 @@ def test_sw_resolve_matches_server():
     assert run.returncode == 0, run.stderr
     for (b, v), got in zip(cases, json.loads(run.stdout)):
         assert got == statwin.resolve(b, v), (b, v)
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
+def test_sw_presets_match_server():
+    js = HARNESS.replace("data.cases.map(([b, v]) => swResolve(b, v))", "SW_PRESETS")
+    run = subprocess.run(["node", "-e", js, str(STATWIN)], input=json.dumps({"cases": []}), capture_output=True, text=True, encoding="utf-8")
+    assert run.returncode == 0, run.stderr
+    assert json.loads(run.stdout) == statwin.PRESETS

@@ -7815,6 +7815,56 @@
     }
    }
   },
+  "/api/projects/{name}/statwin-init": {
+   "post": {
+    "summary": "Statwin Init",
+    "description": "1화 전 인물들의 상태창 처음 수치 제안. 저장하지 않는다 (작가가 고른 인물의 값을 PUT .../statwin/<인물> 로 저장).",
+    "operationId": "statwin_init",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StatStyleRequest",
+        "title": "Body"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/StatInitSuggestion"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/timeline": {
    "get": {
     "summary": "Timeline View",
@@ -16734,6 +16784,58 @@
     ],
     "title": "StatColumn",
     "description": "화별 비교표의 한 화. values 는 그 화가 끝났을 때의 값, changed 는 그 화에 바뀐 항목."
+   },
+   "StatInitCharacter": {
+    "properties": {
+     "character_id": {
+      "type": "string",
+      "title": "Character Id",
+      "description": "인물 id"
+     },
+     "stats": {
+      "items": {
+       "$ref": "#/components/schemas/StatValue"
+      },
+      "type": "array",
+      "title": "Stats",
+      "description": "1화 시작 때 값. +3 같은 바뀐 양이 아니라 값 그대로"
+     },
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "description": "설정의 무엇을 근거로 정했는지 한국어 한 문장",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "character_id"
+    ],
+    "title": "StatInitCharacter",
+    "description": "한 인물의 1화 시작 상태창 수치 제안."
+   },
+   "StatInitSuggestion": {
+    "properties": {
+     "names": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Names",
+      "description": "항목 이름. 작품 틀이 있으면 그대로, 없으면 세계관에 맞게 4~8개"
+     },
+     "characters": {
+      "items": {
+       "$ref": "#/components/schemas/StatInitCharacter"
+      },
+      "type": "array",
+      "title": "Characters",
+      "description": "상태창이 있는 인물만"
+     }
+    },
+    "type": "object",
+    "title": "StatInitSuggestion",
+    "description": "1화 전 상태창 처음 수치 제안 (pipeline.suggest_initial_stats). 작가가 인물마다 골라 적용한다."
    },
    "StatRecord": {
     "properties": {
