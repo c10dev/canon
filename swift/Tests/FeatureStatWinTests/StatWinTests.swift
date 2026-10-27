@@ -138,7 +138,7 @@ actor FakeSource: StatWinSource {
         #expect(saved.count == 1)
         #expect(saved.first?.0 == "hero")
         #expect(saved.first?.1.map(\.name) == ["레벨", "칭호"])
-        #expect(saved.first?.1.map(\.value) == ["5", "검성"])
+        #expect(saved.first?.1.map(\.value) == ["+2", "검성"])  // '+2' 는 서버(statwin.set_stats)가 저장한 값에 맞춰 계산한다
         #expect(model.notice?.text == "상태창을 저장했어요")
         #expect(!model.dirty)  // 저장 뒤 서버 값으로 다시 채운다
     }

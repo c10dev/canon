@@ -2,7 +2,8 @@
    메인 줄기에서 갈라졌다 합류하는 서브플롯, 과거 회상, 외전, 인물 이야기를 노선도로 그리고 고친다.
    화가 어느 줄기인지는 화 플롯의 storyline(그 화가 주로 따라가는 줄기, 비면 메인)과 threads(끼어드는 장면)에 적는다.
    줄기 고치기와 화 붙이기는 작품 저장(PUT)으로, AI 제안은 백그라운드 작업 'storyline' 과 /storylines/apply 로 한다.
-   서버 canon/storylines.py 의 span, episodes_of 와 같은 규칙이라 함께 고친다. */
+   서버 canon/storylines.py 의 span, episodes_of 와 같은 규칙이라 함께 고친다.
+   Swift 앱(swift/Sources/FeatureLines 의 LineRules · LineMapLayout)도 같은 규칙이라 함께 고친다. */
 'use strict';
 
 const LINE_KINDS = ['서브플롯', '과거 회상', '외전', '인물 이야기'];

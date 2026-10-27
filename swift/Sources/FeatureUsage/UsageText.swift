@@ -112,6 +112,16 @@ public enum UsageText {
         return "이 기간\(whose)의 AI 호출 기록이 없어요. 이 화면이 생긴 뒤의 호출부터 기록해요 (mock 은 기록하지 않음)."
     }
 
+    /// 모델별 표의 백엔드 이름 (웹 `USAGE_BACKEND`, 서버 `usage.backend_of`). 모르는 이름은 Gemini.
+    public static func backendLabel(_ backend: String?) -> String {
+        switch backend {
+        case "local": "로컬 · 0원"
+        case "claude": "Claude 구독"
+        case "claude-api": "Claude API"
+        default: "Gemini"
+        }
+    }
+
     /// 가격표 설명에서 링크 뒤 글 (`viewPrices`). 앞은 '기본값은 <확인한 날>에 Google Gemini API 가격표'.
     public static let priceIntroTail = "(유료 등급 표준 요금)에서 옮긴 값이에요. 가격이 바뀌면 여기서 고치세요. 적용 시작일을 적은 줄은 그날부터의 호출에 쓰고(예고된 인상), 고치면 지난 기록과 자동 집필 예상 비용도 이 표로 다시 계산해요. 생각 토큰은 출력 요금, 배치 칸을 비우면 절반으로 쳐요. 로컬 모델은 0원이고, 표에 없는 Gemini 모델은 '가격 모름'으로 빠져요."
     public static let priceFooter = "모델 이름은 정확히 같거나 그 이름으로 시작하는 모델에 써요 (예: gemini-4-argon 은 gemini-4-argon-001 에도). 기본 모델을 고치면 그 모델의 예고 줄까지 내 줄로 대신해요. 기본 줄은 지울 수 없고, 값을 고치면 내 값으로 대신해요."
@@ -202,7 +212,7 @@ extension UsageText {
                 label = stage(r.stage ?? "")
             case .model:
                 label = (r.model ?? "").isEmpty ? "(이름 없음)" : r.model!
-                sub = r.backend == "local" ? "로컬 · 0원" : "Gemini"
+                sub = backendLabel(r.backend)
             case .episode:
                 label = "\(r.episode ?? 0)화"
             case .project:

@@ -17,8 +17,8 @@ public final class AppModel {
     public private(set) var document: ProjectDocument?
     private var loader: ProjectLoader
     public var screen: Screen = .home
-    public private(set) var jobs = JobTracker()
-    public private(set) var notice: (text: String, isError: Bool)?
+    /// 작업 목록, 검토를 기다리는 결과. 연 작품과 함께 바뀐다.
+    public private(set) var jobs: JobCenter
     private let defaults: UserDefaults
     static let serverKey = "canon.server"
 
@@ -29,6 +29,7 @@ public final class AppModel {
         self.server = server
         self.loader = ProjectLoader(server: server)
         self.projects = ProjectsModel(source: LiveProjectListing(server: server))
+        self.jobs = JobCenter(service: server)
     }
 
     /// 작품을 연다 (nil 이면 작품 목록으로). 저장하지 않은 변경이 있어도 닫는다. 묻는 일은 화면이 한다.
@@ -36,6 +37,8 @@ public final class AppModel {
         project = name
         document = name.map { ProjectDocument(name: $0, store: loader) }
         screen = .home
+        let doc = document
+        Task { await jobs.open(doc) }
     }
 
     /// 서버 주소를 바꾼다. 읽을 수 없는 주소면 false.
@@ -46,30 +49,8 @@ public final class AppModel {
         server = CanonServer(config: config)
         loader = ProjectLoader(server: server)
         projects = ProjectsModel(source: LiveProjectListing(server: server))
+        jobs = JobCenter(service: server)
         open(nil)
-        jobs = JobTracker()
         return true
-    }
-
-    public func dismissNotice() { notice = nil }
-
-    /// 작업 목록을 계속 지켜본다. 진행 중인 작업이 없으면 천천히 묻는다
-    /// (웹 화면은 창에 돌아올 때 묻지만, 앱은 다른 기기에서 시작한 작업도 알아채게 15초마다 묻는다).
-    public func watchJobs() async {
-        while !Task.isCancelled {
-            await refreshJobs()
-            try? await Task.sleep(for: jobs.pollInterval ?? .seconds(15))
-        }
-    }
-
-    public func refreshJobs() async {
-        do {
-            let list = try await server.listJobs()
-            for event in jobs.received(list) {
-                if let n = JobText.notice(event, currentProject: project) { notice = n }
-            }
-        } catch {
-            jobs.failed()
-        }
     }
 }

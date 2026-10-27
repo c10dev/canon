@@ -72,6 +72,65 @@ extension CanonServer {
     public func listJobs() async throws -> [Job] {
         try await get("/api/jobs", as: [Job].self)
     }
+
+    /// openapi.json 에 타입이 없는 요청을 직접 보낸다 (작업 시작처럼 dict 를 돌려주는 곳).
+    public func send<T: Decodable & Sendable>(_ method: String, _ path: String, body: (any Encodable & Sendable)? = nil, as type: T.Type) async throws -> T {
+        var request = URLRequest(url: URL(string: path, relativeTo: config.baseURL)!)
+        request.httpMethod = method
+        request.setValue(clientID, forHTTPHeaderField: ClientIdentity.header)
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONEncoder().encode(body)
+        }
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw CanonError.offline
+        }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else { throw CanonError.from(status: status, body: data) }
+        do {
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
+            throw CanonError.badResponse(String(describing: error))
+        }
+    }
+
+    /// 작업을 시작한다. 같은 작업이 이미 돌면 서버가 그 작업을 돌려준다 (`already`).
+    public func startJob(_ project: String, _ request: JobRequest) async throws -> (job: Job, already: Bool) {
+        let out = try await send("POST", APIPath.project(project, "jobs"), body: request, as: StartedJob.self)
+        return (out.job, out.already ?? false)
+    }
+
+    public func stopJob(_ id: String) async throws -> Job {
+        try await send("POST", "/api/jobs/\(id)/stop", as: Job.self)
+    }
+
+    /// 검토를 기다리는 결과와 실패한 작업.
+    public func pending(_ project: String) async throws -> PendingList {
+        try await get(APIPath.project(project, "pending"), as: PendingList.self)
+    }
+
+    /// 반영하거나 버린 결과(`failure` 면 닫은 실패)를 서버에서 지운다.
+    public func dropPending(_ project: String, key: String, failure: Bool = false) async throws {
+        let path = APIPath.project(project, "pending/" + APIPath.segment(key)) + (failure ? "?failure=true" : "")
+        _ = try await send("DELETE", path, as: JSONValue.self)
+    }
+}
+
+/// 작업 시작 응답: 작업 칸에 `already` 가 더해진다.
+struct StartedJob: Decodable, Sendable {
+    let job: Job
+    let already: Bool?
+
+    init(from decoder: any Decoder) throws {
+        job = try Job(from: decoder)
+        already = try decoder.container(keyedBy: Key.self).decodeIfPresent(Bool.self, forKey: .already)
+    }
+
+    enum Key: String, CodingKey { case already }
 }
 
 /// 요청마다 `X-Canon-Client` 헤더를 붙인다.

@@ -69,6 +69,9 @@ const usageWhen = (iso) => fmtDateTime(iso);  // 날짜 형식은 app.js fmtDate
 let usageTitles = {};  // 폴더 이름 → 작품 제목
 const usageName = (p) => (usageTitles[p] && usageTitles[p] !== p ? `${usageTitles[p]} (${p})` : p);
 
+// 모델별 표의 백엔드 이름 (usage.backend_of 의 이름). Swift 앱 UsageText.backendLabel 과 같다
+const USAGE_BACKEND = { local: '로컬 · 0원', claude: 'Claude 구독', 'claude-api': 'Claude API' };
+
 function viewUsage() {
   const u = S.usage;
   const inProject = S.route[0] === 'p';
@@ -105,7 +108,7 @@ function viewUsage() {
     <section class="card">${usageChart(u)}</section>
     <div class="cols">
       <div class="col">${usageTable('단계별', u.by_stage, (r) => esc(USAGE_STAGE[r.stage] || r.stage || '기타'))}
-        ${usageTable('모델별', u.by_model, (r) => `${esc(r.model || '(이름 없음)')} <span class="small">${r.backend === 'local' ? '로컬 · 0원' : 'Gemini'}</span>`)}</div>
+        ${usageTable('모델별', u.by_model, (r) => `${esc(r.model || '(이름 없음)')} <span class="small">${USAGE_BACKEND[r.backend] || 'Gemini'}</span>`)}</div>
       <div class="col">${S.usageProject
         ? usageTable('화별', u.by_episode, (r) => `<a href="#/p/${enc(r.project)}/write/${r.episode}">${r.episode}화</a>`, '화가 정해지지 않은 호출(설정, 기획 등)은 빠져요')
         : usageTable('작품별', u.by_project, (r) => r.project ? `<a href="#/p/${enc(r.project)}/usage">${esc(usageName(r.project))}</a>` : '<span class="small">작품 밖 (연구 서버 점검 등)</span>')}
