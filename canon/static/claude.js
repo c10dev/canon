@@ -67,7 +67,7 @@ function claudeSettings(c) {
   const open = String(c.provider).startsWith('claude') || Object.values(c.stage_settings || {}).some((v) => String(v).startsWith('claude')) || src !== 'none' || !!c.claude_model;
   return `<details class="set-more"${open ? ' open' : ''}><summary><h2>Claude</h2> <span class="small">구독 로그인이나 API 키로 쓸 때</span></summary>
     <p class="desc">두 가지 방식이 있어요. <b>Claude 구독 로그인</b>은 이 컴퓨터에 설치하고 로그인한 Claude Code를 불러 Pro · Max 구독 한도 안에서 써요.
-      <b>Claude API 키</b>는 Claude Console의 키로 종량제로 써요. 위 '생성 방식'이나 아래 단계별 백엔드에서 고르세요.</p>
+      <b>Claude API 키</b>는 Claude Console의 키로 종량제로 써요. 위 '생성 방식'이나 아래 '단계별 백엔드와 모델'에서 고르세요.</p>
     <p class="desc">Anthropic 정책상 Canon 같은 다른 앱이 Claude 계정 로그인을 받거나 토큰을 보관할 수 없어서, 로그인은 Claude Code에서 직접 해요.
       Canon은 로그인 상태만 확인하고 계정 정보는 저장하지 않아요. 구독 한도는 평범한 개인 사용을 기준으로 하니, 자동 집필처럼 오래 도는 작업은 API 키가 맞아요.</p>
     <div id="claude-status">${claudeStatusView()}</div>
