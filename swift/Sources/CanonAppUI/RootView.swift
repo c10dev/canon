@@ -33,6 +33,11 @@ public struct RootView: View {
     public var body: some View {
         NavigationSplitView {
             sidebar
+                #if os(macOS)
+                // Mac 은 사이드바 칸의 툴바에 단추 둘('서버' · '작품 목록', '모델 · API 키')과 신호등 단추가 함께 들어간다.
+                // 기본 폭(233pt)에서는 넘친 단추가 보이지 않아 그보다 좁아지지 않게 한다
+                .navigationSplitViewColumnWidth(min: 300, ideal: 320)
+                #endif
         } detail: {
             VStack(spacing: 0) {
                 if let n = model.jobs.notice {
