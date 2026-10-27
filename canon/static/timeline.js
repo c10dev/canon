@@ -158,7 +158,7 @@ function tlRows() {
 function viewTimeline() {
   const p = P();
   const tl = p.timeline || { enabled: true, start: '', deadlines: [] };
-  const head = header('시간', '작품 속 시간', '화가 끝난 시점(며칠째, 시간대)과 앞으로 올 기한을 기록해요. AI 는 상태 변경안에 이번 화가 끝난 시점과 새 기한만 적고, 남은 날은 Canon 이 세요. 본문을 쓸 때는 직전 화 끝 시점, 이번 화 플롯의 시점, 열린 기한 몇 줄만 들어가서 화수가 늘어도 프롬프트가 거의 커지지 않아요.');
+  const head = header('시간', '작품 속 시간', '화가 끝난 시점(며칠째, 시간대)과 앞으로 올 기한을 기록해요. AI는 상태 변경안에 이번 화가 끝난 시점과 새 기한만 적고, 남은 날은 Canon이 세요. 본문을 쓸 때는 직전 화 끝 시점, 이번 화 플롯의 시점, 열린 기한 몇 줄만 들어가서 화수가 늘어도 프롬프트가 거의 커지지 않아요.');
   const n = tlLastDone() + 1;
   const prev = tlPrev(n);
   const day = tlDay(n);
@@ -169,10 +169,10 @@ function viewTimeline() {
       <div><div class="small">열린 기한</div><div class="num">${open.length}</div></div>
       <div><div class="small">사흘 안 · 지난 기한</div><div class="num" style="${near ? 'color:var(--amber)' : ''}">${near}</div></div></div>
     <label class="check-row"><input type="checkbox" data-bind="timeline.enabled" data-kind="bool"${tl.enabled ? ' checked' : ''}> 작품 속 시간 기록하기 <span class="small">끄면 상태 변경안에 시점을 적지 않고, 쓰기 · 검수에 시간 블록을 넣지 않아요</span></label>
-    ${input('1일째가 언제인가요', 'timeline.start', { hint: '날짜나 요일을 적으면 날마다 날짜 · 요일은 Canon 이 계산해요. 비우면 날수만 세요', placeholder: '예: 2024년 3월 4일 월요일, 초봄' })}</section>`;
+    ${input('1일째가 언제인가요', 'timeline.start', { hint: '날짜나 요일을 적으면 날마다 날짜 · 요일은 Canon이 계산해요. 비우면 날수만 세요', placeholder: '예: 2024년 3월 4일 월요일, 초봄' })}</section>`;
   const sorted = [...tl.deadlines].sort((a, b) => (a.done_ep > 0) - (b.done_ep > 0) || (a.day <= 0) - (b.day <= 0) || a.day - b.day || a.set_ep - b.set_ep);
   const dls = `<section class="card"><div class="between"><h2>기한</h2>${S.tlEdit === 'new' ? '' : '<button type="button" class="btn small" data-action="tlEditOpen" data-arg="new">+ 기한 더하기</button>'}</div>
-    <div class="small">축제, 결혼식, '사흘 안에' 같은 약속처럼 앞으로 올 날이에요. AI 가 본문에서 찾은 기한은 상태 승인에서 골라 반영돼요. 직접 더한 기한은 ${tlLastDone() || 0}화에 생긴 것으로 기록돼요.</div>
+    <div class="small">축제, 결혼식, '사흘 안에' 같은 약속처럼 앞으로 올 날이에요. AI가 본문에서 찾은 기한은 상태 승인에서 골라 반영돼요. 직접 더한 기한은 ${tlLastDone() || 0}화에 생긴 것으로 기록돼요.</div>
     ${S.tlEdit === 'new' ? tlForm(null) : ''}
     ${sorted.map((d) => tlDeadlineRow(d, day)).join('') || (S.tlEdit === 'new' ? '' : '<div class="small" style="padding:8px 0">기한이 없어요.</div>')}</section>`;
   const table = p.episodes.length ? `<section class="card"><h2>화별 시점</h2>

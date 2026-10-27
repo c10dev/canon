@@ -87,7 +87,7 @@ function viewUsage() {
         </select></label>
     </div>`;
   if (!t.calls) {
-    return `${head}${filters}<div class="note plain">이 기간${S.usageProject ? `에 ${esc(usageName(S.usageProject))}` : ''}의 AI 호출 기록이 없어요. 이 화면이 생긴 뒤의 호출부터 기록해요 (mock 은 기록하지 않음).</div>
+    return `${head}${filters}<div class="note plain">이 기간${S.usageProject ? `에 ${esc(usageName(S.usageProject))}` : ''}의 AI 호출 기록이 없어요. 이 화면이 생긴 뒤의 호출부터 기록해요 (mock은 기록하지 않음).</div>
       ${usagePriceSection()}`;
   }
   const tiles = [
@@ -303,7 +303,7 @@ function viewPrices() {
       ${S.priceDirty ? '<button class="btn" data-action="priceCancel">고친 것 버리기</button>' : ''}
       ${S.prices.rows.some((r) => r.custom) ? '<button class="btn danger" data-action="priceReset">기본값으로 되돌리기</button>' : ''}
     </div>
-    <div class="small">모델 이름은 정확히 같거나 그 이름으로 시작하는 모델에 써요 (예: gemini-4-argon 은 gemini-4-argon-001 에도). 기본 모델을 고치면 그 모델의 예고 줄까지 내 줄로 대신해요. 기본 줄은 지울 수 없고, 값을 고치면 내 값으로 대신해요.</div>`;
+    <div class="small">모델 이름은 정확히 같거나 그 이름으로 시작하는 모델에 써요 (예: gemini-4-argon은 gemini-4-argon-001 에도). 기본 모델을 고치면 그 모델의 예고 줄까지 내 줄로 대신해요. 기본 줄은 지울 수 없고, 값을 고치면 내 값으로 대신해요.</div>`;
 }
 
 document.addEventListener('input', (e) => {

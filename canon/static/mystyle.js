@@ -81,7 +81,7 @@ function learnCard() {
   const list = r ? `<div class="note plain">${esc(r.summary || '')}<div class="small">${fmtDate(r.at)} · 수정 ${r.edits_used}건을 봤어요</div></div>
       ${r.suggestions.length ? r.suggestions.map(suggestionRow).join('') : '<div class="small">두 번 이상 되풀이된 고침을 찾지 못했어요. 본문을 더 고친 뒤 다시 찾아 보세요.</div>'}
       ${open && linked ? `<label class="check-row"><input type="checkbox" id="learn-push"${S.styleLink.state === 'same' && !(S.styleLink.theirs || []).length ? ' checked' : ''}><span>라이브러리 '${esc(S.styleLink.name)}' 에도 새 버전으로 올리기<br><span class="small">다른 작품은 다시 적용하기 전까지 그대로예요${(S.styleLink.theirs || []).length ? `. 라이브러리가 ${S.styleLink.version}번 버전으로 더 새로워서, 올리면 그쪽에서 바뀐 칸(${S.styleLink.theirs.map((c) => esc(c.label)).join(', ')})이 덮여요` : ''}</span></span></label>` : ''}
-      <div class="row">${open ? '<button class="btn primary small" data-action="learnApply">고른 규칙 넣기</button>' : ''}<button class="btn small" data-action="learnDismiss">후보 지우기</button></div>` : '';
+      <div class="row">${open ? '<button class="btn primary small" data-action="learnApply">고른 규칙 적용</button>' : ''}<button class="btn small" data-action="learnDismiss">후보 지우기</button></div>` : '';
   return `<section class="card tight">
       <div class="between"><h2>내 수정에서 배우기</h2><span class="small">${count}</span></div>
       <div class="small">AI 본문을 고친 기록에서 되풀이되는 고침을 찾아 규칙 후보로 보여 줘요. 근거가 두 번 이상인 것만 내고, 고른 것만 이 작품 문체에 넣어요. 되돌린 수정, 동선 맞추기, 새로 써 넣기만 한 것은 보지 않아요.</div>

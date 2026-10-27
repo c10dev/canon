@@ -960,7 +960,7 @@ function newSavebar(shortcut = true) {
   bar.setAttribute('aria-label', '저장하지 않은 변경');
   document.body.appendChild(bar);
   const live = $('#sr-live');
-  if (live) live.textContent = `저장하지 않은 변경이 있어요.${shortcut ? ' Ctrl+S 로 저장할 수 있어요.' : ''}`;
+  if (live) live.textContent = `저장하지 않은 변경이 있어요.${shortcut ? ' Ctrl+S로 저장할 수 있어요.' : ''}`;
   return bar;
 }
 
@@ -1092,7 +1092,7 @@ const actions = {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/revert/${n - 1}`);
       if (h) setDelta(n, structuredClone(h));  // 반영했던 변경안을 다시 고를 수 있게 둔다
-      toast(`${rangeText(fin)}화의 반영을 취소했어요. ${n}화 변경안을 다시 골라 적용하세요`);
+      toast(`${rangeText(fin)}화의 반영을 취소했어요. ${n}화 변경안을 다시 골라 반영하세요`);
     });
   },
   railAll() {
@@ -1127,13 +1127,13 @@ const actions = {
   },
   async deleteProject(name) {
     const x = (S.projects || []).find((y) => y.name === name) || { title: name };
-    const typed = prompt(`'${x.title || name}' 작품을 지울까요? 서버의 projects/.trash 로 옮겨 두지만 화면에서는 되살릴 수 없어요.\n지우려면 작품 제목을 그대로 적으세요.`);
+    const typed = prompt(`'${x.title || name}' 작품을 지울까요? 서버의 projects/.trash로 옮겨 두지만 화면에서는 되살릴 수 없어요.\n지우려면 작품 제목을 그대로 적으세요.`);
     if (typed === null) return;
     if (typed.trim() !== (x.title || name)) return toast('제목이 달라 지우지 않았어요', true);
     await run('지우는 중', async () => {
       await api('DELETE', `/projects/${enc(name)}`);
       S.projects = await api('GET', '/projects');
-      toast('작품을 지웠어요. 서버의 projects/.trash 에 남아 있어요');
+      toast('작품을 지웠어요. 서버의 projects/.trash에 남아 있어요');
     });
   },
   async checkEp(n) {
@@ -1763,7 +1763,7 @@ const actions = {
   },
   async applySeries() {
     const lost = lostPartSummaries();
-    if (lost.length && !confirm(`범위가 바뀌어 저장된 ${lost.map((x) => `${x.number}부`).join(', ')} 요약이 사라져요. 반영할까요?`)) return;
+    if (lost.length && !confirm(`범위가 바뀌어 저장된 ${lost.map((x) => `${x.number}부`).join(', ')} 요약이 사라져요. 적용할까요?`)) return;
     await run('적용하는 중', async () => {
       await saveIfDirty();
       const had = P().story_arcs.length > 0;
@@ -2642,7 +2642,7 @@ function providerOptions(cur) {
 function viewSettings() {
   const c = S.config || {};
   const src = { env: '환경 변수', file: '설정 파일', default: '기본값', none: '없음' };
-  const envNote = (s, name) => s === 'env' ? `<div class="small">환경 변수 ${name} 가 설정돼 있어 그 값이 우선해요.</div>` : '';
+  const envNote = (s, name) => s === 'env' ? `<div class="small">환경 변수 ${name}에 값이 있어 그 값이 우선해요.</div>` : '';
   // 처음 쓰는 사람은 생성 방식 · 키 · 모델만 보면 된다. 로컬 서버와 단계별 칸은 쓰고 있을 때만 펼친다
   const localOpen = c.provider === 'local' || (!!c.local_url && !['default', 'none'].includes(c.local_url_source)) || Object.values(c.stage_settings || {}).includes('local');
   const stageOpen = Object.values(c.stage_settings || {}).some(Boolean) || Object.values(c.stage_model_settings || {}).some(Boolean);
@@ -2663,10 +2663,10 @@ function viewSettings() {
       <div class="field"><label for="set-model">모델</label>
         <input id="set-model" type="text" list="model-options" value="${esc(c.model_setting || '')}">
         ${modelDatalist()}
-        <div class="small">모든 단계의 기본 Gemini 모델이에요. gemini-4-argon 이 기본이고, 단계마다 바꾸려면 아래 '단계별 백엔드와 모델'에서 고르세요.</div>${envNote(c.model_source, 'CANON_MODEL')}</div>
+        <div class="small">모든 단계의 기본 Gemini 모델이에요. gemini-4-argon이 기본이고, 단계마다 바꾸려면 아래 '단계별 백엔드와 모델'에서 고르세요.</div>${envNote(c.model_source, 'CANON_MODEL')}</div>
       <div class="small" id="model-status">${modelStatus()}</div>
       <details class="set-more"${localOpen ? ' open' : ''}><summary><h2>로컬 서버</h2> <span class="small">Ollama · llama.cpp 같은 내 컴퓨터의 모델을 쓸 때</span></summary>
-      <p class="desc">Ollama, llama.cpp, vLLM, LM Studio 처럼 OpenAI 호환 API 를 여는 서버예요. 주소는 /v1 까지 적어요.</p>
+      <p class="desc">Ollama, llama.cpp, vLLM, LM Studio처럼 OpenAI 호환 API를 여는 서버예요. 주소는 /v1까지 적어요.</p>
       <div class="field"><label for="set-local-url">서버 주소</label>
         <input id="set-local-url" type="text" value="${esc(c.local_url || '')}" placeholder="http://localhost:11434/v1">
         <div class="small">Ollama :11434/v1 · llama.cpp :8080/v1 · vLLM :8000/v1 · LM Studio :1234/v1</div>${envNote(c.local_url_source, 'CANON_LOCAL_URL')}</div>
@@ -2682,8 +2682,8 @@ function viewSettings() {
         const st = (c.stages || {})[s] || {};
         // 단계 자체의 환경 변수는 선택보다 우선하고, 물려받은 환경 변수(CANON_LLM, 부모 단계)는 비워 둘 때만 따른다
         const envLine = (name, own, what) => !name ? '' : name === own
-          ? `<div class="small">환경 변수 ${name} 가 우선해요.</div>`
-          : `<div class="small">비워 두면 환경 변수 ${name} 의 ${what} 따라요.</div>`;
+          ? `<div class="small">환경 변수 ${name} 값이 우선해요.</div>`
+          : `<div class="small">비워 두면 환경 변수 ${name}의 ${what} 따라요.</div>`;
         return `<div class="field"><label for="set-stage-${s}">${label} <span class="hint">지금: ${esc(st.model || '')}</span></label>
           <div class="stage-row">
             <select id="set-stage-${s}" aria-label="${esc(label)} 백엔드"><option value="">${STAGE_PARENT_LABEL[s] || '위 생성 방식을 따름'}</option>${providerOptions((c.stage_settings || {})[s])}</select>
@@ -2754,7 +2754,7 @@ function aiWarning() {
   const h = S.health;
   const cfg = S.config || {};
   if (h && h.local === false) return `AI 연결 안 됨: 로컬 모델 서버가 응답하지 않아요 (${h.local_error || '주소를 확인하세요'}).`;
-  if (h && h.mock) return 'mock 모드: AI를 부르지 않고 가짜 결과를 내요. 실제로 쓰려면 설정에서 Gemini 나 로컬을 고르세요.';
+  if (h && h.mock) return 'mock 모드: AI를 부르지 않고 가짜 결과를 내요. 실제로 쓰려면 설정에서 Gemini나 로컬을 고르세요.';
   if (!cfg.has_key && cfg.gemini_auth === 'vertex') return 'Vertex AI 설정이 덜 됐어요. 설정에서 서비스 계정 키 파일 경로와 프로젝트 ID를 확인하세요.';
   if (!cfg.has_key) return 'Gemini API 키가 없어요. 키 없이는 인물 · 설정을 직접 적을 수 있고, 플롯이 생긴 화부터는 채팅 앱 작업지시서로 쓸 수 있어요.';
   return '';
@@ -3441,7 +3441,7 @@ function viewSuggestion() {
   const clash = (c) => !sameChar(c) && P().characters.some((x) => x.id === c.id);
   return `<section class="card" style="border:2px solid var(--accent)">
     <div class="between"><h2>AI 제안 <span class="chip ai">적용 전</span></h2>${proposalActions(['dropSuggestion'], ['applySuggestion'])}</div>
-    <p class="small">주제, 톤, 세계관은 비어 있는 칸에만 들어가요. 이미 있는 인물 id 는 건너뛰어요.</p>
+    <p class="small">주제, 톤, 세계관은 비어 있는 칸에만 들어가요. 이미 있는 인물은 건너뛰어요.</p>
     <div class="sug-fields">${SUG_FIELDS.map(([k, label]) => {
     const v = sugValue(s, k);
     if (!v.length) return '';
@@ -3449,7 +3449,7 @@ function viewSuggestion() {
     return `<label class="row sug-field${have ? ' skip' : ''}"><input type="checkbox" data-pick="sf:${k}"${!have && S.picks['sf:' + k] !== false ? ' checked' : ''}${have ? ' disabled' : ''}><strong>${label}</strong> <span>${esc(v)}</span>${have ? ' <span class="small">이미 있음 · 건너뜀</span>' : ''}</label>`;
   }).join('')}</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
-      ${s.characters.map((c, i) => `<label class="char-card suggested" style="cursor:pointer"><span class="row"><input type="checkbox" data-pick="sc${i}"${S.picks['sc' + i] ? ' checked' : ''}${exists(c) ? ' disabled' : ''}><strong>${esc(c.name)}</strong><span class="small">${esc(c.role)} · ${esc(c.id)}${exists(c) ? ' · 이미 있음' : clash(c) ? ' · 같은 id 의 다른 인물이 있어 새 id 로 넣어요' : ''}</span></span>
+      ${s.characters.map((c, i) => `<label class="char-card suggested" style="cursor:pointer"><span class="row"><input type="checkbox" data-pick="sc${i}"${S.picks['sc' + i] ? ' checked' : ''}${exists(c) ? ' disabled' : ''}><strong>${esc(c.name)}</strong><span class="small">${esc(c.role)} · ${esc(c.id)}${exists(c) ? ' · 이미 있음' : clash(c) ? ' · 이미 있는 다른 인물과 겹쳐 따로 넣어요' : ''}</span></span>
         <span style="font-size:0.8125rem;line-height:1.5">목표: ${esc(c.goal)}<br>말투: ${esc(c.speech_style)}</span></label>`).join('')}
     </div>
     ${s.relationships.map((r, i) => {
@@ -4135,8 +4135,8 @@ function viewSerial() {
         ${input('전환점', `parts.${i}.key_turn`, { root: 'seriesDraft', rows: 2, autogrow: true, hint: '부를 마무리하는 큰 사건이나 드러나는 비밀' })}
         ${input('아크 후보', `parts.${i}.arc_ideas`, { root: 'seriesDraft', kind: 'list', rows: 3, autogrow: true })}
       </div>`).join('')}
-      <div class="small">부는 1화부터 ${p.meta.target_episodes}화까지 빈틈없이 이어져야 반영돼요. 이미 기획한 아크가 새 부 경계를 넘으면 반영하지 않아요.</div>
-      ${lost.length ? `<div class="note warn">이 구성으로 반영하면 범위가 바뀌어 저장된 ${lost.map((x) => `${x.number}부(${x.start_ep}~${x.end_ep}화)`).join(', ')} 요약이 사라져요. 지키려면 그 부의 시작 화와 끝 화를 지금과 같게 두세요.</div>` : ''}
+      <div class="small">부는 1화부터 ${p.meta.target_episodes}화까지 빈틈없이 이어져야 적용돼요. 이미 기획한 아크가 새 부 경계를 넘으면 적용하지 않아요.</div>
+      ${lost.length ? `<div class="note warn">이 구성을 적용하면 범위가 바뀌어 저장된 ${lost.map((x) => `${x.number}부(${x.start_ep}~${x.end_ep}화)`).join(', ')} 요약이 사라져요. 지키려면 그 부의 시작 화와 끝 화를 지금과 같게 두세요.</div>` : ''}
     </div>` : '';
   const seriesBtn = ((b) => `<button class="btn small" data-action="planSeries"${b.attr}>${b.label}</button>`)(jobBtn('series', null, p.parts.length ? '부 구성 다시 제안' : 'AI로 부 구성 만들기'));
   const series = `<section class="card">
@@ -4197,7 +4197,7 @@ function nextArcPanel(start) {
       ${input('서술 시점', 'arc.pov', { root: 'arcDraft', placeholder: `비우면 작품 기본 (${P().style.narration_pov || '정하지 않음'})` })}
       <div class="grid-2">${input('주요 인물 id', 'arc.cast', { root: 'arcDraft', kind: 'list', rows: 3 })}${input('회수할 복선 id', 'arc.payoffs', { root: 'arcDraft', kind: 'list', rows: 3 })}</div>
       ${d.new_characters.length ? `<div class="field"><span class="label">새 인물 (조연으로 들어와요. 주역으로 올리려면 설정 도우미에서 비중을 바꾸세요)</span>${d.new_characters.map((c) => `<div class="note plain"><strong>${esc(c.name)}</strong> <span class="small">${esc(c.id)} · ${esc(c.role)}</span><br>${esc(c.personality || c.goal)}<br><span class="small">말투: ${esc(c.speech_style)}</span></div>`).join('')}</div>` : ''}
-      <div class="small">끝 화를 바꾸면 결 구간이 따라 늘거나 줄어요. 다른 구간 범위는 반영한 뒤 구간 고치기에서 바꿀 수 있어요.</div>
+      <div class="small">끝 화를 바꾸면 결 구간이 따라 늘거나 줄어요. 다른 구간 범위는 적용한 뒤 구간 고치기에서 바꿀 수 있어요.</div>
     </section>`;
   }
   const btn = jobBtn('nextarc', null, 'AI로 다음 아크 제안');
@@ -4308,7 +4308,7 @@ const blockedBefore = (n) => P().episodes.filter((x) => x.plot.number < n && x.s
 function orderNote(blocked) {
   if (!blocked.length) return '';
   const first = ep(blocked[0]);
-  return `<div class="note warn">이전 화(${blocked.join(', ')}화)의 상태 반영이 끝나야 쓸 수 있어요. 인물 상태가 꼬이지 않게 하는 규칙이에요. <a href="${base()}/${first.status === 'written' ? 'review' : 'write'}/${blocked[0]}">${blocked[0]}화 ${first.status === 'written' ? '상태 승인으로' : '집필로'}</a></div>`;
+  return `<div class="note warn">이전 화(${rangeText(blocked)}화)의 상태 반영이 끝나야 쓸 수 있어요. 인물 상태가 꼬이지 않게 하는 규칙이에요. <a href="${base()}/${first.status === 'written' ? 'review' : 'write'}/${blocked[0]}">${blocked[0]}화 ${first.status === 'written' ? '상태 승인으로' : '집필로'}</a></div>`;
 }
 
 function viewWrite(n) {
@@ -4497,7 +4497,7 @@ function viewReview(n) {
     (newChars ? section('새로 나온 인물', newChars) : '') +
     (newPlaces ? section('새로 나온 장소', `<div class="small">반영하면 인과율에 장소로 등록돼요. 그 뒤로는 이 장소가 나오는 화를 쓸 때 설명이 함께 들어가요.</div>${newPlaces}`) : '') +
     `<div class="cols">
-      <section class="card col"><div class="between"><h2>관계 사건</h2><span class="small">AI는 사건만 적고, 관계 수치는 Canon 이 계산해요</span></div>${events || '<div class="small">이번 화에 관계 사건이 없어요</div>'}
+      <section class="card col"><div class="between"><h2>관계 사건</h2><span class="small">AI는 사건만 적고, 관계 수치는 Canon이 계산해요</span></div>${events || '<div class="small">이번 화에 관계 사건이 없어요</div>'}
         ${secrets ? `<h3 style="margin-top:6px">새로 생긴 비밀</h3>${secrets}` : ''}
         ${rels ? `<h3 style="margin-top:6px">관계 유형 · 설명 변경</h3>${rels}` : ''}</section>
       <section class="card col">${relationHeader('반영하면 이렇게 계산돼요')}<div id="rel-preview">${relationLines(S.preview && S.preview.n === n ? S.preview : null)}</div>
@@ -4734,7 +4734,7 @@ Object.assign(actions, {
   rsUseModel(id) {
     S.rs.runs.push({ provider: 'local', model: id, url: S.rs.probeUrl.trim() === (S.config.local_url || '') ? '' : S.rs.probeUrl.trim() });
     S.rs.tab = 'sample';
-    toast(`${id} 를 샘플 생성에 넣었어요`);
+    toast(`샘플 생성에 ${id} 모델을 넣었어요`);
     render();
   },
   rsAddRun() {
@@ -4844,7 +4844,7 @@ function rsProbeView() {
   return `<section class="card">
       <p class="desc">OpenAI 호환 서버(vLLM, Ollama, llama.cpp, LM Studio)의 모델 목록과 컨텍스트 길이를 봐요. 생성 호출은 하지 않아요.</p>
       <div class="row" style="align-items:flex-end;flex-wrap:nowrap">
-        <div class="field" style="flex:1"><label for="rs-probe-url">서버 주소 <span class="hint">/v1 까지</span></label><input id="rs-probe-url" type="text" value="${esc(S.rs.probeUrl)}" data-rs="probeUrl" placeholder="http://nhn-b200:8001/v1"></div>
+        <div class="field" style="flex:1"><label for="rs-probe-url">서버 주소 <span class="hint">/v1까지</span></label><input id="rs-probe-url" type="text" value="${esc(S.rs.probeUrl)}" data-rs="probeUrl" placeholder="http://nhn-b200:8001/v1"></div>
         <button class="btn dark" data-action="rsProbe">점검</button>
       </div>
       ${S.rs.probeError ? `<div class="note err" role="alert">${esc(S.rs.probeError)}</div>` : ''}
@@ -4912,7 +4912,7 @@ function rsBudgetView() {
     const rows = r.rows.map((x) => `<tr><td>${x.episode}화</td><td><span class="chip ${x.status}">${STATUS[x.status]}</span>${x.measured ? '' : ' <span class="small">가정</span>'}</td>${cell(x.write)}${cell(x.check)}${cell(x.state)}</tr>`).join('');
     out = `<section class="card">
       <div class="between"><h2>${esc(r.backend)} · ${esc(r.model)}</h2><span class="small">최대 컨텍스트 ${r.limit ? rsNum(r.limit) + ' 토큰' : '알 수 없음'}</span></div>
-      ${r.first_over ? `<div class="note err">${r.first_over}화부터 입력만으로 한도를 넘어 서버가 요청을 거절해요. 단편의 검수(check)는 앞선 본문 전체를 넣어 화가 갈수록 커져요. 서버의 컨텍스트를 늘리거나, 설정의 단계별 백엔드에서 넘치는 단계를 Gemini 로 돌리세요.</div>` : ''}
+      ${r.first_over ? `<div class="note err">${r.first_over}화부터 입력만으로 한도를 넘어 서버가 요청을 거절해요. 단편의 검수(check)는 앞선 본문 전체를 넣어 화가 갈수록 커져요. 서버의 컨텍스트를 늘리거나, 설정의 단계별 백엔드에서 넘치는 단계를 Gemini로 돌리세요.</div>` : ''}
       ${r.first_tight && r.first_tight !== r.first_over ? `<div class="note warn">${r.first_tight}화부터 출력 여유까지 더하면 한도를 넘어요. 응답이 중간에 잘릴 수 있어요.</div>` : ''}
       ${!r.limit ? '<div class="note plain">이 백엔드는 한도를 알려 주지 않아 넘침은 판단하지 않았어요.</div>' : (!r.first_tight ? '<div class="note ok">플롯이 있는 화는 모두 한도 안에 들어가요.</div>' : '')}
       <div class="rs-scroll"><table class="rs-table"><thead><tr><th>화</th><th>상태</th><th>본문 쓰기</th><th>검수</th><th>상태 변경안</th></tr></thead><tbody>${rows}</tbody></table></div>
@@ -4987,7 +4987,7 @@ function rsCompareView() {
       <div><button class="btn dark" data-action="rsCompare"${eps.length && e && e.status !== 'draft' && !blocked.length ? '' : ' disabled'}>${n}화 비교본 쓰기</button></div>
       ${blocked.length ? orderNote(blocked) : fin ? '<div class="note plain">이 화는 반영이 끝난 화라 골라도 본문은 바뀌지 않고 고른 기록만 남아요.</div>' : ''}
     </section>
-    ${S.rs.pickResult ? `<div class="note ok">${esc(S.rs.pickResult.picked)} 를 골랐어요. 지금까지 고른 횟수: ${wins}</div>` : ''}
+    ${S.rs.pickResult ? `<div class="note ok">고른 쪽: ${esc(S.rs.pickResult.picked)}. 지금까지 고른 횟수: ${wins}</div>` : ''}
     ${c ? `<div class="small">${esc(fmtDateTime(c.created))}에 쓴 비교본${c.picked ? '' : ' · 고르기 전까지 백엔드를 가려요'}</div><div class="rs-compare">${drafts}</div>` : ''}`;
 }
 
@@ -5004,7 +5004,7 @@ function rsLogView() {
       <details><summary>자세히</summary><pre class="brief mono">${esc(JSON.stringify(x, null, 2))}</pre></details></li>`;
   }).join('');
   return `<section class="card">
-      <p class="desc">최근 30개 실험이에요. 전체 기록은 작품 폴더의 research/log.jsonl 에 있어요.</p>
+      <p class="desc">최근 30개 실험이에요. 전체 기록은 작품 폴더의 research/log.jsonl에 있어요.</p>
       ${items ? `<ul class="rs-log">${items}</ul>` : '<div class="small">아직 기록이 없어요.</div>'}
     </section>`;
 }

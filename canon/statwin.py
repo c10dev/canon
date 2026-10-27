@@ -168,10 +168,10 @@ def last_done(p: Project) -> int:
 def set_stats(p: Project, cid: str, rows: list[StatValue]) -> list[StatRecord]:
     """작가가 상태창 전체를 고친다. 마지막으로 반영한 화(없으면 0)의 작가 기록으로 남기고, 그 화 스냅샷도 맞춘다."""
     if not any(c.id == cid for c in p.characters):
-        raise KeyError(f"인물이 없습니다: {cid}")
+        raise KeyError(f"없는 인물이에요: {cid}")
     names = [r.name.strip() for r in rows if r.name.strip()]
     if len(names) != len(set(names)):
-        raise ValueError("항목 이름이 겹칩니다")
+        raise ValueError("항목 이름이 겹쳐요")
     n = last_done(p)
     st = _state(p, cid)
     cur = {s.name: s.value for s in st.stats}
@@ -277,7 +277,7 @@ def describe(p: Project, cid: str) -> str:
     """명령줄 출력: 지금 상태창과 화별 변화."""
     c = next((x for x in p.characters if x.id == cid or x.name == cid), None)
     if c is None:
-        raise KeyError(f"인물이 없습니다: {cid}")
+        raise KeyError(f"없는 인물이에요: {cid}")
     t = timeline(p, c.id)
     if not t["names"]:
         return f"{c.name} 의 상태창이 없습니다. statwin {'<작품>'} {c.id} --set 레벨=1 처럼 만듭니다."

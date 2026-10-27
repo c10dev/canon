@@ -1313,7 +1313,7 @@ class Project(BaseModel):
         for ep in self.episodes:
             if ep.plot.number == n:
                 return ep
-        raise KeyError(f"{n}화 플롯이 없습니다")
+        raise KeyError(f"{n}화 플롯이 없어요")
 
     @property
     def serial(self) -> bool:
