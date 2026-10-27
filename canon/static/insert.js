@@ -137,7 +137,14 @@ Object.assign(actions, {
   async insRemove(n) {
     n = Number(n);
     const e = ep(n);
-    if (!confirm(`${n}화 '${(e && e.plot.title) || '제목 없음'}' 플롯을 빼고 뒤 화를 한 칸씩 당길까요? 뺀 화의 플롯은 되돌릴 수 없어요.`)) return;
+    // 넣기 양식처럼 옮겨지는 범위를 보여 준다 (pipeline.remove_episode 가 돌려주는 안내와 같은 범위)
+    const moved = P().episodes.map((x) => x.plot.number).filter((k) => k > n);
+    const lines = [`${n}화 '${(e && e.plot.title) || '제목 없음'}' 플롯을 뺄까요?`];
+    if (e && e.status === 'confirmed') lines.push('이 화는 확정한 화예요. 확정한 플롯도 함께 사라져요.');
+    lines.push(moved.length ? `뒤 화가 한 칸씩 당겨져 ${moved[0]}~${moved[moved.length - 1]}화가 ${moved[0] - 1}~${moved[moved.length - 1] - 1}화가 돼요. 구간 · 아크 범위와 복선 · 인과율 요소 · 이야기 줄기의 화 번호도 함께 옮겨요.`
+      : '마지막 화라 당겨지는 화는 없어요.');
+    lines.push('뺀 화의 플롯은 되돌릴 수 없어요.');
+    if (!confirm(lines.join('\n'))) return;
     await run('화를 빼는 중', async () => {
       await saveIfDirty();
       const r = await api('DELETE', `/projects/${enc(S.name)}/episodes/${n}`);

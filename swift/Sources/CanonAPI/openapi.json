@@ -2981,6 +2981,57 @@
     }
    }
   },
+  "/api/projects/{name}/chat/plot/{i}/undo": {
+   "post": {
+    "summary": "Plot Chat Undo",
+    "description": "적용한 플롯 변경안을 취소한다. 그 뒤에 다시 고쳤거나 확정한 화, 본문을 쓴 화와 그 때문에 줄일 수 없는 구조는 그대로 두고\n까닭(reasons, kept 와 같은 순서)을 알려 준다. 변경안은 다시 고를 수 있게 열린다.",
+    "operationId": "plot_chat_undo",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "i",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "I"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Plot Chat Undo"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/elements/links": {
    "get": {
     "summary": "Element Links",
@@ -4139,6 +4190,55 @@
       }
      }
     },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/episodes/{n}/opening-plot/undo": {
+   "post": {
+    "summary": "Opening Plot Undo",
+    "description": "n화 플롯을 여는 방식 안을 처음 고르기 전으로 되돌린다 (Episode.opening_prev). 화는 초안이 된다.",
+    "operationId": "opening_plot_undo",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "description": "Successful Response",
@@ -9634,6 +9734,14 @@
       "$ref": "#/components/schemas/SetupBefore",
       "description": "설정 대화: 변경안을 적용하기 전 설정 (적용 취소용)"
      },
+     "plot_before": {
+      "$ref": "#/components/schemas/PlotUndo",
+      "description": "플롯 대화: 변경안을 적용하기 전 값 (적용 취소용)"
+     },
+     "plot_after": {
+      "$ref": "#/components/schemas/PlotUndo",
+      "description": "플롯 대화: 변경안을 적용한 직후 값. 그 뒤에 다시 고친 부분은 취소할 때 남긴다"
+     },
      "episode": {
       "type": "integer",
       "title": "Episode",
@@ -10760,6 +10868,10 @@
       "title": "Realign",
       "description": "앞 화 플롯을 뒤 화에 맞추지 않고 다시 짜면서 이 화와 어긋나게 된 점. 이 화 플롯을 다시 짜거나 작가가 확인하면 비운다",
       "default": ""
+     },
+     "opening_prev": {
+      "$ref": "#/components/schemas/EpisodePlot",
+      "description": "1~3화 여는 방식 안을 처음 고르기 전 플롯 (되돌리기용). 되돌리면 비운다"
      }
     },
     "type": "object",
@@ -11271,6 +11383,24 @@
     ],
     "title": "ForeshadowClue",
     "description": "복선이 본문에 걸린 자리. 본문은 바꾸지 않고 근거 문장만 기억한다 (canon/foreshadows.py)."
+   },
+   "ForeshadowDue": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "due_ep": {
+      "type": "integer",
+      "title": "Due Ep"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id"
+    ],
+    "title": "ForeshadowDue",
+    "description": "복선 하나의 회수 예정 화 (플롯 대화 적용 취소용)."
    },
    "ForeshadowEdit": {
     "properties": {
@@ -13165,6 +13295,52 @@
     ],
     "title": "PlotRevision",
     "description": "플롯 대화에서 AI 가 내는 답과 변경안. 사용자가 고른 부분만 반영한다 (pipeline.apply_revision)."
+   },
+   "PlotUndo": {
+    "properties": {
+     "target_episodes": {
+      "type": "integer",
+      "title": "Target Episodes",
+      "default": 0
+     },
+     "acts": {
+      "items": {
+       "$ref": "#/components/schemas/Act"
+      },
+      "type": "array",
+      "title": "Acts",
+      "description": "단편 기승전결 구조"
+     },
+     "arc": {
+      "$ref": "#/components/schemas/StoryArc",
+      "description": "장편: 변경안이 겨냥한 아크"
+     },
+     "parts": {
+      "items": {
+       "$ref": "#/components/schemas/Part"
+      },
+      "type": "array",
+      "title": "Parts"
+     },
+     "foreshadows": {
+      "items": {
+       "$ref": "#/components/schemas/ForeshadowDue"
+      },
+      "type": "array",
+      "title": "Foreshadows",
+      "description": "아직 회수하지 않은 복선의 회수 예정 화"
+     },
+     "episodes": {
+      "items": {
+       "$ref": "#/components/schemas/Episode"
+      },
+      "type": "array",
+      "title": "Episodes"
+     }
+    },
+    "type": "object",
+    "title": "PlotUndo",
+    "description": "플롯 대화 변경안을 적용하기 전이나 뒤의 값 (적용 취소용, AI 가 채우지 않는다).\nepisodes 는 적용 전이면 바뀌거나 빠진 화, 적용 뒤면 바뀐 화다. 적용 전에 없던 화(새 화)는 적용 전 쪽에 없다."
    },
    "Policy": {
     "properties": {

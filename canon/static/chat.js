@@ -1,5 +1,6 @@
 /* 대화로 다듬기 패널. app.js 의 S, actions, api, render 를 그대로 쓴다.
    작가가 말하면 AI가 답과 변경안을 내고, 변경안은 바뀌는 칸만 보여 준다. 작가가 고른 부분만 반영한다.
+   플롯 대화는 적용한 변경안을 취소할 수 있다 (pipeline.undo_plot_chat: 그 뒤에 다시 고친 화와 본문을 쓴 화는 남긴다).
    기승전결 · 플롯 화면(topic 'plot'), 집필 화면의 본문 부분 수정(topic 'text:<화>', passage.js), 문체 화면(topic 'style', stylechat.js),
    설정 도우미(topic 'setup', setupchat.js)에 붙어 있다.
    다른 화면에 붙일 때는 CHAT_TOPICS 에 항목을 더하고 서버 web.py 의 _chat 과 변경안 반영 함수를 함께 늘린다.
@@ -308,7 +309,9 @@ function proposal(m, i) {
     : m.outcome === 'dismissed' ? '<span class="chip">버림</span>' : '';
   if (!open) {
     const again = m.outcome === 'dismissed' ? `<button type="button" class="btn small" data-action="chatReopen" data-arg="${i}">다시 검토</button>`
-      : base.next && m.applied.includes('arc') && !S.arcDraft && !nextStale(m) ? `<button type="button" class="btn small" data-action="chatRestoreDraft" data-arg="${i}">다음 아크 초안에 다시 넣기</button>` : '';
+      : [base.next && m.applied.includes('arc') && !S.arcDraft && !nextStale(m) ? `<button type="button" class="btn small" data-action="chatRestoreDraft" data-arg="${i}">다음 아크 초안에 다시 넣기</button>` : '',
+        // 적용 전 값이 남은 변경안만 취소할 수 있다 (다음 아크 초안에만 넣은 것은 작품이 바뀌지 않았다)
+        m.plot_before ? `<button type="button" class="btn small" data-action="chatUndo" data-arg="${i}">적용 취소</button>` : ''].join('');
     return `<details class="proposal done"${again && !S.arcDraft && base.next ? ' open' : ''}><summary>${done} 변경안 다시 보기</summary>${parts.join('')}${again ? `<div class="row proposal-actions">${again}</div>` : ''}</details>`;
   }
   // 맨 위 요약: 무엇이 바뀌는지 한 줄로 보고, 여러 화를 한 번에 고르거나 뺀다. 버튼 줄은 아래에 붙어 있다 (.proposal-actions)
@@ -456,6 +459,20 @@ Object.assign(actions, {
       }
       const done = chatMessages(S.chatTopic)[i];
       toast(`적용했어요: ${(done ? done.applied : []).map((x) => chatAppliedLabel(m, x)).join(', ')}${draft ? '. 초안을 살펴보고 \'이 아크 적용\'을 누르세요' : ''}`);
+    });
+  },
+  async chatUndo(i) {
+    i = Number(i);
+    const m = chatMessages(S.chatTopic)[i];
+    if (!confirm(`이 변경안 적용을 취소할까요? 적용한 구조와 화 플롯을 적용하기 전으로 돌리고, 확정했던 화는 확정으로 돌아가요. 그 뒤에 다시 고치거나 확정한 화, 본문을 쓴 화는 그대로 둬요.${S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : ''}`)) return;
+    await run('적용을 취소하는 중', async () => {
+      await saveIfDirty();
+      const res = await api('POST', `/projects/${enc(S.name)}/chat/plot/${i}/undo`);
+      S.project = res.project;
+      const label = (x) => chatAppliedLabel(m, x);
+      const kept = res.kept.map((x, k) => `${label(x)}(${res.reasons[k]})`).join(', ');
+      toast(res.restored.length ? `되돌렸어요: ${res.restored.map(label).join(', ')}${kept ? ` · 그대로 둔 것: ${kept}` : ''}`
+        : `되돌린 것이 없어요. 그대로 둔 것: ${kept}`, !res.restored.length);
     });
   },
   chatRestoreDraft(i) {

@@ -759,6 +759,23 @@ class Selection(BaseModel):
 ChatTopic = str
 
 
+class ForeshadowDue(BaseModel):
+    """복선 하나의 회수 예정 화 (플롯 대화 적용 취소용)."""
+    id: str
+    due_ep: Optional[int] = None
+
+
+class PlotUndo(BaseModel):
+    """플롯 대화 변경안을 적용하기 전이나 뒤의 값 (적용 취소용, AI 가 채우지 않는다).
+    episodes 는 적용 전이면 바뀌거나 빠진 화, 적용 뒤면 바뀐 화다. 적용 전에 없던 화(새 화)는 적용 전 쪽에 없다."""
+    target_episodes: int = 0
+    acts: list[Act] = Field(default_factory=list, description="단편 기승전결 구조")
+    arc: Optional[StoryArc] = Field(None, description="장편: 변경안이 겨냥한 아크")
+    parts: list[Part] = Field(default_factory=list)
+    foreshadows: list[ForeshadowDue] = Field(default_factory=list, description="아직 회수하지 않은 복선의 회수 예정 화")
+    episodes: list["Episode"] = Field(default_factory=list)
+
+
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
     text: str
@@ -768,6 +785,8 @@ class ChatMessage(BaseModel):
     style_before: Optional[StyleProfile] = Field(None, description="문체 대화: 변경안을 적용하기 전 작품 문체 (적용 취소용)")
     setup: Optional[SetupRevision] = Field(None, description="assistant 가 낸 설정 변경안이나 방향 여러 안")
     setup_before: Optional[SetupBefore] = Field(None, description="설정 대화: 변경안을 적용하기 전 설정 (적용 취소용)")
+    plot_before: Optional[PlotUndo] = Field(None, description="플롯 대화: 변경안을 적용하기 전 값 (적용 취소용)")
+    plot_after: Optional[PlotUndo] = Field(None, description="플롯 대화: 변경안을 적용한 직후 값. 그 뒤에 다시 고친 부분은 취소할 때 남긴다")
     episode: int = Field(0, description="문체 대화: 작가가 참고하라고 고른 화")
     selection: Optional[Selection] = Field(None, description="본문 부분 수정: 고친 대상")
     preset: str = Field("", description="본문 부분 수정: 고른 빠른 요청 (prompts.PASSAGE_PRESETS)")
@@ -913,6 +932,7 @@ class Episode(BaseModel):
     final_text: str = Field("", description="상태 반영이 끝난 뒤 본문을 처음 고치기 직전의 본문. 지금 본문과 다르면 반영된 요약 · 상태가 고치기 전 본문 기준이다. 다시 맞추거나 그대로 두기로 하면 비운다")
     time: "StoryTime" = Field(default_factory=lambda: StoryTime(), description="이 화가 끝난 작품 속 시점. 상태 반영 때 채운다")
     realign: str = Field("", description="앞 화 플롯을 뒤 화에 맞추지 않고 다시 짜면서 이 화와 어긋나게 된 점. 이 화 플롯을 다시 짜거나 작가가 확인하면 비운다")
+    opening_prev: Optional[EpisodePlot] = Field(None, description="1~3화 여는 방식 안을 처음 고르기 전 플롯 (되돌리기용). 되돌리면 비운다")
 
 
 # ---------- 회차 진행 상태 ----------
@@ -1365,4 +1385,6 @@ Snapshot.model_rebuild()
 SerialRebuild.model_rebuild()
 ShortArchive.model_rebuild()
 Episode.model_rebuild()
+PlotUndo.model_rebuild()
+ChatMessage.model_rebuild()
 StyleEntry.model_rebuild()

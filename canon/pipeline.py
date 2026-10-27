@@ -23,6 +23,7 @@ from .schema import (
     Episode,
     EpisodeDraft,
     EpisodePlot,
+    ForeshadowDue,
     HookReport,
     IllustDraft,
     Illustration,
@@ -37,6 +38,7 @@ from .schema import (
     PassageRevision,
     PlotBatch,
     PlotRevision,
+    PlotUndo,
     Project,
     RebuildEpisode,
     Recap,
@@ -1785,6 +1787,179 @@ def apply_revision(p: Project, rev: PlotRevision, acts: bool, episodes: list[int
     return applied
 
 
+
+def _plot_message(p: Project, i: int, topic: str = "plot") -> ChatMessage:
+    msgs = p.chat(topic).messages
+    if not 0 <= i < len(msgs) or msgs[i].revision is None:
+        raise KeyError("변경안이 있는 메시지가 아니에요")
+    return msgs[i]
+
+
+def _plot_undo_state(p: Project, target: str) -> PlotUndo:
+    """플롯 대화 적용 취소에 쓸 지금 값. 화는 호출자가 채운다."""
+    _, focus = chat_target(p, target)
+    return PlotUndo(target_episodes=p.meta.target_episodes, acts=[a.model_copy(deep=True) for a in p.arc],
+                    arc=focus.model_copy(deep=True) if focus else None, parts=[x.model_copy(deep=True) for x in p.parts],
+                    foreshadows=[ForeshadowDue(id=f.id, due_ep=f.due_ep) for f in p.foreshadows if f.status == "open"])
+
+
+def apply_plot_chat(p: Project, i: int, acts: bool, episodes: list[int], *, arc: bool = False, parts: bool = False,
+                    draft: list[str] | None = None, topic: str = "plot") -> list[str]:
+    """i 번째 플롯 대화 변경안에서 고른 부분만 반영한다 (apply_revision). 적용 전 값과 적용 직후 값을 메시지에 남겨
+    적용 취소(undo_plot_chat)에 쓴다. draft 는 다음 아크 변경안에서 화면의 초안에 넣은 부분('arc')으로, 작품은 바꾸지 않고 기록만 한다.
+    적용한 부분 이름을 돌려준다."""
+    m = _plot_message(p, i, topic)
+    if m.outcome:
+        raise ValueError("이미 처리한 변경안이에요")
+    drafted = [x for x in draft or [] if x == "arc"] if m.target == "next" and m.revision.arc.title else []
+    if not (acts or episodes or arc or parts or drafted):
+        raise ValueError("적용할 부분을 고르세요")
+    target, _ = chat_target(p, m.target)  # 대상이 없던 옛 변경안도 적용 전과 뒤를 같은 아크로 잰다
+    old = {e.plot.number: e.model_copy(deep=True) for e in p.episodes}
+    before = _plot_undo_state(p, target)
+    done = apply_revision(p, m.revision, acts, episodes, arc=arc, parts=parts, target=target)
+    after = _plot_undo_state(p, target)
+    now = {e.plot.number for e in p.episodes}
+    touched = {int(x) for x in done if x.isdigit()}
+    before.episodes = [old[n] for n in sorted(old) if n in touched or n not in now]  # 바꾼 화와 줄이며 뺀 화
+    after.episodes = [e.model_copy(deep=True) for e in p.episodes if e.plot.number in touched]
+    m.applied, m.outcome = drafted + done, "applied"
+    m.plot_before, m.plot_after = (before, after) if done else (None, None)
+    return m.applied
+
+
+def _same_plot(a: EpisodePlot, b: EpisodePlot) -> bool:
+    """구간 이름(act)은 구조를 따라 바뀌므로 빼고 비교한다."""
+    return a.model_dump(exclude={"act"}) == b.model_dump(exclude={"act"})
+
+
+def _arc_same(a: StoryArc, ref: StoryArc, part: str) -> bool:
+    if part == "acts":
+        return a.acts == ref.acts
+    return a.end_ep == ref.end_ep and all(getattr(a, k) == getattr(ref, k) for k in ARC_EDIT_FIELDS)
+
+
+def undo_plot_chat(p: Project, i: int, topic: str = "plot") -> tuple[list[str], list[str], list[str]]:
+    """적용한 플롯 변경안을 취소한다. 적용한 부분마다 지금 값이 적용 직후 값과 같을 때만 적용 전으로 돌린다.
+    그 뒤에 작가가 다시 고쳤거나 다시 확정한 화, 본문을 쓴 화, 남은 화가 있어 줄일 수 없는 구조는 그대로 둔다.
+    (되돌린 부분, 그대로 둔 부분, 그대로 둔 까닭) 을 돌려준다. 변경안은 다시 고를 수 있게 연다."""
+    m = _plot_message(p, i, topic)
+    before, after = m.plot_before, m.plot_after
+    if m.outcome != "applied" or before is None or after is None:
+        raise ValueError("적용을 취소할 수 있는 변경안이 아니에요")
+    old = {e.plot.number: e for e in before.episodes}
+    new = {e.plot.number: e for e in after.episodes}
+    by_no = {e.plot.number: e for e in p.episodes}
+    done: list[str] = []
+    kept: list[str] = []
+    why: list[str] = []
+
+    def keep(part: str, reason: str) -> None:
+        kept.append(part)
+        why.append(reason)
+
+    def bring_back_cut() -> None:  # 구조를 줄이며 뺀 화를 다시 넣는다 (그 자리에 다른 화가 생겼으면 그대로)
+        for n, e in old.items():
+            if n not in new and n not in by_no:
+                by_no[n] = e.model_copy(deep=True)
+
+    for x in [x for x in m.applied if x.isdigit()]:
+        n = int(x)
+        cur, aft = by_no.get(n), new.get(n)
+        if cur is None:
+            if n in old:
+                keep(x, "그 뒤에 빠짐")
+            else:
+                done.append(x)  # 더했던 새 화가 이미 없다
+        elif cur.status in LOCKED:
+            keep(x, "본문을 씀")
+        elif cur.status != "draft":
+            keep(x, "적용 뒤 다시 확정함")
+        elif aft is None or not _same_plot(cur.plot, aft.plot):
+            keep(x, "적용 뒤 다시 고침")
+        else:
+            if n in old:
+                by_no[n] = old[n].model_copy(deep=True)
+            else:
+                del by_no[n]
+            done.append(x)
+
+    struct = [x for x in ("arc", "acts") if x in m.applied]
+    if before.arc is not None and after.arc is not None and struct:
+        a = next((x for x in p.story_arcs if x.number == before.arc.number), None)
+        linked = after.arc.end_ep != before.arc.end_ep  # 끝 화가 바뀌면 칸과 구간을 함께 돌린다
+        for group in [struct] if linked else [[x] for x in struct]:
+            if a is None:
+                for x in group:
+                    keep(x, f"아크 {before.arc.number}이(가) 없어짐")
+                continue
+            if not all(_arc_same(a, after.arc, x) for x in group):
+                for x in group:
+                    keep(x, "적용 뒤 다시 고침")
+                continue
+            left = sorted(n for n in by_no if before.arc.end_ep < n <= after.arc.end_ep) if linked else []
+            if left:
+                for x in group:
+                    keep(x, f"늘린 범위에 남은 화가 있음 ({left[0]}~{left[-1]}화)")
+                continue
+            keep_arc = a.model_copy(deep=True)
+            if "arc" in group:
+                for k in ARC_EDIT_FIELDS:
+                    v = getattr(before.arc, k)
+                    setattr(a, k, list(v) if isinstance(v, list) else v)
+                a.end_ep = before.arc.end_ep
+            if "acts" in group:
+                a.acts = [x.model_copy(deep=True) for x in before.arc.acts]
+            try:
+                validate_story_arcs(p)
+            except ValueError as e:
+                for k, v in keep_arc:
+                    setattr(a, k, v)
+                for x in group:
+                    keep(x, f"지금 아크 범위와 맞지 않음: {e}")
+                continue
+            if "arc" in group:
+                due = {d.id: d.due_ep for d in after.foreshadows}
+                for d in before.foreshadows:
+                    f = next((y for y in p.foreshadows if y.id == d.id), None)
+                    if f and d.id in due and due[d.id] != d.due_ep and f.due_ep == due[d.id]:
+                        f.due_ep = d.due_ep
+            if linked:
+                bring_back_cut()
+            done += group
+    elif "acts" in m.applied and before.arc is None:
+        if p.arc != after.acts or p.meta.target_episodes != after.target_episodes:
+            keep("acts", "적용 뒤 다시 고침")
+        elif left := sorted(n for n in by_no if n > before.target_episodes):
+            keep("acts", f"총 {before.target_episodes}화 밖에 남은 화가 있음 ({left[0]}~{left[-1]}화)")
+        else:
+            p.arc = [x.model_copy(deep=True) for x in before.acts]
+            p.meta.target_episodes = before.target_episodes
+            bring_back_cut()
+            done.append("acts")
+
+    if "parts" in m.applied:
+        if p.parts != after.parts:
+            keep("parts", "적용 뒤 다시 고침")
+        else:
+            cur_parts = p.parts
+            p.parts = [x.model_copy(deep=True) for x in before.parts]
+            try:
+                validate_story_arcs(p)
+                done.append("parts")
+            except ValueError as e:
+                p.parts = cur_parts
+                keep("parts", f"지금 아크 범위와 맞지 않음: {e}")
+
+    p.episodes = [by_no[k] for k in sorted(by_no)]
+    for e in p.episodes:
+        act = p.act_for(e.plot.number)
+        if act and e.status not in LOCKED:
+            e.plot.act = act.name
+    sync_candidates(p)
+    m.outcome, m.applied, m.plot_before, m.plot_after = "", [], None, None
+    return done, kept, why
+
 # ---------- 3-2. 이야기 줄기: 메인에서 갈라지는 서브플롯 · 회상 · 외전 ----------
 
 def suggest_storyline(llm: LLM, p: Project, note: str = "", kind: str = "") -> StorylineProposal:
@@ -2903,9 +3078,27 @@ def apply_opening(p: Project, n: int, plot: EpisodePlot) -> None:
         plot.pov_mode = cur.plot.pov_mode or plot.pov_mode
         plot.foreshadow_payoff = cur.plot.foreshadow_payoff or plot.foreshadow_payoff
         plot.characters = list(dict.fromkeys(cur.plot.characters + plot.characters))
-    by_no[n] = Episode(plot=plot)
+    # 처음 고르기 전 플롯을 남겨 새로고침 뒤에도 되돌릴 수 있게 한다. 다른 안으로 다시 바꿔도 처음 것을 지킨다
+    prev = (cur.opening_prev or cur.plot).model_copy(deep=True) if cur else None
+    by_no[n] = Episode(plot=plot, opening_prev=prev)
     storylines.clean_plot(p, by_no[n])
     p.episodes = [by_no[k] for k in sorted(by_no)]
+    sync_candidates(p)
+
+
+def undo_opening(p: Project, n: int) -> None:
+    """n화 플롯을 여는 방식 안을 처음 고르기 전으로 되돌린다. 화는 초안이 된다 (확정했던 화는 다시 확정한다)."""
+    e = p.episode(n)
+    if e.opening_prev is None:
+        raise ValueError(f"{n}화는 여는 방식 안을 고르기 전 플롯이 남아 있지 않아요")
+    if e.status in LOCKED:
+        raise ValueError(f"{n}화는 본문이 있어 플롯을 바꿀 수 없어요")
+    plot = e.opening_prev.model_copy(deep=True)
+    act = p.act_for(n)
+    if act:
+        plot.act = act.name
+    p.episodes = [Episode(plot=plot) if x.plot.number == n else x for x in p.episodes]
+    storylines.clean_plot(p, p.episode(n))
     sync_candidates(p)
 
 
