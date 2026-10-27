@@ -1870,6 +1870,26 @@ def validate_relationships(p: Project) -> None:
         seen[k] = i
 
 
+def validate_characters(p: Project, before: Project | None = None) -> None:
+    """인물 id 는 관계 · 상태 · 플롯이 인물을 찾는 열쇠라 비거나 겹치면 안 된다 (화면 저장용).
+    관계가 없는 인물을 가리키게 되는 저장도 받지 않는다. id 를 바꾸면 그렇게 된다.
+    before(디스크 것)에서 이미 끊겨 있던 관계는 옛 데이터라 막지 않는다."""
+    seen: set[str] = set()
+    for i, c in enumerate(p.characters, 1):
+        if not c.id.strip():
+            raise ValueError(f"{i}번째 인물({c.name or '이름 없음'})의 id가 비었어요")
+        if c.id in seen:
+            raise ValueError(f"인물 id '{c.id}'가 두 인물에 겹쳐요. 한 인물에 하나씩 둬요")
+        seen.add(c.id)
+    known_before = {c.id for c in before.characters} if before else set()
+    old = {(r.a, r.b) for r in before.relationships if r.a not in known_before or r.b not in known_before} if before else set()
+    for r in p.relationships:
+        missing = [x for x in (r.a, r.b) if x not in seen]
+        if missing and (r.a, r.b) not in old:
+            raise ValueError(f"관계 {r.a} ↔ {r.b}가 없는 인물({', '.join(missing)})을 가리켜요. "
+                             "인물 id를 바꾸면 관계와 상태가 끊겨요. id를 되돌리거나 그 관계를 지우세요")
+
+
 def remove_storyline(p: Project, sid: str) -> None:
     """줄기를 지우고 붙은 화를 메인으로 되돌린다. 본문은 그대로다."""
     storylines.get(p, sid)
