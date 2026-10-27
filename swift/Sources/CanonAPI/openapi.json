@@ -5924,6 +5924,58 @@
     }
    }
   },
+  "/api/projects/{name}/atlas/generate/suggest": {
+   "post": {
+    "summary": "Atlas Generate Suggest",
+    "description": "지도 만들기 설정 AI 제안 (크기 · 길 · 물 · 밭 · 숲, 장소마다 종류 · 놓기, 까닭). 저장하지 않는다.",
+    "operationId": "atlas_generate_suggest",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MapSpec"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Atlas Generate Suggest"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/atlas/generate": {
    "post": {
     "summary": "Atlas Generate",
@@ -5957,6 +6009,150 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/atlas/title": {
+   "put": {
+    "summary": "Atlas Title",
+    "description": "지도 위 마을 이름. 비우면 '마을 가운데' 종류의 장소 이름을 쓴다.",
+    "operationId": "atlas_title",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TitleIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/atlas/name-ideas": {
+   "get": {
+    "summary": "Atlas Name Ideas",
+    "description": "새 장소 이름 후보 (작품 이름 스타일). 저장하지 않는다.",
+    "operationId": "atlas_name_ideas",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Atlas Name Ideas"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/atlas/places": {
+   "post": {
+    "summary": "Atlas Place Add",
+    "description": "지도에서 고른 자리를 새 장소(인과율 '장소')로 등록하고 놓는다. 돌려주는 것: {key, project}.",
+    "operationId": "atlas_place_add",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PlaceAddIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Atlas Place Add"
         }
        }
       }
@@ -8361,6 +8557,12 @@
      "spec": {
       "$ref": "#/components/schemas/MapSpec",
       "description": "지도 만들기로 만든 마을이면 그 입력. 파일을 올렸거나 지도가 없으면 비움"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title",
+      "description": "지도 위에 적는 마을 이름. 비면 '마을 가운데' 종류의 장소 이름",
+      "default": ""
      }
     },
     "type": "object",
@@ -13203,6 +13405,34 @@
     ],
     "title": "PinsIn"
    },
+   "PlaceAddIn": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "x": {
+      "type": "number",
+      "title": "X"
+     },
+     "y": {
+      "type": "number",
+      "title": "Y"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "name",
+     "x",
+     "y"
+    ],
+    "title": "PlaceAddIn"
+   },
    "PlaceLink": {
     "properties": {
      "text": {
@@ -17660,6 +17890,19 @@
     ],
     "title": "TimelineView",
     "description": "작품 속 시간 화면 계산값 (timeline.view)."
+   },
+   "TitleIn": {
+    "properties": {
+     "title": {
+      "type": "string",
+      "title": "Title"
+     }
+    },
+    "type": "object",
+    "required": [
+     "title"
+    ],
+    "title": "TitleIn"
    },
    "ToneDials": {
     "properties": {

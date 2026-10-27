@@ -453,6 +453,27 @@ class PlaceSort(BaseModel):
     new_places: list[NewPlace] = Field(default_factory=list, description="여러 위치 글이 가리키는데 장소 목록에 없는 곳만. 방 하나, 길 위 같은 곳은 넣지 않는다")
 
 
+class MapPlaceGuess(BaseModel):
+    """지도 만들기 제안의 장소 하나."""
+    name: str = Field(description="[장소 목록]의 이름 그대로")
+    kind: str = Field(description="[종류]의 id 하나")
+    put: bool = Field(True, description="이 마을 지도 안에 놓을 곳이면 true. 다른 도시, 먼 산, 나라처럼 이 마을 밖이면 false")
+    note: str = Field("", description="애매할 때만 한 줄: 왜 그렇게 봤는지")
+
+
+class MapSuggestion(BaseModel):
+    """지도 만들기 설정 제안 (pipeline.suggest_map). 저장하지 않고 작가가 지도 화면 칸에 채워 본다. 좌표는 생성기가 정한다."""
+    kind: Literal["village", "city"] = Field("village", description="지도 종류: village 마을 / city 성벽이 있는 도시")
+    size: Literal["small", "medium", "large"] = Field(description="크기. 마을: small 집 25~30채 / medium 60~70채 / large 100~140채. "
+                                                      "도시: small 500~750채 / medium 1,000~1,300채 / large 2,000~2,500채")
+    roads: Literal["line", "cross", "square"] = Field(description="길 모양 (마을만): line 한길을 따라 / cross 교차로 / square 가운데 광장")
+    water: Literal["none", "river", "lake", "sea"] = Field(description="물: none 없음 / river 강 / lake 호수(마을만) / sea 바다")
+    fields: Literal["few", "some", "many"] = Field(description="밭 양")
+    forest: Literal["few", "some", "many"] = Field(description="숲 양")
+    places: list[MapPlaceGuess] = Field(default_factory=list, description="[장소 목록]의 장소마다 하나")
+    reason: str = Field("", description="왜 이 설정인지 한두 문장. 작품 설정 · 장소 설명에서 근거를 든다")
+
+
 class PlotBatch(BaseModel):
     episodes: list[EpisodePlot]
     new_characters: list[Character] = Field(default_factory=list, description=NEW_CAST_DESC)
@@ -1278,6 +1299,7 @@ class Atlas(BaseModel):
     layout: str = Field("", description="마을 · 도시 데이터 파일 이름 (projects/<작품>/map/ 아래, atlas.read_layout 으로 바꾼 길 · 건물). 비면 없음")
     meters: float = Field(1.0, description="마을 데이터 1단위가 몇 m 인지 (거리 · 걷는 시간 계산)")
     spec: Optional[MapSpec] = Field(None, description="지도 만들기로 만든 마을이면 그 입력. 파일을 올렸거나 지도가 없으면 비움")
+    title: str = Field("", description="지도 위에 적는 마을 이름. 비면 '마을 가운데' 종류의 장소 이름")
 
 
 class Project(BaseModel):

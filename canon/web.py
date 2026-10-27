@@ -2497,6 +2497,12 @@ def atlas_generate_preview(name: str, body: MapSpec) -> dict:
     return atlas.generate(_load(name), body)
 
 
+@app.post("/api/projects/{name}/atlas/generate/suggest")
+def atlas_generate_suggest(name: str, body: MapSpec) -> dict:
+    """지도 만들기 설정 AI 제안 (크기 · 길 · 물 · 밭 · 숲, 장소마다 종류 · 놓기, 까닭). 저장하지 않는다."""
+    return pipeline.suggest_map(get_llm("plan"), _load(name), body)
+
+
 class GenerateIn(BaseModel):
     spec: MapSpec
     pins: list[str] = []  # 생성기가 고른 자리에 놓을 (이미 놓았으면 옮길) 장소 키
@@ -2511,6 +2517,39 @@ def atlas_generate(name: str, body: GenerateIn) -> Project:
     if old and (_map_dir(name) / old).is_file():
         (_map_dir(name) / old).unlink()
     return out
+
+
+class TitleIn(BaseModel):
+    title: str
+
+
+@app.put("/api/projects/{name}/atlas/title")
+def atlas_title(name: str, body: TitleIn) -> Project:
+    """지도 위 마을 이름. 비우면 '마을 가운데' 종류의 장소 이름을 쓴다."""
+    p = _load(name)
+    atlas.set_title(p, body.title)
+    return _save(name, p)
+
+
+@app.get("/api/projects/{name}/atlas/name-ideas")
+def atlas_name_ideas(name: str) -> dict:
+    """새 장소 이름 후보 (작품 이름 스타일). 저장하지 않는다."""
+    return {"names": atlas.name_ideas(_load(name))}
+
+
+class PlaceAddIn(BaseModel):
+    name: str
+    x: float
+    y: float
+    kind: str = ""  # 종류 한 단어 (설명 앞에 붙는다)
+
+
+@app.post("/api/projects/{name}/atlas/places")
+def atlas_place_add(name: str, body: PlaceAddIn) -> dict:
+    """지도에서 고른 자리를 새 장소(인과율 '장소')로 등록하고 놓는다. 돌려주는 것: {key, project}."""
+    p = _load(name)
+    key = atlas.add_place(p, body.name, body.x, body.y, body.kind)
+    return {"key": key, "project": _save(name, p)}
 
 
 class PinsIn(BaseModel):
