@@ -3,7 +3,8 @@
    장치를 쓴 화 세기는 metrics.device_hits / device_used / device_last 와 같은 규칙이라 함께 고친다
    (알아보는 글자 앞뒤 공백과 ~-… 를 떼고, 한 화에 합쳐 DEVICE_HITS 번 이상 나오면 쓴 화). 쉬는 화 판정은 prompts.device_block 과 같다.
    고치는 본문은 투명한 본문 칸 뒤에 같은 모양의 칸을 깔아 밑줄을 그린다. 밑줄을 누르면 그 문장으로 부분 수정 도구가 떠서,
-   고친 것이 수정 기록에 남고 '내 수정에서 배우기' 에 쓰인다. */
+   고친 것이 수정 기록에 남고 '내 수정에서 배우기' 에 쓰인다.
+   본문 속 인물 · 장소 이름 밑줄(mentions.js 의 mentionsFor)도 같은 칸에 함께 그린다. 문체 밑줄은 쪼개지 않고, 걸치는 이름 밑줄을 쪼갠다. */
 'use strict';
 
 Object.assign(S, {
@@ -59,19 +60,41 @@ function markRanges(n, text) {
   return out.filter((r) => (r.a >= end ? ((end = r.b), true) : false));
 }
 
-function markHtml(text, ranges) {
+/** 문체 밑줄(ranges)과 이름 밑줄(names, 글 순서 · 겹치지 않음)을 함께 그린다. 문체 밑줄 하나는 늘 mark 하나다 (markNext 가 순서로 찾는다).
+    live 면 이름을 누르고 키보드로 고를 수 있게 한다 (읽기 전용 본문). */
+function markHtml(text, ranges, names = [], live = false) {
+  let j = 0;
+  const piece = (a, b) => {  // a~b 글자, 그 안의 이름은 span 으로
+    let out = '';
+    let at = a;
+    while (j < names.length && names[j].b <= a) j++;
+    for (let k = j; k < names.length && names[k].a < b; k++) {
+      const m = names[k];
+      const s = Math.max(m.a, a);
+      const t = Math.min(m.b, b);
+      const attrs = live ? ` data-mention-at="${m.a}" tabindex="0" role="button" aria-haspopup="dialog"` : '';
+      out += `${esc(text.slice(at, s))}<span class="mn ${m.kind}" data-mention="${esc(m.id)}"${attrs}>${esc(text.slice(s, t))}</span>`;
+      at = t;
+    }
+    return out + esc(text.slice(at, b));
+  };
   let html = '';
   let at = 0;
   ranges.forEach((r) => {
-    html += `${esc(text.slice(at, r.a))}<mark class="hl ${r.kind}" data-hl="${r.key}" title="${esc(r.title)}">${esc(text.slice(r.a, r.b))}</mark>`;
+    html += `${piece(at, r.a)}<mark class="hl ${r.kind}" data-hl="${r.key}" title="${esc(r.title)}">${piece(r.a, r.b)}</mark>`;
     at = r.b;
   });
-  return html + esc(text.slice(at));
+  return html + piece(at, text.length);
 }
+
+/** 이름 밑줄 (mentions.js). 꺼 두었거나 mentions.js 가 없으면 []. */
+const nameRanges = (text, quick = false) => (typeof mentionsFor === 'function' ? mentionsFor(text, quick) : []);
+const nameable = () => typeof mentionLive === 'function' && mentionLive();
 
 /** 읽기 전용 본문 (상태 반영이 끝난 화). */
 function readHtml(n, text) {
-  return marksOn ? markHtml(text, markRanges(n, text)) : esc(text);
+  const names = nameRanges(text);
+  return marksOn || names.length ? markHtml(text, marksOn ? markRanges(n, text) : [], names, true) : esc(text);
 }
 
 /** 고치는 본문 칸. 밑줄을 켜면 뒤에 같은 모양의 칸을 깐다. */
@@ -80,14 +103,19 @@ function draftBox(n, text) {
   const e = typeof ep === 'function' ? ep(n) : null;
   const locked = typeof jobFor === 'function' && !!jobFor('write', n) && !(e && e.text);
   const ta = `<textarea aria-label="${n}화 본문" data-draft="${n}"${locked ? ' readonly aria-describedby="draft-lock"' : ''} placeholder="여기에 본문을 쓰세요">${esc(text)}</textarea>`;
-  return marksOn && markable() ? `<div class="hl-wrap"><div class="hl-layer" aria-hidden="true"></div>${ta}</div>` : ta;
+  return (marksOn && markable()) || nameable() ? `<div class="hl-wrap"><div class="hl-layer" aria-hidden="true"></div>${ta}</div>` : ta;
 }
 
 const markable = () => (P().style.devices || []).some((d) => (d.name || '').trim()) || bannedList().length > 0;
 
 // ----- 이번 화 배지 (집필 화면 왼쪽) -----
 
+/** 집필 화면 왼쪽: 문체 표시와 본문 속 이름 (mentions.js). */
 function deviceBadges(n) {
+  return styleBadges(n) + (typeof mentionBox === 'function' ? mentionBox(n) : '');
+}
+
+function styleBadges(n) {
   if (!markable()) return '';
   const text = textNow(n);
   const editable = editableEp(ep(n));
@@ -125,7 +153,8 @@ const LAYER_STYLE = ['boxSizing', 'fontFamily', 'fontSize', 'fontWeight', 'lineH
 
 let layerObs = null;
 
-function paintLayer() {
+/** quick 이면 (글자를 치는 중) 이름은 앞서 찾은 자리를 옮겨 쓴다. 잠시 멈추면 다시 찾는다 (아래 input). */
+function paintLayer(quick = false) {
   const ta = document.querySelector('.hl-wrap textarea[data-draft]');
   const layer = ta && ta.parentElement.querySelector('.hl-layer');
   if (!layer) return;
@@ -133,7 +162,8 @@ function paintLayer() {
   LAYER_STYLE.forEach((k) => { layer.style[k] = cs[k]; });
   layer.style.width = `${ta.clientWidth}px`;
   layer.style.height = `${ta.clientHeight}px`;
-  layer.innerHTML = `${markHtml(ta.value, markRanges(Number(ta.dataset.draft), ta.value))}\n`;
+  const ranges = marksOn && markable() ? markRanges(Number(ta.dataset.draft), ta.value) : [];
+  layer.innerHTML = `${markHtml(ta.value, ranges, nameRanges(ta.value, quick))}\n`;
   layer.scrollTop = ta.scrollTop;
 }
 
@@ -141,6 +171,7 @@ function paintLayer() {
 function syncMarks() {
   if (layerObs) layerObs.disconnect();
   const ta = document.querySelector('.hl-wrap textarea[data-draft]');
+  if (typeof mentionSync === 'function') mentionSync();
   if (!ta) return;
   paintLayer();
   if (window.ResizeObserver) {
@@ -149,15 +180,23 @@ function syncMarks() {
   }
 }
 
+// 글자를 칠 때마다 밑줄 칸은 다음 그리기에 맞추고 (이름은 옮겨 쓴다), 이름 다시 찾기와 왼쪽 배지는 치기를 멈춘 뒤에 한 번
+const MARK_IDLE = 150;
 let markFrame = 0;
+let markIdle = 0;
 document.addEventListener('input', (e) => {
   if (!(e.target.matches && e.target.matches('textarea[data-draft]'))) return;
+  const n = Number(e.target.dataset.draft);
   cancelAnimationFrame(markFrame);
-  markFrame = requestAnimationFrame(() => {
+  markFrame = requestAnimationFrame(() => paintLayer(true));
+  clearTimeout(markIdle);
+  markIdle = setTimeout(() => {
     paintLayer();
     const box = document.getElementById('style-marks');
-    if (box) box.outerHTML = deviceBadges(Number(e.target.dataset.draft));
-  });
+    if (box) box.outerHTML = styleBadges(n);
+    const names = document.getElementById('name-marks');
+    if (names && typeof mentionBox === 'function') names.outerHTML = mentionBox(n);
+  }, MARK_IDLE);
 });
 
 document.addEventListener('scroll', (e) => {
@@ -190,6 +229,8 @@ document.addEventListener('click', (e) => {
   setTimeout(() => {  // passage.js 가 고른 것 없는 클릭으로 도구를 닫은 뒤에
     if (ta.selectionStart !== ta.selectionEnd || (S.selTool && S.selTool.mode === 'edit')) return;
     const p = ta.selectionStart;
+    const name = typeof mentionAt === 'function' && mentionAt(ta, p);
+    if (name) return mentionFromTa(ta, name);  // 이름을 누르면 이름 카드가 먼저다. 그 문장을 고치려면 드래그해 고른다
     const n = Number(ta.dataset.draft);
     const r = markRanges(n, ta.value).find((x) => x.a <= p && p <= x.b);
     if (!r) return;
