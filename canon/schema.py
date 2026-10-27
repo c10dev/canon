@@ -72,7 +72,7 @@ class WorldSetting(BaseModel):
 
 
 class CharacterBody(BaseModel):
-    """신체 프로필. 작가가 정하고 인물 상태창에만 보인다. 프롬프트에 넣지 않고 AI 응답 형식에서도 뺀다 (Character.body)."""
+    """신체 프로필. 작가가 정하고 인물 카드에만 보인다. 프롬프트에 넣지 않고 AI 응답 형식에서도 뺀다 (Character.body)."""
     height: str = ""
     weight: str = ""
     build: str = ""
@@ -453,6 +453,27 @@ class PlaceSort(BaseModel):
     new_places: list[NewPlace] = Field(default_factory=list, description="여러 위치 글이 가리키는데 장소 목록에 없는 곳만. 방 하나, 길 위 같은 곳은 넣지 않는다")
 
 
+class MapPlaceGuess(BaseModel):
+    """지도 만들기 제안의 장소 하나."""
+    name: str = Field(description="[장소 목록]의 이름 그대로")
+    kind: str = Field(description="[종류]의 id 하나")
+    put: bool = Field(True, description="이 마을 지도 안에 놓을 곳이면 true. 다른 도시, 먼 산, 나라처럼 이 마을 밖이면 false")
+    note: str = Field("", description="애매할 때만 한 줄: 왜 그렇게 봤는지")
+
+
+class MapSuggestion(BaseModel):
+    """지도 만들기 설정 제안 (pipeline.suggest_map). 저장하지 않고 작가가 지도 화면 칸에 채워 본다. 좌표는 생성기가 정한다."""
+    kind: Literal["village", "city"] = Field("village", description="지도 종류: village 마을 / city 성벽이 있는 도시")
+    size: Literal["small", "medium", "large"] = Field(description="크기. 마을: small 집 25~30채 / medium 60~70채 / large 100~140채. "
+                                                      "도시: small 500~750채 / medium 1,000~1,300채 / large 2,000~2,500채")
+    roads: Literal["line", "cross", "square"] = Field(description="길 모양 (마을만): line 한길을 따라 / cross 교차로 / square 가운데 광장")
+    water: Literal["none", "river", "lake", "sea"] = Field(description="물: none 없음 / river 강 / lake 호수(마을만) / sea 바다")
+    fields: Literal["few", "some", "many"] = Field(description="밭 양")
+    forest: Literal["few", "some", "many"] = Field(description="숲 양")
+    places: list[MapPlaceGuess] = Field(default_factory=list, description="[장소 목록]의 장소마다 하나")
+    reason: str = Field("", description="왜 이 설정인지 한두 문장. 작품 설정 · 장소 설명에서 근거를 든다")
+
+
 class PlotBatch(BaseModel):
     episodes: list[EpisodePlot]
     new_characters: list[Character] = Field(default_factory=list, description=NEW_CAST_DESC)
@@ -759,6 +780,23 @@ class Selection(BaseModel):
 ChatTopic = str
 
 
+class ForeshadowDue(BaseModel):
+    """복선 하나의 회수 예정 화 (플롯 대화 적용 취소용)."""
+    id: str
+    due_ep: Optional[int] = None
+
+
+class PlotUndo(BaseModel):
+    """플롯 대화 변경안을 적용하기 전이나 뒤의 값 (적용 취소용, AI 가 채우지 않는다).
+    episodes 는 적용 전이면 바뀌거나 빠진 화, 적용 뒤면 바뀐 화다. 적용 전에 없던 화(새 화)는 적용 전 쪽에 없다."""
+    target_episodes: int = 0
+    acts: list[Act] = Field(default_factory=list, description="단편 기승전결 구조")
+    arc: Optional[StoryArc] = Field(None, description="장편: 변경안이 겨냥한 아크")
+    parts: list[Part] = Field(default_factory=list)
+    foreshadows: list[ForeshadowDue] = Field(default_factory=list, description="아직 회수하지 않은 복선의 회수 예정 화")
+    episodes: list["Episode"] = Field(default_factory=list)
+
+
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
     text: str
@@ -768,6 +806,8 @@ class ChatMessage(BaseModel):
     style_before: Optional[StyleProfile] = Field(None, description="문체 대화: 변경안을 적용하기 전 작품 문체 (적용 취소용)")
     setup: Optional[SetupRevision] = Field(None, description="assistant 가 낸 설정 변경안이나 방향 여러 안")
     setup_before: Optional[SetupBefore] = Field(None, description="설정 대화: 변경안을 적용하기 전 설정 (적용 취소용)")
+    plot_before: Optional[PlotUndo] = Field(None, description="플롯 대화: 변경안을 적용하기 전 값 (적용 취소용)")
+    plot_after: Optional[PlotUndo] = Field(None, description="플롯 대화: 변경안을 적용한 직후 값. 그 뒤에 다시 고친 부분은 취소할 때 남긴다")
     episode: int = Field(0, description="문체 대화: 작가가 참고하라고 고른 화")
     selection: Optional[Selection] = Field(None, description="본문 부분 수정: 고친 대상")
     preset: str = Field("", description="본문 부분 수정: 고른 빠른 요청 (prompts.PASSAGE_PRESETS)")
@@ -913,6 +953,7 @@ class Episode(BaseModel):
     final_text: str = Field("", description="상태 반영이 끝난 뒤 본문을 처음 고치기 직전의 본문. 지금 본문과 다르면 반영된 요약 · 상태가 고치기 전 본문 기준이다. 다시 맞추거나 그대로 두기로 하면 비운다")
     time: "StoryTime" = Field(default_factory=lambda: StoryTime(), description="이 화가 끝난 작품 속 시점. 상태 반영 때 채운다")
     realign: str = Field("", description="앞 화 플롯을 뒤 화에 맞추지 않고 다시 짜면서 이 화와 어긋나게 된 점. 이 화 플롯을 다시 짜거나 작가가 확인하면 비운다")
+    opening_prev: Optional[EpisodePlot] = Field(None, description="1~3화 여는 방식 안을 처음 고르기 전 플롯 (되돌리기용). 되돌리면 비운다")
 
 
 # ---------- 회차 진행 상태 ----------
@@ -1259,6 +1300,13 @@ class Atlas(BaseModel):
     layout: str = Field("", description="마을 · 도시 데이터 파일 이름 (projects/<작품>/map/ 아래, atlas.read_layout 으로 바꾼 길 · 건물). 비면 없음")
     meters: float = Field(1.0, description="마을 데이터 1단위가 몇 m 인지 (거리 · 걷는 시간 계산)")
     spec: Optional[MapSpec] = Field(None, description="지도 만들기로 만든 마을이면 그 입력. 파일을 올렸거나 지도가 없으면 비움")
+    title: str = Field("", description="지도 위에 적는 마을 이름. 비면 '마을 가운데' 종류의 장소 이름")
+
+
+class ReleasePlan(BaseModel):
+    """연재 일정. 작가가 적는 값이라 프롬프트에 넣지 않는다. 비축분 · 하루 목표는 화면이 계산한다 (static/home.js releasePlan)."""
+    per_week: int = Field(0, description="일주일에 올리는 화 수. 0 이하면 정하지 않음 (화면이 0~70 으로 맞춰 셈)")
+    released: int = Field(0, description="연재처에 올린 마지막 화. 0 이하면 아직 올린 화가 없음")
 
 
 class Project(BaseModel):
@@ -1306,6 +1354,7 @@ class Project(BaseModel):
     illust: IllustSettings = Field(default_factory=IllustSettings, description="삽화 프롬프트 설정")
     atlas: Atlas = Field(default_factory=Atlas, description="지도: 장소 자리, 배경 그림, 위치 글 잇기")
     timeline: Timeline = Field(default_factory=Timeline, description="작품 속 시간: 기준 날짜와 기한")
+    release: ReleasePlan = Field(default_factory=ReleasePlan, description="연재 일정: 일주일에 올리는 화 수와 올린 마지막 화")
     # 아래 두 칸은 맨 끝에 둔다. store.save 가 파일 끝만 읽어 디스크 값을 찾는다 (store._saved_mark)
     edit_rev: int = Field(0, description="화면(브라우저 탭)이 저장한 횟수. 오래된 화면이 다른 화면의 저장을 덮지 않게 비교한다 (store.writer)")
     saved_by: str = Field("", description="마지막으로 저장한 화면(브라우저 탭) id")
@@ -1314,7 +1363,7 @@ class Project(BaseModel):
         for ep in self.episodes:
             if ep.plot.number == n:
                 return ep
-        raise KeyError(f"{n}화 플롯이 없습니다")
+        raise KeyError(f"{n}화 플롯이 없어요")
 
     @property
     def serial(self) -> bool:
@@ -1366,4 +1415,6 @@ Snapshot.model_rebuild()
 SerialRebuild.model_rebuild()
 ShortArchive.model_rebuild()
 Episode.model_rebuild()
+PlotUndo.model_rebuild()
+ChatMessage.model_rebuild()
 StyleEntry.model_rebuild()

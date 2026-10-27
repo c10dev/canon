@@ -45,15 +45,15 @@ function claudeStatusView() {
     ? `${CLAUDE_CHIP(s.metered ? '로그인됨 (Console API 계정)' : '로그인됨', !s.metered)} <span class="small">${who || esc(s.auth_method || '')}</span>`
     : CLAUDE_CHIP('로그인 필요', false);
   const steps = s.logged_in ? '' : `<ol class="small" style="margin:6px 0 6px 18px;padding:0">
-      <li>이 컴퓨터(Canon 을 실행하는 곳)에서 터미널을 열어요.</li>
+      <li>이 컴퓨터(Canon을 실행하는 곳)에서 터미널을 열어요.</li>
       <li><code>${esc(s.login_command)}</code> 을 실행하면 브라우저에 Anthropic 로그인 화면이 열려요. Pro 또는 Max 구독 계정으로 로그인하세요.</li>
       <li>끝나면 아래 '다시 확인'을 눌러요.</li></ol>`;
   return `<div class="field"><label>구독 로그인 ${head}</label>
     ${['metered', 'error'].includes(s.reason) ? `<div class="note warn">${esc(s.message)}</div>` : ''}
     ${steps}
     ${s.logged_in ? '' : server}
-    ${s.env_token ? '<div class="small">환경 변수 CLAUDE_CODE_OAUTH_TOKEN 의 토큰으로 로그인해요.</div>' : ''}
-    ${s.api_key_ignored ? '<div class="small">환경 변수 ANTHROPIC_API_KEY 는 구독 호출에 넘기지 않아요. API 키는 \'Claude API 키\' 방식에서만 써요.</div>' : ''}
+    ${s.env_token ? '<div class="small">환경 변수 CLAUDE_CODE_OAUTH_TOKEN의 토큰으로 로그인해요.</div>' : ''}
+    ${s.api_key_ignored ? '<div class="small">환경 변수 ANTHROPIC_API_KEY는 구독 호출에 넘기지 않아요. API 키는 \'Claude API 키\' 방식에서만 써요.</div>' : ''}
     <div class="small">Claude Code ${esc(s.version || '')} · ${esc(s.path)}</div>
     <div class="row">${refresh}</div></div>`;
 }
@@ -66,22 +66,22 @@ function claudeSettings(c) {
   // 다른 고급 설정처럼 접어 두고, Claude 를 쓰고 있거나 키를 넣었으면 펼친다
   const open = String(c.provider).startsWith('claude') || Object.values(c.stage_settings || {}).some((v) => String(v).startsWith('claude')) || src !== 'none' || !!c.claude_model;
   return `<details class="set-more"${open ? ' open' : ''}><summary><h2>Claude</h2> <span class="small">구독 로그인이나 API 키로 쓸 때</span></summary>
-    <p class="desc">두 가지 방식이 있어요. <b>Claude 구독 로그인</b>은 이 컴퓨터에 설치하고 로그인한 Claude Code 를 불러 Pro · Max 구독 한도 안에서 써요.
-      <b>Claude API 키</b>는 Claude Console 의 키로 종량제로 써요. 위 '생성 방식'이나 아래 단계별 백엔드에서 고르세요.</p>
-    <p class="desc">Anthropic 정책상 Canon 같은 다른 앱이 Claude 계정 로그인을 받거나 토큰을 보관할 수 없어서, 로그인은 Claude Code 에서 직접 해요.
-      Canon 은 로그인 상태만 확인하고 계정 정보는 저장하지 않아요. 구독 한도는 평범한 개인 사용을 기준으로 하니, 자동 집필처럼 오래 도는 작업은 API 키가 맞아요.</p>
+    <p class="desc">두 가지 방식이 있어요. <b>Claude 구독 로그인</b>은 이 컴퓨터에 설치하고 로그인한 Claude Code를 불러 Pro · Max 구독 한도 안에서 써요.
+      <b>Claude API 키</b>는 Claude Console의 키로 종량제로 써요. 위 '생성 방식'이나 아래 '단계별 백엔드와 모델'에서 고르세요.</p>
+    <p class="desc">Anthropic 정책상 Canon 같은 다른 앱이 Claude 계정 로그인을 받거나 토큰을 보관할 수 없어서, 로그인은 Claude Code에서 직접 해요.
+      Canon은 로그인 상태만 확인하고 계정 정보는 저장하지 않아요. 구독 한도는 평범한 개인 사용을 기준으로 하니, 자동 집필처럼 오래 도는 작업은 API 키가 맞아요.</p>
     <div id="claude-status">${claudeStatusView()}</div>
     <div class="field"><label for="set-claude-model">Claude 모델</label>
       <input id="set-claude-model" type="text" list="model-options" value="${esc(c.claude_model || '')}" placeholder="비우면 구독은 Claude Code 기본 모델, API 키는 claude-opus-5-5">
       <div class="small">구독 방식은 opus · sonnet · haiku 같은 별칭도 받아요. 단계마다 바꾸려면 아래 단계별 모델 칸에 적으세요.</div>
-      ${c.claude_model_source === 'env' ? '<div class="small">환경 변수 CANON_CLAUDE_MODEL 이 우선해요.</div>' : ''}</div>
-    <div class="field"><label for="set-claude-bin">claude 실행 파일 <span class="hint">PATH 에서 못 찾을 때만</span></label>
+      ${c.claude_model_source === 'env' ? '<div class="small">환경 변수 CANON_CLAUDE_MODEL이 우선해요.</div>' : ''}</div>
+    <div class="field"><label for="set-claude-bin">claude 실행 파일 <span class="hint">PATH에서 못 찾을 때만</span></label>
       <input id="set-claude-bin" type="text" value="${esc(c.claude_bin || '')}" placeholder="예: ~/.local/bin/claude">
-      ${c.claude_bin_source === 'env' ? '<div class="small">환경 변수 CANON_CLAUDE_BIN 이 우선해요.</div>' : ''}</div>
+      ${c.claude_bin_source === 'env' ? '<div class="small">환경 변수 CANON_CLAUDE_BIN이 우선해요.</div>' : ''}</div>
     <div class="field"><label for="set-anthropic-key">Anthropic API 키 <span class="hint">'Claude API 키' 방식만 · 지금: </span>${keyState}</label>
       <input id="set-anthropic-key" type="password" autocomplete="off" placeholder="${src === 'none' ? 'sk-ant- 로 시작하는 키' : '바꿀 때만 입력'}">
       <div class="small"><a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener">Claude Console</a>에서 발급해요. 구독 로그인 토큰이 아니에요. 저장한 키는 화면에 다시 보여주지 않아요.</div>
-      ${src === 'env' ? '<div class="small">환경 변수 ANTHROPIC_API_KEY 가 우선해요.</div>' : ''}
+      ${src === 'env' ? '<div class="small">환경 변수 ANTHROPIC_API_KEY가 우선해요.</div>' : ''}
       ${src === 'file' ? '<div class="row"><button class="btn danger" data-action="clearAnthropicKey">저장된 Anthropic 키 지우기</button></div>' : ''}</div>
     </details>`;
 }

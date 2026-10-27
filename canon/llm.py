@@ -128,7 +128,7 @@ class GeminiLLM:
         else:
             key = api_key or settings.api_key()[0]
             if not key:
-                raise MissingKey("Gemini API 키가 없어요. 웹 설정 화면에서 넣거나 GEMINI_API_KEY 를 설정하세요.")
+                raise MissingKey("Gemini API 키가 없어요. 웹 설정 화면에서 넣거나 GEMINI_API_KEY를 설정하세요.")
             self.client = genai.Client(api_key=key)
         self.model = model or settings.model()[0]
         self.last_usage: dict | None = None  # 연구 화면에서 보여 줄 마지막 호출의 토큰 수
@@ -240,7 +240,7 @@ class GeminiLLM:
         if state in BATCH_WAITING:
             return None
         if state != "JOB_STATE_SUCCEEDED":
-            raise BatchGone(f"Gemini 배치 작업이 {state} 로 끝났어요: {job.error or ''}".rstrip(": "))
+            raise BatchGone(f"Gemini 배치 작업이 끝났어요 (상태 {state}): {job.error or ''}".rstrip(": "))
         out = (job.dest.inlined_responses or [None])[0] if job.dest else None
         if out is None or out.error or out.response is None:
             raise BatchGone(f"Gemini 배치 응답이 없어요: {out.error if out else job.dest}")
@@ -492,7 +492,7 @@ class LocalLLM:
     def check(self) -> None:
         names = self.models()
         if self._model and self._model not in names:
-            raise RuntimeError(f"서버에 {self._model} 이 없어요. 있는 모델: {names}")
+            raise RuntimeError(f"서버에 {self._model} 모델이 없어요. 있는 모델: {names}")
         self.model  # noqa: B018  모델 이름 확정
 
     def _chat(self, system: str, messages: list[dict], attempt: int = 1, parse: Any = None, **extra: Any) -> Any:

@@ -104,7 +104,7 @@ function viewConvert() {
         <h2>되돌리기</h2>
         <div class="small">${rebuilt ? `단편 결말: ${esc(ENDING_AT.find((x) => x[0] === c.ending)?.[1] || c.ending)}` : `결말 처리: ${esc(ENDINGS.find((x) => x[0] === c.ending)?.[1] || c.ending)}`}</div>
         ${why.length ? `<div class="note warn" id="undo-why">되돌리면 잃는 것이 있어 막아 두었어요.${whyList}</div>`
-          : '<div class="note plain">전환한 뒤 새로 쓰거나 반영한 화가 없어서 전환 전 단편으로 그대로 돌아갈 수 있어요. 전환한 뒤 고친 설정과 플롯도 함께 돌아가요.</div>'}
+          : '<div class="note plain">전환한 뒤 새로 쓰거나 반영한 화가 없어서 전환 전 단편으로 그대로 돌아갈 수 있어요. 전환한 뒤 고친 설정과 플롯은 사라지고 전환 직전 값으로 돌아가요.</div>'}
         <div class="row"><button class="btn danger" data-action="convertUndo"${why.length ? ' disabled aria-describedby="undo-why"' : ''}>단편으로 되돌리기</button></div>
       </section>`;
   }
@@ -235,7 +235,7 @@ Object.assign(actions, {
     });
   },
   async convertUndo() {
-    if (!confirm('전환 전 단편으로 되돌릴까요? 전환한 뒤 고친 설정과 플롯도 함께 돌아가요.')) return;
+    if (!confirm('전환 전 단편으로 되돌릴까요? 전환한 뒤 고친 설정과 플롯은 사라지고 전환 직전 값으로 돌아가요.')) return;
     await run('되돌리는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/convert/undo`);

@@ -349,7 +349,7 @@ class ClaudeAPILLM:
 
         key = api_key or settings.anthropic_key()[0]
         if not key:
-            raise RuntimeError("Anthropic API 키가 없어요. 설정 화면에서 넣거나 ANTHROPIC_API_KEY 를 설정하세요.")
+            raise RuntimeError("Anthropic API 키가 없어요. 설정 화면에서 넣거나 ANTHROPIC_API_KEY를 설정하세요.")
         self.client = anthropic.Anthropic(api_key=key, max_retries=3)
         self.model = model or settings.claude_model()[0] or DEFAULT_API_MODEL
         self.last_usage: dict | None = None
@@ -382,7 +382,7 @@ class ClaudeAPILLM:
                 msg = stream.get_final_message()
             tokens = self.last_usage = _api_usage(msg.usage)
             if msg.stop_reason == "refusal":
-                raise RuntimeError("Claude 가 이 요청을 거절했어요 (안전 분류기). 수위나 표현을 조정하거나 다른 백엔드로 돌리세요.")
+                raise RuntimeError("Claude가 이 요청을 거절했어요 (안전 분류기). 수위나 표현을 조정하거나 다른 백엔드로 돌리세요.")
             if msg.stop_reason == "max_tokens":
                 raise RuntimeError(f"Claude 응답이 최대 길이({MAX_TOKENS} 토큰)에서 끊겼어요")
             text = "".join(b.text for b in msg.content if b.type == "text").strip()

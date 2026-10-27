@@ -72,7 +72,7 @@ async function copyBoth(pending) {
   document.addEventListener('copy', put, { once: true });
   const ok = document.execCommand('copy');
   document.removeEventListener('copy', put);
-  if (!ok) throw new Error('브라우저가 복사를 막았어요. .txt 로 내려받아 주세요');
+  if (!ok) throw new Error('브라우저가 복사를 막았어요. .txt로 내려받아 주세요');
   return d;
 }
 

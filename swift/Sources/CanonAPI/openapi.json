@@ -15,9 +15,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "type": "object",
-         "title": "Response Config"
+         "$ref": "#/components/schemas/ConfigView"
         }
        }
       }
@@ -43,9 +41,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "type": "object",
-         "title": "Response Put Config"
+         "$ref": "#/components/schemas/ConfigView"
         }
        }
       }
@@ -74,9 +70,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "type": "object",
-         "title": "Response Test Config"
+         "$ref": "#/components/schemas/ConfigTest"
         }
        }
       }
@@ -95,7 +89,9 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ModelList"
+         },
          "type": "object",
          "title": "Response Config Models"
         }
@@ -116,9 +112,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "type": "object",
-         "title": "Response Config Health"
+         "$ref": "#/components/schemas/ConfigHealth"
         }
        }
       }
@@ -137,9 +131,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "type": "object",
-         "title": "Response Claude Status"
+         "$ref": "#/components/schemas/ClaudeStatus"
         }
        }
       }
@@ -528,6 +520,29 @@
     }
    }
   },
+  "/api/relation_views": {
+   "get": {
+    "summary": "Relation Views",
+    "description": "관계를 말로 고르는 보는 방식 (dynamics.VIEWS 의 말, 순서 그대로). 설정 화면이 시작 관계를 고를 때 쓴다.",
+    "operationId": "relation_views",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "type": "string"
+         },
+         "type": "array",
+         "title": "Response Relation Views"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/suggest": {
    "post": {
     "summary": "Suggest",
@@ -627,8 +642,7 @@
        "application/json": {
         "schema": {
          "items": {
-          "additionalProperties": true,
-          "type": "object"
+          "$ref": "#/components/schemas/NamingStyleOut"
          },
          "type": "array",
          "title": "Response Naming Styles"
@@ -670,9 +684,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Names"
+         "$ref": "#/components/schemas/NamesOut"
         }
        }
       }
@@ -721,9 +733,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Names Check"
+         "$ref": "#/components/schemas/NameCheckOut"
         }
        }
       }
@@ -960,9 +970,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Style Link"
+         "$ref": "#/components/schemas/StyleLink"
         }
        }
       }
@@ -1062,9 +1070,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Keep Style"
+         "$ref": "#/components/schemas/StyleKept"
         }
        }
       }
@@ -1351,8 +1357,7 @@
        "application/json": {
         "schema": {
          "items": {
-          "additionalProperties": true,
-          "type": "object"
+          "$ref": "#/components/schemas/StyleSummary"
          },
          "type": "array",
          "title": "Response List Styles"
@@ -2170,6 +2175,7 @@
   "/api/projects/{name}/recap/{kind}/{number}": {
    "post": {
     "summary": "Apply Recap",
+    "description": "작가가 고친 요약을 저장한다. 본문 모양은 요약 작업(recap_arc, recap_part)의 결과와 같다.",
     "operationId": "apply_recap",
     "parameters": [
      {
@@ -2205,7 +2211,7 @@
      "content": {
       "application/json": {
        "schema": {
-        "$ref": "#/components/schemas/RecapIn"
+        "$ref": "#/components/schemas/Recap"
        }
       }
      }
@@ -2508,9 +2514,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Insert Episode"
+         "$ref": "#/components/schemas/Renumbered"
         }
        }
       }
@@ -2559,9 +2563,68 @@
       "content": {
        "application/json": {
         "schema": {
+         "$ref": "#/components/schemas/Renumbered"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/episodes/{n}/delete": {
+   "post": {
+    "summary": "Delete Episode",
+    "description": "본문이 있거나 반영한 마지막 화를 지운다: 반영 취소 → 본문 비우기 → 화 빼기. 지우기 전 작품은 before-delete-<화>.json 으로 남긴다.",
+    "operationId": "delete_episode",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DeleteIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
          "type": "object",
          "additionalProperties": true,
-         "title": "Response Remove Episode"
+         "title": "Response Delete Episode"
         }
        }
       }
@@ -2979,6 +3042,57 @@
     }
    }
   },
+  "/api/projects/{name}/chat/plot/{i}/undo": {
+   "post": {
+    "summary": "Plot Chat Undo",
+    "description": "적용한 플롯 변경안을 취소한다. 그 뒤에 다시 고쳤거나 확정한 화, 본문을 쓴 화와 그 때문에 줄일 수 없는 구조는 그대로 두고\n까닭(reasons, kept 와 같은 순서)을 알려 준다. 변경안은 다시 고를 수 있게 열린다.",
+    "operationId": "plot_chat_undo",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "i",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "I"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Plot Chat Undo"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/elements/links": {
    "get": {
     "summary": "Element Links",
@@ -3002,7 +3116,12 @@
        "application/json": {
         "schema": {
          "type": "object",
-         "additionalProperties": true,
+         "additionalProperties": {
+          "type": "array",
+          "items": {
+           "$ref": "#/components/schemas/ElementLink"
+          }
+         },
          "title": "Response Element Links"
         }
        }
@@ -3596,9 +3715,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Rewrite Info"
+         "$ref": "#/components/schemas/RewriteInfo"
         }
        }
       }
@@ -3657,9 +3774,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Rewrite Prompt"
+         "$ref": "#/components/schemas/PromptText"
         }
        }
       }
@@ -4160,6 +4275,55 @@
     }
    }
   },
+  "/api/projects/{name}/episodes/{n}/opening-plot/undo": {
+   "post": {
+    "summary": "Opening Plot Undo",
+    "description": "n화 플롯을 여는 방식 안을 처음 고르기 전으로 되돌린다 (Episode.opening_prev). 화는 초안이 된다.",
+    "operationId": "opening_plot_undo",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/episodes/{n}/context": {
    "get": {
     "summary": "Context",
@@ -4225,8 +4389,7 @@
        "application/json": {
         "schema": {
          "items": {
-          "additionalProperties": true,
-          "type": "object"
+          "$ref": "#/components/schemas/PublishFormat"
          },
          "type": "array",
          "title": "Response Publish Formats"
@@ -4269,9 +4432,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Export Text"
+         "$ref": "#/components/schemas/ExportOut"
         }
        }
       }
@@ -4828,9 +4989,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Prompt"
+         "$ref": "#/components/schemas/PromptText"
         }
        }
       }
@@ -5192,9 +5351,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Auto Get"
+         "$ref": "#/components/schemas/AutoView"
         }
        }
       }
@@ -5243,9 +5400,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Auto Estimate"
+         "$ref": "#/components/schemas/AutoEstimate"
         }
        }
       }
@@ -5294,9 +5449,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Auto Start"
+         "$ref": "#/components/schemas/AutoView"
         }
        }
       }
@@ -5345,9 +5498,47 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Auto Resume"
+         "$ref": "#/components/schemas/AutoView"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/auto/review": {
+   "post": {
+    "summary": "Auto Review",
+    "description": "검토 대기 변경안을 검토를 기다리는 결과(pending.json 의 state:<화>)로 둔다. 상태 승인 화면이 작업 결과처럼 읽는다.\n웹은 화면 메모리로 넘기고(auto.js autoOpenReview), 앱은 이것을 부른 뒤 상태 승인 화면으로 간다.",
+    "operationId": "auto_review",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AutoView"
         }
        }
       }
@@ -5396,9 +5587,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Auto Request"
+         "$ref": "#/components/schemas/AutoView"
         }
        }
       }
@@ -5447,9 +5636,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Auto Batch"
+         "$ref": "#/components/schemas/AutoView"
         }
        }
       }
@@ -5499,9 +5686,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Auto Policy"
+         "$ref": "#/components/schemas/AutoView"
         }
        }
       }
@@ -5800,6 +5985,58 @@
     }
    }
   },
+  "/api/projects/{name}/atlas/generate/suggest": {
+   "post": {
+    "summary": "Atlas Generate Suggest",
+    "description": "지도 만들기 설정 AI 제안 (크기 · 길 · 물 · 밭 · 숲, 장소마다 종류 · 놓기, 까닭). 저장하지 않는다.",
+    "operationId": "atlas_generate_suggest",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MapSpec"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Atlas Generate Suggest"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/atlas/generate": {
    "post": {
     "summary": "Atlas Generate",
@@ -5833,6 +6070,150 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/atlas/title": {
+   "put": {
+    "summary": "Atlas Title",
+    "description": "지도 위 마을 이름. 비우면 '마을 가운데' 종류의 장소 이름을 쓴다.",
+    "operationId": "atlas_title",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TitleIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/atlas/name-ideas": {
+   "get": {
+    "summary": "Atlas Name Ideas",
+    "description": "새 장소 이름 후보 (작품 이름 스타일). 저장하지 않는다.",
+    "operationId": "atlas_name_ideas",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Atlas Name Ideas"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/atlas/places": {
+   "post": {
+    "summary": "Atlas Place Add",
+    "description": "지도에서 고른 자리를 새 장소(인과율 '장소')로 등록하고 놓는다. 돌려주는 것: {key, project}.",
+    "operationId": "atlas_place_add",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PlaceAddIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Atlas Place Add"
         }
        }
       }
@@ -7126,9 +7507,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Preview"
+         "$ref": "#/components/schemas/RelationPreview"
         }
        }
       }
@@ -7235,9 +7614,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "type": "object",
-         "additionalProperties": true,
-         "title": "Response Brief"
+         "$ref": "#/components/schemas/BriefText"
         }
        }
       }
@@ -8241,6 +8618,12 @@
      "spec": {
       "$ref": "#/components/schemas/MapSpec",
       "description": "지도 만들기로 만든 마을이면 그 입력. 파일을 올렸거나 지도가 없으면 비움"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title",
+      "description": "지도 위에 적는 마을 이름. 비면 '마을 가운데' 종류의 장소 이름",
+      "default": ""
      }
     },
     "type": "object",
@@ -8258,6 +8641,123 @@
      "batch"
     ],
     "title": "AutoBatch"
+   },
+   "AutoEstimate": {
+    "properties": {
+     "episodes": {
+      "type": "integer",
+      "title": "Episodes"
+     },
+     "from": {
+      "type": "integer",
+      "title": "From"
+     },
+     "to": {
+      "type": "integer",
+      "title": "To"
+     },
+     "missing": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Missing"
+     },
+     "drafts": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Drafts"
+     },
+     "calls": {
+      "additionalProperties": {
+       "type": "integer"
+      },
+      "type": "object",
+      "title": "Calls"
+     },
+     "tokens_in": {
+      "type": "integer",
+      "title": "Tokens In"
+     },
+     "tokens_out": {
+      "type": "integer",
+      "title": "Tokens Out"
+     },
+     "cost": {
+      "type": "number",
+      "title": "Cost",
+      "description": "USD. 가격표에 없는 모델이 있으면 null"
+     },
+     "batch": {
+      "type": "boolean",
+      "title": "Batch"
+     },
+     "batch_rounds": {
+      "type": "integer",
+      "title": "Batch Rounds"
+     },
+     "seconds_min": {
+      "type": "integer",
+      "title": "Seconds Min"
+     },
+     "seconds_max": {
+      "type": "integer",
+      "title": "Seconds Max"
+     },
+     "seconds_worst": {
+      "type": "integer",
+      "title": "Seconds Worst"
+     },
+     "batch_avg_seconds": {
+      "type": "integer",
+      "title": "Batch Avg Seconds"
+     },
+     "measured": {
+      "type": "boolean",
+      "title": "Measured"
+     },
+     "model": {
+      "type": "string",
+      "title": "Model"
+     },
+     "unpriced": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Unpriced"
+     },
+     "stages": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Stages"
+     }
+    },
+    "type": "object",
+    "required": [
+     "episodes",
+     "to",
+     "missing",
+     "drafts",
+     "calls",
+     "tokens_in",
+     "tokens_out",
+     "batch",
+     "batch_rounds",
+     "seconds_min",
+     "seconds_max",
+     "seconds_worst",
+     "measured",
+     "model",
+     "unpriced",
+     "stages"
+    ],
+    "title": "AutoEstimate",
+    "description": "남은 화를 끝까지 쓸 때의 추정 (autorun.estimate)."
    },
    "AutoIn": {
     "properties": {
@@ -8290,6 +8790,69 @@
     ],
     "title": "AutoIn"
    },
+   "AutoLog": {
+    "properties": {
+     "at": {
+      "type": "string",
+      "title": "At"
+     },
+     "ep": {
+      "type": "integer",
+      "title": "Ep"
+     },
+     "step": {
+      "type": "string",
+      "title": "Step",
+      "default": ""
+     },
+     "level": {
+      "type": "string",
+      "enum": [
+       "info",
+       "warn",
+       "error"
+      ],
+      "title": "Level",
+      "default": "info"
+     },
+     "message": {
+      "type": "string",
+      "title": "Message"
+     },
+     "tokens_in": {
+      "type": "integer",
+      "title": "Tokens In",
+      "default": 0
+     },
+     "tokens_out": {
+      "type": "integer",
+      "title": "Tokens Out",
+      "default": 0
+     },
+     "seconds": {
+      "type": "number",
+      "title": "Seconds",
+      "default": 0.0
+     },
+     "batch": {
+      "type": "boolean",
+      "title": "Batch",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "at",
+     "step",
+     "level",
+     "message",
+     "tokens_in",
+     "tokens_out",
+     "seconds",
+     "batch"
+    ],
+    "title": "AutoLog"
+   },
    "AutoResume": {
     "properties": {
      "approve": {
@@ -8305,6 +8868,173 @@
     },
     "type": "object",
     "title": "AutoResume"
+   },
+   "AutoRun": {
+    "properties": {
+     "target": {
+      "type": "integer",
+      "title": "Target"
+     },
+     "batch": {
+      "type": "boolean",
+      "title": "Batch",
+      "default": false
+     },
+     "policy": {
+      "$ref": "#/components/schemas/Policy"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "running",
+       "paused",
+       "review",
+       "stopped",
+       "done",
+       "error"
+      ],
+      "title": "Status",
+      "default": "running"
+     },
+     "ep": {
+      "type": "integer",
+      "title": "Ep"
+     },
+     "step": {
+      "type": "string",
+      "title": "Step",
+      "default": ""
+     },
+     "reasons": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Reasons",
+      "description": "멈춘 이유"
+     },
+     "halt": {
+      "type": "string",
+      "title": "Halt",
+      "description": "멈춘 종류. 화면이 고칠 곳으로 가는 버튼을 고른다: plot_missing | plot_draft | review | every | changed | reverted | schema | error",
+      "default": ""
+     },
+     "restarts": {
+      "type": "integer",
+      "title": "Restarts",
+      "description": "서버가 다시 시작돼 이어 간 횟수 (그때 하던 단계는 처음부터 다시 한다)",
+      "default": 0
+     },
+     "pending": {
+      "$ref": "#/components/schemas/StateDelta",
+      "description": "검토 대기 중인 변경안"
+     },
+     "pending_text": {
+      "type": "string",
+      "title": "Pending Text",
+      "description": "검토 대기 변경안을 만든 본문. 그 뒤 본문을 고쳤으면 그대로 반영하지 않는다",
+      "default": ""
+     },
+     "batches": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Batches",
+      "description": "기다리는 배치 작업 slot -> 이름"
+     },
+     "applied": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Applied",
+      "description": "이번 실행에서 자동 반영한 화"
+     },
+     "tokens_in": {
+      "type": "integer",
+      "title": "Tokens In",
+      "default": 0
+     },
+     "tokens_out": {
+      "type": "integer",
+      "title": "Tokens Out",
+      "default": 0
+     },
+     "cost": {
+      "type": "number",
+      "title": "Cost",
+      "default": 0.0
+     },
+     "started": {
+      "type": "string",
+      "title": "Started",
+      "default": ""
+     },
+     "updated": {
+      "type": "string",
+      "title": "Updated",
+      "default": ""
+     },
+     "log": {
+      "items": {
+       "$ref": "#/components/schemas/AutoLog"
+      },
+      "type": "array",
+      "title": "Log"
+     }
+    },
+    "type": "object",
+    "required": [
+     "target",
+     "batch",
+     "policy",
+     "status",
+     "step",
+     "reasons",
+     "halt",
+     "restarts",
+     "pending_text",
+     "batches",
+     "applied",
+     "tokens_in",
+     "tokens_out",
+     "cost",
+     "started",
+     "updated",
+     "log"
+    ],
+    "title": "AutoRun",
+    "description": "autorun.Run 과 같은 칸. 명세에서 칸을 필수로 적으려고 따로 둔다."
+   },
+   "AutoView": {
+    "properties": {
+     "run": {
+      "$ref": "#/components/schemas/AutoRun"
+     },
+     "active": {
+      "type": "boolean",
+      "title": "Active"
+     },
+     "batch_stages": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Batch Stages"
+     },
+     "policy_defaults": {
+      "$ref": "#/components/schemas/Policy"
+     }
+    },
+    "type": "object",
+    "required": [
+     "active",
+     "batch_stages",
+     "policy_defaults"
+    ],
+    "title": "AutoView",
+    "description": "자동 집필 화면이 받는 것: 마지막 실행, 도는 중인지, 배치를 쓸 수 있는 단계, 새로 시작할 때의 서버 기본 정책."
    },
    "Backend": {
     "properties": {
@@ -8370,6 +9100,42 @@
     "type": "object",
     "title": "BodySuggestion",
     "description": "신체 프로필 AI 제안. 작가가 칸별로 골라 적용한다 (pipeline.suggest_body). 미성년 인물은 measurements 를 비운다."
+   },
+   "BriefText": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "title": "Text"
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "BriefText"
+   },
+   "Candidate": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "default": ""
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "name"
+    ],
+    "title": "Candidate"
    },
    "CastAppearance": {
     "properties": {
@@ -8863,6 +9629,9 @@
       "title": "First Ep",
       "description": "처음 나온 화. 설정 단계 인물은 0",
       "default": 0
+     },
+     "body": {
+      "$ref": "#/components/schemas/CharacterBody"
      }
     },
     "type": "object",
@@ -8903,7 +9672,7 @@
     },
     "type": "object",
     "title": "CharacterBody",
-    "description": "신체 프로필. 작가가 정하고 인물 상태창에만 보인다. 프롬프트에 넣지 않고 AI 응답 형식에서도 뺀다 (Character.body)."
+    "description": "신체 프로필. 작가가 정하고 인물 카드에만 보인다. 프롬프트에 넣지 않고 AI 응답 형식에서도 뺀다 (Character.body)."
    },
    "CharacterEdit": {
     "properties": {
@@ -9228,6 +9997,14 @@
       "$ref": "#/components/schemas/SetupBefore",
       "description": "설정 대화: 변경안을 적용하기 전 설정 (적용 취소용)"
      },
+     "plot_before": {
+      "$ref": "#/components/schemas/PlotUndo",
+      "description": "플롯 대화: 변경안을 적용하기 전 값 (적용 취소용)"
+     },
+     "plot_after": {
+      "$ref": "#/components/schemas/PlotUndo",
+      "description": "플롯 대화: 변경안을 적용한 직후 값. 그 뒤에 다시 고친 부분은 취소할 때 남긴다"
+     },
      "episode": {
       "type": "integer",
       "title": "Episode",
@@ -9327,6 +10104,141 @@
     ],
     "title": "CheckTrialIn"
    },
+   "ClaudeAccount": {
+    "properties": {
+     "loggedIn": {
+      "type": "boolean",
+      "title": "Loggedin",
+      "default": false
+     },
+     "authMethod": {
+      "type": "string",
+      "title": "Authmethod",
+      "default": ""
+     },
+     "apiProvider": {
+      "type": "string",
+      "title": "Apiprovider",
+      "default": ""
+     },
+     "email": {
+      "type": "string",
+      "title": "Email",
+      "default": ""
+     },
+     "orgName": {
+      "type": "string",
+      "title": "Orgname",
+      "default": ""
+     },
+     "organizationName": {
+      "type": "string",
+      "title": "Organizationname",
+      "default": ""
+     },
+     "subscriptionType": {
+      "type": "string",
+      "title": "Subscriptiontype",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "loggedIn",
+     "authMethod",
+     "apiProvider",
+     "email",
+     "orgName",
+     "organizationName",
+     "subscriptionType"
+    ],
+    "title": "ClaudeAccount",
+    "description": "Claude Code `auth status` 에서 화면에 보일 칸만 (claude.STATUS_FIELDS)."
+   },
+   "ClaudeStatus": {
+    "properties": {
+     "installed": {
+      "type": "boolean",
+      "title": "Installed"
+     },
+     "path": {
+      "type": "string",
+      "title": "Path"
+     },
+     "version": {
+      "type": "string",
+      "title": "Version"
+     },
+     "logged_in": {
+      "type": "boolean",
+      "title": "Logged In"
+     },
+     "account": {
+      "$ref": "#/components/schemas/ClaudeAccount",
+      "default": {
+       "loggedIn": false,
+       "authMethod": "",
+       "apiProvider": "",
+       "email": "",
+       "orgName": "",
+       "organizationName": "",
+       "subscriptionType": ""
+      }
+     },
+     "env_token": {
+      "type": "boolean",
+      "title": "Env Token"
+     },
+     "api_key_ignored": {
+      "type": "boolean",
+      "title": "Api Key Ignored"
+     },
+     "message": {
+      "type": "string",
+      "title": "Message"
+     },
+     "reason": {
+      "type": "string",
+      "title": "Reason"
+     },
+     "login_command": {
+      "type": "string",
+      "title": "Login Command"
+     },
+     "token_command": {
+      "type": "string",
+      "title": "Token Command"
+     },
+     "auth_method": {
+      "type": "string",
+      "title": "Auth Method",
+      "default": ""
+     },
+     "metered": {
+      "type": "boolean",
+      "title": "Metered",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "installed",
+     "path",
+     "version",
+     "logged_in",
+     "account",
+     "env_token",
+     "api_key_ignored",
+     "message",
+     "reason",
+     "login_command",
+     "token_command",
+     "auth_method",
+     "metered"
+    ],
+    "title": "ClaudeStatus",
+    "description": "Claude Code 설치와 구독 로그인 상태 (claude.status). reason: ok | login | metered | install | error."
+   },
    "ClueIn": {
     "properties": {
      "episode": {
@@ -9398,6 +10310,236 @@
      "b"
     ],
     "title": "CompareIn"
+   },
+   "ConfigHealth": {
+    "properties": {
+     "mock": {
+      "type": "boolean",
+      "title": "Mock"
+     },
+     "gemini": {
+      "type": "boolean",
+      "title": "Gemini"
+     },
+     "has_key": {
+      "type": "boolean",
+      "title": "Has Key"
+     },
+     "local": {
+      "type": "boolean",
+      "title": "Local"
+     },
+     "local_error": {
+      "type": "string",
+      "title": "Local Error",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "mock",
+     "gemini",
+     "has_key",
+     "local_error"
+    ],
+    "title": "ConfigHealth",
+    "description": "AI 를 쓸 수 있는지 (작품 목록 · 사이드바 경고). local 은 로컬을 쓰지 않으면 null."
+   },
+   "ConfigTest": {
+    "properties": {
+     "ok": {
+      "type": "boolean",
+      "title": "Ok"
+     },
+     "message": {
+      "type": "string",
+      "title": "Message"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ok",
+     "message"
+    ],
+    "title": "ConfigTest"
+   },
+   "ConfigView": {
+    "properties": {
+     "provider": {
+      "type": "string",
+      "title": "Provider"
+     },
+     "provider_source": {
+      "type": "string",
+      "title": "Provider Source"
+     },
+     "model": {
+      "type": "string",
+      "title": "Model"
+     },
+     "model_setting": {
+      "type": "string",
+      "title": "Model Setting"
+     },
+     "model_source": {
+      "type": "string",
+      "title": "Model Source"
+     },
+     "has_key": {
+      "type": "boolean",
+      "title": "Has Key"
+     },
+     "key_hint": {
+      "type": "string",
+      "title": "Key Hint"
+     },
+     "key_source": {
+      "type": "string",
+      "title": "Key Source"
+     },
+     "gemini_auth": {
+      "type": "string",
+      "title": "Gemini Auth"
+     },
+     "gemini_auth_source": {
+      "type": "string",
+      "title": "Gemini Auth Source"
+     },
+     "vertex_credentials": {
+      "type": "string",
+      "title": "Vertex Credentials"
+     },
+     "vertex_credentials_source": {
+      "type": "string",
+      "title": "Vertex Credentials Source"
+     },
+     "vertex_credentials_found": {
+      "type": "boolean",
+      "title": "Vertex Credentials Found"
+     },
+     "vertex_project": {
+      "type": "string",
+      "title": "Vertex Project"
+     },
+     "vertex_project_source": {
+      "type": "string",
+      "title": "Vertex Project Source"
+     },
+     "vertex_location": {
+      "type": "string",
+      "title": "Vertex Location"
+     },
+     "vertex_location_source": {
+      "type": "string",
+      "title": "Vertex Location Source"
+     },
+     "local_url": {
+      "type": "string",
+      "title": "Local Url"
+     },
+     "local_url_source": {
+      "type": "string",
+      "title": "Local Url Source"
+     },
+     "local_model": {
+      "type": "string",
+      "title": "Local Model"
+     },
+     "local_model_source": {
+      "type": "string",
+      "title": "Local Model Source"
+     },
+     "has_local_key": {
+      "type": "boolean",
+      "title": "Has Local Key"
+     },
+     "claude_model": {
+      "type": "string",
+      "title": "Claude Model"
+     },
+     "claude_model_source": {
+      "type": "string",
+      "title": "Claude Model Source"
+     },
+     "claude_bin": {
+      "type": "string",
+      "title": "Claude Bin"
+     },
+     "claude_bin_source": {
+      "type": "string",
+      "title": "Claude Bin Source"
+     },
+     "anthropic_key_hint": {
+      "type": "string",
+      "title": "Anthropic Key Hint"
+     },
+     "anthropic_key_source": {
+      "type": "string",
+      "title": "Anthropic Key Source"
+     },
+     "stages": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/StageConfig"
+      },
+      "type": "object",
+      "title": "Stages"
+     },
+     "stage_settings": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Stage Settings"
+     },
+     "stage_model_settings": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Stage Model Settings"
+     },
+     "path": {
+      "type": "string",
+      "title": "Path"
+     }
+    },
+    "type": "object",
+    "required": [
+     "provider",
+     "provider_source",
+     "model",
+     "model_setting",
+     "model_source",
+     "has_key",
+     "key_hint",
+     "key_source",
+     "gemini_auth",
+     "gemini_auth_source",
+     "vertex_credentials",
+     "vertex_credentials_source",
+     "vertex_credentials_found",
+     "vertex_project",
+     "vertex_project_source",
+     "vertex_location",
+     "vertex_location_source",
+     "local_url",
+     "local_url_source",
+     "local_model",
+     "local_model_source",
+     "has_local_key",
+     "claude_model",
+     "claude_model_source",
+     "claude_bin",
+     "claude_bin_source",
+     "anthropic_key_hint",
+     "anthropic_key_source",
+     "stages",
+     "stage_settings",
+     "stage_model_settings",
+     "path"
+    ],
+    "title": "ConfigView",
+    "description": "설정 화면이 보는 값 (settings.public). 키 원문은 없고 끝 네 글자(`key_hint`)와 출처만 있다."
    },
    "ConsistencyIssue": {
     "properties": {
@@ -9584,6 +10726,17 @@
      "what"
     ],
     "title": "DeadlineIn"
+   },
+   "DeleteIn": {
+    "properties": {
+     "keep_plot": {
+      "type": "boolean",
+      "title": "Keep Plot",
+      "default": false
+     }
+    },
+    "type": "object",
+    "title": "DeleteIn"
    },
    "DexCatalog": {
     "properties": {
@@ -9838,6 +10991,60 @@
     "title": "ElementImpact",
     "description": "요소에 붙여 두는 마지막 영향 분석. 반영 결과와, 분석할 때의 요소 내용(basis)을 함께 남긴다."
    },
+   "ElementLink": {
+    "properties": {
+     "episode": {
+      "type": "integer",
+      "title": "Episode"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "where": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Where"
+     },
+     "terms": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Terms"
+     },
+     "characters": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Characters"
+     },
+     "planned": {
+      "type": "boolean",
+      "title": "Planned"
+     },
+     "snippet": {
+      "type": "string",
+      "title": "Snippet",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "episode",
+     "status",
+     "where",
+     "terms",
+     "characters",
+     "planned",
+     "snippet"
+    ],
+    "title": "ElementLink",
+    "description": "관련 화 지도의 한 화 (elements.Link). snippet 도 응답에는 늘 있다."
+   },
    "Episode": {
     "properties": {
      "plot": {
@@ -9935,6 +11142,10 @@
       "title": "Realign",
       "description": "앞 화 플롯을 뒤 화에 맞추지 않고 다시 짜면서 이 화와 어긋나게 된 점. 이 화 플롯을 다시 짜거나 작가가 확인하면 비운다",
       "default": ""
+     },
+     "opening_prev": {
+      "$ref": "#/components/schemas/EpisodePlot",
+      "description": "1~3화 여는 방식 안을 처음 고르기 전 플롯 (되돌리기용). 되돌리면 비운다"
      }
     },
     "type": "object",
@@ -10127,6 +11338,38 @@
     },
     "type": "object",
     "title": "ExportIn"
+   },
+   "ExportOut": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "html": {
+      "type": "string",
+      "title": "Html"
+     },
+     "episodes": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Episodes"
+     },
+     "filename": {
+      "type": "string",
+      "title": "Filename"
+     }
+    },
+    "type": "object",
+    "required": [
+     "text",
+     "html",
+     "episodes",
+     "filename"
+    ],
+    "title": "ExportOut",
+    "description": "붙여 넣을 글. episodes 는 실제로 넣은 화 (본문이 없는 화는 빠진다)."
    },
    "Foreshadow": {
     "properties": {
@@ -10414,6 +11657,24 @@
     ],
     "title": "ForeshadowClue",
     "description": "복선이 본문에 걸린 자리. 본문은 바꾸지 않고 근거 문장만 기억한다 (canon/foreshadows.py)."
+   },
+   "ForeshadowDue": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "due_ep": {
+      "type": "integer",
+      "title": "Due Ep"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id"
+    ],
+    "title": "ForeshadowDue",
+    "description": "복선 하나의 회수 예정 화 (플롯 대화 적용 취소용)."
    },
    "ForeshadowEdit": {
     "properties": {
@@ -11668,6 +12929,36 @@
     ],
     "title": "MetersIn"
    },
+   "ModelList": {
+    "properties": {
+     "models": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Models",
+      "default": []
+     },
+     "error": {
+      "type": "string",
+      "title": "Error",
+      "default": ""
+     },
+     "reason": {
+      "type": "string",
+      "title": "Reason",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "models",
+     "error",
+     "reason"
+    ],
+    "title": "ModelList",
+    "description": "백엔드 하나의 모델 목록. 못 불러오면 models 가 비고 error · reason(no_key | unreachable | other)이 찬다."
+   },
    "ModelParams": {
     "properties": {
      "trust_decay": {
@@ -11778,6 +13069,99 @@
     "title": "NameCheckIn",
     "description": "이름 점검에 쓰는 칸만. 화면은 작품 전체 대신 이것만 보낸다 (장편 본문까지 보내지 않게)."
    },
+   "NameCheckOut": {
+    "properties": {
+     "warnings": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Warnings"
+     },
+     "issues": {
+      "items": {
+       "$ref": "#/components/schemas/NameIssue"
+      },
+      "type": "array",
+      "title": "Issues"
+     },
+     "kinds": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Kinds"
+     },
+     "style": {
+      "type": "string",
+      "title": "Style"
+     },
+     "detected": {
+      "type": "string",
+      "title": "Detected"
+     }
+    },
+    "type": "object",
+    "required": [
+     "warnings",
+     "issues",
+     "kinds",
+     "style",
+     "detected"
+    ],
+    "title": "NameCheckOut"
+   },
+   "NameIssue": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "level": {
+      "type": "string",
+      "title": "Level"
+     },
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "ids": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Ids"
+     }
+    },
+    "type": "object",
+    "required": [
+     "kind",
+     "level",
+     "text",
+     "ids"
+    ],
+    "title": "NameIssue",
+    "description": "이름 점검 한 줄 (naming.cast_issues)."
+   },
+   "NameOption": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "reason": {
+      "type": "string",
+      "title": "Reason",
+      "description": "이 인물이나 장소에 맞는 이유 한 줄",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "name"
+    ],
+    "title": "NameOption"
+   },
    "NamesIn": {
     "properties": {
      "character": {
@@ -11806,6 +13190,78 @@
     },
     "type": "object",
     "title": "NamesIn"
+   },
+   "NamesOut": {
+    "properties": {
+     "style": {
+      "type": "string",
+      "title": "Style"
+     },
+     "detected": {
+      "type": "string",
+      "title": "Detected"
+     },
+     "style_label": {
+      "type": "string",
+      "title": "Style Label"
+     },
+     "candidates": {
+      "items": {
+       "$ref": "#/components/schemas/Candidate"
+      },
+      "type": "array",
+      "title": "Candidates"
+     },
+     "options": {
+      "items": {
+       "$ref": "#/components/schemas/NameOption"
+      },
+      "type": "array",
+      "title": "Options",
+      "default": []
+     }
+    },
+    "type": "object",
+    "required": [
+     "style",
+     "detected",
+     "style_label",
+     "candidates"
+    ],
+    "title": "NamesOut",
+    "description": "이름 · 지명 후보. ai 면 options 에 AI 가 고른 이름과 이유가 있다."
+   },
+   "NamingStyleOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "summary": {
+      "type": "string",
+      "title": "Summary"
+     },
+     "place_kinds": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Place Kinds"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "label",
+     "summary",
+     "place_kinds"
+    ],
+    "title": "NamingStyleOut",
+    "description": "이름 스타일 하나와 고를 수 있는 지명 종류."
    },
    "NewName": {
     "properties": {
@@ -12021,6 +13477,34 @@
     ],
     "title": "PinsIn"
    },
+   "PlaceAddIn": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "x": {
+      "type": "number",
+      "title": "X"
+     },
+     "y": {
+      "type": "number",
+      "title": "Y"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "name",
+     "x",
+     "y"
+    ],
+    "title": "PlaceAddIn"
+   },
    "PlaceLink": {
     "properties": {
      "text": {
@@ -12113,6 +13597,52 @@
     ],
     "title": "PlotRevision",
     "description": "플롯 대화에서 AI 가 내는 답과 변경안. 사용자가 고른 부분만 반영한다 (pipeline.apply_revision)."
+   },
+   "PlotUndo": {
+    "properties": {
+     "target_episodes": {
+      "type": "integer",
+      "title": "Target Episodes",
+      "default": 0
+     },
+     "acts": {
+      "items": {
+       "$ref": "#/components/schemas/Act"
+      },
+      "type": "array",
+      "title": "Acts",
+      "description": "단편 기승전결 구조"
+     },
+     "arc": {
+      "$ref": "#/components/schemas/StoryArc",
+      "description": "장편: 변경안이 겨냥한 아크"
+     },
+     "parts": {
+      "items": {
+       "$ref": "#/components/schemas/Part"
+      },
+      "type": "array",
+      "title": "Parts"
+     },
+     "foreshadows": {
+      "items": {
+       "$ref": "#/components/schemas/ForeshadowDue"
+      },
+      "type": "array",
+      "title": "Foreshadows",
+      "description": "아직 회수하지 않은 복선의 회수 예정 화"
+     },
+     "episodes": {
+      "items": {
+       "$ref": "#/components/schemas/Episode"
+      },
+      "type": "array",
+      "title": "Episodes"
+     }
+    },
+    "type": "object",
+    "title": "PlotUndo",
+    "description": "플롯 대화 변경안을 적용하기 전이나 뒤의 값 (적용 취소용, AI 가 채우지 않는다).\nepisodes 는 적용 전이면 바뀌거나 빠진 화, 적용 뒤면 바뀐 화다. 적용 전에 없던 화(새 화)는 적용 전 쪽에 없다."
    },
    "Policy": {
     "properties": {
@@ -12622,6 +14152,10 @@
       "$ref": "#/components/schemas/Timeline",
       "description": "작품 속 시간: 기준 날짜와 기한"
      },
+     "release": {
+      "$ref": "#/components/schemas/ReleasePlan",
+      "description": "연재 일정: 일주일에 올리는 화 수와 올린 마지막 화"
+     },
      "edit_rev": {
       "type": "integer",
       "title": "Edit Rev",
@@ -12696,6 +14230,49 @@
     ],
     "title": "ProjectCard",
     "description": "작품 목록의 카드 한 장."
+   },
+   "PromptText": {
+    "properties": {
+     "system": {
+      "type": "string",
+      "title": "System"
+     },
+     "prompt": {
+      "type": "string",
+      "title": "Prompt"
+     }
+    },
+    "type": "object",
+    "required": [
+     "system",
+     "prompt"
+    ],
+    "title": "PromptText",
+    "description": "보내지 않고 보기만 하는 프롬프트 원문."
+   },
+   "PublishFormat": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "hint": {
+      "type": "string",
+      "title": "Hint"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "label",
+     "hint"
+    ],
+    "title": "PublishFormat",
+    "description": "줄바꿈 형식 하나 (publish.FORMATS)."
    },
    "Range": {
     "properties": {
@@ -12776,18 +14353,72 @@
     "title": "RebuildEpisode",
     "description": "재구성 지도의 한 줄: 새 화 하나와 그 화에 쓰는 옛 단편 화."
    },
-   "RecapIn": {
+   "Recap": {
     "properties": {
      "summary": {
       "type": "string",
-      "title": "Summary"
+      "title": "Summary",
+      "description": "다음 화를 쓸 때 참고할 요약"
      }
     },
     "type": "object",
     "required": [
      "summary"
     ],
-    "title": "RecapIn"
+    "title": "Recap",
+    "description": "아크나 부가 끝난 뒤의 요약 제안."
+   },
+   "RelationPreview": {
+    "properties": {
+     "words": {
+      "type": "string",
+      "title": "Words"
+     },
+     "numbers": {
+      "type": "string",
+      "title": "Numbers"
+     },
+     "show_numbers": {
+      "type": "boolean",
+      "title": "Show Numbers"
+     },
+     "before": {
+      "$ref": "#/components/schemas/Relations"
+     }
+    },
+    "type": "object",
+    "required": [
+     "words",
+     "numbers",
+     "show_numbers",
+     "before"
+    ],
+    "title": "RelationPreview",
+    "description": "상태 승인 화면 미리 보기: 반영하면 계산될 관계와 반영 전 관계."
+   },
+   "Relations": {
+    "properties": {
+     "words": {
+      "type": "string",
+      "title": "Words"
+     },
+     "numbers": {
+      "type": "string",
+      "title": "Numbers"
+     },
+     "show_numbers": {
+      "type": "boolean",
+      "title": "Show Numbers"
+     }
+    },
+    "type": "object",
+    "required": [
+     "words",
+     "numbers",
+     "show_numbers"
+    ],
+    "title": "Relations",
+    "description": "같은 관계를 말과 숫자로 (`_relations`)."
    },
    "Relationship": {
     "properties": {
@@ -12861,6 +14492,46 @@
     "title": "Relationship",
     "description": "쌍 단위 관계 설정. 방향별 수치는 Tie 에 있고, affinity/tension 은 Tie 에서 계산해 동기화한다."
    },
+   "ReleasePlan": {
+    "properties": {
+     "per_week": {
+      "type": "integer",
+      "title": "Per Week",
+      "description": "일주일에 올리는 화 수. 0 이하면 정하지 않음 (화면이 0~70 으로 맞춰 셈)",
+      "default": 0
+     },
+     "released": {
+      "type": "integer",
+      "title": "Released",
+      "description": "연재처에 올린 마지막 화. 0 이하면 아직 올린 화가 없음",
+      "default": 0
+     }
+    },
+    "type": "object",
+    "title": "ReleasePlan",
+    "description": "연재 일정. 작가가 적는 값이라 프롬프트에 넣지 않는다. 비축분 · 하루 목표는 화면이 계산한다 (static/home.js releasePlan)."
+   },
+   "Renumbered": {
+    "properties": {
+     "project": {
+      "$ref": "#/components/schemas/Project"
+     },
+     "notes": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Notes"
+     }
+    },
+    "type": "object",
+    "required": [
+     "project",
+     "notes"
+    ],
+    "title": "Renumbered",
+    "description": "화를 넣거나 뺀 뒤의 작품과 무엇을 옮겼는지."
+   },
    "ReworkIn": {
     "properties": {
      "text": {
@@ -12878,6 +14549,86 @@
      "text"
     ],
     "title": "ReworkIn"
+   },
+   "RewriteInfo": {
+    "properties": {
+     "presets": {
+      "items": {
+       "$ref": "#/components/schemas/RewritePreset"
+      },
+      "type": "array",
+      "title": "Presets"
+     },
+     "materials": {
+      "items": {
+       "$ref": "#/components/schemas/RewriteMaterialInfo"
+      },
+      "type": "array",
+      "title": "Materials"
+     },
+     "keep_max": {
+      "type": "integer",
+      "title": "Keep Max"
+     }
+    },
+    "type": "object",
+    "required": [
+     "presets",
+     "materials",
+     "keep_max"
+    ],
+    "title": "RewriteInfo"
+   },
+   "RewriteMaterialInfo": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "lines": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Lines"
+     },
+     "note": {
+      "type": "string",
+      "title": "Note"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "label",
+     "lines",
+     "note"
+    ],
+    "title": "RewriteMaterialInfo",
+    "description": "함께 넣을 수 있는 재료 하나. lines 는 프롬프트에 들어갈 줄 그대로, 비면 넣을 것이 없다."
+   },
+   "RewritePreset": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "label"
+    ],
+    "title": "RewritePreset",
+    "description": "빠른 요청 하나 (prompts.REWRITE_PRESETS)."
    },
    "RewriteRequest": {
     "properties": {
@@ -13900,6 +15651,45 @@
     ],
     "title": "SpeechKit",
     "description": "말투 틀: 어미 · 호칭 규칙과 대사 한 줄."
+   },
+   "StageConfig": {
+    "properties": {
+     "provider": {
+      "type": "string",
+      "title": "Provider"
+     },
+     "source": {
+      "type": "string",
+      "title": "Source"
+     },
+     "model": {
+      "type": "string",
+      "title": "Model"
+     },
+     "model_source": {
+      "type": "string",
+      "title": "Model Source"
+     },
+     "env": {
+      "type": "string",
+      "title": "Env"
+     },
+     "model_env": {
+      "type": "string",
+      "title": "Model Env"
+     }
+    },
+    "type": "object",
+    "required": [
+     "provider",
+     "source",
+     "model",
+     "model_source",
+     "env",
+     "model_env"
+    ],
+    "title": "StageConfig",
+    "description": "단계 하나가 지금 쓰는 백엔드와 모델 (settings.public 의 stages)."
    },
    "StageIn": {
     "properties": {
@@ -15001,6 +16791,51 @@
     "title": "StyleExample",
     "description": "문체 화면의 '이 문체로 쓴 예시' 칸 (Project.style_example). 쓸 때의 프로필을 남겨 문체가 바뀌었는지 본다."
    },
+   "StyleFieldDiff": {
+    "properties": {
+     "key": {
+      "type": "string",
+      "title": "Key"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "before": {
+      "type": "string",
+      "title": "Before",
+      "default": ""
+     },
+     "after": {
+      "type": "string",
+      "title": "After",
+      "default": ""
+     },
+     "added": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Added",
+      "default": []
+     },
+     "removed": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Removed",
+      "default": []
+     }
+    },
+    "type": "object",
+    "required": [
+     "key",
+     "label"
+    ],
+    "title": "StyleFieldDiff",
+    "description": "라이브러리와 다른 칸 하나 (library.diff). 글 칸은 before/after, 목록 칸은 added/removed."
+   },
    "StyleIn": {
     "properties": {
      "name": {
@@ -15086,6 +16921,22 @@
     "type": "object",
     "title": "StyleKeep"
    },
+   "StyleKept": {
+    "properties": {
+     "entry": {
+      "$ref": "#/components/schemas/StyleSummary"
+     },
+     "project": {
+      "$ref": "#/components/schemas/Project"
+     }
+    },
+    "type": "object",
+    "required": [
+     "entry",
+     "project"
+    ],
+    "title": "StyleKept"
+   },
    "StyleLearning": {
     "properties": {
      "summary": {
@@ -15117,6 +16968,66 @@
     },
     "type": "object",
     "title": "StyleLearning"
+   },
+   "StyleLink": {
+    "properties": {
+     "state": {
+      "type": "string",
+      "title": "State"
+     },
+     "id": {
+      "type": "string",
+      "title": "Id",
+      "default": ""
+     },
+     "name": {
+      "type": "string",
+      "title": "Name",
+      "default": ""
+     },
+     "updated_at": {
+      "type": "string",
+      "title": "Updated At",
+      "default": ""
+     },
+     "version": {
+      "type": "integer",
+      "title": "Version",
+      "default": 0
+     },
+     "applied": {
+      "type": "integer",
+      "title": "Applied",
+      "default": 0
+     },
+     "mine": {
+      "items": {
+       "$ref": "#/components/schemas/StyleFieldDiff"
+      },
+      "type": "array",
+      "title": "Mine",
+      "default": []
+     },
+     "theirs": {
+      "items": {
+       "$ref": "#/components/schemas/StyleFieldDiff"
+      },
+      "type": "array",
+      "title": "Theirs",
+      "default": []
+     },
+     "base_known": {
+      "type": "boolean",
+      "title": "Base Known",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "state"
+    ],
+    "title": "StyleLink",
+    "description": "작품 문체와 라이브러리 항목의 관계 (library.link_state). state: none | missing | same | changed"
    },
    "StyleMarker": {
     "properties": {
@@ -15488,6 +17399,98 @@
      "text"
     ],
     "title": "StyleRuleSuggestion"
+   },
+   "StyleSummary": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "source": {
+      "type": "string",
+      "title": "Source"
+     },
+     "notes": {
+      "type": "string",
+      "title": "Notes"
+     },
+     "narration_pov": {
+      "type": "string",
+      "title": "Narration Pov"
+     },
+     "tense": {
+      "type": "string",
+      "title": "Tense"
+     },
+     "passages": {
+      "type": "integer",
+      "title": "Passages"
+     },
+     "rules": {
+      "type": "integer",
+      "title": "Rules"
+     },
+     "banned": {
+      "type": "integer",
+      "title": "Banned"
+     },
+     "markers": {
+      "type": "integer",
+      "title": "Markers"
+     },
+     "devices": {
+      "type": "integer",
+      "title": "Devices"
+     },
+     "sample_chars": {
+      "type": "integer",
+      "title": "Sample Chars"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     },
+     "updated_at": {
+      "type": "string",
+      "title": "Updated At"
+     },
+     "version": {
+      "type": "integer",
+      "title": "Version"
+     },
+     "used_by": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Used By"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "source",
+     "notes",
+     "narration_pov",
+     "tense",
+     "passages",
+     "rules",
+     "banned",
+     "markers",
+     "devices",
+     "sample_chars",
+     "created_at",
+     "updated_at",
+     "version",
+     "used_by"
+    ],
+    "title": "StyleSummary",
+    "description": "문체 라이브러리 목록의 항목 하나 (library.summary)."
    },
    "StyleUndo": {
     "properties": {
@@ -15988,6 +17991,19 @@
     ],
     "title": "TimelineView",
     "description": "작품 속 시간 화면 계산값 (timeline.view)."
+   },
+   "TitleIn": {
+    "properties": {
+     "title": {
+      "type": "string",
+      "title": "Title"
+     }
+    },
+    "type": "object",
+    "required": [
+     "title"
+    ],
+    "title": "TitleIn"
    },
    "ToneDials": {
     "properties": {

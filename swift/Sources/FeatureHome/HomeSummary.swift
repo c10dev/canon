@@ -3,7 +3,6 @@ import CanonCore
 import CanonStore
 import Foundation
 
-typealias Episode = Components.Schemas.Episode
 typealias Act = Components.Schemas.Act
 
 /// 작품 홈에 보일 것. 웹 `viewHome` · `nextStep` · `currentEp` 와 같은 규칙이라 함께 고친다.

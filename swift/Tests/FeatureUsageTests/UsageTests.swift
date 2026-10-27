@@ -45,6 +45,15 @@ let priceJSON = #"""
 """#
 
 @Suite struct NumberTextTests {
+    @Test func backendLabel() {
+        // 웹 usage.js 의 USAGE_BACKEND 와 같다. Claude 백엔드를 Gemini 라고 쓰지 않는다
+        #expect(UsageText.backendLabel("gemini") == "Gemini")
+        #expect(UsageText.backendLabel("local") == "로컬 · 0원")
+        #expect(UsageText.backendLabel("claude") == "Claude 구독")
+        #expect(UsageText.backendLabel("claude-api") == "Claude API")
+        #expect(UsageText.backendLabel(nil) == "Gemini")
+    }
+
     @Test func usd() {
         #expect(UsageText.usd(nil) == "가격 모름")
         #expect(UsageText.usd(0) == "$0")

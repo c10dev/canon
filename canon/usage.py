@@ -197,7 +197,7 @@ def save_prices(rows: list[Price]) -> None:
         if not r.model:
             continue
         if r.since and not _is_date(r.since):
-            raise ValueError(f"{r.model}: 적용 시작일은 YYYY-MM-DD 로 적어 주세요 ({r.since})")
+            raise ValueError(f"{r.model}: 적용 시작일은 YYYY-MM-DD로 적어 주세요 ({r.since})")
         if min(r.input, r.output, r.cached or 0, r.batch_input or 0, r.batch_output or 0) < 0:
             raise ValueError(f"{r.model}: 가격은 0 이상이어야 해요")
         by[r.model].append(r)

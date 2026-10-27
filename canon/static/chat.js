@@ -1,5 +1,6 @@
 /* 대화로 다듬기 패널. app.js 의 S, actions, api, render 를 그대로 쓴다.
    작가가 말하면 AI가 답과 변경안을 내고, 변경안은 바뀌는 칸만 보여 준다. 작가가 고른 부분만 반영한다.
+   플롯 대화는 적용한 변경안을 취소할 수 있다 (pipeline.undo_plot_chat: 그 뒤에 다시 고친 화와 본문을 쓴 화는 남긴다).
    기승전결 · 플롯 화면(topic 'plot'), 집필 화면의 본문 부분 수정(topic 'text:<화>', passage.js), 문체 화면(topic 'style', stylechat.js),
    설정 도우미(topic 'setup', setupchat.js)에 붙어 있다.
    다른 화면에 붙일 때는 CHAT_TOPICS 에 항목을 더하고 서버 web.py 의 _chat 과 변경안 반영 함수를 함께 늘린다.
@@ -22,7 +23,7 @@ const CHAT_TOPICS = {
         : ['이 아크 갈등을 더 개인적인 걸로', '아크를 3화 늘려 줘', '승 구간 전개가 느려', '2부 목표를 복수에서 구원으로'];
     },
     placeholder: '예: 3화 전개가 너무 빨라',
-    clearAsk: '이 작품의 대화 기록을 지울까요? 반영한 구조와 플롯은 그대로예요.',
+    clearAsk: '이 작품의 대화 기록을 지울까요? 적용한 구조와 플롯은 그대로예요.',
     body: (text) => ({ message: text, ...plotScope(), mode: S.chatOptions ? 'options' : '' }),
     userMsg: (m) => `${m.where ? `<span class="msg-quote">${esc(m.where)}</span>` : ''}${m.mode === 'options' ? '<span class="chip">방향 여러 안</span> ' : ''}${esc(m.text)}`,
     inputExtra: () => plotScopeBar(),
@@ -152,13 +153,19 @@ function lineName(id) {
   return s ? s.title || id : id;
 }
 
+/** 칸이 바뀌었나. 목록(사건 순서 말고)은 순서만 바뀌면 그대로로 본다 (diffField 와 바뀐 칸 목록이 함께 쓴다). */
+function fieldChanged(key, before, after) {
+  if (JSON.stringify(before ?? '') === JSON.stringify(after ?? '')) return false;
+  if (Array.isArray(after) && Array.isArray(before) && key !== 'events') return before.some((x) => !after.includes(x)) || after.some((x) => !before.includes(x));
+  return true;
+}
+
 /** 한 칸의 바뀐 내용. 목록은 빠진 것과 더해진 것을, 글은 이전과 새 글을 보여 준다. */
 function diffField(label, key, before, after) {
-  if (JSON.stringify(before ?? '') === JSON.stringify(after ?? '')) return '';
+  if (!fieldChanged(key, before, after)) return '';
   if (Array.isArray(after) && Array.isArray(before) && key !== 'events') {
     const gone = before.filter((x) => !after.includes(x));
     const added = after.filter((x) => !before.includes(x));
-    if (!gone.length && !added.length) return '';
     const name = (x) => esc(key === 'characters' || key === 'cast' ? charName(x) : key === 'threads' ? lineName(x) : x);
     return `<div class="diff-row"><span class="act-label">${label}</span>
       ${gone.map((x) => `<del>${name(x)}</del>`).join('')}${added.map((x) => `<ins>${name(x)}</ins>`).join('')}</div>`;
@@ -176,7 +183,7 @@ function actsDiff(rev, base = P().arc) {
   const rows = rev.acts.map((a) => {
     const cur = base.find((x) => x.name === a.name) || {};
     const range = cur.start_ep === a.start_ep && cur.end_ep === a.end_ep ? ''
-      : `<div class="diff-row"><span class="act-label">범위</span>${cur.name ? `<del>${cur.start_ep}~${cur.end_ep}화</del>` : ''}<ins>${a.start_ep}~${a.end_ep}화</ins></div>`;
+      : `<div class="diff-row"><span class="act-label">범위</span>${cur.name ? `<del>${epRange(cur.start_ep, cur.end_ep)}</del>` : ''}<ins>${epRange(a.start_ep, a.end_ep)}</ins></div>`;
     const body = range + ACT_FIELDS.map(([k, l]) => diffField(l, k, cur[k], a[k])).join('');
     return body ? `<div class="diff-act"><span class="chip ${actClass(a.name)}">${a.name}</span>${body}</div>` : '';
   }).join('');
@@ -187,7 +194,7 @@ function actsDiff(rev, base = P().arc) {
 function arcDiff(rev, cur, start) {
   const e = rev.arc;
   const range = e.end_ep && (!cur || cur.end_ep !== e.end_ep)
-    ? `<div class="diff-row"><span class="act-label">범위</span>${cur ? `<del>${cur.start_ep}~${cur.end_ep}화</del>` : ''}<ins>${cur ? cur.start_ep : start}~${e.end_ep}화</ins></div>` : '';
+    ? `<div class="diff-row"><span class="act-label">범위</span>${cur ? `<del>${epRange(cur.start_ep, cur.end_ep)}</del>` : ''}<ins>${epRange(cur ? cur.start_ep : start, e.end_ep)}</ins></div>` : '';
   return range + ARC_FIELDS.map(([k, l]) => diffField(l, k, cur ? cur[k] : (Array.isArray(e[k]) ? [] : ''), e[k])).join('');
 }
 
@@ -196,12 +203,49 @@ function partsDiff(rev) {
   const rows = rev.parts.map((x) => {
     const cur = now.find((y) => y.number === x.number);
     const range = cur && cur.start_ep === x.start_ep && cur.end_ep === x.end_ep ? ''
-      : `<div class="diff-row"><span class="act-label">범위</span>${cur ? `<del>${cur.start_ep}~${cur.end_ep}화</del>` : ''}<ins>${x.start_ep}~${x.end_ep}화</ins></div>`;
+      : `<div class="diff-row"><span class="act-label">범위</span>${cur ? `<del>${epRange(cur.start_ep, cur.end_ep)}</del>` : ''}<ins>${epRange(x.start_ep, x.end_ep)}</ins></div>`;
     const body = range + PART_FIELDS.map(([k, l]) => diffField(l, k, cur ? cur[k] : (k === 'arc_ideas' ? [] : ''), x[k])).join('');
     return body ? `<div class="diff-act"><span class="chip">${x.number}부</span>${body}</div>` : '';
   }).join('');
   const gone = now.filter((y) => !rev.parts.some((x) => x.number === y.number));
   return rows + (gone.length ? `<div class="diff-row"><span class="act-label">없어지는 부</span>${gone.map((y) => `<del>${y.number}부 ${esc(y.title)}</del>`).join('')}</div>` : '');
+}
+
+/** 변경안 맨 위 '바뀌는 것' 목록: '3화 제목 · 요약', '아크 2 목표 · 갈등', '승 구간 범위'. 비교는 아래 칸별 비교(diffField)와 같다.
+    바뀌는 곳이 한 곳의 한 칸뿐이면 아래 카드로 충분해 빈 글을 돌려준다. 길면 앞 6곳만 적고 나머지는 '외 n곳'으로 줄인다. */
+function changeList(rev, base, hasArc) {
+  const short = (l) => l.replace(/^(아크|부|구간) /, '').replace(/ \(.*\)$/, '');
+  const changed = (fields, cur, next) => fields.filter(([k]) => fieldChanged(k, cur[k], next[k])).map(([, l]) => short(l));
+  const range = (cur, a, b) => (cur && cur.start_ep === a && cur.end_ep === b ? [] : ['범위']);
+  const units = [];
+  const add = (name, labels) => { if (labels.length) units.push({ name, labels }); };
+  const whole = (name, state) => units.push({ name: `${name}(${state})`, labels: [] });  // 통째로 생기거나 없어지는 곳
+  (rev.parts || []).forEach((x) => {
+    const cur = P().parts.find((y) => y.number === x.number);
+    if (cur) add(`${x.number}부`, [...range(cur, x.start_ep, x.end_ep), ...changed(PART_FIELDS, cur, x)]);
+    else whole(`${x.number}부`, '새 부');
+  });
+  if ((rev.parts || []).length) P().parts.filter((y) => !rev.parts.some((x) => x.number === y.number)).forEach((y) => whole(`${y.number}부`, '없어짐'));
+  if (hasArc) {
+    const cur = base.arc;
+    const e = rev.arc;
+    const blank = Object.fromEntries(ARC_FIELDS.map(([k]) => [k, Array.isArray(e[k]) ? [] : '']));
+    add(base.next ? '다음 아크' : `아크 ${cur ? cur.number : ''}`, [...(e.end_ep && (!cur || cur.end_ep !== e.end_ep) ? ['범위'] : []), ...changed(ARC_FIELDS, cur || blank, e)]);
+  }
+  if (rev.total_episodes) add('총 화수', [`${P().meta.target_episodes}화 → ${rev.total_episodes}화`]);
+  rev.acts.forEach((a) => {
+    const cur = base.acts.find((x) => x.name === a.name);
+    add(`${a.name} 구간`, [...range(cur, a.start_ep, a.end_ep), ...changed(ACT_FIELDS, cur || {}, a)]);
+  });
+  rev.episodes.forEach((x) => {
+    const cur = ep(x.number);
+    if (cur) add(`${x.number}화`, changed(PLOT_FIELDS, cur.plot, x));
+    else whole(`${x.number}화`, '새 화');
+  });
+  if (units.length < 2 && (!units.length || units[0].labels.length < 2)) return '';
+  const shown = units.slice(0, 6).map((u) => [u.name, u.labels.join(' · ')].filter(Boolean).join(' '));
+  const more = units.length - shown.length;
+  return `<div class="small prop-changes"><strong>바뀌는 것</strong> · ${esc(shown.join(', '))}${more ? ` 외 ${more}곳` : ''}</div>`;
 }
 
 /** 방향 여러 안 (플롯 대화는 revision, 설정 대화는 setup 에 있다). */
@@ -308,7 +352,9 @@ function proposal(m, i) {
     : m.outcome === 'dismissed' ? '<span class="chip">버림</span>' : '';
   if (!open) {
     const again = m.outcome === 'dismissed' ? `<button type="button" class="btn small" data-action="chatReopen" data-arg="${i}">다시 검토</button>`
-      : base.next && m.applied.includes('arc') && !S.arcDraft && !nextStale(m) ? `<button type="button" class="btn small" data-action="chatRestoreDraft" data-arg="${i}">다음 아크 초안에 다시 넣기</button>` : '';
+      : [base.next && m.applied.includes('arc') && !S.arcDraft && !nextStale(m) ? `<button type="button" class="btn small" data-action="chatRestoreDraft" data-arg="${i}">다음 아크 초안에 다시 넣기</button>` : '',
+        // 적용 전 값이 남은 변경안만 취소할 수 있다 (다음 아크 초안에만 넣은 것은 작품이 바뀌지 않았다)
+        m.plot_before ? `<button type="button" class="btn small" data-action="chatUndo" data-arg="${i}">적용 취소</button>` : ''].join('');
     return `<details class="proposal done"${again && !S.arcDraft && base.next ? ' open' : ''}><summary>${done} 변경안 다시 보기</summary>${parts.join('')}${again ? `<div class="row proposal-actions">${again}</div>` : ''}</details>`;
   }
   // 맨 위 요약: 무엇이 바뀌는지 한 줄로 보고, 여러 화를 한 번에 고르거나 뺀다. 버튼 줄은 아래에 붙어 있다 (.proposal-actions)
@@ -317,7 +363,7 @@ function proposal(m, i) {
   const sum = [(rev.parts || []).length ? '부 구성' : '', hasArc ? (base.next ? '다음 아크' : '아크 칸') : '', rev.acts.length && !linked ? '구조' : '',
     nums.length ? `${rangeText(nums)}화${fresh ? `(새 화 ${fresh})` : ''}` : ''].filter(Boolean).join(' · ');
   const many = nums.length > 3 ? `<button type="button" class="btn small" data-action="chatPickAll" data-arg="${i}|1">모두 고르기</button><button type="button" class="btn small" data-action="chatPickAll" data-arg="${i}|0">모두 빼기</button>` : '';
-  return `<div class="proposal"><div class="between prop-sum"><strong>${esc(sum)}</strong><span class="row">${many}</span></div>${parts.join('')}
+  return `<div class="proposal"><div class="between prop-sum"><strong>${esc(sum)}</strong><span class="row">${many}</span></div>${changeList(rev, base, hasArc)}${parts.join('')}
     ${proposalActions(['chatDismiss', i], ['chatApply', i])}</div>`;
 }
 
@@ -456,6 +502,20 @@ Object.assign(actions, {
       }
       const done = chatMessages(S.chatTopic)[i];
       toast(`적용했어요: ${(done ? done.applied : []).map((x) => chatAppliedLabel(m, x)).join(', ')}${draft ? '. 초안을 살펴보고 \'이 아크 적용\'을 누르세요' : ''}`);
+    });
+  },
+  async chatUndo(i) {
+    i = Number(i);
+    const m = chatMessages(S.chatTopic)[i];
+    if (!confirm(`이 변경안 적용을 취소할까요? 적용한 구조와 화 플롯을 적용하기 전으로 돌리고, 확정했던 화는 확정으로 돌아가요. 그 뒤에 다시 고치거나 확정한 화, 본문을 쓴 화는 그대로 둬요.${S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : ''}`)) return;
+    await run('적용을 취소하는 중', async () => {
+      await saveIfDirty();
+      const res = await api('POST', `/projects/${enc(S.name)}/chat/plot/${i}/undo`);
+      S.project = res.project;
+      const label = (x) => chatAppliedLabel(m, x);
+      const kept = res.kept.map((x, k) => `${label(x)}(${res.reasons[k]})`).join(', ');
+      toast(res.restored.length ? `되돌렸어요: ${res.restored.map(label).join(', ')}${kept ? ` · 그대로 둔 것: ${kept}` : ''}`
+        : `되돌린 것이 없어요. 그대로 둔 것: ${kept}`, !res.restored.length);
     });
   },
   chatRestoreDraft(i) {

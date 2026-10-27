@@ -28,6 +28,7 @@ from .schema import (ArcPlan, BodySuggestion, Character, WorldSetting, ArcPropos
 from . import atlas, foreshadows, setupchat, statwin, timeline
 from .schema import ChatScope, Deadline, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .schema import CharacterState, StoryEvent
+from .schema import NameOption, Recap
 
 STATIC = Path(__file__).parent / "static"
 # 폴더 이름: / \ 와 운영체제가 막는 : * ? " < > | 는 쓸 수 없고, . 으로 시작하지 않는다
@@ -137,6 +138,12 @@ def _not_auto(name: str) -> None:
         raise ValueError("자동 집필이 도는 중이에요. 일시정지한 뒤에 하세요")
 
 
+class _Out(BaseModel):
+    """응답 모델: 기본값이 있는 칸도 응답에는 늘 있으니 명세에서 필수로 적는다 (Swift 타입이 옵셔널이 되지 않게).
+    null 이 될 수 있는 칸은 scripts/make_openapi.py 의 drop_null 이 옵셔널로 바꾼다."""
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True, populate_by_name=True)
+
+
 # ---------- 프로젝트 ----------
 
 class NewProject(BaseModel):
@@ -145,8 +152,103 @@ class NewProject(BaseModel):
     style_id: str = ""  # 문체 라이브러리에서 고른 항목
 
 
+class StageConfig(_Out):
+    """단계 하나가 지금 쓰는 백엔드와 모델 (settings.public 의 stages)."""
+    provider: str
+    source: str
+    model: str  # 화면에 보일 모델 이름
+    model_source: str
+    env: str  # 백엔드를 정한 환경 변수 이름. 없으면 ""
+    model_env: str
+
+
+class ConfigView(_Out):
+    """설정 화면이 보는 값 (settings.public). 키 원문은 없고 끝 네 글자(`key_hint`)와 출처만 있다."""
+    provider: str
+    provider_source: str
+    model: str
+    model_setting: str
+    model_source: str
+    has_key: bool
+    key_hint: str
+    key_source: str
+    gemini_auth: str
+    gemini_auth_source: str
+    vertex_credentials: str  # 키 파일 경로 (내용이 아님)
+    vertex_credentials_source: str
+    vertex_credentials_found: bool
+    vertex_project: str
+    vertex_project_source: str
+    vertex_location: str
+    vertex_location_source: str
+    local_url: str
+    local_url_source: str
+    local_model: str
+    local_model_source: str
+    has_local_key: bool
+    claude_model: str
+    claude_model_source: str
+    claude_bin: str
+    claude_bin_source: str
+    anthropic_key_hint: str
+    anthropic_key_source: str
+    stages: dict[str, StageConfig]
+    stage_settings: dict[str, str]  # 설정 파일에 적은 단계별 백엔드
+    stage_model_settings: dict[str, str]
+    path: str  # 설정 파일 경로
+
+
+class ConfigTest(_Out):
+    ok: bool
+    message: str
+
+
+class ModelList(_Out):
+    """백엔드 하나의 모델 목록. 못 불러오면 models 가 비고 error · reason(no_key | unreachable | other)이 찬다."""
+    models: list[str] = []
+    error: str = ""
+    reason: str = ""
+
+
+class ConfigHealth(_Out):
+    """AI 를 쓸 수 있는지 (작품 목록 · 사이드바 경고). local 은 로컬을 쓰지 않으면 null."""
+    mock: bool
+    gemini: bool
+    has_key: bool
+    local: bool | None = None
+    local_error: str = ""
+
+
+class ClaudeAccount(_Out):
+    """Claude Code `auth status` 에서 화면에 보일 칸만 (claude.STATUS_FIELDS)."""
+    loggedIn: bool = False
+    authMethod: str = ""
+    apiProvider: str = ""
+    email: str = ""
+    orgName: str = ""
+    organizationName: str = ""
+    subscriptionType: str = ""
+
+
+class ClaudeStatus(_Out):
+    """Claude Code 설치와 구독 로그인 상태 (claude.status). reason: ok | login | metered | install | error."""
+    installed: bool
+    path: str
+    version: str
+    logged_in: bool
+    account: ClaudeAccount = ClaudeAccount()
+    env_token: bool
+    api_key_ignored: bool
+    message: str
+    reason: str
+    login_command: str
+    token_command: str
+    auth_method: str = ""
+    metered: bool = False
+
+
 @app.get("/api/config")
-def config() -> dict:
+def config() -> ConfigView:
     return settings.public()
 
 
@@ -171,10 +273,10 @@ class SettingsIn(BaseModel):
 
 
 @app.put("/api/config")
-def put_config(body: SettingsIn) -> dict:
+def put_config(body: SettingsIn) -> ConfigView:
     choices = settings.PROVIDERS
     if body.provider is not None and body.provider not in choices:
-        raise HTTPException(400, f"provider 는 {' / '.join(choices)} 중 하나예요")
+        raise HTTPException(400, f"provider는 {' / '.join(choices)} 중 하나예요")
     for stage, value in (body.stages or {}).items():
         if stage not in settings.STAGES or (value and value not in choices):
             raise HTTPException(400, f"단계 설정이 잘못됐어요: {stage}={value}")
@@ -196,7 +298,7 @@ def put_config(body: SettingsIn) -> dict:
 
 
 @app.post("/api/config/test")
-def test_config() -> dict:
+def test_config() -> ConfigTest:
     """단계에서 쓰는 백엔드와 모델마다 연결을 확인한다. 본문 생성 비용은 들지 않는다."""
     used = {(settings.stage_provider(s)[0], settings.stage_model(s)[0]) for s in settings.STAGES}
     used = {u for u in used if u[0] != "mock"}
@@ -214,7 +316,7 @@ def test_config() -> dict:
 
 
 @app.get("/api/config/models")
-def config_models() -> dict:
+def config_models() -> dict[str, ModelList]:
     """설정 화면의 모델 목록. 백엔드마다 실제로 쓸 수 있는 모델을 묻고, 실패하면 이유만 돌려준다."""
     out = {"claude": {"models": claude.CLI_MODELS, "error": ""}}
     makers = [("gemini", GeminiLLM), ("local", lambda: LocalLLM(timeout=5))]
@@ -230,7 +332,7 @@ def config_models() -> dict:
 
 
 @app.get("/api/config/health")
-def config_health() -> dict:
+def config_health() -> ConfigHealth:
     """AI 를 쓸 수 있는지. 작품 목록 · 사이드바 경고에 쓴다: 키 없음, 로컬 서버 응답 없음, mock(가짜 결과)."""
     pub = settings.public()
     provs = {v["provider"] for v in pub["stages"].values()}
@@ -245,7 +347,7 @@ def config_health() -> dict:
 
 
 @app.get("/api/claude/status")
-def claude_status() -> dict:
+def claude_status() -> ClaudeStatus:
     """Claude Code 설치와 구독 로그인 상태. 로그인은 Claude Code 가 하고 Canon 은 상태만 본다 (claude.py)."""
     return claude.status()
 
@@ -418,6 +520,7 @@ def put_project(name: str, p: Project, response: Response, merged: str = "", for
         pipeline.validate_parts(p.parts, p.meta.target_episodes)
         pipeline.validate_story_arcs(p)
     pipeline.validate_storylines(p)
+    pipeline.validate_characters(p, disk)
     pipeline.validate_relationships(p)
     pipeline._init_states(p)
     p.meta.genre = genres.label(p.meta)
@@ -466,6 +569,12 @@ def _keep_impacts(name: str, p: Project) -> None:
 
 # ---------- 1. 설정 도우미 ----------
 
+@app.get("/api/relation_views")
+def relation_views() -> list[str]:
+    """관계를 말로 고르는 보는 방식 (dynamics.VIEWS 의 말, 순서 그대로). 설정 화면이 시작 관계를 고를 때 쓴다."""
+    return list(dynamics.VIEWS)
+
+
 @app.post("/api/projects/{name}/suggest")
 def suggest(name: str) -> SetupSuggestion:
     return pipeline.suggest_setup(get_llm("plan"), _load(name))
@@ -480,8 +589,13 @@ def apply_suggestion(name: str, s: SetupSuggestion) -> Project:
 
 # ---------- 이름 · 지명 ----------
 
+class NamingStyleOut(naming.NameStyle):
+    """이름 스타일 하나와 고를 수 있는 지명 종류."""
+    place_kinds: list[str]
+
+
 @app.get("/api/naming/styles")
-def naming_styles() -> list[dict]:
+def naming_styles() -> list[NamingStyleOut]:
     return [{**st.model_dump(), "place_kinds": naming.place_kinds(st.id)} for st in naming.STYLES]
 
 
@@ -493,8 +607,17 @@ class NamesIn(BaseModel):
     project: Project | None = None  # 저장 전 화면의 값 (나이, 성별, 이름 스타일을 고친 직후에도 맞게)
 
 
-@app.post("/api/projects/{name}/names")
-def names(name: str, body: NamesIn) -> dict:
+class NamesOut(BaseModel):
+    """이름 · 지명 후보. ai 면 options 에 AI 가 고른 이름과 이유가 있다."""
+    style: str
+    detected: str
+    style_label: str
+    candidates: list[naming.Candidate]
+    options: list[NameOption] = []
+
+
+@app.post("/api/projects/{name}/names", response_model_exclude_unset=True)  # options 는 ai 일 때만
+def names(name: str, body: NamesIn) -> NamesOut:
     p = body.project or _load(name)
     n = max(1, min(body.n, 20))
     out: dict = {"style": naming.resolve_style(p), "detected": naming.detect_style(p)}
@@ -516,8 +639,24 @@ class NameCheckIn(BaseModel):
     cast_candidates: list[Character] = []
 
 
+class NameIssue(BaseModel):
+    """이름 점검 한 줄 (naming.cast_issues)."""
+    kind: str
+    level: str  # warn | info
+    text: str
+    ids: list[str]
+
+
+class NameCheckOut(BaseModel):
+    warnings: list[str]
+    issues: list[NameIssue]
+    kinds: dict[str, str]
+    style: str
+    detected: str
+
+
 @app.post("/api/projects/{name}/names/check")
-def names_check(name: str, body: NameCheckIn | None = None) -> dict:
+def names_check(name: str, body: NameCheckIn | None = None) -> NameCheckOut:
     p = _load(name)
     if body is not None:  # 저장 전 화면 값으로 점검한다
         p.meta, p.world, p.characters, p.cast_candidates = body.meta, body.world, body.characters, body.cast_candidates
@@ -610,8 +749,31 @@ def measure(body: Sample) -> metrics.StyleMetrics:
     return metrics.measure(body.text)
 
 
-@app.get("/api/projects/{name}/style/link")
-def style_link(name: str) -> dict:
+class StyleFieldDiff(BaseModel):
+    """라이브러리와 다른 칸 하나 (library.diff). 글 칸은 before/after, 목록 칸은 added/removed."""
+    key: str
+    label: str
+    before: str = ""
+    after: str = ""
+    added: list[str] = []
+    removed: list[str] = []
+
+
+class StyleLink(BaseModel):
+    """작품 문체와 라이브러리 항목의 관계 (library.link_state). state: none | missing | same | changed"""
+    state: str
+    id: str = ""
+    name: str = ""
+    updated_at: str = ""
+    version: int = 0
+    applied: int = 0
+    mine: list[StyleFieldDiff] = []
+    theirs: list[StyleFieldDiff] = []
+    base_known: bool = False
+
+
+@app.get("/api/projects/{name}/style/link", response_model_exclude_unset=True)  # state 가 none · missing 이면 그 칸만
+def style_link(name: str) -> StyleLink:
     return library.link_state(_load(name))
 
 
@@ -635,8 +797,33 @@ class StyleKeep(BaseModel):
     note: str = ""  # 갱신할 때 버전 메모
 
 
+class StyleSummary(BaseModel):
+    """문체 라이브러리 목록의 항목 하나 (library.summary)."""
+    id: str
+    name: str
+    source: str
+    notes: str
+    narration_pov: str
+    tense: str
+    passages: int
+    rules: int
+    banned: int
+    markers: int
+    devices: int
+    sample_chars: int
+    created_at: str
+    updated_at: str
+    version: int
+    used_by: list[str]
+
+
+class StyleKept(BaseModel):
+    entry: StyleSummary
+    project: Project
+
+
 @app.post("/api/projects/{name}/style/library")
-def keep_style(name: str, body: StyleKeep) -> dict:
+def keep_style(name: str, body: StyleKeep) -> StyleKept:
     """작품의 지금 문체를 라이브러리에 저장한다 (작품 화면에서 저장한 뒤 부른다)."""
     p = _load(name)
     if body.update:
@@ -729,7 +916,7 @@ def _style_id(sid: str) -> str:
 
 
 @app.get("/api/styles")
-def list_styles() -> list[dict]:
+def list_styles() -> list[StyleSummary]:
     return [library.summary(e) for e in library.entries()]
 
 
@@ -885,12 +1072,9 @@ def undo_conversion(name: str) -> Project:
     return out
 
 
-class RecapIn(BaseModel):
-    summary: str
-
-
 @app.post("/api/projects/{name}/recap/{kind}/{number}")
-def apply_recap(name: str, kind: str, number: int, body: RecapIn) -> Project:
+def apply_recap(name: str, kind: str, number: int, body: Recap) -> Project:
+    """작가가 고친 요약을 저장한다. 본문 모양은 요약 작업(recap_arc, recap_part)의 결과와 같다."""
     p = _load(name)
     pipeline.apply_recap(p, kind, number, body.summary)
     return _save(name, p)
@@ -961,8 +1145,14 @@ def _renumber_ready(name: str) -> None:
         raise ValueError(f"AI 작업({', '.join(busy)})이 끝난 뒤에 하세요. 화 번호가 바뀌면 작업 결과가 엉뚱한 화에 들어가요")
 
 
+class Renumbered(BaseModel):
+    """화를 넣거나 뺀 뒤의 작품과 무엇을 옮겼는지."""
+    project: Project
+    notes: list[str]
+
+
 @app.post("/api/projects/{name}/episodes/insert")
-def insert_episode(name: str, body: InsertIn) -> dict:
+def insert_episode(name: str, body: InsertIn) -> Renumbered:
     """새 화를 넣고 뒤 화를 한 칸씩 민다. 무엇을 옮겼는지(notes)를 함께 돌려준다."""
     _renumber_ready(name)
     at = body.at
@@ -975,7 +1165,7 @@ def insert_episode(name: str, body: InsertIn) -> dict:
 
 
 @app.delete("/api/projects/{name}/episodes/{n}")
-def remove_episode(name: str, n: int) -> dict:
+def remove_episode(name: str, n: int) -> Renumbered:
     """아직 안 쓴 화를 빼고 뒤 화를 한 칸씩 당긴다."""
     _renumber_ready(name)
     with jobs.project_lock(name):
@@ -984,6 +1174,28 @@ def remove_episode(name: str, n: int) -> dict:
         store.save(name, p)
     autorun.renumber(name, lambda x: x - 1 if x >= n else x)
     return {"project": p, "notes": notes}
+
+
+class DeleteIn(BaseModel):
+    keep_plot: bool = False  # 화를 빼지 않고 확정된 플롯으로 남긴다
+
+
+@app.post("/api/projects/{name}/episodes/{n}/delete")
+def delete_episode(name: str, n: int, body: DeleteIn) -> dict:
+    """본문이 있거나 반영한 마지막 화를 지운다: 반영 취소 → 본문 비우기 → 화 빼기. 지우기 전 작품은 before-delete-<화>.json 으로 남긴다."""
+    _renumber_ready(name)
+    _text_guard(name, n)
+    with jobs.project_lock(name):
+        p = _load(name)
+        before = p.model_copy(deep=True)
+        notes = pipeline.delete_last(p, n, body.keep_plot)
+        path = store.save_backup(name, f"before-delete-{n}", before)
+        store.save(name, p)
+    if before.episode(n).status == "finalized":
+        autorun.after_revert(name, n)
+    if not body.keep_plot:
+        autorun.renumber(name, lambda x: x - 1 if x >= n else x)
+    return {"project": p, "notes": [*notes, f"지우기 전 작품은 {path.name} 으로 남겨 뒀어요."]}
 
 
 # ---------- 3-1. 대화로 다듬기 ----------
@@ -1076,18 +1288,8 @@ def chat_apply(name: str, topic: str, i: int, body: ChatApply) -> Project:
             _not_auto(name)
         return _edit(name, lambda q: setupchat.apply(q, i, body.fields))
     p = _load(name)
-    msgs = _chat(p, topic).messages
-    if not 0 <= i < len(msgs) or msgs[i].revision is None:
-        raise HTTPException(404, "변경안이 있는 메시지가 아니에요")
-    m = msgs[i]
-    if m.outcome:
-        raise ValueError("이미 처리한 변경안이에요")
-    drafted = [x for x in body.draft if x == "arc"] if m.target == "next" and m.revision.arc.title else []
-    if not (body.acts or body.episodes or body.arc or body.parts or drafted):
-        raise ValueError("반영할 부분을 고르세요")
-    done = pipeline.apply_revision(p, m.revision, body.acts, body.episodes, arc=body.arc, parts=body.parts, target=m.target)
-    m.applied = drafted + done
-    m.outcome = "applied"
+    _plot_revision(p, topic, i)
+    pipeline.apply_plot_chat(p, i, body.acts, body.episodes, arc=body.arc, parts=body.parts, draft=body.draft, topic=topic)
     return _save(name, p)
 
 
@@ -1149,6 +1351,25 @@ def setup_chat_undo(name: str, i: int) -> dict:
     return {"project": p, **out}
 
 
+def _plot_revision(p: Project, topic: str, i: int) -> None:
+    msgs = _chat(p, topic).messages
+    if not 0 <= i < len(msgs) or msgs[i].revision is None:
+        raise HTTPException(404, "변경안이 있는 메시지가 아니에요")
+
+
+@app.post("/api/projects/{name}/chat/plot/{i}/undo")
+def plot_chat_undo(name: str, i: int) -> dict:
+    """적용한 플롯 변경안을 취소한다. 그 뒤에 다시 고쳤거나 확정한 화, 본문을 쓴 화와 그 때문에 줄일 수 없는 구조는 그대로 두고
+    까닭(reasons, kept 와 같은 순서)을 알려 준다. 변경안은 다시 고를 수 있게 열린다."""
+    _plot_revision(_load(name), "plot", i)
+    out: dict = {}
+
+    def fn(p: Project) -> None:
+        out["restored"], out["kept"], out["reasons"] = pipeline.undo_plot_chat(p, i)
+    p = _edit(name, fn)
+    return {"project": p, **out}
+
+
 @app.delete("/api/projects/{name}/chat/{topic}")
 def chat_clear(name: str, topic: str) -> Project:
     _chat(_load(name), topic)
@@ -1158,8 +1379,13 @@ def chat_clear(name: str, topic: str) -> Project:
 # ---------- 3-2. 인과율 ----------
 # 요소 자체는 작가 입력이라 작품 저장(PUT)으로 저장한다. 영향 분석은 백그라운드 작업(kind 'impact')이 요소에 붙인다.
 
+class ElementLink(elements.Link):
+    """관련 화 지도의 한 화 (elements.Link). snippet 도 응답에는 늘 있다."""
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+
 @app.get("/api/projects/{name}/elements/links")
-def element_links(name: str) -> dict:
+def element_links(name: str) -> dict[str, list[ElementLink]]:
     """요소마다 관련 화 지도 (AI 없이 이름, 별칭, 관련 인물로 찾음)."""
     p = _load(name)
     return {el.id: [lk.model_dump() for lk in elements.links(p, el)] for el in p.elements}
@@ -1586,8 +1812,34 @@ def _text_guard(name: str, n: int) -> None:
 
 # ---------- 4-0. 다시 생성 ----------
 
+class RewritePreset(BaseModel):
+    """빠른 요청 하나 (prompts.REWRITE_PRESETS)."""
+    id: str
+    label: str
+
+
+class RewriteMaterialInfo(BaseModel):
+    """함께 넣을 수 있는 재료 하나. lines 는 프롬프트에 들어갈 줄 그대로, 비면 넣을 것이 없다."""
+    id: str
+    label: str
+    lines: list[str]
+    note: str
+
+
+class RewriteInfo(BaseModel):
+    presets: list[RewritePreset]
+    materials: list[RewriteMaterialInfo]
+    keep_max: int
+
+
+class PromptText(BaseModel):
+    """보내지 않고 보기만 하는 프롬프트 원문."""
+    system: str
+    prompt: str
+
+
 @app.get("/api/projects/{name}/episodes/{n}/rewrite")
-def rewrite_info(name: str, n: int) -> dict:
+def rewrite_info(name: str, n: int) -> RewriteInfo:
     """다시 생성 패널: 빠른 요청과 함께 넣을 수 있는 재료(프롬프트에 들어갈 줄 그대로)."""
     p = _load(name)
     e = p.episode(n)
@@ -1604,7 +1856,7 @@ def rewrite_info(name: str, n: int) -> dict:
 
 
 @app.post("/api/projects/{name}/episodes/{n}/rewrite/prompt")
-def rewrite_prompt(name: str, n: int, body: RewriteRequest) -> dict:
+def rewrite_prompt(name: str, n: int, body: RewriteRequest) -> PromptText:
     """다시 생성 때 보내는 프롬프트 원문 (보내지 않고 보기만)."""
     p = _load(name)
     return {"system": prompts.writer_system(p), "prompt": pipeline.rewrite_prompt(p, n, pipeline.clean_rewrite(body))}
@@ -1705,6 +1957,14 @@ def opening_plot(name: str, n: int, body: OpeningPlotIn) -> Project:
     return _edit(name, lambda p: pipeline.apply_opening(p, n, body.plot))
 
 
+@app.post("/api/projects/{name}/episodes/{n}/opening-plot/undo")
+def opening_plot_undo(name: str, n: int) -> Project:
+    """n화 플롯을 여는 방식 안을 처음 고르기 전으로 되돌린다 (Episode.opening_prev). 화는 초안이 된다."""
+    _load(name)
+    _not_auto(name)
+    return _edit(name, lambda p: pipeline.undo_opening(p, n))
+
+
 @app.get("/api/projects/{name}/episodes/{n}/context")
 def context(name: str, n: int) -> list[dict]:
     """본문 생성에 들어가는 컨텍스트를 섹션별 글자 수로 보여준다."""
@@ -1721,8 +1981,23 @@ def context(name: str, n: int) -> list[dict]:
 
 # ---------- 4-2. 복사 · 내보내기 (canon/publish.py) ----------
 
+class PublishFormat(BaseModel):
+    """줄바꿈 형식 하나 (publish.FORMATS)."""
+    id: str
+    label: str
+    hint: str
+
+
+class ExportOut(BaseModel):
+    """붙여 넣을 글. episodes 는 실제로 넣은 화 (본문이 없는 화는 빠진다)."""
+    text: str
+    html: str
+    episodes: list[int]
+    filename: str
+
+
 @app.get("/api/publish/formats")
-def publish_formats() -> list[dict]:
+def publish_formats() -> list[PublishFormat]:
     return [{"id": k, "label": label, "hint": hint} for k, (label, hint) in publish.FORMATS.items()]
 
 
@@ -1742,7 +2017,7 @@ def _export_numbers(p: Project, eps: list[int]) -> list[int]:
 
 
 @app.post("/api/projects/{name}/export")
-def export_text(name: str, body: ExportIn) -> dict:
+def export_text(name: str, body: ExportIn) -> ExportOut:
     """다른 곳에 붙여 넣을 글(텍스트와 HTML)을 만든다. 저장하지 않는다."""
     p = _load(name)
     return publish.export(p, _export_numbers(p, body.episodes), body.format, body.title, body.drafts)
@@ -1835,7 +2110,7 @@ def suggest_look(name: str, cid: str) -> LookSuggestion:
 
 
 @app.get("/api/projects/{name}/episodes/{n}/prompt")
-def prompt(name: str, n: int) -> dict:
+def prompt(name: str, n: int) -> PromptText:
     p = _load(name)
     return {"system": prompts.writer_system(p), "prompt": prompts.episode_prompt(p, n)}
 
@@ -1965,6 +2240,53 @@ class AutoIn(BaseModel):
     policy: autorun.Policy = autorun.Policy()
 
 
+# 응답 모델: 기본값이 있는 칸도 응답에는 늘 있으니 명세에서 필수로 적는다 (Swift 타입이 옵셔널이 되지 않게)
+_AUTO_OUT = ConfigDict(json_schema_serialization_defaults_required=True, populate_by_name=True)
+
+
+class AutoLog(autorun.LogEntry):
+    model_config = _AUTO_OUT
+
+
+class AutoRun(autorun.Run):
+    """autorun.Run 과 같은 칸. 명세에서 칸을 필수로 적으려고 따로 둔다."""
+    model_config = _AUTO_OUT
+    log: list[AutoLog] = Field(default_factory=list)
+
+
+class AutoView(BaseModel):
+    """자동 집필 화면이 받는 것: 마지막 실행, 도는 중인지, 배치를 쓸 수 있는 단계, 새로 시작할 때의 서버 기본 정책."""
+    model_config = _AUTO_OUT
+    run: AutoRun | None = None
+    active: bool
+    batch_stages: list[str]
+    policy_defaults: autorun.Policy = Field(default_factory=autorun.Policy)
+
+
+class AutoEstimate(BaseModel):
+    """남은 화를 끝까지 쓸 때의 추정 (autorun.estimate)."""
+    model_config = _AUTO_OUT
+    episodes: int
+    from_: int | None = Field(None, alias="from")
+    to: int
+    missing: list[int]
+    drafts: list[int]
+    calls: dict[str, int]
+    tokens_in: int
+    tokens_out: int
+    cost: float | None = Field(None, description="USD. 가격표에 없는 모델이 있으면 null")
+    batch: bool
+    batch_rounds: int
+    seconds_min: int
+    seconds_max: int
+    seconds_worst: int
+    batch_avg_seconds: int | None = None
+    measured: bool
+    model: str
+    unpriced: list[str]
+    stages: dict[str, str]
+
+
 def _auto(name: str) -> dict:
     p = _load(name)
     run = autorun.get_run(name)
@@ -1972,21 +2294,21 @@ def _auto(name: str) -> dict:
     if out and run.pending and (run.status != "review" or p.episode(run.ep).status != "written"):
         out["pending"] = None  # 사용자가 검토 화면에서 이미 반영했다
     return {"run": out, "active": autorun.active(name),
-            "batch_stages": [s for s in ("write", "check", "state") if autorun.batchable(s)]}
+            "batch_stages": [s for s in ("write", "check", "state") if autorun.batchable(s)], "policy_defaults": autorun.Policy()}
 
 
 @app.get("/api/projects/{name}/auto")
-def auto_get(name: str) -> dict:
+def auto_get(name: str) -> AutoView:
     return _auto(name)
 
 
 @app.post("/api/projects/{name}/auto/estimate")
-def auto_estimate(name: str, body: AutoIn) -> dict:
+def auto_estimate(name: str, body: AutoIn) -> AutoEstimate:
     return autorun.estimate(_load(name), body.target, body.batch, body.policy, name)
 
 
 @app.post("/api/projects/{name}/auto/start")
-def auto_start(name: str, body: AutoIn) -> dict:
+def auto_start(name: str, body: AutoIn) -> AutoView:
     _load(name)
     autorun.start(name, body.target, body.batch, body.policy)
     return _auto(name)
@@ -1998,18 +2320,33 @@ class AutoResume(BaseModel):
 
 
 @app.post("/api/projects/{name}/auto/resume")
-def auto_resume(name: str, body: AutoResume) -> dict:
+def auto_resume(name: str, body: AutoResume) -> AutoView:
     _load(name)
     autorun.resume(name, approve=body.approve, rewrite=body.rewrite)
     return _auto(name)
 
 
+@app.post("/api/projects/{name}/auto/review")
+def auto_review(name: str) -> AutoView:
+    """검토 대기 변경안을 검토를 기다리는 결과(pending.json 의 state:<화>)로 둔다. 상태 승인 화면이 작업 결과처럼 읽는다.
+    웹은 화면 메모리로 넘기고(auto.js autoOpenReview), 앱은 이것을 부른 뒤 상태 승인 화면으로 간다."""
+    p = _load(name)
+    run = autorun.get_run(name)
+    if run is None or run.status != "review" or run.pending is None or run.ep is None or p.episode(run.ep).status != "written":
+        raise ValueError("검토를 기다리는 변경안이 없어요")
+    n, key = run.ep, f"state:{run.ep}"
+    rec = {"key": key, "id": f"auto:{run.started}:{n}", "kind": "state", "ep": n, "label": f"{n}화 상태 변경안",
+           "result": run.pending.model_dump(), "base": run.pending_text or None, "at": _now()}
+    store.edit_pending(name, lambda d: d["results"].__setitem__(key, rec))
+    return _auto(name)
+
+
 @app.post("/api/projects/{name}/auto/{what}")
-def auto_request(name: str, what: str) -> dict:
+def auto_request(name: str, what: str) -> AutoView:
     """what: pause | stop"""
     _load(name)
     if what not in ("pause", "stop"):
-        raise HTTPException(404, "pause 또는 stop 만 돼요")
+        raise HTTPException(404, "pause 또는 stop만 돼요")
     autorun.request(name, what)
     return _auto(name)
 
@@ -2019,14 +2356,14 @@ class AutoBatch(BaseModel):
 
 
 @app.put("/api/projects/{name}/auto/batch")
-def auto_batch(name: str, body: AutoBatch) -> dict:
+def auto_batch(name: str, body: AutoBatch) -> AutoView:
     _load(name)
     autorun.set_batch(name, body.batch)
     return _auto(name)
 
 
 @app.put("/api/projects/{name}/auto/policy")
-def auto_policy(name: str, body: autorun.Policy) -> dict:
+def auto_policy(name: str, body: autorun.Policy) -> AutoView:
     """멈춘 실행의 승인 정책을 바꾼다. 검토 대기와 기다리던 배치는 그대로 두고 다음 판정부터 적용된다."""
     _load(name)
     autorun.set_policy(name, body)
@@ -2182,6 +2519,12 @@ def atlas_generate_preview(name: str, body: MapSpec) -> dict:
     return atlas.generate(_load(name), body)
 
 
+@app.post("/api/projects/{name}/atlas/generate/suggest")
+def atlas_generate_suggest(name: str, body: MapSpec) -> dict:
+    """지도 만들기 설정 AI 제안 (크기 · 길 · 물 · 밭 · 숲, 장소마다 종류 · 놓기, 까닭). 저장하지 않는다."""
+    return pipeline.suggest_map(get_llm("plan"), _load(name), body)
+
+
 class GenerateIn(BaseModel):
     spec: MapSpec
     pins: list[str] = []  # 생성기가 고른 자리에 놓을 (이미 놓았으면 옮길) 장소 키
@@ -2196,6 +2539,39 @@ def atlas_generate(name: str, body: GenerateIn) -> Project:
     if old and (_map_dir(name) / old).is_file():
         (_map_dir(name) / old).unlink()
     return out
+
+
+class TitleIn(BaseModel):
+    title: str
+
+
+@app.put("/api/projects/{name}/atlas/title")
+def atlas_title(name: str, body: TitleIn) -> Project:
+    """지도 위 마을 이름. 비우면 '마을 가운데' 종류의 장소 이름을 쓴다."""
+    p = _load(name)
+    atlas.set_title(p, body.title)
+    return _save(name, p)
+
+
+@app.get("/api/projects/{name}/atlas/name-ideas")
+def atlas_name_ideas(name: str) -> dict:
+    """새 장소 이름 후보 (작품 이름 스타일). 저장하지 않는다."""
+    return {"names": atlas.name_ideas(_load(name))}
+
+
+class PlaceAddIn(BaseModel):
+    name: str
+    x: float
+    y: float
+    kind: str = ""  # 종류 한 단어 (설명 앞에 붙는다)
+
+
+@app.post("/api/projects/{name}/atlas/places")
+def atlas_place_add(name: str, body: PlaceAddIn) -> dict:
+    """지도에서 고른 자리를 새 장소(인과율 '장소')로 등록하고 놓는다. 돌려주는 것: {key, project}."""
+    p = _load(name)
+    key = atlas.add_place(p, body.name, body.x, body.y, body.kind)
+    return {"key": key, "project": _save(name, p)}
 
 
 class PinsIn(BaseModel):
@@ -2576,7 +2952,7 @@ class StatTemplate(BaseModel):
 @app.put("/api/projects/{name}/statwin-template")
 def statwin_template(name: str, body: StatTemplate) -> Project:
     if "{rows}" not in body.template:
-        raise ValueError("서식에 {rows} 가 있어야 항목이 들어갑니다")
+        raise ValueError("서식에 {rows}가 있어야 항목이 들어가요")
     p = _load(name)
     p.stat_window.template, p.stat_window.row = body.template, body.row
     return _save(name, p)
@@ -2641,8 +3017,20 @@ def deadline_remove(name: str, did: str) -> Project:
     return _save(name, p)
 
 
+class Relations(BaseModel):
+    """같은 관계를 말과 숫자로 (`_relations`)."""
+    words: str
+    numbers: str
+    show_numbers: bool
+
+
+class RelationPreview(Relations):
+    """상태 승인 화면 미리 보기: 반영하면 계산될 관계와 반영 전 관계."""
+    before: Relations
+
+
 @app.post("/api/projects/{name}/episodes/{n}/preview")
-def preview(name: str, n: int, d: StateDelta) -> dict:
+def preview(name: str, n: int, d: StateDelta) -> RelationPreview:
     """화면에서 고른 변경안을 복사본에 반영해, 반영 후 계산될 관계를 미리 보여 준다. 저장하지 않는다."""
     sim = _load(name)
     before = _relations(sim)
@@ -2664,8 +3052,12 @@ def set_view(name: str, body: View) -> Project:
 
 # ---------- 작업지시서 ----------
 
+class BriefText(BaseModel):
+    text: str
+
+
 @app.get("/api/projects/{name}/episodes/{n}/brief")
-def brief(name: str, n: int, kind: str = "episode") -> dict:
+def brief(name: str, n: int, kind: str = "episode") -> BriefText:
     p = _load(name)
     if kind == "state":
         if not p.episode(n).text:
@@ -2675,12 +3067,6 @@ def brief(name: str, n: int, kind: str = "episode") -> dict:
 
 
 # ---------- 연구 (모델 실험, 작품 데이터와 분리) ----------
-
-class _Out(BaseModel):
-    """응답 모델: 기본값이 있는 칸도 응답에는 늘 있으니 명세에서 필수로 적는다 (Swift 타입이 옵셔널이 되지 않게).
-    null 이 될 수 있는 칸은 scripts/make_openapi.py 의 drop_null 이 옵셔널로 바꾼다."""
-    model_config = ConfigDict(json_schema_serialization_defaults_required=True, populate_by_name=True)
-
 
 class UsageBucket(_Out):
     """사용량 묶음 하나의 합계 (usage.summary 의 bucket)."""

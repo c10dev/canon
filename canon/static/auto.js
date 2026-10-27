@@ -28,11 +28,21 @@ function autoLockNote() {
   return `<div class="note warn" role="status">자동 집필이 ${n ? `${n}화를 ` : ''}쓰는 중이에요. 손으로 쓰거나 반영하려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요.</div>`;
 }
 
+/** 목표 화로 고를 수 있는 첫 화: 반영하지 않은 첫 화 (autorun._todo 와 같은 기준). 다 반영했으면 마지막 화 */
+function autoFirstOpen() {
+  const p = P();
+  const done = new Set(p.episodes.filter((e) => e.status === 'finalized').map((e) => e.plot.number));
+  let n = 1;
+  while (done.has(n)) n += 1;
+  return Math.min(n, p.meta.target_episodes);
+}
+
 function autoDefaults() {
   const p = P();
   const last = S.auto && S.auto.run;
+  const lastPlot = p.episodes.length ? Math.max(...p.episodes.map((e) => e.plot.number)) : p.meta.target_episodes;
   return {
-    target: p.episodes.length ? Math.max(...p.episodes.map((e) => e.plot.number)) : p.meta.target_episodes,  // 플롯이 있는 마지막 화까지
+    target: Math.max(lastPlot, autoFirstOpen()),  // 플롯이 있는 마지막 화까지. 다 반영했으면 고를 수 있는 첫 화
     batch: last ? last.batch : false,
     policy: last ? { ...last.policy } : {
       check: true, max_issues: 0, max_shift: 0.3, stop_on_stage: false, stop_on_warnings: false, confirm_plots: false, review_every: 0, hand_pick_opening: true,
@@ -146,6 +156,26 @@ function autoCost(c) {
   return c < 0.01 ? '$0.01 미만' : `$${c.toFixed(2)}`;
 }
 
+/** 플롯이 없는 n화를 쓰려면 할 일. 장편은 다음 아크를 짜야 플롯이 생긴다 */
+function autoPlotHint(n) {
+  if (!serial()) return '먼저 플롯을 만드세요.';
+  const planned = plannedUntil();
+  if (n > planned && planned < P().meta.target_episodes) return `장편은 다음 아크를 짜야 플롯이 생겨요. <a class="btn small" href="${base()}/arc">다음 아크 기획 (${planned + 1}화부터)</a>`;
+  return `<a href="${base()}/arc">부 · 아크 · 플롯</a>에서 플롯을 만드세요.`;
+}
+
+/** 목표 화까지 쓸 수 있는 화가 없을 때 안내: 목표 화를 늘리거나, 장편은 다음 아크를 짠다 */
+function autoNothingNote(x) {
+  const p = P();
+  const lastPlot = Math.max(0, ...p.episodes.map((ep) => ep.plot.number));
+  if (x.missing.length) return `<div class="note warn">${rangeText(x.missing)}화는 플롯이 없어 쓸 수 없어요. ${autoPlotHint(x.missing[0])}</div>`;
+  let next;
+  if (x.to < lastPlot) next = '더 쓰려면 위에서 목표 화를 늘리세요.';
+  else if (x.to >= p.meta.target_episodes) next = '마지막 화까지 모두 반영했어요.';
+  else next = autoPlotHint(x.to + 1);
+  return `<div class="note plain">${x.to}화까지 남은 화가 없어요. ${next}</div>`;
+}
+
 function autoEstCard() {
   const e = S.autoEst;
   if (!e) return '<div class="small">추정하는 중…</div>';
@@ -159,12 +189,12 @@ function autoEstCard() {
       <div class="line">비용 ${autoCost(x.cost)}</div><div class="line">시간 ${time}</div></div>`;
   };
   const x = e.off;
-  // 남은 화가 없으면 시간 · 비용을 적지 않고 시작 버튼도 끈다 (viewAuto)
-  if (!x.episodes && !x.missing.length) return `<div class="note plain">${x.to}화까지 남은 화가 없어요. 더 쓰려면 위에서 목표 화를 늘리세요.</div>`;
+  // 쓸 수 있는 화가 없으면 시간 · 비용을 적지 않고 시작 버튼도 끈다 (viewAuto)
+  if (!x.episodes) return autoNothingNote(x);
   const local = Object.entries(x.stages).filter(([, v]) => v === 'local').map(([k]) => ({ write: '본문', check: '검수', state: '상태' }[k]));
   return `<div class="small">${x.episodes ? `${x.from}~${x.to}화 ${x.episodes}화 남음 · 호출 본문 ${x.calls.write} · 검수 ${x.calls.check} · 상태 ${x.calls.state} · 토큰 입력 약 ${x.tokens_in.toLocaleString()} / 출력 약 ${x.tokens_out.toLocaleString()}` : `${x.to}화까지 남은 화가 없어요`}</div>
     <div class="grid-2">${col(e.off, false)}${col(e.on, true)}</div>
-    ${x.missing.length ? `<div class="note warn">플롯이 없는 화(${rangeText(x.missing)}화)에서 멈춰요. 먼저 플롯을 만드세요.</div>` : ''}
+    ${x.missing.length ? `<div class="note warn">플롯이 없는 화(${rangeText(x.missing)}화)에서 멈춰요. ${autoPlotHint(x.missing[0])}</div>` : ''}
     ${(x.drafts || []).length ? `<div class="note warn">플롯이 초안인 ${rangeText(x.drafts)}화에서 멈춰요. 추정은 끝까지 쓴다고 보고 셌어요. 확정하거나 '초안 플롯도 자동으로 확정하고 쓰기'를 켜세요.</div>` : ''}
     ${local.length ? `<div class="small">${local.join(', ')} 단계는 로컬 모델이라 비용이 없고 배치도 쓰지 않아요.</div>` : ''}
     <div class="small">${x.measured ? '지난 실행에서 잰 출력량과 시간을 썼어요.' : '처음이라 화당 목표 분량으로 추정했어요.'} 가격은 <a href="#/usage">사용량 · 비용</a> 화면의 가격표(${esc(x.model)} 기준)로 계산한 추정치이고, 생각(thinking) 토큰이 많으면 더 나올 수 있어요.${x.unpriced && x.unpriced.length ? ` 가격표에 없는 모델(${x.unpriced.map(esc).join(', ')})이 있어 비용을 몰라요.` : ''}</div>`;
@@ -184,7 +214,7 @@ function autoPolicyForm(f, disabled, bind = 'auto') {
       ${chk('check', '화마다 검수하기', '앞선 본문·설정과 어긋나는 곳을 찾아요. 끄면 비용과 시간이 줄지만 모순을 놓칠 수 있어요.')}
       ${chk('confirm_plots', '초안 플롯도 자동으로 확정하고 쓰기', '켜면 덜 멈춰요. 끄면 초안 플롯을 만난 화에서 멈춰요')}
     </div>
-    <h3 class="auto-h">이럴 때는 멈추고 저에게 물어봐 주세요</h3>
+    <h3 class="auto-h">이럴 때는 멈추고 기다려요</h3>
     <p class="desc">걸리는 게 없으면 상태 변경안을 검토 없이 반영하고 다음 화로 가요. 반영한 화는 표시해 두고, 화마다 남는 스냅샷으로 되돌릴 수 있어요.</p>
     <div class="grid-2">
       <div class="field"><label for="${id('issues')}">검수에서 어긋난 곳이 몇 개를 넘으면 멈출까요</label><select id="${id('issues')}" data-${bind}="policy.max_issues"${dis || (p.check ? '' : ' disabled')}>${opts([[0, '하나라도 있으면 멈춤'], [1, '1개까지 넘어감'], [2, '2개까지 넘어감'], [5, '5개까지 넘어감']], p.max_issues)}</select></div>
@@ -307,10 +337,16 @@ function viewAuto() {
   const ended = !r || ['done', 'stopped'].includes(r.status);
   const canStart = !active && (ended || S.autoFormOpen);
   const batchNote = a.batch_stages && a.batch_stages.length
-    ? '배치를 켜면 Gemini Batch API 로 보내 비용이 절반이에요. 대신 단계마다 몇 분에서 길게는 24시간까지 기다려요. 화는 앞 화가 반영돼야 쓸 수 있어 한 화씩 차례로 가고, 한 화의 검수와 상태 변경안은 함께 보내요.'
-    : '지금 단계들이 Gemini 가 아니라서 배치를 켜도 일반 호출로 돌아요.';
-  const eps = Array.from({ length: p.meta.target_episodes }, (_, i) => i + 1);
-  const nothingLeft = !!(S.autoEst && S.autoEst.off && !S.autoEst.off.episodes && !S.autoEst.off.missing.length);
+    ? '배치를 켜면 Gemini Batch API로 보내 비용이 절반이에요. 대신 단계마다 몇 분에서 길게는 24시간까지 기다려요. 화는 앞 화가 반영돼야 쓸 수 있어 한 화씩 차례로 가고, 한 화의 검수와 상태 변경안은 함께 보내요.'
+    : '지금 단계들이 Gemini가 아니라서 배치를 켜도 일반 호출로 돌아요.';
+  // 목표 화는 반영하지 않은 첫 화부터 고른다. 다 쓴 실행 뒤 남은 목표가 그보다 앞이면 끌어올리고 다시 추정한다
+  const first = autoFirstOpen();
+  if (canStart && f.target < first) {
+    f.target = first;
+    autoEstimate().then(render);
+  }
+  const eps = Array.from({ length: p.meta.target_episodes - first + 1 }, (_, i) => first + i);
+  const nothingLeft = !!(S.autoEst && S.autoEst.off && !S.autoEst.off.episodes);
   const form = canStart ? `<section class="card">
       <div class="between"><h2>${r ? '새로 시작' : '시작하기'}</h2>${r && r.status !== 'done' && r.status !== 'stopped' ? '<span class="small">새로 시작하면 지금 실행의 검토 대기와 기다리던 배치는 버려요</span>' : ''}</div>
       <div class="grid-2">

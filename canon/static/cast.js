@@ -1,5 +1,5 @@
-/* 인물 화면. app.js 의 S, actions, api, render, header, relationHeader 를 그대로 쓴다.
-   관계도(방향 관계를 화별로 재생, 옆 칸은 인물 요약), 인물 상태창(인물 하나의 설정 · 지금 상태 · 상태창 수치 · 관계 · 비밀 ·
+/* 인물 화면. app.js 의 S, actions, api, render, header 와 review.js 의 relationHeader 를 그대로 쓴다.
+   관계도(방향 관계를 화별로 재생, 옆 칸은 인물 요약), 인물 카드(인물 하나의 설정 · 지금 상태 · 상태창 수치 · 관계 · 비밀 ·
    남겨 둔 설정 바꾸기 · 화별 타임라인을 보는 시점 기준으로 한 장에, 상태창 수치는 시스템 창 테마로도), 쌍 상세(온기 · 신뢰 · 긴장 추이), 등장표.
    계산값은 서버 canon/cast.py 의 /cast 한 번으로 받는다 (frames: 화별 관계, appearances, timelines).
    인물 설정 · 플롯 · 사건 원본은 작품(P())에서 직접 읽는다. 관계도 배치는 이 브라우저에만 저장한다. */
@@ -10,8 +10,9 @@ Object.assign(S, {
   castFrame: 0,      // frames 의 몇 번째 시점을 보는지
   castSel: '',       // 'c:<인물 id>' 또는 'p:<a>|<b>'
   castTab: 'graph',  // graph | sheet | table
-  castTheme: '',     // 인물 상태창의 상태창 수치 보기: '' 기본 | 'system' 시스템 창. 이 브라우저에만 저장
+  castTheme: '',     // 인물 카드의 상태창 수치 보기: '' 기본 | 'system' 시스템 창. 이 브라우저에만 저장
   castMinor: true,   // 단역도 관계도에 그린다
+  castAllTies: false,  // 인물이 많아도 모든 선을 그린다 (CAST_DENSE)
   castAllTl: false,  // 타임라인 전체 보기
   castPos: {},       // 끌어서 옮긴 자리 {id: [x, y]}
 });
@@ -19,11 +20,13 @@ Object.assign(S, {
 const CAST_W = 760;
 const CAST_H = 540;
 // 온기 다섯 구간 (dynamics.warmth_word 와 같은 경계): 빨강 ↔ 회색 ↔ 파랑. Swift 앱 WarmthBand 도 함께 고친다
-const WARMTH_BANDS = [[-0.6, '#B42318', '적대한다'], [-0.2, '#E0726A', '반감이 있다'], [0.2, '#9A9890', '무덤덤하다'], [0.6, '#5598E7', '호감이 있다'], [Infinity, '#1C5CAB', '깊이 아낀다']];
-const TENSION_FILL = { '보통': '#F2C894', '높음': '#C2620A', '매우 높음': '#B42318' };
+// 색은 app.css 토큰을 쓴다(밝은 화면 값: --red #B42318, --bad #E0726A, --good #5598E7). 맞는 토큰이 없는 회색 · 진한 파랑은 hex 로 둔다
+const WARMTH_BANDS = [[-0.6, 'var(--red)', '적대한다'], [-0.2, 'var(--bad)', '반감이 있다'], [0.2, '#9A9890', '무덤덤하다'], [0.6, 'var(--good)', '호감이 있다'], [Infinity, '#1C5CAB', '깊이 아낀다']];
+const TENSION_FILL = { '보통': '#F2C894', '높음': '#C2620A', '매우 높음': 'var(--red)' };
 const PAIR_COLORS = ['#2A78D6', '#EB6834'];  // 쌍 그래프: 앞 인물 → 뒤 인물, 뒤 → 앞
 const TIER_R = { main: 26, support: 20, minor: 15 };
 const TIER_NAME = { main: '주역', support: '조연', minor: '단역' };
+const CAST_DENSE = 8;  // 관계도에 보이는 인물이 이보다 많으면 고른 인물(두 사람)과 이어진 선만 그린다
 let castTimer = null;
 let castDrag = null;
 let castDragged = false;
@@ -212,6 +215,16 @@ function castForce(chars) {
   return pos;
 }
 
+/** 인물이 많으면(CAST_DENSE 초과) 고른 인물 · 두 사람과 이어진 선만 그린다. 모두 그릴 때는 null */
+function castNear(chars) {
+  if (S.castAllTies || chars.length <= CAST_DENSE) return null;
+  const selC = S.castSel.startsWith('c:') ? S.castSel.slice(2) : '';
+  const selP = S.castSel.startsWith('p:') ? S.castSel.slice(2).split('|') : null;
+  if (selC) return (s, t) => s === selC || t === selC;
+  if (selP) return (s, t) => selP.includes(s) || selP.includes(t);
+  return null;
+}
+
 function castShown() {
   return P().characters.filter((c) => S.castMinor || c.tier !== 'minor' || S.castSel === 'c:' + c.id);
 }
@@ -227,15 +240,16 @@ function castGraph() {
   const selC = S.castSel.startsWith('c:') ? S.castSel.slice(2) : '';
   const selP = S.castSel.startsWith('p:') ? S.castSel.slice(2).split('|') : null;
   const hot = (s, t) => (selC ? s === selC || t === selC : selP ? selP.includes(s) && selP.includes(t) : true);
+  const near = castNear(chars);
   const R = (id) => TIER_R[(castChar(id) || {}).tier || 'main'];
   const nm = (id) => charName(id);
   const out = [];
 
-  const markers = WARMTH_BANDS.map(([, col], i) => `<marker id="cg-arrow-${i}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="${col}"></path></marker>`).join('');
+  const markers = WARMTH_BANDS.map(([, col], i) => `<marker id="cg-arrow-${i}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" style="fill:${col}"></path></marker>`).join('');
 
   // 방향 간선: 두 방향이 서로 반대쪽으로 휘어 겹치지 않는다
   (f ? f.ties : []).forEach((t) => {
-    if (!shown.has(t.source) || !shown.has(t.target)) return;
+    if (!shown.has(t.source) || !shown.has(t.target) || (near && !near(t.source, t.target))) return;
     const [x1, y1] = pos[t.source];
     const [x2, y2] = pos[t.target];
     const d = Math.max(1, Math.hypot(x2 - x1, y2 - y1));
@@ -255,18 +269,18 @@ function castGraph() {
     const arg = [t.source, t.target].sort().join('|');
     out.push(`<g class="cg-edge${hot(t.source, t.target) ? '' : ' dim'}" data-action="castPick" data-arg="${esc('p:' + arg)}"><title>${esc(title)}</title>
       <path class="cg-hit" d="M${sx} ${sy} Q${qx} ${qy} ${ex} ${ey}"></path>
-      <path d="M${sx} ${sy} Q${qx} ${qy} ${ex} ${ey}" stroke="${WARMTH_BANDS[band][1]}" stroke-width="${(1.5 + 3.5 * t.familiarity).toFixed(2)}" marker-end="url(#cg-arrow-${band})"></path></g>`);
+      <path d="M${sx} ${sy} Q${qx} ${qy} ${ex} ${ey}" style="stroke:${WARMTH_BANDS[band][1]}" stroke-width="${(1.5 + 3.5 * t.familiarity).toFixed(2)}" marker-end="url(#cg-arrow-${band})"></path></g>`);
   });
 
   // 쌍 긴장: 보통 이상이면 두 인물 사이 가운데 점
   (f ? f.pairs : []).forEach((pr) => {
-    if (!shown.has(pr.a) || !shown.has(pr.b) || !TENSION_FILL[pr.tension_word]) return;
+    if (!shown.has(pr.a) || !shown.has(pr.b) || !TENSION_FILL[pr.tension_word] || (near && !near(pr.a, pr.b))) return;
     const [x1, y1] = pos[pr.a];
     const [x2, y2] = pos[pr.b];
     const r = 4 + pr.tension * 0.55;
     const arg = [pr.a, pr.b].sort().join('|');
     out.push(`<g class="cg-tension${hot(pr.a, pr.b) ? '' : ' dim'}" data-action="castPick" data-arg="${esc('p:' + arg)}"><title>${esc(`${nm(pr.a)} ↔ ${nm(pr.b)}${pr.type ? ' (' + pr.type + ')' : ''}: 긴장 ${pr.tension_word} (${pr.tension.toFixed(1)}/10)`)}</title>
-      <circle cx="${(x1 + x2) / 2}" cy="${(y1 + y2) / 2}" r="${r.toFixed(1)}" fill="${TENSION_FILL[pr.tension_word]}"></circle></g>`);
+      <circle cx="${(x1 + x2) / 2}" cy="${(y1 + y2) / 2}" r="${r.toFixed(1)}" style="fill:${TENSION_FILL[pr.tension_word]}"></circle></g>`);
   });
 
   // 인물
@@ -337,7 +351,7 @@ function castStrip(cid, opts = {}) {
     if (a.pov) cells.push(`<rect x="${x}" y="${h + 1}" width="${Math.max(1, step - 1)}" height="3" class="cs-pov"></rect>`);
   }
   if (opts.mark && opts.mark <= total) cells.push(`<rect x="${(opts.mark - 1) * step - 1}" y="0" width="${step + 1}" height="${h}" class="cs-mark"></rect>`);
-  return `<svg class="cast-strip" width="${total * step}" height="${h + 5}" viewBox="0 0 ${total * step} ${h + 5}" role="img" aria-label="${esc(charName(cid))} 등장 화">${cells.join('')}</svg>`;
+  return `<svg class="cast-strip" width="${total * step}" height="${h + 5}" viewBox="0 0 ${total * step} ${h + 5}" role="img" aria-label="${esc(`${charName(cid)} 등장 화: 1~${total}화 중 ${apps.size}화 등장`)}">${cells.join('')}</svg>`;
 }
 
 function castCharDetail(c) {
@@ -372,8 +386,8 @@ function castCharDetail(c) {
   return `<section class="card">
     <div class="between"><div><h2 style="font-size:1.25rem">${esc(c.name || c.id)}</h2>
       <div class="row" style="margin-top:6px"><span class="chip">${TIER_NAME[c.tier || 'main']}</span>${c.role ? `<span class="chip">${esc(c.role)}</span>` : ''}${[c.age, c.gender].filter(Boolean).map((v) => `<span class="small">${esc(v)}</span>`).join('')}</div></div>
-      <div class="row" style="gap:6px"><button type="button" class="btn small primary" data-action="castSheet" data-arg="${esc(c.id)}">상태창으로 보기</button><a class="btn small" href="${base()}/setup/${enc(c.id)}">설정에서 고치기</a></div></div>
-    ${held ? `<div class="note warn">남겨 둔 설정 바꾸기 제안이 ${held}개 있어요. 인물 상태창의 설정 칸에서 골라요.</div>` : ''}
+      <div class="row" style="gap:6px"><button type="button" class="btn small primary" data-action="castSheet" data-arg="${esc(c.id)}">인물 카드로 보기</button><a class="btn small" href="${base()}/setup/${enc(c.id)}">설정에서 고치기</a></div></div>
+    ${held ? `<div class="note warn">남겨 둔 설정 바꾸기 제안이 ${held}개 있어요. 인물 카드의 설정 칸에서 골라요.</div>` : ''}
     <div class="small">${apps.length ? `플롯 등장 ${apps.length}화 (${apps[0].n}~${apps[apps.length - 1].n}화)${pov ? ` · 시점 인물 ${pov}화` : ''}` : '플롯에 나오는 화가 아직 없어요'}${c.first_ep ? ` · ${c.first_ep}화에 처음 등장` : ''}</div>
     ${apps.length ? `<div class="cast-strip-wrap">${castStrip(c.id)}</div>` : ''}
     <h3>${esc(frameLabel(f))}</h3>
@@ -421,8 +435,8 @@ function castTimeline(c) {
   return `<section class="card"><div class="between"><h2>화별 타임라인</h2><span class="small">반영한 화에서 바뀐 것만</span></div>${more}<ol class="cast-tl">${items}</ol></section>`;
 }
 
-// ----- 인물 상태창 -----
-// 신체 프로필 칸 (Character.body). 작가가 정하고(AI 제안은 칸별로 골라 적용) 인물 상태창에만 보인다. 프롬프트에는 넣지 않는다
+// ----- 인물 카드 -----
+// 신체 프로필 칸 (Character.body). 작가가 정하고(AI 제안은 칸별로 골라 적용) 인물 카드에만 보인다. 프롬프트에는 넣지 않는다
 const BODY_FIELDS = [['height', '키'], ['weight', '몸무게'], ['build', '체형'], ['measurements', '쓰리사이즈'], ['features', '신체 특징']];
 
 /** 나이 칸으로 미성년인지. cast.is_minor_age 와 같은 규칙이라 함께 고친다 (tests/test_cast_js.py). 19 미만 숫자, 10대, 학생 · 아이 같은 말이면 미성년이다. 모르면 false.
@@ -729,7 +743,7 @@ function castPairDetail(a, b) {
     ${tieFixForm(a, b, names)}
     ${multi ? `<h3>온기</h3>${legend}${castChart(two((t) => t.warmth), -1, 1, { grid: [-1, 0, 1], notes, label: '온기 추이' })}
     <h3>신뢰</h3>${castChart(two((t) => t.trust), 0, 1, { grid: [0, 0.5, 1], notes, label: '신뢰 추이' })}
-    <h3>긴장 <span class="small" style="font-weight:400">0~10, 3 · 5 · 7 에서 보통 · 높음 · 매우 높음</span></h3>${castChart([{ label: '긴장', color: 'var(--text-2)', values: tension }], 0, 10, { grid: [0, 3, 5, 7, 10], fmt: (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1)), notes, label: '긴장 추이', h: 110 })}
+    <h3>긴장 <span class="small" style="font-weight:400">0~10, 3 · 5 · 7에서 보통 · 높음 · 매우 높음</span></h3>${castChart([{ label: '긴장', color: 'var(--text-2)', values: tension }], 0, 10, { grid: [0, 3, 5, 7, 10], fmt: (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1)), notes, label: '긴장 추이', h: 110 })}
     <div class="small">칸에 올리면 그 시점 값과 사건, 누르면 관계도가 그 시점으로 가요.</div>` : '<div class="small">1화를 반영하면 화별 추이 그래프가 나와요.</div>'}
     <h3>두 사람 사이 관계 사건 <span class="small" style="font-weight:400">${evs.length}개</span></h3>
     ${evList ? `<ul class="cast-ul">${evList}</ul>` : '<div class="small">아직 없어요</div>'}
@@ -747,7 +761,21 @@ function castDetail() {
 
 function castStage() {
   const f = castFrameNow();
-  return `<div class="cast-graph-wrap">${castGraph()}</div>${castLegend()}${castTieList(f)}${castTriads(f)}`;
+  return `<div class="cast-graph-wrap">${castGraph()}</div>${castDenseNote(f)}${castLegend()}${castTieList(f)}${castTriads(f)}`;
+}
+
+/** 인물이 많아 선을 덜 그렸으면 몇 개를 뺐는지와 '모든 선 보기'. 인물이 적으면 빈칸 */
+function castDenseNote(f) {
+  const chars = castShown();
+  if (chars.length <= CAST_DENSE) return '';
+  const shown = new Set(chars.map((c) => c.id));
+  const ties = (f ? f.ties : []).filter((t) => shown.has(t.source) && shown.has(t.target));
+  const near = castNear(chars);
+  const cut = near ? ties.filter((t) => !near(t.source, t.target)).length : 0;
+  const box = `<label class="row" style="gap:6px;font-size:0.8125rem"><input type="checkbox" data-cast-allties${S.castAllTies ? ' checked' : ''}>모든 선 보기</label>`;
+  const text = !ties.length ? '' : S.castAllTies ? `선 ${ties.length}개를 모두 그렸어요.`
+    : cut ? `인물이 ${chars.length}명이라 고른 인물과 이어진 선만 그렸어요. 선 ${ties.length}개 중 ${cut}개를 뺐어요.` : `고른 인물과 이어진 선만 그려요. 이 시점에는 뺀 선이 없어요.`;
+  return `<div class="row" style="gap:10px">${box}<span class="small">${text}</span></div>`;
 }
 
 /** 시점이나 선택만 바뀌면 슬라이더는 두고 관계도와 상세만 다시 그린다 (끄는 중인 슬라이더를 지우지 않게) */
@@ -797,7 +825,7 @@ function castTable() {
     const y = top + i * rowH;
     const rows = apps[c.id] || [];
     const m = new Map(rows.map((a) => [a.n, a]));
-    out.push(`<g class="ct-row" data-action="castOpen" data-arg="${esc(c.id)}" tabindex="0" role="button" aria-label="${esc((c.name || c.id) + ' 상태창 보기')}">
+    out.push(`<g class="ct-row" data-action="castOpen" data-arg="${esc(c.id)}" tabindex="0" role="button" aria-label="${esc((c.name || c.id) + ' 인물 카드 보기')}">
       <rect class="ct-hit" x="0" y="${y}" width="${width}" height="${rowH}"></rect>
       <text class="ct-name" x="10" y="${y + 18}">${esc(c.name || c.id)}</text><text class="ct-tier" x="${left - 10}" y="${y + 18}" text-anchor="end">${TIER_NAME[c.tier || 'main']}</text></g>`);
     for (let n = 1; n <= total; n++) {
@@ -816,7 +844,7 @@ function castTable() {
   }
   const legend = `<div class="legend"><span><i class="cs-key draft"></i>플롯 초안</span><span><i class="cs-key confirmed"></i>플롯 확정</span><span><i class="cs-key written"></i>본문 있음</span><span><i class="cs-key finalized"></i>반영 완료</span><span><i style="background:var(--text);border-radius:50%;width:8px;height:8px"></i>시점 인물</span></div>`;
   return `<section class="card">
-    <div class="between"><h2>등장표</h2><span class="small">플롯의 등장 인물 기준. 이름을 누르면 그 인물의 상태창을 열어요</span></div>
+    <div class="between"><h2>등장표</h2><span class="small">플롯의 등장 인물 기준. 이름을 누르면 인물 카드를 열어요</span></div>
     <div class="line-map-wrap"><svg class="line-map cast-table" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="group" aria-label="인물별 등장 화">${out.join('')}</svg></div>${legend}
   </section>`;
 }
@@ -825,12 +853,12 @@ function castTable() {
 
 function viewCast() {
   const p = P();
-  const desc = '인물 설정, 화마다 바뀐 상태, 방향 관계와 사건을 한곳에서 봐요. 관계 값은 반영한 화의 관계 사건으로 Canon 이 계산한 것이에요.';
+  const desc = '인물 설정, 화마다 바뀐 상태, 방향 관계와 사건을 한곳에서 봐요. 관계 값은 반영한 화의 관계 사건으로 Canon이 계산한 것이에요.';
   const tabs = `<div class="tabs" role="tablist" aria-label="인물 화면">
     <button type="button" role="tab" aria-selected="${S.castTab === 'graph'}" aria-controls="cast-panel" data-action="castTab" data-arg="graph">관계도</button>
-    <button type="button" role="tab" aria-selected="${S.castTab === 'sheet'}" aria-controls="cast-panel" data-action="castTab" data-arg="sheet">인물 상태창</button>
+    <button type="button" role="tab" aria-selected="${S.castTab === 'sheet'}" aria-controls="cast-panel" data-action="castTab" data-arg="sheet">인물 카드</button>
     <button type="button" role="tab" aria-selected="${S.castTab === 'table'}" aria-controls="cast-panel" data-action="castTab" data-arg="table">등장표</button></div>`;
-  const panel = (html) => `<div role="tabpanel" id="cast-panel" aria-label="${{ table: '등장표', sheet: '인물 상태창' }[S.castTab] || '관계도'}">${html}</div>`;
+  const panel = (html) => `<div role="tabpanel" id="cast-panel" aria-label="${{ table: '등장표', sheet: '인물 카드' }[S.castTab] || '관계도'}">${html}</div>`;
   const head = header('인물', '인물 · 관계도', desc, `<a class="btn" href="${base()}/setup">인물 · 관계 설정</a>`);
   if (!p.characters.length) return `${head}<div class="card empty"><p>아직 인물이 없어요.</p><a class="btn primary" href="${base()}/setup">설정 도우미에서 인물 만들기</a></div>`;
   if (!S.cast) return `${head}<div class="small">불러오는 중…</div>`;
@@ -870,7 +898,7 @@ Object.assign(actions, {
     const [source, target, k] = String(arg).split('|');
     const warmth = Number($(`#tf-w${k}`).value);
     const trust = Number($(`#tf-t${k}`).value);
-    if (!confirm(`${charName(source)} → ${charName(target)} 관계를 온기 ${warmth.toFixed(2)}, 신뢰 ${trust.toFixed(2)} 로 보정할까요?`)) return;
+    if (!confirm(`${charName(source)} → ${charName(target)} 관계를 온기 ${warmth.toFixed(2)}, 신뢰 ${trust.toFixed(2)} 값으로 보정할까요?`)) return;
     await run('보정하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/ties/adjust`, { source, target, warmth, trust });
@@ -970,6 +998,11 @@ document.addEventListener('input', (e) => {
 });
 
 document.addEventListener('change', (e) => {
+  if (e.target.matches('[data-cast-allties]')) {
+    S.castAllTies = e.target.checked;
+    castRefresh();
+    return;
+  }
   if (!e.target.matches('[data-cast-minor]')) return;
   S.castMinor = e.target.checked;
   castRefresh();

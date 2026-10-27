@@ -16,7 +16,7 @@ const SETUP_KEY_LABEL = Object.fromEntries(SETUP_KEYS);
 const SETUP_LISTS = ['world.rules', 'world.locations', 'world.name_rules'];
 const SETUP_CHAR_LABEL = {
   name: '이름', role: '역할', age: '나이', gender: '성별', goal: '원하는 것', wound: '두려운 것 · 약점', secrets: '숨기는 것',
-  speech_style: '말투', personality: '성격', background: '배경', appearance: '외모', arc: '아크',
+  speech_style: '말투 (대사)', personality: '성격', background: '배경', appearance: '외모', arc: '아크',
 };
 
 CHAT_TOPICS.setup = {
@@ -162,7 +162,15 @@ Object.assign(actions, {
     if (!fields.length) return toast('적용할 것을 고르세요', true);
     await run('설정에 적용하는 중', async () => {
       await saveIfDirty();
+      const before = setupCardKeys();
       S.project = await api('POST', `/projects/${enc(S.name)}/chat/setup/${i}/apply`, { fields });
+      // 새로 들어오거나 칸이 바뀐 인물 · 관계 카드는 펼쳐 보인다 (setup.js 의 카드 접기)
+      openNewCards(before);
+      fields.forEach((pid) => {
+        const [kind, a, b] = pid.split(':');
+        if (kind === 'c') openMap()['c:' + a] = true;
+        if (kind === 'r') openMap()[relKey({ a, b })] = true;
+      });
       toast(`적용했어요: ${fields.map((x) => setupLabel(m.setup, P(), x)).join(', ')}`);
     });
     if (S.route[2] === 'setup') checkNames();
