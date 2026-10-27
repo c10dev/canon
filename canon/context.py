@@ -32,6 +32,7 @@ BUDGET = {
     "deadlines": 1_200,     # 쓰기 · 검수 · 기획 · 상태 변경안의 작품 속 열린 기한 (timeline.deadline_lines, 단편도)
     "cast": 8_000,          # 본문 쓰기: '항상' 넣는 조연 · 단역과 이번 화 조연 · 단역의 설정. '항상' 조연 · 단역이 있을 때만 센다 (fit_cast)
     "travel": 800,          # 쓰기 · 검수의 이동 거리 (travel.episode_block, 지도 크기를 알 때만)
+    "stat_lines": 2_000,    # 쓰기: 상태창 줄 형식(stat_window.prompt = lines)의 도감 줄. 이번 화 인물의 수치 줄은 늘 넣는다
 }
 FACTS_RECENT = 30  # 최근 사실은 예산과 상관없이 넣는다
 CHECK_RECENT = 3  # 검수에 원문 그대로 넣는 직전 화 수
@@ -158,6 +159,42 @@ def pick_facts(p: Project, ids: set[str], query: str, budget: int, terms: Iterab
         keep.add(i)
         used += cost
     return [facts[i] for i in sorted(keep)], len(facts) - len(keep)
+
+
+# ---------- 인물이 아는 정보 ----------
+
+KNOWS_KEEP = 20  # 장편: 인물 하나에 넣는 아는 정보 수
+KNOWS_RECENT = 8  # 그중 최근 것은 관련과 상관없이 늘 넣는다
+KNOWS_OVERLAP = 0.2  # 이름 · 요소가 없을 때 이번 화 글과 겹친다고 볼 글 조각 비율
+
+
+def pick_knows(knows: list[str], query: str, names: Iterable[str], terms: Iterable[str] = ()) -> tuple[list[str], int]:
+    """인물이 아는 정보를 이번 화와 관련된 것부터 KNOWS_KEEP 개. 최근 KNOWS_RECENT 개는 늘 넣는다.
+    관련: 이야기 요소 · 장소(2) > 이번 화 인물 이름(1), 같으면 query 와 겹치는 글 조각이 많은 것, 그다음 최근 것.
+    관련된 것으로 다 차지 않으면 남은 자리는 최근 것으로 채운다. 고른 것은 원래 순서로. (고른 것, 뺀 수)"""
+    if len(knows) <= KNOWS_KEEP:
+        return list(knows), 0
+    names = [x for x in names if x]
+    terms = [t for t in terms if t]
+    q = grams(query)
+    keep = set(range(len(knows) - KNOWS_RECENT, len(knows)))
+    scored = []
+    for i, k in enumerate(knows):
+        if i in keep:
+            continue
+        g = grams(k)
+        overlap = len(g & q) / (len(g) or 1)
+        s = 2 * any(t in k for t in terms) + any(nm in k for nm in names)
+        if s or overlap >= KNOWS_OVERLAP:
+            scored.append((s, overlap, i))
+    scored.sort(key=lambda x: (-x[0], -x[1], -x[2]))
+    for _, _, i in scored[:KNOWS_KEEP - len(keep)]:
+        keep.add(i)
+    for i in range(len(knows) - 1, -1, -1):  # 남은 자리는 최근 것
+        if len(keep) >= KNOWS_KEEP:
+            break
+        keep.add(i)
+    return [knows[i] for i in sorted(keep)], len(knows) - len(keep)
 
 
 # ---------- 복선 ----------
