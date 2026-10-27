@@ -108,7 +108,7 @@ def _find(fs: list[Foreshadow], fid: str) -> Optional[Foreshadow]:
 def get(p: Project, fid: str) -> Foreshadow:
     f = _find(p.foreshadows, fid)
     if f is None:
-        raise KeyError(f"복선이 없습니다: {fid}")
+        raise KeyError(f"없는 복선이에요: {fid}")
     return f
 
 
@@ -116,7 +116,7 @@ def _check_ep(p: Project, n: int) -> None:
     try:
         p.episode(n)
     except KeyError:
-        raise ValueError(f"{n}화가 없습니다") from None
+        raise ValueError(f"{n}화가 없어요") from None
 
 
 def new_id(p: Project, n: int) -> str:
@@ -134,9 +134,9 @@ def add(p: Project, description: str, n: int, scope: str = "arc", due_ep: Option
         raise ValueError("복선 내용을 적어 주세요")
     _check_ep(p, n)
     if scope not in SCOPES:
-        raise ValueError(f"회수 범위는 {', '.join(SCOPES)} 중 하나입니다")
+        raise ValueError(f"회수 범위는 {', '.join(SCOPES)} 중 하나예요")
     if due_ep is not None and due_ep < n:
-        raise ValueError("회수 예정 화가 심은 화보다 앞입니다")
+        raise ValueError("회수 예정 화가 심은 화보다 앞이에요")
     f = Foreshadow(id=new_id(p, n), description=description, planted_ep=n, scope=scope, due_ep=due_ep)  # type: ignore[arg-type]
     for fs in _copies(p, n):
         fs.append(f.model_copy(deep=True))
@@ -148,11 +148,11 @@ def update(p: Project, fid: str, description: Optional[str] = None, scope: Optio
     """내용, 회수 범위, 회수 예정 화를 고친다. 기록이 어긋나지 않게 모든 스냅샷에 같이 적는다."""
     f = get(p, fid)
     if scope is not None and scope not in SCOPES:
-        raise ValueError(f"회수 범위는 {', '.join(SCOPES)} 중 하나입니다")
+        raise ValueError(f"회수 범위는 {', '.join(SCOPES)} 중 하나예요")
     if due_ep is not None and due_ep < f.planted_ep:
-        raise ValueError("회수 예정 화가 심은 화보다 앞입니다")
+        raise ValueError("회수 예정 화가 심은 화보다 앞이에요")
     if description is not None and not description.strip():
-        raise ValueError("복선 내용을 비울 수 없습니다")
+        raise ValueError("복선 내용을 비울 수 없어요")
     for fs in _copies(p, 0):
         x = _find(fs, fid)
         if x is None:
@@ -169,7 +169,7 @@ def update(p: Project, fid: str, description: Optional[str] = None, scope: Optio
 def resolve(p: Project, fid: str, n: int) -> None:
     f = get(p, fid)
     if n < f.planted_ep:
-        raise ValueError(f"{f.planted_ep}화에 심은 복선을 {n}화에서 회수할 수 없습니다")
+        raise ValueError(f"{f.planted_ep}화에 심은 복선을 {n}화에서 회수할 수 없어요")
     for fs in _copies(p, n):
         x = _find(fs, fid)
         if x is not None:
@@ -197,11 +197,11 @@ def remove(p: Project, fid: str) -> None:
 def add_clue(p: Project, n: int, quote: str, fid: str, kind: str = "plant") -> ForeshadowClue:
     """작가가 본문에서 고른 문장을 복선에 건다. 회수 문장이면 그 화에 회수한 것으로 표시한다."""
     if kind not in ("plant", "payoff"):
-        raise ValueError("kind 는 plant 나 payoff 입니다")
+        raise ValueError("kind는 plant나 payoff예요")
     f = get(p, fid)
     quote = quote.strip()
     if not found(_text(p, n), quote):
-        raise ValueError(f"{n}화 본문에서 고른 문장을 찾지 못했습니다")
+        raise ValueError(f"{n}화 본문에서 고른 문장을 찾지 못했어요")
     if n < f.planted_ep and kind == "plant":
         for fs in _copies(p, 0):  # 더 앞 화에서 실마리를 찾았다: 심은 화를 당긴다
             x = _find(fs, fid)
@@ -220,7 +220,7 @@ def remove_clue(p: Project, fid: str, n: int, quote: str) -> None:
     q = norm(quote)
     p.foreshadow_clues = [c for c in p.foreshadow_clues if not (c.foreshadow == fid and c.episode == n and norm(c.quote) == q)]
     if len(p.foreshadow_clues) == before:
-        raise KeyError("그 문장이 걸려 있지 않습니다")
+        raise KeyError("그 문장이 걸려 있지 않아요")
 
 
 def broken(p: Project) -> list[ForeshadowClue]:

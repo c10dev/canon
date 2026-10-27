@@ -96,7 +96,7 @@ def name_candidates(p: Project, character: str = "", place_kind: str = "", n: in
     if character:
         c = next((x for x in p.characters if x.id == character), None)
         if c is None:
-            raise KeyError(f"인물 {character} 이 없어요")
+            raise KeyError(f"없는 인물이에요: {character}")
         return naming.character_candidates(p, c, n, style)
     return naming.location_candidates(p, n, place_kind, style)
 
@@ -1851,7 +1851,7 @@ def validate_storylines(p: Project) -> None:
     ids = [s.id for s in p.storylines]
     dup = sorted({x for x in ids if ids.count(x) > 1})
     if dup or "" in ids:
-        raise ValueError(f"이야기 줄기 id 가 비었거나 겹쳐요: {', '.join(dup) or '빈 id'}")
+        raise ValueError(f"이야기 줄기 id가 비었거나 겹쳐요: {', '.join(dup) or '빈 id'}")
     for e in p.episodes:
         bad = [x for x in [e.plot.storyline, *e.plot.threads] if x and x not in ids]
         if bad:
@@ -1964,7 +1964,7 @@ def apply_impact(p: Project, eid: str, episodes: list[int], patches: list[int], 
     records: list[tuple[int, TextEdit]] = []
     for i in patches:
         if not 0 <= i < len(rep.patches):
-            raise ValueError(f"본문 수정안 {i} 이 없어요")
+            raise ValueError(f"없는 본문 수정안이에요: {i}")
         t = rep.patches[i]
         ep = p.episode(t.episode)
         cur = texts.get(t.episode, ep.text)
@@ -2892,7 +2892,7 @@ def clean_openings(p: Project, n: int, out: OpeningPlots, ways: list[str]) -> Op
             o.plot.storyline, o.plot.threads = cur.plot.storyline, list(cur.plot.threads)
         keep.append(o)
     if not keep:
-        raise ValueError("AI 가 요청한 여는 방식으로 안을 내지 않았어요. 다시 시도하세요")
+        raise ValueError("AI가 요청한 여는 방식으로 안을 내지 않았어요. 다시 시도하세요")
     out.options = keep
     return out
 

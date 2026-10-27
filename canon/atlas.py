@@ -167,7 +167,7 @@ def read_layout(raw: dict) -> dict:
     좌표는 0~1 비율 (x 는 폭, y 는 높이 기준. 생성기 화면처럼 y 가 아래로 커진다).
     w, h 는 원래 단위의 폭 · 높이 (거리 계산), road 선마다 폭 width (원래 단위)."""
     if not isinstance(raw, dict) or raw.get("type") != "FeatureCollection" or not isinstance(raw.get("features"), list):
-        raise ValueError("Watabou 생성기에서 Export as → JSON 으로 받은 파일을 올리세요 (GeoJSON FeatureCollection)")
+        raise ValueError("Watabou 생성기에서 Export as → JSON으로 받은 파일을 올리세요 (GeoJSON FeatureCollection)")
     feats = {}
     meta = {}
     for f in raw["features"]:
@@ -209,7 +209,7 @@ def read_layout(raw: dict) -> dict:
     if "trees" in feats and feats["trees"].get("type") == "MultiPoint":
         out["trees"] = norm(feats["trees"].get("coordinates") or [])
     if not out["roads"]:
-        raise ValueError("파일에 길(roads)이 없어요. 마을 · 도시 생성기의 JSON 을 올리세요")
+        raise ValueError("파일에 길(roads)이 없어요. 마을 · 도시 생성기의 JSON을 올리세요")
     return out
 
 

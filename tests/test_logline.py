@@ -35,6 +35,14 @@ class LoglineTest(unittest.TestCase):
         self.assertEqual(logline.tone_text(ToneDials(dark=1, serious=2)), "밝고 조금 가볍다")
         self.assertEqual(logline.tone_text(ToneDials()), "")
 
+    def test_swift_tone_words_match(self):
+        swift = (Path(__file__).parent.parent / "swift" / "Sources" / "FeatureSetup" / "Logline.swift").read_text(encoding="utf-8")
+        words = swift[swift.index("public var words"):swift.index("public func get(_ d: ToneDials?)")]
+        for key, pairs in logline.TONE_WORDS.items():
+            block = words[words.index(f"case .{key}:"):]
+            block = block[:block.index("]")]
+            self.assertEqual(re.findall(r'\("([^"]+)", "([^"]+)"\)', block), [tuple(p) for p in pairs], key)
+
     def test_genre_examples_pass_checks(self):
         for g in genres.CATALOG:
             self.assertGreaterEqual(len(g.logline), 2, g.id)

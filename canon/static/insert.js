@@ -60,11 +60,11 @@ function insertForm(f) {
       <div class="between"><h3>${f.at}화 자리에 새 화</h3><button type="button" class="btn small ghost" data-action="insCancel">취소</button></div>
       <div class="note info">${what} 총 화수가 1 늘어요.</div>
       ${input('제목', 'title', { root: 'insForm', placeholder: '예: 외전 · 등대지기의 겨울' })}
-      ${input('어떤 화인지', 'summary', { root: 'insForm', rows: 3, placeholder: '무슨 일이 일어나는 화인지 한두 문장. AI 가 앞뒤 화에 맞춰 나머지를 채워요' })}
+      ${input('어떤 화인지', 'summary', { root: 'insForm', rows: 3, placeholder: '무슨 일이 일어나는 화인지 한두 문장. AI가 앞뒤 화에 맞춰 나머지를 채워요' })}
       <div class="field"><label for="ins-line">이야기 줄기 <span class="hint">외전 · 과거 회상이면 그 줄기를 고르세요</span></label>
         <select id="ins-line" data-ins-line="1">${opts}</select></div>
       ${lines.length ? '' : `<div class="small">외전이나 과거 회상 줄기는 <a href="${base()}/lines">이야기 줄기</a> 화면에서 만들 수 있어요.</div>`}
-      <label class="row" style="font-size:13px;gap:6px"><input type="checkbox" data-ins-ai="1"${f.ai ? ' checked' : ''}>넣은 뒤 AI 가 앞뒤 화에 맞춰 플롯 채우기</label>
+      <label class="row" style="font-size:13px;gap:6px"><input type="checkbox" data-ins-ai="1"${f.ai ? ' checked' : ''}>넣은 뒤 AI가 앞뒤 화에 맞춰 플롯 채우기</label>
       <div class="row" style="margin-top:12px"><button type="button" class="btn primary" style="flex:1" data-action="insSubmit">${f.at}화에 넣기</button></div>
     </div>`;
 }
@@ -72,7 +72,7 @@ function insertForm(f) {
 /** 초안 화 하나를 앞뒤 화에 맞춰 AI 로 채우는 버튼 (작가가 적은 제목 · 요약 · 줄기는 살린다) */
 function draftOneBtn(e) {
   if (e.status !== 'draft') return '';
-  const b = jobBtn('plot_one', e.plot.number, 'AI 로 이 화 채우기');
+  const b = jobBtn('plot_one', e.plot.number, 'AI로 이 화 채우기');
   return `<button type="button" class="btn" style="flex:1" data-action="insDraft" data-arg="${e.plot.number}"${b.attr}>${b.label}</button>`;
 }
 
@@ -88,8 +88,8 @@ function fitNextField(e) {
 function realignNote(e) {
   if (!e.realign) return '';
   const n = e.plot.number;
-  const how = e.status === 'draft' ? `'AI 로 이 화 채우기'를 누르면 바뀐 ${n - 1}화에 이어지게 다시 짜요. 직접 고치거나 대화로 다듬기에서 고쳐도 돼요.`
-    : e.status === 'confirmed' ? `직접 고치거나, 초안으로 되돌린 뒤 'AI 로 이 화 채우기'로 다시 짜요. 대화로 다듬기에서 고쳐도 돼요.`
+  const how = e.status === 'draft' ? `'AI로 이 화 채우기'를 누르면 바뀐 ${n - 1}화에 이어지게 다시 짜요. 직접 고치거나 대화로 다듬기에서 고쳐도 돼요.`
+    : e.status === 'confirmed' ? `직접 고치거나, 초안으로 되돌린 뒤 'AI로 이 화 채우기'로 다시 짜요. 대화로 다듬기에서 고쳐도 돼요.`
       : '본문이 있는 화라 플롯은 그대로예요. 집필 화면의 다시 생성으로 본문을 맞추세요.';
   return `<div class="note warn"><strong>${n - 1}화를 다시 짜며 이 화와 어긋난 점</strong> · ${esc(e.realign)}
     <div class="between" style="margin-top:6px;gap:8px"><span class="small">${how}</span><button type="button" class="btn small" data-action="clearRealign" data-arg="${n}">확인했어요</button></div></div>`;

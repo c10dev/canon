@@ -1010,7 +1010,7 @@ function atlasTitleBox() {
       <button type="submit" class="btn small primary">저장</button><button type="button" class="btn small ghost" data-action="atlasTitleEdit" data-arg="">취소</button></form>`;
   }
   const name = t.title || `이름 없는 ${t.kind || '마을'}`;
-  return `<button type="button" class="at-title" ${pv ? 'disabled' : 'data-action="atlasTitleEdit" data-arg="1"'} title="${pv ? '' : '눌러 이름 바꾸기 (N 으로 숨기기)'}">
+  return `<button type="button" class="at-title" ${pv ? 'disabled' : 'data-action="atlasTitleEdit" data-arg="1"'} title="${pv ? '' : '눌러 이름 바꾸기 (N으로 숨기기)'}">
     <span class="at-title-name">${esc(name)}</span><span class="at-title-pop">인구 약 ${t.population.toLocaleString()}명 · 집 ${t.houses.toLocaleString()}채</span></button>`;
 }
 
@@ -1492,7 +1492,7 @@ Object.assign(actions, {
     if (!b || !pl) return;
     S.atlasBld = null;
     S.atlasSel = key;
-    await atlasSavePins([...atlasPins().filter((x) => x.place !== key), { place: key, x: b.at[0], y: b.at[1] }], `'${pl.name}'을(를) 이 건물에 놓았어요`,
+    await atlasSavePins([...atlasPins().filter((x) => x.place !== key), { place: key, x: b.at[0], y: b.at[1] }], `'${pl.name}'${josa(pl.name, '을', '를')} 고른 건물에 놓았어요`,
       { before: atlasPinMap(), label: `'${pl.name}' ${pl.pin ? '옮기기' : '놓기'}` });
   },
   async atlasExport(kind) {

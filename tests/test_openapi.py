@@ -24,6 +24,19 @@ class OpenAPITest(unittest.TestCase):
         self.assertEqual(fs["properties"]["payoff_ep"]["type"], "integer")
         self.assertNotIn("payoff_ep", fs.get("required", []))
 
+    def test_schema_models_keep_every_field(self):
+        # 명세에 없는 칸은 Swift 생성 타입에도 없어, 앱이 작품을 저장하면 지워진다 (SkipJsonSchema 로 숨긴 칸 포함)
+        import json
+        import pydantic
+        from canon import schema as sc
+        comps = json.loads(make_openapi.spec())["components"]["schemas"]
+        self.assertIn("body", comps["Character"]["properties"])
+        for name, comp in comps.items():
+            cls = getattr(sc, name, None)
+            if isinstance(cls, type) and issubclass(cls, pydantic.BaseModel) and "properties" in comp:
+                want = {f.alias or k for k, f in cls.model_fields.items()}
+                self.assertEqual(want - set(comp["properties"]), set(), name)
+
     def test_operation_ids_are_function_names(self):
         import json
         ops = [o["operationId"] for p in json.loads(make_openapi.spec())["paths"].values() for o in p.values()]

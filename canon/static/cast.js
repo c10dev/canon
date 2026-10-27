@@ -729,7 +729,7 @@ function castPairDetail(a, b) {
     ${tieFixForm(a, b, names)}
     ${multi ? `<h3>온기</h3>${legend}${castChart(two((t) => t.warmth), -1, 1, { grid: [-1, 0, 1], notes, label: '온기 추이' })}
     <h3>신뢰</h3>${castChart(two((t) => t.trust), 0, 1, { grid: [0, 0.5, 1], notes, label: '신뢰 추이' })}
-    <h3>긴장 <span class="small" style="font-weight:400">0~10, 3 · 5 · 7 에서 보통 · 높음 · 매우 높음</span></h3>${castChart([{ label: '긴장', color: 'var(--text-2)', values: tension }], 0, 10, { grid: [0, 3, 5, 7, 10], fmt: (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1)), notes, label: '긴장 추이', h: 110 })}
+    <h3>긴장 <span class="small" style="font-weight:400">0~10, 3 · 5 · 7에서 보통 · 높음 · 매우 높음</span></h3>${castChart([{ label: '긴장', color: 'var(--text-2)', values: tension }], 0, 10, { grid: [0, 3, 5, 7, 10], fmt: (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1)), notes, label: '긴장 추이', h: 110 })}
     <div class="small">칸에 올리면 그 시점 값과 사건, 누르면 관계도가 그 시점으로 가요.</div>` : '<div class="small">1화를 반영하면 화별 추이 그래프가 나와요.</div>'}
     <h3>두 사람 사이 관계 사건 <span class="small" style="font-weight:400">${evs.length}개</span></h3>
     ${evList ? `<ul class="cast-ul">${evList}</ul>` : '<div class="small">아직 없어요</div>'}
@@ -825,7 +825,7 @@ function castTable() {
 
 function viewCast() {
   const p = P();
-  const desc = '인물 설정, 화마다 바뀐 상태, 방향 관계와 사건을 한곳에서 봐요. 관계 값은 반영한 화의 관계 사건으로 Canon 이 계산한 것이에요.';
+  const desc = '인물 설정, 화마다 바뀐 상태, 방향 관계와 사건을 한곳에서 봐요. 관계 값은 반영한 화의 관계 사건으로 Canon이 계산한 것이에요.';
   const tabs = `<div class="tabs" role="tablist" aria-label="인물 화면">
     <button type="button" role="tab" aria-selected="${S.castTab === 'graph'}" aria-controls="cast-panel" data-action="castTab" data-arg="graph">관계도</button>
     <button type="button" role="tab" aria-selected="${S.castTab === 'sheet'}" aria-controls="cast-panel" data-action="castTab" data-arg="sheet">인물 상태창</button>
@@ -870,7 +870,7 @@ Object.assign(actions, {
     const [source, target, k] = String(arg).split('|');
     const warmth = Number($(`#tf-w${k}`).value);
     const trust = Number($(`#tf-t${k}`).value);
-    if (!confirm(`${charName(source)} → ${charName(target)} 관계를 온기 ${warmth.toFixed(2)}, 신뢰 ${trust.toFixed(2)} 로 보정할까요?`)) return;
+    if (!confirm(`${charName(source)} → ${charName(target)} 관계를 온기 ${warmth.toFixed(2)}, 신뢰 ${trust.toFixed(2)} 값으로 보정할까요?`)) return;
     await run('보정하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/ties/adjust`, { source, target, warmth, trust });

@@ -22,7 +22,7 @@ const CHAT_TOPICS = {
         : ['이 아크 갈등을 더 개인적인 걸로', '아크를 3화 늘려 줘', '승 구간 전개가 느려', '2부 목표를 복수에서 구원으로'];
     },
     placeholder: '예: 3화 전개가 너무 빨라',
-    clearAsk: '이 작품의 대화 기록을 지울까요? 반영한 구조와 플롯은 그대로예요.',
+    clearAsk: '이 작품의 대화 기록을 지울까요? 적용한 구조와 플롯은 그대로예요.',
     body: (text) => ({ message: text, ...plotScope(), mode: S.chatOptions ? 'options' : '' }),
     userMsg: (m) => `${m.where ? `<span class="msg-quote">${esc(m.where)}</span>` : ''}${m.mode === 'options' ? '<span class="chip">방향 여러 안</span> ' : ''}${esc(m.text)}`,
     inputExtra: () => plotScopeBar(),

@@ -109,7 +109,7 @@ def ask_logline(genre_ids: list[str]) -> LoglineParts:
 def cmd_new(a: argparse.Namespace) -> None:
     if store.exists(a.name):
         sys.exit(f"이미 있는 프로젝트예요: {a.name}")
-    print("기본 설정을 입력하세요. 모르는 칸은 비워 두면 AI 가 제안해요.\n")
+    print("기본 설정을 입력하세요. 모르는 칸은 비워 두면 AI가 제안해요.\n")
     genre_ids = genres.parse(a.genre or ask("장르 (쉼표로 여러 개, 목록: python -m canon genres)", "현대 드라마"))
     title = a.title or ask("제목")
     parts = LoglineParts()
@@ -145,7 +145,7 @@ def cmd_new(a: argparse.Namespace) -> None:
 
 
 def _suggest(name: str, p: Project, yes: bool) -> None:
-    print("\nAI 가 설정을 제안하는 중...")
+    print("\nAI가 설정을 제안하는 중...")
     s = pipeline.suggest_setup(get_llm("plan"), p)
     print(dump(s))
     if confirm("이 제안을 반영할까요? (반영 후 project.json 에서 수정 가능)", yes):
@@ -211,7 +211,7 @@ def cmd_styles(a: argparse.Namespace) -> None:
         e = library.load(a.args[0])
         if confirm(f"'{e.name}' 을 {a.args[1]}번 버전으로 되돌릴까요? 지금 상태도 버전으로 남아요.", a.yes):
             e = library.restore(e.id, int(a.args[1]))
-            print(f"되돌렸어요. 지금 {e.version}번 버전 (쓰는 작품은 style --library 로 다시 적용해야 바뀌어요)")
+            print(f"되돌렸어요. 지금 {e.version}번 버전 (쓰는 작품은 style --library로 다시 적용해야 바뀌어요)")
         return
     if a.action in ("show", "rm"):
         if len(a.args) != 1:
@@ -229,7 +229,7 @@ def cmd_styles(a: argparse.Namespace) -> None:
         return
     rows = library.entries()
     if not rows:
-        print("문체 라이브러리가 비어 있어요. styles add 이름 원문.txt 로 추가하세요.")
+        print("문체 라이브러리가 비어 있어요. styles add 이름 원문.txt로 추가하세요.")
     for e in rows:
         used = library.used_by(e.id)
         print(f"{e.id}  {e.name}  {e.profile.narration_pov or '-'} / {e.profile.tense or '-'}"
@@ -407,7 +407,7 @@ def cmd_plot(a: argparse.Namespace) -> None:
         print(f"\n{e.number}화 [{e.act}] {e.title}\n  {e.summary}\n  사건: {' / '.join(e.events)}\n  훅: {e.ending_hook}{_plot_pov(e)}")
     pipeline.apply_plots(p, batch)
     _print_candidates(p)
-    print(f"\n초안 저장: {store.save(a.name, p)}  (수정 후 confirm 으로 확정)")
+    print(f"\n초안 저장: {store.save(a.name, p)}  (수정 후 confirm으로 확정)")
 
 
 def _print_candidates(p) -> None:
@@ -574,7 +574,8 @@ def cmd_arcs(a: argparse.Namespace) -> None:
             print(f"  아크 {s.number:>2} {s.start_ep:>3}~{s.end_ep:<3}화 {s.title}  플롯 {plotted}/{len(nums)} 반영 {done}/{len(nums)}"
                   f"{'  요약 있음' if s.summary else ''}")
     for kind, num in pipeline.pending_recaps(p):
-        print(f"! {'아크' if kind == 'arc' else '부'} {num} 이 끝났어요. 요약하세요: recap {a.name} {kind} {num}")
+        what = f"아크 {num}" if kind == "arc" else f"{num}부"
+        print(f"! {what}{logline.josa(what, '이', '가')} 끝났어요. 요약하세요: recap {a.name} {kind} {num}")
     if p.planned_until() < p.meta.target_episodes:
         print(f"\n다음: nextarc {a.name}  ({p.planned_until() + 1}화부터)")
 
@@ -670,7 +671,7 @@ def _rebuild(a: argparse.Namespace, p, total: int) -> None:
         print(f"저장: {store.save(a.name, p)}")
         for n in notes:
             print(f"  ※ {n}")
-        print(f"다음: plot {a.name} 로 새 화 플롯 초안을 만들고, 다듬기 화는 rework {a.name} N 으로 고치세요")
+        print(f"다음: 'plot {a.name}'으로 새 화 플롯 초안을 만들고, 다듬기 화는 rework {a.name} N으로 고치세요")
 
 
 def cmd_rework(a: argparse.Namespace) -> None:
@@ -691,7 +692,7 @@ def cmd_lines(a: argparse.Namespace) -> None:
     act, args = a.action, a.args
     if act == "map":
         if not p.storylines:
-            print(f"이야기 줄기가 없어요. python -m canon lines {a.name} suggest --note \"도현의 과거\" 로 제안을 받거나 add 로 더하세요")
+            print(f"이야기 줄기가 없어요. python -m canon lines {a.name} suggest --note \"도현의 과거\"로 제안을 받거나 add로 더하세요")
             return
         print(storylines.ascii_map(p))
         print("\n● 그 줄기를 따라가는 화  · 메인 화에 끼어드는 장면  ╰ 갈라지는 화  ╯ 합류하는 화\n")
@@ -719,7 +720,7 @@ def cmd_lines(a: argparse.Namespace) -> None:
             print(f"저장: {store.save(a.name, p)}  ({x.id})")
         return
     if not args:
-        raise ValueError(f"줄기 id 를 적으세요 (python -m canon lines {a.name})")
+        raise ValueError(f"줄기 id를 적으세요 (python -m canon lines {a.name})")
     sid = "" if args[0] == "main" else storylines.get(p, args[0]).id
     if act == "rm":
         pipeline.remove_storyline(p, sid)
@@ -768,7 +769,7 @@ def cmd_causal(a: argparse.Namespace) -> None:
             print(f"{el.added_after}화까지 쓴 뒤에 더했어요. 영향을 보려면: python -m canon causal {a.name} impact {el.id}")
         return
     if not args:
-        raise ValueError("요소 id 를 적으세요 (python -m canon causal 이름 list)")
+        raise ValueError("요소 id를 적으세요 (python -m canon causal 이름 list)")
     el = elements.get(p, args[0])
     if act == "rm":
         p.elements = [x for x in p.elements if x.id != el.id]
@@ -990,7 +991,7 @@ def cmd_dex(a: argparse.Namespace) -> None:
         twist = ""
         if a.twist:
             if not 1 <= a.twist <= len(x.twists):
-                raise ValueError(f"--twist 는 1~{len(x.twists)} 사이예요")
+                raise ValueError(f"--twist는 1~{len(x.twists)} 사이예요")
             twist = x.twists[a.twist - 1]
         before = next((c for c in p.characters if c.id == args[1]), None)
         if before is None:
@@ -1018,7 +1019,7 @@ def cmd_dex(a: argparse.Namespace) -> None:
     if not a.pick:
         return
     if not 1 <= a.pick <= len(rolls):
-        raise ValueError(f"--pick 은 1~{len(rolls)} 사이예요")
+        raise ValueError(f"--pick은 1~{len(rolls)} 사이예요")
     if not confirm(f"{a.pick}번을 새 인물로 넣을까요?", a.yes):
         return
     c = archetypes.new_character(p, rolls[a.pick - 1])
@@ -1052,7 +1053,7 @@ def cmd_names(a: argparse.Namespace) -> None:
     if not a.pick:
         return
     if not 1 <= a.pick <= len(picks):
-        raise ValueError(f"--pick 은 1~{len(picks)} 사이예요")
+        raise ValueError(f"--pick은 1~{len(picks)} 사이예요")
     chosen = picks[a.pick - 1]
     if a.character:
         c = next(x for x in p.characters if x.id == a.character)
@@ -1089,9 +1090,9 @@ def cmd_stats(a: argparse.Namespace) -> None:
     if base.comma_sentence_ratio is None:
         print("\n(기준값이 예전 버전이라 쉼표, 짧은끝, 대명사, 거리는 비교하지 않았어요. style 명령을 다시 실행하면 비교해요.)")
     elif not base.style_centroid:
-        print("\n(거리: 기준 원문이 6,000자보다 짧거나 예전 기준값이라 재지 않았어요. 원문을 2만 자쯤 넣고 style 을 다시 실행하면 재요.)")
+        print("\n(거리: 기준 원문이 6,000자보다 짧거나 예전 기준값이라 재지 않았어요. 원문을 2만 자쯤 넣고 style을 다시 실행하면 재요.)")
     else:
-        print(f"\n(거리: 원문 대목끼리 떨어진 만큼이 1.0 이에요. {metrics.STYLE_DISTANCE_WARN} 를 넘으면 다른 작가 글 수준이라 경고해요. 한 화 값보다 흐름을 보세요.)")
+        print(f"\n(거리: 원문 대목끼리 떨어진 만큼이 1.0이에요. 값이 {metrics.STYLE_DISTANCE_WARN}보다 크면 다른 작가 글 수준이라 경고해요. 한 화 값보다 흐름을 보세요.)")
 
 
 def _print_delta(d: StateDelta) -> None:
@@ -1209,7 +1210,8 @@ def cmd_run(a: argparse.Namespace) -> None:
             return
     if p.serial and p.planned_until() < p.meta.target_episodes:
         for kind, num in pipeline.pending_recaps(p):
-            print(f"{'아크' if kind == 'arc' else '부'} {num} 이 끝났어요. 요약: recap {a.name} {kind} {num}")
+            what = f"아크 {num}" if kind == "arc" else f"{num}부"
+            print(f"{what}{logline.josa(what, '이', '가')} 끝났어요. 요약: recap {a.name} {kind} {num}")
         print(f"기획한 {p.planned_until()}화까지 완료. 다음 아크: nextarc {a.name}")
         return
     print("모든 화 완료")
@@ -1287,7 +1289,7 @@ def cmd_compare(a: argparse.Namespace) -> None:
         return
     if a.a == a.b:
         sys.exit("--a 와 --b 가 같아요")
-    print(f"{a.n}화를 {a.a}, {a.b} 로 각각 쓰는 중...")
+    print(f"{a.n}화를 두 백엔드({a.a}, {a.b})로 각각 쓰는 중...")
     c = research.run_compare(a.name, p, a.n, research.Backend(provider=a.a), research.Backend(provider=a.b))
     print(f"\n{'':>3} {'글자':>6} {'문장평균':>7} {'대사':>5} {'어휘':>6}  문체 경고")
     for d in c["drafts"]:
@@ -1295,7 +1297,7 @@ def cmd_compare(a: argparse.Namespace) -> None:
         for w in d["warnings"]:
             print(f"      ! {w}")
     out = research.compare_dir(a.name, a.n)
-    print(f"\n저장: {out}/1.md, 2.md (key.json 은 열지 마세요)\n읽어 보고 고르세요: compare {a.name} {a.n} --pick 1|2")
+    print(f"\n저장: {out}/1.md, 2.md (key.json은 열지 마세요)\n읽어 보고 고르세요: compare {a.name} {a.n} --pick 1|2")
 
 
 def cmd_openings(a: argparse.Namespace) -> None:
@@ -1337,7 +1339,7 @@ def cmd_openings(a: argparse.Namespace) -> None:
         for w in d["opening"] + d["warnings"]:
             print(f"    ! {w}")
     nums = "|".join(str(d["n"]) for d in c["drafts"])
-    print(f"\n저장: {research.compare_dir(a.name, a.n)}/*.md (key.json 은 열지 마세요)"
+    print(f"\n저장: {research.compare_dir(a.name, a.n)}/*.md (key.json은 열지 마세요)"
           f"\n판정을 보려면: hook {a.name} {a.n} --draft 번호\n고르세요: compare {a.name} {a.n} --pick {nums}")
 
 
@@ -1376,7 +1378,7 @@ def cmd_import(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     pipeline.replace_text(p.episode(a.n), Path(a.file).read_text(encoding="utf-8").strip())  # 지금 본문은 '이전 판'에 남는다
     store.save(a.name, p)
-    print(f"{a.n}화 본문을 가져왔어요. 다음: update {a.name} {a.n}  (또는 brief --state 로 채팅 앱에서 정리 후 update --from-json)")
+    print(f"{a.n}화 본문을 가져왔어요. 다음: update {a.name} {a.n}  (또는 brief --state로 채팅 앱에서 정리 후 update --from-json)")
 
 
 def cmd_fix(a: argparse.Namespace) -> None:
@@ -1552,7 +1554,7 @@ def cmd_upgrade(a: argparse.Namespace) -> None:
     r = updater.update()
     print(r.message)
     if r.updated:
-        print("실행 중인 serve 는 다시 켜야 반영돼요 (자동 업데이트를 켜 두었다면 알아서 다시 시작해요)")
+        print("실행 중인 serve는 다시 켜야 반영돼요 (자동 업데이트를 켜 두었다면 알아서 다시 시작해요)")
 
 
 def cmd_cast(a: argparse.Namespace) -> None:
@@ -1572,7 +1574,7 @@ def cmd_cast(a: argparse.Namespace) -> None:
         pov = sum(1 for r in rows if r["pov"])
         span = f"{rows[0]['n']}~{rows[-1]['n']}화" if rows else "등장 화 없음"
         print(f"  {c.name} ({c.id}) · {tiers[c.tier]} · {c.role} · 등장 {len(rows)}화 {span}{f' · 시점 {pov}화' if pov else ''}")
-    print("\n인물 하나를 자세히 보려면: cast <작품> <인물 id 나 이름>")
+    print("\n인물 하나를 자세히 보려면: cast <작품> <인물 id나 이름>")
 
 
 def _map_option(key: str, value: str | None, kind: str = "village") -> str | None:
@@ -1581,11 +1583,11 @@ def _map_option(key: str, value: str | None, kind: str = "village") -> str | Non
         return None
     opts = atlas.MAKERS[kind][1].OPTIONS.get(key)
     if opts is None:
-        raise ValueError(f"--{key} 는 {atlas.MAKERS[kind][0]}에 쓰지 않아요")
+        raise ValueError(f"--{key} 칸은 {atlas.MAKERS[kind][0]}에 쓰지 않아요")
     for oid, label in opts.items():
         if value in (oid, label.split(" (")[0]):
             return oid
-    raise ValueError(f"--{key} 는 {', '.join(label.split(' (')[0] for label in opts.values())} 중 하나예요")
+    raise ValueError(f"--{key} 값은 {', '.join(label.split(' (')[0] for label in opts.values())} 중 하나예요")
 
 
 def cmd_map(a: argparse.Namespace) -> None:
@@ -1689,7 +1691,7 @@ def cmd_claude(a: argparse.Namespace) -> None:
     print(f"로그인: {'됨' if st['logged_in'] else '안 됨'}{f' ({acct})' if acct else ''}")
     print(st["message"])
     if st["api_key_ignored"]:
-        print("환경 변수 ANTHROPIC_API_KEY 는 구독 호출에 넘기지 않아요 (claude-api 백엔드에서만 씀).")
+        print("환경 변수 ANTHROPIC_API_KEY는 구독 호출에 넘기지 않아요 (claude-api 백엔드에서만 씀).")
     print("구독으로 쓰기: CANON_LLM=claude (단계별은 CANON_LLM_WRITE=claude 등), API 키로 쓰기: CANON_LLM=claude-api")
 
 
@@ -1734,7 +1736,7 @@ def cmd_foreshadows(a: argparse.Namespace) -> None:
     if a.prune:
         k = foreshadows.prune(p)
         store.save(a.name, p)
-        print(f"끊어진 연결 {k}개를 지웠습니다.\n")
+        print(f"끊어진 연결 {k}개를 지웠어요.\n")
     print(foreshadows.describe(p, a.all))
 
 
@@ -1746,7 +1748,7 @@ def cmd_statwin(a: argparse.Namespace) -> None:
         have = [(c, s) for c, s in rows if s and s.stats]
         for c, s in have:
             print(f"  {c.name} ({c.id}): {', '.join(f'{x.name} {x.value}' for x in s.stats)}")
-        print("" if have else "상태창을 만든 인물이 없습니다.", "\n인물 하나를 보거나 만들려면: statwin <작품> <인물 id> [--set 레벨=1 힘=10]")
+        print("" if have else "상태창을 만든 인물이 없어요.", "\n인물 하나를 보거나 만들려면: statwin <작품> <인물 id> [--set 레벨=1 힘=10]")
         return
     c = next((x for x in p.characters if x.id == a.character or x.name == a.character), None)
     if c is None:

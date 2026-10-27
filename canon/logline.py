@@ -1,7 +1,8 @@
 """로그라인 다섯 칸을 한 문장으로 합치고, 형식을 점검한다. LLM 호출 없음.
 
-웹 화면(canon/static/app.js 의 composeLogline, loglineChecks, toneText)도 같은 규칙으로 계산한다.
-규칙을 바꾸면 두 곳을 함께 고친다.
+웹 화면(canon/static/app.js 의 composeLogline, loglineChecks, toneText)과
+Swift 앱(swift/Sources/FeatureSetup/Logline.swift 의 Logline, Tone)도 같은 규칙으로 계산한다.
+규칙을 바꾸면 세 곳을 함께 고친다.
 """
 from __future__ import annotations
 

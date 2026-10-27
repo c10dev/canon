@@ -42,13 +42,44 @@ def drop_null(o):
     return o
 
 
+def add_skipped(s: dict) -> dict:
+    """`SkipJsonSchema` 로 숨긴 칸을 앱 명세에 되돌린다 (예: `Character.body`).
+    그 칸은 Gemini 구조화 출력 스키마에서 빼려고 숨긴 것이다. 명세에도 없으면 Swift 생성 타입에 칸이 없어,
+    앱이 작품을 저장할 때 그 값이 지워진다. 칸 순서는 모델 순서를 따른다."""
+    import pydantic
+    from pydantic.json_schema import SkipJsonSchema
+    from canon import schema as sc
+    comps = s["components"]["schemas"]
+    for name, comp in comps.items():
+        cls = getattr(sc, name, None)
+        if not (isinstance(cls, type) and issubclass(cls, pydantic.BaseModel)) or "properties" not in comp:
+            continue
+        skipped = {f.alias or k: f for k, f in cls.model_fields.items() if any(isinstance(m, SkipJsonSchema) for m in f.metadata)}
+        if not skipped:
+            continue
+        props = {}
+        for k, f in cls.model_fields.items():
+            key = f.alias or k
+            if key in comp["properties"]:
+                props[key] = comp["properties"][key]
+            elif key in skipped:
+                inner = f.annotation
+                if not (isinstance(inner, type) and issubclass(inner, pydantic.BaseModel)):
+                    raise TypeError(f"{name}.{key}: 숨긴 칸은 모델 타입만 되돌릴 수 있어요")
+                if inner.__name__ not in comps:
+                    comps[inner.__name__] = inner.model_json_schema(ref_template="#/components/schemas/{model}")
+                props[key] = {"$ref": f"#/components/schemas/{inner.__name__}"}
+        comp["properties"] = props
+    return s
+
+
 def spec() -> str:
     """JSON 글. 필드 순서는 서버 모델 순서 그대로라 Swift 생성 타입의 init 인자 순서도 같다. 화면 HTML(/)은 앱이 쓰지 않아 뺀다."""
     sys.path.insert(0, str(ROOT))
     from canon.web import app
     s = app.openapi()
     s["paths"].pop("/", None)
-    return json.dumps(drop_null(s), ensure_ascii=False, indent=1) + "\n"
+    return json.dumps(drop_null(add_skipped(s)), ensure_ascii=False, indent=1) + "\n"
 
 
 if __name__ == "__main__":

@@ -184,7 +184,7 @@ function autoPolicyForm(f, disabled, bind = 'auto') {
       ${chk('check', '화마다 검수하기', '앞선 본문·설정과 어긋나는 곳을 찾아요. 끄면 비용과 시간이 줄지만 모순을 놓칠 수 있어요.')}
       ${chk('confirm_plots', '초안 플롯도 자동으로 확정하고 쓰기', '켜면 덜 멈춰요. 끄면 초안 플롯을 만난 화에서 멈춰요')}
     </div>
-    <h3 class="auto-h">이럴 때는 멈추고 저에게 물어봐 주세요</h3>
+    <h3 class="auto-h">이럴 때는 멈추고 기다려요</h3>
     <p class="desc">걸리는 게 없으면 상태 변경안을 검토 없이 반영하고 다음 화로 가요. 반영한 화는 표시해 두고, 화마다 남는 스냅샷으로 되돌릴 수 있어요.</p>
     <div class="grid-2">
       <div class="field"><label for="${id('issues')}">검수에서 어긋난 곳이 몇 개를 넘으면 멈출까요</label><select id="${id('issues')}" data-${bind}="policy.max_issues"${dis || (p.check ? '' : ' disabled')}>${opts([[0, '하나라도 있으면 멈춤'], [1, '1개까지 넘어감'], [2, '2개까지 넘어감'], [5, '5개까지 넘어감']], p.max_issues)}</select></div>
@@ -307,8 +307,8 @@ function viewAuto() {
   const ended = !r || ['done', 'stopped'].includes(r.status);
   const canStart = !active && (ended || S.autoFormOpen);
   const batchNote = a.batch_stages && a.batch_stages.length
-    ? '배치를 켜면 Gemini Batch API 로 보내 비용이 절반이에요. 대신 단계마다 몇 분에서 길게는 24시간까지 기다려요. 화는 앞 화가 반영돼야 쓸 수 있어 한 화씩 차례로 가고, 한 화의 검수와 상태 변경안은 함께 보내요.'
-    : '지금 단계들이 Gemini 가 아니라서 배치를 켜도 일반 호출로 돌아요.';
+    ? '배치를 켜면 Gemini Batch API로 보내 비용이 절반이에요. 대신 단계마다 몇 분에서 길게는 24시간까지 기다려요. 화는 앞 화가 반영돼야 쓸 수 있어 한 화씩 차례로 가고, 한 화의 검수와 상태 변경안은 함께 보내요.'
+    : '지금 단계들이 Gemini가 아니라서 배치를 켜도 일반 호출로 돌아요.';
   const eps = Array.from({ length: p.meta.target_episodes }, (_, i) => i + 1);
   const nothingLeft = !!(S.autoEst && S.autoEst.off && !S.autoEst.off.episodes && !S.autoEst.off.missing.length);
   const form = canStart ? `<section class="card">

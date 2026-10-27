@@ -106,7 +106,7 @@ function swResolve(before, value) {
 function swEditor() {
   const rows = S.swRows.map((r, i) => `<div class="sw-row">
       <input type="text" data-sw-name="${i}" value="${esc(r.name)}" aria-label="항목 이름" placeholder="항목 (예: 레벨)">
-      <input type="text" data-sw-value="${i}" value="${esc(r.value)}" aria-label="${esc(r.name || '항목')} 값" placeholder="값 (+3 은 더하기, 목록은 +독 내성 · -은신)">
+      <input type="text" data-sw-value="${i}" value="${esc(r.value)}" aria-label="${esc(r.name || '항목')} 값" placeholder="값 (+3은 더하기, 목록은 +독 내성 · -은신)">
       <button type="button" class="btn small ghost" data-action="swDel" data-arg="${i}" aria-label="${esc(r.name || '항목')} 지우기">지우기</button></div>`).join('');
   const presets = Object.entries((S.sw && S.sw.presets) || {}).map(([k, names]) => `<button type="button" class="btn small" data-action="swPreset" data-arg="${k}" title="${esc(names.join(', '))}">${{ game: '게임 판타지', hunter: '헌터물', simple: '레벨 · 스킬', growth: '스킬 · 특성 · 돈' }[k] || k}</button>`).join('');
   return `<section class="card"><div class="between"><h2>지금 상태창</h2><span class="small">${S.sw.columns.length ? `${S.sw.columns[S.sw.columns.length - 1].episode}화까지 기록` : '기록 없음'}</span></div>
@@ -123,13 +123,13 @@ function swPreview() {
     <pre class="sw-text">${esc(S.sw.text || '(값이 있는 항목이 없어요)')}</pre>
     ${S.swTpl ? `<div class="field"><label for="sw-tpl">상태창 서식 <span class="hint">{name} 인물 이름, {rows} 항목 줄</span></label><textarea id="sw-tpl" rows="4">${esc(w.template)}</textarea></div>
       <div class="field"><label for="sw-row">항목 한 줄 <span class="hint">{key} 항목, {value} 값</span></label><input id="sw-row" type="text" value="${esc(w.row)}"></div>
-      <div class="row"><button type="button" class="btn small primary" data-action="swTplSave">서식 저장</button><span class="small">AI 가 본문에 상태창을 쓸 때도 이 서식을 따릅니다.</span></div>` : ''}
+      <div class="row"><button type="button" class="btn small primary" data-action="swTplSave">서식 저장</button><span class="small">AI가 본문에 상태창을 쓸 때도 이 서식을 따라요.</span></div>` : ''}
   </section>`;
 }
 
 function swTimeline() {
   const t = S.sw;
-  if (!t.columns.length) return '<section class="card"><h2>화별 변화</h2><div class="small">아직 기록이 없어요. 상태 승인 화면에서 AI 가 적은 수치를 반영하거나, 위에서 값을 저장하면 쌓여요.</div></section>';
+  if (!t.columns.length) return '<section class="card"><h2>화별 변화</h2><div class="small">아직 기록이 없어요. 상태 승인 화면에서 AI가 적은 수치를 반영하거나, 위에서 값을 저장하면 쌓여요.</div></section>';
   const cols = t.columns;
   const head = `<tr><th scope="col">항목</th>${cols.map((c) => `<th scope="col">${c.episode ? `<a href="${base()}/review/${c.episode}">${c.episode}화</a>` : '시작'}</th>`).join('')}</tr>`;
   const body = t.names.map((name) => `<tr><th scope="row">${esc(name)}</th>${cols.map((c) => {
@@ -149,7 +149,7 @@ function swTimeline() {
 
 function viewStatwin() {
   const p = P();
-  const head = header('상태창', '상태창 수치', '레벨, 능력치, 스킬, 특성, 칭호, 돈, 인벤토리처럼 본문 상태창에 나오는 값을 인물마다 화별로 기록해요. 항목을 하나라도 정하면 AI 가 본문을 쓸 때 이 값을 따르고, 바뀐 값만 상태 변경안에 적어요. 반영은 승인한 뒤에만 돼요.');
+  const head = header('상태창', '상태창 수치', '레벨, 능력치, 스킬, 특성, 칭호, 돈, 인벤토리처럼 본문 상태창에 나오는 값을 인물마다 화별로 기록해요. 항목을 하나라도 정하면 AI가 본문을 쓸 때 이 값을 따르고, 바뀐 값만 상태 변경안에 적어요. 반영은 승인한 뒤에만 돼요.');
   if (!p.characters.length) return `${head}<div class="card empty"><p>아직 인물이 없어요.</p><a class="btn primary" href="${base()}/setup">설정 도우미에서 인물 만들기</a></div>`;
   const who = p.characters.map((c) => {
     const n = ((p.states.find((s) => s.character_id === c.id) || {}).stats || []).length;
