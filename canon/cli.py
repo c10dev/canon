@@ -21,6 +21,7 @@
   python -m canon causal 내소설 [list | add | show ID | impact ID | rm ID]   인과율: 요소·설정·사건을 더하고 영향 분석
   python -m canon lines 내소설 [map | suggest | add | tag ID 4,5 | rm ID]   이야기 줄기: 서브플롯 · 과거 회상 · 외전 노선도와 제안
   python -m canon insert 내소설 30 [--title "외전" --summary "..." --line sl-02 --ai | --remove]   안 쓴 화 앞에 새 화 넣기 · 빼기 (뒤 화 번호를 함께 옮김)
+  python -m canon insert 내소설 12 --delete [--keep-plot]   본문이 있거나 반영한 마지막 화 지우기 (반영 취소 → 본문 비우기 → 화 빼기)
   python -m canon confirm 내소설 all|3  플롯 확정
   python -m canon write 내소설 3        본문 생성
   python -m canon fix 내소설 3 "고칠 문장" [--ask "더 짧게" --preset less_ai]   본문 일부를 AI 후보로 고치기 (고른 후보만 반영)
@@ -29,7 +30,7 @@
   python -m canon stats 내소설 [3]      문체 지표를 레퍼런스와 비교
   python -m canon foreshadows 내소설     복선 센터: 심은 문장 · 회수한 문장, 회수율, 끊어진 연결
   python -m canon statwin 내소설 hero   상태창 수치와 화별 변화 (--set 레벨=1 로 만들고 고치기)
-  python -m canon time 내소설           작품 속 시간: 화별로 끝난 시점과 기한 (--start, --add '축제@7', --close ID)
+  python -m canon time 내소설           작품 속 시간: 화별로 끝난 시점과 기한 (--date 2024-03-04, --add '축제@7' 이나 '축제@2024-03-10', --close ID)
   python -m canon map 내소설            지도: 장소, 인물별로 옮겨 다닌 길, 장소와 맞지 않은 위치 글
   python -m canon map 내소설 gen --size 보통 --water 강   마을 생성기로 마을 만들기 (--seed, --roads, --fields, --forest, --move, --ai)
   python -m canon update 내소설 3       상태 변경안 확인 후 반영
@@ -805,7 +806,7 @@ def cmd_causal(a: argparse.Namespace) -> None:
 
 
 def cmd_insert(a: argparse.Namespace) -> None:
-    """아직 안 쓴 화 앞에 새 화(외전, 중간 이야기)를 넣거나(--remove 면 빼고) 뒤 화 번호를 함께 옮긴다."""
+    """아직 안 쓴 화 앞에 새 화(외전, 중간 이야기)를 넣거나(--remove 면 빼고) 뒤 화 번호를 함께 옮긴다. --delete 는 본문이 있거나 반영한 마지막 화를 지운다."""
     p = store.load(a.name)
     lo, hi = pipeline.insert_range(p)
     if a.n is None:
@@ -814,7 +815,10 @@ def cmd_insert(a: argparse.Namespace) -> None:
     autorun.check_renumber(a.name)
     n = a.n
     trial = p.model_copy(deep=True)
-    if a.remove:
+    if a.delete:
+        notes = pipeline.delete_last(trial, n, a.keep_plot)
+        end = (lambda x: x - 1 if x >= n else x) if not a.keep_plot else None
+    elif a.remove:
         notes = pipeline.remove_episode(trial, n)
         end = (lambda x: x - 1 if x >= n else x)
     else:
@@ -823,7 +827,16 @@ def cmd_insert(a: argparse.Namespace) -> None:
     print("\n".join(notes))
     if not confirm("이대로 반영할까요?", a.yes):
         return
-    autorun.renumber(a.name, end)
+    if a.delete:
+        print(f"지우기 전 작품: {store.save_backup(a.name, f'before-delete-{n}', p)}")
+        print(f"저장: {store.save(a.name, trial)}")
+        if p.episode(n).status == "finalized":
+            autorun.after_revert(a.name, n)
+        if end:
+            autorun.renumber(a.name, end)
+        return
+    if end:
+        autorun.renumber(a.name, end)
     p = trial
     if a.ai and not a.remove:
         batch = pipeline.draft_episode(get_llm("plan"), p, n)
@@ -1862,10 +1875,19 @@ def cmd_time(a: argparse.Namespace) -> None:
         p.timeline.enabled, changed = bool(a.on), True
     if a.start is not None:
         p.timeline.start, changed = a.start.strip(), True
+    if a.date is not None:
+        if a.date.strip() and not timeline._ISO.match(a.date):
+            sys.exit(f"날짜는 YYYY-MM-DD 로 적어 주세요 (예: 2024-03-04): {a.date}")
+        p.timeline.start_date, changed = a.date.strip(), True
     for x in a.add or []:
         what, _, day = x.rpartition("@") if "@" in x else (x, "", "")
-        if day and not day.strip().isdigit():
-            sys.exit(f"'무엇@날수' 로 적어 주세요 (예: 축제 첫날@7): {x}")
+        day = day.strip()
+        if day and not day.isdigit():
+            iso = timeline._ISO.match(day)
+            num = timeline.day_from_text(p, f"{iso[1]}년 {iso[2]}월 {iso[3]}일" if iso else day, timeline.current_day(p, timeline.last_done(p) + 1))
+            if not num:
+                sys.exit(f"'무엇@날수' 나 '무엇@날짜' 로 적어 주세요 (예: 축제 첫날@7, 축제 첫날@2024-03-10). 날짜는 1일째 날짜를 정한 뒤에 써요: {x}")
+            day = str(num)
         d = timeline.upsert(p, Deadline(id="", what=what, day=int(day or 0)))
         print(f"기한을 더했어요: {d.id}")
         changed = True
@@ -1987,6 +2009,8 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--line", help="새 화가 따라갈 이야기 줄기 id (외전, 과거 회상 등)")
     sp.add_argument("--ai", action="store_true", help="앞뒤 화에 맞춰 AI 가 새 화 플롯을 채움")
     sp.add_argument("--remove", action="store_true", help="넣는 대신 아직 안 쓴 n 화를 빼고 뒤 화를 당김")
+    sp.add_argument("--delete", action="store_true", help="본문이 있거나 반영한 마지막 n 화를 지움 (반영 취소 → 본문 비우기 → 화 빼기)")
+    sp.add_argument("--keep-plot", action="store_true", help="--delete 와 함께: 화를 빼지 않고 확정된 플롯으로 남김")
     add("confirm", cmd_confirm, "which", yes=False)
     add("write", cmd_write, "n", yes=False)
     sp = add("rewrite", cmd_rewrite, "n")
@@ -2121,10 +2145,11 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("character", nargs="?", help="인물 id 나 이름. 비우면 상태창이 있는 인물 목록")
     sp.add_argument("--set", nargs="+", action="extend", metavar="항목=값", help="값을 바꾸거나 더한다. +3 은 더하기, 빈 값은 항목 지우기")
     sp = add("time", cmd_time, yes=False)
-    sp.add_argument("--start", help="1일째가 언제인지 (예: '2024년 3월 2일 토요일, 늦겨울'). 빈 값이면 지움")
+    sp.add_argument("--date", help="1일째 날짜 YYYY-MM-DD. 정하면 화마다 날짜로 보이고 요일 · 남은 날은 Canon 이 계산해요. 빈 값이면 지움")
+    sp.add_argument("--start", help="1일째에 붙일 글 (예: '늦겨울', '왕국력 312년'). 빈 값이면 지움")
     sp.add_argument("--on", action="store_true", help="작품 속 시간 기록 켜기")
     sp.add_argument("--off", action="store_true", help="끄기 (상태 변경안에 시점을 적지 않고, 쓰기 · 검수에 시간 블록을 넣지 않음)")
-    sp.add_argument("--add", nargs="+", action="extend", metavar="무엇@날수", help="기한 더하기 (날수를 모르면 @ 없이)")
+    sp.add_argument("--add", nargs="+", action="extend", metavar="무엇@날수", help="기한 더하기 (@ 뒤는 날수나 날짜, 모르면 @ 없이)")
     sp.add_argument("--close", nargs="+", action="extend", metavar="ID", help="기한 닫기 (마지막으로 반영한 화에)")
     sp.add_argument("--drop", nargs="+", action="extend", metavar="ID", help="기한 지우기")
     sp = add("cast", cmd_cast, yes=False)

@@ -1,6 +1,8 @@
 """작품 속 시간(canon/timeline.py) 테스트 (mock LLM): 반영, 프롬프트 블록, 기한 남은 날 · 예산, 되돌리기, 작가 수정, 끄기, CLI, 웹. 실행: python -m pytest tests"""
 import importlib
 
+import pytest
+
 from fastapi.testclient import TestClient
 
 from canon import cli, context, pipeline, prompts, store, timeline
@@ -130,7 +132,7 @@ def test_cli_and_web(tmp_path, monkeypatch, capsys):
     store.save("tl", _play(_short(8), 1, 2))
     cli.main(["time", "tl", "--start", "2024년 3월 2일 토요일", "--add", "빚 갚을 날@9", "--close", "dl-01-festival"])
     out = capsys.readouterr().out
-    assert "기준: 1일째 = 2024년 3월 2일 토요일" in out and "빚 갚을 날 (9일째) · 7일 남음" in out and "2화에 닫힘" in out
+    assert "기준: 1일째 = 2024년 3월 2일 토요일" in out and "빚 갚을 날 (3월 10일 일요일) · 7일 남음" in out and "2화에 닫힘" in out
 
     from canon import web
     importlib.reload(web)
@@ -159,12 +161,48 @@ def test_calendar_weekdays_in_blocks():
     assert timeline.day_label(p, 2) == "3월 1일"
 
     p = _play(_short(8), 1, 2)
-    p.timeline.start = "2024년 3월 4일 월요일"
+    p.timeline.start = "1일째 월요일"  # 요일만 알면 날수가 앞
     p.episode(2).time.label = "화요일 저녁"  # AI 가 적은 요일 글은 계산한 것으로 바뀐다
-    assert timeline.when(p, p.episode(2).time) == "2일째 밤 (3월 5일 화요일)"
+    assert timeline.when(p, p.episode(2).time) == "2일째 밤 (화요일)"
+    assert "요일 셈: 2일째는 화요일" in timeline.episode_block(p, 3)
+
+    p.timeline.start, p.timeline.start_date = "초봄", "2024-03-04"  # 날짜를 알면 날짜가 앞
+    assert timeline.dated(p) and timeline.start_text(p) == "2024년 3월 4일 월요일 (초봄)"
+    assert timeline.when(p, p.episode(2).time) == "3월 5일 화요일 밤 (2일째)"
+    assert timeline.tag(p, p.episode(2)) == "[3월 5일 밤] "
     block = timeline.episode_block(p, 3)
-    assert "직전 화(2화) 끝: 2일째 밤 (3월 5일 화요일)" in block and "요일 셈: 2일째는 화요일" in block
-    assert "등대 축제 (5일째 = 3월 8일 금요일, 3일 남음" in block
-    assert "Canon 이 계산합니다" in timeline.state_rule(p, 3) and "«»" in timeline.state_rule(p, 3)
+    assert "기준: 1일째 = 2024년 3월 4일 월요일 (초봄)" in block and "직전 화(2화) 끝: 3월 5일 화요일 밤 (2일째)" in block
+    assert "요일 셈: 오늘(2일째)은 3월 5일 화요일. 같은 요일: 3월 12일 · 3월 19일" in block
+    assert "등대 축제 (3월 8일 금요일, 3일 남음" in block
+    assert "등대 축제 (3월 8일 금요일 = 5일째, 3일 남음" in timeline.state_block(p, 3)
+    rule = timeline.state_rule(p, 3)
+    assert "Canon 이 계산합니다" in rule and "«»" in rule and "날수는 Canon 이 날짜로 다시 셉니다" in rule
     assert "직접 셈하지 말고" in timeline.check_rule(p, 3)
-    assert "«»" in prompts.state_prompt(p, 3)
+    assert "«»" in prompts.state_prompt(p, 3) and "[3월 5일 밤]" in prompts.episode_prompt(p, 3)
+
+
+def test_body_dates_become_days():
+    p = _play(_short(8), 1, 2)
+    assert timeline.day_from_text(p, "3월 10일") == 0  # 날짜를 모르는 작품
+    p.timeline.start_date = "2024-12-30"
+    assert timeline.day_from_text(p, "1월 2일 정오까지", near=2) == 4  # 연도 없으면 지금 이후 가까운 날
+    assert timeline.day_from_text(p, "2024년 12월 31일") == 2 and timeline.day_from_text(p, "2024년 12월 1일") == 0
+    assert timeline.day_from_text(p, "사흘 뒤") == 0
+    d = StateDelta(episode=3, summary="", time=StoryTime(day=3),
+                   deadlines_added=[Deadline(id="", what="신년 무도회", day=9, note="1월 5일 밤"), Deadline(id="", what="장날", day=6, note="사흘 뒤")])
+    timeline.clean_delta(p, d)
+    assert [x.day for x in d.deadlines_added] == [7, 6]  # AI 가 9일째로 잘못 셌어도 본문 날짜로
+
+
+def test_cli_dates(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("CANON_LLM", "mock")
+    monkeypatch.setenv("CANON_HOME", str(tmp_path))
+    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
+    importlib.reload(store)
+    store.save("tl", _play(_short(8), 1, 2))
+    cli.main(["time", "tl", "--date", "2024-03-04", "--start", "초봄", "--add", "결혼식@2024-03-16", "--add", "장날@3월 9일"])
+    out = capsys.readouterr().out
+    assert "기준: 1일째 = 2024년 3월 4일 월요일 (초봄)" in out and "지금: 3월 5일 화요일 밤 (2일째)" in out
+    assert "결혼식 (3월 16일 토요일) · 11일 남음" in out and "장날 (3월 9일 토요일) · 4일 남음" in out
+    with pytest.raises(SystemExit):
+        cli.main(["time", "tl", "--date", "3월 4일"])

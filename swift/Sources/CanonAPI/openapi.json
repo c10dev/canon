@@ -2810,6 +2810,67 @@
     }
    }
   },
+  "/api/projects/{name}/episodes/{n}/delete": {
+   "post": {
+    "summary": "Delete Episode",
+    "description": "본문이 있거나 반영한 마지막 화를 지운다: 반영 취소 → 본문 비우기 → 화 빼기. 지우기 전 작품은 before-delete-<화>.json 으로 남긴다.",
+    "operationId": "delete_episode",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DeleteIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Delete Episode"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/chat/{topic}": {
    "post": {
     "summary": "Chat Send",
@@ -11219,6 +11280,17 @@
     ],
     "title": "DeadlineIn"
    },
+   "DeleteIn": {
+    "properties": {
+     "keep_plot": {
+      "type": "boolean",
+      "title": "Keep Plot",
+      "default": false
+     }
+    },
+    "type": "object",
+    "title": "DeleteIn"
+   },
    "DexCatalog": {
     "properties": {
      "groups": {
@@ -18329,7 +18401,13 @@
      "start": {
       "type": "string",
       "title": "Start",
-      "description": "1일째가 언제인지 (예: 2024년 3월 2일 토요일, 늦겨울). 비면 날수만 센다",
+      "description": "1일째가 언제인지 글로 (예: 늦겨울, 왕국력 312년). start_date 가 없으면 여기 적은 날짜 · 요일을 읽는다",
+      "default": ""
+     },
+     "start_date": {
+      "type": "string",
+      "title": "Start Date",
+      "description": "1일째 날짜 YYYY-MM-DD. 있으면 화마다 날짜로 보이고 날짜 · 요일 · 남은 날을 Canon 이 계산한다. 비면 날수(며칠째)로 센다",
       "default": ""
      },
      "deadlines": {

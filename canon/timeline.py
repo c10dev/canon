@@ -39,27 +39,56 @@ _WD = re.compile(r"([월화수목금토일])요일")
 _DATE_WORDS = re.compile(r"\d+\s*(?:년|월|일)|요일")
 
 
+def _date(y: int, m: int, d: int) -> date | None:
+    try:
+        return date(y, m, d)
+    except ValueError:
+        return None
+
+
+_ISO = re.compile(r"^\s*(\d{1,4})-(\d{1,2})-(\d{1,2})\s*$")
+
+
 def calendar(p: Project) -> tuple[date | None, bool, int | None]:
-    """기준 글에서 (1일째 날짜, 연도를 아는지, 1일째 요일 0=월). 연도 없이 '3월 2일'만 있으면 2001년(2월 29일은 2000년)으로 센다.
-    연도가 있으면 요일은 날짜로 계산하고, 적은 요일은 무시한다. 모르면 None."""
+    """(1일째 날짜, 연도를 아는지, 1일째 요일 0=월). 날짜 칸(start_date, YYYY-MM-DD)이 먼저이고, 없으면 기준 글(start)에서 읽는다.
+    글에 연도 없이 '3월 2일'만 있으면 2001년(2월 29일은 2000년)으로 센다. 연도가 있으면 요일은 날짜로 계산하고, 적은 요일은 무시한다. 모르면 None."""
+    m = _ISO.match(p.timeline.start_date)
+    first = m and _date(*map(int, m.groups()))
+    if first:
+        return first, True, first.weekday()
     text = p.timeline.start
     wd_m = _WD.search(text)
     wd = WEEKDAYS.index(wd_m.group(1)) if wd_m else None
     m = _YMD.search(text)
     if m:
-        try:
-            first = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-            return first, True, first.weekday()
-        except ValueError:
-            return None, False, wd
+        first = _date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        return (first, True, first.weekday()) if first else (None, False, wd)
     m = _MD.search(text)
     if m:
         mo, d = int(m.group(1)), int(m.group(2))
-        try:
-            return date(2000 if (mo, d) == (2, 29) else 2001, mo, d), False, wd
-        except ValueError:
-            return None, False, wd
+        return _date(2000 if (mo, d) == (2, 29) else 2001, mo, d), False, wd
     return None, False, wd
+
+
+def dated(p: Project) -> bool:
+    """1일째 날짜를 알아 화마다 날짜로 보이는지."""
+    return calendar(p)[0] is not None
+
+
+def date_of(p: Project, day: int) -> date | None:
+    first = calendar(p)[0]
+    return first + timedelta(days=day - 1) if first and day > 0 else None
+
+
+def start_text(p: Project) -> str:
+    """기준 한 줄: '2024년 3월 4일 월요일 (초봄)'. 날짜 칸이 없으면 기준 글 그대로."""
+    m = _ISO.match(p.timeline.start_date)
+    first = m and _date(*map(int, m.groups()))
+    note = p.timeline.start.strip()
+    if not first:
+        return note
+    head = f"{first.year}년 {first.month}월 {first.day}일 {WEEKDAYS[first.weekday()]}요일"
+    return f"{head} ({note})" if note else head
 
 
 def day_label(p: Project, day: int) -> str:
@@ -76,25 +105,53 @@ def day_label(p: Project, day: int) -> str:
     return " ".join(parts)
 
 
+def day_from_text(p: Project, text: str, near: int = 0) -> int:
+    """글에 나온 날짜('3월 10일', '2024년 3월 10일')의 날수. 날짜를 모르는 작품이거나 1일째보다 앞이면 0.
+    연도가 없으면 near(지금 날수) 이후 가장 가까운 그 날로 본다."""
+    first = calendar(p)[0]
+    if not first or not text:
+        return 0
+    m = _YMD.search(text)
+    if m:
+        x = _date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    else:
+        m = _MD.search(text)
+        if not m:
+            return 0
+        ref = first + timedelta(days=max(near, 1) - 1)
+        tries = [_date(y, int(m.group(1)), int(m.group(2))) for y in (ref.year - 1, ref.year, ref.year + 1)]
+        tries = [t for t in tries if t]
+        later = [t for t in tries if t >= ref]
+        x = min(later) if later else (max(tries) if tries else None)
+    day = (x - first).days + 1 if x else 0
+    return day if day > 0 else 0
+
+
 def when(p: Project, t: StoryTime | None) -> str:
-    """fmt 에 기준으로 계산한 날짜 · 요일을 붙인다. AI 가 적은 날짜 · 요일 글은 계산한 것으로 바꾸고 계절 같은 글만 남긴다."""
+    """시점 한 줄. 날짜를 알면 날짜가 앞('3월 6일 수요일 밤 (3일째)'), 요일만 알면 '3일째 밤 (수요일)'.
+    AI 가 적은 날짜 · 요일 글은 계산한 것으로 바꾸고 계절 같은 글만 남긴다."""
     if t is None:
         return ""
     cal = day_label(p, t.day)
     if not cal:
         return fmt(t)
     extra = t.label.strip()
-    if extra and not _DATE_WORDS.search(extra):
-        cal += f", {extra}"
+    extra = extra if extra and not _DATE_WORDS.search(extra) else ""
+    if dated(p):
+        return f"{' '.join(x for x in (cal, t.part.strip()) if x)} ({t.day}일째{f', {extra}' if extra else ''})"
     head = " ".join(x for x in (f"{t.day}일째", t.part.strip()) if x)
-    return f"{head} ({cal})"
+    return f"{head} ({cal}{f', {extra}' if extra else ''})"
 
 
 def weekday_hint(p: Project, day: int, weeks: int = 5) -> str:
-    """'오늘(3일째)은 수요일. 같은 요일: 10 · 17 · 24 · 31 · 38일째'. 요일을 모르면 빈 문자열."""
+    """'2일째는 화요일. 같은 요일: 9 · 16 · 23 · 30 · 37일째'. 날짜를 알면 '오늘(2일째)은 3월 5일 화요일. 같은 요일: 3월 12일 · …'.
+    요일을 모르면 빈 문자열."""
     _, _, wd = calendar(p)
     if wd is None or day <= 0:
         return ""
+    if dated(p):
+        same = " · ".join(day_label(p, day + 7 * k).rsplit(" ", 1)[0] for k in range(1, weeks + 1))
+        return f"오늘({day}일째)은 {day_label(p, day)}. 같은 요일: {same}"
     same = " · ".join(str(day + 7 * k) for k in range(1, weeks + 1))
     return f"{day}일째는 {WEEKDAYS[(wd + day - 1) % 7]}요일. 같은 요일: {same}일째"
 
@@ -108,7 +165,9 @@ def tag(p: Project, e: Episode) -> str:
     if not enabled(p) or not known(e.time):
         return ""
     t = e.time
-    short = " ".join(x for x in (f"{t.day}일째" if t.day > 0 else "", t.part.strip()) if x) or t.label.strip()  # 줄마다 붙어 날짜 글은 뺀다
+    x = date_of(p, t.day)
+    day = f"{x.month}월 {x.day}일" if x else f"{t.day}일째" if t.day > 0 else ""  # 줄마다 붙어 요일 · 날짜 글은 뺀다
+    short = " ".join(y for y in (day, t.part.strip()) if y) or t.label.strip()
     return f"[{short}] "
 
 
@@ -150,9 +209,14 @@ def open_deadlines(p: Project, n: int) -> list[Deadline]:
 
 
 def deadline_line(d: Deadline, day: int, ids: bool = False, p: Project | None = None) -> str:
-    """'- 왕성 축제 첫날 (9일째 = 3월 10일 일요일, 6일 남음, '사흘 뒤')'. ids 는 상태 변경안처럼 id 로 가리켜야 할 때만."""
+    """'- 왕성 축제 첫날 (3월 10일 일요일, 6일 남음, '사흘 뒤')'. 날짜를 모르면 '9일째'. ids 는 상태 변경안처럼 id 로 가리켜야 할 때만."""
     cal = day_label(p, d.day) if p is not None else ""
-    at = (f"{d.day}일째" + (f" = {cal}" if cal else "")) if d.day > 0 else ""
+    if d.day <= 0:
+        at = ""
+    elif p is not None and dated(p):
+        at = f"{cal} = {d.day}일째" if ids else cal  # 상태 변경안은 날수로 적으니 날수도
+    else:
+        at = f"{d.day}일째" + (f" = {cal}" if cal else "")
     extra = ", ".join(x for x in (at, left(d, day), d.note.strip() and f"'{d.note.strip()}'") if x)
     return f"- {d.what}{f' ({extra})' if extra else ''}{f' [{d.id}]' if ids else ''}"
 
@@ -190,8 +254,8 @@ def episode_block(p: Project, n: int) -> str:
     if not (prev or plan or rows or hint):
         return ""
     lines = []
-    if p.timeline.start.strip():
-        lines.append(f"기준: 1일째 = {p.timeline.start.strip()}")
+    if start_text(p):
+        lines.append(f"기준: 1일째 = {start_text(p)}")
     if prev:
         gap = "" if prev[0] == n - 1 else f" ({prev[0] + 1}화는 시점 기록 없음)" if prev[0] == n - 2 else f" ({prev[0] + 1}~{n - 1}화는 시점 기록 없음)"
         lines.append(f"직전 화({prev[0]}화) 끝: {when(p, prev[1])}{gap}")
@@ -218,7 +282,8 @@ def plan_block(p: Project, n: int) -> str:
     if rows:
         lines.append(f"열린 기한{f' (먼 것 {cut}개 생략)' if cut else ''}:")
         lines += rows
-    lines.append("- 화마다 time 칸에 직전 화에서 얼마나 지났는지 적고, 기한이 있으면 그 날에 맞게 사건을 놓습니다.")
+    lines.append("- 화마다 time 칸에 " + ("시점을 적고(직전 화에서 얼마나 지났는지나 '3월 8일 아침' 같은 날짜)" if dated(p) else "직전 화에서 얼마나 지났는지 적고")
+                 + ", 기한이 있으면 그 날에 맞게 사건을 놓습니다.")
     return "\n".join(lines)
 
 
@@ -230,8 +295,8 @@ def state_block(p: Project, n: int) -> str:
     plan = _plot_time(p, n)
     rows, cut = deadline_lines(p, n, ids=True)
     lines = []
-    if p.timeline.start.strip():
-        lines.append(f"기준: 1일째 = {p.timeline.start.strip()}")
+    if start_text(p):
+        lines.append(f"기준: 1일째 = {start_text(p)}")
     lines.append(f"직전 화({prev[0]}화) 끝: {when(p, prev[1])}" if prev else "앞 화 시점 기록 없음")
     if plan:
         lines.append(f"이번 화 플롯의 시점: {plan}")
@@ -251,7 +316,8 @@ def state_rule(p: Project, n: int) -> str:
                else "label 은 본문이나 기준에서 드러난 날짜 · 요일 · 계절만 적습니다. ")
             + "회상 · 외전처럼 메인 시간 밖의 화면 메인 시간 기준으로 적습니다(보통 직전 화 끝 그대로)."
             f"\n- 본문에서 앞으로 올 날이 정해지면(축제, 결혼식, '사흘 안에' 같은 약속이나 마감) deadlines_added 에 넣습니다. id 는 dl-{n:02d}-키워드, "
-            "day 는 그날의 날수, note 는 본문에 나온 말 그대로입니다. 열린 기한의 날이 바뀌면 같은 id 로 넣고, 그날이 와서 일이 일어났거나 기한이 없어졌으면 deadlines_done 에 id 를 넣습니다."
+            "day 는 그날의 날수, note 는 본문에 나온 말 그대로입니다" + ("(본문에 '3월 10일'처럼 날짜가 나오면 그 말을 note 에 넣습니다. 날수는 Canon 이 날짜로 다시 셉니다)" if dated(p) else "") + ". "
+            " 열린 기한의 날이 바뀌면 같은 id 로 넣고, 그날이 와서 일이 일어났거나 기한이 없어졌으면 deadlines_done 에 id 를 넣습니다."
             "\n- 본문 속 시간이 직전 화 끝이나 열린 기한과 어긋나면(밤이었는데 설명 없이 낮, 남은 날 수나 요일이 틀림) warnings 에 적고, 어긋난 본문 문장을 «» 안에 글자 그대로 넣습니다.")
 
 
@@ -275,6 +341,10 @@ def clean_delta(p: Project, d: StateDelta) -> None:
             x.id = x.id.strip() or new_id(p, d.episode, x.what, set(seen))
             seen[x.id] = x
     d.deadlines_added = list(seen.values())
+    if dated(p):  # 본문에 나온 날짜가 있으면 AI 가 센 날수 대신 날짜로 센다
+        near = d.time.day or current_day(p, d.episode)
+        for x in d.deadlines_added:
+            x.day = day_from_text(p, x.note, near) or day_from_text(p, x.what, near) or x.day
     have = {x.id for x in p.timeline.deadlines} | set(seen)
     d.deadlines_done = [x for x in dict.fromkeys(d.deadlines_done) if x in have]
     if d.time.day < 0:
@@ -393,15 +463,15 @@ def view(p: Project) -> dict:
     day = current_day(p, n)
     items = []
     for d in sorted(p.timeline.deadlines, key=lambda d: (bool(d.done_ep), d.day <= 0, d.day, d.set_ep)):
-        items.append({**d.model_dump(), "left": "" if d.done_ep else left(d, day)})
+        items.append({**d.model_dump(), "date": day_label(p, d.day), "left": "" if d.done_ep else left(d, day)})
     prev = prev_end(p, n)
-    return {"day": day, "now": when(p, prev[1]) if prev else "", "rows": rows(p), "deadlines": items}
+    return {"day": day, "now": when(p, prev[1]) if prev else "", "dated": dated(p), "rows": rows(p), "deadlines": items}
 
 
 def describe(p: Project) -> str:
     """명령줄 출력."""
     v = view(p)
-    lines = [f"작품 속 시간 ({'켜짐' if enabled(p) else '꺼짐'})" + (f" · 기준: 1일째 = {p.timeline.start}" if p.timeline.start else "")]
+    lines = [f"작품 속 시간 ({'켜짐' if enabled(p) else '꺼짐'})" + (f" · 기준: 1일째 = {start_text(p)}" if start_text(p) else "")]
     lines.append(f"지금: {v['now'] or '기록 없음'}")
     lines.append("")
     for r in v["rows"]:
@@ -414,5 +484,6 @@ def describe(p: Project) -> str:
         lines.append("\n기한")
         for d in v["deadlines"]:
             state = f"{d['done_ep']}화에 닫힘" if d["done_ep"] else (d["left"] or "열림")
-            lines.append(f"  {d['id']}: {d['what']}" + (f" ({d['day']}일째)" if d["day"] else "") + f" · {state}")
+            at = (d["date"] if v["dated"] else f"{d['day']}일째") if d["day"] else ""
+            lines.append(f"  {d['id']}: {d['what']}" + (f" ({at})" if at else "") + f" · {state}")
     return "\n".join(lines)
