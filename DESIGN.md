@@ -450,7 +450,7 @@ AI 는 숫자를 매기지 않고 사건만 뽑는다. 같은 사건은 항상 �
 - **검수 넓히기**(`pipeline.widen_check`, 장편만, `Settings.check_widen` 기본 꺼짐): 첫 검수는 이번 화 전체로 한 번 찾은 단락(`prompts.check_recall`)만 본다. 넓히기를 켜면 그 뒤에 진술을 뽑고(`claims_prompt`) 진술마다 직전 3화를 뺀 옛 화에서 근거를 따로 찾아(`claim_sources` · `claim_evidence`, LLM 없음), 첫 검수에 넣지 않은 단락이 나온 진술만 최대 8개(`WIDEN_MAX`, 첫 검수에서 근거 단락을 하나도 못 본 진술 먼저) 근거와 함께 다시 묻는다(`widen_prompt` → `ConsistencyReport`). 넓힐 진술은 모델이 아니라 단락 비교로 고르므로 판단기는 쓰지 않는다. 더한 지적은 첫 검수 지적과 인용 문장이 겹치면(글 조각 절반 이상) 뺀다. 첫 검수 프롬프트는 그대로라 해시 스냅샷이 바뀌지 않는다. 자동 집필 배치는 호출마다 slot 을 따로 둬(`BatchLLM.part`) 서버를 다시 시작해도 앞 호출 결과가 뒤 호출에 붙지 않고, 추정은 검수 호출 3번과 배치 대기 3번으로 센다. 연구 화면 검수 시험의 `widen` 으로 `budget` 과 견준다.
 - **두 걸음 검수**(실험, `pipeline.check_two_step`): 검수 모델은 진술 뽑기(`claims_prompt` → `ClaimSet`)와 의심 판정(`verdict_prompt` → `ConsistencyReport`)만 하고, 그 사이에 판단기(`judge.py`)가 진술마다 근거 묶음(`claim_evidence`, 3천 자: 인물 설정, 겹치는 작품 설정 줄 `setting_lines`(세계관 · 인물 배경 · 관계 설명, 기간 · 나이 같은 셈은 `context.has_count` 로 이어 줌), `context.related_facts`, 비밀, `context.PassageIndex` 로 직전 화까지 찾은 단락)과 견줘 '맞음 / 어긋남 / 없음' 확률을 낸다. 색인은 한 번 만들어 진술마다 쓴다. 판단기는 거르기만 하므로 문턱(`TWOSTEP_FLAG` 0.25)을 낮게 잡아 놓치지 않는 쪽으로 둔다. 연구 화면 검수 시험의 `twostep` 으로만 쓰고, 실제 검수 경로는 시험 결과를 본 뒤 정한다.
 - **영향 분석**(`impact_prompt`): 장편은 열린 떡밥 60개, 사실 예산(`impact_facts`), 본문 9만 자, 요약을 기다리는 먼 화는 첫 문장만.
-- **스냅샷**: 장편은 최근 20화(`SNAPSHOT_KEEP`)와 0화, 아크 끝 화 스냅샷만 남긴다.
+- **스냅샷**: 장편은 최근 20화(`SNAPSHOT_KEEP`)와 0화, 아크 끝 화 스냅샷만 남긴다(`prune_snapshots`). 작품 설정 `Settings.keep_snapshots`(기본 꺼짐)를 켜면 지우지 않는다. 연구용 작품처럼 어느 화로든 `revert` 해 그 화 반영 직후 상태에서 다시 써 봐야 할 때 쓴다. 켜는 곳은 작품 홈의 화별 진행 카드(`PUT /api/projects/{name}/keep-snapshots`)와 명령줄 `snapshots --keep`. 이미 지운 스냅샷은 되살리지 못하고, 끄면 다음 반영 때 정리한다.
 
 ### 다음 단계
 

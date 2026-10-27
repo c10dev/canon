@@ -3341,7 +3341,10 @@ SNAPSHOT_KEEP = 20  # 장편에서 남기는 최근 스냅샷 수. 시작점과 
 
 
 def prune_snapshots(p: Project) -> None:
-    """장편은 화마다 상태 전체를 복사하면 project.json 이 너무 커진다. 관계는 사건 로그로 다시 계산할 수 있다."""
+    """장편은 화마다 상태 전체를 복사하면 project.json 이 너무 커진다. 관계는 사건 로그로 다시 계산할 수 있다.
+    작품 설정 keep_snapshots 를 켜면(연구용 작품) 지우지 않는다."""
+    if p.settings.keep_snapshots:
+        return
     ends = {a.end_ep for a in p.story_arcs}
     recent = sorted(s.episode for s in p.snapshots)[-SNAPSHOT_KEEP:]
     keep = {0, *ends, *recent}

@@ -173,6 +173,15 @@ function releasePlan(p) {
   return { perWeek, released, ready, buffer, over: released > ready, perDay, bufferDays: perWeek ? Math.floor(buffer / perDay) : null };
 }
 
+/** 장편 스냅샷 줄 (Settings.keep_snapshots): 남은 스냅샷 수와 모두 남기기 켜기 · 끄기. 연구용 작품은 켜 둔다 */
+function snapshotRow(p) {
+  const on = !!p.settings.keep_snapshots;
+  const tip = on ? '끄면 다음 반영 때 0화 · 아크 끝 · 최근 20화만 남기고 지워요. 지운 화는 되살리지 못해요'
+    : '켜면 반영할 때마다 찍는 화별 상태를 지우지 않아요. 이미 지운 화는 되살리지 못해요. 연구용 작품에 켜 두세요';
+  return `<div class="small">화별 상태 기록(스냅샷) ${p.snapshots.length}개 · ${on ? '모두 남겨요' : '0화 · 아크 끝 · 최근 20화만 남겨요'}
+    <button type="button" class="btn small" aria-pressed="${on}" data-action="toggleKeepSnapshots" title="${tip}">모두 남기기 ${on ? '켜짐' : '꺼짐'}</button></div>`;
+}
+
 /** 작품 홈 '화별 진행' 카드 머리의 연재 일정 줄: 올린 화 · 비축 · 하루 목표, 접힌 칸에서 일정 고치기 */
 function releaseRow(p) {
   const r = releasePlan(p);
@@ -273,6 +282,7 @@ function viewHome() {
         <span>↑ 올린 화</span></div></div>
       ${eps.length ? releaseRow(p) : ''}
       ${eps.length ? `${actBand}${arcBand}<div class="ep-grid">${cells}</div>${curPart ? `<div class="small">${curPart.number}부 ${esc(curPart.title)} (${curPart.start_ep}~${curPart.end_ep}화)만 보여요. 전체는 <a href="${base()}/arc">부 · 아크</a>에서 보세요.</div>` : ''}` : `<div class="note plain">아직 화별 플롯이 없어요. 다음 할 일: <a href="${nextHref}">${esc(nextLabel)}</a></div>`}
+      ${serial() ? snapshotRow(p) : ''}
       ${lastWarn.length ? `<div class="note warn">${last.episode}화 반영 때 검수 경고: ${lastWarn.map(esc).join(' / ')} <a href="${base()}/write/${last.episode}" style="color:inherit;font-weight:700">${last.episode}화 보기</a></div>` : ''}
       ${eps.some((e) => e.status === 'written') ? `<div class="note warn">${cur}화 본문이 작성됐어요. 상태 변경안을 승인해야 다음 화를 쓸 수 있어요. <a href="${base()}/review/${cur}" style="color:inherit;font-weight:700">${cur}화 상태 승인</a></div>` : ''}
     </section>
@@ -343,6 +353,17 @@ function adultCheck(attrs) {
 }
 
 Object.assign(actions, {
+  /** 장편 스냅샷 모두 남기기 켜기 · 끄기 (Settings.keep_snapshots). 바로 서버에 저장한다 */
+  async toggleKeepSnapshots() {
+    const on = !P().settings.keep_snapshots;
+    P().settings.keep_snapshots = on;
+    render();
+    try {
+      S.project = await api('PUT', `/projects/${enc(S.name)}/keep-snapshots`, { on });
+    } catch (e) {
+      toast(e.message, true);
+    }
+  },
   /** 연재처에 다음 화를 올렸다고 적고 바로 저장한다 (작품 홈의 연재 일정 줄) */
   async releaseOne() {
     const r = P().release;

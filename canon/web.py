@@ -3418,6 +3418,18 @@ def set_check_widen(name: str, body: CheckWiden) -> Project:
     return _save(name, p)
 
 
+class KeepSnapshots(BaseModel):
+    on: bool
+
+
+@app.put("/api/projects/{name}/keep-snapshots")
+def set_keep_snapshots(name: str, body: KeepSnapshots) -> Project:
+    """장편 스냅샷 모두 남기기 켜기 · 끄기 (Settings.keep_snapshots). 끄면 다음 반영 때 오래된 스냅샷을 지운다."""
+    p = _load(name)
+    p.settings.keep_snapshots = body.on
+    return _save(name, p)
+
+
 # ---------- 작업지시서 ----------
 
 class BriefText(BaseModel):

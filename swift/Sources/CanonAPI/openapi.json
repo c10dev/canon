@@ -8458,6 +8458,56 @@
     }
    }
   },
+  "/api/projects/{name}/keep-snapshots": {
+   "put": {
+    "summary": "Set Keep Snapshots",
+    "description": "장편 스냅샷 모두 남기기 켜기 · 끄기 (Settings.keep_snapshots). 끄면 다음 반영 때 오래된 스냅샷을 지운다.",
+    "operationId": "set_keep_snapshots",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/KeepSnapshots"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/episodes/{n}/brief": {
    "get": {
     "summary": "Brief",
@@ -14214,6 +14264,19 @@
     ],
     "title": "KeepLook"
    },
+   "KeepSnapshots": {
+    "properties": {
+     "on": {
+      "type": "boolean",
+      "title": "On"
+     }
+    },
+    "type": "object",
+    "required": [
+     "on"
+    ],
+    "title": "KeepSnapshots"
+   },
    "LayoutIn": {
     "properties": {
      "data": {
@@ -16840,6 +16903,12 @@
       "type": "boolean",
       "title": "Check Widen",
       "description": "장편 검수 넓히기: 검수 뒤 진술마다 옛 화를 더 찾아, 첫 검수에 없던 근거가 나온 진술만 다시 묻는다 (검수 호출 2번 더)",
+      "default": false
+     },
+     "keep_snapshots": {
+      "type": "boolean",
+      "title": "Keep Snapshots",
+      "description": "장편에서도 화별 스냅샷을 지우지 않고 모두 남긴다 (연구용 작품: 어느 화로든 되돌릴 수 있다). 끄면 0화 · 아크 끝 · 최근 20화만 남긴다 (pipeline.prune_snapshots)",
       "default": false
      }
     },

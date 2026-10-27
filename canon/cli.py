@@ -1694,6 +1694,31 @@ def cmd_view(a: argparse.Namespace) -> None:
     print("관계를 " + ("숫자로" if p.settings.show_numbers else "말로") + " 보여 줘요")
 
 
+def _ep_runs(nums: list[int]) -> str:
+    """[0, 20, 62, 63, 64] → '0, 20, 62~64화'. 이어진 화는 범위로 묶는다."""
+    runs: list[list[int]] = []
+    for n in sorted(nums):
+        if runs and n == runs[-1][1] + 1:
+            runs[-1][1] = n
+        else:
+            runs.append([n, n])
+    return ", ".join(f"{a}" if a == b else f"{a}~{b}" for a, b in runs) + "화" if runs else "없음"
+
+
+def cmd_snapshots(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    if a.keep is not None:
+        p.settings.keep_snapshots = a.keep
+        store.save(a.name, p)
+    print(f"스냅샷 {len(p.snapshots)}개: {_ep_runs([s.episode for s in p.snapshots])}")
+    if not p.serial:
+        print("단편은 스냅샷을 지우지 않아요.")
+    elif p.settings.keep_snapshots:
+        print("모두 남기기가 켜져 있어요. 어느 화로든 되돌릴 수 있어요. 끄려면 --no-keep")
+    else:
+        print(f"0화, 아크가 끝난 화, 최근 {pipeline.SNAPSHOT_KEEP}화만 남겨요. 지운 화는 되살리지 못해요. 모두 남기려면 --keep")
+
+
 def cmd_adjust(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     if a.warmth is None and a.trust is None:
@@ -2248,6 +2273,9 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--unok", help="travel: '괜찮아요'를 되돌리기 (인물 id:화)")
     sp = add("view", cmd_view, yes=False)
     sp.add_argument("mode", choices=["numbers", "words"])
+    sp = add("snapshots", cmd_snapshots, yes=False)
+    sp.add_argument("--keep", action=argparse.BooleanOptionalAction, default=None,
+                    help="장편 스냅샷 모두 남기기 켜기(--keep) · 끄기(--no-keep). 주지 않으면 보기만")
     sp = add("adjust", cmd_adjust, "source", "target", yes=False)
     sp.add_argument("--warmth", type=float, help="-1 ~ 1")
     sp.add_argument("--trust", type=float, help="0 ~ 1")
