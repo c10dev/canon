@@ -761,7 +761,7 @@ details.vis summary .small { margin-left: 6px; font-weight: 400; }
 .legend .cs-key.finalized { background: var(--green-soft); border-color: var(--green); }
 .cs-mark { fill: none; stroke: var(--accent); stroke-width: 2; }
 
-/* ----- 인물 상태창 (cast.js castSheet): 인물 하나의 설정 · 지금 상태 · 상태창 수치 · 관계 · 비밀 · 기록 ----- */
+/* ----- 인물 카드 (cast.js castSheet): 인물 하나의 설정 · 지금 상태 · 상태창 수치 · 관계 · 비밀 · 기록 ----- */
 .csh { display: flex; flex-direction: column; gap: 20px; }
 .csh-roster { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; }
 .csh-pick { flex: none; min-height: 52px; padding: 6px 14px 6px 6px; display: flex; align-items: center; gap: 10px; border-radius: 999px; border: 1.5px solid var(--line); background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
