@@ -129,6 +129,66 @@ function nextStep() {
   return ['완결 원고 보기', `${base()}/write/${e.plot.number}`];
 }
 
+/** 화 하나의 네 단계: 플롯 확정 · 집필 · 검수 · 승인. 검수는 마지막 검수 뒤에 본문을 고치지 않았을 때만 끝난 것으로 본다
+    (passage.js 의 '고치기 전 본문 기준이에요' 안내와 같은 규칙). 검수 없이 반영한 화는 검수 칸이 빈 채로 남는다. */
+function epSteps(e) {
+  const rank = { draft: 0, confirmed: 1, written: 2, finalized: 3 }[e.status] || 0;
+  const lastEdit = [...(e.edits || [])].reverse().find((x) => !x.undone);
+  const checked = !!e.checked_at && !(lastEdit && lastEdit.at > e.checked_at);
+  return [['plot', '플롯 확정', rank >= 1], ['write', '집필', rank >= 2], ['check', '검수', rank >= 2 && checked], ['review', '승인', rank >= 3]]
+    .map(([key, label, done]) => ({ key, label, done }));
+}
+
+/** 화 칸 · 카드 아래의 네 칸 막대. 글은 aria-label 에 따로 적으므로 막대는 눈으로만 본다 */
+function stepBar(e) {
+  return `<span class="ep-steps" aria-hidden="true">${epSteps(e).map((s) => `<i class="${s.done ? 'on' : ''}" title="${s.label}"></i>`).join('')}</span>`;
+}
+
+/** 진행 단계 글: '3/4단계, 검수 전' 처럼 스크린리더와 칸 제목에 쓴다 */
+function stepText(e) {
+  const steps = epSteps(e);
+  const next = steps.find((s) => !s.done);
+  const skipped = e.status === 'finalized' && next;
+  return `${steps.filter((s) => s.done).length}/4단계${skipped ? ', 검수 없이 반영' : next ? `, ${next.label} 전` : ''}`;
+}
+
+/** 연재 일정(Project.release)으로 비축분과 하루 목표를 센다. 올릴 수 있는 화는 1화부터 이어서 반영을 마친 화까지다
+    (순서 규칙상 반영은 1화부터 차례로 끝난다). 일정이 없으면(per_week 0) 비축 일수를 계산하지 않는다. */
+function releasePlan(p) {
+  const r = p.release || {};
+  const perWeek = Math.min(70, Math.max(0, Number(r.per_week) || 0));
+  const released = Math.max(0, Number(r.released) || 0);
+  const fin = new Set(p.episodes.filter((e) => e.status === 'finalized').map((e) => e.plot.number));
+  let ready = 0;
+  while (fin.has(ready + 1)) ready += 1;
+  const buffer = Math.max(0, ready - released);
+  const perDay = perWeek / 7;
+  return { perWeek, released, ready, buffer, over: released > ready, perDay, bufferDays: perWeek ? Math.floor(buffer / perDay) : null };
+}
+
+/** 작품 홈 '화별 진행' 카드 머리의 연재 일정 줄: 올린 화 · 비축 · 하루 목표, 접힌 칸에서 일정 고치기 */
+function releaseRow(p) {
+  const r = releasePlan(p);
+  const fmt = (x) => (Math.round(x * 10) / 10).toLocaleString();
+  const days = r.bufferDays === null ? '' : ` (약 ${r.bufferDays.toLocaleString()}일분)`;
+  const low = r.bufferDays !== null && r.bufferDays < 3;
+  const goal = r.perWeek
+    ? `하루 목표 ${fmt(r.perDay)}화 (약 ${Math.round(r.perDay * p.meta.words_per_episode).toLocaleString()}자)`
+    : '일주일에 올리는 화 수를 정하면 비축 일수와 하루 목표를 계산해요';
+  const warn = r.over ? `<div class="note warn">올린 화(${r.released}화)가 반영을 마친 화(${r.ready}화)보다 뒤예요. 올린 화를 고치거나 남은 화를 반영하세요.</div>`
+    : low ? `<div class="note warn">비축이 ${r.buffer ? `${r.buffer}화(약 ${r.bufferDays}일분)뿐이에요` : '없어요'}. 오늘 ${Math.max(1, Math.ceil(r.perDay))}화를 반영하면 일정을 지킬 수 있어요.</div>` : '';
+  return `<div class="release-row">
+      <span><strong>올린 화</strong> ${r.released ? `${r.released}화까지` : '없음'}</span>
+      <span><strong>비축</strong> ${r.buffer}화${days}</span>
+      <span class="small">${goal}</span>
+      <button type="button" class="btn small" data-action="releaseOne"${r.released >= p.episodes.length ? ' disabled' : ''}>${r.released + 1}화를 올렸어요</button>
+    </div>
+    <details class="release-edit"><summary class="small">연재 일정 고치기</summary><div class="row" style="align-items:flex-end">
+      ${input('일주일에 올리는 화 수', 'release.per_week', { type: 'number', min: 0, max: 70, hint: '0이면 정하지 않음' })}
+      ${input('올린 마지막 화', 'release.released', { type: 'number', min: 0, max: p.episodes.length })}
+    </div></details>${warn}`;
+}
+
 function viewHome() {
   const p = P();
   const m = p.meta;
@@ -165,6 +225,7 @@ function viewHome() {
   const shown = !serial() ? eps : curPart ? eps.filter((e) => e.plot.number >= curPart.start_ep && e.plot.number <= curPart.end_ep)
     : eps.filter((e) => Math.abs(e.plot.number - cur) <= 30);
   const arcBand = serial() && p.story_arcs.length ? `<div class="arc-rail">${p.story_arcs.filter((a) => shown.some((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep)).map((a) => `<a class="arc-chip" href="${base()}/arc/a${a.number}"><strong>아크 ${a.number}</strong> <span>${a.start_ep}~${a.end_ep}화 ${esc(a.title)}</span></a>`).join('')}</div>` : '';
+  const released = releasePlan(p).released;
   const cells = shown.map((e) => {
     const n = e.plot.number;
     const href = e.status === 'draft' ? `${base()}/arc/${n}` : e.status === 'written' ? `${base()}/review/${n}` : `${base()}/write/${n}`;
@@ -172,7 +233,8 @@ function viewHome() {
     const st = e.auto ? '자동 반영' : STATUS[e.status].replace('플롯 ', '').replace('본문 ', '');
     const now = n === cur && e.status !== 'finalized';
     // 좁은 폭에서는 상태 글자를 눈으로만 감춘다. 이름은 aria-label 로 늘 '3화 작성됨 · 제목'
-    return `<a class="ep-cell ${e.status}${now ? ' current' : ''}${act ? ' ' + actClass(act.name) + '-edge' : ''}" href="${href}" title="${esc(e.plot.title)}" aria-label="${esc(`${n}화 ${st}${now ? ' · 지금 화' : ''}${e.plot.title ? ' · ' + e.plot.title : ''}`)}"><strong>${n}</strong><span>${st}</span></a>`;
+    const up = n <= released;
+    return `<a class="ep-cell ${e.status}${now ? ' current' : ''}${up ? ' released' : ''}${act ? ' ' + actClass(act.name) + '-edge' : ''}" href="${href}" title="${esc(`${e.plot.title ? e.plot.title + ' · ' : ''}${stepText(e)}`)}" aria-label="${esc(`${n}화 ${st} · ${stepText(e)}${up ? ' · 올린 화' : ''}${now ? ' · 지금 화' : ''}${e.plot.title ? ' · ' + e.plot.title : ''}`)}"><strong>${n}</strong><span>${st}</span>${stepBar(e)}</a>`;
   }).join('');
 
   const states = p.characters.map((c) => {
@@ -199,7 +261,10 @@ function viewHome() {
         <span><i style="background:var(--chip);border:1px solid var(--line-strong)"></i>플롯 초안</span>
         <span><i style="background:var(--accent)"></i>플롯 확정</span>
         <span><i style="background:var(--amber)"></i>본문 작성됨</span>
-        <span><i style="background:var(--green)"></i>반영 완료</span></div></div>
+        <span><i style="background:var(--green)"></i>반영 완료</span>
+        <span><span class="legend-steps" aria-hidden="true"><b></b><b></b><b class="off"></b><b class="off"></b></span>확정 · 집필 · 검수 · 승인</span>
+        <span>↑ 올린 화</span></div></div>
+      ${eps.length ? releaseRow(p) : ''}
       ${eps.length ? `${actBand}${arcBand}<div class="ep-grid">${cells}</div>${curPart ? `<div class="small">${curPart.number}부 ${esc(curPart.title)} (${curPart.start_ep}~${curPart.end_ep}화)만 보여요. 전체는 <a href="${base()}/arc">부 · 아크</a>에서 보세요.</div>` : ''}` : `<div class="note plain">아직 화별 플롯이 없어요. 다음 할 일: <a href="${nextHref}">${esc(nextLabel)}</a></div>`}
       ${lastWarn.length ? `<div class="note warn">${last.episode}화 반영 때 검수 경고: ${lastWarn.map(esc).join(' / ')} <a href="${base()}/write/${last.episode}" style="color:inherit;font-weight:700">${last.episode}화 보기</a></div>` : ''}
       ${eps.some((e) => e.status === 'written') ? `<div class="note warn">${cur}화 본문이 작성됐어요. 상태 변경안을 승인해야 다음 화를 쓸 수 있어요. <a href="${base()}/review/${cur}" style="color:inherit;font-weight:700">${cur}화 상태 승인</a></div>` : ''}
@@ -268,3 +333,13 @@ function genrePicker() {
 function adultCheck(attrs) {
   return `<label class="check-row"><input type="checkbox" ${attrs}><span><strong>성인물</strong> <span class="small">성인 독자 대상. 끄면 노골적인 성적 묘사와 과도한 잔혹 묘사를 피하도록 지시해요</span></span></label>`;
 }
+
+Object.assign(actions, {
+  /** 연재처에 다음 화를 올렸다고 적고 바로 저장한다 (작품 홈의 연재 일정 줄) */
+  async releaseOne() {
+    const r = P().release;
+    r.released = Math.min((Number(r.released) || 0) + 1, P().episodes.length);
+    markDirty();
+    await actions.save();
+  },
+});
