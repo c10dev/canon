@@ -138,6 +138,7 @@ async function delLast(n, keepPlot) {
     if (!keepPlot) S.selEp = null;
     toast(r.notes.join(' '));
     if (!keepPlot && ['write', 'review'].includes(S.route[2])) location.hash = `${base()}/arc`;
+    else if (!keepPlot && S.route[2] === 'arc' && Number(S.route[3]) === n) location.replace(`${base()}/arc`);  // 그 화의 플롯 페이지: 화가 없어졌다
   });
 }
 
@@ -178,6 +179,7 @@ Object.assign(actions, {
       added = true;
       toast(r.notes.join(' '));
     });
+    if (added && plotPageN()) location.replace(`${base()}/arc/${f.at}`);  // 화 플롯 페이지: 새 화로 옮긴다 (뒤 화 번호가 밀렸다)
     if (added && f.ai) await startJob('plot_one', f.at);
   },
   async insRemove(n) {
@@ -191,13 +193,14 @@ Object.assign(actions, {
       : '마지막 화라 당겨지는 화는 없어요.');
     lines.push('뺀 화의 플롯은 되돌릴 수 없어요.');
     if (!confirm(lines.join('\n'))) return;
-    await run('화를 빼는 중', async () => {
+    const ok = await run('화를 빼는 중', async () => {
       await saveIfDirty();
       const r = await api('DELETE', `/projects/${enc(S.name)}/episodes/${n}`);
       S.project = r.project;
       S.selEp = null;
       toast(r.notes.join(' '));
     });
+    if (ok && S.route[2] === 'arc' && Number(S.route[3]) === n) location.replace(`${base()}/arc`);  // 그 화의 플롯 페이지에서 뺐으면 보드로
   },
   delLast(n) {
     return delLast(Number(n), false);

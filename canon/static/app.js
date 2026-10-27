@@ -619,10 +619,13 @@ function stackBottom() {
   const h = (el) => (el && !el.hidden ? el.getBoundingClientRect().height + 12 : 0);
   const st = document.body.style;
   const ab = h($('#app .apply-bar'));
-  st.setProperty('--sb', `${h($('#savebar'))}px`);
+  const pa = $('#app .page-actions');  // 화 플롯 페이지의 버튼 줄: 작업 목록 위로 올린다
+  st.setProperty('--sb', `${h($('#savebar:not(.inline)'))}px`);
   st.setProperty('--ab', `${ab}px`);
   st.setProperty('--jb', `${narrowScreen() ? h($('#jobs')) : 0}px`);
-  st.setProperty('--jh', `${ab ? h($('#jobs')) : 0}px`);
+  st.setProperty('--jh', `${ab || pa ? h($('#jobs')) : 0}px`);
+  const jh = h($('#jobs'));
+  st.setProperty('--jp', `${pa && jh ? jh + 20 : 0}px`);  // 버튼 줄 아래 여백(20px)까지 작업 목록 위로
 }
 window.addEventListener('resize', () => stackBottom());
 
@@ -957,9 +960,10 @@ document.addEventListener('keydown', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && (S.selEp || S.selAct != null || S.editArc || S.selPart != null) && S.route[2] === 'arc' && !e.isComposing) {
-    actions.closePanel();
-    return;
+  // Esc: 대화 패널이 먼저 닫히고(chat.js 가 capture 로 받아 defaultPrevented), 그다음 서랍이나 화 플롯 페이지가 닫힌다
+  if (e.key === 'Escape' && !e.isComposing && !e.defaultPrevented && S.route[2] === 'arc') {
+    if (plotPageN()) { actions.closePlot(); return; }
+    if (S.selAct != null || S.editArc || S.selPart != null) { actions.closePanel(); return; }
   }
   if (e.key === 'Enter' && e.target.id === 'genre-custom' && !e.isComposing) {
     e.preventDefault();
@@ -1082,7 +1086,10 @@ function newSavebar(shortcut = true) {
   bar.className = 'savebar';
   bar.setAttribute('role', 'region');
   bar.setAttribute('aria-label', '저장하지 않은 변경');
-  document.body.appendChild(bar);
+  // 화면이 저장 칸을 두면(화 플롯 페이지의 버튼 줄) 그 안에 넣는다. 떠 있는 띠가 확정 버튼을 가리지 않게 한다
+  const slot = $('#app .savebar-slot');
+  if (slot) bar.classList.add('inline');
+  (slot || document.body).appendChild(bar);
   const live = $('#sr-live');
   if (live) live.textContent = `저장하지 않은 변경이 있어요.${shortcut ? ' Ctrl+S로 저장할 수 있어요.' : ''}`;
   return bar;
@@ -1097,6 +1104,10 @@ function renderSavebar() {
   const rb = $('[data-action="libRevert"]');
   if (rb) rb.disabled = !S.libDirty;
   let bar = $('#savebar');
+  // 저장 칸이 있으면 띠를 그 안으로, 없으면 화면 아래로 옮긴다 (새로 만들지 않아 낭독 안내를 되풀이하지 않는다)
+  const slot = $('#app .savebar-slot');
+  if (bar && slot && bar.parentElement !== slot) { slot.appendChild(bar); bar.classList.add('inline'); }
+  else if (bar && !slot && bar.classList.contains('inline')) { document.body.appendChild(bar); bar.classList.remove('inline'); }
   if (lib) {
     if (!bar) bar = newSavebar(false);  // 라이브러리 항목은 Ctrl+S 가 저장하지 않는다
     if (bar.dataset.sig !== 'lib') {
@@ -1568,7 +1579,7 @@ async function routeNow() {
         S.dexOpen = null;
         S.dexRolls = null;
       }
-      if (parts[2] === 'setup' || parts[2] === 'arc') {  // 플롯 서랍의 새 인물 칸도 이름 점검을 보인다
+      if (parts[2] === 'setup' || parts[2] === 'arc') {  // 화 플롯 페이지의 새 인물 칸도 이름 점검을 보인다
         S.nameCheck = await api('POST', `/projects/${enc(S.name)}/names/check`, nameCheckBody()).catch(() => null);
       }
       if (parts[2] === 'style') {
@@ -1584,16 +1595,18 @@ async function routeNow() {
         if (S.rwOpen !== n) S.rwOpen = null;
       }
       if ((parts[2] === 'write' || parts[2] === 'setup') && !S.illModels) S.illModels = await api('GET', '/illust/models').catch(() => []);
-      if (parts[2] === 'arc' && parts[3]) {  // 홈의 아크 칩(arc/a3) · 초안 칸(arc/12)이 고른 아크나 화를 연다
+      if (parts[2] === 'arc' && parts[3]) {  // 홈의 아크 칩(arc/a3)은 그 아크를 고르고, 화 번호(arc/12)는 화 플롯 페이지를 연다
         const a = /^a\d+$/.test(parts[3]) ? Number(parts[3].slice(1)) : null;
         if (a) { S.selArc = a; S.selEp = null; S.selAct = null; }
         else if (n && ep(n)) {
-          S.selEp = n;
+          S.selEp = n;  // 대화 패널이 이 화를 대상으로 삼는다 (chat.js plotScope)
           S.selAct = null;
+          S.editArc = false;
+          S.selPart = null;
           const arc = serial() && S.project.story_arcs.find((x) => x.start_ep <= n && n <= x.end_ep);
           if (arc) S.selArc = arc.number;
         }
-      }
+      } else if (parts[2] === 'arc') S.selEp = null;  // 보드로 돌아오면 대화 대상도 고른 아크로 돌아간다
       if (parts[2] === 'write' || parts[2] === 'arc') await openingLoad(parts[2] === 'write' ? (n || currentEp()) : 0);
       if (parts[2] === 'research') await rsLoad();
       if (parts[2] === 'usage') await usageLoad(S.name);
@@ -1665,6 +1678,7 @@ function render() {
   const f = focusMark();
   drawApp();
   afterDraw(f);
+  renderSavebar();  // 저장 칸이 생기거나 사라졌을 수 있다
   stackBottom();  // 반영 줄(.apply-bar)이 생기거나 사라졌을 수 있다
 }
 
@@ -1729,6 +1743,9 @@ function pageTitle() {
 
 function drawApp() {
   renderSavebar();
+  // 버튼 줄 안의 저장 칸(.savebar-slot)에 든 띠는 다시 그리면 함께 사라진다. 잠시 밖으로 빼 두었다가 그린 뒤 새 칸으로 옮긴다 (render)
+  const inline = $('#savebar.inline');
+  if (inline) document.body.appendChild(inline);
   document.body.classList.remove('chat-open', 'drawer-open');
   const [p, , page, arg] = S.route;
   if (p === 'settings') {
@@ -1756,7 +1773,7 @@ function drawApp() {
     return;
   }
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches };
+  const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${branchStrip(page)}${failStrip(page, n)}${draftStrip(page, n)}${body}</main></div>`;
   document.body.classList.toggle('drawer-open', !!$('#app .drawer'));  // 넓은 화면은 보드를 서랍 폭만큼 비켜 둔다 (app.css)

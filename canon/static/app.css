@@ -220,15 +220,24 @@ details > summary { cursor: pointer; font-size: 0.8125rem; color: var(--accent);
 .meter > i { position: absolute; top: 0; height: 8px; border-radius: 4px; }
 
 .board-wrap { min-width: 0; overflow-x: auto; display: flex; flex-direction: column; gap: 12px; padding-bottom: 4px; }
-.board { display: grid; grid-template-columns: repeat(4, minmax(250px, 1fr)); gap: 14px; align-items: start; }
-.board.has-loose { grid-template-columns: repeat(5, minmax(250px, 1fr)); }
-/* 보드 칸 폭으로 열 수를 고른다. 1280px 창이나 대화 패널을 연 화면에서 '결' 열이 가로 스크롤 뒤로 숨지 않게 */
-.board-wrap { container-type: inline-size; }
-@container (max-width: 1080px) { .board, .board.has-loose { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@container (max-width: 540px) { .board, .board.has-loose { grid-template-columns: minmax(0, 1fr); } }
-.act-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+/* 기승전결 보드: 구간마다 가로 띠를 위에서 아래로 쌓고, 띠 아래에 화 카드를 폭에 맞춰 격자로 채운다. 화 번호 순서대로 읽힌다 */
+.board { display: flex; flex-direction: column; gap: 20px; }
+.act-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; scroll-margin-top: 16px; }
 .act-head { padding: 12px 14px; border-radius: 10px; display: flex; flex-direction: column; gap: 6px; }
-.act-col .act-head { padding: 14px 16px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; border: 2px solid transparent; }
+.act-col .act-head { padding: 12px 16px; border-radius: 12px; display: grid; grid-template-columns: 140px repeat(auto-fit, minmax(200px, 1fr)); align-items: start; gap: 6px 24px; border: 2px solid transparent; }
+/* 왼쪽 칸: 구간 이름 · 범위, 그 아래 구간 고치기. 오른쪽 칸들: 구간 목표 · 전환점 · 서술 시점 */
+.act-col .act-head > .between { grid-column: 1; grid-row: 1; flex-direction: column; align-items: flex-start; gap: 2px; }
+.act-col .act-head .act-block { min-width: 0; }
+.act-col .act-head .act-edit { grid-column: 1; grid-row: 2; justify-self: start; }
+.board-wrap { container-type: inline-size; }
+@container (max-width: 640px) {
+  .act-col .act-head { grid-template-columns: minmax(0, 1fr); }
+  .act-col .act-head > .between { flex-direction: row; align-items: baseline; }
+  .act-col .act-head .act-edit { grid-row: auto; }
+}
+/* 구간 범위 막대: 네 구간을 화수만큼 나눈다. 누르면 그 띠로 내려간다 */
+.act-map { display: flex; gap: 4px; }
+.act-map button { min-width: 0; min-height: 36px; padding: 4px 10px; border: 0; border-radius: 8px; font: inherit; font-size: 0.75rem; font-weight: 700; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .act-col .act-head.sel { border-color: currentColor; }
 .act-col .act-head strong { font-size: 1.25rem; }
 .act-meta { font-size: 0.75rem; font-weight: 700; opacity: 0.85; }
@@ -236,7 +245,8 @@ details > summary { cursor: pointer; font-size: 0.8125rem; color: var(--accent);
 .act-block p.empty-text { color: var(--muted); }
 .act-label { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.02em; opacity: 0.85; }
 .act-edit { align-self: flex-start; background: var(--glass); border-color: var(--line); color: inherit; }
-.act-eps { display: flex; flex-direction: column; gap: 8px; }
+.act-eps { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; align-items: start; }
+.act-eps > .act-label, .act-eps > .ep-slot.shared { grid-column: 1 / -1; }
 .act-eps > .act-label { color: var(--muted); padding: 0 2px; }
 .ep-slot { padding: 10px 12px; border: 1px dashed var(--line-strong); border-radius: 10px; color: var(--muted); font-size: 0.8125rem; }
 .ep-slot.shared { border-style: dotted; background: var(--bg); line-height: 1.5; }
@@ -251,7 +261,6 @@ body.chat-open .drawer { width: min(400px, 100vw); }
 /* 등장 인물 체크: 휴대폰에서도 누르기 쉽게 행을 키우고 이웃과 띄운다 */
 .drawer .cast-boxes { gap: 6px 10px; }
 .drawer .cast-boxes label.row { min-height: 32px; padding: 4px 8px; }
-@media (max-width: 760px) { .board { grid-template-columns: minmax(0, 1fr); } }
 .act-1 { background: var(--act-1); color: var(--act-1-ink); }
 .act-2 { background: var(--act-2); color: var(--act-2-ink); }
 .act-3 { background: var(--act-3); color: var(--act-3-ink); }
@@ -273,7 +282,9 @@ body.chat-open .drawer { width: min(400px, 100vw); }
 .pov-chip.omni { background: var(--chip); color: var(--text-2); }
 .pov-chip.inherit { border-style: dashed; border-color: currentColor; }
 .pov-legend { margin-bottom: 8px; }
-.ep-card .s { font-size: 0.8125rem; color: var(--text-2); line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+.ep-card .s { font-size: 0.8125rem; color: var(--text-2); line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.ep-card .hook { width: 100%; padding-top: 6px; border-top: 1px solid var(--rule); font-size: 0.75rem; line-height: 1.5; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ep-card .hook strong { color: var(--text-2); }
 
 .prose { padding: 36px clamp(20px, 6%, 64px); }
 .prose textarea, .prose .read { width: 100%; max-width: 760px; margin: 0 auto; display: block; border: none; padding: 0; font-family: var(--serif); font-size: 1rem; line-height: 2; color: var(--text); background: transparent; white-space: pre-wrap; }
@@ -521,6 +532,43 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .arc-chip span { color: var(--muted); }
 .arc-chip.sel { border: 2px solid var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
 .arc-chip.next { border-style: dashed; color: var(--accent-ink); }
+/* 화 플롯 페이지 (#/p/<작품>/arc/<화>): 경로, 머리, 이웃 화 띠, 맥락 칸, 아래에 붙는 버튼 줄(저장 칸 포함) */
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--muted); }
+.crumbs strong { color: var(--text); }
+.plot-head h1 { font-size: 1.375rem; margin: 0; word-break: keep-all; }
+.ep-dots { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ep-dot { width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface); font: inherit; font-size: 0.8125rem; font-weight: 700; color: var(--text-2); cursor: pointer; }
+.ep-dot.draft { border-style: dashed; }
+.ep-dot.confirmed { background: var(--accent-soft); border-color: var(--sel-line); color: var(--accent-ink); }
+.ep-dot.written { background: var(--amber-soft); border-color: var(--warn-line); color: var(--amber-ink); }
+.ep-dot.finalized { background: var(--green-soft); border-color: var(--green); color: var(--green-ink); }
+.ep-dot.cur { border: 2px solid var(--accent); }
+.ep-dots .small { margin-left: 6px; }
+.plot-page { max-width: 880px; }
+/* 사건 순서: 사건마다 번호 · 칸 · 위로 · 아래로 · 빼기 */
+.ev-field { border: 0; margin: 0; padding: 0; }
+.ev-field legend { padding: 0; margin-bottom: 6px; }
+.ev-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ev-row { display: flex; align-items: flex-start; gap: 8px; }
+.ev-no { flex: 0 0 22px; padding-top: 10px; text-align: right; font-size: 0.8125rem; font-weight: 700; color: var(--muted); }
+.ev-row textarea { flex: 1 1 auto; min-width: 0; min-height: 40px; resize: none; }
+.ev-tools { display: flex; gap: 2px; flex: none; }
+.ev-tools .btn:disabled { visibility: hidden; }
+.ev-add { align-self: flex-start; margin-left: 30px; }
+@media (max-width: 640px) { .ev-tools .btn[data-action="moveEvent"] { display: none; } }
+.plot-ctx { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.plot-ctx:empty { display: none; }
+.plot-ctx .note { margin: 0; }
+.page-actions { z-index: 6; flex-wrap: wrap; justify-content: flex-end; bottom: calc(-20px + var(--jp, 0px)); }
+.page-actions > .btn { flex: 0 0 auto !important; }
+.savebar-slot { flex: 1 1 auto; display: flex; min-width: 0; }
+.savebar.inline { position: static; transform: none; box-shadow: none; z-index: auto; padding: 0; background: transparent; color: var(--written-ink); flex-wrap: wrap; gap: 8px; }
+.savebar.inline > span { font-weight: 700; font-size: 0.8125rem; }
+/* 접은 부 · 아크 띠: 부 칩 › 아크 칩 · 다음 아크, 오른쪽에 전체 보기 */
+.arc-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
+.arc-bar .arc-rail { flex: 1 1 auto; min-width: 0; align-items: center; }
+.arc-bar-sep { color: var(--muted); }
+.arc-bar-rule { border: 0; border-top: 1px solid var(--rule); margin: 0; }
 .proposal { border: 2px solid var(--accent); }
 .act-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .act-strip .act-head textarea { background: var(--glass); }
@@ -972,6 +1020,7 @@ body.chat-open .write-cols .w-body { order: -1; }
 @media (max-width: 640px) {
   .chat-panel { top: auto; height: 60vh; width: 100vw; border-left: none; border-top: 1px solid var(--line); border-radius: 12px 12px 0 0; }
   body.chat-open .main { padding-bottom: calc(60vh + 24px); }
+  body.chat-open .page-actions { bottom: calc(60vh - 20px + var(--jp, 0px)); }  /* 화 플롯 페이지의 버튼 줄은 시트 위에 붙는다 */
 }
 
 /* ----- 고대비(Windows 고대비 등 forced-colors): 배경 · 그림자로만 나타내던 선택과 영역을 테두리로 ----- */
