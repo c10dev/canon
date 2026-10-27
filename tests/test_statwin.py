@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from canon import cli, pipeline, prompts, statwin, store
 from canon.mock import MockLLM
-from canon.schema import StatValue
+from canon.schema import CharacterState, StateDelta, StatValue
 
 from .test_storylines import _short
 
@@ -201,3 +201,71 @@ def test_decor_web(tmp_path, monkeypatch):
     assert (w["title"], w["skin"], w["row"]) == ("무공록", "scroll", "{key}: {value}")  # 빼고 보낸 칸은 그대로
     assert c.put("/api/projects/sw/statwin-template", json={"template": "{rows}", "skin": "gold"}).status_code == 422
     assert c.put("/api/projects/sw/statwin-template", json={"template": "{rows}", "row": "{key}"}).status_code == 400
+
+
+WIN_TEXT = """서윤은 숨을 골랐다.
+
+【 상태창 】
+이름: 서윤
+레벨: {first}
+
+괴물이 쓰러졌다.
+
+【 상태창 】
+이름: 서윤
+레벨: {last}
+골드: {gold}
+스킬: 은신, 청풍검법 3성
+경지: 일류
+
+끝."""
+
+
+def _win_project():
+    p = _short(8)
+    statwin.set_stats(p, "hero", [StatValue(name="레벨", value="4"), StatValue(name="골드", value="1,200골드"),
+                                  StatValue(name="스킬", value="청풍검법 3성, 은신")])
+    return p
+
+
+def _delta(n, *stats):
+    return StateDelta(episode=n, summary="s", character_updates=[CharacterState(character_id="hero", stats=list(stats))])
+
+
+def test_same_values():
+    assert statwin.same("1200 골드", "1,200골드") and statwin.same("은신, 청풍검법 3성", "청풍검법 3성, 은신")
+    assert statwin.same("Lv. 5", "lv.5") and not statwin.same("5", "6") and not statwin.same("1,200원", "1,200골드")
+
+
+def test_read_windows_follows_saved_format():
+    p = _win_project()
+    wins = statwin.read_windows(p, WIN_TEXT.format(first=4, last=5, gold="900 골드"))
+    assert [w["name"] for w in wins] == ["서윤", "서윤"] and wins[1]["rows"][1] == ("골드", "900 골드", "골드: 900 골드")
+    p.stat_window.template, p.stat_window.row = "━━\n【 무공록 】 {name}\n━━\n{rows}\n━━", "▸ {key} ┃ {value}"
+    assert statwin.read_windows(p, "━━\n【 무공록 】서윤\n━━\n▸ 레벨 ┃ 5\n▸ 골드┃1,200골드\n━━\n그는 웃었다.") == \
+        [{"name": "서윤", "rows": [("레벨", "5", "▸ 레벨 ┃ 5"), ("골드", "1,200골드", "▸ 골드┃1,200골드")]}]
+    p.stat_window.template = "{name}\n{rows}"  # 머리에 글자가 없으면 상태창 시작을 알 수 없어 찾지 않는다
+    assert statwin.read_windows(p, "서윤\n▸ 레벨 ┃ 5") == []
+
+
+def test_window_warnings_compare_last_window_after_delta():
+    p = _win_project()
+    p.episode(1).text = WIN_TEXT.format(first=4, last=6, gold="900 골드")  # 앞 상태창은 오르기 전 값이라 보지 않는다
+    w = statwin.window_warnings(p, _delta(1, StatValue(name="레벨", value="+1"), StatValue(name="골드", value="-300")))
+    assert w == ["서윤 상태창: 본문은 «레벨: 6»인데 반영하면 레벨이 5예요.",
+                 "서윤 상태창: 본문 «경지: 일류»의 '경지' 항목은 상태창 기록에 없어요. 이 화에 생긴 항목이면 변경안에 넣으세요."]
+    w = statwin.window_warnings(p, _delta(1, StatValue(name="레벨", value="6"), StatValue(name="골드", value="900골드"), StatValue(name="경지", value="일류")))
+    assert w == []
+    p.stat_window.template = "【 상태창 】\n{rows}"  # 서식에 이름이 없으면 상태창이 있는 인물 하나로 본다
+    assert statwin.window_warnings(p, _delta(1)) and statwin.window_warnings(_short(8), _delta(1)) == []
+
+
+def test_window_warnings_reach_review():
+    p = _play(_win_project(), 1, 1)
+    pipeline.confirm_plot(p, 2)
+    p.episode(2).text = WIN_TEXT.format(first=5, last=9, gold="1,200골드")
+    p.episode(2).status = "written"
+    d = pipeline.extract_state(LLM, p, 2)
+    assert "서윤 상태창: 본문은 «레벨: 9»인데 반영하면 레벨이 6이에요." in d.warnings
+    pipeline.clean_delta(p, d)  # 다시 정리해도 겹치지 않는다
+    assert sum("레벨: 9" in x for x in d.warnings) == 1
