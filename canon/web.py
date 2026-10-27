@@ -2711,9 +2711,10 @@ def atlas_layout_set(name: str, body: LayoutIn) -> Project:
     d = _map_dir(name)
     d.mkdir(parents=True, exist_ok=True)
     fname = f"layout-{int(time.time())}.json"
+    atlas.enrich(p, layout, fname)
     (d / fname).write_text(json.dumps(layout, ensure_ascii=False), encoding="utf-8")
     old = p.atlas.layout
-    p.atlas.layout, p.atlas.spec = fname, None
+    p.atlas.layout, p.atlas.spec, p.atlas.buildings = fname, None, []
     out = _save(name, p)
     if old and old != fname and (d / old).is_file():
         (d / old).unlink()
@@ -2724,7 +2725,7 @@ def atlas_layout_set(name: str, body: LayoutIn) -> Project:
 def atlas_layout_drop(name: str) -> Project:
     """마을 데이터를 지운다. 장소 자리는 그대로 둔다."""
     p = _load(name)
-    old, p.atlas.layout, p.atlas.spec = p.atlas.layout, "", None
+    old, p.atlas.layout, p.atlas.spec, p.atlas.buildings = p.atlas.layout, "", None, []
     out = _save(name, p)
     if old and (_map_dir(name) / old).is_file():
         (_map_dir(name) / old).unlink()
@@ -2739,6 +2740,40 @@ def atlas_layout_get(name: str) -> dict:
     if layout is None:
         raise HTTPException(404, "마을 데이터가 없어요")
     return layout
+
+
+class BuildingIn(BaseModel):
+    use: str = ""
+    name: str = ""
+    note: str = ""
+    residents: list[str] = []
+
+
+@app.get("/api/projects/{name}/atlas/buildings/{i}")
+def atlas_building(name: str, i: int) -> dict:
+    """건물 하나: 쓰임 · 층수 · 사는 사람 · 주소 · 간판과 작가가 고친 값 (곁채면 본채 정보)."""
+    p = _load(name)
+    layout = atlas.load_layout(_map_dir(name), p)
+    if layout is None:
+        raise HTTPException(404, "마을 데이터가 없어요")
+    try:
+        return atlas.building(p, layout, i)
+    except KeyError as e:
+        raise HTTPException(404, str(e.args[0])) from None
+
+
+@app.put("/api/projects/{name}/atlas/buildings/{i}")
+def atlas_building_set(name: str, i: int, body: BuildingIn) -> Project:
+    """작가가 건물을 고친다 (쓰임 · 이름 · 메모 · 사는 인물). 모두 비우면 생성기 값으로 돌아간다."""
+    p = _load(name)
+    layout = atlas.load_layout(_map_dir(name), p)
+    if layout is None:
+        raise HTTPException(404, "마을 데이터가 없어요")
+    try:
+        atlas.set_building(p, layout, i, body.use, body.name, body.note, body.residents)
+    except KeyError as e:
+        raise HTTPException(404, str(e.args[0])) from None
+    return _save(name, p)
 
 
 class MetersIn(BaseModel):

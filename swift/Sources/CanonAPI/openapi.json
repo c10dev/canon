@@ -6686,6 +6686,114 @@
     }
    }
   },
+  "/api/projects/{name}/atlas/buildings/{i}": {
+   "get": {
+    "summary": "Atlas Building",
+    "description": "건물 하나: 쓰임 · 층수 · 사는 사람 · 주소 · 간판과 작가가 고친 값 (곁채면 본채 정보).",
+    "operationId": "atlas_building",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "i",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "I"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Atlas Building"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "put": {
+    "summary": "Atlas Building Set",
+    "description": "작가가 건물을 고친다 (쓰임 · 이름 · 메모 · 사는 인물). 모두 비우면 생성기 값으로 돌아간다.",
+    "operationId": "atlas_building_set",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "i",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "I"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/BuildingIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/atlas/meters": {
    "put": {
     "summary": "Atlas Meters",
@@ -8624,6 +8732,14 @@
       "title": "Title",
       "description": "지도 위에 적는 마을 이름. 비면 '마을 가운데' 종류의 장소 이름",
       "default": ""
+     },
+     "buildings": {
+      "items": {
+       "$ref": "#/components/schemas/BuildingNote"
+      },
+      "type": "array",
+      "title": "Buildings",
+      "description": "작가가 고친 건물. 마을 데이터 파일이 바뀌면 비운다"
      }
     },
     "type": "object",
@@ -9113,6 +9229,76 @@
      "text"
     ],
     "title": "BriefText"
+   },
+   "BuildingIn": {
+    "properties": {
+     "use": {
+      "type": "string",
+      "title": "Use",
+      "default": ""
+     },
+     "name": {
+      "type": "string",
+      "title": "Name",
+      "default": ""
+     },
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "default": ""
+     },
+     "residents": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Residents",
+      "default": []
+     }
+    },
+    "type": "object",
+    "title": "BuildingIn"
+   },
+   "BuildingNote": {
+    "properties": {
+     "i": {
+      "type": "integer",
+      "title": "I",
+      "description": "건물 번호 (마을 데이터 buildings 의 순서)"
+     },
+     "use": {
+      "type": "string",
+      "title": "Use",
+      "description": "쓰임 id (bldgs.USES). 비면 생성기 값",
+      "default": ""
+     },
+     "name": {
+      "type": "string",
+      "title": "Name",
+      "description": "집 이름 · 간판. 비면 생성기 값",
+      "default": ""
+     },
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "description": "작가 메모",
+      "default": ""
+     },
+     "residents": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Residents",
+      "description": "여기 사는 · 일하는 인물 id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "i"
+    ],
+    "title": "BuildingNote",
+    "description": "작가가 고친 건물 하나 (지금 마을 · 도시 데이터의 건물 번호 기준). 빈 칸은 생성기가 정한 값(canon/bldgs.py)을 쓴다."
    },
    "Candidate": {
     "properties": {
