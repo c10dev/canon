@@ -135,7 +135,7 @@ function fsAddForm(c) {
 }
 
 function viewForeshadow() {
-  const head = header('복선', '복선 센터', '복선마다 본문 어느 문장에 심고 회수했는지, 회수율과 오래 묵은 복선을 봐요. AI 가 찾은 문장은 상태 승인 화면에서 골라 반영돼요.',
+  const head = header('복선', '복선 센터', '복선마다 본문 어느 문장에 심고 회수했는지, 회수율과 오래 묵은 복선을 봐요. AI가 찾은 문장은 상태 승인 화면에서 골라 반영돼요.',
     `<button type="button" class="btn" data-action="fsAddToggle">+ 복선 직접 더하기</button>`);
   const c = S.fs;
   if (!c) return `${head}<div class="small">불러오는 중…</div>`;
@@ -323,7 +323,7 @@ Object.assign(actions, {
   },
   fsReopen(id) { fsCall('다시 여는 중', 'POST', `/${enc(id)}/reopen`); },
   fsDelete(id) {
-    if (!confirm('이 복선과 걸어 둔 문장을 모두 지울까요? 플롯의 회수 계획에서도 빠집니다.')) return;
+    if (!confirm('이 복선과 걸어 둔 문장을 모두 지울까요? 플롯의 회수 계획에서도 빠져요.')) return;
     delete S.fsOpen[id];
     fsCall('지우는 중', 'DELETE', `/${enc(id)}`);
   },

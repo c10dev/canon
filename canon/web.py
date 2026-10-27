@@ -276,7 +276,7 @@ class SettingsIn(BaseModel):
 def put_config(body: SettingsIn) -> ConfigView:
     choices = settings.PROVIDERS
     if body.provider is not None and body.provider not in choices:
-        raise HTTPException(400, f"provider 는 {' / '.join(choices)} 중 하나예요")
+        raise HTTPException(400, f"provider는 {' / '.join(choices)} 중 하나예요")
     for stage, value in (body.stages or {}).items():
         if stage not in settings.STAGES or (value and value not in choices):
             raise HTTPException(400, f"단계 설정이 잘못됐어요: {stage}={value}")
@@ -2306,7 +2306,7 @@ def auto_request(name: str, what: str) -> AutoView:
     """what: pause | stop"""
     _load(name)
     if what not in ("pause", "stop"):
-        raise HTTPException(404, "pause 또는 stop 만 돼요")
+        raise HTTPException(404, "pause 또는 stop만 돼요")
     autorun.request(name, what)
     return _auto(name)
 
@@ -2873,7 +2873,7 @@ class StatTemplate(BaseModel):
 @app.put("/api/projects/{name}/statwin-template")
 def statwin_template(name: str, body: StatTemplate) -> Project:
     if "{rows}" not in body.template:
-        raise ValueError("서식에 {rows} 가 있어야 항목이 들어갑니다")
+        raise ValueError("서식에 {rows}가 있어야 항목이 들어가요")
     p = _load(name)
     p.stat_window.template, p.stat_window.row = body.template, body.row
     return _save(name, p)

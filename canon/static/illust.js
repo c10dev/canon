@@ -210,9 +210,9 @@ function illustPanel(n) {
           <select id="ill-model" data-bind="illust.model" data-kind="text">${(S.illModels || []).map((o) => `<option value="${esc(o.id)}"${o.id === s.model ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select></div>
         ${input('화풍 태그', 'illust.style', { kind: 'tags', rows: 2, hint: '모든 삽화에 들어가요', placeholder: 'watercolor, soft lighting' })}
         ${input('공통 부정 태그', 'illust.negative', { kind: 'tags', rows: 2, placeholder: 'blurry, multiple views' })}
-        <label class="row small" style="gap:6px"><input type="checkbox" data-bind="illust.quality" data-kind="bool"${s.quality ? ' checked' : ''}><span style="flex:1 1 0;min-width:0">품질 태그 직접 넣기 (NovelAI 의 Add Quality Tags 를 끈 경우)</span></label>
+        <label class="row small" style="gap:6px"><input type="checkbox" data-bind="illust.quality" data-kind="bool"${s.quality ? ' checked' : ''}><span style="flex:1 1 0;min-width:0">품질 태그 직접 넣기 (NovelAI의 Add Quality Tags를 끈 경우)</span></label>
         <label class="row small" style="gap:6px"><input type="checkbox" data-bind="illust.basic_negative" data-kind="bool"${s.basic_negative ? ' checked' : ''}><span style="flex:1 1 0;min-width:0">기본 부정 태그 넣기 (UC 프리셋을 끈 경우)</span></label>
-        <span class="small">${P().meta.adult ? '성인 작품이라 장면에 맞는 등급(rating)을 붙여요.' : '전연령 작품이라 등급을 general · sensitive 로 묶고 부정 프롬프트에 nsfw 를 넣어요.'} 바꾼 설정은 새로 만들거나 '다시 조립'할 때 함께 저장돼요.</span>
+        <span class="small">${P().meta.adult ? '성인 작품이라 장면에 맞는 등급(rating)을 붙여요.' : '전연령 작품이라 등급을 general · sensitive로 묶고 부정 프롬프트에 nsfw를 넣어요.'} 바꾼 설정은 새로 만들거나 '다시 조립'할 때 함께 저장돼요.</span>
       </div></details>
     </div>
     ${list ? `<div class="ill-list">${list}</div>` : ''}
@@ -337,7 +337,7 @@ Object.assign(actions, {
   async illCopy(text) {
     try {
       await copyPlain(String(text));
-      toast('복사했어요. NovelAI 의 같은 칸에 붙여 넣으세요');
+      toast('복사했어요. NovelAI의 같은 칸에 붙여 넣으세요');
     } catch (e) {
       toast(e.message, true);
     }

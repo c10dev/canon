@@ -244,4 +244,4 @@ def test_cli_map_gen(capsys, monkeypatch, tmp_path):
     assert q.atlas.spec.size == "small" and {pin.place: (pin.x, pin.y) for pin in q.atlas.pins}["el-9"] != (0.5, 0.5)
     with pytest.raises(SystemExit) as e:
         cli.main(["map", "mapgen", "gen", "--water", "용암", "-y"])
-    assert "--water 는 없음, 강, 호수, 바다 중 하나예요" in str(e.value)
+    assert "--water 값은 없음, 강, 호수, 바다 중 하나예요" in str(e.value)
