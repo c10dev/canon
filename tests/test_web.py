@@ -678,3 +678,33 @@ def test_project_list_and_folder_names(client):
     assert rows[0]["form"] == "serial" and rows[1]["form"] == "short"
     assert rows[1]["open_ep"] == 0 and rows[1]["planned"] == 0 and rows[1]["updated_at"]
     assert client.post("/api/projects/old/rename", json={"name": "a:b"}).status_code == 400
+
+
+def test_apply_edited_delta(client):
+    """상태 승인 화면에서 고친 사건 종류 · 강도, 사실, 감정, 알게 된 정보가 미리 보기와 반영에 그대로 쓰인다."""
+    client.post("/api/projects", json={"name": "ed", "meta": {"title": "등대", "target_episodes": 10}})
+    p = client.post("/api/projects/ed/suggest/apply", json=client.post("/api/projects/ed/suggest").json()).json()
+    p["arc"] = client.post("/api/projects/ed/arc").json()["acts"]
+    client.put("/api/projects/ed", json=p)
+    client.post("/api/projects/ed/plots", json={})
+    client.post("/api/projects/ed/episodes/1/confirm")
+    client.post("/api/projects/ed/episodes/1/write")
+    d = client.post("/api/projects/ed/episodes/1/state").json()
+    assert d["events"] and d["new_facts"] and d["character_updates"]
+
+    ev = d["events"][0]
+    edited = copy.deepcopy(d)
+    edited["events"][0].update(kind="배신" if ev["kind"] != "배신" else "도움", intensity=3)
+    edited["new_facts"][0] = "작가가 고친 사실"
+    edited["character_updates"][0].update(emotional_state="작가가 고친 감정", knows=["작가가 고친 정보"])
+    before = client.post("/api/projects/ed/episodes/1/preview", json=d).json()
+    after = client.post("/api/projects/ed/episodes/1/preview", json=edited).json()
+    assert after["numbers"] != before["numbers"]  # 고친 사건으로 관계를 다시 계산한다
+
+    p = client.post("/api/projects/ed/episodes/1/apply", json=edited).json()
+    got = [e for e in p["events"] if e["episode"] == 1][0]
+    assert (got["kind"], got["intensity"]) == (edited["events"][0]["kind"], 3)
+    assert "작가가 고친 사실" in p["facts"] and d["new_facts"][0] not in p["facts"]
+    st = next(s for s in p["states"] if s["character_id"] == edited["character_updates"][0]["character_id"])
+    assert st["emotional_state"] == "작가가 고친 감정" and "작가가 고친 정보" in st["knows"]
+    assert client.get("/api/projects/ed/relations").json()["numbers"] == after["numbers"]
