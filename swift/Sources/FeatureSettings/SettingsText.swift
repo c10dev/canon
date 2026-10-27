@@ -235,7 +235,7 @@ public enum SettingsText {
 
     // MARK: Claude (claude.js)
 
-    public static let claudeIntro = "두 가지 방식이 있어요. Claude 구독 로그인은 이 컴퓨터에 설치하고 로그인한 Claude Code 를 불러 Pro · Max 구독 한도 안에서 써요. Claude API 키는 Claude Console 의 키로 종량제로 써요. 위 '생성 방식'이나 아래 단계별 백엔드에서 고르세요."
+    public static let claudeIntro = "두 가지 방식이 있어요. Claude 구독 로그인은 이 컴퓨터에 설치하고 로그인한 Claude Code 를 불러 Pro · Max 구독 한도 안에서 써요. Claude API 키는 Claude Console 의 키로 종량제로 써요. 위 '생성 방식'이나 아래 '단계별 백엔드와 모델'에서 고르세요."
     public static let claudePolicy = "Anthropic 정책상 Canon 같은 다른 앱이 Claude 계정 로그인을 받거나 토큰을 보관할 수 없어서, 로그인은 Claude Code 에서 직접 해요. Canon 은 로그인 상태만 확인하고 계정 정보는 저장하지 않아요. 구독 한도는 평범한 개인 사용을 기준으로 하니, 자동 집필처럼 오래 도는 작업은 API 키가 맞아요."
     public static let claudeModelPlaceholder = "비우면 구독은 Claude Code 기본 모델, API 키는 claude-opus-5-5"
     public static let claudeModelHelp = "구독 방식은 opus · sonnet · haiku 같은 별칭도 받아요. 단계마다 바꾸려면 아래 단계별 모델 칸에 적으세요."

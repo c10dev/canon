@@ -1,4 +1,4 @@
-/* 인물 화면. app.js 의 S, actions, api, render, header, relationHeader 를 그대로 쓴다.
+/* 인물 화면. app.js 의 S, actions, api, render, header 와 review.js 의 relationHeader 를 그대로 쓴다.
    관계도(방향 관계를 화별로 재생, 옆 칸은 인물 요약), 인물 카드(인물 하나의 설정 · 지금 상태 · 상태창 수치 · 관계 · 비밀 ·
    남겨 둔 설정 바꾸기 · 화별 타임라인을 보는 시점 기준으로 한 장에, 상태창 수치는 시스템 창 테마로도), 쌍 상세(온기 · 신뢰 · 긴장 추이), 등장표.
    계산값은 서버 canon/cast.py 의 /cast 한 번으로 받는다 (frames: 화별 관계, appearances, timelines).

@@ -153,13 +153,19 @@ function lineName(id) {
   return s ? s.title || id : id;
 }
 
+/** 칸이 바뀌었나. 목록(사건 순서 말고)은 순서만 바뀌면 그대로로 본다 (diffField 와 바뀐 칸 목록이 함께 쓴다). */
+function fieldChanged(key, before, after) {
+  if (JSON.stringify(before ?? '') === JSON.stringify(after ?? '')) return false;
+  if (Array.isArray(after) && Array.isArray(before) && key !== 'events') return before.some((x) => !after.includes(x)) || after.some((x) => !before.includes(x));
+  return true;
+}
+
 /** 한 칸의 바뀐 내용. 목록은 빠진 것과 더해진 것을, 글은 이전과 새 글을 보여 준다. */
 function diffField(label, key, before, after) {
-  if (JSON.stringify(before ?? '') === JSON.stringify(after ?? '')) return '';
+  if (!fieldChanged(key, before, after)) return '';
   if (Array.isArray(after) && Array.isArray(before) && key !== 'events') {
     const gone = before.filter((x) => !after.includes(x));
     const added = after.filter((x) => !before.includes(x));
-    if (!gone.length && !added.length) return '';
     const name = (x) => esc(key === 'characters' || key === 'cast' ? charName(x) : key === 'threads' ? lineName(x) : x);
     return `<div class="diff-row"><span class="act-label">${label}</span>
       ${gone.map((x) => `<del>${name(x)}</del>`).join('')}${added.map((x) => `<ins>${name(x)}</ins>`).join('')}</div>`;
@@ -177,7 +183,7 @@ function actsDiff(rev, base = P().arc) {
   const rows = rev.acts.map((a) => {
     const cur = base.find((x) => x.name === a.name) || {};
     const range = cur.start_ep === a.start_ep && cur.end_ep === a.end_ep ? ''
-      : `<div class="diff-row"><span class="act-label">범위</span>${cur.name ? `<del>${cur.start_ep}~${cur.end_ep}화</del>` : ''}<ins>${a.start_ep}~${a.end_ep}화</ins></div>`;
+      : `<div class="diff-row"><span class="act-label">범위</span>${cur.name ? `<del>${epRange(cur.start_ep, cur.end_ep)}</del>` : ''}<ins>${epRange(a.start_ep, a.end_ep)}</ins></div>`;
     const body = range + ACT_FIELDS.map(([k, l]) => diffField(l, k, cur[k], a[k])).join('');
     return body ? `<div class="diff-act"><span class="chip ${actClass(a.name)}">${a.name}</span>${body}</div>` : '';
   }).join('');
@@ -188,7 +194,7 @@ function actsDiff(rev, base = P().arc) {
 function arcDiff(rev, cur, start) {
   const e = rev.arc;
   const range = e.end_ep && (!cur || cur.end_ep !== e.end_ep)
-    ? `<div class="diff-row"><span class="act-label">범위</span>${cur ? `<del>${cur.start_ep}~${cur.end_ep}화</del>` : ''}<ins>${cur ? cur.start_ep : start}~${e.end_ep}화</ins></div>` : '';
+    ? `<div class="diff-row"><span class="act-label">범위</span>${cur ? `<del>${epRange(cur.start_ep, cur.end_ep)}</del>` : ''}<ins>${epRange(cur ? cur.start_ep : start, e.end_ep)}</ins></div>` : '';
   return range + ARC_FIELDS.map(([k, l]) => diffField(l, k, cur ? cur[k] : (Array.isArray(e[k]) ? [] : ''), e[k])).join('');
 }
 
@@ -197,12 +203,49 @@ function partsDiff(rev) {
   const rows = rev.parts.map((x) => {
     const cur = now.find((y) => y.number === x.number);
     const range = cur && cur.start_ep === x.start_ep && cur.end_ep === x.end_ep ? ''
-      : `<div class="diff-row"><span class="act-label">범위</span>${cur ? `<del>${cur.start_ep}~${cur.end_ep}화</del>` : ''}<ins>${x.start_ep}~${x.end_ep}화</ins></div>`;
+      : `<div class="diff-row"><span class="act-label">범위</span>${cur ? `<del>${epRange(cur.start_ep, cur.end_ep)}</del>` : ''}<ins>${epRange(x.start_ep, x.end_ep)}</ins></div>`;
     const body = range + PART_FIELDS.map(([k, l]) => diffField(l, k, cur ? cur[k] : (k === 'arc_ideas' ? [] : ''), x[k])).join('');
     return body ? `<div class="diff-act"><span class="chip">${x.number}부</span>${body}</div>` : '';
   }).join('');
   const gone = now.filter((y) => !rev.parts.some((x) => x.number === y.number));
   return rows + (gone.length ? `<div class="diff-row"><span class="act-label">없어지는 부</span>${gone.map((y) => `<del>${y.number}부 ${esc(y.title)}</del>`).join('')}</div>` : '');
+}
+
+/** 변경안 맨 위 '바뀌는 것' 목록: '3화 제목 · 요약', '아크 2 목표 · 갈등', '승 구간 범위'. 비교는 아래 칸별 비교(diffField)와 같다.
+    바뀌는 곳이 한 곳의 한 칸뿐이면 아래 카드로 충분해 빈 글을 돌려준다. 길면 앞 6곳만 적고 나머지는 '외 n곳'으로 줄인다. */
+function changeList(rev, base, hasArc) {
+  const short = (l) => l.replace(/^(아크|부|구간) /, '').replace(/ \(.*\)$/, '');
+  const changed = (fields, cur, next) => fields.filter(([k]) => fieldChanged(k, cur[k], next[k])).map(([, l]) => short(l));
+  const range = (cur, a, b) => (cur && cur.start_ep === a && cur.end_ep === b ? [] : ['범위']);
+  const units = [];
+  const add = (name, labels) => { if (labels.length) units.push({ name, labels }); };
+  const whole = (name, state) => units.push({ name: `${name}(${state})`, labels: [] });  // 통째로 생기거나 없어지는 곳
+  (rev.parts || []).forEach((x) => {
+    const cur = P().parts.find((y) => y.number === x.number);
+    if (cur) add(`${x.number}부`, [...range(cur, x.start_ep, x.end_ep), ...changed(PART_FIELDS, cur, x)]);
+    else whole(`${x.number}부`, '새 부');
+  });
+  if ((rev.parts || []).length) P().parts.filter((y) => !rev.parts.some((x) => x.number === y.number)).forEach((y) => whole(`${y.number}부`, '없어짐'));
+  if (hasArc) {
+    const cur = base.arc;
+    const e = rev.arc;
+    const blank = Object.fromEntries(ARC_FIELDS.map(([k]) => [k, Array.isArray(e[k]) ? [] : '']));
+    add(base.next ? '다음 아크' : `아크 ${cur ? cur.number : ''}`, [...(e.end_ep && (!cur || cur.end_ep !== e.end_ep) ? ['범위'] : []), ...changed(ARC_FIELDS, cur || blank, e)]);
+  }
+  if (rev.total_episodes) add('총 화수', [`${P().meta.target_episodes}화 → ${rev.total_episodes}화`]);
+  rev.acts.forEach((a) => {
+    const cur = base.acts.find((x) => x.name === a.name);
+    add(`${a.name} 구간`, [...range(cur, a.start_ep, a.end_ep), ...changed(ACT_FIELDS, cur || {}, a)]);
+  });
+  rev.episodes.forEach((x) => {
+    const cur = ep(x.number);
+    if (cur) add(`${x.number}화`, changed(PLOT_FIELDS, cur.plot, x));
+    else whole(`${x.number}화`, '새 화');
+  });
+  if (units.length < 2 && (!units.length || units[0].labels.length < 2)) return '';
+  const shown = units.slice(0, 6).map((u) => [u.name, u.labels.join(' · ')].filter(Boolean).join(' '));
+  const more = units.length - shown.length;
+  return `<div class="small prop-changes"><strong>바뀌는 것</strong> · ${esc(shown.join(', '))}${more ? ` 외 ${more}곳` : ''}</div>`;
 }
 
 /** 방향 여러 안 (플롯 대화는 revision, 설정 대화는 setup 에 있다). */
@@ -320,7 +363,7 @@ function proposal(m, i) {
   const sum = [(rev.parts || []).length ? '부 구성' : '', hasArc ? (base.next ? '다음 아크' : '아크 칸') : '', rev.acts.length && !linked ? '구조' : '',
     nums.length ? `${rangeText(nums)}화${fresh ? `(새 화 ${fresh})` : ''}` : ''].filter(Boolean).join(' · ');
   const many = nums.length > 3 ? `<button type="button" class="btn small" data-action="chatPickAll" data-arg="${i}|1">모두 고르기</button><button type="button" class="btn small" data-action="chatPickAll" data-arg="${i}|0">모두 빼기</button>` : '';
-  return `<div class="proposal"><div class="between prop-sum"><strong>${esc(sum)}</strong><span class="row">${many}</span></div>${parts.join('')}
+  return `<div class="proposal"><div class="between prop-sum"><strong>${esc(sum)}</strong><span class="row">${many}</span></div>${changeList(rev, base, hasArc)}${parts.join('')}
     ${proposalActions(['chatDismiss', i], ['chatApply', i])}</div>`;
 }
 

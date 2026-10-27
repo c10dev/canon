@@ -77,7 +77,7 @@ function linePast(s) {
   return !!(s.when || '').trim() || s.kind === '과거 회상';
 }
 
-/** 화 카드에 붙는 줄기 표시 (app.js epCard 가 부른다) */
+/** 화 카드에 붙는 줄기 표시 (plot.js epCard 가 부른다) */
 function lineBadge(e) {
   const ids = [e.plot.storyline, ...(e.plot.threads || [])].filter(Boolean);
   return ids.map((id) => {
@@ -421,7 +421,7 @@ Object.assign(actions, {
   },
 });
 
-/** 플롯 편집기에 붙는 줄기 선택 (app.js plotEditor 가 부른다). 줄기가 없으면 아무것도 그리지 않는다 */
+/** 플롯 편집기에 붙는 줄기 선택 (plot.js plotEditor 가 부른다). 줄기가 없으면 아무것도 그리지 않는다 */
 function lineField(e) {
   const lines = P().storylines || [];
   if (!lines.length) return '';

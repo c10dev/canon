@@ -149,7 +149,7 @@ public struct SettingsView: View {
             Picker("생성 방식", selection: $model.draft.provider) {
                 ForEach(SettingsText.providers, id: \.id) { Text($0.label).tag($0.id) }
             }
-            notes([SettingsText.envNote(c.providerSource, "CANON_LLM"), "단계별로 다르게 쓰려면 아래 '단계별 백엔드'에서 고르세요."])
+            notes([SettingsText.envNote(c.providerSource, "CANON_LLM"), "단계별로 다르게 쓰려면 아래 '단계별 백엔드와 모델'에서 고르세요."])
         }
     }
 
