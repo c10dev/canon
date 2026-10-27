@@ -79,11 +79,12 @@ def test_serial_write_context_order_and_size():
         e.text, e.status, e.summary = "본문", "finalized", "요약"
     p.facts = [f"사실 {i} " + "가" * 80 for i in range(400)]
     ctx = prompts.build_episode_context(p, n)
-    heads = ["# 지금까지의 줄거리 (끝난 부와 아크)", "# 확정된 사실", "# 관계 현재 상태", "# 열린 복선",
+    heads = ["# 현재 부와 아크", "# 지금까지의 줄거리 (끝난 부와 아크)", "# 이번 화 위치", "# 확정된 사실", "# 관계 현재 상태", "# 열린 복선",
              "# 지금까지의 줄거리 (이번 아크)", "# 직전 화 마지막 부분", "# 이번 화 플롯"]
     pos = [ctx.index(h) for h in heads]
     assert pos == sorted(pos)  # 아크 동안 그대로인 것이 앞, 화마다 바뀌는 것이 뒤
     assert ctx.index(prompts.static_context(p)) == 0
+    assert "현재 아크 안 구간" not in ctx[:ctx.index("# 이번 화 위치")]  # 아크 안에서 바뀌는 줄이 접은 줄거리 앞을 깨지 않게
     facts = ctx[ctx.index("# 확정된 사실"):ctx.index("# 이번 화 등장 인물")]
     assert len(facts) < context.BUDGET["facts"] + 4_000 and "개 생략" in facts
 
@@ -138,3 +139,41 @@ def test_usage_record_keeps_prompt_blocks(tmp_path, monkeypatch):
     assert row["chars"] > 350 and row["blocks"][0][0] == "확정된 사실"
     usage.record(GeminiLLM(), {"prompt_tokens": 10})
     assert "blocks" not in usage.read()[-1]
+
+
+def test_pick_knows_relevant_first_then_recent():
+    knows = [f"옛 정보 {i} 아무 상관 없는 일" for i in range(30)]
+    knows[2] = "도윤이 왕비의 편지를 숨겼다는 것을 안다"  # 이번 화 인물 이름
+    knows[5] = "검은 탑 지하에 문이 있다"  # 이번 화 이야기 요소
+    knows[9] = "축제 전날 밤 시장 골목에서 칼을 샀다"  # 이번 화 플롯과 글이 겹침
+    picked, cut = context.pick_knows(knows, "축제 전날 밤 시장 골목에서 쫓긴다", ["도윤"], ["검은 탑"])
+    assert len(picked) == context.KNOWS_KEEP and cut == 30 - context.KNOWS_KEEP
+    assert picked == [k for k in knows if k in picked]  # 원래 순서
+    assert {knows[2], knows[5], knows[9]} <= set(picked)
+    assert knows[-context.KNOWS_RECENT:] == picked[-context.KNOWS_RECENT:]  # 최근 것은 늘
+    assert "옛 정보 0 아무 상관 없는 일" not in picked  # 남은 자리는 최근 것부터 채운다
+    assert context.pick_knows(knows[:20], "", [], []) == (knows[:20], 0)
+
+
+def test_serial_prompts_pick_knows_and_note_cut_short_unchanged():
+    p = _serial(300)
+    a = _plan_arc(p, length=12)
+    n = a.start_ep + 1
+    e = p.episode(n - 1)
+    e.text, e.status = "본문", "finalized"
+    hero = p.states[0] if p.states else None
+    if hero is None:
+        from canon.schema import CharacterState
+        hero = CharacterState(character_id=p.characters[0].id)
+        p.states.append(hero)
+    hero.knows = [f"옛 일 {i}" for i in range(40)] + ["열쇠는 우물 바닥에 있다"]
+    p.episode(n).plot.summary += " 우물 바닥에서 열쇠를 찾는다"
+    ctx = prompts.build_episode_context(p, n)
+    assert "(아는 정보는 이번 화와 관련된 것부터, 21개 생략)" in ctx
+    assert "열쇠는 우물 바닥에 있다" in ctx and "옛 일 0\"" not in ctx
+    p.episode(n).text = "그는 우물 바닥에서 열쇠를 찾았다."
+    state = prompts.state_prompt(p, n)
+    assert "[이전 인물 상태] (아는 정보는 이번 화와 관련된 것부터, 21개 생략)" in state and "열쇠는 우물 바닥에 있다" in state
+    p.meta.form = "short"
+    assert prompts.state_view(p, p.states, n, "") == (p.states, 0)
+    assert "아는 정보는" not in prompts.build_episode_context(p, n)
