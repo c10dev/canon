@@ -19,6 +19,9 @@ from .schema import (
     ConsistencyReport,
     Direction,
     PlantedContradiction,
+    SceneBeat,
+    SceneCheck,
+    BodyState,
     PlantSet,
     MapPlaceGuess,
     MapSuggestion,
@@ -613,6 +616,13 @@ class MockLLM:
         if schema is ClaimSet:  # 두 걸음 검수: 본문 문장마다 진술 하나
             sents = [x.strip() for x in re.findall(r"[^.!?\n]+[.!?]", hint.get("text", "")) if len(x.strip()) > 4]
             return ClaimSet(claims=[Claim(quote=x, claim=x) for x in sents[:30]])  # type: ignore[return-value]
+        if schema is SceneCheck:  # 장면 상태표 검수: 첫 문장 상태 한 줄, 프롬프트에 들어간 심은 문장을 동선으로 짚는다
+            sents = [x.strip() for x in re.findall(r"[^.!?\n]+[.!?]", hint.get("text", "")) if len(x.strip()) > 4]
+            n = hint.get("episode", 0)
+            return SceneCheck(beats=[SceneBeat(quote=sents[0], bodies=[BodyState(name="서윤", facing="문을 향함", hands="한 손 문고리")])] if sents else [],
+                              issues=[ConsistencyIssue(type="동선", description="상태표와 어긋남", source_episode=n,
+                                                       source_quote=sents[0] if sents else "", current_quote=x)
+                                      for x in hint.get("plants", []) if x in prompt])  # type: ignore[return-value]
         if schema is ConsistencyReport and "plants" in hint:  # 검수 시험: 프롬프트에 들어간 심은 문장을 짚는다
             return ConsistencyReport(episode=hint["episode"], issues=[ConsistencyIssue(
                 type="사실", description="심은 모순", source_episode=0, source_quote="설정", current_quote=x)

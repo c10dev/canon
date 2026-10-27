@@ -908,6 +908,28 @@ class ConsistencyReport(BaseModel):
     issues: list[ConsistencyIssue] = Field(default_factory=list, description="근거가 분명한 모순만. 없으면 빈 목록")
 
 
+class BodyState(BaseModel):
+    """장면 상태표의 한 인물. 본문이 말하지 않은 칸은 비운다."""
+    name: str = Field(description="인물 이름")
+    facing: str = Field("", description="누구 · 무엇을 향했는지 (예: 도현을 마주 봄, 도현에게 등을 댐)")
+    hands: str = Field("", description="두 손 각각 하는 일 (예: 한 손 도현의 손목, 다른 손 빈 손)")
+    worn: str = Field("", description="걸친 것을 안쪽에서 바깥 순서로 (예: 셔츠 → 외투 → 백팩 끈)")
+    front: str = Field("", description="몸 앞에 맞닿거나 놓인 사람 · 물건")
+    back: str = Field("", description="몸 뒤에 맞닿거나 놓인 사람 · 물건")
+    items: str = Field("", description="그 밖의 물건 자리 (예: 열쇠 바지 앞주머니, 가방 의자 위)")
+
+
+class SceneBeat(BaseModel):
+    quote: str = Field(description="상태를 정하거나 바꾼 본문 문장 원문 그대로 (한 문장)")
+    bodies: list[BodyState] = Field(default_factory=list, description="그 문장 뒤의 상태. 바뀐 인물만, 적지 않은 인물과 칸은 앞 줄 그대로")
+
+
+class SceneCheck(BaseModel):
+    """검수 시험 scene 방식: 본문을 장면 상태표로 옮겨 적은 뒤 상태표와 어긋나는 동선만 찾는다. 연구 화면에서만 쓴다."""
+    beats: list[SceneBeat] = Field(default_factory=list, description="먼저 적는 장면 상태표")
+    issues: list[ConsistencyIssue] = Field(default_factory=list, description="상태표와 어긋나는 문장. 근거가 분명한 것만, 없으면 빈 목록")
+
+
 EditSource = Literal["manual", "ai", "typed", "impact"]
 
 

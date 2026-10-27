@@ -313,17 +313,19 @@ def _hit(found: str, planted: str) -> bool:
 
 TRIAL_MODES = {**prompts.CHECK_MODES,
                "widen": "budget 검수 뒤 진술마다 옛 화를 더 찾아, 첫 검수에 없던 단락이 근거로 나온 진술만 다시 판정 (검수 넓히기)",
-               "twostep": "진술 뽑기 → 판단기가 옛 화 전부와 견줘 거르기 → 의심만 검수 모델이 판정 (판단기 시험)"}
+               "twostep": "진술 뽑기 → 판단기가 옛 화 전부와 견줘 거르기 → 의심만 검수 모델이 판정 (판단기 시험)",
+               "scene": "이번 화 본문만 장면 상태표(향한 쪽, 두 손, 착용 겹침, 몸 앞뒤, 물건 자리)로 먼저 옮겨 적고 동선만 검수 (동선 외 갈래는 보지 않음)"}
 
 
 def check_trial(p: Project, n: int, b: Backend, plants: int = 3, modes: list[str] | None = None, seed: int | None = None,
-                judge: Backend | None = None) -> dict:
+                judge: Backend | None = None, scene: bool = False) -> dict:
     """모순 plants 개를 심은 n화를 검수 방식마다 검수한다. 심은 것과 검수 호출은 같은 백엔드를 쓴다.
-    장편은 검수 넓히기(widen)도 기본으로 돌린다. judge 를 주면 두 걸음 검수(twostep)도 돌린다. 판단기는 local 또는 mock."""
+    장편은 검수 넓히기(widen)도 기본으로 돌린다. judge 를 주면 두 걸음 검수(twostep)도, scene 이면 장면 상태표 검수도 돌린다.
+    판단기는 local 또는 mock."""
     ep = p.episode(n)
     if not ep.text:
         raise ValueError(f"{n}화 본문이 없어요")
-    modes = modes or list(prompts.CHECK_MODES) + (["widen"] if p.serial else []) + (["twostep"] if judge else [])
+    modes = modes or list(prompts.CHECK_MODES) + (["widen"] if p.serial else []) + (["twostep"] if judge else []) + (["scene"] if scene else [])
     bad = [m for m in modes if m not in TRIAL_MODES]
     if bad:
         raise ValueError(f"알 수 없는 검수 방식: {', '.join(bad)} ({' | '.join(TRIAL_MODES)})")
@@ -351,6 +353,9 @@ def check_trial(p: Project, n: int, b: Backend, plants: int = 3, modes: list[str
     for mode in modes:
         if mode == "twostep":
             runs.append(_by_kind(_two_step_run(llm, judge, q, n, used), kinds))
+            continue
+        if mode == "scene":
+            runs.append(_by_kind(_scene_run(llm, q, n, used), kinds))
             continue
         prompt = prompts.check_prompt(q, n, "budget" if mode == "widen" else mode)
         row: dict[str, Any] = {"mode": mode, "chars": len(prompt), "tokens": context.est_tokens(prompts.SYSTEM_CHECKER + prompt)}
@@ -407,6 +412,21 @@ def check_totals(name: str) -> list[dict]:
             for k in dict.fromkeys(kinds):
                 sums.setdefault((m["mode"], k), [0, 0, 0])[2] += 1
     return [{"mode": mode, "kind": k, "found": f, "planted": n, "trials": t} for (mode, k), (f, n, t) in sums.items()]
+
+
+def _scene_run(llm: LLM, q: Project, n: int, used: list) -> dict:
+    """장면 상태표 검수 한 번. beats 는 모델이 적은 상태표라 무엇을 그렸는지 화면에서 본다."""
+    row: dict[str, Any] = {"mode": "scene"}
+    t1 = time.perf_counter()
+    try:
+        rep, st = pipeline.check_scene(llm, q, n, hint={"plants": [x.replacement for x in used]})
+        hits = [any(_hit(i.current_quote, x.replacement) for i in rep.issues) for x in used]
+        extra = [i.model_dump() for i in rep.issues if not any(_hit(i.current_quote, x.replacement) for x in used)]
+        row.update(ok=True, hits=hits, found=sum(hits), other=extra, usage=getattr(llm, "last_usage", None), **st)
+    except Exception as e:
+        row.update(ok=False, error=f"{type(e).__name__}: {e}")
+    row["seconds"] = round(time.perf_counter() - t1, 2)
+    return row
 
 
 def _two_step_run(llm: LLM, jb: Backend, q: Project, n: int, used: list) -> dict:
