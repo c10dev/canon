@@ -330,6 +330,7 @@ if (typeof document.addEventListener === 'function') {
 const RV_UNDO_MS = 10000;
 let rvUndoTimer = null;
 
+/** 화면 아래 알림과 카드 넘기기 모양. 장이 짧으면 sticky 반영 줄이 화면 가운데에 서서 작업 목록 · 알림이 덮으니, 넘기기 반영 줄(.rv-deck-bar)은 화면 아래에 붙여 stackBottom 이 그 위로 쌓게 한다 */
 function rvStyle() {
   if (document.getElementById('rv-style')) return;
   const el = document.createElement('style');
@@ -342,7 +343,6 @@ function rvStyle() {
 @media (forced-colors: active) { #toast .rv-undo { border-color: CanvasText; } }
 .rv-page[hidden] { display: none; }
 .rv-page { display: flex; flex-direction: column; gap: 22px; }
-/* 장이 짧으면 sticky 반영 줄이 화면 가운데에 서서 작업 목록 · 알림이 덮는다. 화면 아래에 붙여 stackBottom 이 그 위로 쌓게 한다 */
 .rv-deck-bar { position: fixed; left: 16px; right: 16px; bottom: calc(8px + var(--sb, 0px)); justify-content: space-between; }
 .rv-pager { display: flex; align-items: center; gap: 8px; flex: 1 1 100%; }
 .rv-pager .rv-pos { flex: 1; text-align: center; font-size: 0.8125rem; color: var(--text-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
