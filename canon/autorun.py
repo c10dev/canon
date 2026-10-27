@@ -254,6 +254,10 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
         calls = [("state", prompts.SYSTEM_EDITOR + prompts.state_prompt(sim, n), JSON_OUTPUT_RESERVE)]
         if policy.check:
             calls.append(("check", prompts.SYSTEM_CHECKER + prompts.check_prompt(sim, n), JSON_OUTPUT_RESERVE))
+            if sim.serial and sim.settings.check_widen:  # 검수 넓히기: 진술 뽑기 + 다시 묻기 (근거는 진술마다 다 찬다고 본다)
+                calls.append(("check", prompts.SYSTEM_CLAIMS + prompts.claims_prompt(sim, n), JSON_OUTPUT_RESERVE))
+                calls.append(("check", prompts.SYSTEM_CHECKER + prompts.widen_prompt(sim, n, [], []) + " " * (
+                    prompts.WIDEN_MAX * prompts.TWOSTEP_EVIDENCE), JSON_OUTPUT_RESERVE))
         if e.status in ("draft", "confirmed"):
             calls.append(("write", prompts.writer_system(sim) + prompts.episode_prompt(sim, n), write_out))
         for step, text, out in calls:
@@ -280,10 +284,14 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
         return m["seconds"] if m else SECONDS[step]
 
     review = [s for s in ("check", "state") if steps[s]]
+    # 검수 넓히기는 검수 뒤에 진술 뽑기 · 다시 묻기를 차례로 부른다 (화마다 검수 호출 3번)
+    widen = 3 if policy.check and p.serial and p.settings.check_widen else 1
+    slow = widen if "check" not in measured else 1  # 잰 검수 시간은 넓히기까지 든 시간이다
     # 일반 호출: 본문 + (동시에 부르는 검수와 상태 변경안 중 긴 쪽)
-    normal = steps["write"] * secs("write") + eps * max((secs(s) for s in review), default=0.0)
-    # 배치: 본문 한 번, 검수 + 상태 변경안 한 번을 기다린다
-    rounds = ((steps["write"] if batchable("write") else 0) + (eps if any(batchable(s) for s in review) else 0)) if batch else 0
+    normal = steps["write"] * secs("write") + eps * max((secs(s) * (slow if s == "check" else 1) for s in review), default=0.0)
+    # 배치: 본문 한 번, 검수 + 상태 변경안 한 번을 기다린다 (넓히기를 켜면 검수 배치를 두 번 더 기다린다)
+    rounds = ((steps["write"] if batchable("write") else 0) + (eps if any(batchable(s) for s in review) else 0)
+              + (eps * (widen - 1) if "check" in review and batchable("check") else 0)) if batch else 0
     waits = [v["seconds"] for k, v in measured.items() if k.endswith(":batch")]
     return {
         "episodes": eps, "from": todo[0] if todo else None, "to": target, "missing": missing,

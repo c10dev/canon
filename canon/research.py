@@ -312,17 +312,18 @@ def _hit(found: str, planted: str) -> bool:
 
 
 TRIAL_MODES = {**prompts.CHECK_MODES,
+               "widen": "budget 검수 뒤 진술마다 옛 화를 더 찾아, 첫 검수에 없던 단락이 근거로 나온 진술만 다시 판정 (검수 넓히기)",
                "twostep": "진술 뽑기 → 판단기가 옛 화 전부와 견줘 거르기 → 의심만 검수 모델이 판정 (판단기 시험)"}
 
 
 def check_trial(p: Project, n: int, b: Backend, plants: int = 3, modes: list[str] | None = None, seed: int | None = None,
                 judge: Backend | None = None) -> dict:
     """모순 plants 개를 심은 n화를 검수 방식마다 검수한다. 심은 것과 검수 호출은 같은 백엔드를 쓴다.
-    judge 를 주면 두 걸음 검수(twostep)도 돌린다. 판단기는 local 또는 mock."""
+    장편은 검수 넓히기(widen)도 기본으로 돌린다. judge 를 주면 두 걸음 검수(twostep)도 돌린다. 판단기는 local 또는 mock."""
     ep = p.episode(n)
     if not ep.text:
         raise ValueError(f"{n}화 본문이 없어요")
-    modes = modes or list(prompts.CHECK_MODES) + (["twostep"] if judge else [])
+    modes = modes or list(prompts.CHECK_MODES) + (["widen"] if p.serial else []) + (["twostep"] if judge else [])
     bad = [m for m in modes if m not in TRIAL_MODES]
     if bad:
         raise ValueError(f"알 수 없는 검수 방식: {', '.join(bad)} ({' | '.join(TRIAL_MODES)})")
@@ -350,12 +351,19 @@ def check_trial(p: Project, n: int, b: Backend, plants: int = 3, modes: list[str
         if mode == "twostep":
             runs.append(_two_step_run(llm, judge, q, n, used))
             continue
-        prompt = prompts.check_prompt(q, n, mode)
+        prompt = prompts.check_prompt(q, n, "budget" if mode == "widen" else mode)
         row: dict[str, Any] = {"mode": mode, "chars": len(prompt), "tokens": context.est_tokens(prompts.SYSTEM_CHECKER + prompt)}
         t1 = time.perf_counter()
         try:
             rep = llm.json(prompts.SYSTEM_CHECKER, prompt, ConsistencyReport,
                            hint={"episode": n, "plants": [x.replacement for x in used]})
+            if mode == "widen":  # tokens 는 첫 검수 + 진술 뽑기 + 다시 묻기 (추정)
+                first_found = [any(_hit(i.current_quote, x.replacement) for i in rep.issues) for x in used]
+                rep, st = pipeline.widen_check(llm, q, n, rep, hint={"plants": [x.replacement for x in used]})
+                # 심은 문장이 다시 묻는 진술에 들었는지 (넓혀 찾기가 그 문장의 근거를 새로 찾았는지)
+                raised = [any(r["widened"] and _hit(r["quote"], x.replacement) for r in st["rows"]) for x in used]
+                row.update(first_found=first_found, raised=raised, **st)
+                row["tokens"] += st["claims_tokens"] + st["verdict_tokens"]
             hits = [any(_hit(i.current_quote, x.replacement) for i in rep.issues) for x in used]
             extra = [i.model_dump() for i in rep.issues if not any(_hit(i.current_quote, x.replacement) for x in used)]
             row.update(ok=True, hits=hits, found=sum(hits), other=extra, usage=getattr(llm, "last_usage", None))

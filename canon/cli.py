@@ -943,13 +943,16 @@ def cmd_check(a: argparse.Namespace) -> None:
         pipeline.apply_check(p, report)
         store.save(a.name, p)
     else:
-        _check(a.name, p, a.n)
+        if a.widen and not p.serial:
+            print("넓혀 찾기는 장편 검수에만 있어요. 보통 검수만 해요")
+        _check(a.name, p, a.n, a.widen)
     _print_issues(p, a.n)
 
 
-def _check(name: str, p: Project, n: int) -> None:
-    print(f"{n}화 검수 중...")
-    pipeline.apply_check(p, pipeline.check_episode(get_llm("check"), p, n))
+def _check(name: str, p: Project, n: int, widen: bool | None = None) -> None:
+    on = p.serial and (p.settings.check_widen if widen is None else widen)
+    print(f"{n}화 검수 중{' (넓혀 찾기 포함)' if on else ''}...")
+    pipeline.apply_check(p, pipeline.check_episode(get_llm("check"), p, n, widen))
     store.save(name, p)
 
 
@@ -2053,6 +2056,8 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--from-json", help="채팅 앱에서 받은 상태 변경 JSON 파일")
     sp = add("check", cmd_check, "n", yes=False)
     sp.add_argument("--from-json", help="채팅 앱에서 받은 검수 결과 JSON 파일")
+    sp.add_argument("--widen", action=argparse.BooleanOptionalAction, default=None,
+                    help="장편: 검수 뒤 근거를 못 넣은 진술만 옛 화를 더 찾아 다시 물음 (검수 호출 2번 더). 비우면 작품 설정을 따름")
     sp = add("stats", cmd_stats, yes=False)
     sp.add_argument("n", type=int, nargs="?")
     sp = add("run", cmd_run)

@@ -2955,12 +2955,68 @@ def keep_illust_look(p: Project, n: int, iid: str, cid: str, force: bool = False
 
 # ---------- 5. 검수 (모순 찾기, 문체 지표) ----------
 
-def check_episode(llm: LLM, p: Project, n: int) -> ConsistencyReport:
+def check_episode(llm: LLM, p: Project, n: int, widen: bool | None = None) -> ConsistencyReport:
+    """한 화 검수. 장편이고 widen 이면(비우면 작품 설정 check_widen) 검수 넓히기(widen_check)를 이어 붙인다. 단편은 넓히지 않는다."""
     if not p.episode(n).text:
         raise ValueError(f"{n}화 본문이 없어요")
     report = llm.json(prompts.SYSTEM_CHECKER, prompts.check_prompt(p, n), ConsistencyReport, hint={"episode": n})
     report.episode = n
+    if p.serial and (p.settings.check_widen if widen is None else widen):
+        report, _ = widen_check(llm, p, n, report)
     return report
+
+
+def _same_quote(a: str, b: str) -> bool:
+    """두 인용이 같은 문장을 짚는지: 짧은 쪽 글 조각의 절반 이상이 겹친다."""
+    from .context import grams
+
+    ga, gb = grams(a), grams(b)
+    small = min(len(ga), len(gb))
+    return a.strip() == b.strip() or (small > 0 and len(ga & gb) / small >= 0.5)
+
+
+def widen_check(llm: LLM, p: Project, n: int, report: ConsistencyReport, hint: dict | None = None) -> tuple[ConsistencyReport, dict]:
+    """장편 검수 넓히기: 첫 검수(budget)는 이번 화 전체로 한 번 찾은 옛 단락만 본다. 이번 화의 사실 진술을 뽑아(claims_prompt)
+    진술마다 옛 화를 따로 찾고(claim_evidence, LLM 없음), 첫 검수에 넣지 않은 단락이 근거로 나온 진술만 그 근거와 함께
+    검수 모델에 다시 묻는다(widen_prompt). 판단기는 쓰지 않는다. 더한 지적은 첫 검수와 같은 문장을 짚으면 뺀다.
+    (첫 검수 지적 + 더한 지적, 단계별 크기 · 진술 기록)"""
+    from .context import PassageIndex, est_tokens
+
+    ep = p.episode(n)
+    hint = hint or {}
+    part = getattr(llm, "part", None)  # 자동 집필 배치: 호출마다 작업 slot 을 따로 둔다 (llm.BatchLLM.part)
+    first = prompts.claims_prompt(p, n)
+    claims = (part("claims") if part else llm).json(prompts.SYSTEM_CLAIMS, first, ClaimSet, hint={"episode": n, "text": ep.text}).claims
+    claims = [c for c in claims if c.quote.strip() and c.claim.strip()][:prompts.TWOSTEP_CLAIMS]
+    recent, found = prompts.check_recall(p, n)
+    seen = {para for _, paras in found for para in paras}
+    index = PassageIndex(p, n, {e.plot.number for e in recent})  # 직전 화는 첫 검수가 원문으로 봤다
+    rows = []
+    for i, c in enumerate(claims):
+        parts, hits = prompts.claim_sources(p, n, c, index)
+        paras = [x for _, xs in hits for x in xs]
+        new = sum(len(x) for x in paras if x not in seen)
+        rows.append({"quote": c.quote, "claim": c.claim, "new": new, "old": sum(x in seen for x in paras),
+                     "widened": False, "evidence": prompts.evidence_text(parts, hits)})
+    # 첫 검수에서 근거 단락을 하나도 못 본 진술, 새로 나온 단락이 긴 진술부터
+    order = sorted((i for i, r in enumerate(rows) if r["new"]), key=lambda i: (rows[i]["old"] > 0, -rows[i]["new"], i))
+    picked = sorted(order[:prompts.WIDEN_MAX])
+    for i in picked:
+        rows[i]["widened"] = True
+    stats = {"claims": len(claims), "widened": len(picked), "added": 0,
+             "claims_tokens": est_tokens(prompts.SYSTEM_CLAIMS + first), "verdict_tokens": 0,
+             "rows": [{k: v for k, v in r.items() if k != "evidence"} for r in rows]}
+    if not picked:
+        return report, stats
+    last = prompts.widen_prompt(p, n, [(claims[i], rows[i]["evidence"]) for i in picked], report.issues)
+    stats["verdict_tokens"] = est_tokens(prompts.SYSTEM_CHECKER + last)
+    more = (part("widen") if part else llm).json(prompts.SYSTEM_CHECKER, last, ConsistencyReport, hint={"episode": n, **hint})
+    issues = list(report.issues)
+    for x in more.issues:
+        if x.current_quote.strip() and not any(_same_quote(x.current_quote, y.current_quote) for y in issues):
+            issues.append(x)
+    stats["added"] = len(issues) - len(report.issues)
+    return ConsistencyReport(episode=n, issues=issues), stats
 
 
 def check_two_step(llm: LLM, judge: Judge, p: Project, n: int, hint: dict | None = None) -> tuple[ConsistencyReport, dict]:
