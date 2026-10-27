@@ -77,6 +77,10 @@ function learnCard() {
   const count = st
     ? `본문을 고친 기록 ${st.total}건 중 배울 수 있는 것 ${st.usable}건${short ? ` · ${st.min}건부터 찾을 수 있어요` : ''}`
     : '';
+  // 고친 기록이 기준보다 적고 지난 후보도 없으면 찾을 수 없으니 한 줄로 줄인다
+  if ((short || !st) && !r) {
+    return `<section class="card tight"><div class="between"><h2>내 수정에서 배우기</h2><span class="small">${st ? `배울 수 있는 수정 ${st.usable}건 · ${st.min}건부터 되풀이되는 고침을 찾아요` : ''}</span></div></section>`;
+  }
   const open = r && r.suggestions.some((s) => !s.applied);
   const list = r ? `<div class="note plain">${esc(r.summary || '')}<div class="small">${fmtDate(r.at)} · 수정 ${r.edits_used}건을 봤어요</div></div>
       ${r.suggestions.length ? r.suggestions.map(suggestionRow).join('') : '<div class="small">두 번 이상 되풀이된 고침을 찾지 못했어요. 본문을 더 고친 뒤 다시 찾아 보세요.</div>'}

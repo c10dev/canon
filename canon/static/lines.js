@@ -97,7 +97,7 @@ function lineMap() {
   // '맞춤'은 지금 노선도 칸 폭에 맞춘다 (전에 그린 칸이나 본문 폭을 잰다). 좁은 화면은 이름 칸도 줄인다
   const wrapW = S.lineFitW || (document.querySelector('#app .line-map-wrap') || document.querySelector('#app main') || { clientWidth: 1000 }).clientWidth;
   const left = wrapW < 600 ? 96 : 168;
-  const step = S.lineZoom || Math.max(4, Math.min(30, (wrapW - left - 24) / total));
+  const step = S.lineZoom || Math.max(4, (wrapW - left - 24) / total);  // 맞춤은 화가 적어도 칸 폭을 채운다
   const X = (n) => left + (n - 0.5) * step;
   const bandY = 8;
   const mainY = 64;
@@ -109,8 +109,13 @@ function lineMap() {
   const byNo = new Map(p.episodes.map((e) => [e.plot.number, e]));
   const lastPlot = Math.max(0, ...p.episodes.map((e) => e.plot.number));
   const out = [];
-  // 화 점을 누를 자리: 세로 24px, 가로는 옆 화와 겹치지 않는 폭까지 (점이 작아도 누르기 쉽게)
-  const hit = (n, y) => { const w = Math.min(24, step); return `<rect class="lm-hit" x="${X(n) - w / 2}" y="${y - 12}" width="${w}" height="24"></rect>`; };
+  // 화 점을 누를 자리: 세로 24px, 가로는 12~24px. 같은 줄의 옆 점과 겹치는 곳은 가운데에서 나눠 가까운 화로 간다
+  const hitW = Math.max(12, Math.min(24, step));
+  const hit = (n, y, prev, next) => {
+    const x0 = Math.max(X(n) - hitW / 2, prev ? (X(prev) + X(n)) / 2 : -Infinity);
+    const x1 = Math.min(X(n) + hitW / 2, next ? (X(n) + X(next)) / 2 : Infinity);
+    return `<rect class="lm-hit" x="${x0}" y="${y - 12}" width="${x1 - x0}" height="24"></rect>`;
+  };
 
   // 위쪽 띠: 장편은 아크, 단편은 기승전결
   const bands = serial() ? (p.story_arcs || []).map((a) => [a.start_ep, a.end_ep, `아크 ${a.number} ${a.title}`, 'act-' + (((a.number - 1) % 4) + 1)])
@@ -167,15 +172,21 @@ function lineMap() {
     if (!s.join_ep) out.push(`<text class="lm-sub" x="${xe + step * 0.6 + 6}" y="${y + 4}">열림</text>`);
     if (s.branch_ep) out.push(`<circle class="lm-node" cx="${X(s.branch_ep)}" cy="${mainY}" r="${r + 1.5}" stroke="${c}"></circle>`);
     if (s.join_ep) out.push(`<circle class="lm-node" cx="${X(s.join_ep)}" cy="${mainY}" r="${r + 1.5}" stroke="${c}"></circle>`);
-    lineEpisodes(s.id).forEach(({ n, role }) => {
+    const dots = lineEpisodes(s.id);
+    dots.forEach(({ n, role }, j) => {
       const e = byNo.get(n);
       const title = `${n}화 ${e ? e.plot.title : ''} · ${s.title}${role === 'thread' ? ' (장면)' : ''} · ${e ? STATUS[e.status] : ''}`;
-      out.push(`<g class="lm-dot" data-action="lineEp" data-arg="${n}" tabindex="0" role="button" aria-label="${esc(title)}"><title>${esc(title)}</title>${hit(n, y)}
+      out.push(`<g class="lm-dot" data-action="lineEp" data-arg="${n}" tabindex="0" role="button" aria-label="${esc(title)}"><title>${esc(title)}</title>${hit(n, y, j && dots[j - 1].n, j + 1 < dots.length && dots[j + 1].n)}
         <circle cx="${X(n)}" cy="${y}" r="${role === 'thread' ? r - 1 : r + 1}" fill="${role === 'thread' ? 'var(--surface)' : DOT_FILL[e ? e.status : 'draft']}" stroke="${c}" stroke-width="${role === 'thread' ? 2 : 3}"${role !== 'thread' && (!e || e.status === 'draft') ? ' stroke-dasharray="3 2"' : ''}></circle>${role === 'thread' ? '' : statusMark(X(n), y, r + 1, e ? e.status : 'draft')}</g>`);
     });
   });
 
   // 메인 화 점 (줄기를 따라가는 화는 메인에서 비운다)
+  const mainDots = [];
+  for (let n = 1; n <= Math.min(lastPlot, total); n++) {
+    const e = byNo.get(n);
+    if (e && !(e.plot.storyline && lineOf(e.plot.storyline))) mainDots.push(n);
+  }
   for (let n = 1; n <= Math.min(lastPlot, total); n++) {
     const e = byNo.get(n);
     if (!e) continue;
@@ -185,7 +196,7 @@ function lineMap() {
       out.push(`<circle class="lm-gap" cx="${X(n)}" cy="${mainY}" r="${r - 1.5}"><title>${esc(title)}</title></circle>`);
       continue;
     }
-    out.push(`<g class="lm-dot" data-action="lineEp" data-arg="${n}" tabindex="0" role="button" aria-label="${esc(title)}"><title>${esc(title)}</title>${hit(n, mainY)}
+    out.push(`<g class="lm-dot" data-action="lineEp" data-arg="${n}" tabindex="0" role="button" aria-label="${esc(title)}"><title>${esc(title)}</title>${hit(n, mainY, mainDots[mainDots.indexOf(n) - 1], mainDots[mainDots.indexOf(n) + 1])}
       <circle cx="${X(n)}" cy="${mainY}" r="${r}" fill="${DOT_FILL[e.status]}" class="lm-main-dot ${e.status}"${e.status === 'draft' ? ' stroke-dasharray="3 2"' : ''}></circle>${statusMark(X(n), mainY, r, e.status)}</g>`);
   }
 

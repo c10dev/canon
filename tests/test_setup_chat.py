@@ -2,6 +2,12 @@
 방향 여러 안, 프롬프트, 웹 · 명령줄. 실행: python -m pytest tests"""
 import contextlib
 import io
+import json
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
 
 from canon import archetypes, logline, pipeline, prompts, setupchat, store
 from canon.cli import main
@@ -184,3 +190,24 @@ def test_cli(tmp_path, monkeypatch):
         main(["setupchat", "등대", "--undo", "1"])
     assert "되돌렸어요: 주제, 새 인물 한결, 관계 서윤 ↔ 한결" in out.getvalue()
     assert store.load("등대").characters[-1].id == "ally"
+
+
+SETUP_JS = Path(__file__).resolve().parent.parent / "canon" / "static" / "setupchat.js"
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node 가 없다")
+def test_js_labels_match_server():
+    """화면(setupchat.js)의 칸 이름이 서버 KEY_LABELS · CHAR_LABELS 와 같다. 인물 말투는 인물 카드와 같은 '말투 (대사)'."""
+    harness = """
+const vm = require('vm');
+const fs = require('fs');
+const ctx = { CHAT_TOPICS: {}, actions: {}, document: { addEventListener() {} } };
+vm.createContext(ctx);
+vm.runInContext(fs.readFileSync(process.argv[1], 'utf8') + ';globalThis.out = { keys: SETUP_KEYS, chars: SETUP_CHAR_LABEL };', ctx);
+process.stdout.write(JSON.stringify(ctx.out));
+"""
+    out = json.loads(subprocess.run(["node", "-e", harness, str(SETUP_JS)], capture_output=True, text=True, check=True).stdout)
+    assert dict(out["keys"]) == setupchat.KEY_LABELS
+    assert [k for k, _ in out["keys"]] == list(setupchat.KEY_LABELS)
+    assert out["chars"] == setupchat.CHAR_LABELS
+    assert setupchat.CHAR_LABELS["speech_style"] == "말투 (대사)"
