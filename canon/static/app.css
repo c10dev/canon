@@ -224,16 +224,23 @@ details > summary { cursor: pointer; font-size: 0.8125rem; color: var(--accent);
 .board { display: flex; flex-direction: column; gap: 20px; }
 .act-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; scroll-margin-top: 16px; }
 .act-head { padding: 12px 14px; border-radius: 10px; display: flex; flex-direction: column; gap: 6px; }
-.act-col .act-head { padding: 12px 16px; border-radius: 12px; display: grid; grid-template-columns: 140px repeat(auto-fit, minmax(200px, 1fr)); align-items: start; gap: 6px 24px; border: 2px solid transparent; }
+.act-col .act-head { padding: 12px 16px; border-radius: 12px; display: grid; grid-template-columns: 140px repeat(auto-fit, minmax(200px, 1fr)); grid-template-rows: auto 1fr; align-items: start; gap: 6px 24px; border: 2px solid transparent; }
 /* 왼쪽 칸: 구간 이름 · 범위, 그 아래 구간 고치기. 오른쪽 칸들: 구간 목표 · 전환점 · 서술 시점 */
 .act-col .act-head > .between { grid-column: 1; grid-row: 1; flex-direction: column; align-items: flex-start; gap: 2px; }
 .act-col .act-head .act-block { min-width: 0; }
 .act-col .act-head .act-edit { grid-column: 1; grid-row: 2; justify-self: start; }
+/* 구간 · 아크 · 부 고치기: 서랍 대신 그 띠 · 카드 · 부 칩 아래에서 편다 */
+.act-col .act-head .act-form { grid-column: 2 / -1; grid-row: 1 / span 2; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.act-form input, .act-form textarea { background: var(--surface); }
+.act-form .label, .act-form label { color: inherit; }
+.arc-form, .part-edit { display: flex; flex-direction: column; gap: 12px; }
+.part-edit { padding-top: 12px; border-top: 1px solid var(--rule); }
 .board-wrap { container-type: inline-size; }
 @container (max-width: 640px) {
   .act-col .act-head { grid-template-columns: minmax(0, 1fr); }
   .act-col .act-head > .between { flex-direction: row; align-items: baseline; }
   .act-col .act-head .act-edit { grid-row: auto; }
+  .act-col .act-head .act-form { grid-column: 1; grid-row: auto; }
 }
 /* 구간 범위 막대: 네 구간을 화수만큼 나눈다. 누르면 그 띠로 내려간다 */
 .act-map { display: flex; gap: 4px; }
@@ -250,17 +257,10 @@ details > summary { cursor: pointer; font-size: 0.8125rem; color: var(--accent);
 .act-eps > .act-label { color: var(--muted); padding: 0 2px; }
 .ep-slot { padding: 10px 12px; border: 1px dashed var(--line-strong); border-radius: 10px; color: var(--muted); font-size: 0.8125rem; }
 .ep-slot.shared { border-style: dotted; background: var(--bg); line-height: 1.5; }
-.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(480px, 100vw); z-index: 15; overflow-y: auto; border-radius: 0; box-shadow: -8px 0 32px rgba(0,0,0,0.16); padding-top: 56px; display: flex; flex-direction: column; gap: 12px; }
-.drawer-close { position: absolute; top: 10px; right: 12px; }
 /* 서랍을 열면 보드를 서랍 폭만큼 비켜 둔다. 대화 패널과 함께 열면 서랍을 줄인다 */
-@media (min-width: 1280px) { body.drawer-open .main { padding-right: 500px; } }
-body.chat-open .drawer { width: min(400px, 100vw); }
-@media (min-width: 1101px) and (max-width: 1699px) { body.chat-open.drawer-open .main { padding-right: 480px; } }
-@media (min-width: 1700px) { body.chat-open.drawer-open .main { padding-right: 860px; } }
-.drawer-nav { display: flex; gap: 6px; }
 /* 등장 인물 체크: 휴대폰에서도 누르기 쉽게 행을 키우고 이웃과 띄운다 */
-.drawer .cast-boxes { gap: 6px 10px; }
-.drawer .cast-boxes label.row { min-height: 32px; padding: 4px 8px; }
+.plot-page .cast-boxes, .arc-form .cast-boxes { gap: 6px 10px; }
+.plot-page .cast-boxes label.row, .arc-form .cast-boxes label.row { min-height: 32px; padding: 4px 8px; }
 .act-1 { background: var(--act-1); color: var(--act-1-ink); }
 .act-2 { background: var(--act-2); color: var(--act-2-ink); }
 .act-3 { background: var(--act-3); color: var(--act-3-ink); }
@@ -270,7 +270,7 @@ body.chat-open .drawer { width: min(400px, 100vw); }
 .ep-card.sel { border: 2px solid var(--accent); background: var(--sel-bg); }
 .ep-card .t { font-size: 0.875rem; font-weight: 700; line-height: 1.45; }
 /* 한글은 낱말 중간에서 끊지 않는다 ('잃었/다'). 띄어쓰기 없이 긴 글만 칸 끝에서 끊는다 */
-.board, .drawer, .arc-facts, .part-card, .chat-panel .diff, .drawer textarea { word-break: keep-all; overflow-wrap: anywhere; }
+.board, .plot-page, .arc-facts, .arc-form, .part-card, .part-edit, .chat-panel .diff, .plot-page textarea { word-break: keep-all; overflow-wrap: anywhere; }
 .ep-card .ep-top { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 8px; }
 .ep-card .ep-top strong { font-size: 0.8125rem; }
 .ep-card .ep-chips { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
@@ -359,7 +359,7 @@ pre.brief { margin: 0; padding: 16px; border-radius: 8px; background: var(--bg);
 .metric-list { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 0.8125rem; }
 .metric-list dt { color: var(--muted); }
 .metric-list dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
-.drawer-actions { position: sticky; bottom: -20px; margin: 0 -24px -20px; padding: 12px 24px 20px; background: var(--surface); border-top: 1px solid var(--line); }
+.page-actions { position: sticky; bottom: -20px; margin: 0 -24px -20px; padding: 12px 24px 20px; background: var(--surface); border-top: 1px solid var(--line); }
 
 /* 대화로 다듬기 (chat.js). 오른쪽에 붙는 패널이고, 열려 있으면 본문과 편집 서랍을 왼쪽으로 민다. */
 .btn.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
@@ -383,10 +383,7 @@ pre.brief { margin: 0; padding: 16px; border-radius: 8px; background: var(--bg);
   .chat-input textarea { min-height: 36px; max-height: 72px; }
   .sel-target { padding: 6px 12px 0 16px; gap: 4px; }
   .sel-target blockquote { max-height: 2.4em; padding: 2px 8px; }
-  .drawer { padding-top: 12px; }
-  .drawer-close { top: 4px; }
-  .drawer-close + * { padding-right: 44px; }
-  .drawer-actions { padding: 8px 24px 12px; }
+  .page-actions { padding: 8px 24px 12px; }
 }
 .msg { max-width: 100%; line-height: 1.6; font-size: 0.875rem; }
 .msg.user { align-self: flex-end; max-width: 85%; padding: 10px 14px; border-radius: 12px 12px 4px 12px; background: var(--accent); color: var(--on-accent); white-space: pre-wrap; }
@@ -416,12 +413,10 @@ pre.brief { margin: 0; padding: 16px; border-radius: 8px; background: var(--bg);
 .fact-add { padding: 4px 8px; border-radius: 6px; background: var(--green-soft); color: var(--green-ink); font-size: 0.8125rem; line-height: 1.55; }
 .fact-add::before { content: '더할 사실 '; font-weight: 700; font-size: 0.6875rem; }
 body.chat-open .main { padding-right: 480px; }
-body.chat-open .drawer { right: 440px; }
 body.chat-open #toast { right: 460px; }
 body.chat-open .savebar { left: calc(50% - 220px); }
 @media (max-width: 1100px) {
   body.chat-open .main { padding-right: 40px; }
-  body.chat-open .drawer { right: 0; z-index: 16; }
   body.chat-open #toast { right: 20px; bottom: 120px; }
   body.chat-open .savebar { left: 50%; }
   .chat-panel { box-shadow: -8px 0 32px rgba(0,0,0,0.16); }

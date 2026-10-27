@@ -595,12 +595,11 @@ document.addEventListener('keydown', (e) => {
   actions.chatSend();
 });
 
-// Esc 로 대화 패널을 닫고, 패널을 연 버튼으로 포커스를 돌린다. 다른 층이 먼저 Esc 를 받는다:
-// 구간 · 아크 · 부 서랍(app.js)과 본문 부분 수정 도구(passage.js). 그 처리기들이 상태를 지우기 전에 보려고 capture 로 듣는다
+// Esc 로 대화 패널을 닫고, 패널을 연 버튼으로 포커스를 돌린다. 본문 부분 수정 도구(passage.js)가 먼저 Esc 를 받는다.
+// 대화가 닫히면 defaultPrevented 라 화 플롯 페이지와 구간 · 아크 · 부 고치기(app.js)는 다음 Esc 에 닫힌다. 상태를 지우기 전에 보려고 capture 로 듣는다
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || !S.chatOpen || !document.querySelector('.chat-panel')) return;
   if (S.selTool) return;
-  if (S.route[2] === 'arc' && (S.selAct != null || S.editArc || S.selPart != null)) return;  // 서랍이 먼저. 화 플롯 페이지에서는 대화가 먼저 닫힌다
   e.preventDefault();
   actions.toggleChat();
   document.querySelector('[data-action="toggleChat"]')?.focus();

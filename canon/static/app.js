@@ -373,7 +373,7 @@ function isTyping() {
 
 // 작업이 끝나 결과를 그린 뒤 포커스를 옮길 곳 (없으면 제안 카드의 첫 버튼)
 const RESULT_FOCUS = { state: '#app [data-pick], #app [data-action="applyDelta"]', write: '#app textarea[data-draft], #app .rw-compare button',
-  recap_part: '#app .drawer textarea[data-root="recaps"]', recap_arc: '#app textarea[data-root="recaps"]' };  // 요약 제안 칸은 서랍 · 카드 아래쪽이라 그리로 데려간다
+  recap_part: '#app .part-edit textarea[data-root="recaps"]', recap_arc: '#app textarea[data-root="recaps"]' };  // 요약 제안 칸은 서랍 · 카드 아래쪽이라 그리로 데려간다
 
 /** #app 안에서 글자를 고르고 있다 (본문 부분 수정 · 삽화 도구를 띄우려고 드래그한 선택). */
 function selecting() {
@@ -960,7 +960,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  // Esc: 대화 패널이 먼저 닫히고(chat.js 가 capture 로 받아 defaultPrevented), 그다음 서랍이나 화 플롯 페이지가 닫힌다
+  // Esc: 대화 패널이 먼저 닫히고(chat.js 가 capture 로 받아 defaultPrevented), 그다음 화 플롯 페이지나 그 자리에서 편 구간 · 아크 · 부 고치기가 닫힌다
   if (e.key === 'Escape' && !e.isComposing && !e.defaultPrevented && S.route[2] === 'arc') {
     if (plotPageN()) { actions.closePlot(); return; }
     if (S.selAct != null || S.editArc || S.selPart != null) { actions.closePanel(); return; }
@@ -1710,10 +1710,6 @@ function focusEl(el) {
 function afterDraw(f) {
   const main = $('#app main');
   if (main) { main.id = 'main'; main.tabIndex = -1; }
-  // 서랍은 제목으로 이름을 단다 ('7화 플롯'). 스크린리더가 몇 화 서랍인지 읽는다
-  const d = $('#app .drawer');
-  const h = d && d.querySelector('h2');
-  if (h) { h.id = 'drawer-title'; d.setAttribute('aria-labelledby', 'drawer-title'); d.removeAttribute('aria-label'); }
   document.title = pageTitle();
   // 탭 묶음: 고른 탭만 Tab 으로 들어가고 나머지는 화살표로 옮긴다 (아래 keydown)
   document.querySelectorAll('#app [role="tablist"]').forEach((list) => {
@@ -1746,7 +1742,7 @@ function drawApp() {
   // 버튼 줄 안의 저장 칸(.savebar-slot)에 든 띠는 다시 그리면 함께 사라진다. 잠시 밖으로 빼 두었다가 그린 뒤 새 칸으로 옮긴다 (render)
   const inline = $('#savebar.inline');
   if (inline) document.body.appendChild(inline);
-  document.body.classList.remove('chat-open', 'drawer-open');
+  document.body.classList.remove('chat-open');
   const [p, , page, arg] = S.route;
   if (p === 'settings') {
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:820px;margin:0 auto">${viewSettings()}</main></div>`;
@@ -1776,7 +1772,6 @@ function drawApp() {
   const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${branchStrip(page)}${failStrip(page, n)}${draftStrip(page, n)}${body}</main></div>`;
-  document.body.classList.toggle('drawer-open', !!$('#app .drawer'));  // 넓은 화면은 보드를 서랍 폭만큼 비켜 둔다 (app.css)
   syncPending();
   keepDrafts();  // 저장 · 버리기 · AI 본문으로 초안이 사라졌으면 임시본도 바로 지운다
   syncChat();
