@@ -3,8 +3,12 @@
 auto 스냅샷: 모든 인물이 auto 인 단편 · 장편 작품에서 프롬프트마다 sha256 앞 16자를 tests/snapshots/char_context_auto.json 과 견준다.
 이 값은 넣기 방식을 더하기 전 코드로 만든 프롬프트에서 뽑았다. 프롬프트 문구를 일부러 바꾸면
 CANON_UPDATE_SNAPSHOT=1 python -m pytest tests/test_char_context.py 로 다시 만든다.
+같은 명령이 프롬프트마다 머리글('[작품]', '# 세계관' …)로 나눈 블록의 해시를 tests/snapshots/char_context_auto.txt 에 쓴다
+(프롬프트 한 줄). 해시가 다르면 지금 전문을 임시 폴더에 쓰고, 머리글이 달라진 곳과 처음 다른 블록을 실패 메시지에 넣는다.
 """
+import difflib
 import hashlib
+import re
 import json
 import os
 import random
@@ -18,6 +22,8 @@ from canon.schema import Character, CharacterState, Project, Relationship, Setup
 from tests.test_serial import _finish, _plan_arc, _serial
 
 SNAPSHOT = Path(__file__).parent / "snapshots" / "char_context_auto.json"
+BLOCKS = SNAPSHOT.with_suffix(".txt")
+HEAD = re.compile(r"^(\[[^\]]{1,60}\]|#{1,3} \S)")  # 블록을 여는 머리글 줄
 L = MockLLM()
 
 
@@ -94,15 +100,94 @@ def keep_rng():
     naming._rng = rng
 
 
-def test_auto_prompts_match_snapshot(keep_rng):
-    got = {"short": _digest(_prompts(_short())), "serial": _digest(_prompts(_long()))}
+def _blocks(text: str) -> list[tuple[str, int, str]]:
+    """(머리글, 시작 줄 번호, 블록 글). 첫 머리글 앞은 '(앞)'."""
+    out: list[tuple[str, int, list[str]]] = [("(앞)", 1, [])]
+    for i, line in enumerate(text.split("\n"), 1):
+        if HEAD.match(line):
+            out.append((line.strip()[:24].replace("\t", " "), i, []))
+        out[-1][2].append(line)
+    return [(h, i, "\n".join(body)) for h, i, body in out if body or h != "(앞)"]
+
+
+def _block_line(text: str) -> str:
+    """'전체 해시<TAB>블록 해시 8자 머리글<TAB>…'. 블록 글 끝에 이어지는 줄바꿈까지 해시에 넣는다."""
+    parts = [hashlib.sha256(text.encode()).hexdigest()[:16]]
+    parts += [f"{hashlib.sha256(body.encode()).hexdigest()[:8]} {h}" for h, _, body in _blocks(text)]
+    return "\t".join(parts)
+
+
+def _write_blocks(path: Path, texts: dict[str, dict[str, str]]) -> None:
+    lines = [f"{form}/{k}\t{_block_line(v)}" for form, by_key in texts.items() for k, v in sorted(by_key.items())]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _read_blocks(path: Path) -> dict[str, dict[str, list[str]]]:
+    """{형식: {프롬프트: [전체 해시, '블록 해시 머리글', …]}}"""
+    out: dict[str, dict[str, list[str]]] = {}
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            name, *parts = line.split("\t")
+            form, _, k = name.partition("/")
+            out.setdefault(form, {})[k] = parts
+    return out
+
+
+def _explain(k: str, stored: list[str] | None, text: str) -> str:
+    """기준 블록 기록과 지금 프롬프트를 견줘 처음 달라진 곳을 적는다."""
+    if not stored:
+        return f"[{k}] 블록 기록이 없어 어디가 바뀌었는지 보일 수 없어요"
+    now = _block_line(text).split("\t")
+    old_blocks, new_blocks = stored[1:], now[1:]
+    out = [f"[{k}]"]
+    heads = lambda xs: [x.split(" ", 1)[1] for x in xs]  # noqa: E731
+    if heads(old_blocks) != heads(new_blocks):
+        diff = difflib.unified_diff(heads(old_blocks), heads(new_blocks), "기준 머리글", "지금 머리글", n=1, lineterm="")
+        out += list(diff)[:30]
+    first = next((i for i, (a, b) in enumerate(zip(old_blocks, new_blocks)) if a != b), min(len(old_blocks), len(new_blocks)))
+    blocks = _blocks(text)
+    if first < len(blocks):
+        h, line, body = blocks[first]
+        shown = body.split("\n")[:12]
+        out.append(f"처음 다른 블록: {first + 1}번째 '{h}' (지금 전문 {line}줄부터)")
+        out += [f"  {x}" for x in shown]
+    elif stored[0] != now[0]:
+        out.append("블록 해시는 모두 같은데 전체 해시가 달라요: 기록이 해시 파일과 따로 고쳐졌을 수 있어요")
+    return "\n".join(out)
+
+
+def _report(form: str, changed: list[str], got: dict[str, str], tmp: Path, shown: int = 5) -> str:
+    """지금 전문을 쓴 자리와, 바뀐 프롬프트 앞 shown 개가 처음 달라진 블록."""
+    stored = _read_blocks(BLOCKS).get(form, {})
+    out = [f"{form}: 모두 auto 인데 프롬프트가 바뀜 {changed}", f"지금 전문: {tmp}"]
+    for i, k in enumerate(changed):
+        (tmp / f"{form}-{k.replace(':', '-')}.txt").write_text(got[k], encoding="utf-8")
+        if i < shown:
+            out.append(_explain(k, stored.get(k), got[k]))
+    if len(changed) > shown:
+        out.append(f"나머지 {len(changed) - shown}개는 전문 파일로 보세요")
+    return "\n".join(out)
+
+
+def test_auto_prompts_match_snapshot(keep_rng, tmp_path):
+    texts = {"short": _prompts(_short()), "serial": _prompts(_long())}
+    got = {form: _digest(t) for form, t in texts.items()}
     if os.environ.get("CANON_UPDATE_SNAPSHOT"):
         SNAPSHOT.write_text(json.dumps(got, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        _write_blocks(BLOCKS, texts)
     want = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
     for form in ("short", "serial"):
         assert set(got[form]) == set(want[form]), form
         changed = [k for k in want[form] if got[form][k] != want[form][k]]
-        assert not changed, f"{form}: 모두 auto 인데 프롬프트가 바뀜 {changed}"
+        assert not changed, _report(form, changed, texts[form], tmp_path)
+
+
+def test_snapshot_blocks_match_hashes():
+    """블록 기록이 해시 파일과 같은 프롬프트에서 나왔는지. 해시만 고치고 기록을 두면 엉뚱한 블록을 가리킨다."""
+    want = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+    got = {form: {k: parts[0] for k, parts in by_key.items()} for form, by_key in _read_blocks(BLOCKS).items()}
+    assert got == want, \
+        f"{BLOCKS.name} 가 {SNAPSHOT.name} 와 맞지 않아요. CANON_UPDATE_SNAPSHOT=1 python -m pytest tests/test_char_context.py 로 함께 다시 만드세요"
 
 
 def test_ai_schemas_have_no_context():
