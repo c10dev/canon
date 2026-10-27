@@ -1813,8 +1813,9 @@ function navItems() {
   const p = P();
   const cur = currentEp();
   // 번호는 작업 순서(1~5)에만 붙인다. 도구는 어느 단계에서든 쓰므로 번호 없이 아래 묶음에 둔다
+  // 기호는 단계 번호이거나 토스페이스 이모지 아이콘이다 (navMark 가 그린다)
   const steps = [
-    ['home', base(), 'H', '작품 홈'],
+    ['home', base(), '🏠', '작품 홈'],
     ['setup', base() + '/setup', '1', stepLabel('setup')],
     ['style', base() + '/style', '2', stepLabel('style')],
     ['arc', base() + '/arc', '3', stepLabel('arc')],
@@ -1824,24 +1825,29 @@ function navItems() {
   // 도구마다 [id, 주소, 기호, 이름, 데이터가 있는지]. 데이터가 없는 도구는 '더 보기'로 접는다 (지금 보는 도구는 펼쳐 둔다)
   const has = (xs) => (xs || []).length > 0;
   const tools = [
-    ['cast', base() + '/cast', '人', '인물 · 관계도', has(p.characters)],
-    ['atlas', base() + '/atlas', '地', '지도', has(p.world.locations) || (p.elements || []).some((el) => el.kind === '장소')],
-    ['foreshadow', base() + '/foreshadow', '伏', '복선 센터', has(p.foreshadows)],
-    ['statwin', base() + '/statwin', '#', '상태창 수치', (p.states || []).some((s) => has(s.stats))],
-    ['abilities', base() + '/abilities', '技', '스킬 도감', has(p.abilities)],
-    ['timeline', base() + '/timeline', '時', '작품 속 시간', has((p.timeline || {}).deadlines) || p.episodes.some((e) => e.time && (e.time.day > 0 || e.time.part || e.time.label))],
-    ['lines', base() + '/lines', '⑂', '이야기 줄기', has(p.storylines)],
-    ['causal', base() + '/causal', '∴', '인과율', has(p.elements)],
-    ['branches', base() + '/branches', '枝', '갈래 비교', (branchFam() || { members: [] }).members.length > 1],
-    ['brief', `${base()}/brief/${cur}`, '✎', '작업지시서 (API 없이)', true],
+    ['cast', base() + '/cast', '👥', '인물 · 관계도', has(p.characters)],
+    ['atlas', base() + '/atlas', '🗺️', '지도', has(p.world.locations) || (p.elements || []).some((el) => el.kind === '장소')],
+    ['foreshadow', base() + '/foreshadow', '🪝', '복선 센터', has(p.foreshadows)],
+    ['statwin', base() + '/statwin', '📊', '상태창 수치', (p.states || []).some((s) => has(s.stats))],
+    ['abilities', base() + '/abilities', '📖', '스킬 도감', has(p.abilities)],
+    ['timeline', base() + '/timeline', '⏳', '작품 속 시간', has((p.timeline || {}).deadlines) || p.episodes.some((e) => e.time && (e.time.day > 0 || e.time.part || e.time.label))],
+    ['lines', base() + '/lines', '🔀', '이야기 줄기', has(p.storylines)],
+    ['causal', base() + '/causal', '🔗', '인과율', has(p.elements)],
+    ['branches', base() + '/branches', '🌿', '갈래 비교', (branchFam() || { members: [] }).members.length > 1],
+    ['brief', `${base()}/brief/${cur}`, '📝', '작업지시서 (API 없이)', true],
   ];
   return {
     steps,
-    auto: ['auto', base() + '/auto', 'A', autoMenuLabel()],
+    auto: ['auto', base() + '/auto', '🤖', autoMenuLabel()],
     tools,
-    apart: [['research', base() + '/research', 'R', '연구 · 모델 실험'], ['usage', base() + '/usage', '$', '사용량 · 비용']],
+    apart: [['research', base() + '/research', '🔬', '연구 · 모델 실험'], ['usage', base() + '/usage', '💰', '사용량 · 비용']],
     foot: [['#/settings', '모델 · API 키 설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/', '작품 목록']],
   };
+}
+
+/** 사이드바 앞 기호: 단계 번호는 글자 칸, 그 밖은 토스페이스 이모지 아이콘 (원본 그대로, 낭독은 이름으로 충분해 숨긴다) */
+function navMark(mark) {
+  return /\p{Extended_Pictographic}/u.test(mark) ? `<span class="num tf" aria-hidden="true">${mark}</span>` : `<span class="num" aria-hidden="true">${mark}</span>`;
 }
 
 function sidebar(active) {
@@ -1849,7 +1855,7 @@ function sidebar(active) {
   const done = p.episodes.filter((e) => e.status === 'finalized').length;
   const total = p.meta.target_episodes;
   const { steps, auto, tools, apart, foot } = navItems();
-  const link = ([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}><span class="num" aria-hidden="true">${num}</span>${label}</a>`;
+  const link = ([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}>${navMark(num)}${label}</a>`;
   const shown = tools.filter((t) => t[4]);
   const folded = tools.filter((t) => !t[4]);
   const moreOpen = folded.some((t) => t[0] === active) || navMoreOpen();
@@ -1866,7 +1872,7 @@ function sidebar(active) {
       <div class="small">${done} / ${total}화 반영 완료</div>
     </div>
     <div class="side-menu" id="side-menu">
-    <div class="nav">${steps.map(([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}><span class="num" aria-hidden="true">${num}</span>${label}${/\d/.test(num) ? `<span class="sr-only"> (단계 ${num})</span>` : ''}</a>`).join('')}</div>
+    <div class="nav">${steps.map(([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}>${navMark(num)}${label}${/\d/.test(num) ? `<span class="sr-only"> (단계 ${num})</span>` : ''}</a>`).join('')}</div>
     <div class="nav nav-auto">${link(auto)}</div>
     <div class="nav nav-extra"><span class="small">작품 도구</span>${shown.map(link).join('')}
       ${folded.length ? `<details class="nav-more" data-nav-more${moreOpen ? ' open' : ''}><summary>더 보기 <span class="small">아직 데이터가 없는 도구 ${folded.length}개</span></summary>${folded.map(link).join('')}</details>` : ''}</div>
@@ -1876,6 +1882,7 @@ function sidebar(active) {
       <strong style="font-size:0.8125rem">${esc(cfg.stages ? cfg.stages.write.model : cfg.model || '')}</strong>
       ${aiWarning() ? `<span style="color:var(--red)">${esc(aiWarning())}</span>` : ''}
       ${foot.map(([href, label]) => `<a href="${href}">${label}</a>`).join('\n      ')}
+      <span class="tf-credit">이 페이지에는 토스팀에서 제공한 <a href="https://toss.im/tossface" target="_blank" rel="noopener">토스페이스</a>가 적용되어 있어요.</span>
     </div>
     </div>
   </nav>`;
