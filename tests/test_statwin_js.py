@@ -47,6 +47,6 @@ def test_sw_presets_match_server():
 def test_ab_list_names_match_server():
     from canon import abilities
     js = HARNESS.replace("data.cases.map(([b, v]) => swResolve(b, v))", "AB_LIST_NAMES")
-    run = subprocess.run(["node", "-e", js, str(STATWIN)], input=json.dumps({"cases": []}), capture_output=True, text=True, encoding="utf-8")
+    run = subprocess.run(["node", "-e", js, str(STATWIN.with_name("abilities.js"))], input=json.dumps({"cases": []}), capture_output=True, text=True, encoding="utf-8")
     assert run.returncode == 0, run.stderr
     assert json.loads(run.stdout) == list(abilities.LIST_NAMES)

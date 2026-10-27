@@ -3165,6 +3165,13 @@ def statwin_init(name: str, body: StatStyleRequest | None = None) -> StatInitSug
 
 # ---------- 스킬 · 특성 도감 (canon/abilities.py) ----------
 
+class AbilityEvent(BaseModel):
+    episode: int
+    kind: Literal["얻음", "바뀜", "잃음"]
+    item: str
+    before: str
+
+
 class AbilityOwner(BaseModel):
     """도감 항목을 지금 가진 인물. acquired 는 지금 가진 것을 얻은 화 (0 은 1화 전, 기록이 없으면 null)."""
     character_id: str
@@ -3173,11 +3180,14 @@ class AbilityOwner(BaseModel):
     grade: str
     grade_effect: str
     acquired: int | None
+    history: list[AbilityEvent] = []
 
 
 class AbilityRow(BaseModel):
+    """line 은 AI 에게 보이는 한 줄 (abilities.line). 설명 · 효과 · 대가가 모두 비면 빈 글."""
     ability: Ability
     owners: list[AbilityOwner]
+    line: str = ""
 
 
 class AbilityUnlinked(BaseModel):
@@ -3192,13 +3202,6 @@ class AbilitiesView(BaseModel):
     abilities: list[AbilityRow]
     unlinked: list[AbilityUnlinked]
     lists: list[str]
-
-
-class AbilityEvent(BaseModel):
-    episode: int
-    kind: Literal["얻음", "바뀜", "잃음"]
-    item: str
-    before: str
 
 
 class AbilityLookup(BaseModel):

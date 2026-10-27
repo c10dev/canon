@@ -125,12 +125,34 @@ def unlinked(p: Project) -> list[dict]:
     return list(seen.values())
 
 
+def line(p: Project, a: Ability, own: list[dict] | None = None) -> str:
+    """AI 에게 보이는 한 줄: 이름(=다른 이름) [상태창 항목 · 가진 인물 등급]: 효과 / 가진 등급의 효과 / 대가.
+    설명은 효과가 비었을 때만 쓴다. 설명 · 효과 · 대가가 모두 비면 빈 글 (넣을 것이 없다)."""
+    own = owners(p, a) if own is None else own
+    if not (a.effect or a.description or a.cost):
+        return ""
+    name = {c.id: c.name or c.id for c in p.characters}
+    who = ", ".join(name.get(o["character_id"], o["character_id"]) + (f" {o['grade']}" if o["grade"] else "") for o in own)
+    stat = a.stat or ", ".join(dict.fromkeys(o["stat"] for o in own))
+    tag = " · ".join(x for x in (stat, who) if x)
+    grades = []
+    for o in own:
+        eff = grade_effect(a, o["grade"])
+        if eff and f"{o['grade']} {eff}" not in grades:
+            grades.append(f"{o['grade']} {eff}")
+    bits = [f"효과 {a.effect}" if a.effect else (f"설명 {a.description}" if a.description else ""), *grades, f"대가 {a.cost}" if a.cost else ""]
+    head = a.name + (f"(={', '.join(a.aliases)})" if a.aliases else "") + (f" [{tag}]" if tag else "")
+    return f"- {head}: " + " / ".join(b for b in bits if b)
+
+
 def catalog(p: Project) -> dict:
-    """도감 화면: 항목마다 가진 인물(등급 · 등급 효과 · 얻은 화)과, 도감에 없는 조각."""
+    """도감 화면: 항목마다 가진 인물(등급 · 등급 효과 · 얻은 화 · 바뀐 기록), AI 에게 보이는 줄, 도감에 없는 조각."""
     rows = []
     for a in p.abilities:
-        own = [{**o, "grade_effect": grade_effect(a, o["grade"]), "acquired": acquired(p, o["character_id"], a)} for o in owners(p, a)]
-        rows.append({"ability": a.model_dump(), "owners": own})
+        base = owners(p, a)
+        own = [{**o, "grade_effect": grade_effect(a, o["grade"]), "acquired": acquired(p, o["character_id"], a),
+                "history": history(p, o["character_id"], a)} for o in base]
+        rows.append({"ability": a.model_dump(), "owners": own, "line": line(p, a, base)})
     return {"abilities": rows, "unlinked": unlinked(p), "lists": sorted(list_stats(p))}
 
 

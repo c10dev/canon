@@ -112,3 +112,18 @@ def test_cli_and_web(tmp_path, monkeypatch, capsys):
     assert c.put("/api/projects/ab/abilities", json={"id": "", "name": "화염구"}).status_code == 400
     pj = c.delete(f"/api/projects/ab/abilities/{pj['abilities'][1]['id']}").json()
     assert [a["name"] for a in pj["abilities"]] == ["화염구"]
+
+
+def test_line_for_ai():
+    p = _project()
+    statwin.set_stats(p, "ally", [StatValue(name="특성", value="강철 피부"), StatValue(name="스킬", value="화염구 Lv1")])
+    fire = abilities.upsert(p, _ab("화염구", aliases=["파이어볼"], effect="불덩이", cost="마력 30",
+                                   grades=[AbilityGrade(grade="Lv3", effect="반경 3m"), AbilityGrade(grade="Lv1", effect="반경 1m")]))
+    assert abilities.line(p, fire) == "- 화염구(=파이어볼) [스킬 · 서윤 Lv3, 도현 Lv1]: 효과 불덩이 / Lv3 반경 3m / Lv1 반경 1m / 대가 마력 30"
+    skin = abilities.upsert(p, _ab("강철 피부", stat="특성", description="타고난 체질"))
+    assert abilities.line(p, skin) == "- 강철 피부 [특성 · 도현]: 설명 타고난 체질"  # 효과가 비면 설명을 쓴다
+    assert abilities.line(p, abilities.upsert(p, _ab("은신", stat="스킬"))) == ""  # 넣을 것이 없다
+    assert abilities.line(p, abilities.upsert(p, _ab("유령 걸음", effect="소리 없이 걷는다"))) == "- 유령 걸음: 효과 소리 없이 걷는다"
+    rows = {r["ability"]["name"]: r for r in abilities.catalog(p)["abilities"]}
+    assert rows["화염구"]["line"] == abilities.line(p, fire) and rows["은신"]["line"] == ""
+    assert rows["화염구"]["owners"][0]["history"] == [{"episode": 0, "kind": "얻음", "item": "화염구 Lv3", "before": ""}]

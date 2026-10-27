@@ -9208,6 +9208,14 @@
      "acquired": {
       "type": "integer",
       "title": "Acquired"
+     },
+     "history": {
+      "items": {
+       "$ref": "#/components/schemas/AbilityEvent"
+      },
+      "type": "array",
+      "title": "History",
+      "default": []
      }
     },
     "type": "object",
@@ -9232,6 +9240,11 @@
       },
       "type": "array",
       "title": "Owners"
+     },
+     "line": {
+      "type": "string",
+      "title": "Line",
+      "default": ""
      }
     },
     "type": "object",
@@ -9239,7 +9252,8 @@
      "ability",
      "owners"
     ],
-    "title": "AbilityRow"
+    "title": "AbilityRow",
+    "description": "line 은 AI 에게 보이는 한 줄 (abilities.line). 설명 · 효과 · 대가가 모두 비면 빈 글."
    },
    "AbilityUnlinked": {
     "properties": {
