@@ -900,7 +900,7 @@ document.addEventListener('pointerup', async () => {
   setTimeout(() => { atlasDragged = false; }, 0);
   const pl = atlasPlace(d.key);
   if (pl && pl.pin) pl.pin = atlasSnap(pl.pin);
-  await atlasSavePins(atlasPins());
+  await atlasSavePins(atlasPins(), '저장했어요');
 });
 
 document.addEventListener('click', async (e) => {
@@ -948,6 +948,7 @@ document.addEventListener('keydown', (e) => {
     try {
       await saveIfDirty();
       S.project = await api('PUT', `/projects/${enc(S.name)}/atlas/pins`, { pins: atlasPins() });
+      toast('저장했어요');
     } catch (err) {
       toast(err.message, true);
     }

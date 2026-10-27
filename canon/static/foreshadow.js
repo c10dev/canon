@@ -8,6 +8,7 @@
 Object.assign(S, {
   fs: null,           // 서버 계산값 center()
   fsTab: 'open',      // open | resolved | all | attention
+  fsTabPicked: '',    // 작가가 탭을 고른 작품. 고르기 전에는 열린 복선이 없을 때 '전체'를 연다
   fsScope: '',        // '' 이면 범위 전체
   fsOpen: {},         // 펼친 복선 {id: true}
   fsAdd: false,       // 직접 더하기 칸 열림
@@ -15,6 +16,7 @@ Object.assign(S, {
 });
 
 const FS_SCOPE = { arc: '이번 아크', part: '이번 부', series: '작품 끝까지' };
+const FS_LONG_OPEN = 50;  // 이 화수 넘게 다시 떠올리지 않은 열린 복선은 오래 묵음. 서버 foreshadows.LONG_OPEN 과 같은 값이라 함께 고친다
 
 (function fsStyle() {
   const css = `
@@ -51,10 +53,16 @@ const FS_SCOPE = { arc: '이번 아크', part: '이번 부', series: '작품 끝
 
 async function fsLoad() {
   S.fs = await api('GET', `/projects/${enc(S.name)}/foreshadows`).catch((e) => ({ error: e.message, items: [] }));
+  // 작가가 탭을 고르기 전이면, 열린 복선이 없을 때 빈 목록 대신 전체를 보인다
+  if (S.fsTabPicked !== S.name && S.fsTab === 'open' && !S.fs.error && !S.fs.open && S.fs.total) S.fsTab = 'all';
 }
 
 function fsShown(x) {
-  if (S.fsScope && x.scope !== S.fsScope) return false;
+  return (!S.fsScope || x.scope === S.fsScope) && fsInTab(x);
+}
+
+/** 범위와 상관없이 지금 탭에 드는 복선인지 */
+function fsInTab(x) {
   if (S.fsTab === 'open') return x.status === 'open';
   if (S.fsTab === 'resolved') return x.status === 'resolved';
   if (S.fsTab === 'attention') return x.overdue || x.stale || x.broken > 0;
@@ -106,7 +114,7 @@ function fsEditForm(x, done) {
 function fsItem(x, c) {
   const flags = [
     x.overdue ? `<span class="chip written">예정 ${x.due_ep}화 지남</span>` : '',
-    x.stale ? '<span class="chip written">50화 넘게 안 나옴</span>' : '',
+    x.stale ? `<span class="chip written">${FS_LONG_OPEN}화 넘게 묵음</span>` : '',
     x.broken ? `<span class="chip" style="background:var(--red-soft);color:var(--red)">끊어진 연결 ${x.broken}</span>` : '',
   ].join(' ');
   const when = x.payoff_ep ? `${x.planted_ep}화 → ${x.payoff_ep}화 회수` : `${x.planted_ep}화에 심음 · 마지막 등장 ${x.last_seen}화${x.due_ep ? ` · 예정 ${x.due_ep}화` : ''}`;
@@ -146,7 +154,7 @@ function viewForeshadow() {
       <div><div class="small">열림</div><div class="num">${c.open}</div></div>
       <div><div class="small">회수율</div><div class="num">${rate}</div><div class="meter" aria-hidden="true"><i style="left:0;width:${(c.rate || 0) * 100}%;background:var(--green)"></i></div></div>
       <div><div class="small">예정 지남</div><div class="num" style="${c.overdue ? 'color:var(--amber)' : ''}">${c.overdue}</div></div>
-      <div><div class="small">50화 넘게 묵음</div><div class="num" style="${c.stale ? 'color:var(--amber)' : ''}">${c.stale}</div></div>
+      ${serial() || c.stale ? `<div><div class="small">${FS_LONG_OPEN}화 넘게 묵음</div><div class="num" style="${c.stale ? 'color:var(--amber)' : ''}">${c.stale}</div></div>` : ''}
       <div><div class="small">끊어진 연결</div><div class="num" style="${c.broken ? 'color:var(--red)' : ''}">${c.broken}</div></div></div>
     ${c.broken ? `<div class="note warn">본문을 고쳐 걸어 둔 문장이 사라진 연결이 ${c.broken}개 있어요. 다시 걸거나 정리하세요. <button type="button" class="btn small" data-action="fsPrune">끊어진 연결 정리</button></div>` : ''}
     <div class="legend"><span><i style="background:var(--accent);border-radius:50%"></i>심은 문장</span><span><i style="background:var(--green);border-radius:50%"></i>회수한 문장</span>
@@ -155,10 +163,18 @@ function viewForeshadow() {
   const tab = (k, l) => `<button type="button" role="tab" aria-selected="${S.fsTab === k}" data-action="fsTab" data-arg="${k}">${l}</button>`;
   const items = c.items.filter(fsShown);
   const attention = c.items.filter((x) => x.overdue || x.stale || x.broken > 0).length;
+  // 빈 목록이면 다른 탭에 몇 개 있는지 알려 준다. 범위로 좁혀 비었으면 그것도 알린다
+  const counts = { open: c.open, resolved: c.resolved, all: c.total, attention };
+  const names = { open: '열린', resolved: '회수한', all: '전체', attention: '손볼 것' };
+  const elsewhere = Object.keys(names).filter((k) => k !== S.fsTab && counts[k])
+    .map((k) => `<button type="button" class="link-btn" data-action="fsTab" data-arg="${k}">${names[k]} ${counts[k]}개</button>`);
+  const empty = S.fsScope && c.items.some(fsInTab)
+    ? `${FS_SCOPE[S.fsScope] || S.fsScope} 범위에는 해당하는 복선이 없어요. 범위를 '전체'로 바꿔 보세요.`
+    : !c.total ? '아직 복선이 없어요.' : `${names[S.fsTab]} 복선이 없어요.${elsewhere.length ? ` 다른 탭: ${elsewhere.join(' · ')}` : ''}`;
   const list = `<section class="card">
     <div class="between"><div class="tabs" role="tablist" aria-label="복선 거르기">${tab('open', `열린 ${c.open}`)}${tab('resolved', `회수한 ${c.resolved}`)}${tab('all', `전체 ${c.total}`)}${tab('attention', `손볼 것 ${attention}`)}</div>
       <label class="row" style="gap:6px;font-size:13px">범위 <select data-fs-scope><option value="">전체</option>${Object.entries(FS_SCOPE).map(([k, v]) => `<option value="${k}"${S.fsScope === k ? ' selected' : ''}>${v}</option>`).join('')}</select></label></div>
-    <div class="fs-list">${items.map((x) => fsItem(x, c)).join('') || '<div class="small" style="padding:12px 0">해당하는 복선이 없어요.</div>'}</div></section>`;
+    <div class="fs-list">${items.map((x) => fsItem(x, c)).join('') || `<div class="small" style="padding:12px 0">${empty}</div>`}</div></section>`;
   return `${head}${sum}${fsAddForm(c)}${list}`;
 }
 
@@ -300,7 +316,7 @@ Object.assign(actions, {
   },
   fsPopCancel() { fsPopHide(); },
   fsPopSave() { fsSaveDraft(); },
-  fsTab(k) { S.fsTab = k; render(); },
+  fsTab(k) { S.fsTab = k; S.fsTabPicked = S.name; render(); },
   fsToggle(id) { S.fsOpen[id] = !S.fsOpen[id]; render(); },
   fsAddToggle() { S.fsAdd = !S.fsAdd; render(); },
   fsCreate() {
