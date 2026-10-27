@@ -36,6 +36,8 @@ from .schema import (
     ImpactReport,
     LookSuggestion,
     BodySuggestion,
+    StatWindowOption,
+    StatWindowSuggestion,
     VoiceSuggestion,
     NameOption,
     NameOptions,
@@ -557,6 +559,13 @@ class MockLLM:
         if schema is BodySuggestion:
             return BodySuggestion(height="163cm", weight="50kg", build="마른 근육형", measurements="82-60-86",
                                   features="왼손잡이, 오른쪽 손목에 점", note="외모 칸의 흉터와 성격에 맞춰 활동적인 체형으로 정했어요.")  # type: ignore[return-value]
+        if schema is StatWindowSuggestion:  # 장식이 붙은 안 하나와 {rows} 를 빠뜨린 안 하나 (정리가 고치는지)
+            return StatWindowSuggestion(options=[  # type: ignore[return-value]
+                StatWindowOption(label="무공록", title="무공록", template="━━━━━━━━━━━━\\n【 무공록 】 {name}\\n━━━━━━━━━━━━\\n{rows}\\n━━━━━━━━━━━━",
+                                 row="▸ {key} ┃ {value}", names=["경지", "내공", "무공"], skin="scroll", why="무협 배경이라 경지와 내공으로 지었어요."),
+                StatWindowOption(label="협회 등록증", title="헌터 등록증", template="[헌터 등록증]\n성명: {name}", row="{key} - 값",
+                                 names=["등급", "레벨", "스킬", "스킬"], skin="plain", why=hint.get("request") or "협회 서류처럼 담백하게 했어요."),
+            ])
         if schema is LookSuggestion:
             return LookSuggestion(subject="girl", look=["Black_hair", "short hair", "brown eyes", "teenage"], outfit=["school uniform"],
                                   note="설정에 눈 색이 없어 갈색으로 정했어요.")  # type: ignore[return-value]

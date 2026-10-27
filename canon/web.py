@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from . import archetypes, autorun, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
-from .schema import (ArcPlan, BodySuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
+from .schema import (ArcPlan, BodySuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 from . import atlas, foreshadows, setupchat, statwin, timeline, travel
 from .schema import ChatScope, Deadline, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
@@ -3121,17 +3121,40 @@ def statwin_set(name: str, cid: str, body: StatsIn) -> Project:
 
 
 class StatTemplate(BaseModel):
+    """상태창 서식. title · skin · names 를 빼고 보내면 지금 값을 둔다."""
     template: str
     row: str = "{key}: {value}"
+    title: str | None = None
+    skin: StatSkin | None = None
+    names: list[str] | None = None
 
 
 @app.put("/api/projects/{name}/statwin-template")
 def statwin_template(name: str, body: StatTemplate) -> Project:
     if "{rows}" not in body.template:
         raise ValueError("서식에 {rows}가 있어야 항목이 들어가요")
+    if "{key}" not in body.row or "{value}" not in body.row:
+        raise ValueError("항목 한 줄에 {key}와 {value}가 있어야 해요")
     p = _load(name)
-    p.stat_window.template, p.stat_window.row = body.template, body.row
+    w = p.stat_window
+    w.template, w.row = body.template, body.row
+    if body.title is not None:
+        w.title = body.title.strip() or "상태창"
+    if body.skin is not None:
+        w.skin = body.skin
+    if body.names is not None:
+        w.names = list(dict.fromkeys(x.strip() for x in body.names if x.strip()))
     return _save(name, p)
+
+
+class StatStyleRequest(BaseModel):
+    request: str = ""
+
+
+@app.post("/api/projects/{name}/statwin-suggest")
+def statwin_suggest(name: str, body: StatStyleRequest | None = None) -> StatWindowSuggestion:
+    """작품 설정에 맞춘 상태창 꾸미기 안. 저장하지 않는다 (작가가 고른 안을 statwin-template 로 저장)."""
+    return pipeline.suggest_stat_window(get_llm("plan"), _load(name), body.request if body else "")
 
 
 # ---------- 작품 속 시간 (canon/timeline.py) ----------

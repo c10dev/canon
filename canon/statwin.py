@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 
 from . import dynamics
-from .schema import CharacterState, Project, StatRecord, StatValue
+from .schema import CharacterState, Project, StatRecord, StatValue, StatWindowOption, StatWindowSuggestion
 
 PRESETS: dict[str, list[str]] = {
     "game": ["레벨", "HP", "MP", "힘", "민첩", "체력", "지능", "스킬"],
@@ -19,6 +19,14 @@ PRESETS: dict[str, list[str]] = {
 }
 
 SOURCE = {"ai": "", "author": " (작가)", "both": " (승인 뒤 작가가 고침)"}
+# 화면 스킨 (schema.StatSkin). 화면 이름은 static/statwin.js 의 SW_SKINS 와 같다
+SKINS: dict[str, str] = {
+    "system": "시스템 창: 어두운 바탕에 푸른 선. 게임 판타지 · 헌터물 · 회귀물",
+    "parchment": "양피지: 누런 종이에 갈색 잉크. 서양 판타지 · 마법 학교 · 길드",
+    "scroll": "두루마리: 한지 바탕에 먹과 붉은 인장. 무협 · 선협 · 동양풍",
+    "neon": "네온: 검은 바탕에 분홍 · 하늘색 빛. 사이버펑크 · SF · 가상 현실 게임",
+    "plain": "담백한 서류: 흰 바탕에 검은 선. 현대물 · 협회 등록증 · 기록부",
+}
 # 단위가 붙은 수치: 앞에 짧은 표지(₩, Lv.), 뒤에 단위(골드, 원, G). 숫자 사이 쉼표는 자릿수
 _AMOUNT = re.compile(r"^([^\d\s,+-]{0,4})(\s?)(-?\d[\d,]*(?:\.\d+)?)(\s?)([^\d\s,]{0,6})$")
 _DELTA = re.compile(r"^([+-])\s?([^\d\s,+-]{0,4})\s?(\d[\d,]*(?:\.\d+)?)\s?([^\d\s,]{0,6})$")
@@ -259,11 +267,52 @@ _INVENTORY_HAS = " stats 의 인벤토리에 든 물건은 attire 에 없어도 
 
 
 def check_rule(p: Project) -> str:
-    """검수 요구사항에 붙는 한 줄. 상태창에 인벤토리 항목이 없으면 빈 글."""
-    if not inventory(p):
+    """검수 요구사항에 붙는 줄. 상태창을 만든 인물이 없으면 빈 글. 인벤토리 줄은 인벤토리 항목이 있을 때만."""
+    if not enabled(p):
         return ""
-    return ("\n- 인벤토리:" + _INVENTORY_HAS + " 인벤토리에도 attire 에도 없는 물건을 얻는 장면 없이 꺼내 쓰는지 봅니다. "
-            "type 은 사실, source_episode 는 0, source_quote 는 그 인벤토리 값입니다.")
+    out = ("\n- 상태창: [인물 현재 상태]의 stats 는 직전 화가 끝났을 때의 상태창 수치입니다. "
+           "본문의 상태창이나 서술에 나온 수치 · 등급이 그 값과 다른데 이번 화에 그렇게 바뀌는 사건(레벨 업, 전투 피해, 회복, 사고팔기, 보상 알림)이 없는지, "
+           "스킬 · 특성 · 칭호를 목록에 없는데 얻는 장면 없이 쓰는지 봅니다. "
+           "이번 화 사건으로 바뀐 값은 모순이 아닙니다. 근거가 stats 면 type 은 사실, source_episode 는 0, source_quote 는 그 항목과 값(예: 레벨: 4)입니다. "
+           "한 화 안에서 앞뒤 상태창이 맞지 않거나(두 상태창의 레벨이 다름) 본문에 나온 셈이 틀리면(1,200골드에서 300골드를 썼는데 남은 돈이 1,000골드) "
+           "source_episode 는 이번 화, source_quote 는 앞 문장입니다.")
+    if inventory(p):
+        out += ("\n- 인벤토리:" + _INVENTORY_HAS + " 인벤토리에도 attire 에도 없는 물건을 얻는 장면 없이 꺼내 쓰는지 봅니다. "
+                "type 은 사실, source_episode 는 0, source_quote 는 그 인벤토리 값입니다.")
+    return out
+
+
+_FENCE = re.compile(r"^```\w*\n?|\n?```$")
+
+
+def clean_options(s: StatWindowSuggestion) -> StatWindowSuggestion:
+    """AI 가 낸 꾸미기 안 정리: 코드 블록 표시를 벗기고, {rows} · {key} · {value} 가 빠진 서식은 고친다. 빈 안은 버린다."""
+    out: list[StatWindowOption] = []
+    for o in s.options[:4]:
+        tpl = _FENCE.sub("", o.template.replace("\\n", "\n").strip()).strip("\n")
+        if not tpl.strip():
+            continue
+        if "{rows}" not in tpl:
+            tpl += "\n{rows}"
+        row = o.row.strip("\n")
+        if "{key}" not in row or "{value}" not in row:
+            row = "{key}: {value}"
+        names: list[str] = []
+        for x in o.names:
+            x = x.strip()
+            if x and x not in names:
+                names.append(x)
+        out.append(StatWindowOption(label=o.label.strip() or o.title.strip() or "상태창", title=o.title.strip() or "상태창",
+                                    template=tpl, row=row, names=names[:12], skin=o.skin if o.skin in SKINS else "system", why=o.why.strip()))
+    return StatWindowSuggestion(options=out)
+
+
+def sample_rows(p: Project) -> list[StatValue]:
+    """서식 미리 보기에 쓸 항목: 상태창이 있는 첫 인물의 값, 없으면 작품 틀 이름과 빈 값."""
+    st = next((s for s in p.states if any(x.value.strip() for x in s.stats)), None)
+    if st:
+        return [x for x in st.stats if x.value.strip()]
+    return [StatValue(name=x, value="") for x in p.stat_window.names]
 
 
 def _change(ch: dict, after: str) -> str:

@@ -2705,6 +2705,43 @@ def body_prompt(p: Project, cid: str, minor: bool) -> str:
 - note 에는 무엇을 근거로 정했는지 한국어 한두 문장으로 적습니다."""
 
 
+
+def stat_window_prompt(p: Project, request: str = "") -> str:
+    """상태창 꾸미기 제안 (pipeline.suggest_stat_window). 본문 서식 · 창 이름 · 항목 틀 · 화면 스킨을 함께 낸다."""
+    w = p.stat_window
+    names: list[str] = []
+    for s in p.states:
+        names += [x.name for x in s.stats if x.name not in names]
+    sample = statwin.render(p, next((s.character_id for s in p.states if s.stats), ""), statwin.sample_rows(p)) if names else ""
+    skins = "\n".join(f"- {k}: {v}" for k, v in statwin.SKINS.items())
+    rules = "\n".join(f"- {r}" for r in p.world.rules[:8])
+    return f"""아래 작품에 어울리는 상태창 꾸미기 안을 {2 if request else 3}개 제안하세요. 작가가 하나를 골라 씁니다.
+
+# 작품
+제목: {p.meta.title}
+장르: {genres.label(p.meta)}
+로그라인: {p.meta.logline}
+톤: {p.meta.tone}
+배경: {p.world.setting} / 시대: {p.world.era}
+{f"세계관 규칙:{chr(10)}{rules}" if rules else ""}
+
+# 지금 상태창
+항목: {", ".join(names) or "아직 없음"}
+{f"지금 서식으로 쓴 예:{chr(10)}{sample}" if sample else f"지금 서식: {w.template!r} / 항목 줄: {w.row!r}"}
+{f"{chr(10)}# 작가 요청{chr(10)}{request.strip()}{chr(10)}" if request.strip() else ""}
+# 화면 스킨 (skin 에 하나)
+{skins}
+
+요구사항:
+- 안마다 분위기를 다르게 합니다. 세계관의 말(무협이면 경지 · 내공, 마법 학교면 학년 · 마력 회로, 헌터물이면 등급 · 협회)로 창 이름과 항목 이름을 짓습니다.
+- template 은 웹소설 본문에 그대로 붙여 넣는 글입니다. {{name}} 과 {{rows}} 를 꼭 넣고, 마크다운 · HTML · 코드 블록 표시는 쓰지 않습니다. 줄바꿈은 \\n 으로 적습니다.
+- 테두리와 장식은 ━ ─ │ ┃ ═ 【】 『』 [ ] ▸ · ◆ 같은 글자만 씁니다. 휴대폰에서 줄이 넘지 않게 한 줄은 24자 안쪽으로 맞춥니다. 장식은 2~3줄로 끝냅니다.
+- row 는 항목 한 줄입니다. {{key}} 와 {{value}} 를 꼭 넣습니다 (예: ▸ {{key}} ┃ {{value}}).
+- title 은 창 이름이고 template 머리의 이름과 같게 씁니다.
+- names 에는 이 세계관에 맞는 항목 이름을 4~8개 적습니다. 지금 항목이 있으면 그 뜻을 살린 이름으로 바꾸거나 그대로 둡니다. 숫자 항목과 목록 항목(스킬 · 칭호 · 인벤토리 같은 것)을 섞습니다.
+- skin 은 위 목록에서 세계관에 가장 맞는 것을 고릅니다.
+- why 에는 작품 설정의 무엇에 맞췄는지 한국어 한 문장으로 적습니다."""
+
 # ---------- 지도: 장소와 맞지 않은 위치 글 정리 ----------
 
 SYSTEM_PLACE_SORTER = (

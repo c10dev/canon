@@ -1,7 +1,8 @@
 /* 상태창 수치. app.js 의 S, actions, api, run, render, header, esc, P 를 쓴다.
    게임 판타지 · 헌터물처럼 레벨, 능력치, 스킬 · 특성 · 칭호 목록, 돈, 인벤토리가 나오는 작품에서 인물별 상태창(CharacterState.stats)을 정하고,
    화마다 바뀐 기록(Project.stat_log)으로 비교표를 그린다. 본문에 넣을 상태창 글을 복사한다.
-   서버는 canon/statwin.py (/statwin/<인물 id>). AI 가 적은 바뀐 값은 상태 승인 화면에서 고른 뒤에만 반영된다(swDeltaRows). */
+   꾸미기: 작품 설정에 맞춘 본문 서식 · 창 이름 · 작품 틀 · 화면 스킨 안을 AI 에게 받아 고른 안만 적용한다(swDecor).
+   서버는 canon/statwin.py (/statwin/<인물 id>, /statwin-suggest). AI 가 적은 바뀐 값은 상태 승인 화면에서 고른 뒤에만 반영된다(swDeltaRows). */
 'use strict';
 
 Object.assign(S, {
@@ -10,7 +11,15 @@ Object.assign(S, {
   swRows: [],        // 고치는 중인 항목 [{name, value}]
   swDirty: false,
   swTpl: false,      // 서식 고치기 칸 열림
+  swSug: null,       // AI 꾸미기 안 { options } (저장하지 않음)
+  swPrev: null,      // 마지막으로 적용한 꾸미기 안 앞의 서식 (적용 취소용)
 });
+
+// 화면 스킨 이름. statwin.SKINS 와 같은 키
+const SW_SKINS = { system: '시스템 창', parchment: '양피지', scroll: '두루마리', neon: '네온', plain: '담백한 서류' };
+const swWin = () => P().stat_window || {};
+const swSkin = () => (SW_SKINS[swWin().skin] ? swWin().skin : 'system');
+const swTitle = () => (swWin().title || '').trim() || '상태창';
 
 (function swStyle() {
   const css = `
@@ -31,7 +40,14 @@ Object.assign(S, {
 .sw-table td.ch { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
 .sw-table td.ch.author { background: var(--amber-soft); color: var(--amber-ink); }
 .sw-table td.gone { color: var(--muted); text-decoration: line-through; }
-.sw-diff { font-size: 12px; font-weight: 400; }`;
+.sw-diff { font-size: 12px; font-weight: 400; }
+.sw-skins { display: flex; flex-wrap: wrap; gap: 6px; }
+.sw-skins button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.sw-opts { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.sw-opt { padding: 14px; border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.sw-opt h3 { margin: 0; font-size: 15px; }
+.sw-opt .sw-text { font-size: 13px; overflow-x: auto; }
+.sw-opt .sw-sys { padding: 12px 14px; gap: 8px; font-size: 13px; }`;
   const el = document.createElement('style');
   el.textContent = css;
   document.head.appendChild(el);
@@ -103,15 +119,61 @@ function swResolve(before, value) {
   return cur.join(sep);
 }
 
+/** statwin.render 와 같은 규칙: 값이 빈 항목은 빼고 {name} · {rows} 를 채운다 */
+function swRender(tpl, row, name, rows) {
+  const lines = rows.filter((s) => String(s.value || '').trim()).map((s) => row.split('{key}').join(s.name).split('{value}').join(s.value)).join('\n');
+  return tpl.split('{name}').join(name).split('{rows}').join(lines).trim();
+}
+
+/** 화면 스킨으로 그린 상태창. 인물 카드(cast.js castSheetStats)와 같은 칸 모양 */
+function swBox(skin, title, name, rows) {
+  const dd = (v) => {
+    const list = String(v).match(SW_AMOUNT) ? [] : swItems(v);
+    return list.length > 1 ? list.map((x) => `<span class="sw-sys-tag">${esc(x)}</span>`).join('') : `<span>${esc(v || '—')}</span>`;
+  };
+  return `<div class="sw-sys sw-skin-${esc(skin)}" role="group" aria-label="${esc(SW_SKINS[skin] || skin)} 미리 보기"><div class="sw-sys-title">【 ${esc(title)} 】</div>
+    <dl><dt>이름</dt><dd>${esc(name)}</dd>${rows.map((s) => `<dt>${esc(s.name)}</dt><dd>${dd(s.value)}</dd>`).join('')}</dl></div>`;
+}
+
+/** 미리 보기에 쓸 항목: 보고 있는 인물의 값, 없으면 이름만 */
+function swSample(names) {
+  const rows = S.swRows.filter((r) => r.name.trim() && r.value.trim());
+  return rows.length ? rows : (names || []).map((name) => ({ name, value: '—' }));
+}
+
+function swDecor() {
+  const c = P().characters.find((x) => x.id === S.swCid) || {};
+  const who = c.name || c.id || '이름';
+  const skins = Object.entries(SW_SKINS).map(([k, label]) => `<button type="button" class="btn small" data-action="swSkinPick" data-arg="${k}" aria-pressed="${k === swSkin()}">${label}</button>`).join('');
+  const opts = ((S.swSug || {}).options || []).map((o, i) => `<div class="sw-opt">
+      <div class="between"><h3>${esc(o.label)}</h3><span class="small">${esc(SW_SKINS[o.skin] || o.skin)}</span></div>
+      ${o.why ? `<div class="small">${esc(o.why)}</div>` : ''}
+      <pre class="sw-text">${esc(swRender(o.template, o.row, who, swSample(o.names)))}</pre>
+      ${swBox(o.skin, o.title, who, swSample(o.names))}
+      ${o.names.length ? `<div class="small">작품 틀: ${esc(o.names.join(', '))}</div>` : ''}
+      <button type="button" class="btn small primary" data-action="swUseOpt" data-arg="${i}">이 안 적용</button></div>`).join('');
+  return `<section class="card"><div class="between"><h2>꾸미기</h2>${S.swPrev ? '<button type="button" class="btn small ghost" data-action="swUndoOpt">적용 취소</button>' : ''}</div>
+    <div class="field"><label for="sw-title">창 이름 <span class="hint">화면 상태창 머리에 보여요 (예: 상태창, 무공록)</span></label>
+      <div class="row"><input id="sw-title" type="text" value="${esc(swTitle())}"><button type="button" class="btn small" data-action="swTitleSave">저장</button></div></div>
+    <div class="field"><span class="label">화면 스킨 <span class="hint">인물 카드와 여기에서 상태창을 그리는 모양이에요. 본문 글에는 들어가지 않아요</span></span><div class="sw-skins" role="group" aria-label="화면 스킨">${skins}</div></div>
+    ${swBox(swSkin(), swTitle(), who, swSample(swWin().names))}
+    <div class="field"><label for="sw-req">설정에 맞게 꾸미기 <span class="hint">AI가 장르 · 배경 · 세계관 규칙을 읽고 본문 서식, 창 이름, 항목 틀, 스킨을 한 벌씩 제안해요</span></label>
+      <div class="row"><input id="sw-req" type="text" placeholder="요청 (비워도 돼요. 예: 더 어둡게, 마법 학교 느낌)"><button type="button" class="btn small primary" data-action="swSuggest">AI 제안 받기</button></div></div>
+    ${opts ? `<div class="sw-opts">${opts}</div><div class="small">적용하면 본문 서식 · 창 이름 · 스킨 · 작품 틀이 함께 바뀌어요. 인물의 항목 이름과 값은 그대로예요. 작품 틀은 '지금 상태창'의 '작품 틀' 버튼으로 더해요.</div>` : ''}
+  </section>`;
+}
+
 function swEditor() {
   const rows = S.swRows.map((r, i) => `<div class="sw-row">
       <input type="text" data-sw-name="${i}" value="${esc(r.name)}" aria-label="항목 이름" placeholder="항목 (예: 레벨)">
       <input type="text" data-sw-value="${i}" value="${esc(r.value)}" aria-label="${esc(r.name || '항목')} 값" placeholder="값 (+3은 더하기, 목록은 +독 내성 · -은신)">
       <button type="button" class="btn small ghost" data-action="swDel" data-arg="${i}" aria-label="${esc(r.name || '항목')} 지우기">지우기</button></div>`).join('');
+  const work = (swWin().names || []).filter((x) => !S.swRows.some((r) => r.name === x));
+  const workBtn = work.length ? `<button type="button" class="btn small" data-action="swPreset" data-arg="_work" title="${esc(work.join(', '))}">작품 틀</button>` : '';
   const presets = Object.entries((S.sw && S.sw.presets) || {}).map(([k, names]) => `<button type="button" class="btn small" data-action="swPreset" data-arg="${k}" title="${esc(names.join(', '))}">${{ game: '게임 판타지', hunter: '헌터물', simple: '레벨 · 스킬', growth: '스킬 · 특성 · 돈' }[k] || k}</button>`).join('');
   return `<section class="card"><div class="between"><h2>지금 상태창</h2><span class="small">${S.sw.columns.length ? `${S.sw.columns[S.sw.columns.length - 1].episode}화까지 기록` : '기록 없음'}</span></div>
     <div class="sw-rows">${rows || '<div class="small">항목이 없어요. 아래에서 항목을 더하거나 틀을 고르세요.</div>'}</div>
-    <div class="row"><button type="button" class="btn small" data-action="swAdd">+ 항목</button>${S.swRows.length ? '' : `<span class="small">틀:</span>${presets}`}</div>
+    <div class="row"><button type="button" class="btn small" data-action="swAdd">+ 항목</button>${S.swRows.length ? workBtn : `<span class="small">틀:</span>${workBtn}${presets}`}</div>
     <div class="between"><span class="small">저장하면 마지막으로 반영한 화의 작가 기록으로 남아요. 값을 비운 항목은 틀만 남고, 지운 항목은 '지움'으로 기록돼요.</span>
       <button type="button" class="btn primary small" data-action="swSave"${S.swDirty ? '' : ' disabled'}>저장</button></div></section>`;
 }
@@ -158,7 +220,7 @@ function viewStatwin() {
   let main;
   if (!S.sw) main = '<div class="small">불러오는 중…</div>';
   else if (S.sw.error) main = `<div class="note err">${esc(S.sw.error)}</div>`;
-  else main = swEditor() + swPreview() + swTimeline();
+  else main = swEditor() + swDecor() + swPreview() + swTimeline();
   return `${head}<div class="sw"><nav class="card tight sw-who" aria-label="인물">${who}</nav><div style="display:flex;flex-direction:column;gap:16px;min-width:0">${main}</div></div>`;
 }
 
@@ -180,7 +242,8 @@ Object.assign(actions, {
   swDel(i) { S.swRows.splice(Number(i), 1); S.swDirty = true; render(); },
   swPreset(k) {
     const have = new Set(S.swRows.map((r) => r.name));
-    S.swRows.push(...(S.sw.presets[k] || []).filter((x) => !have.has(x)).map((name) => ({ name, value: '' })));
+    const names = k === '_work' ? (swWin().names || []) : (S.sw.presets[k] || []);
+    S.swRows.push(...names.filter((x) => !have.has(x)).map((name) => ({ name, value: '' })));
     S.swDirty = true;
     render();
   },
@@ -206,15 +269,47 @@ Object.assign(actions, {
   },
   swTplToggle() { S.swTpl = !S.swTpl; render(); },
   async swTplSave() {
-    const body = { template: $('#sw-tpl').value, row: $('#sw-row').value || '{key}: {value}' };
-    await run('서식 저장 중', async () => {
-      await saveIfDirty();
-      S.project = await api('PUT', `/projects/${enc(S.name)}/statwin-template`, body);
-      await swLoad();
-      toast('서식을 저장했어요');
+    await swPut({ template: $('#sw-tpl').value, row: $('#sw-row').value || '{key}: {value}' }, '서식을 저장했어요');
+  },
+  async swTitleSave() { await swPut({ title: $('#sw-title').value }, '창 이름을 저장했어요'); },
+  async swSkinPick(k) { if (k !== swSkin()) await swPut({ skin: k }, `${SW_SKINS[k]} 스킨으로 바꿨어요`); },
+  async swSuggest() {
+    const request = ($('#sw-req') || {}).value || '';
+    await run('꾸미기 안 만드는 중', async () => {
+      await saveIfDirty();  // AI는 저장된 설정을 읽는다
+      S.swSug = await api('POST', `/projects/${enc(S.name)}/statwin-suggest`, { request: request.trim() });
+      if (!S.swSug.options.length) toast('쓸 만한 안이 오지 않았어요. 다시 받아 보세요', true);
     });
   },
+  async swUseOpt(i) {
+    const o = ((S.swSug || {}).options || [])[Number(i)];
+    if (!o) return;
+    const w = swWin();
+    const prev = { template: w.template, row: w.row, title: w.title, skin: w.skin, names: w.names || [] };
+    if (await swPut({ template: o.template, row: o.row, title: o.title, skin: o.skin, names: o.names }, `'${o.label}' 안을 적용했어요`)) S.swPrev = prev;
+    render();
+  },
+  async swUndoOpt() {
+    if (!S.swPrev) return;
+    if (await swPut(S.swPrev, '적용을 취소했어요')) S.swPrev = null;
+    render();
+  },
 });
+
+/** 서식 · 창 이름 · 스킨 · 작품 틀 저장. 빠진 칸은 지금 값. 고치던 인물 항목은 그대로 둔다. 저장하면 true */
+async function swPut(patch, msg) {
+  const w = swWin();
+  const body = { template: w.template, row: w.row, ...patch };
+  const rows = S.swRows;
+  const dirty = S.swDirty;
+  return run('저장 중', async () => {
+    await saveIfDirty();
+    S.project = await api('PUT', `/projects/${enc(S.name)}/statwin-template`, body);
+    await swLoad();
+    if (dirty) { S.swRows = rows; S.swDirty = true; }
+    toast(msg);
+  });
+}
 
 // ----- 상태 승인 화면 -----
 

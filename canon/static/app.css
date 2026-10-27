@@ -845,17 +845,23 @@ details.vis summary .small { margin-left: 6px; font-weight: 400; }
 .csh-bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
 .csh-bar i { display: block; height: 100%; background: var(--green); }
 /* 시스템 창 테마: 웹소설 상태창처럼 어두운 창. 밝은 · 어두운 테마 모두 같은 색이다 */
-.sw-sys { padding: 20px 24px; border: 1px solid #3FA9E0; border-radius: 6px; background: #0B1626; color: #E6F0FF; display: flex; flex-direction: column; gap: 12px; font-family: ui-monospace, Menlo, Consolas, var(--sans); forced-color-adjust: none; }
-.sw-sys-title { padding-bottom: 10px; border-bottom: 1px solid #24496B; text-align: center; letter-spacing: 0.2em; color: #7FD4FF; font-family: var(--sans); font-weight: 700; }
+/* 상태창 창 모양. 스킨(Project.stat_window.skin, statwin.SKINS)마다 색과 글꼴만 바꾼다. 화면 테마와 따로 늘 같은 색 */
+.sw-sys { --sw-bg: #0B1626; --sw-fg: #E6F0FF; --sw-line: #3FA9E0; --sw-rule: #24496B; --sw-head: #7FD4FF; --sw-muted: #9FB3C8; --sw-track: #1A2E45; --sw-bar: #4FD18B; --sw-font: ui-monospace, Menlo, Consolas, var(--sans); --sw-head-font: var(--sans); --sw-radius: 6px; --sw-shadow: none;
+  padding: 20px 24px; border: 1px solid var(--sw-line); border-radius: var(--sw-radius); background: var(--sw-bg); color: var(--sw-fg); box-shadow: var(--sw-shadow); display: flex; flex-direction: column; gap: 12px; font-family: var(--sw-font); forced-color-adjust: none; }
+.sw-sys.sw-skin-parchment { --sw-bg: #F3E6C4; --sw-fg: #3B2A17; --sw-line: #A07A45; --sw-rule: #C9A86E; --sw-head: #6B3E12; --sw-muted: #6E5536; --sw-track: #E1CC9C; --sw-bar: #8C5A1F; --sw-font: var(--serif); --sw-head-font: var(--serif); --sw-radius: 2px; --sw-shadow: inset 0 0 24px rgba(120, 80, 30, 0.25); border-width: 2px; }
+.sw-sys.sw-skin-scroll { --sw-bg: #F7F2E6; --sw-fg: #1F1B16; --sw-line: #1F1B16; --sw-rule: #8F857A; --sw-head: #A3231B; --sw-muted: #5E5549; --sw-track: #E4DCCB; --sw-bar: #A3231B; --sw-font: var(--serif); --sw-head-font: var(--serif); --sw-radius: 0; border-width: 3px 1px; }
+.sw-sys.sw-skin-neon { --sw-bg: #0A0612; --sw-fg: #F5E9FF; --sw-line: #FF3DCB; --sw-rule: #4A2366; --sw-head: #5CF2FF; --sw-muted: #B79BD1; --sw-track: #24123A; --sw-bar: #5CF2FF; --sw-radius: 10px; --sw-shadow: 0 0 14px rgba(255, 61, 203, 0.45); }
+.sw-sys.sw-skin-plain { --sw-bg: #FFFFFF; --sw-fg: #111111; --sw-line: #111111; --sw-rule: #BDBDBD; --sw-head: #111111; --sw-muted: #555555; --sw-track: #E6E6E6; --sw-bar: #111111; --sw-font: var(--sans); --sw-radius: 0; }
+.sw-sys-title { padding-bottom: 10px; border-bottom: 1px solid var(--sw-rule); text-align: center; letter-spacing: 0.2em; color: var(--sw-head); font-family: var(--sw-head-font); font-weight: 700; }
 .sw-sys dl { margin: 0; display: grid; grid-template-columns: minmax(4em, auto) minmax(0, 1fr); gap: 10px 16px; align-items: center; }
-.sw-sys dt { color: #9FB3C8; font-family: var(--sans); font-size: 0.8125rem; }
+.sw-sys dt { color: var(--sw-muted); font-family: var(--sw-head-font); font-size: 0.8125rem; }
 .sw-sys dd { margin: 0; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 0.9375rem; overflow-wrap: anywhere; }
-.sw-sys s { color: #9FB3C8; }
-.sw-sys .csh-delta { background: #7FD4FF; color: #0B1626; }
-.sw-sys-tag { padding: 1px 8px; border: 1px solid #3FA9E0; border-radius: 4px; font-family: var(--sans); font-size: 0.8125rem; }
-.sw-sys-bar { flex: 1 1 120px; height: 8px; border-radius: 2px; background: #1A2E45; overflow: hidden; }
-.sw-sys-bar i { display: block; height: 100%; background: #4FD18B; }
-.sw-sys-foot { padding-top: 10px; border-top: 1px solid #24496B; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; color: #9FB3C8; font-family: var(--sans); font-size: 0.75rem; }
+.sw-sys s { color: var(--sw-muted); }
+.sw-sys .csh-delta { background: var(--sw-head); color: var(--sw-bg); }
+.sw-sys-tag { padding: 1px 8px; border: 1px solid var(--sw-line); border-radius: 4px; font-family: var(--sw-head-font); font-size: 0.8125rem; }
+.sw-sys-bar { flex: 1 1 120px; height: 8px; border-radius: 2px; background: var(--sw-track); overflow: hidden; }
+.sw-sys-bar i { display: block; height: 100%; background: var(--sw-bar); }
+.sw-sys-foot { padding-top: 10px; border-top: 1px solid var(--sw-rule); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; color: var(--sw-muted); font-family: var(--sw-head-font); font-size: 0.75rem; }
 .csh-rels, .csh-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .csh-rels { gap: 14px; }
 .csh-rels li { display: flex; flex-direction: column; gap: 8px; }

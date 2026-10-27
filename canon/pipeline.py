@@ -32,6 +32,7 @@ from .schema import (
     MapSpec,
     MapSuggestion,
     BodySuggestion,
+    StatWindowSuggestion,
     PlaceSort,
     VoiceSuggestion,
     NameOptions,
@@ -2898,6 +2899,11 @@ def suggest_body(llm: LLM, p: Project, cid: str) -> BodySuggestion:
         s.measurements = ""
     return s
 
+
+def suggest_stat_window(llm: LLM, p: Project, request: str = "") -> StatWindowSuggestion:
+    """상태창 꾸미기 안 (본문 서식 · 창 이름 · 항목 틀 · 화면 스킨). 저장하지 않는다 (작가가 고른 안만 statwin-template 로 저장)."""
+    s = llm.json(prompts.SYSTEM_PLANNER, prompts.stat_window_prompt(p, request), StatWindowSuggestion, hint={"request": request})
+    return statwin.clean_options(s)
 
 def save_look(p: Project, cid: str, look: list[str], outfit: list[str] | None = None, subject: str = "",
               keep_outfit: bool = False) -> CharacterVisual:
