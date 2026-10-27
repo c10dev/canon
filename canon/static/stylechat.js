@@ -131,7 +131,7 @@ function styleExampleCard() {
       ${sampleBlock(ex.text, ex.source, ex.episode)}
       <div class="between"><span class="small">${esc(how)} · ${ex.text.length.toLocaleString()}자</span><button type="button" class="btn small" data-action="styleExampleClear">지우기</button></div>`
     : `<div class="small">${blank ? '문체를 만든 뒤 예시를 써 볼 수 있어요.' : '아직 예시가 없어요. 지금 문체로 짧은 장면을 써서 실제로 어떻게 읽히는지 보여 줘요.'}</div>`;
-  return `<section class="card tight">
+  return `<section class="card tight pf-sec" id="pf-example" tabindex="-1">
       <div class="between"><h2>이 문체로 쓴 예시</h2><span class="small">본문에는 들어가지 않아요</span></div>
       ${body}
       <div class="row">

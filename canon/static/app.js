@@ -906,6 +906,15 @@ document.addEventListener('input', (e) => {
 document.addEventListener('toggle', (e) => {
   if (e.target.open) e.target.querySelectorAll('textarea[data-autogrow]').forEach(autosize);
 }, true);
+// 칸 폭이 바뀌거나(창 크기) 웹 글꼴이 늦게 들어오면 줄바꿈이 달라진다. 그때 높이를 다시 잰다
+const autosizeAll = () => document.querySelectorAll('textarea[data-autogrow]').forEach(autosize);
+let autosizeWidth = window.innerWidth;
+window.addEventListener('resize', () => {
+  if (window.innerWidth === autosizeWidth) return;  // 휴대폰 주소창이 접힐 때(높이만 바뀜)는 그대로
+  autosizeWidth = window.innerWidth;
+  requestAnimationFrame(autosizeAll);
+});
+if (document.fonts) document.fonts.addEventListener('loadingdone', () => requestAnimationFrame(autosizeAll));
 // 구간 범위나 목표를 고치면 보드도 다시 그린다 (입력이 끝났을 때만)
 document.addEventListener('change', (e) => {
   const bind = e.target.dataset && e.target.dataset.bind;
