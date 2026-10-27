@@ -17844,7 +17844,13 @@
      "start": {
       "type": "string",
       "title": "Start",
-      "description": "1일째가 언제인지 (예: 2024년 3월 2일 토요일, 늦겨울). 비면 날수만 센다",
+      "description": "1일째가 언제인지 글로 (예: 늦겨울, 왕국력 312년). start_date 가 없으면 여기 적은 날짜 · 요일을 읽는다",
+      "default": ""
+     },
+     "start_date": {
+      "type": "string",
+      "title": "Start Date",
+      "description": "1일째 날짜 YYYY-MM-DD. 있으면 화마다 날짜로 보이고 날짜 · 요일 · 남은 날을 Canon 이 계산한다. 비면 날수(며칠째)로 센다",
       "default": ""
      },
      "deadlines": {

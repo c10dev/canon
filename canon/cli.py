@@ -30,7 +30,7 @@
   python -m canon stats 내소설 [3]      문체 지표를 레퍼런스와 비교
   python -m canon foreshadows 내소설     복선 센터: 심은 문장 · 회수한 문장, 회수율, 끊어진 연결
   python -m canon statwin 내소설 hero   상태창 수치와 화별 변화 (--set 레벨=1 로 만들고 고치기)
-  python -m canon time 내소설           작품 속 시간: 화별로 끝난 시점과 기한 (--start, --add '축제@7', --close ID)
+  python -m canon time 내소설           작품 속 시간: 화별로 끝난 시점과 기한 (--date 2024-03-04, --add '축제@7' 이나 '축제@2024-03-10', --close ID)
   python -m canon map 내소설            지도: 장소, 인물별로 옮겨 다닌 길, 장소와 맞지 않은 위치 글
   python -m canon map 내소설 gen --size 보통 --water 강   마을 생성기로 마을 만들기 (--seed, --roads, --fields, --forest, --move, --ai)
   python -m canon update 내소설 3       상태 변경안 확인 후 반영
@@ -1790,10 +1790,19 @@ def cmd_time(a: argparse.Namespace) -> None:
         p.timeline.enabled, changed = bool(a.on), True
     if a.start is not None:
         p.timeline.start, changed = a.start.strip(), True
+    if a.date is not None:
+        if a.date.strip() and not timeline._ISO.match(a.date):
+            sys.exit(f"날짜는 YYYY-MM-DD 로 적어 주세요 (예: 2024-03-04): {a.date}")
+        p.timeline.start_date, changed = a.date.strip(), True
     for x in a.add or []:
         what, _, day = x.rpartition("@") if "@" in x else (x, "", "")
-        if day and not day.strip().isdigit():
-            sys.exit(f"'무엇@날수' 로 적어 주세요 (예: 축제 첫날@7): {x}")
+        day = day.strip()
+        if day and not day.isdigit():
+            iso = timeline._ISO.match(day)
+            num = timeline.day_from_text(p, f"{iso[1]}년 {iso[2]}월 {iso[3]}일" if iso else day, timeline.current_day(p, timeline.last_done(p) + 1))
+            if not num:
+                sys.exit(f"'무엇@날수' 나 '무엇@날짜' 로 적어 주세요 (예: 축제 첫날@7, 축제 첫날@2024-03-10). 날짜는 1일째 날짜를 정한 뒤에 써요: {x}")
+            day = str(num)
         d = timeline.upsert(p, Deadline(id="", what=what, day=int(day or 0)))
         print(f"기한을 더했어요: {d.id}")
         changed = True
@@ -2051,10 +2060,11 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("character", nargs="?", help="인물 id 나 이름. 비우면 상태창이 있는 인물 목록")
     sp.add_argument("--set", nargs="+", action="extend", metavar="항목=값", help="값을 바꾸거나 더한다. +3 은 더하기, 빈 값은 항목 지우기")
     sp = add("time", cmd_time, yes=False)
-    sp.add_argument("--start", help="1일째가 언제인지 (예: '2024년 3월 2일 토요일, 늦겨울'). 빈 값이면 지움")
+    sp.add_argument("--date", help="1일째 날짜 YYYY-MM-DD. 정하면 화마다 날짜로 보이고 요일 · 남은 날은 Canon 이 계산해요. 빈 값이면 지움")
+    sp.add_argument("--start", help="1일째에 붙일 글 (예: '늦겨울', '왕국력 312년'). 빈 값이면 지움")
     sp.add_argument("--on", action="store_true", help="작품 속 시간 기록 켜기")
     sp.add_argument("--off", action="store_true", help="끄기 (상태 변경안에 시점을 적지 않고, 쓰기 · 검수에 시간 블록을 넣지 않음)")
-    sp.add_argument("--add", nargs="+", action="extend", metavar="무엇@날수", help="기한 더하기 (날수를 모르면 @ 없이)")
+    sp.add_argument("--add", nargs="+", action="extend", metavar="무엇@날수", help="기한 더하기 (@ 뒤는 날수나 날짜, 모르면 @ 없이)")
     sp.add_argument("--close", nargs="+", action="extend", metavar="ID", help="기한 닫기 (마지막으로 반영한 화에)")
     sp.add_argument("--drop", nargs="+", action="extend", metavar="ID", help="기한 지우기")
     sp = add("cast", cmd_cast, yes=False)

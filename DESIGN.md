@@ -53,7 +53,7 @@ AI 로 소설을 길게 쓸수록 인물 말투, 관계, 심리, 복선, 문체�
 | 복선 | `Foreshadow` | 내용, 심은 화, 회수 화, 상태, 범위(`scope`: arc/part/series), 회수 예정 화(`due_ep`) | 매 화 승인 후 |
 | 복선 문장 | `ForeshadowClue` (`foreshadow_clues`) | 복선 id, 심음 · 다시 떠올림(`plant`) 또는 회수(`payoff`), 본문 문장 그대로, 화, 누가 걸었나(`by`: ai/author). 본문은 바꾸지 않고 문장만 기억한다 | 매 화 승인 후, 작가가 고를 때 |
 | 상태창 기록 | `StatRecord` (`stat_log`), `StatWindow` (`stat_window`) | 화, 인물, 항목, 바뀐 값, 이전 값, 출처(ai/author). 서식은 본문에 넣을 상태창 틀(`{name}`, `{rows}`, `{key}`, `{value}`) | 매 화 승인 후, 작가가 고칠 때 |
-| 작품 속 시간 | `Episode.time` (`StoryTime`), `EpisodePlot.time`, `Timeline` (`timeline`: `enabled`, `start`, `deadlines`) | 화가 끝난 시점(날수 · 시간대 · 날짜나 계절), 플롯이 정한 시점(직전 화에서 얼마나 지났는지), 1일째가 언제인지, 기한(`Deadline`: 무엇, 날수, 본문의 말, 생긴 화, 닫힌 화) | 매 화 승인 후, 작가가 고칠 때 |
+| 작품 속 시간 | `Episode.time` (`StoryTime`), `EpisodePlot.time`, `Timeline` (`timeline`: `enabled`, `start`, `start_date`, `deadlines`) | 화가 끝난 시점(날수 · 시간대 · 날짜나 계절), 플롯이 정한 시점(직전 화에서 얼마나 지났는지), 1일째 날짜(`start_date`, YYYY-MM-DD)와 덧붙일 말, 기한(`Deadline`: 무엇, 날수, 본문의 말, 생긴 화, 닫힌 화) | 매 화 승인 후, 작가가 고칠 때 |
 | 변경 기록 | `StateDelta` 목록 | 승인된 변경안 원본 | 매 화 승인 후 |
 | 이야기 줄기 | `Storyline` (`storylines`) | 종류(서브플롯 · 과거 회상 · 외전 · 인물 이야기), 이름, 중심 인물, 이야기 속 시점(`when`), 풀어 갈 것, 갈라지는 화, 합류하는 화, 합류 때 메인에 남기는 것, 요약 | 작가가 언제든, AI 제안은 승인 후 |
 | 지도 | `Atlas` (`atlas`) | 장소 자리(`MapPin`: 장소 키, 0~1 비율 좌표), 배경 그림 파일 이름과 비율, 마을 데이터 파일 이름(`layout`)과 축척(`meters`), 지도 만들기 입력(`spec`: `MapSpec`, 올린 파일이면 비움), 지도 위 마을 이름(`title`), 위치 글 잇기(`PlaceLink`: 위치 글 → 장소 키, 비면 그리지 않음). 장소 자체는 설정 장소 칸과 인과율 '장소' 요소 | 작가가 지도 화면에서 |
@@ -235,11 +235,11 @@ AI 는 숫자를 매기지 않고 사건만 뽑는다. 같은 사건은 항상 �
 
 화가 길어질수록 날수, 시간대, 기한까지 남은 날이 어긋난다. AI 는 날만 적고 계산은 Canon 이 한다(관계 수치와 같은 원칙).
 
-- 날수(`StoryTime.day`)는 1화가 시작한 날을 1일째로 센다. 0 은 모름. 시간대(`part`)와 날짜 · 계절(`label`)은 글이다. 작품의 1일째가 언제인지는 `Timeline.start` 한 줄.
+- 날수(`StoryTime.day`)는 1화가 시작한 날을 1일째로 센다. 0 은 모름. 시간대(`part`)와 날짜 · 계절(`label`)은 글이다. 작품의 1일째 날짜는 `Timeline.start_date`(YYYY-MM-DD), 계절 · 시대 같은 말은 `Timeline.start`. 날짜가 있어도 저장은 날수로 한다. 화를 끼워 넣거나 1일째 날짜를 바꿔도 셈이 그대로이고, AI 는 날짜보다 '다음 날' 같은 날수 셈을 덜 틀린다. 날짜는 보이고 입력받을 때만 바꾼다(`dated`, `date_of`, `day_from_text`, 화면 `tlISO` · `tlDayOf`).
 - 상태 변경안이 `time`(이번 화가 끝난 시점), `deadlines_added`(새 기한, 날이 바뀐 기한은 같은 id), `deadlines_done`(닫힌 기한 id)을 낸다. `clean_delta` 가 빈 기한, 겹친 id, 없는 기한 닫기를 지우고, `apply_delta` 가 `Episode.time` 과 기한에 반영한다. 기한은 스냅샷(`Snapshot.deadlines`)에 함께 찍혀 `revert` 로 돌아간다. 기한이 생기기 전 판의 스냅샷(`None`)이면 생긴 화 · 닫힌 화 번호로 거른다.
 - 쓰기 · 검수 프롬프트는 화마다 바뀌는 뒤쪽(이야기 줄기 블록 다음)에 `episode_block` 을 넣는다: 기준, 직전 화 끝 시점, 이번 화 플롯의 시점, 열린 기한(날수, 남은 날, 본문의 말). 줄거리 요약 줄과 검수의 화 머리에는 끝난 시점(`tag`, '[3일째 밤]')이 붙는다. 기획 프롬프트(`plot_prompt`)에는 `plan_block`, 상태 변경안에는 기한 id 가 붙은 `state_block` 과 `state_rule`.
 - 꺼졌거나(`enabled`) 기록이 하나도 없으면 블록이 비어 프롬프트가 예전과 같다. 기한은 `context.BUDGET["deadlines"]` 까지만 넣고(단편도), 먼 것부터 뺀 수를 적는다. 늘어나는 양은 쓰기 기준 블록 300자 안팎과 요약 줄마다 10자쯤이다.
-- 날짜 · 요일도 Canon 이 센다. `calendar` 가 `Timeline.start` 에서 1일째 날짜(연도가 없으면 2001년, 2월 29일은 2000년)와 요일을 읽고(연도가 있으면 요일은 날짜로 계산), `day_label` · `when` 이 날수에 날짜 · 요일을 붙인다. AI 가 `label` 에 적은 날짜 · 요일 글은 계산한 값으로 바꾸고 계절 같은 글만 남긴다. 쓰기 블록에는 `weekday_hint`('2일째는 화요일. 같은 요일: 9 · 16 …일째')를, 상태 규칙에는 label 에 날짜를 적지 말라는 말을, 검수 규칙에는 직접 셈하지 말고 계산한 날짜를 근거로 보라는 말을 넣는다. 화면은 `tlCalendar` · `tlDayLabel` · `tlWhen` 이 같은 규칙(`tests/test_timeline_js.py`).
+- 날짜 · 요일도 Canon 이 센다. `calendar` 가 `start_date`, 없으면 `Timeline.start` 글에서 1일째 날짜(연도가 없으면 2001년, 2월 29일은 2000년)와 요일을 읽고(연도가 있으면 요일은 날짜로 계산), `day_label` · `when` 이 날수에 날짜 · 요일을 붙인다. 날짜를 알면(`dated`) 날짜가 앞('3월 6일 수요일 밤 (3일째)', 요약 줄 `tag` 는 '[3월 6일 밤]', 쓰기 기한 줄은 날짜만, 상태 변경안 기한 줄은 '날짜 = 날수')이고 요일만 알면 날수가 앞이다. 상태 변경안의 기한 note 에 날짜가 있으면 `clean_delta` 가 `day_from_text` 로 날수를 다시 센다(연도가 없으면 지금 이후 가장 가까운 그날). AI 가 `label` 에 적은 날짜 · 요일 글은 계산한 값으로 바꾸고 계절 같은 글만 남긴다. 쓰기 블록에는 `weekday_hint`('2일째는 화요일. 같은 요일: 9 · 16 …일째')를, 상태 규칙에는 label 에 날짜를 적지 말라는 말을, 검수 규칙에는 직접 셈하지 말고 계산한 날짜를 근거로 보라는 말을 넣는다. 화면은 `tlCalendar` · `tlDayLabel` · `tlWhen` 이 같은 규칙(`tests/test_timeline_js.py`).
 - 상태 정리 경고는 글 한 줄(`StateDelta.warnings`)이라 검수 이슈처럼 문장 칸이 없다. 그래서 경고에 걸린 본문 문장을 «» 안에 옮겨 적게 하고(`prompts` 상태 규칙, `state_rule`), 화면의 `warnQuote`(`static/passage.js`)가 «» · 따옴표 안 문구를 본문에서 찾는다(그대로 없으면 낱말이 60% 넘게 겹치는 문장). 상태 승인 화면과 집필 화면(`warnBlock`)의 경고에서 그 문장을 고르면 집필 화면으로 옮겨 부분 수정 도구를 연다(`warnPick`, `S.selFocus.menu`). 스키마는 바꾸지 않는다.
 - 작가가 기한을 더하거나 고치면(`upsert`) 마지막으로 반영한 화에 생긴 것으로 보고 그 화 이후 스냅샷에도 적는다. 켜고 끄기, 기준, 화별 시점은 작품 저장으로 고친다. 화면의 남은 날 계산(`tlLeft`, `tlDay`)은 `left` · `current_day` 와 같은 규칙이다.
 
