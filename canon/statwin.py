@@ -238,10 +238,13 @@ def render(p: Project, cid: str, stats: list[StatValue] | None = None) -> str:
     return w.template.replace("{name}", c.name if c else cid).replace("{rows}", rows).strip()
 
 
-def write_rule(p: Project) -> str:
-    """본문 쓰기 프롬프트 끝에 붙는 규칙. 상태창을 만든 인물이 없으면 빈 글."""
-    if not enabled(p):
+def write_rule(p: Project, n: int = 0) -> str:
+    """본문 쓰기 프롬프트 끝에 붙는 규칙. 상태창을 만든 인물이 없으면 빈 글.
+    넣는 방식(stat_window.prompt)이 none 이면 빈 글, lines 면 이번 화 인물의 수치 줄과 도감 줄(lines_block)."""
+    if not enabled(p) or p.stat_window.prompt == "none":
         return ""
+    if p.stat_window.prompt == "lines" and n:
+        return lines_block(p, n)
     who = next((s.character_id for s in p.states if s.stats), "")
     return ("\n\n상태창: [인물 현재 상태]의 stats 가 지금 수치입니다. 본문에 상태창이나 수치를 보여 줄 때는 이 값을 그대로 쓰고, "
             "이번 화 사건으로 바뀌는 값만 바꿉니다. 이유 없이 수치를 올리거나 내리지 않습니다. "
@@ -249,6 +252,73 @@ def write_rule(p: Project) -> str:
             + (_INVENTORY_HAS if inventory(p) else "")
             + " 상태창은 아래 서식으로 씁니다.\n"
             + render(p, who))
+
+
+def episode_cast(p: Project, n: int) -> list[str]:
+    """이번 화에 나오는 인물 중 상태창이 있는 인물 id. 플롯에 인물이 없으면 상태창이 있는 인물 모두."""
+    have = [s.character_id for s in p.states if s.stats]
+    ids = p.episode(n).plot.characters if any(e.plot.number == n for e in p.episodes) else []
+    picked = [c for c in ids if c in have]
+    return picked or ([] if ids else have)
+
+
+def wants_window(p: Project, n: int) -> bool:
+    """이번 화 플롯에 상태창 장면이 있는지: 플롯 글에 '상태창'이나 작품의 창 이름이 나온다."""
+    from . import elements
+
+    if not any(e.plot.number == n for e in p.episodes):
+        return False
+    text = elements.plot_text(p.episode(n))
+    return any(w and w in text for w in {"상태창", p.stat_window.title.strip()})
+
+
+def lines_block(p: Project, n: int) -> str:
+    """상태창 줄 형식(stat_window.prompt = lines): 이번 화 인물의 수치를 한 줄씩, 그 인물이 가진 스킬 · 특성은 도감 한 줄로.
+    수치는 확인용 사실로만 주고, 상태창 서식 예시는 플롯에 상태창 장면이 있을 때만 붙인다. 도감 줄은 context.BUDGET['stat_lines'] 까지."""
+    from . import abilities, context, elements
+
+    ids = episode_cast(p, n)
+    if not ids:
+        return ""
+    name = {c.id: c.name or c.id for c in p.characters}
+    blocks = []
+    for cid in ids:
+        st = p.state_of(cid)
+        rows = [f"- {s.name}: {s.value}" for s in (st.stats if st else []) if s.value.strip()]
+        if rows:
+            blocks.append(name.get(cid, cid) + "\n" + "\n".join(rows))
+    plot = elements.plot_text(p.episode(n)) if any(e.plot.number == n for e in p.episodes) else ""
+    picks = []
+    for a in p.abilities:
+        if a.context == "off":
+            continue
+        own = abilities.owners(p, a)
+        mine = [o for o in own if o["character_id"] in ids]
+        named = any(t in plot for t in abilities.terms(a))
+        if not (mine or named or a.context == "always"):
+            continue
+        line = abilities.line(p, a, mine or own)
+        if line:
+            picks.append((0 if named else 1 if a.context == "always" else 2, line))
+    budget, used, lines, cut = context.BUDGET["stat_lines"], 0, [], 0
+    for _, line in sorted(picks, key=lambda x: x[0]):
+        if used + len(line) > budget:
+            cut += 1
+            continue
+        lines.append(line)
+        used += len(line)
+    out = f"\n\n상태창 수치 ({n - 1}화가 끝났을 때, 이번 화 인물만):\n" + "\n".join(blocks)
+    if lines:
+        out += "\n스킬 · 특성:\n" + "\n".join(lines)
+    if cut:
+        out += f"\n(스킬 · 특성 {cut}개는 분량 때문에 뺐습니다)"
+    out += ("\n위 수치는 어긋나지 않게 확인하는 자료입니다. 본문에 꼭 보일 필요는 없습니다. "
+            "본문에 수치를 쓸 때는 이 값을 그대로 쓰고, 이번 화 사건으로 바뀌는 값만 바꿉니다. 이유 없이 수치를 올리거나 내리지 않습니다. "
+            "스킬 · 특성 · 칭호를 쓸 때는 위 효과와 대가를 지키고, 목록에 없는 것을 쓰려면 얻는 장면을 먼저 보여 줍니다."
+            + (_INVENTORY_HAS if inventory(p) else ""))
+    if wants_window(p, n):
+        out += " 이번 화 플롯에 상태창 장면이 있습니다. 상태창은 아래 서식으로 씁니다.\n" + render(p, ids[0])
+    return out
 
 
 def state_rule(p: Project) -> str:

@@ -25,7 +25,7 @@ from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
-from . import abilities, atlas, foreshadows, setupchat, statwin, timeline, travel
+from . import abilities, atlas, foreshadows, setupchat, stattrial, statwin, timeline, travel
 from .schema import ChatScope, Deadline, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .schema import CharacterState, StoryEvent
 from .schema import NameOption, Recap
@@ -1546,6 +1546,9 @@ class JobIn(BaseModel):
     draft: int = 0  # hook: 0 이면 그 화 본문, k 면 비교본 k 번을 판정
     rewrite: RewriteRequest | None = None  # write: 본문이 있는 화를 다시 생성. 새 판은 본문을 덮지 않고 고르기를 기다린다
     fit_next: bool = True  # plot_one: 바로 뒤 화를 바꾸지 않는 화로 보고 맞춘다. 끄면 작가가 적은 것대로 마무리하고 뒤 화에 어긋난 점을 표시한다
+    episodes: list[int] = []  # stattrial: 시험할 화
+    repeats: int = 1  # stattrial: 조건마다 같은 화를 쓸 횟수
+    conditions: list[str] = []  # stattrial: none | json | lines (비우면 셋 다)
 
 
 def _edit(name: str, fn) -> Project:
@@ -1588,7 +1591,7 @@ def start_job(name: str, body: JobIn) -> dict:
     if kind in ("write", "state", "plots", "plot_one", "check"):
         _not_auto(name)
     stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "rework": "revise",
-             "hook": "check", "check": "check", "opening_drafts": "write"}.get(kind, "plan")  # 나머지는 plan
+             "hook": "check", "check": "check", "opening_drafts": "write", "stattrial": "write"}.get(kind, "plan")  # 나머지는 plan
     llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
     if kind == "suggest":
@@ -1776,6 +1779,24 @@ def start_job(name: str, body: JobIn) -> dict:
             rep = pipeline.analyze_impact(llm, store.load(name), eid)
             _edit(name, lambda q: pipeline.record_impact(q, eid, rep))
             return {"element": eid}
+    elif kind == "stattrial":
+        eps, reps, conds = sorted(set(body.episodes)), body.repeats, body.conditions or list(stattrial.CONDITIONS)
+        bad = [c for c in conds if c not in stattrial.CONDITIONS]
+        if bad:
+            raise ValueError(f"알 수 없는 조건이에요: {', '.join(bad)}")
+        ok = {c["episode"] for c in stattrial.candidates(p)}
+        if not eps or any(x not in ok for x in eps):
+            raise ValueError("시험할 화를 고르세요. 상태 반영이 끝난 화만 시험할 수 있어요")
+        total = len(eps) * reps * len(conds)
+        if not 1 <= reps <= 5 or total > stattrial.MAX_WRITES:
+            raise ValueError(f"반복은 1~5번, 본문은 한 번에 {stattrial.MAX_WRITES}개까지예요 (지금 {total}개)")
+        label, owned = f"상태창 시험 ({len(eps)}화 · {reps}번 · 조건 {len(conds)}개)", set()
+
+        def fn(job: jobs.Job):
+            def step(done: int, _total: int, note: str) -> None:
+                job.done, job.note = done, note
+            res = stattrial.run(name, store.load(name), llm, eps, reps, conds, progress=step)
+            return {"drafts": len(res["drafts"]), "id": res["id"]}
     else:
         raise ValueError(f"모르는 작업이에요: {kind}")
 
@@ -3241,6 +3262,56 @@ def abilities_delete(name: str, aid: str) -> Project:
     p = _load(name)
     abilities.remove(p, aid)
     return _save(name, p)
+
+
+# ---------- 상태창 넣기 시험 (canon/stattrial.py, 연구 화면) ----------
+
+class StatTrialCondition(BaseModel):
+    key: str
+    label: str
+    about: str
+
+
+class StatTrialCandidate(BaseModel):
+    """시험할 수 있는 화. changed: 원래 반영에서 수치가 바뀐 화, wants: 플롯에 상태창 장면이 있는 화."""
+    episode: int
+    title: str
+    changed: bool
+    wants: bool
+
+
+class StatTrialView(BaseModel):
+    conditions: list[StatTrialCondition]
+    candidates: list[StatTrialCandidate]
+    pick: list[int]
+    runs: list[dict]
+
+
+class StatTrialIn(BaseModel):
+    episodes: list[int]
+    repeats: int = 1
+    conditions: list[str] = []
+
+
+@app.get("/api/projects/{name}/stattrial")
+def stattrial_view(name: str) -> StatTrialView:
+    """상태창 시험 화면: 조건, 시험할 수 있는 화, 추천 고르기, 지난 시험(실험 기록 kind statwin, 최근 10개)."""
+    p = _load(name)
+    cands = stattrial.candidates(p)
+    runs = [r for r in research.history(name, 200) if r.get("kind") == "statwin"][:10]
+    return {"conditions": [{"key": k, "label": v, "about": stattrial.ABOUT[k]} for k, v in stattrial.CONDITIONS.items()],
+            "candidates": cands, "pick": stattrial.default_pick(cands), "runs": runs}
+
+
+@app.post("/api/projects/{name}/stattrial/estimate")
+def stattrial_estimate(name: str, body: StatTrialIn) -> dict:
+    """쓰기 호출 수와 비용 추정. AI 를 부르지 않는다."""
+    p = _load(name)
+    ok = {c["episode"] for c in stattrial.candidates(p)}
+    eps = sorted({x for x in body.episodes if x in ok})
+    if not eps:
+        raise ValueError("시험할 화를 고르세요")
+    return stattrial.estimate(p, eps, body.repeats, body.conditions or None)
 
 
 # ---------- 작품 속 시간 (canon/timeline.py) ----------

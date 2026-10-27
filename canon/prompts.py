@@ -794,6 +794,14 @@ def state_view(p: Project, states: list, n: int | None = None, query: str = "") 
     return out, cut
 
 
+def write_states(p: Project, states: list) -> list:
+    """본문 쓰기의 인물 상태. 상태창 수치를 줄 형식(lines)으로 넣거나 넣지 않으면(none) stats 를 뺀다 (statwin.write_rule).
+    검수 · 상태 정리는 state_view 그대로 수치를 모두 본다."""
+    if p.stat_window.prompt == "json":
+        return states
+    return [s.model_copy(update={"stats": []}) if s.stats else s for s in states]
+
+
 def knows_note(cut: int) -> str:
     """인물 상태 머리글에 붙이는 뺀 수. 뺀 것이 없으면 빈 글 (단편은 늘 빈 글)."""
     return f" (아는 정보는 이번 화와 관련된 것부터, {cut}개 생략)" if cut else ""
@@ -1714,7 +1722,7 @@ def build_episode_context(p: Project, n: int) -> str:
 {cast_names or "설정의 인물 전원"}
 {extra_block(extra)}
 # 인물 현재 상태 ({n - 1}화 종료 시점)
-{dump(state_view(p, states)[0]) or "1화 시작 시점, 설정 그대로"}
+{dump(write_states(p, state_view(p, states)[0])) or "1화 시작 시점, 설정 그대로"}
 
 # 관계 현재 상태
 {describe_relations(p, cast_ids) or dump(rels) or "없음"}
@@ -1742,6 +1750,7 @@ def serial_episode_context(p: Project, n: int, *, where: str, act_line: str, lin
     past, cur = story_parts(p, n)
     secrets, _ = context.pick_secrets(p, cast_ids, elements.plot_text(p.episode(n)), context.BUDGET["secrets"])
     states, knows_cut = state_view(p, states, n, elements.plot_text(p.episode(n)))
+    states = write_states(p, states)
     return f"""{static_context(p)}
 
 {where}
@@ -1881,7 +1890,7 @@ def episode_prompt(p: Project, n: int, approach: str = "") -> str:
         "문체는 스타일 프로필과 문체 예시 문단을 따르고, banned_phrases 의 표현은 쓰지 않습니다. "
         "플롯의 emotional_shift 는 감정 이름으로 서술하지 말고 행동과 대사로 보여 줍니다. "
         "인물의 말투는 speech_style 을 따릅니다."
-        + statwin.write_rule(p)
+        + statwin.write_rule(p, n)
         + attire_write_rule(p)
     )
 

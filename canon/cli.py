@@ -31,6 +31,7 @@
   python -m canon foreshadows 내소설     복선 센터: 심은 문장 · 회수한 문장, 회수율, 끊어진 연결
   python -m canon statwin 내소설 hero   상태창 수치와 화별 변화 (--set 레벨=1 로 만들고 고치기)
   python -m canon abilities 내소설      스킬 · 특성 도감: 설명 · 효과 · 대가, 가진 인물과 얻은 화, 도감에 없는 항목
+  python -m canon stattrial 내소설 [--episodes 2-13] [--repeats 1] [--estimate]   상태창 넣기 시험: 같은 화를 상태창 없음 · 지금 방식 · 고른 줄 형식으로 써서 견줌
   python -m canon time 내소설           작품 속 시간: 화별로 끝난 시점과 기한 (--date 2024-03-04, --add '축제@7' 이나 '축제@2024-03-10', --close ID)
   python -m canon map 내소설            지도: 장소, 인물별로 옮겨 다닌 길, 장소와 맞지 않은 위치 글
   python -m canon map 내소설 gen --size 보통 --water 강   마을 생성기로 마을 만들기 (--seed, --roads, --fields, --forest, --move, --ai)
@@ -74,7 +75,7 @@ from . import (archetypes, autorun, branches, cast, charlog, dynamics, elements,
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
-from . import abilities, atlas, citygen, foreshadows, setupchat, statwin, timeline, towngen, travel
+from . import abilities, atlas, citygen, stattrial, foreshadows, setupchat, statwin, timeline, towngen, travel
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StoryArc
 
 
@@ -1872,6 +1873,37 @@ def cmd_abilities(a: argparse.Namespace) -> None:
     print(abilities.describe(store.load(a.name)))
 
 
+def _episodes_arg(text: str) -> list[int]:
+    out: list[int] = []
+    for part in filter(None, (x.strip() for x in text.split(","))):
+        lo, _, hi = part.partition("-")
+        out += list(range(int(lo), int(hi) + 1)) if hi else [int(lo)]
+    return sorted(set(out))
+
+
+def cmd_stattrial(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    cands = stattrial.candidates(p)
+    eps = _episodes_arg(a.episodes) if a.episodes else stattrial.default_pick(cands)
+    conds = [x.strip() for x in a.conditions.split(",") if x.strip()] or list(stattrial.CONDITIONS)
+    if not eps:
+        sys.exit("시험할 화가 없어요. 상태창 수치가 있고 상태 반영이 끝난 화가 있어야 해요.")
+    est = stattrial.estimate(p, eps, a.repeats, conds)
+    print(f"시험할 화: {', '.join(map(str, eps))}화 · 반복 {a.repeats}번 · 조건 {', '.join(stattrial.CONDITIONS[c] for c in conds)}")
+    for r in est["rows"]:
+        print(f"  {r['label']:8s} 쓰기 {r['writes']}번 · 입력 약 {r['input_tokens']:,}토큰 · 출력 약 {r['output_tokens']:,}토큰 · {('약 %.2f달러' % r['usd']) if r['usd'] is not None else '가격 모름'}")
+    print(f"  합: 쓰기 {est['writes']}번 · {('약 %.2f달러' % est['usd']) if est['usd'] is not None else '가격 모름'} ({est['model']})")
+    if a.estimate:
+        return
+    if not a.yes and input("실제 AI를 불러 본문을 써요. 비용이 들어요. 시작할까요? [y/N] ").strip().lower() != "y":
+        print("그만뒀어요.")
+        return
+    res = stattrial.run(a.name, p, get_llm("write"), eps, a.repeats, conds,
+                        progress=lambda d, t, note: print(f"[{d + 1}/{t}] {note}", flush=True))
+    print(stattrial.describe(res))
+    print("블라인드 비교본은 웹 연구 화면의 '블라인드 비교'에서 골라요.")
+
+
 def cmd_statwin(a: argparse.Namespace) -> None:
     """상태창 보기와 고치기. --set 레벨=13 HP=+20 스킬= (빈 값은 항목 지우기)."""
     p = store.load(a.name)
@@ -2181,6 +2213,11 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("character", nargs="?", help="인물 id 나 이름. 비우면 상태창이 있는 인물 목록")
     sp.add_argument("--set", nargs="+", action="extend", metavar="항목=값", help="값을 바꾸거나 더한다. +3 은 더하기, 빈 값은 항목 지우기")
     add("abilities", cmd_abilities, yes=False)
+    sp = add("stattrial", cmd_stattrial)
+    sp.add_argument("--episodes", default="", help="시험할 화: 2-13 또는 2,5,9. 비우면 추천대로")
+    sp.add_argument("--repeats", type=int, default=1, help="조건마다 같은 화를 쓸 횟수 (1~5)")
+    sp.add_argument("--conditions", default="", help="none,json,lines 중에서 쉼표로. 비우면 셋 다")
+    sp.add_argument("--estimate", action="store_true", help="쓰지 않고 비용만 추정")
     sp = add("time", cmd_time, yes=False)
     sp.add_argument("--date", help="1일째 날짜 YYYY-MM-DD. 정하면 화마다 날짜로 보이고 요일 · 남은 날은 Canon 이 계산해요. 빈 값이면 지움")
     sp.add_argument("--start", help="1일째에 붙일 글 (예: '늦겨울', '왕국력 312년'). 빈 값이면 지움")
