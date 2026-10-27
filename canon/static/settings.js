@@ -34,7 +34,40 @@ document.addEventListener('change', (e) => {
     const el = $(`#set-stage-model-${s}`);
     if (el) el.placeholder = stageModelHint(s);
   });
+  syncProviderGroups();
 });
+
+/** 지금 고른 생성 방식과 단계별 백엔드가 실제로 쓰는 백엔드 (stage_provider 와 같은 규칙: 생성 방식이 mock 이면 모두 mock). */
+function usedProviders() {
+  const c = S.config || {};
+  const top = $('#set-provider') ? $('#set-provider').value : c.provider;
+  if (top === 'mock') return new Set(['mock']);
+  const own = (x) => {
+    const st = (c.stages || {})[x] || {};
+    if (st.env === `CANON_LLM_${x.toUpperCase()}`) return st.provider;
+    const el = $(`#set-stage-${x}`);
+    return el ? el.value : (c.stage_settings || {})[x] || '';
+  };
+  const prov = (x) => own(x) || (STAGE_PARENT[x] ? prov(STAGE_PARENT[x]) : top);
+  return new Set([top, ...STAGES.map(([x]) => prov(x))]);
+}
+
+let settingsShowAll = false;  // '모든 방식의 칸 보기'를 눌렀다
+
+/** 쓰지 않는 백엔드의 칸 묶음(Gemini · 로컬 서버 · Claude)은 숨긴다. 새로 쓰게 된 묶음은 펼친다. 숨긴 칸도 값은 그대로 저장한다. */
+function syncProviderGroups() {
+  const used = usedProviders();
+  document.querySelectorAll('#app [data-prov]').forEach((g) => {
+    const on = settingsShowAll || g.dataset.prov.split(' ').some((x) => used.has(x));
+    const d = g.matches('details') ? g : g.querySelector('details');
+    if (on && g.hidden && d) d.open = true;
+    g.hidden = !on;
+  });
+  const m = $('#prov-mock');
+  if (m) m.hidden = !used.has('mock');
+  const all = $('#prov-all');
+  if (all) all.hidden = settingsShowAll || [...document.querySelectorAll('#app [data-prov]')].every((g) => !g.hidden);
+}
 
 // 설정 화면 '돌아가기': 앱 안에서 넘어왔으면 뒤로, 주소로 바로 열었으면 앱 첫 화면(작품 안이면 그 작품)으로
 let settingsNavs = 0;
@@ -47,6 +80,21 @@ function providerOptions(cur) {
     .map(([v, l]) => `<option value="${v}"${cur === v ? ' selected' : ''}>${l}</option>`).join('');
 }
 
+/** 단계를 비워 두면 따르는 환경 변수(CANON_LLM, CANON_MODEL, 부모 단계 변수) 안내. 단계마다 되풀이하지 않고 같은 안내끼리 묶어 한 번씩 적는다. */
+function inheritedEnvNotes(c) {
+  const groups = new Map();
+  STAGES.forEach(([s, label]) => {
+    const st = (c.stages || {})[s] || {};
+    [[st.env, `CANON_LLM_${s.toUpperCase()}`, '백엔드를'], [st.model_env, `CANON_MODEL_${s.toUpperCase()}`, '모델을']].forEach(([name, own, what]) => {
+      if (!name || name === own) return;
+      const k = `${name}의 ${what}`;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(label.replace(/ \(.*\)$/, ''));
+    });
+  });
+  return [...groups].map(([k, labels]) => `<div class="small">${labels.length === STAGES.length ? '단계' : esc(labels.join(', '))} 칸을 비워 두면 환경 변수 ${esc(k)} 따라요.</div>`).join('');
+}
+
 function viewSettings() {
   const c = S.config || {};
   const src = { env: '환경 변수', file: '설정 파일', default: '기본값', none: '없음' };
@@ -54,16 +102,21 @@ function viewSettings() {
   // 처음 쓰는 사람은 생성 방식 · 키 · 모델만 보면 된다. 로컬 서버와 단계별 칸은 쓰고 있을 때만 펼친다
   const localOpen = c.provider === 'local' || (!!c.local_url && !['default', 'none'].includes(c.local_url_source)) || Object.values(c.stage_settings || {}).includes('local');
   const stageOpen = Object.values(c.stage_settings || {}).some(Boolean) || Object.values(c.stage_model_settings || {}).some(Boolean);
+  const envLocked = c.provider_source === 'env';
+  const envMock = envLocked && c.provider === 'mock';  // stage_provider: 생성 방식이 mock 이면 단계 선택과 상관없이 모두 mock
+  const inheritedNotes = inheritedEnvNotes(c);
   const keyState = c.key_source === 'none'
     ? '<span class="chip" style="background:var(--red-soft);color:var(--red)">없음</span>'
     : `<span class="chip finalized">${esc(c.key_hint)}</span> <span class="small">${src[c.key_source]}</span>`;
   return `${header('Canon', '모델 · API 키 설정', '여기서 저장한 값은 이 컴퓨터의 설정 파일에만 들어가요. 작품 폴더나 저장소에는 들어가지 않아요.', '<button type="button" class="btn" data-action="settingsBack">돌아가기</button>')}
     <section class="card">
       <div class="field"><label for="set-provider">생성 방식</label>
-        <select id="set-provider">
+        <select id="set-provider"${envLocked ? ' disabled aria-describedby="set-provider-env"' : ''}>
           ${providerOptions(c.provider)}
-        </select>${envNote(c.provider_source, 'CANON_LLM')}
-        <div class="small">단계별로 다르게 쓰려면 아래 '단계별 백엔드'에서 고르세요.</div></div>
+        </select>${envLocked ? `<div class="small" id="set-provider-env">환경 변수 CANON_LLM(${esc(c.provider)})이 우선해서 여기서는 바꿀 수 없어요. 바꾸려면 CANON_LLM 없이 서버를 다시 켜세요.</div>` : ''}
+        ${envMock ? '' : '<div class="small">단계별로 다르게 쓰려면 아래 \'단계별 백엔드와 모델\'에서 고르세요.</div>'}</div>
+      <div class="note plain" id="prov-mock" hidden>mock은 AI를 부르지 않아서 키와 모델 칸이 필요 없어요.</div>
+      <div class="prov-group" data-prov="gemini">
       ${geminiAuthSettings(c, `<div class="field"><label for="set-key">Gemini API 키 <span class="hint">지금: </span>${keyState}</label>
         <input id="set-key" type="password" autocomplete="off" placeholder="${c.key_source === 'none' ? 'AIza… 로 시작하는 키' : '바꿀 때만 입력'}">
         <div class="small"><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>에서 무료로 발급받을 수 있어요. 저장한 키는 화면에 다시 보여주지 않아요.</div>
@@ -73,7 +126,8 @@ function viewSettings() {
         ${modelDatalist()}
         <div class="small">모든 단계의 기본 Gemini 모델이에요. gemini-4-argon이 기본이고, 단계마다 바꾸려면 아래 '단계별 백엔드와 모델'에서 고르세요.</div>${envNote(c.model_source, 'CANON_MODEL')}</div>
       <div class="small" id="model-status">${modelStatus()}</div>
-      <details class="set-more"${localOpen ? ' open' : ''}><summary><h2>로컬 서버</h2> <span class="small">Ollama · llama.cpp 같은 내 컴퓨터의 모델을 쓸 때</span></summary>
+      </div>
+      <details class="set-more prov-group" data-prov="local"${localOpen ? ' open' : ''}><summary><h2>로컬 서버</h2> <span class="small">Ollama · llama.cpp 같은 내 컴퓨터의 모델을 쓸 때</span></summary>
       <p class="desc">Ollama, llama.cpp, vLLM, LM Studio처럼 OpenAI 호환 API를 여는 서버예요. 주소는 /v1까지 적어요.</p>
       <div class="field"><label for="set-local-url">서버 주소</label>
         <input id="set-local-url" type="text" value="${esc(c.local_url || '')}" placeholder="http://localhost:11434/v1">
@@ -83,22 +137,23 @@ function viewSettings() {
       <div class="field"><label for="set-local-key">서버 키 <span class="hint">지금: ${c.has_local_key ? '있음' : '없음'}</span></label>
         <input id="set-local-key" type="password" autocomplete="off" placeholder="서버가 키를 요구할 때만"></div>
       </details>
-      ${claudeSettings(c)}
+      <div class="prov-group" data-prov="claude claude-api">${claudeSettings(c)}</div>
+      <div class="row" id="prov-all" hidden><button type="button" class="link-btn" data-action="settingsShowAll">다른 생성 방식의 칸도 보기</button></div>
       <details class="set-more"${stageOpen ? ' open' : ''}><summary><h2>단계별 백엔드와 모델</h2> <span class="small">계획 · 본문 · 검수마다 다른 모델을 쓸 때</span></summary>
       <p class="desc">예: 계획과 검수는 gemini-4-argon, 상태 변경안과 이름 추천은 빠르고 싼 gemini-3.8-flash, 본문은 로컬 모델. 모델 칸을 비우면 그 백엔드의 기본 모델(위 '모델' 또는 로컬 '모델 이름')을 써요.</p>
+      ${envMock ? '<div class="note plain">환경 변수 CANON_LLM이 mock이라 모든 단계가 mock으로 돌아요. 그래서 단계 백엔드를 고를 수 없어요.</div>' : inheritedNotes}
       ${STAGES.map(([s, label]) => {
         const st = (c.stages || {})[s] || {};
-        // 단계 자체의 환경 변수는 선택보다 우선하고, 물려받은 환경 변수(CANON_LLM, 부모 단계)는 비워 둘 때만 따른다
-        const envLine = (name, own, what) => !name ? '' : name === own
-          ? `<div class="small">환경 변수 ${name} 값이 우선해요.</div>`
-          : `<div class="small">비워 두면 환경 변수 ${name}의 ${what} 따라요.</div>`;
+        // 단계 자체의 환경 변수는 선택보다 우선한다. 물려받은 환경 변수(CANON_LLM, 부모 단계) 안내는 위에 한 번만 둔다 (inheritedNotes)
+        const ownEnv = (name, own, what) => name && name === own ? `<div class="small" id="set-stage-${s}-${what}-env">환경 변수 ${name} 값이 우선해서 여기서는 바꿀 수 없어요.</div>` : '';
+        const locked = envMock || st.env === `CANON_LLM_${s.toUpperCase()}`;
         return `<div class="field"><label for="set-stage-${s}">${label} <span class="hint">지금: ${esc(st.model || '')}</span></label>
           <div class="stage-row">
-            <select id="set-stage-${s}" aria-label="${esc(label)} 백엔드"><option value="">${STAGE_PARENT_LABEL[s] || '위 생성 방식을 따름'}</option>${providerOptions((c.stage_settings || {})[s])}</select>
+            <select id="set-stage-${s}" aria-label="${esc(label)} 백엔드"${locked ? ' disabled' : ''}${st.env === `CANON_LLM_${s.toUpperCase()}` ? ` aria-describedby="set-stage-${s}-llm-env"` : ''}><option value="">${STAGE_PARENT_LABEL[s] || '위 생성 방식을 따름'}</option>${providerOptions((c.stage_settings || {})[s])}</select>
             <input id="set-stage-model-${s}" type="text" list="model-options" aria-label="${esc(label)} 모델" value="${esc((c.stage_model_settings || {})[s] || '')}" placeholder="${esc(stageModelHint(s))}">
           </div>
-          ${envLine(st.env, `CANON_LLM_${s.toUpperCase()}`, '백엔드를')}
-          ${envLine(st.model_env, `CANON_MODEL_${s.toUpperCase()}`, '모델을')}</div>`;
+          ${ownEnv(st.env, `CANON_LLM_${s.toUpperCase()}`, 'llm')}
+          ${ownEnv(st.model_env, `CANON_MODEL_${s.toUpperCase()}`, 'model')}</div>`;
       }).join('')}
       </details>
       <div class="row">
@@ -194,6 +249,10 @@ Object.assign(actions, {
       toast('키를 지웠어요');
     });
     if (ok) $('#set-key')?.focus();
+  },
+  settingsShowAll() {
+    settingsShowAll = true;
+    syncProviderGroups();
   },
   settingsBack() {
     if (settingsNavs > 0) history.back();

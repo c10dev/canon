@@ -50,6 +50,7 @@ ul, ol { margin: 0; }
 .main { flex: 999 1 560px; min-width: 0; padding: 32px 40px 96px; display: flex; flex-direction: column; gap: 22px; }
 .brand { padding: 0 10px; font-size: 1.375rem; font-weight: 800; color: var(--text); text-decoration: none; letter-spacing: -0.02em; }
 .work-card { margin: 0 4px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; gap: 6px; }
+.work-title { font-size: 1rem; font-weight: 700; }
 .nav { display: flex; flex-direction: column; gap: 2px; }
 .nav a { min-height: 44px; padding: 0 10px; border-radius: 8px; display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text-2); font-weight: 500; }
 .nav a:hover { background: var(--bg); color: var(--text); }
@@ -107,6 +108,8 @@ main:focus, h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; } 
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: thin; }
 .tabs button { flex: none; white-space: nowrap; min-height: 44px; padding: 0 16px; border: none; border-bottom: 3px solid transparent; background: transparent; color: var(--text-2); font: inherit; font-size: 0.875rem; cursor: pointer; }
 .tabs button[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+/* 탭이 많은 묶음(연구 화면)은 폭을 넘으면 옆으로 숨기지 않고 다음 줄로 보낸다 */
+.tabs.wrap { flex-wrap: wrap; overflow-x: visible; }
 
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .field > label, .label { font-size: 0.8125rem; font-weight: 500; }
@@ -462,6 +465,16 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 /* 연구 (모델 실험) */
 .nav-extra { padding-top: 12px; border-top: 1px solid var(--line); }
 .nav-extra > .small { padding: 0 10px 4px; }
+/* 자동 집필은 단계 묶음 바로 아래에 둔다. 묶음 사이 간격(22px)보다 붙여 단계의 이어짐으로 보인다 */
+.side-menu > .nav-auto { margin-top: -16px; }
+/* 데이터가 없는 도구를 접는 '더 보기' */
+.nav-more > summary { min-height: 44px; padding: 0 10px; border-radius: 8px; display: flex; align-items: center; gap: 8px; color: var(--text-2); font-weight: 500; cursor: pointer; list-style: none; }
+.nav-more > summary::-webkit-details-marker { display: none; }
+.nav-more > summary::before { content: '▸'; width: 22px; text-align: center; color: var(--muted); }
+.nav-more[open] > summary::before { content: '▾'; }
+.nav-more > summary:hover { background: var(--bg); color: var(--text); }
+.nav-more > summary .small { margin-left: auto; text-align: right; }
+.nav-more > a { padding-left: 20px; }
 .rs-backend { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
 .rs-scroll { overflow-x: auto; position: relative; }  /* 안의 화면 낭독용 글(.sr-only, absolute)이 표 밖 문서 폭을 늘리지 않게 */
 .rs-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
@@ -898,11 +911,13 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
 @media (max-width: 900px) {
   .shell { flex-direction: column; flex-wrap: nowrap; }
   .side { flex: none; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 16px; border-right: none; border-bottom: 1px solid var(--line); }
-  .side .brand { margin-right: auto; }
-  .side .work-card { order: -1; flex: 1 1 100%; padding: 0; border: none; background: none; }
+  /* 위 띠 한 줄: Canon · 작품 제목(넘치면 줄임표) · 메뉴 */
+  .side .work-card { order: 1; flex: 1 1 0; min-width: 0; margin: 0; padding: 0; border: none; background: none; }
   .side .work-card .small, .side .work-card .meter { display: none; }
-  .menu-toggle { display: inline-flex; }
-  .side-menu { display: none; flex: 1 1 100%; flex-direction: column; gap: 12px; }
+  .side .work-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-2); }
+  .menu-toggle { display: inline-flex; order: 2; }
+  .side-menu { display: none; order: 3; flex: 1 1 100%; flex-direction: column; gap: 12px; }
+  .side-menu > .nav-auto { margin-top: -8px; }
   .side.open .side-menu { display: flex; }
   .main { flex: 1 1 auto; width: 100%; }  /* 세로 배치에서 margin:auto 인 화면(설정, 사용량)이 내용 폭으로 넓어지지 않게 */
   #jobs { left: 16px; }
@@ -1007,4 +1022,27 @@ details.card.set-more { display: block; }
   .lib-cols .lib-o1 { order: 1; }
   .lib-cols .lib-o2 { order: 2; }
   .lib-cols .lib-o3 { order: 3; }
+}
+
+/* 작품 목록 카드의 '⋯ 관리': 카드 링크와 떨어진 버튼으로 둔다 */
+.proj-more { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
+.proj-more > summary.btn { min-height: 44px; width: fit-content; list-style: none; }
+.proj-more > summary.btn::-webkit-details-marker { display: none; }
+.proj-more[open] > summary.btn { background: var(--bg); }
+.note .btn { margin-left: 4px; }
+.card-more { font-size: 0.8125rem; align-self: flex-start; }
+
+/* 모델 설정: 고른 생성 방식에 쓰지 않는 칸 묶음은 숨긴다 (syncProviderGroups) */
+.prov-group[hidden], #prov-all[hidden], #prov-mock[hidden] { display: none; }
+
+/* 휴대폰: 24px 보다 작던 누름 영역을 44px 로 넓힌다 */
+@media (max-width: 640px) {
+  input[type=range] { min-height: 44px; }
+  .at-who { min-height: 44px; }
+  .link-btn { min-height: 44px; min-width: 24px; display: inline-flex; align-items: center; }
+  .side-foot a, .learn-pair a.small, .between > a.small, .card-more { min-height: 44px; display: inline-flex; align-items: center; }
+  th > a { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; }
+  .at-um input[type=checkbox] { width: 24px; height: 24px; }
+  /* 탭이 폭을 넘으면 잘린 채 옆으로 밀리지 않고 다음 줄로 간다 */
+  .tabs { flex-wrap: wrap; overflow-x: visible; }
 }

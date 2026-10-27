@@ -41,7 +41,7 @@ function viewProjects() {
       <div class="between"><h3>${esc(x.title || x.name)}</h3><span class="small">${x.finalized} / ${x.episodes}화</span></div>
       <div class="small">${x.form === 'serial' ? '장편' : '단편'} · ${esc(projectNext(x))}</div>
       <div class="small">${esc(x.genre || '장르 미정')} · 폴더 ${esc(x.name)}${x.updated_at ? ` · 고친 때 ${fmtDateTime(x.updated_at)}` : ''}</div></a>
-      <details class="proj-more"><summary class="small">관리</summary><div class="row" style="padding-top:6px">
+      <details class="proj-more"><summary class="btn small" aria-label="${esc(x.title || x.name)} 관리">⋯ 관리</summary><div class="row" style="padding-top:8px">
         <button type="button" class="btn small" data-action="dupProject" data-arg="${esc(x.name)}">복제</button>
         <button type="button" class="btn small" data-action="renameProject" data-arg="${esc(x.name)}">폴더 이름 바꾸기</button>
         <button type="button" class="btn small danger" data-action="deleteProject" data-arg="${esc(x.name)}">삭제</button></div></details>
@@ -51,12 +51,12 @@ function viewProjects() {
   const errOf = (k) => (err.field === k ? `<div class="small field-err" id="np-${k}-err" role="alert">${esc(err.msg)}</div>` : '');
   const bad = (k) => (err.field === k ? ` aria-invalid="true" aria-describedby="np-${k}-err"` : '');
   return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편부터 300화 장편 연재까지 써요. 최근에 고친 작품부터 보여요.', `<a class="btn" href="#/styles">문체 라이브러리</a><a class="btn" href="#/usage">사용량 · 비용</a><a class="btn" href="#/settings">모델 · API 키 설정</a>`)}
-    ${aiWarning() ? `<div class="note warn">${esc(aiWarning())} <a href="#/settings" style="color:inherit;font-weight:700">설정</a></div>` : ''}
+    ${aiWarning() ? `<div class="note warn">${esc(aiWarning())} <a class="btn" href="#/settings">설정 열기</a></div>` : ''}
     ${list.length ? `<div class="grid-auto">${cards}</div>` : '<div class="note plain">아직 작품이 없어요. 아래에서 새 작품을 만드세요.</div>'}
     <form class="card" id="np-form" style="max-width:720px" novalidate>
       <div class="between"><h2>새 작품</h2>${newFormUsed(f) ? '<span class="row"><span class="small">이전에 적던 내용을 이어서 보여요</span><button type="button" class="btn small ghost" data-action="clearNewForm">비우기</button></span>' : ''}</div>
       <div class="grid-2">
-        <div class="field"><label for="np-title">제목 <span class="hint">필수</span></label><input id="np-title" type="text" placeholder="등대" required value="${esc(f.title)}"${bad('title')}>${errOf('title')}</div>
+        <div class="field"><label for="np-title">제목 <span class="hint">필수</span></label><input id="np-title" type="text" placeholder="예: 바다 끝 등대" required value="${esc(f.title)}"${bad('title')}>${errOf('title')}</div>
         <div class="field"><label for="np-eps">총 화수 <span class="hint">단편 10~20, 장편 100~300</span></label><input id="np-eps" type="number" min="4" max="1000" value="${esc(f.eps)}"${bad('eps')}>${errOf('eps')}</div>
       </div>
       <details${err.field === 'name' || f.nameEdited ? ' open' : ''}><summary class="small">폴더 이름 (주소): ${esc(f.name || folderOf(f.title) || '제목에서 만들어요')}</summary>
@@ -205,7 +205,7 @@ function viewHome() {
       ${eps.some((e) => e.status === 'written') ? `<div class="note warn">${cur}화 본문이 작성됐어요. 상태 변경안을 승인해야 다음 화를 쓸 수 있어요. <a href="${base()}/review/${cur}" style="color:inherit;font-weight:700">${cur}화 상태 승인</a></div>` : ''}
     </section>
     <div class="grid-auto">
-      <section class="card"><div class="between"><h2>인물 현재 상태</h2><span class="small">${fin ? fin + '화 기준' : '시작 시점'}</span></div>${states || '<div class="small">인물이 없어요</div>'}<a href="${base()}/cast" style="font-size:0.8125rem">인물 · 관계 전체 보기</a></section>
+      <section class="card"><div class="between"><h2>인물 현재 상태</h2><span class="small">${fin ? fin + '화 기준' : '시작 시점'}</span></div>${states || '<div class="small">인물이 없어요</div>'}<a class="card-more" href="${base()}/cast">인물 · 관계 전체 보기</a></section>
       <section class="card">${relationHeader('관계')}${p.relationships.length ? relationLines(S.relations) : `<div class="small">관계가 없어요. <a href="${base()}/setup">설정 도우미</a>에서 관계를 추가하세요.</div>`}</section>
       <section class="card"><div class="between"><h2>열린 복선</h2><a class="small" href="${base()}/foreshadow">${openFs.length}개 · 복선 센터</a></div>
         ${openFs.map((f) => `<div class="row" style="align-items:flex-start;flex-wrap:nowrap"><span class="chip">${f.planted_ep}화</span><div style="font-size:0.8125rem;line-height:1.5">${esc(f.description)}<br><span class="small">${esc(f.id)}</span></div></div>`).join('') || '<div class="small">없음</div>'}

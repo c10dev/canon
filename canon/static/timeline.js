@@ -23,6 +23,19 @@ Object.assign(S, {
 .tl-gap.back { color: var(--red); font-weight: 700; }
 .tl-time { display: grid; grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1.4fr); gap: 8px; }
 @media (max-width: 640px) { .tl-time { grid-template-columns: 1fr; } }
+/* 좁은 폭: 화별 시점 표를 화마다 카드로 쌓고 칸 이름을 위에 적는다 */
+@media (max-width: 640px) {
+  .tl-table thead { display: none; }
+  .tl-table, .tl-table tbody { display: block; }
+  .tl-table tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .tl-table th, .tl-table td { display: block; padding: 0; border: none; }
+  .tl-table th[scope="row"] { background: none; }
+  .tl-table td.tl-title { align-self: center; font-weight: 700; }
+  .tl-table td.tl-wide { grid-column: 1 / -1; }
+  .tl-table td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 2px; font-size: 12px; font-weight: 400; color: var(--muted); }
+  .tl-table td.tl-gap:empty { display: none; }
+  .tl-table input[type="number"] { width: 100%; }
+}
 .tl-dl { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .tl-dl.done { color: var(--muted); }
 .tl-form { display: grid; grid-template-columns: minmax(0, 2fr) 96px minmax(0, 2fr) auto; gap: 8px; align-items: end; }
@@ -147,11 +160,11 @@ function tlRows() {
     const b = `episodes.${i}.time`;
     const cell = (path, kind, ph, aria) => `<input type="${kind === 'int' ? 'number' : 'text'}"${kind === 'int' ? ' min="0"' : ''} data-bind="${b}.${path}" data-kind="${kind}" value="${esc(kind === 'int' ? (t[path] > 0 ? t[path] : '') : t[path] || '')}" placeholder="${ph}" aria-label="${n}화 ${aria}">`;
     const gapText = gap == null ? '' : gap < 0 ? `${gap}일 · 거꾸로` : gap === 0 ? '같은 날' : `+${gap}일`;
-    return `<tr><th scope="row"><a href="${base()}/review/${n}">${n}화</a></th><td>${esc(e.plot.title)}</td>
-      <td>${e.text ? `<span class="small">${esc(e.plot.time || '바로 이어짐')}</span>` : `<input type="text" data-bind="episodes.${i}.plot.time" data-kind="text" value="${esc(e.plot.time || '')}" placeholder="바로 이어짐" aria-label="${n}화 플롯의 시점">`}</td>
-      ${fin ? `<td>${cell('day', 'int', '모름', '끝난 날수')}${tlDayLabel(t.day) ? `<div class="small">${esc(tlDayLabel(t.day))}</div>` : ''}</td><td>${cell('part', 'text', '시간대', '끝난 시간대')}</td><td>${cell('label', 'text', '날짜 · 계절', '끝난 날짜')}</td>`
-    : '<td colspan="3" class="small">반영하면 채워져요</td>'}
-      <td class="tl-gap${gap != null && gap < 0 ? ' back' : ''}">${gapText}</td></tr>`;
+    return `<tr><th scope="row"><a href="${base()}/review/${n}">${n}화</a></th><td class="tl-title">${esc(e.plot.title)}</td>
+      <td class="tl-wide" data-label="플롯의 시점">${e.text ? `<span class="small">${esc(e.plot.time || '바로 이어짐')}</span>` : `<input type="text" data-bind="episodes.${i}.plot.time" data-kind="text" value="${esc(e.plot.time || '')}" placeholder="바로 이어짐" aria-label="${n}화 플롯의 시점">`}</td>
+      ${fin ? `<td data-label="며칠째">${cell('day', 'int', '모름', '끝난 날수')}${tlDayLabel(t.day) ? `<div class="small">${esc(tlDayLabel(t.day))}</div>` : ''}</td><td data-label="시간대">${cell('part', 'text', '시간대', '끝난 시간대')}</td><td class="tl-wide" data-label="날짜 · 계절">${cell('label', 'text', '날짜 · 계절', '끝난 날짜')}</td>`
+    : '<td colspan="3" class="small tl-wide">반영하면 채워져요</td>'}
+      <td class="tl-gap${gap != null && gap < 0 ? ' back' : ''}" data-label="지난 날">${gapText}</td></tr>`;
   }).join('');
 }
 
