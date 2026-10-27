@@ -353,6 +353,7 @@ function plotEditor(e) {
     ${n <= 3 || e.plot.reader_question ? input('독자가 들고 갈 질문', b + '.reader_question', { ...ro, hint: n <= 3 ? '이 화를 읽고 다음 화를 누르게 하는 질문' : '' }) : ''}
     <div class="grid-2">${input('심을 복선', b + '.foreshadow_plant', { ...ro, kind: 'list', rows: 2 })}${payoffPicker('회수할 복선', b + '.foreshadow_payoff', locked)}</div>
     ${insertBlock(e)}
+    ${deleteBlock(e)}
     ${fitNextField(e)}
     <div class="row drawer-actions">
       ${draftOneBtn(e)}
