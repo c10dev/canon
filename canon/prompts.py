@@ -779,14 +779,24 @@ def structure_text(p: Project, n: int, head: str = "[지금 부와 아크]") -> 
     return head + "\n" + ("\n".join(lines) or "아직 없음")
 
 
-KNOWS_RECENT = 20  # 장편: 인물이 알게 된 정보는 최근 것만 넣는다 (확정 사실과 줄거리에 남아 있다)
-
-
-def state_view(p: Project, states: list) -> list:
-    """장편에서는 화마다 쌓이는 knows 를 최근 것만 남긴 사본을 쓴다. 저장된 상태는 그대로다."""
+def state_view(p: Project, states: list, n: int | None = None, query: str = "") -> tuple[list, int]:
+    """장편에서는 화마다 쌓이는 knows 를 n화와 관련된 것부터 고른 사본을 쓴다 (context.pick_knows). 저장된 상태는 그대로다.
+    query 는 이번 화 플롯이나 본문, 이름은 넘긴 상태의 인물, 요소 · 장소는 n화의 것(context.query_terms). (사본, 뺀 수)"""
     if not p.serial:
-        return states
-    return [s.model_copy(update={"knows": s.knows[-KNOWS_RECENT:]}) if len(s.knows) > KNOWS_RECENT else s for s in states]
+        return states, 0
+    names = [c.name for c in p.characters if c.id in {s.character_id for s in states}]
+    terms = context.query_terms(p, n) if n is not None else []
+    out, cut = [], 0
+    for s in states:
+        knows, k = context.pick_knows(s.knows, query, names, terms)
+        out.append(s.model_copy(update={"knows": knows}) if k else s)
+        cut += k
+    return out, cut
+
+
+def knows_note(cut: int) -> str:
+    """인물 상태 머리글에 붙이는 뺀 수. 뺀 것이 없으면 빈 글 (단편은 늘 빈 글)."""
+    return f" (아는 정보는 이번 화와 관련된 것부터, {cut}개 생략)" if cut else ""
 
 
 # ---------- 지금 차림 (CharacterState.attire) ----------
@@ -960,6 +970,8 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
     plan_secrets, _ = context.pick_secrets(p, ids, note + "\n" + "\n".join(x.summary for x in prev_eps),
                                            context.BUDGET["state_secrets"])
     size = f"{length}화 안팎" if length else "내용에 맞게 5~30화 (보통 10~25화). 첫 아크는 25화 안에 큰 보상이 오도록 짧고 세게"
+    main_states, knows_cut = state_view(p, [s for s in p.states if s.character_id in {c.id for c in static_characters(p)}],
+                                        query=note + "\n" + "\n".join(x.summary for x in prev_eps))
     return f"""장편 연재의 다음 아크 하나를 기획하세요. 이 아크는 {start}화에서 시작합니다.
 
 [작품]
@@ -974,8 +986,8 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 {describe_relations(p, ids, secrets=plan_secrets) or rels(p, ids)}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p) or "없음"}{lines_block(p)}
-[인물 현재 상태]
-{dump(state_view(p, [s for s in p.states if s.character_id in {c.id for c in static_characters(p)}])) or "설정 그대로"}
+[인물 현재 상태]{knows_note(knows_cut)}
+{dump(main_states) or "설정 그대로"}
 [부 구성]
 {dump(p.parts) if p.parts else "부 구성 없음 (작품 전체가 한 부)"}
 
@@ -1488,7 +1500,7 @@ def passage_prompt(p: Project, n: int, sel: Selection, message: str, preset: str
     cast_ids = set(ep.plot.characters) or {c.id for c in static_characters(p)} or {c.id for c in p.characters}
     facts, facts_cut = relevant_facts(p, cast_ids, n)
     cast_ids = context.without_off(p, cast_ids)
-    states = [s for s in p.states if s.character_id in cast_ids]
+    states, knows_cut = state_view(p, [s for s in p.states if s.character_id in cast_ids], n, elements.plot_text(ep) + "\n" + sel.text)
     extra = side_characters(p, cast_ids)
     els = elements.episode_block(p, n)
     chat = next((c for c in p.chats if c.topic == f"text:{n}"), None)
@@ -1500,8 +1512,8 @@ def passage_prompt(p: Project, n: int, sel: Selection, message: str, preset: str
 # 확정된 사실{f" (이번 화와 관련된 것만, {facts_cut}개 생략)" if facts_cut else ""}
 {chr(10).join("- " + f for f in facts) or "없음"}{f"{chr(10)}{chr(10)}# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것){chr(10)}{els}" if els else ""}
 {extra_block(extra)}
-# 인물 현재 상태 ({n - 1}화 종료 시점)
-{dump(state_view(p, states)) or "1화 시작 시점, 설정 그대로"}
+# 인물 현재 상태 ({n - 1}화 종료 시점){knows_note(knows_cut)}
+{dump(states) or "1화 시작 시점, 설정 그대로"}
 
 # 이번 화 플롯
 {dump(ep.plot)}{f"{chr(10)}{chr(10)}# 이번 화 서술 시점 (스타일 프로필보다 우선){chr(10)}{pov}" if (pov := pov_block(p, n)) else ""}
@@ -1702,7 +1714,7 @@ def build_episode_context(p: Project, n: int) -> str:
 {cast_names or "설정의 인물 전원"}
 {extra_block(extra)}
 # 인물 현재 상태 ({n - 1}화 종료 시점)
-{dump(state_view(p, states)) or "1화 시작 시점, 설정 그대로"}
+{dump(state_view(p, states)[0]) or "1화 시작 시점, 설정 그대로"}
 
 # 관계 현재 상태
 {describe_relations(p, cast_ids) or dump(rels) or "없음"}
@@ -1729,6 +1741,7 @@ def serial_episode_context(p: Project, n: int, *, where: str, act_line: str, lin
     (부 · 아크 구조, 끝난 아크의 접은 줄거리) → 화마다 바뀌는 것(아크 안 구간 act_line 부터). 앞부분이 같을수록 캐시가 길게 맞는다."""
     past, cur = story_parts(p, n)
     secrets, _ = context.pick_secrets(p, cast_ids, elements.plot_text(p.episode(n)), context.BUDGET["secrets"])
+    states, knows_cut = state_view(p, states, n, elements.plot_text(p.episode(n)))
     return f"""{static_context(p)}
 
 {where}
@@ -1745,8 +1758,8 @@ def serial_episode_context(p: Project, n: int, *, where: str, act_line: str, lin
 # 이번 화 등장 인물
 {cast_names or "설정의 인물 전원"}
 {extra}
-# 인물 현재 상태 ({n - 1}화 종료 시점)
-{dump(state_view(p, states)) or "1화 시작 시점, 설정 그대로"}
+# 인물 현재 상태 ({n - 1}화 종료 시점){knows_note(knows_cut)}
+{dump(states) or "1화 시작 시점, 설정 그대로"}
 
 # 관계 현재 상태
 {describe_relations(p, cast_ids, secrets=secrets) or dump(rels) or "없음"}
@@ -1942,14 +1955,14 @@ def state_prompt(p: Project, n: int) -> str:
     if p.serial:  # 장편: 이번 화에 나온 인물과 주역만 자세히, 나머지는 한 줄 목록으로 ('넣지 않음' 인물은 한 줄 목록에)
         ids = context.without_off(p, set(ep.plot.characters) | {c.id for c in static_characters(p)})
         chars = [c for c in p.characters if c.id in ids]
-        states = state_view(p, [s for s in p.states if s.character_id in ids])
+        states, knows_cut = state_view(p, [s for s in p.states if s.character_id in ids], n, ep.text + "\n" + elements.plot_text(ep))
         relations = rels(p, ids)
         fs, _ = relevant_foreshadows(p, n)
         others = roster_line(p, ids)
         # 드러난 비밀, 이번 화 인물과 상관없는 비밀은 빼고 본문과 겹치는 것부터
         secrets, _ = context.pick_secrets(p, ids, ep.text + "\n" + elements.plot_text(ep), context.BUDGET["state_secrets"])
     else:
-        chars, states, relations = p.characters, p.states, rels(p)
+        chars, states, relations, knows_cut = p.characters, p.states, rels(p), 0
         fs, others = [f for f in p.foreshadows if f.status == "open"], ""
         secrets = p.secrets
         if off := context.off_ids(p):  # '넣지 않음' 인물은 설정 · 상태 · 관계를 빼고 한 줄 목록에 (다시 만들지 않게)
@@ -1961,7 +1974,7 @@ def state_prompt(p: Project, n: int) -> str:
 
 [인물 설정]
 {dump(chars)}
-{f"[다른 인물 (id: 이름, 역할) — 다시 만들지 않습니다]{chr(10)}{others}{chr(10)}" if others else ""}[이전 인물 상태]
+{f"[다른 인물 (id: 이름, 역할) — 다시 만들지 않습니다]{chr(10)}{others}{chr(10)}" if others else ""}[이전 인물 상태]{knows_note(knows_cut)}
 {dump(states) or "설정 그대로"}
 [이전 관계]
 {relations}
@@ -2040,7 +2053,8 @@ def _check_budget(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
     parts += [f"## {e.plot.number}화 {timeline.tag(p, e)}{e.plot.title}\n{e.text}" for e in recent]
     facts, cut = relevant_facts(p, ids, n, "check_facts")
     facts_text = (f"(이번 화와 관련된 것만, {cut}개 생략)\n" if cut else "") + (chr(10).join("- " + f for f in facts) or "없음")
-    states = dump(state_view(p, [s for s in p.states if s.character_id in ids])) or "1화 시작 시점, 설정 그대로"
+    picked, knows_cut = state_view(p, [s for s in p.states if s.character_id in ids], n, ep.text + "\n" + elements.plot_text(ep))
+    states = (f"(아는 정보는 이번 화와 관련된 것부터, {knows_cut}개 생략)\n" if knows_cut else "") + (dump(picked) or "1화 시작 시점, 설정 그대로")
     relations = describe_relations(p, ids, secrets=[]) or rels(p, ids) or "없음"  # 비밀은 아래 비밀 칸에
     picked, _ = context.pick_secrets(p, ids, ep.text + "\n" + elements.plot_text(ep), context.BUDGET["state_secrets"])
     secrets = dump(picked) or "없음"
