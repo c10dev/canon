@@ -16,7 +16,9 @@ const S = {
   route: [],
   suggestion: null,  // 설정 도우미 제안 (반영 전)
   styleSample: '',
-  libs: null,        // 문체 라이브러리 목록
+  styleSampleDirty: false,  // 문체 화면에 붙여 넣은 원문을 아직 분석하거나 라이브러리에 저장하지 않았다
+  draftFound: {},    // 다시 열 때 브라우저에서 찾은, 서버 본문과 다른 본문 초안. 화 → { text, at }
+  libs: null,       // 문체 라이브러리 목록
   lib: null,         // 라이브러리에서 보고 있는 항목 (편집 중)
   libDirty: false,
   styleLink: null,   // 작품 문체와 라이브러리 항목의 관계
@@ -117,6 +119,8 @@ async function api(method, path, body, meta) {
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw Object.assign(new Error(fmtErr(data, r.status)), { status: r.status, code: data && data.code });
   if (meta) meta.headers = r.headers;
+  // 문체를 분석했거나 라이브러리에 저장했으면 붙여 넣은 원문은 더 잃을 것이 없다 (hasUnsaved)
+  if (method === 'POST' && /^\/projects\/[^/]+\/style(\/library)?$/.test(path)) S.styleSampleDirty = false;
   if (whole && r.headers.get('ETag')) {
     projectCache = { path, tag: r.headers.get('ETag'), data };
     return structuredClone(data);  // 화면은 받은 작품을 고쳐 쓰므로 보관한 것과 나눈다
@@ -842,6 +846,7 @@ document.addEventListener('input', (e) => {
   if (el.id === 'imp-body' && $('#imp-count')) $('#imp-count').innerHTML = importCount(el.value);
   if (S.route[0] === 'settings' && el.id && el.id.startsWith('set-')) S.settingsDirty = true;
   if (el.dataset.local) S[el.dataset.local] = el.value;
+  if (el.dataset.local === 'styleSample') S.styleSampleDirty = true;
   if (el.dataset.deltaSummary) {
     S.deltas[el.dataset.deltaSummary].summary = el.value;
     const c = $('#dsum-count');
@@ -956,6 +961,98 @@ function textUnsaved(n) {
   return e ? d.trim() !== (e.text || '').trim() : d.trim() !== '';  // 서버는 앞뒤 공백을 지워 저장한다
 }
 
+// ---------- 본문 초안 임시 보관 ----------
+// 저장하지 않은 본문 초안을 화마다 이 브라우저(localStorage)에 몇 초 간격으로 둔다. 탭이 죽거나 새로고침해도 다시 열면 되살린다.
+// 키 'canon.draft.<작품>.<화>', 값 { text, at, client }. 초안이 서버 본문과 같아지거나 사라지면(저장 · 버림 · AI 본문) 지운다.
+const DRAFT_PREFIX = (name) => `canon.draft.${name}.`;
+const draftStore = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
+  del(k) { try { localStorage.removeItem(k); } catch { /* 저장소를 막은 브라우저 */ } },
+  keys(prefix) { try { return Object.keys(localStorage).filter((k) => k.startsWith(prefix)); } catch { return []; } },
+};
+const draftKept = new Map();  // 이 탭이 둔 키 → 마지막으로 둔 값. 다른 탭이 둔 초안은 지우지 않는다
+let draftBlocked = false;     // 브라우저가 저장을 막았다 (사생활 보호 창, 용량 초과)
+
+/** 지금 작품의 저장하지 않은 초안을 두고, 더는 저장하지 않은 초안이 아닌 것은 지운다. */
+function keepDrafts() {
+  if (!S.name || !P() || stateOwner !== S.name) return;
+  const pre = DRAFT_PREFIX(S.name);
+  for (const [n, text] of Object.entries(S.textDraft)) {
+    if (!textUnsaved(n)) continue;
+    const k = pre + n;
+    if (draftKept.has(k) && draftKept.get(k).text === text) continue;
+    const v = { text, at: Date.now(), client: CLIENT };
+    draftBlocked = !draftStore.set(k, v);
+    if (!draftBlocked) draftKept.set(k, v);
+  }
+  for (const k of [...draftKept.keys()]) {
+    if (!k.startsWith(pre)) continue;  // 보관해 둔 다른 작품 초안은 그 작품으로 돌아가면 본다
+    const n = k.slice(pre.length);
+    if (S.textDraft[n] === undefined || !textUnsaved(n)) { draftStore.del(k); draftKept.delete(k); }
+  }
+}
+
+// 열려 있는 탭은 몇 초마다 'canon.tab.<탭 id>' 에 시각을 남기고, 닫히거나 새로고침되면 지운다.
+// 다른 탭이 지금 쓰는 초안을 되살릴 후보로 내놓지 않으려고 본다
+const TAB_KEY = (id) => `canon.tab.${id}`;
+const tabAlive = (id) => Date.now() - Number(draftStore.get(TAB_KEY(id)) || 0) < 8000;
+
+/** 작품을 열 때: 이 브라우저에 남은 그 작품 초안 중 서버 본문과 다른 것을 되살릴 후보로 둔다. */
+function scanDrafts() {
+  S.draftFound = {};
+  draftStore.keys('canon.tab.').forEach((k) => { if (Date.now() - Number(draftStore.get(k) || 0) > 60000) draftStore.del(k); });
+  const pre = DRAFT_PREFIX(S.name);
+  for (const k of draftStore.keys(pre)) {
+    const n = Number(k.slice(pre.length));
+    const v = draftStore.get(k);
+    if (!n || !v || typeof v.text !== 'string') { draftStore.del(k); continue; }
+    if (draftKept.has(k) || S.textDraft[n] !== undefined) continue;  // 이 탭이 지금 쓰는 초안
+    const e = ep(n);
+    if (e ? v.text.trim() === (e.text || '').trim() : !v.text.trim()) { draftStore.del(k); continue; }  // 이미 서버에 들어간 글
+    if (v.client !== CLIENT && tabAlive(v.client)) continue;  // 열려 있는 다른 탭이 쓰는 초안
+    S.draftFound[n] = v;
+  }
+}
+
+/** '12초 전' 같은 지난 시간. */
+function agoText(at) {
+  const s = Math.max(0, Math.round((Date.now() - at) / 1000));
+  if (s < 60) return `${s}초 전`;
+  if (s < 3600) return `${Math.floor(s / 60)}분 전`;
+  return fmtDateTime(new Date(at).toISOString());
+}
+
+/** 저장 띠에 붙이는 임시 보관 상태. */
+function draftStamp(n) {
+  if (draftBlocked) return '브라우저가 막아 임시 보관하지 못했어요';
+  const v = draftKept.get(DRAFT_PREFIX(S.name) + n);
+  return v ? `${agoText(v.at)} 임시 보관` : '곧 임시 보관해요';
+}
+
+setInterval(() => {
+  draftStore.set(TAB_KEY(CLIENT), Date.now());
+  keepDrafts();
+  const st = $('#draft-stamp');
+  if (st) st.textContent = draftStamp(st.dataset.ep);
+}, 2000);
+// 탭을 닫거나 숨길 때는 기다리지 않고 바로 둔다
+window.addEventListener('pagehide', () => { keepDrafts(); draftStore.del(TAB_KEY(CLIENT)); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) keepDrafts(); });
+
+/** 되살릴 초안 안내. 그 화 집필 화면에는 되살리기 · 복사 · 버리기를, 작품 홈과 다른 화 집필 화면에는 그 화로 가는 줄을 보인다. */
+function draftStrip(page, n) {
+  const found = Object.entries(S.draftFound || {}).filter(([k]) => ep(Number(k)));
+  if (!found.length || !['write', undefined].includes(page)) return '';
+  return found.map(([k, v]) => {
+    const m = Number(k);
+    if (page !== 'write' || m !== n) return `<div class="note warn" role="status">이 브라우저에 저장하지 않은 ${m}화 본문 초안이 남아 있어요 (${agoText(v.at)}). <a href="${base()}/write/${m}">${m}화 집필에서 확인하기</a></div>`;
+    return `<div class="note warn" role="status"><strong>저장하지 않은 ${m}화 본문 초안을 찾았어요</strong> · 이 브라우저에 ${agoText(v.at)} 임시 보관한 ${v.text.length.toLocaleString()}자예요. 서버 본문과 달라요.
+      <details><summary>임시 보관한 초안 보기</summary><textarea readonly id="found-${m}" aria-label="${m}화 임시 보관한 초안" style="width:100%;min-height:160px;margin-top:6px">${esc(v.text)}</textarea></details>
+      <div class="row" style="margin-top:6px"><button class="btn small primary" data-action="restoreDraft" data-arg="${m}">초안 되살리기</button><button class="btn small" data-action="copyFoundDraft" data-arg="${m}">초안 복사</button><button class="btn small danger" data-action="dropFoundDraft" data-arg="${m}">초안 버리기</button></div></div>`;
+  }).join('');
+}
+
 /** 저장 띠를 만든다. 처음 뜰 때 화면 낭독기에 한 번 알린다 (띠는 문서 끝에 붙어 Tab 으로는 늦게 닿으니 Ctrl+S 도 알린다). */
 function newSavebar(shortcut = true) {
   const bar = document.createElement('div');
@@ -998,7 +1095,7 @@ function renderSavebar() {
   bar.dataset.sig = sig;
   bar.innerHTML = (S.dirty && S.conflict ? '<span>다른 탭이나 기기에서 먼저 저장해 이 변경을 저장하지 못했어요</span><button class="btn small" data-action="revert">다시 불러오기 (이 변경 버림)</button><button class="btn small danger" data-action="saveForce">내 변경으로 덮기</button>'
     : S.dirty ? `<span>저장하지 않은 변경이 있어요</span>${S.lastRemoved ? `<button class="btn small" data-action="restoreRemoved">방금 지운 ${esc(S.lastRemoved.label)} 되살리기</button>` : ''}<button class="btn small" data-action="revert">변경 모두 버리기</button><button class="btn small primary" data-action="save" title="저장 (Ctrl+S)">저장</button>` : '')
-    + (text !== null ? `<span>${text}화 본문을 저장하지 않았어요</span><button class="btn small primary" data-action="saveText" data-arg="${text}"${autoOn() ? ' disabled title="자동 집필이 도는 동안은 본문을 저장할 수 없어요"' : ' title="본문 저장 (Ctrl+S)"'}>본문 저장</button>` : '');
+    + (text !== null ? `<span>${text}화 본문을 저장하지 않았어요 · <span id="draft-stamp" data-ep="${text}">${esc(draftStamp(text))}</span></span><button class="btn small primary" data-action="saveText" data-arg="${text}"${autoOn() ? ' disabled title="자동 집필이 도는 동안은 본문을 저장할 수 없어요"' : ' title="본문 저장 (Ctrl+S)"'}>본문 저장</button>` : '');
   stackBottom();
 }
 
@@ -1014,9 +1111,11 @@ function briefPending(key, v) {
 /** 반영하지 않은 상태 변경안. 변경안은 본문이 작성된 화에만 반영하므로 이미 반영이 끝난 화의 것은 세지 않는다. */
 const deltaPending = (n) => { const e = P() && ep(Number(n)); return !e || e.status === 'written'; };
 
-/** 페이지를 떠나면 사라지는 입력: 저장하지 않은 작품 · 문체 · 설정 변경, 본문 초안, 붙여 넣은 지시서 결과, 반영하지 않은 상태 변경안 */
+/** 페이지를 떠나면 사라지는 입력: 저장하지 않은 작품 · 문체 · 설정 변경, 본문 초안, 붙여 넣은 지시서 결과, 반영하지 않은 상태 변경안,
+    분석 전 문체 예시 원문. 본문 초안은 브라우저에도 임시 보관하지만, 막힌 브라우저가 있어 여기서도 묻는다 */
 function hasUnsaved() {
   return S.dirty || S.libDirty || S.settingsDirty
+    || (S.styleSampleDirty && S.styleSample.trim() !== '')
     || Object.keys(S.textDraft).some(textUnsaved)
     || Object.entries(S.briefDraft).some(([k, v]) => briefPending(k, v))
     || Object.keys(S.deltas).some(deltaPending)
@@ -1191,6 +1290,35 @@ const actions = {
   dropOrphan(n) {
     if (!confirm(`${n}화 남은 초고를 버릴까요? 되돌릴 수 없어요.`)) return;
     delete S.textDraft[n];
+    render();
+  },
+  /** 브라우저에 임시 보관한 초안을 본문 칸에 되살린다. 저장은 '본문 저장'으로 한다. */
+  restoreDraft(n) {
+    const v = S.draftFound[n];
+    if (!v) return;
+    if (textUnsaved(n) && !confirm(`${n}화 칸에 쓰던 글이 있어요. 임시 보관한 초안으로 바꿀까요?`)) return;
+    S.textDraft[n] = v.text;
+    delete S.draftFound[n];
+    draftKept.delete(DRAFT_PREFIX(S.name) + n);  // 이 탭이 이어 맡는다. 다음 보관 때 이 탭 것으로 다시 쓴다
+    S.focusTarget = '#app textarea[data-draft]';
+    render();
+    toast(`${n}화 초안을 되살렸어요. 확인한 뒤 본문 저장을 누르세요`);
+  },
+  async copyFoundDraft(n) {
+    const t = (S.draftFound[n] || {}).text || '';
+    try {
+      await navigator.clipboard.writeText(t);
+    } catch {  // 보안 연결이 아니면 clipboard API 가 없다. 칸을 펼쳐 골라 복사한다
+      const ta = $(`#found-${n}`);
+      if (ta) { ta.closest('details').open = true; ta.select(); }
+      if (!ta || !document.execCommand('copy')) return toast('브라우저가 복사를 막았어요. 펼친 칸에서 직접 골라 복사하세요', true);
+    }
+    toast(`${n}화 임시 보관한 초안을 복사했어요 (${t.length.toLocaleString()}자)`);
+  },
+  dropFoundDraft(n) {
+    if (!confirm(`${n}화 임시 보관한 초안을 버릴까요? 되돌릴 수 없어요.`)) return;
+    draftStore.del(DRAFT_PREFIX(S.name) + n);
+    delete S.draftFound[n];
     render();
   },
   async createProject() {
@@ -1405,6 +1533,7 @@ async function routeNow() {
       if (S.pendingJob && S.pendingJob.project === S.name && !S.jobsApplied.has(S.pendingJob.id)) applyJobResult(S.pendingJob);
       S.pendingJob = null;
       await loadPending();
+      scanDrafts();
       S.dirty = false;
       const n = Number(parts[3]);
       if (!parts[2] && S.project.relationships.length) {
@@ -1579,6 +1708,7 @@ function drawApp() {
   const [p, , page, arg] = S.route;
   if (p === 'settings') {
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:820px;margin:0 auto">${viewSettings()}</main></div>`;
+    syncProviderGroups();  // 쓰지 않는 백엔드의 칸 묶음을 숨긴다 (settings.js)
     return;
   }
   if (p === 'usage') {
@@ -1603,9 +1733,10 @@ function drawApp() {
   const n = Number(arg) || currentEp();
   const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, statwin: viewStatwin, timeline: viewTimeline };
   const body = (views[page] || viewHome)(n);
-  $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${failStrip(page, n)}${body}</main></div>`;
+  $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${failStrip(page, n)}${draftStrip(page, n)}${body}</main></div>`;
   document.body.classList.toggle('drawer-open', !!$('#app .drawer'));  // 넓은 화면은 보드를 서랍 폭만큼 비켜 둔다 (app.css)
   syncPending();
+  keepDrafts();  // 저장 · 버리기 · AI 본문으로 초안이 사라졌으면 임시본도 바로 지운다
   syncChat();
   if (typeof syncPassage === 'function') syncPassage();
   if (typeof syncIllust === 'function') syncIllust();
@@ -1625,6 +1756,19 @@ function stepLabel(id) {
   return { setup: '설정 도우미', style: '문체 레퍼런스', arc: serial() ? '부 · 아크 · 플롯' : '기승전결 · 플롯', write: '집필', review: '상태 승인' }[id];
 }
 
+/** 사이드바 '더 보기' 펼침. 화면을 다시 그려도 남게 브라우저에 둔다. */
+function navMoreOpen() {
+  try { return localStorage.getItem('canon.navMore') === '1'; } catch { return false; }
+}
+// 사람이 머리를 눌러 바꾼 것만 기억한다 (지금 보는 도구라 펼쳐 그린 것은 기억하지 않는다). 펼침은 클릭 기본 동작 뒤에 읽는다
+document.addEventListener('click', (e) => {
+  const d = e.target.closest && e.target.closest('[data-nav-more] > summary') && e.target.closest('[data-nav-more]');
+  if (!d) return;
+  setTimeout(() => {
+    try { localStorage.setItem('canon.navMore', d.open ? '1' : '0'); } catch { /* 저장소를 막은 브라우저: 이번 화면에서만 펼친다 */ }
+  });
+});
+
 function sidebar(active) {
   const p = P();
   const done = p.episodes.filter((e) => e.status === 'finalized').length;
@@ -1639,31 +1783,38 @@ function sidebar(active) {
     ['write', `${base()}/write/${cur}`, '4', stepLabel('write')],
     ['review', `${base()}/review/${cur}`, '5', stepLabel('review')],
   ];
+  // 도구마다 [id, 주소, 기호, 이름, 데이터가 있는지]. 데이터가 없는 도구는 '더 보기'로 접는다 (지금 보는 도구는 펼쳐 둔다)
+  const has = (xs) => (xs || []).length > 0;
   const tools = [
-    ['cast', base() + '/cast', '人', '인물 · 관계도'],
-    ['atlas', base() + '/atlas', '地', '지도'],
-    ['foreshadow', base() + '/foreshadow', '伏', '복선 센터'],
-    ['statwin', base() + '/statwin', '#', '상태창 수치'],
-    ['timeline', base() + '/timeline', '時', '작품 속 시간'],
-    ['lines', base() + '/lines', '⑂', '이야기 줄기'],
-    ['causal', base() + '/causal', '∴', '인과율'],
-    ['brief', `${base()}/brief/${cur}`, '✎', '작업지시서 (API 없이)'],
-    ['auto', base() + '/auto', 'A', autoMenuLabel()],
+    ['cast', base() + '/cast', '人', '인물 · 관계도', has(p.characters)],
+    ['atlas', base() + '/atlas', '地', '지도', has(p.world.locations) || (p.elements || []).some((el) => el.kind === '장소')],
+    ['foreshadow', base() + '/foreshadow', '伏', '복선 센터', has(p.foreshadows)],
+    ['statwin', base() + '/statwin', '#', '상태창 수치', (p.states || []).some((s) => has(s.stats))],
+    ['timeline', base() + '/timeline', '時', '작품 속 시간', has((p.timeline || {}).deadlines) || p.episodes.some((e) => e.time && (e.time.day > 0 || e.time.part || e.time.label))],
+    ['lines', base() + '/lines', '⑂', '이야기 줄기', has(p.storylines)],
+    ['causal', base() + '/causal', '∴', '인과율', has(p.elements)],
+    ['brief', `${base()}/brief/${cur}`, '✎', '작업지시서 (API 없이)', true],
   ];
+  const link = ([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}><span class="num" aria-hidden="true">${num}</span>${label}</a>`;
+  const shown = tools.filter((t) => t[4]);
+  const folded = tools.filter((t) => !t[4]);
+  const moreOpen = folded.some((t) => t[0] === active) || navMoreOpen();
   const cfg = S.config || {};
   return `<nav class="side${S.menuOpen ? ' open' : ''}" aria-label="작품 메뉴">
     <a class="brand" href="#/">Canon</a>
     <button type="button" class="btn small menu-toggle" data-action="toggleMenu" aria-expanded="${!!S.menuOpen}" aria-controls="side-menu">메뉴</button>
     <div class="work-card">
       <div class="small">현재 작품</div>
-      <div style="font-size:1rem;font-weight:700">${esc(p.meta.title || S.name)}</div>
+      <div class="work-title">${esc(p.meta.title || S.name)}</div>
       <div class="small">${esc(p.meta.genre || '장르 미정')} · ${total}화</div>
       <div class="meter" aria-hidden="true"><i style="left:0;width:${Math.round((done / Math.max(total, 1)) * 100)}%;background:var(--green)"></i></div>
       <div class="small">${done} / ${total}화 반영 완료</div>
     </div>
     <div class="side-menu" id="side-menu">
     <div class="nav">${items.map(([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}><span class="num" aria-hidden="true">${num}</span>${label}${/\d/.test(num) ? `<span class="sr-only"> (단계 ${num})</span>` : ''}</a>`).join('')}</div>
-    <div class="nav nav-extra"><span class="small">작품 도구</span>${tools.map(([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}><span class="num" aria-hidden="true">${num}</span>${label}</a>`).join('')}</div>
+    <div class="nav nav-auto">${link(['auto', base() + '/auto', 'A', autoMenuLabel()])}</div>
+    <div class="nav nav-extra"><span class="small">작품 도구</span>${shown.map(link).join('')}
+      ${folded.length ? `<details class="nav-more" data-nav-more${moreOpen ? ' open' : ''}><summary>더 보기 <span class="small">아직 데이터가 없는 도구 ${folded.length}개</span></summary>${folded.map(link).join('')}</details>` : ''}</div>
     <div class="nav nav-extra"><span class="small">본편과 분리</span><a href="${base()}/research"${active === 'research' ? ' aria-current="page"' : ''}><span class="num" aria-hidden="true">R</span>연구 · 모델 실험</a><a href="${base()}/usage"${active === 'usage' ? ' aria-current="page"' : ''}><span class="num" aria-hidden="true">$</span>사용량 · 비용</a></div>
     <div class="side-foot">
       <span class="small">본문 모델</span>
