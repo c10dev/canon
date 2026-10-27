@@ -875,8 +875,17 @@ class PlantedContradiction(BaseModel):
     quote: str = Field(description="이번 화 본문에서 바꿀 문장 원문 그대로 (한 문장)")
     replacement: str = Field(description="앞선 근거와 어긋나게 바꾼 문장. 같은 문체, 비슷한 길이")
     type: IssueType = Field("사실", description="어떤 종류의 모순인지")
-    source_episode: int = Field(0, description="어긋나는 근거가 나온 화. 설정 · 확정 사실이면 0")
+    part: Literal["", "몸", "접촉", "물건"] = Field("", description="type 이 동선일 때만: 몸(한 인물의 위치 · 몸이 향한 쪽 · 자세 · 가려진 곳) / 접촉(두 인물이 맞닿은 상태) / 물건(인물과 가방 · 무기 · 문 같은 물건의 상태). 동선이 아니면 빈칸")
+    source_episode: int = Field(0, description="어긋나는 근거가 나온 화. 설정 · 확정 사실이면 0, 같은 화 앞 문장이면 이번 화")
     source_quote: str = Field("", description="어긋나는 근거 원문 그대로")
+
+
+PLANT_PARTS = ["몸", "접촉", "물건"]
+
+
+def plant_kind(x: PlantedContradiction) -> str:
+    """검수 시험 집계에 쓰는 갈래. 동선은 몸 · 접촉 · 물건으로 나눈다 (갈래를 비우면 몸)."""
+    return f"동선 · {x.part or '몸'}" if x.type == "동선" else x.type
 
 
 class PlantSet(BaseModel):

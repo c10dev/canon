@@ -221,12 +221,21 @@ def _plot(n: int, act: str, note: str = "") -> EpisodePlot:
 
 
 def _plants(hint: dict) -> PlantSet:
-    """본문 앞쪽 문장들의 끝에 한 마디를 붙여 '바꾼' 문장으로 낸다."""
+    """본문 앞쪽 문장들의 끝에 한 마디를 붙여 '바꾼' 문장으로 낸다. 첫째는 설정 모순, 둘째부터는 같은 화 동선(접촉 · 물건)."""
     import re
     sents = [x for x in re.findall(r"[^.!?\n]+[.!?]", hint.get("text", "")) if len(x.strip()) > 4]
-    return PlantSet(items=[PlantedContradiction(quote=x.strip(), replacement=x.strip()[:-1] + ", 사실 그는 처음 보는 사람이었다.",
-                                                type="사실", source_episode=0, source_quote="설정")
-                           for x in sents[:hint.get("count", 1)]])
+    n = hint.get("episode", 0)
+    items = []
+    for i, x in enumerate(sents[:hint.get("count", 1)]):
+        x = x.strip()
+        if i == 0:
+            items.append(PlantedContradiction(quote=x, replacement=x[:-1] + ", 사실 그는 처음 보는 사람이었다.",
+                                              type="사실", source_episode=0, source_quote="설정"))
+        else:
+            part = "접촉" if i % 2 else "물건"
+            items.append(PlantedContradiction(quote=x, replacement=x[:-1] + (", 잡은 손을 놓지 않은 채 두 손으로 문을 밀었다." if part == "접촉" else ", 내려놓은 가방에서 열쇠를 꺼냈다."),
+                                              type="동선", part=part, source_episode=n, source_quote=sents[0].strip()))
+    return PlantSet(items=items)
 
 
 def _hook(hint: dict) -> HookReport:

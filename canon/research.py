@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from . import context, metrics, pipeline, prompts, settings, store
 from .judge import make_judge
 from .llm import LLM, GeminiLLM, LocalLLM, make_llm
-from .schema import ConsistencyReport, PlantSet, Project
+from .schema import ConsistencyReport, PlantSet, Project, plant_kind
 
 CHARS_PER_TOKEN = context.CHARS_PER_TOKEN
 JSON_OUTPUT_RESERVE = 2000  # 검수, 상태 변경안 출력에 남겨 둘 토큰 (추정)
@@ -345,11 +345,12 @@ def check_trial(p: Project, n: int, b: Backend, plants: int = 3, modes: list[str
     if not used:
         raise ValueError("모델이 본문 문장을 그대로 옮기지 않아 모순을 심지 못했어요. 다시 시험해 보세요")
     q.episode(n).text = text
-    planted = [{**x.model_dump(), "distance": n - x.source_episode if x.source_episode else None} for x in used]
+    planted = [{**x.model_dump(), "kind": plant_kind(x), "distance": n - x.source_episode if x.source_episode else None} for x in used]
+    kinds = [x["kind"] for x in planted]
     runs = []
     for mode in modes:
         if mode == "twostep":
-            runs.append(_two_step_run(llm, judge, q, n, used))
+            runs.append(_by_kind(_two_step_run(llm, judge, q, n, used), kinds))
             continue
         prompt = prompts.check_prompt(q, n, "budget" if mode == "widen" else mode)
         row: dict[str, Any] = {"mode": mode, "chars": len(prompt), "tokens": context.est_tokens(prompts.SYSTEM_CHECKER + prompt)}
@@ -370,10 +371,42 @@ def check_trial(p: Project, n: int, b: Backend, plants: int = 3, modes: list[str
         except Exception as e:  # 한 방식이 실패해도 다른 방식은 돌린다
             row.update(ok=False, error=f"{type(e).__name__}: {e}")
         row["seconds"] = round(time.perf_counter() - t1, 2)
-        runs.append(row)
+        runs.append(_by_kind(row, kinds))
     return {"backend": label(b), "model": _model_name(llm), "episode": n, "seed": seed, "planted": planted,
             "skipped": skipped, "runs": runs, "seconds": round(time.perf_counter() - t, 2),
             "judge": label(judge) if judge and "twostep" in modes else None}
+
+
+def _by_kind(row: dict, kinds: list[str]) -> dict:
+    """심은 모순의 갈래(schema.plant_kind)마다 찾은 수. 갈래는 처음 나온 차례대로."""
+    if row.get("ok"):
+        row["by_kind"] = [{"kind": k, "found": sum(h for h, x in zip(row["hits"], kinds) if x == k), "planted": kinds.count(k)}
+                          for k in dict.fromkeys(kinds)]
+    return row
+
+
+def check_totals(name: str) -> list[dict]:
+    """기록에 남은 검수 시험 전부를 검수 방식 · 갈래마다 더한 찾은 수. 한 번으로는 우연이 커서 여러 번을 모아 본다.
+    갈래를 적기 전 기록은 모순 종류(type)로 센다."""
+    path = _log_path(name)
+    if not path.exists():
+        return []
+    sums: dict[tuple[str, str], list[int]] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        x = json.loads(line)
+        if x.get("kind") != "check":
+            continue
+        kinds = [y.get("kind") or y.get("type", "") for y in x.get("planted", [])]
+        for m in x.get("runs", []):
+            if not m.get("ok"):
+                continue
+            for k, h in zip(kinds, m.get("hits", [])):
+                c = sums.setdefault((m["mode"], k), [0, 0, 0])
+                c[0] += bool(h)
+                c[1] += 1
+            for k in dict.fromkeys(kinds):
+                sums.setdefault((m["mode"], k), [0, 0, 0])[2] += 1
+    return [{"mode": mode, "kind": k, "found": f, "planted": n, "trials": t} for (mode, k), (f, n, t) in sums.items()]
 
 
 def _two_step_run(llm: LLM, jb: Backend, q: Project, n: int, used: list) -> dict:

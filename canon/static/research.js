@@ -31,6 +31,7 @@ async function rsLoadLog() {
   S.rs.log = r.log;
   S.rs.stages = r.stages;
   S.rs.checkModes = r.check_modes || {};
+  S.rs.checkTotals = r.check_totals || [];
 }
 
 async function rsLoad() {
@@ -147,7 +148,7 @@ Object.assign(actions, {
       S.rs.check = await api('POST', `/projects/${enc(S.name)}/research/check`,
         { backend: rsBackend(S.rs.checkBackend), episode: n, plants: Number(S.rs.checkPlants) || 3,
           ...(S.rs.checkTwoStep ? { judge: rsBackend(S.rs.checkJudge) } : {}) });
-      S.rs.log.unshift(S.rs.check);
+      await rsLoadLog();  // 기록과 갈래별 합계를 함께 새로
     });
   },
   async rsBudget() {
@@ -304,16 +305,34 @@ function rsBudgetView() {
     </section>${out}`;
 }
 
+// 기록에 남은 검수 시험 전부를 갈래(행) × 검수 방식(열)로 더한 표. 서버 research.check_totals 가 센다
+function rsCheckTotals() {
+  const t = S.rs.checkTotals || [];
+  if (!t.length) return '';
+  const modes = [...new Set(t.map((x) => x.mode))];
+  const kinds = [...new Set(t.map((x) => x.kind))];
+  const cell = (k, m) => {
+    const x = t.find((y) => y.kind === k && y.mode === m);
+    return x ? `<td><strong>${x.found}/${x.planted}</strong> <span class="small">${Math.round(x.found / x.planted * 100)}% · ${x.trials}번</span></td>` : '<td class="small">-</td>';
+  };
+  return `<section class="card">
+      <h2>지금까지 찾은 비율</h2>
+      <div class="rs-scroll"><table class="rs-table"><thead><tr><th>심은 갈래</th>${modes.map((m) => `<th>${esc(m)}</th>`).join('')}</tr></thead>
+      <tbody>${kinds.map((k) => `<tr><td>${esc(k)}</td>${modes.map((m) => cell(k, m)).join('')}</tr>`).join('')}</tbody></table></div>
+      <div class="small">이 작품의 검수 시험 기록을 모두 더했어요. 칸마다 '찾은 수/심은 수', 그 갈래를 심은 시험 횟수예요. 동선은 몸 · 접촉 · 물건으로 나눠 셌어요. twostep은 같은 화 안의 동선을 보지 않아요.</div>
+    </section>`;
+}
+
 function rsCheckView() {
   const eps = P().episodes.filter((e) => e.text);
   const r = S.rs.check;
   let out = '';
   if (r) {
     const modes = r.runs.map((x) => `<th>${esc(x.mode)}<div class="small">${x.tokens == null ? '' : `~${rsNum(x.tokens)} 토큰`}</div>${x.mode === 'twostep' && x.ok ? `<div class="small">판단기 ~${rsNum(x.judge_tokens)} 토큰 · 진술 ${x.claims}개 중 ${x.flagged}개 의심</div>` : ''}${x.mode === 'widen' && x.ok ? `<div class="small">진술 ${x.claims}개 중 ${x.widened}개 다시 물음 · 더한 지적 ${x.added}개</div>` : ''}</th>`).join('');
-    const rows = r.planted.map((x, i) => `<tr><td><div class="small">${esc(x.type)} · 근거: ${x.source_episode ? `${x.source_episode}화 (${x.distance}화 전)` : '설정이나 확정 사실'}</div>
+    const rows = r.planted.map((x, i) => `<tr><td><div class="small">${esc(x.kind || x.type)} · 근거: ${!x.source_episode ? '설정이나 확정 사실' : x.distance ? `${x.source_episode}화 (${x.distance}화 전)` : '같은 화 앞 문장'}</div>
         <div class="rs-prose small"><del>${esc(x.quote)}</del><br><ins>${esc(x.replacement)}</ins></div></td>
         ${r.runs.map((m) => `<td>${!m.ok ? '<span class="chip usage-fail">실패</span>' : m.hits[i] ? '<span class="chip finalized">찾음</span>' : '<span class="chip written">놓침</span>'}${m.ok && m.raised && !m.hits[i] ? `<div class="small">${m.mode === 'widen' ? (m.raised[i] ? '다시 물었지만 놓침' : '넓혀 찾지 못함') : m.raised[i] ? '판단기는 올림' : '판단기가 놓침'}</div>` : ''}${m.ok && m.first_found && m.hits[i] && !m.first_found[i] ? '<div class="small">넓혀 찾아서 찾음</div>' : ''}</td>`).join('')}</tr>`).join('');
-    const sum = r.runs.map((m) => `<td><strong>${m.ok ? `${m.found}/${r.planted.length}` : esc(m.error)}</strong>${m.ok ? `<div class="small">다른 지적 ${m.other.length}개 · ${m.seconds}초</div>` : ''}</td>`).join('');
+    const sum = r.runs.map((m) => `<td><strong>${m.ok ? `${m.found}/${r.planted.length}` : esc(m.error)}</strong>${m.ok ? `${(m.by_kind || []).map((k) => `<div class="small">${esc(k.kind)} ${k.found}/${k.planted}</div>`).join('')}<div class="small">다른 지적 ${m.other.length}개 · ${m.seconds}초</div>` : ''}</td>`).join('');
     out = `<section class="card">
       <div class="between"><h2>${r.episode}화 · ${esc(r.backend)}</h2><span class="small">심은 모순 ${r.planted.length}개${r.skipped.length ? ` (원문을 못 찾아 ${r.skipped.length}개 뺌)` : ''} · ${r.seconds}초</span></div>
       <div class="rs-scroll"><table class="rs-table"><thead><tr><th>심은 모순</th>${modes}</tr></thead><tbody>${rows}<tr><td>찾은 수</td>${sum}</tr></tbody></table></div>
@@ -335,7 +354,7 @@ function rsCheckView() {
         <div class="field" style="max-width:140px"><label for="rs-check-n">심을 모순</label><input id="rs-check-n" type="number" min="1" max="5" value="${esc(S.rs.checkPlants)}" data-rs="checkPlants"></div>
       </div>
       <div><button class="btn dark" data-action="rsCheck">시험</button></div>
-    </section>${out}`;
+    </section>${out}${rsCheckTotals()}`;
 }
 
 function rsCompareView() {

@@ -3570,7 +3570,8 @@ def research_probe(body: Probe) -> dict:
 @app.get("/api/projects/{name}/research")
 def research_log(name: str) -> dict:
     _load(name)
-    return {"log": research.history(name), "stages": research.STAGES, "check_modes": research.TRIAL_MODES}
+    return {"log": research.history(name), "stages": research.STAGES, "check_modes": research.TRIAL_MODES,
+            "check_totals": research.check_totals(name)}
 
 
 class SampleIn(BaseModel):
