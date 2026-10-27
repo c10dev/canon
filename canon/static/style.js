@@ -10,39 +10,58 @@ function emptyProfile() {
   };
 }
 
-/** 스타일 프로필 편집 칸. 작품 화면(base='style')과 라이브러리 화면(base='profile', root='lib')이 같이 쓴다. */
-function profileFields(base, root) {
+/** 스타일 프로필 편집 칸. 작품 화면(base='style')과 라이브러리 화면(base='profile', root='lib')이 같이 쓴다.
+    칸은 글 길이만큼 늘어난다. 작품 화면은 대표 문단을 옆 열에 따로 두므로 passages 를 끈다 (passageFields).
+    묶음마다 id 를 둬 문체 화면의 건너뛰기 줄이 찾아간다. 대화 변경안이 바꿀 칸은 테두리로 표시한다 (styleChatKeys). */
+function profileFields(base, root, { passages = true } = {}) {
   const o = (x = {}) => (root ? { ...x, root } : x);
   const prof = getPath(bindRoot(root), base);
-  const act = root ? 'libRemovePassage' : 'removePassage';
-  const passages = prof.sample_passages.map((_, i) => `<div class="field-row">
-      <div class="fr-grow">${input(`대표 문단 ${i + 1}`, `${base}.sample_passages.${i}`, o({ rows: 3 }))}</div>
-      <button class="btn icon-btn danger" data-action="${act}" data-arg="${i}" aria-label="대표 문단 ${i + 1} 삭제">✕</button></div>`).join('');
   prof.markers = prof.markers || [];
-  // 좁은 폭에서는 표지 · 쓰임을 한 줄씩 펼친다 (한 줄에 넷을 두면 표지 칸이 40px 남짓으로 눌린다)
+  const hot = root ? new Set() : styleChatKeys();
+  // 좁은 칸에서는 표지 · 쓰임을 한 줄씩 펼친다 (한 줄에 넷을 두면 표지 칸이 100px 남짓으로 눌린다. app.css 의 @container)
   const markers = prof.markers.map((_, i) => `<div class="field-row mk-row">
       <div class="mk-text">${input(`표지 ${i + 1}`, `${base}.markers.${i}.text`, o({ placeholder: '원문에 적힌 그대로, 예: 것이었다' }))}</div>
       <div class="mk-note">${input('쓰임', `${base}.markers.${i}.note`, o())}</div>
       <div class="mk-rate">${input('1,000자당', `${base}.markers.${i}.per_1k`, o({ kind: 'float' }))}</div>
       <button class="btn icon-btn danger" data-action="${root ? 'libRemoveMarker' : 'removeMarker'}" data-arg="${i}" aria-label="표지 ${i + 1} 삭제">✕</button></div>`).join('');
-  const f = (label, key, x) => input(label, `${base}.${key}`, o(x));
-  return `<div class="grid-2">
-      ${f('시점', 'narration_pov')}${f('시제', 'tense')}
-      ${f('문장 리듬', 'sentence_rhythm', { rows: 2 })}${f('묘사 밀도', 'description_density', { rows: 2 })}
-      ${f('대사 비율', 'dialogue_ratio')}${f('대사 방식', 'dialogue_style')}
-      ${f('내면 독백', 'inner_monologue')}${f('전개 속도', 'pacing')}
-      ${f('장면 전환', 'scene_transition')}${f('어휘', 'vocabulary')}
+  const f = (label, key, x = {}) => input(hot.has(key) ? `${label} · 대화 변경안` : label, `${base}.${key}`,
+    o({ rows: 1, autogrow: true, ...x, cls: hot.has(key) ? 'chat-target' : '' }));
+  const sec = (id, html) => (root ? html : `<section class="card pf-sec" id="pf-${id}" tabindex="-1">${html}</section>`);
+  return `${sec('narr', `${root ? '' : `<h2>서술 <span class="small" style="font-weight:400">시점부터 어휘까지 · 모든 칸은 직접 고칠 수 있어요</span></h2>`}<div class="grid-2">
+      ${STYLE_KEYS.slice(0, 10).map(([key, label]) => f(label, key)).join('')}
+    </div>`)}
+    ${sec('rules', `${root ? '' : '<h2>지킬 것 · 피할 것</h2>'}<div class="grid-2">
+      <div class="note ok">${f('지킬 것', 'dos', { kind: 'list', rows: 3 })}</div>
+      <div class="note err">${f('피할 것', 'donts', { kind: 'list', rows: 3 })}</div>
     </div>
-    <div class="grid-2">
-      <div class="note ok">${f('지킬 것', 'dos', { kind: 'list', rows: 4 })}</div>
-      <div class="note err">${f('피할 것', 'donts', { kind: 'list', rows: 4 })}</div>
-    </div>
-    ${f('금지 표현', 'banned_phrases', { kind: 'list', rows: 2, placeholder: '본문에 나오면 경고할 표현, 한 줄에 하나씩' })}
-    <div class="between"><h3>문체 표지 <span class="small" style="font-weight:400">어미, 조사, 말버릇과 원문 빈도. 넘치거나 빠지면 경고</span></h3><button class="btn small" data-action="${root ? 'libAddMarker' : 'addMarker'}">+ 표지</button></div>
-    ${markers || '<div class="small">아직 없어요. 문체 분석을 하면 원문에서 골라 빈도를 세어요.</div>'}
-    ${deviceFields(base, root)}
-    <div class="between"><h3>대표 문단 <span class="small" style="font-weight:400">본문 생성 때 그대로 보여줄 원문 예시, 2~4개</span></h3><button class="btn small" data-action="${root ? 'libAddPassage' : 'addPassage'}">+ 문단</button></div>
+    ${f('금지 표현', 'banned_phrases', { kind: 'list', rows: 2, placeholder: '본문에 나오면 경고할 표현, 한 줄에 하나씩' })}`)}
+    ${sec('markers', `<div class="between"><h3>문체 표지 <span class="small" style="font-weight:400">어미, 조사, 말버릇과 원문 빈도. 넘치거나 빠지면 경고</span></h3><button class="btn small" data-action="${root ? 'libAddMarker' : 'addMarker'}">+ 표지</button></div>
+    ${markers || '<div class="small">아직 없어요. 문체 분석을 하면 원문에서 골라 빈도를 세어요.</div>'}`)}
+    ${sec('devices', deviceFields(base, root))}
+    ${passages ? passageFields(base, root) : ''}`;
+}
+
+/** 대표 문단 칸. 본문 생성 때 원문 그대로 들어가니 본문 글꼴로 보이고, 글 길이만큼 늘어난다. */
+function passageFields(base, root) {
+  const o = (x = {}) => (root ? { ...x, root } : x);
+  const prof = getPath(bindRoot(root), base);
+  const act = root ? 'libRemovePassage' : 'removePassage';
+  const passages = prof.sample_passages.map((_, i) => `<div class="field-row">
+      <div class="fr-grow">${input(`대표 문단 ${i + 1}`, `${base}.sample_passages.${i}`, o({ rows: 3, autogrow: true, cls: 'passage' }))}</div>
+      <button class="btn icon-btn danger" data-action="${act}" data-arg="${i}" aria-label="대표 문단 ${i + 1} 삭제">✕</button></div>`).join('');
+  return `<div class="between"><h3>대표 문단 <span class="small" style="font-weight:400">본문 생성 때 그대로 보여줄 원문 예시, 2~4개</span></h3><button class="btn small" data-action="${root ? 'libAddPassage' : 'addPassage'}">+ 문단</button></div>
     ${passages || '<div class="small">아직 없어요. 문체 분석을 하면 원문에서 골라 넣어요.</div>'}`;
+}
+
+/** 대화 패널이 열려 있고 아직 고르지 않은 문체 변경안이 있으면 그 변경안이 바꿀 칸 (프로필에 표시한다). */
+function styleChatKeys() {
+  if (!S.chatOpen || typeof chatMessages !== 'function') return new Set();
+  const msgs = chatMessages('style');
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    if (m.style) return new Set(m.outcome ? [] : m.style.edits.map((e) => e.key));
+  }
+  return new Set();
 }
 
 /** 작품 문체 화면 위쪽: 라이브러리에서 가져오기, 라이브러리에 저장하기 */
@@ -77,16 +96,50 @@ function styleLibraryCard() {
     : '';
   // 빈 문체는 저장하지 않는다 (web.keep_style 도 막는다). 프로필 칸을 채우면 아래 input 처리가 버튼을 켠다
   const keepOff = blank;
+  const pick = libs.length
+    ? `<select id="style-pick" aria-label="라이브러리 문체" style="flex:1"><option value="">라이브러리에서 고르기</option>${opts}</select><button class="btn small" style="flex:none" data-action="useLibStyle">적용</button>`
+    : `<span class="small" style="flex:1">라이브러리가 비어 있어요. ${blank ? '문체를 만든 뒤 저장해 두면' : '이 작품의 문체를 저장해 두면'} 다른 작품에서 다시 쓸 수 있어요.</span>`;
+  const keep = `<button class="btn small" data-action="keepStyle"${keepOff ? ' disabled aria-describedby="keep-off"' : ''}>이 문체를 라이브러리에 새로 저장</button><span class="small" id="keep-off"${keepOff ? '' : ' hidden'}>문체 분석이나 프로필을 채운 뒤 저장할 수 있어요</span>`;
+  if (!blank) {
+    // 문체가 있으면 띠 한 줄: 상태와 올리기 · 가져오기만 두고, 다른 문체 적용과 새로 저장은 접는다
+    return `<div class="band-row"><span class="tf" aria-hidden="true">📚</span><span class="band-status">${status}</span>
+        <span class="band-acts">${linkBtns}<details class="band-more"><summary class="btn small">다른 문체 · 새로 저장</summary>
+          <div class="band-pop"><div class="row" style="flex-wrap:nowrap">${pick}</div><div class="row">${keep}</div><a class="small" href="#/styles">라이브러리 열기</a></div></details></span></div>${detail}`;
+  }
   return `<section class="card tight">
       <div class="between"><h2>문체 라이브러리</h2><a class="small" href="#/styles">라이브러리 열기</a></div>
       <div class="row">${status}</div>${detail}
-      <div class="row" style="flex-wrap:nowrap">
-        ${libs.length
-          ? `<select id="style-pick" aria-label="라이브러리 문체" style="flex:1"><option value="">라이브러리에서 고르기</option>${opts}</select><button class="btn small" style="flex:none" data-action="useLibStyle">적용</button>`
-          : `<span class="small" style="flex:1">라이브러리가 비어 있어요. ${blank ? '문체를 만든 뒤 저장해 두면' : '이 작품의 문체를 저장해 두면'} 다른 작품에서 다시 쓸 수 있어요.</span>`}
-      </div>
-      <div class="row">${linkBtns}<button class="btn small" data-action="keepStyle"${keepOff ? ' disabled aria-describedby="keep-off"' : ''}>이 문체를 라이브러리에 새로 저장</button><span class="small" id="keep-off"${keepOff ? '' : ' hidden'}>문체 분석이나 프로필을 채운 뒤 저장할 수 있어요</span></div>
+      <div class="row" style="flex-wrap:nowrap">${pick}</div>
+      <div class="row">${linkBtns}${keep}</div>
     </section>`;
+}
+
+/** 문체가 있을 때 화면 위 띠: 라이브러리 상태 한 줄 + 기준 지표 칩 한 줄. */
+function styleBand() {
+  const b = P().style_baseline;
+  return `<section class="card tight style-band style-page" aria-label="라이브러리와 기준 지표">
+      ${styleLibraryCard()}
+      <div class="band-row"><span class="tf" aria-hidden="true">📏</span><strong class="small">기준 지표</strong>
+        ${b ? `<span class="metric-chips">${baselineItems(b).map(([k, v, why]) => `<span title="${esc(why)}">${k} <strong>${v}</strong></span>`).join('')}</span>` : '<span class="small">문체 분석을 하면 문장 길이, 대사 비율 같은 기준을 재요</span>'}
+        <span class="band-acts">${b ? `<details class="band-more"><summary class="btn small">지표 풀이</summary><div class="band-pop">${baselineRows(b)}</div></details>` : ''}
+          <button class="btn small${S.styleSampleOpen ? ' on' : ''}" data-action="toggleStyleSample" aria-expanded="${!!S.styleSampleOpen}">원문 붙여 넣어 다시 분석</button></span></div>
+    </section>`;
+}
+
+// 건너뛰기 줄의 묶음: id, 이름, 묶음에 든 프로필 칸 (대화 변경안 표시용)
+const STYLE_SECS = [['narr', '서술'], ['rules', '지킬 · 피할 것'], ['markers', '문체 표지'], ['devices', '가끔 쓰는 장치'], ['passages', '대표 문단'], ['example', '이 문체로 쓴 예시']];
+
+/** 문체 화면 위에 붙는 줄: 묶음으로 건너뛰기 + 저장 칸(.savebar-slot). 칸이 길어 화면을 여러 번 내려야 해서 둔다. */
+function styleBar() {
+  const st = P().style;
+  const hot = styleChatKeys();
+  const keys = { narr: STYLE_KEYS.slice(0, 10).map(([k]) => k), rules: ['dos', 'donts', 'banned_phrases'], markers: ['markers'], devices: ['devices'] };
+  const count = {
+    narr: `${keys.narr.filter((k) => String(st[k] || '').trim()).length}/10`, rules: (st.dos || []).length + (st.donts || []).length + (st.banned_phrases || []).length,
+    markers: (st.markers || []).length, devices: (st.devices || []).length, passages: (st.sample_passages || []).length, example: P().style_example ? '있음' : '',
+  };
+  const btns = STYLE_SECS.map(([id, label]) => `<button type="button" class="btn small" data-action="styleJump" data-arg="${id}">${label}${count[id] !== '' ? ` <span class="small">${count[id]}</span>` : ''}${(keys[id] || []).some((k) => hot.has(k)) ? ' <span class="chip hot">변경안</span>' : ''}</button>`).join('');
+  return `<div class="style-bar"><nav class="jump" aria-label="문체 칸으로 건너뛰기">${btns}</nav><div class="savebar-slot"></div></div>`;
 }
 
 // 작품 문체 칸을 채우거나 비우면 '라이브러리에 새로 저장' 버튼을 켜고 끈다 (다시 그리지 않고)
@@ -107,28 +160,29 @@ function viewStyle() {
   // 문체가 비었으면 예시 원문 붙여 넣기가 지금 할 일이다: 그 카드를 맨 위로 올리고 '문체 분석'을 primary 로 둔다
   const blank = styleBlank(P().style);
   const next = stepLabel('arc');
-  const sample = `<section class="card">
+  const sample = `<section class="card" id="style-sample">
           <div class="between"><h2>예시 원문</h2><span class="small"><span id="sample-count">${S.styleSample.length.toLocaleString()}</span>자 · 2,000자 이상 권장</span></div>
           <label for="sample" class="small">소설 본문을 붙여 넣으세요. 원문은 작품에 저장되지 않고 고른 대표 문단만 남아요. 이 칸에 원문이 남아 있을 때 라이브러리에 저장하면 원문도 함께 보관해요. 새로고침하면 이 칸은 비어요.</label>
-          <textarea id="sample" rows="16" data-local="styleSample" oninput="document.getElementById('sample-count').textContent=this.value.length.toLocaleString()" style="font-family:var(--serif);font-size:0.9375rem;line-height:1.9">${esc(S.styleSample)}</textarea>
+          <textarea id="sample" rows="${blank ? 16 : 10}" data-local="styleSample" oninput="document.getElementById('sample-count').textContent=this.value.length.toLocaleString()" style="font-family:var(--serif);font-size:0.9375rem;line-height:1.9">${esc(S.styleSample)}</textarea>
           <div><button class="btn ${blank ? 'primary' : 'dark'}" data-action="analyzeStyle">문체 분석</button></div>
           <div class="note plain">원문은 문체 분석과 예시 문단으로만 쓰여요. 내용이나 인물은 작품에 가져오지 않아요.</div>
         </section>`;
-  return `${header('2단계', stepLabel('style'), '닮고 싶은 소설 문단을 붙여 넣으면 문체 규칙을 뽑아요. 규칙과 원문 예시가 매 화 본문 생성에 함께 들어가요. 라이브러리에 저장한 문체를 그대로 가져올 수도 있고, 대화로 다듬어 갈 수도 있어요.', `${chatButton('style')}<a class="btn${blank ? '' : ' primary'}" href="${base()}/arc">${next}${josa(next, '으로', '로')}</a>`)}
-    <div class="cols">
-      <div class="col">
-        ${blank ? sample : ''}
-        ${styleLibraryCard()}
-        ${learnCard()}
-        ${blank ? '' : sample}
-        <section class="card tight"><h2>기준 지표</h2><div class="small">본문 문체 경고는 이 값과 비교해요.</div>${baselineRows(P().style_baseline)}</section>
-      </div>
-      <div class="col wide">
+  const head = header('2단계', stepLabel('style'), '닮고 싶은 소설 문단을 붙여 넣으면 문체 규칙을 뽑아요. 규칙과 원문 예시가 매 화 본문 생성에 함께 들어가요. 라이브러리에 저장한 문체를 그대로 가져올 수도 있고, 대화로 다듬어 갈 수도 있어요.', `${chatButton('style')}<a class="btn${blank ? '' : ' primary'}" href="${base()}/arc">${next}${josa(next, '으로', '로')}</a>`);
+  if (blank) {
+    return `${head}${styleBar()}
+    <div class="cols style-page">
+      <div class="col">${sample}${styleLibraryCard()}${learnCard()}</div>
+      <div class="col wide style-main">${profileFields('style', '', { passages: false })}<section class="card pf-sec" id="pf-passages" tabindex="-1">${passageFields('style')}</section>${styleExampleCard()}</div>
+    </div>${chatPanel('style')}`;
+  }
+  // 문체가 있으면 프로필이 첫 화면에 오게 한다: 라이브러리 · 기준 지표는 띠 한 장, 원문 칸은 접고, 대표 문단과 예시는 옆 열
+  return `${head}${styleBand()}${S.styleSampleOpen || S.styleSample.trim() ? sample : ''}${styleBar()}
+    <div class="style-cols style-page">
+      <div class="style-main">${profileFields('style', '', { passages: false })}</div>
+      <div class="style-side">
+        <section class="card pf-sec" id="pf-passages" tabindex="-1">${passageFields('style')}</section>
         ${styleExampleCard()}
-        <section class="card">
-          <div class="between"><h2>스타일 프로필</h2><span class="small">모든 칸은 직접 고칠 수 있어요</span></div>
-          ${profileFields('style')}
-        </section>
+        ${learnCard()}
       </div>
     </div>${chatPanel('style')}`;
 }
@@ -204,6 +258,11 @@ function viewLibrary() {
     when 은 비었을 때 언제 재는지: 작품은 '문체 분석을 하면', 라이브러리는 원문을 넣고 저장할 때 잰다 (library.create · update). */
 function baselineRows(b, when = '문체 분석을 하면') {
   if (!b) return `<div class="small">${when} 문장 길이, 대사 비율 같은 기준 지표를 재요. 본문을 쓴 뒤 문체가 얼마나 벗어났는지 비교하는 기준이 돼요.</div>`;
+  return `<dl class="metric-list">${baselineItems(b, true).map(([k, v, why]) => `<dt title="${esc(why)}">${k}</dt><dd>${v}<span class="small" style="display:block;font-weight:400">${esc(why)}</span></dd>`).join('')}</dl>`;
+}
+
+/** 기준 지표 [이름, 값, 풀이]. long 이면 표의 긴 이름, 아니면 띠 칩의 짧은 이름. */
+function baselineItems(b, long = false) {
   const pct = (v) => (v == null ? '–' : `${Math.round(v * 100)}%`);
   const rows = [
     ['문장 평균 길이', `${b.sentence_len_mean.toFixed(1)}자`, '문장 하나의 평균 글자 수예요. 띄어쓰기도 세요.'],
@@ -214,7 +273,8 @@ function baselineRows(b, when = '문체 분석을 하면') {
     ['어휘 다양도', b.mattr == null ? '–' : b.mattr.toFixed(2), '어절 100개씩 창을 옮기며 잰 서로 다른 어절의 비율이에요(0~1). 높을수록 같은 말을 덜 되풀이해요. 100어절보다 짧으면 재지 않아요.'],
     ['쉼표 문장 비율', pct(b.comma_sentence_ratio), '대사를 뺀 서술 문장 중 쉼표가 들어간 문장의 비율이에요. AI가 쓴 한국어 글은 사람 글보다 높은 편이에요.'],
   ];
-  return `<dl class="metric-list">${rows.map(([k, v, why]) => `<dt title="${esc(why)}">${k}</dt><dd>${v}<span class="small" style="display:block;font-weight:400">${esc(why)}</span></dd>`).join('')}</dl>`;
+  const short = ['문장 평균', '길이 변화폭', '문단 평균', '대사', '과거형', '어휘 다양도', '쉼표 문장'];
+  return long ? rows : rows.map(([, v, why], i) => [short[i], v, why]);
 }
 
 function viewLibEntry() {
@@ -256,6 +316,17 @@ function viewLibEntry() {
 
 Object.assign(actions, {
   // 문체
+  styleJump(id) {
+    const el = document.getElementById(`pf-${id}`);
+    if (!el) return;
+    el.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    el.focus({ preventScroll: true });
+  },
+  toggleStyleSample() {
+    S.styleSampleOpen = !S.styleSampleOpen;
+    render();
+    if (S.styleSampleOpen) focusEl($('#sample'));
+  },
   async analyzeStyle() {
     if (S.styleSample.trim().length < 200) { focusEl($('#sample')); return toast('예시 원문을 200자 이상 넣어 주세요', true); }  // 서버(web.analyze_style)와 같은 기준
     const has = P().style.narration_pov || P().style.sample_passages.length;

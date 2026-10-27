@@ -275,7 +275,7 @@ details > summary { cursor: pointer; font-size: 0.8125rem; color: var(--accent);
 .ep-card.sel { border: 2px solid var(--accent); background: var(--sel-bg); }
 .ep-card .t { font-size: 0.875rem; font-weight: 700; line-height: 1.45; }
 /* 한글은 낱말 중간에서 끊지 않는다 ('잃었/다'). 띄어쓰기 없이 긴 글만 칸 끝에서 끊는다 */
-.board, .plot-page, .arc-facts, .arc-form, .part-card, .part-edit, .chat-panel .diff, .plot-page textarea { word-break: keep-all; overflow-wrap: anywhere; }
+.board, .plot-page, .arc-facts, .arc-form, .part-card, .part-edit, .chat-panel .diff, .plot-page textarea, .style-page, .style-page textarea, .lib-cols, .lib-cols textarea { word-break: keep-all; overflow-wrap: anywhere; }
 .ep-card .ep-top { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 8px; }
 .ep-card .ep-top strong { font-size: 0.8125rem; }
 .ep-card .ep-chips { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
@@ -1109,6 +1109,52 @@ body.routing::before { content: ''; position: fixed; top: 0; left: 0; height: 3p
   .mk-row { flex-wrap: wrap; }
   .mk-text, .mk-note { flex: 1 1 100%; }
   .mk-rate { flex: 1 1 auto; }
+}
+/* 문체 화면은 대화 패널을 열면 프로필 칸이 좁아진다. 화면 폭이 아니라 칸 폭으로 표지 줄과 두 칸 격자를 접는다 */
+@container pf (max-width: 760px) {
+  .mk-row { flex-wrap: wrap; }
+  .mk-text, .mk-note { flex: 1 1 100%; }
+  .mk-rate { flex: 1 1 auto; }
+}
+@container pf (max-width: 520px) { .pf-sec .grid-2 { grid-template-columns: minmax(0, 1fr); } }
+
+/* ----- 2단계 문체 화면 (style.js): 위 띠 → 건너뛰기 줄(저장 칸) → 프로필 | 대표 문단 · 예시 ----- */
+.style-band { gap: 8px; }
+.band-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.band-row > .tf { font-size: 1.125rem; }
+.band-status { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.band-acts { margin-left: auto; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.band-more { position: relative; }
+.band-more > summary { list-style: none; }
+.band-more > summary::-webkit-details-marker { display: none; }
+.band-more[open] > summary { border-color: var(--accent); color: var(--accent-ink); }
+.band-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 8; width: min(420px, calc(100vw - 32px)); padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.16); }
+.band-pop .metric-list { max-height: 50vh; overflow-y: auto; }
+.metric-chips { display: inline-flex; flex-wrap: wrap; gap: 4px 6px; }
+.metric-chips > span { padding: 3px 8px; border-radius: 6px; background: var(--chip); color: var(--text-2); font-size: 0.75rem; white-space: nowrap; }
+.metric-chips strong { color: var(--text); }
+.style-bar { position: sticky; top: 0; z-index: 7; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: -6px 0; padding: 6px 0; background: var(--bg); }
+.style-bar .jump { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 auto; min-width: 0; }
+.style-bar .savebar-slot { flex: 0 1 auto; }
+.style-bar .savebar-slot:empty { display: none; }
+.style-bar .savebar.inline { padding: 4px 6px 4px 12px; border: 1px solid var(--warn-line); border-radius: 10px; background: var(--amber-soft); }
+.chip.hot { background: var(--accent); color: var(--on-accent); }
+.style-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: 20px; align-items: start; }
+.style-main { container: pf / inline-size; display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.style-side { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.pf-sec { scroll-margin-top: 64px; }
+.pf-sec:focus { outline: none; }
+.pf-sec:focus-visible { outline: 2px solid var(--sel-line); outline-offset: 2px; }
+.field.passage textarea { font-family: var(--serif); font-size: 0.875rem; line-height: 1.85; background: var(--canvas); }
+.field.chat-target textarea, .field.chat-target input { border: 2px solid var(--accent); background: var(--sel-bg); }
+.field.chat-target > label { color: var(--accent-ink); }
+@media (max-width: 1199px) { .style-cols { grid-template-columns: minmax(0, 1fr); } }
+body.chat-open .style-cols { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 640px) {
+  .style-bar .jump { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
+  .style-bar .jump .btn { flex: none; }
+  .style-bar .savebar-slot { flex: 1 1 100%; }
+  .band-acts { margin-left: 0; }
 }
 
 /* 칸 아래 오류 글 (새 작품 폼) */
