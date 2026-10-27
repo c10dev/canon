@@ -354,13 +354,7 @@ Object.assign(actions, {
     render();
   },
   lineEp(n) {
-    S.selEp = Number(n);
-    S.selAct = null;
-    if (serial()) {
-      const a = arcOf(Number(n));
-      if (a) S.selArc = a.number;
-    }
-    location.hash = base() + '/arc';
+    return actions.openPlot(n);  // 화 플롯 페이지 (plot.js). 장편이면 라우터가 그 화의 아크를 고른다
   },
   async lineNew() {
     const id = newLineId();

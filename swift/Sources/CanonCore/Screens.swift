@@ -23,28 +23,28 @@ public enum Screen: String, CaseIterable, Sendable, Identifiable {
         }
     }
 
-    /// 사이드바 앞 글자 (단계 번호나 기호).
+    /// 사이드바 앞 글자: 단계 번호이거나 이모지 아이콘 (웹 `navItems` 와 같다. 웹은 토스페이스 글꼴로 그린다).
     public var mark: String {
         switch self {
-        case .home: "H"
+        case .home: "🏠"
         case .setup: "1"
         case .style: "2"
         case .arc: "3"
         case .write: "4"
         case .review: "5"
-        case .cast: "人"
-        case .atlas: "地"
-        case .foreshadow: "伏"
-        case .statwin: "#"
-        case .abilities: "技"
-        case .timeline: "時"
-        case .lines: "⑂"
-        case .causal: "∴"
-        case .branches: "枝"
-        case .brief: "✎"
-        case .auto: "A"
-        case .research: "R"
-        case .usage: "$"
+        case .cast: "👥"
+        case .atlas: "🗺️"
+        case .foreshadow: "🪝"
+        case .statwin: "📊"
+        case .abilities: "📖"
+        case .timeline: "⏳"
+        case .lines: "🔀"
+        case .causal: "🔗"
+        case .branches: "🌿"
+        case .brief: "📝"
+        case .auto: "🤖"
+        case .research: "🔬"
+        case .usage: "💰"
         }
     }
 

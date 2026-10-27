@@ -373,7 +373,7 @@ function isTyping() {
 
 // 작업이 끝나 결과를 그린 뒤 포커스를 옮길 곳 (없으면 제안 카드의 첫 버튼)
 const RESULT_FOCUS = { state: '#app [data-pick], #app [data-action="applyDelta"]', write: '#app textarea[data-draft], #app .rw-compare button',
-  recap_part: '#app .drawer textarea[data-root="recaps"]', recap_arc: '#app textarea[data-root="recaps"]' };  // 요약 제안 칸은 서랍 · 카드 아래쪽이라 그리로 데려간다
+  recap_part: '#app .part-edit textarea[data-root="recaps"]', recap_arc: '#app textarea[data-root="recaps"]' };  // 요약 제안 칸은 서랍 · 카드 아래쪽이라 그리로 데려간다
 
 /** #app 안에서 글자를 고르고 있다 (본문 부분 수정 · 삽화 도구를 띄우려고 드래그한 선택). */
 function selecting() {
@@ -619,10 +619,13 @@ function stackBottom() {
   const h = (el) => (el && !el.hidden ? el.getBoundingClientRect().height + 12 : 0);
   const st = document.body.style;
   const ab = h($('#app .apply-bar'));
-  st.setProperty('--sb', `${h($('#savebar'))}px`);
+  const pa = $('#app .page-actions');  // 화 플롯 페이지의 버튼 줄: 작업 목록 위로 올린다
+  st.setProperty('--sb', `${h($('#savebar:not(.inline)'))}px`);
   st.setProperty('--ab', `${ab}px`);
   st.setProperty('--jb', `${narrowScreen() ? h($('#jobs')) : 0}px`);
-  st.setProperty('--jh', `${ab ? h($('#jobs')) : 0}px`);
+  st.setProperty('--jh', `${ab || pa ? h($('#jobs')) : 0}px`);
+  const jh = h($('#jobs'));
+  st.setProperty('--jp', `${pa && jh ? jh + 20 : 0}px`);  // 버튼 줄 아래 여백(20px)까지 작업 목록 위로
 }
 window.addEventListener('resize', () => stackBottom());
 
@@ -957,9 +960,10 @@ document.addEventListener('keydown', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && (S.selEp || S.selAct != null || S.editArc || S.selPart != null) && S.route[2] === 'arc' && !e.isComposing) {
-    actions.closePanel();
-    return;
+  // Esc: 대화 패널이 먼저 닫히고(chat.js 가 capture 로 받아 defaultPrevented), 그다음 화 플롯 페이지나 그 자리에서 편 구간 · 아크 · 부 고치기가 닫힌다
+  if (e.key === 'Escape' && !e.isComposing && !e.defaultPrevented && S.route[2] === 'arc') {
+    if (plotPageN()) { actions.closePlot(); return; }
+    if (S.selAct != null || S.editArc || S.selPart != null) { actions.closePanel(); return; }
   }
   if (e.key === 'Enter' && e.target.id === 'genre-custom' && !e.isComposing) {
     e.preventDefault();
@@ -1082,7 +1086,10 @@ function newSavebar(shortcut = true) {
   bar.className = 'savebar';
   bar.setAttribute('role', 'region');
   bar.setAttribute('aria-label', '저장하지 않은 변경');
-  document.body.appendChild(bar);
+  // 화면이 저장 칸을 두면(화 플롯 페이지의 버튼 줄) 그 안에 넣는다. 떠 있는 띠가 확정 버튼을 가리지 않게 한다
+  const slot = $('#app .savebar-slot');
+  if (slot) bar.classList.add('inline');
+  (slot || document.body).appendChild(bar);
   const live = $('#sr-live');
   if (live) live.textContent = `저장하지 않은 변경이 있어요.${shortcut ? ' Ctrl+S로 저장할 수 있어요.' : ''}`;
   return bar;
@@ -1097,6 +1104,10 @@ function renderSavebar() {
   const rb = $('[data-action="libRevert"]');
   if (rb) rb.disabled = !S.libDirty;
   let bar = $('#savebar');
+  // 저장 칸이 있으면 띠를 그 안으로, 없으면 화면 아래로 옮긴다 (새로 만들지 않아 낭독 안내를 되풀이하지 않는다)
+  const slot = $('#app .savebar-slot');
+  if (bar && slot && bar.parentElement !== slot) { slot.appendChild(bar); bar.classList.add('inline'); }
+  else if (bar && !slot && bar.classList.contains('inline')) { document.body.appendChild(bar); bar.classList.remove('inline'); }
   if (lib) {
     if (!bar) bar = newSavebar(false);  // 라이브러리 항목은 Ctrl+S 가 저장하지 않는다
     if (bar.dataset.sig !== 'lib') {
@@ -1568,7 +1579,7 @@ async function routeNow() {
         S.dexOpen = null;
         S.dexRolls = null;
       }
-      if (parts[2] === 'setup' || parts[2] === 'arc') {  // 플롯 서랍의 새 인물 칸도 이름 점검을 보인다
+      if (parts[2] === 'setup' || parts[2] === 'arc') {  // 화 플롯 페이지의 새 인물 칸도 이름 점검을 보인다
         S.nameCheck = await api('POST', `/projects/${enc(S.name)}/names/check`, nameCheckBody()).catch(() => null);
       }
       if (parts[2] === 'style') {
@@ -1584,16 +1595,18 @@ async function routeNow() {
         if (S.rwOpen !== n) S.rwOpen = null;
       }
       if ((parts[2] === 'write' || parts[2] === 'setup') && !S.illModels) S.illModels = await api('GET', '/illust/models').catch(() => []);
-      if (parts[2] === 'arc' && parts[3]) {  // 홈의 아크 칩(arc/a3) · 초안 칸(arc/12)이 고른 아크나 화를 연다
+      if (parts[2] === 'arc' && parts[3]) {  // 홈의 아크 칩(arc/a3)은 그 아크를 고르고, 화 번호(arc/12)는 화 플롯 페이지를 연다
         const a = /^a\d+$/.test(parts[3]) ? Number(parts[3].slice(1)) : null;
         if (a) { S.selArc = a; S.selEp = null; S.selAct = null; }
         else if (n && ep(n)) {
-          S.selEp = n;
+          S.selEp = n;  // 대화 패널이 이 화를 대상으로 삼는다 (chat.js plotScope)
           S.selAct = null;
+          S.editArc = false;
+          S.selPart = null;
           const arc = serial() && S.project.story_arcs.find((x) => x.start_ep <= n && n <= x.end_ep);
           if (arc) S.selArc = arc.number;
         }
-      }
+      } else if (parts[2] === 'arc') S.selEp = null;  // 보드로 돌아오면 대화 대상도 고른 아크로 돌아간다
       if (parts[2] === 'write' || parts[2] === 'arc') await openingLoad(parts[2] === 'write' ? (n || currentEp()) : 0);
       if (parts[2] === 'research') await rsLoad();
       if (parts[2] === 'usage') await usageLoad(S.name);
@@ -1665,6 +1678,7 @@ function render() {
   const f = focusMark();
   drawApp();
   afterDraw(f);
+  renderSavebar();  // 저장 칸이 생기거나 사라졌을 수 있다
   stackBottom();  // 반영 줄(.apply-bar)이 생기거나 사라졌을 수 있다
 }
 
@@ -1696,10 +1710,6 @@ function focusEl(el) {
 function afterDraw(f) {
   const main = $('#app main');
   if (main) { main.id = 'main'; main.tabIndex = -1; }
-  // 서랍은 제목으로 이름을 단다 ('7화 플롯'). 스크린리더가 몇 화 서랍인지 읽는다
-  const d = $('#app .drawer');
-  const h = d && d.querySelector('h2');
-  if (h) { h.id = 'drawer-title'; d.setAttribute('aria-labelledby', 'drawer-title'); d.removeAttribute('aria-label'); }
   document.title = pageTitle();
   // 탭 묶음: 고른 탭만 Tab 으로 들어가고 나머지는 화살표로 옮긴다 (아래 keydown)
   document.querySelectorAll('#app [role="tablist"]').forEach((list) => {
@@ -1729,7 +1739,10 @@ function pageTitle() {
 
 function drawApp() {
   renderSavebar();
-  document.body.classList.remove('chat-open', 'drawer-open');
+  // 버튼 줄 안의 저장 칸(.savebar-slot)에 든 띠는 다시 그리면 함께 사라진다. 잠시 밖으로 빼 두었다가 그린 뒤 새 칸으로 옮긴다 (render)
+  const inline = $('#savebar.inline');
+  if (inline) document.body.appendChild(inline);
+  document.body.classList.remove('chat-open');
   const [p, , page, arg] = S.route;
   if (p === 'settings') {
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:820px;margin:0 auto">${viewSettings()}</main></div>`;
@@ -1756,10 +1769,9 @@ function drawApp() {
     return;
   }
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches };
+  const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${branchStrip(page)}${failStrip(page, n)}${draftStrip(page, n)}${body}</main></div>`;
-  document.body.classList.toggle('drawer-open', !!$('#app .drawer'));  // 넓은 화면은 보드를 서랍 폭만큼 비켜 둔다 (app.css)
   syncPending();
   keepDrafts();  // 저장 · 버리기 · AI 본문으로 초안이 사라졌으면 임시본도 바로 지운다
   syncChat();
@@ -1801,8 +1813,9 @@ function navItems() {
   const p = P();
   const cur = currentEp();
   // 번호는 작업 순서(1~5)에만 붙인다. 도구는 어느 단계에서든 쓰므로 번호 없이 아래 묶음에 둔다
+  // 기호는 단계 번호이거나 토스페이스 이모지 아이콘이다 (navMark 가 그린다)
   const steps = [
-    ['home', base(), 'H', '작품 홈'],
+    ['home', base(), '🏠', '작품 홈'],
     ['setup', base() + '/setup', '1', stepLabel('setup')],
     ['style', base() + '/style', '2', stepLabel('style')],
     ['arc', base() + '/arc', '3', stepLabel('arc')],
@@ -1812,24 +1825,29 @@ function navItems() {
   // 도구마다 [id, 주소, 기호, 이름, 데이터가 있는지]. 데이터가 없는 도구는 '더 보기'로 접는다 (지금 보는 도구는 펼쳐 둔다)
   const has = (xs) => (xs || []).length > 0;
   const tools = [
-    ['cast', base() + '/cast', '人', '인물 · 관계도', has(p.characters)],
-    ['atlas', base() + '/atlas', '地', '지도', has(p.world.locations) || (p.elements || []).some((el) => el.kind === '장소')],
-    ['foreshadow', base() + '/foreshadow', '伏', '복선 센터', has(p.foreshadows)],
-    ['statwin', base() + '/statwin', '#', '상태창 수치', (p.states || []).some((s) => has(s.stats))],
-    ['abilities', base() + '/abilities', '技', '스킬 도감', has(p.abilities)],
-    ['timeline', base() + '/timeline', '時', '작품 속 시간', has((p.timeline || {}).deadlines) || p.episodes.some((e) => e.time && (e.time.day > 0 || e.time.part || e.time.label))],
-    ['lines', base() + '/lines', '⑂', '이야기 줄기', has(p.storylines)],
-    ['causal', base() + '/causal', '∴', '인과율', has(p.elements)],
-    ['branches', base() + '/branches', '枝', '갈래 비교', (branchFam() || { members: [] }).members.length > 1],
-    ['brief', `${base()}/brief/${cur}`, '✎', '작업지시서 (API 없이)', true],
+    ['cast', base() + '/cast', '👥', '인물 · 관계도', has(p.characters)],
+    ['atlas', base() + '/atlas', '🗺️', '지도', has(p.world.locations) || (p.elements || []).some((el) => el.kind === '장소')],
+    ['foreshadow', base() + '/foreshadow', '🪝', '복선 센터', has(p.foreshadows)],
+    ['statwin', base() + '/statwin', '📊', '상태창 수치', (p.states || []).some((s) => has(s.stats))],
+    ['abilities', base() + '/abilities', '📖', '스킬 도감', has(p.abilities)],
+    ['timeline', base() + '/timeline', '⏳', '작품 속 시간', has((p.timeline || {}).deadlines) || p.episodes.some((e) => e.time && (e.time.day > 0 || e.time.part || e.time.label))],
+    ['lines', base() + '/lines', '🔀', '이야기 줄기', has(p.storylines)],
+    ['causal', base() + '/causal', '🔗', '인과율', has(p.elements)],
+    ['branches', base() + '/branches', '🌿', '갈래 비교', (branchFam() || { members: [] }).members.length > 1],
+    ['brief', `${base()}/brief/${cur}`, '📝', '작업지시서 (API 없이)', true],
   ];
   return {
     steps,
-    auto: ['auto', base() + '/auto', 'A', autoMenuLabel()],
+    auto: ['auto', base() + '/auto', '🤖', autoMenuLabel()],
     tools,
-    apart: [['research', base() + '/research', 'R', '연구 · 모델 실험'], ['usage', base() + '/usage', '$', '사용량 · 비용']],
+    apart: [['research', base() + '/research', '🔬', '연구 · 모델 실험'], ['usage', base() + '/usage', '💰', '사용량 · 비용']],
     foot: [['#/settings', '모델 · API 키 설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/', '작품 목록']],
   };
+}
+
+/** 사이드바 앞 기호: 단계 번호는 글자 칸, 그 밖은 토스페이스 이모지 아이콘 (원본 그대로, 낭독은 이름으로 충분해 숨긴다) */
+function navMark(mark) {
+  return /\p{Extended_Pictographic}/u.test(mark) ? `<span class="num tf" aria-hidden="true">${mark}</span>` : `<span class="num" aria-hidden="true">${mark}</span>`;
 }
 
 function sidebar(active) {
@@ -1837,7 +1855,7 @@ function sidebar(active) {
   const done = p.episodes.filter((e) => e.status === 'finalized').length;
   const total = p.meta.target_episodes;
   const { steps, auto, tools, apart, foot } = navItems();
-  const link = ([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}><span class="num" aria-hidden="true">${num}</span>${label}</a>`;
+  const link = ([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}>${navMark(num)}${label}</a>`;
   const shown = tools.filter((t) => t[4]);
   const folded = tools.filter((t) => !t[4]);
   const moreOpen = folded.some((t) => t[0] === active) || navMoreOpen();
@@ -1854,7 +1872,7 @@ function sidebar(active) {
       <div class="small">${done} / ${total}화 반영 완료</div>
     </div>
     <div class="side-menu" id="side-menu">
-    <div class="nav">${steps.map(([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}><span class="num" aria-hidden="true">${num}</span>${label}${/\d/.test(num) ? `<span class="sr-only"> (단계 ${num})</span>` : ''}</a>`).join('')}</div>
+    <div class="nav">${steps.map(([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}>${navMark(num)}${label}${/\d/.test(num) ? `<span class="sr-only"> (단계 ${num})</span>` : ''}</a>`).join('')}</div>
     <div class="nav nav-auto">${link(auto)}</div>
     <div class="nav nav-extra"><span class="small">작품 도구</span>${shown.map(link).join('')}
       ${folded.length ? `<details class="nav-more" data-nav-more${moreOpen ? ' open' : ''}><summary>더 보기 <span class="small">아직 데이터가 없는 도구 ${folded.length}개</span></summary>${folded.map(link).join('')}</details>` : ''}</div>
@@ -1864,6 +1882,7 @@ function sidebar(active) {
       <strong style="font-size:0.8125rem">${esc(cfg.stages ? cfg.stages.write.model : cfg.model || '')}</strong>
       ${aiWarning() ? `<span style="color:var(--red)">${esc(aiWarning())}</span>` : ''}
       ${foot.map(([href, label]) => `<a href="${href}">${label}</a>`).join('\n      ')}
+      <span class="tf-credit">이 페이지에는 토스팀에서 제공한 <a href="https://toss.im/tossface" target="_blank" rel="noopener">토스페이스</a>가 적용되어 있어요.</span>
     </div>
     </div>
   </nav>`;

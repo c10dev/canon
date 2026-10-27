@@ -46,7 +46,7 @@ function viewWrite(n) {
 
   let center;
   if (e.status === 'draft') {
-    center = `<div class="empty"><p>${n}화 플롯이 아직 초안이에요. 확정해야 쓸 수 있어요.</p><a class="btn primary" href="${base()}/arc" data-action="gotoPlot" data-arg="${n}">${n}화 플롯 확정하러 가기</a></div>`;
+    center = `<div class="empty"><p>${n}화 플롯이 아직 초안이에요. 확정해야 쓸 수 있어요.</p><a class="btn primary" href="${base()}/arc/${n}" data-action="gotoPlot" data-arg="${n}">${n}화 플롯 확정하러 가기</a></div>`;
   } else if (!e.text && draft === undefined) {
     center = `<div class="empty">
       ${autoLockNote() || orderNote(blocked)}
@@ -104,7 +104,7 @@ function viewWrite(n) {
         ${e.text && !autoOn() && !headCheck ? ((b) => `<button class="btn small" data-action="checkEp" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('check', n, e.checked_at ? '다시 검수' : '검수하기')) : ''}
         ${e.text && serial() ? widenToggle() : ''}
         ${deviceBadges(n)}
-        <a href="${base()}/arc" data-action="gotoPlot" data-arg="${n}" style="font-size:0.8125rem">플롯 보기</a>
+        <a href="${base()}/arc/${n}" data-action="gotoPlot" data-arg="${n}" style="font-size:0.8125rem">플롯 보기</a>
         ${deleteBlock(e)}
       </aside>
       <section class="card w-body" style="flex:3 1 520px;min-width:0;padding:0;gap:0" aria-label="본문">
@@ -235,8 +235,7 @@ Object.assign(actions, {
     render();
   },
   gotoPlot(n) {
-    S.selEp = Number(n);
-    location.hash = `${base()}/arc`;
+    return actions.openPlot(n);  // 화 플롯 페이지 (plot.js)
   },
   async togglePrompt(n) {
     if (S.promptText) {

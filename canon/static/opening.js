@@ -16,7 +16,7 @@ Object.assign(S, {
 });
 
 JOB_DONE_MSG.hook = (j) => `${j.label}이 끝났어요.`;
-JOB_DONE_MSG.openings = (j) => `${j.ep}화 여는 방식 플롯 안이 도착했어요. 플롯 화면의 ${j.ep}화 서랍 '초반 화 · 여는 방식 고르기'에서 고르세요.`;
+JOB_DONE_MSG.openings = (j) => `${j.ep}화 여는 방식 플롯 안이 도착했어요. ${j.ep}화 플롯 페이지의 '초반 화 · 여는 방식 고르기'에서 고르세요.`;
 JOB_DONE_MSG.opening_drafts = (j) => `${j.ep}화를 여는 방식마다 썼어요. 읽고 고르세요.`;
 JOB_PAGES.hook = ['write'];
 JOB_PAGES.openings = ['arc', 'write'];
@@ -40,11 +40,9 @@ async function openingLoad(n) {
 function openingJobResult(j) {
   if (j.kind === 'openings' && j.result) {
     S.openingPlots[j.ep] = j.result.options;
-    if (S.selEp == null || S.selEp === j.ep) {
-      S.selEp = j.ep;
-      // 안은 서랍 아래쪽에 그려진다. 다시 그린 뒤 첫 '이 플롯으로 바꾸기' 버튼으로 옮겨 도착한 곳을 보인다
-      if (S.route[2] === 'arc') S.focusTarget = `[data-action="openingUsePlot"][data-arg^="${j.ep}:"]`;
-    } else toast(`${j.ep}화 여는 방식 안이 도착했어요. 플롯 화면에서 ${j.ep}화를 열면 보여요`);
+    // 안은 화 플롯 페이지 아래쪽에 그려진다. 그 페이지에 있으면 다시 그린 뒤 첫 '이 플롯으로 바꾸기' 버튼으로 옮겨 도착한 곳을 보인다
+    if (plotPageN() === j.ep) S.focusTarget = `[data-action="openingUsePlot"][data-arg^="${j.ep}:"]`;
+    else toast(`${j.ep}화 여는 방식 안이 도착했어요. ${j.ep}화 플롯을 열면 보여요`);
     return;
   }
   // 판정과 여러 안 본문은 서버가 저장했다. 이 화의 점검 자료를 다시 받아 그린다.

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, SerializationInfo, SerializerFunctionWrapHandler, model_serializer, model_validator
+from pydantic import BaseModel, Field, SerializationInfo, SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
 from .metrics import StyleMetrics
@@ -427,6 +427,12 @@ class EpisodePlot(BaseModel):
     pov: str = Field("", description="이 화의 시점 인물 id. 작품 기본 시점 그대로면 비움")
     pov_mode: str = Field("", description="이 화의 서술 방식 (1인칭, 3인칭 제한, 3인칭 전지). 작품 기본과 같으면 비움")
     time: str = Field("", description="이 화가 시작하는 작품 속 시점: 직전 화에서 얼마나 지났는지나 시간대 (예: 다음 날 아침, 사흘 뒤 밤, 1년 뒤). 직전 화에서 바로 이어지면 비움")
+
+    @field_validator("events")
+    @classmethod
+    def _drop_blank_events(cls, v: list[str]) -> list[str]:
+        # 화 플롯 페이지는 사건을 한 칸씩 고친다. 비워 둔 칸은 저장하지 않는다
+        return [x.strip() for x in v if x.strip()]
 
 
 NEW_CAST_DESC = ("인물 목록에 없는 새 인물이 이 플롯에 꼭 필요할 때만, 전체 설정(speech_style 포함)과 함께. "
