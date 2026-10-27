@@ -1,19 +1,23 @@
 /// 작품 화면 목록. 이름과 순서는 웹 사이드바(`app.js` 의 `sidebar`)와 같아 함께 고친다.
+/// 웹은 데이터가 없는 작품 도구를 '더 보기'로 접는다. 앱은 아직 접지 않고 모두 보인다.
 public enum Screen: String, CaseIterable, Sendable, Identifiable {
     // 작업 순서 (번호가 붙는다)
     case home, setup, style, arc, write, review
+    // 자동 집필 (단계 바로 아래, 제목 없는 묶음)
+    case auto
     // 작품 도구
-    case cast, atlas, foreshadow, statwin, timeline, lines, causal, brief, auto
+    case cast, atlas, foreshadow, statwin, timeline, lines, causal, brief
     // 본편과 분리
     case research, usage
 
     public var id: String { rawValue }
 
-    public enum Group: Sendable { case steps, tools, separate }
+    public enum Group: Sendable { case steps, autoRun, tools, separate }
 
     public var group: Group {
         switch self {
         case .home, .setup, .style, .arc, .write, .review: .steps
+        case .auto: .autoRun
         case .research, .usage: .separate
         default: .tools
         }

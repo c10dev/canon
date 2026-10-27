@@ -52,6 +52,7 @@ public struct RootView: View {
         if let name = model.project {
             List(selection: selectedScreen) {
                 Section { ForEach(Screen.allCases.filter { $0.group == .steps }) { item($0) } }
+                Section { ForEach(Screen.allCases.filter { $0.group == .autoRun }) { item($0) } }
                 Section("작품 도구") { ForEach(Screen.allCases.filter { $0.group == .tools }) { item($0) } }
                 Section("본편과 분리") { ForEach(Screen.allCases.filter { $0.group == .separate }) { item($0) } }
             }

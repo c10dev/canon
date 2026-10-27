@@ -289,7 +289,7 @@ function rsBudgetView() {
     const rows = r.rows.map((x) => `<tr><td>${x.episode}화</td><td><span class="chip ${x.status}">${STATUS[x.status]}</span>${x.measured ? '' : ' <span class="small">가정</span>'}</td>${cell(x.write)}${cell(x.check)}${cell(x.state)}</tr>`).join('');
     out = `<section class="card">
       <div class="between"><h2>${esc(r.backend)} · ${esc(r.model)}</h2><span class="small">최대 컨텍스트 ${r.limit ? rsNum(r.limit) + ' 토큰' : '알 수 없음'}</span></div>
-      ${r.first_over ? `<div class="note err">${r.first_over}화부터 입력만으로 한도를 넘어 서버가 요청을 거절해요. 단편의 검수(check)는 앞선 본문 전체를 넣어 화가 갈수록 커져요. 서버의 컨텍스트를 늘리거나, 설정의 단계별 백엔드에서 넘치는 단계를 Gemini로 돌리세요.</div>` : ''}
+      ${r.first_over ? `<div class="note err">${r.first_over}화부터 입력만으로 한도를 넘어 서버가 요청을 거절해요. 단편의 검수(check)는 앞선 본문 전체를 넣어 화가 갈수록 커져요. 서버의 컨텍스트를 늘리거나, 설정의 '단계별 백엔드와 모델'에서 넘치는 단계를 Gemini로 돌리세요.</div>` : ''}
       ${r.first_tight && r.first_tight !== r.first_over ? `<div class="note warn">${r.first_tight}화부터 출력 여유까지 더하면 한도를 넘어요. 응답이 중간에 잘릴 수 있어요.</div>` : ''}
       ${!r.limit ? '<div class="note plain">이 백엔드는 한도를 알려 주지 않아 넘침은 판단하지 않았어요.</div>' : (!r.first_tight ? '<div class="note ok">플롯이 있는 화는 모두 한도 안에 들어가요.</div>' : '')}
       <div class="rs-scroll"><table class="rs-table"><thead><tr><th>화</th><th>상태</th><th>본문 쓰기</th><th>검수</th><th>상태 변경안</th></tr></thead><tbody>${rows}</tbody></table></div>
