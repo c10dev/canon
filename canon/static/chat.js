@@ -417,8 +417,9 @@ function redrawChat() {
 
 /** render() 직후에 부른다: 패널이 있으면 본문 자리를 비우고, 새 메시지가 오면 맨 아래로 내린다. */
 function syncChat() {
-  const open = !!document.querySelector('.chat-panel');
+  const open = !!document.querySelector('.chat-panel, .tool-col');  // 집필 화면의 다시 생성 열(rewrite.js)도 같은 자리를 쓴다
   document.body.classList.toggle('chat-open', open);
+  stackBottom();
   const log = $('#chat-log');
   if (!log) return;
   log.scrollTop = S.chatScroll ? log.scrollHeight : S.chatScrollTop;
@@ -428,6 +429,7 @@ function syncChat() {
 Object.assign(actions, {
   toggleChat() {
     S.chatOpen = !S.chatOpen;
+    if (S.chatOpen) S.rwOpen = null;  // 집필 화면: 다시 생성 열(rewrite.js)과 같은 자리라 하나만 연다
     S.chatScroll = true;
     try { localStorage.setItem('canon.chat', S.chatOpen ? '1' : '0'); } catch { /* 저장 못 해도 동작에는 상관없다 */ }
     render();

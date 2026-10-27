@@ -622,9 +622,11 @@ function stackBottom() {
   const pa = $('#app .page-actions');  // 화 플롯 페이지의 버튼 줄: 작업 목록 위로 올린다
   st.setProperty('--sb', `${h($('#savebar:not(.inline)'))}px`);
   st.setProperty('--ab', `${ab}px`);
-  st.setProperty('--jb', `${narrowScreen() ? h($('#jobs')) : 0}px`);
+  // 대화 패널이 열리면 알림이 작업 목록과 같은 자리로 오므로 넓은 폭에서도 작업 목록 위에 쌓는다
+  st.setProperty('--jb', `${narrowScreen() || document.body.classList.contains('chat-open') ? h($('#jobs')) : 0}px`);
   st.setProperty('--jh', `${ab || pa ? h($('#jobs')) : 0}px`);
   const jh = h($('#jobs'));
+  st.setProperty('--jo', `${narrowScreen() ? 0 : jh}px`);  // 넓은 폭: 화면에 붙인 칸(집필 화면 왼쪽 칸)이 작업 목록 위에서 끝나게
   st.setProperty('--jp', `${pa && jh ? jh + 20 : 0}px`);  // 버튼 줄 아래 여백(20px)까지 작업 목록 위로
 }
 window.addEventListener('resize', () => stackBottom());

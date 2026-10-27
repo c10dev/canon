@@ -420,11 +420,23 @@ pre.brief { margin: 0; padding: 16px; border-radius: 8px; background: var(--bg);
 body.chat-open .main { padding-right: 480px; }
 body.chat-open #toast { right: 460px; }
 body.chat-open .savebar { left: calc(50% - 220px); }
-@media (max-width: 1100px) {
-  body.chat-open .main { padding-right: 40px; }
-  body.chat-open #toast { right: 20px; bottom: 120px; }
-  body.chat-open .savebar { left: 50%; }
-  .chat-panel { box-shadow: -8px 0 32px rgba(0,0,0,0.16); }
+/* 901~1599px: 대화 패널(또는 다시 생성 열)을 열면 사이드바를 위쪽 띠로 접고 패널을 400px로 줄인다.
+   패널이 본문 · 머리 버튼을 덮지 않게 본문 오른쪽을 패널 폭만큼 비운다 (900px 이하는 아래쪽 시트) */
+@media (min-width: 901px) and (max-width: 1599px) {
+  body.chat-open .chat-panel, body.chat-open .tool-col { width: 400px; }
+  body.chat-open .main { padding-right: 24px; }
+  body.chat-open #toast { right: 420px; }
+  body.chat-open .savebar { left: calc(50% - 200px); }
+  body.chat-open .shell { flex-direction: column; flex-wrap: nowrap; padding-right: 400px; }  /* 위쪽 띠의 찾기 · 메뉴도 패널 왼쪽에 둔다 */
+  body.chat-open .side { position: static; height: auto; overflow: visible; align-self: auto; flex: none; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 16px; border-right: none; border-bottom: 1px solid var(--line); }
+  body.chat-open .side .work-card { order: 1; flex: 1 1 0; min-width: 0; margin: 0; padding: 0; border: none; background: none; }
+  body.chat-open .side .work-card .small, body.chat-open .side .work-card .meter { display: none; }
+  body.chat-open .side .work-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-2); }
+  body.chat-open .menu-toggle { display: inline-flex; order: 2; }
+  body.chat-open .side-menu { display: none; order: 3; flex: 1 1 100%; flex-direction: column; gap: 12px; }
+  body.chat-open .side.open .side-menu { display: flex; }
+  body.chat-open .main { flex: 1 1 auto; width: 100%; }
+  body.chat-open #jobs { left: 16px; }
 }
 /* 좁은 폭: 저장 띠를 화면 폭에 맞추고 문구와 버튼을 줄바꿈한다 */
 @media (max-width: 720px) { .savebar, body.chat-open .savebar { left: 16px; right: 16px; transform: none; flex-wrap: wrap; } .savebar > span { flex: 1 1 100%; } }
@@ -1002,26 +1014,47 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
 .main { padding-bottom: calc(96px + var(--sb, 0px) + var(--ab, 0px) + max(var(--jb, 0px), var(--jh, 0px))); }
 @media (max-width: 640px) { #jobs { bottom: calc(16px + var(--sb, 0px) + var(--ab, 0px)); } #toast { left: 16px; right: 16px; max-width: none; } }
 
-/* ----- 집필 화면: 넓은 폭에서는 본문을 가운데 넓게, 플롯과 내보내기는 왼쪽에 쌓는다 ----- */
+/* ----- 집필 화면: 넓은 폭에서는 본문을 가운데 넓게, 플롯과 내보내기는 왼쪽 한 칸(.w-left)에 쌓는다 ----- */
+.write-cols .w-left { display: flex; flex-wrap: wrap; gap: 16px; flex: 1 1 100%; min-width: 0; }
 @media (min-width: 1200px) {
-  .write-cols { display: grid; grid-template-columns: 300px minmax(0, 1fr); grid-template-areas: "plot body" "side body"; align-items: start; }
-  .write-cols .w-plot { grid-area: plot; }
+  .write-cols { display: grid; grid-template-columns: 300px minmax(0, 1fr); grid-template-areas: "left body"; align-items: start; }
   .write-cols .w-body { grid-area: body; }
-  .write-cols .w-side { grid-area: side; }
+  /* 왼쪽 칸은 화면에 붙여 두고 그 안에서 굴린다. 본문을 읽는 동안 플롯 · 내보내기가 보인다. 높이는 맨 위에서도 화면 안에 들어오게(머리 높이만큼 뺀다), 끝에 작업 목록 높이(--jo)만큼 비워 마지막 버튼을 작업 목록 위로 올릴 수 있다 */
+  .write-cols .w-left { grid-area: left; flex-direction: column; flex-wrap: nowrap; position: sticky; top: 16px; max-height: calc(100vh - 140px); overflow-y: auto; overscroll-behavior: contain; padding-bottom: var(--jo, 0px); scroll-padding-bottom: var(--jo, 0px); }
+  .write-cols .w-left > .card { flex: none !important; }
 }
 /* 칸이 쌓이는 폭에서는 본문을 플롯 카드보다 위에 둔다 */
 @media (max-width: 1199px) { .write-cols .w-body { order: -1; } }
-/* AI 패널을 열면 본문을 먼저 보인다 */
-body.chat-open .write-cols { display: flex; flex-direction: column; }
+/* AI 패널 · 다시 생성 열을 열면 본문을 먼저 보인다 */
+body.chat-open .write-cols { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
 body.chat-open .write-cols .w-body { order: -1; }
+body.chat-open .write-cols .w-left { position: static; max-height: none; overflow: visible; flex: none; flex-direction: row; flex-wrap: wrap; }
+body.chat-open .write-cols .w-left > .card { flex: 1 1 260px !important; }
+/* 본문 띠: 글자 수 · 저장 칸(저장 띠가 들어온다) · 수정 기록 · 복사, 아래 줄에 안내 */
+.w-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 12px 8px 16px; border-bottom: 1px solid var(--line); font-size: 0.75rem; color: var(--muted); }
+.w-bar .w-count { white-space: nowrap; }
+.w-bar .savebar-slot, .w-bar .w-fill { flex: 1 1 auto; min-width: 0; }
+.w-bar .w-hint { flex: 1 1 100%; margin: 0; }
+@media (max-width: 640px) { .w-bar .w-hint { display: none; } }
+/* 다시 생성 열 (rewrite.js rwColumn): 대화 패널과 같은 자리 · 폭 */
+.tool-col { position: fixed; top: 0; right: 0; bottom: 0; width: min(440px, 100vw); z-index: 14; gap: 0; margin: 0; background: var(--surface); border-left: 1px solid var(--line); display: flex; flex-direction: column; }
+.tool-col .tool-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+.tool-col .tool-foot { padding: 12px 16px 16px 20px; border-top: 1px solid var(--line); }
+.tool-col .grid-2 { grid-template-columns: minmax(0, 1fr); }
 .prose textarea { min-height: max(480px, calc(100vh - 220px)); }
 
-/* 휴대폰: AI 패널은 아래쪽 시트로. 위쪽에 본문이 보인다 */
-@media (max-width: 640px) {
-  .chat-panel { top: auto; height: 60vh; width: 100vw; border-left: none; border-top: 1px solid var(--line); border-radius: 12px 12px 0 0; }
-  body.chat-open .main { padding-bottom: calc(60vh + 24px); }
+/* 900px 이하(휴대폰 · 세로 태블릿): AI 패널은 아래쪽 시트로. 위쪽에 본문이 보인다.
+   떠 있는 저장 띠 · 작업 목록 · 알림은 시트 위로 올린다. 시트의 입력칸과 보내기를 가리지 않는다 */
+@media (max-width: 900px) {
+  .chat-panel, .tool-col { top: auto; height: 60vh; width: 100vw; border-left: none; border-top: 1px solid var(--line); border-radius: 12px 12px 0 0; box-shadow: 0 -8px 32px rgba(0,0,0,0.16); }
+  body.chat-open .main { padding-right: 40px; padding-bottom: calc(60vh + 24px); }
   body.chat-open .page-actions { bottom: calc(60vh - 20px + var(--jp, 0px)); }  /* 화 플롯 페이지의 버튼 줄은 시트 위에 붙는다 */
+  body.chat-open .savebar { bottom: calc(60vh + 12px); }
+  body.chat-open #jobs { bottom: calc(60vh + 12px + var(--sb, 0px)); }
+  body.chat-open #toast { right: 20px; bottom: calc(60vh + 12px + var(--sb, 0px) + var(--jb, 0px)); }
 }
+@media (min-width: 721px) and (max-width: 900px) { body.chat-open .savebar { left: 50%; } }
+@media (max-width: 640px) { body.chat-open .main { padding-right: 16px; } body.chat-open #toast { left: 16px; right: 16px; } }
 
 /* ----- 고대비(Windows 고대비 등 forced-colors): 배경 · 그림자로만 나타내던 선택과 영역을 테두리로 ----- */
 .savebar, #toast .t, #jobs { border: 1px solid transparent; }
