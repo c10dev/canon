@@ -26,6 +26,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from functools import lru_cache
 from pathlib import Path
@@ -330,6 +331,25 @@ def api_model(model: str) -> str:
     return settings.claude_model()[0] or DEFAULT_API_MODEL
 
 
+# 프롬프트 캐시: Messages API 는 cache_control 을 단 블록까지만 캐시한다. 프롬프트는 작품 고정 블록이 앞, 화마다 바뀌는
+# 블록이 뒤라(prompts.build_episode_context), 같은 종류의 직전 요청과 겹치는 앞부분 끝에 표시를 달면 다음 화부터 그 앞부분을 읽는다.
+_SEEN: dict[tuple, str] = {}  # (모델, 시스템, 스키마) → 직전 요청 본문
+_SEEN_LOCK = threading.Lock()
+CACHE_MIN_CHARS = 2_000  # 겹치는 앞부분이 이보다 짧으면 표시하지 않는다 (최소 캐시 길이 아래)
+
+
+def cache_blocks(key: tuple, prompt: str) -> str | list[dict]:
+    """직전 같은 종류 요청과 겹치는 앞부분을 단락 경계에서 잘라 캐시 표시를 단 블록으로 나눈다. 겹침이 짧으면 글 그대로."""
+    with _SEEN_LOCK:
+        prev = _SEEN.get(key, "")
+        _SEEN[key] = prompt
+    cut = prompt.rfind("\n\n", 0, len(os.path.commonprefix([prev, prompt])))
+    if cut < CACHE_MIN_CHARS:
+        return prompt
+    return [{"type": "text", "text": prompt[:cut], "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": prompt[cut:]}]
+
+
 def _api_usage(u: Any) -> dict | None:
     if u is None:
         return None
@@ -372,7 +392,7 @@ class ClaudeAPILLM:
         t, tokens = time.time(), None
         self.last_raw = ""
         req: dict[str, Any] = {"model": self.model, "max_tokens": MAX_TOKENS, "system": system,
-                               "messages": [{"role": "user", "content": prompt}]}
+                               "messages": [{"role": "user", "content": cache_blocks((self.model, system, schema and schema.__name__), prompt)}]}
         if schema is not None:
             req["output_config"] = {"format": {"type": "json_schema", "schema": strict_schema(schema)}}
         if self.model.startswith(FALLBACK_MODELS):

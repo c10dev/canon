@@ -1641,7 +1641,8 @@ def pov_block(p: Project, n: int) -> str:
 
 def build_episode_context(p: Project, n: int) -> str:
     """앞쪽은 화가 바뀌어도 그대로인 블록, 뒤쪽은 화마다 바뀌는 블록이다.
-    Gemini 암묵적 캐시는 앞부분이 같은 요청에 적용되므로 이 순서를 지킨다.
+    Claude API 캐시는 앞부분이 같은 요청에 맞으므로(claude.cache_blocks) 이 순서를 지킨다.
+    Gemini 4 암묵적 캐시는 화 사이 겹침을 쓰지 않고 앞 요청을 통째로 품은 요청에만 맞는다 (DESIGN.md 실측).
     장편은 줄거리를 부 → 아크 → 화로 접고, 인물·복선·사실을 이번 화에 관련된 것만 골라 크기를 일정하게 둔다."""
     ep = p.episode(n)
     act = p.act_for(n)
@@ -1659,8 +1660,8 @@ def build_episode_context(p: Project, n: int) -> str:
         used = len(dump(cast_view(always))) if always else 0
         extra, extra_cut = context.fit_cast(extra, used, lambda c: len(dump(cast_view([c]))), context.BUDGET["cast"])
     fs, fs_cut = relevant_foreshadows(p, n)
-    if p.serial:
-        where = structure_text(p, n, "# 현재 부와 아크") + f"\n현재 아크 안 구간: {act.name if act else '?'} ({act.start_ep if act else '?'}~{act.end_ep if act else '?'}화) 목표: {act.goal if act else ''}"
+    if p.serial:  # 아크 안 구간은 아크 안에서도 바뀌어 serial_episode_context 가 접은 줄거리 뒤에 둔다 (act_line)
+        where = structure_text(p, n, "# 현재 부와 아크")
     else:
         where = f"""# 현재 구간: {act.name if act else "?"} ({act.start_ep if act else "?"}~{act.end_ep if act else "?"}화)
 목표: {act.goal if act else ""}
@@ -1687,7 +1688,8 @@ def build_episode_context(p: Project, n: int) -> str:
 
     facts_text = chr(10).join("- " + f for f in facts) or "없음"
     if p.serial:
-        return serial_episode_context(p, n, where=where, line=line, facts=facts_text, facts_cut=facts_cut, els=els,
+        act_line = f"현재 아크 안 구간: {act.name if act else '?'} ({act.start_ep if act else '?'}~{act.end_ep if act else '?'}화) 목표: {act.goal if act else ''}"
+        return serial_episode_context(p, n, where=where, act_line=act_line, line=line, facts=facts_text, facts_cut=facts_cut, els=els,
                                       cast_names=cast_names, extra=extra_block(extra, extra_cut), states=states, rels=rels, cast_ids=cast_ids,
                                       fs=fs, fs_cut=fs_cut, last_text=last_text, tail=f"{pov}{dev}{material_block(p, n)}")
 
@@ -1720,11 +1722,11 @@ def build_episode_context(p: Project, n: int) -> str:
 {dump(ep.plot)}{pov}{dev}{material_block(p, n)}"""
 
 
-def serial_episode_context(p: Project, n: int, *, where: str, line: str, facts: str, facts_cut: int, els: str,
+def serial_episode_context(p: Project, n: int, *, where: str, act_line: str, line: str, facts: str, facts_cut: int, els: str,
                            cast_names: str, extra: str, states: list, rels: list, cast_ids: set[str],
                            fs: list, fs_cut: int, last_text: str, tail: str) -> str:
     """장편 본문 쓰기 컨텍스트. 바뀌는 빈도 순서로 놓는다: 작품 고정(static_context) → 아크 동안 그대로인 것
-    (부 · 아크 구조, 끝난 아크의 접은 줄거리) → 화마다 바뀌는 것. 앞부분이 같을수록 Gemini 암묵적 캐시가 길게 맞는다."""
+    (부 · 아크 구조, 끝난 아크의 접은 줄거리) → 화마다 바뀌는 것(아크 안 구간 act_line 부터). 앞부분이 같을수록 캐시가 길게 맞는다."""
     past, cur = story_parts(p, n)
     secrets, _ = context.pick_secrets(p, cast_ids, elements.plot_text(p.episode(n)), context.BUDGET["secrets"])
     return f"""{static_context(p)}
@@ -1733,6 +1735,9 @@ def serial_episode_context(p: Project, n: int, *, where: str, line: str, facts: 
 
 # 지금까지의 줄거리 (끝난 부와 아크)
 {past or "없음"}
+
+# 이번 화 위치
+{act_line}
 
 # 확정된 사실{f" (이번 화와 관련된 것만, {facts_cut}개 생략)" if facts_cut else ""}
 {facts}{els}

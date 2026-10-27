@@ -4,7 +4,7 @@ from __future__ import annotations
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
 from .llm import LLM, dump
-from . import charlog, foreshadows, statwin, timeline, travel
+from . import charlog, features, foreshadows, statwin, timeline
 from .schema import (
     Act,
     ArcEdit,
@@ -3219,17 +3219,9 @@ def extract_state(llm: LLM, p: Project, n: int) -> StateDelta:
 
 
 def clean_delta(p: Project, d: StateDelta) -> None:
-    """AI 나 채팅 앱이 낸 상태 변경안 정리: 복선 문장을 본문에 맞추고(foreshadows.clean_delta),
-    새 장소는 본문에 나오고 아직 없는 것만 남기고 이미 있는 장소와 비슷한 이름은 경고로 알린다.
-    지도 거리와 작품 속 시간으로 보아 너무 빨리 옮겨 간 인물도 경고로 알린다(travel.delta_warnings).
-    본문 상태창이 반영할 값과 다르면 경고로 알린다(statwin.window_warnings)."""
-    foreshadows.clean_delta(p, d)
-    timeline.clean_delta(p, d)
-    charlog.clean_delta(p, d)
-    d.new_places, warns = elements.clean_places(p, d.new_places, p.episode(d.episode).text)
-    warns += travel.delta_warnings(p, d)
-    warns += statwin.window_warnings(p, d)
-    d.warnings += [w for w in warns if w not in d.warnings]
+    """AI 나 채팅 앱이 낸 상태 변경안 정리. 기능마다 하는 일(복선 문장 맞추기, 새 장소 거르기, 이동 거리 · 상태창 경고 등)은
+    features.CLEAN 목록에 있다."""
+    features.clean(p, d)
 
 
 def apply_delta(p: Project, d: StateDelta) -> None:
@@ -3238,8 +3230,7 @@ def apply_delta(p: Project, d: StateDelta) -> None:
     ep.summary = d.summary
     ep.status, ep.final_text = "finalized", ""
     _add_characters(p, d.new_characters, d.episode)
-    charlog.apply_delta(p, d)  # 작가가 고른 설정 바꾸기 제안만 온다 (자동 집필은 charlog.hold 로 미리 뺀다)
-    elements.add_places(p, d.new_places, d.episode, "본문")
+    features.apply(features.APPLY_FIRST, p, d)  # 설정 바꾸기 제안 · 새 장소
     ep.auto = False  # 자동 집필은 반영한 뒤 True 로 표시한다
 
     for upd in d.character_updates:
@@ -3283,8 +3274,7 @@ def apply_delta(p: Project, d: StateDelta) -> None:
     for f in p.foreshadows:
         if f.id in d.foreshadow_resolved:
             f.status, f.payoff_ep = "resolved", d.episode
-    foreshadows.apply_delta(p, d)
-    timeline.apply_delta(p, d)
+    features.apply(features.APPLY_LAST, p, d)  # 복선 문장 · 작품 속 시간
     p.history.append(d)
     dynamics.take_snapshot(p, d.episode)
     if p.serial:
@@ -3326,7 +3316,7 @@ def revert(p: Project, n: int) -> None:
         p.characters = [c for c in p.characters if c.id not in added]
         have = {c.id for c in p.cast_candidates}
         p.cast_candidates += [c for c in back if c.id not in have]
-    elements.unregister_places(p, n)  # 뒤 반영이 본문에서 등록한 장소
+    features.revert(features.REVERT_FIRST, p, n, snap)  # 뒤 반영이 본문에서 등록한 장소
     p.states = [s.model_copy(deep=True) for s in snap.states]
     p.relationships = [r.model_copy(deep=True) for r in snap.relationships]
     p.ties = [t.model_copy(deep=True) for t in snap.ties]
@@ -3336,10 +3326,7 @@ def revert(p: Project, n: int) -> None:
     p.events = [e for e in p.events if e.episode <= n]
     p.history = [d for d in p.history if d.episode <= n]
     p.snapshots = [s for s in p.snapshots if s.episode <= n]
-    foreshadows.revert(p, n)
-    statwin.revert(p, n)
-    timeline.revert(p, n, snap.deadlines)
-    charlog.revert(p, n)
+    features.revert(features.REVERT_LAST, p, n, snap)  # 복선 문장 · 상태창 기록 · 작품 속 시간 · 설정 변경 기록
     for ep in p.episodes:
         if ep.plot.number > n and ep.status == "finalized":
             ep.status, ep.summary, ep.auto, ep.final_text = "written", "", False, ""

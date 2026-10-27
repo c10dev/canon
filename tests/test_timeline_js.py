@@ -91,3 +91,53 @@ def test_timeline_js_calendar_and_warn_quote():
     assert out["quotes"][1] == "29일 후 금요일 오전 10시"
     assert out["quotes"][2] == sentence
     assert out["quotes"][3:] == ["", ""]
+
+
+# tlCalendar · tlDay · tlLeft 를 timeline.calendar · current_day · left 와 직접 맞춰 본다 (AGENTS.md 의 "같은 규칙")
+RULES = """
+const vm = require('vm');
+const fs = require('fs');
+const data = JSON.parse(fs.readFileSync(0, 'utf8'));
+const el = () => ({ appendChild() {}, set textContent(v) {} });
+const ctx = {
+  data, S: {}, actions: {}, CHAT_TOPICS: {}, P: () => data.project, ep: () => null,
+  document: { addEventListener() {}, createElement: el, head: el() },
+};
+vm.createContext(ctx);
+vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), ctx);
+vm.runInContext(`globalThis.out = {
+  calendars: data.cases.map((c) => {
+    Object.assign(data.project.timeline, c);
+    const x = tlCalendar();
+    return [x.first ? x.first.toISOString().slice(0, 10) : null, x.year, x.wd];
+  }),
+  days: data.ns.map(tlDay),
+  lefts: data.lefts.map(([d, day]) => tlLeft({ day: d }, day)),
+};`, ctx);
+process.stdout.write(JSON.stringify(ctx.out));
+"""
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
+def test_timeline_js_calendar_day_left_match_python():
+    from canon.schema import Deadline, Episode, EpisodePlot
+
+    p = Project()
+    days = {1: 1, 2: 0, 3: 4, 5: 0, 6: 9}  # 2화 · 5화는 날수를 모른다, 4화는 화가 없다
+    p.episodes = [Episode(plot=EpisodePlot(number=n, act="기", title=f"{n}화", summary="", events=[], characters=[],
+                                         emotional_shift="", ending_hook=""), time=StoryTime(day=d)) for n, d in days.items()]
+    lefts = [(5, 3), (3, 3), (2, 5), (0, 3), (4, 0), (10, 1)]
+    ns = [1, 2, 3, 4, 5, 6, 7]
+    data = {"project": json.loads(p.model_dump_json()), "cases": [{"start": s, "start_date": d} for s, d in CASES],
+            "ns": ns, "lefts": lefts}
+    run = subprocess.run(["node", "-e", RULES, str(STATIC / "timeline.js")], input=json.dumps(data),
+                         capture_output=True, text=True, encoding="utf-8")
+    assert run.returncode == 0, run.stderr
+    out = json.loads(run.stdout)
+
+    for (start, iso), got in zip(CASES, out["calendars"]):
+        p.timeline.start, p.timeline.start_date = start, iso
+        first, year, wd = timeline.calendar(p)
+        assert got == [first.isoformat() if first else None, year, wd], (start, iso)
+    assert out["days"] == [timeline.current_day(p, n) for n in ns]
+    assert out["lefts"] == [timeline.left(Deadline(id="d", what="x", day=d), day) for d, day in lefts]
