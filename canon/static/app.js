@@ -1533,6 +1533,8 @@ async function routeNow() {
       if (S.pendingJob && S.pendingJob.project === S.name && !S.jobsApplied.has(S.pendingJob.id)) applyJobResult(S.pendingJob);
       S.pendingJob = null;
       await loadPending();
+      if (!branchFam() || !parts[2] || parts[2] === 'branches') await branchLoad();  // 갈래 머리 띠 (branches.js). 작품을 바꿨거나 작품 홈 · 갈래 비교에 오면 다시 읽는다
+      if (parts[2] === 'branches') await branchCompareLoad(parts[3], Number(parts[4]) || 0);
       scanDrafts();
       S.dirty = false;
       const n = Number(parts[3]);
@@ -1731,9 +1733,9 @@ function drawApp() {
     return;
   }
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, statwin: viewStatwin, timeline: viewTimeline };
+  const views = { setup: viewSetup, style: viewStyle, arc: () => (serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, statwin: viewStatwin, timeline: viewTimeline, branches: viewBranches };
   const body = (views[page] || viewHome)(n);
-  $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${failStrip(page, n)}${draftStrip(page, n)}${body}</main></div>`;
+  $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${branchStrip(page)}${failStrip(page, n)}${draftStrip(page, n)}${body}</main></div>`;
   document.body.classList.toggle('drawer-open', !!$('#app .drawer'));  // 넓은 화면은 보드를 서랍 폭만큼 비켜 둔다 (app.css)
   syncPending();
   keepDrafts();  // 저장 · 버리기 · AI 본문으로 초안이 사라졌으면 임시본도 바로 지운다
@@ -1793,6 +1795,7 @@ function sidebar(active) {
     ['timeline', base() + '/timeline', '時', '작품 속 시간', has((p.timeline || {}).deadlines) || p.episodes.some((e) => e.time && (e.time.day > 0 || e.time.part || e.time.label))],
     ['lines', base() + '/lines', '⑂', '이야기 줄기', has(p.storylines)],
     ['causal', base() + '/causal', '∴', '인과율', has(p.elements)],
+    ['branches', base() + '/branches', '枝', '갈래 비교', (branchFam() || { members: [] }).members.length > 1],
     ['brief', `${base()}/brief/${cur}`, '✎', '작업지시서 (API 없이)', true],
   ];
   const link = ([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}><span class="num" aria-hidden="true">${num}</span>${label}</a>`;
@@ -1805,7 +1808,7 @@ function sidebar(active) {
     <button type="button" class="btn small menu-toggle" data-action="toggleMenu" aria-expanded="${!!S.menuOpen}" aria-controls="side-menu">메뉴</button>
     <div class="work-card">
       <div class="small">현재 작품</div>
-      <div class="work-title">${esc(p.meta.title || S.name)}</div>
+      <div class="work-title">${esc(p.meta.title || S.name)}</div>${branchSideTag()}
       <div class="small">${esc(p.meta.genre || '장르 미정')} · ${total}화</div>
       <div class="meter" aria-hidden="true"><i style="left:0;width:${Math.round((done / Math.max(total, 1)) * 100)}%;background:var(--green)"></i></div>
       <div class="small">${done} / ${total}화 반영 완료</div>

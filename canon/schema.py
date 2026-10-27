@@ -1410,6 +1410,61 @@ class Project(BaseModel):
         return c
 
 
+# ---------- 갈래 (canon/branches.py) ----------
+
+ForkMode = Literal["clear", "keep"]
+
+
+class BranchInfo(BaseModel):
+    """갈래 정보. project.json 밖의 projects/<폴더>/branch.json 에 둬서 화면이 작품을 통째로 저장해도 덮지 않는다.
+    파일이 없으면 갈래가 없는 작품이다. 갈래끼리는 폴더 이름이 아니라 id 로 잇는다."""
+    id: str = Field(description="이 작품의 id. 폴더 이름을 바꿔도 그대로다")
+    family: str = Field(description="본편과 모든 갈래가 함께 쓰는 id")
+    parent: str = Field("", description="갈라져 나온 작품의 id. 본편은 빈 값")
+    from_ep: int = Field(0, description="이 화부터 parent 와 다르다 (1~(from_ep-1)화를 함께 쓴다). 본편은 0")
+    label: str = Field("", description="갈래 이름 (예: B안 - 세린이 떠난다)")
+    note: str = ""
+    at: str = Field("", description="갈라진 시각")
+    base: str = Field("", description="갈라질 때 1~(from_ep-1)화 본문의 해시. 함께 쓰는 앞 화가 나중에 달라졌는지 본다")
+
+
+class BranchSide(BaseModel):
+    """갈래 비교에서 한 화의 한쪽."""
+    title: str = ""
+    status: str = ""
+    summary: str = ""
+    chars: int = Field(0, description="본문 글자 수")
+
+
+class BranchEpisode(BaseModel):
+    number: int
+    a: Optional[BranchSide] = Field(None, description="그 화가 없으면 비움")
+    b: Optional[BranchSide] = None
+
+
+BranchRowKind = Literal["character", "tie", "fact", "foreshadow", "time", "setting"]
+
+
+class BranchDiffRow(BaseModel):
+    """두 갈래의 같은 화 반영 직후 상태에서 다른 칸 하나."""
+    kind: BranchRowKind
+    who: str = Field("", description="인물 이름, 관계 쌍, 복선 id")
+    field: str = ""
+    a: str = ""
+    b: str = ""
+
+
+class BranchDiff(BaseModel):
+    from_ep: int = Field(description="이 화부터 두 갈래가 다르다")
+    episode: int = Field(description="상태를 견준 화")
+    ready_a: bool = Field(False, description="a 갈래에 그 화 반영 직후 스냅샷이 있다")
+    ready_b: bool = False
+    episodes: list[BranchEpisode] = Field(default_factory=list, description="갈라진 화부터 화별 제목 · 요약")
+    text_a: str = Field("", description="a 갈래의 그 화 본문")
+    text_b: str = ""
+    rows: list[BranchDiffRow] = Field(default_factory=list, description="양쪽 모두 반영한 화일 때만 채운다")
+
+
 Snapshot.model_rebuild()
 SerialRebuild.model_rebuild()
 ShortArchive.model_rebuild()

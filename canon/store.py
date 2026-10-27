@@ -12,7 +12,7 @@ from pathlib import Path
 
 from . import cancel
 from .dynamics import seed_ties
-from .schema import Project
+from .schema import BranchInfo, Project
 
 ROOT = Path(os.environ.get("CANON_HOME", "projects"))
 
@@ -110,6 +110,36 @@ def save(name: str, p: Project) -> Path:
                 f"# {ep.plot.number}화. {ep.plot.title}\n\n{ep.text}\n", encoding="utf-8"
             )
     return path
+
+
+# ---------- 갈래 정보 (canon/branches.py) ----------
+# projects/<이름>/branch.json. project.json 밖에 둬서 화면이 작품을 통째로 저장해도 덮지 않는다.
+
+def _branch_path(name: str) -> Path:
+    return project_dir(name) / "branch.json"
+
+
+def load_branch(name: str) -> BranchInfo | None:
+    """갈래 정보. 파일이 없거나 깨졌으면 갈래가 없는 작품으로 본다."""
+    path = _branch_path(name)
+    if not path.exists():
+        return None
+    try:
+        return BranchInfo.model_validate_json(path.read_text(encoding="utf-8"))
+    except ValueError:
+        return None
+
+
+def save_branch(name: str, b: BranchInfo) -> Path:
+    path = _branch_path(name)
+    tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp.write_text(b.model_dump_json(indent=2), encoding="utf-8")
+    os.replace(tmp, path)
+    return path
+
+
+def drop_branch(name: str) -> None:
+    _branch_path(name).unlink(missing_ok=True)
 
 
 def backup_path(name: str, tag: str) -> Path:
