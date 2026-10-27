@@ -6,7 +6,7 @@ public enum Screen: String, CaseIterable, Sendable, Identifiable {
     // 자동 집필 (단계 바로 아래, 제목 없는 묶음)
     case auto
     // 작품 도구
-    case cast, atlas, foreshadow, statwin, timeline, lines, causal, brief
+    case cast, atlas, foreshadow, statwin, timeline, lines, causal, branches, brief
     // 본편과 분리
     case research, usage
 
@@ -39,6 +39,7 @@ public enum Screen: String, CaseIterable, Sendable, Identifiable {
         case .timeline: "時"
         case .lines: "⑂"
         case .causal: "∴"
+        case .branches: "枝"
         case .brief: "✎"
         case .auto: "A"
         case .research: "R"
@@ -62,6 +63,7 @@ public enum Screen: String, CaseIterable, Sendable, Identifiable {
         case .timeline: "작품 속 시간"
         case .lines: "이야기 줄기"
         case .causal: "인과율"
+        case .branches: "갈래 비교"
         case .brief: "작업지시서 (API 없이)"
         case .auto: "자동 집필"
         case .research: "연구 · 모델 실험"

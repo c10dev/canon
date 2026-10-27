@@ -38,10 +38,10 @@ canon-probe            개발용: 실제 서버 응답이 타입대로 읽히는
 |---|---|
 | `CanonCore` | `ServerConfig`, `ClientIdentity`, `CanonError`(웹 `fmtErr` 와 같은 문구), `APIPath`(작품 이름 인코딩), `Job` · `JobRequest` · `JobTracker` · `JobText`(웹 `pollJobs`, `JOB_DONE_MSG`), `PendingList`, `JSONValue`(모양을 모르는 작업 결과), `KoreanText`(조사, 'a~b화', 날짜), `EpisodeStatus`, `Screen`(사이드바) |
 | `CanonAPI` | 생성된 `Client`(빌드 때 `openapi.json` 에서), `CanonServer`(헤더, 오류 바꾸기, 타입 없는 GET), `ProjectLoader`(작품 전체를 ETag 로) |
-| `CanonUI` | `Notice`, `NotPortedYet`, 입력 칸 `LabeledText` · `ListField`(한 줄에 하나씩) · `ChipRow` · `Flow`(줄바꿈 배치) |
+| `CanonUI` | `Notice`, `NotPortedYet`, 입력 칸 `LabeledText` · `ListField`(한 줄에 하나씩) · `ChipRow` · `Flow`(줄바꿈 배치), 갈래 만들기 칸 열기 `BranchOpener`(환경 값 `openBranchForm`, 작품 홈 · 상태 승인 · 갈래 비교 단추가 부르고 `CanonAppUI` 가 칸을 띄운다) |
 | `CanonStore` | `ProjectDocument`(연 작품: 받기, `edit`, 고친 표시, `save` 의 409 충돌 · 덮기, 서버가 지킨 칸 알림, 작업이 쓴 화만 받기 `merge`), `JobCenter`(작업 시작 · 멈추기 · 지켜보기, 검토를 기다리는 결과 `results` 와 실패 `failures`), `ProjectStoring` · `JobServing` |
-| `FeatureProjects` | 작품 목록: `ProjectsModel`, `ProjectCardText`(웹 `projectNext`), `LiveProjectListing`, `ProjectsView` |
-| `FeatureHome` | 작품 홈: `HomeSummary`(웹 `viewHome` · `nextStep` · `currentEp`), `HomeView` |
+| `FeatureProjects` | 작품 목록: `ProjectsModel`, `ProjectCardText`(웹 `projectNext`), `ProjectGroup`(같은 갈래 집안을 본편 카드 하나로 묶기, 웹 `branchGroups`), `LiveProjectListing`, `ProjectsView` |
+| `FeatureHome` | 작품 홈: `HomeSummary`(웹 `viewHome` · `nextStep` · `currentEp`), `HomeView`, 다른 화면 모듈이 끼우는 칸 `HomeSlots`(환경 값 `homeSlots`: 갈래 카드) |
 | `FeatureStatWin` | 상태창 수치: `StatWinModel`, `StatWinText`(틀 이름 · 순서, 보낼 값. `+3` · `+독 내성` 계산은 서버 `statwin.resolve` 가 한다), `StatCell`(비교표 칸), `LiveStatWin`, `StatWinScreen` |
 | `FeatureForeshadow` | 복선 센터: `ForeshadowModel`, `ForeshadowChange`(고치기 · 걸린 문장 지우기 · 정리), `ForeshadowText`(웹 `fsItem` · `fsShown`), `ForeshadowTrack`(웹 `fsTrack`), `LiveForeshadowService`, `ForeshadowView` |
 | `FeatureUsage` | 사용량 · 비용: `UsageModel`(기간 · 작품 거르기, 가격표 고치기 · 되돌리기), `UsageText` · `UsageChart`(웹 `usage.js` 문구 · 막대), `LiveUsageSource`, `UsageView` |
@@ -56,7 +56,8 @@ canon-probe            개발용: 실제 서버 응답이 타입대로 읽히는
 | `FeatureLines` | 이야기 줄기: `LinesModel`(줄기 고르기 · 고치기 · 지우기, 화 붙이기 · 빼기, AI 제안 `storyline` 받기 · 고른 화와 함께 적용 · 버리기), `LineRules`(웹 `lines.js` 규칙 · 문구), `LineMapLayout`(노선도 자리 · 누른 곳), `LiveLinesService`, `LinesScreen`. 다른 화면이 쓰는 `LineField`(플롯 편집기 줄기 칸) · `LineBadges`(화 카드 줄기 표시) |
 | `FeatureCausal` | 인과율: `CausalModel`(요소 더하기 · 고치기 · 지우기 · 되살리기, 영향 분석 작업 `impact` 시작, 끝나면 분석만 받아 오기, 변경안 고르기 · 적용 · 버리기 · 다시 검토), `CausalText`(웹 `causal.js` 문구, `elBasis` · 배지 · 관련 화 지도 칸, `chat.js` `plotDiff`), `LiveCausalService`, `CausalView` |
 | `FeatureBrief` | 작업지시서 (API 없이): `BriefModel`(화 · 지시서 종류 고르기, 지시서 받기, 받은 본문 저장, 받은 JSON 서버 검사), `BriefText`(웹 `viewBrief` 문구), `LiveBriefService`, `BriefView`(복사 · .md 내려받기) |
-| `CanonAppUI` | `AppModel`(서버 · 작품 · 화면 · 작업 · 연 작품), `RootView`, 저장 띠 `SaveBar`, 서버 주소 화면 |
+| `FeatureBranches` | 갈래: `BranchModel`(연 작품의 집안 받기, 갈래 만들기 · 409 는 폴더 이름 칸 오류, 본편으로 · 끊기, 비교 받기), `BranchDraft`(만들기 칸: 폴더 이름이 갈래 이름을 따라감, 칸 검사), `BranchText`(웹 `branches.js` 문구 · 규칙), `LiveBranchService`, 작품 머리 띠 `BranchStrip`, 사이드바 줄 `BranchSideTag`, 작품 홈 카드 `BranchHomeCard`, 만들기 칸 `BranchFormView`, `BranchCompareScreen`. 복사 · 되돌리기 · 비교 계산은 서버 `branches.py` 가 한다 |
+| `CanonAppUI` | `AppModel`(서버 · 작품 · 화면 · 작업 · 연 작품 · 갈래 집안), `RootView`, 저장 띠 `SaveBar`, 서버 주소 화면 |
 
 ## 개발 명령
 
@@ -132,6 +133,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | 7 | `FeatureLines` | 이야기 줄기 (노선도, 줄기 목록 · 편집, 화 붙이기, AI 제안) | `lines.js` | 작업 `storyline`, `apply_storyline`, `remove_storyline` — **됨**. 플롯 편집기의 줄기 칸 `lineField` · 화 카드 `lineBadge` 는 `LineField` · `LineBadges` 이고, `CanonAppUI` 가 `PlotSlots`(환경 값 `plotSlots`)로 `FeaturePlot` 에 끼운다. 화 점을 누르면 플롯 화면으로만 옮기고 그 화를 열지는 않음 |
 | 7 | `FeatureCausal` | 인과율 (요소, 관련 화 지도, 영향 분석) | `causal.js` | `element_links`(`ElementLink`), 작업 `impact`, `impact_apply` · `impact_dismiss` · `impact_reopen` — **됨**. 지도 칸에서 그 화로 바로 가기는 화면만 옮긴다 (화를 고르지 않음) |
 | 7 | `FeatureBrief` | 작업지시서 (API 없이) | `write.js` `viewBrief` | `brief`(`BriefText`), `put_text`, `parse_state` — **됨**. 받은 JSON 은 서버가 검사하고, `CanonAppUI` 가 `BriefView` 의 `handOff` 로 `JobCenter.offer` 에 놓아 상태 승인 화면의 검토 대기(`state:<화>`)가 된다 (웹 `setDelta(n, d, 'chat')`, 화면 메모리에만) |
+| 7 | `FeatureBranches` | 갈래 비교 (작품 머리 띠, 사이드바 갈래 줄, 작품 목록 묶기, 작품 홈 갈래 카드, 갈래 만들기, 비교) | `branches.js`, `home.js` `viewProjects`, `app.js` `sidebar` | `branch_family` · `make_branch` · `compare_branches` · `promote_branch` · `detach_branch`(`BranchFamily` · `BranchMember` · `BranchDiff`) — **됨**. 웹은 갈래가 없으면 사이드바의 '갈래 비교'를 '더 보기'로 접지만 앱은 다른 도구처럼 늘 보인다. 비교 화면의 '집필로'는 그 화를 고르지 않고 화면만 옮긴다 |
 | 7 | 작품 도구 (남은 것) | 지도 | `atlas.js` | `atlas` 엔드포인트 (지도 생성기는 다른 세션이 고치는 중) |
 | 8 | `FeatureUsage` | 사용량 · 비용 | `usage.js` | `usage_summary` · `usage_prices` — **됨** |
 | 8 | `FeatureSettings` | 모델 · API 키 설정 (사이드바 칸이 아니라 툴바 시트) | `settings.js` `viewSettings` `claude.js` `vertex.js` | `config` · `put_config`(`ConfigView`, 본문 `SettingsIn`), `test_config`(`ConfigTest`), `config_models`(`ModelList`), `config_health`(`ConfigHealth`), `claude_status`(`ClaudeStatus`) — **됨** (가격표 칸은 사용량 화면에서) |
@@ -169,6 +171,10 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 | `JobTracker` · `JobText` | `pollJobs` · `finishJob` · `JOB_DONE_MSG` · `PENDING_KINDS`(서버 `web.PENDING_KINDS`) |
 | `JobCenter` · `ProjectDocument.merge` | `startJob` · `pollJobs` 의 화 받아 오기 · `mergeEpisodes` · `loadPending` · `jobFor` · `jobOwns` · `jobBtn`, `offer` 는 `setDelta(n, d, 'chat')` |
 | `ProjectCardText` | `viewProjects` · `projectNext` |
+| `ProjectGroup.make`, `ProjectCardText.summary(_:branches:)` · `branchTitle` · `branchDetail` · `folder` | `branches.js` `branchGroups`, `home.js` `viewProjects` 의 `branchRow` (시험 기대값은 node 로 돌린 웹 결과) |
+| `BranchText.name` · `sideTag` · `strip` · `homeRows` · `promoteQuestion` · `detachQuestion` | `branches.js` `branchName` · `branchSideTag` · `branchStrip` · `branchHomeCard` · `branchPromote` · `branchDetach` |
+| `BranchText.folderOf` · `folderBad` · `folder` · `lastFinal` · `formDesc` · `formNote`, `BranchDraft` | `home.js` `folderOf` · `FOLDER_BAD`, `branches.js` `branchFolder` · `lastFinal` · `branchFormCard` · `syncBranchForm` · `branchCreate` (시험 기대값은 node 로 돌린 웹 결과) |
+| `BranchText.pick` · `headline` · `episodeRows` · `episodeNote` · `notReady` · `diffRows` | `branches.js` `branchCompareLoad` · `viewBranches` · `BC_KIND` |
 | `HomeSummary` | `viewHome` · `nextStep` · `currentEp` · `actGroups` |
 | `SaveText` · `ProjectDocument.edited` | `save()` 의 토스트와 `edited` |
 | `StatWinText.pick` · `outgoing` · `presetLabel`, `StatCell` | `statwin.js` `swLoad` · `swSave` · `swEditor` · `swTimeline` |

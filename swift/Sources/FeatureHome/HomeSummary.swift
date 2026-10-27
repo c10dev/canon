@@ -85,6 +85,8 @@ public struct HomeSummary: Equatable, Sendable {
     public let openClues: [Clue]
     public let facts: [String]
     public let factCount: Int
+    /// 반영한 화 수. 하나라도 있으면 '갈래 만들기'를 보인다.
+    public let finalized: Int
 
 
     public init(_ p: Project, name: String) {
@@ -104,6 +106,7 @@ public struct HomeSummary: Equatable, Sendable {
         let finished = { (s: Int, e: Int) in (s...max(s, e)).allSatisfy { n in eps.first { $0.plot.number == n }.map { Self.status($0) == .finalized } ?? false } }
 
         self.serial = serial
+        finalized = fin
         title = (m?.title ?? "").isEmpty ? name : m!.title!
         logline = m?.logline ?? ""
         let words = (m?.wordsPerEpisode ?? 0).formatted(.number.locale(Locale(identifier: "ko_KR")))

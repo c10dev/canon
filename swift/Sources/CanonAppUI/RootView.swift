@@ -4,6 +4,7 @@ import CanonCore
 import CanonStore
 import CanonUI
 import FeatureAuto
+import FeatureBranches
 import FeatureForeshadow
 import FeatureHome
 import FeatureLines
@@ -44,19 +45,46 @@ public struct RootView: View {
                     Notice(n.text, isError: n.isError) { model.jobs.dismissNotice() }.padding()
                 }
                 if let doc = model.document { SaveBar(document: doc).padding(.horizontal) }
+                if let b = model.branches {
+                    if let n = b.notice { Notice(n) { b.dismissNotice() }.padding(.horizontal).padding(.top, 8) }
+                    BranchStrip(model: b, home: model.screen == .home) { model.open($0) }.padding(.horizontal).padding(.top, 8)
+                }
                 detail.frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .environment(\.openBranchForm, BranchOpener { [model] n in model.openBranchForm(n) })
+            .environment(\.homeSlots, homeSlots)
         }
         .task(id: model.server.config) { await model.jobs.watch() }
         .sheet(isPresented: $showServer) { ServerSettingsView(model: model) }
         .sheet(isPresented: $showSettings) { SettingsView(server: model.server) }
+        .sheet(item: Binding(get: { model.branchForm }, set: { model.branchForm = $0 })) { draft in
+            if let b = model.branches, let doc = model.document {
+                BranchFormView(model: b, document: doc, draft: draft) { model.openBranch($0) }
+            }
+        }
+    }
+
+    /// 작품 홈의 갈래 카드 (FeatureBranches). 작품 홈에 올 때마다 집안을 다시 읽는다 (웹 `route` 의 `branchLoad`).
+    private var homeSlots: HomeSlots {
+        let m = model
+        return HomeSlots(branchCard: {
+            guard let b = m.branches else { return AnyView(EmptyView()) }
+            return AnyView(BranchHomeCard(model: b, open: { m.open($0) }, compare: { other in
+                b.wanted = other
+                m.screen = .branches
+            }).task { await b.load() })
+        })
     }
 
     @ViewBuilder
     private var sidebar: some View {
         if let name = model.project {
             List(selection: selectedScreen) {
-                Section { ForEach(Screen.allCases.filter { $0.group == .steps }) { item($0) } }
+                Section {
+                    ForEach(Screen.allCases.filter { $0.group == .steps }) { item($0) }
+                } header: {
+                    if let b = model.branches { BranchSideTag(model: b) }
+                }
                 Section { ForEach(Screen.allCases.filter { $0.group == .autoRun }) { item($0) } }
                 Section("작품 도구") { ForEach(Screen.allCases.filter { $0.group == .tools }) { item($0) } }
                 Section("본편과 분리") { ForEach(Screen.allCases.filter { $0.group == .separate }) { item($0) } }
@@ -125,6 +153,7 @@ public struct RootView: View {
         case .auto: if let doc = model.document { AutoScreen(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
         case .lines: if let doc = model.document { LinesScreen(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
         case .causal: if let doc = model.document { CausalView(document: doc, jobs: model.jobs, service: LiveCausalService(server: model.server)) { model.screen = $0 } }
+        case .branches: if let doc = model.document, let b = model.branches { BranchCompareScreen(model: b, document: doc, open: { model.open($0) }) { model.screen = $0 } }
         case .brief: if let doc = model.document { BriefView(document: doc, service: LiveBriefService(server: model.server), go: { model.screen = $0 }, handOff: { n, d in handOff(doc, n, d) }) }
         default:
             NotPortedYet(screen.label(serial: false))
