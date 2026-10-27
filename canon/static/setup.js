@@ -403,6 +403,32 @@ function setupTier(c, b, id) {
     <select id="${id}" data-bind="${b}.tier">${TIERS.map(([v, l]) => `<option value="${v}"${(c.tier || 'main') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div>`;
 }
 
+// 인물을 AI에 넣는 방식 (Character.context). 인과율 요소 화면(causal.js)의 'AI에 넣기'와 같은 고르기이고,
+// 인물은 '관련 있을 때' 대신 '등장할 때'다. 고르는 규칙은 서버 context.core_ids · off_ids
+const CHAR_CTX = [['auto', '등장할 때'], ['always', '항상'], ['off', '넣지 않음']];
+const CHAR_CTX_HINT = {
+  auto: '등장할 때: 주역은 매 화, 조연 · 단역은 플롯에 나오는 화에만 넣어요.',
+  always: '항상: 비중과 상관없이 매 화 설정을 넣어요. 장편에서 글자 예산을 넘기면 그 화 조연 · 단역 설정을 대신 빼요.',
+  off: '넣지 않음: 본문 쓰기, 검수, 상태 정리, 플롯 기획에 설정 · 상태 · 관계를 넣지 않아요. 플롯에 나오면 이름만 넣어요.',
+};
+const EYE = '<path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z"/><circle cx="8" cy="8" r="2"/>';
+const eyeIcon = (off) => `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" style="vertical-align:-2px">${EYE}${off ? '<path d="M2 14L14 2"/>' : ''}</svg>`;
+
+/** 인물 카드 접힌 줄의 넣기 표시. 등장할 때(기본)는 표시하지 않는다 */
+function charCtxMark(c) {
+  const k = c.context || 'auto';
+  if (k === 'auto') return '';
+  const label = k === 'always' ? '항상 AI에 넣음' : 'AI에 넣지 않음';
+  return ` <span class="small" title="${label}" style="color:var(--${k === 'always' ? 'accent-ink' : 'muted'})">· ${eyeIcon(k === 'off')} ${label}</span>`;
+}
+
+/** 인물 카드의 AI에 넣기 고르기 */
+function charContextField(c, i) {
+  const now = c.context || 'auto';
+  return `<div class="field"><span class="label">AI에 넣기</span><div class="seg" role="group" aria-label="AI에 넣기">${CHAR_CTX.map(([k, l]) => `<button type="button" aria-pressed="${now === k}" data-action="charContext" data-arg="${i}|${k}">${l}</button>`).join('')}</div>
+    <span class="small">${CHAR_CTX_HINT[now]}</span></div>`;
+}
+
 // 비어 있으면 카드를 펼쳐 두는 인물 칸
 const CHAR_CORE = ['name', 'role', 'goal', 'wound', 'speech_style'];
 
@@ -427,13 +453,14 @@ function viewSetup() {
     const issues = ((S.nameCheck || {}).issues || []).filter((x) => (x.ids || []).includes(c.id)).length;
     const open = cardOpen(charKey(c), charNeedsWork(c));
     return `<details class="char-card" id="char-${i}" data-open-key="${esc(charKey(c))}" style="display:block"${open ? ' open' : ''}>
-      <summary ${FOLD_SUMMARY}>${foldHead(open)}<strong style="font-size:1rem" data-char-head="${i}">${esc(c.name || '이름 없음')}</strong> <span class="small" data-char-sub="${i}">· ${esc(charSub(c))}</span>${issues ? ` <span class="small" style="color:var(--amber-ink)">· 이름 점검 ${issues}건</span>` : ''}</summary>
+      <summary ${FOLD_SUMMARY}>${foldHead(open)}<strong style="font-size:1rem" data-char-head="${i}">${esc(c.name || '이름 없음')}</strong> <span class="small" data-char-sub="${i}">· ${esc(charSub(c))}</span>${charCtxMark(c)}${issues ? ` <span class="small" style="color:var(--amber-ink)">· 이름 점검 ${issues}건</span>` : ''}</summary>
       <div style="display:flex;flex-direction:column;gap:10px;padding-top:10px">
       <div class="row" style="justify-content:flex-end"><button class="btn small danger" data-action="removeCharacter" data-arg="${i}" aria-label="${esc(c.name || c.id)} 삭제">삭제</button></div>
       <div class="grid-2">${input('이름', b + '.name')}${input('역할', b + '.role', { placeholder: '주인공, 상대역, 조력자…' })}</div>
       ${nameIssuesFor(c.id)}
       <div class="grid-2">${input('나이', b + '.age', { placeholder: '예: 17세, 40대 초반' })}${input('성별', b + '.gender', { placeholder: '남 / 여' })}</div>
       ${setupTier(c, b, 'tier-' + i)}
+      ${charContextField(c, i)}
       <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보 뽑기</button><button type="button" class="btn small" data-action="nameAI" data-arg="${esc(c.id)}">AI 이름 추천</button></div>
       ${namePicks('c:' + c.id, 'useName', (n) => `${c.id}|${n}`)}
       ${dexField(c)}
@@ -608,6 +635,14 @@ Object.assign(actions, {
   async suggest() {
     await startJob('suggest');
   },
+  charContext(arg) {
+    const [i, k] = String(arg).split('|');
+    const c = P().characters[Number(i)];
+    if (!c) return;
+    c.context = k;
+    markDirty();
+    render();
+  },
   dropSuggestion() {
     if (!confirmDrop('AI 설정 제안')) return;
     S.suggestion = null;
@@ -684,7 +719,7 @@ Object.assign(actions, {
     let id = ids.has('hero') ? '' : 'hero';
     for (let n = cs.length + 1; !id; n++) if (!ids.has('char' + n)) id = 'char' + n;
     openMap()['c:' + id] = true;
-    cs.push({ id, name: '', role: id === 'hero' ? '주인공' : '조연', age: '', gender: '', appearance: '', personality: '', background: '', goal: '', wound: '', speech_style: '', secrets: [], arc: '', body: {} });
+    cs.push({ id, name: '', role: id === 'hero' ? '주인공' : '조연', age: '', gender: '', appearance: '', personality: '', background: '', goal: '', wound: '', speech_style: '', secrets: [], arc: '', body: {}, context: 'auto' });
     markDirty();
     render();
   },

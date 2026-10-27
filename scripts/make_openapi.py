@@ -65,7 +65,10 @@ def add_skipped(s: dict) -> dict:
             elif key in skipped:
                 inner = f.annotation
                 if not (isinstance(inner, type) and issubclass(inner, pydantic.BaseModel)):
-                    raise TypeError(f"{name}.{key}: 숨긴 칸은 모델 타입만 되돌릴 수 있어요")
+                    # 값 타입 (예: Character.context 의 Literal). 다른 칸처럼 제목 · 설명 · 기본값을 붙인다
+                    props[key] = pydantic.TypeAdapter(inner).json_schema() | {"title": k.replace("_", " ").title()} \
+                        | ({"description": f.description} if f.description else {}) | {"default": f.default}
+                    continue
                 if inner.__name__ not in comps:
                     comps[inner.__name__] = inner.model_json_schema(ref_template="#/components/schemas/{model}")
                 props[key] = {"$ref": f"#/components/schemas/{inner.__name__}"}

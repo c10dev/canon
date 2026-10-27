@@ -111,13 +111,18 @@ class Character(BaseModel):
     first_ep: int = Field(0, description="처음 나온 화. 설정 단계 인물은 0")
     # 작가만 채운다. JSON 스키마에서 빼서 AI 가 채우지 않게 한다 (저장 · 화면 검증은 그대로)
     body: SkipJsonSchema[CharacterBody] = Field(default_factory=CharacterBody)
+    # 프롬프트에 넣기 (작가만 정한다): auto 비중 · 등장 화 · 장편 예산대로, always 늘 앞 블록에, off 설정 · 상태 · 관계를 빼고 이름만.
+    # 고르는 규칙은 context.core_ids · off_ids
+    context: SkipJsonSchema[Literal["auto", "always", "off"]] = Field(
+        "auto", description="프롬프트에 넣기: auto 등장할 때(비중대로), always 항상, off 넣지 않음(이름만)")
 
     @model_serializer(mode="wrap")
     def _prompt_view(self, handler: SerializerFunctionWrapHandler, info: SerializationInfo):
-        """프롬프트용 직렬화(llm.dump 의 context prompt)에서는 신체 프로필을 뺀다. 저장과 화면 응답은 그대로."""
+        """프롬프트용 직렬화(llm.dump 의 context prompt)에서는 신체 프로필과 넣기 방식을 뺀다. 저장과 화면 응답은 그대로."""
         data = handler(self)
         if isinstance(data, dict) and info.context and info.context.get("prompt"):
             data.pop("body", None)
+            data.pop("context", None)
         return data
 
 

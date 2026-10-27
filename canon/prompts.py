@@ -174,7 +174,7 @@ def setup_chat_prompt(p: Project, message: str, mode: str = "") -> str:
     from . import setupchat
 
     begun = setupchat.started(p)
-    chars = [c.model_dump(exclude={"narration_voice", "first_ep", "body"}) for c in p.characters]
+    chars = [c.model_dump(exclude={"narration_voice", "first_ep", "body", "context"}) for c in p.characters]
     relations = [r.model_dump(exclude={"a_view", "b_view"} if begun else set()) for r in p.relationships]
     written = sorted((e for e in p.episodes if e.text.strip()), key=lambda e: e.plot.number)
     story = ""
@@ -421,9 +421,9 @@ def arc_prompt(p: Project) -> str:
 [세계관]
 {dump(p.world)}
 [인물]
-{dump(p.characters)}
+{cast_block(p)}
 [관계]
-{rels(p)}
+{rels(p, context.without_off(p, None))}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p) or "없음"}{lines_block(p)}
 
@@ -458,9 +458,9 @@ def plot_prompt(p: Project, start: int, end: int) -> str:
 [세계관]
 {dump(p.world)}
 [인물]
-{dump(p.characters)}
+{cast_block(p)}
 [관계]
-{rels(p)}
+{rels(p, context.without_off(p, None))}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p) or "없음"}{lines_block(p)}
 [기승전결 구조]
@@ -479,7 +479,7 @@ def serial_plot_prompt(p: Project, start: int, end: int) -> str:
     arc = p.arc_for(start)
     lo = arc.start_ep if arc else start
     near = [e.plot for e in p.episodes if max(1, lo - 2) <= e.plot.number < start]
-    ids = set(arc.cast if arc else []) | {c for e in near for c in e.characters}
+    ids = context.without_off(p, set(arc.cast if arc else []) | {c for e in near for c in e.characters})
     fs, more = relevant_foreshadows(p, start)
     return f"""{start}화부터 {end}화까지 화별 플롯을 작성하세요.
 
@@ -490,7 +490,7 @@ def serial_plot_prompt(p: Project, start: int, end: int) -> str:
 [주역]
 {dump(static_characters(p))}
 [이 아크의 다른 인물]
-{dump([c for c in p.characters if c.id in ids and c.tier != "main"]) or "없음"}
+{dump(side_characters(p, ids)) or "없음"}
 [등장할 수 있는 다른 인물 (id: 이름, 역할)]
 {roster_line(p, ids) or "없음"}
 [관계]
@@ -823,13 +823,38 @@ ATTIRE_STATE_RULE = (
 
 
 def static_characters(p: Project) -> list[Character]:
-    """앞 블록(캐시)에 늘 넣는 인물. 예전 작품은 모두 주역이라 지금과 같다."""
-    return [c for c in p.characters if c.tier == "main"]
+    """앞 블록(캐시)에 늘 넣는 인물: 주역과 '항상' 인물, '넣지 않음' 은 뺀다 (context.core_ids). 예전 작품은 모두 주역이라 지금과 같다."""
+    core = context.core_ids(p)
+    return [c for c in p.characters if c.id in core]
 
 
 def roster_line(p: Project, exclude: set[str]) -> str:
-    """설정 전체를 넣지 않는 인물의 한 줄 목록. 플롯이 이미 있는 인물을 다시 만들지 않게 한다."""
-    return ", ".join(f"{c.id}: {c.name}({c.role})" for c in p.characters if c.tier != "main" and c.id not in exclude)
+    """설정 전체를 넣지 않는 인물의 한 줄 목록. 플롯이 이미 있는 인물을 다시 만들지 않게 한다. '넣지 않음' 인물도 여기에 이름만 남는다."""
+    core = context.core_ids(p)
+    return ", ".join(f"{c.id}: {c.name}({c.role})" for c in p.characters if c.id not in core and c.id not in exclude)
+
+
+def side_characters(p: Project, ids: set[str]) -> list[Character]:
+    """ids 중 매 화 넣는 인물(static_characters)이 아니고 '넣지 않음' 도 아닌 인물: 나오는 화에만 설정을 넣는 조연 · 단역."""
+    skip = context.core_ids(p) | context.off_ids(p)
+    return [c for c in p.characters if c.id in ids and c.id not in skip]
+
+
+def cast_block(p: Project) -> str:
+    """단편 기획 프롬프트의 [인물]: 인물 전부. '넣지 않음' 인물은 설정 대신 id · 이름 · 역할 한 줄 (다시 만들지 않게)."""
+    off = context.off_ids(p)
+    if not off:
+        return dump(p.characters)
+    line = ", ".join(f"{c.id}: {c.name}({c.role})" for c in p.characters if c.id in off)
+    return f"{dump([c for c in p.characters if c.id not in off])}\n(설정을 넣지 않는 인물 (id: 이름, 역할) — 다시 만들지 않습니다) {line}"
+
+
+def extra_block(extra: list[Character], cut: int = 0) -> str:
+    """본문 쓰기 · 부분 수정의 이번 화 조연 · 단역 설정 블록. cut 은 '항상' 인물 때문에 예산(context.fit_cast)으로 뺀 수."""
+    if not extra and not cut:
+        return ""
+    note = f" ('항상' 넣는 인물 때문에 예산을 넘어 {cut}명은 설정을 뺐습니다. 이름은 등장 인물 줄에 있습니다)" if cut else ""
+    return f"{chr(10)}# 이번 화에 나오는 조연 · 단역 설정{note}{chr(10)}{dump(cast_view(extra)) if extra else '없음'}{chr(10)}"
 
 
 def candidates_block(p: Project) -> str:
@@ -907,7 +932,7 @@ def series_prompt(p: Project) -> str:
 [인물]
 {dump(static_characters(p))}
 [관계]
-{rels(p)}
+{rels(p, context.without_off(p, None))}
 [지금 부 구성]
 {dump(p.parts) if p.parts else "아직 없음"}
 
@@ -1020,7 +1045,7 @@ def storyline_prompt(p: Project, note: str, kind: str) -> str:
     brief = [{"number": x.number, "title": x.title, "summary": x.summary, "characters": x.characters,
               "storyline": x.storyline, "threads": x.threads} for x in upcoming]
     structure = structure_text(p, written + 1) if p.serial else f"[기승전결 구조]\n{dump(p.arc) or '아직 없음'}"
-    ids = context.planning_cast(p, written + 1) if p.serial else None
+    ids = context.planning_cast(p, written + 1) if p.serial else context.without_off(p, None)
     secrets = context.open_secrets(p) if p.serial else p.secrets  # 장편: 모두에게 드러난 비밀은 뺀다
     return f"""이 작품의 메인 줄기에서 갈라졌다 다시 합류하는 이야기 줄기 하나를 기획하세요.
 
@@ -1302,9 +1327,9 @@ def plot_chat_prompt(p: Project, message: str, scope=None) -> str:
 [세계관]
 {dump(p.world)}
 [인물]
-{dump(p.characters)}
+{cast_block(p)}
 [관계]
-{rels(p)}
+{rels(p, context.without_off(p, None))}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p) or "없음"}{lines_block(p)}
 [문체 요약 (전개 속도 판단용)]
@@ -1340,7 +1365,7 @@ def serial_plot_chat_prompt(p: Project, message: str, scope=None) -> str:
     confirmed = [e.plot.number for e in p.episodes if e.status == "confirmed"]
     fs, more = relevant_foreshadows(p, lo)
     arcs = [a.model_dump(exclude={"summary"}) for a in p.story_arcs if a.end_ep >= lo - 1 and a.start_ep <= hi]
-    ids = context.planning_cast(p, lo) | {c for e in p.episodes if lo - 2 <= e.plot.number <= hi for c in e.plot.characters}
+    ids = context.without_off(p, context.planning_cast(p, lo) | {c for e in p.episodes if lo - 2 <= e.plot.number <= hi for c in e.plot.characters})
     limit = chat_next_limit(p) if start <= p.meta.target_episodes else 0
     if focus:
         last = focus.start_ep == max(a.start_ep for a in p.story_arcs)
@@ -1461,9 +1486,10 @@ def passage_prompt(p: Project, n: int, sel: Selection, message: str, preset: str
         before, after = text[max(0, start - PASSAGE_BEFORE):start], text[end:end + PASSAGE_AFTER]
         cut = " (고른 부분 앞뒤만)"
     cast_ids = set(ep.plot.characters) or {c.id for c in static_characters(p)} or {c.id for c in p.characters}
-    states = [s for s in p.states if s.character_id in cast_ids]
-    extra = [c for c in p.characters if c.id in cast_ids and c.tier != "main"]
     facts, facts_cut = relevant_facts(p, cast_ids, n)
+    cast_ids = context.without_off(p, cast_ids)
+    states = [s for s in p.states if s.character_id in cast_ids]
+    extra = side_characters(p, cast_ids)
     els = elements.episode_block(p, n)
     chat = next((c for c in p.chats if c.topic == f"text:{n}"), None)
     history = "\n".join(_passage_line(m) for m in (chat.messages[-PASSAGE_HISTORY:] if chat else []))
@@ -1473,7 +1499,7 @@ def passage_prompt(p: Project, n: int, sel: Selection, message: str, preset: str
 
 # 확정된 사실{f" (이번 화와 관련된 것만, {facts_cut}개 생략)" if facts_cut else ""}
 {chr(10).join("- " + f for f in facts) or "없음"}{f"{chr(10)}{chr(10)}# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것){chr(10)}{els}" if els else ""}
-{f"{chr(10)}# 이번 화에 나오는 조연 · 단역 설정{chr(10)}{dump(cast_view(extra))}{chr(10)}" if extra else ""}
+{extra_block(extra)}
 # 인물 현재 상태 ({n - 1}화 종료 시점)
 {dump(state_view(p, states)) or "1화 시작 시점, 설정 그대로"}
 
@@ -1621,12 +1647,17 @@ def build_episode_context(p: Project, n: int) -> str:
     act = p.act_for(n)
     together = p.acts_for(n)[1:]  # 짧은 작품에서 이 화에 함께 들어간 뒤 구간
     cast_ids = set(ep.plot.characters) or {c.id for c in static_characters(p)} or {c.id for c in p.characters}
+    cast_names = ", ".join(f"{c.name}({c.id})" for c in p.characters if c.id in cast_ids)  # '넣지 않음' 인물도 이름은 남긴다
+    facts, facts_cut = relevant_facts(p, cast_ids, n)
+    cast_ids = context.without_off(p, cast_ids)  # 상태 · 관계 · 설정은 '넣지 않음' 인물을 뺀다
     states = [s for s in p.states if s.character_id in cast_ids]
     rels = [r for r in p.relationships if r.a in cast_ids and r.b in cast_ids]
     last_text = next((e.text for e in reversed(p.episodes) if e.plot.number == n - 1 and e.text), "")
-    cast_names = ", ".join(f"{c.name}({c.id})" for c in p.characters if c.id in cast_ids)
-    extra = [c for c in p.characters if c.id in cast_ids and c.tier != "main"]
-    facts, facts_cut = relevant_facts(p, cast_ids, n)
+    extra, extra_cut = side_characters(p, cast_ids), 0
+    if p.serial:  # 장편: '항상' 조연 · 단역이 예산을 차지하면 이번 화 조연 · 단역을 단역부터 뺀다
+        always = [c for c in static_characters(p) if c.tier != "main"]
+        used = len(dump(cast_view(always))) if always else 0
+        extra, extra_cut = context.fit_cast(extra, used, lambda c: len(dump(cast_view([c]))), context.BUDGET["cast"])
     fs, fs_cut = relevant_foreshadows(p, n)
     if p.serial:
         where = structure_text(p, n, "# 현재 부와 아크") + f"\n현재 아크 안 구간: {act.name if act else '?'} ({act.start_ep if act else '?'}~{act.end_ep if act else '?'}화) 목표: {act.goal if act else ''}"
@@ -1655,7 +1686,7 @@ def build_episode_context(p: Project, n: int) -> str:
     facts_text = chr(10).join("- " + f for f in facts) or "없음"
     if p.serial:
         return serial_episode_context(p, n, where=where, line=line, facts=facts_text, facts_cut=facts_cut, els=els,
-                                      cast_names=cast_names, extra=extra, states=states, rels=rels, cast_ids=cast_ids,
+                                      cast_names=cast_names, extra=extra_block(extra, extra_cut), states=states, rels=rels, cast_ids=cast_ids,
                                       fs=fs, fs_cut=fs_cut, last_text=last_text, tail=f"{pov}{dev}{material_block(p, n)}")
 
     return f"""{static_context(p)}
@@ -1665,7 +1696,7 @@ def build_episode_context(p: Project, n: int) -> str:
 
 # 이번 화 등장 인물
 {cast_names or "설정의 인물 전원"}
-{f"{chr(10)}# 이번 화에 나오는 조연 · 단역 설정{chr(10)}{dump(cast_view(extra))}{chr(10)}" if extra else ""}
+{extra_block(extra)}
 # 인물 현재 상태 ({n - 1}화 종료 시점)
 {dump(state_view(p, states)) or "1화 시작 시점, 설정 그대로"}
 
@@ -1688,7 +1719,7 @@ def build_episode_context(p: Project, n: int) -> str:
 
 
 def serial_episode_context(p: Project, n: int, *, where: str, line: str, facts: str, facts_cut: int, els: str,
-                           cast_names: str, extra: list, states: list, rels: list, cast_ids: set[str],
+                           cast_names: str, extra: str, states: list, rels: list, cast_ids: set[str],
                            fs: list, fs_cut: int, last_text: str, tail: str) -> str:
     """장편 본문 쓰기 컨텍스트. 바뀌는 빈도 순서로 놓는다: 작품 고정(static_context) → 아크 동안 그대로인 것
     (부 · 아크 구조, 끝난 아크의 접은 줄거리) → 화마다 바뀌는 것. 앞부분이 같을수록 Gemini 암묵적 캐시가 길게 맞는다."""
@@ -1706,7 +1737,7 @@ def serial_episode_context(p: Project, n: int, *, where: str, line: str, facts: 
 
 # 이번 화 등장 인물
 {cast_names or "설정의 인물 전원"}
-{f"{chr(10)}# 이번 화에 나오는 조연 · 단역 설정{chr(10)}{dump(cast_view(extra))}{chr(10)}" if extra else ""}
+{extra}
 # 인물 현재 상태 ({n - 1}화 종료 시점)
 {dump(state_view(p, states)) or "1화 시작 시점, 설정 그대로"}
 
@@ -1765,8 +1796,17 @@ def static_context(p: Project) -> str:
 # 문체 예시 (이 문체를 따를 것, 내용은 가져오지 말 것)
 {samples}
 
-# 인물 설정{" (주역. 조연 · 단역은 나오는 화에만 뒤에 넣는다)" if len(static_characters(p)) < len(p.characters) else ""}
+# 인물 설정{static_note(p)}
 {dump(cast_view(static_characters(p)))}"""
+
+
+def static_note(p: Project) -> str:
+    """앞 블록 인물 설정의 머리 설명. 모두 넣으면 빈 글."""
+    cs = static_characters(p)
+    if len(cs) >= len(p.characters):
+        return ""
+    who = "주역과 늘 넣는 인물" if any(c.tier != "main" for c in cs) else "주역"
+    return f" ({who}. 조연 · 단역은 나오는 화에만 뒤에 넣는다)"
 
 
 def device_block(p: Project, n: int) -> str:
@@ -1892,8 +1932,8 @@ def rewrite_prompt(p: Project, n: int, req, materials: dict[str, list[str]], old
 
 def state_prompt(p: Project, n: int) -> str:
     ep = p.episode(n)
-    if p.serial:  # 장편: 이번 화에 나온 인물과 주역만 자세히, 나머지는 한 줄 목록으로
-        ids = set(ep.plot.characters) | {c.id for c in static_characters(p)}
+    if p.serial:  # 장편: 이번 화에 나온 인물과 주역만 자세히, 나머지는 한 줄 목록으로 ('넣지 않음' 인물은 한 줄 목록에)
+        ids = context.without_off(p, set(ep.plot.characters) | {c.id for c in static_characters(p)})
         chars = [c for c in p.characters if c.id in ids]
         states = state_view(p, [s for s in p.states if s.character_id in ids])
         relations = rels(p, ids)
@@ -1905,6 +1945,11 @@ def state_prompt(p: Project, n: int) -> str:
         chars, states, relations = p.characters, p.states, rels(p)
         fs, others = [f for f in p.foreshadows if f.status == "open"], ""
         secrets = p.secrets
+        if off := context.off_ids(p):  # '넣지 않음' 인물은 설정 · 상태 · 관계를 빼고 한 줄 목록에 (다시 만들지 않게)
+            chars = [c for c in p.characters if c.id not in off]
+            states = [s for s in p.states if s.character_id not in off]
+            relations = rels(p, context.without_off(p, None))
+            others = ", ".join(f"{c.id}: {c.name}({c.role})" for c in p.characters if c.id in off)
     return f"""{n}화 본문을 읽고 상태 변경안을 작성하세요.
 
 [인물 설정]
@@ -1959,8 +2004,11 @@ def _check_full(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
             f"## {e.plot.number}화 {timeline.tag(p, e)}{e.plot.title}\n{e.text if e.plot.number in full_nos else '(요약) ' + e.summary}"
             for e in prior
         )
-    return (chr(10).join("- " + f for f in p.facts) or "없음", dump(p.states) or "1화 시작 시점, 설정 그대로",
-            rels(p) if p.relationships else "없음", dump(p.secrets) or "없음", past, "")
+    off = context.off_ids(p)  # '넣지 않음' 인물의 상태 · 관계는 뺀다
+    states = [s for s in p.states if s.character_id not in off] if off else p.states
+    relations = rels(p, context.without_off(p, None)) if off else rels(p)
+    return (chr(10).join("- " + f for f in p.facts) or "없음", dump(states) or "1화 시작 시점, 설정 그대로",
+            relations if p.relationships else "없음", dump(p.secrets) or "없음", past, "")
 
 
 def _check_budget(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
@@ -2571,7 +2619,7 @@ def illust_prompt(p: Project, n: int, sel: Selection | None, request: str = "") 
 def cast_view(cs: list[Character]) -> list[dict]:
     """본문 · 검수에 넣는 인물 설정. 서술 말투는 그 인물이 시점 인물인 화에만 시점 블록으로 넣는다 (다른 화에 옮아오지 않게).
     신체 프로필(body)은 인물 카드에만 보이는 작가 메모라 넣지 않는다."""
-    return [c.model_dump(exclude={"narration_voice", "body"}) for c in cs]
+    return [c.model_dump(exclude={"narration_voice", "body", "context"}) for c in cs]
 
 
 SYSTEM_VOICE = (

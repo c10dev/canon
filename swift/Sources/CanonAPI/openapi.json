@@ -9571,6 +9571,17 @@
      },
      "body": {
       "$ref": "#/components/schemas/CharacterBody"
+     },
+     "context": {
+      "enum": [
+       "auto",
+       "always",
+       "off"
+      ],
+      "type": "string",
+      "title": "Context",
+      "description": "프롬프트에 넣기: auto 등장할 때(비중대로), always 항상, off 넣지 않음(이름만)",
+      "default": "auto"
      }
     },
     "type": "object",
