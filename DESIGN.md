@@ -187,6 +187,8 @@ AI 는 숫자를 매기지 않고 사건만 뽑는다. 같은 사건은 항상 �
 
 ### 지도 (`canon/atlas.py`, `static/atlas.js`)
 
+지도 기능의 모듈 구조 · 지도 데이터 형식 · 단기와 장기 계획 · 일감별 작업 명세서는 [docs/map/](docs/map/README.md) 에 있다. 이 절과 아래 지도 절들은 동작을 설명한다.
+
 장소를 새로 정의하지 않는다. 인과율 '장소' 요소(키는 요소 id)와, 요소와 이름이 겹치지 않는 설정 장소 칸(키는 `w:` + 이름)이 장소다. 지도(`Project.atlas`)는 그 위에 자리 · 배경 그림 · 위치 글 잇기만 둔다. 화 번호를 품지 않아 화 끼워 넣기(`renumber`)와 상관없다.
 
 - `match`: 인물 위치 글에서 장소 이름 · 다른 이름을 띄어쓰기 없이 찾는다. 작가가 이어 둔 글(`links`)이 먼저이고, 다른 장소 이름 안에 든 짧은 이름은 뺀다. 여러 곳이 나오면 글 순서대로, 마지막을 지금 자리로 본다('A에서 B로 가는 길').
@@ -516,6 +518,8 @@ OpenStreetMap(OSM) 데이터를 올리면 실제 동네를 지도로 쓴다. 현
 - 코드 자동 업데이트(`canon/updater.py`)는 `main` 에서 fast-forward 할 수 있을 때만 받는다. 로컬 변경이나 커밋이 있으면 건너뛴다. 받은 뒤에는 요청이 없을 때 같은 명령으로 프로세스를 다시 띄운다(`os.execv`).
 
 ## 9. 로드맵 (MVP 이후)
+
+지도 기능의 계획은 [docs/map/plan.md](docs/map/plan.md) 에 따로 둔다.
 
 1. Gemini 실호출 검증, 프롬프트 튜닝, 화별 상태 스냅샷과 되돌리기.
 2. **MCP 서버**: `get_episode_brief`, `submit_episode_text`, `propose_state_update`, `apply_state_update`, `get_project` 같은 tool 로 노출. Claude Desktop 등 구독형 앱이 직접 데이터를 읽고 쓰게 한다. `prompts.py` 와 `pipeline.py` 를 그대로 재사용한다.
