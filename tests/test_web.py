@@ -167,6 +167,61 @@ def test_settings(client, tmp_path, monkeypatch):
     assert isinstance(get_llm(), MockLLM)
 
 
+def test_stage_presets(client, monkeypatch):
+    for name in ("CANON_LLM", "CANON_MODEL", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    for s in ("PLAN", "WRITE", "CHECK", "STATE", "NAME", "REVISE", "ILLUSTRATION", "PLAY"):
+        monkeypatch.delenv(f"CANON_LLM_{s}", raising=False)
+        monkeypatch.delenv(f"CANON_MODEL_{s}", raising=False)
+    from canon import settings
+
+    # 기본 묶음 Gemini · Anthropic 이 늘 있고, 단계 이름과 백엔드는 실제 값이다
+    c = client.get("/api/config").json()
+    ids = [p["id"] for p in c["stage_presets"]]
+    assert ids == ["gemini", "anthropic"] and all(p["builtin"] for p in c["stage_presets"])
+    for p in settings.BUILTIN_PRESETS:
+        assert set(p["stages"]) | set(p["stage_models"]) <= set(settings.STAGES)
+        assert set(p["stages"].values()) <= set(settings.PROVIDERS)
+
+    # 섞은 조합을 이름 붙여 저장한다. 단계 설정 자체는 바뀌지 않는다
+    mix = {"stages": {"plan": "claude-api", "write": "gemini", "check": "claude-api", "state": ""},
+           "stage_models": {"plan": "claude-opus-5-5", "write": "gemini-4-argon", "state": " gemini-3.8-flash "}}
+    c = client.post("/api/config/presets", json={"name": "계획은 Claude", **mix}).json()
+    mine = c["stage_presets"][-1]
+    assert mine["name"] == "계획은 Claude" and not mine["builtin"]
+    assert mine["stages"] == {"plan": "claude-api", "write": "gemini", "check": "claude-api"}
+    assert mine["stage_models"]["state"] == "gemini-3.8-flash"
+    assert c["stage_settings"] == {}
+
+    # 같은 이름이면 덮고 id 는 그대로, 다른 이름이면 하나 더
+    c = client.post("/api/config/presets", json={"name": "계획은 Claude", "stages": {"plan": "claude"}}).json()
+    assert [p["id"] for p in c["stage_presets"]][2:] == [mine["id"]] and c["stage_presets"][2]["stages"] == {"plan": "claude"}
+    c = client.post("/api/config/presets", json={"name": "본문만 로컬", "stages": {"write": "local"}}).json()
+    assert len(c["stage_presets"]) == 4
+
+    # 잘못된 값, 빈 칸, 기본 묶음 이름은 막는다
+    assert client.post("/api/config/presets", json={"name": "x", "stages": {"write": "openai"}}).status_code == 400
+    assert client.post("/api/config/presets", json={"name": "x", "stages": {"draft": "local"}}).status_code == 400
+    assert client.post("/api/config/presets", json={"name": "x", "stages": {"write": ""}}).status_code == 400
+    assert client.post("/api/config/presets", json={"name": " ", "stages": {"write": "local"}}).status_code == 400
+    assert client.post("/api/config/presets", json={"name": "Gemini", "stages": {"write": "local"}}).status_code == 400
+
+    # 기본 묶음은 지울 수 없고, 내 묶음은 지운다
+    assert client.delete("/api/config/presets/gemini").status_code == 400
+    assert client.delete("/api/config/presets/my-none").status_code == 404
+    c = client.delete(f"/api/config/presets/{mine['id']}").json()
+    assert [p["name"] for p in c["stage_presets"]][2:] == ["본문만 로컬"]
+    c = client.delete(f"/api/config/presets/{c['stage_presets'][2]['id']}").json()
+    assert len(c["stage_presets"]) == 2 and "stage_presets" not in settings._read()
+
+    # 화면은 묶음 값으로 칸을 채워 저장한다: Anthropic 묶음이면 모든 단계가 Claude API 로 돈다
+    a = settings.find_preset("anthropic")
+    c = client.put("/api/config", json={"stages": {s: a["stages"].get(s, "") for s in settings.STAGES},
+                                        "stage_models": {s: a["stage_models"].get(s, "") for s in settings.STAGES}}).json()
+    assert {v["provider"] for v in c["stages"].values()} == {"claude-api"}
+    assert c["stages"]["name"]["model"] == "claude-haiku-5-5" and c["stages"]["revise"]["model"] == "claude-opus-5-5"
+
+
 def test_names(client):
     meta = {"title": "검", "genres": ["martial_arts"], "target_episodes": 10}
     client.post("/api/projects", json={"name": "wx", "meta": meta})

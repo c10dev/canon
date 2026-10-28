@@ -168,6 +168,15 @@ class StageConfig(_Out):
     model_env: str
 
 
+class StagePreset(_Out):
+    """단계별 백엔드 · 모델 묶음 (settings.presets). builtin 이면 기본 묶음이라 지울 수 없다."""
+    id: str
+    name: str
+    stages: dict[str, str]
+    stage_models: dict[str, str]
+    builtin: bool
+
+
 class ConfigView(_Out):
     """설정 화면이 보는 값 (settings.public). 키 원문은 없고 끝 네 글자(`key_hint`)와 출처만 있다."""
     provider: str
@@ -201,6 +210,7 @@ class ConfigView(_Out):
     stages: dict[str, StageConfig]
     stage_settings: dict[str, str]  # 설정 파일에 적은 단계별 백엔드
     stage_model_settings: dict[str, str]
+    stage_presets: list[StagePreset] = []
     path: str  # 설정 파일 경로
 
 
@@ -300,6 +310,33 @@ def put_config(body: SettingsIn) -> ConfigView:
                     clear_anthropic_key=body.clear_anthropic_key, gemini_auth=body.gemini_auth,
                     vertex_credentials=body.vertex_credentials, vertex_project=body.vertex_project,
                     vertex_location=body.vertex_location)
+    return settings.public()
+
+
+class PresetIn(BaseModel):
+    name: str
+    stages: dict[str, str] = {}
+    stage_models: dict[str, str] = {}
+
+
+@app.post("/api/config/presets")
+def save_stage_preset(body: PresetIn) -> ConfigView:
+    """설정 화면 단계 칸을 이름 붙여 내 프리셋으로 저장한다. 단계 설정 자체는 바꾸지 않는다."""
+    try:
+        settings.save_preset(body.name, body.stages, body.stage_models)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return settings.public()
+
+
+@app.delete("/api/config/presets/{preset_id}")
+def delete_stage_preset(preset_id: str) -> ConfigView:
+    try:
+        settings.delete_preset(preset_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except KeyError:
+        raise HTTPException(404, "그 프리셋이 없어요")
     return settings.public()
 
 
