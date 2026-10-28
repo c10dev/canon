@@ -15426,6 +15426,7 @@
       "enum": [
        "village",
        "city",
+       "modern",
        "realm"
       ],
       "title": "Kind",

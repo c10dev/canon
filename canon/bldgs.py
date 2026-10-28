@@ -14,6 +14,7 @@ SV 를 (4d4 - 10) × 10% 만큼 흔든다 (Ross 의 도시별 편차).
 가게는 종류마다 좋아하는 자리(광장 가까이, 큰길가, 물가, 마을 끝, 도시 구역)에 점수를 매겨 고른다.
 이야기 장소가 놓인 건물은 그 장소의 종류와 이름을 쓴다. 생성기가 알려 준 필지 정보(parts)가 없으면(올린 파일) 모든 건물을 본채로 본다.
 OpenStreetMap 지도(canon/osm.py)는 쓰임 · 이름 · 주소를 태그에서 가져오고 가게 수 · 간판 · 번지를 짓지 않는다 (_describe_osm).
+현대 동네 생성기(canon/moderngen.py)도 쓰임 · 층수는 생성기가 정한 parts 를 그대로 쓰고, 거리 이름 · 번지만 짓는다 (가상의 동네라서).
 
 같은 지도 · 시드 · 장소면 언제나 같은 결과다 (난수원 f"{seed}:bldgs:{단계}"). 알고리즘을 바꾸면 VERSION 을 올린다.
 """
@@ -21,7 +22,7 @@ from __future__ import annotations
 
 import math
 import random
-from typing import Optional
+from typing import Callable, Optional
 
 from . import geom
 from .geom import Point
@@ -46,9 +47,10 @@ USES: dict[str, tuple[str, str]] = {
     "locksmith": ("자물쇠 공방", "craft"), "ropemaker": ("밧줄 공방", "craft"), "copyist": ("필경소", "civic"),
     "bookseller": ("책방", "shop"),
 }
-# 현대 쓰임: OpenStreetMap 지도(canon/osm.py)가 태그에서 고른다. 중세 지도의 가게 수(TRADES)에는 들지 않는다
+# 현대 쓰임: OpenStreetMap 지도(canon/osm.py)가 태그에서, 현대 동네 생성기(canon/moderngen.py)가 블록 종류에서 고른다.
+# 중세 지도의 가게 수(TRADES)에는 들지 않는다
 MODERN: dict[str, tuple[str, str]] = {
-    "building": ("건물", "home"), "apartment": ("아파트", "home"), "dorm": ("기숙사", "home"),
+    "building": ("건물", "home"), "apartment": ("아파트", "home"), "villa": ("빌라", "home"), "dorm": ("기숙사", "home"),
     "store": ("가게", "shop"), "convenience": ("편의점", "shop"), "mart": ("마트", "shop"), "department": ("백화점", "shop"),
     "salon": ("미용실", "shop"), "laundry": ("세탁소", "shop"), "fuel": ("주유소", "shop"),
     "cafe": ("카페", "food"), "restaurant": ("식당", "food"), "hotel": ("호텔", "lodging"),
@@ -96,10 +98,10 @@ FLOORS = {"row": (1, 2), "house": (1, 1), "farm": (1, 1), "landmark": (1, 1), "o
 HOUSEHOLD = (2, 5)  # 주거 한 칸에 사는 사람 (Ross: 보통 3명, 2~5명)
 
 # OpenStreetMap 지도: 층수 태그(building:levels)가 없을 때의 어림 층수. 목록에 없으면 3층
-MODERN_FLOORS = {"apartment": 15, "dorm": 5, "home": 2, "farm": 1, "barn": 1, "building": 3, "store": 2, "convenience": 1,
+MODERN_FLOORS = {"apartment": 15, "villa": 4, "dorm": 5, "home": 2, "farm": 1, "barn": 1, "building": 3, "store": 2, "convenience": 1,
                  "fuel": 1, "parking": 1, "company": 8, "department": 7, "hospital": 6, "hotel": 10, "university": 5,
                  "school": 4, "kinder": 2, "station": 2, "church": 2, "buddhist": 1, "factory": 2, "warehouse": 1}
-MODERN_HOMES = ("home", "apartment", "dorm", "farm")  # 사람 수를 어림하는 쓰임
+MODERN_HOMES = ("home", "apartment", "villa", "dorm", "farm")  # 사람 수를 어림하는 쓰임
 FLAT_AREA = 85.0  # 주거 한 칸 넓이 (m², 국민주택 규모)
 FLAT_SHARE = 0.6  # 연면적 가운데 주거 칸 몫 (어림: 복도 · 계단 · 벽)
 HOUSEHOLD_SIZE = 2.2  # 한 가구 사람 수 (국가데이터처 지표: 2024년 평균 가구원 수 2.2명)
@@ -108,6 +110,9 @@ HOUSEHOLD_SIZE = 2.2  # 한 가구 사람 수 (국가데이터처 지표: 2024�
 PLACE_USE = {"center": "office", "market": "hall", "well": "", "temple": "temple", "inn": "inn", "smith": "smith",
              "mill": "mill", "manor": "mansion", "home": "home", "shore": "warehouse", "bridge": "", "river": "", "pond": "",
              "forest": "", "field": "farm", "far": ""}
+MODERN_PLACE_USE = {"center": "government", "market": "mart", "temple": "church", "inn": "hotel", "smith": "factory",
+                    "mill": "factory", "manor": "home", "shore": "", "field": ""}  # 현대 동네 생성기 지도
+MADE_MODERN = "canon-modern"  # moderngen.GENERATOR
 
 SIGN_HEAD = ["황금", "붉은", "푸른", "늙은", "은빛", "검은", "웃는", "졸린", "세 마리", "외눈"]
 SIGN_TAIL = ["사자", "까마귀", "닻", "솥", "달", "여우", "곰", "수탉", "물고기", "등잔"]
@@ -195,9 +200,15 @@ def describe(layout: dict, seed: str | int, style: str = "western_fantasy", spot
             for k, (_, i) in enumerate(row):
                 numbers[i] = first + 2 * k
 
-    if layout.get("generator") == "osm":
+    if layout.get("generator") in ("osm", MADE_MODERN):
+        made = layout["generator"] == MADE_MODERN
+        if made:  # 큰길 · 길 · 골목은 폭으로 가른다 (대로 15m 넘게, 소로 6m 넘게)
+            for st in streets:
+                st["kind"] = "main" if st["width"] >= 15 else "street" if st["width"] >= 6 else "lane"
+        namer = (lambda out: _name_streets(streets, front, out, mains, center, cents, style, rng("streets"), layout, M,
+                                           modern=True)) if made else None
         return _describe_osm(layout, parts, areas, mains, streets, front, polys, owner,
-                             spots if spots is not None else layout.get("spots", []), M)
+                             spots if spots is not None else layout.get("spots", []), M, numbers if made else None, namer)
 
     # 건물 자리 맛: 가운데 가까움, 광장 가까움, 물가, 큰길가, 구역
     ctx: dict[int, dict] = {}
@@ -307,11 +318,13 @@ def describe(layout: dict, seed: str | int, style: str = "western_fantasy", spot
 
 
 def _describe_osm(layout: dict, parts: list[dict], areas: list[float], mains: list[int], streets: list[dict], front: dict,
-                  polys: list, owner: list[int], spots: list[dict], M) -> dict:
+                  polys: list, owner: list[int], spots: list[dict], M, numbers: Optional[dict] = None,
+                  namer: Optional[Callable[[list[dict]], None]] = None) -> dict:
     """OpenStreetMap 지도(canon/osm.py): 쓰임 · 이름 · 주소 · 입점한 곳은 태그 그대로, 층수는 태그가 없으면 쓰임마다 어림.
     사는 사람은 주거 쓰임만 연면적 × FLAT_SHARE ÷ FLAT_AREA 가구 × HOUSEHOLD_SIZE 명. 가게를 더 두거나 간판을 짓지 않는다.
     거리 이름은 길 이름(name) 가운데 가장 많은 것, 이름 없는 길은 비워 둔다. 번지(no)는 0 이다.
-    실제 지도에 없는 이름 · 번지를 지어 넣지 않는다 (실제 주소처럼 보여 헷갈린다)."""
+    실제 지도에 없는 이름 · 번지를 지어 넣지 않는다 (실제 주소처럼 보여 헷갈린다).
+    현대 동네 생성기 지도는 같은 규칙에 numbers(번지)와 namer(out 을 받아 거리 이름을 짓는다)를 준다."""
     out: list[dict] = [{} for _ in parts]
     for i in mains:
         pt = parts[i]
@@ -330,18 +343,22 @@ def _describe_osm(layout: dict, parts: list[dict], areas: list[float], mains: li
         q = M((sp["x"], sp["y"]))
         i = next((j for j in mains if geom.inside(q, polys[j])), None)
         if i is not None:
-            out[i].update({"use": PLACE_USE.get(sp.get("kind", ""), "") or out[i]["use"], "name": sp["name"], "place": sp["key"]})
+            uses = MODERN_PLACE_USE if namer else PLACE_USE
+            out[i].update({"use": uses.get(sp.get("kind", ""), "") or out[i]["use"], "name": sp["name"], "place": sp["key"]})
     roads = layout.get("roads", [])
-    for st in streets:
-        names = [roads[k].get("name", "") for k in st["roads"] if roads[k].get("name")]
-        st["name"] = max(set(names), key=lambda x: (names.count(x), x)) if names else ""
+    if namer:
+        namer(out)
+    else:
+        for st in streets:
+            names = [roads[k].get("name", "") for k in st["roads"] if roads[k].get("name")]
+            st["name"] = max(set(names), key=lambda x: (names.count(x), x)) if names else ""
     for i in range(len(parts)):
         if owner[i] != i:
             out[i] = {"use": "annex", "of": owner[i]}
     for i in mains:
-        if i in front:  # 앞길만 적고 번지는 짓지 않는다 (실제 주소는 addr)
+        if i in front:  # 앞길만 적고 번지는 짓지 않는다 (실제 주소는 addr). 지어낸 동네는 번지도 짓는다
             out[i]["street"] = front[i][0]
-            out[i]["no"] = 0
+            out[i]["no"] = (numbers or {}).get(i, 0)
     return {"streets": [{k: v for k, v in st.items() if k != "segs"} for st in streets], "blds": out, "bver": VERSION}
 
 
@@ -460,9 +477,10 @@ def _heads(style: str, r: random.Random, n: int) -> list[str]:
 
 
 def _name_streets(streets: list[dict], front: dict, out: list[dict], mains: list[int], center: Point, cents: list[Point],
-                  style: str, r: random.Random, layout: dict, M) -> None:
+                  style: str, r: random.Random, layout: dict, M, modern: bool = False) -> None:
     """거리 이름. 큰길은 장터 · 신전 · 방앗간이 있으면 그 이름, 없으면 가운데에서 본 방향. 다른 길은 길가의 이름난
-    가게(대장간 · 무두질 집 등), 그것도 없으면 땅이름 머리를 붙인다. 이름은 겹치지 않는다."""
+    가게(대장간 · 무두질 집 등), 그것도 없으면 땅이름 머리를 붙인다. 이름은 겹치지 않는다.
+    modern(현대 동네): 가게 · 방향 이름 없이 모두 땅이름 머리를 붙인다."""
     big, mid, small = STREET_TAILS.get(style, STREET_TAILS["western_fantasy"])
     on: dict[int, list[int]] = {}
     for i, (sid, _, _) in front.items():
@@ -473,7 +491,7 @@ def _name_streets(streets: list[dict], front: dict, out: list[dict], mains: list
     for st in sorted(streets, key=lambda s: -s["length"]):
         tail = {"main": big, "street": mid, "lane": small}[st["kind"]]
         uses = [out[i]["use"] for i in on.get(st["id"], [])]
-        marks = ("hall", "temple", "mill") if st["kind"] == "main" else (
+        marks = () if modern else ("hall", "temple", "mill") if st["kind"] == "main" else (
             "hall", "temple", "mill", "smith", "tanner", "brewer", "inn", "cooper", "weaver", "ropemaker", "chapel")
         name = ""
         for u in marks:
@@ -483,7 +501,7 @@ def _name_streets(streets: list[dict], front: dict, out: list[dict], mains: list
                 if cand not in used:
                     name = cand
                     break
-        if not name and st["kind"] == "main":
+        if not name and st["kind"] == "main" and not modern:
             x, y = st["mid"][0] * layout["w"], st["mid"][1] * layout["h"]
             ang = math.degrees(math.atan2(y - center[1], x - center[0])) % 360
             cand = join(f"{DIRS[int((ang + 22.5) // 45) % 8]}쪽", big)

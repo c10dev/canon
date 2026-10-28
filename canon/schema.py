@@ -1486,7 +1486,7 @@ class MapPlace(BaseModel):
 
 class MapSpec(BaseModel):
     """지도 생성기 입력 (canon/towngen.py). 같은 값이면 언제나 같은 지도가 나온다."""
-    kind: Literal["village", "city", "realm"] = "village"
+    kind: Literal["village", "city", "modern", "realm"] = "village"
     seed: int = Field(1, ge=0, le=2**31 - 1)
     version: int = Field(0, description="이 지도를 만든 생성기 알고리즘 버전 (적용할 때 적는다)")
     size: Literal["small", "medium", "large"] = "medium"

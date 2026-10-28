@@ -75,7 +75,7 @@ from . import (archetypes, autorun, branches, cast, charlog, dynamics, elements,
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
-from . import abilities, atlas, citygen, findings, stattrial, foreshadows, setupchat, statwin, timeline, towngen, travel
+from . import abilities, atlas, findings, stattrial, foreshadows, setupchat, statwin, timeline, towngen, travel
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StoryArc
 
 
@@ -1673,12 +1673,15 @@ def cmd_map(a: argparse.Namespace) -> None:
         change = {**{k: sug[k] for k in towngen.OPTIONS}, "places": places, **change}
     if kind == "city" and change.get("water", base.water) == "lake":
         change["water"] = "river"  # 도시 생성기는 호수를 강으로 본다
+    if kind == "modern" and change.get("water", base.water) in ("lake", "sea"):
+        change["water"] = "river"  # 현대 동네 생성기는 호수 · 바다를 하천으로 본다
     spec = base.model_copy(update={**change, "kind": kind, "seed": a.seed if a.seed is not None else random.randrange(1, 2**31 - 1)})
     word = atlas.MAKERS[kind][0]
     out = atlas.generate(p, spec)
     info = out["info"]
     walls = f" · 구역 {info['wards']}곳 · 성문 {info['gates']}곳" if kind == "city" else ""
-    print(f"{word} (시드 {spec.seed}): 집 {info['houses']}채 · 건물 {info['buildings']}채 · 길 {info['roads']}개"
+    homes = "" if kind == "modern" else f"집 {info['houses']}채 · "
+    print(f"{word} (시드 {spec.seed}): {homes}건물 {info['buildings']}채 · 길 {info['roads']}개"
           f"{f' · 다리 {info['bridges']}개' if info['bridges'] else ''}{walls} · 약 {info['width_m']}×{info['height_m']}m")
     print("  " + " · ".join(opts[k][getattr(spec, k)].split(" (")[0] for k in ("size", "roads", "water", "fields", "forest") if k in opts))
     kinds = {cid: label for cid, label, _ in towngen.CATEGORIES}
@@ -2299,12 +2302,14 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--numbers", action="store_true", help="관계를 숫자로")
     sp = add("map", cmd_map)
     sp.add_argument("action", nargs="?", choices=["gen", "travel"],
-                    help="gen: 마을 · 도시 생성기로 지도 만들기, travel: 이동 시간 검사 보기 · 설정. 비우면 지도 보기")
-    sp.add_argument("kind", nargs="?", choices=list(atlas.MAKERS), help="만들 지도: village 마을, city 도시. 비우면 지난번 지도 종류 (--ai 면 AI 제안)")
+                    help="gen: 마을 · 도시 · 현대 동네 생성기로 지도 만들기, travel: 이동 시간 검사 보기 · 설정. 비우면 지도 보기")
+    sp.add_argument("kind", nargs="?", choices=list(atlas.MAKERS),
+                    help="만들 지도: village 마을, city 도시, modern 현대 동네. 비우면 지난번 지도 종류 (--ai 면 AI 제안)")
     sp.add_argument("--seed", type=int, help="같은 시드면 같은 지도. 비우면 새로 뽑는다")
     for key, opts in towngen.OPTIONS.items():
-        city = citygen.OPTIONS.get(key)
-        sp.add_argument(f"--{key}", help=", ".join(label.split(" (")[0] for label in opts.values()) + ("" if city else " (마을만)"))
+        users = [m[0] for m in atlas.MAKERS.values() if key in m[1].OPTIONS]
+        only = "" if len(users) == len(atlas.MAKERS) else f" ({' · '.join(users)}만)"
+        sp.add_argument(f"--{key}", help=", ".join(label.split(" (")[0] for label in opts.values()) + only)
     sp.add_argument("--move", action="store_true", help="이미 지도에 놓은 장소도 생성기가 고른 자리로 옮기기")
     sp.add_argument("--ai", action="store_true", help="AI가 작품 설정과 장소 설명을 보고 설정 칸 · 장소 종류를 제안 (직접 적은 칸이 이긴다)")
     sp.add_argument("--mode", choices=list(travel.MODES), help="travel: 이 세계에서 가장 빠른 탈것 (" + ", ".join(f"{k} {v}" for k, v in travel.MODE_NAMES.items()) + ")")
