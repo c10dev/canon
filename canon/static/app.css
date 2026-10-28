@@ -1210,7 +1210,7 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
 /* ----- 고대비(Windows 고대비 등 forced-colors): 배경 · 그림자로만 나타내던 선택과 영역을 테두리로 ----- */
 .savebar, #toast .t, #jobs { border: 1px solid transparent; }
 @media (forced-colors: active) {
-  .seg button[aria-pressed="true"], .genre-opts button[aria-pressed="true"], .dial button[aria-pressed="true"], .btn.on, button[aria-pressed="true"], .rv-tab[aria-selected="true"], .rv-rail-item[aria-current="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
+  .seg button[aria-pressed="true"], .genre-opts button[aria-pressed="true"], .dial button[aria-pressed="true"], .btn.on, button[aria-pressed="true"], .pop > .btn[aria-expanded="true"], .rv-tab[aria-selected="true"], .rv-rail-item[aria-current="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
   .nav a[aria-current="page"] { border-left: 4px solid Highlight; }
   .tabs button { border-bottom-color: Canvas; }
   .tabs button[aria-selected="true"] { border-bottom-color: Highlight; }
