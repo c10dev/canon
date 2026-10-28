@@ -1163,6 +1163,18 @@ class CheckRound(BaseModel):
     superseded: bool = Field(False, description="이 회차 뒤에 본문을 새 판으로 바꿨다 (화면의 '새 판' 구분선)")
 
 
+class ToFix(BaseModel):
+    """작가가 본문 문장에 단 '고칠 곳' 표시 (tofix.py). 본문은 바꾸지 않고 프롬프트에도 넣지 않는다.
+    자동 집필이 도는 동안에도 달 수 있다. LLM 이 채우지 않는다."""
+    id: str = ""
+    quote: str = Field("", description="표시한 본문 글")
+    note: str = Field("", description="작가 메모 (무엇이 어색한지)")
+    start: int = Field(0, description="표시할 때 글이 있던 자리. 같은 글이 여럿이면 이 자리에 가까운 것을 짚는다")
+    status: Literal["open", "done"] = Field("open", description="open: 남음 / done: 고침")
+    at: str = Field("", description="표시한 시각")
+    done_at: str = Field("", description="고침으로 바꾼 시각")
+
+
 class Episode(BaseModel):
     plot: EpisodePlot
     status: EpisodeStatus = "draft"
@@ -1184,6 +1196,7 @@ class Episode(BaseModel):
     realign: str = Field("", description="앞 화 플롯을 뒤 화에 맞추지 않고 다시 짜면서 이 화와 어긋나게 된 점. 이 화 플롯을 다시 짜거나 작가가 확인하면 비운다")
     opening_prev: Optional[EpisodePlot] = Field(None, description="1~3화 여는 방식 안을 처음 고르기 전 플롯 (되돌리기용). 되돌리면 비운다")
     events_done: list[str] = Field(default_factory=list, description="집필 화면 플롯 띠에서 작가가 다 썼다고 체크한 사건의 글. 사건 글을 고치면 그 체크는 풀린다. 프롬프트에 넣지 않는다")
+    to_fix: list[ToFix] = Field(default_factory=list, description="작가가 본문에 단 '고칠 곳' 표시. 프롬프트에 넣지 않는다")
 
     @model_validator(mode="after")
     def _old_check(self) -> "Episode":

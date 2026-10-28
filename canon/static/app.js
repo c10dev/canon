@@ -1894,7 +1894,7 @@ function drawApp() {
     return;
   }
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches };
+  const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${branchStrip(page)}${failStrip(page, n)}${draftStrip(page, n)}${body}</main></div>`;
   syncPending();
@@ -1955,6 +1955,7 @@ function navItems() {
     ['cast', base() + '/cast', '👥', '인물 · 관계도', has(p.characters)],
     ['atlas', base() + '/atlas', '🗺️', '지도', has(p.world.locations) || (p.elements || []).some((el) => el.kind === '장소')],
     ['foreshadow', base() + '/foreshadow', '🪝', '복선 센터', has(p.foreshadows)],
+    ['tofix', base() + '/tofix', '📌', '고칠 곳', p.episodes.some((e) => has(e.to_fix))],
     ['statwin', base() + '/statwin', '📊', '상태창 수치', (p.states || []).some((s) => has(s.stats)) || has((p.stat_window || {}).names)],
     ['abilities', base() + '/abilities', '📖', '스킬 도감', has(p.abilities)],
     ['timeline', base() + '/timeline', '⏳', '작품 속 시간', has((p.timeline || {}).deadlines) || p.episodes.some((e) => e.time && (e.time.day > 0 || e.time.part || e.time.label))],

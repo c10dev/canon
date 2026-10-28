@@ -240,7 +240,7 @@ function viewWrite(n) {
     ${orphan ? `<div class="note warn">저장하지 않은 ${n}화 초고가 남아 있어요. 이 화는 상태 반영이 끝나 본문으로 저장할 수 없어서, 아래에는 반영된 본문을 보여요.
       <details><summary>남은 초고 보기 (${S.textDraft[n].length.toLocaleString()}자)</summary><textarea readonly id="orphan-${n}" aria-label="${n}화 남은 초고" style="width:100%;min-height:160px;margin-top:6px">${esc(S.textDraft[n])}</textarea></details>
       <div class="row" style="margin-top:6px"><button class="btn small" data-action="copyOrphan" data-arg="${n}">초고 복사</button><button class="btn small danger" data-action="dropOrphan" data-arg="${n}">초고 버리기</button></div></div>` : ''}
-    ${editable && autoOn() ? `<div class="note warn">자동 집필이 도는 동안은 본문을 저장할 수 없어요. 쓰던 글은 이 화면에 남아 있어요. 저장하려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요.</div>` : ''}
+    ${editable && autoOn() ? `<div class="note warn">자동 집필이 도는 동안은 본문을 저장할 수 없어요. 쓰던 글은 이 화면에 남아 있어요. 저장하려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요. 어색한 곳은 지금도 글을 골라 '나중에 고치기'로 담아 둘 수 있어요.</div>` : ''}
     ${e.text && editable ? candidateCard(n) : ''}
     <section class="card w-body" aria-label="본문">
       <div class="w-stick">
@@ -250,9 +250,10 @@ function viewWrite(n) {
             ${/* 저장하지 않은 본문이 있으면 저장 띠(app.js renderSavebar)가 이 칸에 들어온다. 떠 있는 띠가 본문 끝 · 대화 입력칸을 가리지 않게 한다 */ ''}
             ${editable && (e.text || draft !== undefined) ? '<div class="savebar-slot"></div>' : '<span class="w-fill"></span>'}
             ${e.status === 'draft' ? '' : `${styleMenu(n)}
+            ${editable ? tofixBtn(n) : ''}
             ${edits ? `<button type="button" class="btn small" data-action="openEdits" title="수정 기록을 펼쳐요" aria-label="수정 기록 ${edits}개"><span class="lbl-l">수정 기록</span><span class="lbl-s">기록</span> ${edits}</button>` : ''}
             ${text ? copySplit(n) : ''}`}
-            <p class="small w-hint">${e.status === 'draft' ? '플롯을 확정하면 본문을 쓸 수 있어요' : e.text ? '고칠 부분을 드래그하면 직접 고치거나 AI에게 맡기거나 삽화 프롬프트를 만들 수 있어요' : '본문을 직접 고친 뒤 저장할 수 있어요'}</p>
+            <p class="small w-hint">${e.status === 'draft' ? '플롯을 확정하면 본문을 쓸 수 있어요' : e.text ? '고칠 부분을 드래그하면 직접 고치거나 AI에게 맡기거나 나중에 고칠 곳으로 담을 수 있어요' : '본문을 직접 고친 뒤 저장할 수 있어요'}</p>
           </div>
           ${strip.row}
         </div>
