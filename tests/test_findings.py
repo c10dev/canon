@@ -140,8 +140,11 @@ def test_pipeline_apply_check_and_consumers(demo):
     rep.issues.append(issue(q))
     assert "검수에서 어긋난 곳 1개" in autorun.review_reasons(p, StateDelta(episode=1, summary="s"), rep, autorun.Policy(hand_pick_opening=False))[0]
 
-    pipeline.replace_text(ep, ep.text + " 덧붙임.")  # 새 판을 고르면 새 세션
-    assert (ep.findings, ep.rounds, ep.issues, ep.checked_at) == ([], [], [], "")
+    pipeline.replace_text(ep, ep.text + " 덧붙임.")  # 새 판을 고르면 결정한 지적만 남고 회차 번호는 잇는다
+    assert [(f.id, f.status) for f in ep.findings] == [("f2", "kept")]
+    assert (len(ep.rounds), ep.rounds[-1].superseded, ep.issues, ep.checked_at) == (1, True, [], "")
+    r2 = pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue("", desc="사건 누락")]))
+    assert (r2.no, r2.kept_again, ep.findings[0].status) == (2, 1, "kept")
     with pytest.raises(ValueError, match="본문이 없어요"):
         pipeline.apply_check(p, ConsistencyReport(episode=2, issues=[]))
 
@@ -187,3 +190,147 @@ def test_cli_flags(demo):
     assert "f1: 잘못 짚음으로 정했어요 (메모: 괜찮음)" in out.getvalue()
     assert "처리한 지적 1곳" in out.getvalue() and "열린 지적 0곳" in out.getvalue()
     assert store.load(demo).episode(1).findings[0].status == "wrong"
+
+
+# ---------- 심각도 · 회차 비교 · 고침안 · 지적 하나 다시 검수 ----------
+
+def test_round_ids_and_author_severity():
+    ep = episode()
+    findings.merge(ep, [issue(Q1), issue(Q2, "동선"), issue(Q3, "말투")], "t1", "b1")
+    findings.set_severity(ep, "f2", "crit", "t1a")
+    with pytest.raises(ValueError, match="심각도"):
+        findings.set_severity(ep, "f2", "huge", "t1b")
+    ep.text = ep.text.replace(Q1, "도현은 왼손에 남은 흉터를 엄지로 문질렀다.")
+    low = issue(Q2, "동선")
+    low.severity = "low"
+    r2 = findings.merge(ep, [low, issue(Q5, "동선")], "t2", "b2")
+    f = {x.id: x for x in ep.findings}
+    assert (r2.added_ids, r2.again_ids, r2.gone_ids) == (["f4"], ["f2"], ["f1"])
+    assert (f["f2"].severity, f["f2"].severity_by_author) == ("crit", True)  # 작가가 정한 심각도는 덮지 않는다
+    assert [e.kind for e in f["f2"].log] == ["found", "author", "again"]
+    assert "[치명]" in findings.line(ep, f["f2"])
+
+
+def test_settle_children():
+    ep = episode()
+    findings.merge(ep, [issue(Q1), issue(Q2, "동선")], "t1", "b1")
+    findings.set_status(ep, "f2", "kept", None, "t1a")
+    ep.text = ep.text.replace(Q1, "도현은 왼손에 남은 흉터를 감췄다.")
+    from canon.schema import FindingRecheck
+    res = FindingRecheck(resolved=True, reason="왼손으로 바뀜", new_issues=[
+        issue("도현은 왼손에 남은 흉터를 감췄다.", desc="왼손에는 흉터가 없다"),  # 고친 문장: 옛 문장과 겹쳐도 딸린 지적이 된다
+        issue(Q2, "동선"),  # 그대로 둔 지적과 같은 문장은 더하지 않는다
+        issue("본문에 없는 문장"),  # 본문에 없으면 뺀다
+    ])
+    kids = findings.settle(ep, findings.find(ep, "f1"), res, "t2")
+    f = {x.id: x for x in ep.findings}
+    assert (f["f1"].status, f["f1"].closed_by) == ("fixed", "one") and len(ep.rounds) == 1
+    assert [(k.id, k.parent) for k in kids] == [("f3", "f1")]
+    assert "f1을 고치다 생김" in findings.line(ep, kids[0])
+    findings.set_status(ep, "f1", "open", None, "t3")  # 작가가 다시 열면 되돌린다
+    assert (f["f1"].status, f["f1"].closed_by) == ("open", "")
+
+
+def test_fixes_apply_and_undo(demo):
+    p = store.load(demo)
+    ep = p.episode(1)
+    q = "바람이 불었다."
+    nxt = "서윤은 등대 앞에 섰다."
+    assert q in ep.text and nxt in ep.text
+    pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue(q)]))
+    from canon.mock import MockLLM
+    opts = pipeline.propose_fixes(MockLLM(), p, 1, "f1")
+    assert [o.label for o in opts] == ["짧게 고치기", "뒤 문장까지"]  # 원문 그대로인 안은 걸렀다
+    assert [x.quote for x in opts[1].extra] == [nxt]
+    f = pipeline.store_fixes(p, 1, "f1", opts)
+    assert f.fixes_basis == pipeline.text_basis(ep.text)
+
+    before = ep.text
+    edits = pipeline.apply_fix(p, 1, "f1", 1)
+    assert "바람이 불었다 — 고침 2" in ep.text and q not in ep.text and f"{nxt} (함께 고침)" in ep.text
+    assert {e.group for e in edits} == {"x1"} and {e.source for e in edits} == {"fix"} and f.fix_group == "x1"
+    assert f.status == "open"  # 적용만으로 닫지 않는다
+    done, left = pipeline.undo_fix(p, 1, "x1")
+    assert (len(done), left, ep.text, f.fix_group) == (2, [], before, "")
+    with pytest.raises(KeyError):
+        pipeline.undo_fix(p, 1, "x1")
+
+    # 딸린 곳을 빼고 적용 → 다시 검수(mock: 문장이 바뀌면 풀림) → 고침으로 닫힘
+    pipeline.apply_fix(p, 1, "f1", 1, skip=[0])
+    assert f"{nxt} (함께 고침)" not in ep.text
+    res = pipeline.recheck_finding(MockLLM(), p, 1, "f1")
+    assert res.resolved and pipeline.apply_recheck(p, 1, "f1", res) == []
+    assert (f.status, f.closed_by, len(ep.rounds)) == ("fixed", "one", 1)
+    with pytest.raises(ValueError, match="열린 지적이 아니에요"):
+        pipeline.propose_fixes(MockLLM(), p, 1, "f1")
+
+
+def test_apply_fix_guards(demo):
+    p = store.load(demo)
+    ep = p.episode(1)
+    q, nxt = "바람이 불었다.", "서윤은 등대 앞에 섰다."
+    pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue(q), issue(nxt, "동선")]))
+    findings.set_status(ep, "f2", "kept", "일부러", "t")
+    from canon.mock import MockLLM
+    pipeline.store_fixes(p, 1, "f1", pipeline.propose_fixes(MockLLM(), p, 1, "f1"))
+    assert findings.touches(ep, ep.findings[0], ep.findings[0].fixes[1]) == ["f2"]
+    with pytest.raises(ValueError, match="그대로 두기로 정한 지적\\(f2\\)"):
+        pipeline.apply_fix(p, 1, "f1", 1)
+    pipeline.apply_fix(p, 1, "f1", 1, confirm=True)
+    assert f"{nxt} (함께 고침)" in ep.text
+    pipeline.undo_fix(p, 1, "x1")
+    ep.text = ep.text.replace(nxt, "서윤은 등대 뒤에 섰다.")  # 고침안을 받은 뒤 본문이 바뀜
+    with pytest.raises(ValueError, match="고침안을 다시 받으세요"):
+        pipeline.apply_fix(p, 1, "f1", 1, confirm=True)
+    with pytest.raises(KeyError):
+        pipeline.apply_fix(p, 1, "f1", 5)
+
+
+def test_autorun_severity_policy(demo):
+    p = store.load(demo)
+    delta = StateDelta(episode=1, summary="s")
+    crit, low = issue("바람이 불었다."), issue("서윤은 등대 앞에 섰다.")
+    crit.severity, low.severity = "crit", "low"
+    loose = autorun.Policy(hand_pick_opening=False, max_issues=2)
+    assert "치명적인 어긋남 1개" in autorun.review_reasons(p, delta, ConsistencyReport(episode=1, issues=[crit]), loose)[0]
+    assert autorun.review_reasons(p, delta, ConsistencyReport(episode=1, issues=[crit]),
+                                  loose.model_copy(update={"stop_on_critical": False})) == []
+    strict = autorun.Policy(hand_pick_opening=False)
+    rep = ConsistencyReport(episode=1, issues=[low])
+    assert "어긋난 곳 1개" in autorun.review_reasons(p, delta, rep, strict)[0]  # 기본은 사소도 센다
+    assert autorun.review_reasons(p, delta, rep, strict.model_copy(update={"ignore_minor": True})) == []
+
+
+def test_web_fix_endpoints(demo):
+    from canon import web
+    importlib.reload(web)
+    c = TestClient(web.app)
+    p = store.load(demo)
+    pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue("바람이 불었다.")]))
+    store.save(demo, p)
+    base = f"/api/projects/{demo}/episodes/1"
+    f = c.put(f"{base}/findings/f1", json={"severity": "low"}).json()["episodes"][0]["findings"][0]
+    assert (f["severity"], f["severity_by_author"], f["status"]) == ("low", True, "open")
+    f = c.post(f"{base}/findings/f1/fixes").json()["episodes"][0]["findings"][0]
+    assert len(f["fixes"]) == 2 and f["fixes_basis"]
+    e = c.post(f"{base}/findings/f1/fixes/1/apply", json={}).json()["episodes"][0]
+    assert e["findings"][0]["fix_group"] == "x1" and "(함께 고침)" in e["text"]
+    e = c.post(f"{base}/fix-groups/x1/undo").json()["episodes"][0]
+    assert "(함께 고침)" not in e["text"] and e["findings"][0]["fix_group"] == ""
+    c.post(f"{base}/findings/f1/fixes/0/apply", json={})
+    f = c.post(f"{base}/findings/f1/recheck").json()["episodes"][0]["findings"][0]
+    assert (f["status"], f["closed_by"]) == ("fixed", "one")
+    assert c.post(f"{base}/findings/f1/recheck").status_code == 400  # 닫힌 지적
+
+
+def test_cli_sev_and_recheck(demo):
+    p = store.load(demo)
+    pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue("바람이 불었다.")]))
+    store.save(demo, p)
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        main(["check", demo, "1", "--sev", "f1", "치명"])
+        main(["check", demo, "1", "--recheck", "f1"])
+    assert "f1: 심각도를 치명으로 정했어요" in out.getvalue() and "f1: 아직 어긋나요" in out.getvalue()
+    f = store.load(demo).episode(1).findings[0]
+    assert (f.severity, f.status, f.log[-1].kind) == ("crit", "open", "recheck")
