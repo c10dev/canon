@@ -614,22 +614,33 @@ const narrowScreen = () => window.matchMedia('(max-width: 640px)').matches;
 /** 화면 아래 고정 층(저장 띠, 작업 목록, 알림)이 서로와 본문 버튼을 가리지 않게 높이를 CSS 변수로 둔다.
     아래부터 저장 띠 → 반영 줄(상태 승인 화면 .apply-bar) → 작업 목록 → 알림 순서로 쌓는다.
     --sb: 저장 띠 높이, --ab: 반영 줄 높이(있을 때), --jb: 작업 목록 높이(좁은 폭에서 알림 아래에 쌓을 때),
-    --jh: 반영 줄이 있을 때 작업 목록 높이(넓은 폭에서도 맨 끝 제자리의 반영 줄을 가리지 않게 본문 아래를 띄운다). */
+    --jh: 반영 줄 · 버튼 줄이 있거나 상태 승인 화면일 때 작업 목록 높이(넓은 폭에서도 맨 끝 줄이 작업 목록 아래에 갇히지 않게 본문 아래를 띄운다). */
 function stackBottom() {
   const h = (el) => (el && !el.hidden ? el.getBoundingClientRect().height + 12 : 0);
   const st = document.body.style;
   const ab = h($('#app .apply-bar'));
   const pa = $('#app .page-actions');  // 화 플롯 페이지의 버튼 줄: 작업 목록 위로 올린다
+  const rv = $('#app .rv-grid');  // 상태 승인 화면: 세 칸이면 작업 목록이 오른쪽 열 위로, 두 칸이면 목차 칸 위로 간다 (app.css)
+  const rvRight = rv && window.innerWidth >= 1200;
   st.setProperty('--sb', `${h($('#savebar:not(.inline)'))}px`);
   st.setProperty('--ab', `${ab}px`);
-  // 대화 패널이 열리면 알림이 작업 목록과 같은 자리로 오므로 넓은 폭에서도 작업 목록 위에 쌓는다
-  st.setProperty('--jb', `${narrowScreen() || document.body.classList.contains('chat-open') ? h($('#jobs')) : 0}px`);
-  st.setProperty('--jh', `${ab || pa ? h($('#jobs')) : 0}px`);
+  // 대화 패널이 열리거나 상태 승인 화면이면 알림이 작업 목록과 같은 자리(오른쪽)로 오므로 넓은 폭에서도 작업 목록 위에 쌓는다
+  st.setProperty('--jb', `${narrowScreen() || rv || document.body.classList.contains('chat-open') ? h($('#jobs')) : 0}px`);
+  st.setProperty('--jh', `${ab || pa || rv ? h($('#jobs')) : 0}px`);
   const jh = h($('#jobs'));
   st.setProperty('--jo', `${narrowScreen() ? 0 : jh}px`);  // 넓은 폭: 화면에 붙인 칸(집필 화면 왼쪽 칸)이 작업 목록 위에서 끝나게
   st.setProperty('--jp', `${pa && jh ? jh + 20 : 0}px`);  // 버튼 줄 아래 여백(20px)까지 작업 목록 위로
+  // 상태 승인 두 칸: 작업 목록 · 알림을 목차 칸 위에 그 폭으로 쌓고, 목차 칸은 그 위에서 끝낸다 (review.js rvRailFit)
+  const rail = rv && !rvRight && !narrowScreen() ? $('#app .rv-rail').getBoundingClientRect() : null;
+  const toasts = $('#toast');
+  st.setProperty('--rv-jx', `${rail ? Math.round(rail.left) : 16}px`);
+  st.setProperty('--rv-jw', `${rail ? Math.round(rail.width) : 200}px`);
+  st.setProperty('--rvj', `${rail ? jh + (toasts && toasts.children.length ? toasts.getBoundingClientRect().height + 12 : 0) : 0}px`);
+  if (typeof rvRailFit === 'function') rvRailFit();
 }
 window.addEventListener('resize', () => stackBottom());
+// 상태 승인 두 칸에서는 알림도 목차 칸 위에 쌓으므로, 알림이 뜨고 질 때 높이를 다시 잰다
+if (typeof MutationObserver !== 'undefined' && $('#toast')) new MutationObserver(() => { if ($('#app .rv-grid')) stackBottom(); }).observe($('#toast'), { childList: true });
 
 document.addEventListener('click', (e) => {
   const t = e.target.closest('[data-jobs-toggle], [data-job-dismiss], [data-job-open], [data-job-stop], [data-job-retry]');

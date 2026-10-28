@@ -82,6 +82,8 @@ async function swLoad(cid) {
 // statwin.py 의 _AMOUNT · _DELTA · _SPLIT · _GRADE 와 같다
 const SW_AMOUNT = /^([^\d\s,+-]{0,4})(\s?)(-?\d[\d,]*(?:\.\d+)?)(\s?)([^\d\s,]{0,6})$/;
 const SW_DELTA = /^([+-])\s?([^\d\s,+-]{0,4})\s?(\d[\d,]*(?:\.\d+)?)\s?([^\d\s,]{0,6})$/;
+/** 지금 값 / 최대 값 ('80/100'). 바뀐 양은 앞 수에만 더한다 (statwin._FRACTION) */
+const SW_OF_MAX = /^(-?\d[\d,]*(?:\.\d+)?)(\s*\/\s*\d[\d,]*(?:\.\d+)?)$/;
 const SW_SPLIT = /\s*(?:,|、| · )\s*/;
 const SW_GRADE = /\s*(?:\([^()]*\)|\[[^[\]]*\]|lv\.?\s*\d+|\+\d+|\d+\s*(?:레벨|단계|성|강|개))$/i;
 
@@ -115,6 +117,11 @@ function swResolve(before, value) {
   if (d && a && (!d[2] || d[2] === a[1]) && (!d[4] || d[4] === a[5])) {
     const x = Number(a[3].replace(/,/g, '')) + (d[1] === '+' ? 1 : -1) * Number(d[3].replace(/,/g, ''));
     return `${a[1]}${a[2]}${swFmt(x, a[3].includes(','))}${a[4]}${a[5]}`;
+  }
+  const f = b.match(SW_OF_MAX);
+  if (d && f && !d[2] && !d[4]) {
+    const x = Number(f[1].replace(/,/g, '')) + (d[1] === '+' ? 1 : -1) * Number(d[3].replace(/,/g, ''));
+    return `${swFmt(x, f[1].includes(','))}${f[2]}`;
   }
   const ops = [];
   for (const part of swItems(v)) {

@@ -103,7 +103,7 @@ function draftBox(n, text) {
   const e = typeof ep === 'function' ? ep(n) : null;
   const locked = typeof jobFor === 'function' && !!jobFor('write', n) && !(e && e.text);
   const ta = `<textarea aria-label="${n}화 본문" data-draft="${n}"${locked ? ' readonly aria-describedby="draft-lock"' : ''} placeholder="여기에 본문을 쓰세요">${esc(text)}</textarea>`;
-  return (marksOn && markable()) || nameable() ? `<div class="hl-wrap"><div class="hl-layer" aria-hidden="true"></div>${ta}</div>` : ta;
+  return (marksOn && markable()) || nameable() ? `<div class="hl-wrap"><div class="hl-layer" aria-hidden="true"><div class="hl-in"></div></div>${ta}</div>` : ta;
 }
 
 const markable = () => (P().style.devices || []).some((d) => (d.name || '').trim()) || bannedList().length > 0;
@@ -153,6 +153,10 @@ const LAYER_STYLE = ['boxSizing', 'fontFamily', 'fontSize', 'fontWeight', 'lineH
 
 let layerObs = null;
 
+// 밑줄 칸이 본문 칸 스크롤을 따라가는 방법. 되는 브라우저는 CSS 스크롤 타임라인(app.css 의 hl-follow)으로 그리기 스레드에서 함께 움직인다.
+// scroll 이벤트로 맞추면 본문 칸이 먼저 움직이고 밑줄은 한 프레임 이상 늦게 따라온다. 안 되는 브라우저만 그 방법을 쓴다
+const HL_TIMELINE = typeof CSS !== 'undefined' && !!CSS.supports && CSS.supports('animation-timeline', '--hl-ta') && CSS.supports('timeline-scope', '--hl-ta');
+
 /** quick 이면 (글자를 치는 중) 이름은 앞서 찾은 자리를 옮겨 쓴다. 잠시 멈추면 다시 찾는다 (아래 input). */
 function paintLayer(quick = false) {
   const ta = document.querySelector('.hl-wrap textarea[data-draft]');
@@ -163,8 +167,10 @@ function paintLayer(quick = false) {
   layer.style.width = `${ta.clientWidth}px`;
   layer.style.height = `${ta.clientHeight}px`;
   const ranges = marksOn && markable() ? markRanges(Number(ta.dataset.draft), ta.value) : [];
-  layer.innerHTML = `${markHtml(ta.value, ranges, nameRanges(ta.value, quick))}\n`;
-  layer.scrollTop = ta.scrollTop;
+  layer.firstElementChild.innerHTML = `${markHtml(ta.value, ranges, nameRanges(ta.value, quick))}\n`;
+  // 스크롤 타임라인은 0~1 로 움직이니 끝까지 내렸을 때 옮길 거리를 준다
+  layer.style.setProperty('--hl-max', `${Math.max(0, ta.scrollHeight - ta.clientHeight)}px`);
+  if (!HL_TIMELINE) layer.scrollTop = ta.scrollTop;
 }
 
 /** render() 직후에 부른다. */
@@ -200,7 +206,7 @@ document.addEventListener('input', (e) => {
 });
 
 document.addEventListener('scroll', (e) => {
-  if (!(e.target.matches && e.target.matches('.hl-wrap textarea[data-draft]'))) return;
+  if (HL_TIMELINE || !(e.target.matches && e.target.matches('.hl-wrap textarea[data-draft]'))) return;
   const layer = e.target.parentElement.querySelector('.hl-layer');
   if (layer) layer.scrollTop = e.target.scrollTop;
 }, true);
