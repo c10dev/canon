@@ -78,7 +78,7 @@ function restateCard(n) {
     <div class="field"><span class="small">새 사실 ${it.facts.length}</span>${it.facts.length ? it.facts.map((x) => box('f' + x.i, esc(x.f))).join('') : '<div class="small">새로 나온 사실이 없어요.</div>'}</div>
     <div class="field"><span class="small">새 복선 ${it.plants.length}</span>${it.plants.length ? it.plants.map((x) => box('p' + x.i, `심음: ${esc(x.f.description)}`)).join('') : '<div class="small">새로 심은 복선이 없어요.</div>'}</div>
     ${it.places.length ? `<div class="field"><span class="small">새 장소 ${it.places.length}</span>${it.places.map((x) => box('l' + x.i, placeLabel(x.f))).join('')}</div>` : ''}
-    ${skipped.length ? `<div class="note plain">반영하지 않는 항목: ${skipped.join(', ')}. 뒤 화가 이미 그 상태로 쓰였어요.</div>` : ''}
+    ${skipped.length ? `<div class="note plain">반영하지 않는 항목: ${skipped.join(', ')}. ${later.length ? '뒤 화가 이미 그 상태로 쓰였어요.' : `바꾸려면 ${n}화 반영을 취소하고 다시 반영해요.`}</div>` : ''}
     ${(d.warnings || []).length ? `<div class="note warn">${d.warnings.map(esc).join('<br>')}</div>` : ''}
     <p class="small">고른 것만 반영하고 반영 뒤 고침 표시를 지워요.</p></section>`;
 }
