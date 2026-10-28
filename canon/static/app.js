@@ -30,6 +30,7 @@ const S = {
   textDraft: {},     // 화별 본문 편집 중인 값
   context: null,
   promptText: null,
+  popMenu: null,     // 열린 펼침 메뉴 id (menuBtn). 다시 그려도 열려 있고, 화면을 옮기면 닫는다
   briefTab: 'episode',
   briefText: null,
   mode: localStorage.getItem('canon.mode') || 'api',
@@ -173,6 +174,9 @@ const JOB_DONE_MSG = {
   // 멈춤 · 검토 대기도 작업으로는 '끝남'이다. 사람을 기다리는지 상태별로 말한다 (autorun._launch 결과)
   auto: (j) => `자동 집필${{ review: ' · 검토가 필요해요', paused: ' · 일시정지했어요', error: ' · 오류로 멈췄어요' }[j.result && j.result.status] || ''}: ${j.note || '멈췄어요'}`,
 };
+// 작업 목록 · 알림에 넣지 않는 작업: 플레이 화면이 시계와 출생 카드에 따로 보인다 (play.js)
+const QUIET_JOBS = new Set(['play_turn', 'play_sketch']);
+JOB_DONE_MSG.play_world = (j) => `새 세계 ${j.project}${josa(j.project, '을', '를')} 만들었어요. 새 플레이에서 고르세요.`;
 let jobTimer = null;
 
 function jobFor(kind, ep = null, name = S.name) {
@@ -313,7 +317,7 @@ async function pollJobs(soon = false) {
   if (S.jobsSeen === null) S.jobsSeen = new Set(list.filter((j) => j.status !== 'running').map((j) => j.id));
   const before = new Map(S.jobs.map((j) => [j.id, j]));
   // 화면이 목록에서 지운(닫은) 작업은 다시 보이지 않게 한다
-  S.jobs = list.filter((j) => !S.jobsSeen.has(j.id) || j.status === 'running');
+  S.jobs = list.filter((j) => (!S.jobsSeen.has(j.id) || j.status === 'running') && !QUIET_JOBS.has(j.kind));
   let redraw = false;
   let resultFocus = null;
   for (const j of S.jobs) {
@@ -349,7 +353,7 @@ async function pollJobs(soon = false) {
     }
     if (j.status !== 'running' && !(old && old.status !== 'running')) await finishJob(j);
     // 설정 · 사용량 · 문체 라이브러리처럼 작품 밖 화면은 S.name 이 남아 있어도 다시 그리지 않는다
-    if (S.route[0] === 'p' && JOB_PAGES[j.kind].includes(S.route[2] || 'home')) {
+    if (S.route[0] === 'p' && (JOB_PAGES[j.kind] || []).includes(S.route[2] || 'home')) {
       redraw = true;
       if (j.status === 'done') resultFocus = RESULT_FOCUS[j.kind] || '#app .proposal button, #app .proposal input';
     }
@@ -544,6 +548,7 @@ const JOB_LINK = {
   impact: (j) => `#/p/${enc(j.project)}/causal${j.result ? '/' + enc(j.result.element) : ''}`,
   storyline: (j) => `#/p/${enc(j.project)}/lines`,
   auto: (j) => `#/p/${enc(j.project)}/auto`,
+  play_world: (j) => `#/play/new/${enc(j.project)}`,
 };
 
 function renderJobs() {
@@ -630,7 +635,7 @@ function stackBottom() {
   st.setProperty('--jb', `${narrowScreen() || rv || document.body.classList.contains('chat-open') ? h($('#jobs')) : 0}px`);
   st.setProperty('--jh', `${ab || pa || rv ? h($('#jobs')) : 0}px`);
   const jh = h($('#jobs'));
-  st.setProperty('--jo', `${narrowScreen() ? 0 : jh}px`);  // 넓은 폭: 화면에 붙인 칸(집필 화면 왼쪽 칸)이 작업 목록 위에서 끝나게
+  st.setProperty('--jo', `${narrowScreen() ? 0 : jh}px`);  // 넓은 폭: 화면에 붙인 칸(상태 승인 오른쪽 열)이 작업 목록 위에서 끝나게
   st.setProperty('--jp', `${pa && jh ? jh + 20 : 0}px`);  // 버튼 줄 아래 여백(20px)까지 작업 목록 위로
   // 상태 승인 두 칸: 작업 목록 · 알림을 목차 칸 위에 그 폭으로 쌓고, 목차 칸은 그 위에서 끝낸다 (review.js rvRailFit)
   const rail = rv && !rvRight && !narrowScreen() ? $('#app .rv-rail').getBoundingClientRect() : null;
@@ -1422,6 +1427,81 @@ document.addEventListener('click', (e) => {
   if (fn) fn(arg !== undefined && /^\d+$/.test(arg) ? Number(arg) : arg);
 });
 
+// ---------- 펼침 메뉴 · 대화상자 ----------
+
+const CHEVRON = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m3 4.5 3 3 3-3"></path></svg>';  // 메뉴 버튼의 ▾
+
+/** 버튼 + 펼침 창(디자인 시스템 '펼침 버튼 + 패널'). 열린 메뉴는 S.popMenu 에 두어 화면을 다시 그려도 열려 있다.
+    body 는 열렸을 때만 부르는 함수. 창 안 [data-action] 을 누르면 닫히고, 라디오 · 체크박스는 열어 둔다.
+    role="menu" 는 쓰지 않는다: 창 안에 라디오 · 체크박스 · 나눔 버튼이 섞인다 */
+function menuBtn(id, label, body, { cls = 'btn', aria = '', title = '', align = '' } = {}) {
+  const open = S.popMenu === id;
+  return `<div class="pop" data-menu="${id}"><button type="button" class="${cls}" aria-expanded="${open}" aria-controls="pop-${id}" data-action="menuToggle" data-arg="${id}"${aria ? ` aria-label="${esc(aria)}"` : ''}${title ? ` title="${esc(title)}"` : ''}>${label}</button>${open ? `<div class="pop-panel${align ? ` ${align}` : ''}" id="pop-${id}">${body()}</div>` : ''}</div>`;
+}
+
+function closeMenu(focus = false) {
+  if (!S.popMenu) return;
+  if (focus) S.focusTarget = `#app [data-action="menuToggle"][data-arg="${CSS.escape(S.popMenu)}"]`;
+  S.popMenu = null;
+  render();
+}
+
+// 바깥을 누르거나 창 안 동작을 누르면 닫는다. 동작보다 먼저 닫아 동작이 그리는 화면에 창이 남지 않게 capture 로 듣는다
+document.addEventListener('click', (e) => {
+  if (!S.popMenu || !e.target.closest) return;
+  const mn = e.target.closest('[data-menu]');
+  if (mn && mn.dataset.menu === S.popMenu && !e.target.closest('.pop-panel [data-action]')) return;
+  if (e.target.closest('[data-action="menuToggle"]')) return;  // 다른 메뉴 버튼: menuToggle 이 바꾼다
+  S.popMenu = null;
+  setTimeout(render);
+}, true);
+
+// Esc 는 열린 메뉴를 먼저 닫고 메뉴 버튼으로 포커스를 돌린다. 대화 패널(chat.js)의 Esc 보다 먼저 받는다
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.isComposing || !S.popMenu) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  closeMenu(true);
+}, true);
+
+/** #app 밖의 <dialog>. 화면을 다시 그려도 열려 있다. 닫으면 열기 전 포커스로 돌아간다 (abilities.js abDialog 와 같은 방식).
+    연 요소가 그사이 사라졌으면(메뉴 항목) back 선택자로 찾은 곳으로 */
+function showDialog(id, html, back = '') {
+  let el = document.getElementById(id);
+  if (!el) {
+    el = document.createElement('dialog');
+    el.id = id;
+    el.className = 'w-dialog';
+    el.setAttribute('aria-labelledby', `${id}-title`);
+    el.addEventListener('click', (e) => { if (e.target === el) el.close(); });  // 바깥(배경)을 누르면 닫는다
+    document.body.appendChild(el);
+  }
+  const f = document.activeElement;
+  const fid = el.contains(f) && f.id;  // 다시 채워도 고치던 칸에 포커스를 남긴다
+  el.innerHTML = html;
+  if (fid && document.getElementById(fid)) document.getElementById(fid).focus();
+  if (!el.open) {
+    const from = document.activeElement;
+    el.onclose = () => {
+      const to = from && from.isConnected ? from : back && document.querySelector(`#app ${back}`);
+      if (to && to.focus) to.focus();
+    };
+    el.showModal();
+  }
+  return el;
+}
+
+Object.assign(actions, {
+  menuToggle(id) {
+    S.popMenu = S.popMenu === id ? null : id;
+    render();
+  },
+  closeDialog(id) {
+    const el = document.getElementById(id);
+    if (el && el.open) el.close();
+  },
+});
+
 // ---------- 라우팅 ----------
 
 // 화 번호로 키를 잡는 화면 상태는 작품마다 따로 둔다. 다른 작품으로 가면 지금 것을 보관하고 그 작품 것을 꺼낸다
@@ -1543,6 +1623,7 @@ async function routeNow() {
   const goingTo = [...document.querySelectorAll('.nav a')].find((a) => a.getAttribute('href') === location.hash);
   if (goingTo) goingTo.setAttribute('aria-current', 'page');
   S.menuOpen = false;
+  S.popMenu = null;
   // 다른 화면으로 옮기면 제목으로 포커스를 옮겨 스크린리더가 새 화면을 읽고, 다음 Tab 이 본문에서 시작하게 한다
   const here = location.hash.split('/').slice(0, 4).join('/');
   if (here !== lastRoute) S.focusTarget = '#app main h1';
@@ -1554,6 +1635,7 @@ async function routeNow() {
   S.briefText = null;
   S.relations = null;
   if (parts[0] !== 'p') pruneProjectState();  // 작품 밖 화면으로 간다. 작품 데이터가 있을 때 끝난 초안을 정리한다
+  if (parts[0] !== 'play' && typeof playStop === 'function') playStop();  // 플레이 화면을 떠나면 시계를 멈춘다
   try {
     if (!S.config) S.config = await api('GET', '/config');
     if (S.health === undefined) {  // 키 없음 · 로컬 서버 꺼짐 · mock 안내. 로컬 서버를 묻느라 첫 화면을 막지 않게 기다리지 않는다
@@ -1590,7 +1672,8 @@ async function routeNow() {
       if (S.pendingJob && S.pendingJob.project === S.name && !S.jobsApplied.has(S.pendingJob.id)) applyJobResult(S.pendingJob);
       S.pendingJob = null;
       await loadPending();
-      if (!branchFam() || !parts[2] || parts[2] === 'branches') await branchLoad();  // 갈래 머리 띠 (branches.js). 작품을 바꿨거나 작품 홈 · 갈래 비교에 오면 다시 읽는다
+      if (!branchFam() || !parts[2] || parts[2] === 'branches') await branchLoad();
+      if (!parts[2]) await playHomeLoad();  // 플레이 사본이면 작품 홈에 플레이로 돌아가는 카드 (play.js)  // 갈래 머리 띠 (branches.js). 작품을 바꿨거나 작품 홈 · 갈래 비교에 오면 다시 읽는다
       if (parts[2] === 'branches') await branchCompareLoad(parts[3], Number(parts[4]) || 0);
       scanDrafts();
       S.dirty = false;
@@ -1654,6 +1737,10 @@ async function routeNow() {
         S.briefTab = briefTabFor(n);
         S.briefText = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/brief?kind=${S.briefTab}`).then((r) => r.text).catch((e) => '※ ' + e.message);
       }
+    } else if (parts[0] === 'play') {  // 플레이 모드 (play.js): 플레이 사본은 작품 화면과 따로 그린다
+      S.name = null;
+      S.project = null;
+      await playLoad(parts);
     } else {
       S.name = null;
       S.project = null;
@@ -1789,6 +1876,11 @@ function drawApp() {
       : `<h2>화면을 불러오지 못했어요</h2><p>${esc(S.loadError)}</p><div class="row"><button class="btn primary" data-action="retryRoute">다시 시도</button><a class="btn" href="#/">작품 목록</a></div>`}</div></main></div>`;
     return;
   }
+  if (p === 'play') {
+    $('#app').innerHTML = viewPlayRoute();
+    playAfterDraw();
+    return;
+  }
   if (p !== 'p' || !P()) {
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1080px;margin:0 auto">${viewProjects()}</main></div>`;
     return;
@@ -1803,6 +1895,7 @@ function drawApp() {
   if (typeof syncPassage === 'function') syncPassage();
   if (typeof syncIllust === 'function') syncIllust();
   if (typeof syncMarks === 'function') syncMarks();
+  if (typeof syncWriteTop === 'function') syncWriteTop();
   if (typeof syncLines === 'function') syncLines();
   document.querySelectorAll('textarea[data-autogrow]').forEach(autosize);
   // 상태 승인 지시서 탭이 바뀌면 다시 불러온다

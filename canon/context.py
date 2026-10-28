@@ -33,7 +33,22 @@ BUDGET = {
     "cast": 8_000,          # 본문 쓰기: '항상' 넣는 조연 · 단역과 이번 화 조연 · 단역의 설정. '항상' 조연 · 단역이 있을 때만 센다 (fit_cast)
     "travel": 800,          # 쓰기 · 검수의 이동 거리 (travel.episode_block, 지도 크기를 알 때만)
     "stat_lines": 2_000,    # 쓰기: 상태창 줄 형식(stat_window.prompt = lines)의 도감 줄. 이번 화 인물의 수치 줄은 늘 넣는다
+    # 플레이 모드 (prompts.play_scene_prompt · play_state_prompt). 한 턴은 짧은 장면이라 소설보다 작게 둔다
+    "play_style": 1_800,    # 장면: 줄인 스타일 프로필 (PLAY_STYLE_KEYS + 예시 문단 하나)
+    "play_story_past": 2_500,  # 장면: 끝난 장 · 아크 · 부의 접은 줄거리 (story_parts 의 앞쪽을 다시 접는다)
+    "play_story_arc": 2_000,   # 장면: 이번 장의 턴별 요약
+    "play_cast": 4_000,     # 장면: 플레이어 밖 장면 인물의 설정 + 지금 상태
+    "play_facts": 1_800,    # 장면: 확정 사실 (play_facts)
+    "play_elements": 1_000,  # 장면: 이야기 요소
+    "play_relations": 1_200,  # 장면: 장면 인물 사이 관계 줄 (플레이어 줄 먼저)
+    "play_secrets": 800,    # 장면: 장면 인물이 얽힌 숨긴 비밀 (pick_secrets 의 셈)
+    "play_foreshadows": 900,  # 장면: 열린 복선 한 줄씩
+    "play_state_secrets": 2_000,  # 상태 변경안: 장면 인물이 얽힌 비밀 (pick_secrets 의 셈, 넣는 글은 이보다 길다)
 }
+PLAY_FORESHADOW_CAP = 8  # 장면에 넣는 열린 복선 수
+PLAY_STATE_FORESHADOW_CAP = 10  # 상태 변경안에 넣는 열린 복선 수
+PLAY_KNOWS = (10, 4)  # 장면: 플레이어 인물의 아는 정보 (넣는 수, 그중 늘 넣는 최근 수)
+PLAY_KNOWS_OTHER = (5, 2)  # 장면: 다른 장면 인물의 아는 정보
 FACTS_RECENT = 30  # 최근 사실은 예산과 상관없이 넣는다
 CHECK_RECENT = 3  # 검수에 원문 그대로 넣는 직전 화 수
 FORESHADOW_CAP = 25  # 본문 쓰기에 넣는 열린 복선 수
@@ -168,16 +183,18 @@ KNOWS_RECENT = 8  # 그중 최근 것은 관련과 상관없이 늘 넣는다
 KNOWS_OVERLAP = 0.2  # 이름 · 요소가 없을 때 이번 화 글과 겹친다고 볼 글 조각 비율
 
 
-def pick_knows(knows: list[str], query: str, names: Iterable[str], terms: Iterable[str] = ()) -> tuple[list[str], int]:
-    """인물이 아는 정보를 이번 화와 관련된 것부터 KNOWS_KEEP 개. 최근 KNOWS_RECENT 개는 늘 넣는다.
+def pick_knows(knows: list[str], query: str, names: Iterable[str], terms: Iterable[str] = (),
+               limit: int = KNOWS_KEEP, recent: int = KNOWS_RECENT) -> tuple[list[str], int]:
+    """인물이 아는 정보를 이번 화와 관련된 것부터 limit(KNOWS_KEEP) 개. 최근 recent(KNOWS_RECENT) 개는 늘 넣는다.
     관련: 이야기 요소 · 장소(2) > 이번 화 인물 이름(1), 같으면 query 와 겹치는 글 조각이 많은 것, 그다음 최근 것.
-    관련된 것으로 다 차지 않으면 남은 자리는 최근 것으로 채운다. 고른 것은 원래 순서로. (고른 것, 뺀 수)"""
-    if len(knows) <= KNOWS_KEEP:
+    관련된 것으로 다 차지 않으면 남은 자리는 최근 것으로 채운다. 고른 것은 원래 순서로. (고른 것, 뺀 수)
+    플레이 장면은 limit · recent 를 줄여 부른다 (PLAY_KNOWS)."""
+    if len(knows) <= limit:
         return list(knows), 0
     names = [x for x in names if x]
     terms = [t for t in terms if t]
     q = grams(query)
-    keep = set(range(len(knows) - KNOWS_RECENT, len(knows)))
+    keep = set(range(len(knows) - recent, len(knows)))
     scored = []
     for i, k in enumerate(knows):
         if i in keep:
@@ -188,10 +205,10 @@ def pick_knows(knows: list[str], query: str, names: Iterable[str], terms: Iterab
         if s or overlap >= KNOWS_OVERLAP:
             scored.append((s, overlap, i))
     scored.sort(key=lambda x: (-x[0], -x[1], -x[2]))
-    for _, _, i in scored[:KNOWS_KEEP - len(keep)]:
+    for _, _, i in scored[:limit - len(keep)]:
         keep.add(i)
     for i in range(len(knows) - 1, -1, -1):  # 남은 자리는 최근 것
-        if len(keep) >= KNOWS_KEEP:
+        if len(keep) >= limit:
             break
         keep.add(i)
     return [knows[i] for i in sorted(keep)], len(knows) - len(keep)
@@ -432,3 +449,50 @@ def related_facts(p: Project, query: str, budget: int) -> list[str]:
 
 def characters_by_ids(p: Project, ids: set[str]) -> list[Character]:
     return [c for c in p.characters if c.id in ids]
+
+
+# ---------- 플레이 모드 (prompts.play_scene_prompt) ----------
+# 한 턴은 짧은 장면이라 소설보다 작은 예산을 쓴다. 고르는 규칙은 소설과 같은 결로 두되, 늘 넣는 최근 사실은 없다.
+
+PLAY_FACTS_RECENT = 10  # 플레이 장면: 최근 사실은 겹치는 것이 없어도 후보로 둔다 (점수는 가장 낮게)
+
+
+def play_facts(p: Project, ids: set[str], query: str, budget: int, terms: Iterable[str] = ()) -> tuple[list[str], int]:
+    """플레이 장면의 확정 사실을 예산(글자)만큼. pick_facts 와 같은 점수(조연 · 단역 이름 3, 이야기 요소 · 장소 2, 주역 이름 1,
+    같으면 query 와 겹치는 글 조각)에 최근 PLAY_FACTS_RECENT 개를 0.5 점 후보로 더한다. pick_facts 처럼 최근 30개를 예산 밖으로
+    늘 넣지 않아 예산을 넘지 않는다. 아무것도 겹치지 않는 옛 사실은 넣지 않는다. 고른 사실은 원래 순서로. (사실들, 뺀 수)"""
+    facts = p.facts
+    main, other = names_of(p, ids)
+    terms = [t for t in terms if t]
+    q = grams(query)
+    recent = set(range(max(0, len(facts) - PLAY_FACTS_RECENT), len(facts)))
+    scored = []
+    for i, f in enumerate(facts):
+        s = 3 * any(nm in f for nm in other) + 2 * any(t in f for t in terms) + any(nm in f for nm in main)
+        g = grams(f)
+        overlap = len(g & q) / (len(g) or 1)
+        if not s and overlap < KNOWS_OVERLAP and i not in recent:
+            continue
+        scored.append((s or (0.5 if i in recent else 0.2), overlap, i))
+    scored.sort(key=lambda x: (-x[0], -x[1], -x[2]))
+    keep, used = set(), 0
+    for _, _, i in scored:
+        cost = len(facts[i]) + 3
+        if used + cost > budget:
+            continue
+        keep.add(i)
+        used += cost
+    return [facts[i] for i in sorted(keep)], len(facts) - len(keep)
+
+
+def fit_lines(lines: list[str], budget: int, first: int = 0) -> tuple[list[str], int]:
+    """앞에서부터 예산(글자)에 드는 줄만 고른다. lines 는 넣을 순서(중요한 것 먼저)로 준다.
+    first 개는 예산을 넘어도 넣는다 (플레이어 인물 줄처럼 빠지면 안 되는 것). (고른 줄, 뺀 수)"""
+    out, used = [], 0
+    for i, line in enumerate(lines):
+        cost = len(line) + 1
+        if i >= first and used + cost > budget:
+            continue
+        out.append(line)
+        used += cost
+    return out, len(lines) - len(out)

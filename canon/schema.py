@@ -1183,6 +1183,7 @@ class Episode(BaseModel):
     time: "StoryTime" = Field(default_factory=lambda: StoryTime(), description="이 화가 끝난 작품 속 시점. 상태 반영 때 채운다")
     realign: str = Field("", description="앞 화 플롯을 뒤 화에 맞추지 않고 다시 짜면서 이 화와 어긋나게 된 점. 이 화 플롯을 다시 짜거나 작가가 확인하면 비운다")
     opening_prev: Optional[EpisodePlot] = Field(None, description="1~3화 여는 방식 안을 처음 고르기 전 플롯 (되돌리기용). 되돌리면 비운다")
+    events_done: list[str] = Field(default_factory=list, description="집필 화면 플롯 띠에서 작가가 다 썼다고 체크한 사건의 글. 사건 글을 고치면 그 체크는 풀린다. 프롬프트에 넣지 않는다")
 
     @model_validator(mode="after")
     def _old_check(self) -> "Episode":
@@ -1584,7 +1585,7 @@ class MapPlace(BaseModel):
 
 class MapSpec(BaseModel):
     """지도 생성기 입력 (canon/towngen.py). 같은 값이면 언제나 같은 지도가 나온다."""
-    kind: Literal["village", "city", "realm"] = "village"
+    kind: Literal["village", "city", "modern", "realm"] = "village"
     seed: int = Field(1, ge=0, le=2**31 - 1)
     version: int = Field(0, description="이 지도를 만든 생성기 알고리즘 버전 (적용할 때 적는다)")
     size: Literal["small", "medium", "large"] = "medium"
@@ -1782,6 +1783,101 @@ class BranchDiff(BaseModel):
     text_a: str = Field("", description="a 갈래의 그 화 본문")
     text_b: str = ""
     rows: list[BranchDiffRow] = Field(default_factory=list, description="양쪽 모두 반영한 화일 때만 채운다")
+
+
+# ---------- 플레이 모드 (canon/play.py, canon/birth.py) ----------
+# 플레이는 세계 작품을 복사한 작품 폴더다. 한 턴은 Episode 하나, 플레이 정보는 project.json 밖의 play.json.
+
+PlayPerson = Literal["first", "second", "third"]
+TurnKind = Literal["start", "choice", "free", "skip", "flow", "auto"]
+PlayUnit = Literal["auto", "hour", "day", "month", "year"]
+
+
+class PlayChoice(BaseModel):
+    """장면 끝에 붙는 다음 행동 선택지 하나."""
+    text: str = Field(description="플레이어 인물이 할 행동 한 줄 (예: 문을 열고 들어간다)")
+    # 턴제 때 시간 건너뛰기 선택지의 길이. 시간 흐름 모델에서는 쓰지 않아 AI 응답 형식에서 뺀다 (옛 play.json 은 읽힌다)
+    skip: SkipJsonSchema[str] = ""
+
+
+class PlayBeat(BaseModel):
+    """구간 안에서 흘러간 일 한 줄. 화면 시계가 한 줄씩 보인다."""
+    time: StoryTime = Field(default_factory=StoryTime, description="이 일이 일어난 작품 속 시점")
+    text: str = Field(description="흘러간 일 한두 문장")
+
+
+class PlayScene(BaseModel):
+    """플레이 구간 하나: 흘러간 일과, 있으면 결정 장면. AI 가 쓴다 (play 단계). 상태 변경안은 뒤에서 따로 만든다 (play.settle)."""
+    beats: list[PlayBeat] = Field(default_factory=list, description="결정할 순간까지, 또는 정해진 시간 칸까지 흘러간 일. 시간 순서대로")
+    text: str = Field("", description="결정 장면 본문. 플레이어 인물이 무언가 정해야 하는 순간을 장면으로. 그런 순간이 없으면 빈칸")
+    choices: list[PlayChoice] = Field(default_factory=list, description="결정 장면의 선택지 3~4개. 결정 장면이 없으면 빈 목록")
+    lean: int = Field(0, description="플레이어 인물의 성격과 목표라면 고를 선택지 번호 (1부터). 선택지가 없으면 0")
+    ending: str = Field("", description="플레이어 인물의 이야기가 이 구간에서 끝나면 그 까닭 한 줄 (죽음, 목표를 이룸, 떠남 등). 이어지면 빈칸")
+
+
+class Birth(BaseModel):
+    """무작위 출생: 코드가 시드로 굴린 값 (birth.roll). AI 는 BirthSketch 로 배경만 채운다."""
+    seed: int = 0
+    name: str = ""
+    gender: str = ""
+    age: str = ""
+    archetype: str = Field("", description="원형 도감 id (archetypes.CATALOG)")
+    wound: str = Field("", description="상처 id (archetypes.WOUNDS)")
+    speech: str = Field("", description="말투 틀 id (archetypes.SPEECH)")
+    twist: str = ""
+    place: str = Field("", description="태어난 곳 (world.locations 나 '장소' 요소의 이름)")
+
+
+class BirthSketch(BaseModel):
+    """무작위 출생의 배경. 코드가 굴린 값(Birth)에 맞춰 AI 가 세계에 맞게 채운다 (birth.sketch)."""
+    appearance: str = ""
+    personality: str = ""
+    background: str = Field("", description="집안, 자란 곳, 지금까지의 삶 3~5문장")
+    goal: str = ""
+    speech_style: str = ""
+    opening: str = Field("", description="첫 장면의 실마리 한두 문장: 플레이를 시작하는 순간 이 인물이 어디서 무엇을 하고 있는지")
+
+
+class PlayTurn(BaseModel):
+    """플레이 기록의 턴 하나. 본문은 같은 번호의 Episode 에 있다."""
+    number: int = Field(description="Episode 번호")
+    kind: TurnKind = "choice"
+    action: str = Field("", description="플레이어가 고르거나 적은 행동. 첫 턴은 비움")
+    luck: int = Field(0, description="코드가 굴린 운: -2 아주 나쁨 ~ 2 아주 좋음. 화면에는 숨기고 기록에만 둔다")
+    beats: list[PlayBeat] = Field(default_factory=list, description="이 구간에 흘러간 일. 본문(Episode.text)에도 이어 넣는다")
+    choices: list[PlayChoice] = Field(default_factory=list, description="이 구간 끝 결정 장면의 선택지. 비면 결정 없이 다음 구간으로 흐른다")
+    lean: int = Field(0, description="AI 가 이 인물이라면 고를 것이라 한 선택지 번호. 자동 결정에 쓴다")
+    state: Literal["pending", "applied", "failed"] = Field("pending", description="뒤에서 만드는 상태 변경안의 반영 여부")
+    error: str = Field("", description="상태 반영이 실패한 까닭")
+    ending: str = Field("", description="이 턴 장면이 낸 결말 까닭 (PlayScene.ending). 상태 반영이 끝나면 플레이를 끝낸다")
+    at: str = ""
+
+
+class PlayInfo(BaseModel):
+    """플레이 정보. project.json 밖의 projects/<폴더>/play.json 에 둔다. 이 파일이 있으면 그 작품은 플레이 사본이다."""
+    world: str = Field(description="세계 작품 폴더 이름")
+    world_ep: int = Field(0, description="세계 작품에서 이어받은 마지막 반영 화. 턴은 world_ep+1 화부터")
+    player: str = Field(description="플레이어 인물 id")
+    title: str = Field("", description="플레이 이름 (예: 은재의 삶). 비면 화면이 '<인물 이름>의 삶'으로 부른다")
+    opening: str = Field("", description="첫 구간 실마리 (무작위 출생 BirthSketch.opening). 첫 구간을 다시 쓸 때도 넘긴다")
+    origin: Literal["character", "random"] = Field("character", description="character 세계의 인물이 됨 / random 무작위 출생")
+    birth: Optional[Birth] = None
+    person: PlayPerson = Field("second", description="서술 시점: first 나 / second 당신 / third 이름")
+    seed: int = 0
+    max_turns: int = Field(0, description="구간 수 한도. 0 이면 없음")
+    chapter_len: int = Field(20, description="장 하나의 구간 수. 장이 끝나면 요약으로 접는다")
+    unit: PlayUnit = Field("day", description="시간 단위. 새 플레이에서 auto 를 고르면 시작할 때 세계에 맞는 단위로 바꿔 둔다 (play.pick_unit)")
+    segment_units: int = Field(7, description="구간 하나의 최대 시간 칸 수. 결정 장면이 먼저 오면 거기서 끝난다")
+    focus: str = Field("", description="흘러가는 동안 따라갈 것 (예: 수련, 사람, 생업). 비면 AI 가 정한다")
+    auto_decide: bool = Field(False, description="결정 장면에서 기다리지 않고 AI 가 낸 lean 을 고른다 (화면이 몇 초 기다린 뒤 부른다)")
+    end_days: int = Field(0, description="작품 속 날수 한도: 시작부터 이만큼 지나면 끝. 0 이면 없음")
+    end_decisions: int = Field(0, description="결정 수 한도. 0 이면 없음")
+    start_day: int = Field(0, description="시작할 때의 작품 속 날수 (세계의 마지막 반영 화가 끝난 날)")
+    seen: int = Field(0, description="플레이어가 화면에서 닿은 마지막 구간 번호. 서버는 이보다 한 구간 넘게 앞서 쓰지 않는다 (play.see)")
+    turns: list[PlayTurn] = Field(default_factory=list)
+    ending: str = Field("", description="끝난 까닭. 비면 진행 중")
+    ended_ep: int = 0
+    at: str = ""
 
 
 Snapshot.model_rebuild()

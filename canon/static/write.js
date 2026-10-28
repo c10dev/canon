@@ -30,6 +30,148 @@ function nextStepBtn() {
   return href === `${base()}/${S.route.slice(2).map(enc).join('/')}` ? '' : `<a class="btn primary" href="${href}">${esc(label)}</a>`;
 }
 
+// 이번 화 플롯 띠 (본문 칸 머리). 본문이 있는 화는 마지막으로 고른 펼침을 브라우저에 기억하고, 본문이 없는 화는 펼쳐서 시작한다
+S.plotOpen = {};     // '작품:화' → 이 화에서 고른 펼침
+S.plotMore = false;  // 펼친 띠의 '더 보기'
+const plotPref = () => { try { return localStorage.getItem('canon.plotOpen') === '1'; } catch { return false; } };
+const hasBody = (n) => !!(ep(n).text || (editableEp(ep(n)) && S.textDraft[n] !== undefined));
+function plotOpenOf(n) {
+  const k = `${S.name}:${n}`;
+  return k in S.plotOpen ? S.plotOpen[k] : hasBody(n) ? plotPref() : true;
+}
+
+const CARET = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 3 4 4-4 4"></path></svg>';
+
+/** 이 화 사건 가운데 작가가 다 썼다고 체크한 것 (Episode.events_done). 사건 글을 고쳤으면 그 체크는 빠진다 */
+function doneEvents(e) {
+  const done = new Set(e.events_done || []);
+  return e.plot.events.map((x) => done.has(x));
+}
+
+/** 체크를 막는 까닭. 플롯 초안 화, AI 작업 · 자동 집필이 맡은 화 (서버 set_events_done 과 같은 조건) */
+function eventsLock(n) {
+  const e = ep(n);
+  if (e.status === 'draft') return '플롯을 확정한 뒤에 체크할 수 있어요';
+  if (autoOn() || S.jobs.some((j) => j.status === 'running' && j.project === S.name && (j.ep === n || (j.pending || []).includes(n)))) return 'AI 작업이 끝난 뒤에 체크할 수 있어요';
+  return '';
+}
+
+const FLAG = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3.5 14V2.5M3.5 3h8l-2 2.75 2 2.75h-8"></path></svg>';
+
+/** 접힌 한 줄: 엔딩 훅(없으면 줄거리) · 사건 진행(체크한 수 / 사건 수, 좁은 화면은 숨김) · 시점이 바뀐 화면 '시점 바뀜'.
+    펼치면 위 오른쪽에 '더 보기' · 플롯 페이지 링크, 승인된 요약(반영이 끝난 화), 왼쪽 진행 줄(사건 체크 → 끝에 엔딩 훅 도착점),
+    오른쪽 이름 · 값 표(등장 인물 · 서술 시점 · 작품 속 시간), '더 보기'에 구간 목표 · 줄거리 · 감정 변화 · 여는 장면 · 독자 질문.
+    펼친 칸(.wp-body)은 머리(.w-top) 밖에 둔다: 좁은 화면은 머리만 붙여 두고 펼친 칸은 본문과 함께 올라간다 (app.css) */
+function plotStrip(n, act) {
+  const e = ep(n);
+  const p = e.plot;
+  const open = plotOpenOf(n);
+  const pov = povText(n);
+  const moved = !!pov && n > 1 && pov !== povText(n - 1);
+  const movedChip = moved ? '<span class="chip ai">시점 바뀜</span>' : '';
+  const done = doneEvents(e);
+  const k = done.filter(Boolean).length;
+  const lead = p.ending_hook ? `<b>엔딩 훅</b> ${esc(p.ending_hook)}` : esc(p.summary || '');
+  const row = `<div class="wp-row"><button type="button" class="wp-toggle" data-action="togglePlot" data-arg="${n}" aria-expanded="${open}" aria-controls="wp-body">
+      <span class="wp-caret">${CARET}</span><span class="wp-label">이번 화 플롯</span><span class="wp-lead">${lead}</span>
+      <span class="wp-meta">${p.events.length ? `<span class="chip wp-count" aria-label="사건 ${p.events.length}개 중 ${k}개 씀">사건 ${k}/${p.events.length}</span>` : ''}${movedChip}</span></button></div>`;
+  if (!open) return { row, body: '' };
+  const f = (label, v) => (v ? `<div class="field"><span class="small">${label}</span><div>${v}</div></div>` : '');
+  const lock = eventsLock(n);
+  const now = done.indexOf(false);  // 지금 쓸 사건: 체크하지 않은 첫 사건
+  const steps = p.events.map((x, i) => {
+    const cls = done[i] ? 'done' : i === now ? 'now' : 'todo';
+    return `<li class="wp-step ${cls}"><label class="wp-check"${lock ? ` title="${lock}"` : ''}><input type="checkbox" id="ev-${n}-${i}" data-ev="${n}:${i}"${done[i] ? ' checked' : ''}${lock ? ' disabled' : ''}>
+      <span class="wp-num">${i + 1}.</span><span class="wp-text">${esc(x)}</span>${i === now ? '<span class="wp-now">지금</span>' : ''}</label></li>`;
+  }).join('');
+  const goal = p.ending_hook ? `<li class="wp-step goal"><span class="wp-flag">${FLAG}</span><span class="wp-text"><span class="wp-goal-label">엔딩 훅</span> ${esc(p.ending_hook)}</span>${p.events.length && now < 0 ? '<span class="chip finalized">도착</span>' : ''}</li>` : '';
+  const dl = [
+    ['등장 인물', esc(p.characters.map(charName).join(', '))],
+    ['서술 시점', pov ? `${esc(pov)} ${movedChip}` : ''],
+    ['작품 속 시간', tlLines(n)],
+  ].filter(([, v]) => v).map(([t, v]) => `<dt>${t}</dt><dd>${v}</dd>`).join('');
+  const body = `<div class="wp-body" id="wp-body">
+      <div class="wp-acts"><button type="button" class="btn small" data-action="togglePlotMore" aria-expanded="${S.plotMore}" aria-controls="wp-more">${S.plotMore ? '접기' : '더 보기'}</button>
+        <a href="${base()}/arc/${n}" data-action="gotoPlot" data-arg="${n}">플롯 페이지에서 고치기</a></div>
+      ${e.summary ? `<div class="field wp-wide"><span class="small">승인된 요약</span><div class="wp-summary">${esc(e.summary)}</div></div>` : ''}
+      <div class="field"><span class="small">사건</span>${p.events.length || goal ? `<ol class="wp-steps">${steps}${goal}</ol>` : '<div class="small">아직 없어요</div>'}</div>
+      ${dl ? `<dl class="wp-dl">${dl}</dl>` : '<span></span>'}
+      ${S.plotMore ? `<div class="wp-more" id="wp-more">
+        ${f('구간 목표', act ? esc(act.goal || '') : '')}${f('줄거리', esc(p.summary || ''))}${f('감정 변화', esc(p.emotional_shift || ''))}
+        ${f('여는 장면', esc(p.opening || ''))}${f('독자가 들고 갈 질문', esc(p.reader_question || ''))}</div>` : ''}
+    </div>`;
+  return { row, body };
+}
+
+// 사건 체크: 누르자마자 저장한다 (저장 띠와 섞지 않는다). 서버가 돌려준 체크만 이 화에 합친다.
+// 화면 전체를 받은 작품으로 바꾸면 저장하지 않은 다른 편집이 사라진다. 실패하면 되돌리고 알린다
+document.addEventListener('change', async (ev) => {
+  const key = ev.target.dataset && ev.target.dataset.ev;
+  if (!key) return;
+  const [n, i] = key.split(':').map(Number);
+  const e = ep(n);
+  const before = e.events_done || [];
+  const done = doneEvents(e);
+  done[i] = ev.target.checked;
+  e.events_done = e.plot.events.filter((_, k) => done[k]);
+  render();
+  try {
+    e.events_done = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/events-done`, { done: e.events_done });
+  } catch (err) {
+    e.events_done = before;
+    toast(err.message, true);
+  }
+  render();
+});
+
+let wTopObs = null;
+/** render() 직후에 부른다. 붙여 둔 머리(.w-stick, 좁은 화면은 .w-top) 높이를 --wtop 으로 넘겨, 머리가 위에 붙었을 때
+    본문 칸이 그 아래 남은 화면을 채우게 한다 (app.css). 본문 칸은 그 안에서 굴러서, 펼친 플롯이 본문을 덮지 않는다 */
+function syncWriteTop() {
+  if (wTopObs) { wTopObs.disconnect(); wTopObs = null; }
+  const stick = document.querySelector('#app .w-stick');
+  if (!stick) return;
+  const card = stick.closest('.w-body');
+  const measure = () => {
+    const el = getComputedStyle(stick).display === 'contents' ? stick.querySelector('.w-top') : stick;
+    card.style.setProperty('--wtop', `${Math.round(el.getBoundingClientRect().height)}px`);
+  };
+  measure();
+  if (window.ResizeObserver) {
+    wTopObs = new ResizeObserver(measure);
+    wTopObs.observe(stick.querySelector('.w-top'));
+    if (stick.querySelector('.wp-body')) wTopObs.observe(stick.querySelector('.wp-body'));
+  }
+}
+
+/** AI에게 보내는 컨텍스트 목록. 본문이 없는 화는 쓰기 버튼 아래에, 본문이 생긴 뒤에는 ⋯ 메뉴의 대화상자(ctxDialogHtml)에 보인다 */
+function ctxList() {
+  return `<ol class="panel-list">${S.context.map((c) => `<li><span>${esc(c.title)}</span><span class="small">${c.chars.toLocaleString()}자</span></li>`).join('')}</ol>
+    <div class="small">이전 본문 전체 대신 이 데이터만 매번 같은 순서로 넣어요.</div>`;
+}
+const ctxTotal = () => `${S.context.length}개 블록 · 합계 ${S.context.reduce((s, c) => s + c.chars, 0).toLocaleString()}자`;
+const promptBtn = (n) => `<button type="button" class="btn small" data-action="togglePrompt" data-arg="${n}">${S.promptText ? '프롬프트 닫기' : '프롬프트 원문 보기'}</button>${S.promptText ? `<pre class="brief mono" style="max-height:420px">${esc(S.promptText)}</pre>` : ''}`;
+
+function ctxDialogHtml(n) {
+  return `<div class="dlg-body">
+    <div class="between"><strong id="w-ctx-title">AI에게 보내는 컨텍스트</strong><button type="button" class="btn small" data-action="closeDialog" data-arg="w-ctx">닫기</button></div>
+    ${S.context ? `<div class="small">${ctxTotal()}</div>${ctxList()}<div>${promptBtn(n)}</div>` : '<div class="small">플롯을 확정하면 보여요.</div>'}
+  </div>`;
+}
+
+/** 머리 ⋯ 메뉴: 생성 방식 · 컨텍스트 대화상자(둘 다 본문이 생긴 뒤. 그전에는 쓰기 버튼 아래에 있다) · 이 화 지우기. 넣을 것이 없으면 빈 글 */
+function writeMenu(n, starting, seg) {
+  const e = ep(n);
+  const parts = [];
+  if (seg && !starting) parts.push(`<div class="pop-sec"><span class="pop-legend">생성 방식</span>${seg}</div>`);
+  if (S.context && e.status !== 'draft' && !starting) parts.push(`<button type="button" class="pop-item" data-action="openCtx" data-arg="${n}" aria-haspopup="dialog">컨텍스트 · 프롬프트 원문 보기<span class="small">${S.context.length}개 블록</span></button>`);
+  const del = deleteBlock(e);
+  if (del) parts.push(`<div class="pop-sec pop-danger">${del}</div>`);
+  if (!parts.length) return '';
+  const dots = '<svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor" aria-hidden="true"><circle cx="4" cy="9" r="1.6"></circle><circle cx="9" cy="9" r="1.6"></circle><circle cx="14" cy="9" r="1.6"></circle></svg>';
+  return menuBtn('write', dots, () => parts.join('<div class="pop-sep" role="separator"></div>'), { cls: 'btn icon-btn', aria: `${n}화 더보기` });
+}
+
 function viewWrite(n) {
   const e = ep(n);
   if (!e) return header('4단계', '집필', '') + noEpisode();
@@ -44,15 +186,28 @@ function viewWrite(n) {
   const writing = !!jobFor('write', n);
   const locked = writing && !e.text;  // AI가 본문을 처음 쓰는 중: 끝나면 칸이 AI 본문으로 바뀌므로 그동안 쓴 글은 남지 않는다
 
+  // 생성 방식 토글은 설정의 본문 단계 백엔드 이름을 보인다 (설정을 아직 받지 않았으면 이름 없이)
+  const wst = ((S.config || {}).stages || {}).write;
+  const wname = wst ? ({ gemini: 'Gemini', local: '로컬', mock: 'mock' }[wst.provider] || wst.provider) : '';
+  const seg = e.status !== 'finalized' ? `<div class="seg" role="group" aria-label="생성 방식"><button type="button" aria-pressed="${isApi}" data-action="setMode" data-arg="api" title="${wst ? `본문 모델 ${esc(wst.model || '')} · 설정에서 바꿔요` : '설정에서 바꿔요'}">AI로 쓰기${wname ? ` · ${esc(wname)}` : ''}</button><button type="button" aria-pressed="${!isApi}" data-action="setMode" data-arg="brief">채팅 앱 작업지시서</button></div>` : '';
+  const starting = e.status !== 'draft' && !e.text && draft === undefined;  // 본문이 없는 화: 쓰기 버튼 아래에 생성 방식 · 컨텍스트
+
   let center;
   if (e.status === 'draft') {
     center = `<div class="empty"><p>${n}화 플롯이 아직 초안이에요. 확정해야 쓸 수 있어요.</p><a class="btn primary" href="${base()}/arc/${n}" data-action="gotoPlot" data-arg="${n}">${n}화 플롯 확정하러 가기</a></div>`;
-  } else if (!e.text && draft === undefined) {
+  } else if (starting) {
     center = `<div class="empty">
       ${autoLockNote() || orderNote(blocked)}
-      ${isApi ? `<p>확정된 플롯과 지금까지의 데이터로 ${n}화를 써요.</p>${((b) => `<button class="btn primary" data-action="writeEp" data-arg="${n}"${blocked.length || autoOn() ? ' disabled' : b.attr}>${b.label}</button>`)(jobBtn('write', n, `${n}화 본문 생성`))}${jobFor('write', n) ? '<div class="small">다른 화면으로 옮겨 가도 계속 써요. 끝나면 알려 드려요.</div>' : ''}`
-        : `<p>작업지시서를 채팅 앱에 붙여 넣고, 받은 본문을 가져오세요.</p><a class="btn primary" href="${base()}/brief/${n}">작업지시서 열기</a>`}
-      <button class="btn" data-action="startManual" data-arg="${n}"${writing || blocked.length || autoOn() ? ' disabled' : ''}>직접 쓰기</button>
+      ${isApi ? `<p>확정된 플롯과 지금까지의 데이터로 ${n}화를 써요.</p>` : '<p>작업지시서를 채팅 앱에 붙여 넣고, 받은 본문을 가져오세요.</p>'}
+      <div class="row" style="justify-content:center">
+        ${isApi ? ((b) => `<button class="btn primary" data-action="writeEp" data-arg="${n}"${blocked.length || autoOn() ? ' disabled' : b.attr}>${b.label}</button>`)(jobBtn('write', n, `${n}화 본문 생성`)) : `<a class="btn primary" href="${base()}/brief/${n}">작업지시서 열기</a>`}
+        <button class="btn" data-action="startManual" data-arg="${n}"${writing || blocked.length || autoOn() ? ' disabled' : ''}>직접 쓰기</button>
+      </div>
+      ${isApi && jobFor('write', n) ? '<div class="small">다른 화면으로 옮겨 가도 계속 써요. 끝나면 알려 드려요.</div>' : ''}
+      <div class="w-start">
+        ${seg ? `<div class="field"><span class="small">생성 방식</span>${seg}</div>` : ''}
+        ${S.context ? `<details data-ctx-toggle${S.ctxOpen ? ' open' : ''}><summary>AI에게 보내는 컨텍스트 · ${ctxTotal()}</summary>${ctxList()}<div style="margin-top:8px">${promptBtn(n)}</div></details>` : ''}
+      </div>
     </div>`;
   } else {
     center = `<div class="prose">${editable
@@ -60,24 +215,23 @@ function viewWrite(n) {
       : `<div class="read" data-read="${n}">${readHtml(n, text)}</div>`}</div>`;
   }
 
-  const ctx = S.context ? `<details data-ctx-toggle${S.ctxOpen ? ' open' : ''}><summary>${S.context.length}개 블록 · 합계 ${S.context.reduce((s, c) => s + c.chars, 0).toLocaleString()}자</summary><ol class="panel-list">${S.context.map((c) => `<li><span>${esc(c.title)}</span><span class="small">${c.chars.toLocaleString()}자</span></li>`).join('')}</ol></details>
-      <div class="small">이전 본문 전체 대신 이 데이터만 매번 같은 순서로 넣어요.</div>` : '<div class="small">플롯을 확정하면 보여요.</div>';
-
-  // 생성 방식 토글은 설정의 본문 단계 백엔드 이름을 보인다 (설정을 아직 받지 않았으면 이름 없이)
-  const wst = ((S.config || {}).stages || {}).write;
-  const wname = wst ? ({ gemini: 'Gemini', local: '로컬', mock: 'mock' }[wst.provider] || wst.provider) : '';
   // 쓴 화의 검수가 끝나지 않았으면 '검수로'가 지금 할 일이다 (검수 화면 check.js). 끝났으면 '상태 승인으로'를 primary 로 올린다
   const cs = checkState(e);
   const toCheck = e.status === 'written' && !cs.done && !autoOn();
-  const seg = e.status !== 'finalized' ? `<div class="seg" role="group" aria-label="생성 방식"><button type="button" aria-pressed="${isApi}" data-action="setMode" data-arg="api" title="${wst ? `본문 모델 ${esc(wst.model || '')} · 설정에서 바꿔요` : '설정에서 바꿔요'}">AI로 쓰기${wname ? ` · ${esc(wname)}` : ''}</button><button type="button" aria-pressed="${!isApi}" data-action="setMode" data-arg="brief">채팅 앱 작업지시서</button></div>` : '';
-  // 본문이 생기면 생성 방식은 자주 바꾸지 않으니 왼쪽 칸으로 옮긴다. 머리 버튼이 한 줄에 들어간다
-  const right = `${e.text ? '' : seg}
-    ${e.text && editable ? chatButton(`text:${n}`) : ''}
+  // 머리 버튼: 보조 버튼들 · ⋯ 메뉴 · primary 하나 (디자인 시스템: primary 는 머리 줄 오른쪽 끝)
+  const primary = toCheck ? `<a class="btn primary" href="${base()}/check/${n}">검수로</a>`
+    : e.status === 'written' ? `<a class="btn primary" href="${base()}/review/${n}">상태 승인으로</a>`
+      : e.status === 'finalized' ? nextStepBtn() : '';
+  const right = `${e.text && editable ? chatButton(`text:${n}`) : ''}
     ${e.text && editable && (isApi || e.status === 'finalized') ? `${((b) => `<button class="btn${S.rwOpen === n ? ' on' : ''}" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${b.attr}>${b.label}</button>`)(jobBtn('write', n, '다시 생성'))}` : ''}
     ${editable && !isApi && e.status !== 'finalized' ? `<a class="btn" href="${base()}/brief/${n}">작업지시서</a>` : ''}
-    ${e.status === 'written' ? `<a class="btn${toCheck ? '' : ' primary'}" href="${base()}/review/${n}">상태 승인으로</a>` : ''}
-    ${toCheck ? `<a class="btn primary" href="${base()}/check/${n}">검수로</a>` : ''}
-    ${e.status === 'finalized' ? nextStepBtn() : ''}`;
+    ${toCheck ? `<a class="btn" href="${base()}/review/${n}">상태 승인으로</a>` : ''}
+    ${writeMenu(n, starting, seg)}
+    ${primary}`;
+
+  const strip = plotStrip(n, act);
+  const edits = (e.edits || []).length;
+  const goal = Number(P().meta.words_per_episode).toLocaleString();
 
   return `<header class="page-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? act.name + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}${cs.open ? `<span class="chip warn">열린 지적 ${cs.open}곳</span>` : ''}</div><div class="row">${right}</div></header>
     ${e.auto ? `<div class="note info">이 화는 자동 집필이 검토 없이 반영했어요. 읽어 보고 문제가 있으면 <a href="${base()}/auto">자동 집필</a>에서 이 화부터 되돌릴 수 있어요.</div>` : ''}
@@ -88,47 +242,25 @@ function viewWrite(n) {
       <div class="row" style="margin-top:6px"><button class="btn small" data-action="copyOrphan" data-arg="${n}">초고 복사</button><button class="btn small danger" data-action="dropOrphan" data-arg="${n}">초고 버리기</button></div></div>` : ''}
     ${editable && autoOn() ? `<div class="note warn">자동 집필이 도는 동안은 본문을 저장할 수 없어요. 쓰던 글은 이 화면에 남아 있어요. 저장하려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요.</div>` : ''}
     ${e.text && editable ? candidateCard(n) : ''}
-    <div class="cols write-cols" style="gap:16px">
-      <div class="w-left">
-      <aside class="card tight w-plot" style="flex:1 1 260px;min-width:0" aria-label="이번 화 플롯">
-        <h3>이번 화 플롯</h3>
-        ${act ? `<div class="note info"><strong>구간 목표</strong> · ${esc(act.goal)}</div>` : ''}
-        <p style="font-size:0.8125rem;line-height:1.6;color:var(--text-2)">${esc(e.plot.summary)}</p>
-        <div class="field"><span class="small">사건</span><ol style="padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:0.8125rem;line-height:1.5">${e.plot.events.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></div>
-        <div class="field"><span class="small">등장 인물</span><div style="font-size:0.8125rem">${e.plot.characters.map(charName).map(esc).join(', ')}</div></div>
-        ${povText(n) ? `<div class="field"><span class="small">서술 시점</span><div style="font-size:0.8125rem">${esc(povText(n))}${povText(n) !== povText(n - 1) && n > 1 ? ' <span class="chip ai">시점 바뀜</span>' : ''}</div></div>` : ''}
-        ${tlAside(n)}
-        <div class="field"><span class="small">감정 변화</span><div style="font-size:0.8125rem">${esc(e.plot.emotional_shift)}</div></div>
-        ${e.plot.opening ? `<div class="field"><span class="small">여는 장면</span><div style="font-size:0.8125rem">${esc(e.plot.opening)}</div></div>` : ''}
-        <div class="field"><span class="small">엔딩 훅</span><div style="font-size:0.8125rem">${esc(e.plot.ending_hook)}</div></div>
-        ${e.plot.reader_question ? `<div class="field"><span class="small">독자가 들고 갈 질문</span><div style="font-size:0.8125rem">${esc(e.plot.reader_question)}</div></div>` : ''}
-        ${e.summary ? `<div class="field"><span class="small">승인된 요약</span><div style="font-size:0.8125rem;line-height:1.6">${esc(e.summary)}</div></div>` : ''}
-        ${deviceBadges(n)}
-        <a href="${base()}/arc/${n}" data-action="gotoPlot" data-arg="${n}" style="font-size:0.8125rem">플롯 보기</a>
-        ${deleteBlock(e)}
-      </aside>
-      <aside class="card tight w-side" style="flex:1 1 260px;min-width:0" aria-label="복사 · 내보내기와 AI에게 보내는 컨텍스트">
-        ${e.text && seg ? `<div class="field"><span class="small">생성 방식</span>${seg}</div>` : ''}
-        ${exportCard(n)}
-        <h3>AI에게 보내는 컨텍스트</h3>
-        ${ctx}
-        ${S.context ? `<button class="btn small" data-action="togglePrompt" data-arg="${n}">${S.promptText ? '프롬프트 닫기' : '프롬프트 원문 보기'}</button>` : ''}
-        ${S.promptText ? `<pre class="brief mono" style="max-height:420px">${esc(S.promptText)}</pre>` : ''}
-      </aside>
-      </div>
-      <section class="card w-body" style="flex:3 1 520px;min-width:0;padding:0;gap:0" aria-label="본문">
-        <div class="w-bar">
-          ${e.status === 'draft' ? '' : `<span class="w-count"><strong id="char-count" style="color:var(--text)">${(text || '').length.toLocaleString()}</strong> / ${Number(P().meta.words_per_episode).toLocaleString()}자</span>`}
-          ${/* 저장하지 않은 본문이 있으면 저장 띠(app.js renderSavebar)가 이 칸에 들어온다. 떠 있는 띠가 본문 끝 · 대화 입력칸을 가리지 않게 한다 */ ''}
-          ${editable && (e.text || draft !== undefined) ? '<div class="savebar-slot"></div>' : '<span class="w-fill"></span>'}
-          ${e.status === 'draft' ? '' : `${(e.edits || []).length ? `<button type="button" class="btn small" data-action="openEdits" title="수정 기록을 펼쳐요">수정 기록 ${e.edits.length}</button>` : ''}
-          ${text ? `<button class="btn small" data-action="copyEp" data-arg="${n}" title="고른 줄바꿈 형식으로 복사 ('복사 · 내보내기' 칸에서 바꿈)">복사</button>` : ''}`}
-          <p class="small w-hint">${e.status === 'draft' ? '플롯을 확정하면 본문을 쓸 수 있어요' : e.text ? '고칠 부분을 드래그하면 직접 고치거나 AI에게 맡기거나 삽화 프롬프트를 만들 수 있어요' : '본문을 직접 고친 뒤 저장할 수 있어요'}</p>
+    <section class="card w-body" aria-label="본문">
+      <div class="w-stick">
+        <div class="w-top">
+          <div class="w-bar">
+            ${e.status === 'draft' ? '' : `<span class="w-count"><strong id="char-count" style="color:var(--text)">${(text || '').length.toLocaleString()}</strong><span class="lbl-l"> / ${goal}자</span><span class="lbl-s">자</span></span>`}
+            ${/* 저장하지 않은 본문이 있으면 저장 띠(app.js renderSavebar)가 이 칸에 들어온다. 떠 있는 띠가 본문 끝 · 대화 입력칸을 가리지 않게 한다 */ ''}
+            ${editable && (e.text || draft !== undefined) ? '<div class="savebar-slot"></div>' : '<span class="w-fill"></span>'}
+            ${e.status === 'draft' ? '' : `${styleMenu(n)}
+            ${edits ? `<button type="button" class="btn small" data-action="openEdits" title="수정 기록을 펼쳐요" aria-label="수정 기록 ${edits}개"><span class="lbl-l">수정 기록</span><span class="lbl-s">기록</span> ${edits}</button>` : ''}
+            ${text ? copySplit(n) : ''}`}
+            <p class="small w-hint">${e.status === 'draft' ? '플롯을 확정하면 본문을 쓸 수 있어요' : e.text ? '고칠 부분을 드래그하면 직접 고치거나 AI에게 맡기거나 삽화 프롬프트를 만들 수 있어요' : '본문을 직접 고친 뒤 저장할 수 있어요'}</p>
+          </div>
+          ${strip.row}
         </div>
-        ${e.text ? passageNotes(n) ? `<div style="padding:12px 16px 0;display:flex;flex-direction:column;gap:8px">${passageNotes(n)}</div>` : '' : ''}
-        ${center}
-      </section>
-    </div>
+        ${strip.body}
+      </div>
+      ${e.text ? passageNotes(n) ? `<div style="padding:12px 16px 0;display:flex;flex-direction:column;gap:8px">${passageNotes(n)}</div>` : '' : ''}
+      ${center}
+    </section>
     ${editHistory(e)}
     ${versionsPanel(e)}
     ${e.text ? illustPanel(n) : ''}
@@ -249,15 +381,31 @@ Object.assign(actions, {
   gotoPlot(n) {
     return actions.openPlot(n);  // 화 플롯 페이지 (plot.js)
   },
+  togglePlot(n) {
+    const open = !plotOpenOf(n);
+    S.plotOpen[`${S.name}:${n}`] = open;
+    if (hasBody(n)) { try { localStorage.setItem('canon.plotOpen', open ? '1' : '0'); } catch { /* 이번 화면에서만 기억한다 */ } }
+    render();
+  },
+  togglePlotMore() {
+    S.plotMore = !S.plotMore;
+    render();
+  },
+  openCtx(n) {
+    showDialog('w-ctx', ctxDialogHtml(n), '[data-action="menuToggle"][data-arg="write"]');
+  },
   async togglePrompt(n) {
+    const dlg = () => { if (document.getElementById('w-ctx')?.open) showDialog('w-ctx', ctxDialogHtml(n)); };  // ⋯ 메뉴의 대화상자는 #app 밖이라 따로 채운다
     if (S.promptText) {
       S.promptText = null;
+      dlg();
       return render();
     }
     await run('불러오는 중', async () => {
       const r = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/prompt`);
       S.promptText = `[시스템]\n${r.system}\n\n[프롬프트]\n${r.prompt}`;
     });
+    dlg();
   },
 
   // 작업지시서
