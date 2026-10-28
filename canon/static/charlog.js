@@ -45,7 +45,7 @@ function scDeltaCard(n, d, box) {
     return `<div class="change">${box('t' + i)}<div class="body"><label for="pk-t${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(x.character_id))} · ${scLabel(x.field)}</label>
       ${scBeforeAfter(c[x.field], input)}
       ${x.reason ? `<div class="small">${esc(x.reason)}</div>` : ''}
-      ${x.quote ? `<div style="font-family:var(--serif);font-size:0.8125rem;line-height:1.7;color:var(--text-2)">“${esc(x.quote)}”</div>` : ''}</div></div>`;
+      ${x.quote ? `<div class="row" style="gap:8px;flex-wrap:nowrap;align-items:flex-start"><div class="rv-quote" style="flex:1">${quoted(x.quote)}</div>${rvQuoteBtn(n, x.quote, `${charName(x.character_id)} ${scLabel(x.field)}`)}</div>` : ''}</div></div>`;
   }).join('');
   return `<section class="card"><div class="between"><h2>인물 설정 바꾸기</h2><span class="small">기본으로 고르지 않았어요</span></div>
     <div class="small">본문에서 뒤 화까지 이어지게 바뀐 설정이에요. 고르면 인물 설정이 바뀌고 다음 화부터 바뀐 설정으로 써요. 바뀐 기록은 인물 · 관계도 화면에 남고, 반영을 취소하면 되돌아가요.</div>
