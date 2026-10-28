@@ -59,6 +59,84 @@
     }
    }
   },
+  "/api/config/presets": {
+   "post": {
+    "summary": "Save Stage Preset",
+    "description": "설정 화면 단계 칸을 이름 붙여 내 프리셋으로 저장한다. 단계 설정 자체는 바꾸지 않는다.",
+    "operationId": "save_stage_preset",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PresetIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ConfigView"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/config/presets/{preset_id}": {
+   "delete": {
+    "summary": "Delete Stage Preset",
+    "operationId": "delete_stage_preset",
+    "parameters": [
+     {
+      "name": "preset_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Preset Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ConfigView"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/config/test": {
    "post": {
     "summary": "Test Config",
@@ -13546,6 +13624,14 @@
       "type": "object",
       "title": "Stage Model Settings"
      },
+     "stage_presets": {
+      "items": {
+       "$ref": "#/components/schemas/StagePreset"
+      },
+      "type": "array",
+      "title": "Stage Presets",
+      "default": []
+     },
      "path": {
       "type": "string",
       "title": "Path"
@@ -13584,6 +13670,7 @@
      "stages",
      "stage_settings",
      "stage_model_settings",
+     "stage_presets",
      "path"
     ],
     "title": "ConfigView",
@@ -18214,6 +18301,35 @@
     "title": "Policy",
     "description": "사람 검토 없이 반영할지 정하는 기준. 하나라도 걸리면 그 화에서 멈춘다."
    },
+   "PresetIn": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "stages": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Stages",
+      "default": {}
+     },
+     "stage_models": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Stage Models",
+      "default": {}
+     }
+    },
+    "type": "object",
+    "required": [
+     "name"
+    ],
+    "title": "PresetIn"
+   },
    "Price": {
     "properties": {
      "model": {
@@ -20267,6 +20383,46 @@
      "stage"
     ],
     "title": "StageIn"
+   },
+   "StagePreset": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "stages": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Stages"
+     },
+     "stage_models": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Stage Models"
+     },
+     "builtin": {
+      "type": "boolean",
+      "title": "Builtin"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "stages",
+     "stage_models",
+     "builtin"
+    ],
+    "title": "StagePreset",
+    "description": "단계별 백엔드 · 모델 묶음 (settings.presets). builtin 이면 기본 묶음이라 지울 수 없다."
    },
    "StartView": {
     "properties": {
