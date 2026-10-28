@@ -5,6 +5,7 @@
 길에 닿은 변마다 필지 앞 폭(moderngen.DIVIDE["villa"])만큼 필지를 두고 필지마다 빌라 한 채(가끔 단독주택). OSM 블록은 볼록이 아니라
 moderngen 의 볼록 다각형 자르기 대신 블록 변을 따라 필지 직사각형을 놓고, 블록 안 · 길 · 다른 건물 · 물과 녹지를 하나씩 확인한다.
 블록 한 변이 BIG 을 넘으면 아파트 단지 규칙(판상 동을 줄 지어 놓기), 들어가지 않으면 빌라촌.
+둘레 길이 모두 WIDE 이상인 블록(큰길 모퉁이 · 교차로 사이 조각)은 채우지 않는다.
 
 필지는 길 폭의 절반 + SETBACK 안쪽에 둔다. 기존 건물과 겹치는 필지는 버린다. 지은 건물은 buildings 끝에 붙이고 parts 에
 made: true 를 적는다. 그래서 OSM 건물 번호(작가가 고친 건물 Atlas.buildings)는 바뀌지 않는다. 지은 건물에는 이름 · 주소 · 입점이 없고
@@ -23,6 +24,7 @@ RULES = {"villa": "빌라촌 (큰 블록은 아파트 단지)"}
 EMPTY = 0.10  # 건물이 덮은 넓이가 블록의 이만큼 아래면 빈 블록
 OPEN = 0.5  # 물 · 녹지 · 광장 · 밭이 이만큼 넘으면 채우지 않는다
 BIG = 150.0  # 블록 한 변이 이보다 길면 아파트 단지 규칙 (m)
+WIDE = 15.0  # 둘레 길이 모두 이 폭 이상인 블록은 채우지 않는다 (큰길 모퉁이 · 교차로 사이 조각, m)
 MIN_AREA = 400.0  # 이보다 작은 블록은 보지 않는다 (m²)
 MAX_AREA = 250000.0  # 이보다 큰 블록도 보지 않는다 (공원 · 공항 · 지도 끝 큰 땅)
 SETBACK = 2.0  # 길 폭의 절반에서 이만큼 더 안쪽에 필지를 둔다 (m)
@@ -79,7 +81,7 @@ def fill(layout: dict, seed: int | str, rule: str = "villa") -> tuple[dict, dict
     empty = 0
     for k, face in enumerate(blocks.faces([pts for pts, _ in roads], w, h)):
         a = geom.area(face)
-        if not MIN_AREA <= a <= MAX_AREA or not site.empty(face):
+        if not MIN_AREA <= a <= MAX_AREA or site.wide(face) or not site.empty(face):
             continue
         empty += 1
         r = random.Random(f"{seed}:fill:{k}")
@@ -134,6 +136,12 @@ class _Site:
         built = sum(1 for q in pts if any(geom.inside(q, poly) for poly in bl))
         opened = sum(1 for q in pts if any(geom.inside(q, poly) for poly in op))
         return built < EMPTY * len(pts) and opened <= OPEN * len(pts)
+
+    def wide(self, face: Poly) -> bool:
+        """블록 변마다 길 폭(width_at, 변 가운데)을 보아 길인 변이 모두 WIDE 이상인가. 지도 테두리 변은 세지 않는다."""
+        widths = [self.width_at(geom.lerp(face[i - 1], face[i], 0.5)) for i in range(len(face))]
+        widths = [wd for wd in widths if wd is not None]
+        return bool(widths) and min(widths) >= WIDE
 
     def width_at(self, q: Point) -> Optional[float]:
         """q 에서 1m 안의 길 폭 (가장 넓은 것). 길이 아니면(지도 테두리) None."""

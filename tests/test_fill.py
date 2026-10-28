@@ -136,6 +136,19 @@ def test_big_block_gets_apartments():
         fill.fill({**lo, "generator": "canon-modern"}, 1)
 
 
+def test_wide_road_blocks_stay_empty():
+    side = [[0, 0], [1, 0], [1, 1], [0, 1]]
+
+    def layout(widths):
+        return {"w": 120.0, "h": 100.0, "generator": "osm", "version": "", "source": osm.SOURCE, "trees": [],
+                "roads": [{"kind": "road", "width": widths[k], "points": [side[k], side[(k + 1) % 4]], "name": ""} for k in range(4)],
+                "buildings": [], "parts": []}
+
+    assert fill.fill(layout([20.0, 16.0, 15.0, 24.0]), 1)[1]["buildings"] == 0  # 큰길로만 둘러싼 블록
+    out, st = fill.fill(layout([20.0, 16.0, 6.0, 24.0]), 1)  # 좁은 길이 하나라도 있으면 채운다
+    assert st["blocks"] == 1 and st["buildings"] > 0
+
+
 def test_web_and_cli_fill(tmp_path, monkeypatch, capsys):
     import importlib
 
