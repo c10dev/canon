@@ -1884,11 +1884,12 @@ function workCard() {
     ? `<div class="work-strip" style="--n:${n}" aria-hidden="true">${Array.from({ length: n }, (_, i) => cell(lo + i)).join('')}</div>`
     : `<div class="meter" aria-hidden="true"><i style="left:0;width:${Math.round((done / Math.max(total, 1)) * 100)}%;background:var(--green)"></i></div>`;
   const where = [part && `<b>${part.number}부</b> ${esc(part.title)}`, arc && `<b>아크 ${arc.number}</b> ${esc(arc.title)}`].filter(Boolean).join(' · ');
+  const whereFull = [part && `${part.number}부 ${part.title}`, arc && `아크 ${arc.number} ${arc.title}`].filter(Boolean).join(' · ');  // 두 줄로 자른 부 · 아크 줄의 전체 글
   const [nextLabel, nextHref] = nextStep();
   return `<div class="work-card">
       <div class="work-head"><a class="work-title" href="${base()}">${esc(p.meta.title || S.name)}</a><a class="work-switch" href="#/" title="작품 목록" aria-label="다른 작품 고르기 (작품 목록)">⌄</a></div>
       <div class="small work-meta">${esc(p.meta.genre || '장르 미정')} · ${serial() ? '장편' : '단편'} ${total}화</div>${branchSideTag()}
-      ${where ? `<div class="work-where">${where}</div>` : ''}
+      ${where ? `<div class="work-where" title="${esc(whereFull)}">${where}</div>` : ''}
       ${strip}
       <div class="small work-count" aria-hidden="true">${done}/${total}화</div>
       <div class="small work-scale"><span aria-hidden="true">${cells ? `${lo}화` : ''}</span><span>${done} / ${total}화 반영</span><span aria-hidden="true">${cells ? `${hi}화` : ''}</span></div>

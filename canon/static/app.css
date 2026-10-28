@@ -66,7 +66,7 @@ ul, ol { margin: 0; }
 .work-switch:hover { background: var(--bg); color: var(--text); }
 .work-meta { margin-top: -6px; }
 .work-branch { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 6px; background: var(--amber-soft); color: var(--written-ink); font-size: 0.75rem; font-weight: 700; }
-.work-where { word-break: keep-all; overflow-wrap: anywhere; font-size: 0.75rem; line-height: 1.5; color: var(--text-2); }
+.work-where { word-break: keep-all; overflow-wrap: anywhere; font-size: 0.75rem; line-height: 1.5; color: var(--text-2); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
 .work-strip { display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: 2px; }
 .work-strip i { height: 14px; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--line); }
 .work-strip i.draft { background: var(--chip); box-shadow: inset 0 0 0 1px var(--line-strong); }
@@ -463,7 +463,7 @@ body.chat-open .savebar { left: calc(50% - 220px); }
   body.chat-open .side .work-title, body.chat-open .side .work-where { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   body.chat-open .side .work-title { font-size: 1rem; font-weight: 700; color: var(--text-2); }
   body.chat-open .side .work-head { flex: none; max-width: 40%; }
-  body.chat-open .side .work-where { flex: 0 1 auto; min-width: 0; }
+  body.chat-open .side .work-where { display: block; flex: 0 1 auto; min-width: 0; }
   body.chat-open .side .work-card > :is(.work-strip, .meter) { flex: 0 1 140px; min-width: 80px; }
   body.chat-open .side .work-strip i { height: 10px; }
   body.chat-open .side .work-count { display: block; flex: none; white-space: nowrap; }
