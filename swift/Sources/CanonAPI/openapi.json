@@ -5343,6 +5343,182 @@
     }
    }
   },
+  "/api/projects/{name}/episodes/{n}/check/import": {
+   "post": {
+    "summary": "Import Check",
+    "description": "채팅 앱이 돌려준 검수 결과 JSON 을 회차 하나로 합친다 (검수 지시서, 회차 source chat).\n상태 변경안 가져오기와 같은 규칙으로 읽는다.",
+    "operationId": "import_check",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Raw"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/episodes/{n}/findings/{fid}": {
+   "put": {
+    "summary": "Set Finding",
+    "description": "검수 지적의 처리 상태(열림 · 고침 · 그대로 둠 · 잘못 짚음)와 메모를 정한다.",
+    "operationId": "set_finding",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     },
+     {
+      "name": "fid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Fid"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FindingIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/episodes/{n}/style": {
+   "get": {
+    "summary": "Episode Style",
+    "description": "이번 화 문체 지표와 기준 대비 경고 (pipeline.style_drift). LLM 없이 부를 때마다 다시 잰다.",
+    "operationId": "episode_style",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/StyleDrift"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/episodes/{n}/apply": {
    "post": {
     "summary": "Apply State",
@@ -11760,6 +11936,66 @@
     ],
     "title": "ChatMessage"
    },
+   "CheckRound": {
+    "properties": {
+     "no": {
+      "type": "integer",
+      "title": "No"
+     },
+     "at": {
+      "type": "string",
+      "title": "At",
+      "default": ""
+     },
+     "basis": {
+      "type": "string",
+      "title": "Basis",
+      "description": "검수한 본문의 지문 (pipeline.text_basis). 비면 모름 (옛 작품)",
+      "default": ""
+     },
+     "source": {
+      "type": "string",
+      "enum": [
+       "api",
+       "chat",
+       "auto"
+      ],
+      "title": "Source",
+      "description": "api: 화면 · 명령줄 검수 / chat: 채팅 앱에서 받은 JSON / auto: 자동 집필",
+      "default": "api"
+     },
+     "widen": {
+      "type": "boolean",
+      "title": "Widen",
+      "description": "넓혀 찾기를 함께 했는지",
+      "default": false
+     },
+     "found": {
+      "type": "integer",
+      "title": "Found",
+      "description": "이 회차가 짚은 수",
+      "default": 0
+     },
+     "added": {
+      "type": "integer",
+      "title": "Added",
+      "description": "그중 새 지적",
+      "default": 0
+     },
+     "kept_again": {
+      "type": "integer",
+      "title": "Kept Again",
+      "description": "그중 그대로 둠 · 잘못 짚음으로 정해 둔 지적 (상태는 그대로)",
+      "default": 0
+     }
+    },
+    "type": "object",
+    "required": [
+     "no"
+    ],
+    "title": "CheckRound",
+    "description": "검수 회차 하나: 한 번 검수한 결과를 지적 목록에 합친 기록."
+   },
    "CheckTrialIn": {
     "properties": {
      "backend": {
@@ -12784,13 +13020,29 @@
       },
       "type": "array",
       "title": "Issues",
-      "description": "마지막 검수 결과"
+      "description": "마지막 회차의 검수 결과 그대로. 처리 상태는 findings"
      },
      "checked_at": {
       "type": "string",
       "title": "Checked At",
       "description": "마지막 검수 시각. 그 뒤에 본문을 고쳤으면 검수 결과가 오래된 것",
       "default": ""
+     },
+     "findings": {
+      "items": {
+       "$ref": "#/components/schemas/Finding"
+      },
+      "type": "array",
+      "title": "Findings",
+      "description": "검수 세션의 지적 (회차를 합친 것)"
+     },
+     "rounds": {
+      "items": {
+       "$ref": "#/components/schemas/CheckRound"
+      },
+      "type": "array",
+      "title": "Rounds",
+      "description": "검수 회차 (최근 것만)"
      },
      "edits": {
       "items": {
@@ -13077,6 +13329,136 @@
     ],
     "title": "ExportOut",
     "description": "붙여 넣을 글. episodes 는 실제로 넣은 화 (본문이 없는 화는 빠진다)."
+   },
+   "Finding": {
+    "properties": {
+     "type": {
+      "type": "string",
+      "enum": [
+       "사실",
+       "시간",
+       "인물 정보",
+       "말투",
+       "세계관",
+       "플롯",
+       "동선",
+       "시점"
+      ],
+      "title": "Type",
+      "description": "사실: 확정 사실·세부 모순 / 시간: 순서·인과 / 인물 정보: 모르는 것을 앎 / 말투 / 세계관 규칙 / 플롯: 사건 누락 / 동선: 한 장면 안에서 위치·몸이 향한 쪽·자세·손에 든 것·가려진 곳이 행동 없이 바뀜 / 시점: 시점 인물이 볼 수 없거나 모르는 것을 서술, 1인칭의 나가 다른 인물로 바뀜, 표시 없이 시점 인물이 바뀜"
+     },
+     "description": {
+      "type": "string",
+      "title": "Description",
+      "description": "무엇이 어긋났는지 한 문장"
+     },
+     "source_episode": {
+      "type": "integer",
+      "title": "Source Episode",
+      "description": "앞선 근거가 나온 화. 설정·확정 사실·인물 상태가 근거면 0, 같은 화 앞 문장이면 이번 화",
+      "default": 0
+     },
+     "source_quote": {
+      "type": "string",
+      "title": "Source Quote",
+      "description": "앞선 근거 원문 그대로 (설정이면 해당 설정 문장)"
+     },
+     "current_quote": {
+      "type": "string",
+      "title": "Current Quote",
+      "description": "이번 화에서 어긋난 문장 원문 그대로"
+     },
+     "suggestion": {
+      "type": "string",
+      "title": "Suggestion",
+      "description": "고치는 방법 제안",
+      "default": ""
+     },
+     "id": {
+      "type": "string",
+      "title": "Id",
+      "default": ""
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "open",
+       "fixed",
+       "kept",
+       "wrong"
+      ],
+      "title": "Status",
+      "description": "open: 열림 / fixed: 고침 / kept: 그대로 둠 / wrong: 잘못 짚음",
+      "default": "open"
+     },
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "description": "작가 메모 (그대로 두거나 잘못 짚었다고 본 이유)",
+      "default": ""
+     },
+     "first": {
+      "type": "integer",
+      "title": "First",
+      "description": "처음 짚은 회차",
+      "default": 1
+     },
+     "last": {
+      "type": "integer",
+      "title": "Last",
+      "description": "마지막으로 짚은 회차. 마지막 회차보다 작으면 그 회차가 짚지 않은 것",
+      "default": 1
+     },
+     "closed_by": {
+      "type": "string",
+      "enum": [
+       "",
+       "author",
+       "recheck"
+      ],
+      "title": "Closed By",
+      "description": "author: 작가가 정함 / recheck: 다시 검수에서 문장이 사라져 고침",
+      "default": ""
+     },
+     "decided_at": {
+      "type": "string",
+      "title": "Decided At",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "type",
+     "description",
+     "source_quote",
+     "current_quote"
+    ],
+    "title": "Finding",
+    "description": "검수 세션에 남는 지적 하나. 다시 검수해도 작가가 정한 상태와 메모를 지킨다 (findings.merge).\nLLM 이 채우지 않는다."
+   },
+   "FindingIn": {
+    "properties": {
+     "status": {
+      "type": "string",
+      "enum": [
+       "open",
+       "fixed",
+       "kept",
+       "wrong"
+      ],
+      "title": "Status"
+     },
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "description": "작가 메모. 비우면(null) 그대로 둔다"
+     }
+    },
+    "type": "object",
+    "required": [
+     "status"
+    ],
+    "title": "FindingIn"
    },
    "Foreshadow": {
     "properties": {
@@ -18690,6 +19072,26 @@
     ],
     "title": "StyleDevice",
     "description": "특정 상황에만, 가끔 쓰는 장면 장치 (예: 자문자답으로 꼬리를 무는 망상). 프로그램이 최근 화에서 쓴 화를 세어 이번 화 지시를 바꾼다."
+   },
+   "StyleDrift": {
+    "properties": {
+     "metrics": {
+      "$ref": "#/components/schemas/StyleMetrics"
+     },
+     "warnings": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Warnings"
+     }
+    },
+    "type": "object",
+    "required": [
+     "metrics",
+     "warnings"
+    ],
+    "title": "StyleDrift"
    },
    "StyleEdit": {
     "properties": {

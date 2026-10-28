@@ -980,13 +980,46 @@ class TextVersion(BaseModel):
     request: Optional[RewriteRequest] = Field(None, description="이 판을 만든 다시 생성 요청 (처음 쓴 판이면 비움)")
 
 
+FindingStatus = Literal["open", "fixed", "kept", "wrong"]
+FINDING_STATUS: dict[str, str] = {"open": "열림", "fixed": "고침", "kept": "그대로 둠", "wrong": "잘못 짚음"}
+
+
+class Finding(ConsistencyIssue):
+    """검수 세션에 남는 지적 하나. 다시 검수해도 작가가 정한 상태와 메모를 지킨다 (findings.merge).
+    LLM 이 채우지 않는다."""
+    id: str = ""
+    status: FindingStatus = Field("open", description="open: 열림 / fixed: 고침 / kept: 그대로 둠 / wrong: 잘못 짚음")
+    note: str = Field("", description="작가 메모 (그대로 두거나 잘못 짚었다고 본 이유)")
+    first: int = Field(1, description="처음 짚은 회차")
+    last: int = Field(1, description="마지막으로 짚은 회차. 마지막 회차보다 작으면 그 회차가 짚지 않은 것")
+    closed_by: Literal["", "author", "recheck"] = Field("", description="author: 작가가 정함 / recheck: 다시 검수에서 문장이 사라져 고침")
+    decided_at: str = ""
+
+
+CheckSource = Literal["api", "chat", "auto"]
+
+
+class CheckRound(BaseModel):
+    """검수 회차 하나: 한 번 검수한 결과를 지적 목록에 합친 기록."""
+    no: int
+    at: str = ""
+    basis: str = Field("", description="검수한 본문의 지문 (pipeline.text_basis). 비면 모름 (옛 작품)")
+    source: CheckSource = Field("api", description="api: 화면 · 명령줄 검수 / chat: 채팅 앱에서 받은 JSON / auto: 자동 집필")
+    widen: bool = Field(False, description="넓혀 찾기를 함께 했는지")
+    found: int = Field(0, description="이 회차가 짚은 수")
+    added: int = Field(0, description="그중 새 지적")
+    kept_again: int = Field(0, description="그중 그대로 둠 · 잘못 짚음으로 정해 둔 지적 (상태는 그대로)")
+
+
 class Episode(BaseModel):
     plot: EpisodePlot
     status: EpisodeStatus = "draft"
     text: str = ""
     summary: str = ""
-    issues: list[ConsistencyIssue] = Field(default_factory=list, description="마지막 검수 결과")
+    issues: list[ConsistencyIssue] = Field(default_factory=list, description="마지막 회차의 검수 결과 그대로. 처리 상태는 findings")
     checked_at: str = Field("", description="마지막 검수 시각. 그 뒤에 본문을 고쳤으면 검수 결과가 오래된 것")
+    findings: list[Finding] = Field(default_factory=list, description="검수 세션의 지적 (회차를 합친 것)")
+    rounds: list[CheckRound] = Field(default_factory=list, description="검수 회차 (최근 것만)")
     edits: list[TextEdit] = Field(default_factory=list, description="본문 부분 수정 기록 (최근 것만)")
     auto: bool = Field(False, description="자동 집필이 사람 검토 없이 반영한 화. 사용자가 다시 반영하면 False")
     hook: Optional[HookReport] = Field(None, description="1~3화 흡입력 판정 (마지막 것). basis 가 지금 본문과 다르면 오래된 것")
@@ -998,6 +1031,14 @@ class Episode(BaseModel):
     time: "StoryTime" = Field(default_factory=lambda: StoryTime(), description="이 화가 끝난 작품 속 시점. 상태 반영 때 채운다")
     realign: str = Field("", description="앞 화 플롯을 뒤 화에 맞추지 않고 다시 짜면서 이 화와 어긋나게 된 점. 이 화 플롯을 다시 짜거나 작가가 확인하면 비운다")
     opening_prev: Optional[EpisodePlot] = Field(None, description="1~3화 여는 방식 안을 처음 고르기 전 플롯 (되돌리기용). 되돌리면 비운다")
+
+    @model_validator(mode="after")
+    def _old_check(self) -> "Episode":
+        # 검수 세션 전 작품: 마지막 검수 결과를 1회차의 열린 지적으로 옮긴다 (본문 지문은 모른다)
+        if self.issues and not self.findings and not self.rounds:
+            self.findings = [Finding(**x.model_dump(), id=f"f{k}") for k, x in enumerate(self.issues, 1)]
+            self.rounds = [CheckRound(no=1, at=self.checked_at, found=len(self.issues), added=len(self.issues))]
+        return self
 
 
 # ---------- 회차 진행 상태 ----------

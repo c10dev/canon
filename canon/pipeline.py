@@ -4,7 +4,7 @@ from __future__ import annotations
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
 from .llm import LLM, dump
-from . import charlog, features, foreshadows, statwin, timeline
+from . import charlog, features, findings, foreshadows, statwin, timeline
 from .schema import (
     Act,
     ArcEdit,
@@ -17,6 +17,8 @@ from .schema import (
     CharacterVisual,
     ChatMessage,
     ChatScope,
+    CheckRound,
+    CheckSource,
     ConsistencyReport,
     SceneCheck,
     Conversion,
@@ -2364,7 +2366,8 @@ def _delete_last(p: Project, n: int, keep_plot: bool) -> list[str]:
                      + (f" 그 반영이 더한 인물({', '.join(added)})도 빠졌어요." if added else ""))
     chars = len(ep.text)
     ep.text, ep.status, ep.summary, ep.auto, ep.final_text = "", "confirmed", "", False, ""
-    ep.issues, ep.checked_at, ep.edits, ep.hook, ep.illustrations = [], "", [], None, []
+    ep.edits, ep.hook, ep.illustrations = [], None, []
+    findings.clear(ep)
     ep.candidate, ep.versions, ep.made_by, ep.time = None, [], None, StoryTime()
     p.foreshadow_clues = [c for c in p.foreshadow_clues if c.episode != n]  # 지운 본문 문장에 건 복선 근거
     p.chats = [c for c in p.chats if c.topic != f"text:{n}"]
@@ -2503,7 +2506,7 @@ def rewrite_materials(p: Project, n: int) -> dict[str, list[str]]:
     edits = [e for e in ep.edits if not e.undone and e.at > since and (e.before or e.after)][-REWRITE_EDITS:]
     return {
         "issues": [f"- [{x.type}] {x.description}" + (f" (어긋난 문장: «{prompts._clip(x.current_quote, 160)}»)" if x.current_quote else "")
-                   + (f" → {x.suggestion}" if x.suggestion else "") for x in ep.issues],
+                   + (f" → {x.suggestion}" if x.suggestion else "") for x in findings.open_findings(ep)],
         "hook": _hook_lines(ep.hook) if ep.hook and prompts.is_opening(n) else [],
         "style": [f"- {w}" for w in style_drift(p, n)[1]] if ep.text else [],
         "edits": [f"- «{prompts._clip(e.before, 200)}» → «{prompts._clip(e.after, 200)}»"
@@ -2559,7 +2562,7 @@ def replace_text(ep: Episode, text: str, made_by: RewriteRequest | None = None) 
         _keep_version(ep, TextVersion(id=_version_id(ep), at=_now(), text=ep.text, kind="previous", request=ep.made_by))
     before_change(ep)
     ep.text, ep.made_by, ep.status = text, made_by, "finalized" if done else "written"
-    ep.issues, ep.checked_at = [], ""
+    findings.clear(ep)
 
 
 def adopt_candidate(p: Project, n: int) -> None:
@@ -2962,18 +2965,17 @@ def check_episode(llm: LLM, p: Project, n: int, widen: bool | None = None) -> Co
         raise ValueError(f"{n}화 본문이 없어요")
     report = llm.json(prompts.SYSTEM_CHECKER, prompts.check_prompt(p, n), ConsistencyReport, hint={"episode": n})
     report.episode = n
-    if p.serial and (p.settings.check_widen if widen is None else widen):
+    if widen_on(p, widen):
         report, _ = widen_check(llm, p, n, report)
     return report
 
 
-def _same_quote(a: str, b: str) -> bool:
-    """두 인용이 같은 문장을 짚는지: 짧은 쪽 글 조각의 절반 이상이 겹친다."""
-    from .context import grams
+def widen_on(p: Project, widen: bool | None = None) -> bool:
+    """이 검수에 넓혀 찾기를 붙이는지: 장편이고 widen(비우면 작품 설정 check_widen)이 켜졌을 때."""
+    return p.serial and (p.settings.check_widen if widen is None else widen)
 
-    ga, gb = grams(a), grams(b)
-    small = min(len(ga), len(gb))
-    return a.strip() == b.strip() or (small > 0 and len(ga & gb) / small >= 0.5)
+
+_same_quote = findings.same_quote
 
 
 def widen_check(llm: LLM, p: Project, n: int, report: ConsistencyReport, hint: dict | None = None) -> tuple[ConsistencyReport, dict]:
@@ -3071,10 +3073,13 @@ def check_two_step(llm: LLM, judge: Judge, p: Project, n: int, hint: dict | None
     return report, stats
 
 
-def apply_check(p: Project, r: ConsistencyReport) -> None:
-    """검수 결과는 참고용 경고라 승인 없이 화에 붙여 둔다. 다시 검수하면 덮어쓴다."""
+def apply_check(p: Project, r: ConsistencyReport, source: CheckSource = "api", widen: bool = False) -> CheckRound:
+    """검수 결과는 참고용 경고라 승인 없이 화에 붙여 둔다. 지적 목록에 회차 하나로 합친다 (findings.merge:
+    작가가 그대로 둠 · 잘못 짚음으로 정한 지적은 다시 나와도 그대로)."""
     ep = p.episode(r.episode)
-    ep.issues, ep.checked_at = r.issues, _now()
+    if not ep.text:
+        raise ValueError(f"{r.episode}화 본문이 없어요")
+    return findings.merge(ep, r.issues, _now(), text_basis(ep.text), source, widen)
 
 
 def style_baseline(p: Project) -> metrics.StyleMetrics:

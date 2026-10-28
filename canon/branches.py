@@ -9,7 +9,7 @@ import hashlib
 import shutil
 import uuid
 
-from . import dynamics, pipeline, store, timeline
+from . import dynamics, findings, pipeline, store, timeline
 from .schema import (BranchDiff, BranchDiffRow, BranchEpisode, BranchInfo, BranchSide, Episode, ForkMode, Project,
                      Snapshot, TextVersion)
 
@@ -75,7 +75,8 @@ def fork(p: Project, n: int, mode: ForkMode = "clear") -> list[int]:
         pipeline._keep_version(e, TextVersion(id=pipeline._version_id(e), at=pipeline._now(), text=e.text,
                                               kind="previous", request=e.made_by))
         e.text, e.status, e.made_by = "", "confirmed", None
-        e.issues, e.checked_at, e.hook, e.final_text = [], "", None, ""
+        e.hook, e.final_text = None, ""
+        findings.clear(e)
         cleared.append(e.plot.number)
     return cleared
 
