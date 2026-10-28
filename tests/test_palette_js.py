@@ -95,6 +95,53 @@ def test_palette_matches_names_and_episodes():
     assert outside["3화"] == [] and outside["한서"] == []
 
 
+@pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
+def test_palette_setup_fields():
+    """설정 칸: 칸 이름 · 값 · 초성으로 찾고, 고르면 설정 도우미의 그 칸(f-<경로>)으로 간다. 검색어가 없으면 보이지 않는다."""
+    from canon.schema import Character, Project
+
+    from .jsvm import dump, run_js
+
+    p = Project()
+    p.meta.title = "소금 정원의 계약"
+    p.meta.logline_parts.who = "지도를 못 읽는 지도 제작자"
+    p.world.setting = "안개가 잦은 남해의 작은 섬마을. 등대와 수산시장이 생활의 중심이고 썰물 때만 길이 열린다."
+    p.world.rules = ["밤에는 불을 끈다", "섬 밖으로 편지를 보내지 않는다"]
+    p.characters = [Character(id="c1", name="한서윤", role="주인공", goal="사라진 오빠를 찾는다"),
+                    Character(id="c2", name="", role="조연", goal="이름 없는 인물의 목표")]
+    qs = ["", "제목", "소금", "누가", "규칙", "오빠", "한서윤 원하는", "ㅈㅁ", "이름 없는", "주제", "섬마을"]
+    expr = """(() => {
+      const fields = palSetupFields(data.project);
+      const ctx = { ...data.inside, fields };
+      return { fields: fields.map((f) => [f.path, f.label, f.value]),
+               got: data.qs.map((q) => paletteMatch(paletteItems(ctx), q).filter((it) => it.kind === 'field').map((it) => [it.label, it.hint, it.href, it.focus])) };
+    })()"""
+    r = run_js(["app.js", "palette.js"], expr, {"project": dump(p), "inside": INSIDE, "qs": qs})
+    fields = {path: (label, value) for path, label, value in r["fields"]}
+    assert fields["world.rules"] == ("깨면 안 되는 규칙", "밤에는 불을 끈다 / 섬 밖으로 편지를 보내지 않는다")
+    assert fields["characters.0.goal"] == ("한서윤 · 원하는 것", "사라진 오빠를 찾는다")
+    assert not any(k.startswith("characters.1.") for k in fields)  # 이름 없는 인물은 부를 이름이 없어 뺀다
+    got = dict(zip(qs, r["got"]))
+
+    assert got[""] == []
+    assert got["제목"][0] == ["제목", "소금 정원의 계약", B + "/setup", "#f-meta-title"]
+    assert got["소금"][0][0] == "제목"  # 값으로도 찾는다
+    assert got["누가"][0][0] == "로그라인 · 누가" and got["누가"][0][3] == "#f-meta-logline_parts-who"
+    assert got["규칙"][0][:2] == ["깨면 안 되는 규칙", "밤에는 불을 끈다 / 섬 밖으로 편지를 보내지 않는다"]
+    assert got["오빠"] == [["한서윤 · 원하는 것", "사라진 오빠를 찾는다", B + "/setup", "#f-characters-0-goal"]]
+    assert got["한서윤 원하는"][0][0] == "한서윤 · 원하는 것"
+    assert got["ㅈㅁ"][0][0] == "제목"  # 초성
+    assert got["이름 없는"] == []
+    assert got["주제"][0][:2] == ["주제", "비어 있음"]
+    setting = got["섬마을"][0]
+    assert setting[0] == "배경" and setting[1].endswith("…") and len(setting[1]) == 41  # 긴 값은 앞 40자만
+
+    # 인물 이름으로 찾으면 인물 · 관계도가 먼저, 그 인물의 칸은 뒤에
+    first = run_js(["app.js", "palette.js"], "paletteMatch(paletteItems({ ...data.inside, fields: palSetupFields(data.project) }), '한서').map((it) => it.kind)",
+                   {"project": dump(p), "inside": INSIDE})
+    assert first[0] == "char" and set(first[1:]) == {"field"}
+
+
 JOB_LEFT = """
 const src = require('fs').readFileSync(process.argv[1], 'utf8');
 const m = src.match(/\\nfunction jobLeft\\(j, now\\) \\{[\\s\\S]*?\\n\\}\\n/);

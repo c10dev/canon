@@ -74,3 +74,23 @@ class ViewTest(unittest.TestCase):
         js = (Path(__file__).parent.parent / "canon" / "static" / "setup.js").read_text(encoding="utf-8")
         views = re.search(r"const VIEWS = \[(.*?)\];", js).group(1)
         self.assertEqual(re.findall(r"'([^']+)'", views), list(dynamics.VIEWS))
+
+
+def test_field_prompt():
+    """칸 하나 후보 프롬프트: 칸 쓰는 법, 지금 값, 고른 장르의 그 칸 예시가 들어간다. 모르는 칸은 받지 않는다."""
+    import pytest
+
+    from canon import pipeline, prompts
+    from canon.mock import MockLLM
+    from canon.schema import Meta, Project
+
+    p = Project(meta=Meta(title="등대", genres=["fantasy"]))
+    p.meta.logline_parts.goal = "지도를 찾는다"
+    text = prompts.field_prompt(p, "meta.logline_parts.goal")
+    assert "'무엇을 하려 하나'" in text and "지금 값: 지도를 찾는다" in text
+    assert "지워진 땅을 찾아 국경을 넘는다" in text  # 판타지 예시의 목표 칸
+    assert "이 장르의 예시" not in prompts.field_prompt(p, "world.setting")
+    assert set(prompts.FIELD_IDEAS) == {"meta.title", "world.setting", *(f"meta.logline_parts.{k}" for k in ("who", "why", "goal", "block", "stake"))}
+    assert pipeline.field_stage("meta.title") == "name" and pipeline.field_stage("world.setting") == "plan"
+    with pytest.raises(KeyError):
+        pipeline.suggest_field(MockLLM(), p, "meta.genre")

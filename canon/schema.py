@@ -3,7 +3,7 @@
 모든 상태는 하나의 Project 객체(project.json)에 저장된다.
 LLM 이 직접 채우는 모델(SetupSuggestion, StyleProfile, ArcPlan, PlotBatch, PlotRevision, NameOptions, StateDelta, ConsistencyReport,
 ImpactReport, SeriesPlan, ArcProposal, Recap, StorylineProposal, SerialConversion,
-PassageRevision, SerialRebuild, Rework, HookReport, OpeningPlots, IllustDraft, LookSuggestion, PlaceSort)은
+PassageRevision, SerialRebuild, Rework, HookReport, OpeningPlots, IllustDraft, LookSuggestion, PlaceSort, FieldIdeas)은
 Gemini 구조화 출력에 그대로 넘기므로 dict 타입 필드를 쓰지 않는다.
 """
 from __future__ import annotations
@@ -1284,6 +1284,16 @@ class NameOption(BaseModel):
 class NameOptions(BaseModel):
     """이름·지명 AI 추천. 코드가 뽑은 후보에서 고르거나 같은 결로 새로 짓는다 (naming.py)."""
     options: list[NameOption]
+
+
+class FieldIdea(BaseModel):
+    text: str = Field(description="칸에 그대로 넣을 값")
+    reason: str = Field("", description="이 후보가 작품에 맞는 이유 한 줄")
+
+
+class FieldIdeas(BaseModel):
+    """설정 칸 하나의 AI 후보 (✦). 작가가 하나를 골라야 칸이 바뀐다 (pipeline.suggest_field)."""
+    options: list[FieldIdea]
 
 
 # ---------- 인과율: 언제든 더하는 이야기 요소와 그 영향 ----------

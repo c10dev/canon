@@ -41,6 +41,7 @@ from .schema import (
     PlaceSort,
     VoiceSuggestion,
     NameOptions,
+    FieldIdeas,
     OpeningPlots,
     Part,
     PassageRevision,
@@ -123,6 +124,29 @@ def suggest_names(llm: LLM, p: Project, character: str = "", place_kind: str = "
                     hint={"candidates": [x.name for x in cands], "n": n})
     return cands, opts
 
+
+
+def field_stage(field: str) -> str:
+    """칸 하나 후보를 부를 단계. 제목은 이름 짓기라 'name', 나머지는 기획 'plan'."""
+    return "name" if field == "meta.title" else "plan"
+
+
+def suggest_field(llm: LLM, p: Project, field: str, n: int = 3) -> FieldIdeas:
+    """설정 칸 하나의 AI 후보 (✦). 저장하지 않는다 (작가가 하나를 고르면 화면이 칸에 넣고 작품을 저장한다).
+    빈 후보, 겹치는 후보, 지금 값과 같은 후보는 뺀다."""
+    if field not in prompts.FIELD_IDEAS:
+        raise KeyError(f"후보를 받을 수 없는 칸이에요: {field}")
+    ideas = llm.json(prompts.SYSTEM_PLANNER, prompts.field_prompt(p, field, n), FieldIdeas, hint={"field": field, "n": n})
+    now, seen, out = prompts.field_value(p, field), set(), []
+    for o in ideas.options:
+        o.text, o.reason = o.text.strip().strip("\"'“”‘’"), o.reason.strip()
+        if field.startswith("meta.logline_parts."):
+            o.text = o.text.rstrip(".")
+        if o.text and o.text != now and o.text not in seen:
+            seen.add(o.text)
+            out.append(o)
+    ideas.options = out[:n]
+    return ideas
 
 def require_previous(p: Project, n: int) -> None:
     """이전 화가 모두 반영(finalized)돼야 n화를 쓰거나 반영한다. 인물 상태가 화 순서대로 쌓이게 하는 규칙이다."""

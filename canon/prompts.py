@@ -2714,6 +2714,63 @@ def naming_prompt(p: Project, target: str, candidates: list, n: int) -> str:
 - reason 에는 이 대상에 맞는 이유를 한 줄로 적습니다 (시대, 나이, 신분, 성격, 지형 등)."""
 
 
+
+# ---------- 설정 칸 하나 AI 후보 (✦) ----------
+# 칸 하나만 채우는 작은 제안. 여러 칸을 바꾸는 제안은 설정 도우미 대화(setup_chat_prompt)가 맡는다.
+# 키는 화면의 data-bind 경로와 같다 (static/setup.js). 값: (칸 이름, 쓰는 법)
+
+FIELD_IDEAS: dict[str, tuple[str, str]] = {
+    "meta.title": ("제목", "웹소설 연재 사이트에 올릴 작품 제목. 2~20자. 서로 결이 다르게 (짧은 명사형, 상황을 보여 주는 문장형, 인물이나 장소 이름을 쓴 것)"),
+    "meta.logline_parts.who": ("누가", "이름보다 특징이 먼저 보이는 주인공을 꾸미는 말과 함께 명사구로. 조사 없이 끝냄 (뒤에 '이/가'가 붙는다). 예: 연애를 포기한 웨딩플래너"),
+    "meta.logline_parts.why": ("무엇 때문에", "이야기를 시작하게 만드는 일. 뒤 목표로 이어지게 '~하자', '~해서', '~한 뒤'로 끝냄. 예: 첫사랑의 결혼식을 맡게 되자"),
+    "meta.logline_parts.goal": ("무엇을 하려 하나", "주인공이 하려는 눈에 보이는 행동. '~한다'로 끝냄. 예: 완벽한 식을 치러 주려 한다"),
+    "meta.logline_parts.block": ("무엇이 막나", "목표를 막는 사람이나 힘. 한 문장, '~다'로 끝냄. 예: 신랑은 그녀를 잊지 못했다고 고백한다"),
+    "meta.logline_parts.stake": ("무엇이 걸렸나", "실패하거나 진실을 알면 잃는 것. 한 문장, '~다'로 끝냄. 예: 식이 끝나면 둘 다 다시는 만날 수 없다"),
+    "world.setting": ("배경", "이야기가 벌어지는 곳과 그곳의 분위기를 1~3문장으로. 장소, 사회, 이 이야기에만 있는 특징을 함께"),
+}
+
+
+def field_prompt(p: Project, field: str, n: int = 3) -> str:
+    """설정 칸 하나의 후보 n 개 (pipeline.suggest_field). field 는 FIELD_IDEAS 의 키."""
+    label, how = FIELD_IDEAS[field]
+    now = field_value(p, field)
+    chars = [f"- {c.name or c.id} ({c.role})" + (f": {_clip(c.goal, 80)}" if c.goal else "") for c in p.characters]
+    exs = [getattr(x, field.rsplit(".", 1)[1]) for g in p.meta.genres if g in genres.BY_ID
+           for x in genres.BY_ID[g].logline] if field.startswith("meta.logline_parts.") else []
+    return f"""아래 작품의 설정 칸 '{label}'에 넣을 후보를 {n}개 제안하세요. 작가가 하나를 골라 칸에 넣습니다.
+
+[작품]
+{meta_text(p)}
+
+[로그라인 다섯 칸]
+{dump(p.meta.logline_parts)}
+
+[세계관]
+배경: {p.world.setting or "아직 없음"}
+시대: {p.world.era or "아직 없음"}
+
+[인물]
+{chr(10).join(chars) or "아직 없음"}
+
+[채울 칸] {label}
+쓰는 법: {how}
+지금 값: {now or "비어 있음"}
+{("이 장르의 예시 (형식만 참고하고 내용은 베끼지 않습니다): " + " / ".join(exs[:4])) if exs else ""}
+요구사항:
+- options 에 서로 분명히 다른 후보 {n}개를 넣습니다. 같은 생각의 말바꿈이 아니라 방향이 다르게 합니다.
+- 다른 칸에 이미 적힌 설정(장르, 로그라인, 세계관, 인물)과 어긋나지 않게 합니다. 비어 있는 칸은 자유롭게 상상해도 됩니다.
+- 지금 값이 있으면 그 생각을 살리되 더 좋게 고친 후보를 하나 이상 넣고, 지금 값과 똑같은 후보는 내지 않습니다.
+- text 에는 칸에 그대로 넣을 값만 적습니다. 따옴표, 번호, 칸 이름을 붙이지 않습니다.
+- reason 에는 이 후보가 작품에 맞는 이유를 한 줄로 적습니다."""
+
+
+def field_value(p: Project, field: str) -> str:
+    """FIELD_IDEAS 키가 가리키는 지금 값 (meta.logline_parts.who → p.meta.logline_parts.who)."""
+    obj = p
+    for k in field.split("."):
+        obj = getattr(obj, k)
+    return str(obj or "").strip()
+
 # ---------- 삽화 프롬프트 (NovelAI) ----------
 # AI 는 장면을 태그로 옮기기만 한다. 인물 외형(저장된 태그), 인물 수, 등급, 품질 태그는 canon/illust.py 가 붙인다.
 
