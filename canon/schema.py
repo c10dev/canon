@@ -839,6 +839,105 @@ class Chat(BaseModel):
     messages: list[ChatMessage] = Field(default_factory=list)
 
 
+# ---------- 대화 에이전트 (canon/agent.py) ----------
+# 대화로 다듬기를 세션 단위로 둔다. AI 는 한 턴에 도구를 몇 번 부르고, 권한 모드 안의 쓰기는 바로 저장하며, 나머지는 작가에게 묻는다.
+
+AgentMode = Literal["ask", "draft", "all"]  # 물어보기 · 빈 곳 · 초안만 자동 · 모두 자동
+
+
+class ToolArg(BaseModel):
+    name: str = Field(description="인자 이름")
+    value: str = Field("", description="인자 값")
+
+
+class PlotAgentStep(BaseModel):
+    """플롯 대화 에이전트의 한 단계. 도구 하나를 부르거나, tool 을 비우고 reply 로 턴을 끝낸다 (agent.run_turn)."""
+    thought: str = Field("", description="작가에게 보일 한 줄: 이 단계에서 무엇을 왜 하는지")
+    tool: str = Field("", description="부를 도구 이름 ([도구] 목록에 있는 것). 비우면 reply 로 턴을 끝낸다")
+    args: list[ToolArg] = Field(default_factory=list, description="읽기 도구의 인자")
+    edit: PlotRevision = Field(default_factory=lambda: PlotRevision(reply=""),
+                               description="edit_plot 일 때만: 바꿀 것만 채운 변경안. reply 는 한 줄 설명. 다른 도구면 비워 둔다")
+    question: str = Field("", description="ask 일 때만: 작가에게 묻는 말")
+    options: list[Direction] = Field(default_factory=list, description="ask 일 때만: 고를 방향 2~3개 (방향을 물을 때)")
+    reply: str = Field("", description="tool 이 비었을 때: 작가에게 하는 답 2~5문장. 무엇을 바꿨고 무엇을 물었는지")
+
+
+class StepRecord(BaseModel):
+    """턴의 한 단계 (화면의 단계 줄). result 는 다음 단계 프롬프트에 넣는 결과로, 턴이 끝나면 비운다."""
+    kind: Literal["read", "write", "wait", "block", "ask", "note"] = "read"
+    tool: str = ""
+    label: str = Field("", description="화면에 보일 대상 (예: '25~30화')")
+    why: str = Field("", description="작은 글: AI 의 생각이나 막힌 까닭")
+    result: str = ""
+
+
+class WriteItem(BaseModel):
+    """바로 쓴 것 한 부분. key 는 'parts' · 'arc' · 'acts' · 'draft'(다음 아크 초안) · 화 번호."""
+    key: str
+    label: str = ""
+    state: Literal["done", "reverted", "kept"] = "done"
+    reason: str = Field("", description="kept 일 때: 되돌리지 않은 까닭")
+
+
+class WriteRecord(BaseModel):
+    """한 번에 쓴 것. 되돌리기는 before · after 로 지금 값이 쓴 직후 값과 같은 부분만 돌린다 (pipeline.plot_undo)."""
+    tool: str = "edit_plot"
+    target: str = Field("", description="ChatScope.target: 쓸 때의 대상")
+    revision: Optional[PlotRevision] = Field(None, description="쓴 부분이 들어 있는 변경안 (다음 아크 초안을 화면에 놓을 때 쓴다)")
+    items: list[WriteItem] = Field(default_factory=list)
+    before: Optional[PlotUndo] = None
+    after: Optional[PlotUndo] = None
+
+
+class Approval(BaseModel):
+    """권한 모드 밖이라 작가에게 묻는 쓰기. 승인하면 고른 부분만 쓰고 같은 턴을 이어 간다."""
+    tool: str = "edit_plot"
+    target: str = ""
+    revision: Optional[PlotRevision] = None
+    keys: list[str] = Field(default_factory=list, description="묻는 부분 ('parts' · 'arc' · 'acts' · 화 번호)")
+    kinds: list[str] = Field(default_factory=list, description="묻는 까닭이 된 종류 (agent.KIND_LABELS). '이 세션에서 묻지 않기'가 auto_kinds 에 더한다")
+    state: Literal["wait", "approved", "denied"] = "wait"
+    picked: list[str] = Field(default_factory=list)
+
+
+class AskCard(BaseModel):
+    """되묻기 (방향 여러 안 포함). 작가가 답하면 새 턴이 된다."""
+    question: str = ""
+    options: list[Direction] = Field(default_factory=list)
+
+
+class AgentTurn(BaseModel):
+    user: str = ""
+    mode: str = Field("", description="'options': 방향 여러 안으로 물어 달라고 한 말")
+    where: str = Field("", description="작가가 보낼 때 보고 있던 곳 (pipeline.chat_where)")
+    act: str = ""
+    episode: int = 0
+    draft: Optional[ArcProposal] = Field(None, description="다음 아크 대상일 때 보낼 때의 화면 초안")
+    steps: list[StepRecord] = Field(default_factory=list)
+    reply: str = ""
+    writes: list[WriteRecord] = Field(default_factory=list)
+    approval: Optional[Approval] = None
+    ask: Optional[AskCard] = None
+    end: Literal["", "done", "wait", "ask", "cap", "stopped", "error"] = Field("", description="'' 은 돌아가는 중")
+    error: str = ""
+    job: str = Field("", description="이 턴을 돌리는 작업 id")
+    at: str = ""
+
+
+class AgentSession(BaseModel):
+    """대화 세션. 주제(topic)마다 여럿 둘 수 있고, 기본 대상(target)과 권한 모드를 기억한다."""
+    id: str
+    topic: ChatTopic = "plot"
+    title: str = ""
+    target: str = Field("", description="ChatScope.target: '' 기본, 'arc:N', 'next'")
+    mode: AgentMode = "draft"
+    auto_kinds: list[str] = Field(default_factory=list, description="승인 카드에서 '이 세션에서 묻지 않기'로 고른 종류")
+    archived: bool = False
+    turns: list[AgentTurn] = Field(default_factory=list)
+    created: str = ""
+    updated: str = ""
+
+
 # ---------- 검수 ----------
 
 IssueType = Literal["사실", "시간", "인물 정보", "말투", "세계관", "플롯", "동선", "시점"]
@@ -1510,7 +1609,8 @@ class Project(BaseModel):
     params: ModelParams = Field(default_factory=ModelParams)
     snapshots: list[Snapshot] = Field(default_factory=list)
     settings: Settings = Field(default_factory=Settings)
-    chats: list[Chat] = Field(default_factory=list, description="화면별 AI 대화 기록")
+    chats: list[Chat] = Field(default_factory=list, description="화면별 AI 대화 기록 (옛 단발 대화. 에이전트 세션의 '이전 대화')")
+    agent_sessions: list[AgentSession] = Field(default_factory=list, description="대화 에이전트 세션 (canon/agent.py)")
     elements: list[StoryElement] = Field(default_factory=list, description="인과율: 언제든 더하는 요소, 특징, 설정, 사건")
     conversion: Optional[Conversion] = Field(None, description="단편에서 장편으로 바꾼 기록. 되돌리면 지운다")
     archive: Optional[ShortArchive] = Field(None, description="재구성 전 단편 원고와 새 화 지도")
@@ -1637,4 +1737,7 @@ ShortArchive.model_rebuild()
 Episode.model_rebuild()
 PlotUndo.model_rebuild()
 ChatMessage.model_rebuild()
+WriteRecord.model_rebuild()
+AgentTurn.model_rebuild()
+AgentSession.model_rebuild()
 StyleEntry.model_rebuild()
