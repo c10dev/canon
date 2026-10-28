@@ -22,15 +22,20 @@ const SETUP_CHAR_LABEL = {
 CHAT_TOPICS.setup = {
   title: '대화로 다듬기',
   intro: '설정을 말로 다듬어요. AI가 로그라인, 주제, 톤, 세계관, 인물, 관계에서 바꿀 칸만 지금 값과 나란히 보여 주고, 고른 것만 설정에 들어가요. 이미 채운 칸을 바꾸는 것은 처음에 꺼져 있어요. 적용한 뒤에도 취소할 수 있어요. 어느 쪽으로 갈지 막막하면 아래 \'방향 여러 안\'을 켜고 보내 보세요.',
-  examples: ['주인공의 약점을 더 어둡게', '라이벌을 한 명 넣어 줘', '세계관 규칙을 세 개쯤 채워 줘', '로그라인이 밋밋해, 걸린 것을 키워 줘'],
+  // 마법사에서는 지금 걸음에 맞는 시작 문장 (setup.js WIZ_CHAT)
+  get examples() {
+    return wizOn() ? WIZ_CHAT[wizState().step] : ['주인공의 약점을 더 어둡게', '라이벌을 한 명 넣어 줘', '세계관 규칙을 세 개쯤 채워 줘', '로그라인이 밋밋해, 걸린 것을 키워 줘'];
+  },
   placeholder: '예: 주인공의 약점을 더 어둡게',
   clearAsk: '설정 대화 기록을 지울까요? 적용한 설정은 그대로예요. 기록을 지우면 적용 취소는 할 수 없어요.',
   body: (text) => ({ message: text, mode: S.chatOptions ? 'options' : '' }),
   userMsg: (m) => `${m.mode === 'options' ? '<span class="chip">방향 여러 안</span> ' : ''}${esc(m.text)}`,
   proposal: setupProposal,
+  // 여러 칸을 바꾸는 AI는 이 패널에 모은다: 빈칸 AI 제안(작업 suggest)도 여기서 부른다
   inputExtra: () => `<div class="chat-scope between">
     <span class="small">대상 · <strong>설정 전체</strong></span>
-    <button type="button" class="btn small${S.chatOptions ? ' on' : ''}" data-action="toggleChatOptions" aria-pressed="${S.chatOptions}" title="변경안 대신 서로 다른 방향 2~3개를 먼저 받아 고르거나 섞어요">방향 여러 안</button>
+    <span class="row" style="gap:6px">${((b) => `<button type="button" class="btn small" data-action="suggest"${b.attr} title="비어 있는 칸과 새 인물 · 관계를 한 번에 제안해요. 채운 칸은 건드리지 않아요">${b.label}</button>`)(jobBtn('suggest', null, '빈칸 AI 제안받기'))}
+    <button type="button" class="btn small${S.chatOptions ? ' on' : ''}" data-action="toggleChatOptions" aria-pressed="${S.chatOptions}" title="변경안 대신 서로 다른 방향 2~3개를 먼저 받아 고르거나 섞어요">방향 여러 안</button></span>
   </div>`,
 };
 

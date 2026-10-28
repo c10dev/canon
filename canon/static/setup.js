@@ -248,6 +248,7 @@ function relProblem(r, i) {
 }
 
 function refreshRel(i) {
+  if (wizOn()) { redrawWizRels(); return; }
   // 인물을 바꾸면 다른 관계와 겹치는지도 바뀐다. 바꾼 줄은 다시 그리고, 다른 줄은 알림과 접힌 줄만 고친다
   P().relationships.forEach((r, k) => {
     const el = $(`#rel-${k}`);
@@ -443,7 +444,355 @@ function charNeedsWork(c) {
   return CHAR_CORE.some((k) => !String(c[k] || '').trim()) || !!S.names['c:' + c.id] || !!(S.bodySug || {})[c.id];
 }
 
+// ----- 새 작품 마법사: 필수 칸 여섯 개를 여섯 걸음으로 묻는다. 다 채운 작품과 반영을 시작한 작품은 기획서(viewSetupDoc)로 연다 -----
+
+const WIZ_STEPS = ['제목 · 장르', '로그라인', '세계', '인물', '관계', '마무리'];
+// 필수 칸과 그 칸을 묻는 걸음. 순서는 setupReqs 와 같다
+const WIZ_REQ = [['제목', 0], ['장르', 0], ['로그라인', 1], ['세계 배경', 2], ['인물 2명 이상', 3], ['관계 1개', 4]];
+
+/** 필수 칸 여섯 개를 채웠나: 제목, 장르, 로그라인, 배경, 이름 있는 인물 둘, 서로 다른 두 인물의 관계 하나 */
+function setupReqs(p) {
+  const ids = new Set(p.characters.map((c) => c.id));
+  return [
+    !!p.meta.title.trim(),
+    p.meta.genres.length > 0,
+    !!p.meta.logline.trim(),
+    !!p.world.setting.trim(),
+    p.characters.filter((c) => (c.name || '').trim()).length >= 2,
+    p.relationships.some((r) => r.a !== r.b && ids.has(r.a) && ids.has(r.b)),
+  ];
+}
+
+/** 필수 칸이 빈 첫 걸음. 다 채웠으면 마무리 걸음 */
+function wizFirstGap(p) {
+  const k = setupReqs(p).findIndex((ok) => !ok);
+  return k < 0 ? 5 : WIZ_REQ[k][1];
+}
+
+/** 걸음 막대 한 칸의 상태: 'done' 그 걸음의 필수를 다 채움, 'miss' 들렀는데 빈 필수가 남음, '' 아직. seen 은 들른 걸음 번호 */
+function wizStepState(p, i, seen) {
+  const r = setupReqs(p);
+  const need = i === 5 ? r : r.filter((_, k) => WIZ_REQ[k][1] === i);
+  if (need.every(Boolean)) return 'done';
+  return seen.includes(i) ? 'miss' : '';
+}
+
+// 세계 종류: 고르면 배경 칸 맨 앞에 첫 문장이 들어간다. 뒤에 쓴 글은 그대로 둔다 (저장은 지금처럼 world.setting 글)
+const WORLD_KINDS = [
+  ['현대 한국', '지금의 한국.'],
+  ['현대 판타지', '지금의 한국에 게이트와 각성자가 나타난 세계.'],
+  ['서양풍 제국', '귀족과 황실이 다스리는 서양풍 제국.'],
+  ['중세 판타지 왕국', '검과 마법이 있는 중세풍 왕국.'],
+  ['동양 무협', '문파와 강호가 얽힌 무림.'],
+  ['궁중 사극', '왕실과 궁궐을 중심으로 한 옛 한국.'],
+  ['학원 · 아카데미', '능력자를 길러 내는 학원.'],
+  ['근미래 도시', '기술이 조금 앞선 가까운 미래의 도시.'],
+  ['디스토피아', '무너진 질서 위에 세워진 통제 사회.'],
+  ['우주 SF', '여러 행성을 오가는 우주 시대.'],
+  ['현대 해외', '지금의 해외 도시.'],
+];
+// 시대: 고르면 world.era 에 이 말이 그대로 들어간다
+const ERAS = ['현대', '근미래', '먼 미래', '근대 · 개화기', '조선', '고려 이전', '중세풍', '근세풍', '고대풍', '시대를 정하지 않음'];
+// 장르 id(genres.CATALOG)마다 앞에 둘 [세계 종류, 시대]
+const WORLD_REC = {
+  romance: [['현대 한국'], ['현대']],
+  drama: [['현대 한국'], ['현대']],
+  office: [['현대 한국'], ['현대']],
+  healing: [['현대 한국'], ['현대']],
+  sports: [['현대 한국'], ['현대']],
+  romance_fantasy: [['서양풍 제국', '중세 판타지 왕국'], ['중세풍', '근세풍']],
+  fantasy: [['중세 판타지 왕국', '서양풍 제국'], ['중세풍']],
+  light_novel: [['중세 판타지 왕국', '학원 · 아카데미'], ['중세풍', '현대']],
+  modern_fantasy: [['현대 판타지'], ['현대']],
+  martial_arts: [['동양 무협'], ['고대풍']],
+  alt_history: [['궁중 사극'], ['조선', '근대 · 개화기']],
+  sf: [['우주 SF', '근미래 도시', '디스토피아'], ['근미래', '먼 미래']],
+  academy: [['학원 · 아카데미'], []],
+  mystery: [['현대 한국'], ['현대', '근대 · 개화기']],
+  thriller: [['현대 한국', '근미래 도시'], ['현대']],
+  horror: [['현대 한국'], ['현대']],
+};
+
+/** 배경 글이 고른 세계 종류 문장으로 시작하면 그 종류 이름 */
+function worldKindOf(setting) {
+  const w = WORLD_KINDS.find(([, s]) => (setting || '').startsWith(s));
+  return w ? w[0] : '';
+}
+
+/** 세계 종류를 고른 뒤의 배경 글: 앞의 종류 문장만 바꾸고 뒤 글은 남긴다. 고른 종류를 다시 고르면 종류 문장만 뺀다 */
+function withWorldKind(setting, label) {
+  const cur = WORLD_KINDS.find(([l]) => l === worldKindOf(setting));
+  const rest = (cur ? setting.slice(cur[1].length) : setting || '').trim();
+  const pick = WORLD_KINDS.find(([l]) => l === label);
+  if (!pick || (cur && cur[0] === label)) return rest;
+  return pick[1] + (rest ? ' ' + rest : '');
+}
+
+/** 고른 장르 순서대로 모은 추천 (k 0 세계 종류, 1 시대) */
+function worldRecs(genres, k) {
+  const out = [];
+  genres.forEach((g) => ((WORLD_REC[g] || [[], []])[k]).forEach((x) => { if (!out.includes(x)) out.push(x); }));
+  return out;
+}
+
+/** 이 작품의 설정 화면 보기: 'wizard' 마법사, 'doc' 기획서. 처음 열 때 정하고 그 세션에서는 바뀌지 않는다 (다 채워도 마법사가 갑자기 닫히지 않게) */
+function setupMode() {
+  S.setupModes = S.setupModes || {};
+  if (!S.setupModes[S.name]) S.setupModes[S.name] = P().snapshots.length || setupReqs(P()).every(Boolean) ? 'doc' : 'wizard';
+  return S.setupModes[S.name];
+}
+
+/** 마법사 걸음과 들른 걸음. 처음에는 필수 칸이 빈 첫 걸음에서 연다 */
+function wizState() {
+  S.wiz = S.wiz || {};
+  if (!S.wiz[S.name]) {
+    const step = wizFirstGap(P());
+    S.wiz[S.name] = { step, seen: [step] };
+  }
+  return S.wiz[S.name];
+}
+
+const wizOn = () => S.route[2] === 'setup' && !!P() && setupMode() === 'wizard';
+
+function wizMeter() {
+  const n = setupReqs(P()).filter(Boolean).length;
+  return `<span class="req-meter" id="wiz-meter"><span class="bar" aria-hidden="true"><i style="width:${(n / 6) * 100}%"></i></span>필수 ${n}/6</span>`;
+}
+
+function wizStepper() {
+  const w = wizState();
+  const steps = WIZ_STEPS.map((s, i) => {
+    const st = wizStepState(P(), i, w.seen);
+    const word = st === 'done' ? ', 채움' : st === 'miss' ? ', 빈 필수 칸 있음' : '';
+    return `<button type="button" class="${st}" data-action="wizGo" data-arg="${i}"${i === w.step ? ' aria-current="step"' : ''} aria-label="${i + 1}. ${s}${word}"><i aria-hidden="true"></i><span>${i + 1}. ${s}</span></button>`;
+  }).join('');
+  return `<nav class="wiz-steps" id="wiz-steps" aria-label="설정 걸음">${steps}<span class="wiz-now" aria-hidden="true">${w.step + 1}/6 · ${WIZ_STEPS[w.step]}</span></nav>`;
+}
+
+/** 필수 칸 표시. 칸을 채우면 refreshWiz 가 글자를 바꾼다 */
+function wizTag(k) {
+  const ok = setupReqs(P())[k];
+  return `<span class="req-tag${ok ? ' ok' : ''}" data-wiz-req="${k}">${ok ? '채움' : '필수'}</span>`;
+}
+
+const wizQ = (title, desc) => `<div class="wiz-q"><h2 id="wiz-q" tabindex="-1">${title}</h2><p>${desc}</p></div>`;
+
+/** 추천 줄과 나머지 줄로 나눈 고르기 칩 */
+function wizChips(id, all, rec, on, action, labId) {
+  const btn = (x) => `<button type="button" aria-pressed="${on(x)}" data-action="${action}" data-arg="${esc(x)}">${esc(x)}</button>`;
+  const rest = all.filter((x) => !rec.includes(x));
+  const recRow = rec.length ? `<div class="genre-opts"><span class="chip ai wiz-rec">장르에 맞춰 추천</span>${rec.map(btn).join('')}</div>` : '';
+  return `<div class="wiz-chips" id="${id}" role="group" aria-labelledby="${labId}">${recRow}<div class="genre-opts">${rest.map(btn).join('')}</div></div>`;
+}
+
+function wizBasics() {
+  const m = P().meta;
+  return `${wizQ('어떤 이야기인가요?', '제목과 장르를 정해요. 둘 다 나중에 바꿀 수 있어요.')}
+    <div class="field"><label for="f-meta-title">제목 ${wizTag(0)}</label><input id="f-meta-title" type="text" value="${esc(m.title)}" data-bind="meta.title" data-kind="text" placeholder="예: 소금 정원의 계약"></div>
+    <div class="row">${wizTag(1)}<span class="small">장르를 하나 이상 골라요</span></div>
+    ${genrePicker()}
+    ${serial() ? input('총 화수', 'meta.target_episodes', { type: 'number', min: 1, max: 1000, hint: '늘리거나 줄이면 마지막 부 끝 화가 따라가요' }) : input('총 화수', 'meta.target_episodes', { type: 'number', min: 4, max: 40, hint: '단편은 10~20화를 권해요 · 4~40화' })}
+    ${adultCheck(`data-bind="meta.adult" data-kind="bool"${m.adult ? ' checked' : ''}`)}`;
+}
+
+function wizLogline() {
+  return `${wizQ('한 문장으로 줄이면요?', '다섯 칸을 채우면 로그라인 한 문장이 돼요. AI가 플롯을 짤 때 가장 먼저 읽는 문장이에요.')}
+    <div class="row">${wizTag(2)}<span class="small">합친 문장이 생기면 채워져요</span></div>
+    ${loglineBuilder()}`;
+}
+
+function wizWorld() {
+  const w = P().world;
+  const g = P().meta.genres;
+  const kind = worldKindOf(w.setting);
+  return `${wizQ('어디서 벌어지나요?', '세계 종류를 고르면 시작할 수 있어요. 고른 뒤 한두 문장을 더 적으면 AI가 더 잘 맞춰요.')}
+    <div class="field"><span class="label-text" id="wiz-world-lab">세계 종류 ${wizTag(3)} <span class="hint">고르면 배경 칸 첫 문장이 돼요</span></span>
+      ${wizChips('wiz-world-chips', WORLD_KINDS.map(([l]) => l), worldRecs(g, 0), (x) => x === kind, 'wizWorld', 'wiz-world-lab')}</div>
+    ${input('배경', 'world.setting', { rows: 3, hint: '고르지 않고 직접 써도 돼요', placeholder: '예: 소금이 돈을 대신하는 북방 왕국 헤른' })}
+    <div class="field"><span class="label-text" id="wiz-era-lab">시대 <span class="hint">선택</span></span>
+      ${wizChips('wiz-era-chips', ERAS, worldRecs(g, 1), (x) => x === w.era, 'wizEra', 'wiz-era-lab')}
+      <input id="wiz-era-custom" type="text" value="${esc(ERAS.includes(w.era) ? '' : w.era)}" data-bind="world.era" data-kind="text" aria-label="시대 직접 쓰기" placeholder="직접 쓰기: 예) 중세풍, 증기 기관이 막 들어오는 때"></div>`;
+}
+
+const WIZ_ROLES = ['주인공', '상대역', '조력자', '라이벌', '악역'];
+
+function wizPerson(c, i) {
+  const b = `characters.${i}`;
+  const who = esc(c.name || `${i + 1}번 인물`);
+  return `<div class="wiz-person" id="wiz-char-${i}">
+    <div class="between"><strong data-char-head="${i}">${esc(c.name || '이름 없음')}</strong>
+      <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보</button><button type="button" class="ai-mini" data-action="nameAI" data-arg="${esc(c.id)}" title="AI가 이 인물 이름을 골라요">✦ AI 이름 추천</button>
+      <button type="button" class="btn small danger" data-action="removeCharacter" data-arg="${i}" aria-label="${who} 빼기">빼기</button></div></div>
+    ${namePicks('c:' + c.id, 'useName', (n) => `${c.id}|${n}`)}
+    <div class="wiz-row3">${input('이름', b + '.name')}${input('나이', b + '.age', { placeholder: '예: 22' })}${input('성별', b + '.gender', { placeholder: '여' })}</div>
+    ${nameIssuesFor(c.id)}
+    ${input('역할', b + '.role', { placeholder: '주인공, 상대역, 조력자…' })}
+    <div class="genre-opts ex-opts" role="group" aria-label="${who} 역할 예시">${WIZ_ROLES.map((r) => `<button type="button" aria-pressed="${c.role === r}" data-action="wizRole" data-arg="${i}|${r}">${r}</button>`).join('')}</div>
+    ${input('원하는 것', b + '.goal', { hint: '한 줄', placeholder: '예: 염전을 되찾아 동생을 지키고 싶다' })}
+  </div>`;
+}
+
+function wizCast() {
+  const p = P();
+  const n = p.characters.filter((c) => (c.name || '').trim()).length;
+  return `${wizQ('누가 나오나요?', '주요 인물 두세 명만 적어요. 두려운 것 · 숨기는 것 · 말투 같은 상세는 마친 뒤 기획서에서 채워요.')}
+    <div class="row">${wizTag(4)}<span class="small">이름 있는 인물 ${n}명</span><button type="button" class="btn small ghost" data-action="checkNames">이름 점검</button></div>
+    ${nameCheckBox()}
+    <div class="wiz-people">${p.characters.map(wizPerson).join('') || '<div class="note plain">아직 인물이 없어요. 로그라인에 나온 사람부터 적어 보세요.</div>'}</div>
+    <div class="row"><button type="button" class="btn ghost" data-action="addCharacter">+ 인물 더하기</button><button type="button" class="btn" data-action="dexRoll" title="원형 · 상처 · 말투 · 비틀기 · 이름을 섞어 3안을 보여 줘요">원형 도감 주사위</button></div>
+    ${dexRollBox()}`;
+}
+
+function wizRel(r, i) {
+  const p = P();
+  const b = `relationships.${i}`;
+  const opts = (sel) => (p.characters.some((c) => c.id === sel) ? '' : `<option value="${esc(sel)}" selected>(없는 인물: ${esc(sel)})</option>`)
+    + p.characters.map((c) => `<option value="${esc(c.id)}"${c.id === sel ? ' selected' : ''}>${esc(c.name || c.id)}</option>`).join('');
+  const chips = (vals, on, act) => vals.map(([label, arg]) => `<button type="button" aria-pressed="${on(label)}" data-action="${act}" data-arg="${esc(`${i}|${arg}`)}">${esc(label)}</button>`).join('');
+  const a = charName(r.a) || r.a;
+  const bn = charName(r.b) || r.b;
+  const view = (side, from, to) => `<div class="field"><span class="label-text">${esc(from)}${josa(from, '은', '는')} ${esc(to)}${josa(to, '을', '를')}</span>
+    <div class="genre-opts" role="group" aria-label="${esc(from)}이(가) ${esc(to)}을(를) 보는 방식">${chips(VIEWS.map((w) => [w, `${side}|${w}`]), (w) => (r[side] || []).includes(w), 'toggleView')}</div></div>`;
+  return `<div class="wiz-rel" id="wiz-rel-${i}">
+    <div class="between"><strong>관계 ${i + 1}</strong><button type="button" class="btn small danger" data-action="removeRelationship" data-arg="${i}" aria-label="관계 ${i + 1} 빼기">빼기</button></div>
+    <div class="wiz-pair"><div class="field"><label for="ra${i}">인물 A</label><select id="ra${i}" data-bind="${b}.a">${opts(r.a)}</select></div><span aria-hidden="true">↔</span><div class="field"><label for="rb${i}">인물 B</label><select id="rb${i}" data-bind="${b}.b">${opts(r.b)}</select></div></div>
+    ${relProblem(r, i)}
+    ${input('어떤 사이', b + '.type', { placeholder: '예: 계약 부부, 오빠의 친구' })}
+    <div class="genre-opts ex-opts" role="group" aria-label="어떤 사이 예시">${chips(REL_TYPES.map((t) => [t, t]), (t) => r.type === t, 'setRelType')}</div>
+    ${p.snapshots.length ? `<div class="small">지금 호감 ${r.affinity} · 긴장 ${r.tension}. 첫 반영 뒤에는 본문의 관계 사건으로 바뀌어요.</div>` : `${view('a_view', a, bn)}${view('b_view', bn, a)}`}
+    <div class="field"><span class="label-text">원하는 게 부딪치나요</span><div class="seg" role="group" aria-label="목표 충돌">${chips(CONFLICTS, (w) => conflictWord(r.goal_conflict || 0) === w, 'setConflict')}</div></div>
+  </div>`;
+}
+
+function wizRelList() {
+  const rels = P().relationships.map(wizRel).join('') || '<div class="note plain">관계가 없어요. 아래에서 더해요.</div>';
+  return autoOn() ? `<fieldset disabled class="lockset" aria-describedby="rel-lock">${rels}</fieldset>` : rels;
+}
+
+function wizRels() {
+  const n = P().characters.filter((c) => (c.name || '').trim()).length;
+  const q = wizQ('두 사람은 어떤 사이인가요?', '관계 하나면 시작할 수 있어요. 여기서 고른 시작 관계는 1화를 반영하면 잠겨요.');
+  if (n < 2) {
+    return `${q}<div class="note plain">관계를 만들려면 이름이 있는 인물이 둘 있어야 해요. 지금은 ${n}명이에요.
+      <button type="button" class="btn small" data-action="wizGo" data-arg="3">인물 걸음으로</button></div>`;
+  }
+  return `${q}<div class="row">${wizTag(5)}</div>
+    ${autoOn() ? `<div class="note warn" id="rel-lock">자동 집필이 도는 동안은 관계를 고칠 수 없어요. 고치려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요.</div>` : ''}
+    <div id="wiz-rels" class="wiz-people">${wizRelList()}</div>
+    <div><button type="button" class="btn ghost" data-action="addRelationship"${autoOn() ? ' disabled' : ''}>+ 관계 더하기</button></div>`;
+}
+
+function wizFinish() {
+  const p = P();
+  const r = setupReqs(p);
+  const all = r.every(Boolean);
+  const named = p.characters.filter((c) => (c.name || '').trim());
+  const vals = [p.meta.title, p.meta.genres.map((id) => (genreById(id) || {}).name || id).join(', '), p.meta.logline, p.world.setting,
+    named.map((c) => c.name).join(', '), p.relationships.filter((x) => x.a !== x.b).map((x) => `${charName(x.a) || x.a} ↔ ${charName(x.b) || x.b}${x.type ? ' · ' + x.type : ''}`).join(' / ')];
+  const rows = WIZ_REQ.map(([label, step], i) => `<li><span class="mark ${r[i] ? 'ok' : 'no'}" aria-hidden="true">${r[i] ? '✓' : '!'}</span><span class="small">${label}</span>
+    <span class="v small${r[i] ? '' : ' muted'}">${esc(vals[i]) || '비어 있어요'}</span><button type="button" class="btn small${r[i] ? '' : ' on'}" data-action="wizGo" data-arg="${step}" aria-label="${label} ${r[i] ? '고치기' : '채우기'}">${r[i] ? '고치기' : '채우기'}</button></li>`).join('');
+  return `${wizQ(all ? '뼈대가 섰어요' : '필수 칸이 남았어요', all ? '나머지 칸은 지금 더하거나, 마친 뒤 기획서에서 언제든 채워요.' : '남은 칸을 채우면 문체 단계로 넘어갈 수 있어요.')}
+    <ul class="wiz-sum">${rows}</ul>
+    <details class="wiz-more"><summary>더 채우면 좋아요 <span class="small">주제 · 톤 · 세계 규칙 · 장소 · 이름 스타일 · 분량 · 메모</span></summary><div class="wiz-more-body">
+      ${input('주제', 'meta.theme', { hint: '이 이야기가 끝까지 묻는 질문 하나', placeholder: '예: 떠난 사람을 이해하면 용서할 수 있나?' })}
+      ${toneBox()}
+      ${input('깨면 안 되는 규칙', 'world.rules', { kind: 'list' })}
+      ${input('장소', 'world.locations', { kind: 'list' })}
+      ${nameStyleField()}
+      ${input('이름 규칙', 'world.name_rules', { kind: 'list', rows: 2, placeholder: "예: 북부 귀족은 성 앞에 '폰'을 붙인다" })}
+      ${input('화당 분량', 'meta.words_per_episode', { type: 'number', hint: '공백 포함 글자 수' })}
+      ${input('메모', 'meta.notes', { rows: 2 })}
+    </div></details>
+    <div class="note plain">인물 상세(두려운 것 · 숨기는 것 · 말투 · 성격 · 외모), 신체 프로필, 삽화 외형, AI에 넣기, 상태창 처음 수치는 기획서에서 고쳐요.</div>`;
+}
+
+function wizFoot(step) {
+  const back = `<button type="button" class="btn" data-action="wizGo" data-arg="${step - 1}"${step === 0 ? ' disabled' : ''}>이전</button>`;
+  if (step < 5) return `<div class="wiz-foot">${back}<span class="sp"></span><button type="button" class="btn primary" data-action="wizGo" data-arg="${step + 1}">다음</button></div>`;
+  const gaps = WIZ_REQ.filter((_, k) => !setupReqs(P())[k]).map(([l]) => l);
+  const next = gaps.length
+    ? `<button type="button" class="btn primary" aria-disabled="true" disabled aria-describedby="wiz-gaps">문체 레퍼런스로</button>`
+    : `<a class="btn primary" href="${base()}/style">문체 레퍼런스로</a>`;
+  return `<div class="wiz-foot">${back}<span class="sp"></span><button type="button" class="btn" data-action="setupMode" data-arg="doc">기획서로 보기</button>${next}
+    ${gaps.length ? `<span class="wiz-why small" id="wiz-gaps">남은 필수 칸: ${gaps.join(', ')}</span>` : ''}</div>`;
+}
+
+function viewSetupWizard() {
+  const w = wizState();
+  const bodies = [wizBasics, wizLogline, wizWorld, wizCast, wizRels, wizFinish];
+  const right = `${wizMeter()}${chatButton('setup')}<button type="button" class="btn" data-action="setupMode" data-arg="doc">기획서로 보기</button>`;
+  return `${header('1단계 · 새 작품', '설정 도우미', '', right)}
+    ${aiNote()}
+    ${S.suggestion ? viewSuggestion() : ''}
+    ${wizStepper()}
+    <section class="card wiz-card" aria-labelledby="wiz-q">${bodies[w.step]()}${wizFoot(w.step)}</section>${chatPanel('setup')}`;
+}
+
+/** 칸을 고치면 필수 칸 수, 걸음 막대, 필수 표시만 다시 그린다 (입력 중인 칸의 포커스 유지) */
+function refreshWiz() {
+  if (!wizOn()) return;
+  const m = $('#wiz-meter');
+  if (m) m.outerHTML = wizMeter();
+  const s = $('#wiz-steps');
+  if (s) s.outerHTML = wizStepper();
+  const r = setupReqs(P());
+  document.querySelectorAll('[data-wiz-req]').forEach((el) => {
+    const ok = r[Number(el.dataset.wizReq)];
+    el.className = 'req-tag' + (ok ? ' ok' : '');
+    el.textContent = ok ? '채움' : '필수';
+  });
+}
+
+/** 세계 종류 · 시대 칩만 다시 그린다 */
+function refreshWizChips() {
+  const w = P().world;
+  const g = P().meta.genres;
+  const kind = worldKindOf(w.setting);
+  const wc = $('#wiz-world-chips');
+  if (wc) wc.outerHTML = wizChips('wiz-world-chips', WORLD_KINDS.map(([l]) => l), worldRecs(g, 0), (x) => x === kind, 'wizWorld', 'wiz-world-lab');
+  const ec = $('#wiz-era-chips');
+  if (ec) ec.outerHTML = wizChips('wiz-era-chips', ERAS, worldRecs(g, 1), (x) => x === w.era, 'wizEra', 'wiz-era-lab');
+}
+
+/** 관계 카드만 다시 그린다. 고르던 칸(인물 A · B 같은)에 포커스를 돌려준다 */
+function redrawWizRels() {
+  const box = $('#wiz-rels');
+  if (!box) return;
+  const id = document.activeElement && document.activeElement.id;
+  box.innerHTML = wizRelList();
+  const el = id && document.getElementById(id);
+  if (el) el.focus({ preventScroll: true });
+  refreshWiz();
+}
+
+// 마법사에서 칸을 고치면 필수 표시를 바꾸고, 배경 · 시대 글이 바뀌면 칩 고르기도 맞춘다
+['input', 'change'].forEach((type) => document.addEventListener(type, (e) => {
+  if (!e.target.dataset || !e.target.dataset.bind || !wizOn()) return;
+  refreshWiz();
+  if (/^world\.(setting|era)$/.test(e.target.dataset.bind)) refreshWizChips();
+  const role = e.target.dataset.bind.match(/^characters\.(\d+)\.role$/);
+  if (role) document.querySelectorAll(`[data-action="wizRole"][data-arg^="${role[1]}|"]`).forEach((btn) => btn.setAttribute('aria-pressed', String(btn.dataset.arg === `${role[1]}|${e.target.value}`)));
+}));
+
+// 마법사에서 대화 패널에 보이는 시작 문장 (걸음마다)
+const WIZ_CHAT = [
+  ['제목 후보를 다섯 개 내 줘', '이 장르에 어울리는 제목으로 바꿔 줘'],
+  ['로그라인 빈 칸을 채워 줘', '로그라인이 밋밋해, 걸린 것을 키워 줘'],
+  ['배경을 두세 문장으로 구체적으로 써 줘', '세계관 규칙을 세 개쯤 채워 줘'],
+  ['로그라인에 나온 인물을 만들어 줘', '라이벌을 한 명 넣어 줘'],
+  ['주인공과 상대역의 관계를 제안해 줘', '인물 사이 관계를 채워 줘'],
+  ['남은 빈칸을 채워 줘', '주인공의 약점을 더 어둡게'],
+];
+
+/** 1단계 화면: 필수 칸이 빈 새 작품은 마법사, 그 밖은 기획서 */
 function viewSetup() {
+  // 인물 화면의 '설정에서 고치기'(setup/<인물 id>)는 그 인물 카드가 있는 기획서로 연다
+  if (/^#f-characters-\d+-name$/.test(String(S.jumpTo || S.focusTarget || ''))) { setupMode(); S.setupModes[S.name] = 'doc'; }
+  return setupMode() === 'wizard' ? viewSetupWizard() : viewSetupDoc();
+}
+
+/** 기획서: 모든 설정 칸을 한 화면에서 고친다 */
+function viewSetupDoc() {
   const p = P();
   // 인물 화면의 '설정에서 고치기'로 왔으면 그 인물 카드를 펼친다 (app.js 가 이름 칸으로 포커스를 옮긴다)
   const jump = String(S.jumpTo || S.focusTarget || '').match(/^#f-characters-(\d+)-name$/);
@@ -483,7 +832,7 @@ function viewSetup() {
 
   // 인물이 없으면 첫 할 일은 AI 제안이다. 인물이 생기면 다음 단계(문체)를 앞세운다
   const first = !p.characters.length;
-  return `${header('1단계', '설정 도우미', '기본 정보, 세계관, 인물, 관계를 정해요. AI 도움은 아래 두 가지예요.', `${((b) => `<button class="btn${first ? ' primary' : ''}" data-action="suggest"${b.attr}>${b.label}</button>`)(jobBtn('suggest', null, '빈칸 AI 제안받기'))}${chatButton('setup')}<a class="btn${first ? '' : ' primary'}" href="${base()}/style">문체로</a>`)}
+  return `${header('1단계 · 기획서', '설정 도우미', '기본 정보, 세계관, 인물, 관계를 정해요. AI 도움은 아래 두 가지예요.', `<button type="button" class="btn" data-action="setupMode" data-arg="wizard">마법사로 보기</button>${((b) => `<button class="btn${first ? ' primary' : ''}" data-action="suggest"${b.attr}>${b.label}</button>`)(jobBtn('suggest', null, '빈칸 AI 제안받기'))}${chatButton('setup')}<a class="btn${first ? '' : ' primary'}" href="${base()}/style">문체로</a>`)}
     ${aiPaths(first)}
     ${aiNote()}
     ${S.suggestion ? viewSuggestion() : ''}
@@ -632,6 +981,55 @@ function viewSuggestion() {
 }));
 
 Object.assign(actions, {
+  // 새 작품 마법사
+  async wizGo(arg) {
+    const i = Number(arg);
+    const w = wizState();
+    if (!(i >= 0 && i <= 5) || i === w.step) return;
+    // 앞으로 갈 때 저장한다. 저장하지 못하면 그 걸음에 남는다
+    if (i > w.step && S.dirty && !(await run('저장 중', save, { render: 'none' }))) return;
+    w.step = i;
+    if (!w.seen.includes(i)) w.seen.push(i);
+    render();
+    window.scrollTo(0, 0);
+    $('#wiz-q')?.focus({ preventScroll: true });
+  },
+  setupMode(mode) {
+    S.setupModes = S.setupModes || {};
+    S.setupModes[S.name] = mode === 'wizard' ? 'wizard' : 'doc';
+    if (mode === 'wizard' && S.wiz) delete S.wiz[S.name];  // 다시 열면 필수 칸이 빈 첫 걸음부터
+    render();
+    window.scrollTo(0, 0);
+  },
+  wizWorld(label) {
+    const w = P().world;
+    w.setting = withWorldKind(w.setting, label);
+    const el = $('#f-world-setting');
+    if (el) el.value = w.setting;
+    markDirty();
+    refreshWizChips();
+    refreshWiz();
+    checkNames();
+  },
+  wizEra(label) {
+    const w = P().world;
+    w.era = w.era === label ? '' : label;
+    const el = $('#wiz-era-custom');
+    if (el) el.value = '';
+    markDirty();
+    refreshWizChips();
+    checkNames();
+  },
+  wizRole(arg) {
+    const [i, role] = arg.split('|');
+    const c = P().characters[Number(i)];
+    if (!c) return;
+    c.role = role;
+    const el = $(`#f-characters-${i}-role`);
+    if (el) el.value = c.role;
+    markDirty();
+    document.querySelectorAll(`[data-action="wizRole"][data-arg^="${i}|"]`).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.arg === `${i}|${c.role}`)));
+  },
   // 설정 도우미
   async suggest() {
     await startJob('suggest');
@@ -673,6 +1071,7 @@ Object.assign(actions, {
     const m = genreTarget();
     m.genres = m.genres.includes(id) ? m.genres.filter((g) => g !== id) : [...m.genres, id];
     syncGenre();
+    refreshWiz();
   },
   addCustomGenre() {
     const el = $('#genre-custom');
@@ -682,6 +1081,7 @@ Object.assign(actions, {
     const id = hit ? hit.id : v;
     if (!genreTarget().genres.includes(id)) genreTarget().genres.push(id);
     syncGenre();
+    refreshWiz();
     $('#genre-custom').focus();
   },
   // 이름 · 지명 후보 (코드가 무작위로 뽑고, AI 추천은 '이름·지명' 단계 모델이 그중에서 고른다)
