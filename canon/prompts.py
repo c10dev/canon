@@ -3361,7 +3361,7 @@ def play_view(p: Project, n: int, ids: set[str]) -> tuple[Project, int, int]:
     opened = [f for f in p.foreshadows if f.status == "open"]
     fs = context.rank_foreshadows(p, opened, n, context.PLAY_STATE_FORESHADOW_CAP)
     view = p.model_copy(update={"characters": chars, "secrets": secrets, "foreshadows": fs})
-    return view, secrets_cut, len(opened) - len(fs)
+    return view, secrets_cut, len(opened) - len(relevant_foreshadows(view, n)[0])  # state_prompt 가 더 거르는 것까지 센다
 
 
 def play_state_prompt(p: Project, n: int) -> str:
