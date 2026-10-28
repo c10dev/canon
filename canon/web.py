@@ -3004,7 +3004,16 @@ def atlas_place_add(name: str, body: PlaceAddIn) -> dict:
     """지도에서 고른 자리를 새 장소(인과율 '장소')로 등록하고 놓는다. 돌려주는 것: {key, project}."""
     p = _load(name)
     key = atlas.add_place(p, body.name, body.x, body.y, body.kind)
+    atlas.fill_spots(p, atlas.load_layout(_map_dir(name), p))
     return {"key": key, "project": _save(name, p)}
+
+
+@app.get("/api/projects/{name}/atlas/find-spots")
+def atlas_find_spots(name: str) -> dict:
+    """이름으로 자리 찾기: 장소 이름과 같은 이름의 건물 · 입점한 곳 · 표지 (atlas.find_spots). 저장하지 않는다."""
+    p = _load(name)
+    layout = atlas.load_layout(_map_dir(name), p)
+    return {"spots": atlas.find_spots(p, layout) if layout else []}
 
 
 class PinsIn(BaseModel):
@@ -3017,6 +3026,7 @@ def atlas_pins(name: str, body: PinsIn) -> Project:
     p = _load(name)
     atlas.set_pins(p, body.pins)
     atlas.prune(p)
+    atlas.fill_spots(p, atlas.load_layout(_map_dir(name), p))
     return _save(name, p)
 
 
@@ -3144,6 +3154,7 @@ def atlas_layout_set(name: str, body: LayoutIn) -> Project:
     (d / fname).write_text(json.dumps(layout, ensure_ascii=False), encoding="utf-8")
     old = p.atlas.layout
     p.atlas.layout, p.atlas.spec, p.atlas.buildings, p.atlas.layout_size = fname, None, [], [layout["w"], layout["h"]]
+    atlas.fill_spots(p, layout)
     out = _save(name, p)
     if old and old != fname and (d / old).is_file():
         (d / old).unlink()
@@ -3155,6 +3166,7 @@ def atlas_layout_drop(name: str) -> Project:
     """마을 데이터를 지운다. 장소 자리는 그대로 둔다."""
     p = _load(name)
     old, p.atlas.layout, p.atlas.spec, p.atlas.buildings, p.atlas.layout_size = p.atlas.layout, "", None, [], []
+    atlas.fill_spots(p, None)
     out = _save(name, p)
     if old and (_map_dir(name) / old).is_file():
         (_map_dir(name) / old).unlink()
@@ -3200,6 +3212,7 @@ def atlas_building_set(name: str, i: int, body: BuildingIn) -> Project:
         raise HTTPException(404, "마을 데이터가 없어요")
     try:
         atlas.set_building(p, layout, i, body.use, body.name, body.note, body.residents)
+        atlas.fill_spots(p, layout)
     except KeyError as e:
         raise HTTPException(404, str(e.args[0])) from None
     return _save(name, p)

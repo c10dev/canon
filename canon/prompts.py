@@ -15,7 +15,7 @@ from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, ImpactReport, PlayInfo, Project, Selection, StateDelta, StoryElement
-from . import charlog, foreshadows, statwin, timeline, travel
+from . import atlas, charlog, foreshadows, statwin, timeline, travel
 
 SYSTEM_PLANNER = (
     "당신은 한국 웹소설/단편소설 기획 전문 편집자입니다. "
@@ -1866,6 +1866,8 @@ def build_episode_context(p: Project, n: int) -> str:
     line += f"\n\n# 작품 속 시간 (어기지 말 것)\n{tl}" if tl else ""
     tr = travel.episode_block(p, n)
     line += f"\n\n# 이동 거리 (지도 기준)\n{tr}" if tr else ""
+    sp = atlas.episode_block(p, n)
+    line += f"\n\n# 장소가 놓인 건물 (지도 기준)\n{sp}" if sp else ""
     pov = pov_block(p, n)
     pov = f"\n\n# 이번 화 서술 시점 (스타일 프로필보다 우선)\n{pov}" if pov else ""
     dev = device_block(p, n)
@@ -2335,6 +2337,8 @@ def check_material(p: Project, n: int, mode: str = "") -> str:
     line += f"\n\n# 작품 속 시간\n{tl}" if tl else ""
     tr = travel.episode_block(p, n)
     line += f"\n\n# 이동 거리 (지도 기준)\n{tr}" if tr else ""
+    sp = atlas.episode_block(p, n)
+    line += f"\n\n# 장소가 놓인 건물 (지도 기준)\n{sp}" if sp else ""
     pov = pov_block(p, n)
     pov = f"\n\n# {n}화 서술 시점 (스타일 프로필보다 우선)\n{pov}" if pov else ""
     return f"""{static_context(p)}

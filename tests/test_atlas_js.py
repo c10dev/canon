@@ -102,3 +102,14 @@ def test_follow_view_moves_only_when_needed():
     assert to["z"] == 2 and to["x"] == pytest.approx(500) and to["y"] == pytest.approx(300)  # 지도 끝을 넘지 않는다
     wide = _calc("atlasFollowView", view, [100, 100, 900, 200], 1000, 600)
     assert 1 <= wide["z"] < 2 and wide["x"] >= 0 and wide["x"] + 1000 / wide["z"] <= 1000.001
+
+
+def test_find_default_and_pins():
+    spots = [{"place": "a", "had": False, "options": [{"x": 0.2, "y": 0.3}]},
+             {"place": "b", "had": True, "options": [{"x": 0.4, "y": 0.4}]},
+             {"place": "c", "had": False, "options": [{"x": 0.5, "y": 0.5}, {"x": 0.6, "y": 0.6}]}]
+    pick = _calc("atlasFindDefault", spots)
+    assert pick == {"a": 0, "b": -1, "c": -1}  # 후보가 하나뿐이고 아직 놓지 않은 장소만 고른다
+    now = {"b": [0.9, 0.9], "z": [0.1, 0.1]}
+    pins = _calc("atlasFindPins", now, spots, {**pick, "c": 1})
+    assert sorted((x["place"], x["x"], x["y"]) for x in pins) == [("a", 0.2, 0.3), ("b", 0.9, 0.9), ("c", 0.6, 0.6), ("z", 0.1, 0.1)]

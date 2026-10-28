@@ -1568,6 +1568,7 @@ class MapPin(BaseModel):
     place: str = Field(description="장소 키: 인과율 장소 요소 id, 설정 장소 칸이면 'w:' + 이름")
     x: float = 0.5
     y: float = 0.5
+    spot: str = Field("", description="놓인 건물 · 표지 한 줄 (atlas.spot_line, 쓰기 · 검수 프롬프트의 atlas.episode_block). 핀 · 마을 데이터 · 건물을 바꿀 때 다시 쓴다")
 
 
 class PlaceLink(BaseModel):
