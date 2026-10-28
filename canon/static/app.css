@@ -1680,6 +1680,15 @@ mark.hl.issue { background: var(--amber-soft); text-decoration-color: var(--ambe
 mark.hl.issue.sel { text-decoration-thickness: 3px; outline: 2px solid var(--sel-line); outline-offset: 1px; }  /* 고른 지적: 고른 것의 테두리 색 (warn-line 은 테두리용이라 면에 쓰지 않는다) */
 mark.hl.issue.sel.near { outline-style: dashed; }  /* 문장이 바뀌어 비슷한 문장을 짚음 */
 .read mark.hl.issue { cursor: pointer; }
+/* 고칠 곳 (tofix.js): 작가가 담은 글. 검수 지적(주황 면)과 갈리게 면 없이 파란 점선 */
+mark.hl.tofix { text-decoration-color: var(--him-ink); text-decoration-style: dashed; }
+.sel-tool #tofix-note { font-family: var(--sans); font-size: 0.875rem; line-height: 1.6; }
+.tofix-q { margin: 0; padding: 4px 10px; border-left: 3px solid var(--him-ink); font-family: var(--serif); color: var(--text-2); white-space: pre-wrap; }
+.tofix-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.tofix-item { display: flex; flex-direction: column; gap: 6px; padding-bottom: 14px; border-bottom: 1px solid var(--rule); }
+.tofix-item:last-child { border-bottom: 0; padding-bottom: 0; }
+.tofix-item textarea { width: 100%; resize: vertical; }
+.tofix-item.done .tofix-q { border-left-color: var(--line-strong); color: var(--muted); }
 
 /* ----- 설정 도우미 새 작품 마법사 (setup.js viewSetupWizard) -----
    걸음 막대: 지금 걸음은 먹색, 필수를 다 채운 걸음은 초록, 들렀는데 빈 필수가 남은 걸음은 주황. 한 화면에 주 버튼은 '다음' 하나 */

@@ -81,7 +81,7 @@ from . import (archetypes, autorun, branches, cast, charlog, dynamics, elements,
 from .llm import dump, get_llm
 from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 from . import abilities, atlas, findings, stattrial, foreshadows, setupchat, statwin, timeline, towngen, travel
-from . import birth, play
+from . import birth, play, tofix
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StoryArc
 
 
@@ -2072,6 +2072,43 @@ def cmd_foreshadows(a: argparse.Namespace) -> None:
     print(foreshadows.describe(p, a.all))
 
 
+def cmd_tofix(a: argparse.Namespace) -> None:
+    """고칠 곳: 본문 문장에 단 '나중에 고칠 곳' 표시 보기 · 달기 · 고침으로 · 지우기."""
+    p = store.load(a.name)
+    at = pipeline._now()
+    if a.add:
+        n, quote = int(a.add[0]), a.add[1]
+        m = tofix.add(p.episode(n), quote, a.note, 0, at)
+        store.save(a.name, p)
+        print(f"{n}화에 고칠 곳 {m.id}을 달았어요.")
+        return
+    for flag, how in ((a.done, "done"), (a.reopen, "open"), (a.rm, "rm")):
+        if not flag:
+            continue
+        num, _, mid = flag.partition(":")
+        ep = p.episode(int(num))
+        if how == "rm":
+            tofix.remove(ep, mid)
+        else:
+            tofix.update(ep, mid, at, a.note or None, how)
+        store.save(a.name, p)
+        print(f"{num}화 고칠 곳 {mid}: {'지웠어요' if how == 'rm' else tofix.STATUS[how] + '으로 바꿨어요'}.")
+        return
+    rows = tofix.collect(p, "all" if a.all else "open")
+    if not rows:
+        print("고칠 곳이 없어요." if a.all else "남은 고칠 곳이 없어요. --all로 고친 것도 볼 수 있어요.")
+        return
+    cur = None
+    for r in rows:
+        if r["ep"] != cur:
+            cur = r["ep"]
+            print(f"\n{cur}화 {r['title']}")
+        m = r["mark"]
+        quote = m.quote if len(m.quote) <= 60 else m.quote[:60] + "…"
+        tags = [tofix.STATUS[m.status]] + ([] if r["found"] else ["본문에서 찾지 못함"])
+        print(f"  {r['ep']}:{m.id} [{' · '.join(tags)}] «{quote}»" + (f" — {m.note}" if m.note else ""))
+
+
 def cmd_abilities(a: argparse.Namespace) -> None:
     print(abilities.describe(store.load(a.name)))
 
@@ -2425,6 +2462,13 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("character", nargs="?", help="인물 id 나 이름. 비우면 상태창이 있는 인물 목록")
     sp.add_argument("--set", nargs="+", action="extend", metavar="항목=값", help="값을 바꾸거나 더한다. +3 은 더하기, 빈 값은 항목 지우기")
     add("abilities", cmd_abilities, yes=False)
+    sp = add("tofix", cmd_tofix, yes=False)
+    sp.add_argument("--all", action="store_true", help="고친 것도 보기")
+    sp.add_argument("--add", nargs=2, metavar=("화", "글"), help="본문 글에 고칠 곳 달기")
+    sp.add_argument("--note", default="", help="--add · --done · --reopen 과 함께: 메모")
+    sp.add_argument("--done", metavar="화:id", help="고침으로 바꾸기 (예: 3:x1)")
+    sp.add_argument("--reopen", metavar="화:id", help="다시 남음으로")
+    sp.add_argument("--rm", metavar="화:id", help="지우기")
     sp = add("stattrial", cmd_stattrial)
     sp.add_argument("--episodes", default="", help="시험할 화: 2-13 또는 2,5,9. 비우면 추천대로")
     sp.add_argument("--repeats", type=int, default=1, help="조건마다 같은 화를 쓸 횟수 (1~5)")
