@@ -57,7 +57,6 @@ const S = {
   nameCheck: null,   // 출연진 이름 점검 { warnings, style, detected }
   placeKind: '',     // 지명 후보의 종류 (산, 마을, 문파…)
   dex: null,         // 원형 도감 목록 (서버 archetypes, archetypes.js)
-  dexOpen: null,     // 도감을 연 인물 카드 { cid, aid, twist, wound, speech, all }
   dexRolls: null,    // 도감 주사위 결과 { list, archetype }
 };
 
@@ -1689,7 +1688,6 @@ async function routeNow() {
       if (parts[2] === 'setup') {
         S.names = {};
         S.ideas = {};
-        S.dexOpen = null;
         S.dexRolls = null;
       }
       if (parts[2] === 'setup' || parts[2] === 'arc') {  // 화 플롯 페이지의 새 인물 칸도 이름 점검을 보인다
@@ -1730,7 +1728,7 @@ async function routeNow() {
       if (parts[2] === 'foreshadow') await fsLoad();
       if (parts[2] === 'statwin') await swLoad(parts[3]);
       if (parts[2] === 'abilities') await abLoad(parts[3]);
-      if (parts[2] === 'setup' && parts[3]) {  // 인물 화면의 '설정에서 고치기'(setup/<인물 id>)는 그 인물 카드로 간다
+      if (parts[2] === 'setup' && parts[3]) {  // 인물 화면의 '기본 설정 고치기'(setup/<인물 id>)는 그 인물 카드로 간다
         const i = S.project.characters.findIndex((c) => c.id === parts[3]);
         if (i >= 0) S.focusTarget = S.jumpTo = `#f-characters-${i}-name`;
       } else if (parts[2] === 'setup' && S.jumpTo) S.focusTarget = S.jumpTo;  // 명령 팔레트에서 고른 설정 칸 (palette.js)
@@ -1957,7 +1955,7 @@ function navItems() {
     ['cast', base() + '/cast', '👥', '인물 · 관계도', has(p.characters)],
     ['atlas', base() + '/atlas', '🗺️', '지도', has(p.world.locations) || (p.elements || []).some((el) => el.kind === '장소')],
     ['foreshadow', base() + '/foreshadow', '🪝', '복선 센터', has(p.foreshadows)],
-    ['statwin', base() + '/statwin', '📊', '상태창 수치', (p.states || []).some((s) => has(s.stats))],
+    ['statwin', base() + '/statwin', '📊', '상태창 수치', (p.states || []).some((s) => has(s.stats)) || has((p.stat_window || {}).names)],
     ['abilities', base() + '/abilities', '📖', '스킬 도감', has(p.abilities)],
     ['timeline', base() + '/timeline', '⏳', '작품 속 시간', has((p.timeline || {}).deadlines) || p.episodes.some((e) => e.time && (e.time.day > 0 || e.time.part || e.time.label))],
     ['lines', base() + '/lines', '🔀', '이야기 줄기', has(p.storylines)],

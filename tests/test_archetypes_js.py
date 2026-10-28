@@ -1,10 +1,8 @@
-"""원형 도감 화면(static/archetypes.js)의 dexMatch · dexRemember 가 archetypes.match · remember 와 같은지. node 가 있을 때만 돈다."""
-from canon import archetypes, genres
+"""원형 도감(static/archetypes.js)의 dexRemember 가 archetypes.remember 와 같은지. node 가 있을 때만 돈다."""
+from canon import archetypes
 from canon.schema import Project
 
 from .jsvm import dump, needs_node, run_js
-
-GENRE_PICKS = [[], ["romance"], ["fantasy", "mystery"], ["office", "sports", "bl"], ["없는 장르"], [g.id for g in genres.CATALOG]]
 
 # (인물, 원형, 비틀기) 를 차례로 남긴다
 STEPS = [
@@ -17,18 +15,6 @@ STEPS = [
     ("c1", "a4", ""),
     ("c3", "a1", "x"),
 ]
-
-
-@needs_node
-def test_dex_match_matches_server():
-    catalog = [dump(a) for a in archetypes.CATALOG]
-    expr = """data.picks.map((gs) => { S.project = data.project; P().meta.genres = gs; S.dex = { archetypes: data.catalog };
-      return [dexMatch(false).map((a) => a.id), dexMatch(true).length]; })"""
-    got = run_js(["app.js", "archetypes.js"], expr, {"picks": GENRE_PICKS, "catalog": catalog, "project": dump(Project())})
-    for gs, (ids, everything) in zip(GENRE_PICKS, got):
-        assert ids == [a.id for a in archetypes.match(gs)], gs
-        assert everything == len(archetypes.CATALOG)
-    assert len({tuple(ids) for ids, _ in got}) == len(GENRE_PICKS)  # 고른 장르마다 결과가 다르다
 
 
 @needs_node

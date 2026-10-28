@@ -89,7 +89,7 @@ function povSummary(n) {
 /** 플롯 보드 위 배지 범례 (색과 점선의 뜻) */
 const POV_LEGEND = '<div class="small pov-legend">시점 배지: 실선은 이 화에 정함, 점선은 구간 · 아크 · 작품 기본에서 물려받음. 분홍 여주인공, 파랑 남주인공, 보라 그 밖의 인물, 회색 전지 시점</div>';
 
-/** 인물 카드의 시점 서술 말투. 이 인물이 시점 인물인 화에만 본문 지시에 들어간다 (prompts.voice_line).
+/** 인물 화면 인물 카드(cast.js castSheetEdit)의 시점 서술 말투. 이 인물이 시점 인물인 화에만 본문 지시에 들어간다 (prompts.voice_line).
     값도 없고 이 인물 시점인 화도 없으면 접어 둔다 (단역 카드가 길어지지 않게) */
 function voiceField(c, b) {
   const note = (S.voices || {})[c.id];
