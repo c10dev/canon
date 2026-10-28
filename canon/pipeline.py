@@ -2930,11 +2930,13 @@ def sort_places(llm: LLM, p: Project, texts: list[str] | None = None) -> dict:
 
 
 def suggest_map(llm: LLM, p: Project, spec: MapSpec | None = None) -> dict:
-    """지도 만들기 설정 제안 (MapSuggestion). 저장하지 않는다. 좌표는 마을 · 도시 생성기가 정한다.
-    돌려주는 것: 지도 종류 kind(village | city), 설정 칸(size, roads, water, fields, forest), places [{key, name, kind, put, note}], reason.
-    도시에 호수를 고르면 강으로 바꾼다 (도시 생성기에는 호수 칸이 없다).
+    """지도 만들기 설정 제안 (MapSuggestion). 저장하지 않는다. 좌표는 마을 · 도시 · 현대 동네 생성기가 정한다.
+    돌려주는 것: 지도 종류 kind(village | city | modern), 설정 칸(size, roads, water, fields, forest), places [{key, name, kind, put, note}], reason.
+    spec.kind 는 지도 화면에서 지금 고른 종류로 프롬프트에 알린다 (뚜렷한 근거가 없으면 따르게).
+    도시에 호수를 고르면 강으로, 현대 동네에 호수 · 바다를 고르면 하천으로 바꾼다 (생성기에 그 칸이 없다).
+    장소 종류는 모든 지도가 같은 id (towngen.CATEGORIES) 를 쓰고, 현대 동네에서 놓이는 자리(moderngen.PLACE_KINDS)를 프롬프트에 함께 적는다.
     장소 이름은 키로 바꾸고, 모르는 장소 · 모르는 종류 id 는 뺀다 (지금 값을 그대로 둔다)."""
-    from . import atlas, towngen
+    from . import atlas, moderngen, towngen
 
     pls = atlas.places(p)
     if not pls:
@@ -2942,8 +2944,9 @@ def suggest_map(llm: LLM, p: Project, spec: MapSpec | None = None) -> dict:
     rows = atlas.gen_places(p, spec)
     kinds = [(cid, label) for cid, label, _ in towngen.CATEGORIES]
     options = {k: m[1].OPTIONS for k, m in atlas.MAKERS.items()}
-    s = llm.json(prompts.SYSTEM_MAP_PLANNER, prompts.map_suggest_prompt(p, rows, pls, kinds, options), MapSuggestion,
-                 hint={"places": [r["name"] for r in rows]})
+    s = llm.json(prompts.SYSTEM_MAP_PLANNER,
+                 prompts.map_suggest_prompt(p, rows, pls, kinds, options, moderngen.PLACE_KINDS, spec.kind if spec else ""), MapSuggestion,
+                 hint={"places": [r["name"] for r in rows], "kind": spec.kind if spec else ""})
     names = {pl["key"]: pl["name"] for pl in pls}
     out, seen = [], set()
     for g in s.places:
@@ -2953,7 +2956,7 @@ def suggest_map(llm: LLM, p: Project, spec: MapSpec | None = None) -> dict:
             continue
         seen.add(key)
         out.append({"key": key, "name": names[key], "kind": kind, "put": bool(g.put), "note": g.note.strip()})
-    water = "river" if s.kind == "city" and s.water == "lake" else s.water
+    water = "river" if (s.kind == "city" and s.water == "lake") or (s.kind == "modern" and s.water in ("lake", "sea")) else s.water
     return {"kind": s.kind, "size": s.size, "roads": s.roads, "water": water, "fields": s.fields, "forest": s.forest,
             "places": out, "reason": s.reason.strip()}
 

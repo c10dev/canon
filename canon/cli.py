@@ -1664,7 +1664,7 @@ def cmd_map(a: argparse.Namespace) -> None:
         print(atlas.describe(p, atlas.load_layout(folder, p)))
         return
     base = atlas.default_spec(p)
-    sug = pipeline.suggest_map(get_llm("plan"), p, base) if a.ai else None
+    sug = pipeline.suggest_map(get_llm("plan"), p, base.model_copy(update={"kind": a.kind}) if a.kind else base) if a.ai else None
     kind = a.kind or (sug["kind"] if sug else base.kind)
     opts = atlas.MAKERS[kind][1].OPTIONS
     change = {k: v for k, v in ((k, _map_option(k, getattr(a, k), kind)) for k in towngen.OPTIONS) if v}
