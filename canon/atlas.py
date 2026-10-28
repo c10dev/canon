@@ -20,8 +20,8 @@ import math
 from pathlib import Path
 from typing import Optional
 
-from . import bldgs, cast, citygen, elements, geom, moderngen, naming, osm, placekinds, towngen
-from .schema import BuildingNote, MapPin, MapSpec, NewPlace, PlaceLink, PlaceSort, Project
+from . import bldgs, cast, citygen, elements, fill, geom, moderngen, naming, osm, placekinds, towngen
+from .schema import BuildingNote, MapFill, MapPin, MapSpec, NewPlace, PlaceLink, PlaceSort, Project
 
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
 IMAGE_LIMIT = 15 * 1024 * 1024
@@ -255,7 +255,7 @@ def enrich(p: Project, lo: dict, seed) -> dict:
 
 def building(p: Project, layout: dict, i: int) -> dict:
     """건물 하나의 정보: 생성기 값에 작가가 고친 값(Atlas.buildings)을 덮는다. 곁채는 본채 정보를 쓴다.
-    돌려주는 것: {i, main, use, label, group, floors, people, street, no, addr, tenants, name, note, residents, place, edited}.
+    돌려주는 것: {i, main, use, label, group, floors, people, street, no, addr, tenants, name, note, residents, place, edited, made}.
     addr · tenants 는 OpenStreetMap 지도의 실제 주소 · 입점한 곳 (없으면 빈 값)."""
     blds = layout.get("blds") or []
     if not 0 <= i < len(blds):
@@ -271,7 +271,8 @@ def building(p: Project, layout: dict, i: int) -> dict:
             "floors": b.get("floors", 1), "people": b.get("people", 0), "street": st, "no": b.get("no", 0),
             "addr": b.get("addr", ""), "tenants": list(b.get("tenants", [])),
             "name": (mine.name if mine and mine.name else "") or b.get("name", ""), "note": mine.note if mine else "",
-            "residents": list(mine.residents) if mine else [], "place": b.get("place", ""), "edited": bool(mine)}
+            "residents": list(mine.residents) if mine else [], "place": b.get("place", ""), "edited": bool(mine),
+            "made": bool(b.get("made"))}
 
 
 def building_counts(p: Project, layout: dict) -> list[tuple[str, int]]:
@@ -314,7 +315,7 @@ def layout_info(p: Project, layout: dict) -> dict:
     return {"file": p.atlas.layout, "roads": sum(r["kind"] == "road" for r in layout["roads"]),
             "bridges": sum(r["kind"] == "bridge" for r in layout["roads"]), "buildings": len(layout.get("buildings", [])),
             "width_m": round(layout["w"] * m), "height_m": round(layout["h"] * m), "meters": m,
-            "generator": layout.get("generator", ""), "source": layout.get("source", "")}
+            "generator": layout.get("generator", ""), "source": layout.get("source", ""), "made": fill.made_count(layout)}
 
 
 def road_graph(layout: dict) -> dict:
@@ -884,7 +885,7 @@ def apply_generated(folder: Path, p: Project, spec: MapSpec, take: list[str]) ->
     old = p.atlas.layout
     if old != fname:
         p.atlas.buildings = []  # 건물 번호가 바뀌므로 고친 건물도 비운다
-    p.atlas.layout, p.atlas.meters = fname, 1.0
+    p.atlas.layout, p.atlas.meters, p.atlas.fill = fname, 1.0, None
     p.atlas.layout_size = [out["layout"]["w"], out["layout"]["h"]]
     p.atlas.spec = spec.model_copy(update={"version": _maker(spec.kind)[1].VERSION})
     chosen = set(take)
@@ -898,6 +899,44 @@ def set_meters(p: Project, meters: float) -> None:
     if not 0.01 <= meters <= 1000:
         raise ValueError("축척은 1단위에 0.01~1000m 사이로 정하세요")
     p.atlas.meters = round(float(meters), 3)
+
+
+# ---------- 빈 블록 채우기 (OpenStreetMap 지도, canon/fill.py) ----------
+
+def fill_preview(layout: dict, seed: int) -> dict:
+    """빈 블록 채우기 미리보기 (저장하지 않음): {seed, blocks, buildings, empty, areas, added, had(지금 지은 건물 수)}.
+    areas · added 는 채울 블록과 지을 건물 다각형 (0~1)."""
+    _, st = fill.fill(layout, seed)
+    return {"seed": seed, **st, "had": fill.made_count(layout)}
+
+
+def made_count(layout: dict) -> int:
+    """빈 블록에 지은 건물 수."""
+    return fill.made_count(layout)
+
+
+def apply_fill(folder: Path, p: Project, layout: dict, seed: int) -> dict:
+    """빈 블록을 채워 지도 파일을 다시 쓴다. 지은 건물은 건물 끝에 붙어 OSM 건물 번호와 고친 건물은 그대로다
+    (전에 지은 건물을 고친 기록만 지운다). 돌려주는 것: {seed, blocks, buildings, empty}."""
+    out, st = fill.fill(layout, seed)
+    _write_fill(folder, p, out, fill.base_count(layout))
+    p.atlas.fill = MapFill(seed=seed, rule="villa")
+    return {"seed": seed, **{k: st[k] for k in ("blocks", "buildings", "empty")}}
+
+
+def clear_fill(folder: Path, p: Project, layout: dict) -> int:
+    """지은 건물을 지워 지도 파일을 다시 쓴다. 돌려주는 것: 지운 건물 수."""
+    n = fill.made_count(layout)
+    _write_fill(folder, p, fill.clear(layout), fill.base_count(layout))
+    p.atlas.fill = None
+    return n
+
+
+def _write_fill(folder: Path, p: Project, lo: dict, base: int) -> None:
+    enrich(p, lo, p.atlas.layout)  # 올릴 때와 같은 시드 (파일 이름)
+    (folder / p.atlas.layout).write_text(json.dumps(lo, ensure_ascii=False), encoding="utf-8")
+    p.atlas.buildings = [x for x in p.atlas.buildings if x.i < base]
+    fill_spots(p, lo)
 
 
 # ---------- 작가가 고치기 ----------

@@ -17,6 +17,7 @@
 | `canon/placekinds.py` | 64 | 장소 종류 `CATEGORIES` · `classify` · `default_put` · `water_for` (`towngen` 에서 옮김) | 없음 |
 | `canon/roadnet.py` | 432 | 길망 키우기 (Parish–Müller) | geom |
 | `canon/osm.py` | 546 | OpenStreetMap 파일 → 지도 데이터 | geom |
+| `canon/fill.py` | 253 | OpenStreetMap 지도의 빈 블록 채우기 ([04](specs/04-empty-blocks.md)) | blocks, geom, moderngen(수치만), osm |
 | `canon/bldgs.py` | 512 | 건물 쓰임 · 층수 · 사람 · 거리 이름 | geom |
 | `canon/geom.py` | 347 | 기하 도구. 지도를 모른다 | 없음 |
 | `canon/static/atlas.js` | 1,924 | 지도 화면 뼈대 (상태 · 불러오기, 그림, 확대 · 이동 · 이름표, 옆 칸, 화면 조립, 저장, 되돌리기, 남은 동작 · CSS) | — |

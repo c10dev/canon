@@ -127,3 +127,76 @@ def parts(roads: list[dict], key: Callable) -> list[list[dict]]:
     for rd in roads:
         groups.setdefault(find(key(rd["pts"][0])), []).append(rd)
     return sorted(groups.values(), key=len, reverse=True)
+
+
+# ---------- 길 선으로 블록 찾기 (평면 그래프의 면) ----------
+
+def faces(lines: list[list[Point]], w: float, h: float, snap: float = 0.3) -> list[Poly]:
+    """길 꺾은선들과 지도 테두리 [0, w] × [0, h] 가 나누는 가장 작은 면(블록), 무게중심 차례.
+    선이 건너는 곳과 끝이 다른 선에서 snap 안에 닿는 곳(T자)을 꼭짓점으로 나누고, 막다른 길은 지운 뒤 반쪽 변을 따라 돈다.
+    돌려주는 다각형은 넓이가 양수(geom.area)인 방향이다. 지도 끝에 걸린 블록은 테두리로 닫힌다."""
+    box = [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)]
+    segs = [(a, b) for ln in lines for a, b in zip(ln, ln[1:]) if math.dist(a, b) > 1e-6]
+    segs += [(box[i], box[(i + 1) % 4]) for i in range(4)]
+    cuts: list[list[tuple[float, Point]]] = [[(0.0, a), (1.0, b)] for a, b in segs]
+    grid = geom.Grid(40)
+    for k, (a, b) in enumerate(segs):
+        grid.add(geom.bbox([a, b]), k)
+
+    def along(q: Point, a: Point, b: Point) -> float:
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        return max(0.0, min(1.0, ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / (dx * dx + dy * dy)))
+
+    for k, (a, b) in enumerate(segs):
+        for j in grid.near(geom.bbox([a, b]), snap):
+            if j <= k:
+                continue
+            c, d = segs[j]
+            hit = geom.seg_cross(a, b, c, d)
+            if hit:
+                cuts[k].append((hit[0], hit[2]))
+                cuts[j].append((hit[1], hit[2]))
+                continue
+            for q in (c, d):  # 끝이 다른 선 위에 닿는다 (그 선에 이 끝을 꼭짓점으로)
+                if geom.seg_dist(q, a, b) < snap:
+                    cuts[k].append((along(q, a, b), q))
+            for q in (a, b):
+                if geom.seg_dist(q, c, d) < snap:
+                    cuts[j].append((along(q, c, d), q))
+
+    key = lambda q: (round(q[0], 2), round(q[1], 2))  # noqa: E731
+    at: dict[tuple, Point] = {}
+    adj: dict[tuple, set] = {}
+    for cs in cuts:
+        cs.sort(key=lambda x: x[0])
+        for (_, p), (_, q) in zip(cs, cs[1:]):
+            kp, kq = key(p), key(q)
+            if kp == kq or math.dist(at.setdefault(kp, p), at.setdefault(kq, q)) < snap:
+                continue
+            adj.setdefault(kp, set()).add(kq)
+            adj.setdefault(kq, set()).add(kp)
+    stack = [k for k, ns in adj.items() if len(ns) < 2]
+    while stack:  # 막다른 길을 지운다
+        k = stack.pop()
+        for n in adj.pop(k, set()):
+            if n in adj:
+                adj[n].discard(k)
+                if len(adj[n]) < 2:
+                    stack.append(n)
+    order = {k: sorted(ns, key=lambda n: math.atan2(at[n][1] - at[k][1], at[n][0] - at[k][0])) for k, ns in adj.items()}
+    seen: set[tuple] = set()
+    out: list[Poly] = []
+    for u in sorted(order):
+        for v in order[u]:
+            if (u, v) in seen:
+                continue
+            ring: list[Point] = []
+            a, b = u, v
+            while (a, b) not in seen and len(ring) <= len(order) + 1:
+                seen.add((a, b))
+                ring.append(at[a])
+                nb = order[b]
+                a, b = b, nb[(nb.index(a) - 1) % len(nb)]  # b 에서 들어온 길의 바로 앞(각도 차례) 길로 돈다
+            if len(ring) >= 3 and geom.area(ring) > 1e-6:
+                out.append(ring)
+    return sorted(out, key=lambda poly: (round(geom.centroid(poly)[1], 1), round(geom.centroid(poly)[0], 1)))

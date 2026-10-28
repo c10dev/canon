@@ -35,6 +35,7 @@
   python -m canon time 내소설           작품 속 시간: 화별로 끝난 시점과 기한 (--date 2024-03-04, --add '축제@7' 이나 '축제@2024-03-10', --close ID)
   python -m canon map 내소설            지도: 장소, 인물별로 옮겨 다닌 길, 장소와 맞지 않은 위치 글
   python -m canon map 내소설 gen --size 보통 --water 강   마을 생성기로 마을 만들기 (--seed, --roads, --fields, --forest, --move, --ai)
+  python -m canon map 내소설 fill                    OpenStreetMap 지도의 빈 블록을 지은 건물로 채우기 (--seed, --clear)
   python -m canon update 내소설 3       상태 변경안 확인 후 반영
   python -m canon run 내소설            확정된 화를 순서대로 write → check → update
   python -m canon auto 내소설 --to 12 [--batch]   목표 화까지 자동 집필 (정책에 걸리면 멈춤, --resume 으로 이어 가기)
@@ -1669,6 +1670,9 @@ def cmd_map(a: argparse.Namespace) -> None:
     if a.action == "travel":
         _map_travel(a, p)
         return
+    if a.action == "fill":
+        _map_fill(a, p, folder)
+        return
     if a.action != "gen":
         print(atlas.describe(p, atlas.load_layout(folder, p)))
         return
@@ -1714,6 +1718,36 @@ def cmd_map(a: argparse.Namespace) -> None:
     print(f"저장: {store.save(a.name, p)}")
     if old and (folder / old).is_file():
         (folder / old).unlink()
+
+
+def _map_fill(a: argparse.Namespace, p, folder) -> None:
+    """map <작품> fill: OpenStreetMap 지도의 빈 블록을 지은 건물로 채운다 (canon/fill.py). --clear 는 지은 건물을 지운다."""
+    layout = atlas.load_layout(folder, p)
+    if layout is None:
+        sys.exit("지도 데이터가 없어요. 먼저 OpenStreetMap 파일을 올려 주세요")
+    had = atlas.made_count(layout)
+    if a.clear:
+        if not had:
+            print("지은 건물이 없어요")
+            return
+        if not confirm(f"지은 건물 {had}채를 지울까요?", a.yes):
+            return
+        atlas.clear_fill(folder, p, layout)
+        print(f"지은 건물 {had}채를 지웠어요. 저장: {store.save(a.name, p)}")
+        return
+    seed = a.seed if a.seed is not None else random.randrange(1, 2**31 - 1)
+    pre = atlas.fill_preview(layout, seed)
+    if not pre["buildings"]:
+        print(f"채울 빈 블록이 없어요 (빈 블록 {pre['empty']}곳에 건물이 들어갈 자리가 없어요)" if pre["empty"] else "채울 빈 블록이 없어요")
+        return
+    print(f"빈 블록 채우기 (시드 {seed}): 빈 블록 {pre['empty']}곳 가운데 {pre['blocks']}곳에 건물 {pre['buildings']}채")
+    print("  OpenStreetMap에 없는 건물이에요. 이름 · 주소 · 입점은 짓지 않아요")
+    if had:
+        print(f"  지금 지은 건물 {had}채는 지우고 새로 지어요")
+    if not confirm("이대로 채울까요? 지도 데이터 파일이 바뀌어요", a.yes):
+        return
+    atlas.apply_fill(folder, p, layout, seed)
+    print(f"빈 블록 {pre['blocks']}곳에 건물 {pre['buildings']}채를 지어 채웠어요. 저장: {store.save(a.name, p)}")
 
 
 def _map_travel(a: argparse.Namespace, p) -> None:
@@ -2451,8 +2485,9 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("character", nargs="?", help="인물 id 나 이름. 비우면 인물 목록")
     sp.add_argument("--numbers", action="store_true", help="관계를 숫자로")
     sp = add("map", cmd_map)
-    sp.add_argument("action", nargs="?", choices=["gen", "travel"],
-                    help="gen: 마을 · 도시 · 현대 동네 생성기로 지도 만들기, travel: 이동 시간 검사 보기 · 설정. 비우면 지도 보기")
+    sp.add_argument("action", nargs="?", choices=["gen", "travel", "fill"],
+                    help="gen: 마을 · 도시 · 현대 동네 생성기로 지도 만들기, travel: 이동 시간 검사 보기 · 설정, "
+                         "fill: OpenStreetMap 지도의 빈 블록 채우기. 비우면 지도 보기")
     sp.add_argument("kind", nargs="?", choices=list(atlas.MAKERS),
                     help="만들 지도: village 마을, city 도시, modern 현대 동네. 비우면 지난번 지도 종류 (--ai 면 AI 제안)")
     sp.add_argument("--seed", type=int, help="같은 시드면 같은 지도. 비우면 새로 뽑는다")
@@ -2461,6 +2496,7 @@ def main(argv: list[str] | None = None) -> None:
         only = "" if len(users) == len(atlas.MAKERS) else f" ({' · '.join(users)}만)"
         sp.add_argument(f"--{key}", help=", ".join(label.split(" (")[0] for label in opts.values()) + only)
     sp.add_argument("--move", action="store_true", help="이미 지도에 놓은 장소도 생성기가 고른 자리로 옮기기")
+    sp.add_argument("--clear", action="store_true", help="fill: 지은 건물 지우기")
     sp.add_argument("--ai", action="store_true", help="AI가 작품 설정과 장소 설명을 보고 설정 칸 · 장소 종류를 제안 (직접 적은 칸이 이긴다)")
     sp.add_argument("--mode", choices=list(travel.MODES), help="travel: 이 세계에서 가장 빠른 탈것 (" + ", ".join(f"{k} {v}" for k, v in travel.MODE_NAMES.items()) + ")")
     sp.add_argument("--span", type=float, help="travel: 지도 가로가 몇 km 인지 (마을 데이터가 없을 때). 0 이면 모름")

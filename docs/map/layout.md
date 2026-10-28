@@ -25,14 +25,15 @@
 | `trees` | `[점]` | 아니요 | 모두 | 그리기 |
 | `houses` | 수 | 아니요 | 생성기 | `village_title`(인구), 미리보기 정보 |
 | `numbers` | `[수]` | 아니요 | 생성기 | 그리기(집 번호 겹), `village_title` |
-| `parts` | `[{lot, part, zone, use, …}]` 건물마다 | 아니요 | 생성기, OSM(+ `name` · `levels` · `addr` · `tenants`) | `bldgs.describe`(본채 · 곁채, 쓰임) |
+| `parts` | `[{lot, part, zone, use, …}]` 건물마다 | 아니요 | 생성기, OSM(+ `name` · `levels` · `addr` · `tenants`), `fill.fill`(지은 건물 + `levels` · `made`) | `bldgs.describe`(본채 · 곁채, 쓰임) |
+| `parts[i].made` | `true` | 아니요 | `fill.fill`: 빈 블록에 지은 건물. 늘 `buildings` 끝에 모여 있다 | `bldgs._describe_osm`(이름 · 주소 · 입점 · 앞길을 비운다), 그리기(흐린 색 · 점선 `at-v-made`), `fill.clear` · `made_count`, `atlas.layout_info`(`made`) |
 | `spots` | `[{key, name, kind, x, y}]` | 아니요 | 생성기 | `atlas.generate`(장소 자리 제안), `bldgs.describe`(장소 건물 이름) |
 | `missing` | `[{key, name, reason}]` | 아니요 | 생성기 | `atlas.generate`(못 놓은 장소) |
 | `wards` | `[{kind, shape}]` | 아니요 | 도시 · 현대 동네 | 그리기(구역 겹 · 이름), `bldgs.describe` |
 | `gates` | `[점]` | 아니요 | 도시 | 그리기 |
-| `source` | 글 | OSM 은 예 | OSM(`osm.SOURCE`) | 그리기(출처 글), `layout_info` |
+| `source` | 글 | OSM 은 예 | OSM(`osm.SOURCE`), 빈 블록을 채우면 `fill.FILLED_SOURCE`('© OpenStreetMap 기여자 · 빈 블록 건물은 Canon 이 지음') | 그리기(출처 글), `layout_info` |
 | `marks` | `[{name, use, x, y}]` | 아니요 | #140 OSM: 건물 밖 이름 붙은 점 · 넓이 | #140 `find_spots`, `spot_line` |
-| `blds` | 건물마다 `{use, floors, people, street?, no?, name?, addr?, tenants?, place?}` 또는 곁채 `{use, of}` | 저장 때 | `bldgs.describe`(`atlas.enrich`) | 그리기(쓰임 겹, 메뉴), `atlas.building`, `village_title`(사람 수), #140 `find_spots` · `spot_line` |
+| `blds` | 건물마다 `{use, floors, people, street?, no?, name?, addr?, tenants?, place?, made?}` 또는 곁채 `{use, of}` | 저장 때 | `bldgs.describe`(`atlas.enrich`) | 그리기(쓰임 겹, 메뉴), `atlas.building`, `village_title`(사람 수), #140 `find_spots` · `spot_line` |
 | `streets` | `[{id, name, kind, width, length, roads, mid}]` (`roads` 는 `roads` 의 번호) | 저장 때 | `bldgs.describe` | 그리기(길 이름표), `atlas.building` |
 | `bver` | 수 | 저장 때 | `bldgs.describe`(`bldgs.VERSION`) | `atlas.load_layout`(옛 판이면 다시 채운다) |
 
@@ -47,5 +48,5 @@
 
 ## 작가 값은 따로 둔다
 
-작가가 고친 것은 지도 파일이 아니라 `project.json` 의 `Project.atlas` 에 있다: 장소 자리(`pins`), 위치 글 잇기(`links`), 고친 건물(`buildings`, 건물 번호로), 이름(`title`), 축척(`meters`), 지도 만들기 입력(`spec`).
-지도 파일을 바꾸면 건물 번호가 바뀌므로 고친 건물을 비운다(`atlas.apply_generated`, `web.atlas_layout_set`). #140 의 `MapPin.spot` 은 지도 파일에서 계산한 값을 핀에 적어 둔 것이고, 지도 · 핀 · 건물을 바꿀 때 다시 쓴다.
+작가가 고친 것은 지도 파일이 아니라 `project.json` 의 `Project.atlas` 에 있다: 장소 자리(`pins`), 위치 글 잇기(`links`), 고친 건물(`buildings`, 건물 번호로), 이름(`title`), 축척(`meters`), 지도 만들기 입력(`spec`), 빈 블록 채우기 입력(`fill`: `seed` · `rule`).
+지도 파일을 바꾸면 건물 번호가 바뀌므로 고친 건물을 비운다(`atlas.apply_generated`, `web.atlas_layout_set`). 빈 블록 채우기는 지도 파일을 다시 쓰지만 지은 건물을 끝에 붙이므로 OSM 건물을 고친 기록은 남기고, 지은 건물을 고친 기록만 지운다(`atlas.apply_fill` · `clear_fill`). #140 의 `MapPin.spot` 은 지도 파일에서 계산한 값을 핀에 적어 둔 것이고, 지도 · 핀 · 건물을 바꿀 때 다시 쓴다.

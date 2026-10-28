@@ -322,6 +322,7 @@ def _describe_osm(layout: dict, parts: list[dict], areas: list[float], mains: li
                   namer: Optional[Callable[[list[dict]], None]] = None) -> dict:
     """OpenStreetMap 지도(canon/osm.py): 쓰임 · 이름 · 주소 · 입점한 곳은 태그 그대로, 층수는 태그가 없으면 쓰임마다 어림.
     사는 사람은 주거 쓰임만 연면적 × FLAT_SHARE ÷ FLAT_AREA 가구 × HOUSEHOLD_SIZE 명. 가게를 더 두거나 간판을 짓지 않는다.
+    빈 블록에 지은 건물(parts[i].made, canon/fill.py)은 made 를 적고 쓰임 · 층수 · 사람 수만 둔다.
     거리 이름은 길 이름(name) 가운데 가장 많은 것, 이름 없는 길은 비워 둔다. 번지(no)는 0 이다.
     실제 지도에 없는 이름 · 번지를 지어 넣지 않는다 (실제 주소처럼 보여 헷갈린다).
     현대 동네 생성기 지도는 같은 규칙에 numbers(번지)와 namer(out 을 받아 거리 이름을 짓는다)를 준다."""
@@ -334,6 +335,9 @@ def _describe_osm(layout: dict, parts: list[dict], areas: list[float], mains: li
         if use in MODERN_HOMES:
             people = round(max(1, round(areas[i] * floors * FLAT_SHARE / FLAT_AREA)) * HOUSEHOLD_SIZE)
         out[i] = {"use": use, "floors": floors, "people": people}
+        if pt.get("made"):  # 빈 블록에 지은 건물 (canon/fill.py): 쓰임 · 층수 · 사람 수만, 이름 · 주소 · 입점 · 앞길을 두지 않는다
+            out[i]["made"] = True
+            continue
         for key in ("name", "addr"):
             if pt.get(key):
                 out[i][key] = pt[key]
@@ -356,7 +360,7 @@ def _describe_osm(layout: dict, parts: list[dict], areas: list[float], mains: li
         if owner[i] != i:
             out[i] = {"use": "annex", "of": owner[i]}
     for i in mains:
-        if i in front:  # 앞길만 적고 번지는 짓지 않는다 (실제 주소는 addr). 지어낸 동네는 번지도 짓는다
+        if i in front and not out[i].get("made"):  # 앞길만 적고 번지는 짓지 않는다 (실제 주소는 addr). 지어낸 동네는 번지도 짓는다
             out[i]["street"] = front[i][0]
             out[i]["no"] = (numbers or {}).get(i, 0)
     return {"streets": [{k: v for k, v in st.items() if k != "segs"} for st in streets], "blds": out, "bver": VERSION}

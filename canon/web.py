@@ -3167,7 +3167,7 @@ def atlas_layout_set(name: str, body: LayoutIn) -> Project:
     atlas.enrich(p, layout, fname)
     (d / fname).write_text(json.dumps(layout, ensure_ascii=False), encoding="utf-8")
     old = p.atlas.layout
-    p.atlas.layout, p.atlas.spec, p.atlas.buildings, p.atlas.layout_size = fname, None, [], [layout["w"], layout["h"]]
+    p.atlas.layout, p.atlas.spec, p.atlas.buildings, p.atlas.layout_size, p.atlas.fill = fname, None, [], [layout["w"], layout["h"]], None
     atlas.fill_spots(p, layout)
     out = _save(name, p)
     if old and old != fname and (d / old).is_file():
@@ -3179,12 +3179,36 @@ def atlas_layout_set(name: str, body: LayoutIn) -> Project:
 def atlas_layout_drop(name: str) -> Project:
     """마을 데이터를 지운다. 장소 자리는 그대로 둔다."""
     p = _load(name)
-    old, p.atlas.layout, p.atlas.spec, p.atlas.buildings, p.atlas.layout_size = p.atlas.layout, "", None, [], []
+    old, p.atlas.layout, p.atlas.spec, p.atlas.buildings, p.atlas.layout_size, p.atlas.fill = p.atlas.layout, "", None, [], [], None
     atlas.fill_spots(p, None)
     out = _save(name, p)
     if old and (_map_dir(name) / old).is_file():
         (_map_dir(name) / old).unlink()
     return out
+
+
+class FillIn(BaseModel):
+    mode: str = "preview"  # preview 미리보기 | apply 적용 | clear 지은 건물 지우기
+    seed: int = 1
+
+
+@app.post("/api/projects/{name}/atlas/layout/fill")
+def atlas_layout_fill(name: str, body: FillIn) -> dict:
+    """OpenStreetMap 지도의 빈 블록 채우기 (canon/fill.py). preview 는 저장하지 않고 채울 블록 · 지을 건물을 돌려준다.
+    apply 는 지도 파일을 다시 쓰고(지은 건물은 끝에 붙여 OSM 건물 번호를 지킨다) clear 는 지은 건물을 지운다."""
+    p = _load(name)
+    layout = atlas.load_layout(_map_dir(name), p)
+    if layout is None:
+        raise HTTPException(404, "마을 데이터가 없어요")
+    if body.mode == "preview":
+        return atlas.fill_preview(layout, body.seed)
+    if body.mode == "apply":
+        done = atlas.apply_fill(_map_dir(name), p, layout, body.seed)
+        return {**done, "project": _save(name, p)}
+    if body.mode == "clear":
+        n = atlas.clear_fill(_map_dir(name), p, layout)
+        return {"removed": n, "project": _save(name, p)}
+    raise ValueError(f"모르는 동작이에요: {body.mode}")
 
 
 @app.get("/api/projects/{name}/atlas/layout")

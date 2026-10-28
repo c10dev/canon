@@ -5,7 +5,7 @@ import ast
 from pathlib import Path
 
 CANON = Path(__file__).resolve().parent.parent / "canon"
-MAP = {"atlas", "travel", "mapprompt", "towngen", "citygen", "moderngen", "roadnet", "osm", "bldgs", "geom", "blocks", "placekinds"}
+MAP = {"atlas", "travel", "mapprompt", "towngen", "citygen", "moderngen", "roadnet", "osm", "bldgs", "geom", "blocks", "placekinds", "fill"}
 GENERATORS = {"towngen", "citygen", "moderngen"}
 
 

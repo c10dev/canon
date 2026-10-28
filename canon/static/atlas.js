@@ -242,7 +242,7 @@ function atlasBldInfo(i) {
   const [label, group] = (S.atlas.gen && S.atlas.gen.uses && S.atlas.gen.uses[use]) || [use, 'home'];
   const st = typeof b.street === 'number' && v.streets && v.streets[b.street];
   return { i, main, annex: main !== i, use, label, group, floors: b.floors || 1, people: b.people || 0, street: st ? st.name : '', no: b.no || 0, addr: b.addr || '', tenants: b.tenants || [],
-    name: (mine && mine.name) || b.name || '', note: (mine && mine.note) || '', residents: (mine && mine.residents) || [], edited: !!mine };
+    name: (mine && mine.name) || b.name || '', note: (mine && mine.note) || '', residents: (mine && mine.residents) || [], edited: !!mine, made: !!b.made };
 }
 
 /** 건물마다 쓰임 묶음 (본채 기준, 고친 값 반영). 지도 색칠 · 강조에 쓴다 */
@@ -370,14 +370,18 @@ function atlasVillageSvg(v, W, H, layers = {}) {
   stroke(bridges, 'at-v-planks', (r) => r.width + 1, 3);
   atlasWalls(v, out, { P, m, k, lw });
 
-  // 건물: 그림자 → 지붕 → 어두운 반쪽 → 마루선. 꼭짓점이 넷이 아니면 한 색 지붕
-  const shade = (dx, dy) => (v.buildings || []).map((ln) => `M${ln.map((q) => `${(q[0] * W + dx).toFixed(1)},${(q[1] * H + dy).toFixed(1)}`).join('L')}Z`).join('');
+  // 건물: 그림자 → 지붕 → 어두운 반쪽 → 마루선. 꼭짓점이 넷이 아니면 한 색 지붕.
+  // 빈 블록에 지은 건물(parts[i].made, canon/fill.py)은 그림자 · 지붕 없이 흐린 색과 점선 테두리로 (OpenStreetMap에 없는 건물)
+  const made = (i) => !!(v.parts && v.parts[i] && v.parts[i].made);
+  const shade = (dx, dy) => (v.buildings || []).map((ln, i) => made(i) ? '' : `M${ln.map((q) => `${(q[0] * W + dx).toFixed(1)},${(q[1] * H + dy).toFixed(1)}`).join('L')}Z`).join('');
   if (on('shadows')) out.push(`<path class="at-v-shadow" d="${shade(1.4 * k, 1.8 * k)}"></path>`);
   const roofs = [[], [], [], []];
   const dark = [];
   const ridges = [];
   const flat = v.generator === 'osm' || v.generator === 'canon-modern';  // 실제 지도(OpenStreetMap) · 현대 동네의 건물은 박공 없이 평지붕으로
+  const madeD = [];
   (v.buildings || []).forEach((ln, i) => {
+    if (made(i)) { madeD.push(`M${ln.map((q) => `${(q[0] * W).toFixed(1)},${(q[1] * H).toFixed(1)}`).join('L')}Z`); return; }
     const ring = ln.length > 4 && ln[0][0] === ln[ln.length - 1][0] && ln[0][1] === ln[ln.length - 1][1] ? ln.slice(0, -1) : ln;
     const q = ring.map(P);
     roofs[Math.floor(atlasHash(i, 1) * 4)].push(`M${q.map((p) => p.map((x) => x.toFixed(1)).join(',')).join('L')}Z`);
@@ -396,6 +400,7 @@ function atlasVillageSvg(v, W, H, layers = {}) {
   });
   roofs.forEach((d, t) => { if (d.length) out.push(`<path class="at-v-house t${t}" d="${d.join('')}"></path>`); });
   if (dark.length) out.push(`<path class="at-v-roof-dark" d="${dark.join('')}"></path><path class="at-v-ridge" d="${ridges.join('')}"></path>`);
+  if (madeD.length) out.push(`<path class="at-v-made" d="${madeD.join('')}" stroke-width="${m(0.8, 1.2)}" stroke-dasharray="${m(2, 3)} ${m(1.5, 2)}"></path>`);
 
   // 쓰임 색: 집이 아닌 건물에 쓰임 묶음 색을 덧칠한다 (겹 '쓰임'). 고른 쓰임(hi)은 테두리로 강조
   const uses = layers.useOf;
@@ -496,6 +501,7 @@ function atlasSvg() {
   const px = atlasExporting || !atlasStageW ? 1 : atlasStageW / W;
   const useOf = village && village.blds ? atlasBldUses(village) : null;
   if (village) out.push(atlasVillageSvg(village, W, H, { ...S.atlasLayers, lamps: !!style.lamps, lw: style.lw || 1, z: atlasViewNow().z, px, useOf, hi: S.atlasUseHi }));
+  if (village && !atlasGenPreview()) out.push(atlasFillSvg(W, H));  // 빈 블록 채우기 미리보기 (atlas-fill.js)
   else if (S.atlas.image) out.push(`<image href="${esc(atlasImageUrl())}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="none"></image>`);
   else {
     out.push(`<rect class="at-ground" x="0" y="0" width="${W}" height="${H}"></rect>`);
@@ -851,6 +857,7 @@ function atlasLayoutBox() {
     <div class="small">길 ${lo.roads}개${lo.bridges ? ` · 다리 ${lo.bridges}개` : ''} · 건물 ${lo.buildings}채 · 약 ${atlasMeters(lo.width_m)} × ${atlasMeters(lo.height_m)}</div>
     <label class="at-scale small">1단위 = <input type="number" min="0.01" max="1000" step="0.1" value="${lo.meters}" data-atlas-meters aria-label="마을 데이터 1단위가 몇 m인지"> m</label>
     <div class="small">거리가 어색하면 축척을 바꾸세요. 걷는 시간은 초속 1.3m로 셈해요. 건물 안을 누르면 장소가 그 건물 가운데에 놓여요.</div>
+    ${lo.generator === 'osm' ? atlasFillBox(lo) : ''}
     <div class="row"><button type="button" class="btn small" data-action="atlasFindOpen">이름으로 자리 찾기</button>
       <label class="btn small" for="at-layout">다른 파일 올리기</label>${input}
       <button type="button" class="btn small ghost" data-action="atlasDropLayout">${word} 지우기</button></div></div>`;
@@ -943,6 +950,7 @@ function atlasBldMenu() {
   return `<div class="at-bld" style="left:${b.sx}px;${pos}" role="dialog" aria-label="건물">
     <div class="between"><strong>${head}</strong><button type="button" class="btn small ghost" data-action="atlasBldClose" aria-label="닫기">✕</button></div>
     ${facts.length ? `<div class="small at-bld-facts">${esc(facts.join(' · '))}${num >= 0 ? ` · 집 ${num + 1}` : ''}</div>` : ''}
+    ${info && info.made ? '<div class="small at-um-note">지은 건물 (OpenStreetMap에 없음)</div>' : ''}
     ${who.length ? `<div class="small">사는 인물: ${esc(who.join(', '))}</div>` : ''}
     ${info && info.tenants.length ? `<div class="small at-bld-tenants">입점: ${esc(info.tenants.join(', '))}</div>` : ''}
     ${info && info.note ? `<div class="small at-um-note">${esc(info.note)}</div>` : ''}
@@ -1846,6 +1854,7 @@ document.addEventListener('keydown', (e) => {
 .at-bld-who { display: flex; flex-wrap: wrap; gap: 4px 10px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; max-height: 120px; overflow: auto; }
 .at-map .at-v-ward-label { fill: var(--text); fill-opacity: 0.8; stroke: var(--canvas); stroke-opacity: 0.85; paint-order: stroke; stroke-linejoin: round; font-weight: 600; pointer-events: none; }
 .at-map .at-v-shadow { fill: var(--v-shadow); }
+.at-map .at-v-made { fill: var(--v-house0); fill-opacity: 0.45; stroke: var(--v-house-edge); stroke-linejoin: round; }
 .at-map .at-v-house { stroke: var(--v-house-edge); stroke-width: calc(var(--v-lw) * 1px); stroke-linejoin: round; }
 .at-map .at-v-house.t0 { fill: var(--v-house0); }
 .at-map .at-v-house.t1 { fill: var(--v-house1); }
