@@ -2942,22 +2942,18 @@ def atlas_image_get(name: str) -> FileResponse:
 
 
 class LayoutIn(BaseModel):
-    data: str  # Watabou 생성기가 내보낸 JSON 글
+    data: str  # Watabou 생성기가 내보낸 JSON 글, 또는 OpenStreetMap .osm (XML) · GeoJSON 글
 
 
 @app.put("/api/projects/{name}/atlas/layout")
 def atlas_layout_set(name: str, body: LayoutIn) -> Project:
-    """마을 · 도시 데이터를 올린다. 그릴 모양으로 바꿔(atlas.read_layout) map/ 에 둔다.
+    """마을 · 도시 데이터를 올린다. 그릴 모양으로 바꿔(atlas.parse_upload: Watabou JSON 또는 OpenStreetMap) map/ 에 둔다.
     마을 데이터가 있으면 지도는 배경 그림 대신 마을을 그리고 비율도 마을을 따른다."""
     import time
 
     if len(body.data.encode("utf-8")) > atlas.LAYOUT_LIMIT:
         raise ValueError(f"파일이 너무 커요. {atlas.LAYOUT_LIMIT // (1024 * 1024)}MB 이하로 올리세요")
-    try:
-        raw = json.loads(body.data)
-    except ValueError:
-        raise ValueError("JSON 파일을 읽지 못했어요") from None
-    layout = atlas.read_layout(raw)
+    layout = atlas.parse_upload(body.data)
     p = _load(name)
     d = _map_dir(name)
     d.mkdir(parents=True, exist_ok=True)

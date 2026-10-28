@@ -457,7 +457,7 @@ def test_title_population_and_numbers():
     assert all(0 <= i < len(lo["buildings"]) for i in lo["numbers"])
     t = out["title"]
     people = sum(b.get("people", 0) for b in lo["blds"])  # 건물마다 센 사람의 합 (canon/bldgs.py)
-    assert t == {"title": "흑송촌", "custom": False, "houses": lo["houses"], "population": int(round(people, -1)), "kind": "마을"}
+    assert t == {"title": "흑송촌", "custom": False, "houses": lo["houses"], "population": int(round(people, -1)), "kind": "마을", "unit": "집"}
     atlas.set_title(p, "  흑송   나루마을 ")
     assert p.atlas.title == "흑송 나루마을" and atlas.village_title(p, lo)["custom"]
     with pytest.raises(ValueError):
