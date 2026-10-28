@@ -43,6 +43,7 @@ let package = Package(
         .target(name: "FeatureCast", dependencies: ["CanonCore", "CanonAPI", "CanonUI"]),
         .target(name: "FeatureReview", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "CanonStore"]),
         .target(name: "FeatureWrite", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "CanonStore"]),
+        .target(name: "FeatureCheck", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "CanonStore"]),
         .target(name: "FeaturePlot", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "CanonStore"]),
         .target(name: "FeatureSetup", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "CanonStore"]),
         .target(name: "FeatureStyle", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "CanonStore"]),
@@ -53,7 +54,7 @@ let package = Package(
         .target(name: "FeatureBrief", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "CanonStore"]),
         .target(name: "FeatureBranches", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "CanonStore"]),
         // 앱 뼈대: 서버 설정, 사이드바, 화면 잇기. Xcode 앱(App/)은 이것 하나만 가져온다
-        .target(name: "CanonAppUI", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "CanonStore", "FeatureProjects", "FeatureHome", "FeatureStatWin", "FeatureForeshadow", "FeatureUsage", "FeatureCast", "FeatureReview", "FeatureWrite", "FeaturePlot", "FeatureSetup", "FeatureStyle", "FeatureSettings", "FeatureAuto", "FeatureLines", "FeatureCausal", "FeatureBrief", "FeatureBranches"]),
+        .target(name: "CanonAppUI", dependencies: ["CanonCore", "CanonAPI", "CanonUI", "CanonStore", "FeatureProjects", "FeatureHome", "FeatureStatWin", "FeatureForeshadow", "FeatureUsage", "FeatureCast", "FeatureReview", "FeatureWrite", "FeatureCheck", "FeaturePlot", "FeatureSetup", "FeatureStyle", "FeatureSettings", "FeatureAuto", "FeatureLines", "FeatureCausal", "FeatureBrief", "FeatureBranches"]),
         // 개발용: 실제 서버에 붙어 응답이 타입대로 읽히는지 본다
         .executableTarget(name: "canon-probe", dependencies: ["CanonAPI", "CanonCore"]),
         .testTarget(name: "CanonCoreTests", dependencies: ["CanonCore"]),
@@ -67,6 +68,7 @@ let package = Package(
         .testTarget(name: "FeatureCastTests", dependencies: ["FeatureCast"]),
         .testTarget(name: "FeatureReviewTests", dependencies: ["FeatureReview", "CanonStore"]),
         .testTarget(name: "FeatureWriteTests", dependencies: ["FeatureWrite", "CanonStore"]),
+        .testTarget(name: "FeatureCheckTests", dependencies: ["FeatureCheck", "CanonStore"]),
         .testTarget(name: "FeaturePlotTests", dependencies: ["FeaturePlot", "CanonStore"]),
         .testTarget(name: "FeatureSetupTests", dependencies: ["FeatureSetup", "CanonStore"]),
         .testTarget(name: "FeatureStyleTests", dependencies: ["FeatureStyle", "CanonStore"]),

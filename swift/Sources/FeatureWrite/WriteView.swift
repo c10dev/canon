@@ -141,6 +141,10 @@ public struct WriteView: View {
                 Text("\(n)화 \(e.plot.title)").font(.title.bold())
                 chip(status.label, color: color(status))
                 if e.auto == true { chip("자동 반영", color: .purple) }
+                if e.checkState.open > 0 {
+                    Button { go(.check) } label: { chip("열린 지적 \(e.checkState.open)곳", color: .orange) }
+                        .buttonStyle(.plain).accessibilityHint("검수 화면에서 보기")
+                }
             }
             HStack {
                 if !(e.text ?? "").isEmpty && WriteText.editable(e) {
@@ -150,7 +154,11 @@ public struct WriteView: View {
                     }
                     .disabled(label != nil)
                 }
-                if status == .written {
+                // 검수가 끝나지 않았으면 '검수로'가 지금 할 일이다 (웹 `viewWrite` 의 toCheck). 끝났으면 '상태 승인으로'
+                if status == .written && !e.checkState.done {
+                    Button("검수로") { go(.check) }.buttonStyle(.borderedProminent)
+                    Button("상태 승인으로") { go(.review) }
+                } else if status == .written {
                     Button("상태 승인으로") { go(.review) }.buttonStyle(.borderedProminent)
                 }
             }
@@ -321,7 +329,7 @@ public struct WriteView: View {
 
 // MARK: 이번 화 플롯
 
-/// 이번 화 플롯, 승인된 요약, 검수 결과와 검수 단추 (웹 `viewWrite` 왼쪽 칸, `issuesBlock`).
+/// 이번 화 플롯과 승인된 요약 (웹 `viewWrite` 왼쪽 칸). 검수는 검수 화면(FeatureCheck)으로 옮겼다.
 struct PlotCard: View {
     let model: WriteModel
     let episode: Episode
@@ -351,13 +359,6 @@ struct PlotCard: View {
             field("엔딩 훅") { Text(e.plot.endingHook).font(.caption) }
             if let q = e.plot.readerQuestion, !q.isEmpty { field("독자가 들고 갈 질문") { Text(q).font(.caption) } }
             if let s = e.summary, !s.isEmpty { field("승인된 요약") { Text(s).font(.caption) } }
-            issues(e)
-            if !(e.text ?? "").isEmpty {
-                let busy = model.jobs.busyLabel("check", ep: n)
-                Button(busy ?? WriteText.checkLabel(e)) { startJob { await model.check(n) } }
-                    .buttonStyle(.bordered).controlSize(.small)
-                    .disabled(busy != nil)
-            }
             Button("플롯 보기") { go(.arc) }.font(.caption).buttonStyle(.borderless)
         }
         .padding(12)
@@ -369,36 +370,6 @@ struct PlotCard: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(.caption2).foregroundStyle(.secondary)
             content()
-        }
-    }
-
-    @ViewBuilder
-    private func issues(_ e: Episode) -> some View {
-        let list = e.issues ?? []
-        if !list.isEmpty {
-            let text = model.text(e.plot.number)
-            field("검수에서 찾은 곳 \(list.count)") {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(Array(list.enumerated()), id: \.offset) { i, x in
-                        let line = WriteText.issue(x, text: text)
-                        VStack(alignment: .leading, spacing: 2) {
-                            (Text("\(i + 1). ") + Text(line.type).bold() + Text(" \(line.description)")).font(.caption)
-                            if line.current != nil || line.source != nil || line.suggestion != nil {
-                                DisclosureGroup("근거와 고칠 방향") {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        if let c = line.current { Text(c) }
-                                        if let s = line.source { Text(s) }
-                                        if let s = line.suggestion { Text(s) }
-                                    }
-                                    .font(.caption2).textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                                .font(.caption2)
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 }

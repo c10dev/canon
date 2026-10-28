@@ -5,6 +5,9 @@
 import CanonAPI
 import CanonCore
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking  // Linux 의 URLSession
+#endif
 
 let address = CommandLine.arguments.dropFirst().first ?? "http://127.0.0.1:8000"
 guard let config = ServerConfig.parse(address) else {

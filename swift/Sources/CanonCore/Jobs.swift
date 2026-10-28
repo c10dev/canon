@@ -163,7 +163,10 @@ public enum JobText {
         case "rework": return "\(ep)화 다듬기 제안이 도착했어요. 집필 화면에서 비교하세요."
         case "openings": return "\(ep)화 여는 방식 플롯 안이 도착했어요. 플롯 화면의 \(ep)화 서랍 '초반 화 · 여는 방식 고르기'에서 고르세요."
         case "opening_drafts": return "\(ep)화를 여는 방식마다 썼어요. 읽고 고르세요."
-        case "check": return "\(ep)화 검수가 끝났어요: 어긋난 곳 \(job.result?["issues"]?.int ?? 0)개"
+        case "check":
+            let round = job.result?["round"]?.int ?? 0
+            return "\(ep)화 검수가 끝났어요\(round > 0 ? " (\(round)회차)" : ""): 짚은 곳 \(job.result?["issues"]?.int ?? 0)개"
+                + (round > 1 ? ", 새 지적 \(job.result?["added"]?.int ?? 0)개" : "")
         case "auto":
             let status = job.result?["status"].flatMap { if case let .string(s) = $0 { s } else { nil } }
             let tail = ["review": " · 검토가 필요해요", "paused": " · 일시정지했어요", "error": " · 오류로 멈췄어요"][status ?? ""] ?? ""

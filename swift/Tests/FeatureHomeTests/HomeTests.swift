@@ -31,7 +31,10 @@ func short(_ eps: [Ep], arc: Bool = true) -> Project {
     }
 
     @Test func nextStepFollowsCurrentEpisode() {
-        #expect(HomeSummary(short([ep(1, .finalized), ep(2, .written)]), name: "x").next == .init(label: "2화 상태 승인", screen: .review))
+        #expect(HomeSummary(short([ep(1, .finalized), ep(2, .written)]), name: "x").next == .init(label: "2화 검수", screen: .check))
+        var checked = ep(2, .written)
+        checked.checkedAt = "2026-10-28T10:00:00"
+        #expect(HomeSummary(short([ep(1, .finalized), checked]), name: "x").next == .init(label: "2화 상태 승인", screen: .review))
         #expect(HomeSummary(short([ep(1, .finalized), ep(2, .confirmed)]), name: "x").next == .init(label: "2화 쓰기", screen: .write))
         #expect(HomeSummary(short([ep(1, .draft)]), name: "x").next == .init(label: "1화 플롯 확정", screen: .arc))
         #expect(HomeSummary(short([ep(1, .finalized)]), name: "x").next == .init(label: "완결 원고 보기", screen: .write))
@@ -43,15 +46,16 @@ func short(_ eps: [Ep], arc: Bool = true) -> Project {
 
     @Test func stages() {
         let s = HomeSummary(short([ep(1, .finalized), ep(2, .written), ep(3, .confirmed), ep(4, .draft)]), name: "x")
-        #expect(s.stages.map(\.state) == [.done, .notStarted, .done, .doing, .doing, .doing])
-        #expect(s.stages.map(\.detail) == ["인물 1 · 관계 0", "선택 사항", "4구간", "3 / 4화", "2 / 4화", "1 / 4화"])
+        #expect(s.stages.map(\.state) == [.done, .notStarted, .done, .doing, .doing, .notStarted, .doing])
+        #expect(s.stages.map(\.detail) == ["인물 1 · 관계 0", "선택 사항", "4구간", "3 / 4화", "2 / 4화", "0 / 4화", "1 / 4화"])
+        #expect(s.stages.map(\.title).suffix(2) == ["5 검수", "6 상태 승인"])
         #expect(s.stages.map(\.state.label).first == "완료")
     }
 
     @Test func cells() {
         let s = HomeSummary(short([ep(1, .finalized, auto: true), ep(2, .written), ep(3, .confirmed), ep(4, .draft)]), name: "x")
         #expect(s.cells.map(\.label) == ["자동 반영", "작성됨", "확정", "초안"])
-        #expect(s.cells.map(\.screen) == [.write, .review, .write, .arc])
+        #expect(s.cells.map(\.screen) == [.write, .check, .write, .arc])  // 검수하지 않은 2화는 검수로
         #expect(s.cells.map(\.current) == [false, true, false, false])
         #expect(s.cells[1].accessibilityLabel == "2화 작성됨 · 지금 화 · 2화 제목")
         #expect(s.cells.map(\.act) == ["기", "승", "전", "결"])  // 2화는 기(1~1화)가 아니라 승(1~2화), 웹 actOf 처럼 처음 맞는 구간

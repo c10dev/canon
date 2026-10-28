@@ -293,13 +293,20 @@ public struct ReviewView: View {
             }
             .note(.warn)
         }
-        if let issues = e.issues, !issues.isEmpty {
-            let after = (e.edits ?? []).contains { ($0.at ?? "") > (e.checkedAt ?? "") }
+        // 열린 검수 지적이 남았거나 검수하지 않았으면 알린다 (웹 `viewReview` 의 issues). 반영은 막지 않는다
+        let cs = e.checkState
+        if cs.open > 0 {
             HStack {
-                Text("검수 지적 \(issues.count)건이 남아 있어요\(after ? " (검수 뒤 본문을 고쳤어요)" : "").").frame(maxWidth: .infinity, alignment: .leading)
-                Button("집필 화면에서 보기") { go(.write) }
+                Text("열린 검수 지적 \(cs.open)곳이 남아 있어요\(cs.stale ? " (검수 뒤 본문을 고쳤어요)" : "").").frame(maxWidth: .infinity, alignment: .leading)
+                Button("검수에서 보기") { go(.check) }
             }
             .note(.warn)
+        } else if !cs.checked {
+            HStack {
+                Text("\(e.plot.number)화는 아직 검수하지 않았어요. 반영해도 되지만, 앞 화와 어긋나는 곳이 있는지 검수에서 먼저 볼 수 있어요.").frame(maxWidth: .infinity, alignment: .leading)
+                Button("검수") { go(.check) }
+            }
+            .note(.plain)
         }
         if let w = d.warnings, !w.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
