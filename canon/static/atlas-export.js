@@ -1,0 +1,108 @@
+/* 지도 내보내기 (atlas.js 에서 뗐다): 확대와 상관없이 지도 전체를 SVG 나 PNG 로 내려받는다.
+   app.js 의 S, actions, run, P 와 atlas.js 의 atlasSvg · atlasH · ATLAS_W · atlasExporting 을 쓴다. */
+'use strict';
+
+// ----- 내보내기 -----
+
+/** 내보낼 SVG: 확대와 상관없이 지도 전체를, 화면에 보이는 색을 속성으로 옮겨 적어 페이지 CSS 없이도 같게 보이게 한다 */
+function atlasExportSvg() {
+  const keep = S.atlasView;
+  S.atlasView = { x: 0, y: 0, z: 1 };
+  atlasExporting = true;
+  const host = document.createElement('div');
+  host.style.cssText = `position:fixed;left:-99999px;top:0;width:${ATLAS_W}px`;
+  try {
+    host.innerHTML = atlasSvg();
+  } finally {
+    S.atlasView = keep;
+    atlasExporting = false;
+  }
+  document.body.appendChild(host);
+  try {
+    const svg = host.querySelector('svg');
+    const ctx = document.createElement('canvas').getContext('2d');
+    // 브라우저는 color-mix 결과를 color(srgb …)로 돌려준다. 다른 프로그램도 읽게 rgb() 와 따로 적은 불투명도로 바꾼다
+    const color = (v) => {
+      if (!v || v === 'none' || v.startsWith('url')) return [v, 1];
+      ctx.fillStyle = '#000';
+      ctx.fillStyle = v;
+      const c = String(ctx.fillStyle);
+      const m = c.match(/^color\(srgb ([-\d.e]+) ([-\d.e]+) ([-\d.e]+)(?: \/ ([-\d.e]+))?\)$/);
+      if (m) return [`rgb(${[m[1], m[2], m[3]].map((x) => Math.round(Math.min(1, Math.max(0, Number(x))) * 255)).join(',')})`, m[4] == null ? 1 : Number(m[4])];
+      const r = c.match(/^rgba\((\d+), (\d+), (\d+), ([\d.]+)\)$/);
+      if (r) return [`rgb(${r[1]},${r[2]},${r[3]})`, Number(r[4])];
+      return [c, 1];
+    };
+    const props = ['fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-linecap', 'stroke-linejoin', 'opacity', 'font-size', 'font-weight', 'font-family', 'paint-order', 'text-anchor', 'dominant-baseline'];
+    svg.querySelectorAll('*').forEach((el) => {
+      const cs = getComputedStyle(el);
+      el.setAttribute('style', props.map((p) => {
+        const v = cs.getPropertyValue(p);
+        if (!v) return '';
+        if (p !== 'fill' && p !== 'stroke') return `${p}:${v}`;
+        const [c, a] = color(v);
+        return `${p}:${c}${a < 1 ? `;${p}-opacity:${a}` : ''}`;
+      }).filter(Boolean).join(';'));
+      el.removeAttribute('class');
+      el.removeAttribute('tabindex');
+    });
+    svg.querySelectorAll('.at-hit, title').forEach((el) => el.remove());
+    const t = S.atlas.title;
+    if (t && t.title && S.atlasLayers.title && atlasVillage()) {
+      // 마을 이름 글자 · 테두리는 고른 화풍의 글자 · 바탕색 (.at-map 의 --text · --canvas)
+      const cs = getComputedStyle(svg);
+      const ink = color(cs.color)[0];
+      const halo = color(cs.getPropertyValue('--canvas').trim() || '#fff')[0];
+      svg.insertAdjacentHTML('beforeend', `<text x="24" y="44" style="font-size:30px;font-weight:700;fill:${ink};paint-order:stroke;stroke:${halo};stroke-opacity:.8;stroke-width:5px">${esc(t.title)}</text>
+        <text x="24" y="70" style="font-size:15px;fill:${ink};paint-order:stroke;stroke:${halo};stroke-opacity:.8;stroke-width:4px">인구 약 ${t.population.toLocaleString()}명</text>`);
+    }
+    svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    svg.setAttribute('width', ATLAS_W);
+    svg.setAttribute('height', atlasH());
+    svg.removeAttribute('class');
+    return new XMLSerializer().serializeToString(svg);
+  } finally {
+    host.remove();
+  }
+}
+
+function atlasDownload(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+Object.assign(actions, {
+  async atlasExport(kind) {
+    await run(kind === 'png' ? 'PNG 만드는 중' : 'SVG 만드는 중', async () => {
+      const svg = atlasExportSvg();
+      const base = ((S.atlas.title && S.atlas.title.title) || P().meta.title || S.name).replace(/[\\/:*?"<>|]/g, '_');
+      if (kind === 'svg') {
+        atlasDownload(new Blob([svg], { type: 'image/svg+xml' }), `${base} 지도.svg`);
+        return;
+      }
+      const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+      try {
+        const img = await new Promise((ok, bad) => {
+          const im = new Image();
+          im.onload = () => ok(im);
+          im.onerror = () => bad(new Error('지도를 그림으로 바꾸지 못했어요'));
+          im.src = url;
+        });
+        const cv = document.createElement('canvas');
+        cv.width = ATLAS_W * 2;
+        cv.height = atlasH() * 2;
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        const blob = await new Promise((ok) => cv.toBlob(ok, 'image/png'));
+        if (!blob) throw new Error('PNG를 만들지 못했어요');
+        atlasDownload(blob, `${base} 지도.png`);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    });
+  },
+});
