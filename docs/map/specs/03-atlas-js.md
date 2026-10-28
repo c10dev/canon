@@ -1,6 +1,6 @@
 # 03. `static/atlas.js` 나누기
 
-상태: 설계 · 계획: [plan.md](../plan.md) 의 3번
+상태: 구현 · 계획: [plan.md](../plan.md) 의 3번
 
 ## 목표
 
