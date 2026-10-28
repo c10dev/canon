@@ -82,6 +82,7 @@ def test_neighborhood_rules(size, water):
     put = {s["key"] for s in lo["spots"]}
     assert put | {m["key"] for m in lo["missing"]} == {s["key"] for s in SPOTS} and not put & {m["key"] for m in lo["missing"]}
     assert len({(s["x"], s["y"]) for s in lo["spots"]}) == len(lo["spots"])
+    assert all(0 <= s[k] <= 1 for s in lo["spots"] for k in ("x", "y"))
     assert {"a", "b", "c", "f", "g", "h", "i", "j"} <= put
 
 
