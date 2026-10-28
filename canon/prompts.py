@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from pydantic import BaseModel
 
@@ -131,6 +132,7 @@ def setup_prompt(p: Project) -> str:
 - 관계는 주요 인물 쌍마다 하나씩, affinity 와 tension 은 1화 시작 시점 기준입니다.
 - a_view(a 가 b 를 보는 방식)와 b_view(b 가 a 를 보는 방식)는 {", ".join(VIEWS)} 중에서 1~2개 고릅니다. 두 방향이 달라도 됩니다.
 - 인물 id 는 영문 소문자로 짓고, 이미 있는 id 는 유지합니다.
+- 이미 입력된 인물도 characters 에 같은 id 와 같은 이름으로 넣고, 비어 있는 칸(성격, 배경, 외모, 아크, 원하는 것, 약점, 말투, 비밀 등)을 채웁니다. 이미 적힌 칸은 그대로 옮겨 적습니다.
 - 인물에게 gender(남/여)를 적습니다. 이름과 장소는 아래 [이름·지명 후보]에서 고르거나 같은 시대와 결로 짓고, 피할 이름은 쓰지 않습니다.
 - 인물끼리 이름의 첫 글자나 끝 글자가 겹치지 않게 합니다.
 
@@ -2892,14 +2894,41 @@ FIELD_IDEAS: dict[str, tuple[str, str]] = {
     "meta.logline_parts.block": ("무엇이 막나", "목표를 막는 사람이나 힘. 한 문장, '~다'로 끝냄. 예: 신랑은 그녀를 잊지 못했다고 고백한다"),
     "meta.logline_parts.stake": ("무엇이 걸렸나", "실패하거나 진실을 알면 잃는 것. 한 문장, '~다'로 끝냄. 예: 식이 끝나면 둘 다 다시는 만날 수 없다"),
     "world.setting": ("배경", "이야기가 벌어지는 곳과 그곳의 분위기를 1~3문장으로. 장소, 사회, 이 이야기에만 있는 특징을 함께"),
+    # 인물 칸: 화면 경로는 characters.<번호>.<칸>, 키는 번호 자리를 * 로 (idea_key)
+    "characters.*.personality": ("성격", "겉으로 보이는 태도와 속마음이 함께 보이게 1~2문장. 원하는 것 · 약점과 이어지게 하고, 형용사 나열 대신 행동으로 드러나는 버릇을 하나 넣음"),
+    "characters.*.background": ("배경", "이 인물이 이야기 시작 전까지 살아온 과거를 1~3문장으로. 지금의 원하는 것이나 약점을 만든 사건 하나와 그 사건이 남긴 것을 적음"),
+    "characters.*.appearance": ("외모", "독자가 한눈에 알아볼 특징 2~3가지를 한 문장으로. 나이 · 하는 일 · 세계관에 맞게 체격, 머리, 옷차림, 눈에 띄는 표식 중에서 고름"),
+    "characters.*.arc": ("아크", "'시작 상태 → 결말 상태' 형식 한 줄. 약점이나 두려운 것이 이야기를 거쳐 어떻게 바뀌는지가 보이게"),
 }
 
 
+def idea_key(field: str) -> str:
+    """화면 칸 경로를 FIELD_IDEAS 키로 (characters.2.personality → characters.*.personality)."""
+    return re.sub(r"^characters\.\d+\.", "characters.*.", field)
+
+
+def idea_character(p: Project, field: str) -> Character | None:
+    """인물 칸이면 그 인물. 번호가 목록 밖이면 IndexError."""
+    m = re.match(r"^characters\.(\d+)\.", field)
+    return p.characters[int(m.group(1))] if m else None
+
+
 def field_prompt(p: Project, field: str, n: int = 3) -> str:
-    """설정 칸 하나의 후보 n 개 (pipeline.suggest_field). field 는 FIELD_IDEAS 의 키."""
-    label, how = FIELD_IDEAS[field]
+    """설정 칸 하나의 후보 n 개 (pipeline.suggest_field). field 는 화면 칸 경로, idea_key(field) 가 FIELD_IDEAS 의 키."""
+    label, how = FIELD_IDEAS[idea_key(field)]
     now = field_value(p, field)
     chars = [f"- {c.name or c.id} ({c.role})" + (f": {_clip(c.goal, 80)}" if c.goal else "") for c in p.characters]
+    who = idea_character(p, field)
+    if who is not None:
+        label = f"{who.name or who.id}의 {label}"
+        rels = [r for r in p.relationships if who.id in (r.a, r.b)]
+        person = f"""
+[이 인물]
+{dump(who)}
+{("[이 인물의 관계]" + chr(10) + dump(rels)) if rels else ""}
+"""
+    else:
+        person = ""
     exs = [getattr(x, field.rsplit(".", 1)[1]) for g in p.meta.genres if g in genres.BY_ID
            for x in genres.BY_ID[g].logline] if field.startswith("meta.logline_parts.") else []
     return f"""아래 작품의 설정 칸 '{label}'에 넣을 후보를 {n}개 제안하세요. 작가가 하나를 골라 칸에 넣습니다.
@@ -2916,7 +2945,7 @@ def field_prompt(p: Project, field: str, n: int = 3) -> str:
 
 [인물]
 {chr(10).join(chars) or "아직 없음"}
-
+{person}
 [채울 칸] {label}
 쓰는 법: {how}
 지금 값: {now or "비어 있음"}
@@ -2930,10 +2959,10 @@ def field_prompt(p: Project, field: str, n: int = 3) -> str:
 
 
 def field_value(p: Project, field: str) -> str:
-    """FIELD_IDEAS 키가 가리키는 지금 값 (meta.logline_parts.who → p.meta.logline_parts.who)."""
+    """칸 경로가 가리키는 지금 값 (meta.logline_parts.who → p.meta.logline_parts.who, characters.0.arc → p.characters[0].arc)."""
     obj = p
     for k in field.split("."):
-        obj = getattr(obj, k)
+        obj = obj[int(k)] if k.isdigit() else getattr(obj, k)
     return str(obj or "").strip()
 
 # ---------- 삽화 프롬프트 (NovelAI) ----------
