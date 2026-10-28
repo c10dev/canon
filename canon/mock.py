@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import re
-from typing import TypeVar
+from typing import Callable, TypeVar
 
 from pydantic import BaseModel
 
 from .schema import (
     Act,
+    PlotAgentStep,
+    ToolArg,
     ArcEdit,
     ArcPlan,
     ArcProposal,
@@ -17,6 +19,10 @@ from .schema import (
     ClaimSet,
     ConsistencyIssue,
     ConsistencyReport,
+    FindingRecheck,
+    FixOption,
+    FixPatch,
+    FixSet,
     Direction,
     PlantedContradiction,
     SceneBeat,
@@ -46,6 +52,8 @@ from .schema import (
     VoiceSuggestion,
     NameOption,
     NameOptions,
+    FieldIdea,
+    FieldIdeas,
     OpeningOption,
     OpeningPlots,
     PassageCandidate,
@@ -89,6 +97,18 @@ from .schema import (
 )
 
 T = TypeVar("T", bound=BaseModel)
+
+# 기능 모듈이 자기 스키마의 가짜 응답을 따로 둔다 (mock_play.py, mock_birth.py). MockLLM.json 이 먼저 찾는다.
+# 새 기능의 가짜 응답은 이 파일의 if 줄을 늘리지 않고 mock_<기능>.py 에 @responds(스키마) 로 두고, 맨 아래에서 불러온다.
+RESPONDERS: dict[type, Callable[[str, dict], BaseModel]] = {}
+
+
+def responds(schema: type[BaseModel]):
+    """fn(prompt, hint) 을 schema 의 가짜 응답으로 등록한다."""
+    def wrap(fn: Callable[[str, dict], BaseModel]) -> Callable[[str, dict], BaseModel]:
+        RESPONDERS[schema] = fn
+        return fn
+    return wrap
 
 
 def _delay() -> None:
@@ -296,6 +316,27 @@ def _serial_revision(hint: dict, rev: PlotRevision) -> bool:
     return done
 
 
+def _agent_step(hint: dict) -> PlotAgentStep:
+    """대화 에이전트 흉내. 처음엔 플롯을 읽고, 다음 단계에 플롯 대화 흉내(_revision)로 고치고, 쓴 결과를 보면 끝낸다.
+    '여러 안' 요청은 되묻고, '?' 로 끝나면 답만 하고, '끝없이' 는 상한 시험으로 늘 읽는다."""
+    msg, steps, tools = hint["message"], hint.get("steps", []), hint.get("tools", [])
+    if "끝없이" in msg:
+        return PlotAgentStep(thought="더 읽어 봐요", tool="read_plots",
+                             args=[ToolArg(name="from", value="1"), ToolArg(name="to", value=str(len(steps) + 1))])
+    if hint.get("mode") == "options" and "ask" not in tools:
+        rev = _revision({**hint, "mode": "options"})
+        return PlotAgentStep(thought="방향을 먼저 물어요", tool="ask", question="어느 방향으로 갈까요?", options=rev.options, reply=rev.reply)
+    if "approval" in tools:
+        return PlotAgentStep(reply="작가의 답대로 마쳤어요.")
+    if "edit_plot" in tools or msg.rstrip().endswith("?"):
+        return PlotAgentStep(reply=f"'{msg}' 를 반영했어요.")
+    if not steps:
+        return PlotAgentStep(thought="지금 플롯부터 봐요", tool="read_plots",
+                             args=[ToolArg(name="from", value="1"), ToolArg(name="to", value="3")])
+    edit = _revision({**hint, "mode": ""})
+    return PlotAgentStep(thought="말한 대로 고쳐요", tool="edit_plot", edit=edit)
+
+
 def _revision(hint: dict) -> PlotRevision:
     """플롯 대화 흉내: 'N화로' 는 화수 변경, '결말' 은 결 구간 목표, 'N화' 는 그 화를 고친다.
     방향 여러 안을 청하면 세 방향을 낸다 (구조 칸도 함께 채워 걸러지는지 본다)."""
@@ -376,6 +417,20 @@ def _illust(hint: dict) -> IllustDraft:
     return IllustDraft(quote=quote[:200], scene="등대 앞에 선 두 사람", characters=chars, setting=["outdoors", "lighthouse", "Night"],
                        lighting=["moonlight"], composition=["wide_shot"], mood=["wind", "1girl", "rating:explicit"],
                        caption="A girl stands before a lighthouse at night.", negative=["umbrella"], rating="general")
+
+
+def _fixes(hint: dict) -> FixSet:
+    """지적 문장을 두 방향으로 고친 척한다. 둘째 안은 바로 뒤 문장을 딸린 곳으로 함께 고친다. 원문 그대로인 안은 걸러져야 한다."""
+    quote, text = hint["quote"].strip(), hint.get("text", "")
+    base = quote.rstrip(".!?”\"")  # 고친 글에 원래 문장이 그대로 남지 않게 끝을 바꾼다
+    sents = [x.strip() for x in re.findall(r"[^.!?\n]+[.!?”\"]*", text) if x.strip()]
+    after = next((sents[i + 1] for i, x in enumerate(sents) if quote in x and i + 1 < len(sents)), "")
+    extra = [FixPatch(quote=after, replacement=f"{after} (함께 고침)", reason="고친 문장과 맞춘다")] if after and after not in quote else []
+    return FixSet(reply="두 방향으로 고쳤어요.", options=[
+        FixOption(label="짧게 고치기", text=f"{base} — 고침", note="문장만 고침"),
+        FixOption(label="뒤 문장까지", text=f"{base} — 고침 2", note="뒤 문장도 맞춤", extra=extra),
+        FixOption(label="그대로", text=quote, note="원문 그대로 (걸러져야 함)"),
+    ])
 
 
 def _passage(hint: dict) -> PassageRevision:
@@ -460,10 +515,26 @@ def _setup_revision(hint: dict) -> SetupRevision:
 MOCK_LOOK = "어깨에 닿던 머리를 짧게 자른 단발"  # 2화 설정 바꾸기 제안 (외모)
 MOCK_ATTIRE = {1: "젖은 회색 코트, 손전등", 2: "젖은 회색 코트(오른쪽 소매 찢어짐), 손전등, 녹슨 열쇠"}
 
+# 설정 칸 하나 AI 후보 (prompts.FIELD_IDEAS 키마다)
+MOCK_FIELD_IDEAS = {
+    "meta.title": ["등대지기의 마지막 여름", "불이 꺼지지 않는 섬", "물때"],
+    "meta.logline_parts.who": ["빚을 갚으려 고향에 돌아온 스물아홉 살 사서", "기억을 잃은 등대지기의 딸", "말을 더듬는 수산시장 경매사"],
+    "meta.logline_parts.why": ["실종된 동생의 편지가 도착하자", "등대 불이 사흘째 꺼지지 않자", "마을 축제 날 낯선 배가 들어오자"],
+    "meta.logline_parts.goal": ["동생이 사라진 밤을 되짚는다", "등대의 주인을 찾아 섬을 뒤진다", "축제가 끝나기 전에 배를 돌려보낸다"],
+    "meta.logline_parts.block": ["마을 사람들은 그 밤을 없던 일로 하려 한다", "등대 열쇠를 가진 이는 이미 죽었다", "배를 부른 것은 그녀의 아버지다"],
+    "meta.logline_parts.stake": ["진실을 알면 돌아갈 집이 사라진다", "실패하면 동생을 영영 잃는다", "들키면 마을이 그녀를 내쫓는다"],
+    "world.setting": ["안개가 잦은 남해의 작은 섬마을. 등대와 수산시장이 생활의 중심이다.",
+                      "관광객이 끊긴 바닷가 소도시. 오래된 가족들이 서로의 비밀을 쥐고 산다.",
+                      "썰물 때만 길이 열리는 섬. 물때표가 마을의 시계다."],
+}
+
+
 class MockLLM:
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
         _delay()
         hint = hint or {}
+        if schema in RESPONDERS:
+            return RESPONDERS[schema](prompt, hint)  # type: ignore[return-value]
         if schema is SetupSuggestion:
             return SetupSuggestion(
                 theme="상실을 받아들이는 용기", tone="잔잔하지만 긴장감 있는",
@@ -512,6 +583,8 @@ class MockLLM:
             return PlotBatch(episodes=eps, new_characters=new, new_places=places)  # type: ignore[return-value]
         if schema is PlotRevision:
             return _revision(hint)  # type: ignore[return-value]
+        if schema is PlotAgentStep:
+            return _agent_step(hint)  # type: ignore[return-value]
         if schema is StateDelta:
             n = hint["episode"]
             return StateDelta(
@@ -546,6 +619,11 @@ class MockLLM:
         if schema is NameOptions:  # 코드 후보에서 앞쪽 n 개를 고른 척한다
             names = hint["candidates"][: hint["n"]]
             return NameOptions(options=[NameOption(name=x, reason="후보 중 인물과 시대에 맞는 이름") for x in names])  # type: ignore[return-value]
+        if schema is FieldIdeas:  # 칸마다 다른 결의 후보 셋. 하나는 겹치고 하나는 따옴표를 달아 정리가 고치는지 본다
+            base = MOCK_FIELD_IDEAS.get(hint["field"], ["후보 하나", "후보 둘", "후보 셋"])
+            return FieldIdeas(options=[FieldIdea(text=f"“{base[0]}”", reason="장르와 로그라인에 맞춰서"),  # type: ignore[return-value]
+                                       FieldIdea(text=base[0], reason="겹침"),
+                                       *[FieldIdea(text=x, reason="다른 방향") for x in base[1:]]])
         if schema is IllustDraft:
             return _illust(hint)  # type: ignore[return-value]
         if schema is PlaceSort:
@@ -607,6 +685,11 @@ class MockLLM:
                                source=ref)  # type: ignore[return-value]
         if schema is PassageRevision:
             return _passage(hint)  # type: ignore[return-value]
+        if schema is FixSet:
+            return _fixes(hint)  # type: ignore[return-value]
+        if schema is FindingRecheck:  # 지적한 문장이 본문에서 바뀌었으면 풀린 것으로 본다
+            gone = hint["quote"].strip() not in hint.get("text", "")
+            return FindingRecheck(resolved=gone, reason="문장이 바뀌어 어긋남이 풀렸어요" if gone else "문장이 그대로예요")  # type: ignore[return-value]
         if schema is HookReport:
             return _hook(hint)  # type: ignore[return-value]
         if schema is OpeningPlots:
@@ -689,3 +772,7 @@ def _broken(out: str) -> str:
         if isinstance(v, list) and v and isinstance(v[0], dict):
             d[k] = [": ".join(str(x) for x in item.values())[:80] for item in v]
     return json.dumps(d, ensure_ascii=False)
+
+
+# 기능별 가짜 응답 등록 (RESPONDERS). 위의 responds 를 쓰므로 맨 끝에서 불러온다
+from . import mock_birth, mock_play  # noqa: E402,F401

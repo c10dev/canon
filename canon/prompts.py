@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
-from .schema import Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, ImpactReport, Project, Selection, StateDelta, StoryElement
+from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, ImpactReport, PlayInfo, Project, Selection, StateDelta, StoryElement
 from . import charlog, foreshadows, statwin, timeline, travel
 
 SYSTEM_PLANNER = (
@@ -136,6 +136,87 @@ def setup_prompt(p: Project) -> str:
 
 [이름·지명 후보]
 {naming.prompt_block(p)}"""
+
+
+BIRTH_CAST = 12      # 무작위 출생 프롬프트에 한 줄씩 넣는 세계 인물 수 (주역 먼저)
+BIRTH_PLACES = 30    # 장소 이름 수
+BIRTH_FACTIONS = 10  # 세력 요소 수
+
+
+def _birth_known(p: Project, kind: str) -> list:
+    """반영한 마지막 화까지 생겼고 독자에게 드러난 kind 요소."""
+    from . import birth
+
+    n = birth.last_finalized(p)
+    return [el for el in p.elements if el.kind == kind and el.name.strip() and el.since_ep <= n and el.reveal_ep <= n]
+
+
+def birth_prompt(p: Project, b: Birth) -> str:
+    """무작위 출생의 배경 채우기 (birth.sketch, BirthSketch). 코드가 굴린 값(b)은 바꾸지 않고 세계에 맞게 살을 붙인다.
+    세계 블록이 앞, 굴린 값이 뒤. 원형 카드는 요약 · 성격 · 원하는 것만 넣는다 (시작 관계 예시는 관계를 지어내게 해서 뺀다)."""
+    from . import archetypes, birth, cast
+
+    places = birth.birth_places(p)
+    place_lines = [f"- {x['name']}" + (f": {_clip(x['description'], 120)}" if x["description"] else "") for x in places[:BIRTH_PLACES]]
+    if len(places) > BIRTH_PLACES:
+        place_lines.append(f"(장소 {len(places) - BIRTH_PLACES}곳은 뺐습니다)")
+    factions = _birth_known(p, "세력")
+    faction_lines = [f"- {el.name}" + (f": {_clip(el.description, 120)}" if el.description else "") for el in factions[:BIRTH_FACTIONS]]
+    if len(factions) > BIRTH_FACTIONS:
+        faction_lines.append(f"(세력 {len(factions) - BIRTH_FACTIONS}개는 뺐습니다)")
+    order = {"main": 0, "support": 1, "minor": 2}
+    people = sorted((c for c in p.characters if c.name.strip()), key=lambda c: order.get(c.tier, 3))
+    cast_lines = [f"- {c.name} ({', '.join(x for x in (c.role, c.age) if x)})" + (f": {_clip(c.goal, 80)}" if c.goal else "")
+                  for c in people[:BIRTH_CAST]]
+    if len(people) > BIRTH_CAST:
+        cast_lines.append(f"(인물 {len(people) - BIRTH_CAST}명은 뺐습니다)")
+
+    rolled = [f"- 이름: {b.name or '(정하지 않음: 이 세계의 이름 짓는 규칙에 맞게 짓습니다)'}",
+              f"- 성별: {b.gender or '(정하지 않음)'}", f"- 나이: {b.age or '(정하지 않음)'}",
+              f"- 태어나 자란 곳: {b.place or '(정하지 않음: 세계 안의 이름 없는 곳으로 두고 새 고유 지명을 만들지 않습니다)'}"]
+    a = archetypes.BY_ID.get(b.archetype)
+    if a:
+        rolled.append(f"- 원형: {a.name}. {a.summary}" + "".join(f" {label}: {v}" for label, v in (
+            ("성격", a.personality), ("원하는 것", a.goal)) if v))
+    w = archetypes.WOUND_BY_ID.get(b.wound)
+    if w:
+        rolled.append(f"- 상처: {archetypes.wound_text(w)} 회복 방향: {w.heal}")
+    sp = archetypes.SPEECH_BY_ID.get(b.speech)
+    if sp:
+        rolled.append(f"- 말투 틀: {archetypes.speech_text(sp)}")
+    if b.twist:
+        rolled.append(f"- 비틀기: {b.twist}")
+    minor = "\n- 이 인물은 미성년입니다. 외모와 배경에 성적인 묘사를 넣지 않습니다." if b.age and cast.is_minor_age(b.age) else ""
+
+    return f"""아래 세계에 새로 태어난 인물 한 명의 배경을 채우세요. 이 인물은 플레이어가 맡아 이 세계를 살아갈 주인공입니다.
+
+[작품 정보]
+{meta_text(p)}
+
+[세계관]
+{dump(p.world.model_dump(exclude={"name_style"}))}
+
+[이 세계의 장소]
+{chr(10).join(place_lines) or "(정해진 장소 없음)"}
+
+[이 세계의 세력]
+{chr(10).join(faction_lines) or "(정해진 세력 없음)"}
+
+[이 세계에 이미 있는 인물]
+{chr(10).join(cast_lines) or "(없음)"}
+
+[굴린 값]
+{chr(10).join(rolled)}
+
+요구사항:
+- [굴린 값]의 이름 · 성별 · 나이 · 태어나 자란 곳은 바꾸지 않습니다. 원형 · 상처 · 말투 틀 · 비틀기는 이 인물의 바탕으로 삼되, 원형 이름이나 도감 문장을 그대로 옮기지 말고 이 세계의 말로 풀어 씁니다.
+- 세계관 규칙과 시대를 지킵니다. 장소와 세력은 위 목록에 있는 것만 씁니다. 새 고유 지명이나 새 세력을 만들지 않습니다.
+- 이미 있는 인물과 가족 · 연인 · 스승 · 원수 같은 관계를 만들지 않습니다. 같은 곳에 산다면 소문으로 이름을 아는 정도까지만 씁니다.
+- appearance: 첫눈에 보이는 특징 두세 가지. personality: 원형과 상처가 드러나는 성격 한두 문장.
+- background: 집안, 자란 곳, 지금까지의 삶을 3~5문장으로. 상처가 된 일이 이 세계에서 어떻게 일어났는지 담습니다.
+- goal: 이 세계 안에서 지금 원하는 것 한 문장. 플레이를 시작할 이유가 되게 구체적으로 씁니다.
+- speech_style: 말투 틀을 따른 어미 · 호칭 규칙과 대사 예시 한 줄.
+- opening: 플레이를 시작하는 순간 이 인물이 어디서 무엇을 하고 있는지 한두 문장. 태어나 자란 곳이나 위 장소 중 하나에서 시작합니다.{minor}"""
 
 
 # ---------- 설정 도우미 대화 ----------
@@ -1326,8 +1407,17 @@ def plot_chat_prompt(p: Project, message: str, scope=None) -> str:
     from .schema import ChatScope
 
     scope = scope or ChatScope()
-    if p.serial:
-        return serial_plot_chat_prompt(p, message, scope)
+    body, rules, label = plot_chat_parts(p, scope)
+    return body + _chat_tail(p, message, scope, rules, label)
+
+
+def plot_chat_parts(p: Project, scope) -> tuple[str, str, str]:
+    """플롯 대화의 앞부분(작품 · 구조 · 플롯 블록), 변경안 규칙, 방향 안이 다룰 범위 이름.
+    단발 대화(plot_chat_prompt)와 대화 에이전트(agent_plot_prompt)가 함께 쓴다."""
+    return _serial_plot_parts(p, scope) if p.serial else _short_plot_parts(p, scope)
+
+
+def _short_plot_parts(p: Project, scope) -> tuple[str, str, str]:
     eps = [{"status": e.status, **e.plot.model_dump()} for e in p.episodes]
     done = [e for e in p.episodes if e.summary]
     locked = [e.plot.number for e in p.episodes if e.status in ("written", "finalized")]
@@ -1364,16 +1454,22 @@ def plot_chat_prompt(p: Project, message: str, scope=None) -> str:
 [열린 복선]
 {dump(open_fs) if open_fs else "없음"}
 
-""" + _chat_tail(p, message, scope, rules, "구간 · 화")
+""", rules, "구간 · 화"
 
 
 def serial_plot_chat_prompt(p: Project, message: str, scope=None) -> str:
-    """장편: 고칠 대상은 화면에서 고른 아크(없으면 pipeline.focus_arc)나 다음 아크 초안, 그리고 부 구성이다.
-    앞선 내용은 접은 줄거리로 보고, 화별 플롯은 대상 아크부터 기획한 끝까지만 넣는다 (옛 아크를 고르면 그 아크 범위만)."""
-    from .pipeline import ARC_MAX, ARC_MIN, chat_next_limit, chat_target, focus_arc, next_arc_start
     from .schema import ChatScope
 
     scope = scope or ChatScope()
+    body, rules, label = _serial_plot_parts(p, scope)
+    return body + _chat_tail(p, message, scope, rules, label)
+
+
+def _serial_plot_parts(p: Project, scope) -> tuple[str, str, str]:
+    """장편: 고칠 대상은 화면에서 고른 아크(없으면 pipeline.focus_arc)나 다음 아크 초안, 그리고 부 구성이다.
+    앞선 내용은 접은 줄거리로 보고, 화별 플롯은 대상 아크부터 기획한 끝까지만 넣는다 (옛 아크를 고르면 그 아크 범위만)."""
+    from .pipeline import ARC_MAX, ARC_MIN, chat_next_limit, chat_target, focus_arc, next_arc_start
+
     target, focus = chat_target(p, scope.target)
     planned = p.planned_until()
     start = next_arc_start(p)
@@ -1441,7 +1537,76 @@ def serial_plot_chat_prompt(p: Project, message: str, scope=None) -> str:
 [열린 복선]{f" (그 밖에 {more}개)" if more else ""}
 {dump(fs) or "없음"}
 
-""" + _chat_tail(p, message, scope, rules, "부 · 아크 · 구간 · 화")
+""", rules, "부 · 아크 · 구간 · 화"
+
+
+# ---------- 대화 에이전트: 플롯 (canon/agent.py) ----------
+
+SYSTEM_AGENT_PLOT = (
+    "당신은 작가와 함께 연재 소설의 구조를 다듬는 기획 편집자입니다. 한 단계에 도구 하나를 불러 필요한 것을 읽고, "
+    "부 구성, 아크, 기승전결 구간, 화별 플롯을 고칩니다. 고친 것은 작가가 정한 권한 안에서만 바로 저장되고, 나머지는 작가에게 물어집니다. "
+    "작가가 방향을 청하거나 요청이 모호하면 고치기 전에 묻습니다. 설정과 인물, 이미 쓴 본문은 존중합니다. "
+    "모든 출력은 한국어로 작성합니다."
+)
+
+AGENT_PLOT_TOOLS = """[도구] 한 단계에 하나만 부릅니다
+- read_plots (args: from, to): 그 범위 화의 플롯 전체 칸. 위 [화별 플롯]에 없는 범위를 볼 때만
+- read_summaries (args: from, to): 그 범위에서 이미 쓴 화의 실제 줄거리
+- find_text (args: query): 이미 쓴 본문에서 query 와 겹치는 단락
+- read_cast (args: ids, 쉼표로): 인물 설정 전체
+- edit_plot: edit 에 바꿀 것만 채운 변경안을 넣습니다 (아래 [변경안 규칙]). 작가의 권한 안이면 바로 저장되고, 아니면 작가에게 물어집니다. 결과로 저장된 것 · 물은 것 · 막힌 것을 받습니다
+- ask: question 과 options (서로 다른 방향 2~3개) 를 넣습니다. 작가의 답을 기다리며 턴이 끝납니다
+- tool 을 비우면 reply 로 턴을 끝냅니다"""
+
+
+def _agent_turn_line(t) -> str:
+    """세션의 지난 턴 한 줄. 무엇을 바꿨고 물었는지만 남긴다 (단계 결과는 넣지 않는다)."""
+    out = f"작가{' [방향 여러 안 요청]' if t.mode == 'options' else ''}: {t.user}"
+    if t.reply:
+        out += f"\n편집자: {t.reply}"
+    done = [i.label for w in t.writes for i in w.items if i.state == "done"]
+    back = [i.label for w in t.writes for i in w.items if i.state != "done"]
+    notes = ([f"바꿈: {', '.join(done)}"] if done else []) + ([f"되돌림: {', '.join(back)}"] if back else [])
+    if t.approval:
+        state = {"wait": "작가 답 기다림", "approved": "작가가 승인함", "denied": "작가가 거절함"}[t.approval.state]
+        notes.append(f"물음({state}): {', '.join(t.approval.keys)}")
+    if t.ask:
+        notes.append("되물음: " + (" / ".join(f"{i}. {o.title}" for i, o in enumerate(t.ask.options, 1)) or t.ask.question))
+    return out + (f"\n  ({' · '.join(notes)})" if notes else "")
+
+
+def agent_plot_prompt(p: Project, session, turn, scope, left: int) -> str:
+    """대화 에이전트 한 단계의 프롬프트. 앞은 플롯 대화와 같은 작품 · 구조 블록, 그 뒤 도구와 규칙(바뀌지 않음),
+    세션의 지난 턴, 새 말, 이번 턴에 한 단계 순서다. 단계마다 앞 요청을 통째로 품고 끝에만 덧붙인다."""
+    from .pipeline import chat_where
+
+    body, rules, label = plot_chat_parts(p, scope)
+    past = [t for t in session.turns if t is not turn][-CHAT_HISTORY_LIMIT:]
+    where = turn.where or chat_where(p, scope)
+    steps = "\n".join(
+        f"{i}. {s.tool or s.kind}{f' ({s.label})' if s.label else ''}{f' - {s.why}' if s.why else ''}" + (f"\n결과:\n{s.result}" if s.result else "")
+        for i, s in enumerate(turn.steps, 1))
+    options = turn.mode == "options"
+    return body + f"""{AGENT_PLOT_TOOLS}
+
+[변경안 규칙 (edit_plot 의 edit)]
+{rules}
+
+[이 세션의 지난 대화]
+{chr(10).join(_agent_turn_line(t) for t in past) or "없음 (첫 턴)"}
+{f"[작가가 보고 있는 곳] {where} (작가가 '이 화', '여기', '이 구간'이라고 하면 이곳입니다){chr(10)}" if where else ""}
+[작가의 새 말]
+{turn.user}
+
+[이번 턴에 한 일]
+{steps or "아직 없음"}
+
+요구사항:
+- 한 단계에 도구 하나만 부릅니다. 위 블록에 이미 있는 내용은 다시 읽지 않고, 같은 도구를 같은 인자로 두 번 부르지 않습니다. 남은 단계는 {left}개입니다.
+- 쓸 것이 정해지면 edit_plot 을 부르고, 결과를 본 뒤 tool 을 비우고 reply 로 끝냅니다. 작가에게 물은 부분이 있으면 그 답을 기다려야 하므로 바로 끝냅니다.
+- 막힌 부분은 다시 시도하지 말고, 왜 막혔는지와 대신 할 수 있는 일을 reply 에 씁니다.
+{"- 작가가 방향 여러 안을 청했습니다. 고치지 말고 ask 를 불러 options 에 서로 분명히 다른 방향 2~3개를 넣습니다. 같은 방향의 강약이 아니라 갈등, 인물의 선택, 사건 순서, 결말처럼 줄기가 갈라지게 합니다. 각 안의 changes 에는 바뀌는 " + label + "을(를) 한 줄씩 씁니다." if options else "- 작가가 앞서 낸 방향 안 중 하나를 고르거나 섞어 달라고 하면 그 방향으로 고칩니다. 요청이 모호해 고치면 안 될 것 같으면 ask 로 묻습니다."}
+- reply 에는 무엇을 바꿨고, 무엇을 물었고, 무엇이 막혔는지 2~5문장으로 씁니다. thought 에는 이 단계에서 하는 일을 한 줄로 씁니다."""
 
 
 # ---------- 본문 부분 수정 (집필 화면에서 고른 부분) ----------
@@ -2085,8 +2250,77 @@ CHECK_MODES = {"full": "앞선 본문 한도까지 원문 + 자료 전부 (단�
                "budget": "직전 화 원문 + 옛 화에서 찾은 관련 단락 + 이번 화 인물 자료 (장편 기본)"}
 
 
+SEVERITY_RULE = ("- severity: crit 은 독자가 바로 알아챌 모순이거나 뒤 화 전개를 흔드는 것(죽은 인물이 나옴, 다친 곳을 그냥 씀), "
+                 "mid 는 눈여겨 읽으면 보이는 어긋남, low 는 이야기에 영향이 거의 없는 사소한 세부(물건 색, 시각 몇 분 차이)입니다.")
+
+
 def check_prompt(p: Project, n: int, mode: str = "") -> str:
     """검수 프롬프트. mode 를 비우면 장편은 budget, 단편은 full. 연구 화면 검수 시험이 두 방식을 견준다."""
+    return f"""{check_material(p, n, mode)}
+
+{n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
+- 확인할 것: 확정 사실, 이야기 요소와 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
+- 동선: 한 장면 안에서 인물의 위치, 몸이 향한 쪽(앞 · 뒤, 등 · 배), 자세, 손에 든 것, 가려진 곳이 바꾸는 행동 없이 달라지는지 봅니다. 예: 등을 돌리고 망토로 몸을 가렸는데 다음 문장에서 그 인물의 표정이나 가슴께가 보임. 이때 source_episode 는 {n}, source_quote 는 같은 화의 앞 문장입니다.
+- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{timeline.check_rule(p, n)}{travel.check_rule(p, n)}{attire_check_rule(p)}{statwin.check_rule(p)}
+- source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 설정이나 인물 상태면 source_episode 는 0 입니다.
+{SEVERITY_RULE}
+- 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
+- episode 는 {n} 입니다."""
+
+
+def _finding_text(n: int, f: ConsistencyIssue) -> str:
+    src = "설정 · 확정 사실" if not f.source_episode else ("이번 화 앞 문장" if f.source_episode == n else f"{f.source_episode}화")
+    return (f"- 갈래: {f.type}\n- 무엇이 어긋났나: {f.description}\n- 이번 화 문장: {f.current_quote}\n"
+            f"- 근거 ({src}): {f.source_quote}" + (f"\n- 검수가 낸 고칠 방향: {f.suggestion}" if f.suggestion else ""))
+
+
+def _decided_text(decided: list[ConsistencyIssue]) -> str:
+    return "\n".join(f"- {f.current_quote}" for f in decided if f.current_quote.strip()) or "없음"
+
+
+def fix_prompt(p: Project, n: int, f: ConsistencyIssue, decided: list[ConsistencyIssue]) -> str:
+    """검수 지적 하나의 고침안. 앞은 검수와 같은 자료(캐시), 뒤에 지적과 요청. decided: 작가가 그대로 두기로 한 지적."""
+    return f"""{check_material(p, n)}
+
+# 고칠 지적
+{_finding_text(n, f)}
+
+# 작가가 일부러 그대로 둔 문장 (바꾸지 않음)
+{_decided_text(decided)}
+
+이 지적을 풀 고침안을 2~3개 서로 다른 방향으로 내세요.
+- text 에는 '이번 화 문장' 자리에 들어갈 글만 씁니다. 앞뒤 본문은 되풀이하지 않습니다. 문체와 길이는 원래 문장과 비슷하게 둡니다.
+- 이 고침 때문에 {n}화 안의 다른 문장도 함께 바꿔야 어긋나지 않으면 extra 에 넣습니다. quote 는 {n}화 본문 원문 그대로, replacement 는 최소로 고친 문장, reason 은 왜 함께 바꾸는지 한 문장입니다. 바꿀 곳이 없으면 extra 는 빈 목록입니다.
+- '이번 화 문장'은 extra 에 다시 넣지 않습니다. 작가가 그대로 둔 문장은 바꾸지 않습니다. 다른 화와 설정은 바꿀 수 없습니다.
+- label 은 고침안 이름 2~8자, note 는 무엇을 바꿨는지 한 줄입니다. reply 는 안들이 어떻게 다른지 한두 문장입니다."""
+
+
+def recheck_prompt(p: Project, n: int, f: ConsistencyIssue, changes: list[tuple[str, str]],
+                   decided: list[ConsistencyIssue]) -> str:
+    """검수 지적 하나만 다시 묻는다. 앞은 검수와 같은 자료(캐시), 뒤에 지적과 작가가 고친 곳.
+    changes: (고치기 전, 고친 뒤) 쌍. decided: 작가가 그대로 두기로 한 지적."""
+    fixed = "\n".join(f"- 「{a}」 → 「{b}」" for a, b in changes) or "없음 (작가가 직접 고쳤거나 고친 곳을 모름)"
+    return f"""{check_material(p, n)}
+
+# 다시 볼 지적 (지난 검수가 짚은 것)
+{_finding_text(n, f)}
+
+# 작가가 이 지적 때문에 고친 곳
+{fixed}
+
+# 작가가 일부러 그대로 둔 문장 (다시 짚지 않음)
+{_decided_text(decided)}
+
+이 지적 하나만 다시 보세요. 다른 어긋남을 새로 찾지 않습니다.
+- resolved: 지금 {n}화 본문에서 이 지적의 어긋남이 풀렸으면 true 입니다. 이번 화 문장이 바뀌었으면 바뀐 문장을 찾아 봅니다.
+- reason: 그렇게 본 까닭을 한두 문장으로 씁니다. 풀리지 않았으면 무엇이 아직 어긋나는지 씁니다.
+- new_issues: 작가가 고친 문장 때문에 새로 어긋난 곳만 넣습니다. 근거는 위 자료(앞선 본문, 설정, 확정 사실, {n}화의 다른 문장)에서 원문 그대로 인용합니다. 고친 곳과 상관없던 어긋남, 작가가 그대로 둔 문장은 넣지 않습니다. 없으면 빈 목록입니다.
+- new_issues 의 current_quote 는 지금 {n}화 본문 원문 그대로입니다.
+{SEVERITY_RULE}"""
+
+
+def check_material(p: Project, n: int, mode: str = "") -> str:
+    """검수 · 고침안 · 다시 검수가 함께 쓰는 자료: 작품 설정부터 검수할 본문까지. 요청은 뒤에 붙인다 (캐시)."""
     mode = mode or ("budget" if p.serial else "full")
     ep = p.episode(n)
     if mode == "budget":
@@ -2124,15 +2358,7 @@ def check_prompt(p: Project, n: int, mode: str = "") -> str:
 {dump(ep.plot)}{line}{pov}
 
 # {n}화 본문 (검수 대상)
-{ep.text}
-
-{n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
-- 확인할 것: 확정 사실, 이야기 요소와 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
-- 동선: 한 장면 안에서 인물의 위치, 몸이 향한 쪽(앞 · 뒤, 등 · 배), 자세, 손에 든 것, 가려진 곳이 바꾸는 행동 없이 달라지는지 봅니다. 예: 등을 돌리고 망토로 몸을 가렸는데 다음 문장에서 그 인물의 표정이나 가슴께가 보임. 이때 source_episode 는 {n}, source_quote 는 같은 화의 앞 문장입니다.
-- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{timeline.check_rule(p, n)}{travel.check_rule(p, n)}{attire_check_rule(p)}{statwin.check_rule(p)}
-- source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 설정이나 인물 상태면 source_episode 는 0 입니다.
-- 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
-- episode 는 {n} 입니다."""
+{ep.text}"""
 
 
 # ---------- 검수 시험: 모순을 심어 검수가 찾는지 본다 (연구 화면) ----------
@@ -2653,6 +2879,63 @@ def naming_prompt(p: Project, target: str, candidates: list, n: int) -> str:
 - reason 에는 이 대상에 맞는 이유를 한 줄로 적습니다 (시대, 나이, 신분, 성격, 지형 등)."""
 
 
+
+# ---------- 설정 칸 하나 AI 후보 (✦) ----------
+# 칸 하나만 채우는 작은 제안. 여러 칸을 바꾸는 제안은 설정 도우미 대화(setup_chat_prompt)가 맡는다.
+# 키는 화면의 data-bind 경로와 같다 (static/setup.js). 값: (칸 이름, 쓰는 법)
+
+FIELD_IDEAS: dict[str, tuple[str, str]] = {
+    "meta.title": ("제목", "웹소설 연재 사이트에 올릴 작품 제목. 2~20자. 서로 결이 다르게 (짧은 명사형, 상황을 보여 주는 문장형, 인물이나 장소 이름을 쓴 것)"),
+    "meta.logline_parts.who": ("누가", "이름보다 특징이 먼저 보이는 주인공을 꾸미는 말과 함께 명사구로. 조사 없이 끝냄 (뒤에 '이/가'가 붙는다). 예: 연애를 포기한 웨딩플래너"),
+    "meta.logline_parts.why": ("무엇 때문에", "이야기를 시작하게 만드는 일. 뒤 목표로 이어지게 '~하자', '~해서', '~한 뒤'로 끝냄. 예: 첫사랑의 결혼식을 맡게 되자"),
+    "meta.logline_parts.goal": ("무엇을 하려 하나", "주인공이 하려는 눈에 보이는 행동. '~한다'로 끝냄. 예: 완벽한 식을 치러 주려 한다"),
+    "meta.logline_parts.block": ("무엇이 막나", "목표를 막는 사람이나 힘. 한 문장, '~다'로 끝냄. 예: 신랑은 그녀를 잊지 못했다고 고백한다"),
+    "meta.logline_parts.stake": ("무엇이 걸렸나", "실패하거나 진실을 알면 잃는 것. 한 문장, '~다'로 끝냄. 예: 식이 끝나면 둘 다 다시는 만날 수 없다"),
+    "world.setting": ("배경", "이야기가 벌어지는 곳과 그곳의 분위기를 1~3문장으로. 장소, 사회, 이 이야기에만 있는 특징을 함께"),
+}
+
+
+def field_prompt(p: Project, field: str, n: int = 3) -> str:
+    """설정 칸 하나의 후보 n 개 (pipeline.suggest_field). field 는 FIELD_IDEAS 의 키."""
+    label, how = FIELD_IDEAS[field]
+    now = field_value(p, field)
+    chars = [f"- {c.name or c.id} ({c.role})" + (f": {_clip(c.goal, 80)}" if c.goal else "") for c in p.characters]
+    exs = [getattr(x, field.rsplit(".", 1)[1]) for g in p.meta.genres if g in genres.BY_ID
+           for x in genres.BY_ID[g].logline] if field.startswith("meta.logline_parts.") else []
+    return f"""아래 작품의 설정 칸 '{label}'에 넣을 후보를 {n}개 제안하세요. 작가가 하나를 골라 칸에 넣습니다.
+
+[작품]
+{meta_text(p)}
+
+[로그라인 다섯 칸]
+{dump(p.meta.logline_parts)}
+
+[세계관]
+배경: {p.world.setting or "아직 없음"}
+시대: {p.world.era or "아직 없음"}
+
+[인물]
+{chr(10).join(chars) or "아직 없음"}
+
+[채울 칸] {label}
+쓰는 법: {how}
+지금 값: {now or "비어 있음"}
+{("이 장르의 예시 (형식만 참고하고 내용은 베끼지 않습니다): " + " / ".join(exs[:4])) if exs else ""}
+요구사항:
+- options 에 서로 분명히 다른 후보 {n}개를 넣습니다. 같은 생각의 말바꿈이 아니라 방향이 다르게 합니다.
+- 다른 칸에 이미 적힌 설정(장르, 로그라인, 세계관, 인물)과 어긋나지 않게 합니다. 비어 있는 칸은 자유롭게 상상해도 됩니다.
+- 지금 값이 있으면 그 생각을 살리되 더 좋게 고친 후보를 하나 이상 넣고, 지금 값과 똑같은 후보는 내지 않습니다.
+- text 에는 칸에 그대로 넣을 값만 적습니다. 따옴표, 번호, 칸 이름을 붙이지 않습니다.
+- reason 에는 이 후보가 작품에 맞는 이유를 한 줄로 적습니다."""
+
+
+def field_value(p: Project, field: str) -> str:
+    """FIELD_IDEAS 키가 가리키는 지금 값 (meta.logline_parts.who → p.meta.logline_parts.who)."""
+    obj = p
+    for k in field.split("."):
+        obj = getattr(obj, k)
+    return str(obj or "").strip()
+
 # ---------- 삽화 프롬프트 (NovelAI) ----------
 # AI 는 장면을 태그로 옮기기만 한다. 인물 외형(저장된 태그), 인물 수, 등급, 품질 태그는 canon/illust.py 가 붙인다.
 
@@ -2992,3 +3275,387 @@ def map_suggest_prompt(p: Project, rows: list[dict], places: list[dict], kinds: 
 - 왕궁, 다른 도시, 먼 산처럼 이 지도 안에 둘 수 없는 곳은 kind 를 far, put 을 false 로 둡니다. 이 마을이나 도시 자체를 가리키는 이름은 center 입니다.
 - 정할 근거가 없으면 kind 는 home, put 은 true 로 둡니다.
 - reason 에는 왜 이 설정인지 한국어 한두 문장으로, 장소 설명이나 배경에서 근거를 들어 적습니다."""
+
+
+# ---------- 플레이 모드 (canon/play.py) ----------
+# 한 구간 = Episode 하나 = 흘러간 일 몇 줄과, 있으면 결정 장면 하나. Gemini 암묵 캐시는 구간 사이 앞부분을 다시 쓰지 않아 구간마다 넣는 양이 곧 비용이다 (DESIGN 10.2).
+# 장면 프롬프트는 앞쪽에 구간 사이에 덜 바뀌는 것(진행 규칙, 작품, 세계관, 줄인 문체, 플레이어 인물 설정),
+# 뒤쪽에 구간마다 바뀌는 것(줄거리, 장면 인물, 사실, 관계, 복선, 시간, 직전 장면, 행동, 운)을 둔다. 블록마다 context.BUDGET["play_*"].
+# 상태 변경안은 소설의 state_prompt 를 장면 인물만 남긴 작품 보기(play_view)로 부른다. 소설 경로의 프롬프트는 그대로다.
+
+SYSTEM_PLAY = (
+    "당신은 텍스트 게임의 진행자이자 소설가입니다. 플레이어가 한 행동을 받아 그 결과로 이어지는 장면 하나를 쓰고, "
+    "다음 행동 선택지를 냅니다. 세계관 규칙은 플레이어의 행동보다 앞섭니다. 규칙에 어긋나는 행동은 실패나 대가로 씁니다."
+)
+
+PLAY_PERSON = {"first": "1인칭 ('나')", "second": "2인칭 ('당신')", "third": "3인칭 (플레이어 인물의 이름)"}
+LUCK_WORDS = {-2: "아주 나쁨", -1: "나쁨", 0: "보통", 1: "좋음", 2: "아주 좋음"}
+PLAY_LAST = 1500  # 직전 장면 끝부분 글자. 구간 본문은 결정 장면이 400~1,200자라 보통 통째로 들어간다
+PLAY_SAMPLE = 500  # 줄인 스타일 프로필에 붙이는 예시 문단 글자
+PLAY_ROSTER = 600  # 설정을 넣지 않은 인물 이름 줄 글자
+PLAY_STORY_KEEP = 5  # 이번 장에서 요약을 줄이지 않는 최근 구간 수
+# 줄인 스타일 프로필에 넣는 칸, 넣는 순서. 시점은 플레이마다 고르므로(PlayInfo.person) narration_pov 는 뺀다
+PLAY_STYLE_KEYS = ("donts", "banned_phrases", "dos", "dialogue_style", "tense", "sentence_rhythm", "vocabulary",
+                   "inner_monologue", "description_density", "dialogue_ratio")
+
+PLAY_RULES = """[진행 규칙]
+- 이 게임은 시간이 흐르는 삶입니다. 한 번에 '구간' 하나를 씁니다. 구간은 흘러간 일(beats)과, 플레이어 인물이 무언가 정해야 하는 순간이 오면 결정 장면(text, choices)으로 됩니다.
+- beats 에는 [이번 구간]에 적은 시간 칸 안에서 흘러간 일을 시간 순서대로 3~8줄 씁니다. 줄마다 작품 속 시점(time: day 는 날수, part 는 시간대)과 한두 문장. 줄 하나가 시간 한 칸을 넘어도 됩니다. 날수는 앞 구간이 끝난 날보다 앞으로 가지 않습니다.
+- 흘러간 일은 [이번 구간]의 초점과 플레이어 인물의 목표 · 성격 · 지금 상태를 따라 플레이어 인물이 스스로 하는 일, 주변 사람의 움직임, 세계의 일입니다. 큰 결정은 흘러간 일 안에서 내리지 않고 결정 장면으로 남깁니다.
+- 결정 장면은 플레이어 인물이 갈림길에 서는 순간에만 씁니다(구간마다 꼭 있을 필요는 없습니다). text 에 400~1,200자로 그 순간을 장면으로 쓰고, 플레이어가 골라야 하는 순간에 멈춥니다. 제목, 해설, 선택지 목록은 본문에 쓰지 않습니다. 결정 장면이 오면 그 뒤 일은 쓰지 않습니다.
+- choices 에는 결정 장면의 선택지 3~4개를 플레이어 인물이 할 행동 한 줄씩 적습니다. 서로 다른 방향으로 고르고, 장면에 나온 사람 · 물건 · 장소를 씁니다. lean 에는 플레이어 인물의 성격과 목표라면 고를 선택지 번호를 적습니다. 결정 장면이 없으면 text 는 비우고 choices 는 빈 목록, lean 은 0 입니다.
+- [이번 행동]은 플레이어 인물이 하려는 '시도'입니다. 구간은 그 결과부터 시작합니다. 결과는 세계관 규칙, 인물 설정, 확정 사실, 지금 상태, 운으로 정합니다. 세계관 규칙이나 지금 능력으로 할 수 없는 행동은 실패하거나 대가를 치르는 것으로 씁니다. 행동에 적힌 결과를 그대로 이루어 주지 않습니다.
+- 플레이어 인물의 대사, 속마음은 행동과 초점에 담긴 만큼만 씁니다. 다른 인물은 자기 목표와 성격, 말투대로 움직이고 말합니다.
+- 플레이어 인물이 모르는 비밀과 숨긴 정보는 밝히지 않습니다. 플레이어가 알아내려 하면 그 행동에 맞는 단서만 줍니다.
+- 열린 복선과 기한은 흐름에 맞을 때 잇고, 억지로 회수하지 않습니다. 이유 없이 인물을 불러오지 않습니다.
+- ending 은 플레이어 인물의 이야기가 이 구간에서 끝날 때만 채웁니다: 죽음, 다시 돌아올 수 없게 떠남, 마지막 목표를 이룸, 한도에 닿음. 그때는 마지막 일을 마무리로 쓰고 choices 를 비웁니다. 위험하거나 지는 일만으로는 끝내지 않습니다.
+- 이번 구간의 운은 일이 기우는 쪽입니다. '운'이라는 말이나 수치를 쓰지 않고, 우연, 남의 반응, 일이 풀리는 정도로만 드러냅니다."""
+
+PLAY_UNIT_WORDS = {"hour": "한 시간", "day": "하루", "month": "한 달", "year": "한 해"}
+
+
+def play_player(p: Project, info: PlayInfo) -> Character | None:
+    return next((c for c in p.characters if c.id == info.player), None)
+
+
+def play_person_rule(info: PlayInfo, c: Character | None) -> str:
+    """서술 시점 한 줄. 3인칭은 플레이어 인물의 이름을 넣는다."""
+    name = c.name if c and c.name else info.player
+    rule = {"first": f"'나'는 {name}입니다. 지문과 속마음을 {name}의 눈과 말로 씁니다."
+                     + (" 서술 말투는 플레이어 인물 설정의 narration_voice 를 따릅니다." if c and c.narration_voice.strip() else ""),
+            "second": f"플레이어 인물({name})을 '당신'이라고 부르고, 당신이 보고 듣고 느끼는 것만 씁니다.",
+            "third": f"3인칭 제한 시점입니다. 플레이어 인물은 이름({name})으로 부르고, 그 인물이 보고 듣고 아는 것만 씁니다."}[info.person]
+    return f"{PLAY_PERSON[info.person]}. {rule} 다른 인물의 속마음은 행동과 대사로만 드러냅니다."
+
+
+def play_style(p: Project) -> str:
+    """줄인 스타일 프로필: PLAY_STYLE_KEYS 칸을 예산(context.BUDGET['play_style'])까지, 남으면 예시 문단 하나를 앞부분만."""
+    style = p.style.model_dump()
+    out, used, cut = {}, 2, 0
+    for k in PLAY_STYLE_KEYS:
+        v = style.get(k)
+        if not v:
+            continue
+        cost = len(dump({k: v}))
+        if used + cost > context.BUDGET["play_style"]:
+            cut += 1
+            continue
+        out[k] = v
+        used += cost
+    text = dump(out) if out else "없음"
+    sample = next((s for s in p.style.sample_passages if s.strip()), "")
+    room = context.BUDGET["play_style"] - used
+    if sample and room > 200:
+        clip = sample.strip()[:min(PLAY_SAMPLE, room)]
+        text += f"\n\n[문체 예시 (이 문체를 따를 것, 내용은 가져오지 말 것)]\n{clip}"
+    return text + (f"\n(스타일 칸 {cut}개는 분량 때문에 뺐습니다)" if cut else "")
+
+
+def _name_keys(c: Character) -> list[str]:
+    """본문에서 인물을 찾을 말: 이름 전체, 띄어 쓴 이름의 첫 말, 성까지 세 글자인 한국 이름의 끝 두 글자."""
+    name = c.name.strip()
+    keys = [name] if name else []
+    parts = name.split()
+    if len(parts) > 1 and len(parts[0]) >= 2:
+        keys.append(parts[0])
+    if len(name) == 3 and " " not in name and all("가" <= ch <= "힣" for ch in name):
+        keys.append(name[1:])
+    return keys
+
+
+def _named(c: Character, text: str) -> bool:
+    return bool(text) and any(k in text for k in _name_keys(c))
+
+
+def _place_key(p: Project, location: str) -> str:
+    """위치 글 속 가장 긴 아는 장소 이름. 없으면 위치 글 그대로."""
+    loc = location.strip()
+    hits = [k for k in naming.known_places(p) if k and k in loc]
+    return max(hits, key=len) if hits else loc
+
+
+def play_cast(p: Project, player: str, text: str, action: str = "") -> list[str]:
+    """장면 인물 id 를 넣을 순서로: 플레이어, 행동에 이름이 나온 인물, 직전 장면(text)에 나온 인물, 플레이어와 같은 곳에 있는 인물,
+    '항상' 인물, 주역. '넣지 않음' 인물은 뺀다 (context.core_ids · off_ids 를 따른다). 엔진이 구간 Episode 의 plot.characters 로 써도 된다."""
+    off = context.off_ids(p)
+    me = p.state_of(player)
+    here = _place_key(p, me.location) if me and me.location.strip() else ""
+    core = context.core_ids(p)
+
+    def rank(c: Character) -> int | None:
+        st = p.state_of(c.id)
+        if _named(c, action):
+            return 0
+        if _named(c, text):
+            return 1
+        if here and st and st.location.strip() and _place_key(p, st.location) == here:
+            return 2
+        if c.context == "always":
+            return 3
+        if c.id in core:
+            return 4
+        return None
+
+    ranked = sorted(((r, i, c.id) for i, c in enumerate(p.characters)
+                     if c.id != player and c.id not in off and (r := rank(c)) is not None))
+    return [player] + [cid for _, _, cid in ranked]
+
+
+def play_story(p: Project, n: int) -> str:
+    """플레이 장면의 줄거리: story_parts 를 플레이 예산으로 다시 접는다. 앞쪽(끝난 장 · 아크 · 부)은 오래된 묶음부터 첫 문장으로,
+    그래도 넘치면 오래된 묶음을 뺀다. 이번 장은 최근 PLAY_STORY_KEEP 구간을 빼고 오래된 구간부터 첫 문장으로, 그래도 넘치면 뺀다.
+    뺀 수를 적는다. 소설의 story_parts · 예산은 그대로다."""
+    past, cur = story_parts(p, n)
+    entries = [x for x in past.split("\n\n") if x.strip()]
+    size = lambda xs: sum(len(x) + 2 for x in xs)  # noqa: E731
+    for i, e in enumerate(entries):
+        if size(entries) <= context.BUDGET["play_story_past"]:
+            break
+        head, _, body = e.partition("]")
+        entries[i] = f"{head}] {context.first_sentence(body.strip(), 120)}" if body else e
+    dropped = 0
+    while entries and size(entries) > context.BUDGET["play_story_past"]:
+        entries.pop(0)
+        dropped += 1
+    lines = cur.splitlines()
+    head, rows = (lines[0], lines[1:]) if lines and lines[0].startswith("[") else ("", lines)
+    for i in range(max(0, len(rows) - PLAY_STORY_KEEP)):
+        if size(rows) <= context.BUDGET["play_story_arc"]:
+            break
+        lead, sep, body = rows[i].partition(": ")
+        rows[i] = f"{lead}{sep}{context.first_sentence(body)}" if sep else context.first_sentence(rows[i])
+    shown = 0
+    while rows and size(rows) > context.BUDGET["play_story_arc"]:
+        rows.pop(0)
+        shown += 1
+    out = []
+    if dropped:
+        out.append(f"(오래된 줄거리 {dropped}묶음은 분량 때문에 뺐습니다)")
+    out += entries
+    if rows or shown:
+        out.append("\n".join(([head] if head else []) + ([f"(앞 {shown}화는 분량 때문에 뺐습니다)"] if shown else []) + rows))
+    return "\n\n".join(out)
+
+
+def _play_terms(p: Project, query: str) -> list[str]:
+    """query 에 나오는 이야기 요소 이름 · 별칭과 아는 장소 (context.query_terms 의 플레이판: 구간 Episode 가 아직 없어도 된다)."""
+    out = [t for el in p.elements if el.context != "off" for t in elements.terms(el) if t in query]
+    out += [x for x in naming.known_places(p) if len(x) >= 2 and x in query]
+    return list(dict.fromkeys(out))
+
+
+def _play_states(p: Project, ids: list[str], player: str, query: str, terms: list[str]) -> tuple[list, int]:
+    """장면 인물의 지금 상태. 아는 정보는 플레이어 PLAY_KNOWS, 다른 인물 PLAY_KNOWS_OTHER 개 (context.pick_knows). (상태들, 뺀 수)"""
+    names = [c.name for c in p.characters if c.id in ids and c.name]
+    out, cut = [], 0
+    for cid in ids:
+        s = p.state_of(cid)
+        if not s:
+            continue
+        limit, recent = context.PLAY_KNOWS if cid == player else context.PLAY_KNOWS_OTHER
+        knows, k = context.pick_knows(s.knows, query, names, terms, limit, recent)
+        out.append(s.model_copy(update={"knows": knows}) if k else s)
+        cut += k
+    return write_states(p, out), cut
+
+
+def _play_elements(p: Project, n: int, ids: set[str], query: str) -> tuple[list[str], int]:
+    """장면에 넣을 이야기 요소 줄: '항상' · 이번 구간에 나올 요소, 장면 글에 이름이 나온 요소, 장면 인물이 얽힌 요소 순서로 예산까지."""
+    ranked = []
+    for el in p.elements:
+        if el.context == "off" or not elements.exists_at(el, n):
+            continue
+        named = any(t in query for t in elements.terms(el))
+        if el.context == "always" or n in el.episodes:
+            r = 0
+        elif named:
+            r = 1
+        elif set(el.characters) & ids and not el.found_in:
+            r = 2
+        else:
+            continue
+        ranked.append((r, elements.describe(p, el, n)))
+    lines = [x for _, x in sorted(ranked, key=lambda x: x[0])]
+    return context.fit_lines(lines, context.BUDGET["play_elements"])
+
+
+def _play_turn(info: PlayInfo, n: int, action: str, kind: str = "") -> str:
+    """[이번 구간] 줄: 몇 번째 구간인지, 시간 단위와 칸 수, 한도, 초점, 행동의 종류 (흐름 · 고른 선택지 · 자동 결정 · 자유 입력)."""
+    turn = n - info.world_ep
+    unit = PLAY_UNIT_WORDS.get(info.unit, "하루")
+    rows = [f"{turn}번째 구간. 시간 단위는 {unit}, 이번 구간은 많아야 {max(1, info.segment_units)}칸({unit} × {max(1, info.segment_units)})입니다."]
+    limits = [x for x in (f"구간 {info.max_turns}개" if info.max_turns else "", f"작품 속 {info.end_days}일" if info.end_days else "",
+                          f"결정 {info.end_decisions}번" if info.end_decisions else "") if x]
+    if limits:
+        rows.append(f"한도: {', '.join(limits)} (먼저 닿는 것)")
+    if info.max_turns and turn >= info.max_turns:
+        rows.append("이번이 마지막 구간입니다. 이야기를 마무리하고 ending 을 채웁니다.")
+    rows.append(f"초점: {info.focus.strip() or '정하지 않음 (플레이어 인물의 목표와 지금 상태를 따른다)'}")
+    prev = next((t for t in info.turns if t.number == n - 1), None)
+    now = next((t for t in info.turns if t.number == n), None)
+    pick = next((c for c in (prev.choices if prev else []) if c.text.strip() == action.strip()), None) if action.strip() else None
+    kind = kind or (now.kind if now else ("start" if not prev else "flow" if not action.strip() else "choice" if pick else "free"))
+    if kind == "start":
+        rows.append("첫 구간입니다. 플레이어 인물 설정과 지금 상태에서 시작해, 플레이어 인물이 어디서 무엇을 하며 사는지 보여 줍니다.")
+    elif kind == "flow":
+        rows.append("플레이어가 행동하지 않고 시간을 흘려보냈습니다. 앞 구간에서 이어지는 삶을 씁니다.")
+    elif kind == "free":
+        rows.append("플레이어가 직접 적은 행동입니다 (시도). 세계관 규칙과 지금 능력으로 될 일인지 먼저 따지고, 안 되면 실패나 대가로 씁니다.")
+    elif kind == "auto":
+        rows.append("플레이어가 자동 결정을 켜 두어, 플레이어 인물이 스스로 고른 선택지입니다.")
+    elif kind == "skip":
+        rows.append("시간 건너뛰기: 건너뛴 동안의 일은 몇 줄로 접고, 건너뛴 뒤를 이어 씁니다.")
+    else:
+        rows.append("플레이어가 고른 선택지입니다.")
+    return "\n".join(rows)
+
+
+def play_scene_prompt(p: Project, info: PlayInfo, n: int, action: str, luck: int, kind: str = "") -> str:
+    """플레이 n 구간(Episode n) (PlayScene). action 은 플레이어의 행동, 흐름 · 첫 구간은 빈 값. kind 는 PlayTurn.kind (비면 짐작).
+    구간 Episode n 이 아직 없어도 된다.
+    장면 인물은 play_cast 순서로 플레이어를 빼고 예산(context.BUDGET['play_cast'])까지 설정과 상태를 넣고, 나머지는 이름만."""
+    c = play_player(p, info)
+    prev = next((e for e in p.episodes if e.plot.number == n - 1 and e.text), None)
+    last = prev.text[-PLAY_LAST:] if prev else ""
+    query = f"{last}\n{action}"
+    terms = _play_terms(p, query)
+    order = play_cast(p, info.player, last, action)
+    others, cast_cut, used = [], 0, 0
+    for cid in order[1:]:
+        o = next(x for x in p.characters if x.id == cid)
+        st, _ = _play_states(p, [cid], info.player, query, terms)
+        cost = len(dump(cast_view([o]))) + len(dump(st))
+        if used + cost > context.BUDGET["play_cast"]:
+            cast_cut += 1
+            continue
+        others.append(o)
+        used += cost
+    ids = [info.player] + [o.id for o in others]
+    states, knows_cut = _play_states(p, ids, info.player, query, terms)
+    rest = sorted((x for x in p.characters if x.id not in ids),
+                  key=lambda x: (not _named(x, query), x.tier != "main", -x.first_ep))
+    roster, roster_cut = context.fit_lines([f"{x.id}: {x.name}({x.role})" for x in rest], PLAY_ROSTER)
+
+    facts, facts_cut = context.play_facts(p, set(ids), query, context.BUDGET["play_facts"], terms)
+    els, els_cut = _play_elements(p, n, set(ids), query)
+    me = c.name if c else ""
+    rel_lines = describe_relations(p, ids, secrets=[]).splitlines()
+    rel_lines = sorted(rel_lines, key=lambda x: not (me and me in x))
+    rels_, rels_cut = context.fit_lines(rel_lines, context.BUDGET["play_relations"])
+    secrets, secrets_cut = context.pick_secrets(p, set(ids), query, context.BUDGET["play_secrets"])
+    name = {x.id: x.name for x in p.characters}
+    secret_lines = [f"- {name.get(s.owner, s.owner)}의 비밀: {s.content} · 모르는 인물: {', '.join(name.get(h, h) for h in s.hidden_from)}"
+                    + (" (플레이어 인물도 모름)" if info.player in s.hidden_from else "") for s in secrets]
+    opened = [f for f in p.foreshadows if f.status == "open"]
+    fs = context.rank_foreshadows(p, opened, n, context.PLAY_FORESHADOW_CAP)
+    fs_lines, _ = context.fit_lines([f"- {f.id}: {f.description}" + (f" (회수 예정 {f.due_ep}화)" if f.due_ep else "") for f in fs],
+                                    context.BUDGET["play_foreshadows"])
+    fs_cut = len(opened) - len(fs_lines)
+    tl = timeline.episode_block(p, n)
+    first = n == info.world_ep + 1
+    player_view = cast_view([c])[0] | ({"narration_voice": c.narration_voice} if info.person == "first" and c.narration_voice.strip() else {}) if c else {"id": info.player}
+    note = lambda k, what="이번 장면과 관련된 것만": f" ({what}, {k}개 생략)" if k else ""  # noqa: E731
+
+    return f"""{PLAY_RULES}
+
+[서술 시점]
+{play_person_rule(info, c)}
+
+[작품 정보]
+{meta_text(p)}
+
+[세계관 (깨면 안 되는 규칙 포함)]
+{dump(p.world)}
+
+[스타일 프로필 (줄인 것)]
+{play_style(p)}
+
+{prose_rules(styled(p))}
+
+[플레이어 인물]
+{dump(player_view)}
+
+[지금까지의 줄거리]
+{play_story(p, n) or "아직 없음"}
+
+[이야기 요소]{note(els_cut, "관련된 것만")}
+{chr(10).join(els) or "없음"}
+
+[확정된 사실]{note(facts_cut)}
+{chr(10).join("- " + f for f in facts) or "없음"}
+
+[장면 인물 설정]{note(cast_cut, "분량 때문에 이름만")}
+{dump(cast_view(others)) if others else "없음"}
+[다른 인물 (id: 이름, 역할). 설정은 넣지 않았습니다{f", {roster_cut}명 더 있음" if roster_cut else ""}]
+{", ".join(roster) or "없음"}
+
+[인물 현재 상태]
+({n - 1}화가 끝났을 때{f". 아는 정보는 이번 장면과 관련된 것부터, {knows_cut}개 생략" if knows_cut else ""})
+{dump(states) or "설정 그대로"}
+
+[관계]{note(rels_cut)}
+{chr(10).join(rels_) or "없음"}
+
+[숨긴 비밀]{note(secrets_cut)}
+{chr(10).join(secret_lines) or "없음"}
+
+[열린 복선]{note(fs_cut)}
+{chr(10).join(fs_lines) or "없음"}
+{f"{chr(10)}[작품 속 시간 (어기지 말 것)]{chr(10)}{tl}{chr(10)}" if tl else ""}
+[직전 장면 마지막 부분]{f" (세계 작품 {n - 1}화 끝, 플레이를 시작하기 전)" if first and last else ""}
+{last or "없음 (첫 장면)"}
+
+[이번 구간]
+{_play_turn(info, n, action, kind)}
+
+[이번 행동]
+{action or ("(첫 구간: 플레이어 인물이 처음 등장한다)" if n == info.world_ep + 1 else "(없음: 시간이 흐른다)")}
+
+[이번 구간의 운]
+{LUCK_WORDS.get(luck, "보통")}
+
+위 [이번 행동]의 결과부터 이어지는 구간 하나를 쓰세요: 흘러간 일을 beats 에, 결정할 순간이 오면 그 장면을 text 에, 선택지를 choices 에, 이 인물이라면 고를 번호를 lean 에, 결말이면 그 까닭을 ending 에.{statwin.write_rule(p, n)}{attire_write_rule(p)}"""
+
+
+PLAY_STATE_RULE = (
+    "\n- 이 화는 텍스트 게임 플레이의 한 구간이라 본문이 흘러간 일 몇 줄과, 있으면 결정 장면 하나입니다. 본문에 나오지 않은 인물의 상태는 바꾸지 않습니다. "
+    "time 에는 본문 마지막 줄의 시점을 적습니다. "
+    "summary 는 이번 구간에 플레이어 인물이 한 일과 그 결과를 두세 문장으로 적습니다 (다음 구간 줄거리에 들어갑니다)."
+)
+
+
+def play_state_cast(p: Project, n: int) -> set[str]:
+    """n 구간 상태 변경안에서 설정 · 상태 · 관계를 넣을 인물: 플레이어(구간 Episode 의 plot.pov, 없으면 앞 구간의 pov), plot.characters,
+    본문에 이름이 나온 인물, '항상' 인물. '넣지 않음' 인물은 뺀다. 2인칭 본문에는 플레이어 이름이 안 나오므로 pov 가 플레이어를 잡는다."""
+    ep = p.episode(n)
+    known = {c.id for c in p.characters}
+    player = next((e.plot.pov for e in sorted(p.episodes, key=lambda e: -e.plot.number)
+                   if e.plot.number <= n and e.plot.pov in known), "")
+    ids = {player} - {""} | (set(ep.plot.characters) & known)
+    ids |= {c.id for c in p.characters if c.context == "always" or _named(c, ep.text)}
+    return ids - context.off_ids(p)
+
+
+def play_view(p: Project, n: int, ids: set[str]) -> tuple[Project, int, int]:
+    """상태 변경안용 작품 보기: ids 인물은 '항상', 나머지는 '넣지 않음'으로 둔 얕은 사본. 비밀은 ids 가 얽히고 본문과 겹치는 것을
+    예산(context.BUDGET['play_state_secrets'])까지, 열린 복선은 순위대로 PLAY_STATE_FORESHADOW_CAP 개만 남긴다.
+    저장하지 않는 보기라 원래 작품은 바뀌지 않는다. (보기, 뺀 비밀 수, 뺀 복선 수)"""
+    ep = p.episode(n)
+    chars = [c.model_copy(update={"context": "always" if c.id in ids else "off"}) for c in p.characters]
+    secrets, secrets_cut = context.pick_secrets(p, ids, ep.text + "\n" + elements.plot_text(ep), context.BUDGET["play_state_secrets"])
+    opened = [f for f in p.foreshadows if f.status == "open"]
+    fs = context.rank_foreshadows(p, opened, n, context.PLAY_STATE_FORESHADOW_CAP)
+    view = p.model_copy(update={"characters": chars, "secrets": secrets, "foreshadows": fs})
+    return view, secrets_cut, len(opened) - len(relevant_foreshadows(view, n)[0])  # state_prompt 가 더 거르는 것까지 센다
+
+
+def play_state_prompt(p: Project, n: int) -> str:
+    """플레이 n 구간의 상태 변경안 (StateDelta). 소설의 state_prompt 를 장면 인물만 남긴 보기(play_view)로 부르고 플레이 규칙을 덧붙인다.
+    장면에 나오지 않은 인물은 '다른 인물' 한 줄 목록에 이름만 남아 새 인물로 다시 만들지 않는다. 플레이 사본은 늘 장편이라
+    단편 작품이면 소설과 같은 프롬프트를 낸다."""
+    if not p.serial:
+        return state_prompt(p, n)
+    view, secrets_cut, fs_cut = play_view(p, n, play_state_cast(p, n))
+    cut = (f"\n- [현재 비밀]과 [열린 복선]은 이번 구간 인물과 관련된 것만 넣었습니다 (비밀 {secrets_cut}개, 복선 {fs_cut}개 생략). "
+           "목록에 없는 비밀 · 복선의 id 는 쓰지 않습니다.") if secrets_cut or fs_cut else ""
+    return state_prompt(view, n) + PLAY_STATE_RULE + cut

@@ -124,23 +124,34 @@ def child_env() -> dict:
     return env
 
 
-@lru_cache(maxsize=8)
 def _flags(binary: str) -> frozenset[str]:
-    """이 버전이 아는 옵션. 오래된 버전에 없는 옵션을 넘기면 실행이 실패하므로 있는 것만 쓴다."""
+    """이 버전이 아는 옵션. 오래된 버전에 없는 옵션을 넘기면 실행이 실패하므로 있는 것만 쓴다.
+    `claude update` 는 링크가 가리키는 파일을 바꾸므로 실제 파일로 기억하고, 읽지 못한 결과는 기억하지 않는다."""
     try:
-        out = subprocess.run([binary, "--help"], capture_output=True, text=True, timeout=30, env=child_env())
+        return _probe(binary, os.path.realpath(binary))
     except (OSError, subprocess.TimeoutExpired):
         return frozenset()
+
+
+@lru_cache(maxsize=8)
+def _probe(binary: str, real: str) -> frozenset[str]:
+    out = _run([binary, "--help"], 30)
     text = out.stdout + out.stderr
     known = ("--safe-mode", "--tools", "--strict-mcp-config", "--no-session-persistence", "--json-schema")
     return frozenset(f for f in known if f in text)
 
 
 def _run(args: list[str], timeout: float, stdin: str | None = None) -> subprocess.CompletedProcess:
-    # 작업 폴더를 빈 임시 폴더로 둬서 Canon 저장소의 CLAUDE.md, 훅, MCP 설정을 읽지 않게 한다
-    with tempfile.TemporaryDirectory(prefix="canon-claude-") as cwd:
-        return subprocess.run(args, input=stdin, capture_output=True, text=True, timeout=timeout,
-                              cwd=cwd, env=child_env())
+    # 작업 폴더를 빈 임시 폴더로 둬서 Canon 저장소의 CLAUDE.md, 훅, MCP 설정을 읽지 않게 한다.
+    # 출력은 파일로 받는다. 2.1.312 는 출력이 파이프면 8KB · 16KB 에서 끊고 끝난다 (--help 의 --json-schema 줄을 잃음).
+    with tempfile.TemporaryDirectory(prefix="canon-claude-") as cwd, \
+            tempfile.TemporaryFile("w+", encoding="utf-8") as out, \
+            tempfile.TemporaryFile("w+", encoding="utf-8") as err:
+        proc = subprocess.run(args, input=stdin, stdout=out, stderr=err, text=True, encoding="utf-8",
+                              timeout=timeout, cwd=cwd, env=child_env())
+        out.seek(0)
+        err.seek(0)
+        return subprocess.CompletedProcess(args, proc.returncode, out.read(), err.read())
 
 
 def status(binary: str | None = None) -> dict:

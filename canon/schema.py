@@ -3,7 +3,7 @@
 모든 상태는 하나의 Project 객체(project.json)에 저장된다.
 LLM 이 직접 채우는 모델(SetupSuggestion, StyleProfile, ArcPlan, PlotBatch, PlotRevision, NameOptions, StateDelta, ConsistencyReport,
 ImpactReport, SeriesPlan, ArcProposal, Recap, StorylineProposal, SerialConversion,
-PassageRevision, SerialRebuild, Rework, HookReport, OpeningPlots, IllustDraft, LookSuggestion, PlaceSort)은
+PassageRevision, SerialRebuild, Rework, HookReport, OpeningPlots, IllustDraft, LookSuggestion, PlaceSort, FieldIdeas)은
 Gemini 구조화 출력에 그대로 넘기므로 dict 타입 필드를 쓰지 않는다.
 """
 from __future__ import annotations
@@ -839,9 +839,110 @@ class Chat(BaseModel):
     messages: list[ChatMessage] = Field(default_factory=list)
 
 
+# ---------- 대화 에이전트 (canon/agent.py) ----------
+# 대화로 다듬기를 세션 단위로 둔다. AI 는 한 턴에 도구를 몇 번 부르고, 권한 모드 안의 쓰기는 바로 저장하며, 나머지는 작가에게 묻는다.
+
+AgentMode = Literal["ask", "draft", "all"]  # 물어보기 · 빈 곳 · 초안만 자동 · 모두 자동
+
+
+class ToolArg(BaseModel):
+    name: str = Field(description="인자 이름")
+    value: str = Field("", description="인자 값")
+
+
+class PlotAgentStep(BaseModel):
+    """플롯 대화 에이전트의 한 단계. 도구 하나를 부르거나, tool 을 비우고 reply 로 턴을 끝낸다 (agent.run_turn)."""
+    thought: str = Field("", description="작가에게 보일 한 줄: 이 단계에서 무엇을 왜 하는지")
+    tool: str = Field("", description="부를 도구 이름 ([도구] 목록에 있는 것). 비우면 reply 로 턴을 끝낸다")
+    args: list[ToolArg] = Field(default_factory=list, description="읽기 도구의 인자")
+    edit: PlotRevision = Field(default_factory=lambda: PlotRevision(reply=""),
+                               description="edit_plot 일 때만: 바꿀 것만 채운 변경안. reply 는 한 줄 설명. 다른 도구면 비워 둔다")
+    question: str = Field("", description="ask 일 때만: 작가에게 묻는 말")
+    options: list[Direction] = Field(default_factory=list, description="ask 일 때만: 고를 방향 2~3개 (방향을 물을 때)")
+    reply: str = Field("", description="tool 이 비었을 때: 작가에게 하는 답 2~5문장. 무엇을 바꿨고 무엇을 물었는지")
+
+
+class StepRecord(BaseModel):
+    """턴의 한 단계 (화면의 단계 줄). result 는 다음 단계 프롬프트에 넣는 결과로, 턴이 끝나면 비운다."""
+    kind: Literal["read", "write", "wait", "block", "ask", "note"] = "read"
+    tool: str = ""
+    label: str = Field("", description="화면에 보일 대상 (예: '25~30화')")
+    why: str = Field("", description="작은 글: AI 의 생각이나 막힌 까닭")
+    result: str = ""
+
+
+class WriteItem(BaseModel):
+    """바로 쓴 것 한 부분. key 는 'parts' · 'arc' · 'acts' · 'draft'(다음 아크 초안) · 화 번호."""
+    key: str
+    label: str = ""
+    state: Literal["done", "reverted", "kept"] = "done"
+    reason: str = Field("", description="kept 일 때: 되돌리지 않은 까닭")
+
+
+class WriteRecord(BaseModel):
+    """한 번에 쓴 것. 되돌리기는 before · after 로 지금 값이 쓴 직후 값과 같은 부분만 돌린다 (pipeline.plot_undo)."""
+    tool: str = "edit_plot"
+    target: str = Field("", description="ChatScope.target: 쓸 때의 대상")
+    revision: Optional[PlotRevision] = Field(None, description="쓴 부분이 들어 있는 변경안 (다음 아크 초안을 화면에 놓을 때 쓴다)")
+    items: list[WriteItem] = Field(default_factory=list)
+    before: Optional[PlotUndo] = None
+    after: Optional[PlotUndo] = None
+
+
+class Approval(BaseModel):
+    """권한 모드 밖이라 작가에게 묻는 쓰기. 승인하면 고른 부분만 쓰고 같은 턴을 이어 간다."""
+    tool: str = "edit_plot"
+    target: str = ""
+    revision: Optional[PlotRevision] = None
+    keys: list[str] = Field(default_factory=list, description="묻는 부분 ('parts' · 'arc' · 'acts' · 화 번호)")
+    kinds: list[str] = Field(default_factory=list, description="묻는 까닭이 된 종류 (agent.KIND_LABELS). '이 세션에서 묻지 않기'가 auto_kinds 에 더한다")
+    state: Literal["wait", "approved", "denied"] = "wait"
+    picked: list[str] = Field(default_factory=list)
+
+
+class AskCard(BaseModel):
+    """되묻기 (방향 여러 안 포함). 작가가 답하면 새 턴이 된다."""
+    question: str = ""
+    options: list[Direction] = Field(default_factory=list)
+
+
+class AgentTurn(BaseModel):
+    user: str = ""
+    mode: str = Field("", description="'options': 방향 여러 안으로 물어 달라고 한 말")
+    where: str = Field("", description="작가가 보낼 때 보고 있던 곳 (pipeline.chat_where)")
+    act: str = ""
+    episode: int = 0
+    draft: Optional[ArcProposal] = Field(None, description="다음 아크 대상일 때 보낼 때의 화면 초안")
+    steps: list[StepRecord] = Field(default_factory=list)
+    reply: str = ""
+    writes: list[WriteRecord] = Field(default_factory=list)
+    approval: Optional[Approval] = None
+    ask: Optional[AskCard] = None
+    end: Literal["", "done", "wait", "ask", "cap", "stopped", "error"] = Field("", description="'' 은 돌아가는 중")
+    error: str = ""
+    job: str = Field("", description="이 턴을 돌리는 작업 id")
+    at: str = ""
+
+
+class AgentSession(BaseModel):
+    """대화 세션. 주제(topic)마다 여럿 둘 수 있고, 기본 대상(target)과 권한 모드를 기억한다."""
+    id: str
+    topic: ChatTopic = "plot"
+    title: str = ""
+    target: str = Field("", description="ChatScope.target: '' 기본, 'arc:N', 'next'")
+    mode: AgentMode = "draft"
+    auto_kinds: list[str] = Field(default_factory=list, description="승인 카드에서 '이 세션에서 묻지 않기'로 고른 종류")
+    archived: bool = False
+    turns: list[AgentTurn] = Field(default_factory=list)
+    created: str = ""
+    updated: str = ""
+
+
 # ---------- 검수 ----------
 
 IssueType = Literal["사실", "시간", "인물 정보", "말투", "세계관", "플롯", "동선", "시점"]
+Severity = Literal["crit", "mid", "low"]
+SEVERITY: dict[str, str] = {"crit": "치명", "mid": "보통", "low": "사소"}
 
 
 class ConsistencyIssue(BaseModel):
@@ -851,6 +952,7 @@ class ConsistencyIssue(BaseModel):
     source_quote: str = Field(description="앞선 근거 원문 그대로 (설정이면 해당 설정 문장)")
     current_quote: str = Field(description="이번 화에서 어긋난 문장 원문 그대로")
     suggestion: str = Field("", description="고치는 방법 제안")
+    severity: Severity = Field("mid", description="crit: 독자가 바로 알아챌 모순이거나 뒤 화 전개를 흔듦 / mid: 눈여겨 읽으면 보이는 어긋남 / low: 사소한 세부")
 
 
 HookAspect = Literal["첫 문단", "주인공", "전제", "설명 부담", "걸린 것", "장르 약속", "엔딩"]
@@ -937,14 +1039,15 @@ class SceneCheck(BaseModel):
     issues: list[ConsistencyIssue] = Field(default_factory=list, description="상태표와 어긋나는 문장. 근거가 분명한 것만, 없으면 빈 목록")
 
 
-EditSource = Literal["manual", "ai", "typed", "impact"]
+EditSource = Literal["manual", "ai", "typed", "impact", "fix"]
 
 
 class TextEdit(BaseModel):
     """본문 부분 수정 기록. 되돌리기에 쓰고, 고치기 전후 쌍은 나중에 선호 · 미세 조정 자료로 쓸 수 있게 남긴다."""
     id: str
     at: str = ""
-    source: EditSource = Field("manual", description="manual: 고른 부분을 직접 고침 / ai: AI 후보를 고름 / typed: 본문을 직접 고쳐 저장 / impact: 인과율 영향 분석의 본문 수정")
+    source: EditSource = Field("manual", description="manual: 고른 부분을 직접 고침 / ai: AI 후보를 고름 / typed: 본문을 직접 고쳐 저장 / impact: 인과율 영향 분석의 본문 수정 / fix: 검수 지적의 고침안")
+    group: str = Field("", description="한 번에 넣은 수정 묶음 id (검수 고침안의 주 문장과 딸린 곳). 되돌리기도 묶음으로 한다")
     start: int = Field(0, description="고친 자리 (본문 안 글자 위치)")
     before: str = ""
     after: str = ""
@@ -984,6 +1087,44 @@ FindingStatus = Literal["open", "fixed", "kept", "wrong"]
 FINDING_STATUS: dict[str, str] = {"open": "열림", "fixed": "고침", "kept": "그대로 둠", "wrong": "잘못 짚음"}
 
 
+class FixPatch(BaseModel):
+    """고침안이 함께 고치는 이 화의 다른 문장 하나 (딸린 곳)."""
+    quote: str = Field(description="함께 바꿀 이 화 본문 문장을 원문 그대로 (한두 문장)")
+    replacement: str = Field(description="고침안과 맞게 최소로 고친 문장")
+    reason: str = Field("", description="왜 함께 바꿔야 하는지 한 문장")
+
+
+class FixOption(BaseModel):
+    """지적 하나의 고침안: 지적한 문장을 대신할 글과, 그 때문에 함께 고칠 이 화의 다른 문장."""
+    label: str = Field(description="고침안 이름 2~8자 (예: 오른손으로 바꾸기)")
+    text: str = Field(description="지적한 문장(current_quote)을 대신할 새 글. 앞뒤 본문은 되풀이하지 않는다")
+    note: str = Field("", description="무엇을 어떻게 바꿨는지 한 줄")
+    extra: list[FixPatch] = Field(default_factory=list, description="이 고침 때문에 함께 바꿔야 하는 이 화의 다른 문장. 없으면 빈 목록")
+
+
+class FixSet(BaseModel):
+    """검수 지적 하나의 AI 고침안. 작가가 하나를 골라야 본문에 들어간다 (pipeline.apply_fix)."""
+    reply: str = Field("", description="작가에게 하는 짧은 답 1~2문장. 고침안들이 어떻게 다른지")
+    options: list[FixOption] = Field(default_factory=list, description="2~3개, 서로 다른 방향으로 고친 안")
+
+
+class FindingRecheck(BaseModel):
+    """지적 하나만 다시 검수한 결과. 회차를 늘리지 않는다 (pipeline.recheck_finding)."""
+    resolved: bool = Field(description="지적한 어긋남이 지금 본문에서 풀렸는지")
+    reason: str = Field(description="그렇게 본 까닭 한두 문장. 풀리지 않았으면 무엇이 아직 어긋나는지")
+    new_issues: list[ConsistencyIssue] = Field(default_factory=list, description="작가가 고친 문장 때문에 새로 어긋난 곳만. 원래 있던 다른 어긋남은 넣지 않는다")
+
+
+FindingEventKind = Literal["found", "again", "gone", "author", "fix", "undo", "recheck"]
+
+
+class FindingEvent(BaseModel):
+    """지적의 처리 기록 한 줄 (화면의 처리 기록)."""
+    at: str = ""
+    kind: FindingEventKind
+    text: str = ""
+
+
 class Finding(ConsistencyIssue):
     """검수 세션에 남는 지적 하나. 다시 검수해도 작가가 정한 상태와 메모를 지킨다 (findings.merge).
     LLM 이 채우지 않는다."""
@@ -992,8 +1133,15 @@ class Finding(ConsistencyIssue):
     note: str = Field("", description="작가 메모 (그대로 두거나 잘못 짚었다고 본 이유)")
     first: int = Field(1, description="처음 짚은 회차")
     last: int = Field(1, description="마지막으로 짚은 회차. 마지막 회차보다 작으면 그 회차가 짚지 않은 것")
-    closed_by: Literal["", "author", "recheck"] = Field("", description="author: 작가가 정함 / recheck: 다시 검수에서 문장이 사라져 고침")
+    closed_by: Literal["", "author", "recheck", "one"] = Field(
+        "", description="author: 작가가 정함 / recheck: 다시 검수에서 문장이 사라져 고침 / one: 이 지적만 다시 검수해 풀림")
     decided_at: str = ""
+    severity_by_author: bool = Field(False, description="작가가 심각도를 바꿨다. 다시 검수해도 AI 값으로 덮지 않는다")
+    parent: str = Field("", description="딸린 지적: 이 지적을 낳은 지적 id (그 지적을 고친 문장 때문에 새로 어긋남)")
+    fixes: list[FixOption] = Field(default_factory=list, description="마지막으로 받은 AI 고침안")
+    fixes_basis: str = Field("", description="고침안을 받을 때 본문 지문 (pipeline.text_basis). 지금 본문과 다르면 오래된 고침안")
+    fix_group: str = Field("", description="마지막으로 적용한 고침안의 수정 묶음 id (TextEdit.group)")
+    log: list[FindingEvent] = Field(default_factory=list, description="처리 기록 (최근 것만)")
 
 
 CheckSource = Literal["api", "chat", "auto"]
@@ -1009,6 +1157,10 @@ class CheckRound(BaseModel):
     found: int = Field(0, description="이 회차가 짚은 수")
     added: int = Field(0, description="그중 새 지적")
     kept_again: int = Field(0, description="그중 그대로 둠 · 잘못 짚음으로 정해 둔 지적 (상태는 그대로)")
+    added_ids: list[str] = Field(default_factory=list, description="이 회차에 새로 나온 지적 id")
+    again_ids: list[str] = Field(default_factory=list, description="이 회차가 다시 짚은 옛 지적 id")
+    gone_ids: list[str] = Field(default_factory=list, description="이 회차에 문장이 사라져 고침으로 닫은 지적 id")
+    superseded: bool = Field(False, description="이 회차 뒤에 본문을 새 판으로 바꿨다 (화면의 '새 판' 구분선)")
 
 
 class Episode(BaseModel):
@@ -1031,6 +1183,7 @@ class Episode(BaseModel):
     time: "StoryTime" = Field(default_factory=lambda: StoryTime(), description="이 화가 끝난 작품 속 시점. 상태 반영 때 채운다")
     realign: str = Field("", description="앞 화 플롯을 뒤 화에 맞추지 않고 다시 짜면서 이 화와 어긋나게 된 점. 이 화 플롯을 다시 짜거나 작가가 확인하면 비운다")
     opening_prev: Optional[EpisodePlot] = Field(None, description="1~3화 여는 방식 안을 처음 고르기 전 플롯 (되돌리기용). 되돌리면 비운다")
+    events_done: list[str] = Field(default_factory=list, description="집필 화면 플롯 띠에서 작가가 다 썼다고 체크한 사건의 글. 사건 글을 고치면 그 체크는 풀린다. 프롬프트에 넣지 않는다")
 
     @model_validator(mode="after")
     def _old_check(self) -> "Episode":
@@ -1233,6 +1386,16 @@ class NameOptions(BaseModel):
     options: list[NameOption]
 
 
+class FieldIdea(BaseModel):
+    text: str = Field(description="칸에 그대로 넣을 값")
+    reason: str = Field("", description="이 후보가 작품에 맞는 이유 한 줄")
+
+
+class FieldIdeas(BaseModel):
+    """설정 칸 하나의 AI 후보 (✦). 작가가 하나를 골라야 칸이 바뀐다 (pipeline.suggest_field)."""
+    options: list[FieldIdea]
+
+
 # ---------- 인과율: 언제든 더하는 이야기 요소와 그 영향 ----------
 
 ElementKind = Literal["세계 규칙", "장소", "물건", "세력", "인물 특징", "과거 사건", "예정 사건", "기타"]
@@ -1432,7 +1595,7 @@ class MapPlace(BaseModel):
 
 class MapSpec(BaseModel):
     """지도 생성기 입력 (canon/towngen.py). 같은 값이면 언제나 같은 지도가 나온다."""
-    kind: Literal["village", "city", "realm"] = "village"
+    kind: Literal["village", "city", "modern", "realm"] = "village"
     seed: int = Field(1, ge=0, le=2**31 - 1)
     version: int = Field(0, description="이 지도를 만든 생성기 알고리즘 버전 (적용할 때 적는다)")
     size: Literal["small", "medium", "large"] = "medium"
@@ -1510,7 +1673,8 @@ class Project(BaseModel):
     params: ModelParams = Field(default_factory=ModelParams)
     snapshots: list[Snapshot] = Field(default_factory=list)
     settings: Settings = Field(default_factory=Settings)
-    chats: list[Chat] = Field(default_factory=list, description="화면별 AI 대화 기록")
+    chats: list[Chat] = Field(default_factory=list, description="화면별 AI 대화 기록 (옛 단발 대화. 에이전트 세션의 '이전 대화')")
+    agent_sessions: list[AgentSession] = Field(default_factory=list, description="대화 에이전트 세션 (canon/agent.py)")
     elements: list[StoryElement] = Field(default_factory=list, description="인과율: 언제든 더하는 요소, 특징, 설정, 사건")
     conversion: Optional[Conversion] = Field(None, description="단편에서 장편으로 바꾼 기록. 되돌리면 지운다")
     archive: Optional[ShortArchive] = Field(None, description="재구성 전 단편 원고와 새 화 지도")
@@ -1631,10 +1795,108 @@ class BranchDiff(BaseModel):
     rows: list[BranchDiffRow] = Field(default_factory=list, description="양쪽 모두 반영한 화일 때만 채운다")
 
 
+# ---------- 플레이 모드 (canon/play.py, canon/birth.py) ----------
+# 플레이는 세계 작품을 복사한 작품 폴더다. 한 턴은 Episode 하나, 플레이 정보는 project.json 밖의 play.json.
+
+PlayPerson = Literal["first", "second", "third"]
+TurnKind = Literal["start", "choice", "free", "skip", "flow", "auto"]
+PlayUnit = Literal["auto", "hour", "day", "month", "year"]
+
+
+class PlayChoice(BaseModel):
+    """장면 끝에 붙는 다음 행동 선택지 하나."""
+    text: str = Field(description="플레이어 인물이 할 행동 한 줄 (예: 문을 열고 들어간다)")
+    # 턴제 때 시간 건너뛰기 선택지의 길이. 시간 흐름 모델에서는 쓰지 않아 AI 응답 형식에서 뺀다 (옛 play.json 은 읽힌다)
+    skip: SkipJsonSchema[str] = ""
+
+
+class PlayBeat(BaseModel):
+    """구간 안에서 흘러간 일 한 줄. 화면 시계가 한 줄씩 보인다."""
+    time: StoryTime = Field(default_factory=StoryTime, description="이 일이 일어난 작품 속 시점")
+    text: str = Field(description="흘러간 일 한두 문장")
+
+
+class PlayScene(BaseModel):
+    """플레이 구간 하나: 흘러간 일과, 있으면 결정 장면. AI 가 쓴다 (play 단계). 상태 변경안은 뒤에서 따로 만든다 (play.settle)."""
+    beats: list[PlayBeat] = Field(default_factory=list, description="결정할 순간까지, 또는 정해진 시간 칸까지 흘러간 일. 시간 순서대로")
+    text: str = Field("", description="결정 장면 본문. 플레이어 인물이 무언가 정해야 하는 순간을 장면으로. 그런 순간이 없으면 빈칸")
+    choices: list[PlayChoice] = Field(default_factory=list, description="결정 장면의 선택지 3~4개. 결정 장면이 없으면 빈 목록")
+    lean: int = Field(0, description="플레이어 인물의 성격과 목표라면 고를 선택지 번호 (1부터). 선택지가 없으면 0")
+    ending: str = Field("", description="플레이어 인물의 이야기가 이 구간에서 끝나면 그 까닭 한 줄 (죽음, 목표를 이룸, 떠남 등). 이어지면 빈칸")
+
+
+class Birth(BaseModel):
+    """무작위 출생: 코드가 시드로 굴린 값 (birth.roll). AI 는 BirthSketch 로 배경만 채운다."""
+    seed: int = 0
+    name: str = ""
+    gender: str = ""
+    age: str = ""
+    archetype: str = Field("", description="원형 도감 id (archetypes.CATALOG)")
+    wound: str = Field("", description="상처 id (archetypes.WOUNDS)")
+    speech: str = Field("", description="말투 틀 id (archetypes.SPEECH)")
+    twist: str = ""
+    place: str = Field("", description="태어난 곳 (world.locations 나 '장소' 요소의 이름)")
+
+
+class BirthSketch(BaseModel):
+    """무작위 출생의 배경. 코드가 굴린 값(Birth)에 맞춰 AI 가 세계에 맞게 채운다 (birth.sketch)."""
+    appearance: str = ""
+    personality: str = ""
+    background: str = Field("", description="집안, 자란 곳, 지금까지의 삶 3~5문장")
+    goal: str = ""
+    speech_style: str = ""
+    opening: str = Field("", description="첫 장면의 실마리 한두 문장: 플레이를 시작하는 순간 이 인물이 어디서 무엇을 하고 있는지")
+
+
+class PlayTurn(BaseModel):
+    """플레이 기록의 턴 하나. 본문은 같은 번호의 Episode 에 있다."""
+    number: int = Field(description="Episode 번호")
+    kind: TurnKind = "choice"
+    action: str = Field("", description="플레이어가 고르거나 적은 행동. 첫 턴은 비움")
+    luck: int = Field(0, description="코드가 굴린 운: -2 아주 나쁨 ~ 2 아주 좋음. 화면에는 숨기고 기록에만 둔다")
+    beats: list[PlayBeat] = Field(default_factory=list, description="이 구간에 흘러간 일. 본문(Episode.text)에도 이어 넣는다")
+    choices: list[PlayChoice] = Field(default_factory=list, description="이 구간 끝 결정 장면의 선택지. 비면 결정 없이 다음 구간으로 흐른다")
+    lean: int = Field(0, description="AI 가 이 인물이라면 고를 것이라 한 선택지 번호. 자동 결정에 쓴다")
+    state: Literal["pending", "applied", "failed"] = Field("pending", description="뒤에서 만드는 상태 변경안의 반영 여부")
+    error: str = Field("", description="상태 반영이 실패한 까닭")
+    ending: str = Field("", description="이 턴 장면이 낸 결말 까닭 (PlayScene.ending). 상태 반영이 끝나면 플레이를 끝낸다")
+    at: str = ""
+
+
+class PlayInfo(BaseModel):
+    """플레이 정보. project.json 밖의 projects/<폴더>/play.json 에 둔다. 이 파일이 있으면 그 작품은 플레이 사본이다."""
+    world: str = Field(description="세계 작품 폴더 이름")
+    world_ep: int = Field(0, description="세계 작품에서 이어받은 마지막 반영 화. 턴은 world_ep+1 화부터")
+    player: str = Field(description="플레이어 인물 id")
+    title: str = Field("", description="플레이 이름 (예: 은재의 삶). 비면 화면이 '<인물 이름>의 삶'으로 부른다")
+    opening: str = Field("", description="첫 구간 실마리 (무작위 출생 BirthSketch.opening). 첫 구간을 다시 쓸 때도 넘긴다")
+    origin: Literal["character", "random"] = Field("character", description="character 세계의 인물이 됨 / random 무작위 출생")
+    birth: Optional[Birth] = None
+    person: PlayPerson = Field("second", description="서술 시점: first 나 / second 당신 / third 이름")
+    seed: int = 0
+    max_turns: int = Field(0, description="구간 수 한도. 0 이면 없음")
+    chapter_len: int = Field(20, description="장 하나의 구간 수. 장이 끝나면 요약으로 접는다")
+    unit: PlayUnit = Field("day", description="시간 단위. 새 플레이에서 auto 를 고르면 시작할 때 세계에 맞는 단위로 바꿔 둔다 (play.pick_unit)")
+    segment_units: int = Field(7, description="구간 하나의 최대 시간 칸 수. 결정 장면이 먼저 오면 거기서 끝난다")
+    focus: str = Field("", description="흘러가는 동안 따라갈 것 (예: 수련, 사람, 생업). 비면 AI 가 정한다")
+    auto_decide: bool = Field(False, description="결정 장면에서 기다리지 않고 AI 가 낸 lean 을 고른다 (화면이 몇 초 기다린 뒤 부른다)")
+    end_days: int = Field(0, description="작품 속 날수 한도: 시작부터 이만큼 지나면 끝. 0 이면 없음")
+    end_decisions: int = Field(0, description="결정 수 한도. 0 이면 없음")
+    start_day: int = Field(0, description="시작할 때의 작품 속 날수 (세계의 마지막 반영 화가 끝난 날)")
+    seen: int = Field(0, description="플레이어가 화면에서 닿은 마지막 구간 번호. 서버는 이보다 한 구간 넘게 앞서 쓰지 않는다 (play.see)")
+    turns: list[PlayTurn] = Field(default_factory=list)
+    ending: str = Field("", description="끝난 까닭. 비면 진행 중")
+    ended_ep: int = 0
+    at: str = ""
+
+
 Snapshot.model_rebuild()
 SerialRebuild.model_rebuild()
 ShortArchive.model_rebuild()
 Episode.model_rebuild()
 PlotUndo.model_rebuild()
 ChatMessage.model_rebuild()
+WriteRecord.model_rebuild()
+AgentTurn.model_rebuild()
+AgentSession.model_rebuild()
 StyleEntry.model_rebuild()

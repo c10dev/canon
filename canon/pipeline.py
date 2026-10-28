@@ -5,6 +5,7 @@ from . import dynamics, elements, illust, metrics, naming, prompts, renumber, se
 from .judge import Judge, Question
 from .llm import LLM, dump
 from . import charlog, features, findings, foreshadows, statwin, timeline
+from .schema import Finding, FindingRecheck, FixOption, FixPatch, FixSet
 from .schema import (
     Act,
     ArcEdit,
@@ -40,6 +41,7 @@ from .schema import (
     PlaceSort,
     VoiceSuggestion,
     NameOptions,
+    FieldIdeas,
     OpeningPlots,
     Part,
     PassageRevision,
@@ -122,6 +124,29 @@ def suggest_names(llm: LLM, p: Project, character: str = "", place_kind: str = "
                     hint={"candidates": [x.name for x in cands], "n": n})
     return cands, opts
 
+
+
+def field_stage(field: str) -> str:
+    """칸 하나 후보를 부를 단계. 제목은 이름 짓기라 'name', 나머지는 기획 'plan'."""
+    return "name" if field == "meta.title" else "plan"
+
+
+def suggest_field(llm: LLM, p: Project, field: str, n: int = 3) -> FieldIdeas:
+    """설정 칸 하나의 AI 후보 (✦). 저장하지 않는다 (작가가 하나를 고르면 화면이 칸에 넣고 작품을 저장한다).
+    빈 후보, 겹치는 후보, 지금 값과 같은 후보는 뺀다."""
+    if field not in prompts.FIELD_IDEAS:
+        raise KeyError(f"후보를 받을 수 없는 칸이에요: {field}")
+    ideas = llm.json(prompts.SYSTEM_PLANNER, prompts.field_prompt(p, field, n), FieldIdeas, hint={"field": field, "n": n})
+    now, seen, out = prompts.field_value(p, field), set(), []
+    for o in ideas.options:
+        o.text, o.reason = o.text.strip().strip("\"'“”‘’"), o.reason.strip()
+        if field.startswith("meta.logline_parts."):
+            o.text = o.text.rstrip(".")
+        if o.text and o.text != now and o.text not in seen:
+            seen.add(o.text)
+            out.append(o)
+    ideas.options = out[:n]
+    return ideas
 
 def require_previous(p: Project, n: int) -> None:
     """이전 화가 모두 반영(finalized)돼야 n화를 쓰거나 반영한다. 인물 상태가 화 순서대로 쌓이게 하는 규칙이다."""
@@ -1441,14 +1466,18 @@ def revise_plot(llm: LLM, p: Project, message: str, scope: ChatScope | None = No
     scope = scope.model_copy(update={"target": target})
     if target == "next" and scope.draft is not None and scope.draft.arc.start_ep != next_arc_start(p):
         scope.draft = None  # 그 사이 아크가 붙어 초안 자리가 맞지 않는다
-    rev = llm.json(
-        prompts.SYSTEM_PLOT_CHAT, prompts.plot_chat_prompt(p, message, scope), PlotRevision,
-        hint={"message": message, "arc": (focus.acts if focus else scope.draft.arc.acts if scope.draft else [] if p.serial else p.arc),
-              "episodes": [e.plot for e in p.episodes], "total": p.meta.target_episodes, "serial": p.serial,
-              "target": target, "focus": focus, "draft": scope.draft, "mode": scope.mode, "parts": p.parts,
-              "start": next_arc_start(p) if p.serial else 0, "limit": chat_next_limit(p) if p.serial else 0},
-    )
+    rev = llm.json(prompts.SYSTEM_PLOT_CHAT, prompts.plot_chat_prompt(p, message, scope), PlotRevision,
+                   hint=plot_chat_hint(p, message, scope))
     return clean_revision(p, rev, scope)
+
+
+def plot_chat_hint(p: Project, message: str, scope: ChatScope) -> dict:
+    """플롯 대화 · 대화 에이전트가 mock 에 넘기는 힌트. scope.target 은 chat_target 으로 맞춘 값이어야 한다."""
+    _, focus = chat_target(p, scope.target)
+    return {"message": message, "arc": (focus.acts if focus else scope.draft.arc.acts if scope.draft else [] if p.serial else p.arc),
+            "episodes": [e.plot for e in p.episodes], "total": p.meta.target_episodes, "serial": p.serial,
+            "target": scope.target, "focus": focus, "draft": scope.draft, "mode": scope.mode, "parts": p.parts,
+            "start": next_arc_start(p) if p.serial else 0, "limit": chat_next_limit(p) if p.serial else 0}
 
 
 def focus_arc(p: Project) -> StoryArc | None:
@@ -1823,17 +1852,25 @@ def apply_plot_chat(p: Project, i: int, acts: bool, episodes: list[int], *, arc:
     if not (acts or episodes or arc or parts or drafted):
         raise ValueError("적용할 부분을 고르세요")
     target, _ = chat_target(p, m.target)  # 대상이 없던 옛 변경안도 적용 전과 뒤를 같은 아크로 잰다
+    done, before, after = plot_apply(p, m.revision, target, acts, episodes, arc=arc, parts=parts)
+    m.applied, m.outcome = drafted + done, "applied"
+    m.plot_before, m.plot_after = (before, after) if done else (None, None)
+    return m.applied
+
+
+def plot_apply(p: Project, rev: PlotRevision, target: str, acts: bool, episodes: list[int], *,
+               arc: bool = False, parts: bool = False) -> tuple[list[str], PlotUndo, PlotUndo]:
+    """apply_revision 으로 고른 부분을 반영하고, 적용 취소(plot_undo)에 쓸 적용 전 값과 적용 직후 값을 함께 돌려준다.
+    플롯 대화 변경안(apply_plot_chat)과 대화 에이전트의 바로 쓰기(agent)가 함께 쓴다."""
     old = {e.plot.number: e.model_copy(deep=True) for e in p.episodes}
     before = _plot_undo_state(p, target)
-    done = apply_revision(p, m.revision, acts, episodes, arc=arc, parts=parts, target=target)
+    done = apply_revision(p, rev, acts, episodes, arc=arc, parts=parts, target=target)
     after = _plot_undo_state(p, target)
     now = {e.plot.number for e in p.episodes}
     touched = {int(x) for x in done if x.isdigit()}
     before.episodes = [old[n] for n in sorted(old) if n in touched or n not in now]  # 바꾼 화와 줄이며 뺀 화
     after.episodes = [e.model_copy(deep=True) for e in p.episodes if e.plot.number in touched]
-    m.applied, m.outcome = drafted + done, "applied"
-    m.plot_before, m.plot_after = (before, after) if done else (None, None)
-    return m.applied
+    return done, before, after
 
 
 def _same_plot(a: EpisodePlot, b: EpisodePlot) -> bool:
@@ -1855,6 +1892,14 @@ def undo_plot_chat(p: Project, i: int, topic: str = "plot") -> tuple[list[str], 
     before, after = m.plot_before, m.plot_after
     if m.outcome != "applied" or before is None or after is None:
         raise ValueError("적용을 취소할 수 있는 변경안이 아니에요")
+    out = plot_undo(p, m.applied, before, after)
+    m.outcome, m.applied, m.plot_before, m.plot_after = "", [], None, None
+    return out
+
+
+def plot_undo(p: Project, applied: list[str], before: PlotUndo, after: PlotUndo) -> tuple[list[str], list[str], list[str]]:
+    """plot_apply 로 쓴 부분(applied) 가운데 지금 값이 쓴 직후 값과 같은 것만 쓰기 전으로 돌린다.
+    (되돌린 부분, 그대로 둔 부분, 그대로 둔 까닭) 을 돌려준다. 일부만 넘기면 그 부분만 돌린다."""
     old = {e.plot.number: e for e in before.episodes}
     new = {e.plot.number: e for e in after.episodes}
     by_no = {e.plot.number: e for e in p.episodes}
@@ -1871,7 +1916,7 @@ def undo_plot_chat(p: Project, i: int, topic: str = "plot") -> tuple[list[str], 
             if n not in new and n not in by_no:
                 by_no[n] = e.model_copy(deep=True)
 
-    for x in [x for x in m.applied if x.isdigit()]:
+    for x in [x for x in applied if x.isdigit()]:
         n = int(x)
         cur, aft = by_no.get(n), new.get(n)
         if cur is None:
@@ -1892,7 +1937,7 @@ def undo_plot_chat(p: Project, i: int, topic: str = "plot") -> tuple[list[str], 
                 del by_no[n]
             done.append(x)
 
-    struct = [x for x in ("arc", "acts") if x in m.applied]
+    struct = [x for x in ("arc", "acts") if x in applied]
     if before.arc is not None and after.arc is not None and struct:
         a = next((x for x in p.story_arcs if x.number == before.arc.number), None)
         linked = after.arc.end_ep != before.arc.end_ep  # 끝 화가 바뀌면 칸과 구간을 함께 돌린다
@@ -1935,7 +1980,7 @@ def undo_plot_chat(p: Project, i: int, topic: str = "plot") -> tuple[list[str], 
             if linked:
                 bring_back_cut()
             done += group
-    elif "acts" in m.applied and before.arc is None:
+    elif "acts" in applied and before.arc is None:
         if p.arc != after.acts or p.meta.target_episodes != after.target_episodes:
             keep("acts", "적용 뒤 다시 고침")
         elif left := sorted(n for n in by_no if n > before.target_episodes):
@@ -1946,7 +1991,7 @@ def undo_plot_chat(p: Project, i: int, topic: str = "plot") -> tuple[list[str], 
             bring_back_cut()
             done.append("acts")
 
-    if "parts" in m.applied:
+    if "parts" in applied:
         if p.parts != after.parts:
             keep("parts", "적용 뒤 다시 고침")
         else:
@@ -1965,7 +2010,6 @@ def undo_plot_chat(p: Project, i: int, topic: str = "plot") -> tuple[list[str], 
         if act and e.status not in LOCKED:
             e.plot.act = act.name
     sync_candidates(p)
-    m.outcome, m.applied, m.plot_before, m.plot_after = "", [], None, None
     return done, kept, why
 
 # ---------- 3-2. 이야기 줄기: 메인에서 갈라지는 서브플롯 · 회상 · 외전 ----------
@@ -2369,6 +2413,7 @@ def _delete_last(p: Project, n: int, keep_plot: bool) -> list[str]:
     ep.edits, ep.hook, ep.illustrations = [], None, []
     findings.clear(ep)
     ep.candidate, ep.versions, ep.made_by, ep.time = None, [], None, StoryTime()
+    ep.events_done = []  # 본문이 없으니 쓴 사건 체크도 비운다
     p.foreshadow_clues = [c for c in p.foreshadow_clues if c.episode != n]  # 지운 본문 문장에 건 복선 근거
     p.chats = [c for c in p.chats if c.topic != f"text:{n}"]
     if chars:
@@ -2552,7 +2597,7 @@ def set_candidate(p: Project, n: int, text: str, req: RewriteRequest) -> TextVer
 
 
 def replace_text(ep: Episode, text: str, made_by: RewriteRequest | None = None) -> None:
-    """지금 본문을 versions 에 남기고 text 로 바꾼다. 검수 결과는 지난 판 것이라 지운다.
+    """지금 본문을 versions 에 남기고 text 로 바꾼다. 검수 결과는 지난 판 것이라 결정한 지적만 남긴다 (findings.new_version).
     상태 반영이 끝난 화는 반영을 그대로 두고 before_change 로 반영 뒤 고침만 표시한다."""
     done = ep.status == "finalized"
     if text == ep.text:
@@ -2562,7 +2607,7 @@ def replace_text(ep: Episode, text: str, made_by: RewriteRequest | None = None) 
         _keep_version(ep, TextVersion(id=_version_id(ep), at=_now(), text=ep.text, kind="previous", request=ep.made_by))
     before_change(ep)
     ep.text, ep.made_by, ep.status = text, made_by, "finalized" if done else "written"
-    findings.clear(ep)
+    findings.new_version(ep)
 
 
 def adopt_candidate(p: Project, n: int) -> None:
@@ -3080,6 +3125,137 @@ def apply_check(p: Project, r: ConsistencyReport, source: CheckSource = "api", w
     if not ep.text:
         raise ValueError(f"{r.episode}화 본문이 없어요")
     return findings.merge(ep, r.issues, _now(), text_basis(ep.text), source, widen)
+
+
+# ---------- 5-0. 검수 지적 고치기: 고침안, 묶음 적용 · 되돌리기, 지적 하나 다시 검수 ----------
+# 고침안 하나는 지적한 문장과, 그 고침 때문에 함께 고칠 이 화의 다른 문장(딸린 곳)의 묶음이다. 한 번에 넣고 한 번에 되돌린다.
+# 지적 하나만 다시 검수하면 회차는 늘지 않고, 고친 문장 때문에 새로 어긋난 곳은 딸린 지적이 된다 (findings.settle).
+
+FIX_OPTIONS = 3  # 고침안 수
+
+
+def _open_finding(p: Project, n: int, fid: str) -> tuple[Episode, Finding]:
+    ep = _editable(p, n)
+    f = findings.find(ep, fid)
+    if f.status != "open":
+        raise ValueError(f"{fid}는 열린 지적이 아니에요. 다시 연 뒤에 하세요")
+    return ep, f
+
+
+def _decided(ep: Episode) -> list[Finding]:
+    return [g for g in ep.findings if g.status in findings.DECIDED]
+
+
+def clean_fixes(ep: Episode, f: Finding, fs: FixSet) -> list[FixOption]:
+    """쓸 수 없는 고침안과 딸린 곳을 뺀다: 빈 글, 원문과 같은 글, 겹치는 안, 본문에 없는 딸린 문장,
+    지적한 문장이나 다른 딸린 곳과 겹치는 딸린 곳."""
+    quote = f.current_quote.strip()
+    out: list[FixOption] = []
+    for o in fs.options:
+        text = o.text.strip()
+        if not text or text == quote or any(text == y.text for y in out):
+            continue
+        extra: list[FixPatch] = []
+        for x in o.extra:
+            q, rep = x.quote.strip(), x.replacement.strip()
+            if not q or q not in ep.text or rep == q or (quote and (q in quote or quote in q)):
+                continue
+            if any(q in y.quote or y.quote in q for y in extra):
+                continue
+            extra.append(FixPatch(quote=q, replacement=rep, reason=x.reason.strip()))
+        out.append(FixOption(label=o.label.strip() or f"고침안 {len(out) + 1}", text=text, note=o.note.strip(), extra=extra))
+    return out[:FIX_OPTIONS]
+
+
+def propose_fixes(llm: LLM, p: Project, n: int, fid: str) -> list[FixOption]:
+    """열린 지적 하나의 고침안을 받는다. 저장하지 않는다 (store_fixes 가 지적에 남긴다)."""
+    ep, f = _open_finding(p, n, fid)
+    if not f.current_quote.strip() or f.current_quote.strip() not in ep.text:
+        raise ValueError("지적한 문장을 지금 본문에서 찾을 수 없어요. 이미 고쳤으면 이 지적만 다시 검수하세요")
+    fs = llm.json(prompts.reviser_system(p), prompts.fix_prompt(p, n, f, _decided(ep)), FixSet,
+                  hint={"episode": n, "quote": f.current_quote, "text": ep.text})
+    opts = clean_fixes(ep, f, fs)
+    if not opts:
+        raise ValueError("쓸 수 있는 고침안이 없었어요. 다시 받거나 직접 고치세요")
+    return opts
+
+
+def store_fixes(p: Project, n: int, fid: str, opts: list[FixOption]) -> Finding:
+    """받은 고침안을 지적에 남긴다. 지금 본문 지문을 함께 남겨, 본문이 바뀌면 화면이 오래된 안으로 보인다."""
+    ep = p.episode(n)
+    f = findings.find(ep, fid)
+    f.fixes, f.fixes_basis = opts, text_basis(ep.text)
+    findings.log(f, _now(), "fix", f"고침안 {len(opts)}개 받음")
+    return f
+
+
+def _group_id(ep: Episode) -> str:
+    nums = [int(e.group[1:]) for e in ep.edits if e.group[1:].isdigit()]
+    return f"x{max(nums, default=0) + 1}"
+
+
+def apply_fix(p: Project, n: int, fid: str, k: int, skip: list[int] | None = None, confirm: bool = False) -> list[TextEdit]:
+    """k 번째 고침안을 넣는다: 지적한 문장과, skip 에 없는 딸린 곳을 한 묶음(TextEdit.group)으로.
+    작가가 그대로 둠 · 잘못 짚음으로 정한 지적의 문장을 바꾸면 confirm 없이는 막는다.
+    지적 상태는 바꾸지 않는다 (이 지적만 다시 검수가 닫는다)."""
+    ep, f = _open_finding(p, n, fid)
+    if not 0 <= k < len(f.fixes):
+        raise KeyError(f"{fid}에 {k + 1}번 고침안이 없어요")
+    opt = f.fixes[k]
+    skip = set(skip or [])
+    chosen = opt.model_copy(update={"extra": [x for i, x in enumerate(opt.extra) if i not in skip]})
+    patches = [(f.current_quote.strip(), opt.text), *((x.quote, x.replacement) for x in chosen.extra)]
+    missing = [q for q, _ in patches if q not in ep.text]
+    if missing:
+        raise ValueError(f"고침안을 받은 뒤 본문이 바뀌어 «{missing[0][:30]}»을 찾을 수 없어요. 고침안을 다시 받으세요")
+    hit = [g.id for g in ep.findings if g.id in findings.touches(ep, f, chosen) and g.status in findings.DECIDED]
+    if hit and not confirm:
+        raise ValueError(f"이 고침안은 그대로 두기로 정한 지적({', '.join(hit)})의 문장도 바꿔요. 그래도 적용하려면 확인하고 다시 적용하세요")
+    group = _group_id(ep)
+    edits = []
+    for q, after in patches:
+        e = edit_text(p, n, Selection(start=ep.text.find(q), text=q), after, "fix", instruction=f"{fid} · {opt.label}")
+        e.group = group
+        edits.append(e)
+    f.fix_group = group
+    findings.log(f, _now(), "fix", f"고침안 적용 · {opt.label}" + (f" · 딸린 곳 {len(patches) - 1}곳 함께" if len(patches) > 1 else ""))
+    return edits
+
+
+def undo_fix(p: Project, n: int, group: str) -> tuple[list[TextEdit], list[TextEdit]]:
+    """고침안 묶음을 한 번에 되돌린다. 그 뒤에 같은 자리를 또 고친 곳은 남긴다. (되돌린 것, 남긴 것)."""
+    ep = _editable(p, n)
+    es = [e for e in ep.edits if e.group == group and not e.undone]
+    if not es:
+        raise KeyError(f"되돌릴 고침안 묶음이 없어요: {group}")
+    done, left = [], []
+    for e in reversed(es):
+        try:
+            undo_edit(p, n, e.id)
+            done.append(e)
+        except ValueError:
+            left.append(e)
+    if not done:
+        raise ValueError("고침안을 넣은 뒤 같은 자리를 또 고쳐 되돌릴 수 없어요")
+    for f in ep.findings:
+        if f.fix_group == group:
+            f.fix_group = ""
+            findings.log(f, _now(), "undo", "고침안 되돌림" + (f" · {len(left)}곳은 그 뒤에 또 고쳐 남김" if left else ""))
+    return done, left
+
+
+def recheck_finding(llm: LLM, p: Project, n: int, fid: str) -> FindingRecheck:
+    """열린 지적 하나만 다시 묻는다. 저장하지 않는다 (apply_recheck). 작가가 그 지적 때문에 넣은 고침안 묶음을 함께 보인다."""
+    ep, f = _open_finding(p, n, fid)
+    changes = [(e.before, e.after) for e in ep.edits if f.fix_group and e.group == f.fix_group and not e.undone]
+    return llm.json(prompts.SYSTEM_CHECKER, prompts.recheck_prompt(p, n, f, changes, _decided(ep)), FindingRecheck,
+                    hint={"episode": n, "quote": f.current_quote, "text": ep.text})
+
+
+def apply_recheck(p: Project, n: int, fid: str, res: FindingRecheck) -> list[Finding]:
+    """지적 하나만 다시 검수한 결과를 넣는다 (findings.settle). 새로 생긴 딸린 지적을 돌려준다."""
+    ep = p.episode(n)
+    return findings.settle(ep, findings.find(ep, fid), res, _now())
 
 
 def style_baseline(p: Project) -> metrics.StyleMetrics:

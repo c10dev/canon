@@ -125,6 +125,16 @@ function deviceBadges(n) {
   return styleBadges(n) + (typeof mentionBox === 'function' ? mentionBox(n) : '');
 }
 
+/** 집필 화면 본문 띠의 '문체 장치' 메뉴: 장치 · 금지 표현 목록(styleBadges)과 본문 속 이름(mentionBox)을 펼침 창에 담는다.
+    둘 다 없으면 빈 글. 좁은 화면에서는 짧은 이름(.lbl-s)을 보인다 */
+function styleMenu(n) {
+  if (!deviceBadges(n)) return '';
+  const k = markable() ? (P().style.devices || []).filter((d) => (d.name || '').trim()).length : 0;
+  const [long, short] = markable() ? ['문체 장치', '문체'] : ['본문 속 이름', '이름'];
+  const label = `<span class="lbl-l">${long}</span><span class="lbl-s" aria-hidden="true">${short}</span>${k ? ` ${k}` : ''} ${CHEVRON}`;
+  return menuBtn('marks', label, () => deviceBadges(n), { cls: 'btn small', aria: `${long}${k ? ` ${k}개` : ''}` });
+}
+
 function styleBadges(n) {
   if (!markable()) return '';
   const text = textNow(n);
@@ -193,6 +203,10 @@ function syncMarks() {
   if (window.ResizeObserver) {
     layerObs = new ResizeObserver(() => paintLayer());
     layerObs.observe(ta);
+    // 웹 폰트는 처음 보는 글자가 나올 때 늦게 들어와 줄을 다시 바꾼다. 본문 칸 크기는 그대로라 칸만 지켜보면
+    // 끝까지 내렸을 때 옮길 거리(--hl-max)가 옛 값으로 남아 밑줄이 아래로 밀린다. 밑줄 글의 높이도 지켜본다
+    const inner = ta.parentElement.querySelector('.hl-in');
+    if (inner) layerObs.observe(inner);
   }
 }
 
@@ -250,7 +264,7 @@ document.addEventListener('click', (e) => {
     const n = Number(ta.dataset.draft);
     const r = allRanges(n, ta.value).find((x) => x.a <= p && p <= x.b);
     if (!r) return;
-    if (r.key.startsWith('i:')) return actions.selectIssue(r.key.slice(2));  // 검수 화면: 그 지적을 고르고 문장으로 도구를 띄운다
+    if (r.key.startsWith('i:')) return actions.chkOpen(r.key.slice(2));  // 검수 화면: 그 지적을 고르고 문장에서 고치는 창을 띄운다 (check.js)
     const s = sentenceAt(ta.value, r.a, r.b);
     S.selTool = { n, start: s.start, text: ta.value.slice(s.start, s.end), mode: 'menu', hint: markHint(r) };
     showTool();
