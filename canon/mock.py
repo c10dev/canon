@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from typing import TypeVar
+from typing import Callable, TypeVar
 
 from pydantic import BaseModel
 
@@ -93,6 +93,18 @@ from .schema import (
 )
 
 T = TypeVar("T", bound=BaseModel)
+
+# 기능 모듈이 자기 스키마의 가짜 응답을 따로 둔다 (mock_play.py, mock_birth.py). MockLLM.json 이 먼저 찾는다.
+# 새 기능의 가짜 응답은 이 파일의 if 줄을 늘리지 않고 mock_<기능>.py 에 @responds(스키마) 로 두고, 맨 아래에서 불러온다.
+RESPONDERS: dict[type, Callable[[str, dict], BaseModel]] = {}
+
+
+def responds(schema: type[BaseModel]):
+    """fn(prompt, hint) 을 schema 의 가짜 응답으로 등록한다."""
+    def wrap(fn: Callable[[str, dict], BaseModel]) -> Callable[[str, dict], BaseModel]:
+        RESPONDERS[schema] = fn
+        return fn
+    return wrap
 
 
 def _delay() -> None:
@@ -482,6 +494,8 @@ class MockLLM:
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
         _delay()
         hint = hint or {}
+        if schema in RESPONDERS:
+            return RESPONDERS[schema](prompt, hint)  # type: ignore[return-value]
         if schema is SetupSuggestion:
             return SetupSuggestion(
                 theme="상실을 받아들이는 용기", tone="잔잔하지만 긴장감 있는",
@@ -712,3 +726,7 @@ def _broken(out: str) -> str:
         if isinstance(v, list) and v and isinstance(v[0], dict):
             d[k] = [": ".join(str(x) for x in item.values())[:80] for item in v]
     return json.dumps(d, ensure_ascii=False)
+
+
+# 기능별 가짜 응답 등록 (RESPONDERS). 위의 responds 를 쓰므로 맨 끝에서 불러온다
+from . import mock_birth, mock_play  # noqa: E402,F401

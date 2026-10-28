@@ -45,19 +45,24 @@ function viewProjects() {
       <a href="#/p/${enc(y.name)}"><strong>${esc(y.branch.label || y.name)}</strong> <span class="small">${y.branch.from_ep}화부터 · ${y.finalized} / ${y.episodes}화 · ${esc(projectNext(y))}</span></a>
       <span class="small">폴더 ${esc(y.name)}${y.updated_at ? ` · 고친 때 ${fmtDateTime(y.updated_at)}` : ''}</span>
       ${manage(y, y.branch.label || y.name)}</li>`;
-  const cards = branchGroups(list).map(({ card: x, branches }) => `<div class="card tight proj-card">
+  // 플레이 사본은 세계 작품 카드 안에 묶는다 (play.js playRows). 세계 작품을 지웠으면 따로 한 카드에
+  const works = list.filter((x) => !x.play);
+  const playsOf = (name) => list.filter((y) => y.play && y.play.world === name);
+  const lost = list.filter((y) => y.play && !works.some((x) => x.name === y.play.world));
+  const cards = branchGroups(works).map(({ card: x, branches }) => `<div class="card tight proj-card">
       <a href="#/p/${enc(x.name)}" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:6px">
       <div class="between"><h3>${esc(x.title || x.name)}</h3><span class="small">${x.finalized} / ${x.episodes}화</span></div>
-      <div class="small">${x.form === 'serial' ? '장편' : '단편'} · ${esc(projectNext(x))}${branches.length ? ` · 갈래 ${branches.length}개` : ''}</div>
+      <div class="small">${x.form === 'serial' ? '장편' : '단편'} · ${esc(projectNext(x))}${branches.length ? ` · 갈래 ${branches.length}개` : ''}${playsOf(x.name).length ? ` · 플레이 ${playsOf(x.name).length}개` : ''}</div>
       <div class="small">${esc(x.genre || '장르 미정')} · 폴더 ${esc(x.name)}${x.updated_at ? ` · 고친 때 ${fmtDateTime(x.updated_at)}` : ''}</div></a>
       ${manage(x, x.title || x.name)}
       ${branches.length ? `<details class="branch-list"><summary class="small">갈래 ${branches.length}개 보기</summary><ul>${branches.map(branchRow).join('')}</ul></details>` : ''}
-    </div>`).join('');
+      ${playRows(playsOf(x.name), manage)}
+    </div>`).join('') + (lost.length ? `<div class="card tight proj-card"><h3>세계 작품을 찾지 못한 플레이</h3><span class="small">세계 작품을 지웠거나 이름을 바꿨어요. 플레이는 그대로 이어 갈 수 있어요</span>${playRows(lost, manage)}</div>` : '');
   const f = newForm();
   const err = S.newErr || {};
   const errOf = (k) => (err.field === k ? `<div class="small field-err" id="np-${k}-err" role="alert">${esc(err.msg)}</div>` : '');
   const bad = (k) => (err.field === k ? ` aria-invalid="true" aria-describedby="np-${k}-err"` : '');
-  return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편부터 300화 장편 연재까지 써요. 최근에 고친 작품부터 보여요.', `<a class="btn" href="#/styles">문체 라이브러리</a><a class="btn" href="#/usage">사용량 · 비용</a><a class="btn" href="#/settings">모델 · API 키 설정</a>`)}
+  return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편부터 300화 장편 연재까지 써요. 최근에 고친 작품부터 보여요.', `<a class="btn" href="#/play/new">새 플레이</a><a class="btn" href="#/styles">문체 라이브러리</a><a class="btn" href="#/usage">사용량 · 비용</a><a class="btn" href="#/settings">모델 · API 키 설정</a>`)}
     ${aiWarning() ? `<div class="note warn">${esc(aiWarning())} <a class="btn" href="#/settings">설정 열기</a></div>` : ''}
     ${list.length ? `<div class="grid-auto">${cards}</div>` : '<div class="note plain">아직 작품이 없어요. 아래에서 새 작품을 만드세요.</div>'}
     <form class="card" id="np-form" style="max-width:720px" novalidate>
@@ -301,6 +306,7 @@ function viewHome() {
       ${eps.some((e) => e.status === 'written') ? `<div class="note warn">${cur}화 본문이 작성됐어요. 상태 변경안을 승인해야 다음 화를 쓸 수 있어요. <a href="${base()}/review/${cur}" style="color:inherit;font-weight:700">${cur}화 상태 승인</a></div>` : ''}
     </section>
     ${branchHomeCard()}
+    ${playHomeCard()}
     <div class="grid-auto">
       <section class="card"><div class="between"><h2>인물 현재 상태</h2><span class="small">${fin ? fin + '화 기준' : '시작 시점'}</span></div>${states || '<div class="small">인물이 없어요</div>'}<a class="card-more" href="${base()}/cast">인물 · 관계 전체 보기</a></section>
       <section class="card">${relationHeader('관계')}${p.relationships.length ? relationLines(S.relations) : `<div class="small">관계가 없어요. <a href="${base()}/setup">설정 도우미</a>에서 관계를 추가하세요.</div>`}</section>
