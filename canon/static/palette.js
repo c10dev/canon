@@ -13,7 +13,6 @@ const PAL_CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
 
 (function palStyle() {
   const css = `
-.side .pal-open { min-height: 44px; min-width: 44px; }  /* 좁은 화면 사이드바 머리의 '찾기' (넓은 화면은 .menu-toggle 이라 숨는다). 손가락 누름 영역 44px */
 .pal-back { position: fixed; inset: 0; z-index: 45; display: flex; justify-content: center; align-items: flex-start; padding: 12vh 16px 16px; background: var(--overlay); }
 .pal { width: min(560px, 100%); max-height: 70vh; display: flex; flex-direction: column; background: var(--surface); color: var(--text); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.22); overflow: hidden; }
 .pal input#pal-q { min-height: 52px; border: none; border-bottom: 1px solid var(--line); border-radius: 0; padding: 0 16px; font-size: 1rem; }
