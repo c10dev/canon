@@ -60,7 +60,7 @@ class ClaudeCodeTest(unittest.TestCase):
         exe = self.dir / "claude"
         exe.write_text(FAKE.format(python=sys.executable), encoding="utf-8")
         exe.chmod(exe.stat().st_mode | stat.S_IXUSR)
-        claude._flags.cache_clear()
+        claude._probe.cache_clear()
         self.env = mock.patch.dict(os.environ, {
             "FAKE_CLAUDE_DIR": str(self.dir), "CANON_CLAUDE_BIN": str(exe), "CANON_CONFIG": str(self.dir / "config.json"),
             "CANON_USAGE": str(self.dir / "usage.jsonl"), "ANTHROPIC_API_KEY": "sk-ant-should-not-pass"})
@@ -135,6 +135,23 @@ class ClaudeCodeTest(unittest.TestCase):
         self.assertNotIn("--safe-mode", self.calls()[0]["args"])
         with self.assertRaisesRegex(claude.ClaudeCodeError, "claude update"):
             llm.json("s", "p", NameOptions)
+
+    def test_flags_reread_after_update(self):
+        # claude update 는 같은 링크가 새 파일을 가리키게 바꾼다. 서버를 다시 켜지 않아도 새 옵션을 읽는다
+        exe, new, link = self.dir / "claude", self.dir / "claude-new", self.dir / "claude-link"
+        new.write_bytes(exe.read_bytes())
+        new.chmod(exe.stat().st_mode)
+        link.symlink_to(exe)
+        (self.dir / "help.txt").write_text("--tools <tools...>", encoding="utf-8")
+        self.assertNotIn("--json-schema", claude._flags(str(link)))
+        (self.dir / "help.txt").unlink()
+        link.unlink()
+        link.symlink_to(new)
+        self.assertIn("--json-schema", claude._flags(str(link)))
+
+    def test_long_help_is_read_whole(self):
+        (self.dir / "help.txt").write_text("x" * 30000 + "\n--json-schema <schema>", encoding="utf-8")
+        self.assertIn("--json-schema", claude._flags(str(self.dir / "claude")))
 
     def test_status(self):
         st = claude.status()
