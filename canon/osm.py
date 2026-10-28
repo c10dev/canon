@@ -553,10 +553,7 @@ def _sea(chains: list[list[Point]], W: float, H: float) -> tuple[list[list[Point
             if pc[0] != pc[-1]:
                 pieces.append(pc)
     if not pieces:
-        if lands and not seas:
-            cover = [geom.clip_convex(r, box) for r in lands]
-            if any(abs(geom.area(c)) >= W * H * 0.999 for c in cover if len(c) >= 3):
-                return [], [], False  # 범위가 섬 안이다
+        if lands and not seas:  # 섬만 있다 (범위가 섬 안이면 고리가 범위 밖이라 여기 오지 않는다)
             seas = [box]
         return seas, lands, False
     ends = sorted([(rim.pos(pc[0]), 0) for pc in pieces] + [(rim.pos(pc[-1]), 1) for pc in pieces])
