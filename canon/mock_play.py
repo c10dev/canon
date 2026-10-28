@@ -13,7 +13,7 @@ def _scene(prompt: str, hint: dict) -> PlayScene:
     """hint: number(턴 Episode 번호), action(플레이어 행동, 첫 턴은 빈 값), luck(-2~2)."""
     n = hint.get("number", 0)
     action = (hint.get("action") or "").strip()
-    head = f"{action}. " if action else "눈을 떴다. "
+    head = f"{action.rstrip('.')}. " if action else "눈을 떴다. "  # 첫 턴 행동은 출생 실마리 문장이라 마침표로 끝날 수 있다
     luck = hint.get("luck", 0)
     mood = {-2: "모든 것이 어긋났다.", -1: "일이 조금 꼬였다.", 0: "별일은 없었다.", 1: "운이 따랐다.", 2: "놀랄 만큼 잘 풀렸다."}.get(luck, "")
     text = f"{head}바람이 불었다. {mood}\n\n\"이제 어떻게 할래?\"\n\n(mock {n}턴 장면)"
