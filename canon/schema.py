@@ -842,6 +842,8 @@ class Chat(BaseModel):
 # ---------- 검수 ----------
 
 IssueType = Literal["사실", "시간", "인물 정보", "말투", "세계관", "플롯", "동선", "시점"]
+Severity = Literal["crit", "mid", "low"]
+SEVERITY: dict[str, str] = {"crit": "치명", "mid": "보통", "low": "사소"}
 
 
 class ConsistencyIssue(BaseModel):
@@ -851,6 +853,7 @@ class ConsistencyIssue(BaseModel):
     source_quote: str = Field(description="앞선 근거 원문 그대로 (설정이면 해당 설정 문장)")
     current_quote: str = Field(description="이번 화에서 어긋난 문장 원문 그대로")
     suggestion: str = Field("", description="고치는 방법 제안")
+    severity: Severity = Field("mid", description="crit: 독자가 바로 알아챌 모순이거나 뒤 화 전개를 흔듦 / mid: 눈여겨 읽으면 보이는 어긋남 / low: 사소한 세부")
 
 
 HookAspect = Literal["첫 문단", "주인공", "전제", "설명 부담", "걸린 것", "장르 약속", "엔딩"]
@@ -937,14 +940,15 @@ class SceneCheck(BaseModel):
     issues: list[ConsistencyIssue] = Field(default_factory=list, description="상태표와 어긋나는 문장. 근거가 분명한 것만, 없으면 빈 목록")
 
 
-EditSource = Literal["manual", "ai", "typed", "impact"]
+EditSource = Literal["manual", "ai", "typed", "impact", "fix"]
 
 
 class TextEdit(BaseModel):
     """본문 부분 수정 기록. 되돌리기에 쓰고, 고치기 전후 쌍은 나중에 선호 · 미세 조정 자료로 쓸 수 있게 남긴다."""
     id: str
     at: str = ""
-    source: EditSource = Field("manual", description="manual: 고른 부분을 직접 고침 / ai: AI 후보를 고름 / typed: 본문을 직접 고쳐 저장 / impact: 인과율 영향 분석의 본문 수정")
+    source: EditSource = Field("manual", description="manual: 고른 부분을 직접 고침 / ai: AI 후보를 고름 / typed: 본문을 직접 고쳐 저장 / impact: 인과율 영향 분석의 본문 수정 / fix: 검수 지적의 고침안")
+    group: str = Field("", description="한 번에 넣은 수정 묶음 id (검수 고침안의 주 문장과 딸린 곳). 되돌리기도 묶음으로 한다")
     start: int = Field(0, description="고친 자리 (본문 안 글자 위치)")
     before: str = ""
     after: str = ""
@@ -984,6 +988,44 @@ FindingStatus = Literal["open", "fixed", "kept", "wrong"]
 FINDING_STATUS: dict[str, str] = {"open": "열림", "fixed": "고침", "kept": "그대로 둠", "wrong": "잘못 짚음"}
 
 
+class FixPatch(BaseModel):
+    """고침안이 함께 고치는 이 화의 다른 문장 하나 (딸린 곳)."""
+    quote: str = Field(description="함께 바꿀 이 화 본문 문장을 원문 그대로 (한두 문장)")
+    replacement: str = Field(description="고침안과 맞게 최소로 고친 문장")
+    reason: str = Field("", description="왜 함께 바꿔야 하는지 한 문장")
+
+
+class FixOption(BaseModel):
+    """지적 하나의 고침안: 지적한 문장을 대신할 글과, 그 때문에 함께 고칠 이 화의 다른 문장."""
+    label: str = Field(description="고침안 이름 2~8자 (예: 오른손으로 바꾸기)")
+    text: str = Field(description="지적한 문장(current_quote)을 대신할 새 글. 앞뒤 본문은 되풀이하지 않는다")
+    note: str = Field("", description="무엇을 어떻게 바꿨는지 한 줄")
+    extra: list[FixPatch] = Field(default_factory=list, description="이 고침 때문에 함께 바꿔야 하는 이 화의 다른 문장. 없으면 빈 목록")
+
+
+class FixSet(BaseModel):
+    """검수 지적 하나의 AI 고침안. 작가가 하나를 골라야 본문에 들어간다 (pipeline.apply_fix)."""
+    reply: str = Field("", description="작가에게 하는 짧은 답 1~2문장. 고침안들이 어떻게 다른지")
+    options: list[FixOption] = Field(default_factory=list, description="2~3개, 서로 다른 방향으로 고친 안")
+
+
+class FindingRecheck(BaseModel):
+    """지적 하나만 다시 검수한 결과. 회차를 늘리지 않는다 (pipeline.recheck_finding)."""
+    resolved: bool = Field(description="지적한 어긋남이 지금 본문에서 풀렸는지")
+    reason: str = Field(description="그렇게 본 까닭 한두 문장. 풀리지 않았으면 무엇이 아직 어긋나는지")
+    new_issues: list[ConsistencyIssue] = Field(default_factory=list, description="작가가 고친 문장 때문에 새로 어긋난 곳만. 원래 있던 다른 어긋남은 넣지 않는다")
+
+
+FindingEventKind = Literal["found", "again", "gone", "author", "fix", "undo", "recheck"]
+
+
+class FindingEvent(BaseModel):
+    """지적의 처리 기록 한 줄 (화면의 처리 기록)."""
+    at: str = ""
+    kind: FindingEventKind
+    text: str = ""
+
+
 class Finding(ConsistencyIssue):
     """검수 세션에 남는 지적 하나. 다시 검수해도 작가가 정한 상태와 메모를 지킨다 (findings.merge).
     LLM 이 채우지 않는다."""
@@ -992,8 +1034,15 @@ class Finding(ConsistencyIssue):
     note: str = Field("", description="작가 메모 (그대로 두거나 잘못 짚었다고 본 이유)")
     first: int = Field(1, description="처음 짚은 회차")
     last: int = Field(1, description="마지막으로 짚은 회차. 마지막 회차보다 작으면 그 회차가 짚지 않은 것")
-    closed_by: Literal["", "author", "recheck"] = Field("", description="author: 작가가 정함 / recheck: 다시 검수에서 문장이 사라져 고침")
+    closed_by: Literal["", "author", "recheck", "one"] = Field(
+        "", description="author: 작가가 정함 / recheck: 다시 검수에서 문장이 사라져 고침 / one: 이 지적만 다시 검수해 풀림")
     decided_at: str = ""
+    severity_by_author: bool = Field(False, description="작가가 심각도를 바꿨다. 다시 검수해도 AI 값으로 덮지 않는다")
+    parent: str = Field("", description="딸린 지적: 이 지적을 낳은 지적 id (그 지적을 고친 문장 때문에 새로 어긋남)")
+    fixes: list[FixOption] = Field(default_factory=list, description="마지막으로 받은 AI 고침안")
+    fixes_basis: str = Field("", description="고침안을 받을 때 본문 지문 (pipeline.text_basis). 지금 본문과 다르면 오래된 고침안")
+    fix_group: str = Field("", description="마지막으로 적용한 고침안의 수정 묶음 id (TextEdit.group)")
+    log: list[FindingEvent] = Field(default_factory=list, description="처리 기록 (최근 것만)")
 
 
 CheckSource = Literal["api", "chat", "auto"]
@@ -1009,6 +1058,10 @@ class CheckRound(BaseModel):
     found: int = Field(0, description="이 회차가 짚은 수")
     added: int = Field(0, description="그중 새 지적")
     kept_again: int = Field(0, description="그중 그대로 둠 · 잘못 짚음으로 정해 둔 지적 (상태는 그대로)")
+    added_ids: list[str] = Field(default_factory=list, description="이 회차에 새로 나온 지적 id")
+    again_ids: list[str] = Field(default_factory=list, description="이 회차가 다시 짚은 옛 지적 id")
+    gone_ids: list[str] = Field(default_factory=list, description="이 회차에 문장이 사라져 고침으로 닫은 지적 id")
+    superseded: bool = Field(False, description="이 회차 뒤에 본문을 새 판으로 바꿨다 (화면의 '새 판' 구분선)")
 
 
 class Episode(BaseModel):
@@ -1031,6 +1084,7 @@ class Episode(BaseModel):
     time: "StoryTime" = Field(default_factory=lambda: StoryTime(), description="이 화가 끝난 작품 속 시점. 상태 반영 때 채운다")
     realign: str = Field("", description="앞 화 플롯을 뒤 화에 맞추지 않고 다시 짜면서 이 화와 어긋나게 된 점. 이 화 플롯을 다시 짜거나 작가가 확인하면 비운다")
     opening_prev: Optional[EpisodePlot] = Field(None, description="1~3화 여는 방식 안을 처음 고르기 전 플롯 (되돌리기용). 되돌리면 비운다")
+    events_done: list[str] = Field(default_factory=list, description="집필 화면 플롯 띠에서 작가가 다 썼다고 체크한 사건의 글. 사건 글을 고치면 그 체크는 풀린다. 프롬프트에 넣지 않는다")
 
     @model_validator(mode="after")
     def _old_check(self) -> "Episode":
@@ -1432,7 +1486,7 @@ class MapPlace(BaseModel):
 
 class MapSpec(BaseModel):
     """지도 생성기 입력 (canon/towngen.py). 같은 값이면 언제나 같은 지도가 나온다."""
-    kind: Literal["village", "city", "realm"] = "village"
+    kind: Literal["village", "city", "modern", "realm"] = "village"
     seed: int = Field(1, ge=0, le=2**31 - 1)
     version: int = Field(0, description="이 지도를 만든 생성기 알고리즘 버전 (적용할 때 적는다)")
     size: Literal["small", "medium", "large"] = "medium"

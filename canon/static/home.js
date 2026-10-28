@@ -144,7 +144,9 @@ function nextStep() {
 /** 한 화의 검수 세션 (check.js 와 진행 막대가 함께 쓴다). checked: 한 번이라도 검수함, stale: 마지막 회차 뒤에 본문을 고침,
     open: 열린 지적 수 (findings.merge 가 합친 지적 중 status open), done: 검수했고 그 뒤 고치지 않았고 열린 지적이 없음. */
 function checkState(e) {
-  const lastEdit = [...(e.edits || [])].reverse().find((x) => !x.undone);
+  // 이 지적만 다시 검수로 풀린 고침안 묶음은 그 검수가 이미 본 수정이라 '검수 뒤 고침'으로 세지 않는다
+  const seen = new Set((e.findings || []).filter((f) => f.closed_by === 'one' && f.fix_group).map((f) => f.fix_group));
+  const lastEdit = [...(e.edits || [])].reverse().find((x) => !x.undone && !(x.group && seen.has(x.group)));
   const checked = !!e.checked_at;
   const stale = checked && !!(lastEdit && lastEdit.at > e.checked_at);
   const open = (e.findings || []).filter((f) => f.status === 'open').length;

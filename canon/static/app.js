@@ -30,6 +30,7 @@ const S = {
   textDraft: {},     // 화별 본문 편집 중인 값
   context: null,
   promptText: null,
+  popMenu: null,     // 열린 펼침 메뉴 id (menuBtn). 다시 그려도 열려 있고, 화면을 옮기면 닫는다
   briefTab: 'episode',
   briefText: null,
   mode: localStorage.getItem('canon.mode') || 'api',
@@ -632,7 +633,7 @@ function stackBottom() {
   st.setProperty('--jb', `${narrowScreen() || rv || document.body.classList.contains('chat-open') ? h($('#jobs')) : 0}px`);
   st.setProperty('--jh', `${ab || pa || rv ? h($('#jobs')) : 0}px`);
   const jh = h($('#jobs'));
-  st.setProperty('--jo', `${narrowScreen() ? 0 : jh}px`);  // 넓은 폭: 화면에 붙인 칸(집필 화면 왼쪽 칸)이 작업 목록 위에서 끝나게
+  st.setProperty('--jo', `${narrowScreen() ? 0 : jh}px`);  // 넓은 폭: 화면에 붙인 칸(상태 승인 오른쪽 열)이 작업 목록 위에서 끝나게
   st.setProperty('--jp', `${pa && jh ? jh + 20 : 0}px`);  // 버튼 줄 아래 여백(20px)까지 작업 목록 위로
   // 상태 승인 두 칸: 작업 목록 · 알림을 목차 칸 위에 그 폭으로 쌓고, 목차 칸은 그 위에서 끝낸다 (review.js rvRailFit)
   const rail = rv && !rvRight && !narrowScreen() ? $('#app .rv-rail').getBoundingClientRect() : null;
@@ -1424,6 +1425,81 @@ document.addEventListener('click', (e) => {
   if (fn) fn(arg !== undefined && /^\d+$/.test(arg) ? Number(arg) : arg);
 });
 
+// ---------- 펼침 메뉴 · 대화상자 ----------
+
+const CHEVRON = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m3 4.5 3 3 3-3"></path></svg>';  // 메뉴 버튼의 ▾
+
+/** 버튼 + 펼침 창(디자인 시스템 '펼침 버튼 + 패널'). 열린 메뉴는 S.popMenu 에 두어 화면을 다시 그려도 열려 있다.
+    body 는 열렸을 때만 부르는 함수. 창 안 [data-action] 을 누르면 닫히고, 라디오 · 체크박스는 열어 둔다.
+    role="menu" 는 쓰지 않는다: 창 안에 라디오 · 체크박스 · 나눔 버튼이 섞인다 */
+function menuBtn(id, label, body, { cls = 'btn', aria = '', title = '', align = '' } = {}) {
+  const open = S.popMenu === id;
+  return `<div class="pop" data-menu="${id}"><button type="button" class="${cls}" aria-expanded="${open}" aria-controls="pop-${id}" data-action="menuToggle" data-arg="${id}"${aria ? ` aria-label="${esc(aria)}"` : ''}${title ? ` title="${esc(title)}"` : ''}>${label}</button>${open ? `<div class="pop-panel${align ? ` ${align}` : ''}" id="pop-${id}">${body()}</div>` : ''}</div>`;
+}
+
+function closeMenu(focus = false) {
+  if (!S.popMenu) return;
+  if (focus) S.focusTarget = `#app [data-action="menuToggle"][data-arg="${CSS.escape(S.popMenu)}"]`;
+  S.popMenu = null;
+  render();
+}
+
+// 바깥을 누르거나 창 안 동작을 누르면 닫는다. 동작보다 먼저 닫아 동작이 그리는 화면에 창이 남지 않게 capture 로 듣는다
+document.addEventListener('click', (e) => {
+  if (!S.popMenu || !e.target.closest) return;
+  const mn = e.target.closest('[data-menu]');
+  if (mn && mn.dataset.menu === S.popMenu && !e.target.closest('.pop-panel [data-action]')) return;
+  if (e.target.closest('[data-action="menuToggle"]')) return;  // 다른 메뉴 버튼: menuToggle 이 바꾼다
+  S.popMenu = null;
+  setTimeout(render);
+}, true);
+
+// Esc 는 열린 메뉴를 먼저 닫고 메뉴 버튼으로 포커스를 돌린다. 대화 패널(chat.js)의 Esc 보다 먼저 받는다
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.isComposing || !S.popMenu) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  closeMenu(true);
+}, true);
+
+/** #app 밖의 <dialog>. 화면을 다시 그려도 열려 있다. 닫으면 열기 전 포커스로 돌아간다 (abilities.js abDialog 와 같은 방식).
+    연 요소가 그사이 사라졌으면(메뉴 항목) back 선택자로 찾은 곳으로 */
+function showDialog(id, html, back = '') {
+  let el = document.getElementById(id);
+  if (!el) {
+    el = document.createElement('dialog');
+    el.id = id;
+    el.className = 'w-dialog';
+    el.setAttribute('aria-labelledby', `${id}-title`);
+    el.addEventListener('click', (e) => { if (e.target === el) el.close(); });  // 바깥(배경)을 누르면 닫는다
+    document.body.appendChild(el);
+  }
+  const f = document.activeElement;
+  const fid = el.contains(f) && f.id;  // 다시 채워도 고치던 칸에 포커스를 남긴다
+  el.innerHTML = html;
+  if (fid && document.getElementById(fid)) document.getElementById(fid).focus();
+  if (!el.open) {
+    const from = document.activeElement;
+    el.onclose = () => {
+      const to = from && from.isConnected ? from : back && document.querySelector(`#app ${back}`);
+      if (to && to.focus) to.focus();
+    };
+    el.showModal();
+  }
+  return el;
+}
+
+Object.assign(actions, {
+  menuToggle(id) {
+    S.popMenu = S.popMenu === id ? null : id;
+    render();
+  },
+  closeDialog(id) {
+    const el = document.getElementById(id);
+    if (el && el.open) el.close();
+  },
+});
+
 // ---------- 라우팅 ----------
 
 // 화 번호로 키를 잡는 화면 상태는 작품마다 따로 둔다. 다른 작품으로 가면 지금 것을 보관하고 그 작품 것을 꺼낸다
@@ -1545,6 +1621,7 @@ async function routeNow() {
   const goingTo = [...document.querySelectorAll('.nav a')].find((a) => a.getAttribute('href') === location.hash);
   if (goingTo) goingTo.setAttribute('aria-current', 'page');
   S.menuOpen = false;
+  S.popMenu = null;
   // 다른 화면으로 옮기면 제목으로 포커스를 옮겨 스크린리더가 새 화면을 읽고, 다음 Tab 이 본문에서 시작하게 한다
   const here = location.hash.split('/').slice(0, 4).join('/');
   if (here !== lastRoute) S.focusTarget = '#app main h1';
@@ -1816,6 +1893,7 @@ function drawApp() {
   if (typeof syncPassage === 'function') syncPassage();
   if (typeof syncIllust === 'function') syncIllust();
   if (typeof syncMarks === 'function') syncMarks();
+  if (typeof syncWriteTop === 'function') syncWriteTop();
   if (typeof syncLines === 'function') syncLines();
   document.querySelectorAll('textarea[data-autogrow]').forEach(autosize);
   // 상태 승인 지시서 탭이 바뀌면 다시 불러온다

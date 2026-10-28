@@ -1,4 +1,4 @@
-/* 복사 · 내보내기 (집필 화면). 본문을 다른 사이트에 붙여 넣기 좋게 다듬어 클립보드에 넣거나 .txt 로 내려받는다.
+/* 복사 · 내보내기 (집필 화면 본문 띠의 분할 복사 버튼과 '여러 화 내보내기' 대화상자). 본문을 다른 사이트에 붙여 넣기 좋게 다듬어 클립보드에 넣거나 .txt 로 내려받는다.
    다듬는 규칙은 서버 canon/publish.py 한 곳에 있고, 여기서는 고른 형식으로 요청해 텍스트와 HTML 을 함께 복사한다.
    서식 있는 편집기(블로그, 플랫폼 에디터)는 HTML 을, 메모장 같은 곳은 텍스트를 받아 문단이 그대로 남는다. */
 'use strict';
@@ -22,32 +22,42 @@ function writtenNums() {
   return P().episodes.filter((e) => e.text || liveDraft(e.plot.number) !== undefined).map((e) => e.plot.number);
 }
 
-/** 집필 화면 왼쪽 칸의 '복사 · 내보내기' 카드. */
-function exportCard(n) {
+/** 집필 화면 본문 띠의 분할 복사 버튼: '복사'는 고른 형식으로 이 화를 복사하고, ▾ 메뉴에서 형식 · 제목 줄 · .txt · 여러 화 내보내기를 고른다. */
+function copySplit(n) {
+  return `<div class="split"><button type="button" class="btn small" data-action="copyEp" data-arg="${n}" title="고른 줄바꿈 형식으로 복사해요 (▾에서 바꿔요)">복사</button>${menuBtn('copy', CHEVRON, () => copyMenu(n), { cls: 'btn small', aria: '복사 설정과 내보내기' })}</div>`;
+}
+
+function copyMenu(n) {
+  const fmts = S.copyFormats || [];
   const nums = writtenNums();
-  if (!nums.length) return '';
+  const r = copyRangeOf(nums);
+  return `<fieldset class="pop-sec"><legend class="pop-legend">줄바꿈 형식</legend>
+      ${fmts.map((f) => `<label class="pop-radio" for="copy-fmt-${esc(f.id)}"><input type="radio" name="copy-fmt" id="copy-fmt-${esc(f.id)}" value="${esc(f.id)}" data-copy="fmt"${f.id === S.copyFmt ? ' checked' : ''}><span><span>${esc(f.label)}</span>${f.id === S.copyFmt && f.hint ? `<span class="small">${esc(f.hint)}</span>` : ''}</span></label>`).join('')}
+    </fieldset>
+    <div class="pop-sec"><label class="pop-check" for="copy-title"><input type="checkbox" id="copy-title" data-copy="title"${S.copyTitle ? ' checked' : ''}> 맨 위에 '${n}화. 제목' 줄 넣기</label></div>
+    <div class="pop-sep" role="separator"></div>
+    <button type="button" class="pop-item" data-action="downloadTxt" data-arg="${n}-${n}">이 화 .txt로 내려받기</button>
+    ${nums.length ? `<button type="button" class="pop-item" data-action="openExport" aria-haspopup="dialog">여러 화 내보내기…<span class="small">${r.from}~${r.to}화</span></button>` : ''}`;
+}
+
+/** '여러 화 내보내기' 대화상자. 형식과 제목 줄은 복사 메뉴와 같은 값을 쓴다. */
+function exportDialogHtml() {
+  const nums = writtenNums();
   const r = copyRangeOf(nums);
   const last = nums[nums.length - 1];
   const bad = r.from > r.to;
   const inv = bad ? ' aria-invalid="true" aria-describedby="copy-range-err"' : '';
-  const fmts = S.copyFormats || [];
-  const hint = (fmts.find((f) => f.id === S.copyFmt) || {}).hint || '';
-  const has = nums.includes(n);
-  return `<div class="export">
-    <h3>복사 · 내보내기</h3>
-    <div class="field"><label for="copy-fmt" class="small">줄바꿈 형식</label>
-      <select id="copy-fmt" data-copy="fmt">${fmts.map((f) => `<option value="${esc(f.id)}"${f.id === S.copyFmt ? ' selected' : ''}>${esc(f.label)}</option>`).join('')}</select>
-      ${hint ? `<span class="small">${esc(hint)}</span>` : ''}</div>
-    <label class="row small" style="gap:6px"><input type="checkbox" data-copy="title"${S.copyTitle ? ' checked' : ''}> 맨 위에 '${n}화. 제목' 줄 넣기</label>
-    ${has ? `<div class="row" style="gap:6px"><button type="button" class="btn small" data-action="copyEp" data-arg="${n}">이 화 복사</button>
-      <button type="button" class="btn small" data-action="downloadTxt" data-arg="${n}-${n}">.txt</button></div>` : ''}
-    <div class="row small" style="gap:6px;margin-top:4px">여러 화
+  const fmt = ((S.copyFormats || []).find((f) => f.id === S.copyFmt) || {}).label || S.copyFmt;
+  return `<div class="dlg-body">
+    <div class="between"><strong id="w-export-title">여러 화 내보내기</strong><button type="button" class="btn small" data-action="closeDialog" data-arg="w-export">닫기</button></div>
+    <div class="dlg-range"><span class="small">범위</span>
       <input type="number" id="copy-from" class="ep-num" min="1" max="${last}" value="${r.from}" data-copy="from" aria-label="시작 화"${inv}>~
       <input type="number" id="copy-to" class="ep-num" min="1" max="${last}" value="${r.to}" data-copy="to" aria-label="끝 화"${inv}>화</div>
     ${bad ? `<span class="small warn-text" id="copy-range-err">시작 화가 끝 화보다 커요. ${r.to}~${r.from}화로 바꿔 보세요</span>` : ''}
-    <div class="row" style="gap:6px"><button type="button" class="btn small" data-action="copyRange"${bad ? ' disabled' : ''}>한꺼번에 복사</button>
-      <button type="button" class="btn small" data-action="downloadTxt" data-arg="${r.from}-${r.to}"${bad ? ' disabled' : ''}>.txt 내려받기</button></div>
-    <span class="small">여러 화는 화마다 제목 줄을 넣어 잇고, 본문이 없는 화는 건너뛰어요.</span>
+    <div class="note plain">줄바꿈 형식은 <strong>${esc(fmt)}</strong>예요. 화마다 제목 줄을 넣어 잇고, 본문이 없는 화는 건너뛰어요. 형식은 복사 ▾ 메뉴에서 바꿔요.</div>
+    <div class="row" style="justify-content:flex-end;gap:8px">
+      <button type="button" class="btn" data-action="downloadTxt" data-arg="${r.from}-${r.to}"${bad ? ' disabled' : ''}>.txt 내려받기</button>
+      <button type="button" class="btn primary" data-action="copyRange"${bad ? ' disabled' : ''}>한꺼번에 복사</button></div>
   </div>`;
 }
 
@@ -114,6 +124,9 @@ Object.assign(actions, {
   copyEp(n) {
     copyEpisodes([Number(n)]);
   },
+  openExport() {
+    showDialog('w-export', exportDialogHtml(), '[data-action="menuToggle"][data-arg="copy"]');
+  },
   copyRange() {
     const nums = writtenNums();
     const r = copyRangeOf(nums);
@@ -133,5 +146,7 @@ document.addEventListener('change', (e) => {
     const last = nums[nums.length - 1];
     S.copyRange[S.name] = { ...copyRangeOf(nums), [k]: Math.min(last, Math.max(1, Number(e.target.value) || 1)) };
   }
+  // 칸을 고치고 Tab 으로 옮길 때 change 가 먼저 온다. 포커스가 옮겨진 뒤 다시 채운다 (render 와 같은 까닭)
+  if (document.getElementById('w-export')?.open) setTimeout(() => showDialog('w-export', exportDialogHtml()));
   render();  // 내려받기 주소와 설명을 새 값으로
 });

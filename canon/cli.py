@@ -79,8 +79,8 @@ from pathlib import Path
 from . import (archetypes, autorun, branches, cast, charlog, dynamics, elements, genres, illust, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
                storylines, updater, usage)
 from .llm import dump, get_llm
-from .schema import FINDING_STATUS, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
-from . import abilities, atlas, citygen, findings, stattrial, foreshadows, setupchat, statwin, timeline, towngen, travel
+from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
+from . import abilities, atlas, findings, stattrial, foreshadows, setupchat, statwin, timeline, towngen, travel
 from . import birth, play
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StoryArc
 
@@ -943,14 +943,30 @@ def _strip_fence(raw: str) -> str:
     return re.sub(r"^```(?:json)?\s*|\s*```\s*$", "", raw.strip())
 
 
+SEVERITY_ARG = {label: key for key, label in SEVERITY.items()}  # 명령줄은 '치명' 처럼 한국어로도 받는다
+
+
 def cmd_check(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     marks = [(s, fid) for s, fid in (("kept", a.keep), ("wrong", a.wrong), ("fixed", a.fixed), ("open", a.reopen)) if fid]
-    if marks:
+    if marks or a.sev:
         for status, fid in marks:
             f = findings.set_status(p.episode(a.n), fid, status, a.note, pipeline._now())
             print(f"{f.id}: {FINDING_STATUS[status]}으로 정했어요" + (f" (메모: {f.note})" if f.note else ""))
+        if a.sev:
+            fid, level = a.sev
+            level = SEVERITY_ARG.get(level, level)
+            f = findings.set_severity(p.episode(a.n), fid, level, pipeline._now())
+            print(f"{f.id}: 심각도를 {SEVERITY[level]}으로 정했어요")
         store.save(a.name, p)
+    elif a.recheck:
+        print(f"{a.n}화 {a.recheck} 지적만 다시 검수 중...")
+        res = pipeline.recheck_finding(get_llm("check"), p, a.n, a.recheck)
+        kids = pipeline.apply_recheck(p, a.n, a.recheck, res)
+        store.save(a.name, p)
+        print(f"{a.recheck}: {'풀렸어요. 고침으로 닫았어요' if res.resolved else '아직 어긋나요'}" + (f" ({res.reason})" if res.reason else ""))
+        for k in kids:
+            print(f"  새로 어긋난 곳: {findings.line(p.episode(a.n), k)}\n    {a.n}화: {k.current_quote}")
     elif a.from_json:
         report = ConsistencyReport.model_validate_json(_strip_fence(Path(a.from_json).read_text(encoding="utf-8")))
         report.episode = a.n
@@ -990,7 +1006,8 @@ def _print_issues(p: Project, n: int, closed: bool = True) -> None:
         for f in rest:
             print(f"  {findings.line(ep, f)}" + (f" (메모: {f.note})" if f.note else ""))
     if opened:
-        print(f"정하기: python -m canon check <작품> {n} --keep <id> | --wrong <id> | --fixed <id> | --reopen <id> [--note 메모]")
+        print(f"정하기: python -m canon check <작품> {n} --keep <id> | --wrong <id> | --fixed <id> | --reopen <id> [--note 메모]"
+              f" | --sev <id> 치명|보통|사소 | --recheck <id>")
 
 
 def _num(v: float | None) -> str:
@@ -1287,7 +1304,8 @@ def cmd_auto(a: argparse.Namespace) -> None:
         for e in run.log[-15:]:
             print(f"  {e.at[11:19]} [{e.ep or '-'}화] {e.message}")
         return
-    policy = autorun.Policy(check=not a.no_check, max_issues=a.max_issues, max_shift=a.max_shift,
+    policy = autorun.Policy(check=not a.no_check, max_issues=a.max_issues, ignore_minor=a.ignore_minor,
+                            stop_on_critical=not a.no_stop_critical, max_shift=a.max_shift,
                             stop_on_stage=a.stop_on_stage, stop_on_warnings=a.stop_on_warnings,
                             confirm_plots=a.confirm_plots, review_every=a.review_every,
                             hand_pick_opening=not a.auto_opening)
@@ -1661,12 +1679,15 @@ def cmd_map(a: argparse.Namespace) -> None:
         change = {**{k: sug[k] for k in towngen.OPTIONS}, "places": places, **change}
     if kind == "city" and change.get("water", base.water) == "lake":
         change["water"] = "river"  # 도시 생성기는 호수를 강으로 본다
+    if kind == "modern" and change.get("water", base.water) in ("lake", "sea"):
+        change["water"] = "river"  # 현대 동네 생성기는 호수 · 바다를 하천으로 본다
     spec = base.model_copy(update={**change, "kind": kind, "seed": a.seed if a.seed is not None else random.randrange(1, 2**31 - 1)})
     word = atlas.MAKERS[kind][0]
     out = atlas.generate(p, spec)
     info = out["info"]
     walls = f" · 구역 {info['wards']}곳 · 성문 {info['gates']}곳" if kind == "city" else ""
-    print(f"{word} (시드 {spec.seed}): 집 {info['houses']}채 · 건물 {info['buildings']}채 · 길 {info['roads']}개"
+    homes = "" if kind == "modern" else f"집 {info['houses']}채 · "
+    print(f"{word} (시드 {spec.seed}): {homes}건물 {info['buildings']}채 · 길 {info['roads']}개"
           f"{f' · 다리 {info['bridges']}개' if info['bridges'] else ''}{walls} · 약 {info['width_m']}×{info['height_m']}m")
     print("  " + " · ".join(opts[k][getattr(spec, k)].split(" (")[0] for k in ("size", "roads", "water", "fields", "forest") if k in opts))
     kinds = {cid: label for cid, label, _ in towngen.CATEGORIES}
@@ -2282,6 +2303,8 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--fixed", metavar="ID", help="이 지적을 고침으로")
     sp.add_argument("--reopen", metavar="ID", help="이 지적을 다시 열림으로")
     sp.add_argument("--note", default=None, help="--keep · --wrong 과 함께: 왜 그런지 메모")
+    sp.add_argument("--sev", nargs=2, metavar=("ID", "LEVEL"), help="이 지적의 심각도: 치명 | 보통 | 사소 (crit | mid | low)")
+    sp.add_argument("--recheck", metavar="ID", help="이 지적만 다시 검수 (회차는 늘지 않음)")
     sp = add("stats", cmd_stats, yes=False)
     sp.add_argument("n", type=int, nargs="?")
     sp = add("run", cmd_run)
@@ -2291,6 +2314,8 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--batch", action="store_true", help="Gemini Batch API 로 (비용 절반, 단계마다 몇 분~최대 24시간)")
     sp.add_argument("--no-check", action="store_true", help="검수를 건너뜀")
     sp.add_argument("--max-issues", type=int, default=0, help="검수 어긋남이 이보다 많으면 멈춤 (기본 0)")
+    sp.add_argument("--ignore-minor", action="store_true", help="검수 어긋남을 셀 때 심각도 '사소'는 세지 않음")
+    sp.add_argument("--no-stop-critical", action="store_true", help="심각도 '치명'인 어긋남이 있어도 개수만 봄 (기본: 하나라도 있으면 멈춤)")
     sp.add_argument("--max-shift", type=float, default=0.3, help="관계 온기·신뢰가 한 화에 이보다 많이 바뀌면 멈춤 (0: 안 봄)")
     sp.add_argument("--stop-on-stage", action="store_true", help="관계 단계가 바뀌면 멈춤")
     sp.add_argument("--stop-on-warnings", action="store_true", help="상태 변경안 경고가 있으면 멈춤")
@@ -2418,12 +2443,14 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--numbers", action="store_true", help="관계를 숫자로")
     sp = add("map", cmd_map)
     sp.add_argument("action", nargs="?", choices=["gen", "travel"],
-                    help="gen: 마을 · 도시 생성기로 지도 만들기, travel: 이동 시간 검사 보기 · 설정. 비우면 지도 보기")
-    sp.add_argument("kind", nargs="?", choices=list(atlas.MAKERS), help="만들 지도: village 마을, city 도시. 비우면 지난번 지도 종류 (--ai 면 AI 제안)")
+                    help="gen: 마을 · 도시 · 현대 동네 생성기로 지도 만들기, travel: 이동 시간 검사 보기 · 설정. 비우면 지도 보기")
+    sp.add_argument("kind", nargs="?", choices=list(atlas.MAKERS),
+                    help="만들 지도: village 마을, city 도시, modern 현대 동네. 비우면 지난번 지도 종류 (--ai 면 AI 제안)")
     sp.add_argument("--seed", type=int, help="같은 시드면 같은 지도. 비우면 새로 뽑는다")
     for key, opts in towngen.OPTIONS.items():
-        city = citygen.OPTIONS.get(key)
-        sp.add_argument(f"--{key}", help=", ".join(label.split(" (")[0] for label in opts.values()) + ("" if city else " (마을만)"))
+        users = [m[0] for m in atlas.MAKERS.values() if key in m[1].OPTIONS]
+        only = "" if len(users) == len(atlas.MAKERS) else f" ({' · '.join(users)}만)"
+        sp.add_argument(f"--{key}", help=", ".join(label.split(" (")[0] for label in opts.values()) + only)
     sp.add_argument("--move", action="store_true", help="이미 지도에 놓은 장소도 생성기가 고른 자리로 옮기기")
     sp.add_argument("--ai", action="store_true", help="AI가 작품 설정과 장소 설명을 보고 설정 칸 · 장소 종류를 제안 (직접 적은 칸이 이긴다)")
     sp.add_argument("--mode", choices=list(travel.MODES), help="travel: 이 세계에서 가장 빠른 탈것 (" + ", ".join(f"{k} {v}" for k, v in travel.MODE_NAMES.items()) + ")")

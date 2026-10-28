@@ -17,6 +17,10 @@ from .schema import (
     ClaimSet,
     ConsistencyIssue,
     ConsistencyReport,
+    FindingRecheck,
+    FixOption,
+    FixPatch,
+    FixSet,
     Direction,
     PlantedContradiction,
     SceneBeat,
@@ -390,6 +394,20 @@ def _illust(hint: dict) -> IllustDraft:
                        caption="A girl stands before a lighthouse at night.", negative=["umbrella"], rating="general")
 
 
+def _fixes(hint: dict) -> FixSet:
+    """지적 문장을 두 방향으로 고친 척한다. 둘째 안은 바로 뒤 문장을 딸린 곳으로 함께 고친다. 원문 그대로인 안은 걸러져야 한다."""
+    quote, text = hint["quote"].strip(), hint.get("text", "")
+    base = quote.rstrip(".!?”\"")  # 고친 글에 원래 문장이 그대로 남지 않게 끝을 바꾼다
+    sents = [x.strip() for x in re.findall(r"[^.!?\n]+[.!?”\"]*", text) if x.strip()]
+    after = next((sents[i + 1] for i, x in enumerate(sents) if quote in x and i + 1 < len(sents)), "")
+    extra = [FixPatch(quote=after, replacement=f"{after} (함께 고침)", reason="고친 문장과 맞춘다")] if after and after not in quote else []
+    return FixSet(reply="두 방향으로 고쳤어요.", options=[
+        FixOption(label="짧게 고치기", text=f"{base} — 고침", note="문장만 고침"),
+        FixOption(label="뒤 문장까지", text=f"{base} — 고침 2", note="뒤 문장도 맞춤", extra=extra),
+        FixOption(label="그대로", text=quote, note="원문 그대로 (걸러져야 함)"),
+    ])
+
+
 def _passage(hint: dict) -> PassageRevision:
     """고른 부분을 두 방향으로 바꾼 척한다: 요청을 덧붙인 것과, 앞 절반만 남긴 것."""
     src = hint["selection"].strip()
@@ -621,6 +639,11 @@ class MockLLM:
                                source=ref)  # type: ignore[return-value]
         if schema is PassageRevision:
             return _passage(hint)  # type: ignore[return-value]
+        if schema is FixSet:
+            return _fixes(hint)  # type: ignore[return-value]
+        if schema is FindingRecheck:  # 지적한 문장이 본문에서 바뀌었으면 풀린 것으로 본다
+            gone = hint["quote"].strip() not in hint.get("text", "")
+            return FindingRecheck(resolved=gone, reason="문장이 바뀌어 어긋남이 풀렸어요" if gone else "문장이 그대로예요")  # type: ignore[return-value]
         if schema is HookReport:
             return _hook(hint)  # type: ignore[return-value]
         if schema is OpeningPlots:
