@@ -20,8 +20,8 @@ import math
 from pathlib import Path
 from typing import Optional
 
-from . import bldgs, cast, citygen, elements, geom, moderngen, naming, osm, towngen, travel
-from .schema import BuildingNote, MapPin, MapSpec, NewPlace, PlaceLink, PlaceSort, Project
+from . import bldgs, cast, citygen, elements, fill, geom, moderngen, naming, osm, placekinds, towngen
+from .schema import BuildingNote, MapFill, MapPin, MapSpec, NewPlace, PlaceLink, PlaceSort, Project
 
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
 IMAGE_LIMIT = 15 * 1024 * 1024
@@ -124,7 +124,8 @@ def unmatched(p: Project, fs: list[dict]) -> list[dict]:
 
 
 def summary(p: Project, layout: Optional[dict] = None) -> dict:
-    """지도 화면 한 번에 필요한 계산값. layout(read_layout 결과)을 주면 옮겨 간 인물에 길 따라 걸은 경로를 붙인다."""
+    """지도 화면 한 번에 필요한 계산값. layout(read_layout 결과)을 주면 옮겨 간 인물에 길 따라 걸은 경로를 붙인다.
+    이동 시간 검사 칸(travel.view)은 web.atlas_view 가 places · frames 로 붙인다 (atlas 는 travel 을 가져오지 않는다)."""
     pls = places(p)
     pins = {pin.place: [pin.x, pin.y] for pin in p.atlas.pins}
     for pl in pls:
@@ -137,8 +138,7 @@ def summary(p: Project, layout: Optional[dict] = None) -> dict:
     aspect = round(layout["w"] / layout["h"], 4) if layout else p.atlas.aspect  # 마을 데이터가 있으면 마을을 그린다
     return {"places": pls, "frames": fs, "unmatched": unmatched(p, fs), "image": p.atlas.image,
             "aspect": aspect, "links": [ln.model_dump() for ln in p.atlas.links],
-            "layout": layout_info(p, layout) if layout else None, "title": village_title(p, layout) if layout else None,
-            "travel": travel.view(p, fs, pls)}
+            "layout": layout_info(p, layout) if layout else None, "title": village_title(p, layout) if layout else None}
 
 
 # ---------- 마을 · 도시 데이터 (Watabou 생성기 JSON) ----------
@@ -255,7 +255,7 @@ def enrich(p: Project, lo: dict, seed) -> dict:
 
 def building(p: Project, layout: dict, i: int) -> dict:
     """건물 하나의 정보: 생성기 값에 작가가 고친 값(Atlas.buildings)을 덮는다. 곁채는 본채 정보를 쓴다.
-    돌려주는 것: {i, main, use, label, group, floors, people, street, no, addr, tenants, name, note, residents, place, edited}.
+    돌려주는 것: {i, main, use, label, group, floors, people, street, no, addr, tenants, name, note, residents, place, edited, made}.
     addr · tenants 는 OpenStreetMap 지도의 실제 주소 · 입점한 곳 (없으면 빈 값)."""
     blds = layout.get("blds") or []
     if not 0 <= i < len(blds):
@@ -271,7 +271,8 @@ def building(p: Project, layout: dict, i: int) -> dict:
             "floors": b.get("floors", 1), "people": b.get("people", 0), "street": st, "no": b.get("no", 0),
             "addr": b.get("addr", ""), "tenants": list(b.get("tenants", [])),
             "name": (mine.name if mine and mine.name else "") or b.get("name", ""), "note": mine.note if mine else "",
-            "residents": list(mine.residents) if mine else [], "place": b.get("place", ""), "edited": bool(mine)}
+            "residents": list(mine.residents) if mine else [], "place": b.get("place", ""), "edited": bool(mine),
+            "made": bool(b.get("made"))}
 
 
 def building_counts(p: Project, layout: dict) -> list[tuple[str, int]]:
@@ -314,7 +315,7 @@ def layout_info(p: Project, layout: dict) -> dict:
     return {"file": p.atlas.layout, "roads": sum(r["kind"] == "road" for r in layout["roads"]),
             "bridges": sum(r["kind"] == "bridge" for r in layout["roads"]), "buildings": len(layout.get("buildings", [])),
             "width_m": round(layout["w"] * m), "height_m": round(layout["h"] * m), "meters": m,
-            "generator": layout.get("generator", ""), "source": layout.get("source", "")}
+            "generator": layout.get("generator", ""), "source": layout.get("source", ""), "made": fill.made_count(layout)}
 
 
 def road_graph(layout: dict) -> dict:
@@ -650,12 +651,157 @@ def name_ideas(p: Project, n: int = 6) -> list[str]:
     return [c.name for c in naming.generate_places(naming.resolve_style(p), n, exclude=have)]
 
 
+# ---------- 이름으로 자리 찾기 ----------
+
+FIND_LIMIT = 8  # 장소 하나에 보일 후보 수
+MARK_WORDS = {"bus": "버스 정류장", "entrance": "역 출입구"}  # 건물 쓰임이 아닌 표지 (osm._stop)
+
+
+# ---------- 장소가 놓인 건물 (프롬프트 줄 데이터, 글은 mapprompt.spot_block) ----------
+
+SPOT_NEAR = 25.0  # 핀이 건물 밖이면 이 거리(원래 단위) 안의 표지를 쓴다
+
+
+def spot_line(p: Project, layout: dict, x: float, y: float) -> str:
+    """0~1 자리가 든 건물의 한 줄: 이름(쓰임) · 층수 · 주소 · 입점한 곳 · 사는 인물 · 작가 메모.
+    건물 밖이면 SPOT_NEAR 안의 표지(역 · 정류장 등). 둘 다 없으면 빈 글."""
+    q = (x, y)
+    blds = layout.get("blds") or []
+    for i, poly in enumerate(layout.get("buildings") or []):
+        if i >= len(blds) or not (min(v[0] for v in poly) <= x <= max(v[0] for v in poly)
+                                  and min(v[1] for v in poly) <= y <= max(v[1] for v in poly)):
+            continue
+        if not geom.inside(q, [tuple(v) for v in poly]):
+            continue
+        b = building(p, layout, i)
+        out = [f"{b['name']} ({b['label']})" if b["name"] else b["label"], f"{b['floors']}층"]
+        where = b["addr"] or (f"{b['street']} {b['no']}" if b["street"] and b["no"] else b["street"])
+        if where:
+            out.append(where)
+        if b["tenants"]:
+            more = len(b["tenants"]) - 3
+            out.append("입점: " + ", ".join(b["tenants"][:3]) + (f" 외 {more}곳" if more > 0 else ""))
+        who = {c.id: c.name for c in p.characters}
+        if b["residents"]:
+            out.append("사는 인물: " + ", ".join(who.get(c, c) for c in b["residents"]))
+        if b["note"]:
+            out.append(" ".join(b["note"].split())[:80])
+        return " · ".join(out)
+    w, h = layout["w"], layout["h"]
+    best, line = SPOT_NEAR, ""
+    style = naming.resolve_style(p)
+    for m in layout.get("marks") or []:
+        d = math.hypot((m["x"] - x) * w, (m["y"] - y) * h)
+        if d < best:
+            use = m.get("use", "")
+            what = bldgs.label(use, style) if use in bldgs.USES else MARK_WORDS.get(use, "")
+            near = _road_near(layout, m["x"], m["y"])
+            best, line = d, " · ".join(t for t in [f"{m['name']} ({what})" if what else m["name"], near] if t)
+    return line
+
+
+def fill_spots(p: Project, layout: Optional[dict]) -> None:
+    """핀마다 놓인 건물 한 줄(MapPin.spot)을 다시 쓴다. 마을 데이터가 없으면 비운다.
+    핀 · 마을 데이터 · 건물 고치기 뒤에 부른다 (web, 명령줄, apply_generated)."""
+    for pin in p.atlas.pins:
+        pin.spot = spot_line(p, layout, pin.x, pin.y) if layout else ""
+
+
+def episode_spots(p: Project, n: int) -> list[tuple[str, str]]:
+    """n화를 쓰거나 검수할 때 넣는 장소의 건물 줄 데이터: 플롯에 이름이 나온 장소 가운데 건물 한 줄(MapPin.spot)이 있는 것의
+    (장소 이름, 한 줄), 플롯에 나온 차례. 글과 예산은 mapprompt.spot_block. 넣을 것이 없으면 빈 목록."""
+    spots = {pin.place: pin.spot for pin in p.atlas.pins if pin.spot}
+    ep = next((e for e in p.episodes if e.plot.number == n), None)
+    if not spots or ep is None:
+        return []
+    pls = places(p)
+    names = {pl["key"]: pl["name"] for pl in pls}
+    keys = [k for k in mentions("\n".join([ep.plot.title, ep.plot.summary, *ep.plot.events]), pls) if k in spots]
+    return [(names[k], spots[k]) for k in keys]
+
+
+def episode_block(p: Project, n: int, budget: int = 0) -> str:
+    """옛 이름 (시험이 부른다). 글은 mapprompt.spot_block 이 만든다. mapprompt 가 atlas 를 가져오므로 함수 안에서 가져온다."""
+    from . import mapprompt
+
+    return mapprompt.spot_block(p, n, budget)
+
+
+def _road_near(layout: dict, x: float, y: float, within: float = 60.0) -> str:
+    """0~1 자리에서 within(원래 단위) 안의 가장 가까운 이름 있는 길. 없으면 빈 글."""
+    w, h = layout["w"], layout["h"]
+    q = (x * w, y * h)
+    best, name = within, ""
+    for r in layout.get("roads") or []:
+        if not r.get("name"):
+            continue
+        for a, b in zip(r["points"], r["points"][1:]):
+            d = geom.seg_dist(q, (a[0] * w, a[1] * h), (b[0] * w, b[1] * h))
+            if d < best:
+                best, name = d, r["name"]
+    return f"{name} 옆" if name else ""
+
+
+def find_spots(p: Project, layout: dict) -> list[dict]:
+    """장소 이름 · 다른 이름과 같은 이름(띄어쓰기 무시, 두 글자 이상)의 건물 · 입점한 곳 · 표지(osm 의 marks)를 찾는다.
+    저장하지 않는다. 장소마다 {place, name, had(이미 놓음), options[{x, y, i, kind, what, near}], more(더 있는 수)}.
+    kind: building 건물 이름 · mark 건물 밖 표지(역 · 공원 등) · tenant 건물 안 가게.
+    건물 이름 → 역 → 다른 표지 → 출입구 · 정류장 → 입점 차례.
+    맞는 곳이 없는 장소는 뺀다."""
+    blds = layout.get("blds") or []
+    polys = layout.get("buildings") or []
+    streets = layout.get("streets") or []
+    style = naming.resolve_style(p)
+    mine = {x.i: x.name for x in p.atlas.buildings if x.name}
+    rows: list[tuple[str, str, dict]] = []  # (비교 키, kind, 후보)
+    for i, b in enumerate(blds):
+        if "of" in b or i >= len(polys) or len(polys[i]) < 3:
+            continue
+        cx, cy = geom.centroid([tuple(q) for q in polys[i]])
+        st = streets[b["street"]]["name"] if isinstance(b.get("street"), int) and b["street"] < len(streets) else ""
+        near = b.get("addr") or st
+        name = mine.get(i) or b.get("name", "")
+        base = {"x": round(cx, 6), "y": round(cy, 6), "i": i, "near": near}
+        if name:
+            rows.append((naming.place_key(name), "building", {**base, "what": f"건물 '{name}'"}))
+        where = name or bldgs.label(b.get("use", "building"), style)
+        for t in b.get("tenants") or []:
+            if t != name:
+                rows.append((naming.place_key(t), "tenant", {**base, "what": f"'{where}' 안의 {t}"}))
+    for m in layout.get("marks") or []:
+        use = m.get("use", "")
+        what = bldgs.label(use, style) if use in bldgs.USES else MARK_WORDS.get(use, "이름 붙은 곳")
+        opt = {"x": m["x"], "y": m["y"], "i": -1, "near": "", "what": f"{m['name']} ({what})"}
+        kind = "station" if use == "station" else "stop" if use in MARK_WORDS else "mark"
+        rows.append((naming.place_key(m["name"]), kind, opt))
+        if use == "station" and not m["name"].endswith("역"):  # OSM 역 이름은 '강남'처럼 '역'을 뺀다
+            rows.append((naming.place_key(m["name"] + "역"), kind, opt))
+    order = {"building": 0, "station": 1, "mark": 2, "stop": 3, "tenant": 4}
+    pins = {pin.place for pin in p.atlas.pins}
+    out = []
+    for pl in places(p):
+        keys = {k for k in (naming.place_key(t) for t in [pl["name"], *pl["aliases"]]) if len(k) >= 2}
+        hits, seen = [], set()
+        for k, kind, opt in sorted((r for r in rows if r[0] in keys), key=lambda r: order[r[1]]):
+            spot = opt["i"] if opt["i"] >= 0 else (opt["x"], opt["y"])
+            if spot not in seen:
+                seen.add(spot)
+                hits.append({**opt, "kind": "mark" if kind in ("station", "stop") else kind})
+        for opt in hits[:FIND_LIMIT]:
+            if opt["i"] < 0:  # 건물 밖 표지는 가까운 길 이름으로 가린다 (같은 이름 정류장이 여럿)
+                opt["near"] = _road_near(layout, opt["x"], opt["y"])
+        if hits:
+            out.append({"place": pl["key"], "name": pl["name"], "had": pl["key"] in pins,
+                        "options": hits[:FIND_LIMIT], "more": max(0, len(hits) - FIND_LIMIT)})
+    return out
+
+
 # ---------- 지도 만들기 (마을 생성기 canon/towngen.py, 도시 생성기 canon/citygen.py, 현대 동네 생성기 canon/moderngen.py) ----------
 
 MODERN_STYLES = ("korea_modern", "japan", "sf")  # 건물 고치기 칸에 현대 쓰임을 보이는 이름 스타일
 MAKERS = {"village": ("마을", towngen, towngen.village), "city": ("도시", citygen, citygen.city),
           "modern": ("현대 동네", moderngen, moderngen.neighborhood)}
-# MapSpec.kind → (화면 이름, 생성기 모듈(OPTIONS · VERSION), 만드는 함수). 왕국은 다음 단계
+# MapSpec.kind → (화면 이름, 생성기 모듈(OPTIONS · VERSION · ZONES), 만드는 함수). 왕국은 다음 단계
 
 
 def _maker(kind: str):
@@ -669,10 +815,10 @@ def gen_places(p: Project, spec: Optional[MapSpec] = None) -> list[dict]:
     mine = {x.key: x for x in (spec.places if spec else [])}
     out = []
     for pl in places(p):
-        found, word = towngen.classify(pl["name"], pl["description"])
+        found, word = placekinds.classify(pl["name"], pl["description"])
         m = mine.get(pl["key"])
-        kind = m.kind if m and m.kind in towngen.CATEGORY_IDS else found
-        put = m.put if m and m.put is not None else towngen.default_put(kind)
+        kind = m.kind if m and m.kind in placekinds.CATEGORY_IDS else found
+        put = m.put if m and m.put is not None else placekinds.default_put(kind)
         out.append({"key": pl["key"], "name": pl["name"], "kind": kind, "found": found, "word": word, "put": put})
     return out
 
@@ -681,7 +827,7 @@ def default_spec(p: Project) -> MapSpec:
     """지도 만들기 입력. 만든 적이 있으면 그 입력, 없으면 기본값에 물만 장소를 보고 정한다 (등대 · 어시장이면 바다)."""
     if p.atlas.spec:
         return p.atlas.spec
-    return MapSpec(water=towngen.water_for(gen_places(p)))
+    return MapSpec(water=placekinds.water_for(gen_places(p)))
 
 
 def gen_info(p: Project) -> dict:
@@ -694,8 +840,8 @@ def gen_info(p: Project) -> dict:
     return {"spec": spec.model_dump(), "made": p.atlas.spec is not None, "places": gen_places(p, spec),
             "maps": [{"id": k, "label": m[0]} for k, m in MAKERS.items()],
             "options": {k: m[1].OPTIONS for k, m in MAKERS.items()},
-            "kinds": [{"id": cid, "label": label} for cid, label, _ in towngen.CATEGORIES],
-            "version": {k: m[1].VERSION for k, m in MAKERS.items()}, "wards": {**citygen.WARD_KINDS, **moderngen.ZONES},
+            "kinds": [{"id": cid, "label": label} for cid, label, _ in placekinds.CATEGORIES],
+            "version": {k: m[1].VERSION for k, m in MAKERS.items()}, "wards": {k: v for m in MAKERS.values() for k, v in m[1].ZONES.items()},
             "uses": {u: [bldgs.label(u, style), grp] for u, (_, grp) in bldgs.USES.items()},
             "modern": list(bldgs.MODERN), "modern_style": style in MODERN_STYLES}
 
@@ -739,12 +885,13 @@ def apply_generated(folder: Path, p: Project, spec: MapSpec, take: list[str]) ->
     old = p.atlas.layout
     if old != fname:
         p.atlas.buildings = []  # 건물 번호가 바뀌므로 고친 건물도 비운다
-    p.atlas.layout, p.atlas.meters = fname, 1.0
+    p.atlas.layout, p.atlas.meters, p.atlas.fill = fname, 1.0, None
     p.atlas.layout_size = [out["layout"]["w"], out["layout"]["h"]]
     p.atlas.spec = spec.model_copy(update={"version": _maker(spec.kind)[1].VERSION})
     chosen = set(take)
     keep = [pin for pin in p.atlas.pins if pin.place not in chosen]
     set_pins(p, keep + [MapPin(place=s["place"], x=s["x"], y=s["y"]) for s in out["pins"] if s["place"] in chosen])
+    fill_spots(p, out["layout"])
     return old if old and old != fname else ""
 
 
@@ -752,6 +899,44 @@ def set_meters(p: Project, meters: float) -> None:
     if not 0.01 <= meters <= 1000:
         raise ValueError("축척은 1단위에 0.01~1000m 사이로 정하세요")
     p.atlas.meters = round(float(meters), 3)
+
+
+# ---------- 빈 블록 채우기 (OpenStreetMap 지도, canon/fill.py) ----------
+
+def fill_preview(layout: dict, seed: int) -> dict:
+    """빈 블록 채우기 미리보기 (저장하지 않음): {seed, blocks, buildings, empty, areas, added, had(지금 지은 건물 수)}.
+    areas · added 는 채울 블록과 지을 건물 다각형 (0~1)."""
+    _, st = fill.fill(layout, seed)
+    return {"seed": seed, **st, "had": fill.made_count(layout)}
+
+
+def made_count(layout: dict) -> int:
+    """빈 블록에 지은 건물 수."""
+    return fill.made_count(layout)
+
+
+def apply_fill(folder: Path, p: Project, layout: dict, seed: int) -> dict:
+    """빈 블록을 채워 지도 파일을 다시 쓴다. 지은 건물은 건물 끝에 붙어 OSM 건물 번호와 고친 건물은 그대로다
+    (전에 지은 건물을 고친 기록만 지운다). 돌려주는 것: {seed, blocks, buildings, empty}."""
+    out, st = fill.fill(layout, seed)
+    _write_fill(folder, p, out, fill.base_count(layout))
+    p.atlas.fill = MapFill(seed=seed, rule="villa")
+    return {"seed": seed, **{k: st[k] for k in ("blocks", "buildings", "empty")}}
+
+
+def clear_fill(folder: Path, p: Project, layout: dict) -> int:
+    """지은 건물을 지워 지도 파일을 다시 쓴다. 돌려주는 것: 지운 건물 수."""
+    n = fill.made_count(layout)
+    _write_fill(folder, p, fill.clear(layout), fill.base_count(layout))
+    p.atlas.fill = None
+    return n
+
+
+def _write_fill(folder: Path, p: Project, lo: dict, base: int) -> None:
+    enrich(p, lo, p.atlas.layout)  # 올릴 때와 같은 시드 (파일 이름)
+    (folder / p.atlas.layout).write_text(json.dumps(lo, ensure_ascii=False), encoding="utf-8")
+    p.atlas.buildings = [x for x in p.atlas.buildings if x.i < base]
+    fill_spots(p, lo)
 
 
 # ---------- 작가가 고치기 ----------

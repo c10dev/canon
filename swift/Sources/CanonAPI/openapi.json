@@ -7493,6 +7493,48 @@
     }
    }
   },
+  "/api/projects/{name}/atlas/find-spots": {
+   "get": {
+    "summary": "Atlas Find Spots",
+    "description": "이름으로 자리 찾기: 장소 이름과 같은 이름의 건물 · 입점한 곳 · 표지 (atlas.find_spots). 저장하지 않는다.",
+    "operationId": "atlas_find_spots",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Atlas Find Spots"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/atlas/pins": {
    "put": {
     "summary": "Atlas Pins",
@@ -17028,6 +17070,12 @@
       "type": "number",
       "title": "Y",
       "default": 0.5
+     },
+     "spot": {
+      "type": "string",
+      "title": "Spot",
+      "description": "놓인 건물 · 표지 한 줄 (atlas.spot_line, 쓰기 · 검수 프롬프트의 atlas.episode_block). 핀 · 마을 데이터 · 건물을 바꿀 때 다시 쓴다",
+      "default": ""
      }
     },
     "type": "object",

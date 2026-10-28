@@ -35,6 +35,7 @@
   python -m canon time 내소설           작품 속 시간: 화별로 끝난 시점과 기한 (--date 2024-03-04, --add '축제@7' 이나 '축제@2024-03-10', --close ID)
   python -m canon map 내소설            지도: 장소, 인물별로 옮겨 다닌 길, 장소와 맞지 않은 위치 글
   python -m canon map 내소설 gen --size 보통 --water 강   마을 생성기로 마을 만들기 (--seed, --roads, --fields, --forest, --move, --ai)
+  python -m canon map 내소설 fill                    OpenStreetMap 지도의 빈 블록을 지은 건물로 채우기 (--seed, --clear)
   python -m canon update 내소설 3       상태 변경안 확인 후 반영
   python -m canon run 내소설            확정된 화를 순서대로 write → check → update
   python -m canon auto 내소설 --to 12 [--batch]   목표 화까지 자동 집필 (정책에 걸리면 멈춤, --resume 으로 이어 가기)
@@ -80,7 +81,7 @@ from . import (archetypes, autorun, branches, cast, charlog, dynamics, elements,
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
-from . import abilities, atlas, findings, stattrial, foreshadows, setupchat, statwin, timeline, towngen, travel
+from . import abilities, atlas, findings, stattrial, foreshadows, setupchat, statwin, timeline, placekinds, travel
 from . import birth, play, tofix
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StoryArc
 
@@ -1639,6 +1640,15 @@ def cmd_cast(a: argparse.Namespace) -> None:
     print("\n인물 하나를 자세히 보려면: cast <작품> <인물 id나 이름>")
 
 
+def _map_options() -> dict[str, dict[str, str]]:
+    """모든 지도 종류(atlas.MAKERS)의 설정 칸: 칸 이름 → 그 칸을 처음 가진 생성기의 값 이름. 명령줄 --size 등."""
+    out: dict[str, dict[str, str]] = {}
+    for m in atlas.MAKERS.values():
+        for key, opts in m[1].OPTIONS.items():
+            out.setdefault(key, opts)
+    return out
+
+
 def _map_option(key: str, value: str | None, kind: str = "village") -> str | None:
     """--size 보통 처럼 화면 이름이나 id(medium)를 받아 id 로. kind: 지도 종류 (도시는 길 모양 칸이 없다)."""
     if not value:
@@ -1660,6 +1670,9 @@ def cmd_map(a: argparse.Namespace) -> None:
     if a.action == "travel":
         _map_travel(a, p)
         return
+    if a.action == "fill":
+        _map_fill(a, p, folder)
+        return
     if a.action != "gen":
         print(atlas.describe(p, atlas.load_layout(folder, p)))
         return
@@ -1667,7 +1680,7 @@ def cmd_map(a: argparse.Namespace) -> None:
     sug = pipeline.suggest_map(get_llm("plan"), p, base.model_copy(update={"kind": a.kind}) if a.kind else base) if a.ai else None
     kind = a.kind or (sug["kind"] if sug else base.kind)
     opts = atlas.MAKERS[kind][1].OPTIONS
-    change = {k: v for k, v in ((k, _map_option(k, getattr(a, k), kind)) for k in towngen.OPTIONS) if v}
+    change = {k: v for k, v in ((k, _map_option(k, getattr(a, k), kind)) for k in _map_options()) if v}
     if sug:  # AI 제안을 채우고, 직접 적은 칸(--size 등)이 이긴다
         print(f"AI 제안: {sug['reason']}" if sug["reason"] else "AI 제안을 받았어요")
         for g in sug["places"]:
@@ -1676,7 +1689,7 @@ def cmd_map(a: argparse.Namespace) -> None:
         mine = {x.key: x for x in base.places}
         places = [*(MapPlace(key=g["key"], kind=g["kind"], put=g["put"]) for g in sug["places"]),
                   *(x for k, x in mine.items() if k not in {g["key"] for g in sug["places"]})]
-        change = {**{k: sug[k] for k in towngen.OPTIONS}, "places": places, **change}
+        change = {**{k: sug[k] for k in _map_options()}, "places": places, **change}
     if kind == "city" and change.get("water", base.water) == "lake":
         change["water"] = "river"  # 도시 생성기는 호수를 강으로 본다
     if kind == "modern" and change.get("water", base.water) in ("lake", "sea"):
@@ -1690,7 +1703,7 @@ def cmd_map(a: argparse.Namespace) -> None:
     print(f"{word} (시드 {spec.seed}): {homes}건물 {info['buildings']}채 · 길 {info['roads']}개"
           f"{f' · 다리 {info['bridges']}개' if info['bridges'] else ''}{walls} · 약 {info['width_m']}×{info['height_m']}m")
     print("  " + " · ".join(opts[k][getattr(spec, k)].split(" (")[0] for k in ("size", "roads", "water", "fields", "forest") if k in opts))
-    kinds = {cid: label for cid, label, _ in towngen.CATEGORIES}
+    kinds = {cid: label for cid, label, _ in placekinds.CATEGORIES}
     take = [s["place"] for s in out["pins"] if a.move or not s["had"]]
     for s in out["pins"]:
         note = "" if s["place"] in take else " (지도에 놓은 자리가 있어 그대로 둬요. 옮기려면 --move)"
@@ -1705,6 +1718,36 @@ def cmd_map(a: argparse.Namespace) -> None:
     print(f"저장: {store.save(a.name, p)}")
     if old and (folder / old).is_file():
         (folder / old).unlink()
+
+
+def _map_fill(a: argparse.Namespace, p, folder) -> None:
+    """map <작품> fill: OpenStreetMap 지도의 빈 블록을 지은 건물로 채운다 (canon/fill.py). --clear 는 지은 건물을 지운다."""
+    layout = atlas.load_layout(folder, p)
+    if layout is None:
+        sys.exit("지도 데이터가 없어요. 먼저 OpenStreetMap 파일을 올려 주세요")
+    had = atlas.made_count(layout)
+    if a.clear:
+        if not had:
+            print("지은 건물이 없어요")
+            return
+        if not confirm(f"지은 건물 {had}채를 지울까요?", a.yes):
+            return
+        atlas.clear_fill(folder, p, layout)
+        print(f"지은 건물 {had}채를 지웠어요. 저장: {store.save(a.name, p)}")
+        return
+    seed = a.seed if a.seed is not None else random.randrange(1, 2**31 - 1)
+    pre = atlas.fill_preview(layout, seed)
+    if not pre["buildings"]:
+        print(f"채울 빈 블록이 없어요 (빈 블록 {pre['empty']}곳에 건물이 들어갈 자리가 없어요)" if pre["empty"] else "채울 빈 블록이 없어요")
+        return
+    print(f"빈 블록 채우기 (시드 {seed}): 빈 블록 {pre['empty']}곳 가운데 {pre['blocks']}곳에 건물 {pre['buildings']}채")
+    print("  OpenStreetMap에 없는 건물이에요. 이름 · 주소 · 입점은 짓지 않아요")
+    if had:
+        print(f"  지금 지은 건물 {had}채는 지우고 새로 지어요")
+    if not confirm("이대로 채울까요? 지도 데이터 파일이 바뀌어요", a.yes):
+        return
+    atlas.apply_fill(folder, p, layout, seed)
+    print(f"빈 블록 {pre['blocks']}곳에 건물 {pre['buildings']}채를 지어 채웠어요. 저장: {store.save(a.name, p)}")
 
 
 def _map_travel(a: argparse.Namespace, p) -> None:
@@ -2486,16 +2529,18 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("character", nargs="?", help="인물 id 나 이름. 비우면 인물 목록")
     sp.add_argument("--numbers", action="store_true", help="관계를 숫자로")
     sp = add("map", cmd_map)
-    sp.add_argument("action", nargs="?", choices=["gen", "travel"],
-                    help="gen: 마을 · 도시 · 현대 동네 생성기로 지도 만들기, travel: 이동 시간 검사 보기 · 설정. 비우면 지도 보기")
+    sp.add_argument("action", nargs="?", choices=["gen", "travel", "fill"],
+                    help="gen: 마을 · 도시 · 현대 동네 생성기로 지도 만들기, travel: 이동 시간 검사 보기 · 설정, "
+                         "fill: OpenStreetMap 지도의 빈 블록 채우기. 비우면 지도 보기")
     sp.add_argument("kind", nargs="?", choices=list(atlas.MAKERS),
                     help="만들 지도: village 마을, city 도시, modern 현대 동네. 비우면 지난번 지도 종류 (--ai 면 AI 제안)")
     sp.add_argument("--seed", type=int, help="같은 시드면 같은 지도. 비우면 새로 뽑는다")
-    for key, opts in towngen.OPTIONS.items():
+    for key, opts in _map_options().items():
         users = [m[0] for m in atlas.MAKERS.values() if key in m[1].OPTIONS]
         only = "" if len(users) == len(atlas.MAKERS) else f" ({' · '.join(users)}만)"
         sp.add_argument(f"--{key}", help=", ".join(label.split(" (")[0] for label in opts.values()) + only)
     sp.add_argument("--move", action="store_true", help="이미 지도에 놓은 장소도 생성기가 고른 자리로 옮기기")
+    sp.add_argument("--clear", action="store_true", help="fill: 지은 건물 지우기")
     sp.add_argument("--ai", action="store_true", help="AI가 작품 설정과 장소 설명을 보고 설정 칸 · 장소 종류를 제안 (직접 적은 칸이 이긴다)")
     sp.add_argument("--mode", choices=list(travel.MODES), help="travel: 이 세계에서 가장 빠른 탈것 (" + ", ".join(f"{k} {v}" for k, v in travel.MODE_NAMES.items()) + ")")
     sp.add_argument("--span", type=float, help="travel: 지도 가로가 몇 km 인지 (마을 데이터가 없을 때). 0 이면 모름")

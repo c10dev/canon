@@ -1593,6 +1593,7 @@ class MapPin(BaseModel):
     place: str = Field(description="장소 키: 인과율 장소 요소 id, 설정 장소 칸이면 'w:' + 이름")
     x: float = 0.5
     y: float = 0.5
+    spot: str = Field("", description="놓인 건물 · 표지 한 줄 (atlas.spot_line, 쓰기 · 검수 프롬프트의 atlas.episode_block). 핀 · 마을 데이터 · 건물을 바꿀 때 다시 쓴다")
 
 
 class PlaceLink(BaseModel):
@@ -1630,6 +1631,12 @@ class TravelSetting(BaseModel):
     ok: list[str] = Field(default_factory=list, description="작가가 '괜찮아요'로 둔 이동 ('인물 id:화'). 경고에서 뺀다")
 
 
+class MapFill(BaseModel):
+    """OpenStreetMap 지도의 빈 블록 채우기 입력 (canon/fill.py). 지울 때와 다시 만들 때 쓴다."""
+    seed: int = Field(1, description="채우기 시드. 같은 지도 · 같은 시드면 같은 건물")
+    rule: str = Field("villa", description="채우는 규칙 (fill.RULES): villa 는 빌라촌, 큰 블록은 아파트 단지")
+
+
 class Atlas(BaseModel):
     image: str = Field("", description="배경 그림 파일 이름 (projects/<작품>/map/ 아래). 비면 빈 캔버스")
     aspect: float = Field(1.5, description="지도 가로 / 세로. 배경 그림을 올리면 그림 비율")
@@ -1638,6 +1645,7 @@ class Atlas(BaseModel):
     layout: str = Field("", description="마을 · 도시 데이터 파일 이름 (projects/<작품>/map/ 아래, atlas.read_layout 으로 바꾼 길 · 건물). 비면 없음")
     meters: float = Field(1.0, description="마을 데이터 1단위가 몇 m 인지 (거리 · 걷는 시간 계산)")
     spec: Optional[MapSpec] = Field(None, description="지도 만들기로 만든 마을이면 그 입력. 파일을 올렸거나 지도가 없으면 비움")
+    fill: Optional[MapFill] = Field(None, description="빈 블록을 채운 OpenStreetMap 지도면 그 입력. 채우지 않았거나 지도 파일이 바뀌면 비움")
     title: str = Field("", description="지도 위에 적는 마을 이름. 비면 '마을 가운데' 종류의 장소 이름")
     buildings: list[BuildingNote] = Field(default_factory=list, description="작가가 고친 건물. 마을 데이터 파일이 바뀌면 비운다")
     span_km: float = Field(0, description="지도 가로가 몇 km 인지 (마을 데이터가 없을 때 이동 거리 계산). 0 이면 모름")

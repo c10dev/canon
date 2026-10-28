@@ -653,17 +653,17 @@ class MockLLM:
                         new.append(NewPlace(name=name, kind="건물", description="위치 글에서 나온 곳"))
             return PlaceSort(matches=out, new_places=new)  # type: ignore[return-value]
         if schema is MapSuggestion:  # 이름 단어로 종류를 고르고, 바다 쪽 장소가 있으면 바닷가 마을로. 화면에서 현대 동네를 골랐으면 현대 동네 (물은 하천)
-            from . import moderngen, towngen
+            from . import atlas, placekinds
 
-            guesses = [MapPlaceGuess(name=n, kind=towngen.classify(n)[0], put=towngen.classify(n)[0] != "far") for n in hint.get("places", [])]
-            rows = [{"kind": g.kind, "word": towngen.classify(g.name)[1], "put": g.put} for g in guesses]
-            water = towngen.water_for(rows)
+            guesses = [MapPlaceGuess(name=n, kind=placekinds.classify(n)[0], put=placekinds.classify(n)[0] != "far") for n in hint.get("places", [])]
+            rows = [{"kind": g.kind, "word": placekinds.classify(g.name)[1], "put": g.put} for g in guesses]
+            water = placekinds.water_for(rows)
             if hint.get("kind") == "modern":
                 water = "none" if water == "none" else "river"
                 return MapSuggestion(kind="modern", size="medium", roads="cross", water=water, fields="few", forest="some",  # type: ignore[return-value]
-                                     places=guesses, reason=f"고른 현대 동네에 맞춰 물을 {moderngen.OPTIONS['water'][water]}(으)로 정했어요.")
+                                     places=guesses, reason=f"고른 현대 동네에 맞춰 물을 {atlas.MAKERS['modern'][1].OPTIONS['water'][water]}(으)로 정했어요.")
             return MapSuggestion(size="small", roads="square", water=water, fields="some", forest="few", places=guesses,  # type: ignore[return-value]
-                                 reason=f"장소 목록을 보고 물을 {towngen.OPTIONS['water'][water]}(으)로 정했어요.")
+                                 reason=f"장소 목록을 보고 물을 {atlas.MAKERS['village'][1].OPTIONS['water'][water]}(으)로 정했어요.")
         if schema is BodySuggestion:
             return BodySuggestion(height="163cm", weight="50kg", build="마른 근육형", measurements="82-60-86",
                                   features="왼손잡이, 오른쪽 손목에 점", note="외모 칸의 흉터와 성격에 맞춰 활동적인 체형으로 정했어요.")  # type: ignore[return-value]

@@ -151,7 +151,7 @@ def test_web_atlas(tmp_path, monkeypatch):
     assert [f["episode"] for f in r["frames"]] == [0, 1, 2, 3] and r["image"] == "" and len(r["unmatched"]) == 1
 
     pr = c.put("/api/projects/w/atlas/pins", json={"pins": [{"place": "el-1", "x": 0.2, "y": 0.3}]}).json()
-    assert pr["atlas"]["pins"] == [{"place": "el-1", "x": 0.2, "y": 0.3}]
+    assert pr["atlas"]["pins"] == [{"place": "el-1", "x": 0.2, "y": 0.3, "spot": ""}]  # 마을 데이터가 없으면 건물 한 줄이 비어 있다
     pr = c.put("/api/projects/w/atlas/links", json={"text": "어딘지 모를 지하실", "place": "w:수산시장"}).json()
     assert pr["atlas"]["links"] == [{"text": "어딘지 모를 지하실", "place": "w:수산시장"}]
     assert c.put("/api/projects/w/atlas/links", json={"text": "x", "place": "nope"}).status_code == 400

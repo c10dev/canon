@@ -2,7 +2,9 @@
    장소(설정의 장소 칸, 인과율 '장소' 요소)를 지도 위에 놓고, 화별 인물 자리를 관계도처럼 슬라이더로 재생한다.
    계산값은 서버 canon/atlas.py 의 /atlas 한 번으로 받는다 (places, frames: 화별 인물 자리, unmatched: 장소와 맞지 않은 위치 글).
    장소 자리는 0~1 비율 좌표로 작품에 저장한다 (Project.atlas.pins). 배경 그림은 작품 폴더 map/ 에 파일로 둔다.
-   마을 데이터(Watabou 생성기 JSON, /atlas/layout)가 있으면 그림 대신 마을을 그리고, 옮겨 간 인물은 서버가 길 따라 찾은 경로(row.route)로 잇는다. */
+   마을 데이터(Watabou 생성기 JSON, /atlas/layout)가 있으면 그림 대신 마을을 그리고, 옮겨 간 인물은 서버가 길 따라 찾은 경로(row.route)로 잇는다.
+   이 파일은 지도 그림과 화면 뼈대(상태, 확대 · 이동, 옆 칸, 저장, 되돌리기, 공통 동작)다. 기능은 바로 뒤에 읽는 파일에 있다:
+   atlas-gen.js 지도 만들기, atlas-travel.js 이동 시간 검사, atlas-table.js 어디에 있었나 표 · 장소와 맞지 않은 위치, atlas-export.js 내보내기, atlas-find.js 이름으로 자리 찾기. */
 'use strict';
 
 /** 마을 겹 설정은 이 브라우저에만 기억한다 (못 읽으면 기본값) */
@@ -48,6 +50,7 @@ Object.assign(S, {
   atlasUseHi: '',    // 옆 칸 '건물 쓰임'에서 고른 쓰임 (지도에서 테두리로 강조)
   atlasTitleEdit: false,
   atlasIdeas: null,  // 새 장소 이름 후보 (서버 naming)
+  atlasFind: null,  // 이름으로 자리 찾기 { name, spots, pick } (atlasFindNow)
   atlasGen: null,    // 지도 만들기 { name, open, spec, preview, take: {장소 키: 새 자리에 놓기}, touched: 작가가 고친 칸, ai: AI 제안 { reason, notes } } (atlasGenState())
 });
 
@@ -68,7 +71,7 @@ async function atlasLoad() {
   S.atlas = await api('GET', `/projects/${enc(S.name)}/atlas`).catch((e) => ({ error: e.message, frames: [], places: [], unmatched: [] }));
   S.atlas.name = S.name;
   if (!same || wasLast || S.atlasFrame >= S.atlas.frames.length) S.atlasFrame = Math.max(0, S.atlas.frames.length - 1);
-  if (!same) { S.atlasPick = ''; S.atlasSel = ''; S.atlasFocus = ''; S.atlasDraft = {}; S.atlasNew = []; S.atlasView = { x: 0, y: 0, z: 1 }; S.atlasBld = null; S.atlasIdeas = null; S.atlasTitleEdit = false; S.atlasUseHi = ''; }
+  if (!same) { S.atlasPick = ''; S.atlasSel = ''; S.atlasFocus = ''; S.atlasDraft = {}; S.atlasNew = []; S.atlasView = { x: 0, y: 0, z: 1 }; S.atlasBld = null; S.atlasIdeas = null; S.atlasFind = null; S.atlasTitleEdit = false; S.atlasUseHi = ''; }
   const file = S.atlas.layout && S.atlas.layout.file;
   if (!file) S.atlasLayout = null;
   else if (!S.atlasLayout || S.atlasLayout.file !== file || S.atlasLayout.name !== S.name) {
@@ -85,6 +88,8 @@ window.addEventListener('hashchange', atlasStop);
 
 /** 지도 만들기 미리보기 중이면 그 결과 ({ layout, pins, missing, blocked, info }) */
 const atlasGenPreview = () => (S.atlasGen && S.atlasGen.name === S.name && S.atlasGen.preview) || null;
+/** 이름으로 자리 찾기를 열었으면 { spots: 서버 atlas.find_spots, pick: {장소 키: 후보 번호 | -1} } */
+const atlasFindNow = () => (S.atlasFind && S.atlasFind.name === S.name ? S.atlasFind : null);
 const atlasH = () => {
   const pv = atlasGenPreview();
   return Math.round(ATLAS_W / (pv ? pv.layout.w / pv.layout.h : (S.atlas && S.atlas.aspect) || 1.5));
@@ -237,7 +242,7 @@ function atlasBldInfo(i) {
   const [label, group] = (S.atlas.gen && S.atlas.gen.uses && S.atlas.gen.uses[use]) || [use, 'home'];
   const st = typeof b.street === 'number' && v.streets && v.streets[b.street];
   return { i, main, annex: main !== i, use, label, group, floors: b.floors || 1, people: b.people || 0, street: st ? st.name : '', no: b.no || 0, addr: b.addr || '', tenants: b.tenants || [],
-    name: (mine && mine.name) || b.name || '', note: (mine && mine.note) || '', residents: (mine && mine.residents) || [], edited: !!mine };
+    name: (mine && mine.name) || b.name || '', note: (mine && mine.note) || '', residents: (mine && mine.residents) || [], edited: !!mine, made: !!b.made };
 }
 
 /** 건물마다 쓰임 묶음 (본채 기준, 고친 값 반영). 지도 색칠 · 강조에 쓴다 */
@@ -365,14 +370,18 @@ function atlasVillageSvg(v, W, H, layers = {}) {
   stroke(bridges, 'at-v-planks', (r) => r.width + 1, 3);
   atlasWalls(v, out, { P, m, k, lw });
 
-  // 건물: 그림자 → 지붕 → 어두운 반쪽 → 마루선. 꼭짓점이 넷이 아니면 한 색 지붕
-  const shade = (dx, dy) => (v.buildings || []).map((ln) => `M${ln.map((q) => `${(q[0] * W + dx).toFixed(1)},${(q[1] * H + dy).toFixed(1)}`).join('L')}Z`).join('');
+  // 건물: 그림자 → 지붕 → 어두운 반쪽 → 마루선. 꼭짓점이 넷이 아니면 한 색 지붕.
+  // 빈 블록에 지은 건물(parts[i].made, canon/fill.py)은 그림자 · 지붕 없이 흐린 색과 점선 테두리로 (OpenStreetMap에 없는 건물)
+  const made = (i) => !!(v.parts && v.parts[i] && v.parts[i].made);
+  const shade = (dx, dy) => (v.buildings || []).map((ln, i) => made(i) ? '' : `M${ln.map((q) => `${(q[0] * W + dx).toFixed(1)},${(q[1] * H + dy).toFixed(1)}`).join('L')}Z`).join('');
   if (on('shadows')) out.push(`<path class="at-v-shadow" d="${shade(1.4 * k, 1.8 * k)}"></path>`);
   const roofs = [[], [], [], []];
   const dark = [];
   const ridges = [];
   const flat = v.generator === 'osm' || v.generator === 'canon-modern';  // 실제 지도(OpenStreetMap) · 현대 동네의 건물은 박공 없이 평지붕으로
+  const madeD = [];
   (v.buildings || []).forEach((ln, i) => {
+    if (made(i)) { madeD.push(`M${ln.map((q) => `${(q[0] * W).toFixed(1)},${(q[1] * H).toFixed(1)}`).join('L')}Z`); return; }
     const ring = ln.length > 4 && ln[0][0] === ln[ln.length - 1][0] && ln[0][1] === ln[ln.length - 1][1] ? ln.slice(0, -1) : ln;
     const q = ring.map(P);
     roofs[Math.floor(atlasHash(i, 1) * 4)].push(`M${q.map((p) => p.map((x) => x.toFixed(1)).join(',')).join('L')}Z`);
@@ -391,6 +400,7 @@ function atlasVillageSvg(v, W, H, layers = {}) {
   });
   roofs.forEach((d, t) => { if (d.length) out.push(`<path class="at-v-house t${t}" d="${d.join('')}"></path>`); });
   if (dark.length) out.push(`<path class="at-v-roof-dark" d="${dark.join('')}"></path><path class="at-v-ridge" d="${ridges.join('')}"></path>`);
+  if (madeD.length) out.push(`<path class="at-v-made" d="${madeD.join('')}" stroke-width="${m(0.8, 1.2)}" stroke-dasharray="${m(2, 3)} ${m(1.5, 2)}"></path>`);
 
   // 쓰임 색: 집이 아닌 건물에 쓰임 묶음 색을 덧칠한다 (겹 '쓰임'). 고른 쓰임(hi)은 테두리로 강조
   const uses = layers.useOf;
@@ -491,6 +501,7 @@ function atlasSvg() {
   const px = atlasExporting || !atlasStageW ? 1 : atlasStageW / W;
   const useOf = village && village.blds ? atlasBldUses(village) : null;
   if (village) out.push(atlasVillageSvg(village, W, H, { ...S.atlasLayers, lamps: !!style.lamps, lw: style.lw || 1, z: atlasViewNow().z, px, useOf, hi: S.atlasUseHi }));
+  if (village && !atlasGenPreview()) out.push(atlasFillSvg(W, H));  // 빈 블록 채우기 미리보기 (atlas-fill.js)
   else if (S.atlas.image) out.push(`<image href="${esc(atlasImageUrl())}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="none"></image>`);
   else {
     out.push(`<rect class="at-ground" x="0" y="0" width="${W}" height="${H}"></rect>`);
@@ -512,6 +523,19 @@ function atlasSvg() {
       const x = s.x * W;
       const y = s.y * H;
       out.push(`<g class="at-sug"><title>${esc(s.name)}: 새 자리</title><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(9 * sc).toFixed(2)}" stroke-width="${(2.5 * sc).toFixed(2)}"></circle></g>`);
+      labels.push({ x, y, text: s.name, cls: '', first: true });
+    });
+  }
+
+  // 이름으로 자리 찾기: 고른 후보 자리
+  const fd = !pv && atlasFindNow();
+  if (fd) {
+    fd.spots.forEach((s) => {
+      const o = s.options[fd.pick[s.place]];
+      if (!o) return;
+      const x = o.x * W;
+      const y = o.y * H;
+      out.push(`<g class="at-sug"><title>${esc(s.name)}: ${esc(o.what)}</title><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(9 * sc).toFixed(2)}" stroke-width="${(2.5 * sc).toFixed(2)}"></circle></g>`);
       labels.push({ x, y, text: s.name, cls: '', first: true });
     });
   }
@@ -557,7 +581,7 @@ function atlasSvg() {
   }
 
   // 장소 (미리보기에서 새 자리로 옮길 장소는 새 자리만 그린다)
-  (S.atlas.places || []).filter((pl) => pl.pin && !hidden(pl) && !(pv && S.atlasGen.take[pl.key])).forEach((pl) => {
+  (S.atlas.places || []).filter((pl) => pl.pin && !hidden(pl) && !(pv && S.atlasGen.take[pl.key]) && !(fd && fd.pick[pl.key] >= 0)).forEach((pl) => {
     const [x, y] = xy(pl);
     const later = !atlasKnown(pl, f);
     const hot = f.episode && f.mentioned.includes(pl.key);
@@ -621,6 +645,21 @@ function atlasPinApply(map, part) {
   const out = { ...map };
   Object.entries(part).forEach(([k, v]) => { if (v) out[k] = v; else delete out[k]; });
   return Object.entries(out).map(([place, [x, y]]) => ({ place, x, y }));
+}
+
+/** 이름으로 자리 찾기의 처음 고름 {장소 키: 후보 번호, -1 은 놓지 않기}. 후보가 하나뿐이고 아직 놓지 않은 장소만 고른다 */
+function atlasFindDefault(spots) {
+  return Object.fromEntries(spots.map((s) => [s.place, s.options.length === 1 && !s.had ? 0 : -1]));
+}
+
+/** 지금 자리 표에 고른 후보 자리를 덮은 pins 목록 (고르지 않은 장소는 그대로) */
+function atlasFindPins(map, spots, pick) {
+  const part = {};
+  spots.forEach((s) => {
+    const o = s.options[pick[s.place]];
+    if (o) part[s.place] = [o.x, o.y];
+  });
+  return atlasPinApply(map, part);
 }
 
 /** 보는 범위 view({x, y, z}, 지도 단위)에 box([x0, y0, x1, y1])가 여백을 두고 들어오게 옮긴 범위.
@@ -779,42 +818,6 @@ function atlasWho() {
       ${hot.length ? `<div class="small">이 화에 나온 장소: ${hot.map((pl) => esc(pl.name)).join(', ')}</div>` : ''}</div>`;
 }
 
-// ----- 이동 시간 검사 (서버 canon/travel.py: 거리 · 걸리는 시간 · 판정은 서버가 셈하고 글로 보낸다) -----
-
-function atlasTravelBox() {
-  const t = S.atlas.travel;
-  if (!t) return '';
-  const on = `<label class="small"><input type="checkbox" data-atlas-travel="enabled"${t.enabled ? ' checked' : ''}> 지도 거리와 작품 속 시간으로 너무 빠른 이동 찾기</label>`;
-  if (!t.enabled) return `<div class="at-box"><h3>이동 시간 검사</h3>${on}</div>`;
-  const modes = t.modes.map((m) => `<option value="${esc(m.id)}"${m.id === t.mode ? ' selected' : ''}>${esc(m.label)} (시속 ${m.kmh}km · 하루 ${m.day_km}km)</option>`).join('');
-  const size = t.from_layout
-    ? `<div class="small">마을 데이터 축척으로 지도 크기를 약 ${esc(t.scale_text)}로 셈해요.</div>`
-    : `<label class="at-scale small">지도 가로 <input type="number" min="0" max="100000" step="1" value="${t.span_km || ''}" placeholder="모름" data-atlas-travel="span_km" aria-label="지도 가로가 몇 km인지"> km</label>`;
-  const own = `<details class="small"><summary>빠르기 직접 정하기</summary>
-      <label class="at-scale">시속 <input type="number" min="0" max="2000" step="0.5" value="${t.kmh || ''}" placeholder="${t.speed[1]}" data-atlas-travel="kmh" aria-label="이동 빠르기 km/시"> km</label>
-      <label class="at-scale">하루 <input type="number" min="0" max="20000" step="1" value="${t.day_km || ''}" placeholder="${t.speed[2]}" data-atlas-travel="day_km" aria-label="하루 이동 거리 km"> km</label>
-      <div>비우면 탈것의 기본값이에요. 서두르면 하루 ${t.speed[3]}km까지 간다고 봐요.</div></details>`;
-  let body;
-  if (!t.scale) body = '<div class="note">지도 가로가 몇 km인지 적으면 장소 사이 거리를 셀 수 있어요.</div>';
-  else if (!t.moves.length) {
-    body = `<div class="small">걸린 이동이 없어요${t.checked ? ` (본 이동 ${t.checked}개)` : ''}.${t.unknown ? ` 작품 속 시간 기록이 없어 못 본 이동이 ${t.unknown}개 있어요.` : ''}</div>`;
-  } else {
-    const items = t.moves.map((m) => {
-      const tag = m.level === 'fast' ? '<span class="at-tv fast">너무 빨라요</span>' : '<span class="at-tv tight">빠듯해요</span>';
-      const btn = m.accepted
-        ? `<button type="button" class="btn small ghost" data-action="atlasTravelOk" data-arg="${esc(m.cid)}:${m.episode}:0">다시 보기</button>`
-        : `<button type="button" class="btn small ghost" data-action="atlasTravelOk" data-arg="${esc(m.cid)}:${m.episode}:1" title="순간 이동이나 기록 밖의 탈것처럼 까닭이 있는 이동이면 경고에서 빼요">괜찮아요</button>`;
-      return `<li class="${m.accepted ? 'at-tv-ok' : ''}"><div>${tag} <strong>${esc(m.who)}</strong> <span class="small">${m.since}~${m.episode}화</span></div>
-        <div class="small">${esc(m.text)}</div>${btn}</li>`;
-    });
-    body = `<ul class="at-list at-tv-list">${items.join('')}</ul>
-      <div class="small">시간은 화가 끝난 시점을 가장 넉넉하게 읽고, 거리는 곧은 거리에 길 굽음을 더한 어림이에요.${t.unknown ? ` 시간 기록이 없어 못 본 이동 ${t.unknown}개.` : ''}</div>`;
-  }
-  return `<div class="at-box"><h3>이동 시간 검사</h3>${on}
-    <label class="small">가장 빠른 탈것 <select data-atlas-travel="mode" aria-label="이 세계에서 가장 빠른 탈것">${modes}</select></label>
-    ${size}${own}${body}</div>`;
-}
-
 function atlasPlaceBox() {
   const pl = S.atlasSel && atlasPlace(S.atlasSel);
   if (!pl) return '';
@@ -854,122 +857,10 @@ function atlasLayoutBox() {
     <div class="small">길 ${lo.roads}개${lo.bridges ? ` · 다리 ${lo.bridges}개` : ''} · 건물 ${lo.buildings}채 · 약 ${atlasMeters(lo.width_m)} × ${atlasMeters(lo.height_m)}</div>
     <label class="at-scale small">1단위 = <input type="number" min="0.01" max="1000" step="0.1" value="${lo.meters}" data-atlas-meters aria-label="마을 데이터 1단위가 몇 m인지"> m</label>
     <div class="small">거리가 어색하면 축척을 바꾸세요. 걷는 시간은 초속 1.3m로 셈해요. 건물 안을 누르면 장소가 그 건물 가운데에 놓여요.</div>
-    <div class="row"><label class="btn small" for="at-layout">다른 파일 올리기</label>${input}
+    ${lo.generator === 'osm' ? atlasFillBox(lo) : ''}
+    <div class="row"><button type="button" class="btn small" data-action="atlasFindOpen">이름으로 자리 찾기</button>
+      <label class="btn small" for="at-layout">다른 파일 올리기</label>${input}
       <button type="button" class="btn small ghost" data-action="atlasDropLayout">${word} 지우기</button></div></div>`;
-}
-
-// ----- 지도 만들기 (서버 canon/towngen.py 마을 생성기, canon/citygen.py 도시 생성기, canon/moderngen.py 현대 동네 생성기) -----
-
-/** 지도 만들기 상태. 작품이 바뀌면 서버가 준 입력(gen.spec, 장소 표)으로 새로 시작한다 */
-function atlasGenState() {
-  const g = S.atlas.gen;
-  const rows = () => g.places.map((x) => ({ key: x.key, kind: x.kind, put: x.put }));
-  if (!S.atlasGen || S.atlasGen.name !== S.name) {
-    const spec = { ...g.spec, places: rows() };
-    if (!g.made) spec.seed = atlasNewSeed();
-    S.atlasGen = { name: S.name, open: false, spec, preview: null, take: {}, touched: {}, ai: null, hist: [], at: -1 };
-  } else if (S.atlasGen.spec.places.map((x) => x.key).join('\n') !== g.places.map((x) => x.key).join('\n')) {
-    S.atlasGen.spec.places = rows();  // 장소가 더해지거나 빠졌으면 표를 새로 (설정 · 시드는 그대로)
-    S.atlasGen.preview = null;
-  }
-  return S.atlasGen;
-}
-
-const atlasNewSeed = () => 1 + Math.floor(Math.random() * 2147483646);
-/** 고른 지도 종류(spec.kind)의 설정 칸 { size: {id: 이름}, ... }. 도시는 길 모양 칸이 없다 */
-const atlasGenOpts = (kind) => S.atlas.gen.options[kind || (S.atlasGen && S.atlasGen.spec.kind) || 'village'] || {};
-const atlasGenLabel = (key, id, kind) => String((atlasGenOpts(kind)[key] || {})[id] || id);
-/** 지도 종류 이름 (마을 · 도시) */
-const atlasGenWord = (kind) => ((S.atlas.gen.maps || []).find((x) => x.id === kind) || { label: '마을' }).label;
-/** 다른 지도 종류로 바꿨을 때 그 종류에 없는 값은 고친다 (도시에는 호수가 없어 강으로) */
-function atlasGenFit(spec) {
-  Object.entries(atlasGenOpts(spec.kind)).forEach(([key, opts]) => {
-    if (!(spec[key] in opts)) spec[key] = key === 'water' && spec[key] === 'lake' && 'river' in opts ? 'river' : Object.keys(opts)[Math.min(1, Object.keys(opts).length - 1)];
-  });
-}
-const atlasKindLabel = (id) => ((S.atlas.gen.kinds || []).find((k) => k.id === id) || { label: id }).label;
-
-function atlasGenForm(st) {
-  const opts = atlasGenOpts(st.spec.kind);
-  const sel = (key, label) => (opts[key] ? `<label class="at-gen-opt small">${label}
-    <select data-at-gen="${key}">${Object.keys(opts[key]).map((id) => `<option value="${esc(id)}"${st.spec[key] === id ? ' selected' : ''}>${esc(atlasGenLabel(key, id))}</option>`).join('')}</select></label>` : '');
-  const maps = (S.atlas.gen.maps || []).map((x) => `<option value="${esc(x.id)}"${st.spec.kind === x.id ? ' selected' : ''}>${esc(x.label)}</option>`).join('');
-  const word = atlasGenWord(st.spec.kind);
-  const notes = (st.ai && st.ai.notes) || {};
-  const rows = S.atlas.gen.places.map((pl, i) => {
-    const mine = st.spec.places[i];
-    return `<div class="at-gen-place"><label class="small"><input type="checkbox" data-at-gen-put="${i}"${mine.put ? ' checked' : ''}> ${esc(pl.name)}</label>
-      <select data-at-gen-kind="${i}" aria-label="${esc(pl.name)} 종류">${S.atlas.gen.kinds.map((k) => `<option value="${esc(k.id)}"${mine.kind === k.id ? ' selected' : ''}>${esc(k.label)}</option>`).join('')}</select>
-      ${notes[pl.key] ? `<div class="small at-um-note at-gen-note">${esc(notes[pl.key])}</div>` : ''}</div>`;
-  }).join('');
-  const why = st.ai && st.ai.reason
-    ? `<div class="note" role="status">AI 제안: ${esc(st.ai.reason)}</div>`
-    : !S.atlas.gen.made && S.atlas.gen.spec.water !== 'none' && !st.touched.water
-      ? `<div class="small">물가가 필요한 장소가 있어 물을 '${esc(atlasGenLabel('water', st.spec.water))}'(으)로 골라 뒀어요.</div>` : '';
-  return `<div class="at-gen-opts"><label class="at-gen-opt small">지도<select data-at-gen="kind" aria-label="만들 지도">${maps}</select></label>
-      ${sel('size', '크기')}${sel('roads', '길 모양')}${sel('water', '물')}${sel('fields', '밭')}${sel('forest', '숲')}
-      <label class="at-gen-opt small">시드 <span class="row"><input type="number" min="0" max="2147483647" step="1" value="${st.spec.seed}" data-at-gen-seed aria-label="시드">
-        <button type="button" class="btn small ghost" data-action="atlasGenSeed">새 시드</button></span></label></div>
-    ${why}
-    ${st.spec.kind === 'city' ? '<div class="small">도시는 성벽 · 성문 · 구역(시장, 신전, 귀족, 장인, 빈민 등)이 있는 큰 지도예요. 이야기 장소는 종류에 맞는 구역에 놓아요.</div>' : ''}
-    ${st.spec.kind === 'modern' ? '<div class="small">현대 동네는 대로 격자 안에 아파트 단지 · 빌라촌 · 대로변 상가 · 역 앞 · 학교 · 공원이 있는 가상의 동네예요. 숲 칸은 공원 수를 정해요. 주막은 호텔, 신전은 교회, 장터는 마트 자리에 놓아요.</div>' : ''}
-    <div class="small">같은 시드와 설정이면 언제나 같은 ${word}${word === '마을' ? '이' : '가'} 나와요. 장소 종류는 이름에서 찾았어요. 틀리면 고르거나 AI 제안을 받아 보세요.</div>
-    <div class="at-gen-places">${rows}</div>
-    <div class="row"><button type="button" class="btn small primary" data-action="atlasGenPreview">미리보기</button>
-      <button type="button" class="btn small" data-action="atlasGenSuggest">AI로 설정 제안</button>
-      <button type="button" class="btn small ghost" data-action="atlasGenOpen" data-arg="">닫기</button></div>`;
-}
-
-function atlasGenResult(st) {
-  const pv = st.preview;
-  const i = pv.info;
-  const pins = pv.pins.map((s) => `<label class="small at-gen-take"><input type="checkbox" data-at-gen-take="${esc(s.place)}"${st.take[s.place] ? ' checked' : ''}>
-      ${esc(s.name)} → ${esc(atlasKindLabel(s.kind))} 자리${s.had ? ' <span class="at-um-note">(지금 자리에서 옮겨요)</span>' : ''}</label>`).join('');
-  const miss = pv.missing.map((m) => `<li>${esc(m.name)}: ${esc(m.reason)}</li>`).join('');
-  const blocked = pv.blocked.map((b) => esc(b.name)).join(', ');
-  const word = atlasGenWord(st.spec.kind);
-  const homes = st.spec.kind === 'modern' ? '건물' : '집';
-  return `<div class="small">${esc(word)} · 시드 ${st.spec.seed} · ${homes} ${i.houses.toLocaleString()}채 · 길 ${i.roads}개${i.bridges ? ` · 다리 ${i.bridges}개` : ''}${i.gates ? ` · 구역 ${i.wards}곳 · 성문 ${i.gates}곳` : ''} · 약 ${atlasMeters(i.width_m)} × ${atlasMeters(i.height_m)}</div>
-    ${pins ? `<div class="at-gen-places">${pins}</div>` : '<div class="small">새로 놓을 장소가 없어요.</div>'}
-    ${miss ? `<div class="note" role="status">놓지 못한 장소<ul class="at-list">${miss}</ul></div>` : ''}
-    ${blocked ? `<div class="note" role="status">${blocked}: 지금 자리가 새 ${esc(word)}의 건물이나 물 위예요. 적용한 뒤 옮겨 주세요.</div>` : ''}
-    <div class="small">적용하면 지금 지도 데이터를 바꿔요. 고른 장소만 새 자리로 옮기고, 나머지 장소 자리는 그대로 둬요.</div>
-    <div class="row"><button type="button" class="btn small primary" data-action="atlasGenApply">적용</button>
-      <button type="button" class="btn small" data-action="atlasGenSeed">다른 시드로</button>
-      <button type="button" class="btn small ghost" data-action="atlasGenEdit">설정 고치기</button>
-      <button type="button" class="btn small ghost" data-action="atlasGenOpen" data-arg="">그만두기</button></div>`;
-}
-
-function atlasGenBox() {
-  if (!S.atlas.gen) return '';
-  const st = atlasGenState();
-  const made = S.atlas.gen.made && S.atlas.layout;
-  const word = atlasGenWord(st.spec.kind);
-  if (!st.open) {
-    return `<div class="at-box"><h3>지도 만들기</h3>
-      <div class="small">${made ? `시드 ${S.atlas.gen.spec.seed}로 만든 ${esc(atlasGenWord(S.atlas.gen.spec.kind))}예요. 설정을 바꿔 다시 만들 수 있어요.` : '마을 · 도시 · 현대 동네 생성기로 길 · 집 · 밭 · 물이 있는 지도를 만들어요. 도시는 성벽과 구역, 현대 동네는 아파트 단지와 빌라촌이 있어요. 이야기 장소는 종류에 맞는 자리(신전, 주막, 나루 등)에 놓아요.'}</div>
-      <div class="row"><button type="button" class="btn small" data-action="atlasGenOpen" data-arg="1">${made ? '다시 만들기' : '지도 만들기'}</button></div></div>`;
-  }
-  return `<div class="at-box at-gen"><h3>${esc(word)} ${st.preview ? '미리보기' : '만들기'}</h3>${st.preview ? atlasGenResult(st) : atlasGenForm(st)}</div>`;
-}
-
-async function atlasGenRun() {
-  const st = atlasGenState();
-  await run(`${atlasGenWord(st.spec.kind)} 만드는 중`, async () => {
-    const pv = await api('POST', `/projects/${enc(S.name)}/atlas/generate/preview`, st.spec);
-    // 미리보기 이력: 지금 자리 뒤는 버리고 새로 붙인다 (최근 20개). ← → 로 다시 부르지 않고 오간다
-    st.hist = [...st.hist.slice(0, st.at + 1), { spec: JSON.parse(JSON.stringify(st.spec)), pv }].slice(-20);
-    st.at = st.hist.length - 1;
-    atlasGenShow(pv);
-  });
-}
-
-function atlasGenShow(pv) {
-  const st = S.atlasGen;
-  st.preview = pv;
-  st.take = Object.fromEntries(pv.pins.map((s) => [s.place, !s.had]));  // 이미 놓은 장소는 그대로 두는 게 기본
-  S.atlasBld = null;
-  atlasRefresh();
 }
 
 function atlasBackground() {
@@ -982,102 +873,7 @@ function atlasBackground() {
       ${S.atlas.image ? '<button type="button" class="btn small ghost" data-action="atlasDropImage">그림 지우기</button>' : ''}</div></div>`;
 }
 
-// ----- 장소와 맞지 않은 위치: 골라서 한 번에 잇기, AI 제안 -----
-
-/** 위치 글마다 고른 값. v: 장소 키 | '-'(그리지 않음) | 'new:이름'(AI가 제안한 새 장소), on: 적용할 글 */
-function atlasDraft(text) {
-  S.atlasDraft = S.atlasDraft || {};
-  return S.atlasDraft[text] || (S.atlasDraft[text] = { v: '', on: false });
-}
-
-function atlasPicked() {
-  const list = S.atlas.unmatched || [];
-  return list.filter((u) => { const d = atlasDraft(u.text); return d.on && d.v; });
-}
-
-function atlasUnmatched() {
-  const list = S.atlas.unmatched || [];
-  const links = S.atlas.links || [];
-  if (!list.length && !links.length) return '';
-  const fresh = (S.atlasNew || []).filter((x) => list.some((u) => atlasDraft(u.text).v === 'new:' + x.name));
-  const opts = (sel) => `<option value="">장소 고르기</option>${(S.atlas.places || []).map((pl) => `<option value="${esc(pl.key)}"${sel === pl.key ? ' selected' : ''}>${esc(pl.name)}</option>`).join('')}`
-    + fresh.map((x) => `<option value="${esc('new:' + x.name)}"${sel === 'new:' + x.name ? ' selected' : ''}>새 장소: ${esc(x.name)}</option>`).join('')
-    + `<option value="-"${sel === '-' ? ' selected' : ''}>지도에 그리지 않음</option>`;
-  const rows = list.map((u, i) => {
-    const d = atlasDraft(u.text);
-    return `<div class="at-um${d.on ? ' on' : ''}">
-      <input type="checkbox" data-at-on="${i}" aria-label="${esc(u.text)} 고르기"${d.on ? ' checked' : ''}>
-      <div class="at-um-text"><strong>${esc(u.text)}</strong><div class="small">${u.characters.map((c) => esc(charName(c))).join(', ')} · ${u.episodes.map((n) => (n ? n + '화' : '시작')).join(', ')}</div>
-        ${d.note ? `<div class="small at-um-note">AI: ${esc(d.note)}</div>` : ''}</div>
-      <select data-at-um="${i}" aria-label="${esc(u.text)} 장소">${opts(d.v)}</select></div>`;
-  }).join('');
-  const done = links.map((ln, i) => `<li>${esc(ln.text)} → ${ln.place ? esc((atlasPlace(ln.place) || { name: ln.place }).name) : '지도에 그리지 않음'} <button type="button" class="btn small ghost" data-action="atlasUnlink" data-arg="${i}">풀기</button></li>`).join('');
-  const picked = atlasPicked().length;
-  const all = list.length && list.every((u) => atlasDraft(u.text).on);
-  const newBox = fresh.length ? `<div class="at-box"><h3>함께 등록할 새 장소 (${fresh.length})</h3>
-      <div class="small">고른 위치 글이 이 장소를 쓰면 적용할 때 인과율 '장소'로 등록해요. 이름이나 설명은 인과율에서 고칠 수 있어요.</div>
-      <ul class="at-list">${fresh.map((x) => `<li><strong>${esc(x.name)}</strong>${x.kind ? ` · ${esc(x.kind)}` : ''}${x.description ? ` · ${esc(x.description)}` : ''} <span class="small">(${x.first_ep ? x.first_ep + '화부터' : '처음부터'})</span></li>`).join('')}</ul></div>` : '';
-  return `<section class="card" id="at-unmatched"><h2>장소와 맞지 않은 위치 (${list.length})</h2>
-    <div class="small">상태 변경안이 적은 인물 위치에 장소 이름이 없으면 지도에 그리지 못해요. 장소에 이어 두면 같은 글은 다음부터 그 장소로 그려요.</div>
-    ${list.length ? `<div class="row"><button type="button" class="btn primary" data-action="atlasSort">AI로 한 번에 정리</button>
-      <span class="small">AI가 화별 요약을 보고 위치 글마다 장소를 골라 채워요. 없는 장소는 새 장소로 제안해요. 확인하고 고른 것만 적용해요.</span></div>
-    ${newBox}
-    <div class="at-um-bar">
-      <label><input type="checkbox" data-at-all${all ? ' checked' : ''}> 모두 고르기</label>
-      <span class="row">고른 글의 장소를 <select id="at-um-bulk" aria-label="고른 위치 글을 이을 장소">${opts('')}</select><button type="button" class="btn small" data-action="atlasBulk">바꾸기</button></span>
-      <button type="button" class="btn primary" data-action="atlasApply" id="at-um-apply"${picked ? '' : ' disabled'}>고른 ${picked}개 적용</button>
-    </div>
-    <div class="at-um-list">${rows}</div>` : ''}
-    ${links.length ? `<details><summary class="small">이어 둔 위치 글 (${links.length})</summary><ul class="at-list">${done}</ul></details>` : ''}</section>`;
-}
-
-/** 고른 수만 다시 쓴다 (목록을 다시 그리면 굴린 자리를 잃는다) */
-function atlasPickCount() {
-  const b = $('#at-um-apply');
-  if (!b) return;
-  const n = atlasPicked().length;
-  b.textContent = `고른 ${n}개 적용`;
-  b.disabled = !n;
-}
-
-function atlasRerenderUnmatched() {
-  const el = $('#at-unmatched');
-  if (!el) { render(); return; }
-  const list = el.querySelector('.at-um-list');
-  const top = list ? list.scrollTop : 0;
-  el.outerHTML = atlasUnmatched();
-  const again = document.querySelector('#at-unmatched .at-um-list');
-  if (again) again.scrollTop = top;
-}
-
-// ----- 어디에 있었나 표 -----
-
-function atlasTable() {
-  const all = S.atlas.frames.map((f, i) => [f, i]);
-  // 시작(1화 전) 칸은 그때 위치가 적힌 인물이 있을 때만 보인다
-  const fs = all.filter(([f]) => f.episode || f.rows.some((r) => r.location));
-  const chars = atlasChars();
-  if (!chars.length) return '<div class="card empty"><p>위치가 기록된 인물이 아직 없어요.</p><div class="small">상태 승인에서 인물 위치(location)를 반영하면 화별로 쌓여요.</div></div>';
-  const head = `<tr><th scope="col">인물</th>${fs.map(([f, i]) => `<th scope="col"${i === S.atlasFrame ? ' class="cur"' : ''}><button type="button" class="linkish" data-action="atlasGo" data-arg="${i}" title="${esc(frameLabel(f))} 지도로">${f.episode ? f.episode + '화' : '시작'}</button></th>`).join('')}</tr>`;
-  const body = chars.map((c) => {
-    let last = null;
-    const cells = fs.map(([f, i]) => {
-      const r = atlasRow(f, c.id);
-      const pl = r && r.place ? atlasPlace(r.place) : null;
-      const text = pl ? pl.name : r && r.location ? r.location : '';
-      const fog = pl && S.atlasFog && !atlasKnown(pl, f);
-      const shown = fog ? '?' : text;
-      const same = text && text === last;
-      last = text || last;
-      const cls = [i === S.atlasFrame ? 'cur' : '', same ? 'same' : text ? 'moved' : '', pl ? '' : 'raw'].filter(Boolean).join(' ');
-      return `<td class="${cls}" title="${esc(r && r.location ? r.location : '')}">${esc(shown.length > 10 ? shown.slice(0, 10) + '…' : shown)}</td>`;
-    }).join('');
-    return `<tr><th scope="row"><i style="background:${atlasColor(c.id)}"></i>${esc(c.name || c.id)}</th>${cells}</tr>`;
-  }).join('');
-  return `<section class="card"><div class="between"><h2>어디에 있었나</h2>${atlasToggles(false)}</div>
-    <div class="small">반영한 화마다 인물이 있던 곳이에요. 진한 칸은 장소가 바뀐 화, 흐린 칸은 앞 화와 같은 곳, 기울인 글은 장소와 맞지 않은 위치 글이에요. 화를 누르면 그 시점 지도로 가요.</div>
-    <div class="at-table-wrap"><table class="at-table">${head}${body}</table></div></section>`;
-}
+// ----- 화면 조립 -----
 
 function atlasToggles(map = true) {
   const minors = P().characters.some((c) => c.tier === 'minor');
@@ -1154,6 +950,7 @@ function atlasBldMenu() {
   return `<div class="at-bld" style="left:${b.sx}px;${pos}" role="dialog" aria-label="건물">
     <div class="between"><strong>${head}</strong><button type="button" class="btn small ghost" data-action="atlasBldClose" aria-label="닫기">✕</button></div>
     ${facts.length ? `<div class="small at-bld-facts">${esc(facts.join(' · '))}${num >= 0 ? ` · 집 ${num + 1}` : ''}</div>` : ''}
+    ${info && info.made ? '<div class="small at-um-note">지은 건물 (OpenStreetMap에 없음)</div>' : ''}
     ${who.length ? `<div class="small">사는 인물: ${esc(who.join(', '))}</div>` : ''}
     ${info && info.tenants.length ? `<div class="small at-bld-tenants">입점: ${esc(info.tenants.join(', '))}</div>` : ''}
     ${info && info.note ? `<div class="small at-um-note">${esc(info.note)}</div>` : ''}
@@ -1205,25 +1002,9 @@ function atlasUseBox() {
     <div class="at-chips">${chips}</div></div>`;
 }
 
-/** 미리보기 조작 막대 (지도 아래에 붙는다) */
-function atlasGenBar() {
-  const st = S.atlasGen;
-  const pv = atlasGenPreview();
-  if (!pv) return '';
-  const at = st.at;
-  return `<div class="at-pv-bar" role="toolbar" aria-label="${esc(atlasGenWord(st.spec.kind))} 미리보기">
-    <span class="small">시드 ${st.spec.seed} · 집 ${pv.info.houses.toLocaleString()}채${st.hist.length > 1 ? ` · ${at + 1}/${st.hist.length}` : ''}</span>
-    <span class="row">
-      <button type="button" class="btn small ghost" data-action="atlasGenHist" data-arg="-1" title="이전 미리보기 (←)" aria-label="이전 미리보기"${at <= 0 ? ' disabled' : ''}>◀</button>
-      <button type="button" class="btn small" data-action="atlasGenSeed" title="다른 시드로 (Enter)">다른 시드</button>
-      <button type="button" class="btn small ghost" data-action="atlasGenHist" data-arg="1" title="다음 미리보기 (→)" aria-label="다음 미리보기"${at >= st.hist.length - 1 ? ' disabled' : ''}>▶</button>
-      <button type="button" class="btn small ghost" data-action="atlasGenOpen" data-arg="" title="그만두기 (Esc)">그만두기</button>
-      <button type="button" class="btn small primary" data-action="atlasGenApply">적용</button></span></div>`;
-}
-
 function atlasSide() {
   if (atlasGenPreview()) return atlasGenBox();  // 미리보기 중에는 고를 것만 보인다
-  return atlasPlaceBox() + atlasWho() + atlasTravelBox() + atlasLoose() + atlasUseBox() + atlasGenBox() + atlasLayoutBox() + atlasBackground();
+  return atlasFindBox() + atlasPlaceBox() + atlasWho() + atlasTravelBox() + atlasLoose() + atlasUseBox() + atlasGenBox() + atlasLayoutBox() + atlasBackground();
 }
 
 /** 시점 · 선택만 바뀌면 슬라이더는 두고 지도와 옆 칸만 다시 그린다 (끄는 중인 슬라이더를 지우지 않게) */
@@ -1402,80 +1183,6 @@ function atlasFollow() {
 }
 
 /** 화면 좌표 → 0~1 지도 좌표 */
-// ----- 내보내기 -----
-
-/** 내보낼 SVG: 확대와 상관없이 지도 전체를, 화면에 보이는 색을 속성으로 옮겨 적어 페이지 CSS 없이도 같게 보이게 한다 */
-function atlasExportSvg() {
-  const keep = S.atlasView;
-  S.atlasView = { x: 0, y: 0, z: 1 };
-  atlasExporting = true;
-  const host = document.createElement('div');
-  host.style.cssText = `position:fixed;left:-99999px;top:0;width:${ATLAS_W}px`;
-  try {
-    host.innerHTML = atlasSvg();
-  } finally {
-    S.atlasView = keep;
-    atlasExporting = false;
-  }
-  document.body.appendChild(host);
-  try {
-    const svg = host.querySelector('svg');
-    const ctx = document.createElement('canvas').getContext('2d');
-    // 브라우저는 color-mix 결과를 color(srgb …)로 돌려준다. 다른 프로그램도 읽게 rgb() 와 따로 적은 불투명도로 바꾼다
-    const color = (v) => {
-      if (!v || v === 'none' || v.startsWith('url')) return [v, 1];
-      ctx.fillStyle = '#000';
-      ctx.fillStyle = v;
-      const c = String(ctx.fillStyle);
-      const m = c.match(/^color\(srgb ([-\d.e]+) ([-\d.e]+) ([-\d.e]+)(?: \/ ([-\d.e]+))?\)$/);
-      if (m) return [`rgb(${[m[1], m[2], m[3]].map((x) => Math.round(Math.min(1, Math.max(0, Number(x))) * 255)).join(',')})`, m[4] == null ? 1 : Number(m[4])];
-      const r = c.match(/^rgba\((\d+), (\d+), (\d+), ([\d.]+)\)$/);
-      if (r) return [`rgb(${r[1]},${r[2]},${r[3]})`, Number(r[4])];
-      return [c, 1];
-    };
-    const props = ['fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-linecap', 'stroke-linejoin', 'opacity', 'font-size', 'font-weight', 'font-family', 'paint-order', 'text-anchor', 'dominant-baseline'];
-    svg.querySelectorAll('*').forEach((el) => {
-      const cs = getComputedStyle(el);
-      el.setAttribute('style', props.map((p) => {
-        const v = cs.getPropertyValue(p);
-        if (!v) return '';
-        if (p !== 'fill' && p !== 'stroke') return `${p}:${v}`;
-        const [c, a] = color(v);
-        return `${p}:${c}${a < 1 ? `;${p}-opacity:${a}` : ''}`;
-      }).filter(Boolean).join(';'));
-      el.removeAttribute('class');
-      el.removeAttribute('tabindex');
-    });
-    svg.querySelectorAll('.at-hit, title').forEach((el) => el.remove());
-    const t = S.atlas.title;
-    if (t && t.title && S.atlasLayers.title && atlasVillage()) {
-      // 마을 이름 글자 · 테두리는 고른 화풍의 글자 · 바탕색 (.at-map 의 --text · --canvas)
-      const cs = getComputedStyle(svg);
-      const ink = color(cs.color)[0];
-      const halo = color(cs.getPropertyValue('--canvas').trim() || '#fff')[0];
-      svg.insertAdjacentHTML('beforeend', `<text x="24" y="44" style="font-size:30px;font-weight:700;fill:${ink};paint-order:stroke;stroke:${halo};stroke-opacity:.8;stroke-width:5px">${esc(t.title)}</text>
-        <text x="24" y="70" style="font-size:15px;fill:${ink};paint-order:stroke;stroke:${halo};stroke-opacity:.8;stroke-width:4px">인구 약 ${t.population.toLocaleString()}명</text>`);
-    }
-    svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    svg.setAttribute('width', ATLAS_W);
-    svg.setAttribute('height', atlasH());
-    svg.removeAttribute('class');
-    return new XMLSerializer().serializeToString(svg);
-  } finally {
-    host.remove();
-  }
-}
-
-function atlasDownload(blob, name) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-}
-
 function atlasPoint(e) {
   const svg = document.querySelector('.at-map');
   if (!svg) return null;
@@ -1562,78 +1269,6 @@ Object.assign(actions, {
       atlasUndoBusy = false;
     }
   },
-  async atlasSort() {
-    const list = S.atlas.unmatched || [];
-    await run(`AI가 위치 글 ${list.length}개를 정리하는 중`, async () => {
-      await saveIfDirty();
-      const r = await api('POST', `/projects/${enc(S.name)}/atlas/sort`, {});
-      S.atlasNew = r.new_places || [];
-      let filled = 0;
-      for (const row of r.rows || []) {
-        const v = row.place || (row.new_place ? 'new:' + row.new_place : row.skip ? '-' : '');
-        const d = atlasDraft(row.text);
-        d.note = row.note || '';
-        if (!v || d.v) continue;  // 작가가 이미 고른 글은 덮지 않는다
-        d.v = v;
-        d.on = true;
-        filled++;
-      }
-      const empty = list.filter((u) => !atlasDraft(u.text).v).length;
-      toast(filled ? `${filled}개를 채웠어요. 확인하고 '적용'을 누르세요${empty ? `. ${empty}개는 AI가 정하지 못했어요` : ''}` : 'AI가 새로 채운 위치 글이 없어요', !filled);
-    });
-  },
-  atlasBulk() {
-    const v = $('#at-um-bulk').value;
-    if (!v) { toast('바꿀 장소를 고르세요', true); return; }
-    const sel = (S.atlas.unmatched || []).filter((u) => atlasDraft(u.text).on);
-    if (!sel.length) { toast('먼저 위치 글을 고르세요', true); return; }
-    sel.forEach((u) => { atlasDraft(u.text).v = v; });
-    atlasRerenderUnmatched();
-  },
-  async atlasApply() {
-    const picks = atlasPicked().map((u) => {
-      const v = atlasDraft(u.text).v;
-      return { text: u.text, place: v === '-' || v.startsWith('new:') ? '' : v, new_place: v.startsWith('new:') ? v.slice(4) : '' };
-    });
-    if (!picks.length) return;
-    const used = new Set(picks.map((x) => x.new_place).filter(Boolean));
-    const fresh = (S.atlasNew || []).filter((x) => used.has(x.name));
-    await run('잇는 중', async () => {
-      await saveIfDirty();
-      const r = await api('POST', `/projects/${enc(S.name)}/atlas/sort/apply`, { picks, new_places: fresh });
-      S.project = r.project;
-      picks.forEach((x) => { delete S.atlasDraft[x.text]; });
-      S.atlasNew = (S.atlasNew || []).filter((x) => !used.has(x.name));
-      await atlasLoad();
-      toast(`${r.linked}개를 이었어요${r.added.length ? ` · 새 장소 ${r.added.length}곳을 등록했어요 (지도에 놓아 주세요)` : ''}`);
-    });
-  },
-  async atlasUnlink(i) {
-    const ln = S.atlas.links[Number(i)];
-    if (!ln) return;
-    await run('푸는 중', async () => {
-      await saveIfDirty();
-      S.project = await api('PUT', `/projects/${enc(S.name)}/atlas/links`, { text: ln.text, place: null });
-      await atlasLoad();
-      toast('잇기를 풀었어요');
-    });
-  },
-  atlasGenOpen(on) {
-    const st = atlasGenState();
-    st.open = !!on;
-    st.preview = null;
-    st.hist = [];
-    st.at = -1;
-    atlasRefresh();
-  },
-  atlasGenHist(d) {
-    const st = atlasGenState();
-    const at = st.at + Number(d);
-    if (!st.preview || at < 0 || at >= st.hist.length) return;
-    st.at = at;
-    st.spec = JSON.parse(JSON.stringify(st.hist[at].spec));
-    atlasGenShow(st.hist[at].pv);
-  },
   atlasZoom(how) {
     const z = atlasViewNow().z;
     if (how === 'fit') { atlasFollowStop(); S.atlasView = { x: 0, y: 0, z: 1 }; atlasRedraw(); return; }
@@ -1682,94 +1317,6 @@ Object.assign(actions, {
     await atlasSavePins([...atlasPins().filter((x) => x.place !== key), { place: key, x: b.at[0], y: b.at[1] }], `'${pl.name}'${josa(pl.name, '을', '를')} 고른 건물에 놓았어요`,
       { before: atlasPinMap(), label: `'${pl.name}' ${pl.pin ? '옮기기' : '놓기'}` });
   },
-  async atlasExport(kind) {
-    await run(kind === 'png' ? 'PNG 만드는 중' : 'SVG 만드는 중', async () => {
-      const svg = atlasExportSvg();
-      const base = ((S.atlas.title && S.atlas.title.title) || P().meta.title || S.name).replace(/[\\/:*?"<>|]/g, '_');
-      if (kind === 'svg') {
-        atlasDownload(new Blob([svg], { type: 'image/svg+xml' }), `${base} 지도.svg`);
-        return;
-      }
-      const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
-      try {
-        const img = await new Promise((ok, bad) => {
-          const im = new Image();
-          im.onload = () => ok(im);
-          im.onerror = () => bad(new Error('지도를 그림으로 바꾸지 못했어요'));
-          im.src = url;
-        });
-        const cv = document.createElement('canvas');
-        cv.width = ATLAS_W * 2;
-        cv.height = atlasH() * 2;
-        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
-        const blob = await new Promise((ok) => cv.toBlob(ok, 'image/png'));
-        if (!blob) throw new Error('PNG를 만들지 못했어요');
-        atlasDownload(blob, `${base} 지도.png`);
-      } finally {
-        URL.revokeObjectURL(url);
-      }
-    });
-  },
-  async atlasGenSeed() {
-    const st = atlasGenState();
-    st.spec.seed = atlasNewSeed();
-    if (st.preview) await atlasGenRun(); else atlasRefresh();
-  },
-  async atlasGenPreview() {
-    await atlasGenRun();
-  },
-  async atlasGenSuggest() {
-    const st = atlasGenState();
-    await run('AI가 지도 설정을 고르는 중', async () => {
-      const r = await api('POST', `/projects/${enc(S.name)}/atlas/generate/suggest`, st.spec);
-      let changed = 0;
-      // 작가가 고른 칸은 덮지 않는다. 지도 종류를 먼저 정하고 그 종류의 칸만 채운다
-      ['kind', ...Object.keys(atlasGenOpts(st.touched.kind ? st.spec.kind : r.kind))].forEach((k) => {
-        if (!st.touched[k] && r[k] && st.spec[k] !== r[k]) { st.spec[k] = r[k]; changed++; }
-      });
-      atlasGenFit(st.spec);
-      const notes = {};
-      r.places.forEach((g) => {
-        const row = st.spec.places.find((x) => x.key === g.key);
-        if (g.note) notes[g.key] = g.note;
-        if (!row || st.touched['p:' + g.key] || (row.kind === g.kind && row.put === g.put)) return;
-        row.kind = g.kind;
-        row.put = g.put;
-        changed++;
-      });
-      st.ai = { reason: r.reason, notes };
-      atlasRefresh();
-      toast(changed ? `AI 제안으로 ${changed}칸을 바꿨어요. 확인하고 미리보기를 누르세요` : 'AI 제안이 지금 설정과 같아요');
-    });
-  },
-  atlasGenEdit() {
-    atlasGenState().preview = null;
-    atlasRefresh();
-  },
-  async atlasGenApply() {
-    const st = atlasGenState();
-    const pins = Object.keys(st.take).filter((k) => st.take[k]);
-    const before = atlasPinMap();
-    await run(`${atlasGenWord(st.spec.kind)} 적용하는 중`, async () => {
-      await saveIfDirty();
-      S.project = await api('POST', `/projects/${enc(S.name)}/atlas/generate`, { spec: st.spec, pins });
-      st.preview = null;
-      st.open = false;
-      await atlasLoad();
-      atlasRecord(before, '지도 적용으로 장소 옮기기', atlasPinMap(), true);
-      atlasRefresh();
-      toast(`${atlasGenWord(st.spec.kind)}${st.spec.kind === 'village' ? '을' : '를'} 적용했어요${pins.length ? ` · 장소 ${pins.length}곳을 놓았어요` : ''}`);
-    });
-  },
-  async atlasTravelOk(arg) {
-    const [cid, ep, ok] = String(arg).split(':');
-    await run('저장하는 중', async () => {
-      await saveIfDirty();
-      S.project = await api('PUT', `/projects/${enc(S.name)}/atlas/travel/ok`, { cid, episode: Number(ep), ok: ok === '1' });
-      await atlasLoad();
-      toast(ok === '1' ? '이 이동을 괜찮다고 뒀어요' : '이 이동을 다시 봐요');
-    });
-  },
   async atlasDropLayout() {
     if (!confirm('마을 데이터를 지울까요? 장소 자리는 그대로 남아요.')) return;
     await run('지우는 중', async () => {
@@ -1799,67 +1346,6 @@ document.addEventListener('input', (e) => {
 
 document.addEventListener('change', async (e) => {
   const t = e.target;
-  if (t.matches('[data-at-um]')) {
-    const u = S.atlas.unmatched[Number(t.dataset.atUm)];
-    const d = atlasDraft(u.text);
-    d.v = t.value;
-    d.on = !!t.value;
-    const box = t.closest('.at-um');
-    box.classList.toggle('on', d.on);
-    box.querySelector('[data-at-on]').checked = d.on;
-    atlasPickCount();
-    return;
-  }
-  if (t.matches('[data-at-on]')) {
-    const d = atlasDraft(S.atlas.unmatched[Number(t.dataset.atOn)].text);
-    d.on = t.checked;
-    t.closest('.at-um').classList.toggle('on', d.on);
-    atlasPickCount();
-    return;
-  }
-  if (t.matches('[data-at-all]')) {
-    (S.atlas.unmatched || []).forEach((u) => { atlasDraft(u.text).on = t.checked; });
-    atlasRerenderUnmatched();
-    return;
-  }
-  if (t.matches('[data-at-gen]')) {
-    const st = atlasGenState();
-    st.spec[t.dataset.atGen] = t.value;
-    st.touched[t.dataset.atGen] = true;
-    if (t.dataset.atGen === 'kind') {  // 칸이 바뀌니 다시 그린다
-      atlasGenFit(st.spec);
-      atlasRefresh();
-    }
-    return;
-  }
-  if (t.matches('[data-at-gen-seed]')) {
-    const seed = Number(t.value);
-    if (!Number.isInteger(seed) || seed < 0 || seed > 2147483647) { toast('시드는 0~2147483647 사이 정수로 적으세요', true); return; }
-    atlasGenState().spec.seed = seed;
-    return;
-  }
-  if (t.matches('[data-at-gen-kind]')) {
-    const st = atlasGenState();
-    const row = st.spec.places[Number(t.dataset.atGenKind)];
-    row.kind = t.value;
-    row.put = t.value !== 'far';  // 마을 밖 장소는 놓지 않는 게 기본
-    st.touched['p:' + row.key] = true;
-    atlasRefresh();
-    return;
-  }
-  if (t.matches('[data-at-gen-put]')) {
-    const st = atlasGenState();
-    const row = st.spec.places[Number(t.dataset.atGenPut)];
-    row.put = t.checked;
-    st.touched['p:' + row.key] = true;
-    return;
-  }
-  if (t.matches('[data-at-gen-take]')) {
-    atlasGenState().take[t.dataset.atGenTake] = t.checked;
-    const stage = document.getElementById('atlas-stage');
-    if (stage) stage.innerHTML = atlasStage();
-    return;
-  }
   if (t.matches('[data-atlas-style]')) {
     S.atlasStyle = ATLAS_STYLES[t.value] ? t.value : 'base';
     atlasStyleSave();
@@ -1876,20 +1362,6 @@ document.addEventListener('change', async (e) => {
   if (t.matches('[data-atlas-opt]')) {
     S[t.dataset.atlasOpt] = t.checked;
     if (S.atlasTab === 'table') render(); else atlasRefresh();
-    return;
-  }
-  if (t.matches('[data-atlas-travel]')) {
-    const cur = S.atlas.travel;
-    const key = t.dataset.atlasTravel;
-    const body = { enabled: cur.enabled, mode: cur.mode, kmh: cur.kmh, day_km: cur.day_km, span_km: cur.span_km };
-    body[key] = key === 'enabled' ? t.checked : key === 'mode' ? t.value : Number(t.value || 0);
-    if (key !== 'enabled' && key !== 'mode' && !(body[key] >= 0)) { toast('0 이상의 수를 적어 주세요', true); return; }
-    await run('저장하는 중', async () => {
-      await saveIfDirty();
-      S.project = await api('PUT', `/projects/${enc(S.name)}/atlas/travel`, body);
-      await atlasLoad();
-      toast('이동 시간 검사 설정을 바꿨어요');
-    });
     return;
   }
   if (t.matches('[data-atlas-meters]')) {
@@ -1913,6 +1385,10 @@ document.addEventListener('change', async (e) => {
       await saveIfDirty();
       S.project = await api('PUT', `/projects/${enc(S.name)}/atlas/layout`, { data });
       await atlasLoad();
+      await atlasFindLoad().catch(() => { S.atlasFind = null; });
+      const found = S.atlasFind ? S.atlasFind.spots.length : 0;
+      if (found) { toast(`마을을 올렸어요. 이름이 같은 건물 · 가게 · 역을 장소 ${found}곳에서 찾았어요. 옆 칸에서 골라 주세요`); return; }
+      S.atlasFind = null;
       toast(had ? '마을을 올렸어요. 장소 자리가 마을과 맞지 않으면 건물 위로 옮겨 주세요' : '마을을 올렸어요. 장소를 골라 건물 위에 놓으세요');
     });
     return;
@@ -2378,6 +1854,7 @@ document.addEventListener('keydown', (e) => {
 .at-bld-who { display: flex; flex-wrap: wrap; gap: 4px 10px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; max-height: 120px; overflow: auto; }
 .at-map .at-v-ward-label { fill: var(--text); fill-opacity: 0.8; stroke: var(--canvas); stroke-opacity: 0.85; paint-order: stroke; stroke-linejoin: round; font-weight: 600; pointer-events: none; }
 .at-map .at-v-shadow { fill: var(--v-shadow); }
+.at-map .at-v-made { fill: var(--v-house0); fill-opacity: 0.45; stroke: var(--v-house-edge); stroke-linejoin: round; }
 .at-map .at-v-house { stroke: var(--v-house-edge); stroke-width: calc(var(--v-lw) * 1px); stroke-linejoin: round; }
 .at-map .at-v-house.t0 { fill: var(--v-house0); }
 .at-map .at-v-house.t1 { fill: var(--v-house1); }
@@ -2402,6 +1879,8 @@ document.addEventListener('keydown', (e) => {
 .at-gen-place { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
 .at-gen-place select { max-width: 140px; }
 .at-gen-take { display: flex; align-items: baseline; gap: 6px; }
+.at-find { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.at-find legend { padding: 0; margin-bottom: 2px; }
 .at-gen-note { grid-column: 1 / -1; margin-top: -2px; }
 .at-scale { display: inline-flex; align-items: center; gap: 6px; }
 .at-scale input { width: 80px; }

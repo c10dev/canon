@@ -16,7 +16,7 @@ from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, ImpactReport, PlayInfo, Project, Selection, StateDelta, StoryElement
-from . import charlog, foreshadows, statwin, timeline, travel
+from . import charlog, foreshadows, mapprompt, statwin, timeline
 
 SYSTEM_PLANNER = (
     "당신은 한국 웹소설/단편소설 기획 전문 편집자입니다. "
@@ -1883,8 +1883,10 @@ def build_episode_context(p: Project, n: int) -> str:
     line = f"\n\n# 이번 화의 이야기 줄기\n{line}" if line else ""
     tl = timeline.episode_block(p, n)
     line += f"\n\n# 작품 속 시간 (어기지 말 것)\n{tl}" if tl else ""
-    tr = travel.episode_block(p, n)
+    tr = mapprompt.travel_block(p, n)
     line += f"\n\n# 이동 거리 (지도 기준)\n{tr}" if tr else ""
+    sp = mapprompt.spot_block(p, n)
+    line += f"\n\n# 장소가 놓인 건물 (지도 기준)\n{sp}" if sp else ""
     pov = pov_block(p, n)
     pov = f"\n\n# 이번 화 서술 시점 (스타일 프로필보다 우선)\n{pov}" if pov else ""
     dev = device_block(p, n)
@@ -2280,7 +2282,7 @@ def check_prompt(p: Project, n: int, mode: str = "") -> str:
 {n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
 - 확인할 것: 확정 사실, 이야기 요소와 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
 - 동선: 한 장면 안에서 인물의 위치, 몸이 향한 쪽(앞 · 뒤, 등 · 배), 자세, 손에 든 것, 가려진 곳이 바꾸는 행동 없이 달라지는지 봅니다. 예: 등을 돌리고 망토로 몸을 가렸는데 다음 문장에서 그 인물의 표정이나 가슴께가 보임. 이때 source_episode 는 {n}, source_quote 는 같은 화의 앞 문장입니다.
-- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{timeline.check_rule(p, n)}{travel.check_rule(p, n)}{attire_check_rule(p)}{statwin.check_rule(p)}
+- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{statwin.check_rule(p)}
 - source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 설정이나 인물 상태면 source_episode 는 0 입니다.
 {SEVERITY_RULE}
 - 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
@@ -2353,8 +2355,10 @@ def check_material(p: Project, n: int, mode: str = "") -> str:
     line = f"\n\n# {n}화의 이야기 줄기\n{line}" if line else ""
     tl = timeline.episode_block(p, n)
     line += f"\n\n# 작품 속 시간\n{tl}" if tl else ""
-    tr = travel.episode_block(p, n)
+    tr = mapprompt.travel_block(p, n)
     line += f"\n\n# 이동 거리 (지도 기준)\n{tr}" if tr else ""
+    sp = mapprompt.spot_block(p, n)
+    line += f"\n\n# 장소가 놓인 건물 (지도 기준)\n{sp}" if sp else ""
     pov = pov_block(p, n)
     pov = f"\n\n# {n}화 서술 시점 (스타일 프로필보다 우선)\n{pov}" if pov else ""
     return f"""{static_context(p)}

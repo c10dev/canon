@@ -7,7 +7,7 @@ LLM 을 부르지 않는다.
 단지는 남향 판상 · 탑상 동 배치와 단지 안 길, 학교는 교사와 운동장) → 쓰임 · 층수 → 이야기 장소.
 
 새 길은 늘 곧은 선분이고 두 끝은 둘레 길의 가운데 선 위 점이다. 그 점을 둘레 길의 꼭짓점(splits)으로도 넣어 길이 한 덩어리가 된다
-(citygen 의 골목과 같은 방식). 블록은 변마다 무엇과 맞닿았는지 꼬리표를 단 볼록 다각형이다(citygen._cut).
+(citygen 의 골목과 같은 방식). 블록은 변마다 무엇과 맞닿았는지 꼬리표를 단 볼록 다각형이다(blocks.cut).
 결과는 atlas.read_layout 모양 (+ wards, spots, missing, houses, numbers, parts, seed, retries). 좌표는 m 로 계산하고 마지막에
 0~1 로 나눈다. 단계마다 난수원을 따로 두어(f"{seed}:{단계}") 같은 MapSpec 이면 언제나 같은 동네가 나온다.
 
@@ -20,11 +20,10 @@ import math
 import random
 from typing import Callable, Optional
 
-from . import geom
-from .citygen import _crossings, _cut, _fit_rect, _inset, _line_hit, _parts, _scatter, _unit
+from . import blocks, geom
 from .geom import Point, Poly
+from .placekinds import CATEGORY_IDS
 from .schema import MapSpec
-from .towngen import CATEGORIES
 
 VERSION = 1
 GENERATOR = "canon-modern"
@@ -70,8 +69,7 @@ CIVIC = [("government", (1, 1, 2), "strip"), ("police", (1, 1, 1), "strip"), ("p
          ("library", (0, 1, 1), "villa"), ("fire", (0, 0, 1), "strip"), ("mart", (1, 1, 2), "big"),
          ("department", (0, 0, 1), "big"), ("fuel", (1, 1, 2), "strip"), ("church", (2, 4, 7), "villa"),
          ("kinder", (2, 3, 5), "villa"), ("gym", (0, 1, 1), "strip")]
-CATEGORY_IDS = [c[0] for c in CATEGORIES]
-# 이야기 장소 종류(towngen.CATEGORIES id)가 이 동네에서 놓이는 자리 (_place_spots). AI 설정 제안 프롬프트가 쓴다
+# 이야기 장소 종류(placekinds.CATEGORIES id)가 이 동네에서 놓이는 자리 (_place_spots). AI 설정 제안 프롬프트가 쓴다
 PLACE_KINDS = {"center": "역 앞 광장", "market": "마트 · 상가", "well": "역 앞 광장 옆", "temple": "교회",
                "inn": "호텔 · 모텔 · 역 앞 상가", "smith": "동네 끝 대로변 가게 · 공장", "mill": "동네 끝 대로변 가게 · 공장",
                "manor": "가장 큰 단독주택", "home": "빌라 · 아파트 · 단독주택", "shore": "하천 둔치", "bridge": "하천 다리",
@@ -86,7 +84,7 @@ NEED = {"shore": "물가가 없는 동네예요. 물을 하천으로 바꿔 보�
 
 def neighborhood(spec: MapSpec, places: list[dict]) -> dict:
     """현대 동네 지도 (read_layout 과 같은 모양 + wards, spots, missing, houses, numbers, parts, seed, retries).
-    places: [{key, name, kind}] 이 지도에 놓을 이야기 장소 (kind 는 towngen.CATEGORIES id).
+    places: [{key, name, kind}] 이 지도에 놓을 이야기 장소 (kind 는 placekinds.CATEGORIES id).
     spec 가운데 size · water · forest 를 쓴다 (호수 · 바다는 하천으로 본다. roads · fields 는 쓰지 않는다)."""
     if spec.kind != "modern":
         raise ValueError("현대 동네 생성기는 현대 동네만 만들어요")
@@ -113,7 +111,7 @@ class _Roads:
 
     def hit(self, k: int, p: Point, d: Point) -> Optional[tuple[float, Point]]:
         it = self.items[k]
-        return _line_hit(p, d, it["a"], it["b"])
+        return blocks.line_hit(p, d, it["a"], it["b"])
 
     def mark(self, k: int, u: float, q: Point) -> None:
         self.items[k]["splits"].append((u, q))
@@ -136,7 +134,7 @@ def _half(P: Poly, T: list, p: Point, d: Point, off: float, sign: int, tag) -> t
     """직선 p + t·d 를 sign 쪽(1: d 의 왼쪽 법선 쪽)으로 off 만큼 민 선의 그쪽만 남긴다. 새 변 꼬리표는 tag."""
     a = (p[0] - d[1] * off * sign, p[1] + d[0] * off * sign)
     b = (a[0] + d[0], a[1] + d[1])
-    return _cut(P, T, a, b, tag) if sign > 0 else _cut(P, T, b, a, tag)
+    return blocks.cut(P, T, a, b, tag) if sign > 0 else blocks.cut(P, T, b, a, tag)
 
 
 def _side(p: Point, d: Point, q: Point) -> int:
@@ -146,7 +144,7 @@ def _side(p: Point, d: Point, q: Point) -> int:
 def _frame(P: Poly) -> tuple[Point, Point]:
     """가장 긴 변 방향 ax 와 그 법선."""
     i = max(range(len(P)), key=lambda k: math.dist(P[k - 1], P[k]))
-    ax = _unit(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1])
+    ax = blocks.unit(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1])
     return ax, (-ax[1], ax[0])
 
 
@@ -159,7 +157,7 @@ def _road_cut(P: Poly, T: list, p: Point, d: Point, width: float, cls: str, road
               min_area: float) -> Optional[tuple[tuple[Poly, list], tuple[Poly, list]]]:
     """블록을 p 를 지나 d 쪽으로 뻗는 새 길로 둘로 나눈다. 두 끝이 둘레 길의 가운데 선(또는 지도 끝)에 닿고 두 쪽이 min_area 보다
     크면 길을 roads 에 넣고 (왼쪽, 오른쪽) 블록, 아니면 아무것도 바꾸지 않고 None."""
-    hits = _crossings(P, p, d)
+    hits = blocks.crossings(P, p, d)
     if len(hits) != 2:
         return None
     ends = []
@@ -239,8 +237,8 @@ def _slices(P: Poly, T: list, ax: Point, step: Callable[[], float], last: float)
             out.append((rest, rt))
             break
         m = (ax[0] * t, ax[1] * t)
-        piece, pt = _cut(rest, rt, m, (m[0] + d[0], m[1] + d[1]), ("x",))
-        rest, rt = _cut(rest, rt, (m[0] + d[0], m[1] + d[1]), m, ("x",))
+        piece, pt = blocks.cut(rest, rt, m, (m[0] + d[0], m[1] + d[1]), ("x",))
+        rest, rt = blocks.cut(rest, rt, (m[0] + d[0], m[1] + d[1]), m, ("x",))
         if piece:
             out.append((piece, pt))
     return out
@@ -266,7 +264,7 @@ def _lots(P: Poly, T: list, front: tuple[float, float], depth: float, r: random.
 
 def _building(lot: Poly, tags: list, front: float, side: float) -> Optional[Poly]:
     """필지에서 길 쪽은 front, 나머지는 side 만큼 물린 건물. 너무 작거나 가늘면 None."""
-    poly, _ = _inset(lot, tags, [front if tg[0] in ("r", "b") else side for tg in tags])
+    poly, _ = blocks.inset(lot, tags, [front if tg[0] in ("r", "b") else side for tg in tags])
     if len(poly) < 3:
         return None
     a = abs(geom.area(poly))
@@ -341,7 +339,7 @@ def _neighborhood(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict
     for j, y in enumerate(ypos):
         a, b = (0.0, y + gr.uniform(-SWAY, SWAY)), (w, y + gr.uniform(-SWAY, SWAY))
         if j == river_j:
-            d = _unit(b[0] - a[0], b[1] - a[1])
+            d = blocks.unit(b[0] - a[0], b[1] - a[1])
             banks = {}
             for sgn in (1, -1):  # 둔치 바깥 양쪽 강변길 (지도 끝에서 끝까지)
                 off = (rw / 2 + BANK + RIVERSIDE / 2) * sgn
@@ -359,13 +357,13 @@ def _neighborhood(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict
     for vl in vlines:
         dv = (vl["b"][0] - vl["a"][0], vl["b"][1] - vl["a"][1])
         for hl in hlines:
-            dh = _unit(hl["b"][0] - hl["a"][0], hl["b"][1] - hl["a"][1])
+            dh = blocks.unit(hl["b"][0] - hl["a"][0], hl["b"][1] - hl["a"][1])
             if hl.get("river"):
                 ends = []
                 for sgn in (1, -1):  # 물가 두 점에서 다리로 바뀐다
                     off = rw / 2 + 1.5
                     o = (hl["a"][0] - dh[1] * off * sgn, hl["a"][1] + dh[0] * off * sgn)
-                    hit = _line_hit(o, dh, vl["a"], vl["b"])
+                    hit = blocks.line_hit(o, dh, vl["a"], vl["b"])
                     if hit is None:
                         return None
                     roads.mark(vl["k"], *hit)
@@ -373,19 +371,19 @@ def _neighborhood(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict
                 roads.items[vl["k"]]["bridges"].append((min(ends)[0], max(ends)[0]))
                 bridges.append((ends[0][1], ends[1][1]))
                 for bank in hl["banks"].values():
-                    hit = _line_hit(vl["a"], dv, bank["a"], bank["b"])
-                    hv = _line_hit(bank["a"], dh, vl["a"], vl["b"])
+                    hit = blocks.line_hit(vl["a"], dv, bank["a"], bank["b"])
+                    hv = blocks.line_hit(bank["a"], dh, vl["a"], vl["b"])
                     if hit is None or hv is None:
                         return None
                     roads.mark(bank["k"], hit[0], hit[1])
                     roads.mark(vl["k"], hv[0], hit[1])
                 continue
-            hit = _line_hit(vl["a"], dv, hl["a"], hl["b"])
+            hit = blocks.line_hit(vl["a"], dv, hl["a"], hl["b"])
             if hit is None:
                 return None
             u, q = hit
             roads.mark(hl["k"], u, q)
-            hv = _line_hit(hl["a"], dh, vl["a"], vl["b"])
+            hv = blocks.line_hit(hl["a"], dh, vl["a"], vl["b"])
             roads.mark(vl["k"], hv[0] if hv else 0.5, q)
             crossings.append(q)
 
@@ -400,12 +398,12 @@ def _neighborhood(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict
             bounds = ([vlines[i - 1]] if i > 0 else []) + ([vlines[i]] if i < nx - 1 else []) + \
                      ([hlines[j - 1]] if j > 0 else []) + ([hlines[j]] if j < ny - 1 else [])
             for ln in bounds:
-                d = _unit(ln["b"][0] - ln["a"][0], ln["b"][1] - ln["a"][1])
+                d = blocks.unit(ln["b"][0] - ln["a"][0], ln["b"][1] - ln["a"][1])
                 sgn = _side(ln["a"], d, c)
                 shape, st = _half(shape, st, ln["a"], d, 0, sgn, ("w",) if ln.get("river") else ("r", ln["k"]))
                 if ln.get("river"):  # 하천 쪽 블록은 강변길에서 줄인다
                     ln = ln["banks"][sgn]
-                    d = _unit(ln["b"][0] - ln["a"][0], ln["b"][1] - ln["a"][1])
+                    d = blocks.unit(ln["b"][0] - ln["a"][0], ln["b"][1] - ln["a"][1])
                 P, T = _half(P, T, ln["a"], d, ln["width"] / 2 + WALK, sgn, ("r", ln["k"]))
             if not P:
                 return None
@@ -446,14 +444,14 @@ def _neighborhood(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict
     plaza: Optional[Poly] = None
     schools_left = max(1, round(len(cells) / CELLS_PER_SCHOOL))
     school_at: list[Point] = []
-    east = next((_unit(ln["b"][0] - ln["a"][0], ln["b"][1] - ln["a"][1]) for ln in hlines if not ln.get("river")), (1.0, 0.0))
+    east = next((blocks.unit(ln["b"][0] - ln["a"][0], ln["b"][1] - ln["a"][1]) for ln in hlines if not ln.get("river")), (1.0, 0.0))
 
     def avenue(tags: list) -> bool:
         return any(tg[0] == "r" and roads.items[tg[1]]["cls"] == "avenue" for tg in tags)
 
-    def add_lots(blocks: list[tuple[Poly, list]], kind: str) -> None:
+    def add_lots(pieces: list[tuple[Poly, list]], kind: str) -> None:
         _, _, front, depth = DIVIDE[kind]
-        for P, T in blocks:
+        for P, T in pieces:
             for lot, lt in _lots(P, T, front, depth, br):
                 strip = avenue(lt)
                 zone = "strip" if strip and kind == "villa" else kind
@@ -470,7 +468,7 @@ def _neighborhood(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict
             return False
         if any(math.dist(geom.centroid(P), q) < SCHOOL_GAP for q in school_at):
             return False
-        site, _ = _inset(P, T, [3.0] * len(P))
+        site, _ = blocks.inset(P, T, [3.0] * len(P))
         if not site:
             return False
         schools_left -= 1
@@ -482,21 +480,21 @@ def _neighborhood(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict
         k = min((k for k in range(len(site)) if math.dist(site[k - 1], site[k]) >= 40),
                 key=lambda k: site[k - 1][1] + site[k][1], default=0)
         a, b = site[k - 1], site[k]
-        d = _unit(b[0] - a[0], b[1] - a[1])
+        d = blocks.unit(b[0] - a[0], b[1] - a[1])
         mid = geom.lerp(a, b, 0.5)
         inward = (-d[1], d[0]) if (sc[0] - mid[0]) * -d[1] + (sc[1] - mid[1]) * d[0] > 0 else (d[1], -d[0])
         L = min(70.0, math.dist(a, b) * 0.8)
         at = lambda t: (mid[0] + inward[0] * t, mid[1] + inward[1] * t)  # noqa: E731
-        hall = _fit_rect(site, at(9.5), inward, L, 15, 1)
+        hall = blocks.fit_rect(site, at(9.5), inward, L, 15, 1)
         if hall:
             lots.append({"poly": hall, "zone": "school", "corner": False, "use": "school",
                          "levels": br.randint(4, 5)})
         lo, hi = _extent(site, inward)
         fd = min(70.0, (hi - lo) - 15 - 14)
-        field = _fit_rect(site, at(23 + fd / 2), inward, L, fd, 2) if fd > 25 else None
+        field = blocks.fit_rect(site, at(23 + fd / 2), inward, L, fd, 2) if fd > 25 else None
         if field:
             squares.append(field)
-        trees.extend(_scatter(tr, site, 9, 0.25, [x for x in (hall, field) if x]))
+        trees.extend(blocks.scatter(tr, site, 9, 0.25, [x for x in (hall, field) if x]))
         return True
 
     for cl in cells:
@@ -515,25 +513,25 @@ def _neighborhood(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict
                 if all(geom.inside(q, P) for q in ring):
                     pond = ring if geom.area(ring) > 0 else ring[::-1]
                     ponds.append(pond)
-            trees += _scatter(tr, P, 8, 0.8, [pond] if pond else [])
+            trees += blocks.scatter(tr, P, 8, 0.8, [pond] if pond else [])
         elif kind == "station":
-            blocks = _divide(P, T, "commercial", roads, br)
-            k0 = min(range(len(blocks)), key=lambda k: math.dist(geom.centroid(blocks[k][0]), station))
-            plaza = blocks.pop(k0)[0]
+            pieces = _divide(P, T, "commercial", roads, br)
+            k0 = min(range(len(pieces)), key=lambda k: math.dist(geom.centroid(pieces[k][0]), station))
+            plaza = pieces.pop(k0)[0]
             squares.append(plaza)
             ax, nrm = _frame(plaza)
             pc = geom.centroid(plaza)
-            hall = _fit_rect(plaza, geom.lerp(pc, station, 0.25), nrm, 26, 12, 1.5)
+            hall = blocks.fit_rect(plaza, geom.lerp(pc, station, 0.25), nrm, 26, 12, 1.5)
             if hall:
                 lots.append({"poly": hall, "zone": "station", "corner": False, "use": "station", "levels": 2})
-            add_lots(blocks, "commercial")
+            add_lots(pieces, "commercial")
         elif kind == "villa":
-            blocks = _divide(P, T, "villa", roads, br, school_claim)
+            pieces = _divide(P, T, "villa", roads, br, school_claim)
             keep = []
-            for b in blocks:
+            for b in pieces:
                 if not avenue(b[1]) and tr.random() < POCKET[spec.forest]:
                     greens.append(b[0])
-                    trees += _scatter(tr, b[0], 7, 0.6)
+                    trees += blocks.scatter(tr, b[0], 7, 0.6)
                 else:
                     keep.append(b)
             add_lots(keep, "villa")
@@ -541,7 +539,7 @@ def _neighborhood(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict
             cand = [k for k, tg in enumerate(T) if tg[0] == "r"]
             if cand and br.random() < 0.6:
                 k = min(cand, key=lambda k: math.dist(geom.lerp(P[k], P[(k + 1) % len(P)], 0.5), station))
-                d = _unit(P[(k + 1) % len(P)][0] - P[k][0], P[(k + 1) % len(P)][1] - P[k][1])
+                d = blocks.unit(P[(k + 1) % len(P)][0] - P[k][0], P[(k + 1) % len(P)][1] - P[k][1])
                 band = _half(P, T, P[k], d, -STRIP[1], -1, ("x",))  # 블록 안쪽은 d 의 왼쪽: 변에서 STRIP 안쪽 선의 바깥
                 rest = _half(P, T, P[k], d, STRIP[1], 1, ("x",))
                 if band[0] and rest[0]:
@@ -561,7 +559,7 @@ def _neighborhood(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict
                         halves = list(done)
                         break
             for H, HT in halves:
-                B, _ = _inset(H, HT, [BUFFER] * len(H))
+                B, _ = blocks.inset(H, HT, [BUFFER] * len(H))
                 if not B:
                     continue
                 extra: list[Poly] = []
@@ -569,7 +567,7 @@ def _neighborhood(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict
                     if tg[0] != "r" or len(extra) >= 2:
                         continue
                     a, b = H[k], H[(k + 1) % len(H)]
-                    d = _unit(b[0] - a[0], b[1] - a[1])
+                    d = blocks.unit(b[0] - a[0], b[1] - a[1])
                     inward = (-d[1], d[0])
                     dep = 14 if not extra else 12
                     m = geom.lerp(a, b, br.uniform(0.3, 0.7))
@@ -590,12 +588,12 @@ def _neighborhood(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict
                 for dg in dongs:
                     lots.append({"poly": dg, "zone": "apartment", "corner": False,
                                  "use": "apartment", "levels": br.randint(*lv)})
-                trees += _scatter(tr, B, 11, 0.35, dongs + extra)
+                trees += blocks.scatter(tr, B, 11, 0.35, dongs + extra)
 
     # 5. 하천: 물 · 둔치 띠 (다리는 길에서 나눴다)
     rivers = []
     if river:
-        d = _unit(river["b"][0] - river["a"][0], river["b"][1] - river["a"][1])
+        d = blocks.unit(river["b"][0] - river["a"][0], river["b"][1] - river["a"][1])
         for half_w, out in ((rw / 2 + BANK, greens), (rw / 2, water)):
             nv = (-d[1] * half_w, d[0] * half_w)
             a, b = river["a"], river["b"]
@@ -646,7 +644,7 @@ def _neighborhood(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict
         for kind, run in roads.runs(k):
             road_out.append({"kind": kind, "width": roads.items[k]["width"], "pts": run, "cls": roads.items[k]["cls"]})
     key = lambda q: (round(round(q[0] / w, 6) * w, 2), round(round(q[1] / h, 6) * h, 2))  # noqa: E731
-    if len(_parts(road_out, key)) != 1:  # 길이 한 덩어리인지 (atlas.road_graph 와 같은 반올림)
+    if len(blocks.parts(road_out, key)) != 1:  # 길이 한 덩어리인지 (atlas.road_graph 와 같은 반올림)
         return None
 
     # 8. 이야기 장소
@@ -703,7 +701,7 @@ def _place_spots(places: list[dict], lots: list[dict], plaza: Optional[Poly], st
         return q
 
     def bank() -> Point:
-        d = _unit(river["b"][0] - river["a"][0], river["b"][1] - river["a"][1])
+        d = blocks.unit(river["b"][0] - river["a"][0], river["b"][1] - river["a"][1])
         t = (station[0] - river["a"][0]) * d[0] + (station[1] - river["a"][1]) * d[1] + 40  # 역에서 가까운 물가 (다리 옆)
         m = (river["a"][0] + d[0] * t, river["a"][1] + d[1] * t)
         sgn = _side(river["a"], d, station)

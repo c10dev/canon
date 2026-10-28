@@ -17,10 +17,10 @@ import math
 import random
 from typing import Callable, Optional
 
-from . import geom
+from . import blocks, geom
 from .geom import Point, Poly
+from .placekinds import CATEGORY_IDS
 from .schema import MapSpec
-from .towngen import CATEGORIES
 
 VERSION = 1
 GENERATOR = "canon-city"
@@ -42,12 +42,12 @@ WARD_KINDS = {
     "plaza": "광장", "market": "시장", "temple": "신전", "noble": "귀족", "merchant": "상인", "craft": "장인",
     "harbor": "항구", "slum": "빈민", "park": "공원", "farm": "농지", "wood": "숲",
 }
+ZONES = WARD_KINDS  # 구역 이름: 생성기마다 같은 이름으로 낸다 (atlas.gen_info)
 # 블록 쪼개기: (집 한 채 넓이 m², 골목을 낼 확률, 빈 필지 확률, 자르는 각도 흔들기 rad)
 LOTS = {"merchant": (150, 0.35, 0.03, 0.12), "craft": (120, 0.4, 0.05, 0.16), "harbor": (280, 0.3, 0.05, 0.08),
         "slum": (70, 0.55, 0.1, 0.26), "noble": (560, 0.15, 0.0, 0.1)}
 FIELD_SHARE = {"few": 0.35, "some": 0.65, "many": 0.9}  # 성 밖 구역 가운데 밭
 FOREST_SHARE = {"few": 0.08, "some": 0.2, "many": 0.4}  # 밭이 아닌 성 밖 구역 가운데 숲 (나머지는 풀밭 농지)
-CATEGORY_IDS = [c[0] for c in CATEGORIES]
 NEED = {"shore": "물가가 없는 도시예요. 물을 강이나 바다로 바꿔 보세요",
         "bridge": "다리가 없어요. 물을 강으로 바꿔 보세요",
         "river": "강이 없어요. 물을 강으로 바꿔 보세요",
@@ -58,7 +58,7 @@ NEED = {"shore": "물가가 없는 도시예요. 물을 강이나 바다로 바�
 
 def city(spec: MapSpec, places: list[dict]) -> dict:
     """도시 지도 (read_layout 과 같은 모양 + wards, gates, spots, missing, houses, numbers, seed, retries).
-    places: [{key, name, kind}] 이 지도에 놓을 이야기 장소 (kind 는 towngen.CATEGORIES id).
+    places: [{key, name, kind}] 이 지도에 놓을 이야기 장소 (kind 는 placekinds.CATEGORIES id).
     spec 가운데 size · water · fields · forest 를 쓴다 (lake 는 강으로 본다. roads 는 쓰지 않는다. 성벽은 늘 있다)."""
     if spec.kind != "city":
         raise ValueError("도시 생성기는 도시만 만들어요")
@@ -204,22 +204,6 @@ def _ray(p: Point, d: Point, a: Point, b: Point) -> Optional[tuple[float, float]
     return (t, u) if t > 1e-6 and 0 <= u <= 1 else None
 
 
-def _line_hit(p: Point, d: Point, a: Point, b: Point) -> Optional[tuple[float, Point]]:
-    """직선 p + t·d 가 선분 ab 와 만나면 (ab 위 비율, 만나는 점)."""
-    ex, ey = b[0] - a[0], b[1] - a[1]
-    den = d[0] * ey - d[1] * ex
-    if abs(den) < 1e-12:
-        return None
-    qx, qy = a[0] - p[0], a[1] - p[1]
-    u = (qx * d[1] - qy * d[0]) / den
-    return (u, geom.lerp(a, b, u)) if 0 <= u <= 1 else None
-
-
-def _unit(x: float, y: float) -> Point:
-    n = math.hypot(x, y) or 1.0
-    return (x / n, y / n)
-
-
 def _dijkstra(adj: list[set[int]], start: int, cost: Callable[[int, int], float],
               goals: Optional[set[int]] = None) -> tuple[dict[int, float], dict[int, int], Optional[int]]:
     """cost 가 inf 인 모서리는 지나지 않는다. goals 에 닿으면 멈추고 그 꼭짓점을 돌려준다."""
@@ -251,91 +235,13 @@ def _trace(prev: dict[int, int], end: int) -> list[int]:
     return path[::-1]
 
 
-# ---------- 꼬리표 달린 볼록 다각형 ----------
+# ---------- 꼬리표 달린 볼록 다각형 (자르기 · 줄이기는 blocks) ----------
 # 블록은 꼭짓점 목록 pts 와 변마다 꼬리표 tags (tags[i] 는 pts[i] → pts[i+1] 변이 무엇과 맞닿는지).
 # ("e", 모서리) 는 구역 경계, ("a", 번호) 는 골목, ("x",) 는 길과 맞닿지 않은 변 (필지 경계 · 모퉁이).
 
-def _cut(pts: Poly, tags: list, a: Point, b: Point, tag) -> tuple[Poly, list]:
-    """볼록 다각형에서 직선 a→b 왼쪽(넓이가 양수인 방향의 안쪽)만 남긴다. 새로 생긴 변의 꼬리표는 tag."""
-    dx, dy = b[0] - a[0], b[1] - a[1]
-    side = [dx * (p[1] - a[1]) - dy * (p[0] - a[0]) for p in pts]
-    op: Poly = []
-    ot: list = []
-    n = len(pts)
-    for i in range(n):
-        j = (i + 1) % n
-        sp, sq = side[i], side[j]
-        if sp >= 0:
-            op.append(pts[i])
-            ot.append(tags[i])
-            if sq < 0:
-                op.append(geom.lerp(pts[i], pts[j], sp / (sp - sq)))
-                ot.append(tag)
-        elif sq >= 0:
-            op.append(geom.lerp(pts[i], pts[j], sp / (sp - sq)))
-            ot.append(tags[i])
-    k = 0
-    while k < len(op) and len(op) >= 3:  # 겹친 점은 앞의 것을 지운다 (뒤 점의 꼬리표가 맞다)
-        if math.dist(op[k], op[(k + 1) % len(op)]) < 1e-7:
-            del op[k], ot[k]
-        else:
-            k += 1
-    if len(op) < 3 or geom.area(op) < 1e-6:
-        return [], []
-    return op, ot
-
-
-def _inset(pts: Poly, tags: list, ds: list[float]) -> tuple[Poly, list]:
-    """변마다 ds[i] 만큼 안으로 민다."""
-    P, T = list(pts), list(tags)
-    n = len(pts)
-    for i in range(n):
-        if ds[i] <= 0:
-            continue
-        a, b = pts[i], pts[(i + 1) % n]
-        nx, ny = _unit(-(b[1] - a[1]), b[0] - a[0])
-        P, T = _cut(P, T, (a[0] + nx * ds[i], a[1] + ny * ds[i]), (b[0] + nx * ds[i], b[1] + ny * ds[i]), tags[i])
-        if not P:
-            return [], []
-    return P, T
-
-
-def _crossings(pts: Poly, p: Point, d: Point) -> list[tuple[int, Point]]:
-    """직선 p + t·d 가 볼록 다각형 변과 만나는 곳 (변 번호, 점)."""
-    side = [d[0] * (q[1] - p[1]) - d[1] * (q[0] - p[0]) for q in pts]
-    out = []
-    n = len(pts)
-    for i in range(n):
-        sp, sq = side[i], side[(i + 1) % n]
-        if (sp >= 0) != (sq >= 0):
-            out.append((i, geom.lerp(pts[i], pts[(i + 1) % n], sp / (sp - sq))))
-    return out
-
-
-def _fit_rect(poly: Poly, c: Point, along: Point, w: float, d: float, margin: float) -> Optional[Poly]:
-    """c 에 along 방향으로 놓은 직사각형을 poly 안에 margin 을 두고 들어갈 때까지 줄인다."""
-    for _ in range(8):
-        r = geom.rect(c, along, w, d)
-        if all(geom.inside(q, poly) and min(geom.seg_dist(q, poly[i - 1], poly[i]) for i in range(len(poly))) >= margin for q in r):
-            return r
-        w, d = w * 0.85, d * 0.85
-    return None
-
-
 def _longest(poly: Poly) -> Point:
     i = max(range(len(poly)), key=lambda k: math.dist(poly[k - 1], poly[k]))
-    return _unit(poly[i][0] - poly[i - 1][0], poly[i][1] - poly[i - 1][1])
-
-
-def _scatter(r: random.Random, poly: Poly, gap: float, share: float = 1.0, avoid: Optional[list[Poly]] = None) -> list[Point]:
-    """poly 안에 서로 gap 쯤 떨어진 점 (나무). share 만 남긴다."""
-    x0, y0, x1, y1 = geom.bbox(poly)
-    out = []
-    for q in geom.poisson(r, x1 - x0, y1 - y0, gap, k=8):
-        p = (q[0] + x0, q[1] + y0)
-        if r.random() < share and geom.inside(p, poly) and not any(geom.inside(p, a) for a in avoid or ()):
-            out.append(p)
-    return out
+    return blocks.unit(poly[i][0] - poly[i - 1][0], poly[i][1] - poly[i - 1][1])
 
 
 # ---------- 도시 ----------
@@ -484,7 +390,7 @@ def _city(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
             px, py = mesh.v[x], mesh.v[side[0]]
             q0 = (2 * px[0] - py[0], 2 * px[1] - py[1])
             for q in [q0, geom.centroid(mesh.poly(far[0]))]:
-                new = mesh.split(far[0], x, _unit(q[0] - px[0], q[1] - px[1]), ok, ok_v)
+                new = mesh.split(far[0], x, blocks.unit(q[0] - px[0], q[1] - px[1]), ok, ok_v)
                 if new is not None:
                     if far[0] in inner:
                         inner.add(new)
@@ -587,7 +493,7 @@ def _city(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
             cands.remove(x)
             others = sorted((mesh.v[y] for y in mesh.cells[ci] if y != x), key=lambda q: -math.dist(q, px))
             for q in first + others:
-                new = mesh.split(ci, x, _unit(q[0] - px[0], q[1] - px[1]), ok, ok_v)
+                new = mesh.split(ci, x, blocks.unit(q[0] - px[0], q[1] - px[1]), ok, ok_v)
                 if new is not None:
                     if ci in inner:
                         inner.add(new)
@@ -658,33 +564,33 @@ def _city(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
             ds = [clear[types[k]] for k in keys]
         else:
             ds = [{"artery": aw / 2 + 24, "wall": ww / 2 + 8}.get(types[k], clear[types[k]] + 0.6) for k in keys]
-        P, T = _inset(poly, [("e", k) for k in keys], ds)
+        P, T = blocks.inset(poly, [("e", k) for k in keys], ds)
         cen = geom.centroid(poly)
         for x in cell:  # 모퉁이: 꼭짓점에 모인 길 · 강 · 성벽에서 띄운다
             if not P:
                 break
             q = mesh.v[x]
-            nv = _unit(cen[0] - q[0], cen[1] - q[1])
+            nv = blocks.unit(cen[0] - q[0], cen[1] - q[1])
             r = vclear[x] + (0.6 if ci not in inner else 0.0)
             o = (q[0] + nv[0] * r, q[1] + nv[1] * r)
-            P, T = _cut(P, T, (o[0] - nv[1], o[1] + nv[0]), (o[0] + nv[1], o[1] - nv[0]), ("x",))
+            P, T = blocks.cut(P, T, (o[0] - nv[1], o[1] + nv[0]), (o[0] + nv[1], o[1] - nv[0]), ("x",))
         wards_out.append({"kind": kind, "shape": poly, "ci": ci, "block": P})
         if not P or abs(geom.area(P)) < 40:
             continue
         if kind in ("plaza", "market"):
             squares.append(P)
             if kind == "market":
-                hall = _fit_rect(P, geom.centroid(P), _longest(P), math.sqrt(abs(geom.area(P))) * 0.32,
+                hall = blocks.fit_rect(P, geom.centroid(P), _longest(P), math.sqrt(abs(geom.area(P))) * 0.32,
                                  math.sqrt(abs(geom.area(P))) * 0.2, 3)
                 if hall:
                     landmarks.append({"poly": hall, "ward": ci, "kind": "market"})
         elif kind == "temple":
             greens.append(P)
             s = math.sqrt(abs(geom.area(P)))
-            t = _fit_rect(P, geom.centroid(P), _longest(P), s * 0.32, s * 0.62, 4)
+            t = blocks.fit_rect(P, geom.centroid(P), _longest(P), s * 0.32, s * 0.62, 4)
             if t:
                 landmarks.append({"poly": t, "ward": ci, "kind": "temple"})
-            trees += _scatter(tr, P, 9, 0.35, [t] if t else [])
+            trees += blocks.scatter(tr, P, 9, 0.35, [t] if t else [])
         elif kind == "park":
             greens.append(P)
             pond = None
@@ -697,7 +603,7 @@ def _city(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
                 if all(geom.inside(q, P) for q in ring):
                     pond = ring if geom.area(ring) > 0 else ring[::-1]
                     ponds.append(pond)
-            trees += _scatter(tr, P, 8, 0.7, [pond] if pond else [])
+            trees += blocks.scatter(tr, P, 8, 0.7, [pond] if pond else [])
         elif kind in LOTS:
             target, alley_p, empty_p, jit = LOTS[kind]
             if kind == "noble":
@@ -717,7 +623,7 @@ def _city(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
             fields += _fields(P, br, spec)
         elif kind == "wood":
             greens.append(P)
-            trees += _scatter(tr, P, 7, 0.9)
+            trees += blocks.scatter(tr, P, 7, 0.9)
 
     # 11. 길: 간선, 거리, 골목. 모서리 위에 골목이 닿은 점을 넣어 꼭짓점을 나눠 쓴다
     def edge_pts(a: int, b: int) -> list[Point]:
@@ -769,7 +675,7 @@ def _city(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
             if not seas or q not in road_v or piers >= 6 or pr.random() < 0.3:
                 continue
             sc = geom.centroid(mesh.poly(seas[0]))
-            d = _unit(sc[0] - q[0], sc[1] - q[1])
+            d = blocks.unit(sc[0] - q[0], sc[1] - q[1])
             ln = pr.uniform(22, 38)
             end = (q[0] + d[0] * ln, q[1] + d[1] * ln)
             if not (2 < end[0] < w - 2 and 2 < end[1] < h - 2) or not any(geom.inside(end, mesh.poly(s)) for s in sea):
@@ -805,7 +711,7 @@ def _city(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
         run = 0.0
         for a, b in zip(line, line[1:]):
             seg = math.dist(a, b)
-            u = _unit(b[0] - a[0], b[1] - a[1])
+            u = blocks.unit(b[0] - a[0], b[1] - a[1])
             t = hr.uniform(3, 8)
             while t < seg - 3:
                 p = (a[0] + u[0] * t, a[1] + u[1] * t)
@@ -847,7 +753,7 @@ def _city(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
     spots, missing = _place_spots(places, houses, landmarks, kinds, ward_of, mesh, plaza, roads, river_segs, rw,
                                   ponds, fields, arteries, sea, c, rng("spots"))
 
-    if len(_parts(roads, key)) != 1:  # 길이 한 덩어리인지 (atlas.road_graph 와 같은 반올림)
+    if len(blocks.parts(roads, key)) != 1:  # 길이 한 덩어리인지 (atlas.road_graph 와 같은 반올림)
         return None
 
     buildings = [hs["poly"] for hs in houses] + [lm["poly"] for lm in landmarks]
@@ -875,32 +781,13 @@ def _city(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
     }
 
 
-def _parts(roads: list[dict], key: Callable) -> list[list[dict]]:
-    """꼭짓점을 나눠 쓰는 길끼리 묶은 덩어리, 큰 것부터."""
-    parent: dict = {}
-
-    def find(x):
-        while parent.setdefault(x, x) != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    for rd in roads:
-        for a, b in zip(rd["pts"], rd["pts"][1:]):
-            parent[find(key(a))] = find(key(b))
-    groups: dict = {}
-    for rd in roads:
-        groups.setdefault(find(key(rd["pts"][0])), []).append(rd)
-    return sorted(groups.values(), key=len, reverse=True)
-
-
 def _join(roads: list[dict], key: Callable, wet: Optional[Callable], rw: float,
           add: Callable[[list[Point], float], None]) -> Optional[list[dict]]:
     """작은 덩어리마다 가장 큰 덩어리의 꼭짓점 가운데 가장 가까운 것과 곧은 길로 잇는다: 강을 건너면 다리 (add 가 나눈다),
     30m 안이면 강가를 따라 짧은 길. 이은 길의 끝이 물에 빠져 잘리거나 다리가 강 폭보다 훨씬 길면 잇지 않은 것으로 본다.
     이을 곳이 없는 작은 조각(길 넷 이하)은 버리고, 큰 조각이 남으면 None."""
     for _ in range(12):
-        parts = _parts(roads, key)
+        parts = blocks.parts(roads, key)
         if len(parts) == 1:
             return roads
         main = {q for rd in parts[0] for q in rd["pts"]}
@@ -926,7 +813,7 @@ def _join(roads: list[dict], key: Callable, wet: Optional[Callable], rw: float,
             if len(small) > 4:
                 return None
             roads[:] = [rd for rd in roads if not any(rd is x for x in small)]
-    return roads if len(_parts(roads, key)) == 1 else None
+    return roads if len(blocks.parts(roads, key)) == 1 else None
 
 
 def _flood(mesh: _Mesh, start: int, ok: Callable[[int], bool]) -> set[int]:
@@ -1025,7 +912,7 @@ def _subdivide(P: Poly, T: list, target: float, alley_p: float, jit: float, r: r
             continue
         i = max(range(len(pts)), key=lambda k: math.dist(pts[k], pts[(k + 1) % len(pts)]))
         pa, pb = pts[i], pts[(i + 1) % len(pts)]
-        ax = _unit(pb[0] - pa[0], pb[1] - pa[1])
+        ax = blocks.unit(pb[0] - pa[0], pb[1] - pa[1])
         th = math.pi / 2 + r.uniform(-jit, jit)
         d = (ax[0] * math.cos(th) - ax[1] * math.sin(th), ax[0] * math.sin(th) + ax[1] * math.cos(th))
         made = False
@@ -1045,8 +932,8 @@ def _subdivide(P: Poly, T: list, target: float, alley_p: float, jit: float, r: r
                         made = True
                         break
             b2 = (m[0] + d[0], m[1] + d[1])
-            lp, lt = _cut(pts, tags, m, b2, ("x",))
-            rp, rt = _cut(pts, tags, b2, m, ("x",))
+            lp, lt = blocks.cut(pts, tags, m, b2, ("x",))
+            rp, rt = blocks.cut(pts, tags, b2, m, ("x",))
             if lp and rp and min(abs(geom.area(lp)), abs(geom.area(rp))) > 0.35 * target:
                 stack += [(lp, lt, depth + 1), (rp, rt, depth + 1)]
                 made = True
@@ -1058,7 +945,7 @@ def _subdivide(P: Poly, T: list, target: float, alley_p: float, jit: float, r: r
 
 def _alley(pts: Poly, tags: list, m: Point, d: Point, mesh: _Mesh, types: dict, alleys: list, lw: float):
     """m 을 지나 d 쪽으로 뻗는 골목. 두 끝이 모두 길 가운데 선에 닿으면 (왼쪽 블록, 오른쪽 블록, 끝점들)."""
-    hits = _crossings(pts, m, d)
+    hits = blocks.crossings(pts, m, d)
     if len(hits) != 2:
         return None
     ends = []
@@ -1070,15 +957,15 @@ def _alley(pts: Poly, tags: list, m: Point, d: Point, mesh: _Mesh, types: dict, 
             seg = (alleys[tag[1]]["a"], alleys[tag[1]]["b"])
         else:
             return None
-        hit = _line_hit(m, d, *seg)
+        hit = blocks.line_hit(m, d, *seg)
         if hit is None or not 0.04 <= hit[0] <= 0.96:
             return None
         ends.append((tag, hit[1], hit[0]))
     g = lw / 2 + 0.5
     nl = (-d[1], d[0])
     a, b = m, (m[0] + d[0], m[1] + d[1])
-    left = _cut(pts, tags, (a[0] + nl[0] * g, a[1] + nl[1] * g), (b[0] + nl[0] * g, b[1] + nl[1] * g), "new")
-    right = _cut(pts, tags, (b[0] - nl[0] * g, b[1] - nl[1] * g), (a[0] - nl[0] * g, a[1] - nl[1] * g), "new")
+    left = blocks.cut(pts, tags, (a[0] + nl[0] * g, a[1] + nl[1] * g), (b[0] + nl[0] * g, b[1] + nl[1] * g), "new")
+    right = blocks.cut(pts, tags, (b[0] - nl[0] * g, b[1] - nl[1] * g), (a[0] - nl[0] * g, a[1] - nl[1] * g), "new")
     if not left[0] or not right[0]:
         return None
     return left, right, ends
@@ -1102,8 +989,8 @@ def _fields(P: Poly, r: random.Random, spec: MapSpec) -> list[Poly]:
             rest = []
         else:
             m = (ax[0] * t, ax[1] * t)
-            piece, _ = _cut(rest, rt, m, (m[0] + d[0], m[1] + d[1]), "x")
-            rest, rt = _cut(rest, rt, (m[0] + d[0], m[1] + d[1]), m, "x")
+            piece, _ = blocks.cut(rest, rt, m, (m[0] + d[0], m[1] + d[1]), "x")
+            rest, rt = blocks.cut(rest, rt, (m[0] + d[0], m[1] + d[1]), m, "x")
         if piece and abs(geom.area(piece)) > 250 and r.random() < FIELD_SHARE[spec.fields] + 0.1:
             out.append(geom.scale(piece, 0.94))
     return out
@@ -1249,7 +1136,7 @@ def _place_spots(places: list[dict], houses: list[dict], landmarks: list[dict], 
             if river_segs:
                 a, b = min(river_segs, key=lambda s: geom.seg_dist(c, *s))
                 q = geom.lerp(a, b, 0.5)
-                d = _unit(c[0] - q[0], c[1] - q[1])
+                d = blocks.unit(c[0] - q[0], c[1] - q[1])
                 at = point_at((q[0] + d[0] * (rw / 2 + 1), q[1] + d[1] * (rw / 2 + 1)))
             else:
                 reason = NEED["river"]
