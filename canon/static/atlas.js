@@ -255,24 +255,24 @@ function atlasBldUses(v) {
   });
 }
 
-/** 거리 이름: 거리 가운데 가장 긴 마디 위에 그 방향으로 눕혀 쓴다. 화면에서 이름보다 짧은 거리, 장소 이름표 · 다른 거리 이름과
-    겹치는 이름은 뺀다 (taken 은 atlasLabels 가 차지한 상자) */
-function atlasStreetLabels(v, W, H, fs, taken, z, px) {
+/** 거리 이름: 거리 가운데 가장 긴 마디 위에 그 방향으로 눕혀 쓴다. 이름 없는 길, 화면에서 이름보다 짧은 거리, 장소 이름표 · 다른 거리 이름과
+    겹치는 이름은 뺀다 (taken 은 atlasLabels 가 차지한 상자). 같은 이름은 화면 폭의 1/4 안에 한 번만 (atlasLabelPick, z: 확대 배율) */
+function atlasStreetLabels(v, W, H, fs, taken, z = 1) {
   const k = W / v.w;
   const out = [];
-  (v.streets || []).slice().sort((a, b) => b.length - a.length).forEach((st) => {
-    if (!st.name) return;  // 실제 지도의 이름 없는 길
+  atlasLabelPick(v.streets || [], W, H, W / z / 4, (st) => {
     const w = atlasTextW(st.name, fs) * 1.1;
-    if (st.length * k < w * 1.2) return;  // 거리가 이름보다 짧다
+    if (st.length * k < w * 1.2) return false;  // 거리가 이름보다 짧다
     const cx = st.mid[0] * W;
     const cy = st.mid[1] * H;
     const a = (st.angle * Math.PI) / 180;
     const hw = (Math.abs(Math.cos(a)) * w + Math.abs(Math.sin(a)) * fs) / 2;
     const hh = (Math.abs(Math.sin(a)) * w + Math.abs(Math.cos(a)) * fs) / 2;
     const b = [cx - hw, cy - hh, cx + hw, cy + hh];
-    if (taken.some((p) => b[0] < p[2] && b[2] > p[0] && b[1] < p[3] && b[3] > p[1])) return;
+    if (taken.some((p) => b[0] < p[2] && b[2] > p[0] && b[1] < p[3] && b[3] > p[1])) return false;
     taken.push(b);
     out.push(`<text x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" transform="rotate(${st.angle} ${cx.toFixed(1)} ${cy.toFixed(1)})" text-anchor="middle" dominant-baseline="central">${esc(st.name)}</text>`);
+    return true;
   });
   return out.length ? `<g class="at-v-street-label" font-size="${fs.toFixed(2)}" stroke-width="${(fs * 0.3).toFixed(2)}">${out.join('')}</g>` : '';
 }
@@ -598,7 +598,7 @@ function atlasSvg() {
   const taken = [];
   const names = atlasLabels(labels, sc, fs, taken);
   if (village && S.atlasLayers.wards !== false) out.push(atlasWardLabels(village, W, H, fs * 0.85, taken));
-  if (village && S.atlasLayers.streets !== false && village.streets) out.push(atlasStreetLabels(village, W, H, fs * 0.78, taken));
+  if (village && S.atlasLayers.streets !== false && village.streets) out.push(atlasStreetLabels(village, W, H, fs * 0.78, taken, z));
   out.push(names);
 
   // 인물: 같은 장소에 모이면 둘레에 나눠 놓는다
@@ -627,6 +627,21 @@ function atlasSvg() {
 }
 
 // ----- 되돌리기 · 따라가기 계산 (화면을 모른다) -----
+
+/** 그릴 거리 이름 고르기: 이름 있는 거리를 긴 것부터 보고, 이미 그린 같은 이름에서 gap(지도 단위) 안이면 건너뛴다.
+    큰길은 폭이 바뀌는 곳마다 거리가 나뉘어(bldgs._streets) 같은 이름이 여러 번 나온다. draw(st) 가 거짓이면(자리 없음) 그리지 않은 것으로 본다.
+    W, H: 지도 크기(st.mid 는 0~1). 돌려주는 값: 그린 거리 */
+function atlasLabelPick(streets, W, H, gap, draw = () => true) {
+  const drawn = {};
+  return streets.filter((st) => st.name).sort((a, b) => b.length - a.length).filter((st) => {
+    const x = st.mid[0] * W;
+    const y = st.mid[1] * H;
+    const same = drawn[st.name] || (drawn[st.name] = []);
+    if (same.some(([px, py]) => Math.hypot(px - x, py - y) < gap) || !draw(st)) return false;
+    same.push([x, y]);
+    return true;
+  });
+}
 
 /** 두 장소 자리 표({장소 키: [x, y]}) 사이에 바뀐 것만. { b: 전 자리, a: 뒤 자리 } (없던 자리는 null), 같으면 null */
 function atlasPinDiff(before, after) {
