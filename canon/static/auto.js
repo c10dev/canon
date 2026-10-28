@@ -45,7 +45,7 @@ function autoDefaults() {
     target: Math.max(lastPlot, autoFirstOpen()),  // 플롯이 있는 마지막 화까지. 다 반영했으면 고를 수 있는 첫 화
     batch: last ? last.batch : false,
     policy: last ? { ...last.policy } : {
-      check: true, max_issues: 0, max_shift: 0.3, stop_on_stage: false, stop_on_warnings: false, confirm_plots: false, review_every: 0, hand_pick_opening: true,
+      check: true, max_issues: 0, ignore_minor: false, stop_on_critical: true, max_shift: 0.3, stop_on_stage: false, stop_on_warnings: false, confirm_plots: false, review_every: 0, hand_pick_opening: true,
     },
   };
 }
@@ -219,6 +219,10 @@ function autoPolicyForm(f, disabled, bind = 'auto') {
     <div class="grid-2">
       <div class="field"><label for="${id('issues')}">검수에서 어긋난 곳이 몇 개를 넘으면 멈출까요</label><select id="${id('issues')}" data-${bind}="policy.max_issues"${dis || (p.check ? '' : ' disabled')}>${opts([[0, '하나라도 있으면 멈춤'], [1, '1개까지 넘어감'], [2, '2개까지 넘어감'], [5, '5개까지 넘어감']], p.max_issues)}</select></div>
       <div class="field"><label for="${id('shift')}">관계가 크게 움직이면 멈추기</label><select id="${id('shift')}" data-${bind}="policy.max_shift"${dis}>${opts(AUTO_SHIFT, p.max_shift)}</select></div>
+    </div>
+    <div class="grid-2">
+      ${chk('stop_on_critical', '치명적인 어긋남이 있으면 멈추기', '위 개수와 상관없이, 검수가 치명으로 본 곳이 하나라도 있으면 멈춰요')}
+      ${chk('ignore_minor', '사소한 어긋남은 세지 않기', '물건 색처럼 사소한 곳은 위 개수에 넣지 않아요. 켜면 덜 멈추지만 작은 어긋남이 쌓일 수 있어요')}
     </div>
     <div class="grid-2">
       ${chk('stop_on_stage', '관계 단계가 바뀌면 멈추기', '호감 → 신뢰, 신뢰 → 균열처럼 관계의 단계가 바뀔 때')}

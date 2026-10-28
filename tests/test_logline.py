@@ -1,4 +1,5 @@
 """로그라인 다섯 칸 합치기, 톤 다이얼, 말로 고른 관계 (LLM 없음)."""
+import os
 import re
 import unittest
 from pathlib import Path
@@ -35,6 +36,7 @@ class LoglineTest(unittest.TestCase):
         self.assertEqual(logline.tone_text(ToneDials(dark=1, serious=2)), "밝고 조금 가볍다")
         self.assertEqual(logline.tone_text(ToneDials()), "")
 
+    @unittest.skipUnless(os.environ.get("CANON_SWIFT"), "Swift 앱 개발을 멈춘 동안은 CANON_SWIFT=1 일 때만 봐요")
     def test_swift_tone_words_match(self):
         swift = (Path(__file__).parent.parent / "swift" / "Sources" / "FeatureSetup" / "Logline.swift").read_text(encoding="utf-8")
         words = swift[swift.index("public var words"):swift.index("public func get(_ d: ToneDials?)")]
