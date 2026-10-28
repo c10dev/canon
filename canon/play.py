@@ -41,9 +41,10 @@ def _now() -> str:
 
 def start(world: str, to: str, *, player: str = "", character: Character | None = None, birth: Birth | None = None,
           person: PlayPerson = "second", max_turns: int = 0, seed: int | None = None, unit: PlayUnit = "auto",
-          focus: str = "", auto_decide: bool = False, end_days: int = 0, end_decisions: int = 0) -> tuple[Project, PlayInfo]:
+          focus: str = "", auto_decide: bool = False, end_days: int = 0, end_decisions: int = 0,
+          title: str = "", opening: str = "") -> tuple[Project, PlayInfo]:
     """world 작품을 to 폴더로 복사해 플레이를 연다. player 는 세계의 인물 id, 무작위 출생이면 character(birth.to_character)와
-    birth 를 준다. 세계의 마지막 반영 화 직후 상태에서 시작하고(trim_after), 장편 경로(form serial)와 첫 장을 연다.
+    birth 를 준다. opening 은 첫 구간 실마리(BirthSketch.opening)로 play.json 에 남긴다. 세계의 마지막 반영 화 직후 상태에서 시작하고(trim_after), 장편 경로(form serial)와 첫 장을 연다.
     세계 작품의 파일은 바꾸지 않는다. 플레이 사본과 play.json 을 저장한다."""
     if store.exists(to):
         raise ValueError(f"이미 있는 이름이에요: {to}")
@@ -64,7 +65,8 @@ def start(world: str, to: str, *, player: str = "", character: Character | None 
                     birth=birth, person=person, seed=random.randrange(1 << 31) if seed is None else seed,
                     max_turns=max_turns, chapter_len=max(1, CHAPTER_LEN), unit=pick_unit(w) if unit == "auto" else unit,
                     segment_units=SEGMENT_UNITS, focus=focus.strip(), auto_decide=auto_decide, end_days=end_days,
-                    end_decisions=end_decisions, start_day=last.time.day if last else 0, at=_now())
+                    end_decisions=end_decisions, start_day=last.time.day if last else 0, at=_now(),
+                    title=title.strip(), opening=opening.strip())
     dst = store.project_dir(to)
     shutil.copytree(store.project_dir(world), dst, ignore=shutil.ignore_patterns(*COPY_SKIP))
     try:
@@ -187,6 +189,27 @@ def rewind(p: Project, info: PlayInfo, n: int) -> None:
     info.turns = [t for t in info.turns if t.number <= n]
     info.ending, info.ended_ep, info.seen = "", 0, n
     open_chapter(p, info, n + 1)
+
+
+def fork(name: str, to: str, n: int, title: str = "") -> tuple[Project, PlayInfo]:
+    """'여기서 다르게 해 보기': name 플레이를 to 폴더로 복사하고 사본을 n 구간 직후로 되감는다 (rewind). 원본 플레이는 그대로다.
+    갈래(branches.make)와 달리 play.json 을 옮기고 갈래 정보(branch.json)는 옮기지 않는다. 같은 세계의 플레이로 묶인다."""
+    if store.exists(to):
+        raise ValueError(f"이미 있는 이름이에요: {to}")
+    p, info = load(name)
+    if n != info.world_ep and n not in {t.number for t in info.turns if t.state == "applied"}:
+        rewind(p.model_copy(deep=True), info.model_copy(deep=True), n)  # 되감을 수 없는 곳이면 복사하기 전에 같은 오류를 낸다
+    dst = store.project_dir(to)
+    shutil.copytree(store.project_dir(name), dst, ignore=shutil.ignore_patterns(*branches.COPY_SKIP, "branch.json"))
+    try:
+        q, qi = load(to)
+        rewind(q, qi, n)
+        qi.title, qi.at = title.strip() or qi.title, _now()
+        save(to, q, qi)
+    except BaseException:
+        shutil.rmtree(dst, ignore_errors=True)
+        raise
+    return q, qi
 
 
 def end(p: Project, info: PlayInfo, reason: str) -> None:

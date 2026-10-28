@@ -1663,6 +1663,8 @@ class PlayInfo(BaseModel):
     world: str = Field(description="세계 작품 폴더 이름")
     world_ep: int = Field(0, description="세계 작품에서 이어받은 마지막 반영 화. 턴은 world_ep+1 화부터")
     player: str = Field(description="플레이어 인물 id")
+    title: str = Field("", description="플레이 이름 (예: 은재의 삶). 비면 화면이 '<인물 이름>의 삶'으로 부른다")
+    opening: str = Field("", description="첫 구간 실마리 (무작위 출생 BirthSketch.opening). 첫 구간을 다시 쓸 때도 넘긴다")
     origin: Literal["character", "random"] = Field("character", description="character 세계의 인물이 됨 / random 무작위 출생")
     birth: Optional[Birth] = None
     person: PlayPerson = Field("second", description="서술 시점: first 나 / second 당신 / third 이름")
