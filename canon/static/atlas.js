@@ -272,7 +272,7 @@ function atlasStreetLabels(v, W, H, fs, taken, z, px) {
   return out.length ? `<g class="at-v-street-label" font-size="${fs.toFixed(2)}" stroke-width="${(fs * 0.3).toFixed(2)}">${out.join('')}</g>` : '';
 }
 
-/** 구역 이름 (도시 생성기의 wards, 성안만): 넓이 가운데에 장소 이름표보다 조금 작게. 장소 점 · 이름표 · 다른 구역 이름과
+/** 구역 이름 (도시 생성기의 wards 성안만, 현대 동네는 슈퍼블록 · 학교): 넓이 가운데에 장소 이름표보다 조금 작게. 장소 점 · 이름표 · 다른 구역 이름과
     겹치면 뺀다 (taken: atlasLabels 가 차지한 상자 [x0, y0, x1, y1], 여기서 놓은 상자도 더한다) */
 function atlasWardLabels(v, W, H, fs, taken) {
   const names = (S.atlas && S.atlas.gen && S.atlas.gen.wards) || {};
@@ -371,7 +371,7 @@ function atlasVillageSvg(v, W, H, layers = {}) {
   const roofs = [[], [], [], []];
   const dark = [];
   const ridges = [];
-  const flat = v.generator === 'osm';  // 실제 지도(OpenStreetMap)의 건물은 박공 없이 평지붕으로
+  const flat = v.generator === 'osm' || v.generator === 'canon-modern';  // 실제 지도(OpenStreetMap) · 현대 동네의 건물은 박공 없이 평지붕으로
   (v.buildings || []).forEach((ln, i) => {
     const ring = ln.length > 4 && ln[0][0] === ln[ln.length - 1][0] && ln[0][1] === ln[ln.length - 1][1] ? ln.slice(0, -1) : ln;
     const q = ring.map(P);
@@ -848,7 +848,7 @@ function atlasLayoutBox() {
       <div class="row"><label class="btn small" for="at-layout">마을 데이터 올리기</label>${input}</div></div>`;
   }
   const missing = !S.atlasLayout ? '<div class="note err" role="alert">마을 데이터 파일을 읽지 못했어요. 다시 올려 주세요.</div>' : '';
-  const word = lo.generator === 'canon-city' ? '도시' : lo.generator === 'osm' ? '실제 지도' : '마을';
+  const word = { 'canon-city': '도시', 'canon-modern': '현대 동네', osm: '실제 지도' }[lo.generator] || '마을';
   const src = lo.source ? `<div class="small">지도 데이터 ${esc(lo.source)} (<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">ODbL</a>). 지도를 내보내 쓸 때도 이 출처를 함께 적어 주세요.</div>` : '';
   return `<div class="at-box"><h3>${word} 데이터</h3>${missing}${src}
     <div class="small">길 ${lo.roads}개${lo.bridges ? ` · 다리 ${lo.bridges}개` : ''} · 건물 ${lo.buildings}채 · 약 ${atlasMeters(lo.width_m)} × ${atlasMeters(lo.height_m)}</div>
@@ -858,7 +858,7 @@ function atlasLayoutBox() {
       <button type="button" class="btn small ghost" data-action="atlasDropLayout">${word} 지우기</button></div></div>`;
 }
 
-// ----- 지도 만들기 (서버 canon/towngen.py 마을 생성기, canon/citygen.py 도시 생성기) -----
+// ----- 지도 만들기 (서버 canon/towngen.py 마을 생성기, canon/citygen.py 도시 생성기, canon/moderngen.py 현대 동네 생성기) -----
 
 /** 지도 만들기 상태. 작품이 바뀌면 서버가 준 입력(gen.spec, 장소 표)으로 새로 시작한다 */
 function atlasGenState() {
@@ -912,6 +912,7 @@ function atlasGenForm(st) {
         <button type="button" class="btn small ghost" data-action="atlasGenSeed">새 시드</button></span></label></div>
     ${why}
     ${st.spec.kind === 'city' ? '<div class="small">도시는 성벽 · 성문 · 구역(시장, 신전, 귀족, 장인, 빈민 등)이 있는 큰 지도예요. 이야기 장소는 종류에 맞는 구역에 놓아요.</div>' : ''}
+    ${st.spec.kind === 'modern' ? '<div class="small">현대 동네는 대로 격자 안에 아파트 단지 · 빌라촌 · 대로변 상가 · 역 앞 · 학교 · 공원이 있는 가상의 동네예요. 숲 칸은 공원 수를 정해요. 주막은 호텔, 신전은 교회, 장터는 마트 자리에 놓아요.</div>' : ''}
     <div class="small">같은 시드와 설정이면 언제나 같은 ${word}${word === '마을' ? '이' : '가'} 나와요. 장소 종류는 이름에서 찾았어요. 틀리면 고르거나 AI 제안을 받아 보세요.</div>
     <div class="at-gen-places">${rows}</div>
     <div class="row"><button type="button" class="btn small primary" data-action="atlasGenPreview">미리보기</button>
@@ -927,7 +928,8 @@ function atlasGenResult(st) {
   const miss = pv.missing.map((m) => `<li>${esc(m.name)}: ${esc(m.reason)}</li>`).join('');
   const blocked = pv.blocked.map((b) => esc(b.name)).join(', ');
   const word = atlasGenWord(st.spec.kind);
-  return `<div class="small">${esc(word)} · 시드 ${st.spec.seed} · 집 ${i.houses.toLocaleString()}채 · 길 ${i.roads}개${i.bridges ? ` · 다리 ${i.bridges}개` : ''}${i.gates ? ` · 구역 ${i.wards}곳 · 성문 ${i.gates}곳` : ''} · 약 ${atlasMeters(i.width_m)} × ${atlasMeters(i.height_m)}</div>
+  const homes = st.spec.kind === 'modern' ? '건물' : '집';
+  return `<div class="small">${esc(word)} · 시드 ${st.spec.seed} · ${homes} ${i.houses.toLocaleString()}채 · 길 ${i.roads}개${i.bridges ? ` · 다리 ${i.bridges}개` : ''}${i.gates ? ` · 구역 ${i.wards}곳 · 성문 ${i.gates}곳` : ''} · 약 ${atlasMeters(i.width_m)} × ${atlasMeters(i.height_m)}</div>
     ${pins ? `<div class="at-gen-places">${pins}</div>` : '<div class="small">새로 놓을 장소가 없어요.</div>'}
     ${miss ? `<div class="note" role="status">놓지 못한 장소<ul class="at-list">${miss}</ul></div>` : ''}
     ${blocked ? `<div class="note" role="status">${blocked}: 지금 자리가 새 ${esc(word)}의 건물이나 물 위예요. 적용한 뒤 옮겨 주세요.</div>` : ''}
@@ -945,7 +947,7 @@ function atlasGenBox() {
   const word = atlasGenWord(st.spec.kind);
   if (!st.open) {
     return `<div class="at-box"><h3>지도 만들기</h3>
-      <div class="small">${made ? `시드 ${S.atlas.gen.spec.seed}로 만든 ${esc(atlasGenWord(S.atlas.gen.spec.kind))}예요. 설정을 바꿔 다시 만들 수 있어요.` : '마을 · 도시 생성기로 길 · 집 · 밭 · 물이 있는 지도를 만들어요. 도시는 성벽과 구역이 있어요. 이야기 장소는 종류에 맞는 자리(신전, 주막, 나루 등)에 놓아요.'}</div>
+      <div class="small">${made ? `시드 ${S.atlas.gen.spec.seed}로 만든 ${esc(atlasGenWord(S.atlas.gen.spec.kind))}예요. 설정을 바꿔 다시 만들 수 있어요.` : '마을 · 도시 · 현대 동네 생성기로 길 · 집 · 밭 · 물이 있는 지도를 만들어요. 도시는 성벽과 구역, 현대 동네는 아파트 단지와 빌라촌이 있어요. 이야기 장소는 종류에 맞는 자리(신전, 주막, 나루 등)에 놓아요.'}</div>
       <div class="row"><button type="button" class="btn small" data-action="atlasGenOpen" data-arg="1">${made ? '다시 만들기' : '지도 만들기'}</button></div></div>`;
   }
   return `<div class="at-box at-gen"><h3>${esc(word)} ${st.preview ? '미리보기' : '만들기'}</h3>${st.preview ? atlasGenResult(st) : atlasGenForm(st)}</div>`;
@@ -1166,7 +1168,7 @@ function atlasBldEdit(info) {
   const uses = (S.atlas.gen && S.atlas.gen.uses) || {};
   const v = atlasVillage();
   const modern = new Set((S.atlas.gen && S.atlas.gen.modern) || []);
-  const showModern = (v && v.generator === 'osm') || (S.atlas.gen && S.atlas.gen.modern_style);
+  const showModern = (v && (v.generator === 'osm' || v.generator === 'canon-modern')) || (S.atlas.gen && S.atlas.gen.modern_style);
   const groups = {};
   Object.entries(uses).forEach(([id, [label, g]]) => {
     if (modern.has(id) && !showModern && id !== info.use) return;
@@ -1756,7 +1758,7 @@ Object.assign(actions, {
       await atlasLoad();
       atlasRecord(before, '지도 적용으로 장소 옮기기', atlasPinMap(), true);
       atlasRefresh();
-      toast(`${atlasGenWord(st.spec.kind)}${st.spec.kind === 'city' ? '를' : '을'} 적용했어요${pins.length ? ` · 장소 ${pins.length}곳을 놓았어요` : ''}`);
+      toast(`${atlasGenWord(st.spec.kind)}${st.spec.kind === 'village' ? '을' : '를'} 적용했어요${pins.length ? ` · 장소 ${pins.length}곳을 놓았어요` : ''}`);
     });
   },
   async atlasTravelOk(arg) {
@@ -2354,6 +2356,8 @@ document.addEventListener('keydown', (e) => {
 .at-map .at-v-ward.k-harbor { fill: var(--v-sand); }
 .at-map .at-v-ward.k-craft { fill: var(--v-field1); }
 .at-map .at-v-ward.k-slum { fill: var(--v-field0); }
+.at-map .at-v-ward.k-apartment { fill: var(--v-green); fill-opacity: 0.35; }
+.at-map .at-v-ward.k-station, .at-map .at-v-ward.k-school { fill: var(--v-square); fill-opacity: 0.45; }
 .at-map .at-v-use { fill-opacity: 0.55; stroke: none; }
 .at-map .at-v-use.g-shop { fill: #E0A030; }
 .at-map .at-v-use.g-food { fill: #D2691E; }

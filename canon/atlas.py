@@ -7,7 +7,7 @@
 
 마을 · 도시 데이터(Watabou 마을 · 도시 생성기의 JSON 내보내기)를 올리면 건물 · 길 · 물을 바탕으로 그리고,
 화별로 옮겨 간 인물은 길을 따라 걸은 경로(route)와 거리 · 걷는 시간을 붙인다 (read_layout, road_graph, route).
-마을 · 도시는 지도 만들기(towngen 마을 생성기, citygen 도시 생성기)로 직접 만들 수도 있다: 미리보기(generate)는 저장하지 않고,
+마을 · 도시 · 현대 동네는 지도 만들기(towngen 마을 생성기, citygen 도시 생성기, moderngen 현대 동네 생성기)로 직접 만들 수도 있다: 미리보기(generate)는 저장하지 않고,
 적용(apply_generated)하면 같은 입력으로 다시 만들어 저장하고 고른 장소만 생성기가 고른 자리에 놓는다.
 
 화면은 canon/static/atlas.js, 명령줄은 `map`.
@@ -20,7 +20,7 @@ import math
 from pathlib import Path
 from typing import Optional
 
-from . import bldgs, cast, citygen, elements, geom, naming, osm, towngen, travel
+from . import bldgs, cast, citygen, elements, geom, moderngen, naming, osm, towngen, travel
 from .schema import BuildingNote, MapPin, MapSpec, NewPlace, PlaceLink, PlaceSort, Project
 
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
@@ -608,13 +608,13 @@ CITY_POP_PER_HOUSE = 8.0  # 도시 집은 층이 높고 세 든 사람이 많다
 def village_title(p: Project, layout: dict) -> dict:
     """지도 위 제목: 작가가 정한 이름, 없으면 '마을 가운데' 종류 장소 이름. 인구는 집 수 × 집 한 채에 사는 사람을 10 단위로
     (도시 생성기가 만든 지도는 CITY_POP_PER_HOUSE). kind: 이름 칸에 쓸 말 (마을 · 도시 · 동네), unit: 수를 세는 말 (집 · 건물).
-    OpenStreetMap 지도는 건물을 세고, 인구는 주거 건물에서 어림한 사람 수만 쓴다 (canon/bldgs.py)."""
+    OpenStreetMap 지도와 현대 동네 생성기 지도는 건물을 세고, 인구는 주거 건물에서 어림한 사람 수만 쓴다 (canon/bldgs.py)."""
     name = p.atlas.title
     if not name:
         name = next((x["name"] for x in gen_places(p, p.atlas.spec) if x["kind"] == "center" and x["put"]), "")
     houses = layout.get("houses") or len(layout.get("numbers") or layout.get("buildings") or [])
     city = layout.get("generator") == citygen.GENERATOR
-    real = layout.get("generator") == osm.GENERATOR
+    real = layout.get("generator") in (osm.GENERATOR, moderngen.GENERATOR)
     per = CITY_POP_PER_HOUSE if city else POP_PER_HOUSE
     people = sum(b.get("people", 0) for b in layout.get("blds") or [])  # 건물마다 센 사람이 있으면 그 합
     return {"title": name, "custom": bool(p.atlas.title), "houses": houses, "population": int(round(people if real else people or houses * per, -1)),
@@ -650,16 +650,17 @@ def name_ideas(p: Project, n: int = 6) -> list[str]:
     return [c.name for c in naming.generate_places(naming.resolve_style(p), n, exclude=have)]
 
 
-# ---------- 지도 만들기 (마을 생성기 canon/towngen.py, 도시 생성기 canon/citygen.py) ----------
+# ---------- 지도 만들기 (마을 생성기 canon/towngen.py, 도시 생성기 canon/citygen.py, 현대 동네 생성기 canon/moderngen.py) ----------
 
 MODERN_STYLES = ("korea_modern", "japan", "sf")  # 건물 고치기 칸에 현대 쓰임을 보이는 이름 스타일
-MAKERS = {"village": ("마을", towngen, towngen.village), "city": ("도시", citygen, citygen.city)}
+MAKERS = {"village": ("마을", towngen, towngen.village), "city": ("도시", citygen, citygen.city),
+          "modern": ("현대 동네", moderngen, moderngen.neighborhood)}
 # MapSpec.kind → (화면 이름, 생성기 모듈(OPTIONS · VERSION), 만드는 함수). 왕국은 다음 단계
 
 
 def _maker(kind: str):
     if kind not in MAKERS:
-        raise ValueError(f"아직 만들 수 없는 지도예요: {kind}. 마을이나 도시를 고르세요")
+        raise ValueError(f"아직 만들 수 없는 지도예요: {kind}. 마을 · 도시 · 현대 동네 가운데 고르세요")
     return MAKERS[kind]
 
 
@@ -686,15 +687,15 @@ def default_spec(p: Project) -> MapSpec:
 def gen_info(p: Project) -> dict:
     """지도 화면의 '지도 만들기' 칸: 지금 입력(만든 적 없으면 기본값), 장소 표, 종류 이름.
     maps: 만들 수 있는 지도 [{id, label}], options · version: 지도 종류(MapSpec.kind)마다 설정 칸과 생성기 버전,
-    wards: 도시 구역 종류 이름 (지도에 구역 이름을 쓴다), uses: 건물 쓰임 id → [작품 스타일에 맞는 이름, 묶음],
-    modern: 현대 쓰임 id (건물 고치기 칸은 실제 지도이거나 modern_style 일 때만 보인다), modern_style: 작품 이름 스타일이 현대인가."""
+    wards: 도시 구역 · 현대 동네 슈퍼블록 종류 이름 (지도에 구역 이름을 쓴다), uses: 건물 쓰임 id → [작품 스타일에 맞는 이름, 묶음],
+    modern: 현대 쓰임 id (건물 고치기 칸은 실제 지도 · 현대 동네 지도이거나 modern_style 일 때만 보인다), modern_style: 작품 이름 스타일이 현대인가."""
     spec = default_spec(p)
     style = naming.resolve_style(p)
     return {"spec": spec.model_dump(), "made": p.atlas.spec is not None, "places": gen_places(p, spec),
             "maps": [{"id": k, "label": m[0]} for k, m in MAKERS.items()],
             "options": {k: m[1].OPTIONS for k, m in MAKERS.items()},
             "kinds": [{"id": cid, "label": label} for cid, label, _ in towngen.CATEGORIES],
-            "version": {k: m[1].VERSION for k, m in MAKERS.items()}, "wards": citygen.WARD_KINDS,
+            "version": {k: m[1].VERSION for k, m in MAKERS.items()}, "wards": {**citygen.WARD_KINDS, **moderngen.ZONES},
             "uses": {u: [bldgs.label(u, style), grp] for u, (_, grp) in bldgs.USES.items()},
             "modern": list(bldgs.MODERN), "modern_style": style in MODERN_STYLES}
 
@@ -709,7 +710,7 @@ def _blocked(lo: dict, xy: tuple[float, float]) -> bool:
 
 
 def generate(p: Project, spec: MapSpec) -> dict:
-    """미리보기 (저장하지 않음). spec.kind 로 마을 · 도시 생성기를 고른다.
+    """미리보기 (저장하지 않음). spec.kind 로 마을 · 도시 · 현대 동네 생성기를 고른다.
     layout: read_layout 과 같은 모양의 지도, pins: 생성기가 고른 장소 자리
     (had: 이미 지도에 놓은 장소), missing: 놓지 못한 장소와 까닭, blocked: 새 마을에서 건물 · 물 위에 놓이는 옛 자리."""
     put = [x for x in gen_places(p, spec) if x["put"]]
@@ -868,7 +869,7 @@ def describe(p: Project, layout: Optional[dict] = None) -> str:
     if s["layout"]:
         lo = s["layout"]
         made = f" (지도 만들기, 시드 {p.atlas.spec.seed})" if p.atlas.spec else ""
-        what = "도시" if lo["generator"] == citygen.GENERATOR else "마을"
+        what = {citygen.GENERATOR: "도시", moderngen.GENERATOR: "현대 동네"}.get(lo["generator"], "마을")
         lines.append(f"{what} 데이터{made}: 길 {lo['roads']}개 · 다리 {lo['bridges']}개 · 건물 {lo['buildings']}채 · "
                      f"약 {lo['width_m']}×{lo['height_m']}m")
         uses = building_counts(p, layout)
