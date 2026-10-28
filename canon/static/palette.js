@@ -1,14 +1,29 @@
 /* 명령 팔레트. app.js 의 S, actions, P, base, esc, navItems, currentEp, saveShortcut, toast, focusMark, findMark, focusEl, STATUS 와
    home.js 의 nextStep 을 쓴다.
    Ctrl+K (macOS 는 ⌘K) 또는 좁은 화면 사이드바 머리의 '찾기'로 연다. 입력칸 안에서도 열린다.
-   작품 안에서는 사이드바 화면(navItems 와 같은 이름), 화, 인물, 자주 쓰는 동작(다음 할 일, 저장)을 찾는다.
+   작품 안에서는 사이드바 화면(navItems 와 같은 이름), 화, 인물, 설정 칸(칸 이름과 값), 자주 쓰는 동작(다음 할 일, 저장)을 찾는다.
+   설정 칸을 고르면 S.jumpTo 에 그 칸을 두고 설정 도우미로 간다. 설정 화면(setup.js)이 기획서로 열고 칸이 든 카드를 펼친다.
    작품 밖(작품 목록, 설정 등)에서는 작품 목록과 설정 화면만 찾는다.
    포커스는 검색 칸에만 두고, 위아래 화살표로 고른 항목은 aria-activedescendant 로 알린다.
    화면을 다시 그려도 남게 #app 밖(body)에 둔다. 닫으면 연 자리로 포커스를 돌린다. */
 'use strict';
 
 const PAL_LIMIT = 40;  // 한 번에 보이는 항목 수
-const PAL_KIND = { act: '동작', screen: '화면', char: '인물', ep: '화' };
+const PAL_KIND = { act: '동작', screen: '화면', char: '인물', field: '설정 칸', ep: '화' };
+// 찾는 설정 칸: [data-bind 경로, 칸 이름]. 이름은 기획서(setup.js)의 칸 이름과 같다
+const PAL_SETUP = [
+  ['meta.title', '제목'], ['meta.logline_parts.who', '로그라인 · 누가'], ['meta.logline_parts.why', '로그라인 · 무엇 때문에'],
+  ['meta.logline_parts.goal', '로그라인 · 무엇을 하려 하나'], ['meta.logline_parts.block', '로그라인 · 무엇이 막나'],
+  ['meta.logline_parts.stake', '로그라인 · 무엇이 걸렸나'], ['meta.logline', '로그라인 문장'], ['meta.theme', '주제'], ['meta.tone', '톤 문장'],
+  ['meta.notes', '메모'], ['world.setting', '배경'], ['world.era', '시대'], ['world.rules', '깨면 안 되는 규칙'], ['world.locations', '장소'],
+  ['world.name_rules', '이름 규칙'],
+];
+// 인물 카드의 칸: '<인물 이름> · <칸 이름>' 으로 찾는다
+const PAL_CHAR_FIELDS = [
+  ['role', '역할'], ['age', '나이'], ['goal', '원하는 것'], ['wound', '두려운 것 · 약점'], ['secrets', '숨기는 것'], ['speech_style', '말투 (대사)'],
+  ['personality', '성격'], ['background', '배경'], ['appearance', '외모'], ['arc', '아크'],
+];
+const PAL_HINT = 40;  // 칸 값을 보이는 글자 수
 const PAL_CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
 
 (function palStyle() {
@@ -45,6 +60,18 @@ function palChosung(t) {
   }).join('');
 }
 
+/** 설정 칸 목록 { path, label, value }. 목록 칸은 ' / ' 로 잇는다. 이름 없는 인물의 칸은 뺀다 (부를 이름이 없다). */
+function palSetupFields(p) {
+  const text = (v) => (Array.isArray(v) ? v.join(' / ') : String(v ?? '')).trim();
+  const get = (path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), p);
+  const out = PAL_SETUP.map(([path, label]) => ({ path, label, value: text(get(path)) }));
+  p.characters.forEach((c, i) => {
+    if (!c.name) return;
+    PAL_CHAR_FIELDS.forEach(([k, label]) => out.push({ path: `characters.${i}.${k}`, label: `${c.name} · ${label}`, value: text(c[k]) }));
+  });
+  return out;
+}
+
 /** 지금 화면에서 찾을 재료. 팔레트를 열 때 한 번 모은다 (paletteItems 는 이것만 본다). */
 function palContext() {
   if (S.route[0] !== 'p' || !P()) return { inProject: false };
@@ -57,10 +84,12 @@ function palContext() {
     canSave: saveShortcut(true),
     episodes: P().episodes.map((e) => ({ n: e.plot.number, title: e.plot.title || '', status: e.status })),
     characters: P().characters.filter((c) => c.name).map((c) => ({ id: c.id, name: c.name })),
+    fields: palSetupFields(P()),
   };
 }
 
-/** 찾을 항목 목록 { kind, label, hint, words, href | act, n }. 순서: 동작 → 화면 → 인물 → 화. 검색어가 없을 때는 동작 · 화면만 보인다. */
+/** 찾을 항목 목록 { kind, label, hint, words, href | act, n, focus }. 순서: 동작 → 화면 → 인물 → 설정 칸 → 화.
+    설정 칸은 값으로도 찾고(words), focus 는 그 칸의 입력 요소 (setup.js input 의 id 규칙 'f-' + 경로). 검색어가 없을 때는 동작 · 화면만 보인다. */
 function paletteItems(ctx) {
   const settings = { kind: 'screen', label: '모델 · API 키 설정', hint: '', words: '설정', href: '#/settings' };
   if (!ctx.inProject) return [{ kind: 'screen', label: '작품 목록', hint: '', words: '', href: '#/' }, settings];
@@ -74,6 +103,10 @@ function paletteItems(ctx) {
   apart.forEach(([, href, , label]) => out.push({ kind: 'screen', label, hint: '본편과 분리', words: '', href }));
   foot.forEach(([href, label]) => out.push(href === '#/settings' ? settings : { kind: 'screen', label, hint: '', words: '', href }));
   ctx.characters.forEach((c) => out.push({ kind: 'char', label: c.name, hint: '인물 · 관계도', words: '', href: `${ctx.base}/cast/${encodeURIComponent('c:' + c.id)}` }));
+  (ctx.fields || []).forEach((f) => {
+    const hint = f.value ? (f.value.length > PAL_HINT ? f.value.slice(0, PAL_HINT) + '…' : f.value) : '비어 있음';
+    out.push({ kind: 'field', label: f.label, hint, words: f.value, href: `${ctx.base}/setup`, focus: '#f-' + f.path.replace(/\./g, '-') });
+  });
   ctx.episodes.forEach((e) => {
     const hint = [e.title, (typeof STATUS === 'object' && STATUS[e.status]) || ''].filter(Boolean).join(' · ');
     const write = { kind: 'ep', n: e.n, label: `${e.n}화 집필`, hint, words: e.title, href: `${ctx.base}/write/${e.n}` };
@@ -126,7 +159,7 @@ function paletteOpen() {
   const box = document.createElement('div');
   box.id = 'palette';
   box.className = 'pal-back';
-  const where = pal.items.some((it) => it.kind === 'ep' || it.kind === 'char') ? '화면 · 화 번호 · 인물 이름' : '화면';
+  const where = pal.items.some((it) => it.kind === 'field') ? '화면 · 화 번호 · 인물 이름 · 설정 칸' : '화면';
   box.innerHTML = `<div class="pal" role="dialog" aria-modal="true" aria-labelledby="pal-title">
     <h2 id="pal-title" class="sr-only">찾기</h2>
     <input id="pal-q" type="text" role="combobox" aria-expanded="true" aria-controls="pal-list" aria-autocomplete="list" aria-describedby="pal-help" autocomplete="off" spellcheck="false" placeholder="${where} 찾기">
@@ -215,7 +248,11 @@ function paletteClose() {
 function palPick(it) {
   if (!it) return;
   paletteClose();
-  if (it.href) {
+  if (it.focus) {
+    S.focusTarget = S.jumpTo = it.focus;
+    if (location.hash !== it.href) location.hash = it.href;
+    else { render(); S.jumpTo = null; }  // 이미 설정 도우미: 화면 이동 없이 다시 그려 그 칸으로
+  } else if (it.href) {
     if (location.hash !== it.href) location.hash = it.href;
   } else if (it.act === 'save' && !saveShortcut()) {
     toast('저장할 변경이 없어요');

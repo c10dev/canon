@@ -245,6 +245,25 @@ def test_names(client):
     assert any("AI가 자주" in x for x in w)  # mock 제안의 '서윤', '도현'
 
 
+
+def test_field_ideas(client):
+    """설정 칸 하나의 AI 후보: 세 개, 정리(따옴표 · 겹침 · 지금 값), 저장하지 않음, 없는 칸은 400."""
+    client.post("/api/projects", json={"name": "fi", "meta": {"title": "등대", "genres": ["romance"]}})
+    r = client.post("/api/projects/fi/field-ideas", json={"field": "meta.logline_parts.who"}).json()
+    texts = [o["text"] for o in r["options"]]
+    assert len(texts) == 3 and len(set(texts)) == 3 and not any(t.startswith("“") for t in texts)
+    assert all(o["reason"] for o in r["options"])
+    assert client.get("/api/projects/fi").json()["meta"]["logline_parts"]["who"] == ""  # 고르기 전에는 저장하지 않는다
+
+    # 저장 전 화면 값: 지금 값과 같은 후보는 뺀다
+    p = client.get("/api/projects/fi").json()
+    p["meta"]["title"] = "등대지기의 마지막 여름"
+    r = client.post("/api/projects/fi/field-ideas", json={"field": "meta.title", "project": p}).json()
+    assert "등대지기의 마지막 여름" not in [o["text"] for o in r["options"]]
+    assert len(client.post("/api/projects/fi/field-ideas", json={"field": "world.setting", "n": 1}).json()["options"]) == 1
+    bad = client.post("/api/projects/fi/field-ideas", json={"field": "characters"})
+    assert bad.status_code == 400 and "칸" in bad.json()["detail"]
+
 def test_relations(client):
     meta = {"title": "등대", "target_episodes": 10}
     client.post("/api/projects", json={"name": "rel", "meta": meta})

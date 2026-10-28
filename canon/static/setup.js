@@ -71,7 +71,10 @@ function loglineBuilder() {
   const parts = m.logline_parts;
   const exs = loglineExamples();
   const legacy = !Object.values(parts).some((v) => v.trim()) && m.logline.trim();
-  const slots = LOGLINE_SLOTS.map(([k, label, hint]) => `<div class="slot">${input(label, 'meta.logline_parts.' + k, { hint })}${slotExamples(k, label)}</div>`).join('');
+  const slots = LOGLINE_SLOTS.map(([k, label, hint]) => {
+    const path = 'meta.logline_parts.' + k;
+    return `<div class="slot">${input(label, path, { hint, beside: ideaBtn(path), after: ideaList(path) })}${slotExamples(k, label)}</div>`;
+  }).join('');
   return `<div class="logline-box"><span class="label-text">로그라인 <span class="hint">다섯 칸을 채우면 한 문장으로 합쳐요. 점선 예시를 누르면 빈 칸에 들어가요</span></span>
     ${legacy ? '<div class="note plain">지금 로그라인은 한 문장으로만 저장되어 있어요. 칸을 채우면 칸 내용으로 바뀌어요.</div>' : ''}
     ${slots}
@@ -588,7 +591,7 @@ function wizChips(id, all, rec, on, action, labId) {
 function wizBasics() {
   const m = P().meta;
   return `${wizQ('어떤 이야기인가요?', '제목과 장르를 정해요. 둘 다 나중에 바꿀 수 있어요.')}
-    <div class="field"><label for="f-meta-title">제목 ${wizTag(0)}</label><input id="f-meta-title" type="text" value="${esc(m.title)}" data-bind="meta.title" data-kind="text" placeholder="예: 소금 정원의 계약"></div>
+    <div class="field"><div class="lab-row"><label for="f-meta-title">제목 ${wizTag(0)}</label>${ideaBtn('meta.title', '제목 후보')}</div><input id="f-meta-title" type="text" value="${esc(m.title)}" data-bind="meta.title" data-kind="text" placeholder="예: 소금 정원의 계약">${ideaList('meta.title')}</div>
     <div class="row">${wizTag(1)}<span class="small">장르를 하나 이상 골라요</span></div>
     ${genrePicker()}
     ${serial() ? input('총 화수', 'meta.target_episodes', { type: 'number', min: 1, max: 1000, hint: '늘리거나 줄이면 마지막 부 끝 화가 따라가요' }) : input('총 화수', 'meta.target_episodes', { type: 'number', min: 4, max: 40, hint: '단편은 10~20화를 권해요 · 4~40화' })}
@@ -608,7 +611,7 @@ function wizWorld() {
   return `${wizQ('어디서 벌어지나요?', '세계 종류를 고르면 시작할 수 있어요. 고른 뒤 한두 문장을 더 적으면 AI가 더 잘 맞춰요.')}
     <div class="field"><span class="label-text" id="wiz-world-lab">세계 종류 ${wizTag(3)} <span class="hint">고르면 배경 칸 첫 문장이 돼요</span></span>
       ${wizChips('wiz-world-chips', WORLD_KINDS.map(([l]) => l), worldRecs(g, 0), (x) => x === kind, 'wizWorld', 'wiz-world-lab')}</div>
-    ${input('배경', 'world.setting', { rows: 3, hint: '고르지 않고 직접 써도 돼요', placeholder: '예: 소금이 돈을 대신하는 북방 왕국 헤른' })}
+    ${input('배경', 'world.setting', { rows: 3, hint: '고르지 않고 직접 써도 돼요', placeholder: '예: 소금이 돈을 대신하는 북방 왕국 헤른', aside: ideaBtn('world.setting', '배경 후보'), after: ideaList('world.setting') })}
     <div class="field"><span class="label-text" id="wiz-era-lab">시대 <span class="hint">선택</span></span>
       ${wizChips('wiz-era-chips', ERAS, worldRecs(g, 1), (x) => x === w.era, 'wizEra', 'wiz-era-lab')}
       <input id="wiz-era-custom" type="text" value="${esc(ERAS.includes(w.era) ? '' : w.era)}" data-bind="world.era" data-kind="text" aria-label="시대 직접 쓰기" placeholder="직접 쓰기: 예) 중세풍, 증기 기관이 막 들어오는 때"></div>`;
@@ -786,16 +789,16 @@ const WIZ_CHAT = [
 
 /** 1단계 화면: 필수 칸이 빈 새 작품은 마법사, 그 밖은 기획서 */
 function viewSetup() {
-  // 인물 화면의 '설정에서 고치기'(setup/<인물 id>)는 그 인물 카드가 있는 기획서로 연다
-  if (/^#f-characters-\d+-name$/.test(String(S.jumpTo || S.focusTarget || ''))) { setupMode(); S.setupModes[S.name] = 'doc'; }
+  // 인물 화면의 '설정에서 고치기'(setup/<인물 id>)와 명령 팔레트의 설정 칸(palette.js)은 그 칸이 있는 기획서로 연다
+  if (/^#f-(meta|world|characters)-/.test(String(S.jumpTo || ''))) { setupMode(); S.setupModes[S.name] = 'doc'; }
   return setupMode() === 'wizard' ? viewSetupWizard() : viewSetupDoc();
 }
 
 /** 기획서: 모든 설정 칸을 한 화면에서 고친다 */
 function viewSetupDoc() {
   const p = P();
-  // 인물 화면의 '설정에서 고치기'로 왔으면 그 인물 카드를 펼친다 (app.js 가 이름 칸으로 포커스를 옮긴다)
-  const jump = String(S.jumpTo || S.focusTarget || '').match(/^#f-characters-(\d+)-name$/);
+  // 인물 화면의 '설정에서 고치기'나 명령 팔레트로 인물 칸에 왔으면 그 인물 카드를 펼친다 (app.js 가 그 칸으로 포커스를 옮긴다)
+  const jump = String(S.jumpTo || S.focusTarget || '').match(/^#f-characters-(\d+)-/);
   if (jump && p.characters[Number(jump[1])]) openMap()[charKey(p.characters[Number(jump[1])])] = true;
   const chars = p.characters.map((c, i) => {
     const b = `characters.${i}`;
@@ -842,7 +845,7 @@ function viewSetupDoc() {
       <div class="col">
         <section class="card" id="setup-basic">
           <h2>기본 정보</h2>
-          ${input('제목', 'meta.title')}
+          ${input('제목', 'meta.title', { aside: ideaBtn('meta.title', '제목 후보'), after: ideaList('meta.title') })}
           ${genrePicker()}
           ${adultCheck(`data-bind="meta.adult" data-kind="bool"${P().meta.adult ? ' checked' : ''}`)}
           ${serial() ? input('총 화수', 'meta.target_episodes', { type: 'number', min: 1, max: 1000, hint: '늘리거나 줄이면 마지막 부 끝 화가 따라가요' }) : input('총 화수', 'meta.target_episodes', { type: 'number', min: 4, max: 40, hint: '단편은 10~20화를 권해요 · 4~40화' })}
@@ -854,7 +857,7 @@ function viewSetupDoc() {
         </section>
         <section class="card" id="setup-world">
           <h2>세계관</h2>
-          ${input('배경', 'world.setting', { rows: 2 })}${input('시대', 'world.era')}
+          ${input('배경', 'world.setting', { rows: 2, aside: ideaBtn('world.setting', '배경 후보'), after: ideaList('world.setting') })}${input('시대', 'world.era')}
           ${input('깨면 안 되는 규칙', 'world.rules', { kind: 'list' })}${input('장소', 'world.locations', { kind: 'list' })}
           <div class="row"><select id="place-kind" aria-label="지명 종류" data-local="placeKind" style="width:auto;min-width:120px">${placeKindOptions()}</select>
             <button type="button" class="btn small" data-action="placeCandidates">지명 후보 뽑기</button><button type="button" class="btn small" data-action="placeAI">AI 지명 추천</button></div>

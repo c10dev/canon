@@ -1733,6 +1733,19 @@ mark.hl.issue.sel.near { outline-style: dashed; }  /* 문장이 바뀌어 비슷
 /* 작은 AI 제안: 칸 하나를 채우는 버튼은 같은 모양 (✦) */
 .ai-mini { min-height: 36px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; background: var(--accent-soft); color: var(--accent-ink); font: inherit; font-size: 0.75rem; font-weight: 700; white-space: nowrap; cursor: pointer; }
 .ai-mini:hover { border-color: var(--sel-line); }
+.ai-mini[aria-expanded="true"] { border-color: var(--accent); }
+.lab-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; min-height: 36px; }
+.in-ai { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+/* ✦ 후보: 칸 바로 아래에 펼친다. 고르기 전에는 칸이 바뀌지 않는다 (ideas.js) */
+.cands { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--sel-line); border-radius: 10px; background: var(--sel-bg); }
+.cands .ch { font-size: 0.75rem; font-weight: 700; color: var(--muted); }
+.cands .opt { display: flex; flex-direction: column; gap: 2px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; text-align: left; line-height: 1.5; cursor: pointer; }
+.cands .opt:hover { border-color: var(--accent); }
+.cands .opt small { font-size: 0.75rem; color: var(--muted); }
+.cands .acts { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.cands .loading { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; color: var(--muted); font-size: 0.8125rem; }
+.cands .loading i { width: 14px; height: 14px; border: 2px solid var(--line-strong); border-top-color: transparent; border-radius: 50%; }
+@media (prefers-reduced-motion: no-preference) { .cands .loading i { animation: spin 0.8s linear infinite; } }
 @media (max-width: 640px) {
   .wiz-card { padding: 20px 16px; }
   .wiz-q h2 { font-size: 1.25rem; }

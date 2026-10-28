@@ -52,6 +52,8 @@ from .schema import (
     VoiceSuggestion,
     NameOption,
     NameOptions,
+    FieldIdea,
+    FieldIdeas,
     OpeningOption,
     OpeningPlots,
     PassageCandidate,
@@ -513,6 +515,20 @@ def _setup_revision(hint: dict) -> SetupRevision:
 MOCK_LOOK = "어깨에 닿던 머리를 짧게 자른 단발"  # 2화 설정 바꾸기 제안 (외모)
 MOCK_ATTIRE = {1: "젖은 회색 코트, 손전등", 2: "젖은 회색 코트(오른쪽 소매 찢어짐), 손전등, 녹슨 열쇠"}
 
+# 설정 칸 하나 AI 후보 (prompts.FIELD_IDEAS 키마다)
+MOCK_FIELD_IDEAS = {
+    "meta.title": ["등대지기의 마지막 여름", "불이 꺼지지 않는 섬", "물때"],
+    "meta.logline_parts.who": ["빚을 갚으려 고향에 돌아온 스물아홉 살 사서", "기억을 잃은 등대지기의 딸", "말을 더듬는 수산시장 경매사"],
+    "meta.logline_parts.why": ["실종된 동생의 편지가 도착하자", "등대 불이 사흘째 꺼지지 않자", "마을 축제 날 낯선 배가 들어오자"],
+    "meta.logline_parts.goal": ["동생이 사라진 밤을 되짚는다", "등대의 주인을 찾아 섬을 뒤진다", "축제가 끝나기 전에 배를 돌려보낸다"],
+    "meta.logline_parts.block": ["마을 사람들은 그 밤을 없던 일로 하려 한다", "등대 열쇠를 가진 이는 이미 죽었다", "배를 부른 것은 그녀의 아버지다"],
+    "meta.logline_parts.stake": ["진실을 알면 돌아갈 집이 사라진다", "실패하면 동생을 영영 잃는다", "들키면 마을이 그녀를 내쫓는다"],
+    "world.setting": ["안개가 잦은 남해의 작은 섬마을. 등대와 수산시장이 생활의 중심이다.",
+                      "관광객이 끊긴 바닷가 소도시. 오래된 가족들이 서로의 비밀을 쥐고 산다.",
+                      "썰물 때만 길이 열리는 섬. 물때표가 마을의 시계다."],
+}
+
+
 class MockLLM:
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
         _delay()
@@ -603,6 +619,11 @@ class MockLLM:
         if schema is NameOptions:  # 코드 후보에서 앞쪽 n 개를 고른 척한다
             names = hint["candidates"][: hint["n"]]
             return NameOptions(options=[NameOption(name=x, reason="후보 중 인물과 시대에 맞는 이름") for x in names])  # type: ignore[return-value]
+        if schema is FieldIdeas:  # 칸마다 다른 결의 후보 셋. 하나는 겹치고 하나는 따옴표를 달아 정리가 고치는지 본다
+            base = MOCK_FIELD_IDEAS.get(hint["field"], ["후보 하나", "후보 둘", "후보 셋"])
+            return FieldIdeas(options=[FieldIdea(text=f"“{base[0]}”", reason="장르와 로그라인에 맞춰서"),  # type: ignore[return-value]
+                                       FieldIdea(text=base[0], reason="겹침"),
+                                       *[FieldIdea(text=x, reason="다른 방향") for x in base[1:]]])
         if schema is IllustDraft:
             return _illust(hint)  # type: ignore[return-value]
         if schema is PlaceSort:
