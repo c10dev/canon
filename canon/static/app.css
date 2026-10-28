@@ -1471,3 +1471,65 @@ mark.hl.issue { background: var(--amber-soft); text-decoration-color: var(--ambe
 mark.hl.issue.sel { text-decoration-thickness: 3px; outline: 2px solid var(--sel-line); outline-offset: 1px; }  /* 고른 지적: 고른 것의 테두리 색 (warn-line 은 테두리용이라 면에 쓰지 않는다) */
 mark.hl.issue.sel.near { outline-style: dashed; }  /* 문장이 바뀌어 비슷한 문장을 짚음 */
 .read mark.hl.issue { cursor: pointer; }
+
+/* ----- 설정 도우미 새 작품 마법사 (setup.js viewSetupWizard) -----
+   걸음 막대: 지금 걸음은 먹색, 필수를 다 채운 걸음은 초록, 들렀는데 빈 필수가 남은 걸음은 주황. 한 화면에 주 버튼은 '다음' 하나 */
+.req-meter { display: inline-flex; align-items: center; gap: 8px; font-size: 0.8125rem; font-weight: 700; color: var(--text-2); white-space: nowrap; }
+.req-meter .bar { width: 72px; height: 6px; border-radius: 3px; background: var(--seg); overflow: hidden; }
+.req-meter .bar i { display: block; height: 100%; background: var(--green); }
+.req-tag { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 4px; background: var(--amber-soft); color: var(--amber-ink); font-size: 0.6875rem; font-weight: 700; vertical-align: 1px; }
+.req-tag.ok { background: var(--green-soft); color: var(--green); }
+.wiz-steps { position: relative; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.wiz-steps button { min-height: 44px; padding: 0; border: none; background: transparent; color: var(--muted); font: inherit; font-size: 0.75rem; text-align: left; display: flex; flex-direction: column; gap: 6px; cursor: pointer; }
+.wiz-steps button i { display: block; height: 6px; border-radius: 3px; background: var(--seg); }
+.wiz-steps button.done, .wiz-steps button.miss { color: var(--text-2); }
+.wiz-steps button.done i { background: var(--green); }
+.wiz-steps button.miss i { background: var(--amber); }
+.wiz-steps button[aria-current="step"] { color: var(--text); font-weight: 700; }
+.wiz-steps button[aria-current="step"] i { background: var(--accent); }
+.wiz-steps .wiz-now { display: none; }
+.wiz-card { width: 100%; max-width: 720px; margin: 0 auto; padding: 32px 36px; gap: 20px; }
+.wiz-q { display: flex; flex-direction: column; gap: 6px; }
+.wiz-q h2 { font-size: 1.5rem; font-weight: 800; }
+.wiz-q h2:focus { outline: none; }
+.wiz-q p { color: var(--muted); }
+.wiz-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 18px; border-top: 1px solid var(--rule); }
+.wiz-foot .sp { flex: 1; }
+.wiz-foot .wiz-why { width: 100%; text-align: right; color: var(--muted); }
+.wiz-chips { display: flex; flex-direction: column; gap: 6px; }
+.wiz-rec { align-self: center; }
+.wiz-people { display: flex; flex-direction: column; gap: 12px; }
+.wiz-person, .wiz-rel { padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; gap: 12px; }
+.wiz-row3 { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.wiz-pair { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: end; }
+.wiz-pair > span { padding-bottom: 12px; }
+.wiz-sum { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.wiz-sum li { display: grid; grid-template-columns: 22px 104px minmax(0, 1fr) auto; gap: 10px; align-items: center; min-height: 52px; padding: 8px 0; border-bottom: 1px solid var(--rule); }
+.wiz-sum li:last-child { border-bottom: none; }
+.wiz-sum .v { min-width: 0; overflow-wrap: anywhere; }
+.wiz-sum .mark { font-weight: 800; }
+.wiz-sum .mark.ok { color: var(--green); }
+.wiz-sum .mark.no { color: var(--amber); }
+.wiz-more-body { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; }
+.lockset:disabled .wiz-rel { opacity: .6; }
+/* 작은 AI 제안: 칸 하나를 채우는 버튼은 같은 모양 (✦) */
+.ai-mini { min-height: 36px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; background: var(--accent-soft); color: var(--accent-ink); font: inherit; font-size: 0.75rem; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.ai-mini:hover { border-color: var(--sel-line); }
+@media (max-width: 640px) {
+  .wiz-card { padding: 20px 16px; }
+  .wiz-q h2 { font-size: 1.25rem; }
+  .wiz-steps { gap: 4px; padding-bottom: 20px; }
+  .wiz-steps button { min-height: 28px; }
+  .wiz-steps button span { display: none; }
+  .wiz-steps .wiz-now { display: block; position: absolute; left: 0; bottom: 0; font-size: 0.75rem; font-weight: 700; }
+  .wiz-row3 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .wiz-row3 > .field:first-child { grid-column: 1 / -1; }
+  .wiz-pair { grid-template-columns: minmax(0, 1fr); }
+  .wiz-pair > span { display: none; }
+  .wiz-sum li { grid-template-columns: 22px minmax(0, 1fr) auto; }
+  .wiz-sum li .v { grid-column: 2 / -1; grid-row: 2; }
+}
+@media (forced-colors: active) {
+  .wiz-steps button[aria-current="step"] i, .wiz-steps button.done i, .wiz-steps button.miss i { background: Highlight; }
+  .req-meter .bar i { background: Highlight; }
+}
