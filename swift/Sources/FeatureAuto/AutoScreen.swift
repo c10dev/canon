@@ -7,6 +7,8 @@ import SwiftUI
 
 /// 자동 집필: 목표 화까지 본문 쓰기, 검수, 상태 변경안, 반영을 서버가 반복한다. 승인 정책에 걸리면 그 화에서 멈춘다 (웹 `viewAuto`).
 public struct AutoScreen: View {
+    /// 검토 없이 반영한 화 중 열린 지적이 남은 화만 보기 (웹 `S.autoOpenOnly`).
+    @State private var openOnly = false
     @State private var model: AutoModel
     let go: (Screen) -> Void
     @State private var ask: Question?
@@ -271,14 +273,19 @@ public struct AutoScreen: View {
 
     @ViewBuilder
     private func appliedCard(_ p: Project) -> some View {
-        let eps = model.autoApplied
+        let all = model.autoApplied
+        let withOpen = all.filter { $0.checkState.open > 0 }
+        let eps = openOnly && !withOpen.isEmpty ? withOpen : all
         if !eps.isEmpty {
             let style = AutoText.styleWarnings(model.run?.log ?? [])
             Card {
                 HStack {
                     Text("검토 없이 반영한 화").font(.headline)
                     Spacer()
-                    Text("\(eps.count)화").font(.caption).foregroundStyle(.secondary)
+                    if !withOpen.isEmpty {
+                        Toggle("열린 지적이 남은 화만 · \(withOpen.count)", isOn: $openOnly).toggleStyle(.button).controlSize(.small)
+                    }
+                    Text("\(all.count)화").font(.caption).foregroundStyle(.secondary)
                 }
                 Text(AutoText.appliedHelp).font(.callout).foregroundStyle(.secondary)
                 ForEach(eps, id: \.plot.number) { e in
@@ -287,7 +294,9 @@ public struct AutoScreen: View {
                         Button { go(.write) } label: { Text("\(n)화").bold() + Text(" \(e.plot.title)") }
                             .buttonStyle(.plain)
                         Spacer()
-                        if let c = e.issues?.count, c > 0 { Chip("검수 \(c)", tone: .written) }
+                        if e.checkState.open > 0 {
+                            Button { go(.check) } label: { Chip("열린 지적 \(e.checkState.open)", tone: .written) }.buttonStyle(.plain)
+                        }
                         if let c = style[n] { Chip("문체 경고 \(c)", tone: .written) }
                         if !model.active {
                             Button("\(n)화부터 반영 취소") {

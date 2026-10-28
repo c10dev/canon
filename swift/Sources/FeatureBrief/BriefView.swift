@@ -119,7 +119,7 @@ public struct BriefView: View {
             if model.status == .draft, model.kind == .episode { Text(BriefText.draftWarning).note(.warn) }
             if model.stateBlocked {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(BriefText.stateBlocked(model.ep))
+                    Text(BriefText.stateBlocked(model.ep, kind: model.kind))
                     Button("본문 작성 지시서로") { Task { await model.setKind(.episode) } }.controlSize(.small)
                 }
                 .note(.plain)
@@ -155,7 +155,11 @@ public struct BriefView: View {
 
     private func importCard(_ e: Episode) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            if model.kind == .episode { textImport(e) } else { jsonImport }
+            switch model.kind {
+            case .episode: textImport(e)
+            case .check: checkImport
+            case .state: jsonImport
+            }
             Divider()
             Text("순서").font(.caption.bold())
             ForEach(Array(BriefText.steps.enumerated()), id: \.offset) { i, s in
@@ -188,6 +192,20 @@ public struct BriefView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(!model.canImport || model.busy)
+        }
+    }
+
+    @ViewBuilder
+    private var checkImport: some View {
+        Text("② 받은 검수 JSON 가져오기").font(.headline)
+        Text(BriefText.checkNote).font(.caption).foregroundStyle(.secondary)
+        editor(mono: true).disabled(!model.canImport)
+        if let err = model.importError { Text(err).note(.error).accessibilityAddTraits(.isStaticText) }
+        HStack {
+            Spacer()
+            Button("가져오고 검수로") { Task { if await model.importCheck() { go(.check) } } }
+                .buttonStyle(.borderedProminent)
+                .disabled(!model.canImport || model.busy)
         }
     }
 

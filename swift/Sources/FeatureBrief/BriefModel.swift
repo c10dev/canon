@@ -14,16 +14,19 @@ public protocol BriefService: Sendable {
     func saveText(_ project: String, ep: Int, text: String) async throws -> Project
     /// 받은 JSON 을 서버가 검사해 변경안으로 읽는다 (`POST .../episodes/{n}/state/parse`). 읽지 못하면 400.
     func parseState(_ project: String, ep: Int, raw: String) async throws -> StateDelta
+    /// 받은 검수 JSON 을 회차 하나로 합친다 (`POST .../episodes/{n}/check/import`). 읽지 못하면 400.
+    func importCheck(_ project: String, ep: Int, raw: String) async throws
 }
 
 /// 지시서 종류 (웹 `S.briefTab`).
 public enum BriefKind: String, CaseIterable, Sendable {
-    case episode, state
+    case episode, check, state
 
     public var label: String {
         switch self {
         case .episode: "1 본문 작성 지시서"
-        case .state: "2 상태 승인 지시서"
+        case .check: "2 검수 지시서"
+        case .state: "3 상태 승인 지시서"
         }
     }
 }
@@ -78,30 +81,35 @@ public final class BriefModel {
         set { keep("\(key):\(kind.rawValue)", newValue) }
     }
 
-    /// 본문이 없어 상태 승인 지시서를 만들 수 없다.
-    public var stateBlocked: Bool { kind == .state && (episode?.text ?? "").isEmpty }
+    /// 본문이 없어 검수 · 상태 승인 지시서를 만들 수 없다.
+    public var stateBlocked: Bool { kind != .episode && (episode?.text ?? "").isEmpty }
     /// 앞 화 반영이 끝나지 않아 서버가 막는 화 (받은 본문 저장은 처음 쓰는 화만, 변경안은 본문이 있는 화만).
     public var order: [Int] {
-        let check = kind == .episode ? status == .confirmed : status == .written
+        // 검수는 순서를 따지지 않는다
+        let check = kind == .episode ? status == .confirmed : kind == .state && status == .written
         return check ? BriefText.blockedBefore(ep, in: episodes) : []
     }
 
     public var canImport: Bool {
         guard order.isEmpty else { return false }
-        return kind == .episode ? BriefText.canImportText(status) : status == .written
+        switch kind {
+        case .episode: return BriefText.canImportText(status)
+        case .check: return !(episode?.text ?? "").isEmpty
+        case .state: return status == .written
+        }
     }
 
     public func start() async {
         await document.load()
         if episode == nil, let p = project { ep = Self.defaultEpisode(p) }
-        kind = Self.tabs[key] ?? BriefText.defaultKind(status)
+        kind = Self.tabs[key] ?? BriefText.defaultKind(status, checkDone: episode?.checkState.done ?? false)
         await load()
     }
 
     public func select(_ n: Int) async {
         guard n != ep else { return }
         ep = n
-        kind = Self.tabs[key] ?? BriefText.defaultKind(status)
+        kind = Self.tabs[key] ?? BriefText.defaultKind(status, checkDone: episode?.checkState.done ?? false)
         importError = nil
         parsed = nil
         await load()
@@ -174,6 +182,31 @@ public final class BriefModel {
             notice = (CanonError.message(error), true)
         }
         return nil
+    }
+
+    /// 받은 검수 JSON 을 회차 하나로 합친다 (웹 `importCheck`). 거절하면 칸 아래에 이유를 남긴다. 합치면 true.
+    public func importCheck() async -> Bool {
+        let raw = draft
+        guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            notice = (BriefText.pasteJSON, true)
+            return false
+        }
+        let n = ep
+        busy = true
+        defer { busy = false }
+        do {
+            try await service.importCheck(document.name, ep: n, raw: raw)
+            importError = nil
+            await document.merge { _, e in e.plot.number == n }
+            keep("\(key):check", nil)
+            if let r = episode?.rounds?.last { notice = (BriefText.mergedCheck(r.no, found: r.found ?? 0, added: r.added ?? 0), false) }
+            return true
+        } catch let e as CanonError where e.status == 400 {
+            importError = e.errorDescription
+        } catch {
+            notice = (CanonError.message(error), true)
+        }
+        return false
     }
 
     private func keep(_ k: String, _ v: String?) {

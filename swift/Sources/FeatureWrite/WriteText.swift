@@ -12,7 +12,7 @@ public typealias ExportOut = Components.Schemas.ExportOut
 typealias Act = Components.Schemas.Act
 
 /// 집필 화면의 표시 규칙. 웹 `app.js` 의 `viewWrite` · `blockedBefore` · `orderNote` · `textUnsaved`,
-/// `passage.js` 의 `editableEp` · `issuesBlock` · `clip` · `editTime` 와 같은 문구라 함께 고친다.
+/// `passage.js` 의 `editableEp` · `clip` · `editTime` 와 같은 문구라 함께 고친다.
 public enum WriteText {
     static func status(_ e: Episode) -> EpisodeStatus {
         EpisodeStatus(rawValue: e.status?.rawValue ?? "draft") ?? .draft
@@ -90,34 +90,6 @@ public enum WriteText {
         if let c = p.characters?.first(where: { $0.id == id }) { return c.name.isEmpty ? id : c.name }
         if let c = p.castCandidates?.first(where: { $0.id == id }) { return c.name.isEmpty ? id : c.name }
         return id
-    }
-
-    /// 검수 단추 글자 (웹 `jobBtn('check', n, …)`).
-    public static func checkLabel(_ e: Episode) -> String {
-        (e.issues ?? []).isEmpty ? "검수하기" : "다시 검수"
-    }
-
-    /// 검수에서 찾은 곳 한 줄 (웹 `issuesBlock`). `text` 는 지금 본문(저장 전 초안 포함).
-    public struct IssueLine: Equatable, Sendable {
-        public let type: String
-        public let description: String
-        /// '이번 화: «…»' 와 본문에서 찾지 못했다는 말
-        public let current: String?
-        public let found: Bool
-        /// '근거 (3화): «…»', 근거 화가 없으면 '설정'
-        public let source: String?
-        /// '→ 고칠 방향'
-        public let suggestion: String?
-    }
-
-    public static func issue(_ x: ConsistencyIssue, text: String) -> IssueLine {
-        let found = !x.currentQuote.isEmpty && text.contains(x.currentQuote)
-        let src = (x.sourceEpisode ?? 0) > 0 ? "\(x.sourceEpisode!)화" : "설정"
-        return IssueLine(type: x._type.rawValue, description: x.description,
-                         current: x.currentQuote.isEmpty ? nil : "이번 화: «\(x.currentQuote)»\(found ? "" : " (지금 본문에서 찾을 수 없어요)")",
-                         found: found,
-                         source: x.sourceQuote.isEmpty ? nil : "근거 (\(src)): «\(x.sourceQuote)»",
-                         suggestion: (x.suggestion ?? "").isEmpty ? nil : "→ \(x.suggestion!)")
     }
 
     /// 수정 · 판 시각: 오늘이면 시각만, 아니면 날짜 (웹 `editTime`).

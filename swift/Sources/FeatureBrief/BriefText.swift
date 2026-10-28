@@ -10,9 +10,9 @@ public enum BriefText {
         EpisodeStatus(rawValue: e.status?.rawValue ?? "draft") ?? .draft
     }
 
-    /// 고른 적 없는 화의 지시서: 본문이 있고 반영하지 않았으면 상태 승인 지시서 (웹 `briefTabFor`).
-    public static func defaultKind(_ s: EpisodeStatus) -> BriefKind {
-        s == .written ? .state : .episode
+    /// 고른 적 없는 화의 지시서: 본문이 있고 반영하지 않았으면 검수가 끝나기 전에는 검수 지시서, 끝났으면 상태 승인 지시서 (웹 `briefTabFor`).
+    public static func defaultKind(_ s: EpisodeStatus, checkDone: Bool = false) -> BriefKind {
+        s == .written ? (checkDone ? .state : .check) : .episode
     }
 
     public static let description = "Claude, Gemini, ChatGPT 구독 앱에 붙여 넣을 지시서예요. API 생성과 똑같은 컨텍스트를 써요."
@@ -33,8 +33,15 @@ public enum BriefText {
     public static let jsonNote = "본문이 작성된 화에서만 쓸 수 있어요."
     public static let draftWarning = "플롯이 아직 초안이에요. 확정 전 내용으로 지시서가 만들어져요."
 
-    public static func stateBlocked(_ n: Int) -> String {
-        "\(n)화 본문이 아직 없어 상태 승인 지시서를 만들 수 없어요. 본문을 먼저 저장하세요."
+    public static func stateBlocked(_ n: Int, kind: BriefKind = .state) -> String {
+        "\(n)화 본문이 아직 없어 \(kind == .check ? "검수" : "상태 승인") 지시서를 만들 수 없어요. 본문을 먼저 저장하세요."
+    }
+
+    public static let checkNote = "채팅 앱의 JSON 답변을 붙여 넣으세요. 코드 블록 표시는 자동으로 지워요. 가져오면 검수 회차 하나로 합쳐요."
+
+    /// 받은 검수 JSON 을 합쳤다는 알림 (웹 `importCheck` 의 토스트).
+    public static func mergedCheck(_ round: Int, found: Int, added: Int) -> String {
+        "\(round)회차로 합쳤어요: 짚은 곳 \(found)개, 새 지적 \(added)개"
     }
 
     /// n화보다 앞인데 상태 반영이 끝나지 않은 화 (웹 `blockedBefore`, 서버 `pipeline.require_previous`).
@@ -103,5 +110,6 @@ public enum BriefText {
     public static let noHandOff = "앱의 상태 승인 화면은 아직 이 변경안을 받지 못해요. 웹의 작업지시서 화면에서 같은 JSON을 가져오세요."
 
     /// 순서 안내 (웹 `viewBrief` 의 '순서').
-    public static let steps = ["본문 작성 지시서 → 받은 본문 저장", "상태 승인 지시서 → 받은 JSON 가져오기", "상태 승인 화면에서 반영"]
+    public static let steps = ["본문 작성 지시서 → 받은 본문 저장", "검수 지시서 → 받은 JSON 가져오기 → 검수 화면에서 지적 처리",
+                               "상태 승인 지시서 → 받은 JSON 가져오기", "상태 승인 화면에서 반영"]
 }

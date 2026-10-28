@@ -121,6 +121,8 @@ public struct HomeSummary: Equatable, Sendable {
         recap = recapArcs.first.map { "아크 \($0.number) 요약" } ?? recapParts.first.map { "\($0.number)부 요약" }
 
         func state(_ ok: Bool, _ partial: Bool = false) -> Stage.State { ok ? .done : partial ? .doing : .notStarted }
+        // 검수 칸이 찬 화 (웹 `viewHome` 의 checked, `checkState`)
+        let checked = eps.filter { Self.status($0) != .draft && $0.checkState.done }.count
         let chars = p.characters?.count ?? 0
         stages = [
             Stage(state: state(chars > 0), title: "1 설정", detail: "인물 \(chars) · 관계 \(p.relationships?.count ?? 0)", screen: .setup),
@@ -131,7 +133,8 @@ public struct HomeSummary: Equatable, Sendable {
                 : Stage(state: state((p.arc ?? []).count == 4), title: "3 기승전결", detail: (p.arc ?? []).isEmpty ? "없음" : "4구간", screen: .arc),
             Stage(state: state(!eps.isEmpty && confirmed == target, confirmed > 0), title: "3 플롯 확정", detail: "\(confirmed) / \(target)화", screen: .arc),
             Stage(state: state(written == target, written > 0), title: "4 집필", detail: "\(written) / \(target)화", screen: .write),
-            Stage(state: state(fin == target, fin > 0), title: "5 상태 승인", detail: "\(fin) / \(target)화", screen: .review),
+            Stage(state: state(checked == target, checked > 0), title: "5 검수", detail: "\(checked) / \(target)화", screen: .check),
+            Stage(state: state(fin == target, fin > 0), title: "6 상태 승인", detail: "\(fin) / \(target)화", screen: .review),
         ]
         next = Self.nextStep(p, current: cur, planned: planned)
 
@@ -152,7 +155,7 @@ public struct HomeSummary: Equatable, Sendable {
             return Cell(number: n, status: s, label: e.auto == true ? "자동 반영" : s.label.replacingOccurrences(of: "플롯 ", with: "").replacingOccurrences(of: "본문 ", with: ""),
                         current: n == cur && s != .finalized, title: e.plot.title,
                         act: serial ? nil : acts.first { $0.startEp <= n && n <= $0.endEp }?.name.rawValue,
-                        screen: s == .draft ? .arc : s == .written ? .review : .write)
+                        screen: s == .draft ? .arc : s == .written ? (e.checkState.done ? .review : .check) : .write)
         }
 
         var notes: [String] = []
@@ -218,7 +221,7 @@ public struct HomeSummary: Equatable, Sendable {
         switch status(e) {
         case .draft: return Next(label: "\(n)화 플롯 확정", screen: .arc)
         case .confirmed: return Next(label: "\(n)화 쓰기", screen: .write)
-        case .written: return Next(label: "\(n)화 상태 승인", screen: .review)
+        case .written: return e.checkState.done ? Next(label: "\(n)화 상태 승인", screen: .review) : Next(label: "\(n)화 검수", screen: .check)
         case .finalized: return Next(label: "완결 원고 보기", screen: .write)
         }
     }

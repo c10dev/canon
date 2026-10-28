@@ -101,22 +101,7 @@ func html(_ pieces: [DiffPiece]) -> String {
         #expect(WriteText.eyebrow(act: nil, n: 3, target: 12) == "3 / 12화")
         #expect(WriteText.clip("가나다라", 2) == "가나…")
         #expect(WriteText.clip("가나", 2) == "가나")
-        #expect(WriteText.checkLabel(ep(1, .written)) == "검수하기")
         #expect(WriteText.bodyHint(ep(1, .draft)) == "플롯을 확정하면 본문을 쓸 수 있어요")
-    }
-
-    @Test func issueLines() {
-        let x = ConsistencyIssue(_type: .인물정보, description: "모르는 이름을 부른다", sourceEpisode: 2, sourceQuote: "처음 본 얼굴", currentQuote: "서연아", suggestion: "이름을 빼라")
-        let found = WriteText.issue(x, text: "그가 서연아 하고 불렀다")
-        #expect(found.type == "인물 정보")
-        #expect(found.current == "이번 화: «서연아»")
-        #expect(found.source == "근거 (2화): «처음 본 얼굴»")
-        #expect(found.suggestion == "→ 이름을 빼라")
-        let lost = WriteText.issue(ConsistencyIssue(_type: .사실, description: "d", sourceQuote: "설정 문장", currentQuote: "없는 문장"), text: "본문")
-        #expect(lost.current == "이번 화: «없는 문장» (지금 본문에서 찾을 수 없어요)")
-        #expect(lost.source == "근거 (설정): «설정 문장»")
-        #expect(lost.suggestion == nil)
-        #expect(WriteText.checkLabel(ep(1, .written, issues: [x])) == "다시 검수")
     }
 
     @Test func names() {
