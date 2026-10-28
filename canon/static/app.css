@@ -1638,7 +1638,10 @@ input[type=number].pnum { width: 80px; min-height: 36px; padding: 0 8px; border:
   .check-cols { grid-template-columns: 280px minmax(0, 1fr) 320px; grid-template-areas: "list body detail"; }
   .check-cols .c-detail { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
 }
-body.chat-open .check-cols { display: flex; flex-direction: column; }
+/* AI 패널을 열면 한 줄로 쌓는다. 넓은 폭의 grid 규칙(카드 폭을 글만큼 줄이는 align-items, 상세 카드의 sticky)을 풀어
+   본문 카드가 폭을 다 쓰고, 내릴 때 상세 카드가 본문 위에 붙어 남지 않게 한다 (집필 화면 .write-cols 와 같다) */
+body.chat-open .check-cols { display: flex; flex-direction: column; align-items: stretch; }
+body.chat-open .check-cols .c-detail { position: static; max-height: none; overflow: visible; }
 .chk-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
 /* 거르기 · 처리 상태는 디자인 시스템의 나눔 버튼(.seg). 칸이 많아 좁은 폭에서는 줄을 넘긴다 */
 .chk-strip .chk-filters { margin-left: auto; flex-wrap: wrap; }
