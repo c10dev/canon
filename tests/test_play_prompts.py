@@ -77,7 +77,7 @@ def test_scene_prompt_order_and_stable_front():
     a = prompts.play_scene_prompt(p, _info(p, n), n, "등대로 간다", 0)
     heads = ["[진행 규칙]", "[서술 시점]", "[작품 정보]", "[세계관", "[스타일 프로필", "[플레이어 인물]", "[지금까지의 줄거리]",
              "[확정된 사실]", "[장면 인물 설정]", "[인물 현재 상태]", "[관계]", "[숨긴 비밀]", "[열린 복선]",
-             "[직전 장면 마지막 부분]", "[이번 턴]", "[이번 행동]", "[이번 턴의 운]"]
+             "[직전 장면 마지막 부분]", "[이번 구간]", "[이번 행동]", "[이번 구간의 운]"]
     pos = [a.index("\n" + h) if i else a.index(h) for i, h in enumerate(heads)]
     assert pos == sorted(pos)
     b = prompts.play_scene_prompt(p, _info(p, n), n, "시장으로 간다", -2)  # 행동과 운만 다른 같은 턴
@@ -118,15 +118,18 @@ def test_scene_notes_cuts():
 def test_scene_without_turn_episode_and_turn_kinds():
     p, n = _big(80)
     p.episodes = [e for e in p.episodes if e.plot.number < n]  # 턴 Episode 를 아직 만들지 않았어도 된다
-    prev = PlayTurn(number=n - 1, choices=[PlayChoice(text="등대로 간다"), PlayChoice(text="사흘 뒤로", skip="사흘")])
-    info = _info(p, n - 5, turns=[prev], max_turns=5)
+    prev = PlayTurn(number=n - 1, choices=[PlayChoice(text="등대로 간다"), PlayChoice(text="시장으로 간다")])
+    info = _info(p, n - 5, turns=[prev], max_turns=5, unit="month", focus="생업", end_days=30)
     info.world_ep = n - 5
-    skip = prompts.play_scene_prompt(p, info, n, "사흘 뒤로", 0)
-    assert "시간 건너뛰기 (사흘)" in skip and "5번째 턴 (턴 한도 5)" in skip and "마지막 턴" in skip
-    assert "고른 선택지" in prompts.play_scene_prompt(p, info, n, "등대로 간다", 0)
+    last = prompts.play_scene_prompt(p, info, n, "등대로 간다", 0)
+    assert "5번째 구간. 시간 단위는 한 달" in last and "구간 5개, 작품 속 30일" in last and "마지막 구간" in last
+    assert "고른 선택지" in last and "초점: 생업" in last
     assert "(시도)" in prompts.play_scene_prompt(p, info, n, "하늘을 난다", 0)
+    assert "자동 결정" in prompts.play_scene_prompt(p, info, n, "등대로 간다", 0, "auto")
+    flow = prompts.play_scene_prompt(p, info.model_copy(update={"turns": [PlayTurn(number=n - 1)]}), n, "", 0)
+    assert "시간을 흘려보냈습니다" in flow and "(없음: 시간이 흐른다)" in flow
     first = prompts.play_scene_prompt(p, _info(p, n), n, "", 0)
-    assert "첫 장면입니다" in first and "플레이를 시작하기 전" in first
+    assert "첫 구간입니다" in first and "플레이를 시작하기 전" in first
 
 
 def test_person_rules():
@@ -153,7 +156,7 @@ def test_state_prompt_keeps_scene_cast_and_novel_path():
     assert '"id": "hero"' in chars and '"id": "npc4"' in chars and '"id": "npc5"' not in chars
     assert "npc5: 주민5호" in text[text.index("[다른 인물"):]  # 다시 만들지 않게 이름은 남는다
     assert len(text) < len(novel) * 0.75 and len(text) < 20_000, (len(text), len(novel), context.blocks(text, 20))
-    assert "개 생략" in text and "플레이의 한 턴" in text
+    assert "개 생략" in text and "플레이의 한 구간" in text
 
 
 def test_short_project_state_prompt_is_novel_prompt():

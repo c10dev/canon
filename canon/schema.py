@@ -1594,20 +1594,30 @@ class BranchDiff(BaseModel):
 # 플레이는 세계 작품을 복사한 작품 폴더다. 한 턴은 Episode 하나, 플레이 정보는 project.json 밖의 play.json.
 
 PlayPerson = Literal["first", "second", "third"]
-TurnKind = Literal["start", "choice", "free", "skip"]
+TurnKind = Literal["start", "choice", "free", "skip", "flow", "auto"]
+PlayUnit = Literal["auto", "hour", "day", "month", "year"]
 
 
 class PlayChoice(BaseModel):
     """장면 끝에 붙는 다음 행동 선택지 하나."""
     text: str = Field(description="플레이어 인물이 할 행동 한 줄 (예: 문을 열고 들어간다)")
-    skip: str = Field("", description="시간을 건너뛰는 선택지면 건너뛸 길이 (예: 사흘, 3년). 아니면 빈칸")
+    # 턴제 때 시간 건너뛰기 선택지의 길이. 시간 흐름 모델에서는 쓰지 않아 AI 응답 형식에서 뺀다 (옛 play.json 은 읽힌다)
+    skip: SkipJsonSchema[str] = ""
+
+
+class PlayBeat(BaseModel):
+    """구간 안에서 흘러간 일 한 줄. 화면 시계가 한 줄씩 보인다."""
+    time: StoryTime = Field(default_factory=StoryTime, description="이 일이 일어난 작품 속 시점")
+    text: str = Field(description="흘러간 일 한두 문장")
 
 
 class PlayScene(BaseModel):
-    """플레이 한 턴의 장면. AI 가 쓴다 (play 단계). 상태 변경안은 뒤에서 따로 만든다 (play.settle)."""
-    text: str = Field(description="이번 턴 장면 본문")
-    choices: list[PlayChoice] = Field(default_factory=list, description="다음 행동 선택지 3~4개. 하나는 시간을 건너뛰는 선택지여도 된다")
-    ending: str = Field("", description="플레이어 인물의 이야기가 이 장면에서 끝나면 그 까닭 한 줄 (죽음, 목표를 이룸, 떠남 등). 이어지면 빈칸")
+    """플레이 구간 하나: 흘러간 일과, 있으면 결정 장면. AI 가 쓴다 (play 단계). 상태 변경안은 뒤에서 따로 만든다 (play.settle)."""
+    beats: list[PlayBeat] = Field(default_factory=list, description="결정할 순간까지, 또는 정해진 시간 칸까지 흘러간 일. 시간 순서대로")
+    text: str = Field("", description="결정 장면 본문. 플레이어 인물이 무언가 정해야 하는 순간을 장면으로. 그런 순간이 없으면 빈칸")
+    choices: list[PlayChoice] = Field(default_factory=list, description="결정 장면의 선택지 3~4개. 결정 장면이 없으면 빈 목록")
+    lean: int = Field(0, description="플레이어 인물의 성격과 목표라면 고를 선택지 번호 (1부터). 선택지가 없으면 0")
+    ending: str = Field("", description="플레이어 인물의 이야기가 이 구간에서 끝나면 그 까닭 한 줄 (죽음, 목표를 이룸, 떠남 등). 이어지면 빈칸")
 
 
 class Birth(BaseModel):
@@ -1639,7 +1649,9 @@ class PlayTurn(BaseModel):
     kind: TurnKind = "choice"
     action: str = Field("", description="플레이어가 고르거나 적은 행동. 첫 턴은 비움")
     luck: int = Field(0, description="코드가 굴린 운: -2 아주 나쁨 ~ 2 아주 좋음. 화면에는 숨기고 기록에만 둔다")
-    choices: list[PlayChoice] = Field(default_factory=list, description="이 턴 장면 끝에 보인 선택지")
+    beats: list[PlayBeat] = Field(default_factory=list, description="이 구간에 흘러간 일. 본문(Episode.text)에도 이어 넣는다")
+    choices: list[PlayChoice] = Field(default_factory=list, description="이 구간 끝 결정 장면의 선택지. 비면 결정 없이 다음 구간으로 흐른다")
+    lean: int = Field(0, description="AI 가 이 인물이라면 고를 것이라 한 선택지 번호. 자동 결정에 쓴다")
     state: Literal["pending", "applied", "failed"] = Field("pending", description="뒤에서 만드는 상태 변경안의 반영 여부")
     error: str = Field("", description="상태 반영이 실패한 까닭")
     ending: str = Field("", description="이 턴 장면이 낸 결말 까닭 (PlayScene.ending). 상태 반영이 끝나면 플레이를 끝낸다")
@@ -1655,8 +1667,16 @@ class PlayInfo(BaseModel):
     birth: Optional[Birth] = None
     person: PlayPerson = Field("second", description="서술 시점: first 나 / second 당신 / third 이름")
     seed: int = 0
-    max_turns: int = Field(0, description="턴 한도. 0 이면 없음")
-    chapter_len: int = Field(20, description="장 하나의 턴 수. 장이 끝나면 요약으로 접는다")
+    max_turns: int = Field(0, description="구간 수 한도. 0 이면 없음")
+    chapter_len: int = Field(20, description="장 하나의 구간 수. 장이 끝나면 요약으로 접는다")
+    unit: PlayUnit = Field("day", description="시간 단위. 새 플레이에서 auto 를 고르면 시작할 때 세계에 맞는 단위로 바꿔 둔다 (play.pick_unit)")
+    segment_units: int = Field(7, description="구간 하나의 최대 시간 칸 수. 결정 장면이 먼저 오면 거기서 끝난다")
+    focus: str = Field("", description="흘러가는 동안 따라갈 것 (예: 수련, 사람, 생업). 비면 AI 가 정한다")
+    auto_decide: bool = Field(False, description="결정 장면에서 기다리지 않고 AI 가 낸 lean 을 고른다 (화면이 몇 초 기다린 뒤 부른다)")
+    end_days: int = Field(0, description="작품 속 날수 한도: 시작부터 이만큼 지나면 끝. 0 이면 없음")
+    end_decisions: int = Field(0, description="결정 수 한도. 0 이면 없음")
+    start_day: int = Field(0, description="시작할 때의 작품 속 날수 (세계의 마지막 반영 화가 끝난 날)")
+    seen: int = Field(0, description="플레이어가 화면에서 닿은 마지막 구간 번호. 서버는 이보다 한 구간 넘게 앞서 쓰지 않는다 (play.see)")
     turns: list[PlayTurn] = Field(default_factory=list)
     ending: str = Field("", description="끝난 까닭. 비면 진행 중")
     ended_ep: int = 0

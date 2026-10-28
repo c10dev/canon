@@ -11,9 +11,11 @@ from .test_web import client  # noqa: F401  (pytest fixture)
 def test_mock_responders():
     assert PlayScene in mock.RESPONDERS and BirthSketch in mock.RESPONDERS
     llm = mock.MockLLM()
-    s = llm.json("", "", PlayScene, hint={"number": 3, "action": "등대로 간다", "luck": 1})
-    assert s.text.startswith("등대로 간다.") and "운이 따랐다" in s.text and s.ending == ""
-    assert len(s.choices) == 4 and [c.skip for c in s.choices].count("사흘") == 1
+    flow = llm.json("", "", PlayScene, hint={"number": 3, "action": "", "luck": 1, "day": 4, "unit": "day"})
+    assert flow.beats and flow.text == "" and flow.choices == [] and "운이 따랐다" in flow.beats[1].text
+    assert [b.time.day for b in flow.beats] == [5, 6, 7]
+    s = llm.json("", "", PlayScene, hint={"number": 4, "action": "등대로 간다", "luck": 0})
+    assert s.beats[0].text == "등대로 간다." and s.text and len(s.choices) == 3 and s.lean == 2 and s.ending == ""
     end = llm.json("", "", PlayScene, hint={"number": 4, "action": f"모든 것을 {mock_play.MOCK_ENDING_WORD}"})
     assert end.ending and end.choices == []
     b = llm.json("", "", BirthSketch, hint={"name": "도윤", "place": "수산시장"})
@@ -45,6 +47,6 @@ def test_first_prompts(client):
     hero = p.characters[0].id
     text = prompts.play_scene_prompt(p, PlayInfo(world="lh", world_ep=2, player=hero, person="first"), 3, "등대로 간다", -2)
     assert "등대로 간다" in text and "아주 나쁨" in text and "1인칭" in text
-    assert text.index("[이번 행동]") > text.index("[직전 장면 마지막 부분]")  # 턴마다 바뀌는 블록이 뒤
+    assert text.index("\n[이번 행동]\n") > text.index("\n[직전 장면 마지막 부분]")  # 턴마다 바뀌는 블록이 뒤
     assert prompts.play_state_prompt(p, 2) == prompts.state_prompt(p, 2)
     assert "도윤" in prompts.birth_prompt(p, Birth(seed=1, name="도윤", place="등대"))
