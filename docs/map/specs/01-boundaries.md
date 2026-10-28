@@ -1,6 +1,6 @@
 # 01. 경계 정리 (파일은 그대로)
 
-상태: 설계 · 계획: [plan.md](../plan.md) 의 1번 · 설계: [modules.md](../modules.md) 3절의 문제 1 · 2 · 3 · 5 · 6
+상태: 구현 · 계획: [plan.md](../plan.md) 의 1번 · 설계: [modules.md](../modules.md) 3절의 문제 1 · 2 · 3 · 5 · 6
 
 ## 목표
 

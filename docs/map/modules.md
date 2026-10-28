@@ -1,50 +1,53 @@
 # 지도 모듈 구조
 
-지도 코드는 지금 `canon/` 에 아홉 파일(약 6,100줄)과 화면 파일 하나(2,454줄)로 흩어져 있다. 이 문서는 그 경계를 세 단계로 정리하는 설계다.
-기준은 main `d61a100` 이다. 열린 PR [#139](https://github.com/c10dev/canon/pull/139)(AI 설정 제안의 현대 동네)와 [#140](https://github.com/c10dev/canon/pull/140)(이름으로 자리 찾기 · 건물 한 줄)은 따로 적는다.
+지도 코드는 지금 `canon/` 에 열두 파일(약 6,300줄)과 화면 파일 하나(2,554줄)로 흩어져 있다. 이 문서는 그 경계를 세 단계로 정리하는 설계다.
+1 · 2절은 단계 1([01-boundaries.md](specs/01-boundaries.md)) 뒤의 구조다. 3절의 문제와 줄 번호는 단계 1 전(main `d61a100` 에 #139 · #140 을 합친 것) 기준이다. 문제 1 · 2 · 3 · 5 · 6 은 단계 1 이 풀었다.
 
 ## 1. 지금 구조
 
 | 파일 | 줄 | 하는 일 | 가져오는 지도 모듈 |
 |---|---:|---|---|
-| `canon/atlas.py` | 903 | 장소 · 핀 · 위치 글 잇기, Watabou 읽기 · 지도 파일, 길찾기, 건물 고치기, 지도 만들기 조립, 위치 글 정리, 명령줄 출력 | bldgs, citygen, geom, moderngen, osm, towngen, travel (`atlas.py:23`) |
-| `canon/travel.py` | 350 | 이동 시간 검사, 쓰기 · 검수 프롬프트의 이동 거리 블록 | atlas (`travel.py:23`) |
-| `canon/towngen.py` | 993 | 마을 생성기, 장소 종류 `CATEGORIES` · `classify` · `water_for` | geom, roadnet (`towngen.py:17`) |
-| `canon/citygen.py` | 1,283 | 도시 생성기, 블록 쪼개기 도구 | geom, towngen 의 `CATEGORIES` (`citygen.py:23`) |
-| `canon/moderngen.py` | 761 | 현대 동네 생성기 | geom, citygen 의 비공개 함수 8개 (`moderngen.py:24`), towngen 의 `CATEGORIES` (`moderngen.py:27`) |
+| `canon/atlas.py` | 1,049 | 장소 · 핀 · 위치 글 잇기, Watabou 읽기 · 지도 파일, 길찾기, 건물 고치기, 자리 찾기 · 건물 한 줄, 지도 만들기 조립(`MAKERS`), 위치 글 정리, 명령줄 출력 | bldgs, citygen, geom, moderngen, osm, placekinds, towngen (`atlas.py:23`) |
+| `canon/travel.py` | 337 | 이동 시간 검사, 프롬프트 이동 거리의 줄 데이터(`episode_moves`) | atlas (`travel.py:23`) |
+| `canon/mapprompt.py` | 55 | 쓰기 · 검수 프롬프트의 지도 블록 글과 예산: 이동 거리 · 검수 이동 줄 · 장소가 놓인 건물 | atlas, travel (`mapprompt.py:6`) |
+| `canon/towngen.py` | 938 | 마을 생성기 | geom, roadnet, placekinds (`towngen.py:17`) |
+| `canon/citygen.py` | 1,170 | 도시 생성기 | geom, blocks, placekinds (`citygen.py:20`) |
+| `canon/moderngen.py` | 764 | 현대 동네 생성기 | geom, blocks, placekinds (`moderngen.py:23`) |
+| `canon/blocks.py` | 129 | 블록 · 필지 쪼개기 공용 도구 (`citygen` 에서 옮김, 밑줄 없는 이름) | geom |
+| `canon/placekinds.py` | 64 | 장소 종류 `CATEGORIES` · `classify` · `default_put` · `water_for` (`towngen` 에서 옮김) | 없음 |
 | `canon/roadnet.py` | 432 | 길망 키우기 (Parish–Müller) | geom |
-| `canon/osm.py` | 528 | OpenStreetMap 파일 → 지도 데이터 | geom |
+| `canon/osm.py` | 546 | OpenStreetMap 파일 → 지도 데이터 | geom |
 | `canon/bldgs.py` | 512 | 건물 쓰임 · 층수 · 사람 · 거리 이름 | geom |
 | `canon/geom.py` | 347 | 기하 도구. 지도를 모른다 | 없음 |
-| `canon/static/atlas.js` | 2,454 | 지도 화면 전부 (그림, 확대, 옆 칸, 이동 시간, 지도 만들기, 표, 저장, 되돌리기, 내보내기, 동작) | — |
+| `canon/static/atlas.js` | 2,554 | 지도 화면 전부 (그림, 확대, 옆 칸, 이동 시간, 지도 만들기, 표, 저장, 되돌리기, 내보내기, 동작) | — |
 
-줄 수는 `wc -l` 로 셌다. #140 이 머지되면 `atlas.py` 는 1,054줄, `osm.py` 는 546줄, `atlas.js` 는 2,554줄이 된다.
+줄 수는 `wc -l` 로 셌다. 가져오는 지도 모듈은 모듈 맨 위의 `from . import …` 줄이다. `travel.episode_block` · `atlas.episode_block` 은 시험이 부르는 옛 이름이라 함수 안에서 `mapprompt` 를 가져온다. `towngen` 은 `CATEGORIES` · `classify` · `water_for` 를 다시 내보낸다(시험이 읽는다). `tests/test_map_imports.py` 가 순환이 없고 생성기끼리 가져오지 않는지 본다.
 
-지도 밖에서 지도 모듈을 부르는 곳 (`grep` 으로 센 이름 수):
+지도 밖에서 지도 모듈을 부르는 곳:
 
-- `web.py`: `atlas.*` 약 30개 이름. 웹 함수 이름은 Swift 앱의 연산 이름이다(`swift/Sources/CanonAPI/openapi.json`).
-- `cli.py`: `atlas.*` · `towngen.OPTIONS` · `towngen.CATEGORIES` · `travel.*` 약 15개.
-- `pipeline.py`: `atlas.places` · `clean_sort` · `gen_places` · `MAKERS` · `towngen.CATEGORIES`.
-- `prompts.py`: `atlas.places` · `gen_places` · `unmatched`, `travel.episode_block` · `check_rule`.
-- 그 밖: `features.py`(`travel.delta_warnings`), `birth.py`(`atlas.places`), `mock.py`(`towngen.classify` · `water_for` · `OPTIONS`), `schema.py`(설명 글).
+- `web.py`: `atlas.*` 약 30개 이름. 지도 화면(`atlas_view`)은 `atlas.summary` 에 `travel.view` 를 붙인다. 웹 함수 이름은 Swift 앱의 연산 이름이다(`swift/Sources/CanonAPI/openapi.json`).
+- `cli.py`: `atlas.*` (설정 칸은 `atlas.MAKERS`) · `placekinds.CATEGORIES` · `travel.*`.
+- `pipeline.py`: `atlas.places` · `clean_sort` · `gen_places` · `MAKERS`, `placekinds.CATEGORIES` · `CATEGORY_IDS`, `moderngen.PLACE_KINDS`.
+- `prompts.py`: `mapprompt.travel_block` · `travel_check_rule` · `spot_block`.
+- 그 밖: `features.py`(`travel.delta_warnings`), `birth.py`(`atlas.places`), `mock.py`(`placekinds.classify` · `water_for`, `atlas.MAKERS`), `schema.py`(설명 글).
 
 ## 2. 의존 그림 (지금)
 
 ```mermaid
 flowchart LR
-  outside["web · cli · pipeline · prompts"] --> atlas
+  outside["web · cli · pipeline"] --> atlas
   outside --> travel
-  atlas --> travel
+  prompts --> mapprompt
+  mapprompt --> atlas & travel
   travel --> atlas
-  atlas --> towngen & citygen & moderngen & osm & bldgs
-  citygen -- CATEGORIES --> towngen
-  moderngen -- CATEGORIES --> towngen
-  moderngen -- "비공개 함수 8개" --> citygen
+  atlas --> towngen & citygen & moderngen & osm & bldgs & placekinds
+  towngen & citygen & moderngen --> placekinds
+  citygen & moderngen --> blocks
   towngen --> roadnet
-  towngen & citygen & moderngen & osm & bldgs & roadnet --> geom
+  towngen & citygen & moderngen & osm & bldgs & roadnet & blocks --> geom
 ```
 
-화살표는 `from . import …` 줄이다(1절 표의 줄 번호). `atlas` ↔ `travel` 은 서로 가져온다.
+화살표는 모듈 맨 위의 `from . import …` 줄이다(1절 표의 줄 번호). 순환이 없다. `cli` · `pipeline` · `mock` 은 `placekinds` 도 바로 읽는다.
 
 ## 3. 문제
 

@@ -106,7 +106,7 @@ FLAT_AREA = 85.0  # 주거 한 칸 넓이 (m², 국민주택 규모)
 FLAT_SHARE = 0.6  # 연면적 가운데 주거 칸 몫 (어림: 복도 · 계단 · 벽)
 HOUSEHOLD_SIZE = 2.2  # 한 가구 사람 수 (국가데이터처 지표: 2024년 평균 가구원 수 2.2명)
 
-# 이야기 장소 종류(towngen.CATEGORIES) → 쓰임
+# 이야기 장소 종류(placekinds.CATEGORIES) → 쓰임
 PLACE_USE = {"center": "office", "market": "hall", "well": "", "temple": "temple", "inn": "inn", "smith": "smith",
              "mill": "mill", "manor": "mansion", "home": "home", "shore": "warehouse", "bridge": "", "river": "", "pond": "",
              "forest": "", "field": "farm", "far": ""}
