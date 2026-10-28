@@ -507,6 +507,24 @@ Canon 모드는 턴제이고, 시간 건너뛰기는 선택지다.
 `story_parts` 는 지금 턴을 덮는 아크가 없으면 최근 턴 요약을 빼므로, 장(StoryArc)은 `chapter_len` 턴 범위로 미리 열고 끝나면 요약으로 닫는다.
 되감기는 `revert(n)` 뒤 n 턴 뒤 Episode 를 지운다(`revert` 는 뒤 화 본문을 남긴다). 스냅샷은 모두 남긴다(`keep_snapshots`).
 
+시작(`start` → `prepare`): 세계 폴더를 복사한다(`branches.COPY_SKIP` 에 `branch.json` · `play.json` 을 더해 옮기지 않는다). 플레이 사본에서 새 플레이는 열지 않는다.
+세계의 마지막 반영 화가 `world_ep` 이고 턴은 `world_ep+1` 화부터다. `world_ep` 스냅샷이 없으면 지금 상태로 만든다(반영은 화 순서대로라 지금 상태가 그 화 직후다). 0 이면 0화 스냅샷을 만든다.
+`world_ep` 뒤로 짜 둔 세계의 아크 · 부는 지우거나 `world_ep` 에서 끝낸다(`_cut`, 요약은 비우고 구간은 다시 나눈다). 세계가 짠 다음 전개는 플레이와 상관없다.
+단편 세계는 쓴 화를 아크 1 로 묶고 `form` 을 `serial` 로 둔다. `pipeline.apply_conversion` 은 전환 계획(`SerialConversion`)을 받고 플롯을 덮으므로 쓰지 않고 같은 모양을 직접 만든다.
+무작위 출생 인물은 주역(`tier main`)으로 더한다. 세계 인물 id 와 겹치면 막는다.
+
+장(`open_chapter`): 다음 턴을 덮는 아크가 없을 때만 연다. 범위는 `chapter_len` 턴(기본 `CHAPTER_LEN` 20), 턴 한도가 있으면 한도에서 끝낸다. 기승전결은 범위를 넷으로 고르게 나눈다(`_acts`, 4턴보다 짧으면 이웃 구간이 한 턴을 함께 쓴다). 그래서 `validate_story_arcs` 를 지난다.
+세계에 부가 있으면 플레이 턴을 '플레이' 부 하나로 덮고 장마다 늘린다. 부 밖의 화를 `story_parts` 가 만나면 부 요약을 쓰지 않고 세계의 아크를 모두 늘어놓기 때문이다. `target_episodes` 는 연 장의 끝까지 늘린다.
+
+턴: `scene` 은 앞 턴이 `applied` 가 아니거나 끝난 플레이면 막는다. 첫 턴은 `kind start` 이고 행동이 없어도 된다(무작위 출생은 `BirthSketch.opening` 을 넘긴다).
+장면 Episode 는 `written` 으로 둔다. 플롯 제목 · 요약은 행동 한 줄, 등장 인물은 플레이어와 장면에 이름이 나온 인물(관계 역학의 만남 계산), 건너뛰기 선택지면 `plot.time` 에 '사흘 뒤'처럼.
+건너뛰기 선택지는 행동 글에 길이를 담는다(`choice_action`). 장면이 낸 결말 까닭은 `PlayTurn.ending` 에 두고 반영이 끝나면 끝낸다.
+`settle` 은 `extract_state` 와 같은 힌트로 `StateDelta` 를 받고 `clean_delta` → `charlog.hold` → `apply_delta` → `Episode.auto = True` 로 반영한다(자동 집필과 같은 순서). 변경안 만들기가 실패하면 턴을 `failed` 로 두고 까닭을 적는다. 다시 부르면 된다. 명령줄 `play turn` 을 행동 없이 부르면 실패한 반영만 다시 한다.
+장의 모든 턴을 반영하면 `pipeline.recap` · `apply_recap` 으로 접는다(`fold`). 요약이 실패한 장은 다음 턴에 다시 접고, 그동안은 턴별 요약이 들어간다. 턴 한도에 닿으면 끝낸다.
+
+되감기: `rewind(n)` 은 `world_ep` 이나 반영한 턴으로만 간다(세계의 앞 화 스냅샷은 지워졌을 수 있다). `trim_after(n)` 은 `revert(n)` 뒤 n 뒤 Episode 와 n 뒤에서 시작하는 장 · 부를 지우고, n 을 품은 장이 n 뒤로 이어지면 요약을 비운다. 범위는 그대로라 남은 턴을 이어 쓴다. 결말도 지운다. 남겨 둔 설정 바꾸기 제안은 `charlog.revert` 가 함께 지운다.
+운은 `random.Random(f"{seed}:{n}")` 로 -2~2 를 1:2:4:2:1 로 굴린다. 같은 시드 · 같은 턴이면 되감아 다시 해도 같은 운이다.
+
 ### 10.2 플레이 프롬프트 (`prompts.play_scene_prompt`, `play_state_prompt`)
 
 턴 사이에 덜 바뀌는 블록이 앞, 지난 장면 · 이번 행동 · 운이 뒤. Gemini 암묵 캐시는 턴 사이 앞부분을 재사용하지 않아(6장) 턴마다 넣는 양을 줄인다.

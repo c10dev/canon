@@ -343,6 +343,20 @@ python -m canon branch-compare 등대 등대-B --ep 3 --text  # 화별 줄거리
 python -m canon promote 등대-B                            # 갈래를 본편으로
 ```
 
+## 플레이 모드 (작업 중, 명령줄만)
+
+세계 작품 속 인물이 되어 턴마다 장면을 이어 가는 텍스트 게임이다. 플레이를 열면 세계 작품 폴더를 복사해 마지막으로 반영한 화 직후에서 시작하고, 세계 작품은 바뀌지 않는다. 한 턴은 화 하나다. 장면 끝의 선택지를 고르거나 행동을 직접 적으면(직접 적은 행동은 '시도'라 세계관 규칙에 어긋나면 실패하거나 대가를 치른다) AI 가 장면을 쓰고, 이어서 상태 변경안을 만들어 바로 반영한다. 고른 행동이 승인이라 자동 집필처럼 반영하고, 인물 설정 바꾸기 제안은 반영하지 않고 남겨 둔다. 운은 시드로 굴리고 보이지 않는다. 20턴마다 장을 요약으로 접는다. 어느 턴으로든 되감을 수 있고, 끝난 이야기도 되감으면 이어 간다. 웹 화면은 나중에 붙는다.
+
+```bash
+python -m canon play new 등대 등대-플레이 --as hero --person first   # 서윤이 되어 1인칭으로 (--random: 무작위로 태어남, --max-turns 30, --seed 7)
+python -m canon play turn 등대-플레이 --choice 2                    # 선택지 2번
+python -m canon play turn 등대-플레이 "등대 문을 억지로 연다"         # 직접 적은 행동
+python -m canon play show 등대-플레이                               # 지금 장면과 선택지 (log: 지난 턴 목록)
+python -m canon play rewind 등대-플레이 5                           # 5턴 직후로 되감기 (턴 번호는 화 번호)
+python -m canon play end 등대-플레이                                # 끝내기
+python -m canon play world 새세계 --genre fantasy --logline "..."   # 장르와 한 줄로 새 세계 작품
+```
+
 ## 서술 시점 바꾸기 (남주 → 여주 시점 등)
 
 작품 기본 시점은 문체 레퍼런스의 **시점** 칸(`narration_pov`)이다. 초반은 남주 시점, 뒤는 여주 시점처럼 화마다 바꾸려면 세 곳 중 하나에 적는다. 앞에 있는 것이 우선한다.

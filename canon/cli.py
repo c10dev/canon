@@ -57,6 +57,11 @@
   python -m canon branch-compare 내소설 내소설-B [--ep 3 --text]   두 갈래의 화별 줄거리와 그 화 반영 직후 상태 차이
   python -m canon promote 내소설-B      갈래를 본편으로 올리기 (갈래 정보만 바뀜)
   python -m canon recalc 내소설         계수(params)를 바꾼 뒤 사건 로그로 관계 재계산
+  python -m canon play new 내소설 내플레이 (--as hero | --random) [--person first|second|third --max-turns 30 --seed 7]   플레이 모드: 세계 작품 속 인물이 되어 턴마다 장면 (세계 작품은 그대로)
+  python -m canon play turn 내플레이 "등대로 간다" | --choice 2   다음 턴: 장면을 보인 뒤 상태 반영까지 (행동 없이 부르면 실패한 반영만 다시)
+  python -m canon play show|log 내플레이   지금 장면과 선택지 · 지난 턴 목록
+  python -m canon play rewind 내플레이 5 | end 내플레이 [--reason ..]   5턴 직후로 되감기 · 플레이 끝내기
+  python -m canon play world 새세계 --genre fantasy --logline "..."   장르와 한 줄로 플레이할 새 세계 작품 만들기
   python -m canon usage [--days 30 | --all] [--project 내소설] [--prices]   AI 사용량과 추정 비용 (가격표 보기)
   python -m canon serve [--port 8000]    웹 UI (브라우저 자동 열기, 끄려면 --no-browser)
   python -m canon upgrade               main 의 새 코드 받기 (serve 는 시작할 때와 10분마다 알아서 받는다)
@@ -76,6 +81,7 @@ from . import (archetypes, autorun, branches, cast, charlog, dynamics, elements,
 from .llm import dump, get_llm
 from .schema import ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 from . import abilities, atlas, citygen, stattrial, foreshadows, setupchat, statwin, timeline, towngen, travel
+from . import birth, play
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StoryArc
 
 
@@ -1824,6 +1830,133 @@ def cmd_recalc(a: argparse.Namespace) -> None:
     print(dynamics.describe_relations(p, numbers=p.settings.show_numbers) or "관계 없음")
 
 
+# ---------- 플레이 모드 (canon/play.py) ----------
+
+PLAY_KIND = {"start": "시작", "choice": "선택", "free": "직접", "skip": "건너뛰기"}
+PLAY_STATE = {"pending": "반영 중", "applied": "반영함", "failed": "반영 실패"}
+
+
+def _play_show(name: str, p: Project, info) -> None:
+    t = play.last_turn(info)
+    if t is None:
+        print(f"아직 첫 장면이 없어요. 시작: python -m canon play turn {name}")
+        return
+    ep = next((e for e in p.episodes if e.plot.number == t.number), None)
+    print(f"\n[{t.number}턴]{f' {t.action}' if t.action else ''}\n")
+    print(ep.text if ep else "(장면 본문이 없어요)")
+    if info.ending:
+        print(f"\n이야기가 끝났어요: {info.ending}")
+        print(f"되감아 이어 가기: python -m canon play rewind {name} <턴>")
+        return
+    if t.choices:
+        print()
+        for i, c in enumerate(t.choices, 1):
+            print(f"  {i}. {c.text}")
+    print(f'\n다음 행동: python -m canon play turn {name} --choice 번호  또는  python -m canon play turn {name} "할 행동"')
+
+
+def _play_settle(name: str, p: Project, info, n: int) -> None:
+    """장면 뒤 상태 반영. 실패하면 턴 기록(failed)만 저장하고 오류를 낸다."""
+    with usage.scope(project=name, episode=n, task="play"):
+        try:
+            play.settle(get_llm("state"), p, info, n)
+        except Exception:
+            store.save_play(name, info)
+            raise
+    play.save(name, p, info)
+    held = sum(x.episode == n for x in p.setting_held)
+    print(f"\n({n}턴 상태를 반영했어요)")
+    if held:
+        print(f"설정 바꾸기 제안 {held}개는 반영하지 않고 남겨 뒀어요. 고르기: 웹의 인물 · 관계도 화면")
+
+
+def _play_turn(name: str, p: Project, info, action: str, kind: str) -> None:
+    n = play.next_number(info)
+    with usage.scope(project=name, episode=n, task="play"):
+        play.scene(get_llm("play"), p, info, action, kind)  # type: ignore[arg-type]
+    play.save(name, p, info)  # 장면 먼저 저장한다. 상태 반영이 실패해도 장면은 남는다
+    _play_show(name, p, info)
+    _play_settle(name, p, info, n)
+    if info.ending:
+        print(f"\n이야기가 끝났어요: {info.ending}\n되감아 이어 가기: python -m canon play rewind {name} <턴>")
+
+
+def cmd_play(a: argparse.Namespace) -> None:
+    if a.action == "world":
+        genre_ids = [g.strip() for g in a.genre.split(",") if g.strip()]
+        if not genre_ids or not a.logline.strip():
+            raise ValueError("--genre와 --logline을 함께 주세요")
+        with usage.scope(project=a.name, task="play"):
+            p = birth.new_world(get_llm("plan"), a.name, genre_ids, a.logline.strip(), a.adult)
+        print(f"새 세계를 만들었어요: {a.name} ({p.meta.title or '제목 없음'}, 인물 {len(p.characters)}명)")
+        print(f"플레이 열기: python -m canon play new {a.name} <플레이 폴더> --random")
+        return
+    if a.action == "new":
+        if bool(a.as_) == bool(a.random):
+            raise ValueError("--as(세계의 인물 id)나 --random 중 하나를 고르세요")
+        seed = a.seed if a.seed is not None else random.randrange(1 << 31)
+        character = b = None
+        opening = ""
+        if a.random:
+            w = store.load(a.name)
+            b = birth.roll(w, seed, a.gender, a.age)
+            with usage.scope(project=a.name, task="play"):
+                s = birth.sketch(get_llm("plan"), w, b)
+            character, opening = birth.to_character(w, b, s), s.opening
+        p, info = play.start(a.name, a.to, player=a.as_ or "", character=character, birth=b, person=a.person,
+                             max_turns=a.max_turns, seed=seed)
+        who = next((c.name for c in p.characters if c.id == info.player), info.player)
+        print(f"플레이를 열었어요: {a.to} ({who}, {a.name}의 {info.world_ep}화 뒤부터). 세계 작품은 그대로예요")
+        if a.no_scene:
+            print(f"첫 장면: python -m canon play turn {a.to}")
+            return
+        _play_turn(a.to, p, info, opening, "start")
+        return
+    p, info = play.load(a.name)
+    if a.action == "show":
+        _play_show(a.name, p, info)
+    elif a.action == "log":
+        print(f"{a.name}: 세계 {info.world} {info.world_ep}화 뒤부터, 인물 {info.player}"
+              + (f", 턴 한도 {info.max_turns}" if info.max_turns else "") + (f" · 끝남: {info.ending}" if info.ending else ""))
+        for t in info.turns:
+            ep = next((e for e in p.episodes if e.plot.number == t.number), None)
+            print(f"  {t.number}턴 [{PLAY_KIND.get(t.kind, t.kind)}] {t.action or '첫 장면'} · {PLAY_STATE.get(t.state, t.state)}"
+                  + (f" ({t.error})" if t.error else "") + (f"\n      {ep.summary}" if ep and ep.summary else ""))
+        if not info.turns:
+            print("  아직 턴이 없어요")
+    elif a.action == "turn":
+        t = play.last_turn(info)
+        if t is not None and t.state != "applied" and not info.ending:
+            print(f"{t.number}턴 상태 반영을 다시 해요")
+            _play_settle(a.name, p, info, t.number)
+            if not a.what and a.choice is None:
+                return
+        if a.choice is not None:
+            action, kind = play.choice_action(info, a.choice)
+        elif a.what:
+            action, kind = a.what, "free"
+        elif info.turns:
+            raise ValueError("행동을 적거나 --choice 번호로 고르세요")
+        else:
+            action, kind = "", "start"
+        _play_turn(a.name, p, info, action, kind)
+    elif a.action == "rewind":
+        if a.n is None:
+            raise ValueError("되감을 턴을 주세요 (시작으로는 세계의 마지막 반영 화)")
+        if not confirm(f"{a.n}턴 직후로 되감을까요? 뒤 턴은 지워져요", a.yes):
+            return
+        play.rewind(p, info, a.n)
+        play.save(a.name, p, info)
+        print(f"{a.n}턴 직후로 되감았어요" if a.n > info.world_ep else "첫 장면 전으로 되감았어요")
+        _play_show(a.name, p, info)
+    elif a.action == "end":
+        if info.ending:
+            raise ValueError(f"이미 끝난 플레이예요 ({info.ending})")
+        play.end(p, info, a.reason)
+        play.save(a.name, p, info)
+        print(f"플레이를 끝냈어요: {info.ending}. 되감으면 다시 이어 갈 수 있어요")
+
+
 STAGE_LABELS = {"plan": "계획", "write": "본문", "check": "검수", "state": "상태 변경안", "name": "이름 추천",
                 "revise": "부분 수정", "illustration": "삽화 프롬프트", "research": "연구"}
 
@@ -2289,6 +2422,38 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--text", action="store_true", help="그 화 본문도 보이기")
     add("promote", cmd_promote)
     add("recalc", cmd_recalc, yes=False)
+    sp = sub.add_parser("play", help="플레이 모드: 세계 작품 속 인물이 되어 턴마다 장면을 이어 감")
+    psub = sp.add_subparsers(dest="action", required=True)
+    q = psub.add_parser("new", help="세계 작품을 복사해 플레이 열기 (첫 장면까지)")
+    q.add_argument("name", help="세계 작품")
+    q.add_argument("to", help="플레이 폴더 이름")
+    q.add_argument("--as", dest="as_", default="", help="세계의 인물 id")
+    q.add_argument("--random", action="store_true", help="이 세계에 무작위로 태어남")
+    q.add_argument("--gender", default="", help="--random: 성별 (비우면 굴림)")
+    q.add_argument("--age", default="", help="--random: 나이 (비우면 굴림)")
+    q.add_argument("--person", choices=["first", "second", "third"], default="second", help="서술 시점: 1 · 2 · 3인칭 (기본 2인칭)")
+    q.add_argument("--max-turns", type=int, default=0, help="턴 한도 (0 이면 없음)")
+    q.add_argument("--seed", type=int, help="운과 출생을 정하는 시드. 같으면 같은 운")
+    q.add_argument("--no-scene", action="store_true", help="첫 장면은 쓰지 않고 열기만")
+    q = psub.add_parser("turn", help="다음 턴: 장면 → 상태 반영")
+    q.add_argument("name")
+    q.add_argument("what", nargs="?", default="", help="할 행동 (직접 적으면 '시도')")
+    q.add_argument("--choice", type=int, help="장면 끝 선택지 번호")
+    for act in ("show", "log"):
+        psub.add_parser(act, help="지금 장면과 선택지" if act == "show" else "턴 목록").add_argument("name")
+    q = psub.add_parser("rewind", help="n 턴 직후로 되감기")
+    q.add_argument("name")
+    q.add_argument("n", type=int, nargs="?")
+    q.add_argument("-y", "--yes", action="store_true", help="확인 없이")
+    q = psub.add_parser("end", help="플레이 끝내기 (되감으면 이어 감)")
+    q.add_argument("name")
+    q.add_argument("--reason", default="", help="끝내는 까닭")
+    q = psub.add_parser("world", help="장르와 한 줄로 새 세계 작품 만들기")
+    q.add_argument("name")
+    q.add_argument("--genre", default="", help="장르 id, 쉼표로 여러 개 (python -m canon genres)")
+    q.add_argument("--logline", default="")
+    q.add_argument("--adult", action="store_true")
+    sp.set_defaults(fn=cmd_play)
 
     a = ap.parse_args(argv)
     ep = getattr(a, "n", None) if getattr(a, "n", None) is not None else getattr(a, "ep", None)

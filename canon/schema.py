@@ -1642,6 +1642,7 @@ class PlayTurn(BaseModel):
     choices: list[PlayChoice] = Field(default_factory=list, description="이 턴 장면 끝에 보인 선택지")
     state: Literal["pending", "applied", "failed"] = Field("pending", description="뒤에서 만드는 상태 변경안의 반영 여부")
     error: str = Field("", description="상태 반영이 실패한 까닭")
+    ending: str = Field("", description="이 턴 장면이 낸 결말 까닭 (PlayScene.ending). 상태 반영이 끝나면 플레이를 끝낸다")
     at: str = ""
 
 
