@@ -386,7 +386,7 @@ function castCharDetail(c) {
   return `<section class="card">
     <div class="between"><div><h2 style="font-size:1.25rem">${esc(c.name || c.id)}</h2>
       <div class="row" style="margin-top:6px"><span class="chip">${TIER_NAME[c.tier || 'main']}</span>${c.role ? `<span class="chip">${esc(c.role)}</span>` : ''}${[c.age, c.gender].filter(Boolean).map((v) => `<span class="small">${esc(v)}</span>`).join('')}</div></div>
-      <div class="row" style="gap:6px"><button type="button" class="btn small primary" data-action="castSheet" data-arg="${esc(c.id)}">인물 카드로 보기</button><a class="btn small" href="${base()}/setup/${enc(c.id)}">설정에서 고치기</a></div></div>
+      <div class="row" style="gap:6px"><button type="button" class="btn small primary" data-action="castSheet" data-arg="${esc(c.id)}">인물 카드로 보기</button><a class="btn small" href="${base()}/setup/${enc(c.id)}">기본 설정 고치기</a></div></div>
     ${held ? `<div class="note warn">남겨 둔 설정 바꾸기 제안이 ${held}개 있어요. 인물 카드의 설정 칸에서 골라요.</div>` : ''}
     <div class="small">${apps.length ? `플롯 등장 ${apps.length}화 (${apps[0].n}~${apps[apps.length - 1].n}화)${pov ? ` · 시점 인물 ${pov}화` : ''}` : '플롯에 나오는 화가 아직 없어요'}${c.first_ep ? ` · ${c.first_ep}화에 처음 등장` : ''}</div>
     ${apps.length ? `<div class="cast-strip-wrap">${castStrip(c.id)}</div>` : ''}
@@ -523,7 +523,7 @@ function castSheetHead(c, f, at) {
     <div class="csh-side">
       <div class="csh-facts">${fact('등장', apps.length, '화')}${fact('시점 인물', pov, '화')}${fact('관계', partners.size, '명')}</div>
       ${held ? `<div class="note warn">남겨 둔 설정 바꾸기 제안이 ${held}개 있어요. 아래 설정 칸에서 골라요.</div>` : ''}
-      <div class="row" style="gap:6px"><a class="btn small" href="${base()}/setup/${enc(c.id)}">설정에서 고치기</a>${st && st.location ? `<a class="btn small" href="${base()}/atlas">지도에서 보기</a>` : ''}</div>
+      <div class="row" style="gap:6px"><a class="btn small" href="${base()}/setup/${enc(c.id)}">기본 설정 고치기</a>${st && st.location ? `<a class="btn small" href="${base()}/atlas">지도에서 보기</a>` : ''}</div>
     </div>
   </section>`;
 }
@@ -643,6 +643,68 @@ function castSheetSettings(c, f, at) {
     <div class="small">본문에서 바뀐 설정은 작가가 골라야 바뀌어요.</div></section>`;
 }
 
+// ----- 인물 카드에서 고치는 칸: 작가 메모와 AI에 넣는 방식. 설정 도우미는 이야기 뼈대만 다룬다 -----
+
+/** 신체 프로필. 미성년 인물은 쓰리사이즈 칸을 두지 않는다 */
+function bodyFields(c, b) {
+  if (!c.body || typeof c.body !== 'object') c.body = {};  // 예전 화면에서 만든 인물도 칸을 고칠 수 있게
+  const minor = isMinorAge(c.age);
+  const filled = bodyRows(c).length;
+  const open = (S.bodySug || {})[c.id] || (S.bodyOpen || {})[c.id];  // 제안을 받거나 적용한 뒤 다시 그려도 펼친 채로
+  return `<details${open ? ' open' : ''}><summary>신체 프로필 <span class="small">${filled ? `· ${filled}칸 채움 ` : ''}· 인물 카드에만 보여요</span></summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
+    <div class="grid-2">${input('키', b + '.body.height', { placeholder: '예: 165cm' })}${input('몸무게', b + '.body.weight', { placeholder: '예: 48kg' })}</div>
+    <div class="grid-2">${input('체형', b + '.body.build', { placeholder: '예: 마른 근육형' })}${minor ? '' : input('쓰리사이즈', b + '.body.measurements', { placeholder: '예: 84-58-86' })}</div>
+    ${minor ? '<div class="small">나이로 보아 미성년 인물이라 쓰리사이즈 칸은 두지 않아요.</div>' : ''}
+    ${input('신체 특징', b + '.body.features', { rows: 2, placeholder: '예: 왼손잡이, 오른쪽 어깨에 화상 자국' })}
+    <div class="row"><button type="button" class="btn small" data-action="bodyAI" data-arg="${esc(c.id)}">AI 제안</button><span class="small">설정에 맞춰 칸을 제안해요. 고른 칸만 적용해요${minor ? ' · 쓰리사이즈는 제안하지 않아요' : ''}</span></div>
+    ${bodySuggestCard(c)}
+    <div class="small">AI 프롬프트에는 넣지 않아요. 본문에 이어지게 할 외모는 설정 도우미의 '외모' 칸에 적어요.</div></div></details>`;
+}
+
+/** 신체 프로필 AI 제안: 칸별로 지금 값과 비교해 고른다. 비어 있는 칸만 기본으로 고른다 */
+function bodySuggestCard(c) {
+  const s = (S.bodySug || {})[c.id];
+  if (!s) return '';
+  const minor = isMinorAge(c.age);
+  const rows = BODY_FIELDS.filter(([k]) => (s[k] || '').trim() && !(k === 'measurements' && minor)).map(([k, label]) => {
+    const now = ((c.body || {})[k] || '').trim();
+    const same = now === s[k].trim();
+    return `<label class="body-sug"><input type="checkbox" data-body-pick="${esc(c.id)}" value="${k}"${now || same ? '' : ' checked'}${same ? ' disabled' : ''}>
+      <span><strong>${label}</strong> ${now ? `<span class="before">${esc(now)}</span> → ` : ''}<span class="after">${esc(s[k])}</span>${same ? ' <span class="small">지금과 같아요</span>' : ''}</span></label>`;
+  }).join('');
+  return `<div class="note info" style="display:flex;flex-direction:column;gap:8px"><strong>AI 제안</strong>${s.note ? `<span>${esc(s.note)}</span>` : ''}
+    ${rows || '<span>제안한 칸이 없어요</span>'}
+    <div class="row"><button type="button" class="btn small primary" data-action="bodyApply" data-arg="${esc(c.id)}"${rows ? '' : ' disabled'}>고른 칸 적용</button><button type="button" class="btn small" data-action="bodyDismiss" data-arg="${esc(c.id)}">닫기</button></div></div>`;
+}
+
+// 인물을 AI에 넣는 방식 (Character.context). 인과율 요소 화면(causal.js)의 'AI에 넣기'와 같은 고르기이고,
+// 인물은 '관련 있을 때' 대신 '등장할 때'다. 고르는 규칙은 서버 context.core_ids · off_ids. 설정 도우미 접힌 줄의 표시는 setup.js charCtxMark
+const CHAR_CTX = [['auto', '등장할 때'], ['always', '항상'], ['off', '넣지 않음']];
+const CHAR_CTX_HINT = {
+  auto: '등장할 때: 주역은 매 화, 조연 · 단역은 플롯에 나오는 화에만 넣어요.',
+  always: '항상: 비중과 상관없이 매 화 설정을 넣어요. 장편에서 글자 예산을 넘기면 그 화 조연 · 단역 설정을 대신 빼요.',
+  off: '넣지 않음: 본문 쓰기, 검수, 상태 정리, 플롯 기획에 설정 · 상태 · 관계를 넣지 않아요. 플롯에 나오면 이름만 넣어요.',
+};
+
+/** AI에 넣기 고르기 */
+function charContextField(c) {
+  const now = c.context || 'auto';
+  return `<div class="field"><span class="label">AI에 넣기</span><div class="seg" role="group" aria-label="AI에 넣기">${CHAR_CTX.map(([k, l]) => `<button type="button" aria-pressed="${now === k}" data-action="charContext" data-arg="${esc(`${c.id}|${k}`)}">${l}</button>`).join('')}</div>
+    <span class="small">${CHAR_CTX_HINT[now]}</span></div>`;
+}
+
+/** 지금 설정(보는 시점과 상관없이)을 고치는 칸. 저장 띠로 저장한다 */
+function castSheetEdit(c) {
+  const b = `characters.${P().characters.indexOf(c)}`;
+  return `<section class="card" id="csh-edit"><div class="between"><h2>AI · 서술 · 삽화 · 신체</h2><span class="small">지금 설정을 고쳐요 · 저장하면 남아요</span></div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      ${charContextField(c)}
+      ${voiceField(c, b)}
+      ${bodyFields(c, b)}
+      ${visualFields(c)}
+    </div></section>`;
+}
+
 function castSheet() {
   const sel = S.castSel.startsWith('c:') ? S.castSel.slice(2) : S.castSel.slice(2).split('|')[0];
   const c = castChar(sel);
@@ -652,7 +714,7 @@ function castSheet() {
   return `${castSheetHead(c, f, at)}
     <div class="csh-cols">
       <div class="csh-col">${castSheetState(c, f)}${castSheetStats(c, f)}${castTimeline(c)}</div>
-      <div class="csh-col">${castSheetRels(c, f)}${castSheetSecrets(c, f)}${castSheetSettings(c, f, at)}${scLogCard(c)}</div>
+      <div class="csh-col">${castSheetEdit(c)}${castSheetRels(c, f)}${castSheetSecrets(c, f)}${castSheetSettings(c, f, at)}${scLogCard(c)}</div>
     </div>`;
 }
 
@@ -973,6 +1035,14 @@ Object.assign(actions, {
     S.castSel = 'p:' + arg;
     render();
     castSyncUrl();
+  },
+  charContext(arg) {
+    const k = String(arg).slice(String(arg).lastIndexOf('|') + 1);
+    const c = castChar(String(arg).slice(0, String(arg).lastIndexOf('|')));
+    if (!c) return;
+    c.context = k;
+    markDirty();
+    render();
   },
   castTheme() {
     S.castTheme = S.castTheme === 'system' ? '' : 'system';

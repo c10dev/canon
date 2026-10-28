@@ -1,7 +1,7 @@
 /* 상태창 수치. app.js 의 S, actions, api, run, render, header, esc, P 를 쓴다.
    게임 판타지 · 헌터물처럼 레벨, 능력치, 스킬 · 특성 · 칭호 목록, 돈, 인벤토리가 나오는 작품에서 인물별 상태창(CharacterState.stats)을 정하고,
    화마다 바뀐 기록(Project.stat_log)으로 비교표를 그린다. 본문에 넣을 상태창 글을 복사한다.
-   설정 화면의 상태창 카드(swSetupCard): 1화 전에 작품 틀과 인물별 처음 수치를 표로 정하고, AI 처음 수치 제안을 인물마다 골라 넣는다.
+   화면 맨 위 작품 틀 · 처음 수치 카드(swSetupCard): 1화 전에 작품 틀과 인물별 처음 수치를 표로 정하고, AI 처음 수치 제안을 인물마다 골라 넣는다.
    스킬 · 특성 도감은 도구 화면 static/abilities.js 에 있고, 여기에는 그 화면으로 가는 카드(swDexLink)만 둔다.
    꾸미기: 작품 설정에 맞춘 본문 서식 · 창 이름 · 작품 틀 · 화면 스킨 안을 AI 에게 받아 고른 안만 적용한다(swDecor).
    서버는 canon/statwin.py (/statwin/<인물 id>, /statwin-suggest). AI 가 적은 바뀐 값은 상태 승인 화면에서 고른 뒤에만 반영된다(swDeltaRows). */
@@ -15,7 +15,7 @@ Object.assign(S, {
   swTpl: false,      // 서식 고치기 칸 열림
   swSug: null,       // AI 꾸미기 안 { options } (저장하지 않음)
   swPrev: null,      // 마지막으로 적용한 꾸미기 안 앞의 서식 (적용 취소용)
-  swInit: null,      // 설정 화면 처음 수치 표의 고치는 중인 값 { 인물 id: { 항목: 값 } }. null 이면 작품에서 다시 읽는다
+  swInit: null,      // 처음 수치 표의 고치는 중인 값 { 인물 id: { 항목: 값 } }. null 이면 작품에서 다시 읽는다
   swInitDirty: false,
   swInitSug: null,   // AI 처음 수치 제안 { names, characters } (저장하지 않음)
   swInitAll: false,  // 단역도 표에 보이기
@@ -243,7 +243,7 @@ function viewStatwin() {
   if (!S.sw) main = '<div class="small">불러오는 중…</div>';
   else if (S.sw.error) main = `<div class="note err">${esc(S.sw.error)}</div>`;
   else main = swEditor() + swDexLink() + swDecor() + swPreview() + swTimeline();
-  return `${head}<div class="sw"><nav class="card tight sw-who" aria-label="인물">${who}</nav><div style="display:flex;flex-direction:column;gap:16px;min-width:0">${main}</div></div>`;
+  return `${head}${swSetupCard()}<div class="sw"><nav class="card tight sw-who" aria-label="인물">${who}</nav><div style="display:flex;flex-direction:column;gap:16px;min-width:0">${main}</div></div>`;
 }
 
 document.addEventListener('input', (e) => {
@@ -342,7 +342,7 @@ function swDexLink() {
     <a class="btn small" href="${base()}/abilities">도감 열기</a></div></section>`;
 }
 
-// ----- 설정 화면: 작품 틀과 처음 수치 -----
+// ----- 작품 틀과 처음 수치 (화면 맨 위 카드) -----
 
 /** 1화를 반영했으면 처음 수치는 더 고치지 않는다 (그 뒤 고친 값은 상태창 수치 화면에서 작가 기록으로) */
 const swLocked = () => P().episodes.some((e) => e.status === 'finalized');
@@ -382,8 +382,8 @@ function swSetupCard() {
   const p = P();
   const has = p.states.some((s) => (s.stats || []).length);
   const names = swWin().names || [];
-  const open = has || names.length || swWanted(p) || S.swInitSug;
   const locked = swLocked();
+  const open = !locked;  // 1화 반영 뒤에는 고칠 수 없어 접어 둔다
   const cols = swInitCols();
   const d = swInitDraft();
   const chips = names.map((x, i) => `<span class="csh-know">${esc(x)} <button type="button" class="btn small ghost" data-action="swNameDel" data-arg="${i}" aria-label="${esc(x)} 빼기"${locked ? ' disabled' : ''}>×</button></span>`).join('');
@@ -394,7 +394,7 @@ function swSetupCard() {
       ${rows.map((c) => `<tr><th scope="row">${esc(c.name || c.id)}</th>${cols.map((k) => `<td><input type="text" data-swi-cid="${esc(c.id)}" data-swi-key="${esc(k)}" value="${esc((d[c.id] || {})[k] || '')}" aria-label="${esc(c.name || c.id)} ${esc(k)}" style="min-width:90px"${locked ? ' readonly' : ''}></td>`).join('')}</tr>`).join('')}
     </tbody></table></div>` : '';
   const body = locked
-    ? `<div class="note plain">1화를 반영한 뒤라 처음 수치는 고치지 않아요. 지금 수치는 <a href="${base()}/statwin">상태창 수치</a>에서 고쳐요(그 화의 작가 기록으로 남아요).</div>${table}`
+    ? `<div class="note plain">1화를 반영한 뒤라 처음 수치는 고치지 않아요. 지금 수치는 아래 '지금 상태창'에서 고쳐요(그 화의 작가 기록으로 남아요).</div>${table}`
     : `<div class="field"><span class="label">작품 틀 <span class="hint">모든 인물 상태창에 쓰는 항목이에요. 표의 열이 돼요</span></span>
         <div class="row" style="flex-wrap:wrap;gap:6px">${chips || '<span class="small">아직 없어요.</span>'}</div>
         <div class="row"><input id="swi-name" type="text" placeholder="항목 이름 (예: 레벨, 내공)" aria-label="작품 틀에 더할 항목" style="max-width:220px"><button type="button" class="btn small" data-action="swNameAdd">더하기</button><span class="small">틀:</span>${presets}</div></div>
@@ -403,9 +403,9 @@ function swSetupCard() {
       <div class="field"><label for="swi-req">AI 처음 수치 제안 <span class="hint">로그라인 · 배경 · 인물 설정을 읽고 1화 시작 값을 인물마다 제안해요. 이미 적은 값은 그대로 둬요</span></label>
         <div class="row"><input id="swi-req" type="text" placeholder="요청 (비워도 돼요. 예: 주인공은 F급에서 시작)"><button type="button" class="btn small" data-action="swInitAI">AI 제안 받기</button></div></div>
       ${swInitSugBox()}
-      <div class="between"><span class="small">저장하면 1화 시작 값(상태창 수치 화면의 '시작' 열)으로 남아요. 값을 모두 비운 인물은 상태창이 없어져요.</span>
+      <div class="between"><span class="small">저장하면 1화 시작 값(화별 변화 표의 '시작' 열)으로 남아요. 값을 모두 비운 인물은 상태창이 없어져요.</span>
         <button type="button" class="btn primary small" data-action="swInitSave"${S.swInitDirty ? '' : ' disabled'}>처음 수치 저장</button></div>`;
-  return `<section class="card" id="setup-stats"><details${open ? ' open' : ''}><summary><h2 style="display:inline;margin-right:8px">상태창</h2><span class="small">레벨 · 스킬처럼 본문 상태창에 나오는 값${has ? ` · ${p.states.filter((s) => (s.stats || []).length).length}명` : ''}</span></summary>
+  return `<section class="card" id="sw-start"><details${open ? ' open' : ''}><summary><h2 style="display:inline;margin-right:8px">작품 틀 · 처음 수치</h2><span class="small">모든 인물을 한 표로${has ? ` · ${p.states.filter((s) => (s.stats || []).length).length}명` : ''}${locked ? ' · 1화 반영 뒤 잠김' : ''}</span></summary>
     <div style="display:flex;flex-direction:column;gap:12px;padding-top:10px">
     ${!has && !names.length && swWanted(p) ? '<div class="note">이 작품은 상태창을 쓰는 장르예요. 1화 전에 처음 수치를 정해 두면 AI가 본문을 쓸 때 이 값을 따라요.</div>' : ''}
     ${body}</div></details></section>`;
@@ -511,6 +511,11 @@ Object.assign(actions, {
       }
       for (const [cid, stats] of jobs) S.project = await api('PUT', `/projects/${enc(S.name)}/statwin/${enc(cid)}`, { stats });
       S.swInit = null;
+      // 아래 '지금 상태창'도 새 값으로. 고치던 항목은 그대로 둔다 (swPut 과 같다)
+      const rows = S.swRows;
+      const dirty = S.swDirty;
+      await swLoad();
+      if (dirty) { S.swRows = rows; S.swDirty = true; }
       toast(jobs.length ? `${jobs.length}명의 처음 수치를 저장했어요` : '바뀐 값이 없어요');
     });
   },
