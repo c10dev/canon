@@ -328,6 +328,7 @@ async function pollJobs(soon = false) {
       toast(j.status === 'error' ? `${j.project} · ${j.label} 실패: ${j.error}` : `${j.project} · ${j.label}${josa(j.label, '이', '가')} 끝났어요. 그 작품을 열면 결과가 보여요`, j.status === 'error');
     }
     if (!progressed || j.project !== S.name) continue;
+    if (j.kind === 'agent' && typeof agentJobUpdate === 'function') await agentJobUpdate(j, old);  // 대화 에이전트 턴 (agent.js)
     if (j.kind === 'plots') {
       // 이번에 끝난 구간(지난번에 아직 만들던 화)과 새로 생긴 화만 받아 온다. 먼저 끝난 구간에서 고치던 초안은 그대로 둔다
       const was = old && Array.isArray(old.pending) ? new Set(old.pending) : null;
@@ -421,6 +422,7 @@ async function finishJob(j) {
   const here = j.project === S.name && P();
   const key = `${j.kind}:${j.ep ?? ''}`;
   if (j.status === 'cancelled') return;  // 멈춘 작업은 결과가 없다 (멈추기를 누를 때 알렸다)
+  if (j.kind === 'agent' && here && $('.chat-panel')) return;  // 열린 대화 패널이 결과를 보여 준다 (agent.js)
   if (j.status === 'error') {
     toast(`${j.label} 실패: ${j.error}`, true);
     if (here) S.pending.failures[key] = { key, kind: j.kind, ep: j.ep, label: j.label, error: j.error };

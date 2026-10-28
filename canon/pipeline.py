@@ -1442,14 +1442,18 @@ def revise_plot(llm: LLM, p: Project, message: str, scope: ChatScope | None = No
     scope = scope.model_copy(update={"target": target})
     if target == "next" and scope.draft is not None and scope.draft.arc.start_ep != next_arc_start(p):
         scope.draft = None  # 그 사이 아크가 붙어 초안 자리가 맞지 않는다
-    rev = llm.json(
-        prompts.SYSTEM_PLOT_CHAT, prompts.plot_chat_prompt(p, message, scope), PlotRevision,
-        hint={"message": message, "arc": (focus.acts if focus else scope.draft.arc.acts if scope.draft else [] if p.serial else p.arc),
-              "episodes": [e.plot for e in p.episodes], "total": p.meta.target_episodes, "serial": p.serial,
-              "target": target, "focus": focus, "draft": scope.draft, "mode": scope.mode, "parts": p.parts,
-              "start": next_arc_start(p) if p.serial else 0, "limit": chat_next_limit(p) if p.serial else 0},
-    )
+    rev = llm.json(prompts.SYSTEM_PLOT_CHAT, prompts.plot_chat_prompt(p, message, scope), PlotRevision,
+                   hint=plot_chat_hint(p, message, scope))
     return clean_revision(p, rev, scope)
+
+
+def plot_chat_hint(p: Project, message: str, scope: ChatScope) -> dict:
+    """플롯 대화 · 대화 에이전트가 mock 에 넘기는 힌트. scope.target 은 chat_target 으로 맞춘 값이어야 한다."""
+    _, focus = chat_target(p, scope.target)
+    return {"message": message, "arc": (focus.acts if focus else scope.draft.arc.acts if scope.draft else [] if p.serial else p.arc),
+            "episodes": [e.plot for e in p.episodes], "total": p.meta.target_episodes, "serial": p.serial,
+            "target": scope.target, "focus": focus, "draft": scope.draft, "mode": scope.mode, "parts": p.parts,
+            "start": next_arc_start(p) if p.serial else 0, "limit": chat_next_limit(p) if p.serial else 0}
 
 
 def focus_arc(p: Project) -> StoryArc | None:
@@ -1824,17 +1828,25 @@ def apply_plot_chat(p: Project, i: int, acts: bool, episodes: list[int], *, arc:
     if not (acts or episodes or arc or parts or drafted):
         raise ValueError("적용할 부분을 고르세요")
     target, _ = chat_target(p, m.target)  # 대상이 없던 옛 변경안도 적용 전과 뒤를 같은 아크로 잰다
+    done, before, after = plot_apply(p, m.revision, target, acts, episodes, arc=arc, parts=parts)
+    m.applied, m.outcome = drafted + done, "applied"
+    m.plot_before, m.plot_after = (before, after) if done else (None, None)
+    return m.applied
+
+
+def plot_apply(p: Project, rev: PlotRevision, target: str, acts: bool, episodes: list[int], *,
+               arc: bool = False, parts: bool = False) -> tuple[list[str], PlotUndo, PlotUndo]:
+    """apply_revision 으로 고른 부분을 반영하고, 적용 취소(plot_undo)에 쓸 적용 전 값과 적용 직후 값을 함께 돌려준다.
+    플롯 대화 변경안(apply_plot_chat)과 대화 에이전트의 바로 쓰기(agent)가 함께 쓴다."""
     old = {e.plot.number: e.model_copy(deep=True) for e in p.episodes}
     before = _plot_undo_state(p, target)
-    done = apply_revision(p, m.revision, acts, episodes, arc=arc, parts=parts, target=target)
+    done = apply_revision(p, rev, acts, episodes, arc=arc, parts=parts, target=target)
     after = _plot_undo_state(p, target)
     now = {e.plot.number for e in p.episodes}
     touched = {int(x) for x in done if x.isdigit()}
     before.episodes = [old[n] for n in sorted(old) if n in touched or n not in now]  # 바꾼 화와 줄이며 뺀 화
     after.episodes = [e.model_copy(deep=True) for e in p.episodes if e.plot.number in touched]
-    m.applied, m.outcome = drafted + done, "applied"
-    m.plot_before, m.plot_after = (before, after) if done else (None, None)
-    return m.applied
+    return done, before, after
 
 
 def _same_plot(a: EpisodePlot, b: EpisodePlot) -> bool:
@@ -1856,6 +1868,14 @@ def undo_plot_chat(p: Project, i: int, topic: str = "plot") -> tuple[list[str], 
     before, after = m.plot_before, m.plot_after
     if m.outcome != "applied" or before is None or after is None:
         raise ValueError("적용을 취소할 수 있는 변경안이 아니에요")
+    out = plot_undo(p, m.applied, before, after)
+    m.outcome, m.applied, m.plot_before, m.plot_after = "", [], None, None
+    return out
+
+
+def plot_undo(p: Project, applied: list[str], before: PlotUndo, after: PlotUndo) -> tuple[list[str], list[str], list[str]]:
+    """plot_apply 로 쓴 부분(applied) 가운데 지금 값이 쓴 직후 값과 같은 것만 쓰기 전으로 돌린다.
+    (되돌린 부분, 그대로 둔 부분, 그대로 둔 까닭) 을 돌려준다. 일부만 넘기면 그 부분만 돌린다."""
     old = {e.plot.number: e for e in before.episodes}
     new = {e.plot.number: e for e in after.episodes}
     by_no = {e.plot.number: e for e in p.episodes}
@@ -1872,7 +1892,7 @@ def undo_plot_chat(p: Project, i: int, topic: str = "plot") -> tuple[list[str], 
             if n not in new and n not in by_no:
                 by_no[n] = e.model_copy(deep=True)
 
-    for x in [x for x in m.applied if x.isdigit()]:
+    for x in [x for x in applied if x.isdigit()]:
         n = int(x)
         cur, aft = by_no.get(n), new.get(n)
         if cur is None:
@@ -1893,7 +1913,7 @@ def undo_plot_chat(p: Project, i: int, topic: str = "plot") -> tuple[list[str], 
                 del by_no[n]
             done.append(x)
 
-    struct = [x for x in ("arc", "acts") if x in m.applied]
+    struct = [x for x in ("arc", "acts") if x in applied]
     if before.arc is not None and after.arc is not None and struct:
         a = next((x for x in p.story_arcs if x.number == before.arc.number), None)
         linked = after.arc.end_ep != before.arc.end_ep  # 끝 화가 바뀌면 칸과 구간을 함께 돌린다
@@ -1936,7 +1956,7 @@ def undo_plot_chat(p: Project, i: int, topic: str = "plot") -> tuple[list[str], 
             if linked:
                 bring_back_cut()
             done += group
-    elif "acts" in m.applied and before.arc is None:
+    elif "acts" in applied and before.arc is None:
         if p.arc != after.acts or p.meta.target_episodes != after.target_episodes:
             keep("acts", "적용 뒤 다시 고침")
         elif left := sorted(n for n in by_no if n > before.target_episodes):
@@ -1947,7 +1967,7 @@ def undo_plot_chat(p: Project, i: int, topic: str = "plot") -> tuple[list[str], 
             bring_back_cut()
             done.append("acts")
 
-    if "parts" in m.applied:
+    if "parts" in applied:
         if p.parts != after.parts:
             keep("parts", "적용 뒤 다시 고침")
         else:
@@ -1966,7 +1986,6 @@ def undo_plot_chat(p: Project, i: int, topic: str = "plot") -> tuple[list[str], 
         if act and e.status not in LOCKED:
             e.plot.act = act.name
     sync_candidates(p)
-    m.outcome, m.applied, m.plot_before, m.plot_after = "", [], None, None
     return done, kept, why
 
 # ---------- 3-2. 이야기 줄기: 메인에서 갈라지는 서브플롯 · 회상 · 외전 ----------

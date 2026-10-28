@@ -21,13 +21,13 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import archetypes, autorun, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
+from . import agent, archetypes, autorun, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 from . import abilities, atlas, findings, foreshadows, setupchat, stattrial, statwin, timeline, travel
-from .schema import ChatScope, Deadline, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
+from .schema import AgentSession, ChatScope, Deadline, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
 from .schema import NameOption, Recap
@@ -699,6 +699,7 @@ def put_project(name: str, p: Project, response: Response, merged: str = "", for
     _keep_realign(name, p)
     # 설정 변경 기록과 남겨 둔 제안은 화면이 직접 고치지 않는다. 디스크 것에 이번 저장이 고친 인물 설정만 작가 기록으로 더한다
     p.setting_log, p.setting_held = disk.setting_log, disk.setting_held
+    p.agent_sessions = disk.agent_sessions  # 대화 세션은 대화 라우트와 에이전트 작업만 고친다 (화면의 옛 사본이 덮지 않게)
     charlog.record_author(disk, p)
     archetypes.prune(p)
     kept: list[dict] = []
@@ -1540,6 +1541,133 @@ def plot_chat_undo(name: str, i: int) -> dict:
 def chat_clear(name: str, topic: str) -> Project:
     _chat(_load(name), topic)
     return _edit(name, lambda p: setattr(p.chat(topic), "messages", []))
+
+
+# ---------- 3-1b. 대화 에이전트 (canon/agent.py) ----------
+# 세션 목록 · 만들기 · 고치기, 턴 보내기(백그라운드 작업 'agent'), 승인 카드 답, 이어 하기, 되돌리기.
+# 화면은 작업 진행(GET /api/jobs)이 바뀔 때 세션 목록만 다시 받는다.
+
+class SessionsOut(BaseModel):
+    sessions: list[AgentSession]
+    legacy: int = 0  # 옛 단발 대화 메시지 수 (화면의 '이전 대화')
+    model: str = ""  # 상태 줄에 보일 모델 이름 (plan 단계)
+    max_steps: int = agent.MAX_STEPS
+
+
+def _model_label() -> str:
+    try:
+        m = getattr(get_llm("plan"), "model", "")
+        m = m() if callable(m) else m
+    except Exception:
+        m = ""
+    return m if isinstance(m, str) and m else settings.stage_provider("plan")[0]
+
+
+@app.get("/api/projects/{name}/sessions")
+def agent_sessions(name: str, topic: str = "plot") -> SessionsOut:
+    p = _load(name)
+    if agent.reconcile(p):  # 멈추거나 실패한 작업의 턴을 끝낸다
+        p = _edit(name, lambda q: agent.reconcile(q))
+    return SessionsOut(sessions=agent.sessions(p, topic), legacy=agent.legacy_count(p, topic), model=_model_label())
+
+
+class SessionIn(BaseModel):
+    topic: str = "plot"
+    target: str = ""
+    title: str = ""
+
+
+@app.post("/api/projects/{name}/sessions")
+def agent_session_new(name: str, body: SessionIn) -> AgentSession:
+    _load(name)
+    out: list[AgentSession] = []
+    _edit(name, lambda p: out.append(agent.new_session(p, body.topic, body.target, body.title)))
+    return out[0]
+
+
+class SessionPatch(BaseModel):
+    title: str | None = None
+    mode: str | None = None
+    target: str | None = None
+    archived: bool | None = None
+
+
+@app.patch("/api/projects/{name}/sessions/{sid}")
+def agent_session_update(name: str, sid: str, body: SessionPatch) -> AgentSession:
+    _load(name)
+    out: list[AgentSession] = []
+    _edit(name, lambda p: out.append(agent.update_session(p, sid, **body.model_dump())))
+    return out[0]
+
+
+class TurnIn(BaseModel):
+    message: str
+    mode: Literal["", "options"] = ""  # options: 방향 여러 안으로 물어 달라 (/여러안)
+    act: str = ""  # 화면에서 연 구간
+    episode: int = 0  # 화면에서 연 화
+    draft: ArcProposal | None = None  # 다음 아크 대상: 화면의 초안
+
+
+def _run_agent(name: str, sid: str, t: int) -> dict:
+    """턴을 백그라운드 작업으로 돌린다. 같은 작품의 대화 작업은 한 번에 하나다."""
+    llm = get_llm("plan")  # 키가 없으면 여기서 바로 오류를 보여 준다
+    s = agent.session(_load(name), sid)
+    try:
+        with usage.scope(task="agent"):
+            job = jobs.start(name, "agent", None, f"대화 · {s.title or '새 세션'}",
+                             lambda j: agent.run_turn(llm, name, sid, t, j), total=agent.MAX_STEPS)
+    except jobs.Busy:
+        raise ValueError("이 작품에서 이미 대화가 돌아가고 있어요. 끝난 뒤 보내거나 멈추세요") from None
+    _edit(name, lambda p: setattr(agent.turn_of(p, sid, t)[1], "job", job.id))
+    return job.public()
+
+
+@app.post("/api/projects/{name}/sessions/{sid}/turns")
+def agent_turn(name: str, sid: str, body: TurnIn) -> dict:
+    """작가의 말을 새 턴으로 열고 에이전트를 돌린다. 작업 정보를 돌려준다 (진행은 GET /api/jobs)."""
+    _load(name)
+    if any(j.kind == "agent" and j.status == "running" for j in jobs.listing(name)):
+        raise ValueError("이 작품에서 이미 대화가 돌아가고 있어요. 끝난 뒤 보내거나 멈추세요")
+    out: list[int] = []
+    _edit(name, lambda p: out.append(agent.add_turn(p, sid, body.message, mode=body.mode, act=body.act, episode=body.episode, draft=body.draft)))
+    return _run_agent(name, sid, out[0])
+
+
+class ApprovalIn(BaseModel):
+    approve: bool
+    picked: list[str] = []  # 쓸 부분 (비우면 카드의 모든 부분)
+    remember: bool = False  # 이 세션에서 이 종류는 묻지 않기
+
+
+@app.post("/api/projects/{name}/sessions/{sid}/turns/{t}/approval")
+def agent_approval(name: str, sid: str, t: int, body: ApprovalIn) -> dict:
+    """승인 카드에 답하고 같은 턴을 이어 돌린다. 쓴 작품을 함께 돌려준다."""
+    _load(name)
+    p = _edit(name, lambda q: agent.decide(q, sid, t, body.approve, body.picked, body.remember))
+    return {"project": p, "job": _run_agent(name, sid, t)}
+
+
+@app.post("/api/projects/{name}/sessions/{sid}/turns/{t}/continue")
+def agent_continue(name: str, sid: str, t: int) -> dict:
+    """상한에 닿았거나 멈춘 턴을 이어 돌린다."""
+    _load(name)
+    _edit(name, lambda q: agent.resume(q, sid, t))
+    return _run_agent(name, sid, t)
+
+
+class AgentUndoIn(BaseModel):
+    write: int | None = None  # 쓴 기록 번호 (비우면 턴 전체)
+    key: str | None = None  # 그 기록의 한 부분 ('parts' · 'arc' · 'acts' · 'draft' · 화 번호)
+
+
+@app.post("/api/projects/{name}/sessions/{sid}/turns/{t}/undo")
+def agent_undo(name: str, sid: str, t: int, body: AgentUndoIn) -> dict:
+    """바로 쓴 것을 되돌린다. 그 뒤에 다시 고치거나 확정한 것은 남기고 까닭을 돌려준다."""
+    _load(name)
+    out: list = []
+    p = _edit(name, lambda q: out.append(agent.undo(q, sid, t, body.write, body.key)))
+    restored, kept, reasons = out[0]
+    return {"project": p, "restored": restored, "kept": kept, "reasons": reasons}
 
 
 # ---------- 3-2. 인과율 ----------
