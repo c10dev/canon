@@ -125,6 +125,16 @@ function deviceBadges(n) {
   return styleBadges(n) + (typeof mentionBox === 'function' ? mentionBox(n) : '');
 }
 
+/** 집필 화면 본문 띠의 '문체 장치' 메뉴: 장치 · 금지 표현 목록(styleBadges)과 본문 속 이름(mentionBox)을 펼침 창에 담는다.
+    둘 다 없으면 빈 글. 좁은 화면에서는 짧은 이름(.lbl-s)을 보인다 */
+function styleMenu(n) {
+  if (!deviceBadges(n)) return '';
+  const k = markable() ? (P().style.devices || []).filter((d) => (d.name || '').trim()).length : 0;
+  const [long, short] = markable() ? ['문체 장치', '문체'] : ['본문 속 이름', '이름'];
+  const label = `<span class="lbl-l">${long}</span><span class="lbl-s" aria-hidden="true">${short}</span>${k ? ` ${k}` : ''} ${CHEVRON}`;
+  return menuBtn('marks', label, () => deviceBadges(n), { cls: 'btn small', aria: `${long}${k ? ` ${k}개` : ''}` });
+}
+
 function styleBadges(n) {
   if (!markable()) return '';
   const text = textNow(n);
