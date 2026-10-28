@@ -1872,7 +1872,7 @@ function sidebar(active) {
   const moreOpen = folded.some((t) => t[0] === active) || navMoreOpen();
   const cfg = S.config || {};
   return `<nav class="side${S.menuOpen ? ' open' : ''}" aria-label="작품 메뉴">
-    <a class="brand" href="#/">Canon</a>
+    <a class="brand" href="#/">Canon<span class="brand-dot" aria-hidden="true">.</span></a>
     <button type="button" class="btn small menu-toggle pal-open" data-action="openPalette" aria-haspopup="dialog">찾기</button>
     <button type="button" class="btn small menu-toggle" data-action="toggleMenu" aria-expanded="${!!S.menuOpen}" aria-controls="side-menu">메뉴</button>
     <div class="work-card">

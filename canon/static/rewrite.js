@@ -121,7 +121,7 @@ function rewritePanel(n) {
     const none = !m.lines.length;
     return `<label class="check-row${none ? ' done' : ''}"><input type="checkbox" data-rw-mat="${esc(m.id)}"${r.materials.includes(m.id) && !none ? ' checked' : ''}${none ? ' disabled' : ''}>
       <span style="flex:1;min-width:0"><strong>${esc(m.label)}</strong> <span class="small">${none ? '없음' : `${m.lines.length}개`}</span>
-        ${m.note ? `<br><span class="small" style="color:var(--amber-ink, #8A4205)">${esc(m.note)}</span>` : ''}
+        ${m.note ? `<br><span class="small" style="color:var(--amber-ink)">${esc(m.note)}</span>` : ''}
         ${none ? '' : `<details><summary class="small">넣을 내용 보기</summary><div class="small rw-lines">${m.lines.map(esc).join('<br>')}</div></details>`}</span></label>`;
   }).join('');
   const modes = RW_MODES.map(([id, label]) => `<button type="button" aria-pressed="${r.mode === id}" data-action="rwMode" data-arg="${id}">${label}</button>`).join('');

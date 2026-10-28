@@ -20,10 +20,10 @@ Object.assign(S, {
 const CAST_W = 760;
 const CAST_H = 540;
 // 온기 다섯 구간 (dynamics.warmth_word 와 같은 경계): 빨강 ↔ 회색 ↔ 파랑. Swift 앱 WarmthBand 도 함께 고친다
-// 색은 app.css 토큰을 쓴다(밝은 화면 값: --red #B42318, --bad #E0726A, --good #5598E7). 맞는 토큰이 없는 회색 · 진한 파랑은 hex 로 둔다
-const WARMTH_BANDS = [[-0.6, 'var(--red)', '적대한다'], [-0.2, 'var(--bad)', '반감이 있다'], [0.2, '#9A9890', '무덤덤하다'], [0.6, 'var(--good)', '호감이 있다'], [Infinity, '#1C5CAB', '깊이 아낀다']];
-const TENSION_FILL = { '보통': '#F2C894', '높음': '#C2620A', '매우 높음': 'var(--red)' };
-const PAIR_COLORS = ['#2A78D6', '#EB6834'];  // 쌍 그래프: 앞 인물 → 뒤 인물, 뒤 → 앞
+// 색은 app.css 토큰을 쓴다(라이트 · 다크 값이 따로 있다). SVG 에서는 style 로만 넣는다(stroke="var(..)" 속성은 먹지 않는다)
+const WARMTH_BANDS = [[-0.6, 'var(--red)', '적대한다'], [-0.2, 'var(--bad)', '반감이 있다'], [0.2, 'var(--warm-mid)', '무덤덤하다'], [0.6, 'var(--good)', '호감이 있다'], [Infinity, 'var(--warm-deep)', '깊이 아낀다']];
+const TENSION_FILL = { '보통': 'var(--tension-mid)', '높음': 'var(--tension-high)', '매우 높음': 'var(--red)' };
+const PAIR_COLORS = ['var(--pair-a)', 'var(--pair-b)'];  // 쌍 그래프: 앞 인물 → 뒤 인물, 뒤 → 앞
 const TIER_R = { main: 26, support: 20, minor: 15 };
 const TIER_NAME = { main: '주역', support: '조연', minor: '단역' };
 const CAST_DENSE = 8;  // 관계도에 보이는 인물이 이보다 많으면 고른 인물(두 사람)과 이어진 선만 그린다
@@ -683,9 +683,9 @@ function castChart(series, lo, hi, opts = {}) {
     const pts = s.values.map((v, i) => (v === null ? null : [X(i), Y(v)]));
     let d = '';
     pts.forEach((pt, i) => { if (pt) d += `${d && pts[i - 1] ? 'L' : 'M'}${pt[0].toFixed(1)} ${pt[1].toFixed(1)} `; });
-    if (d) out.push(`<path class="cc-line" d="${d}" stroke="${s.color}"></path>`);
+    if (d) out.push(`<path class="cc-line" d="${d}" style="stroke:${s.color}"></path>`);
     const cur = pts[at];
-    if (cur) out.push(`<circle cx="${cur[0]}" cy="${cur[1]}" r="4" fill="${s.color}" class="cc-dot"></circle>`);
+    if (cur) out.push(`<circle cx="${cur[0]}" cy="${cur[1]}" r="4" style="fill:${s.color}" class="cc-dot"></circle>`);
   });
   const every = Math.max(1, Math.ceil(fs.length / 10));
   fs.forEach((f, i) => {

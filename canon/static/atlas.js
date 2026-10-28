@@ -2349,7 +2349,7 @@ document.addEventListener('keydown', (e) => {
 .at-map .at-v-use.g-care { fill: #16A085; }
 .at-map .at-v-use.g-noble { fill: #B7950B; }
 .at-map .at-v-use.g-store { fill: #7F8C8D; fill-opacity: 0.35; }
-.at-map .at-v-hi { fill: none; stroke: var(--accent, #2F6FED); stroke-linejoin: round; }
+.at-map .at-v-hi { fill: none; stroke: var(--accent); stroke-linejoin: round; }
 .at-map .at-v-street-label { fill: var(--text); fill-opacity: 0.7; stroke: var(--canvas); stroke-opacity: 0.85; paint-order: stroke; stroke-linejoin: round; font-style: italic; pointer-events: none; }
 .at-bld-facts { color: var(--muted); }
 .at-bld-edit { display: flex; flex-direction: column; gap: 6px; }
