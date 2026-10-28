@@ -620,11 +620,11 @@ class MockLLM:
                         new.append(NewPlace(name=name, kind="건물", description="위치 글에서 나온 곳"))
             return PlaceSort(matches=out, new_places=new)  # type: ignore[return-value]
         if schema is MapSuggestion:  # 이름 단어로 종류를 고르고, 바다 쪽 장소가 있으면 바닷가 마을로. 화면에서 현대 동네를 골랐으면 현대 동네 (물은 하천)
-            from . import moderngen, towngen
+            from . import moderngen, placekinds, towngen
 
-            guesses = [MapPlaceGuess(name=n, kind=towngen.classify(n)[0], put=towngen.classify(n)[0] != "far") for n in hint.get("places", [])]
-            rows = [{"kind": g.kind, "word": towngen.classify(g.name)[1], "put": g.put} for g in guesses]
-            water = towngen.water_for(rows)
+            guesses = [MapPlaceGuess(name=n, kind=placekinds.classify(n)[0], put=placekinds.classify(n)[0] != "far") for n in hint.get("places", [])]
+            rows = [{"kind": g.kind, "word": placekinds.classify(g.name)[1], "put": g.put} for g in guesses]
+            water = placekinds.water_for(rows)
             if hint.get("kind") == "modern":
                 water = "none" if water == "none" else "river"
                 return MapSuggestion(kind="modern", size="medium", roads="cross", water=water, fields="few", forest="some",  # type: ignore[return-value]

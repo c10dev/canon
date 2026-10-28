@@ -6,7 +6,7 @@
 결과는 atlas.read_layout 이 내놓는 것과 같은 모양이라 지도 그리기 · 길찾기 · 인물 동선을 그대로 쓴다.
 좌표는 m 로 계산하고 마지막에 0~1 로 나눈다. 단계마다 난수원을 따로 두어(f"{seed}:{단계}") 같은 MapSpec 이면 언제나 같은 마을이 나온다.
 
-장소 종류는 이름 · 설명의 단어로 고른다 (classify, CATEGORIES). 도시 · 왕국 생성기는 다음 단계다.
+장소 종류(CATEGORIES, classify, water_for)는 모든 생성기가 함께 쓰는 placekinds 에 있다. 도시는 citygen, 현대 동네는 moderngen.
 """
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from typing import Optional
 
 from . import geom, roadnet
 from .geom import Point, Poly
+from .placekinds import CATEGORIES, CATEGORY_IDS, classify, default_put, water_for  # noqa: F401 (다시 내보낸다: 시험 · 옛 코드)
 from .schema import MapSpec
 
 VERSION = 4  # 2: 바닷가 마을을 해안에 붙이고 바다로 가는 길 · 부두, 물가 장소를 물가에. 3: 숲 덩어리 · 생울타리 · 과수원, 길로 자른 큰 밭, 등대는 바다에만
@@ -36,69 +37,12 @@ LANES = 7.0  # 집 한 채에 가지길 몇 m (마을 반지름 안)
 FIELD_SHARE = {"few": 0.35, "some": 0.65, "many": 0.9}
 FOREST_LEVEL = {"few": 0.32, "some": 0.18, "many": 0.04}  # 노이즈가 이 값을 넘는 곳이 숲
 
-# (종류 id, 화면 이름, 이름 · 설명에서 찾을 단어). 가장 긴 단어가 이긴다 (촌장 > 촌)
-CATEGORIES: list[tuple[str, str, tuple[str, ...]]] = [
-    ("center", "마을 가운데", ("마을", "촌", "동네", "부락", "읍내", "마을회관")),
-    ("market", "장터 · 광장", ("장터", "시장", "광장", "장마당")),
-    ("well", "우물", ("우물", "샘터")),
-    ("temple", "신전 · 사당", ("신전", "사당", "교회", "성당", "예배당", "사원", "사찰", "신당", "수도원", "암자", "서낭당")),
-    ("inn", "여관 · 주막", ("여관", "주막", "객잔", "여인숙", "주점", "술집", "선술집", "객주", "숙소")),
-    ("smith", "대장간 · 공방", ("대장간", "공방", "마구간", "대장장이", "작업장")),
-    ("mill", "방앗간", ("방앗간", "물레방아", "풍차", "제분소")),
-    ("manor", "저택 · 관아", ("저택", "영주", "관아", "장원", "대감", "촌장", "이장", "지주", "별장")),
-    ("home", "집 · 가게", ("집", "가게", "상점", "빵집", "약방", "의원", "학당", "서당", "학교", "댁")),
-    ("shore", "나루 · 부두", ("나루", "부두", "포구", "선착장", "항구", "등대", "해변", "바닷가", "어시장", "수산시장", "어판장", "방파제", "갯벌", "염전")),
-    ("bridge", "다리", ("다리", "징검다리")),
-    ("river", "강가", ("강", "강가", "개울", "냇가", "시냇가", "하천", "시내")),
-    ("pond", "호수 · 연못", ("호수", "연못", "늪", "저수지")),
-    ("forest", "숲", ("숲", "숲속", "숲길", "수풀")),
-    ("field", "밭 · 농장", ("밭", "논", "들판", "농장", "과수원", "목장")),
-    ("far", "마을 밖", ("왕국", "제국", "도시", "수도", "산맥", "대륙", "국경", "왕궁", "황궁", "성", "산", "고개", "바다")),
-]
-CATEGORY_IDS = [c[0] for c in CATEGORIES]
 NEED_WATER = {"shore": "물가가 없는 마을이에요. 물을 강 · 호수 · 바다로 바꿔 보세요",
               "bridge": "다리가 없어요. 물을 강으로 바꿔 보세요",
               "river": "강이 없어요. 물을 강으로 바꿔 보세요",
               "pond": "호수가 없어요. 물을 호수로 바꿔 보세요"}
-
-
-def classify(name: str, description: str = "") -> tuple[str, str]:
-    """장소 종류 (종류 id, 찾은 단어). 이름에서 먼저 찾고 없으면 설명에서. 못 찾으면 ('home', '')."""
-    for text in (name, description):
-        best: Optional[tuple[int, int, str, str]] = None
-        for order, (cid, _, words) in enumerate(CATEGORIES):
-            for w in words:
-                if w in text and (best is None or (len(w), -order) > (best[0], best[1])):
-                    best = (len(w), -order, cid, w)
-        if best:
-            return best[2], best[3]
-    return "home", ""
-
-
-def default_put(kind: str) -> bool:
-    return kind != "far"
-
-
-RIVER_SHORE = ("나루", "선착장")  # 물가 종류 가운데 강에 어울리는 단어 (나머지는 바다)
 LIGHT_WORDS = ("등대", "방파제")  # 물가 종류 가운데 해안 끝(곶)에 서는 것
 BEACH_WORDS = ("해변", "바닷가", "갯벌", "염전")  # 물가 종류 가운데 물가 자체 (필지가 아님). 나머지 물가 종류는 부두 옆
-
-
-def water_for(rows: list[dict]) -> str:
-    """놓을 장소가 물을 바라면 그 물 (sea | river | lake), 아니면 none. 지도 만들기 물 칸의 기본값.
-    rows: [{kind, word, put}]. 여러 물을 바라면 많이 바라는 쪽, 같으면 바다 > 강 > 호수."""
-    votes = {"sea": 0, "river": 0, "lake": 0}
-    for r in rows:
-        if not r.get("put"):
-            continue
-        if r["kind"] == "shore":
-            votes["river" if r.get("word") in RIVER_SHORE else "sea"] += 1
-        elif r["kind"] in ("bridge", "river"):
-            votes["river"] += 1
-        elif r["kind"] == "pond":
-            votes["lake"] += 1
-    best = max(votes, key=lambda k: (votes[k], -list(votes).index(k)))
-    return best if votes[best] else "none"
 
 
 # ---------- 물 ----------

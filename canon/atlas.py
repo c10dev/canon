@@ -20,7 +20,7 @@ import math
 from pathlib import Path
 from typing import Optional
 
-from . import bldgs, cast, citygen, context, elements, geom, moderngen, naming, osm, towngen, travel
+from . import bldgs, cast, citygen, context, elements, geom, moderngen, naming, osm, placekinds, towngen, travel
 from .schema import BuildingNote, MapPin, MapSpec, NewPlace, PlaceLink, PlaceSort, Project
 
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
@@ -819,10 +819,10 @@ def gen_places(p: Project, spec: Optional[MapSpec] = None) -> list[dict]:
     mine = {x.key: x for x in (spec.places if spec else [])}
     out = []
     for pl in places(p):
-        found, word = towngen.classify(pl["name"], pl["description"])
+        found, word = placekinds.classify(pl["name"], pl["description"])
         m = mine.get(pl["key"])
-        kind = m.kind if m and m.kind in towngen.CATEGORY_IDS else found
-        put = m.put if m and m.put is not None else towngen.default_put(kind)
+        kind = m.kind if m and m.kind in placekinds.CATEGORY_IDS else found
+        put = m.put if m and m.put is not None else placekinds.default_put(kind)
         out.append({"key": pl["key"], "name": pl["name"], "kind": kind, "found": found, "word": word, "put": put})
     return out
 
@@ -831,7 +831,7 @@ def default_spec(p: Project) -> MapSpec:
     """지도 만들기 입력. 만든 적이 있으면 그 입력, 없으면 기본값에 물만 장소를 보고 정한다 (등대 · 어시장이면 바다)."""
     if p.atlas.spec:
         return p.atlas.spec
-    return MapSpec(water=towngen.water_for(gen_places(p)))
+    return MapSpec(water=placekinds.water_for(gen_places(p)))
 
 
 def gen_info(p: Project) -> dict:
@@ -844,7 +844,7 @@ def gen_info(p: Project) -> dict:
     return {"spec": spec.model_dump(), "made": p.atlas.spec is not None, "places": gen_places(p, spec),
             "maps": [{"id": k, "label": m[0]} for k, m in MAKERS.items()],
             "options": {k: m[1].OPTIONS for k, m in MAKERS.items()},
-            "kinds": [{"id": cid, "label": label} for cid, label, _ in towngen.CATEGORIES],
+            "kinds": [{"id": cid, "label": label} for cid, label, _ in placekinds.CATEGORIES],
             "version": {k: m[1].VERSION for k, m in MAKERS.items()}, "wards": {**citygen.WARD_KINDS, **moderngen.ZONES},
             "uses": {u: [bldgs.label(u, style), grp] for u, (_, grp) in bldgs.USES.items()},
             "modern": list(bldgs.MODERN), "modern_style": style in MODERN_STYLES}

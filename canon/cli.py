@@ -80,7 +80,7 @@ from . import (archetypes, autorun, branches, cast, charlog, dynamics, elements,
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
-from . import abilities, atlas, findings, stattrial, foreshadows, setupchat, statwin, timeline, towngen, travel
+from . import abilities, atlas, findings, stattrial, foreshadows, setupchat, statwin, timeline, placekinds, towngen, travel
 from . import birth, play
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StoryArc
 
@@ -1690,7 +1690,7 @@ def cmd_map(a: argparse.Namespace) -> None:
     print(f"{word} (시드 {spec.seed}): {homes}건물 {info['buildings']}채 · 길 {info['roads']}개"
           f"{f' · 다리 {info['bridges']}개' if info['bridges'] else ''}{walls} · 약 {info['width_m']}×{info['height_m']}m")
     print("  " + " · ".join(opts[k][getattr(spec, k)].split(" (")[0] for k in ("size", "roads", "water", "fields", "forest") if k in opts))
-    kinds = {cid: label for cid, label, _ in towngen.CATEGORIES}
+    kinds = {cid: label for cid, label, _ in placekinds.CATEGORIES}
     take = [s["place"] for s in out["pins"] if a.move or not s["had"]]
     for s in out["pins"]:
         note = "" if s["place"] in take else " (지도에 놓은 자리가 있어 그대로 둬요. 옮기려면 --move)"
