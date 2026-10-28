@@ -264,6 +264,13 @@ def test_field_ideas(client):
     bad = client.post("/api/projects/fi/field-ideas", json={"field": "characters"})
     assert bad.status_code == 400 and "칸" in bad.json()["detail"]
 
+    # 인물 칸: 경로 번호로 그 인물의 칸, 없는 번호는 400
+    p["characters"] = [{"id": "hero", "name": "서윤", "role": "주인공"}]
+    r = client.post("/api/projects/fi/field-ideas", json={"field": "characters.0.appearance", "project": p}).json()
+    assert len(r["options"]) == 3
+    gone = client.post("/api/projects/fi/field-ideas", json={"field": "characters.3.appearance", "project": p})
+    assert gone.status_code == 400 and "없는 인물" in gone.json()["detail"]
+
 def test_relations(client):
     meta = {"title": "등대", "target_episodes": 10}
     client.post("/api/projects", json={"name": "rel", "meta": meta})

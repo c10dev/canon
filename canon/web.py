@@ -755,7 +755,7 @@ def apply_suggestion(name: str, s: SetupSuggestion) -> Project:
 
 
 class FieldIdeasIn(BaseModel):
-    field: str  # prompts.FIELD_IDEAS 의 키 (meta.title, meta.logline_parts.who, world.setting 등)
+    field: str  # 화면 칸 경로 (meta.title, meta.logline_parts.who, world.setting, characters.0.personality 등). prompts.idea_key 가 FIELD_IDEAS 키로
     n: int = 3
     project: Project | None = None  # 저장 전 화면의 값 (다른 칸을 고친 직후에도 맞게)
 

@@ -745,6 +745,9 @@ function viewSetup() {
 }
 
 /** 기획서: 모든 설정 칸을 한 화면에서 고친다 */
+/** 인물 카드의 '더 자세히' 칸 + ✦ 후보 (ideas.js). 펼침은 openMap 의 'cd:<id>' 가 기억해 다시 그려도 접히지 않는다 */
+const charIdeaInput = (label, path, opt) => input(label, path, { ...opt, aside: ideaBtn(path), after: ideaList(path) });
+
 function viewSetupDoc() {
   const p = P();
   // 인물 화면의 '기본 설정 고치기'나 명령 팔레트로 인물 칸에 왔으면 그 인물 카드를 펼친다 (app.js 가 그 칸으로 포커스를 옮긴다)
@@ -768,9 +771,9 @@ function viewSetupDoc() {
       ${input('두려운 것 · 약점', b + '.wound')}
       ${input('숨기는 것', b + '.secrets', { kind: 'list', rows: 2 })}
       ${input('말투 (대사)', b + '.speech_style', { rows: 2, hint: '어미, 호칭, 대사 한 줄' })}
-      <details><summary>더 자세히: 성격, 배경, 외모, 아크</summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
-        ${input('성격', b + '.personality', { rows: 2 })}${input('배경', b + '.background', { rows: 2 })}${input('외모', b + '.appearance')}
-        ${input('아크', b + '.arc', { hint: '시작 → 결말' })}${input('id', b + '.id', { hint: '관계와 플롯이 인물을 찾는 값이라 바꿀 수 없어요', readonly: true })}
+      <details data-open-key="${esc('cd:' + c.id)}"${cardOpen('cd:' + c.id, false) ? ' open' : ''}><summary>더 자세히: 성격, 배경, 외모, 아크</summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
+        ${charIdeaInput('성격', b + '.personality', { rows: 2 })}${charIdeaInput('배경', b + '.background', { rows: 2 })}${charIdeaInput('외모', b + '.appearance')}
+        ${charIdeaInput('아크', b + '.arc', { hint: '시작 → 결말' })}${input('id', b + '.id', { hint: '관계와 플롯이 인물을 찾는 값이라 바꿀 수 없어요', readonly: true })}
       </div></details>
       <div class="small">AI에 넣기, 서술 말투, 신체 프로필, 삽화 외형 태그는 <a href="${base()}/cast/${enc(c.id)}?tab=sheet">인물 카드</a>에서 고쳐요.</div>
       </div>
@@ -889,6 +892,26 @@ function sugValue(o, k) {
 const SUG_CHAR_FIELDS = [['age', '나이'], ['gender', '성별'], ['goal', '원하는 것'], ['wound', '두려운 것 · 약점'], ['secrets', '숨기는 것'],
   ['speech_style', '말투 (대사)'], ['personality', '성격'], ['background', '배경'], ['appearance', '외모'], ['arc', '아크']];
 
+// 이미 있는 인물에게 채우는 빈 칸 (pipeline.FILL_CHAR_FIELDS 와 같다, tests/test_setup_fill.py)
+const SUG_FILL_FIELDS = [['role', '역할'], ...SUG_CHAR_FIELDS];
+const blankVal = (v) => (Array.isArray(v) ? !v.some((x) => String(x).trim()) : !String(v || '').trim());
+
+/** 제안 인물 c 가 이미 있는 인물이면, 그 인물의 빈 칸 중 제안에 값이 있는 칸 [[키, 칸 이름, 값 글], …]. 아니면 [] */
+function sugFills(c) {
+  const old = sameChar(c) && P().characters.find((x) => x.id === c.id);
+  if (!old) return [];
+  return SUG_FILL_FIELDS.filter(([k]) => blankVal(old[k]) && !blankVal(c[k]))
+    .map(([k, label]) => [k, label, Array.isArray(c[k]) ? c[k].filter((x) => String(x).trim()).join(', ') : String(c[k]).trim()]);
+}
+
+/** 이미 있는 인물 카드: 채울 빈 칸마다 고르기 (기본은 모두 고름, 키 scf:<제안 번호>:<칸>) */
+function sugFillCard(c, i) {
+  const fills = sugFills(c);
+  const rows = fills.map(([k, label, v]) => `<label class="row sug-field"><input type="checkbox" data-pick="scf:${i}:${k}"${S.picks[`scf:${i}:${k}`] !== false ? ' checked' : ''}><strong>${label}</strong> <span>${esc(v)}</span></label>`).join('');
+  return `<div class="char-card suggested"><div class="row"><strong>${esc(c.name || P().characters.find((x) => x.id === c.id).name)}</strong><span class="small">${esc(c.role)} · ${esc(c.id)} · 이미 있음${fills.length ? ` · 빈칸 ${fills.length}개 채움` : ''}</span></div>
+    ${fills.length ? `<div class="sug-fields" role="group" aria-label="${esc(c.name || c.id)} 빈칸 채우기">${rows}</div>` : '<span class="small">채울 빈칸이 없어요</span>'}</div>`;
+}
+
 /** 제안 인물의 모든 칸. 체크박스 label 밖에 두어 펼쳐도 고르기가 바뀌지 않는다 */
 function sugCharDetails(c) {
   const rows = SUG_CHAR_FIELDS.map(([k, label]) => [label, Array.isArray(c[k]) ? c[k].join(', ') : String(c[k] || '').trim()])
@@ -897,13 +920,32 @@ function sugCharDetails(c) {
   return `<details><summary class="small">모든 칸 보기 (${rows.length})</summary><dl style="margin:6px 0 0;font-size:0.8125rem;line-height:1.5">${rows.map(([l, v]) => `<dt style="font-weight:700">${l}</dt><dd style="margin:0 0 6px">${esc(v)}</dd>`).join('')}</dl></details>`;
 }
 
+/** 적용 요청에 보낼 제안: 고르지 않은 칸 · 인물 · 관계를 뺀다 (서버 pipeline.apply_setup 은 빈 칸만 채운다) */
+function sugPayload() {
+  const s = structuredClone(S.suggestion);
+  // 고르지 않은 칸은 비워 보낸다. 서버는 빈 칸을 건너뛴다
+  SUG_FIELDS.forEach(([k]) => {
+    if (S.picks['sf:' + k] !== false) return;
+    if (k.startsWith('world.')) s.world[k.slice(6)] = Array.isArray(s.world[k.slice(6)]) ? [] : '';
+    else s[k] = '';
+  });
+  s.characters = s.characters.map((c, i) => {
+    if (!sameChar(c)) return S.picks['sc' + i] ? c : null;
+    // 이미 있는 인물: 고르지 않은 빈 칸은 비워 보낸다. 서버는 빈 칸만 채운다 (fill_character)
+    SUG_FILL_FIELDS.forEach(([k]) => { if (S.picks[`scf:${i}:${k}`] === false) c[k] = Array.isArray(c[k]) ? [] : ''; });
+    return c;
+  }).filter(Boolean);
+  s.relationships = s.relationships.filter((r, i) => S.picks['sr' + i] && sugEnd(r.a) && sugEnd(r.b));
+  return s;
+}
+
 function viewSuggestion() {
   const s = S.suggestion;
   const exists = (c) => sameChar(c);
   const clash = (c) => !sameChar(c) && P().characters.some((x) => x.id === c.id);
   return `<section class="card" style="border:2px solid var(--accent)">
     <div class="between"><h2>AI 제안 <span class="chip ai">적용 전</span></h2>${proposalActions(['dropSuggestion'], ['applySuggestion'])}</div>
-    <p class="small">주제, 톤, 세계관은 비어 있는 칸에만 들어가요. 이미 있는 인물은 건너뛰어요.</p>
+    <p class="small">주제, 톤, 세계관, 이미 있는 인물은 비어 있는 칸에만 들어가요. 적어 둔 칸은 그대로예요.</p>
     <div class="sug-fields">${SUG_FIELDS.map(([k, label]) => {
     const v = sugValue(s, k);
     if (!v.length) return '';
@@ -911,7 +953,7 @@ function viewSuggestion() {
     return `<label class="row sug-field${have ? ' skip' : ''}"><input type="checkbox" data-pick="sf:${k}"${!have && S.picks['sf:' + k] !== false ? ' checked' : ''}${have ? ' disabled' : ''}><strong>${label}</strong> <span>${esc(v)}</span>${have ? ' <span class="small">이미 있음 · 건너뜀</span>' : ''}</label>`;
   }).join('')}</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
-      ${s.characters.map((c, i) => `<div class="char-card suggested"><label class="row" style="cursor:pointer"><input type="checkbox" data-pick="sc${i}"${S.picks['sc' + i] ? ' checked' : ''}${exists(c) ? ' disabled' : ''}><strong>${esc(c.name)}</strong><span class="small">${esc(c.role)} · ${esc(c.id)}${exists(c) ? ' · 이미 있음' : clash(c) ? ' · 이미 있는 다른 인물과 겹쳐 따로 넣어요' : ''}</span></label>
+      ${s.characters.map((c, i) => exists(c) ? sugFillCard(c, i) : `<div class="char-card suggested"><label class="row" style="cursor:pointer"><input type="checkbox" data-pick="sc${i}"${S.picks['sc' + i] ? ' checked' : ''}><strong>${esc(c.name)}</strong><span class="small">${esc(c.role)} · ${esc(c.id)}${clash(c) ? ' · 이미 있는 다른 인물과 겹쳐 따로 넣어요' : ''}</span></label>
         <span style="font-size:0.8125rem;line-height:1.5">목표: ${esc(c.goal)}<br>말투: ${esc(c.speech_style)}</span>${sugCharDetails(c)}</div>`).join('')}
     </div>
     ${s.relationships.map((r, i) => {
@@ -997,15 +1039,7 @@ Object.assign(actions, {
     render();
   },
   async applySuggestion() {
-    const s = structuredClone(S.suggestion);
-    // 고르지 않은 칸은 비워 보낸다. 서버는 빈 칸을 건너뛴다
-    SUG_FIELDS.forEach(([k]) => {
-      if (S.picks['sf:' + k] !== false) return;
-      if (k.startsWith('world.')) s.world[k.slice(6)] = Array.isArray(s.world[k.slice(6)]) ? [] : '';
-      else s[k] = '';
-    });
-    s.characters = s.characters.filter((_, i) => S.picks['sc' + i]);
-    s.relationships = s.relationships.filter((r, i) => S.picks['sr' + i] && sugEnd(r.a) && sugEnd(r.b));
+    const s = sugPayload();
     await run('적용하는 중', async () => {
       await saveIfDirty();
       const before = setupCardKeys();
@@ -1083,6 +1117,8 @@ Object.assign(actions, {
     if (!confirm(`${c.name || c.id} 인물을 삭제할까요? 관계와 지금 상태도 함께 삭제돼요. 저장하기 전에는 아래 띠에서 되살릴 수 있어요.${warn}`)) return;
     rememberRemoved(`인물 ${c.name || c.id}`, ['characters', 'relationships', 'states']);
     P().characters.splice(i, 1);
+    // 인물 칸 ✦ 후보는 번호로 칸을 찾아서, 번호가 밀리면 다른 인물 칸 아래에 뜬다
+    Object.keys(S.ideas || {}).filter((k) => k.startsWith('characters.')).forEach((k) => delete S.ideas[k]);
     P().relationships = P().relationships.filter((r) => r.a !== c.id && r.b !== c.id);
     P().states = P().states.filter((s) => s.character_id !== c.id);
     markDirty();
