@@ -44,6 +44,8 @@ class Policy(BaseModel):
     """사람 검토 없이 반영할지 정하는 기준. 하나라도 걸리면 그 화에서 멈춘다."""
     check: bool = Field(True, description="화마다 검수를 돌린다")
     max_issues: int = Field(0, description="검수에서 나온 어긋남이 이 개수를 넘으면 멈춤")
+    ignore_minor: bool = Field(False, description="어긋남 개수를 셀 때 심각도 '사소'는 세지 않음")
+    stop_on_critical: bool = Field(True, description="심각도 '치명'인 어긋남이 하나라도 있으면 멈춤 (max_issues 와 상관없이)")
     max_shift: float = Field(0.3, description="한 인물이 다른 인물을 보는 온기나 신뢰가 한 화에 이만큼 넘게 바뀌면 멈춤. 0 이면 보지 않음")
     stop_on_stage: bool = Field(False, description="관계 단계(호감 → 균열 등)가 바뀌면 멈춤")
     stop_on_warnings: bool = Field(False, description="상태 변경안에 경고(플롯 누락, 설정 위반)가 있으면 멈춤")
@@ -165,10 +167,15 @@ def review_reasons(p: Project, delta: StateDelta, report: Optional[ConsistencyRe
     """정책에 걸린 이유. 빈 목록이면 자동으로 반영해도 된다. p 는 반영 전 상태이고 바꾸지 않는다."""
     out: list[str] = []
     # 작가가 그대로 둠 · 잘못 짚음으로 정해 둔 지적은 다시 나와도 세지 않는다
-    issues = findings.counted(p.episode(delta.episode), report.issues) if report is not None else []
+    ep = p.episode(delta.episode)
+    all_issues = findings.counted(ep, report.issues) if report is not None else []
+    issues = findings.counted(ep, report.issues, policy.ignore_minor) if report is not None else []
     if len(issues) > policy.max_issues:
         kinds = ", ".join(sorted({i.type for i in issues}))
-        out.append(f"검수에서 어긋난 곳 {len(issues)}개 ({kinds})")
+        out.append(f"검수에서 어긋난 곳 {len(issues)}개 ({kinds}){' · 사소한 것은 세지 않음' if policy.ignore_minor else ''}")
+    crit = [i for i in all_issues if i.severity == "crit"]
+    if policy.stop_on_critical and crit and len(issues) <= policy.max_issues:  # 개수로 이미 멈추면 한 번만 적는다
+        out.append(f"검수에서 치명적인 어긋남 {len(crit)}개: {crit[0].description}")
     if policy.hand_pick_opening and prompts.is_opening(delta.episode):
         out.append(f"{delta.episode}화는 초반 화라 직접 읽고 반영하도록 멈춰요 (집필 화면에서 초반 점검과 여는 방식 비교를 쓸 수 있어요)")
     if policy.stop_on_warnings and delta.warnings:

@@ -74,7 +74,7 @@ from pathlib import Path
 from . import (archetypes, autorun, branches, cast, charlog, dynamics, elements, genres, illust, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
                storylines, updater, usage)
 from .llm import dump, get_llm
-from .schema import FINDING_STATUS, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
+from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 from . import abilities, atlas, findings, stattrial, foreshadows, setupchat, statwin, timeline, towngen, travel
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StoryArc
 
@@ -937,14 +937,30 @@ def _strip_fence(raw: str) -> str:
     return re.sub(r"^```(?:json)?\s*|\s*```\s*$", "", raw.strip())
 
 
+SEVERITY_ARG = {label: key for key, label in SEVERITY.items()}  # 명령줄은 '치명' 처럼 한국어로도 받는다
+
+
 def cmd_check(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     marks = [(s, fid) for s, fid in (("kept", a.keep), ("wrong", a.wrong), ("fixed", a.fixed), ("open", a.reopen)) if fid]
-    if marks:
+    if marks or a.sev:
         for status, fid in marks:
             f = findings.set_status(p.episode(a.n), fid, status, a.note, pipeline._now())
             print(f"{f.id}: {FINDING_STATUS[status]}으로 정했어요" + (f" (메모: {f.note})" if f.note else ""))
+        if a.sev:
+            fid, level = a.sev
+            level = SEVERITY_ARG.get(level, level)
+            f = findings.set_severity(p.episode(a.n), fid, level, pipeline._now())
+            print(f"{f.id}: 심각도를 {SEVERITY[level]}으로 정했어요")
         store.save(a.name, p)
+    elif a.recheck:
+        print(f"{a.n}화 {a.recheck} 지적만 다시 검수 중...")
+        res = pipeline.recheck_finding(get_llm("check"), p, a.n, a.recheck)
+        kids = pipeline.apply_recheck(p, a.n, a.recheck, res)
+        store.save(a.name, p)
+        print(f"{a.recheck}: {'풀렸어요. 고침으로 닫았어요' if res.resolved else '아직 어긋나요'}" + (f" ({res.reason})" if res.reason else ""))
+        for k in kids:
+            print(f"  새로 어긋난 곳: {findings.line(p.episode(a.n), k)}\n    {a.n}화: {k.current_quote}")
     elif a.from_json:
         report = ConsistencyReport.model_validate_json(_strip_fence(Path(a.from_json).read_text(encoding="utf-8")))
         report.episode = a.n
@@ -984,7 +1000,8 @@ def _print_issues(p: Project, n: int, closed: bool = True) -> None:
         for f in rest:
             print(f"  {findings.line(ep, f)}" + (f" (메모: {f.note})" if f.note else ""))
     if opened:
-        print(f"정하기: python -m canon check <작품> {n} --keep <id> | --wrong <id> | --fixed <id> | --reopen <id> [--note 메모]")
+        print(f"정하기: python -m canon check <작품> {n} --keep <id> | --wrong <id> | --fixed <id> | --reopen <id> [--note 메모]"
+              f" | --sev <id> 치명|보통|사소 | --recheck <id>")
 
 
 def _num(v: float | None) -> str:
@@ -1281,7 +1298,8 @@ def cmd_auto(a: argparse.Namespace) -> None:
         for e in run.log[-15:]:
             print(f"  {e.at[11:19]} [{e.ep or '-'}화] {e.message}")
         return
-    policy = autorun.Policy(check=not a.no_check, max_issues=a.max_issues, max_shift=a.max_shift,
+    policy = autorun.Policy(check=not a.no_check, max_issues=a.max_issues, ignore_minor=a.ignore_minor,
+                            stop_on_critical=not a.no_stop_critical, max_shift=a.max_shift,
                             stop_on_stage=a.stop_on_stage, stop_on_warnings=a.stop_on_warnings,
                             confirm_plots=a.confirm_plots, review_every=a.review_every,
                             hand_pick_opening=not a.auto_opening)
@@ -2144,6 +2162,8 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--fixed", metavar="ID", help="이 지적을 고침으로")
     sp.add_argument("--reopen", metavar="ID", help="이 지적을 다시 열림으로")
     sp.add_argument("--note", default=None, help="--keep · --wrong 과 함께: 왜 그런지 메모")
+    sp.add_argument("--sev", nargs=2, metavar=("ID", "LEVEL"), help="이 지적의 심각도: 치명 | 보통 | 사소 (crit | mid | low)")
+    sp.add_argument("--recheck", metavar="ID", help="이 지적만 다시 검수 (회차는 늘지 않음)")
     sp = add("stats", cmd_stats, yes=False)
     sp.add_argument("n", type=int, nargs="?")
     sp = add("run", cmd_run)
@@ -2153,6 +2173,8 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--batch", action="store_true", help="Gemini Batch API 로 (비용 절반, 단계마다 몇 분~최대 24시간)")
     sp.add_argument("--no-check", action="store_true", help="검수를 건너뜀")
     sp.add_argument("--max-issues", type=int, default=0, help="검수 어긋남이 이보다 많으면 멈춤 (기본 0)")
+    sp.add_argument("--ignore-minor", action="store_true", help="검수 어긋남을 셀 때 심각도 '사소'는 세지 않음")
+    sp.add_argument("--no-stop-critical", action="store_true", help="심각도 '치명'인 어긋남이 있어도 개수만 봄 (기본: 하나라도 있으면 멈춤)")
     sp.add_argument("--max-shift", type=float, default=0.3, help="관계 온기·신뢰가 한 화에 이보다 많이 바뀌면 멈춤 (0: 안 봄)")
     sp.add_argument("--stop-on-stage", action="store_true", help="관계 단계가 바뀌면 멈춤")
     sp.add_argument("--stop-on-warnings", action="store_true", help="상태 변경안 경고가 있으면 멈춤")

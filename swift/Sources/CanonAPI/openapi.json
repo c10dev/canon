@@ -3913,6 +3913,69 @@
     }
    }
   },
+  "/api/projects/{name}/episodes/{n}/events-done": {
+   "put": {
+    "summary": "Set Events Done",
+    "description": "집필 화면 플롯 띠의 쓴 사건 체크 (Episode.events_done). 이 화 사건 글에 있는 것만 남긴다.\n플롯 초안 화와, AI 작업 · 자동 집필이 맡은 화는 막는다 (작업이 저장하는 작품과 서로 덮지 않게).",
+    "operationId": "set_events_done",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/EventsDone"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "title": "Response Set Events Done"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/episodes/{n}/rewrite": {
    "get": {
     "summary": "Rewrite Info",
@@ -5405,7 +5468,7 @@
   "/api/projects/{name}/episodes/{n}/findings/{fid}": {
    "put": {
     "summary": "Set Finding",
-    "description": "검수 지적의 처리 상태(열림 · 고침 · 그대로 둠 · 잘못 짚음)와 메모를 정한다.",
+    "description": "검수 지적의 처리 상태(열림 · 고침 · 그대로 둠 · 잘못 짚음), 메모, 심각도를 정한다.",
     "operationId": "set_finding",
     "parameters": [
      {
@@ -5446,6 +5509,257 @@
       }
      }
     },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/episodes/{n}/findings/{fid}/fixes": {
+   "post": {
+    "summary": "Finding Fixes",
+    "description": "열린 지적 하나의 AI 고침안(2~3개, 딸린 곳 포함)을 받아 그 지적에 남긴다. 본문은 바꾸지 않는다.",
+    "operationId": "finding_fixes",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     },
+     {
+      "name": "fid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Fid"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/episodes/{n}/findings/{fid}/fixes/{k}/apply": {
+   "post": {
+    "summary": "Apply Finding Fix",
+    "description": "k 번째 고침안을 본문에 넣는다. 지적한 문장과 딸린 곳을 한 묶음으로 기록한다 (되돌리기도 묶음으로).",
+    "operationId": "apply_finding_fix",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     },
+     {
+      "name": "fid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Fid"
+      }
+     },
+     {
+      "name": "k",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "K"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FixApplyIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/episodes/{n}/fix-groups/{group}/undo": {
+   "post": {
+    "summary": "Undo Finding Fix",
+    "description": "고침안 묶음을 한 번에 되돌린다. 그 뒤에 같은 자리를 또 고친 곳은 남긴다.",
+    "operationId": "undo_finding_fix",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     },
+     {
+      "name": "group",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Group"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/episodes/{n}/findings/{fid}/recheck": {
+   "post": {
+    "summary": "Recheck Finding",
+    "description": "열린 지적 하나만 다시 검수한다. 회차는 늘지 않는다. 풀렸으면 고침으로 닫고, 고친 문장 때문에 새로 어긋난 곳은 딸린 지적으로 더한다.",
+    "operationId": "recheck_finding",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     },
+     {
+      "name": "fid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Fid"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "description": "Successful Response",
@@ -10235,6 +10549,8 @@
       "default": {
        "check": true,
        "max_issues": 0,
+       "ignore_minor": false,
+       "stop_on_critical": true,
        "max_shift": 0.3,
        "stop_on_stage": false,
        "stop_on_warnings": false,
@@ -11987,6 +12303,36 @@
       "title": "Kept Again",
       "description": "그중 그대로 둠 · 잘못 짚음으로 정해 둔 지적 (상태는 그대로)",
       "default": 0
+     },
+     "added_ids": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Added Ids",
+      "description": "이 회차에 새로 나온 지적 id"
+     },
+     "again_ids": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Again Ids",
+      "description": "이 회차가 다시 짚은 옛 지적 id"
+     },
+     "gone_ids": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Gone Ids",
+      "description": "이 회차에 문장이 사라져 고침으로 닫은 지적 id"
+     },
+     "superseded": {
+      "type": "boolean",
+      "title": "Superseded",
+      "description": "이 회차 뒤에 본문을 새 판으로 바꿨다 (화면의 '새 판' 구분선)",
+      "default": false
      }
     },
     "type": "object",
@@ -12527,6 +12873,17 @@
       "title": "Suggestion",
       "description": "고치는 방법 제안",
       "default": ""
+     },
+     "severity": {
+      "type": "string",
+      "enum": [
+       "crit",
+       "mid",
+       "low"
+      ],
+      "title": "Severity",
+      "description": "crit: 독자가 바로 알아챌 모순이거나 뒤 화 전개를 흔듦 / mid: 눈여겨 읽으면 보이는 어긋남 / low: 사소한 세부",
+      "default": "mid"
      }
     },
     "type": "object",
@@ -13105,6 +13462,14 @@
      "opening_prev": {
       "$ref": "#/components/schemas/EpisodePlot",
       "description": "1~3화 여는 방식 안을 처음 고르기 전 플롯 (되돌리기용). 되돌리면 비운다"
+     },
+     "events_done": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Events Done",
+      "description": "집필 화면 플롯 띠에서 작가가 다 썼다고 체크한 사건의 글. 사건 글을 고치면 그 체크는 풀린다. 프롬프트에 넣지 않는다"
      }
     },
     "type": "object",
@@ -13250,6 +13615,22 @@
     ],
     "title": "EpisodePlot"
    },
+   "EventsDone": {
+    "properties": {
+     "done": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Done"
+     }
+    },
+    "type": "object",
+    "required": [
+     "done"
+    ],
+    "title": "EventsDone"
+   },
    "ExampleIn": {
     "properties": {
      "scene": {
@@ -13374,6 +13755,17 @@
       "description": "고치는 방법 제안",
       "default": ""
      },
+     "severity": {
+      "type": "string",
+      "enum": [
+       "crit",
+       "mid",
+       "low"
+      ],
+      "title": "Severity",
+      "description": "crit: 독자가 바로 알아챌 모순이거나 뒤 화 전개를 흔듦 / mid: 눈여겨 읽으면 보이는 어긋남 / low: 사소한 세부",
+      "default": "mid"
+     },
      "id": {
       "type": "string",
       "title": "Id",
@@ -13414,16 +13806,57 @@
       "enum": [
        "",
        "author",
-       "recheck"
+       "recheck",
+       "one"
       ],
       "title": "Closed By",
-      "description": "author: 작가가 정함 / recheck: 다시 검수에서 문장이 사라져 고침",
+      "description": "author: 작가가 정함 / recheck: 다시 검수에서 문장이 사라져 고침 / one: 이 지적만 다시 검수해 풀림",
       "default": ""
      },
      "decided_at": {
       "type": "string",
       "title": "Decided At",
       "default": ""
+     },
+     "severity_by_author": {
+      "type": "boolean",
+      "title": "Severity By Author",
+      "description": "작가가 심각도를 바꿨다. 다시 검수해도 AI 값으로 덮지 않는다",
+      "default": false
+     },
+     "parent": {
+      "type": "string",
+      "title": "Parent",
+      "description": "딸린 지적: 이 지적을 낳은 지적 id (그 지적을 고친 문장 때문에 새로 어긋남)",
+      "default": ""
+     },
+     "fixes": {
+      "items": {
+       "$ref": "#/components/schemas/FixOption"
+      },
+      "type": "array",
+      "title": "Fixes",
+      "description": "마지막으로 받은 AI 고침안"
+     },
+     "fixes_basis": {
+      "type": "string",
+      "title": "Fixes Basis",
+      "description": "고침안을 받을 때 본문 지문 (pipeline.text_basis). 지금 본문과 다르면 오래된 고침안",
+      "default": ""
+     },
+     "fix_group": {
+      "type": "string",
+      "title": "Fix Group",
+      "description": "마지막으로 적용한 고침안의 수정 묶음 id (TextEdit.group)",
+      "default": ""
+     },
+     "log": {
+      "items": {
+       "$ref": "#/components/schemas/FindingEvent"
+      },
+      "type": "array",
+      "title": "Log",
+      "description": "처리 기록 (최근 것만)"
      }
     },
     "type": "object",
@@ -13436,6 +13869,39 @@
     "title": "Finding",
     "description": "검수 세션에 남는 지적 하나. 다시 검수해도 작가가 정한 상태와 메모를 지킨다 (findings.merge).\nLLM 이 채우지 않는다."
    },
+   "FindingEvent": {
+    "properties": {
+     "at": {
+      "type": "string",
+      "title": "At",
+      "default": ""
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "found",
+       "again",
+       "gone",
+       "author",
+       "fix",
+       "undo",
+       "recheck"
+      ],
+      "title": "Kind"
+     },
+     "text": {
+      "type": "string",
+      "title": "Text",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "kind"
+    ],
+    "title": "FindingEvent",
+    "description": "지적의 처리 기록 한 줄 (화면의 처리 기록)."
+   },
    "FindingIn": {
     "properties": {
      "status": {
@@ -13446,19 +13912,109 @@
        "kept",
        "wrong"
       ],
-      "title": "Status"
+      "title": "Status",
+      "description": "처리 상태. 비우면(null) 그대로 둔다"
      },
      "note": {
       "type": "string",
       "title": "Note",
       "description": "작가 메모. 비우면(null) 그대로 둔다"
+     },
+     "severity": {
+      "type": "string",
+      "enum": [
+       "crit",
+       "mid",
+       "low"
+      ],
+      "title": "Severity",
+      "description": "심각도. 비우면(null) 그대로 둔다. 작가가 정하면 다시 검수해도 덮지 않는다"
+     }
+    },
+    "type": "object",
+    "title": "FindingIn"
+   },
+   "FixApplyIn": {
+    "properties": {
+     "skip": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Skip",
+      "description": "넣지 않을 딸린 곳 번호 (0부터)"
+     },
+     "confirm": {
+      "type": "boolean",
+      "title": "Confirm",
+      "description": "그대로 둠 · 잘못 짚음 지적의 문장도 바꾸는 줄 알고 적용한다",
+      "default": false
+     }
+    },
+    "type": "object",
+    "title": "FixApplyIn"
+   },
+   "FixOption": {
+    "properties": {
+     "label": {
+      "type": "string",
+      "title": "Label",
+      "description": "고침안 이름 2~8자 (예: 오른손으로 바꾸기)"
+     },
+     "text": {
+      "type": "string",
+      "title": "Text",
+      "description": "지적한 문장(current_quote)을 대신할 새 글. 앞뒤 본문은 되풀이하지 않는다"
+     },
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "description": "무엇을 어떻게 바꿨는지 한 줄",
+      "default": ""
+     },
+     "extra": {
+      "items": {
+       "$ref": "#/components/schemas/FixPatch"
+      },
+      "type": "array",
+      "title": "Extra",
+      "description": "이 고침 때문에 함께 바꿔야 하는 이 화의 다른 문장. 없으면 빈 목록"
      }
     },
     "type": "object",
     "required": [
-     "status"
+     "label",
+     "text"
     ],
-    "title": "FindingIn"
+    "title": "FixOption",
+    "description": "지적 하나의 고침안: 지적한 문장을 대신할 글과, 그 때문에 함께 고칠 이 화의 다른 문장."
+   },
+   "FixPatch": {
+    "properties": {
+     "quote": {
+      "type": "string",
+      "title": "Quote",
+      "description": "함께 바꿀 이 화 본문 문장을 원문 그대로 (한두 문장)"
+     },
+     "replacement": {
+      "type": "string",
+      "title": "Replacement",
+      "description": "고침안과 맞게 최소로 고친 문장"
+     },
+     "reason": {
+      "type": "string",
+      "title": "Reason",
+      "description": "왜 함께 바꿔야 하는지 한 문장",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "quote",
+     "replacement"
+    ],
+    "title": "FixPatch",
+    "description": "고침안이 함께 고치는 이 화의 다른 문장 하나 (딸린 곳)."
    },
    "Foreshadow": {
     "properties": {
@@ -15781,6 +16337,18 @@
       "title": "Max Issues",
       "description": "검수에서 나온 어긋남이 이 개수를 넘으면 멈춤",
       "default": 0
+     },
+     "ignore_minor": {
+      "type": "boolean",
+      "title": "Ignore Minor",
+      "description": "어긋남 개수를 셀 때 심각도 '사소'는 세지 않음",
+      "default": false
+     },
+     "stop_on_critical": {
+      "type": "boolean",
+      "title": "Stop On Critical",
+      "description": "심각도 '치명'인 어긋남이 하나라도 있으면 멈춤 (max_issues 와 상관없이)",
+      "default": true
      },
      "max_shift": {
       "type": "number",
@@ -20065,11 +20633,18 @@
        "manual",
        "ai",
        "typed",
-       "impact"
+       "impact",
+       "fix"
       ],
       "title": "Source",
-      "description": "manual: 고른 부분을 직접 고침 / ai: AI 후보를 고름 / typed: 본문을 직접 고쳐 저장 / impact: 인과율 영향 분석의 본문 수정",
+      "description": "manual: 고른 부분을 직접 고침 / ai: AI 후보를 고름 / typed: 본문을 직접 고쳐 저장 / impact: 인과율 영향 분석의 본문 수정 / fix: 검수 지적의 고침안",
       "default": "manual"
+     },
+     "group": {
+      "type": "string",
+      "title": "Group",
+      "description": "한 번에 넣은 수정 묶음 id (검수 고침안의 주 문장과 딸린 곳). 되돌리기도 묶음으로 한다",
+      "default": ""
      },
      "start": {
       "type": "integer",

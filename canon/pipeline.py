@@ -5,6 +5,7 @@ from . import dynamics, elements, illust, metrics, naming, prompts, renumber, se
 from .judge import Judge, Question
 from .llm import LLM, dump
 from . import charlog, features, findings, foreshadows, statwin, timeline
+from .schema import Finding, FindingRecheck, FixOption, FixPatch, FixSet
 from .schema import (
     Act,
     ArcEdit,
@@ -2369,6 +2370,7 @@ def _delete_last(p: Project, n: int, keep_plot: bool) -> list[str]:
     ep.edits, ep.hook, ep.illustrations = [], None, []
     findings.clear(ep)
     ep.candidate, ep.versions, ep.made_by, ep.time = None, [], None, StoryTime()
+    ep.events_done = []  # 본문이 없으니 쓴 사건 체크도 비운다
     p.foreshadow_clues = [c for c in p.foreshadow_clues if c.episode != n]  # 지운 본문 문장에 건 복선 근거
     p.chats = [c for c in p.chats if c.topic != f"text:{n}"]
     if chars:
@@ -2552,7 +2554,7 @@ def set_candidate(p: Project, n: int, text: str, req: RewriteRequest) -> TextVer
 
 
 def replace_text(ep: Episode, text: str, made_by: RewriteRequest | None = None) -> None:
-    """지금 본문을 versions 에 남기고 text 로 바꾼다. 검수 결과는 지난 판 것이라 지운다.
+    """지금 본문을 versions 에 남기고 text 로 바꾼다. 검수 결과는 지난 판 것이라 결정한 지적만 남긴다 (findings.new_version).
     상태 반영이 끝난 화는 반영을 그대로 두고 before_change 로 반영 뒤 고침만 표시한다."""
     done = ep.status == "finalized"
     if text == ep.text:
@@ -2562,7 +2564,7 @@ def replace_text(ep: Episode, text: str, made_by: RewriteRequest | None = None) 
         _keep_version(ep, TextVersion(id=_version_id(ep), at=_now(), text=ep.text, kind="previous", request=ep.made_by))
     before_change(ep)
     ep.text, ep.made_by, ep.status = text, made_by, "finalized" if done else "written"
-    findings.clear(ep)
+    findings.new_version(ep)
 
 
 def adopt_candidate(p: Project, n: int) -> None:
@@ -3080,6 +3082,137 @@ def apply_check(p: Project, r: ConsistencyReport, source: CheckSource = "api", w
     if not ep.text:
         raise ValueError(f"{r.episode}화 본문이 없어요")
     return findings.merge(ep, r.issues, _now(), text_basis(ep.text), source, widen)
+
+
+# ---------- 5-0. 검수 지적 고치기: 고침안, 묶음 적용 · 되돌리기, 지적 하나 다시 검수 ----------
+# 고침안 하나는 지적한 문장과, 그 고침 때문에 함께 고칠 이 화의 다른 문장(딸린 곳)의 묶음이다. 한 번에 넣고 한 번에 되돌린다.
+# 지적 하나만 다시 검수하면 회차는 늘지 않고, 고친 문장 때문에 새로 어긋난 곳은 딸린 지적이 된다 (findings.settle).
+
+FIX_OPTIONS = 3  # 고침안 수
+
+
+def _open_finding(p: Project, n: int, fid: str) -> tuple[Episode, Finding]:
+    ep = _editable(p, n)
+    f = findings.find(ep, fid)
+    if f.status != "open":
+        raise ValueError(f"{fid}는 열린 지적이 아니에요. 다시 연 뒤에 하세요")
+    return ep, f
+
+
+def _decided(ep: Episode) -> list[Finding]:
+    return [g for g in ep.findings if g.status in findings.DECIDED]
+
+
+def clean_fixes(ep: Episode, f: Finding, fs: FixSet) -> list[FixOption]:
+    """쓸 수 없는 고침안과 딸린 곳을 뺀다: 빈 글, 원문과 같은 글, 겹치는 안, 본문에 없는 딸린 문장,
+    지적한 문장이나 다른 딸린 곳과 겹치는 딸린 곳."""
+    quote = f.current_quote.strip()
+    out: list[FixOption] = []
+    for o in fs.options:
+        text = o.text.strip()
+        if not text or text == quote or any(text == y.text for y in out):
+            continue
+        extra: list[FixPatch] = []
+        for x in o.extra:
+            q, rep = x.quote.strip(), x.replacement.strip()
+            if not q or q not in ep.text or rep == q or (quote and (q in quote or quote in q)):
+                continue
+            if any(q in y.quote or y.quote in q for y in extra):
+                continue
+            extra.append(FixPatch(quote=q, replacement=rep, reason=x.reason.strip()))
+        out.append(FixOption(label=o.label.strip() or f"고침안 {len(out) + 1}", text=text, note=o.note.strip(), extra=extra))
+    return out[:FIX_OPTIONS]
+
+
+def propose_fixes(llm: LLM, p: Project, n: int, fid: str) -> list[FixOption]:
+    """열린 지적 하나의 고침안을 받는다. 저장하지 않는다 (store_fixes 가 지적에 남긴다)."""
+    ep, f = _open_finding(p, n, fid)
+    if not f.current_quote.strip() or f.current_quote.strip() not in ep.text:
+        raise ValueError("지적한 문장을 지금 본문에서 찾을 수 없어요. 이미 고쳤으면 이 지적만 다시 검수하세요")
+    fs = llm.json(prompts.reviser_system(p), prompts.fix_prompt(p, n, f, _decided(ep)), FixSet,
+                  hint={"episode": n, "quote": f.current_quote, "text": ep.text})
+    opts = clean_fixes(ep, f, fs)
+    if not opts:
+        raise ValueError("쓸 수 있는 고침안이 없었어요. 다시 받거나 직접 고치세요")
+    return opts
+
+
+def store_fixes(p: Project, n: int, fid: str, opts: list[FixOption]) -> Finding:
+    """받은 고침안을 지적에 남긴다. 지금 본문 지문을 함께 남겨, 본문이 바뀌면 화면이 오래된 안으로 보인다."""
+    ep = p.episode(n)
+    f = findings.find(ep, fid)
+    f.fixes, f.fixes_basis = opts, text_basis(ep.text)
+    findings.log(f, _now(), "fix", f"고침안 {len(opts)}개 받음")
+    return f
+
+
+def _group_id(ep: Episode) -> str:
+    nums = [int(e.group[1:]) for e in ep.edits if e.group[1:].isdigit()]
+    return f"x{max(nums, default=0) + 1}"
+
+
+def apply_fix(p: Project, n: int, fid: str, k: int, skip: list[int] | None = None, confirm: bool = False) -> list[TextEdit]:
+    """k 번째 고침안을 넣는다: 지적한 문장과, skip 에 없는 딸린 곳을 한 묶음(TextEdit.group)으로.
+    작가가 그대로 둠 · 잘못 짚음으로 정한 지적의 문장을 바꾸면 confirm 없이는 막는다.
+    지적 상태는 바꾸지 않는다 (이 지적만 다시 검수가 닫는다)."""
+    ep, f = _open_finding(p, n, fid)
+    if not 0 <= k < len(f.fixes):
+        raise KeyError(f"{fid}에 {k + 1}번 고침안이 없어요")
+    opt = f.fixes[k]
+    skip = set(skip or [])
+    chosen = opt.model_copy(update={"extra": [x for i, x in enumerate(opt.extra) if i not in skip]})
+    patches = [(f.current_quote.strip(), opt.text), *((x.quote, x.replacement) for x in chosen.extra)]
+    missing = [q for q, _ in patches if q not in ep.text]
+    if missing:
+        raise ValueError(f"고침안을 받은 뒤 본문이 바뀌어 «{missing[0][:30]}»을 찾을 수 없어요. 고침안을 다시 받으세요")
+    hit = [g.id for g in ep.findings if g.id in findings.touches(ep, f, chosen) and g.status in findings.DECIDED]
+    if hit and not confirm:
+        raise ValueError(f"이 고침안은 그대로 두기로 정한 지적({', '.join(hit)})의 문장도 바꿔요. 그래도 적용하려면 확인하고 다시 적용하세요")
+    group = _group_id(ep)
+    edits = []
+    for q, after in patches:
+        e = edit_text(p, n, Selection(start=ep.text.find(q), text=q), after, "fix", instruction=f"{fid} · {opt.label}")
+        e.group = group
+        edits.append(e)
+    f.fix_group = group
+    findings.log(f, _now(), "fix", f"고침안 적용 · {opt.label}" + (f" · 딸린 곳 {len(patches) - 1}곳 함께" if len(patches) > 1 else ""))
+    return edits
+
+
+def undo_fix(p: Project, n: int, group: str) -> tuple[list[TextEdit], list[TextEdit]]:
+    """고침안 묶음을 한 번에 되돌린다. 그 뒤에 같은 자리를 또 고친 곳은 남긴다. (되돌린 것, 남긴 것)."""
+    ep = _editable(p, n)
+    es = [e for e in ep.edits if e.group == group and not e.undone]
+    if not es:
+        raise KeyError(f"되돌릴 고침안 묶음이 없어요: {group}")
+    done, left = [], []
+    for e in reversed(es):
+        try:
+            undo_edit(p, n, e.id)
+            done.append(e)
+        except ValueError:
+            left.append(e)
+    if not done:
+        raise ValueError("고침안을 넣은 뒤 같은 자리를 또 고쳐 되돌릴 수 없어요")
+    for f in ep.findings:
+        if f.fix_group == group:
+            f.fix_group = ""
+            findings.log(f, _now(), "undo", "고침안 되돌림" + (f" · {len(left)}곳은 그 뒤에 또 고쳐 남김" if left else ""))
+    return done, left
+
+
+def recheck_finding(llm: LLM, p: Project, n: int, fid: str) -> FindingRecheck:
+    """열린 지적 하나만 다시 묻는다. 저장하지 않는다 (apply_recheck). 작가가 그 지적 때문에 넣은 고침안 묶음을 함께 보인다."""
+    ep, f = _open_finding(p, n, fid)
+    changes = [(e.before, e.after) for e in ep.edits if f.fix_group and e.group == f.fix_group and not e.undone]
+    return llm.json(prompts.SYSTEM_CHECKER, prompts.recheck_prompt(p, n, f, changes, _decided(ep)), FindingRecheck,
+                    hint={"episode": n, "quote": f.current_quote, "text": ep.text})
+
+
+def apply_recheck(p: Project, n: int, fid: str, res: FindingRecheck) -> list[Finding]:
+    """지적 하나만 다시 검수한 결과를 넣는다 (findings.settle). 새로 생긴 딸린 지적을 돌려준다."""
+    ep = p.episode(n)
+    return findings.settle(ep, findings.find(ep, fid), res, _now())
 
 
 def style_baseline(p: Project) -> metrics.StyleMetrics:

@@ -45,7 +45,7 @@ function autoDefaults() {
     target: Math.max(lastPlot, autoFirstOpen()),  // 플롯이 있는 마지막 화까지. 다 반영했으면 고를 수 있는 첫 화
     batch: last ? last.batch : false,
     policy: last ? { ...last.policy } : {
-      check: true, max_issues: 0, max_shift: 0.3, stop_on_stage: false, stop_on_warnings: false, confirm_plots: false, review_every: 0, hand_pick_opening: true,
+      check: true, max_issues: 0, ignore_minor: false, stop_on_critical: true, max_shift: 0.3, stop_on_stage: false, stop_on_warnings: false, confirm_plots: false, review_every: 0, hand_pick_opening: true,
     },
   };
 }
@@ -221,6 +221,10 @@ function autoPolicyForm(f, disabled, bind = 'auto') {
       <div class="field"><label for="${id('shift')}">관계가 크게 움직이면 멈추기</label><select id="${id('shift')}" data-${bind}="policy.max_shift"${dis}>${opts(AUTO_SHIFT, p.max_shift)}</select></div>
     </div>
     <div class="grid-2">
+      ${chk('stop_on_critical', '치명적인 어긋남이 있으면 멈추기', '위 개수와 상관없이, 검수가 치명으로 본 곳이 하나라도 있으면 멈춰요')}
+      ${chk('ignore_minor', '사소한 어긋남은 세지 않기', '물건 색처럼 사소한 곳은 위 개수에 넣지 않아요. 켜면 덜 멈추지만 작은 어긋남이 쌓일 수 있어요')}
+    </div>
+    <div class="grid-2">
       ${chk('stop_on_stage', '관계 단계가 바뀌면 멈추기', '호감 → 신뢰, 신뢰 → 균열처럼 관계의 단계가 바뀔 때')}
       ${chk('stop_on_warnings', '상태 변경안에 경고가 있으면 멈추기', '플롯 사건 누락, 설정이나 말투 위반을 AI가 적었을 때')}
       ${chk('hand_pick_opening', '1~3화는 반영하기 전에 멈추기', '독자가 계속 읽을지 정하는 초반 화라 직접 읽고, 필요하면 여는 방식을 비교해 고르세요')}
@@ -306,7 +310,7 @@ function autoAppliedCard(active, r) {
   // 로그에만 남는 문체 · 초반 경고를 화별로 센다 (autorun._write 가 'N화 본문' 다음에 남긴다)
   const style = {};
   for (const x of (r && r.log) || []) if (x.level === 'warn' && x.ep && /^(문체|초반):/.test(x.message)) style[x.ep] = (style[x.ep] || 0) + 1;
-  const rows = auto.map((e) => `<li class="row"><a href="${base()}/write/${e.plot.number}"><strong>${e.plot.number}화</strong> ${esc(e.plot.title)}</a><span class="row" style="gap:6px">${checkState(e).open ? `<a class="chip written" href="${base()}/check/${e.plot.number}" title="검수 화면에서 보기">열린 지적 ${checkState(e).open}</a>` : ''}${style[e.plot.number] ? `<span class="chip written" title="진행 로그의 문체 · 초반 경고">문체 경고 ${style[e.plot.number]}</span>` : ''}${active ? '' : `<button class="btn small" data-action="autoRevert" data-arg="${e.plot.number}">${e.plot.number}화부터 반영 취소</button>`}</span></li>`).join('');
+  const rows = auto.map((e) => `<li class="row"><a href="${base()}/write/${e.plot.number}"><strong>${e.plot.number}화</strong> ${esc(e.plot.title)}</a><span class="row" style="gap:6px">${checkState(e).open ? `<span class="chip warn">열린 지적 ${checkState(e).open}</span><a class="btn small" href="${base()}/check/${e.plot.number}">검수에서 보기</a>` : ''}${style[e.plot.number] ? `<span class="chip written" title="진행 로그의 문체 · 초반 경고">문체 경고 ${style[e.plot.number]}</span>` : ''}${active ? '' : `<button class="btn small" data-action="autoRevert" data-arg="${e.plot.number}">${e.plot.number}화부터 반영 취소</button>`}</span></li>`).join('');
   const only = withOpen.length ? `<button type="button" class="btn small" aria-pressed="${!!S.autoOpenOnly}" data-action="autoOpenOnly">열린 지적이 남은 화만 · ${withOpen.length}</button>` : '';
   return `<section class="card"><div class="between"><h2>검토 없이 반영한 화</h2><span class="row" style="gap:8px">${only}<span class="small">${all.length}화</span></span></div>
     <p class="desc">읽어 보고 문제가 있으면 그 화부터 반영을 취소하세요. 그 화 직전 상태로 돌아가고, 본문은 남아 상태 승인부터 다시 할 수 있어요.</p>
