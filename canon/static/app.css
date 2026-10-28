@@ -467,7 +467,8 @@ body.chat-open .savebar { left: calc(50% - 220px); }
   body.chat-open .side .work-card > :is(.work-strip, .meter) { flex: 0 1 140px; min-width: 80px; }
   body.chat-open .side .work-strip i { height: 10px; }
   body.chat-open .side .work-count { display: block; flex: none; white-space: nowrap; }
-  body.chat-open .side .work-next { flex: 0 1 auto; min-width: 0; white-space: nowrap; }
+  body.chat-open .side .work-next { display: block; flex: 0 1 auto; min-width: 0; min-height: 0; line-height: 32px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  body.chat-open .side .work-next > [aria-hidden] { margin-left: 4px; }
   body.chat-open .menu-toggle { display: inline-flex; order: 2; }
   body.chat-open .side-menu { display: none; order: 3; flex: 1 1 100%; flex-direction: column; gap: 12px; }
   body.chat-open .side.open .side-menu { display: flex; }
