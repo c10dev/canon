@@ -691,9 +691,9 @@ python -m canon brief 등대 3 --check    # 검수 지시서 → 받은 JSON 은
 
 받은 검수 JSON 도 API 검수처럼 회차 하나로 합친다(아래 '검수 세션').
 
-## Swift 앱 (준비 중)
+## Swift 앱 (개발 멈춤)
 
-`swift/` 에 macOS · iPad · iPhone 용 SwiftUI 앱을 만들고 있다. 앱은 이 서버에 붙는 클라이언트라 서버를 먼저 띄운다 (위 '서버에서 상시 실행'의 Tailscale 주소를 앱에 적는다). 지금은 작품 목록만 옮겼고 나머지 화면은 웹에서 쓴다. 모듈 구조, 빌드 명령, 화면 옮기는 순서는 [swift/README.md](swift/README.md).
+`swift/` 에 macOS · iPad · iPhone 용 SwiftUI 앱을 만들다가 2026-10-28 에 멈췄다. 웹 화면에 먼저 집중한다. 그동안 서버 API 가 바뀌어도 앱의 명세(`openapi.json`)는 따라가지 않는다. 앱은 이 서버에 붙는 클라이언트라 서버를 먼저 띄운다 (위 '서버에서 상시 실행'의 Tailscale 주소를 앱에 적는다). 지금은 작품 목록만 옮겼고 나머지 화면은 웹에서 쓴다. 모듈 구조, 빌드 명령, 화면 옮기는 순서는 [swift/README.md](swift/README.md).
 
 
 ## 파일 구조
