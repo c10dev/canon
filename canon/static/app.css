@@ -978,6 +978,13 @@ ul.cast-ul:has(> .cast-ev) { list-style: none; padding-left: 0; }
 .hl-wrap { position: relative; max-width: 760px; margin: 0 auto; }
 .hl-wrap textarea { position: relative; z-index: 1; }
 .hl-layer { position: absolute; top: 0; left: 0; z-index: 0; overflow: hidden; color: transparent; pointer-events: none; }
+/* 밑줄 칸은 본문 칸 스크롤 타임라인으로 따라간다 (그리기 스레드라 늦지 않음). --hl-max 는 marks.js paintLayer 가 준다. 안 되는 브라우저는 marks.js 가 scrollTop 으로 맞춘다 */
+@supports (animation-timeline: --hl-ta) and (timeline-scope: --hl-ta) {
+  .hl-wrap { timeline-scope: --hl-ta; }
+  .hl-wrap textarea { scroll-timeline: --hl-ta block; }
+  .hl-in { animation: hl-follow auto linear both; animation-timeline: --hl-ta; }
+}
+@keyframes hl-follow { from { transform: translateY(0); } to { transform: translateY(calc(-1 * var(--hl-max, 0px))); } }
 mark.hl { color: inherit; background: none; border-radius: 2px; text-decoration: underline 2px; text-underline-offset: 4px; text-decoration-skip-ink: none; }
 mark.hl.device { background: var(--accent-soft); text-decoration-color: var(--accent); }
 mark.hl.rest { background: var(--amber-soft); text-decoration-color: var(--amber); }
@@ -999,6 +1006,7 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
 
 /* ----- 좁은 폭 셸: 900px 이하에서 사이드바를 위쪽 막대로 줄이고 '메뉴'로 펼친다 ----- */
 .menu-toggle { display: none; }
+.side .menu-toggle { min-height: 44px; min-width: 44px; }  /* 위 띠(좁은 폭, 대화 패널을 연 중간 폭)의 '찾기' · '메뉴'는 같은 크기, 손가락 누름 영역 44px */
 .side-menu { display: flex; flex-direction: column; gap: 22px; flex: 1; }
 @media (max-width: 900px) {
   .shell { flex-direction: column; flex-wrap: nowrap; }
