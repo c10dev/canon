@@ -16,7 +16,8 @@ Object.assign(S, {
 
 // 서버 schema.FINDING_STATUS 와 같은 이름
 const FINDING_STATUS = { open: '열림', fixed: '고침', kept: '그대로 둠', wrong: '잘못 짚음' };
-const FINDING_CHIP = { open: 'written', fixed: 'finalized', kept: 'confirmed', wrong: 'draft' };
+// 칩 색: 열린 지적만 '사람이 볼 것'(.chip.warn). 화 상태 칩(draft · confirmed · written · finalized)은 빌려 쓰지 않는다 (디자인 시스템 Chip)
+const FINDING_CHIP = { open: 'warn', fixed: '', kept: '', wrong: '' };
 const FINDING_FLAG = { changed: '문장 바뀜', miss: '이번 회차에서 안 짚음', gone: '다시 검수에서 사라짐', again: '다시 나옴 · 결정 그대로' };
 
 /** 지적 옆 표시. findings.merge 가 남긴 칸(first · last · closed_by)과 지금 본문(저장 전 글 포함)으로 센다. */
@@ -80,11 +81,11 @@ function chkStrip(n, e, st) {
   const last = rounds[rounds.length - 1];
   const count = (k) => (k === 'all' ? e.findings.length : e.findings.filter((f) => f.status === k).length);
   const filters = [['open', '열림'], ['fixed', '고침'], ['kept', '그대로 둠'], ['wrong', '잘못 짚음'], ['all', '모두']]
-    .map(([k, l]) => `<button type="button" class="btn small" aria-pressed="${S.chkFilter === k}" data-action="chkFilter" data-arg="${k}">${l} ${count(k)}</button>`).join('');
+    .map(([k, l]) => `<button type="button" aria-pressed="${S.chkFilter === k}" data-action="chkFilter" data-arg="${k}">${l} ${count(k)}</button>`).join('');
   const from = { chat: ' · 채팅 앱', auto: ' · 자동 집필' };
   const chips = rounds.slice(-4).map((r) => `<span class="chk-round${r === last ? ' last' : ''}">${r.no}회차${r.at ? ` · ${editTime(r.at)}` : ''} · 짚은 ${r.found}${r.no > 1 ? ` · 새로 ${r.added}` : ''}${r.kept_again ? ` · 결정 그대로 ${r.kept_again}` : ''}${from[r.source] || ''}${r.widen ? ' · 넓혀 찾기' : ''}</span>`).join('');
   return `<div class="chk-strip"><span class="small">회차</span><div class="row" style="gap:6px">${chips}</div>
-      <div class="row chk-filters" role="group" aria-label="처리 상태로 거르기">${filters}</div></div>
+      <div class="seg chk-filters" role="group" aria-label="처리 상태로 거르기">${filters}</div></div>
     ${st.stale ? `<div class="note warn">${last.no}회차 뒤에 본문을 고쳤어요. 고친 문장의 지적은 '문장 바뀜'으로 보여요. 고친 곳이 다른 곳과 어긋나지 않는지 보려면 다시 검수하세요.</div>` : ''}`;
 }
 
@@ -107,7 +108,7 @@ const chkTabNow = (n, e) => (chkTabs(n, e).some(([k]) => k === S.chkTab) ? S.chk
 function chkList(n, e, text, sel, checkBtn) {
   const tabs = chkTabs(n, e);
   const tab = chkTabNow(n, e);
-  const head = `<div class="tabs chk-tabs" role="tablist" aria-label="검수 종류">${tabs.map(([k, l]) => `<button type="button" role="tab" aria-selected="${tab === k}" data-action="chkTab" data-arg="${k}">${l}</button>`).join('')}</div>`;
+  const head = `<div class="tabs wrap" role="tablist" aria-label="검수 종류">${tabs.map(([k, l]) => `<button type="button" role="tab" id="chk-tab-${k}" aria-selected="${tab === k}" aria-controls="chk-panel" data-action="chkTab" data-arg="${k}">${l}</button>`).join('')}</div>`;
   let body;
   if (tab === 'opening') body = openingChecks(n);
   else if (tab === 'style') body = chkStyleBox(n);
@@ -118,12 +119,12 @@ function chkList(n, e, text, sel, checkBtn) {
     body = list.length ? `<ul class="chk-list">${list.map((f) => {
       const flag = findingFlag(e, f, text);
       return `<li><button type="button" class="chk-item${f.status === 'open' ? '' : ' done'}" aria-current="${f.id === sel}" data-action="chkSel" data-arg="${esc(f.id)}">
-        <span class="row" style="gap:4px"><span class="chip">${esc(f.type)}</span><span class="chip ${FINDING_CHIP[f.status]}">${FINDING_STATUS[f.status]}</span>${flag ? `<span class="chip chk-flag">${FINDING_FLAG[flag]}</span>` : ''}</span>
+        <span class="row" style="gap:4px"><span class="chip">${esc(f.type)}</span><span class="chip ${FINDING_CHIP[f.status]}">${FINDING_STATUS[f.status]}</span>${flag ? `<span class="chip${flag === 'changed' ? ' warn' : ''}">${FINDING_FLAG[flag]}</span>` : ''}</span>
         <span class="chk-desc">${esc(f.description)}</span><span class="small">근거 · ${esc(srcLabel(n, f))}</span></button></li>`;
     }).join('')}</ul>`
       : `<div class="empty" style="padding:16px 8px"><p class="small">${S.chkFilter === 'open' ? '열린 지적이 없어요. 상태 승인으로 넘어가도 돼요.' : '이 상태의 지적이 없어요.'}</p></div>`;
   }
-  return `<section class="card tight c-list" aria-label="검수 결과">${head}${body}</section>`;
+  return `<section class="card tight c-list" aria-label="검수 결과">${head}<div role="tabpanel" id="chk-panel" aria-labelledby="chk-tab-${tab}" class="chk-panel">${body}</div></section>`;
 }
 
 function chkDetail(n, e, text, sel) {
@@ -134,7 +135,7 @@ function chkDetail(n, e, text, sel) {
   const can = editableEp(e) && !autoOn();
   const key = `${n}:${f.id}`;
   if (S.chkNoteFor !== key) { S.chkNoteFor = key; S.chkNote = f.note || ''; }
-  const seg = Object.entries(FINDING_STATUS).map(([k, l]) => `<button type="button" class="btn small" aria-pressed="${f.status === k}" data-action="setFinding" data-arg="${esc(f.id)}:${k}"${autoOn() ? ' disabled' : ''}>${l}</button>`).join('');
+  const seg = Object.entries(FINDING_STATUS).map(([k, l]) => `<button type="button" aria-pressed="${f.status === k}" data-action="setFinding" data-arg="${esc(f.id)}:${k}"${autoOn() ? ' disabled' : ''}>${l}</button>`).join('');
   const src = f.source_episode && f.source_episode !== n ? `<a href="${base()}/write/${f.source_episode}">${f.source_episode}화</a>` : esc(srcLabel(n, f));
   const decided = f.status === 'kept' || f.status === 'wrong';
   return `<section class="card tight c-detail" aria-label="지적 상세">
@@ -144,7 +145,7 @@ function chkDetail(n, e, text, sel) {
     ${f.source_quote ? `<div class="field"><span class="small">근거 · ${src}</span><blockquote class="chk-quote">${esc(f.source_quote)}</blockquote></div>` : ''}
     ${f.suggestion ? `<div class="field"><span class="small">고칠 방향</span><div style="font-size:0.8125rem;line-height:1.55">→ ${esc(f.suggestion)}</div></div>` : ''}
     ${found && can ? `<div class="row"><button type="button" class="btn small" data-action="selectIssue" data-arg="${esc(f.id)}">이 문장 고르기</button>${f.suggestion ? `<button type="button" class="btn small" data-action="issueAsk" data-arg="${esc(f.id)}">고칠 방향으로 AI에게</button>` : ''}</div>` : ''}
-    <div class="field"><span class="small">처리</span><div class="chk-seg" role="group" aria-label="처리 상태">${seg}</div></div>
+    <div class="field"><span class="small">처리</span><div class="seg chk-seg" role="group" aria-label="처리 상태">${seg}</div></div>
     ${decided ? `<div class="field"><label class="small" for="chk-note">왜 ${FINDING_STATUS[f.status]}인지 적어 두면 다시 나와도 바로 알아볼 수 있어요</label>
       <textarea id="chk-note" rows="2" data-local="chkNote">${esc(S.chkNote)}</textarea>
       <div><button type="button" class="btn small" data-action="saveFindingNote" data-arg="${esc(f.id)}">메모 저장</button></div></div>` : ''}
@@ -159,11 +160,14 @@ function viewCheck(n) {
   const rounds = e.rounds || [];
   const last = rounds[rounds.length - 1];
   const b = jobBtn('check', n, last ? `다시 검수 · ${last.no + 1}회차` : '검수하기');
-  const checkBtn = `<button class="btn${!last || st.stale ? ' primary' : ''}" data-action="checkEp" data-arg="${n}"${e.text && !autoOn() ? b.attr : ' disabled'}>${b.label}</button>`;
+  // 주 버튼은 한 화면에 하나, 머리 줄 오른쪽 끝에 둔다 (디자인 시스템 Button). 검수 전에는 빈 목록의 '검수하기'가 주 버튼이라 머리에 두지 않는다
+  const checkPrimary = !last || st.stale;
+  const checkBtn = `<button class="btn${checkPrimary ? ' primary' : ''}" data-action="checkEp" data-arg="${n}"${e.text && !autoOn() ? b.attr : ' disabled'}>${b.label}</button>`;
   const toReview = e.status === 'written'
-    ? `<a class="btn${last && !st.stale ? ' primary' : ''}" href="${base()}/review/${n}">상태 승인으로${st.open ? ` · 열린 지적 ${st.open}` : ''}</a>`
-    : e.status === 'finalized' ? nextStepBtn() : '';
-  const right = e.text ? `${serial() ? widenToggle() : ''}${S.mode === 'brief' ? `<a class="btn" href="${base()}/brief/${n}" data-action="openCheckBrief" data-arg="${n}">검수 지시서</a>` : ''}${checkBtn}${toReview}` : '';
+    ? `<a class="btn${checkPrimary ? '' : ' primary'}" href="${base()}/review/${n}">상태 승인으로${st.open ? ` · 열린 지적 ${st.open}` : ''}</a>`
+    : e.status === 'finalized' && !checkPrimary ? nextStepBtn() : '';  // 반영 끝난 화도 검수가 지금 할 일이면 다음 할 일 버튼은 두지 않는다
+  const lead = `${serial() ? widenToggle(false) : ''}${S.mode === 'brief' ? `<a class="btn" href="${base()}/brief/${n}" data-action="openCheckBrief" data-arg="${n}">검수 지시서</a>` : ''}`;
+  const right = !e.text ? '' : !last ? lead + toReview : checkPrimary ? lead + toReview + checkBtn : lead + checkBtn + toReview;
   const head = `<header class="page-head"><div class="row" style="gap:12px">${epNav('check', n)}<div class="lead" style="gap:2px"><div class="eyebrow">5단계 ${stepLabel('check')} · ${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span>${stepBar(e)}</div><div class="row">${right}</div></header>
     ${autoLockNote()}`;
   if (!e.text) {
