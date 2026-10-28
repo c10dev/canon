@@ -75,11 +75,11 @@ function viewWrite(n) {
     ${e.text && editable ? chatButton(`text:${n}`) : ''}
     ${e.text && editable && (isApi || e.status === 'finalized') ? `${((b) => `<button class="btn${S.rwOpen === n ? ' on' : ''}" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${b.attr}>${b.label}</button>`)(jobBtn('write', n, '다시 생성'))}` : ''}
     ${editable && !isApi && e.status !== 'finalized' ? `<a class="btn" href="${base()}/brief/${n}">작업지시서</a>` : ''}
-    ${toCheck ? `<a class="btn primary" href="${base()}/check/${n}">검수로</a>` : ''}
     ${e.status === 'written' ? `<a class="btn${toCheck ? '' : ' primary'}" href="${base()}/review/${n}">상태 승인으로</a>` : ''}
+    ${toCheck ? `<a class="btn primary" href="${base()}/check/${n}">검수로</a>` : ''}
     ${e.status === 'finalized' ? nextStepBtn() : ''}`;
 
-  return `<header class="page-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? act.name + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}${cs.open ? `<a class="chip written" href="${base()}/check/${n}" title="검수 화면에서 보기">열린 지적 ${cs.open}곳</a>` : ''}</div><div class="row">${right}</div></header>
+  return `<header class="page-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? act.name + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}${cs.open ? `<span class="chip warn">열린 지적 ${cs.open}곳</span>` : ''}</div><div class="row">${right}</div></header>
     ${e.auto ? `<div class="note info">이 화는 자동 집필이 검토 없이 반영했어요. 읽어 보고 문제가 있으면 <a href="${base()}/auto">자동 집필</a>에서 이 화부터 되돌릴 수 있어요.</div>` : ''}
     ${rebuildNote(n)}
     ${e.text ? restateNote(n) : ''}
@@ -206,10 +206,11 @@ function viewBrief(n) {
 }
 
 
-/** 장편 검수 넓히기 켜기 · 끄기 (Settings.check_widen). 작품 설정이라 자동 집필 검수도 따른다 */
-function widenToggle() {
+/** 장편 검수 넓히기 켜기 · 끄기 (Settings.check_widen). 작품 설정이라 자동 집필 검수도 따른다.
+    켜지면 `.btn.on` (디자인 시스템 Button). small 이 아니면 머리 줄의 다른 버튼과 같은 높이다 */
+function widenToggle(small = true) {
   const on = !!P().settings.check_widen;
-  return `<button type="button" class="btn small" aria-pressed="${on}" data-action="toggleWiden" title="검수 뒤 이번 화 진술마다 옛 화를 더 찾아, 처음 검수에 넣지 못한 근거가 나온 진술만 다시 물어요. 검수 호출이 2번 늘어요">넓혀 찾기 ${on ? '켜짐' : '꺼짐'}</button>`;
+  return `<button type="button" class="btn${small ? ' small' : ''}${on ? ' on' : ''}" aria-pressed="${on}" data-action="toggleWiden" title="검수 뒤 이번 화 진술마다 옛 화를 더 찾아, 처음 검수에 넣지 못한 근거가 나온 진술만 다시 물어요. 검수 호출이 2번 늘어요">넓혀 찾기 ${on ? '켜짐' : '꺼짐'}</button>`;
 }
 
 Object.assign(actions, {
