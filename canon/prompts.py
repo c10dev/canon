@@ -1637,6 +1637,18 @@ PASSAGE_PRESETS: dict[str, tuple[str, str]] = {
 PASSAGE_FULL_LIMIT = 12_000  # 본문이 이보다 짧으면 통째로 넣고, 길면 고른 부분 앞뒤만 넣는다
 PASSAGE_BEFORE, PASSAGE_AFTER = 4_000, 2_000
 PASSAGE_HISTORY = 6  # 같은 화 부분 수정 대화에서 넣는 최근 메시지 수
+# 검수 지적 · 상태 정리 경고에서 'AI에게 고치기' 로 온 요청의 머리 (passage.js 의 S.chatDraft 와 같은 글)
+PASSAGE_FIX_HEADS = ("검수 지적:", "상태 정리 경고:")
+# 모순 고치기 규칙: 검수 고침안(fix_prompt)과 부분 수정의 고치기 요청이 함께 쓴다
+MINIMAL_FIX_RULES = """- 모순을 없애는 데 필요한 낱말만 바꿉니다. 나머지 낱말 · 어순 · 문장 수 · 길이는 원래 문장 그대로 둡니다.
+- 문장이나 수식어를 새로 더하지 않습니다. 바꾼 까닭을 본문에 풀어 쓰지 않습니다 (앞서 본 것을 되짚는 말, 위치 · 높이 · 방향을 설명하는 덧붙임 금지).
+- 앞 화와는 사실만 맞춥니다. 앞 화의 문장이나 낱말을 옮겨 오지 않고, 이 화가 쓰던 낱말은 그대로 씁니다.
+- 1번은 가장 적게 고친 안입니다. 2번부터는 1번과 다른 방식으로 모순을 풉니다: 다른 낱말을 바꾸거나(위치 대신 물이 움직이는 모양 · 보이는 방향 · 시점), 다른 쪽 사실에 맞춥니다. 같은 자리의 낱말을 비슷한 말로만 바꾼 안(암반 → 바위)은 같은 안이라 내지 않습니다.
+- 다른 방식이어도 풀어 쓰지 않습니다. 어느 안도 원래 문장 길이에서 10% 넘게 늘지 않습니다.
+- note 에는 바꾼 낱말을 '전 → 후'로 적습니다."""
+PASSAGE_FIX_RULES = "- 이번 요청은 모순 고치기입니다. 후보는 2~3개입니다.\n" + MINIMAL_FIX_RULES
+PASSAGE_FREE_RULES = """- 후보는 2~3개를 서로 다른 방향으로 냅니다. note 에 무엇을 바꿨는지 한 줄로 적습니다.
+- 요청이 특정 사실이나 행동만 바꾸라는 것이면 그 부분만 고치고, 나머지 낱말 · 어순 · 문장 수는 원문 그대로 둡니다. 바꾼 까닭을 본문에 풀어 쓰지 않습니다."""
 
 
 def passage_request(message: str, preset: str) -> str:
@@ -1682,6 +1694,7 @@ def passage_prompt(p: Project, n: int, sel: Selection, message: str, preset: str
     history = "\n".join(_passage_line(m) for m in (chat.messages[-PASSAGE_HISTORY:] if chat else []))
     hits = [f"{name} {cnt}회" for name, cnt in metrics.pattern_counts(sel.text).items() if cnt] if preset == "less_ai" else []
     request = passage_request(message, preset) or "더 낫게 다듬어 주세요."
+    fix = not preset and message.strip().startswith(PASSAGE_FIX_HEADS)
     return f"""{static_context(p)}
 
 # 확정된 사실{f" (이번 화와 관련된 것만, {facts_cut}개 생략)" if facts_cut else ""}
@@ -1704,7 +1717,7 @@ def passage_prompt(p: Project, n: int, sel: Selection, message: str, preset: str
 {f"고른 부분에서 찾은 쇠맛 패턴: {', '.join(hits)}" if hits else ""}
 요구사항:
 - candidates 의 text 에는 【고칠 부분】 자리에 들어갈 글만 씁니다. 표시 기호와 앞뒤 본문은 넣지 않습니다.
-- 후보는 2~3개를 서로 다른 방향으로 냅니다. note 에 무엇을 바꿨는지 한 줄로 적습니다.
+{PASSAGE_FIX_RULES if fix else PASSAGE_FREE_RULES}
 - 첫 문장은 바로 앞 본문에, 마지막 문장은 바로 뒤 본문에 자연스럽게 이어집니다. 앞뒤에 이미 있는 내용은 되풀이하지 않습니다.
 - 작가가 요청하지 않은 사건, 사실, 인물의 행동과 결정은 바꾸지 않습니다. 확정 사실과 인물 설정을 어기지 않습니다.
 - 대사는 인물 설정의 speech_style 을 따르고, 문단은 빈 줄로 나눕니다. 마크다운 기호는 쓰지 않습니다.
@@ -2290,11 +2303,12 @@ def fix_prompt(p: Project, n: int, f: ConsistencyIssue, decided: list[Consistenc
 # 작가가 일부러 그대로 둔 문장 (바꾸지 않음)
 {_decided_text(decided)}
 
-이 지적을 풀 고침안을 2~3개 서로 다른 방향으로 내세요.
-- text 에는 '이번 화 문장' 자리에 들어갈 글만 씁니다. 앞뒤 본문은 되풀이하지 않습니다. 문체와 길이는 원래 문장과 비슷하게 둡니다.
+이 지적을 풀 고침안을 2~3개 내세요.
+- text 에는 '이번 화 문장' 자리에 들어갈 글만 씁니다. 앞뒤 본문은 되풀이하지 않습니다.
+{MINIMAL_FIX_RULES}
 - 이 고침 때문에 {n}화 안의 다른 문장도 함께 바꿔야 어긋나지 않으면 extra 에 넣습니다. quote 는 {n}화 본문 원문 그대로, replacement 는 최소로 고친 문장, reason 은 왜 함께 바꾸는지 한 문장입니다. 바꿀 곳이 없으면 extra 는 빈 목록입니다.
 - '이번 화 문장'은 extra 에 다시 넣지 않습니다. 작가가 그대로 둔 문장은 바꾸지 않습니다. 다른 화와 설정은 바꿀 수 없습니다.
-- label 은 고침안 이름 2~8자, note 는 무엇을 바꿨는지 한 줄입니다. reply 는 안들이 어떻게 다른지 한두 문장입니다."""
+- label 은 고침안 이름 2~8자입니다. reply 는 안들이 어떻게 다른지 한두 문장입니다."""
 
 
 def recheck_prompt(p: Project, n: int, f: ConsistencyIssue, changes: list[tuple[str, str]],

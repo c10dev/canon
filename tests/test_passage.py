@@ -103,3 +103,16 @@ def test_typed_diff_and_presets():
     # 검수가 장면 안 동선(앞 · 뒤, 가린 곳)도 짚고, 그 지적은 부분 수정으로 이어진다
     assert "- 동선:" in prompts.check_prompt(p, 1)
     assert ConsistencyIssue(type="동선", description="x", source_episode=1, source_quote="a", current_quote="b").type == "동선"
+
+
+def test_fix_request_keeps_wording(client):
+    """검수 지적 · 상태 정리 경고에서 온 요청은 낱말만 바꾸는 규칙을 받고, 다른 요청은 서로 다른 방향의 후보를 받는다."""
+    _written(client)
+    q = Project.model_validate(client.get("/api/projects/lh").json())
+    sel = Selection(start=0, text="바람이 불었다.")
+    for head in prompts.PASSAGE_FIX_HEADS:
+        fix = prompts.passage_prompt(q, 1, sel, f"{head} 80화와 위치가 다르다 → 벽면으로")
+        assert prompts.PASSAGE_FIX_RULES in fix and prompts.PASSAGE_FREE_RULES not in fix
+    free = prompts.passage_prompt(q, 1, sel, "벽면으로 바꿔 줘")
+    assert prompts.PASSAGE_FREE_RULES in free and prompts.PASSAGE_FIX_RULES not in free
+    assert prompts.PASSAGE_FIX_RULES not in prompts.passage_prompt(q, 1, sel, "검수 지적: x", "longer")
