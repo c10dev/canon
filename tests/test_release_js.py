@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from canon.schema import Episode, EpisodePlot, Project, TextEdit
+from canon.schema import Episode, EpisodePlot, Finding, Project, TextEdit
 
 HOME = Path(__file__).resolve().parent.parent / "canon" / "static" / "home.js"
 
@@ -47,6 +47,7 @@ def test_release_defaults_for_old_projects():
 @pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
 def test_episode_steps():
     edit = TextEdit(id="e1", at="2026-10-27T10:00:00", before="a", after="b")
+    open_ = Finding(id="f1", type="사실", description="x", source_quote="a", current_quote="b")
     p = Project(episodes=[
         _ep(1, "draft"),
         _ep(2, "confirmed"),
@@ -55,9 +56,11 @@ def test_episode_steps():
         _ep(5, "written", text="본문", checked_at="2026-10-27T09:00:00", edits=[edit]),  # 검수 뒤에 고침
         _ep(6, "finalized", text="본문"),  # 검수 없이 반영
         _ep(7, "finalized", text="본문", checked_at="2026-10-27T11:00:00", edits=[edit]),
+        _ep(8, "written", text="본문", checked_at="2026-10-27T11:00:00", findings=[open_]),  # 열린 지적이 남음
+        _ep(9, "written", text="본문", checked_at="2026-10-27T11:00:00", findings=[open_.model_copy(update={"status": "kept"})]),
     ])
     assert _run(p)["steps"] == [
-        [0, 0, 0, 0], [1, 0, 0, 0], [1, 1, 0, 0], [1, 1, 1, 0], [1, 1, 0, 0], [1, 1, 0, 1], [1, 1, 1, 1]]
+        [0, 0, 0, 0], [1, 0, 0, 0], [1, 1, 0, 0], [1, 1, 1, 0], [1, 1, 0, 0], [1, 1, 0, 1], [1, 1, 1, 1], [1, 1, 0, 0], [1, 1, 1, 0]]
 
 
 @pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
