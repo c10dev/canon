@@ -28,14 +28,78 @@ function stageModelHint(s) {
   return `모델: ${val('#set-model', c.model_setting) || '기본'}`;
 }
 
-document.addEventListener('change', (e) => {
-  if (S.route[0] !== 'settings' || !/^set-(stage-|provider$|model$|local-model$|claude-model$)/.test(e.target.id || '')) return;
+/** 단계 칸 안내, 보일 백엔드 칸 묶음, 프리셋 안내를 지금 칸 값에 맞춘다 (다시 그리면 저장 전 입력이 사라지므로 이 부분만 고친다). */
+function refreshStageFields() {
   STAGES.forEach(([s]) => {
     const el = $(`#set-stage-model-${s}`);
     if (el) el.placeholder = stageModelHint(s);
   });
   syncProviderGroups();
+  refreshPresetUi();
+}
+
+document.addEventListener('change', (e) => {
+  if (S.route[0] !== 'settings') return;
+  if (e.target.id === 'preset-pick') refreshPresetUi();
+  else if (/^set-(stage-|provider$|model$|local-model$|claude-model$)/.test(e.target.id || '')) refreshStageFields();
 });
+
+// ----- 단계 프리셋 (settings.presets: 기본 묶음 + 설정 파일 stage_presets) -----
+
+/** 지금 단계 칸 값. 칸이 없으면(화면 밖) 저장된 설정. */
+function stageFieldValues() {
+  const c = S.config || {};
+  const val = (sel, saved) => { const el = $(sel); return el ? el.value.trim() : saved || ''; };
+  return {
+    stages: Object.fromEntries(STAGES.map(([s]) => [s, val(`#set-stage-${s}`, (c.stage_settings || {})[s])])),
+    stage_models: Object.fromEntries(STAGES.map(([s]) => [s, val(`#set-stage-model-${s}`, (c.stage_model_settings || {})[s])])),
+  };
+}
+
+/** 단계 칸 값과 똑같은 프리셋 (빈 칸은 빈 칸끼리 같다). 없으면 null. */
+function presetOf(list, cur) {
+  const same = (a, b) => STAGES.every(([s]) => ((a || {})[s] || '') === ((b || {})[s] || ''));
+  return (list || []).find((p) => same(p.stages, cur.stages) && same(p.stage_models, cur.stage_models)) || null;
+}
+
+function presetOptions(list, cur) {
+  const opt = (p) => `<option value="${esc(p.id)}"${p.id === cur ? ' selected' : ''}>${esc(p.name)}</option>`;
+  const mine = list.filter((p) => !p.builtin);
+  return `<option value="">프리셋 고르기</option><optgroup label="기본">${list.filter((p) => p.builtin).map(opt).join('')}</optgroup>`
+    + (mine.length ? `<optgroup label="내 프리셋">${mine.map(opt).join('')}</optgroup>` : '');
+}
+
+function presetStatus(cur = stageFieldValues()) {
+  const p = presetOf((S.config || {}).stage_presets, cur);
+  return p ? `지금 단계 칸은 '${esc(p.name)}' 프리셋과 같아요.` : '지금 단계 칸은 어느 프리셋과도 달라요. 섞은 조합은 이름을 붙여 저장해 두세요.';
+}
+
+function refreshPresetUi() {
+  const st = $('#preset-status');
+  if (st) st.innerHTML = presetStatus();
+  const pick = $('#preset-pick');
+  const del = $('#preset-del');
+  if (pick && del) del.hidden = !((S.config || {}).stage_presets || []).some((p) => p.id === pick.value && !p.builtin);
+}
+
+function presetBox(c) {
+  const list = c.stage_presets || [];
+  const saved = { stages: c.stage_settings || {}, stage_models: c.stage_model_settings || {} };  // 그리는 중에는 칸이 아직 없다
+  const cur = presetOf(list, saved);
+  return `<div class="field"><label for="preset-pick">프리셋</label>
+      <div class="stage-row">
+        <select id="preset-pick">${presetOptions(list, cur && cur.id)}</select>
+        <div class="row"><button type="button" class="btn" data-action="applyPreset">칸 채우기</button>
+          <button type="button" class="btn danger" id="preset-del" data-action="deletePreset"${cur && !cur.builtin ? '' : ' hidden'}>지우기</button></div>
+      </div>
+      <div class="small" id="preset-status" role="status">${presetStatus(saved)}</div></div>
+    <div class="field"><label for="preset-name">지금 단계 칸을 내 프리셋으로</label>
+      <div class="stage-row">
+        <input id="preset-name" type="text" placeholder="예: 계획은 Claude, 본문은 Gemini">
+        <div class="row"><button type="button" class="btn" data-action="savePreset">프리셋으로 저장</button></div>
+      </div>
+      <div class="small">같은 이름이면 덮어써요. 프리셋 저장은 단계 설정을 바꾸지 않아요. 쓰려면 아래 '저장'을 누르세요.</div></div>`;
+}
 
 /** 지금 고른 생성 방식과 단계별 백엔드가 실제로 쓰는 백엔드 (stage_provider 와 같은 규칙: 생성 방식이 mock 이면 모두 mock). */
 function usedProviders() {
@@ -141,7 +205,7 @@ function viewSettings() {
       <div class="row" id="prov-all" hidden><button type="button" class="link-btn" data-action="settingsShowAll">다른 생성 방식의 칸도 보기</button></div>
       <details class="set-more"${stageOpen ? ' open' : ''}><summary><h2>단계별 백엔드와 모델</h2> <span class="small">계획 · 본문 · 검수마다 다른 모델을 쓸 때</span></summary>
       <p class="desc">예: 계획과 검수는 gemini-4-argon, 상태 변경안과 이름 추천은 빠르고 싼 gemini-3.8-flash, 본문은 로컬 모델. 모델 칸을 비우면 그 백엔드의 기본 모델(위 '모델' 또는 로컬 '모델 이름')을 써요.</p>
-      ${envMock ? '<div class="note plain">환경 변수 CANON_LLM이 mock이라 모든 단계가 mock으로 돌아요. 그래서 단계 백엔드를 고를 수 없어요.</div>' : inheritedNotes}
+      ${envMock ? '<div class="note plain">환경 변수 CANON_LLM이 mock이라 모든 단계가 mock으로 돌아요. 그래서 단계 백엔드를 고를 수 없어요.</div>' : inheritedNotes + presetBox(c)}
       ${STAGES.map(([s, label]) => {
         const st = (c.stages || {})[s] || {};
         // 단계 자체의 환경 변수는 선택보다 우선한다. 물려받은 환경 변수(CANON_LLM, 부모 단계) 안내는 위에 한 번만 둔다 (inheritedNotes)
@@ -249,6 +313,51 @@ Object.assign(actions, {
       toast('키를 지웠어요');
     });
     if (ok) $('#set-key')?.focus();
+  },
+  applyPreset() {
+    const c = S.config || {};
+    const p = (c.stage_presets || []).find((x) => x.id === $('#preset-pick').value);
+    if (!p) { toast('프리셋을 먼저 고르세요'); $('#preset-pick').focus(); return; }
+    const kept = [];
+    STAGES.forEach(([s, label]) => {
+      const sel = $(`#set-stage-${s}`);
+      if (sel.disabled) { if ((p.stages[s] || '') !== sel.value) kept.push(label.replace(/ \(.*\)$/, '')); }  // 환경 변수로 잠긴 칸
+      else sel.value = p.stages[s] || '';
+      $(`#set-stage-model-${s}`).value = p.stage_models[s] || '';
+    });
+    S.settingsDirty = true;
+    refreshStageFields();
+    const used = new Set(Object.values(p.stages));
+    const noKey = used.has('claude-api') && c.anthropic_key_source === 'none' ? ' Claude API 키를 넣어야 써요.'
+      : used.has('gemini') && c.key_source === 'none' && c.gemini_auth !== 'vertex' ? ' Gemini API 키를 넣어야 써요.' : '';
+    toast(`'${p.name}' 프리셋으로 칸을 채웠어요. 저장을 눌러야 바뀌어요.${kept.length ? ` 환경 변수로 정한 ${kept.join(', ')} 칸은 그대로예요.` : ''}${noKey}`);
+  },
+  async savePreset() {
+    const name = $('#preset-name').value.trim();
+    if (!name) { toast('프리셋 이름을 적어 주세요'); $('#preset-name').focus(); return; }
+    if ((S.config.stage_presets || []).some((p) => !p.builtin && p.name === name) && !confirm(`'${name}' 프리셋을 지금 단계 칸으로 바꿀까요?`)) return;
+    await run('프리셋 저장 중', async () => {
+      const c = await api('POST', '/config/presets', { name, ...stageFieldValues() });
+      S.config.stage_presets = c.stage_presets;  // 다시 그리면 저장 전 칸이 사라지므로 프리셋 목록만 바꾼다
+      const saved = c.stage_presets.find((p) => !p.builtin && p.name === name);
+      $('#preset-pick').innerHTML = presetOptions(c.stage_presets, saved && saved.id);
+      $('#preset-name').value = '';
+      refreshPresetUi();
+      toast(`'${name}' 프리셋을 저장했어요`);
+    }, { render: 'never' });
+  },
+  async deletePreset() {
+    const p = (S.config.stage_presets || []).find((x) => x.id === $('#preset-pick').value);
+    if (!p || p.builtin) return;
+    if (!confirm(`'${p.name}' 프리셋을 지울까요? 지금 단계 설정은 그대로예요.`)) return;
+    await run('지우는 중', async () => {
+      const c = await api('DELETE', `/config/presets/${encodeURIComponent(p.id)}`);
+      S.config.stage_presets = c.stage_presets;
+      $('#preset-pick').innerHTML = presetOptions(c.stage_presets, '');
+      refreshPresetUi();
+      toast('프리셋을 지웠어요');
+    }, { render: 'never' });
+    $('#preset-pick')?.focus();
   },
   settingsShowAll() {
     settingsShowAll = true;

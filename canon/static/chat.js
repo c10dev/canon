@@ -378,16 +378,23 @@ function sendDirection(text) {
 
 // ----- 패널 -----
 
+/** 대화 기록 (메시지와 변경안 카드). 플롯 대화 에이전트(agent.js)의 '이전 대화'도 이것으로 그린다. */
+function chatLog(topic) {
+  const t = chatConf(topic);
+  initPicks(topic);
+  return chatMessages(topic).map((m, i) => m.role === 'user'
+    ? `<div class="msg user">${t.userMsg ? t.userMsg(m) : esc(m.text)}</div>`
+    : `<div class="msg ai"><div class="msg-text">${esc(m.text)}</div>${m.revision ? proposal(m, i) : (m.passage || m.style || m.setup) && t.proposal ? t.proposal(m, i) : ''}</div>`).join('');
+}
+
 function chatPanel(topic) {
   if (!S.chatOpen) return '';
   const t = chatConf(topic);
   if (S.chatTopic !== topic) S.chatScroll = true;
   S.chatTopic = topic;
-  initPicks(topic);
+  if (topic === 'plot' && typeof agentPanel === 'function') return agentPanel();  // 플롯 대화는 에이전트 세션 (agent.js)
   const msgs = chatMessages(topic);
-  const list = msgs.map((m, i) => m.role === 'user'
-    ? `<div class="msg user">${t.userMsg ? t.userMsg(m) : esc(m.text)}</div>`
-    : `<div class="msg ai"><div class="msg-text">${esc(m.text)}</div>${m.revision ? proposal(m, i) : (m.passage || m.style || m.setup) && t.proposal ? t.proposal(m, i) : ''}</div>`).join('');
+  const list = chatLog(topic);
   const empty = msgs.length || S.chatPending ? '' : `<div class="note info">${esc(t.intro)}</div>
     ${t.examples.length ? `<div class="row">${t.examples.map((x) => `<button type="button" class="btn small" data-action="chatExample" data-arg="${esc(x)}">${esc(x)}</button>`).join('')}</div>` : ''}`;
   const pending = S.chatPending ? `<div class="msg user">${esc(S.chatPending)}</div><div class="msg ai pending" role="status"><span class="spinner small" aria-hidden="true"></span>생각하는 중… (최대 1분)</div>` : '';
@@ -603,6 +610,11 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || !S.chatOpen || !document.querySelector('.chat-panel')) return;
   if (S.selTool) return;
   e.preventDefault();
+  if (S.agentMenu || S.agentModeMenu || S.agentPlus) {  // 대화 에이전트의 펼친 목록을 먼저 닫는다 (agent.js)
+    S.agentMenu = S.agentModeMenu = S.agentPlus = false;
+    redrawChat();
+    return;
+  }
   actions.toggleChat();
   document.querySelector('[data-action="toggleChat"]')?.focus();
 }, true);

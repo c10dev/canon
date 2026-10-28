@@ -25,6 +25,18 @@ PROVIDERS = ("gemini", "local", "claude", "claude-api", "mock")
 STAGES = ("plan", "write", "check", "state", "name", "revise", "illustration", "play")
 # 따로 정하지 않으면 이 단계의 설정을 따른다 (이름 추천 · 삽화 프롬프트는 계획 단계 일이고, 부분 수정 · 플레이 장면은 본문 쓰기 일이다)
 STAGE_PARENT = {"name": "plan", "revise": "write", "illustration": "plan", "play": "write"}
+# 단계별 백엔드 · 모델 묶음. 고르면 설정 화면의 단계 칸을 채운다 (적지 않은 단계는 비워서 부모 단계나 생성 방식을 따른다).
+# 작가가 만든 묶음은 설정 파일 stage_presets 에 둔다 (save_preset).
+BUILTIN_PRESETS = (
+    {"id": "gemini", "name": "Gemini",
+     "stages": {"plan": "gemini", "write": "gemini", "check": "gemini", "state": "gemini"},
+     "stage_models": {"plan": "gemini-4-argon", "write": "gemini-4-argon", "check": "gemini-4-argon",
+                      "state": "gemini-3.8-flash", "name": "gemini-3.8-flash"}},
+    {"id": "anthropic", "name": "Anthropic (Claude API 키)",
+     "stages": {"plan": "claude-api", "write": "claude-api", "check": "claude-api", "state": "claude-api"},
+     "stage_models": {"plan": "claude-opus-5-5", "write": "claude-opus-5-5", "check": "claude-opus-5-5",
+                      "state": "claude-sonnet-5-5", "name": "claude-haiku-5-5"}},
+)
 # 로컬 본문 생성 기본 샘플링. 구조화 출력(json)에는 쓰지 않는다.
 DEFAULT_SAMPLING = {"temperature": 1.0, "top_p": 0.95, "min_p": 0.05}
 
@@ -238,6 +250,65 @@ def update(*, provider: str | None = None, model: str | None = None,
     _write(data)
 
 
+def _clean_stage_map(values: dict[str, str] | None, providers: bool) -> dict[str, str]:
+    out = {}
+    for stage, value in (values or {}).items():
+        if stage not in STAGES:
+            raise ValueError(f"알 수 없는 단계예요: {stage}")
+        value = (value or "").strip()
+        if providers and value and value not in PROVIDERS:
+            raise ValueError(f"알 수 없는 백엔드예요: {stage}={value}")
+        if value:
+            out[stage] = value
+    return out
+
+
+def presets() -> list[dict]:
+    """기본 묶음 다음에 작가가 저장한 묶음. 저장한 것은 builtin=False."""
+    mine = [p for p in _read().get("stage_presets") or [] if isinstance(p, dict) and p.get("id") and p.get("name")]
+    return ([{**p, "builtin": True} for p in BUILTIN_PRESETS]
+            + [{"id": p["id"], "name": p["name"], "stages": p.get("stages") or {},
+                "stage_models": p.get("stage_models") or {}, "builtin": False} for p in mine])
+
+
+def find_preset(preset_id: str) -> dict | None:
+    return next((p for p in presets() if p["id"] == preset_id), None)
+
+
+def save_preset(name: str, stages: dict[str, str] | None, stage_models: dict[str, str] | None) -> dict:
+    """단계 칸을 이름 붙여 저장한다. 같은 이름의 내 묶음이 있으면 덮는다. 기본 묶음 이름은 쓸 수 없다."""
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("프리셋 이름을 적어 주세요")
+    if any(p["name"] == name for p in BUILTIN_PRESETS):
+        raise ValueError("기본 프리셋과 같은 이름이에요. 다른 이름을 적어 주세요")
+    item = {"name": name, "stages": _clean_stage_map(stages, True), "stage_models": _clean_stage_map(stage_models, False)}
+    if not item["stages"] and not item["stage_models"]:
+        raise ValueError("단계 칸이 모두 비어 있어요")
+    data = _read()
+    mine = [p for p in data.get("stage_presets") or [] if isinstance(p, dict)]
+    old = next((p for p in mine if p.get("name") == name), None)
+    item["id"] = old["id"] if old else f"my-{os.urandom(4).hex()}"
+    data["stage_presets"] = [item if p is old else p for p in mine] + ([] if old else [item])
+    _write(data)
+    return {**item, "builtin": False}
+
+
+def delete_preset(preset_id: str) -> None:
+    if any(p["id"] == preset_id for p in BUILTIN_PRESETS):
+        raise ValueError("기본 프리셋은 지울 수 없어요")
+    data = _read()
+    mine = [p for p in data.get("stage_presets") or [] if isinstance(p, dict)]
+    rest = [p for p in mine if p.get("id") != preset_id]
+    if len(rest) == len(mine):
+        raise KeyError(preset_id)
+    if rest:
+        data["stage_presets"] = rest
+    else:
+        data.pop("stage_presets", None)
+    _write(data)
+
+
 def prices() -> list[dict]:
     """사용자가 고친 AI 요금 가격표 줄 (usage.Price 모양). 기본 가격표는 canon/usage.py 에 있다."""
     rows = _read().get("prices")
@@ -311,5 +382,6 @@ def public() -> dict:
         "stages": stages,
         "stage_settings": {k: v for k, v in (_read().get("stages") or {}).items() if k in STAGES},
         "stage_model_settings": {k: v for k, v in (_read().get("stage_models") or {}).items() if k in STAGES},
+        "stage_presets": presets(),
         "path": str(config_path()),
     }

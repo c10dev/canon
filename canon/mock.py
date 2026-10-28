@@ -8,6 +8,8 @@ from pydantic import BaseModel
 
 from .schema import (
     Act,
+    PlotAgentStep,
+    ToolArg,
     ArcEdit,
     ArcPlan,
     ArcProposal,
@@ -314,6 +316,27 @@ def _serial_revision(hint: dict, rev: PlotRevision) -> bool:
     return done
 
 
+def _agent_step(hint: dict) -> PlotAgentStep:
+    """대화 에이전트 흉내. 처음엔 플롯을 읽고, 다음 단계에 플롯 대화 흉내(_revision)로 고치고, 쓴 결과를 보면 끝낸다.
+    '여러 안' 요청은 되묻고, '?' 로 끝나면 답만 하고, '끝없이' 는 상한 시험으로 늘 읽는다."""
+    msg, steps, tools = hint["message"], hint.get("steps", []), hint.get("tools", [])
+    if "끝없이" in msg:
+        return PlotAgentStep(thought="더 읽어 봐요", tool="read_plots",
+                             args=[ToolArg(name="from", value="1"), ToolArg(name="to", value=str(len(steps) + 1))])
+    if hint.get("mode") == "options" and "ask" not in tools:
+        rev = _revision({**hint, "mode": "options"})
+        return PlotAgentStep(thought="방향을 먼저 물어요", tool="ask", question="어느 방향으로 갈까요?", options=rev.options, reply=rev.reply)
+    if "approval" in tools:
+        return PlotAgentStep(reply="작가의 답대로 마쳤어요.")
+    if "edit_plot" in tools or msg.rstrip().endswith("?"):
+        return PlotAgentStep(reply=f"'{msg}' 를 반영했어요.")
+    if not steps:
+        return PlotAgentStep(thought="지금 플롯부터 봐요", tool="read_plots",
+                             args=[ToolArg(name="from", value="1"), ToolArg(name="to", value="3")])
+    edit = _revision({**hint, "mode": ""})
+    return PlotAgentStep(thought="말한 대로 고쳐요", tool="edit_plot", edit=edit)
+
+
 def _revision(hint: dict) -> PlotRevision:
     """플롯 대화 흉내: 'N화로' 는 화수 변경, '결말' 은 결 구간 목표, 'N화' 는 그 화를 고친다.
     방향 여러 안을 청하면 세 방향을 낸다 (구조 칸도 함께 채워 걸러지는지 본다)."""
@@ -560,6 +583,8 @@ class MockLLM:
             return PlotBatch(episodes=eps, new_characters=new, new_places=places)  # type: ignore[return-value]
         if schema is PlotRevision:
             return _revision(hint)  # type: ignore[return-value]
+        if schema is PlotAgentStep:
+            return _agent_step(hint)  # type: ignore[return-value]
         if schema is StateDelta:
             n = hint["episode"]
             return StateDelta(

@@ -1407,8 +1407,17 @@ def plot_chat_prompt(p: Project, message: str, scope=None) -> str:
     from .schema import ChatScope
 
     scope = scope or ChatScope()
-    if p.serial:
-        return serial_plot_chat_prompt(p, message, scope)
+    body, rules, label = plot_chat_parts(p, scope)
+    return body + _chat_tail(p, message, scope, rules, label)
+
+
+def plot_chat_parts(p: Project, scope) -> tuple[str, str, str]:
+    """플롯 대화의 앞부분(작품 · 구조 · 플롯 블록), 변경안 규칙, 방향 안이 다룰 범위 이름.
+    단발 대화(plot_chat_prompt)와 대화 에이전트(agent_plot_prompt)가 함께 쓴다."""
+    return _serial_plot_parts(p, scope) if p.serial else _short_plot_parts(p, scope)
+
+
+def _short_plot_parts(p: Project, scope) -> tuple[str, str, str]:
     eps = [{"status": e.status, **e.plot.model_dump()} for e in p.episodes]
     done = [e for e in p.episodes if e.summary]
     locked = [e.plot.number for e in p.episodes if e.status in ("written", "finalized")]
@@ -1445,16 +1454,22 @@ def plot_chat_prompt(p: Project, message: str, scope=None) -> str:
 [열린 복선]
 {dump(open_fs) if open_fs else "없음"}
 
-""" + _chat_tail(p, message, scope, rules, "구간 · 화")
+""", rules, "구간 · 화"
 
 
 def serial_plot_chat_prompt(p: Project, message: str, scope=None) -> str:
-    """장편: 고칠 대상은 화면에서 고른 아크(없으면 pipeline.focus_arc)나 다음 아크 초안, 그리고 부 구성이다.
-    앞선 내용은 접은 줄거리로 보고, 화별 플롯은 대상 아크부터 기획한 끝까지만 넣는다 (옛 아크를 고르면 그 아크 범위만)."""
-    from .pipeline import ARC_MAX, ARC_MIN, chat_next_limit, chat_target, focus_arc, next_arc_start
     from .schema import ChatScope
 
     scope = scope or ChatScope()
+    body, rules, label = _serial_plot_parts(p, scope)
+    return body + _chat_tail(p, message, scope, rules, label)
+
+
+def _serial_plot_parts(p: Project, scope) -> tuple[str, str, str]:
+    """장편: 고칠 대상은 화면에서 고른 아크(없으면 pipeline.focus_arc)나 다음 아크 초안, 그리고 부 구성이다.
+    앞선 내용은 접은 줄거리로 보고, 화별 플롯은 대상 아크부터 기획한 끝까지만 넣는다 (옛 아크를 고르면 그 아크 범위만)."""
+    from .pipeline import ARC_MAX, ARC_MIN, chat_next_limit, chat_target, focus_arc, next_arc_start
+
     target, focus = chat_target(p, scope.target)
     planned = p.planned_until()
     start = next_arc_start(p)
@@ -1522,7 +1537,76 @@ def serial_plot_chat_prompt(p: Project, message: str, scope=None) -> str:
 [열린 복선]{f" (그 밖에 {more}개)" if more else ""}
 {dump(fs) or "없음"}
 
-""" + _chat_tail(p, message, scope, rules, "부 · 아크 · 구간 · 화")
+""", rules, "부 · 아크 · 구간 · 화"
+
+
+# ---------- 대화 에이전트: 플롯 (canon/agent.py) ----------
+
+SYSTEM_AGENT_PLOT = (
+    "당신은 작가와 함께 연재 소설의 구조를 다듬는 기획 편집자입니다. 한 단계에 도구 하나를 불러 필요한 것을 읽고, "
+    "부 구성, 아크, 기승전결 구간, 화별 플롯을 고칩니다. 고친 것은 작가가 정한 권한 안에서만 바로 저장되고, 나머지는 작가에게 물어집니다. "
+    "작가가 방향을 청하거나 요청이 모호하면 고치기 전에 묻습니다. 설정과 인물, 이미 쓴 본문은 존중합니다. "
+    "모든 출력은 한국어로 작성합니다."
+)
+
+AGENT_PLOT_TOOLS = """[도구] 한 단계에 하나만 부릅니다
+- read_plots (args: from, to): 그 범위 화의 플롯 전체 칸. 위 [화별 플롯]에 없는 범위를 볼 때만
+- read_summaries (args: from, to): 그 범위에서 이미 쓴 화의 실제 줄거리
+- find_text (args: query): 이미 쓴 본문에서 query 와 겹치는 단락
+- read_cast (args: ids, 쉼표로): 인물 설정 전체
+- edit_plot: edit 에 바꿀 것만 채운 변경안을 넣습니다 (아래 [변경안 규칙]). 작가의 권한 안이면 바로 저장되고, 아니면 작가에게 물어집니다. 결과로 저장된 것 · 물은 것 · 막힌 것을 받습니다
+- ask: question 과 options (서로 다른 방향 2~3개) 를 넣습니다. 작가의 답을 기다리며 턴이 끝납니다
+- tool 을 비우면 reply 로 턴을 끝냅니다"""
+
+
+def _agent_turn_line(t) -> str:
+    """세션의 지난 턴 한 줄. 무엇을 바꿨고 물었는지만 남긴다 (단계 결과는 넣지 않는다)."""
+    out = f"작가{' [방향 여러 안 요청]' if t.mode == 'options' else ''}: {t.user}"
+    if t.reply:
+        out += f"\n편집자: {t.reply}"
+    done = [i.label for w in t.writes for i in w.items if i.state == "done"]
+    back = [i.label for w in t.writes for i in w.items if i.state != "done"]
+    notes = ([f"바꿈: {', '.join(done)}"] if done else []) + ([f"되돌림: {', '.join(back)}"] if back else [])
+    if t.approval:
+        state = {"wait": "작가 답 기다림", "approved": "작가가 승인함", "denied": "작가가 거절함"}[t.approval.state]
+        notes.append(f"물음({state}): {', '.join(t.approval.keys)}")
+    if t.ask:
+        notes.append("되물음: " + (" / ".join(f"{i}. {o.title}" for i, o in enumerate(t.ask.options, 1)) or t.ask.question))
+    return out + (f"\n  ({' · '.join(notes)})" if notes else "")
+
+
+def agent_plot_prompt(p: Project, session, turn, scope, left: int) -> str:
+    """대화 에이전트 한 단계의 프롬프트. 앞은 플롯 대화와 같은 작품 · 구조 블록, 그 뒤 도구와 규칙(바뀌지 않음),
+    세션의 지난 턴, 새 말, 이번 턴에 한 단계 순서다. 단계마다 앞 요청을 통째로 품고 끝에만 덧붙인다."""
+    from .pipeline import chat_where
+
+    body, rules, label = plot_chat_parts(p, scope)
+    past = [t for t in session.turns if t is not turn][-CHAT_HISTORY_LIMIT:]
+    where = turn.where or chat_where(p, scope)
+    steps = "\n".join(
+        f"{i}. {s.tool or s.kind}{f' ({s.label})' if s.label else ''}{f' - {s.why}' if s.why else ''}" + (f"\n결과:\n{s.result}" if s.result else "")
+        for i, s in enumerate(turn.steps, 1))
+    options = turn.mode == "options"
+    return body + f"""{AGENT_PLOT_TOOLS}
+
+[변경안 규칙 (edit_plot 의 edit)]
+{rules}
+
+[이 세션의 지난 대화]
+{chr(10).join(_agent_turn_line(t) for t in past) or "없음 (첫 턴)"}
+{f"[작가가 보고 있는 곳] {where} (작가가 '이 화', '여기', '이 구간'이라고 하면 이곳입니다){chr(10)}" if where else ""}
+[작가의 새 말]
+{turn.user}
+
+[이번 턴에 한 일]
+{steps or "아직 없음"}
+
+요구사항:
+- 한 단계에 도구 하나만 부릅니다. 위 블록에 이미 있는 내용은 다시 읽지 않고, 같은 도구를 같은 인자로 두 번 부르지 않습니다. 남은 단계는 {left}개입니다.
+- 쓸 것이 정해지면 edit_plot 을 부르고, 결과를 본 뒤 tool 을 비우고 reply 로 끝냅니다. 작가에게 물은 부분이 있으면 그 답을 기다려야 하므로 바로 끝냅니다.
+- 막힌 부분은 다시 시도하지 말고, 왜 막혔는지와 대신 할 수 있는 일을 reply 에 씁니다.
+{"- 작가가 방향 여러 안을 청했습니다. 고치지 말고 ask 를 불러 options 에 서로 분명히 다른 방향 2~3개를 넣습니다. 같은 방향의 강약이 아니라 갈등, 인물의 선택, 사건 순서, 결말처럼 줄기가 갈라지게 합니다. 각 안의 changes 에는 바뀌는 " + label + "을(를) 한 줄씩 씁니다." if options else "- 작가가 앞서 낸 방향 안 중 하나를 고르거나 섞어 달라고 하면 그 방향으로 고칩니다. 요청이 모호해 고치면 안 될 것 같으면 ask 로 묻습니다."}
+- reply 에는 무엇을 바꿨고, 무엇을 물었고, 무엇이 막혔는지 2~5문장으로 씁니다. thought 에는 이 단계에서 하는 일을 한 줄로 씁니다."""
 
 
 # ---------- 본문 부분 수정 (집필 화면에서 고른 부분) ----------

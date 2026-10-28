@@ -59,6 +59,84 @@
     }
    }
   },
+  "/api/config/presets": {
+   "post": {
+    "summary": "Save Stage Preset",
+    "description": "설정 화면 단계 칸을 이름 붙여 내 프리셋으로 저장한다. 단계 설정 자체는 바꾸지 않는다.",
+    "operationId": "save_stage_preset",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PresetIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ConfigView"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/config/presets/{preset_id}": {
+   "delete": {
+    "summary": "Delete Stage Preset",
+    "operationId": "delete_stage_preset",
+    "parameters": [
+     {
+      "name": "preset_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Preset Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ConfigView"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/config/test": {
    "post": {
     "summary": "Test Config",
@@ -3355,6 +3433,421 @@
          "type": "object",
          "additionalProperties": true,
          "title": "Response Plot Chat Undo"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/sessions": {
+   "get": {
+    "summary": "Agent Sessions",
+    "operationId": "agent_sessions",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "topic",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "plot",
+       "title": "Topic"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SessionsOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "summary": "Agent Session New",
+    "operationId": "agent_session_new",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SessionIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AgentSession"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/sessions/{sid}": {
+   "patch": {
+    "summary": "Agent Session Update",
+    "operationId": "agent_session_update",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SessionPatch"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AgentSession"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/sessions/{sid}/turns": {
+   "post": {
+    "summary": "Agent Turn",
+    "description": "작가의 말을 새 턴으로 열고 에이전트를 돌린다. 작업 정보를 돌려준다 (진행은 GET /api/jobs).",
+    "operationId": "agent_turn",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TurnIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Agent Turn"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/sessions/{sid}/turns/{t}/approval": {
+   "post": {
+    "summary": "Agent Approval",
+    "description": "승인 카드에 답하고 같은 턴을 이어 돌린다. 쓴 작품을 함께 돌려준다.",
+    "operationId": "agent_approval",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     },
+     {
+      "name": "t",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "T"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ApprovalIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Agent Approval"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/sessions/{sid}/turns/{t}/continue": {
+   "post": {
+    "summary": "Agent Continue",
+    "description": "상한에 닿았거나 멈춘 턴을 이어 돌린다.",
+    "operationId": "agent_continue",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     },
+     {
+      "name": "t",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "T"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Agent Continue"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/sessions/{sid}/turns/{t}/undo": {
+   "post": {
+    "summary": "Agent Undo",
+    "description": "바로 쓴 것을 되돌린다. 그 뒤에 다시 고치거나 확정한 것은 남기고 까닭을 돌려준다.",
+    "operationId": "agent_undo",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     },
+     {
+      "name": "t",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "T"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AgentUndoIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Agent Undo"
         }
        }
       }
@@ -10685,6 +11178,262 @@
     ],
     "title": "Act"
    },
+   "AgentSession": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "topic": {
+      "type": "string",
+      "title": "Topic",
+      "default": "plot"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title",
+      "default": ""
+     },
+     "target": {
+      "type": "string",
+      "title": "Target",
+      "description": "ChatScope.target: '' 기본, 'arc:N', 'next'",
+      "default": ""
+     },
+     "mode": {
+      "type": "string",
+      "enum": [
+       "ask",
+       "draft",
+       "all"
+      ],
+      "title": "Mode",
+      "default": "draft"
+     },
+     "auto_kinds": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Auto Kinds",
+      "description": "승인 카드에서 '이 세션에서 묻지 않기'로 고른 종류"
+     },
+     "archived": {
+      "type": "boolean",
+      "title": "Archived",
+      "default": false
+     },
+     "turns": {
+      "items": {
+       "$ref": "#/components/schemas/AgentTurn"
+      },
+      "type": "array",
+      "title": "Turns"
+     },
+     "created": {
+      "type": "string",
+      "title": "Created",
+      "default": ""
+     },
+     "updated": {
+      "type": "string",
+      "title": "Updated",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "id"
+    ],
+    "title": "AgentSession",
+    "description": "대화 세션. 주제(topic)마다 여럿 둘 수 있고, 기본 대상(target)과 권한 모드를 기억한다."
+   },
+   "AgentTurn": {
+    "properties": {
+     "user": {
+      "type": "string",
+      "title": "User",
+      "default": ""
+     },
+     "mode": {
+      "type": "string",
+      "title": "Mode",
+      "description": "'options': 방향 여러 안으로 물어 달라고 한 말",
+      "default": ""
+     },
+     "where": {
+      "type": "string",
+      "title": "Where",
+      "description": "작가가 보낼 때 보고 있던 곳 (pipeline.chat_where)",
+      "default": ""
+     },
+     "act": {
+      "type": "string",
+      "title": "Act",
+      "default": ""
+     },
+     "episode": {
+      "type": "integer",
+      "title": "Episode",
+      "default": 0
+     },
+     "draft": {
+      "$ref": "#/components/schemas/ArcProposal",
+      "description": "다음 아크 대상일 때 보낼 때의 화면 초안"
+     },
+     "steps": {
+      "items": {
+       "$ref": "#/components/schemas/StepRecord"
+      },
+      "type": "array",
+      "title": "Steps"
+     },
+     "reply": {
+      "type": "string",
+      "title": "Reply",
+      "default": ""
+     },
+     "writes": {
+      "items": {
+       "$ref": "#/components/schemas/WriteRecord"
+      },
+      "type": "array",
+      "title": "Writes"
+     },
+     "approval": {
+      "$ref": "#/components/schemas/Approval"
+     },
+     "ask": {
+      "$ref": "#/components/schemas/AskCard"
+     },
+     "end": {
+      "type": "string",
+      "enum": [
+       "",
+       "done",
+       "wait",
+       "ask",
+       "cap",
+       "stopped",
+       "error"
+      ],
+      "title": "End",
+      "description": "'' 은 돌아가는 중",
+      "default": ""
+     },
+     "error": {
+      "type": "string",
+      "title": "Error",
+      "default": ""
+     },
+     "job": {
+      "type": "string",
+      "title": "Job",
+      "description": "이 턴을 돌리는 작업 id",
+      "default": ""
+     },
+     "at": {
+      "type": "string",
+      "title": "At",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "AgentTurn"
+   },
+   "AgentUndoIn": {
+    "properties": {
+     "write": {
+      "type": "integer",
+      "title": "Write"
+     },
+     "key": {
+      "type": "string",
+      "title": "Key"
+     }
+    },
+    "type": "object",
+    "title": "AgentUndoIn"
+   },
+   "Approval": {
+    "properties": {
+     "tool": {
+      "type": "string",
+      "title": "Tool",
+      "default": "edit_plot"
+     },
+     "target": {
+      "type": "string",
+      "title": "Target",
+      "default": ""
+     },
+     "revision": {
+      "$ref": "#/components/schemas/PlotRevision"
+     },
+     "keys": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Keys",
+      "description": "묻는 부분 ('parts' · 'arc' · 'acts' · 화 번호)"
+     },
+     "kinds": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Kinds",
+      "description": "묻는 까닭이 된 종류 (agent.KIND_LABELS). '이 세션에서 묻지 않기'가 auto_kinds 에 더한다"
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "wait",
+       "approved",
+       "denied"
+      ],
+      "title": "State",
+      "default": "wait"
+     },
+     "picked": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Picked"
+     }
+    },
+    "type": "object",
+    "title": "Approval",
+    "description": "권한 모드 밖이라 작가에게 묻는 쓰기. 승인하면 고른 부분만 쓰고 같은 턴을 이어 간다."
+   },
+   "ApprovalIn": {
+    "properties": {
+     "approve": {
+      "type": "boolean",
+      "title": "Approve"
+     },
+     "picked": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Picked",
+      "default": []
+     },
+     "remember": {
+      "type": "boolean",
+      "title": "Remember",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "approve"
+    ],
+    "title": "ApprovalIn"
+   },
    "ArcEdit": {
     "properties": {
      "title": {
@@ -10989,6 +11738,25 @@
     ],
     "title": "ArchetypePick",
     "description": "설정 화면에서 인물에게 고른 원형 도감 카드 (canon/archetypes.py). 작가가 고른 것만 남고 프롬프트에는 넣지 않는다."
+   },
+   "AskCard": {
+    "properties": {
+     "question": {
+      "type": "string",
+      "title": "Question",
+      "default": ""
+     },
+     "options": {
+      "items": {
+       "$ref": "#/components/schemas/Direction"
+      },
+      "type": "array",
+      "title": "Options"
+     }
+    },
+    "type": "object",
+    "title": "AskCard",
+    "description": "되묻기 (방향 여러 안 포함). 작가가 답하면 새 턴이 된다."
    },
    "Atlas": {
     "properties": {
@@ -13596,6 +14364,14 @@
       "type": "object",
       "title": "Stage Model Settings"
      },
+     "stage_presets": {
+      "items": {
+       "$ref": "#/components/schemas/StagePreset"
+      },
+      "type": "array",
+      "title": "Stage Presets",
+      "default": []
+     },
      "path": {
       "type": "string",
       "title": "Path"
@@ -13634,6 +14410,7 @@
      "stages",
      "stage_settings",
      "stage_model_settings",
+     "stage_presets",
      "path"
     ],
     "title": "ConfigView",
@@ -18322,6 +19099,35 @@
     "title": "Policy",
     "description": "사람 검토 없이 반영할지 정하는 기준. 하나라도 걸리면 그 화에서 멈춘다."
    },
+   "PresetIn": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "stages": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Stages",
+      "default": {}
+     },
+     "stage_models": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Stage Models",
+      "default": {}
+     }
+    },
+    "type": "object",
+    "required": [
+     "name"
+    ],
+    "title": "PresetIn"
+   },
    "Price": {
     "properties": {
      "model": {
@@ -18737,7 +19543,15 @@
       },
       "type": "array",
       "title": "Chats",
-      "description": "화면별 AI 대화 기록"
+      "description": "화면별 AI 대화 기록 (옛 단발 대화. 에이전트 세션의 '이전 대화')"
+     },
+     "agent_sessions": {
+      "items": {
+       "$ref": "#/components/schemas/AgentSession"
+      },
+      "type": "array",
+      "title": "Agent Sessions",
+      "description": "대화 에이전트 세션 (canon/agent.py)"
      },
      "elements": {
       "items": {
@@ -19673,6 +20487,80 @@
     "title": "SeriesPlan",
     "description": "부 구성 제안."
    },
+   "SessionIn": {
+    "properties": {
+     "topic": {
+      "type": "string",
+      "title": "Topic",
+      "default": "plot"
+     },
+     "target": {
+      "type": "string",
+      "title": "Target",
+      "default": ""
+     },
+     "title": {
+      "type": "string",
+      "title": "Title",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "SessionIn"
+   },
+   "SessionPatch": {
+    "properties": {
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "mode": {
+      "type": "string",
+      "title": "Mode"
+     },
+     "target": {
+      "type": "string",
+      "title": "Target"
+     },
+     "archived": {
+      "type": "boolean",
+      "title": "Archived"
+     }
+    },
+    "type": "object",
+    "title": "SessionPatch"
+   },
+   "SessionsOut": {
+    "properties": {
+     "sessions": {
+      "items": {
+       "$ref": "#/components/schemas/AgentSession"
+      },
+      "type": "array",
+      "title": "Sessions"
+     },
+     "legacy": {
+      "type": "integer",
+      "title": "Legacy",
+      "default": 0
+     },
+     "model": {
+      "type": "string",
+      "title": "Model",
+      "default": ""
+     },
+     "max_steps": {
+      "type": "integer",
+      "title": "Max Steps",
+      "default": 8
+     }
+    },
+    "type": "object",
+    "required": [
+     "sessions"
+    ],
+    "title": "SessionsOut"
+   },
    "SettingChange": {
     "properties": {
      "character_id": {
@@ -20375,6 +21263,46 @@
      "stage"
     ],
     "title": "StageIn"
+   },
+   "StagePreset": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "stages": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Stages"
+     },
+     "stage_models": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Stage Models"
+     },
+     "builtin": {
+      "type": "boolean",
+      "title": "Builtin"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "stages",
+     "stage_models",
+     "builtin"
+    ],
+    "title": "StagePreset",
+    "description": "단계별 백엔드 · 모델 묶음 (settings.presets). builtin 이면 기본 묶음이라 지울 수 없다."
    },
    "StartView": {
     "properties": {
@@ -21098,6 +22026,48 @@
     ],
     "title": "StatwinView",
     "description": "인물 하나의 상태창 화면 (statwin.timeline + render + PRESETS)."
+   },
+   "StepRecord": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "read",
+       "write",
+       "wait",
+       "block",
+       "ask",
+       "note"
+      ],
+      "title": "Kind",
+      "default": "read"
+     },
+     "tool": {
+      "type": "string",
+      "title": "Tool",
+      "default": ""
+     },
+     "label": {
+      "type": "string",
+      "title": "Label",
+      "description": "화면에 보일 대상 (예: '25~30화')",
+      "default": ""
+     },
+     "why": {
+      "type": "string",
+      "title": "Why",
+      "description": "작은 글: AI 의 생각이나 막힌 까닭",
+      "default": ""
+     },
+     "result": {
+      "type": "string",
+      "title": "Result",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "StepRecord",
+    "description": "턴의 한 단계 (화면의 단계 줄). result 는 다음 단계 프롬프트에 넣는 결과로, 턴이 끝나면 비운다."
    },
    "StoryArc": {
     "properties": {
@@ -23133,6 +24103,41 @@
     "title": "TravelSetting",
     "description": "이동 시간 검사 설정 (canon/travel.py). 지도 거리와 작품 속 시간을 견줘 너무 빠른 이동을 찾는다."
    },
+   "TurnIn": {
+    "properties": {
+     "message": {
+      "type": "string",
+      "title": "Message"
+     },
+     "mode": {
+      "type": "string",
+      "enum": [
+       "",
+       "options"
+      ],
+      "title": "Mode",
+      "default": ""
+     },
+     "act": {
+      "type": "string",
+      "title": "Act",
+      "default": ""
+     },
+     "episode": {
+      "type": "integer",
+      "title": "Episode",
+      "default": 0
+     },
+     "draft": {
+      "$ref": "#/components/schemas/ArcProposal"
+     }
+    },
+    "type": "object",
+    "required": [
+     "message"
+    ],
+    "title": "TurnIn"
+   },
    "UsageCall": {
     "properties": {
      "at": {
@@ -23748,6 +24753,76 @@
     ],
     "title": "Wound",
     "description": "상처 부품: 상처가 된 일 → 잘못된 믿음 → 행동에 남은 흔적 → 회복 방향."
+   },
+   "WriteItem": {
+    "properties": {
+     "key": {
+      "type": "string",
+      "title": "Key"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label",
+      "default": ""
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "done",
+       "reverted",
+       "kept"
+      ],
+      "title": "State",
+      "default": "done"
+     },
+     "reason": {
+      "type": "string",
+      "title": "Reason",
+      "description": "kept 일 때: 되돌리지 않은 까닭",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "key"
+    ],
+    "title": "WriteItem",
+    "description": "바로 쓴 것 한 부분. key 는 'parts' · 'arc' · 'acts' · 'draft'(다음 아크 초안) · 화 번호."
+   },
+   "WriteRecord": {
+    "properties": {
+     "tool": {
+      "type": "string",
+      "title": "Tool",
+      "default": "edit_plot"
+     },
+     "target": {
+      "type": "string",
+      "title": "Target",
+      "description": "ChatScope.target: 쓸 때의 대상",
+      "default": ""
+     },
+     "revision": {
+      "$ref": "#/components/schemas/PlotRevision",
+      "description": "쓴 부분이 들어 있는 변경안 (다음 아크 초안을 화면에 놓을 때 쓴다)"
+     },
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/WriteItem"
+      },
+      "type": "array",
+      "title": "Items"
+     },
+     "before": {
+      "$ref": "#/components/schemas/PlotUndo"
+     },
+     "after": {
+      "$ref": "#/components/schemas/PlotUndo"
+     }
+    },
+    "type": "object",
+    "title": "WriteRecord",
+    "description": "한 번에 쓴 것. 되돌리기는 before · after 로 지금 값이 쓴 직후 값과 같은 부분만 돌린다 (pipeline.plot_undo)."
    }
   }
  }
