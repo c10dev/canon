@@ -135,6 +135,8 @@ def test_chapters_fold_and_story_keeps_recent_turns(client, monkeypatch):
     text = prompts.story_so_far(p, 7)
     assert "아크 2 요약" in text and "[이번 아크 3 2장]" in text and "6화" in text  # 접은 장과 지금 장의 턴 요약이 함께 들어간다
 
+    play.rewind(p, info, 5)  # 장 끝으로 되감으면 접은 요약은 두고 다음 장을 새로 연다
+    assert p.arc_for(5).summary and p.arc_for(6).summary == "" and (p.arc_for(6).start_ep, p.arc_for(6).end_ep) == (6, 8)
     play.rewind(p, info, 4)  # 접힌 장 안으로 되감으면 요약을 비우고 다시 연다
     ch1 = p.arc_for(5)
     assert ch1.summary == "" and (ch1.start_ep, ch1.end_ep) == (3, 5) and p.arc_for(6) is None
