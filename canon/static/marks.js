@@ -203,6 +203,10 @@ function syncMarks() {
   if (window.ResizeObserver) {
     layerObs = new ResizeObserver(() => paintLayer());
     layerObs.observe(ta);
+    // 웹 폰트는 처음 보는 글자가 나올 때 늦게 들어와 줄을 다시 바꾼다. 본문 칸 크기는 그대로라 칸만 지켜보면
+    // 끝까지 내렸을 때 옮길 거리(--hl-max)가 옛 값으로 남아 밑줄이 아래로 밀린다. 밑줄 글의 높이도 지켜본다
+    const inner = ta.parentElement.querySelector('.hl-in');
+    if (inner) layerObs.observe(inner);
   }
 }
 
