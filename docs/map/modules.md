@@ -1,7 +1,7 @@
 # 지도 모듈 구조
 
-지도 코드는 지금 `canon/` 에 열두 파일(약 6,300줄)과 화면 파일 하나(2,554줄)로 흩어져 있다. 이 문서는 그 경계를 세 단계로 정리하는 설계다.
-1 · 2절은 단계 1([01-boundaries.md](specs/01-boundaries.md)) 뒤의 구조다. 3절의 문제와 줄 번호는 단계 1 전(main `d61a100` 에 #139 · #140 을 합친 것) 기준이다. 문제 1 · 2 · 3 · 5 · 6 은 단계 1 이 풀었다.
+지도 코드는 지금 `canon/` 에 열두 파일(약 6,300줄)과 화면 파일 여섯(합쳐 2,607줄)으로 흩어져 있다. 이 문서는 그 경계를 세 단계로 정리하는 설계다.
+1 · 2절은 단계 1([01-boundaries.md](specs/01-boundaries.md))과 단계 3([03-atlas-js.md](specs/03-atlas-js.md)) 뒤의 구조다. 3절의 문제와 줄 번호는 단계 1 전(main `d61a100` 에 #139 · #140 을 합친 것) 기준이다. 문제 1 · 2 · 3 · 5 · 6 은 단계 1 이, 문제 7 은 단계 3 이 풀었다.
 
 ## 1. 지금 구조
 
@@ -19,7 +19,8 @@
 | `canon/osm.py` | 546 | OpenStreetMap 파일 → 지도 데이터 | geom |
 | `canon/bldgs.py` | 512 | 건물 쓰임 · 층수 · 사람 · 거리 이름 | geom |
 | `canon/geom.py` | 347 | 기하 도구. 지도를 모른다 | 없음 |
-| `canon/static/atlas.js` | 2,554 | 지도 화면 전부 (그림, 확대, 옆 칸, 이동 시간, 지도 만들기, 표, 저장, 되돌리기, 내보내기, 동작) | — |
+| `canon/static/atlas.js` | 1,924 | 지도 화면 뼈대 (상태 · 불러오기, 그림, 확대 · 이동 · 이름표, 옆 칸, 화면 조립, 저장, 되돌리기, 남은 동작 · CSS) | — |
+| `canon/static/atlas-gen.js` · `atlas-travel.js` · `atlas-table.js` · `atlas-export.js` · `atlas-find.js` | 246 · 69 · 187 · 108 · 73 | 기능 파일: 지도 만들기, 이동 시간, 표, 내보내기, 이름으로 자리 찾기 | — |
 
 줄 수는 `wc -l` 로 셌다. 가져오는 지도 모듈은 모듈 맨 위의 `from . import …` 줄이다. `travel.episode_block` · `atlas.episode_block` 은 시험이 부르는 옛 이름이라 함수 안에서 `mapprompt` 를 가져온다. `towngen` 은 `CATEGORIES` · `classify` · `water_for` 를 다시 내보낸다(시험이 읽는다). `tests/test_map_imports.py` 가 순환이 없고 생성기끼리 가져오지 않는지 본다.
 
@@ -57,7 +58,7 @@ flowchart LR
 4. **`atlas.py` 한 파일이 일곱 가지 일을 한다.** 섹션 주석 7개(`# ----------`)가 그 경계다. #140 이 자리 찾기 · 건물 한 줄 섹션 둘을 더해 9개, 1,054줄이 된다.
 5. **프롬프트 글을 데이터 모듈이 만든다.** `travel.episode_block` · `check_rule` 과 #140 의 `atlas.episode_block` 이 데이터 계산과 프롬프트 문구를 함께 가진다. #140 은 그래서 `atlas` 가 `context` 를 가져온다.
 6. **생성기 등록이 한 곳이 아니다.** `atlas.MAKERS`(`atlas.py:656`)가 있지만 `cli.py:1670` · `cli.py:2450` · `mock.py:604` 는 `towngen.OPTIONS` 를 바로 읽고, `atlas.gen_info` 는 `citygen.WARD_KINDS` · `moderngen.ZONES` 를 바로 읽는다. 생성기를 더하면 여러 곳을 고쳐야 한다.
-7. **화면 파일 하나가 2,454줄이다.** 섹션 주석 13개가 있다. 다른 화면은 기능마다 파일을 나눈다(`AGENTS.md` 의 화면 파일 표).
+7. **화면 파일 하나가 2,454줄이다(#140 뒤 2,554줄).** 섹션 주석 13개가 있다. 다른 화면은 기능마다 파일을 나눈다(`AGENTS.md` 의 화면 파일 표).
 
 ## 4. 목표 구조
 
@@ -119,7 +120,7 @@ flowchart LR
 
 ## 6. 위험
 
-- **열린 PR 과 부딪힌다.** #139 · #140 이 `schema.py` · `prompts.py` · `atlas.py` · 문서를 고친다. 단계 1 은 두 PR 머지 뒤에 한다.
-- **화면 시험이 섹션 주석으로 자른다.** `tests/test_atlas_js.py:16` 은 `const atlasTextW` ~ `// ----- 옆 칸 -----` 를, `tests/test_atlas_js.py:27` 은 `// ----- 되돌리기 · 따라가기 계산` ~ `// ----- 확대 · 이동, 이름표 -----` 를 잘라 돌린다. 단계 3 은 이 주석을 지키거나 시험을 함께 고친다.
-- **`mock.py` 가 생성기 안쪽을 읽는다.** `towngen.classify` · `water_for` · `OPTIONS` 를 쓴다(`mock.py:604` 등). 단계 1 에서 `kinds` · `MAKERS` 를 거치게 고친다.
+- **열린 PR 과 부딪힌다.** #139 · #140 이 `schema.py` · `prompts.py` · `atlas.py` · 문서를 고친다. 단계 1 · 3 은 두 PR 을 합친 브랜치 `claude/map-stack` 위에 쌓았다. 그래서 두 PR 이 먼저 머지되어야 한다.
+- **화면 시험이 섹션 주석으로 자른다.** `tests/test_atlas_js.py:16` 은 `const atlasTextW` ~ `// ----- 옆 칸 -----` 를, `tests/test_atlas_js.py:27` 은 `// ----- 되돌리기 · 따라가기 계산` ~ `// ----- 확대 · 이동, 이름표 -----` 를 잘라 돌린다. 단계 3 은 두 구간을 `atlas.js` 에 남겨 시험을 고치지 않았다.
+- **`mock.py` 가 생성기 안쪽을 읽는다.** `towngen.classify` · `water_for` · `OPTIONS` 를 쓴다(`mock.py:604` 등). 단계 1 에서 `placekinds` · `MAKERS` 를 거치게 고쳤다.
 - **옛 지도 파일.** 지도 파일은 `map/` 에 JSON 으로 남아 있다. 형식(키)을 바꾸지 않는 한 옮기기는 옛 파일에 영향이 없다. 형식을 바꾸면 [layout.md](layout.md) 의 판 규칙을 따른다.

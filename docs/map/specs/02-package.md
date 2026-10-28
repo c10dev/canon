@@ -30,6 +30,12 @@
 
 `canon/atlas.py` 의 `describe`(명령줄 출력)는 `canon/maps/places.py` 로 간다.
 
+01 이 남긴 것도 여기서 정리한다([01 구현 메모](01-boundaries.md#구현-메모-2026-10-28)):
+
+- `travel.episode_block` · `atlas.episode_block` 감싸개와 `towngen` 의 다시 내보내기를 지우고, 시험(`test_travel.py` · `test_osm.py` · `test_mapgen.py` 등)이 새 이름을 부르게 한다.
+- `cli` · `pipeline` · `mock` 이 `placekinds` 를 바로 읽는 것을 공개 면으로 거칠지 정한다.
+- `schema.py` 설명 글의 옛 이름을 새 이름으로 고친다.
+
 ## 지도 데이터
 
 바뀌지 않는다. 같은 시드의 지도 데이터가 바이트까지 같다.

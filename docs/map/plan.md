@@ -9,9 +9,9 @@
 | # | 일감 | 상태 | 명세서 | 먼저 끝날 것 |
 |---|---|---|---|---|
 | 0 | AI 설정 제안의 현대 동네 · 이름으로 자리 찾기 · 건물 한 줄 | PR [#139](https://github.com/c10dev/canon/pull/139), [#140](https://github.com/c10dev/canon/pull/140)(초안) 리뷰 대기 | — | — |
-| 1 | 경계 정리 (파일은 그대로) | 설계 | [01-boundaries.md](specs/01-boundaries.md) | 0 |
+| 1 | 경계 정리 (파일은 그대로) | 구현, 브랜치 `claude/map-stack` (PR 전) | [01-boundaries.md](specs/01-boundaries.md) | 0 |
 | 2 | `canon/maps/` 패키지로 옮기기 | 설계 | [02-package.md](specs/02-package.md) | 1 |
-| 3 | `static/atlas.js` 나누기 | 설계 | [03-atlas-js.md](specs/03-atlas-js.md) | 0 |
+| 3 | `static/atlas.js` 나누기 | 구현, 브랜치 `claude/map-stack` (PR 전) | [03-atlas-js.md](specs/03-atlas-js.md) | 0 |
 | 4 | OSM 빈 블록 채우기 | 설계 | [04-empty-blocks.md](specs/04-empty-blocks.md) | 1 |
 | 5 | 바다 (OSM 해안선) | 설계 | [05-coastline.md](specs/05-coastline.md) | 0 |
 | 6 | 지하철 노선과 역 사이 이동 시간 | 설계 | [06-subway.md](specs/06-subway.md) | 5 |
@@ -20,7 +20,7 @@
 | 9 | 옛 핀의 건물 한 줄 채우기 | 차례 미정 | [09-spot-backfill.md](specs/09-spot-backfill.md) | 0 |
 | 10 | 구불구불한 하천 (현대 동네) | 차례 미정 | [10-winding-river.md](specs/10-winding-river.md) | 1 |
 
-'먼저 끝날 것'은 코드가 겹쳐서 먼저 머지되어야 하는 일감이다. 3 · 5 · 9 는 1 · 2 와 따로 할 수 있다. 같은 파일을 고치는 일감은 동시에 하지 않는다(AGENTS.md 의 worktree 규칙).
+'먼저 끝날 것'은 코드가 겹쳐서 먼저 머지되어야 하는 일감이다. 1 · 3 은 2026-10-28 에 0 의 두 PR 위에 쌓은 브랜치 `claude/map-stack` 에서 두 세션이 함께 했다. 3 · 5 · 9 는 1 · 2 와 따로 할 수 있다. 같은 파일을 고치는 일감은 동시에 하지 않는다(AGENTS.md 의 worktree 규칙).
 
 ## 장기 후보
 

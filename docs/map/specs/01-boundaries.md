@@ -45,3 +45,12 @@ AGENTS.md 의 `towngen` · `citygen` · `moderngen` · `travel` · `atlas` 줄�
 ## 확인하지 못할 것
 
 Swift 빌드(맥). API 가 같으면 영향이 없다.
+
+## 구현 메모 (2026-10-28)
+
+명세서와 다르게 한 곳이다. 사용자가 받아들였다.
+
+- `moderngen` 의 지역 변수 `blocks` 를 `pieces` 로 바꿨다. 새 모듈 이름과 겹쳤다. 함수 몸을 고친 곳은 여기 하나다.
+- `default_put` 과 `RIVER_SHORE` 도 `placekinds` 로 옮겼다. `water_for` 와 `atlas.gen_places` 가 쓴다.
+- `travel.episode_block` · `atlas.episode_block` 은 함수 안에서 `mapprompt` 를 부르는 얇은 감싸개로 남겼다. `towngen` 은 `CATEGORIES` · `classify` · `water_for` 를 다시 내보낸다. 둘 다 시험이 옛 이름을 불러서다. 02 에서 시험을 새 이름으로 옮기고 지운다.
+- 남긴 것: `pipeline` 이 `moderngen.PLACE_KINDS` 를 바로 읽는다(08 에서 대신한다). `cli` · `pipeline` · `mock` 이 `placekinds` 를 바로 읽는다(02 에서 공개 면을 정할 때 본다). `schema.py` 설명 글의 옛 이름(`atlas.episode_block`, `towngen.CATEGORIES`)은 02 에서 고친다.
