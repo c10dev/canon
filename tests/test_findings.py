@@ -226,7 +226,7 @@ def test_settle_children():
     f = {x.id: x for x in ep.findings}
     assert (f["f1"].status, f["f1"].closed_by) == ("fixed", "one") and len(ep.rounds) == 1
     assert [(k.id, k.parent) for k in kids] == [("f3", "f1")]
-    assert "f1을 고치다 생김" in findings.line(ep, kids[0])
+    assert "f1 지적을 고치다 생김" in findings.line(ep, kids[0])
     findings.set_status(ep, "f1", "open", None, "t3")  # 작가가 다시 열면 되돌린다
     assert (f["f1"].status, f["f1"].closed_by) == ("open", "")
 

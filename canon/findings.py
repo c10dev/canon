@@ -167,7 +167,7 @@ def add_children(ep: Episode, parent: Finding, issues: list[ConsistencyIssue], a
         if not q or q not in ep.text or any(same(g, x) for g in [*keep, *out]):
             continue
         f = Finding(**x.model_dump(), id=_next_id(ep), first=no, last=no, parent=parent.id)
-        log(f, at, "found", f"{parent.id}을 고친 뒤 이 지적만 다시 검수에서 생김 · {SEVERITY[f.severity]}")
+        log(f, at, "found", f"{parent.id} 지적을 고친 뒤 이 지적만 다시 검수에서 생김 · {SEVERITY[f.severity]}")
         ep.findings.append(f)
         out.append(f)
     return out
@@ -206,5 +206,5 @@ def line(ep: Episode, f: Finding) -> str:
     """명령줄 한 줄: id, 상태, 심각도, 갈래, 설명, 짚지 않은 회차 · 딸린 지적 표시."""
     last = ep.rounds[-1].no if ep.rounds else f.last
     miss = " · 이번 회차에서 안 짚음" if f.status == "open" and f.last < last and not f.parent else ""
-    child = f" · {f.parent}을 고치다 생김" if f.parent else ""
+    child = f" · {f.parent} 지적을 고치다 생김" if f.parent else ""
     return f"{f.id} [{FINDING_STATUS[f.status]}] [{SEVERITY[f.severity]}] [{f.type}] {f.description}{miss}{child}"

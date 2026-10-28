@@ -6,7 +6,8 @@
 
 Object.assign(S, {
   sel: null,         // AI에게 맡길 부분 { n, start, text }
-  selTool: null,     // 떠 있는 도구 { n, start, text, mode: 'menu' | 'edit', hint? } (hint: marks.js 의 밑줄에서 띄웠을 때 무엇인지)
+  selTool: null,     // 떠 있는 도구 { n, start, text, mode: 'menu' | 'edit' | 'finding', hint?, fid? } (hint: marks.js 의 밑줄에서 띄웠을 때 무엇인지,
+                     //   finding: 검수 화면에서 지적 fid 를 고치는 창 check.js fixPanel)
   selFocus: null,    // 다시 그린 뒤 본문에서 골라 보여 줄 자리 { n, start, end }
   taScroll: {},      // 화별 본문 칸 스크롤 위치 (다시 그려도 읽던 자리를 지킨다)
   presets: null,     // 빠른 요청 목록 (서버 prompts.PASSAGE_PRESETS)
@@ -268,7 +269,7 @@ function placeTool(ta, t) {
     if (top >= 0) y = top;
   }
   const w = el.offsetWidth || 240;
-  const left = t.mode === 'edit' ? Math.max(c.r.left, Math.min(caretXY(ta, t.start).x, c.x) - 12) : c.x - 40;
+  const left = t.mode !== 'menu' ? Math.max(c.r.left, Math.min(caretXY(ta, t.start).x, c.x) - 12) : c.x - 40;
   const x = Math.min(Math.max(8, left), document.documentElement.clientWidth - w - 8);
   el.style.left = `${x + window.scrollX}px`;
   el.style.top = `${y + window.scrollY}px`;
@@ -281,6 +282,16 @@ function showTool() {
   if (typeof mentionClose === 'function') mentionClose();  // 고른 부분 도구와 이름 카드(mentions.js)는 한 번에 하나만
   const el = toolEl();
   el.classList.toggle('edit', t.mode === 'edit');
+  el.classList.toggle('finding', t.mode === 'finding');
+  el.setAttribute('aria-label', t.mode === 'finding' ? '검수 지적 고치기' : '고른 부분 도구');
+  if (t.mode === 'finding') {
+    const html = typeof fixPanel === 'function' ? fixPanel(t.n, t.fid) : '';
+    if (!html) return hideTool();
+    el.innerHTML = html;
+    el.hidden = false;
+    placeTool(ta, t);
+    return;
+  }
   el.innerHTML = t.mode === 'edit'
     ? `<label class="small" for="sel-edit">고른 부분 고치기 · ${t.text.length.toLocaleString()}자</label>
        <textarea id="sel-edit" rows="${Math.min(10, Math.max(3, Math.ceil(t.text.length / 40)))}">${esc(t.text)}</textarea>
@@ -349,7 +360,7 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   // 도구는 문서 끝에 떠 있어 Tab 으로 닿기 어렵다. 본문 칸에서 Alt+Enter 로 첫 버튼에 간다
-  if (e.altKey && e.key === 'Enter' && S.selTool.mode === 'menu' && e.target.matches && e.target.matches('textarea[data-draft]')) {
+  if (e.altKey && e.key === 'Enter' && S.selTool.mode !== 'edit' && e.target.matches && e.target.matches('textarea[data-draft]')) {
     const b = document.querySelector('#sel-tool button');
     if (b) { e.preventDefault(); b.focus(); }
     return;
@@ -365,6 +376,7 @@ document.addEventListener('scroll', (e) => {
   if (ta.matches && ta.matches('textarea[data-draft]')) {
     S.taScroll[ta.dataset.draft] = ta.scrollTop;
     if (S.selTool && S.selTool.mode === 'menu' && !taScrolling) hideTool();  // 고른 곳으로 옮기느라 낸 스크롤은 사람이 굴린 것이 아니다
+    else if (S.selTool && S.selTool.mode === 'finding' && String(S.selTool.n) === ta.dataset.draft) placeTool(ta, S.selTool);  // 고치는 창은 문장을 따라간다
   }
 }, true);
 
@@ -380,7 +392,7 @@ document.addEventListener('toggle', (e) => {
 }, true);
 
 /** render() 직후에 부른다: 도구를 닫고, 본문 칸의 스크롤과 방금 고친 자리를 되살린다.
-    '직접 수정' 칸은 #app 밖에 있어 다시 그려도 남는다. 그 화 본문 칸이 아직 있으면 쓰던 글째로 자리만 다시 맞춘다
+    '직접 수정' 칸과 검수 지적 창은 #app 밖에 있어 다시 그려도 남는다. 그 화 본문 칸이 아직 있으면 쓰던 글째로 자리만 다시 맞춘다
     (showTool 은 칸을 새로 만들어 쓰던 글을 지운다). */
 let taScrolling = false;
 /** 코드가 본문 칸을 굴린다. 그 스크롤 이벤트가 방금 띄운 도구를 닫지 않게 잠깐 표시해 둔다. */
@@ -392,9 +404,9 @@ function scrollTa(ta, top) {
 
 function syncPassage() {
   const t = S.selTool;
-  const keep = t && t.mode === 'edit' && editableEp(ep(t.n)) && document.querySelector(`textarea[data-draft="${t.n}"]`);
-  if (keep) placeTool(keep, t);
-  else hideTool();
+  const keep = t && t.mode !== 'menu' && (t.mode !== 'finding' || S.route[2] === 'check') && editableEp(ep(t.n))
+    && document.querySelector(`textarea[data-draft="${t.n}"]`);  // 검수 지적 창은 검수 화면에만 남긴다 (집필 화면에도 같은 본문 칸이 있다)
+  if (!keep) hideTool();
   const ta = document.querySelector('textarea[data-draft]');
   if (!ta) return;
   const n = ta.dataset.draft;
@@ -414,6 +426,11 @@ function syncPassage() {
       S.selTool = { ...s, mode: 'menu' };
       showTool();
     }
+  }
+  // 남기는 도구는 본문 칸 스크롤을 맞춘 뒤에 자리를 잡는다. 검수 지적 창은 지적 상태가 바뀌었을 수 있어 새로 그린다
+  if (keep && S.selTool === t) {
+    if (t.mode === 'finding') showTool();
+    else placeTool(keep, t);
   }
 }
 

@@ -33,7 +33,7 @@ public enum CheckText {
 
     /// 지적 옆 표시.
     public enum Flag: String, Sendable {
-        case changed, miss, gone, again
+        case changed, miss, gone, again, one
 
         public var label: String {
             switch self {
@@ -41,22 +41,23 @@ public enum CheckText {
             case .miss: "이번 회차에서 안 짚음"
             case .gone: "다시 검수에서 사라짐"
             case .again: "다시 나옴 · 결정 그대로"
+            case .one: "이 지적만 다시 검수로 닫음"
             }
         }
     }
 
     public static func status(_ f: Finding) -> Status { Status(rawValue: f.status?.rawValue ?? "open") ?? .open }
 
-    /// 지적 옆 표시. `findings.merge` 가 남긴 칸(first · last · closed_by)과 지금 본문으로 센다.
+    /// 지적 옆 표시. `findings.merge` · `settle` 이 남긴 칸(first · last · closed_by · parent)과 지금 본문으로 센다.
     public static func flag(_ e: Episode, _ f: Finding, text: String) -> Flag? {
         let last = e.rounds?.last?.no ?? (f.last ?? 1)
         let quote = f.currentQuote.trimmingCharacters(in: .whitespacesAndNewlines)
         switch status(f) {
         case .open:
             if !quote.isEmpty && !text.contains(quote) { return .changed }
-            return (f.last ?? 1) < last ? .miss : nil
+            return (f.last ?? 1) < last && (f.parent ?? "").isEmpty ? .miss : nil
         case .fixed:
-            return f.closedBy == .recheck ? .gone : nil
+            return f.closedBy == .recheck ? .gone : f.closedBy == .one ? .one : nil
         case .kept, .wrong:
             return (f.last ?? 1) == last && (f.first ?? 1) < last ? .again : nil
         }
@@ -100,8 +101,12 @@ public enum CheckText {
     public static func round(_ r: CheckRound, now: Date = Date(), timeZone: TimeZone = .current) -> String {
         let at = when(r.at, now: now, timeZone: timeZone)
         let from = ["chat": " · 채팅 앱", "auto": " · 자동 집필"][r.source?.rawValue ?? ""] ?? ""
+        let gone = r.goneIds?.count ?? 0
+        let again = r.againIds?.count ?? 0
         return "\(r.no)회차\(at.isEmpty ? "" : " · \(at)") · 짚은 \(r.found ?? 0)"
             + (r.no > 1 ? " · 새로 \(r.added ?? 0)" : "")
+            + (gone > 0 ? " · 사라짐 \(gone)" : "")
+            + (r.no > 1 && again > 0 ? " · 다시 \(again)" : "")
             + ((r.keptAgain ?? 0) > 0 ? " · 결정 그대로 \(r.keptAgain!)" : "")
             + from + (r.widen == true ? " · 넓혀 찾기" : "")
     }
