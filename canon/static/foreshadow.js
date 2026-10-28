@@ -350,7 +350,7 @@ Object.assign(actions, {
 // ----- 상태 승인 화면 -----
 
 /** AI 가 본문에서 찾은 복선 문장. 고른 것만 반영한다(q 항목). 이번 화에 심거나 회수하는 복선이면 그 항목을 같이 골라야 남는다. */
-function fsClueRows(d, box) {
+function fsClueRows(d, box, n) {
   const p = P();
   const label = (fid) => {
     const f = p.foreshadows.find((x) => x.id === fid) || d.foreshadow_planted.find((x) => x.id === fid);
@@ -359,7 +359,7 @@ function fsClueRows(d, box) {
   return (d.foreshadow_clues || []).map((c, i) => {
     const fresh = d.foreshadow_planted.some((x) => x.id === c.foreshadow);
     const note = c.kind === 'payoff' ? '회수한 문장' : fresh ? '심은 문장' : '다시 떠올린 문장';
-    return `<div class="change">${box('q' + i)}<label for="pk-q${i}" style="font-size:13px;line-height:1.55"><span class="chip ${c.kind === 'payoff' ? 'finalized' : 'confirmed'}">${note}</span> ${esc(label(c.foreshadow))}
-      <div class="fs-q">“${esc(c.quote)}”</div></label></div>`;
+    return `<div class="change">${box('q' + i)}<label for="pk-q${i}" style="flex:1;min-width:0;font-size:13px;line-height:1.55"><span class="chip ${c.kind === 'payoff' ? 'finalized' : 'confirmed'}">${note}</span> ${esc(label(c.foreshadow))}
+      <div class="fs-q">“${esc(c.quote)}”</div></label>${n ? rvQuoteBtn(n, c.quote, `${note} · ${label(c.foreshadow)}`) : ''}</div>`;
   }).join('');
 }
