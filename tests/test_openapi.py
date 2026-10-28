@@ -1,5 +1,6 @@
 """Swift 앱의 API 명세(swift/Sources/CanonAPI/openapi.json)가 지금 서버와 같은지 본다."""
 import importlib.util
+import os
 import unittest
 from pathlib import Path
 
@@ -9,6 +10,7 @@ make_openapi = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(make_openapi)
 
 
+@unittest.skipUnless(os.environ.get("CANON_SWIFT"), "Swift 앱 개발을 멈춘 동안은 CANON_SWIFT=1 일 때만 봐요")
 class OpenAPITest(unittest.TestCase):
     def test_swift_spec_is_current(self):
         want = make_openapi.spec()

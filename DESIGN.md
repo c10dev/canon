@@ -479,6 +479,6 @@ AI 는 숫자를 매기지 않고 사건만 뽑는다. 같은 사건은 항상 �
 1. Gemini 실호출 검증, 프롬프트 튜닝, 화별 상태 스냅샷과 되돌리기.
 2. **MCP 서버**: `get_episode_brief`, `submit_episode_text`, `propose_state_update`, `apply_state_update`, `get_project` 같은 tool 로 노출. Claude Desktop 등 구독형 앱이 직접 데이터를 읽고 쓰게 한다. `prompts.py` 와 `pipeline.py` 를 그대로 재사용한다.
 3. 웹 UI 다듬기: 관계도 그래프 시각화, 화별 상태 스냅샷과 되돌리기 화면.
-   **Swift 앱**(`swift/`, 2026-10-26 시작): 웹 화면을 SwiftUI 로 옮기는 서버 클라이언트다. 계산과 프롬프트는 Python 에 남기고, 앱은 `openapi.json`(`scripts/make_openapi.py`)으로 만든 클라이언트로 같은 API 를 부른다. 화면 하나가 모듈 하나이고, 화면 상태(Model)는 SwiftUI 없이 시험한다. 모듈 경계와 서버 계약은 [swift/README.md](swift/README.md).
+   **Swift 앱**(`swift/`, 2026-10-26 시작): 웹 화면을 SwiftUI 로 옮기는 서버 클라이언트다. 계산과 프롬프트는 Python 에 남기고, 앱은 `openapi.json`(`scripts/make_openapi.py`)으로 만든 클라이언트로 같은 API 를 부른다. 화면 하나가 모듈 하나이고, 화면 상태(Model)는 SwiftUI 없이 시험한다. 모듈 경계와 서버 계약은 [swift/README.md](swift/README.md). 2026-10-28 에 개발을 멈췄다. 웹과 함께 고치면 작업 시간이 두 배로 들어서다. 그동안 웹만 고치고, 다시 시작할 때 명세를 다시 만들고 바뀐 표시 규칙을 옮긴다.
 4. 장편 확장: 부 · 아크 구조, 롤링 기획, 접은 줄거리, 인물 · 떡밥 · 사실 필터는 들어갔다(7장). 관계 시간 감쇠와 장르 프리셋, 인물별 기억 검색이 남았다.
 5. 문체 학습: 수정 기록에서 규칙 후보를 찾는 것(2장)과 라이브러리 버전은 들어갔다. 다음은 작가가 직접 쓰거나 많이 손본 글을 "내 글" 원문으로 더해 기준 지표 · 문체 거리를 레퍼런스와 섞어 재는 것, 화별 문체 거리 추이 화면이다. 그 뒤 AI 초안과 사용자 수정본을 SFT/DPO 데이터로 내보내고, 로컬 모델에 문체 LoRA 를 붙인 뒤 `compare` 로 효과를 잰다.
