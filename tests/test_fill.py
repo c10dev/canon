@@ -136,16 +136,17 @@ def test_big_block_gets_apartments():
         fill.fill({**lo, "generator": "canon-modern"}, 1)
 
 
-def test_wide_road_blocks_stay_empty():
+def test_big_road_corner_blocks_stay_empty():
     side = [[0, 0], [1, 0], [1, 1], [0, 1]]
 
-    def layout(widths):
-        return {"w": 120.0, "h": 100.0, "generator": "osm", "version": "", "source": osm.SOURCE, "trees": [],
+    def layout(w, h, widths):  # 위 · 오른쪽 · 아래 · 왼쪽 길 폭
+        return {"w": w, "h": h, "generator": "osm", "version": "", "source": osm.SOURCE, "trees": [],
                 "roads": [{"kind": "road", "width": widths[k], "points": [side[k], side[(k + 1) % 4]], "name": ""} for k in range(4)],
                 "buildings": [], "parts": []}
 
-    assert fill.fill(layout([20.0, 16.0, 15.0, 24.0]), 1)[1]["buildings"] == 0  # 큰길로만 둘러싼 블록
-    out, st = fill.fill(layout([20.0, 16.0, 6.0, 24.0]), 1)  # 좁은 길이 하나라도 있으면 채운다
+    assert fill.fill(layout(50.0, 40.0, [6.0, 6.0, 6.0, 6.0]), 1)[1]["buildings"] > 0  # 골목만이면 채우는 블록
+    assert fill.fill(layout(50.0, 40.0, [20.0, 6.0, 6.0, 20.0]), 1)[1]["buildings"] == 0  # 두 큰길 모퉁이는 비운다
+    out, st = fill.fill(layout(120.0, 100.0, [20.0, 6.0, 6.0, 6.0]), 1)  # 큰길에 한 변만 닿은 블록은 채운다
     assert st["blocks"] == 1 and st["buildings"] > 0
 
 
