@@ -3088,14 +3088,16 @@ def place_sort_prompt(p: Project, items: list[dict], places: list[dict]) -> str:
 # ---------- 지도: 마을 만들기 설정 제안 ----------
 
 SYSTEM_MAP_PLANNER = (
-    "당신은 소설 배경 지도를 기획하는 편집자입니다. 작품 설정과 장소 설명만 근거로 이 이야기의 마을이나 도시가 어떤 모습인지 정합니다. "
+    "당신은 소설 배경 지도를 기획하는 편집자입니다. 작품 설정과 장소 설명만 근거로 이 이야기의 마을 · 도시 · 동네가 어떤 모습인지 정합니다. "
     "좌표나 건물 배치는 프로그램이 정하므로 정하지 않습니다."
 )
 
 
-def map_suggest_prompt(p: Project, rows: list[dict], places: list[dict], kinds: list[tuple[str, str]], options: dict) -> str:
+def map_suggest_prompt(p: Project, rows: list[dict], places: list[dict], kinds: list[tuple[str, str]], options: dict,
+                       modern_kinds: dict | None = None, chosen: str = "") -> str:
     """rows: atlas.gen_places (지금 고른 종류), places: atlas.places (설명), kinds: (id, 이름),
-    options: 지도 종류(village, city)마다 설정 칸 (towngen.OPTIONS, citygen.OPTIONS)."""
+    options: 지도 종류(village, city, modern)마다 설정 칸 (towngen.OPTIONS, citygen.OPTIONS, moderngen.OPTIONS),
+    modern_kinds: 종류 id → 현대 동네에서 놓이는 자리 (moderngen.PLACE_KINDS), chosen: 지도 화면에서 지금 고른 지도 종류."""
     desc = {pl["key"]: pl for pl in places}
     lines = []
     for r in rows:
@@ -3103,13 +3105,15 @@ def map_suggest_prompt(p: Project, rows: list[dict], places: list[dict], kinds: 
         alias = f" (다른 이름: {', '.join(pl['aliases'])})" if pl.get("aliases") else ""
         about = f": {pl['description'][:100]}" if pl.get("description") else ""
         lines.append(f"- {r['name']}{alias}{about}")
-    names = {"village": "마을", "city": "도시"}
+    names = {"village": "마을", "city": "도시", "modern": "현대 동네"}
     opt = "\n".join(f"## {names.get(kind, kind)} (kind={kind})\n" + "\n".join(
         f"- {key}: " + ", ".join(f"{oid}({label})" for oid, label in vals.items()) for key, vals in opts.items())
         for kind, opts in options.items())
-    kind_lines = "\n".join(f"- {cid}: {label}" for cid, label in kinds)
+    modern_kinds = modern_kinds or {}
+    kind_lines = "\n".join(f"- {cid}: {label}" + (f" / 현대 동네: {modern_kinds[cid]}" if cid in modern_kinds else "") for cid, label in kinds)
+    now = f"\n지도 화면에서 지금 고른 지도: {names.get(chosen, chosen)} (kind={chosen})\n" if chosen else ""
     rules = [r for r in p.world.rules if r.strip()][:8]
-    return f"""이 작품의 주 무대가 되는 마을이나 도시 지도를 만들려고 합니다. 지도 생성기에 넣을 설정과 장소마다 종류를 정해 주세요.
+    return f"""이 작품의 주 무대가 되는 마을 · 도시 · 동네 지도를 만들려고 합니다. 지도 생성기에 넣을 설정과 장소마다 종류를 정해 주세요.
 
 # 작품
 제목: {p.meta.title}
@@ -3119,7 +3123,7 @@ def map_suggest_prompt(p: Project, rows: list[dict], places: list[dict], kinds: 
 
 # 장소 목록
 {chr(10).join(lines) or "(아직 없음)"}
-
+{now}
 # 설정 칸 (id(뜻))
 {opt}
 
@@ -3127,10 +3131,10 @@ def map_suggest_prompt(p: Project, rows: list[dict], places: list[dict], kinds: 
 {kind_lines}
 
 요구사항:
-- kind 는 village(마을) 나 city(성벽이 있는 도시)입니다. 배경이 도시이거나 성문 · 대성당 · 귀족 저택 · 큰 시장처럼 도시를 바라는 장소가 여럿이면 city, 아니면 village 입니다.
-- size, water, fields, forest 는 고른 kind 의 [설정 칸]에서 id 하나씩입니다. roads 는 마을에만 쓰고, 도시면 cross 로 둡니다. 장소 목록과 배경에 맞게 고릅니다.
-- 등대, 항구, 어시장, 포구처럼 바다를 바라는 장소가 있으면 water 는 sea, 다리 · 나루 · 방앗간 · 강가가 있으면 river 처럼 장소가 바라는 물을 고릅니다. 근거가 없으면 none 입니다.
-- 장소 목록의 장소마다 places 에 하나씩 넣고 name 은 목록의 이름 그대로 씁니다. kind 는 [종류]의 id 하나입니다. 이름에 종류 낱말이 없어도 설명으로 판단합니다 (예: '검은 파도'가 술을 파는 곳이면 inn).
+- kind 는 village(마을), city(성벽이 있는 도시), modern(현대 동네) 가운데 하나입니다. 배경이 근현대 · 현대이거나 아파트 · 편의점 · 지하철역 · 학교 · 학원 · 카페처럼 지금 시대 장소가 여럿이면 modern 입니다. 그렇지 않고 배경이 도시이거나 성문 · 대성당 · 귀족 저택 · 큰 시장처럼 도시를 바라는 장소가 여럿이면 city, 아니면 village 입니다. 지금 고른 지도가 있으면 뚜렷한 근거가 없는 한 그 종류를 따릅니다.
+- size, water, fields, forest 는 고른 kind 의 [설정 칸]에서 id 하나씩입니다. roads 는 마을에만 쓰고, 도시 · 현대 동네면 cross 로 둡니다. fields 는 현대 동네에 없으니 few 로 둡니다. 현대 동네의 forest 는 공원 수입니다. 장소 목록과 배경에 맞게 고릅니다.
+- 등대, 항구, 어시장, 포구처럼 바다를 바라는 장소가 있으면 water 는 sea, 다리 · 나루 · 방앗간 · 강가가 있으면 river 처럼 장소가 바라는 물을 고릅니다. 현대 동네의 물은 none 이나 river(하천)뿐입니다. 근거가 없으면 none 입니다.
+- 장소 목록의 장소마다 places 에 하나씩 넣고 name 은 목록의 이름 그대로 씁니다. kind 는 [종류]의 id 하나입니다. 이름에 종류 낱말이 없어도 설명으로 판단합니다 (예: '검은 파도'가 술을 파는 곳이면 inn). 현대 동네면 '/ 현대 동네:' 뒤의 자리를 보고 고릅니다 (예: 모텔 inn, 교회 temple, 마트 market, 주인공이 사는 아파트 home).
 - 왕궁, 다른 도시, 먼 산처럼 이 지도 안에 둘 수 없는 곳은 kind 를 far, put 을 false 로 둡니다. 이 마을이나 도시 자체를 가리키는 이름은 center 입니다.
 - 정할 근거가 없으면 kind 는 home, put 은 true 로 둡니다.
 - reason 에는 왜 이 설정인지 한국어 한두 문장으로, 장소 설명이나 배경에서 근거를 들어 적습니다."""
