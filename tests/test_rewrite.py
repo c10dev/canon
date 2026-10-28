@@ -1,6 +1,6 @@
 """다시 생성 테스트 (mock LLM): 피드백 · 재료 · 고쳐 쓰기 프롬프트, 새 판 고르기, 이전 판 되돌리기. 실행: python -m pytest tests"""
 from canon import pipeline, prompts
-from canon.schema import ConsistencyIssue, RewriteRequest, TextVersion
+from canon.schema import ConsistencyIssue, ConsistencyReport, RewriteRequest, TextVersion
 
 from .test_passage import TEXT, _ep, _written
 from .test_web import _wait, client  # noqa: F401  (pytest fixture)
@@ -20,8 +20,8 @@ def test_prompt_keeps_writing_prompt_first(client):
 
     _written(client)
     p = store.load("lh")
-    p.episode(1).issues = [ConsistencyIssue(type="사실", description="등대 색이 다르다", source_quote="흰 등대",
-                                            current_quote="서윤은 등대 앞에 섰다.", suggestion="흰색으로")]
+    pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[ConsistencyIssue(
+        type="사실", description="등대 색이 다르다", source_quote="흰 등대", current_quote="서윤은 등대 앞에 섰다.", suggestion="흰색으로")]))
     req = RewriteRequest(feedback="서윤이 더 망설이게", presets=["slower", "length"], materials=["issues", "style"],
                          mode="revise", keep=["\"됐어, 내가 할게.\""])
     out = pipeline.rewrite_prompt(p, 1, req)

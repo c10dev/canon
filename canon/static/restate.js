@@ -42,7 +42,7 @@ function restateNote(n) {
   const e = ep(n);
   if (!e || e.status !== 'finalized') return '';
   const later = laterWritten(n);
-  const next = later.length ? ` 뒤 화(${rangeText(later)}화)는 고치기 전 본문을 이어 썼어요. 이어지는 장면이 걸리면 <a href="${base()}/write/${later[0]}">${later[0]}화</a>를 검수해 보세요.` : '';
+  const next = later.length ? ` 뒤 화(${rangeText(later)}화)는 고치기 전 본문을 이어 썼어요. 이어지는 장면이 걸리면 <a href="${base()}/check/${later[0]}">${later[0]}화</a>를 검수해 보세요.` : '';
   if (!editedAfterFinal(e)) {
     return `<div class="note plain">상태 반영이 끝난 화예요. 본문을 고쳐도 반영된 요약 · 인물 상태 · 복선은 그대로 남아요. 고친 뒤 요약과 새 사실만 다시 맞출 수 있어요.</div>`;
   }

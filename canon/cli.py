@@ -79,8 +79,8 @@ from pathlib import Path
 from . import (archetypes, autorun, branches, cast, charlog, dynamics, elements, genres, illust, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
                storylines, updater, usage)
 from .llm import dump, get_llm
-from .schema import ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
-from . import abilities, atlas, citygen, stattrial, foreshadows, setupchat, statwin, timeline, towngen, travel
+from .schema import FINDING_STATUS, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
+from . import abilities, atlas, citygen, findings, stattrial, foreshadows, setupchat, statwin, timeline, towngen, travel
 from . import birth, play
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StoryArc
 
@@ -945,10 +945,16 @@ def _strip_fence(raw: str) -> str:
 
 def cmd_check(a: argparse.Namespace) -> None:
     p = store.load(a.name)
-    if a.from_json:
+    marks = [(s, fid) for s, fid in (("kept", a.keep), ("wrong", a.wrong), ("fixed", a.fixed), ("open", a.reopen)) if fid]
+    if marks:
+        for status, fid in marks:
+            f = findings.set_status(p.episode(a.n), fid, status, a.note, pipeline._now())
+            print(f"{f.id}: {FINDING_STATUS[status]}으로 정했어요" + (f" (메모: {f.note})" if f.note else ""))
+        store.save(a.name, p)
+    elif a.from_json:
         report = ConsistencyReport.model_validate_json(_strip_fence(Path(a.from_json).read_text(encoding="utf-8")))
         report.episode = a.n
-        pipeline.apply_check(p, report)
+        pipeline.apply_check(p, report, "chat")
         store.save(a.name, p)
     else:
         if a.widen and not p.serial:
@@ -958,23 +964,33 @@ def cmd_check(a: argparse.Namespace) -> None:
 
 
 def _check(name: str, p: Project, n: int, widen: bool | None = None) -> None:
-    on = p.serial and (p.settings.check_widen if widen is None else widen)
+    on = pipeline.widen_on(p, widen)
     print(f"{n}화 검수 중{' (넓혀 찾기 포함)' if on else ''}...")
-    pipeline.apply_check(p, pipeline.check_episode(get_llm("check"), p, n, widen))
+    pipeline.apply_check(p, pipeline.check_episode(get_llm("check"), p, n, widen), "api", on)
     store.save(name, p)
 
 
-def _print_issues(p: Project, n: int) -> None:
-    issues = p.episode(n).issues
-    if not issues:
-        print(f"{n}화 검수: 모순 없음")
+def _print_issues(p: Project, n: int, closed: bool = True) -> None:
+    """검수 지적. 열린 지적은 근거와 함께, 처리한 지적은 한 줄씩 (closed 일 때)."""
+    ep = p.episode(n)
+    if not ep.rounds:
+        print(f"{n}화는 아직 검수하지 않았어요")
         return
-    print(f"\n=== {n}화 검수: {len(issues)}건 ===")
-    for i in issues:
-        src = f"{i.source_episode}화" if i.source_episode else "설정"
-        print(f"! [{i.type}] {i.description}\n    {src} 근거: {i.source_quote}\n    {n}화: {i.current_quote}")
-        if i.suggestion:
-            print(f"    제안: {i.suggestion}")
+    r = ep.rounds[-1]
+    opened = findings.open_findings(ep)
+    print(f"\n=== {n}화 검수 {r.no}회차: 짚은 {r.found}곳, 새로 {r.added}곳 · 열린 지적 {len(opened)}곳 ===")
+    for f in opened:
+        src = f"{f.source_episode}화" if f.source_episode else "설정"
+        print(f"! {findings.line(ep, f)}\n    {src} 근거: {f.source_quote}\n    {n}화: {f.current_quote}")
+        if f.suggestion:
+            print(f"    제안: {f.suggestion}")
+    rest = [f for f in ep.findings if f.status != "open"]
+    if closed and rest:
+        print(f"처리한 지적 {len(rest)}곳")
+        for f in rest:
+            print(f"  {findings.line(ep, f)}" + (f" (메모: {f.note})" if f.note else ""))
+    if opened:
+        print(f"정하기: python -m canon check <작품> {n} --keep <id> | --wrong <id> | --fixed <id> | --reopen <id> [--note 메모]")
 
 
 def _num(v: float | None) -> str:
@@ -1183,8 +1199,8 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
         delta = pipeline.extract_state(get_llm("state"), p, n)
     _print_delta(delta)
     _print_relation_preview(p, delta)
-    if p.episode(n).issues:
-        _print_issues(p, n)
+    if findings.open_findings(p.episode(n)):
+        _print_issues(p, n, closed=False)
     for w in pipeline.style_drift(p, n)[1]:
         print(f"! 문체: {w}")
     _print_settings(p, delta)
@@ -2261,6 +2277,11 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--from-json", help="채팅 앱에서 받은 검수 결과 JSON 파일")
     sp.add_argument("--widen", action=argparse.BooleanOptionalAction, default=None,
                     help="장편: 검수 뒤 근거를 못 넣은 진술만 옛 화를 더 찾아 다시 물음 (검수 호출 2번 더). 비우면 작품 설정을 따름")
+    sp.add_argument("--keep", metavar="ID", help="이 지적을 그대로 둠 (다시 검수해도 열리지 않음)")
+    sp.add_argument("--wrong", metavar="ID", help="이 지적을 잘못 짚음으로")
+    sp.add_argument("--fixed", metavar="ID", help="이 지적을 고침으로")
+    sp.add_argument("--reopen", metavar="ID", help="이 지적을 다시 열림으로")
+    sp.add_argument("--note", default=None, help="--keep · --wrong 과 함께: 왜 그런지 메모")
     sp = add("stats", cmd_stats, yes=False)
     sp.add_argument("n", type=int, nargs="?")
     sp = add("run", cmd_run)

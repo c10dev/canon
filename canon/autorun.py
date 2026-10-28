@@ -21,7 +21,7 @@ from typing import Any, Callable, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from . import charlog, dynamics, jobs, pipeline, prompts, settings, store, usage
+from . import charlog, dynamics, findings, jobs, pipeline, prompts, settings, store, usage
 from .llm import BatchLLM, Interrupted, SchemaMismatch, get_llm
 from .research import CHARS_PER_TOKEN, JSON_OUTPUT_RESERVE, _filler
 from .schema import ConsistencyReport, Project, StateDelta, TextVersion
@@ -164,9 +164,11 @@ def _names(p: Project) -> dict[str, str]:
 def review_reasons(p: Project, delta: StateDelta, report: Optional[ConsistencyReport], policy: Policy) -> list[str]:
     """정책에 걸린 이유. 빈 목록이면 자동으로 반영해도 된다. p 는 반영 전 상태이고 바꾸지 않는다."""
     out: list[str] = []
-    if report is not None and len(report.issues) > policy.max_issues:
-        kinds = ", ".join(sorted({i.type for i in report.issues}))
-        out.append(f"검수에서 어긋난 곳 {len(report.issues)}개 ({kinds})")
+    # 작가가 그대로 둠 · 잘못 짚음으로 정해 둔 지적은 다시 나와도 세지 않는다
+    issues = findings.counted(p.episode(delta.episode), report.issues) if report is not None else []
+    if len(issues) > policy.max_issues:
+        kinds = ", ".join(sorted({i.type for i in issues}))
+        out.append(f"검수에서 어긋난 곳 {len(issues)}개 ({kinds})")
     if policy.hand_pick_opening and prompts.is_opening(delta.episode):
         out.append(f"{delta.episode}화는 초반 화라 직접 읽고 반영하도록 멈춰요 (집필 화면에서 초반 점검과 여는 방식 비교를 쓸 수 있어요)")
     if policy.stop_on_warnings and delta.warnings:
@@ -487,7 +489,7 @@ class Runner:
                     errors.append(e)
             if errors:
                 if "check" in results:  # 받아 온 검수는 버리지 않는다 (참고용이라 승인 없이 저장)
-                    _edit(self.name, lambda q: pipeline.apply_check(q, results["check"][0]))
+                    _edit(self.name, lambda q: pipeline.apply_check(q, results["check"][0], "auto", pipeline.widen_on(q)))
                 # 한쪽만 멈춤 요청을 받았으면 다른 쪽(기다리는 배치)도 같은 이유로 멈춘다
                 raise next((e for e in errors if not isinstance(e, _Halt)), errors[0])
         delta: StateDelta = results["state"][0]
@@ -495,7 +497,7 @@ class Runner:
         self.log(f"{n}화 상태 변경안: 인물 {len(delta.character_updates)}, 사건 {len(delta.events)}, "
                  f"사실 {len(delta.new_facts)}", **results["state"][1])
         if report is not None:
-            _edit(self.name, lambda q: pipeline.apply_check(q, report))
+            _edit(self.name, lambda q: pipeline.apply_check(q, report, "auto", pipeline.widen_on(q)))
             self.log(f"{n}화 검수: 어긋난 곳 {len(report.issues)}개", "warn" if report.issues else "info",
                      **results["check"][1])
         p = store.load(self.name)
@@ -627,7 +629,8 @@ def resume(name: str, approve: bool = False, rewrite: bool = False, *, foregroun
                 ep = q.episode(n)
                 if ep.text:  # 집필 화면의 다시 생성처럼 지금 본문을 이전 판으로 남긴다
                     pipeline._keep_version(ep, TextVersion(id=pipeline._version_id(ep), at=pipeline._now(), text=ep.text, kind="previous"))
-                ep.text, ep.status, ep.issues = "", "confirmed", []
+                ep.text, ep.status = "", "confirmed"
+                findings.clear(ep)
             _edit(name, back)
             r.log(f"{n}화를 다시 써요")
         elif status == "written":

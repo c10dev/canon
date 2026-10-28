@@ -21,7 +21,7 @@ let sample: FeatureAuto.Project = decode(#"""
  "elements":[{"id":"el-1","name":"항구 시장","found_in":"본문","found_ep":2}],
  "snapshots":[{"episode":0},{"episode":1},{"episode":2}],
  "episodes":[{"plot":\#(plot(1)),"status":"finalized","text":"1화 본문"},
-             {"plot":\#(plot(2)),"status":"finalized","text":"2화 본문","auto":true,"issues":[{"type":"말투","description":"x","source_quote":"a","current_quote":"b"}]},
+             {"plot":\#(plot(2)),"status":"finalized","text":"2화 본문","auto":true,"issues":[{"type":"말투","description":"x","source_quote":"a","current_quote":"b"}],"checked_at":"2026-10-28T10:00:00","findings":[{"id":"f1","type":"말투","description":"x","source_quote":"a","current_quote":"b","status":"open"}]},
              {"plot":\#(plot(3)),"status":"written","text":"3화 본문"},
              {"plot":\#(plot(4)),"status":"confirmed"},
              {"plot":\#(plot(5)),"status":"draft"}]}
@@ -130,7 +130,7 @@ func estimateJSON(episodes: Int = 3, from: String = "3", missing: String = "[6]"
         let review: AutoRun = decode(runJSON())
         #expect(AutoText.haltLink(review, sample)! == ("3화 본문 읽기", .write))
         let issues: AutoRun = decode(runJSON(ep: "2"))
-        #expect(AutoText.haltLink(issues, sample)! == ("2화 검수 결과 보기", .write))
+        #expect(AutoText.haltLink(issues, sample)! == ("2화 검수 결과 보기", .check))
         #expect(AutoText.haltLink(decode(runJSON(halt: "plot_draft")), sample)! == ("3화 플롯 확정하러 가기", .arc))
         #expect(AutoText.haltLink(decode(runJSON(halt: "plot_missing")), sample)! == ("3화 플롯 만들러 가기", .arc))
         #expect(AutoText.haltLink(decode(runJSON(halt: "every")), sample)! == ("3화 읽으러 가기", .write))

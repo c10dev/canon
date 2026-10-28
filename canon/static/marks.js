@@ -87,6 +87,15 @@ function markHtml(text, ranges, names = [], live = false) {
   return html + piece(at, text.length);
 }
 
+/** 밑줄 칠 곳 모두: 문체 밑줄(켰을 때)과 검수 화면의 지적 문장(check.js findingRanges). 겹치면 앞의 것만. */
+function allRanges(n, text) {
+  const out = [...(marksOn && markable() ? markRanges(n, text) : []), ...(typeof findingRanges === 'function' ? findingRanges(n, text) : [])];
+  out.sort((x, y) => x.a - y.a || y.b - x.b);
+  let end = 0;
+  return out.filter((r) => (r.a >= end ? ((end = r.b), true) : false));
+}
+const findingMarked = (n, text) => typeof findingRanges === 'function' && findingRanges(n, text).length > 0;
+
 /** 이름 밑줄 (mentions.js). 꺼 두었거나 mentions.js 가 없으면 []. */
 const nameRanges = (text, quick = false) => (typeof mentionsFor === 'function' ? mentionsFor(text, quick) : []);
 const nameable = () => typeof mentionLive === 'function' && mentionLive();
@@ -94,7 +103,8 @@ const nameable = () => typeof mentionLive === 'function' && mentionLive();
 /** 읽기 전용 본문 (상태 반영이 끝난 화). */
 function readHtml(n, text) {
   const names = nameRanges(text);
-  return marksOn || names.length ? markHtml(text, marksOn ? markRanges(n, text) : [], names, true) : esc(text);
+  const ranges = allRanges(n, text);
+  return ranges.length || names.length ? markHtml(text, ranges, names, true) : esc(text);
 }
 
 /** 고치는 본문 칸. 밑줄을 켜면 뒤에 같은 모양의 칸을 깐다. */
@@ -103,7 +113,7 @@ function draftBox(n, text) {
   const e = typeof ep === 'function' ? ep(n) : null;
   const locked = typeof jobFor === 'function' && !!jobFor('write', n) && !(e && e.text);
   const ta = `<textarea aria-label="${n}화 본문" data-draft="${n}"${locked ? ' readonly aria-describedby="draft-lock"' : ''} placeholder="여기에 본문을 쓰세요">${esc(text)}</textarea>`;
-  return (marksOn && markable()) || nameable() ? `<div class="hl-wrap"><div class="hl-layer" aria-hidden="true"><div class="hl-in"></div></div>${ta}</div>` : ta;
+  return (marksOn && markable()) || nameable() || findingMarked(n, text) ? `<div class="hl-wrap"><div class="hl-layer" aria-hidden="true"><div class="hl-in"></div></div>${ta}</div>` : ta;
 }
 
 const markable = () => (P().style.devices || []).some((d) => (d.name || '').trim()) || bannedList().length > 0;
@@ -166,7 +176,7 @@ function paintLayer(quick = false) {
   LAYER_STYLE.forEach((k) => { layer.style[k] = cs[k]; });
   layer.style.width = `${ta.clientWidth}px`;
   layer.style.height = `${ta.clientHeight}px`;
-  const ranges = marksOn && markable() ? markRanges(Number(ta.dataset.draft), ta.value) : [];
+  const ranges = allRanges(Number(ta.dataset.draft), ta.value);
   layer.firstElementChild.innerHTML = `${markHtml(ta.value, ranges, nameRanges(ta.value, quick))}\n`;
   // 스크롤 타임라인은 0~1 로 움직이니 끝까지 내렸을 때 옮길 거리를 준다
   layer.style.setProperty('--hl-max', `${Math.max(0, ta.scrollHeight - ta.clientHeight)}px`);
@@ -238,8 +248,9 @@ document.addEventListener('click', (e) => {
     const name = typeof mentionAt === 'function' && mentionAt(ta, p);
     if (name) return mentionFromTa(ta, name);  // 이름을 누르면 이름 카드가 먼저다. 그 문장을 고치려면 드래그해 고른다
     const n = Number(ta.dataset.draft);
-    const r = markRanges(n, ta.value).find((x) => x.a <= p && p <= x.b);
+    const r = allRanges(n, ta.value).find((x) => x.a <= p && p <= x.b);
     if (!r) return;
+    if (r.key.startsWith('i:')) return actions.selectIssue(r.key.slice(2));  // 검수 화면: 그 지적을 고르고 문장으로 도구를 띄운다
     const s = sentenceAt(ta.value, r.a, r.b);
     S.selTool = { n, start: s.start, text: ta.value.slice(s.start, s.end), mode: 'menu', hint: markHint(r) };
     showTool();

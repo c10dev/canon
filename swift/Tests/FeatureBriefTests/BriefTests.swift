@@ -25,7 +25,8 @@ let sample = project(#"""
 @Suite struct BriefTextTests {
     /// 웹 `briefTabFor`: 본문이 있고 반영하지 않은 화는 상태 승인 지시서, 나머지는 본문 작성 지시서.
     @Test func defaultKind() {
-        #expect(BriefText.defaultKind(.written) == .state)
+        #expect(BriefText.defaultKind(.written) == .check)
+        #expect(BriefText.defaultKind(.written, checkDone: true) == .state)
         #expect(BriefText.defaultKind(.confirmed) == .episode)
         #expect(BriefText.defaultKind(.finalized) == .episode)
         #expect(BriefModel.defaultEpisode(sample) == 2)
@@ -93,6 +94,14 @@ final class FakeBrief: BriefService, @unchecked Sendable {
         if let parseError { throw parseError }
         return try JSONDecoder().decode(StateDelta.self, from: Data(#"{"episode":\#(ep),"summary":"요약"}"#.utf8))
     }
+    var imported: [(Int, String)] = []
+    func importCheck(_ project: String, ep: Int, raw: String) async throws {
+        if let parseError { throw parseError }
+        imported.append((ep, raw))
+        let r = try JSONDecoder().decode(Components.Schemas.CheckRound.self, from: Data(#"{"no":1,"source":"chat","found":1,"added":1}"#.utf8))
+        store.project.episodes![ep - 1].rounds = [r]
+        store.project.episodes![ep - 1].checkedAt = "2026-10-28T10:00:00"
+    }
 }
 
 @MainActor
@@ -108,11 +117,11 @@ func makeModel(name: String) async -> (BriefModel, FakeStore, FakeBrief) {
 
 @MainActor
 @Suite struct BriefModelTests {
-    /// 본문이 있는 2화는 상태 승인 지시서로 연다. 고른 종류는 그 화에 남는다.
+    /// 본문이 있고 검수하지 않은 2화는 검수 지시서로 연다. 고른 종류는 그 화에 남는다.
     @Test func tabs() async {
         let (m, _, fb) = await makeModel(name: "탭")
-        #expect(m.ep == 2 && m.kind == .state)
-        #expect(m.text == "2화 state 지시서")
+        #expect(m.ep == 2 && m.kind == .check)
+        #expect(m.text == "2화 check 지시서")
         await m.select(3)
         #expect(m.kind == .episode)
         await m.setKind(.state)
@@ -122,6 +131,19 @@ func makeModel(name: String) async -> (BriefModel, FakeStore, FakeBrief) {
         await m.select(2)
         await m.select(3)
         #expect(m.kind == .state)
+    }
+
+    /// 받은 검수 JSON: 회차 하나로 합치고 붙여 넣은 글을 지운다. 순서 규칙은 따지지 않는다.
+    @Test func importCheck() async {
+        let (m, store, fb) = await makeModel(name: "검수")
+        #expect(m.kind == .check && m.order.isEmpty && m.canImport)
+        #expect(await m.importCheck() == false)  // 빈 칸
+        m.draft = #"{"issues":[]}"#
+        #expect(await m.importCheck())
+        #expect(fb.imported.map(\.0) == [2] && m.draft.isEmpty)
+        #expect(m.notice?.text == "1회차로 합쳤어요: 짚은 곳 1개, 새 지적 1개")
+        #expect(store.project.episodes![1].rounds?.first?.source == .chat)
+        #expect(BriefText.steps.count == 4)
     }
 
     /// 받은 본문 저장: 앞 화 반영이 끝나지 않으면 막고, 저장하면 붙여 넣은 글을 지운다.
@@ -155,6 +177,7 @@ func makeModel(name: String) async -> (BriefModel, FakeStore, FakeBrief) {
     /// 받은 JSON: 서버가 400 으로 거절하면 이유를 칸 아래에 남기고, 읽으면 변경안을 돌려주고 칸을 비운다.
     @Test func importJSON() async {
         let (m, _, fb) = await makeModel(name: "JSON")
+        await m.setKind(.state)  // 2화는 검수 전이라 검수 지시서로 열린다
         #expect(m.canImport)
         fb.parseError = .server(status: 400, message: "JSON을 찾지 못했어요", code: nil)
         m.draft = "아무 말"

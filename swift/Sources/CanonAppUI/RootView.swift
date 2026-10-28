@@ -11,6 +11,7 @@ import FeatureLines
 import FeatureCast
 import FeatureCausal
 import FeatureBrief
+import FeatureCheck
 import FeaturePlot
 import FeatureProjects
 import FeatureReview
@@ -149,6 +150,7 @@ public struct RootView: View {
         case .cast: CastScreen(server: model.server, project: project) { model.screen = $0 }
         case .review: if let doc = model.document { ReviewView(document: doc, jobs: model.jobs, service: LiveReviewService(server: model.server)) { model.screen = $0 } }
         case .write: if let doc = model.document { WriteView(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
+        case .check: if let doc = model.document { CheckView(document: doc, jobs: model.jobs, service: LiveCheckService(server: model.server)) { model.screen = $0 } }
         case .arc: if let doc = model.document { PlotScreen(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 }.environment(\.plotSlots, Self.plotSlots) }
         case .auto: if let doc = model.document { AutoScreen(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }
         case .lines: if let doc = model.document { LinesScreen(document: doc, jobs: model.jobs, server: model.server) { model.screen = $0 } }

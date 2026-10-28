@@ -1,5 +1,6 @@
 import CanonAPI
 import CanonCore
+import CanonStore
 import Foundation
 
 public typealias AutoState = Components.Schemas.AutoView
@@ -233,8 +234,8 @@ public enum AutoText {
         case "plot_draft": return ("\(n)화 플롯 확정하러 가기", .arc)
         case "plot_missing": return ("\(n)화 플롯 만들러 가기", .arc)
         case "review":
-            let issues = (p.episodes ?? []).first { $0.plot.number == n }?.issues ?? []
-            return (issues.isEmpty ? "\(n)화 본문 읽기" : "\(n)화 검수 결과 보기", .write)
+            let open = (p.episodes ?? []).first { $0.plot.number == n }?.checkState.open ?? 0
+            return open == 0 ? ("\(n)화 본문 읽기", .write) : ("\(n)화 검수 결과 보기", .check)
         case "every": return ("\(n)화 읽으러 가기", .write)
         case "changed": return ("\(n)화 집필 화면 보기", .write)
         default: return nil

@@ -1,4 +1,4 @@
-/* 5단계 상태 승인: 상태 변경안 고르기 · 반영, 관계 계산 미리보기, 관계 표시(숫자/말). app.js 의 S, actions, api, render, input, header 를 그대로 쓴다. */
+/* 6단계 상태 승인: 상태 변경안 고르기 · 반영, 관계 계산 미리보기, 관계 표시(숫자/말). app.js 의 S, actions, api, render, input, header 를 그대로 쓴다. */
 'use strict';
 
 
@@ -133,7 +133,7 @@ const statLink = (updates) => (updates.some((u) => (u.stats || []).length) || P(
 
 function viewReview(n) {
   const e = ep(n);
-  if (!e) return header('5단계', '상태 승인', '') + noEpisode();
+  if (!e) return header('6단계', '상태 승인', '') + noEpisode();
   const top = (desc, right = '') => `<header class="page-head"><div class="row" style="gap:12px">${epNav('review', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${n}화 ${esc(e.plot.title)}</div><h1 style="font-size:1.5rem">상태 승인</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div><div class="row">${right}</div></header>${autoLockNote()}${desc ? `<p class="desc">${desc}</p>` : ''}`;
 
   if (e.status === 'finalized') {
@@ -165,9 +165,11 @@ function viewReview(n) {
     ? `<section class="note warn">${n}화 본문에 저장하지 않은 수정이 있어요. 반영해도 그 수정은 저장되지 않아요. 변경안을 다시 만들면 본문을 먼저 저장해요. ${remake} <a href="${base()}/write/${n}">본문으로</a></section>`
     : S.deltaBase[n] !== undefined && S.deltaBase[n] !== e.text
       ? `<section class="note warn">이 변경안을 만든 뒤 본문을 고쳤어요. 고친 내용이 상태에 영향을 준다면 변경안을 다시 만드세요. ${remake}</section>` : '';
-  // 검수 지적이 남아 있으면 반영 전에 본문을 고칠지 볼 수 있게 알린다 (검수 뒤 본문을 고쳤으면 지난 결과라고 밝힌다)
-  const issues = (e.issues || []).length
-    ? `<section class="note warn">검수 지적 ${e.issues.length}건이 남아 있어요${(e.edits || []).some((x) => x.at > (e.checked_at || '')) ? ' (검수 뒤 본문을 고쳤어요)' : ''}. <a href="${base()}/write/${n}">집필 화면에서 보기</a></section>` : '';
+  // 열린 검수 지적이 남았거나 검수하지 않았으면 반영 전에 알린다 (검수 뒤 본문을 고쳤으면 지난 결과라고 밝힌다). 막지는 않는다
+  const cs = checkState(e);
+  const issues = cs.open
+    ? `<section class="note warn">열린 검수 지적 ${cs.open}곳이 남아 있어요${cs.stale ? ' (검수 뒤 본문을 고쳤어요)' : ''}. <a href="${base()}/check/${n}">검수에서 보기</a></section>`
+    : !cs.checked ? `<section class="note plain">${n}화는 아직 검수하지 않았어요. 반영해도 되지만, 앞 화와 어긋나는 곳이 있는지 <a href="${base()}/check/${n}">검수</a>에서 먼저 볼 수 있어요.</section>` : '';
   const total = deltaCount(d);
   if (!S.preview || S.preview.n !== n) refreshPreview(n);
   const picked = deltaPicked();

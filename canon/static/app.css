@@ -166,7 +166,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .chip.finalized { background: var(--green-soft); color: var(--green); }
 .chip.ai { background: var(--accent-soft); color: var(--accent-ink); font-size: 0.6875rem; }
 
-.stages { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.stages { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
 @media (max-width: 900px) { .stages { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .stage { display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: var(--text); }
 .stage .bar { height: 4px; border-radius: 2px; background: var(--chip); }
@@ -1483,3 +1483,38 @@ input[type=number].pnum { width: 80px; min-height: 36px; padding: 0 8px; border:
 .puntil legend { padding: 0; margin-bottom: 6px; }
 .puntil label { min-height: 36px; }
 .pcol > .chip { align-self: flex-start; }
+
+/* ----- 검수 화면 (check.js): 넓은 폭은 지적 목록 · 본문 · 지적 상세 세 칸, 중간 폭은 목록과 상세를 왼쪽에 쌓고, 좁은 폭은 한 줄로 ----- */
+.check-cols { display: flex; flex-direction: column; gap: 16px; }
+@media (min-width: 900px) {
+  .check-cols { display: grid; grid-template-columns: 300px minmax(0, 1fr); grid-template-areas: "list body" "detail body"; align-items: start; }
+  .check-cols .c-list { grid-area: list; }
+  .check-cols .c-detail { grid-area: detail; }
+  .check-cols .c-body { grid-area: body; }
+}
+@media (min-width: 1360px) {
+  .check-cols { grid-template-columns: 280px minmax(0, 1fr) 320px; grid-template-areas: "list body detail"; }
+  .check-cols .c-detail { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
+}
+body.chat-open .check-cols { display: flex; flex-direction: column; }
+.chk-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.chk-strip .chk-filters { margin-left: auto; gap: 4px; }
+.chk-round { padding: 3px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 0.75rem; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.chk-round.last { border-color: var(--accent); color: var(--text); font-weight: 700; }
+.chk-tabs { flex-wrap: wrap; }
+.chk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.chk-item { width: 100%; text-align: left; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; font-size: 0.8125rem; display: flex; flex-direction: column; gap: 6px; cursor: pointer; }
+.chk-item:hover { border-color: var(--line-strong); }
+.chk-item[aria-current="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.chk-item .chk-desc { line-height: 1.5; }
+.chk-item.done .chk-desc { color: var(--muted); }
+.chip.chk-flag { background: transparent; border: 1px dashed var(--line-strong); color: var(--text-2); font-weight: 500; }
+.chk-title { font-size: 0.9375rem; line-height: 1.5; }
+.chk-quote { margin: 0; padding: 8px 10px; border-left: 3px solid var(--line-strong); background: var(--bg); font-family: var(--serif); font-size: 0.8125rem; line-height: 1.7; }
+.chk-quote.now { border-left-color: var(--amber); }
+.chk-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.chk-seg .btn { justify-content: center; }
+.chk-seg .btn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
+mark.hl.issue { background: var(--amber-soft); text-decoration-color: var(--amber); }
+mark.hl.issue.sel { background: var(--warn-line); text-decoration-thickness: 3px; }
+.read mark.hl.issue { cursor: pointer; }

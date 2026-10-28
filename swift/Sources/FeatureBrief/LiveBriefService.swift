@@ -26,6 +26,14 @@ public struct LiveBriefService: BriefService {
         }
     }
 
+    public func importCheck(_ project: String, ep: Int, raw: String) async throws {
+        switch try await server.call({ try await $0.importCheck(path: .init(name: project, n: ep), body: .json(.init(raw: raw))) }) {
+        case .ok: return
+        case let .unprocessableContent(bad): throw CanonError.badResponse(String(describing: bad))
+        case let .undocumented(status, payload): throw await CanonServer.failure(status, payload)
+        }
+    }
+
     public func parseState(_ project: String, ep: Int, raw: String) async throws -> StateDelta {
         switch try await server.call({ try await $0.parseState(path: .init(name: project, n: ep), body: .json(.init(raw: raw))) }) {
         case let .ok(ok): return try ok.body.json

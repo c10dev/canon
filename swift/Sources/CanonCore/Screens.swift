@@ -2,7 +2,7 @@
 /// 웹은 데이터가 없는 작품 도구를 '더 보기'로 접는다. 앱은 아직 접지 않고 모두 보인다.
 public enum Screen: String, CaseIterable, Sendable, Identifiable {
     // 작업 순서 (번호가 붙는다)
-    case home, setup, style, arc, write, review
+    case home, setup, style, arc, write, check, review
     // 자동 집필 (단계 바로 아래, 제목 없는 묶음)
     case auto
     // 작품 도구
@@ -16,7 +16,7 @@ public enum Screen: String, CaseIterable, Sendable, Identifiable {
 
     public var group: Group {
         switch self {
-        case .home, .setup, .style, .arc, .write, .review: .steps
+        case .home, .setup, .style, .arc, .write, .check, .review: .steps
         case .auto: .autoRun
         case .research, .usage: .separate
         default: .tools
@@ -31,7 +31,8 @@ public enum Screen: String, CaseIterable, Sendable, Identifiable {
         case .style: "2"
         case .arc: "3"
         case .write: "4"
-        case .review: "5"
+        case .check: "5"
+        case .review: "6"
         case .cast: "👥"
         case .atlas: "🗺️"
         case .foreshadow: "🪝"
@@ -56,6 +57,7 @@ public enum Screen: String, CaseIterable, Sendable, Identifiable {
         case .style: "문체 레퍼런스"
         case .arc: serial ? "부 · 아크 · 플롯" : "기승전결 · 플롯"
         case .write: "집필"
+        case .check: "검수"
         case .review: "상태 승인"
         case .cast: "인물 · 관계도"
         case .atlas: "지도"

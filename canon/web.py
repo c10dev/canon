@@ -26,9 +26,10 @@ from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
-from . import abilities, atlas, foreshadows, setupchat, stattrial, statwin, timeline, travel
+from . import abilities, atlas, findings, foreshadows, setupchat, stattrial, statwin, timeline, travel
 from .schema import ChatScope, Deadline, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
-from .schema import CharacterState, StoryEvent
+from .metrics import StyleMetrics
+from .schema import CharacterState, ConsistencyReport, FindingStatus, StoryEvent
 from .schema import NameOption, Recap
 from . import branches
 from .schema import BranchDiff, BranchInfo, ForkMode
@@ -1668,9 +1669,10 @@ def start_job(name: str, body: JobIn) -> dict:
         label, total, owned = f"{n}화 검수", 1, set()
 
         def fn(job: jobs.Job):
-            rep = pipeline.check_episode(llm, store.load(name), n)
-            _edit(name, lambda q: pipeline.apply_check(q, rep))
-            return {"issues": len(rep.issues)}
+            q0 = store.load(name)
+            rep = pipeline.check_episode(llm, q0, n)
+            r = _edit(name, lambda q: pipeline.apply_check(q, rep, "api", pipeline.widen_on(q0))).episode(n).rounds[-1]
+            return {"issues": len(rep.issues), "round": r.no, "added": r.added}
     elif kind == "storyline":
         label, total, owned = "이야기 줄기 제안", 1, set()
         note, line_kind = body.note, body.line_kind
@@ -1994,7 +1996,7 @@ def rewrite_info(name: str, n: int) -> RewriteInfo:
     e = p.episode(n)
     mats = pipeline.rewrite_materials(p, n)
     last_edit = max((x.at for x in e.edits if not x.undone), default="")
-    notes = {"issues": "검수한 뒤 본문을 고쳐서 이미 고친 곳일 수 있어요" if e.issues and last_edit > e.checked_at else "",
+    notes = {"issues": "검수한 뒤 본문을 고쳐서 이미 고친 곳일 수 있어요" if findings.open_findings(e) and last_edit > e.checked_at else "",
              "hook": "판정한 뒤 본문이 바뀌었어요" if mats["hook"] and pipeline.hook_stale(p, n) else ""}
     return {
         "presets": [{"id": k, "label": label} for k, (label, _) in prompts.REWRITE_PRESETS.items()],
@@ -2281,7 +2283,59 @@ def parse_state(name: str, n: int, body: Raw) -> StateDelta:
     화 번호는 이 화로 채운다 (채팅 앱이 episode 를 빼먹어도 받는다)."""
     p = _load(name)
     p.episode(n)
-    raw = body.raw
+    data = _json_object(body.raw)
+    data["episode"] = n
+    try:
+        delta = StateDelta.model_validate(data)
+    except ValidationError as e:
+        raise HTTPException(400, _validation_text(e))
+    pipeline.clean_delta(p, delta)
+    return delta
+
+
+@app.post("/api/projects/{name}/episodes/{n}/check/import")
+def import_check(name: str, n: int, body: Raw) -> Project:
+    """채팅 앱이 돌려준 검수 결과 JSON 을 회차 하나로 합친다 (검수 지시서, 회차 source chat).
+    상태 변경안 가져오기와 같은 규칙으로 읽는다."""
+    _load(name).episode(n)
+    data = _json_object(body.raw)
+    data["episode"] = n
+    try:
+        rep = ConsistencyReport.model_validate(data)
+    except ValidationError as e:
+        raise HTTPException(400, _validation_text(e))
+    return _edit(name, lambda q: pipeline.apply_check(q, rep, "chat"))
+
+
+class FindingIn(BaseModel):
+    status: FindingStatus
+    note: str | None = Field(None, description="작가 메모. 비우면(null) 그대로 둔다")
+
+
+@app.put("/api/projects/{name}/episodes/{n}/findings/{fid}")
+def set_finding(name: str, n: int, fid: str, body: FindingIn) -> Project:
+    """검수 지적의 처리 상태(열림 · 고침 · 그대로 둠 · 잘못 짚음)와 메모를 정한다."""
+    _load(name)
+    return _edit(name, lambda q: findings.set_status(q.episode(n), fid, body.status, body.note, pipeline._now()))
+
+
+class StyleDrift(_Out):
+    metrics: StyleMetrics
+    warnings: list[str]
+
+
+@app.get("/api/projects/{name}/episodes/{n}/style")
+def episode_style(name: str, n: int) -> StyleDrift:
+    """이번 화 문체 지표와 기준 대비 경고 (pipeline.style_drift). LLM 없이 부를 때마다 다시 잰다."""
+    p = _load(name)
+    if not p.episode(n).text:
+        raise ValueError(f"{n}화 본문이 없어요")
+    m, warns = pipeline.style_drift(p, n)
+    return {"metrics": m, "warnings": warns}
+
+
+def _json_object(raw: str) -> dict:
+    """채팅 앱 답에서 첫 { 부터 마지막 } 까지 읽는다. 읽지 못하면 화면에 보일 까닭과 함께 400."""
     a, b = raw.find("{"), raw.rfind("}")
     if a < 0 or b < a:
         raise HTTPException(400, "JSON을 찾지 못했어요. 채팅 앱 답에서 { 로 시작하는 부분을 붙여 넣으세요")
@@ -2294,16 +2348,14 @@ def parse_state(name: str, n: int, body: Raw) -> StateDelta:
         raise HTTPException(400, f"JSON 형식이 맞지 않아요: {line}번째 줄 {col}번째 글자 근처에서 {_json_reason(raw, pos, e.msg)}")
     if not isinstance(data, dict):
         raise HTTPException(400, "JSON이 { } 로 묶인 객체가 아니에요")
-    data["episode"] = n
-    try:
-        delta = StateDelta.model_validate(data)
-    except ValidationError as e:
-        err = e.errors()[0]
-        loc = ".".join(map(str, err["loc"]))
-        why = _VALIDATION_REASON.get(err["type"], err["msg"])
-        raise HTTPException(400, f"JSON 내용이 맞지 않아요: {f'{loc} 칸이 ' if loc else ''}{why}")
-    pipeline.clean_delta(p, delta)
-    return delta
+    return data
+
+
+def _validation_text(e: ValidationError) -> str:
+    err = e.errors()[0]
+    loc = ".".join(map(str, err["loc"]))
+    why = _VALIDATION_REASON.get(err["type"], err["msg"])
+    return f"JSON 내용이 맞지 않아요: {f'{loc} 칸이 ' if loc else ''}{why}"
 
 
 # json 모듈의 영어 오류 → 화면 문구
@@ -4121,6 +4173,10 @@ def brief(name: str, n: int, kind: str = "episode") -> BriefText:
         if not p.episode(n).text:
             raise ValueError(f"{n}화 본문이 없어 상태 정리 지시서를 만들 수 없어요")
         return {"text": prompts.state_brief(p, n)}
+    if kind == "check":
+        if not p.episode(n).text:
+            raise ValueError(f"{n}화 본문이 없어 검수 지시서를 만들 수 없어요")
+        return {"text": prompts.check_brief(p, n)}
     return {"text": prompts.episode_brief(p, n)}
 
 

@@ -145,35 +145,11 @@ function passageProposal(m, i) {
 
 /** 본문 위 안내: 고친 뒤라 다시 해야 할 단계. */
 function passageNotes(n) {
-  const e = ep(n);
   const out = [];
-  const lastEdit = [...(e.edits || [])].reverse().find((x) => !x.undone);
   if (S.deltas[n] && S.deltaBase[n] !== undefined && S.deltaBase[n] !== textNow(n)) {
     out.push(`<div class="note warn">상태 변경안을 만든 뒤 본문을 고쳤어요. 변경안은 고치기 전 본문 기준이라 <a href="${base()}/review/${n}">상태 승인</a>에서 다시 만드는 게 좋아요.</div>`);
   }
-  if (e.issues && e.issues.length && lastEdit && lastEdit.at > (e.checked_at || '')) {
-    out.push(`<div class="note plain">검수에서 찾은 ${e.issues.length}곳은 고치기 전 본문 기준이에요. 이미 고친 곳일 수 있어요.</div>`);
-  }
   return out.join('');
-}
-
-/** 검수에서 찾은 곳. 누르면 본문에서 그 문장을 골라 바로 고칠 수 있게 한다. */
-function issuesBlock(e) {
-  if (!e.issues || !e.issues.length) return '';
-  const n = e.plot.number;
-  const text = textNow(n);
-  const can = editableEp(e);
-  return `<div class="field"><span class="small">검수에서 찾은 곳 ${e.issues.length}</span><ol class="issue-list">${e.issues.map((x, k) => {
-    const found = x.current_quote && text.includes(x.current_quote);
-    const src = x.source_episode ? `${x.source_episode}화` : '설정';
-    return `<li>
-      <span class="chip">${esc(x.type)}</span> ${esc(x.description)}
-      ${x.current_quote || x.source_quote || x.suggestion ? `<details class="issue-more"><summary class="small">근거와 고칠 방향</summary>
-        ${x.current_quote ? `<div class="small">이번 화: <q>${esc(x.current_quote)}</q>${found ? '' : ' (지금 본문에서 찾을 수 없어요)'}</div>` : ''}
-        ${x.source_quote ? `<div class="small">근거 (${src}): <q>${esc(x.source_quote)}</q></div>` : ''}
-        ${x.suggestion ? `<div class="small">→ ${esc(x.suggestion)}</div>` : ''}</details>` : ''}
-      ${found && can ? `<button type="button" class="btn small" data-action="selectIssue" data-arg="${k}">이 문장 고르기</button>${x.suggestion ? `<button type="button" class="btn small" data-action="issueAsk" data-arg="${k}">고칠 방향으로 AI에게</button>` : ''}` : ''}</li>`;
-  }).join('')}</ol></div>`;
 }
 
 /** 상태 변경안 경고 속 본문 문장. «» · 따옴표 안 문구를 길이 순으로 본문에서 찾고, 그대로 없으면 낱말이 가장 많이 겹치는 문장. 못 찾으면 ''. */
@@ -210,14 +186,6 @@ function warnItems(n, warnings) {
     const q = can && warnQuote(w, text);
     return `<li>${esc(w)}${q ? ` <span class="row" style="gap:6px;display:inline-flex"><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}">이 문장 고르기</button><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}:ask">AI에게 고치기</button></span>` : ''}</li>`;
   }).join('');
-}
-
-/** 집필 화면: 상태 정리에서 나온 경고. 상태 승인 화면에 가지 않고 본문에서 바로 고친다. */
-function warnBlock(e) {
-  const n = e.plot.number;
-  const d = S.deltas[n];
-  if (!d || !d.warnings || !d.warnings.length || e.status !== 'written') return '';
-  return `<div class="field"><span class="small">상태 정리 경고 ${d.warnings.length}</span><ol class="issue-list">${warnItems(n, d.warnings)}</ol></div>`;
 }
 
 const SOURCE = { manual: '직접', ai: 'AI', typed: '본문 저장', impact: '인과율' };
@@ -521,12 +489,13 @@ Object.assign(actions, {
     if (s && focusText(s.n, s.text, s.start) === -1) return toast('본문에서 찾을 수 없어요. 다시 골라 주세요', true);
     render();
   },
-  /** 그 문장을 고르고, 검수가 낸 고칠 방향을 대화 입력칸에 넣는다. 보내기는 작가가 한다 */
-  issueAsk(k) {
+  /** 검수 지적(id)의 문장을 고르고, 검수가 낸 고칠 방향을 대화 입력칸에 넣는다. 보내기는 작가가 한다 */
+  issueAsk(id) {
     const n = Number(S.route[3]) || currentEp();
-    const x = ep(n).issues[k];
+    const x = (ep(n).findings || []).find((f) => f.id === id);
+    if (!x) return;
     S.chatDraft = `검수 지적: ${x.description} → ${x.suggestion}`;
-    actions.selectIssue(k);
+    actions.selectIssue(id);
   },
   /** 상태 정리 경고가 가리킨 문장을 집필 화면 본문에서 고르고 부분 수정 도구를 연다. ask 면 경고를 대화 입력칸에 넣는다 */
   warnPick(arg) {
@@ -546,10 +515,13 @@ Object.assign(actions, {
     window.addEventListener('hashchange', () => routeQueue.then(go), { once: true });
     location.hash = `${base()}/write/${num}`;
   },
-  selectIssue(k) {
+  /** 검수 지적(id)의 문장을 본문에서 고르고 부분 수정 도구를 띄운다 (검수 화면 check.js) */
+  selectIssue(id) {
     const n = Number(S.route[3]) || currentEp();
-    const q = ep(n).issues[k].current_quote;
-    if (focusText(n, q, 0) === -1) return toast('본문에서 그 문장을 찾을 수 없어요', true);
+    const x = (ep(n).findings || []).find((f) => f.id === id);
+    if (!x) return;
+    if (S.chkSel) S.chkSel[n] = id;
+    if (!x.current_quote || focusText(n, x.current_quote.trim(), 0) === -1) { render(); return toast('본문에서 그 문장을 찾을 수 없어요', true); }
     render();
     const ta = document.querySelector(`textarea[data-draft="${n}"]`);
     const s = ta && readSel(ta);

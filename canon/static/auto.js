@@ -237,7 +237,7 @@ function autoHaltLinks(r) {
   switch (r.halt) {
     case 'plot_draft': return go(`${base()}/arc/${n}`, `${n}화 플롯 확정하러 가기`);
     case 'plot_missing': return go(`${base()}/arc`, `${n}화 플롯 만들러 가기`);
-    case 'review': return (ep(n) && ep(n).issues.length ? go(`${base()}/write/${n}`, `${n}화 검수 결과 보기`) : go(`${base()}/write/${n}`, `${n}화 본문 읽기`));
+    case 'review': return (ep(n) && checkState(ep(n)).open ? go(`${base()}/check/${n}`, `${n}화 검수 결과 보기`) : go(`${base()}/write/${n}`, `${n}화 본문 읽기`));
     case 'every': return go(`${base()}/write/${n}`, `${n}화 읽으러 가기`);
     case 'changed': return go(`${base()}/write/${n}`, `${n}화 집필 화면 보기`);
     default: return '';
@@ -299,13 +299,16 @@ function autoRunCard(r, active) {
 }
 
 function autoAppliedCard(active, r) {
-  const auto = P().episodes.filter((e) => e.auto);
-  if (!auto.length) return '';
+  const all = P().episodes.filter((e) => e.auto);
+  if (!all.length) return '';
+  const withOpen = all.filter((e) => checkState(e).open);
+  const auto = S.autoOpenOnly && withOpen.length ? withOpen : all;
   // 로그에만 남는 문체 · 초반 경고를 화별로 센다 (autorun._write 가 'N화 본문' 다음에 남긴다)
   const style = {};
   for (const x of (r && r.log) || []) if (x.level === 'warn' && x.ep && /^(문체|초반):/.test(x.message)) style[x.ep] = (style[x.ep] || 0) + 1;
-  const rows = auto.map((e) => `<li class="row"><a href="${base()}/write/${e.plot.number}"><strong>${e.plot.number}화</strong> ${esc(e.plot.title)}</a><span class="row" style="gap:6px">${e.issues.length ? `<span class="chip written">검수 ${e.issues.length}</span>` : ''}${style[e.plot.number] ? `<span class="chip written" title="진행 로그의 문체 · 초반 경고">문체 경고 ${style[e.plot.number]}</span>` : ''}${active ? '' : `<button class="btn small" data-action="autoRevert" data-arg="${e.plot.number}">${e.plot.number}화부터 반영 취소</button>`}</span></li>`).join('');
-  return `<section class="card"><div class="between"><h2>검토 없이 반영한 화</h2><span class="small">${auto.length}화</span></div>
+  const rows = auto.map((e) => `<li class="row"><a href="${base()}/write/${e.plot.number}"><strong>${e.plot.number}화</strong> ${esc(e.plot.title)}</a><span class="row" style="gap:6px">${checkState(e).open ? `<a class="chip written" href="${base()}/check/${e.plot.number}" title="검수 화면에서 보기">열린 지적 ${checkState(e).open}</a>` : ''}${style[e.plot.number] ? `<span class="chip written" title="진행 로그의 문체 · 초반 경고">문체 경고 ${style[e.plot.number]}</span>` : ''}${active ? '' : `<button class="btn small" data-action="autoRevert" data-arg="${e.plot.number}">${e.plot.number}화부터 반영 취소</button>`}</span></li>`).join('');
+  const only = withOpen.length ? `<button type="button" class="btn small" aria-pressed="${!!S.autoOpenOnly}" data-action="autoOpenOnly">열린 지적이 남은 화만 · ${withOpen.length}</button>` : '';
+  return `<section class="card"><div class="between"><h2>검토 없이 반영한 화</h2><span class="row" style="gap:8px">${only}<span class="small">${all.length}화</span></span></div>
     <p class="desc">읽어 보고 문제가 있으면 그 화부터 반영을 취소하세요. 그 화 직전 상태로 돌아가고, 본문은 남아 상태 승인부터 다시 할 수 있어요.</p>
     <ul class="auto-list">${rows}</ul></section>`;
 }
@@ -385,6 +388,10 @@ document.addEventListener('change', (e) => {
 });
 
 Object.assign(actions, {
+  autoOpenOnly() {
+    S.autoOpenOnly = !S.autoOpenOnly;
+    render();
+  },
   autoLogAll() {
     S.autoLogAll = true;
     render();
