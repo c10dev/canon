@@ -31,6 +31,8 @@ SKINS: dict[str, str] = {
 # 단위가 붙은 수치: 앞에 짧은 표지(₩, Lv.), 뒤에 단위(골드, 원, G). 숫자 사이 쉼표는 자릿수
 _AMOUNT = re.compile(r"^([^\d\s,+-]{0,4})(\s?)(-?\d[\d,]*(?:\.\d+)?)(\s?)([^\d\s,]{0,6})$")
 _DELTA = re.compile(r"^([+-])\s?([^\d\s,+-]{0,4})\s?(\d[\d,]*(?:\.\d+)?)\s?([^\d\s,]{0,6})$")
+# 지금 값 / 최대 값 ('80/100'). 바뀐 양은 앞 수에만 더한다
+_FRACTION = re.compile(r"^(-?\d[\d,]*(?:\.\d+)?)(\s*/\s*\d[\d,]*(?:\.\d+)?)$")
 # 목록 항목(스킬, 특성, 칭호, 인벤토리)을 나누는 표시
 _SPLIT = re.compile(r"\s*(?:,|、| · )\s*")
 # 같은 것으로 보는 꼬리: 화염구 Lv3 · 화염구(B급) · 롱소드 +2 · 검술 3단계
@@ -91,6 +93,7 @@ def resolve(before: str, value: str) -> str:
     """AI 나 작가가 적은 값을 이전 값에 맞춰 새 값으로.
 
     - 수치: '+3', '-10' 은 이전 값이 수치일 때 더하고 뺀다. 단위와 자릿수 쉼표는 이전 값을 따른다('1,200골드' + '+300' → '1,500골드').
+      '80/100' 처럼 최대 값이 붙은 수치는 앞 수에만 더한다('80/100' + '-12' → '68/100'). 최대 값을 넘거나 0 아래로 가도 자르지 않는다.
     - 목록(스킬 · 특성 · 칭호 · 인벤토리): '+독 내성' 은 붙이고 '-은신' 은 뺀다. '+화염구 Lv4' 처럼 이미 있는 것의 등급만 다르면 바꾼다.
     - 그 밖에는 적은 값 그대로.
     """
@@ -100,6 +103,10 @@ def resolve(before: str, value: str) -> str:
     if d and a and (not d.group(2) or d.group(2) == a[0]) and (not d.group(4) or d.group(4) == a[4]):
         x = a[2] + (1 if d.group(1) == "+" else -1) * float(d.group(3).replace(",", ""))
         return f"{a[0]}{a[1]}{_fmt(x, a[5])}{a[3]}{a[4]}"
+    f = _FRACTION.match(b)
+    if d and f and not d.group(2) and not d.group(4):
+        x = float(f.group(1).replace(",", "")) + (1 if d.group(1) == "+" else -1) * float(d.group(3).replace(",", ""))
+        return f"{_fmt(x, ',' in f.group(1))}{f.group(2)}"
     ops = _ops(v)
     if ops is None or a:
         return v

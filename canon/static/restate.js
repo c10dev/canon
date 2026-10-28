@@ -58,7 +58,7 @@ function restateCard(n) {
   const later = laterWritten(n);
   const intro = `<p class="desc">${n}화는 반영한 뒤 본문을 고쳤어요. 인물 상태 · 관계 · 비밀은 ${later.length ? `뒤 화(${rangeText(later)}화)가 그 위에 쌓아서 ` : ''}여기서 바꾸지 않아요. 고친 본문에서 변경안을 다시 뽑아 요약 · 새 사실 · 새 복선 · 새 장소만 골라 반영할 수 있어요. 인물 상태까지 바꿔야 하면 아래 '${n}화부터 반영 취소'를 쓰세요.</p>`;
   if (!d) {
-    return `<section class="card"><h2>고친 본문으로 다시 맞추기</h2>${intro}
+    return `<section class="card rv-restate"><h2><span class="tf" aria-hidden="true">🔄</span> 고친 본문으로 다시 맞추기</h2>${intro}
       <div class="row">${((b) => `<button class="btn primary" data-action="restateEp" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '고친 본문에서 다시 뽑기'))}
       <button type="button" class="btn" data-action="keepState" data-arg="${n}"${autoOn() ? ' disabled' : ''}>그대로 두기 (오타 · 문장만 고침)</button></div></section>`;
   }
@@ -67,7 +67,10 @@ function restateCard(n) {
   const box = (k, label) => `<div class="change"><input type="checkbox" id="rs-${n}-${k}" data-rs-pick="${n}:${k}"${pk[k] ? ' checked' : ''}><label for="rs-${n}-${k}" style="font-size:0.8125rem;line-height:1.55">${label}</label></div>`;
   const skipped = [['인물 상태', d.character_updates], ['관계 사건', d.events], ['관계 유형', d.relationship_updates], ['새 비밀', d.secrets_added], ['복선 회수', d.foreshadow_resolved], ['새 인물', d.new_characters || []]]
     .filter(([, l]) => l.length).map(([k, l]) => `${k} ${l.length}건`);
-  return `<section class="card"><h2>고친 본문으로 다시 맞추기</h2>${intro}
+  // 버튼은 카드 머리에 둔다. 카드 안에 붙는 반영 줄을 두면 stackBottom 이 그 높이를 페이지 내내 남긴다
+  return `<section class="card rv-restate"><div class="rv-card-head"><h2><span class="tf" aria-hidden="true">🔄</span> 고친 본문으로 다시 맞추기</h2>
+      <div class="row rv-actions">${((b) => `<button class="btn small" data-action="restateEp" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '다시 뽑기'))}<button class="btn small" data-action="dropDelta" data-arg="${n}">버리기</button>
+      <button class="btn primary" data-action="applyRestate" data-arg="${n}"${autoOn() ? ' disabled' : ''}>선택한 항목 반영</button></div></div>${intro}
     <div class="field"><span class="small">요약</span>
       ${e.summary && e.summary !== d.summary ? `<div class="small">지금: ${esc(e.summary)}</div>` : ''}
       <div class="change"><input type="checkbox" id="rs-${n}-sum" data-rs-pick="${n}:sum"${pk.sum ? ' checked' : ''}><label for="rs-${n}-sum" class="small">새 요약으로 바꾸기</label></div>
@@ -75,11 +78,9 @@ function restateCard(n) {
     <div class="field"><span class="small">새 사실 ${it.facts.length}</span>${it.facts.length ? it.facts.map((x) => box('f' + x.i, esc(x.f))).join('') : '<div class="small">새로 나온 사실이 없어요.</div>'}</div>
     <div class="field"><span class="small">새 복선 ${it.plants.length}</span>${it.plants.length ? it.plants.map((x) => box('p' + x.i, `심음: ${esc(x.f.description)}`)).join('') : '<div class="small">새로 심은 복선이 없어요.</div>'}</div>
     ${it.places.length ? `<div class="field"><span class="small">새 장소 ${it.places.length}</span>${it.places.map((x) => box('l' + x.i, placeLabel(x.f))).join('')}</div>` : ''}
-    ${skipped.length ? `<div class="note plain">반영하지 않는 항목: ${skipped.join(', ')}. 뒤 화가 이미 그 상태로 쓰였어요.</div>` : ''}
+    ${skipped.length ? `<div class="note plain">반영하지 않는 항목: ${skipped.join(', ')}. ${later.length ? '뒤 화가 이미 그 상태로 쓰였어요.' : `바꾸려면 ${n}화 반영을 취소하고 다시 반영해요.`}</div>` : ''}
     ${(d.warnings || []).length ? `<div class="note warn">${d.warnings.map(esc).join('<br>')}</div>` : ''}
-    <div class="row">${((b) => `<button class="btn" data-action="restateEp" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '다시 뽑기'))}<button class="btn" data-action="dropDelta" data-arg="${n}">버리기</button></div>
-    <div class="apply-bar"><span class="small">고른 것만 반영하고 반영 뒤 고침 표시를 지워요</span>
-      <button class="btn primary" data-action="applyRestate" data-arg="${n}"${autoOn() ? ' disabled' : ''}>선택한 항목 반영</button></div></section>`;
+    <p class="small">고른 것만 반영하고 반영 뒤 고침 표시를 지워요.</p></section>`;
 }
 
 document.addEventListener('change', (e) => {
