@@ -46,6 +46,9 @@ const swTitle = () => (swWin().title || '').trim() || '상태창';
 .sw-who a:hover { background: var(--bg); }
 .sw-rows { display: flex; flex-direction: column; gap: 8px; }
 .sw-row { display: grid; grid-template-columns: 160px minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.sw-tools { display: flex; gap: 2px; align-items: center; }
+.sw-tools .icon-btn:disabled { visibility: hidden; }
+@media (max-width: 640px) { .sw-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .sw-tools { grid-column: 1 / -1; justify-content: flex-end; } }
 .sw-text { margin: 0; padding: 14px 16px; border-radius: 8px; background: var(--bg); font-family: var(--serif); font-size: 14px; line-height: 1.7; white-space: pre-wrap; }
 .sw-table-wrap { overflow-x: auto; }
 .sw-table { border-collapse: collapse; font-size: 13px; min-width: 100%; }
@@ -186,10 +189,12 @@ function swDecor() {
 }
 
 function swEditor() {
+  // 항목 순서: 저장하면 본문 상태창 · 인물 카드 · 화별 변화 표가 이 순서를 따른다
+  const tool = (i, d, label, text, off) => `<button type="button" class="btn icon-btn small" data-action="swMove" data-arg="${i}:${d}" aria-label="${esc(S.swRows[i].name || '항목')} ${label}"${off ? ' disabled' : ''}>${text}</button>`;
   const rows = S.swRows.map((r, i) => `<div class="sw-row">
       <input type="text" data-sw-name="${i}" value="${esc(r.name)}" aria-label="항목 이름" placeholder="항목 (예: 레벨)">
       <input type="text" data-sw-value="${i}" value="${esc(r.value)}" aria-label="${esc(r.name || '항목')} 값" placeholder="값 (+3은 더하기, 목록은 +독 내성 · -은신)">
-      <button type="button" class="btn small ghost" data-action="swDel" data-arg="${i}" aria-label="${esc(r.name || '항목')} 지우기">지우기</button></div>`).join('');
+      <span class="sw-tools">${tool(i, -1, '위로', '↑', i === 0)}${tool(i, 1, '아래로', '↓', i === S.swRows.length - 1)}<button type="button" class="btn small ghost" data-action="swDel" data-arg="${i}" aria-label="${esc(r.name || '항목')} 지우기">지우기</button></span></div>`).join('');
   const work = (swWin().names || []).filter((x) => !S.swRows.some((r) => r.name === x));
   const workBtn = work.length ? `<button type="button" class="btn small" data-action="swPreset" data-arg="_work" title="${esc(work.join(', '))}">작품 틀</button>` : '';
   const presets = Object.entries((S.sw && S.sw.presets) || {}).map(([k, names]) => `<button type="button" class="btn small" data-action="swPreset" data-arg="${k}" title="${esc(names.join(', '))}">${SW_PRESET_LABELS[k] || k}</button>`).join('');
@@ -262,6 +267,16 @@ function swTouch() {
 Object.assign(actions, {
   swAdd() { S.swRows.push({ name: '', value: '' }); S.swDirty = true; render(); },
   swDel(i) { S.swRows.splice(Number(i), 1); S.swDirty = true; render(); },
+  /** 'i:d' 항목을 d(-1 위, 1 아래)만큼 옮긴다 */
+  swMove(arg) {
+    const [i, d] = String(arg).split(':').map(Number);
+    const j = i + d;
+    if (j < 0 || j >= S.swRows.length) return;
+    [S.swRows[i], S.swRows[j]] = [S.swRows[j], S.swRows[i]];
+    S.swDirty = true;
+    S.focusTarget = `#app [data-action="swMove"][data-arg="${j}:${d}"]`;
+    render();
+  },
   swPreset(k) {
     const have = new Set(S.swRows.map((r) => r.name));
     const names = k === '_work' ? (swWin().names || []) : (S.sw.presets[k] || []);

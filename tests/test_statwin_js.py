@@ -50,3 +50,16 @@ def test_ab_list_names_match_server():
     run = subprocess.run(["node", "-e", js, str(STATWIN.with_name("abilities.js"))], input=json.dumps({"cases": []}), capture_output=True, text=True, encoding="utf-8")
     assert run.returncode == 0, run.stderr
     assert json.loads(run.stdout) == list(abilities.LIST_NAMES)
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
+def test_sw_move_swaps_rows():
+    js = HARNESS.replace("data.cases.map(([b, v]) => swResolve(b, v))",
+                         "(render = () => {}, S.swRows = data.cases.map((name) => ({ name, value: '' })), "
+                         "actions.swMove('0:1'), actions.swMove('2:1'), actions.swMove('0:-1'), actions.swMove('2:-1'), "
+                         "[S.swRows.map((r) => r.name), S.swDirty, S.focusTarget])")
+    run = subprocess.run(["node", "-e", js, str(STATWIN)], input=json.dumps({"cases": ["레벨", "연료", "기능"]}),
+                         capture_output=True, text=True, encoding="utf-8")
+    assert run.returncode == 0, run.stderr
+    # 0↔1, 끝 아래와 처음 위는 그대로, 2↔1
+    assert json.loads(run.stdout) == [["연료", "기능", "레벨"], True, '#app [data-action="swMove"][data-arg="1:-1"]']

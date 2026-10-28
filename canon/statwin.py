@@ -209,16 +209,14 @@ def revert(p: Project, n: int) -> None:
 
 
 def timeline(p: Project, cid: str) -> dict:
-    """화별 비교표: 기록이 있는 화마다 그 화가 끝났을 때의 값. 바뀐 칸은 changed."""
+    """화별 비교표: 기록이 있는 화마다 그 화가 끝났을 때의 값. 바뀐 칸은 changed.
+    줄 순서는 지금 상태창 순서(작가가 정한 순서), 지금은 없는 항목은 기록에 나온 순서로 그 뒤에."""
     recs = [r for r in p.stat_log if r.character_id == cid]
     st = p.state_of(cid)
-    names: list[str] = []
+    names = [s.name for s in (st.stats if st else [])]
     for r in recs:
         if r.name not in names:
             names.append(r.name)
-    for s in (st.stats if st else []):
-        if s.name not in names:
-            names.append(s.name)
     eps = sorted({r.episode for r in recs})
     cur: dict[str, str] = {}
     cols = []

@@ -132,6 +132,22 @@ def test_ai_updates_author_fix_and_timeline():
     assert "4화" not in statwin.describe(p, "hero") and "레벨 3 → 7 (승인 뒤 작가가 고침)" in statwin.describe(p, "hero")
 
 
+def test_reorder_keeps_values_and_log():
+    p = _short(8)
+    statwin.set_stats(p, "hero", [StatValue(name="레벨", value="1"), StatValue(name="연료", value="80/100"), StatValue(name="기능", value="")])
+    _play(p, 1, 2)
+    logged = len(p.stat_log)
+    rows = [StatValue(name=s.name, value=s.value) for s in reversed(p.state_of("hero").stats)]
+    assert statwin.set_stats(p, "hero", rows) == [] and len(p.stat_log) == logged  # 순서만 바꾸면 기록이 늘지 않는다
+    order = [s.name for s in p.state_of("hero").stats]
+    assert order == ["기능", "연료", "레벨"]
+    assert [s.name for s in p.snapshot(2).states[0].stats] == order  # 마지막 반영 화 스냅샷도 같은 순서
+    assert statwin.timeline(p, "hero")["names"] == order  # 화별 변화 표도 지금 순서
+    assert statwin.render(p, "hero").index("연료") < statwin.render(p, "hero").index("레벨")
+    statwin.set_stats(p, "hero", [StatValue(name="레벨", value="9")])
+    assert statwin.timeline(p, "hero")["names"][:1] == ["레벨"] and set(statwin.timeline(p, "hero")["names"]) >= {"연료"}  # 지운 항목은 뒤에
+
+
 def test_revert_restores_stats_and_log():
     p = _short(8)
     statwin.set_stats(p, "hero", [StatValue(name="레벨", value="1")])
