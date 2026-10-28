@@ -222,11 +222,23 @@ python -m canon export 등대 --from 1 --to 3       #    붙여 넣기 좋게 �
 python -m canon illust 등대 3                     #    NovelAI 삽화 프롬프트 (look 등대 hero 로 인물 외형 태그)
 python -m canon show 등대                        # 진행 상황
 python -m canon stats 등대                       # 화별 문체 지표를 레퍼런스와 비교
+python -m canon check 등대 3 --keep f2 --note "일부러"  # 검수 지적을 그대로 둠 (--wrong · --fixed · --reopen)
 ```
 
 문체 라이브러리는 `python -m canon styles` (목록), `styles add 이름 원문.txt [--source 출처]`, `styles show <id>`, `styles rm <id>`, `styles versions <id>`(버전과 바뀐 칸), `styles restore <id> 번호` 로도 다룬다. 수정 기록에서 규칙 찾기는 `python -m canon learn 등대 [--pick 1,3 | -y] [--push]` 다(`--push` 는 연결된 라이브러리 항목에도 새 버전으로 올림). 대화로 문체 다듬기는 `python -m canon stylechat 등대 "대사를 더 짧게" [--ep 3] [--pick 1,2 | -y] [--push]`, 지금 문체로 예시 글은 `stylechat 등대 "비 오는 날 다툼" --example [--ep 3]` 이다.
 
 한 화씩 하려면 `write 등대 3` → `check 등대 3` → `update 등대 3`. `check` 는 앞선 본문·설정과의 모순을 근거 문장과 함께 보여준다 (`run --no-check` 로 생략 가능). 작품에서 쓰지 말아야 할 표현은 `project.json` 의 `style.banned_phrases` 에 넣으면 `stats` 와 본문 지시에 반영된다.
+
+## 검수 세션
+
+한 화의 검수 일은 **세션** 하나다. 검수할 때마다 **회차**가 하나 늘고, 회차 결과는 그 화의 **지적** 목록에 합쳐진다. 지적마다 처리 상태가 있다: 열림, 고침, 그대로 둠, 잘못 짚음.
+
+- 다시 검수하면 같은 문장을 짚은 옛 지적에 이어 붙인다. **그대로 둠 · 잘못 짚음**은 다시 나와도 그 상태와 메모를 지킨다. 고침으로 둔 지적이 다시 나오면 다시 연다.
+- 이번 회차가 짚지 않은 열린 지적은, 그 문장이 본문에서 사라졌으면 고침으로 닫는다. 문장이 그대로면 열어 둔다(AI 가 한 번 놓친 것일 수 있다).
+- 그대로 둠 · 잘못 짚음은 검수 프롬프트에 넣지 않는다. 합칠 때만 거른다.
+- 자동 집필의 '검수 어긋남 허용 개수'는 그대로 둠 · 잘못 짚음으로 정한 지적을 세지 않는다. 다시 생성의 재료 '검수에서 찾은 곳'은 열린 지적만 넣는다.
+- 다시 생성으로 새 판을 고르거나 본문을 지우면 세션을 비운다. 예전 작품의 마지막 검수 결과는 1회차의 열린 지적으로 옮겨 읽는다.
+- 명령줄은 `check 등대 3` 결과에 지적 id 를 보이고, `--keep` · `--wrong` · `--fixed` · `--reopen` 으로 정한다(`--note` 로 메모). 웹 검수 화면은 다음 단계에서 붙는다.
 
 ## 장편 연재 (200~300화)
 
@@ -669,6 +681,8 @@ python -m canon update 등대 3 --from-json 응답.json
 python -m canon brief 등대 3 --check    # 검수 지시서 → 받은 JSON 은 check 등대 3 --from-json 응답.json
 ```
 
+받은 검수 JSON 도 API 검수처럼 회차 하나로 합친다(아래 '검수 세션').
+
 ## Swift 앱 (준비 중)
 
 `swift/` 에 macOS · iPad · iPhone 용 SwiftUI 앱을 만들고 있다. 앱은 이 서버에 붙는 클라이언트라 서버를 먼저 띄운다 (위 '서버에서 상시 실행'의 Tailscale 주소를 앱에 적는다). 지금은 작품 목록만 옮겼고 나머지 화면은 웹에서 쓴다. 모듈 구조, 빌드 명령, 화면 옮기는 순서는 [swift/README.md](swift/README.md).
@@ -691,6 +705,7 @@ canon/cast.py      인물 화면 계산: 화별 관계 프레임, 등장 화, �
 canon/atlas.py     지도: 장소 목록, 위치 글을 장소와 맞추기, 화별 인물 자리, 지도 만들기 미리보기 · 적용 (LLM 없이)
 canon/towngen.py   마을 생성기: 시드로 길 · 집 · 밭 · 물 · 나무, 장소 종류 찾기와 자리 고르기 (LLM 없이)
 canon/geom.py      지도 생성기의 기하 도구: 다각형, Delaunay · Voronoi, 노이즈, Poisson disk (순수 파이썬)
+canon/findings.py  검수 세션: 회차마다 검수 결과를 지적 목록에 합치고 작가가 정한 상태를 지킴 (LLM 없이)
 canon/foreshadows.py 복선 센터: 복선을 본문 문장에 걸기, 회수율, 끊어진 연결 (LLM 없이)
 canon/statwin.py   상태창 수치: 바뀐 값 합치기(단위 붙은 수치 · 목록 +/-), 화별 기록, 본문에 넣을 상태창 글 (LLM 없이)
 canon/timeline.py  작품 속 시간: 화가 끝난 시점, 기한과 남은 날, 프롬프트 시간 블록 (LLM 없이)
