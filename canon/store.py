@@ -12,7 +12,7 @@ from pathlib import Path
 
 from . import cancel
 from .dynamics import seed_ties
-from .schema import BranchInfo, Project
+from .schema import BranchInfo, PlayInfo, Project
 
 ROOT = Path(os.environ.get("CANON_HOME", "projects"))
 
@@ -145,6 +145,36 @@ def save_branch(name: str, b: BranchInfo) -> Path:
 
 def drop_branch(name: str) -> None:
     _branch_path(name).unlink(missing_ok=True)
+
+
+# ---------- 플레이 정보 (canon/play.py) ----------
+# projects/<이름>/play.json. 갈래 정보처럼 project.json 밖에 둔다. 파일이 있으면 플레이 사본이다.
+
+def _play_path(name: str) -> Path:
+    return project_dir(name) / "play.json"
+
+
+def load_play(name: str) -> PlayInfo | None:
+    """플레이 정보. 파일이 없거나 깨졌으면 플레이가 아닌 작품으로 본다."""
+    path = _play_path(name)
+    if not path.exists():
+        return None
+    try:
+        return PlayInfo.model_validate_json(path.read_text(encoding="utf-8"))
+    except ValueError:
+        return None
+
+
+def save_play(name: str, info: PlayInfo) -> Path:
+    path = _play_path(name)
+    tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp.write_text(info.model_dump_json(indent=2), encoding="utf-8")
+    os.replace(tmp, path)
+    return path
+
+
+def drop_play(name: str) -> None:
+    _play_path(name).unlink(missing_ok=True)
 
 
 def backup_path(name: str, tag: str) -> Path:
