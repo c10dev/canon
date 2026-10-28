@@ -128,6 +128,14 @@ function playClock(c, ev, v) {
   return c;
 }
 
+/** '다시 시도'가 보낼 것. 반영 실패면 빈 값(반영만 다시). 보낸 행동(lastAct: { body, at: 보낼 때 닿은 구간 })이 아직 구간이 되지 않았으면
+    그 행동을 다시, 이미 구간이 됐으면 빈 값(흐름). 지난 결정의 선택지 번호를 다시 보내면 서버가 막는다. */
+function playRetryBody(last, lastAct) {
+  if (last && last.state === 'failed') return {};
+  if (lastAct && (!last || last.number <= lastAct.at)) return lastAct.body;
+  return {};
+}
+
 /** 지금 보이는 시점 글: 마지막으로 보인 흘러간 일의 시점, 없으면 서버가 준 마지막 반영 시점. */
 function playNow(items, pos, fallback) {
   for (let k = Math.min(pos, items.length) - 1; k >= 0; k--) if (items[k].when) return items[k].when;
@@ -140,6 +148,7 @@ let playTimer = null;
 let playPollTimer = null;
 let playLast = 0;
 let playSaid = '';
+let playKicked = 0;  // 멈춘 흐름을 마지막으로 다시 청한 때 (playStep)
 
 function playV() {
   const p = S.play;
@@ -222,7 +231,8 @@ async function playRefresh() {
   try {
     view = await api('GET', `/projects/${enc(name)}/play`);
   } catch {
-    playPoll();
+    clearTimeout(playPollTimer);
+    playPollTimer = setTimeout(playRefresh, 4000);  // 서버가 꺼졌거나 다시 시작하는 중: 작업 목록처럼 천천히 다시 묻는다
     return;
   }
   if (S.playName !== name) return;
@@ -247,6 +257,11 @@ function playStep() {
   if (r.see != null) playSee(r.see);
   const after = playPhase(S.playClock, playV());
   if (r.want === 'auto') { playAct({ kind: 'auto' }); return; }
+  // 써 둔 줄 끝에서 흐르는데 도는 작업이 없다 (서버가 다시 시작돼 작업이 사라졌거나, 실패한 작업이 목록에서 빠졌다). 5초마다 한 번 흐름을 청한다
+  if (after === 'writing' && !playV().busy && !playV().jobError && S.playClock.acted == null && now - playKicked > 5000) {
+    playKicked = now;
+    api('POST', `/projects/${enc(S.playName)}/play/advance`, {}).then(() => playPoll(true)).catch(() => {});
+  }
   if (S.playClock.pos !== pos || after !== before) {
     if (after === 'decide' && before !== 'decide') S.focusTarget = '#play-dec-h';
     playDraw();
@@ -262,12 +277,13 @@ function playSee(n) {
 async function playAct(body) {
   const p = S.play;
   const acting = !!(body.choice || body.action || body.kind === 'auto');
+  if (acting && S.playClock && S.playClock.acted != null) return;  // 앞서 보낸 행동의 구간을 기다리는 중 (두 번 누름)
   if (acting) {
     p.turns = p.turns.filter((t) => t.number <= p.seen);
     S.playItems = playItems(p.turns);
     S.playClock = playClock(S.playClock, { type: 'act' }, playV());
   }
-  S.playLastAct = body;
+  S.playLastAct = { body, at: p.seen };
   try {
     p.job = await api('POST', `/projects/${enc(S.playName)}/play/advance`, body);
     if (acting) S.playDraft = '';
@@ -876,10 +892,8 @@ Object.assign(actions, {
     playAct({ action: text });
   },
   playRetry() {
-    const last = S.playLastAct;
     const p = S.play;
-    const t = p.turns[p.turns.length - 1];
-    playAct(t && t.state === 'failed' ? {} : last || {});
+    playAct(playRetryBody(p.turns[p.turns.length - 1], S.playLastAct));
   },
   async playFocus(f) {
     const p = S.play;

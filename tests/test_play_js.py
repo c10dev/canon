@@ -110,3 +110,18 @@ def test_phases():
     assert run_js(FILES, base, {"turns": [_turn(3, [1])], "v": {}, "c": {"run": False}}) == "paused"
     assert run_js(FILES, base, {"turns": [_turn(3, [1], choices=2)], "v": {}, "c": {"run": False}}) == "decide"  # 결정은 멈춤보다 앞선다
     assert run_js(FILES, base, {"turns": [_turn(3, [1, 2])], "v": {}, "c": {"pos": 1}}) == "flowing"
+
+
+@needs_node
+def test_retry_body():
+    """다시 시도: 반영 실패면 반영만, 보낸 행동이 아직 구간이 되지 않았으면 그 행동, 이미 구간이 됐으면 흐름 (지난 선택지 번호를 다시 보내지 않는다)."""
+    cases = [
+        [{"number": 5, "state": "failed"}, {"body": {"choice": 2}, "at": 4}],
+        [{"number": 4, "state": "applied"}, {"body": {"choice": 2}, "at": 4}],
+        [{"number": 5, "state": "applied"}, {"body": {"choice": 2}, "at": 4}],
+        [{"number": 5, "state": "applied"}, {"body": {"action": "바다로 뛰어든다"}, "at": 5}],
+        [{"number": 5, "state": "applied"}, None],
+        [None, {"body": {}, "at": 2}],
+    ]
+    got = run_js(FILES, "data.map(([t, a]) => playRetryBody(t, a))", cases)
+    assert got == [{}, {"choice": 2}, {}, {"action": "바다로 뛰어든다"}, {}, {}]
