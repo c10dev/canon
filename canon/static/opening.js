@@ -18,7 +18,7 @@ Object.assign(S, {
 JOB_DONE_MSG.hook = (j) => `${j.label}이 끝났어요.`;
 JOB_DONE_MSG.openings = (j) => `${j.ep}화 여는 방식 플롯 안이 도착했어요. ${j.ep}화 플롯 페이지의 '초반 화 · 여는 방식 고르기'에서 고르세요.`;
 JOB_DONE_MSG.opening_drafts = (j) => `${j.ep}화를 여는 방식마다 썼어요. 읽고 고르세요.`;
-JOB_PAGES.hook = ['write'];
+JOB_PAGES.hook = ['check', 'write'];
 JOB_PAGES.openings = ['arc', 'write'];
 JOB_PAGES.opening_drafts = ['write'];
 JOB_LINK.hook = (j) => `#/p/${enc(j.project)}/write/${j.ep}`;
@@ -89,7 +89,6 @@ function openingPanel(n) {
   const d = S.openingData[n];
   const blocked = P().episodes.some((x) => x.plot.number < n && x.status !== 'finalized');
   const canWrite = e.status !== 'draft' && e.status !== 'finalized' && !blocked && S.mode === 'api';
-  const hookBtn = jobBtn('hook', n, e.hook ? '다시 판정' : '흡입력 판정');
   const hookRunning = !!jobFor('hook', n);
   const draftsBtn = jobBtn('opening_drafts', n, '여러 안으로 쓰기');
   const fewWays = S.openingWays.length < 2;
@@ -104,8 +103,23 @@ function openingPanel(n) {
       ${x.hook ? hookView(x.hook, false) : `<button class="btn small" data-action="openingHookDraft" data-arg="${n}:${x.n}"${hookRunning ? ' disabled' : ''}>이 안 판정</button>`}
       <details><summary class="small">본문 읽기</summary><div class="rs-prose">${esc(x.text)}</div></details>
     </section>`).join('') : '';
-  return `<section class="card" aria-label="초반 점검">
-      <div class="between"><h2>초반 점검</h2><span class="small">${n}화는 독자가 계속 읽을지 정하는 화예요</span></div>
+  if (finalized) return '';  // 여는 방식 비교만 남았다 (초반 지표 · 흡입력 판정은 검수 화면의 초반 점검 탭, openingChecks)
+  return `<section class="card" aria-label="여는 방식 비교">
+      <div class="between"><h2>여는 방식 비교</h2><a class="small" href="${base()}/check/${n}" data-action="chkOpening" data-arg="${n}">초반 지표 · 흡입력 판정은 검수에서</a></div>
+      <div class="small">같은 화를 여는 방식만 달리해 여러 안으로 쓰고, 어느 방식인지 가린 채 읽고 골라요. 고른 안이 이 화 본문이 돼요.</div>
+      ${openingWayPicker(!canWrite)}
+      <div class="row"><button class="btn dark" data-action="openingDrafts" data-arg="${n}" data-opening-go="${canWrite ? 1 : 0}"${canWrite && !fewWays ? draftsBtn.attr : ' disabled'}>${draftsBtn.label}</button>
+        ${!canWrite ? `<span class="small">${e.status === 'draft' ? '플롯을 확정하면 쓸 수 있어요' : blocked ? '이전 화를 반영해야 쓸 수 있어요' : 'AI로 쓰기 방식에서 쓸 수 있어요'}</span>` : ''}</div>
+      ${c ? `<div class="small">${esc(fmtDateTime(c.created))}에 쓴 ${c.kind === 'opening' ? '여는 방식' : '백엔드'} 비교본${c.picked ? '' : ' · 고르기 전까지 가려요'}</div><div class="rs-compare">${drafts}</div>` : ''}
+    </section>`;
+}
+
+/** 1~3화 초반 지표와 흡입력 판정 (검수 화면 check.js 의 초반 점검 탭). 판정은 검수 단계 모델이 하고 승인 없이 화에 붙는다. */
+function openingChecks(n) {
+  const e = ep(n);
+  const d = S.openingData[n];
+  const hookBtn = jobBtn('hook', n, e.hook ? '다시 판정' : '흡입력 판정');
+  return `<div class="small">${n}화는 독자가 계속 읽을지 정하는 화예요</div>
       <div class="cols" style="gap:16px">
         <div class="col" style="flex:1 1 300px;min-width:0;display:flex;flex-direction:column;gap:10px">
           <h3>지표</h3>
@@ -119,14 +133,7 @@ function openingPanel(n) {
           <div class="between"><h3>흡입력 판정</h3><button class="btn small" data-action="openingHook" data-arg="${n}"${e.text ? hookBtn.attr : ' disabled'}>${hookBtn.label}</button></div>
           ${e.hook ? hookView(e.hook, d && d.hook_stale) : '<div class="small">AI 편집자가 첫 문단, 주인공, 전제, 설명 부담, 걸린 것, 장르 약속, 엔딩을 근거 문장과 함께 봐요. 본문에서 찾을 수 없는 근거는 지우고 1점으로 내려요.</div>'}
         </div>
-      </div>
-      ${finalized ? `<div class="small">반영이 끝난 화라 여는 방식 비교는 감췄어요. 바꾸려면 상태 승인에서 이 화부터 반영을 취소하세요.</div>` : `<h3>여는 방식 비교</h3>
-      <div class="small">같은 화를 여는 방식만 달리해 여러 안으로 쓰고, 어느 방식인지 가린 채 읽고 골라요. 고른 안이 이 화 본문이 돼요.</div>
-      ${openingWayPicker(!canWrite)}
-      <div class="row"><button class="btn dark" data-action="openingDrafts" data-arg="${n}" data-opening-go="${canWrite ? 1 : 0}"${canWrite && !fewWays ? draftsBtn.attr : ' disabled'}>${draftsBtn.label}</button>
-        ${!canWrite ? `<span class="small">${e.status === 'draft' ? '플롯을 확정하면 쓸 수 있어요' : blocked ? '이전 화를 반영해야 쓸 수 있어요' : 'AI로 쓰기 방식에서 쓸 수 있어요'}</span>` : ''}</div>
-      ${c ? `<div class="small">${esc(fmtDateTime(c.created))}에 쓴 ${c.kind === 'opening' ? '여는 방식' : '백엔드'} 비교본${c.picked ? '' : ' · 고르기 전까지 가려요'}</div><div class="rs-compare">${drafts}</div>` : ''}`}
-    </section>`;
+      </div>`;
 }
 
 // 플롯 편집기에 붙는 여는 방식 플롯 안

@@ -132,17 +132,25 @@ function nextStep() {
   const e = ep(currentEp());
   if (e.status === 'draft') return [`${e.plot.number}화 플롯 확정`, base() + '/arc'];
   if (e.status === 'confirmed') return [`${e.plot.number}화 쓰기`, `${base()}/write/${e.plot.number}`];
-  if (e.status === 'written') return [`${e.plot.number}화 상태 승인`, `${base()}/review/${e.plot.number}`];
+  if (e.status === 'written') return checkState(e).done ? [`${e.plot.number}화 상태 승인`, `${base()}/review/${e.plot.number}`] : [`${e.plot.number}화 검수`, `${base()}/check/${e.plot.number}`];
   return ['완결 원고 보기', `${base()}/write/${e.plot.number}`];
 }
 
-/** 화 하나의 네 단계: 플롯 확정 · 집필 · 검수 · 승인. 검수는 마지막 검수 뒤에 본문을 고치지 않았을 때만 끝난 것으로 본다
-    (passage.js 의 '고치기 전 본문 기준이에요' 안내와 같은 규칙). 검수 없이 반영한 화는 검수 칸이 빈 채로 남는다. */
+/** 한 화의 검수 세션 (check.js 와 진행 막대가 함께 쓴다). checked: 한 번이라도 검수함, stale: 마지막 회차 뒤에 본문을 고침,
+    open: 열린 지적 수 (findings.merge 가 합친 지적 중 status open), done: 검수했고 그 뒤 고치지 않았고 열린 지적이 없음. */
+function checkState(e) {
+  const lastEdit = [...(e.edits || [])].reverse().find((x) => !x.undone);
+  const checked = !!e.checked_at;
+  const stale = checked && !!(lastEdit && lastEdit.at > e.checked_at);
+  const open = (e.findings || []).filter((f) => f.status === 'open').length;
+  return { checked, stale, open, done: checked && !stale && !open };
+}
+
+/** 화 하나의 네 단계: 플롯 확정 · 집필 · 검수 · 승인. 검수는 마지막 검수 뒤에 본문을 고치지 않았고 열린 지적이 없을 때 끝난 것으로 본다
+    (checkState). 검수 없이, 또는 열린 지적을 두고 반영한 화는 검수 칸이 빈 채로 남는다. */
 function epSteps(e) {
   const rank = { draft: 0, confirmed: 1, written: 2, finalized: 3 }[e.status] || 0;
-  const lastEdit = [...(e.edits || [])].reverse().find((x) => !x.undone);
-  const checked = !!e.checked_at && !(lastEdit && lastEdit.at > e.checked_at);
-  return [['plot', '플롯 확정', rank >= 1], ['write', '집필', rank >= 2], ['check', '검수', rank >= 2 && checked], ['review', '승인', rank >= 3]]
+  return [['plot', '플롯 확정', rank >= 1], ['write', '집필', rank >= 2], ['check', '검수', rank >= 2 && checkState(e).done], ['review', '승인', rank >= 3]]
     .map(([key, label, done]) => ({ key, label, done }));
 }
 
@@ -156,7 +164,8 @@ function stepText(e) {
   const steps = epSteps(e);
   const next = steps.find((s) => !s.done);
   const skipped = e.status === 'finalized' && next;
-  return `${steps.filter((s) => s.done).length}/4단계${skipped ? ', 검수 없이 반영' : next ? `, ${next.label} 전` : ''}`;
+  const left = skipped && checkState(e).open ? ', 열린 지적 두고 반영' : skipped ? ', 검수 없이 반영' : '';
+  return `${steps.filter((s) => s.done).length}/4단계${left || (next ? `, ${next.label} 전` : '')}`;
 }
 
 /** 연재 일정(Project.release)으로 비축분과 하루 목표를 센다. 올릴 수 있는 화는 1화부터 이어서 반영을 마친 화까지다
@@ -224,6 +233,8 @@ function viewHome() {
   const [s3c, s3t] = state(arcDone && eps.length && confirmed === m.target_episodes, arcStarted || confirmed > 0);
   const [s5c, s5t] = state(written === m.target_episodes, written > 0);
   const [s6c, s6t] = state(fin === m.target_episodes, fin > 0);
+  const checked = p.episodes.filter((e) => e.status !== 'draft' && checkState(e).done).length;  // 검수 칸이 찬 화
+  const [skc, skt] = state(checked === m.target_episodes, checked > 0);
   const cur = currentEp();
   const [nextLabel, nextHref] = nextStep();
   // 장편: 끝났는데 요약이 없는 아크 · 부 (부 · 아크 화면 경고 줄, pipeline.pending_recaps 와 같은 규칙). 요약이 없으면 줄거리가 접히지 않는다
@@ -244,7 +255,7 @@ function viewHome() {
   const released = releasePlan(p).released;
   const cells = shown.map((e) => {
     const n = e.plot.number;
-    const href = e.status === 'draft' ? `${base()}/arc/${n}` : e.status === 'written' ? `${base()}/review/${n}` : `${base()}/write/${n}`;
+    const href = e.status === 'draft' ? `${base()}/arc/${n}` : e.status === 'written' ? `${base()}/${checkState(e).done ? 'review' : 'check'}/${n}` : `${base()}/write/${n}`;
     const act = !serial() && actOf(n);
     const st = e.auto ? '자동 반영' : STATUS[e.status].replace('플롯 ', '').replace('본문 ', '');
     const now = n === cur && e.status !== 'finalized';
@@ -270,7 +281,8 @@ function viewHome() {
       ${stage(s2c, s2t, `2 ${stepLabel('style')}`, hasStyle ? `대표 문단 ${p.style.sample_passages.length}개` : '선택 사항', base() + '/style')}
       ${stage(s3c, s3t, `3 ${stepLabel('arc')}`, `${serial() ? (p.story_arcs.length ? `아크 ${p.story_arcs.length}개 · ${plannedUntil()}화까지` : '아크 없음') : p.arc.length ? '4구간' : '구조 없음'} · 확정 ${confirmed} / ${m.target_episodes}화${recapN ? ` · 요약 필요 ${recapN}개` : ''}`, base() + '/arc')}
       ${stage(s5c, s5t, `4 ${stepLabel('write')}`, `${written} / ${m.target_episodes}화`, `${base()}/write/${cur}`)}
-      ${stage(s6c, s6t, `5 ${stepLabel('review')}`, `${fin} / ${m.target_episodes}화`, `${base()}/review/${cur}`)}
+      ${stage(skc, skt, `5 ${stepLabel('check')}`, `${checked} / ${m.target_episodes}화`, `${base()}/check/${cur}`)}
+      ${stage(s6c, s6t, `6 ${stepLabel('review')}`, `${fin} / ${m.target_episodes}화`, `${base()}/review/${cur}`)}
     </div></section>
     <section class="card">
       <div class="between"><h2>화별 진행</h2><div class="legend">

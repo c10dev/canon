@@ -387,8 +387,8 @@ document.addEventListener('focusout', () => setTimeout(() => { if (S.renderPendi
 document.addEventListener('selectionchange', () => setTimeout(() => { if (S.renderPending && !isTyping() && !selecting()) render(); }));  // 누른 버튼의 동작이 먼저 돈다
 
 // 작업 결과가 보이는 화면
-JOB_DONE_MSG.check = (j) => `${j.ep}화 검수가 끝났어요: 어긋난 곳 ${j.result ? j.result.issues : 0}개`;
-const JOB_PAGES = { check: ['write'], suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], plot_one: ['arc', 'lines'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], storyline: ['lines'] };
+JOB_DONE_MSG.check = (j) => `${j.ep}화 검수가 끝났어요${j.result && j.result.round ? ` (${j.result.round}회차)` : ''}: 짚은 곳 ${j.result ? j.result.issues : 0}개${j.result && j.result.round > 1 ? `, 새 지적 ${j.result.added}개` : ''}`;
+const JOB_PAGES = { check: ['check', 'write', 'review'], suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], plot_one: ['arc', 'lines'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], storyline: ['lines'] };
 
 // 작업이 project.json 에 쓴 화만 받아 온다 (mine(화면 화, 서버 화) 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
 // 저장하지 않은 입력이 있을 때 서버 것으로 바꾼 화 번호를 돌려준다.
@@ -486,7 +486,7 @@ function syncPending() {
 /** 이 화면에서 볼 만한 지난 실패. 같은 작업이 성공하거나 닫으면 사라진다. */
 function failStrip(page, n) {
   if (S.pending.name !== S.name) return '';
-  const list = Object.values(S.pending.failures).filter((f) => (JOB_PAGES[f.kind] || []).includes(page || 'home') && (f.ep == null || !['write', 'review', 'brief'].includes(page) || f.ep === n));
+  const list = Object.values(S.pending.failures).filter((f) => (JOB_PAGES[f.kind] || []).includes(page || 'home') && (f.ep == null || !['write', 'check', 'review', 'brief'].includes(page) || f.ep === n));
   return list.map((f) => `<div class="note warn between" role="status"><span><strong>지난 시도 실패</strong> · ${esc(f.label)}: ${esc(f.error)}${/API 키|연결/.test(f.error) ? ' <a href="#/settings">모델 · API 키 설정</a>' : ''}</span><button type="button" class="btn small" data-action="dismissFail" data-arg="${esc(f.key)}">닫기</button></div>`).join('');
 }
 
@@ -1629,7 +1629,8 @@ async function routeNow() {
           if (arc) S.selArc = arc.number;
         }
       } else if (parts[2] === 'arc') S.selEp = null;  // 보드로 돌아오면 대화 대상도 고른 아크로 돌아간다
-      if (parts[2] === 'write' || parts[2] === 'arc') await openingLoad(parts[2] === 'write' ? (n || currentEp()) : 0);
+      if (parts[2] === 'write' || parts[2] === 'arc' || parts[2] === 'check') await openingLoad(parts[2] === 'arc' ? 0 : (n || currentEp()));
+      if (parts[2] === 'check') await checkLoad(n || currentEp());
       if (parts[2] === 'research') await rsLoad();
       if (parts[2] === 'usage') await usageLoad(S.name);
       if (parts[2] === 'convert') await convertLoad();
@@ -1791,7 +1792,7 @@ function drawApp() {
     return;
   }
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches };
+  const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${branchStrip(page)}${failStrip(page, n)}${draftStrip(page, n)}${body}</main></div>`;
   syncPending();
@@ -1810,9 +1811,9 @@ function drawApp() {
   }
 }
 
-/** 작업 단계 1~5 의 이름. 사이드바 · 작품 홈 진행 카드 · 단계 화면 제목이 이 이름을 쓴다 (장편은 3단계 이름이 다르다) */
+/** 작업 단계 1~6 의 이름. 사이드바 · 작품 홈 진행 카드 · 단계 화면 제목이 이 이름을 쓴다 (장편은 3단계 이름이 다르다) */
 function stepLabel(id) {
-  return { setup: '설정 도우미', style: '문체 레퍼런스', arc: serial() ? '부 · 아크 · 플롯' : '기승전결 · 플롯', write: '집필', review: '상태 승인' }[id];
+  return { setup: '설정 도우미', style: '문체 레퍼런스', arc: serial() ? '부 · 아크 · 플롯' : '기승전결 · 플롯', write: '집필', check: '검수', review: '상태 승인' }[id];
 }
 
 /** 사이드바 '더 보기' 펼침. 화면을 다시 그려도 남게 브라우저에 둔다. */
@@ -1834,7 +1835,7 @@ document.addEventListener('click', (e) => {
 function navItems() {
   const p = P();
   const cur = currentEp();
-  // 번호는 작업 순서(1~5)에만 붙인다. 도구는 어느 단계에서든 쓰므로 번호 없이 아래 묶음에 둔다
+  // 번호는 작업 순서(1~6)에만 붙인다. 도구는 어느 단계에서든 쓰므로 번호 없이 아래 묶음에 둔다
   // 기호는 단계 번호이거나 토스페이스 이모지 아이콘이다 (navMark 가 그린다)
   const steps = [
     ['home', base(), '🏠', '작품 홈'],
@@ -1842,7 +1843,8 @@ function navItems() {
     ['style', base() + '/style', '2', stepLabel('style')],
     ['arc', base() + '/arc', '3', stepLabel('arc')],
     ['write', `${base()}/write/${cur}`, '4', stepLabel('write')],
-    ['review', `${base()}/review/${cur}`, '5', stepLabel('review')],
+    ['check', `${base()}/check/${cur}`, '5', stepLabel('check')],
+    ['review', `${base()}/review/${cur}`, '6', stepLabel('review')],
   ];
   // 도구마다 [id, 주소, 기호, 이름, 데이터가 있는지]. 데이터가 없는 도구는 '더 보기'로 접는다 (지금 보는 도구는 펼쳐 둔다)
   const has = (xs) => (xs || []).length > 0;
