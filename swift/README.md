@@ -221,6 +221,7 @@ Xcode 에서 `Canon` 스킴을 고르고 대상(My Mac, iPad 시뮬레이터)을
 
 ## 알려진 한계
 
+- 집필 화면 배치는 웹이 먼저 바뀌었다(2026-10-28). 웹은 왼쪽 칸을 없애고 본문 칸 머리에 이번 화 플롯 띠를 붙였으며, 복사 설정은 복사 ▾ 메뉴, 생성 방식 · 컨텍스트 · 화 지우기는 ⋯ 메뉴로 옮겼다(`write.js` `plotStrip` · `writeMenu`, `publish.js` `copySplit`). 플롯 띠에는 사건 진행 체크(`Episode.events_done`, `set_events_done`)가 생겼다. `FeatureWrite` 의 `PlotCard` · `PublishCard` 는 아직 옛 배치이고 체크가 없다.
 - SwiftUI 화면은 Mac 에서만 빌드된다. Linux 에서는 Model 과 시험만 확인한다.
 - `swift test` 는 macOS 로만 빌드한다. iOS 에만 없는 API 는 iOS 대상 빌드에서만 드러난다. 예: iOS 의 `List(selection:)` 은 옵셔널 선택만 받는다. 화면을 고치면 iPad 시뮬레이터로도 빌드한다.
 - 서버 주소에 하위 경로(`https://host/canon`)를 쓰면 `ProjectLoader` · `CanonServer.get` 이 경로를 잃는다. 지금 서버는 루트에 연다.

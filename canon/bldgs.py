@@ -13,6 +13,7 @@ SV 를 (4d4 - 10) × 10% 만큼 흔든다 (Ross 의 도시별 편차).
 쓰인 것은 1750~70년대). 그래서 여관 · 주점에는 간판 이름을 붙인다.
 가게는 종류마다 좋아하는 자리(광장 가까이, 큰길가, 물가, 마을 끝, 도시 구역)에 점수를 매겨 고른다.
 이야기 장소가 놓인 건물은 그 장소의 종류와 이름을 쓴다. 생성기가 알려 준 필지 정보(parts)가 없으면(올린 파일) 모든 건물을 본채로 본다.
+OpenStreetMap 지도(canon/osm.py)는 쓰임 · 이름 · 주소를 태그에서 가져오고 가게 수 · 간판 · 번지를 짓지 않는다 (_describe_osm).
 
 같은 지도 · 시드 · 장소면 언제나 같은 결과다 (난수원 f"{seed}:bldgs:{단계}"). 알고리즘을 바꾸면 VERSION 을 올린다.
 """
@@ -45,13 +46,28 @@ USES: dict[str, tuple[str, str]] = {
     "locksmith": ("자물쇠 공방", "craft"), "ropemaker": ("밧줄 공방", "craft"), "copyist": ("필경소", "civic"),
     "bookseller": ("책방", "shop"),
 }
+# 현대 쓰임: OpenStreetMap 지도(canon/osm.py)가 태그에서 고른다. 중세 지도의 가게 수(TRADES)에는 들지 않는다
+MODERN: dict[str, tuple[str, str]] = {
+    "building": ("건물", "home"), "apartment": ("아파트", "home"), "dorm": ("기숙사", "home"),
+    "store": ("가게", "shop"), "convenience": ("편의점", "shop"), "mart": ("마트", "shop"), "department": ("백화점", "shop"),
+    "salon": ("미용실", "shop"), "laundry": ("세탁소", "shop"), "fuel": ("주유소", "shop"),
+    "cafe": ("카페", "food"), "restaurant": ("식당", "food"), "hotel": ("호텔", "lodging"),
+    "hospital": ("병원", "care"), "pharmacy": ("약국", "care"), "gym": ("체육 시설", "care"), "kinder": ("유치원", "care"),
+    "school": ("학교", "civic"), "academy": ("학원", "civic"), "university": ("대학교", "civic"), "library": ("도서관", "civic"),
+    "police": ("경찰서", "civic"), "fire": ("소방서", "civic"), "post": ("우체국", "civic"), "government": ("관공서", "civic"),
+    "station": ("역", "civic"), "culture": ("문화 시설", "civic"), "parking": ("주차장", "store"),
+    "bank": ("은행", "work"), "company": ("회사 · 사무실", "work"), "factory": ("공장", "work"),
+    "church": ("교회", "faith"), "buddhist": ("절", "faith"),
+}
+USES.update(MODERN)
+HOMES = ("home", "farm", "tenement", "building", "apartment", "dorm")  # 사는 곳 (쓰임 목록에서 뒤로)
 # 작품 이름 스타일(naming.STYLE_IDS)마다 바꿔 부르는 쓰임
 STYLE_LABELS = {
     "joseon": {"inn": "주막", "tavern": "주막", "temple": "절", "baker": "떡집", "barber": "상투 손질집", "school": "서당",
                "office": "관아", "doctor": "의원", "brewer": "술도가", "bathhouse": "목욕간", "tenement": "행랑채",
                "chapel": "사당", "wine": "술집", "pastry": "엿집", "copyist": "필방", "bookseller": "책방", "furrier": "갖옷 가게"},
     "wuxia": {"inn": "객잔", "tavern": "주루", "temple": "사원", "baker": "만두 가게", "school": "서원", "office": "관부"},
-    "korea_modern": {"inn": "여관", "tavern": "술집", "temple": "교회", "baker": "빵집", "school": "학원", "office": "주민센터"},
+    "korea_modern": {"inn": "여관", "tavern": "술집", "temple": "교회", "baker": "빵집", "office": "주민센터"},
     "japan": {"inn": "료칸", "tavern": "이자카야", "temple": "신사", "baker": "빵집", "school": "학교", "office": "관청"},
 }
 
@@ -78,6 +94,15 @@ WARD_HOME = {"noble": "mansion", "slum": "tenement", "harbor": "warehouse"}
 FLOORS = {"row": (1, 2), "house": (1, 1), "farm": (1, 1), "landmark": (1, 1), "outskirts": (1, 1),
           "market": (2, 3), "merchant": (2, 3), "craft": (1, 3), "harbor": (1, 2), "slum": (2, 3), "noble": (2, 3), "plaza": (2, 3)}
 HOUSEHOLD = (2, 5)  # 주거 한 칸에 사는 사람 (Ross: 보통 3명, 2~5명)
+
+# OpenStreetMap 지도: 층수 태그(building:levels)가 없을 때의 어림 층수. 목록에 없으면 3층
+MODERN_FLOORS = {"apartment": 15, "dorm": 5, "home": 2, "farm": 1, "barn": 1, "building": 3, "store": 2, "convenience": 1,
+                 "fuel": 1, "parking": 1, "company": 8, "department": 7, "hospital": 6, "hotel": 10, "university": 5,
+                 "school": 4, "kinder": 2, "station": 2, "church": 2, "buddhist": 1, "factory": 2, "warehouse": 1}
+MODERN_HOMES = ("home", "apartment", "dorm", "farm")  # 사람 수를 어림하는 쓰임
+FLAT_AREA = 85.0  # 주거 한 칸 넓이 (m², 국민주택 규모)
+FLAT_SHARE = 0.6  # 연면적 가운데 주거 칸 몫 (어림: 복도 · 계단 · 벽)
+HOUSEHOLD_SIZE = 2.2  # 한 가구 사람 수 (국가데이터처 지표: 2024년 평균 가구원 수 2.2명)
 
 # 이야기 장소 종류(towngen.CATEGORIES) → 쓰임
 PLACE_USE = {"center": "office", "market": "hall", "well": "", "temple": "temple", "inn": "inn", "smith": "smith",
@@ -169,6 +194,10 @@ def describe(layout: dict, seed: str | int, style: str = "western_fantasy", spot
             row = sorted((pos, i) for i, (s, pos, sd) in front.items() if s == sid and sd == side)
             for k, (_, i) in enumerate(row):
                 numbers[i] = first + 2 * k
+
+    if layout.get("generator") == "osm":
+        return _describe_osm(layout, parts, areas, mains, streets, front, polys, owner,
+                             spots if spots is not None else layout.get("spots", []), M)
 
     # 건물 자리 맛: 가운데 가까움, 광장 가까움, 물가, 큰길가, 구역
     ctx: dict[int, dict] = {}
@@ -274,6 +303,45 @@ def describe(layout: dict, seed: str | int, style: str = "western_fantasy", spot
         if i in front:
             out[i]["street"] = front[i][0]
             out[i]["no"] = numbers.get(i, 0)
+    return {"streets": [{k: v for k, v in st.items() if k != "segs"} for st in streets], "blds": out, "bver": VERSION}
+
+
+def _describe_osm(layout: dict, parts: list[dict], areas: list[float], mains: list[int], streets: list[dict], front: dict,
+                  polys: list, owner: list[int], spots: list[dict], M) -> dict:
+    """OpenStreetMap 지도(canon/osm.py): 쓰임 · 이름 · 주소 · 입점한 곳은 태그 그대로, 층수는 태그가 없으면 쓰임마다 어림.
+    사는 사람은 주거 쓰임만 연면적 × FLAT_SHARE ÷ FLAT_AREA 가구 × HOUSEHOLD_SIZE 명. 가게를 더 두거나 간판을 짓지 않는다.
+    거리 이름은 길 이름(name) 가운데 가장 많은 것, 이름 없는 길은 비워 둔다. 번지(no)는 0 이다.
+    실제 지도에 없는 이름 · 번지를 지어 넣지 않는다 (실제 주소처럼 보여 헷갈린다)."""
+    out: list[dict] = [{} for _ in parts]
+    for i in mains:
+        pt = parts[i]
+        use = pt.get("use") or "building"
+        floors = pt.get("levels") or MODERN_FLOORS.get(use, 3)
+        people = 0
+        if use in MODERN_HOMES:
+            people = round(max(1, round(areas[i] * floors * FLAT_SHARE / FLAT_AREA)) * HOUSEHOLD_SIZE)
+        out[i] = {"use": use, "floors": floors, "people": people}
+        for key in ("name", "addr"):
+            if pt.get(key):
+                out[i][key] = pt[key]
+        if pt.get("tenants"):
+            out[i]["tenants"] = list(pt["tenants"])
+    for sp in spots:
+        q = M((sp["x"], sp["y"]))
+        i = next((j for j in mains if geom.inside(q, polys[j])), None)
+        if i is not None:
+            out[i].update({"use": PLACE_USE.get(sp.get("kind", ""), "") or out[i]["use"], "name": sp["name"], "place": sp["key"]})
+    roads = layout.get("roads", [])
+    for st in streets:
+        names = [roads[k].get("name", "") for k in st["roads"] if roads[k].get("name")]
+        st["name"] = max(set(names), key=lambda x: (names.count(x), x)) if names else ""
+    for i in range(len(parts)):
+        if owner[i] != i:
+            out[i] = {"use": "annex", "of": owner[i]}
+    for i in mains:
+        if i in front:  # 앞길만 적고 번지는 짓지 않는다 (실제 주소는 addr)
+            out[i]["street"] = front[i][0]
+            out[i]["no"] = 0
     return {"streets": [{k: v for k, v in st.items() if k != "segs"} for st in streets], "blds": out, "bver": VERSION}
 
 
