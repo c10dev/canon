@@ -87,14 +87,16 @@ function markHtml(text, ranges, names = [], live = false) {
   return html + piece(at, text.length);
 }
 
-/** 밑줄 칠 곳 모두: 문체 밑줄(켰을 때)과 검수 화면의 지적 문장(check.js findingRanges). 겹치면 앞의 것만. */
+/** 밑줄 칠 곳 모두: 문체 밑줄(켰을 때), 검수 화면의 지적 문장(check.js findingRanges), 작가가 담은 고칠 곳(tofix.js). 겹치면 앞의 것만. */
 function allRanges(n, text) {
-  const out = [...(marksOn && markable() ? markRanges(n, text) : []), ...(typeof findingRanges === 'function' ? findingRanges(n, text) : [])];
+  const out = [...(marksOn && markable() ? markRanges(n, text) : []), ...(typeof findingRanges === 'function' ? findingRanges(n, text) : []),
+    ...tofixMarks(n, text)];
   out.sort((x, y) => x.a - y.a || y.b - x.b);
   let end = 0;
   return out.filter((r) => (r.a >= end ? ((end = r.b), true) : false));
 }
 const findingMarked = (n, text) => typeof findingRanges === 'function' && findingRanges(n, text).length > 0;
+const tofixMarks = (n, text) => (typeof tofixRanges === 'function' && typeof ep === 'function' ? tofixRanges(ep(n), text) : []);
 
 /** 이름 밑줄 (mentions.js). 꺼 두었거나 mentions.js 가 없으면 []. */
 const nameRanges = (text, quick = false) => (typeof mentionsFor === 'function' ? mentionsFor(text, quick) : []);
@@ -113,7 +115,7 @@ function draftBox(n, text) {
   const e = typeof ep === 'function' ? ep(n) : null;
   const locked = typeof jobFor === 'function' && !!jobFor('write', n) && !(e && e.text);
   const ta = `<textarea aria-label="${n}화 본문" data-draft="${n}"${locked ? ' readonly aria-describedby="draft-lock"' : ''} placeholder="여기에 본문을 쓰세요">${esc(text)}</textarea>`;
-  return (marksOn && markable()) || nameable() || findingMarked(n, text) ? `<div class="hl-wrap"><div class="hl-layer" aria-hidden="true"><div class="hl-in"></div></div>${ta}</div>` : ta;
+  return (marksOn && markable()) || nameable() || findingMarked(n, text) || tofixMarks(n, text).length ? `<div class="hl-wrap"><div class="hl-layer" aria-hidden="true"><div class="hl-in"></div></div>${ta}</div>` : ta;
 }
 
 const markable = () => (P().style.devices || []).some((d) => (d.name || '').trim()) || bannedList().length > 0;
@@ -265,6 +267,10 @@ document.addEventListener('click', (e) => {
     const r = allRanges(n, ta.value).find((x) => x.a <= p && p <= x.b);
     if (!r) return;
     if (r.key.startsWith('i:')) return actions.chkOpen(r.key.slice(2));  // 검수 화면: 그 지적을 고르고 문장에서 고치는 창을 띄운다 (check.js)
+    if (r.key.startsWith('t:')) {  // 고칠 곳: 담은 글 그대로 고른다. tofix.js 가 메모 고치기 · 고침으로를 붙인다
+      S.selTool = { n, start: r.a, text: ta.value.slice(r.a, r.b), mode: 'menu' };
+      return showTool();
+    }
     const s = sentenceAt(ta.value, r.a, r.b);
     S.selTool = { n, start: s.start, text: ta.value.slice(s.start, s.end), mode: 'menu', hint: markHint(r) };
     showTool();

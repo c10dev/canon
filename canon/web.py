@@ -34,6 +34,7 @@ from .schema import FieldIdeas, NameOption, Recap
 from . import branches
 from .schema import BranchDiff, BranchInfo, ForkMode
 from . import birth, play
+from . import tofix
 from .schema import Birth, BirthSketch, Episode, PlayInfo, PlayPerson, PlayUnit
 
 STATIC = Path(__file__).parent / "static"
@@ -135,6 +136,10 @@ def _save(name: str, p: Project, merged: set[str] | None = None, kept: list[dict
             have = {x.name for x in p.place_candidates}
             p.place_candidates += [x for x in disk.place_candidates if x.name not in have]
             pipeline.sync_candidates(p)
+            # 고칠 곳은 전용 엔드포인트로만 바꾼다. 화면이 들고 있던 옛 목록이 자동 집필 중에 단 표시를 덮지 않게
+            marks = {e.plot.number: e.to_fix for e in disk.episodes}
+            for e in p.episodes:
+                e.to_fix = marks.get(e.plot.number, [])
         store.save(name, p)
     return p
 
@@ -2148,6 +2153,39 @@ def set_events_done(name: str, n: int, body: EventsDone) -> list[str]:
     ep.events_done = [x for x in ep.plot.events if x in set(body.done)]
     _save(name, p)
     return ep.events_done
+
+
+# ---------- 4-0. 고칠 곳 ----------
+# 작가가 본문 문장에 다는 '나중에 고칠 곳' 표시 (tofix.py). 본문을 바꾸지 않아 자동 집필이 도는 동안에도 받는다.
+# 작품 잠금 안에서 최신 project.json 을 읽어 고치므로 자동 집필의 저장과 서로 덮지 않는다.
+
+class ToFixIn(BaseModel):
+    quote: str
+    note: str = ""
+    start: int = 0
+
+
+class ToFixPatch(BaseModel):
+    note: str | None = None
+    status: Literal["open", "done"] | None = None
+
+
+@app.post("/api/projects/{name}/episodes/{n}/tofix")
+def add_tofix(name: str, n: int, body: ToFixIn) -> Project:
+    _load(name).episode(n)
+    return _edit(name, lambda p: tofix.add(p.episode(n), body.quote, body.note, body.start, pipeline._now()))
+
+
+@app.put("/api/projects/{name}/episodes/{n}/tofix/{mid}")
+def update_tofix(name: str, n: int, mid: str, body: ToFixPatch) -> Project:
+    _load(name).episode(n)
+    return _edit(name, lambda p: tofix.update(p.episode(n), mid, pipeline._now(), body.note, body.status))
+
+
+@app.delete("/api/projects/{name}/episodes/{n}/tofix/{mid}")
+def delete_tofix(name: str, n: int, mid: str) -> Project:
+    _load(name).episode(n)
+    return _edit(name, lambda p: tofix.remove(p.episode(n), mid))
 
 
 # ---------- 4-1. 본문 부분 수정 ----------

@@ -861,10 +861,11 @@ def plan_next_arc(llm: LLM, p: Project, length: int = 0, note: str = "") -> ArcP
     length = length or p.meta.arc_length
     part = p.part_for(start)
     limit = part.end_ep if part else p.meta.target_episodes
-    prop = llm.json(
-        prompts.SYSTEM_PLANNER, prompts.next_arc_prompt(p, start, length, note), ArcProposal,
-        hint={"start": start, "length": length, "limit": limit, "number": len(p.story_arcs) + 1},
-    )
+    ask = prompts.next_arc_prompt(p, start, length, note)
+    hint = {"start": start, "length": length, "limit": limit, "number": len(p.story_arcs) + 1}
+    prop = llm.json(prompts.SYSTEM_PLANNER, ask, ArcProposal, hint=hint)
+    if not prop.arc.acts:  # acts 는 필수 칸이 아니라 모델이 빼먹을 수 있다. 요청을 맨 뒤에 덧붙여 한 번 더 묻는다
+        prop = llm.json(prompts.SYSTEM_PLANNER, ask + prompts.ARC_ACTS_RETRY, ArcProposal, hint=hint)
     return clean_arc(p, prop)
 
 
@@ -2447,6 +2448,7 @@ def _delete_last(p: Project, n: int, keep_plot: bool) -> list[str]:
     findings.clear(ep)
     ep.candidate, ep.versions, ep.made_by, ep.time = None, [], None, StoryTime()
     ep.events_done = []  # 본문이 없으니 쓴 사건 체크도 비운다
+    ep.to_fix = []  # 지운 본문 문장에 단 고칠 곳
     p.foreshadow_clues = [c for c in p.foreshadow_clues if c.episode != n]  # 지운 본문 문장에 건 복선 근거
     p.chats = [c for c in p.chats if c.topic != f"text:{n}"]
     if chars:
