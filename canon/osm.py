@@ -262,6 +262,7 @@ def convert(feats: list[Feature], bounds: Optional[tuple[float, float, float, fl
     pois: list[tuple[Point, dict]] = []
     trees: list[Point] = []
     loose: list[list[Point]] = []
+    named: list[tuple[Point, dict]] = []  # 이름 붙은 물 · 녹지 · 광장 (가운데 자리, 장소 자리 찾기)
     for t, kind, g in feats:
         if kind == "point":
             q = P(g)
@@ -302,6 +303,8 @@ def convert(feats: list[Feature], bounds: Optional[tuple[float, float, float, fl
                 areas[layer].append(cut)
                 if layer == "buildings":
                     btags.append(t)
+                elif t.get("name"):
+                    named.append((geom.centroid(cut), t))
     if len(areas["buildings"]) > MAX_BUILDINGS:
         raise ValueError(f"건물이 너무 많아요 ({len(areas['buildings']):,}채). {MAX_BUILDINGS:,}채 안으로 좁혀 받아 주세요")
     if loose:
@@ -310,15 +313,26 @@ def convert(feats: list[Feature], bounds: Optional[tuple[float, float, float, fl
         rivers = [r for r in rivers if r["width"] <= RIVER_WIDTHS["stream"]]
     if not roads:
         raise ValueError("파일에 길이 없어요. 길이 있는 곳을 받아 주세요")
-    parts = _parts(areas["buildings"], btags, pois)
+    parts, outside = _parts(areas["buildings"], btags, pois)
+    marks = [{"name": t["name"], "use": use_of(t) or _stop(t), "x": round(q[0] / W, 6), "y": round(q[1] / H, 6)}
+             for q, t in outside + named if t.get("name")]
     out: dict = {"w": round(W, 3), "h": round(H, 3), "generator": GENERATOR, "version": "", "source": SOURCE,
                  "roads": roads, "trees": norm(trees), "parts": parts}
+    if marks:
+        out["marks"] = marks
     for key, polys in areas.items():
         if polys:
             out[key] = [norm(p) for p in polys]
     if rivers:
         out["rivers"] = rivers
     return out
+
+
+def _stop(t: dict) -> str:
+    """건물 쓰임이 아닌 표지: 버스 정류장 bus · 역 출입구 entrance (atlas.MARK_WORDS)."""
+    if t.get("highway") == "bus_stop" or t.get("public_transport") in ("platform", "stop_position"):
+        return "bus"
+    return "entrance" if t.get("railway") == "subway_entrance" or t.get("entrance") else ""
 
 
 def _coords(kind: str, g) -> list:
@@ -501,16 +515,20 @@ def use_of(t: dict) -> str:
     return _BUILDING.get(t.get("building", ""), "")
 
 
-def _parts(polys: list[list[Point]], btags: list[dict], pois: list[tuple[Point, dict]]) -> list[dict]:
-    """건물마다 {lot, part, zone, use, name, levels, addr, tenants}. 가게 · 시설 점은 그 점이 든 건물에 붙인다."""
+def _parts(polys: list[list[Point]], btags: list[dict], pois: list[tuple[Point, dict]]) -> tuple[list[dict], list[tuple[Point, dict]]]:
+    """건물마다 {lot, part, zone, use, name, levels, addr, tenants}. 가게 · 시설 점은 그 점이 든 건물에 붙인다.
+    둘째 값은 어느 건물에도 들지 않은 점 (역 출입구, 공원 안 시설 등)."""
     grid = geom.Grid(40)
     for i, p in enumerate(polys):
         grid.add(geom.bbox(p), i)
     inside: dict[int, list[dict]] = {}
+    outside: list[tuple[Point, dict]] = []
     for q, t in pois:
         i = next((j for j in grid.near((q[0], q[1], q[0], q[1])) if geom.inside(q, polys[j])), None)
         if i is not None:
             inside.setdefault(i, []).append(t)
+        else:
+            outside.append((q, t))
     out = []
     for i, t in enumerate(btags):
         own = use_of({k: v for k, v in t.items() if k != "building"}) or ""
@@ -525,4 +543,4 @@ def _parts(polys: list[list[Point]], btags: list[dict], pois: list[tuple[Point, 
         out.append({"lot": i, "part": "main", "zone": "", "use": use, "name": name,
                     "levels": int(round(levels)) if levels and 0 < levels < 200 else 0,
                     "addr": f"{street} {no}".strip() if street and no else "", "tenants": tenants})
-    return out
+    return out, outside

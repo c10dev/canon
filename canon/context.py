@@ -32,6 +32,7 @@ BUDGET = {
     "deadlines": 1_200,     # 쓰기 · 검수 · 기획 · 상태 변경안의 작품 속 열린 기한 (timeline.deadline_lines, 단편도)
     "cast": 8_000,          # 본문 쓰기: '항상' 넣는 조연 · 단역과 이번 화 조연 · 단역의 설정. '항상' 조연 · 단역이 있을 때만 센다 (fit_cast)
     "travel": 800,          # 쓰기 · 검수의 이동 거리 (travel.episode_block, 지도 크기를 알 때만)
+    "spots": 600,           # 쓰기 · 검수: 플롯에 나온 장소가 놓인 건물 한 줄 (atlas.episode_block, MapPin.spot)
     "stat_lines": 2_000,    # 쓰기: 상태창 줄 형식(stat_window.prompt = lines)의 도감 줄. 이번 화 인물의 수치 줄은 늘 넣는다
     # 플레이 모드 (prompts.play_scene_prompt · play_state_prompt). 한 턴은 짧은 장면이라 소설보다 작게 둔다
     "play_style": 1_800,    # 장면: 줄인 스타일 프로필 (PLAY_STYLE_KEYS + 예시 문단 하나)

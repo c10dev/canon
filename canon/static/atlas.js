@@ -48,6 +48,7 @@ Object.assign(S, {
   atlasUseHi: '',    // 옆 칸 '건물 쓰임'에서 고른 쓰임 (지도에서 테두리로 강조)
   atlasTitleEdit: false,
   atlasIdeas: null,  // 새 장소 이름 후보 (서버 naming)
+  atlasFind: null,  // 이름으로 자리 찾기 { name, spots, pick } (atlasFindNow)
   atlasGen: null,    // 지도 만들기 { name, open, spec, preview, take: {장소 키: 새 자리에 놓기}, touched: 작가가 고친 칸, ai: AI 제안 { reason, notes } } (atlasGenState())
 });
 
@@ -68,13 +69,19 @@ async function atlasLoad() {
   S.atlas = await api('GET', `/projects/${enc(S.name)}/atlas`).catch((e) => ({ error: e.message, frames: [], places: [], unmatched: [] }));
   S.atlas.name = S.name;
   if (!same || wasLast || S.atlasFrame >= S.atlas.frames.length) S.atlasFrame = Math.max(0, S.atlas.frames.length - 1);
-  if (!same) { S.atlasPick = ''; S.atlasSel = ''; S.atlasFocus = ''; S.atlasDraft = {}; S.atlasNew = []; S.atlasView = { x: 0, y: 0, z: 1 }; S.atlasBld = null; S.atlasIdeas = null; S.atlasTitleEdit = false; S.atlasUseHi = ''; }
+  if (!same) { S.atlasPick = ''; S.atlasSel = ''; S.atlasFocus = ''; S.atlasDraft = {}; S.atlasNew = []; S.atlasView = { x: 0, y: 0, z: 1 }; S.atlasBld = null; S.atlasIdeas = null; S.atlasFind = null; S.atlasTitleEdit = false; S.atlasUseHi = ''; }
   const file = S.atlas.layout && S.atlas.layout.file;
   if (!file) S.atlasLayout = null;
   else if (!S.atlasLayout || S.atlasLayout.file !== file || S.atlasLayout.name !== S.name) {
     const data = await api('GET', `/projects/${enc(S.name)}/atlas/layout`).catch(() => null);
     S.atlasLayout = data && { file, name: S.name, data };
   }
+}
+
+/** 이름으로 자리 찾기 후보를 받아 연다 */
+async function atlasFindLoad() {
+  const r = await api('GET', `/projects/${enc(S.name)}/atlas/find-spots`);
+  S.atlasFind = { name: S.name, spots: r.spots, pick: atlasFindDefault(r.spots) };
 }
 
 function atlasStop() {
@@ -85,6 +92,8 @@ window.addEventListener('hashchange', atlasStop);
 
 /** 지도 만들기 미리보기 중이면 그 결과 ({ layout, pins, missing, blocked, info }) */
 const atlasGenPreview = () => (S.atlasGen && S.atlasGen.name === S.name && S.atlasGen.preview) || null;
+/** 이름으로 자리 찾기를 열었으면 { spots: 서버 atlas.find_spots, pick: {장소 키: 후보 번호 | -1} } */
+const atlasFindNow = () => (S.atlasFind && S.atlasFind.name === S.name ? S.atlasFind : null);
 const atlasH = () => {
   const pv = atlasGenPreview();
   return Math.round(ATLAS_W / (pv ? pv.layout.w / pv.layout.h : (S.atlas && S.atlas.aspect) || 1.5));
@@ -516,6 +525,19 @@ function atlasSvg() {
     });
   }
 
+  // 이름으로 자리 찾기: 고른 후보 자리
+  const fd = !pv && atlasFindNow();
+  if (fd) {
+    fd.spots.forEach((s) => {
+      const o = s.options[fd.pick[s.place]];
+      if (!o) return;
+      const x = o.x * W;
+      const y = o.y * H;
+      out.push(`<g class="at-sug"><title>${esc(s.name)}: ${esc(o.what)}</title><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(9 * sc).toFixed(2)}" stroke-width="${(2.5 * sc).toFixed(2)}"></circle></g>`);
+      labels.push({ x, y, text: s.name, cls: '', first: true });
+    });
+  }
+
   // 지나온 길: 시작부터 지금 시점까지 놓인 장소를 차례로 잇는다 (거쳐 온 곳 포함).
   // 마을 데이터가 있으면 서버가 찾은 길 따라 경로(row.route)로 잇는다
   if (S.atlasTrail && !pv) {
@@ -557,7 +579,7 @@ function atlasSvg() {
   }
 
   // 장소 (미리보기에서 새 자리로 옮길 장소는 새 자리만 그린다)
-  (S.atlas.places || []).filter((pl) => pl.pin && !hidden(pl) && !(pv && S.atlasGen.take[pl.key])).forEach((pl) => {
+  (S.atlas.places || []).filter((pl) => pl.pin && !hidden(pl) && !(pv && S.atlasGen.take[pl.key]) && !(fd && fd.pick[pl.key] >= 0)).forEach((pl) => {
     const [x, y] = xy(pl);
     const later = !atlasKnown(pl, f);
     const hot = f.episode && f.mentioned.includes(pl.key);
@@ -621,6 +643,21 @@ function atlasPinApply(map, part) {
   const out = { ...map };
   Object.entries(part).forEach(([k, v]) => { if (v) out[k] = v; else delete out[k]; });
   return Object.entries(out).map(([place, [x, y]]) => ({ place, x, y }));
+}
+
+/** 이름으로 자리 찾기의 처음 고름 {장소 키: 후보 번호, -1 은 놓지 않기}. 후보가 하나뿐이고 아직 놓지 않은 장소만 고른다 */
+function atlasFindDefault(spots) {
+  return Object.fromEntries(spots.map((s) => [s.place, s.options.length === 1 && !s.had ? 0 : -1]));
+}
+
+/** 지금 자리 표에 고른 후보 자리를 덮은 pins 목록 (고르지 않은 장소는 그대로) */
+function atlasFindPins(map, spots, pick) {
+  const part = {};
+  spots.forEach((s) => {
+    const o = s.options[pick[s.place]];
+    if (o) part[s.place] = [o.x, o.y];
+  });
+  return atlasPinApply(map, part);
 }
 
 /** 보는 범위 view({x, y, z}, 지도 단위)에 box([x0, y0, x1, y1])가 여백을 두고 들어오게 옮긴 범위.
@@ -854,8 +891,36 @@ function atlasLayoutBox() {
     <div class="small">길 ${lo.roads}개${lo.bridges ? ` · 다리 ${lo.bridges}개` : ''} · 건물 ${lo.buildings}채 · 약 ${atlasMeters(lo.width_m)} × ${atlasMeters(lo.height_m)}</div>
     <label class="at-scale small">1단위 = <input type="number" min="0.01" max="1000" step="0.1" value="${lo.meters}" data-atlas-meters aria-label="마을 데이터 1단위가 몇 m인지"> m</label>
     <div class="small">거리가 어색하면 축척을 바꾸세요. 걷는 시간은 초속 1.3m로 셈해요. 건물 안을 누르면 장소가 그 건물 가운데에 놓여요.</div>
-    <div class="row"><label class="btn small" for="at-layout">다른 파일 올리기</label>${input}
+    <div class="row"><button type="button" class="btn small" data-action="atlasFindOpen">이름으로 자리 찾기</button>
+      <label class="btn small" for="at-layout">다른 파일 올리기</label>${input}
       <button type="button" class="btn small ghost" data-action="atlasDropLayout">${word} 지우기</button></div></div>`;
+}
+
+// ----- 이름으로 자리 찾기 (서버 atlas.find_spots: 장소 이름과 같은 이름의 건물 · 가게 · 역) -----
+
+function atlasFindBox() {
+  const fd = atlasFindNow();
+  if (!fd) return '';
+  const close = '<button type="button" class="btn small ghost" data-action="atlasFindClose">닫기</button>';
+  if (!fd.spots.length) {
+    return `<div class="at-box"><div class="between"><h3>이름으로 자리 찾기</h3>${close}</div>
+      <div class="small">장소 이름과 같은 이름의 건물 · 가게 · 역을 찾지 못했어요. 장소를 고른 뒤 지도에서 자리를 누르세요.</div></div>`;
+  }
+  const rows = fd.spots.map((s) => {
+    const opts = [[-1, s.had ? '지금 자리 그대로' : '놓지 않기'], ...s.options.map((o, j) => [j, o.what + (o.near ? ` · ${o.near}` : '')])];
+    return `<fieldset class="at-find"><legend class="small"><b>${esc(s.name)}</b>${s.had ? ' <span class="at-um-note">(이미 놓은 장소예요)</span>' : ''}</legend>
+      ${opts.map(([v, label]) => `<label class="small at-gen-take"><input type="radio" name="at-find-${esc(s.place)}" value="${v}" data-at-find="${esc(s.place)}"${fd.pick[s.place] === v ? ' checked' : ''}> ${esc(label)}</label>`).join('')}
+      ${s.more ? `<div class="small at-um-note">같은 이름이 ${s.more}곳 더 있어요. 여기 없는 곳이면 지도에서 직접 놓아 주세요.</div>` : ''}</fieldset>`;
+  }).join('');
+  return `<div class="at-box at-gen"><div class="between"><h3>이름으로 자리 찾기</h3>${close}</div>
+    <div class="small">장소 이름과 같은 이름의 건물 · 가게 · 역을 찾았어요. 고른 자리는 지도에 동그라미로 보여요. 같은 이름이 여러 곳이면 골라 주세요.</div>
+    <div class="at-gen-places">${rows}</div>
+    <div class="row">${atlasFindButton(fd)}</div></div>`;
+}
+
+function atlasFindButton(fd) {
+  const n = fd.spots.filter((s) => fd.pick[s.place] >= 0).length;
+  return `<button type="button" class="btn small primary" data-action="atlasFindApply" data-at-find-go${n ? '' : ' disabled'}>${n ? `${n}곳 놓기` : '고른 자리가 없어요'}</button>`;
 }
 
 // ----- 지도 만들기 (서버 canon/towngen.py 마을 생성기, canon/citygen.py 도시 생성기, canon/moderngen.py 현대 동네 생성기) -----
@@ -1223,7 +1288,7 @@ function atlasGenBar() {
 
 function atlasSide() {
   if (atlasGenPreview()) return atlasGenBox();  // 미리보기 중에는 고를 것만 보인다
-  return atlasPlaceBox() + atlasWho() + atlasTravelBox() + atlasLoose() + atlasUseBox() + atlasGenBox() + atlasLayoutBox() + atlasBackground();
+  return atlasFindBox() + atlasPlaceBox() + atlasWho() + atlasTravelBox() + atlasLoose() + atlasUseBox() + atlasGenBox() + atlasLayoutBox() + atlasBackground();
 }
 
 /** 시점 · 선택만 바뀌면 슬라이더는 두고 지도와 옆 칸만 다시 그린다 (끄는 중인 슬라이더를 지우지 않게) */
@@ -1742,6 +1807,25 @@ Object.assign(actions, {
       toast(changed ? `AI 제안으로 ${changed}칸을 바꿨어요. 확인하고 미리보기를 누르세요` : 'AI 제안이 지금 설정과 같아요');
     });
   },
+  async atlasFindOpen() {
+    await run('자리 찾는 중', async () => {
+      await atlasFindLoad();
+      if (!S.atlasFind.spots.length) toast('장소 이름과 같은 이름의 건물 · 가게 · 역이 없어요');
+    });
+  },
+  atlasFindClose() {
+    S.atlasFind = null;
+    atlasRefresh();
+  },
+  async atlasFindApply() {
+    const fd = atlasFindNow();
+    if (!fd) return;
+    const before = atlasPinMap();
+    const n = fd.spots.filter((s) => fd.pick[s.place] >= 0).length;
+    const pins = atlasFindPins(before, fd.spots, fd.pick);
+    if (await atlasSavePins(pins, `장소 ${n}곳을 놓았어요`, { before, label: '이름으로 자리 놓기' })) S.atlasFind = null;
+    atlasRefresh();
+  },
   atlasGenEdit() {
     atlasGenState().preview = null;
     atlasRefresh();
@@ -1854,6 +1938,16 @@ document.addEventListener('change', async (e) => {
     st.touched['p:' + row.key] = true;
     return;
   }
+  if (t.matches('[data-at-find]')) {
+    const fd = atlasFindNow();
+    if (!fd) return;
+    fd.pick[t.dataset.atFind] = Number(t.value);
+    const stage = document.getElementById('atlas-stage');
+    if (stage) stage.innerHTML = atlasStage();
+    const go = document.querySelector('[data-at-find-go]');
+    if (go) go.outerHTML = atlasFindButton(fd);
+    return;
+  }
   if (t.matches('[data-at-gen-take]')) {
     atlasGenState().take[t.dataset.atGenTake] = t.checked;
     const stage = document.getElementById('atlas-stage');
@@ -1913,6 +2007,10 @@ document.addEventListener('change', async (e) => {
       await saveIfDirty();
       S.project = await api('PUT', `/projects/${enc(S.name)}/atlas/layout`, { data });
       await atlasLoad();
+      await atlasFindLoad().catch(() => { S.atlasFind = null; });
+      const found = S.atlasFind ? S.atlasFind.spots.length : 0;
+      if (found) { toast(`마을을 올렸어요. 이름이 같은 건물 · 가게 · 역을 장소 ${found}곳에서 찾았어요. 옆 칸에서 골라 주세요`); return; }
+      S.atlasFind = null;
       toast(had ? '마을을 올렸어요. 장소 자리가 마을과 맞지 않으면 건물 위로 옮겨 주세요' : '마을을 올렸어요. 장소를 골라 건물 위에 놓으세요');
     });
     return;
@@ -2402,6 +2500,8 @@ document.addEventListener('keydown', (e) => {
 .at-gen-place { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
 .at-gen-place select { max-width: 140px; }
 .at-gen-take { display: flex; align-items: baseline; gap: 6px; }
+.at-find { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.at-find legend { padding: 0; margin-bottom: 2px; }
 .at-gen-note { grid-column: 1 / -1; margin-top: -2px; }
 .at-scale { display: inline-flex; align-items: center; gap: 6px; }
 .at-scale input { width: 80px; }

@@ -63,7 +63,8 @@ def _xml() -> str:
     b = way([(380, 170), (320, 170), (320, 120)])
     rels.append(f'<relation id="1"><member type="way" ref="{a}" role="outer"/><member type="way" ref="{b}" role="outer"/>'
                 '<tag k="type" v="multipolygon"/><tag k="building" v="school"/><tag k="name" v="테스트초등학교"/></relation>')
-    way(rect(20, 200, 150, 280), closed=True, leisure="park")
+    way(rect(20, 200, 150, 280), closed=True, leisure="park", name="테스트공원")
+    node(150, 60, railway="station", public_transport="station", name="테스트")  # 건물 밖 역 (OSM 은 '역'을 뺀 이름)
     way([(300, 410), (340, 410), (340, 435), (300, 435), (300, 410)], closed=True, building="house")
     way(rect(150, 418, 190, 440), closed=True, building="house")
     north = way([(-100, 340), (200, 342), (550, 340)])  # 큰 강의 물가 두 줄 (범위 밖 조각은 파일에 없다)
@@ -185,6 +186,14 @@ def test_web_upload_osm(tmp_path, monkeypatch):
     assert pr["atlas"]["layout"].startswith("layout-") and pr["atlas"]["meters"] == 1
     s = c.get("/api/projects/o/atlas").json()
     assert s["layout"]["generator"] == "osm" and s["layout"]["source"] == osm.SOURCE and s["layout"]["buildings"] == 5
+    assert c.get("/api/projects/o/atlas/find-spots").json() == {"spots": []}  # 장소 이름과 맞는 곳이 없다
+    lo0 = c.get("/api/projects/o/atlas/layout").json()
+    k = next(k for k, b in enumerate(lo0["blds"]) if b.get("name") == "테스트타워")
+    cx, cy = geom.centroid([tuple(q) for q in lo0["buildings"][k]])
+    pr = c.put("/api/projects/o/atlas/pins", json={"pins": [{"place": "el-9", "x": cx, "y": cy}]}).json()
+    assert pr["atlas"]["pins"][0]["spot"].startswith("테스트타워 (")  # 핀을 저장하면 놓인 건물 한 줄을 적는다
+    pr = c.put(f"/api/projects/o/atlas/buildings/{k}", json={"name": "새 이름"}).json()
+    assert pr["atlas"]["pins"][0]["spot"].startswith("새 이름 (")
     assert s["title"]["kind"] == "동네" and s["title"]["unit"] == "건물" and s["title"]["houses"] == 5
     assert "apartment" in s["gen"]["modern"] and s["gen"]["uses"]["convenience"] == ["편의점", "shop"]
     lo = c.get("/api/projects/o/atlas/layout").json()
@@ -192,3 +201,59 @@ def test_web_upload_osm(tmp_path, monkeypatch):
     b = c.get(f"/api/projects/o/atlas/buildings/{i}").json()
     assert b["addr"] == "테스트대로 10" and b["tenants"] == ["카페 하나", "편의점 둘"] and b["group"] in ("food", "shop")
     assert c.put("/api/projects/o/atlas/layout", json={"data": "<osm><bounds/></osm>"}).status_code == 400
+
+
+def test_find_spots():
+    from canon.schema import MapPin, StoryElement
+
+    from .test_mapgen import _project
+    lo = osm.parse(_xml())
+    assert {m["name"]: m["use"] for m in lo["marks"]} == {"테스트": "station", "테스트공원": ""}  # 건물 밖의 이름 붙은 곳
+    lo.update(bldgs.describe(lo, "f", "korea_modern"))
+    p = _project()
+    for i, name in enumerate(["테스트역", "테스트 타워", "카페하나", "테스트공원", "없는 곳", "편의점 둘"]):
+        p.elements.append(StoryElement(id=f"t-{i}", kind="장소", name=name))
+    atlas.set_pins(p, [MapPin(place="t-5", x=0.1, y=0.1)])
+    got = {x["name"]: x for x in atlas.find_spots(p, lo)}
+    assert "없는 곳" not in got and "달빛 주막" not in got  # 맞는 곳이 없으면 빼기
+    st = got["테스트역"]["options"][0]
+    assert st["kind"] == "mark" and st["i"] == -1 and _m(lo, (st["x"], st["y"])) == pytest.approx((150, 60), abs=0.5)
+    assert st["near"] == "테스트대로 옆" and st["what"] == "테스트 (역)"  # 건물 밖 표지는 가까운 길 이름으로 가린다
+    tower = got["테스트 타워"]["options"][0]  # 띄어쓰기는 무시한다
+    assert tower["kind"] == "building" and tower["near"] == "테스트대로 10" and lo["blds"][tower["i"]]["name"] == "테스트타워"
+    assert _m(lo, (tower["x"], tower["y"])) == pytest.approx((245, 145), abs=0.5)
+    cafe = got["카페하나"]["options"]
+    assert [o["kind"] for o in cafe] == ["tenant"] and cafe[0]["i"] == tower["i"] and "테스트타워" in cafe[0]["what"]
+    assert got["테스트공원"]["options"][0]["kind"] == "mark"
+    assert got["편의점 둘"]["had"] and not got["테스트역"]["had"]
+    p.atlas.buildings = [atlas.BuildingNote(i=tower["i"], name="카페 하나")]  # 작가가 붙인 건물 이름이 입점보다 앞
+    assert [o["kind"] for o in {x["name"]: x for x in atlas.find_spots(p, lo)}["카페하나"]["options"]] == ["building"]
+
+
+def test_spot_lines_in_prompt():
+    from canon import pipeline, prompts
+    from canon.schema import MapPin, StoryElement
+
+    from .test_mapgen import _project
+    lo = osm.parse(_xml())
+    lo.update(bldgs.describe(lo, "f", "korea_modern"))
+    p = _project()
+    p.elements += [StoryElement(id="t-1", kind="장소", name="테스트타워"), StoryElement(id="t-2", kind="장소", name="테스트역"),
+                   StoryElement(id="t-3", kind="장소", name="빈터")]
+    xy = lambda x, y: (x / lo["w"], y / lo["h"])  # noqa: E731
+    atlas.set_pins(p, [MapPin(place="t-1", x=xy(245, 145)[0], y=xy(245, 145)[1]),
+                       MapPin(place="t-2", x=xy(155, 62)[0], y=xy(155, 62)[1]), MapPin(place="t-3", x=0.99, y=0.01)])
+    atlas.fill_spots(p, lo)
+    spot = {pin.place: pin.spot for pin in p.atlas.pins}
+    assert spot["t-1"].startswith("테스트타워 (") and "· 12층 · 테스트대로 10 · 입점: 카페 하나, 편의점 둘" in spot["t-1"]
+    assert spot["t-2"] == "테스트 (역) · 테스트대로 옆" and spot["t-3"] == ""  # 건물 밖은 가까운 표지, 없으면 빈 글
+    pipeline.confirm_plot(p, 4)
+    p.episode(4).plot.summary = "윤서가 테스트타워 앞에서 테스트역으로 걷는다"
+    block = atlas.episode_block(p, 4)
+    assert block.splitlines()[0] == f"- 테스트타워: {spot['t-1']}" and "- 테스트역: 테스트 (역)" in block and "빈터" not in block
+    ctx = prompts.build_episode_context(p, 4)
+    assert "# 장소가 놓인 건물 (지도 기준)" in ctx and ctx.index("# 장소가 놓인 건물") > ctx.index("# 작품 속 시간")  # 화마다 바뀌는 블록 쪽
+    assert "# 장소가 놓인 건물 (지도 기준)" in prompts.check_prompt(p, 4)
+    assert "(장소 1곳 생략)" in atlas.episode_block(p, 4, budget=10)  # 예산이 작아도 한 줄은 넣고 뺀 수를 적는다
+    atlas.fill_spots(p, None)
+    assert atlas.episode_block(p, 4) == "" and "# 장소가 놓인 건물" not in prompts.build_episode_context(p, 4)
