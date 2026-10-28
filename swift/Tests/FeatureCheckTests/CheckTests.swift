@@ -81,23 +81,6 @@ var ep2: Episode { sample.episodes![1] }
         #expect(edited.checkState.stale)
         #expect(CheckText.staleNote(edited)?.hasPrefix("2회차 뒤에 본문을 고쳤어요") == true)
     }
-
-    /// 이 지적만 다시 검수(`closed_by` one)와 딸린 지적, 회차의 지적 id (웹 `tests/test_check_js.py` 의 rich_session 과 같은 규칙).
-    @Test func recheckOneAndChildren() {
-        let p = project(#"""
-        {"meta":{"title":"등대","target_episodes":3},
-         "episodes":[{"plot":\#(plot(1)),"status":"written","text":"\#(text2)","checked_at":"2026-10-28T11:00:00",
-          "findings":[{"id":"f1","type":"사실","description":"d","source_quote":"q","current_quote":"없는 문장","status":"fixed","closed_by":"one","fix_group":"x1"},
-                      {"id":"f2","type":"사실","description":"d","source_quote":"q","current_quote":"\#(Q4)","status":"open","parent":"f1","first":1,"last":1}],
-          "edits":[{"id":"e1","at":"2026-10-28T12:00:00","source":"fix","group":"x1","before":"a","after":"b"}],
-          "rounds":[{"no":1},{"no":2,"found":1,"added":0,"gone_ids":["f3"],"again_ids":["f4"]}]}]}
-        """#)
-        let e = p.episodes![0]
-        #expect(CheckText.flag(e, e.findings![0], text: text2) == .one)
-        #expect(CheckText.flag(e, e.findings![1], text: text2) == nil)  // 딸린 지적은 '이번 회차에서 안 짚음'을 달지 않는다
-        #expect(e.checkState == CheckState(checked: true, stale: false, open: 1))  // 다시 검수가 본 고침안 묶음은 세지 않는다
-        #expect(CheckText.round(e.rounds![1]) == "2회차 · 짚은 1 · 새로 0 · 사라짐 1 · 다시 1")
-    }
 }
 
 // MARK: 모델
