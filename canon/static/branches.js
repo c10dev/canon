@@ -49,7 +49,7 @@ function branchStrip(page) {
 /** 사이드바 작품 카드의 갈래 줄. 갈래는 본편과 제목이 같아 이 줄로 가른다. */
 function branchSideTag() {
   const me = branchMe(branchFam());
-  return me && me.info.parent ? `<div class="small">갈래 · ${esc(me.info.label || S.name)} (${me.info.from_ep}화부터)</div>` : '';
+  return me && me.info.parent ? `<div class="work-branch"><span class="tf" aria-hidden="true">🌿</span>갈래 · ${esc(me.info.label || S.name)} (${me.info.from_ep}화부터)</div>` : '';
 }
 
 /** 갈래 만들기 칸. S.branchForm 이 있으면 그린다 (상태 승인 화면 · 작품 홈 버튼이 연다). */

@@ -1861,10 +1861,42 @@ function navMark(mark) {
   return /\p{Extended_Pictographic}/u.test(mark) ? `<span class="num tf" aria-hidden="true">${mark}</span>` : `<span class="num" aria-hidden="true">${mark}</span>`;
 }
 
-function sidebar(active) {
+/** 화 칸 띠에 그릴 수 있는 가장 많은 화. 넘으면 칸이 너무 얇아 막대로 그린다 */
+const WORK_STRIP_MAX = 40;
+
+/** 사이드바 작품 칸: 제목(작품 홈) · 작품 목록, 장르, 갈래, 장편은 지금 부 · 아크, 화마다 한 칸인 띠(장편은 지금 아크만),
+    반영한 화 수, 다음 할 일(home.js nextStep). 900px 이하와 대화 패널을 연 때는 app.css 가 위쪽 띠 한 줄로 줄인다. */
+function workCard() {
   const p = P();
   const done = p.episodes.filter((e) => e.status === 'finalized').length;
   const total = p.meta.target_episodes;
+  const cur = currentEp();
+  const part = serial() ? p.parts.find((x) => x.start_ep <= cur && cur <= x.end_ep) : null;
+  const arc = serial() ? arcOf(cur) : null;
+  const [lo, hi] = arc ? [arc.start_ep, arc.end_ep] : [1, total];
+  const n = hi - lo + 1;
+  const cell = (k) => {
+    const e = ep(k);
+    return `<i class="${e ? e.status : 'none'}${k === cur ? ' cur' : ''}" title="${k}화 · ${e ? STATUS[e.status] : '플롯 없음'}"></i>`;
+  };
+  const cells = n > 0 && n <= WORK_STRIP_MAX && (!!arc || !serial());
+  const strip = cells
+    ? `<div class="work-strip" style="--n:${n}" aria-hidden="true">${Array.from({ length: n }, (_, i) => cell(lo + i)).join('')}</div>`
+    : `<div class="meter" aria-hidden="true"><i style="left:0;width:${Math.round((done / Math.max(total, 1)) * 100)}%;background:var(--green)"></i></div>`;
+  const where = [part && `<b>${part.number}부</b> ${esc(part.title)}`, arc && `<b>아크 ${arc.number}</b> ${esc(arc.title)}`].filter(Boolean).join(' · ');
+  const [nextLabel, nextHref] = nextStep();
+  return `<div class="work-card">
+      <div class="work-head"><a class="work-title" href="${base()}">${esc(p.meta.title || S.name)}</a><a class="work-switch" href="#/" title="작품 목록" aria-label="다른 작품 고르기 (작품 목록)">⌄</a></div>
+      <div class="small work-meta">${esc(p.meta.genre || '장르 미정')} · ${serial() ? '장편' : '단편'} ${total}화</div>${branchSideTag()}
+      ${where ? `<div class="work-where">${where}</div>` : ''}
+      ${strip}
+      <div class="small work-count" aria-hidden="true">${done}/${total}화</div>
+      <div class="small work-scale"><span aria-hidden="true">${cells ? `${lo}화` : ''}</span><span>${done} / ${total}화 반영</span><span aria-hidden="true">${cells ? `${hi}화` : ''}</span></div>
+      <a class="work-next" href="${nextHref}"><span class="sr-only">다음 할 일: </span>${esc(nextLabel)}<span aria-hidden="true">→</span></a>
+    </div>`;
+}
+
+function sidebar(active) {
   const { steps, auto, tools, apart, foot } = navItems();
   const link = ([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}>${navMark(num)}${label}</a>`;
   const shown = tools.filter((t) => t[4]);
@@ -1875,13 +1907,7 @@ function sidebar(active) {
     <a class="brand" href="#/">Canon<span class="brand-dot" aria-hidden="true">.</span></a>
     <button type="button" class="btn small menu-toggle pal-open" data-action="openPalette" aria-haspopup="dialog">찾기</button>
     <button type="button" class="btn small menu-toggle" data-action="toggleMenu" aria-expanded="${!!S.menuOpen}" aria-controls="side-menu">메뉴</button>
-    <div class="work-card">
-      <div class="small">현재 작품</div>
-      <div class="work-title">${esc(p.meta.title || S.name)}</div>${branchSideTag()}
-      <div class="small">${esc(p.meta.genre || '장르 미정')} · ${total}화</div>
-      <div class="meter" aria-hidden="true"><i style="left:0;width:${Math.round((done / Math.max(total, 1)) * 100)}%;background:var(--green)"></i></div>
-      <div class="small">${done} / ${total}화 반영 완료</div>
-    </div>
+    ${workCard()}
     <div class="side-menu" id="side-menu">
     <div class="nav">${steps.map(([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}>${navMark(num)}${label}${/\d/.test(num) ? `<span class="sr-only"> (단계 ${num})</span>` : ''}</a>`).join('')}</div>
     <div class="nav nav-auto">${link(auto)}</div>
