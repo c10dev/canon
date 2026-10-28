@@ -71,6 +71,11 @@ CIVIC = [("government", (1, 1, 2), "strip"), ("police", (1, 1, 1), "strip"), ("p
          ("department", (0, 0, 1), "big"), ("fuel", (1, 1, 2), "strip"), ("church", (2, 4, 7), "villa"),
          ("kinder", (2, 3, 5), "villa"), ("gym", (0, 1, 1), "strip")]
 CATEGORY_IDS = [c[0] for c in CATEGORIES]
+# 이야기 장소 종류(towngen.CATEGORIES id)가 이 동네에서 놓이는 자리 (_place_spots). AI 설정 제안 프롬프트가 쓴다
+PLACE_KINDS = {"center": "역 앞 광장", "market": "마트 · 상가", "well": "역 앞 광장 옆", "temple": "교회",
+               "inn": "호텔 · 모텔 · 역 앞 상가", "smith": "동네 끝 대로변 가게 · 공장", "mill": "동네 끝 대로변 가게 · 공장",
+               "manor": "가장 큰 단독주택", "home": "빌라 · 아파트 · 단독주택", "shore": "하천 둔치", "bridge": "하천 다리",
+               "river": "하천 둔치", "pond": "공원 연못", "forest": "공원", "field": "없음 (밭이 없다)", "far": "동네 밖 (대로 끝)"}
 NEED = {"shore": "물가가 없는 동네예요. 물을 하천으로 바꿔 보세요",
         "bridge": "다리가 없어요. 물을 하천으로 바꿔 보세요",
         "river": "하천이 없어요. 물을 하천으로 바꿔 보세요",
