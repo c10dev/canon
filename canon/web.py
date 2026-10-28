@@ -28,7 +28,7 @@ from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatS
 from . import abilities, atlas, findings, foreshadows, setupchat, stattrial, statwin, timeline, travel
 from .schema import AgentSession, ChatScope, Deadline, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .metrics import StyleMetrics
-from .schema import CharacterState, ConsistencyReport, FindingStatus, StoryEvent
+from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
 from .schema import NameOption, Recap
 from . import branches
 from .schema import BranchDiff, BranchInfo, ForkMode
@@ -2419,15 +2419,62 @@ def import_check(name: str, n: int, body: Raw) -> Project:
 
 
 class FindingIn(BaseModel):
-    status: FindingStatus
+    status: FindingStatus | None = Field(None, description="처리 상태. 비우면(null) 그대로 둔다")
     note: str | None = Field(None, description="작가 메모. 비우면(null) 그대로 둔다")
+    severity: Severity | None = Field(None, description="심각도. 비우면(null) 그대로 둔다. 작가가 정하면 다시 검수해도 덮지 않는다")
 
 
 @app.put("/api/projects/{name}/episodes/{n}/findings/{fid}")
 def set_finding(name: str, n: int, fid: str, body: FindingIn) -> Project:
-    """검수 지적의 처리 상태(열림 · 고침 · 그대로 둠 · 잘못 짚음)와 메모를 정한다."""
+    """검수 지적의 처리 상태(열림 · 고침 · 그대로 둠 · 잘못 짚음), 메모, 심각도를 정한다."""
     _load(name)
-    return _edit(name, lambda q: findings.set_status(q.episode(n), fid, body.status, body.note, pipeline._now()))
+
+    def fn(q: Project) -> None:
+        ep, now = q.episode(n), pipeline._now()
+        f = findings.find(ep, fid)
+        if body.severity is not None:
+            findings.set_severity(ep, fid, body.severity, now)
+        if body.status is not None or body.note is not None:
+            findings.set_status(ep, fid, body.status or f.status, body.note, now)
+    return _edit(name, fn)
+
+
+@app.post("/api/projects/{name}/episodes/{n}/findings/{fid}/fixes")
+def finding_fixes(name: str, n: int, fid: str) -> Project:
+    """열린 지적 하나의 AI 고침안(2~3개, 딸린 곳 포함)을 받아 그 지적에 남긴다. 본문은 바꾸지 않는다."""
+    p = _load(name)
+    opts = pipeline.propose_fixes(get_llm("revise"), p, n, fid)
+    return _edit(name, lambda q: pipeline.store_fixes(q, n, fid, opts))
+
+
+class FixApplyIn(BaseModel):
+    skip: list[int] = Field(default_factory=list, description="넣지 않을 딸린 곳 번호 (0부터)")
+    confirm: bool = Field(False, description="그대로 둠 · 잘못 짚음 지적의 문장도 바꾸는 줄 알고 적용한다")
+
+
+@app.post("/api/projects/{name}/episodes/{n}/findings/{fid}/fixes/{k}/apply")
+def apply_finding_fix(name: str, n: int, fid: str, k: int, body: FixApplyIn) -> Project:
+    """k 번째 고침안을 본문에 넣는다. 지적한 문장과 딸린 곳을 한 묶음으로 기록한다 (되돌리기도 묶음으로)."""
+    _load(name).episode(n)
+    _text_guard(name, n)
+    return _edit(name, lambda q: pipeline.apply_fix(q, n, fid, k, body.skip, body.confirm))
+
+
+@app.post("/api/projects/{name}/episodes/{n}/fix-groups/{group}/undo")
+def undo_finding_fix(name: str, n: int, group: str) -> Project:
+    """고침안 묶음을 한 번에 되돌린다. 그 뒤에 같은 자리를 또 고친 곳은 남긴다."""
+    _load(name).episode(n)
+    _text_guard(name, n)
+    return _edit(name, lambda q: pipeline.undo_fix(q, n, group))
+
+
+@app.post("/api/projects/{name}/episodes/{n}/findings/{fid}/recheck")
+def recheck_finding(name: str, n: int, fid: str) -> Project:
+    """열린 지적 하나만 다시 검수한다. 회차는 늘지 않는다. 풀렸으면 고침으로 닫고, 고친 문장 때문에 새로 어긋난 곳은 딸린 지적으로 더한다."""
+    _not_auto(name)
+    p = _load(name)
+    res = pipeline.recheck_finding(get_llm("check"), p, n, fid)
+    return _edit(name, lambda q: pipeline.apply_recheck(q, n, fid, res))
 
 
 class StyleDrift(_Out):

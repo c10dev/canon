@@ -2169,8 +2169,77 @@ CHECK_MODES = {"full": "앞선 본문 한도까지 원문 + 자료 전부 (단�
                "budget": "직전 화 원문 + 옛 화에서 찾은 관련 단락 + 이번 화 인물 자료 (장편 기본)"}
 
 
+SEVERITY_RULE = ("- severity: crit 은 독자가 바로 알아챌 모순이거나 뒤 화 전개를 흔드는 것(죽은 인물이 나옴, 다친 곳을 그냥 씀), "
+                 "mid 는 눈여겨 읽으면 보이는 어긋남, low 는 이야기에 영향이 거의 없는 사소한 세부(물건 색, 시각 몇 분 차이)입니다.")
+
+
 def check_prompt(p: Project, n: int, mode: str = "") -> str:
     """검수 프롬프트. mode 를 비우면 장편은 budget, 단편은 full. 연구 화면 검수 시험이 두 방식을 견준다."""
+    return f"""{check_material(p, n, mode)}
+
+{n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
+- 확인할 것: 확정 사실, 이야기 요소와 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
+- 동선: 한 장면 안에서 인물의 위치, 몸이 향한 쪽(앞 · 뒤, 등 · 배), 자세, 손에 든 것, 가려진 곳이 바꾸는 행동 없이 달라지는지 봅니다. 예: 등을 돌리고 망토로 몸을 가렸는데 다음 문장에서 그 인물의 표정이나 가슴께가 보임. 이때 source_episode 는 {n}, source_quote 는 같은 화의 앞 문장입니다.
+- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{timeline.check_rule(p, n)}{travel.check_rule(p, n)}{attire_check_rule(p)}{statwin.check_rule(p)}
+- source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 설정이나 인물 상태면 source_episode 는 0 입니다.
+{SEVERITY_RULE}
+- 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
+- episode 는 {n} 입니다."""
+
+
+def _finding_text(n: int, f: ConsistencyIssue) -> str:
+    src = "설정 · 확정 사실" if not f.source_episode else ("이번 화 앞 문장" if f.source_episode == n else f"{f.source_episode}화")
+    return (f"- 갈래: {f.type}\n- 무엇이 어긋났나: {f.description}\n- 이번 화 문장: {f.current_quote}\n"
+            f"- 근거 ({src}): {f.source_quote}" + (f"\n- 검수가 낸 고칠 방향: {f.suggestion}" if f.suggestion else ""))
+
+
+def _decided_text(decided: list[ConsistencyIssue]) -> str:
+    return "\n".join(f"- {f.current_quote}" for f in decided if f.current_quote.strip()) or "없음"
+
+
+def fix_prompt(p: Project, n: int, f: ConsistencyIssue, decided: list[ConsistencyIssue]) -> str:
+    """검수 지적 하나의 고침안. 앞은 검수와 같은 자료(캐시), 뒤에 지적과 요청. decided: 작가가 그대로 두기로 한 지적."""
+    return f"""{check_material(p, n)}
+
+# 고칠 지적
+{_finding_text(n, f)}
+
+# 작가가 일부러 그대로 둔 문장 (바꾸지 않음)
+{_decided_text(decided)}
+
+이 지적을 풀 고침안을 2~3개 서로 다른 방향으로 내세요.
+- text 에는 '이번 화 문장' 자리에 들어갈 글만 씁니다. 앞뒤 본문은 되풀이하지 않습니다. 문체와 길이는 원래 문장과 비슷하게 둡니다.
+- 이 고침 때문에 {n}화 안의 다른 문장도 함께 바꿔야 어긋나지 않으면 extra 에 넣습니다. quote 는 {n}화 본문 원문 그대로, replacement 는 최소로 고친 문장, reason 은 왜 함께 바꾸는지 한 문장입니다. 바꿀 곳이 없으면 extra 는 빈 목록입니다.
+- '이번 화 문장'은 extra 에 다시 넣지 않습니다. 작가가 그대로 둔 문장은 바꾸지 않습니다. 다른 화와 설정은 바꿀 수 없습니다.
+- label 은 고침안 이름 2~8자, note 는 무엇을 바꿨는지 한 줄입니다. reply 는 안들이 어떻게 다른지 한두 문장입니다."""
+
+
+def recheck_prompt(p: Project, n: int, f: ConsistencyIssue, changes: list[tuple[str, str]],
+                   decided: list[ConsistencyIssue]) -> str:
+    """검수 지적 하나만 다시 묻는다. 앞은 검수와 같은 자료(캐시), 뒤에 지적과 작가가 고친 곳.
+    changes: (고치기 전, 고친 뒤) 쌍. decided: 작가가 그대로 두기로 한 지적."""
+    fixed = "\n".join(f"- 「{a}」 → 「{b}」" for a, b in changes) or "없음 (작가가 직접 고쳤거나 고친 곳을 모름)"
+    return f"""{check_material(p, n)}
+
+# 다시 볼 지적 (지난 검수가 짚은 것)
+{_finding_text(n, f)}
+
+# 작가가 이 지적 때문에 고친 곳
+{fixed}
+
+# 작가가 일부러 그대로 둔 문장 (다시 짚지 않음)
+{_decided_text(decided)}
+
+이 지적 하나만 다시 보세요. 다른 어긋남을 새로 찾지 않습니다.
+- resolved: 지금 {n}화 본문에서 이 지적의 어긋남이 풀렸으면 true 입니다. 이번 화 문장이 바뀌었으면 바뀐 문장을 찾아 봅니다.
+- reason: 그렇게 본 까닭을 한두 문장으로 씁니다. 풀리지 않았으면 무엇이 아직 어긋나는지 씁니다.
+- new_issues: 작가가 고친 문장 때문에 새로 어긋난 곳만 넣습니다. 근거는 위 자료(앞선 본문, 설정, 확정 사실, {n}화의 다른 문장)에서 원문 그대로 인용합니다. 고친 곳과 상관없던 어긋남, 작가가 그대로 둔 문장은 넣지 않습니다. 없으면 빈 목록입니다.
+- new_issues 의 current_quote 는 지금 {n}화 본문 원문 그대로입니다.
+{SEVERITY_RULE}"""
+
+
+def check_material(p: Project, n: int, mode: str = "") -> str:
+    """검수 · 고침안 · 다시 검수가 함께 쓰는 자료: 작품 설정부터 검수할 본문까지. 요청은 뒤에 붙인다 (캐시)."""
     mode = mode or ("budget" if p.serial else "full")
     ep = p.episode(n)
     if mode == "budget":
@@ -2208,15 +2277,7 @@ def check_prompt(p: Project, n: int, mode: str = "") -> str:
 {dump(ep.plot)}{line}{pov}
 
 # {n}화 본문 (검수 대상)
-{ep.text}
-
-{n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
-- 확인할 것: 확정 사실, 이야기 요소와 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
-- 동선: 한 장면 안에서 인물의 위치, 몸이 향한 쪽(앞 · 뒤, 등 · 배), 자세, 손에 든 것, 가려진 곳이 바꾸는 행동 없이 달라지는지 봅니다. 예: 등을 돌리고 망토로 몸을 가렸는데 다음 문장에서 그 인물의 표정이나 가슴께가 보임. 이때 source_episode 는 {n}, source_quote 는 같은 화의 앞 문장입니다.
-- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{timeline.check_rule(p, n)}{travel.check_rule(p, n)}{attire_check_rule(p)}{statwin.check_rule(p)}
-- source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 설정이나 인물 상태면 source_episode 는 0 입니다.
-- 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
-- episode 는 {n} 입니다."""
+{ep.text}"""
 
 
 # ---------- 검수 시험: 모순을 심어 검수가 찾는지 본다 (연구 화면) ----------
