@@ -20,7 +20,7 @@ import math
 from pathlib import Path
 from typing import Optional
 
-from . import bldgs, cast, citygen, context, elements, geom, moderngen, naming, osm, placekinds, towngen, travel
+from . import bldgs, cast, citygen, elements, geom, moderngen, naming, osm, placekinds, towngen
 from .schema import BuildingNote, MapPin, MapSpec, NewPlace, PlaceLink, PlaceSort, Project
 
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
@@ -124,7 +124,8 @@ def unmatched(p: Project, fs: list[dict]) -> list[dict]:
 
 
 def summary(p: Project, layout: Optional[dict] = None) -> dict:
-    """지도 화면 한 번에 필요한 계산값. layout(read_layout 결과)을 주면 옮겨 간 인물에 길 따라 걸은 경로를 붙인다."""
+    """지도 화면 한 번에 필요한 계산값. layout(read_layout 결과)을 주면 옮겨 간 인물에 길 따라 걸은 경로를 붙인다.
+    이동 시간 검사 칸(travel.view)은 web.atlas_view 가 places · frames 로 붙인다 (atlas 는 travel 을 가져오지 않는다)."""
     pls = places(p)
     pins = {pin.place: [pin.x, pin.y] for pin in p.atlas.pins}
     for pl in pls:
@@ -137,8 +138,7 @@ def summary(p: Project, layout: Optional[dict] = None) -> dict:
     aspect = round(layout["w"] / layout["h"], 4) if layout else p.atlas.aspect  # 마을 데이터가 있으면 마을을 그린다
     return {"places": pls, "frames": fs, "unmatched": unmatched(p, fs), "image": p.atlas.image,
             "aspect": aspect, "links": [ln.model_dump() for ln in p.atlas.links],
-            "layout": layout_info(p, layout) if layout else None, "title": village_title(p, layout) if layout else None,
-            "travel": travel.view(p, fs, pls)}
+            "layout": layout_info(p, layout) if layout else None, "title": village_title(p, layout) if layout else None}
 
 
 # ---------- 마을 · 도시 데이터 (Watabou 생성기 JSON) ----------
@@ -706,29 +706,24 @@ def fill_spots(p: Project, layout: Optional[dict]) -> None:
         pin.spot = spot_line(p, layout, pin.x, pin.y) if layout else ""
 
 
-def episode_block(p: Project, n: int, budget: int = 0) -> str:
-    """n화를 쓰거나 검수할 때 넣는 장소의 건물: 플롯에 이름이 나온 장소 가운데 건물 한 줄(MapPin.spot)이 있는 것.
-    예산(context.BUDGET["spots"])을 넘으면 뒤에 나온 장소부터 빼고 뺀 수를 적는다. 넣을 줄이 없으면 빈 글."""
+def episode_spots(p: Project, n: int) -> list[tuple[str, str]]:
+    """n화를 쓰거나 검수할 때 넣는 장소의 건물 줄 데이터: 플롯에 이름이 나온 장소 가운데 건물 한 줄(MapPin.spot)이 있는 것의
+    (장소 이름, 한 줄), 플롯에 나온 차례. 글과 예산은 mapprompt.spot_block. 넣을 것이 없으면 빈 목록."""
     spots = {pin.place: pin.spot for pin in p.atlas.pins if pin.spot}
     ep = next((e for e in p.episodes if e.plot.number == n), None)
     if not spots or ep is None:
-        return ""
+        return []
     pls = places(p)
     names = {pl["key"]: pl["name"] for pl in pls}
     keys = [k for k in mentions("\n".join([ep.plot.title, ep.plot.summary, *ep.plot.events]), pls) if k in spots]
-    budget = budget or context.BUDGET["spots"]
-    keep, size, cut = [], 0, 0
-    for k in keys:
-        row = f"- {names[k]}: {spots[k]}"
-        if size + len(row) > budget and keep:
-            cut += 1
-            continue
-        keep.append(row)
-        size += len(row) + 1
-    if not keep:
-        return ""
-    return "\n".join([*keep, *([f"- (장소 {cut}곳 생략)"] if cut else []),
-                      "- 본문의 층수 · 가게 · 주소가 위와 맞게 씁니다. 다르게 쓸 까닭이 있으면 본문에서 밝힙니다."])
+    return [(names[k], spots[k]) for k in keys]
+
+
+def episode_block(p: Project, n: int, budget: int = 0) -> str:
+    """옛 이름 (시험이 부른다). 글은 mapprompt.spot_block 이 만든다. mapprompt 가 atlas 를 가져오므로 함수 안에서 가져온다."""
+    from . import mapprompt
+
+    return mapprompt.spot_block(p, n, budget)
 
 
 def _road_near(layout: dict, x: float, y: float, within: float = 60.0) -> str:

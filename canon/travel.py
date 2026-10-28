@@ -20,7 +20,7 @@ import math
 import re
 from typing import Optional
 
-from . import atlas, context, logline
+from . import atlas, logline
 from .schema import Episode, Project, StateDelta, StoryTime
 
 # id → (말, 보통 빠르기 km/시, 보통 하루 km, 서두른 하루 km). 어림값. 작가가 TravelSetting.kmh · day_km 로 바꾼다
@@ -274,26 +274,24 @@ def delta_warnings(p: Project, d: StateDelta) -> list[str]:
     return out
 
 
-# ---------- 프롬프트 (쓰기 · 검수) ----------
+# ---------- 프롬프트 줄 데이터 (글은 mapprompt.travel_block) ----------
 
-def episode_block(p: Project, n: int, budget: int = 0) -> str:
-    """n화를 쓰거나 검수할 때 넣는 이동 거리: 이번 화 인물의 지금 장소에서 플롯에 나온 장소까지 거리와 걸리는 시간.
-    꺼졌거나 축척을 모르거나 넣을 줄이 없으면 빈 문자열. 예산(context.BUDGET["travel"])을 넘으면 먼 것부터 뺀다."""
+def episode_moves(p: Project, n: int) -> list[dict]:
+    """n화를 쓰거나 검수할 때 넣는 이동 거리의 줄 데이터: 이번 화 인물의 지금 장소에서 플롯에 나온 장소까지 거리와 걸리는 시간.
+    항목: cid, who(인물 이름), src · dst(장소 이름), km, normal, fast. 가까운 것부터. 꺼졌거나 축척을 모르거나 줄이 없으면 빈 목록."""
     if not enabled(p) or scale(p) is None:
-        return ""
-    budget = budget or context.BUDGET["travel"]
+        return []
     ep = next((e for e in p.episodes if e.plot.number == n), None)
     if ep is None:
-        return ""
+        return []
     pls = atlas.places(p)
     pnames = {pl["key"]: pl["name"] for pl in pls}
     targets = atlas.mentions(_plot_text(ep), pls)
     if not targets:
-        return ""
+        return []
     last = _last_places(p, n, pls)
     cast_ids = ep.plot.characters or list(last)
     who = names(p)
-    label = speed(p)[0]
     rows = []
     for cid in cast_ids:
         here = last.get(cid)
@@ -304,28 +302,17 @@ def episode_block(p: Project, n: int, budget: int = 0) -> str:
             if dist is None:
                 continue
             normal, fast = need(p, dist)
-            rows.append((dist, f"- {who.get(cid, cid)}: {pnames.get(here[0], here[0])} → {pnames.get(to, to)} 약 {fmt_km(dist)}, "
-                               f"{label} 보통 {fmt_h(normal)} (서둘러도 {fmt_h(fast)})"))
-    if not rows:
-        return ""
-    rows.sort(key=lambda x: x[0])
-    keep, size, cut = [], 0, 0
-    for _, text in rows:
-        if size + len(text) > budget and keep:
-            cut += 1
-            continue
-        keep.append(text)
-        size += len(text) + 1
-    head = f"지도 기준 거리와 걸리는 시간 (길 굽음 포함 어림{f', 먼 것 {cut}개 생략' if cut else ''}):"
-    tail = "- 인물이 이보다 짧은 시간에 닿으면 본문에서 탈것이나 지난 시간을 밝힙니다."
-    return "\n".join([head, *keep, tail])
+            rows.append({"cid": cid, "who": who.get(cid, cid), "src": pnames.get(here[0], here[0]), "dst": pnames.get(to, to),
+                         "km": dist, "normal": normal, "fast": fast})
+    rows.sort(key=lambda x: x["km"])
+    return rows
 
 
-def check_rule(p: Project, n: int) -> str:
-    if not episode_block(p, n):
-        return ""
-    return ("\n- 이동: 위 '이동 거리'보다 짧은 작품 속 시간에 인물이 먼 장소에 닿았는데 본문에 그 까닭(빠른 탈것, 순간 이동 등)이 없는지 봅니다. "
-            "근거가 거리 줄이면 source_episode 는 0, source_quote 는 그 줄입니다.")
+def episode_block(p: Project, n: int, budget: int = 0) -> str:
+    """옛 이름 (시험이 부른다). 글은 mapprompt.travel_block 이 만든다. mapprompt 가 travel 을 가져오므로 함수 안에서 가져온다."""
+    from . import mapprompt
+
+    return mapprompt.travel_block(p, n, budget)
 
 
 def _plot_text(e: Episode) -> str:

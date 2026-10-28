@@ -2943,7 +2943,8 @@ def drop_held_setting(name: str, i: int) -> Project:
 def atlas_view(name: str) -> dict:
     """지도 화면: 장소와 자리, 화별 인물 자리, 장소와 맞지 않은 위치 글. 마을 데이터가 있으면 길 따라 걸은 경로도."""
     p = _load(name)
-    return {**atlas.summary(p, atlas.load_layout(_map_dir(name), p)), "gen": atlas.gen_info(p)}
+    s = atlas.summary(p, atlas.load_layout(_map_dir(name), p))
+    return {**s, "travel": travel.view(p, s["frames"], s["places"]), "gen": atlas.gen_info(p)}
 
 
 @app.post("/api/projects/{name}/atlas/generate/preview")
