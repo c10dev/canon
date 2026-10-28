@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
-from .schema import Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, ImpactReport, Project, Selection, StateDelta, StoryElement
+from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, ImpactReport, PlayInfo, Project, Selection, StateDelta, StoryElement
 from . import charlog, foreshadows, statwin, timeline, travel
 
 SYSTEM_PLANNER = (
@@ -137,6 +137,20 @@ def setup_prompt(p: Project) -> str:
 [이름·지명 후보]
 {naming.prompt_block(p)}"""
 
+
+def birth_prompt(p: Project, b: Birth) -> str:
+    """무작위 출생의 배경 채우기 (birth.sketch, BirthSketch). 코드가 굴린 값(b)은 바꾸지 않고 세계에 맞게 살을 붙인다.
+    틀만 둔 처음 판. 무작위 출생 작업이 고친다."""
+    return f"""아래 세계에 새로 태어난 인물의 배경을 채우세요. [굴린 값]은 바꾸지 않습니다.
+
+[작품 정보]
+{meta_text(p)}
+
+[세계관]
+{dump(p.world)}
+
+[굴린 값]
+{dump(b)}"""
 
 # ---------- 설정 도우미 대화 ----------
 # 앞쪽은 지금 설정(작품 · 세계관 · 인물 · 관계), 뒤쪽은 쓴 화 · 이름 후보(뽑을 때마다 바뀜) · 대화 · 새 말.
@@ -2992,3 +3006,46 @@ def map_suggest_prompt(p: Project, rows: list[dict], places: list[dict], kinds: 
 - 왕궁, 다른 도시, 먼 산처럼 이 지도 안에 둘 수 없는 곳은 kind 를 far, put 을 false 로 둡니다. 이 마을이나 도시 자체를 가리키는 이름은 center 입니다.
 - 정할 근거가 없으면 kind 는 home, put 은 true 로 둡니다.
 - reason 에는 왜 이 설정인지 한국어 한두 문장으로, 장소 설명이나 배경에서 근거를 들어 적습니다."""
+
+
+# ---------- 플레이 모드 (canon/play.py) ----------
+# 앞쪽은 세계와 인물(턴 사이에 덜 바뀜), 뒤쪽은 지난 장면 · 이번 행동 · 운. 아래는 틀만 둔 처음 판이다.
+# 턴용으로 줄인 컨텍스트(플레이어와 장면 인물만, 예산 context.BUDGET)는 플레이 프롬프트 작업이 고친다.
+
+SYSTEM_PLAY = (
+    "당신은 텍스트 게임의 진행자이자 소설가입니다. 플레이어가 한 행동을 받아 그 결과로 이어지는 장면 하나를 쓰고, "
+    "다음 행동 선택지를 냅니다. 세계관 규칙은 플레이어의 행동보다 앞섭니다. 규칙에 어긋나는 행동은 실패나 대가로 씁니다."
+)
+
+PLAY_PERSON = {"first": "1인칭 ('나')", "second": "2인칭 ('당신')", "third": "3인칭 (플레이어 인물의 이름)"}
+LUCK_WORDS = {-2: "아주 나쁨", -1: "나쁨", 0: "보통", 1: "좋음", 2: "아주 좋음"}
+
+
+def play_scene_prompt(p: Project, info: PlayInfo, n: int, action: str, luck: int) -> str:
+    """플레이 n 턴(Episode n) 장면 (PlayScene). action 은 플레이어의 행동, 첫 턴은 빈 값."""
+    prev = next((e for e in p.episodes if e.plot.number == n - 1 and e.text), None)
+    last = prev.text[-1500:] if prev else ""
+    return f"""{static_context(p)}
+
+[지금까지의 줄거리]
+{story_so_far(p, n) or "아직 없음"}
+
+[플레이어 인물]
+{info.player}
+
+[서술 시점]
+{PLAY_PERSON[info.person]}
+
+[직전 장면 마지막 부분]
+{last or "없음 (첫 장면)"}
+
+[이번 행동]
+{action or "(첫 장면: 플레이어 인물이 처음 등장한다)"}
+
+[이번 턴의 운]
+{LUCK_WORDS.get(luck, "보통")}"""
+
+
+def play_state_prompt(p: Project, n: int) -> str:
+    """플레이 n 턴의 상태 변경안 (StateDelta). 처음 판은 소설과 같은 state_prompt 를 쓴다."""
+    return state_prompt(p, n)

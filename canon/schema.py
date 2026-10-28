@@ -1590,6 +1590,78 @@ class BranchDiff(BaseModel):
     rows: list[BranchDiffRow] = Field(default_factory=list, description="양쪽 모두 반영한 화일 때만 채운다")
 
 
+# ---------- 플레이 모드 (canon/play.py, canon/birth.py) ----------
+# 플레이는 세계 작품을 복사한 작품 폴더다. 한 턴은 Episode 하나, 플레이 정보는 project.json 밖의 play.json.
+
+PlayPerson = Literal["first", "second", "third"]
+TurnKind = Literal["start", "choice", "free", "skip"]
+
+
+class PlayChoice(BaseModel):
+    """장면 끝에 붙는 다음 행동 선택지 하나."""
+    text: str = Field(description="플레이어 인물이 할 행동 한 줄 (예: 문을 열고 들어간다)")
+    skip: str = Field("", description="시간을 건너뛰는 선택지면 건너뛸 길이 (예: 사흘, 3년). 아니면 빈칸")
+
+
+class PlayScene(BaseModel):
+    """플레이 한 턴의 장면. AI 가 쓴다 (play 단계). 상태 변경안은 뒤에서 따로 만든다 (play.settle)."""
+    text: str = Field(description="이번 턴 장면 본문")
+    choices: list[PlayChoice] = Field(default_factory=list, description="다음 행동 선택지 3~4개. 하나는 시간을 건너뛰는 선택지여도 된다")
+    ending: str = Field("", description="플레이어 인물의 이야기가 이 장면에서 끝나면 그 까닭 한 줄 (죽음, 목표를 이룸, 떠남 등). 이어지면 빈칸")
+
+
+class Birth(BaseModel):
+    """무작위 출생: 코드가 시드로 굴린 값 (birth.roll). AI 는 BirthSketch 로 배경만 채운다."""
+    seed: int = 0
+    name: str = ""
+    gender: str = ""
+    age: str = ""
+    archetype: str = Field("", description="원형 도감 id (archetypes.CATALOG)")
+    wound: str = Field("", description="상처 id (archetypes.WOUNDS)")
+    speech: str = Field("", description="말투 틀 id (archetypes.SPEECH)")
+    twist: str = ""
+    place: str = Field("", description="태어난 곳 (world.locations 나 '장소' 요소의 이름)")
+
+
+class BirthSketch(BaseModel):
+    """무작위 출생의 배경. 코드가 굴린 값(Birth)에 맞춰 AI 가 세계에 맞게 채운다 (birth.sketch)."""
+    appearance: str = ""
+    personality: str = ""
+    background: str = Field("", description="집안, 자란 곳, 지금까지의 삶 3~5문장")
+    goal: str = ""
+    speech_style: str = ""
+    opening: str = Field("", description="첫 장면의 실마리 한두 문장: 플레이를 시작하는 순간 이 인물이 어디서 무엇을 하고 있는지")
+
+
+class PlayTurn(BaseModel):
+    """플레이 기록의 턴 하나. 본문은 같은 번호의 Episode 에 있다."""
+    number: int = Field(description="Episode 번호")
+    kind: TurnKind = "choice"
+    action: str = Field("", description="플레이어가 고르거나 적은 행동. 첫 턴은 비움")
+    luck: int = Field(0, description="코드가 굴린 운: -2 아주 나쁨 ~ 2 아주 좋음. 화면에는 숨기고 기록에만 둔다")
+    choices: list[PlayChoice] = Field(default_factory=list, description="이 턴 장면 끝에 보인 선택지")
+    state: Literal["pending", "applied", "failed"] = Field("pending", description="뒤에서 만드는 상태 변경안의 반영 여부")
+    error: str = Field("", description="상태 반영이 실패한 까닭")
+    at: str = ""
+
+
+class PlayInfo(BaseModel):
+    """플레이 정보. project.json 밖의 projects/<폴더>/play.json 에 둔다. 이 파일이 있으면 그 작품은 플레이 사본이다."""
+    world: str = Field(description="세계 작품 폴더 이름")
+    world_ep: int = Field(0, description="세계 작품에서 이어받은 마지막 반영 화. 턴은 world_ep+1 화부터")
+    player: str = Field(description="플레이어 인물 id")
+    origin: Literal["character", "random"] = Field("character", description="character 세계의 인물이 됨 / random 무작위 출생")
+    birth: Optional[Birth] = None
+    person: PlayPerson = Field("second", description="서술 시점: first 나 / second 당신 / third 이름")
+    seed: int = 0
+    max_turns: int = Field(0, description="턴 한도. 0 이면 없음")
+    chapter_len: int = Field(20, description="장 하나의 턴 수. 장이 끝나면 요약으로 접는다")
+    turns: list[PlayTurn] = Field(default_factory=list)
+    ending: str = Field("", description="끝난 까닭. 비면 진행 중")
+    ended_ep: int = 0
+    at: str = ""
+
+
 Snapshot.model_rebuild()
 SerialRebuild.model_rebuild()
 ShortArchive.model_rebuild()
