@@ -80,7 +80,7 @@ from . import (archetypes, autorun, branches, cast, charlog, dynamics, elements,
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
-from . import abilities, atlas, findings, stattrial, foreshadows, setupchat, statwin, timeline, placekinds, towngen, travel
+from . import abilities, atlas, findings, stattrial, foreshadows, setupchat, statwin, timeline, placekinds, travel
 from . import birth, play
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StoryArc
 
@@ -1639,6 +1639,15 @@ def cmd_cast(a: argparse.Namespace) -> None:
     print("\n인물 하나를 자세히 보려면: cast <작품> <인물 id나 이름>")
 
 
+def _map_options() -> dict[str, dict[str, str]]:
+    """모든 지도 종류(atlas.MAKERS)의 설정 칸: 칸 이름 → 그 칸을 처음 가진 생성기의 값 이름. 명령줄 --size 등."""
+    out: dict[str, dict[str, str]] = {}
+    for m in atlas.MAKERS.values():
+        for key, opts in m[1].OPTIONS.items():
+            out.setdefault(key, opts)
+    return out
+
+
 def _map_option(key: str, value: str | None, kind: str = "village") -> str | None:
     """--size 보통 처럼 화면 이름이나 id(medium)를 받아 id 로. kind: 지도 종류 (도시는 길 모양 칸이 없다)."""
     if not value:
@@ -1667,7 +1676,7 @@ def cmd_map(a: argparse.Namespace) -> None:
     sug = pipeline.suggest_map(get_llm("plan"), p, base.model_copy(update={"kind": a.kind}) if a.kind else base) if a.ai else None
     kind = a.kind or (sug["kind"] if sug else base.kind)
     opts = atlas.MAKERS[kind][1].OPTIONS
-    change = {k: v for k, v in ((k, _map_option(k, getattr(a, k), kind)) for k in towngen.OPTIONS) if v}
+    change = {k: v for k, v in ((k, _map_option(k, getattr(a, k), kind)) for k in _map_options()) if v}
     if sug:  # AI 제안을 채우고, 직접 적은 칸(--size 등)이 이긴다
         print(f"AI 제안: {sug['reason']}" if sug["reason"] else "AI 제안을 받았어요")
         for g in sug["places"]:
@@ -1676,7 +1685,7 @@ def cmd_map(a: argparse.Namespace) -> None:
         mine = {x.key: x for x in base.places}
         places = [*(MapPlace(key=g["key"], kind=g["kind"], put=g["put"]) for g in sug["places"]),
                   *(x for k, x in mine.items() if k not in {g["key"] for g in sug["places"]})]
-        change = {**{k: sug[k] for k in towngen.OPTIONS}, "places": places, **change}
+        change = {**{k: sug[k] for k in _map_options()}, "places": places, **change}
     if kind == "city" and change.get("water", base.water) == "lake":
         change["water"] = "river"  # 도시 생성기는 호수를 강으로 본다
     if kind == "modern" and change.get("water", base.water) in ("lake", "sea"):
@@ -2447,7 +2456,7 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("kind", nargs="?", choices=list(atlas.MAKERS),
                     help="만들 지도: village 마을, city 도시, modern 현대 동네. 비우면 지난번 지도 종류 (--ai 면 AI 제안)")
     sp.add_argument("--seed", type=int, help="같은 시드면 같은 지도. 비우면 새로 뽑는다")
-    for key, opts in towngen.OPTIONS.items():
+    for key, opts in _map_options().items():
         users = [m[0] for m in atlas.MAKERS.values() if key in m[1].OPTIONS]
         only = "" if len(users) == len(atlas.MAKERS) else f" ({' · '.join(users)}만)"
         sp.add_argument(f"--{key}", help=", ".join(label.split(" (")[0] for label in opts.values()) + only)

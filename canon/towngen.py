@@ -36,6 +36,7 @@ ROW_SHARE = 0.45  # 연립 줄 집의 몫 (목표 집 수에 대해)
 LANES = 7.0  # 집 한 채에 가지길 몇 m (마을 반지름 안)
 FIELD_SHARE = {"few": 0.35, "some": 0.65, "many": 0.9}
 FOREST_LEVEL = {"few": 0.32, "some": 0.18, "many": 0.04}  # 노이즈가 이 값을 넘는 곳이 숲
+ZONES: dict[str, str] = {}  # 구역 이름: 마을은 구역이 없다 (atlas.gen_info 가 생성기마다 같은 이름으로 읽는다)
 
 NEED_WATER = {"shore": "물가가 없는 마을이에요. 물을 강 · 호수 · 바다로 바꿔 보세요",
               "bridge": "다리가 없어요. 물을 강으로 바꿔 보세요",

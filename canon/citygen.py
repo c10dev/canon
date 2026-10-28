@@ -42,6 +42,7 @@ WARD_KINDS = {
     "plaza": "광장", "market": "시장", "temple": "신전", "noble": "귀족", "merchant": "상인", "craft": "장인",
     "harbor": "항구", "slum": "빈민", "park": "공원", "farm": "농지", "wood": "숲",
 }
+ZONES = WARD_KINDS  # 구역 이름: 생성기마다 같은 이름으로 낸다 (atlas.gen_info)
 # 블록 쪼개기: (집 한 채 넓이 m², 골목을 낼 확률, 빈 필지 확률, 자르는 각도 흔들기 rad)
 LOTS = {"merchant": (150, 0.35, 0.03, 0.12), "craft": (120, 0.4, 0.05, 0.16), "harbor": (280, 0.3, 0.05, 0.08),
         "slum": (70, 0.55, 0.1, 0.26), "noble": (560, 0.15, 0.0, 0.1)}

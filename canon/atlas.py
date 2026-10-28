@@ -800,7 +800,7 @@ def find_spots(p: Project, layout: dict) -> list[dict]:
 MODERN_STYLES = ("korea_modern", "japan", "sf")  # 건물 고치기 칸에 현대 쓰임을 보이는 이름 스타일
 MAKERS = {"village": ("마을", towngen, towngen.village), "city": ("도시", citygen, citygen.city),
           "modern": ("현대 동네", moderngen, moderngen.neighborhood)}
-# MapSpec.kind → (화면 이름, 생성기 모듈(OPTIONS · VERSION), 만드는 함수). 왕국은 다음 단계
+# MapSpec.kind → (화면 이름, 생성기 모듈(OPTIONS · VERSION · ZONES), 만드는 함수). 왕국은 다음 단계
 
 
 def _maker(kind: str):
@@ -840,7 +840,7 @@ def gen_info(p: Project) -> dict:
             "maps": [{"id": k, "label": m[0]} for k, m in MAKERS.items()],
             "options": {k: m[1].OPTIONS for k, m in MAKERS.items()},
             "kinds": [{"id": cid, "label": label} for cid, label, _ in placekinds.CATEGORIES],
-            "version": {k: m[1].VERSION for k, m in MAKERS.items()}, "wards": {**citygen.WARD_KINDS, **moderngen.ZONES},
+            "version": {k: m[1].VERSION for k, m in MAKERS.items()}, "wards": {k: v for m in MAKERS.values() for k, v in m[1].ZONES.items()},
             "uses": {u: [bldgs.label(u, style), grp] for u, (_, grp) in bldgs.USES.items()},
             "modern": list(bldgs.MODERN), "modern_style": style in MODERN_STYLES}
 
