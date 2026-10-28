@@ -1370,6 +1370,10 @@ def _chat_line(m: ChatMessage) -> str:
     return line
 
 
+ARC_ACTS_RETRY = ("\n\n---\n앞선 응답의 arc.acts 가 비어 있었습니다. "
+                  "arc.acts 에 기 · 승 · 전 · 결 네 구간을 모두 넣고, start_ep 부터 end_ep 까지 빈틈없이 나누세요.")
+
+
 def request_block(note: str) -> str:
     """구조 · 부 구성 · 플롯 초안을 만들 때 작가가 함께 보낸 요청. 프롬프트 맨 끝에 붙여 앞쪽 캐시를 지킨다."""
     note = (note or "").strip()

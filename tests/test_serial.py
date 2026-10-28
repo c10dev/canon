@@ -82,6 +82,44 @@ def test_arc_stretches_to_part_end_when_leftover_is_too_short():
     assert "100화까지" in prop.reply
 
 
+class _NoActs(MockLLM):
+    """처음 empty 번은 기승전결 구간을 뺀 아크를 낸다 (Gemini 가 필수가 아닌 acts 를 빼먹은 경우)."""
+
+    def __init__(self, empty: int):
+        super().__init__()
+        self.empty, self.prompts = empty, []
+
+    def json(self, system, prompt, schema, hint=None):
+        out = super().json(system, prompt, schema, hint)
+        self.prompts.append(prompt)
+        if len(self.prompts) <= self.empty:
+            out.arc.acts = []
+        return out
+
+
+def test_next_arc_retries_once_when_acts_empty():
+    p = _serial()
+    llm = _NoActs(empty=1)
+    prop = pipeline.plan_next_arc(llm, p)
+    assert len(llm.prompts) == 2 and [a.name for a in prop.arc.acts] == ["기", "승", "전", "결"]
+    assert llm.prompts[1] == llm.prompts[0] + prompts.ARC_ACTS_RETRY  # 앞 요청을 통째로 품어 캐시가 맞게
+
+
+def test_next_arc_gives_up_after_second_empty_acts():
+    p = _serial()
+    llm = _NoActs(empty=2)
+    with pytest.raises(ValueError, match="네 구간이 아니에요"):
+        pipeline.plan_next_arc(llm, p)
+    assert len(llm.prompts) == 2
+
+
+def test_next_arc_asks_once_when_acts_present():
+    p = _serial()
+    llm = _NoActs(empty=0)
+    pipeline.plan_next_arc(llm, p)
+    assert len(llm.prompts) == 1
+
+
 def test_remove_last_arc_only_when_draft():
     p = _serial()
     prop = pipeline.plan_next_arc(LLM, p)
