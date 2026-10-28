@@ -6966,7 +6966,7 @@
   "/api/projects/{name}/atlas/layout": {
    "put": {
     "summary": "Atlas Layout Set",
-    "description": "마을 · 도시 데이터를 올린다. 그릴 모양으로 바꿔(atlas.read_layout) map/ 에 둔다.\n마을 데이터가 있으면 지도는 배경 그림 대신 마을을 그리고 비율도 마을을 따른다.",
+    "description": "마을 · 도시 데이터를 올린다. 그릴 모양으로 바꿔(atlas.parse_upload: Watabou JSON 또는 OpenStreetMap) map/ 에 둔다.\n마을 데이터가 있으면 지도는 배경 그림 대신 마을을 그리고 비율도 마을을 따른다.",
     "operationId": "atlas_layout_set",
     "parameters": [
      {
