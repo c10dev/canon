@@ -138,19 +138,86 @@ def setup_prompt(p: Project) -> str:
 {naming.prompt_block(p)}"""
 
 
+BIRTH_CAST = 12      # 무작위 출생 프롬프트에 한 줄씩 넣는 세계 인물 수 (주역 먼저)
+BIRTH_PLACES = 30    # 장소 이름 수
+BIRTH_FACTIONS = 10  # 세력 요소 수
+
+
+def _birth_known(p: Project, kind: str) -> list:
+    """반영한 마지막 화까지 생겼고 독자에게 드러난 kind 요소."""
+    from . import birth
+
+    n = birth.last_finalized(p)
+    return [el for el in p.elements if el.kind == kind and el.name.strip() and el.since_ep <= n and el.reveal_ep <= n]
+
+
 def birth_prompt(p: Project, b: Birth) -> str:
     """무작위 출생의 배경 채우기 (birth.sketch, BirthSketch). 코드가 굴린 값(b)은 바꾸지 않고 세계에 맞게 살을 붙인다.
-    틀만 둔 처음 판. 무작위 출생 작업이 고친다."""
-    return f"""아래 세계에 새로 태어난 인물의 배경을 채우세요. [굴린 값]은 바꾸지 않습니다.
+    세계 블록이 앞, 굴린 값이 뒤. 원형 카드는 요약 · 성격 · 원하는 것만 넣는다 (시작 관계 예시는 관계를 지어내게 해서 뺀다)."""
+    from . import archetypes, birth, cast
+
+    places = birth.birth_places(p)
+    place_lines = [f"- {x['name']}" + (f": {_clip(x['description'], 120)}" if x["description"] else "") for x in places[:BIRTH_PLACES]]
+    if len(places) > BIRTH_PLACES:
+        place_lines.append(f"(장소 {len(places) - BIRTH_PLACES}곳은 뺐습니다)")
+    factions = _birth_known(p, "세력")
+    faction_lines = [f"- {el.name}" + (f": {_clip(el.description, 120)}" if el.description else "") for el in factions[:BIRTH_FACTIONS]]
+    if len(factions) > BIRTH_FACTIONS:
+        faction_lines.append(f"(세력 {len(factions) - BIRTH_FACTIONS}개는 뺐습니다)")
+    order = {"main": 0, "support": 1, "minor": 2}
+    people = sorted((c for c in p.characters if c.name.strip()), key=lambda c: order.get(c.tier, 3))
+    cast_lines = [f"- {c.name} ({', '.join(x for x in (c.role, c.age) if x)})" + (f": {_clip(c.goal, 80)}" if c.goal else "")
+                  for c in people[:BIRTH_CAST]]
+    if len(people) > BIRTH_CAST:
+        cast_lines.append(f"(인물 {len(people) - BIRTH_CAST}명은 뺐습니다)")
+
+    rolled = [f"- 이름: {b.name or '(정하지 않음: 이 세계의 이름 짓는 규칙에 맞게 짓습니다)'}",
+              f"- 성별: {b.gender or '(정하지 않음)'}", f"- 나이: {b.age or '(정하지 않음)'}",
+              f"- 태어나 자란 곳: {b.place or '(정하지 않음: 세계 안의 이름 없는 곳으로 두고 새 고유 지명을 만들지 않습니다)'}"]
+    a = archetypes.BY_ID.get(b.archetype)
+    if a:
+        rolled.append(f"- 원형: {a.name}. {a.summary}" + "".join(f" {label}: {v}" for label, v in (
+            ("성격", a.personality), ("원하는 것", a.goal)) if v))
+    w = archetypes.WOUND_BY_ID.get(b.wound)
+    if w:
+        rolled.append(f"- 상처: {archetypes.wound_text(w)} 회복 방향: {w.heal}")
+    sp = archetypes.SPEECH_BY_ID.get(b.speech)
+    if sp:
+        rolled.append(f"- 말투 틀: {archetypes.speech_text(sp)}")
+    if b.twist:
+        rolled.append(f"- 비틀기: {b.twist}")
+    minor = "\n- 이 인물은 미성년입니다. 외모와 배경에 성적인 묘사를 넣지 않습니다." if b.age and cast.is_minor_age(b.age) else ""
+
+    return f"""아래 세계에 새로 태어난 인물 한 명의 배경을 채우세요. 이 인물은 플레이어가 맡아 이 세계를 살아갈 주인공입니다.
 
 [작품 정보]
 {meta_text(p)}
 
 [세계관]
-{dump(p.world)}
+{dump(p.world.model_dump(exclude={"name_style"}))}
+
+[이 세계의 장소]
+{chr(10).join(place_lines) or "(정해진 장소 없음)"}
+
+[이 세계의 세력]
+{chr(10).join(faction_lines) or "(정해진 세력 없음)"}
+
+[이 세계에 이미 있는 인물]
+{chr(10).join(cast_lines) or "(없음)"}
 
 [굴린 값]
-{dump(b)}"""
+{chr(10).join(rolled)}
+
+요구사항:
+- [굴린 값]의 이름 · 성별 · 나이 · 태어나 자란 곳은 바꾸지 않습니다. 원형 · 상처 · 말투 틀 · 비틀기는 이 인물의 바탕으로 삼되, 원형 이름이나 도감 문장을 그대로 옮기지 말고 이 세계의 말로 풀어 씁니다.
+- 세계관 규칙과 시대를 지킵니다. 장소와 세력은 위 목록에 있는 것만 씁니다. 새 고유 지명이나 새 세력을 만들지 않습니다.
+- 이미 있는 인물과 가족 · 연인 · 스승 · 원수 같은 관계를 만들지 않습니다. 같은 곳에 산다면 소문으로 이름을 아는 정도까지만 씁니다.
+- appearance: 첫눈에 보이는 특징 두세 가지. personality: 원형과 상처가 드러나는 성격 한두 문장.
+- background: 집안, 자란 곳, 지금까지의 삶을 3~5문장으로. 상처가 된 일이 이 세계에서 어떻게 일어났는지 담습니다.
+- goal: 이 세계 안에서 지금 원하는 것 한 문장. 플레이를 시작할 이유가 되게 구체적으로 씁니다.
+- speech_style: 말투 틀을 따른 어미 · 호칭 규칙과 대사 예시 한 줄.
+- opening: 플레이를 시작하는 순간 이 인물이 어디서 무엇을 하고 있는지 한두 문장. 태어나 자란 곳이나 위 장소 중 하나에서 시작합니다.{minor}"""
+
 
 # ---------- 설정 도우미 대화 ----------
 # 앞쪽은 지금 설정(작품 · 세계관 · 인물 · 관계), 뒤쪽은 쓴 화 · 이름 후보(뽑을 때마다 바뀜) · 대화 · 새 말.
