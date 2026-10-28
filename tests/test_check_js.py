@@ -78,3 +78,92 @@ def test_view_check_renders():
     assert "2회차" in open_view and "열린 지적 1" in open_view and "이번 회차에서 안 짚음" in open_view
     assert 'data-action="setFinding" data-arg="f4:kept"' in open_view
     assert "다시 검수에서 사라짐" in all_view and "다시 나옴 · 결정 그대로" in all_view
+
+
+# ---------- 심각도 순서 · 딸린 지적 · 회차 비교 · 비슷한 문장 · 고치는 창 ----------
+
+def rich_session():
+    """1회차 f1~f3 → f2 를 작가가 치명으로, f1 고침안 묶음을 넣고 이 지적만 다시 검수로 풀림 + 딸린 지적 f4."""
+    from canon.schema import FindingRecheck, FixOption, FixPatch
+    e = episode(1, status="written", text=TEXT)
+    findings.merge(e, [issue(Q1), issue(Q2, "동선"), issue(Q3, "말투")], "2026-10-28T10:00:00", "b")
+    e.findings[2].severity = "low"
+    findings.set_severity(e, "f2", "crit", "t")
+    e.findings[0].fixes = [FixOption(label="왼손으로", text="도현은 왼손에 남은 흉터를 감췄다.",
+                                     extra=[FixPatch(quote=Q4, replacement="도현은 속으로 빌었다.", reason="맞춤")])]
+    new = "도현은 왼손에 남은 흉터를 감췄다."
+    e.text = e.text.replace(Q1, new)
+    e.edits.append(TextEdit(id="e1", at="2026-10-28T10:30:00", source="fix", group="x1", before=Q1, after=new))
+    e.findings[0].fix_group = "x1"
+    findings.settle(e, e.findings[0], FindingRecheck(resolved=True, reason="풀림", new_issues=[issue(new, "인물 정보")]), "2026-10-28T10:31:00")
+    return e
+
+
+@needs_node
+def test_order_rounds_near_and_fix_helpers():
+    e = rich_session()
+    e2 = episode(1, status="written", text=TEXT)
+    findings.merge(e2, [issue(Q1), issue(Q2, "동선")], "2026-10-28T10:00:00", "b")
+    e2.text = e2.text.replace(Q1, "도현은 오른손의 흉터를 엄지로 오래 문질렀다.")
+    findings.merge(e2, [issue(Q2, "동선"), issue(Q3, "말투")], "2026-10-28T11:00:00", "b")
+    got = run_js(["app.js", "home.js", "chat.js", "passage.js", "check.js"], """(() => {
+      const [e, e2] = data;
+      const near = nearQuote(e2.text, e2.findings[0].current_quote);
+      return {
+        order: findingOrder(e.findings).map((f) => f.id),
+        flag: findingFlag(e, e.findings[0], e.text),
+        round: roundChanges(e2, 2),
+        near: near && e2.text.slice(near.a, near.b),
+        none: nearQuote(e2.text, '전혀 다른 문장이 여기에 있다.'),
+        marks: findingMarks(e2, e2.text, 'f1').map((r) => r.kind),
+        missing: fixMissing(e.text, e.findings[0], e.findings[0].fixes[0], []),
+        skipped: fixMissing(e.text.replace(data[2], ''), e.findings[0], e.findings[0].fixes[0], [0]),
+        applied: fixApplied(e, e.findings[0]),
+        state: checkState(e),
+      };
+    })()""", [dump(e), dump(e2), Q4])
+    # 치명 f2 → 보통 f1 → 그 아래 딸린 f4 → 사소 f3
+    assert got["order"] == ["f2", "f1", "f4", "f3"]
+    assert got["flag"] == "one"
+    assert got["round"] == {"f3": "new", "f2": "again", "f1": "gone"}
+    assert got["near"] == "도현은 오른손의 흉터를 엄지로 오래 문질렀다." and got["none"] is None
+    assert got["marks"] == ["issue sel near", "issue", "issue"]
+    assert got["missing"] == [Q1] and got["skipped"] == [Q1]  # 지적 문장이 이미 바뀌었고, 뺀 딸린 곳은 보지 않는다
+    assert got["applied"] is True
+    # 이 지적만 다시 검수로 풀린 고침안 묶음은 '검수 뒤 고침'으로 세지 않는다
+    assert got["state"] == {"checked": True, "stale": False, "open": 3, "done": False}
+
+
+@needs_node
+def test_check_view_and_fix_panel_render():
+    from canon.schema import FixOption, FixPatch, Meta, Project
+    e = episode(1, status="written", text=TEXT)
+    findings.merge(e, [issue(Q1), issue(Q2, "동선")], "2026-10-28T10:00:00", "b")
+    findings.set_severity(e, "f1", "crit", "t")
+    e.findings[0].fixes = [FixOption(label="왼손으로", text="도현은 왼손에 남은 흉터를 감췄다.",
+                                     extra=[FixPatch(quote=Q4, replacement="도현은 속으로 빌었다.", reason="맞춤")])]
+    findings.new_version(e)  # 결정한 지적이 없으니 모두 지워지고 회차에 새 판 표시
+    findings.merge(e, [issue(Q1), issue(Q2, "동선")], "2026-10-28T11:00:00", "b")
+    findings.set_severity(e, "f1", "crit", "t")
+    e.findings[0].fixes = [FixOption(label="왼손으로", text="도현은 왼손에 남은 흉터를 감췄다.",
+                                     extra=[FixPatch(quote=Q4, replacement="도현은 속으로 빌었다.", reason="맞춤")])]
+    p = Project(meta=Meta(title="t", target_episodes=3), episodes=[e])
+    files = ["app.js", "home.js", "branches.js", "style.js", "plot.js", "write.js", "review.js", "chat.js", "passage.js", "rewrite.js",
+             "restate.js", "opening.js", "auto.js", "marks.js", "check.js"]
+    got = run_js(files, """(() => {
+      S.project = data; S.name = 't'; S.route = ['p', 't', 'check', '1'];
+      const view = viewCheck(1);
+      S.chkRound[1] = 2;
+      const round = viewCheck(1);
+      S.fixSkip['1:f1:0'] = [0];
+      return { view, round, panel: fixPanel(1, 'f1'), skipped: fixPanel(1, 'f1'), closed: (ep(1).findings[1].status = 'kept', fixPanel(1, 'f2')) };
+    })()""", dump(p))
+    v = got["view"]
+    assert "새 판" in v and 'data-action="chkRound" data-arg="2"' in v
+    assert v.index('data-arg="f1"') < v.index('data-arg="f2"') and '<span class="chip crit">치명</span>' in v
+    assert 'data-action="setSeverity" data-arg="f1:low"' in v and "처리 기록" in v
+    assert "2회차가 바꾼 지적" in got["round"] and "새로 나옴" in got["round"]
+    assert "2곳 적용" not in got["skipped"] and "적용" in got["skipped"]
+    assert "AI 고침안 1개" in got["panel"] and "이 화의 딸린 곳 1" in got["panel"]
+    assert "근거 쪽이 틀렸어요" in got["panel"] and 'data-action="setFinding" data-arg="f1:wrong"' in got["panel"]
+    assert "다시 열기" in got["closed"]

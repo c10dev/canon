@@ -260,7 +260,7 @@ document.addEventListener('click', (e) => {
     const n = Number(ta.dataset.draft);
     const r = allRanges(n, ta.value).find((x) => x.a <= p && p <= x.b);
     if (!r) return;
-    if (r.key.startsWith('i:')) return actions.selectIssue(r.key.slice(2));  // 검수 화면: 그 지적을 고르고 문장으로 도구를 띄운다
+    if (r.key.startsWith('i:')) return actions.chkOpen(r.key.slice(2));  // 검수 화면: 그 지적을 고르고 문장에서 고치는 창을 띄운다 (check.js)
     const s = sentenceAt(ta.value, r.a, r.b);
     S.selTool = { n, start: s.start, text: ta.value.slice(s.start, s.end), mode: 'menu', hint: markHint(r) };
     showTool();
