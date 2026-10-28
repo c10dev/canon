@@ -861,10 +861,11 @@ def plan_next_arc(llm: LLM, p: Project, length: int = 0, note: str = "") -> ArcP
     length = length or p.meta.arc_length
     part = p.part_for(start)
     limit = part.end_ep if part else p.meta.target_episodes
-    prop = llm.json(
-        prompts.SYSTEM_PLANNER, prompts.next_arc_prompt(p, start, length, note), ArcProposal,
-        hint={"start": start, "length": length, "limit": limit, "number": len(p.story_arcs) + 1},
-    )
+    ask = prompts.next_arc_prompt(p, start, length, note)
+    hint = {"start": start, "length": length, "limit": limit, "number": len(p.story_arcs) + 1}
+    prop = llm.json(prompts.SYSTEM_PLANNER, ask, ArcProposal, hint=hint)
+    if not prop.arc.acts:  # acts 는 필수 칸이 아니라 모델이 빼먹을 수 있다. 요청을 맨 뒤에 덧붙여 한 번 더 묻는다
+        prop = llm.json(prompts.SYSTEM_PLANNER, ask + prompts.ARC_ACTS_RETRY, ArcProposal, hint=hint)
     return clean_arc(p, prop)
 
 
