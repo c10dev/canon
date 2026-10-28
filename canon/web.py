@@ -1935,6 +1935,26 @@ def put_text(name: str, n: int, body: Text) -> Project:
     return _save(name, p)
 
 
+class EventsDone(BaseModel):
+    done: list[str]
+
+
+@app.put("/api/projects/{name}/episodes/{n}/events-done")
+def set_events_done(name: str, n: int, body: EventsDone) -> list[str]:
+    """집필 화면 플롯 띠의 쓴 사건 체크 (Episode.events_done). 이 화 사건 글에 있는 것만 남긴다.
+    플롯 초안 화와, AI 작업 · 자동 집필이 맡은 화는 막는다 (작업이 저장하는 작품과 서로 덮지 않게)."""
+    _not_auto(name)
+    if any(j.status == "running" and n in j.owned for j in jobs.listing(name)):
+        raise ValueError("AI 작업이 끝난 뒤에 체크할 수 있어요")
+    p = _load(name)
+    ep = p.episode(n)
+    if ep.status == "draft":
+        raise ValueError(f"{n}화 플롯을 먼저 확정하세요")
+    ep.events_done = [x for x in ep.plot.events if x in set(body.done)]
+    _save(name, p)
+    return ep.events_done
+
+
 # ---------- 4-1. 본문 부분 수정 ----------
 # 집필 화면에서 고른 부분을 직접 고치거나(아래), AI 후보로 바꾼다(대화 'text:<화>', 3-1). 모두 Episode.edits 에 남는다.
 

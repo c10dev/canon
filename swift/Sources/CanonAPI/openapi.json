@@ -3913,6 +3913,69 @@
     }
    }
   },
+  "/api/projects/{name}/episodes/{n}/events-done": {
+   "put": {
+    "summary": "Set Events Done",
+    "description": "집필 화면 플롯 띠의 쓴 사건 체크 (Episode.events_done). 이 화 사건 글에 있는 것만 남긴다.\n플롯 초안 화와, AI 작업 · 자동 집필이 맡은 화는 막는다 (작업이 저장하는 작품과 서로 덮지 않게).",
+    "operationId": "set_events_done",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/EventsDone"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "title": "Response Set Events Done"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/episodes/{n}/rewrite": {
    "get": {
     "summary": "Rewrite Info",
@@ -13399,6 +13462,14 @@
      "opening_prev": {
       "$ref": "#/components/schemas/EpisodePlot",
       "description": "1~3화 여는 방식 안을 처음 고르기 전 플롯 (되돌리기용). 되돌리면 비운다"
+     },
+     "events_done": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Events Done",
+      "description": "집필 화면 플롯 띠에서 작가가 다 썼다고 체크한 사건의 글. 사건 글을 고치면 그 체크는 풀린다. 프롬프트에 넣지 않는다"
      }
     },
     "type": "object",
@@ -13543,6 +13614,22 @@
      "ending_hook"
     ],
     "title": "EpisodePlot"
+   },
+   "EventsDone": {
+    "properties": {
+     "done": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Done"
+     }
+    },
+    "type": "object",
+    "required": [
+     "done"
+    ],
+    "title": "EventsDone"
    },
    "ExampleIn": {
     "properties": {

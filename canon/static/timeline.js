@@ -2,7 +2,7 @@
    화가 끝난 시점(Episode.time)과 앞으로 올 기한(Project.timeline.deadlines)을 보고 고친다. 서버는 canon/timeline.py.
    켜고 끄기 · 기준 · 화별 시점은 작품 저장(저장 띠)으로, 기한은 /timeline/deadlines 로 고친다(스냅샷도 함께).
    남은 날 · 지금 날수 계산(tlLeft, tlDay)은 timeline.left · current_day 와 같은 규칙이라 함께 고친다.
-   상태 승인 화면의 시점 칸과 기한 고르기(tlDeltaCard, 키 k · o), 반영 기록(tlHistory), 집필 화면 플롯 칸(tlAside)도 여기 있다. */
+   상태 승인 화면의 시점 칸과 기한 고르기(tlDeltaCard, 키 k · o), 반영 기록(tlHistory), 집필 화면 플롯 띠의 시간 줄(tlLines)도 여기 있다. */
 'use strict';
 
 Object.assign(S, {
@@ -341,7 +341,8 @@ function tlHistory(h) {
 // ----- 집필 화면 -----
 
 /** 이번 화 플롯 칸의 시간 줄: 직전 화 끝, 플롯의 시점, 이 화가 끝난 시점, 사흘 안 · 지난 기한. */
-function tlAside(n) {
+/** 집필 화면 플롯 띠의 '작품 속 시간' 값: 직전 화 끝 · 플롯 시점 · 이 화 끝 · 사흘 안 기한을 줄마다. 없으면 빈 글 */
+function tlLines(n) {
   if (!tlOn()) return '';
   const e = ep(n);
   const prev = tlPrev(n);
@@ -353,5 +354,5 @@ function tlAside(n) {
     tlKnown(e.time) ? `이 화 끝: ${esc(tlWhen(e.time))}` : '',
     ...near.map((d) => `${esc(d.what)} ${esc(tlLeft(d, day))}`),
   ].filter(Boolean);
-  return parts.length ? `<div class="field"><span class="small">작품 속 시간</span><div style="font-size:0.8125rem;line-height:1.6">${parts.join('<br>')}</div></div>` : '';
+  return parts.join('<br>');
 }

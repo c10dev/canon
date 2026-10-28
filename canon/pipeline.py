@@ -2370,6 +2370,7 @@ def _delete_last(p: Project, n: int, keep_plot: bool) -> list[str]:
     ep.edits, ep.hook, ep.illustrations = [], None, []
     findings.clear(ep)
     ep.candidate, ep.versions, ep.made_by, ep.time = None, [], None, StoryTime()
+    ep.events_done = []  # 본문이 없으니 쓴 사건 체크도 비운다
     p.foreshadow_clues = [c for c in p.foreshadow_clues if c.episode != n]  # 지운 본문 문장에 건 복선 근거
     p.chats = [c for c in p.chats if c.topic != f"text:{n}"]
     if chars:
