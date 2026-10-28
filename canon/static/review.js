@@ -352,6 +352,14 @@ function rvRailRefresh(n) {
   });
 }
 
+/** 두 칸 배치: 목차 칸이 아래에 쌓인 작업 목록 · 알림(--rvj) 위에서 끝나게 높이를 맞춘다. 화면을 내려 목차가 붙는 동안에도 다시 잰다 */
+function rvRailFit() {
+  const rail = document.querySelector('#app .rv-rail');
+  if (!rail) return;
+  const below = parseFloat(document.body.style.getPropertyValue('--rvj')) || 0;
+  rail.style.maxHeight = below ? `${Math.max(120, Math.floor(window.innerHeight - Math.max(16, rail.getBoundingClientRect().top) - 16 - below))}px` : '';
+}
+
 /** 목차에서 지금 보는 갈래를 표시한다 */
 function rvSpy(key) {
   S.rvSpy = key;
@@ -369,6 +377,7 @@ if (typeof window !== 'undefined' && window.addEventListener) {
     spyQueued = true;
     requestAnimationFrame(() => {
       spyQueued = false;
+      rvRailFit();
       const gs = [...document.querySelectorAll('#app .rv-group')];
       if (!gs.length) return;
       const past = gs.filter((g) => g.getBoundingClientRect().top <= 140);
