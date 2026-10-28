@@ -71,7 +71,10 @@ function loglineBuilder() {
   const parts = m.logline_parts;
   const exs = loglineExamples();
   const legacy = !Object.values(parts).some((v) => v.trim()) && m.logline.trim();
-  const slots = LOGLINE_SLOTS.map(([k, label, hint]) => `<div class="slot">${input(label, 'meta.logline_parts.' + k, { hint })}${slotExamples(k, label)}</div>`).join('');
+  const slots = LOGLINE_SLOTS.map(([k, label, hint]) => {
+    const path = 'meta.logline_parts.' + k;
+    return `<div class="slot">${input(label, path, { hint, beside: ideaBtn(path), after: ideaList(path) })}${slotExamples(k, label)}</div>`;
+  }).join('');
   return `<div class="logline-box"><span class="label-text">로그라인 <span class="hint">다섯 칸을 채우면 한 문장으로 합쳐요. 점선 예시를 누르면 빈 칸에 들어가요</span></span>
     ${legacy ? '<div class="note plain">지금 로그라인은 한 문장으로만 저장되어 있어요. 칸을 채우면 칸 내용으로 바뀌어요.</div>' : ''}
     ${slots}
@@ -232,10 +235,6 @@ function relRow(r, i) {
     ${input('설명', b + '.description', { rows: 2, hint: '두 사람 사이의 사정. 매 화 프롬프트에 들어가요', placeholder: '예: 겉으로는 깍듯하지만 서로 약점을 쥐고 있다' })}
     ${started ? `<div class="small">지금 호감 ${r.affinity} · 긴장 ${r.tension}. 첫 반영 뒤에는 본문의 관계 사건으로 바뀌어요.</div>` : `${view('a_view', r.a, r.b)}${view('b_view', r.b, r.a)}`}
     <div class="rel-line"><span class="label-text">원하는 게 부딪치나</span><div class="genre-opts" role="group" aria-label="목표 충돌">${chips(CONFLICTS, (w) => conflictWord(r.goal_conflict || 0) === w, 'setConflict')}</div></div>
-    ${started ? '' : `<details><summary>숫자로 직접 정하기</summary><div class="grid-2" style="padding-top:8px">
-      <div class="field"><label for="raf${i}">시작 호감 <output id="raf${i}o">${r.affinity}</output> <span class="hint">보는 방식을 고른 방향은 고른 말이 우선</span></label><input id="raf${i}" type="range" min="-5" max="5" value="${r.affinity}" data-bind="${b}.affinity" data-kind="int" data-out="raf${i}o"></div>
-      <div class="field"><label for="rg${i}">목표 충돌 <output id="rg${i}o">${r.goal_conflict || 0}</output></label><input id="rg${i}" type="range" min="0" max="1" step="0.1" value="${r.goal_conflict || 0}" data-bind="${b}.goal_conflict" data-kind="float" data-out="rg${i}o"></div>
-    </div></details>`}
     </div>
   </details>`;
 }
@@ -366,52 +365,13 @@ function placeKindOptions() {
   return ['<option value="">종류 무관</option>', ...((st && st.place_kinds) || []).map((k) => `<option value="${esc(k)}"${S.placeKind === k ? ' selected' : ''}>${esc(k)}</option>`)].join('');
 }
 
-/** 설정 도우미 인물 카드의 신체 프로필. 미성년 인물은 쓰리사이즈 칸을 두지 않는다 */
-function bodyFields(c, b) {
-  if (!c.body || typeof c.body !== 'object') c.body = {};  // 예전 화면에서 만든 인물도 칸을 고칠 수 있게
-  const minor = isMinorAge(c.age);
-  const filled = bodyRows(c).length;
-  const open = (S.bodySug || {})[c.id] || (S.bodyOpen || {})[c.id];  // 제안을 받거나 적용한 뒤 다시 그려도 펼친 채로
-  return `<details${open ? ' open' : ''}><summary>신체 프로필 <span class="small">${filled ? `· ${filled}칸 채움 ` : ''}· 인물 카드에만 보여요</span></summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
-    <div class="grid-2">${input('키', b + '.body.height', { placeholder: '예: 165cm' })}${input('몸무게', b + '.body.weight', { placeholder: '예: 48kg' })}</div>
-    <div class="grid-2">${input('체형', b + '.body.build', { placeholder: '예: 마른 근육형' })}${minor ? '' : input('쓰리사이즈', b + '.body.measurements', { placeholder: '예: 84-58-86' })}</div>
-    ${minor ? '<div class="small">나이로 보아 미성년 인물이라 쓰리사이즈 칸은 두지 않아요.</div>' : ''}
-    ${input('신체 특징', b + '.body.features', { rows: 2, placeholder: '예: 왼손잡이, 오른쪽 어깨에 화상 자국' })}
-    <div class="row"><button type="button" class="btn small" data-action="bodyAI" data-arg="${esc(c.id)}">AI 제안</button><span class="small">설정에 맞춰 칸을 제안해요. 고른 칸만 적용해요${minor ? ' · 쓰리사이즈는 제안하지 않아요' : ''}</span></div>
-    ${bodySuggestCard(c)}
-    <div class="small">AI 프롬프트에는 넣지 않아요. 본문에 이어지게 할 외모는 위 '외모' 칸에 적어요.</div></div></details>`;
-}
-
-/** 신체 프로필 AI 제안: 칸별로 지금 값과 비교해 고른다. 비어 있는 칸만 기본으로 고른다 */
-function bodySuggestCard(c) {
-  const s = (S.bodySug || {})[c.id];
-  if (!s) return '';
-  const minor = isMinorAge(c.age);
-  const rows = BODY_FIELDS.filter(([k]) => (s[k] || '').trim() && !(k === 'measurements' && minor)).map(([k, label]) => {
-    const now = ((c.body || {})[k] || '').trim();
-    const same = now === s[k].trim();
-    return `<label class="body-sug"><input type="checkbox" data-body-pick="${esc(c.id)}" value="${k}"${now || same ? '' : ' checked'}${same ? ' disabled' : ''}>
-      <span><strong>${label}</strong> ${now ? `<span class="before">${esc(now)}</span> → ` : ''}<span class="after">${esc(s[k])}</span>${same ? ' <span class="small">지금과 같아요</span>' : ''}</span></label>`;
-  }).join('');
-  return `<div class="note info" style="display:flex;flex-direction:column;gap:8px"><strong>AI 제안</strong>${s.note ? `<span>${esc(s.note)}</span>` : ''}
-    ${rows || '<span>제안한 칸이 없어요</span>'}
-    <div class="row"><button type="button" class="btn small primary" data-action="bodyApply" data-arg="${esc(c.id)}"${rows ? '' : ' disabled'}>고른 칸 적용</button><button type="button" class="btn small" data-action="bodyDismiss" data-arg="${esc(c.id)}">닫기</button></div></div>`;
-}
-
 /** 인물 카드의 비중 칸. 비중 안내는 인물 구역 머리에 한 번만 둔다 (플롯 서랍은 plot.js 의 tierSelect) */
 function setupTier(c, b, id) {
   return `<div class="field"><label for="${id}">비중${c.first_ep ? ` <span class="hint">${c.first_ep}화에 처음 나옴</span>` : ''}</label>
     <select id="${id}" data-bind="${b}.tier">${TIERS.map(([v, l]) => `<option value="${v}"${(c.tier || 'main') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div>`;
 }
 
-// 인물을 AI에 넣는 방식 (Character.context). 인과율 요소 화면(causal.js)의 'AI에 넣기'와 같은 고르기이고,
-// 인물은 '관련 있을 때' 대신 '등장할 때'다. 고르는 규칙은 서버 context.core_ids · off_ids
-const CHAR_CTX = [['auto', '등장할 때'], ['always', '항상'], ['off', '넣지 않음']];
-const CHAR_CTX_HINT = {
-  auto: '등장할 때: 주역은 매 화, 조연 · 단역은 플롯에 나오는 화에만 넣어요.',
-  always: '항상: 비중과 상관없이 매 화 설정을 넣어요. 장편에서 글자 예산을 넘기면 그 화 조연 · 단역 설정을 대신 빼요.',
-  off: '넣지 않음: 본문 쓰기, 검수, 상태 정리, 플롯 기획에 설정 · 상태 · 관계를 넣지 않아요. 플롯에 나오면 이름만 넣어요.',
-};
+// 인물 카드 접힌 줄의 AI에 넣기 표시. 고르는 칸은 인물 화면의 인물 카드에 있다 (cast.js charContextField)
 const EYE = '<path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z"/><circle cx="8" cy="8" r="2"/>';
 const eyeIcon = (off) => `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" style="vertical-align:-2px">${EYE}${off ? '<path d="M2 14L14 2"/>' : ''}</svg>`;
 
@@ -423,13 +383,6 @@ function charCtxMark(c) {
   return ` <span class="small" title="${label}" style="color:var(--${k === 'always' ? 'accent-ink' : 'muted'})">· ${eyeIcon(k === 'off')} ${label}</span>`;
 }
 
-/** 인물 카드의 AI에 넣기 고르기 */
-function charContextField(c, i) {
-  const now = c.context || 'auto';
-  return `<div class="field"><span class="label">AI에 넣기</span><div class="seg" role="group" aria-label="AI에 넣기">${CHAR_CTX.map(([k, l]) => `<button type="button" aria-pressed="${now === k}" data-action="charContext" data-arg="${i}|${k}">${l}</button>`).join('')}</div>
-    <span class="small">${CHAR_CTX_HINT[now]}</span></div>`;
-}
-
 // 비어 있으면 카드를 펼쳐 두는 인물 칸
 const CHAR_CORE = ['name', 'role', 'goal', 'wound', 'speech_style'];
 
@@ -439,9 +392,9 @@ function charSub(c) {
   return [String(c.role || '').trim() || '역할을 정하지 않음', tier].filter(Boolean).join(' · ');
 }
 
-/** 펼쳐 둘 인물: 빈 칸이 있거나, 이름 후보 · 신체 제안처럼 카드 안에서만 보이는 결과가 있다 */
+/** 펼쳐 둘 인물: 빈 칸이 있거나, 이름 후보처럼 카드 안에서만 보이는 결과가 있다 */
 function charNeedsWork(c) {
-  return CHAR_CORE.some((k) => !String(c[k] || '').trim()) || !!S.names['c:' + c.id] || !!(S.bodySug || {})[c.id];
+  return CHAR_CORE.some((k) => !String(c[k] || '').trim()) || !!S.names['c:' + c.id];
 }
 
 // ----- 새 작품 마법사: 필수 칸 여섯 개를 여섯 걸음으로 묻는다. 다 채운 작품과 반영을 시작한 작품은 기획서(viewSetupDoc)로 연다 -----
@@ -588,7 +541,7 @@ function wizChips(id, all, rec, on, action, labId) {
 function wizBasics() {
   const m = P().meta;
   return `${wizQ('어떤 이야기인가요?', '제목과 장르를 정해요. 둘 다 나중에 바꿀 수 있어요.')}
-    <div class="field"><label for="f-meta-title">제목 ${wizTag(0)}</label><input id="f-meta-title" type="text" value="${esc(m.title)}" data-bind="meta.title" data-kind="text" placeholder="예: 소금 정원의 계약"></div>
+    <div class="field"><div class="lab-row"><label for="f-meta-title">제목 ${wizTag(0)}</label>${ideaBtn('meta.title', '제목 후보')}</div><input id="f-meta-title" type="text" value="${esc(m.title)}" data-bind="meta.title" data-kind="text" placeholder="예: 소금 정원의 계약">${ideaList('meta.title')}</div>
     <div class="row">${wizTag(1)}<span class="small">장르를 하나 이상 골라요</span></div>
     ${genrePicker()}
     ${serial() ? input('총 화수', 'meta.target_episodes', { type: 'number', min: 1, max: 1000, hint: '늘리거나 줄이면 마지막 부 끝 화가 따라가요' }) : input('총 화수', 'meta.target_episodes', { type: 'number', min: 4, max: 40, hint: '단편은 10~20화를 권해요 · 4~40화' })}
@@ -608,7 +561,7 @@ function wizWorld() {
   return `${wizQ('어디서 벌어지나요?', '세계 종류를 고르면 시작할 수 있어요. 고른 뒤 한두 문장을 더 적으면 AI가 더 잘 맞춰요.')}
     <div class="field"><span class="label-text" id="wiz-world-lab">세계 종류 ${wizTag(3)} <span class="hint">고르면 배경 칸 첫 문장이 돼요</span></span>
       ${wizChips('wiz-world-chips', WORLD_KINDS.map(([l]) => l), worldRecs(g, 0), (x) => x === kind, 'wizWorld', 'wiz-world-lab')}</div>
-    ${input('배경', 'world.setting', { rows: 3, hint: '고르지 않고 직접 써도 돼요', placeholder: '예: 소금이 돈을 대신하는 북방 왕국 헤른' })}
+    ${input('배경', 'world.setting', { rows: 3, hint: '고르지 않고 직접 써도 돼요', placeholder: '예: 소금이 돈을 대신하는 북방 왕국 헤른', aside: ideaBtn('world.setting', '배경 후보'), after: ideaList('world.setting') })}
     <div class="field"><span class="label-text" id="wiz-era-lab">시대 <span class="hint">선택</span></span>
       ${wizChips('wiz-era-chips', ERAS, worldRecs(g, 1), (x) => x === w.era, 'wizEra', 'wiz-era-lab')}
       <input id="wiz-era-custom" type="text" value="${esc(ERAS.includes(w.era) ? '' : w.era)}" data-bind="world.era" data-kind="text" aria-label="시대 직접 쓰기" placeholder="직접 쓰기: 예) 중세풍, 증기 기관이 막 들어오는 때"></div>`;
@@ -786,16 +739,19 @@ const WIZ_CHAT = [
 
 /** 1단계 화면: 필수 칸이 빈 새 작품은 마법사, 그 밖은 기획서 */
 function viewSetup() {
-  // 인물 화면의 '설정에서 고치기'(setup/<인물 id>)는 그 인물 카드가 있는 기획서로 연다
-  if (/^#f-characters-\d+-name$/.test(String(S.jumpTo || S.focusTarget || ''))) { setupMode(); S.setupModes[S.name] = 'doc'; }
+  // 인물 화면의 '기본 설정 고치기'(setup/<인물 id>)와 명령 팔레트의 설정 칸(palette.js)은 그 칸이 있는 기획서로 연다
+  if (/^#f-(meta|world|characters)-/.test(String(S.jumpTo || ''))) { setupMode(); S.setupModes[S.name] = 'doc'; }
   return setupMode() === 'wizard' ? viewSetupWizard() : viewSetupDoc();
 }
 
 /** 기획서: 모든 설정 칸을 한 화면에서 고친다 */
+/** 인물 카드의 '더 자세히' 칸 + ✦ 후보 (ideas.js). 펼침은 openMap 의 'cd:<id>' 가 기억해 다시 그려도 접히지 않는다 */
+const charIdeaInput = (label, path, opt) => input(label, path, { ...opt, aside: ideaBtn(path), after: ideaList(path) });
+
 function viewSetupDoc() {
   const p = P();
-  // 인물 화면의 '설정에서 고치기'로 왔으면 그 인물 카드를 펼친다 (app.js 가 이름 칸으로 포커스를 옮긴다)
-  const jump = String(S.jumpTo || S.focusTarget || '').match(/^#f-characters-(\d+)-name$/);
+  // 인물 화면의 '기본 설정 고치기'나 명령 팔레트로 인물 칸에 왔으면 그 인물 카드를 펼친다 (app.js 가 그 칸으로 포커스를 옮긴다)
+  const jump = String(S.jumpTo || S.focusTarget || '').match(/^#f-characters-(\d+)-/);
   if (jump && p.characters[Number(jump[1])]) openMap()[charKey(p.characters[Number(jump[1])])] = true;
   const chars = p.characters.map((c, i) => {
     const b = `characters.${i}`;
@@ -809,21 +765,17 @@ function viewSetupDoc() {
       ${nameIssuesFor(c.id)}
       <div class="grid-2">${input('나이', b + '.age', { placeholder: '예: 17세, 40대 초반' })}${input('성별', b + '.gender', { placeholder: '남 / 여' })}</div>
       ${setupTier(c, b, 'tier-' + i)}
-      ${charContextField(c, i)}
       <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보 뽑기</button><button type="button" class="btn small" data-action="nameAI" data-arg="${esc(c.id)}">AI 이름 추천</button></div>
       ${namePicks('c:' + c.id, 'useName', (n) => `${c.id}|${n}`)}
-      ${dexField(c)}
       ${input('원하는 것', b + '.goal', { hint: '작품 전체에서' })}
       ${input('두려운 것 · 약점', b + '.wound')}
       ${input('숨기는 것', b + '.secrets', { kind: 'list', rows: 2 })}
       ${input('말투 (대사)', b + '.speech_style', { rows: 2, hint: '어미, 호칭, 대사 한 줄' })}
-      ${voiceField(c, b)}
-      <details><summary>더 자세히: 성격, 배경, 외모, 아크</summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
-        ${input('성격', b + '.personality', { rows: 2 })}${input('배경', b + '.background', { rows: 2 })}${input('외모', b + '.appearance')}
-        ${input('아크', b + '.arc', { hint: '시작 → 결말' })}${input('id', b + '.id', { hint: '관계와 플롯이 인물을 찾는 값이라 바꿀 수 없어요', readonly: true })}
+      <details data-open-key="${esc('cd:' + c.id)}"${cardOpen('cd:' + c.id, false) ? ' open' : ''}><summary>더 자세히: 성격, 배경, 외모, 아크</summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
+        ${charIdeaInput('성격', b + '.personality', { rows: 2 })}${charIdeaInput('배경', b + '.background', { rows: 2 })}${charIdeaInput('외모', b + '.appearance')}
+        ${charIdeaInput('아크', b + '.arc', { hint: '시작 → 결말' })}${input('id', b + '.id', { hint: '관계와 플롯이 인물을 찾는 값이라 바꿀 수 없어요', readonly: true })}
       </div></details>
-      ${bodyFields(c, b)}
-      ${visualFields(c)}
+      <div class="small">AI에 넣기, 서술 말투, 신체 프로필, 삽화 외형 태그는 <a href="${base()}/cast/${enc(c.id)}?tab=sheet">인물 카드</a>에서 고쳐요.</div>
       </div>
     </details>`;
   }).join('');
@@ -836,13 +788,13 @@ function viewSetupDoc() {
     ${aiPaths(first)}
     ${aiNote()}
     ${S.suggestion ? viewSuggestion() : ''}
-    <nav class="jump-nav" aria-label="설정 구역">${[['setup-basic', '기본 정보'], ['setup-world', '세계관'], ['setup-chars', `인물 ${p.characters.length}`], ['setup-rels', `관계 ${p.relationships.length}`], ['setup-stats', '상태창']]
+    <nav class="jump-nav" aria-label="설정 구역">${[['setup-basic', '기본 정보'], ['setup-world', '세계관'], ['setup-chars', `인물 ${p.characters.length}`], ['setup-rels', `관계 ${p.relationships.length}`]]
       .map(([id, l]) => `<button type="button" class="btn small ghost" data-action="jumpTo" data-arg="${id}">${l}</button>`).join('')}</nav>
     <div class="cols">
       <div class="col">
         <section class="card" id="setup-basic">
           <h2>기본 정보</h2>
-          ${input('제목', 'meta.title')}
+          ${input('제목', 'meta.title', { aside: ideaBtn('meta.title', '제목 후보'), after: ideaList('meta.title') })}
           ${genrePicker()}
           ${adultCheck(`data-bind="meta.adult" data-kind="bool"${P().meta.adult ? ' checked' : ''}`)}
           ${serial() ? input('총 화수', 'meta.target_episodes', { type: 'number', min: 1, max: 1000, hint: '늘리거나 줄이면 마지막 부 끝 화가 따라가요' }) : input('총 화수', 'meta.target_episodes', { type: 'number', min: 4, max: 40, hint: '단편은 10~20화를 권해요 · 4~40화' })}
@@ -854,7 +806,7 @@ function viewSetupDoc() {
         </section>
         <section class="card" id="setup-world">
           <h2>세계관</h2>
-          ${input('배경', 'world.setting', { rows: 2 })}${input('시대', 'world.era')}
+          ${input('배경', 'world.setting', { rows: 2, aside: ideaBtn('world.setting', '배경 후보'), after: ideaList('world.setting') })}${input('시대', 'world.era')}
           ${input('깨면 안 되는 규칙', 'world.rules', { kind: 'list' })}${input('장소', 'world.locations', { kind: 'list' })}
           <div class="row"><select id="place-kind" aria-label="지명 종류" data-local="placeKind" style="width:auto;min-width:120px">${placeKindOptions()}</select>
             <button type="button" class="btn small" data-action="placeCandidates">지명 후보 뽑기</button><button type="button" class="btn small" data-action="placeAI">AI 지명 추천</button></div>
@@ -872,7 +824,7 @@ function viewSetupDoc() {
           ${dexRollBox()}
           ${chars ? `${openAllBtn('c')}<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;align-items:start">${chars}</div>` : '<div class="note plain">인물이 없어요. 직접 추가하거나 AI 제안을 받으세요.</div>'}
         </section>
-        ${typeof swSetupCard === 'function' ? swSetupCard() : ''}
+        ${setupStatLink()}
         <section class="card" id="setup-rels">
           <div class="between"><h2>관계</h2><div class="row"><span class="small">${P().snapshots.length ? '첫 반영 뒤에는 관계 사건으로 계산돼요' : '서로 어떻게 보는지 고르면 시작 관계를 계산해요. 긴장은 자동 계산'}</span><button class="btn small" data-action="addRelationship"${autoOn() ? ' disabled' : ''}>+ 관계 추가</button></div></div>
           ${autoOn() ? `<div class="note warn" id="rel-lock">자동 집필이 도는 동안은 관계를 고칠 수 없어요. 반영하는 관계와 겹치지 않게 서버가 받지 않아요. 고치려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요.</div>` : ''}
@@ -881,6 +833,14 @@ function viewSetupDoc() {
         </section>
       </div>
     </div>${chatPanel('setup')}`;
+}
+
+/** 상태창을 쓰는 작품이면 상태창 수치 화면으로 가는 줄. 작품 틀과 처음 수치는 그 화면에서 정한다 */
+function setupStatLink() {
+  const p = P();
+  if (!swWanted(p) && !(swWin().names || []).length && !p.states.some((s) => (s.stats || []).length)) return '';
+  return `<section class="card tight" id="setup-stats"><div class="between"><span><strong>상태창</strong> <span class="small">레벨 · 스킬처럼 본문 상태창에 나오는 값은 작품 틀과 처음 수치를 상태창 수치 화면에서 정해요</span></span>
+    <a class="btn small" href="${base()}/statwin">상태창 수치</a></div></section>`;
 }
 
 /** AI로 채우는 두 길을 나눠 보인다. 빈 작품은 빈칸 제안을 앞에 두고 '처음에 추천'으로 표시한다 */
@@ -932,6 +892,26 @@ function sugValue(o, k) {
 const SUG_CHAR_FIELDS = [['age', '나이'], ['gender', '성별'], ['goal', '원하는 것'], ['wound', '두려운 것 · 약점'], ['secrets', '숨기는 것'],
   ['speech_style', '말투 (대사)'], ['personality', '성격'], ['background', '배경'], ['appearance', '외모'], ['arc', '아크']];
 
+// 이미 있는 인물에게 채우는 빈 칸 (pipeline.FILL_CHAR_FIELDS 와 같다, tests/test_setup_fill.py)
+const SUG_FILL_FIELDS = [['role', '역할'], ...SUG_CHAR_FIELDS];
+const blankVal = (v) => (Array.isArray(v) ? !v.some((x) => String(x).trim()) : !String(v || '').trim());
+
+/** 제안 인물 c 가 이미 있는 인물이면, 그 인물의 빈 칸 중 제안에 값이 있는 칸 [[키, 칸 이름, 값 글], …]. 아니면 [] */
+function sugFills(c) {
+  const old = sameChar(c) && P().characters.find((x) => x.id === c.id);
+  if (!old) return [];
+  return SUG_FILL_FIELDS.filter(([k]) => blankVal(old[k]) && !blankVal(c[k]))
+    .map(([k, label]) => [k, label, Array.isArray(c[k]) ? c[k].filter((x) => String(x).trim()).join(', ') : String(c[k]).trim()]);
+}
+
+/** 이미 있는 인물 카드: 채울 빈 칸마다 고르기 (기본은 모두 고름, 키 scf:<제안 번호>:<칸>) */
+function sugFillCard(c, i) {
+  const fills = sugFills(c);
+  const rows = fills.map(([k, label, v]) => `<label class="row sug-field"><input type="checkbox" data-pick="scf:${i}:${k}"${S.picks[`scf:${i}:${k}`] !== false ? ' checked' : ''}><strong>${label}</strong> <span>${esc(v)}</span></label>`).join('');
+  return `<div class="char-card suggested"><div class="row"><strong>${esc(c.name || P().characters.find((x) => x.id === c.id).name)}</strong><span class="small">${esc(c.role)} · ${esc(c.id)} · 이미 있음${fills.length ? ` · 빈칸 ${fills.length}개 채움` : ''}</span></div>
+    ${fills.length ? `<div class="sug-fields" role="group" aria-label="${esc(c.name || c.id)} 빈칸 채우기">${rows}</div>` : '<span class="small">채울 빈칸이 없어요</span>'}</div>`;
+}
+
 /** 제안 인물의 모든 칸. 체크박스 label 밖에 두어 펼쳐도 고르기가 바뀌지 않는다 */
 function sugCharDetails(c) {
   const rows = SUG_CHAR_FIELDS.map(([k, label]) => [label, Array.isArray(c[k]) ? c[k].join(', ') : String(c[k] || '').trim()])
@@ -940,13 +920,32 @@ function sugCharDetails(c) {
   return `<details><summary class="small">모든 칸 보기 (${rows.length})</summary><dl style="margin:6px 0 0;font-size:0.8125rem;line-height:1.5">${rows.map(([l, v]) => `<dt style="font-weight:700">${l}</dt><dd style="margin:0 0 6px">${esc(v)}</dd>`).join('')}</dl></details>`;
 }
 
+/** 적용 요청에 보낼 제안: 고르지 않은 칸 · 인물 · 관계를 뺀다 (서버 pipeline.apply_setup 은 빈 칸만 채운다) */
+function sugPayload() {
+  const s = structuredClone(S.suggestion);
+  // 고르지 않은 칸은 비워 보낸다. 서버는 빈 칸을 건너뛴다
+  SUG_FIELDS.forEach(([k]) => {
+    if (S.picks['sf:' + k] !== false) return;
+    if (k.startsWith('world.')) s.world[k.slice(6)] = Array.isArray(s.world[k.slice(6)]) ? [] : '';
+    else s[k] = '';
+  });
+  s.characters = s.characters.map((c, i) => {
+    if (!sameChar(c)) return S.picks['sc' + i] ? c : null;
+    // 이미 있는 인물: 고르지 않은 빈 칸은 비워 보낸다. 서버는 빈 칸만 채운다 (fill_character)
+    SUG_FILL_FIELDS.forEach(([k]) => { if (S.picks[`scf:${i}:${k}`] === false) c[k] = Array.isArray(c[k]) ? [] : ''; });
+    return c;
+  }).filter(Boolean);
+  s.relationships = s.relationships.filter((r, i) => S.picks['sr' + i] && sugEnd(r.a) && sugEnd(r.b));
+  return s;
+}
+
 function viewSuggestion() {
   const s = S.suggestion;
   const exists = (c) => sameChar(c);
   const clash = (c) => !sameChar(c) && P().characters.some((x) => x.id === c.id);
   return `<section class="card" style="border:2px solid var(--accent)">
     <div class="between"><h2>AI 제안 <span class="chip ai">적용 전</span></h2>${proposalActions(['dropSuggestion'], ['applySuggestion'])}</div>
-    <p class="small">주제, 톤, 세계관은 비어 있는 칸에만 들어가요. 이미 있는 인물은 건너뛰어요.</p>
+    <p class="small">주제, 톤, 세계관, 이미 있는 인물은 비어 있는 칸에만 들어가요. 적어 둔 칸은 그대로예요.</p>
     <div class="sug-fields">${SUG_FIELDS.map(([k, label]) => {
     const v = sugValue(s, k);
     if (!v.length) return '';
@@ -954,7 +953,7 @@ function viewSuggestion() {
     return `<label class="row sug-field${have ? ' skip' : ''}"><input type="checkbox" data-pick="sf:${k}"${!have && S.picks['sf:' + k] !== false ? ' checked' : ''}${have ? ' disabled' : ''}><strong>${label}</strong> <span>${esc(v)}</span>${have ? ' <span class="small">이미 있음 · 건너뜀</span>' : ''}</label>`;
   }).join('')}</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
-      ${s.characters.map((c, i) => `<div class="char-card suggested"><label class="row" style="cursor:pointer"><input type="checkbox" data-pick="sc${i}"${S.picks['sc' + i] ? ' checked' : ''}${exists(c) ? ' disabled' : ''}><strong>${esc(c.name)}</strong><span class="small">${esc(c.role)} · ${esc(c.id)}${exists(c) ? ' · 이미 있음' : clash(c) ? ' · 이미 있는 다른 인물과 겹쳐 따로 넣어요' : ''}</span></label>
+      ${s.characters.map((c, i) => exists(c) ? sugFillCard(c, i) : `<div class="char-card suggested"><label class="row" style="cursor:pointer"><input type="checkbox" data-pick="sc${i}"${S.picks['sc' + i] ? ' checked' : ''}><strong>${esc(c.name)}</strong><span class="small">${esc(c.role)} · ${esc(c.id)}${clash(c) ? ' · 이미 있는 다른 인물과 겹쳐 따로 넣어요' : ''}</span></label>
         <span style="font-size:0.8125rem;line-height:1.5">목표: ${esc(c.goal)}<br>말투: ${esc(c.speech_style)}</span>${sugCharDetails(c)}</div>`).join('')}
     </div>
     ${s.relationships.map((r, i) => {
@@ -1034,29 +1033,13 @@ Object.assign(actions, {
   async suggest() {
     await startJob('suggest');
   },
-  charContext(arg) {
-    const [i, k] = String(arg).split('|');
-    const c = P().characters[Number(i)];
-    if (!c) return;
-    c.context = k;
-    markDirty();
-    render();
-  },
   dropSuggestion() {
     if (!confirmDrop('AI 설정 제안')) return;
     S.suggestion = null;
     render();
   },
   async applySuggestion() {
-    const s = structuredClone(S.suggestion);
-    // 고르지 않은 칸은 비워 보낸다. 서버는 빈 칸을 건너뛴다
-    SUG_FIELDS.forEach(([k]) => {
-      if (S.picks['sf:' + k] !== false) return;
-      if (k.startsWith('world.')) s.world[k.slice(6)] = Array.isArray(s.world[k.slice(6)]) ? [] : '';
-      else s[k] = '';
-    });
-    s.characters = s.characters.filter((_, i) => S.picks['sc' + i]);
-    s.relationships = s.relationships.filter((r, i) => S.picks['sr' + i] && sugEnd(r.a) && sugEnd(r.b));
+    const s = sugPayload();
     await run('적용하는 중', async () => {
       await saveIfDirty();
       const before = setupCardKeys();
@@ -1134,6 +1117,8 @@ Object.assign(actions, {
     if (!confirm(`${c.name || c.id} 인물을 삭제할까요? 관계와 지금 상태도 함께 삭제돼요. 저장하기 전에는 아래 띠에서 되살릴 수 있어요.${warn}`)) return;
     rememberRemoved(`인물 ${c.name || c.id}`, ['characters', 'relationships', 'states']);
     P().characters.splice(i, 1);
+    // 인물 칸 ✦ 후보는 번호로 칸을 찾아서, 번호가 밀리면 다른 인물 칸 아래에 뜬다
+    Object.keys(S.ideas || {}).filter((k) => k.startsWith('characters.')).forEach((k) => delete S.ideas[k]);
     P().relationships = P().relationships.filter((r) => r.a !== c.id && r.b !== c.id);
     P().states = P().states.filter((s) => s.character_id !== c.id);
     markDirty();

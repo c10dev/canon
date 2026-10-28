@@ -30,7 +30,7 @@ from . import abilities, atlas, findings, foreshadows, setupchat, stattrial, sta
 from .schema import AgentSession, ChatScope, Deadline, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
-from .schema import NameOption, Recap
+from .schema import FieldIdeas, NameOption, Recap
 from . import branches
 from .schema import BranchDiff, BranchInfo, ForkMode
 from . import birth, play
@@ -752,6 +752,19 @@ def apply_suggestion(name: str, s: SetupSuggestion) -> Project:
     p = _load(name)
     pipeline.apply_setup(p, s)
     return _save(name, p)
+
+
+class FieldIdeasIn(BaseModel):
+    field: str  # 화면 칸 경로 (meta.title, meta.logline_parts.who, world.setting, characters.0.personality 등). prompts.idea_key 가 FIELD_IDEAS 키로
+    n: int = 3
+    project: Project | None = None  # 저장 전 화면의 값 (다른 칸을 고친 직후에도 맞게)
+
+
+@app.post("/api/projects/{name}/field-ideas")
+def field_ideas(name: str, body: FieldIdeasIn) -> FieldIdeas:
+    """설정 칸 하나의 AI 후보 (✦). 저장하지 않는다. 작가가 고른 후보만 화면이 칸에 넣는다."""
+    p = body.project or _load(name)
+    return pipeline.suggest_field(get_llm(pipeline.field_stage(body.field)), p, body.field, max(1, min(body.n, 5)))
 
 
 # ---------- 이름 · 지명 ----------

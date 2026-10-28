@@ -52,6 +52,8 @@ from .schema import (
     VoiceSuggestion,
     NameOption,
     NameOptions,
+    FieldIdea,
+    FieldIdeas,
     OpeningOption,
     OpeningPlots,
     PassageCandidate,
@@ -513,6 +515,32 @@ def _setup_revision(hint: dict) -> SetupRevision:
 MOCK_LOOK = "어깨에 닿던 머리를 짧게 자른 단발"  # 2화 설정 바꾸기 제안 (외모)
 MOCK_ATTIRE = {1: "젖은 회색 코트, 손전등", 2: "젖은 회색 코트(오른쪽 소매 찢어짐), 손전등, 녹슨 열쇠"}
 
+# 설정 칸 하나 AI 후보 (prompts.FIELD_IDEAS 키마다)
+MOCK_FIELD_IDEAS = {
+    "meta.title": ["등대지기의 마지막 여름", "불이 꺼지지 않는 섬", "물때"],
+    "meta.logline_parts.who": ["빚을 갚으려 고향에 돌아온 스물아홉 살 사서", "기억을 잃은 등대지기의 딸", "말을 더듬는 수산시장 경매사"],
+    "meta.logline_parts.why": ["실종된 동생의 편지가 도착하자", "등대 불이 사흘째 꺼지지 않자", "마을 축제 날 낯선 배가 들어오자"],
+    "meta.logline_parts.goal": ["동생이 사라진 밤을 되짚는다", "등대의 주인을 찾아 섬을 뒤진다", "축제가 끝나기 전에 배를 돌려보낸다"],
+    "meta.logline_parts.block": ["마을 사람들은 그 밤을 없던 일로 하려 한다", "등대 열쇠를 가진 이는 이미 죽었다", "배를 부른 것은 그녀의 아버지다"],
+    "meta.logline_parts.stake": ["진실을 알면 돌아갈 집이 사라진다", "실패하면 동생을 영영 잃는다", "들키면 마을이 그녀를 내쫓는다"],
+    "world.setting": ["안개가 잦은 남해의 작은 섬마을. 등대와 수산시장이 생활의 중심이다.",
+                      "관광객이 끊긴 바닷가 소도시. 오래된 가족들이 서로의 비밀을 쥐고 산다.",
+                      "썰물 때만 길이 열리는 섬. 물때표가 마을의 시계다."],
+    "characters.*.personality": ["말수가 적고 남의 부탁을 거절하지 못한다. 불안하면 손톱 옆 살을 뜯는다.",
+                                 "무엇이든 직접 확인해야 믿는다. 웃을 때도 눈은 상대를 살핀다.",
+                                 "농담으로 분위기를 풀지만 진짜 속마음은 끝까지 말하지 않는다."],
+    "characters.*.background": ["열두 살 때 등대 사고로 아버지를 잃고 이모 손에 컸다.",
+                                "도시에서 기자로 일하다 오보 사건으로 그만두고 섬에 돌아왔다.",
+                                "수산시장 경매사 집안의 막내로, 가업을 잇기 싫어 집을 나갔었다."],
+    "characters.*.appearance": ["짧게 친 머리와 소매가 닳은 회색 코트, 왼손 등의 오래된 화상 자국.",
+                                "키가 크고 마른 몸, 늘 목에 건 낡은 필름 카메라.",
+                                "햇볕에 그을린 얼굴과 굵은 손마디, 귀 뒤에 꽂은 연필."],
+    "characters.*.arc": ["혼자 감당하려 한다 → 도움을 청할 줄 안다",
+                         "진실을 덮으려 한다 → 대가를 치르고 밝힌다",
+                         "섬을 떠나고 싶어 한다 → 섬에 남기로 스스로 고른다"],
+}
+
+
 class MockLLM:
     def json(self, system: str, prompt: str, schema: type[T], hint: dict | None = None) -> T:
         _delay()
@@ -603,6 +631,11 @@ class MockLLM:
         if schema is NameOptions:  # 코드 후보에서 앞쪽 n 개를 고른 척한다
             names = hint["candidates"][: hint["n"]]
             return NameOptions(options=[NameOption(name=x, reason="후보 중 인물과 시대에 맞는 이름") for x in names])  # type: ignore[return-value]
+        if schema is FieldIdeas:  # 칸마다 다른 결의 후보 셋. 하나는 겹치고 하나는 따옴표를 달아 정리가 고치는지 본다
+            base = MOCK_FIELD_IDEAS.get(hint["field"], ["후보 하나", "후보 둘", "후보 셋"])
+            return FieldIdeas(options=[FieldIdea(text=f"“{base[0]}”", reason="장르와 로그라인에 맞춰서"),  # type: ignore[return-value]
+                                       FieldIdea(text=base[0], reason="겹침"),
+                                       *[FieldIdea(text=x, reason="다른 방향") for x in base[1:]]])
         if schema is IllustDraft:
             return _illust(hint)  # type: ignore[return-value]
         if schema is PlaceSort:

@@ -1,6 +1,6 @@
 /* 삽화 프롬프트 (NovelAI). 집필 화면에서 본문 일부를 고르면 그 장면을 NovelAI 에 붙여 넣을 프롬프트로 만든다.
    AI는 장면을 태그로 옮기기만 하고, 인물 외형 · 인물 수 · 등급 · 품질 태그는 서버 canon/illust.py 가 붙인다.
-   인물 외형 태그(Project.visuals)는 설정 화면의 인물 카드에서 정해 두면 화가 바뀌어도 같은 모습으로 나온다.
+   인물 외형 태그(Project.visuals)는 인물 화면의 인물 카드에서 정해 두면 화가 바뀌어도 같은 모습으로 나온다.
    고치는 본문 칸에서는 passage.js 의 떠 있는 도구에 '삽화 프롬프트' 가 붙고, 반영이 끝난 읽기 전용 본문에서는 여기서 작은 도구를 띄운다. */
 'use strict';
 
@@ -67,7 +67,7 @@ function visSummary(v) {
   return (v.look || []).length ? `${k}개 · 화마다 같은 모습으로 그려요` : 'NovelAI 삽화용, 아직 없음';
 }
 
-/** 인물 카드 아래 '삽화 외형 태그'. visuals 항목은 처음 고칠 때 만든다. */
+/** 인물 화면 인물 카드의 '삽화 외형 태그' (cast.js castSheetEdit). visuals 항목은 처음 고칠 때 만든다. */
 function visualFields(c) {
   const v = ilVisual(c.id) || {};
   const id = (k) => `vis-${esc(c.id)}-${k}`;
@@ -182,7 +182,7 @@ function illustPanel(n) {
   const cast = ilCast(n);
   const castLine = cast.map((c) => {
     const ok = ((ilVisual(c.id) || {}).look || []).length;
-    return `<span class="chip${ok ? ' finalized' : ''}" title="${ok ? '외형 태그 있음' : '외형 태그 없음: 설정 도우미 인물 카드에서 정해 두면 화마다 같은 모습으로 나와요'}">${esc(c.name)}${ok ? '' : ' · 태그 없음'}</span>`;
+    return `<a class="chip${ok ? ' finalized' : ''}" href="${base()}/cast/${enc(c.id)}?tab=sheet" title="${ok ? '외형 태그 있음' : '외형 태그 없음: 인물 카드에서 정해 두면 화마다 같은 모습으로 나와요'}">${esc(c.name)}${ok ? '' : ' · 태그 없음'}</a>`;
   }).join(' ');
   // 가장 최근 것만 펼치고, 앞서 만든 것은 접어 둔다
   const list = [...(e.illustrations || [])].reverse().map((x, k) => (k === 0 ? ilCard(n, x)
@@ -202,7 +202,7 @@ function illustPanel(n) {
         <div class="row" style="gap:6px">
           <button type="button" class="btn primary" data-action="illMake" data-arg="sel"${sel && !busy ? '' : ' disabled'}>고른 부분으로 만들기</button>
           <button type="button" class="btn" data-action="illMake" data-arg="auto"${busy ? ' disabled' : ''}>AI가 장면 고르기</button></div>
-        ${cast.length ? `<div class="small">이 화 인물 외형 태그: ${castLine} <a href="${base()}/setup">설정에서 고치기</a></div>` : ''}
+        ${cast.length ? `<div class="small">이 화 인물 외형 태그: ${castLine} · 이름을 누르면 인물 카드에서 고쳐요</div>` : ''}
       </div>
       <details data-ill-settings style="flex:1 1 260px;min-width:0"${S.illSetOpen ? ' open' : ''}><summary class="small"><strong>삽화 설정</strong> · ${esc(ilModel(s.model).label)}${(s.style || []).length ? ` · 화풍 ${s.style.length}개` : ''}</summary>
       <div style="display:flex;flex-direction:column;gap:8px;padding-top:8px">
@@ -373,7 +373,7 @@ Object.assign(actions, {
     await run('외형 태그 저장 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/illust/${enc(id)}/keep-look`, { character_id: cid, force });
-      toast(`${charName(cid)}의 외형 태그로 저장했어요. 설정 도우미 인물 카드에서 고칠 수 있어요`);
+      toast(`${charName(cid)}의 외형 태그로 저장했어요. 인물 화면의 인물 카드에서 고칠 수 있어요`);
     });
   },
   async lookAI(cid) {

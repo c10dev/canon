@@ -938,6 +938,56 @@
     }
    }
   },
+  "/api/projects/{name}/field-ideas": {
+   "post": {
+    "summary": "Field Ideas",
+    "description": "설정 칸 하나의 AI 후보 (✦). 저장하지 않는다. 작가가 고른 후보만 화면이 칸에 넣는다.",
+    "operationId": "field_ideas",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FieldIdeasIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/FieldIdeas"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/naming/styles": {
    "get": {
     "summary": "Naming Styles",
@@ -15288,6 +15338,64 @@
     ],
     "title": "ExportOut",
     "description": "붙여 넣을 글. episodes 는 실제로 넣은 화 (본문이 없는 화는 빠진다)."
+   },
+   "FieldIdea": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "title": "Text",
+      "description": "칸에 그대로 넣을 값"
+     },
+     "reason": {
+      "type": "string",
+      "title": "Reason",
+      "description": "이 후보가 작품에 맞는 이유 한 줄",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "FieldIdea"
+   },
+   "FieldIdeas": {
+    "properties": {
+     "options": {
+      "items": {
+       "$ref": "#/components/schemas/FieldIdea"
+      },
+      "type": "array",
+      "title": "Options"
+     }
+    },
+    "type": "object",
+    "required": [
+     "options"
+    ],
+    "title": "FieldIdeas",
+    "description": "설정 칸 하나의 AI 후보 (✦). 작가가 하나를 골라야 칸이 바뀐다 (pipeline.suggest_field)."
+   },
+   "FieldIdeasIn": {
+    "properties": {
+     "field": {
+      "type": "string",
+      "title": "Field"
+     },
+     "n": {
+      "type": "integer",
+      "title": "N",
+      "default": 3
+     },
+     "project": {
+      "$ref": "#/components/schemas/Project"
+     }
+    },
+    "type": "object",
+    "required": [
+     "field"
+    ],
+    "title": "FieldIdeasIn"
    },
    "Finding": {
     "properties": {

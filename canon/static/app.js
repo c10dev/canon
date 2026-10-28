@@ -53,10 +53,10 @@ const S = {
   recapDrafts: {},   // 장편: 아크·부 요약 제안. 'arc1', 'part2' 같은 키 → { kind, number, summary }. 여러 개를 함께 고친다
   namingStyles: null, // 이름 스타일 목록 (서버 naming.STYLES)
   names: {},         // 이름·지명 후보. 'c:<인물 id>' 또는 'place' → { candidates, options, ai }
+  ideas: {},         // 설정 칸 하나의 AI 후보 (ideas.js). 칸 경로 → { options: [{ text, reason }] }
   nameCheck: null,   // 출연진 이름 점검 { warnings, style, detected }
   placeKind: '',     // 지명 후보의 종류 (산, 마을, 문파…)
   dex: null,         // 원형 도감 목록 (서버 archetypes, archetypes.js)
-  dexOpen: null,     // 도감을 연 인물 카드 { cid, aid, twist, wound, speech, all }
   dexRolls: null,    // 도감 주사위 결과 { list, archetype }
 };
 
@@ -832,7 +832,11 @@ function input(label, path, opt = {}) {
   const ctrl = opt.rows || kind === 'list'
     ? `<textarea id="${id}" rows="${opt.rows || 3}" data-bind="${path}" data-kind="${kind}"${rootAttr}${ro}${opt.autogrow ? ' data-autogrow' : ''}${opt.style ? ` style="${opt.style}"` : ''} placeholder="${esc(opt.placeholder || (kind === 'list' ? '한 줄에 하나씩' : ''))}">${val}</textarea>`
     : `<input id="${id}" type="${opt.type || 'text'}" value="${val}" data-bind="${path}" data-kind="${kind}"${rootAttr}${ro}${opt.min != null ? ` min="${opt.min}"` : ''}${opt.max != null ? ` max="${opt.max}"` : ''}${opt.list ? ` list="${opt.list}"` : ''} placeholder="${esc(opt.placeholder || '')}">`;
-  return `<div class="field${opt.cls ? ' ' + opt.cls : ''}"><label for="${id}">${esc(label)}${hint}</label>${ctrl}</div>`;
+  // aside 는 이름 줄 오른쪽, beside 는 칸 바로 옆, after 는 칸 바로 아래 (칸 하나 AI 후보 ✦ 버튼과 후보, ideas.js)
+  const lab = `<label for="${id}">${esc(label)}${hint}</label>`;
+  const head = opt.aside ? `<div class="lab-row">${lab}${opt.aside}</div>` : lab;
+  const body = opt.beside ? `<div class="in-ai">${ctrl}${opt.beside}</div>` : ctrl;
+  return `<div class="field${opt.cls ? ' ' + opt.cls : ''}">${head}${body}${opt.after || ''}</div>`;
 }
 
 document.addEventListener('input', (e) => {
@@ -1683,7 +1687,7 @@ async function routeNow() {
       }
       if (parts[2] === 'setup') {
         S.names = {};
-        S.dexOpen = null;
+        S.ideas = {};
         S.dexRolls = null;
       }
       if (parts[2] === 'setup' || parts[2] === 'arc') {  // 화 플롯 페이지의 새 인물 칸도 이름 점검을 보인다
@@ -1724,10 +1728,10 @@ async function routeNow() {
       if (parts[2] === 'foreshadow') await fsLoad();
       if (parts[2] === 'statwin') await swLoad(parts[3]);
       if (parts[2] === 'abilities') await abLoad(parts[3]);
-      if (parts[2] === 'setup' && parts[3]) {  // 인물 화면의 '설정에서 고치기'(setup/<인물 id>)는 그 인물 카드로 간다
+      if (parts[2] === 'setup' && parts[3]) {  // 인물 화면의 '기본 설정 고치기'(setup/<인물 id>)는 그 인물 카드로 간다
         const i = S.project.characters.findIndex((c) => c.id === parts[3]);
         if (i >= 0) S.focusTarget = S.jumpTo = `#f-characters-${i}-name`;
-      }
+      } else if (parts[2] === 'setup' && S.jumpTo) S.focusTarget = S.jumpTo;  // 명령 팔레트에서 고른 설정 칸 (palette.js)
       if (parts[2] === 'causal') {
         if (parts[3]) S.causalSel = parts[3];
         await causalLoad();
@@ -1760,13 +1764,14 @@ async function routeNow() {
   render();
   window.scrollTo(0, navScroll.restore || 0);  // 뒤로 · 앞으로 가기는 읽던 위치로
   navScroll.restore = null;
-  const card = S.jumpTo && document.querySelector(S.jumpTo)?.closest('.char-card');  // 맨 위로 간 뒤 고른 카드로 내려가 잠시 테두리를 보인다
+  const jumped = S.jumpTo && document.querySelector(S.jumpTo);
+  const card = jumped && jumped.closest('.char-card');  // 맨 위로 간 뒤 고른 카드로 내려가 잠시 테두리를 보인다
   S.jumpTo = null;
   if (card) {
     card.classList.add('jump');
     card.scrollIntoView({ block: 'start' });
     setTimeout(() => card.classList.remove('jump'), 2000);
-  }
+  } else if (jumped) jumped.scrollIntoView({ block: 'center' });  // 카드 밖 설정 칸: 맨 위로 간 화면을 그 칸으로 내린다
   pollJobs();  // 다른 탭 · 기기에서 시작한 작업도 알아챈다
 }
 
@@ -1831,7 +1836,10 @@ function afterDraw(f) {
   });
   const want = S.focusTarget;
   S.focusTarget = null;
-  if (want && focusEl(document.querySelector(want))) return;
+  const target = want && document.querySelector(want);
+  // 정한 대상이 접힌 칸(details) 안에 있으면 펴고 옮긴다 (명령 팔레트의 설정 칸, 인물 카드의 '더 자세히')
+  for (let d = target && target.parentElement && target.parentElement.closest('details'); d; d = d.parentElement && d.parentElement.closest('details')) d.open = true;
+  if (target && focusEl(target)) return;
   if (!f) return;
   const el = findMark(f);
   if (!el || !focusEl(el)) return;
@@ -1947,7 +1955,7 @@ function navItems() {
     ['cast', base() + '/cast', '👥', '인물 · 관계도', has(p.characters)],
     ['atlas', base() + '/atlas', '🗺️', '지도', has(p.world.locations) || (p.elements || []).some((el) => el.kind === '장소')],
     ['foreshadow', base() + '/foreshadow', '🪝', '복선 센터', has(p.foreshadows)],
-    ['statwin', base() + '/statwin', '📊', '상태창 수치', (p.states || []).some((s) => has(s.stats))],
+    ['statwin', base() + '/statwin', '📊', '상태창 수치', (p.states || []).some((s) => has(s.stats)) || has((p.stat_window || {}).names)],
     ['abilities', base() + '/abilities', '📖', '스킬 도감', has(p.abilities)],
     ['timeline', base() + '/timeline', '⏳', '작품 속 시간', has((p.timeline || {}).deadlines) || p.episodes.some((e) => e.time && (e.time.day > 0 || e.time.part || e.time.label))],
     ['lines', base() + '/lines', '🔀', '이야기 줄기', has(p.storylines)],

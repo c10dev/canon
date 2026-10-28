@@ -41,6 +41,7 @@ from .schema import (
     PlaceSort,
     VoiceSuggestion,
     NameOptions,
+    FieldIdeas,
     OpeningPlots,
     Part,
     PassageRevision,
@@ -124,6 +125,34 @@ def suggest_names(llm: LLM, p: Project, character: str = "", place_kind: str = "
     return cands, opts
 
 
+
+def field_stage(field: str) -> str:
+    """칸 하나 후보를 부를 단계. 제목은 이름 짓기라 'name', 나머지는 기획 'plan'."""
+    return "name" if field == "meta.title" else "plan"
+
+
+def suggest_field(llm: LLM, p: Project, field: str, n: int = 3) -> FieldIdeas:
+    """설정 칸 하나의 AI 후보 (✦). 저장하지 않는다 (작가가 하나를 고르면 화면이 칸에 넣고 작품을 저장한다).
+    field 는 화면 칸 경로 (인물 칸은 characters.<번호>.<칸>). 빈 후보, 겹치는 후보, 지금 값과 같은 후보는 뺀다."""
+    key = prompts.idea_key(field)
+    if key not in prompts.FIELD_IDEAS:
+        raise KeyError(f"후보를 받을 수 없는 칸이에요: {field}")
+    try:
+        prompts.idea_character(p, field)
+    except IndexError:
+        raise KeyError(f"없는 인물의 칸이에요: {field}") from None
+    ideas = llm.json(prompts.SYSTEM_PLANNER, prompts.field_prompt(p, field, n), FieldIdeas, hint={"field": key, "n": n})
+    now, seen, out = prompts.field_value(p, field), set(), []
+    for o in ideas.options:
+        o.text, o.reason = o.text.strip().strip("\"'“”‘’"), o.reason.strip()
+        if field.startswith("meta.logline_parts."):
+            o.text = o.text.rstrip(".")
+        if o.text and o.text != now and o.text not in seen:
+            seen.add(o.text)
+            out.append(o)
+    ideas.options = out[:n]
+    return ideas
+
 def require_previous(p: Project, n: int) -> None:
     """이전 화가 모두 반영(finalized)돼야 n화를 쓰거나 반영한다. 인물 상태가 화 순서대로 쌓이게 하는 규칙이다."""
     unfinished = [e.plot.number for e in p.episodes if e.plot.number < n and e.status != "finalized"]
@@ -131,9 +160,32 @@ def require_previous(p: Project, n: int) -> None:
         raise ValueError(f"이전 화({', '.join(map(str, unfinished))}화)의 상태 반영이 끝나지 않았어요")
 
 
+# 설정 제안이 이미 있는 인물에게 채우는 칸 (비어 있을 때만). 이름 · id · 비중 · 서술 말투 · 작가 전용 칸은 건드리지 않는다
+FILL_CHAR_FIELDS = ("role", "age", "gender", "appearance", "personality", "background", "goal", "wound", "speech_style", "secrets", "arc")
+
+
+def fill_character(old: Character, new: Character) -> list[str]:
+    """old 의 빈 칸을 new 의 값으로 채우고 채운 칸 이름을 돌려준다. 이미 적힌 칸은 그대로 둔다."""
+    out = []
+    for f in FILL_CHAR_FIELDS:
+        cur, val = getattr(old, f), getattr(new, f)
+        if isinstance(val, list):
+            val = [x.strip() for x in val if x.strip()]
+        elif isinstance(val, str):
+            val = val.strip()
+        if not cur or (isinstance(cur, str) and not cur.strip()):
+            if val:
+                setattr(old, f, val)
+                out.append(f)
+    return out
+
+
 def apply_setup(p: Project, s: SetupSuggestion) -> None:
-    """기존 입력은 유지하고 빈칸만 채운다. 제안 인물의 id 가 이미 있는 인물과 겹쳐도 이름이 다르면 다른 인물로 보고
-    새 id 를 붙여 넣고, 그 인물의 관계도 새 id 로 잇는다. 양쪽 인물이 없는 관계는 넣지 않는다."""
+    """기존 입력은 유지하고 빈칸만 채운다. 이미 있는 인물(같은 id, 같은 이름)은 빈 칸만 채운다(fill_character).
+    제안 인물의 id 가 이미 있는 인물과 겹쳐도 이름이 다르면 다른 인물로 보고
+    새 id 를 붙여 넣고, 그 인물의 관계도 새 id 로 잇는다. 양쪽 인물이 없는 관계는 넣지 않는다.
+    1화 반영 뒤에 채운 인물 칸은 설정 변경 기록(charlog.record_author)에 남는다."""
+    before = p.model_copy(update={"characters": [c.model_copy() for c in p.characters]})  # 기록용: 인물만 따로 둔다
     p.meta.theme = p.meta.theme or s.theme
     p.meta.tone = p.meta.tone or s.tone
     for field, value in s.world.model_dump().items():
@@ -144,7 +196,11 @@ def apply_setup(p: Project, s: SetupSuggestion) -> None:
     for c in s.characters:
         old = known.get(c.id)
         if old is not None and (not c.name.strip() or old.name.strip() == c.name.strip()):
-            continue  # 같은 인물
+            if "goal" in fill_character(old, c):  # 같은 인물: 빈 칸만
+                st = next((x for x in p.states if x.character_id == old.id), None)
+                if st is not None and not st.current_goal:
+                    st.current_goal = old.goal
+            continue
         if old is not None:
             k = 2
             while f"{c.id}{k}" in known:
@@ -161,6 +217,7 @@ def apply_setup(p: Project, s: SetupSuggestion) -> None:
             pairs.add(frozenset((r.a, r.b)))
     _init_states(p)
     dynamics.seed_ties(p)
+    charlog.record_author(before, p)
 
 
 def _init_states(p: Project) -> None:
