@@ -251,6 +251,7 @@ class Snapshot(BaseModel):
 class Settings(BaseModel):
     show_numbers: bool = Field(False, description="CLI 에서 관계를 숫자로 보여줄지(True), 말로 보여줄지(False)")
     check_widen: bool = Field(False, description="장편 검수 넓히기: 검수 뒤 진술마다 옛 화를 더 찾아, 첫 검수에 없던 근거가 나온 진술만 다시 묻는다 (검수 호출 2번 더)")
+    storyboard: Optional[bool] = Field(None, description="화마다 쓰기 전에 스토리보드를 만들고, 쓰기 프롬프트에 직전 화 본문 전체를 넣는다. 비우면 장편 켬 · 단편 끔 (board.on)")
     keep_snapshots: bool = Field(False, description="장편에서도 화별 스냅샷을 지우지 않고 모두 남긴다 (연구용 작품: 어느 화로든 되돌릴 수 있다). 끄면 0화 · 아크 끝 · 최근 20화만 남긴다 (pipeline.prune_snapshots)")
 
 
@@ -1199,6 +1200,7 @@ class Episode(BaseModel):
     opening_prev: Optional[EpisodePlot] = Field(None, description="1~3화 여는 방식 안을 처음 고르기 전 플롯 (되돌리기용). 되돌리면 비운다")
     events_done: list[str] = Field(default_factory=list, description="집필 화면 플롯 띠에서 작가가 다 썼다고 체크한 사건의 글. 사건 글을 고치면 그 체크는 풀린다. 프롬프트에 넣지 않는다")
     to_fix: list[ToFix] = Field(default_factory=list, description="작가가 본문에 단 '고칠 곳' 표시. 프롬프트에 넣지 않는다")
+    storyboard: Optional["Storyboard"] = Field(None, description="쓰기 재료: 장면 순서와 이번 화 확정 값 (pipeline.make_storyboard). 상태 승인 대상이 아니다")
 
     @model_validator(mode="after")
     def _old_check(self) -> "Episode":
@@ -1261,6 +1263,91 @@ class Timeline(BaseModel):
     start: str = Field("", description="1일째가 언제인지 글로 (예: 늦겨울, 왕국력 312년). start_date 가 없으면 여기 적은 날짜 · 요일을 읽는다")
     start_date: str = Field("", description="1일째 날짜 YYYY-MM-DD. 있으면 화마다 날짜로 보이고 날짜 · 요일 · 남은 날을 Canon 이 계산한다. 비면 날수(며칠째)로 센다")
     deadlines: list[Deadline] = Field(default_factory=list)
+
+
+# ---------- 화별 스토리보드 ----------
+# 플롯과 집필 사이에 두는 쓰기 재료 (pipeline.make_storyboard). 직전 화를 반영한 뒤 쓰기 바로 전에 만든다.
+# 장면 순서와 이번 화 확정 값만 담고 대사 · 본문 문장은 담지 않는다. 상태 변경안이 아니라 상태 승인 대상이 아니다.
+# 바뀐 양만 적고 날수 · 수치 결과 · 창 글은 Canon 이 매번 센다 (prompts.board_block). 화 번호를 품은 칸은 두지 않는다.
+
+BoardWarnKind = Literal["plot_vs_state", "plot_vs_text", "time", "setting", "next_plot"]
+
+
+class BoardScene(BaseModel):
+    """장면 하나. 대사와 본문 문장은 넣지 않는다."""
+    place: str = Field("", description="장소. [장소 목록]의 이름 그대로. 목록에 없으면 새 이름")
+    spot: str = Field("", description="그 장소 안 자리 (예: 부두 끝 창고, 마차 안)")
+    time: str = Field("", description="장면 시각. 시간대나 '해 뜨기 약 40분 전' 처럼")
+    present: list[str] = Field(default_factory=list, description="이 장면에 함께 있는 인물 id")
+    events: list[int] = Field(default_factory=list, description="이 장면이 맡는 이번 화 플롯 events 번호 (1부터)")
+    goal: str = Field("", description="장면 목표: 시점 인물이 이 장면에서 얻으려는 것")
+    turn: str = Field("", description="전환점: 장면의 흐름이 바뀌는 일 한 줄")
+    end_state: str = Field("", description="장면 끝 상태: 다음 장면이 이어받는 것 (자리, 물건, 감정, 결정)")
+
+
+class BoardTime(BaseModel):
+    """이 화의 시간. 날수는 적지 않고 Canon 이 직전 화 끝에서 이어 센다 (prompts.board_days)."""
+    after: int = Field(0, description="직전 화가 끝난 때에서 며칠 뒤에 시작하는지. 같은 날 0. 회상 · 외전처럼 메인 시간 밖이면 -1")
+    part: str = Field("", description="시작 시간대")
+    days: int = Field(1, description="걸치는 날 수. 하루 안이면 1")
+    end_part: str = Field("", description="끝나는 시간대")
+
+
+class BoardStat(BaseModel):
+    """상태창 수치 변화 한 단계. 단계를 차례로 쌓아 창마다 값을 Canon 이 센다 (prompts.board_steps)."""
+    character_id: str = ""
+    scene: int = Field(0, description="몇 번째 장면에서 바뀌는지 (1부터). 0 이면 화 끝")
+    changes: list[StatValue] = Field(default_factory=list, description="바뀐 항목만. 상태 변경안과 같은 말: -0.7, +300, 13, +독 내성")
+    window: bool = Field(False, description="이 순간 본문에 상태창이 뜨면 true. 뜬 창은 이 단계까지의 값을 모두 보인다")
+    notice: str = Field("", description="창에 함께 뜨는 시스템 알림 한 줄. 값이 아닌 문구")
+
+
+class BoardMove(BaseModel):
+    """장소 이동 하나."""
+    character_id: str = ""
+    to: str = Field("", description="옮겨 가는 곳. [장소 목록]의 이름 그대로")
+    scene: int = Field(0, description="몇 번째 장면에서 옮겨 가는지. 0 이면 장면 사이")
+    ok: SkipJsonSchema[bool] = False  # 작가가 '괜찮아요'로 둔 이동. AI 응답 형식과 프롬프트에서 뺀다
+
+
+class BoardAttire(BaseModel):
+    character_id: str = ""
+    end: str = Field("", description="화가 끝날 때 차림. 바뀐 인물만, 이어지는 상처와 물건까지 다시 적는다")
+    why: str = Field("", description="바뀐 장면과 까닭")
+
+
+class BoardHandover(BaseModel):
+    kind: str = Field("", description="장면, 시간, 몸, 물건, 인물, 숨긴 것, 숫자, 질문 중 하나")
+    text: str = Field("", description="직전 화 끝에서 이어받아야 하는 사실 한 줄. 대사를 옮기지 않는다")
+
+
+class BoardWarning(BaseModel):
+    kind: BoardWarnKind = "plot_vs_state"
+    target: Literal["this", "next"] = Field("this", description="this: 이번 화 플롯, next: 다음 화 플롯")
+    field: str = Field("", description="걸린 플롯 칸 (예: events[4], ending_hook, time)")
+    text: str = Field("", description="무엇이 어긋나는지")
+    resolution: str = Field("", description="이 스토리보드가 택한 처리. 플롯 칸은 바꾸지 않는다")
+
+
+class StoryboardDraft(BaseModel):
+    """LLM 응답 형식 (pipeline.make_storyboard)."""
+    scenes: list[BoardScene] = Field(default_factory=list, description="장면 3~7개, 이번 화 events 를 빠짐없이 나눠 맡는다")
+    time: BoardTime = Field(default_factory=BoardTime)
+    stats: list[BoardStat] = Field(default_factory=list, description="상태창을 쓰는 작품만")
+    stat_basis: list[str] = Field(default_factory=list, description="수치를 정한 근거 한 줄씩 (어느 상태 · 사실에서 셈했는지)")
+    moves: list[BoardMove] = Field(default_factory=list, description="다른 장소로 옮겨 가는 인물만")
+    attire: list[BoardAttire] = Field(default_factory=list)
+    handover: list[BoardHandover] = Field(default_factory=list, description="직전 화 본문 끝에서 이어받을 것")
+    protect: list[str] = Field(default_factory=list, description="다음 화 플롯이 전제하는 것. 이번 화에서 깨지 않는다")
+    warnings: list[BoardWarning] = Field(default_factory=list)
+
+
+class Storyboard(StoryboardDraft):
+    """저장 형식. 계산 결과(날수, 창 값)는 저장하지 않고 화면 · 프롬프트가 매번 센다. LLM 이 채우지 않는 칸은 응답 형식에서 뺀다."""
+    made_at: SkipJsonSchema[str] = ""
+    made_by: SkipJsonSchema[Literal["ai", "author", "both"]] = "ai"
+    basis: SkipJsonSchema[str] = Field("", description="만들 때 입력의 지문 (pipeline.board_basis). 지금 값과 다르면 낡은 것")
+    checks: SkipJsonSchema[list[str]] = Field(default_factory=list, description="Canon 이 센 경고 (값 범위). AI 가 쓰지 않는다")
 
 
 class ForeshadowClue(BaseModel):
