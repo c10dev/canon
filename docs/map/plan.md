@@ -8,7 +8,7 @@
 
 | # | 일감 | 상태 | 명세서 | 먼저 끝날 것 |
 |---|---|---|---|---|
-| 0 | AI 설정 제안의 현대 동네 · 이름으로 자리 찾기 · 건물 한 줄 | PR [#139](https://github.com/c10dev/canon/pull/139), [#140](https://github.com/c10dev/canon/pull/140)(초안) 리뷰 대기 | — | — |
+| 0 | AI 설정 제안의 현대 동네 · 이름으로 자리 찾기 · 건물 한 줄 | [#139](https://github.com/c10dev/canon/pull/139) 머지, [#140](https://github.com/c10dev/canon/pull/140)(초안) 리뷰 대기 | — | — |
 | 1 | 경계 정리 (파일은 그대로) | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [01-boundaries.md](specs/01-boundaries.md) | 0 |
 | 2 | `canon/maps/` 패키지로 옮기기 | 설계 | [02-package.md](specs/02-package.md) | 1 |
 | 3 | `static/atlas.js` 나누기 | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [03-atlas-js.md](specs/03-atlas-js.md) | 0 |
