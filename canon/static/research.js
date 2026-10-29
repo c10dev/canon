@@ -6,7 +6,7 @@
 // 블라인드 비교에서 채택할 때만 작품 본문이 바뀐다.
 
 const RS_TABS = [['probe', '서버 점검'], ['sample', '샘플 생성'], ['stage', '단계 시험'], ['budget', '컨텍스트 크기'], ['check', '검수 시험'], ['compare', '블라인드 비교'], ['stattrial', '상태창 시험'], ['log', '기록']];
-const RS_KIND = { sample: '샘플 생성', stage: '단계 시험', budget: '컨텍스트 크기', check: '검수 시험', compare: '블라인드 비교', pick: '비교 고르기' };
+const RS_KIND = { sample: '샘플 생성', stage: '단계 시험', budget: '컨텍스트 크기', check: '검수 시험', compare: '블라인드 비교', pick: '비교 고르기', cue: '큐 시트 실험' };
 
 function rsInit(name) {
   const c = S.config || {};
@@ -401,6 +401,7 @@ function rsLogView() {
     if (x.kind === 'budget') line = `${x.backend} · 한도 ${x.limit ? rsNum(x.limit) : '알 수 없음'} · ${x.first_over ? `${x.first_over}화부터 넘침` : x.first_tight ? `${x.first_tight}화부터 빠듯함` : '넘침 없음'}`;
     if (x.kind === 'compare') line = `${x.episode}화 · ${x.backends.join(' vs ')}`;
     if (x.kind === 'check') line = `${x.episode}화 · ${x.backend} · ${x.runs.map((m) => `${m.mode} ${m.ok ? `${m.found}/${x.planted.length}` : '실패'}`).join(', ')}`;
+    if (x.kind === 'cue') line = `${x.episode}화 · 큐 ${x.cues}개 · ${x.summary.map((s) => `${s.label} ${rsNum(s.chars)}자`).join(', ')}`;
     if (x.kind === 'pick') line = `${x.episode}화 · ${x.picked} 고름${x.adopted ? ' (본문 채택)' : ''}`;
     return `<li><div class="between"><span><span class="chip">${RS_KIND[x.kind] || x.kind}</span> ${esc(line)}</span><span class="small">${esc(fmtDateTime(x.time))}</span></div>
       <details><summary>자세히</summary><pre class="brief mono">${esc(JSON.stringify(x, null, 2))}</pre></details></li>`;

@@ -34,6 +34,8 @@ from .schema import FieldIdeas, NameOption, Recap
 from . import branches
 from .schema import BranchDiff, BranchInfo, ForkMode
 from . import birth, play
+from . import cue
+from .schema import CueSheetDraft
 from . import tofix
 from .schema import Birth, BirthSketch, Episode, PlayInfo, PlayPerson, PlayUnit
 
@@ -1775,7 +1777,7 @@ class JobIn(BaseModel):
     fit_next: bool = True  # plot_one: 바로 뒤 화를 바꾸지 않는 화로 보고 맞춘다. 끄면 작가가 적은 것대로 마무리하고 뒤 화에 어긋난 점을 표시한다
     episodes: list[int] = []  # stattrial: 시험할 화
     repeats: int = 1  # stattrial: 조건마다 같은 화를 쓸 횟수
-    conditions: list[str] = []  # stattrial: none | json | lines (비우면 셋 다)
+    conditions: list[str] = []  # stattrial: none | json | lines (비우면 셋 다). cue_run: oneshot | score | cues (비우면 셋 다)
     board: Literal["", "make", "none"] = ""  # write: make 면 스토리보드를 새로 만든 뒤 쓴다(바로 쓰기), none 이면 스토리보드 없이 쓴다
 
 
@@ -1819,7 +1821,7 @@ def start_job(name: str, body: JobIn) -> dict:
     if kind in ("write", "state", "plots", "plot_one", "check", "board"):
         _not_auto(name)
     stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "rework": "revise",
-             "hook": "check", "check": "check", "opening_drafts": "write", "stattrial": "write"}.get(kind, "plan")  # 나머지는 plan
+             "hook": "check", "check": "check", "opening_drafts": "write", "stattrial": "write", "cue_run": "write"}.get(kind, "plan")  # 나머지는 plan
     llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
     if kind == "suggest":
@@ -2045,11 +2047,33 @@ def start_job(name: str, body: JobIn) -> dict:
                 job.done, job.note = done, note
             res = stattrial.run(name, store.load(name), llm, eps, reps, conds, progress=step)
             return {"drafts": len(res["drafts"]), "id": res["id"]}
+    elif kind == "cue_sheet":
+        cue.check_episode(p, n)
+        label, total, owned = f"{n}화 큐 시트 만들기", 1, set()
+
+        def fn(job: jobs.Job):
+            sheet = pipeline.make_cue_sheet(llm, cue.before(store.load(name), n), n)
+            cue.with_lock(name, n, lambda lab: cue.set_sheet(lab, sheet, p, by="ai"))
+            return {"cues": len(sheet.cues)}
+    elif kind == "cue_run":
+        conds = cue._conds(body.conditions or None)
+        cue.check_episode(p, n)
+        sheet = store.load_cuelab(name, n).sheet
+        if sheet is None and cue.NEEDS_SHEET & set(conds):
+            raise ValueError("큐 시트를 먼저 만드세요")
+        total = sum(len(sheet.cues) if c == "cues" else 1 for c in conds)
+        label, owned = f"{n}화 큐 시트 실험 (조건 {len(conds)}개 · 쓰기 {total}번)", set()
+
+        def fn(job: jobs.Job):
+            def step(done: int, _total: int, note: str) -> None:
+                job.done, job.note = done, note
+            res = cue.run(name, store.load(name), llm, n, conds, progress=step)
+            return {"takes": len(res["summary"]), "id": res["id"]}
     else:
         raise ValueError(f"모르는 작업이에요: {kind}")
 
     try:
-        with usage.scope(episode=n if kind in ("write", "board", "state", "check", "rework", "hook", "openings", "opening_drafts", "plot_one") else None, task=kind):
+        with usage.scope(episode=n if kind in ("write", "board", "state", "check", "rework", "hook", "openings", "opening_drafts", "plot_one", "cue_sheet", "cue_run") else None, task=kind):
             job = jobs.start(name, kind, n, label, _keep_pending(name, kind, n, label, fn), total=total, owned=owned)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}
@@ -3778,6 +3802,64 @@ def stattrial_estimate(name: str, body: StatTrialIn) -> dict:
         raise ValueError("시험할 화를 고르세요")
     return stattrial.estimate(p, eps, body.repeats, body.conditions or None)
 
+
+
+# ---------- 큐 시트 집필 실험 (canon/cue.py, 사이드바 '본편과 분리') ----------
+# 작품에 저장하지 않는다. 큐 시트와 조건별 본문은 cuelab/<화>.json, AI 작업은 POST /jobs 의 cue_sheet · cue_run.
+
+class CueEstimateIn(BaseModel):
+    conditions: list[str] = []
+
+
+def _cue_labels() -> dict:
+    """화면 이름: 조건과 큐 칸 값 (prompts.CUE_* 의 화면 이름)."""
+    pick = lambda d: [{"key": k, "label": v[0], "about": v[1]} for k, v in d.items()]  # noqa: E731
+    return {"conditions": [{"key": k, "label": v, "about": cue.ABOUT[k]} for k, v in cue.CONDITIONS.items()],
+            "functions": pick(prompts.CUE_FUNCTIONS), "tempos": pick(prompts.CUE_TEMPOS),
+            "voices": pick(prompts.CUE_VOICES), "cadences": pick(prompts.CUE_CADENCES),
+            "max_cues": cue.MAX_CUES, "max_lines": cue.MAX_LINES}
+
+
+@app.get("/api/projects/{name}/cue")
+def cue_home(name: str) -> dict:
+    """큐 시트 실험 화면: 시험할 수 있는 화, 실험 파일이 있는 화, 화면 이름, 지난 실험(실험 기록 kind cue, 최근 10개)."""
+    p = _load(name)
+    runs = [r for r in research.history(name, 200) if r.get("kind") == "cue"][:10]
+    return {"candidates": cue.candidates(p), "labs": store.cuelab_episodes(name), "runs": runs, **_cue_labels()}
+
+
+@app.get("/api/projects/{name}/cue/{n}")
+def cue_lab(name: str, n: int) -> dict:
+    """n화 큐 시트와 조건별 본문 · 채점."""
+    p = _load(name)
+    p.episode(n)
+    return cue.view(name, p, n)
+
+
+@app.put("/api/projects/{name}/cue/{n}/sheet")
+def cue_put_sheet(name: str, n: int, body: CueSheetDraft) -> dict:
+    """작가가 고친 큐 시트를 저장한다."""
+    p = _load(name)
+    p.episode(n)
+    cue.with_lock(name, n, lambda lab: cue.set_sheet(lab, body, p))
+    return cue.view(name, p, n)
+
+
+@app.post("/api/projects/{name}/cue/{n}/sheet/board")
+def cue_board_sheet(name: str, n: int) -> dict:
+    """AI 없이 스토리보드 장면(없으면 플롯 사건)마다 큐 하나인 뼈대를 만든다. 지금 시트를 덮는다."""
+    p = _load(name)
+    cue.check_episode(p, n)
+    sheet = cue.from_board(p, n)
+    cue.with_lock(name, n, lambda lab: cue.set_sheet(lab, sheet, p, by="board"))
+    return cue.view(name, p, n)
+
+
+@app.post("/api/projects/{name}/cue/{n}/estimate")
+def cue_estimate(name: str, n: int, body: CueEstimateIn) -> dict:
+    """쓰기 호출 수와 비용 추정. AI 를 부르지 않는다."""
+    p = _load(name)
+    return cue.estimate(p, n, store.load_cuelab(name, n).sheet, body.conditions or None)
 
 # ---------- 작품 속 시간 (canon/timeline.py) ----------
 # 켜고 끄기, 기준 날짜, 화가 끝난 시점, 플롯의 시점은 작품 전체 저장(PUT /projects/<이름>)으로 고친다.
