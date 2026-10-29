@@ -1,6 +1,6 @@
 # 06. three.js 들이기
 
-상태: 명세 · 지도: [../README.md](../README.md) 의 06 · 먼저: 없음 · 이어서: [05-render.md](05-render.md)
+상태: 완료 (2026-10-29, `canon/static/vendor/three/`, 로더 `canon/static/stage3d-load.js` 의 `load3d()`) · 지도: [../README.md](../README.md) 의 06 · 먼저: 없음 · 이어서: [05-render.md](05-render.md)
 
 ## 목표
 
@@ -42,6 +42,12 @@
 ## 문서
 
 AGENTS.md 표에 `canon/static/vendor/` 줄(바깥 라이브러리, 고치지 않음). 저장소 README 의 라이선스 · 출처가 있으면 three.js 한 줄.
+
+## 구현 메모
+
+- 05 가 three.js 를 한 곳에서 읽게 작은 로더 `canon/static/stage3d-load.js`(`load3d()`)를 더하고 `index.html` 에 넣었다. 로더는 three.js 를 import 하지 않고, 처음 부를 때 세 모듈을 `import()` 로 읽는다. 05 는 `await load3d()` 로 `{THREE, OrbitControls, CSS2DRenderer, CSS2DObject}` 를 받는다.
+- `/static` 은 폴더째 내보내고 `.js` 를 `text/javascript` 로 준다(시험이 확인). 서버는 고치지 않았다.
+- 시험은 크기와 sha256 을 함께 맞춰 보고, `index.html` 이 three.js 를 직접 읽지 않는지와 로더 경로도 본다.
 
 ## 확인하지 못할 것
 
