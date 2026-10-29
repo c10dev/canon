@@ -1693,7 +1693,7 @@ class PlaceLink(BaseModel):
 class MapPlace(BaseModel):
     """지도 만들기에서 작가가 고친 장소 하나: 종류와 이 지도에 놓을지."""
     key: str = Field(description="장소 키 (atlas.places)")
-    kind: str = Field("", description="종류 id (towngen.CATEGORIES). 비면 이름 · 설명에서 찾는다")
+    kind: str = Field("", description="종류 id (placekinds.KINDS). 지도 종류의 시대와 다른 id 는 placekinds.to_era 로 읽는다. 비면 이름 · 설명에서 찾는다")
     put: Optional[bool] = Field(None, description="이 지도에 놓을지. 비면 종류로 정한다 (마을 밖 장소는 놓지 않음)")
 
 
@@ -1713,10 +1713,32 @@ class MapSpec(BaseModel):
 class TravelSetting(BaseModel):
     """이동 시간 검사 설정 (canon/travel.py). 지도 거리와 작품 속 시간을 견줘 너무 빠른 이동을 찾는다."""
     enabled: bool = Field(True, description="끄면 지도 화면 · 상태 변경안 경고 · 프롬프트의 이동 거리를 모두 뺀다 (순간 이동이 흔한 작품 등)")
-    mode: str = Field("horse", description="이 세계에서 인물이 쓰는 가장 빠른 탈것 (travel.MODES 의 id)")
+    mode: str = Field("horse", description="이 세계에서 인물이 쓰는 가장 빠른 탈것 (travel.MODES 의 id). transit(대중교통)은 걸어서와 지하철(Atlas.transit) 가운데 빠른 쪽")
     kmh: float = Field(0, description="작가가 정한 이동 빠르기 (km/시). 0 이면 탈것의 기본값")
     day_km: float = Field(0, description="작가가 정한 하루 이동 거리 (km). 0 이면 탈것의 기본값")
     ok: list[str] = Field(default_factory=list, description="작가가 '괜찮아요'로 둔 이동 ('인물 id:화'). 경고에서 뺀다")
+
+
+class TransitStation(BaseModel):
+    """지하철 역 하나 (지도 데이터 transit.stations 의 사본). x · y 는 지도 비율이고 지도 밖 역은 0~1 밖일 수 있다."""
+    name: str = Field("", description="역 이름 (OpenStreetMap name 태그 그대로)")
+    x: float = 0
+    y: float = 0
+    lines: list[str] = Field(default_factory=list, description="이 역을 지나는 노선 이름")
+
+
+class TransitLine(BaseModel):
+    """지하철 노선 하나: 지도 데이터에 든 역을 차례로. 방향이 다른 relation 은 하나로 묶었다."""
+    name: str = ""
+    stations: list[int] = Field(default_factory=list, description="TransitStation 번호를 노선 차례로")
+    gaps: list[int] = Field(default_factory=list, description="stations[i] 와 stations[i+1] 사이에 파일에 없는 역 수. 비면 모두 0")
+
+
+class Transit(BaseModel):
+    """지도 데이터의 지하철(osm 의 transit 키)을 작품에 적어 둔 사본. 상태 변경안 정리 · 프롬프트처럼 작품 폴더를 모르는 곳에서
+    이동 시간 검사(travel.py)가 읽는다. 지도 파일을 놓거나 바꿀 때 atlas.fill_spots 가 다시 쓴다."""
+    stations: list[TransitStation] = Field(default_factory=list)
+    lines: list[TransitLine] = Field(default_factory=list)
 
 
 class MapFill(BaseModel):
@@ -1739,6 +1761,7 @@ class Atlas(BaseModel):
     span_km: float = Field(0, description="지도 가로가 몇 km 인지 (마을 데이터가 없을 때 이동 거리 계산). 0 이면 모름")
     layout_size: list[float] = Field(default_factory=list, description="마을 데이터의 [가로, 세로] (원래 단위). 마을 데이터를 놓을 때 채운다")
     travel: TravelSetting = Field(default_factory=TravelSetting)
+    transit: Optional[Transit] = Field(None, description="지도 데이터의 지하철 역 · 노선 사본 (OpenStreetMap 지도만). 없으면 None")
 
 
 class ReleasePlan(BaseModel):
