@@ -21,19 +21,21 @@ from typing import Any, Callable, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from . import charlog, dynamics, findings, jobs, pipeline, prompts, settings, store, usage
+from . import board, charlog, dynamics, findings, jobs, pipeline, prompts, settings, store, usage
 from .llm import BatchLLM, Interrupted, SchemaMismatch, get_llm
 from .research import CHARS_PER_TOKEN, JSON_OUTPUT_RESERVE, _filler
 from .schema import ConsistencyReport, Project, StateDelta, TextVersion
 
 LOG_KEEP = 500
-STEP_NAMES = {"write": "본문", "check": "검수", "state": "상태 변경안"}
+STEP_NAMES = {"plan": "스토리보드", "write": "본문", "check": "검수", "state": "상태 변경안"}
 # 루프 단계(Run.step) 이름: 서버 재시작 뒤 어느 단계를 다시 하는지 알릴 때
-RUN_STEPS = {"write": "본문 쓰기", "review": "검수와 상태 변경안 만들기", "confirm": "플롯 확정"}
+RUN_STEPS = {"board": "스토리보드 만들기", "write": "본문 쓰기", "review": "검수와 상태 변경안 만들기", "confirm": "플롯 확정"}
 # 화 상태 이름 (화면 STATUS 와 같은 말)
 EP_STATUS = {"draft": "플롯 초안", "confirmed": "플롯 확정", "written": "본문 작성됨", "finalized": "상태 반영 완료"}
 # 측정값이 없을 때 쓰는 단계별 소요 시간 추정 (초, 일반 호출)
-SECONDS = {"write": 90.0, "check": 40.0, "state": 40.0}
+SECONDS = {"plan": 90.0, "write": 90.0, "check": 40.0, "state": 40.0}
+# 스토리보드 추정: 출력 토큰, 쓰기 프롬프트에 붙는 블록 글자 수 (손으로 채운 스토리보드 예시에서 잰 어림, DESIGN.md)
+BOARD_OUT, BOARD_CHARS = 3500, 3500
 # 배치 한 번 기다리는 시간 가정 (초): 보통 범위. 최악은 24시간
 BATCH_WAIT = (3 * 60.0, 60 * 60.0)
 
@@ -52,6 +54,9 @@ class Policy(BaseModel):
     confirm_plots: bool = Field(False, description="초안 플롯을 만나면 자동으로 확정하고 쓴다. 끄면 그 화에서 멈춤")
     review_every: int = Field(0, description="이번 실행에서 N화를 반영할 때마다 멈춤. 0 이면 멈추지 않음")
     hand_pick_opening: bool = Field(True, description="1~3화는 쓰고 검수한 뒤 반영하기 전에 멈춤. 독자가 계속 읽을지 정하는 화라 작가가 읽고 고른다")
+    storyboard: bool = Field(True, description="화마다 쓰기 전에 스토리보드를 만들어 쓴다 (작품이 스토리보드를 쓸 때만, board.on)")
+    stop_on_board_warnings: bool = Field(True, description="AI 가 만든 스토리보드에 이번 화 플롯과 어긋남(plot_vs_state · plot_vs_text · time)이나 "
+                                         "값 범위 경고가 있으면 멈춤. 다음 화 플롯 경고는 기록만. 작가가 고친 스토리보드로는 멈추지 않는다")
 
 
 class LogEntry(BaseModel):
@@ -75,7 +80,7 @@ class Run(BaseModel):
     step: str = ""
     reasons: list[str] = Field(default_factory=list, description="멈춘 이유")
     halt: str = Field("", description="멈춘 종류. 화면이 고칠 곳으로 가는 버튼을 고른다: "
-                      "plot_missing | plot_draft | review | every | changed | reverted | schema | error")
+                      "plot_missing | plot_draft | board | board_stale | review | every | changed | reverted | schema | error")
     restarts: int = Field(0, description="서버가 다시 시작돼 이어 간 횟수 (그때 하던 단계는 처음부터 다시 한다)")
     pending: Optional[StateDelta] = Field(None, description="검토 대기 중인 변경안")
     pending_text: str = Field("", description="검토 대기 변경안을 만든 본문. 그 뒤 본문을 고쳤으면 그대로 반영하지 않는다")
@@ -252,7 +257,8 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
             e.text = _filler(p, p.meta.words_per_episode)
     measured = _measured(name)
     write_out = p.meta.words_per_episode / CHARS_PER_TOKEN
-    steps = {"write": 0, "check": 0, "state": 0}
+    steps = {"plan": 0, "write": 0, "check": 0, "state": 0}
+    boards = policy.storyboard and board.on(p)
     tokens = {s: [0.0, 0.0] for s in steps}
     missing = []
     for n in todo:
@@ -268,7 +274,10 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
                 calls.append(("check", prompts.SYSTEM_CHECKER + prompts.widen_prompt(sim, n, [], []) + " " * (
                     prompts.WIDEN_MAX * prompts.TWOSTEP_EVIDENCE), JSON_OUTPUT_RESERVE))
         if e.status in ("draft", "confirmed"):
-            calls.append(("write", prompts.writer_system(sim) + prompts.episode_prompt(sim, n), write_out))
+            made = boards and e.storyboard is None
+            if made:  # 스토리보드 만들기 한 번 + 쓰기 프롬프트에 들어갈 스토리보드 블록
+                calls.append(("plan", prompts.SYSTEM_PLANNER + prompts.storyboard_prompt(sim, n), BOARD_OUT))
+            calls.append(("write", prompts.writer_system(sim) + prompts.episode_prompt(sim, n) + " " * (BOARD_CHARS if made else 0), write_out))
         for step, text, out in calls:
             m = measured.get(step + (":batch" if batch and batchable(step) else "")) or measured.get(step)
             steps[step] += 1
@@ -277,7 +286,7 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
     cost: Optional[float] = 0.0
     unpriced = []
     for step, (tin, tout) in tokens.items():
-        c = stage_cost(step, tin, tout, batch)
+        c = stage_cost(step, tin, tout, batch and step != "plan")
         if c is None:
             unpriced.append(gemini_model(step))
         elif cost is not None:
@@ -287,7 +296,7 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
     eps = len(todo) - len(missing)
 
     def secs(step: str) -> float:
-        if batch and batchable(step):
+        if batch and batchable(step) and step != "plan":
             return 0.0  # 배치 대기는 rounds 로 따로 센다
         m = measured.get(step)
         return m["seconds"] if m else SECONDS[step]
@@ -297,7 +306,7 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
     widen = 3 if policy.check and p.serial and p.settings.check_widen else 1
     slow = widen if "check" not in measured else 1  # 잰 검수 시간은 넓히기까지 든 시간이다
     # 일반 호출: 본문 + (동시에 부르는 검수와 상태 변경안 중 긴 쪽)
-    normal = steps["write"] * secs("write") + eps * max((secs(s) * (slow if s == "check" else 1) for s in review), default=0.0)
+    normal = steps["plan"] * secs("plan") + steps["write"] * secs("write") + eps * max((secs(s) * (slow if s == "check" else 1) for s in review), default=0.0)
     # 배치: 본문 한 번, 검수 + 상태 변경안 한 번을 기다린다 (넓히기를 켜면 검수 배치를 두 번 더 기다린다)
     rounds = ((steps["write"] if batchable("write") else 0) + (eps if any(batchable(s) for s in review) else 0)
               + (eps * (widen - 1) if "check" in review and batchable("check") else 0)) if batch else 0
@@ -374,7 +383,8 @@ class Runner:
 
     def _call(self, stage: str, n: int, fn: Callable[[Any], Any]) -> tuple[Any, dict]:
         llm = get_llm(stage)
-        use_batch = self.run.batch and hasattr(llm, "batch_submit") and getattr(llm, "can_batch", True)
+        # 스토리보드(plan)는 배치로 보내지 않는다: 쓰기를 바로 이어야 하고 한 화에 한 번이라 아낄 것이 적다
+        use_batch = self.run.batch and stage != "plan" and hasattr(llm, "batch_submit") and getattr(llm, "can_batch", True)
         if use_batch:
             llm = BatchLLM(llm, f"{n}:{stage}", self.run.batches, self.ctl.save, self.ctl.wait,
                            label=f"canon {self.name}", note=lambda m: self.log(f"{n}화 {STEP_NAMES[stage]}: {m}", "warn"))
@@ -433,6 +443,8 @@ class Runner:
                     continue
                 if e.status == "confirmed":
                     self._recap_note(p)
+                    if self._board(p, n):
+                        continue  # 새 스토리보드를 저장했다. 다시 읽고 쓴다
                     self._write(p, n)
                     continue
                 self._review(p, n)
@@ -454,6 +466,41 @@ class Runner:
             unit = "아크" if kind == "arc" else "부"
             self.log(f"{unit} {num} 요약이 아직 없어요. 요약을 저장하기 전까지 그 {unit}의 줄거리는 화마다 첫 문장으로만 "
                      "들어가 앞 이야기가 흐려질 수 있어요. 기획 화면에서 요약을 저장해 주세요", "warn")
+
+    def _board(self, p: Project, n: int) -> bool:
+        """쓰기 전 스토리보드. 없거나 낡았으면 새로 만들어 저장하고 True. 작가가 고친 스토리보드가 낡았거나,
+        AI 스토리보드에 이번 화 플롯과 어긋남 경고가 있으면(정책) 멈춘다. 다음 화 플롯 경고는 기록만 한다."""
+        if not (self.run.policy.storyboard and board.on(p)):
+            return False
+        b = p.episode(n).storyboard
+        if b is not None and not board.stale(p, n):
+            if b.made_by == "ai" and self.run.policy.stop_on_board_warnings:
+                reasons = board.stop_reasons(p, n, b)
+                if reasons:
+                    raise _Halt("paused", f"{n}화 스토리보드가 플롯과 어긋나 멈췄어요", reasons + [
+                        "집필 화면의 스토리보드 카드에서 고치거나 그대로 저장한 뒤 이어 가세요"], kind="board")
+            return False
+        if b is not None and b.made_by != "ai":
+            raise _Halt("paused", f"{n}화 스토리보드를 만든 뒤 앞 화나 플롯이 바뀌었어요", [
+                f"작가가 고친 {n}화 스토리보드는 새로 만들지 않아요. 집필 화면에서 다시 만들거나 그대로 저장한 뒤 이어 가세요"],
+                kind="board_stale")
+        self._set(n, "board")
+        self.log(f"{n}화 스토리보드를 만드는 중")
+        made, use = self.call("plan", n, lambda llm: pipeline.make_storyboard(llm, p, n))
+
+        def put(q: Project) -> None:
+            st = q.episode(n).status
+            if st != "confirmed":
+                raise _Halt("paused", f"{n}화 상태가 '{EP_STATUS.get(st, st)}'(으)로 바뀌어 멈췄어요", [
+                    f"스토리보드를 만드는 사이 {n}화가 '{EP_STATUS.get(st, st)}' 상태로 바뀌어 만든 스토리보드는 버렸어요",
+                    f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"], kind="changed")
+            pipeline.set_storyboard(q, n, made, by="ai")
+        _edit(self.name, put)
+        self.log(f"{n}화 스토리보드: 장면 {len(made.scenes)}개", **use)
+        for w in made.warnings:
+            if w.target == "next" or w.kind not in board.STOP_KINDS:
+                self.log(f"스토리보드 {board.WARN_LABELS[w.kind]} 경고: {w.text}", "warn")
+        return True
 
     def _write(self, p: Project, n: int) -> None:
         self._set(n, "write")
