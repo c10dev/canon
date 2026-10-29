@@ -78,3 +78,53 @@ class UpdaterTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_update_check_endpoint_wakes_only_when_watching(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from canon import web
+
+    monkeypatch.setattr(updater, "watching", False)
+    monkeypatch.setattr(updater, "wake", __import__("threading").Event())
+    c = TestClient(web.app)
+    r = c.post("/api/update/check").json()
+    assert r["started"] is False and not updater.wake.is_set()  # --no-update 로 띄운 서버
+    monkeypatch.setattr(updater, "watching", True)
+    r = c.post("/api/update/check").json()
+    assert r["started"] is True and updater.wake.is_set()
+
+
+def test_serve_checks_at_once_when_woken(monkeypatch):
+    """확인 간격(10분)을 기다리지 않고 깨우자마자 받고 다시 시작한다."""
+    import threading
+    import time
+
+    import uvicorn
+
+    from canon import web
+
+    class FakeServer:
+        def __init__(self, config):
+            self.should_exit, self.started = False, True
+
+        def run(self):
+            while not self.should_exit:
+                time.sleep(0.01)
+
+    calls, restarted = [], threading.Event()
+    monkeypatch.setattr(uvicorn, "Server", FakeServer)
+    monkeypatch.setattr(updater, "watching", False)
+    monkeypatch.setattr(updater, "wake", threading.Event())
+    monkeypatch.setattr(updater, "update", lambda: calls.append(1) or updater.Result(True, "1개 커밋을 받았어요"))
+    monkeypatch.setattr(updater, "restart", lambda no_browser=False: restarted.set())
+    monkeypatch.setattr(web.autorun, "resume_all", lambda: [])
+    t = threading.Thread(target=web.serve, kwargs={"update_interval": 600}, daemon=True)
+    t.start()
+    end = time.time() + 5
+    while not updater.watching and time.time() < end:
+        time.sleep(0.01)
+    assert updater.watching and calls == []  # 간격을 기다리는 중
+    updater.wake.set()
+    assert restarted.wait(5) and calls == [1]
+    t.join(5)
