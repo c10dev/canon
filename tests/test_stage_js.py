@@ -27,6 +27,8 @@ def _scenes(room):
         StageBeat(bodies=[StageBody(who="d", at=sp("@h", "across")), StageBody(who="m", at=sp(a["문"], "against")),
                           StageBody(who="x", at=sp(a["책상"], "across"))]),
         StageBeat(bodies=[StageBody(who="h", at=sp("@d", "against"))]),
+        # 기준 인물(d)이 나(h)를 향하는데 내 자리를 아직 모른다: 앞 박자의 내 자리 쪽이 d 의 앞
+        StageBeat(bodies=[StageBody(who="d", at=sp(a["침대"], "right"), facing="@h"), StageBody(who="h", at=sp("@d", "front"))]),
     ])
     loop = StageScene(id="s2", cast=["p", "q"], start=[StageBody(who="p", at=sp("@q", "front")), StageBody(who="q", at=sp("@p", "back"))])
     return [one, loop]
@@ -42,8 +44,8 @@ def test_layout_matches_server(template):
                 room.anchors.append(stage.make_room("bedroom", "b").anchors[[x.name for x in stage.make_room("bedroom", "b").anchors].index(name)])
                 room.anchors[-1].id = f"x{len(room.anchors)}"
     scenes = _scenes(room)
-    want = [[{w: list(xy) for w, xy in stage.place(room, stage.state_at(s, k), s.cast).items()} for k in range(len(s.beats) + 1)] for s in scenes]
-    got = run_js(FILES, """data.scenes.map((s) => [...Array(s.beats.length + 1).keys()].map((k) => stageLayout(data.room, stageState(s, k), s.cast)))""",
+    want = [[{w: list(xy) for w, xy in pos.items()} for pos in stage.layouts(room, s)] for s in scenes]
+    got = run_js(FILES, """data.scenes.map((s) => stageLayouts(data.room, s))""",
                  {"room": dump(room), "scenes": [dump(s) for s in scenes]})
     for gs, ws in zip(got, want):
         for g, w in zip(gs, ws):
@@ -82,6 +84,10 @@ def test_views_render():
       stgPick();
       const main = viewStage(1);
       const plan = stgPlanSvg(stgTarget(1).pos, stgTarget(1).ang, 1);
+      const flag = (contact) => { S.stg.check = { ...S.stg.check, violations: [{ beat: 1, cause: 1, who: 'd', rule: 'reach', text: '', contact }] };
+        return stgPlanSvg(stgTarget(1).pos, stgTarget(1).ang, 1); };
+      const other = flag('c9'), own = flag('c1');
+      S.stg.check = { ...S.stg.check, violations: [] };
       S.stg.who = 'h';
       const minorCard = stgPersonCard();
       S.stg.mode = 'room';
@@ -89,10 +95,12 @@ def test_views_render():
       S.stg.ev = 1; stgPick();
       const fresh = viewStage(1);
       const nav = navItems().tools.find((x) => x[0] === 'stage');
-      return { main, plan, minorCard, room, fresh, nav, plot: eventsField(ep(1), 'episodes.0.plot', false) };
+      return { main, plan, other, own, minorCard, room, fresh, nav, plot: eventsField(ep(1), 'episodes.0.plot', false) };
     })()""", {"p": dump(p), "view": view})
     assert "장면 연출" in got["main"] and "도윤이 손목을 잡았다." in got["main"] and "규칙 검수" not in got["main"]  # 문 앞에 0.5m 간격으로 서서 닿는다
     assert 'data-stg-who="d"' in got["plan"] and "stg-contact" in got["plan"]
+    # 지적이 있는 접촉 선만 빨갛다: 사람은 지적이 있으면 빨갛고, 선은 지적의 접촉 id 가 같아야 빨갛다
+    assert "stg-contact bad" not in got["other"] and "stg-person bad" in got["other"] and "stg-contact bad" in got["own"]
     part_sel = re.search(r'data-stg-form="part">(.*?)</select>', got["minorCard"]).group(1)
     assert "미성년 인물이 있어" in got["minorCard"] and "애무하다" not in got["minorCard"] and "가슴" not in part_sel and "왼 손목" in part_sel
     assert "방 고치기" in got["room"] and "data-stg-anchor-name" in got["room"]

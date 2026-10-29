@@ -102,11 +102,12 @@ HANDS = {"left": "왼손", "right": "오른손", "both": "두 손"}
 UNKNOWN = "?"  # 손 상태를 모름: 판정기는 빈손으로도 찬 손으로도 보지 않는다
 
 # ---------- 방 틀 ----------
-# (이름, 가로, 세로, [(기준점 이름, 종류, x, y, w, h, rot, 앉기, 눕기)]). 문 rot 180 은 앞쪽이 방 안(위)이라는 뜻이다
+# (이름, 가로, 세로, [(기준점 이름, 종류, x, y, w, h, rot, 앉기, 눕기)]). 문 rot 180 은 앞쪽이 방 안(위)이라는 뜻이다.
+# 의자 · 자리 · 소파의 앞은 마주 보는 가구(책상 · 탁자 · 교탁 · 앞유리, 마주 앉는 자리) 쪽이다 (tests/test_stage.py)
 
 ROOMS = {
     "bedroom": ("침실", 4.0, 3.2, [("침대", "bed", 0.2, 0.25, 1.4, 2.0, 0, True, True), ("책상", "desk", 2.8, 0.15, 1.0, 0.55, 0, False, False),
-                                  ("의자", "chair", 2.2, 0.2, 0.5, 0.5, 0, True, False), ("창", "window", 1.9, 0.0, 0.8, 0.1, 0, False, False),
+                                  ("의자", "chair", 2.2, 0.2, 0.5, 0.5, 270, True, False), ("창", "window", 1.9, 0.0, 0.8, 0.1, 0, False, False),
                                   ("문", "door", 3.1, 3.1, 0.8, 0.1, 180, False, False)]),
     "living": ("거실", 5.0, 4.0, [("소파", "sofa", 0.4, 2.9, 2.2, 0.9, 180, True, True), ("탁자", "table", 0.9, 1.9, 1.2, 0.6, 0, False, False),
                                  ("텔레비전", "other", 0.8, 0.0, 1.4, 0.3, 0, False, False), ("창", "window", 3.6, 0.0, 1.2, 0.1, 0, False, False),
@@ -115,8 +116,8 @@ ROOMS = {
                                     ("앞자리", "seat", 2.0, 2.2, 1.2, 0.6, 180, True, False), ("뒷자리", "seat", 4.8, 5.4, 1.2, 0.6, 180, True, False),
                                     ("창가 자리", "seat", 0.4, 3.8, 1.2, 0.6, 180, True, False), ("앞문", "door", 7.9, 0.6, 0.1, 1.0, 90, False, False),
                                     ("뒷문", "door", 7.9, 5.6, 0.1, 1.0, 90, False, False)]),
-    "office": ("사무실", 5.0, 4.0, [("책상", "desk", 1.8, 0.4, 1.6, 0.8, 0, False, False), ("의자", "chair", 2.35, 1.3, 0.5, 0.5, 180, True, False),
-                                   ("손님 의자", "chair", 2.35, 2.2, 0.5, 0.5, 0, True, False), ("책장", "other", 0.0, 0.4, 0.4, 2.0, 270, False, False),
+    "office": ("사무실", 5.0, 4.0, [("책상", "desk", 1.8, 0.9, 1.6, 0.8, 0, False, False), ("의자", "chair", 2.35, 0.3, 0.5, 0.5, 0, True, False),
+                                   ("손님 의자", "chair", 2.35, 2.1, 0.5, 0.5, 180, True, False), ("책장", "other", 0.0, 0.4, 0.4, 2.0, 270, False, False),
                                    ("문", "door", 2.1, 3.9, 0.9, 0.1, 180, False, False)]),
     "car": ("차 안", 1.8, 3.0, [("운전석", "seat", 0.15, 0.9, 0.7, 0.7, 180, True, False), ("조수석", "seat", 0.95, 0.9, 0.7, 0.7, 180, True, False),
                                ("뒷좌석", "seat", 0.15, 1.9, 1.5, 0.7, 180, True, True), ("앞유리", "window", 0.1, 0.0, 1.6, 0.1, 0, False, False)]),
@@ -267,8 +268,10 @@ def facing_vec(facing: str, me: tuple[float, float], room: StageRoom, pos: dict)
     return (dx / d, dy / d) if d > 1e-6 else None
 
 
-def place(room: StageRoom, state: dict[str, Now], order: Optional[list[str]] = None) -> dict[str, tuple[float, float]]:
-    """인물마다 평면도 좌표 (m). 자리를 모르는 인물은 빠진다. order 는 같은 자리를 펼 때의 순서 (보통 scene.cast)."""
+def place(room: StageRoom, state: dict[str, Now], order: Optional[list[str]] = None,
+          prev: Optional[dict[str, tuple[float, float]]] = None) -> dict[str, tuple[float, float]]:
+    """인물마다 평면도 좌표 (m). 자리를 모르는 인물은 빠진다. order 는 같은 자리를 펼 때의 순서 (보통 scene.cast).
+    prev 는 앞 박자 좌표: 기준 인물이 나를 향하는데 내 자리를 아직 모르면 앞 박자의 내 자리 쪽을 그 인물의 앞으로 친다."""
     names = [w for w in (order or []) if w in state] + [w for w in state if w not in (order or [])]
     anchors = {a.id: a for a in room.anchors}
     pos: dict[str, tuple[float, float]] = {}
@@ -291,12 +294,21 @@ def place(room: StageRoom, state: dict[str, Now], order: Optional[list[str]] = N
         for w in list(rest):
             ref = state[w].at.ref[1:]
             if ref in pos:
-                pos[w] = _person_point(pos[ref], state[ref].facing, state[w].at.rel, room, pos)
+                look = {**pos, w: prev[w]} if prev and w in prev else pos
+                pos[w] = _person_point(pos[ref], state[ref].facing, state[w].at.rel, room, look)
                 rest.remove(w)
                 moved = True
         if not moved:
             pos[rest.pop(0)] = (room.w / 2, room.h / 2)
     return {w: (min(max(x, BODY), room.w - BODY), min(max(y, BODY), room.h - BODY)) for w, (x, y) in pos.items()}
+
+
+def layouts(room: StageRoom, scene: StageScene) -> list[dict[str, tuple[float, float]]]:
+    """박자마다 좌표 (0 은 시작 상태). 박자마다 앞 박자 좌표를 place 의 prev 로 넘긴다."""
+    out: list[dict[str, tuple[float, float]]] = []
+    for k in range(len(scene.beats) + 1):
+        out.append(place(room, state_at(scene, k), scene.cast, out[-1] if out else None))
+    return out
 
 
 def _person_point(o: tuple[float, float], facing: str, rel: str, room: StageRoom, pos: dict) -> tuple[float, float]:
@@ -327,6 +339,7 @@ class Violation(BaseModel):
     who: str
     rule: str
     text: str           # 해요체 설명
+    contact: str = ""   # 어긋난 접촉 id (reach · behind_front, hand_busy 는 이번 박자에 그 손으로 시작한 접촉). 없으면 빈칸
 
 
 def _name(p: Project, cid: str) -> str:
@@ -360,9 +373,10 @@ def judge(scene: StageScene, room: StageRoom, p: Project) -> list[Violation]:
     """박자마다 규칙 다섯 개를 본다. 손 상태가 '?' 이거나 자리 · 향함을 모르면 그 규칙은 짚지 않는다."""
     out: list[Violation] = []
     prev = state_at(scene, 0)
+    spots = layouts(room, scene)
     for k, beat in enumerate(scene.beats, 1):
         now = state_at(scene, k)
-        pos = place(room, now, scene.cast)
+        pos = spots[k]
         for b in beat.bodies:
             w, me = b.who, now.get(b.who)
             if me is None:
@@ -375,7 +389,8 @@ def judge(scene: StageScene, room: StageRoom, p: Project) -> list[Violation]:
                 load = _hand_load(me, hand)
                 if new and len(load) > 1:
                     old = [x for x in load if x[1] < k] or load[:1]
-                    out.append(Violation(beat=k, cause=old[0][1], who=w, rule="hand_busy",
+                    cid = next((c.id for c in b.contacts if c.by in (hand, "both")), "")
+                    out.append(Violation(beat=k, cause=old[0][1], who=w, rule="hand_busy", contact=cid,
                                          text=f"{name} {HANDS[hand]}이 이미 바빠요 (맡은 것: {', '.join(x[0] for x in load)}). 한 손으로 두 곳을 맡을 수 없어요."))
             # 이동 자세: 자리가 바뀌었는데 선 자세가 아니다
             was = prev.get(w)
@@ -394,7 +409,7 @@ def judge(scene: StageScene, room: StageRoom, p: Project) -> list[Violation]:
                 d = math.dist(pos[w], pos[c.to])
                 limit = REACH_HAND if hand else REACH_BODY
                 if d > limit:
-                    out.append(Violation(beat=k, cause=max(me.at_at, now[c.to].at_at), who=w, rule="reach",
+                    out.append(Violation(beat=k, cause=max(me.at_at, now[c.to].at_at), who=w, rule="reach", contact=c.id,
                                          text=f"{name} → {to_name}: {d:.1f}m 떨어져 있어 닿지 않아요 ({'손' if hand else '몸'} 접촉은 {limit:g}m 안)."))
                     continue
                 part = PARTS.get(c.part)
@@ -402,7 +417,7 @@ def judge(scene: StageScene, room: StageRoom, p: Project) -> list[Violation]:
                 if hand and part and part.side == "front" and tv and d > 1e-6:
                     ux, uy = pos[w][0] - pos[c.to][0], pos[w][1] - pos[c.to][1]
                     if tv[0] * ux + tv[1] * uy < 0:
-                        out.append(Violation(beat=k, cause=k, who=w, rule="behind_front",
+                        out.append(Violation(beat=k, cause=k, who=w, rule="behind_front", contact=c.id,
                                              text=f"{name} → {to_name}: 등 뒤에 있는데 몸 앞쪽({part.label})에 닿아요."))
             # 물건: 한 손에 쥔 물건을 놓지 않고 다른 손으로 다시 쥔다
             for hand, other in (("left", "right"), ("right", "left")):
