@@ -76,3 +76,27 @@ def test_progress_line_marks_done_now_and_goal():
     assert "열쇠가 남는다" in steps[3] and "도착" not in steps[3]
     assert "도착" in all_.split('wp-step goal')[1]  # 모두 체크하면 도착점에 '도착'
     assert after == [True, False, True]
+
+
+@needs_node
+def test_write_go_follows_board_choice():
+    # 본문이 없는 화의 머리 primary: 스토리보드 고르기에 따라 이름과 동작이 바뀐다. 작업이 돌면 진행 줄과 멈추기
+    expr = """S.project = data; S.name = 'lh'; S.jobs = []; S.starting = new Set();
+      const pick = (v, on) => { S.project.settings.storyboard = on; S.wsBoard = v; const g = writeGo(2, []);
+        const m = g.primary.match(/data-action="(\\w+)" data-arg="([^"]*)"/); return [g.label, m && m[1], m && m[2]]; };
+      const out = [pick(undefined, false), pick(undefined, true), pick('go', true), pick('none', true)];
+      S.jobs = [{ id: 'j1', status: 'running', project: 'lh', kind: 'board', ep: 2, label: '2화 스토리보드', started: Date.now() / 1000, done: 0, total: 1 }];
+      const busy = writeGo(2, []).primary;
+      out.push([busy.includes('data-job-stop="j1"'), busy.includes('2화 스토리보드 만드는 중')]);
+      out.push(writeGo(2, [1]).primary.includes('w-busy'));
+      S.jobs = [];
+      out.push(writeGo(2, [1]).primary.includes(' disabled'));
+      out"""
+    plain, look, go, none, busy, busy_blocked, blocked = run_js(FILES + ["board.js", "setup.js"], expr, _project())
+    assert plain == ["2화 본문 생성", "writeEp", "2"]
+    assert look == ["2화 스토리보드 만들기", "boardMake", "2"]
+    assert go == ["스토리보드 만들고 2화 쓰기", "boardWrite", "2:make"]
+    assert none == ["2화 본문 생성", "boardWrite", "2:none"]
+    assert busy == [True, True]
+    assert busy_blocked is True  # 도는 작업은 막힌 화여도 보인다
+    assert blocked is True  # 앞 화 반영 전에는 누를 수 없다
