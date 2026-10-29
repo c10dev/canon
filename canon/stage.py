@@ -333,7 +333,7 @@ def _person_point(o: tuple[float, float], facing: str, rel: str, room: StageRoom
 
 # ---------- 판정 ----------
 
-REACH_HAND = 1.2   # 손 접촉이 닿는 거리 (m): 팔 약 0.7 + 몸 반지름 둘. 제안값, 시험 장면으로 고친다
+REACH_HAND = 1.4   # 손 접촉이 닿는 거리 (m): 팔 약 0.7 + 몸 반지름 둘 + 기준점 자리 틈. 1.2 는 같은 가구 앞 · 옆 두 사람을 짚었다 (03 측정)
 REACH_BODY = 0.6   # 손 아닌 부위 접촉
 RULES = {"hand_busy": "손", "move_posture": "이동 자세", "reach": "거리", "behind_front": "향함", "handoff": "물건"}
 
@@ -415,12 +415,14 @@ def judge(scene: StageScene, room: StageRoom, p: Project) -> list[Violation]:
                     cid = next((c.id for c in b.contacts if c.by in (hand, "both")), "")
                     out.append(Violation(beat=k, cause=old[0][1], who=w, rule="hand_busy", contact=cid,
                                          text=f"{name} {HANDS[hand]}이 이미 바빠요 (맡은 것: {', '.join(x[0] for x in load)}). 한 손으로 두 곳을 맡을 수 없어요."))
-            # 이동 자세: 자리가 바뀌었는데 선 자세가 아니다
+            # 이동 자세: 자리가 바뀌었는데 선 자세가 아니다. 같은 박자에 자세도 바꿨으면 옮긴 다음 그 자세가 된 것으로 본다
+            # ("걸어와 앉았다"). 앞 박자 자세 그대로 자리만 바뀌면 짚는다
             was = prev.get(w)
             if b.at is not None and was and was.at is not None and (was.at.ref, was.at.rel) != (b.at.ref, b.at.rel):
                 ps = POSTURES.get(me.posture)
                 carried = me.posture == "held" and _carried(now, w)
-                if ps and not ps.upright and not carried:
+                changed = bool(b.posture) and b.posture not in (was.posture, "held")  # 안기거나 업힘은 받쳐 줄 사람이 있어야 옮긴다
+                if ps and not ps.upright and not carried and not changed:
                     out.append(Violation(beat=k, cause=k, who=w, rule="move_posture",
                                          text=f"{name} 자리가 바뀌었는데 자세가 '{ps.label}'예요. 일어서는 박자가 없어요."))
             # 거리 · 향함: 이번 박자에 시작한 접촉

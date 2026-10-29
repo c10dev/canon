@@ -3284,8 +3284,13 @@ def draft_stage(llm: LLM, p: Project, n: int, event: int) -> StageProposal:
 
 
 def extract_stage(llm: LLM, p: Project, n: int, event: int, hint: dict | None = None) -> StageProposal:
-    """화 본문에서 사건 하나의 본문 장면을 뽑는다 (check 단계). 본문 전체를 넣고 그 사건 부분만 뽑게 한다."""
-    return _stage_ask(llm, p, n, event, "text", hint)
+    """화 본문에서 사건 하나의 본문 장면을 뽑는다 (check 단계). 본문 전체를 넣고 그 사건 부분만 뽑게 한다.
+    박자가 빈 응답이면 한 번만 다시 묻는다 (같은 LLM 이라 사용량에 잡힌다. 자동 집필 배치는 slot 을 따로 둔다)."""
+    prop = _stage_ask(llm, p, n, event, "text", hint)
+    if not prop.scene.beats:
+        part = getattr(llm, "part", None)
+        prop = _stage_ask(part("again") if part else llm, p, n, event, "text", hint)
+    return prop
 
 
 def stage_extract_all(llm: LLM, p: Project, n: int, hint: dict | None = None) -> tuple[list[StageProposal], list[StageProposal]]:

@@ -147,8 +147,8 @@ def test_rules_each_fire():
     s = _scene(room, [
         # 1. 앉은 채 자리를 옮긴다 → move_posture
         StageBeat(bodies=[StageBody(who="h", at=StageSpot(ref=desk, rel="front"))]),
-        # 2. 도윤이 침대 오른쪽에서 멀리 있는 하린을 잡는다 → reach
-        StageBeat(bodies=[StageBody(who="d", at=StageSpot(ref=bed, rel="right"), contacts=[StageContact(id="c1", by="right", to="h", part="wrist_l", act="hold")])]),
+        # 2. 도윤이 침대 앞에서 멀리 있는 하린을 잡는다 → reach
+        StageBeat(bodies=[StageBody(who="d", at=StageSpot(ref=bed, rel="front"), contacts=[StageContact(id="c1", by="right", to="h", part="wrist_l", act="hold")])]),
         # 3. 하린이 펜을 쥔 오른손으로 또 접촉 → hand_busy
         StageBeat(bodies=[StageBody(who="h", posture="stand", at=StageSpot(ref="@d", rel="front"), contacts=[StageContact(id="c2", by="right", to="d", part="shoulder_l", act="hold")])]),
         # 4. 오른손 펜을 놓지 않고 왼손으로 쥔다 → handoff
@@ -183,6 +183,20 @@ def test_unknown_hand_is_not_judged():
     s = _scene(room, [StageBeat(bodies=[StageBody(who="h", contacts=[StageContact(id="c1", by="right", to="d", part="hand_l", act="hold")])])],
                h={"right": "?", "at": StageSpot(ref="@d", rel="front"), "posture": "stand"})
     assert [r for r in _rules(s, room) if r[1] == "hand_busy"] == []
+
+
+def test_move_then_sit_in_one_beat():
+    # "걸어와 앉았다": 한 박자에 자리와 자세가 함께 바뀌면 옮긴 다음 앉은 것으로 본다 (03 측정의 헛지적)
+    room = _room()
+    bed = _a(room, "침대")
+    s = _scene(room, [StageBeat(bodies=[StageBody(who="d", at=StageSpot(ref=bed, rel="on"), posture="chair")])])
+    assert _rules(s, room) == []
+    # 앉은 채 자세를 바꾸지 않고 옮기면 짚는다 (같은 자세를 다시 적어도 바꾼 것이 아니다)
+    s = _scene(room, [StageBeat(bodies=[StageBody(who="h", at=StageSpot(ref=bed, rel="on"), posture="chair")])])
+    assert _rules(s, room) == [(1, "move_posture", "h")]
+    # 앉은 사람이 한 박자에 옮겨 다른 앉기 자세가 되면 일어서 옮긴 것으로 본다
+    s = _scene(room, [StageBeat(bodies=[StageBody(who="h", at=StageSpot(ref=bed, rel="on"), posture="kneel")])])
+    assert _rules(s, room) == []
 
 
 def test_carried_person_may_move():

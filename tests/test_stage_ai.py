@@ -71,6 +71,35 @@ def test_extract_keeps_plan_and_marks_unknown_hands():
     assert stage.scenes_of(p.episode(1), 0) == (plan, text)  # 본문 장면은 계획을 덮지 않는다
 
 
+class EmptyFirst(Counting):
+    """첫 StageDraft 응답만 박자를 비운다 (03 측정: 12회 중 1회)."""
+
+    def json(self, system, prompt, schema, hint=None):
+        out = super().json(system, prompt, schema, hint)
+        if schema is StageDraft and len(self.calls) == 1:
+            out.beats = []
+        return out
+
+
+def test_extract_asks_again_once_when_beats_empty():
+    p = _project()
+    llm = EmptyFirst()
+    prop = pipeline.extract_stage(llm, p, 1, 0)
+    assert llm.calls == ["StageDraft", "StageDraft"] and prop.scene.beats  # 한 번 다시 물어 박자를 받는다
+
+    class AlwaysEmpty(Counting):
+        def json(self, system, prompt, schema, hint=None):
+            out = super().json(system, prompt, schema, hint)
+            out.beats = []
+            return out
+
+    llm = AlwaysEmpty()
+    assert pipeline.extract_stage(llm, p, 1, 0).scene.beats == [] and len(llm.calls) == 2  # 두 번째도 비면 그대로 둔다
+    llm = Counting()
+    pipeline.extract_stage(llm, p, 1, 0)
+    assert len(llm.calls) == 1  # 박자가 있으면 다시 묻지 않는다
+
+
 def test_from_draft_names_memos_and_minor_block():
     p = _project(minor=True)
     ep = p.episode(1)
