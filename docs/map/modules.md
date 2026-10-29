@@ -14,7 +14,7 @@
 | `canon/citygen.py` | 1,170 | 도시 생성기 | geom, blocks, placekinds (`citygen.py:20`) |
 | `canon/moderngen.py` | 764 | 현대 동네 생성기 | geom, blocks, placekinds (`moderngen.py:23`) |
 | `canon/blocks.py` | 202 | 블록 · 필지 쪼개기 공용 도구 (`citygen` 에서 옮김, 밑줄 없는 이름) | geom |
-| `canon/placekinds.py` | 64 | 장소 종류 `CATEGORIES` · `classify` · `default_put` · `water_for` (`towngen` 에서 옮김) | 없음 |
+| `canon/placekinds.py` | 158 | 장소 종류 표 `KINDS`(시대 old · modern · both) · `kinds_for` · `to_era` · `CATEGORIES` · `classify` · `default_put` · `water_for` (`towngen` 에서 옮김, 시대는 08a) | 없음 |
 | `canon/roadnet.py` | 432 | 길망 키우기 (Parish–Müller) | geom |
 | `canon/osm.py` | 620 | OpenStreetMap 파일 → 지도 데이터 (해안선으로 바다 · 섬 `land` 닫기 포함, [05](specs/05-coastline.md)) | geom |
 | `canon/fill.py` | 274 | OpenStreetMap 지도의 빈 블록 채우기 ([04](specs/04-empty-blocks.md)) | blocks, geom, moderngen(수치만), osm |
