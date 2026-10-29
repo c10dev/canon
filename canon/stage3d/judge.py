@@ -40,6 +40,7 @@ THIGHS = ("thigh_l", "thigh_r")
 SEATED = {"chair": LOWER, "squat": LOWER, "kneel": LOWER, "floor": LOWER + THIGHS}
 MOVING = ("walk", "run")                       # 앉거나 눕는 기준점 위 · 안에서 이 자세면 그 기준점을 떠나는 중이다
 STEPPING = ("stand", "walk", "run")            # 다가설 수 있는 자세
+MEET = ("hand", "fingers", "wrist", "forearm")  # 받는 사람이 마주 내밀 수 있는 부위 (막 너머 손 건네기)
 SEG_LABELS = {"head": "머리", "torso": "몸통", "pelvis": "골반", "upper_arm_l": "왼 위팔", "upper_arm_r": "오른 위팔",
               "forearm_l": "왼팔", "forearm_r": "오른팔", "thigh_l": "왼 허벅지", "thigh_r": "오른 허벅지",
               "shin_l": "왼 다리", "shin_r": "오른 다리", "foot_l": "왼발", "foot_r": "오른발"}
@@ -117,6 +118,51 @@ def _wall_depth(c: Capsule, room: StageRoom) -> float:
     return max(0.0, c.r - min(xs), max(xs) + c.r - room.w, c.r - min(ys), max(ys) + c.r - room.h)
 
 
+def _open(fr: Frames) -> bool:
+    """야외 틀: 벽 · 천장이 없다 (RoomSpec.open)."""
+    return bool(fr.spec and fr.spec.open)
+
+
+def _cross(p, q, box, dims: int) -> bool:
+    """선분 p → q 가 축 맞춤 상자(x0, y0, z0, x1, y1, z1)를 지나나 (dims 2 면 평면만, 3 이면 높이도). slab 방식."""
+    t0, t1 = 0.0, 1.0
+    for i in range(dims):
+        d = q[i] - p[i]
+        if abs(d) < 1e-9:
+            if not box[i] <= p[i] <= box[i + 3]:
+                return False
+            continue
+        a, z = (box[i] - p[i]) / d, (box[i + 3] - p[i]) / d
+        t0, t1 = max(t0, min(a, z)), min(t1, max(a, z))
+        if t0 > t1:
+            return False
+    return True
+
+
+def _parted(x, y, fr: Frames) -> bool:
+    """두 사람의 골반을 잇는 평면 선분이 막(barrier) 상자를 지나면 차체 · 창 면으로 갈린 두 사람이다. 몸 겹침을 보지 않는다
+    (차 안에 앉은 사람과 창밖에 선 사람). 창으로 몸을 들이민 겹침은 이 규칙으로 놓친다 (docs/stage/3d/specs/rooms/car_side.md)."""
+    p, q = x.joints()["pelvis"], y.joints()["pelvis"]
+    return any(s.solid and s.barrier and _cross(p, q, s.box, 2) for s in fr.solids)
+
+
+def _blocked(c, b, fr: Frames, anchors: dict) -> str:
+    """손 접촉의 어깨 → 목표 점이 막 상자를 지나면 그 기준점 이름 (창 높이는 막이 없어 지난다). 손 아닌 접촉 · 막이 없으면 빈칸."""
+    me = b.bodies.get(c.who)
+    if not c.hands or not me or me.body is None:
+        return ""
+    joints = me.body.joints()
+    other = b.bodies.get(c.to)
+    meet = c.part.split("_")[0] in MEET and other is not None and other.body is not None
+    for side, t in zip(c.hands, c.points[1::2]):
+        if meet:  # 손에 건네기 · 손 잡기: 받는 사람도 손을 내미니 그 어깨까지 길이 트였는지 본다
+            t = other.body.joints()["shoulder_" + c.part.rsplit("_", 1)[-1]]
+        for s in fr.solids:
+            if s.solid and s.barrier and _cross(joints[f"shoulder_{side}"], t, s.box, 3):
+                return anchors[s.anchor].name if s.anchor in anchors else "차체"
+    return ""
+
+
 def _outside(c: Capsule, a) -> float:
     """캡슐 끝점이 기준점 평면 자리 밖으로 나간 거리 (가장 먼 것)."""
     def out(p):
@@ -183,7 +229,7 @@ def _stepped(c, b, fr: Frames, room: StageRoom, pspecs: dict) -> float:
         s = min(STEP * i / STEP_TRIES, d)
         body = _placed(spec, x0 + ux * s, y0 + uy * s, math.atan2(ux, uy), 0.0)
         caps = [k for k in body.capsules() if k.segment not in ARMS]
-        if any(_wall_depth(k, room) > FURNITURE_DEPTH for k in caps) or \
+        if any(_wall_depth(k, room) > FURNITURE_DEPTH for k in caps if not _open(fr)) or \
                 any(o.solid and _deepest(caps, [o])[0] > FURNITURE_DEPTH for o in fr.solids) or \
                 any(_deepest(caps, oc, skip_y=skip)[0] > BODY_DEPTH for oc, skip in others):
             break
@@ -211,14 +257,19 @@ def _check_beat(b, fr: Frames, room: StageRoom, p: Project, pspecs: dict, skip_i
     for c in b.contacts:
         if c.id in skip_ids or (b.k, c.who) in skip_beats or _same_rest(b.state.get(c.who), b.state.get(c.to)):
             continue
+        who, to = names[c.who], names[c.to]
+        part = stage.PARTS[c.part].label if c.part in stage.PARTS else c.part
+        wall = _blocked(c, b, fr, anchors)
+        if wall:
+            text = f"{who} → {to} {part}: {wall}에 막혀 손이 닿지 않아요. 창 높이로 손이 지나게 자리나 자세를 바꾸는 박자가 필요해요."
+            out.append((("reach3d", c.id), ch(c.who, c.to), c.who, "reach3d", text, c.id))
+            continue
         limit = REACH_GAP_HAND if c.hands else REACH_GAP_BODY
         if c.gap <= limit:
             continue
         gap = _stepped(c, b, fr, room, pspecs) if c.hands else c.gap
         if gap <= limit:
             continue
-        who, to = names[c.who], names[c.to]
-        part = stage.PARTS[c.part].label if c.part in stage.PARTS else c.part
         if c.hands:
             text = (f"{who} → {to} {part}: {to}{josa(to, '이', '가')} '{label(c.to)}' 자세라 {who}{josa(who, '이', '가')} "
                     f"'{label(c.who)}' 자세로는 손이 {gap:.2f}m 모자라요. 자리나 자세를 바꾸는 박자가 필요해요.")
@@ -239,6 +290,8 @@ def _check_beat(b, fr: Frames, room: StageRoom, p: Project, pspecs: dict, skip_i
     caps = {w: people[w].body.capsules() for w in ws}
     for i, w in enumerate(ws):
         for o in ws[i + 1:]:
+            if _parted(people[w].body, people[o].body, fr):
+                continue
             pair = frozenset((w, o))
             attach = people[w].attach == o or people[o].attach == w
             near = pair in touch or attach
@@ -262,6 +315,8 @@ def _check_beat(b, fr: Frames, room: StageRoom, p: Project, pspecs: dict, skip_i
         if text:
             unsupported.add(w)
             out.append((("no_support", w), ch(w), w, "no_support", text, ""))
+        if fr.spec and fr.spec.open:  # 야외: 천장이 없다
+            continue
         top = person.body.head_top()
         pid = now.posture or "stand"
         upright = stage.POSTURES[pid].upright if pid in stage.POSTURES else True
@@ -289,7 +344,7 @@ def _check_beat(b, fr: Frames, room: StageRoom, p: Project, pspecs: dict, skip_i
             depth, seg, _ = _deepest(caps[w], [s], skip_x=_skip(people[w]))
             if depth > hits.get(s.anchor, (0.0, ""))[0]:
                 hits[s.anchor] = (depth, seg)
-        for c in caps[w]:
+        for c in caps[w] if not _open(fr) else ():  # 야외: 벽이 없다
             if c.segment in _skip(people[w]):
                 continue
             depth = _wall_depth(c, room)
@@ -330,7 +385,7 @@ def judge3d(scene: StageScene, room: StageRoom, p: Project, frames: Optional[Fra
 
 
 def enabled() -> bool:
-    """자세 12개 · 틀 7개가 다 등록됐을 때만 켠다 (README 정할 것 10)."""
+    """자세 12개 · 틀(stage.ROOMS)이 다 등록됐을 때만 켠다 (README 정할 것 10)."""
     from . import ready
     return ready()
 

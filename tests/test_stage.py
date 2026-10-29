@@ -103,7 +103,7 @@ def test_seats_face_their_furniture():
     # 의자 · 자리의 앞(rot)이 마주 보는 가구 가운데 쪽을 향한다
     pairs = {"bedroom": [("의자", "책상")], "living": [("소파", "탁자")], "office": [("의자", "책상"), ("손님 의자", "책상")],
              "classroom": [("앞자리", "교탁"), ("뒷자리", "교탁"), ("창가 자리", "교탁")], "car": [("운전석", "앞유리"), ("조수석", "앞유리")],
-             "carriage": [("앞좌석", "뒷좌석"), ("뒷좌석", "앞좌석")]}
+             "carriage": [("앞좌석", "뒷좌석"), ("뒷좌석", "앞좌석")], "car_side": [("운전석", "보닛"), ("조수석", "보닛")]}
     for key, rows in pairs.items():
         room = stage.make_room(key, "r")
         by = {a.name: a for a in room.anchors}
@@ -373,7 +373,8 @@ def test_view_pairs_plan_and_text():
 
 def test_template_front_spots_clear():
     # 기준점 앞자리(front)는 다른 가구 위(몸 여유 0.15m)에 떨어지지 않는다. 책상에 붙여 둔 의자의 앞은 그 책상이라 뺀다
-    allowed = {("bedroom", "의자", "책상"), ("office", "의자", "책상")}
+    allowed = {("bedroom", "의자", "책상"), ("office", "의자", "책상"),
+               ("car_side", "운전석", "보닛"), ("car_side", "운전석", "차체"), ("car_side", "조수석", "보닛"), ("car_side", "조수석", "차체")}
     for key in stage.ROOMS:
         room = stage.make_room(key, "r")
         for a in room.anchors:

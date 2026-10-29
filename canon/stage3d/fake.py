@@ -18,9 +18,11 @@ POSTURES = {
                          ("floor", "top")),
 }
 
-# 모든 틀: 천장 2.4, 기준점은 종류 기본값. 차 뒷좌석은 눕기 참이라 눕는 면을 더한다
+# 모든 틀: 천장 2.4, 기준점은 종류 기본값. 차 뒷좌석은 눕기 참이라 눕는 면을, 야외 바위는 앉기 참이라 앉는 면을 더한다
 _BENCH = Furniture(KINDS["seat"].boxes, seat=0.45, lie=0.45)
-ROOMS = {t: RoomSpec(t, anchors={"뒷좌석": _BENCH} if t == "car" else {}) for t in stage.ROOMS}
+_ROCK = Furniture(KINDS["landmark"].boxes, seat=1.0)
+_EXTRA = {"car": {"뒷좌석": _BENCH}, "outdoor": {"바위": _ROCK}}
+ROOMS = {t: RoomSpec(t, anchors=_EXTRA.get(t, {})) for t in stage.ROOMS}
 
 
 def box_room(ceiling: float = 2.4, template: str = "empty") -> RoomSpec:

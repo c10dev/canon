@@ -30,7 +30,7 @@ def missing() -> dict[str, list[str]]:
 
 
 def complete() -> bool:
-    """자세 12개 · 틀 7개가 다 등록됐나. 다 있을 때만 3D 판정을 켠다 (docs/stage/3d/README.md 정할 것 10)."""
+    """자세 12개 · 틀(stage.ROOMS)이 다 등록됐나. 다 있을 때만 3D 판정을 켠다 (docs/stage/3d/README.md 정할 것 10)."""
     m = missing()
     return not m["postures"] and not m["rooms"]
 

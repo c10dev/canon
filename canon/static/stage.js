@@ -550,7 +550,7 @@ function stgGaps() {
 
 function stgRoomPanel() {
   const g = S.stg, r = g.room;
-  const kinds = { bed: '침대', door: '문', window: '창', desk: '책상', chair: '의자', sofa: '소파', table: '탁자', wall: '벽', seat: '자리', other: '기타' };
+  const kinds = { bed: '침대', door: '문', window: '창', desk: '책상', chair: '의자', sofa: '소파', table: '탁자', wall: '벽', seat: '자리', vehicle: '차', landmark: '표지', ground: '길 · 땅', other: '기타' };  // stage.ANCHOR_KINDS
   const used = g.view.scenes.filter((x) => x.scene.room === r.id && x.scene.id !== g.sid).length;
   return `<section class="card tight"><div class="between"><h2>방 고치기</h2><span class="small">${used ? `이 방을 쓰는 다른 장면 ${used}개도 바뀌어요` : ''}</span></div>
     <div class="stg-fields">

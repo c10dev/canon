@@ -132,7 +132,20 @@ ROOMS = {
     "carriage": ("마차 안", 1.6, 2.0, [("앞좌석", "seat", 0.1, 0.1, 1.4, 0.55, 0, True, False), ("뒷좌석", "seat", 0.1, 1.35, 1.4, 0.55, 180, True, False),
                                     ("문", "door", 1.5, 0.75, 0.1, 0.5, 90, False, False)]),
     "empty": ("빈 방", 4.0, 3.0, [("문", "door", 1.6, 2.9, 0.8, 0.1, 180, False, False)]),
+    # 야외 틀: 벽 · 천장이 없다 (3D 판정은 RoomSpec.open 을 보고 벽 · 천장을 짚지 않는다). 방 테두리는 그린 땅의 끝이다
+    # 차 옆: 위(앞)를 보는 큰 차 한 대. 운전석은 차의 왼쪽(평면도 왼쪽). 차체의 앞(rot 90)은 운전석 쪽 옆면이다
+    "car_side": ("차 옆", 10.0, 8.0, [("보닛", "vehicle", 3.9, 1.2, 2.2, 0.8, 180, False, False), ("차체", "vehicle", 3.9, 2.0, 2.2, 5.2, 90, False, False),
+                                    ("운전석", "seat", 4.0, 2.3, 0.7, 0.7, 180, True, False), ("조수석", "seat", 5.3, 2.3, 0.7, 0.7, 180, True, False),
+                                    ("운전석 문", "door", 3.9, 2.05, 0.1, 1.1, 90, False, False), ("운전석 창", "window", 3.9, 2.2, 0.1, 0.8, 90, False, False),
+                                    ("조수석 창", "window", 6.0, 2.2, 0.1, 0.8, 270, False, False)]),
+    "outdoor": ("야외 빈터", 12.0, 10.0, [("길", "ground", 0.0, 4.2, 12.0, 1.6, 0, False, False), ("큰 나무", "landmark", 2.0, 1.0, 1.2, 1.2, 0, False, False),
+                                       ("바위", "landmark", 8.5, 1.5, 1.0, 0.8, 0, True, False), ("표지판", "landmark", 9.5, 7.0, 0.4, 0.2, 180, False, False),
+                                       ("모닥불", "landmark", 5.5, 7.5, 0.8, 0.8, 0, False, False)]),
 }
+
+# 기준점 종류: id → 화면 이름 (StageAnchor.kind, 화면 방 고치기 static/stage.js 의 kinds 와 같다). 3D 모양 기본값은 stage3d.furniture.KINDS
+ANCHOR_KINDS = {"bed": "침대", "door": "문", "window": "창", "desk": "책상", "chair": "의자", "sofa": "소파", "table": "탁자", "wall": "벽",
+                "seat": "자리", "vehicle": "차", "landmark": "표지", "ground": "길 · 땅", "other": "기타"}
 
 
 def make_room(template: str, rid: str, name: str = "", place: str = "") -> StageRoom:
@@ -150,7 +163,7 @@ def vocab() -> dict:
         "postures": {k: {"label": v.label, "upright": v.upright} for k, v in POSTURES.items()},
         "parts": {k: {"label": v.label, "side": v.side, "sexual": v.sexual} for k, v in PARTS.items()},
         "acts": {k: {"label": v.label, "hands": v.hands, "sexual": v.sexual, "intimate": v.intimate, "support": v.support} for k, v in ACTS.items()},
-        "rooms": {k: v[0] for k, v in ROOMS.items()},
+        "rooms": {k: v[0] for k, v in ROOMS.items()}, "kinds": ANCHOR_KINDS,
         "rules": rule_names(), "rules3d": sorted(_rules3d()),
     }
 

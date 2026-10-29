@@ -1,0 +1,11 @@
+{
+ "note": "큰 나무 줄기 안으로 걸어 들어간다",
+ "template": "outdoor",
+ "start": [
+  {"who": "d", "at": {"ref": "길", "rel": "front"}, "posture": "stand"}
+ ],
+ "beats": [
+  {"quote": "1박자", "bodies": [{"who": "d", "at": {"ref": "큰 나무", "rel": "in"}, "posture": "walk"}]}
+ ],
+ "expect": [[1, "furniture_overlap", "d"]]
+}

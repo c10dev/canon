@@ -28,7 +28,7 @@ StageRoom
   id: str                 # "r1" …
   name: str               # "하린의 방"
   place: str = ""         # 지도 장소 이름(atlas.places). 비면 장면 전용 방
-  template: str = ""      # 고른 틀 id (bedroom, living, classroom, office, car, carriage, …)
+  template: str = ""      # 고른 틀 id (bedroom, living, classroom, office, car, carriage, empty, car_side, outdoor)
   w: float, h: float      # 방 크기 m (틀 기본값, 작가가 고침)
   anchors: list[StageAnchor]
 
@@ -42,7 +42,7 @@ StageAnchor               # 기준점: 가구 · 문 · 창
   sit: bool, lie: bool    # 앉을 수 · 누울 수 있는 기준점 (틀 기본값)
 ```
 
-틀은 `canon/stage.py` 의 `ROOMS`(침실 · 거실 · 교실 · 사무실 · 차 안 · 마차 안 · 빈 방)에 두고 `make_room` 으로 만든다. 장면 전용 방은 `place` 가 비고 장면 하나만 가리킨다. '장소에 묶기'는 `place` 를 채운다.
+틀은 `canon/stage.py` 의 `ROOMS`(침실 · 거실 · 교실 · 사무실 · 차 안 · 마차 안 · 빈 방, 야외 틀 차 옆 · 야외 빈터)에 두고 `make_room` 으로 만든다. 장면 전용 방은 `place` 가 비고 장면 하나만 가리킨다. '장소에 묶기'는 `place` 를 채운다.
 
 ## 장면
 

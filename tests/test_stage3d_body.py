@@ -206,9 +206,9 @@ def test_frames_shape():
     assert (sc.model_dump(), room.model_dump()) == before  # 장면 · 방을 바꾸지 않는다
     d = fr.to_dict()
     json.dumps(d)
-    assert set(d) == {"ceiling", "solids", "beats"}
+    assert set(d) == {"ceiling", "open", "solids", "beats"} and d["open"] is False
     assert d["ceiling"] == 2.4
-    assert {"anchor", "box", "solid"} == set(d["solids"][0]) and len(d["solids"][0]["box"]) == 6
+    assert {"anchor", "box", "solid", "barrier"} == set(d["solids"][0]) and len(d["solids"][0]["box"]) == 6
     assert [b["k"] for b in d["beats"]] == [0, 1, 2, 3]
     b0 = d["beats"][0]
     assert set(b0) == {"k", "bodies", "contacts"}

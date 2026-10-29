@@ -88,7 +88,10 @@ class RoomSpec:
     template: str                          # stage.ROOMS 의 키
     ceiling: float = 2.4                   # 천장 높이 m
     anchors: dict[str, Furniture] = {}     # 틀의 기준점 이름 → 모양
+    open: bool = False                     # 야외: 벽 · 천장 판정 없음 (2026-10-29, rooms/car_side.md · outdoor.md)
 ```
+
+`Box.barrier`(기본 거짓, 2026-10-29): 두 사람을 가르는 막(차체 옆판). 판정은 막을 사이에 둔 두 사람의 몸 겹침을 보지 않고, 손이 막을 지나 닿지 못하게 한다([rooms/car_side.md](rooms/car_side.md)).
 
 - 기준점 자리 좌표: v 는 기준점 앞쪽(`rot`)으로 0 → 1, u 는 앞에서 바라본 왼쪽 → 오른쪽으로 0 → 1. 그래서 `rot` 이 바뀌어도 모양이 같이 돈다.
 - 평면 자리(x · y · w · h · rot)는 작가가 고친 `StageRoom` 의 값을 쓴다. 장소 모듈은 다시 적지 않는다.
@@ -141,8 +144,8 @@ class RoomSpec:
 5. 결과 모양 (`Frames.to_dict()` 가 JSON 으로 내는 것, 렌더러 계약):
 
 ```json
-{"ceiling": 2.4,
- "solids": [{"anchor": "a1", "box": [x0, y0, z0, x1, y1, z1], "solid": true}],
+{"ceiling": 2.4, "open": false,
+ "solids": [{"anchor": "a1", "box": [x0, y0, z0, x1, y1, z1], "solid": true, "barrier": false}],
  "beats": [{"k": 0,
    "bodies": {"h": {"posture": "chair", "missing": null, "attach": null,
                     "joints": {"pelvis": [x, y, z], "neck": […], "head": […], "shoulder_l": […], "elbow_l": […], "wrist_l": […], "hand_l": […],

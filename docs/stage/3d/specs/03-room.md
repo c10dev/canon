@@ -31,6 +31,7 @@
   - `anchors`: 틀의 기준점 이름 → `Furniture`. 종류 기본값과 같으면 적지 않는다.
 - 상자의 u · v 는 기준점 폭 · 깊이의 비율이다(v 는 기준점 앞쪽으로 0 → 1). `rot` 이 바뀌어도 모양이 같이 돈다.
 - `sit` 참인 기준점은 `seat`, `lie` 참인 기준점은 `lie` 높이가 있어야 한다(종류 기본값 포함).
+- 야외 틀은 `open=True` 다(벽 · 천장 판정 없음, `ceiling` 은 그림 높이). 차체처럼 사람을 가르는 면은 상자에 `barrier=True` 를 준다(2026-10-29, [rooms/car_side.md](rooms/car_side.md) · [rooms/outdoor.md](rooms/outdoor.md)).
 
 ## 규칙
 

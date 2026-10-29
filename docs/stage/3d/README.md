@@ -40,7 +40,7 @@
 |---|---|---|---|---|
 | 01 | 뼈대 · 마네킹 공통 | [01-body.md](specs/01-body.md) | `canon/stage3d/__init__.py`, `body.py`, `furniture.py`, `fake.py`, `postures/__init__.py`, `rooms/__init__.py`, `tests/test_stage3d_body.py`, `tests/test_stage3d_contract.py` | — |
 | 02 | 자세 모듈 12개 | [02-posture.md](specs/02-posture.md) + [postures/](specs/postures/) | `canon/stage3d/postures/<id>.py`, `tests/test_stage3d_posture_<id>.py` (자세마다 한 쌍) | 01 |
-| 03 | 장소 모듈 7개 | [03-room.md](specs/03-room.md) + [rooms/](specs/rooms/) | `canon/stage3d/rooms/<틀>.py`, `tests/test_stage3d_room_<틀>.py` (틀마다 한 쌍) | 01 |
+| 03 | 장소 모듈 (틀마다) | [03-room.md](specs/03-room.md) + [rooms/](specs/rooms/) | `canon/stage3d/rooms/<틀>.py`, `tests/test_stage3d_room_<틀>.py` (틀마다 한 쌍) | 01 |
 | 04 | 3D 판정 | [04-judge.md](specs/04-judge.md) | `canon/stage3d/judge.py`, `tests/test_stage3d_judge.py` | 01 |
 | 05 | 렌더러 · 화면 | [05-render.md](specs/05-render.md) | `canon/static/stage3d.js`, `canon/static/stage.js`(보기 전환 몇 줄), `canon/web.py`(엔드포인트 하나), `tests/test_stage3d_js.py`, `tests/test_stage3d_web.py` | 01, 06 |
 | 06 | three.js 들이기 | [06-three.md](specs/06-three.md) | `canon/static/vendor/three/` | — |
@@ -54,7 +54,7 @@
 
 - 좌표: 평면도와 같은 x(오른쪽) · y(아래쪽) 에 높이 z(위쪽)를 더한다. 단위 m. three.js 는 렌더러가 (x, z, y) 로 바꾼다.
 - 자세 모듈 → `POSTURE = PostureSpec(id, angles, surface, reach, feet_to_floor=False, place_hook=None)`: 자세 id 하나의 관절 각도 표, 앉는 면 요구(`floor` · `seat` · `lie` · `top` · `back_support` · `carrier`), 닿기 여유(허리 숙임 · 비틀기 최대), 특수 배치(기대기 · 매달기).
-- 장소 모듈 → `ROOM = RoomSpec(template, ceiling, anchors={기준점 이름: Furniture(...)})`: 틀 하나의 기준점마다 높이 · 모양(상자 여럿) · 앉는 면 높이, 천장 높이. 평면 자리(x · y · w · h · rot)는 `stage.ROOMS` 의 것을 쓰고 다시 적지 않는다.
+- 장소 모듈 → `ROOM = RoomSpec(template, ceiling, anchors={기준점 이름: Furniture(...)}, open=False)`: 틀 하나의 기준점마다 높이 · 모양(상자 여럿) · 앉는 면 높이, 천장 높이. 야외 틀은 `open` 참(벽 · 천장 판정 없음). 상자의 `barrier` 는 두 사람을 가르는 막(차체 옆판). 평면 자리(x · y · w · h · rot)는 `stage.ROOMS` 의 것을 쓰고 다시 적지 않는다.
 - `frames(scene, room) -> Frames`: 박자마다 인물의 관절 좌표 · 부위 점 · 캡슐과 가구 상자. 판정과 렌더러가 같은 값을 쓴다.
 - 3D 판정 → `judge3d(scene, room, p) -> list[stage.Violation]`. 규칙 이름은 [04-judge.md](specs/04-judge.md). `stage.judge_all` 이 2D 판정에 이것을 더해 `stage.check` · 검수 지적으로 보낸다(07).
 - 07 이 더한 계약: `Angles.hip_rot` · `ankle`, `Placement.angles`, `PostureSpec.head`, 특수 배치 두 번, 빈 향함의 몸 방향(`body.default_facing`), `to_dict()` 접촉의 `act` · `by` ([specs/01-body.md](specs/01-body.md) 의 구현 메모).
@@ -103,6 +103,7 @@
 | 01 | 뼈대 | 완료 (계약 · 등록부 · 가짜 자세 · 장소, PR 링크는 01 명세서) |
 | 02 | 자세 12 | 완료 (PR #168 · #171 · #172, 07 이 바닥에 앉기 · 쪼그려 앉기 · 옆으로 눕기 · 엎드리기를 고침. 사진은 2026-10-29 사용자가 괜찮다고 했다) |
 | 03 | 장소 7 | 완료 (PR #169) |
+| 03 | 야외 틀 2 (차 옆 `car_side` · 야외 빈터 `outdoor`) | 완료 ([car_side.md](specs/rooms/car_side.md) · [outdoor.md](specs/rooms/outdoor.md)): `RoomSpec.open`, `Box.barrier`, 새 종류 `vehicle` · `landmark` · `ground` |
 | 04 | 3D 판정 | 완료 (PR #170, 문턱은 07) |
 | 05 | 렌더러 · 화면 | 완료 (PR #173) |
 | 06 | three.js | 완료 (PR #165) |

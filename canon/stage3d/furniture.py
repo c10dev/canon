@@ -23,6 +23,7 @@ class Box:
     z0: float
     z1: float
     solid: bool = True  # False 면 판정이 겹침을 보지 않는다
+    barrier: bool = False  # 차체 옆면처럼 두 사람을 가르는 막: 두 사람 사이를 막으면 몸 겹침을 보지 않고, 손이 이 상자를 지나 닿지 못한다
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,7 @@ class RoomSpec:
     template: str                 # stage.ROOMS 의 키
     ceiling: float = 2.4          # 천장 높이 m
     anchors: dict[str, Furniture] = field(default_factory=dict)  # 틀의 기준점 이름 → 모양
+    open: bool = False            # 야외: 벽 · 천장이 없다 (판정이 벽 · headroom 을 보지 않고, 그림은 낮은 테두리만). ceiling 은 그림 높이
 
 
 @dataclass(frozen=True)
@@ -46,6 +48,7 @@ class Solid:
     anchor: str                                        # 기준점 id
     box: tuple[float, float, float, float, float, float]  # x0, y0, z0, x1, y1, z1
     solid: bool = True
+    barrier: bool = False
 
 
 KINDS = {
@@ -59,6 +62,9 @@ KINDS = {
     "door": Furniture((Box(0, 1, 0, 1, 0, 2.1, solid=False),)),
     "window": Furniture((Box(0, 1, 0, 1, 0.9, 2.0, solid=False),)),  # 벽은 방 테두리가 맡는다
     "wall": Furniture((Box(0, 1, 0, 1, 0, 2.4),)),
+    "vehicle": Furniture((Box(0, 1, 0, 1, 0.3, 2.0, barrier=True),)),  # 차 몸체: 뚫고 지나가지 못하는 덩어리 (바닥 틈 0.3m)
+    "landmark": Furniture((Box(0, 1, 0, 1, 0, 1.0),)),                  # 나무 · 바위 · 표지판 같은 야외 표지
+    "ground": Furniture((Box(0, 1, 0, 1, 0, 0.02, solid=False),)),       # 길 · 땅: 그 위를 걷는다
     "other": Furniture((Box(0, 1, 0, 1, 0, 0.8),)),
 }
 
@@ -88,7 +94,7 @@ def world_box(anchor: StageAnchor, b: Box) -> tuple[float, float, float, float, 
 
 def solids(room: StageRoom, spec: Optional[RoomSpec] = None) -> list[Solid]:
     """방의 모든 가구 상자 (기준점 순, 상자 순)."""
-    return [Solid(a.id, world_box(a, b), b.solid) for a in room.anchors for b in lookup(a, spec).boxes]
+    return [Solid(a.id, world_box(a, b), b.solid, b.barrier) for a in room.anchors for b in lookup(a, spec).boxes]
 
 
 def top(f: Furniture) -> float:

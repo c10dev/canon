@@ -1173,7 +1173,7 @@ class StageAnchor(BaseModel):
     """방 안의 기준점: 가구 · 문 · 창. 자리 단위는 m, 방 왼쪽 위가 0."""
     id: str
     name: str
-    kind: str = Field("other", description="bed · door · window · desk · chair · sofa · table · wall · seat · other")
+    kind: str = Field("other", description="bed · door · window · desk · chair · sofa · table · wall · seat · vehicle · landmark · ground · other (stage.ANCHOR_KINDS)")
     x: float = 0
     y: float = 0
     w: float = 0.5

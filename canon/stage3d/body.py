@@ -653,7 +653,8 @@ class Frames:
 
         return {
             "ceiling": self.ceiling,
-            "solids": [{"anchor": s.anchor, "box": r(s.box), "solid": s.solid} for s in self.solids],
+            "open": bool(self.spec and self.spec.open),
+            "solids": [{"anchor": s.anchor, "box": r(s.box), "solid": s.solid, "barrier": s.barrier} for s in self.solids],
             "beats": [{"k": b.k,
                        "bodies": {w: {"posture": p.posture, "missing": p.missing, "attach": p.attach,
                                       "joints": {j: r(v) for j, v in p.body.joints().items()} if p.body else None}

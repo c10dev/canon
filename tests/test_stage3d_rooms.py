@@ -16,9 +16,9 @@ BODY_R = 0.15    # 선 사람 반폭: 2D 자리가 다른 가구 평면에 걸�
 
 SEAT = {"bedroom": {"침대": 0.5, "의자": 0.45}, "living": {"소파": 0.42}, "office": {"의자": 0.45, "손님 의자": 0.45},
         "classroom": {"앞자리": 0.43, "뒷자리": 0.43, "창가 자리": 0.43}, "car": {"운전석": 0.30, "조수석": 0.30, "뒷좌석": 0.30},
-        "carriage": {"앞좌석": 0.45, "뒷좌석": 0.45}, "empty": {}}
+        "carriage": {"앞좌석": 0.45, "뒷좌석": 0.45}, "empty": {}, "car_side": {"운전석": 1.05, "조수석": 1.05}, "outdoor": {"바위": 0.5}}
 LIE = {"bedroom": {"침대": 0.5}, "living": {"소파": 0.42}, "car": {"뒷좌석": 0.30}}
-CEILING = {"bedroom": 2.4, "living": 2.4, "classroom": 3.0, "office": 2.6, "car": 1.15, "carriage": 1.6, "empty": 2.4}
+CEILING = {"bedroom": 2.4, "living": 2.4, "classroom": 3.0, "office": 2.6, "car": 1.15, "carriage": 1.6, "empty": 2.4, "car_side": 4.0, "outdoor": 4.0}
 
 
 def spec(t):

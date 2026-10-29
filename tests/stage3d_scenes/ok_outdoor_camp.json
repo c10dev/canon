@@ -1,0 +1,16 @@
+{
+ "note": "야외 빈터: 바위에 걸터앉은 사람과 땅 가장자리 · 나무 아래 · 길을 오가는 사람. 벽 · 천장 지적이 없어야 한다",
+ "template": "outdoor",
+ "start": [
+  {"who": "h", "at": {"ref": "바위", "rel": "on"}, "posture": "chair"},
+  {"who": "d", "at": {"ref": "큰 나무", "rel": "front"}, "posture": "stand", "facing": "@h"}
+ ],
+ "beats": [
+  {"quote": "1박자", "bodies": [{"who": "d", "at": {"ref": "큰 나무", "rel": "back"}, "posture": "walk"}]},
+  {"quote": "2박자", "bodies": [{"who": "d", "at": {"ref": "길", "rel": "on"}, "posture": "run"}]},
+  {"quote": "3박자", "bodies": [{"who": "d", "at": {"ref": "바위", "rel": "front"}, "posture": "stand", "facing": "@h"}]},
+  {"quote": "4박자", "bodies": [{"who": "d", "contacts": [{"id": "c1", "by": "right", "to": "h", "part": "shoulder_l", "act": "press"}]}]},
+  {"quote": "5박자", "bodies": [{"who": "h", "at": {"ref": "모닥불", "rel": "front"}, "posture": "squat"}, {"who": "d", "ends": ["c1"], "at": {"ref": "표지판", "rel": "front"}, "posture": "walk"}]}
+ ],
+ "expect": []
+}

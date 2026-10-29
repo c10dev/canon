@@ -289,8 +289,9 @@ function s3Room() {
   floor.position.set(W / 2, 0, H / 2);
   s3.world.add(floor);
   const wall = (sx, sy, sz, x, y, z) => { const m = box(sx, sy, sz, lam('--chip')); m.position.set(x, y, z); s3.world.add(m); };
-  wall(W, fr.ceiling, 0.08, W / 2, fr.ceiling / 2, -0.04);
-  wall(0.08, fr.ceiling, H, -0.04, fr.ceiling / 2, H / 2);
+  const back = fr.open ? 0.12 : fr.ceiling;  // 야외 틀은 벽 없이 땅 테두리만
+  wall(W, back, 0.08, W / 2, back / 2, -0.04);
+  wall(0.08, back, H, -0.04, back / 2, H / 2);
   wall(W, 0.12, 0.08, W / 2, 0.06, H + 0.04);
   wall(0.08, 0.12, H, W + 0.04, 0.06, H / 2);
   const tops = {};
