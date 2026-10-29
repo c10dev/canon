@@ -1,6 +1,6 @@
 # 02. 장면 연출 화면과 웹 엔드포인트
 
-상태: 설계 · 계획: [plan.md](../plan.md) 의 2번 · 먼저: 1번 · 시안: [mockup.html](../mockup.html)
+상태: 구현 (브랜치 `claude/artwork-tool-motion-viz-b29fab`) · 계획: [plan.md](../plan.md) 의 2번 · 먼저: 1번 · 시안: [mockup.html](../mockup.html)
 
 ## 목표
 
@@ -8,20 +8,24 @@
 
 ## 정할 것
 
-1. 사이드바에 언제 보이나 — 추천: 장면이 하나라도 있으면 도구 목록에 펼쳐 보이고, 없으면 접힌 도구에 둔다(`navItems` 의 지도 · 고칠 곳과 같은 방식).
-2. 저장 방식 — 추천: 장면 하나를 통째로 `PUT` 한다(작품 잠금 `_edit` 안에서 그 화의 `stage` 만 바꿈). 자동 집필이 그 화를 쓰는 중이면 막는다.
+정했다(2026-10-29, 추천안대로).
+
+1. 사이드바에 언제 보이나 — 정함: 장면이 하나라도 있으면 도구 목록에 펼쳐 보이고, 없으면 접힌 도구에 둔다(`navItems` 의 지도 · 고칠 곳과 같은 방식).
+2. 저장 방식 — 정함: 장면 하나를 통째로 `PUT` 한다(작품 잠금 `_edit` 안에서 그 화의 `stage` 만 바꿈). 자동 집필이 돌거나 그 화를 맡은 작업이 있으면 막는다. 저장 때 `clean_scene` 이 막는 접촉을 빼고 수를 알린다.
+3. 새 장면의 방 고르기 — 정함: 사건의 '연출'을 누르면 이미 있는 방 목록과 새 방(틀 7개) 중에서 고른다. 그 화 플롯의 등장 인물이 출연진으로 문 앞에 선 채 들어간다.
+4. 반영이 끝난 화 — 정함: 장면은 작가 자료라 언제나 고친다. 플롯을 확정하지 않은 화도 짠다.
 
 ## 바꿀 곳
 
 | 파일 | 바꿀 것 |
 |---|---|
-| `canon/web.py` | `GET /api/projects/{name}/stage/{ep}`(그 화의 장면 · 방 · 판정 · 어휘 · 사건 찾기 결과), `PUT …/stage/{ep}/{scene}`, `DELETE …/stage/{ep}/{scene}`, `PUT /api/projects/{name}/rooms/{room}`, 저장 때 `stage.blocked` 로 거르고 걸린 수를 응답에 |
-| `canon/static/stage.js` (새) | `viewStage`(주소 `stage/<화>/<사건>`), 평면도 `stageSvg`, 인물 카드(자세 그림 `stagePose`, 부위 도식 `stageBody`), 박자 목록, 재생 슬라이더와 보간, 방 편집(틀 고르기, 기준점 끌기), 끌어 놓기 → `stageSnap`, 위치 계산 `stageLayout`(Python `place` 와 같은 규칙) |
+| `canon/web.py` | `GET /api/projects/{name}/stage/{ep}`(그 화의 장면 · 방 · 판정 · 어휘 · 사건 찾기 결과 · 미성년 인물), `POST …/stage/{ep}`(새 장면, 새 방이나 있는 방), `PUT …/stage/{ep}/{scene}`(장면과 방을 함께), `POST …/stage/{ep}/check`(저장 없이 판정), `DELETE …/stage/{ep}/{scene}`. 저장 때 `stage.clean_scene` 으로 거르고 뺀 수를 응답에. 작품 전체 저장(`_save`)은 디스크의 장면 · 방을 지킨다 |
+| `canon/static/stage.js` (새) | `viewStage`(주소 `stage/<화>/<사건>`), 평면도 `stgPlanSvg`, 인물 카드 `stgPersonCard`(자세 그림, 부위 도식 `stgBodyMap`), 박자 목록, 재생 슬라이더와 보간, 방 편집(틀 고르기, 기준점 끌기), 끌어 놓기 → `stageSnap`, 위치 계산 `stageLayout`(Python `place` 와 같은 규칙) |
 | `canon/static/app.js` | `navItems` 도구 줄 '장면 연출' |
 | `canon/static/plot.js` | 화 플롯 페이지 사건 칸마다 '연출' 버튼 |
 | `canon/static/write.js` | 플롯 띠 사건 줄에서 장면으로 가는 링크 |
 | `canon/static/index.html` | `stage.js` 읽기 |
-| `canon/static/palette.js` | 명령 팔레트 화면 이름 |
+| `canon/static/palette.js` | 명령 팔레트는 `navItems` 를 읽어 따로 고칠 것이 없다 |
 
 ## 화면
 

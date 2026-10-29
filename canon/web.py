@@ -34,8 +34,8 @@ from .schema import FieldIdeas, NameOption, Recap
 from . import branches
 from .schema import BranchDiff, BranchInfo, ForkMode
 from . import birth, play
-from . import tofix
-from .schema import Birth, BirthSketch, Episode, PlayInfo, PlayPerson, PlayUnit
+from . import stage, tofix
+from .schema import Birth, BirthSketch, Episode, PlayInfo, PlayPerson, PlayUnit, StageRoom, StageScene
 
 STATIC = Path(__file__).parent / "static"
 # 폴더 이름: / \ 와 운영체제가 막는 : * ? " < > | 는 쓸 수 없고, . 으로 시작하지 않는다
@@ -140,6 +140,11 @@ def _save(name: str, p: Project, merged: set[str] | None = None, kept: list[dict
             marks = {e.plot.number: e.to_fix for e in disk.episodes}
             for e in p.episodes:
                 e.to_fix = marks.get(e.plot.number, [])
+            # 장면 연출도 전용 엔드포인트로만 바꾼다 (stage.py)
+            scenes = {e.plot.number: e.stage for e in disk.episodes}
+            for e in p.episodes:
+                e.stage = scenes.get(e.plot.number, [])
+            p.rooms = disk.rooms
         store.save(name, p)
     return p
 
@@ -2186,6 +2191,80 @@ def update_tofix(name: str, n: int, mid: str, body: ToFixPatch) -> Project:
 def delete_tofix(name: str, n: int, mid: str) -> Project:
     _load(name).episode(n)
     return _edit(name, lambda p: tofix.remove(p.episode(n), mid))
+
+
+# ---------- 장면 연출 (stage.py, 화면 static/stage.js) ----------
+# 장면은 작가 자료라 이 엔드포인트로만 바꾼다. 화면의 작품 전체 저장(_save)은 디스크의 장면 · 방을 지킨다.
+# 자동 집필이 돌거나 그 화를 맡은 작업이 있으면 막는다 (작업이 저장하는 작품이 장면 저장을 덮지 않게).
+
+class StageNewIn(BaseModel):
+    event: int
+    room: str = ""      # 이미 있는 방 id. 비면 template 로 새 방
+    template: str = ""
+    room_name: str = ""
+    place: str = ""
+
+
+class StageSaveIn(BaseModel):
+    scene: StageScene
+    room: StageRoom | None = None
+
+
+def _stage_free(name: str, n: int) -> None:
+    _not_auto(name)
+    if n in jobs.owned_episodes(name):
+        raise ValueError(f"{n}화를 맡은 작업이 도는 중이에요. 끝난 뒤에 저장하세요")
+
+
+@app.get("/api/projects/{name}/stage/{n}")
+def stage_view(name: str, n: int) -> dict:
+    return stage.view(_load(name), n)
+
+
+@app.post("/api/projects/{name}/stage/{n}")
+def stage_new(name: str, n: int, body: StageNewIn) -> dict:
+    _load(name).episode(n)
+    _stage_free(name, n)
+    made = {}
+
+    def fn(p: Project):
+        e = p.episode(n)
+        room = next((r for r in p.rooms if r.id == body.room), None) if body.room else None
+        if room is None:
+            room = stage.new_room(p, body.template or "empty", body.room_name, body.place)
+        made["id"] = stage.new_scene(p, e, body.event, room).id
+
+    p = _edit(name, fn)
+    return {**stage.view(p, n), "made": made["id"]}
+
+
+@app.put("/api/projects/{name}/stage/{n}/{sid}")
+def stage_save(name: str, n: int, sid: str, body: StageSaveIn) -> dict:
+    _load(name).episode(n)
+    _stage_free(name, n)
+    if body.scene.id != sid:
+        raise ValueError("장면 번호가 주소와 달라요")
+    out = {}
+    p = _edit(name, lambda p: out.update(dropped=stage.save_scene(p, p.episode(n), body.scene, body.room)))
+    return {**stage.view(p, n), **out}
+
+
+@app.post("/api/projects/{name}/stage/{n}/check")
+def stage_check(name: str, n: int, body: StageSaveIn) -> dict:
+    """저장하지 않고 판정만 (화면이 고치는 동안). 막을 접촉 수도 센다."""
+    p = _load(name)
+    e = p.episode(n)
+    scene = body.scene.model_copy(deep=True)
+    room = body.room or stage.room_of(p, scene)
+    dropped = stage.clean_scene(scene, room, p)
+    return {**stage.check(p, e, scene, room), "dropped": dropped}
+
+
+@app.delete("/api/projects/{name}/stage/{n}/{sid}")
+def stage_delete(name: str, n: int, sid: str) -> dict:
+    _load(name).episode(n)
+    _stage_free(name, n)
+    return stage.view(_edit(name, lambda p: stage.remove_scene(p.episode(n), sid)), n)
 
 
 # ---------- 4-1. 본문 부분 수정 ----------

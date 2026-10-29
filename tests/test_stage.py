@@ -132,8 +132,29 @@ def test_unknown_hand_is_not_judged():
 
 def test_carried_person_may_move():
     room = _room()
-    s = _scene(room, [StageBeat(bodies=[StageBody(who="h", posture="held", at=StageSpot(ref="@d", rel="on"))])])
+    # 도윤이 선 채로 업어야(받침 접촉) 업힌 하린이 옮겨질 수 있다
+    carry = StageBody(who="d", contacts=[StageContact(id="c1", by="both", to="h", part="back", act="carry")])
+    s = _scene(room, [StageBeat(bodies=[carry, StageBody(who="h", posture="held", at=StageSpot(ref="@d", rel="on"))])])
     assert _rules(s, room) == []
+    s = _scene(room, [StageBeat(bodies=[StageBody(who="h", posture="held", at=StageSpot(ref="@d", rel="on"))])])
+    assert _rules(s, room) == [(1, "move_posture", "h")]
+
+
+def test_across_and_against():
+    room = _room()
+    desk = next(a for a in room.anchors if a.name == "책상")
+    door = next(a for a in room.anchors if a.name == "문")
+    assert stage._anchor_point(desk, "across") == stage._anchor_point(desk, "back")
+    # 문(앞쪽이 위)에 기대면 문 앞보다 가깝게 붙는다
+    assert stage._anchor_point(door, "against")[1] > stage._anchor_point(door, "front")[1]
+    st = stage.state_at(StageScene(id="s", cast=["a", "b", "c"], start=[
+        StageBody(who="a", at=StageSpot(ref=next(a.id for a in room.anchors if a.name == "침대"), rel="right"), facing="e"),
+        StageBody(who="b", at=StageSpot(ref="@a", rel="across")),
+        StageBody(who="c", at=StageSpot(ref="@a", rel="against")),
+    ]), 0)
+    pos = stage.place(room, st)
+    assert pos["b"][0] - pos["a"][0] == pytest.approx(stage.ACROSS)
+    assert pos["c"][0] - pos["a"][0] == pytest.approx(stage.BODY * 2)
 
 
 def test_blocked_only_sexual_with_minor():
@@ -175,6 +196,7 @@ def test_find_event_and_stale():
     assert stage.find_event(ep, StageScene(id="s", event=5, event_text="바뀐 사건")) == (None, True)
     s = StageScene(id="s", beats=[StageBeat(quote="하린은 의자를 돌려  그를 보았다."), StageBeat(quote="없는 문장."), StageBeat()])
     assert stage.stale(s, ep.text) == [2]
+    assert stage.stale(s, "  ") == []  # 쓰기 전 연출
 
 
 def test_old_project_reads_and_vocab():
@@ -183,3 +205,5 @@ def test_old_project_reads_and_vocab():
     assert p.rooms == [] and p.episodes[0].stage == [] and p.settings.stage_extract is False
     v = stage.vocab()
     assert len(v["postures"]) == 12 and v["parts"]["wrist_l"]["label"] == "왼 손목" and "bedroom" in v["rooms"]
+    assert v["parts"]["forearm_r"]["label"] == "오른 아래팔" and v["acts"]["carry"]["support"] and not v["acts"]["hold"]["support"]
+    assert v["rels"]["across"] == "맞은편" and v["rels"]["against"] == "기대어 맞닿음"
