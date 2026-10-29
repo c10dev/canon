@@ -1,10 +1,12 @@
 """생성 파이프라인. 각 단계는 Project 를 받아 제안을 만들고, 반영은 호출자가 승인 후 한다."""
 from __future__ import annotations
 
+import re
+
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
 from .llm import LLM, dump
-from . import charlog, features, findings, foreshadows, statwin, timeline
+from . import cancel, charlog, features, findings, foreshadows, stage, statwin, timeline
 from .schema import Finding, FindingRecheck, FixOption, FixPatch, FixSet
 from .schema import (
     Act,
@@ -21,7 +23,10 @@ from .schema import (
     CheckRound,
     CheckSource,
     ConsistencyReport,
-    SceneCheck,
+    StageDraft,
+    StageProposal,
+    StageRoom,
+    StageScene,
     Conversion,
     ElementImpact,
     Episode,
@@ -3050,6 +3055,8 @@ def check_episode(llm: LLM, p: Project, n: int, widen: bool | None = None) -> Co
     report.episode = n
     if widen_on(p, widen):
         report, _ = widen_check(llm, p, n, report)
+    if p.settings.stage_extract:  # 본문 장면 뽑기: apply_check 가 장면에 넣고 규칙 판정을 합친다
+        report._stage, report._stage_held = stage_extract_all(llm, p, n)
     return report
 
 
@@ -3105,21 +3112,6 @@ def widen_check(llm: LLM, p: Project, n: int, report: ConsistencyReport, hint: d
     return ConsistencyReport(episode=n, issues=issues), stats
 
 
-def check_scene(llm: LLM, p: Project, n: int, hint: dict | None = None) -> tuple[ConsistencyReport, dict]:
-    """장면 상태표 검수 (연구 화면에서만 씀): 검수 모델이 이번 화 본문을 장면 상태표(향한 쪽, 두 손, 착용 겹침,
-    몸 앞뒤, 물건 자리)로 먼저 옮겨 적고, 그 표와 어긋나는 동선만 찾는다. 옛 화 · 설정은 넣지 않는다. (보고서, 상태표와 크기)"""
-    from .context import est_tokens
-
-    ep = p.episode(n)
-    if not ep.text:
-        raise ValueError(f"{n}화 본문이 없어요")
-    prompt = prompts.scene_prompt(p, n)
-    sc = llm.json(prompts.SYSTEM_SCENE, prompt, SceneCheck, hint={"episode": n, "text": ep.text, **(hint or {})})
-    beats = sc.beats[:prompts.SCENE_BEATS]
-    stats = {"chars": len(prompt), "tokens": est_tokens(prompts.SYSTEM_SCENE + prompt), "beats": [b.model_dump() for b in beats]}
-    return ConsistencyReport(episode=n, issues=sc.issues), stats
-
-
 def check_two_step(llm: LLM, judge: Judge, p: Project, n: int, hint: dict | None = None) -> tuple[ConsistencyReport, dict]:
     """두 걸음 검수 (연구 화면에서만 씀): 검수 모델이 이번 화의 사실 진술을 뽑고, 판단기가 진술마다 옛 화 · 설정 · 사실과 견줘
     '어긋남' 확률을 내고, 의심 진술만 근거와 함께 검수 모델이 판정한다. 옛 화는 직전 화까지 모두 찾아본다.
@@ -3162,7 +3154,136 @@ def apply_check(p: Project, r: ConsistencyReport, source: CheckSource = "api", w
     ep = p.episode(r.episode)
     if not ep.text:
         raise ValueError(f"{r.episode}화 본문이 없어요")
-    return findings.merge(ep, r.issues, _now(), text_basis(ep.text), source, widen)
+    for prop in r._stage:  # 검수 때 뽑은 본문 장면 (stage_extract_all)
+        apply_stage(p, prop)
+    # 장면 연출 규칙 판정: 설정이 꺼져 있어도 이미 있는 본문 장면은 판정한다. 검수 모델이 같은 문장을 짚었으면 뺀다
+    rule = [x for x in stage.episode_issues(p, ep) if not any(_same_quote(x.current_quote, y.current_quote) for y in r.issues)]
+    judged = any(stage.scenes_of(ep, i)[1] is not None for i in range(len(ep.plot.events)))
+    return findings.merge(ep, [*r.issues, *rule], _now(), text_basis(ep.text), source, widen, judged)
+
+
+# ---------- 5-2. 장면 연출: 플롯에서 초안, 본문에서 뽑기, 검수 때 함께 뽑기 (stage.py, docs/stage/) ----------
+# AI 는 이름 · 기준점 + 관계 말로 적고(StageDraft) stage.from_draft 가 id 로 바꿔 정리한다. 결과(StageProposal)는 저장하지 않는다.
+# 화면 버튼의 결과는 웹이 pending.json 에 두고 작가가 비교한 뒤 통째로 적용한다(apply_stage). 적용 취소는 한 번(undo_stage).
+# 검수 때 뽑은 본문 장면은 비교 없이 바로 넣되, 작가가 손본 본문 장면(source manual)은 덮지 않는다.
+
+def _stage_context(p: Project, ep: Episode, event: int, role: str) -> tuple[StageRoom | None, list[str]]:
+    """쓸 방(같은 사건의 짝 장면 방, 없으면 None)과 같은 화 앞 사건 장면이 끝난 상태."""
+    plan, text = stage.scenes_of(ep, event)
+    mine, pair = (text, plan) if role == "text" else (plan, text)
+    room = stage.room_of(p, mine) if mine else None
+    room = room or (stage.room_of(p, pair) if pair else None)
+    prev: list[str] = []
+    for i in range(event - 1, -1, -1):
+        a, b = stage.scenes_of(ep, i)
+        s = (b or a) if role == "text" else (a or b)
+        if s is not None:
+            prev = stage.end_lines(s, stage.room_of(p, s), p)
+            break
+    return room, prev
+
+
+def _pick_room(p: Project, want: str) -> StageRoom:
+    """AI 가 고른 방: 이미 있는 방 이름이면 그 방, 틀 id · 틀 이름이면 새 방 (작품에는 아직 넣지 않는다)."""
+    want = want.strip()
+    hit = next((r for r in p.rooms if r.name.strip() == want), None)
+    if hit:
+        return hit
+    tid = want if want in stage.ROOMS else next((k for k, v in stage.ROOMS.items() if v[0] == want), "empty")
+    return stage.make_room(tid, stage._new_id("r", {r.id for r in p.rooms}))
+
+
+def _stage_ask(llm: LLM, p: Project, n: int, event: int, role: str, hint: dict | None = None) -> StageProposal:
+    ep = p.episode(n)
+    if not 0 <= event < len(ep.plot.events):
+        raise ValueError(f"{n}화에 {event + 1}번째 사건이 없어요")
+    if role == "text" and not ep.text:
+        raise ValueError(f"{n}화 본문이 없어요")
+    room, prev = _stage_context(p, ep, event, role)
+    make = prompts.stage_extract_prompt if role == "text" else prompts.stage_draft_prompt
+    d = llm.json(prompts.SYSTEM_STAGE, make(p, n, event, room, prev), StageDraft,
+                 hint={"episode": n, "event": event, "role": role, "text": ep.text if role == "text" else "",
+                       "room": room.model_dump() if room else None, **(hint or {})})
+    new_room = None
+    if room is None:
+        room = _pick_room(p, d.room)
+        new_room = None if any(r.id == room.id for r in p.rooms) else room
+    scene, dropped, notes = stage.from_draft(d, p, ep, event, room, role)
+    if role == "text":
+        scene.basis = text_basis(ep.text)
+    return StageProposal(episode=n, event=event, role=role, scene=scene, room=new_room, dropped=dropped, notes=notes, at=_now())
+
+
+def draft_stage(llm: LLM, p: Project, n: int, event: int) -> StageProposal:
+    """플롯 사건 하나의 계획 장면 초안 (plan 단계). 본문은 넣지 않는다."""
+    return _stage_ask(llm, p, n, event, "plan")
+
+
+def extract_stage(llm: LLM, p: Project, n: int, event: int, hint: dict | None = None) -> StageProposal:
+    """화 본문에서 사건 하나의 본문 장면을 뽑는다 (check 단계). 본문 전체를 넣고 그 사건 부분만 뽑게 한다."""
+    return _stage_ask(llm, p, n, event, "text", hint)
+
+
+def stage_extract_all(llm: LLM, p: Project, n: int, hint: dict | None = None) -> tuple[list[StageProposal], list[StageProposal]]:
+    """검수 때 함께 뽑기: 사건마다 본문 장면을 뽑는다. 본문이 바뀌지 않은 사건(basis 같음)은 건너뛴다(호출 없음).
+    (바로 넣을 것, 작가가 손본 본문 장면이라 비교로만 남길 것). 한 사건이 실패해도 검수는 잇는다."""
+    ep = p.episode(n)
+    if not ep.text:
+        return [], []
+    basis = text_basis(ep.text)
+    part = getattr(llm, "part", None)  # 자동 집필 배치: 호출마다 작업 slot 을 따로 둔다
+    auto, held = [], []
+    for i in range(len(ep.plot.events)):
+        text = stage.scenes_of(ep, i)[1]
+        if text is not None and text.basis == basis:
+            continue
+        try:
+            prop = extract_stage(part(f"stage{i + 1}") if part else llm, p, n, i, hint)
+        except cancel.Cancelled:
+            raise
+        except Exception:
+            continue
+        (held if text is not None and text.source == "manual" else auto).append(prop)
+    return auto, held
+
+
+def apply_stage(p: Project, prop: StageProposal) -> StageScene:
+    """AI 장면을 통째로 넣는다. 같은 사건 · 같은 역할의 장면이 있으면 바꾸고 그 장면을 prev 에 남긴다(적용 취소 한 번).
+    없던 장면이면 prev 는 id 가 빈 장면(적용 전에는 장면이 없었음)이다. 새 방이면 작품에 더한다."""
+    ep = p.episode(prop.episode)
+    scene = prop.scene.model_copy(deep=True)
+    if prop.room is not None:
+        room = prop.room.model_copy(deep=True)
+        if any(r.id == room.id for r in p.rooms):
+            room.id = stage._new_id("r", {r.id for r in p.rooms})
+        p.rooms.append(room)
+        scene.room = room.id
+    old = stage.scenes_of(ep, prop.event)[prop.role == "text"]
+    if old is not None:
+        scene.id = old.id
+        scene.prev = old.model_copy(update={"prev": None}, deep=True)
+        ep.stage = [scene if s.id == old.id else s for s in ep.stage]
+    else:
+        scene.id = stage._new_id("s", {s.id for s in ep.stage})
+        scene.prev = StageScene(id="", event=prop.event, role=prop.role)
+        ep.stage.append(scene)
+    return scene
+
+
+def undo_stage(p: Project, n: int, sid: str) -> StageScene | None:
+    """마지막 AI 적용을 되돌린다. 적용 전에 장면이 없었으면 장면을 뺀다 (None)."""
+    ep = p.episode(n)
+    s = next((x for x in ep.stage if x.id == sid), None)
+    if s is None:
+        raise KeyError(f"{n}화에 그런 장면이 없어요: {sid}")
+    if s.prev is None:
+        raise ValueError("적용 취소할 AI 적용이 없어요")
+    if not s.prev.id:
+        stage.remove_scene(ep, sid)
+        return None
+    back = s.prev.model_copy(update={"prev": None}, deep=True)
+    ep.stage = [back if x.id == sid else x for x in ep.stage]
+    return back
 
 
 # ---------- 5-0. 검수 지적 고치기: 고침안, 묶음 적용 · 되돌리기, 지적 하나 다시 검수 ----------
@@ -3184,19 +3305,33 @@ def _decided(ep: Episode) -> list[Finding]:
     return [g for g in ep.findings if g.status in findings.DECIDED]
 
 
+_SENTENCE_END = re.compile(r"[.!?…。]+[\"'”’」』)]*(?=\s|$)")
+
+
+def _adds_sentence(before: str, after: str) -> bool:
+    """고친 글이 원래 글보다 문장이 많거나 1.5배(+10자)보다 길다: 새 동작 문장을 더한 고침."""
+    count = lambda t: len(_SENTENCE_END.findall(t.strip())) or 1
+    return count(after) > count(before) or len(after.strip()) > len(before.strip()) * 1.5 + 10
+
+
 def clean_fixes(ep: Episode, f: Finding, fs: FixSet) -> list[FixOption]:
     """쓸 수 없는 고침안과 딸린 곳을 뺀다: 빈 글, 원문과 같은 글, 겹치는 안, 본문에 없는 딸린 문장,
-    지적한 문장이나 다른 딸린 곳과 겹치는 딸린 곳."""
+    지적한 문장이나 다른 딸린 곳과 겹치는 딸린 곳, 동선 지적이면 새 문장을 더한 안 · 딸린 곳."""
     quote = f.current_quote.strip()
+    motion = f.type == "동선"  # 동선 지적: 어긋난 낱말만 바꾼다. 새 동작 문장을 더한 안은 거른다 (장면 연출은 본문을 동작 묘사로 끌지 않는다)
     out: list[FixOption] = []
     for o in fs.options:
         text = o.text.strip()
         if not text or text == quote or any(text == y.text for y in out):
             continue
+        if motion and _adds_sentence(quote, text):
+            continue
         extra: list[FixPatch] = []
         for x in o.extra:
             q, rep = x.quote.strip(), x.replacement.strip()
             if not q or q not in ep.text or rep == q or (quote and (q in quote or quote in q)):
+                continue
+            if motion and _adds_sentence(q, rep):
                 continue
             if any(q in y.quote or y.quote in q for y in extra):
                 continue
@@ -3285,6 +3420,11 @@ def undo_fix(p: Project, n: int, group: str) -> tuple[list[TextEdit], list[TextE
 def recheck_finding(llm: LLM, p: Project, n: int, fid: str) -> FindingRecheck:
     """열린 지적 하나만 다시 묻는다. 저장하지 않는다 (apply_recheck). 작가가 그 지적 때문에 넣은 고침안 묶음을 함께 보인다."""
     ep, f = _open_finding(p, n, fid)
+    if f.origin == "rule":  # 장면 연출 규칙 지적: LLM 없이 지금 본문 장면으로 판정만 다시 (본문 장면은 다시 뽑지 않는다)
+        still = [x for x in stage.episode_issues(p, ep) if _same_quote(x.current_quote, f.current_quote)]
+        if not f.current_quote.strip() or f.current_quote.strip() not in ep.text:
+            return FindingRecheck(resolved=True, reason="짚은 문장이 본문에서 바뀌었어요")
+        return FindingRecheck(resolved=not still, reason=still[0].description if still else "장면 연출 규칙 판정에 더 걸리지 않아요")
     changes = [(e.before, e.after) for e in ep.edits if f.fix_group and e.group == f.fix_group and not e.undone]
     return llm.json(prompts.SYSTEM_CHECKER, prompts.recheck_prompt(p, n, f, changes, _decided(ep)), FindingRecheck,
                     hint={"episode": n, "quote": f.current_quote, "text": ep.text})

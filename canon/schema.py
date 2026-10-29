@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, SerializationInfo, SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, SerializationInfo, SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
 from .metrics import StyleMetrics
@@ -251,7 +251,7 @@ class Snapshot(BaseModel):
 class Settings(BaseModel):
     show_numbers: bool = Field(False, description="CLI 에서 관계를 숫자로 보여줄지(True), 말로 보여줄지(False)")
     check_widen: bool = Field(False, description="장편 검수 넓히기: 검수 뒤 진술마다 옛 화를 더 찾아, 첫 검수에 없던 근거가 나온 진술만 다시 묻는다 (검수 호출 2번 더)")
-    stage_extract: bool = Field(False, description="검수 때 본문에서 장면 연출을 함께 뽑는다 (사건마다 check 호출 1번 더)")
+    stage_extract: bool = Field(True, description="검수 때 본문에서 장면 연출을 함께 뽑는다 (사건마다 check 호출 1번 더, 본문이 그대로인 사건은 건너뜀)")
     keep_snapshots: bool = Field(False, description="장편에서도 화별 스냅샷을 지우지 않고 모두 남긴다 (연구용 작품: 어느 화로든 되돌릴 수 있다). 끄면 0화 · 아크 끝 · 최근 20화만 남긴다 (pipeline.prune_snapshots)")
 
 
@@ -956,6 +956,10 @@ class ConsistencyIssue(BaseModel):
     current_quote: str = Field(description="이번 화에서 어긋난 문장 원문 그대로")
     suggestion: str = Field("", description="고치는 방법 제안")
     severity: Severity = Field("mid", description="crit: 독자가 바로 알아챌 모순이거나 뒤 화 전개를 흔듦 / mid: 눈여겨 읽으면 보이는 어긋남 / low: 사소한 세부")
+    # 프로그램이 채운다 (LLM 응답 형식에서 뺀다). 장면 연출 규칙 판정(stage.to_issues)이 낸 지적은 rule
+    origin: SkipJsonSchema[Literal["ai", "rule"]] = Field("ai", description="ai: 검수 모델 / rule: 장면 연출 규칙 판정")
+    stage_event: SkipJsonSchema[int] = Field(-1, description="규칙 지적의 플롯 사건 번호 (0부터). 장면 연출 화면 링크")
+    stage_beat: SkipJsonSchema[int] = Field(0, description="규칙 지적의 본문 장면 박자 (1부터)")
 
 
 HookAspect = Literal["첫 문단", "주인공", "전제", "설명 부담", "걸린 것", "장르 약속", "엔딩"]
@@ -1018,28 +1022,10 @@ class ConsistencyReport(BaseModel):
     """본문 검수 결과. 상태를 바꾸지 않는 참고용 경고라 승인 없이 저장한다."""
     episode: int
     issues: list[ConsistencyIssue] = Field(default_factory=list, description="근거가 분명한 모순만. 없으면 빈 목록")
-
-
-class BodyState(BaseModel):
-    """장면 상태표의 한 인물. 본문이 말하지 않은 칸은 비운다."""
-    name: str = Field(description="인물 이름")
-    facing: str = Field("", description="누구 · 무엇을 향했는지 (예: 도현을 마주 봄, 도현에게 등을 댐)")
-    hands: str = Field("", description="두 손 각각 하는 일 (예: 한 손 도현의 손목, 다른 손 빈 손)")
-    worn: str = Field("", description="걸친 것을 안쪽에서 바깥 순서로 (예: 셔츠 → 외투 → 백팩 끈)")
-    front: str = Field("", description="몸 앞에 맞닿거나 놓인 사람 · 물건")
-    back: str = Field("", description="몸 뒤에 맞닿거나 놓인 사람 · 물건")
-    items: str = Field("", description="그 밖의 물건 자리 (예: 열쇠 바지 앞주머니, 가방 의자 위)")
-
-
-class SceneBeat(BaseModel):
-    quote: str = Field(description="상태를 정하거나 바꾼 본문 문장 원문 그대로 (한 문장)")
-    bodies: list[BodyState] = Field(default_factory=list, description="그 문장 뒤의 상태. 바뀐 인물만, 적지 않은 인물과 칸은 앞 줄 그대로")
-
-
-class SceneCheck(BaseModel):
-    """검수 시험 scene 방식: 본문을 장면 상태표로 옮겨 적은 뒤 상태표와 어긋나는 동선만 찾는다. 연구 화면에서만 쓴다."""
-    beats: list[SceneBeat] = Field(default_factory=list, description="먼저 적는 장면 상태표")
-    issues: list[ConsistencyIssue] = Field(default_factory=list, description="상태표와 어긋나는 문장. 근거가 분명한 것만, 없으면 빈 목록")
+    # 검수 때 뽑은 본문 장면 (pipeline.stage_extract_all, StageProposal). apply_check 가 장면에 넣고 규칙 판정을 합친다.
+    # 작가가 손본 본문 장면을 덮지 않아 넣지 못한 것은 _stage_held (웹은 장면 연출 화면의 비교로 남긴다)
+    _stage: list = PrivateAttr(default_factory=list)
+    _stage_held: list = PrivateAttr(default_factory=list)
 
 
 EditSource = Literal["manual", "ai", "typed", "impact", "fix"]
@@ -1157,6 +1143,7 @@ class CheckRound(BaseModel):
     basis: str = Field("", description="검수한 본문의 지문 (pipeline.text_basis). 비면 모름 (옛 작품)")
     source: CheckSource = Field("api", description="api: 화면 · 명령줄 검수 / chat: 채팅 앱에서 받은 JSON / auto: 자동 집필")
     widen: bool = Field(False, description="넓혀 찾기를 함께 했는지")
+    stage: bool = Field(False, description="장면 연출 규칙 판정을 함께 넣었는지 (본문 장면이 있는 사건이 하나라도)")
     found: int = Field(0, description="이 회차가 짚은 수")
     added: int = Field(0, description="그중 새 지적")
     kept_again: int = Field(0, description="그중 그대로 둠 · 잘못 짚음으로 정해 둔 지적 (상태는 그대로)")
@@ -1252,6 +1239,60 @@ class StageScene(BaseModel):
     prompt: bool = Field(True, description="쓰기 프롬프트에 넣기")
     role: Literal["plan", "text"] = Field("plan", description="계획 장면(쓰기 전 작가가 짠 것) · 본문 장면(본문에서 뽑은 것). 한 사건에 역할마다 하나")
     prev: Optional["StageScene"] = Field(None, description="마지막 AI 적용 전 장면 (적용 취소 한 번)")
+
+
+# LLM 이 채우는 장면 연출 (pipeline.draft_stage · extract_stage). 이름으로 적고 stage.from_draft 가 id 로 바꾼다. dict 필드를 쓰지 않는다.
+
+class DraftContact(BaseModel):
+    by: str = Field(description="닿게 한 쪽: left · right · both (손), 또는 손 아닌 부위 id")
+    to: str = Field(description="닿는 인물 이름")
+    part: str = Field(description="닿는 부위 id (부위 목록)")
+    act: str = Field(description="접촉 동작 id (접촉 동작 목록)")
+
+
+class DraftEnd(BaseModel):
+    to: str = Field(description="끝난 접촉의 대상 인물 이름")
+    part: str = Field(description="끝난 접촉의 부위 id")
+
+
+class DraftBody(BaseModel):
+    """한 인물의 상태. 박자에는 바뀐 칸만 적고 나머지는 빈칸으로 둔다."""
+    name: str = Field(description="인물 이름 (등장 인물 목록 그대로)")
+    at_ref: str = Field("", description="자리의 기준: 기준점 이름, 또는 인물 이름. 바뀌지 않았거나 모르면 빈칸")
+    at_rel: str = Field("", description="자리 관계 id (관계 목록). at_ref 가 있을 때만")
+    posture: str = Field("", description="자세 id (자세 목록). 바뀌지 않았거나 모르면 빈칸")
+    facing: str = Field("", description="향한 쪽: 8방향 id, 또는 인물 이름 · 기준점 이름. 바뀌지 않았거나 모르면 빈칸")
+    left: str = Field("", description="왼손에 쥔 것. 바뀌지 않았으면 빈칸, 빈손이 되면 '빈손', 모르면 '?'")
+    right: str = Field("", description="오른손에 쥔 것 (left 와 같은 규칙)")
+    contacts: list[DraftContact] = Field(default_factory=list, description="이 박자에 새로 시작한 접촉")
+    ends: list[DraftEnd] = Field(default_factory=list, description="이 박자에 끝난 접촉")
+    memo: str = Field("", description="목록에 없는 것을 짧게")
+
+
+class DraftBeat(BaseModel):
+    quote: str = Field("", description="본문에서 뽑을 때: 이 박자를 정한 본문 문장 원문 그대로 한 문장. 쓰기 전 초안이면 빈칸")
+    note: str = Field("", description="이 박자에 일어나는 일 한 줄")
+    bodies: list[DraftBody] = Field(default_factory=list, description="바뀐 인물만")
+
+
+class StageDraft(BaseModel):
+    """플롯 사건 하나의 장면 연출 초안 또는 본문에서 뽑은 장면. 좌표는 적지 않는다."""
+    room: str = Field("", description="방: 방 목록의 이름 또는 방 틀 id. 방이 정해져 있으면 빈칸")
+    cast: list[str] = Field(default_factory=list, description="이 장면에 나오는 인물 이름")
+    start: list[DraftBody] = Field(default_factory=list, description="시작 상태: 인물마다 아는 칸을 모두")
+    beats: list[DraftBeat] = Field(default_factory=list, description="박자 차례")
+
+
+class StageProposal(BaseModel):
+    """AI 가 만든 장면을 정리한 결과. 적용 전에는 pending.json(웹)에 두고, 검수 때 뽑은 것은 바로 넣는다. LLM 이 채우지 않는다."""
+    episode: int
+    event: int
+    role: Literal["plan", "text"] = "plan"
+    scene: StageScene
+    room: Optional[StageRoom] = Field(None, description="새로 만들 방 (이미 있는 방을 쓰면 None)")
+    dropped: int = Field(0, description="막은 접촉 수 (미성년 인물이 낀 성적 접촉)")
+    notes: list[str] = Field(default_factory=list, description="정리하며 메모로 옮기거나 뺀 것")
+    at: str = ""
 
 
 class Episode(BaseModel):

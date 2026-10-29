@@ -140,7 +140,8 @@ def test_pause_keeps_batch_and_resume_reattaches(demo, monkeypatch):
     autorun.resume(demo)
     wait_until(idle(demo))
     assert autorun.load_run(demo).status == "done"
-    assert len(mock.BATCHES) == count + 2  # 본문은 기다리던 작업을 받아 오고, 검수와 상태만 새로 보냈다
+    events = len(store.load(demo).episode(1).plot.events)  # 검수 때 함께 뽑기: 사건마다 본문 장면 뽑기도 배치로 보낸다
+    assert len(mock.BATCHES) == count + 2 + events  # 본문은 기다리던 작업을 받아 오고, 검수 · 장면 뽑기와 상태만 새로 보냈다
 
 
 def test_stop_cancels_batch(demo, monkeypatch):
@@ -177,6 +178,11 @@ def test_server_restart_resumes(demo, monkeypatch):
 def test_estimate(demo, monkeypatch):
     p = store.load(demo)
     monkeypatch.setenv("CANON_LLM", "gemini")
+    events = sum(len(p.episode(n).plot.events) for n in range(1, 7))
+    stage = autorun.estimate(p, 6, False, Policy())  # 검수 때 함께 뽑기(기본 켬): 사건마다 검수 호출 하나 더
+    assert stage["calls"]["check"] == 6 + events
+    p.settings.stage_extract = False
+    assert stage["cost"] > autorun.estimate(p, 6, False, Policy())["cost"]
     off = autorun.estimate(p, 6, False, Policy())
     on = autorun.estimate(p, 6, True, Policy())
     assert off["episodes"] == 6 and off["calls"] == {"write": 6, "check": 6, "state": 6}
@@ -194,6 +200,7 @@ def test_serial_estimate_sizes_old_passages_without_search(demo, monkeypatch):
 
     p = store.load(demo)
     p.meta.form = "serial"
+    p.settings.stage_extract = False
     monkeypatch.setitem(context.BUDGET, "check_recall", 400)
     sim = p.model_copy(deep=True)
     for e in sim.episodes:  # 화마다 다른 낱말이 섞인 본문이라야 옛 단락이 찾아진다 (실제 작품처럼)
@@ -219,6 +226,7 @@ def test_web_api(demo, monkeypatch):
 
     c = TestClient(web.app)
     assert c.get("/api/projects/demo/auto").json()["run"] is None
+    assert c.put("/api/projects/demo/stage-extract", json={"on": False}).json()["settings"]["stage_extract"] is False
     est = c.post("/api/projects/demo/auto/estimate", json={"target": 3, "batch": True}).json()
     assert est["episodes"] == 3 and est["batch_rounds"] == 6
 
@@ -273,7 +281,8 @@ def test_batch_schema_mismatch_is_repaired(demo):
     count = len(mock.BATCHES)
     run = autorun.start(demo, 1, True, Policy(), foreground=True)
     assert run.status == "done" and run.applied == [1]
-    assert len(mock.BATCHES) == count + 4  # 본문, 검수, 상태, 상태 고쳐 받기
+    events = len(store.load(demo).episode(1).plot.events)  # 검수 때 함께 뽑기: 사건마다 본문 장면 뽑기
+    assert len(mock.BATCHES) == count + 4 + events  # 본문, 검수, 상태, 상태 고쳐 받기, 장면 뽑기
     assert any(e.level == "warn" and "형식과 맞지 않아" in e.message for e in run.log)
     assert not run.batches
 
