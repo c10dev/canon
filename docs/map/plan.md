@@ -14,7 +14,7 @@
 | 3 | `static/atlas.js` 나누기 | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [03-atlas-js.md](specs/03-atlas-js.md) | 0 |
 | 4 | OSM 빈 블록 채우기 | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [04-empty-blocks.md](specs/04-empty-blocks.md) | 1 |
 | 5 | 바다 (OSM 해안선) | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [05-coastline.md](specs/05-coastline.md) | 0 |
-| 6 | 지하철 노선과 역 사이 이동 시간 | 설계 | [06-subway.md](specs/06-subway.md) | 5 |
+| 6 | 지하철 노선과 역 사이 이동 시간 | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [06-subway.md](specs/06-subway.md) | 5 |
 | 7 | 길 이름표 다듬기 | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [07-street-labels.md](specs/07-street-labels.md) | 3 |
 | 8 | 현대 장소 종류 | 차례 미정 | [08-modern-kinds.md](specs/08-modern-kinds.md) | 1 |
 | 9 | 옛 핀의 건물 한 줄 채우기 | 차례 미정 | [09-spot-backfill.md](specs/09-spot-backfill.md) | 0 |
