@@ -565,7 +565,8 @@ def make_llm(provider: str, model: str | None = None) -> LLM:
 
 
 def get_llm(stage: str | None = None) -> LLM:
-    """stage: plan | write | check | state | name | revise | illustration. 단계별 백엔드와 모델 설정이 없으면 전체 설정을 쓴다."""
+    """stage: plan | write | check | state | name | revise | illustration. 단계별 백엔드와 모델 설정이 없으면 전체 설정을 쓴다.
+    지금 작업의 작품(usage.scope)이 단계 프리셋을 골랐으면 그 프리셋의 단계 칸을 쓴다 (settings.project_preset)."""
     from . import settings
 
     llm = make_llm(settings.stage_provider(stage)[0], settings.stage_model(stage)[0])

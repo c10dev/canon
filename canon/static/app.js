@@ -2035,7 +2035,7 @@ function sidebar(active) {
     <div class="nav nav-extra"><span class="small">본편과 분리</span>${apart.map(link).join('')}</div>
     <div class="side-foot">
       <span class="small">본문 모델</span>
-      <strong style="font-size:0.8125rem">${esc(cfg.stages ? cfg.stages.write.model : cfg.model || '')}</strong>
+      <strong style="font-size:0.8125rem">${esc(cfg.stages ? projectStage('write').model : cfg.model || '')}</strong>
       ${aiWarning() ? `<span style="color:var(--red)">${esc(aiWarning())}</span>` : ''}
       ${foot.map(([href, label]) => `<a href="${href}">${label}</a>`).join('\n      ')}
       <span class="tf-credit">이 페이지에는 토스팀에서 제공한 <a href="https://toss.im/tossface" target="_blank" rel="noopener">토스페이스</a>가 적용되어 있어요.</span>

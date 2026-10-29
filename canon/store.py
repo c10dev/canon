@@ -38,6 +38,31 @@ def load(name: str) -> Project:
     return p
 
 
+_PRESET = re.compile(r'"model_preset":\s*("(?:[^"\\]|\\.)*")')
+_preset_seen: dict[Path, tuple[tuple[int, int], str]] = {}
+
+
+def model_preset(name: str) -> str:
+    """작품이 고른 단계 프리셋 id (Settings.model_preset). 없으면 "".
+    AI 를 부를 때마다 묻으므로 작품 전체를 읽지 않고 그 칸만 찾고, 파일이 그대로면 앞서 찾은 값을 쓴다."""
+    path = project_dir(name) / "project.json"
+    try:
+        st = path.stat()
+    except OSError:
+        return ""
+    key = (st.st_mtime_ns, st.st_size)
+    seen = _preset_seen.get(path)
+    if seen and seen[0] == key:
+        return seen[1]
+    try:
+        m = _PRESET.search(path.read_text(encoding="utf-8"))
+        value = str(json.loads(m[1])) if m else ""
+    except (OSError, ValueError):
+        value = ""
+    _preset_seen[path] = (key, value)
+    return value
+
+
 _MARK = re.compile(r'"edit_rev":\s*(\d+),\s*"saved_by":\s*("(?:[^"\\]|\\.)*")')
 
 
