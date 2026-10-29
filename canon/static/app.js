@@ -1617,7 +1617,6 @@ async function routeNow() {
   S.context = null;
   S.promptText = null;
   S.briefText = null;
-  S.relations = null;
   if (parts[0] !== 'p') pruneProjectState();  // 작품 밖 화면으로 간다. 작품 데이터가 있을 때 끝난 초안을 정리한다
   if (parts[0] !== 'play' && typeof playStop === 'function') playStop();  // 플레이 화면을 떠나면 시계를 멈춘다
   try {
@@ -1662,9 +1661,6 @@ async function routeNow() {
       scanDrafts();
       S.dirty = false;
       const n = Number(parts[3]);
-      if (!parts[2] && S.project.relationships.length) {
-        S.relations = await api('GET', `/projects/${enc(S.name)}/relations`).catch((e) => ({ error: e.message }));
-      }
       if (parts[2] === 'setup') {
         S.names = {};
         S.ideas = {};
