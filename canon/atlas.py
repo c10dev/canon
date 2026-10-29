@@ -123,15 +123,36 @@ def unmatched(p: Project, fs: list[dict]) -> list[dict]:
     return list(seen.values())
 
 
+def map_era(p: Project, layout: Optional[dict] = None) -> str:
+    """지금 지도의 장소 종류 시대 (placekinds.ERAS). 지도 데이터가 OpenStreetMap · 현대 동네면 modern, 다른 지도 데이터면 old.
+    지도 데이터가 없으면(배경 그림 · 모눈) 지도 만들기 입력의 시대, 그것도 없으면 작품 이름 스타일이 현대일 때 modern."""
+    if layout:
+        return "modern" if layout.get("generator") in (osm.GENERATOR, moderngen.GENERATOR) else "old"
+    if p.atlas.spec:
+        return placekinds.era_of(p.atlas.spec.kind)
+    return "modern" if naming.resolve_style(p) in MODERN_STYLES else "old"
+
+
+def place_kinds(p: Project, era: str, pls: Optional[list[dict]] = None) -> dict[str, str]:
+    """장소 키 → 그 시대의 종류 id (지도 핀 기호). 작가가 지도 만들기에서 고른 종류(MapSpec.places)를 to_era 로 읽고,
+    비면 이름 · 설명에서 찾는다. gen_places 와 같은 차례지만 시대를 지도 만들기 입력이 아니라 지금 지도에서 받는다."""
+    mine = {x.key: x.kind for x in (p.atlas.spec.places if p.atlas.spec else [])}
+    return {pl["key"]: placekinds.to_era(mine.get(pl["key"], ""), era) or placekinds.classify(pl["name"], pl["description"], era)[0]
+            for pl in (places(p) if pls is None else pls)}
+
+
 def summary(p: Project, layout: Optional[dict] = None) -> dict:
     """지도 화면 한 번에 필요한 계산값. layout(read_layout 결과)을 주면 옮겨 간 인물에 길 따라 걸은 경로를 붙인다.
     이동 시간 검사 칸(travel.view)은 web.atlas_view 가 places · frames 로 붙인다 (atlas 는 travel 을 가져오지 않는다)."""
     pls = places(p)
     pins = {pin.place: [pin.x, pin.y] for pin in p.atlas.pins}
     spots = {pin.place: pin.spot for pin in p.atlas.pins}
+    kinds = place_kinds(p, map_era(p, layout), pls)
     for pl in pls:
         pl["pin"] = pins.get(pl["key"])
         pl["spot"] = spots.get(pl["key"], "")  # 놓인 건물 한 줄 (MapPin.spot)
+        pl["kind"] = kinds[pl["key"]]  # 지금 지도 시대의 종류 (핀 기호 static/atlas-icons.js)
+        pl["kind_label"] = placekinds.label(pl["kind"])
     fs = frames(p, pls)
     if layout:
         add_routes(fs, pins, road_graph(layout), p.atlas.meters)

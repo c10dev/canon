@@ -4,7 +4,7 @@
    장소 자리는 0~1 비율 좌표로 작품에 저장한다 (Project.atlas.pins). 배경 그림은 작품 폴더 map/ 에 파일로 둔다.
    마을 데이터(Watabou 생성기 JSON, /atlas/layout)가 있으면 그림 대신 마을을 그리고, 옮겨 간 인물은 서버가 길 따라 찾은 경로(row.route)로 잇는다.
    이 파일은 지도 그림과 화면 뼈대(상태, 확대 · 이동, 옆 칸, 저장, 되돌리기, 공통 동작)다. 기능은 바로 뒤에 읽는 파일에 있다:
-   atlas-gen.js 지도 만들기, atlas-travel.js 이동 시간 검사, atlas-table.js 어디에 있었나 표 · 장소와 맞지 않은 위치, atlas-export.js 내보내기, atlas-find.js 이름으로 자리 찾기. */
+   atlas-icons.js 장소 종류 기호 · 범례, atlas-gen.js 지도 만들기, atlas-travel.js 이동 시간 검사, atlas-table.js 어디에 있었나 표 · 장소와 맞지 않은 위치, atlas-export.js 내보내기, atlas-find.js 이름으로 자리 찾기. */
 'use strict';
 
 /** 마을 겹 설정은 이 브라우저에만 기억한다 (못 읽으면 기본값) */
@@ -565,11 +565,12 @@ function atlasDecoW(t, fs, bold = false) {
   return atlasTextW(t, fs);
 }
 
-/** 지도 장식: 왼쪽 위 제목 틀(지도 이름 · 인구), 오른쪽 아래 축척 막대 · 북쪽 화살표(OpenStreetMap 지도만, 북이 위)와 출처 글.
+/** 지도 장식: 왼쪽 위 제목 틀(지도 이름 · 인구), 오른쪽 아래 축척 막대 · 북쪽 화살표(OpenStreetMap 지도만, 북이 위)와 출처 글,
+    왼쪽 아래 범례 '이 지도의 장소'(legend: atlasLegendKinds 의 줄, atlas-icons.js).
     지금 보는 범위의 모서리에 화면에서 같은 크기로 놓는다 (u: 화면 1px 의 지도 단위). 출처 글은 장식 겹을 꺼도 그린다.
-    미리보기 중에는 아래 막대(.at-pv-bar)가 덮으므로 축척 막대를 그리지 않는다.
+    미리보기 중에는 아래 막대(.at-pv-bar)가 덮으므로 축척 막대 · 범례를 그리지 않는다.
     돌려주는 값: { svg, boxes: 차지한 상자 [x0, y0, x1, y1] (장소 · 구역 · 길 이름표가 비켜 간다) } */
-function atlasDeco(village, view, W, H) {
+function atlasDeco(village, view, W, H, legend = []) {
   const z = view.z;
   const u = atlasExporting || !atlasStageW ? 1 / z : ATLAS_W / (atlasStageW * z);
   const f = (x) => x.toFixed(2);
@@ -653,6 +654,17 @@ function atlasDeco(village, view, W, H) {
     out.push(`<text class="at-v-source" x="${f(x1 - gap)}" y="${f(y1 - gap)}" font-size="${f(fs)}" stroke-width="${f(fs * 0.3)}" text-anchor="end">${esc(src)}</text>`);
     boxes.push([x1 - gap - sw, y1 - gap - fs, x1 - gap, y1 - gap + fs * 0.25]);
   }
+
+  // 왼쪽 아래: 범례. 오른쪽 아래 틀(축척 · 출처)의 왼쪽까지, 높이는 보이는 높이의 40% (휴대폰 폭은 30%) 까지
+  if (on && !pv && legend.length) {
+    const br = boxes.find((b) => b[3] >= y1 - gap - u);  // 오른쪽 아래 틀 또는 출처 글
+    const right = br ? br[0] - gap : x1 - gap;
+    const lg = atlasLegend(legend, x0 + gap, y1 - gap, u, right - x0 - gap, (y1 - y0) * (narrow ? 0.3 : 0.4), atlasDecoW, narrow);
+    if (lg) {
+      out.push(lg.svg);
+      boxes.push(lg.box);
+    }
+  }
   return { svg: out.join(''), boxes };
 }
 
@@ -685,14 +697,13 @@ function atlasSvg() {
   const z = view.z;
   const sc = 1 / z;  // 핀 · 이름표 · 인물은 확대해도 화면에서 같은 크기
   const labels = [];  // { x, y, text, cls, first } 를 모아 마지막에 서로 비켜 놓는다
-  const deco = atlasDeco(village, view, W, H);  // 장식은 맨 위에 그리지만 이름표보다 먼저 자리를 잡는다
 
   // 지도 만들기 미리보기: 생성기가 고른 자리 (놓기로 고른 것만)
   if (pv) {
     pv.pins.filter((s) => S.atlasGen.take[s.place]).forEach((s) => {
       const x = s.x * W;
       const y = s.y * H;
-      out.push(`<g class="at-sug"><title>${esc(s.name)}: 새 자리</title><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(9 * sc).toFixed(2)}" stroke-width="${(2.5 * sc).toFixed(2)}"></circle></g>`);
+      out.push(`<g class="at-sug"><title>${esc(s.name)}: 새 자리</title><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(9 * sc).toFixed(2)}" stroke-width="${(2.5 * sc).toFixed(2)}"></circle>${atlasIconSvg(s.kind, x, y, 13.5 * sc)}</g>`);
       labels.push({ x, y, text: s.name, cls: '', first: true });
     });
   }
@@ -705,10 +716,15 @@ function atlasSvg() {
       if (!o) return;
       const x = o.x * W;
       const y = o.y * H;
-      out.push(`<g class="at-sug"><title>${esc(s.name)}: ${esc(o.what)}</title><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(9 * sc).toFixed(2)}" stroke-width="${(2.5 * sc).toFixed(2)}"></circle></g>`);
+      const pl = atlasPlace(s.place);
+      out.push(`<g class="at-sug"><title>${esc(s.name)}: ${esc(o.what)}</title><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(9 * sc).toFixed(2)}" stroke-width="${(2.5 * sc).toFixed(2)}"></circle>${atlasIconSvg(pl && pl.kind, x, y, 13.5 * sc)}</g>`);
       labels.push({ x, y, text: s.name, cls: '', first: true });
     });
   }
+
+  // 그릴 장소 핀 (미리보기에서 새 자리로 옮길 장소 · 자리 찾기 후보는 새 자리만 그린다). 범례도 이 핀의 종류만 보인다
+  const shown = (S.atlas.places || []).filter((pl) => pl.pin && !hidden(pl) && !(pv && S.atlasGen.take[pl.key]) && !(fd && fd.pick[pl.key] >= 0));
+  const deco = atlasDeco(village, view, W, H, atlasLegendKinds(shown));  // 장식은 맨 위에 그리지만 이름표보다 먼저 자리를 잡는다
 
   // 지하철 역(OpenStreetMap 지도의 transit): 노선은 땅 밑이라 그리지 않고 역만 표지로. 이름은 장소 이름표 뒤에 자리를 잡는다
   const stations = village && !pv && S.atlasLayers.stations !== false ? atlasStations(village.transit, W, H, 7 * sc) : [];
@@ -803,18 +819,19 @@ function atlasSvg() {
     out.push(...halos, ...lines, ...marks);
   }
 
-  // 장소 (미리보기에서 새 자리로 옮길 장소는 새 자리만 그린다)
-  (S.atlas.places || []).filter((pl) => pl.pin && !hidden(pl) && !(pv && S.atlasGen.take[pl.key]) && !(fd && fd.pick[pl.key] >= 0)).forEach((pl) => {
+  // 장소: 종류 기호를 원 안에 (atlas-icons.js). 지금 화에 나온 장소는 원과 기호를 키운다
+  shown.forEach((pl) => {
     const [x, y] = xy(pl);
     const later = !atlasKnown(pl, f);
     const hot = f.episode && f.mentioned.includes(pl.key);
     const sel = S.atlasSel === pl.key;
+    const r = hot ? 12.5 : sel ? 10.5 : 9;  // 반지름 9 는 이름표 상자(atlasLabels) · 화 번호 점 자리(atlasTrailMarks)와 같다
     const old = !!pv;  // 미리보기에서 옮기지 않는 장소: 지금(옛 마을) 자리라 흐리게
-    const tip = `${pl.name}${old ? ' (지금 자리. 적용해도 그대로예요)' : ''}${pl.description ? ' · ' + pl.description : ''}${later ? `\n${pl.known_from}화부터 독자가 알아요` : ''}${hot ? `\n${f.episode}화에 나와요` : ''}`;
+    const tip = `${pl.name}${pl.kind_label ? ' · ' + pl.kind_label : ''}${old ? ' (지금 자리. 적용해도 그대로예요)' : ''}${pl.description ? '\n' + pl.description : ''}${later ? `\n${pl.known_from}화부터 독자가 알아요` : ''}${hot ? `\n${f.episode}화에 나와요` : ''}`;
     out.push(`<g class="at-pin${later ? ' later' : ''}${sel ? ' sel' : ''}${old ? ' old' : ''}" data-atlas-pin="${esc(pl.key)}" tabindex="0" role="button" aria-label="${esc(pl.name + ' 자세히 보기. 화살표로 옮겨요')}"><title>${esc(tip)}</title>
       <circle class="at-hit" cx="${x}" cy="${y}" r="${(20 * sc).toFixed(2)}"></circle>
-      ${hot ? `<circle class="at-hot" cx="${x}" cy="${y}" r="${(16 * sc).toFixed(2)}" stroke-width="${(3 * sc).toFixed(2)}"></circle>` : ''}
-      <circle class="at-dot" cx="${x}" cy="${y}" r="${((sel ? 9 : 7) * sc).toFixed(2)}" stroke-width="${(2.5 * sc).toFixed(2)}"></circle></g>`);
+      ${hot ? `<circle class="at-hot" cx="${x}" cy="${y}" r="${(18 * sc).toFixed(2)}" stroke-width="${(3 * sc).toFixed(2)}"></circle>` : ''}
+      <circle class="at-dot" cx="${x}" cy="${y}" r="${(r * sc).toFixed(2)}" stroke-width="${(2.5 * sc).toFixed(2)}"></circle>${atlasIconSvg(pl.kind, x, y, r * 1.5 * sc)}</g>`);
     labels.push({ x, y, text: pl.name + (old ? ' (지금 자리)' : ''), cls: `${later ? ' later' : ''}${old ? ' old' : ''}`, first: sel });
   });
   out.push(...epDots);
@@ -1007,7 +1024,7 @@ function atlasTrailMarks(pts, stops, sc, z) {
   const k = atlasMarkScale(z);
   const r = 7 * sc * k;
   const size = 14 * sc * k;
-  const back = 7 * sc + r + sc;  // 장소 핀 반지름(7) 바깥
+  const back = 9 * sc + r + sc;  // 장소 핀 반지름(9) 바깥
   const arrows = [];
   for (let j = 1; j < stops.length; j++) {
     const len = atlasPathLen(pts, stops[j - 1].i, stops[j].i);
@@ -1196,7 +1213,7 @@ const atlasTextW = (t, fs) => [...t].reduce((n, ch) => n + (ch.charCodeAt(0) > 0
     taken: 먼저 차지한 상자 (지도 장식 · 인물 표). 이것도 비켜 가고, 놓은 이름표 상자를 더해 돌려준다 */
 function atlasLabels(list, sc, fs = 15 * sc, taken = []) {
   const g = 14 * sc;
-  const dots = list.map((l) => [l.x - 7 * sc, l.y - 7 * sc, l.x + 7 * sc, l.y + 7 * sc]);
+  const dots = list.map((l) => [l.x - 9 * sc, l.y - 9 * sc, l.x + 9 * sc, l.y + 9 * sc]);  // 장소 핀 (반지름 9)
   const placed = taken.slice();
   const hit = (b) => placed.some((p) => b[0] < p[2] && b[2] > p[0] && b[1] < p[3] && b[3] > p[1])
     || dots.some((d) => b[0] < d[2] && b[2] > d[0] && b[1] < d[3] && b[3] > d[1]);

@@ -272,8 +272,8 @@ def test_trail_marks_arrows_and_dots_on_the_path():
     # 화살표는 두 장소 사이 길 가운데, 가는 쪽을 본다
     assert [(round(a["x"]), round(a["y"])) for a in m["arrows"]] == [(50, 0), (100, 50)]
     assert round(m["arrows"][1]["a"], 3) == round(3.14159265 / 2, 3)
-    # 점은 장소 핀(반지름 7) 바깥: 처음은 떠나는 길 위, 나머지는 도착하는 길 위로 7 + 7 + 1 만큼 물러난다
-    assert [(round(d["x"]), round(d["y"]), d["ep"]) for d in m["dots"]] == [(15, 0, 1), (85, 0, 2), (100, 85, 3)]
+    # 점은 장소 핀(반지름 9) 바깥: 처음은 떠나는 길 위, 나머지는 도착하는 길 위로 9 + 7 + 1 만큼 물러난다
+    assert [(round(d["x"]), round(d["y"]), d["ep"]) for d in m["dots"]] == [(17, 0, 1), (83, 0, 2), (100, 83, 3)]
     # 화살표 길이의 네 배보다 짧은 길에는 화살표를 넣지 않는다
     short = _calc("atlasTrailMarks", [[0, 0], [40, 0]], [{"i": 0, "ep": 1}, {"i": 1, "ep": 2}], 1, 4)
     assert short["arrows"] == []
