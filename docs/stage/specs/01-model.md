@@ -1,6 +1,6 @@
 # 01. 스키마 · 방 틀 · 어휘 · 위치 계산 · 규칙 판정
 
-상태: 설계 · 계획: [plan.md](../plan.md) 의 1번
+상태: 구현 (브랜치 `claude/artwork-tool-motion-viz-b29fab`) · 계획: [plan.md](../plan.md) 의 1번
 
 ## 목표
 
@@ -8,15 +8,17 @@
 
 ## 정할 것
 
-1. shadowcast 와의 관계 — 추천: 1차 판정기는 `canon/stage.py` 에 둔다. 규칙 이름(`handoff` 등)과 `?` 손 규칙은 DESIGN.md 의 shadowcast 계획과 맞춘다. 2026-10-29 현재 `~/Projects/shadowcast` 에는 실험 도구(`hand-check`)만 있고 엔진 패키지가 없다. 엔진이 나오면 손 · 물건 규칙을 엔진 판정기로 바꿀지 그때 견준다(2차 후보). 다른 안: 엔진 패키지를 먼저 만들고 Canon 은 그것을 가져온다.
-2. 거리 문턱 — 추천: 손 접촉 1.2m, 그 밖 부위 0.6m 로 시작하고 일감 3 의 시험 장면으로 고친다.
+정했다(2026-10-29, 추천안대로).
+
+1. shadowcast 와의 관계 — 정함: 1차 판정기는 `canon/stage.py` 에 둔다. 규칙 이름(`handoff` 등)과 `?` 손 규칙은 DESIGN.md 의 shadowcast 계획과 맞춘다. 2026-10-29 현재 `~/Projects/shadowcast` 에는 실험 도구(`hand-check`)만 있고 엔진 패키지가 없다. 엔진이 나오면 손 · 물건 규칙을 엔진 판정기로 바꿀지 그때 견준다(2차 후보). 다른 안: 엔진 패키지를 먼저 만들고 Canon 은 그것을 가져온다.
+2. 거리 문턱 — 정함: 손 접촉 1.2m, 그 밖 부위 0.6m 로 시작하고 일감 3 의 시험 장면으로 고친다.
 
 ## 바꿀 곳
 
 | 파일 | 바꿀 것 |
 |---|---|
-| `canon/schema.py` | `Room` · `Anchor` · `StageScene` · `StageBeat` · `StageBody` · `Spot` · `Hand` · `Contact`, `Project.rooms`, `Episode.stage`, `Settings.stage_extract`. 형식은 [model.md](../model.md) |
-| `canon/stage.py` (새) | 방 틀 `ROOMS`, 어휘 `PARTS` · `POSTURES` · `ACTS`, `place`(위치 계산), `state_at`(박자 겹치기), `judge`(규칙 판정), `blocked`(막기), `find_event`(사건 글 → 번호 → 없음), `clean`(이름 → id, 목록 밖 → memo, 막는 접촉 빼기), `stale`(본문에 없는 인용 박자), `vocab()`(화면용 목록). LLM 호출 없음 |
+| `canon/schema.py` | `StageRoom` · `StageAnchor` · `StageScene` · `StageBeat` · `StageBody` · `StageSpot` · `StageContact`, `Project.rooms`, `Episode.stage`, `Settings.stage_extract`. 형식은 [model.md](../model.md) |
+| `canon/stage.py` (새) | 방 틀 `ROOMS` · `make_room`, 어휘 `PARTS` · `POSTURES` · `ACTS` · `RELS` · `FACINGS`, `place`(위치 계산), `state_at`(박자 겹치기), `judge`(규칙 판정), `is_sexual` · `blocked`(막기), `find_event`(사건 글 → 번호 → 없음), `clean_scene`(목록 밖 → memo, 막는 접촉 빼기, 접촉 id), `stale`(본문에 없는 인용 박자), `vocab()`(화면용 목록). 이름 → id 바꾸기는 AI 출력 스키마가 생기는 일감 03 에서 한다. LLM 호출 없음 |
 | `canon/renumber.py` | 장면은 `Episode` 에 있어 화와 함께 옮겨진다. 화 번호를 품은 칸이 없음을 확인만 한다 |
 
 ## 규칙
@@ -29,7 +31,7 @@
 
 ## 시험
 
-- `tests/test_stage.py`: 틀마다 기준점이 방 안에 있다, `place` 의 겹침 펴기와 인물 기준 고리, 규칙 다섯 개의 걸림 · 통과 사례, `?` 손은 짚지 않음, `blocked`(미성년 + sexual 만 참, 성인은 거짓), `clean` 이 막는 접촉을 뺀다, 옛 `project.json` 읽기.
+- `tests/test_stage.py`: 틀마다 기준점이 방 안에 있다, `place` 의 겹침 펴기 · 인물 기준 · 고리, 규칙 다섯 개의 걸림 · 통과 사례, `?` 손은 짚지 않음, 업힌 사람의 이동, `blocked`(미성년 + 성적 접촉만 참, 성인은 거짓, 가슴 밀기는 성적 접촉 아님), `clean_scene` 이 목록 밖 값을 메모로 옮기고 막는 접촉을 뺀다, 사건 찾기 · 본문과 다른 박자, 옛 `project.json` 읽기.
 - 전체 시험: `CANON_HOME=$(mktemp -d) python -m pytest -q tests`.
 
 ## 문서
