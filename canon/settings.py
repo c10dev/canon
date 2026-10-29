@@ -6,6 +6,7 @@ CANON_LOCAL_URL, CANON_LOCAL_MODEL, CANON_LOCAL_KEY, CANON_LLM_PLAN / _WRITE / _
 CANON_MODEL_PLAN / _WRITE / _CHECK / _STATE / _NAME / _REVISE (단계별 모델), CANON_CLAUDE_MODEL, CANON_CLAUDE_BIN,
 ANTHROPIC_API_KEY (Claude 백엔드, claude.py), CANON_GEMINI_AUTH(key | vertex, 또는 GOOGLE_GENAI_USE_VERTEXAI=true),
 CANON_VERTEX_CREDENTIALS(또는 GOOGLE_APPLICATION_CREDENTIALS), GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION (Vertex AI). prices 는 AI 요금 가격표에서 고친 줄 (usage.py).
+작품이 단계 프리셋을 고르면(Settings.model_preset) 그 작품의 호출에서는 프리셋이 설정 파일의 단계 칸을 대신한다 (project_preset).
 Claude 구독 로그인은 Claude Code 가 직접 관리하므로 여기에 계정 정보나 토큰을 두지 않는다.
 파일은 작품 폴더와 따로 두어 저장소나 project.json 에 키가 섞이지 않게 한다.
 """
@@ -157,29 +158,60 @@ def local_sampling() -> dict:
     return {**DEFAULT_SAMPLING, **(_read().get("local_sampling") or {})}
 
 
-def stage_provider(stage: str | None) -> tuple[str, str]:
-    """단계별 백엔드. 지정이 없으면 전체 provider 를 따른다. mock 이면 모든 단계가 mock."""
+_CURRENT: dict = {}  # stage_provider · stage_model 의 preset 기본값: 지금 작업의 작품이 고른 프리셋
+
+
+def project_preset(name: str | None = None) -> dict | None:
+    """작품이 고른 단계 프리셋 (Settings.model_preset). name 이 없으면 지금 작업의 작품(usage.scope 의 project).
+    고르지 않았거나 고른 프리셋이 지워졌으면 None 이고, 그러면 전체 설정의 단계 칸을 따른다."""
+    if name is None:
+        from . import usage
+
+        name = usage.context().get("project")
+    if not name:
+        return None
+    from . import store
+
+    preset_id = store.model_preset(name)
+    return find_preset(preset_id) if preset_id else None
+
+
+def _stage_value(kind: str, key: str, stage: str, preset: dict | None) -> tuple[str, str]:
+    """단계 칸 하나. 단계 환경 변수 → 작품 프리셋(출처 project) → 설정 파일. 작품 프리셋이 있으면 설정 파일의 단계 칸은 보지 않는다
+    (설정 화면에서 프리셋을 고른 것과 같다: 프리셋에 없는 단계는 부모 단계나 생성 방식을 따른다)."""
+    stage_map = (preset.get(key) or {}) if preset is not None else (_read().get(key) or {})
+    value, src = _pick((f"CANON_{kind}_{stage.upper()}",), stage_map.get(stage))
+    return value, ("project" if src == "file" and preset is not None else src)
+
+
+def stage_provider(stage: str | None, preset: dict | None = _CURRENT) -> tuple[str, str]:
+    """단계별 백엔드. 지정이 없으면 전체 provider 를 따른다. mock 이면 모든 단계가 mock.
+    preset 을 주지 않으면 지금 작업의 작품 프리셋(project_preset)을 쓰고, None 이면 전체 설정만 본다."""
     base = provider()
     if stage is None or base[0] == "mock":
         return base
     if stage not in STAGES:
         raise ValueError(f"알 수 없는 단계: {stage}")
-    value, src = _pick((f"CANON_LLM_{stage.upper()}",), (_read().get("stages") or {}).get(stage))
+    if preset is _CURRENT:
+        preset = project_preset()
+    value, src = _stage_value("LLM", "stages", stage, preset)
     if value:
         return value.lower(), src
-    return stage_provider(STAGE_PARENT[stage]) if stage in STAGE_PARENT else base
+    return stage_provider(STAGE_PARENT[stage], preset) if stage in STAGE_PARENT else base
 
 
-def stage_model(stage: str | None) -> tuple[str, str]:
+def stage_model(stage: str | None, preset: dict | None = _CURRENT) -> tuple[str, str]:
     """단계별 모델 이름. 비어 있으면 그 단계 백엔드의 기본 모델(model 또는 local_model)을 쓴다.
     예: 상태 변경안만 gemini-3.8-flash 로 돌려 비용과 시간을 줄인다.
-    이름 추천처럼 부모 단계가 있으면, 백엔드를 따로 정하지 않은 동안은 부모 단계 모델도 따른다."""
+    이름 추천처럼 부모 단계가 있으면, 백엔드를 따로 정하지 않은 동안은 부모 단계 모델도 따른다. preset 은 stage_provider 와 같다."""
     if stage is None or stage not in STAGES:
         return "", "default"
-    value, src = _pick((f"CANON_MODEL_{stage.upper()}",), (_read().get("stage_models") or {}).get(stage))
+    if preset is _CURRENT:
+        preset = project_preset()
+    value, src = _stage_value("MODEL", "stage_models", stage, preset)
     parent = STAGE_PARENT.get(stage)
-    if not value and parent and stage_provider(stage) == stage_provider(parent):
-        return stage_model(parent)
+    if not value and parent and stage_provider(stage, preset) == stage_provider(parent, preset):
+        return stage_model(parent, preset)
     return value, src
 
 
@@ -324,6 +356,21 @@ def set_prices(rows: list[dict]) -> None:
     _write(data)
 
 
+def stage_view(preset: dict | None) -> dict[str, dict]:
+    """단계마다 실제로 쓰는 백엔드와 모델 이름(비우면 백엔드 기본 모델 이름)과 출처. preset 은 stage_provider 와 같다."""
+    mdl, lmodel, cmodel = model()[0], local_model()[0], claude_model()[0]
+    out = {}
+    for s in STAGES:
+        sp, ssrc = stage_provider(s, preset)
+        sm, smsrc = stage_model(s, preset)
+        label = {"gemini": mdl, "local": lmodel or "로컬 서버 모델", "mock": "mock",
+                 "claude": cmodel or "Claude Code 기본 모델", "claude-api": cmodel or "claude-opus-5-5"}.get(sp, sp)
+        if sm and sp != "mock":
+            label = sm
+        out[s] = {"provider": sp, "source": ssrc, "model": label, "model_source": smsrc}
+    return out
+
+
 def public() -> dict:
     """화면에 보여줄 설정. 키 원문은 내보내지 않는다."""
     prov, prov_src = provider()
@@ -339,16 +386,7 @@ def public() -> dict:
     vloc, vloc_src = vertex_location()
     # Vertex 는 키 문자열 대신 프로젝트(와 키 파일 또는 기본 자격 증명)가 있으면 부를 수 있다
     gemini_ready = bool(vproj) and (not vcred or Path(vcred).is_file()) if auth == "vertex" else bool(key)
-    stages = {}
-    for s in STAGES:
-        sp, ssrc = stage_provider(s)
-        sm, smsrc = stage_model(s)
-        label = {"gemini": mdl, "local": lmodel or "로컬 서버 모델", "mock": "mock",
-                 "claude": cmodel or "Claude Code 기본 모델", "claude-api": cmodel or "claude-opus-5-5"}.get(sp, sp)
-        if sm and sp != "mock":
-            label = sm
-        stages[s] = {"provider": sp, "source": ssrc, "model": label, "model_source": smsrc,
-                     "env": stage_env(s), "model_env": stage_env(s, "MODEL")}
+    stages = {s: {**v, "env": stage_env(s), "model_env": stage_env(s, "MODEL")} for s, v in stage_view(None).items()}
     return {
         "provider": prov,
         "provider_source": prov_src,
