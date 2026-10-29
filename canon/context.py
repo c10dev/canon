@@ -413,6 +413,13 @@ def recall(p: Project, n: int, query: str, budget: int, skip: set[int], terms: I
     return PassageIndex(p, n, skip).find(query, budget, terms)
 
 
+def recall_size(p: Project, n: int, budget: int, skip: set[int]) -> list[tuple[int, list[str]]]:
+    """recall 과 같은 모양으로 예산만큼 찬 자리만 낸다. 단락은 찾지 않는다 (자동 집필 추정, autorun.estimate).
+    추정은 빈 화를 채움 글로 채워서, 옛 화가 하나라도 있으면 recall 은 예산을 거의 다 채운다."""
+    old = [e.plot.number for e in p.episodes if e.plot.number < n and e.plot.number not in skip and e.text]
+    return [(max(old), ["가" * budget])] if old else []
+
+
 _COUNT = re.compile(r"\d|하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름|일주일|[한두세네]\s?달|"
                     r"(?:[한두세네]|다섯|여섯|일곱|여덟|아홉|열|스물|서른|마흔|쉰|예순|일흔|여든|아흔)\s?(?:살|해|명|번|시간)")
 

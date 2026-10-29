@@ -2226,24 +2226,27 @@ def _check_full(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
             relations if p.relationships else "없음", dump(p.secrets) or "없음", past, "")
 
 
-def check_recall(p: Project, n: int) -> tuple[list, list[tuple[int, list[str]]]]:
-    """장편 검수(budget)가 원문으로 넣는 직전 화와 옛 화에서 찾은 단락. 검수 넓히기(pipeline.widen_check)가 첫 검수에 없던 단락을 가려낼 때도 쓴다."""
+def check_recall(p: Project, n: int, sized: bool = False) -> tuple[list, list[tuple[int, list[str]]]]:
+    """장편 검수(budget)가 원문으로 넣는 직전 화와 옛 화에서 찾은 단락. 검수 넓히기(pipeline.widen_check)가 첫 검수에 없던 단락을 가려낼 때도 쓴다.
+    sized 면 단락을 찾지 않고 예산만큼 찬 자리를 넣는다 (프롬프트 길이만 재는 자동 집필 추정)."""
     ep = p.episode(n)
     ids = context.episode_cast(p, n)
     prior = sorted((e for e in p.episodes if e.plot.number < n and e.text), key=lambda e: e.plot.number)
     recent = prior[-context.CHECK_RECENT:]
     recent_nos = {e.plot.number for e in recent}
     first = min(recent_nos) if recent else n
+    if sized:
+        return recent, context.recall_size(p, first, context.BUDGET["check_recall"], recent_nos)
     terms = context.query_terms(p, n) + context.names_of(p, ids)[1]
     return recent, context.recall(p, first, ep.text + "\n" + elements.plot_text(ep), context.BUDGET["check_recall"], recent_nos, terms)
 
 
-def _check_budget(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
+def _check_budget(p: Project, n: int, sized: bool = False) -> tuple[str, str, str, str, str, str]:
     """장편 검수 자료: 직전 CHECK_RECENT 화는 원문, 그보다 앞은 접은 줄거리와 이번 화와 겹치는 옛 단락(context.recall),
     사실 · 상태 · 관계 · 비밀은 이번 화 인물과 주역 것만. 예전 방식은 최근 화만 원문이라 오래된 장면과의 모순은 요약으로만 봤다."""
     ep = p.episode(n)
     ids = context.episode_cast(p, n)
-    recent, found = check_recall(p, n)
+    recent, found = check_recall(p, n, sized)
     recent_nos = {e.plot.number for e in recent}
     first = min(recent_nos) if recent else n
     title = {e.plot.number: e.plot.title for e in p.episodes}
@@ -2275,9 +2278,10 @@ SEVERITY_RULE = ("- severity: crit 은 독자가 바로 알아챌 모순이거�
                  "mid 는 눈여겨 읽으면 보이는 어긋남, low 는 이야기에 영향이 거의 없는 사소한 세부(물건 색, 시각 몇 분 차이)입니다.")
 
 
-def check_prompt(p: Project, n: int, mode: str = "") -> str:
-    """검수 프롬프트. mode 를 비우면 장편은 budget, 단편은 full. 연구 화면 검수 시험이 두 방식을 견준다."""
-    return f"""{check_material(p, n, mode)}
+def check_prompt(p: Project, n: int, mode: str = "", sized: bool = False) -> str:
+    """검수 프롬프트. mode 를 비우면 장편은 budget, 단편은 full. 연구 화면 검수 시험이 두 방식을 견준다.
+    sized 는 옛 단락을 찾지 않고 같은 크기로 채운다 (길이만 재는 autorun.estimate)."""
+    return f"""{check_material(p, n, mode, sized)}
 
 {n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
 - 확인할 것: 확정 사실, 이야기 요소와 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
@@ -2341,12 +2345,12 @@ def recheck_prompt(p: Project, n: int, f: ConsistencyIssue, changes: list[tuple[
 {SEVERITY_RULE}"""
 
 
-def check_material(p: Project, n: int, mode: str = "") -> str:
+def check_material(p: Project, n: int, mode: str = "", sized: bool = False) -> str:
     """검수 · 고침안 · 다시 검수가 함께 쓰는 자료: 작품 설정부터 검수할 본문까지. 요청은 뒤에 붙인다 (캐시)."""
     mode = mode or ("budget" if p.serial else "full")
     ep = p.episode(n)
     if mode == "budget":
-        facts_text, states, relations, secrets, past, note = _check_budget(p, n)
+        facts_text, states, relations, secrets, past, note = _check_budget(p, n, sized)
     else:
         facts_text, states, relations, secrets, past, note = _check_full(p, n)
     els = elements.active_block(p, n)
