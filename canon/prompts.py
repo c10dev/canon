@@ -16,7 +16,7 @@ from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, ImpactReport, PlayInfo, Project, Selection, StateDelta, StoryElement
-from . import charlog, foreshadows, mapprompt, stage, statwin, timeline
+from . import board, charlog, foreshadows, mapprompt, stage, statwin, timeline
 
 SYSTEM_PLANNER = (
     "당신은 한국 웹소설/단편소설 기획 전문 편집자입니다. "
@@ -1868,12 +1868,15 @@ def pov_block(p: Project, n: int) -> str:
     return "\n".join(lines)
 
 
-def build_episode_context(p: Project, n: int) -> str:
+def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: str = "", between: str = "") -> str:
     """앞쪽은 화가 바뀌어도 그대로인 블록, 뒤쪽은 화마다 바뀌는 블록이다.
     Claude API 캐시는 앞부분이 같은 요청에 맞으므로(claude.cache_blocks) 이 순서를 지킨다.
     Gemini 4 암묵적 캐시는 화 사이 겹침을 쓰지 않고 앞 요청을 통째로 품은 요청에만 맞는다 (DESIGN.md 실측).
-    장편은 줄거리를 부 → 아크 → 화로 접고, 인물·복선·사실을 이번 화에 관련된 것만 골라 크기를 일정하게 둔다."""
+    장편은 줄거리를 부 → 아크 → 화로 접고, 인물·복선·사실을 이번 화에 관련된 것만 골라 크기를 일정하게 둔다.
+    스토리보드가 있으면(use_board) 직전 화 본문 뒤, 이번 화 플롯 바로 앞에 넣고 시간 · 이동 블록은 그 안의 값으로 대신한다.
+    pre 는 직전 화 본문 바로 앞, between 은 이번 화 플롯 바로 앞에 넣는 블록 (스토리보드 만들기 프롬프트가 쓴다)."""
     ep = p.episode(n)
+    sb = ep.storyboard if use_board else None
     act = p.act_for(n)
     together = p.acts_for(n)[1:]  # 짧은 작품에서 이 화에 함께 들어간 뒤 구간
     cast_ids = set(ep.plot.characters) or {c.id for c in static_characters(p)} or {c.id for c in p.characters}
@@ -1906,25 +1909,26 @@ def build_episode_context(p: Project, n: int) -> str:
     els = f"\n\n# 이야기 요소 (이번 화와 관련된 설정, 어기지 말 것)\n{els}" if els else ""
     line = storylines.episode_block(p, n)
     line = f"\n\n# 이번 화의 이야기 줄기\n{line}" if line else ""
-    tl = timeline.episode_block(p, n)
+    tl = timeline.episode_block(p, n) if sb is None else ""  # 스토리보드가 있으면 그 시간 · 이동 값을 쓴다 (board_block)
     line += f"\n\n# 작품 속 시간 (어기지 말 것)\n{tl}" if tl else ""
-    tr = mapprompt.travel_block(p, n)
+    tr = mapprompt.travel_block(p, n) if sb is None else ""
     line += f"\n\n# 이동 거리 (지도 기준)\n{tr}" if tr else ""
     sp = mapprompt.spot_block(p, n)
     line += f"\n\n# 장소가 놓인 건물 (지도 기준)\n{sp}" if sp else ""
-    sb = stage_block(p, n)
-    line += f"\n\n# 장면 연출 (작가가 짠 자리 · 자세 · 접촉)\n{sb}" if sb else ""
+    stg = stage_block(p, n)
+    line += f"\n\n# 장면 연출 (작가가 짠 자리 · 자세 · 접촉)\n{stg}" if stg else ""
     pov = pov_block(p, n)
     pov = f"\n\n# 이번 화 서술 시점 (스타일 프로필보다 우선)\n{pov}" if pov else ""
     dev = device_block(p, n)
     dev = f"\n\n# 가끔 쓰는 장치 (최근 화에서 쓴 화를 센 것. 스타일 프로필과 예시 문단보다 우선)\n{dev}" if dev else ""
 
     facts_text = chr(10).join("- " + f for f in facts) or "없음"
+    prev = pre + prev_block(p, n, last_text) + (f"\n\n{board_block(p, n)}" if sb is not None else "") + between
     if p.serial:
         act_line = f"현재 아크 안 구간: {act.name if act else '?'} ({act.start_ep if act else '?'}~{act.end_ep if act else '?'}화) 목표: {act.goal if act else ''}"
         return serial_episode_context(p, n, where=where, act_line=act_line, line=line, facts=facts_text, facts_cut=facts_cut, els=els,
                                       cast_names=cast_names, extra=extra_block(extra, extra_cut), states=states, rels=rels, cast_ids=cast_ids,
-                                      fs=fs, fs_cut=fs_cut, last_text=last_text, tail=f"{pov}{dev}{material_block(p, n)}")
+                                      fs=fs, fs_cut=fs_cut, prev=prev, tail=f"{pov}{dev}{material_block(p, n)}")
 
     return f"""{static_context(p)}
 
@@ -1948,8 +1952,7 @@ def build_episode_context(p: Project, n: int) -> str:
 
 {where}{line}
 
-# 직전 화 마지막 부분 (내용 연결용, 문체 기준은 위의 예시 문단)
-{last_text[-1500:] or "없음"}
+{prev}
 
 # 이번 화 플롯
 {dump(ep.plot)}{pov}{dev}{material_block(p, n)}"""
@@ -1957,7 +1960,7 @@ def build_episode_context(p: Project, n: int) -> str:
 
 def serial_episode_context(p: Project, n: int, *, where: str, act_line: str, line: str, facts: str, facts_cut: int, els: str,
                            cast_names: str, extra: str, states: list, rels: list, cast_ids: set[str],
-                           fs: list, fs_cut: int, last_text: str, tail: str) -> str:
+                           fs: list, fs_cut: int, prev: str, tail: str) -> str:
     """장편 본문 쓰기 컨텍스트. 바뀌는 빈도 순서로 놓는다: 작품 고정(static_context) → 아크 동안 그대로인 것
     (부 · 아크 구조, 끝난 아크의 접은 줄거리) → 화마다 바뀌는 것(아크 안 구간 act_line 부터). 앞부분이 같을수록 캐시가 길게 맞는다."""
     past, cur = story_parts(p, n)
@@ -1992,11 +1995,17 @@ def serial_episode_context(p: Project, n: int, *, where: str, act_line: str, lin
 # 지금까지의 줄거리 (이번 아크)
 {cur or "없음 (첫 화)"}{line}
 
-# 직전 화 마지막 부분 (내용 연결용, 문체 기준은 위의 예시 문단)
-{last_text[-1500:] or "없음"}
+{prev}
 
 # 이번 화 플롯
 {dump(p.episode(n).plot)}{tail}"""
+
+
+def prev_block(p: Project, n: int, last_text: str) -> str:
+    """직전 화 블록. 스토리보드를 쓰는 작품(board.on)은 원문 전체, 아니면 끝 1,500자 (단편 기본 프롬프트는 그대로)."""
+    if board.on(p) and last_text:
+        return f"# 직전 화 본문 (전체. 내용 연결용, 문체 기준은 위의 예시 문단)\n{board.prev_text(p, n)}"
+    return f"# 직전 화 마지막 부분 (내용 연결용, 문체 기준은 위의 예시 문단)\n{last_text[-1500:] or '없음'}"
 
 
 MATERIAL_LIMIT = 6000  # 원고 재료로 넣는 옛 화 하나의 본문 글자 수
@@ -2090,13 +2099,14 @@ def marker_block(p: Project) -> str:
             + "\n".join(rows))
 
 
-def episode_prompt(p: Project, n: int, approach: str = "") -> str:
-    """approach 는 1~3화를 여러 안으로 쓸 때 안마다 다르게 주는 여는 방식(OPENING_APPROACHES)."""
+def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = True) -> str:
+    """approach 는 1~3화를 여러 안으로 쓸 때 안마다 다르게 주는 여는 방식(OPENING_APPROACHES).
+    use_board 를 끄면 스토리보드가 있어도 넣지 않는다 (스토리보드 없이 쓰기)."""
     rules = opening_rules(p, n, approach)
     flow = ("첫 화이므로 앞 이야기를 요약하거나 설명으로 깔지 않고 장면으로 시작하고, " if n == 1
             else "직전 화 마지막 장면과 자연스럽게 이어지고, ")
     return (
-        build_episode_context(p, n)
+        build_episode_context(p, n, use_board=use_board)
         + (f"\n\n{rules}" if rules else "")
         + f"\n\n위 자료를 바탕으로 {n}화 본문을 약 {p.meta.words_per_episode}자 분량으로 쓰세요. "
         + flow + "플롯의 ending_hook 으로 끝납니다. "
@@ -2106,6 +2116,119 @@ def episode_prompt(p: Project, n: int, approach: str = "") -> str:
         + statwin.write_rule(p, n)
         + attire_write_rule(p)
     )
+
+
+# ---------- 화별 스토리보드 ----------
+# 플롯과 집필 사이의 쓰기 재료 (board.py, pipeline.make_storyboard). 만들기 프롬프트는 쓰기 프롬프트와 같은 앞부분을 쓴다
+# (같은 모델이면 캐시가 맞는다). 쓰기 프롬프트에는 Canon 이 값을 센 글(board_block)로 넣고 JSON 을 그대로 넣지 않는다.
+# 경고와 근거(warnings, stat_basis, checks)는 쓰기에 넣지 않는다.
+
+def board_block(p: Project, n: int) -> str:
+    """쓰기 프롬프트의 스토리보드 블록: 직전 화 본문 뒤, 이번 화 플롯 바로 앞. 스토리보드가 없으면 빈 글."""
+    b = p.episode(n).storyboard
+    if b is None:
+        return ""
+    name = {c.id: c.name or c.id for c in p.characters}
+    who = lambda ids: ", ".join(name.get(x, x) for x in ids)  # noqa: E731
+    out = ["# 이번 화 스토리보드 (장면 순서와 확정 값. 대사와 문장은 정하지 않았으니 직접 씁니다)",
+           f"시간: {board.time_line(p, n, b)}"]
+    dl = board.deadline_rows(p, n, b)
+    if dl:
+        out += ["열린 기한:"] + dl
+    if b.handover:
+        out.append("직전 화에서 이어받을 것:")
+        out += [f"- {f'[{h.kind}] ' if h.kind.strip() else ''}{h.text.strip()}" for h in b.handover if h.text.strip()]
+    if b.scenes:
+        out.append("장면:")
+        for k, sc in enumerate(b.scenes, 1):
+            head = " · ".join(x for x in (sc.place.strip(), sc.spot.strip(), sc.time.strip(), who(sc.present)) if x)
+            out.append(f"{k}. {head}")
+            body = [x for x in (f"맡은 사건: {', '.join(map(str, sc.events))}" if sc.events else "", sc.goal.strip() and f"목표: {sc.goal.strip()}",
+                                sc.turn.strip() and f"전환: {sc.turn.strip()}", sc.end_state.strip() and f"끝: {sc.end_state.strip()}") if x]
+            if body:
+                out.append("   " + " / ".join(body))
+    st = board.steps(p, b)
+    if st:
+        out.append("상태창 (값은 Canon 이 센 것입니다. 본문에 보일 때는 이 값을 그대로 쓰고 셈하지 않습니다):")
+        for x in st:
+            at = f"{x['scene']}장면" if x["scene"] else "화 끝"
+            rows = ", ".join(f"{r['name']} {r['before'] or '(없음)'} → {r['after'] or '(없앰)'}" for r in x["rows"])
+            if x["window"]:
+                out.append(f"- 상태창 {x['window']} ({at}, {name.get(x['character_id'], x['character_id'])}): {rows}")
+                out.append("  창 글:\n" + "\n".join("  " + line for line in board.window_text(p, x).splitlines()))
+            else:
+                out.append(f"- {at}에 바뀜, 창은 뜨지 않음 ({name.get(x['character_id'], x['character_id'])}): {rows}")
+    if b.moves:
+        out.append("이동:")
+        out += [f"- {name.get(m.character_id, m.character_id)}: {f'{m.scene}장면에서 ' if m.scene else '장면 사이에 '}{m.to}(으)로" for m in b.moves]
+    if b.attire:
+        out.append("끝 차림 (바뀐 인물만):")
+        out += [f"- {name.get(a.character_id, a.character_id)} = {a.end.strip()}" for a in b.attire if a.end.strip()]
+    if b.protect:
+        out.append("이번 화에서 깨지 않을 것 (다음 화가 전제함):")
+        out += [f"- {x.strip()}" for x in b.protect if x.strip()]
+    out.append("위 장면 순서와 값을 따릅니다. 날짜 · 상태창 수치 · 차림은 스스로 셈하지 않고 위 값을 씁니다. "
+               "장면의 목표 · 전환 · 끝은 설계 메모이니 그 글을 본문에 옮기지 않습니다. 이번 화 플롯과 다른 곳은 스토리보드를 따릅니다.")
+    return "\n".join(out)
+
+
+def canon_values_block(p: Project, n: int) -> str:
+    """스토리보드 만들기에 넣는 'Canon 이 센 값': 요일 셈(작품 기준이 없으면 직전 화 기록 글에서), 상태창 지금 값, 가장 빠른 탈것.
+    직전 화 끝 시점과 기한은 앞의 작품 속 시간 블록(timeline.episode_block)에 있다. 넣을 것이 없으면 빈 글."""
+    from . import travel
+
+    lines = []
+    cur = timeline.current_day(p, n)
+    if timeline.enabled(p) and cur > 0 and timeline.calendar(p)[2] is None:  # 기준이 있으면 시간 블록의 요일 셈이 같은 일을 한다
+        days = [f"{d}일째 = {wd}" for d in range(cur, cur + 4) if (wd := board.weekday(p, n, d))]
+        if days:
+            lines.append("요일 (직전 화 기록에서 셈): " + " · ".join(days))
+    name = {c.id: c.name or c.id for c in p.characters}
+    for cid in statwin.episode_cast(p, n):
+        st = p.state_of(cid)
+        vals = ", ".join(f"{x.name} {x.value}" for x in (st.stats if st else []) if x.value.strip())
+        if vals:
+            lines.append(f"상태창 지금 값({name.get(cid, cid)}): {vals}")
+    if travel.enabled(p):
+        _, kmh, day, _ = travel.speed(p)
+        lines.append(f"가장 빠른 탈것: {travel.MODE_NAMES.get(p.atlas.travel.mode, '말')} (시속 약 {kmh:g}km, 하루 약 {day:g}km)"
+                     + ("" if travel.scale(p) else ". 지도 축척이 없어 거리는 재지 않았습니다"))
+    if not lines:
+        return ""
+    return "# Canon 이 센 값 (그대로 쓸 것)\n" + "\n".join(lines)
+
+
+def storyboard_prompt(p: Project, n: int) -> str:
+    """n화 스토리보드 만들기. 앞부분은 쓰기 프롬프트와 같고, 직전 화 본문 앞에 Canon 이 센 값 · 장소 목록,
+    이번 화 플롯 앞에 다음 화 플롯을 넣는다. 요구사항은 맨 끝."""
+    ep = p.episode(n)
+    nxt = next((e for e in p.episodes if e.plot.number == n + 1), None)
+    vals = canon_values_block(p, n)
+    pre = (f"{vals}\n\n" if vals else "") + f"# 장소 목록\n{places_line(p, elements.plot_text(ep))}\n\n"
+    between = f"\n\n# 다음 화 플롯 (이번 화가 깨면 안 되는 전제를 찾는 데만 씁니다)\n{dump(nxt.plot)}" if nxt else ""
+    stats = statwin.enabled(p)
+    return build_episode_context(p, n, use_board=False, pre=pre, between=between) + f"""
+
+위 자료로 {n}화 스토리보드를 JSON 으로 만듭니다. 본문을 쓰지 않습니다.
+
+- scenes: 장면 3~7개. 이번 화 플롯 events 를 빠짐없이 나눠 맡고, 장면마다 맡은 events 번호(1부터)를 적습니다.
+  장면마다 장소, 그 장소 안 자리, 시각, 함께 있는 인물 id, 장면 목표, 전환점, 장면 끝 상태를 적습니다.
+- 대사, 본문 문장, 묘사를 적지 않습니다. 인물이 할 말은 '무엇을 밝힌다' 처럼 내용만 적습니다.
+- 첫 장면은 [직전 화 본문]의 마지막 장면에서 바로 이어집니다. 자리, 손에 든 물건, 다친 곳, 하던 말이 이어지게 합니다.
+  플롯의 opening(여는 장면)과 time 칸도 직전 화 끝과 대조해, 어긋나면 warnings 에 적고 직전 화 끝을 따릅니다.
+- handover 에는 직전 화 끝에서 이어받아야 하는 사실을 한 줄씩 적습니다 (kind: 장면, 시간, 몸, 물건, 인물, 숨긴 것, 숫자, 질문).
+- 상태창 항목(예: 동료 칸 1 / 1)을 자리 수 같은 물리적 사실로 바꿔 적지 않습니다. 장소 · 사물의 생김새는 앞 화 본문과 [확정된 사실]에 있는 것만 씁니다.
+- 스토리보드 글에 화 번호('6화', '11화')를 쓰지 않습니다. '사흘째 밤', '어제 낮'처럼 작품 속 때로 적습니다. 화 번호를 적으면 1인칭 본문에 그대로 옮겨집니다.
+- 앞 화 숫자를 근거로 쓸 때는 그 숫자의 조건까지 옮깁니다 (왕복인지 편도인지, 어떤 길에서 잰 값인지).
+- 물 · 연료 같은 소모 셈에는 [인물 현재 상태]와 [확정된 사실]에 있는 소모 항목을 빠짐없이 넣습니다 (예: 이동 중 소모와 쉬는 동안 새는 양을 함께).
+- time 에는 직전 화 끝에서 며칠 뒤에 시작하는지(after, 같은 날 0, 회상 · 외전처럼 메인 시간 밖이면 -1), 시작 · 끝 시간대, 걸치는 날 수를 적습니다. 날수와 날짜는 적지 않습니다 (Canon 이 셉니다).
+""" + ("""- stats 에는 [인물 현재 상태]의 stats 에서 바뀌는 항목만, 바뀐 양으로 적습니다 (예: -0.7, +1, +독 내성). 바뀐 장면 번호를 scene 에, 본문에 상태창이 뜨면 window 를 true 로 적습니다. 근거는 stat_basis 에 한 줄씩 적습니다.
+  지금 값에서 닿을 수 없는 플롯 수치는 쓰지 않고 warnings 에 적습니다.
+""" if stats else "- 이 작품은 상태창을 쓰지 않습니다. stats 와 stat_basis 는 비웁니다.\n") + """- moves 에는 다른 장소로 옮겨 가는 인물만 [장소 목록]의 이름으로 적습니다.
+- attire 에는 이번 화에 차림이 바뀌는 인물의 끝 차림만 적습니다 (이어지는 상처와 물건까지 다시).
+- protect 에는 [다음 화 플롯]이 전제하는 것 중 이번 화가 깨기 쉬운 것을 적습니다.
+- warnings: 이번 화 플롯이 [인물 현재 상태] · [직전 화 본문] · [Canon 이 센 값] · 설정과 어긋나면 적고, resolution 에 이 스토리보드가 택한 처리를 적습니다.
+  지금 상태가 플롯보다 앞섭니다. 플롯 칸을 고쳐 적지 않습니다. 다음 화 플롯과 어긋나면 target 을 next, kind 를 next_plot 으로 적습니다."""
 
 
 # ---------- 다시 생성 ----------

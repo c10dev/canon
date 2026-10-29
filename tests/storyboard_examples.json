@@ -1,0 +1,583 @@
+{
+ "10": {
+  "scenes": [
+   {
+    "place": "물푸레 등대섬",
+    "spot": "선착장 끝 그물 창고",
+    "time": "새벽, 해 뜨기 약 한 시간 전",
+    "present": [
+     "keeper",
+     "ferry",
+     "nari"
+    ],
+    "events": [
+     1
+    ],
+    "goal": "도윤이 배를 빌리는 조건을 은결과 목록으로 맞춘다",
+    "turn": "등유를 지금 다 줄 수 없다는 것을 도윤이 숫자로 밝히고, 조건을 '지금 한 통, 나머지는 보급선이 오면'으로 고친다",
+    "end_state": "조건 합의. 등유 한 통은 은결에게 건너갔다"
+   },
+   {
+    "place": "물푸레 등대섬",
+    "spot": "등대 1층 당직실",
+    "time": "새벽, 해 뜨기 약 40분 전",
+    "present": [
+     "keeper",
+     "ferry",
+     "nari"
+    ],
+    "events": [
+     2
+    ],
+    "goal": "열이 오른 나리를 난로 옆에 눕힌다",
+    "turn": "난로 불에 나리가 눈을 뜬다. 은결이 처음으로 경계를 내려놓는다",
+    "end_state": "나리는 간이침대, 은결은 문 옆. 도윤은 등명기 일지 앞에 앉는다"
+   },
+   {
+    "place": "물푸레 등대섬",
+    "spot": "등대 1층 당직실",
+    "time": "해 뜨기 직전",
+    "present": [
+     "keeper",
+     "ferry",
+     "nari"
+    ],
+    "events": [
+     3
+    ],
+    "goal": "약속대로 난로를 끈다",
+    "turn": "끄려는 순간 나리가 다시 떤다. 도윤의 손이 밸브 위에서 멈춘다",
+    "end_state": "난로는 켜진 채다. 상태창 1이 뜬다"
+   },
+   {
+    "place": "물푸레 등대섬",
+    "spot": "등대 1층 당직실",
+    "time": "해 뜸 → 아침",
+    "present": [
+     "keeper",
+     "ferry",
+     "nari"
+    ],
+    "events": [
+     4
+    ],
+    "goal": "약속을 어기고 난로를 더 켠다",
+    "turn": "바람이 거세져 은결은 낮 동안 배로 돌아갈 수 없다. 거래가 '한 시간'에서 '오늘 낮 전체'로 바뀐 것을 도윤만 안다",
+    "end_state": "등유가 계산보다 줄었다"
+   },
+   {
+    "place": "물푸레 등대섬",
+    "spot": "등대 꼭대기 등실",
+    "time": "아침",
+    "present": [
+     "keeper"
+    ],
+    "events": [
+     5
+    ],
+    "goal": "도윤이 이번 거래를 숫자로 다시 정리한다",
+    "turn": "'거래가 아니라 지출'로 정리하다 아래층 숨소리를 듣고 셈을 멈춘다",
+    "end_state": "상태창 2가 뜨고 새 알림이 붙는다"
+   }
+  ],
+  "time": {
+   "after": 0,
+   "part": "새벽 (해 뜨기 약 한 시간 전)",
+   "days": 1,
+   "end_part": "아침"
+  },
+  "stats": [
+   {
+    "character_id": "keeper",
+    "scene": 3,
+    "changes": [
+     {
+      "name": "등유",
+      "value": "-0.7"
+     },
+     {
+      "name": "식수",
+      "value": "-0.1"
+     }
+    ],
+    "window": true,
+    "notice": ""
+   },
+   {
+    "character_id": "keeper",
+    "scene": 5,
+    "changes": [
+     {
+      "name": "등유",
+      "value": "-0.8"
+     },
+     {
+      "name": "식수",
+      "value": "-0.1"
+     },
+     {
+      "name": "바람",
+      "value": "7m/s (출항 주의)"
+     }
+    ],
+    "window": true,
+    "notice": "지금 등유로는 보급선이 올 때까지 등명기를 켤 수 없음"
+   }
+  ],
+  "stat_basis": [
+   "난로 15분에 등유 0.25L (직전 화 종료 상태 knows)",
+   "식수 통 증발 시간당 약 0.05L"
+  ],
+  "moves": [],
+  "attire": [
+   {
+    "character_id": "keeper",
+    "end": "젖은 방수 외투, 장화, 왼손 붕대, 접은 조건 목록(가슴 주머니)",
+    "why": "장면 5에서 목록을 접어 넣음"
+   },
+   {
+    "character_id": "ferry",
+    "end": "나리의 담요를 끌어안고 있다",
+    "why": "장면 3"
+   }
+  ],
+  "handover": [
+   {
+    "kind": "장면",
+    "text": "직전 화는 그물 창고에서 끝났다. 은결이 '배 한 척과 모르는 물길 하나'를 내놓은 직후다"
+   },
+   {
+    "kind": "시간",
+    "text": "수평선이 묽어지기 시작했다. 해 뜨기까지 한 시간이 안 남았다"
+   },
+   {
+    "kind": "몸",
+    "text": "도윤은 왼손에 붕대를 감았다"
+   },
+   {
+    "kind": "물건",
+    "text": "등유 한 통이 창고 문 옆에 있다"
+   },
+   {
+    "kind": "숨긴 것",
+    "text": "도윤은 상태창을 숨겼다"
+   },
+   {
+    "kind": "질문",
+    "text": "배에 함께 타지 않는 이유를 아직 말하지 않았다"
+   }
+  ],
+  "protect": [
+   "은결의 배에서 등유를 옮겨 담지 않는다. 다음 화가 '배는 경질유, 등대는 등유라 나눌 수 없다'를 쓴다",
+   "은결의 물길은 이번 화에서 해도로 건네지 않는다"
+  ],
+  "warnings": [
+   {
+    "kind": "plot_vs_state",
+    "target": "this",
+    "field": "events[1]",
+    "text": "플롯은 등유 5L를 준다고 해요. 직전 화 끝 등유는 4.3/60L예요",
+    "resolution": "지금 한 통만 주고 나머지는 약속으로 적어요"
+   },
+   {
+    "kind": "plot_vs_state",
+    "target": "this",
+    "field": "events[4]",
+    "text": "플롯의 '등유 22%'는 직전 화 끝 값에서 채우는 사건 없이 닿을 수 없어요",
+    "resolution": "22%는 쓰지 않아요"
+   },
+   {
+    "kind": "plot_vs_text",
+    "target": "this",
+    "field": "events[2]",
+    "text": "직전 화 조건 목록에 '못 드리는 것: 동승'이 있는데 함께 배에 타요",
+    "resolution": "동승은 계속 거절해요"
+   },
+   {
+    "kind": "time",
+    "target": "this",
+    "field": "ending_hook",
+    "text": "엔딩 훅의 '새벽'은 난로를 오래 켠 뒤라 해가 뜬 다음이에요",
+    "resolution": "화 끝을 아침으로 둬요"
+   },
+   {
+    "kind": "setting",
+    "target": "this",
+    "field": "",
+    "text": "다른 사람이 상태창을 보는지 설정에 없어요",
+    "resolution": "도윤만 보는 것으로 둬요"
+   },
+   {
+    "kind": "next_plot",
+    "target": "next",
+    "field": "time",
+    "text": "다음 화 시점 '동트기 직전'은 이 화 끝보다 앞이에요",
+    "resolution": "다음 화 플롯 대화에서 고쳐요"
+   },
+   {
+    "kind": "next_plot",
+    "target": "next",
+    "field": "events[3]",
+    "text": "다음 화의 '등유 25%'에도 닿을 수 없어요",
+    "resolution": "다음 화 플롯 대화에서 고쳐요"
+   }
+  ]
+ },
+ "11": {
+  "scenes": [
+   {
+    "place": "물푸레 등대섬",
+    "spot": "선착장",
+    "time": "아침",
+    "present": [
+     "keeper",
+     "ferry"
+    ],
+    "events": [
+     1
+    ],
+    "goal": "은결의 배에서 쓸 만한 부품을 떼어 낸다",
+    "turn": "연료 관을 떼다가 배 기름과 등유가 다르다는 것을 확인한다",
+    "end_state": "부품 상자 하나"
+   },
+   {
+    "place": "물푸레 등대섬",
+    "spot": "등대 1층 당직실",
+    "time": "오전",
+    "present": [
+     "keeper",
+     "ferry",
+     "nari"
+    ],
+    "events": [
+     2
+    ],
+    "goal": "은결이 물길을 해도에 그려 준다",
+    "turn": "해도에 없는 암초를 은결이 표시한다",
+    "end_state": "해도는 도윤의 서랍에"
+   },
+   {
+    "place": "물푸레 등대섬",
+    "spot": "등대 꼭대기 등실",
+    "time": "낮",
+    "present": [
+     "keeper"
+    ],
+    "events": [
+     3
+    ],
+    "goal": "등명기 렌즈를 닦는다",
+    "turn": "렌즈 틈에서 오래된 쪽지를 찾는다",
+    "end_state": "쪽지를 주머니에 넣는다"
+   },
+   {
+    "place": "물푸레 등대섬",
+    "spot": "선착장",
+    "time": "오후",
+    "present": [
+     "keeper",
+     "ferry",
+     "nari"
+    ],
+    "events": [
+     4
+    ],
+    "goal": "배웅한다",
+    "turn": "은결이 떠나지 않겠다고 한다",
+    "end_state": "배는 묶인 채다"
+   },
+   {
+    "place": "물푸레 등대섬",
+    "spot": "등대 1층 당직실",
+    "time": "저녁",
+    "present": [
+     "keeper",
+     "nari"
+    ],
+    "events": [
+     5
+    ],
+    "goal": "나리의 열을 잰다",
+    "turn": "상태창에 '흡수 불가: 등대 장비'가 뜬다",
+    "end_state": "도윤이 창을 닫는다"
+   }
+  ],
+  "time": {
+   "after": 0,
+   "part": "아침",
+   "days": 1,
+   "end_part": "저녁"
+  },
+  "stats": [
+   {
+    "character_id": "keeper",
+    "scene": 5,
+    "changes": [
+     {
+      "name": "등유",
+      "value": "-0.4"
+     }
+    ],
+    "window": true,
+    "notice": "흡수 불가: 등대 장비"
+   }
+  ],
+  "stat_basis": [
+   "난로를 끄고 등명기만 켜 하루 0.4L"
+  ],
+  "moves": [],
+  "attire": [],
+  "handover": [
+   {
+    "kind": "장면",
+    "text": "직전 화는 등실에서 끝났다"
+   },
+   {
+    "kind": "숫자",
+    "text": "등유 2.8/60L"
+   }
+  ],
+  "protect": [
+   "다음 화 전까지 은결의 배는 섬을 떠나지 않는다"
+  ],
+  "warnings": [
+   {
+    "kind": "next_plot",
+    "target": "next",
+    "field": "",
+    "text": "다음 화가 보급선 도착을 사흘 뒤로 잡았어요",
+    "resolution": "이번 화에서 날짜를 말하지 않아요"
+   }
+  ]
+ },
+ "12": {
+  "scenes": [
+   {
+    "place": "물푸레 등대섬",
+    "spot": "등대 뒤 텃밭",
+    "time": "새벽",
+    "present": [
+     "keeper"
+    ],
+    "events": [
+     1
+    ],
+    "goal": "빗물 통을 살핀다",
+    "turn": "통 바닥에 금이 간 것을 찾는다",
+    "end_state": "식수가 새고 있다"
+   },
+   {
+    "place": "물푸레 등대섬",
+    "spot": "등대 1층 당직실",
+    "time": "아침",
+    "present": [
+     "keeper",
+     "ferry",
+     "nari"
+    ],
+    "events": [
+     2
+    ],
+    "goal": "은결과 물 셈을 맞춘다",
+    "turn": "은결이 섬 반대편 샘을 안다고 한다",
+    "end_state": "둘이 샘에 가기로 한다"
+   },
+   {
+    "place": "물푸레 등대섬",
+    "spot": "섬 서쪽 샘",
+    "time": "낮",
+    "present": [
+     "keeper",
+     "ferry"
+    ],
+    "events": [
+     3,
+     4
+    ],
+    "goal": "샘물을 길어 온다",
+    "turn": "샘 옆에서 옛 등대지기의 표식을 본다",
+    "end_state": "물 두 통"
+   },
+   {
+    "place": "물푸레 등대섬",
+    "spot": "등대 1층 당직실",
+    "time": "저녁",
+    "present": [
+     "keeper",
+     "ferry",
+     "nari",
+     "doctor"
+    ],
+    "events": [
+     5
+    ],
+    "goal": "의사가 배로 온다",
+    "turn": "의사가 나리를 보고 고개를 젓는다",
+    "end_state": "의사가 하룻밤 묵는다"
+   }
+  ],
+  "time": {
+   "after": 1,
+   "part": "새벽",
+   "days": 1,
+   "end_part": "저녁"
+  },
+  "stats": [
+   {
+    "character_id": "keeper",
+    "scene": 3,
+    "changes": [
+     {
+      "name": "식수",
+      "value": "+8"
+     }
+    ],
+    "window": true,
+    "notice": ""
+   }
+  ],
+  "stat_basis": [
+   "샘물 두 통 = 8L"
+  ],
+  "moves": [
+   {
+    "character_id": "keeper",
+    "to": "섬 서쪽 샘",
+    "scene": 3
+   }
+  ],
+  "attire": [
+   {
+    "character_id": "keeper",
+    "end": "흙 묻은 장화, 왼손 붕대",
+    "why": "장면 1"
+   }
+  ],
+  "handover": [
+   {
+    "kind": "시간",
+    "text": "어제 저녁에 끝났다"
+   }
+  ],
+  "protect": [
+   "의사는 이번 화에서 나리의 병명을 말하지 않는다"
+  ],
+  "warnings": [
+   {
+    "kind": "time",
+    "target": "this",
+    "field": "time",
+    "text": "플롯은 같은 날 아침이라고 하지만 직전 화가 저녁에 끝났어요",
+    "resolution": "다음 날 새벽으로 시작해요"
+   },
+   {
+    "kind": "next_plot",
+    "target": "next",
+    "field": "",
+    "text": "다음 화가 의사를 사흘 머물게 해요",
+    "resolution": "이번 화에서 떠날 날을 말하지 않아요"
+   },
+   {
+    "kind": "next_plot",
+    "target": "next",
+    "field": "",
+    "text": "다음 화의 샘 위치가 동쪽이에요",
+    "resolution": "플롯 대화에서 고쳐요"
+   }
+  ]
+ },
+ "13": {
+  "scenes": [
+   {
+    "place": "물푸레 등대섬",
+    "spot": "등대 1층 당직실",
+    "time": "새벽",
+    "present": [
+     "keeper",
+     "doctor"
+    ],
+    "events": [
+     1
+    ],
+    "goal": "의사에게 약값을 묻는다",
+    "turn": "의사가 돈 대신 등대 일지를 원한다",
+    "end_state": "도윤이 답을 미룬다"
+   },
+   {
+    "place": "물푸레 등대섬",
+    "spot": "등대 꼭대기 등실",
+    "time": "아침",
+    "present": [
+     "keeper"
+    ],
+    "events": [
+     2
+    ],
+    "goal": "일지를 다시 읽는다",
+    "turn": "옛 등대지기의 마지막 장이 찢겨 있다",
+    "end_state": "찢긴 자리를 손으로 쓴다"
+   },
+   {
+    "place": "물푸레 등대섬",
+    "spot": "선착장",
+    "time": "낮",
+    "present": [
+     "keeper",
+     "ferry",
+     "doctor"
+    ],
+    "events": [
+     3
+    ],
+    "goal": "의사를 배웅한다",
+    "turn": "의사가 다음 보급선 날짜를 알려 준다",
+    "end_state": "배가 떠난다"
+   },
+   {
+    "place": "물푸레 등대섬",
+    "spot": "등대 1층 당직실",
+    "time": "저녁",
+    "present": [
+     "keeper",
+     "ferry",
+     "nari"
+    ],
+    "events": [
+     4,
+     5
+    ],
+    "goal": "나리에게 약을 먹인다",
+    "turn": "나리가 처음으로 이름을 부른다",
+    "end_state": "등명기를 켠다"
+   }
+  ],
+  "time": {
+   "after": 1,
+   "part": "새벽",
+   "days": 1,
+   "end_part": "저녁"
+  },
+  "stats": [],
+  "stat_basis": [],
+  "moves": [],
+  "attire": [],
+  "handover": [
+   {
+    "kind": "인물",
+    "text": "의사는 당직실 바닥에서 잤다"
+   }
+  ],
+  "protect": [
+   "일지는 이번 화에서 의사에게 건네지 않는다"
+  ],
+  "warnings": [
+   {
+    "kind": "next_plot",
+    "target": "next",
+    "field": "",
+    "text": "다음 화가 일지를 이미 건넨 것으로 써요",
+    "resolution": "플롯 대화에서 고쳐요"
+   }
+  ]
+ }
+}
