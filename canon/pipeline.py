@@ -4,8 +4,8 @@ from __future__ import annotations
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
 from .llm import LLM, dump
-from . import board, charlog, features, findings, foreshadows, statwin, timeline
-from .schema import Finding, FindingRecheck, FixOption, FixPatch, FixSet
+from . import board, cancel, charlog, features, findings, foreshadows, statwin, timeline
+from .schema import CueSheet, CueSheetDraft, Finding, FindingRecheck, FixOption, FixPatch, FixSet
 from .schema import (
     Act,
     ArcEdit,
@@ -2516,14 +2516,15 @@ HANGUL_MIN = 0.8
 WRITE_TRIES = 3
 
 
-def write_episode(llm: LLM, p: Project, n: int, approach: str = "", use_board: bool = True) -> str:
+def write_episode(llm: LLM, p: Project, n: int, approach: str = "", use_board: bool = True, use_cues: bool = True) -> str:
     """approach: 1~3화를 여러 안으로 쓸 때 여는 방식 (prompts.OPENING_APPROACHES).
-    use_board: 그 화에 스토리보드가 있으면 쓰기 프롬프트에 넣는다. 끄면 스토리보드 없이 쓴다."""
+    use_board: 그 화에 스토리보드가 있으면 쓰기 프롬프트에 넣는다. 끄면 스토리보드 없이 쓴다.
+    use_cues: 그 화에 큐 시트가 있으면 쓰기 프롬프트 끝에 넣는다. 끄면 큐 시트 없이 쓴다."""
     ep = p.episode(n)
     if ep.status == "draft":
         raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
     require_previous(p, n)
-    return _write(llm, p, n, prompts.episode_prompt(p, n, approach, use_board=use_board))
+    return _write(llm, p, n, prompts.episode_prompt(p, n, approach, use_board=use_board, use_cues=use_cues))
 
 
 # ---------- 4-0. 화별 스토리보드 ----------
@@ -2595,6 +2596,48 @@ def _write(llm: LLM, p: Project, n: int, prompt: str) -> str:
             return text
     raise ValueError(f"{n}화 본문 대신 다른 글(영어로 된 생각 과정 등)이 {WRITE_TRIES}번 나왔어요. 다시 시도해 주세요")
 
+
+
+# ---------- 4-1. 큐 시트 집필 실험 (cue.py) ----------
+# 화를 악보처럼 큐로 나눠 진행과 핵심 대사를 먼저 정하고, 본문을 한 번에 또는 큐마다 쓴다. 작품에 저장하지 않는다.
+
+def make_cue_sheet(llm: LLM, p: Project, n: int) -> CueSheet:
+    """n화 큐 시트를 만든다 (plan 단계). 저장은 호출자가 한다."""
+    from . import cue
+
+    ep = p.episode(n)
+    if ep.status == "draft":
+        raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
+    require_previous(p, n)
+    d = llm.json(prompts.SYSTEM_PLANNER, prompts.cue_sheet_prompt(p, n), CueSheetDraft,
+                 hint={"episode": n, "events": len(ep.plot.events), "characters": ep.plot.characters,
+                       "scenes": len(ep.storyboard.scenes) if ep.storyboard else 0, "size": p.meta.words_per_episode})
+    return CueSheet(**cue.clean(p, d).model_dump(), made_at=_now(), made_by="ai")
+
+
+def write_scored(llm: LLM, p: Project, n: int, sheet: CueSheet) -> tuple[str, int]:
+    """큐 시트를 함께 주고 한 번에 쓴다. (본문, 요청 글자 수)."""
+    require_previous(p, n)
+    prompt = prompts.cue_score_prompt(p, n, sheet)
+    return _write(llm, p, n, prompt), len(prompts.writer_system(p)) + len(prompt)
+
+
+def play_cues(llm: LLM, p: Project, n: int, sheet: CueSheet, progress=None) -> tuple[list[str], int]:
+    """큐마다 차례로 쓴다. (큐별 본문, 요청 글자 수 합). progress(k, total) 는 큐를 쓰기 전에 부른다."""
+    require_previous(p, n)
+    if not sheet.cues:
+        raise ValueError("큐 시트에 큐가 없어요")
+    done: list[str] = []
+    sent = 0
+    system = prompts.writer_system(p)
+    for k in range(1, len(sheet.cues) + 1):
+        cancel.check()
+        if progress:
+            progress(k, len(sheet.cues))
+        prompt = prompts.cue_play_prompt(p, n, sheet, done)
+        sent += len(system) + len(prompt)
+        done.append(_write(llm, p, n, prompt).strip())
+    return done, sent
 
 def compare_drafts(llms: dict[str, LLM], p: Project, n: int) -> dict[str, str]:
     """같은 화를 여러 백엔드로 쓴다. 프롬프트는 write_episode 와 같다. 저장은 호출자가 한다."""
@@ -2999,25 +3042,26 @@ def suggest_map(llm: LLM, p: Project, spec: MapSpec | None = None) -> dict:
     돌려주는 것: 지도 종류 kind(village | city | modern), 설정 칸(size, roads, water, fields, forest), places [{key, name, kind, put, note}], reason.
     spec.kind 는 지도 화면에서 지금 고른 종류로 프롬프트에 알린다 (뚜렷한 근거가 없으면 따르게).
     도시에 호수를 고르면 강으로, 현대 동네에 호수 · 바다를 고르면 하천으로 바꾼다 (생성기에 그 칸이 없다).
-    장소 종류는 모든 지도가 같은 id (placekinds.CATEGORIES) 를 쓰고, 현대 동네에서 놓이는 자리(moderngen.PLACE_KINDS)를 프롬프트에 함께 적는다.
-    장소 이름은 키로 바꾸고, 모르는 장소 · 모르는 종류 id 는 뺀다 (지금 값을 그대로 둔다)."""
-    from . import atlas, moderngen, placekinds
+    장소 종류는 지도 종류의 시대(placekinds.era_of)를 따른다. AI 가 지도 종류를 함께 고르므로 프롬프트에는 시대마다 종류 목록(kinds_for)을 적고,
+    받은 id 는 AI 가 고른 지도 종류의 목록(kind_ids(s.kind))으로 거른다.
+    장소 이름은 키로 바꾸고, 모르는 장소 · 그 지도 종류에 없는 종류 id 는 뺀다 (지금 값을 그대로 둔다)."""
+    from . import atlas, placekinds
 
     pls = atlas.places(p)
     if not pls:
         raise ValueError("장소가 아직 없어요. 장소를 더한 뒤 제안을 받으세요")
     rows = atlas.gen_places(p, spec)
-    kinds = [(cid, label) for cid, label, _ in placekinds.CATEGORIES]
     options = {k: m[1].OPTIONS for k, m in atlas.MAKERS.items()}
+    kinds = {k: [(x.id, x.label) for x in placekinds.kinds_for(k)] for k in options}
     s = llm.json(prompts.SYSTEM_MAP_PLANNER,
-                 prompts.map_suggest_prompt(p, rows, pls, kinds, options, moderngen.PLACE_KINDS, spec.kind if spec else ""), MapSuggestion,
+                 prompts.map_suggest_prompt(p, rows, pls, kinds, options, spec.kind if spec else ""), MapSuggestion,
                  hint={"places": [r["name"] for r in rows], "kind": spec.kind if spec else ""})
     names = {pl["key"]: pl["name"] for pl in pls}
-    out, seen = [], set()
+    out, seen, ids = [], set(), set(placekinds.kind_ids(s.kind))
     for g in s.places:
         key = atlas.place_by_name(g.name, pls)
         kind = g.kind.strip()
-        if not key or key in seen or kind not in placekinds.CATEGORY_IDS:
+        if not key or key in seen or kind not in ids:
             continue
         seen.add(key)
         out.append({"key": key, "name": names[key], "kind": kind, "put": bool(g.put), "note": g.note.strip()})

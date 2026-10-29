@@ -26,13 +26,49 @@ const atlasGenOpts = (kind) => S.atlas.gen.options[kind || (S.atlasGen && S.atla
 const atlasGenLabel = (key, id, kind) => String((atlasGenOpts(kind)[key] || {})[id] || id);
 /** 지도 종류 이름 (마을 · 도시) */
 const atlasGenWord = (kind) => ((S.atlas.gen.maps || []).find((x) => x.id === kind) || { label: '마을' }).label;
+/** 지도 종류를 from 에서 지금 spec.kind 로 바꿨을 때 장소 종류를 새 시대 id 로 옮긴다 */
+function atlasGenShiftKinds(spec, from) {
+  const g = S.atlas.gen;
+  spec.places = atlasKindShift(spec.places, g.places, atlasGenEra(from), atlasGenEra(spec.kind), g.kind_to || {});
+}
+/** 지도 종류(MapSpec.kind)의 시대 old · modern */
+const atlasGenEra = (kind) => (S.atlas.gen.eras || {})[kind || 'village'] || 'old';
+/** 장소 key 의 종류 id 를 지도 종류의 시대 id 로 (placekinds.to_era). 대응이 없으면 그 시대에서 이름으로 찾은 값 */
+function atlasGenToEra(key, id, kind) {
+  const era = atlasGenEra(kind);
+  const pl = (S.atlas.gen.places || []).find((x) => x.key === key) || {};
+  return ((S.atlas.gen.kind_to || {})[era] || {})[id] || (pl.found_in || {})[era] || id;
+}
 /** 다른 지도 종류로 바꿨을 때 그 종류에 없는 값은 고친다 (도시에는 호수가 없어 강으로) */
 function atlasGenFit(spec) {
   Object.entries(atlasGenOpts(spec.kind)).forEach(([key, opts]) => {
     if (!(spec[key] in opts)) spec[key] = key === 'water' && spec[key] === 'lake' && 'river' in opts ? 'river' : Object.keys(opts)[Math.min(1, Object.keys(opts).length - 1)];
   });
 }
-const atlasKindLabel = (id) => ((S.atlas.gen.kinds || []).find((k) => k.id === id) || { label: id }).label;
+/** 고른 지도 종류에서 보이는 장소 종류 [{id, label}] (서버 placekinds.kinds_for) */
+const atlasGenKinds = (kind) => (S.atlas.gen.kinds || {})[kind || 'village'] || [];
+/** 종류 화면 이름. 미리보기 핀은 다른 시대 id 일 수도 있어 모든 지도 종류의 목록에서 찾는다 */
+const atlasKindLabel = (id) => (Object.values(S.atlas.gen.kinds || {}).flat().find((k) => k.id === id) || { label: id }).label;
+
+// ----- 지도 종류를 바꿀 때 장소 종류 옮기기 (순수 함수, tests/test_atlas_gen_js.py) -----
+
+/** 장소 표 rows([{key, kind, put}])의 종류를 시대 from → to 로 옮긴 새 표.
+    places: 서버 장소 표(found_in: 시대마다 이름에서 찾은 종류), kindTo: gen_info.kind_to (placekinds.to_era 대응표).
+    이름에서 찾은 값 그대로인 줄은 새 시대에서 찾은 값으로, 고른 값은 대응표로 옮기고 대응이 없으면 찾은 값 (atlas.gen_places 와 같은 규칙).
+    put 이 옛 종류의 기본값이면 새 종류의 기본값(placekinds.default_put)으로 */
+function atlasKindShift(rows, places, from, to, kindTo) {
+  if (from === to) return rows.map((r) => ({ ...r }));
+  const found = Object.fromEntries(places.map((pl) => [pl.key, pl.found_in || {}]));
+  return rows.map((r) => {
+    const f = found[r.key] || {};
+    const kind = (r.kind === f[from] ? f[to] : ((kindTo[to] || {})[r.kind] || f[to])) || r.kind;
+    // 놓을지가 옛 종류의 기본값(마을 밖만 놓지 않음)이면 새 종류의 기본값으로, 작가가 바꾼 값이면 그대로
+    const put = r.put === (r.kind !== 'far') ? kind !== 'far' : r.put;
+    return { ...r, kind, put };
+  });
+}
+
+// ----- 지도 만들기 칸 -----
 
 function atlasGenForm(st) {
   const opts = atlasGenOpts(st.spec.kind);
@@ -44,7 +80,7 @@ function atlasGenForm(st) {
   const rows = S.atlas.gen.places.map((pl, i) => {
     const mine = st.spec.places[i];
     return `<div class="at-gen-place"><label class="small"><input type="checkbox" data-at-gen-put="${i}"${mine.put ? ' checked' : ''}> ${esc(pl.name)}</label>
-      <select data-at-gen-kind="${i}" aria-label="${esc(pl.name)} 종류">${S.atlas.gen.kinds.map((k) => `<option value="${esc(k.id)}"${mine.kind === k.id ? ' selected' : ''}>${esc(k.label)}</option>`).join('')}</select>
+      <select data-at-gen-kind="${i}" aria-label="${esc(pl.name)} 종류">${atlasGenKinds(st.spec.kind).map((k) => `<option value="${esc(k.id)}"${mine.kind === k.id ? ' selected' : ''}>${esc(k.label)}</option>`).join('')}</select>
       ${notes[pl.key] ? `<div class="small at-um-note at-gen-note">${esc(notes[pl.key])}</div>` : ''}</div>`;
   }).join('');
   const why = st.ai && st.ai.reason
@@ -57,7 +93,7 @@ function atlasGenForm(st) {
         <button type="button" class="btn small ghost" data-action="atlasGenSeed">새 시드</button></span></label></div>
     ${why}
     ${st.spec.kind === 'city' ? '<div class="small">도시는 성벽 · 성문 · 구역(시장, 신전, 귀족, 장인, 빈민 등)이 있는 큰 지도예요. 이야기 장소는 종류에 맞는 구역에 놓아요.</div>' : ''}
-    ${st.spec.kind === 'modern' ? '<div class="small">현대 동네는 대로 격자 안에 아파트 단지 · 빌라촌 · 대로변 상가 · 역 앞 · 학교 · 공원이 있는 가상의 동네예요. 숲 칸은 공원 수를 정해요. 주막은 호텔, 신전은 교회, 장터는 마트 자리에 놓아요.</div>' : ''}
+    ${st.spec.kind === 'modern' ? '<div class="small">현대 동네는 대로 격자 안에 아파트 단지 · 빌라촌 · 대로변 상가 · 역 앞 · 학교 · 공원이 있는 가상의 동네예요. 숲 칸은 공원 수를 정해요. 장소 종류도 현대 이름(역, 편의점, 학교, 아파트 등)으로 골라요. 마을에서 고른 종류는 주막은 호텔, 신전은 교회, 장터는 마트로 옮겨 둬요.</div>' : ''}
     <div class="small">같은 시드와 설정이면 언제나 같은 ${word}${word === '마을' ? '이' : '가'} 나와요. 장소 종류는 이름에서 찾았어요. 틀리면 고르거나 AI 제안을 받아 보세요.</div>
     <div class="at-gen-places">${rows}</div>
     <div class="row"><button type="button" class="btn small primary" data-action="atlasGenPreview">미리보기</button>
@@ -92,7 +128,7 @@ function atlasGenBox() {
   const word = atlasGenWord(st.spec.kind);
   if (!st.open) {
     return `<div class="at-box"><h3>지도 만들기</h3>
-      <div class="small">${made ? `시드 ${S.atlas.gen.spec.seed}로 만든 ${esc(atlasGenWord(S.atlas.gen.spec.kind))}예요. 설정을 바꿔 다시 만들 수 있어요.` : '마을 · 도시 · 현대 동네 생성기로 길 · 집 · 밭 · 물이 있는 지도를 만들어요. 도시는 성벽과 구역, 현대 동네는 아파트 단지와 빌라촌이 있어요. 이야기 장소는 종류에 맞는 자리(신전, 주막, 나루 등)에 놓아요.'}</div>
+      <div class="small">${made ? `시드 ${S.atlas.gen.spec.seed}로 만든 ${esc(atlasGenWord(S.atlas.gen.spec.kind))}예요. 설정을 바꿔 다시 만들 수 있어요.` : '마을 · 도시 · 현대 동네 생성기로 길 · 집 · 밭 · 물이 있는 지도를 만들어요. 도시는 성벽과 구역, 현대 동네는 아파트 단지와 빌라촌이 있어요. 이야기 장소는 종류에 맞는 자리(마을은 신전 · 주막 · 나루, 현대 동네는 역 · 편의점 · 학교 등)에 놓아요.'}</div>
       <div class="row"><button type="button" class="btn small" data-action="atlasGenOpen" data-arg="1">${made ? '다시 만들기' : '지도 만들기'}</button></div></div>`;
   }
   return `<div class="at-box at-gen"><h3>${esc(word)} ${st.preview ? '미리보기' : '만들기'}</h3>${st.preview ? atlasGenResult(st) : atlasGenForm(st)}</div>`;
@@ -163,17 +199,19 @@ Object.assign(actions, {
     await run('AI가 지도 설정을 고르는 중', async () => {
       const r = await api('POST', `/projects/${enc(S.name)}/atlas/generate/suggest`, st.spec);
       let changed = 0;
+      const from = st.spec.kind;
       // 작가가 고른 칸은 덮지 않는다. 지도 종류를 먼저 정하고 그 종류의 칸만 채운다
       ['kind', ...Object.keys(atlasGenOpts(st.touched.kind ? st.spec.kind : r.kind))].forEach((k) => {
         if (!st.touched[k] && r[k] && st.spec[k] !== r[k]) { st.spec[k] = r[k]; changed++; }
       });
       atlasGenFit(st.spec);
+      atlasGenShiftKinds(st.spec, from);
       const notes = {};
       r.places.forEach((g) => {
         const row = st.spec.places.find((x) => x.key === g.key);
         if (g.note) notes[g.key] = g.note;
         if (!row || st.touched['p:' + g.key] || (row.kind === g.kind && row.put === g.put)) return;
-        row.kind = g.kind;
+        row.kind = atlasGenToEra(g.key, g.kind, st.spec.kind);  // 작가가 고른 지도 종류와 AI 가 고른 종류의 시대가 다를 수 있다
         row.put = g.put;
         changed++;
       });
@@ -207,10 +245,12 @@ document.addEventListener('change', (e) => {
   const t = e.target;
   if (t.matches('[data-at-gen]')) {
     const st = atlasGenState();
+    const from = st.spec.kind;
     st.spec[t.dataset.atGen] = t.value;
     st.touched[t.dataset.atGen] = true;
-    if (t.dataset.atGen === 'kind') {  // 칸이 바뀌니 다시 그린다
+    if (t.dataset.atGen === 'kind') {  // 칸과 장소 종류 목록이 바뀌니 다시 그린다
       atlasGenFit(st.spec);
+      atlasGenShiftKinds(st.spec, from);
       atlasRefresh();
     }
     return;

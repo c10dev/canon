@@ -257,3 +257,190 @@ def test_spot_lines_in_prompt():
     assert "(장소 1곳 생략)" in atlas.episode_block(p, 4, budget=10)  # 예산이 작아도 한 줄은 넣고 뺀 수를 적는다
     atlas.fill_spots(p, None)
     assert atlas.episode_block(p, 4) == "" and "# 장소가 놓인 건물" not in prompts.build_episode_context(p, 4)
+
+
+def test_old_pins_get_spots(tmp_path, monkeypatch):
+    """건물 한 줄이 생기기 전에 놓은 핀: 지도 화면은 응답에만 싣고, 쓰기 · 검수 작업(웹 · 명령줄 · 자동 집필)은 채워 저장한다."""
+    import importlib
+
+    monkeypatch.setenv("CANON_HOME", str(tmp_path))
+    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
+    from canon import autorun, cli, pipeline, prompts, store, web
+    from canon.schema import StoryElement
+
+    from .test_mapgen import _project
+    from .test_web import _wait
+    importlib.reload(store)
+    importlib.reload(web)
+    p = _project()
+    p.elements.append(StoryElement(id="t-1", kind="장소", name="테스트타워"))
+    pipeline.confirm_plot(p, 4)
+    p.episode(4).plot.summary = "윤서가 테스트타워 앞에 선다"
+    store.save("o", p)
+    c = TestClient(web.app)
+    c.put("/api/projects/o/atlas/layout", json={"data": _xml()})
+    lo = c.get("/api/projects/o/atlas/layout").json()
+    k = next(k for k, b in enumerate(lo["blds"]) if b.get("name") == "테스트타워")
+    cx, cy = geom.centroid([tuple(q) for q in lo["buildings"][k]])
+    c.put("/api/projects/o/atlas/pins", json={"pins": [{"place": "t-1", "x": cx, "y": cy}, {"place": "el-9", "x": 0.99, "y": 0.01}]})
+    folder = store.project_dir("o") / "map"
+
+    def old() -> None:  # 이 칸이 생기기 전에 놓은 핀처럼 건물 한 줄을 지운다
+        q = store.load("o")
+        for pin in q.atlas.pins:
+            pin.spot = ""
+        store.save("o", q)
+
+    def spot() -> str:
+        return {pin.place: pin.spot for pin in store.load("o").atlas.pins}["t-1"]
+
+    old()
+    path = store.project_dir("o") / "project.json"
+    before = path.read_bytes()
+    v = c.get("/api/projects/o/atlas").json()
+    assert path.read_bytes() == before  # 지도 화면은 project.json 을 쓰지 않는다
+    assert {pl["key"]: pl["spot"] for pl in v["places"]}["t-1"].startswith("테스트타워 (")
+
+    q = store.load("o")
+    q.atlas.pins = [pin for pin in q.atlas.pins if pin.place == "el-9"]
+    assert atlas.fill_old_spots(q, folder) is False and q.atlas.pins[0].spot == ""  # 건물 밖 핀은 빈 채로, 저장할 것 없음
+
+    seen = {}
+    real = pipeline.write_episode
+
+    def spy(llm, q, n, *a, **kw):
+        seen["ctx"] = prompts.build_episode_context(q, n)
+        return real(llm, q, n, *a, **kw)
+
+    monkeypatch.setattr(pipeline, "write_episode", spy)
+    stale = c.get("/api/projects/o").json()  # 채우기 전에 읽은 화면
+    j = c.post("/api/projects/o/jobs", json={"kind": "write", "ep": 4}).json()
+    assert _wait(c, j["id"])["status"] == "done"
+    assert "# 장소가 놓인 건물 (지도 기준)" in seen["ctx"] and "- 테스트타워: 테스트타워 (" in seen["ctx"]
+    assert spot().startswith("테스트타워 (")
+    stale["episodes"] = store.load("o").model_dump(mode="json")["episodes"]
+    assert c.put("/api/projects/o", json=stale).status_code == 200
+    assert spot().startswith("테스트타워 (")  # 옛 화면 저장이 채운 값을 빈 값으로 덮지 않는다
+
+    old()
+    j = c.post("/api/projects/o/jobs", json={"kind": "check", "ep": 4}).json()
+    assert _wait(c, j["id"])["status"] == "done" and spot().startswith("테스트타워 (")
+
+    old()
+    cli.main(["check", "o", "4"])
+    assert spot().startswith("테스트타워 (")
+
+    old()
+    r = autorun.Runner.__new__(autorun.Runner)
+    r.name = "o"
+    q = store.load("o")
+    r._fill_old_spots(q)
+    assert q.atlas.pins[0].spot.startswith("테스트타워 (") and spot().startswith("테스트타워 (")
+
+
+# ---------- 바다 (natural=coastline) ----------
+
+def _coast_xml(*coasts, extra: str = "") -> str:
+    """길 하나 + 해안선들 (지도 m 좌표 꺾은선, 처음 점과 끝 점이 같으면 닫힌 고리). 범위는 위와 같다 (약 442 × 442m)."""
+    nodes, ways = [], []
+    ids: dict = {}
+
+    def node(q):
+        if q not in ids:
+            ids[q] = len(ids) + 1
+            lon, lat = ll(*q)
+            nodes.append(f'<node id="{ids[q]}" lat="{lat:.7f}" lon="{lon:.7f}"/>')
+        return ids[q]
+
+    def way(pts, tags):
+        refs = "".join(f'<nd ref="{node(q)}"/>' for q in pts)
+        ways.append(f'<way id="{2000 + len(ways)}">{refs}{"".join(f"<tag k={chr(34)}{k}{chr(34)} v={chr(34)}{v}{chr(34)}/>" for k, v in tags.items())}</way>')
+
+    way([(0, 20), (442, 20)], {"highway": "residential"})
+    for pts in coasts:
+        way(pts, {"natural": "coastline"})
+    return (f'<?xml version="1.0" encoding="UTF-8"?><osm version="0.6"><bounds minlat="{S}" minlon="{W}" maxlat="{N}" maxlon="{E}"/>'
+            + "".join(nodes) + "".join(ways) + extra + "</osm>")
+
+
+def _polys(lo: dict, key: str) -> list:
+    return [[_m(lo, q) for q in ln] for ln in lo.get(key, [])]
+
+
+def test_coastline_crossing_the_map():
+    # 서 → 동으로 그은 해안선: 땅이 왼쪽(북), 바다가 오른쪽(남). 두 길(way)로 나뉘어 있고 범위 밖까지 이어진다
+    lo = osm.parse(_coast_xml([(-100, 300), (200, 310)], [(200, 310), (600, 300)]))
+    sea = _polys(lo, "water")
+    assert len(sea) == 1 and "land" not in lo and "coast_broken" not in lo
+    area = abs(geom.area(sea[0]))
+    assert abs(area - lo["w"] * (lo["h"] - 306)) < lo["w"] * 6  # 해안선 아래 띠 (약 442 × 136m)
+    assert geom.inside((220, 400), sea[0]) and not geom.inside((220, 200), sea[0])
+    # 반대로 그으면 (동 → 서) 바다는 북쪽
+    lo = osm.parse(_coast_xml([(600, 300), (200, 310), (-100, 300)]))
+    sea = _polys(lo, "water")
+    assert len(sea) == 1 and geom.inside((220, 100), sea[0]) and not geom.inside((220, 400), sea[0])
+    # 한 길에서 들어와 다른 변으로 나가는 해안선 (남서쪽 모퉁이가 바다)
+    lo = osm.parse(_coast_xml([(-50, 200), (250, 250), (300, 500)]))
+    sea = _polys(lo, "water")
+    assert len(sea) == 1 and geom.inside((20, 420), sea[0]) and not geom.inside((400, 100), sea[0])
+
+
+def test_coastline_island():
+    # 섬: 땅이 왼쪽이 되게 (화면에서 반시계 방향) 닫은 고리. 범위를 가로지르는 해안선이 없으니 범위 전체가 바다
+    island = [(150, 150), (150, 300), (300, 300), (300, 150), (150, 150)]
+    lo = osm.parse(_coast_xml(island))
+    sea, land = _polys(lo, "water"), _polys(lo, "land")
+    assert len(sea) == 1 and abs(abs(geom.area(sea[0])) - lo["w"] * lo["h"]) < 10
+    assert len(land) == 1 and abs(abs(geom.area(land[0])) - 150 * 150) < 50 and geom.inside((220, 220), land[0])
+    # 남쪽이 바다인 해안선 + 그 바다 속 섬
+    lo = osm.parse(_coast_xml([(-100, 100), (600, 100)], [(150, 200), (150, 300), (300, 300), (300, 200), (150, 200)]))
+    sea, land = _polys(lo, "water"), _polys(lo, "land")
+    assert len(sea) == 1 and geom.inside((220, 400), sea[0]) and len(land) == 1 and geom.inside((220, 250), land[0])
+    # 섬 위는 물이 아니다: 장소를 놓을 수 있다
+    assert atlas._blocked(lo, (220 / lo["w"], 400 / lo["h"]))
+    assert not atlas._blocked(lo, (220 / lo["w"], 250 / lo["h"]))
+    # 범위 전체가 섬 안이면 바다가 없다
+    lo = osm.parse(_coast_xml([(-50, -50), (-50, 500), (500, 500), (500, -50), (-50, -50)]))
+    assert "water" not in lo and "land" not in lo
+
+
+def test_coastline_broken():
+    # 범위 안에서 끊긴 해안선: 가장 가까운 테두리까지 이어 닫는다
+    lo = osm.parse(_coast_xml([(-100, 300), (200, 300)], [(260, 300), (600, 300)]))
+    sea = _polys(lo, "water")
+    assert "coast_broken" not in lo and sea and all(geom.area(s) > 0 for s in sea)
+    assert any(geom.inside((100, 400), s) for s in sea) and not any(geom.inside((100, 200), s) for s in sea)
+    # 방향이 어긋난 해안선 두 줄 (둘 다 남쪽이 바다): 닫지 못하면 바다를 그리지 않고 표시한다. 다른 물은 그대로
+    pond = ('<node id="900" lat="37.5025" lon="127.001"/><node id="901" lat="37.5025" lon="127.0015"/>'
+            '<node id="902" lat="37.5028" lon="127.0015"/><way id="9000"><nd ref="900"/><nd ref="901"/><nd ref="902"/><nd ref="900"/>'
+            '<tag k="natural" v="water"/></way>')
+    lo = osm.parse(_coast_xml([(-100, 100), (600, 100)], [(-100, 300), (600, 300)], extra=pond))
+    assert lo["coast_broken"] is True and len(lo["water"]) == 1 and abs(geom.area(_polys(lo, "water")[0])) < 3000
+
+
+def test_coastline_keeps_rivers_and_fill():
+    # 바다를 더해도 강 가운데 선은 남는다 (넓이로 그린 강이 없으면)
+    river = ('<node id="800" lat="37.5039" lon="127.0025"/><node id="801" lat="37.5015" lon="127.0025"/>'
+             '<way id="8000"><nd ref="800"/><nd ref="801"/><tag k="waterway" v="river"/></way>')
+    lo = osm.parse(_coast_xml([(-100, 300), (600, 300)], extra=river))
+    assert lo["rivers"] and lo["water"]
+    # 빈 블록 채우기: 바다 쪽 블록은 채우지 않는다
+    from canon import fill
+    lo = osm.parse(_coast_xml([(-100, 300), (600, 300)], extra=_road_grid()))
+    out, info = fill.fill(lo, 1)
+    sea = _polys(lo, "water")[0]
+    assert info["buildings"] > 0  # 땅 쪽 블록은 채운다
+    assert not any(geom.inside(geom.centroid([_m(lo, q) for q in b]), sea) for b in info["added"])
+
+
+def _road_grid() -> str:
+    """60m 간격 길 격자 (블록이 여럿 생기게)."""
+    out, nid = [], 700
+    for k, v in enumerate(range(40, 442, 60)):
+        a, b = ll(v, -10), ll(v, 452)
+        c, d = ll(-10, v), ll(452, v)
+        for (p, q) in ((a, b), (c, d)):
+            out.append(f'<node id="{nid}" lat="{p[1]:.7f}" lon="{p[0]:.7f}"/><node id="{nid + 1}" lat="{q[1]:.7f}" lon="{q[0]:.7f}"/>'
+                       f'<way id="{nid}"><nd ref="{nid}"/><nd ref="{nid + 1}"/><tag k="highway" v="residential"/></way>')
+            nid += 2
+    return "".join(out)

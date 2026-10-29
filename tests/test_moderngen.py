@@ -5,7 +5,7 @@ import math
 
 import pytest
 
-from canon import atlas, bldgs, geom, moderngen
+from canon import atlas, bldgs, geom, moderngen, placekinds
 from canon.schema import MapSpec
 
 SPOTS = [{"key": "a", "name": "동네", "kind": "center"}, {"key": "b", "name": "교회", "kind": "temple"},
@@ -102,7 +102,7 @@ def test_story_places(water):
     assert min(g["x"], g["y"], 1 - g["x"], 1 - g["y"]) < 0.01  # 마을 밖 → 대로 끝 (지도 가장자리)
     park = [wd for wd in lo["wards"] if wd["kind"] == "park"]
     assert park and geom.inside((spot["k"]["x"], spot["k"]["y"]), [tuple(q) for q in park[0]["shape"]])
-    assert "밭" in lost["l"]
+    assert spot["l"]["kind"] == "house" and "l" not in lost  # 밭은 현대 대응이 없어 집으로 읽는다
     if water == "none":
         assert "하천" in lost["d"] and "하천" in lost["e"]
     else:
@@ -139,7 +139,7 @@ def test_buildings_get_modern_info():
 
 def test_neighborhood_summary_snapshot():
     """알고리즘을 바꾸면 이 값이 바뀐다. 그때 VERSION 을 올리고 함께 고친다."""
-    assert moderngen.VERSION == 1
+    assert moderngen.VERSION == 3
     lo = _town(seed=7, size="medium")
     assert (lo["houses"], len(lo["roads"]), len(lo["wards"]), len(lo["trees"]), lo["retries"]) == SNAPSHOT
     rv = _town(seed=7, size="medium", water="river")
@@ -147,7 +147,7 @@ def test_neighborhood_summary_snapshot():
 
 
 SNAPSHOT = (933, 91, 14, 902, 0)
-RIVER_SNAPSHOT = (910, 87, 14, 771, 0)
+RIVER_SNAPSHOT = (804, 90, 14, 931, 0)  # 10 굽은 하천 (VERSION 3). 하천 없는 동네는 그대로
 
 
 def test_spots_keep_out_of_each_other():
@@ -191,3 +191,155 @@ def test_cli_modern(tmp_path, monkeypatch, capsys):
     with pytest.raises(SystemExit) as e:
         cli.main(["map", "c", "gen", "modern", "--roads", "광장", "-y"])
     assert "--roads 칸은 현대 동네에 쓰지 않아요" in str(e.value)
+
+
+# 옛 id 가운데 현대 id 하나로 옮기는 것과 두 시대 모두인 것의 자리 (seed 11, 보통, 하천, 공원 보통).
+# 08b(VERSION 2)는 VERSION 1 과 같은 자리였고, 10 굽은 하천(VERSION 3)에서 하천 옆 칸이 바뀌어 다시 적었다
+OLD_SAME = [{"key": "a", "name": "동네", "kind": "center"}, {"key": "b", "name": "교회", "kind": "temple"},
+            {"key": "c", "name": "시장", "kind": "market"}, {"key": "d", "name": "강가", "kind": "river"},
+            {"key": "e", "name": "다리", "kind": "bridge"}, {"key": "g", "name": "서울", "kind": "far"},
+            {"key": "h", "name": "모텔", "kind": "inn"}, {"key": "i", "name": "공방", "kind": "smith"},
+            {"key": "k", "name": "숲", "kind": "forest"}, {"key": "m", "name": "방앗간", "kind": "mill"}]
+OLD_SPOTS = {"a": (0.533045, 0.342575, "station"), "b": (0.234274, 0.037102, "church"), "c": (0.587536, 0.345802, "mart"),
+             "d": (0.522776, 0.732439, "river"), "e": (0.487261, 0.75886, "bridge"), "g": (0.003665, 0.275013, "far"),
+             "h": (0.587108, 0.523579, "hotel"), "i": (0.921938, 0.968384, "factory"), "k": (0.323452, 0.893556, "forest"),
+             "m": (0.86377, 0.988821, "factory")}
+MODERN = [{"key": k, "name": placekinds.label(k), "kind": k} for k in placekinds.kind_ids("modern")]
+
+
+def test_old_kinds_keep_their_spots():
+    """옛 id 로 저장된 입력은 to_era 로 읽고, 대응이 하나인 종류는 그 현대 종류의 자리 · 같은 건물 쓰임에 놓인다."""
+    lo = moderngen.neighborhood(MapSpec(kind="modern", seed=11, size="medium", water="river", forest="some"), OLD_SAME)
+    assert {s["key"]: (s["x"], s["y"], s["kind"]) for s in lo["spots"]} == OLD_SPOTS and lo["missing"] == []
+    by_place = {b["place"]: b["use"] for b in bldgs.describe(lo, lo["seed"], "korea_modern")["blds"] if b.get("place")}
+    assert by_place == {"b": "church", "c": "mart", "h": "hotel", "i": "factory", "m": "factory"}
+
+
+def test_old_kinds_that_merge():
+    """여럿이 하나로 모이는 옛 id(우물 → 역, 저택 · 집 → 집, 밭 → 집)와 모르는 id 는 현대 id 로 놓인다 (자리는 08b 에서 바뀌었다)."""
+    pls = [{"key": "a", "name": "동네", "kind": "center"}, {"key": "w", "name": "우물", "kind": "well"},
+           {"key": "f", "name": "저택", "kind": "manor"}, {"key": "j", "name": "집", "kind": "home"},
+           {"key": "l", "name": "밭", "kind": "field"}, {"key": "x", "name": "어딘가", "kind": "nowhere"},
+           {"key": "y", "name": "빈칸", "kind": ""}]
+    lo = moderngen.neighborhood(MapSpec(kind="modern", seed=11, size="medium"), pls)
+    spot = {s["key"]: s for s in lo["spots"]}
+    assert lo["missing"] == [] and spot["w"]["kind"] == "station"
+    assert {spot[k]["kind"] for k in "fjlxy"} == {"house"}
+    assert math.dist((spot["a"]["x"] * lo["w"], spot["a"]["y"] * lo["h"]), (spot["w"]["x"] * lo["w"], spot["w"]["y"] * lo["h"])) < 15  # 광장 옆
+    by_place = {b["place"]: b["use"] for b in bldgs.describe(lo, lo["seed"], "korea_modern")["blds"] if b.get("place")}
+    assert {by_place[k] for k in "fjlxy"} == {"home"}  # 단독주택
+
+
+def test_kind_spots_cover_modern_kinds():
+    assert set(moderngen.KIND_SPOTS) == set(placekinds.kind_ids("modern"))
+    assert set(moderngen.USE_OF.values()) <= set(bldgs.MODERN)
+
+
+@pytest.mark.parametrize("size,water,forest", [("medium", "river", "some"), ("large", "river", "many"), ("small", "none", "few")])
+def test_modern_kinds(size, water, forest):
+    """현대 종류마다 자리: 놓이거나, 못 놓으면 missing 에 해요체 까닭. 놓인 건물은 종류에 맞는 쓰임."""
+    lo = moderngen.neighborhood(MapSpec(kind="modern", seed=11, size=size, water=water, forest=forest), MODERN)
+    spot = {s["key"]: s for s in lo["spots"]}
+    lost = {m["key"]: m["reason"] for m in lo["missing"]}
+    assert set(spot) | set(lost) == {p["key"] for p in MODERN} and not set(spot) & set(lost)
+    assert all(s["kind"] == s["key"] for s in lo["spots"])  # 현대 id 는 그대로 나온다
+    assert all(r.endswith("요") for r in lost.values())
+    assert len({(s["x"], s["y"]) for s in lo["spots"]}) == len(lo["spots"])
+    blds = bldgs.describe(lo, lo["seed"], "korea_modern")["blds"]
+    by_place = {b["place"]: b["use"] for b in blds if b.get("place")}
+    for k, use in moderngen.USE_OF.items():
+        assert by_place[k] == use, k
+    assert by_place["school"] == "school" and by_place["apartment"] == "apartment" and by_place["villa"] == "villa"
+    assert by_place["house"] == "home"
+
+    def in_ward(key: str, kind: str) -> bool:
+        return any(geom.inside((spot[key]["x"], spot[key]["y"]), [tuple(q) for q in wd["shape"]])
+                   for wd in lo["wards"] if wd["kind"] == kind)
+    assert in_ward("station", "station") and in_ward("school", "school")  # 역 → 역 앞 광장, 학교 → 학교 블록
+    if water == "none":
+        assert {"shore", "river", "bridge"} <= set(lost) and "하천" in lost["river"]
+    else:
+        assert {"shore", "river", "bridge"} <= set(spot)
+    if forest == "few":  # 근린공원 없음
+        assert "공원" in lost["park"] and "공원" in lost["forest"]
+    else:
+        assert in_ward("park", "park")
+    if size != "small":
+        assert set(lost) <= {"pond"}  # 연못은 공원에 따라 있거나 없다
+
+
+# ---------- 10 굽은 하천 ----------
+
+RIVER_CASES = [(size, seed) for size in ("small", "medium", "large") for seed in (1, 7, 23)]
+
+
+def _river(lo: dict) -> tuple[list, float]:
+    rv = lo["rivers"][0]
+    return [_m(lo, q) for q in rv["points"]], rv["width"]
+
+
+@pytest.mark.parametrize("size,seed", RIVER_CASES)
+def test_river_winds(size, seed):
+    """하천 가운데 선은 곧지 않고 (양 끝을 이은 선에서 폭의 절반 넘게 벗어난다), 폭의 두 배 남짓 안에서만 흔들린다."""
+    lo = _town(seed=seed, size=size, water="river")
+    pts, rw = _river(lo)
+    a, b = pts[0], pts[-1]
+    assert a[0] == 0 and abs(b[0] - lo["w"]) < 1e-6 and len(pts) > 20  # 지도 끝에서 끝까지
+    off = [abs((b[0] - a[0]) * (a[1] - q[1]) - (a[0] - q[0]) * (b[1] - a[1])) / math.dist(a, b) for q in pts]
+    assert 0.5 * rw < max(off) < 4 * rw + 2 * moderngen.SWAY
+    turns = [math.atan2(q[1] - p[1], q[0] - p[0]) for p, q in zip(pts, pts[1:])]
+    assert max(abs(t1 - t0) for t0, t1 in zip(turns, turns[1:])) < 0.35  # 꺾이지 않고 굽는다
+
+
+@pytest.mark.parametrize("size,seed", RIVER_CASES)
+def test_river_bridges_banks_and_buildings(size, seed):
+    lo = _town(seed=seed, size=size, water="river")
+    pts, rw = _river(lo)
+    water = [[_m(lo, q) for q in poly] for poly in lo["water"][:1]]  # 첫 물 다각형이 하천 (그 뒤는 공원 연못)
+    assert all(geom.inside(q, water[0]) for q in pts[1:-1])
+    # 세로 대로마다 다리 하나, 다리 가운데는 물 위
+    bridges = [r for r in lo["roads"] if r["kind"] == "bridge"]
+    assert len(bridges) == moderngen.GRID[size][0] - 1
+    for r in bridges:
+        mid = geom.lerp(_m(lo, r["points"][0]), _m(lo, r["points"][-1]), 0.5)
+        assert geom.inside(mid, water[0])
+    # 강변길: 하천의 모든 점에서 양쪽으로 둔치 너머 길이 있고 (하천을 따라 꺾인다), 다리가 아닌 길은 물에 닿지 않는다
+    segs = [(_m(lo, p), _m(lo, q), r["width"]) for r in lo["roads"] if r["kind"] == "road" for p, q in zip(r["points"], r["points"][1:])]
+    reach = rw / 2 + moderngen.BANK + moderngen.RIVERSIDE / 2
+    by_bridge = lambda q: any(geom.seg_dist(q, _m(lo, r["points"][0]), _m(lo, r["points"][-1])) < r["width"] / 2 + 30  # noqa: E731
+                              for r in bridges)  # 세로 대로가 하천을 건너는 곳 둘레는 빼고 본다
+    for k in range(1, len(pts) - 1, 4):
+        if by_bridge(pts[k]):
+            continue
+        q, d = pts[k], (pts[k + 1][0] - pts[k - 1][0], pts[k + 1][1] - pts[k - 1][1])
+        nrm = (-d[1] / math.hypot(*d), d[0] / math.hypot(*d))
+        for sgn in (1, -1):  # 물줄기에 수직으로 나가며 처음 닿는 길까지 거리
+            hit = next((t for t in range(int(rw / 2), int(reach + 4 * rw + 150))
+                        if any(geom.seg_dist((q[0] + nrm[0] * t * sgn, q[1] + nrm[1] * t * sgn), a, b) <= wd / 2
+                               for a, b, wd in segs)), None)
+            assert hit is not None and hit >= reach - moderngen.RIVERSIDE / 2 - 2, (k, sgn, hit)
+    assert not any(geom.seg_dist(q, a, b) < rw / 2 + wd / 2 for q in pts if not by_bridge(q) for a, b, wd in segs)
+    # 하천 · 둔치 위에 건물이 없다
+    for poly in lo["buildings"]:
+        hs = [_m(lo, q) for q in poly]
+        assert not any(geom.inside(q, water[0]) for q in hs)
+        assert not any(geom.poly_seg_near(hs, a, b, rw / 2 + moderngen.BANK) for a, b in zip(pts, pts[1:]))
+
+
+@pytest.mark.parametrize("size,seed", RIVER_CASES)
+def test_river_places(size, seed):
+    """둔치 · 강가 · 다리 장소는 굽은 하천에도 놓인다: 둔치 · 강가는 녹지 위 물 밖, 다리는 물 위."""
+    lo = moderngen.neighborhood(MapSpec(kind="modern", seed=seed, size=size, water="river"), MODERN)
+    spot = {s["key"]: s for s in lo["spots"]}
+    assert {"shore", "river", "bridge"} <= set(spot)
+    xy = lambda k: (spot[k]["x"], spot[k]["y"])  # noqa: E731
+    water, greens = [[tuple(q) for q in poly] for poly in lo["water"]], [[tuple(q) for q in poly] for poly in lo["greens"]]
+    for k in ("shore", "river"):
+        assert any(geom.inside(xy(k), g) for g in greens) and not any(geom.inside(xy(k), wt) for wt in water), k
+    assert geom.inside(xy("bridge"), water[0])
+
+
+def test_no_river_neighborhood_is_unchanged():
+    """굽은 하천은 하천이 있는 동네만 바꾼다: 하천 없는 동네의 요약은 VERSION 2 와 같다 (SNAPSHOT)."""
+    lo = _town(seed=7, size="medium")
+    assert not lo["rivers"] and (lo["houses"], len(lo["roads"]), len(lo["trees"])) == SNAPSHOT[:2] + SNAPSHOT[3:4]

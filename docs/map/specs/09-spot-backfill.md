@@ -1,6 +1,6 @@
 # 09. 옛 핀의 건물 한 줄 채우기
 
-상태: 설계 · 계획: [plan.md](../plan.md) 의 9번 (차례 미정) · 먼저: PR [#140](https://github.com/c10dev/canon/pull/140)
+상태: 구현 · 계획: [plan.md](../plan.md) 의 9번 (차례 미정) · 먼저: PR [#140](https://github.com/c10dev/canon/pull/140)
 
 ## 목표
 
@@ -29,3 +29,15 @@ DESIGN.md '실제 지도' 절의 '이 기능 전에 놓은 핀' 문장.
 ## 확인하지 못할 것
 
 없음.
+
+## 구현 메모 (2026-10-29)
+
+정할 것은 추천대로 했다.
+
+- 도우미 `atlas.fill_old_spots(p, folder, layout=None)`: `spot` 이 빈 핀만 `spot_line` 으로 채운다. 빈 핀이 없거나 `Atlas.layout` 이 없으면 지도 파일을 읽지 않는다. 줄이 생긴 핀이 하나라도 있으면 True 다. 건물 밖 핀은 늘 빈 줄이라 True 가 아니고, 그래서 작업마다 저장하지 않는다. `fill_spots`(모든 핀과 `Atlas.transit` 을 다시 씀)는 고치지 않았다.
+- 지도 화면 `web.atlas_view`: 읽은 지도 데이터로 메모리에서 채우고 저장하지 않는다. 응답에 싣기 위해 `atlas.summary` 의 `places[]` 에 `spot` 을 더했다. 화면(`static/atlas*.js`)은 아직 이 값을 보이지 않는다.
+- 쓰기 · 검수 작업: 웹 `write`(다시 생성 제외) · `check` 작업은 스레드 첫머리에서 `web._fill_old_spots` 를 부른다. 명령줄 `_write` · `_check`(`write` · `check` · `run`)는 LLM 호출 전에 채우고 원래 저장이 함께 쓴다. 자동 집필은 `Runner.loop` 가 쓰기 · 검토 단계 전에 `Runner._fill_old_spots` 를 부른다.
+- 명세와 다른 곳: 웹과 자동 집필은 '그 작업이 저장할 때 함께'가 아니라 작업을 시작할 때 따로 저장한다(작품 잠금 안 `_edit`). 두 곳의 작업은 프롬프트용으로 읽은 작품과 저장할 때 읽는 작품이 달라, 함께 저장하려면 저장하는 곳마다 다시 채워야 한다. 따로 저장하면 작업이 실패해도 채운 값이 남는다. 서버 저장은 `edit_rev` 를 올리지 않아 화면 저장과 부딪히지 않는다.
+- 저장 덮어쓰기: 채우기 전에 읽은 화면이 작품 전체를 저장하면(`PUT /api/projects/{name}`) 빈 줄이 디스크 줄을 덮는다. `web._keep_spots` 가 같은 자리(장소 · x · y) 핀의 디스크 줄을 둔다.
+- 시험: `tests/test_osm.py::test_old_pins_get_spots`(지도 화면 GET 의 `project.json` 바이트 비교, 웹 쓰기 작업의 프롬프트 블록, 옛 화면 저장, 웹 검수 작업, 명령줄 `check`, 자동 집필 도우미).
+- 남은 일: 다시 생성(`rewrite`) 작업과 작업지시서(`brief`)도 같은 쓰기 프롬프트를 만들지만 채우지 않는다. `Atlas.transit` 도 지도 파일에서 셈해 적는 값이라, 지하철(06) 전에 올린 지도는 지도를 고쳐야 생긴다.

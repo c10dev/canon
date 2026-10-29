@@ -652,11 +652,13 @@ class MockLLM:
                     if name not in [x.name for x in new]:
                         new.append(NewPlace(name=name, kind="건물", description="위치 글에서 나온 곳"))
             return PlaceSort(matches=out, new_places=new)  # type: ignore[return-value]
-        if schema is MapSuggestion:  # 이름 단어로 종류를 고르고, 바다 쪽 장소가 있으면 바닷가 마을로. 화면에서 현대 동네를 골랐으면 현대 동네 (물은 하천)
+        if schema is MapSuggestion:  # 이름 단어로 그 시대 종류를 고르고, 바다 쪽 장소가 있으면 바닷가 마을로. 화면에서 현대 동네를 골랐으면 현대 동네 (물은 하천)
             from . import atlas, placekinds
 
-            guesses = [MapPlaceGuess(name=n, kind=placekinds.classify(n)[0], put=placekinds.classify(n)[0] != "far") for n in hint.get("places", [])]
-            rows = [{"kind": g.kind, "word": placekinds.classify(g.name)[1], "put": g.put} for g in guesses]
+            era = placekinds.era_of("modern" if hint.get("kind") == "modern" else "village")
+            found = {n: placekinds.classify(n, era=era) for n in hint.get("places", [])}
+            guesses = [MapPlaceGuess(name=n, kind=k, put=k != "far") for n, (k, _) in found.items()]
+            rows = [{"kind": g.kind, "word": found[g.name][1], "put": g.put} for g in guesses]
             water = placekinds.water_for(rows)
             if hint.get("kind") == "modern":
                 water = "none" if water == "none" else "river"
@@ -738,6 +740,9 @@ class MockLLM:
 
     def text(self, system: str, prompt: str) -> str:
         _delay()
+        from .mock_cue import text_for
+        if (cue := text_for(prompt)) is not None:  # 큐 시트 집필 실험
+            return cue
         if "화 다시 쓰기\n" in prompt:  # 다시 생성: 지난 판과 다른 글을 낸다
             return "바람이 멎었다. 서윤은 등대 문을 밀었다.\n\n\"이번엔 내가 먼저 갈게.\"\n\n(mock 다시 쓴 본문)"
         return "바람이 불었다. 서윤은 등대 앞에 섰다.\n\n\"됐어, 내가 할게.\"\n\n(mock 본문)"
@@ -791,4 +796,4 @@ def _broken(out: str) -> str:
 
 
 # 기능별 가짜 응답 등록 (RESPONDERS). 위의 responds 를 쓰므로 맨 끝에서 불러온다
-from . import mock_birth, mock_board, mock_play  # noqa: E402,F401
+from . import mock_birth, mock_board, mock_cue, mock_play  # noqa: E402,F401

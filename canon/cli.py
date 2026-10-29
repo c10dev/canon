@@ -877,6 +877,7 @@ def cmd_write(a: argparse.Namespace) -> None:
 
 def _write(name: str, p: Project, n: int) -> None:
     print(f"{n}화 생성 중...")
+    atlas.fill_old_spots(p, store.project_dir(name) / "map")  # 건물 한 줄이 빈 옛 핀. 아래 저장에 함께 들어간다
     text = pipeline.write_episode(get_llm("write"), p, n)
     pipeline.replace_text(p.episode(n), text)  # 지금 본문이 있으면 '이전 판'에 남는다
     store.save(name, p)
@@ -984,6 +985,7 @@ def cmd_check(a: argparse.Namespace) -> None:
 def _check(name: str, p: Project, n: int, widen: bool | None = None) -> None:
     on = pipeline.widen_on(p, widen)
     print(f"{n}화 검수 중{' (넓혀 찾기 포함)' if on else ''}...")
+    atlas.fill_old_spots(p, store.project_dir(name) / "map")  # 건물 한 줄이 빈 옛 핀. 아래 저장에 함께 들어간다
     pipeline.apply_check(p, pipeline.check_episode(get_llm("check"), p, n, widen), "api", on)
     store.save(name, p)
 
@@ -1704,11 +1706,10 @@ def cmd_map(a: argparse.Namespace) -> None:
     print(f"{word} (시드 {spec.seed}): {homes}건물 {info['buildings']}채 · 길 {info['roads']}개"
           f"{f' · 다리 {info['bridges']}개' if info['bridges'] else ''}{walls} · 약 {info['width_m']}×{info['height_m']}m")
     print("  " + " · ".join(opts[k][getattr(spec, k)].split(" (")[0] for k in ("size", "roads", "water", "fields", "forest") if k in opts))
-    kinds = {cid: label for cid, label, _ in placekinds.CATEGORIES}
     take = [s["place"] for s in out["pins"] if a.move or not s["had"]]
     for s in out["pins"]:
         note = "" if s["place"] in take else " (지도에 놓은 자리가 있어 그대로 둬요. 옮기려면 --move)"
-        print(f"  {s['name']} → {kinds.get(s['kind'], s['kind'])} 자리{note}")
+        print(f"  {s['name']} → {placekinds.label(s['kind'])} 자리{note}")
     for m in out["missing"]:
         print(f"  {m['name']}: 놓지 못했어요. {m['reason']}")
     for b in out["blocked"]:

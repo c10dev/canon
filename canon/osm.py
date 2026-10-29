@@ -14,10 +14,18 @@
   쓰임은 건물 자신의 태그, 없으면 건물 안에 있는 가게 · 시설 점(amenity, shop 등)에서 고른다(use_of).
 - 물(natural=water 등)과 강(waterway): 범위에 다 들어오지 않은 큰 물(한강 같은 multipolygon)은 끊긴 물가 선만 온다.
   물가 선의 양쪽 가운데 건물 · 길이 덜 촘촘한 쪽을 물로 보고 테두리를 따라 닫는다(_close_open).
+- 바다(natural=coastline): 해안선은 땅이 왼쪽, 바다가 오른쪽이다. 조각을 이어 범위로 자르고 테두리를 따라 바다를 닫아
+  water 에 더한다(_sea, 강 물가 닫기 _close_open 은 쓰지 않는다). 범위 안의 닫힌 고리는 섬이라 land 에 둔다(물 위에 그리는 땅).
+  방향이 어긋나 닫지 못하면 바다를 그리지 않고 coast_broken 을 단다.
 - 풀밭 · 숲 · 공원은 greens, 논밭은 fields, 광장 · 보행 구역은 squares, 나무 점(natural=tree)은 trees.
 
-다 들어오지 않은 multipolygon 의 안쪽 고리(물 속 섬, 건물 안뜰)는 쓰지 않는다. 지하철 · 철길과 바다(natural=coastline)는
-그리지 않는다.
+- 지하철(.osm 만): 역(railway=station + station=subway, public_transport=station + subway=yes)과 노선(route=subway ·
+  light_rail relation, 정차 위치에 subway=yes 가 있는 route=train)의 정차 차례를 transit 에 둔다(_transit). 노선은 정차 위치
+  (stop_position)를 이름(괄호 뺀 것)과 거리로 역에 묶고, 파일에 없는 정차 위치는 그 사이 역 수(gaps)로 센다. 방향만 다른
+  relation 은 하나로 묶는다. 지도 밖 TRANSIT_PAD 안의 역도 두므로 역 자리는 0~1 밖일 수 있다. 정차 위치 점은 표지로 두지 않는다.
+  GeoJSON 은 relation 의 정차 차례가 없어 역만 둔다.
+
+다 들어오지 않은 multipolygon 의 안쪽 고리(물 속 섬, 건물 안뜰)는 쓰지 않는다. 지하철 노선 · 철길은 그리지 않는다.
 OpenStreetMap 데이터는 ODbL 이라 지도 화면 · 내보낸 그림에 출처(SOURCE)를 적는다.
 """
 from __future__ import annotations
@@ -49,6 +57,9 @@ GREEN = {("leisure", "park"), ("leisure", "garden"), ("leisure", "pitch"), ("lei
          ("landuse", "forest"), ("landuse", "recreation_ground"), ("landuse", "meadow"), ("landuse", "village_green"),
          ("landuse", "cemetery"), ("natural", "wood"), ("natural", "scrub"), ("natural", "grassland"), ("natural", "heath")}
 FIELD = {("landuse", "farmland"), ("landuse", "orchard"), ("landuse", "allotments"), ("landuse", "vineyard")}
+TRANSIT_ROUTES = ("subway", "light_rail", "train")  # train 은 정차 위치에 subway=yes 가 있을 때만 (신분당선 등)
+TRANSIT_PAD = 3000.0  # m. 지도 밖으로 이만큼 안의 역까지 둔다 (가장자리 장소가 지도 밖 가까운 역을 쓰게)
+STATION_JOIN = 600.0  # m. 이름이 같고 이만큼 가까운 역 · 정차 위치는 한 역 (갈아타는 역, 방향마다 다른 정차 위치)
 POI_KEYS = ("amenity", "shop", "office", "tourism", "leisure", "healthcare", "railway", "public_transport", "craft")
 
 # 태그 → 건물 쓰임 (bldgs.USES 의 id). 먼저 맞는 것이 이긴다
@@ -109,6 +120,7 @@ def parse(text: str) -> dict:
 
 # ---------- 읽기: (태그, 모양, 좌표) 목록 ----------
 # 모양: point (lon, lat) | line [(lon, lat)] | area [고리] (닫힌 바깥 고리들) | open [사슬] (닫히지 않은 바깥 고리 조각)
+#       route [((lon, lat), 정차 위치 태그) | None] (지하철 노선 relation 의 정차 차례, 파일에 없는 점은 None)
 
 Feature = tuple[dict, str, object]
 
@@ -129,6 +141,7 @@ def _from_xml(text: str) -> tuple[list[Feature], Optional[tuple[float, float, fl
             bounds = None
     tags = lambda el: {t.get("k"): t.get("v") for t in el.findall("tag") if t.get("k")}  # noqa: E731
     nodes: dict[str, tuple[float, float]] = {}
+    ntags: dict[str, dict] = {}
     feats: list[Feature] = []
     for nd in root.iter("node"):
         try:
@@ -138,6 +151,7 @@ def _from_xml(text: str) -> tuple[list[Feature], Optional[tuple[float, float, fl
         nodes[nd.get("id")] = q
         t = tags(nd)
         if t:
+            ntags[nd.get("id")] = t
             feats.append((t, "point", q))
     ways: dict[str, list] = {}
     for w in root.iter("way"):
@@ -149,6 +163,10 @@ def _from_xml(text: str) -> tuple[list[Feature], Optional[tuple[float, float, fl
             feats.append((t, "area", [pts]) if closed and _is_area(t) else (t, "line", pts))
     for rel in root.iter("relation"):
         t = tags(rel)
+        if t.get("type") == "route" and t.get("route") in TRANSIT_ROUTES:
+            stops = [m.get("ref") for m in rel.findall("member") if m.get("type") == "node" and (m.get("role") or "").startswith("stop")]
+            feats.append((t, "route", [(nodes[r], ntags.get(r, {})) if r in nodes else None for r in stops]))
+            continue
         if t.get("type") != "multipolygon":
             continue
         t = {k: v for k, v in t.items() if k != "type"}
@@ -262,11 +280,19 @@ def convert(feats: list[Feature], bounds: Optional[tuple[float, float, float, fl
     pois: list[tuple[Point, dict]] = []
     trees: list[Point] = []
     loose: list[list[Point]] = []
+    coast: list[list[Point]] = []  # 해안선 (natural=coastline)
     named: list[tuple[Point, dict]] = []  # 이름 붙은 물 · 녹지 · 광장 (가운데 자리, 장소 자리 찾기)
+    stations: list[tuple[Point, dict]] = []  # 지하철 역 점 (지도 밖도)
+    routes: list[tuple[dict, list]] = []  # 지하철 노선 (태그, 정차 차례)
     for t, kind, g in feats:
+        if kind == "route":
+            routes.append((t, [(P(m[0]), m[1]) if m else None for m in g]))
+            continue
         if kind == "point":
             q = P(g)
-            if not (0 <= q[0] <= W and 0 <= q[1] <= H):
+            if _subway_station(t):
+                stations.append((q, t))
+            if _rail_stop(t) or not (0 <= q[0] <= W and 0 <= q[1] <= H):
                 continue
             if t.get("natural") == "tree":
                 trees.append(q)
@@ -274,6 +300,9 @@ def convert(feats: list[Feature], bounds: Optional[tuple[float, float, float, fl
                 pois.append((q, t))
             continue
         under = _under(t)
+        if t.get("natural") == "coastline":
+            coast += [[P(q) for q in g]] if kind == "line" else [[P(q) for q in ring] for ring in g]
+            continue
         if kind == "line":
             line = [P(q) for q in g]
             hw = t.get("highway")
@@ -309,8 +338,10 @@ def convert(feats: list[Feature], bounds: Optional[tuple[float, float, float, fl
         raise ValueError(f"건물이 너무 많아요 ({len(areas['buildings']):,}채). {MAX_BUILDINGS:,}채 안으로 좁혀 받아 주세요")
     if loose:
         areas["water"] += _close_open(loose, W, H, areas["buildings"], roads)
-    if areas["water"] and rivers:  # 강이 넓이로 그려졌으면 가운데 선은 시내 · 도랑만
+    if areas["water"] and rivers:  # 강이 넓이로 그려졌으면 가운데 선은 시내 · 도랑만 (바다를 더하기 전에 본다)
         rivers = [r for r in rivers if r["width"] <= RIVER_WIDTHS["stream"]]
+    seas, lands, broken = _sea(coast, W, H) if coast else ([], [], False)
+    areas["water"] += seas
     if not roads:
         raise ValueError("파일에 길이 없어요. 길이 있는 곳을 받아 주세요")
     parts, outside = _parts(areas["buildings"], btags, pois)
@@ -323,9 +354,106 @@ def convert(feats: list[Feature], bounds: Optional[tuple[float, float, float, fl
     for key, polys in areas.items():
         if polys:
             out[key] = [norm(p) for p in polys]
+    if lands:
+        out["land"] = [norm(p) for p in lands]
+    if broken:
+        out["coast_broken"] = True
     if rivers:
         out["rivers"] = rivers
+    transit = _transit(stations, routes, W, H)
+    if transit:
+        out["transit"] = transit
     return out
+
+
+def _subway_station(t: dict) -> bool:
+    return (t.get("railway") == "station" and t.get("station") == "subway") or (t.get("public_transport") == "station" and t.get("subway") == "yes")
+
+
+def _rail_stop(t: dict) -> bool:
+    """철길 위 정차 위치 (역 하나에 방향마다 하나씩). 버스 정류장 표지가 되지 않게 표지에서 뺀다."""
+    return t.get("railway") in ("stop", "halt") or (t.get("public_transport") == "stop_position"
+                                                   and any(t.get(k) == "yes" for k in ("subway", "train", "light_rail", "tram")))
+
+
+def _station_key(name: str) -> str:
+    """역을 묶는 이름: 괄호 · 띄어쓰기 · 끝의 '역'을 뺀다 ('교대(법원·검찰청)' → '교대', '강남역' → '강남')."""
+    key = re.sub(r"\(.*?\)|\s", "", name)
+    return key[:-1] if len(key) > 1 and key.endswith("역") else key
+
+
+def _transit(stations: list[tuple[Point, dict]], routes: list[tuple[dict, list]], W: float, H: float) -> Optional[dict]:
+    """지하철 역 점과 노선 relation → {stations: [{name, x, y, lines}], lines: [{name, stations, gaps?}]}. 역이 없으면 None.
+    정차 위치는 같은 이름(_station_key)으로 STATION_JOIN 안의 역에 묶는다(역 점이 없으면 정차 위치끼리 묶어 역으로 본다).
+    지도 밖 TRANSIT_PAD 밖의 역과 파일에 없는 정차 위치는 노선에서 빼고 gaps 로 센다. 역 이름은 역 점의 name 태그,
+    역 점이 없으면 정차 위치 이름 가운데 가장 짧은 것. 방향만 다른 relation(같은 이름, 같은 역)은 하나로."""
+    groups: list[dict] = []
+
+    def join(q: Point, name: str, station: bool) -> Optional[int]:
+        key = _station_key(name)
+        if not key:
+            return None
+        k = next((i for i, g in enumerate(groups) if g["key"] == key and math.dist(q, g["at"]) <= STATION_JOIN), None)
+        if k is None:
+            groups.append({"key": key, "at": q, "station": [], "stop": [], "names": []})
+            k = len(groups) - 1
+        groups[k]["station" if station else "stop"].append(q)
+        groups[k]["names"].append((not station, len(name), name))
+        return k
+
+    for q, t in stations:
+        join(q, t.get("name", ""), True)
+    found: list[tuple[str, list[int], list[int]]] = []
+    for t, stops in routes:
+        if t.get("route") == "train" and not any(m and m[1].get("subway") == "yes" for m in stops):
+            continue
+        seq, gaps, skip = [], [], 0
+        for m in stops:
+            k = join(m[0], m[1].get("name", ""), False) if m else None
+            if k is None:
+                skip += 1
+            elif not seq or seq[-1] != k:
+                if seq:
+                    gaps.append(skip)
+                seq.append(k)
+                skip = 0
+        if len(seq) >= 2:
+            found.append(((t.get("name") or t.get("ref") or "").split(":")[0].strip(), seq, gaps))
+    pos = []
+    for g in groups:
+        pts = g["station"] or g["stop"]
+        pos.append((sum(q[0] for q in pts) / len(pts), sum(q[1] for q in pts) / len(pts)))
+    near = [-TRANSIT_PAD <= x <= W + TRANSIT_PAD and -TRANSIT_PAD <= y <= H + TRANSIT_PAD for x, y in pos]
+    lines: list[tuple[str, list[int], list[int]]] = []
+    for name, seq, gaps in found:
+        keep, kgaps, skip = [], [], 0
+        for i, k in enumerate(seq):
+            if not near[k]:
+                skip += 1 + (gaps[i] if i < len(gaps) else 0)
+                continue
+            if keep:
+                kgaps.append(skip)
+            keep.append(k)
+            skip = gaps[i] if i < len(gaps) else 0
+        if len(keep) >= 2 and not any(n == name and set(s) == set(keep) for n, s, _ in lines):
+            lines.append((name, keep, kgaps))
+    used = {k for _, s, _ in lines for k in s}
+    inside = [0 <= x <= W and 0 <= y <= H for x, y in pos]
+    keep_ids = [k for k in range(len(groups)) if k in used or (inside[k] and groups[k]["station"])]
+    if not keep_ids:
+        return None
+    index = {k: i for i, k in enumerate(keep_ids)}
+    out_st = [{"name": min(groups[k]["names"])[2], "x": round(pos[k][0] / W, 6), "y": round(pos[k][1] / H, 6), "lines": []} for k in keep_ids]
+    out_ln = []
+    for name, seq, gaps in lines:
+        row: dict = {"name": name, "stations": [index[k] for k in seq]}
+        if any(gaps):
+            row["gaps"] = gaps
+        out_ln.append(row)
+        for k in seq:
+            if name and name not in out_st[index[k]]["lines"]:
+                out_st[index[k]]["lines"].append(name)
+    return {"stations": out_st, "lines": out_ln}
 
 
 def _stop(t: dict) -> str:
@@ -429,14 +557,20 @@ def _clip_seg(a: Point, b: Point, W: float, H: float) -> Optional[tuple[Point, P
     return pa, pb
 
 
-def _close_open(chains: list[list[Point]], W: float, H: float, blds: list, roads: list[dict]) -> list[list[Point]]:
-    """범위에 다 들어오지 않은 물의 끊긴 물가 선 → 범위 테두리를 따라 닫은 물 다각형.
-    물가 선 조각마다 범위를 두 쪽으로 나누고, 건물 · 길이 덜 촘촘한 쪽을 물로 본다. 물이 오른쪽에 오도록 조각 방향을
-    맞춘 뒤, 조각 끝에서 테두리를 따라(시계 방향) 가장 먼저 만나는 조각 시작으로 이어 고리를 만든다."""
-    per = 2 * (W + H)
+class _Rim:
+    """범위 테두리 위 자리와 테두리 따라 걷기. 자리는 왼쪽 위에서 시계 방향(y 아래 화면 기준)으로 잰 길이."""
 
-    def tpos(q: Point) -> float:  # 테두리 위 자리: 왼쪽 위에서 시계 방향 (y 아래 화면 기준)
+    def __init__(self, W: float, H: float):
+        self.W, self.H = W, H
+        self.per = 2 * (W + H)
+        self.corners = [(0.0, (0.0, 0.0)), (W, (W, 0.0)), (W + H, (W, H)), (2 * W + H, (0.0, H))]
+
+    def on(self, q: Point) -> bool:
+        return q[0] <= 1e-6 or q[0] >= self.W - 1e-6 or q[1] <= 1e-6 or q[1] >= self.H - 1e-6
+
+    def pos(self, q: Point) -> float:
         x, y = q
+        W, H = self.W, self.H
         if y <= 1e-6:
             return x
         if x >= W - 1e-6:
@@ -445,15 +579,49 @@ def _close_open(chains: list[list[Point]], W: float, H: float, blds: list, roads
             return W + H + (W - x)
         return 2 * W + H + (H - y)
 
-    corners = [(0.0, (0.0, 0.0)), (W, (W, 0.0)), (W + H, (W, H)), (2 * W + H, (0.0, H))]
-
-    def walk(t_from: float, t_to: float) -> list[Point]:  # 테두리를 시계 방향으로 t_from → t_to 사이 모서리
-        span = (t_to - t_from) % per
-        ahead = sorted(((tc - t_from) % per, c) for tc, c in corners)
+    def walk(self, t_from: float, t_to: float) -> list[Point]:
+        """테두리를 시계 방향으로 t_from → t_to 사이에 지나는 모서리."""
+        span = (t_to - t_from) % self.per
+        ahead = sorted(((tc - t_from) % self.per, c) for tc, c in self.corners)
         return [c for d, c in ahead if 0 < d < span]
 
-    on_rim = lambda q: q[0] <= 1e-6 or q[0] >= W - 1e-6 or q[1] <= 1e-6 or q[1] >= H - 1e-6  # noqa: E731
-    pieces = [pc for ch in chains for pc in _clip_line(ch, W, H) if on_rim(pc[0]) and on_rim(pc[-1]) and pc[0] != pc[-1]]
+    def nearest(self, q: Point) -> Point:
+        """범위 안 점에서 가장 가까운 테두리 위 점."""
+        x, y = q
+        d = {(0.0, y): x, (self.W, y): self.W - x, (x, 0.0): y, (x, self.H): self.H - y}
+        return min(d, key=d.get)
+
+    def stitch(self, pieces: list[list[Point]]) -> list[list[Point]]:
+        """양 끝이 테두리 위인 조각들(넓이가 오른쪽에 오는 방향) → 조각 끝에서 테두리를 따라(시계 방향) 가장 먼저 만나는
+        조각 시작으로 이어 만든 고리들."""
+        used = [False] * len(pieces)
+        out = []
+        for k in range(len(pieces)):
+            if used[k]:
+                continue
+            ring: list[Point] = []
+            cur = k
+            for _ in range(len(pieces) + 1):
+                used[cur] = True
+                ring += pieces[cur]
+                t_end = self.pos(pieces[cur][-1])
+                nxt = min(range(len(pieces)),
+                          key=lambda j: ((self.pos(pieces[j][0]) - t_end) % self.per) if (not used[j] or j == k) else math.inf)
+                ring += self.walk(t_end, self.pos(pieces[nxt][0]))
+                if nxt == k:
+                    break
+                cur = nxt
+            if len(ring) >= 3 and abs(geom.area(ring)) > 1:
+                out.append(ring)
+        return out
+
+
+def _close_open(chains: list[list[Point]], W: float, H: float, blds: list, roads: list[dict]) -> list[list[Point]]:
+    """범위에 다 들어오지 않은 물의 끊긴 물가 선 → 범위 테두리를 따라 닫은 물 다각형.
+    물가 선 조각마다 범위를 두 쪽으로 나누고, 건물 · 길이 덜 촘촘한 쪽을 물로 본다. 물이 오른쪽에 오도록 조각 방향을
+    맞춘 뒤, 조각 끝에서 테두리를 따라(시계 방향) 가장 먼저 만나는 조각 시작으로 이어 고리를 만든다."""
+    rim = _Rim(W, H)
+    pieces = [pc for ch in chains for pc in _clip_line(ch, W, H) if rim.on(pc[0]) and rim.on(pc[-1]) and pc[0] != pc[-1]]
     if not pieces:
         return []
     marks = [geom.centroid(b) for b in blds] + [(q[0] * W, q[1] * H) for r in roads if r["kind"] == "road" for q in r["points"][::2]]
@@ -464,28 +632,50 @@ def _close_open(chains: list[list[Point]], W: float, H: float, blds: list, roads
 
     oriented = []
     for pc in pieces:
-        fwd = pc + walk(tpos(pc[-1]), tpos(pc[0]))  # 조각 + 끝에서 시계 방향으로 시작까지
-        back = pc[::-1] + walk(tpos(pc[0]), tpos(pc[-1]))
+        fwd = pc + rim.walk(rim.pos(pc[-1]), rim.pos(pc[0]))  # 조각 + 끝에서 시계 방향으로 시작까지
+        back = pc[::-1] + rim.walk(rim.pos(pc[0]), rim.pos(pc[-1]))
         oriented.append(pc if busy(fwd) <= busy(back) else pc[::-1])
-    used = [False] * len(oriented)
-    out = []
-    for k in range(len(oriented)):
-        if used[k]:
+    return rim.stitch(oriented)
+
+
+def _sea(chains: list[list[Point]], W: float, H: float) -> tuple[list[list[Point]], list[list[Point]], bool]:
+    """해안선(natural=coastline) → (바다 다각형들, 섬 다각형들, 끊겨서 닫지 못했나).
+    OSM 해안선은 땅이 왼쪽, 바다가 오른쪽이다(지도 북쪽이 위일 때). 조각은 이어 붙인 뒤(_rings) 범위로 자르고,
+    끝이 범위 안에서 끊긴 조각은 가장 가까운 테두리까지 곧게 잇는다. 조각 끝에서 테두리를 따라(시계 방향) 다음 조각
+    시작으로 이어 바다를 닫는다. 테두리 위에서 조각 시작 · 끝이 번갈아 오지 않으면(방향이 어긋난 해안선) 닫지 못한다.
+    범위 안에 다 들어온 고리는 섬(바다가 바깥, 화면 좌표 넓이가 음수)이고, 반대 방향 고리는 바다다.
+    섬만 있고 범위를 가로지르는 해안선이 없으면 범위 전체가 바다다."""
+    rim = _Rim(W, H)
+    box = [(0.0, 0.0), (W, 0.0), (W, H), (0.0, H)]
+    inside = lambda q: 0 <= q[0] <= W and 0 <= q[1] <= H  # noqa: E731
+    rings, loose = _rings(chains)
+    seas: list[list[Point]] = []
+    lands: list[list[Point]] = []
+    for ring in rings:
+        ring = ring[:-1]
+        out = [k for k, q in enumerate(ring) if not inside(q)]
+        if not out:  # 범위 안에 다 든 고리
+            (lands if geom.area(ring) < 0 else seas).append(ring if geom.area(ring) > 0 else ring[::-1])
             continue
-        ring: list[Point] = []
-        cur = k
-        for _ in range(len(oriented) + 1):
-            used[cur] = True
-            ring += oriented[cur]
-            t_end = tpos(oriented[cur][-1])
-            nxt = min(range(len(oriented)), key=lambda j: ((tpos(oriented[j][0]) - t_end) % per) if (not used[j] or j == k) else math.inf)
-            ring += walk(t_end, tpos(oriented[nxt][0]))
-            if nxt == k:
-                break
-            cur = nxt
-        if len(ring) >= 3 and abs(geom.area(ring)) > 1:
-            out.append(ring)
-    return out
+        k = out[0]
+        loose.append(ring[k:] + ring[:k + 1])  # 범위 밖 꼭짓점에서 끊은 사슬로 (자르면 양 끝이 테두리 위)
+    pieces = []
+    for ch in loose:
+        for pc in _clip_line(ch, W, H):
+            if not rim.on(pc[0]):
+                pc = [rim.nearest(pc[0])] + pc
+            if not rim.on(pc[-1]):
+                pc = pc + [rim.nearest(pc[-1])]
+            if pc[0] != pc[-1]:
+                pieces.append(pc)
+    if not pieces:
+        if lands and not seas:  # 섬만 있다 (범위가 섬 안이면 고리가 범위 밖이라 여기 오지 않는다)
+            seas = [box]
+        return seas, lands, False
+    ends = sorted([(rim.pos(pc[0]), 0) for pc in pieces] + [(rim.pos(pc[-1]), 1) for pc in pieces])
+    if any(a[1] == b[1] for a, b in zip(ends, ends[1:] + ends[:1])):
+        return [], [], True
+    return seas + rim.stitch(pieces), lands, False
 
 
 def use_of(t: dict) -> str:

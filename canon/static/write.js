@@ -206,8 +206,10 @@ function writeGo(n, blocked) {
 
 /** 머리 primary 자리의 진행 줄: 작업 이름 · 경과 · 멈추기 (멈추기는 app.js 의 data-job-stop 처리) */
 function wsBusy(j) {
-  return `<div class="w-busy" role="status" aria-label="${esc(j.label)} 만드는 중, 경과 ${elapsed(j)}">
-      <div class="w-busy-text"><strong>${esc(j.label)} 만드는 중</strong><span class="small">경과 ${elapsed(j)}</span><i aria-hidden="true"></i></div>
+  // 다시 그려도 막대가 처음부터 돌지 않게, 지난 시간만큼 애니메이션을 앞당겨 시작한다 (한 바퀴 1.2초, app.css .w-busy-text i)
+  const lag = (Math.max(0, Date.now() / 1000 - j.started) % 1.2).toFixed(2);
+  return `<div class="w-busy" role="status" aria-label="${esc(j.label)} 만드는 중">
+      <div class="w-busy-text"><strong>${esc(j.label)} 만드는 중</strong><span class="small" data-elapsed="${esc(j.id)}">경과 ${elapsed(j)}</span><i aria-hidden="true" style="animation-delay:-${lag}s"></i></div>
       <button type="button" class="btn small" data-job-stop="${j.id}">멈추기</button></div>`;
 }
 
@@ -236,7 +238,7 @@ function writeStart(n, blocked) {
       ${autoLockNote() || orderNote(blocked)}
       ${choose}
       <div class="w-go-foot"><button type="button" class="btn small" data-action="startManual" data-arg="${n}"${writing || blocked.length || autoOn() ? ' disabled' : ''}>직접 쓰기</button><span class="small">AI 없이 빈 칸에 직접 써요</span>
-        <span class="w-fill"></span>${boardToggle()}</div>
+        <span class="w-fill"></span>${boardToggle()}${cueToggle()}</div>
       ${S.context ? `<details class="w-go-ctx" data-ctx-toggle${S.ctxOpen ? ' open' : ''}><summary>AI에게 보내는 컨텍스트 · ${ctxTotal()}</summary>${ctxList()}<div style="margin-top:8px">${promptBtn(n)}</div></details>` : ''}
     </section>`;
 }
@@ -313,6 +315,7 @@ function viewWrite(n) {
     ${editable && autoOn() ? `<div class="note warn">자동 집필이 도는 동안은 본문을 저장할 수 없어요. 쓰던 글은 이 화면에 남아 있어요. 저장하려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요. 어색한 곳은 지금도 글을 골라 '나중에 고치기'로 담아 둘 수 있어요.</div>` : ''}
     ${e.text && editable ? candidateCard(n) : ''}
     ${fresh ? writeStart(n, blocked) : madeBoard}
+    ${starting && e.status === 'confirmed' ? cueCard(n, blocked) : ''}
     <section class="card w-body${starting ? ' w-fresh' : ''}" aria-label="${fresh ? '이번 화 플롯' : '본문'}">
       <div class="w-stick">
         <div class="w-top">
@@ -336,6 +339,7 @@ function viewWrite(n) {
     ${editHistory(e)}
     ${versionsPanel(e)}
     ${boardPanel(n)}
+    ${cuePanel(n)}
     ${e.text ? illustPanel(n) : ''}
     ${openingPanel(n)}
     ${e.text && editable ? (S.rwOpen === n ? rewritePanel(n) : chatPanel(`text:${n}`)) : ''}`;
@@ -437,7 +441,7 @@ Object.assign(actions, {
   },
   async writeEp(n) {
     if (ep(n).text && !confirm(`${n}화 본문을 새로 생성할까요? 지금 본문은 사라져요.`)) return;
-    await startJob('write', n);
+    await startJob('write', n, cueWriteArg(n));
   },
   async saveText(n) {
     await run('본문 저장 중', async () => {

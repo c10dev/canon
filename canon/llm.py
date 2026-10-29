@@ -90,6 +90,34 @@ def _usage(u: Any) -> dict | None:
             "cached_tokens": getattr(u, "cached_content_token_count", None) or 0}
 
 
+# 429(요청 한도) 뒤 다시 부르기 전 기다리는 초. 합은 5분을 넘지 않는다. SDK 는 Client 에 retry_options 를
+# 주지 않으면 다시 부르지 않고, Canon 은 주지 않으므로 다시 부르기는 여기 한 곳뿐이다.
+RATE_WAITS = (30, 60, 120)
+RATE_HINT = "AI 서비스의 요청 한도에 걸렸어요 (429). 몇 분 뒤 다시 시도해 주세요."
+
+
+class RateLimited(RuntimeError):
+    """기다려 다시 불러도 429 가 풀리지 않았다. 화면에는 RATE_HINT 가 보인다."""
+
+    def __init__(self, waited: int):
+        super().__init__(f"{RATE_HINT} {waited}초 기다리며 {len(RATE_WAITS)}번 다시 불렀어요.")
+        self.message = str(self)
+
+
+def is_rate_limit(e: BaseException) -> bool:
+    """google-genai 의 429 RESOURCE_EXHAUSTED 오류인가."""
+    return getattr(e, "code", None) == 429 or getattr(e, "status", None) == "RESOURCE_EXHAUSTED"
+
+
+def _pause(seconds: float) -> None:
+    """기다린다. 웹 작업이면 멈추기 신호가 오는 즉시 깬다. 시험은 이 함수를 바꿔 기다리지 않는다."""
+    ev = cancel.current.get()
+    if ev is None:
+        time.sleep(seconds)
+    else:
+        ev.wait(seconds)
+
+
 def _vertex_client() -> Any:
     """서비스 계정 키 파일(없으면 gcloud 기본 자격 증명)로 Vertex AI 클라이언트를 만든다.
     키 파일은 설정에 경로만 있고, 여기서 google-auth 가 읽는다."""
@@ -111,7 +139,7 @@ def _vertex_client() -> Any:
             raise MissingKey(f"서비스 계정 키 파일이 아니에요 ({path}): {e}") from e
     project = settings.vertex_project()[0]
     if not project:
-        raise MissingKey("Vertex AI 프로젝트 ID가 없어요. 설정 화면에서 서비스 계정 키 파일이나 프로젝트 ID를 넣으세요.")
+        raise MissingKey("Vertex AI 프로젝트 ID가 없어요. 설정의 AI 연결에서 서비스 계정 키 파일이나 프로젝트 ID를 넣으세요.")
     return genai.Client(vertexai=True, project=project, location=settings.vertex_location()[0], credentials=creds)
 
 
@@ -156,6 +184,23 @@ class GeminiLLM:
         return self.client.models.count_tokens(model=self.model, contents=text).total_tokens
 
     def _call(self, system: str, prompt: str, attempt: int = 1, parse: Any = None, **config: Any) -> Any:
+        """부르고 사용량을 기록한다. 429(요청 한도)면 RATE_WAITS 만큼 기다려 다시 부르고, 끝내 풀리지 않으면
+        RateLimited 를 낸다. 실패한 시도는 하나씩 실패로 기록한다."""
+        waited = 0
+        for pause in (*RATE_WAITS, None):
+            try:
+                return self._once(system, prompt, attempt, parse, **config)
+            except Exception as e:
+                if not is_rate_limit(e):
+                    raise
+                if pause is None:
+                    raise RateLimited(waited) from e
+            cancel.check()
+            _pause(pause)
+            waited += pause
+        raise AssertionError("unreachable")
+
+    def _once(self, system: str, prompt: str, attempt: int = 1, parse: Any = None, **config: Any) -> Any:
         """한 번 부르고 사용량을 기록한다. parse 가 있으면 응답 글을 parse 한 값을 돌려주고, parse 가 실패해도
         (형식 불일치) 토큰은 쓴 것이라 실패로 기록한다."""
         cancel.check()  # 멈춘 작업은 다음 호출을 보내지 않는다

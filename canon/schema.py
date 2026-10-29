@@ -252,6 +252,7 @@ class Settings(BaseModel):
     show_numbers: bool = Field(False, description="CLI 에서 관계를 숫자로 보여줄지(True), 말로 보여줄지(False)")
     check_widen: bool = Field(False, description="장편 검수 넓히기: 검수 뒤 진술마다 옛 화를 더 찾아, 첫 검수에 없던 근거가 나온 진술만 다시 묻는다 (검수 호출 2번 더)")
     storyboard: Optional[bool] = Field(None, description="화마다 쓰기 전에 스토리보드를 만들고, 쓰기 프롬프트에 직전 화 본문 전체를 넣는다. 비우면 장편 켬 · 단편 끔 (board.on)")
+    cue_sheet: Optional[bool] = Field(None, description="화마다 쓰기 전에 큐 시트(큐마다 기능 · 긴장 · 템포 · 편성 · 핵심 대사 · 분량)를 만들어 쓰기 프롬프트 끝에 넣는다. 비우면 장편 켬 · 단편 끔 (cue.on)")
     keep_snapshots: bool = Field(False, description="장편에서도 화별 스냅샷을 지우지 않고 모두 남긴다 (연구용 작품: 어느 화로든 되돌릴 수 있다). 끄면 0화 · 아크 끝 · 최근 20화만 남긴다 (pipeline.prune_snapshots)")
     model_preset: str = Field("", description="이 작품이 쓰는 단계 프리셋 id (settings.presets: 단계별 백엔드 · 모델 묶음). 비우면 전체 설정을 따른다. 고른 프리셋이 지워졌으면 전체 설정을 따른다 (settings.project_preset)")
 
@@ -1202,6 +1203,7 @@ class Episode(BaseModel):
     events_done: list[str] = Field(default_factory=list, description="집필 화면 플롯 띠에서 작가가 다 썼다고 체크한 사건의 글. 사건 글을 고치면 그 체크는 풀린다. 프롬프트에 넣지 않는다")
     to_fix: list[ToFix] = Field(default_factory=list, description="작가가 본문에 단 '고칠 곳' 표시. 프롬프트에 넣지 않는다")
     storyboard: Optional["Storyboard"] = Field(None, description="쓰기 재료: 장면 순서와 이번 화 확정 값 (pipeline.make_storyboard). 상태 승인 대상이 아니다")
+    cue_sheet: Optional["CueSheet"] = Field(None, description="쓰기 재료: 큐 시트 (pipeline.make_cue_sheet, cue.set_episode). 쓰기 프롬프트 끝에 넣는다 (prompts.cue_write_block). 상태 승인 대상이 아니다")
 
     @model_validator(mode="after")
     def _old_check(self) -> "Episode":
@@ -1693,7 +1695,7 @@ class PlaceLink(BaseModel):
 class MapPlace(BaseModel):
     """지도 만들기에서 작가가 고친 장소 하나: 종류와 이 지도에 놓을지."""
     key: str = Field(description="장소 키 (atlas.places)")
-    kind: str = Field("", description="종류 id (towngen.CATEGORIES). 비면 이름 · 설명에서 찾는다")
+    kind: str = Field("", description="종류 id (placekinds.KINDS). 지도 종류의 시대와 다른 id 는 placekinds.to_era 로 읽는다. 비면 이름 · 설명에서 찾는다")
     put: Optional[bool] = Field(None, description="이 지도에 놓을지. 비면 종류로 정한다 (마을 밖 장소는 놓지 않음)")
 
 
@@ -1713,10 +1715,32 @@ class MapSpec(BaseModel):
 class TravelSetting(BaseModel):
     """이동 시간 검사 설정 (canon/travel.py). 지도 거리와 작품 속 시간을 견줘 너무 빠른 이동을 찾는다."""
     enabled: bool = Field(True, description="끄면 지도 화면 · 상태 변경안 경고 · 프롬프트의 이동 거리를 모두 뺀다 (순간 이동이 흔한 작품 등)")
-    mode: str = Field("horse", description="이 세계에서 인물이 쓰는 가장 빠른 탈것 (travel.MODES 의 id)")
+    mode: str = Field("horse", description="이 세계에서 인물이 쓰는 가장 빠른 탈것 (travel.MODES 의 id). transit(대중교통)은 걸어서와 지하철(Atlas.transit) 가운데 빠른 쪽")
     kmh: float = Field(0, description="작가가 정한 이동 빠르기 (km/시). 0 이면 탈것의 기본값")
     day_km: float = Field(0, description="작가가 정한 하루 이동 거리 (km). 0 이면 탈것의 기본값")
     ok: list[str] = Field(default_factory=list, description="작가가 '괜찮아요'로 둔 이동 ('인물 id:화'). 경고에서 뺀다")
+
+
+class TransitStation(BaseModel):
+    """지하철 역 하나 (지도 데이터 transit.stations 의 사본). x · y 는 지도 비율이고 지도 밖 역은 0~1 밖일 수 있다."""
+    name: str = Field("", description="역 이름 (OpenStreetMap name 태그 그대로)")
+    x: float = 0
+    y: float = 0
+    lines: list[str] = Field(default_factory=list, description="이 역을 지나는 노선 이름")
+
+
+class TransitLine(BaseModel):
+    """지하철 노선 하나: 지도 데이터에 든 역을 차례로. 방향이 다른 relation 은 하나로 묶었다."""
+    name: str = ""
+    stations: list[int] = Field(default_factory=list, description="TransitStation 번호를 노선 차례로")
+    gaps: list[int] = Field(default_factory=list, description="stations[i] 와 stations[i+1] 사이에 파일에 없는 역 수. 비면 모두 0")
+
+
+class Transit(BaseModel):
+    """지도 데이터의 지하철(osm 의 transit 키)을 작품에 적어 둔 사본. 상태 변경안 정리 · 프롬프트처럼 작품 폴더를 모르는 곳에서
+    이동 시간 검사(travel.py)가 읽는다. 지도 파일을 놓거나 바꿀 때 atlas.fill_spots 가 다시 쓴다."""
+    stations: list[TransitStation] = Field(default_factory=list)
+    lines: list[TransitLine] = Field(default_factory=list)
 
 
 class MapFill(BaseModel):
@@ -1739,6 +1763,7 @@ class Atlas(BaseModel):
     span_km: float = Field(0, description="지도 가로가 몇 km 인지 (마을 데이터가 없을 때 이동 거리 계산). 0 이면 모름")
     layout_size: list[float] = Field(default_factory=list, description="마을 데이터의 [가로, 세로] (원래 단위). 마을 데이터를 놓을 때 채운다")
     travel: TravelSetting = Field(default_factory=TravelSetting)
+    transit: Optional[Transit] = Field(None, description="지도 데이터의 지하철 역 · 노선 사본 (OpenStreetMap 지도만). 없으면 None")
 
 
 class ReleasePlan(BaseModel):
@@ -2000,6 +2025,69 @@ class PlayInfo(BaseModel):
     ended_ep: int = 0
     at: str = ""
 
+
+
+# ---------- 큐 시트 집필 실험 (canon/cue.py) ----------
+# 한 화를 음악의 악보처럼 큐(연주 단위)로 나눈다. 큐마다 화성 기능(안정 · 쌓기 · 긴장), 긴장도, 템포, 편성(대사 · 행동 · 묘사 · 속생각),
+# 일어나는 일, 핵심 대사, 다음 큐로 넘기는 것을 정한다. 작품(project.json)에 넣지 않고 실험 파일 cuelab/<화>.json 에 둔다.
+
+CueFunction = Literal["T", "S", "D"]
+CueTempo = Literal["slow", "mid", "fast"]
+CueVoice = Literal["dialogue", "action", "description", "interior"]
+CueCadence = Literal["full", "half", "deceptive"]
+
+
+class CueLine(BaseModel):
+    """핵심 대사 하나. 본문에 글자 그대로 넣는다."""
+    speaker: str = Field("", description="말하는 인물 id")
+    text: str = Field("", description="대사 글. 따옴표 없이")
+
+
+class Cue(BaseModel):
+    """큐 하나 (연주 단위). 본문 문장과 묘사는 적지 않는다. 대사는 핵심 대사만."""
+    scene: int = Field(0, description="이 큐가 속한 스토리보드 장면 번호 (1부터). 스토리보드가 없으면 0")
+    function: CueFunction = Field("S", description="화성 기능. T 안정(기준선, 숨 고르기) · S 쌓기(정보, 갈등의 씨) · D 긴장(위기, 결정 직전)")
+    tension: int = Field(3, description="긴장도 1~5")
+    tempo: CueTempo = Field("mid", description="템포. slow 장면을 늘임 · mid · fast 사건을 몰아침")
+    voice: CueVoice = Field("action", description="주로 무엇으로 쓰는지 (편성). dialogue 대사 · action 행동 · description 묘사 · interior 속생각")
+    beat: str = Field("", description="이 큐에서 바뀌는 일 한 줄")
+    lines: list[CueLine] = Field(default_factory=list, description="이 큐에 반드시 들어갈 핵심 대사 0~3개")
+    exit: str = Field("", description="이 큐가 끝날 때의 상태. 다음 큐가 여기서 이어받는다")
+    length: int = Field(0, description="목표 글자 수")
+
+
+class CueSheetDraft(BaseModel):
+    """LLM 응답 형식 (pipeline.make_cue_sheet)."""
+    key: str = Field("", description="조성: 이번 화 정서의 기준선 한 줄 (예: 억눌린 불안, 들뜬 기대)")
+    cadence: CueCadence = Field("half", description="화 끝 종지. full 이 화 안에서 풀림 · half 긴장이 가장 높은 곳에서 끊음 · deceptive 풀릴 듯하다 뒤집음")
+    cues: list[Cue] = Field(default_factory=list, description="큐 4~10개, 순서대로")
+
+
+class CueSheet(CueSheetDraft):
+    """저장 형식. 실험 파일(CueLab.sheet)과 화(Episode.cue_sheet)가 함께 쓴다."""
+    made_at: SkipJsonSchema[str] = ""
+    made_by: SkipJsonSchema[Literal["ai", "board", "author", "both"]] = "ai"
+    basis: SkipJsonSchema[str] = Field("", description="화에 붙인 큐 시트를 만들 때 입력의 지문 (cue.ep_basis). 지금 값과 다르면 낡은 것. 실험 시트는 비움")
+
+
+class CueTake(BaseModel):
+    """조건 하나로 쓴 본문 (cue.CONDITIONS). parts 는 큐마다 따로 쓴 조건(cues)의 큐별 본문."""
+    condition: str
+    text: str = ""
+    parts: list[str] = Field(default_factory=list)
+    calls: int = 1
+    prompt_chars: int = Field(0, description="보낸 요청 글자 수의 합 (시스템 지시 포함)")
+    sheet_basis: str = Field("", description="이 본문을 쓸 때 쓴 큐 시트의 지문 (cue.basis). 지금 시트와 다르면 낡은 본문")
+    at: str = ""
+
+
+class CueLab(BaseModel):
+    """한 화의 큐 시트 실험. projects/<폴더>/cuelab/<화>.json. 작품 데이터가 아니다."""
+    episode: int
+    sheet: Optional[CueSheet] = None
+    takes: list[CueTake] = Field(default_factory=list)
+    model: str = ""
+    run_at: str = ""
 
 Snapshot.model_rebuild()
 SerialRebuild.model_rebuild()
