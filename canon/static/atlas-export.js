@@ -35,17 +35,21 @@ function atlasExportSvg() {
       return [c, 1];
     };
     const props = ['fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-linecap', 'stroke-linejoin', 'opacity', 'font-size', 'font-weight', 'font-family', 'paint-order', 'text-anchor', 'dominant-baseline'];
-    svg.querySelectorAll('*').forEach((el) => {
+    // 모두 먼저 읽고 나서 적는다. 읽으며 class 를 지우면 '.at-tok text' 처럼 부모 class 로 고르는 규칙이 자식에서 빠진다
+    const all = [...svg.querySelectorAll('*')];
+    all.map((el) => {
       const cs = getComputedStyle(el);
-      el.setAttribute('style', props.map((p) => {
+      return props.map((p) => {
         const v = cs.getPropertyValue(p);
         if (!v) return '';
         if (p !== 'fill' && p !== 'stroke') return `${p}:${v}`;
         const [c, a] = color(v);
         return `${p}:${c}${a < 1 ? `;${p}-opacity:${a}` : ''}`;
-      }).filter(Boolean).join(';'));
-      el.removeAttribute('class');
-      el.removeAttribute('tabindex');
+      }).filter(Boolean).join(';');
+    }).forEach((st, i) => {
+      all[i].setAttribute('style', st);
+      all[i].removeAttribute('class');
+      all[i].removeAttribute('tabindex');
     });
     svg.querySelectorAll('.at-hit, title').forEach((el) => el.remove());
     svg.querySelectorAll('[data-action]').forEach((el) => { el.removeAttribute('data-action'); el.removeAttribute('data-arg'); });
