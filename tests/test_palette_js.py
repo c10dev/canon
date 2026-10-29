@@ -36,7 +36,7 @@ NAV = {
     "tools": [["cast", B + "/cast", "人", "인물 · 관계도", True], ["atlas", B + "/atlas", "地", "지도", False],
               ["brief", B + "/brief/3", "✎", "작업지시서 (API 없이)", True]],
     "apart": [["research", B + "/research", "R", "연구 · 모델 실험"], ["usage", B + "/usage", "$", "사용량 · 비용"]],
-    "foot": [["#/settings", "모델 · API 키 설정"], ["#/usage", "모든 작품 사용량 · 비용"], ["#/styles", "문체 라이브러리"], ["#/", "작품 목록"]],
+    "foot": [["#/settings", "설정"], ["#/usage", "모든 작품 사용량 · 비용"], ["#/styles", "문체 라이브러리"], ["#/", "작품 목록"]],
 }
 INSIDE = {
     "inProject": True, "base": B, "nav": NAV, "next": ["3화 상태 승인", B + "/review/3"], "canSave": False,
@@ -82,7 +82,7 @@ def test_palette_matches_names_and_episodes():
     # 화 제목으로도 찾는다
     assert got["추격"] == [["ep", "7화 집필", B + "/write/7"]]
     assert got["인물"][0] == ["screen", "인물 · 관계도", B + "/cast"]
-    assert got["api"][0][1] == "작업지시서 (API 없이)" and ["screen", "모델 · API 키 설정", "#/settings"] in got["api"]
+    assert got["api"][0][1] == "작업지시서 (API 없이)" and ["screen", "설정", "#/settings"] in got["api"]
     assert got["집필"][0] == ["screen", "집필", B + "/write/3"] and ["screen", "자동 집필", B + "/auto"] in got["집필"]
     assert got["없는말"] == []
     assert got["저장"] == []  # 저장할 것이 없으면 '저장' 동작을 두지 않는다
@@ -94,8 +94,8 @@ def test_palette_matches_names_and_episodes():
 
     # 작품 밖: 작품 목록 · 설정 · 알림 창만
     outside = dict(zip(qs, out["outside"]))
-    assert outside[""] == ["작품 목록", "모델 · API 키 설정", "알림 · AI 작업"]
-    assert outside["설정"] == ["모델 · API 키 설정"]
+    assert outside[""] == ["작품 목록", "설정", "알림 · AI 작업"]
+    assert outside["설정"] == ["설정"]
     assert outside["3화"] == [] and outside["한서"] == []
 
 

@@ -421,5 +421,6 @@ def public() -> dict:
         "stage_settings": {k: v for k, v in (_read().get("stages") or {}).items() if k in STAGES},
         "stage_model_settings": {k: v for k, v in (_read().get("stage_models") or {}).items() if k in STAGES},
         "stage_presets": presets(),
+        "local_sampling": local_sampling(),
         "path": str(config_path()),
     }

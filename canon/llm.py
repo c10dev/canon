@@ -139,7 +139,7 @@ def _vertex_client() -> Any:
             raise MissingKey(f"서비스 계정 키 파일이 아니에요 ({path}): {e}") from e
     project = settings.vertex_project()[0]
     if not project:
-        raise MissingKey("Vertex AI 프로젝트 ID가 없어요. 설정 화면에서 서비스 계정 키 파일이나 프로젝트 ID를 넣으세요.")
+        raise MissingKey("Vertex AI 프로젝트 ID가 없어요. 설정의 AI 연결에서 서비스 계정 키 파일이나 프로젝트 ID를 넣으세요.")
     return genai.Client(vertexai=True, project=project, location=settings.vertex_location()[0], credentials=creds)
 
 
@@ -156,7 +156,7 @@ class GeminiLLM:
         else:
             key = api_key or settings.api_key()[0]
             if not key:
-                raise MissingKey("Gemini API 키가 없어요. 웹 설정 화면에서 넣거나 GEMINI_API_KEY를 설정하세요.")
+                raise MissingKey("Gemini API 키가 없어요. 웹 설정의 AI 연결에서 넣거나 GEMINI_API_KEY를 설정하세요.")
             self.client = genai.Client(api_key=key)
         self.model = model or settings.model()[0]
         self.last_usage: dict | None = None  # 연구 화면에서 보여 줄 마지막 호출의 토큰 수

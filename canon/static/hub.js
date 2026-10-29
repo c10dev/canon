@@ -134,7 +134,7 @@ function hubAttention(a) {
   if (a.type === 'job') {
     const j = a.job;
     const retry = S.jobArgs[j.id] ? `<button type="button" class="btn small" data-job-retry="${j.id}">다시 시도</button>` : '';
-    const keyHelp = /API 키|연결/.test(j.error || '') ? '<a class="btn small" href="#/settings">설정</a>' : '';
+    const keyHelp = /API 키|연결/.test(j.error || '') ? '<a class="btn small" href="#/settings/ai">설정</a>' : '';
     return `<li class="hub-item err"><div class="hub-t"><strong>${esc(j.label)}${josa(j.label, '이', '가')} 실패했어요</strong>${hubWhere(j)}<div class="small">${esc(j.error || '')}</div></div>
       <div class="row">${retry}${keyHelp}<button type="button" class="btn small ghost" data-job-dismiss="${j.id}">닫기</button></div></li>`;
   }
@@ -145,7 +145,7 @@ function hubAttention(a) {
   }
   if (a.type === 'fail') {
     const f = a.fail;
-    const keyHelp = /API 키|연결/.test(f.error || '') ? '<a class="btn small" href="#/settings">설정</a>' : '';
+    const keyHelp = /API 키|연결/.test(f.error || '') ? '<a class="btn small" href="#/settings/ai">설정</a>' : '';
     return `<li class="hub-item err"><div class="hub-t"><strong>지난 시도 실패 · ${esc(f.label)}</strong><div class="small">${esc(f.error || '')}</div></div>
       <div class="row">${keyHelp}<button type="button" class="btn small ghost" data-action="dismissFail" data-arg="${esc(f.key)}">닫기</button></div></li>`;
   }
