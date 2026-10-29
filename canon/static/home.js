@@ -31,7 +31,7 @@ const FOLDER_BAD = /^\.|[/\\:*?"<>|]/;
 
 /** 작품 홈 · 설정 도우미 머리 아래의 AI 연결 안내 (작품 목록과 같은 글, 설정 화면 링크) */
 function aiNote() {
-  return aiWarning() ? `<div class="note warn" role="status">${esc(aiWarning())} <a href="#/settings" style="color:inherit;font-weight:700">모델 · API 키 설정</a></div>` : '';
+  return aiWarning() ? `<div class="note warn" role="status">${esc(aiWarning())} <a href="#/settings/ai" style="color:inherit;font-weight:700">AI 연결 설정</a></div>` : '';
 }
 
 // 작품 목록은 머리(새 작품 · 새 플레이 · 도구 링크) → 새 작품 칸(누르면 편다) → 이어 쓰기 → 모든 작품 한 줄 목록 순서다.
@@ -155,10 +155,10 @@ function viewProjects() {
       ${plBar(x.finalized, x.episodes)}
       <a class="btn small pl-go" href="#/p/${enc(x.name)}">${esc(projectNext(x))} →</a></article>`;
   };
-  const tools = '<a class="btn ghost" href="#/styles">문체 라이브러리</a><a class="btn ghost" href="#/usage">사용량 · 비용</a><a class="btn ghost" href="#/settings">모델 · API 키 설정</a>';
+  const tools = '<a class="btn ghost" href="#/styles">문체 라이브러리</a><a class="btn ghost" href="#/usage">사용량 · 비용</a><a class="btn ghost" href="#/settings">설정</a>';
   return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편부터 300화 장편 연재까지 써요.',
     `${tools}<a class="btn" href="#/play/new">새 플레이</a><button type="button" class="btn${open ? ' on' : ' primary'}" data-action="npToggle" aria-expanded="${open}" aria-controls="np-form">${open && list.length ? '새 작품 닫기' : '새 작품'}</button>`)}
-    ${aiWarning() ? `<div class="note warn">${esc(aiWarning())} <a href="#/settings" style="color:inherit;font-weight:700">모델 · API 키 설정</a></div>` : ''}
+    ${aiWarning() ? `<div class="note warn">${esc(aiWarning())} <a href="#/settings/ai" style="color:inherit;font-weight:700">AI 연결 설정</a></div>` : ''}
     ${newProjectForm(open)}
     ${recent.length ? `<section class="pl-section" aria-labelledby="pl-recent-h"><h2 id="pl-recent-h">이어 쓰기</h2><div class="grid-auto">${recent.map(card).join('')}</div></section>` : ''}
     ${list.length ? `<section class="card pl-card" aria-labelledby="pl-h">

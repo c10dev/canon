@@ -45,7 +45,6 @@ const S = {
   hubMore: false,    // 알림 창의 접힌 '끝난 작업 · 지난 알림' 칸 펼침
   starting: new Set(),    // 시작 요청을 보내고 답을 기다리는 작업 '<kind>:<ep>'
   briefDraft: {},    // 작업지시서 ② 칸에 붙여 넣은 글. '<작품>:<화>:<episode|state>' → 글
-  settingsDirty: false,  // 모델 · API 키 설정 화면에서 저장하지 않은 입력이 있다
   selArc: null,      // 장편: 플롯 보드에서 고른 아크 번호 ('next' 는 다음 아크 기획)
   editArc: false,    // 장편: 아크 고치기 서랍
   selPart: null,     // 장편: 고치는 부 번호
@@ -443,7 +442,7 @@ async function finishJob(j) {
   if (j.status === 'error') {
     const acts = [];
     if (S.jobArgs[j.id]) acts.push({ label: '다시 시도', run: () => retryJob(j.id) });
-    if (/API 키|연결/.test(j.error || '')) acts.push({ label: '설정', run: () => { location.hash = '#/settings'; } });
+    if (/API 키|연결/.test(j.error || '')) acts.push({ label: '설정', run: () => openSettings('ai') });
     toast(`${j.label} 실패: ${j.error}`, true, { actions: acts });
     if (here) S.pending.failures[key] = { key, kind: j.kind, ep: j.ep, label: j.label, error: j.error };
     return;
@@ -514,7 +513,7 @@ function syncPending() {
 function failStrip(page, n) {
   if (S.pending.name !== S.name) return '';
   const list = Object.values(S.pending.failures).filter((f) => (JOB_PAGES[f.kind] || []).includes(page || 'home') && (f.ep == null || !['write', 'check', 'review', 'brief'].includes(page) || f.ep === n));
-  return list.map((f) => `<div class="note warn between" role="status"><span><strong>지난 시도 실패</strong> · ${esc(f.label)}: ${esc(f.error)}${/API 키|연결/.test(f.error) ? ' <a href="#/settings">모델 · API 키 설정</a>' : ''}</span><button type="button" class="btn small" data-action="dismissFail" data-arg="${esc(f.key)}">닫기</button></div>`).join('');
+  return list.map((f) => `<div class="note warn between" role="status"><span><strong>지난 시도 실패</strong> · ${esc(f.label)}: ${esc(f.error)}${/API 키|연결/.test(f.error) ? ' <a href="#/settings/ai">AI 연결 설정</a>' : ''}</span><button type="button" class="btn small" data-action="dismissFail" data-arg="${esc(f.key)}">닫기</button></div>`).join('');
 }
 
 function applyJobResult(j) {
@@ -645,10 +644,10 @@ document.addEventListener('click', (e) => {
 
 /** 버튼 동작 공통 처리: 진행 표시, 오류 알림, 다시 그리기. 성공하면 true.
     opt.render: 'always'(기본) | 'success'(실패하면 다시 그리지 않아 화면에만 있는 입력을 남긴다) | 'never' */
-/** 실패를 알린다. API 키가 없으면(첫 실행에 흔하다) 설정 화면으로 갈지 묻는다. */
+/** 실패를 알린다. API 키가 없으면(첫 실행에 흔하다) 설정 대화상자를 열지 묻는다. */
 function showError(e) {
   if (e.code === 'no_key') {
-    if (confirm(`${e.message}\n\n설정 화면으로 갈까요?`)) location.hash = '#/settings';
+    if (confirm(`${e.message}\n\n설정을 열까요?`)) openSettings('ai');
     return;
   }
   toast(e.message, true);
@@ -843,7 +842,6 @@ document.addEventListener('input', (e) => {
   }
   if (el.dataset.brief) S.briefDraft[`${S.name}:${el.dataset.brief}`] = el.value;
   if (el.id === 'imp-body' && $('#imp-count')) $('#imp-count').innerHTML = importCount(el.value);
-  if (S.route[0] === 'settings' && el.id && el.id.startsWith('set-')) S.settingsDirty = true;
   if (el.dataset.local) S[el.dataset.local] = el.value;
   if (el.dataset.local === 'styleSample') S.styleSampleDirty = true;
   if (el.dataset.deltaSummary) {
@@ -1143,7 +1141,7 @@ const deltaPending = (n) => { const e = P() && ep(Number(n)); return !e || e.sta
 /** 페이지를 떠나면 사라지는 입력: 저장하지 않은 작품 · 문체 · 설정 변경, 본문 초안, 붙여 넣은 지시서 결과, 반영하지 않은 상태 변경안,
     분석 전 문체 예시 원문. 본문 초안은 브라우저에도 임시 보관하지만, 막힌 브라우저가 있어 여기서도 묻는다 */
 function hasUnsaved() {
-  return S.dirty || S.libDirty || S.settingsDirty || S.stgDirty
+  return S.dirty || S.libDirty || S.stgDirty
     || (S.styleSampleDirty && S.styleSample.trim() !== '')
     || Object.keys(S.textDraft).some(textUnsaved)
     || Object.entries(S.briefDraft).some(([k, v]) => briefPending(k, v))
@@ -1554,7 +1552,16 @@ const navScroll = { idx: 0, max: 0, at: new Map(), restore: null };
 try { history.replaceState({ idx: 0 }, '', location.hash || '#/'); } catch { /* 기록을 못 고치면 위치 되살리기만 빠진다 */ }
 
 window.addEventListener('hashchange', async () => {
-  if ((S.dirty || S.libDirty || S.settingsDirty || S.stgDirty) && !confirm('저장하지 않은 변경이 있어요. 저장하지 않고 이동하면 그 변경은 사라져요. 이동할까요?')) {
+  // 설정 주소는 화면을 옮기지 않고 지금 화면 위에 설정 대화상자를 연다 (settings.js)
+  const setTo = settingsCat(location.hash);
+  if (setTo !== null) {
+    history.replaceState(history.state, '', lastHash || '#/');
+    openSettings(setTo);
+    return;
+  }
+  const setDlg = document.getElementById('set-dlg');
+  if (setDlg && setDlg.open) setDlg.close();
+  if ((S.dirty || S.libDirty || S.stgDirty) && !confirm('저장하지 않은 변경이 있어요. 저장하지 않고 이동하면 그 변경은 사라져요. 이동할까요?')) {
     history.replaceState({ idx: navScroll.idx }, '', lastHash);
     return;
   }
@@ -1570,7 +1577,6 @@ window.addEventListener('hashchange', async () => {
   navScroll.idx = history.state.idx;
   lastHash = location.hash;
   S.libDirty = false;
-  S.settingsDirty = false;
   await route();
 });
 
@@ -1631,13 +1637,7 @@ async function routeNow() {
     }
     if (!S.genres) S.genres = await api('GET', '/genres').catch(() => []);
     if (!S.namingStyles) S.namingStyles = await api('GET', '/naming/styles').catch(() => []);
-    if (parts[0] === 'settings') {
-      S.settingsDirty = false;
-      S.config = await api('GET', '/config');
-      loadModelList();  // 기다리지 않는다. 목록이 오면 입력칸 추천만 채운다
-      claudeStatusLoad();  // Claude Code 로그인 상태도 기다리지 않는다 (claude.js)
-      await pricesLoad().catch((e) => toast(e.message, true));
-    } else if (parts[0] === 'usage') {
+    if (parts[0] === 'usage') {
       S.name = null;
       S.project = null;
       await usageLoad(parts[1] || '');
@@ -1848,11 +1848,6 @@ function drawApp() {
   if (inline) document.body.appendChild(inline);
   document.body.classList.remove('chat-open');
   const [p, , page, arg] = S.route;
-  if (p === 'settings') {
-    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:820px;margin:0 auto">${hubTop()}${viewSettings()}</main></div>`;
-    syncProviderGroups();  // 쓰지 않는 백엔드의 칸 묶음을 숨긴다 (settings.js)
-    return;
-  }
   if (p === 'usage') {
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1180px;margin:0 auto">${hubTop()}${viewUsage()}</main></div>`;
     return;
@@ -1955,7 +1950,7 @@ function navItems() {
     auto: ['auto', base() + '/auto', '🤖', autoMenuLabel()],
     tools,
     apart: [['research', base() + '/research', '🔬', '연구 · 모델 실험'], ['cue', base() + '/cue', '🎼', '큐 시트 집필 실험'], ['usage', base() + '/usage', '💰', '사용량 · 비용']],
-    foot: [['#/settings', '모델 · API 키 설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/', '작품 목록']],
+    foot: [['#/settings', '설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/', '작품 목록']],
   };
 }
 
@@ -2036,6 +2031,9 @@ function header(eyebrow, title, desc, right = '') {
 
 // 화면 파일(setup.js 등)이 모두 실행된 뒤 첫 화면을 그린다
 document.addEventListener('DOMContentLoaded', () => {
-  route();
+  // 설정 주소로 바로 열면 작품 목록 위에 설정 대화상자를 연다 (설정은 화면이 아니라 대화상자다)
+  const setTo = settingsCat(location.hash);
+  if (setTo !== null) history.replaceState({ idx: 0 }, '', '#/');
+  route().then(() => { if (setTo !== null) openSettings(setTo); });
   pollJobs();
 });

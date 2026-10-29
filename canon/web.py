@@ -97,7 +97,7 @@ async def _bad_request(_: Request, e: Exception) -> JSONResponse:
 @app.exception_handler(MissingKey)
 async def _no_key(_: Request, e: MissingKey) -> JSONResponse:
     # 첫 실행에 흔한 상황이라 서버 오류가 아니라 설정 안내로 보인다
-    return JSONResponse({"detail": "Gemini API 키가 없어요. 오른쪽 아래 '모델 · API 키 설정'에서 넣으세요", "code": "no_key"}, status_code=400)
+    return JSONResponse({"detail": "Gemini API 키가 없어요. 설정의 AI 연결에서 넣으세요", "code": "no_key"}, status_code=400)
 
 
 @app.exception_handler(Exception)
@@ -231,6 +231,7 @@ class ConfigView(_Out):
     stage_settings: dict[str, str]  # 설정 파일에 적은 단계별 백엔드
     stage_model_settings: dict[str, str]
     stage_presets: list[StagePreset] = []
+    local_sampling: dict[str, float] = {}  # 로컬 본문 생성 샘플링 (설정 파일 local_sampling 이 기본값을 덮는다). 화면은 읽기만
     path: str  # 설정 파일 경로
 
 
@@ -4286,6 +4287,30 @@ def set_keep_snapshots(name: str, body: KeepSnapshots) -> Project:
     """장편 스냅샷 모두 남기기 켜기 · 끄기 (Settings.keep_snapshots). 끄면 다음 반영 때 오래된 스냅샷을 지운다."""
     p = _load(name)
     p.settings.keep_snapshots = body.on
+    return _save(name, p)
+
+
+class TimelineSetting(BaseModel):
+    on: bool
+
+
+@app.put("/api/projects/{name}/timeline-setting")
+def set_timeline_setting(name: str, body: TimelineSetting) -> Project:
+    """작품 속 시간 기록 켜기 · 끄기 (Timeline.enabled). 끄면 상태 변경안에 시점을 적지 않고 쓰기 · 검수에 시간 블록을 넣지 않는다."""
+    p = _load(name)
+    p.timeline.enabled = body.on
+    return _save(name, p)
+
+
+class StatPromptIn(BaseModel):
+    mode: Literal["json", "lines", "none"]
+
+
+@app.put("/api/projects/{name}/stat-prompt")
+def set_stat_prompt(name: str, body: StatPromptIn) -> Project:
+    """쓰기 프롬프트에 상태창 수치를 넣는 방식 (StatWindow.prompt: json · lines · none, statwin.write_rule)."""
+    p = _load(name)
+    p.stat_window.prompt = body.mode
     return _save(name, p)
 
 
