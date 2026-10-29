@@ -165,7 +165,7 @@ def test_gen_places_and_overrides():
     assert rows["el-10"]["put"] and rows["el-1"]["kind"] == "center"  # 모르는 종류 id 는 찾은 값으로
     info = atlas.gen_info(p)
     assert not info["made"] and info["spec"]["kind"] == "village" and info["options"]["village"]["water"]["sea"] == "바다" and "lake" not in info["options"]["city"]["water"]
-    assert {"id": "inn", "label": "여관 · 주막"} in info["kinds"]
+    assert {"id": "inn", "label": "여관 · 주막"} in info["kinds"]["village"] and info["eras"]["village"] == "old"
 
 
 def test_generate_preview_and_apply(tmp_path):

@@ -1605,7 +1605,7 @@ class PlaceLink(BaseModel):
 class MapPlace(BaseModel):
     """지도 만들기에서 작가가 고친 장소 하나: 종류와 이 지도에 놓을지."""
     key: str = Field(description="장소 키 (atlas.places)")
-    kind: str = Field("", description="종류 id (towngen.CATEGORIES). 비면 이름 · 설명에서 찾는다")
+    kind: str = Field("", description="종류 id (placekinds.KINDS). 지도 종류의 시대와 다른 id 는 placekinds.to_era 로 읽는다. 비면 이름 · 설명에서 찾는다")
     put: Optional[bool] = Field(None, description="이 지도에 놓을지. 비면 종류로 정한다 (마을 밖 장소는 놓지 않음)")
 
 

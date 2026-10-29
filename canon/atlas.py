@@ -612,12 +612,14 @@ CITY_POP_PER_HOUSE = 8.0  # 도시 집은 층이 높고 세 든 사람이 많다
 
 
 def village_title(p: Project, layout: dict) -> dict:
-    """지도 위 제목: 작가가 정한 이름, 없으면 '마을 가운데' 종류 장소 이름. 인구는 집 수 × 집 한 채에 사는 사람을 10 단위로
+    """지도 위 제목: 작가가 정한 이름, 없으면 '마을 가운데'(현대 동네는 '역') 종류 장소 이름. 인구는 집 수 × 집 한 채에 사는 사람을 10 단위로
     (도시 생성기가 만든 지도는 CITY_POP_PER_HOUSE). kind: 이름 칸에 쓸 말 (마을 · 도시 · 동네), unit: 수를 세는 말 (집 · 건물).
     OpenStreetMap 지도와 현대 동네 생성기 지도는 건물을 세고, 인구는 주거 건물에서 어림한 사람 수만 쓴다 (canon/bldgs.py)."""
     name = p.atlas.title
     if not name:
-        name = next((x["name"] for x in gen_places(p, p.atlas.spec) if x["kind"] == "center" and x["put"]), "")
+        era = placekinds.era_of(p.atlas.spec.kind if p.atlas.spec else "village")
+        center = {"center", placekinds.to_era("center", era)}  # 현대 동네는 역
+        name = next((x["name"] for x in gen_places(p, p.atlas.spec) if x["kind"] in center and x["put"]), "")
     houses = layout.get("houses") or len(layout.get("numbers") or layout.get("buildings") or [])
     city = layout.get("generator") == citygen.GENERATOR
     real = layout.get("generator") in (osm.GENERATOR, moderngen.GENERATOR)
@@ -836,15 +838,20 @@ def _maker(kind: str):
 
 
 def gen_places(p: Project, spec: Optional[MapSpec] = None) -> list[dict]:
-    """지도 만들기의 장소 표. 장소마다 종류(작가가 고친 값, 없으면 이름 · 설명에서 찾은 값)와 이 지도에 놓을지."""
+    """지도 만들기의 장소 표. 장소마다 종류(작가가 고친 값, 없으면 이름 · 설명에서 찾은 값)와 이 지도에 놓을지.
+    종류는 지도 종류(spec.kind, 없으면 마을)의 시대 id 다: 저장된 값은 placekinds.to_era 로 옮기고, 대응이 없으면 찾은 값.
+    found_in: 시대마다 이름 · 설명에서 찾은 종류 (화면이 지도 종류를 바꿀 때 쓴다)."""
+    era = placekinds.era_of(spec.kind if spec else "village")
     mine = {x.key: x for x in (spec.places if spec else [])}
     out = []
     for pl in places(p):
-        found, word = placekinds.classify(pl["name"], pl["description"])
+        found_in = {e: placekinds.classify(pl["name"], pl["description"], e) for e in placekinds.ERAS}
+        found, word = found_in[era]
         m = mine.get(pl["key"])
-        kind = m.kind if m and m.kind in placekinds.CATEGORY_IDS else found
+        kind = (placekinds.to_era(m.kind, era) if m else "") or found
         put = m.put if m and m.put is not None else placekinds.default_put(kind)
-        out.append({"key": pl["key"], "name": pl["name"], "kind": kind, "found": found, "word": word, "put": put})
+        out.append({"key": pl["key"], "name": pl["name"], "kind": kind, "found": found, "word": word, "put": put,
+                    "found_in": {e: k for e, (k, _) in found_in.items()}})
     return out
 
 
@@ -858,6 +865,8 @@ def default_spec(p: Project) -> MapSpec:
 def gen_info(p: Project) -> dict:
     """지도 화면의 '지도 만들기' 칸: 지금 입력(만든 적 없으면 기본값), 장소 표, 종류 이름.
     maps: 만들 수 있는 지도 [{id, label}], options · version: 지도 종류(MapSpec.kind)마다 설정 칸과 생성기 버전,
+    kinds: 지도 종류마다 고를 수 있는 장소 종류 [{id, label}] (placekinds.kinds_for), eras: 지도 종류 → 시대,
+    kind_to: 시대마다 모든 종류 id → 그 시대 id (placekinds.to_era, 대응이 없으면 ''),
     wards: 도시 구역 · 현대 동네 슈퍼블록 종류 이름 (지도에 구역 이름을 쓴다), uses: 건물 쓰임 id → [작품 스타일에 맞는 이름, 묶음],
     modern: 현대 쓰임 id (건물 고치기 칸은 실제 지도 · 현대 동네 지도이거나 modern_style 일 때만 보인다), modern_style: 작품 이름 스타일이 현대인가."""
     spec = default_spec(p)
@@ -865,7 +874,9 @@ def gen_info(p: Project) -> dict:
     return {"spec": spec.model_dump(), "made": p.atlas.spec is not None, "places": gen_places(p, spec),
             "maps": [{"id": k, "label": m[0]} for k, m in MAKERS.items()],
             "options": {k: m[1].OPTIONS for k, m in MAKERS.items()},
-            "kinds": [{"id": cid, "label": label} for cid, label, _ in placekinds.CATEGORIES],
+            "kinds": {k: [{"id": x.id, "label": x.label} for x in placekinds.kinds_for(k)] for k in MAKERS},
+            "eras": {k: placekinds.era_of(k) for k in MAKERS},
+            "kind_to": {e: {x.id: placekinds.to_era(x.id, e) for x in placekinds.KINDS} for e in placekinds.ERAS},
             "version": {k: m[1].VERSION for k, m in MAKERS.items()}, "wards": {k: v for m in MAKERS.values() for k, v in m[1].ZONES.items()},
             "uses": {u: [bldgs.label(u, style), grp] for u, (_, grp) in bldgs.USES.items()},
             "modern": list(bldgs.MODERN), "modern_style": style in MODERN_STYLES}

@@ -141,3 +141,19 @@ DESIGN.md '현대 동네 생성기' 절, AGENTS.md 의 moderngen · towngen 줄.
 ## 확인하지 못할 것
 
 실제 Gemini 가 새 id 를 고르는지(키 없음).
+
+## 08d 구현 메모
+
+브랜치 `claude/map-kinds-ui-46d9f2`. 고친 곳은 `atlas.py` · `static/atlas-gen.js` · `cli.py` 한 곳 · `schema.MapPlace.kind` 설명 글이다.
+
+- 장소 표(`atlas.gen_places`): 시대는 `era_of(spec.kind)`, spec 이 없으면 마을(old). 종류는 `to_era(m.kind, era) or classify(이름, 설명, era)`. 빈 값 · 모르는 id · 대응 없는 id(`field` → 현대) 모두 찾은 값이다. 줄마다 시대별로 찾은 값 `found_in: {old, modern}` 을 더했다.
+- `gen_info`: `kinds` 를 지도 종류별 `{village: [{id, label}], city: …, modern: …}` 로 바꿨다(옛 목록 모양은 없어졌다). `eras`(지도 종류 → 시대), `kind_to`(시대마다 모든 id → `to_era` 값, 대응 없으면 '')를 더했다. 화면이 대응표를 따로 적지 않게 서버에서 보낸다.
+- 화면(`atlas-gen.js`): 드롭다운은 `atlasGenKinds(spec.kind)`. 지도 종류를 바꾸면(직접 고르기, AI 설정 제안이 종류를 바꿀 때) `atlasKindShift` 가 줄마다 옮긴다.
+  - 계약과 다른 곳: 이름에서 찾은 값 그대로인 줄(`kind === found_in[옛 시대]`)은 대응표 대신 새 시대에서 찾은 값을 쓴다. 대응표로 옮기면 '골목 편의점'(옛 시대에서 집 · 가게)이 '집 · 단독주택'이 되고, 찾은 값을 쓰면 '편의점'이 된다. 작가가 고른 값(찾은 값과 다른 값)만 계약대로 `kind_to` 로 옮기고, 대응이 없으면 새 시대에서 찾은 값이다.
+  - AI 설정 제안이 준 종류는 지금 고른 지도 종류의 시대로 옮겨 넣는다(`atlasGenToEra`: `kind_to`, 대응이 없으면 그 시대에서 찾은 값). 작가가 지도 종류를 직접 골랐고 AI 가 다른 시대를 고르면 AI 의 id 가 드롭다운에 없을 수 있어서다.
+  - 놓기(`put`)가 옛 종류의 기본값(마을 밖만 끔)이면 새 종류의 기본값으로 바꾼다. 작가가 바꾼 놓기는 그대로다.
+  - 서버는 계약대로 저장된 값을 늘 `to_era` 로 읽는다. 그래서 마을로 적용한 작품을 명령줄 `map gen modern` 으로 만들면 '골목 편의점'은 '집 · 단독주택'이고, 화면에서 지도 종류를 바꾸면 '편의점'이다.
+- 지도 제목 기본값(`village_title`): 현대 동네는 '마을 가운데'가 없어서 `to_era("center", era)`(역) 종류 장소 이름을 쓴다.
+- 명령줄: 장소 종류 이름은 `placekinds.label`(모든 시대).
+- 시험: `tests/test_atlas_kinds.py`(장소 표 · 옛 id 대응 · `gen_info` 모양 · 제목 · 명령줄 · node 로 `atlasKindShift`), `tests/test_mapgen.py` 의 `kinds` 모양 한 줄.
+- 08b 와 함께 합쳐야 한다: 이 브랜치만으로는 현대 동네 장소 표가 현대 id 를 보내는데 `moderngen` 이 옛 id 만 알아 모두 집 · 가게 자리에 놓는다(mock 서버 미리보기로 봤다).
