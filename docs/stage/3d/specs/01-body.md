@@ -1,6 +1,6 @@
 # 01. 뼈대 · 마네킹 공통 (계약)
 
-상태: 명세 · 지도: [../README.md](../README.md) 의 01 · 먼저: 없음 · 시안: [../../mockup-3d.html](../../mockup-3d.html)
+상태: 완료 (2026-10-29, 아래 '구현 메모') · 지도: [../README.md](../README.md) 의 01 · 먼저: 없음 · 시안: [../../mockup-3d.html](../../mockup-3d.html)
 
 ## 목표
 
@@ -19,7 +19,8 @@
 
 | 파일 | 바꿀 것 |
 |---|---|
-| `canon/stage3d/__init__.py` (새) | 공개 이름: `frames`, `Frames`, `postures()`, `rooms()`, `missing()` |
+| `canon/stage3d/__init__.py` (새) | 공개 이름: `frames`, `Frames`, `posture_specs()`, `room_specs()`, `missing()`, `complete()` (폴더 이름 `postures` · `rooms` 와 겹치지 않게 함수 이름을 바꿨다) |
+| `canon/stage3d/fake.py` (새) | 시험용 가짜 자세(stand · chair · lie · squat, 시안 값) · 장소(모든 틀, 종류 기본값), `box_room(천장)`, `BLOCK`. 등록부가 읽지 않는다 |
 | `canon/stage3d/body.py` (새) | 벡터 · 회전, 마디 길이 `L`, `Angles`, `Reach`, `PostureSpec`, 관절 이름 `JOINTS`, FK `pose()`, 손 IK `reach_to()`, 부위 점 `PART_POINTS` · `part_point()`, 캡슐 `capsules()`, 겹침 깊이 `penetration()`, 동작별 손 배치 `ACT3D`, `frames()` 본체 |
 | `canon/stage3d/furniture.py` (새) | `Box`, `Furniture`, `RoomSpec`, 종류 기본값 `KINDS`, 기준점 → 세계 상자 `solids()`, 앉는 면 높이 `surface()` |
 | `canon/stage3d/postures/__init__.py` (새) | 등록부: 이 폴더의 모듈을 훑어 `POSTURE` 를 모은다(`pkgutil.iter_modules`). 자세 모듈은 만들지 않는다 |
@@ -173,6 +174,17 @@ class RoomSpec:
   - `frames`: 가짜 자세 · 장소로 장면 하나를 돌려 모양(위 JSON 키)을 본다. 자세 모듈이 없는 인물은 `missing` 이다.
 - `tests/test_stage3d_contract.py`: 등록부의 자세마다 `id in stage.POSTURES`, 각도 범위(−180~180), 바닥 면 자세는 FK 의 가장 낮은 관절이 −0.02m 위. 등록부의 장소마다 `template in stage.ROOMS`, 틀의 기준점 이름이 모두 모양을 갖거나 종류 기본값이 있다, `sit` 참이면 `seat`, `lie` 참이면 `lie` 높이가 있다. `test_registry_complete` 는 빠진 자세 · 틀이 있으면 그 목록을 사유로 건너뛴다(연결 일감 07 이 엄격하게 바꾼다).
 - 전체 시험: `CANON_HOME=$(mktemp -d) python -m pytest -q tests`.
+
+## 구현 메모 (2026-10-29)
+
+- 등록: `canon/stage3d/postures/<자세 id>.py` 에 `POSTURE`, `canon/stage3d/rooms/<틀 id>.py` 에 `ROOM` 을 두기만 하면 `postures.load()` · `rooms.load()` 가 `pkgutil.iter_modules` 로 찾는다(`_` 로 시작하는 파일은 건너뜀, 결과는 캐시). 파일 이름과 `id` · `template` 이 다르면 `ValueError`.
+- 시험에서 등록부 바꾸기: `frames(scene, room, postures=fake.POSTURES, rooms=fake.ROOMS)` 또는 `monkeypatch.setattr(canon.stage3d.postures, "load", lambda: {...})`.
+- `PlaceCtx` 칸: `who`, `now`, `state`, `pos`(stage.place), `xy`, `yaw`(향함), `base`(공통 배치 바닥 높이), `room`, `spec`, `solids`, `bodies`(이미 놓인 인물의 `Body`. 특수 배치 없는 인물이 먼저 놓이고, 특수 배치 인물은 장면 cast 순). `Placement.yaw` 는 몸 앞이 평면 (sin yaw, cos yaw) 인 각(라디안).
+- `Body`: `joints()` · `part_point(id)` · `capsules()` · `head_top()` · `left()`, IK 뒤 `lean`(더 숙인 도) · `twist`(라디안). 모듈 함수 `pose` · `reach_to` · `look_at` · `penetration` · `feet_down` · `hand_targets`.
+- 공통 배치의 면: 자리가 기준점 `on` · `in` 이면 자세 `surface` 순서대로 `seat` · `lie` 를, `top` 은 `on` 일 때만 본다(책상 `in` 에 선 사람은 바닥). 윗면 높이는 눕는 면 → 앉는 면 → 단단한 상자 꼭대기 순(`furniture.top`). 자세가 비어 있으면 '서기'로 본다(시안과 같음).
+- `frames` 는 아직 박자마다 `stage.place` 를 부른다. 일감 1-1 의 `stage.layouts` 가 병합되면 그것으로 바꾼다(`body.frames` 의 주석).
+- 접촉 `points` 는 (손끝, 목표) 짝을 차례로 적는다: 한 손 2점, 두 손 4점. `gap` 은 두 손이면 큰 쪽. 고개를 먼저 돌린 뒤 IK 를 푼다(얼굴 부위 점이 목표일 때).
+- 쟀다: 인물 4명 · 박자 20개 `frames` 약 32ms(이 기기, `tests/test_stage3d_body.py::test_frames_speed` 가 찍는다. 시험 문턱은 느린 기기를 위해 0.5초).
 
 ## 문서
 
