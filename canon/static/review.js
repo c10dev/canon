@@ -354,14 +354,6 @@ function rvRailRefresh(n) {
   });
 }
 
-/** 두 칸 배치: 목차 칸이 아래에 쌓인 작업 목록 · 알림(--rvj) 위에서 끝나게 높이를 맞춘다. 화면을 내려 목차가 붙는 동안에도 다시 잰다 */
-function rvRailFit() {
-  const rail = document.querySelector('#app .rv-rail');
-  if (!rail) return;
-  const below = parseFloat(document.body.style.getPropertyValue('--rvj')) || 0;
-  rail.style.maxHeight = below ? `${Math.max(120, Math.floor(window.innerHeight - Math.max(16, rail.getBoundingClientRect().top) - 16 - below))}px` : '';
-}
-
 /** 목차에서 지금 보는 갈래를 표시한다 */
 function rvSpy(key) {
   S.rvSpy = key;
@@ -379,7 +371,6 @@ if (typeof window !== 'undefined' && window.addEventListener) {
     spyQueued = true;
     requestAnimationFrame(() => {
       spyQueued = false;
-      rvRailFit();
       const gs = [...document.querySelectorAll('#app .rv-group')];
       if (!gs.length) return;
       const past = gs.filter((g) => g.getBoundingClientRect().top <= 140);
@@ -471,8 +462,8 @@ if (typeof document.addEventListener === 'function') {
 }
 
 // ----- 반영 직후 되돌리기 알림 -----
-// 반영하면 다음 화 화면으로 넘어간다. 그 화면 아래 알림 줄(#toast)에 'n화를 반영했어요 · 되돌리기'를 10초 띄운다.
-// #toast 안에 두어 stackBottom 이 쌓는 저장 띠 · 반영 줄 · 작업 목록 위에 놓이고, #toast 의 aria-live 로 읽힌다.
+// 반영하면 다음 화 화면으로 넘어간다. 그 화면의 알림 말풍선 자리(#toast, 알림 버튼 아래)에 'n화를 반영했어요 · 되돌리기'를 10초 띄운다.
+// #toast 안에 두어 다른 말풍선과 같은 자리에 놓이고(hub.js placeHub), #toast 의 aria-live 로 읽힌다.
 // 클래스를 .t 로 두지 않아 toast() 가 오래된 알림을 내릴 때 함께 내려가지 않는다
 
 const RV_UNDO_MS = 10000;
