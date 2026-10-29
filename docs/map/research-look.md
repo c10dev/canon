@@ -1,7 +1,7 @@
 # 지도 모양 리서치: 작가가 쓰고 싶은 지도
 
 지도 화면의 그림과 기능을 작가에게 매력 있게 만들 방법을 조사한 제안 문서다. 다음 일감을 고르는 근거로 쓴다. 코드는 고치지 않았다.
-조사는 2026-10-29 에 브랜치 `claude/map-stack`(초안 PR [#148](https://github.com/c10dev/canon/pull/148)) 위에서 했다. 줄 번호는 이 브랜치의 `canon/static/atlas.js` 기준이다.
+조사는 2026-10-29 에 브랜치 `claude/map-stack`(그 뒤 PR [#187](https://github.com/c10dev/canon/pull/187)) 위에서 했다. 줄 번호는 이 브랜치의 `canon/static/atlas.js` 기준이다.
 
 ## 1. 결론
 
