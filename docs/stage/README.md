@@ -9,6 +9,7 @@ Canon 장면 연출 기능의 설계 자산이다. 장면 연출은 방 하나 �
 | [plan.md](plan.md) | 일감 차례와 2차 후보 | 다음 일을 고를 때 |
 | [specs/](specs/) | 일감마다 작업 명세서. 틀은 지도 문서의 [TEMPLATE.md](../map/specs/TEMPLATE.md) | 일감을 시작할 때 |
 | [mockup.html](mockup.html) | 화면 시안 (정적 HTML, 데이터는 가짜) | 화면을 만들기 전 |
+| [mockup-3d.html](mockup-3d.html) | 2차 후보 3D 보기 시안 (three.js, 같은 가짜 장면). 로컬 서버로 연다 | 3D 를 정할 때 ([06-3d.md](specs/06-3d.md)) |
 
 ## 정한 규칙
 
