@@ -10,7 +10,7 @@
 |---|---|---|---|---|
 | 0 | AI 설정 제안의 현대 동네 · 이름으로 자리 찾기 · 건물 한 줄 | [#139](https://github.com/c10dev/canon/pull/139) · [#140](https://github.com/c10dev/canon/pull/140) 머지 | — | — |
 | 1 | 경계 정리 (파일은 그대로) | 구현, [#148](https://github.com/c10dev/canon/pull/148) 머지 | [01-boundaries.md](specs/01-boundaries.md) | 0 |
-| 2 | `canon/maps/` 패키지로 옮기기 | 구현 | [02-package.md](specs/02-package.md) | 1 |
+| 2 | `canon/maps/` 패키지로 옮기기 | 구현, PR [#191](https://github.com/c10dev/canon/pull/191) | [02-package.md](specs/02-package.md) | 1 |
 | 3 | `static/atlas.js` 나누기 | 구현, [#148](https://github.com/c10dev/canon/pull/148) 머지 | [03-atlas-js.md](specs/03-atlas-js.md) | 0 |
 | 4 | OSM 빈 블록 채우기 | 구현, [#148](https://github.com/c10dev/canon/pull/148) 머지 | [04-empty-blocks.md](specs/04-empty-blocks.md) | 1 |
 | 5 | 바다 (OSM 해안선) | 구현, [#187](https://github.com/c10dev/canon/pull/187) 머지 | [05-coastline.md](specs/05-coastline.md) | 0 |
