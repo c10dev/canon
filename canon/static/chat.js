@@ -426,6 +426,7 @@ function redrawChat() {
 function syncChat() {
   const open = !!document.querySelector('.chat-panel, .tool-col');  // 집필 화면의 다시 생성 열(rewrite.js)도 같은 자리를 쓴다
   document.body.classList.toggle('chat-open', open);
+  syncRail();  // 901~1599px 에서 패널을 열면 사이드바를 레일로 접는다 (app.js)
   stackBottom();
   const log = $('#chat-log');
   if (!log) return;

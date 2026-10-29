@@ -385,26 +385,27 @@ function playTitleOf(x) {
 function playSidebar(active) {
   const p = S.play;
   const href = `#/play/${enc(p.name)}`;
-  const link = (id, to, mark, label) => `<a href="${to}"${id === active ? ' aria-current="page"' : ''}>${navMark(mark)}${label}</a>`;
+  const link = (id, to, mark, label) => navLink([id, to, mark, label], active);
   const meta = [p.days ? `${p.days}일 지남` : '', `결정 ${p.decisions}번`].filter(Boolean).join(' · ');
-  return `<nav class="side${S.menuOpen ? ' open' : ''}" aria-label="플레이 메뉴">
-    <a class="brand" href="#/">Canon<span class="brand-dot" aria-hidden="true">.</span></a>
-    <button type="button" class="btn small menu-toggle" data-action="toggleMenu" aria-expanded="${!!S.menuOpen}" aria-controls="side-menu">메뉴</button>
-    <div class="work-card">
+  const card = `<div class="work-card">
       <div class="small">플레이 · ${esc(p.world_title)}</div>
-      <div class="work-head"><a class="work-title" href="${href}">${esc(playTitleOf(p))}</a></div>
+      <div class="work-head"><a class="work-title" href="${href}" title="${esc(playTitleOf(p))}">${esc(playTitleOf(p))}</a></div>
       <div class="small work-meta">${esc(meta)}${p.ending ? ' · 끝남' : ''}</div>
-    </div>
+    </div>`;
+  return `<nav class="side${S.menuOpen ? ' open' : ''}" aria-label="플레이 메뉴">
+    ${sideTop({ hub: false, search: false })}
+    ${card}
     <div class="side-menu" id="side-menu">
+      ${drawerHead()}
+      <div class="drawer-work">${card}</div>
       <div class="nav">${link('now', href, '🎲', '지금')}${link('past', href + '/past', '📜', '지난 일 · 되감기')}${link('life', href + '/life', '📔', '생애 기록')}</div>
       <div class="nav nav-extra"><span class="small">살펴보기 · 플레이 사본</span>
-        ${link('cast', `#/p/${enc(p.name)}/cast`, '👥', '인물 · 관계도')}${link('atlas', `#/p/${enc(p.name)}/atlas`, '🗺️', '지도')}${link('timeline', `#/p/${enc(p.name)}/timeline`, '⏳', '작품 속 시간')}</div>
-      <div class="side-foot">
-        ${p.world_exists ? `<a href="#/p/${enc(p.world)}">세계 작품 「${esc(p.world_title)}」로</a>` : `<span class="small">세계 작품 「${esc(p.world)}」을 찾지 못했어요</span>`}
-        <a href="#/">작품 목록</a>
-        <span class="tf-credit">이 페이지에는 토스팀에서 제공한 <a href="https://toss.im/tossface" target="_blank" rel="noopener">토스페이스</a>가 적용되어 있어요.</span>
-      </div>
+        ${link('cast', `#/p/${enc(p.name)}/cast`, '👥', '인물 · 관계도')}${link('atlas', `#/p/${enc(p.name)}/atlas`, '🗺️', '지도')}${link('timeline', `#/p/${enc(p.name)}/timeline`, '⏳', '작품 속 시간')}
+        ${p.world_exists ? link('world', `#/p/${enc(p.world)}`, '🌐', `세계 작품 「${esc(p.world_title)}」로`) : ''}</div>
+      ${p.world_exists ? '' : `<p class="small side-warn">세계 작품 「${esc(p.world)}」을 찾지 못했어요</p>`}
+      ${sideFoot([['#/', '작품 목록']])}
     </div>
+    ${S.menuOpen ? '<div class="side-scrim" data-action="toggleMenu" aria-hidden="true"></div>' : ''}
   </nav>`;
 }
 
