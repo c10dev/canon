@@ -24,7 +24,7 @@ def _stage(prompt: str, hint: dict) -> StageDraft:
     far = [a for a in anchors if a != door] or [door]
     start = [DraftBody(name=x, at_ref=door, at_rel="front", posture="stand", facing="", left="빈손" if hint.get("role") == "plan" else "",
                        right="빈손" if hint.get("role") == "plan" else "") for x in names]
-    d = StageDraft(room="" if room else "living", cast=names, start=start)
+    d = StageDraft(room="" if room else "living", cast=names, start=start, beats=[])
     if hint.get("role") != "text":
         if names:
             d.beats.append(DraftBeat(note="첫 인물이 자리를 옮긴다", bodies=[DraftBody(name=names[0], at_ref=far[0], at_rel="front", posture="walk")]))

@@ -648,8 +648,13 @@ def _names(p: Project) -> dict[str, str]:
     return out
 
 
+HELD_MAX = 30  # 손에 쥔 것 글자 상한 (모델이 같은 낱말을 되풀이해 늘어놓는 일이 있다)
+
+
 def _hand(v: str, start: bool, role: str) -> Optional[str]:
     v = (v or "").strip()
+    if len(v) > HELD_MAX:
+        v = v.split(",")[0].strip()[:HELD_MAX]
     if v in ("", "-"):
         return (UNKNOWN if role == "text" else "") if start else None
     return "" if v in (EMPTY_HAND, "없음", "빈 손") else v

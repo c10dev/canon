@@ -1273,15 +1273,16 @@ class DraftBody(BaseModel):
 class DraftBeat(BaseModel):
     quote: str = Field("", description="본문에서 뽑을 때: 이 박자를 정한 본문 문장 원문 그대로 한 문장. 쓰기 전 초안이면 빈칸")
     note: str = Field("", description="이 박자에 일어나는 일 한 줄")
-    bodies: list[DraftBody] = Field(default_factory=list, description="바뀐 인물만")
+    bodies: list[DraftBody] = Field(description="바뀐 인물만")
 
 
 class StageDraft(BaseModel):
     """플롯 사건 하나의 장면 연출 초안 또는 본문에서 뽑은 장면. 좌표는 적지 않는다."""
     room: str = Field("", description="방: 방 목록의 이름 또는 방 틀 id. 방이 정해져 있으면 빈칸")
-    cast: list[str] = Field(default_factory=list, description="이 장면에 나오는 인물 이름")
-    start: list[DraftBody] = Field(default_factory=list, description="시작 상태: 인물마다 아는 칸을 모두")
-    beats: list[DraftBeat] = Field(default_factory=list, description="박자 차례")
+    # 기본값을 두지 않는다: 기본값이 있으면 응답 형식에서 필수가 빠져 Gemini 가 beats 를 통째로 건너뛴다 (2026-10-29 측정)
+    cast: list[str] = Field(description="이 장면에 나오는 인물 이름")
+    start: list[DraftBody] = Field(description="시작 상태: 인물마다 아는 칸을 모두")
+    beats: list[DraftBeat] = Field(description="박자 차례. 장면이 있으면 비우지 않는다")
 
 
 class StageProposal(BaseModel):
