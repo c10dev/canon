@@ -9,8 +9,13 @@
 
 /** 마을 겹 설정은 이 브라우저에만 기억한다 (못 읽으면 기본값) */
 function atlasLayersLoad() {
-  const base = { trees: true, fields: true, shadows: true, numbers: false, title: true, wards: true, uses: false, streets: true };
-  try { return { ...base, ...JSON.parse(localStorage.getItem('canon.atlasLayers') || '{}') }; } catch { return base; }
+  const base = { trees: true, fields: true, shadows: true, numbers: false, deco: true, wards: true, uses: false, streets: true };
+  try {
+    const got = JSON.parse(localStorage.getItem('canon.atlasLayers') || '{}');
+    if (got.deco === undefined && got.title === false) got.deco = false;  // 옛 '이름' 겹은 '장식'에 들어갔다
+    delete got.title;
+    return { ...base, ...got };
+  } catch { return base; }
 }
 function atlasLayersSave() {
   try { localStorage.setItem('canon.atlasLayers', JSON.stringify(S.atlasLayers)); } catch { /* 저장 못 해도 이번 화면에서는 된다 */ }
@@ -44,7 +49,7 @@ Object.assign(S, {
   atlasNew: [],      // AI가 제안한 새 장소 (적용할 때 고른 글이 쓰는 것만 등록)
   atlasLayout: null, // 마을 데이터 { file, data } (파일 이름이 바뀌면 다시 받는다)
   atlasView: { x: 0, y: 0, z: 1 },  // 확대 · 이동: viewBox 왼쪽 위(지도 단위)와 배율 1~8
-  atlasLayers: atlasLayersLoad(),    // 마을 겹 끄고 켜기 { trees, fields, shadows, numbers, title }
+  atlasLayers: atlasLayersLoad(),    // 마을 겹 끄고 켜기 { trees, fields, shadows, numbers, deco, ... }
   atlasStyle: atlasStyleLoad(),      // 마을 화풍 (ATLAS_STYLES 키)
   atlasBld: null,    // 누른 건물 { i, at: [0~1 가운데], sx, sy: 지도 칸 안 화면 자리, edit: 고치기 칸 } (건물 메뉴)
   atlasUseHi: '',    // 옆 칸 '건물 쓰임'에서 고른 쓰임 (지도에서 테두리로 강조)
@@ -55,7 +60,7 @@ Object.assign(S, {
 });
 
 const ATLAS_W = 1000;
-const ATLAS_LAYERS = { trees: ['나무', 't'], fields: ['밭', 'f'], shadows: ['그림자', 'u'], numbers: ['집 번호', 'm'], title: ['이름', 'n'], wards: ['구역', 'w'],
+const ATLAS_LAYERS = { trees: ['나무', 't'], fields: ['밭', 'f'], shadows: ['그림자', 'u'], numbers: ['집 번호', 'm'], deco: ['장식', 'd'], wards: ['구역', 'w'],
   uses: ['쓰임', 's'], streets: ['길 이름', 'k'] };
 // 인물 색. 밝은 바탕 · 어두운 바탕 모두에서 흰 글자가 읽히는 중간 밝기
 const ATLAS_COLORS = ['#2A63C9', '#C2410C', '#7C3AED', '#0F766E', '#BE185D', '#4D7C0F', '#A16207', '#475569', '#0E7490', '#9F1239'];
@@ -473,10 +478,6 @@ function atlasVillageSvg(v, W, H, layers = {}) {
       return `<text x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" text-anchor="middle" dominant-baseline="central">${n + 1}</text>`;
     }).join('')}</g>`);
   }
-  if (v.source) {
-    const fs = Math.max(7, W / 110);
-    out.push(`<text class="at-v-source" x="${(W - fs * 0.6).toFixed(1)}" y="${(H - fs * 0.6).toFixed(1)}" font-size="${fs.toFixed(1)}" stroke-width="${(fs * 0.3).toFixed(1)}" text-anchor="end">${esc(v.source)}</text>`);
-  }
   return (defs.length ? `<defs>${defs.join('')}</defs>` : '') + out.join('');
 }
 
@@ -499,6 +500,123 @@ function atlasColor(cid) {
 
 function atlasRow(f, cid) {
   return f.rows.find((r) => r.cid === cid);
+}
+
+// ----- 지도 장식 -----
+
+/** 지도 단위 1 이 몇 m 인가 (축척 막대). 미리보기 · 생성기 지도는 1단위 = 1m, 올린 마을 데이터는 축척 칸,
+    배경 그림 · 모눈은 이동 시간 검사의 지도 가로 km. 모르면 0 */
+function atlasMpu() {
+  const pv = atlasGenPreview();
+  if (pv) return pv.layout.w / ATLAS_W;
+  const lo = S.atlas.layout;
+  if (lo) return lo.width_m / ATLAS_W;
+  const t = S.atlas.travel;
+  return t && t.scale ? (t.scale[0] * 1000) / ATLAS_W : 0;
+}
+
+let atlasMeasure = null;
+/** 장식 글자 폭: 틀을 글에 맞추려고 캔버스로 잰다 (못 재면 atlasTextW 어림). bold: 굵은 글자 */
+function atlasDecoW(t, fs, bold = false) {
+  try {
+    atlasMeasure = atlasMeasure || document.createElement('canvas').getContext('2d');
+    const fam = getComputedStyle(document.documentElement).getPropertyValue('--sans').trim() || 'sans-serif';
+    atlasMeasure.font = `${bold ? 700 : 400} 100px ${fam}`;
+    const w = atlasMeasure.measureText(t).width;
+    if (w > 0) return (w / 100) * fs * 1.04;  // 내보낸 PNG 는 다른 글꼴로 그릴 수 있어 조금 넉넉히
+  } catch { /* 캔버스가 없으면 어림 */ }
+  return atlasTextW(t, fs);
+}
+
+/** 지도 장식: 왼쪽 위 제목 틀(지도 이름 · 인구), 오른쪽 아래 축척 막대 · 북쪽 화살표(OpenStreetMap 지도만, 북이 위)와 출처 글.
+    지금 보는 범위의 모서리에 화면에서 같은 크기로 놓는다 (u: 화면 1px 의 지도 단위). 출처 글은 장식 겹을 꺼도 그린다.
+    미리보기 중에는 아래 막대(.at-pv-bar)가 덮으므로 축척 막대를 그리지 않는다.
+    돌려주는 값: { svg, boxes: 차지한 상자 [x0, y0, x1, y1] (장소 · 구역 · 길 이름표가 비켜 간다) } */
+function atlasDeco(village, view, W, H) {
+  const z = view.z;
+  const u = atlasExporting || !atlasStageW ? 1 / z : ATLAS_W / (atlasStageW * z);
+  const f = (x) => x.toFixed(2);
+  const [x0, y0, x1, y1] = [view.x, view.y, view.x + W / z, view.y + H / z];
+  const gap = 8 * u;
+  const pad = 6 * u;
+  const narrow = !atlasExporting && atlasStageW > 0 && atlasStageW < 480;  // 휴대폰 폭에서는 글자를 줄인다 (이름표와 같이)
+  const on = S.atlasLayers.deco !== false;
+  const pv = atlasGenPreview();
+  const out = [];
+  const boxes = [];
+
+  // 제목 틀 (이름이 없으면 그리지 않고, 화면에는 이름 정하기 버튼 atlasTitleBox 가 뜬다)
+  const t = pv ? pv.title : S.atlas.title;
+  if (on && village && t && t.title && !(S.atlasTitleEdit && !pv)) {
+    const fn = (narrow ? 14 : 17) * u;
+    const pop = `${t.population ? `인구 약 ${t.population.toLocaleString()}명 · ` : ''}${t.unit || '집'} ${t.houses.toLocaleString()}채`;
+    const max = Math.max(fn * 4, (x1 - x0) * 0.6 - 2 * pad);  // 오른쪽 위 확대 버튼에 닿지 않게
+    const chars = [...t.title];
+    let name = t.title;
+    while (chars.length > 1 && atlasDecoW(name, fn, true) > max) { chars.pop(); name = chars.join('') + '…'; }
+    const fp = Math.min((narrow ? 10 : 11) * u, max / atlasDecoW(pop, 1));
+    const w = Math.max(atlasDecoW(name, fn, true), atlasDecoW(pop, fp)) + 2 * pad;
+    const h = 2 * pad + fn + 3 * u + fp;
+    const [bx, by] = [x0 + gap, y0 + gap];
+    const live = !pv && !atlasExporting;
+    out.push(`<g class="at-v-title${live ? ' live' : ''}"${live ? ' data-action="atlasTitleEdit" data-arg="1" role="button" tabindex="0" aria-label="지도 이름 바꾸기"' : ''}>${live ? '<title>눌러 이름 바꾸기 (D로 장식 숨기기)</title>' : ''}
+      <rect class="at-v-frame" x="${f(bx)}" y="${f(by)}" width="${f(w)}" height="${f(h)}" rx="${f(6 * u)}" stroke-width="${f(u)}"></rect>
+      <text class="at-v-title-name" x="${f(bx + pad)}" y="${f(by + pad + fn * 0.85)}" font-size="${f(fn)}">${esc(name)}</text>
+      <text class="at-v-title-pop" x="${f(bx + pad)}" y="${f(by + pad + fn + 3 * u + fp * 0.85)}" font-size="${f(fp)}">${esc(pop)}</text></g>`);
+    boxes.push([bx, by, bx + w, by + h]);
+  } else if (on && village && t && !t.title && !pv && !atlasExporting) {
+    boxes.push([x0 + gap, y0 + gap, x0 + gap + 130 * u, y0 + gap + 32 * u]);  // 이름 정하기 버튼 자리
+  }
+
+  // 오른쪽 아래: 축척 막대 · 북쪽 화살표 · 출처 글을 한 틀에
+  const src = village && village.source;
+  const sb = on && !pv ? atlasScaleBar(atlasMpu(), z, W) : null;
+  const north = on && !pv && village && village.generator === 'osm';
+  let fs = (narrow ? 9 : 10) * u;
+  if (src) fs = Math.min(fs, (x1 - x0 - 2 * gap - 2 * pad) / atlasDecoW(src, 1));  // 긴 출처 글(빈 블록을 채운 지도)도 들어가게
+  const sw = src ? atlasDecoW(src, fs) : 0;
+  if (sb || north) {
+    const fl = 10.5 * u;
+    const bh = 5 * u;
+    const nw = 12 * u;
+    const nh = 22 * u;
+    const rowH = Math.max(sb ? fl + 3 * u + bh : 0, north ? nh : 0);
+    const rowW = (north ? nw : 0) + (north && sb ? 10 * u : 0) + (sb ? Math.max(sb.units, atlasDecoW(sb.label, fl, true)) : 0);
+    const pw = Math.max(rowW, sw) + 2 * pad;
+    const ph = 2 * pad + rowH + (src ? 4 * u + fs : 0);
+    const [px1, py1] = [x1 - gap, y1 - gap];
+    const [px0, py0] = [px1 - pw, py1 - ph];
+    const right = px1 - pad;
+    const top = py0 + pad;
+    const parts = [`<rect class="at-v-frame" x="${f(px0)}" y="${f(py0)}" width="${f(pw)}" height="${f(ph)}" rx="${f(6 * u)}" stroke-width="${f(u)}"></rect>`];
+    let left = right;
+    if (sb) {
+      const L = sb.units;
+      const bx = right - L;
+      const by = top + rowH - bh;
+      parts.push(`<rect class="at-v-scale-b" x="${f(bx)}" y="${f(by)}" width="${f(L)}" height="${f(bh)}" stroke-width="${f(u)}"></rect>`,
+        `<rect class="at-v-scale-a" x="${f(bx)}" y="${f(by)}" width="${f(L / 2)}" height="${f(bh)}"></rect>`,
+        `<text class="at-v-scale-text" x="${f(right - L / 2)}" y="${f(by - 3 * u)}" font-size="${f(fl)}" text-anchor="middle">${esc(sb.label)}</text>`);
+      left = Math.min(bx, right - L / 2 - atlasDecoW(sb.label, fl, true) / 2);
+    }
+    if (north) {
+      const cx = (sb ? left - 10 * u : right) - nw / 2;
+      const ny = top + (rowH - nh) / 2;
+      const tip = ny + 11 * u;
+      const foot = ny + nh;
+      parts.push(`<text class="at-v-north-n" x="${f(cx)}" y="${f(ny + 8.5 * u)}" font-size="${f(9.5 * u)}" text-anchor="middle">N</text>`,
+        `<path class="at-v-north-b" d="M${f(cx)},${f(tip)}L${f(cx + nw / 2)},${f(foot)}L${f(cx)},${f(foot - 4 * u)}Z" stroke-width="${f(u * 0.8)}"></path>`,
+        `<path class="at-v-north-a" d="M${f(cx)},${f(tip)}L${f(cx - nw / 2)},${f(foot)}L${f(cx)},${f(foot - 4 * u)}Z" stroke-width="${f(u * 0.8)}"></path>`);
+    }
+    if (src) parts.push(`<text class="at-v-source" x="${f(right)}" y="${f(py1 - pad - fs * 0.2)}" font-size="${f(fs)}" stroke-width="${f(fs * 0.3)}" text-anchor="end">${esc(src)}</text>`);
+    out.push(`<g class="at-v-deco">${parts.join('')}</g>`);
+    boxes.push([px0, py0, px1, py1]);
+  } else if (src) {
+    // 장식을 꺼도 출처 글은 그린다 (README 2026-10-28)
+    out.push(`<text class="at-v-source" x="${f(x1 - gap)}" y="${f(y1 - gap)}" font-size="${f(fs)}" stroke-width="${f(fs * 0.3)}" text-anchor="end">${esc(src)}</text>`);
+    boxes.push([x1 - gap - sw, y1 - gap - fs, x1 - gap, y1 - gap + fs * 0.25]);
+  }
+  return { svg: out.join(''), boxes };
 }
 
 // ----- 지도 그림 -----
@@ -529,6 +647,7 @@ function atlasSvg() {
   const z = view.z;
   const sc = 1 / z;  // 핀 · 이름표 · 인물은 확대해도 화면에서 같은 크기
   const labels = [];  // { x, y, text, cls, first } 를 모아 마지막에 서로 비켜 놓는다
+  const deco = atlasDeco(village, view, W, H);  // 장식은 맨 위에 그리지만 이름표보다 먼저 자리를 잡는다
 
   // 지도 만들기 미리보기: 생성기가 고른 자리 (놓기로 고른 것만)
   if (pv) {
@@ -607,8 +726,8 @@ function atlasSvg() {
       <circle class="at-dot" cx="${x}" cy="${y}" r="${((sel ? 9 : 7) * sc).toFixed(2)}" stroke-width="${(2.5 * sc).toFixed(2)}"></circle></g>`);
     labels.push({ x, y, text: pl.name + (old ? ' (지금 자리)' : ''), cls: `${later ? ' later' : ''}${old ? ' old' : ''}`, first: sel });
   });
-  // 구역 이름은 장소 이름표가 자리를 잡은 뒤 남는 곳에만 (장소 이름표 아래 겹)
-  const taken = [];
+  // 구역 이름은 장소 이름표가 자리를 잡은 뒤 남는 곳에만 (장소 이름표 아래 겹). 모두 장식을 비켜 간다
+  const taken = deco.boxes.slice();
   const names = atlasLabels(labels, sc, fs, taken);
   if (village && S.atlasLayers.wards !== false) out.push(atlasWardLabels(village, W, H, fs * 0.85, taken));
   if (village && S.atlasLayers.streets !== false && village.streets) out.push(atlasStreetLabels(village, W, H, fs * 0.78, taken, z));
@@ -635,6 +754,7 @@ function atlasSvg() {
         <text x="${x.toFixed(1)}" y="${(y + 4.5 * sc).toFixed(1)}" font-size="${(12 * sc).toFixed(2)}" text-anchor="middle">${esc([...(c.name || c.id)][0])}</text></g>`);
     });
   });
+  out.push(deco.svg);
   // 화풍은 마을 그림에만 (배경 그림 · 모눈 지도는 앱 색 그대로)
   return `<svg class="at-map${village ? ` st-${S.atlasStyle}` : ''}${S.atlasPick ? ' picking' : ''}" viewBox="${atlasViewBox(view)}" role="group" aria-label="${esc(frameLabel(f))} 지도">${out.join('')}</svg>`;
 }
@@ -654,6 +774,21 @@ function atlasLabelPick(streets, W, H, gap, draw = () => true) {
     same.push([x, y]);
     return true;
   });
+}
+
+/** 축척 막대: 보이는 폭의 약 1/6 에 가장 가까운 둥근 값 (1 · 2 · 5 × 10ⁿ m, 10m 부터).
+    mpu: 지도 단위 1 이 몇 m, z: 확대 배율, W: 지도 폭(지도 단위). 축척을 모르면 null.
+    돌려주는 값: { meters, label: '200m' · '1km', units: 막대 길이(지도 단위) } */
+function atlasScaleBar(mpu, z = 1, W = 1000) {
+  if (!(mpu > 0) || !Number.isFinite(mpu) || !(z > 0)) return null;
+  const want = ((W / z) / 6) * mpu;
+  let best = 10;
+  for (let p = 10; p <= 1e7; p *= 10) {
+    [1, 2, 5].forEach((d) => {
+      if (Math.abs(Math.log(d * p / want)) < Math.abs(Math.log(best / want))) best = d * p;
+    });
+  }
+  return { meters: best, label: best >= 1000 ? `${best / 1000}km` : `${best}m`, units: best / mpu };
 }
 
 /** 두 장소 자리 표({장소 키: [x, y]}) 사이에 바뀐 것만. { b: 전 자리, a: 뒤 자리 } (없던 자리는 null), 같으면 null */
@@ -780,11 +915,12 @@ window.addEventListener('resize', () => {
 const atlasTextW = (t, fs) => [...t].reduce((n, ch) => n + (ch.charCodeAt(0) > 0x2e80 ? 1 : 0.6), 0) * fs;
 
 /** 이름표를 서로 · 다른 점과 겹치지 않게 놓는다. 점 둘레 여덟 자리를 먼저 보고, 다 막히면 점점 먼 고리에서 빈자리를 찾아
-    지시선을 긋는다. 끝내 못 찾으면 마지막 자리에 겹쳐 둔다. sc: 핀 크기 배율(1/확대), fs: 글자 크기(지도 단위) */
+    지시선을 긋는다. 끝내 못 찾으면 마지막 자리에 겹쳐 둔다. sc: 핀 크기 배율(1/확대), fs: 글자 크기(지도 단위)
+    taken: 먼저 차지한 상자 (지도 장식). 이것도 비켜 가고, 놓은 이름표 상자를 더해 돌려준다 */
 function atlasLabels(list, sc, fs = 15 * sc, taken = []) {
   const g = 14 * sc;
   const dots = list.map((l) => [l.x - 7 * sc, l.y - 7 * sc, l.x + 7 * sc, l.y + 7 * sc]);
-  const placed = [];
+  const placed = taken.slice();
   const hit = (b) => placed.some((p) => b[0] < p[2] && b[2] > p[0] && b[1] < p[3] && b[3] > p[1])
     || dots.some((d) => b[0] < d[2] && b[2] > d[0] && b[1] < d[3] && b[3] > d[1]);
   const near = [[0, -g, 'middle'], [0, g + fs * 0.8, 'middle'], [g, fs * 0.35, 'start'], [-g, fs * 0.35, 'end'],
@@ -813,7 +949,7 @@ function atlasLabels(list, sc, fs = 15 * sc, taken = []) {
     placed.push(boxOf(spots[k]));
     out.push(`${k >= near.length ? `<line class="at-leader" x1="${l.x.toFixed(1)}" y1="${l.y.toFixed(1)}" x2="${(l.x + dx).toFixed(1)}" y2="${(l.y + dy - fs * 0.4).toFixed(1)}" stroke-width="${sc.toFixed(2)}"></line>` : ''}<text class="at-name${l.cls}" x="${(l.x + dx).toFixed(1)}" y="${(l.y + dy).toFixed(1)}" text-anchor="${a}" font-size="${fs.toFixed(2)}" stroke-width="${(fs * 0.27).toFixed(2)}">${esc(l.text)}</text>`);
   });
-  taken.push(...placed, ...dots);  // 뒤에 놓는 구역 이름이 비켜 가도록
+  taken.push(...placed.slice(taken.length), ...dots);  // 뒤에 놓는 구역 이름이 비켜 가도록
   return `<g class="at-labels">${out.join('')}</g>`;
 }
 
@@ -899,7 +1035,8 @@ function atlasBackground() {
   return `<div class="at-box"><h3>배경 그림</h3>
     <div class="small">직접 그리거나 다른 도구(Azgaar, Inkarnate 등)로 만든 지도 그림을 올리면 그 위에 장소를 놓아요. PNG · JPG · WEBP, 15MB까지.</div>
     <div class="row"><label class="btn small" for="at-image">${S.atlas.image ? '그림 바꾸기' : '그림 올리기'}</label><input id="at-image" type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-atlas-image hidden>
-      ${S.atlas.image ? '<button type="button" class="btn small ghost" data-action="atlasDropImage">그림 지우기</button>' : ''}</div></div>`;
+      ${S.atlas.image ? '<button type="button" class="btn small ghost" data-action="atlasDropImage">그림 지우기</button>' : ''}</div>
+    ${atlasMpu() ? '' : `<div class="small at-um-note">지도 크기를 몰라 축척 막대를 그리지 않아요.${S.atlas.travel && S.atlas.travel.enabled ? ' 이동 시간 검사 칸에 지도 가로를 km로 적으면 그려요.' : ' 이동 시간 검사를 켜고 지도 가로를 km로 적으면 그려요.'}</div>`}</div>`;
 }
 
 // ----- 화면 조립 -----
@@ -939,18 +1076,18 @@ function atlasStage() {
   return `<div class="at-map-wrap${z > 1 ? ' zoomed' : ''}">${atlasSvg()}${atlasTitleBox()}${atlasZoomBox()}${atlasBldMenu()}${atlasGenBar()}</div>`;
 }
 
-/** 지도 위 마을 이름 · 인구. 누르면 이름을 바꾼다 (미리보기 중에는 미리보기 마을 기준, 바꿀 수 없음) */
+/** 지도 이름 고치는 칸. 이름이 있으면 제목 틀(atlasDeco, SVG)을 눌러 열고, 없으면 틀 대신 '이름 정하기' 버튼을 띄운다
+    (미리보기 중에는 바꿀 수 없음) */
 function atlasTitleBox() {
   const pv = atlasGenPreview();
   const t = pv ? pv.title : S.atlas.title;
-  if (!t || !atlasVillage() || !S.atlasLayers.title) return '';
-  if (S.atlasTitleEdit && !pv) {
+  if (!t || !atlasVillage() || !S.atlasLayers.deco || pv) return '';
+  if (S.atlasTitleEdit) {
     return `<form class="at-title-edit" data-atlas-title-form><input name="title" maxlength="40" value="${esc(t.custom ? t.title : '')}" placeholder="${esc(t.title || `${t.kind || '마을'} 이름`)}" aria-label="${esc(t.kind || '마을')} 이름">
       <button type="submit" class="btn small primary">저장</button><button type="button" class="btn small ghost" data-action="atlasTitleEdit" data-arg="">취소</button></form>`;
   }
-  const name = t.title || `이름 없는 ${t.kind || '마을'}`;
-  return `<button type="button" class="at-title" ${pv ? 'disabled' : 'data-action="atlasTitleEdit" data-arg="1"'} title="${pv ? '' : '눌러 이름 바꾸기 (N으로 숨기기)'}">
-    <span class="at-title-name">${esc(name)}</span><span class="at-title-pop">${t.population ? `인구 약 ${t.population.toLocaleString()}명 · ` : ''}${esc(t.unit || '집')} ${t.houses.toLocaleString()}채</span></button>`;
+  if (t.title) return '';
+  return `<button type="button" class="btn small at-title-add" data-action="atlasTitleEdit" data-arg="1" title="지도 이름을 정하면 제목 틀이 생겨요 (D로 장식 숨기기)">${esc(t.kind || '마을')} 이름 정하기</button>`;
 }
 
 function atlasZoomBox() {
@@ -1686,6 +1823,11 @@ document.addEventListener('click', async (e) => {
 
 // 키보드: 장소에서 Enter 는 자세히 보기, 화살표는 1% (Shift 5%) 옮기기
 document.addEventListener('keydown', (e) => {
+  if (e.target.closest && e.target.closest('.at-v-title[data-action]') && (e.key === 'Enter' || e.key === ' ')) {
+    e.preventDefault();
+    actions.atlasTitleEdit(1);
+    return;
+  }
   const g = e.target.closest && e.target.closest('[data-atlas-pin]');
   if (!g) return;
   const pl = atlasPlace(g.dataset.atlasPin);
@@ -1733,10 +1875,7 @@ document.addEventListener('keydown', (e) => {
 .at-zoom { position: absolute; top: 8px; right: 8px; display: flex; flex-direction: column; gap: 4px; }
 .at-zoom .btn { min-width: 34px; padding: 4px 0; background: var(--surface); }
 .at-undo { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
-.at-title { position: absolute; top: 8px; left: 8px; display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: color-mix(in srgb, var(--surface) 88%, transparent); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
-.at-title:disabled { cursor: default; }
-.at-title-name { font-size: 1.125rem; font-weight: 700; }
-.at-title-pop { font-size: 0.75rem; color: var(--muted); }
+.at-title-add { position: absolute; top: 8px; left: 8px; background: color-mix(in srgb, var(--surface) 88%, transparent); }
 .at-title-edit { position: absolute; top: 8px; left: 8px; display: flex; gap: 6px; padding: 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .at-title-edit input { width: 180px; }
 .at-bld { position: absolute; width: 250px; display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 6px 20px color-mix(in srgb, #000 18%, transparent); z-index: 2; }
@@ -1794,6 +1933,11 @@ document.addEventListener('keydown', (e) => {
   --v-lamp: #FFD66E;
   --v-glow: rgba(255, 196, 77, 0.28);
   --v-lw: 1;
+  /* 지도 장식(제목 틀 · 축척 막대 · 북쪽 화살표) 색. 화풍마다 바뀌는 바탕 · 글자 변수에서 만든다 */
+  --v-frame: color-mix(in srgb, var(--surface) 88%, transparent);
+  --v-frame-edge: color-mix(in srgb, var(--text) 35%, transparent);
+  --v-frame-ink: var(--text);
+  --v-frame-muted: var(--muted);
 }
 .at-map.st-parchment {
   --canvas: #EFE3C4; --surface: #F7EEDA; --text: #3B2814; --muted: #7D6A4E;
@@ -1831,6 +1975,7 @@ document.addEventListener('keydown', (e) => {
   --v-roof-dark: rgba(0, 0, 0, 0.2); --v-ridge: #000000;
   --v-tree-shadow: rgba(0, 0, 0, 0.14); --v-tree: #D2D2D2; --v-tree-edge: #000000; --v-tree-hi: rgba(255, 255, 255, 0.6);
   --v-lw: 1.8;
+  --v-frame: #FFFFFF; --v-frame-edge: #000000;
 }
 .at-map .at-v-ground { fill: var(--v-ground); }
 .at-map .at-v-field.t0 { fill: var(--v-field0); }
@@ -1873,7 +2018,19 @@ document.addEventListener('keydown', (e) => {
 .at-map .at-v-use.g-care { fill: #16A085; }
 .at-map .at-v-use.g-noble { fill: #B7950B; }
 .at-map .at-v-use.g-work { fill: #5D6D7E; }
-.at-map .at-v-source { fill: var(--muted, #555); stroke: var(--canvas, #fff); paint-order: stroke; font-family: inherit; }
+.at-map .at-v-source { fill: var(--muted, #555); stroke: var(--canvas, #fff); paint-order: stroke; font-family: inherit; pointer-events: none; }
+.at-map .at-v-frame { fill: var(--v-frame); stroke: var(--v-frame-edge); }
+.at-map .at-v-deco { pointer-events: none; }
+.at-map .at-v-deco .at-v-source { stroke: none; }
+.at-map .at-v-title { pointer-events: none; }
+.at-map .at-v-title.live { pointer-events: auto; cursor: pointer; }
+.at-map .at-v-title.live:focus-visible .at-v-frame { stroke: var(--accent); }
+.at-map .at-v-title-name { fill: var(--v-frame-ink); font-weight: 700; font-family: inherit; }
+.at-map .at-v-title-pop { fill: var(--v-frame-muted); font-family: inherit; }
+.at-map .at-v-scale-a, .at-map .at-v-north-a { fill: var(--v-frame-ink); }
+.at-map .at-v-scale-b, .at-map .at-v-north-b { fill: var(--v-frame); stroke: var(--v-frame-ink); }
+.at-map .at-v-north-a { stroke: var(--v-frame-ink); }
+.at-map .at-v-scale-text, .at-map .at-v-north-n { fill: var(--v-frame-ink); font-family: inherit; font-weight: 600; }
 .at-map .at-v-use.g-store { fill: #7F8C8D; fill-opacity: 0.35; }
 .at-map .at-v-hi { fill: none; stroke: var(--accent); stroke-linejoin: round; }
 .at-map .at-v-street-label { fill: var(--text); fill-opacity: 0.7; stroke: var(--canvas); stroke-opacity: 0.85; paint-order: stroke; stroke-linejoin: round; font-style: italic; pointer-events: none; }

@@ -1,4 +1,5 @@
 /* 지도 내보내기 (atlas.js 에서 뗐다): 확대와 상관없이 지도 전체를 SVG 나 PNG 로 내려받는다.
+   제목 틀 · 축척 막대 · 출처 글은 atlasSvg 의 장식(atlasDeco)이 함께 그린다.
    app.js 의 S, actions, run, P 와 atlas.js 의 atlasSvg · atlasH · ATLAS_W · atlasExporting 을 쓴다. */
 'use strict';
 
@@ -47,15 +48,7 @@ function atlasExportSvg() {
       el.removeAttribute('tabindex');
     });
     svg.querySelectorAll('.at-hit, title').forEach((el) => el.remove());
-    const t = S.atlas.title;
-    if (t && t.title && S.atlasLayers.title && atlasVillage()) {
-      // 마을 이름 글자 · 테두리는 고른 화풍의 글자 · 바탕색 (.at-map 의 --text · --canvas)
-      const cs = getComputedStyle(svg);
-      const ink = color(cs.color)[0];
-      const halo = color(cs.getPropertyValue('--canvas').trim() || '#fff')[0];
-      svg.insertAdjacentHTML('beforeend', `<text x="24" y="44" style="font-size:30px;font-weight:700;fill:${ink};paint-order:stroke;stroke:${halo};stroke-opacity:.8;stroke-width:5px">${esc(t.title)}</text>
-        <text x="24" y="70" style="font-size:15px;fill:${ink};paint-order:stroke;stroke:${halo};stroke-opacity:.8;stroke-width:4px">인구 약 ${t.population.toLocaleString()}명</text>`);
-    }
+    svg.querySelectorAll('[data-action]').forEach((el) => { el.removeAttribute('data-action'); el.removeAttribute('data-arg'); });
     svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
     svg.setAttribute('width', ATLAS_W);
     svg.setAttribute('height', atlasH());
