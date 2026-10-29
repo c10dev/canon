@@ -1,8 +1,8 @@
 /* 장면 연출 (서버 stage.py, 설계 docs/stage/). app.js 의 S, actions, api, render, header, esc, enc, ep, P, base, toast, charName, isTyping 을 쓴다.
    주소 stage/<화>/<사건 번호(1부터)>. 플롯 사건 하나의 장면을 방 평면도 위에 박자마다 짜고 재생한다.
    고치는 장면은 S.stg.scene · room 에 따로 들고 '저장'으로 PUT 한다(작품 전체 저장과 따로). 고칠 때마다 서버가 저장 없이 판정한다(POST …/check).
-   인물 자리는 기준점 + 관계 말이고 좌표는 stageLayout 이 계산한다 (stage.place 와 같은 규칙, tests/test_stage_js.py).
-   stageState · stageLayout · stageAnchorPoint · stageFacing · stageSnap · stageSexual 은 DOM 없는 순수 함수다. */
+   인물 자리는 기준점 + 관계 말이고 좌표는 stageLayout 이 계산하고 stageLayouts 가 박자마다 앞 박자 좌표를 잇는다 (stage.place · layouts 와 같은 규칙, tests/test_stage_js.py).
+   stageState · stageLayout · stageLayouts · stageAnchorPoint · stageFacing · stageSnap · stageSexual 은 DOM 없는 순수 함수다. */
 'use strict';
 
 Object.assign(S, {
@@ -88,8 +88,8 @@ function stageState(scene, k) {
   return out;
 }
 
-/** 인물마다 평면도 좌표 (m). stage.place 와 같다. */
-function stageLayout(room, state, order = []) {
+/** 인물마다 평면도 좌표 (m). stage.place 와 같다. prev 는 앞 박자 좌표 (기준 인물이 나를 향하는데 내 자리를 아직 모를 때 쓴다). */
+function stageLayout(room, state, order = [], prev = null) {
   const names = order.filter((w) => w in state).concat(Object.keys(state).filter((w) => !order.includes(w)));
   const anchors = Object.fromEntries(room.anchors.map((a) => [a.id, a]));
   const pos = {};
@@ -116,7 +116,8 @@ function stageLayout(room, state, order = []) {
     for (const w of [...rest]) {
       const ref = state[w].at.ref.slice(1);
       if (ref in pos) {
-        pos[w] = stgPersonPoint(pos[ref], state[ref].facing, state[w].at.rel, room, pos);
+        const look = prev && prev[w] ? { ...pos, [w]: prev[w] } : pos;
+        pos[w] = stgPersonPoint(pos[ref], state[ref].facing, state[w].at.rel, room, look);
         rest.splice(rest.indexOf(w), 1);
         moved = true;
       }
@@ -125,6 +126,13 @@ function stageLayout(room, state, order = []) {
   }
   const clamp = (v, hi) => Math.min(Math.max(v, STG_BODY), hi - STG_BODY);
   return Object.fromEntries(Object.entries(pos).map(([w, [x, y]]) => [w, [clamp(x, room.w), clamp(y, room.h)]]));
+}
+
+/** 박자 0~k 의 좌표 목록. 박자마다 앞 박자 좌표를 넘긴다. stage.layouts 와 같다. */
+function stageLayouts(room, scene, k = (scene.beats || []).length) {
+  const out = [];
+  for (let i = 0; i <= k; i++) out.push(stageLayout(room, stageState(scene, i), scene.cast, i ? out[i - 1] : null));
+  return out;
 }
 
 /** 평면도에서 끌어 놓은 자리 (m) 에 가장 가까운 기준점 + 관계. 기준점이 없으면 null. */
@@ -244,9 +252,9 @@ function stgPlanSvg(pos, ang, k) {
   const g = S.stg, room = g.room, sc = stgScale(room);
   const px = ([x, y]) => [sc.ox + x * sc.s, sc.oy + y * sc.s];
   const st = stageState(g.scene, k);
-  const prev = k > 0 ? stageLayout(room, stageState(g.scene, k - 1), g.scene.cast) : null;
-  const now = stageLayout(room, st, g.scene.cast);
-  const bad = new Set((g.check ? g.check.violations : []).filter((v) => v.beat === k).map((v) => v.who));
+  const all = stageLayouts(room, g.scene, k), prev = k > 0 ? all[k - 1] : null, now = all[k];
+  const flags = (g.check ? g.check.violations : []).filter((v) => v.beat === k);
+  const bad = new Set(flags.map((v) => v.who)), badContact = new Set(flags.map((v) => v.contact).filter(Boolean));
   let out = '<defs><marker id="stg-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--muted)"/></marker></defs>';
   out += `<rect class="stg-wall" x="${sc.ox}" y="${sc.oy}" width="${room.w * sc.s}" height="${room.h * sc.s}" rx="2"/>`;
   room.anchors.forEach((a) => {
@@ -263,7 +271,7 @@ function stgPlanSvg(pos, ang, k) {
   Object.keys(st).forEach((w) => Object.values(st[w].contacts).forEach((c) => {
     if (!pos[w] || !pos[c.to]) return;
     const [x1, y1] = px(pos[w]), [x2, y2] = px(pos[c.to]);
-    out += `<path class="stg-contact${bad.has(w) ? ' bad' : ''}" d="M${x1} ${y1}L${x2} ${y2}" stroke="${stgColor(w)}"/>`;
+    out += `<path class="stg-contact${badContact.has(c.id) ? ' bad' : ''}" d="M${x1} ${y1}L${x2} ${y2}" stroke="${stgColor(w)}"/>`;
   }));
   if (prev) Object.keys(now).forEach((w) => {
     if (!prev[w] || Math.hypot(prev[w][0] - now[w][0], prev[w][1] - now[w][1]) < 0.05) return;
@@ -288,7 +296,7 @@ function stgPlanSvg(pos, ang, k) {
 }
 
 function stgTarget(k) {
-  const g = S.stg, st = stageState(g.scene, k), pos = stageLayout(g.room, st, g.scene.cast), ang = {};
+  const g = S.stg, st = stageState(g.scene, k), pos = stageLayouts(g.room, g.scene, k)[k], ang = {};
   Object.keys(pos).forEach((w) => {
     const v = stageFacing(st[w].facing, pos[w], g.room, pos);
     ang[w] = v ? Math.atan2(v[1], v[0]) : null;

@@ -78,6 +78,58 @@ def test_place_person_relations_and_cycle():
     assert set(stage.place(room, loop)) == {"a", "b"}
 
 
+def test_place_uses_previous_spot_when_ref_faces_me():
+    # 목업 5박자: 하린은 책상 앞에서 '@도윤 앞'으로, 도윤은 하린을 향한다 (PR #159 댓글)
+    room = _room()
+    s = StageScene(id="s", cast=["h", "d"], start=[
+        StageBody(who="h", at=StageSpot(ref=_a(room, "책상"), rel="front")),
+        StageBody(who="d", at=StageSpot(ref=_a(room, "침대"), rel="right"), facing="@h"),
+    ], beats=[StageBeat(bodies=[StageBody(who="h", at=StageSpot(ref="@d", rel="front"))])])
+    before, after = stage.layouts(room, s)
+    d = after["d"]
+    # 하린은 앞 박자 자리 쪽(도윤에게서 본 방향)으로 한 걸음 거리에 선다
+    want = math.atan2(before["h"][1] - d[1], before["h"][0] - d[0])
+    assert math.atan2(after["h"][1] - d[1], after["h"][0] - d[0]) == pytest.approx(want)
+    assert math.dist(after["h"], d) == pytest.approx(stage.BODY * 2 + 0.05)
+    # 앞 박자가 없으면 예전처럼 아래를 본다고 친다
+    alone = stage.place(room, stage.state_at(s, 1), s.cast)
+    assert alone["h"][0] == pytest.approx(d[0]) and alone["h"][1] > d[1]
+    # judge 도 같은 좌표를 쓴다: 한 걸음 앞이면 손이 닿는다
+    s.beats.append(StageBeat(bodies=[StageBody(who="d", contacts=[StageContact(id="c1", by="right", to="h", part="wrist_l", act="hold")])]))
+    assert _rules(s, room) == []
+
+
+def test_seats_face_their_furniture():
+    # 의자 · 자리의 앞(rot)이 마주 보는 가구 가운데 쪽을 향한다
+    pairs = {"bedroom": [("의자", "책상")], "living": [("소파", "탁자")], "office": [("의자", "책상"), ("손님 의자", "책상")],
+             "classroom": [("앞자리", "교탁"), ("뒷자리", "교탁"), ("창가 자리", "교탁")], "car": [("운전석", "앞유리"), ("조수석", "앞유리")],
+             "carriage": [("앞좌석", "뒷좌석"), ("뒷좌석", "앞좌석")]}
+    for key, rows in pairs.items():
+        room = stage.make_room(key, "r")
+        by = {a.name: a for a in room.anchors}
+        for seat, thing in rows:
+            a, b = by[seat], by[thing]
+            fx, fy = stage._front(a.rot)
+            dx, dy = b.x + b.w / 2 - (a.x + a.w / 2), b.y + b.h / 2 - (a.y + a.h / 2)
+            assert fx * dx + fy * dy > 0.7 * math.hypot(dx, dy), (key, seat)
+
+
+def test_violation_names_contact():
+    room = _room()
+    s = _scene(room, [
+        # 문 앞 도윤이 한 박자에 두 접촉을 시작하는데 의자에 앉은 하린 접촉만 닿지 않는다 (다른 사람 x 는 바로 앞)
+        StageBeat(bodies=[StageBody(who="x", at=StageSpot(ref="@d", rel="front")),
+                          StageBody(who="d", contacts=[
+                              StageContact(id="c1", by="right", to="h", part="wrist_l", act="hold"),
+                              StageContact(id="c2", by="left", to="x", part="hand_r", act="hold")])]),
+        StageBeat(bodies=[StageBody(who="d", ends=["c1"], contacts=[StageContact(id="c3", by="left", to="x", part="shoulder_r", act="press")])]),
+    ])
+    s.cast.append("x")
+    got = [(v.beat, v.rule, v.contact) for v in stage.judge(s, room, _project())]
+    assert (1, "reach", "c1") in got and all(c != "c2" for _, _, c in got)
+    assert (2, "hand_busy", "c3") in got
+
+
 def test_clean_scene_has_no_violations():
     room = _room()
     s = _scene(room, [
@@ -107,6 +159,8 @@ def test_rules_each_fire():
     assert (2, "reach", "d") in got
     assert (3, "hand_busy", "h") in got
     assert (4, "handoff", "h") in got
+    byrule = {v.rule: v.contact for v in stage.judge(s, room, _project())}
+    assert byrule["reach"] == "c1" and byrule["hand_busy"] == "c2" and byrule["handoff"] == ""
     v = next(v for v in stage.judge(s, room, _project()) if v.rule == "handoff")
     assert v.cause == 0 and "펜" in v.text
 
@@ -121,6 +175,7 @@ def test_behind_front():
         StageBeat(bodies=[StageBody(who="d", ends=["c1"], contacts=[StageContact(id="c2", by="right", to="h", part="back", act="pat")])]),
     ])
     assert _rules(s, room) == [(2, "behind_front", "d")]
+    assert [v.contact for v in stage.judge(s, room, _project())] == ["c1"]
 
 
 def test_unknown_hand_is_not_judged():
