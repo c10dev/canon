@@ -1,6 +1,6 @@
 # 05. 렌더러 · 화면 (읽기 전용 3D 보기)
 
-상태: 명세 · 지도: [../README.md](../README.md) 의 05 · 먼저: [01-body.md](01-body.md), [06-three.md](06-three.md) · 시안: [../../mockup-3d.html](../../mockup-3d.html)
+상태: 완료 (2026-10-29, `canon/static/stage3d.js`, 엔드포인트 `GET · POST …/stage/{n}/{sid}/frames`, 아래 '구현 메모') · 지도: [../README.md](../README.md) 의 05 · 먼저: [01-body.md](01-body.md), [06-three.md](06-three.md) · 시안: [../../mockup-3d.html](../../mockup-3d.html)
 
 ## 목표
 
@@ -49,6 +49,15 @@
 ## 문서
 
 AGENTS.md 표에 `static/stage3d.js` 줄. README.md · DESIGN.md 의 장면 연출 절에 3D 보기 한 문단. 이 폴더 README 상태 표.
+
+## 구현 메모 (2026-10-29)
+
+- `index.html` 에 `stage3d.js` 를 `stage3d-load.js` 바로 뒤에 넣었다. 이 파일은 three.js 를 import 하지 않고, three.js 는 '3D' 를 처음 누를 때 `load3d()` 로만 읽는다. `stage.js` 가 `s3Toggle` · `s3Pane` · `s3Mount` 를 `typeof` 로 확인하고 부르므로 이 파일이 없어도 평면도는 돈다.
+- 엔드포인트: `GET …/stage/{n}/{sid}/frames` 는 저장된 장면, `POST` 같은 주소(몸 `{scene, room}`)는 저장하지 않은 장면이다. 화면은 고치는 중(`S.stg.dirty`)이면 POST 로 받는다. 응답 `{frames, violations3d, missing}`. `violations3d` 는 `canon/stage3d/judge.py` 가 있고 `stage3d.complete()` 일 때만 채운다(정할 것 10).
+- 캔버스는 화면을 다시 그려도 새로 만들지 않는다. `s3.host` 를 render 뒤 `#stg-3d` 자리로 옮겨 붙인다.
+- 계약 빈틈 두 가지를 화면에서 메웠다. `Frames.to_dict()` 의 접촉에 동작(`act`)이 없어 안기 붙이기는 평면도 상태(`stageState`)에서 접촉 id 로 동작을 찾는다. 자세 모듈이 없는 인물은 관절도 평면 자리도 없어 회색 기둥 자리는 `stageLayout` 으로 계산한다(서버 `stage.place` 와 같은 규칙).
+- 빨강은 2D 판정(`S.stg.check.violations`)과 `violations3d` 를 합쳐 쓴다. 지금 `stage.Violation` 에 `contact` 칸이 없으면 그 인물의 접촉 선을 모두 빨갛게 한다(`s3Flags`).
+- 브라우저 확인(가짜 등록부 mock 서버): 넓은 화면 · 375px(가로 넘침 없음), 다크 모드 배경 · 재질, 재생 1~5박자, 카메라 셋, 빠진 자세 회색 기둥, 안기 붙이기 안내, 고친 뒤 '다시 그리기'.
 
 ## 확인하지 못할 것
 

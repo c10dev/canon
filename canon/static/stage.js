@@ -756,11 +756,11 @@ function viewStage(n) {
   if (ck.dropped) notes.push(`<div class="note warn">미성년 인물이 낀 성적 접촉 ${ck.dropped}개는 저장할 때 빠져요.</div>`);
   const max = g.scene.beats.length;
   const plan = `<section class="card stg-planc stg-pane" data-pane="plan"${S.stgPane === 'side' ? ' data-hide' : ''} aria-label="평면도">
-      <div class="between"><h2>${esc(g.room ? g.room.name : '방')}${g.role === 'text' ? ' <span class="chip">추출 결과</span>' : ''}</h2><div class="seg" role="group" aria-label="평면도 모드"><button type="button" aria-pressed="${g.mode === 'people'}" data-action="stgMode" data-arg="people">인물</button><button type="button" aria-pressed="${g.mode === 'room'}" data-action="stgMode" data-arg="room">방 고치기</button></div></div>
-      ${g.room ? `<svg id="stg-plan" viewBox="0 0 ${stgScale(g.room).w} ${stgScale(g.room).h}" role="img" aria-label="${esc(g.room.name)} 평면도, ${g.beat === 0 ? '시작 상태' : `${g.beat}박자`}"></svg>` : '<p class="small">방을 찾지 못했어요.</p>'}
+      <div class="between"><h2>${esc(g.room ? g.room.name : '방')}${g.role === 'text' ? ' <span class="chip">추출 결과</span>' : ''}</h2>${typeof s3Toggle === 'function' ? s3Toggle() : ''}<div class="seg" role="group" aria-label="평면도 모드"><button type="button" aria-pressed="${g.mode === 'people'}" data-action="stgMode" data-arg="people">인물</button><button type="button" aria-pressed="${g.mode === 'room'}" data-action="stgMode" data-arg="room">방 고치기</button></div></div>
+      ${S.stgView === '3d' && g.room && typeof s3Pane === 'function' ? s3Pane() : g.room ? `<svg id="stg-plan" viewBox="0 0 ${stgScale(g.room).w} ${stgScale(g.room).h}" role="img" aria-label="${esc(g.room.name)} 평면도, ${g.beat === 0 ? '시작 상태' : `${g.beat}박자`}"></svg>` : '<p class="small">방을 찾지 못했어요.</p>'}
       <div class="stg-play"><button type="button" class="btn small" data-action="stgPlay"${max ? '' : ' disabled'}>${g.playing ? '❚❚ 멈춤' : '▶ 재생'}</button>
         <input type="range" min="0" max="${max}" step="1" value="${g.beat}" data-stg-slider aria-label="박자" aria-valuetext="${g.beat === 0 ? '시작 상태' : `${g.beat}박자`}"><span class="small">${g.beat} / ${max}</span></div>
-      <div class="stg-legend"><span>쐐기 = 향한 쪽</span><span>점선 = 접촉</span><span>화살표 = 이번 박자 이동</span><span>${g.mode === 'room' ? '기준점을 끌어 옮겨요' : '인물을 끌어 놓으면 가까운 기준점에 붙어요'}</span></div>
+      <div class="stg-legend"${S.stgView === '3d' ? ' style="display:none"' : ''}><span>쐐기 = 향한 쪽</span><span>점선 = 접촉</span><span>화살표 = 이번 박자 이동</span><span>${g.mode === 'room' ? '기준점을 끌어 옮겨요' : '인물을 끌어 놓으면 가까운 기준점에 붙어요'}</span></div>
       ${g.role === 'text' ? (ck.pair ? `<label class="row small"><input type="checkbox" data-stg-ghost${g.ghost ? ' checked' : ''}> 겹쳐 보기 (계획 인물을 흐린 원으로)</label>` : '')
     : `<label class="row small"><input type="checkbox" data-stg-prompt${g.scene.prompt ? ' checked' : ''}> 쓰기 프롬프트에 넣기</label>`}
     </section>`;
@@ -772,7 +772,7 @@ function viewStage(n) {
 /** render 뒤 평면도를 그린다 (app.js render 가 부른다). */
 function syncStage() {
   if (!S.stg || S.route[2] !== 'stage') return;
-  stgDrawPlan(null);
+  if (S.stgView === '3d' && typeof s3Mount === 'function') s3Mount(); else stgDrawPlan(null);
 }
 
 // ----- 동작 -----
