@@ -160,3 +160,13 @@ DESIGN.md '현대 동네 생성기' 절, AGENTS.md 의 moderngen · towngen 줄.
 - 계약과 다르게 둔 것:
   - `PLACE_KINDS`(옛 id → 자리 글)를 현대 id 로 바꾸지 않고 그대로 두었다. 08c 가 `pipeline` 에서 읽기를 그만둔 뒤 지우고, 현대 자리 글은 `KIND_SPOTS` 를 쓴다. `tests/test_mapgen.py` 의 `set(moderngen.PLACE_KINDS) == set(towngen.CATEGORY_IDS)` 도 그때 고친다.
 - 계약에 없던 것: `bldgs.MODERN_PLACE_USE` 는 옛 id 키만 있다. 새 id 지도는 위 `USE_OF` 로 맞췄고, 옛 id 키는 VERSION 1 지도를 읽을 때만 쓰인다.
+
+## 08c 구현 메모
+
+- `pipeline.suggest_map` 은 지도 종류(`atlas.MAKERS` 의 village · city · modern)마다 `placekinds.kinds_for` 의 `(id, label)` 목록을 프롬프트에 넘긴다. AI 가 지도 종류와 장소 종류를 한 번의 응답으로 고르기 때문에, 응답을 받기 전에는 어느 시대 목록을 보일지 정할 수 없다. 그래서 두 시대 목록을 다 보이고(목록이 같은 마을 · 도시는 한 절로 묶는다), 고른 지도 종류의 절에서만 id 를 고르게 한다. 계약의 '종류 목록은 `kinds_for(지도 종류)`'를 이렇게 읽었다.
+- 받은 id 는 AI 가 고른 지도 종류(`MapSuggestion.kind`)의 `kind_ids` 로 거른다. 화면에서 고른 종류(`spec.kind`)가 아니다. 시대 밖 id 는 `to_era` 로 옮기지 않고 뺀다(계약대로). 빠진 장소는 지도 화면 · 명령줄에서 지금 값을 그대로 둔다.
+- `prompts.map_suggest_prompt(p, rows, places, kinds, options, chosen)`: `kinds` 는 `{지도 종류: [(id, 이름)]}` 이고, 옛 인자 `modern_kinds`(`moderngen.PLACE_KINDS`)는 뺐다. 요구사항 줄의 예시 · 기본값도 시대마다 적는다: 근거가 없으면 마을 · 도시는 `home`, 현대 동네는 `house`(`FALLBACK`). 지도 자체를 가리키는 이름은 마을 · 도시 `center`, 현대 동네 `station`(`OLD_TO_MODERN["center"]`).
+- `mock` 의 지도 제안은 화면에서 현대 동네를 골랐으면 `classify(이름, era="modern")`, 아니면 옛 시대로 고른다.
+- 시험: `tests/test_map_suggest.py`(mock 의 시대별 id, 시대 밖 id 빼기, AI 가 지도 종류를 바꾼 경우, 명령줄 `map <작품> gen modern --ai`). `tests/test_mapgen.py` 는 옛 단언(`/ 현대 동네:` 글, `inn` 을 받는 현대 제안, 목록 인자)만 고쳤다.
+- 08d 와 합치기 전에는 명령줄 `gen modern --ai` 가 저장하는 `MapPlace.kind` 는 현대 id 이지만, 미리보기의 종류 이름과 자리는 옛 `atlas.gen_places` 가 모르는 id 로 보고 다시 찾은 옛 종류를 쓴다. 08d 의 `to_era` 읽기가 이것을 고친다.
+- 명령줄은 `a.kind or sug["kind"]` 라서 `gen modern --ai` 에 AI 가 village 를 답하면 옛 id 가 현대 지도 입력에 들어간다. 08d 의 `to_era` 읽기가 대응표로 옮긴다.
