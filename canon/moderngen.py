@@ -22,10 +22,10 @@ from typing import Callable, Optional
 
 from . import blocks, geom
 from .geom import Point, Poly
-from .placekinds import CATEGORY_IDS
+from .placekinds import to_era
 from .schema import MapSpec
 
-VERSION = 1
+VERSION = 2
 GENERATOR = "canon-modern"
 
 OPTIONS = {  # 지도 만들기 칸 (towngen.OPTIONS 와 같은 모양. 길 모양 · 밭은 쓰지 않고, 호수 · 바다는 하천으로 본다)
@@ -69,7 +69,18 @@ CIVIC = [("government", (1, 1, 2), "strip"), ("police", (1, 1, 1), "strip"), ("p
          ("library", (0, 1, 1), "villa"), ("fire", (0, 0, 1), "strip"), ("mart", (1, 1, 2), "big"),
          ("department", (0, 0, 1), "big"), ("fuel", (1, 1, 2), "strip"), ("church", (2, 4, 7), "villa"),
          ("kinder", (2, 3, 5), "villa"), ("gym", (0, 1, 1), "strip")]
-# 이야기 장소 종류(placekinds.CATEGORIES id)가 이 동네에서 놓이는 자리 (_place_spots). AI 설정 제안 프롬프트가 쓴다
+# 현대 장소 종류(placekinds.kind_ids("modern"))가 이 동네에서 놓이는 자리 (_place_spots)
+KIND_SPOTS = {"station": "역 앞 광장", "convenience": "편의점 (대로변 · 골목 모퉁이 가게)", "cafe": "카페 (역에 가까운 상가)",
+              "restaurant": "식당 (역에 가까운 상가)", "mart": "마트 · 상가", "school": "학교 교사",
+              "academy": "학원 (역에 가까운 상가)", "hospital": "병원 (역에 가까운 상가)", "police": "경찰서 (대로변)",
+              "church": "교회", "company": "회사 (역 앞 사무실)", "factory": "동네 끝 대로변 가게 · 공장",
+              "hotel": "호텔 · 모텔 · 역 앞 상가", "apartment": "아파트 단지 동", "villa": "빌라촌 빌라", "house": "단독주택",
+              "park": "공원", "shore": "하천 둔치", "bridge": "하천 다리", "river": "하천 둔치", "pond": "공원 연못", "forest": "공원",
+              "far": "동네 밖 (대로 끝)"}
+# 장소가 놓인 건물의 쓰임 (bldgs.MODERN id). 상가 · 공공 종류만 바꾸고 사는 곳(아파트 · 빌라 · 집)과 학교 · 역은 그대로 둔다
+USE_OF = {k: k for k in ("convenience", "cafe", "restaurant", "mart", "academy", "hospital", "police", "church", "company",
+                         "factory", "hotel")}
+# 옛 장소 종류(placekinds.CATEGORIES id)가 이 동네에서 놓이는 자리. AI 설정 제안 프롬프트가 쓴다 (08c 뒤 KIND_SPOTS 로 바꾼다)
 PLACE_KINDS = {"center": "역 앞 광장", "market": "마트 · 상가", "well": "역 앞 광장 옆", "temple": "교회",
                "inn": "호텔 · 모텔 · 역 앞 상가", "smith": "동네 끝 대로변 가게 · 공장", "mill": "동네 끝 대로변 가게 · 공장",
                "manor": "가장 큰 단독주택", "home": "빌라 · 아파트 · 단독주택", "shore": "하천 둔치", "bridge": "하천 다리",
@@ -79,12 +90,14 @@ NEED = {"shore": "물가가 없는 동네예요. 물을 하천으로 바꿔 보�
         "river": "하천이 없어요. 물을 하천으로 바꿔 보세요",
         "pond": "연못이 있는 공원이 없어요. 공원을 늘리거나 시드를 바꿔 보세요",
         "forest": "공원이 없어요. 공원을 늘려 보세요",
-        "field": "현대 동네에는 밭이 없어요. 마을 지도를 써 보세요"}
+        "park": "공원이 없어요. 공원을 늘려 보세요",
+        "school": "학교가 들어설 블록이 없어요. 크기를 키우거나 시드를 바꿔 보세요"}
 
 
 def neighborhood(spec: MapSpec, places: list[dict]) -> dict:
     """현대 동네 지도 (read_layout 과 같은 모양 + wards, spots, missing, houses, numbers, parts, seed, retries).
-    places: [{key, name, kind}] 이 지도에 놓을 이야기 장소 (kind 는 placekinds.CATEGORIES id).
+    places: [{key, name, kind}] 이 지도에 놓을 이야기 장소 (kind 는 현대 장소 종류 id, 옛 id 는 placekinds.to_era 로 바꿔 읽는다).
+    spots[].kind 는 현대 id 다.
     spec 가운데 size · water · forest 를 쓴다 (호수 · 바다는 하천으로 본다. roads · fields 는 쓰지 않는다)."""
     if spec.kind != "modern":
         raise ValueError("현대 동네 생성기는 현대 동네만 만들어요")
@@ -675,9 +688,11 @@ def _neighborhood(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict
 def _place_spots(places: list[dict], lots: list[dict], plaza: Optional[Poly], station: Point, ponds: list[Poly],
                  parks: list[Poly], bridges: list[tuple[Point, Point]], river: Optional[dict], rw: float,
                  lines: list[dict], r: random.Random, w: float, h: float) -> tuple[list[dict], list[dict]]:
-    """이야기 장소마다 자리. 마을 가운데 · 장터 → 역 앞 광장 · 마트, 신전 → 교회, 주막 → 호텔 · 역 앞 상가, 대장간 · 방앗간 → 동네 끝
-    대로변 가게, 저택 → 가장 큰 단독주택, 집 · 가게 → 빌라 · 아파트, 나루 · 강가 → 하천 둔치, 다리 → 다리 가운데, 호수 → 공원 연못,
-    숲 → 공원, 밭 → 없음, 마을 밖 → 대로 끝 (지도 가장자리). 건물이 필요한 종류는 건물을 하나씩 차지한다."""
+    """이야기 장소마다 자리 (KIND_SPOTS). 종류는 현대 id 로 읽는다: 옛 id 는 placekinds.to_era 로 바꾸고, 대응이 없거나 모르는 id 는 집.
+    역 → 역 앞 광장, 시장 · 마트 → 마트, 교회 → 교회, 호텔 → 호텔 · 역 앞 상가, 공장 → 동네 끝 대로변 가게 (옛 가운데 · 장터 · 신전 ·
+    주막 · 대장간 · 방앗간과 같은 규칙), 상가 종류 → 같은 쓰임 건물이나 대로변 상가, 학교 → 학교 교사, 아파트 · 빌라 → 그 쓰임 건물,
+    집 → 단독주택, 공원 · 숲 → 공원, 나루 · 강가 → 하천 둔치, 다리 → 다리 가운데, 호수 → 공원 연못, 마을 밖 → 대로 끝 (지도 가장자리).
+    건물이 필요한 종류는 건물을 하나씩 차지하고, 가게 종류(USE_OF)는 그 건물의 쓰임을 장소 종류로 바꾼다."""
     spots: list[dict] = []
     missing: list[dict] = []
     used_pts: list[Point] = []
@@ -686,14 +701,21 @@ def _place_spots(places: list[dict], lots: list[dict], plaza: Optional[Poly], st
     ends = [q for ln in lines if ln["k"] is not None for q in (ln["a"], ln["b"])]
     far_i = 0
 
-    def lot(ok: Callable[[dict], bool], score: Callable[[dict], float]) -> Optional[Point]:
+    def lot(ok: Callable[[dict], bool], score: Callable[[dict], float]) -> Optional[int]:
         cand = [i for i, lt in enumerate(lots) if i not in taken and ok(lt)]
         spaced = [i for i in cand if all(math.dist(lots[i]["c"], u) > 30 for u in used_pts)]
         if not cand:
             return None
         i = min(spaced or cand, key=lambda k: score(lots[k]) + r.uniform(0, 1e-6))
         taken.add(i)
-        return lots[i]["c"]
+        return i
+
+    def first(*picks: Callable[[], Optional[int]]) -> Optional[int]:
+        for pick in picks:
+            i = pick()
+            if i is not None:
+                return i
+        return None
 
     def point_at(q: Point) -> Point:
         while any(math.dist(q, u) < 6 for u in used_pts):
@@ -708,24 +730,37 @@ def _place_spots(places: list[dict], lots: list[dict], plaza: Optional[Poly], st
         return point_at((m[0] - d[1] * (rw / 2 + BANK / 2) * sgn, m[1] + d[0] * (rw / 2 + BANK / 2) * sgn))
 
     dist_st = lambda lt: math.dist(lt["c"], station)  # noqa: E731
+    near = lambda zones: lambda: lot(lambda lt: lt["zone"] in zones, dist_st)  # noqa: E731
+    use = lambda *uses, score=dist_st: lambda: lot(lambda lt: lt["use"] in uses, score)  # noqa: E731
+    shop = lambda lt: lt["zone"] == "strip" or (lt["zone"] == "villa" and lt["corner"] and lt["use"] not in ("villa", "home"))  # noqa: E731
     for pl in places:
-        kind = pl["kind"] if pl["kind"] in CATEGORY_IDS else "home"
+        kind = to_era(pl["kind"], "modern") or "house"
+        i: Optional[int] = None
         at: Optional[Point] = None
         reason = ""
-        if kind == "center":
+        if kind == "station":
             at = point_at(plaza_c)
-        elif kind == "market":
-            at = lot(lambda lt: lt["use"] in ("mart", "department"), dist_st) or lot(lambda lt: lt["zone"] in ("strip", "commercial"), dist_st)
-        elif kind == "well":
-            at = point_at(geom.lerp(plaza_c, station, 0.4))
-        elif kind == "temple":
-            at = lot(lambda lt: lt["use"] == "church", dist_st) or lot(lambda lt: lt["zone"] == "villa", lambda lt: r.random())
-        elif kind == "inn":
-            at = lot(lambda lt: lt["use"] == "hotel", dist_st) or lot(lambda lt: lt["zone"] in ("commercial", "strip"), dist_st)
-        elif kind in ("smith", "mill"):
-            at = lot(lambda lt: lt["zone"] in ("strip", "villa") and lt["use"] not in ("villa", "home"), lambda lt: -dist_st(lt))
-        elif kind == "manor":
-            at = lot(lambda lt: lt["use"] == "home", lambda lt: -lt["area"]) or lot(lambda lt: lt["zone"] == "villa", lambda lt: -lt["area"])
+        elif kind == "mart":
+            i = first(use("mart", "department"), near(("strip", "commercial")))
+        elif kind == "church":
+            i = first(use("church"), lambda: lot(lambda lt: lt["zone"] == "villa", lambda lt: r.random()))
+        elif kind == "hotel":
+            i = first(use("hotel"), near(("commercial", "strip")))
+        elif kind == "factory":
+            i = lot(lambda lt: lt["zone"] in ("strip", "villa") and lt["use"] not in ("villa", "home"), lambda lt: -dist_st(lt))
+        elif kind == "convenience":
+            i = first(use("convenience"), lambda: lot(shop, dist_st))
+        elif kind in ("cafe", "restaurant", "academy", "hospital", "company"):
+            i = first(use(kind), near(("strip", "commercial")))
+        elif kind == "police":
+            i = first(use("police"), near(("strip",)))
+        elif kind == "school":
+            i = use("school")()
+            reason = "" if i is not None else NEED["school"]
+        elif kind in ("apartment", "villa"):
+            i = use(kind, score=lambda lt: r.random())()
+        elif kind == "house":
+            i = first(use("home", score=lambda lt: r.random()), use("villa", score=lambda lt: r.random()))
         elif kind == "shore" or kind == "river":
             if river:
                 at = bank()
@@ -742,20 +777,20 @@ def _place_spots(places: list[dict], lots: list[dict], plaza: Optional[Poly], st
                 at = point_at(geom.centroid(ponds[0]))
             else:
                 reason = NEED["pond"]
-        elif kind == "forest":
+        elif kind in ("park", "forest"):
             if parks:
                 at = point_at(geom.centroid(min(parks, key=lambda g: math.dist(geom.centroid(g), station))))
             else:
-                reason = NEED["forest"]
-        elif kind == "field":
-            reason = NEED["field"]
+                reason = NEED[kind]
         elif kind == "far":
             if ends:
                 q = sorted(ends)[far_i % len(ends)]
                 far_i += 1
                 at = point_at((min(max(q[0], 4.0), w - 4), min(max(q[1], 4.0), h - 4)))
-        else:  # home
-            at = lot(lambda lt: lt["use"] in ("villa", "home", "apartment"), lambda lt: r.random())
+        if i is not None:
+            at = lots[i]["c"]
+            if kind in USE_OF:
+                lots[i]["use"] = USE_OF[kind]
         if at is None:
             missing.append({"key": pl["key"], "name": pl["name"], "reason": reason or "놓을 건물이 남지 않았어요. 크기를 키워 보세요"})
             continue
