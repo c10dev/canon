@@ -88,7 +88,7 @@ def test_floor_head_toward_facing(name, facing, vec):
 @pytest.mark.parametrize("name", ["lie", "side", "prone"])
 def test_floor_inside_room(name):
     room = stage.make_room("empty", "r1")
-    sc_room = room.model_copy(update={"anchors": room.anchors + [room.anchors[0].model_copy(update={"id": "mid", "x": 1.8, "y": 1.3, "w": 0.4, "h": 0.4, "kind": "other"})]})
+    sc_room = room.model_copy(update={"anchors": room.anchors + [room.anchors[0].model_copy(update={"id": "mid", "x": 1.8, "y": 1.3, "w": 0.4, "h": 0.4, "kind": "other", "parent": "", "face": ""})]})
     fr = run(sc_room, [body("a", "mid", "front", name, facing="w")])
     for v in joints(fr, "a").values():
         assert 0 <= v[0] <= room.w and 0 <= v[1] <= room.h

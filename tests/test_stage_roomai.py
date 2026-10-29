@@ -189,11 +189,14 @@ def test_web_fresh_draft_job_and_apply(client):
         time.sleep(0.02)
     v = client.get("/api/projects/ra/stage/15").json()
     prop = v["proposals"][0]
-    assert prop["room"]["template"] == "empty" and [x["anchor"]["name"] for x in prop["adds"]] == ["탁자"] and prop["room_shared"] is False
+    assert prop["room"]["template"] == "empty" and [x["anchor"]["name"] for x in prop["adds"]] == ["탁자", "탁자 서랍"] and prop["room_shared"] is False
+    # 가짜 초안의 '탁자 서랍'은 part: 탁자 안 앞 끝에 붙는다 (09)
+    table, drawer = (x["anchor"] for x in prop["adds"])
+    assert (drawer["parent"], drawer["face"]) == (table["id"], "inside") and prop["adds"][1]["where"] == "탁자 안 앞 끝"
     assert prop["violations"] == [] and v["vocab"]["kinds"]["table"] == "탁자"
     v = client.post("/api/projects/ra/stage/15/apply", json={"event": 1, "role": "plan"}).json()
     room = next(r for r in v["rooms"] if r["id"] == v["scenes"][0]["scene"]["room"])
-    assert {a["name"] for a in room["anchors"]} == {"문", "탁자"} and v["scenes"][0]["scene"]["room_made"] == room["id"]
+    assert {a["name"] for a in room["anchors"]} == {"문", "탁자", "탁자 서랍"} and v["scenes"][0]["scene"]["room_made"] == room["id"]
     v = client.post(f"/api/projects/ra/stage/15/{v['made']}/undo").json()
     assert v["scenes"] == [] and [r["id"] for r in v["rooms"]] == ["r1"]  # 만든 방도 빠지고 공용 방은 그대로
     # 공용 방으로 장면을 만든 뒤 초안: 비교 화면에 공용 방 표시, 바로 더하기를 고르면 공용 방이 바뀐다
@@ -206,7 +209,7 @@ def test_web_fresh_draft_job_and_apply(client):
     prop = client.get("/api/projects/ra/stage/15").json()["proposals"][0]
     assert prop["room_shared"] is True and prop["grown"]["id"] == "r1"
     v = client.post("/api/projects/ra/stage/15/apply", json={"event": 1, "role": "plan", "shared": True}).json()
-    assert [r["id"] for r in v["rooms"]] == ["r1"] and len(v["rooms"][0]["anchors"]) == 2
+    assert [r["id"] for r in v["rooms"]] == ["r1"] and len(v["rooms"][0]["anchors"]) == 3  # 문 + 탁자 + 탁자 서랍
 
 
 def test_seat_and_windows_go_inside_vehicle():
@@ -222,15 +225,18 @@ def test_seat_and_windows_go_inside_vehicle():
         DraftAnchor(name="운전석 창", kind="window", near="운전석", rel="right"),
         DraftAnchor(name="조수석 창", kind="window", near="운전석", rel="left"),
         DraftAnchor(name="정비차", kind="vehicle", near="캠핑카", rel="left")])
-    a = {x.name: x for x in room.anchors}
+    # 차 안 자리 · 옆면 창은 캠핑카에 붙는다 (09). 좌표는 푼 방에서 본다
+    assert [(x.anchor.parent, x.anchor.face) for x in adds[1:4]] == [(adds[0].anchor.id, "inside"), (adds[0].anchor.id, "right"), (adds[0].anchor.id, "left")]
+    w = stage.resolve(room)
+    a = {x.name: x for x in w.anchors}
     car, seat, win, win2 = a["캠핑카"], a["운전석"], a["운전석 창"], a["조수석 창"]
     assert [x.where for x in adds][1:4] == ["캠핑카 안", "캠핑카 옆면", "캠핑카 옆면"]
-    assert stage.container(seat, room.anchors) is car and stage.container(win, room.anchors) is car
+    assert stage.container(seat, w.anchors) is car and stage.container(win, w.anchors) is car
     # 차 앞이 위(rot 180)라 안에서 앞을 보고 왼쪽은 x 가 작은 쪽: 운전석과 운전석 창이 왼쪽 옆면, 조수석 창은 오른쪽 옆면
     assert seat.x + seat.w / 2 < car.x + car.w / 2 and win.x == car.x and win2.x + win2.w == pytest.approx(car.x + car.w)
     assert win.rot == 90 and win2.rot == 270 and seat.rot == car.rot
     # 운전 칸을 비운 차는 자리를 품은 차뿐이다
-    assert len(furniture.shape(car, room).boxes) == 5 and furniture.shape(a["정비차"], room) == furniture.KINDS["vehicle"]
+    assert len(furniture.shape(car, w).boxes) == 5 and furniture.shape(a["정비차"], w) == furniture.KINDS["vehicle"]
     # 운전석에 앉은 건우와 창밖의 예은: 창 너머로 손을 잡아도 2D · 3D 지적이 없다
     sc = StageScene(id="x", cast=["hero", "char2"], room=room.id, start=[
         StageBody(who="hero", at=StageSpot(ref=seat.id, rel="on"), posture="chair", facing="@char2", left="", right=""),

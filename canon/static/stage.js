@@ -6,7 +6,7 @@
    본문 장면에서는 계획 인물을 흐린 원으로 겹쳐 본다(S.stg.ghost). 계획과 다른 곳(gaps)과 박자 짝(match)은 서버 stage.align 이 잰다.
    화별 스토리보드(view.board, 서버 stage.board_view)는 읽기만 한다: 사건 칩을 스토리보드 장면별로 묶고(stgEventGroups),
    새 장면 카드의 방 목록에서 스토리보드 장소에 맞는 방을 앞에 둔다(stgRoomOrder).
-   stageState · stageLayout · stageLayouts · stageAnchorPoint · stageFacing · stageSnap · stageSexual · stagePlanBeat ·
+   stageResolve · stageToLocal · stageChildren · stageState · stageLayout · stageLayouts · stageAnchorPoint · stageFacing · stageSnap · stageSexual · stagePlanBeat ·
    stgEventGroups · stgRoomOrder 는 DOM 없는 순수 함수다. */
 'use strict';
 
@@ -27,6 +27,154 @@ const stgRound = (x) => Math.round(x * 1e6) / 1e6;
 const STG_FACE = Object.fromEntries(STG_DIRS.map((k, i) => [k, [stgRound(Math.sin(i * Math.PI / 4)), stgRound(-Math.cos(i * Math.PI / 4))]]));
 
 const stgFront = (rot) => STG_ROT[((rot % 360) + 360) % 360] || [0, 1];
+
+// ----- 붙은 기준점: stage.resolve 와 같은 규칙 (docs/stage/specs/09-attach.md) -----
+
+const STG_FACES = { inside: '안', top: '위', front: '앞면', back: '뒷면', left: '왼쪽 면', right: '오른쪽 면' };  // stage.FACES
+const STG_WALLS = { n: '위 벽', e: '오른쪽 벽', s: '아래 벽', w: '왼쪽 벽' };  // stage.WALLS
+const STG_ATTACH = ['door', 'window', 'wall'];  // stage.ATTACH
+const STG_WORLD = new WeakSet();  // stageResolve 로 푼 방. 저장하지 않는다
+const stgR4 = (x) => Math.round(x * 1e4) / 1e4;
+
+/** [앞 f, 오른쪽 r]. stage._frame 과 같다. */
+function stgFrame(rot) {
+  const [fx, fy] = stgFront(rot || 0);
+  return [[fx, fy], [fy, -fx]];
+}
+
+/** 세계 가로 · 세로 ↔ (r 쪽, f 쪽) 크기. stage._extent 와 같다. */
+const stgExtent = (w, h, r) => (r[0] !== 0 ? [w, h] : [h, w]);
+
+/** 붙은 자식의 지역 가운데를 면에 맞춘다. stage._local_xy 와 같다. */
+function stgLocalXY(p, c) {
+  const [, r] = stgFrame(p.rot);
+  const [pr, pf] = stgExtent(p.w, p.h, r);
+  const clamp = (v, lim) => (lim > 0 ? Math.max(-lim, Math.min(lim, v)) : 0);
+  const inner = STG_ATTACH.includes(c.kind);
+  let x = c.x, y = c.y;
+  if (c.face === 'front' || c.face === 'back') {
+    y = (inner ? pf / 2 - c.h / 2 : pf / 2 + c.h / 2) * (c.face === 'front' ? 1 : -1);
+    x = clamp(x, (pr - c.w) / 2);
+  } else if (c.face === 'left' || c.face === 'right') {
+    x = (inner ? pr / 2 - c.w / 2 : pr / 2 + c.w / 2) * (c.face === 'right' ? 1 : -1);
+    y = clamp(y, (pf - c.h) / 2);
+  } else {
+    x = clamp(x, (pr - c.w) / 2);
+    y = clamp(y, (pf - c.h) / 2);
+  }
+  return [x, y];
+}
+
+function stgToWorld(p, c) {
+  const [f, r] = stgFrame(p.rot);
+  const [x, y] = stgLocalXY(p, c);
+  const cx = p.x + p.w / 2 + x * r[0] + y * f[0], cy = p.y + p.h / 2 + x * r[1] + y * f[1];
+  const [w, h] = stgExtent(c.w, c.h, r);
+  return { ...c, x: stgR4(cx - w / 2), y: stgR4(cy - h / 2), w, h, rot: ((p.rot || 0) + (c.rot || 0)) % 360 };
+}
+
+/** 세계 좌표 자식 c 를 세계 좌표 부모 p 의 face 에 붙인 저장 꼴. stage.to_local 과 같다. */
+function stageToLocal(p, c, face) {
+  const [f, r] = stgFrame(p.rot);
+  const dx = c.x + c.w / 2 - (p.x + p.w / 2), dy = c.y + c.h / 2 - (p.y + p.h / 2);
+  const [w, h] = stgExtent(c.w, c.h, r);
+  const r3 = (v) => Math.round(v * 1e3) / 1e3;
+  return { ...c, parent: p.id, face, x: r3(dx * r[0] + dy * r[1]), y: r3(dx * f[0] + dy * f[1]), w, h, rot: (((c.rot || 0) - (p.rot || 0)) % 360 + 360) % 360 };
+}
+
+function stgWallWorld(room, c) {
+  let x = c.x, y = c.y;
+  if (c.face === 'n' || c.face === 's') {
+    x = Math.min(Math.max(x, 0), Math.max(room.w - c.w, 0));
+    y = c.face === 'n' ? 0 : room.h - c.h;
+  } else {
+    y = Math.min(Math.max(y, 0), Math.max(room.h - c.h, 0));
+    x = c.face === 'w' ? 0 : room.w - c.w;
+  }
+  return { ...c, x, y };
+}
+
+/** 세계 좌표로 푼 사본. 이미 푼 방은 그대로. stage.resolve 와 같다. */
+function stageResolve(room) {
+  if (!room || STG_WORLD.has(room)) return room;
+  const by = Object.fromEntries(room.anchors.map((a) => [a.id, a]));
+  const out = {};
+  const world = (a, seen) => {
+    if (out[a.id]) return out[a.id];
+    let w;
+    if (a.parent === 'room' && STG_WALLS[a.face]) w = stgWallWorld(room, a);
+    else if (a.parent && by[a.parent] && !seen.has(a.parent) && STG_FACES[a.face]) w = stgToWorld(world(by[a.parent], new Set([...seen, a.parent])), a);
+    else w = { ...a };
+    out[a.id] = w;
+    return w;
+  };
+  const r = { ...room, anchors: room.anchors.map((a) => world(a, new Set([a.id]))) };
+  STG_WORLD.add(r);
+  return r;
+}
+
+/** aid 에 붙은 기준점과 그 자식들. stage.children 과 같다. */
+function stageChildren(room, aid) {
+  const out = [], todo = [aid];
+  while (todo.length) {
+    const cur = todo.shift();
+    room.anchors.forEach((a) => { if (a.parent === cur && a.id !== aid && !out.includes(a)) { out.push(a); todo.push(a.id); } });
+  }
+  return out;
+}
+
+/** ↻: 상자를 90도 돌린다(가로 · 세로가 바뀌고 가운데는 그대로). 붙은 자식은 부모 기준이라 함께 돈다.
+    뿌리 · 벽 자식은 왼쪽 위 모서리, 기준점 자식은 가운데를 저장하므로 뿌리만 모서리를 옮긴다. */
+function stageTurn(a) {
+  if (!a.parent || a.parent === 'room') {
+    a.x = Math.round((a.x + (a.w - a.h) / 2) * 1000) / 1000;
+    a.y = Math.round((a.y + (a.h - a.w) / 2) * 1000) / 1000;
+  }
+  [a.w, a.h] = [a.h, a.w];
+  a.rot = ((a.rot || 0) + 90) % 360;
+}
+
+/** '붙은 곳' 고르기의 후보: [[값, 이름]]. 자기 자신과 자기 자식은 뺀다. 값은 '' · 'room|n' · '<id>|<면>'. */
+function stageAttachOptions(room, aid) {
+  const skip = new Set([aid, ...stageChildren(room, aid).map((a) => a.id)]);
+  const out = [['', '없음']].concat(Object.entries(STG_WALLS).map(([k, l]) => [`room|${k}`, l]));
+  room.anchors.filter((a) => !skip.has(a.id)).forEach((a) => Object.entries(STG_FACES).forEach(([k, l]) => out.push([`${a.id}|${k}`, `${a.name} ${l}`])));
+  return out;
+}
+
+/** aid 를 value('' 떼기 · 'room|벽' · '<부모 id>|<면>')에 붙인 저장 꼴. 지금 세계 자리에서 가장 가까운 자리로 붙는다. */
+function stageAttach(room, aid, value) {
+  const w = stageResolve(room), wa = w.anchors.find((a) => a.id === aid);
+  const [pid, face] = (value || '').split('|');
+  if (!pid) return { ...wa, parent: '', face: '' };
+  if (pid === 'room') return { ...wa, parent: 'room', face };
+  const pw = w.anchors.find((a) => a.id === pid);
+  if (!pw) return { ...wa, parent: '', face: '' };
+  const loc = stageToLocal(pw, wa, face);
+  const [x, y] = stgLocalXY(pw, loc);
+  return { ...loc, x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 };
+}
+
+/** 끌기: 세계 왼쪽 위 (tx, ty) 로 옮긴 저장 값 {x, y}. 뿌리는 방 안에서, 벽 자식은 벽을 따라서, 기준점 자식은 붙은 면을 따라서 · 부모 안에서만.
+    0.05m 칸에 맞춘다. 부모를 끌면 자식은 값이 그대로라 따라간다. */
+function stageDragTo(room, aid, tx, ty) {
+  const w = stageResolve(room), wa = w.anchors.find((a) => a.id === aid), a = room.anchors.find((x) => x.id === aid);
+  const snap = (v) => Math.round(v * 20) / 20;
+  const pw = a.parent && a.parent !== 'room' ? w.anchors.find((x) => x.id === a.parent) : null;
+  if (!pw) return { x: snap(Math.min(Math.max(tx, 0), room.w - wa.w)), y: snap(Math.min(Math.max(ty, 0), room.h - wa.h)) };
+  const loc = stageToLocal(pw, { ...wa, x: tx, y: ty }, a.face);
+  const [x, y] = stgLocalXY(pw, { ...a, x: snap(loc.x), y: snap(loc.y) });
+  return { x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 };
+}
+
+/** 방을 왼쪽 · 위로 넓힐 때 뿌리와 벽 자식만 옮긴다. stage.shift_room 과 같다. */
+function stageShiftRoom(room, dx, dy) {
+  room.anchors.forEach((a) => {
+    if (a.parent && a.parent !== 'room') return;
+    a.x = Math.round((a.x + dx) * 100) / 100;
+    a.y = Math.round((a.y + dy) * 100) / 100;
+  });
+}
 
 /** 기준점 + 관계의 자리 (m). 왼쪽 · 오른쪽은 기준점 앞에서 바라본 쪽. stage._anchor_point 와 같다. */
 function stageAnchorPoint(a, rel) {
@@ -51,6 +199,7 @@ function stageAnchorPoint(a, rel) {
 /** 향한 쪽 단위 벡터. 모르면 null. stage.facing_vec 와 같다. */
 function stageFacing(facing, me, room, pos) {
   if (STG_FACE[facing]) return STG_FACE[facing];
+  room = stageResolve(room);
   let t = null;
   if ((facing || '').startsWith('@')) t = pos[facing.slice(1)] || null;
   else if ((facing || '').startsWith('#')) {
@@ -98,6 +247,7 @@ function stageState(scene, k) {
 /** 인물마다 평면도 좌표 (m). stage.place 와 같다. prev 는 앞 박자 좌표 (기준 인물이 나를 향하는데 내 자리를 아직 모를 때 쓴다). */
 function stageLayout(room, state, order = [], prev = null) {
   const names = order.filter((w) => w in state).concat(Object.keys(state).filter((w) => !order.includes(w)));
+  room = stageResolve(room);
   const anchors = Object.fromEntries(room.anchors.map((a) => [a.id, a]));
   const pos = {};
   const groups = new Map();
@@ -137,6 +287,7 @@ function stageLayout(room, state, order = [], prev = null) {
 
 /** 박자 0~k 의 좌표 목록. 박자마다 앞 박자 좌표를 넘긴다. stage.layouts 와 같다. */
 function stageLayouts(room, scene, k = (scene.beats || []).length) {
+  room = stageResolve(room);
   const out = [];
   for (let i = 0; i <= k; i++) out.push(stageLayout(room, stageState(scene, i), scene.cast, i ? out[i - 1] : null));
   return out;
@@ -144,6 +295,7 @@ function stageLayouts(room, scene, k = (scene.beats || []).length) {
 
 /** 평면도에서 끌어 놓은 자리 (m) 에 가장 가까운 기준점 + 관계. 기준점이 없으면 null. */
 function stageSnap(room, x, y) {
+  room = stageResolve(room);
   let best = null;
   room.anchors.forEach((a) => ['on', 'front', 'back', 'left', 'right', 'against'].forEach((rel) => {
     const [px, py] = stageAnchorPoint(a, rel);
@@ -305,7 +457,7 @@ function stgScale(room) {
 }
 
 function stgPlanSvg(pos, ang, k) {
-  const g = S.stg, room = g.room, sc = stgScale(room);
+  const g = S.stg, room = stageResolve(g.room), sc = stgScale(room);
   const px = ([x, y]) => [sc.ox + x * sc.s, sc.oy + y * sc.s];
   const st = stageState(g.scene, k);
   const all = stageLayouts(room, g.scene, k), prev = k > 0 ? all[k - 1] : null, now = all[k];
@@ -561,12 +713,20 @@ function stgRoomPanel() {
       <label for="stg-rw">크기 (m)</label><span class="row"><input id="stg-rw" type="number" min="1" max="40" step="0.1" data-stg-room="w" value="${r.w}" aria-label="가로" style="width:80px"> × <input type="number" min="1" max="40" step="0.1" data-stg-room="h" value="${r.h}" aria-label="세로" style="width:80px"></span>
     </div>
     <datalist id="stg-places">${stgPlaces().map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
-    <p class="small">평면도에서 기준점을 끌어 옮겨요. 짧은 선이 기준점의 앞쪽이에요.</p>
+    <p class="small">평면도에서 기준점을 끌어 옮겨요. 짧은 선이 기준점의 앞쪽이에요. 붙은 기준점은 부모를 따라 움직이고, 붙은 면을 따라서만 끌려요.</p>
     <ul class="stg-anchors">${r.anchors.map((a) => `<li class="row"><input data-stg-anchor-name="${esc(a.id)}" value="${esc(a.name)}" aria-label="기준점 이름" style="width:120px">
       <select data-stg-anchor-kind="${esc(a.id)}" aria-label="종류">${Object.entries(kinds).map(([k, l]) => stgOpt(k, l, a.kind)).join('')}</select>
-      <button type="button" class="btn small ghost" data-action="stgRotate" data-arg="${esc(a.id)}" title="앞쪽을 90도 돌려요">↻ 돌리기</button>
-      <button type="button" class="btn small ghost danger" data-action="stgAnchorDrop" data-arg="${esc(a.id)}">빼기</button></li>`).join('')}</ul>
+      <select data-stg-anchor-on="${esc(a.id)}" aria-label="붙은 곳" title="붙은 곳: 부모를 옮기거나 돌리면 함께 움직여요">${stageAttachOptions(r, a.id).map(([k, l]) => stgOpt(k, k ? `붙음: ${l}` : '붙지 않음', a.parent ? `${a.parent}|${a.face}` : '')).join('')}</select>
+      <button type="button" class="btn small ghost" data-action="stgRotate" data-arg="${esc(a.id)}" title="상자를 90도 돌려요. 붙은 기준점도 함께 돌아요">↻ 돌리기</button>
+      <button type="button" class="btn small ghost danger" data-action="stgAnchorDrop" data-arg="${esc(a.id)}">빼기</button>${stgDropNote(r, a.id)}</li>`).join('')}</ul>
     <button type="button" class="btn small" data-action="stgAnchorAdd">+ 기준점</button></section>`;
+}
+
+/** 빼기 옆에 함께 빠지는 기준점 이름. 없으면 빈 글. */
+function stgDropNote(room, aid) {
+  const kids = stageChildren(room, aid);
+  if (!kids.length) return '';
+  return ` <span class="small">${esc(kids.map((x) => x.name).join(' · '))}도 함께 빠져요</span>`;
 }
 
 function stgPlaces() {
@@ -606,6 +766,7 @@ function stgNewCard() {
 /** 작은 평면도: 장면이 끝난 상태 (비교 보기). 인물 원과 이름, 접촉 선만. */
 function stgMiniSvg(room, scene, fresh = []) {
   if (!room) return '<p class="small">방을 찾지 못했어요.</p>';
+  room = stageResolve(room);
   const sc = stgScale(room), k = scene.beats.length;
   const px = ([x, y]) => [sc.ox + x * sc.s, sc.oy + y * sc.s];
   const st = stageState(scene, k), pos = stageLayouts(room, scene, k)[k];
@@ -1002,14 +1163,15 @@ Object.assign(actions, {
   stgRotate(id) {
     const a = S.stg.room.anchors.find((x) => x.id === id);
     if (!a) return;
-    a.rot = ((a.rot || 0) + 90) % 360;
+    stageTurn(a);
     stgTouch();
   },
   stgAnchorDrop(id) {
     const g = S.stg;
-    const used = [...g.scene.start, ...g.scene.beats.flatMap((b) => b.bodies)].some((b) => b.at && b.at.ref === id);
-    if (used && !confirm('이 기준점에 선 인물이 있어요. 빼면 그 인물의 자리는 모름이 돼요. 뺄까요?')) return;
-    g.room.anchors = g.room.anchors.filter((a) => a.id !== id);
+    const gone = new Set([id, ...stageChildren(g.room, id).map((a) => a.id)]);
+    const used = [...g.scene.start, ...g.scene.beats.flatMap((b) => b.bodies)].some((b) => b.at && gone.has(b.at.ref));
+    if (used && !confirm('이 기준점(함께 빠지는 기준점 포함)에 선 인물이 있어요. 빼면 그 인물의 자리는 모름이 돼요. 뺄까요?')) return;
+    g.room.anchors = g.room.anchors.filter((a) => !gone.has(a.id));
     stgTouch();
   },
   stgAnchorAdd() {
@@ -1086,6 +1248,11 @@ document.addEventListener('change', (e) => {
   } else if (d.stgRoom) {
     g.room[d.stgRoom] = d.stgRoom === 'w' || d.stgRoom === 'h' ? Math.max(1, Math.min(40, Number(t.value) || 1)) : t.value;
     stgTouch();
+  } else if (d.stgAnchorOn !== undefined) {
+    const a = g.room.anchors.find((x) => x.id === d.stgAnchorOn);
+    if (!a) return;
+    Object.assign(a, stageAttach(g.room, a.id, t.value));
+    stgTouch();
   } else if (d.stgAnchorName !== undefined || d.stgAnchorKind !== undefined) {
     const a = g.room.anchors.find((x) => x.id === (d.stgAnchorName || d.stgAnchorKind));
     if (!a) return;
@@ -1135,8 +1302,9 @@ document.addEventListener('pointerdown', (e) => {
     g.who = stgDrag.id;
   } else if (g.mode === 'room' && anc) {
     const a = g.room.anchors.find((x) => x.id === anc.dataset.stgAnchor);
+    const wa = stageResolve(g.room).anchors.find((x) => x.id === a.id);
     const [mx, my] = stgMeters(svg, e);
-    stgDrag = { kind: 'anchor', a, svg, dx: mx - a.x, dy: my - a.y, moved: false };
+    stgDrag = { kind: 'anchor', a, svg, dx: mx - wa.x, dy: my - wa.y, moved: false };
   } else return;
   svg.setPointerCapture(e.pointerId);
   e.preventDefault();
@@ -1147,9 +1315,7 @@ document.addEventListener('pointermove', (e) => {
   const [mx, my] = stgMeters(stgDrag.svg, e);
   stgDrag.moved = true;
   if (stgDrag.kind === 'anchor') {
-    const a = stgDrag.a;
-    a.x = Math.round(Math.min(Math.max(mx - stgDrag.dx, 0), g.room.w - a.w) * 20) / 20;
-    a.y = Math.round(Math.min(Math.max(my - stgDrag.dy, 0), g.room.h - a.h) * 20) / 20;
+    Object.assign(stgDrag.a, stageDragTo(g.room, stgDrag.a.id, mx - stgDrag.dx, my - stgDrag.dy));
     stgDrawPlan(null);
   } else {
     const t = stgTarget(g.beat);

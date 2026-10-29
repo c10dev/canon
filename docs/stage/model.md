@@ -31,9 +31,12 @@ StageRoom
   template: str = ""      # 고른 틀 id (bedroom, living, classroom, office, car, carriage, empty, car_side, outdoor)
   w: float, h: float      # 방 크기 m (틀 기본값, 작가가 고침)
   anchors: list[StageAnchor]
+  attached: bool = False  # 옛 방 짐작(stage.attach_guess)을 마친 방 (일감 09)
 
 StageAnchor               # 기준점: 가구 · 문 · 창
   id: str                 # "a1" …
+  parent: str = ""        # 붙은 곳: 기준점 id, 방 벽이면 "room" (일감 09). 붙으면 x · y · w · h · rot 는 부모 기준
+  face: str = ""          # 기준점이면 inside · top · front · back · left · right, 방 벽이면 n · e · s · w
   name: str               # "침대", "문", "창", "책상"
   kind: str               # bed · door · window · desk · chair · sofa · table · wall · seat · other
   x, y, w, h: float       # 방 안 m, 왼쪽 위 기준
@@ -50,6 +53,7 @@ StageAnchor               # 기준점: 가구 · 문 · 창
 
 1. `near` 가 방에 있거나 앞 제안이면 그 `rel` 쪽 곁(기준틀은 `_anchor_point` 와 같다). 창 · 문 · 벽(`ATTACH`)은 맞붙이고 앞쪽이 `near` 의 반대쪽(바깥)이다: 운전석 곁 창의 앞은 창밖에 선 자리다. 그 밖은 `ANCHOR_GAP` 1.35m(두 기준점의 맞보는 앞자리에 선 두 사람이 겹치지 않는 틈) 떨어지고 앞쪽이 `near` 를 본다.
 1-2. AI 장면이 사람을 창 · 문 · 벽(`ATTACH`) 위(on) · 안(in)에 세우면 그 앞(front)으로 읽는다(`stage.from_draft`). 15화 초안이 '운전석 창 바깥' 위에 세워 몸이 차 옆면에 걸렸다.
+1-3. 붙은 기준점 (일감 09, [specs/09-attach.md](specs/09-attach.md)): 차 안 자리 · 차 옆면 창 · 문은 차에 붙고(`parent` · `face`), `part` 가 참인 제안은 `near` 안의 `rel` 쪽 끝 구역(폭은 near 를 채우고 깊이는 길이의 1/3, 많아야 2.5m, 앞쪽은 그 끝 바깥)이나 `rel` 쪽 면(창 · 문 · 벽)에 붙는다. 방을 넓힐 때는 뿌리와 벽 기준점만 옮긴다(`shift_room`). 벽 기준점은 풀 때 늘 그 벽에 맞추므로 방을 아래 · 오른쪽으로 넓혀도 떨어지지 않는다.
 1-1. 차 안 (2026-10-29, 15화에서 운전석 · 창이 캠핑카 밖에 놓였다): `near` 가 차(vehicle)인 자리(seat)는 그 차 안 운전 칸에 놓는다(`_in_vehicle`: 차 앞 끝에서 `CAB_SEAT` 1.3m 뒤, 안에서 앞을 보고 왼쪽(운전석) 먼저 · 오른쪽 · 뒷줄, 자리 앞은 차 앞). 차의 앞(rot)은 긴 쪽이다. `near` 가 차 안 자리이거나 차인 창 · 문은 차 옆면에 붙인다(`_on_vehicle_wall`: 자리 앞뒤 높이에, 자리에 가까운 옆면 먼저 · 맞은편, 앞은 바깥). 차 안인지는 `stage.container`(가운데를 품은 차). 3D 는 자리를 품은 차(장소 모듈이 모양을 정하지 않은 것)의 앞 `CAB` 1.9m 를 비우고 옆판 · 계기판 · 지붕만 둔다(`stage3d.furniture.shape` · `cab_vehicle`, 창 높이 1.0~1.75m 는 열림).
 2. 기준점이나 그 앞자리(`GAP` + 몸 반지름)가 다른 기준점 · 앞자리와 겹치면 관계 쪽과 수직으로 0.5m씩 밀고, 그래도 겹치면 바깥으로 민다.
 3. `near` 가 없거나 모르면 방 안 빈 자리(다른 기준점과 `ROOM_PAD`), 없으면 방 오른쪽 바깥.

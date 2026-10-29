@@ -1,6 +1,6 @@
 # 09. 붙은 기준점 (부모 · 면)
 
-상태: 설계 (2026-10-30 사용자와 정함) · 계획: [plan.md](../plan.md) 의 9번 · 먼저: 3, 6, 8 (같은 파일 `canon/stage.py` · `canon/static/stage.js` · `canon/stage3d/furniture.py` 를 고친다)
+상태: 구현 (2026-10-30, 설계도 같은 날 사용자와 정함) · 계획: [plan.md](../plan.md) 의 9번 · 먼저: 3, 6, 8 (같은 파일 `canon/stage.py` · `canon/static/stage.js` · `canon/stage3d/furniture.py` 를 고친다)
 
 ## 목표
 
@@ -181,6 +181,16 @@ StageRoom
 - 야외 장면의 벽 그리기.
 - 사람이 부분 구역 위 · 안에 올라서기.
 - 3D 에셋(실제 모양 모델)으로 그림 바꾸기: references.md '3D 에셋'. 판정은 계속 상자 · 캡슐로 한다.
+
+## 구현 메모 (2026-10-30)
+
+- 푼 방은 `StageRoom._world`(pydantic 비공개 칸, 저장되지 않음)로 표시한다. `resolve` 는 푼 방을 그대로 돌려주므로 `place` · `layouts` · `judge` · `judge_all` · `facing_vec` · `stage3d.furniture.solids` · `body.frames` · `judge3d` 가 저마다 머리에서 부른다. 저장 꼴을 만드는 `place_anchors` · `grow_room` 은 `_world` 를 거짓으로 둔다.
+- 옛 방 짐작은 `StageRoom` 의 `model_validator` 가 `attached` 가 거짓일 때 부른다(`stage.attach_guess`, 순환 import 를 피해 늦게 읽음). 그래서 새로 만든 `StageRoom` 도 짐작을 거친다. 짐작하지 않으려면 `attached=True` 로 만든다.
+- 풀어 낸 세계 좌표는 소수 넷째 자리까지 반올림한다(창이 차 테두리에서 0.8999… 로 어긋나지 않게). 브라우저 `stgToWorld` 도 같다.
+- 브라우저: `stageResolve` · `stageToLocal` · `stageChildren` · `stageShiftRoom` 은 서버와 같은 규칙, `stageTurn`(↻) · `stageAttach` · `stageAttachOptions` · `stageDragTo` · `stgDropNote` 는 방 고치기 화면용 순수 함수다(`tests/test_stage_attach.py`). 3D 그리기(`stage3d.js`)의 이름표 · 카메라도 푼 방을 쓴다. 처음 구현에서 이름표가 저장 꼴을 읽어 방 밖에 떴다(15화 임시 사본에서 찾음).
+- 가짜 초안(`mock_stage.py`)은 빈 방에 '탁자'와 그 부분 '탁자 서랍'을 더한다.
+- 15화 사건 1 을 임시 사본의 빈 방에서 실제 모델(Claude 구독)로 한 번 받았다. AI 가 짐칸 · 보닛을 `part` 로 적었고(종류는 vehicle), 짐칸은 정비차 안 뒤 끝 2.0 × 2.3m, 이예은은 그 바깥 0.4m 에 섰다. 철문은 넓힌 방(10.7 × 10.35m)의 아래 벽에 붙어 있었다. 평면 · 3D 지적과 빠진 이동은 0개였다. 보닛 구역(앞 끝 2.0m)이 운전 칸 자리와 겹쳐 그려진다. 단단하지 않아 판정에는 영향이 없다.
+- 실제 작품의 방 r2 는 짐작으로 캠핑카의 자리 둘 · 창 둘만 붙었다. 짐칸(1.35m 떨어짐)과 철문(벽에서 2.8m)은 그대로다. 작품의 방 r2 에서 다시 받으면 기준점 이름이 이미 있어 AI 가 새로 더하지 않는다. 작가가 '붙은 곳'으로 붙이거나, 장면을 지우고 빈 방에서 다시 받아야 한다.
 
 ## 확인하지 못할 것
 

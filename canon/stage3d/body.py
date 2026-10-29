@@ -740,6 +740,7 @@ def frames(scene: StageScene, room: StageRoom, project=None, postures: Optional[
     pspecs = posture_reg.load() if postures is None else postures
     rspecs = room_reg.load() if rooms is None else rooms
     room_spec = rspecs.get(room.template) if room.template else None
+    room = stage.resolve(room)
     anchors = {a.id: a for a in room.anchors}
     sol = furniture.solids(room, room_spec)
     beats = []

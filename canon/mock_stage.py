@@ -28,7 +28,8 @@ def _stage(prompt: str, hint: dict) -> StageDraft:
     d = StageDraft(room="" if room else "living", cast=names, start=start, beats=[], new_anchors=[])
     if hint.get("role") != "text":
         if room and room.get("template") == "empty" and "탁자" not in anchors:
-            d.new_anchors = [DraftAnchor(name="탁자", kind="table", near=door, rel="front")]
+            d.new_anchors = [DraftAnchor(name="탁자", kind="table", near=door, rel="front"),
+                             DraftAnchor(name="탁자 서랍", kind="other", near="탁자", rel="front", part=True)]
             far = ["탁자"]
         if names:
             d.beats.append(DraftBeat(note="첫 인물이 자리를 옮긴다", bodies=[DraftBody(name=names[0], at_ref=far[0], at_rel="front", posture="walk")]))

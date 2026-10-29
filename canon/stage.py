@@ -339,6 +339,186 @@ def container(a: StageAnchor, anchors: list[StageAnchor]) -> Optional[StageAncho
                  and v.x <= cx <= v.x + v.w and v.y <= cy <= v.y + v.h), None)
 
 
+# ── 붙은 기준점 (docs/stage/specs/09-attach.md) ──
+# 자식은 부모 기준 좌표로 저장한다: 부모 가운데에서 부모의 오른쪽 r · 앞 f 쪽으로 잰 x · y(가운데), r · f 쪽 크기 w · h,
+# 부모 앞쪽에서 더 돈 rot. 방 벽에 붙은 자식은 벽을 따라간 좌표만 방 기준이고 벽에서 떨어진 좌표는 늘 벽에 맞춘다.
+# 좌표를 읽는 곳은 모두 resolve 로 푼 방을 쓴다. 푼 방은 저장하지 않는다.
+
+FACES = {"inside": "안", "top": "위", "front": "앞면", "back": "뒷면", "left": "왼쪽 면", "right": "오른쪽 면"}
+WALLS = {"n": "위 벽", "e": "오른쪽 벽", "s": "아래 벽", "w": "왼쪽 벽"}
+TOUCH = 0.05  # 옛 방 짐작: 이만큼 안으로 닿으면 붙은 것으로 본다 (m)
+FACE_ROT = {"front": 0, "back": 180, "right": 270, "left": 90}  # 그 면 바깥을 보는 자식의 지역 rot
+PART_DEPTH = 2.5  # AI 부분 구역의 깊이 상한 (m)
+
+
+def _frame(rot: int) -> tuple[tuple[int, int], tuple[int, int]]:
+    """(앞 f, 오른쪽 r). 오른쪽은 _anchor_point 의 '오른쪽'과 같다(앞에서 바라본 오른쪽 = 안에서 앞을 보고 왼쪽)."""
+    fx, fy = _front(rot)
+    f = (round(fx), round(fy))
+    return f, (f[1], -f[0])
+
+
+def _extent(w: float, h: float, r: tuple[int, int]) -> tuple[float, float]:
+    """세계 가로 · 세로 → (r 쪽, f 쪽) 크기. 거꾸로도 같은 식이다."""
+    return (w, h) if r[0] != 0 else (h, w)
+
+
+def _local_xy(p: StageAnchor, c: StageAnchor) -> tuple[float, float]:
+    """붙은 자식의 지역 가운데를 면에 맞춘다. p 는 세계 좌표 부모. 창 · 문 · 벽은 부모 안쪽 테두리, 그 밖은 면 바깥에 맞닿는다."""
+    _, r = _frame(p.rot)
+    pr, pf = _extent(p.w, p.h, r)
+
+    def clamp(v: float, lim: float) -> float:
+        return max(-lim, min(lim, v)) if lim > 0 else 0.0
+
+    inner = c.kind in ATTACH
+    x, y = c.x, c.y
+    if c.face in ("front", "back"):
+        y = (pf / 2 - c.h / 2 if inner else pf / 2 + c.h / 2) * (1 if c.face == "front" else -1)
+        x = clamp(x, (pr - c.w) / 2)
+    elif c.face in ("left", "right"):
+        x = (pr / 2 - c.w / 2 if inner else pr / 2 + c.w / 2) * (1 if c.face == "right" else -1)
+        y = clamp(y, (pf - c.h) / 2)
+    else:
+        x, y = clamp(x, (pr - c.w) / 2), clamp(y, (pf - c.h) / 2)
+    return x, y
+
+
+def _to_world(p: StageAnchor, c: StageAnchor) -> StageAnchor:
+    f, r = _frame(p.rot)
+    x, y = _local_xy(p, c)
+    cx = p.x + p.w / 2 + x * r[0] + y * f[0]
+    cy = p.y + p.h / 2 + x * r[1] + y * f[1]
+    w, h = _extent(c.w, c.h, r)
+    return c.model_copy(update={"x": round(cx - w / 2, 4), "y": round(cy - h / 2, 4), "w": w, "h": h, "rot": (p.rot + c.rot) % 360})
+
+
+def to_local(p: StageAnchor, c: StageAnchor, face: str) -> StageAnchor:
+    """세계 좌표 자식 c 를 세계 좌표 부모 p 의 face 에 붙인 저장 꼴로."""
+    f, r = _frame(p.rot)
+    dx, dy = c.x + c.w / 2 - (p.x + p.w / 2), c.y + c.h / 2 - (p.y + p.h / 2)
+    w, h = _extent(c.w, c.h, r)
+    return c.model_copy(update={"parent": p.id, "face": face, "x": round(dx * r[0] + dy * r[1], 3), "y": round(dx * f[0] + dy * f[1], 3),
+                                "w": w, "h": h, "rot": (c.rot - p.rot) % 360})
+
+
+def _wall_world(room: StageRoom, c: StageAnchor) -> StageAnchor:
+    x, y = c.x, c.y
+    if c.face in ("n", "s"):
+        x = min(max(x, 0.0), max(room.w - c.w, 0.0))
+        y = 0.0 if c.face == "n" else room.h - c.h
+    else:
+        y = min(max(y, 0.0), max(room.h - c.h, 0.0))
+        x = 0.0 if c.face == "w" else room.w - c.w
+    return c.model_copy(update={"x": x, "y": y})
+
+
+def resolve(room: StageRoom) -> StageRoom:
+    """세계 좌표로 푼 사본 (부모부터 차례로). 이미 푼 방은 그대로 돌려준다. parent · face 는 남긴다.
+    고리이거나 모르는 부모 · 면이면 그 기준점을 붙지 않은 것으로 읽는다. 저장하지 않는다."""
+    if room._world:
+        return room
+    by = {a.id: a for a in room.anchors}
+    out: dict[str, StageAnchor] = {}
+
+    def world(a: StageAnchor, seen: frozenset) -> StageAnchor:
+        if a.id in out:
+            return out[a.id]
+        if a.parent == "room" and a.face in WALLS:
+            w = _wall_world(room, a)
+        elif a.parent in by and a.parent not in seen and a.face in FACES:
+            w = _to_world(world(by[a.parent], seen | {a.parent}), a)
+        else:
+            w = a.model_copy()
+        out[a.id] = w
+        return w
+
+    r = room.model_copy(update={"anchors": [world(a, frozenset({a.id})) for a in room.anchors]})
+    r._world = True
+    return r
+
+
+def children(room: StageRoom, aid: str) -> list[StageAnchor]:
+    """aid 에 붙은 기준점과 그 자식들 (깊이 순)."""
+    out, todo = [], [aid]
+    while todo:
+        cur = todo.pop(0)
+        for a in room.anchors:
+            if a.parent == cur and a.id != aid and a not in out:
+                out.append(a)
+                todo.append(a.id)
+    return out
+
+
+def clean_room(room: StageRoom) -> int:
+    """저장 전 붙은 곳 정리: 모르는 부모, 자기 자신, 고리, 맞지 않는 면이면 떼어 낸다(좌표는 그대로). 뗀 수."""
+    by = {a.id: a for a in room.anchors}
+    dropped = 0
+    for a in room.anchors:
+        ok = (a.parent == "room" and a.face in WALLS) or (a.parent in by and a.parent != a.id and a.face in FACES) or not a.parent
+        if ok and a.parent and a.parent != "room":
+            seen, cur = {a.id}, by[a.parent]
+            while cur.parent in by:
+                if cur.id in seen:
+                    ok = False
+                    break
+                seen.add(cur.id)
+                cur = by[cur.parent]
+        if not ok:
+            a.parent, a.face = "", ""
+            dropped += 1
+        elif not a.parent:
+            a.face = ""
+    return dropped
+
+
+def shift_room(room: StageRoom, dx: float, dy: float) -> None:
+    """방을 왼쪽 · 위로 dx · dy 넓혔을 때: 뿌리와 벽 자식만 옮긴다. 기준점 자식은 부모 기준이라 그대로다."""
+    if not dx and not dy:
+        return
+    room.anchors = [_moved(a, dx, dy) if a.parent in ("", "room") else a for a in room.anchors]
+
+
+def _side_of(v: StageAnchor, c: StageAnchor) -> str:
+    """세계 좌표 c 가 차 v 의 옆면에 TOUCH 안으로 닿으면 그 면, 아니면 빈칸."""
+    f, r = _frame(v.rot)
+    pr, pf = _extent(v.w, v.h, r)
+    dx, dy = c.x + c.w / 2 - (v.x + v.w / 2), c.y + c.h / 2 - (v.y + v.h / 2)
+    x, y = dx * r[0] + dy * r[1], dx * f[0] + dy * f[1]
+    cw, ch = _extent(c.w, c.h, r)
+    gaps = {"right": pr / 2 - (x + cw / 2), "left": pr / 2 - (cw / 2 - x), "front": pf / 2 - (y + ch / 2), "back": pf / 2 - (ch / 2 - y)}
+    face, gap = min(gaps.items(), key=lambda kv: abs(kv[1]))
+    return face if abs(gap) <= TOUCH else ""
+
+
+def _wall_of(room: StageRoom, a: StageAnchor) -> str:
+    """방 테두리에 TOUCH 안으로 닿은 벽. 얇은 쪽이 벽과 나란해야 한다 (구석의 창이 엉뚱한 벽에 붙지 않게)."""
+    gaps = {"w": a.x, "n": a.y, "e": room.w - a.x - a.w, "s": room.h - a.y - a.h}
+    fit = [k for k, g in gaps.items() if abs(g) <= TOUCH and ((k in "ns") == (a.w >= a.h))]
+    return min(fit, key=lambda k: abs(gaps[k])) if fit else ""
+
+
+def attach_guess(room: StageRoom) -> None:
+    """옛 방 짐작 (09 '옛 방'): 차 안 가운데면 그 차에 (옆면에 닿은 창 · 문은 그 면, 그 밖은 안),
+    창 · 문 · 벽이 방 테두리에 닿으면 그 벽에. 세계 좌표는 바뀌지 않는다. 이미 붙은 기준점은 건드리지 않는다."""
+    room.attached = True
+    w = resolve(room)
+    roots = [a for a in w.anchors if not a.parent]
+    out = []
+    for a, wa in zip(room.anchors, w.anchors):
+        if a.parent:
+            out.append(a)
+            continue
+        v = container(wa, roots) if a.kind != "vehicle" else None
+        if v is not None:
+            face = _side_of(v, wa) if a.kind in ("window", "door") else ""
+            out.append(to_local(v, wa, face or "inside"))
+            continue
+        edge = _wall_of(room, a) if a.kind in ATTACH else ""
+        out.append(a.model_copy(update={"parent": "room", "face": edge}) if edge else a)
+    room.anchors = out
+
+
 def _box(cx: float, cy: float, w: float, h: float, a: StageAnchor, rot: int) -> StageAnchor:
     return a.model_copy(update={"x": round(cx - w / 2, 2), "y": round(cy - h / 2, 2), "w": w, "h": h, "rot": rot})
 
@@ -401,11 +581,38 @@ def _empty_spot(room: StageRoom, a: StageAnchor, others: list[StageAnchor]) -> S
     return a.model_copy(update={"x": round(room.w + ANCHOR_GAP, 2), "y": 0.0})
 
 
+def _part_zone(near: StageAnchor, rel: str, a: StageAnchor) -> StageAnchor:
+    """AI 부분 구역(짐칸 · 트렁크 · 보닛 앞)의 세계 상자: near 안의 rel 쪽 끝, 폭은 near 를 채우고 깊이는 near 길이의 1/3
+    (많아야 PART_DEPTH). 앞쪽은 그 끝의 바깥. rel 이 앞 · 뒤 · 왼쪽 · 오른쪽이 아니면 near 가운데에 종류 크기로."""
+    _, r = _frame(near.rot)
+    pr, pf = _extent(near.w, near.h, r)
+    if rel in ("front", "back"):
+        d = min(pf / 3, PART_DEPTH)
+        loc = a.model_copy(update={"x": 0.0, "y": (pf - d) / 2 * (1 if rel == "front" else -1), "w": pr, "h": d, "rot": FACE_ROT[rel]})
+    elif rel in ("left", "right"):
+        d = min(pr / 3, PART_DEPTH)
+        loc = a.model_copy(update={"x": (pr - d) / 2 * (1 if rel == "right" else -1), "y": 0.0, "w": d, "h": pf, "rot": FACE_ROT[rel]})
+    else:
+        loc = a.model_copy(update={"x": 0.0, "y": 0.0, "w": min(a.w, pr), "h": min(a.h, pf), "rot": 0})
+    return _to_world(near, loc.model_copy(update={"face": "inside"}))
+
+
+def _on_face(near: StageAnchor, rel: str, a: StageAnchor) -> tuple[StageAnchor, str]:
+    """부분인 창 · 문 · 벽을 near 의 rel 쪽 면 가운데에 (세계 상자, 면). 모르는 쪽은 앞면. 앞쪽은 바깥."""
+    face = rel if rel in FACE_ROT else "front"
+    long, thin = max(a.w, a.h), min(a.w, a.h)
+    w, h = (long, thin) if face in ("front", "back") else (thin, long)
+    loc = a.model_copy(update={"x": 0.0, "y": 0.0, "w": w, "h": h, "rot": FACE_ROT[face], "face": face})
+    return _to_world(near, loc), face
+
+
 def place_anchors(room: StageRoom, drafts: list[DraftAnchor]) -> tuple[StageRoom, list[AnchorAdd], float, float]:
-    """AI 의 기준점 제안을 방에 놓는다: (더한 방(사본, id 그대로), 더한 기준점, 옛 기준점을 옮긴 dx, dy).
+    """AI 의 기준점 제안을 방에 놓는다: (더한 방(사본, id 그대로, 저장 꼴), 더한 기준점(저장 꼴), 옛 기준점을 옮긴 dx, dy).
     이미 있는 이름은 건너뛴다. 모르는 종류는 other, 모르는 near 는 빈 자리. 앞에 놓은 제안을 뒤 제안의 near 로 쓸 수 있다.
-    더한 기준점 둘레 ROOM_PAD 가 방 밖으로 나가면 방을 넓히고, 왼쪽 · 위로 넓히면 옛 기준점을 그만큼 옮긴다(평면도 좌표만 바뀐다)."""
+    자리는 세계 좌표(resolve)로 셈하고, 붙는 기준점은 부모 기준 좌표로 저장한다 (09: part 는 near 의 부분, 차 곁 자리는 차 안).
+    더한 기준점 둘레 ROOM_PAD 가 방 밖으로 나가면 방을 넓히고, 왼쪽 · 위로 넓히면 뿌리와 벽 기준점을 그만큼 옮긴다(shift_room)."""
     r = room.model_copy(deep=True)
+    r._world = False
     kinds = anchor_kinds()
     adds: list[AnchorAdd] = []
     for d in drafts:
@@ -417,50 +624,70 @@ def place_anchors(room: StageRoom, drafts: list[DraftAnchor]) -> tuple[StageRoom
         kind = d.kind.strip() if d.kind.strip() in kinds else "other"
         _, width, depth, sit, lie = ANCHOR_SIZES.get(kind, ANCHOR_SIZES["other"])
         a = StageAnchor(id=_new_id("a", {x.id for x in r.anchors}), name=name, kind=kind, w=width, h=depth, sit=sit, lie=lie)
-        near = next((x for x in r.anchors if x.name.strip() == d.near.strip()), None) if d.near.strip() else None
+        world = resolve(r).anchors
+        near = next((x for x in world if x.name.strip() == d.near.strip()), None) if d.near.strip() else None
+        rel = d.rel.strip()
         # 차에 붙는 자리는 차 안, 차 안 자리 곁의 창 · 문은 차 옆면 (2026-10-29 15화: 운전석 · 창이 캠핑카 밖에 놓였다)
-        car = None if near is None else near if near.kind == "vehicle" else container(near, r.anchors)
-        inside = None
+        car = None if near is None else near if near.kind == "vehicle" else container(near, world)
+        placed, parent, face, where = None, None, "", ""
         if car is not None and kind == "seat":
-            inside = _in_vehicle(car, a, r.anchors)
+            placed, face = _in_vehicle(car, a, world), "inside"
         elif car is not None and kind in ("window", "door"):
-            inside = _on_vehicle_wall(car, near if near is not car else None, a, r.anchors)
-        if inside is not None:
-            a, where = inside, f"{car.name} {'안' if kind == 'seat' else '옆면'}"
+            placed = _on_vehicle_wall(car, near if near is not car else None, a, world)
+            face = _side_of(car, placed) if placed is not None else ""
+        if placed is not None:
+            parent, where = car, f"{car.name} {'안' if kind == 'seat' else '옆면'}"
+        elif d.part and near is not None:
+            # 부분 (2026-10-30 15화: 정비차 짐칸이 트럭 뒤 1.35m 에 따로 떠 있었다)
+            parent = near
+            if kind in ATTACH:
+                placed, face = _on_face(near, rel, a)
+                where = f"{near.name} {FACES[face]}"
+            else:
+                placed, face = _part_zone(near, rel, a), "inside"
+                where = f"{near.name} 안" + (f" {RELS[rel]} 끝" if rel in FACE_ROT else "")
         elif near is not None:
-            a, where = _beside(near, d.rel.strip(), a, r.anchors)
+            placed, where = _beside(near, rel, a, world)
         else:
-            a, where = _empty_spot(r, a, r.anchors), "빈 자리"
-        r.anchors.append(a)
-        adds.append(AnchorAdd(anchor=a, where=where))
+            placed, where = _empty_spot(r, a, world), "빈 자리"
+        stored = to_local(parent, placed, face or "inside") if parent is not None else placed
+        r.anchors.append(stored)
+        adds.append(AnchorAdd(anchor=stored, where=where))
     if not adds:
         return r, [], 0.0, 0.0
-    new = [x.anchor for x in adds]
+    ids = {x.anchor.id for x in adds}
+    new = [a for a in resolve(r).anchors if a.id in ids]
     x0 = min(0.0, *(a.x - ROOM_PAD for a in new))
     y0 = min(0.0, *(a.y - ROOM_PAD for a in new))
     x1 = max(r.w, *(a.x + a.w + ROOM_PAD for a in new))
     y1 = max(r.h, *(a.y + a.h + ROOM_PAD for a in new))
     dx, dy = round(-x0, 2), round(-y0, 2)
-    r.anchors = [_moved(a, dx, dy) for a in r.anchors]
+    shift_room(r, dx, dy)
     r.w, r.h = round(min(ROOM_MAX, x1 - x0), 2), round(min(ROOM_MAX, y1 - y0), 2)
-    ids = {x.anchor.id for x in adds}
     moved = {a.id: a for a in r.anchors if a.id in ids}
     return r, [x.model_copy(update={"anchor": moved[x.anchor.id]}) for x in adds], dx, dy
 
 
 def grow_room(base: StageRoom, adds: list[AnchorAdd], dx: float, dy: float, w: float, h: float) -> tuple[StageRoom, dict[str, str]]:
-    """적용할 때 지금 방(제안 뒤 작가가 고쳤을 수 있다)에 더한다: 옛 기준점을 dx, dy 옮기고, 크기를 넓히고, 기준점을 붙인다.
-    더할 id 가 이미 있으면 새 id 로 바꾸고 바꾼 짝을 돌려준다 (장면의 자리 · 향함을 고칠 때 쓴다)."""
+    """적용할 때 지금 방(제안 뒤 작가가 고쳤을 수 있다)에 더한다: 뿌리 · 벽 기준점을 dx, dy 옮기고(shift_room), 크기를 넓히고, 기준점을 붙인다.
+    더할 id 가 이미 있으면 새 id 로 바꾸고 바꾼 짝을 돌려준다 (장면의 자리 · 향함을 고칠 때 쓴다). 더한 기준점의 부모도 함께 바꾼다."""
     r = base.model_copy(deep=True)
-    r.anchors = [_moved(a, dx, dy) for a in r.anchors]
+    r._world = False
+    shift_room(r, dx, dy)
     r.w, r.h = round(max(r.w + dx, w), 2), round(max(r.h + dy, h), 2)
     remap: dict[str, str] = {}
+    added = []
     for x in adds:
         a = x.anchor.model_copy()
         if any(b.id == a.id for b in r.anchors):
             new = _new_id("a", {b.id for b in r.anchors} | {x.anchor.id for x in adds})
             remap[a.id], a.id = new, new
         r.anchors.append(a)
+        added.append(a)
+    for a in added:
+        if a.parent in remap:
+            a.parent = remap[a.parent]
+    clean_room(r)
     return r, remap
 
 
@@ -531,6 +758,7 @@ def _anchor_point(a: StageAnchor, rel: str) -> tuple[float, float]:
 
 def facing_vec(facing: str, me: tuple[float, float], room: StageRoom, pos: dict) -> Optional[tuple[float, float]]:
     """향한 쪽 단위 벡터. 모르면 None."""
+    room = resolve(room)
     if facing in _FACING_VEC:
         return _FACING_VEC[facing]
     t = None
@@ -551,6 +779,7 @@ def place(room: StageRoom, state: dict[str, Now], order: Optional[list[str]] = N
     """인물마다 평면도 좌표 (m). 자리를 모르는 인물은 빠진다. order 는 같은 자리를 펼 때의 순서 (보통 scene.cast).
     prev 는 앞 박자 좌표: 기준 인물이 나를 향하는데 내 자리를 아직 모르면 앞 박자의 내 자리 쪽을 그 인물의 앞으로 친다."""
     names = [w for w in (order or []) if w in state] + [w for w in state if w not in (order or [])]
+    room = resolve(room)
     anchors = {a.id: a for a in room.anchors}
     pos: dict[str, tuple[float, float]] = {}
     groups: dict[tuple[str, str], list[str]] = {}
@@ -583,6 +812,7 @@ def place(room: StageRoom, state: dict[str, Now], order: Optional[list[str]] = N
 
 def layouts(room: StageRoom, scene: StageScene) -> list[dict[str, tuple[float, float]]]:
     """박자마다 좌표 (0 은 시작 상태). 박자마다 앞 박자 좌표를 place 의 prev 로 넘긴다."""
+    room = resolve(room)
     out: list[dict[str, tuple[float, float]]] = []
     for k in range(len(scene.beats) + 1):
         out.append(place(room, state_at(scene, k), scene.cast, out[-1] if out else None))
@@ -638,6 +868,7 @@ def judge_all(scene: StageScene, room: StageRoom, p: Project) -> list[Violation]
     """평면 판정에 3D 판정을 더한다 (docs/stage/3d/specs/07-wire.md). 3D 는 자세 · 틀 모듈이 다 등록됐을 때만 돌고
     2D reach 가 짚은 접촉은 다시 짚지 않는다. 박자 순, 같은 박자는 평면 규칙이 먼저."""
     from .stage3d import judge as judge3d
+    room = resolve(room)
     flat = judge(scene, room, p)
     return sorted(flat + judge3d.judge_if_ready(scene, room, p, flat=flat), key=lambda v: v.beat)
 
@@ -672,6 +903,7 @@ def _carried(now: dict[str, Now], w: str) -> bool:
 def judge(scene: StageScene, room: StageRoom, p: Project) -> list[Violation]:
     """박자마다 규칙 다섯 개를 본다. 손 상태가 '?' 이거나 자리 · 향함을 모르면 그 규칙은 짚지 않는다."""
     out: list[Violation] = []
+    room = resolve(room)
     prev = state_at(scene, 0)
     spots = layouts(room, scene)
     for k, beat in enumerate(scene.beats, 1):
@@ -1218,6 +1450,7 @@ def save_scene(p: Project, ep: Episode, scene: StageScene, room: Optional[StageR
     if any(s.id != scene.id and s.role == scene.role and _event_of(ep, s) == ev for s in ep.stage):
         raise ValueError(f"이 사건에는 이미 {ROLES[scene.role]} 장면이 있어요")
     if room is not None:
+        clean_room(room)
         i = next((k for k, r in enumerate(p.rooms) if r.id == room.id), None)
         if i is None:
             p.rooms.append(room)

@@ -367,6 +367,7 @@ def judge3d(scene: StageScene, room: StageRoom, p: Project, frames: Optional[Fra
     """3D 규칙 다섯 개(RULES3D)를 박자 끝마다 본다. 2D reach 가 짚은 접촉은 다시 짚지 않는다.
     frames 를 주지 않으면 등록부로 구하고, flat 을 주지 않으면 stage.judge 를 부른다. 박자 순, 같은 박자는 규칙 이름 순."""
     from . import body, postures as posture_reg
+    room = stage.resolve(room)
     fr = frames if frames is not None else body.frames(scene, room, p)
     skip_ids, skip_beats = _flat_reach(stage.judge(scene, room, p) if flat is None else flat)
     pspecs = posture_reg.load()

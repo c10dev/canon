@@ -1181,6 +1181,8 @@ class StageAnchor(BaseModel):
     rot: int = Field(0, description="앞쪽 방향: 0 아래(+y) · 90 왼쪽 · 180 위 · 270 오른쪽 (평면도 기준)")
     sit: bool = False
     lie: bool = False
+    parent: str = Field("", description="붙은 곳: 기준점 id, 방 벽이면 'room'. 비면 붙지 않음 (stage.resolve). 붙으면 x · y · w · h · rot 는 부모 기준이다")
+    face: str = Field("", description="붙은 면: 기준점이면 inside · top · front · back · left · right, 방 벽이면 n · e · s · w (stage.FACES · WALLS)")
 
 
 class StageRoom(BaseModel):
@@ -1192,6 +1194,15 @@ class StageRoom(BaseModel):
     w: float = 4.0
     h: float = 3.0
     anchors: list[StageAnchor] = Field(default_factory=list)
+    attached: bool = Field(False, description="옛 방의 붙은 곳 짐작(stage.attach_guess)을 마친 방")
+    _world: bool = PrivateAttr(False)  # stage.resolve 가 세계 좌표로 푼 사본. 저장하지 않는다
+
+    @model_validator(mode="after")
+    def _guess(self):
+        if not self.attached:
+            from . import stage  # 순환 import 를 피해 늦게 읽는다
+            stage.attach_guess(self)
+        return self
 
 
 class StageSpot(BaseModel):
@@ -1278,6 +1289,7 @@ class DraftAnchor(BaseModel):
     kind: str = Field("other", description="기준점 종류 id (기준점 종류 목록)")
     near: str = Field("", description="가까이 있는 기준점 이름: 방에 있는 것이나 이 목록 앞에 적은 것. 모르면 빈칸")
     rel: str = Field("", description="near 에서 본 이 기준점의 쪽: front · back · left · right · beside (near 가 있을 때만)")
+    part: bool = Field(False, description="near 의 한 부분이면 참 (차의 짐칸 · 트렁크 · 보닛 · 운전석, 가구의 서랍처럼). 코드가 near 에 붙인다")
 
 
 class DraftBeat(BaseModel):

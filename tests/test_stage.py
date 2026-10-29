@@ -40,7 +40,7 @@ def _rules(scene, room, p=None):
 
 def test_templates_keep_anchors_inside():
     for key in stage.ROOMS:
-        room = stage.make_room(key, "r")
+        room = stage.resolve(stage.make_room(key, "r"))
         assert room.anchors, key
         for a in room.anchors:
             assert 0 <= a.x and a.x + a.w <= room.w + 1e-9 and 0 <= a.y and a.y + a.h <= room.h + 1e-9, (key, a.name)
@@ -107,7 +107,7 @@ def test_seats_face_their_furniture():
              "classroom": [("앞자리", "교탁"), ("뒷자리", "교탁"), ("창가 자리", "교탁")], "car": [("운전석", "앞유리"), ("조수석", "앞유리")],
              "carriage": [("앞좌석", "뒷좌석"), ("뒷좌석", "앞좌석")], "car_side": [("운전석", "보닛"), ("조수석", "보닛")]}
     for key, rows in pairs.items():
-        room = stage.make_room(key, "r")
+        room = stage.resolve(stage.make_room(key, "r"))
         by = {a.name: a for a in room.anchors}
         for seat, thing in rows:
             a, b = by[seat], by[thing]

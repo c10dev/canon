@@ -108,7 +108,7 @@ function s3Flags(violations, k, contacts) {
 /** 카메라 셋 (three.js 좌표): 비스듬히 · 위에서 · 문에서. 문이 없으면 앞(평면도 아래)에서. */
 function s3Cams(room) {
   const W = room.w, H = room.h, big = Math.max(W, H);
-  const door = (room.anchors || []).find((a) => a.kind === 'door');
+  const door = (stageResolve(room).anchors || []).find((a) => a.kind === 'door');
   let from = [W / 2, 1.6, H + 1.2];
   if (door) {
     const [fx, fy] = stgFront(door.rot || 0), cx = door.x + door.w / 2, cy = door.y + door.h / 2;
@@ -271,7 +271,7 @@ const s3V = (p) => new s3.three.THREE.Vector3(p[0], p[2], p[1]);
 
 /** 방: 바닥, 뒤 · 왼 벽(앞 · 오른은 낮게), 가구 상자와 기준점 이름표. 사람 마네킹은 인물마다 한 번 만든다. */
 function s3Room() {
-  const { THREE } = s3.three, room = s3.room, fr = s3.data.frames;
+  const { THREE } = s3.three, room = stageResolve(s3.room), fr = s3.data.frames;  // 붙은 기준점은 세계 좌표로 (stage.js stageResolve)
   s3.world.traverse((o) => { if (o.isCSS2DObject) o.element.remove(); });  // 안에 든 이름표는 clear 가 DOM 에서 떼지 않는다
   s3.world.clear();
   s3.people = {};

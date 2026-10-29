@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional
 
 from .. import stage
@@ -113,7 +113,10 @@ def cab_vehicle(anchor: StageAnchor) -> Furniture:
 
 
 def shape(anchor: StageAnchor, room: StageRoom, spec: Optional[RoomSpec] = None) -> Furniture:
-    """기준점 모양: lookup 에 더해, 장소 모듈이 모양을 정하지 않은 차가 자리를 품었으면 운전 칸을 비운 차."""
+    """기준점 모양: lookup 에 더해, 장소 모듈이 모양을 정하지 않은 차가 자리를 품었으면 운전 칸을 비운 차.
+    다른 기준점 안(inside)에 붙은 앉지 않는 부분(짐칸 · 트렁크)은 테두리만 (단단하지 않음, 09)."""
+    if anchor.face == "inside" and anchor.parent and anchor.parent != "room" and not anchor.sit:
+        return Furniture(tuple(replace(b, solid=False, barrier=False) for b in lookup(anchor, spec).boxes))
     if anchor.kind == "vehicle" and not (spec and anchor.name in spec.anchors) and any(
             x.kind == "seat" and stage.container(x, room.anchors) is anchor for x in room.anchors):
         return cab_vehicle(anchor)
@@ -121,8 +124,16 @@ def shape(anchor: StageAnchor, room: StageRoom, spec: Optional[RoomSpec] = None)
 
 
 def solids(room: StageRoom, spec: Optional[RoomSpec] = None) -> list[Solid]:
-    """방의 모든 가구 상자 (기준점 순, 상자 순)."""
-    return [Solid(a.id, world_box(a, b), b.solid, b.barrier) for a in room.anchors for b in shape(a, room, spec).boxes]
+    """방의 모든 가구 상자 (기준점 순, 상자 순). 붙은 기준점은 푼 세계 좌표로 (stage.resolve). 위(top)에 붙은 자식은 부모 윗면 높이에서 시작한다."""
+    room = stage.resolve(room)
+    by = {a.id: a for a in room.anchors}
+    out = []
+    for a in room.anchors:
+        lift = top(shape(by[a.parent], room, spec)) if a.face == "top" and a.parent in by else 0.0
+        for b in shape(a, room, spec).boxes:
+            x0, y0, z0, x1, y1, z1 = world_box(a, b)
+            out.append(Solid(a.id, (x0, y0, z0 + lift, x1, y1, z1 + lift), b.solid, b.barrier))
+    return out
 
 
 def top(f: Furniture) -> float:

@@ -2706,7 +2706,7 @@ def stage_draft_prompt(p: Project, n: int, event: int, room=None, prev_lines: li
 - 끝난 접촉은 ends 에 대상 이름과 부위 id 로 적습니다.
 - 박자 설명에 나오는 장소 · 가구 · 차가 [방]의 기준점에 없으면 new_anchors 에 더할 기준점으로 적고, 박자 자리(at_ref)는 그 이름을 그대로 씁니다. 사람이 오가는 곳(정비차 짐칸, 운전석 창 바깥)을 인물 기준 자리로 대신하지 않습니다.
 - 기준점은 사람이 서거나 앉거나 오가는 곳(자리, 창 바깥, 짐칸, 문)만 더합니다. 손으로 만지는 작은 물건(충전 슬롯, 대시보드, 공구함 안)은 더하지 않고 손 · memo 에 적습니다.
-- new_anchors 에는 이름, 종류 kind({", ".join(f"{k}({v})" for k, v in stage_mod.anchor_kinds().items())}), 가까운 기준점 near(방에 있거나 앞에 더한 것)와 그 기준점에서 본 쪽 rel(front · back · left · right · beside)만 적습니다. 좌표 · 크기는 적지 않습니다. 박자 자리에 쓰는 곳부터 {stage_mod.MAX_ADDS}개까지 적습니다. 더할 것이 없으면 빈 목록입니다. near 곁에 붙여 더한 창 · 문의 앞(front)은 near 의 반대쪽(바깥)이라, 창밖에 선 사람은 그 창 front 입니다. 차 안 자리(운전석 · 조수석)는 near 를 그 차로, 차 창 · 문은 near 를 그 차 안 자리로 적으면 차 안과 차 옆면에 놓입니다."""
+- new_anchors 에는 이름, 종류 kind({", ".join(f"{k}({v})" for k, v in stage_mod.anchor_kinds().items())}), 가까운 기준점 near(방에 있거나 앞에 더한 것)와 그 기준점에서 본 쪽 rel(front · back · left · right · beside)만 적습니다. 좌표 · 크기는 적지 않습니다. 박자 자리에 쓰는 곳부터 {stage_mod.MAX_ADDS}개까지 적습니다. 더할 것이 없으면 빈 목록입니다. near 곁에 붙여 더한 창 · 문의 앞(front)은 near 의 반대쪽(바깥)이라, 창밖에 선 사람은 그 창 front 입니다. 차 안 자리(운전석 · 조수석)는 near 를 그 차로, 차 창 · 문은 near 를 그 차 안 자리로 적으면 차 안과 차 옆면에 놓입니다. 차 · 가구의 한 부분(트럭 짐칸 · 트렁크 · 보닛 · 운전석 · 서랍)은 따로 떨어진 물건이 아니므로 part 를 true 로, near 를 그 차 · 가구로, rel 을 그 부분이 있는 쪽으로 적습니다(짐칸 · 트렁크는 back, 보닛은 front). 그러면 그 차 · 가구 안의 그쪽 끝에 놓이고, 그 부분 front 에 선 사람은 차 바깥 그 끝에 섭니다. 부분이 아니면 part 는 false 입니다."""
 
 
 def stage_extract_prompt(p: Project, n: int, event: int, room=None, prev_lines: list[str] | None = None) -> str:
