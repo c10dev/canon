@@ -21,13 +21,13 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import agent, archetypes, autorun, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
+from . import agent, archetypes, autorun, board, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 from . import abilities, atlas, findings, foreshadows, setupchat, stattrial, statwin, timeline, travel
-from .schema import AgentSession, ChatScope, Deadline, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
+from .schema import AgentSession, ChatScope, Deadline, Storyboard, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
 from .schema import FieldIdeas, NameOption, Recap
@@ -45,7 +45,8 @@ NAME_ERR = '폴더 이름에 / \\ : * ? " < > | 는 쓸 수 없고, . 으로 시
 # 연산 이름(operationId)은 함수 이름이다. Swift 앱(swift/)이 openapi.json 으로 클라이언트를 만들 때 이 이름을 쓴다
 app = FastAPI(title="Canon", generate_unique_id_function=lambda route: route.name)
 # 다른 기기(Tailscale)에서 열 때 작품 JSON 과 정적 파일을 줄여 보낸다
-app.add_middleware(GZipMiddleware, minimum_size=1024)
+# 압축 단계 4: 장편 작품 GET(약 10MB)에서 기본 9 보다 압축이 0.2초 빠르고 크기는 9% 커질 뿐이다 (2026-10-29 실측)
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=4)
 _active = 0  # 처리 중인 요청 수. 자동 업데이트는 이 값이 0일 때만 다시 시작한다.
 
 
@@ -108,6 +109,13 @@ def _load(name: str) -> Project:
     if not NAME_RE.match(name) or not store.exists(name):
         raise HTTPException(404, f"프로젝트가 없어요: {name}")
     return store.load(name)
+
+
+def _view(name: str) -> Project:
+    """읽기만 하는 엔드포인트용 _load. 같은 판이면 전에 검증한 것을 함께 쓰므로 돌려받은 작품을 고치지 않는다 (store.load_view)."""
+    if not NAME_RE.match(name) or not store.exists(name):
+        raise HTTPException(404, f"프로젝트가 없어요: {name}")
+    return store.load_view(name)
 
 
 def _save(name: str, p: Project, merged: set[str] | None = None, kept: list[dict] | None = None) -> Project:
@@ -394,6 +402,24 @@ def config_health() -> ConfigHealth:
     return out
 
 
+class UpdateCheck(_Out):
+    """POST /api/update/check 결과. started 는 자동 업데이트가 돌고 있어 바로 확인을 시작했는지."""
+    started: bool
+    message: str
+
+
+@app.post("/api/update/check")
+def update_check() -> UpdateCheck:
+    """main 에 새 커밋이 들어왔다는 알림. 확인 간격을 기다리지 않고 바로 origin/main 을 확인하게 깨운다.
+    코드는 origin/main 에서만 받으므로 누가 불러도 확인을 앞당길 뿐이다."""
+    from . import updater
+
+    if not updater.watching:
+        return UpdateCheck(started=False, message="자동 업데이트가 꺼져 있어요 (--no-update)")
+    updater.wake.set()
+    return UpdateCheck(started=True, message="새 코드를 확인할게요")
+
+
 @app.get("/api/claude/status")
 def claude_status() -> ClaudeStatus:
     """Claude Code 설치와 구독 로그인 상태. 로그인은 Claude Code 가 하고 Canon 은 상태만 본다 (claude.py)."""
@@ -518,7 +544,7 @@ def _family(name: str) -> BranchFamily:
     if not fam:
         return BranchFamily()
     by_id = {v.id: k for k, v in fam.items()}
-    loaded = {k: store.load(k) for k in fam}
+    loaded = {k: store.load_view(k) for k in fam}
     members = []
     for k, depth in branches.order(fam):
         b, p = fam[k], loaded[k]
@@ -555,7 +581,7 @@ def make_branch(name: str, body: BranchIn) -> BranchMember:
 @app.get("/api/projects/{name}/branches")
 def branch_family(name: str) -> BranchFamily:
     """이 작품이 속한 갈래 집안. 갈래가 없으면 빈 목록."""
-    _load(name)
+    _view(name)
     return _family(name)
 
 
@@ -668,7 +694,7 @@ def get_project(name: str, request: Request) -> Response:
         tag = f'"{st.st_mtime_ns:x}-{st.st_size:x}"'
         if request.headers.get("if-none-match") == tag:
             return Response(status_code=304, headers={"ETag": tag})
-    p = _load(name)
+    p = _view(name)
     return JSONResponse(p.model_dump(mode="json"), headers={"ETag": tag} if tag else None)
 
 
@@ -1745,7 +1771,7 @@ def impact_reopen(name: str, eid: str) -> Project:
 # ---------- 백그라운드 작업 ----------
 
 class JobIn(BaseModel):
-    kind: str  # suggest | arc | plots | write | state | impact | series | nextarc | recap_arc | recap_part | storyline | convert | rebuild | rework | hook | openings | opening_drafts
+    kind: str  # suggest | arc | plots | write | board | state | impact | series | nextarc | recap_arc | recap_part | storyline | convert | rebuild | rework | hook | openings | opening_drafts
     ep: int | None = None  # 화 번호. plots 는 장편에서 아크 번호(없으면 초안이 있는 모든 아크), recap_* 는 아크·부 번호
     element: str = ""  # impact 일 때 요소 id
     note: str = ""  # arc, series, plots, nextarc, storyline, convert, rebuild: 작가가 바라는 것
@@ -1760,6 +1786,7 @@ class JobIn(BaseModel):
     episodes: list[int] = []  # stattrial: 시험할 화
     repeats: int = 1  # stattrial: 조건마다 같은 화를 쓸 횟수
     conditions: list[str] = []  # stattrial: none | json | lines (비우면 셋 다)
+    board: Literal["", "make", "none"] = ""  # write: make 면 스토리보드를 새로 만든 뒤 쓴다(바로 쓰기), none 이면 스토리보드 없이 쓴다
 
 
 def _edit(name: str, fn) -> Project:
@@ -1806,7 +1833,7 @@ def start_job(name: str, body: JobIn) -> dict:
     """오래 걸리는 AI 작업을 시작하고 바로 돌아온다. 결과는 GET /api/jobs 로 본다."""
     p = _load(name)
     kind, n = body.kind, body.ep
-    if kind in ("write", "state", "plots", "plot_one", "check"):
+    if kind in ("write", "state", "plots", "plot_one", "check", "board"):
         _not_auto(name)
     stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "rework": "revise",
              "hook": "check", "check": "check", "opening_drafts": "write", "stattrial": "write"}.get(kind, "plan")  # 나머지는 plan
@@ -1941,11 +1968,18 @@ def start_job(name: str, body: JobIn) -> dict:
                     _edit(name, lambda q: pipeline.set_candidate(q, n, text, req))
                     return {"candidate": True}
             else:
-                label, total, owned = f"{n}화 본문", 1, {n}
+                make = body.board == "make"
+                plan = get_llm("plan") if make else None  # 스토리보드는 plan 단계 모델
+                label, total, owned = f"{n}화 {'스토리보드와 ' if make else ''}본문", 2 if make else 1, {n}
 
                 def fn(job: jobs.Job):
                     _fill_old_spots(name)
-                    text = pipeline.write_episode(llm, store.load(name), n)
+                    if make:
+                        job.note = f"{n}화 스토리보드 만드는 중"
+                        b = pipeline.make_storyboard(plan, store.load(name), n)
+                        _edit(name, lambda q: pipeline.set_storyboard(q, n, b, by="ai"))
+                        job.done, job.note = 1, f"{n}화 본문 쓰는 중"
+                    text = pipeline.write_episode(llm, store.load(name), n, use_board=body.board != "none")
                     _edit(name, lambda q: pipeline.replace_text(q.episode(n), text))  # 지금 본문이 있으면 '이전 판'에 남는다
                     return None
         else:
@@ -1955,6 +1989,18 @@ def start_job(name: str, body: JobIn) -> dict:
 
             def fn(job: jobs.Job):
                 return pipeline.extract_state(llm, store.load(name), n).model_dump()
+    elif kind == "board":
+        if n is None:
+            raise ValueError("화 번호(ep)가 필요해요")
+        if p.episode(n).status == "draft":
+            raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요")
+        pipeline.require_previous(p, n)
+        label, total, owned = f"{n}화 스토리보드", 1, {n}
+
+        def fn(job: jobs.Job):
+            b = pipeline.make_storyboard(llm, store.load(name), n)
+            _edit(name, lambda q: pipeline.set_storyboard(q, n, b, by="ai"))
+            return None
     elif kind in ("hook", "openings", "opening_drafts"):
         if n is None or not prompts.is_opening(n):
             raise ValueError(f"1~{prompts.OPENING_EPISODES}화 번호(ep)가 필요해요")
@@ -2022,7 +2068,7 @@ def start_job(name: str, body: JobIn) -> dict:
         raise ValueError(f"모르는 작업이에요: {kind}")
 
     try:
-        with usage.scope(episode=n if kind in ("write", "state", "check", "rework", "hook", "openings", "opening_drafts", "plot_one") else None, task=kind):
+        with usage.scope(episode=n if kind in ("write", "board", "state", "check", "rework", "hook", "openings", "opening_drafts", "plot_one") else None, task=kind):
             job = jobs.start(name, kind, n, label, _keep_pending(name, kind, n, label, fn), total=total, owned=owned)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}
@@ -2073,7 +2119,7 @@ def _now() -> str:
 @app.get("/api/projects/{name}/pending")
 def get_pending(name: str) -> dict:
     """검토를 기다리는 AI 결과와 실패한 작업. 이미 쓸 수 없게 된 상태 변경안(본문 작성 상태도, 반영 뒤 고친 화도 아닌 화)은 지운다."""
-    p = _load(name)
+    p = _view(name)
     written = {e.plot.number for e in p.episodes if e.status == "written" or pipeline.edited_after_final(e)}
     stale = [k for k, r in store.load_pending(name)["results"].items() if r["kind"] == "state" and r["ep"] not in written]
 
@@ -2172,6 +2218,39 @@ def set_events_done(name: str, n: int, body: EventsDone) -> list[str]:
     ep.events_done = [x for x in ep.plot.events if x in set(body.done)]
     _save(name, p)
     return ep.events_done
+
+
+# ---------- 4-0. 화별 스토리보드 ----------
+# 쓰기 직전의 장면 목록과 확정 값 (board.py). 만들기는 작업 board (start_job), 작가 수정 · 지우기는 여기서.
+# 상태 승인 대상이 아니라 바로 저장한다. 그 화를 맡은 작업이나 자동 집필이 도는 동안은 막는다.
+
+@app.get("/api/projects/{name}/episodes/{n}/storyboard")
+def get_storyboard(name: str, n: int) -> dict:
+    """Canon 이 센 값: 켜짐, 낡음, 시간 한 줄, 열린 기한, 상태창 단계(창 글 포함), 경고 (board.view)."""
+    p = _load(name)
+    p.episode(n)
+    return board.view(p, n)
+
+
+def _board_guard(name: str, n: int) -> None:
+    _not_auto(name)
+    if any(j.status == "running" and n in j.owned for j in jobs.listing(name)):
+        raise ValueError("AI 작업이 끝난 뒤에 고칠 수 있어요")
+
+
+@app.put("/api/projects/{name}/episodes/{n}/storyboard")
+def put_storyboard(name: str, n: int, body: Storyboard) -> Project:
+    """작가가 고친 스토리보드를 저장한다. AI 가 만든 것을 고치면 made_by 가 both 가 된다."""
+    _board_guard(name, n)
+    _load(name).episode(n)
+    return _edit(name, lambda p: pipeline.set_storyboard(p, n, body))
+
+
+@app.delete("/api/projects/{name}/episodes/{n}/storyboard")
+def drop_storyboard(name: str, n: int) -> Project:
+    _board_guard(name, n)
+    _load(name).episode(n)
+    return _edit(name, lambda p: pipeline.set_storyboard(p, n, None))
 
 
 # ---------- 4-0. 고칠 곳 ----------
@@ -2791,7 +2870,7 @@ class AutoEstimate(BaseModel):
 
 
 def _auto(name: str) -> dict:
-    p = _load(name)
+    p = _view(name)
     run = autorun.get_run(name)
     out = run.model_dump() if run else None
     if out and run.pending and (run.status != "review" or p.episode(run.ep).status != "written"):
@@ -3825,6 +3904,18 @@ def set_check_widen(name: str, body: CheckWiden) -> Project:
     return _save(name, p)
 
 
+class BoardSetting(BaseModel):
+    on: bool
+
+
+@app.put("/api/projects/{name}/storyboard-setting")
+def set_storyboard_setting(name: str, body: BoardSetting) -> Project:
+    """화별 스토리보드 켜기 · 끄기 (Settings.storyboard). 켜면 쓰기 프롬프트에 직전 화 본문 전체가 들어간다."""
+    p = _load(name)
+    p.settings.storyboard = body.on
+    return _save(name, p)
+
+
 class KeepSnapshots(BaseModel):
     on: bool
 
@@ -3834,6 +3925,21 @@ def set_keep_snapshots(name: str, body: KeepSnapshots) -> Project:
     """장편 스냅샷 모두 남기기 켜기 · 끄기 (Settings.keep_snapshots). 끄면 다음 반영 때 오래된 스냅샷을 지운다."""
     p = _load(name)
     p.settings.keep_snapshots = body.on
+    return _save(name, p)
+
+
+class ModelPresetIn(BaseModel):
+    preset: str = ""  # 단계 프리셋 id (settings.presets). 비우면 전체 설정을 따른다
+
+
+@app.put("/api/projects/{name}/model-preset")
+def set_model_preset(name: str, body: ModelPresetIn) -> Project:
+    """작품이 쓸 단계 프리셋을 고른다. 이 작품의 AI 호출은 그 프리셋의 단계별 백엔드 · 모델을 쓴다 (settings.project_preset)."""
+    preset = body.preset.strip()
+    if preset and not settings.find_preset(preset):
+        raise HTTPException(404, "그 프리셋이 없어요")
+    p = _load(name)
+    p.settings.model_preset = preset
     return _save(name, p)
 
 
@@ -4798,8 +4904,10 @@ def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
 
     def watch_updates() -> None:
         last = ""
+        updater.watching = True
         while not server.should_exit:
-            time.sleep(update_interval)
+            updater.wake.wait(update_interval)  # POST /api/update/check 가 깨우면 바로 확인한다
+            updater.wake.clear()
             r = updater.update()
             if not r.updated:
                 if r.message != last:  # 같은 사유를 매번 찍지 않는다

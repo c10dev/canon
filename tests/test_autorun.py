@@ -179,13 +179,37 @@ def test_estimate(demo, monkeypatch):
     monkeypatch.setenv("CANON_LLM", "gemini")
     off = autorun.estimate(p, 6, False, Policy())
     on = autorun.estimate(p, 6, True, Policy())
-    assert off["episodes"] == 6 and off["calls"] == {"write": 6, "check": 6, "state": 6}
+    assert off["episodes"] == 6 and off["calls"] == {"plan": 0, "write": 6, "check": 6, "state": 6}  # 단편은 스토리보드가 기본으로 꺼짐
     assert off["cost"] > 0 and on["cost"] == pytest.approx(off["cost"] / 2, abs=0.01)
     assert off["batch_rounds"] == 0 and on["batch_rounds"] == 12
     no_check = autorun.estimate(p, 6, False, Policy(check=False))
     assert no_check["calls"]["check"] == 0 and no_check["cost"] < off["cost"]
     monkeypatch.setenv("CANON_LLM_WRITE", "local")
     assert autorun.estimate(p, 6, True, Policy())["batch_rounds"] == 6  # 본문은 로컬이라 배치 없음
+
+
+def test_serial_estimate_sizes_old_passages_without_search(demo, monkeypatch):
+    """장편 추정은 검수의 옛 단락을 찾지 않고(context.recall) 예산 크기로 센다. 찾아서 잰 길이와 거의 같다."""
+    from canon import context, prompts
+
+    p = store.load(demo)
+    p.meta.form = "serial"
+    monkeypatch.setitem(context.BUDGET, "check_recall", 400)
+    sim = p.model_copy(deep=True)
+    for e in sim.episodes:  # 화마다 다른 낱말이 섞인 본문이라야 옛 단락이 찾아진다 (실제 작품처럼)
+        m = e.plot.number
+        e.text = "\n\n".join(f"{m}화 {k}번째 장면에서 등대 불빛이 바다{k}를 비추고 서윤은 밧줄{m}을 감았다." for k in range(12))
+    assert prompts.check_recall(sim, 6)[1]  # 찾아서 넣는 옛 단락이 있다
+    searched = [len(prompts.check_prompt(sim, n)) for n in range(1, 7)]
+    sized = [len(prompts.check_prompt(sim, n, sized=True)) for n in range(1, 7)]
+    assert sized[:context.CHECK_RECENT + 1] == searched[:context.CHECK_RECENT + 1]  # 직전 화 밖의 옛 화가 없으면 똑같다
+    assert all(abs(a - b) <= 0.05 * b for a, b in zip(sized, searched))
+
+    def boom(*a, **k):
+        raise AssertionError("추정에서 옛 단락을 찾았어요")
+
+    monkeypatch.setattr(context, "recall", boom)
+    assert autorun.estimate(p, 6, False, Policy())["calls"]["check"] == 6
 
 
 def test_web_api(demo, monkeypatch):

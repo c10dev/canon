@@ -41,8 +41,55 @@ function refreshStageFields() {
 document.addEventListener('change', (e) => {
   if (S.route[0] !== 'settings') return;
   if (e.target.id === 'preset-pick') refreshPresetUi();
+  else if (e.target.id === 'proj-preset') actions.setProjectPreset(e.target.value);
   else if (/^set-(stage-|provider$|model$|local-model$|claude-model$)/.test(e.target.id || '')) refreshStageFields();
 });
+
+// ----- 작품 프리셋 (Settings.model_preset: 이 작품의 AI 호출만 고른 단계 프리셋을 쓴다, settings.project_preset) -----
+
+/** 작품이 고른 단계 프리셋. 고르지 않았으면 null, 프리셋이 지워졌으면 { id, missing: true } */
+function projectPreset(p = S.project, c = S.config || {}) {
+  const id = p && p.settings && p.settings.model_preset;
+  if (!id) return null;
+  return (c.stage_presets || []).find((x) => x.id === id) || { id, missing: true };
+}
+
+/** 이 작품에서 단계 s 가 쓰는 백엔드와 모델 이름 (settings.stage_view 와 같은 규칙). 단계 환경 변수가 프리셋보다 이기고,
+ * 프리셋에 없는 단계는 부모 단계, 그다음 생성 방식을 따른다. 프리셋이 없거나 지워졌거나 생성 방식이 mock 이면 전체 설정 값 */
+function projectStage(s, p = S.project, c = S.config || {}) {
+  const st = (c.stages || {})[s];
+  const pre = projectPreset(p, c);
+  if (!st || !pre || pre.missing || c.provider === 'mock') return st;
+  const own = (x, kind) => ((c.stages || {})[x] || {})[kind === 'LLM' ? 'env' : 'model_env'] === `CANON_${kind}_${x.toUpperCase()}`;
+  const prov = (x) => (own(x, 'LLM') ? c.stages[x].provider : (pre.stages || {})[x] || (STAGE_PARENT[x] ? prov(STAGE_PARENT[x]) : c.provider));
+  const model = (x) => {
+    if (own(x, 'MODEL')) return c.stages[x].model;
+    const m = (pre.stage_models || {})[x] || '';
+    return !m && STAGE_PARENT[x] && prov(x) === prov(STAGE_PARENT[x]) ? model(STAGE_PARENT[x]) : m;
+  };
+  const pv = prov(s);
+  const label = model(s) || { gemini: c.model_setting, local: c.local_model || '로컬 서버 모델',
+    claude: c.claude_model || 'Claude Code 기본 모델', 'claude-api': c.claude_model || 'claude-opus-5-5' }[pv] || pv;
+  return { ...st, provider: pv, model: label, source: own(s, 'LLM') ? st.source : 'project' };
+}
+
+/** 설정 화면 맨 위 '이 작품의 프리셋' 칸. 작품을 열고 들어왔을 때만 보인다 */
+function projectPresetCard(c) {
+  if (!S.name || !S.project) return '';
+  const pre = projectPreset();
+  const opts = '<option value="">전체 설정을 따름</option>'
+    + (pre && pre.missing ? `<option value="${esc(pre.id)}" selected>지워진 프리셋 (전체 설정을 따름)</option>` : '')
+    + (c.stage_presets || []).map((x) => `<option value="${esc(x.id)}"${pre && x.id === pre.id ? ' selected' : ''}>${esc(x.name)}</option>`).join('');
+  const uses = pre && !pre.missing
+    ? `<div class="small">${STAGES.slice(0, 4).map(([s, label]) => `${esc(label.replace(/ \(.*\)$/, ''))} ${esc((projectStage(s) || {}).model || '')}`).join(' · ')}</div>` : '';
+  return `<section class="card" id="proj-preset-card"><h2>이 작품의 프리셋</h2>
+      <div class="field"><label for="proj-preset">'${esc(P().meta.title || S.name)}'에서 쓸 프리셋</label>
+        <select id="proj-preset">${opts}</select>
+        <div class="small">고르면 이 작품의 AI 호출만 그 프리셋의 단계별 백엔드와 모델을 써요. 다른 작품은 아래 전체 설정을 따라요. 이 칸은 작품에 바로 저장해요.</div>
+        ${pre && pre.missing ? '<div class="note warn">고른 프리셋이 지워져서 전체 설정을 따르고 있어요. 다른 프리셋을 고르거나 \'전체 설정을 따름\'으로 바꾸세요.</div>' : ''}
+        ${c.provider === 'mock' ? '<div class="small">생성 방식이 mock이라 지금은 모든 단계가 mock으로 돌아요.</div>' : uses}</div>
+    </section>`;
+}
 
 // ----- 단계 프리셋 (settings.presets: 기본 묶음 + 설정 파일 stage_presets) -----
 
@@ -173,6 +220,7 @@ function viewSettings() {
     ? '<span class="chip" style="background:var(--red-soft);color:var(--red)">없음</span>'
     : `<span class="chip finalized">${esc(c.key_hint)}</span> <span class="small">${src[c.key_source]}</span>`;
   return `${header('Canon', '모델 · API 키 설정', '여기서 저장한 값은 이 컴퓨터의 설정 파일에만 들어가요. 작품 폴더나 저장소에는 들어가지 않아요.', '<button type="button" class="btn" data-action="settingsBack">돌아가기</button>')}
+    ${projectPresetCard(c)}
     <section class="card">
       <div class="field"><label for="set-provider">생성 방식</label>
         <select id="set-provider"${envLocked ? ' disabled aria-describedby="set-provider-env"' : ''}>
@@ -358,6 +406,27 @@ Object.assign(actions, {
       toast('프리셋을 지웠어요');
     }, { render: 'never' });
     $('#preset-pick')?.focus();
+  },
+  /** 이 작품의 프리셋을 바로 저장한다. 설정 화면의 저장 전 칸이 사라지지 않게 작품 프리셋 칸만 다시 그린다 */
+  async setProjectPreset(id) {
+    const redraw = () => {
+      const card = $('#proj-preset-card');
+      if (card) card.outerHTML = projectPresetCard(S.config || {});
+      $('#proj-preset')?.focus();
+    };
+    if (S.dirty) {
+      toast('저장하지 않은 작품 수정이 있어요. 작품을 먼저 저장하세요', true);
+      redraw();
+      return;
+    }
+    const ok = await run('저장하는 중', async () => {
+      S.project = await api('PUT', `/projects/${enc(S.name)}/model-preset`, { preset: id });
+    }, { render: 'never' });
+    redraw();
+    if (ok) {
+      const pre = projectPreset();
+      toast(pre && !pre.missing ? `이 작품은 이제 '${pre.name}' 프리셋을 써요` : '이 작품은 이제 전체 설정을 따라요');
+    }
   },
   settingsShowAll() {
     settingsShowAll = true;

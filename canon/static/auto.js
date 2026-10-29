@@ -46,6 +46,7 @@ function autoDefaults() {
     batch: last ? last.batch : false,
     policy: last ? { ...last.policy } : {
       check: true, max_issues: 0, ignore_minor: false, stop_on_critical: true, max_shift: 0.3, stop_on_stage: false, stop_on_warnings: false, confirm_plots: false, review_every: 0, hand_pick_opening: true,
+      storyboard: true, stop_on_board_warnings: true,
     },
   };
 }
@@ -54,18 +55,26 @@ async function autoLoad(withEstimate = true) {
   if (!S.name) return;
   S.auto = await api('GET', `/projects/${enc(S.name)}/auto`).catch(() => null);
   if (!S.autoForm || S.autoForm.project !== S.name) S.autoForm = { ...autoDefaults(), project: S.name };
-  if (withEstimate) await autoEstimate();
+  // 추정은 남은 화가 많으면 몇 초 걸린다. 화면을 먼저 그리고('추정하는 중…') 끝나면 다시 그린다
+  if (withEstimate) {
+    const name = S.name;
+    S.autoEst = null;
+    autoEstimate().then(() => {
+      if (name === S.name && S.route[2] === 'auto' && !isTyping()) render();
+    });
+  }
   autoPoll();
 }
 
 async function autoEstimate() {
   const f = S.autoForm;
   const body = (batch) => ({ target: f.target, batch, policy: f.policy });
+  const name = S.name;
   try {
-    const [off, on] = await Promise.all([false, true].map((b) => api('POST', `/projects/${enc(S.name)}/auto/estimate`, body(b))));
-    S.autoEst = { off, on };
+    const [off, on] = await Promise.all([false, true].map((b) => api('POST', `/projects/${enc(name)}/auto/estimate`, body(b))));
+    if (name === S.name && f === S.autoForm) S.autoEst = { off, on };  // 기다리는 사이 다른 작품으로 옮겼으면 버린다
   } catch (e) {
-    S.autoEst = { error: e.message };
+    if (name === S.name && f === S.autoForm) S.autoEst = { error: e.message };
   }
 }
 
@@ -191,8 +200,8 @@ function autoEstCard() {
   const x = e.off;
   // 쓸 수 있는 화가 없으면 시간 · 비용을 적지 않고 시작 버튼도 끈다 (viewAuto)
   if (!x.episodes) return autoNothingNote(x);
-  const local = Object.entries(x.stages).filter(([, v]) => v === 'local').map(([k]) => ({ write: '본문', check: '검수', state: '상태' }[k]));
-  return `<div class="small">${x.episodes ? `${x.from}~${x.to}화 ${x.episodes}화 남음 · 호출 본문 ${x.calls.write} · 검수 ${x.calls.check} · 상태 ${x.calls.state} · 토큰 입력 약 ${x.tokens_in.toLocaleString()} / 출력 약 ${x.tokens_out.toLocaleString()}` : `${x.to}화까지 남은 화가 없어요`}</div>
+  const local = Object.entries(x.stages).filter(([, v]) => v === 'local').map(([k]) => ({ plan: '스토리보드', write: '본문', check: '검수', state: '상태' }[k]));
+  return `<div class="small">${x.episodes ? `${x.from}~${x.to}화 ${x.episodes}화 남음 · 호출 ${x.calls.plan ? `스토리보드 ${x.calls.plan} · ` : ''}본문 ${x.calls.write} · 검수 ${x.calls.check} · 상태 ${x.calls.state} · 토큰 입력 약 ${x.tokens_in.toLocaleString()} / 출력 약 ${x.tokens_out.toLocaleString()}` : `${x.to}화까지 남은 화가 없어요`}</div>
     <div class="grid-2">${col(e.off, false)}${col(e.on, true)}</div>
     ${x.missing.length ? `<div class="note warn">플롯이 없는 화(${rangeText(x.missing)}화)에서 멈춰요. ${autoPlotHint(x.missing[0])}</div>` : ''}
     ${(x.drafts || []).length ? `<div class="note warn">플롯이 초안인 ${rangeText(x.drafts)}화에서 멈춰요. 추정은 끝까지 쓴다고 보고 셌어요. 확정하거나 '초안 플롯도 자동으로 확정하고 쓰기'를 켜세요.</div>` : ''}
@@ -213,6 +222,7 @@ function autoPolicyForm(f, disabled, bind = 'auto') {
     <div class="grid-2">
       ${chk('check', '화마다 검수하기', '앞선 본문·설정과 어긋나는 곳을 찾아요. 끄면 비용과 시간이 줄지만 모순을 놓칠 수 있어요.')}
       ${chk('confirm_plots', '초안 플롯도 자동으로 확정하고 쓰기', '켜면 덜 멈춰요. 끄면 초안 플롯을 만난 화에서 멈춰요')}
+      ${P().settings.storyboard ?? P().meta.form === 'serial' ? chk('storyboard', '화마다 스토리보드를 만들고 쓰기', '쓰기 전에 장면 순서와 이번 화 확정 값(시간 · 상태창 수치 · 차림)을 정해요. 화당 AI 호출이 하나 늘어요') : ''}
     </div>
     <h3 class="auto-h">이럴 때는 멈추고 기다려요</h3>
     <p class="desc">걸리는 게 없으면 상태 변경안을 검토 없이 반영하고 다음 화로 가요. 반영한 화는 표시해 두고, 화마다 남는 스냅샷으로 되돌릴 수 있어요.</p>
@@ -228,6 +238,7 @@ function autoPolicyForm(f, disabled, bind = 'auto') {
       ${chk('stop_on_stage', '관계 단계가 바뀌면 멈추기', '호감 → 신뢰, 신뢰 → 균열처럼 관계의 단계가 바뀔 때')}
       ${chk('stop_on_warnings', '상태 변경안에 경고가 있으면 멈추기', '플롯 사건 누락, 설정이나 말투 위반을 AI가 적었을 때')}
       ${chk('hand_pick_opening', '1~3화는 반영하기 전에 멈추기', '독자가 계속 읽을지 정하는 초반 화라 직접 읽고, 필요하면 여는 방식을 비교해 고르세요')}
+      ${p.storyboard ? chk('stop_on_board_warnings', '스토리보드가 이번 화 플롯과 어긋나면 멈추기', '플롯 숫자가 지금 상태에서 닿을 수 없을 때처럼. 다음 화 플롯 경고는 기록만 해요') : ''}
     </div>
     <div class="field" style="max-width:360px"><label for="${id('every')}">몇 화마다 멈춰서 읽어 볼까요</label><select id="${id('every')}" data-${bind}="policy.review_every"${dis}>${opts([[0, '멈추지 않음'], [1, '매 화'], [2, '2화마다'], [3, '3화마다'], [5, '5화마다']], p.review_every)}</select></div>
   </div>`;
@@ -244,6 +255,7 @@ function autoHaltLinks(r) {
     case 'review': return (ep(n) && checkState(ep(n)).open ? go(`${base()}/check/${n}`, `${n}화 검수 결과 보기`) : go(`${base()}/write/${n}`, `${n}화 본문 읽기`));
     case 'every': return go(`${base()}/write/${n}`, `${n}화 읽으러 가기`);
     case 'changed': return go(`${base()}/write/${n}`, `${n}화 집필 화면 보기`);
+    case 'board': case 'board_stale': return go(`${base()}/write/${n}`, `${n}화 스토리보드 보기`);
     default: return '';
   }
 }
@@ -472,7 +484,10 @@ Object.assign(actions, {
     setDelta(r.ep, structuredClone(r.pending));
     // 변경안을 만든 본문을 기준으로 둔다. 그 뒤 본문을 고쳤으면 상태 승인 화면이 '이 변경안을 만든 뒤 본문을 고쳤어요'를 알린다
     if (r.pending_text) S.deltaBase[r.ep] = r.pending_text;
+    // 상태 승인 화면의 '불러오기'는 이미 그 주소라 hashchange 가 생기지 않는다. 그때는 여기서 다시 그린다
+    const was = location.hash;
     location.hash = `${base()}/review/${r.ep}`;
+    if (location.hash === was) render();
   },
   async autoRevert(n) {
     if (!(await actions.revertFrom(n))) return;  // 상태 승인 화면의 '반영 취소'와 같은 동작

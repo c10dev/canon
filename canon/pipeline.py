@@ -4,7 +4,7 @@ from __future__ import annotations
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
 from .llm import LLM, dump
-from . import charlog, features, findings, foreshadows, statwin, timeline
+from . import board, charlog, features, findings, foreshadows, statwin, timeline
 from .schema import Finding, FindingRecheck, FixOption, FixPatch, FixSet
 from .schema import (
     Act,
@@ -64,6 +64,8 @@ from .schema import (
     StoryEvent,
     Storyline,
     StoryTime,
+    Storyboard,
+    StoryboardDraft,
     StorylineProposal,
     EditPair,
     StyleDevice,
@@ -2514,13 +2516,75 @@ HANGUL_MIN = 0.8
 WRITE_TRIES = 3
 
 
-def write_episode(llm: LLM, p: Project, n: int, approach: str = "") -> str:
-    """approach: 1~3화를 여러 안으로 쓸 때 여는 방식 (prompts.OPENING_APPROACHES)."""
+def write_episode(llm: LLM, p: Project, n: int, approach: str = "", use_board: bool = True) -> str:
+    """approach: 1~3화를 여러 안으로 쓸 때 여는 방식 (prompts.OPENING_APPROACHES).
+    use_board: 그 화에 스토리보드가 있으면 쓰기 프롬프트에 넣는다. 끄면 스토리보드 없이 쓴다."""
     ep = p.episode(n)
     if ep.status == "draft":
         raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
     require_previous(p, n)
-    return _write(llm, p, n, prompts.episode_prompt(p, n, approach))
+    return _write(llm, p, n, prompts.episode_prompt(p, n, approach, use_board=use_board))
+
+
+# ---------- 4-0. 화별 스토리보드 ----------
+# 직전 화를 반영한 뒤 쓰기 바로 전에 plan 단계 모델이 장면 목록과 이번 화 확정 값을 만든다 (board.py, DESIGN.md).
+# 작가가 고치거나 그대로 쓴다. 상태 변경안이 아니라 상태 승인을 거치지 않는다. 플롯 칸은 바꾸지 않는다.
+
+def board_basis(p: Project, n: int) -> str:
+    """스토리보드를 만든 입력의 지문. 지금 값과 다르면 낡은 스토리보드다 (board.basis)."""
+    return board.basis(p, n)
+
+
+def make_storyboard(llm: LLM, p: Project, n: int) -> Storyboard:
+    """n화 스토리보드를 만든다. 저장하지 않는다 (호출자가 set_storyboard 로 넣는다)."""
+    ep = p.episode(n)
+    if ep.status == "draft":
+        raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
+    require_previous(p, n)
+    d = llm.json(prompts.SYSTEM_PLANNER, prompts.storyboard_prompt(p, n), StoryboardDraft,
+                 hint={"episode": n, "events": len(ep.plot.events), "characters": ep.plot.characters,
+                       "stats": {s.character_id: [x.name for x in s.stats] for s in p.states if s.stats}})
+    b = Storyboard(**clean_storyboard(d).model_dump(), made_at=_now(), made_by="ai", basis=board_basis(p, n))
+    b.checks = board.checks(p, n, b)
+    return b
+
+
+def clean_storyboard(d: StoryboardDraft) -> StoryboardDraft:
+    """빈 장면 · 빈 줄을 빼고, 장면 번호를 장면 수 안으로 맞춘다."""
+    d.scenes = [x for x in d.scenes if any(v.strip() for v in (x.place, x.spot, x.goal, x.turn, x.end_state))]
+    k = len(d.scenes)
+    for x in d.stats:
+        x.scene = x.scene if 0 <= x.scene <= k else 0
+        x.changes = [c for c in x.changes if c.name.strip()]
+    d.stats = [x for x in d.stats if x.character_id.strip() and x.changes]
+    for m in d.moves:
+        m.scene = m.scene if 0 <= m.scene <= k else 0
+    d.moves = [m for m in d.moves if m.character_id.strip() and m.to.strip()]
+    d.attire = [a for a in d.attire if a.character_id.strip() and a.end.strip()]
+    d.handover = [h for h in d.handover if h.text.strip()]
+    d.protect = [x.strip() for x in d.protect if x.strip()]
+    d.stat_basis = [x.strip() for x in d.stat_basis if x.strip()]
+    d.warnings = [w for w in d.warnings if w.text.strip()]
+    d.time.days = max(d.time.days, 1)
+    return d
+
+
+def set_storyboard(p: Project, n: int, b: Storyboard | None, by: str = "author") -> None:
+    """스토리보드를 넣거나 지운다(b=None). 작가가 저장하면(by='author') 지금 입력을 보고 고친 것으로 보아 지문을 지금 값으로 둔다.
+    AI 가 만든 것을 작가가 고치면 made_by 는 both. 본문을 쓴 뒤에도 고칠 수 있다 (다시 생성이 그대로 쓴다)."""
+    ep = p.episode(n)
+    if b is None:
+        ep.storyboard = None
+        return
+    old = ep.storyboard
+    draft = clean_storyboard(StoryboardDraft(**b.model_dump(include=set(StoryboardDraft.model_fields))))
+    if by == "ai":
+        made_by, basis = "ai", b.basis or board_basis(p, n)
+    else:
+        made_by, basis = ("both" if old and old.made_by != "author" else "author"), board_basis(p, n)
+    b = Storyboard(**draft.model_dump(), made_at=b.made_at or (old.made_at if old else "") or _now(), made_by=made_by, basis=basis)
+    b.checks = board.checks(p, n, b)
+    ep.storyboard = b
 
 
 def _write(llm: LLM, p: Project, n: int, prompt: str) -> str:

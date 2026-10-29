@@ -654,6 +654,24 @@ def test_project_etag_and_gzip(client):
     assert "warnings" in client.post("/api/projects/et/names/check", json=light).json()
 
 
+def test_read_only_view_cache(client):
+    """읽기 전용 GET 은 같은 판이면 전에 검증한 작품을 함께 쓰고, 저장하면 새 판을 읽는다."""
+    from canon import store
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "vc", "meta": meta})
+    a = store.load_view("vc")
+    assert store.load_view("vc") is a
+    p = client.get("/api/projects/vc").json()
+    p["meta"]["title"] = "등대 2"
+    client.put("/api/projects/vc", json=p)
+    b = store.load_view("vc")
+    assert b is not a and b.meta.title == "등대 2"
+    assert client.get("/api/projects/vc").json()["meta"]["title"] == "등대 2"
+    assert client.get("/api/projects/vc/pending").status_code == 200
+    assert client.get("/api/projects/vc/auto").json()["run"] is None
+    assert client.get("/api/projects/nope/pending").status_code == 404
+
+
 def test_episode_count_bounds_and_confirm_during_plot_job(client):
     for bad in (0, -3, 5000):
         r = client.post("/api/projects", json={"name": f"b{bad}", "meta": {"title": "t", "target_episodes": bad}})

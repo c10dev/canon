@@ -51,6 +51,7 @@
   python -m canon voice 내소설 heroine [--ask "..." | --set "..."]   이 인물 시점 화의 서술 말투 (AI 초안 또는 직접)
   python -m canon show 내소설 [섹션]       섹션 rel 은 관계 역학을 보여 준다
   python -m canon view 내소설 numbers|words   관계를 숫자로 볼지 말로 볼지
+  python -m canon model 내소설 [anthropic | --clear]   이 작품이 쓸 단계 프리셋 (단계별 백엔드 · 모델 묶음, 비우면 전체 설정)
   python -m canon adjust 내소설 a b --warmth 0.3 --trust 0.6   a 가 b 를 보는 관계를 직접 보정
   python -m canon revert 내소설 3       3화 상태 반영 직후로 되돌리기
   python -m canon branch 내소설 3 내소설-B [--label "B안" --keep]   3화부터 다른 전개를 쓰는 갈래 (원본은 그대로, 기본은 3화부터 본문을 이전 판으로 남기고 비움)
@@ -1792,6 +1793,31 @@ def _ep_runs(nums: list[int]) -> str:
     return ", ".join(f"{a}" if a == b else f"{a}~{b}" for a, b in runs) + "화" if runs else "없음"
 
 
+def cmd_model(a: argparse.Namespace) -> None:
+    """작품의 단계 프리셋 보기 · 고르기 (Settings.model_preset). 프리셋 id 나 이름으로 고른다."""
+    from . import settings
+
+    p = store.load(a.name)
+    if a.clear or a.preset:
+        found = None
+        if a.preset:
+            found = next((x for x in settings.presets() if a.preset in (x["id"], x["name"])), None)
+            if not found:
+                names = ", ".join(f"{x['id']} ({x['name']})" for x in settings.presets())
+                raise SystemExit(f"그 프리셋이 없어요: {a.preset}. 고를 수 있는 프리셋: {names}")
+        p.settings.model_preset = found["id"] if found else ""
+        store.save(a.name, p)
+    found = settings.project_preset(a.name)
+    if found:
+        print(f"이 작품은 '{found['name']}' 프리셋을 써요 ({found['id']}).")
+    elif p.settings.model_preset:
+        print(f"고른 프리셋({p.settings.model_preset})이 지워져서 전체 설정을 따라요. 다시 고르거나 --clear로 비우세요.")
+    else:
+        print("이 작품은 전체 설정을 따라요.")
+    for stage, v in settings.stage_view(found).items():
+        print(f"  {stage}: {v['provider']} · {v['model']}")
+
+
 def cmd_snapshots(a: argparse.Namespace) -> None:
     p = store.load(a.name)
     if a.keep is not None:
@@ -2552,6 +2578,9 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--unok", help="travel: '괜찮아요'를 되돌리기 (인물 id:화)")
     sp = add("view", cmd_view, yes=False)
     sp.add_argument("mode", choices=["numbers", "words"])
+    sp = add("model", cmd_model, yes=False)
+    sp.add_argument("preset", nargs="?", default="", help="단계 프리셋 id 나 이름 (설정 화면의 프리셋). 주지 않으면 보기만")
+    sp.add_argument("--clear", action="store_true", help="프리셋을 비우고 전체 설정을 따르기")
     sp = add("snapshots", cmd_snapshots, yes=False)
     sp.add_argument("--keep", action=argparse.BooleanOptionalAction, default=None,
                     help="장편 스냅샷 모두 남기기 켜기(--keep) · 끄기(--no-keep). 주지 않으면 보기만")
