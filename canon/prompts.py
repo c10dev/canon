@@ -2230,6 +2230,7 @@ CUE_VOICES: dict[str, tuple[str, str]] = {
     "description": ("묘사", "자리, 사물, 분위기가 중심. 대사는 한두 마디까지"),
     "interior": ("속생각", "시점 인물의 속생각과 판단이 중심. 대사는 한두 마디까지"),
 }
+CUE_DIALOGUE_SHARE = 0.4  # 편성이 대사인 큐에서 따옴표 안 대사가 차지할 몫 (CUE_VOICES 의 '40% 넘게'). 큐 줄에 글자 수로 적는다
 CUE_CADENCES: dict[str, tuple[str, str]] = {
     "full": ("정격 종지", "갈등이 이 화 안에서 풀리고 닫힌다"),
     "half": ("반종지", "긴장이 가장 높은 곳에서 끊는다. 해결은 다음 화로 미룬다"),
@@ -2276,8 +2277,10 @@ def cue_sheet_block(p: Project, sheet) -> str:
            "큐:"]
     for k, c in enumerate(sheet.cues, 1):
         out.append(f"{k}. [{c.function} {CUE_FUNCTIONS.get(c.function, ('?',))[0]} · 긴장 {c.tension}/5 · "
-                   f"{CUE_TEMPOS.get(c.tempo, ('?',))[0]} · {CUE_VOICES.get(c.voice, ('?',))[0]} · 약 {c.length or '?'}자]"
-                   + (f" (장면 {c.scene})" if c.scene else ""))
+                   f"{CUE_TEMPOS.get(c.tempo, ('?',))[0]} · {CUE_VOICES.get(c.voice, ('?',))[0]} · 약 {c.length or '?'}자"
+                   # 한 번에 쓰는 모델은 비율을 큐마다 세지 않는다. 대사 큐는 대사 글자 수를 숫자로 준다
+                   + (f", 그중 따옴표 안 대사 {round(c.length * CUE_DIALOGUE_SHARE)}자 이상" if c.voice == "dialogue" and c.length else "")
+                   + "]" + (f" (장면 {c.scene})" if c.scene else ""))
         if c.beat.strip():
             out.append(f"   일: {c.beat.strip()}")
         for ln in c.lines:
