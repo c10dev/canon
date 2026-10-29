@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import bldgs, cast, citygen, elements, fill, geom, moderngen, naming, osm, placekinds, towngen
-from .schema import BuildingNote, MapFill, MapPin, MapSpec, NewPlace, PlaceLink, PlaceSort, Project
+from .schema import BuildingNote, MapFill, MapPin, MapSpec, NewPlace, PlaceLink, PlaceSort, Project, Transit
 
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
 IMAGE_LIMIT = 15 * 1024 * 1024
@@ -704,10 +704,13 @@ def spot_line(p: Project, layout: dict, x: float, y: float) -> str:
 
 
 def fill_spots(p: Project, layout: Optional[dict]) -> None:
-    """핀마다 놓인 건물 한 줄(MapPin.spot)을 다시 쓴다. 마을 데이터가 없으면 비운다.
+    """지도 파일에서 셈해 작품에 적어 두는 값을 다시 쓴다: 핀마다 놓인 건물 한 줄(MapPin.spot)과 지하철 사본(Atlas.transit,
+    지도 데이터의 transit 키, 이동 시간 검사가 읽는다). 마을 데이터가 없으면 비운다.
     핀 · 마을 데이터 · 건물 고치기 뒤에 부른다 (web, 명령줄, apply_generated)."""
     for pin in p.atlas.pins:
         pin.spot = spot_line(p, layout, pin.x, pin.y) if layout else ""
+    tr = layout.get("transit") if layout else None
+    p.atlas.transit = Transit.model_validate(tr) if isinstance(tr, dict) and tr.get("stations") else None
 
 
 def episode_spots(p: Project, n: int) -> list[tuple[str, str]]:
