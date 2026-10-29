@@ -1,0 +1,57 @@
+{
+ "note": "의자에 앉은 사람 앞에 서서 손을 잡는다 (앉은 사람의 발은 겹침에서 뺀다, 03 측정 c1)",
+ "template": "bedroom",
+ "start": [
+  {
+   "who": "d",
+   "at": {
+    "ref": "의자",
+    "rel": "on"
+   },
+   "posture": "chair",
+   "facing": "@h"
+  },
+  {
+   "who": "h",
+   "at": {
+    "ref": "침대",
+    "rel": "front"
+   },
+   "posture": "stand"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "h",
+     "at": {
+      "ref": "@d",
+      "rel": "front"
+     },
+     "posture": "stand",
+     "facing": "@d"
+    }
+   ]
+  },
+  {
+   "quote": "2박자",
+   "bodies": [
+    {
+     "who": "d",
+     "contacts": [
+      {
+       "id": "c1",
+       "by": "right",
+       "to": "h",
+       "part": "hand_l",
+       "act": "hold"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "expect": []
+}

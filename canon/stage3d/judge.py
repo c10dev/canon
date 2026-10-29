@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 from .. import stage
@@ -28,7 +29,17 @@ LIE_OVER = 0.15         # 눕는 면 밖으로 나간 몸
 HEAD_STAND = 0.0        # 선 자세: 머리 꼭대기가 천장보다 이만큼 넘게 높으면
 HEAD_SIT = 0.05         # 그 밖의 자세
 
+STEP = stage.GAP        # 손 접촉: 선 사람은 기준점 자리 틈만큼 상대 쪽으로 다가설 수 있다 (2D REACH_HAND 도 이 틈을 넣는다)
+STEP_TRIES = 4          # 다가서기를 나눠 재는 수
+
 ARMS = ("upper_arm_l", "upper_arm_r", "forearm_l", "forearm_r")
+LOWER = ("shin_l", "shin_r", "foot_l", "foot_r")
+THIGHS = ("thigh_l", "thigh_r")
+# 다리를 어디 둘지 작가가 정하지 않는 앉은 자세: 겹침에서 뺄 다리 마디. 의자 · 쪼그림 · 무릎 꿇기는 넓적다리가 앉는 면 · 몸 아래에
+# 놓여 정해지고, 바닥에 앉기는 책상다리 · 무릎 세우기 · 옆으로 모으기 중 무엇인지 모르므로 다리 전체를 뺀다
+SEATED = {"chair": LOWER, "squat": LOWER, "kneel": LOWER, "floor": LOWER + THIGHS}
+MOVING = ("walk", "run")                       # 앉거나 눕는 기준점 위 · 안에서 이 자세면 그 기준점을 떠나는 중이다
+STEPPING = ("stand", "walk", "run")            # 다가설 수 있는 자세
 SEG_LABELS = {"head": "머리", "torso": "몸통", "pelvis": "골반", "upper_arm_l": "왼 위팔", "upper_arm_r": "오른 위팔",
               "forearm_l": "왼팔", "forearm_r": "오른팔", "thigh_l": "왼 허벅지", "thigh_r": "오른 허벅지",
               "shin_l": "왼 다리", "shin_r": "오른 다리", "foot_l": "왼발", "foot_r": "오른발"}
@@ -115,6 +126,12 @@ def _outside(c: Capsule, a) -> float:
     return max(out(c.a), out(c.b))
 
 
+def _skip(person: Person) -> set[str]:
+    """겹침에서 빼는 마디: 팔은 늘(자세 표 값이라 손을 얹거나 짚는 것은 흔하다), 앉은 자세는 SEATED 의 다리 마디도
+    (책상 밑 · 소파 앞 · 마주 앉은 사람 사이로 다리를 접거나 옮긴다. 03 측정 c1 · c2 · c5)."""
+    return set(ARMS) | set(SEATED.get(person.posture, ()))
+
+
 def _same_rest(a: Optional[stage.Now], b: Optional[stage.Now]) -> bool:
     """두 사람이 같은 기준점 위 · 안에 있나."""
     return bool(a and b and a.at and b.at and a.at.ref == b.at.ref and not a.at.ref.startswith("@")
@@ -144,6 +161,36 @@ def _support(spec: PostureSpec, now: stage.Now, person: Person, w: str, b, fr: F
     return ""
 
 
+def _stepped(c, b, fr: Frames, room: StageRoom, pspecs: dict) -> float:
+    """선 사람이 상대 쪽으로 STEP 까지 다가서서 손을 뻗었을 때 가장 작은 틈. 기준점 관계 자리는 가구 바깥 GAP 에 놓이므로
+    같은 가구 앞 · 옆에 선 두 사람은 실제보다 멀다(03 측정 c4). 다가서다 가구 · 벽 · 다른 사람을 파고들면 거기서 멈춘다
+    (침대 한가운데 앉은 사람은 침대 앞에서 다가서도 닿지 않는다). 좌표는 바꾸지 않고 틈만 다시 잰다."""
+    from .body import _placed, reach_to
+    me = b.bodies[c.who]
+    spec = pspecs.get(me.posture)
+    if me.posture not in STEPPING or spec is None or me.body is None or me.body.base > 1e-6:
+        return c.gap
+    aims = c.points[1::2]
+    tx, ty = sum(t[0] for t in aims) / len(aims), sum(t[1] for t in aims) / len(aims)
+    x0, y0 = me.body.x, me.body.y
+    d = math.hypot(tx - x0, ty - y0)
+    if d < 1e-6:
+        return c.gap
+    ux, uy = (tx - x0) / d, (ty - y0) / d
+    others = [(x.body.capsules(), _skip(x)) for w, x in b.bodies.items() if w != c.who and x.body is not None]
+    best = c.gap
+    for i in range(1, STEP_TRIES + 1):
+        s = min(STEP * i / STEP_TRIES, d)
+        body = _placed(spec, x0 + ux * s, y0 + uy * s, math.atan2(ux, uy), 0.0)
+        caps = [k for k in body.capsules() if k.segment not in ARMS]
+        if any(_wall_depth(k, room) > FURNITURE_DEPTH for k in caps) or \
+                any(o.solid and _deepest(caps, [o])[0] > FURNITURE_DEPTH for o in fr.solids) or \
+                any(_deepest(caps, oc, skip_y=skip)[0] > BODY_DEPTH for oc, skip in others):
+            break
+        best = min(best, max(reach_to(body, side, t) for side, t in zip(c.hands, aims)))
+    return best
+
+
 def _check_beat(b, fr: Frames, room: StageRoom, p: Project, pspecs: dict, skip_ids: set[str], skip_beats: set,
                 changed: dict[str, int], order: list[str]) -> list[tuple[tuple, int, str, str, str, str]]:
     """박자 하나의 지적: [(묶는 열쇠, cause, who, rule, text, contact)]."""
@@ -167,13 +214,16 @@ def _check_beat(b, fr: Frames, room: StageRoom, p: Project, pspecs: dict, skip_i
         limit = REACH_GAP_HAND if c.hands else REACH_GAP_BODY
         if c.gap <= limit:
             continue
+        gap = _stepped(c, b, fr, room, pspecs) if c.hands else c.gap
+        if gap <= limit:
+            continue
         who, to = names[c.who], names[c.to]
         part = stage.PARTS[c.part].label if c.part in stage.PARTS else c.part
         if c.hands:
             text = (f"{who} → {to} {part}: {to}{josa(to, '이', '가')} '{label(c.to)}' 자세라 {who}{josa(who, '이', '가')} "
-                    f"'{label(c.who)}' 자세로는 손이 {c.gap:.2f}m 모자라요. 자리나 자세를 바꾸는 박자가 필요해요.")
+                    f"'{label(c.who)}' 자세로는 손이 {gap:.2f}m 모자라요. 자리나 자세를 바꾸는 박자가 필요해요.")
         else:
-            text = f"{who} → {to} {part}: 두 부위가 {c.gap:.2f}m 떨어져 닿지 않아요. 자리나 자세를 바꾸는 박자가 필요해요."
+            text = f"{who} → {to} {part}: 두 부위가 {gap:.2f}m 떨어져 닿지 않아요. 자리나 자세를 바꾸는 박자가 필요해요."
         out.append((("reach3d", c.id), ch(c.who, c.to), c.who, "reach3d", text, c.id))
 
     # 몸 겹침: 두 사람씩
@@ -193,8 +243,8 @@ def _check_beat(b, fr: Frames, room: StageRoom, p: Project, pspecs: dict, skip_i
             attach = people[w].attach == o or people[o].attach == w
             near = pair in touch or attach
             # 팔은 늘 뺀다: 자세 표 값이라 나란히 선 두 사람(0.5m)의 팔이 닿는 것은 어긋남이 아니다 (07 시험)
-            skip_w = set(ARMS) | ({s for x, s in touch.get(pair, ()) if x == w} if near else set())
-            skip_o = set(ARMS) | ({s for x, s in touch.get(pair, ()) if x == o} if near else set())
+            skip_w = _skip(people[w]) | ({s for x, s in touch.get(pair, ()) if x == w} if near else set())
+            skip_o = _skip(people[o]) | ({s for x, s in touch.get(pair, ()) if x == o} if near else set())
             depth, sw, so = _deepest(caps[w], caps[o], skip_w, skip_o)
             if depth > (ATTACH_DEPTH if attach else BODY_DEPTH):
                 a, z = names[w], names[o]
@@ -228,16 +278,19 @@ def _check_beat(b, fr: Frames, room: StageRoom, p: Project, pspecs: dict, skip_i
             continue
         body, at = people[w].body, b.state[w].at
         rest = at.ref if at and at.rel in ("on", "in") and body.base > 1e-6 else None  # 앉거나 누운 · 올라선 기준점
+        a = anchors.get(at.ref) if at else None
+        if a and (a.sit or a.lie) and at.rel in ("on", "in") and people[w].posture in MOVING:
+            rest = at.ref  # 앉거나 눕던 자리에서 일어나 떠나는 중 (03 측정 c3). 책상 안을 걷는 것은 그대로 짚는다
         lean = at.ref if at and at.rel == "against" else None
         hits: dict[str, tuple[float, str]] = {}
         for s in fr.solids:
             if not s.solid or s.anchor in (rest, lean):
                 continue
-            depth, seg, _ = _deepest(caps[w], [s], skip_x=ARMS)
+            depth, seg, _ = _deepest(caps[w], [s], skip_x=_skip(people[w]))
             if depth > hits.get(s.anchor, (0.0, ""))[0]:
                 hits[s.anchor] = (depth, seg)
         for c in caps[w]:
-            if c.segment in ARMS:
+            if c.segment in _skip(people[w]):
                 continue
             depth = _wall_depth(c, room)
             if depth > hits.get("", (0.0, ""))[0]:
