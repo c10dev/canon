@@ -2106,7 +2106,7 @@ def cmd_usage(a: argparse.Namespace) -> None:
             print(f"{r['model']:<26}{r['since'] or '처음부터':>11}{r['input']:>8g}{r['output']:>8g}{r['cached'] if r['cached'] is not None else r['input']:>8g}"
                   f"{r['batch_input'] if r['batch_input'] is not None else r['input'] / 2:>9g}"
                   f"{r['batch_output'] if r['batch_output'] is not None else r['output'] / 2:>9g}{mark}")
-        print("고치려면 웹 설정 화면의 'AI 요금 가격표'에서 고친다. 로컬 모델은 0원으로 센다.")
+        print("고치려면 웹 사용량 · 비용 화면의 'AI 요금 가격표'에서 고쳐요. 로컬 모델은 0원으로 세요.")
         return
     s = usage.summary(None if a.all else a.days, a.project or None)
     t = s["total"]

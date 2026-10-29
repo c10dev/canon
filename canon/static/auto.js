@@ -305,7 +305,7 @@ function autoRunCard(r, active) {
     ${S.autoOffline ? '<div class="note warn" role="status">서버와 연결이 끊겼어요. 다시 연결되면 이어서 보여 드려요. 서버가 다시 시작되면 자동 집필은 서버에서 이어 가요.</div>' : ''}
     ${step ? `<div class="row"><span class="spinner sm" aria-hidden="true"></span><strong>${esc(step)}</strong></div>` : ''}
     ${active && r.batch ? '<div class="small">배치 결과는 몇 분에서 길게는 몇 시간 뒤에 와요. 창을 닫아도 서버가 계속 기다려요.</div>' : ''}
-    ${r.reasons.length ? `<div class="note warn">${r.reasons.map((x) => `<div>${esc(x)}</div>`).join('')}${r.status === 'error' && r.reasons.some((x) => /API 키|연결|quota|429|403|401/i.test(x)) ? '<div><a href="#/settings">모델 · API 키 설정</a>에서 키와 모델을 확인한 뒤 이어 가세요.</div>' : ''}${!active && autoHaltLinks(r) ? `<div class="row" style="margin-top:6px">${autoHaltLinks(r)}</div>` : ''}</div>` : ''}
+    ${r.reasons.length ? `<div class="note warn">${r.reasons.map((x) => `<div>${esc(x)}</div>`).join('')}${r.status === 'error' && r.reasons.some((x) => /API 키|연결|quota|429|403|401/i.test(x)) ? '<div><a href="#/settings/ai">AI 연결 설정</a>에서 키와 모델을 확인한 뒤 이어 가세요.</div>' : ''}${!active && autoHaltLinks(r) ? `<div class="row" style="margin-top:6px">${autoHaltLinks(r)}</div>` : ''}</div>` : ''}
     ${reviewDone ? `<div class="note ok">${r.ep}화를 검토 화면에서 반영했어요. 이어 가기를 누르세요.</div>` : ''}
     ${r.status === 'review' && pendingStale(r) ? `<div class="note warn" id="auto-stale">변경안을 만든 뒤 ${r.ep}화 본문을 고쳤어요. 그대로 반영하면 옛 본문 기준의 요약 · 인물 상태 · 사건이 들어가서 막아 두었어요. 검토하기에서 변경안을 다시 만들거나 다시 쓰기를 고르세요.</div>` : ''}
     ${r.status === 'review' && r.pending ? '<div class="small">검토하기: 변경안을 상태 승인 화면에 열어요. 고른 항목만 반영한 뒤 여기로 돌아와 이어 가면 돼요.</div>' : ''}

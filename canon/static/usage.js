@@ -252,7 +252,7 @@ function usageMoreLine(u, all, list) {
   return `최근 ${list.length}건을 보여요${of}.`;
 }
 
-// ----- AI 요금 가격표 (설정 화면과 사용량 화면에서 같이 쓴다) -----
+// ----- AI 요금 가격표 (사용량 · 비용 화면) -----
 
 const PRICE_COLS = [['input', '입력'], ['output', '출력'], ['cached', '캐시 입력'], ['batch_input', '배치 입력'], ['batch_output', '배치 출력']];
 
@@ -260,11 +260,8 @@ function usagePriceSection() {
   return `<section class="card" id="price-box">${viewPrices()}</section>`;
 }
 
-// 설정 화면에서는 아직 저장하지 않은 설정 입력이 사라지지 않게 가격표 상자만 다시 그린다
 function priceRedraw() {
-  const box = $('#price-box');
-  if (box && S.route[0] === 'settings') box.innerHTML = viewPrices();
-  else render();
+  render();
 }
 
 async function priceSend(label, fn, done) {
@@ -272,7 +269,7 @@ async function priceSend(label, fn, done) {
   $('#busy').hidden = false;
   try {
     pricesSet(await fn());
-    if (S.usage && S.route[0] !== 'settings') await usageLoad();
+    if (S.usage) await usageLoad();
     toast(done);
   } catch (e) {
     toast(e.message, true);
