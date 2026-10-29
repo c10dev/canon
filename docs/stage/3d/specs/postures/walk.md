@@ -1,6 +1,6 @@
 # 02-02. 자세 모듈: 걷기 (`walk`)
 
-상태: 명세 · 묶음: P1 · 공통: [../02-posture.md](../02-posture.md) · 먼저: [../01-body.md](../01-body.md)
+상태: 완료 (2026-10-29, 브랜치 claude/s3d-p1-4a5e6d, 시험 tests/test_stage3d_postures_p1.py, 사진은 아직 없음) · 묶음: P1 · 공통: [../02-posture.md](../02-posture.md) · 먼저: [../01-body.md](../01-body.md)
 
 ## 목표
 
