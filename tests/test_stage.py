@@ -262,3 +262,96 @@ def test_old_project_reads_and_vocab():
     assert len(v["postures"]) == 12 and v["parts"]["wrist_l"]["label"] == "왼 손목" and "bedroom" in v["rooms"]
     assert v["parts"]["forearm_r"]["label"] == "오른 아래팔" and v["acts"]["carry"]["support"] and not v["acts"]["hold"]["support"]
     assert v["rels"]["across"] == "맞은편" and v["rels"]["against"] == "기대어 맞닿음"
+
+
+# ---------- 계획 · 본문 장면 (일감 07) ----------
+
+def _ep_plan_project():
+    p = _project()
+    plot = EpisodePlot(number=1, act="기", title="t", summary="", events=["도윤이 찾아온다", "하린이 붙잡는다"], characters=["h", "d"],
+                       emotional_shift="", ending_hook="")
+    p.episodes = [Episode(plot=plot)]
+    return p, p.episodes[0]
+
+
+def _plan(room):
+    bed, desk = _a(room, "침대"), _a(room, "책상")
+    return _scene(room, [
+        StageBeat(note="도윤이 침대 옆으로 간다", bodies=[StageBody(who="d", at=StageSpot(ref=bed, rel="right"), posture="walk")]),
+        StageBeat(note="하린이 일어나 손목을 잡는다", bodies=[StageBody(who="h", at=StageSpot(ref=bed, rel="front"), posture="stand", contacts=[
+            StageContact(id="c1", by="right", to="d", part="wrist_l", act="hold")])]),
+        StageBeat(bodies=[StageBody(who="d", at=StageSpot(ref=desk, rel="front"))]),
+    ])
+
+
+def test_old_scene_reads_as_plan_and_one_per_role():
+    s = StageScene.model_validate({"id": "s1", "event": 0})
+    assert s.role == "plan"
+    p, e = _ep_plan_project()
+    room = stage.new_room(p, "bedroom")
+    a = stage.new_scene(p, e, 1, room)
+    with pytest.raises(ValueError, match="이미 계획 장면"):
+        stage.new_scene(p, e, 1, room)
+    b = stage.new_scene(p, e, 1, room, "text")
+    assert (a.role, b.role, b.source) == ("plan", "text", "text")
+    assert stage.scenes_of(e, 1) == (a, b) and stage.scenes_of(e, 0) == (None, None)
+    with pytest.raises(ValueError, match="이미 본문 장면"):
+        stage.save_scene(p, e, b.model_copy(update={"id": "s9"}), None)
+    with pytest.raises(ValueError, match="이미 계획 장면"):  # 본문 장면을 계획으로 바꿔도 계획을 덮지 않는다
+        stage.save_scene(p, e, b.model_copy(update={"role": "plan"}), None)
+    stage.save_scene(p, e, b, None)
+    assert [(s.id, s.role) for s in e.stage] == [(a.id, "plan"), (b.id, "text")]
+    with pytest.raises(ValueError):
+        stage.new_scene(p, e, 0, room, "draft")
+
+
+def test_diff_same_and_regrouped_beats():
+    room = _room()
+    plan = _plan(room)
+    assert stage.diff(plan, plan, room) == []
+    # 본문은 박자를 다르게 나눴다: 도윤이 걸어가며 하린이 일어나고(한 박자), 손목을 잡고, 쓸데없는 박자가 끼고, 책상으로
+    bed, desk = _a(room, "침대"), _a(room, "책상")
+    text = _scene(room, [
+        StageBeat(bodies=[StageBody(who="d", at=StageSpot(ref=bed, rel="beside"), posture="walk"),
+                          StageBody(who="h", at=StageSpot(ref=bed, rel="front"), posture="stand")]),
+        StageBeat(bodies=[StageBody(who="h", contacts=[StageContact(id="x", by="left", to="d", part="wrist_l", act="grip")])]),
+        StageBeat(bodies=[StageBody(who="h", facing="n")]),
+        StageBeat(bodies=[StageBody(who="d", at=StageSpot(ref=desk, rel="left"))]),
+    ], h={"left": "?", "right": "?"})
+    match, gaps = stage.align(plan, text, room)
+    assert gaps == [] and match == [0, 1, 2, 4]  # 관계 말 · 손 · 동작 이름 차이는 견주지 않는다
+
+
+def test_diff_finds_spot_posture_contact():
+    room = _room()
+    p = _project()
+    plan = _plan(room)
+    bed, door = _a(room, "침대"), _a(room, "문")
+    text = _scene(room, [
+        StageBeat(bodies=[StageBody(who="d", at=StageSpot(ref=bed, rel="right"), posture="walk")]),
+        # 하린이 앉은 채 침대 앞으로 (자세가 다름), 접촉 없음, 도윤은 책상 대신 문 앞으로
+        StageBeat(bodies=[StageBody(who="h", at=StageSpot(ref=bed, rel="front"), posture="kneel")]),
+        StageBeat(bodies=[StageBody(who="d", at=StageSpot(ref=door, rel="front"))]),
+    ])
+    gaps = stage.diff(plan, text, room, p)
+    assert sorted((g.plan_beat, g.field, g.who) for g in gaps) == [(2, "contact", "h"), (2, "posture", "h"), (3, "at", "d")]
+    by = {g.field: g for g in gaps}
+    assert by["at"].plan == "책상 앞" and by["at"].actual == "문 앞" and "도윤 자리가 계획과 달라요" in by["at"].text and by["at"].text_beat == 3
+    assert by["posture"].actual == "무릎 꿇기" and by["contact"].contact == "c1" and "하린 오른손 → 도윤 왼 손목" in by["contact"].text
+    # 차례가 뒤바뀌면 다르다: 계획은 침대 옆 → 책상, 본문은 책상 → 침대 옆
+    swapped = _scene(room, [StageBeat(bodies=[StageBody(who="d", at=StageSpot(ref=_a(room, "책상"), rel="front"))]),
+                            StageBeat(bodies=[StageBody(who="d", at=StageSpot(ref=bed, rel="right"))])])
+    plan2 = _scene(room, [plan.beats[0], plan.beats[2]])
+    assert [(g.plan_beat, g.field) for g in stage.diff(plan2, swapped, room)] == [(2, "at")]
+
+
+def test_view_pairs_plan_and_text():
+    p, e = _ep_plan_project()
+    room = stage.new_room(p, "bedroom")
+    a = stage.new_scene(p, e, 0, room)
+    assert stage.view(p, 1)["scenes"][0]["gaps"] == [] and stage.view(p, 1)["scenes"][0]["pair"] is None
+    b = stage.new_scene(p, e, 0, room, "text")
+    b.start[0].posture = "chair"
+    rows = stage.view(p, 1)["scenes"]
+    assert [r["pair"] for r in rows] == [b.id, a.id] and rows[0]["gaps"] == rows[1]["gaps"]
+    assert rows[0]["gaps"][0]["field"] == "posture" and rows[0]["match"] == [0]

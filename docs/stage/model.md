@@ -49,6 +49,7 @@ StageScene
   source: "manual" | "plot" | "text"   # 마지막으로 통째 적용한 출처
   basis: str = ""         # 본문에서 뽑았을 때 본문 지문(pipeline.text_basis)
   prompt: bool = True     # 쓰기 프롬프트에 넣기
+  role: "plan" | "text" = "plan"   # 계획 장면(쓰기 전) · 본문 장면(본문에서 뽑음). 한 사건에 역할마다 하나
   prev: StageScene | None # 마지막 AI 적용 전 장면 (적용 취소 한 번)
 
 StageBeat
@@ -131,3 +132,17 @@ LLM 출력용 `StageDraft` 는 같은 모양에서 id 대신 이름을 쓴다(�
 
 - `find_event(ep, scene) -> (번호 | None, 바뀌었나)`: 사건 글이 같은 사건이 있으면 그 번호(바뀌지 않음). 없으면 저장한 번호의 사건(바뀜). 그 번호도 없으면 None(바뀜). 장면은 지우지 않는다.
 - `stale(scene, text) -> [박자 번호]`: 인용이 본문에 없는 박자. 띄어쓰기 차이는 무시한다.
+
+## 계획 장면과 본문 장면 · 견주기 (일감 07)
+
+한 사건에 계획 장면(`role = plan`)과 본문 장면(`role = text`)을 하나씩 둔다. 옛 장면은 plan 으로 읽힌다. `stage.scenes_of(ep, event) -> (plan, text)` 가 사건 찾기(`find_event`)로 짝을 찾는다. `new_scene(…, role)` 과 `save_scene` 은 같은 사건 · 같은 역할의 다른 장면이 있으면 막는다(본문 장면이 계획을 덮지 않게, 역할을 바꿔 덮는 것도 막는다).
+
+`stage.align(plan, text, room, p, text_room) -> (match, gaps)`, `stage.diff(...) -> gaps`:
+
+1. 계획 박자 k(0 은 시작 상태)에서 적은 칸을 사실로 모은다. 자리는 (인물, 기준점), 자세는 (인물, `upright`), 접촉은 (인물, 대상, 손이면 '손' 아니면 부위, 닿는 부위). 본문 장면 출연진에 없는 인물은 건너뛴다.
+2. 사실마다 지금 본문 박자 j 부터 그 사실이 이뤄지는 첫 박자를 찾는다. 본문 상태에서 자리 · 자세를 모르면 이뤄졌다고 본다(짚지 않는다). 접촉은 그 인물에게 같은 대상 · 부위 · 손 종류의 접촉이 이어지고 있어야 한다.
+3. 찾은 박자 중 가장 늦은 박자가 다음 계획 박자를 찾기 시작할 j 다. 못 찾은 사실이 `Gap` 이다.
+4. `Gap`: `plan_beat`, `text_beat`(본문이 계획 대신 한 박자: j 뒤에 그 인물의 그 칸을 처음 바꾼 본문 박자, 없으면 j. 접촉은 j), `who`, `field`(at · posture · contact), `plan` · `actual`(화면 글), `text`(해요체 설명), `contact`(계획 접촉 id).
+5. `match[k]` 는 계획 박자 k 에 견주는 본문 박자다(줄지 않음). 하나도 이뤄지지 않은 계획 박자는 다음 본문 박자에 견준다. 화면의 겹쳐 보기는 본문 박자 t 에서 `match` 가 t 이하인 마지막 계획 박자(`stagePlanBeat`)를 흐린 원으로 그린다.
+
+향함 · 손에 쥔 것은 견주지 않는다. `check`(그래서 `view` 와 `POST …/check`)는 장면마다 `pair`(짝 장면 id), `gaps`, `match` 를 함께 준다. 짝이 없으면 `pair` 는 null, 나머지는 빈 목록이다. 차이는 '사소' 지적 재료이고 작가가 '그대로 둠'으로 닫는다(검수 연결은 일감 04).

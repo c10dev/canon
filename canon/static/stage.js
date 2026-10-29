@@ -2,11 +2,13 @@
    주소 stage/<화>/<사건 번호(1부터)>. 플롯 사건 하나의 장면을 방 평면도 위에 박자마다 짜고 재생한다.
    고치는 장면은 S.stg.scene · room 에 따로 들고 '저장'으로 PUT 한다(작품 전체 저장과 따로). 고칠 때마다 서버가 저장 없이 판정한다(POST …/check).
    인물 자리는 기준점 + 관계 말이고 좌표는 stageLayout 이 계산하고 stageLayouts 가 박자마다 앞 박자 좌표를 잇는다 (stage.place · layouts 와 같은 규칙, tests/test_stage_js.py).
-   stageState · stageLayout · stageLayouts · stageAnchorPoint · stageFacing · stageSnap · stageSexual 은 DOM 없는 순수 함수다. */
+   한 사건에 계획 장면(role plan)과 본문 장면(role text)이 하나씩 있다. 머리의 '계획 | 본문'으로 바꿔 보고(S.stg.role),
+   본문 장면에서는 계획 인물을 흐린 원으로 겹쳐 본다(S.stg.ghost). 계획과 다른 곳(gaps)과 박자 짝(match)은 서버 stage.align 이 잰다.
+   stageState · stageLayout · stageLayouts · stageAnchorPoint · stageFacing · stageSnap · stageSexual · stagePlanBeat 은 DOM 없는 순수 함수다. */
 'use strict';
 
 Object.assign(S, {
-  stg: null,  // { n, ev, view, sid, scene, room, dirty, beat, who, mode, check, form, pick, playing }
+  stg: null,  // { n, ev, view, role, ghost, sid, scene, room, dirty, beat, who, mode, check, form, pick, playing }
 });
 
 // ----- 위치 계산: stage.py 와 같은 규칙 -----
@@ -152,6 +154,13 @@ function stageSexual(c, vocab) {
   return !!(act && (act.sexual || (act.intimate && part && part.sexual)));
 }
 
+/** 본문 박자 k 에 견주는 계획 박자: match(계획 박자마다 견준 본문 박자, stage.align)에서 k 이하인 마지막 계획 박자. */
+function stagePlanBeat(match, k) {
+  let out = 0;
+  (match || []).forEach((t, i) => { if (t <= k) out = i; });
+  return out;
+}
+
 // ----- 불러오기 · 고치기 -----
 
 async function stgLoad(n, ev) {
@@ -160,20 +169,25 @@ async function stgLoad(n, ev) {
   const keep = S.stg && S.stg.n === n && S.stg.ev === ev && S.stg.dirty;
   if (keep) { S.stg.view = view; return; }
   S.stgDirty = false;
-  S.stg = { n, ev, view, sid: null, scene: null, room: null, dirty: false, beat: 0, who: '', mode: 'people', check: null,
+  const role = S.stg ? S.stg.role : 'plan', ghost = S.stg ? S.stg.ghost : true;
+  S.stg = { n, ev, view, role, ghost, sid: null, scene: null, room: null, dirty: false, beat: 0, who: '', mode: 'people', check: null,
     form: { by: 'right', to: '', part: '', act: 'hold' }, pick: { room: '', template: 'bedroom', name: '' }, playing: null };
   stgPick();
 }
 
-/** 지금 사건의 장면을 고른다 (사건 찾기는 서버가 한 값). */
+/** 지금 사건 · 역할의 화면 값 줄 (사건 찾기는 서버가 한 값). */
+const stgRow = (g, role) => g.view.scenes.find((x) => x.event === g.ev - 1 && (x.scene.role || 'plan') === role) || null;
+
+/** 지금 사건 · 역할의 장면을 고른다. */
 function stgPick() {
   const g = S.stg;
-  const row = g.view.scenes.find((x) => x.event === g.ev - 1) || null;
+  g.role = g.role || 'plan';
+  const row = stgRow(g, g.role);
   g.sid = row ? row.scene.id : null;
   g.scene = row ? structuredClone(row.scene) : null;
   const room = row && g.view.rooms.find((r) => r.id === row.scene.room);
   g.room = room ? structuredClone(room) : null;
-  g.check = row ? { event_changed: row.event_changed, stale: row.stale, violations: row.violations, dropped: 0 } : null;
+  g.check = row ? { event_changed: row.event_changed, stale: row.stale, violations: row.violations, pair: row.pair, gaps: row.gaps || [], match: row.match || [], dropped: 0 } : null;
   g.beat = Math.min(g.beat, g.scene ? g.scene.beats.length : 0);
   if (g.scene && !g.scene.cast.includes(g.who)) g.who = g.scene.cast[0] || '';
 }
@@ -279,6 +293,7 @@ function stgPlanSvg(pos, ang, k) {
     const d = Math.hypot(x2 - x1, y2 - y1), ux = (x2 - x1) / d, uy = (y2 - y1) / d;
     if (d > 44) out += `<path class="stg-move" d="M${x1 + ux * 20} ${y1 + uy * 20}L${x2 - ux * 22} ${y2 - uy * 22}"/>`;
   });
+  out += stgGhostSvg(k, px);
   Object.keys(pos).forEach((w) => {
     const [x, y] = px(pos[w]);
     const name = charName(w);
@@ -293,6 +308,21 @@ function stgPlanSvg(pos, ang, k) {
       <text class="label" x="${x}" y="${y + 32}" text-anchor="middle">${esc(name)}${post ? ` · ${esc(post.label)}` : ''}</text></g>`;
   });
   return out;
+}
+
+/** 겹쳐 보기: 본문 장면 위에 이 박자에 견주는 계획 박자의 인물을 흐린 원으로. 계획 장면이 없으면 빈 글. */
+function stgGhostSvg(k, px) {
+  const g = S.stg;
+  if (g.role !== 'text' || !g.ghost) return '';
+  const row = stgRow(g, 'plan');
+  const room = row && g.view.rooms.find((r) => r.id === row.scene.room);
+  if (!room) return '';
+  const pk = stagePlanBeat(g.check && g.check.match, k);
+  const pos = stageLayouts(room, row.scene, pk)[pk];
+  return Object.keys(pos).map((w) => {
+    const [x, y] = px(pos[w]);
+    return `<g class="stg-ghost" data-stg-ghost-who="${esc(w)}"><circle cx="${x}" cy="${y}" r="16" stroke="${stgColor(w)}"/><text x="${x}" y="${y}">${esc(charName(w).slice(0, 1))}</text></g>`;
+  }).join('') + `<text class="stg-ghost-note" x="${px([0, 0])[0]}" y="${px([0, 0])[1] - 10}">흐린 원 = 계획 ${pk === 0 ? '시작 상태' : `${pk}박자`}</text>`;
 }
 
 function stgTarget(k) {
@@ -450,6 +480,7 @@ function stgBeats() {
   const g = S.stg, sc = g.scene;
   const viol = g.check ? g.check.violations : [];
   const stale = new Set(g.check ? g.check.stale : []);
+  const differ = new Set(stgGaps().map((x) => x.k));
   const row = (k) => {
     const b = k === 0 ? null : sc.beats[k - 1];
     const who = k === 0 ? sc.cast : [...new Set(b.bodies.map((x) => x.who))];
@@ -457,7 +488,7 @@ function stgBeats() {
     const flags = viol.filter((x) => x.beat === k);
     return `<li><button type="button" aria-current="${k === g.beat}" data-action="stgBeat" data-arg="${k}">
       <span class="no">${k === 0 ? '○' : k}</span><span class="q${b && !b.quote ? ' note' : ''}">${esc(text)}</span>
-      <span class="who">${who.map((w) => `<span class="chip" style="color:${stgColor(w)}">${esc(charName(w))}</span>`).join('')}${flags.length ? `<span class="flag">⚠ ${flags.length}</span>` : ''}${stale.has(k) ? '<span class="flag amber">본문과 달라요</span>' : ''}</span></button></li>`;
+      <span class="who">${who.map((w) => `<span class="chip" style="color:${stgColor(w)}">${esc(charName(w))}</span>`).join('')}${flags.length ? `<span class="flag">⚠ ${flags.length}</span>` : ''}${stale.has(k) ? '<span class="flag amber">본문과 달라요</span>' : ''}${differ.has(k) ? '<span class="flag plan">계획과 달라요</span>' : ''}</span></button></li>`;
   };
   const cur = g.beat > 0 ? sc.beats[g.beat - 1] : null;
   const edit = cur ? `<div class="stg-beat-edit">
@@ -469,6 +500,12 @@ function stgBeats() {
     <div class="stg-cast"><span class="small">출연진</span>${sc.cast.map((w) => `<span class="chip stg-who${w === g.who ? ' cur' : ''}"><button type="button" class="linkish" data-action="stgWho" data-arg="${esc(w)}" aria-pressed="${w === g.who}" style="color:${stgColor(w)}">${esc(charName(w))}</button><button type="button" class="linkish" data-action="stgCastDrop" data-arg="${esc(w)}" aria-label="${esc(charName(w))} 빼기">✕</button></span>`).join('')}
       ${(() => { const rest = P().characters.filter((c) => !sc.cast.includes(c.id)); return rest.length ? `<select data-stg-cast aria-label="출연진 더하기"><option value="">+ 인물 더하기</option>${rest.map((c) => stgOpt(c.id, c.name, '')).join('')}</select>` : ''; })()}</div>
   </section>`;
+}
+
+/** 계획과 다른 곳을 지금 역할의 박자 번호(k)와 함께. */
+function stgGaps() {
+  const g = S.stg;
+  return (g.check && g.check.gaps || []).map((x) => ({ ...x, k: g.role === 'text' ? x.text_beat : x.plan_beat }));
 }
 
 function stgRoomPanel() {
@@ -549,6 +586,11 @@ function stgCss() {
 .stg-beats .who { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .stg-beats .flag { color: var(--red); font-weight: 700; font-size: 0.75rem; }
 .stg-beats .flag.amber { color: var(--amber-ink); }
+.stg-beats .flag.plan { color: var(--accent-ink); }
+.stg-ghost circle { fill: none; stroke-width: 2; stroke-dasharray: 3 3; opacity: 0.55; }
+.stg-ghost text { font-size: 12px; font-weight: 700; fill: var(--muted); font-family: var(--sans); text-anchor: middle; dominant-baseline: central; opacity: 0.8; }
+.stg-ghost-note { font-size: 11px; fill: var(--muted); font-family: var(--sans); }
+.stg-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; }
 .stg-beat-edit, .stg-stack { display: flex; flex-direction: column; gap: 8px; }
 .stg-beat-edit { padding-top: 8px; border-top: 1px solid var(--line); }
 .stg-cast { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-top: 8px; border-top: 1px solid var(--line); }
@@ -601,28 +643,37 @@ function viewStage(n) {
   const has = new Set(g.view.scenes.map((x) => x.event));
   const events = `<nav class="stg-events" aria-label="사건">${e.plot.events.map((x, k) => `<a href="${base()}/stage/${n}/${k + 1}"${k + 1 === g.ev ? ' aria-current="page"' : ''} title="${esc(x)}"><span class="chip">${k + 1}${has.has(k) ? ' ●' : ''}</span></a>`).join('')}</nav>`;
   const evText = e.plot.events[g.ev - 1] || '';
+  const has2 = (role) => !!stgRow(g, role);
+  const roles = `<div class="seg" role="group" aria-label="장면 역할">${[['plan', '계획'], ['text', '본문']].map(([r, l]) => `<button type="button" aria-pressed="${g.role === r}" data-action="stgRole" data-arg="${r}" title="${r === 'plan' ? '쓰기 전에 짠 장면' : '본문에서 뽑은 장면'}">${l}${has2(r) ? ' ●' : ''}</button>`).join('')}</div>`;
+  const pickBar = `<section class="card tight"><div class="stg-head">${epPick}${events}${roles}</div></section>`;
   if (!evText) return `${head('')}<section class="card">${epPick}${events}<p class="small">${g.ev}번째 사건이 없어요.</p></section>`;
-  if (!g.scene) return `${head(esc(evText))}<section class="card tight"><div class="between">${epPick}${events}</div></section>${stgNewCard()}`;
+  if (!g.scene && g.role === 'text') return `${head(esc(evText))}${pickBar}<section class="card"><h2>본문에서 뽑기 전이에요</h2>
+    <p class="desc">본문 장면은 본문에서 자리 · 자세 · 접촉을 뽑은 결과예요. 뽑으면 여기서 규칙으로 판정하고 계획 장면과 견줘요.${has2('plan') ? '' : ' 이 사건에는 계획 장면도 아직 없어요.'}</p></section>`;
+  if (!g.scene) return `${head(esc(evText))}${pickBar}${stgNewCard()}`;
   const ck = g.check || { violations: [], stale: [], event_changed: false };
   const save = `<button type="button" class="btn small primary" data-action="stgSave"${g.dirty ? '' : ' disabled'}>${g.dirty ? '저장' : '저장됨'}</button>`;
   const right = `${save}<button type="button" class="btn small ghost danger" data-action="stgDelete">장면 지우기</button>`;
   const notes = [];
   if (ck.event_changed) notes.push(`<div class="note warn" role="status">플롯 사건이 바뀌었어요. 이 장면은 "${esc(g.scene.event_text)}" 사건으로 짠 것이에요.</div>`);
   if (ck.violations.length) notes.push(`<div class="note warn" role="status"><b>규칙 검수 ${ck.violations.length}개</b><ul class="stg-viol">${ck.violations.map((x) => `<li><a href="#" data-action="stgBeat" data-arg="${x.beat}">${x.beat}박자</a> ${esc(x.text)}</li>`).join('')}</ul></div>`);
+  const gaps = stgGaps();
+  if (g.role === 'text') notes.push(`<div class="note plain">본문에서 뽑은 추출 결과예요. 고쳐도 계획 장면은 바뀌지 않아요.${ck.pair ? '' : ' 이 사건에는 견줄 계획 장면이 없어요.'}</div>`);
+  if (gaps.length) notes.push(`<div class="note plain" role="status"><b>계획과 다른 곳 ${gaps.length}개</b> <span class="small">사소한 차이예요. 본문 쪽 연출이 더 나을 수도 있어요.</span><ul class="stg-viol">${gaps.map((x) => `<li><a href="#" data-action="stgBeat" data-arg="${x.k}">${x.k === 0 ? '시작 상태' : `${x.k}박자`}</a> ${esc(x.text)}</li>`).join('')}</ul></div>`);
   if (ck.stale.length) notes.push(`<div class="note plain">본문에 없는 문장을 가리키는 박자가 ${ck.stale.length}개 있어요: ${ck.stale.map((k) => `<a href="#" data-action="stgBeat" data-arg="${k}">${k}박자</a>`).join(', ')}</div>`);
   if (ck.dropped) notes.push(`<div class="note warn">미성년 인물이 낀 성적 접촉 ${ck.dropped}개는 저장할 때 빠져요.</div>`);
   const max = g.scene.beats.length;
   const plan = `<section class="card stg-planc stg-pane" data-pane="plan"${S.stgPane === 'side' ? ' data-hide' : ''} aria-label="평면도">
-      <div class="between"><h2>${esc(g.room ? g.room.name : '방')}</h2><div class="seg" role="group" aria-label="평면도 모드"><button type="button" aria-pressed="${g.mode === 'people'}" data-action="stgMode" data-arg="people">인물</button><button type="button" aria-pressed="${g.mode === 'room'}" data-action="stgMode" data-arg="room">방 고치기</button></div></div>
+      <div class="between"><h2>${esc(g.room ? g.room.name : '방')}${g.role === 'text' ? ' <span class="chip">추출 결과</span>' : ''}</h2><div class="seg" role="group" aria-label="평면도 모드"><button type="button" aria-pressed="${g.mode === 'people'}" data-action="stgMode" data-arg="people">인물</button><button type="button" aria-pressed="${g.mode === 'room'}" data-action="stgMode" data-arg="room">방 고치기</button></div></div>
       ${g.room ? `<svg id="stg-plan" viewBox="0 0 ${stgScale(g.room).w} ${stgScale(g.room).h}" role="img" aria-label="${esc(g.room.name)} 평면도, ${g.beat === 0 ? '시작 상태' : `${g.beat}박자`}"></svg>` : '<p class="small">방을 찾지 못했어요.</p>'}
       <div class="stg-play"><button type="button" class="btn small" data-action="stgPlay"${max ? '' : ' disabled'}>${g.playing ? '❚❚ 멈춤' : '▶ 재생'}</button>
         <input type="range" min="0" max="${max}" step="1" value="${g.beat}" data-stg-slider aria-label="박자" aria-valuetext="${g.beat === 0 ? '시작 상태' : `${g.beat}박자`}"><span class="small">${g.beat} / ${max}</span></div>
       <div class="stg-legend"><span>쐐기 = 향한 쪽</span><span>점선 = 접촉</span><span>화살표 = 이번 박자 이동</span><span>${g.mode === 'room' ? '기준점을 끌어 옮겨요' : '인물을 끌어 놓으면 가까운 기준점에 붙어요'}</span></div>
-      <label class="row small"><input type="checkbox" data-stg-prompt${g.scene.prompt ? ' checked' : ''}> 쓰기 프롬프트에 넣기</label>
+      ${g.role === 'text' ? (ck.pair ? `<label class="row small"><input type="checkbox" data-stg-ghost${g.ghost ? ' checked' : ''}> 겹쳐 보기 (계획 인물을 흐린 원으로)</label>` : '')
+    : `<label class="row small"><input type="checkbox" data-stg-prompt${g.scene.prompt ? ' checked' : ''}> 쓰기 프롬프트에 넣기</label>`}
     </section>`;
   const side = `<div class="col stg-pane" data-pane="side"${S.stgPane !== 'side' ? ' data-hide' : ''}>${g.mode === 'room' ? stgRoomPanel() : stgBeats() + stgPersonCard()}</div>`;
   const tabs = `<div class="tabs stg-tabs" role="tablist"><button type="button" role="tab" aria-selected="${S.stgPane !== 'side'}" data-action="stgPane" data-arg="plan">평면도</button><button type="button" role="tab" aria-selected="${S.stgPane === 'side'}" data-action="stgPane" data-arg="side">${g.mode === 'room' ? '방' : '박자 · 인물'}</button></div>`;
-  return `${head(esc(evText), right)}<section class="card tight"><div class="between">${epPick}${events}</div></section>${notes.join('')}${tabs}<div class="stg-wrap">${plan}${side}</div>`;
+  return `${head(esc(evText), right)}${pickBar}${notes.join('')}${tabs}<div class="stg-wrap">${plan}${side}</div>`;
 }
 
 /** render 뒤 평면도를 그린다 (app.js render 가 부른다). */
@@ -651,6 +702,16 @@ Object.assign(actions, {
     stgDrawPlan(from);
   },
   stgWho(w) { S.stg.who = w; render(); },
+  stgRole(r) {
+    const g = S.stg;
+    if (g.role === r) return;
+    if (g.dirty && !confirm('저장하지 않은 변경이 사라져요. 바꿀까요?')) return;
+    g.role = r;
+    g.dirty = false;
+    S.stgDirty = false;
+    stgPick();
+    render();
+  },
   stgMode(m) { S.stg.mode = m; render(); },
   stgPane(k) { S.stgPane = k; render(); },
   stgPosture(id) { stgSet('posture', id); },
@@ -826,6 +887,9 @@ document.addEventListener('change', (e) => {
     g.scene.start.push({ who: t.value, at: door ? { ref: door.id, rel: 'front' } : null, posture: 'stand', facing: '', left: '', right: '', contacts: [], ends: [], memo: '' });
     g.who = t.value;
     stgTouch();
+  } else if (d.stgGhost !== undefined) {
+    g.ghost = t.checked;
+    render();
   } else if (d.stgPrompt !== undefined) {
     g.scene.prompt = t.checked;
     stgTouch();

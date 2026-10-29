@@ -4,6 +4,7 @@
 인물 자리는 '기준점 + 관계 말'(StageSpot)로 저장하고 좌표는 place 가 계산한다. AI 는 좌표를 읽거나 쓰지 않는다.
 판정(judge)은 박자를 차례로 겹친 상태(state_at)로 손 · 이동 자세 · 거리 · 향함 · 물건 규칙을 본다.
 미성년 인물이 낀 성적 접촉은 blocked 로 거르고, 작가 입력 · AI 결과 · 프롬프트 모두 이 함수를 쓴다.
+한 사건에 계획 장면(role plan)과 본문 장면(role text)을 하나씩 두고, diff 가 계획과 다른 곳(Gap)을 잰다.
 """
 from __future__ import annotations
 
@@ -501,6 +502,134 @@ def stale(scene: StageScene, text: str) -> list[int]:
     return [k for k, beat in enumerate(scene.beats, 1) if beat.quote.strip() and _SPACE.sub("", beat.quote) not in flat]
 
 
+# ---------- 계획과 견주기 ----------
+# 계획의 박자 끝 상태가 본문 장면의 어느 박자에서 처음 이뤄지는지 차례로 찾는다 (docs/stage/model.md '견주기').
+# 견주는 칸: 자리(기준점만, 관계 차이는 무시), 자세(선 자세인지만), 접촉(누가 · 누구에게 · 부위 쌍, 손은 왼손 · 오른손 · 두 손을 하나로).
+# 향함 · 손에 쥔 것은 견주지 않는다. 본문 장면에서 모르는 칸(자리 · 자세가 없음)은 이뤄졌다고 본다 (짚지 않는다).
+
+GAP_FIELDS = {"at": "자리", "posture": "자세", "contact": "접촉"}
+
+
+class Gap(BaseModel):
+    plan_beat: int      # 계획 박자 (0 은 시작 상태)
+    text_beat: int      # 견준 본문 박자 (0 은 시작 상태)
+    who: str
+    field: str          # at · posture · contact
+    plan: str           # 계획 값 (화면 글)
+    actual: str         # 본문 값 (화면 글). 없으면 빈칸
+    text: str           # 해요체 설명
+    contact: str = ""   # 계획 접촉 id (field 가 contact 일 때)
+
+
+def _bodies(scene: StageScene, k: int) -> list[StageBody]:
+    return scene.start if k == 0 else scene.beats[k - 1].bodies
+
+
+def _spot_word(at: Optional[StageSpot], room: Optional[StageRoom], p: Optional[Project]) -> str:
+    if at is None:
+        return ""
+    rel = RELS.get(at.rel, at.rel)
+    if at.ref.startswith("@"):
+        return f"{_name(p, at.ref[1:]) if p else at.ref[1:]} {rel}"
+    a = next((x for x in room.anchors if x.id == at.ref), None) if room else None
+    return f"{a.name if a else at.ref} {rel}"
+
+
+def _by_kind(by: str) -> str:
+    return "hand" if by in HANDS else by
+
+
+def _contact_word(who: str, c: StageContact, p: Optional[Project]) -> str:
+    by = HANDS.get(c.by) or (PARTS[c.by].label if c.by in PARTS else c.by)
+    part = PARTS[c.part].label if c.part in PARTS else c.part
+    nm = (lambda x: _name(p, x)) if p else (lambda x: x)
+    return f"{nm(who)} {by} → {nm(c.to)} {part}"
+
+
+def _done(fact: tuple, now: dict[str, Now]) -> bool:
+    kind, who = fact[0], fact[1]
+    me = now.get(who)
+    if kind == "at":
+        return me is None or me.at is None or me.at.ref == fact[2]
+    if kind == "posture":
+        ps = POSTURES.get(me.posture) if me else None
+        return ps is None or ps.upright == fact[2]
+    _, _, to, by, part = fact
+    return bool(me) and any(c.to == to and c.part == part and _by_kind(c.by) == by for c in me.contacts.values())
+
+
+def align(plan: StageScene, text: StageScene, room: Optional[StageRoom] = None, p: Optional[Project] = None,
+          text_room: Optional[StageRoom] = None) -> tuple[list[int], list[Gap]]:
+    """계획 박자마다 견준 본문 박자(시작 상태 포함, 줄지 않음)와 계획과 다른 곳. 화면의 겹쳐 보기가 앞 목록을 쓴다.
+    계획 박자 k 에서 적은 칸마다 지금 본문 박자부터 처음 이뤄지는 박자를 찾고, 다음 계획 박자는 그중 가장 늦은 박자부터 찾는다."""
+    text_room = text_room or room
+    states = [state_at(text, j) for j in range(len(text.beats) + 1)]
+    cast = set(text.cast) | {b.who for j in range(len(text.beats) + 1) for b in _bodies(text, j)}
+    match: list[int] = []
+    gaps: list[Gap] = []
+    j = 0
+    for k in range(len(plan.beats) + 1):
+        facts: list[tuple[tuple, StageBody, Optional[StageContact]]] = []
+        for b in _bodies(plan, k):
+            if b.who not in cast:
+                continue
+            if b.at is not None:
+                facts.append((("at", b.who, b.at.ref), b, None))
+            if b.posture in POSTURES:
+                facts.append((("posture", b.who, POSTURES[b.posture].upright), b, None))
+            for c in b.contacts:
+                facts.append((("contact", b.who, c.to, _by_kind(c.by), c.part), b, c))
+        found, missed = [], []
+        for f in facts:
+            hit = next((x for x in range(j, len(states)) if _done(f[0], states[x])), None)
+            if hit is None:
+                missed.append(f)
+            else:
+                found.append(hit)
+        j = max(found, default=j)
+        # 화면 짝: 하나도 이뤄지지 않은 계획 박자는 다음 본문 박자에 견준다 (찾기는 j 에서 그대로 잇는다)
+        shown = j if found or not facts else min(j + 1, len(text.beats))
+        match.append(max([shown, *match[-1:]]))
+        for fact, b, c in missed:
+            kind, who = fact[0], fact[1]
+            # 본문이 계획 대신 한 것: 이 박자 뒤에 그 인물의 그 칸을 처음 바꾼 본문 박자, 없으면 지금 박자
+            at = next((x for x in range(j + 1, len(states)) if kind != "contact"
+                       and any(t.who == who and (t.at is not None if kind == "at" else bool(t.posture)) for t in _bodies(text, x))), j)
+            me = states[at].get(who)
+            name = _name(p, who) if p else who
+            if kind == "at":
+                pv, tv = _spot_word(b.at, room, p), _spot_word(me.at if me else None, text_room, p)
+            elif kind == "posture":
+                pv, tv = POSTURES[b.posture].label, POSTURES[me.posture].label if me and me.posture in POSTURES else ""
+            else:
+                pv, tv = _contact_word(who, c, p), ""
+            if kind == "contact":
+                desc = f"계획의 접촉({pv})이 본문에 없어요."
+            else:
+                desc = f"{name} {GAP_FIELDS[kind]}가 계획과 달라요 (계획: {pv}, 본문: {tv or '모름'})."
+            gaps.append(Gap(plan_beat=k, text_beat=at, who=who, field=kind, plan=pv, actual=tv, text=desc, contact=c.id if c else ""))
+    return match, gaps
+
+
+def diff(plan: StageScene, text: StageScene, room: Optional[StageRoom] = None, p: Optional[Project] = None,
+         text_room: Optional[StageRoom] = None) -> list[Gap]:
+    """계획 장면과 본문 장면이 다른 곳. 박자 수가 달라도 박자 끝 상태가 차례대로 이뤄지면 빈 목록."""
+    return align(plan, text, room, p, text_room)[1]
+
+
+def _event_of(ep: Episode, scene: StageScene) -> Optional[int]:
+    return find_event(ep, scene)[0]
+
+
+def scenes_of(ep: Episode, event: int) -> tuple[Optional[StageScene], Optional[StageScene]]:
+    """사건 하나의 (계획 장면, 본문 장면). 없으면 None."""
+    found = {"plan": None, "text": None}
+    for s in ep.stage:
+        if found[s.role] is None and _event_of(ep, s) == event:
+            found[s.role] = s
+    return found["plan"], found["text"]
+
+
 # ---------- 화면 (web.py 의 …/stage) ----------
 
 def _new_id(prefix: str, taken: set[str]) -> str:
@@ -517,24 +646,36 @@ def new_room(p: Project, template: str, name: str = "", place: str = "") -> Stag
     return room
 
 
-def new_scene(p: Project, ep: Episode, event: int, room: StageRoom) -> StageScene:
-    """플롯 사건 하나의 새 장면. 출연진은 그 화 플롯의 등장 인물이고, 모두 문 앞(문이 없으면 방 가운데)에 빈손으로 선다."""
+ROLES = {"plan": "계획", "text": "본문"}
+
+
+def new_scene(p: Project, ep: Episode, event: int, room: StageRoom, role: str = "plan") -> StageScene:
+    """플롯 사건 하나의 새 장면. 출연진은 그 화 플롯의 등장 인물이고, 모두 문 앞(문이 없으면 방 가운데)에 빈손으로 선다.
+    한 사건에 계획 · 본문 장면은 하나씩이다."""
     events = ep.plot.events
     if not 0 <= event < len(events):
         raise ValueError(f"{ep.plot.number}화에 {event + 1}번째 사건이 없어요")
+    if role not in ROLES:
+        raise ValueError(f"장면 역할을 모르겠어요: {role}")
+    if scenes_of(ep, event)[role == "text"] is not None:
+        raise ValueError(f"이 사건에는 이미 {ROLES[role]} 장면이 있어요")
     known = {c.id for c in p.characters}
     cast_ids = [c for c in ep.plot.characters if c in known]
     door = next((a for a in room.anchors if a.kind == "door"), None)
     start = [StageBody(who=c, at=StageSpot(ref=door.id, rel="front") if door else None, posture="stand", left="", right="")
              for c in cast_ids]
     scene = StageScene(id=_new_id("s", {s.id for s in ep.stage}), event=event, event_text=events[event], room=room.id,
-                       cast=cast_ids, start=start)
+                       cast=cast_ids, start=start, role=role, source="text" if role == "text" else "manual")
     ep.stage.append(scene)
     return scene
 
 
 def save_scene(p: Project, ep: Episode, scene: StageScene, room: Optional[StageRoom]) -> int:
-    """작가가 고친 장면과 방을 저장한다. 같은 id 는 바꾸고 없으면 더한다. 막은 접촉 수를 돌려준다."""
+    """작가가 고친 장면과 방을 저장한다. 같은 id 는 바꾸고 없으면 더한다. 막은 접촉 수를 돌려준다.
+    같은 사건 · 같은 역할의 다른 장면이 있으면 막는다 (본문 장면이 계획을 덮지 않게)."""
+    ev = _event_of(ep, scene)
+    if any(s.id != scene.id and s.role == scene.role and _event_of(ep, s) == ev for s in ep.stage):
+        raise ValueError(f"이 사건에는 이미 {ROLES[scene.role]} 장면이 있어요")
     if room is not None:
         i = next((k for k, r in enumerate(p.rooms) if r.id == room.id), None)
         if i is None:
@@ -561,10 +702,21 @@ def room_of(p: Project, scene: StageScene) -> Optional[StageRoom]:
 
 
 def check(p: Project, ep: Episode, scene: StageScene, room: Optional[StageRoom]) -> dict:
-    """장면 하나의 화면 값: 사건 찾기, 본문과 다른 박자, 규칙 판정."""
+    """장면 하나의 화면 값: 사건 찾기, 본문과 다른 박자, 규칙 판정, 짝 장면(같은 사건의 다른 역할)과 견준 값.
+    gaps 는 계획과 다른 곳(짝이 있을 때만), match 는 계획 박자마다 견준 본문 박자다."""
     event, changed = find_event(ep, scene)
-    return {"event": event, "event_changed": changed, "stale": stale(scene, ep.text),
-            "violations": [v.model_dump() for v in judge(scene, room, p)] if room else []}
+    out = {"event": event, "event_changed": changed, "stale": stale(scene, ep.text),
+           "violations": [v.model_dump() for v in judge(scene, room, p)] if room else [], "pair": None, "gaps": [], "match": []}
+    if event is None:
+        return out
+    pair = scenes_of(ep, event)[scene.role == "plan"]
+    if pair is None or pair.id == scene.id:
+        return out
+    plan, text = (scene, pair) if scene.role == "plan" else (pair, scene)
+    plan_room, text_room = (room, room_of(p, pair)) if scene.role == "plan" else (room_of(p, pair), room)
+    match, gaps = align(plan, text, plan_room, p, text_room)
+    out.update(pair=pair.id, gaps=[g.model_dump() for g in gaps], match=match)
+    return out
 
 
 def view(p: Project, n: int) -> dict:
