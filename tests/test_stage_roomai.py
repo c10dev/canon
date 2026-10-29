@@ -237,3 +237,19 @@ def test_seat_and_windows_go_inside_vehicle():
         StageBody(who="char2", at=StageSpot(ref=win.id, rel="front"), posture="stand", facing="@hero", left="", right="", contacts=[
             StageContact(id="c1", by="right", to="hero", part="hand_l", act="hold")])])
     assert stage.judge_all(sc, room, p) == []
+
+
+def test_too_many_anchors_are_noted():
+    """한 번에 더하는 수(MAX_ADDS)를 넘은 기준점은 말없이 버리지 않고 정리 기록에 이름을 적는다 (2026-10-29 15화: 정비차가 빠졌다)."""
+    extra = [DraftAnchor(name=f"표지{i}", kind="landmark") for i in range(stage.MAX_ADDS)]
+
+    class Many(Scripted):
+        def json(self, system, prompt, schema, hint=None):
+            d = super().json(system, prompt, schema, hint)
+            if schema is StageDraft:
+                d = d.model_copy(update={"new_anchors": [*extra, *d.new_anchors]})
+            return d
+
+    prop = pipeline.draft_stage(Many(), _project(), 15, 0, fresh="empty")
+    assert len(prop.adds) == stage.MAX_ADDS
+    assert any("기준점 3개(운전석, 운전석 창, 정비차 짐칸)는 한 번에 더하는 수" in x for x in prop.notes)

@@ -3285,6 +3285,10 @@ def _stage_ask(llm: LLM, p: Project, n: int, event: int, role: str, hint: dict |
     # 방에 없는 장소는 기준점으로 더해 두고 그 방으로 장면을 정리한다 (계획 초안만. 본문 뽑기는 방을 바꾸지 않는다)
     grown, adds, dx, dy = stage.place_anchors(room, d.new_anchors if role == "plan" else [])
     notes_room = []
+    have = {a.name.strip() for a in grown.anchors}
+    over = list(dict.fromkeys(x.name.strip() for x in (d.new_anchors if role == "plan" else []) if x.name.strip() and x.name.strip() not in have))
+    if over:
+        notes_room.append(f"기준점 {len(over)}개({', '.join(over)})는 한 번에 더하는 수({stage.MAX_ADDS}개)를 넘어 뺐어요. 방 고치기에서 더해 주세요")
     if adds:
         if (grown.w, grown.h) != (room.w, room.h):
             notes_room.append(f"방을 {room.w:g}×{room.h:g}m 에서 {grown.w:g}×{grown.h:g}m 로 넓혀요")
