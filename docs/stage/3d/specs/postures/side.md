@@ -1,6 +1,6 @@
 # 02-10. 자세 모듈: 옆으로 눕기 (`side`)
 
-상태: 명세 · 묶음: P3 · 공통: [../02-posture.md](../02-posture.md) · 먼저: [../01-body.md](../01-body.md)
+상태: 구현 (2026-10-29, PR #171, 시험 `tests/test_stage3d_postures_p3.py`, 사진 세 장은 아직) · 묶음: P3 · 공통: [../02-posture.md](../02-posture.md) · 먼저: [../01-body.md](../01-body.md)
 
 ## 목표
 
