@@ -205,6 +205,12 @@ def test_js_helpers_and_view(demo):
     p = store.load(demo)
     sheet = cue.from_board(p, 1)
     sheet.cues[1].lines = [CueLine(speaker="hero", text="대사")]
+    hero = next(c for c in p.characters if c.id == "hero")
+    hero.speech_style = ""
+    other = next(c for c in p.characters if c.id != "hero")
+    other.speech_style = "반말"
+    gap_sheet = {"cues": [{"lines": [{"speaker": "hero", "text": "a"}, {"speaker": other.id, "text": "b"}]},
+                          {"lines": [{"speaker": "ghost", "text": "c"}, {"speaker": "hero", "text": "d"}, {"speaker": "hero", "text": "e"}]}]}
     got = run_js(FILES, """(() => {
       S.project = data.p; S.name = 'demo'; S.route = ['p', 'demo', 'cue', '1'];
       S.cue = data.home; S.cueConds = new Set(['oneshot', 'score', 'cues']);
@@ -216,16 +222,21 @@ def test_js_helpers_and_view(demo):
         bars: cueBars(data.lab.sheet).map((b) => [b.fn, b.h]),
         width: Math.round(cueBars(data.lab.sheet).reduce((a, b) => a + b.w, 0)),
         flat: cueCurveOk(flat).length,
+        gaps: cueVoiceGaps(data.gap, data.p.characters),
         html: viewCue(),
       };
     })()""", {"p": dump(p), "home": {"candidates": cue.candidates(p), "labs": [1], "runs": [], **_labels()},
-              "lab": {"episode": 1, "title": "t", "board": False, "sheet": dump(sheet), "takes": [], "model": "", "run_at": ""}})
+              "lab": {"episode": 1, "title": "t", "board": False, "sheet": dump(sheet), "takes": [], "model": "", "run_at": ""},
+              "gap": gap_sheet})
     assert got["parse"] == [{"speaker": "hero", "text": "안녕"}, {"speaker": "", "text": "그냥 말"}, {"speaker": "a", "text": "b"}]
     assert got["text"] == "hero: 안녕\n그냥 말"
     assert got["bars"] == [[c.function, c.tension * 20] for c in sheet.cues]
     assert got["width"] == 100
     assert got["flat"] >= 2  # 앞쪽 정점 · 평평한 긴장 (큐가 넷 넘으면 같은 기능 넷도)
     assert "큐 시트 집필 실험" in got["html"] and "cue-bars" in got["html"] and "hero: 대사" in got["html"]
+    # 말투가 빈 인물만, 큐 번호는 겹치지 않게. 모르는 id 와 말투가 있는 인물은 빼고
+    assert got["gaps"] == [{"id": "hero", "name": hero.name, "cues": [1, 2]}]
+    assert "말투가 빈 인물이 핵심 대사를 맡았어요" in got["html"] and "/cast/hero" in got["html"]
 
 
 def _labels():

@@ -3,7 +3,7 @@
    research.js 의 rsInit 을 쓴다.
    한 화를 악보처럼 큐로 나눠 화성 기능(T 안정 · S 쌓기 · D 긴장) · 긴장도 · 템포 · 편성 · 핵심 대사를 먼저 정하고,
    같은 화를 세 조건(지금 방식 한 번에 · 큐 시트를 주고 한 번에 · 큐마다 이어 쓰기)으로 써서 견준다. 작품에는 저장하지 않는다.
-   cueLinesParse · cueLinesText · cueBars · cueCurveOk 는 DOM 없는 순수 함수 (tests/test_cue.py). */
+   cueLinesParse · cueLinesText · cueBars · cueCurveOk · cueVoiceGaps 는 DOM 없는 순수 함수 (tests/test_cue.py). */
 'use strict';
 
 Object.assign(S, {
@@ -58,6 +58,21 @@ function cueCurveOk(sheet) {
   }
   if (new Set(cues.map((c) => c.tension)).size === 1) out.push('모든 큐의 긴장도가 같아요. 오르내림이 없으면 화가 평평하게 읽혀요.');
   return out;
+}
+
+/** 핵심 대사를 맡았는데 말투(speech_style)가 빈 인물: [{ id, name, cues: [큐 번호] }], 처음 나온 차례.
+    핵심 대사는 본문에 글자 그대로 들어가서, 말투가 비면 그 말이 인물답게 지어졌는지 견줄 기준이 없다. 모르는 id 는 뺀다 */
+function cueVoiceGaps(sheet, chars) {
+  const by = new Map((chars || []).map((c) => [c.id, c]));
+  const out = new Map();
+  ((sheet && sheet.cues) || []).forEach((c, i) => (c.lines || []).forEach((x) => {
+    const ch = by.get(x.speaker);
+    if (!ch || (ch.speech_style || '').trim()) return;
+    if (!out.has(ch.id)) out.set(ch.id, { id: ch.id, name: ch.name || ch.id, cues: [] });
+    const g = out.get(ch.id);
+    if (!g.cues.includes(i + 1)) g.cues.push(i + 1);
+  }));
+  return [...out.values()];
 }
 
 async function cueLoad(n) {
@@ -149,9 +164,14 @@ function cueEditor() {
       <label class="small">끝 상태<input data-cue="cues.${i}.exit" value="${esc(c.exit)}"></label>
     </div>`).join('');
   const total = sh.cues.reduce((a, c) => a + (c.length || 0), 0);
+  const gaps = cueVoiceGaps(sh, P().characters);
+  const gapNote = gaps.length ? `<div class="note warn"><strong>말투가 빈 인물이 핵심 대사를 맡았어요</strong>
+      <ul>${gaps.map((g) => `<li><a href="${base()}/cast/${enc(g.id)}">${esc(g.name)}</a> · ${g.cues.join(', ')}번 큐</li>`).join('')}</ul>
+      <span class="small">핵심 대사는 본문에 글자 그대로 들어가요. 인물 카드에서 말투를 채우면 큐 시트를 만들 때와 쓸 때 그 말투를 따라요.</span></div>` : '';
   return `<section class="card"><div class="between"><h2>큐 시트 <span class="small">큐 ${sh.cues.length}개 · 약 ${total.toLocaleString()}자 · ${esc({ ai: 'AI', board: '뼈대', author: '작가', both: 'AI + 작가' }[S.cueLab.sheet ? S.cueLab.sheet.made_by : 'author'] || '')}</span></h2>
       <span class="row" style="gap:6px"><button type="button" class="btn small" data-action="cueSave"${S.cueDirty ? '' : ' disabled'}>저장</button>${S.cueDirty ? '<button type="button" class="btn small ghost" data-action="cueReset">되돌리기</button>' : ''}</span></div>
     ${tools}
+    ${gapNote}
     <div class="cue-knobs"><label class="small">조성 (정서의 기준선)<input data-cue="key" value="${esc(sh.key)}"></label>
       <label class="small">화 끝 종지 ${cueSelect('cadences', 'cadence', sh.cadence)}</label></div>
     <div class="cue-list">${rows}</div>
