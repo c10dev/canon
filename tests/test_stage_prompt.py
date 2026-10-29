@@ -103,3 +103,9 @@ def test_minor_sexual_contact_never_enters():
         assert dropped == 1
         assert "가슴" not in prompts.stage_block(p, 1)
         assert "가슴" not in prompts.episode_brief(p, 1)
+
+
+def test_new_relation_words_read_as_labels():
+    p = _project()
+    assert stage._spot_text(StageSpot(ref="@d", rel="across"), None, p) == "도윤 맞은편"
+    assert stage._spot_text(StageSpot(ref="@d", rel="against"), None, p) == "도윤 기대어 맞닿음"
