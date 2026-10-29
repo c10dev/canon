@@ -31,6 +31,7 @@
   --brand-2: #D16604; --logo: #2C3642;
   --inverse-bg: #181B20; --inverse-ink: #FFFFFF; --overlay: rgba(24,27,32,0.35); --glass: rgba(255,255,255,0.8);
   --info-ink: #2A3139; --warn-line: #F6C9A5; --err-ink: #6E1916; --del-ink: #8D2521; --written-ink: #8E4E03;
+  --btn: #E4E7EB; --btn-hover: #D8DCE1;  /* 보조 버튼 면: 테두리 없이 면으로만 구분한다 */
   --seg: #E4E7EB; --sel-bg: #F8FBFE; --sel-line: #858C97; --rule: #EBEEF2; --brief-ink: #25282C; --canvas: #FBFCFF;
   --her-bg: #FFE0EB; --her-ink: #90255A; --him-bg: #D0E9FF; --him-ink: #005386; --good: #3F96D9; --bad: #E36C62;
   /* 인물 관계도 (cast.js): 온기 무덤덤 · 깊이 아낌, 긴장 보통 · 높음, 두 사람 그래프, 인물 원 */
@@ -119,13 +120,15 @@ ul, ol { margin: 0; }
 .lockset:disabled .rel-card { opacity: .6; }
 .empty { padding: 40px 24px; text-align: center; color: var(--muted); display: flex; flex-direction: column; gap: 14px; align-items: center; }
 
-.btn { min-height: 44px; padding: 0 16px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 0.875rem; display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; cursor: pointer; }
-.btn:hover { background: var(--bg); color: var(--text); }
+/* 보조 버튼은 테두리 없이 회색 면(--btn)으로 구분한다. 테두리 칸(1px 투명)은 남겨 주 버튼 · 고른 버튼과 크기가 같고, 고대비 모드에서는 테두리가 보인다 */
+.btn { min-height: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 8px; background: var(--btn); color: var(--text); font: inherit; font-size: 0.875rem; display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; cursor: pointer; }
+.btn:hover { background: var(--btn-hover); color: var(--text); }
 .btn.primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); font-weight: 700; }
 .btn.primary:hover { background: var(--accent-hover); color: var(--on-accent); }
 .btn.dark { border-color: var(--inverse-bg); background: var(--inverse-bg); color: var(--inverse-ink); font-weight: 700; }
 .btn.small { min-height: 36px; padding: 0 12px; font-size: 0.8125rem; }
-.btn.ghost { border-style: dashed; color: var(--link); background: transparent; }
+.btn.ghost { color: var(--link); background: transparent; }  /* 한 단계 조용한 버튼: 글자만, 올리면 면 */
+.btn.ghost:hover { background: var(--btn); }
 .btn.danger { color: var(--red); }
 .btn:disabled, .btn[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
 textarea:disabled, select:disabled, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):disabled { background: var(--bg); color: var(--text-2); cursor: not-allowed; }
@@ -1305,6 +1308,7 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
     --brand-2: #F18333; --logo: #A3ACB7;
     --inverse-bg: #E6E8EC; --inverse-ink: #131519; --overlay: rgba(0,0,0,0.55); --glass: rgba(28,31,34,0.85);
     --info-ink: #DADFE5; --warn-line: #6C4C30; --err-ink: #FEC4BC; --del-ink: #FFACA1; --written-ink: #F5CAA7;
+    --btn: #2C2F33; --btn-hover: #373A3F;
     --seg: #2A2C30; --sel-bg: #1A2637; --sel-line: #767C85; --rule: #2A2C30; --brief-ink: #D7DADE; --canvas: #17191D;
     --her-bg: #552C3D; --her-ink: #FEC0D7; --him-bg: #193B57; --him-ink: #A8D7FF; --good: #4996D4; --bad: #DE7065;
     --warm-mid: #8F9297; --warm-deep: #8DBEFA; --tension-mid: #A87A40; --tension-high: #E89A50;
@@ -1374,7 +1378,7 @@ body.routing::before { content: ''; position: fixed; top: 0; left: 0; height: 3p
 /* 분할 버튼: 복사 + ▾ */
 .split { display: inline-flex; }
 .split > .btn:first-child { border-radius: 8px 0 0 8px; }
-.split > .menu > .btn { width: 36px; padding: 0; border-left: none; border-radius: 0 8px 8px 0; }
+.split > .menu > .btn { width: 36px; padding: 0; border-left-color: var(--surface); border-radius: 0 8px 8px 0; }  /* 두 면 사이 가는 틈 */
 .split > .menu > .btn[aria-expanded="true"] { border-left: 1px solid var(--accent); }
 /* #app 밖의 대화상자 (app.js showDialog) */
 dialog.w-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 48px); border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; background: var(--surface); color: var(--text); box-shadow: 0 12px 40px rgba(0,0,0,0.24); }
@@ -1431,7 +1435,7 @@ details.card.set-more { display: block; }
 .proj-more { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
 .proj-more > summary.btn { min-height: 44px; width: fit-content; list-style: none; }
 .proj-more > summary.btn::-webkit-details-marker { display: none; }
-.proj-more[open] > summary.btn { background: var(--bg); }
+.proj-more[open] > summary.btn { background: var(--btn-hover); }
 .note .btn { margin-left: 4px; }
 
 /* 갈래 (branches.js): 작품 머리 띠, 작품 목록 카드 안의 갈래 줄 (깊이만큼 들여 쓴다) */
