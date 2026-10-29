@@ -2,7 +2,7 @@
 LLM 을 부르지 않는다.
 
 순서: 대로 격자(슈퍼블록 한 변 300~450m. 줄마다 자리와 기울기를 조금 흔든 곧은 선, 가운데 줄은 넓은 대로) → (하천: 가로 대로 하나를
-하천으로 바꾸고 세로 대로는 다리로 건넌다) → 슈퍼블록 종류(역 앞 · 공원 · 아파트 · 빌라) → 블록 쪼개기(슈퍼블록을 길 폭만큼 줄인 뒤
+노이즈로 굽힌 하천으로 바꾸고, 강변길은 세로 대로마다 꺾여 하천을 따라가며, 세로 대로는 다리로 건넌다) → 슈퍼블록 종류(역 앞 · 공원 · 아파트 · 빌라) → 블록 쪼개기(슈퍼블록을 길 폭만큼 줄인 뒤
 긴 변에 거의 수직인 선으로 되풀이해 잘라 소로 · 골목을 낸다) → 필지 · 건물(빌라는 두 줄 좁은 필지, 대로에 닿은 필지는 상가, 아파트
 단지는 남향 판상 · 탑상 동 배치와 단지 안 길, 학교는 교사와 운동장) → 쓰임 · 층수 → 이야기 장소.
 
@@ -25,7 +25,7 @@ from .geom import Point, Poly
 from .placekinds import to_era
 from .schema import MapSpec
 
-VERSION = 2
+VERSION = 3
 GENERATOR = "canon-modern"
 
 OPTIONS = {  # 지도 만들기 칸 (towngen.OPTIONS 와 같은 모양. 길 모양 · 밭은 쓰지 않고, 호수 · 바다는 하천으로 본다)
@@ -43,6 +43,11 @@ WALK = 1.0  # 길 가장자리에서 블록까지 (보도)
 RIVER = (24.0, 34.0)  # 하천 폭
 BANK = 12.0  # 하천 둔치 (풀밭)
 RIVERSIDE = 8.0  # 둔치 바깥 강변길 폭
+WIND = (1.0, 2.0)  # 하천 가운데 선을 흔드는 폭 (하천 폭의 배수)
+WAVE = (350.0, 600.0)  # 노이즈 한 칸 길이 (m). 굽이 하나쯤
+RIVER_STEP = 20.0  # 하천 가운데 선 점 간격 (m)
+SHORE_DEPTH = 40.0  # 하천 옆 슈퍼블록이 남겨야 할 깊이 (m). 모자라면 흔드는 폭을 줄인다
+DAMP = (1.0, 0.6, 0.3, 0.0)  # 흔드는 폭을 줄여 가는 차례 (0 이면 곧은 하천)
 APT_SHARE = 0.4  # 역 · 공원이 아닌 슈퍼블록 가운데 아파트 단지
 PARKS = {"few": 0, "some": 1, "many": 2}  # 근린공원 슈퍼블록 수
 POCKET = {"few": 0.02, "some": 0.05, "many": 0.1}  # 빌라 블록이 어린이공원이 될 확률
@@ -230,6 +235,97 @@ def _divide(P: Poly, T: list, kind: str, roads: _Roads, r: random.Random,
     return out
 
 
+# ---------- 하천 ----------
+
+def _offset(pts: list[Point], off: float) -> list[Point]:
+    """꺾은선을 왼쪽 법선(_half 의 sign 1 쪽)으로 off 만큼 민 선. 꼭짓점은 두 변을 민 선이 만나는 곳 (굽이가 완만해야 한다)."""
+    out = []
+    for k, q in enumerate(pts):
+        a, b = pts[max(k - 1, 0)], pts[min(k + 1, len(pts) - 1)]
+        d = blocks.unit(b[0] - a[0], b[1] - a[1])
+        if 0 < k < len(pts) - 1:
+            d0 = blocks.unit(q[0] - a[0], q[1] - a[1])
+            cos = max(0.5, d[0] * d0[0] + d[1] * d0[1])  # 양쪽 변과 이루는 각의 cos
+        else:
+            cos = 1.0
+        out.append((q[0] - d[1] * off / cos, q[1] + d[0] * off / cos))
+    return out
+
+
+def _wind(river: dict, j: int, vlines: list[dict], hlines: list[dict], rw: float, roads: _Roads, r: random.Random,
+          w: float, h: float) -> bool:
+    """가로 대로 j 자리의 하천을 굽힌다. river 에 넣는 것: line (지도 밖까지 늘인 가운데 선), pts (지도 안 가운데 선),
+    edges (다리가 시작하는 두 물가 선), banks {1: 아래, -1: 위} (칸마다 곧은 강변길 조각, 세로 대로 위 점에서 꺾인다),
+    chords (칸마다 하천 모양 경계), bank_at (세로 대로마다 강변길 꼭짓점의 (대로 위 비율, 점)).
+    가운데 선은 대로 줄(a → b)에 노이즈를 더한 것이고 흔드는 폭은 하천 폭의 WIND 배다. 강변길 조각은 칸 안에서 곧아 블록이
+    볼록하게 남는다. 그래서 강변길은 하천에서 둔치 폭(BANK) 넘게 떨어질 만큼 바깥으로 민다. 옆 슈퍼블록이 SHORE_DEPTH 보다 얕아지면
+    흔드는 폭을 DAMP 차례로 줄인다. 곧게 해도 안 되면 False."""
+    a, b = river["a"], river["b"]
+    noise = geom.Noise(r)
+    wave, amp, oy = r.uniform(*WAVE), rw * r.uniform(*WIND), r.uniform(0, 64)
+    n = max(2, math.ceil(w / RIVER_STEP))
+    xs = [w * k / n for k in range(-2, n + 3)]  # 지도 밖으로 두 점씩 (물 띠를 지도 끝에서 자른다)
+    f = [noise.fbm(x / wave, oy, 2) for x in xs]
+    mean = sum(f[2:-2]) / (n + 1)
+    top = max(abs(v - mean) for v in f[2:-2]) or 1.0
+    f = [(v - mean) / top for v in f]
+    reach = rw / 2 + BANK + RIVERSIDE / 2  # 가운데 선에서 강변길 가운데 선까지 (가장 가까운 곳)
+    near = {-1: hlines[j - 1] if j > 0 else None, 1: hlines[j + 1] if j + 1 < len(hlines) else None}
+    y_on = lambda ln, x: ln["a"][1] + (ln["b"][1] - ln["a"][1]) * (x - ln["a"][0]) / (ln["b"][0] - ln["a"][0])  # noqa: E731
+    vx = [0.0] + [vl["a"][0] + (vl["b"][0] - vl["a"][0]) * y_on(river, vl["a"][0]) / h for vl in vlines] + [w]
+    for damp in DAMP:
+        line = [(x, y_on(river, x) + amp * damp * fv) for x, fv in zip(xs, f)]
+        yc = lambda x: geom.lerp(line[int(x / w * n) + 2], line[int(x / w * n) + 3], x / w * n - int(x / w * n))[1]  # noqa: E731
+        banks: dict = {}
+        ok = True
+        for sgn in (1, -1):
+            ys = [yc(x) + sgn * reach for x in vx]
+            for _ in range(3):  # 칸 안에서 하천이 강변길 쪽으로 불룩하면 그 칸의 두 꼭짓점을 바깥으로
+                push = [0.0] * len(vx)
+                for c in range(len(vx) - 1):
+                    p0, p1 = (vx[c], ys[c]), (vx[c + 1], ys[c + 1])
+                    e = blocks.unit(p1[0] - p0[0], p1[1] - p0[1])
+                    nrm = (-e[1] * sgn, e[0] * sgn)
+                    need = max((reach - ((p0[0] - q[0]) * nrm[0] + (p0[1] - q[1]) * nrm[1])) / max(e[0], 0.5)
+                               for q in line if vx[c] <= q[0] <= vx[c + 1])
+                    push[c] = max(push[c], need + 0.5)
+                    push[c + 1] = max(push[c + 1], need + 0.5)
+                if max(push) <= 0.5:
+                    break
+                ys = [y + sgn * max(0.0, pu) for y, pu in zip(ys, push)]
+            verts: list[Point] = [(0.0, ys[0])]
+            at = []
+            for i, vl in enumerate(vlines):
+                hit = blocks.line_hit((0.0, ys[i + 1]), (1.0, 0.0), vl["a"], vl["b"])
+                if hit is None:
+                    return False
+                verts.append(hit[1])
+                at.append(hit)
+            verts.append((w, ys[-1]))
+            for q in verts:  # 옆 슈퍼블록 깊이 (강변길과 이웃 대로는 칸 안에서 곧으니 꼭짓점만 보면 된다)
+                ln = near[sgn]
+                lim, half = (y_on(ln, q[0]), ln["width"] / 2 + WALK) if ln else (h if sgn > 0 else 0.0, 0.0)
+                if sgn * (lim - q[1]) - half - RIVERSIDE / 2 - WALK < SHORE_DEPTH or not 0 < q[1] < h:
+                    ok = False
+            banks[sgn] = (verts, at)
+        if ok:
+            break
+    else:
+        return False
+    for sgn, (verts, _) in banks.items():  # 굽은 하천이 강변길 조각에 너무 가까우면 (둔치가 BANK 보다 좁으면) 버린다
+        for p0, p1 in zip(verts, verts[1:]):
+            if any(geom.seg_dist(q, p0, p1) < reach - 1.0 for q in line if p0[0] <= q[0] <= p1[0]):
+                return False
+    river["line"] = line
+    river["pts"] = line[2:-2]
+    river["edges"] = [_offset(line, -(rw / 2 + 1.5)), _offset(line, rw / 2 + 1.5)]
+    river["chords"] = [((x0, yc(x0)), (x1, yc(x1))) for x0, x1 in zip(vx, vx[1:])]
+    river["banks"] = {sgn: [{"k": roads.add(p0, p1, RIVERSIDE, "street"), "a": p0, "b": p1, "width": RIVERSIDE}
+                            for p0, p1 in zip(verts, verts[1:])] for sgn, (verts, _) in banks.items()}
+    river["bank_at"] = [[banks[sgn][1][i] for sgn in (1, -1)] for i in range(len(vlines))]
+    return True
+
+
 # ---------- 필지 · 건물 ----------
 
 def _slices(P: Poly, T: list, ax: Point, step: Callable[[], float], last: float) -> list[tuple[Poly, list]]:
@@ -346,20 +442,14 @@ def _neighborhood(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict
         vlines.append({"k": roads.add(a, b, wd, "avenue"), "a": a, "b": b, "width": wd})
     for j, y in enumerate(ypos):
         a, b = (0.0, y + gr.uniform(-SWAY, SWAY)), (w, y + gr.uniform(-SWAY, SWAY))
-        if j == river_j:
-            d = blocks.unit(b[0] - a[0], b[1] - a[1])
-            banks = {}
-            for sgn in (1, -1):  # 둔치 바깥 양쪽 강변길 (지도 끝에서 끝까지)
-                off = (rw / 2 + BANK + RIVERSIDE / 2) * sgn
-                o = (a[0] - d[1] * off, a[1] + d[0] * off)
-                ba = (0.0, o[1] - o[0] * d[1] / d[0])
-                bb = (w, o[1] + (w - o[0]) * d[1] / d[0])
-                banks[sgn] = {"k": roads.add(ba, bb, RIVERSIDE, "street"), "a": ba, "b": bb, "width": RIVERSIDE}
-            hlines.append({"k": None, "a": a, "b": b, "width": rw, "river": True, "banks": banks})
+        if j == river_j:  # 굽은 하천과 강변길은 대로를 다 그은 뒤 (_wind)
+            hlines.append({"k": None, "a": a, "b": b, "width": rw, "river": True})
             continue
         wd = gr.uniform(*(BOULEVARD if j == mid_h else AVENUE))
         hlines.append({"k": roads.add(a, b, wd, "avenue"), "a": a, "b": b, "width": wd})
     river = next((ln for ln in hlines if ln.get("river")), None)
+    if river and not _wind(river, river_j, vlines, hlines, rw, roads, rng("river"), w, h):
+        return None
     crossings: list[Point] = []  # 대로 교차점
     bridges: list[tuple[Point, Point]] = []
     for vl in vlines:
@@ -368,23 +458,18 @@ def _neighborhood(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict
             dh = blocks.unit(hl["b"][0] - hl["a"][0], hl["b"][1] - hl["a"][1])
             if hl.get("river"):
                 ends = []
-                for sgn in (1, -1):  # 물가 두 점에서 다리로 바뀐다
-                    off = rw / 2 + 1.5
-                    o = (hl["a"][0] - dh[1] * off * sgn, hl["a"][1] + dh[0] * off * sgn)
-                    hit = blocks.line_hit(o, dh, vl["a"], vl["b"])
-                    if hit is None:
+                for edge in hl["edges"]:  # 물가 두 선과 만나는 점에서 다리로 바뀐다
+                    hits = {(round(t, 9), q) for t, _, q in
+                            filter(None, (geom.seg_cross(vl["a"], vl["b"], p, q) for p, q in zip(edge, edge[1:])))}
+                    if len(hits) != 1:
                         return None
+                    hit = hits.pop()
                     roads.mark(vl["k"], *hit)
                     ends.append(hit)
                 roads.items[vl["k"]]["bridges"].append((min(ends)[0], max(ends)[0]))
                 bridges.append((ends[0][1], ends[1][1]))
-                for bank in hl["banks"].values():
-                    hit = blocks.line_hit(vl["a"], dv, bank["a"], bank["b"])
-                    hv = blocks.line_hit(bank["a"], dh, vl["a"], vl["b"])
-                    if hit is None or hv is None:
-                        return None
-                    roads.mark(bank["k"], hit[0], hit[1])
-                    roads.mark(vl["k"], hv[0], hit[1])
+                for u, q in hl["bank_at"][vlines.index(vl)]:  # 강변길 꼭짓점은 이 대로 위 점
+                    roads.mark(vl["k"], u, q)
                 continue
             hit = blocks.line_hit(vl["a"], dv, hl["a"], hl["b"])
             if hit is None:
@@ -406,12 +491,17 @@ def _neighborhood(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict
             bounds = ([vlines[i - 1]] if i > 0 else []) + ([vlines[i]] if i < nx - 1 else []) + \
                      ([hlines[j - 1]] if j > 0 else []) + ([hlines[j]] if j < ny - 1 else [])
             for ln in bounds:
-                d = blocks.unit(ln["b"][0] - ln["a"][0], ln["b"][1] - ln["a"][1])
-                sgn = _side(ln["a"], d, c)
-                shape, st = _half(shape, st, ln["a"], d, 0, sgn, ("w",) if ln.get("river") else ("r", ln["k"]))
-                if ln.get("river"):  # 하천 쪽 블록은 강변길에서 줄인다
-                    ln = ln["banks"][sgn]
+                if ln.get("river"):  # 하천 쪽: 모양은 이 칸의 하천 시위로, 블록은 이 칸의 강변길 조각에서 줄인다
+                    sgn = 1 if j > river_j else -1
+                    ca, cb = ln["chords"][i]
+                    d = blocks.unit(cb[0] - ca[0], cb[1] - ca[1])
+                    shape, st = _half(shape, st, ca, d, 0, sgn, ("w",))
+                    ln = ln["banks"][sgn][i]
                     d = blocks.unit(ln["b"][0] - ln["a"][0], ln["b"][1] - ln["a"][1])
+                else:
+                    d = blocks.unit(ln["b"][0] - ln["a"][0], ln["b"][1] - ln["a"][1])
+                    sgn = _side(ln["a"], d, c)
+                    shape, st = _half(shape, st, ln["a"], d, 0, sgn, ("r", ln["k"]))
                 P, T = _half(P, T, ln["a"], d, ln["width"] / 2 + WALK, sgn, ("r", ln["k"]))
             if not P:
                 return None
@@ -598,19 +688,18 @@ def _neighborhood(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict
                                  "use": "apartment", "levels": br.randint(*lv)})
                 trees += blocks.scatter(tr, B, 11, 0.35, dongs + extra)
 
-    # 5. 하천: 물 · 둔치 띠 (다리는 길에서 나눴다)
+    # 5. 하천: 물 · 둔치 띠 (다리는 길에서 나눴다). 둔치는 두 강변길 사이, 물은 그 위에 굽은 띠
     rivers = []
     if river:
-        d = blocks.unit(river["b"][0] - river["a"][0], river["b"][1] - river["a"][1])
-        for half_w, out in ((rw / 2 + BANK, greens), (rw / 2, water)):
-            nv = (-d[1] * half_w, d[0] * half_w)
-            a, b = river["a"], river["b"]
-            band = [(a[0] - nv[0], a[1] - nv[1]), (b[0] - nv[0], b[1] - nv[1]), (b[0] + nv[0], b[1] + nv[1]), (a[0] + nv[0], a[1] + nv[1])]
+        tops = [bk["a"] for bk in river["banks"][-1]] + [river["banks"][-1][-1]["b"]]
+        bottoms = [bk["a"] for bk in river["banks"][1]] + [river["banks"][1][-1]["b"]]
+        line = river["line"]
+        for band, out in ((tops + bottoms[::-1], greens), (_offset(line, -rw / 2) + _offset(line, rw / 2)[::-1], water)):
             band = band if geom.area(band) > 0 else band[::-1]
             cut = geom.clip_convex(band, box)
             if len(cut) >= 3:
                 out.append(cut)
-        rivers.append({"width": rw, "points": [river["a"], river["b"]]})
+        rivers.append({"width": rw, "points": river["pts"]})
 
     # 6. 쓰임 · 층수
     ur = rng("uses")
@@ -718,11 +807,12 @@ def _place_spots(places: list[dict], lots: list[dict], plaza: Optional[Poly], st
         return q
 
     def bank() -> Point:
-        d = blocks.unit(river["b"][0] - river["a"][0], river["b"][1] - river["a"][1])
-        t = (station[0] - river["a"][0]) * d[0] + (station[1] - river["a"][1]) * d[1] + 40  # 역에서 가까운 물가 (다리 옆)
-        m = (river["a"][0] + d[0] * t, river["a"][1] + d[1] * t)
-        sgn = _side(river["a"], d, station)
-        return point_at((m[0] - d[1] * (rw / 2 + BANK / 2) * sgn, m[1] + d[0] * (rw / 2 + BANK / 2) * sgn))
+        pts = river["pts"]  # 역에서 가까운 물가 (다리 옆): 역에서 물줄기를 따라 40m 간 곳의 둔치 가운데
+        k = min(range(len(pts) - 1), key=lambda k: abs(pts[k][0] - station[0] - 40))
+        a, b = pts[k], pts[k + 1]
+        d = blocks.unit(b[0] - a[0], b[1] - a[1])
+        sgn = _side(a, d, station)
+        return point_at((a[0] - d[1] * (rw / 2 + BANK / 2) * sgn, a[1] + d[0] * (rw / 2 + BANK / 2) * sgn))
 
     dist_st = lambda lt: math.dist(lt["c"], station)  # noqa: E731
     near = lambda zones: lambda: lot(lambda lt: lt["zone"] in zones, dist_st)  # noqa: E731
