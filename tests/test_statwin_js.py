@@ -28,7 +28,8 @@ process.stdout.write(JSON.stringify(ctx.out));
 
 @pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
 def test_sw_resolve_matches_server():
-    cases = [(b, v) for b, v, _ in RESOLVE_CASES] + [("0.1", "+0.2"), ("1,000", "-0.5"), ("화염구 · 은신", "+독")]
+    cases = [(b, v) for b, v, _ in RESOLVE_CASES] + [("0.1", "+0.2"), ("1,000", "-0.5"), ("화염구 · 은신", "+독"),
+                                                ("1,000.5/2,000L", "-1,200.25"), ("0.0/40L", "+0.1"), ("9.0/40L", "+1L"), ("0.05/1", "-0.05")]
     run = subprocess.run(["node", "-e", HARNESS, str(STATWIN)], input=json.dumps({"cases": cases}),
                          capture_output=True, text=True, encoding="utf-8")
     assert run.returncode == 0, run.stderr
