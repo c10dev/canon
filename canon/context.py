@@ -29,6 +29,7 @@ BUDGET = {
     "secrets": 2_500,       # 본문 쓰기의 관계 블록에 붙는 숨긴 비밀
     "state_secrets": 6_000,  # 상태 변경안 · 검수의 비밀 목록
     "places": 3_000,        # 기획 · 검수 · 상태 변경안에 넣는 본문 · 플롯에서 나온 장소
+    "plan_fixed": 8_000,    # 화별 플롯 초안: 범위 안 · 바로 뒤의 이미 정해진 화 플롯 (prompts.fixed_plots, 장편만)
     "deadlines": 1_200,     # 쓰기 · 검수 · 기획 · 상태 변경안의 작품 속 열린 기한 (timeline.deadline_lines, 단편도)
     "cast": 8_000,          # 본문 쓰기: '항상' 넣는 조연 · 단역과 이번 화 조연 · 단역의 설정. '항상' 조연 · 단역이 있을 때만 센다 (fit_cast)
     "travel": 800,          # 쓰기 · 검수의 이동 거리 (mapprompt.travel_block, 지도 크기를 알 때만)
