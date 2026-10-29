@@ -336,6 +336,7 @@ async function pollJobs(soon = false) {
       S.jobsMerged[j.id] = j.done;  // 저장할 때 이 단계까지 받아 왔다고 알린다 (save)
     }
     if (j.kind === 'write' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);
+    if (j.kind === 'board' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);  // 스토리보드는 그 화에 붙었다 (board.js)
     if (j.kind === 'plot_one' && j.status !== 'running') {
       await mergeEpisodes((e) => e.plot.number === j.ep);
       const r = j.result && j.result.realign && ep(j.result.realign);  // 뒤 화에 남긴 표시는 고치던 그 화 플롯을 덮지 않고 표시만 받는다
@@ -1440,7 +1441,7 @@ const CHEVRON = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" str
     role="menu" 는 쓰지 않는다: 창 안에 라디오 · 체크박스 · 나눔 버튼이 섞인다 */
 function menuBtn(id, label, body, { cls = 'btn', aria = '', title = '', align = '' } = {}) {
   const open = S.popMenu === id;
-  return `<div class="pop" data-menu="${id}"><button type="button" class="${cls}" aria-expanded="${open}" aria-controls="pop-${id}" data-action="menuToggle" data-arg="${id}"${aria ? ` aria-label="${esc(aria)}"` : ''}${title ? ` title="${esc(title)}"` : ''}>${label}</button>${open ? `<div class="pop-panel${align ? ` ${align}` : ''}" id="pop-${id}">${body()}</div>` : ''}</div>`;
+  return `<div class="menu" data-menu="${id}"><button type="button" class="${cls}" aria-expanded="${open}" aria-controls="pop-${id}" data-action="menuToggle" data-arg="${id}"${aria ? ` aria-label="${esc(aria)}"` : ''}${title ? ` title="${esc(title)}"` : ''}>${label}</button>${open ? `<div class="pop-panel${align ? ` ${align}` : ''}" id="pop-${id}">${body()}</div>` : ''}</div>`;
 }
 
 function closeMenu(focus = false) {

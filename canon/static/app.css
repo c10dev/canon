@@ -31,6 +31,7 @@
   --brand-2: #D16604; --logo: #2C3642;
   --inverse-bg: #181B20; --inverse-ink: #FFFFFF; --overlay: rgba(24,27,32,0.35); --glass: rgba(255,255,255,0.8);
   --info-ink: #2A3139; --warn-line: #F6C9A5; --err-ink: #6E1916; --del-ink: #8D2521; --written-ink: #8E4E03;
+  --btn: #E4E7EB; --btn-hover: #D8DCE1;  /* 보조 버튼 면: 테두리 없이 면으로만 구분한다 */
   --seg: #E4E7EB; --sel-bg: #F8FBFE; --sel-line: #858C97; --rule: #EBEEF2; --brief-ink: #25282C; --canvas: #FBFCFF;
   --her-bg: #FFE0EB; --her-ink: #90255A; --him-bg: #D0E9FF; --him-ink: #005386; --good: #3F96D9; --bad: #E36C62;
   /* 인물 관계도 (cast.js): 온기 무덤덤 · 깊이 아낌, 긴장 보통 · 높음, 두 사람 그래프, 인물 원 */
@@ -119,13 +120,15 @@ ul, ol { margin: 0; }
 .lockset:disabled .rel-card { opacity: .6; }
 .empty { padding: 40px 24px; text-align: center; color: var(--muted); display: flex; flex-direction: column; gap: 14px; align-items: center; }
 
-.btn { min-height: 44px; padding: 0 16px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 0.875rem; display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; cursor: pointer; }
-.btn:hover { background: var(--bg); color: var(--text); }
+/* 보조 버튼은 테두리 없이 회색 면(--btn)으로 구분한다. 테두리 칸(1px 투명)은 남겨 주 버튼 · 고른 버튼과 크기가 같고, 고대비 모드에서는 테두리가 보인다 */
+.btn { min-height: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 8px; background: var(--btn); color: var(--text); font: inherit; font-size: 0.875rem; display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; cursor: pointer; }
+.btn:hover { background: var(--btn-hover); color: var(--text); }
 .btn.primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); font-weight: 700; }
 .btn.primary:hover { background: var(--accent-hover); color: var(--on-accent); }
 .btn.dark { border-color: var(--inverse-bg); background: var(--inverse-bg); color: var(--inverse-ink); font-weight: 700; }
 .btn.small { min-height: 36px; padding: 0 12px; font-size: 0.8125rem; }
-.btn.ghost { border-style: dashed; color: var(--link); background: transparent; }
+.btn.ghost { color: var(--link); background: transparent; }  /* 한 단계 조용한 버튼: 글자만, 올리면 면 */
+.btn.ghost:hover { background: var(--btn); }
 .btn.danger { color: var(--red); }
 .btn:disabled, .btn[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
 textarea:disabled, select:disabled, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):disabled { background: var(--bg); color: var(--text-2); cursor: not-allowed; }
@@ -1278,7 +1281,7 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
 /* ----- 고대비(Windows 고대비 등 forced-colors): 배경 · 그림자로만 나타내던 선택과 영역을 테두리로 ----- */
 .savebar, #toast .t, #jobs { border: 1px solid transparent; }
 @media (forced-colors: active) {
-  .seg button[aria-pressed="true"], .genre-opts button[aria-pressed="true"], .dial button[aria-pressed="true"], .btn.on, button[aria-pressed="true"], .pop > .btn[aria-expanded="true"], .rv-tab[aria-selected="true"], .rv-rail-item[aria-current="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
+  .seg button[aria-pressed="true"], .genre-opts button[aria-pressed="true"], .dial button[aria-pressed="true"], .btn.on, button[aria-pressed="true"], .menu > .btn[aria-expanded="true"], .rv-tab[aria-selected="true"], .rv-rail-item[aria-current="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
   .nav a[aria-current="page"] { border-left: 4px solid Highlight; }
   .tabs button { border-bottom-color: Canvas; }
   .tabs button[aria-selected="true"] { border-bottom-color: Highlight; }
@@ -1305,6 +1308,7 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
     --brand-2: #F18333; --logo: #A3ACB7;
     --inverse-bg: #E6E8EC; --inverse-ink: #131519; --overlay: rgba(0,0,0,0.55); --glass: rgba(28,31,34,0.85);
     --info-ink: #DADFE5; --warn-line: #6C4C30; --err-ink: #FEC4BC; --del-ink: #FFACA1; --written-ink: #F5CAA7;
+    --btn: #2C2F33; --btn-hover: #373A3F;
     --seg: #2A2C30; --sel-bg: #1A2637; --sel-line: #767C85; --rule: #2A2C30; --brief-ink: #D7DADE; --canvas: #17191D;
     --her-bg: #552C3D; --her-ink: #FEC0D7; --him-bg: #193B57; --him-ink: #A8D7FF; --good: #4996D4; --bad: #DE7065;
     --warm-mid: #8F9297; --warm-deep: #8DBEFA; --tension-mid: #A87A40; --tension-high: #E89A50;
@@ -1352,9 +1356,10 @@ body.routing::before { content: ''; position: fixed; top: 0; left: 0; height: 3p
 .band-more > summary::-webkit-details-marker { display: none; }
 .band-more[open] > summary { border-color: var(--accent); color: var(--accent-ink); }
 .band-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 8; width: min(420px, calc(100vw - 32px)); padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.16); }
-/* ----- 펼침 메뉴 (app.js menuBtn): 버튼 + 펼침 창. 모양은 .band-pop 과 같다 ----- */
-.pop { position: relative; display: inline-flex; }
-.pop > .btn[aria-expanded="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+/* ----- 펼침 메뉴 (app.js menuBtn): 버튼 + 펼침 창. 모양은 .band-pop 과 같다.
+   감싸개는 .menu 다. .pop 은 대화 에이전트의 떠 있는 상자(위쪽 규칙)라 같은 이름을 쓰면 감싸개가 상자 모양을 받는다 ----- */
+.menu { position: relative; display: inline-flex; }
+.menu > .btn[aria-expanded="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
 .pop-panel { position: absolute; right: 0; top: calc(100% + 6px); z-index: 12; width: min(320px, calc(100vw - 32px)); max-height: min(70vh, 560px); overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 2px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.16); color: var(--text); font-size: 0.8125rem; text-align: left; white-space: normal; }
 .pop-panel.left { right: auto; left: 0; }
 .pop-sec { margin: 0; padding: 8px; border: none; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -1373,8 +1378,8 @@ body.routing::before { content: ''; position: fixed; top: 0; left: 0; height: 3p
 /* 분할 버튼: 복사 + ▾ */
 .split { display: inline-flex; }
 .split > .btn:first-child { border-radius: 8px 0 0 8px; }
-.split > .pop > .btn { width: 36px; padding: 0; border-left: none; border-radius: 0 8px 8px 0; }
-.split > .pop > .btn[aria-expanded="true"] { border-left: 1px solid var(--accent); }
+.split > .menu > .btn { width: 36px; padding: 0; border-left-color: var(--surface); border-radius: 0 8px 8px 0; }  /* 두 면 사이 가는 틈 */
+.split > .menu > .btn[aria-expanded="true"] { border-left: 1px solid var(--accent); }
 /* #app 밖의 대화상자 (app.js showDialog) */
 dialog.w-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 48px); border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; background: var(--surface); color: var(--text); box-shadow: 0 12px 40px rgba(0,0,0,0.24); }
 dialog.w-dialog::backdrop { background: var(--overlay); }
@@ -1430,7 +1435,7 @@ details.card.set-more { display: block; }
 .proj-more { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
 .proj-more > summary.btn { min-height: 44px; width: fit-content; list-style: none; }
 .proj-more > summary.btn::-webkit-details-marker { display: none; }
-.proj-more[open] > summary.btn { background: var(--bg); }
+.proj-more[open] > summary.btn { background: var(--btn-hover); }
 .note .btn { margin-left: 4px; }
 
 /* 갈래 (branches.js): 작품 머리 띠, 작품 목록 카드 안의 갈래 줄 (깊이만큼 들여 쓴다) */

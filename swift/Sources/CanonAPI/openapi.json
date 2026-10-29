@@ -4538,6 +4538,160 @@
     }
    }
   },
+  "/api/projects/{name}/episodes/{n}/storyboard": {
+   "get": {
+    "summary": "Get Storyboard",
+    "description": "Canon 이 센 값: 켜짐, 낡음, 시간 한 줄, 열린 기한, 상태창 단계(창 글 포함), 경고 (board.view).",
+    "operationId": "get_storyboard",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Get Storyboard"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "put": {
+    "summary": "Put Storyboard",
+    "description": "작가가 고친 스토리보드를 저장한다. AI 가 만든 것을 고치면 made_by 가 both 가 된다.",
+    "operationId": "put_storyboard",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Storyboard"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Drop Storyboard",
+    "operationId": "drop_storyboard",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/episodes/{n}/tofix": {
    "post": {
     "summary": "Add Tofix",
@@ -9784,6 +9938,56 @@
     }
    }
   },
+  "/api/projects/{name}/storyboard-setting": {
+   "put": {
+    "summary": "Set Storyboard Setting",
+    "description": "화별 스토리보드 켜기 · 끄기 (Settings.storyboard). 켜면 쓰기 프롬프트에 직전 화 본문 전체가 들어간다.",
+    "operationId": "set_storyboard_setting",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/BoardSetting"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/keep-snapshots": {
    "put": {
     "summary": "Set Keep Snapshots",
@@ -12287,7 +12491,9 @@
        "stop_on_warnings": false,
        "confirm_plots": false,
        "review_every": 0,
-       "hand_pick_opening": true
+       "hand_pick_opening": true,
+       "storyboard": true,
+       "stop_on_board_warnings": true
       }
      }
     },
@@ -12423,7 +12629,7 @@
      "halt": {
       "type": "string",
       "title": "Halt",
-      "description": "멈춘 종류. 화면이 고칠 곳으로 가는 버튼을 고른다: plot_missing | plot_draft | review | every | changed | reverted | schema | error",
+      "description": "멈춘 종류. 화면이 고칠 곳으로 가는 버튼을 고른다: plot_missing | plot_draft | board | board_stale | review | every | changed | reverted | schema | error",
       "default": ""
      },
      "restarts": {
@@ -12707,6 +12913,263 @@
     "type": "object",
     "title": "BirthSketch",
     "description": "무작위 출생의 배경. 코드가 굴린 값(Birth)에 맞춰 AI 가 세계에 맞게 채운다 (birth.sketch)."
+   },
+   "BoardAttire": {
+    "properties": {
+     "character_id": {
+      "type": "string",
+      "title": "Character Id",
+      "default": ""
+     },
+     "end": {
+      "type": "string",
+      "title": "End",
+      "description": "화가 끝날 때 차림. 바뀐 인물만, 이어지는 상처와 물건까지 다시 적는다",
+      "default": ""
+     },
+     "why": {
+      "type": "string",
+      "title": "Why",
+      "description": "바뀐 장면과 까닭",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "BoardAttire"
+   },
+   "BoardHandover": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "title": "Kind",
+      "description": "장면, 시간, 몸, 물건, 인물, 숨긴 것, 숫자, 질문 중 하나",
+      "default": ""
+     },
+     "text": {
+      "type": "string",
+      "title": "Text",
+      "description": "직전 화 끝에서 이어받아야 하는 사실 한 줄. 대사를 옮기지 않는다",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "BoardHandover"
+   },
+   "BoardMove": {
+    "properties": {
+     "character_id": {
+      "type": "string",
+      "title": "Character Id",
+      "default": ""
+     },
+     "to": {
+      "type": "string",
+      "title": "To",
+      "description": "옮겨 가는 곳. [장소 목록]의 이름 그대로",
+      "default": ""
+     },
+     "scene": {
+      "type": "integer",
+      "title": "Scene",
+      "description": "몇 번째 장면에서 옮겨 가는지. 0 이면 장면 사이",
+      "default": 0
+     },
+     "ok": {
+      "type": "boolean",
+      "title": "Ok",
+      "default": false
+     }
+    },
+    "type": "object",
+    "title": "BoardMove",
+    "description": "장소 이동 하나."
+   },
+   "BoardScene": {
+    "properties": {
+     "place": {
+      "type": "string",
+      "title": "Place",
+      "description": "장소. [장소 목록]의 이름 그대로. 목록에 없으면 새 이름",
+      "default": ""
+     },
+     "spot": {
+      "type": "string",
+      "title": "Spot",
+      "description": "그 장소 안 자리 (예: 부두 끝 창고, 마차 안)",
+      "default": ""
+     },
+     "time": {
+      "type": "string",
+      "title": "Time",
+      "description": "장면 시각. 시간대나 '해 뜨기 약 40분 전' 처럼",
+      "default": ""
+     },
+     "present": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Present",
+      "description": "이 장면에 함께 있는 인물 id"
+     },
+     "events": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Events",
+      "description": "이 장면이 맡는 이번 화 플롯 events 번호 (1부터)"
+     },
+     "goal": {
+      "type": "string",
+      "title": "Goal",
+      "description": "장면 목표: 시점 인물이 이 장면에서 얻으려는 것",
+      "default": ""
+     },
+     "turn": {
+      "type": "string",
+      "title": "Turn",
+      "description": "전환점: 장면의 흐름이 바뀌는 일 한 줄",
+      "default": ""
+     },
+     "end_state": {
+      "type": "string",
+      "title": "End State",
+      "description": "장면 끝 상태: 다음 장면이 이어받는 것 (자리, 물건, 감정, 결정)",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "BoardScene",
+    "description": "장면 하나. 대사와 본문 문장은 넣지 않는다."
+   },
+   "BoardSetting": {
+    "properties": {
+     "on": {
+      "type": "boolean",
+      "title": "On"
+     }
+    },
+    "type": "object",
+    "required": [
+     "on"
+    ],
+    "title": "BoardSetting"
+   },
+   "BoardStat": {
+    "properties": {
+     "character_id": {
+      "type": "string",
+      "title": "Character Id",
+      "default": ""
+     },
+     "scene": {
+      "type": "integer",
+      "title": "Scene",
+      "description": "몇 번째 장면에서 바뀌는지 (1부터). 0 이면 화 끝",
+      "default": 0
+     },
+     "changes": {
+      "items": {
+       "$ref": "#/components/schemas/StatValue"
+      },
+      "type": "array",
+      "title": "Changes",
+      "description": "바뀐 항목만. 상태 변경안과 같은 말: -0.7, +300, 13, +독 내성"
+     },
+     "window": {
+      "type": "boolean",
+      "title": "Window",
+      "description": "이 순간 본문에 상태창이 뜨면 true. 뜬 창은 이 단계까지의 값을 모두 보인다",
+      "default": false
+     },
+     "notice": {
+      "type": "string",
+      "title": "Notice",
+      "description": "창에 함께 뜨는 시스템 알림 한 줄. 값이 아닌 문구",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "BoardStat",
+    "description": "상태창 수치 변화 한 단계. 단계를 차례로 쌓아 창마다 값을 Canon 이 센다 (prompts.board_steps)."
+   },
+   "BoardTime": {
+    "properties": {
+     "after": {
+      "type": "integer",
+      "title": "After",
+      "description": "직전 화가 끝난 때에서 며칠 뒤에 시작하는지. 같은 날 0. 회상 · 외전처럼 메인 시간 밖이면 -1",
+      "default": 0
+     },
+     "part": {
+      "type": "string",
+      "title": "Part",
+      "description": "시작 시간대",
+      "default": ""
+     },
+     "days": {
+      "type": "integer",
+      "title": "Days",
+      "description": "걸치는 날 수. 하루 안이면 1",
+      "default": 1
+     },
+     "end_part": {
+      "type": "string",
+      "title": "End Part",
+      "description": "끝나는 시간대",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "BoardTime",
+    "description": "이 화의 시간. 날수는 적지 않고 Canon 이 직전 화 끝에서 이어 센다 (prompts.board_days)."
+   },
+   "BoardWarning": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "plot_vs_state",
+       "plot_vs_text",
+       "time",
+       "setting",
+       "next_plot"
+      ],
+      "title": "Kind",
+      "default": "plot_vs_state"
+     },
+     "target": {
+      "type": "string",
+      "enum": [
+       "this",
+       "next"
+      ],
+      "title": "Target",
+      "description": "this: 이번 화 플롯, next: 다음 화 플롯",
+      "default": "this"
+     },
+     "field": {
+      "type": "string",
+      "title": "Field",
+      "description": "걸린 플롯 칸 (예: events[4], ending_hook, time)",
+      "default": ""
+     },
+     "text": {
+      "type": "string",
+      "title": "Text",
+      "description": "무엇이 어긋나는지",
+      "default": ""
+     },
+     "resolution": {
+      "type": "string",
+      "title": "Resolution",
+      "description": "이 스토리보드가 택한 처리. 플롯 칸은 바꾸지 않는다",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "BoardWarning"
    },
    "BodySuggestion": {
     "properties": {
@@ -15361,6 +15824,10 @@
       "type": "array",
       "title": "To Fix",
       "description": "작가가 본문에 단 '고칠 곳' 표시. 프롬프트에 넣지 않는다"
+     },
+     "storyboard": {
+      "$ref": "#/components/schemas/Storyboard",
+      "description": "쓰기 재료: 장면 순서와 이번 화 확정 값 (pipeline.make_storyboard). 상태 승인 대상이 아니다"
      }
     },
     "type": "object",
@@ -17146,6 +17613,16 @@
       "type": "array",
       "title": "Conditions",
       "default": []
+     },
+     "board": {
+      "type": "string",
+      "enum": [
+       "",
+       "make",
+       "none"
+      ],
+      "title": "Board",
+      "default": ""
      }
     },
     "type": "object",
@@ -19439,6 +19916,18 @@
       "title": "Hand Pick Opening",
       "description": "1~3화는 쓰고 검수한 뒤 반영하기 전에 멈춤. 독자가 계속 읽을지 정하는 화라 작가가 읽고 고른다",
       "default": true
+     },
+     "storyboard": {
+      "type": "boolean",
+      "title": "Storyboard",
+      "description": "화마다 쓰기 전에 스토리보드를 만들어 쓴다 (작품이 스토리보드를 쓸 때만, board.on)",
+      "default": true
+     },
+     "stop_on_board_warnings": {
+      "type": "boolean",
+      "title": "Stop On Board Warnings",
+      "description": "AI 가 만든 스토리보드에 이번 화 플롯과 어긋남(plot_vs_state · plot_vs_text · time)이나 값 범위 경고가 있으면 멈춤. 다음 화 플롯 경고는 기록만. 작가가 고친 스토리보드로는 멈추지 않는다",
+      "default": true
      }
     },
     "type": "object",
@@ -21029,6 +21518,11 @@
       "title": "Check Widen",
       "description": "장편 검수 넓히기: 검수 뒤 진술마다 옛 화를 더 찾아, 첫 검수에 없던 근거가 나온 진술만 다시 묻는다 (검수 호출 2번 더)",
       "default": false
+     },
+     "storyboard": {
+      "type": "boolean",
+      "title": "Storyboard",
+      "description": "화마다 쓰기 전에 스토리보드를 만들고, 쓰기 프롬프트에 직전 화 본문 전체를 넣는다. 비우면 장편 켬 · 단편 끔 (board.on)"
      },
      "keep_snapshots": {
       "type": "boolean",
@@ -22725,6 +23219,108 @@
     "type": "object",
     "title": "StoryTime",
     "description": "작품 속 시점. 날수는 1화가 시작한 날을 1일째로 센다 (timeline.py)."
+   },
+   "Storyboard": {
+    "properties": {
+     "scenes": {
+      "items": {
+       "$ref": "#/components/schemas/BoardScene"
+      },
+      "type": "array",
+      "title": "Scenes",
+      "description": "장면 3~7개, 이번 화 events 를 빠짐없이 나눠 맡는다"
+     },
+     "time": {
+      "$ref": "#/components/schemas/BoardTime"
+     },
+     "stats": {
+      "items": {
+       "$ref": "#/components/schemas/BoardStat"
+      },
+      "type": "array",
+      "title": "Stats",
+      "description": "상태창을 쓰는 작품만"
+     },
+     "stat_basis": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Stat Basis",
+      "description": "수치를 정한 근거 한 줄씩 (어느 상태 · 사실에서 셈했는지)"
+     },
+     "moves": {
+      "items": {
+       "$ref": "#/components/schemas/BoardMove"
+      },
+      "type": "array",
+      "title": "Moves",
+      "description": "다른 장소로 옮겨 가는 인물만"
+     },
+     "attire": {
+      "items": {
+       "$ref": "#/components/schemas/BoardAttire"
+      },
+      "type": "array",
+      "title": "Attire"
+     },
+     "handover": {
+      "items": {
+       "$ref": "#/components/schemas/BoardHandover"
+      },
+      "type": "array",
+      "title": "Handover",
+      "description": "직전 화 본문 끝에서 이어받을 것"
+     },
+     "protect": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Protect",
+      "description": "다음 화 플롯이 전제하는 것. 이번 화에서 깨지 않는다"
+     },
+     "warnings": {
+      "items": {
+       "$ref": "#/components/schemas/BoardWarning"
+      },
+      "type": "array",
+      "title": "Warnings"
+     },
+     "made_at": {
+      "type": "string",
+      "title": "Made At",
+      "default": ""
+     },
+     "made_by": {
+      "enum": [
+       "ai",
+       "author",
+       "both"
+      ],
+      "type": "string",
+      "title": "Made By",
+      "default": "ai"
+     },
+     "basis": {
+      "type": "string",
+      "title": "Basis",
+      "description": "만들 때 입력의 지문 (pipeline.board_basis). 지금 값과 다르면 낡은 것",
+      "default": ""
+     },
+     "checks": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Checks",
+      "description": "Canon 이 센 경고 (값 범위). AI 가 쓰지 않는다",
+      "default": []
+     }
+    },
+    "type": "object",
+    "title": "Storyboard",
+    "description": "저장 형식. 계산 결과(날수, 창 값)는 저장하지 않고 화면 · 프롬프트가 매번 센다. LLM 이 채우지 않는 칸은 응답 형식에서 뺀다."
    },
    "Storyline": {
     "properties": {

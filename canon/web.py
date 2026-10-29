@@ -21,13 +21,13 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import agent, archetypes, autorun, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
+from . import agent, archetypes, autorun, board, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 from . import abilities, atlas, findings, foreshadows, setupchat, stattrial, statwin, timeline, travel
-from .schema import AgentSession, ChatScope, Deadline, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
+from .schema import AgentSession, ChatScope, Deadline, Storyboard, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
 from .schema import FieldIdeas, NameOption, Recap
@@ -1753,7 +1753,7 @@ def impact_reopen(name: str, eid: str) -> Project:
 # ---------- 백그라운드 작업 ----------
 
 class JobIn(BaseModel):
-    kind: str  # suggest | arc | plots | write | state | impact | series | nextarc | recap_arc | recap_part | storyline | convert | rebuild | rework | hook | openings | opening_drafts
+    kind: str  # suggest | arc | plots | write | board | state | impact | series | nextarc | recap_arc | recap_part | storyline | convert | rebuild | rework | hook | openings | opening_drafts
     ep: int | None = None  # 화 번호. plots 는 장편에서 아크 번호(없으면 초안이 있는 모든 아크), recap_* 는 아크·부 번호
     element: str = ""  # impact 일 때 요소 id
     note: str = ""  # arc, series, plots, nextarc, storyline, convert, rebuild: 작가가 바라는 것
@@ -1768,6 +1768,7 @@ class JobIn(BaseModel):
     episodes: list[int] = []  # stattrial: 시험할 화
     repeats: int = 1  # stattrial: 조건마다 같은 화를 쓸 횟수
     conditions: list[str] = []  # stattrial: none | json | lines (비우면 셋 다)
+    board: Literal["", "make", "none"] = ""  # write: make 면 스토리보드를 새로 만든 뒤 쓴다(바로 쓰기), none 이면 스토리보드 없이 쓴다
 
 
 def _edit(name: str, fn) -> Project:
@@ -1807,7 +1808,7 @@ def start_job(name: str, body: JobIn) -> dict:
     """오래 걸리는 AI 작업을 시작하고 바로 돌아온다. 결과는 GET /api/jobs 로 본다."""
     p = _load(name)
     kind, n = body.kind, body.ep
-    if kind in ("write", "state", "plots", "plot_one", "check"):
+    if kind in ("write", "state", "plots", "plot_one", "check", "board"):
         _not_auto(name)
     stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "rework": "revise",
              "hook": "check", "check": "check", "opening_drafts": "write", "stattrial": "write"}.get(kind, "plan")  # 나머지는 plan
@@ -1941,10 +1942,17 @@ def start_job(name: str, body: JobIn) -> dict:
                     _edit(name, lambda q: pipeline.set_candidate(q, n, text, req))
                     return {"candidate": True}
             else:
-                label, total, owned = f"{n}화 본문", 1, {n}
+                make = body.board == "make"
+                plan = get_llm("plan") if make else None  # 스토리보드는 plan 단계 모델
+                label, total, owned = f"{n}화 {'스토리보드와 ' if make else ''}본문", 2 if make else 1, {n}
 
                 def fn(job: jobs.Job):
-                    text = pipeline.write_episode(llm, store.load(name), n)
+                    if make:
+                        job.note = f"{n}화 스토리보드 만드는 중"
+                        b = pipeline.make_storyboard(plan, store.load(name), n)
+                        _edit(name, lambda q: pipeline.set_storyboard(q, n, b, by="ai"))
+                        job.done, job.note = 1, f"{n}화 본문 쓰는 중"
+                    text = pipeline.write_episode(llm, store.load(name), n, use_board=body.board != "none")
                     _edit(name, lambda q: pipeline.replace_text(q.episode(n), text))  # 지금 본문이 있으면 '이전 판'에 남는다
                     return None
         else:
@@ -1954,6 +1962,18 @@ def start_job(name: str, body: JobIn) -> dict:
 
             def fn(job: jobs.Job):
                 return pipeline.extract_state(llm, store.load(name), n).model_dump()
+    elif kind == "board":
+        if n is None:
+            raise ValueError("화 번호(ep)가 필요해요")
+        if p.episode(n).status == "draft":
+            raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요")
+        pipeline.require_previous(p, n)
+        label, total, owned = f"{n}화 스토리보드", 1, {n}
+
+        def fn(job: jobs.Job):
+            b = pipeline.make_storyboard(llm, store.load(name), n)
+            _edit(name, lambda q: pipeline.set_storyboard(q, n, b, by="ai"))
+            return None
     elif kind in ("hook", "openings", "opening_drafts"):
         if n is None or not prompts.is_opening(n):
             raise ValueError(f"1~{prompts.OPENING_EPISODES}화 번호(ep)가 필요해요")
@@ -2021,7 +2041,7 @@ def start_job(name: str, body: JobIn) -> dict:
         raise ValueError(f"모르는 작업이에요: {kind}")
 
     try:
-        with usage.scope(episode=n if kind in ("write", "state", "check", "rework", "hook", "openings", "opening_drafts", "plot_one") else None, task=kind):
+        with usage.scope(episode=n if kind in ("write", "board", "state", "check", "rework", "hook", "openings", "opening_drafts", "plot_one") else None, task=kind):
             job = jobs.start(name, kind, n, label, _keep_pending(name, kind, n, label, fn), total=total, owned=owned)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}
@@ -2171,6 +2191,39 @@ def set_events_done(name: str, n: int, body: EventsDone) -> list[str]:
     ep.events_done = [x for x in ep.plot.events if x in set(body.done)]
     _save(name, p)
     return ep.events_done
+
+
+# ---------- 4-0. 화별 스토리보드 ----------
+# 쓰기 직전의 장면 목록과 확정 값 (board.py). 만들기는 작업 board (start_job), 작가 수정 · 지우기는 여기서.
+# 상태 승인 대상이 아니라 바로 저장한다. 그 화를 맡은 작업이나 자동 집필이 도는 동안은 막는다.
+
+@app.get("/api/projects/{name}/episodes/{n}/storyboard")
+def get_storyboard(name: str, n: int) -> dict:
+    """Canon 이 센 값: 켜짐, 낡음, 시간 한 줄, 열린 기한, 상태창 단계(창 글 포함), 경고 (board.view)."""
+    p = _load(name)
+    p.episode(n)
+    return board.view(p, n)
+
+
+def _board_guard(name: str, n: int) -> None:
+    _not_auto(name)
+    if any(j.status == "running" and n in j.owned for j in jobs.listing(name)):
+        raise ValueError("AI 작업이 끝난 뒤에 고칠 수 있어요")
+
+
+@app.put("/api/projects/{name}/episodes/{n}/storyboard")
+def put_storyboard(name: str, n: int, body: Storyboard) -> Project:
+    """작가가 고친 스토리보드를 저장한다. AI 가 만든 것을 고치면 made_by 가 both 가 된다."""
+    _board_guard(name, n)
+    _load(name).episode(n)
+    return _edit(name, lambda p: pipeline.set_storyboard(p, n, body))
+
+
+@app.delete("/api/projects/{name}/episodes/{n}/storyboard")
+def drop_storyboard(name: str, n: int) -> Project:
+    _board_guard(name, n)
+    _load(name).episode(n)
+    return _edit(name, lambda p: pipeline.set_storyboard(p, n, None))
 
 
 # ---------- 4-0. 고칠 곳 ----------
@@ -3819,6 +3872,18 @@ def set_check_widen(name: str, body: CheckWiden) -> Project:
     """장편 검수 넓히기 켜기 · 끄기 (Settings.check_widen). 자동 집필 검수도 따른다."""
     p = _load(name)
     p.settings.check_widen = body.on
+    return _save(name, p)
+
+
+class BoardSetting(BaseModel):
+    on: bool
+
+
+@app.put("/api/projects/{name}/storyboard-setting")
+def set_storyboard_setting(name: str, body: BoardSetting) -> Project:
+    """화별 스토리보드 켜기 · 끄기 (Settings.storyboard). 켜면 쓰기 프롬프트에 직전 화 본문 전체가 들어간다."""
+    p = _load(name)
+    p.settings.storyboard = body.on
     return _save(name, p)
 
 
