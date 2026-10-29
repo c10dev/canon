@@ -62,13 +62,15 @@ function stageFacing(facing, me, room, pos) {
   return d > 1e-6 ? [dx / d, dy / d] : null;
 }
 
-function stgPersonPoint(o, facing, rel, room, pos) {
+function stgPersonPoint(o, facing, rel, room, pos, me = '') {
   const [fx, fy] = stageFacing(facing, o, room, pos) || [0, 1];
   const [rx, ry] = [-fy, fx];
   const d = STG_BODY * 2 + 0.05;
   if (rel === 'on' || rel === 'in') return [o[0] + 0.15, o[1]];
   if (rel === 'across') return [o[0] + fx * STG_ACROSS, o[1] + fy * STG_ACROSS];
   if (rel === 'against') return [o[0] + fx * STG_BODY * 2, o[1] + fy * STG_BODY * 2];
+  // 기준 인물이 나를 향하고 앞 박자의 내 자리를 알면 그 쪽에 선다 (관계 말을 따르면 박자마다 돈다, stage._person_point)
+  if (me && facing === `@${me}` && pos[me]) return [o[0] + fx * d, o[1] + fy * d];
   const v = { front: [fx, fy], back: [-fx, -fy], left: [-rx, -ry] }[rel] || [rx, ry];
   return [o[0] + v[0] * d, o[1] + v[1] * d];
 }
@@ -122,7 +124,7 @@ function stageLayout(room, state, order = [], prev = null) {
       const ref = state[w].at.ref.slice(1);
       if (ref in pos) {
         const look = prev && prev[w] ? { ...pos, [w]: prev[w] } : pos;
-        pos[w] = stgPersonPoint(pos[ref], state[ref].facing, state[w].at.rel, room, look);
+        pos[w] = stgPersonPoint(pos[ref], state[ref].facing, state[w].at.rel, room, look, w);
         rest.splice(rest.indexOf(w), 1);
         moved = true;
       }
@@ -581,7 +583,14 @@ function stgNewCard() {
   const rooms = stgRoomOrder(g.view.rooms, hints);
   const tpl = Object.entries(g.view.vocab.rooms);
   const where = bs ? [bs.place, bs.spot].filter(Boolean).join(' · ') : '';
-  return `<section class="card"><h2>이 사건에는 아직 연출이 없어요</h2>
+  // 스토리보드 자리에 맞는 방이 없으면 빈 방 + 플롯 초안을 먼저 권한다: AI 가 장소에 필요한 기준점을 더하자고 한다 (2026-10-29 15화 사건 1)
+  const draft = bs && !hints.length ? (() => {
+    const b = jobBtn('stage_draft', g.n, '✦ 빈 방에서 플롯 초안 받기');
+    return `<section class="card stg-fresh"><h2>맞는 방이 없어요</h2>
+    <p class="desc">스토리보드 자리${where ? `(${esc(where)})` : ''}와 같은 방이 없어요. 빈 방에서 시작하면 AI가 박자에 나오는 장소(차 · 창 · 가구)를 기준점으로 더하자고 해요. 받은 초안은 비교한 뒤 적용해요.</p>
+    <div class="row"><button type="button" class="btn primary" data-action="stgAiFresh"${b.attr}>${b.label}</button></div></section>`;
+  })() : '';
+  return `${draft}<section class="card"><h2>${draft ? '직접 방을 골라 시작하기' : '이 사건에는 아직 연출이 없어요'}</h2>
     <p class="desc">${bs ? `스토리보드 장면 ${bs.no}${where ? `(${esc(where)})` : ''}의 인물이 문 앞에 선 채로 시작해요.` : '방을 고르면 이 화 플롯의 등장 인물이 문 앞에 선 채로 시작해요.'} 같은 장소의 방은 다른 장면에서도 다시 써요.</p>
     <fieldset class="stg-pick"><legend class="small">방</legend>
       ${rooms.map((r) => `<label class="row"><input type="radio" name="stg-room" value="${esc(r.id)}" data-stg-pick="room"${k.room === r.id ? ' checked' : ''}> ${esc(r.name)}${r.place ? ` <span class="chip confirmed">${esc(r.place)}</span>` : ''}${hints.includes(r.id) ? ' <span class="chip">스토리보드 장소</span>' : ''}</label>`).join('')}
@@ -595,7 +604,7 @@ function stgNewCard() {
 // ----- AI 장면: 플롯에서 초안 · 본문에서 뽑기, 비교 · 적용 · 적용 취소 -----
 
 /** 작은 평면도: 장면이 끝난 상태 (비교 보기). 인물 원과 이름, 접촉 선만. */
-function stgMiniSvg(room, scene) {
+function stgMiniSvg(room, scene, fresh = []) {
   if (!room) return '<p class="small">방을 찾지 못했어요.</p>';
   const sc = stgScale(room), k = scene.beats.length;
   const px = ([x, y]) => [sc.ox + x * sc.s, sc.oy + y * sc.s];
@@ -604,7 +613,7 @@ function stgMiniSvg(room, scene) {
   let out = `<rect class="stg-wall" x="${sc.ox}" y="${sc.oy}" width="${room.w * sc.s}" height="${room.h * sc.s}" rx="2"/>`;
   room.anchors.forEach((a) => {
     const [x, y] = px([a.x, a.y]);
-    out += `<g class="stg-anchor ${esc(a.kind)}"><rect x="${x}" y="${y}" width="${Math.max(a.w * sc.s, 4)}" height="${Math.max(a.h * sc.s, 4)}" rx="4"/><text x="${x + a.w * sc.s / 2}" y="${y + a.h * sc.s / 2 + 4}" text-anchor="middle">${esc(a.name)}</text></g>`;
+    out += `<g class="stg-anchor ${esc(a.kind)}${fresh.includes(a.id) ? ' added' : ''}"><rect x="${x}" y="${y}" width="${Math.max(a.w * sc.s, 4)}" height="${Math.max(a.h * sc.s, 4)}" rx="4"/><text x="${x + a.w * sc.s / 2}" y="${y + a.h * sc.s / 2 + 4}" text-anchor="middle">${esc(a.name)}</text></g>`;
   });
   Object.keys(st).forEach((w) => Object.values(st[w].contacts).forEach((c) => {
     if (!pos[w] || !pos[c.to]) return;
@@ -629,7 +638,8 @@ function stgBeatList(scene, other) {
 function stgCompare(prop) {
   const g = S.stg;
   const cur = g.scene;
-  const room = prop.room || g.view.rooms.find((r) => r.id === prop.scene.room) || null;
+  const room = prop.room || prop.grown || g.view.rooms.find((r) => r.id === prop.scene.room) || null;
+  const fresh = (prop.adds || []).map((x) => x.anchor.id);
   const from = prop.role === 'text' ? '본문에서 뽑은 장면' : '플롯에서 받은 초안';
   const notes = [];
   if (prop.dropped) notes.push(`미성년 인물이 낀 성적 접촉 ${prop.dropped}개를 뺐어요.`);
@@ -639,9 +649,22 @@ function stgCompare(prop) {
   return `<section class="card stg-cmp" aria-label="AI 장면 비교"><div class="between"><h2>${from} 비교</h2>
       <div class="row"><button type="button" class="btn small primary" data-action="stgApply">${cur ? '이 장면으로 바꾸기' : '적용'}</button><button type="button" class="btn small ghost" data-action="stgDiscard">버리기</button></div></div>
     <p class="small">장면을 통째로 바꿔요. 바꾼 뒤에도 '적용 취소'로 한 번 되돌릴 수 있어요.${prop.room ? ` 새 방 '${esc(prop.room.name)}'도 만들어요.` : ''}</p>
+    ${stgAddList(prop)}
     ${notes.length ? `<ul class="stg-viol small">${notes.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     <div class="stg-cmp-grid"><div><h3>지금 장면</h3>${cur ? stgMiniSvg(g.room, cur) + stgBeatList(cur, prop.scene) : '<p class="small">아직 없어요</p>'}</div>
-      <div><h3>AI 장면</h3>${stgMiniSvg(room, prop.scene)}${stgBeatList(prop.scene, cur)}</div></div></section>`;
+      <div><h3>AI 장면</h3>${stgMiniSvg(room, prop.scene, fresh)}${stgBeatList(prop.scene, cur)}</div></div></section>`;
+}
+
+/** AI 가 더하자는 기준점 목록. 공용 방이면 복사한 장면 전용 방에 더하는 것이 기본이고, 공용 방에 바로 더하기를 고를 수 있다. */
+function stgAddList(prop) {
+  const adds = prop.adds || [];
+  if (!adds.length) return '';
+  const g = S.stg, kinds = g.view.vocab.kinds || {};
+  const base = prop.grown ? g.view.rooms.find((r) => r.id === prop.grown.id) : null;
+  const target = prop.room ? `새 방 '${esc(prop.room.name)}'` : base && prop.room_shared && !g.shared ? `'${esc(base.name)}' 방을 복사한 장면 전용 방` : base ? `'${esc(base.name)}'` : '새 방';
+  return `<div class="stg-adds"><b>더할 기준점 ${adds.length}개</b> <span class="small">${target}에 더해요. 자리는 코드가 정했어요. 적용한 뒤 '방 고치기'에서 끌어 옮겨요.</span>
+    <ul>${adds.map((x) => `<li><span class="chip">${esc(kinds[x.anchor.kind] || x.anchor.kind)}</span> ${esc(x.anchor.name)} <span class="small">${esc(x.where)}</span></li>`).join('')}</ul>
+    ${prop.room_shared && base ? `<label class="row small"><input type="checkbox" data-stg-shared${g.shared ? ' checked' : ''}> 공용 방 '${esc(base.name)}'에 바로 더하기 (이 방을 쓰는 다른 장면에도 생겨요)</label>` : ''}</div>`;
 }
 
 /** 머리의 AI 버튼: 계획이면 플롯에서 초안, 본문이면 본문에서 뽑기. */
@@ -689,6 +712,9 @@ function stgCss() {
 .stg-wall { fill: none; stroke: var(--text-2); stroke-width: 4; }
 .stg-anchor rect { fill: var(--chip); stroke: var(--line-strong); stroke-width: 1; }
 .stg-anchor.door rect, .stg-anchor.window rect { fill: var(--accent-soft); }
+.stg-anchor.added rect { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 4 3; }
+.stg-adds { margin: 8px 0; }
+.stg-adds ul { list-style: none; padding: 0; margin: 6px 0; display: flex; flex-direction: column; gap: 4px; }
 .stg-anchor.edit { cursor: grab; }
 .stg-anchor text { font-size: 12px; fill: var(--text-2); font-family: var(--sans); pointer-events: none; }
 .stg-front { stroke: var(--accent); stroke-width: 2.5; }
@@ -837,11 +863,15 @@ Object.assign(actions, {
     if (g.dirty && !confirm('저장하지 않은 장면 변경이 있어요. AI 결과는 저장된 장면과 비교해요. 그래도 받을까요?')) return;
     startJob(g.role === 'text' ? 'stage_extract' : 'stage_draft', g.n, { event: g.ev - 1 });
   },
+  stgAiFresh() {
+    const g = S.stg;
+    startJob('stage_draft', g.n, { event: g.ev - 1, stage_room: 'empty' });
+  },
   async stgApply() {
     const g = S.stg;
     if (g.dirty && !confirm('저장하지 않은 변경이 사라져요. AI 장면으로 바꿀까요?')) return;
     try {
-      const view = await api('POST', `/projects/${enc(S.name)}/stage/${g.n}/apply`, { event: g.ev - 1, role: g.role });
+      const view = await api('POST', `/projects/${enc(S.name)}/stage/${g.n}/apply`, { event: g.ev - 1, role: g.role, shared: !!g.shared });
       stgTake(view);
       g.dirty = false;
       S.stgDirty = false;
@@ -1039,6 +1069,7 @@ document.addEventListener('change', (e) => {
   if (!g || S.route[2] !== 'stage') return;
   if (d.stgEp !== undefined) { location.hash = `${base()}/stage/${t.value}/1`; return; }
   if (d.stgPick) { g.pick[d.stgPick] = t.value; if (d.stgPick !== 'room' && d.stgPick !== 'name') g.pick.room = ''; render(); return; }
+  if (d.stgShared !== undefined) { g.shared = t.checked; render(); return; }
   if (!g.scene) return;
   if (d.stgField) {
     const f = d.stgField;

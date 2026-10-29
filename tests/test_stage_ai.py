@@ -114,7 +114,7 @@ def test_from_draft_names_memos_and_minor_block():
             DraftContact(by="lips", to="하린", part="chest", act="kiss"),
             DraftContact(by="right", to="하린", part="hand_l", act="hold")])]),
         DraftBeat(quote="손을 놓았다.", bodies=[DraftBody(name="도윤", ends=[{"to": "하린", "part": "hand_l"}])]),
-    ])
+    ], new_anchors=[])
     s, dropped, notes = stage.from_draft(d, p, ep, 0, room, "text")
     assert s.cast == ["h", "d"] and dropped == 1  # 미성년이 낀 성적 접촉은 뺀다
     assert any("유령" in x for x in notes) and "유령" in s.beats[0].note

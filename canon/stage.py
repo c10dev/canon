@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from . import board as board_mod
 from . import cast as cast_mod
 from .naming import place_key
-from .schema import (BoardScene, ConsistencyIssue, DraftBody, Episode, Project, StageAnchor, StageBeat, StageBody, StageContact, StageDraft, StageRoom,
+from .schema import (AnchorAdd, BoardScene, DraftAnchor, ConsistencyIssue, DraftBody, Episode, Project, StageAnchor, StageBeat, StageBody, StageContact, StageDraft, StageRoom,
                      StageScene, StageSpot)
 
 # ---------- 고정 어휘 ----------
@@ -150,7 +150,7 @@ def vocab() -> dict:
         "postures": {k: {"label": v.label, "upright": v.upright} for k, v in POSTURES.items()},
         "parts": {k: {"label": v.label, "side": v.side, "sexual": v.sexual} for k, v in PARTS.items()},
         "acts": {k: {"label": v.label, "hands": v.hands, "sexual": v.sexual, "intimate": v.intimate, "support": v.support} for k, v in ACTS.items()},
-        "rooms": {k: v[0] for k, v in ROOMS.items()},
+        "rooms": {k: v[0] for k, v in ROOMS.items()}, "kinds": anchor_kinds(),
         "rules": rule_names(), "rules3d": sorted(_rules3d()),
     }
 
@@ -222,6 +222,181 @@ def state_at(scene: StageScene, k: int) -> dict[str, Now]:
 
 # ---------- 위치 계산 ----------
 # static/stage.js 의 stageLayout 과 같은 규칙이라 함께 고친다
+
+# ---------- AI 가 더하자고 한 기준점 (pipeline.draft_stage) ----------
+# AI 는 이름 · 종류 · 다른 기준점과의 관계 말만 낸다(DraftAnchor). 좌표는 여기서 정한다: 관계 쪽 바로 곁, 겹치면 옆으로 밀고,
+# 기준이 없으면 방 안 빈 자리, 방 밖으로 나가면 방을 넓힌다. 작가가 적용한 뒤 평면도에서 끌어 옮긴다 (2026-10-29 사용자).
+
+# 종류마다 (화면 이름, 폭, 깊이, 앉기, 눕기). 폭은 앞에서 본 가로, 깊이는 앞쪽 방향 길이 (m). 방 틀 값과 비슷하게 둔다
+ANCHOR_KINDS = {
+    "bed": ("침대", 1.4, 2.0, True, True), "door": ("문", 0.8, 0.1, False, False), "window": ("창", 0.8, 0.1, False, False),
+    "desk": ("책상", 1.0, 0.55, False, False), "chair": ("의자", 0.5, 0.5, True, False), "sofa": ("소파", 2.0, 0.9, True, True),
+    "table": ("탁자", 1.2, 0.6, False, False), "wall": ("벽", 2.0, 0.1, False, False), "seat": ("자리", 0.7, 0.7, True, False),
+    "other": ("기타", 0.8, 0.8, False, False),
+}
+ATTACH = ("door", "window", "wall")  # 기준 기준점에 맞붙여 두는 종류 (창은 운전석 곁에 붙는다)
+# 맞붙이지 않는 기준점 사이 틈: 두 기준점의 맞보는 앞자리(각 GAP 0.4 바깥)에 선 두 사람이 겹치지 않게 (0.4 × 2 + 몸 반지름 0.25 × 2 + 0.05).
+# 0.9 로 시작했더니 문 앞에 더한 탁자의 앞자리와 문 앞자리가 0.1m 떨어져 3D 몸 겹침이 났다 (mock 시험)
+ANCHOR_GAP = 1.35
+ROOM_PAD = 0.6    # 더한 기준점 둘레에 남기는 방 여백 (둘레에 사람이 설 자리)
+ROOM_MAX = 40.0   # 방 한 변 상한 (화면 크기 칸과 같다)
+MAX_ADDS = 6      # 한 번에 더하는 기준점 수 상한
+_ROT_OF = {(0, 1): 0, (-1, 0): 90, (0, -1): 180, (1, 0): 270}
+
+
+def anchor_kinds() -> dict[str, str]:
+    """AI 가 고를 수 있는 기준점 종류: id → 화면 이름. 3D 가구 종류(stage3d.furniture.KINDS)에만 있는 종류도 받는다."""
+    out = {k: v[0] for k, v in ANCHOR_KINDS.items()}
+    try:
+        from .stage3d import furniture  # 순환 import 를 피해 늦게 읽는다
+        out.update({k: k for k in furniture.KINDS if k not in out})
+    except ImportError:
+        pass
+    return out
+
+
+def _hits(a: StageAnchor, others: list[StageAnchor], margin: float) -> bool:
+    return any(a.x < b.x + b.w + margin and b.x < a.x + a.w + margin and a.y < b.y + b.h + margin and b.y < a.y + a.h + margin for b in others)
+
+
+def _zone(a: StageAnchor) -> StageAnchor:
+    """기준점과 그 앞자리(사람이 서는 곳, GAP + 몸 반지름)를 덮는 상자. 더한 기준점이 다른 기준점의 앞자리에 떨어지지 않게 본다."""
+    fx, fy = _front(a.rot)
+    d = GAP + BODY
+    return a.model_copy(update={"x": a.x + min(fx, 0) * d, "y": a.y + min(fy, 0) * d, "w": a.w + abs(fx) * d, "h": a.h + abs(fy) * d})
+
+
+def _clear(c: StageAnchor, others: list[StageAnchor], near: Optional[StageAnchor]) -> bool:
+    """c 와 그 앞자리가 다른 기준점 · 앞자리와 겹치지 않는다. 맞붙이는 종류는 near 와 닿아도 된다."""
+    for b in others:
+        touch = near is not None and b.id == near.id and c.kind in ATTACH
+        m = -0.01 if touch else 0.05
+        if _hits(c, [b], m) or (not touch and (_hits(_zone(c), [b], 0) or _hits(c, [_zone(b)], 0))):
+            return False
+    return True
+
+
+def _moved(a: StageAnchor, dx: float, dy: float) -> StageAnchor:
+    return a.model_copy(update={"x": round(a.x + dx, 2), "y": round(a.y + dy, 2)})
+
+
+def _beside(near: StageAnchor, rel: str, a: StageAnchor, others: list[StageAnchor]) -> tuple[StageAnchor, str]:
+    """near 의 rel 쪽 곁에 a 를 놓는다. 앞 · 뒤 · 왼쪽 · 오른쪽은 _anchor_point 와 같은 기준틀이다.
+    a 의 앞쪽은 near 를 본다(가구 사이 앞자리에 사람이 선다). 맞붙이는 창 · 문 · 벽은 near 의 반대쪽(바깥)이 앞이다:
+    운전석 곁에 붙인 창의 '앞'은 창밖에 선 자리다 (2026-10-29 실제 Gemini 초안이 '운전석 창 앞'을 창밖으로 썼다)."""
+    rel = rel if rel in ("front", "back", "left", "right", "beside", "across") else "beside"
+    fx, fy = _front(near.rot)
+    rx, ry = fy, -fx
+    vx, vy = {"front": (fx, fy), "back": (-fx, -fy), "across": (-fx, -fy), "left": (-rx, -ry)}.get(rel, (rx, ry))
+    vx, vy = round(vx), round(vy)
+    width, depth = a.w, a.h
+    w, h = (width, depth) if vx == 0 else (depth, width)
+    gap = 0.0 if a.kind in ATTACH else ANCHOR_GAP
+    cx = near.x + near.w / 2 + vx * (near.w / 2 + gap + w / 2)
+    cy = near.y + near.h / 2 + vy * (near.h / 2 + gap + h / 2)
+    rot = _ROT_OF[(vx, vy)] if a.kind in ATTACH else _ROT_OF[(-vx, -vy)]
+    base = a.model_copy(update={"x": round(cx - w / 2, 2), "y": round(cy - h / 2, 2), "w": w, "h": h, "rot": rot})
+    # 겹치면 관계 쪽과 수직으로 밀고, 그래도 겹치면 더 바깥으로
+    for out in (0, 0.5, 1.0, 1.5, 2.0, 3.0):
+        for side in (0, 0.5, -0.5, 1.0, -1.0, 1.5, -1.5):
+            c = _moved(base, vx * out - vy * side, vy * out + vx * side)
+            if _clear(c, others, near):
+                return c, f"{near.name} {RELS[rel]}"
+    return base, f"{near.name} {RELS[rel]}"
+
+
+def _empty_spot(room: StageRoom, a: StageAnchor, others: list[StageAnchor]) -> StageAnchor:
+    """방 안에서 다른 기준점과 사람 하나 설 틈을 둔 빈 자리 (위 왼쪽부터). 없으면 방 오른쪽 바깥 (방을 넓힌다)."""
+    k = 0.25
+    for i in range(int(max(room.h - a.h, 0) / k) + 1):
+        for j in range(int(max(room.w - a.w, 0) / k) + 1):
+            c = a.model_copy(update={"x": round(j * k, 2), "y": round(i * k, 2)})
+            if not _hits(c, others, ROOM_PAD) and _clear(c, others, None):
+                return c
+    return a.model_copy(update={"x": round(room.w + ANCHOR_GAP, 2), "y": 0.0})
+
+
+def place_anchors(room: StageRoom, drafts: list[DraftAnchor]) -> tuple[StageRoom, list[AnchorAdd], float, float]:
+    """AI 의 기준점 제안을 방에 놓는다: (더한 방(사본, id 그대로), 더한 기준점, 옛 기준점을 옮긴 dx, dy).
+    이미 있는 이름은 건너뛴다. 모르는 종류는 other, 모르는 near 는 빈 자리. 앞에 놓은 제안을 뒤 제안의 near 로 쓸 수 있다.
+    더한 기준점 둘레 ROOM_PAD 가 방 밖으로 나가면 방을 넓히고, 왼쪽 · 위로 넓히면 옛 기준점을 그만큼 옮긴다(평면도 좌표만 바뀐다)."""
+    r = room.model_copy(deep=True)
+    kinds = anchor_kinds()
+    adds: list[AnchorAdd] = []
+    for d in drafts:
+        name = d.name.strip()
+        if not name or any(a.name.strip() == name for a in r.anchors):
+            continue
+        if len(adds) >= MAX_ADDS:
+            break
+        kind = d.kind.strip() if d.kind.strip() in kinds else "other"
+        _, width, depth, sit, lie = ANCHOR_KINDS.get(kind, ANCHOR_KINDS["other"])
+        a = StageAnchor(id=_new_id("a", {x.id for x in r.anchors}), name=name, kind=kind, w=width, h=depth, sit=sit, lie=lie)
+        near = next((x for x in r.anchors if x.name.strip() == d.near.strip()), None) if d.near.strip() else None
+        if near is not None:
+            a, where = _beside(near, d.rel.strip(), a, r.anchors)
+        else:
+            a, where = _empty_spot(r, a, r.anchors), "빈 자리"
+        r.anchors.append(a)
+        adds.append(AnchorAdd(anchor=a, where=where))
+    if not adds:
+        return r, [], 0.0, 0.0
+    new = [x.anchor for x in adds]
+    x0 = min(0.0, *(a.x - ROOM_PAD for a in new))
+    y0 = min(0.0, *(a.y - ROOM_PAD for a in new))
+    x1 = max(r.w, *(a.x + a.w + ROOM_PAD for a in new))
+    y1 = max(r.h, *(a.y + a.h + ROOM_PAD for a in new))
+    dx, dy = round(-x0, 2), round(-y0, 2)
+    r.anchors = [_moved(a, dx, dy) for a in r.anchors]
+    r.w, r.h = round(min(ROOM_MAX, x1 - x0), 2), round(min(ROOM_MAX, y1 - y0), 2)
+    ids = {x.anchor.id for x in adds}
+    moved = {a.id: a for a in r.anchors if a.id in ids}
+    return r, [x.model_copy(update={"anchor": moved[x.anchor.id]}) for x in adds], dx, dy
+
+
+def grow_room(base: StageRoom, adds: list[AnchorAdd], dx: float, dy: float, w: float, h: float) -> tuple[StageRoom, dict[str, str]]:
+    """적용할 때 지금 방(제안 뒤 작가가 고쳤을 수 있다)에 더한다: 옛 기준점을 dx, dy 옮기고, 크기를 넓히고, 기준점을 붙인다.
+    더할 id 가 이미 있으면 새 id 로 바꾸고 바꾼 짝을 돌려준다 (장면의 자리 · 향함을 고칠 때 쓴다)."""
+    r = base.model_copy(deep=True)
+    r.anchors = [_moved(a, dx, dy) for a in r.anchors]
+    r.w, r.h = round(max(r.w + dx, w), 2), round(max(r.h + dy, h), 2)
+    remap: dict[str, str] = {}
+    for x in adds:
+        a = x.anchor.model_copy()
+        if any(b.id == a.id for b in r.anchors):
+            new = _new_id("a", {b.id for b in r.anchors} | {x.anchor.id for x in adds})
+            remap[a.id], a.id = new, new
+        r.anchors.append(a)
+    return r, remap
+
+
+def remap_anchors(scene: StageScene, remap: dict[str, str]) -> None:
+    """장면의 기준점 id 를 바꾼다 (자리 ref, 향함 '#id')."""
+    if not remap:
+        return
+    for b in [*scene.start, *(x for beat in scene.beats for x in beat.bodies)]:
+        if b.at and b.at.ref in remap:
+            b.at.ref = remap[b.at.ref]
+        if b.facing.startswith("#") and b.facing[1:] in remap:
+            b.facing = "#" + remap[b.facing[1:]]
+
+
+def room_users(p: Project, rid: str) -> list[tuple[int, StageScene]]:
+    """방을 쓰는 장면: (화 번호, 장면)."""
+    return [(e.plot.number, s) for e in p.episodes for s in e.stage if s.room == rid]
+
+
+def room_shared(p: Project, rid: str, n: int, event: int, role: str) -> bool:
+    """공용 방인가: 지도 장소에 묶였거나, 이 사건 · 역할의 장면 말고 다른 장면이 쓴다."""
+    room = next((r for r in p.rooms if r.id == rid), None)
+    if room is None:
+        return False
+    if room.place.strip():
+        return True
+    ep = next((e for e in p.episodes if e.plot.number == n), None)
+    mine = {id(s) for s in scenes_of(ep, event) if s is not None} if ep else set()  # 같은 사건의 계획 · 본문 장면은 한 무리
+    return any(id(s) not in mine for _, s in room_users(p, rid))
+
 
 GAP = 0.4      # 기준점 바깥으로 떨어지는 거리 (m)
 BODY = 0.25    # 몸 반지름 (m)
@@ -304,7 +479,7 @@ def place(room: StageRoom, state: dict[str, Now], order: Optional[list[str]] = N
             ref = state[w].at.ref[1:]
             if ref in pos:
                 look = {**pos, w: prev[w]} if prev and w in prev else pos
-                pos[w] = _person_point(pos[ref], state[ref].facing, state[w].at.rel, room, look)
+                pos[w] = _person_point(pos[ref], state[ref].facing, state[w].at.rel, room, look, w)
                 rest.remove(w)
                 moved = True
         if not moved:
@@ -320,8 +495,10 @@ def layouts(room: StageRoom, scene: StageScene) -> list[dict[str, tuple[float, f
     return out
 
 
-def _person_point(o: tuple[float, float], facing: str, rel: str, room: StageRoom, pos: dict) -> tuple[float, float]:
-    """다른 인물 기준 자리. 앞 · 뒤 · 왼쪽 · 오른쪽은 그 인물이 향한 쪽 기준이다 (모르면 아래를 본다고 친다)."""
+def _person_point(o: tuple[float, float], facing: str, rel: str, room: StageRoom, pos: dict, me: str = "") -> tuple[float, float]:
+    """다른 인물 기준 자리. 앞 · 뒤 · 왼쪽 · 오른쪽은 그 인물이 향한 쪽 기준이다 (모르면 아래를 본다고 친다).
+    기준 인물이 나를 향하고 앞 박자의 내 자리를 알면 관계 말과 상관없이 그 쪽에 선다: 그 인물의 앞이 내 쪽이므로 '왼쪽'을 그대로 따르면
+    박자마다 90도씩 돌아간다 (2026-10-29 15화 사건 1: 운전석의 최건우를 향한 '최건우 왼쪽'의 이예은이 돌다 벽에 밀려 겹쳤다)."""
     fx, fy = facing_vec(facing, o, room, pos) or (0.0, 1.0)
     rx, ry = -fy, fx  # 그 인물의 오른쪽
     d = BODY * 2 + 0.05
@@ -331,6 +508,8 @@ def _person_point(o: tuple[float, float], facing: str, rel: str, room: StageRoom
         return o[0] + fx * ACROSS, o[1] + fy * ACROSS
     if rel == "against":  # 몸이 맞닿게
         return o[0] + fx * BODY * 2, o[1] + fy * BODY * 2
+    if me and facing == f"@{me}" and me in pos:
+        return o[0] + fx * d, o[1] + fy * d
     v = {"front": (fx, fy), "back": (-fx, -fy), "left": (-rx, -ry)}.get(rel, (rx, ry))
     return o[0] + v[0] * d, o[1] + v[1] * d
 
@@ -953,6 +1132,7 @@ def save_scene(p: Project, ep: Episode, scene: StageScene, room: Optional[StageR
     else:
         old = ep.stage[i]
         scene.prev = old.prev  # 적용 취소 한 번은 AI 적용만 남긴다
+        scene.room_prev, scene.room_made = old.room_prev, old.room_made
         scene.basis = old.basis
         if scene.role == "text" and _content(scene) != _content(old):
             scene.source = "manual"  # 작가가 손본 본문 장면: 검수 때 뽑기가 덮지 않는다 (pipeline.stage_extract_all)

@@ -1,5 +1,6 @@
 """장면 연출 가짜 응답 (CANON_LLM=mock). mock.RESPONDERS 에 등록한다.
 계획 초안은 첫 인물이 소파 앞으로 걸어가는 박자 하나, 본문 뽑기는 첫 문장 박자 하나다. 규칙 판정에 걸리지 않는다.
+빈 방 틀의 방이면 계획 초안은 '탁자' 기준점을 문 앞에 더하자고 하고 첫 인물이 그 앞으로 간다 (기준점 제안 화면 확인용).
 검수 시험(hint plants)이면 첫 사건에서 심은 문장마다 손이 닿지 않는 접촉 박자를 더해 거리 규칙(reach)에 걸리게 한다."""
 from __future__ import annotations
 
@@ -7,7 +8,7 @@ import re
 
 from . import stage
 from .mock import responds
-from .schema import DraftBeat, DraftBody, DraftContact, StageDraft
+from .schema import DraftAnchor, DraftBeat, DraftBody, DraftContact, StageDraft
 
 
 def _names(prompt: str) -> list[str]:
@@ -24,8 +25,11 @@ def _stage(prompt: str, hint: dict) -> StageDraft:
     far = [a for a in anchors if a != door] or [door]
     start = [DraftBody(name=x, at_ref=door, at_rel="front", posture="stand", facing="", left="빈손" if hint.get("role") == "plan" else "",
                        right="빈손" if hint.get("role") == "plan" else "") for x in names]
-    d = StageDraft(room="" if room else "living", cast=names, start=start, beats=[])
+    d = StageDraft(room="" if room else "living", cast=names, start=start, beats=[], new_anchors=[])
     if hint.get("role") != "text":
+        if room and room.get("template") == "empty" and "탁자" not in anchors:
+            d.new_anchors = [DraftAnchor(name="탁자", kind="table", near=door, rel="front")]
+            far = ["탁자"]
         if names:
             d.beats.append(DraftBeat(note="첫 인물이 자리를 옮긴다", bodies=[DraftBody(name=names[0], at_ref=far[0], at_rel="front", posture="walk")]))
         return d
