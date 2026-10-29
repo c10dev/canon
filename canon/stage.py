@@ -5,6 +5,7 @@
 판정(judge)은 박자를 차례로 겹친 상태(state_at)로 손 · 이동 자세 · 거리 · 향함 · 물건 규칙을 본다.
 미성년 인물이 낀 성적 접촉은 blocked 로 거르고, 작가 입력 · AI 결과 · 프롬프트 모두 이 함수를 쓴다.
 한 사건에 계획 장면(role plan)과 본문 장면(role text)을 하나씩 두고, diff 가 계획과 다른 곳(Gap)을 잰다.
+AI 가 이름으로 적은 장면(StageDraft)은 from_draft 가 id 로 바꾸고, 본문 장면의 판정 · 차이는 to_issues 가 검수 지적으로 바꾼다.
 """
 from __future__ import annotations
 
@@ -16,7 +17,8 @@ from typing import Optional
 from pydantic import BaseModel
 
 from . import cast as cast_mod
-from .schema import Episode, Project, StageAnchor, StageBody, StageContact, StageRoom, StageScene, StageSpot
+from .schema import (ConsistencyIssue, DraftBody, Episode, Project, StageAnchor, StageBeat, StageBody, StageContact, StageDraft, StageRoom,
+                     StageScene, StageSpot)
 
 # ---------- 고정 어휘 ----------
 # 화면은 vocab() 으로 받는다 (JS 에 두 번 적지 않는다)
@@ -628,6 +630,207 @@ def scenes_of(ep: Episode, event: int) -> tuple[Optional[StageScene], Optional[S
         if found[s.role] is None and _event_of(ep, s) == event:
             found[s.role] = s
     return found["plan"], found["text"]
+
+
+# ---------- AI 결과 정리 (pipeline.draft_stage · extract_stage) ----------
+# AI 는 이름으로 적는다. 모르는 인물은 박자 설명에, 모르는 기준점 · 향함은 그 칸 메모에 남긴다. 그 뒤 clean_scene 이 어휘 밖과 막는 접촉을 거른다.
+
+MAX_BEATS = 40   # 장면 하나의 박자 수 상한
+EMPTY_HAND = "빈손"
+
+
+def _names(p: Project) -> dict[str, str]:
+    """이름(또는 id) → 인물 id. 같은 이름이면 앞 인물."""
+    out: dict[str, str] = {}
+    for c in p.characters:
+        out.setdefault(c.name.strip(), c.id)
+        out.setdefault(c.id, c.id)
+    return out
+
+
+def _hand(v: str, start: bool, role: str) -> Optional[str]:
+    v = (v or "").strip()
+    if v in ("", "-"):
+        return (UNKNOWN if role == "text" else "") if start else None
+    return "" if v in (EMPTY_HAND, "없음", "빈 손") else v
+
+
+def from_draft(d: StageDraft, p: Project, ep: Episode, event: int, room: StageRoom, role: str = "plan",
+               sid: str = "") -> tuple[StageScene, int, list[str]]:
+    """AI 장면을 저장 모양으로: (장면, 막은 접촉 수, 정리 기록). 박자는 MAX_BEATS 까지.
+    시작 상태에 적지 않은 손은 계획이면 빈손, 본문이면 '?'(본문이 말하기 전까지 모름)다."""
+    who_of = _names(p)
+    anchors = {a.name.strip(): a.id for a in room.anchors}
+    notes: list[str] = []
+    cast: list[str] = []
+    for nm in d.cast:
+        cid = who_of.get(nm.strip())
+        if cid and cid not in cast:
+            cast.append(cid)
+        elif not cid and nm.strip():
+            notes.append(f"모르는 인물: {nm.strip()}")
+    active: dict[str, list[StageContact]] = {}
+
+    def body(x: DraftBody, start: bool) -> tuple[Optional[StageBody], str]:
+        cid = who_of.get(x.name.strip())
+        if not cid:
+            return None, x.name.strip()
+        if cid not in cast:
+            cast.append(cid)
+        memo = [x.memo.strip()] if x.memo.strip() else []
+        at = None
+        ref = x.at_ref.strip()
+        if ref:
+            target = anchors.get(ref) or (f"@{who_of[ref]}" if ref in who_of and who_of[ref] != cid else None)
+            if target:
+                at = StageSpot(ref=target, rel=x.at_rel.strip() or "beside")
+            else:
+                memo.append(f"자리: {ref} {RELS.get(x.at_rel, x.at_rel)}".strip())
+        facing = x.facing.strip()
+        if facing and facing not in FACINGS:
+            if facing in who_of and who_of[facing] != cid:
+                facing = f"@{who_of[facing]}"
+            elif facing in anchors:
+                facing = f"#{anchors[facing]}"
+            else:
+                memo.append(f"향함: {facing}")
+                facing = ""
+        contacts = []
+        for c in x.contacts:
+            to = who_of.get(c.to.strip())
+            if not to or to == cid:
+                memo.append(f"접촉: {c.to} {c.part} {c.act}")
+                continue
+            contacts.append(StageContact(id="", by=c.by.strip(), to=to, part=c.part.strip(), act=c.act.strip()))
+        b = StageBody(who=cid, at=at, posture=x.posture.strip(), facing=facing, left=_hand(x.left, start, role),
+                      right=_hand(x.right, start, role), contacts=contacts, memo=" · ".join(memo))
+        return b, ""
+
+    scene = StageScene(id=sid or "s0", event=event, event_text=ep.plot.events[event] if 0 <= event < len(ep.plot.events) else "",
+                       room=room.id, role=role, source="text" if role == "text" else "plot")
+    seen_start = set()
+    for x in d.start:
+        b, unknown = body(x, True)
+        if b is None:
+            notes.append(f"모르는 인물: {unknown}")
+            continue
+        if b.who in seen_start:
+            continue
+        seen_start.add(b.who)
+        scene.start.append(b)
+    for w in cast:  # 시작 상태에 없는 인물도 모든 칸을 갖게 (손은 위 규칙)
+        if w not in seen_start:
+            scene.start.append(StageBody(who=w, left=_hand("", True, role), right=_hand("", True, role)))
+    # 접촉 id 를 먼저 달아야 ends 가 가리킬 수 있다
+    counter = [0]
+
+    def tag(c: StageContact) -> None:
+        counter[0] += 1
+        c.id = f"c{counter[0]}"
+
+    for b in scene.start:
+        for c in b.contacts:
+            tag(c)
+            active.setdefault(b.who, []).append(c)
+    for beat in d.beats[:MAX_BEATS]:
+        bodies = []
+        lost = []
+        for x in beat.bodies:
+            b, unknown = body(x, False)
+            if b is None:
+                lost.append(unknown)
+                continue
+            ended = []
+            for e in x.ends:
+                to = who_of.get(e.to.strip())
+                hit = next((c for c in reversed(active.get(b.who, [])) if c.to == to and c.part == e.part.strip()), None)
+                if hit:
+                    ended.append(hit.id)
+                    active[b.who].remove(hit)
+            b.ends = ended
+            for c in b.contacts:
+                tag(c)
+                active.setdefault(b.who, []).append(c)
+            bodies.append(b)
+        note = beat.note.strip()
+        if lost:
+            note = " · ".join(x for x in [note, f"모르는 인물: {', '.join(dict.fromkeys(lost))}"] if x)
+            notes.append(f"모르는 인물: {', '.join(dict.fromkeys(lost))}")
+        scene.beats.append(StageBeat(quote=beat.quote.strip(), note=note, bodies=bodies))
+    if len(d.beats) > MAX_BEATS:
+        notes.append(f"박자 {len(d.beats) - MAX_BEATS}개는 {MAX_BEATS}개를 넘어 뺐어요")
+    scene.cast = cast
+    dropped = clean_scene(scene, room, p)
+    if dropped:
+        notes.append(f"미성년 인물이 낀 성적 접촉 {dropped}개를 뺐어요")
+    return scene, dropped, list(dict.fromkeys(notes))
+
+
+def end_lines(scene: StageScene, room: Optional[StageRoom], p: Project) -> list[str]:
+    """장면이 끝난 상태를 인물마다 한 줄 (다음 장면 프롬프트의 실마리). 모르는 칸은 적지 않는다."""
+    out = []
+    for w, me in state_at(scene, len(scene.beats)).items():
+        bits = []
+        if me.at is not None:
+            bits.append(_spot_word(me.at, room, p))
+        if me.posture in POSTURES:
+            bits.append(POSTURES[me.posture].label)
+        for hand, held in (("left", me.left), ("right", me.right)):
+            if held != UNKNOWN:
+                bits.append(f"{HANDS[hand]} {held or '빈손'}")
+        bits += [f"접촉 {_contact_word(w, c, p)}" for c in me.contacts.values()]
+        if bits:
+            out.append(f"- {_name(p, w)}: {', '.join(bits)}")
+    return out
+
+
+# ---------- 검수 지적 (pipeline.apply_check) ----------
+# 본문 장면의 규칙 판정(judge)과 계획과 다른 곳(diff)을 '동선 · 사소 · 규칙' 지적으로. 인용이 지금 본문에 있는 박자만 짚는다
+# (쓰기 전 연출의 판정은 장면 연출 화면에만 보인다). 한 문장의 여러 어긋남은 지적 하나로 합친다.
+
+def to_issues(scene: StageScene, room: Optional[StageRoom], p: Project, n: int, text: str, event: int,
+              plan: Optional[StageScene] = None, plan_room: Optional[StageRoom] = None) -> list[ConsistencyIssue]:
+    flat = _SPACE.sub("", text or "")
+
+    def quote(k: int) -> str:
+        if not 1 <= k <= len(scene.beats):
+            return ""
+        q = scene.beats[k - 1].quote.strip()
+        return q if q and _SPACE.sub("", q) in flat else ""
+
+    rows: dict[str, dict] = {}  # 인용 → {beat, source, texts}
+    for v in (judge(scene, room, p) if room else []):
+        q = quote(v.beat)
+        if q:
+            r = rows.setdefault(q, {"beat": v.beat, "source": quote(v.cause) if v.cause != v.beat else "", "texts": []})
+            r["texts"].append(f"{RULES[v.rule]}: {v.text}")
+    if plan is not None:
+        for g in diff(plan, scene, plan_room, p, room):
+            q = quote(g.text_beat)
+            if q:
+                rows.setdefault(q, {"beat": g.text_beat, "source": "", "texts": []})["texts"].append(f"계획과 다름: {g.text}")
+    out = []
+    for q, r in rows.items():
+        texts = list(dict.fromkeys(r["texts"]))
+        out.append(ConsistencyIssue(type="동선", description=" / ".join(texts), source_episode=n, source_quote=r["source"],
+                                    current_quote=q, suggestion="어긋난 낱말만 고치거나, 본문 연출이 낫다면 그대로 두세요.",
+                                    severity="low", origin="rule", stage_event=event, stage_beat=r["beat"]))
+    return out
+
+
+def episode_issues(p: Project, ep: Episode) -> list[ConsistencyIssue]:
+    """화 하나의 규칙 지적: 사건마다 본문 장면이 있으면 판정하고, 계획 장면이 있으면 견준다. 본문이 없으면 빈 목록."""
+    if not ep.text:
+        return []
+    out: list[ConsistencyIssue] = []
+    for i in range(len(ep.plot.events)):
+        plan, text = scenes_of(ep, i)
+        if text is None:
+            continue
+        for x in to_issues(text, room_of(p, text), p, ep.plot.number, ep.text, i, plan, room_of(p, plan) if plan else None):
+            if not any(x.current_quote == y.current_quote for y in out):  # 두 사건이 같은 문장을 뽑았으면 앞 사건 것만
+                out.append(x)
+    return out
 
 
 # ---------- 화면 (web.py 의 …/stage) ----------

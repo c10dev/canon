@@ -461,6 +461,7 @@ function pendingShown(r) {
     case 'rebuild': return !!S.rbDraft;
     case 'rework': return !!S.reworks[r.ep];
     case 'openings': return !!S.openingPlots[r.ep];
+    case 'stage': return true;  // 장면 연출 AI 장면은 그 화면이 적용하거나 버릴 때 서버가 지운다 (web._stage_keep)
     default: return false;
   }
 }
@@ -530,6 +531,8 @@ function applyJobResult(j) {
     S.lineDraft = { ...j.result, picks: {} };
   } else if (['hook', 'openings', 'opening_drafts'].includes(j.kind)) {
     openingJobResult(j);
+  } else if (['stage_draft', 'stage_extract'].includes(j.kind) && typeof stageJobResult === 'function') {
+    stageJobResult(j);
   }
 }
 
