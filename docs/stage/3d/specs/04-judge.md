@@ -1,6 +1,6 @@
 # 04. 3D 판정
 
-상태: 명세 · 지도: [../README.md](../README.md) 의 04 · 먼저: [01-body.md](01-body.md) · 이어서: [07-wire.md](07-wire.md)
+상태: 완료 (`canon/stage3d/judge.py`, 시험 `tests/test_stage3d_judge.py`, 브랜치 `claude/s3d-judge-152b88`) · 지도: [../README.md](../README.md) 의 04 · 먼저: [01-body.md](01-body.md) · 이어서: [07-wire.md](07-wire.md)
 
 ## 목표
 
