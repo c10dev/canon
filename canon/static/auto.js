@@ -54,18 +54,26 @@ async function autoLoad(withEstimate = true) {
   if (!S.name) return;
   S.auto = await api('GET', `/projects/${enc(S.name)}/auto`).catch(() => null);
   if (!S.autoForm || S.autoForm.project !== S.name) S.autoForm = { ...autoDefaults(), project: S.name };
-  if (withEstimate) await autoEstimate();
+  // 추정은 남은 화가 많으면 몇 초 걸린다. 화면을 먼저 그리고('추정하는 중…') 끝나면 다시 그린다
+  if (withEstimate) {
+    const name = S.name;
+    S.autoEst = null;
+    autoEstimate().then(() => {
+      if (name === S.name && S.route[2] === 'auto' && !isTyping()) render();
+    });
+  }
   autoPoll();
 }
 
 async function autoEstimate() {
   const f = S.autoForm;
   const body = (batch) => ({ target: f.target, batch, policy: f.policy });
+  const name = S.name;
   try {
-    const [off, on] = await Promise.all([false, true].map((b) => api('POST', `/projects/${enc(S.name)}/auto/estimate`, body(b))));
-    S.autoEst = { off, on };
+    const [off, on] = await Promise.all([false, true].map((b) => api('POST', `/projects/${enc(name)}/auto/estimate`, body(b))));
+    if (name === S.name && f === S.autoForm) S.autoEst = { off, on };  // 기다리는 사이 다른 작품으로 옮겼으면 버린다
   } catch (e) {
-    S.autoEst = { error: e.message };
+    if (name === S.name && f === S.autoForm) S.autoEst = { error: e.message };
   }
 }
 

@@ -262,7 +262,7 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
             continue
         calls = [("state", prompts.SYSTEM_EDITOR + prompts.state_prompt(sim, n), JSON_OUTPUT_RESERVE)]
         if policy.check:
-            calls.append(("check", prompts.SYSTEM_CHECKER + prompts.check_prompt(sim, n), JSON_OUTPUT_RESERVE))
+            calls.append(("check", prompts.SYSTEM_CHECKER + prompts.check_prompt(sim, n, sized=True), JSON_OUTPUT_RESERVE))
             if sim.serial and sim.settings.check_widen:  # 검수 넓히기: 진술 뽑기 + 다시 묻기 (근거는 진술마다 다 찬다고 본다)
                 calls.append(("check", prompts.SYSTEM_CLAIMS + prompts.claims_prompt(sim, n), JSON_OUTPUT_RESERVE))
                 calls.append(("check", prompts.SYSTEM_CHECKER + prompts.widen_prompt(sim, n, [], []) + " " * (
