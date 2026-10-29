@@ -88,9 +88,13 @@ def test_palette_matches_names_and_episodes():
     assert got["저장"] == []  # 저장할 것이 없으면 '저장' 동작을 두지 않는다
     assert run(["저장"], {**INSIDE, "canSave": True})["inside"][0][0] == ["act", "저장", "save"]
 
-    # 작품 밖: 작품 목록과 설정만
+    # 알림 창 열기는 작품 안팎 모두 동작으로 찾는다 (hub.js)
+    assert ["act", "알림 · AI 작업", "hub"] in got[""]
+    assert run(["알림"])["inside"][0][0] == ["act", "알림 · AI 작업", "hub"]
+
+    # 작품 밖: 작품 목록 · 설정 · 알림 창만
     outside = dict(zip(qs, out["outside"]))
-    assert outside[""] == ["작품 목록", "모델 · API 키 설정"]
+    assert outside[""] == ["작품 목록", "모델 · API 키 설정", "알림 · AI 작업"]
     assert outside["설정"] == ["모델 · API 키 설정"]
     assert outside["3화"] == [] and outside["한서"] == []
 
