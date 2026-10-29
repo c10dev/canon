@@ -10,6 +10,10 @@
 
 채점은 LLM 을 부르지 않는다: 핵심 대사가 글자 그대로 들어갔는지, 같은 문장 되풀이, 큐 이음매에서 앞 큐 끝을 다시 말하는지,
 마지막이 아닌 큐가 여운 문장이나 정지 장면(서 있거나 바라보는 한 줄)으로 닫히는지, 줄표로 문장을 잘라 끝내는지, 큐마다 목표 분량 · 템포 · 편성을 지켰는지.
+
+집필 경로: 두 화 블라인드 읽기에서 '큐 시트를 주고 한 번에 쓰기'가 두 번 모두 1위라(DESIGN.md) 그 방식만 집필에 넣었다.
+화에 붙인 큐 시트(Episode.cue_sheet)는 쓰기 프롬프트 끝에 들어간다(prompts.episode_prompt). 켜기는 on, 낡음은 stale,
+넣기는 set_episode, 화면 값은 ep_view. 큐마다 쓰기는 실험에만 있다.
 """
 from __future__ import annotations
 
@@ -17,9 +21,9 @@ import hashlib
 import re
 from datetime import date
 
-from . import cancel, metrics, pipeline, prompts, research, store, usage
+from . import board, cancel, metrics, pipeline, prompts, research, store, usage
 from .context import CHARS_PER_TOKEN
-from .schema import Cue, CueLab, CueLine, CueSheet, CueSheetDraft, CueTake, Project
+from .schema import Cue, CueLab, CueLine, CueSheet, CueSheetDraft, CueTake, Project, StoryboardDraft
 
 CONDITIONS: dict[str, str] = {"oneshot": "한 번에 (지금 방식)", "score": "큐 시트를 주고 한 번에", "cues": "큐마다 이어 쓰기"}
 ABOUT: dict[str, str] = {
@@ -70,6 +74,7 @@ def before(p: Project, n: int) -> Project:
     q = p.model_copy(deep=True)
     if _needs_revert(q, n):
         pipeline.revert(q, n - 1)
+    q.episode(n).cue_sheet = None  # 조건마다 실험 파일의 시트만 쓴다 (oneshot 에 화의 큐 시트가 들어가지 않게)
     return q
 
 
@@ -144,6 +149,53 @@ def set_sheet(lab: CueLab, d: CueSheetDraft, p: Project, by: str = "author") -> 
     draft = clean(p, CueSheetDraft(**d.model_dump(include=set(CueSheetDraft.model_fields))))
     lab.sheet = CueSheet(**draft.model_dump(), made_at=pipeline._now(), made_by=made_by)
     return lab.sheet
+
+
+# ---------- 집필 경로: 화에 붙인 큐 시트 ----------
+
+def on(p: Project) -> bool:
+    """이 작품이 화마다 큐 시트를 쓰는지. 작가가 정하지 않았으면 장편 켬 · 단편 끔 (스토리보드와 같은 규칙, board.on)."""
+    v = p.settings.cue_sheet
+    return p.serial if v is None else v
+
+
+def ep_basis(p: Project, n: int) -> str:
+    """화의 큐 시트를 만든 입력의 지문: 스토리보드 입력(board.basis)과 스토리보드 내용."""
+    b = p.episode(n).storyboard
+    raw = board.basis(p, n) + "\x1f" + (StoryboardDraft(**b.model_dump(include=set(StoryboardDraft.model_fields))).model_dump_json() if b else "")
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def stale(p: Project, n: int) -> bool:
+    """본문을 쓰기 전인데 큐 시트를 만든 뒤 입력(직전 화 본문, 플롯, 인물 상태, 스토리보드)이 바뀌었다."""
+    e = p.episode(n)
+    s = e.cue_sheet
+    return bool(s and s.basis and not e.text and s.basis != ep_basis(p, n))
+
+
+def set_episode(p: Project, n: int, d: CueSheetDraft | None, by: str = "author") -> None:
+    """화에 큐 시트를 넣거나 지운다(d=None). 작가가 저장하면 지금 입력을 보고 고친 것으로 보아 지문을 지금 값으로 둔다.
+    AI · 뼈대 시트를 작가가 고치면 made_by 는 both. 본문을 쓴 뒤에도 고칠 수 있다 (다시 생성이 그대로 쓴다)."""
+    ep = p.episode(n)
+    if d is None:
+        ep.cue_sheet = None
+        return
+    old = ep.cue_sheet
+    made_by = by if by != "author" else ("both" if old and old.made_by != "author" else "author")
+    draft = clean(p, CueSheetDraft(**d.model_dump(include=set(CueSheetDraft.model_fields))))
+    if not draft.cues:
+        raise ValueError("큐가 하나도 없어요. 일어나는 일이나 핵심 대사를 적은 큐가 있어야 해요")
+    ep.cue_sheet = CueSheet(**draft.model_dump(), made_at=pipeline._now(), made_by=made_by, basis=ep_basis(p, n))
+
+
+def ep_view(p: Project, n: int) -> dict:
+    """집필 화면 값: 켜짐, 낡음, 본문이 있으면 핵심 대사가 들어간 수와 빠진 대사."""
+    e = p.episode(n)
+    s = e.cue_sheet
+    out = {"on": on(p), "stale": stale(p, n), "hit": 0, "total": 0, "missed": []}
+    if s and e.text:
+        out["hit"], out["total"], out["missed"] = line_hits(s, e.text)
+    return out
 
 
 # ---------- 채점 (LLM 없음) ----------

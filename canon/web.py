@@ -1763,7 +1763,7 @@ def impact_reopen(name: str, eid: str) -> Project:
 # ---------- 백그라운드 작업 ----------
 
 class JobIn(BaseModel):
-    kind: str  # suggest | arc | plots | write | board | state | impact | series | nextarc | recap_arc | recap_part | storyline | convert | rebuild | rework | hook | openings | opening_drafts
+    kind: str  # suggest | arc | plots | write | board | cues | state | impact | series | nextarc | recap_arc | recap_part | storyline | convert | rebuild | rework | hook | openings | opening_drafts
     ep: int | None = None  # 화 번호. plots 는 장편에서 아크 번호(없으면 초안이 있는 모든 아크), recap_* 는 아크·부 번호
     element: str = ""  # impact 일 때 요소 id
     note: str = ""  # arc, series, plots, nextarc, storyline, convert, rebuild: 작가가 바라는 것
@@ -1779,6 +1779,7 @@ class JobIn(BaseModel):
     repeats: int = 1  # stattrial: 조건마다 같은 화를 쓸 횟수
     conditions: list[str] = []  # stattrial: none | json | lines (비우면 셋 다). cue_run: oneshot | score | cues (비우면 셋 다)
     board: Literal["", "make", "none"] = ""  # write: make 면 스토리보드를 새로 만든 뒤 쓴다(바로 쓰기), none 이면 스토리보드 없이 쓴다
+    cues: Literal["", "none"] = ""  # write: 큐 시트를 쓰는 작품(cue.on)인데 그 화에 없으면 만든 뒤 쓴다. none 이면 큐 시트 없이 쓴다
 
 
 def _edit(name: str, fn) -> Project:
@@ -1953,16 +1954,25 @@ def start_job(name: str, body: JobIn) -> dict:
                     return {"candidate": True}
             else:
                 make = body.board == "make"
-                plan = get_llm("plan") if make else None  # 스토리보드는 plan 단계 모델
-                label, total, owned = f"{n}화 {'스토리보드와 ' if make else ''}본문", 2 if make else 1, {n}
+                use_cues = body.cues != "none"
+                make_cues = use_cues and cue.on(p) and e.cue_sheet is None and not e.text
+                plan = get_llm("plan") if make or make_cues else None  # 스토리보드 · 큐 시트는 plan 단계 모델
+                label = f"{n}화 {'스토리보드와 ' if make else ''}{'큐 시트와 ' if make_cues else ''}본문"
+                total, owned = 1 + make + make_cues, {n}
 
                 def fn(job: jobs.Job):
                     if make:
                         job.note = f"{n}화 스토리보드 만드는 중"
                         b = pipeline.make_storyboard(plan, store.load(name), n)
                         _edit(name, lambda q: pipeline.set_storyboard(q, n, b, by="ai"))
-                        job.done, job.note = 1, f"{n}화 본문 쓰는 중"
-                    text = pipeline.write_episode(llm, store.load(name), n, use_board=body.board != "none")
+                        job.done = 1
+                    if make_cues:  # 스토리보드 다음: 큐 시트는 스토리보드 장면 순서를 받아 만든다
+                        job.note = f"{n}화 큐 시트 만드는 중"
+                        s = pipeline.make_cue_sheet(plan, store.load(name), n)
+                        _edit(name, lambda q: cue.set_episode(q, n, s, by="ai"))
+                        job.done += 1
+                    job.note = f"{n}화 본문 쓰는 중"
+                    text = pipeline.write_episode(llm, store.load(name), n, use_board=body.board != "none", use_cues=use_cues)
                     _edit(name, lambda q: pipeline.replace_text(q.episode(n), text))  # 지금 본문이 있으면 '이전 판'에 남는다
                     return None
         else:
@@ -1984,6 +1994,18 @@ def start_job(name: str, body: JobIn) -> dict:
             b = pipeline.make_storyboard(llm, store.load(name), n)
             _edit(name, lambda q: pipeline.set_storyboard(q, n, b, by="ai"))
             return None
+    elif kind == "cues":
+        if n is None:
+            raise ValueError("화 번호(ep)가 필요해요")
+        if p.episode(n).status == "draft":
+            raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요")
+        pipeline.require_previous(p, n)
+        label, total, owned = f"{n}화 큐 시트", 1, {n}
+
+        def fn(job: jobs.Job):
+            s = pipeline.make_cue_sheet(llm, store.load(name), n)
+            _edit(name, lambda q: cue.set_episode(q, n, s, by="ai"))
+            return {"cues": len(s.cues)}
     elif kind in ("hook", "openings", "opening_drafts"):
         if n is None or not prompts.is_opening(n):
             raise ValueError(f"1~{prompts.OPENING_EPISODES}화 번호(ep)가 필요해요")
@@ -2073,7 +2095,7 @@ def start_job(name: str, body: JobIn) -> dict:
         raise ValueError(f"모르는 작업이에요: {kind}")
 
     try:
-        with usage.scope(episode=n if kind in ("write", "board", "state", "check", "rework", "hook", "openings", "opening_drafts", "plot_one", "cue_sheet", "cue_run") else None, task=kind):
+        with usage.scope(episode=n if kind in ("write", "board", "state", "check", "rework", "hook", "openings", "opening_drafts", "plot_one", "cue_sheet", "cue_run", "cues") else None, task=kind):
             job = jobs.start(name, kind, n, label, _keep_pending(name, kind, n, label, fn), total=total, owned=owned)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}
@@ -2256,6 +2278,41 @@ def drop_storyboard(name: str, n: int) -> Project:
     _board_guard(name, n)
     _load(name).episode(n)
     return _edit(name, lambda p: pipeline.set_storyboard(p, n, None))
+
+
+# ---------- 4-0. 화별 큐 시트 ----------
+# 쓰기 직전의 큐 시트 (cue.py 의 집필 경로). 만들기는 작업 cues (start_job), 작가 수정 · 뼈대 · 지우기는 여기서.
+# 스토리보드처럼 상태 승인 대상이 아니라 바로 저장한다. 그 화를 맡은 작업이나 자동 집필이 도는 동안은 막는다.
+
+@app.get("/api/projects/{name}/episodes/{n}/cue-sheet")
+def get_cue_sheet(name: str, n: int) -> dict:
+    """Canon 이 센 값: 켜짐, 낡음, 핵심 대사가 들어간 수 (cue.ep_view)."""
+    p = _load(name)
+    p.episode(n)
+    return cue.ep_view(p, n)
+
+
+@app.put("/api/projects/{name}/episodes/{n}/cue-sheet")
+def put_cue_sheet(name: str, n: int, body: CueSheetDraft) -> Project:
+    """작가가 고친 큐 시트를 저장한다. AI · 뼈대 시트를 고치면 made_by 가 both 가 된다."""
+    _board_guard(name, n)
+    _load(name).episode(n)
+    return _edit(name, lambda p: cue.set_episode(p, n, body))
+
+
+@app.post("/api/projects/{name}/episodes/{n}/cue-sheet/board")
+def board_cue_sheet(name: str, n: int) -> Project:
+    """AI 없이 스토리보드 장면(없으면 플롯 사건)마다 큐 하나인 뼈대를 넣는다."""
+    _board_guard(name, n)
+    _load(name).episode(n)
+    return _edit(name, lambda p: cue.set_episode(p, n, cue.from_board(p, n), by="board"))
+
+
+@app.delete("/api/projects/{name}/episodes/{n}/cue-sheet")
+def drop_cue_sheet(name: str, n: int) -> Project:
+    _board_guard(name, n)
+    _load(name).episode(n)
+    return _edit(name, lambda p: cue.set_episode(p, n, None))
 
 
 # ---------- 4-0. 고칠 곳 ----------
@@ -3974,6 +4031,14 @@ def set_storyboard_setting(name: str, body: BoardSetting) -> Project:
     """화별 스토리보드 켜기 · 끄기 (Settings.storyboard). 켜면 쓰기 프롬프트에 직전 화 본문 전체가 들어간다."""
     p = _load(name)
     p.settings.storyboard = body.on
+    return _save(name, p)
+
+
+@app.put("/api/projects/{name}/cue-setting")
+def set_cue_setting(name: str, body: BoardSetting) -> Project:
+    """화별 큐 시트 켜기 · 끄기 (Settings.cue_sheet). 켜면 쓰기 전에 큐 시트를 만들어 쓰기 프롬프트 끝에 넣는다."""
+    p = _load(name)
+    p.settings.cue_sheet = body.on
     return _save(name, p)
 
 

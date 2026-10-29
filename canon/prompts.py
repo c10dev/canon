@@ -2072,10 +2072,12 @@ def marker_block(p: Project) -> str:
             + "\n".join(rows))
 
 
-def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = True) -> str:
+def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = True, use_cues: bool = True) -> str:
     """approach 는 1~3화를 여러 안으로 쓸 때 안마다 다르게 주는 여는 방식(OPENING_APPROACHES).
-    use_board 를 끄면 스토리보드가 있어도 넣지 않는다 (스토리보드 없이 쓰기)."""
+    use_board 를 끄면 스토리보드가 있어도 넣지 않는다 (스토리보드 없이 쓰기).
+    그 화에 큐 시트(Episode.cue_sheet)가 있으면 맨 끝에 붙인다. use_cues 를 끄면 넣지 않는다 (큐 시트 없이 쓰기, 실험의 조건)."""
     rules = opening_rules(p, n, approach)
+    sheet = p.episode(n).cue_sheet if use_cues else None
     flow = ("첫 화이므로 앞 이야기를 요약하거나 설명으로 깔지 않고 장면으로 시작하고, " if n == 1
             else "직전 화 마지막 장면과 자연스럽게 이어지고, ")
     return (
@@ -2088,6 +2090,7 @@ def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = Tru
         "인물의 말투는 speech_style 을 따릅니다."
         + statwin.write_rule(p, n)
         + attire_write_rule(p)
+        + (cue_write_block(p, sheet) if sheet and sheet.cues else "")
     )
 
 
@@ -2285,17 +2288,22 @@ def cue_sheet_block(p: Project, sheet) -> str:
     return "\n".join(out)
 
 
-def cue_score_prompt(p: Project, n: int, sheet) -> str:
-    """큐 시트를 함께 주고 한 번에 쓰기 (조건 score). 앞부분은 episode_prompt 그대로."""
+def cue_write_block(p: Project, sheet) -> str:
+    """한 번에 쓰는 요청 끝에 붙이는 큐 시트와 지시. 집필(episode_prompt)과 실험의 조건 score 가 같은 글을 쓴다."""
     total = sum(c.length for c in sheet.cues) or p.meta.words_per_episode
-    return (episode_prompt(p, n) + "\n\n" + cue_sheet_block(p, sheet)
+    return ("\n\n" + cue_sheet_block(p, sheet)
             + f"\n\n위 큐 시트의 순서와 진행을 따라 이번 화를 처음부터 끝까지 한 번에 씁니다. 큐마다 정한 글자 수를 지켜 전체가 약 {total}자를 넘지 않게 합니다. "
             "문장 길이와 문단 호흡은 스타일 프로필과 문체 예시 문단을 따르고, 템포는 그 안에서 조절합니다. 큐 번호나 머리말을 본문에 쓰지 않습니다.")
 
 
+def cue_score_prompt(p: Project, n: int, sheet) -> str:
+    """큐 시트를 함께 주고 한 번에 쓰기 (조건 score). 앞부분은 큐 시트 없는 episode_prompt 그대로."""
+    return episode_prompt(p, n, use_cues=False) + cue_write_block(p, sheet)
+
+
 def cue_head(p: Project, n: int, sheet) -> str:
     """큐마다 쓰는 조건(cues)의 앞부분. 모든 큐 요청이 이 글로 시작한다."""
-    return (episode_prompt(p, n) + "\n\n" + cue_sheet_block(p, sheet)
+    return (episode_prompt(p, n, use_cues=False) + "\n\n" + cue_sheet_block(p, sheet)
             + "\n\n이번에는 위 큐 시트의 큐를 하나씩 차례로 씁니다. 요청마다 지시한 큐 하나만 씁니다. "
             "앞 큐 본문이 있으면 그 마지막 문장에서 바로 이어 씁니다. 앞 본문을 되풀이하거나 요약하지 않고, 인물과 자리를 다시 소개하지 않습니다. "
             "그 큐의 끝 상태에 닿으면 멈춥니다. 끝 상태는 도착점이지 마지막 문장이 아닙니다. "

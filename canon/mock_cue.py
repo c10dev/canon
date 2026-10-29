@@ -38,5 +38,7 @@ def text_for(prompt: str) -> str | None:
         said = re.findall(r"«(.+?)»", part.group(0) if part else "")
         body = f"서윤은 큐 {k}의 자리에서 숨을 골랐다. 바람이 등대 유리를 두드렸다."
         return body + "".join(f"\n\n\"{x}\"" for x in said) + "\n\n그는 다음 걸음을 옮겼고, 발밑의 모래가 조금 무너졌다."
-    said = re.findall(r"«(.+?)»", sheet)
-    return "바람이 불었다. 서윤은 등대 앞에 섰다." + "".join(f"\n\n\"{x}\"" for x in said) + "\n\n(mock 큐 시트 본문)"
+    if "화 다시 쓰기\n" in prompt:  # 큐 시트가 든 다시 생성은 다시 생성 가짜 본문 (mock.text)
+        return None
+    said = re.findall(r"«(.+?)»", sheet)  # 한 번에 쓰기 (집필 · 실험 조건 score): 기본 가짜 본문 사이에 핵심 대사를 넣는다
+    return "바람이 불었다. 서윤은 등대 앞에 섰다.\n\n\"됐어, 내가 할게.\"" + "".join(f"\n\n\"{x}\"" for x in said) + "\n\n(mock 본문)"

@@ -214,7 +214,7 @@ def test_js_helpers_and_view(demo):
     got = run_js(FILES, """(() => {
       S.project = data.p; S.name = 'demo'; S.route = ['p', 'demo', 'cue', '1'];
       S.cue = data.home; S.cueConds = new Set(['oneshot', 'score', 'cues']);
-      S.cueLab = data.lab; S.cueDraft = structuredClone(data.lab.sheet);
+      S.cueLab = data.lab;
       const flat = { ...data.lab.sheet, cues: data.lab.sheet.cues.map((c) => ({ ...c, tension: 3, function: 'S' })) };
       return {
         parse: cueLinesParse('hero: «안녕»\\n그냥 말\\n\\n a：b \\nx: 넷째', 3),
