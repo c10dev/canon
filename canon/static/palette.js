@@ -1,9 +1,9 @@
 /* 명령 팔레트. app.js 의 S, actions, P, base, esc, navItems, currentEp, saveShortcut, toast, focusMark, findMark, focusEl, STATUS 와
    home.js 의 nextStep 을 쓴다.
    Ctrl+K (macOS 는 ⌘K) 또는 좁은 화면 사이드바 머리의 '찾기'로 연다. 입력칸 안에서도 열린다.
-   작품 안에서는 사이드바 화면(navItems 와 같은 이름), 화, 인물, 설정 칸(칸 이름과 값), 자주 쓰는 동작(다음 할 일, 저장)을 찾는다.
+   작품 안에서는 사이드바 화면(navItems 와 같은 이름), 화, 인물, 설정 칸(칸 이름과 값), 자주 쓰는 동작(다음 할 일, 저장, 알림 창 열기)을 찾는다.
    설정 칸을 고르면 S.jumpTo 에 그 칸을 두고 설정 도우미로 간다. 설정 화면(setup.js)이 기획서로 열고 칸이 든 카드를 펼친다.
-   작품 밖(작품 목록, 설정 등)에서는 작품 목록과 설정 화면만 찾는다.
+   작품 밖(작품 목록, 설정 등)에서는 작품 목록 · 설정 화면 · 알림 창만 찾는다. 알림 창(hub.js)은 알림 버튼이 없을 때도 지난 알림을 연다.
    포커스는 검색 칸에만 두고, 위아래 화살표로 고른 항목은 aria-activedescendant 로 알린다.
    화면을 다시 그려도 남게 #app 밖(body)에 둔다. 닫으면 연 자리로 포커스를 돌린다. */
 'use strict';
@@ -92,10 +92,12 @@ function palContext() {
     설정 칸은 값으로도 찾고(words), focus 는 그 칸의 입력 요소 (setup.js input 의 id 규칙 'f-' + 경로). 검색어가 없을 때는 동작 · 화면만 보인다. */
 function paletteItems(ctx) {
   const settings = { kind: 'screen', label: '모델 · API 키 설정', hint: '', words: '설정', href: '#/settings' };
-  if (!ctx.inProject) return [{ kind: 'screen', label: '작품 목록', hint: '', words: '', href: '#/' }, settings];
+  const hub = { kind: 'act', label: '알림 · AI 작업', hint: '지난 알림', words: '작업 알림', act: 'hub' };
+  if (!ctx.inProject) return [{ kind: 'screen', label: '작품 목록', hint: '', words: '', href: '#/' }, settings, hub];
   const out = [];
   if (ctx.next) out.push({ kind: 'act', label: `다음 할 일 · ${ctx.next[0]}`, hint: '', words: ctx.next[0], href: ctx.next[1] });
   if (ctx.canSave) out.push({ kind: 'act', label: '저장', hint: 'Ctrl+S', words: '', act: 'save' });
+  out.push(hub);
   const { steps, auto, tools, apart, foot } = ctx.nav;
   steps.forEach(([, href, num, label]) => out.push({ kind: 'screen', label, hint: /\d/.test(num) ? `단계 ${num}` : '', words: '', href }));
   out.push({ kind: 'screen', label: auto[3], hint: '', words: '', href: auto[1] });
@@ -145,7 +147,7 @@ function paletteMatch(items, q) {
 }
 
 const pal = { items: [], shown: [], sel: 0, opener: null, mark: null };
-const PAL_BEHIND = ['#app', '#jobs', '#savebar'];  // 열린 동안 누를 수 없게 둔다. 알림(#toast)은 계속 읽히게 둔다
+const PAL_BEHIND = ['#app', '#hub-pop', '#savebar'];  // 열린 동안 누를 수 없게 둔다. 알림 말풍선(#toast)은 계속 읽히게 둔다
 
 function paletteOpen() {
   const open = document.getElementById('palette');
@@ -256,6 +258,8 @@ function palPick(it) {
     if (location.hash !== it.href) location.hash = it.href;
   } else if (it.act === 'save' && !saveShortcut()) {
     toast('저장할 변경이 없어요');
+  } else if (it.act === 'hub') {
+    hubOpen();
   }
 }
 
