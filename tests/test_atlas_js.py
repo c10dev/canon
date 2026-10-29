@@ -216,3 +216,69 @@ def test_place_label_moves_off_character_token():
     b = _boxes(r, 1.0)[0]
     assert not (b[0] < t[2] and b[2] > t[0] and b[1] < t[3] and b[3] > t[1])
     assert r["taken"][3] == t  # 표 상자는 그대로 남아 뒤의 구역 · 길 이름도 비켜 간다
+
+
+def test_ink_follows_style_and_print_gets_dash():
+    # 인물 차례 i 는 열 색을 돌아 쓰고, 흑백 인쇄만 인물마다 다른 점선 무늬를 받는다
+    assert _calc("atlasInk", 12, "base") == {"n": 2, "color": "var(--v-ink2)", "dash": None}
+    assert _calc("atlasInk", 3, "parchment")["dash"] is None and _calc("atlasInk", 3, "night")["dash"] is None
+    prints = [_calc("atlasInk", i, "print") for i in range(10)]
+    assert [p["color"] for p in prints] == [f"var(--v-ink{i})" for i in range(10)]
+    assert prints[0]["dash"] is None and all(p["dash"] for p in prints[1:])  # 첫 인물은 실선
+    assert len({json.dumps(p["dash"]) for p in prints}) == 10  # 열 무늬가 모두 다르다
+    assert _calc("atlasInk", 13, "print") == prints[3]
+
+
+def test_ink_variables_in_every_style():
+    # 화풍마다 --v-ink0 … --v-ink9 를 차례대로 정하고, 견본(.at-sw)도 같은 규칙을 읽는다
+    src = ATLAS.read_text(encoding="utf-8")
+    for sel in [".at-map, .at-sw {", ".at-map.st-parchment, .at-sw.st-parchment {", ".at-map.st-night, .at-sw.st-night {", ".at-map.st-print, .at-sw.st-print {"]:
+        body = src[src.index(sel):src.index("}", src.index(sel))]
+        names = re.findall(r"--v-ink(\d)", body)
+        assert names == [str(i) for i in range(10)], sel
+        assert "--v-halo" in body and "--v-ink-text" in body
+    pr = src[src.index(".at-map.st-print, .at-sw.st-print {"):]
+    inks = re.findall(r"--v-ink\d: (#[0-9A-F]{6})", pr[:pr.index("}")])
+    assert all(c in ("#000000", "#333333") for c in inks)  # 흑백 인쇄는 검정 계열
+
+
+def test_trail_dots_keep_all_when_apart():
+    spread = [[{"x": 0, "y": 0, "ep": 1}, {"x": 100, "y": 0, "ep": 2}, {"x": 200, "y": 0, "ep": 3}]]
+    assert _calc("atlasTrailDots", spread, 5) == spread
+
+
+def test_trail_dots_keep_first_and_last_when_crowded():
+    # 배율이 낮아 점이 모두 겹치면 처음 · 끝만 남는다
+    crowded = [[{"x": i * 4, "y": 0, "ep": i + 1} for i in range(6)]]
+    kept = _calc("atlasTrailDots", crowded, 5)[0]
+    assert [d["ep"] for d in kept] == [1, 6]
+    # 처음과 끝도 겹치면 끝만
+    two = [[{"x": 0, "y": 0, "ep": 1}, {"x": 3, "y": 0, "ep": 2}]]
+    assert [d["ep"] for d in _calc("atlasTrailDots", two, 5)[0]] == [2]
+    # 가운데 점은 다른 인물의 처음 · 끝과 겹쳐도 빠진다. 처음 · 끝은 인물마다 남는다
+    a = [{"x": 0, "y": 0, "ep": 1}, {"x": 100, "y": 0, "ep": 2}, {"x": 200, "y": 0, "ep": 3}]
+    b = [{"x": 102, "y": 0, "ep": 1}, {"x": 300, "y": 0, "ep": 4}]
+    ka, kb = _calc("atlasTrailDots", [a, b], 5)
+    assert [d["ep"] for d in ka] == [1, 3] and [d["ep"] for d in kb] == [1, 4]
+
+
+def test_trail_marks_arrows_and_dots_on_the_path():
+    # 0,0 → 100,0 → 100,100 를 지나는 길. 장소를 갈아탄 꼭짓점은 0(1화) · 1(2화) · 2(3화)
+    pts = [[0, 0], [100, 0], [100, 100]]
+    stops = [{"i": 0, "ep": 1}, {"i": 1, "ep": 2}, {"i": 2, "ep": 3}]
+    m = _calc("atlasTrailMarks", pts, stops, 1, 4)
+    assert m["r"] == 7 and m["size"] == 14
+    # 화살표는 두 장소 사이 길 가운데, 가는 쪽을 본다
+    assert [(round(a["x"]), round(a["y"])) for a in m["arrows"]] == [(50, 0), (100, 50)]
+    assert round(m["arrows"][1]["a"], 3) == round(3.14159265 / 2, 3)
+    # 점은 장소 핀(반지름 7) 바깥: 처음은 떠나는 길 위, 나머지는 도착하는 길 위로 7 + 7 + 1 만큼 물러난다
+    assert [(round(d["x"]), round(d["y"]), d["ep"]) for d in m["dots"]] == [(15, 0, 1), (85, 0, 2), (100, 85, 3)]
+    # 화살표 길이의 네 배보다 짧은 길에는 화살표를 넣지 않는다
+    short = _calc("atlasTrailMarks", [[0, 0], [40, 0]], [{"i": 0, "ep": 1}, {"i": 1, "ep": 2}], 1, 4)
+    assert short["arrows"] == []
+
+
+def test_marks_shrink_when_zoomed_out():
+    z1 = _calc("atlasTrailMarks", [[0, 0], [400, 0]], [{"i": 0, "ep": 1}, {"i": 1, "ep": 2}], 1, 1)
+    z4 = _calc("atlasTrailMarks", [[0, 0], [400, 0]], [{"i": 0, "ep": 1}, {"i": 1, "ep": 2}], 1, 4)
+    assert z1["size"] < z4["size"] and z1["r"] < z4["r"]
