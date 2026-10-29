@@ -1,4 +1,5 @@
 /* 지도 내보내기 (atlas.js 에서 뗐다): 확대와 상관없이 지도 전체를 SVG 나 PNG 로 내려받는다.
+   제목 틀 · 축척 막대 · 출처 글은 atlasSvg 의 장식(atlasDeco)이 함께 그린다.
    app.js 의 S, actions, run, P 와 atlas.js 의 atlasSvg · atlasH · ATLAS_W · atlasExporting 을 쓴다. */
 'use strict';
 
@@ -34,28 +35,27 @@ function atlasExportSvg() {
       return [c, 1];
     };
     const props = ['fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-linecap', 'stroke-linejoin', 'opacity', 'font-size', 'font-weight', 'font-family', 'paint-order', 'text-anchor', 'dominant-baseline'];
-    svg.querySelectorAll('*').forEach((el) => {
+    // 모두 먼저 읽고 나서 적는다. 읽으며 class 를 지우면 '.at-tok text' 처럼 부모 class 로 고르는 규칙이 자식에서 빠진다
+    const all = [...svg.querySelectorAll('*')];
+    all.map((el) => {
       const cs = getComputedStyle(el);
-      el.setAttribute('style', props.map((p) => {
+      return props.map((p) => {
         const v = cs.getPropertyValue(p);
         if (!v) return '';
         if (p !== 'fill' && p !== 'stroke') return `${p}:${v}`;
         const [c, a] = color(v);
-        return `${p}:${c}${a < 1 ? `;${p}-opacity:${a}` : ''}`;
-      }).filter(Boolean).join(';'));
-      el.removeAttribute('class');
-      el.removeAttribute('tabindex');
+        // CSS 의 fill-opacity · stroke-opacity(지은 건물 · 쓰임 색 · 구역)는 색의 불투명도와 곱해 적는다
+        const raw = cs.getPropertyValue(`${p}-opacity`);
+        const o = a * (raw === '' ? 1 : Number(raw));
+        return `${p}:${c}${o < 1 ? `;${p}-opacity:${Number(o.toFixed(3))}` : ''}`;
+      }).filter(Boolean).join(';');
+    }).forEach((st, i) => {
+      all[i].setAttribute('style', st);
+      all[i].removeAttribute('class');
+      all[i].removeAttribute('tabindex');
     });
     svg.querySelectorAll('.at-hit, title').forEach((el) => el.remove());
-    const t = S.atlas.title;
-    if (t && t.title && S.atlasLayers.title && atlasVillage()) {
-      // 마을 이름 글자 · 테두리는 고른 화풍의 글자 · 바탕색 (.at-map 의 --text · --canvas)
-      const cs = getComputedStyle(svg);
-      const ink = color(cs.color)[0];
-      const halo = color(cs.getPropertyValue('--canvas').trim() || '#fff')[0];
-      svg.insertAdjacentHTML('beforeend', `<text x="24" y="44" style="font-size:30px;font-weight:700;fill:${ink};paint-order:stroke;stroke:${halo};stroke-opacity:.8;stroke-width:5px">${esc(t.title)}</text>
-        <text x="24" y="70" style="font-size:15px;fill:${ink};paint-order:stroke;stroke:${halo};stroke-opacity:.8;stroke-width:4px">인구 약 ${t.population.toLocaleString()}명</text>`);
-    }
+    svg.querySelectorAll('[data-action]').forEach((el) => { el.removeAttribute('data-action'); el.removeAttribute('data-arg'); });
     svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
     svg.setAttribute('width', ATLAS_W);
     svg.setAttribute('height', atlasH());

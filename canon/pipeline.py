@@ -3042,25 +3042,26 @@ def suggest_map(llm: LLM, p: Project, spec: MapSpec | None = None) -> dict:
     돌려주는 것: 지도 종류 kind(village | city | modern), 설정 칸(size, roads, water, fields, forest), places [{key, name, kind, put, note}], reason.
     spec.kind 는 지도 화면에서 지금 고른 종류로 프롬프트에 알린다 (뚜렷한 근거가 없으면 따르게).
     도시에 호수를 고르면 강으로, 현대 동네에 호수 · 바다를 고르면 하천으로 바꾼다 (생성기에 그 칸이 없다).
-    장소 종류는 모든 지도가 같은 id (placekinds.CATEGORIES) 를 쓰고, 현대 동네에서 놓이는 자리(moderngen.PLACE_KINDS)를 프롬프트에 함께 적는다.
-    장소 이름은 키로 바꾸고, 모르는 장소 · 모르는 종류 id 는 뺀다 (지금 값을 그대로 둔다)."""
-    from . import atlas, moderngen, placekinds
+    장소 종류는 지도 종류의 시대(placekinds.era_of)를 따른다. AI 가 지도 종류를 함께 고르므로 프롬프트에는 시대마다 종류 목록(kinds_for)을 적고,
+    받은 id 는 AI 가 고른 지도 종류의 목록(kind_ids(s.kind))으로 거른다.
+    장소 이름은 키로 바꾸고, 모르는 장소 · 그 지도 종류에 없는 종류 id 는 뺀다 (지금 값을 그대로 둔다)."""
+    from . import atlas, placekinds
 
     pls = atlas.places(p)
     if not pls:
         raise ValueError("장소가 아직 없어요. 장소를 더한 뒤 제안을 받으세요")
     rows = atlas.gen_places(p, spec)
-    kinds = [(cid, label) for cid, label, _ in placekinds.CATEGORIES]
     options = {k: m[1].OPTIONS for k, m in atlas.MAKERS.items()}
+    kinds = {k: [(x.id, x.label) for x in placekinds.kinds_for(k)] for k in options}
     s = llm.json(prompts.SYSTEM_MAP_PLANNER,
-                 prompts.map_suggest_prompt(p, rows, pls, kinds, options, moderngen.PLACE_KINDS, spec.kind if spec else ""), MapSuggestion,
+                 prompts.map_suggest_prompt(p, rows, pls, kinds, options, spec.kind if spec else ""), MapSuggestion,
                  hint={"places": [r["name"] for r in rows], "kind": spec.kind if spec else ""})
     names = {pl["key"]: pl["name"] for pl in pls}
-    out, seen = [], set()
+    out, seen, ids = [], set(), set(placekinds.kind_ids(s.kind))
     for g in s.places:
         key = atlas.place_by_name(g.name, pls)
         kind = g.kind.strip()
-        if not key or key in seen or kind not in placekinds.CATEGORY_IDS:
+        if not key or key in seen or kind not in ids:
             continue
         seen.add(key)
         out.append({"key": key, "name": names[key], "kind": kind, "put": bool(g.put), "note": g.note.strip()})

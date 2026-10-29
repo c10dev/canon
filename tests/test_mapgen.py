@@ -165,7 +165,7 @@ def test_gen_places_and_overrides():
     assert rows["el-10"]["put"] and rows["el-1"]["kind"] == "center"  # 모르는 종류 id 는 찾은 값으로
     info = atlas.gen_info(p)
     assert not info["made"] and info["spec"]["kind"] == "village" and info["options"]["village"]["water"]["sea"] == "바다" and "lake" not in info["options"]["city"]["water"]
-    assert {"id": "inn", "label": "여관 · 주막"} in info["kinds"]
+    assert {"id": "inn", "label": "여관 · 주막"} in info["kinds"]["village"] and info["eras"]["village"] == "old"
 
 
 def test_generate_preview_and_apply(tmp_path):
@@ -314,16 +314,16 @@ def test_suggest_map_kind():
 
 
 def test_suggest_map_modern():
-    """현대 동네: 호수 · 바다는 하천으로, 장소 종류는 같은 id 에 현대 동네 자리를 함께 적고, 화면에서 고른 지도 종류를 알린다."""
+    """현대 동네: 호수 · 바다는 하천으로, 장소 종류는 현대 종류 id, 화면에서 고른 지도 종류를 알린다."""
     for water, want in (("sea", "river"), ("lake", "river"), ("none", "none")):
         llm = _Fixed(MapSuggestion(kind="modern", size="medium", roads="cross", water=water, fields="few", forest="some",
-                                   places=[MapPlaceGuess(name="달빛 주막", kind="inn")], reason="현대 배경이에요."))
+                                   places=[MapPlaceGuess(name="달빛 주막", kind="hotel")], reason="현대 배경이에요."))
         r = pipeline.suggest_map(llm, _project(), MapSpec(kind="modern"))
-        assert (r["kind"], r["water"], r["places"][0]["kind"]) == ("modern", want, "inn")
+        assert (r["kind"], r["water"], r["places"][0]["kind"]) == ("modern", want, "hotel")
     assert "## 현대 동네 (kind=modern)" in llm.prompt and "water: none(없음), river(하천)" in llm.prompt
-    assert "- inn: 여관 · 주막 / 현대 동네: 호텔 · 모텔" in llm.prompt and "- field: 밭 · 농장 / 현대 동네: 없음" in llm.prompt
+    assert "- hotel: 호텔 · 모텔" in llm.prompt and "/ 현대 동네:" not in llm.prompt
     assert "지금 고른 지도: 현대 동네 (kind=modern)" in llm.prompt
-    assert "지도 화면에서 지금 고른" not in prompts.map_suggest_prompt(_project(), [], [], [], {})
+    assert "지도 화면에서 지금 고른" not in prompts.map_suggest_prompt(_project(), [], [], {}, {})
     mock = pipeline.suggest_map(get_llm("plan"), _project(), MapSpec(kind="modern", water="sea"))
     assert (mock["kind"], mock["water"]) == ("modern", "river")  # 등대 · 수산시장이 바다를 바라도 현대 동네는 하천
     assert set(mock) >= set(moderngen.OPTIONS) and mock["fields"] in towngen.OPTIONS["fields"]
@@ -377,14 +377,13 @@ def test_suggest_map_cleans_names_and_kinds():
 
 def test_map_suggest_prompt_has_setting():
     p = _project()
-    text = prompts.map_suggest_prompt(p, atlas.gen_places(p), atlas.places(p), [(c, l) for c, l, _ in towngen.CATEGORIES],
+    text = prompts.map_suggest_prompt(p, atlas.gen_places(p), atlas.places(p), {"village": [(c, l) for c, l, _ in towngen.CATEGORIES]},
                                   {"village": towngen.OPTIONS, "city": citygen.OPTIONS})
     assert f"배경: {p.world.setting}" in text and "장르: " in text and "- 흑송촌 (다른 이름: 흑송 마을): 산 아래 마을" in text
     assert "## 도시 (kind=city)" in text and "roads" not in text.split("## 도시")[1].split("요구사항")[0]
-    text = prompts.map_suggest_prompt(p, atlas.gen_places(p), atlas.places(p), [(c, l) for c, l, _ in towngen.CATEGORIES],
-                                      {k: m[1].OPTIONS for k, m in atlas.MAKERS.items()}, moderngen.PLACE_KINDS)
+    text = prompts.map_suggest_prompt(p, atlas.gen_places(p), atlas.places(p), {"village": [(c, l) for c, l, _ in towngen.CATEGORIES]},
+                                      {k: m[1].OPTIONS for k, m in atlas.MAKERS.items()})
     assert "## 현대 동네 (kind=modern)" in text and "modern(현대 동네)" in text
-    assert set(moderngen.PLACE_KINDS) == set(towngen.CATEGORY_IDS)  # 종류마다 현대 동네 자리
 
 
 def test_web_suggest_and_cli_ai(tmp_path, monkeypatch, capsys):

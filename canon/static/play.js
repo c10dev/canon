@@ -1,5 +1,5 @@
 /* 플레이 모드 화면 (DESIGN.md 10장, 시안 안 A 읽기형): 새 플레이(#/play/new, #/play/new/<세계>), 플레이(#/play/<폴더>),
-   지난 일 · 되감기(/past), 생애 기록(/life). 작품 목록의 플레이 줄(playRows)과 작품 홈 카드(playHomeCard)도 여기 있다.
+   지난 일 · 되감기(/past), 생애 기록(/life). 작품 홈 카드(playHomeCard)도 여기 있다. 작품 목록의 플레이 줄은 home.js plGroupRows.
    시계는 화면에 있다. 써 둔 구간의 흘러간 일을 한 줄씩 보이고, 새 구간의 첫 줄이 보이면 서버에 닿았다고 알린다(see).
    서버는 닿은 구간보다 한 구간 넘게 앞서 쓰지 않는다 (web._play_continue). 시계 규칙(playItems · playGap · playPhase ·
    playTick · playClock)은 DOM 없는 순수 함수라 tests/test_play_js.py 가 node 로 맞춰 본다. */
@@ -761,21 +761,7 @@ function viewPlayNew() {
       <span class="small">${ready ? '첫 구간을 쓰는 데 30초쯤 걸려요. 다 쓰면 시간이 흐르기 시작해요' : f.mode === 'char' ? '될 인물을 고르세요' : '출생 카드의 배경을 채우면 시작할 수 있어요'}</span></div>`;
 }
 
-// ---------- 작품 목록 · 작품 홈 (home.js 가 부른다) ----------
-
-/** 세계 작품 카드 안의 플레이 줄. */
-function playRows(plays, manage) {
-  if (!plays.length) return '';
-  const row = (x) => {
-    const q = x.play;
-    const sub = [q.origin === 'random' ? '무작위 출생' : '세계 인물', q.days ? `작품 속 ${q.days}일` : '', `결정 ${q.decisions}번`, q.ending || (q.waiting ? '결정을 기다리는 중' : '')].filter(Boolean).join(' · ');
-    const href = `#/play/${enc(x.name)}${q.ending ? '/life' : ''}`;
-    return `<li class="play-row"><span class="chip${q.ending ? '' : ' finalized'}">${q.ending ? '끝남' : '진행 중'}</span>
-      <div class="pcol"><a href="#/play/${enc(x.name)}"><strong>${esc(q.title)}</strong></a><span class="small">${esc(sub)}</span></div>
-      <a class="btn small" href="${href}">${q.ending ? '생애 기록' : '이어 하기'}</a>${manage(x, q.title)}</li>`;
-  };
-  return `<details class="branch-list play-list"${plays.some((x) => !x.play.ending) ? ' open' : ''}><summary class="small">플레이 ${plays.length}개 보기</summary><ul>${plays.map(row).join('')}</ul></details>`;
-}
+// ---------- 작품 홈 (home.js 가 부른다). 작품 목록의 플레이 줄은 home.js plGroupRows ----------
 
 /** 작품 홈을 열 때 그 작품이 플레이 사본인지 알아 둔다 (app.js routeNow). 사본이면 플레이 정보, 아니면 null. */
 async function playHomeLoad() {

@@ -206,8 +206,10 @@ function writeGo(n, blocked) {
 
 /** 머리 primary 자리의 진행 줄: 작업 이름 · 경과 · 멈추기 (멈추기는 app.js 의 data-job-stop 처리) */
 function wsBusy(j) {
-  return `<div class="w-busy" role="status" aria-label="${esc(j.label)} 만드는 중, 경과 ${elapsed(j)}">
-      <div class="w-busy-text"><strong>${esc(j.label)} 만드는 중</strong><span class="small">경과 ${elapsed(j)}</span><i aria-hidden="true"></i></div>
+  // 다시 그려도 막대가 처음부터 돌지 않게, 지난 시간만큼 애니메이션을 앞당겨 시작한다 (한 바퀴 1.2초, app.css .w-busy-text i)
+  const lag = (Math.max(0, Date.now() / 1000 - j.started) % 1.2).toFixed(2);
+  return `<div class="w-busy" role="status" aria-label="${esc(j.label)} 만드는 중">
+      <div class="w-busy-text"><strong>${esc(j.label)} 만드는 중</strong><span class="small" data-elapsed="${esc(j.id)}">경과 ${elapsed(j)}</span><i aria-hidden="true" style="animation-delay:-${lag}s"></i></div>
       <button type="button" class="btn small" data-job-stop="${j.id}">멈추기</button></div>`;
 }
 
