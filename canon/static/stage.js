@@ -260,6 +260,12 @@ function stgNewContactId() {
 const STG_COLORS = ['var(--pair-a)', 'var(--pair-b)', 'var(--ava-support)', 'var(--tension-mid)', 'var(--warm-deep)', 'var(--ava-minor)'];
 const stgColor = (who) => STG_COLORS[Math.max(0, S.stg.scene.cast.indexOf(who)) % STG_COLORS.length];
 const stgV = () => S.stg.view.vocab;
+/** 지적 앞 규칙 이름. 3D 규칙(높이 · 몸 겹침 · 가구 · 받침 · 천장)은 '3D' 를 붙인다 (stage.vocab 의 rules · rules3d). */
+function stgRuleTag(rule) {
+  const v = (S.stg && S.stg.view && S.stg.view.vocab) || {}, name = (v.rules || {})[rule];
+  if (!name) return '';
+  return `<span class="chip">${(v.rules3d || []).includes(rule) ? '3D · ' : ''}${esc(name)}</span> `;
+}
 
 /** 평면도 비율: 방이 520 x 400 안에 들게. */
 function stgScale(room) {
@@ -748,7 +754,7 @@ function viewStage(n) {
   const right = `${stgAiBtn()}${undo}${save}<button type="button" class="btn small ghost danger" data-action="stgDelete">장면 지우기</button>`;
   const notes = [];
   if (ck.event_changed) notes.push(`<div class="note warn" role="status">플롯 사건이 바뀌었어요. 이 장면은 "${esc(g.scene.event_text)}" 사건으로 짠 것이에요.</div>`);
-  if (ck.violations.length) notes.push(`<div class="note warn" role="status"><b>규칙 검수 ${ck.violations.length}개</b><ul class="stg-viol">${ck.violations.map((x) => `<li><a href="#" data-action="stgBeat" data-arg="${x.beat}">${x.beat}박자</a> ${esc(x.text)}</li>`).join('')}</ul></div>`);
+  if (ck.violations.length) notes.push(`<div class="note warn" role="status"><b>규칙 검수 ${ck.violations.length}개</b><ul class="stg-viol">${ck.violations.map((x) => `<li><a href="#" data-action="stgBeat" data-arg="${x.beat}">${x.beat}박자</a> ${stgRuleTag(x.rule)}${esc(x.text)}</li>`).join('')}</ul></div>`);
   const gaps = stgGaps();
   if (g.role === 'text') notes.push(`<div class="note plain">본문에서 뽑은 추출 결과예요. 고쳐도 계획 장면은 바뀌지 않아요.${ck.pair ? '' : ' 이 사건에는 견줄 계획 장면이 없어요.'}</div>`);
   if (gaps.length) notes.push(`<div class="note plain" role="status"><b>계획과 다른 곳 ${gaps.length}개</b> <span class="small">사소한 차이예요. 본문 쪽 연출이 더 나을 수도 있어요.</span><ul class="stg-viol">${gaps.map((x) => `<li><a href="#" data-action="stgBeat" data-arg="${x.k}">${x.k === 0 ? '시작 상태' : `${x.k}박자`}</a> ${esc(x.text)}</li>`).join('')}</ul></div>`);

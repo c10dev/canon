@@ -44,7 +44,7 @@
 
 ### 관절 각도 `Angles` (도, 굽힘이 +)
 
-시안의 자세 표와 같은 칸: `pelvis_h`(바닥 또는 앉는 면에서 골반까지 m), `pitch`(몸 전체 앞 +), `roll`(옆으로 눕기 +는 오른쪽이 아래), `spine`(허리 앞굽힘), `shoulder` · `abduct` · `elbow` · `hip` · `knee` · `leg_abduct`(모두 `(왼, 오른)`), `shift`(향한 쪽으로 옮김 m, 의자에 앉기 −0.13).
+시안의 자세 표와 같은 칸: `pelvis_h`(바닥 또는 앉는 면에서 골반까지 m), `pitch`(몸 전체 앞 +), `roll`(옆으로 눕기 +는 오른쪽이 아래), `spine`(허리 앞굽힘), `shoulder` · `abduct` · `elbow` · `hip` · `knee` · `leg_abduct` · `hip_rot`(넓적다리 축 둘레 돌림, +는 바깥돌림: 무릎을 굽히면 발이 몸 가운데로) · `ankle`(+는 발끝을 편다, −는 발등 쪽으로 젖힌다)(모두 `(왼, 오른)`), `shift`(향한 쪽으로 옮김 m, 의자에 앉기 −0.13). `hip_rot` · `ankle` 은 07 이 더했다(기본 0 이면 예전과 같은 몸).
 
 ### 자세 모듈이 내는 것 `PostureSpec`
 
@@ -60,12 +60,13 @@ class PostureSpec:
     angles: Angles
     surface: tuple[str, ...]                  # 놓일 수 있는 면: floor · seat · lie · top · back_support · carrier
     reach: Reach = Reach()
-    feet_to_floor: bool = False               # 앉는 면이 0.45m 와 다르면 무릎을 고쳐 발을 바닥에 댄다
+    feet_to_floor: bool = False               # 앉는 면이 0.45m 와 다르면 무릎 · 엉덩 · 발목을 고쳐 발을 바닥에 댄다
     place_hook: Optional[Callable[[PlaceCtx], Placement]] = None   # 기대기 · 매달기 같은 특수 배치
+    head: tuple[float, float] = (70, 35)      # 고개 돌림 한도(좌우, 위아래 도). 엎드리기는 (70, 0)
 ```
 
 - `surface` 의 뜻: `floor` 바닥, `seat` 앉을 수 있는 기준점(`sit` 참)의 앉는 면, `lie` 누울 수 있는 기준점(`lie` 참)의 눕는 면, `top` 기준점 윗면(침대 위에 선다), `back_support` 등 뒤에 벽 · 기준점, `carrier` 다른 인물이 받친다.
-- `place_hook` 은 `PlaceCtx`(인물, 상태, 평면 좌표, 방, 가구, 다른 인물의 배치)를 받아 `Placement`(평면 x · y, yaw, 바닥 높이, 매단 인물 id)를 돌려준다. 없으면 공통 배치를 쓴다.
+- `place_hook` 은 `PlaceCtx`(인물, 상태, 평면 좌표, 방, 가구, 다른 인물의 배치)를 받아 `Placement`(평면 x · y, yaw, 바닥 높이, 매단 인물 id, 선택으로 각도 `angles`)를 돌려준다. 없으면 공통 배치를 쓴다. `angles` 를 주면 그 박자의 몸을 자세 표 대신 그 각도로 만든다(옆으로 눕기가 향함에 따라 roll ±90 을 고른다, 07).
 
 ### 장소 모듈이 내는 것 `RoomSpec`
 
@@ -146,7 +147,7 @@ class RoomSpec:
    "bodies": {"h": {"posture": "chair", "missing": null, "attach": null,
                     "joints": {"pelvis": [x, y, z], "neck": […], "head": […], "shoulder_l": […], "elbow_l": […], "wrist_l": […], "hand_l": […],
                                "hip_l": […], "knee_l": […], "ankle_l": […], "toe_l": […], "…_r": […]}}},
-   "contacts": [{"id": "c1", "who": "d", "to": "h", "part": "wrist_l", "hands": ["r"], "gap": 0.642, "points": [[…], […]]}]}]}
+   "contacts": [{"id": "c1", "who": "d", "to": "h", "part": "wrist_l", "act": "hold", "by": "right", "hands": ["r"], "gap": 0.642, "points": [[…], […]]}]}]}
 ```
 
 `solids` 의 상자는 기준점 `rot` 을 반영한 세계 좌표의 축 맞춤 상자다(`rot` 은 90° 단위라 축 맞춤으로 충분하다).
@@ -179,10 +180,14 @@ class RoomSpec:
 
 - 등록: `canon/stage3d/postures/<자세 id>.py` 에 `POSTURE`, `canon/stage3d/rooms/<틀 id>.py` 에 `ROOM` 을 두기만 하면 `postures.load()` · `rooms.load()` 가 `pkgutil.iter_modules` 로 찾는다(`_` 로 시작하는 파일은 건너뜀, 결과는 캐시). 파일 이름과 `id` · `template` 이 다르면 `ValueError`.
 - 시험에서 등록부 바꾸기: `frames(scene, room, postures=fake.POSTURES, rooms=fake.ROOMS)` 또는 `monkeypatch.setattr(canon.stage3d.postures, "load", lambda: {...})`.
-- `PlaceCtx` 칸: `who`, `now`, `state`, `pos`(stage.place), `xy`, `yaw`(향함), `base`(공통 배치 바닥 높이), `room`, `spec`, `solids`, `bodies`(이미 놓인 인물의 `Body`. 특수 배치 없는 인물이 먼저 놓이고, 특수 배치 인물은 장면 cast 순). `Placement.yaw` 는 몸 앞이 평면 (sin yaw, cos yaw) 인 각(라디안).
+- `PlaceCtx` 칸: `who`, `now`, `state`, `pos`(stage.place), `xy`, `yaw`(향함), `base`(공통 배치 바닥 높이), `room`, `spec`, `solids`, `bodies`(이미 놓인 다른 인물의 `Body`. 특수 배치 없는 인물이 먼저 놓인다. 특수 배치는 두 번 돈다: 첫 번은 장면 cast 순, 두 번째는 모든 다른 인물의 첫 번 몸을 보고 다시. 받치는 사람이 기대 서기처럼 특수 배치 자세이고 cast 뒤쪽이어도 찾는다, 07). `Placement.yaw` 는 몸 앞이 평면 (sin yaw, cos yaw) 인 각(라디안).
 - `Body`: `joints()` · `part_point(id)` · `capsules()` · `head_top()` · `left()`, IK 뒤 `lean`(더 숙인 도) · `twist`(라디안). 모듈 함수 `pose` · `reach_to` · `look_at` · `penetration` · `feet_down` · `hand_targets`.
 - 공통 배치의 면: 자리가 기준점 `on` · `in` 이면 자세 `surface` 순서대로 `seat` · `lie` 를, `top` 은 `on` 일 때만 본다(책상 `in` 에 선 사람은 바닥). 윗면 높이는 눕는 면 → 앉는 면 → 단단한 상자 꼭대기 순(`furniture.top`). 자세가 비어 있으면 '서기'로 본다(시안과 같음).
-- `frames` 는 아직 박자마다 `stage.place` 를 부른다. 일감 1-1 의 `stage.layouts` 가 병합되면 그것으로 바꾼다(`body.frames` 의 주석).
+- `frames` 는 `stage.layouts`(박자마다 앞 박자 좌표를 넘김)로 평면 판정과 같은 좌표를 쓴다(07).
+- 향함이 비었을 때 몸 방향(`body.default_facing`, 07): 기준점 위 · 안 · 기대기면 그 기준점 앞, 손을 뻗는 접촉이 있으면 그 사람 쪽, 기준점 옆 자리면 그 기준점 앞(가구를 등지고 방을 본다), 다른 인물 기준 자리면 그 인물 쪽, 아니면 +y. 평면 판정은 여전히 향함을 모르는 것으로 둔다.
+- `feet_down`(07): 무릎만으로 발이 닿지 않으면 엉덩 굽힘을 30°(`FEET_HIP`)까지 줄이고, 발목으로 발을 바닥과 나란히, 그래도 뜨면 발끝을 편다. 결과는 (각도, 면 높이)마다 캐시한다(자리 · 방향과 상관없음).
+- 손 IK 의 몸통 비틀기는 대상이 옆(120° 안)에 있어도 하고, 숙이기는 앞에 있을 때만 한다(07).
+- 발 캡슐과 발끝은 발목에서 시작하는 발 뼈(`ft_l` · `ft_r`)에 붙는다. 부위 점 `foot` 도 같다(발목 0 이면 예전 좌표).
 - 접촉 `points` 는 (손끝, 목표) 짝을 차례로 적는다: 한 손 2점, 두 손 4점. `gap` 은 두 손이면 큰 쪽. 고개를 먼저 돌린 뒤 IK 를 푼다(얼굴 부위 점이 목표일 때).
 - 쟀다: 인물 4명 · 박자 20개 `frames` 약 32ms(이 기기, `tests/test_stage3d_body.py::test_frames_speed` 가 찍는다. 시험 문턱은 느린 기기를 위해 0.5초).
 

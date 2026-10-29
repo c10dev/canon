@@ -69,7 +69,7 @@ def test_frames_judge_only_when_complete(client, monkeypatch, fake_reg):
 
     scene = _scene(client)
     judge = types.ModuleType("canon.stage3d.judge")
-    judge.judge3d = lambda sc, room, p: [stage.Violation(beat=1, cause=1, who="h", rule="headroom", text="머리가 천장에 닿아요")]
+    judge.judge3d = lambda sc, room, p, **kw: [stage.Violation(beat=1, cause=1, who="h", rule="headroom", text="머리가 천장에 닿아요")]
     monkeypatch.setitem(sys.modules, "canon.stage3d.judge", judge)
     monkeypatch.setattr(stage3d, "judge", judge, raising=False)
     url = f"/api/projects/st/stage/1/{scene['id']}/frames"

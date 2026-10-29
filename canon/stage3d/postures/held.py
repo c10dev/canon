@@ -7,8 +7,11 @@ from typing import Optional
 from ... import stage
 from ..body import Angles, PlaceCtx, Placement, PostureSpec, Reach
 
-ANGLES = Angles(1.05, pitch=6, spine=10, shoulder=(80, 80), abduct=(18, 18), elbow=(50, 50), hip=(75, 75), knee=(85, 85),
-                leg_abduct=(38, 38))  # pelvis_h 는 받치는 사람이 없을 때
+# 07 사진 검토에서 고침: 기울기 6 · 허리 10 이면 업힌 머리가 업은 머리를 8~11cm 파고들어 몸을 세웠다(기울기 0 · 허리 5).
+# 다리 벌림 38 은 무릎이 업은 골반 옆 0.37m 로 벌어져 28 로 좁혔다(무릎이 골반 옆 약 0.3m 에서 허리를 감는다).
+# 팔은 frames 가 업은 사람 가슴(업힘) · 목뒤(안겨 들림)로 감는다(body.wrap_carrier). 아래 어깨 · 팔꿈치는 받치는 사람이 없을 때 값
+ANGLES = Angles(1.05, pitch=0, spine=5, shoulder=(80, 80), abduct=(18, 18), elbow=(50, 50), hip=(85, 85), knee=(90, 90),
+                leg_abduct=(28, 28))  # pelvis_h 는 받치는 사람이 없을 때
 
 BACK = (-0.30, 0.12)   # 업힘: 받치는 사람 골반에서 앞쪽 m, 위 m (같은 방향)
 FRONT = (0.25, 0.12)   # 안겨 들림: 골반 앞 · 위 (마주 봄)

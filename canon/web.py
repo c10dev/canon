@@ -2348,7 +2348,7 @@ def _stage_view(name: str, p: Project, n: int) -> dict:
     for x in _stage_proposals(name, n):
         prop = StageProposal.model_validate(x)
         room = prop.room or stage.room_of(p, prop.scene)
-        props.append({**prop.model_dump(), "violations": [v.model_dump() for v in stage.judge(prop.scene, room, p)] if room else [],
+        props.append({**prop.model_dump(), "violations": [v.model_dump() for v in stage.judge_all(prop.scene, room, p)] if room else [],
                       "stale": stage.stale(prop.scene, e.text)})
     return {**out, "proposals": props}
 
@@ -2402,20 +2402,15 @@ def stage_check(name: str, n: int, body: StageSaveIn) -> dict:
 
 def _frames(p: Project, scene: StageScene, room: StageRoom | None) -> dict:
     """3D 보기 값: 박자마다 관절 좌표(stage3d.frames), 3D 판정, 아직 모듈이 없는 자세 · 틀.
-    3D 판정은 판정 모듈이 있고 자세 · 틀이 다 등록됐을 때만 낸다 (docs/stage/3d/README.md 정할 것 10)."""
+    3D 판정은 자세 · 틀이 다 등록됐을 때만 낸다 (docs/stage/3d/README.md 정할 것 10). 같은 지적이 stage.check 의 violations 에도 있다."""
     from . import stage3d
+    from .stage3d import judge as judge3d
 
     if room is None:
         raise ValueError("장면의 방을 찾지 못했어요")
-    found = []
-    if stage3d.complete():
-        try:
-            from .stage3d import judge as judge3d
-        except ImportError:
-            judge3d = None
-        if judge3d:
-            found = [v.model_dump() for v in judge3d.judge3d(scene, room, p)]
-    return {"frames": stage3d.frames(scene, room, p).to_dict(), "violations3d": found, "missing": stage3d.missing()}
+    fr = stage3d.frames(scene, room, p)
+    found = [v.model_dump() for v in judge3d.judge3d(scene, room, p, frames=fr)] if stage3d.ready() else []
+    return {"frames": fr.to_dict(), "violations3d": found, "missing": stage3d.missing()}
 
 
 @app.get("/api/projects/{name}/stage/{n}/{sid}/frames")

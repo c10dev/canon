@@ -1,0 +1,49 @@
+{
+ "note": "바닥에 누운 하린 옆에 선 도윤이 선 채로 하린의 뺨을 만진다",
+ "template": "empty",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "문",
+    "rel": "front"
+   },
+   "posture": "lie",
+   "facing": "w"
+  },
+  {
+   "who": "d",
+   "at": {
+    "ref": "@h",
+    "rel": "right"
+   },
+   "posture": "stand"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "d",
+     "contacts": [
+      {
+       "id": "c1",
+       "by": "right",
+       "to": "h",
+       "part": "cheek_l",
+       "act": "stroke"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "expect": [
+  [
+   1,
+   "reach3d",
+   "d"
+  ]
+ ]
+}

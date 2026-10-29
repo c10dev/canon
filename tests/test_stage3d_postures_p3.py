@@ -133,18 +133,35 @@ def test_side_roll_on_fk_is_left_of_axis():
     assert side.roll_for(hd, fd) == 90
 
 
-@pytest.mark.xfail(strict=True, reason="Placement 가 각도(roll)를 바꾸지 못한다: 01 계약 빈틈")
 def test_side_on_bed_front_toward_facing_right_of_axis():
     room = stage.make_room("bedroom", "r1")
     bed = anchor(room, "침대")
     b = run(room, [body("a", bed.id, "on", "side", facing="e")]).bodies["a"].body  # 머리가 -y, 동쪽은 몸축 오른쪽
     fd = _lying.face_dir(b)
     assert fd[0] > 0.9
+    assert b.angles.roll == -90 and b.angles.knee == side.ANGLES.knee[::-1]  # 왼쪽이 아래, 위쪽 다리가 더 굽음
+
+
+def test_spoon_behind_on_bed_facing_right_of_axis():
+    """향함이 몸축 오른쪽(동쪽)이어도 두 사람 모두 roll -90 으로 같은 쪽을 본다."""
+    room = stage.make_room("bedroom", "r1")
+    bed = anchor(room, "침대")
+    fr = run(room, [body("a", bed.id, "on", "side", facing="e"), body("b", "@a", "back", "side", facing="e")])
+    a, b = fr.bodies["a"].body, fr.bodies["b"].body
+    assert _lying.face_dir(a)[0] > 0.9 and _lying.face_dir(b)[0] > 0.9
+    assert math.dist(a.part_point("back"), b.part_point("chest")) < 0.15
+
+
+def test_prone_head_only_turns_sideways():
+    room = stage.make_room("empty", "r1")
+    fr = run(room, [body("a", "a1", "front", "prone", facing="n"), body("b", "a1", "front", "stand")])
+    look = fr.bodies["a"].body.head_rot
+    assert look[1][2] == pytest.approx(0, abs=1e-9) and look[2][1] == pytest.approx(0, abs=1e-9)  # 위아래(x 축) 돌림 없음
 
 
 def test_spoon_behind_on_bed():
     """뒤에서 안는 사람: 같은 침대, 같은 쪽 향함. 앞사람 등과 뒷사람 가슴이 0.15m 안.
-    향함은 몸축 왼쪽(서쪽)이다. 오른쪽이면 roll -90 이 필요해 위 xfail 과 같은 빈틈에 걸린다."""
+    향함은 몸축 왼쪽(서쪽)이다. 오른쪽은 아래 시험."""
     room = stage.make_room("bedroom", "r1")
     bed = anchor(room, "침대")
     fr = run(room, [body("a", bed.id, "on", "side", facing="w"),
@@ -178,6 +195,23 @@ def test_piggyback_hangs_behind_carrier():
     assert c2.hands == ["l", "r"] and c2.gap <= 0.05  # 업힌 두 팔이 업은 가슴에 닿는다
     c1 = next(c for c in fr.contacts if c.id == "c1")
     assert c1.points[1] == pytest.approx(h.body.part_point("knee_l"))  # 업은 손은 업힌 무릎으로
+
+
+@pytest.mark.parametrize("rel,act,part,at", [("back", "carry", "knee_l", "chest"), ("front", "hug", "back", "nape")])
+def test_held_arms_wrap_without_contact(rel, act, part, at):
+    """업힌 사람이 손 접촉을 적지 않아도 두 팔이 업은 가슴(업힘) · 목뒤(안겨 들림)를 감고, 머리끼리 겹치지 않는다 (07 사진 검토)."""
+    room = stage.make_room("empty", "r1")
+    fr = run(room, [body("d", "a1", "front", "stand", facing="n", contacts=[StageContact(id="c1", by="both", to="h", part=part, act=act)]),
+                    body("h", "@d", rel, "held")])
+    d, h = fr.bodies["d"].body, fr.bodies["h"].body
+    t = d.part_point(at)
+    for s in ("l", "r"):
+        assert math.dist(h.joints()["hand_" + s], t) < 0.2
+    caps = {c.segment: c for c in d.capsules()}
+    assert all(s3.penetration(c, caps["head"]) < 0.01 for c in h.capsules() if c.segment == "head")
+    for s in ("l", "r"):  # 무릎은 업은 골반 옆 0.2~0.4m
+        k, p = h.joints()["knee_" + s], d.joints()["pelvis"]
+        assert 0.2 < abs(s3.body.dot(s3.body.sub(k, p), d.left())) < 0.4
 
 
 def test_carried_in_arms_faces_carrier():

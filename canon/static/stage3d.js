@@ -170,11 +170,12 @@ function s3Pane() {
     </div>`;
 }
 
-/** 접촉 id → 동작 id (서버 frames 의 접촉에는 동작이 없어 평면도 상태에서 찾는다). */
+/** 접촉 id → 동작 id. 서버 frames 의 접촉이 act 를 실으면 그것을, 없으면(옛 응답) 평면도 상태에서 찾는다. */
 function s3Acts(k) {
   const out = {};
-  if (!s3.scene) return out;
-  Object.values(stageState(s3.scene, k)).forEach((st) => Object.values(st.contacts).forEach((c) => { out[c.id] = c.act; }));
+  if (s3.scene) Object.values(stageState(s3.scene, k)).forEach((st) => Object.values(st.contacts).forEach((c) => { out[c.id] = c.act; }));
+  const beat = s3.data && s3.data.frames && s3.data.frames.beats[k];
+  ((beat && beat.contacts) || []).forEach((c) => { if (c.act) out[c.id] = c.act; });
   return out;
 }
 

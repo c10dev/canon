@@ -1,0 +1,30 @@
+{
+ "note": "문에서 소파 앞으로 걸어간다",
+ "template": "living",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "문",
+    "rel": "front"
+   },
+   "posture": "stand"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "h",
+     "at": {
+      "ref": "소파",
+      "rel": "front"
+     },
+     "posture": "walk"
+    }
+   ]
+  }
+ ],
+ "expect": []
+}
