@@ -1,6 +1,6 @@
 # 02-05. 자세 모듈: 의자에 앉기 (`chair`)
 
-상태: 명세 · 묶음: P2 · 공통: [../02-posture.md](../02-posture.md) · 먼저: [../01-body.md](../01-body.md)
+상태: 구현 (2026-10-29, 시안에서 고친 각도와 이유는 `canon/stage3d/postures/chair.py` 머리 주석, 사진 확인 전) · 묶음: P2 · 공통: [../02-posture.md](../02-posture.md) · 먼저: [../01-body.md](../01-body.md)
 
 ## 목표
 
