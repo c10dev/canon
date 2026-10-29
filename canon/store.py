@@ -38,6 +38,30 @@ def load(name: str) -> Project:
     return p
 
 
+# 읽기만 하는 요청(검토 대기 결과, 자동 집필 상태 등)이 화면 이동마다 장편 project.json(수 MB)을 다시 검증하지 않게,
+# 파일 판(수정 시각 · 크기 · inode)이 같으면 전에 읽은 Project 를 돌려준다. 저장은 바꿔치기(os.replace)라 판이 늘 바뀐다.
+_view_lock = threading.Lock()
+_views: dict[str, tuple[tuple[int, int, int], Project]] = {}
+
+
+def load_view(name: str) -> Project:
+    """읽기 전용 load. 돌려준 Project 는 여러 요청이 함께 쓰므로 고치지 않는다. 고쳐 저장할 작품은 load 로 읽는다."""
+    path = project_dir(name) / "project.json"
+    if not path.exists():
+        raise FileNotFoundError(f"프로젝트가 없어요: {path}")
+    # 판을 읽기 전에 잰다. 읽는 사이 바뀌면 새 내용이 옛 판으로 남을 뿐이고, 다음 호출은 새 판을 보고 다시 읽는다
+    st = path.stat()
+    key = (st.st_mtime_ns, st.st_size, st.st_ino)
+    with _view_lock:
+        hit = _views.get(name)
+    if hit and hit[0] == key:
+        return hit[1]
+    p = load(name)
+    with _view_lock:
+        _views[name] = (key, p)
+    return p
+
+
 _MARK = re.compile(r'"edit_rev":\s*(\d+),\s*"saved_by":\s*("(?:[^"\\]|\\.)*")')
 
 
