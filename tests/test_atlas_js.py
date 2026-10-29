@@ -1,4 +1,4 @@
-"""지도 화면(static/atlas.js)의 계산: 이름표 놓기, 장소 이동 되돌리기, 재생 따라가기. node 가 있을 때만 돈다."""
+"""지도 화면(static/atlas.js)의 계산: 이름표 놓기, 장소 이동 되돌리기, 재생 따라가기, 축척 막대. node 가 있을 때만 돈다."""
 import json
 import re
 import shutil
@@ -17,7 +17,8 @@ const part = src.slice(src.indexOf('const atlasTextW'), src.indexOf('\\n// -----
 const esc = (t) => String(t);
 const data = JSON.parse(fs.readFileSync(0, 'utf8'));
 eval(part + ';globalThis.atlasTextW = atlasTextW; globalThis.atlasLabels = atlasLabels;');
-process.stdout.write(JSON.stringify({ svg: atlasLabels(data.list, data.sc, data.fs ?? undefined), w: data.list.map((l) => atlasTextW(l.text, data.fs || 15 * data.sc)) }));
+const taken = data.taken || [];
+process.stdout.write(JSON.stringify({ svg: atlasLabels(data.list, data.sc, data.fs ?? undefined, taken), taken, w: data.list.map((l) => atlasTextW(l.text, data.fs || 15 * data.sc)) }));
 """
 
 # 되돌리기 · 따라가기 계산 부분만 잘라 돌린다: 입력 { call: 함수 이름, args: [...] }
@@ -38,8 +39,8 @@ def _node(script: str, data: dict):
     return json.loads(out.stdout)
 
 
-def _run(labels: list[dict], sc: float = 1.0, fs: float | None = None) -> dict:
-    return _node(HARNESS, {"list": labels, "sc": sc, "fs": fs})
+def _run(labels: list[dict], sc: float = 1.0, fs: float | None = None, taken: list | None = None) -> dict:
+    return _node(HARNESS, {"list": labels, "sc": sc, "fs": fs, "taken": taken or []})
 
 
 def _calc(call: str, *args):
@@ -74,6 +75,17 @@ def test_lone_label_sits_above_and_scales_with_zoom():
     r = _run([{"x": 100, "y": 100, "text": "등대", "cls": " later", "first": False}], sc=0.5)
     assert 'class="at-name later" x="100.0" y="93.0" text-anchor="middle" font-size="7.50"' in r["svg"]
     assert "at-leader" not in r["svg"] and r["w"] == [15.0]
+
+
+def test_label_avoids_boxes_taken_first():
+    # 지도 장식(제목 틀 · 축척 막대)이 먼저 차지한 상자는 비켜 가고, 장식 상자는 taken 에 그대로 남는다
+    deco = [50, 70, 150, 95]  # 점 위 자리(y 93 줄)를 덮는다
+    r = _run([{"x": 100, "y": 100, "text": "등대", "cls": "", "first": False}], taken=[deco])
+    boxes = _boxes(r, 1.0)
+    assert len(boxes) == 1
+    b = boxes[0]
+    assert not (b[0] < deco[2] and b[2] > deco[0] and b[1] < deco[3] and b[3] > deco[1])
+    assert r["taken"][0] == deco and len(r["taken"]) == 3  # 장식 + 이름표 + 점
 
 
 def test_label_font_size_follows_screen_width():
@@ -146,3 +158,21 @@ def test_label_pick_skips_only_against_drawn_labels():
                           "process.stdout.write(JSON.stringify(fn(...data.args, (st) => st.length !== 120).map((s) => s.mid[0])));")
     streets = [_street("테헤란로", 0.10, 120), _street("테헤란로", 0.15, 100)]
     assert _node(script, {"call": "atlasLabelPick", "args": [streets, 1000, 1000, 250]}) == [0.15]
+
+
+def test_scale_bar_picks_round_value_near_a_sixth():
+    # 1000 단위 지도가 1km(1단위 = 1m): 보이는 폭 1/6 은 약 167m 라 200m
+    assert _calc("atlasScaleBar", 1, 1, 1000) == {"meters": 200, "label": "200m", "units": 200}
+    # 4배 확대하면 보이는 폭 250m, 1/6 은 약 42m 라 50m
+    assert _calc("atlasScaleBar", 1, 4, 1000) == {"meters": 50, "label": "50m", "units": 50}
+    # 지도 가로 6km(1단위 = 6m): 1km, 4배면 250m 에 가까운 200m
+    assert _calc("atlasScaleBar", 6, 1, 1000) == {"meters": 1000, "label": "1km", "units": pytest.approx(166.667, abs=0.001)}
+    assert _calc("atlasScaleBar", 6, 4, 1000)["label"] == "200m"
+    # 큰 지도(가로 30km)는 5km, 아주 작게 보면 10m 아래로 내려가지 않는다
+    assert _calc("atlasScaleBar", 30, 1, 1000)["label"] == "5km"
+    assert _calc("atlasScaleBar", 0.05, 8, 1000)["label"] == "10m"
+
+
+def test_scale_bar_needs_known_scale():
+    for mpu in (0, -1, None, "x"):
+        assert _calc("atlasScaleBar", mpu, 1, 1000) is None
