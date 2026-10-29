@@ -3881,6 +3881,21 @@ def set_keep_snapshots(name: str, body: KeepSnapshots) -> Project:
     return _save(name, p)
 
 
+class ModelPresetIn(BaseModel):
+    preset: str = ""  # 단계 프리셋 id (settings.presets). 비우면 전체 설정을 따른다
+
+
+@app.put("/api/projects/{name}/model-preset")
+def set_model_preset(name: str, body: ModelPresetIn) -> Project:
+    """작품이 쓸 단계 프리셋을 고른다. 이 작품의 AI 호출은 그 프리셋의 단계별 백엔드 · 모델을 쓴다 (settings.project_preset)."""
+    preset = body.preset.strip()
+    if preset and not settings.find_preset(preset):
+        raise HTTPException(404, "그 프리셋이 없어요")
+    p = _load(name)
+    p.settings.model_preset = preset
+    return _save(name, p)
+
+
 # ---------- 플레이 모드 (canon/play.py, canon/birth.py) ----------
 # 플레이 하나는 세계 작품을 복사한 작품 폴더다(play.json 이 있으면 플레이). 시계는 화면에 있고, 서버는 화면이 닿은 구간(see)보다
 # 한 구간 넘게 앞서 쓰지 않는다. 구간 작업(play_turn)은 남은 상태 반영 → 장면 → 저장 → 상태 반영 → 저장 순서로 한 스레드에서 돈다.
