@@ -29,7 +29,7 @@
 
 - `web.py`: `atlas.*` 약 30개 이름. 지도 화면(`atlas_view`)은 `atlas.summary` 에 `travel.view` 를 붙인다. 웹 함수 이름은 Swift 앱의 연산 이름이다(`swift/Sources/CanonAPI/openapi.json`).
 - `cli.py`: `atlas.*` (설정 칸은 `atlas.MAKERS`) · `placekinds.CATEGORIES` · `travel.*`.
-- `pipeline.py`: `atlas.places` · `clean_sort` · `gen_places` · `MAKERS`, `placekinds.CATEGORIES` · `CATEGORY_IDS`, `moderngen.PLACE_KINDS`.
+- `pipeline.py`: `atlas.places` · `clean_sort` · `gen_places` · `MAKERS`, `placekinds.CATEGORIES` · `CATEGORY_IDS`.
 - `prompts.py`: `mapprompt.travel_block` · `travel_check_rule` · `spot_block`.
 - 그 밖: `features.py`(`travel.delta_warnings`), `birth.py`(`atlas.places`), `mock.py`(`placekinds.classify` · `water_for`, `atlas.MAKERS`), `schema.py`(설명 글).
 

@@ -384,7 +384,6 @@ def test_map_suggest_prompt_has_setting():
     text = prompts.map_suggest_prompt(p, atlas.gen_places(p), atlas.places(p), {"village": [(c, l) for c, l, _ in towngen.CATEGORIES]},
                                       {k: m[1].OPTIONS for k, m in atlas.MAKERS.items()})
     assert "## 현대 동네 (kind=modern)" in text and "modern(현대 동네)" in text
-    assert set(moderngen.PLACE_KINDS) == set(towngen.CATEGORY_IDS)  # 종류마다 현대 동네 자리
 
 
 def test_web_suggest_and_cli_ai(tmp_path, monkeypatch, capsys):

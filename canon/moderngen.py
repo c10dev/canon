@@ -80,11 +80,6 @@ KIND_SPOTS = {"station": "역 앞 광장", "convenience": "편의점 (대로변 
 # 장소가 놓인 건물의 쓰임 (bldgs.MODERN id). 상가 · 공공 종류만 바꾸고 사는 곳(아파트 · 빌라 · 집)과 학교 · 역은 그대로 둔다
 USE_OF = {k: k for k in ("convenience", "cafe", "restaurant", "mart", "academy", "hospital", "police", "church", "company",
                          "factory", "hotel")}
-# 옛 장소 종류(placekinds.CATEGORIES id)가 이 동네에서 놓이는 자리. AI 설정 제안 프롬프트가 쓴다 (08c 뒤 KIND_SPOTS 로 바꾼다)
-PLACE_KINDS = {"center": "역 앞 광장", "market": "마트 · 상가", "well": "역 앞 광장 옆", "temple": "교회",
-               "inn": "호텔 · 모텔 · 역 앞 상가", "smith": "동네 끝 대로변 가게 · 공장", "mill": "동네 끝 대로변 가게 · 공장",
-               "manor": "가장 큰 단독주택", "home": "빌라 · 아파트 · 단독주택", "shore": "하천 둔치", "bridge": "하천 다리",
-               "river": "하천 둔치", "pond": "공원 연못", "forest": "공원", "field": "없음 (밭이 없다)", "far": "동네 밖 (대로 끝)"}
 NEED = {"shore": "물가가 없는 동네예요. 물을 하천으로 바꿔 보세요",
         "bridge": "다리가 없어요. 물을 하천으로 바꿔 보세요",
         "river": "하천이 없어요. 물을 하천으로 바꿔 보세요",

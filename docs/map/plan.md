@@ -16,7 +16,7 @@
 | 5 | 바다 (OSM 해안선) | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [05-coastline.md](specs/05-coastline.md) | 0 |
 | 6 | 지하철 노선과 역 사이 이동 시간 | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [06-subway.md](specs/06-subway.md) | 5 |
 | 7 | 길 이름표 다듬기 | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [07-street-labels.md](specs/07-street-labels.md) | 3 |
-| 8 | 현대 장소 종류 (08a 종류 표 → 08b 자리 규칙 · 08c AI 설정 제안 · 08d 화면 · 명령줄) | 08a 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148), 08b · 08c · 08d 진행 | [08-modern-kinds.md](specs/08-modern-kinds.md) | 1 |
+| 8 | 현대 장소 종류 (08a 종류 표 → 08b 자리 규칙 · 08c AI 설정 제안 · 08d 화면 · 명령줄) | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [08-modern-kinds.md](specs/08-modern-kinds.md) | 1 |
 | 9 | 옛 핀의 건물 한 줄 채우기 | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [09-spot-backfill.md](specs/09-spot-backfill.md) | 0 |
 | 10 | 구불구불한 하천 (현대 동네) | 차례 미정 | [10-winding-river.md](specs/10-winding-river.md) | 1 |
 | 11 | 지도 장식 (축척 · 나침반 · 제목 틀) | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [11-map-frame.md](specs/11-map-frame.md) | 3 |

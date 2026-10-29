@@ -1,6 +1,6 @@
 # 08. 현대 장소 종류
 
-상태: 진행 (08a 종류 표 끝, 브랜치 `claude/map-kinds-base-b6a648` · 08b 생성기 끝, 브랜치 `claude/map-kinds-gen-715a7d` · 08c · 08d 남음) · 계획: [plan.md](../plan.md) 의 8번
+상태: 구현 (08a~08d, 초안 PR [#148](https://github.com/c10dev/canon/pull/148)) · 계획: [plan.md](../plan.md) 의 8번
 
 ## 목표
 
@@ -186,3 +186,7 @@ DESIGN.md '현대 동네 생성기' 절, AGENTS.md 의 moderngen · towngen 줄.
 - 명령줄: 장소 종류 이름은 `placekinds.label`(모든 시대).
 - 시험: `tests/test_atlas_kinds.py`(장소 표 · 옛 id 대응 · `gen_info` 모양 · 제목 · 명령줄 · node 로 `atlasKindShift`), `tests/test_mapgen.py` 의 `kinds` 모양 한 줄.
 - 08b 와 함께 합쳐야 한다: 이 브랜치만으로는 현대 동네 장소 표가 현대 id 를 보내는데 `moderngen` 이 옛 id 만 알아 모두 집 · 가게 자리에 놓는다(mock 서버 미리보기로 봤다).
+
+## 합친 뒤 정리 (2026-10-29)
+
+- 08b · 08c · 08d 를 `claude/map-stack` 에 합친 뒤 옛 자리 글 `moderngen.PLACE_KINDS` 와 그것을 보던 시험 줄(`tests/test_mapgen.py`)을 지웠다. 현대 자리 글은 `moderngen.KIND_SPOTS` 하나다.
