@@ -19,7 +19,7 @@
 | 8 | 현대 장소 종류 | 차례 미정 | [08-modern-kinds.md](specs/08-modern-kinds.md) | 1 |
 | 9 | 옛 핀의 건물 한 줄 채우기 | 차례 미정 | [09-spot-backfill.md](specs/09-spot-backfill.md) | 0 |
 | 10 | 구불구불한 하천 (현대 동네) | 차례 미정 | [10-winding-river.md](specs/10-winding-river.md) | 1 |
-| 11 | 지도 장식 (축척 · 나침반 · 제목 틀) | 설계 | [11-map-frame.md](specs/11-map-frame.md) | 3 |
+| 11 | 지도 장식 (축척 · 나침반 · 제목 틀) | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [11-map-frame.md](specs/11-map-frame.md) | 3 |
 | 12 | 이름표 충돌 보강 | 설계 | [12-label-collisions.md](specs/12-label-collisions.md) | 7 |
 | 13 | 화풍을 따라가는 동선 · 핀 | 설계 | [13-style-trails.md](specs/13-style-trails.md) | 3 |
 
