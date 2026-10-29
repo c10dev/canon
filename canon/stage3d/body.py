@@ -678,6 +678,17 @@ def _base(spec: PostureSpec, now: stage.Now, anchors: dict, room_spec: Optional[
     return 0.0
 
 
+def wrap_carrier(rider: Body, carrier: Body) -> None:
+    """매달린 사람의 두 팔로 받치는 사람을 감는다: 같은 방향(업힘)이면 가슴, 마주 보면(안겨 들림) 목뒤.
+    두 손은 그 점 좌우 0.08m · 위 0.03m. 업힌 사람이 손 접촉을 적었으면 그 접촉 IK 가 나중에 덮는다."""
+    back = math.cos(rider.yaw - carrier.yaw) > 0
+    base = carrier.part_point("chest" if back else "nape")
+    left = carrier.left()
+    for side, sgn in (("l", 1.0), ("r", -1.0)):
+        s = sgn if back else -sgn  # 마주 보면 업힌 사람의 왼쪽이 받치는 사람의 오른쪽
+        reach_to(rider, side, add(add(base, mul(left, 0.08 * s)), (0.0, 0.0, 0.03)), HUG_POLE)
+
+
 def _toward(a: tuple[float, float], b: Optional[tuple[float, float]]) -> Optional[tuple[float, float]]:
     if b is None:
         return None
@@ -765,6 +776,9 @@ def frames(scene: StageScene, room: StageRoom, project=None, postures: Optional[
                 p = _look_point(now.facing, bodies, anchors, room_spec)
                 if p:
                     look_at(bodies[w], p)
+        for w, person in people.items():  # 매달린 사람은 받치는 사람을 팔로 감는다
+            if person.body and person.attach in bodies:
+                wrap_carrier(person.body, bodies[person.attach])
         contacts = _contacts(state, people)
         beats.append(BeatFrame(k, state, pos, people, contacts))
     return Frames(room_spec.ceiling if room_spec else furniture.RoomSpec("").ceiling, sol, beats, room_spec)

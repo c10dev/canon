@@ -197,6 +197,23 @@ def test_piggyback_hangs_behind_carrier():
     assert c1.points[1] == pytest.approx(h.body.part_point("knee_l"))  # 업은 손은 업힌 무릎으로
 
 
+@pytest.mark.parametrize("rel,act,part,at", [("back", "carry", "knee_l", "chest"), ("front", "hug", "back", "nape")])
+def test_held_arms_wrap_without_contact(rel, act, part, at):
+    """업힌 사람이 손 접촉을 적지 않아도 두 팔이 업은 가슴(업힘) · 목뒤(안겨 들림)를 감고, 머리끼리 겹치지 않는다 (07 사진 검토)."""
+    room = stage.make_room("empty", "r1")
+    fr = run(room, [body("d", "a1", "front", "stand", facing="n", contacts=[StageContact(id="c1", by="both", to="h", part=part, act=act)]),
+                    body("h", "@d", rel, "held")])
+    d, h = fr.bodies["d"].body, fr.bodies["h"].body
+    t = d.part_point(at)
+    for s in ("l", "r"):
+        assert math.dist(h.joints()["hand_" + s], t) < 0.2
+    caps = {c.segment: c for c in d.capsules()}
+    assert all(s3.penetration(c, caps["head"]) < 0.01 for c in h.capsules() if c.segment == "head")
+    for s in ("l", "r"):  # 무릎은 업은 골반 옆 0.2~0.4m
+        k, p = h.joints()["knee_" + s], d.joints()["pelvis"]
+        assert 0.2 < abs(s3.body.dot(s3.body.sub(k, p), d.left())) < 0.4
+
+
 def test_carried_in_arms_faces_carrier():
     room = stage.make_room("empty", "r1")
     fr = run(room, [body("d", "a1", "front", "stand", facing="e",
