@@ -2271,6 +2271,8 @@ def cue_sheet_block(p: Project, sheet) -> str:
            f"조성(정서의 기준선): {sheet.key.strip() or '정하지 않음'}",
            f"화 끝 종지: {cad[0]} — {cad[1]}",
            "기능: " + " · ".join(f"{k} {v[0]}({v[1]})" for k, v in CUE_FUNCTIONS.items()),
+           # 한 번에 쓰기는 큐마다 지시(cue_step)를 받지 않아 편성 뜻을 여기 적는다. 15화 실측: 이 줄 없이 대사 큐 둘이 든 화의 대사 비율 5%
+           "편성: " + " · ".join(f"{v[0]}({v[1]})" for v in CUE_VOICES.values()),
            "큐:"]
     for k, c in enumerate(sheet.cues, 1):
         out.append(f"{k}. [{c.function} {CUE_FUNCTIONS.get(c.function, ('?',))[0]} · 긴장 {c.tension}/5 · "
