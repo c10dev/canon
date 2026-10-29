@@ -91,3 +91,13 @@ def test_serial_budget_drops_far_ones_and_says_how_many(monkeypatch):
     assert f"정해진화표지{b.start_ep}끝" in block
     assert f"정해진화표지{a.start_ep + 2}끝" in block
     assert f"정해진화표지{b.start_ep + 2}끝" not in block
+
+
+def test_opening_options_do_not_freeze_the_episode_they_replan():
+    """여는 방식 안은 확정된 화도 다시 짠다. 그 화는 정해진 화로 넣지 않고(그대로 옮기라는 지시와 부딪힌다) 뒤 화만 넣는다."""
+    p = _short()
+    _mark(p, [1, 2])
+    text = prompts.opening_plots_prompt(p, 1, list(prompts.OPENING_APPROACHES)[:2])
+    assert "1화는 이미 정해진 화라 고쳐 쓰지 않습니다" not in text
+    block = text[text.index(HEAD):text.index("요구사항:")]
+    assert "정해진화표지2끝" in block and "정해진화표지1끝" not in block

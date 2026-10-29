@@ -530,13 +530,14 @@ def arc_range_rule(total: int) -> str:
 - 한 화를 함께 쓰는 구간은 그 화 안에서 차례로 지나갑니다. goal 과 key_turn 은 구간마다 따로 씁니다."""
 
 
-def plot_prompt(p: Project, start: int, end: int, ahead: bool = True) -> str:
+def plot_prompt(p: Project, start: int, end: int, ahead: bool = True, redo: bool = False) -> str:
     """start~end 화 플롯 초안. ahead 면 범위 안 · 바로 뒤의 이미 정해진 화를 넣어 초안이 그 화로 이어지게 한다.
-    한 화 초안(episode_plot_prompt)은 바로 뒤 화를 따로 넣으므로 끈다."""
+    한 화 초안(episode_plot_prompt)은 바로 뒤 화를 따로 넣으므로 끈다. redo 는 범위 안의 화를 확정이어도 다시 짜는 요청
+    (여는 방식 안)이라, 범위 안 화는 정해진 화로 넣지 않고 뒤 화만 넣는다."""
     if p.serial:
-        return serial_plot_prompt(p, start, end, ahead)
+        return serial_plot_prompt(p, start, end, ahead, redo)
     prior = [e.plot for e in p.episodes if e.plot.number < start]
-    fixed, more = fixed_plots(p, start, end) if ahead else ([], 0)
+    fixed, more = fixed_plots(p, start, end, skip=set(range(start, end + 1)) if redo else frozenset()) if ahead else ([], 0)
     return f"""{start}화부터 {end}화까지 화별 플롯을 작성하세요.
 
 [작품]
@@ -560,7 +561,7 @@ def plot_prompt(p: Project, start: int, end: int, ahead: bool = True) -> str:
 {plot_rules(p, start <= OPENING_EPISODES)}{fixed_rule(fixed, start, end)}{new_cast_rule(p)}"""
 
 
-def serial_plot_prompt(p: Project, start: int, end: int, ahead: bool = True) -> str:
+def serial_plot_prompt(p: Project, start: int, end: int, ahead: bool = True, redo: bool = False) -> str:
     """장편: 앞 화 플롯 전부 대신 접은 줄거리와 이번 아크의 앞 화 플롯만 넣는다.
     이미 정해진 화는 글자 예산(context.BUDGET["plan_fixed"])까지만. 재구성 지도가 '본문이 있는 화'로 넣는 화는 빼서 겹치지 않게 한다."""
     arc = p.arc_for(start)
@@ -568,6 +569,8 @@ def serial_plot_prompt(p: Project, start: int, end: int, ahead: bool = True) -> 
     near = [e.plot for e in p.episodes if max(1, lo - 2) <= e.plot.number < start]
     rebuild = rebuild_map_block(p, start, end)
     skip = {e.plot.number for e in p.episodes if rebuild and start <= e.plot.number <= end and e.text}
+    if redo:
+        skip |= set(range(start, end + 1))
     fixed, more = fixed_plots(p, start, end, context.BUDGET["plan_fixed"], skip) if ahead else ([], 0)
     ids = context.without_off(p, set(arc.cast if arc else []) | {c for e in near for c in e.characters})
     fs, fs_more = relevant_foreshadows(p, start)
@@ -3135,7 +3138,7 @@ def hook_prompt(p: Project, n: int, text: str) -> str:
 def opening_plots_prompt(p: Project, n: int, approaches: list[str]) -> str:
     """n화(1~3) 플롯을 여는 방식만 달리해 여러 안으로. 플롯 초안과 같은 자료를 넣고 요청만 바꾼다."""
     ways = "\n".join(f"- {a}: {OPENING_APPROACHES[a][0]}. {OPENING_APPROACHES[a][1]}" for a in approaches)
-    return f"""{plot_prompt(p, n, n)}
+    return f"""{plot_prompt(p, n, n, redo=True)}
 
 [이번 요청]
 위 자료로 {n}화 플롯 하나를 쓰되, 아래 여는 방식마다 하나씩 모두 {len(approaches)}개의 안을 내세요. 독자가 계속 읽을지 정하는 화라서 여는 방식을 비교해 고르려고 합니다.
