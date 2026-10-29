@@ -13,14 +13,14 @@
 | 2 | `canon/maps/` 패키지로 옮기기 | 설계 | [02-package.md](specs/02-package.md) | 1 |
 | 3 | `static/atlas.js` 나누기 | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [03-atlas-js.md](specs/03-atlas-js.md) | 0 |
 | 4 | OSM 빈 블록 채우기 | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [04-empty-blocks.md](specs/04-empty-blocks.md) | 1 |
-| 5 | 바다 (OSM 해안선) | 설계 | [05-coastline.md](specs/05-coastline.md) | 0 |
+| 5 | 바다 (OSM 해안선) | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [05-coastline.md](specs/05-coastline.md) | 0 |
 | 6 | 지하철 노선과 역 사이 이동 시간 | 설계 | [06-subway.md](specs/06-subway.md) | 5 |
-| 7 | 길 이름표 다듬기 | 설계 | [07-street-labels.md](specs/07-street-labels.md) | 3 |
+| 7 | 길 이름표 다듬기 | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [07-street-labels.md](specs/07-street-labels.md) | 3 |
 | 8 | 현대 장소 종류 | 차례 미정 | [08-modern-kinds.md](specs/08-modern-kinds.md) | 1 |
 | 9 | 옛 핀의 건물 한 줄 채우기 | 차례 미정 | [09-spot-backfill.md](specs/09-spot-backfill.md) | 0 |
 | 10 | 구불구불한 하천 (현대 동네) | 차례 미정 | [10-winding-river.md](specs/10-winding-river.md) | 1 |
 
-'먼저 끝날 것'은 코드가 겹쳐서 먼저 머지되어야 하는 일감이다. 1 · 3 은 2026-10-28 에 0 의 두 PR 위에 쌓은 브랜치 `claude/map-stack` 에서 두 세션이 함께 했고, 4 는 그 위에서 했다. 3 · 5 · 9 는 1 · 2 와 따로 할 수 있다. 같은 파일을 고치는 일감은 동시에 하지 않는다(AGENTS.md 의 worktree 규칙).
+'먼저 끝날 것'은 코드가 겹쳐서 먼저 머지되어야 하는 일감이다. 1 · 3 은 2026-10-28 에 0 의 두 PR 위에 쌓은 브랜치 `claude/map-stack` 에서 두 세션이 함께 했고, 4 는 그 위에서 했고, 5 · 7 은 그 위에서 두 세션이 함께 했다(05 는 `osm.py` 와 물 그림, 07 은 이름표 코드만 고쳤다). 3 · 5 · 9 는 1 · 2 와 따로 할 수 있다. 같은 파일을 고치는 일감은 동시에 하지 않는다(AGENTS.md 의 worktree 규칙).
 
 ## 장기 후보
 
