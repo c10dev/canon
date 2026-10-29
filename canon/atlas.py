@@ -128,8 +128,10 @@ def summary(p: Project, layout: Optional[dict] = None) -> dict:
     이동 시간 검사 칸(travel.view)은 web.atlas_view 가 places · frames 로 붙인다 (atlas 는 travel 을 가져오지 않는다)."""
     pls = places(p)
     pins = {pin.place: [pin.x, pin.y] for pin in p.atlas.pins}
+    spots = {pin.place: pin.spot for pin in p.atlas.pins}
     for pl in pls:
         pl["pin"] = pins.get(pl["key"])
+        pl["spot"] = spots.get(pl["key"], "")  # 놓인 건물 한 줄 (MapPin.spot)
     fs = frames(p, pls)
     if layout:
         add_routes(fs, pins, road_graph(layout), p.atlas.meters)
@@ -711,6 +713,23 @@ def fill_spots(p: Project, layout: Optional[dict]) -> None:
         pin.spot = spot_line(p, layout, pin.x, pin.y) if layout else ""
     tr = layout.get("transit") if layout else None
     p.atlas.transit = Transit.model_validate(tr) if isinstance(tr, dict) and tr.get("stations") else None
+
+
+def fill_old_spots(p: Project, folder: Path, layout: Optional[dict] = None) -> bool:
+    """건물 한 줄(MapPin.spot)이 빈 핀만 채운다 (이 칸이 생기기 전에 놓은 핀). 저장은 부르는 곳이 한다
+    (지도 화면은 응답에만 싣고, 쓰기 · 검수 작업은 시작할 때 저장). 빈 핀이 없으면 지도 파일을 읽지 않는다.
+    layout 을 주면 그것을 쓴다. 채운 핀이 하나라도 있으면 True (건물 밖 핀은 빈 채로 남아 False)."""
+    empty = [pin for pin in p.atlas.pins if not pin.spot]
+    if not empty or not p.atlas.layout:
+        return False
+    layout = layout if layout is not None else load_layout(folder, p)
+    if not layout:
+        return False
+    done = False
+    for pin in empty:
+        pin.spot = spot_line(p, layout, pin.x, pin.y)
+        done = done or bool(pin.spot)
+    return done
 
 
 def episode_spots(p: Project, n: int) -> list[tuple[str, str]]:
