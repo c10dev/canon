@@ -232,7 +232,8 @@ def test_ink_follows_style_and_print_gets_dash():
 def test_ink_variables_in_every_style():
     # 화풍마다 --v-ink0 … --v-ink9 를 차례대로 정하고, 견본(.at-sw)도 같은 규칙을 읽는다
     src = ATLAS.read_text(encoding="utf-8")
-    for sel in [".at-map, .at-sw {", ".at-map.st-parchment, .at-sw.st-parchment {", ".at-map.st-night, .at-sw.st-night {", ".at-map.st-print, .at-sw.st-print {"]:
+    for sel in [".at-map, .at-sw {", ".at-map.st-parchment, .at-sw.st-parchment {", ".at-map.st-night, .at-sw.st-night {", ".at-map.st-print, .at-sw.st-print {",
+                ".at-map.st-modern, .at-sw.st-modern {"]:
         body = src[src.index(sel):src.index("}", src.index(sel))]
         names = re.findall(r"--v-ink(\d)", body)
         assert names == [str(i) for i in range(10)], sel
@@ -282,3 +283,66 @@ def test_marks_shrink_when_zoomed_out():
     z1 = _calc("atlasTrailMarks", [[0, 0], [400, 0]], [{"i": 0, "ep": 1}, {"i": 1, "ep": 2}], 1, 1)
     z4 = _calc("atlasTrailMarks", [[0, 0], [400, 0]], [{"i": 0, "ep": 1}, {"i": 1, "ep": 2}], 1, 4)
     assert z1["size"] < z4["size"] and z1["r"] < z4["r"]
+
+
+def test_default_style_follows_map_kind_and_memory():
+    # 평지붕 지도(OpenStreetMap · 현대 동네)는 처음 '현대', 마을 · 도시는 '기본'. 고른 화풍은 지도 종류마다 따로 기억한다
+    assert _calc("atlasStyleFor", True, {"town": "", "flat": ""}) == "modern"
+    assert _calc("atlasStyleFor", False, {"town": "", "flat": ""}) == "base"
+    assert _calc("atlasStyleFor", True, {"town": "night", "flat": ""}) == "modern"  # 마을에서 고른 '밤'은 OSM 에 옮지 않는다
+    assert _calc("atlasStyleFor", False, {"town": "night", "flat": "print"}) == "night"
+    assert _calc("atlasStyleFor", True, {"town": "night", "flat": "parchment"}) == "parchment"
+    assert _calc("atlasStyleFor", False, {"town": "modern", "flat": ""}) == "modern"  # 마을에서도 '현대'를 고를 수 있다
+    assert _calc("atlasStyleFor", True, None) == "modern"
+
+
+def test_modern_style_is_fifth_and_saved_per_kind():
+    src = ATLAS.read_text(encoding="utf-8")
+    styles = src[src.index("const ATLAS_STYLES = {"):src.index("};", src.index("const ATLAS_STYLES = {"))]
+    assert re.findall(r"^  (\w+): \{", styles, re.M) == ["base", "parchment", "night", "print", "modern"]  # 단축키 5
+    assert "'canon.atlasStyle'" in src and "'canon.atlasStyle.flat'" in src  # 마을 · 도시 칸은 옛 이름 그대로
+
+
+def test_road_rank_by_width():
+    # 경계는 bldgs.py 의 거리 종류(main ≥ 15, street ≥ 6)와 같다. OSM 기본 폭: secondary 16 큰길, tertiary 12 보통, service 4 골목
+    assert [_calc("atlasRoadRank", w) for w in (40, 20, 16, 15, 14.9, 12, 6, 5.9, 4, 2)] == \
+        ["major", "major", "major", "major", "street", "street", "street", "lane", "lane", "lane"]
+
+
+def test_named_road_follows_its_widest_part():
+    # 같은 이름의 대로는 한 방향 차로만 그린 좁은 마디도 큰길. 이름 없는 길은 제 폭
+    roads = [{"name": "강남대로", "width": 20}, {"name": "강남대로", "width": 11.9}, {"width": 11.9}, {"name": "골목길", "width": 4}, {"name": "", "width": 16}]
+    assert _calc("atlasRoadRanks", roads) == ["major", "major", "street", "lane", "major"]
+
+
+def test_modern_tone_by_use_group():
+    assert _calc("atlasModernTone", "home") == "home"
+    assert _calc("atlasModernTone", "store") == "plain"
+    assert _calc("atlasModernTone", "nope") == "plain"
+    assert [_calc("atlasModernTone", g) for g in ("shop", "food", "civic", "faith")] == ["shop", "food", "civic", "faith"]
+    src = ATLAS.read_text(encoding="utf-8")
+    body = src[src.index(".at-map.st-modern {"):]
+    body = body[:body.index("}")]
+    for t in ("home", "plain", "shop", "food", "lodging", "care", "civic", "work", "faith", "noble", "craft"):
+        assert f"--v-bld-{t}:" in body, t  # 톤마다 '현대' 색 변수
+    for rk in ("major", "street", "lane"):
+        assert f"--v-road-{rk}:" in body and f"--v-road-edge-{rk}:" in body
+        assert f".at-v-road.k-{rk} {{ stroke: var(--v-road-{rk}, var(--v-road)); }}" in src  # 다른 화풍은 같은 길 색
+
+
+def test_shadow_length_by_floors():
+    # 층수를 모르면(0) 지어 넣지 않고 기본 그림자. 3층부터 길어지고 8 에서 멈춘다
+    assert [_calc("atlasShadowLen", n) for n in (0, None, 1, 2, 3, 5, 10, 15, 40)] == [1, 1, 1, 1, 1.5, 2, 4, 5.5, 8]
+
+
+def test_shadow_path_sweeps_and_keeps_one_winding():
+    # 시계 방향 사각형을 밀면: 옮긴 건물 + 변 넷의 평행사변형, 모두 넓이가 양수(같은 방향)
+    ring = [[0, 0], [0, 10], [10, 10], [10, 0]]
+    d = _calc("atlasShadowPath", ring, 4, 6)
+    pieces = [[tuple(map(float, p.split(","))) for p in sub.split("L")] for sub in re.findall(r"M([^Z]*)Z", d)]
+    assert len(pieces) == 5
+    for q in pieces:
+        a = sum(q[j][0] * q[(j + 1) % len(q)][1] - q[(j + 1) % len(q)][0] * q[j][1] for j in range(len(q)))
+        assert a > 0
+    assert sorted(pieces[0]) == [(4.0, 6.0), (4.0, 16.0), (14.0, 6.0), (14.0, 16.0)]  # 옮긴 건물 (방향을 돌림)
+    assert _calc("atlasShadowPath", [[0, 0], [10, 0]], 5, 0) == ""  # 넓이 없는 조각은 뺀다

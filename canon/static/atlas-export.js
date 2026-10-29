@@ -44,7 +44,10 @@ function atlasExportSvg() {
         if (!v) return '';
         if (p !== 'fill' && p !== 'stroke') return `${p}:${v}`;
         const [c, a] = color(v);
-        return `${p}:${c}${a < 1 ? `;${p}-opacity:${a}` : ''}`;
+        // CSS 의 fill-opacity · stroke-opacity(지은 건물 · 쓰임 색 · 구역)는 색의 불투명도와 곱해 적는다
+        const raw = cs.getPropertyValue(`${p}-opacity`);
+        const o = a * (raw === '' ? 1 : Number(raw));
+        return `${p}:${c}${o < 1 ? `;${p}-opacity:${Number(o.toFixed(3))}` : ''}`;
       }).filter(Boolean).join(';');
     }).forEach((st, i) => {
       all[i].setAttribute('style', st);
