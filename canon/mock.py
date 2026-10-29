@@ -652,11 +652,13 @@ class MockLLM:
                     if name not in [x.name for x in new]:
                         new.append(NewPlace(name=name, kind="건물", description="위치 글에서 나온 곳"))
             return PlaceSort(matches=out, new_places=new)  # type: ignore[return-value]
-        if schema is MapSuggestion:  # 이름 단어로 종류를 고르고, 바다 쪽 장소가 있으면 바닷가 마을로. 화면에서 현대 동네를 골랐으면 현대 동네 (물은 하천)
+        if schema is MapSuggestion:  # 이름 단어로 그 시대 종류를 고르고, 바다 쪽 장소가 있으면 바닷가 마을로. 화면에서 현대 동네를 골랐으면 현대 동네 (물은 하천)
             from . import atlas, placekinds
 
-            guesses = [MapPlaceGuess(name=n, kind=placekinds.classify(n)[0], put=placekinds.classify(n)[0] != "far") for n in hint.get("places", [])]
-            rows = [{"kind": g.kind, "word": placekinds.classify(g.name)[1], "put": g.put} for g in guesses]
+            era = placekinds.era_of("modern" if hint.get("kind") == "modern" else "village")
+            found = {n: placekinds.classify(n, era=era) for n in hint.get("places", [])}
+            guesses = [MapPlaceGuess(name=n, kind=k, put=k != "far") for n, (k, _) in found.items()]
+            rows = [{"kind": g.kind, "word": found[g.name][1], "put": g.put} for g in guesses]
             water = placekinds.water_for(rows)
             if hint.get("kind") == "modern":
                 water = "none" if water == "none" else "river"
