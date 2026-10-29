@@ -60,6 +60,7 @@ def test_prompt_puts_sheet_last_and_score_condition_matches(demo):
     # 큐 시트는 쓰기 요청 맨 끝 (앞부분은 그대로라 캐시 순서를 깨지 않는다)
     assert full.startswith(plain) and full[len(plain):].lstrip().startswith("# 이번 화 큐 시트")
     assert "«등불을 끄지 마.»" in full and "한 번에 씁니다" in full
+    assert "편성: 대사(" in full and "40% 넘게" in full  # 한 번에 쓰기도 편성 뜻을 받는다 (큐마다 지시가 없어서)
     assert prompts.episode_prompt(p, 1, use_cues=False) == plain
     # 실험의 '큐 시트를 주고 한 번에' 조건과 같은 글이다
     assert prompts.cue_score_prompt(p, 1, p.episode(1).cue_sheet) == full
