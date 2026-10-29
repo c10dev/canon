@@ -786,10 +786,12 @@ canon/renumber.py  화 끼워 넣기 · 빼기: 화 번호를 품은 곳(범위,
 canon/branches.py  갈래: n화부터 다른 전개를 쓰는 작품 사본 만들기, 집안 계산(본편으로 · 끊기), 두 갈래 비교 (LLM 없이)
 canon/dynamics.py  관계 역학 수식 (사건 적용, 긴장 계산, 재생, 말로 바꾸기)
 canon/cast.py      인물 화면 계산: 화별 관계 프레임, 등장 화, 인물 타임라인 (LLM 없이)
-canon/atlas.py     지도: 장소 목록, 위치 글을 장소와 맞추기, 화별 인물 자리, 지도 만들기 미리보기 · 적용 (LLM 없이)
-canon/towngen.py   마을 생성기: 시드로 길 · 집 · 밭 · 물 · 나무, 장소 종류 찾기와 자리 고르기 (LLM 없이)
-canon/moderngen.py 현대 동네 생성기: 시드로 대로 격자 · 아파트 단지 · 빌라촌 · 상가 · 역 앞 · 학교 · 공원 (LLM 없이)
-canon/geom.py      지도 생성기의 기하 도구: 다각형, Delaunay · Voronoi, 노이즈, Poisson disk (순수 파이썬)
+canon/atlas.py     지도 공개 면: canon/maps/ 의 이름을 다시 내보냄 (화면 · 명령줄 · 파이프라인이 부른다)
+canon/maps/        지도 계산 (LLM 없이): 장소 · 위치 글 맞추기 places, 지도 데이터 layout, 길찾기 routes, 건물 정보 buildings,
+                   자리 찾기 spots, 지도 만들기 makers, 이동 시간 travel, 장소 종류 kinds, 프롬프트 블록 prompt, 빈 블록 채우기 fill
+canon/maps/gen/    지도 생성기: 마을 towngen · 도시 citygen · 현대 동네 moderngen · 길망 roadnet (시드로 같은 지도)
+canon/maps/sources/osm.py OpenStreetMap 파일 읽기
+canon/maps/geom.py 지도 생성기의 기하 도구: 다각형, Delaunay · Voronoi, 노이즈, Poisson disk (순수 파이썬)
 canon/findings.py  검수 세션: 회차마다 검수 결과를 지적 목록에 합치고 작가가 정한 상태를 지킴 (LLM 없이)
 canon/foreshadows.py 복선 센터: 복선을 본문 문장에 걸기, 회수율, 끊어진 연결 (LLM 없이)
 canon/tofix.py     고칠 곳: 작가가 본문 글에 단 '나중에 고칠 곳' 표시와 메모, 화를 가로질러 모으기 (LLM 없이)
