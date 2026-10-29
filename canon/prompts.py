@@ -2303,6 +2303,10 @@ def _decided_text(decided: list[ConsistencyIssue]) -> str:
     return "\n".join(f"- {f.current_quote}" for f in decided if f.current_quote.strip()) or "없음"
 
 
+# 동선 지적 고침: 장면 연출은 본문을 동작 묘사로 끌고 가지 않는다 (docs/stage/README.md). 문장을 더한 안은 pipeline.clean_fixes 가 거른다
+MOTION_FIX_RULE = "- 동선 지적입니다. 어긋난 자리 · 손 · 향한 쪽을 가리키는 낱말만 바꿉니다. 동작을 설명하는 새 문장이나 구절을 더하지 않습니다.\n"
+
+
 def fix_prompt(p: Project, n: int, f: ConsistencyIssue, decided: list[ConsistencyIssue]) -> str:
     """검수 지적 하나의 고침안. 앞은 검수와 같은 자료(캐시), 뒤에 지적과 요청. decided: 작가가 그대로 두기로 한 지적."""
     return f"""{check_material(p, n)}
@@ -2316,7 +2320,7 @@ def fix_prompt(p: Project, n: int, f: ConsistencyIssue, decided: list[Consistenc
 이 지적을 풀 고침안을 2~3개 내세요.
 - text 에는 '이번 화 문장' 자리에 들어갈 글만 씁니다. 앞뒤 본문은 되풀이하지 않습니다.
 {MINIMAL_FIX_RULES}
-- 이 고침 때문에 {n}화 안의 다른 문장도 함께 바꿔야 어긋나지 않으면 extra 에 넣습니다. quote 는 {n}화 본문 원문 그대로, replacement 는 최소로 고친 문장, reason 은 왜 함께 바꾸는지 한 문장입니다. 바꿀 곳이 없으면 extra 는 빈 목록입니다.
+{MOTION_FIX_RULE if f.type == "동선" else ""}- 이 고침 때문에 {n}화 안의 다른 문장도 함께 바꿔야 어긋나지 않으면 extra 에 넣습니다. quote 는 {n}화 본문 원문 그대로, replacement 는 최소로 고친 문장, reason 은 왜 함께 바꾸는지 한 문장입니다. 바꿀 곳이 없으면 extra 는 빈 목록입니다.
 - '이번 화 문장'은 extra 에 다시 넣지 않습니다. 작가가 그대로 둔 문장은 바꾸지 않습니다. 다른 화와 설정은 바꿀 수 없습니다.
 - label 은 고침안 이름 2~8자입니다. reply 는 안들이 어떻게 다른지 한두 문장입니다."""
 

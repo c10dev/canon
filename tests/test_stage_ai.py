@@ -1,4 +1,4 @@
-"""장면 연출 AI(일감 03): 초안 · 뽑기 → 비교 → 적용 · 적용 취소, 이름 정리와 막기.
+"""장면 연출 AI(일감 03)와 검수 연결(04): 초안 · 뽑기 → 비교 → 적용 · 적용 취소, 이름 정리와 막기, 규칙 지적, 검수 때 함께 뽑기.
 mock LLM. 실행: python -m pytest tests"""
 import time
 
@@ -116,6 +116,82 @@ def _bad_text_scene(p: Project, quote: str = "도윤이 하린의 어깨를 잡�
     return s
 
 
+def test_rule_findings_merge_keep_and_recheck_without_llm():
+    p = _project()
+    _bad_text_scene(p)
+    r = pipeline.apply_check(p, ConsistencyReport(episode=1))
+    ep = p.episode(1)
+    assert r.stage and r.added == 1
+    f = ep.findings[0]
+    assert (f.origin, f.type, f.severity, f.stage_event, f.stage_beat) == ("rule", "동선", "low", 1, 1)
+    assert f.current_quote == "도윤이 하린의 어깨를 잡았다." and "거리" in f.description
+    findings.set_status(ep, f.id, "kept", "연출이 이게 맞아요", "t")
+    r2 = pipeline.apply_check(p, ConsistencyReport(episode=1))
+    assert r2.kept_again == 1 and ep.findings[0].status == "kept" and len(ep.findings) == 1
+    # 검수 모델이 같은 문장을 짚으면 규칙 지적은 넣지 않고, 출처가 다른 옛 지적과 섞지 않는다
+    ai = ConsistencyReport(episode=1, issues=[{"type": "동선", "description": "AI", "source_quote": "", "current_quote": "도윤이 하린의 어깨를 잡았다."}])
+    pipeline.apply_check(p, ai)
+    assert [(x.origin, x.description) for x in ep.findings] == [("rule", f.description), ("ai", "AI")]
+    # 규칙 지적의 다시 검수는 LLM 없이 판정만
+    findings.set_status(ep, f.id, "open", None, "t")
+    assert pipeline.recheck_finding(NoLLM(), p, 1, f.id).resolved is False
+    ep.stage[0].beats[0].bodies[0].contacts = []
+    res = pipeline.recheck_finding(NoLLM(), p, 1, f.id)
+    assert res.resolved is True and res.new_issues == []
+
+
+def test_plan_only_beats_stay_off_the_session():
+    p = _project()
+    s = _bad_text_scene(p, quote="")  # 인용 없는 박자 (쓰기 전 연출과 같다)
+    s.beats[0].note = "도윤이 손을 뻗는다"
+    assert stage.episode_issues(p, p.episode(1)) == []
+    assert stage.check(p, p.episode(1), s, stage.room_of(p, s))["violations"]  # 장면 연출 화면에는 보인다
+
+
+def test_check_extracts_only_when_on_and_text_changed():
+    p = _project()
+    llm = Counting()
+    p.settings.stage_extract = False
+    pipeline.apply_check(p, pipeline.check_episode(llm, p, 1))
+    assert llm.calls == ["ConsistencyReport"] and p.episode(1).stage == []  # 끄면 뽑기 호출이 없다
+    p.settings.stage_extract = True
+    llm.calls.clear()
+    rep = pipeline.check_episode(llm, p, 1)
+    assert llm.calls == ["ConsistencyReport", "StageDraft", "StageDraft"]  # 사건마다 하나
+    pipeline.apply_check(p, rep)
+    assert [s.role for s in p.episode(1).stage] == ["text", "text"] and len(p.rooms) == 2
+    llm.calls.clear()
+    pipeline.apply_check(p, pipeline.check_episode(llm, p, 1))
+    assert llm.calls == ["ConsistencyReport"]  # 본문이 그대로면 다시 뽑지 않는다
+
+
+def test_check_does_not_overwrite_author_text_scene():
+    p = _project()
+    s = _bad_text_scene(p)
+    s.basis = "old"
+    s2 = s.model_copy(deep=True)
+    s2.beats[0].note = "작가가 고침"
+    stage.save_scene(p, p.episode(1), s2, None)
+    assert p.episode(1).stage[0].source == "manual"  # 작가가 손본 본문 장면
+    rep = pipeline.check_episode(MockLLM(), p, 1)
+    assert [x.event for x in rep._stage_held] == [1] and [x.event for x in rep._stage] == [0]
+    pipeline.apply_check(p, rep)
+    kept = stage.scenes_of(p.episode(1), 1)[1]
+    assert kept.beats[0].note == "작가가 고침" and kept.prev is None
+    assert any(f.origin == "rule" for f in p.episode(1).findings)  # 작가 장면도 판정한다
+
+
+def test_motion_fixes_drop_added_sentences():
+    p = _project()
+    ep = p.episode(1)
+    _bad_text_scene(p)
+    pipeline.apply_check(p, ConsistencyReport(episode=1))
+    fd = ep.findings[0]
+    fs = FixSet(options=[FixOption(label="낱말", text="도윤이 다가가 하린의 어깨를 잡았다."),
+                         FixOption(label="문장", text="도윤이 창가로 걸어갔다. 그리고 하린의 어깨를 잡았다.")])
+    assert [o.label for o in pipeline.clean_fixes(ep, fd, fs)] == ["낱말"]
+
+
 def test_web_draft_job_compare_apply_undo(client):
     from canon import jobs, store
 
@@ -135,3 +211,4 @@ def test_web_draft_job_compare_apply_undo(client):
     assert client.post("/api/projects/sa/stage/1/apply", json={"event": 1, "role": "plan"}).status_code == 400
     v = client.post(f"/api/projects/sa/stage/1/{v['made']}/undo").json()
     assert v["scenes"] == []
+    assert client.put("/api/projects/sa/stage-extract", json={"on": False}).json()["settings"]["stage_extract"] is False

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, SerializationInfo, SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, SerializationInfo, SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
 from .metrics import StyleMetrics
@@ -251,7 +251,7 @@ class Snapshot(BaseModel):
 class Settings(BaseModel):
     show_numbers: bool = Field(False, description="CLI 에서 관계를 숫자로 보여줄지(True), 말로 보여줄지(False)")
     check_widen: bool = Field(False, description="장편 검수 넓히기: 검수 뒤 진술마다 옛 화를 더 찾아, 첫 검수에 없던 근거가 나온 진술만 다시 묻는다 (검수 호출 2번 더)")
-    stage_extract: bool = Field(False, description="검수 때 본문에서 장면 연출을 함께 뽑는다 (사건마다 check 호출 1번 더)")
+    stage_extract: bool = Field(True, description="검수 때 본문에서 장면 연출을 함께 뽑는다 (사건마다 check 호출 1번 더, 본문이 그대로인 사건은 건너뜀)")
     keep_snapshots: bool = Field(False, description="장편에서도 화별 스냅샷을 지우지 않고 모두 남긴다 (연구용 작품: 어느 화로든 되돌릴 수 있다). 끄면 0화 · 아크 끝 · 최근 20화만 남긴다 (pipeline.prune_snapshots)")
 
 
@@ -1022,6 +1022,10 @@ class ConsistencyReport(BaseModel):
     """본문 검수 결과. 상태를 바꾸지 않는 참고용 경고라 승인 없이 저장한다."""
     episode: int
     issues: list[ConsistencyIssue] = Field(default_factory=list, description="근거가 분명한 모순만. 없으면 빈 목록")
+    # 검수 때 뽑은 본문 장면 (pipeline.stage_extract_all, StageProposal). apply_check 가 장면에 넣고 규칙 판정을 합친다.
+    # 작가가 손본 본문 장면을 덮지 않아 넣지 못한 것은 _stage_held (웹은 장면 연출 화면의 비교로 남긴다)
+    _stage: list = PrivateAttr(default_factory=list)
+    _stage_held: list = PrivateAttr(default_factory=list)
 
 
 EditSource = Literal["manual", "ai", "typed", "impact", "fix"]
@@ -1139,6 +1143,7 @@ class CheckRound(BaseModel):
     basis: str = Field("", description="검수한 본문의 지문 (pipeline.text_basis). 비면 모름 (옛 작품)")
     source: CheckSource = Field("api", description="api: 화면 · 명령줄 검수 / chat: 채팅 앱에서 받은 JSON / auto: 자동 집필")
     widen: bool = Field(False, description="넓혀 찾기를 함께 했는지")
+    stage: bool = Field(False, description="장면 연출 규칙 판정을 함께 넣었는지 (본문 장면이 있는 사건이 하나라도)")
     found: int = Field(0, description="이 회차가 짚은 수")
     added: int = Field(0, description="그중 새 지적")
     kept_again: int = Field(0, description="그중 그대로 둠 · 잘못 짚음으로 정해 둔 지적 (상태는 그대로)")

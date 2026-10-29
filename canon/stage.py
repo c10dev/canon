@@ -891,9 +891,17 @@ def save_scene(p: Project, ep: Episode, scene: StageScene, room: Optional[StageR
     if i is None:
         ep.stage.append(scene)
     else:
-        scene.prev = ep.stage[i].prev  # 적용 취소 한 번은 AI 적용(일감 03)만 남긴다
+        old = ep.stage[i]
+        scene.prev = old.prev  # 적용 취소 한 번은 AI 적용만 남긴다
+        scene.basis = old.basis
+        if scene.role == "text" and _content(scene) != _content(old):
+            scene.source = "manual"  # 작가가 손본 본문 장면: 검수 때 뽑기가 덮지 않는다 (pipeline.stage_extract_all)
         ep.stage[i] = scene
     return dropped
+
+
+def _content(s: StageScene) -> dict:
+    return s.model_dump(include={"room", "cast", "start", "beats"})
 
 
 def remove_scene(ep: Episode, sid: str) -> None:

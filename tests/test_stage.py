@@ -257,7 +257,7 @@ def test_find_event_and_stale():
 def test_old_project_reads_and_vocab():
     p = Project.model_validate_json('{"episodes": [{"plot": {"number": 1, "act": "기", "title": "a", "summary": "", "events": [],'
                                     ' "characters": [], "emotional_shift": "", "ending_hook": ""}}]}')
-    assert p.rooms == [] and p.episodes[0].stage == [] and p.settings.stage_extract is False
+    assert p.rooms == [] and p.episodes[0].stage == [] and p.settings.stage_extract is True  # 검수 때 함께 뽑기는 기본으로 켠다
     v = stage.vocab()
     assert len(v["postures"]) == 12 and v["parts"]["wrist_l"]["label"] == "왼 손목" and "bedroom" in v["rooms"]
     assert v["parts"]["forearm_r"]["label"] == "오른 아래팔" and v["acts"]["carry"]["support"] and not v["acts"]["hold"]["support"]

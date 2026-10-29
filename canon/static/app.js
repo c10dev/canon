@@ -531,7 +531,7 @@ function applyJobResult(j) {
     S.lineDraft = { ...j.result, picks: {} };
   } else if (['hook', 'openings', 'opening_drafts'].includes(j.kind)) {
     openingJobResult(j);
-  } else if (['stage_draft', 'stage_extract'].includes(j.kind) && typeof stageJobResult === 'function') {
+  } else if (['stage_draft', 'stage_extract', 'check'].includes(j.kind) && typeof stageJobResult === 'function') {
     stageJobResult(j);
   }
 }

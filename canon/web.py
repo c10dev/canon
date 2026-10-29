@@ -1861,7 +1861,9 @@ def start_job(name: str, body: JobIn) -> dict:
             q0 = store.load(name)
             rep = pipeline.check_episode(llm, q0, n)
             r = _edit(name, lambda q: pipeline.apply_check(q, rep, "api", pipeline.widen_on(q0))).episode(n).rounds[-1]
-            return {"issues": len(rep.issues), "round": r.no, "added": r.added}
+            for prop in rep._stage_held:  # 작가가 손본 본문 장면은 덮지 않고 장면 연출 화면의 비교로 남긴다
+                _stage_keep(name, prop)
+            return {"issues": r.found, "round": r.no, "added": r.added, "stage": len(rep._stage)}  # 짚은 곳: 검수 모델 + 장면 연출 규칙
     elif kind in ("stage_draft", "stage_extract"):
         # 장면 연출 AI: 플롯 사건에서 계획 장면 초안, 본문에서 본문 장면 뽑기. 결과는 장면 연출 화면이 비교한 뒤 적용한다
         if n is None:
@@ -3965,6 +3967,14 @@ def set_check_widen(name: str, body: CheckWiden) -> Project:
     """장편 검수 넓히기 켜기 · 끄기 (Settings.check_widen). 자동 집필 검수도 따른다."""
     p = _load(name)
     p.settings.check_widen = body.on
+    return _save(name, p)
+
+
+@app.put("/api/projects/{name}/stage-extract")
+def set_stage_extract(name: str, body: CheckWiden) -> Project:
+    """검수 때 함께 뽑기 켜기 · 끄기 (Settings.stage_extract). 자동 집필 검수도 따른다."""
+    p = _load(name)
+    p.settings.stage_extract = body.on
     return _save(name, p)
 
 

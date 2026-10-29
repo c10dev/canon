@@ -8,7 +8,7 @@
 |---|---|---|
 | `Project.rooms: list[StageRoom]` | 방 목록 | 방은 여러 화 · 장면이 다시 쓴다 |
 | `Episode.stage: list[StageScene]` | 그 화의 장면 목록 | 플롯이 `Episode.plot` 에 있으므로 화 끼워 넣기 · 빼기(`renumber`)가 화와 함께 옮긴다 |
-| `Settings.stage_extract: bool = False` | 검수 때 함께 뽑기 | `Settings.check_widen` 과 같은 모양 |
+| `Settings.stage_extract: bool = True` | 검수 때 함께 뽑기 (두 역할 결정으로 기본 켬) | `Settings.check_widen` 과 같은 모양 |
 
 옛 `project.json` 은 빈 목록 · 거짓 기본값으로 읽힌다.
 
@@ -80,7 +80,7 @@ StageContact
   act: str                # ACTS id
 ```
 
-LLM 출력용 `StageDraft` 는 같은 모양에서 id 대신 이름을 쓴다(인물 이름, 기준점 이름). 일감 03 의 정리 함수가 이름을 id 로 바꾼 뒤 `stage.clean_scene` 을 부른다. `clean_scene` 은 목록 밖 자세 · 향함 · 자리와 모르는 부위 · 동작 접촉을 `memo` 로 옮기고, 막는 접촉을 빼고, 접촉 id 를 겹치지 않게 단다. 작가 입력 저장(일감 02)도 같은 함수를 쓴다.
+LLM 출력용 `StageDraft` 는 같은 모양에서 id 대신 이름을 쓴다(인물 이름, 기준점 이름). 자리는 평평한 두 칸(`DraftBody.at_ref` · `at_rel`), 손은 빈칸이 앞 그대로 · '빈손' · '?', 끝난 접촉은 대상 이름 + 부위(`DraftEnd`)다. `stage.from_draft` 가 이름을 id 로 바꾼 뒤 `stage.clean_scene` 을 부른다. `clean_scene` 은 목록 밖 자세 · 향함 · 자리와 모르는 부위 · 동작 접촉을 `memo` 로 옮기고, 막는 접촉을 빼고, 접촉 id 를 겹치지 않게 단다. 작가 입력 저장(일감 02)도 같은 함수를 쓴다.
 
 ## 고정 어휘
 
