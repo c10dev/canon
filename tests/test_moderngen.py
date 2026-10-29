@@ -5,7 +5,7 @@ import math
 
 import pytest
 
-from canon import atlas, bldgs, geom, moderngen
+from canon import atlas, bldgs, geom, moderngen, placekinds
 from canon.schema import MapSpec
 
 SPOTS = [{"key": "a", "name": "동네", "kind": "center"}, {"key": "b", "name": "교회", "kind": "temple"},
@@ -102,7 +102,7 @@ def test_story_places(water):
     assert min(g["x"], g["y"], 1 - g["x"], 1 - g["y"]) < 0.01  # 마을 밖 → 대로 끝 (지도 가장자리)
     park = [wd for wd in lo["wards"] if wd["kind"] == "park"]
     assert park and geom.inside((spot["k"]["x"], spot["k"]["y"]), [tuple(q) for q in park[0]["shape"]])
-    assert "밭" in lost["l"]
+    assert spot["l"]["kind"] == "house" and "l" not in lost  # 밭은 현대 대응이 없어 집으로 읽는다
     if water == "none":
         assert "하천" in lost["d"] and "하천" in lost["e"]
     else:
@@ -139,7 +139,7 @@ def test_buildings_get_modern_info():
 
 def test_neighborhood_summary_snapshot():
     """알고리즘을 바꾸면 이 값이 바뀐다. 그때 VERSION 을 올리고 함께 고친다."""
-    assert moderngen.VERSION == 1
+    assert moderngen.VERSION == 2
     lo = _town(seed=7, size="medium")
     assert (lo["houses"], len(lo["roads"]), len(lo["wards"]), len(lo["trees"]), lo["retries"]) == SNAPSHOT
     rv = _town(seed=7, size="medium", water="river")
@@ -191,3 +191,77 @@ def test_cli_modern(tmp_path, monkeypatch, capsys):
     with pytest.raises(SystemExit) as e:
         cli.main(["map", "c", "gen", "modern", "--roads", "광장", "-y"])
     assert "--roads 칸은 현대 동네에 쓰지 않아요" in str(e.value)
+
+
+# 옛 id 가운데 현대 id 하나로 옮기는 것과 두 시대 모두인 것: 08b 전(VERSION 1)과 같은 자리 (seed 11, 보통, 하천, 공원 보통)
+OLD_SAME = [{"key": "a", "name": "동네", "kind": "center"}, {"key": "b", "name": "교회", "kind": "temple"},
+            {"key": "c", "name": "시장", "kind": "market"}, {"key": "d", "name": "강가", "kind": "river"},
+            {"key": "e", "name": "다리", "kind": "bridge"}, {"key": "g", "name": "서울", "kind": "far"},
+            {"key": "h", "name": "모텔", "kind": "inn"}, {"key": "i", "name": "공방", "kind": "smith"},
+            {"key": "k", "name": "숲", "kind": "forest"}, {"key": "m", "name": "방앗간", "kind": "mill"}]
+OLD_SPOTS = {"a": (0.525551, 0.335807, "station"), "b": (0.060541, 0.405032, "church"), "c": (0.523005, 0.40128, "mart"),
+             "d": (0.522544, 0.707074, "river"), "e": (0.487133, 0.733663, "bridge"), "g": (0.003665, 0.275013, "far"),
+             "h": (0.564858, 0.436309, "hotel"), "i": (0.973318, 0.985091, "factory"), "k": (0.327977, 0.889365, "forest"),
+             "m": (0.911305, 0.983303, "factory")}
+MODERN = [{"key": k, "name": placekinds.label(k), "kind": k} for k in placekinds.kind_ids("modern")]
+
+
+def test_old_kinds_keep_their_spots():
+    """옛 id 로 저장된 입력은 to_era 로 읽고, 대응이 하나인 종류는 예전과 같은 자리 · 같은 건물 쓰임에 놓인다."""
+    lo = moderngen.neighborhood(MapSpec(kind="modern", seed=11, size="medium", water="river", forest="some"), OLD_SAME)
+    assert {s["key"]: (s["x"], s["y"], s["kind"]) for s in lo["spots"]} == OLD_SPOTS and lo["missing"] == []
+    by_place = {b["place"]: b["use"] for b in bldgs.describe(lo, lo["seed"], "korea_modern")["blds"] if b.get("place")}
+    assert by_place == {"b": "church", "c": "mart", "h": "hotel", "i": "factory", "m": "factory"}
+
+
+def test_old_kinds_that_merge():
+    """여럿이 하나로 모이는 옛 id(우물 → 역, 저택 · 집 → 집, 밭 → 집)와 모르는 id 는 현대 id 로 놓인다 (자리는 08b 에서 바뀌었다)."""
+    pls = [{"key": "a", "name": "동네", "kind": "center"}, {"key": "w", "name": "우물", "kind": "well"},
+           {"key": "f", "name": "저택", "kind": "manor"}, {"key": "j", "name": "집", "kind": "home"},
+           {"key": "l", "name": "밭", "kind": "field"}, {"key": "x", "name": "어딘가", "kind": "nowhere"},
+           {"key": "y", "name": "빈칸", "kind": ""}]
+    lo = moderngen.neighborhood(MapSpec(kind="modern", seed=11, size="medium"), pls)
+    spot = {s["key"]: s for s in lo["spots"]}
+    assert lo["missing"] == [] and spot["w"]["kind"] == "station"
+    assert {spot[k]["kind"] for k in "fjlxy"} == {"house"}
+    assert math.dist((spot["a"]["x"] * lo["w"], spot["a"]["y"] * lo["h"]), (spot["w"]["x"] * lo["w"], spot["w"]["y"] * lo["h"])) < 15  # 광장 옆
+    by_place = {b["place"]: b["use"] for b in bldgs.describe(lo, lo["seed"], "korea_modern")["blds"] if b.get("place")}
+    assert {by_place[k] for k in "fjlxy"} == {"home"}  # 단독주택
+
+
+def test_kind_spots_cover_modern_kinds():
+    assert set(moderngen.KIND_SPOTS) == set(placekinds.kind_ids("modern"))
+    assert set(moderngen.USE_OF.values()) <= set(bldgs.MODERN)
+
+
+@pytest.mark.parametrize("size,water,forest", [("medium", "river", "some"), ("large", "river", "many"), ("small", "none", "few")])
+def test_modern_kinds(size, water, forest):
+    """현대 종류마다 자리: 놓이거나, 못 놓으면 missing 에 해요체 까닭. 놓인 건물은 종류에 맞는 쓰임."""
+    lo = moderngen.neighborhood(MapSpec(kind="modern", seed=11, size=size, water=water, forest=forest), MODERN)
+    spot = {s["key"]: s for s in lo["spots"]}
+    lost = {m["key"]: m["reason"] for m in lo["missing"]}
+    assert set(spot) | set(lost) == {p["key"] for p in MODERN} and not set(spot) & set(lost)
+    assert all(s["kind"] == s["key"] for s in lo["spots"])  # 현대 id 는 그대로 나온다
+    assert all(r.endswith("요") for r in lost.values())
+    assert len({(s["x"], s["y"]) for s in lo["spots"]}) == len(lo["spots"])
+    blds = bldgs.describe(lo, lo["seed"], "korea_modern")["blds"]
+    by_place = {b["place"]: b["use"] for b in blds if b.get("place")}
+    for k, use in moderngen.USE_OF.items():
+        assert by_place[k] == use, k
+    assert by_place["school"] == "school" and by_place["apartment"] == "apartment" and by_place["villa"] == "villa"
+    assert by_place["house"] == "home"
+
+    def in_ward(key: str, kind: str) -> bool:
+        return any(geom.inside((spot[key]["x"], spot[key]["y"]), [tuple(q) for q in wd["shape"]])
+                   for wd in lo["wards"] if wd["kind"] == kind)
+    assert in_ward("station", "station") and in_ward("school", "school")  # 역 → 역 앞 광장, 학교 → 학교 블록
+    if water == "none":
+        assert {"shore", "river", "bridge"} <= set(lost) and "하천" in lost["river"]
+    else:
+        assert {"shore", "river", "bridge"} <= set(spot)
+    if forest == "few":  # 근린공원 없음
+        assert "공원" in lost["park"] and "공원" in lost["forest"]
+    else:
+        assert in_ward("park", "park")
+    if size != "small":
+        assert set(lost) <= {"pond"}  # 연못은 공원에 따라 있거나 없다

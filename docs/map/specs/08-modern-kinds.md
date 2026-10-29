@@ -1,6 +1,6 @@
 # 08. 현대 장소 종류
 
-상태: 진행 (08a 종류 표 끝, 브랜치 `claude/map-kinds-base-b6a648` · 08b · 08c · 08d 남음) · 계획: [plan.md](../plan.md) 의 8번
+상태: 진행 (08a 종류 표 끝, 브랜치 `claude/map-kinds-base-b6a648` · 08b 생성기 끝, 브랜치 `claude/map-kinds-gen-715a7d` · 08c · 08d 남음) · 계획: [plan.md](../plan.md) 의 8번
 
 ## 목표
 
@@ -141,3 +141,22 @@ DESIGN.md '현대 동네 생성기' 절, AGENTS.md 의 moderngen · towngen 줄.
 ## 확인하지 못할 것
 
 실제 Gemini 가 새 id 를 고르는지(키 없음).
+
+## 08b 구현 메모 (2026-10-29, 브랜치 `claude/map-kinds-gen-715a7d`)
+
+- `moderngen._place_spots` 가 종류를 `to_era(kind, "modern") or "house"` 로 읽는다. `spots[].kind` 는 현대 id 다.
+- 자리 규칙은 현대 id 마다 하나다. 자리 글은 `moderngen.KIND_SPOTS`(현대 id 23개 = `kind_ids("modern")`).
+  - 옛 규칙을 그대로 옮긴 것: `station`(옛 `center`, 역 광장), `mart`(옛 `market`), `church`(옛 `temple`), `hotel`(옛 `inn`), `factory`(옛 `smith` · `mill`), 두 시대 종류 여섯.
+  - 새 규칙: `convenience` 는 편의점 건물, 없으면 대로변 상가나 빌라촌 모퉁이 가게. `cafe` · `restaurant` · `academy` · `hospital` · `company` 는 같은 쓰임 건물, 없으면 역에 가까운 상가. `police` 는 경찰서, 없으면 대로변 상가. `school` 은 학교 교사이고, 학교 터가 없으면 `missing`(까닭 `NEED["school"]`). `apartment` · `villa` 는 그 쓰임 건물 아무것. `house` 는 단독주택(`home`) 아무것, 없으면 빌라. `park` 는 옛 `forest` 와 같은 규칙(역에 가장 가까운 근린공원, 없으면 `NEED["park"]`).
+- 가게 · 공공 종류(`moderngen.USE_OF`: 편의점 · 카페 · 식당 · 마트 · 학원 · 병원 · 경찰서 · 교회 · 회사 · 공장 · 호텔)는 놓인 건물의 쓰임(`parts[].use`)을 그 종류로 바꾼다. `bldgs.MODERN_PLACE_USE` 가 옛 id 로만 쓰임을 덮어서다. 그래서 건물 정보의 쓰임은 08b 전과 같다.
+- `VERSION` 을 2 로 올렸다. 옛 입력 가운데 대응이 하나인 종류와 두 시대 종류는 같은 자리 · 같은 건물 쓰임에 놓인다(시험 `test_old_kinds_keep_their_spots`, seed 11 보통 하천에서 좌표를 견준다). 바뀌는 것:
+  - `spots[].kind` 가 현대 id 다(`inn` → `hotel` 등).
+  - `well` 은 광장과 역 사이(0.4)에서 광장 가운데(겹치면 옆)로.
+  - `manor` 는 가장 큰 단독주택에서 아무 단독주택으로, `home` 은 빌라 · 아파트 · 단독주택에서 단독주택으로.
+  - `field` 는 `missing`(밭이 없어요)에서 단독주택으로 놓인다. 계약(대응이 없으면 `house`)대로이고, `NEED["field"]` 는 지웠다.
+  - 모르는 id 는 옛 `home` 에서 `house` 로.
+  - `mart` 가 백화점에 놓이면 그 건물 쓰임이 `mart` 가 된다(건물 정보는 전에도 `mart` 로 보였다).
+  - 요약 스냅샷(건물 · 길 · 블록 · 나무 수)은 바뀌지 않았다.
+- 계약과 다르게 둔 것:
+  - `PLACE_KINDS`(옛 id → 자리 글)를 현대 id 로 바꾸지 않고 그대로 두었다. 08c 가 `pipeline` 에서 읽기를 그만둔 뒤 지우고, 현대 자리 글은 `KIND_SPOTS` 를 쓴다. `tests/test_mapgen.py` 의 `set(moderngen.PLACE_KINDS) == set(towngen.CATEGORY_IDS)` 도 그때 고친다.
+- 계약에 없던 것: `bldgs.MODERN_PLACE_USE` 는 옛 id 키만 있다. 새 id 지도는 위 `USE_OF` 로 맞췄고, 옛 id 키는 VERSION 1 지도를 읽을 때만 쓰인다.
