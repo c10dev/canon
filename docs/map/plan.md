@@ -21,7 +21,7 @@
 | 10 | 구불구불한 하천 (현대 동네) | 차례 미정 | [10-winding-river.md](specs/10-winding-river.md) | 1 |
 | 11 | 지도 장식 (축척 · 나침반 · 제목 틀) | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [11-map-frame.md](specs/11-map-frame.md) | 3 |
 | 12 | 이름표 충돌 보강 | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [12-label-collisions.md](specs/12-label-collisions.md) | 7 |
-| 13 | 화풍을 따라가는 동선 · 핀 | 설계 | [13-style-trails.md](specs/13-style-trails.md) | 3 |
+| 13 | 화풍을 따라가는 동선 · 핀 | 구현, 초안 PR [#148](https://github.com/c10dev/canon/pull/148) | [13-style-trails.md](specs/13-style-trails.md) | 3 |
 
 '먼저 끝날 것'은 코드가 겹쳐서 먼저 머지되어야 하는 일감이다. 1 · 3 은 2026-10-28 에 0 의 두 PR 위에 쌓은 브랜치 `claude/map-stack` 에서 두 세션이 함께 했고, 4 는 그 위에서 했고, 5 · 7 은 그 위에서 두 세션이 함께 했다(05 는 `osm.py` 와 물 그림, 07 은 이름표 코드만 고쳤다). 3 · 5 · 9 는 1 · 2 와 따로 할 수 있다. 같은 파일을 고치는 일감은 동시에 하지 않는다(AGENTS.md 의 worktree 규칙). 11 · 12 · 13 은 모두 `static/atlas.js` 의 그림 코드를 고쳐서 차례로 한다. 06 도 지도에 노선을 그리면 `atlas.js` 와 겹치니 시작 전에 고칠 파일을 견준다.
 
