@@ -34,3 +34,8 @@ def test_plan_ahead_matches_python():
 @needs_node
 def test_plan_ahead_matches_python_for_short_work():
     same(Project())
+
+
+@needs_node
+def test_threshold_matches_python():
+    assert run_js(FILES, "PLAN_AHEAD_MAX", {}) == pipeline.PLAN_AHEAD_MAX

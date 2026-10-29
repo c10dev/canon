@@ -564,7 +564,7 @@ def cmd_nextarc(a: argparse.Namespace) -> None:
         print(f"! {note}")
     for kind, num in ahead["recaps"]:
         print(f"  요약: recap {a.name} {kind} {num}")
-    prop =pipeline.plan_next_arc(get_llm("plan"), p, a.len or 0, a.note or "")
+    prop = pipeline.plan_next_arc(get_llm("plan"), p, a.len or 0, a.note or "")
     if prop.reply:
         print(prop.reply)
     _print_arc(prop.arc)

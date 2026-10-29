@@ -627,8 +627,10 @@ function serialHead(pending, partsPending) {
   return { html: '' };
 }
 
+const PLAN_AHEAD_MAX = 2;  // pipeline.PLAN_AHEAD_MAX
+
 /** 다음 아크 기획 앞 경고: 본문보다 너무 앞서 짠 아크, 요약이 없는 끝난 아크 · 부. 막지 않는다.
-    pipeline.plan_ahead 와 같은 규칙 (PLAN_AHEAD_MAX 2, tests/test_plan_ahead_js.py) */
+    pipeline.plan_ahead 와 같은 규칙 (tests/test_plan_ahead_js.py) */
 function planAhead(p) {
   const written = Math.max(0, ...p.episodes.filter((e) => (e.text || '').trim() || e.status === 'written' || e.status === 'finalized').map((e) => e.plot.number));
   const until = Math.max(0, ...p.story_arcs.map((a) => a.end_ep));
@@ -637,7 +639,7 @@ function planAhead(p) {
   const recaps = [...r.arcs.map((a) => ['arc', a.number]), ...r.parts.map((x) => ['part', x.number])];
   const serial = p.meta.form === 'serial';
   const notes = [];
-  if (serial && unwritten >= 2) {
+  if (serial && unwritten >= PLAN_AHEAD_MAX) {
     const where = written ? `본문은 ${written}화까지인데` : '본문이 아직 없는데';
     notes.push(`${where} 아크가 ${until}화까지 짜여 있어요 (본문 없는 아크 ${unwritten}개). 앞 아크를 쓰고 요약한 뒤 기획하면 쓰인 줄거리를 보고 짤 수 있어요.`);
   }
