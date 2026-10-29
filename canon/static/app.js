@@ -1402,6 +1402,27 @@ function menuBtn(id, label, body, { cls = 'btn', aria = '', title = '', align = 
   return `<div class="menu" data-menu="${id}"><button type="button" class="${cls}" aria-expanded="${open}" aria-controls="pop-${id}" data-action="menuToggle" data-arg="${id}"${aria ? ` aria-label="${esc(aria)}"` : ''}${title ? ` title="${esc(title)}"` : ''}>${label}</button>${open ? `<div class="pop-panel${align ? ` ${align}` : ''}" id="pop-${id}">${body()}</div>` : ''}</div>`;
 }
 
+/** 열린 메뉴 창이 화면 밖으로 나가지 않게 한다. 창은 버튼 오른쪽 끝에 맞춰 왼쪽으로 펼치는데, 좁은 화면에서 버튼이
+    줄 왼쪽으로 내려가면 창이 왼쪽 밖으로 나간다. 그러면 버튼 왼쪽 끝에 맞춘다 (.pop-panel.left) */
+function fitMenus() {
+  document.querySelectorAll('#app .pop-panel').forEach((p) => {
+    if (p.classList.contains('left')) return;
+    if (p.getBoundingClientRect().left < 8) p.classList.add('left', 'fit-left');
+  });
+}
+window.addEventListener('resize', () => {
+  document.querySelectorAll('#app .pop-panel.fit-left').forEach((p) => p.classList.remove('left', 'fit-left'));
+  fitMenus();
+});
+
+// 작업 경과 시간은 화면 전체를 다시 그리지 않고 그 글자만 1초마다 고친다 (data-elapsed="작업 id", 집필 화면 wsBusy)
+setInterval(() => {
+  document.querySelectorAll('[data-elapsed]').forEach((el) => {
+    const j = S.jobs.find((x) => x.id === el.dataset.elapsed);
+    if (j && j.status === 'running') el.textContent = `경과 ${elapsed(j)}`;
+  });
+}, 1000);
+
 function closeMenu(focus = false) {
   if (!S.popMenu) return;
   if (focus) S.focusTarget = `#app [data-action="menuToggle"][data-arg="${CSS.escape(S.popMenu)}"]`;
@@ -1793,6 +1814,7 @@ function afterDraw(f) {
     const sel = tabs.find((t) => t.getAttribute('aria-selected') === 'true') || tabs[0];
     tabs.forEach((t) => { t.tabIndex = t === sel ? 0 : -1; });
   });
+  fitMenus();
   const want = S.focusTarget;
   S.focusTarget = null;
   const target = want && document.querySelector(want);
