@@ -653,9 +653,9 @@ def rebuild_map_block(p: Project, start: int, end: int) -> str:
             + (f"\n[본문이 있는 화의 플롯 (바꾸지 말고 그대로 다시 적을 것)]\n{dump(fixed)}" if fixed else ""))
 
 
-def time_plan(p: Project, start: int) -> str:
-    """기획 프롬프트에 붙는 작품 속 시간 블록 (timeline.plan_block). 기록이 없으면 아무것도 넣지 않는다."""
-    b = timeline.plan_block(p, start)
+def time_plan(p: Project, start: int, rule: str | None = None) -> str:
+    """기획 프롬프트에 붙는 작품 속 시간 블록 (timeline.plan_block). 기록이 없으면 아무것도 넣지 않는다. rule: 끝 줄 지시."""
+    b = timeline.plan_block(p, start, rule)
     return f"\n[작품 속 시간 ({start}화 직전)]\n{b}" if b else ""
 
 
@@ -1046,6 +1046,40 @@ def series_prompt(p: Project) -> str:
 - summary 는 비워 둡니다."""
 
 
+ARC_TIME_RULE = "- 열린 기한이 이 아크 범위에 들면 그 날에 맞게 conflict 와 acts 를 놓습니다. 기한을 넘기는 전개면 reply 에 어떻게 다루는지 적습니다."
+
+
+def plan_facts(p: Project, ids: set[str], query: str, terms: list[str]) -> tuple[list[str], int]:
+    """다음 아크 기획의 확정 사실: 적으면 전부. 많으면 기획 인물(ids, 조연 이름이 가장 무겁다)이나 직전 아크 끝 플롯의
+    이야기 요소 · 장소(terms)가 나오는 옛 사실을 query(부 목표 · 아크 아이디어 · 직전 아크 플롯 · 작가 요청)와 겹치는 순서로
+    예산(context.BUDGET["plan_facts"])만큼. 최근 FACTS_RECENT 개는 늘 넣는다 (context.pick_facts)."""
+    if len(p.facts) <= FACTS_FILTER_FROM:
+        return p.facts, 0
+    return context.pick_facts(p, ids, query, context.BUDGET["plan_facts"], terms)
+
+
+def plan_side_states(p: Project, ids: set[str], start: int, query: str) -> tuple[list, int, int]:
+    """다음 아크 기획에 넣는 주역 밖 인물(관계를 보는 planning_cast)의 지금 상태: start 전에 가장 최근 나온 인물부터
+    예산(context.BUDGET["plan_states"])만큼. 알게 된 정보는 state_view 로 고른다. (상태 사본, 뺀 인물 수, 뺀 정보 수)"""
+    main = {c.id for c in static_characters(p)}
+    last = {e_id: 0 for e_id in ids - main}
+    for e in p.episodes:
+        if e.plot.number < start:
+            for cid in e.plot.characters:
+                if cid in last:
+                    last[cid] = max(last[cid], e.plot.number)
+    side = sorted((s for s in p.states if s.character_id in last), key=lambda s: -last[s.character_id])
+    view, knows_cut = state_view(p, side, query=query)
+    out, used = [], 0
+    for s in view:
+        size = len(dump([s]))
+        if used + size > context.BUDGET["plan_states"]:
+            break
+        out.append(s)
+        used += size
+    return out, len(view) - len(out), knows_cut
+
+
 def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
     part = p.part_for(start)
     limit = part.end_ep if part else p.meta.target_episodes
@@ -1063,6 +1097,12 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
     size = f"{length}화 안팎" if length else "내용에 맞게 5~30화 (보통 10~25화). 첫 아크는 25화 안에 큰 보상이 오도록 짧고 세게"
     main_states, knows_cut = state_view(p, [s for s in p.states if s.character_id in {c.id for c in static_characters(p)}],
                                         query=note + "\n" + "\n".join(x.summary for x in prev_eps))
+    # 사실 · 조연 상태의 순서: 부 목표와 아크 아이디어, 직전 아크 끝 플롯, 작가 요청과 겹치는 것부터
+    query = "\n".join([note, part.goal if part else "", *(part.arc_ideas if part else []),
+                        *(elements.plot_text(p.episode(x.number)) for x in prev_eps)])
+    terms = list(dict.fromkeys(t for x in prev_eps for t in context.query_terms(p, x.number)))
+    facts, facts_cut = plan_facts(p, ids, query, terms)
+    side_states, side_cut, side_knows_cut = plan_side_states(p, ids, start, query)
     return f"""장편 연재의 다음 아크 하나를 기획하세요. 이 아크는 {start}화에서 시작합니다.
 
 [작품]
@@ -1079,6 +1119,8 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 {elements.plan_block(p) or "없음"}{lines_block(p)}
 [인물 현재 상태]{knows_note(knows_cut)}
 {dump(main_states) or "설정 그대로"}
+[조연 · 최근 인물 현재 상태 (최근에 나온 순서)]{f" (그 밖에 {side_cut}명은 예산을 넘겨 뺐습니다)" if side_cut else ""}{knows_note(side_knows_cut)}
+{dump(side_states) or "없음"}
 [부 구성]
 {dump(p.parts) if p.parts else "부 구성 없음 (작품 전체가 한 부)"}
 
@@ -1090,8 +1132,8 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 {dump(prev_eps) if prev_eps else "없음"}
 [열린 복선]{f" (그 밖에 {fs_more}개는 오래된 아크 단위 복선이라 뺐습니다)" if fs_more else ""}
 {fs_lines or "없음"}
-[확정된 사실 (최근)]
-{chr(10).join("- " + f for f in p.facts[-FACTS_RECENT:]) or "없음"}
+[확정된 사실 (이 아크와 관련된 것과 최근 것)]{f" (그 밖에 {facts_cut}개는 관련이 적어 뺐습니다)" if facts_cut else ""}
+{chr(10).join("- " + f for f in facts) or "없음"}{time_plan(p, start, ARC_TIME_RULE)}
 [작가의 요청]
 {note.strip() or "없음"}
 
