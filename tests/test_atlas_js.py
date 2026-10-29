@@ -113,3 +113,36 @@ def test_find_default_and_pins():
     now = {"b": [0.9, 0.9], "z": [0.1, 0.1]}
     pins = _calc("atlasFindPins", now, spots, {**pick, "c": 1})
     assert sorted((x["place"], x["x"], x["y"]) for x in pins) == [("a", 0.2, 0.3), ("b", 0.9, 0.9), ("c", 0.6, 0.6), ("z", 0.1, 0.1)]
+
+
+def _street(name: str, x: float, length: float = 100) -> dict:
+    return {"name": name, "length": length, "mid": [x, 0.5], "angle": 0}
+
+
+def _picked(streets: list[dict], gap: float = 250) -> list[tuple]:
+    return [(s["name"], s["mid"][0]) for s in _calc("atlasLabelPick", streets, 1000, 1000, gap)]
+
+
+def test_same_name_streets_close_together_get_one_label():
+    # 폭이 바뀌어 나뉜 큰길 조각 셋: 서로 화면 폭의 1/4(250) 안이면 가장 긴 조각에만 쓴다
+    streets = [_street("테헤란로", 0.10, 80), _street("테헤란로", 0.15, 120), _street("테헤란로", 0.20, 90)]
+    assert _picked(streets) == [("테헤란로", 0.15)]
+
+
+def test_same_name_streets_far_apart_get_one_label_each():
+    streets = [_street("테헤란로", 0.10, 120), _street("테헤란로", 0.30, 100), _street("테헤란로", 0.50, 90)]
+    assert _picked(streets) == [("테헤란로", 0.10), ("테헤란로", 0.50)]  # 0.30 은 0.10 에서 200 이라 건너뛴다
+    assert len(_picked(streets, gap=100)) == 3  # 확대하면 gap 이 줄어 더 자주 보인다
+
+
+def test_different_names_and_unnamed_streets():
+    streets = [_street("테헤란로", 0.10), _street("강남대로", 0.12), _street("논현로", 0.14), _street("", 0.5)]
+    assert sorted(_picked(streets)) == [("강남대로", 0.12), ("논현로", 0.14), ("테헤란로", 0.10)]  # 이름 없는 길은 그리지 않는다
+
+
+def test_label_pick_skips_only_against_drawn_labels():
+    # 자리가 없어 못 그린 조각(draw 가 거짓)은 가까운 같은 이름을 막지 않는다
+    script = CALC.replace("process.stdout.write(JSON.stringify(fn(...data.args)));",
+                          "process.stdout.write(JSON.stringify(fn(...data.args, (st) => st.length !== 120).map((s) => s.mid[0])));")
+    streets = [_street("테헤란로", 0.10, 120), _street("테헤란로", 0.15, 100)]
+    assert _node(script, {"call": "atlasLabelPick", "args": [streets, 1000, 1000, 250]}) == [0.15]
