@@ -1664,13 +1664,13 @@ class Illustration(BaseModel):
 
 # ---------- 전체 프로젝트 ----------
 
-# ---------- 지도 (canon/atlas.py) ----------
+# ---------- 지도 (canon/atlas.py 공개 면, 계산은 canon/maps/) ----------
 # 장소는 설정의 장소 칸과 인과율 '장소' 요소다. 지도는 그 위에 자리와 배경 그림, 위치 글 잇기만 더한다.
 
 class BuildingNote(BaseModel):
-    """작가가 고친 건물 하나 (지금 마을 · 도시 데이터의 건물 번호 기준). 빈 칸은 생성기가 정한 값(canon/bldgs.py)을 쓴다."""
+    """작가가 고친 건물 하나 (지금 마을 · 도시 데이터의 건물 번호 기준). 빈 칸은 생성기가 정한 값(canon/maps/buildings.py)을 쓴다."""
     i: int = Field(description="건물 번호 (마을 데이터 buildings 의 순서)")
-    use: str = Field("", description="쓰임 id (bldgs.USES). 비면 생성기 값")
+    use: str = Field("", description="쓰임 id (maps/buildings.USES). 비면 생성기 값")
     name: str = Field("", description="집 이름 · 간판. 비면 생성기 값")
     note: str = Field("", description="작가 메모")
     residents: list[str] = Field(default_factory=list, description="여기 사는 · 일하는 인물 id")
@@ -1681,7 +1681,7 @@ class MapPin(BaseModel):
     place: str = Field(description="장소 키: 인과율 장소 요소 id, 설정 장소 칸이면 'w:' + 이름")
     x: float = 0.5
     y: float = 0.5
-    spot: str = Field("", description="놓인 건물 · 표지 한 줄 (atlas.spot_line, 쓰기 · 검수 프롬프트의 atlas.episode_block). 핀 · 마을 데이터 · 건물을 바꿀 때 다시 쓴다")
+    spot: str = Field("", description="놓인 건물 · 표지 한 줄 (atlas.spot_line, 쓰기 · 검수 프롬프트의 maps/prompt.spot_block). 핀 · 마을 데이터 · 건물을 바꿀 때 다시 쓴다")
 
 
 class PlaceLink(BaseModel):
@@ -1693,12 +1693,12 @@ class PlaceLink(BaseModel):
 class MapPlace(BaseModel):
     """지도 만들기에서 작가가 고친 장소 하나: 종류와 이 지도에 놓을지."""
     key: str = Field(description="장소 키 (atlas.places)")
-    kind: str = Field("", description="종류 id (placekinds.KINDS). 지도 종류의 시대와 다른 id 는 placekinds.to_era 로 읽는다. 비면 이름 · 설명에서 찾는다")
+    kind: str = Field("", description="종류 id (maps/kinds.KINDS). 지도 종류의 시대와 다른 id 는 maps/kinds.to_era 로 읽는다. 비면 이름 · 설명에서 찾는다")
     put: Optional[bool] = Field(None, description="이 지도에 놓을지. 비면 종류로 정한다 (마을 밖 장소는 놓지 않음)")
 
 
 class MapSpec(BaseModel):
-    """지도 생성기 입력 (canon/towngen.py). 같은 값이면 언제나 같은 지도가 나온다."""
+    """지도 생성기 입력 (canon/maps/makers.py, 생성기는 canon/maps/gen/). 같은 값이면 언제나 같은 지도가 나온다."""
     kind: Literal["village", "city", "modern", "realm"] = "village"
     seed: int = Field(1, ge=0, le=2**31 - 1)
     version: int = Field(0, description="이 지도를 만든 생성기 알고리즘 버전 (적용할 때 적는다)")
@@ -1711,7 +1711,7 @@ class MapSpec(BaseModel):
 
 
 class TravelSetting(BaseModel):
-    """이동 시간 검사 설정 (canon/travel.py). 지도 거리와 작품 속 시간을 견줘 너무 빠른 이동을 찾는다."""
+    """이동 시간 검사 설정 (canon/maps/travel.py). 지도 거리와 작품 속 시간을 견줘 너무 빠른 이동을 찾는다."""
     enabled: bool = Field(True, description="끄면 지도 화면 · 상태 변경안 경고 · 프롬프트의 이동 거리를 모두 뺀다 (순간 이동이 흔한 작품 등)")
     mode: str = Field("horse", description="이 세계에서 인물이 쓰는 가장 빠른 탈것 (travel.MODES 의 id). transit(대중교통)은 걸어서와 지하철(Atlas.transit) 가운데 빠른 쪽")
     kmh: float = Field(0, description="작가가 정한 이동 빠르기 (km/시). 0 이면 탈것의 기본값")
@@ -1742,7 +1742,7 @@ class Transit(BaseModel):
 
 
 class MapFill(BaseModel):
-    """OpenStreetMap 지도의 빈 블록 채우기 입력 (canon/fill.py). 지울 때와 다시 만들 때 쓴다."""
+    """OpenStreetMap 지도의 빈 블록 채우기 입력 (canon/maps/fill.py). 지울 때와 다시 만들 때 쓴다."""
     seed: int = Field(1, description="채우기 시드. 같은 지도 · 같은 시드면 같은 건물")
     rule: str = Field("villa", description="채우는 규칙 (fill.RULES): villa 는 빌라촌, 큰 블록은 아파트 단지")
 

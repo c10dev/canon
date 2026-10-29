@@ -13,7 +13,8 @@ from __future__ import annotations
 
 from typing import Callable
 
-from . import charlog, elements, foreshadows, statwin, timeline, travel
+from . import charlog, elements, foreshadows, statwin, timeline
+from .maps import travel
 from .schema import Project, Snapshot, StateDelta
 
 

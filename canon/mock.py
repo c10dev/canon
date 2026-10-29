@@ -653,7 +653,8 @@ class MockLLM:
                         new.append(NewPlace(name=name, kind="건물", description="위치 글에서 나온 곳"))
             return PlaceSort(matches=out, new_places=new)  # type: ignore[return-value]
         if schema is MapSuggestion:  # 이름 단어로 그 시대 종류를 고르고, 바다 쪽 장소가 있으면 바닷가 마을로. 화면에서 현대 동네를 골랐으면 현대 동네 (물은 하천)
-            from . import atlas, placekinds
+            from . import atlas
+            from .maps import kinds as placekinds
 
             era = placekinds.era_of("modern" if hint.get("kind") == "modern" else "village")
             found = {n: placekinds.classify(n, era=era) for n in hint.get("places", [])}

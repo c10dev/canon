@@ -1,4 +1,4 @@
-"""길망 테스트: canon/roadnet.py 의 지역 규칙과, 마을 생성기가 만든 길이 고리를 갖고 한 덩어리인지.
+"""길망 테스트: canon/maps/gen/roadnet.py 의 지역 규칙과, 마을 생성기가 만든 길이 고리를 갖고 한 덩어리인지.
 실행: python -m pytest tests/test_roadnet.py"""
 import math
 import os
@@ -10,7 +10,9 @@ os.environ.setdefault("CANON_LLM", "mock")
 
 import pytest  # noqa: E402
 
-from canon import atlas, geom, roadnet, towngen  # noqa: E402
+from canon import atlas  # noqa: E402
+from canon.maps import geom  # noqa: E402
+from canon.maps.gen import roadnet, towngen  # noqa: E402
 from canon.schema import MapSpec  # noqa: E402
 
 COMBOS = [(size, water, "cross") for size in ("small", "medium") for water in ("none", "river", "lake", "sea")] + \
