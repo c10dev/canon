@@ -6,8 +6,8 @@ ANGLES = Angles(0.12, pitch=90, abduct=(12, 12), elbow=(6, 6), knee=(10, 10))  #
 
 
 def place(ctx):
-    """몸축은 '눕기'와 같다. 고개 위아래를 0 으로 두는 것은 frames 의 look_at 이 정해서 이 모듈이 막지 못한다."""
+    """몸축은 '눕기'와 같다. 고개는 좌우로만 돈다 (PostureSpec.head 위아래 0)."""
     return _lying.place(ctx, ANGLES, floor="head")
 
 
-POSTURE = PostureSpec("prone", ANGLES, ("lie", "floor"), Reach(lean=0, twist=0), place_hook=place)
+POSTURE = PostureSpec("prone", ANGLES, ("lie", "floor"), Reach(lean=0, twist=0), place_hook=place, head=(70, 0))

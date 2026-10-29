@@ -164,10 +164,12 @@ class Angles:
     hip: Pair = (0, 0)       # 엉덩관절 앞올림
     knee: Pair = (0, 0)
     leg_abduct: Pair = (0, 0)
+    hip_rot: Pair = (0, 0)   # 넓적다리 돌림(넓적다리 축 둘레): +는 바깥돌림, 무릎을 굽히면 발이 몸 가운데로 (양반다리)
+    ankle: Pair = (0, 0)     # 발목: +는 발끝을 편다(발바닥 쪽), -는 발등 쪽으로 젖힌다
     shift: float = 0         # 향한 쪽으로 옮김 m (의자에 앉기 -0.13: 엉덩이를 등받이 쪽으로)
 
 
-ANGLE_FIELDS = ("pitch", "roll", "spine", "shoulder", "abduct", "elbow", "hip", "knee", "leg_abduct")
+ANGLE_FIELDS = ("pitch", "roll", "spine", "shoulder", "abduct", "elbow", "hip", "knee", "leg_abduct", "hip_rot", "ankle")
 
 
 @dataclass(frozen=True)
@@ -181,12 +183,14 @@ SURFACES = ("floor", "seat", "lie", "top", "back_support", "carrier")
 
 @dataclass(frozen=True)
 class Placement:
-    """특수 배치 결과. yaw 는 몸 앞 방향(평면 (sin yaw, cos yaw)), base 는 그 자세가 놓인 바닥 높이 m."""
+    """특수 배치 결과. yaw 는 몸 앞 방향(평면 (sin yaw, cos yaw)), base 는 그 자세가 놓인 바닥 높이 m.
+    angles 를 주면 자세 표 대신 그 각도로 몸을 만든다 (옆으로 눕기의 roll ±90 처럼 자리에 따라 바뀌는 각)."""
     x: float
     y: float
     yaw: float
     base: float = 0.0
     attach: Optional[str] = None  # 매단 인물 id (업힘 · 안겨 들림)
+    angles: Optional["Angles"] = None
 
 
 @dataclass
@@ -211,12 +215,13 @@ class PostureSpec:
     angles: Angles
     surface: tuple[str, ...]   # 놓일 수 있는 면 (SURFACES)
     reach: Reach = Reach()
-    feet_to_floor: bool = False  # 앉는 면이 0.45m 와 다르면 무릎을 고쳐 발을 바닥에 댄다
+    feet_to_floor: bool = False  # 앉는 면이 0.45m 와 다르면 무릎 · 엉덩 · 발목을 고쳐 발을 바닥에 댄다
     place_hook: Optional[Callable[[PlaceCtx], Placement]] = None
+    head: tuple[float, float] = (70, 35)  # 고개 돌림 한도 (좌우, 위아래 도). 엎드리기는 위아래 0
 
 
 # ---------- 부위 점 · 캡슐 ----------
-# 부위 점 자리: [뼈, x, y, z]. 뼈는 head · torso · body(골반) · ua(위팔) · fa(아래팔) · th(넓적다리) · sh(정강이).
+# 부위 점 자리: [뼈, x, y, z]. 뼈는 head · torso · body(골반) · ua(위팔) · fa(아래팔) · th(넓적다리) · sh(정강이) · ft(발, 발목이 원점).
 # 쌍(_l · _r)은 왼쪽 값을 적고 오른쪽은 x 를 뒤집는다 (+x 가 몸 바깥, inner_thigh 만 안쪽)
 
 PART3D = {
@@ -228,7 +233,7 @@ PART3D = {
     "upper_arm": ("ua", 0, -0.15, 0), "elbow": ("fa", 0, 0, 0), "forearm": ("fa", 0, -0.13, 0), "wrist": ("fa", 0, -0.27, 0),
     "hand": ("fa", 0, -0.32, 0), "fingers": ("fa", 0, -0.35, 0), "flank": ("torso", 0.15, 0.15, 0), "thigh": ("th", 0, -0.2, 0.06),
     "inner_thigh": ("th", -0.05, -0.22, 0), "knee": ("sh", 0, 0, 0.05), "calf": ("sh", 0, -0.15, -0.05), "ankle": ("sh", 0, -0.42, 0),
-    "foot": ("sh", 0, -0.47, 0.1),
+    "foot": ("ft", 0, -0.01, 0.1),
 }
 
 
@@ -277,11 +282,14 @@ class Capsule:
 class Body:
     """한 인물의 놓인 마네킹. pose() 로 만들고 reach_to · look_at 이 팔 · 몸통 · 고개를 바꾼다."""
 
-    def __init__(self, angles: Angles, x: float, y: float, yaw: float = 0.0, base: float = 0.0, reach: Reach = Reach()):
-        self.angles, self.x, self.y, self.yaw, self.base, self.reach = angles, x, y, yaw, base, reach
+    def __init__(self, angles: Angles, x: float, y: float, yaw: float = 0.0, base: float = 0.0, reach: Reach = Reach(),
+                 head: tuple[float, float] = (70, 35)):
+        self.angles, self.x, self.y, self.yaw, self.base, self.reach, self.head = angles, x, y, yaw, base, reach, head
         self.spine = angles.spine * D
         self.twist = 0.0
         self.knee = list(angles.knee)
+        self.hip = list(angles.hip)
+        self.ankle = list(angles.ankle)
         self.ua: dict[str, Mat] = {}
         self.fa: dict[str, Mat] = {}
         for i, s, sx in ((0, "l", 1), (1, "r", -1)):
@@ -319,11 +327,13 @@ class Body:
             rfa = mmul(rua, self.fa[s])
             out["ua_" + s] = (rua, tua)
             out["fa_" + s] = (rfa, add(tua, mvec(rua, (0.0, -L.uarm, 0.0))))
-            rth = mmul(rb, euler_xyz(-a.hip[i] * D, 0, sx * a.leg_abduct[i] * D))
+            rth = mmul(mmul(rb, euler_xyz(-self.hip[i] * D, 0, sx * a.leg_abduct[i] * D)), ry(sx * a.hip_rot[i] * D))
             tth = add(tb, mvec(rb, (sx * L.hipw, -0.02, 0.0)))
             rsh = mmul(rth, rx(self.knee[i] * D))
+            tsh = add(tth, mvec(rth, (0.0, -L.thigh, 0.0)))
             out["th_" + s] = (rth, tth)
-            out["sh_" + s] = (rsh, add(tth, mvec(rth, (0.0, -L.thigh, 0.0))))
+            out["sh_" + s] = (rsh, tsh)
+            out["ft_" + s] = (mmul(rsh, rx(self.ankle[i] * D)), add(tsh, mvec(rsh, (0.0, -L.shin, 0.0))))
         self._t = out
         return out
 
@@ -343,7 +353,7 @@ class Body:
             out["hip_" + s] = t["th_" + s][1]
             out["knee_" + s] = t["sh_" + s][1]
             out["ankle_" + s] = self._at("sh_" + s, (0.0, -L.shin, 0.0))
-            out["toe_" + s] = self._at("sh_" + s, (0.0, -L.shin, 0.17))
+            out["toe_" + s] = self._at("ft_" + s, (0.0, 0.0, 0.17))
         return out
 
     def joints(self) -> dict[str, Vec]:
@@ -359,7 +369,7 @@ class Body:
         base, side = _split(pid)
         bone, x, y, z = PART3D[base]
         sx = -1 if side == "r" else 1
-        name = bone + "_" + (side or "l") if bone in ("ua", "fa", "th", "sh") else bone
+        name = bone + "_" + (side or "l") if bone in ("ua", "fa", "th", "sh", "ft") else bone
         return self._at(name, (x * sx, y, z))
 
     def part_point(self, pid: str) -> Vec:
@@ -382,7 +392,7 @@ class Body:
                     seg("forearm_" + s, "fa_" + s, (0, -0.04, 0), (0, -(L.farm + L.hand - 0.04), 0), 0.04),
                     seg("thigh_" + s, "th_" + s, (0, -0.065, 0), (0, -(L.thigh - 0.065), 0), 0.065),
                     seg("shin_" + s, "sh_" + s, (0, -0.05, 0), (0, -(L.shin - 0.05), 0), 0.05),
-                    seg("foot_" + s, "sh_" + s, (0, -L.shin + 0.04, -0.01), (0, -L.shin + 0.04, 0.13), 0.04)]
+                    seg("foot_" + s, "ft_" + s, (0, 0.04, -0.01), (0, 0.04, 0.13), 0.04)]
         order = {n: i for i, n in enumerate(SEGMENTS)}
         return sorted(out, key=lambda c: order[c.segment])
 
@@ -390,7 +400,7 @@ class Body:
 def pose(spec: "PostureSpec | Angles", x: float, y: float, yaw: float = 0.0, base: float = 0.0) -> Body:
     """FK: 자세(또는 각도)를 평면 자리 (x, y) · 방향 yaw · 바닥 높이 base 에 놓는다."""
     if isinstance(spec, PostureSpec):
-        return Body(spec.angles, x, y, yaw, base, spec.reach)
+        return Body(spec.angles, x, y, yaw, base, spec.reach, spec.head)
     return Body(spec, x, y, yaw, base)
 
 
@@ -403,15 +413,39 @@ def capsules(body: Body) -> list[Capsule]:
 
 
 def feet_down(body: Body) -> None:
-    """무릎 각을 고쳐 발목을 바닥(z = 0)에 가장 가깝게. 닿지 않으면 가장 가까운 각에 둔다(발을 늘어뜨림)."""
+    """무릎 각을 고쳐 발목을 바닥(z = 0)에 가장 가깝게. 무릎만으로 모자라면(침대처럼 높은 면) 엉덩 굽힘을 FEET_HIP 까지 줄여
+    넓적다리를 앞으로 기울인다. 그다음 발목 각으로 발을 바닥과 나란히 두고, 그래도 뜨면 발끝을 펴서 바닥 쪽으로 늘어뜨린다."""
     for i, s in ((0, "l"), (1, "r")):
         def height(k: float) -> float:
             body.knee[i] = k
             body._changed()
             return abs(body._at("sh_" + s, (0.0, -L.shin, 0.0))[1])
-        best = min(range(0, 171), key=lambda k: (height(k), k))
-        fine = min((best + d / 10 for d in range(-10, 11)), key=lambda k: (height(k), k))
-        height(max(0.0, fine))
+
+        def knee_best() -> float:
+            best = min(range(0, 171), key=lambda k: (height(k), k))
+            fine = min((best + d / 10 for d in range(-10, 11)), key=lambda k: (height(k), k))
+            return height(max(0.0, fine))
+
+        hip0 = body.hip[i]
+        for dh in range(0, FEET_HIP + 1):
+            body.hip[i] = hip0 - dh
+            if knee_best() <= FEET_OK:
+                break
+
+        def toe(an: float) -> tuple[float, float]:
+            body.ankle[i] = an
+            body._changed()
+            j = body._joints()
+            return j["toe_" + s][1], j["ankle_" + s][1]
+
+        flat = min(range(-40, 41), key=lambda an: abs(float.__sub__(*toe(an))))
+        t, a = toe(flat)
+        if a > FEET_OK:  # 발이 바닥에 닿지 않는다: 발끝이 바닥에 닿거나 다 펼 때까지 편다
+            toe(next((an for an in range(flat, 61) if toe(an)[0] <= 0.005), 60))
+
+
+FEET_HIP = 30   # 발을 바닥에 대려고 엉덩 굽힘을 줄이는 한도 (도)
+FEET_OK = 0.02  # 발목이 바닥에서 이만큼 안이면 닿았다고 본다 (m)
 
 
 # ---------- 손 IK ----------
@@ -420,7 +454,8 @@ DEFAULT_POLE: Vec = (0.6, -1.0, -0.4)  # 팔꿈치가 향할 쪽: 아래 · 바�
 
 
 def _lean_toward(body: Body, side: str, t: Vec, reach: Reach) -> None:
-    """손이 모자라면 몸통을 대상 쪽으로 비틀고 숙인다. 서거나 앉은 자세만. 숙이면 어깨가 옮겨 가므로 네 번까지 다시 잰다."""
+    """손이 모자라면 몸통을 대상 쪽으로 비틀고(옆에 있어도) 숙인다(앞에 있을 때만). 서거나 앉은 자세만.
+    숙이면 어깨가 옮겨 가므로 네 번까지 다시 잰다."""
     if not body.upright:
         return
     spine0 = body.angles.spine * D
@@ -428,10 +463,12 @@ def _lean_toward(body: Body, side: str, t: Vec, reach: Reach) -> None:
         rb, tb = body._solve()["body"]
         local = mvec(tr(rb), sub(t, tb))
         need = dist(body._solve()["ua_" + side][1], t) - ARM + 0.01
-        if need <= 0 or local[2] <= 0:
+        ang = math.atan2(local[0], local[2])
+        if need <= 0 or abs(ang) > 120 * D:  # 등 뒤는 비틀어도 닿지 않는다
             return
-        body.twist = _clamp(math.atan2(local[0], local[2]) * 0.6, reach.twist * D)
-        body.spine = min(spine0 + reach.lean * D, body.spine + need / L.torso)
+        body.twist = _clamp(ang * 0.6, reach.twist * D)
+        if local[2] > 0:  # 숙이기는 앞에 있을 때만
+            body.spine = min(spine0 + reach.lean * D, body.spine + need / L.torso)
         body._changed()
 
 
@@ -464,10 +501,11 @@ def reach_to(body: Body, side: str, target: Vec, pole: Optional[Vec] = None, rea
 
 
 def look_at(body: Body, point: Vec) -> None:
-    """고개를 점(바깥 좌표)으로. 좌우 70°, 위아래 35° 안에서."""
+    """고개를 점(바깥 좌표)으로. 자세의 고개 한도(PostureSpec.head, 기본 좌우 70° · 위아래 35°) 안에서."""
+    turn_max, nod_max = body.head
     rt, tt = body._solve()["torso"]
     v = sub(mvec(tr(rt), sub(_io(point), tt)), (0.0, L.torso + L.neck + L.head, 0.0))
-    body.head_rot = euler_yxz(_clamp(-math.atan2(v[1], math.hypot(v[0], v[2])), 35 * D), _clamp(math.atan2(v[0], v[2]), 70 * D), 0)
+    body.head_rot = euler_yxz(_clamp(-math.atan2(v[1], math.hypot(v[0], v[2])), nod_max * D), _clamp(math.atan2(v[0], v[2]), turn_max * D), 0)
     body._changed()
 
 
@@ -620,7 +658,7 @@ class Frames:
                        "bodies": {w: {"posture": p.posture, "missing": p.missing, "attach": p.attach,
                                       "joints": {j: r(v) for j, v in p.body.joints().items()} if p.body else None}
                                   for w, p in b.bodies.items()},
-                       "contacts": [{"id": c.id, "who": c.who, "to": c.to, "part": c.part, "hands": c.hands,
+                       "contacts": [{"id": c.id, "who": c.who, "to": c.to, "part": c.part, "act": c.act, "by": c.by, "hands": c.hands,
                                      "gap": round(c.gap, 3), "points": [r(v) for v in c.points]} for c in b.contacts]}
                       for b in self.beats],
         }
@@ -638,6 +676,38 @@ def _base(spec: PostureSpec, now: stage.Now, anchors: dict, room_spec: Optional[
             if h is not None:
                 return h
     return 0.0
+
+
+def _toward(a: tuple[float, float], b: Optional[tuple[float, float]]) -> Optional[tuple[float, float]]:
+    if b is None:
+        return None
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    d = math.hypot(dx, dy)
+    return (dx / d, dy / d) if d > 1e-6 else None
+
+
+def default_facing(now: stage.Now, me: tuple[float, float], anchors: dict, pos: dict) -> tuple[float, float]:
+    """향함이 비었을 때의 몸 방향 (그림과 판정이 같이 쓴다. 평면 판정 stage.judge 는 향함을 모르는 것으로 둔다).
+    1. 기준점 위 · 안 · 기대기: 그 기준점 앞 (앉는 면 앞을 보고, 기댄 면을 등진다)
+    2. 손을 뻗는 접촉이 있으면 그 사람 쪽
+    3. 기준점 옆 자리(앞 · 뒤 · 왼 · 오른): 그 기준점 앞 (가구를 등지고 방을 본다. 벽에 붙은 문 앞이면 방 안)
+    4. 다른 인물 기준 자리: 그 인물 쪽
+    5. 아무것도 없으면 평면 아래(+y)"""
+    at = now.at
+    a = anchors.get(at.ref) if at else None
+    if a and at.rel in ("on", "in", "against"):
+        return stage._front(a.rot)
+    for c in now.contacts.values():
+        v = _toward(me, pos.get(c.to))
+        if v:
+            return v
+    if a:
+        return stage._front(a.rot)
+    if at and at.ref.startswith("@"):
+        v = _toward(me, pos.get(at.ref[1:]))
+        if v:
+            return v
+    return (0.0, 1.0)
 
 
 def _look_point(facing: str, bodies: dict[str, Body], anchors: dict, room_spec: Optional[RoomSpec]) -> Optional[Vec]:
@@ -661,9 +731,10 @@ def frames(scene: StageScene, room: StageRoom, project=None, postures: Optional[
     anchors = {a.id: a for a in room.anchors}
     sol = furniture.solids(room, room_spec)
     beats = []
+    spots = stage.layouts(room, scene)  # 평면 판정(stage.judge)과 같은 좌표: 박자마다 앞 박자 좌표를 넘긴다
     for k in range(len(scene.beats) + 1):
         state = stage.state_at(scene, k)
-        pos = stage.place(room, state, scene.cast)  # stage.layouts(일감 1-1)가 들어오면 앞 박자 좌표를 넘기는 그것으로 바꾼다
+        pos = spots[k]
         people: dict[str, Person] = {}
         bodies: dict[str, Body] = {}
         hooked = []
@@ -674,17 +745,21 @@ def frames(scene: StageScene, room: StageRoom, project=None, postures: Optional[
             if spec is None:
                 people[w] = Person(pid, missing=pid)
                 continue
-            v = stage.facing_vec(now.facing, pos[w], room, pos) or (0.0, 1.0)
+            v = stage.facing_vec(now.facing, pos[w], room, pos) or default_facing(now, pos[w], anchors, pos)
             yaw, base = math.atan2(v[0], v[1]), _base(spec, now, anchors, room_spec)
             if spec.place_hook:
                 hooked.append((w, spec, yaw, base))
                 continue
             people[w] = Person(pid, body=_placed(spec, pos[w][0], pos[w][1], yaw, base))
             bodies[w] = people[w].body
-        for w, spec, yaw, base in hooked:
-            pl = spec.place_hook(PlaceCtx(w, state[w], state, pos, pos[w], yaw, base, room, room_spec, sol, dict(bodies)))
-            people[w] = Person(spec.id, body=_placed(spec, pl.x, pl.y, pl.yaw, pl.base), attach=pl.attach)
-            bodies[w] = people[w].body
+        # 특수 배치는 두 번 돈다: 첫 번은 출연진 순, 두 번째는 모든 다른 인물의 첫 번 몸을 보고 다시.
+        # 받치는 사람(또는 옆에 붙어 누울 사람)이 특수 배치 자세이고 출연진 뒤쪽이어도 찾는다
+        for rnd in range(2 if len(hooked) > 1 else 1):
+            for w, spec, yaw, base in hooked:
+                seen = {o: b for o, b in bodies.items() if o != w}
+                pl = spec.place_hook(PlaceCtx(w, state[w], state, pos, pos[w], yaw, base, room, room_spec, sol, seen))
+                people[w] = Person(spec.id, body=_placed(spec, pl.x, pl.y, pl.yaw, pl.base, pl.angles), attach=pl.attach)
+                bodies[w] = people[w].body
         for w, now in state.items():  # 고개 먼저: 얼굴 부위 점이 접촉 목표가 된다 (머리 가운데는 고개로 옮겨 가지 않는다)
             if w in bodies:
                 p = _look_point(now.facing, bodies, anchors, room_spec)
@@ -695,10 +770,19 @@ def frames(scene: StageScene, room: StageRoom, project=None, postures: Optional[
     return Frames(room_spec.ceiling if room_spec else furniture.RoomSpec("").ceiling, sol, beats, room_spec)
 
 
-def _placed(spec: PostureSpec, x: float, y: float, yaw: float, base: float) -> Body:
-    body = pose(spec, x, y, yaw, base)
+_FEET: dict[tuple, tuple[list, list, list]] = {}  # (각도, 면 높이) → feet_down 이 고친 엉덩 · 무릎 · 발목. 자리 · 방향과 상관없다
+
+
+def _placed(spec: PostureSpec, x: float, y: float, yaw: float, base: float, angles: Optional[Angles] = None) -> Body:
+    body = pose(spec, x, y, yaw, base) if angles is None else Body(angles, x, y, yaw, base, spec.reach, spec.head)
     if spec.feet_to_floor and base > 0 and abs(base - 0.45) > 0.005:
-        feet_down(body)
+        key = (body.angles, round(base, 4))
+        if key not in _FEET:
+            probe = Body(body.angles, 0.0, 0.0, 0.0, base)
+            feet_down(probe)
+            _FEET[key] = (probe.hip, probe.knee, probe.ankle)
+        body.hip, body.knee, body.ankle = (list(v) for v in _FEET[key])
+        body._changed()
     return body
 
 

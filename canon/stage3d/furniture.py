@@ -52,7 +52,7 @@ KINDS = {
     "bed": Furniture((Box(0, 1, 0, 1, 0, 0.5), Box(0, 1, 0, 0.05, 0, 0.9)), seat=0.5, lie=0.5),
     "chair": Furniture((Box(0, 1, 0, 1, 0.40, 0.45), Box(0, 1, 0, 0.1, 0.45, 0.9)), seat=0.45),
     "sofa": Furniture((Box(0, 1, 0, 1, 0, 0.42), Box(0, 1, 0, 0.25, 0, 0.8), Box(0, 0.1, 0, 1, 0, 0.6), Box(0.9, 1, 0, 1, 0, 0.6)),
-                      seat=0.42, lie=0.42),
+                      seat=0.42, lie=0.42, head="left"),  # 가로로 긴 소파: 앞에서 본 왼쪽 팔걸이 쪽에 머리
     "seat": Furniture((Box(0, 1, 0, 1, 0, 0.45), Box(0, 1, 0, 0.15, 0, 0.9)), seat=0.45),
     "desk": Furniture((Box(0, 1, 0, 1, 0.72, 0.75),)),
     "table": Furniture((Box(0, 1, 0, 1, 0.69, 0.72),)),

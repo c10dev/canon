@@ -23,6 +23,7 @@ REACH_GAP_BODY = 0.08   # 부위 점 → 부위 점
 BODY_DEPTH = 0.03       # 몸 · 몸 캡슐
 ATTACH_DEPTH = 0.08     # 매단 사람과 받치는 사람
 FURNITURE_DEPTH = 0.05  # 몸 · 가구 상자 · 벽
+FOOT_DEPTH = 0.10       # 발 · 가구 상자: 실제 가구는 아래에 발이 들어갈 틈이 있고, 박자 끝 '걷기'는 보폭이 고정이다 (07 시험 장면)
 LIE_OVER = 0.15         # 눕는 면 밖으로 나간 몸
 HEAD_STAND = 0.0        # 선 자세: 머리 꼭대기가 천장보다 이만큼 넘게 높으면
 HEAD_SIT = 0.05         # 그 밖의 자세
@@ -114,6 +115,35 @@ def _outside(c: Capsule, a) -> float:
     return max(out(c.a), out(c.b))
 
 
+def _same_rest(a: Optional[stage.Now], b: Optional[stage.Now]) -> bool:
+    """두 사람이 같은 기준점 위 · 안에 있나."""
+    return bool(a and b and a.at and b.at and a.at.ref == b.at.ref and not a.at.ref.startswith("@")
+                and a.at.rel in ("on", "in") and b.at.rel in ("on", "in"))
+
+
+def _support(spec: PostureSpec, now: stage.Now, person: Person, w: str, b, fr: Frames, anchors: dict, caps: dict,
+             name: str, label: str) -> str:
+    """받침 지적 글 (없으면 빈칸)."""
+    if "carrier" in spec.surface:
+        held = person.attach or any(
+            o != w and any(c.to == w and stage.ACTS.get(c.act, stage.Act("", 0)).support for c in s.contacts.values())
+            for o, s in b.state.items())
+        return "" if held else f"{name}{josa(name, '은', '는')} '{label}' 자세인데 안거나 업은 사람이 없어요."
+    if "back_support" in spec.surface:
+        ok = now.at and now.at.rel == "against"
+        return "" if ok else f"{name}{josa(name, '은', '는')} '{label}' 자세인데 등 뒤에 기댈 곳이 없어요."
+    what = _rest(spec, now, anchors, fr.spec)
+    if what is None and "floor" not in spec.surface:
+        need = "누울 곳" if "lie" in spec.surface else "앉을 곳" if "seat" in spec.surface else "올라설 곳"
+        return f"{name}{josa(name, '은', '는')} '{label}' 자세인데 {need}이 없어요."
+    if what == "lie":
+        a = anchors[now.at.ref]
+        over = max(_outside(c, a) for c in caps[w] if c.segment not in ARMS)
+        if over > LIE_OVER:
+            return f"{name}: 누울 자리가 짧아요. 몸이 {a.name} 밖으로 {over:.2f}m 나가요."
+    return ""
+
+
 def _check_beat(b, fr: Frames, room: StageRoom, p: Project, pspecs: dict, skip_ids: set[str], skip_beats: set,
                 changed: dict[str, int], order: list[str]) -> list[tuple[tuple, int, str, str, str, str]]:
     """박자 하나의 지적: [(묶는 열쇠, cause, who, rule, text, contact)]."""
@@ -129,9 +159,10 @@ def _check_beat(b, fr: Frames, room: StageRoom, p: Project, pspecs: dict, skip_i
         pid = b.state[w].posture or "stand"
         return stage.POSTURES[pid].label if pid in stage.POSTURES else pid
 
-    # 높이: 이어지는 접촉의 손끝(또는 부위 점) 틈
+    # 높이: 이어지는 접촉의 손끝(또는 부위 점) 틈. 두 사람이 같은 기준점 위 · 안이면 건너뛴다:
+    # 평면 자리는 기준점 가운데라 침대 · 소파 어디쯤에 앉았는지 모른다 (침대 머리맡에 걸터앉아 머리를 쓰다듬기)
     for c in b.contacts:
-        if c.id in skip_ids or (b.k, c.who) in skip_beats:
+        if c.id in skip_ids or (b.k, c.who) in skip_beats or _same_rest(b.state.get(c.who), b.state.get(c.to)):
             continue
         limit = REACH_GAP_HAND if c.hands else REACH_GAP_BODY
         if c.gap <= limit:
@@ -161,66 +192,25 @@ def _check_beat(b, fr: Frames, room: StageRoom, p: Project, pspecs: dict, skip_i
             pair = frozenset((w, o))
             attach = people[w].attach == o or people[o].attach == w
             near = pair in touch or attach
-            skip_w = set(ARMS) | {s for x, s in touch.get(pair, ()) if x == w} if near else set()
-            skip_o = set(ARMS) | {s for x, s in touch.get(pair, ()) if x == o} if near else set()
+            # 팔은 늘 뺀다: 자세 표 값이라 나란히 선 두 사람(0.5m)의 팔이 닿는 것은 어긋남이 아니다 (07 시험)
+            skip_w = set(ARMS) | ({s for x, s in touch.get(pair, ()) if x == w} if near else set())
+            skip_o = set(ARMS) | ({s for x, s in touch.get(pair, ()) if x == o} if near else set())
             depth, sw, so = _deepest(caps[w], caps[o], skip_w, skip_o)
             if depth > (ATTACH_DEPTH if attach else BODY_DEPTH):
                 a, z = names[w], names[o]
                 text = f"{a}{josa(a, '과', '와')} {z}{josa(z, '이', '가')} {depth:.2f}m 겹쳐요 ({a} {SEG_LABELS[sw]} · {z} {SEG_LABELS[so]})."
                 out.append((("body_overlap", w, o), ch(w, o), w, "body_overlap", text, ""))
 
-    # 가구: 사람 · 기준점마다 가장 깊은 마디, 벽은 한 덩어리
-    for w in ws:
-        body, at = people[w].body, b.state[w].at
-        rest = at.ref if at and at.rel in ("on", "in") and body.base > 1e-6 else None  # 앉거나 누운 · 올라선 기준점
-        lean = at.ref if at and at.rel == "against" else None
-        hits: dict[str, tuple[float, str]] = {}
-        for s in fr.solids:
-            if not s.solid or s.anchor in (rest, lean):
-                continue
-            depth, seg, _ = _deepest(caps[w], [s])
-            if depth > hits.get(s.anchor, (0.0, ""))[0]:
-                hits[s.anchor] = (depth, seg)
-        for c in caps[w]:
-            depth = _wall_depth(c, room)
-            if depth > hits.get("", (0.0, ""))[0]:
-                hits[""] = (depth, c.segment)
-        name = names[w]
-        for aid, (depth, seg) in sorted(hits.items()):
-            if depth <= FURNITURE_DEPTH:
-                continue
-            where = anchors[aid].name if aid in anchors else "벽"
-            part = SEG_LABELS[seg]
-            text = f"{name} {part}{josa(part, '이', '가')} {where}에 {depth:.2f}m 파고들어요."
-            out.append((("furniture_overlap", w, aid), ch(w), w, "furniture_overlap", text, ""))
-
-    # 받침 · 천장
+    # 받침 · 천장 (가구보다 먼저: 받침 지적이 난 사람은 몸이 놓일 자리가 틀렸으므로 가구 겹침은 그 결과라 내지 않는다)
+    unsupported = set()
     for w in ws:
         now, person, name = b.state[w], people[w], names[w]
         spec = pspecs.get(person.posture)
         if spec is None:
             continue
-        text = ""
-        if "carrier" in spec.surface:
-            held = person.attach or any(
-                o != w and any(c.to == w and stage.ACTS.get(c.act, stage.Act("", 0)).support for c in s.contacts.values())
-                for o, s in b.state.items())
-            if not held:
-                text = f"{name}{josa(name, '은', '는')} '{label(w)}' 자세인데 안거나 업은 사람이 없어요."
-        elif "back_support" in spec.surface:
-            if not (now.at and now.at.rel == "against"):
-                text = f"{name}{josa(name, '은', '는')} '{label(w)}' 자세인데 등 뒤에 기댈 곳이 없어요."
-        else:
-            what = _rest(spec, now, anchors, fr.spec)
-            if what is None and "floor" not in spec.surface:
-                need = "누울 곳" if "lie" in spec.surface else "앉을 곳" if "seat" in spec.surface else "올라설 곳"
-                text = f"{name}{josa(name, '은', '는')} '{label(w)}' 자세인데 {need}이 없어요."
-            elif what == "lie":
-                a = anchors[now.at.ref]
-                over = max(_outside(c, a) for c in caps[w] if c.segment not in ARMS)
-                if over > LIE_OVER:
-                    text = f"{name}: 누울 자리가 짧아요. 몸이 {a.name} 밖으로 {over:.2f}m 나가요."
+        text = _support(spec, now, person, w, b, fr, anchors, caps, name, label(w))
         if text:
+            unsupported.add(w)
             out.append((("no_support", w), ch(w), w, "no_support", text, ""))
         top = person.body.head_top()
         pid = now.posture or "stand"
@@ -230,6 +220,37 @@ def _check_beat(b, fr: Frames, room: StageRoom, p: Project, pspecs: dict, skip_i
             place = stage.ROOMS[room.template][0] if room.template in stage.ROOMS else room.name or "방"
             text = f"{place}{josa(place, '이라', '라')} '{label(w)}' 자세면 {name} 머리가 천장보다 {over:.2f}m 높아요."
             out.append((("headroom", w), ch(w), w, "headroom", text, ""))
+
+    # 가구: 사람 · 기준점마다 가장 깊은 마디, 벽은 한 덩어리. 팔은 보지 않는다(손을 가구에 얹거나 짚는 것은 흔하고,
+    # 팔 각도는 작가가 정하지 않은 자세 표 값이다)
+    for w in ws:
+        if w in unsupported:
+            continue
+        body, at = people[w].body, b.state[w].at
+        rest = at.ref if at and at.rel in ("on", "in") and body.base > 1e-6 else None  # 앉거나 누운 · 올라선 기준점
+        lean = at.ref if at and at.rel == "against" else None
+        hits: dict[str, tuple[float, str]] = {}
+        for s in fr.solids:
+            if not s.solid or s.anchor in (rest, lean):
+                continue
+            depth, seg, _ = _deepest(caps[w], [s], skip_x=ARMS)
+            if depth > hits.get(s.anchor, (0.0, ""))[0]:
+                hits[s.anchor] = (depth, seg)
+        for c in caps[w]:
+            if c.segment in ARMS:
+                continue
+            depth = _wall_depth(c, room)
+            if depth > hits.get("", (0.0, ""))[0]:
+                hits[""] = (depth, c.segment)
+        name = names[w]
+        for aid, (depth, seg) in sorted(hits.items()):
+            if depth <= (FOOT_DEPTH if seg.startswith("foot") and aid else FURNITURE_DEPTH):
+                continue
+            where = anchors[aid].name if aid in anchors else "벽"
+            part = SEG_LABELS[seg]
+            text = f"{name} {part}{josa(part, '이', '가')} {where}에 {depth:.2f}m 파고들어요."
+            out.append((("furniture_overlap", w, aid), ch(w), w, "furniture_overlap", text, ""))
+
     return out
 
 
@@ -257,10 +278,10 @@ def judge3d(scene: StageScene, room: StageRoom, p: Project, frames: Optional[Fra
 
 def enabled() -> bool:
     """자세 12개 · 틀 7개가 다 등록됐을 때만 켠다 (README 정할 것 10)."""
-    from . import complete
-    return complete()
+    from . import ready
+    return ready()
 
 
 def judge_if_ready(scene: StageScene, room: StageRoom, p: Project, flat: Optional[list[stage.Violation]] = None) -> list[stage.Violation]:
-    """등록부가 덜 찼으면 빈 목록 (2D 만), 다 찼으면 judge3d. 07 이 stage.check 에서 부른다."""
+    """등록부가 덜 찼으면 빈 목록 (2D 만), 다 찼으면 judge3d. stage.judge_all 이 부른다 (check · 검수 지적)."""
     return judge3d(scene, room, p, flat=flat) if enabled() else []

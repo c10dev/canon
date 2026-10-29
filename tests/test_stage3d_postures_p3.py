@@ -133,18 +133,35 @@ def test_side_roll_on_fk_is_left_of_axis():
     assert side.roll_for(hd, fd) == 90
 
 
-@pytest.mark.xfail(strict=True, reason="Placement 가 각도(roll)를 바꾸지 못한다: 01 계약 빈틈")
 def test_side_on_bed_front_toward_facing_right_of_axis():
     room = stage.make_room("bedroom", "r1")
     bed = anchor(room, "침대")
     b = run(room, [body("a", bed.id, "on", "side", facing="e")]).bodies["a"].body  # 머리가 -y, 동쪽은 몸축 오른쪽
     fd = _lying.face_dir(b)
     assert fd[0] > 0.9
+    assert b.angles.roll == -90 and b.angles.knee == side.ANGLES.knee[::-1]  # 왼쪽이 아래, 위쪽 다리가 더 굽음
+
+
+def test_spoon_behind_on_bed_facing_right_of_axis():
+    """향함이 몸축 오른쪽(동쪽)이어도 두 사람 모두 roll -90 으로 같은 쪽을 본다."""
+    room = stage.make_room("bedroom", "r1")
+    bed = anchor(room, "침대")
+    fr = run(room, [body("a", bed.id, "on", "side", facing="e"), body("b", "@a", "back", "side", facing="e")])
+    a, b = fr.bodies["a"].body, fr.bodies["b"].body
+    assert _lying.face_dir(a)[0] > 0.9 and _lying.face_dir(b)[0] > 0.9
+    assert math.dist(a.part_point("back"), b.part_point("chest")) < 0.15
+
+
+def test_prone_head_only_turns_sideways():
+    room = stage.make_room("empty", "r1")
+    fr = run(room, [body("a", "a1", "front", "prone", facing="n"), body("b", "a1", "front", "stand")])
+    look = fr.bodies["a"].body.head_rot
+    assert look[1][2] == pytest.approx(0, abs=1e-9) and look[2][1] == pytest.approx(0, abs=1e-9)  # 위아래(x 축) 돌림 없음
 
 
 def test_spoon_behind_on_bed():
     """뒤에서 안는 사람: 같은 침대, 같은 쪽 향함. 앞사람 등과 뒷사람 가슴이 0.15m 안.
-    향함은 몸축 왼쪽(서쪽)이다. 오른쪽이면 roll -90 이 필요해 위 xfail 과 같은 빈틈에 걸린다."""
+    향함은 몸축 왼쪽(서쪽)이다. 오른쪽은 아래 시험."""
     room = stage.make_room("bedroom", "r1")
     bed = anchor(room, "침대")
     fr = run(room, [body("a", bed.id, "on", "side", facing="w"),

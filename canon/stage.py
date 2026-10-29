@@ -106,24 +106,25 @@ UNKNOWN = "?"  # 손 상태를 모름: 판정기는 빈손으로도 찬 손으�
 
 # ---------- 방 틀 ----------
 # (이름, 가로, 세로, [(기준점 이름, 종류, x, y, w, h, rot, 앉기, 눕기)]). 문 rot 180 은 앞쪽이 방 안(위)이라는 뜻이다.
-# 의자 · 자리 · 소파의 앞은 마주 보는 가구(책상 · 탁자 · 교탁 · 앞유리, 마주 앉는 자리) 쪽이다 (tests/test_stage.py)
+# 의자 · 자리 · 소파의 앞은 마주 보는 가구(책상 · 탁자 · 교탁 · 앞유리, 마주 앉는 자리) 쪽이다 (tests/test_stage.py).
+# 앉는 자리가 아닌 기준점의 앞자리는 다른 가구 위에 떨어지지 않는다 (2026-10-29, 3D 판정 07. 이미 만든 방은 그대로)
 
 ROOMS = {
     "bedroom": ("침실", 4.0, 3.2, [("침대", "bed", 0.2, 0.25, 1.4, 2.0, 0, True, True), ("책상", "desk", 2.8, 0.15, 1.0, 0.55, 0, False, False),
-                                  ("의자", "chair", 2.2, 0.2, 0.5, 0.5, 270, True, False), ("창", "window", 1.9, 0.0, 0.8, 0.1, 0, False, False),
+                                  ("의자", "chair", 2.2, 0.2, 0.5, 0.5, 270, True, False), ("창", "window", 1.5, 0.0, 0.8, 0.1, 0, False, False),
                                   ("문", "door", 3.1, 3.1, 0.8, 0.1, 180, False, False)]),
-    "living": ("거실", 5.0, 4.0, [("소파", "sofa", 0.4, 2.9, 2.2, 0.9, 180, True, True), ("탁자", "table", 0.9, 1.9, 1.2, 0.6, 0, False, False),
+    "living": ("거실", 5.0, 4.0, [("소파", "sofa", 0.4, 2.9, 2.2, 0.9, 180, True, True), ("탁자", "table", 0.9, 1.6, 1.2, 0.6, 0, False, False),
                                  ("텔레비전", "other", 0.8, 0.0, 1.4, 0.3, 0, False, False), ("창", "window", 3.6, 0.0, 1.2, 0.1, 0, False, False),
                                  ("문", "door", 4.85, 1.6, 0.15, 0.9, 90, False, False)]),
-    "classroom": ("교실", 8.0, 7.0, [("교탁", "desk", 3.4, 0.6, 1.2, 0.6, 0, False, False), ("칠판", "wall", 2.0, 0.0, 4.0, 0.1, 0, False, False),
+    "classroom": ("교실", 8.0, 7.0, [("교탁", "desk", 3.4, 0.8, 1.2, 0.6, 0, False, False), ("칠판", "wall", 2.0, 0.0, 4.0, 0.1, 0, False, False),
                                     ("앞자리", "seat", 2.0, 2.2, 1.2, 0.6, 180, True, False), ("뒷자리", "seat", 4.8, 5.4, 1.2, 0.6, 180, True, False),
                                     ("창가 자리", "seat", 0.4, 3.8, 1.2, 0.6, 180, True, False), ("앞문", "door", 7.9, 0.6, 0.1, 1.0, 90, False, False),
                                     ("뒷문", "door", 7.9, 5.6, 0.1, 1.0, 90, False, False)]),
     "office": ("사무실", 5.0, 4.0, [("책상", "desk", 1.8, 0.9, 1.6, 0.8, 0, False, False), ("의자", "chair", 2.35, 0.3, 0.5, 0.5, 0, True, False),
-                                   ("손님 의자", "chair", 2.35, 2.1, 0.5, 0.5, 180, True, False), ("책장", "other", 0.0, 0.4, 0.4, 2.0, 270, False, False),
+                                   ("손님 의자", "chair", 2.35, 2.5, 0.5, 0.5, 180, True, False), ("책장", "other", 0.0, 0.4, 0.4, 2.0, 270, False, False),
                                    ("문", "door", 2.1, 3.9, 0.9, 0.1, 180, False, False)]),
     "car": ("차 안", 1.8, 3.0, [("운전석", "seat", 0.15, 0.9, 0.7, 0.7, 180, True, False), ("조수석", "seat", 0.95, 0.9, 0.7, 0.7, 180, True, False),
-                               ("뒷좌석", "seat", 0.15, 1.9, 1.5, 0.7, 180, True, True), ("앞유리", "window", 0.1, 0.0, 1.6, 0.1, 0, False, False)]),
+                               ("뒷좌석", "seat", 0.15, 2.2, 1.5, 0.7, 180, True, True), ("앞유리", "window", 0.1, 0.0, 1.6, 0.1, 0, False, False)]),
     "carriage": ("마차 안", 1.6, 2.0, [("앞좌석", "seat", 0.1, 0.1, 1.4, 0.55, 0, True, False), ("뒷좌석", "seat", 0.1, 1.35, 1.4, 0.55, 180, True, False),
                                     ("문", "door", 1.5, 0.75, 0.1, 0.5, 90, False, False)]),
     "empty": ("빈 방", 4.0, 3.0, [("문", "door", 1.6, 2.9, 0.8, 0.1, 180, False, False)]),
@@ -146,6 +147,7 @@ def vocab() -> dict:
         "parts": {k: {"label": v.label, "side": v.side, "sexual": v.sexual} for k, v in PARTS.items()},
         "acts": {k: {"label": v.label, "hands": v.hands, "sexual": v.sexual, "intimate": v.intimate, "support": v.support} for k, v in ACTS.items()},
         "rooms": {k: v[0] for k, v in ROOMS.items()},
+        "rules": rule_names(), "rules3d": sorted(_rules3d()),
     }
 
 
@@ -343,6 +345,24 @@ class Violation(BaseModel):
     rule: str
     text: str           # 해요체 설명
     contact: str = ""   # 어긋난 접촉 id (reach · behind_front, hand_busy 는 이번 박자에 그 손으로 시작한 접촉). 없으면 빈칸
+
+
+def _rules3d() -> dict[str, str]:
+    from .stage3d.judge import RULES3D  # stage3d 가 stage 를 읽으므로 늦게 읽는다
+    return RULES3D
+
+
+def rule_names() -> dict[str, str]:
+    """규칙 id → 화면 이름: 평면 규칙(RULES)과 3D 규칙(stage3d.judge.RULES3D)."""
+    return {**RULES, **_rules3d()}
+
+
+def judge_all(scene: StageScene, room: StageRoom, p: Project) -> list[Violation]:
+    """평면 판정에 3D 판정을 더한다 (docs/stage/3d/specs/07-wire.md). 3D 는 자세 · 틀 모듈이 다 등록됐을 때만 돌고
+    2D reach 가 짚은 접촉은 다시 짚지 않는다. 박자 순, 같은 박자는 평면 규칙이 먼저."""
+    from .stage3d import judge as judge3d
+    flat = judge(scene, room, p)
+    return sorted(flat + judge3d.judge_if_ready(scene, room, p, flat=flat), key=lambda v: v.beat)
 
 
 def _name(p: Project, cid: str) -> str:
@@ -785,7 +805,7 @@ def end_lines(scene: StageScene, room: Optional[StageRoom], p: Project) -> list[
 
 
 # ---------- 검수 지적 (pipeline.apply_check) ----------
-# 본문 장면의 규칙 판정(judge)과 계획과 다른 곳(diff)을 '동선 · 사소 · 규칙' 지적으로. 인용이 지금 본문에 있는 박자만 짚는다
+# 본문 장면의 규칙 판정(judge_all: 평면 + 3D)과 계획과 다른 곳(diff)을 '동선 · 사소 · 규칙' 지적으로. 인용이 지금 본문에 있는 박자만 짚는다
 # (쓰기 전 연출의 판정은 장면 연출 화면에만 보인다). 한 문장의 여러 어긋남은 지적 하나로 합친다.
 
 def to_issues(scene: StageScene, room: Optional[StageRoom], p: Project, n: int, text: str, event: int,
@@ -799,11 +819,12 @@ def to_issues(scene: StageScene, room: Optional[StageRoom], p: Project, n: int, 
         return q if q and _SPACE.sub("", q) in flat else ""
 
     rows: dict[str, dict] = {}  # 인용 → {beat, source, texts}
-    for v in (judge(scene, room, p) if room else []):
+    names = rule_names()
+    for v in (judge_all(scene, room, p) if room else []):
         q = quote(v.beat)
         if q:
             r = rows.setdefault(q, {"beat": v.beat, "source": quote(v.cause) if v.cause != v.beat else "", "texts": []})
-            r["texts"].append(f"{RULES[v.rule]}: {v.text}")
+            r["texts"].append(f"{names[v.rule]}: {v.text}")
     if plan is not None:
         for g in diff(plan, scene, plan_room, p, room):
             q = quote(g.text_beat)
@@ -913,11 +934,11 @@ def room_of(p: Project, scene: StageScene) -> Optional[StageRoom]:
 
 
 def check(p: Project, ep: Episode, scene: StageScene, room: Optional[StageRoom]) -> dict:
-    """장면 하나의 화면 값: 사건 찾기, 본문과 다른 박자, 규칙 판정, 짝 장면(같은 사건의 다른 역할)과 견준 값.
+    """장면 하나의 화면 값: 사건 찾기, 본문과 다른 박자, 규칙 판정(평면 + 3D, judge_all), 짝 장면(같은 사건의 다른 역할)과 견준 값.
     gaps 는 계획과 다른 곳(짝이 있을 때만), match 는 계획 박자마다 견준 본문 박자다."""
     event, changed = find_event(ep, scene)
     out = {"event": event, "event_changed": changed, "stale": stale(scene, ep.text),
-           "violations": [v.model_dump() for v in judge(scene, room, p)] if room else [], "pair": None, "gaps": [], "match": []}
+           "violations": [v.model_dump() for v in judge_all(scene, room, p)] if room else [], "pair": None, "gaps": [], "match": []}
     if event is None:
         return out
     pair = scenes_of(ep, event)[scene.role == "plan"]

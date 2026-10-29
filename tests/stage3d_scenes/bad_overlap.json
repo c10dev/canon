@@ -1,0 +1,44 @@
+{
+ "note": "두 사람이 같은 자리에 선다",
+ "template": "empty",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "문",
+    "rel": "front"
+   },
+   "posture": "stand"
+  },
+  {
+   "who": "d",
+   "at": {
+    "ref": "문",
+    "rel": "front"
+   },
+   "posture": "stand"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "d",
+     "at": {
+      "ref": "@h",
+      "rel": "on"
+     },
+     "posture": "stand"
+    }
+   ]
+  }
+ ],
+ "expect": [
+  [
+   1,
+   "body_overlap",
+   "h"
+  ]
+ ]
+}

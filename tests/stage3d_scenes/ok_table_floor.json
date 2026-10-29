@@ -1,0 +1,26 @@
+{
+ "note": "탁자 앞 바닥에 양반다리로 앉는다",
+ "template": "living",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "탁자",
+    "rel": "front"
+   },
+   "posture": "floor"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "h",
+     "facing": "#탁자"
+    }
+   ]
+  }
+ ],
+ "expect": []
+}

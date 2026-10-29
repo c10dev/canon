@@ -1,0 +1,60 @@
+{
+ "note": "침대 가장자리에 앉은 하린의 손을 앞에 선 도윤이 잡는다",
+ "template": "bedroom",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "침대",
+    "rel": "front"
+   },
+   "posture": "stand"
+  },
+  {
+   "who": "d",
+   "at": {
+    "ref": "문",
+    "rel": "front"
+   },
+   "posture": "stand"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "h",
+     "at": {
+      "ref": "침대",
+      "rel": "on"
+     },
+     "posture": "chair"
+    }
+   ]
+  },
+  {
+   "quote": "2박자",
+   "bodies": [
+    {
+     "who": "d",
+     "at": {
+      "ref": "침대",
+      "rel": "front"
+     },
+     "posture": "stand",
+     "contacts": [
+      {
+       "id": "c1",
+       "by": "right",
+       "to": "h",
+       "part": "hand_l",
+       "act": "hold"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "expect": []
+}

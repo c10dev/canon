@@ -355,3 +355,18 @@ def test_view_pairs_plan_and_text():
     rows = stage.view(p, 1)["scenes"]
     assert [r["pair"] for r in rows] == [b.id, a.id] and rows[0]["gaps"] == rows[1]["gaps"]
     assert rows[0]["gaps"][0]["field"] == "posture" and rows[0]["match"] == [0]
+
+
+def test_template_front_spots_clear():
+    # 기준점 앞자리(front)는 다른 가구 위(몸 여유 0.15m)에 떨어지지 않는다. 책상에 붙여 둔 의자의 앞은 그 책상이라 뺀다
+    allowed = {("bedroom", "의자", "책상"), ("office", "의자", "책상")}
+    for key in stage.ROOMS:
+        room = stage.make_room(key, "r")
+        for a in room.anchors:
+            x, y = stage._anchor_point(a, "front")
+            x, y = min(max(x, stage.BODY), room.w - stage.BODY), min(max(y, stage.BODY), room.h - stage.BODY)
+            for o in room.anchors:
+                if o is a or o.kind in ("door", "window"):
+                    continue
+                if o.x - 0.15 < x < o.x + o.w + 0.15 and o.y - 0.15 < y < o.y + o.h + 0.15:
+                    assert (key, a.name, o.name) in allowed, (key, a.name, o.name)

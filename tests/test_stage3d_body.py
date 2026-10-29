@@ -218,7 +218,7 @@ def test_frames_shape():
     assert h["joints"]["pelvis"][2] == pytest.approx(0.45 + 0.08, abs=0.001)  # 의자 앉는 면 위
     assert b0["bodies"]["j"] == {"posture": "side", "missing": "side", "attach": None, "joints": None}
     c = d["beats"][2]["contacts"]
-    assert len(c) == 1 and set(c[0]) == {"id", "who", "to", "part", "hands", "gap", "points"}
+    assert len(c) == 1 and set(c[0]) == {"id", "who", "to", "part", "act", "by", "hands", "gap", "points"}
     assert c[0]["hands"] == ["r"] and c[0]["gap"] >= 0 and len(c[0]["points"]) == 2
     hug = [x for x in d["beats"][3]["contacts"] if x["id"] == "c2"][0]
     assert hug["hands"] == ["l", "r"] and len(hug["points"]) == 4

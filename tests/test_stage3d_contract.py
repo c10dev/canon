@@ -71,10 +71,9 @@ def test_checks_catch_errors():
 
 
 def test_registry_complete():
-    m = s3.missing()
-    if m["postures"] or m["rooms"]:
-        pytest.skip(f"아직 없는 자세 {m['postures']} · 틀 {m['rooms']}")  # 연결 일감 07 이 엄격하게 바꾼다
-    assert s3.complete()
+    assert s3.missing() == {"postures": [], "rooms": []}  # 자세 12 · 틀 7 이 다 있어야 3D 판정이 켜진다 (07)
+    assert s3.complete() and s3.ready()
+    assert sorted(s3.posture_specs()) == sorted(stage.POSTURES) and sorted(s3.room_specs()) == sorted(stage.ROOMS)
 
 
 def test_registry_scans_folder(tmp_path, monkeypatch):

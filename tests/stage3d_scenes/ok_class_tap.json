@@ -1,0 +1,42 @@
+{
+ "note": "앞자리에 앉은 하린의 (가까운) 왼어깨를 옆에 선 도윤이 두드린다",
+ "template": "classroom",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "앞자리",
+    "rel": "on"
+   },
+   "posture": "chair"
+  },
+  {
+   "who": "d",
+   "at": {
+    "ref": "앞자리",
+    "rel": "right"
+   },
+   "posture": "stand"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "d",
+     "contacts": [
+      {
+       "id": "c1",
+       "by": "right",
+       "to": "h",
+       "part": "shoulder_l",
+       "act": "tap"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "expect": []
+}

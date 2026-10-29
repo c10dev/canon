@@ -71,12 +71,21 @@ def test_chair_feet_on_floor(kind):
     assert feet(b) == pytest.approx([0, 0], abs=0.03)
 
 
-def test_chair_high_seat_dangles():
-    # 0.5m(침대)는 무릎만으로 발이 닿지 않는다: 정강이를 수직으로 늘어뜨린다 (명세 ±0.03 은 못 맞춤, 보고서 참고)
+def test_chair_bed_edge_feet_on_floor():
+    # 0.5m(침대)는 무릎만으로 발이 닿지 않는다: 엉덩 굽힘을 줄여 넓적다리를 앞으로 기울이고 발을 바닥과 나란히 둔다
     _, b = frame(StageAnchor(id="a1", name="침대", kind="bed", x=1.0, y=1.0, w=1.4, h=2.0, sit=True, lie=True), "chair")
     j = b.joints()
-    assert 0 < j["ankle_l"][2] < 0.08
-    assert j["ankle_l"][1] == pytest.approx(j["knee_l"][1], abs=0.02)  # 발목이 무릎 바로 아래
+    assert feet(b) == pytest.approx([0, 0], abs=0.03)
+    assert b.hip[0] < chair.ANGLES.hip[0]
+    assert j["toe_l"][2] == pytest.approx(j["ankle_l"][2], abs=0.02)  # 발바닥이 바닥과 나란히
+
+
+def test_chair_high_seat_dangles():
+    # 0.75m(책상 윗면)는 엉덩을 30° 줄여도 닿지 않는다: 발끝을 펴서 바닥 쪽으로 늘어뜨린다
+    _, b = frame(StageAnchor(id="a1", name="책상", kind="desk", x=1.5, y=1.5, w=1.0, h=0.5), "chair")
+    j = b.joints()
+    assert j["ankle_l"][2] > 0.05
+    assert b.ankle[0] > 0 and j["toe_l"][2] < j["ankle_l"][2]
 
 
 def test_chair_low_seat_stretches_legs():
@@ -147,11 +156,21 @@ def test_chair_without_spot():
 def test_floor_heights(base):
     b = s3.pose(floor.POSTURE, 0, 0, 0, base)
     j = b.joints()
-    assert j["pelvis"][2] == pytest.approx(base + 0.10, abs=0.001)
+    assert j["pelvis"][2] == pytest.approx(base + 0.12, abs=0.001)
     for s in ("l", "r"):
         assert 0 <= j["knee_" + s][2] - base <= 0.25
         assert j["ankle_" + s][2] >= base and j["toe_" + s][2] >= base
     assert min(v[2] for v in j.values()) >= base - 0.02
+
+
+def test_floor_cross_legged():
+    """양반다리: 무릎은 몸 밖으로 벌어지고, 두 발목은 몸 가운데(골반 폭 안)로 들어와 앞뒤로 엇갈린다."""
+    j = s3.pose(floor.POSTURE, 0, 0).joints()
+    for s in ("l", "r"):
+        assert abs(j["knee_" + s][0]) > 0.25
+        assert abs(j["ankle_" + s][0]) < 0.12
+    assert j["ankle_l"][0] < 0 < j["ankle_r"][0]  # 왼발은 오른쪽으로, 오른발은 왼쪽으로 건너간다
+    assert abs(j["ankle_l"][1] - j["ankle_r"][1]) > 0.15
 
 
 def test_floor_shins_apart():
@@ -163,7 +182,7 @@ def test_floor_shins_apart():
 def test_floor_on_bed():
     _, b = frame(StageAnchor(id="a1", name="침대", kind="bed", x=1.0, y=1.0, w=1.4, h=2.0, sit=True, lie=True), "floor")
     assert b.base == pytest.approx(0.5)
-    assert b.joints()["pelvis"][2] == pytest.approx(0.6, abs=0.001)
+    assert b.joints()["pelvis"][2] == pytest.approx(0.62, abs=0.001)
 
 
 def test_floor_without_spot_is_floor():
@@ -175,7 +194,9 @@ def test_floor_without_spot_is_floor():
 
 def test_squat_foot_on_floor():
     b = s3.pose(squat.POSTURE, 0, 0)
+    j = b.joints()
     assert foot_bottom(b) == pytest.approx(0, abs=0.02)
+    assert j["ankle_l"][2] == pytest.approx(j["toe_l"][2], abs=0.02)  # 뒤꿈치를 들지 않는다 (명세 정할 것 1)
     assert min(v[2] for v in b.joints().values()) >= -0.02
 
 
