@@ -1,6 +1,6 @@
 # 03-07. 장소 모듈: 빈 방 (`empty`)
 
-상태: 명세 · 묶음: R · 공통: [../03-room.md](../03-room.md) · 먼저: [../01-body.md](../01-body.md)
+상태: 완료 (`canon/stage3d/rooms/empty.py`, 시험 `tests/test_stage3d_rooms.py`) · 묶음: R · 공통: [../03-room.md](../03-room.md) · 먼저: [../01-body.md](../01-body.md)
 
 ## 목표
 
