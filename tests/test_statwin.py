@@ -54,12 +54,39 @@ RESOLVE_CASES = [
     # 최대 값이 붙은 수치: 앞 수에만 더한다
     ("80/100", "-12", "68/100"), ("80 / 100", "+30", "110 / 100"), ("1,200/2,000", "+300", "1,500/2,000"),
     ("80/100", "70/100", "70/100"), ("80/100", "-12골드", "-12골드"),
+    # 한도 뒤 단위: 한도와 단위는 그대로, 소수 자리는 앞 수와 바뀐 양 가운데 긴 쪽
+    ("4.3/60L", "-0.7", "3.6/60L"), ("145/500", "+3", "148/500"), ("4.3/60L", "2.8/60L", "2.8/60L"),
+    ("12.0/40L", "-2", "10.0/40L"), ("22/40L", "-0.5", "21.5/40L"), ("3.2/40L", "+1L", "4.2/40L"),
+    ("136 / 500", "+3", "139 / 500"), ("0.3/60L", "-0.7", "-0.4/60L"), ("39/40 L", "+3", "42/40 L"),
+    ("0.7/60L", "-0.7", "0.0/60L"), ("4.3/60L", "-0.7G", "-0.7G"),
 ]
 
 
 def test_resolve_units_and_lists():
     for before, value, want in RESOLVE_CASES:
         assert statwin.resolve(before, value) == want, (before, value)
+
+
+def test_out_of_range():
+    assert statwin.out_of_range("-0.4/60L") == "0보다 작아요"
+    assert statwin.out_of_range("42/40L") == "한도 40L보다 커요"
+    assert statwin.out_of_range("1,200/1,000") == "한도 1,000보다 커요"
+    for v in ("0/60L", "40/40L", "3.6/60L", "-5", "-300골드", "화염구"):
+        assert statwin.out_of_range(v) == "", v
+
+
+def test_range_warnings_reach_clean_delta():
+    p = _short(8)
+    statwin.set_stats(p, "hero", [StatValue(name="연료", value="0.3/60L"), StatValue(name="물 저장", value="39/40L"),
+                                  StatValue(name="내구도", value="145/500")])
+    d = _delta(1, StatValue(name="연료", value="-0.7"), StatValue(name="물 저장", value="+3"), StatValue(name="내구도", value="+3"))
+    name = p.characters[0].name
+    assert statwin.range_warnings(p, d) == [
+        f"{name} 상태창: 반영하면 연료 -0.4/60L, 0보다 작아요. 본문과 맞는지 확인하세요.",
+        f"{name} 상태창: 반영하면 물 저장 42/40L, 한도 40L보다 커요. 본문과 맞는지 확인하세요."]
+    pipeline.clean_delta(p, d)
+    assert sum("연료 -0.4/60L" in x for x in d.warnings) == 1
+    assert statwin.range_warnings(p, _delta(1, StatValue(name="연료", value="+1"))) == []
 
 
 def test_list_items_through_review_and_timeline():
