@@ -19,7 +19,13 @@
   방향이 어긋나 닫지 못하면 바다를 그리지 않고 coast_broken 을 단다.
 - 풀밭 · 숲 · 공원은 greens, 논밭은 fields, 광장 · 보행 구역은 squares, 나무 점(natural=tree)은 trees.
 
-다 들어오지 않은 multipolygon 의 안쪽 고리(물 속 섬, 건물 안뜰)는 쓰지 않는다. 지하철 · 철길은 그리지 않는다.
+- 지하철(.osm 만): 역(railway=station + station=subway, public_transport=station + subway=yes)과 노선(route=subway ·
+  light_rail relation, 정차 위치에 subway=yes 가 있는 route=train)의 정차 차례를 transit 에 둔다(_transit). 노선은 정차 위치
+  (stop_position)를 이름(괄호 뺀 것)과 거리로 역에 묶고, 파일에 없는 정차 위치는 그 사이 역 수(gaps)로 센다. 방향만 다른
+  relation 은 하나로 묶는다. 지도 밖 TRANSIT_PAD 안의 역도 두므로 역 자리는 0~1 밖일 수 있다. 정차 위치 점은 표지로 두지 않는다.
+  GeoJSON 은 relation 의 정차 차례가 없어 역만 둔다.
+
+다 들어오지 않은 multipolygon 의 안쪽 고리(물 속 섬, 건물 안뜰)는 쓰지 않는다. 지하철 노선 · 철길은 그리지 않는다.
 OpenStreetMap 데이터는 ODbL 이라 지도 화면 · 내보낸 그림에 출처(SOURCE)를 적는다.
 """
 from __future__ import annotations
@@ -51,6 +57,9 @@ GREEN = {("leisure", "park"), ("leisure", "garden"), ("leisure", "pitch"), ("lei
          ("landuse", "forest"), ("landuse", "recreation_ground"), ("landuse", "meadow"), ("landuse", "village_green"),
          ("landuse", "cemetery"), ("natural", "wood"), ("natural", "scrub"), ("natural", "grassland"), ("natural", "heath")}
 FIELD = {("landuse", "farmland"), ("landuse", "orchard"), ("landuse", "allotments"), ("landuse", "vineyard")}
+TRANSIT_ROUTES = ("subway", "light_rail", "train")  # train 은 정차 위치에 subway=yes 가 있을 때만 (신분당선 등)
+TRANSIT_PAD = 3000.0  # m. 지도 밖으로 이만큼 안의 역까지 둔다 (가장자리 장소가 지도 밖 가까운 역을 쓰게)
+STATION_JOIN = 600.0  # m. 이름이 같고 이만큼 가까운 역 · 정차 위치는 한 역 (갈아타는 역, 방향마다 다른 정차 위치)
 POI_KEYS = ("amenity", "shop", "office", "tourism", "leisure", "healthcare", "railway", "public_transport", "craft")
 
 # 태그 → 건물 쓰임 (bldgs.USES 의 id). 먼저 맞는 것이 이긴다
@@ -111,6 +120,7 @@ def parse(text: str) -> dict:
 
 # ---------- 읽기: (태그, 모양, 좌표) 목록 ----------
 # 모양: point (lon, lat) | line [(lon, lat)] | area [고리] (닫힌 바깥 고리들) | open [사슬] (닫히지 않은 바깥 고리 조각)
+#       route [((lon, lat), 정차 위치 태그) | None] (지하철 노선 relation 의 정차 차례, 파일에 없는 점은 None)
 
 Feature = tuple[dict, str, object]
 
@@ -131,6 +141,7 @@ def _from_xml(text: str) -> tuple[list[Feature], Optional[tuple[float, float, fl
             bounds = None
     tags = lambda el: {t.get("k"): t.get("v") for t in el.findall("tag") if t.get("k")}  # noqa: E731
     nodes: dict[str, tuple[float, float]] = {}
+    ntags: dict[str, dict] = {}
     feats: list[Feature] = []
     for nd in root.iter("node"):
         try:
@@ -140,6 +151,7 @@ def _from_xml(text: str) -> tuple[list[Feature], Optional[tuple[float, float, fl
         nodes[nd.get("id")] = q
         t = tags(nd)
         if t:
+            ntags[nd.get("id")] = t
             feats.append((t, "point", q))
     ways: dict[str, list] = {}
     for w in root.iter("way"):
@@ -151,6 +163,10 @@ def _from_xml(text: str) -> tuple[list[Feature], Optional[tuple[float, float, fl
             feats.append((t, "area", [pts]) if closed and _is_area(t) else (t, "line", pts))
     for rel in root.iter("relation"):
         t = tags(rel)
+        if t.get("type") == "route" and t.get("route") in TRANSIT_ROUTES:
+            stops = [m.get("ref") for m in rel.findall("member") if m.get("type") == "node" and (m.get("role") or "").startswith("stop")]
+            feats.append((t, "route", [(nodes[r], ntags.get(r, {})) if r in nodes else None for r in stops]))
+            continue
         if t.get("type") != "multipolygon":
             continue
         t = {k: v for k, v in t.items() if k != "type"}
@@ -266,10 +282,17 @@ def convert(feats: list[Feature], bounds: Optional[tuple[float, float, float, fl
     loose: list[list[Point]] = []
     coast: list[list[Point]] = []  # 해안선 (natural=coastline)
     named: list[tuple[Point, dict]] = []  # 이름 붙은 물 · 녹지 · 광장 (가운데 자리, 장소 자리 찾기)
+    stations: list[tuple[Point, dict]] = []  # 지하철 역 점 (지도 밖도)
+    routes: list[tuple[dict, list]] = []  # 지하철 노선 (태그, 정차 차례)
     for t, kind, g in feats:
+        if kind == "route":
+            routes.append((t, [(P(m[0]), m[1]) if m else None for m in g]))
+            continue
         if kind == "point":
             q = P(g)
-            if not (0 <= q[0] <= W and 0 <= q[1] <= H):
+            if _subway_station(t):
+                stations.append((q, t))
+            if _rail_stop(t) or not (0 <= q[0] <= W and 0 <= q[1] <= H):
                 continue
             if t.get("natural") == "tree":
                 trees.append(q)
@@ -337,7 +360,100 @@ def convert(feats: list[Feature], bounds: Optional[tuple[float, float, float, fl
         out["coast_broken"] = True
     if rivers:
         out["rivers"] = rivers
+    transit = _transit(stations, routes, W, H)
+    if transit:
+        out["transit"] = transit
     return out
+
+
+def _subway_station(t: dict) -> bool:
+    return (t.get("railway") == "station" and t.get("station") == "subway") or (t.get("public_transport") == "station" and t.get("subway") == "yes")
+
+
+def _rail_stop(t: dict) -> bool:
+    """철길 위 정차 위치 (역 하나에 방향마다 하나씩). 버스 정류장 표지가 되지 않게 표지에서 뺀다."""
+    return t.get("railway") in ("stop", "halt") or (t.get("public_transport") == "stop_position"
+                                                   and any(t.get(k) == "yes" for k in ("subway", "train", "light_rail", "tram")))
+
+
+def _station_key(name: str) -> str:
+    """역을 묶는 이름: 괄호 · 띄어쓰기 · 끝의 '역'을 뺀다 ('교대(법원·검찰청)' → '교대', '강남역' → '강남')."""
+    key = re.sub(r"\(.*?\)|\s", "", name)
+    return key[:-1] if len(key) > 1 and key.endswith("역") else key
+
+
+def _transit(stations: list[tuple[Point, dict]], routes: list[tuple[dict, list]], W: float, H: float) -> Optional[dict]:
+    """지하철 역 점과 노선 relation → {stations: [{name, x, y, lines}], lines: [{name, stations, gaps?}]}. 역이 없으면 None.
+    정차 위치는 같은 이름(_station_key)으로 STATION_JOIN 안의 역에 묶는다(역 점이 없으면 정차 위치끼리 묶어 역으로 본다).
+    지도 밖 TRANSIT_PAD 밖의 역과 파일에 없는 정차 위치는 노선에서 빼고 gaps 로 센다. 역 이름은 역 점의 name 태그,
+    역 점이 없으면 정차 위치 이름 가운데 가장 짧은 것. 방향만 다른 relation(같은 이름, 같은 역)은 하나로."""
+    groups: list[dict] = []
+
+    def join(q: Point, name: str, station: bool) -> Optional[int]:
+        key = _station_key(name)
+        if not key:
+            return None
+        k = next((i for i, g in enumerate(groups) if g["key"] == key and math.dist(q, g["at"]) <= STATION_JOIN), None)
+        if k is None:
+            groups.append({"key": key, "at": q, "station": [], "stop": [], "names": []})
+            k = len(groups) - 1
+        groups[k]["station" if station else "stop"].append(q)
+        groups[k]["names"].append((not station, len(name), name))
+        return k
+
+    for q, t in stations:
+        join(q, t.get("name", ""), True)
+    found: list[tuple[str, list[int], list[int]]] = []
+    for t, stops in routes:
+        if t.get("route") == "train" and not any(m and m[1].get("subway") == "yes" for m in stops):
+            continue
+        seq, gaps, skip = [], [], 0
+        for m in stops:
+            k = join(m[0], m[1].get("name", ""), False) if m else None
+            if k is None:
+                skip += 1
+            elif not seq or seq[-1] != k:
+                if seq:
+                    gaps.append(skip)
+                seq.append(k)
+                skip = 0
+        if len(seq) >= 2:
+            found.append(((t.get("name") or t.get("ref") or "").split(":")[0].strip(), seq, gaps))
+    pos = []
+    for g in groups:
+        pts = g["station"] or g["stop"]
+        pos.append((sum(q[0] for q in pts) / len(pts), sum(q[1] for q in pts) / len(pts)))
+    near = [-TRANSIT_PAD <= x <= W + TRANSIT_PAD and -TRANSIT_PAD <= y <= H + TRANSIT_PAD for x, y in pos]
+    lines: list[tuple[str, list[int], list[int]]] = []
+    for name, seq, gaps in found:
+        keep, kgaps, skip = [], [], 0
+        for i, k in enumerate(seq):
+            if not near[k]:
+                skip += 1 + (gaps[i] if i < len(gaps) else 0)
+                continue
+            if keep:
+                kgaps.append(skip)
+            keep.append(k)
+            skip = gaps[i] if i < len(gaps) else 0
+        if len(keep) >= 2 and not any(n == name and set(s) == set(keep) for n, s, _ in lines):
+            lines.append((name, keep, kgaps))
+    used = {k for _, s, _ in lines for k in s}
+    inside = [0 <= x <= W and 0 <= y <= H for x, y in pos]
+    keep_ids = [k for k in range(len(groups)) if k in used or (inside[k] and groups[k]["station"])]
+    if not keep_ids:
+        return None
+    index = {k: i for i, k in enumerate(keep_ids)}
+    out_st = [{"name": min(groups[k]["names"])[2], "x": round(pos[k][0] / W, 6), "y": round(pos[k][1] / H, 6), "lines": []} for k in keep_ids]
+    out_ln = []
+    for name, seq, gaps in lines:
+        row: dict = {"name": name, "stations": [index[k] for k in seq]}
+        if any(gaps):
+            row["gaps"] = gaps
+        out_ln.append(row)
+        for k in seq:
+            if name and name not in out_st[index[k]]["lines"]:
+                out_st[index[k]]["lines"].append(name)
+    return {"stations": out_st, "lines": out_ln}
 
 
 def _stop(t: dict) -> str:

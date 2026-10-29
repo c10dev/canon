@@ -9,7 +9,7 @@
 
 /** 마을 겹 설정은 이 브라우저에만 기억한다 (못 읽으면 기본값) */
 function atlasLayersLoad() {
-  const base = { trees: true, fields: true, shadows: true, numbers: false, deco: true, wards: true, uses: false, streets: true };
+  const base = { trees: true, fields: true, shadows: true, numbers: false, deco: true, wards: true, uses: false, streets: true, stations: true };
   try {
     const got = JSON.parse(localStorage.getItem('canon.atlasLayers') || '{}');
     if (got.deco === undefined && got.title === false) got.deco = false;  // 옛 '이름' 겹은 '장식'에 들어갔다
@@ -61,7 +61,7 @@ Object.assign(S, {
 
 const ATLAS_W = 1000;
 const ATLAS_LAYERS = { trees: ['나무', 't'], fields: ['밭', 'f'], shadows: ['그림자', 'u'], numbers: ['집 번호', 'm'], deco: ['장식', 'd'], wards: ['구역', 'w'],
-  uses: ['쓰임', 's'], streets: ['길 이름', 'k'] };
+  uses: ['쓰임', 's'], streets: ['길 이름', 'k'], stations: ['역', 'e'] };
 let atlasTimer = null;
 let atlasDrag = null;
 let atlasDragged = false;
@@ -669,6 +669,15 @@ function atlasSvg() {
     });
   }
 
+  // 지하철 역(OpenStreetMap 지도의 transit): 노선은 땅 밑이라 그리지 않고 역만 표지로. 이름은 장소 이름표 뒤에 자리를 잡는다
+  const stations = village && !pv && S.atlasLayers.stations !== false ? atlasStations(village.transit, W, H, 7 * sc) : [];
+  stations.forEach((st) => {
+    const r = 7 * sc;
+    out.push(`<g class="at-station"><title>${esc(`${st.name || '이름 없는 역'} (지하철${st.lines.length ? ' ' + st.lines.join(', ') : ''})`)}</title>
+      <rect x="${(st.x - r).toFixed(1)}" y="${(st.y - r).toFixed(1)}" width="${(2 * r).toFixed(1)}" height="${(2 * r).toFixed(1)}" rx="${(r * 0.45).toFixed(2)}" stroke-width="${(1.6 * sc).toFixed(2)}"></rect>
+      <text x="${st.x.toFixed(1)}" y="${(st.y + 3.6 * sc).toFixed(1)}" font-size="${(10 * sc).toFixed(2)}" text-anchor="middle">역</text></g>`);
+  });
+
   // 지나온 길: 시작부터 지금 시점까지 놓인 장소를 차례로 잇는다 (거쳐 온 곳 포함).
   // 마을 데이터가 있으면 서버가 찾은 길 따라 경로(row.route)로 잇는다.
   // 겹: 모든 인물의 바깥 테두리(halo) → 선 → 화살표, 화 번호 점은 장소 핀 위 · 이름표 아래(epDots).
@@ -782,10 +791,11 @@ function atlasSvg() {
     list.forEach((c, j) => toks.push({ c, ...atlasTokenAt(px, py, j, list.length, sc) }));
   });
 
-  // 이름표 놓는 차례: 장식 · 인물 표 → 장소 이름표 → 구역 이름 → 길 이름. 앞에 놓은 것이 이기고, 뒤의 것은 taken 을 비켜 가거나 빠진다.
+  // 이름표 놓는 차례: 장식 · 인물 표 → 장소 이름표 → 역 이름 → 구역 이름 → 길 이름. 앞에 놓은 것이 이기고, 뒤의 것은 taken 을 비켜 가거나 빠진다.
   // 그림 겹은 따로: 구역 · 길 이름이 장소 이름표 아래, 인물 표와 장식이 맨 위
   const taken = deco.boxes.concat(toks.map((t) => t.box));
   const names = atlasLabels(labels, sc, fs, taken);
+  if (stations.length) out.push(atlasStationLabels(stations, fs * 0.82, taken, sc));
   if (village && S.atlasLayers.wards !== false) out.push(atlasWardLabels(village, W, H, fs * 0.85, taken, z));
   if (village && S.atlasLayers.streets !== false && village.streets) out.push(atlasStreetLabels(village, W, H, fs * 0.78, taken, z));
   out.push(names);
@@ -946,6 +956,16 @@ function atlasTrailDots(groups, r) {
 /** 축척 막대: 보이는 폭의 약 1/6 에 가장 가까운 둥근 값 (1 · 2 · 5 × 10ⁿ m, 10m 부터).
     mpu: 지도 단위 1 이 몇 m, z: 확대 배율, W: 지도 폭(지도 단위). 축척을 모르면 null.
     돌려주는 값: { meters, label: '200m' · '1km', units: 막대 길이(지도 단위) } */
+/** 지하철 역 표지 자리: 지도 데이터 transit(OpenStreetMap)의 역 가운데 지도 안(0~1)의 것만, 지도 단위로.
+    r: 표지 반지름(지도 단위). 돌려주는 값: [{ x, y, name, lines, box }] (box 는 표지 상자, 이름표가 비켜 간다) */
+function atlasStations(transit, W, H, r) {
+  return ((transit && transit.stations) || []).filter((s) => s.x >= 0 && s.x <= 1 && s.y >= 0 && s.y <= 1).map((s) => {
+    const x = s.x * W;
+    const y = s.y * H;
+    return { x, y, name: s.name || '', lines: s.lines || [], box: [x - r, y - r, x + r, y + r] };
+  });
+}
+
 function atlasScaleBar(mpu, z = 1, W = 1000) {
   if (!(mpu > 0) || !Number.isFinite(mpu) || !(z > 0)) return null;
   const want = ((W / z) / 6) * mpu;
@@ -1120,6 +1140,29 @@ function atlasLabels(list, sc, fs = 15 * sc, taken = []) {
   return `<g class="at-labels">${out.join('')}</g>`;
 }
 
+/** 역 이름표: 표지 오른쪽 · 왼쪽 · 아래 · 위 가운데 빈 곳에. 다 막히면 이름은 빼고 표지만 남긴다 (장소 이름표가 이긴다).
+    stations: atlasStations 결과, taken: 앞에서 차지한 상자 (표지 상자와 놓은 이름표 상자를 더한다) */
+function atlasStationLabels(stations, fs, taken, sc) {
+  taken.push(...stations.map((st) => st.box));
+  const out = [];
+  const g = 10 * sc;
+  stations.forEach((st) => {
+    if (!st.name) return;
+    const w = atlasTextW(st.name, fs);
+    const spots = [[g, fs * 0.35, 'start'], [-g, fs * 0.35, 'end'], [0, g + fs * 0.85, 'middle'], [0, -g - fs * 0.15, 'middle']];
+    const boxOf = ([dx, dy, a]) => {
+      const x0 = a === 'middle' ? st.x + dx - w / 2 : a === 'start' ? st.x + dx : st.x + dx - w;
+      return [x0, st.y + dy - fs, x0 + w, st.y + dy + fs * 0.25];
+    };
+    const hit = (b) => taken.some((p) => b[0] < p[2] && b[2] > p[0] && b[1] < p[3] && b[3] > p[1]);
+    const sp = spots.find((x) => !hit(boxOf(x)));
+    if (!sp) return;
+    taken.push(boxOf(sp));
+    out.push(`<text x="${(st.x + sp[0]).toFixed(1)}" y="${(st.y + sp[1]).toFixed(1)}" text-anchor="${sp[2]}">${esc(st.name)}</text>`);
+  });
+  return out.length ? `<g class="at-station-label" font-size="${fs.toFixed(2)}" stroke-width="${(fs * 0.27).toFixed(2)}">${out.join('')}</g>` : '';
+}
+
 // ----- 옆 칸 -----
 
 function atlasWho() {
@@ -1220,7 +1263,8 @@ function atlasToggles(map = true) {
 function atlasLayerToggles() {
   const styles = Object.entries(ATLAS_STYLES).map(([k, st], i) => `<option value="${k}"${S.atlasStyle === k ? ' selected' : ''}>${esc(st.label)} (${i + 1})</option>`).join('');
   const v = atlasVillage();
-  const has = { wards: v && v.wards && v.wards.length, uses: v && v.blds && v.blds.length, streets: v && v.streets && v.streets.length };
+  const has = { wards: v && v.wards && v.wards.length, uses: v && v.blds && v.blds.length, streets: v && v.streets && v.streets.length,
+    stations: v && v.transit && v.transit.stations && v.transit.stations.length };
   const layers = Object.entries(ATLAS_LAYERS).filter(([k]) => !(k in has) || has[k]);
   return `<div class="row at-toggles at-layers"><span class="small">지도:</span>
     <label title="화풍 고르기 (1~4)">화풍 <select data-atlas-style aria-label="지도 화풍">${styles}</select></label>${layers.map(([k, [label, key]]) => `<label title="${esc(label)} 끄고 켜기 (${key.toUpperCase()})"><input type="checkbox" data-atlas-layer="${k}"${S.atlasLayers[k] ? ' checked' : ''}>${esc(label)}</label>`).join('')}
@@ -2286,6 +2330,13 @@ document.addEventListener('keydown', (e) => {
 .at-map .at-pin.later .at-name { fill: var(--muted); }
 .at-map .at-hot { fill: none; stroke: var(--accent); }
 .at-map .at-name { font-weight: 700; fill: var(--text); paint-order: stroke; stroke: var(--canvas); stroke-linejoin: round; pointer-events: none; }
+/* 지하철 역 표지 (OpenStreetMap transit): 짙은 파랑 바탕에 흰 글자. 밤은 밝은 파랑, 흑백 인쇄는 검정 */
+.at-map .at-station rect { fill: var(--v-station, #1F4E8C); stroke: var(--surface); }
+.at-map .at-station text { font-weight: 700; fill: #FFFFFF; pointer-events: none; }
+.at-map.st-print .at-station rect { fill: #000000; }
+.at-map .at-station-label { font-weight: 600; fill: var(--v-station, #1F4E8C); paint-order: stroke; stroke: var(--canvas); stroke-linejoin: round; pointer-events: none; }
+.at-map.st-print .at-station-label { fill: #000000; }
+.at-map.st-night .at-station rect, .at-map.st-night .at-station-label { --v-station: #4F8FE0; }
 .at-map .at-tok { cursor: pointer; }
 .at-map .at-tok circle { stroke: var(--surface); }
 .at-map .at-tok text { font-weight: 700; fill: var(--v-ink-text); pointer-events: none; }
