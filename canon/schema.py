@@ -251,6 +251,7 @@ class Snapshot(BaseModel):
 class Settings(BaseModel):
     show_numbers: bool = Field(False, description="CLI 에서 관계를 숫자로 보여줄지(True), 말로 보여줄지(False)")
     check_widen: bool = Field(False, description="장편 검수 넓히기: 검수 뒤 진술마다 옛 화를 더 찾아, 첫 검수에 없던 근거가 나온 진술만 다시 묻는다 (검수 호출 2번 더)")
+    stage_extract: bool = Field(False, description="검수 때 본문에서 장면 연출을 함께 뽑는다 (사건마다 check 호출 1번 더)")
     keep_snapshots: bool = Field(False, description="장편에서도 화별 스냅샷을 지우지 않고 모두 남긴다 (연구용 작품: 어느 화로든 되돌릴 수 있다). 끄면 0화 · 아크 끝 · 최근 20화만 남긴다 (pipeline.prune_snapshots)")
 
 
@@ -1177,6 +1178,81 @@ class ToFix(BaseModel):
     done_at: str = Field("", description="고침으로 바꾼 시각")
 
 
+# ---------- 장면 연출 (canon/stage.py, docs/stage/) ----------
+# 작가 자료라 스냅샷 · 반영 취소 대상이 아니다. 좌표는 방 · 기준점에만 있고 인물 자리는 기준점 + 관계 말이다.
+
+class StageAnchor(BaseModel):
+    """방 안의 기준점: 가구 · 문 · 창. 자리 단위는 m, 방 왼쪽 위가 0."""
+    id: str
+    name: str
+    kind: str = Field("other", description="bed · door · window · desk · chair · sofa · table · wall · seat · other")
+    x: float = 0
+    y: float = 0
+    w: float = 0.5
+    h: float = 0.5
+    rot: int = Field(0, description="앞쪽 방향: 0 아래(+y) · 90 왼쪽 · 180 위 · 270 오른쪽 (평면도 기준)")
+    sit: bool = False
+    lie: bool = False
+
+
+class StageRoom(BaseModel):
+    """장면이 벌어지는 방. 지도 장소에 묶으면 여러 장면이 다시 쓴다."""
+    id: str
+    name: str
+    place: str = Field("", description="지도 장소 이름 (atlas.places). 비면 장면 전용 방")
+    template: str = Field("", description="고른 틀 id (stage.ROOMS)")
+    w: float = 4.0
+    h: float = 3.0
+    anchors: list[StageAnchor] = Field(default_factory=list)
+
+
+class StageSpot(BaseModel):
+    ref: str = Field(description="기준점 id, 또는 '@' + 인물 id")
+    rel: str = Field("beside", description="on · in · front · back · left · right · beside (stage.RELS)")
+
+
+class StageContact(BaseModel):
+    id: str
+    by: str = Field(description="left · right · both, 또는 손 아닌 부위 id (stage.PARTS)")
+    to: str = Field(description="닿는 인물 id")
+    part: str = Field(description="닿는 부위 id (stage.PARTS)")
+    act: str = Field(description="접촉 동작 id (stage.ACTS)")
+
+
+class StageBody(BaseModel):
+    """한 인물의 상태. 시작 상태는 모든 칸, 박자는 바뀐 칸만 (None · 빈칸은 앞 그대로)."""
+    who: str = Field(description="인물 id")
+    at: Optional[StageSpot] = None
+    posture: str = Field("", description="자세 id (stage.POSTURES)")
+    facing: str = Field("", description="8방향(n ne e se s sw w nw), '@' + 인물 id, '#' + 기준점 id")
+    left: Optional[str] = Field(None, description="왼손에 쥔 것. 빈칸은 빈손, '?' 는 모름, None 은 앞 그대로")
+    right: Optional[str] = Field(None, description="오른손에 쥔 것 (left 와 같은 규칙)")
+    contacts: list[StageContact] = Field(default_factory=list, description="이 박자에 새로 시작한 접촉")
+    ends: list[str] = Field(default_factory=list, description="이 박자에 끝난 접촉 id")
+    memo: str = Field("", description="고정 목록 밖의 것")
+
+
+class StageBeat(BaseModel):
+    quote: str = Field("", description="본문 문장 원문 (쓰기 전에는 빈칸)")
+    note: str = Field("", description="작가 한 줄 설명")
+    bodies: list[StageBody] = Field(default_factory=list, description="바뀐 인물만")
+
+
+class StageScene(BaseModel):
+    """플롯 사건 하나의 장면 연출."""
+    id: str
+    event: int = Field(0, description="플롯 사건 번호 (0부터)")
+    event_text: str = Field("", description="사건 글 사본. 사건을 찾을 때 번호보다 먼저 본다 (stage.find_event)")
+    room: str = Field("", description="StageRoom.id")
+    cast: list[str] = Field(default_factory=list, description="인물 id")
+    start: list[StageBody] = Field(default_factory=list, description="시작 상태: 인물마다 모든 칸")
+    beats: list[StageBeat] = Field(default_factory=list)
+    source: Literal["manual", "plot", "text"] = Field("manual", description="마지막으로 통째 적용한 출처: 작가 · 플롯 초안 · 본문 추출")
+    basis: str = Field("", description="본문에서 뽑았을 때 본문 지문 (pipeline.text_basis)")
+    prompt: bool = Field(True, description="쓰기 프롬프트에 넣기")
+    prev: Optional["StageScene"] = Field(None, description="마지막 AI 적용 전 장면 (적용 취소 한 번)")
+
+
 class Episode(BaseModel):
     plot: EpisodePlot
     status: EpisodeStatus = "draft"
@@ -1199,6 +1275,7 @@ class Episode(BaseModel):
     opening_prev: Optional[EpisodePlot] = Field(None, description="1~3화 여는 방식 안을 처음 고르기 전 플롯 (되돌리기용). 되돌리면 비운다")
     events_done: list[str] = Field(default_factory=list, description="집필 화면 플롯 띠에서 작가가 다 썼다고 체크한 사건의 글. 사건 글을 고치면 그 체크는 풀린다. 프롬프트에 넣지 않는다")
     to_fix: list[ToFix] = Field(default_factory=list, description="작가가 본문에 단 '고칠 곳' 표시. 프롬프트에 넣지 않는다")
+    stage: list[StageScene] = Field(default_factory=list, description="플롯 사건마다 짠 장면 연출 (canon/stage.py). 작가 자료라 스냅샷에 넣지 않는다")
 
     @model_validator(mode="after")
     def _old_check(self) -> "Episode":
@@ -1707,6 +1784,7 @@ class Project(BaseModel):
     atlas: Atlas = Field(default_factory=Atlas, description="지도: 장소 자리, 배경 그림, 위치 글 잇기")
     timeline: Timeline = Field(default_factory=Timeline, description="작품 속 시간: 기준 날짜와 기한")
     release: ReleasePlan = Field(default_factory=ReleasePlan, description="연재 일정: 일주일에 올리는 화 수와 올린 마지막 화")
+    rooms: list[StageRoom] = Field(default_factory=list, description="장면 연출의 방 (canon/stage.py). 여러 화 · 장면이 다시 쓴다")
     # 아래 두 칸은 맨 끝에 둔다. store.save 가 파일 끝만 읽어 디스크 값을 찾는다 (store._saved_mark)
     edit_rev: int = Field(0, description="화면(브라우저 탭)이 저장한 횟수. 오래된 화면이 다른 화면의 저장을 덮지 않게 비교한다 (store.writer)")
     saved_by: str = Field("", description="마지막으로 저장한 화면(브라우저 탭) id")
@@ -1916,6 +1994,7 @@ class PlayInfo(BaseModel):
 Snapshot.model_rebuild()
 SerialRebuild.model_rebuild()
 ShortArchive.model_rebuild()
+StageScene.model_rebuild()
 Episode.model_rebuild()
 PlotUndo.model_rebuild()
 ChatMessage.model_rebuild()

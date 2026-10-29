@@ -6,7 +6,7 @@
 
 | # | 일감 | 상태 | 명세서 | 먼저 끝날 것 |
 |---|---|---|---|---|
-| 1 | 스키마 · 방 틀 · 어휘 · 위치 계산 · 규칙 판정 (`canon/stage.py`) | 설계 | [01-model.md](specs/01-model.md) | — |
+| 1 | 스키마 · 방 틀 · 어휘 · 위치 계산 · 규칙 판정 (`canon/stage.py`) | 구현 | [01-model.md](specs/01-model.md) | — |
 | 2 | 장면 연출 화면과 웹 엔드포인트 (`static/stage.js`) | 설계 | [02-screen.md](specs/02-screen.md) | 1 |
 | 3 | AI 초안(플롯 → 연출) · 추출(본문 → 연출), 연구 화면 옮기기 | 설계 | [03-ai.md](specs/03-ai.md) | 1 |
 | 4 | 검수 연결: 규칙 지적을 검수 세션에, 검수 때 함께 뽑기 | 설계 | [04-check.md](specs/04-check.md) | 1, 3 |
