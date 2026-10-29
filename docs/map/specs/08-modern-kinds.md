@@ -1,6 +1,6 @@
 # 08. 현대 장소 종류
 
-상태: 구현 (08a~08d, 초안 PR [#148](https://github.com/c10dev/canon/pull/148)) · 계획: [plan.md](../plan.md) 의 8번
+상태: 구현 (08a~08d, PR [#187](https://github.com/c10dev/canon/pull/187)) · 계획: [plan.md](../plan.md) 의 8번
 
 ## 목표
 
