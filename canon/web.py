@@ -394,6 +394,24 @@ def config_health() -> ConfigHealth:
     return out
 
 
+class UpdateCheck(_Out):
+    """POST /api/update/check 결과. started 는 자동 업데이트가 돌고 있어 바로 확인을 시작했는지."""
+    started: bool
+    message: str
+
+
+@app.post("/api/update/check")
+def update_check() -> UpdateCheck:
+    """main 에 새 커밋이 들어왔다는 알림. 확인 간격을 기다리지 않고 바로 origin/main 을 확인하게 깨운다.
+    코드는 origin/main 에서만 받으므로 누가 불러도 확인을 앞당길 뿐이다."""
+    from . import updater
+
+    if not updater.watching:
+        return UpdateCheck(started=False, message="자동 업데이트가 꺼져 있어요 (--no-update)")
+    updater.wake.set()
+    return UpdateCheck(started=True, message="새 코드를 확인할게요")
+
+
 @app.get("/api/claude/status")
 def claude_status() -> ClaudeStatus:
     """Claude Code 설치와 구독 로그인 상태. 로그인은 Claude Code 가 하고 Canon 은 상태만 본다 (claude.py)."""
@@ -4777,8 +4795,10 @@ def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False,
 
     def watch_updates() -> None:
         last = ""
+        updater.watching = True
         while not server.should_exit:
-            time.sleep(update_interval)
+            updater.wake.wait(update_interval)  # POST /api/update/check 가 깨우면 바로 확인한다
+            updater.wake.clear()
             r = updater.update()
             if not r.updated:
                 if r.message != last:  # 같은 사유를 매번 찍지 않는다

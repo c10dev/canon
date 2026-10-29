@@ -198,6 +198,25 @@
     }
    }
   },
+  "/api/update/check": {
+   "post": {
+    "summary": "Update Check",
+    "description": "main 에 새 커밋이 들어왔다는 알림. 확인 간격을 기다리지 않고 바로 origin/main 을 확인하게 깨운다.\n코드는 origin/main 에서만 받으므로 누가 불러도 확인을 앞당길 뿐이다.",
+    "operationId": "update_check",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/UpdateCheck"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/claude/status": {
    "get": {
     "summary": "Claude Status",
@@ -4519,6 +4538,186 @@
     }
    }
   },
+  "/api/projects/{name}/episodes/{n}/tofix": {
+   "post": {
+    "summary": "Add Tofix",
+    "operationId": "add_tofix",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ToFixIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/episodes/{n}/tofix/{mid}": {
+   "put": {
+    "summary": "Update Tofix",
+    "operationId": "update_tofix",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     },
+     {
+      "name": "mid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Mid"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ToFixPatch"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Delete Tofix",
+    "operationId": "delete_tofix",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     },
+     {
+      "name": "mid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Mid"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/episodes/{n}/rewrite": {
    "get": {
     "summary": "Rewrite Info",
@@ -7973,6 +8172,58 @@
          "type": "object",
          "additionalProperties": true,
          "title": "Response Atlas Layout Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/atlas/layout/fill": {
+   "post": {
+    "summary": "Atlas Layout Fill",
+    "description": "OpenStreetMap 지도의 빈 블록 채우기 (canon/fill.py). preview 는 저장하지 않고 채울 블록 · 지을 건물을 돌려준다.\napply 는 지도 파일을 다시 쓰고(지은 건물은 끝에 붙여 OSM 건물 번호를 지킨다) clear 는 지은 건물을 지운다.",
+    "operationId": "atlas_layout_fill",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FillIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Atlas Layout Fill"
         }
        }
       }
@@ -11844,6 +12095,10 @@
       "$ref": "#/components/schemas/MapSpec",
       "description": "지도 만들기로 만든 마을이면 그 입력. 파일을 올렸거나 지도가 없으면 비움"
      },
+     "fill": {
+      "$ref": "#/components/schemas/MapFill",
+      "description": "빈 블록을 채운 OpenStreetMap 지도면 그 입력. 채우지 않았거나 지도 파일이 바뀌면 비움"
+     },
      "title": {
       "type": "string",
       "title": "Title",
@@ -15098,6 +15353,14 @@
       "type": "array",
       "title": "Events Done",
       "description": "집필 화면 플롯 띠에서 작가가 다 썼다고 체크한 사건의 글. 사건 글을 고치면 그 체크는 풀린다. 프롬프트에 넣지 않는다"
+     },
+     "to_fix": {
+      "items": {
+       "$ref": "#/components/schemas/ToFix"
+      },
+      "type": "array",
+      "title": "To Fix",
+      "description": "작가가 본문에 단 '고칠 곳' 표시. 프롬프트에 넣지 않는다"
      }
     },
     "type": "object",
@@ -15396,6 +15659,22 @@
      "field"
     ],
     "title": "FieldIdeasIn"
+   },
+   "FillIn": {
+    "properties": {
+     "mode": {
+      "type": "string",
+      "title": "Mode",
+      "default": "preview"
+     },
+     "seed": {
+      "type": "integer",
+      "title": "Seed",
+      "default": 1
+     }
+    },
+    "type": "object",
+    "title": "FillIn"
    },
    "Finding": {
     "properties": {
@@ -17035,6 +17314,25 @@
     ],
     "title": "LookSuggestion",
     "description": "인물 설정(외모, 나이, 성별)을 NovelAI 외형 태그로 옮긴 제안. 작가가 고쳐 저장한다."
+   },
+   "MapFill": {
+    "properties": {
+     "seed": {
+      "type": "integer",
+      "title": "Seed",
+      "description": "채우기 시드. 같은 지도 · 같은 시드면 같은 건물",
+      "default": 1
+     },
+     "rule": {
+      "type": "string",
+      "title": "Rule",
+      "description": "채우는 규칙 (fill.RULES): villa 는 빌라촌, 큰 블록은 아파트 단지",
+      "default": "villa"
+     }
+    },
+    "type": "object",
+    "title": "MapFill",
+    "description": "OpenStreetMap 지도의 빈 블록 채우기 입력 (canon/fill.py). 지울 때와 다시 만들 때 쓴다."
    },
    "MapImageIn": {
     "properties": {
@@ -24033,6 +24331,99 @@
     ],
     "title": "TitleIn"
    },
+   "ToFix": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id",
+      "default": ""
+     },
+     "quote": {
+      "type": "string",
+      "title": "Quote",
+      "description": "표시한 본문 글",
+      "default": ""
+     },
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "description": "작가 메모 (무엇이 어색한지)",
+      "default": ""
+     },
+     "start": {
+      "type": "integer",
+      "title": "Start",
+      "description": "표시할 때 글이 있던 자리. 같은 글이 여럿이면 이 자리에 가까운 것을 짚는다",
+      "default": 0
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "open",
+       "done"
+      ],
+      "title": "Status",
+      "description": "open: 남음 / done: 고침",
+      "default": "open"
+     },
+     "at": {
+      "type": "string",
+      "title": "At",
+      "description": "표시한 시각",
+      "default": ""
+     },
+     "done_at": {
+      "type": "string",
+      "title": "Done At",
+      "description": "고침으로 바꾼 시각",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "ToFix",
+    "description": "작가가 본문 문장에 단 '고칠 곳' 표시 (tofix.py). 본문은 바꾸지 않고 프롬프트에도 넣지 않는다.\n자동 집필이 도는 동안에도 달 수 있다. LLM 이 채우지 않는다."
+   },
+   "ToFixIn": {
+    "properties": {
+     "quote": {
+      "type": "string",
+      "title": "Quote"
+     },
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "default": ""
+     },
+     "start": {
+      "type": "integer",
+      "title": "Start",
+      "default": 0
+     }
+    },
+    "type": "object",
+    "required": [
+     "quote"
+    ],
+    "title": "ToFixIn"
+   },
+   "ToFixPatch": {
+    "properties": {
+     "note": {
+      "type": "string",
+      "title": "Note"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "open",
+       "done"
+      ],
+      "title": "Status"
+     }
+    },
+    "type": "object",
+    "title": "ToFixPatch"
+   },
    "ToneDials": {
     "properties": {
      "dark": {
@@ -24185,6 +24576,25 @@
      "message"
     ],
     "title": "TurnIn"
+   },
+   "UpdateCheck": {
+    "properties": {
+     "started": {
+      "type": "boolean",
+      "title": "Started"
+     },
+     "message": {
+      "type": "string",
+      "title": "Message"
+     }
+    },
+    "type": "object",
+    "required": [
+     "started",
+     "message"
+    ],
+    "title": "UpdateCheck",
+    "description": "POST /api/update/check 결과. started 는 자동 업데이트가 돌고 있어 바로 확인을 시작했는지."
    },
    "UsageCall": {
     "properties": {
