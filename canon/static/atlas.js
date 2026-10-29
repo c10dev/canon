@@ -385,15 +385,15 @@ function atlasVillageSvg(v, W, H, layers = {}) {
   stroke(v.rivers, 'at-v-river-line', (r) => r.width * 0.45, 1);
 
   // 길: 어두운 테두리 위에 길 색. 테두리를 다 그린 뒤 골목 → 보통 길 → 큰길 차례로 칠한다 (위계 색은 '현대'만, 나머지 화풍은 같은 색).
-  // 다리: 널판 색 위에 널판 틈
+  // 다리: 널판 색 위에 널판 틈 (위계는 길과 함께 센다: 큰길 다리는 '현대'에서 큰길 색)
   const ranks = ['lane', 'street', 'major'];
-  const roads = (v.roads || []).filter((r) => r.kind === 'road');
-  const rankList = atlasRoadRanks(roads);
-  const byRank = Object.fromEntries(ranks.map((rk) => [rk, roads.filter((_, i) => rankList[i] === rk)]));
-  const bridges = (v.roads || []).filter((r) => r.kind === 'bridge');
-  ranks.forEach((rk) => stroke(byRank[rk], `at-v-road-edge k-${rk}`, (r) => r.width + 1.6 * lw, 3));
-  ranks.forEach((rk) => stroke(byRank[rk], `at-v-road k-${rk}`, (r) => r.width, 2));
-  stroke(bridges, 'at-v-bridge', (r) => r.width + 1, 3);
+  const all = v.roads || [];
+  const rankList = atlasRoadRanks(all);
+  const byRank = (kind, rk) => all.filter((r, i) => r.kind === kind && rankList[i] === rk);
+  const bridges = all.filter((r) => r.kind === 'bridge');
+  ranks.forEach((rk) => stroke(byRank('road', rk), `at-v-road-edge k-${rk}`, (r) => r.width + 1.6 * lw, 3));
+  ranks.forEach((rk) => stroke(byRank('road', rk), `at-v-road k-${rk}`, (r) => r.width, 2));
+  ranks.forEach((rk) => stroke(byRank('bridge', rk), `at-v-bridge k-${rk}`, (r) => r.width + 1, 3));
   stroke(bridges, 'at-v-planks', (r) => r.width + 1, 3);
   atlasWalls(v, out, { P, m, k, lw });
 
@@ -2351,6 +2351,9 @@ document.addEventListener('keydown', (e) => {
 .at-map .at-v-road.k-major { stroke: var(--v-road-major, var(--v-road)); }
 .at-map .at-v-road.k-street { stroke: var(--v-road-street, var(--v-road)); }
 .at-map .at-v-road.k-lane { stroke: var(--v-road-lane, var(--v-road)); }
+.at-map .at-v-bridge.k-major { stroke: var(--v-road-major, var(--v-bridge)); }
+.at-map .at-v-bridge.k-street { stroke: var(--v-road-street, var(--v-bridge)); }
+.at-map .at-v-bridge.k-lane { stroke: var(--v-road-lane, var(--v-bridge)); }
 .at-map .at-v-bridge { fill: none; stroke: var(--v-bridge); stroke-linecap: butt; }
 .at-map .at-v-planks { fill: none; stroke: var(--v-planks); stroke-linecap: butt; stroke-dasharray: 1 3; }
 .at-map .at-v-wall { fill: none; stroke: var(--v-wall); stroke-linejoin: round; }
