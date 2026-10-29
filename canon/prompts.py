@@ -2103,10 +2103,12 @@ def marker_block(p: Project) -> str:
             + "\n".join(rows))
 
 
-def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = True) -> str:
+def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = True, use_cues: bool = True) -> str:
     """approach 는 1~3화를 여러 안으로 쓸 때 안마다 다르게 주는 여는 방식(OPENING_APPROACHES).
-    use_board 를 끄면 스토리보드가 있어도 넣지 않는다 (스토리보드 없이 쓰기)."""
+    use_board 를 끄면 스토리보드가 있어도 넣지 않는다 (스토리보드 없이 쓰기).
+    그 화에 큐 시트(Episode.cue_sheet)가 있으면 맨 끝에 붙인다. use_cues 를 끄면 넣지 않는다 (큐 시트 없이 쓰기, 실험의 조건)."""
     rules = opening_rules(p, n, approach)
+    sheet = p.episode(n).cue_sheet if use_cues else None
     flow = ("첫 화이므로 앞 이야기를 요약하거나 설명으로 깔지 않고 장면으로 시작하고, " if n == 1
             else "직전 화 마지막 장면과 자연스럽게 이어지고, ")
     return (
@@ -2119,6 +2121,7 @@ def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = Tru
         "인물의 말투는 speech_style 을 따릅니다."
         + statwin.write_rule(p, n)
         + attire_write_rule(p)
+        + (cue_write_block(p, sheet) if sheet and sheet.cues else "")
     )
 
 
@@ -2234,6 +2237,138 @@ def storyboard_prompt(p: Project, n: int) -> str:
 - warnings: 이번 화 플롯이 [인물 현재 상태] · [직전 화 본문] · [Canon 이 센 값] · 설정과 어긋나면 적고, resolution 에 이 스토리보드가 택한 처리를 적습니다.
   지금 상태가 플롯보다 앞섭니다. 플롯 칸을 고쳐 적지 않습니다. 다음 화 플롯과 어긋나면 target 을 next, kind 를 next_plot 으로 적습니다."""
 
+
+
+# ---------- 큐 시트 집필 실험 (canon/cue.py) ----------
+# 한 화를 악보처럼 큐로 나눠 진행(화성 기능 · 긴장도 · 템포 · 편성)과 핵심 대사를 먼저 정하고 그 위에 본문을 쓴다.
+# 세 조건 모두 쓰기 프롬프트(episode_prompt)를 앞에 그대로 두고 뒤에만 덧붙인다 (앞부분이 같아야 캐시가 맞는다).
+# 큐마다 쓰는 조건은 k번째 요청이 k-1번째 요청과 그 응답을 통째로 품게 만든다 (Gemini 4 암묵적 캐시가 맞는 모양, DESIGN.md).
+
+# id → (화면 이름, AI 에게 하는 말)
+CUE_FUNCTIONS: dict[str, tuple[str, str]] = {
+    "T": ("안정", "기준선. 숨을 고르고 인물과 자리를 붙잡는다. 새 갈등을 열지 않는다"),
+    "S": ("쌓기", "기준선에서 벗어난다. 정보와 갈등의 씨를 깔고 긴장을 조금씩 올린다"),
+    "D": ("긴장", "위기와 결정 직전. 선택지를 좁히고 다음 큐가 풀거나 뒤집어야 할 압력을 만든다"),
+}
+CUE_TEMPOS: dict[str, tuple[str, str]] = {
+    "slow": ("느리게", "한 순간을 늘인다. 감각과 반응을 길게, 사건은 적게"),
+    "mid": ("보통", "사건과 반응을 고르게"),
+    "fast": ("빠르게", "짧은 문장과 짧은 문단으로 사건을 몰아친다. 설명을 줄인다"),
+}
+CUE_VOICES: dict[str, tuple[str, str]] = {
+    "dialogue": ("대사", "주고받는 대사가 중심. 따옴표 안 대사가 이 큐 글자의 40% 넘게, 대사 사이 서술은 한두 문장씩만"),
+    "action": ("행동", "몸의 움직임과 사건이 중심. 대사는 짧게"),
+    "description": ("묘사", "자리, 사물, 분위기가 중심. 대사는 한두 마디까지"),
+    "interior": ("속생각", "시점 인물의 속생각과 판단이 중심. 대사는 한두 마디까지"),
+}
+CUE_CADENCES: dict[str, tuple[str, str]] = {
+    "full": ("정격 종지", "갈등이 이 화 안에서 풀리고 닫힌다"),
+    "half": ("반종지", "긴장이 가장 높은 곳에서 끊는다. 해결은 다음 화로 미룬다"),
+    "deceptive": ("기만 종지", "풀릴 듯하다가 예상 밖 사실로 뒤집으며 끝난다"),
+}
+
+
+def cue_sheet_prompt(p: Project, n: int) -> str:
+    """n화 큐 시트 만들기. 앞부분은 쓰기 프롬프트와 같은 컨텍스트(스토리보드가 있으면 그 장면 순서 포함), 요구사항은 맨 끝."""
+    size = p.meta.words_per_episode
+    fn = "\n".join(f"  {k} {v[0]}: {v[1]}" for k, v in CUE_FUNCTIONS.items())
+    cad = "\n".join(f"  {k} {v[0]}: {v[1]}" for k, v in CUE_CADENCES.items())
+    return build_episode_context(p, n) + f"""
+
+위 자료로 {n}화의 큐 시트(악보)를 JSON 으로 만듭니다. 본문을 쓰지 않습니다.
+큐는 본문을 나눠 쓰는 연주 단위입니다. 4~10개, 순서대로 적습니다.
+
+- function: 화성 기능.
+{fn}
+  T → S → D 로 긴장을 올리고, 큐가 풀리면 다시 T 나 S 로 내려옵니다. 같은 기능이 셋 넘게 이어지지 않게 합니다.
+- tension: 긴장도 1~5. 화 전체에 오르내림이 있어야 하고, 가장 높은 큐는 화 뒤쪽 3분의 1 안에 둡니다.
+- tempo: slow · mid · fast. voice: dialogue · action · description · interior 중 그 큐를 주로 끌고 갈 것.
+- beat: 그 큐에서 바뀌는 일 한 줄. 이번 화 플롯 events 를 빠짐없이 큐들에 나눠 담습니다. 스토리보드가 있으면 장면 순서를 따르고 scene 에 장면 번호를 적습니다.
+- lines: 그 큐에 반드시 들어갈 핵심 대사 0~3개 (speaker 는 인물 id). 정보가 밝혀지는 말, 관계가 바뀌는 말, 엔딩 훅의 말처럼 바꾸면 안 되는 대사만 적습니다.
+  인물의 speech_style 을 그대로 따릅니다. 모든 큐에 대사를 넣지 않습니다.
+- exit: 그 큐가 끝날 때의 상태 (자리, 손에 든 것, 감정, 결정). 다음 큐가 여기서 이어받습니다.
+- length: 목표 글자 수. 합이 약 {size}자가 되게 합니다. 느린 큐와 핵심 큐에 더 줍니다.
+- key: 이번 화 정서의 기준선 한 줄.
+- cadence: 화 끝 종지. 플롯의 ending_hook 에 맞춥니다.
+{cad}
+- 묘사, 본문 문장, 화 번호를 적지 않습니다."""
+
+
+def cue_sheet_block(p: Project, sheet) -> str:
+    """쓰기 요청에 붙이는 큐 시트 글. 대사는 글자 그대로 넣으라고 적는다."""
+    name = {c.id: c.name or c.id for c in p.characters}
+    cad = CUE_CADENCES.get(sheet.cadence, ("", ""))
+    out = ["# 이번 화 큐 시트 (악보)",
+           f"조성(정서의 기준선): {sheet.key.strip() or '정하지 않음'}",
+           f"화 끝 종지: {cad[0]} — {cad[1]}",
+           "기능: " + " · ".join(f"{k} {v[0]}({v[1]})" for k, v in CUE_FUNCTIONS.items()),
+           "큐:"]
+    for k, c in enumerate(sheet.cues, 1):
+        out.append(f"{k}. [{c.function} {CUE_FUNCTIONS.get(c.function, ('?',))[0]} · 긴장 {c.tension}/5 · "
+                   f"{CUE_TEMPOS.get(c.tempo, ('?',))[0]} · {CUE_VOICES.get(c.voice, ('?',))[0]} · 약 {c.length or '?'}자]"
+                   + (f" (장면 {c.scene})" if c.scene else ""))
+        if c.beat.strip():
+            out.append(f"   일: {c.beat.strip()}")
+        for ln in c.lines:
+            if ln.text.strip():
+                out.append(f"   핵심 대사 {name.get(ln.speaker, ln.speaker) or '?'}: «{ln.text.strip()}»")
+        if c.exit.strip():
+            out.append(f"   끝: {c.exit.strip()}")
+    out.append("핵심 대사는 « » 안의 글자 그대로 본문에 넣습니다 (앞뒤 행동과 서술은 자유). 일 · 끝 칸은 설계 메모라 그 글을 옮기지 않습니다. "
+               "긴장도, 템포, 편성은 문장 길이와 문단 호흡, 대사와 서술의 비율로 드러냅니다.")
+    return "\n".join(out)
+
+
+def cue_write_block(p: Project, sheet) -> str:
+    """한 번에 쓰는 요청 끝에 붙이는 큐 시트와 지시. 집필(episode_prompt)과 실험의 조건 score 가 같은 글을 쓴다."""
+    total = sum(c.length for c in sheet.cues) or p.meta.words_per_episode
+    return ("\n\n" + cue_sheet_block(p, sheet)
+            + f"\n\n위 큐 시트의 순서와 진행을 따라 이번 화를 처음부터 끝까지 한 번에 씁니다. 큐마다 정한 글자 수를 지켜 전체가 약 {total}자를 넘지 않게 합니다. "
+            "문장 길이와 문단 호흡은 스타일 프로필과 문체 예시 문단을 따르고, 템포는 그 안에서 조절합니다. 큐 번호나 머리말을 본문에 쓰지 않습니다.")
+
+
+def cue_score_prompt(p: Project, n: int, sheet) -> str:
+    """큐 시트를 함께 주고 한 번에 쓰기 (조건 score). 앞부분은 큐 시트 없는 episode_prompt 그대로."""
+    return episode_prompt(p, n, use_cues=False) + cue_write_block(p, sheet)
+
+
+def cue_head(p: Project, n: int, sheet) -> str:
+    """큐마다 쓰는 조건(cues)의 앞부분. 모든 큐 요청이 이 글로 시작한다."""
+    return (episode_prompt(p, n, use_cues=False) + "\n\n" + cue_sheet_block(p, sheet)
+            + "\n\n이번에는 위 큐 시트의 큐를 하나씩 차례로 씁니다. 요청마다 지시한 큐 하나만 씁니다. "
+            "앞 큐 본문이 있으면 그 마지막 문장에서 바로 이어 씁니다. 앞 본문을 되풀이하거나 요약하지 않고, 인물과 자리를 다시 소개하지 않습니다. "
+            "그 큐의 끝 상태에 닿으면 멈춥니다. 끝 상태는 도착점이지 마지막 문장이 아닙니다. "
+            "마지막 큐가 아니면 정리 문장, 여운을 노린 짧은 문장, 인물이 서 있거나 바라보거나 입을 다무는 정지 장면 한 줄로 맺지 않고, "
+            "다음 큐가 받아 이을 말이나 움직임이 진행 중인 곳에서 멈춥니다. 문장은 끝까지 맺고, 줄표(——)나 말줄임으로 문장을 자르지 않습니다. "
+            "문장 길이와 문단 호흡은 스타일 프로필과 문체 예시 문단을 따르고, 템포는 그 안에서 조절합니다. "
+            "큐마다 정한 글자 수를 넘기지 않습니다. "
+            "큐 번호, 제목, 머리말을 쓰지 않습니다.")
+
+
+def cue_step(p: Project, sheet, k: int) -> str:
+    """k번째 큐(1부터) 지시."""
+    c = sheet.cues[k - 1]
+    size = c.length or round(p.meta.words_per_episode / max(len(sheet.cues), 1))
+    last = k == len(sheet.cues)
+    tail = (f"마지막 큐입니다. 플롯의 ending_hook 과 화 끝 종지({CUE_CADENCES.get(sheet.cadence, ('',))[0]})로 끝냅니다." if last
+            else "끝 상태에 닿으면 다음 큐가 받아 이을 말이나 움직임이 진행 중인 곳에서, 문장을 맺고 멈춥니다.")
+    return (f"## 큐 {k}/{len(sheet.cues)} 지시\n"
+            f"기능 {c.function} {CUE_FUNCTIONS.get(c.function, ('?', ''))[0]}: {CUE_FUNCTIONS.get(c.function, ('', ''))[1]}. "
+            f"긴장 {c.tension}/5. 템포 {CUE_TEMPOS.get(c.tempo, ('?', ''))[0]}: {CUE_TEMPOS.get(c.tempo, ('', ''))[1]}. "
+            f"편성 {CUE_VOICES.get(c.voice, ('?', ''))[0]}: {CUE_VOICES.get(c.voice, ('', ''))[1]}. "
+            f"분량 약 {size}자, {round(size * 1.15)}자를 넘지 않습니다. "
+            f"큐 시트의 {k}번 큐를 씁니다. {tail}")
+
+
+def cue_play_prompt(p: Project, n: int, sheet, done: list[str]) -> str:
+    """다음 큐(len(done)+1번) 요청. 앞 큐 지시와 본문을 차례로 품어, 앞 요청 글 전체와 그 응답이 이 요청의 앞부분이 된다
+    (앞 요청 끝의 '큐 k 본문만 씁니다.' 줄도 그대로 남긴다)."""
+    parts = [cue_head(p, n, sheet)]
+    for i, text in enumerate(done, 1):
+        parts.append(cue_step(p, sheet, i) + f"\n큐 {i} 본문만 씁니다.\n## 큐 {i} 본문\n{text.strip()}")
+    k = len(done) + 1
+    parts.append(cue_step(p, sheet, k) + f"\n큐 {k} 본문만 씁니다.")
+    return "\n\n".join(parts)
 
 # ---------- 다시 생성 ----------
 # 작가가 지난 판을 읽고 다시 써 달라고 할 때. 쓰기 프롬프트(episode_prompt)는 그대로 두고 요청을 맨 뒤에 붙인다
@@ -3542,11 +3677,11 @@ SYSTEM_MAP_PLANNER = (
 )
 
 
-def map_suggest_prompt(p: Project, rows: list[dict], places: list[dict], kinds: list[tuple[str, str]], options: dict,
-                       modern_kinds: dict | None = None, chosen: str = "") -> str:
-    """rows: atlas.gen_places (지금 고른 종류), places: atlas.places (설명), kinds: (id, 이름),
-    options: 지도 종류(village, city, modern)마다 설정 칸 (towngen.OPTIONS, citygen.OPTIONS, moderngen.OPTIONS),
-    modern_kinds: 종류 id → 현대 동네에서 놓이는 자리 (moderngen.PLACE_KINDS), chosen: 지도 화면에서 지금 고른 지도 종류."""
+def map_suggest_prompt(p: Project, rows: list[dict], places: list[dict], kinds: dict[str, list[tuple[str, str]]], options: dict,
+                       chosen: str = "") -> str:
+    """rows: atlas.gen_places (지금 고른 종류), places: atlas.places (설명),
+    kinds: 지도 종류(village, city, modern)마다 장소 종류 (id, 이름) 목록 (placekinds.kinds_for). 목록이 같은 지도 종류는 한 절로 묶는다,
+    options: 지도 종류마다 설정 칸 (towngen.OPTIONS, citygen.OPTIONS, moderngen.OPTIONS), chosen: 지도 화면에서 지금 고른 지도 종류."""
     desc = {pl["key"]: pl for pl in places}
     lines = []
     for r in rows:
@@ -3558,8 +3693,11 @@ def map_suggest_prompt(p: Project, rows: list[dict], places: list[dict], kinds: 
     opt = "\n".join(f"## {names.get(kind, kind)} (kind={kind})\n" + "\n".join(
         f"- {key}: " + ", ".join(f"{oid}({label})" for oid, label in vals.items()) for key, vals in opts.items())
         for kind, opts in options.items())
-    modern_kinds = modern_kinds or {}
-    kind_lines = "\n".join(f"- {cid}: {label}" + (f" / 현대 동네: {modern_kinds[cid]}" if cid in modern_kinds else "") for cid, label in kinds)
+    groups: dict[tuple, list[str]] = {}
+    for kind, items in kinds.items():
+        groups.setdefault(tuple(items), []).append(kind)
+    kind_lines = "\n".join(f"## {' · '.join(names.get(k, k) for k in ks)} (kind={', '.join(ks)})\n"
+                           + "\n".join(f"- {cid}: {label}" for cid, label in items) for items, ks in groups.items())
     now = f"\n지도 화면에서 지금 고른 지도: {names.get(chosen, chosen)} (kind={chosen})\n" if chosen else ""
     rules = [r for r in p.world.rules if r.strip()][:8]
     return f"""이 작품의 주 무대가 되는 마을 · 도시 · 동네 지도를 만들려고 합니다. 지도 생성기에 넣을 설정과 장소마다 종류를 정해 주세요.
@@ -3576,16 +3714,16 @@ def map_suggest_prompt(p: Project, rows: list[dict], places: list[dict], kinds: 
 # 설정 칸 (id(뜻))
 {opt}
 
-# 종류 (id: 뜻)
+# 종류 (지도 종류마다 id: 뜻)
 {kind_lines}
 
 요구사항:
 - kind 는 village(마을), city(성벽이 있는 도시), modern(현대 동네) 가운데 하나입니다. 배경이 근현대 · 현대이거나 아파트 · 편의점 · 지하철역 · 학교 · 학원 · 카페처럼 지금 시대 장소가 여럿이면 modern 입니다. 그렇지 않고 배경이 도시이거나 성문 · 대성당 · 귀족 저택 · 큰 시장처럼 도시를 바라는 장소가 여럿이면 city, 아니면 village 입니다. 지금 고른 지도가 있으면 뚜렷한 근거가 없는 한 그 종류를 따릅니다.
 - size, water, fields, forest 는 고른 kind 의 [설정 칸]에서 id 하나씩입니다. roads 는 마을에만 쓰고, 도시 · 현대 동네면 cross 로 둡니다. fields 는 현대 동네에 없으니 few 로 둡니다. 현대 동네의 forest 는 공원 수입니다. 장소 목록과 배경에 맞게 고릅니다.
 - 등대, 항구, 어시장, 포구처럼 바다를 바라는 장소가 있으면 water 는 sea, 다리 · 나루 · 방앗간 · 강가가 있으면 river 처럼 장소가 바라는 물을 고릅니다. 현대 동네의 물은 none 이나 river(하천)뿐입니다. 근거가 없으면 none 입니다.
-- 장소 목록의 장소마다 places 에 하나씩 넣고 name 은 목록의 이름 그대로 씁니다. kind 는 [종류]의 id 하나입니다. 이름에 종류 낱말이 없어도 설명으로 판단합니다 (예: '검은 파도'가 술을 파는 곳이면 inn). 현대 동네면 '/ 현대 동네:' 뒤의 자리를 보고 고릅니다 (예: 모텔 inn, 교회 temple, 마트 market, 주인공이 사는 아파트 home).
-- 왕궁, 다른 도시, 먼 산처럼 이 지도 안에 둘 수 없는 곳은 kind 를 far, put 을 false 로 둡니다. 이 마을이나 도시 자체를 가리키는 이름은 center 입니다.
-- 정할 근거가 없으면 kind 는 home, put 은 true 로 둡니다.
+- 장소 목록의 장소마다 places 에 하나씩 넣고 name 은 목록의 이름 그대로 씁니다. kind 는 [종류]에서 위에서 고른 지도 kind 의 절에 있는 id 하나입니다. 다른 절의 id 는 쓰지 않습니다. 이름에 종류 낱말이 없어도 설명으로 판단합니다 (예: '검은 파도'가 술을 파는 곳이면 마을 · 도시는 inn, 현대 동네는 restaurant. 현대 동네의 모텔은 hotel, 주인공이 사는 아파트는 apartment).
+- 왕궁, 다른 도시, 먼 산처럼 이 지도 안에 둘 수 없는 곳은 kind 를 far, put 을 false 로 둡니다. 이 마을이나 도시 자체를 가리키는 이름은 center 이고, 현대 동네 자체를 가리키는 이름은 station 입니다.
+- 정할 근거가 없으면 kind 는 마을 · 도시는 home, 현대 동네는 house 로 두고 put 은 true 로 둡니다.
 - reason 에는 왜 이 설정인지 한국어 한두 문장으로, 장소 설명이나 배경에서 근거를 들어 적습니다."""
 
 

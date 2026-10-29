@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import bldgs, cast, citygen, elements, fill, geom, moderngen, naming, osm, placekinds, towngen
-from .schema import BuildingNote, MapFill, MapPin, MapSpec, NewPlace, PlaceLink, PlaceSort, Project
+from .schema import BuildingNote, MapFill, MapPin, MapSpec, NewPlace, PlaceLink, PlaceSort, Project, Transit
 
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
 IMAGE_LIMIT = 15 * 1024 * 1024
@@ -123,13 +123,36 @@ def unmatched(p: Project, fs: list[dict]) -> list[dict]:
     return list(seen.values())
 
 
+def map_era(p: Project, layout: Optional[dict] = None) -> str:
+    """지금 지도의 장소 종류 시대 (placekinds.ERAS). 지도 데이터가 OpenStreetMap · 현대 동네면 modern, 다른 지도 데이터면 old.
+    지도 데이터가 없으면(배경 그림 · 모눈) 지도 만들기 입력의 시대, 그것도 없으면 작품 이름 스타일이 현대일 때 modern."""
+    if layout:
+        return "modern" if layout.get("generator") in (osm.GENERATOR, moderngen.GENERATOR) else "old"
+    if p.atlas.spec:
+        return placekinds.era_of(p.atlas.spec.kind)
+    return "modern" if naming.resolve_style(p) in MODERN_STYLES else "old"
+
+
+def place_kinds(p: Project, era: str, pls: Optional[list[dict]] = None) -> dict[str, str]:
+    """장소 키 → 그 시대의 종류 id (지도 핀 기호). 작가가 지도 만들기에서 고른 종류(MapSpec.places)를 to_era 로 읽고,
+    비면 이름 · 설명에서 찾는다. gen_places 와 같은 차례지만 시대를 지도 만들기 입력이 아니라 지금 지도에서 받는다."""
+    mine = {x.key: x.kind for x in (p.atlas.spec.places if p.atlas.spec else [])}
+    return {pl["key"]: placekinds.to_era(mine.get(pl["key"], ""), era) or placekinds.classify(pl["name"], pl["description"], era)[0]
+            for pl in (places(p) if pls is None else pls)}
+
+
 def summary(p: Project, layout: Optional[dict] = None) -> dict:
     """지도 화면 한 번에 필요한 계산값. layout(read_layout 결과)을 주면 옮겨 간 인물에 길 따라 걸은 경로를 붙인다.
     이동 시간 검사 칸(travel.view)은 web.atlas_view 가 places · frames 로 붙인다 (atlas 는 travel 을 가져오지 않는다)."""
     pls = places(p)
     pins = {pin.place: [pin.x, pin.y] for pin in p.atlas.pins}
+    spots = {pin.place: pin.spot for pin in p.atlas.pins}
+    kinds = place_kinds(p, map_era(p, layout), pls)
     for pl in pls:
         pl["pin"] = pins.get(pl["key"])
+        pl["spot"] = spots.get(pl["key"], "")  # 놓인 건물 한 줄 (MapPin.spot)
+        pl["kind"] = kinds[pl["key"]]  # 지금 지도 시대의 종류 (핀 기호 static/atlas-icons.js)
+        pl["kind_label"] = placekinds.label(pl["kind"])
     fs = frames(p, pls)
     if layout:
         add_routes(fs, pins, road_graph(layout), p.atlas.meters)
@@ -315,7 +338,8 @@ def layout_info(p: Project, layout: dict) -> dict:
     return {"file": p.atlas.layout, "roads": sum(r["kind"] == "road" for r in layout["roads"]),
             "bridges": sum(r["kind"] == "bridge" for r in layout["roads"]), "buildings": len(layout.get("buildings", [])),
             "width_m": round(layout["w"] * m), "height_m": round(layout["h"] * m), "meters": m,
-            "generator": layout.get("generator", ""), "source": layout.get("source", ""), "made": fill.made_count(layout)}
+            "generator": layout.get("generator", ""), "source": layout.get("source", ""), "made": fill.made_count(layout),
+            "coast_broken": bool(layout.get("coast_broken"))}
 
 
 def road_graph(layout: dict) -> dict:
@@ -362,7 +386,7 @@ def road_graph(layout: dict) -> dict:
 # ---------- 길 밖 걷기: 장소 자리에서 길까지, 이웃한 곳끼리 ----------
 
 def _field(g: dict) -> dict:
-    """길 밖을 걸을 때 쓰는 칸 지도. 긴 변을 WALK_GRID 칸으로 나누고, 칸 가운데가 건물 · 물 안이거나
+    """길 밖을 걸을 때 쓰는 칸 지도. 긴 변을 WALK_GRID 칸으로 나누고, 칸 가운데가 건물 · 물(섬 land 는 빼고) 안이거나
     강 · 성벽 선 폭 안이면 막힌 칸이다. owner 는 칸마다 건물 번호(0 부터), 물 · 강 · 성벽은 -2, 빈 땅은 -1.
     처음 쓸 때 한 번 만든다."""
     if "field" in g:
@@ -406,6 +430,8 @@ def _field(g: dict) -> dict:
                 near.setdefault((i, j), []).append(k)
     for poly in lo.get("water", []):
         fill(poly, -2)
+    for poly in lo.get("land", []):  # 바다 속 섬은 걷는 땅
+        fill(poly, -1)
     for k, poly in enumerate(lo.get("buildings", [])):
         fill(poly, k)
     for line in lo.get("rivers", []) + lo.get("walls", []):
@@ -607,12 +633,14 @@ CITY_POP_PER_HOUSE = 8.0  # 도시 집은 층이 높고 세 든 사람이 많다
 
 
 def village_title(p: Project, layout: dict) -> dict:
-    """지도 위 제목: 작가가 정한 이름, 없으면 '마을 가운데' 종류 장소 이름. 인구는 집 수 × 집 한 채에 사는 사람을 10 단위로
+    """지도 위 제목: 작가가 정한 이름, 없으면 '마을 가운데'(현대 동네는 '역') 종류 장소 이름. 인구는 집 수 × 집 한 채에 사는 사람을 10 단위로
     (도시 생성기가 만든 지도는 CITY_POP_PER_HOUSE). kind: 이름 칸에 쓸 말 (마을 · 도시 · 동네), unit: 수를 세는 말 (집 · 건물).
     OpenStreetMap 지도와 현대 동네 생성기 지도는 건물을 세고, 인구는 주거 건물에서 어림한 사람 수만 쓴다 (canon/bldgs.py)."""
     name = p.atlas.title
     if not name:
-        name = next((x["name"] for x in gen_places(p, p.atlas.spec) if x["kind"] == "center" and x["put"]), "")
+        era = placekinds.era_of(p.atlas.spec.kind if p.atlas.spec else "village")
+        center = {"center", placekinds.to_era("center", era)}  # 현대 동네는 역
+        name = next((x["name"] for x in gen_places(p, p.atlas.spec) if x["kind"] in center and x["put"]), "")
     houses = layout.get("houses") or len(layout.get("numbers") or layout.get("buildings") or [])
     city = layout.get("generator") == citygen.GENERATOR
     real = layout.get("generator") in (osm.GENERATOR, moderngen.GENERATOR)
@@ -701,10 +729,30 @@ def spot_line(p: Project, layout: dict, x: float, y: float) -> str:
 
 
 def fill_spots(p: Project, layout: Optional[dict]) -> None:
-    """핀마다 놓인 건물 한 줄(MapPin.spot)을 다시 쓴다. 마을 데이터가 없으면 비운다.
+    """지도 파일에서 셈해 작품에 적어 두는 값을 다시 쓴다: 핀마다 놓인 건물 한 줄(MapPin.spot)과 지하철 사본(Atlas.transit,
+    지도 데이터의 transit 키, 이동 시간 검사가 읽는다). 마을 데이터가 없으면 비운다.
     핀 · 마을 데이터 · 건물 고치기 뒤에 부른다 (web, 명령줄, apply_generated)."""
     for pin in p.atlas.pins:
         pin.spot = spot_line(p, layout, pin.x, pin.y) if layout else ""
+    tr = layout.get("transit") if layout else None
+    p.atlas.transit = Transit.model_validate(tr) if isinstance(tr, dict) and tr.get("stations") else None
+
+
+def fill_old_spots(p: Project, folder: Path, layout: Optional[dict] = None) -> bool:
+    """건물 한 줄(MapPin.spot)이 빈 핀만 채운다 (이 칸이 생기기 전에 놓은 핀). 저장은 부르는 곳이 한다
+    (지도 화면은 응답에만 싣고, 쓰기 · 검수 작업은 시작할 때 저장). 빈 핀이 없으면 지도 파일을 읽지 않는다.
+    layout 을 주면 그것을 쓴다. 채운 핀이 하나라도 있으면 True (건물 밖 핀은 빈 채로 남아 False)."""
+    empty = [pin for pin in p.atlas.pins if not pin.spot]
+    if not empty or not p.atlas.layout:
+        return False
+    layout = layout if layout is not None else load_layout(folder, p)
+    if not layout:
+        return False
+    done = False
+    for pin in empty:
+        pin.spot = spot_line(p, layout, pin.x, pin.y)
+        done = done or bool(pin.spot)
+    return done
 
 
 def episode_spots(p: Project, n: int) -> list[tuple[str, str]]:
@@ -811,15 +859,20 @@ def _maker(kind: str):
 
 
 def gen_places(p: Project, spec: Optional[MapSpec] = None) -> list[dict]:
-    """지도 만들기의 장소 표. 장소마다 종류(작가가 고친 값, 없으면 이름 · 설명에서 찾은 값)와 이 지도에 놓을지."""
+    """지도 만들기의 장소 표. 장소마다 종류(작가가 고친 값, 없으면 이름 · 설명에서 찾은 값)와 이 지도에 놓을지.
+    종류는 지도 종류(spec.kind, 없으면 마을)의 시대 id 다: 저장된 값은 placekinds.to_era 로 옮기고, 대응이 없으면 찾은 값.
+    found_in: 시대마다 이름 · 설명에서 찾은 종류 (화면이 지도 종류를 바꿀 때 쓴다)."""
+    era = placekinds.era_of(spec.kind if spec else "village")
     mine = {x.key: x for x in (spec.places if spec else [])}
     out = []
     for pl in places(p):
-        found, word = placekinds.classify(pl["name"], pl["description"])
+        found_in = {e: placekinds.classify(pl["name"], pl["description"], e) for e in placekinds.ERAS}
+        found, word = found_in[era]
         m = mine.get(pl["key"])
-        kind = m.kind if m and m.kind in placekinds.CATEGORY_IDS else found
+        kind = (placekinds.to_era(m.kind, era) if m else "") or found
         put = m.put if m and m.put is not None else placekinds.default_put(kind)
-        out.append({"key": pl["key"], "name": pl["name"], "kind": kind, "found": found, "word": word, "put": put})
+        out.append({"key": pl["key"], "name": pl["name"], "kind": kind, "found": found, "word": word, "put": put,
+                    "found_in": {e: k for e, (k, _) in found_in.items()}})
     return out
 
 
@@ -833,6 +886,8 @@ def default_spec(p: Project) -> MapSpec:
 def gen_info(p: Project) -> dict:
     """지도 화면의 '지도 만들기' 칸: 지금 입력(만든 적 없으면 기본값), 장소 표, 종류 이름.
     maps: 만들 수 있는 지도 [{id, label}], options · version: 지도 종류(MapSpec.kind)마다 설정 칸과 생성기 버전,
+    kinds: 지도 종류마다 고를 수 있는 장소 종류 [{id, label}] (placekinds.kinds_for), eras: 지도 종류 → 시대,
+    kind_to: 시대마다 모든 종류 id → 그 시대 id (placekinds.to_era, 대응이 없으면 ''),
     wards: 도시 구역 · 현대 동네 슈퍼블록 종류 이름 (지도에 구역 이름을 쓴다), uses: 건물 쓰임 id → [작품 스타일에 맞는 이름, 묶음],
     modern: 현대 쓰임 id (건물 고치기 칸은 실제 지도 · 현대 동네 지도이거나 modern_style 일 때만 보인다), modern_style: 작품 이름 스타일이 현대인가."""
     spec = default_spec(p)
@@ -840,19 +895,22 @@ def gen_info(p: Project) -> dict:
     return {"spec": spec.model_dump(), "made": p.atlas.spec is not None, "places": gen_places(p, spec),
             "maps": [{"id": k, "label": m[0]} for k, m in MAKERS.items()],
             "options": {k: m[1].OPTIONS for k, m in MAKERS.items()},
-            "kinds": [{"id": cid, "label": label} for cid, label, _ in placekinds.CATEGORIES],
+            "kinds": {k: [{"id": x.id, "label": x.label} for x in placekinds.kinds_for(k)] for k in MAKERS},
+            "eras": {k: placekinds.era_of(k) for k in MAKERS},
+            "kind_to": {e: {x.id: placekinds.to_era(x.id, e) for x in placekinds.KINDS} for e in placekinds.ERAS},
             "version": {k: m[1].VERSION for k, m in MAKERS.items()}, "wards": {k: v for m in MAKERS.values() for k, v in m[1].ZONES.items()},
             "uses": {u: [bldgs.label(u, style), grp] for u, (_, grp) in bldgs.USES.items()},
             "modern": list(bldgs.MODERN), "modern_style": style in MODERN_STYLES}
 
 
 def _blocked(lo: dict, xy: tuple[float, float]) -> bool:
-    """0~1 자리가 새 마을의 건물 · 물 위인가 (옛 핀이 어색해지는 곳)."""
-    if any(geom.inside(xy, [tuple(q) for q in poly]) for poly in lo["buildings"] + lo["water"]):
+    """0~1 자리가 새 마을의 건물 · 물 위인가 (옛 핀이 어색해지는 곳). 바다 속 섬(land)은 물이 아니다."""
+    has = lambda key: any(geom.inside(xy, [tuple(q) for q in poly]) for poly in lo.get(key, []))  # noqa: E731
+    if has("buildings") or (has("water") and not has("land")):
         return True
     q = (xy[0] * lo["w"], xy[1] * lo["h"])
     return any(geom.seg_dist(q, (a[0] * lo["w"], a[1] * lo["h"]), (b[0] * lo["w"], b[1] * lo["h"])) <= rv["width"] / 2
-               for rv in lo["rivers"] for a, b in zip(rv["points"], rv["points"][1:]))
+               for rv in lo.get("rivers", []) for a, b in zip(rv["points"], rv["points"][1:]))
 
 
 def generate(p: Project, spec: MapSpec) -> dict:

@@ -1,0 +1,33 @@
+# main 에 머지되면 Canon 서버에 알려 10분 확인 간격을 기다리지 않고 바로 새 코드를 받게 한다.
+# 러너가 Tailscale 에 잠깐 들어와 서버의 POST /api/update/check 를 부른다 (canon/updater.py 의 wake).
+# 설정(README '머지하면 바로 받기'): 저장소 변수 CANON_SERVER_URL, 비밀값 TS_OAUTH_CLIENT_ID · TS_OAUTH_SECRET.
+# CANON_SERVER_URL 이 없으면 돌지 않는다.
+name: 서버에 새 코드 알리기
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: notify-server
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  notify:
+    if: ${{ vars.CANON_SERVER_URL != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Tailscale 에 들어가기
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+      - name: Canon 서버 깨우기
+        env:
+          URL: ${{ vars.CANON_SERVER_URL }}
+        run: curl -fsS --retry 3 --retry-delay 5 -X POST "$URL/api/update/check"

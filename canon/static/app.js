@@ -352,6 +352,7 @@ async function pollJobs(soon = false) {
     }
     if (j.kind === 'write' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);
     if (j.kind === 'board' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);  // 스토리보드는 그 화에 붙었다 (board.js)
+    if (j.kind === 'cues' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);  // 큐 시트도 그 화에 붙었다 (cue.js)
     if (j.kind === 'plot_one' && j.status !== 'running') {
       await mergeEpisodes((e) => e.plot.number === j.ep);
       const r = j.result && j.result.realign && ep(j.result.realign);  // 뒤 화에 남긴 표시는 고치던 그 화 플롯을 덮지 않고 표시만 받는다
@@ -1405,6 +1406,27 @@ function menuBtn(id, label, body, { cls = 'btn', aria = '', title = '', align = 
   return `<div class="menu" data-menu="${id}"><button type="button" class="${cls}" aria-expanded="${open}" aria-controls="pop-${id}" data-action="menuToggle" data-arg="${id}"${aria ? ` aria-label="${esc(aria)}"` : ''}${title ? ` title="${esc(title)}"` : ''}>${label}</button>${open ? `<div class="pop-panel${align ? ` ${align}` : ''}" id="pop-${id}">${body()}</div>` : ''}</div>`;
 }
 
+/** 열린 메뉴 창이 화면 밖으로 나가지 않게 한다. 창은 버튼 오른쪽 끝에 맞춰 왼쪽으로 펼치는데, 좁은 화면에서 버튼이
+    줄 왼쪽으로 내려가면 창이 왼쪽 밖으로 나간다. 그러면 버튼 왼쪽 끝에 맞춘다 (.pop-panel.left) */
+function fitMenus() {
+  document.querySelectorAll('#app .pop-panel').forEach((p) => {
+    if (p.classList.contains('left')) return;
+    if (p.getBoundingClientRect().left < 8) p.classList.add('left', 'fit-left');
+  });
+}
+window.addEventListener('resize', () => {
+  document.querySelectorAll('#app .pop-panel.fit-left').forEach((p) => p.classList.remove('left', 'fit-left'));
+  fitMenus();
+});
+
+// 작업 경과 시간은 화면 전체를 다시 그리지 않고 그 글자만 1초마다 고친다 (data-elapsed="작업 id", 집필 화면 wsBusy)
+setInterval(() => {
+  document.querySelectorAll('[data-elapsed]').forEach((el) => {
+    const j = S.jobs.find((x) => x.id === el.dataset.elapsed);
+    if (j && j.status === 'running') el.textContent = `경과 ${elapsed(j)}`;
+  });
+}, 1000);
+
 function closeMenu(focus = false) {
   if (!S.popMenu) return;
   if (focus) S.focusTarget = `#app [data-action="menuToggle"][data-arg="${CSS.escape(S.popMenu)}"]`;
@@ -1599,7 +1621,6 @@ async function routeNow() {
   S.context = null;
   S.promptText = null;
   S.briefText = null;
-  S.relations = null;
   if (parts[0] !== 'p') pruneProjectState();  // 작품 밖 화면으로 간다. 작품 데이터가 있을 때 끝난 초안을 정리한다
   if (parts[0] !== 'play' && typeof playStop === 'function') playStop();  // 플레이 화면을 떠나면 시계를 멈춘다
   try {
@@ -1644,9 +1665,6 @@ async function routeNow() {
       scanDrafts();
       S.dirty = false;
       const n = Number(parts[3]);
-      if (!parts[2] && S.project.relationships.length) {
-        S.relations = await api('GET', `/projects/${enc(S.name)}/relations`).catch((e) => ({ error: e.message }));
-      }
       if (parts[2] === 'setup') {
         S.names = {};
         S.ideas = {};
@@ -1683,6 +1701,7 @@ async function routeNow() {
       if (parts[2] === 'write' || parts[2] === 'arc' || parts[2] === 'check') await openingLoad(parts[2] === 'arc' ? 0 : (n || currentEp()));
       if (parts[2] === 'check') await checkLoad(n || currentEp());
       if (parts[2] === 'research') await rsLoad();
+      if (parts[2] === 'cue') await cueLoad(parts[3]);
       if (parts[2] === 'usage') await usageLoad(S.name);
       if (parts[2] === 'convert') await convertLoad();
       if (parts[2] === 'cast') await castLoad(parts[3]);
@@ -1798,6 +1817,7 @@ function afterDraw(f) {
     const sel = tabs.find((t) => t.getAttribute('aria-selected') === 'true') || tabs[0];
     tabs.forEach((t) => { t.tabIndex = t === sel ? 0 : -1; });
   });
+  fitMenus();
   const want = S.focusTarget;
   S.focusTarget = null;
   const target = want && document.querySelector(want);
@@ -1858,7 +1878,7 @@ function drawApp() {
     return;
   }
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, stage: viewStage, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches };
+  const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, stage: viewStage, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches, cue: viewCue };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${branchStrip(page)}${failStrip(page, n)}${draftStrip(page, n)}${body}</main></div>`;
   syncPending();
@@ -1934,7 +1954,7 @@ function navItems() {
     steps,
     auto: ['auto', base() + '/auto', '🤖', autoMenuLabel()],
     tools,
-    apart: [['research', base() + '/research', '🔬', '연구 · 모델 실험'], ['usage', base() + '/usage', '💰', '사용량 · 비용']],
+    apart: [['research', base() + '/research', '🔬', '연구 · 모델 실험'], ['cue', base() + '/cue', '🎼', '큐 시트 집필 실험'], ['usage', base() + '/usage', '💰', '사용량 · 비용']],
     foot: [['#/settings', '모델 · API 키 설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/', '작품 목록']],
   };
 }
@@ -2001,7 +2021,7 @@ function sidebar(active) {
     <div class="nav nav-extra"><span class="small">본편과 분리</span>${apart.map(link).join('')}</div>
     <div class="side-foot">
       <span class="small">본문 모델</span>
-      <strong style="font-size:0.8125rem">${esc(cfg.stages ? cfg.stages.write.model : cfg.model || '')}</strong>
+      <strong style="font-size:0.8125rem">${esc(cfg.stages ? projectStage('write').model : cfg.model || '')}</strong>
       ${aiWarning() ? `<span style="color:var(--red)">${esc(aiWarning())}</span>` : ''}
       ${foot.map(([href, label]) => `<a href="${href}">${label}</a>`).join('\n      ')}
       <span class="tf-credit">이 페이지에는 토스팀에서 제공한 <a href="https://toss.im/tossface" target="_blank" rel="noopener">토스페이스</a>가 적용되어 있어요.</span>

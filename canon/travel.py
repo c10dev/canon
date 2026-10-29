@@ -12,16 +12,22 @@
 못 가면 '빠듯해요', 밤낮 없이 서둘러도(BURST_H 시간 전력 뒤 하루 push_km) 못 가면 '너무 빨라요'.
 빠르기 기본값은 어림이다 (DESIGN.md). LLM 을 부르지 않는다.
 
+대중교통(mode transit): 현대물. 두 장소 사이를 '걸어서만'과 '걸어서 역까지 + 지하철 + 역에서 걸어서' 가운데 짧은 쪽으로 센다
+(rail, 장소 사이마다). 지하철은 작품에 적어 둔 사본(Atlas.transit, OpenStreetMap 지도의 transit 키)을 쓰고, 역 사이는 곧은
+거리를 표정속도(RAIL_KMH)로, 기다림 · 갈아타기 · 역 안 걷기는 정한 분(WAIT_MIN 등)으로 더한다. 숫자의 출처는
+docs/map/specs/06-subway.md 의 규칙 절. 지하철 데이터가 없으면 걸어서만 센다. 버스 · 택시는 보지 않는다.
+
 화면은 canon/static/atlas.js 의 '이동 시간 검사' 칸, 명령줄은 `map <작품> travel`.
 """
 from __future__ import annotations
 
+import heapq
 import math
 import re
 from typing import Optional
 
 from . import atlas, logline
-from .schema import Episode, Project, StateDelta, StoryTime
+from .schema import Episode, Project, StateDelta, StoryTime, Transit
 
 # id → (말, 보통 빠르기 km/시, 보통 하루 km, 서두른 하루 km). 어림값. 작가가 TravelSetting.kmh · day_km 로 바꾼다
 MODES = {
@@ -30,8 +36,15 @@ MODES = {
     "carriage": ("마차로", 6.0, 40.0, 80.0),
     "ship": ("배로", 8.0, 120.0, 200.0),
     "car": ("차로", 60.0, 500.0, 1200.0),
+    "transit": ("걸어서", 5.0, 30.0, 60.0),  # 대중교통: 걷는 값. 지하철이 더 빠른 구간은 rail 이 센다
 }
-MODE_NAMES = {"walk": "도보", "horse": "말", "carriage": "마차", "ship": "배", "car": "자동차"}
+MODE_NAMES = {"walk": "도보", "horse": "말", "carriage": "마차", "ship": "배", "car": "자동차", "transit": "대중교통"}
+TRANSIT = "transit"
+# 지하철 (출처: docs/map/specs/06-subway.md 규칙 절). 분 값은 (보통, 서두름)
+RAIL_KMH = 32.5  # 표정속도(정차 시간 포함): 서울 지하철 2호선 순환 48.8km 를 90분 (서울시 2025-01-31 기준)
+WAIT_MIN = (2.75, 0.0)  # 타는 역에서 기다림: 2호선 평시 운행 간격 5.5분의 절반. 서두르면 바로 탄다고 본다
+TRANSFER_MIN = (4.7, 3.3)  # 갈아타기: 국가교통조사(2010) 지하철→지하철 평균, 서두르면 무의(2024) 조사의 평균
+ACCESS_MIN = (3.0, 1.0)  # 역 출입구 ↔ 승강장 한쪽 (출처를 못 찾은 어림)
 DETOUR = 1.3  # 곧은 거리 → 실제로 가는 길 (길 데이터를 쓰지 않을 때)
 BURST_H = 4.0  # 처음 몇 시간은 보통보다 1.5배 빠르게 갈 수 있다
 OK, TIGHT, FAST = "ok", "tight", "fast"
@@ -136,6 +149,96 @@ def km(p: Project, stops: list[str], pins: Optional[dict] = None) -> Optional[fl
     return sum(math.hypot((pins[a][0] - pins[b][0]) * w, (pins[a][1] - pins[b][1]) * h) for a, b in zip(stops, stops[1:])) * DETOUR
 
 
+def _transit(p: Project) -> Optional[Transit]:
+    t = p.atlas.transit
+    return t if p.atlas.travel.mode == TRANSIT and t and t.lines else None
+
+
+def rail(p: Project, a: tuple[float, float], b: tuple[float, float], fast: bool = False) -> Optional[tuple[float, dict]]:
+    """지도 자리 a 에서 b 까지 지하철로 가장 빨리 가는 (시간, 길). 걸어서 역까지(곧은 거리 × DETOUR) + 역 안 걷기 + 기다림 +
+    역 사이(곧은 거리 / RAIL_KMH) + 갈아타기 + 역 안 걷기 + 걸어서. fast 면 걷기 1.5배, 기다림 · 갈아타기 · 역 안 걷기는 서두른 값.
+    길: {stops: 정거장 수(파일에 없는 역 포함), transfers, src · dst(역 이름), lines}. 지하철 데이터 · 축척이 없으면 None."""
+    tr, sc = _transit(p), scale(p)
+    if tr is None or sc is None:
+        return None
+    w, h = sc
+    k = 1 if fast else 0
+    walk = speed(p)[1] * (1.5 if fast else 1.0)
+    st = tr.stations
+    dist = lambda q, r: math.hypot((q[0] - r[0]) * w, (q[1] - r[1]) * h)  # noqa: E731
+    xy = lambda i: (st[i].x, st[i].y)  # noqa: E731
+    on: dict[int, list[int]] = {}  # 역 → 지나는 노선 번호
+    for li, ln in enumerate(tr.lines):
+        for i in ln.stations:
+            if 0 <= i < len(st):
+                on.setdefault(i, []).append(li)
+    # 상태 (역, 노선). 값 (시간, 정거장, 갈아타기, 탄 역, 노선 이름들)
+    best: dict[tuple[int, int], float] = {}
+    heap: list = []
+    start = (ACCESS_MIN[k] + WAIT_MIN[k]) / 60
+    for i, lines in on.items():
+        t0 = dist(a, xy(i)) * DETOUR / walk + start
+        for li in lines:
+            heapq.heappush(heap, (t0, 0, 0, i, li, i, (li,)))
+    done: Optional[tuple[float, dict]] = None
+    end = ACCESS_MIN[k] / 60
+    while heap:
+        t, n, x, i, li, src, used = heapq.heappop(heap)
+        if best.get((i, li), math.inf) <= t:
+            continue
+        best[(i, li)] = t
+        if n:
+            total = t + end + dist(xy(i), b) * DETOUR / walk
+            if done is None or total < done[0]:
+                done = (total, {"stops": n, "transfers": x, "src": st[src].name, "dst": st[i].name,
+                                "lines": [tr.lines[u].name for u in dict.fromkeys(used)]})
+        ln = tr.lines[li]
+        for pos, j in enumerate(ln.stations):
+            if j != i:
+                continue
+            for q, gap_at in ((pos - 1, pos - 1), (pos + 1, pos)):
+                if 0 <= q < len(ln.stations) and 0 <= ln.stations[q] < len(st):
+                    gap = ln.gaps[gap_at] if gap_at < len(ln.gaps) else 0
+                    nxt = ln.stations[q]
+                    heapq.heappush(heap, (t + dist(xy(i), xy(nxt)) / RAIL_KMH, n + 1 + gap, x, nxt, li, src, used))
+        for lj in on.get(i, []):
+            if lj != li and n:
+                heapq.heappush(heap, (t + TRANSFER_MIN[k] / 60, n, x + 1, i, lj, src, (*used, lj)))
+    return done
+
+
+def trip(p: Project, stops: list[str], pins: Optional[dict] = None) -> Optional[dict]:
+    """장소 키를 차례로 지나는 이동의 {km, normal, fast, rail}. km 은 곧은 거리 × DETOUR. 대중교통이면 장소 사이마다
+    걸어서만과 지하철(rail) 가운데 짧은 쪽을 더하고, 지하철을 쓴 구간이 있으면 rail 에 {stops, transfers, path} (없으면 None).
+    어느 장소라도 지도에 안 놓였거나 축척을 모르면 None."""
+    pins = pins if pins is not None else {pin.place: (pin.x, pin.y) for pin in p.atlas.pins}
+    dist = km(p, stops, pins)
+    if dist is None:
+        return None
+    normal, fast = need(p, dist)
+    out = {"km": dist, "normal": normal, "fast": fast, "rail": None}
+    if _transit(p) is None:
+        return out
+    tn = tf = 0.0
+    legs = []
+    for a, b in zip(stops, stops[1:]):
+        wn, wf = need(p, km(p, [a, b], pins) or 0.0)
+        rn, rf = rail(p, pins[a], pins[b]), rail(p, pins[a], pins[b], fast=True)
+        if rn and rn[0] < wn:
+            legs.append(rn[1])
+        tn += min(wn, rn[0]) if rn else wn
+        tf += min(wf, rf[0]) if rf else wf
+    if legs:
+        out.update(normal=tn, fast=tf, rail={"stops": sum(g["stops"] for g in legs), "transfers": sum(g["transfers"] for g in legs),
+                                             "path": ", ".join(f"{g['src']} → {g['dst']}" for g in legs)})
+    return out
+
+
+def rail_text(r: dict) -> str:
+    """'지하철 2정거장 · 강남 → 선릉', 갈아타면 '… · 갈아타기 1번'."""
+    return f"지하철 {r['stops']}정거장 · {r['path']}" + (f" · 갈아타기 {r['transfers']}번" if r["transfers"] else "")
+
+
 def fmt_km(x: float) -> str:
     return f"{round(x * 1000)}m" if x < 1 else f"{x:.1f}km" if x < 10 else f"{round(x):,}km"
 
@@ -152,18 +255,19 @@ def fmt_h(x: float) -> str:
     return f"{int(d)}일" + (" 반" if d % 1 else "")
 
 
-def judge(p: Project, dist: float, gap: Optional[float]) -> dict:
-    normal, fast = need(p, dist)
+def judge(p: Project, t: dict, gap: Optional[float]) -> dict:
+    """trip 결과를 작품 속 시간 gap 과 견준다."""
+    normal, fast = t["normal"], t["fast"]
     level = OK if gap is None or normal <= gap else TIGHT if fast <= gap else FAST
-    return {"km": round(dist, 3), "normal": round(normal, 2), "fast": round(fast, 2),
-            "gap": None if gap is None else round(gap, 2), "level": level}
+    return {"km": round(t["km"], 3), "normal": round(normal, 2), "fast": round(fast, 2),
+            "gap": None if gap is None else round(gap, 2), "level": level, "rail": t.get("rail")}
 
 
 # ---------- 반영한 화의 이동 (지도 화면 · 명령줄) ----------
 
 def moves(p: Project, fs: Optional[list[dict]] = None, pls: Optional[list[dict]] = None) -> list[dict]:
     """반영한 화마다 장소를 옮긴 인물의 이동. 거리를 모르면 빼고, 시간을 모르면 level ok · gap None.
-    항목: cid, episode(닿은 화), since(떠난 장소에 있던 마지막 화), stops(장소 키), km, normal, fast, gap, level, accepted."""
+    항목: cid, episode(닿은 화), since(떠난 장소에 있던 마지막 화), stops(장소 키), km, normal, fast, gap, level, rail, accepted."""
     pls = pls if pls is not None else atlas.places(p)
     fs = fs if fs is not None else atlas.frames(p, pls)
     pins = {pin.place: (pin.x, pin.y) for pin in p.atlas.pins}
@@ -179,10 +283,10 @@ def moves(p: Project, fs: Optional[list[dict]] = None, pls: Optional[list[dict]]
             if not (r["moved"] and before):
                 continue
             stops = [before[0], *[k for k in r["via"] if k != before[0]], at]
-            dist = km(p, stops, pins)
-            if dist is None:
+            t = trip(p, stops, pins)
+            if t is None:
                 continue
-            row = judge(p, dist, window(p, before[1], f["episode"]))
+            row = judge(p, t, window(p, before[1], f["episode"]))
             out.append({"cid": r["cid"], "episode": f["episode"], "since": before[1], "stops": stops, **row,
                         "accepted": f"{r['cid']}:{f['episode']}" in ok})
     return out
@@ -193,10 +297,12 @@ def names(p: Project) -> dict[str, str]:
 
 
 def path_text(p: Project, m: dict, place_names: dict[str, str]) -> str:
-    """'흑송촌 → 왕도 약 340km를 2일 안에 (말로 보통 7일, 서둘러도 2일 반)'."""
+    """'흑송촌 → 왕도 약 340km를 2일 안에 (말로 보통 7일, 서둘러도 2일 반)'.
+    지하철로 가는 게 빠르면 '(지하철 2정거장 · 강남 → 선릉, 보통 13분, 서둘러도 6분)'."""
     path = " → ".join(place_names.get(k, k) for k in m["stops"])
     gap = f"를 {fmt_h(m['gap'])} 안에" if m["gap"] is not None else ""
-    return f"{path} 약 {fmt_km(m['km'])}{gap} ({speed(p)[0]} 보통 {fmt_h(m['normal'])}, 서둘러도 {fmt_h(m['fast'])})"
+    how = f"{rail_text(m['rail'])}," if m.get("rail") else speed(p)[0]
+    return f"{path} 약 {fmt_km(m['km'])}{gap} ({how} 보통 {fmt_h(m['normal'])}, 서둘러도 {fmt_h(m['fast'])})"
 
 
 
@@ -208,11 +314,18 @@ def view(p: Project, fs: Optional[list[dict]] = None, pls: Optional[list[dict]] 
     ms = moves(p, fs, pls) if t.enabled else []
     pnames, who = {pl["key"]: pl["name"] for pl in pls}, names(p)
     hit = [{**m, "who": who.get(m["cid"], m["cid"]), "text": path_text(p, m, pnames)} for m in ms if m["level"] != OK]
-    return {"enabled": t.enabled, "mode": t.mode, "kmh": t.kmh, "day_km": t.day_km, "span_km": p.atlas.span_km,
+    tr = p.atlas.transit
+    rails = [{"cid": m["cid"], "who": who.get(m["cid"], m["cid"]), "since": m["since"], "episode": m["episode"], "level": m["level"],
+              "text": path_text(p, m, pnames)} for m in ms if m.get("rail")][-RAIL_LIST:]
+    return {"transit": {"stations": len(tr.stations), "lines": list(dict.fromkeys(ln.name for ln in tr.lines if ln.name))} if tr else None, "rail": rails,
+            "enabled": t.enabled, "mode": t.mode, "kmh": t.kmh, "day_km": t.day_km, "span_km": p.atlas.span_km,
             "scale": [round(sc[0], 3), round(sc[1], 3)] if sc else None, "from_layout": bool(sc and p.atlas.layout and p.atlas.layout_size),
             "scale_text": f"{fmt_km(sc[0])} × {fmt_km(sc[1])}" if sc else "",
             "speed": list(speed(p)), "modes": [{"id": k, "label": MODE_NAMES[k], "kmh": v[1], "day_km": v[2]} for k, v in MODES.items()],
             "moves": hit, "checked": sum(m["gap"] is not None for m in ms), "unknown": sum(m["gap"] is None for m in ms)}
+
+
+RAIL_LIST = 20  # 지도 화면의 '지하철로 센 이동' 목록 (최근 것)
 
 
 def set_setting(p: Project, enabled: bool, mode: str, kmh: float, day_km: float, span_km: float) -> None:
@@ -263,10 +376,10 @@ def delta_warnings(p: Project, d: StateDelta) -> list[str]:
         if not keys or not before or before[0] == keys[-1] or f"{u.character_id}:{d.episode}" in ok:
             continue
         stops = [before[0], *[k for k in keys[:-1] if k != before[0]], keys[-1]]
-        dist = km(p, stops)
-        if dist is None:
+        t = trip(p, stops)
+        if t is None:
             continue
-        m = {"cid": u.character_id, "stops": stops, **judge(p, dist, window(p, before[1], d.episode, d.time))}
+        m = {"cid": u.character_id, "stops": stops, **judge(p, t, window(p, before[1], d.episode, d.time))}
         if m["level"] == FAST:
             who = names(p).get(u.character_id, u.character_id)
             out.append(f"{who}{logline.josa(who, '이', '가')} 너무 빨리 옮겨 갔어요: {path_text(p, m, pnames)}. "
@@ -278,7 +391,8 @@ def delta_warnings(p: Project, d: StateDelta) -> list[str]:
 
 def episode_moves(p: Project, n: int) -> list[dict]:
     """n화를 쓰거나 검수할 때 넣는 이동 거리의 줄 데이터: 이번 화 인물의 지금 장소에서 플롯에 나온 장소까지 거리와 걸리는 시간.
-    항목: cid, who(인물 이름), src · dst(장소 이름), km, normal, fast. 가까운 것부터. 꺼졌거나 축척을 모르거나 줄이 없으면 빈 목록."""
+    항목: cid, who(인물 이름), src · dst(장소 이름), km, normal, fast, rail(지하철이 빠르면 trip 의 rail, 아니면 None).
+    가까운 것부터. 꺼졌거나 축척을 모르거나 줄이 없으면 빈 목록."""
     if not enabled(p) or scale(p) is None:
         return []
     ep = next((e for e in p.episodes if e.plot.number == n), None)
@@ -298,12 +412,10 @@ def episode_moves(p: Project, n: int) -> list[dict]:
         if not here:
             continue
         for to in targets:
-            dist = km(p, [here[0], to]) if to != here[0] else None
-            if dist is None:
+            t = trip(p, [here[0], to]) if to != here[0] else None
+            if t is None:
                 continue
-            normal, fast = need(p, dist)
-            rows.append({"cid": cid, "who": who.get(cid, cid), "src": pnames.get(here[0], here[0]), "dst": pnames.get(to, to),
-                         "km": dist, "normal": normal, "fast": fast})
+            rows.append({"cid": cid, "who": who.get(cid, cid), "src": pnames.get(here[0], here[0]), "dst": pnames.get(to, to), **t})
     rows.sort(key=lambda x: x["km"])
     return rows
 
@@ -329,6 +441,10 @@ def describe(p: Project, fs: Optional[list[dict]] = None) -> str:
     if not v["scale"]:
         return head + "\n지도 크기를 몰라 거리를 셀 수 없어요. `map <작품> travel --span <지도 가로 km>` 로 정하세요"
     lines = [head, f"지도 크기: 약 {fmt_km(v['scale'][0])} × {fmt_km(v['scale'][1])}" + (" (마을 데이터 축척)" if v["from_layout"] else "")]
+    if v["mode"] == TRANSIT:
+        tr = v["transit"]
+        lines.append(f"지하철: 역 {tr['stations']}곳 · 노선 {len(tr['lines'])}개 ({', '.join(tr['lines'])})" if tr and tr["lines"]
+                     else "지하철 데이터가 없어 걸어서만 셈해요 (지하철 노선이 든 OpenStreetMap .osm 파일을 올리면 함께 셈해요)")
     if not v["moves"]:
         lines.append(f"걸린 이동이 없어요 (본 이동 {v['checked']}개" + (f", 시점 기록이 없어 못 본 이동 {v['unknown']}개" if v["unknown"] else "") + ")")
     for m in v["moves"]:

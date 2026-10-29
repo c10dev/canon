@@ -67,7 +67,7 @@ def add_skipped(s: dict) -> dict:
                 if not (isinstance(inner, type) and issubclass(inner, pydantic.BaseModel)):
                     # 값 타입 (예: Character.context 의 Literal). 다른 칸처럼 제목 · 설명 · 기본값을 붙인다
                     props[key] = pydantic.TypeAdapter(inner).json_schema() | {"title": k.replace("_", " ").title()} \
-                        | ({"description": f.description} if f.description else {}) | {"default": f.default}
+                        | ({"description": f.description} if f.description else {}) | {"default": f.get_default(call_default_factory=True)}
                     continue
                 if inner.__name__ not in comps:
                     comps[inner.__name__] = inner.model_json_schema(ref_template="#/components/schemas/{model}")

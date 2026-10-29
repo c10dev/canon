@@ -40,25 +40,12 @@ function boardView(n) {
   return null;
 }
 
-/** 본문이 없는 화의 쓰기 칸. 스토리보드를 쓰지 않는 작품이면 빈 글(지금 쓰기 버튼 그대로). */
+/** 만든 스토리보드가 있고 본문이 없는 화의 카드. 만들기 전의 고르기는 write.js writeStart 가 한다. */
 function boardStart(n, blocked) {
   const e = ep(n);
-  if (!boardOn() && !e.storyboard) return '';
+  if (!e.storyboard) return '';
   const off = blocked.length || autoOn();
   const busy = jobFor('board', n) || jobFor('write', n);
-  if (!e.storyboard) {
-    const mk = jobBtn('board', n, '스토리보드 만들기');
-    const go = jobBtn('write', n, '바로 쓰기');
-    const prev = n > 1 && ep(n - 1) && ep(n - 1).status === 'finalized' ? `${n - 1}화 반영이 끝났어요. ` : '';
-    return `<section class="card bd-card" aria-label="${n}화 스토리보드">
-      <p>${prev}쓰기 전에 장면 순서와 이번 화 확정 값(시간 · 상태창 수치 · 차림)을 먼저 정할 수 있어요.</p>
-      <div class="row">
-        <button class="btn primary" data-action="boardMake" data-arg="${n}"${off || busy ? ' disabled' : mk.attr}>${mk.label}</button>
-        <button class="btn" data-action="boardWrite" data-arg="${n}:make"${off || busy ? ' disabled' : go.attr}>${go.label}</button>
-      </div>
-      <p class="small">'바로 쓰기'는 스토리보드를 만들고 보여 주지 않고 이어서 써요. <button class="link-btn" data-action="boardWrite" data-arg="${n}:none"${off || busy ? ' disabled' : ''}>스토리보드 없이 쓰기</button></p>
-    </section>`;
-  }
   return boardCard(n, off || busy);
 }
 
@@ -92,7 +79,7 @@ function boardCard(n, off) {
     <div class="row bd-actions"><button class="btn" data-action="boardEdit" data-arg="${n}"${off ? ' disabled' : ''}>고치기</button>
       <button class="btn${stale ? ' primary' : ''}" data-action="boardMake" data-arg="${n}"${off ? ' disabled' : mk.attr}>${mk.label}</button>
       <span class="bd-fill"></span>
-      <button class="btn${stale ? '' : ' primary'}" data-action="boardWrite" data-arg="${n}:"${off ? ' disabled' : wr.attr}>${wr.label}</button></div></section>`;
+      <button class="btn" data-action="boardWrite" data-arg="${n}:"${off ? ' disabled' : wr.attr}>${wr.label}</button></div></section>`;
 }
 
 /** 읽기용 몸통: 어긋남 → 확정 값 → 넘겨받을 것 → 깨지 않을 것 → 장면. */
@@ -212,7 +199,7 @@ document.addEventListener('change', (e) => {
   if (e.target.dataset && e.target.dataset.bdType === 'bool' && S.boardEdit) boardSet(S.boardEdit.draft, e.target.dataset.bd, e.target.checked);
 });
 
-/** 스토리보드 켜기 · 끄기 (Settings.storyboard). 집필 화면의 생성 방식 아래에 둔다. */
+/** 스토리보드 켜기 · 끄기 (Settings.storyboard). 집필 화면의 쓰기 시작 칸(writeStart) 아래 줄에 둔다. */
 function boardToggle() {
   const on = boardOn();
   return `<div class="field"><span class="small">화별 스토리보드</span><button type="button" class="btn small${on ? ' on' : ''}" aria-pressed="${on}" data-action="boardToggle" title="쓰기 전에 장면 순서와 이번 화 확정 값을 정하고, 쓰기에 직전 화 본문 전체를 넣어요. 화당 AI 호출이 하나 늘어요">스토리보드 ${on ? '켜짐' : '꺼짐'}</button></div>`;
@@ -233,7 +220,7 @@ Object.assign(actions, {
   },
   async boardWrite(arg) {
     const [n, mode] = String(arg).split(':');
-    await startJob('write', Number(n), mode ? { board: mode } : {});
+    await startJob('write', Number(n), { ...(mode ? { board: mode } : {}), ...cueWriteArg(Number(n)) });
   },
   boardEdit(n) {
     S.boardEdit = { key: `${S.name}:${n}`, draft: JSON.parse(JSON.stringify(ep(n).storyboard)) };
@@ -272,7 +259,7 @@ Object.assign(actions, {
 (() => {
   const css = document.createElement('style');
   css.textContent = `
-.w-board { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.w-board { display: flex; flex-direction: column; gap: 12px; }
 .bd-card { gap: 12px; }
 .bd-head { gap: 8px; align-items: center; flex-wrap: wrap; }
 .bd-title { font-size: 1.0625rem; margin: 0; }

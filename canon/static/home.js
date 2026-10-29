@@ -34,45 +34,100 @@ function aiNote() {
   return aiWarning() ? `<div class="note warn" role="status">${esc(aiWarning())} <a href="#/settings" style="color:inherit;font-weight:700">모델 · API 키 설정</a></div>` : '';
 }
 
-function viewProjects() {
-  const list = S.projects || [];
-  const manage = (x, label) => `<details class="proj-more"><summary class="btn small" aria-label="${esc(label)} 관리">⋯ 관리</summary><div class="row" style="padding-top:8px">
-        <button type="button" class="btn small" data-action="dupProject" data-arg="${esc(x.name)}">복제</button>
-        <button type="button" class="btn small" data-action="renameProject" data-arg="${esc(x.name)}">폴더 이름 바꾸기</button>
-        <button type="button" class="btn small danger" data-action="deleteProject" data-arg="${esc(x.name)}">삭제</button></div></details>`;
-  // 같은 갈래 집안은 본편 카드 하나에 묶고, 갈래는 카드 안에 갈라진 화 순서로 (branches.js)
-  const branchRow = ({ card: y, depth }) => `<li class="branch-row" style="--depth:${depth}">
-      <a href="#/p/${enc(y.name)}"><strong>${esc(y.branch.label || y.name)}</strong> <span class="small">${y.branch.from_ep}화부터 · ${y.finalized} / ${y.episodes}화 · ${esc(projectNext(y))}</span></a>
-      <span class="small">폴더 ${esc(y.name)}${y.updated_at ? ` · 고친 때 ${fmtDateTime(y.updated_at)}` : ''}</span>
-      ${manage(y, y.branch.label || y.name)}</li>`;
-  // 플레이 사본은 세계 작품 카드 안에 묶는다 (play.js playRows). 세계 작품을 지웠으면 따로 한 카드에
+// 작품 목록은 머리(새 작품 · 새 플레이 · 도구 링크) → 새 작품 칸(누르면 편다) → 이어 쓰기 → 모든 작품 한 줄 목록 순서다.
+// 목록은 찾기 · 거르기 · 정렬을 거친다. 계산 plStatus · plRows 는 화면을 모르는 순수 함수다 (tests/test_projects_js.py).
+
+const PL_RECENT = 3;  // 이어 쓰기 카드 수. 작품이 이보다 많을 때만 보인다
+const PL_FILTERS = [['all', '전체'], ['writing', '쓰는 중'], ['fresh', '시작 전'], ['done', '완결']];
+const PL_SORTS = [['updated', '고친 때'], ['title', '제목'], ['progress', '진행']];
+
+/** 작품 카드의 상태: done 완결(projectNext 의 '완결'과 같은 규칙), fresh 반영한 화 없음, writing 그 밖 */
+function plStatus(x) {
+  if (x.planned && x.finalized >= x.episodes) return 'done';
+  return x.finalized ? 'writing' : 'fresh';
+}
+
+/** 목록 줄 묶음: 본편 카드 하나에 갈래(branchGroups)와 플레이 사본을 붙이고, 찾기(q: 제목 · 폴더 · 장르, 갈래 · 플레이 이름도) ·
+    거르기(filter: plStatus) · 정렬(sort)을 한다. counts 는 찾기만 거친 묶음의 상태별 수. lost 는 세계 작품을 찾지 못한 플레이 */
+function plRows(list, { q = '', filter = 'all', sort = 'updated' } = {}) {
   const works = list.filter((x) => !x.play);
   const playsOf = (name) => list.filter((y) => y.play && y.play.world === name);
   const lost = list.filter((y) => y.play && !works.some((x) => x.name === y.play.world));
-  const cards = branchGroups(works).map(({ card: x, branches }) => `<div class="card tight proj-card">
-      <a href="#/p/${enc(x.name)}" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:6px">
-      <div class="between"><h3>${esc(x.title || x.name)}</h3><span class="small">${x.finalized} / ${x.episodes}화</span></div>
-      <div class="small">${x.form === 'serial' ? '장편' : '단편'} · ${esc(projectNext(x))}${branches.length ? ` · 갈래 ${branches.length}개` : ''}${playsOf(x.name).length ? ` · 플레이 ${playsOf(x.name).length}개` : ''}</div>
-      <div class="small">${esc(x.genre || '장르 미정')} · 폴더 ${esc(x.name)}${x.updated_at ? ` · 고친 때 ${fmtDateTime(x.updated_at)}` : ''}</div></a>
-      ${manage(x, x.title || x.name)}
-      ${branches.length ? `<details class="branch-list"><summary class="small">갈래 ${branches.length}개 보기</summary><ul>${branches.map(branchRow).join('')}</ul></details>` : ''}
-      ${playRows(playsOf(x.name), manage)}
-    </div>`).join('') + (lost.length ? `<div class="card tight proj-card"><h3>세계 작품을 찾지 못한 플레이</h3><span class="small">세계 작품을 지웠거나 이름을 바꿨어요. 플레이는 그대로 이어 갈 수 있어요</span>${playRows(lost, manage)}</div>` : '');
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const text = (x) => [x.title, x.name, x.genre, x.branch && x.branch.label, x.play && x.play.title].filter(Boolean).join(' ').toLowerCase();
+  const hit = (xs) => !words.length || words.every((w) => xs.some((x) => text(x).includes(w)));
+  const groups = branchGroups(works).map((g) => ({ ...g, plays: playsOf(g.card.name), status: plStatus(g.card) }))
+    .filter((g) => hit([g.card, ...g.branches.map((b) => b.card), ...g.plays]));
+  const counts = { all: groups.length, writing: 0, fresh: 0, done: 0 };
+  groups.forEach((g) => { counts[g.status] += 1; });
+  const shown = groups.filter((g) => filter === 'all' || g.status === filter);
+  const rate = (x) => (x.episodes ? x.finalized / x.episodes : 0);
+  if (sort === 'title') shown.sort((a, b) => (a.card.title || a.card.name).localeCompare(b.card.title || b.card.name, 'ko'));
+  if (sort === 'progress') shown.sort((a, b) => rate(b.card) - rate(a.card) || b.card.finalized - a.card.finalized);
+  return { groups: shown, counts, lost: lost.filter((y) => hit([y])) };
+}
+
+/** ⋯ 관리 메뉴: 복제 · 폴더 이름 바꾸기 · 삭제 (app.js menuBtn) */
+function plManage(x, label) {
+  const dots = '<svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor" aria-hidden="true"><circle cx="4" cy="9" r="1.6"></circle><circle cx="9" cy="9" r="1.6"></circle><circle cx="14" cy="9" r="1.6"></circle></svg>';
+  return menuBtn(`pl:${x.name}`, dots, () => `<button type="button" class="pop-item" data-action="dupProject" data-arg="${esc(x.name)}">복제</button>
+      <button type="button" class="pop-item" data-action="renameProject" data-arg="${esc(x.name)}">폴더 이름 바꾸기</button>
+      <div class="pop-sep" role="separator"></div>
+      <button type="button" class="pop-item danger" data-action="deleteProject" data-arg="${esc(x.name)}">삭제</button>`, { cls: 'btn icon-btn', aria: `${label} 관리` });
+}
+
+const plBar = (fin, total) => `<span class="pl-prog"><i role="img" aria-label="${total}화 중 ${fin}화 반영"><b style="width:${total ? Math.min(100, Math.round((fin / total) * 100)) : 0}%"></b></i><span>${fin} / ${total}화</span></span>`;
+const plNextChip = (x) => `<span class="chip ${{ done: 'finalized', fresh: 'draft', writing: x.open_status || 'draft' }[plStatus(x)]}">${esc(projectNext(x))}</span>`;
+const plWhen = (x) => (x.updated_at ? fmtDateTime(x.updated_at) : '');
+
+function plRow(x, { depth = 0, kind, title, href, tags = '', next, prog } = {}) {
+  const label = title || x.title || x.name;
+  return `<li class="pl-row${depth ? ' sub' : ''}" style="--depth:${depth}">
+    <div class="pl-title"><a href="${href || `#/p/${enc(x.name)}`}"><strong>${esc(label)}</strong></a>${tags}<span class="small">폴더 ${esc(x.name)}</span></div>
+    <span class="pl-kind small">${kind}</span>
+    ${prog === undefined ? plBar(x.finalized, x.episodes) : prog}
+    <span class="pl-next">${next || plNextChip(x)}</span>
+    <span class="pl-when small">${plWhen(x)}</span>
+    ${plManage(x, label)}</li>`;
+}
+
+function plGroupRows(g) {
+  const x = g.card;
+  const tags = [g.branches.length ? `갈래 ${g.branches.length}` : '', g.plays.length ? `플레이 ${g.plays.length}` : ''].filter(Boolean).map((t) => `<span class="chip">${t}</span>`).join('');
+  const playRow = (y, depth) => {
+    const p = y.play;
+    const sub = [p.origin === 'random' ? '무작위 출생' : '세계 인물', p.days ? `작품 속 ${p.days}일` : '', `결정 ${p.decisions}번`].filter(Boolean).join(' · ');
+    return plRow(y, { depth, kind: `플레이 · ${esc(sub)}`, title: p.title, href: `#/play/${enc(y.name)}${p.ending ? '/life' : ''}`, prog: '<span class="pl-prog small">-</span>',
+      next: `<span class="chip${p.ending ? '' : ' finalized'}">${esc(p.ending || (p.waiting ? '결정을 기다리는 중' : '진행 중'))}</span>` });
+  };
+  return plRow(x, { kind: `${x.form === 'serial' ? '장편' : '단편'} · ${esc(x.genre || '장르 미정')}`, tags })
+    + g.branches.map(({ card: y, depth }) => plRow(y, { depth: depth + 1, kind: `갈래 · ${y.branch.from_ep}화부터`, title: y.branch.label || y.name })).join('')
+    + g.plays.map((y) => playRow(y, 1)).join('');
+}
+
+/** 모든 작품 목록 몸통. 찾기 칸을 칠 때는 이것만 다시 그려 한글 조합을 끊지 않는다 */
+function plBody() {
+  const r = plRows(S.projects || [], { q: S.plQuery || '', filter: S.plFilter || 'all', sort: S.plSort || 'updated' });
+  const seg = `<div class="seg" role="group" aria-label="상태로 거르기">${PL_FILTERS.map(([k, l]) => `<button type="button" aria-pressed="${(S.plFilter || 'all') === k}" data-action="plFilter" data-arg="${k}">${l} ${r.counts[k]}</button>`).join('')}</div>`;
+  const rows = r.groups.map(plGroupRows).join('') + r.lost.map((y) => plRow(y, { kind: '플레이 · 세계 작품을 찾지 못함', title: y.play.title, href: `#/play/${enc(y.name)}`, prog: '<span class="pl-prog small">-</span>',
+    next: '<span class="chip">세계 작품 없음</span>' })).join('');
+  return `${seg}${rows ? `<ul class="pl-list" aria-label="작품 ${r.groups.length}개"><li class="pl-row pl-headrow" aria-hidden="true"><span>제목</span><span>형식 · 장르</span><span>진행</span><span>다음 할 일</span><span>고친 때</span><span></span></li>${rows}</ul>`
+    : `<p class="note plain">${S.plQuery ? `'${esc(S.plQuery)}'에 맞는 작품이 없어요.` : '이 상태의 작품이 없어요.'}</p>`}`;
+}
+
+function newProjectForm(open) {
   const f = newForm();
   const err = S.newErr || {};
   const errOf = (k) => (err.field === k ? `<div class="small field-err" id="np-${k}-err" role="alert">${esc(err.msg)}</div>` : '');
   const bad = (k) => (err.field === k ? ` aria-invalid="true" aria-describedby="np-${k}-err"` : '');
-  return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편부터 300화 장편 연재까지 써요. 최근에 고친 작품부터 보여요.', `<a class="btn" href="#/play/new">새 플레이</a><a class="btn" href="#/styles">문체 라이브러리</a><a class="btn" href="#/usage">사용량 · 비용</a><a class="btn" href="#/settings">모델 · API 키 설정</a>`)}
-    ${aiWarning() ? `<div class="note warn">${esc(aiWarning())} <a class="btn" href="#/settings">설정 열기</a></div>` : ''}
-    ${list.length ? `<div class="grid-auto">${cards}</div>` : '<div class="note plain">아직 작품이 없어요. 아래에서 새 작품을 만드세요.</div>'}
-    <form class="card" id="np-form" style="max-width:720px" novalidate>
-      <div class="between"><h2>새 작품</h2>${newFormUsed(f) ? '<span class="row"><span class="small">이전에 적던 내용을 이어서 보여요</span><button type="button" class="btn small ghost" data-action="clearNewForm">비우기</button></span>' : ''}</div>
+  return `<form class="card np-card" id="np-form" novalidate aria-labelledby="np-h"${open ? '' : ' hidden'}>
+      <div class="between"><h2 id="np-h">새 작품</h2>${newFormUsed(f) ? '<span class="row"><span class="small">이전에 적던 내용을 이어서 보여요</span><button type="button" class="btn small ghost" data-action="clearNewForm">비우기</button></span>' : '<span class="small">로그라인과 인물은 다음 화면에서 채워요</span>'}</div>
       <div class="grid-2">
         <div class="field"><label for="np-title">제목 <span class="hint">필수</span></label><input id="np-title" type="text" placeholder="예: 바다 끝 등대" required value="${esc(f.title)}"${bad('title')}>${errOf('title')}</div>
         <div class="field"><label for="np-eps">총 화수 <span class="hint">단편 10~20, 장편 100~300</span></label><input id="np-eps" type="number" min="4" max="1000" value="${esc(f.eps)}"${bad('eps')}>${errOf('eps')}</div>
       </div>
       <details${err.field === 'name' || f.nameEdited ? ' open' : ''}><summary class="small">폴더 이름 (주소): ${esc(f.name || folderOf(f.title) || '제목에서 만들어요')}</summary>
-        <div class="field" style="padding-top:8px"><label for="np-name">폴더 이름 <span class="hint">projects/ 아래 폴더와 화면 주소에 쓰여요. 비우면 제목으로 만들고, 나중에 작품 카드의 '관리'에서 바꿀 수 있어요</span></label>
+        <div class="field" style="padding-top:8px"><label for="np-name">폴더 이름 <span class="hint">projects/ 아래 폴더와 화면 주소에 쓰여요. 비우면 제목으로 만들고, 나중에 작품 줄의 ⋯ 에서 바꿀 수 있어요</span></label>
           <input id="np-name" type="text" placeholder="${esc(folderOf(f.title) || 'lighthouse')}" value="${esc(f.name)}"${bad('name')}>${errOf('name')}</div></details>
       <fieldset class="field form-pick"><legend class="label">형식</legend>
         <label class="row"><input type="radio" name="np-form" id="np-short" value="short"${f.form === 'serial' ? '' : ' checked'}><span><strong>단편</strong> <span class="small">작품 전체를 기승전결 하나로 짜고 모든 화의 플롯을 한 번에 만들어요</span></span></label>
@@ -82,9 +137,60 @@ function viewProjects() {
       ${adultCheck(`id="np-adult"${f.adult ? ' checked' : ''}`)}
       ${(S.libs || []).length ? `<div class="field"><label for="np-style">문체 <span class="hint">라이브러리에서 고르면 문체 단계를 건너뛸 수 있어요. 나중에 바꿔도 돼요</span></label>
         <select id="np-style"><option value="">나중에 정하기</option>${S.libs.map((x) => `<option value="${esc(x.id)}"${f.style === x.id ? ' selected' : ''}>${esc(x.name)}${x.source ? ` · ${esc(x.source)}` : ''}</option>`).join('')}</select></div>` : ''}
-      <div class="row"><button type="submit" class="btn primary">만들고 설정 시작</button><span class="small">로그라인은 다음 화면에서 칸을 채우며 만들어요.</span></div>
+      <div class="row np-actions">${(S.projects || []).length ? '<button type="button" class="btn" data-action="npToggle">닫기</button>' : ''}<button type="submit" class="btn primary">만들고 설정 시작</button></div>
     </form>`;
 }
+
+function viewProjects() {
+  const list = S.projects || [];
+  const f = newForm();
+  // 새 작품 칸: 오류가 있거나 작품이 없으면 늘 편다. 그 밖에는 작가가 연 · 닫은 대로, 정하지 않았으면 적던 내용이 있을 때 편다
+  const open = !!S.newErr || !list.length || (S.npOpen ?? newFormUsed(f));
+  const recent = list.length > PL_RECENT ? plRows(list).groups.filter((g) => g.status !== 'done').slice(0, PL_RECENT) : [];
+  const card = (g) => {
+    const x = g.card;
+    const more = [g.branches.length ? `갈래 ${g.branches.length}` : '', g.plays.length ? `플레이 ${g.plays.length}` : ''].filter(Boolean).join(' · ');
+    return `<article class="card tight pl-recent"><div class="between"><h3><a href="#/p/${enc(x.name)}">${esc(x.title || x.name)}</a></h3><span class="small">${plWhen(x)}</span></div>
+      <span class="small">${x.form === 'serial' ? '장편' : '단편'} · ${esc(x.genre || '장르 미정')}${more ? ` · ${more}` : ''}</span>
+      ${plBar(x.finalized, x.episodes)}
+      <a class="btn small pl-go" href="#/p/${enc(x.name)}">${esc(projectNext(x))} →</a></article>`;
+  };
+  const tools = '<a class="btn ghost" href="#/styles">문체 라이브러리</a><a class="btn ghost" href="#/usage">사용량 · 비용</a><a class="btn ghost" href="#/settings">모델 · API 키 설정</a>';
+  return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편부터 300화 장편 연재까지 써요.',
+    `${tools}<a class="btn" href="#/play/new">새 플레이</a><button type="button" class="btn${open ? ' on' : ' primary'}" data-action="npToggle" aria-expanded="${open}" aria-controls="np-form">${open && list.length ? '새 작품 닫기' : '새 작품'}</button>`)}
+    ${aiWarning() ? `<div class="note warn">${esc(aiWarning())} <a href="#/settings" style="color:inherit;font-weight:700">모델 · API 키 설정</a></div>` : ''}
+    ${newProjectForm(open)}
+    ${recent.length ? `<section class="pl-section" aria-labelledby="pl-recent-h"><h2 id="pl-recent-h">이어 쓰기</h2><div class="grid-auto">${recent.map(card).join('')}</div></section>` : ''}
+    ${list.length ? `<section class="card pl-card" aria-labelledby="pl-h">
+      <div class="pl-tools"><h2 id="pl-h">모든 작품 <span class="small">${plRows(list).counts.all}</span></h2>
+        <label class="pl-find"><span>작품 찾기</span><input id="pl-q" type="search" placeholder="제목 · 장르 · 폴더" value="${esc(S.plQuery || '')}" autocomplete="off"></label>
+        <label class="pl-sort"><span>정렬</span><select id="pl-sort">${PL_SORTS.map(([k, l]) => `<option value="${k}"${(S.plSort || 'updated') === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label></div>
+      <div id="pl-body">${plBody()}</div>
+    </section>` : ''}`;
+}
+
+Object.assign(actions, {
+  npToggle() {
+    S.npOpen = !$('#np-form') || $('#np-form').hidden;  // 닫아도 적던 내용은 남는다 (비우기는 칸 안의 버튼)
+    S.newErr = null;
+    S.focusTarget = S.npOpen ? '#np-title' : '#app [data-action="npToggle"]';
+    render();
+  },
+  plFilter(k) { S.plFilter = k; render(); },
+});
+
+// 찾기 칸은 목록 몸통만 다시 그린다(입력칸을 다시 그리면 한글 조합이 끊긴다). 정렬은 화면을 다시 그린다
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'pl-q') return;
+  S.plQuery = e.target.value;
+  const box = $('#pl-body');
+  if (box) box.innerHTML = plBody();
+});
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'pl-sort') return;
+  S.plSort = e.target.value;
+  render();
+});
 
 // 새 작품 폼: 칸을 고칠 때마다 S.newMeta 에 남기고, 제목을 적으면 손대지 않은 폴더 이름도 따라간다. Enter 는 만들기
 function syncNewForm(el) {
@@ -221,36 +327,147 @@ function releaseRow(p) {
     </div></details>${warn}`;
 }
 
+// 작품 홈은 위에서부터 지금 화 · 확인할 것 → 화별 진행 → 줄인 목록(인물 · 복선 · 사실) 순서다.
+// 목록은 몇 개만 보이고 전체는 그 화면으로 보낸다. 아래 home* 계산 함수는 P() 대신 작품을 받는다 (tests/test_home_js.py).
+
+const HOME_CAST = 4;    // 주요 인물 수
+const HOME_FS = 5;      // 열린 복선 수
+const HOME_FACTS = 5;   // 확정 사실 수
+const HOME_SOON = 3;    // 기한이 이 날수 안이면 확인할 것에 올린다
+
+/** 화 상태별 수: 전 화수 막대와 그 아래 글. none 은 아직 플롯이 없는 화 */
+function homeCounts(p) {
+  const n = (st) => p.episodes.filter((e) => e.status === st).length;
+  const target = Math.max(p.meta.target_episodes, p.episodes.length);
+  const c = { target, finalized: n('finalized'), written: n('written'), confirmed: n('confirmed'), draft: n('draft'),
+    checked: p.episodes.filter((e) => e.status !== 'draft' && checkState(e).done).length };
+  c.none = Math.max(0, target - p.episodes.length);
+  return c;
+}
+
+/** 주요 인물: 매 화 설정을 넣는 인물(context.core_ids 와 같은 규칙: 주역 · '항상', '넣지 않음' 빼기)을 앞에, 모자라면 설정 순서대로 */
+function homeCast(p, n = HOME_CAST) {
+  const core = p.characters.filter((c) => c.context === 'always' || (c.tier === 'main' && c.context !== 'off'));
+  const rest = p.characters.filter((c) => !core.includes(c) && c.context !== 'off');
+  return [...core, ...rest].slice(0, n);
+}
+
+/** 열린 복선을 심은 화 순서로. age 는 반영한 마지막 화에서 몇 화째인지, overdue 는 foreshadows.center 의 '예정 지남'과 같은 규칙 */
+function homeForeshadows(p) {
+  const done = Math.max(0, ...p.episodes.filter((e) => e.status === 'finalized').map((e) => e.plot.number));
+  return p.foreshadows.filter((f) => f.status === 'open')
+    .map((f) => ({ ...f, age: Math.max(0, done - f.planted_ep), overdue: f.due_ep != null && f.due_ep < done }))
+    .sort((a, b) => a.planted_ep - b.planted_ep || (a.id < b.id ? -1 : 1));
+}
+
+/** 끝났는데 요약이 없는 아크 · 부 (부 · 아크 화면 경고 줄, pipeline.pending_recaps 와 같은 규칙). 요약이 없으면 줄거리가 접히지 않는다 */
+function homeRecaps(p) {
+  if (p.meta.form !== 'serial') return { arcs: [], parts: [] };
+  const fin = new Set(p.episodes.filter((e) => e.status === 'finalized').map((e) => e.plot.number));
+  const finished = (a) => { for (let n = a.start_ep; n <= a.end_ep; n++) if (!fin.has(n)) return false; return true; };
+  const summed = p.parts.filter((x) => x.summary);
+  const arcs = [...p.story_arcs].sort((a, b) => a.start_ep - b.start_ep)
+    .filter((a) => !a.summary && finished(a) && !summed.some((x) => x.start_ep <= a.start_ep && a.start_ep <= x.end_ep));
+  return { arcs, parts: p.parts.filter((x) => !x.summary && finished(x)) };
+}
+
+/** 확인할 것: 반영 때 검수 경고, 요약 없는 아크 · 부, 다가오거나 지난 기한, 회수 예정이 지난 복선.
+    [{ tag, kind: 'warn' | 'info', label, sub, href, link }] 순서대로. home 은 작품 주소(base()) */
+function homeTodos(p, home) {
+  const out = [];
+  const last = p.history.length ? p.history[p.history.length - 1] : null;
+  const warns = last ? last.warnings || [] : [];
+  if (warns.length) out.push({ tag: '경고', kind: 'warn', label: `${last.episode}화 반영 때 검수 경고 ${warns.length}개`,
+    sub: warns[0] + (warns.length > 1 ? ` 외 ${warns.length - 1}개` : ''), href: `${home}/write/${last.episode}`, link: `${last.episode}화 보기` });
+  const r = homeRecaps(p);
+  const recapN = r.arcs.length + r.parts.length;
+  if (recapN) {
+    const first = r.arcs.length ? `아크 ${r.arcs[0].number}` : `${r.parts[0].number}부`;
+    out.push({ tag: '할 일', kind: 'info', label: recapN > 1 ? `요약이 없는 아크 · 부 ${recapN}개` : `${first} 요약이 없어요`,
+      sub: '요약해야 줄거리가 접혀요', href: r.arcs.length ? `${home}/arc/a${r.arcs[0].number}` : `${home}/arc`, link: `${first} 요약` });
+  }
+  const tl = p.timeline || {};
+  if (tl.enabled !== false) {
+    const done = p.episodes.filter((e) => e.status === 'finalized' && e.time && e.time.day > 0).sort((a, b) => b.plot.number - a.plot.number)[0];
+    const day = done ? done.time.day : 0;
+    const soon = (tl.deadlines || []).filter((d) => !(d.done_ep > 0) && d.day > 0 && day > 0 && d.day - day <= HOME_SOON)
+      .sort((a, b) => a.day - b.day);
+    if (soon.length) {
+      const d = soon[0];
+      const gap = d.day - day;
+      const when = gap > 0 ? `${gap}일 남았어요` : gap === 0 ? '오늘이에요' : `${-gap}일 지났어요`;
+      out.push({ tag: '기한', kind: 'warn', label: `${d.what} · ${when}`, sub: `${done.plot.number}화 끝 · ${day}일째 기준${soon.length > 1 ? ` · 다른 기한 ${soon.length - 1}개` : ''}`,
+        href: `${home}/timeline`, link: '작품 속 시간' });
+    }
+  }
+  const late = homeForeshadows(p).filter((f) => f.overdue);
+  if (late.length) out.push({ tag: '복선', kind: 'info', label: `회수 예정이 지난 복선 ${late.length}개`,
+    sub: `${late[0].planted_ep}화 「${late[0].description}」 · ${late[0].due_ep}화에 회수 예정이었어요`, href: `${home}/foreshadow`, link: '복선 센터' });
+  return out;
+}
+
+/** 머리 아래 '지금 화' 카드: 다음 할 일이 한 화의 단계면 그 화의 네 단계와 바로 가는 링크, 아니면 다음 할 일 한 줄 */
+function homeNowCard(nextLabel, nextHref) {
+  const p = P();
+  const cur = currentEp();
+  const e = ep(cur);
+  const onEp = e && e.status !== 'finalized' && !autoOn() && nextLabel.startsWith(`${cur}화 `);  // nextStep 의 '14화 플롯 확정' 같은 화 단계
+  if (!onEp) {
+    const why = nextHref.endsWith('/setup') ? '인물과 세계를 정하면 이야기 구조를 짤 수 있어요.'
+      : nextHref.endsWith('/auto') ? (autoOn() ? '자동 집필이 쓰는 동안에는 손으로 쓰거나 반영하지 않아요.' : '자동 집필이 사람의 검토를 기다려요.')
+      : nextHref.endsWith('/arc') ? (serial() && p.story_arcs.length ? `${plannedUntil()}화까지 기획했어요. 다음 아크를 기획하면 이어서 쓸 수 있어요.` : '구조를 짜면 화별 플롯을 만들 수 있어요.')
+      : `${p.meta.target_episodes}화를 모두 반영했어요.`;
+    return `<section class="card home-now" aria-labelledby="home-now-h"><span class="eyebrow">다음 할 일</span><h2 id="home-now-h">${esc(nextLabel)}</h2><p class="desc">${why}</p></section>`;
+  }
+  const t = e.plot.title;
+  const arc = serial() ? arcOf(cur) : null;
+  const act = !serial() && actOf(cur);
+  const where = arc ? `아크 ${arc.number}${arc.title ? ` 「${esc(arc.title)}」` : ''}` : act ? `${esc(act.name)} 구간` : '';
+  const steps = epSteps(e);
+  const at = steps.findIndex((s) => !s.done);
+  const verb = { plot: '플롯을 확정할 차례예요', write: '본문을 쓸 차례예요', check: '검수할 차례예요', review: '상태를 승인할 차례예요' }[steps[at].key];
+  const after = ep(cur + 1) ? ` 상태를 승인하면 ${cur + 1}화를 쓸 수 있어요.` : ' 상태를 승인하면 이 화까지 반영돼요.';
+  const ck = checkState(e);
+  const why = e.status === 'draft' ? '플롯을 확정하면 본문을 쓸 수 있어요.'
+    : e.status === 'confirmed' ? '본문을 쓰면 검수와 상태 승인이 이어져요.'
+    : !ck.done ? `본문 ${e.text.length.toLocaleString()}자를 썼어요.${ck.open ? ` 열린 지적이 ${ck.open}개 있어요.` : ck.stale ? ' 검수한 뒤 본문을 고쳤어요.' : ''}${after}`
+    : `검수를 마쳤어요.${after}`;
+  const nx = ep(cur + 1);
+  return `<section class="card home-now" aria-labelledby="home-now-h">
+    <span class="eyebrow">지금 화${where ? ` · ${where}` : ''} · ${cur} / ${p.meta.target_episodes}화</span>
+    <h2 id="home-now-h">${cur}화${t ? ` 「${esc(t)}」` : ''} · ${verb}</h2>
+    <p class="desc">${why}</p>
+    <ol class="home-steps" aria-label="${cur}화 진행: ${esc(stepText(e))}">${steps.map((s, i) => `<li class="${s.done ? 'done' : i === at ? 'now' : ''}"${i === at ? ' aria-current="step"' : ''}><i></i><span>${s.done ? '✓ ' : ''}${s.key === 'review' ? stepLabel('review') : s.label}${i === at ? ' · 지금' : ''}</span></li>`).join('')}</ol>
+    <div class="row">${e.text ? `<a class="btn small" href="${base()}/write/${cur}">본문 열기</a>` : ''}<a class="btn small" href="${base()}/arc/${cur}">${cur}화 플롯</a>${nx ? `<a class="btn small ghost" href="${base()}/arc/${cur + 1}">다음 화 ${cur + 1}화${nx.plot.title ? ` 「${esc(nx.plot.title)}」` : ''}</a>` : ''}</div>
+  </section>`;
+}
+
+function homeTodoCard() {
+  const items = homeTodos(P(), base());
+  return `<section class="card home-todo" aria-labelledby="home-todo-h"><div class="between"><h2 id="home-todo-h">확인할 것</h2><span class="small">${items.length ? `${items.length}개` : ''}</span></div>
+    ${items.length ? `<ul>${items.map((x) => `<li><span class="home-tag ${x.kind}">${x.tag}</span><div><strong>${esc(x.label)}</strong><div class="small">${esc(x.sub)}</div></div><a class="btn small" href="${x.href}">${esc(x.link)}</a></li>`).join('')}</ul>`
+    : '<p class="small">확인할 것이 없어요. 반영 때 검수 경고, 요약 없는 아크, 다가오는 기한, 회수 예정이 지난 복선이 여기 모여요.</p>'}</section>`;
+}
+
+/** 전 화수를 상태별로 나눈 막대와 수. 예전 '진행 단계' 카드의 수도 여기 한 줄로 */
+function homeProgress(p) {
+  const c = homeCounts(p);
+  const parts = [['finalized', '반영', c.finalized], ['written', '작성됨', c.written], ['confirmed', '확정', c.confirmed], ['draft', '초안', c.draft], ['none', '플롯 없음', c.none]];
+  const pct = (x) => `${Math.round((x / c.target) * 1000) / 10}%`;
+  const hasStyle = !!(p.style.narration_pov || p.style.sample_passages.length);
+  return `<div class="home-bar" role="img" aria-label="전 ${c.target}화: ${parts.filter(([, , x]) => x).map(([, l, x]) => `${l} ${x}`).join(' · ')}">${parts.slice(0, 4).filter(([, , x]) => x).map(([k, , x]) => `<i class="${k}" style="width:${pct(x)}"></i>`).join('')}</div>
+    <div class="legend home-legend">${parts.map(([k, l, x]) => `<span><i class="hb-${k}"></i>${l} <strong>${x}</strong></span>`).join('')}
+      <span><span class="legend-steps" aria-hidden="true"><b></b><b></b><b class="off"></b><b class="off"></b></span>확정 · 집필 · 검수 · 승인</span><span>↑ 올린 화</span></div>
+    <div class="small">검수 끝난 화 ${c.checked} · <a href="${base()}/setup">인물 ${p.characters.length} · 관계 ${p.relationships.length}</a> · <a href="${base()}/style">${hasStyle ? `대표 문단 ${p.style.sample_passages.length}개` : '문체 정하지 않음'}</a></div>`;
+}
+
 function viewHome() {
   const p = P();
   const m = p.meta;
   const eps = p.episodes;
-  const count = (st) => eps.filter((e) => e.status === st).length;
-  const confirmed = eps.length - count('draft');
-  const written = count('written') + count('finalized');
-  const fin = count('finalized');
-  const hasStyle = !!(p.style.narration_pov || p.style.sample_passages.length);
-  const stage = (cls, st, title, sub, href) => `<a class="stage ${cls}" href="${href}"><div class="bar"></div><div class="st">${st}</div><div style="font-size:0.875rem;font-weight:700">${title}</div><div class="small">${sub}</div></a>`;
-  const state = (ok, partial) => (ok ? ['done', '완료'] : partial ? ['doing', '진행 중'] : ['', '시작 전']);
-  const [s1c, s1t] = state(p.characters.length > 0);
-  const [s2c, s2t] = state(hasStyle);
-  // 3단계는 구조(기승전결 · 아크)와 플롯 확정을 한 칸에 보인다. 둘 다 끝나야 완료
-  const arcDone = serial() ? plannedUntil() >= m.target_episodes : p.arc.length === 4;
-  const arcStarted = serial() ? p.story_arcs.length > 0 : p.arc.length > 0;
-  const [s3c, s3t] = state(arcDone && eps.length && confirmed === m.target_episodes, arcStarted || confirmed > 0);
-  const [s5c, s5t] = state(written === m.target_episodes, written > 0);
-  const [s6c, s6t] = state(fin === m.target_episodes, fin > 0);
-  const checked = p.episodes.filter((e) => e.status !== 'draft' && checkState(e).done).length;  // 검수 칸이 찬 화
-  const [skc, skt] = state(checked === m.target_episodes, checked > 0);
+  const fin = eps.filter((e) => e.status === 'finalized').length;
   const cur = currentEp();
   const [nextLabel, nextHref] = nextStep();
-  // 장편: 끝났는데 요약이 없는 아크 · 부 (부 · 아크 화면 경고 줄, pipeline.pending_recaps 와 같은 규칙). 요약이 없으면 줄거리가 접히지 않는다
-  const summed = serial() ? p.parts.filter((x) => x.summary) : [];
-  const recapArcs = serial() ? [...p.story_arcs].sort((a, b) => a.start_ep - b.start_ep).filter((a) => !a.summary && arcFinished(a) && !summed.some((x) => x.start_ep <= a.start_ep && a.start_ep <= x.end_ep)) : [];
-  const recapParts = serial() ? p.parts.filter((x) => !x.summary && arcFinished(x)) : [];
-  const recapN = recapArcs.length + recapParts.length;
-  const recapBtn = recapArcs.length ? `<a class="btn" href="${base()}/arc/a${recapArcs[0].number}">아크 ${recapArcs[0].number} 요약</a>`
-    : recapParts.length ? `<a class="btn" href="${base()}/arc">${recapParts[0].number}부 요약</a>` : '';
 
   // 단편 기승전결: 칸 폭을 지키려고 칸은 장편처럼 줄을 바꿔 놓고, 구간은 칸 위 띠 대신 칸 아래 테두리 색과 이 머리 줄로 보인다
   const actBand = p.arc.length && !serial() ? `<div class="act-rail">${actGroups(p.arc).map((g) => `<span class="act-chip ${actClass(g.names[0])}">${g.names.join('·')} ${epRange(g.start, g.end)}</span>`).join('')}</div>` : '';
@@ -258,7 +475,8 @@ function viewHome() {
   const curPart = serial() ? p.parts.find((x) => x.start_ep <= cur && cur <= x.end_ep) : null;
   const shown = !serial() ? eps : curPart ? eps.filter((e) => e.plot.number >= curPart.start_ep && e.plot.number <= curPart.end_ep)
     : eps.filter((e) => Math.abs(e.plot.number - cur) <= 30);
-  const arcBand = serial() && p.story_arcs.length ? `<div class="arc-rail">${p.story_arcs.filter((a) => shown.some((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep)).map((a) => `<a class="arc-chip" href="${base()}/arc/a${a.number}"><strong>아크 ${a.number}</strong> <span>${a.start_ep}~${a.end_ep}화 ${esc(a.title)}</span></a>`).join('')}</div>` : '';
+  const recaps = homeRecaps(p).arcs;
+  const arcBand = serial() && p.story_arcs.length ? `<div class="arc-rail">${p.story_arcs.filter((a) => shown.some((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep)).map((a) => `<a class="arc-chip${arcOf(cur) === a ? ' sel' : ''}" href="${base()}/arc/a${a.number}"><strong>아크 ${a.number}</strong> <span>${a.start_ep}~${a.end_ep}화 ${esc(a.title)}</span>${recaps.includes(a) ? '<em class="home-tag info">요약 필요</em>' : ''}</a>`).join('')}${curPart && plannedUntil() < curPart.end_ep ? `<a class="arc-chip next" href="${base()}/arc">${plannedUntil() + 1}~${curPart.end_ep}화 아크 없음 · 다음 아크 기획</a>` : ''}</div>` : '';
   const released = releasePlan(p).released;
   const cells = shown.map((e) => {
     const n = e.plot.number;
@@ -271,51 +489,36 @@ function viewHome() {
     return `<a class="ep-cell ${e.status}${now ? ' current' : ''}${up ? ' released' : ''}${act ? ' ' + actClass(act.name) + '-edge' : ''}" href="${href}" title="${esc(`${e.plot.title ? e.plot.title + ' · ' : ''}${stepText(e)}`)}" aria-label="${esc(`${n}화 ${st} · ${stepText(e)}${up ? ' · 올린 화' : ''}${now ? ' · 지금 화' : ''}${e.plot.title ? ' · ' + e.plot.title : ''}`)}"><strong>${n}</strong><span>${st}</span>${stepBar(e)}</a>`;
   }).join('');
 
-  const states = p.characters.map((c) => {
+  const states = homeCast(p).map((c) => {
     const s = p.states.find((x) => x.character_id === c.id) || {};
-    const lines = [['감정', s.emotional_state], ['목표', s.current_goal], ['위치', s.location], ['차림', s.attire]].filter(([, v]) => v);
-    return `<div class="kv"><div style="font-size:0.875rem;font-weight:700">${esc(c.name)} <span class="small" style="font-weight:400">${esc(c.role)}</span></div>${lines.map(([k, v]) => `<div class="line">${k}: ${esc(v)}</div>`).join('') || '<div class="line small">아직 변화 없음</div>'}</div>`;
+    const lines = [['감정', s.emotional_state], ['목표', s.current_goal], ['위치', s.location]].filter(([, v]) => v).slice(0, 2);
+    return `<li><span class="home-ava t-${esc(c.tier || 'minor')}" aria-hidden="true">${esc((c.name || '?').slice(0, 1))}</span><div><strong>${esc(c.name)}</strong> <span class="small">${esc(c.role)}</span>${lines.map(([k, v]) => `<div class="line">${k}: ${esc(v)}</div>`).join('') || '<div class="line small">아직 변화 없음</div>'}</div></li>`;
   }).join('');
-  const openFs = p.foreshadows.filter((f) => f.status === 'open');
-  const last = p.history.length ? p.history[p.history.length - 1] : null;
-  const lastWarn = last ? last.warnings : [];
+  const openFs = homeForeshadows(p);
+  const fsRows = openFs.slice(0, HOME_FS).map((f) => `<li><span class="chip">${f.planted_ep}화</span><span class="home-fs-d">${esc(f.description)}</span><span class="small${f.overdue ? ' home-late' : ''}">${f.overdue ? `${f.due_ep}화 예정 지남` : f.due_ep ? `${f.due_ep}화 회수 예정` : `${f.age}화째`}</span></li>`).join('');
+  const facts = [...p.facts].reverse();
 
-  return `${header(`${esc(m.genre || '장르 미정')}${m.adult ? ' · 성인' : ''} · 전 ${m.target_episodes}화 · 화당 ${Number(m.words_per_episode).toLocaleString()}자`, m.title || S.name, esc(m.logline), `${!serial() && fin && fin === m.target_episodes ? `<a class="btn" href="${base()}/convert">장편으로 늘리기</a>` : ''}${nextHref === `${base()}/arc` ? '' : `<a class="btn" href="${base()}/arc">${stepLabel('arc')}</a>`}${fin ? '<button type="button" class="btn" data-action="branchOpen" title="이 작품은 그대로 두고, 사본에서 다른 전개를 써요">갈래 만들기</button>' : ''}${recapBtn}<a class="btn primary" href="${nextHref}">${esc(nextLabel)}</a>`)}
+  return `${header(`${esc(m.genre || '장르 미정')}${m.adult ? ' · 성인' : ''} · ${serial() ? '장편 연재 · ' : ''}전 ${m.target_episodes}화 · 화당 ${Number(m.words_per_episode).toLocaleString()}자`, m.title || S.name, m.logline ? `<span class="home-logline" title="${esc(m.logline)}">${esc(m.logline)}</span>` : '', `${!serial() && fin && fin === m.target_episodes ? `<a class="btn" href="${base()}/convert">장편으로 늘리기</a>` : ''}${nextHref === `${base()}/arc` ? '' : `<a class="btn" href="${base()}/arc">${stepLabel('arc')}</a>`}${fin ? '<button type="button" class="btn" data-action="branchOpen" title="이 작품은 그대로 두고, 사본에서 다른 전개를 써요">갈래 만들기</button>' : ''}<a class="btn primary" href="${nextHref}">${esc(nextLabel)}</a>`)}
     ${autoLockNote()}
     ${aiNote()}
-    <section class="card" aria-label="진행 단계"><div class="stages">
-      ${stage(s1c, s1t, `1 ${stepLabel('setup')}`, `인물 ${p.characters.length} · 관계 ${p.relationships.length}`, base() + '/setup')}
-      ${stage(s2c, s2t, `2 ${stepLabel('style')}`, hasStyle ? `대표 문단 ${p.style.sample_passages.length}개` : '선택 사항', base() + '/style')}
-      ${stage(s3c, s3t, `3 ${stepLabel('arc')}`, `${serial() ? (p.story_arcs.length ? `아크 ${p.story_arcs.length}개 · ${plannedUntil()}화까지` : '아크 없음') : p.arc.length ? '4구간' : '구조 없음'} · 확정 ${confirmed} / ${m.target_episodes}화${recapN ? ` · 요약 필요 ${recapN}개` : ''}`, base() + '/arc')}
-      ${stage(s5c, s5t, `4 ${stepLabel('write')}`, `${written} / ${m.target_episodes}화`, `${base()}/write/${cur}`)}
-      ${stage(skc, skt, `5 ${stepLabel('check')}`, `${checked} / ${m.target_episodes}화`, `${base()}/check/${cur}`)}
-      ${stage(s6c, s6t, `6 ${stepLabel('review')}`, `${fin} / ${m.target_episodes}화`, `${base()}/review/${cur}`)}
-    </div></section>
-    <section class="card">
-      <div class="between"><h2>화별 진행</h2><div class="legend">
-        <span><i style="background:var(--chip);border:1px solid var(--line-strong)"></i>플롯 초안</span>
-        <span><i style="background:var(--accent)"></i>플롯 확정</span>
-        <span><i style="background:var(--amber)"></i>본문 작성됨</span>
-        <span><i style="background:var(--green)"></i>반영 완료</span>
-        <span><span class="legend-steps" aria-hidden="true"><b></b><b></b><b class="off"></b><b class="off"></b></span>확정 · 집필 · 검수 · 승인</span>
-        <span>↑ 올린 화</span></div></div>
+    <div class="home-top">${homeNowCard(nextLabel, nextHref)}${homeTodoCard()}</div>
+    <section class="card" aria-labelledby="home-eps-h">
+      <div class="between"><h2 id="home-eps-h">화별 진행</h2>${curPart ? `<span class="small">${curPart.number}부 ${esc(curPart.title)} ${epRange(curPart.start_ep, curPart.end_ep)}만 보여요 · <a href="${base()}/arc">전체는 ${stepLabel('arc')}</a></span>` : ''}</div>
+      ${homeProgress(p)}
       ${eps.length ? releaseRow(p) : ''}
-      ${eps.length ? `${actBand}${arcBand}<div class="ep-grid">${cells}</div>${curPart ? `<div class="small">${curPart.number}부 ${esc(curPart.title)} (${curPart.start_ep}~${curPart.end_ep}화)만 보여요. 전체는 <a href="${base()}/arc">부 · 아크</a>에서 보세요.</div>` : ''}` : `<div class="note plain">아직 화별 플롯이 없어요. 다음 할 일: <a href="${nextHref}">${esc(nextLabel)}</a></div>`}
+      ${eps.length ? `${actBand}${arcBand}<div class="ep-grid">${cells}</div>` : `<div class="note plain">아직 화별 플롯이 없어요. 다음 할 일: <a href="${nextHref}">${esc(nextLabel)}</a></div>`}
       ${serial() ? snapshotRow(p) : ''}
-      ${lastWarn.length ? `<div class="note warn">${last.episode}화 반영 때 검수 경고: ${lastWarn.map(esc).join(' / ')} <a href="${base()}/write/${last.episode}" style="color:inherit;font-weight:700">${last.episode}화 보기</a></div>` : ''}
-      ${eps.some((e) => e.status === 'written') ? `<div class="note warn">${cur}화 본문이 작성됐어요. 상태 변경안을 승인해야 다음 화를 쓸 수 있어요. <a href="${base()}/review/${cur}" style="color:inherit;font-weight:700">${cur}화 상태 승인</a></div>` : ''}
     </section>
     ${branchHomeCard()}
     ${playHomeCard()}
-    <div class="grid-auto">
-      <section class="card"><div class="between"><h2>인물 현재 상태</h2><span class="small">${fin ? fin + '화 기준' : '시작 시점'}</span></div>${states || '<div class="small">인물이 없어요</div>'}<a class="card-more" href="${base()}/cast">인물 · 관계 전체 보기</a></section>
-      <section class="card">${relationHeader('관계')}${p.relationships.length ? relationLines(S.relations) : `<div class="small">관계가 없어요. <a href="${base()}/setup">설정 도우미</a>에서 관계를 추가하세요.</div>`}</section>
-      <section class="card"><div class="between"><h2>열린 복선</h2><a class="small" href="${base()}/foreshadow">${openFs.length}개 · 복선 센터</a></div>
-        ${openFs.map((f) => `<div class="row" style="align-items:flex-start;flex-wrap:nowrap"><span class="chip">${f.planted_ep}화</span><div style="font-size:0.8125rem;line-height:1.5">${esc(f.description)}<br><span class="small">${esc(f.id)}</span></div></div>`).join('') || '<div class="small">없음</div>'}
-      </section>
-      <section class="card"><div class="between"><h2>확정 사실</h2><span class="small">${p.facts.length}개</span></div>
-        ${p.facts.length ? `<ul style="padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:0.8125rem;line-height:1.5;color:var(--text-2)">${p.facts.slice(-8).map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` : '<div class="small">없음</div>'}
-        ${p.facts.length > 8 ? `<details><summary class="small">전체 ${p.facts.length}개 보기</summary><ol style="padding-left:22px;display:flex;flex-direction:column;gap:6px;font-size:0.8125rem;line-height:1.5;color:var(--text-2);margin-top:8px">${p.facts.map((f) => `<li>${esc(f)}</li>`).join('')}</ol></details>` : ''}
+    <div class="grid-auto home-lists">
+      <section class="card" aria-labelledby="home-cast-h"><div class="between"><h2 id="home-cast-h">주요 인물</h2><span class="small">${fin ? fin + '화 기준' : '시작 시점'}${p.characters.length > HOME_CAST ? ` · ${p.characters.length}명 중 ${HOME_CAST}명` : ''}</span></div>
+        ${states ? `<ul class="home-list">${states}</ul>` : '<div class="small">인물이 없어요</div>'}<a class="card-more" href="${base()}/cast">인물 ${p.characters.length}명 · 관계 ${p.relationships.length}개 모두 보기</a></section>
+      <section class="card" aria-labelledby="home-fs-h"><div class="between"><h2 id="home-fs-h">열린 복선</h2><span class="small">${openFs.length > HOME_FS ? `${openFs.length}개 중 오래된 ${HOME_FS}개` : `${openFs.length}개`}</span></div>
+        ${fsRows ? `<ul class="home-list home-fs">${fsRows}</ul>` : '<div class="small">없음</div>'}<a class="card-more" href="${base()}/foreshadow">복선 ${p.foreshadows.length}개 · 복선 센터</a></section>
+      <section class="card" aria-labelledby="home-fact-h"><div class="between"><h2 id="home-fact-h">확정 사실</h2><span class="small">${p.facts.length > HOME_FACTS ? `${p.facts.length}개 중 최근 ${HOME_FACTS}개` : `${p.facts.length}개`}</span></div>
+        ${facts.length ? `<ul class="home-facts">${facts.slice(0, HOME_FACTS).map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` : '<div class="small">없음</div>'}
+        ${p.facts.length > HOME_FACTS ? `<details><summary class="small">전체 ${p.facts.length}개 보기</summary><ol class="home-facts all">${p.facts.map((f) => `<li>${esc(f)}</li>`).join('')}</ol></details>` : ''}
       </section>
     </div>`;
 }
