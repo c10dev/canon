@@ -238,7 +238,10 @@ def test_fixes_apply_and_undo(demo):
     nxt = "서윤은 등대 앞에 섰다."
     assert q in ep.text and nxt in ep.text
     pipeline.apply_check(p, ConsistencyReport(episode=1, issues=[issue(q)]))
+    from canon import prompts
     from canon.mock import MockLLM
+    # 고침안은 낱말만 바꾸는 규칙을 받는다 (풀어 쓴 고침안이 나오지 않게)
+    assert prompts.MINIMAL_FIX_RULES in prompts.fix_prompt(p, 1, ep.issues[0], [])
     opts = pipeline.propose_fixes(MockLLM(), p, 1, "f1")
     assert [o.label for o in opts] == ["짧게 고치기", "뒤 문장까지"]  # 원문 그대로인 안은 걸렀다
     assert [x.quote for x in opts[1].extra] == [nxt]
