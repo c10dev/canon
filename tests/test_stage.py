@@ -6,6 +6,8 @@ import pytest
 from canon import stage
 from canon.schema import Character, Episode, EpisodePlot, Project, StageBeat, StageBody, StageContact, StageScene, StageSpot
 
+from .jsvm import episode
+
 
 def _project(minor: bool = False) -> Project:
     return Project(characters=[
@@ -385,3 +387,29 @@ def test_template_front_spots_clear():
                     continue
                 if o.x - 0.15 < x < o.x + o.w + 0.15 and o.y - 0.15 < y < o.y + o.h + 0.15:
                     assert (key, a.name, o.name) in allowed, (key, a.name, o.name)
+
+
+def test_move_gaps_walk_and_back():
+    # 15화 실측: 걸어가 짐칸을 뒤진다고 적고 자리는 옮기지 않은 초안, 떠난 적 없이 '돌아온다'
+    room, p = _room(), _project()
+    desk, bed = _a(room, "책상"), _a(room, "침대")
+    beats = [
+        StageBeat(note="도윤이 돌아서 책상 쪽으로 걸어간다", bodies=[StageBody(who="d", posture="walk", facing=f"#{desk}")]),
+        StageBeat(note="도윤이 책상 서랍을 뒤진다", bodies=[StageBody(who="d", posture="stand", right="열쇠")]),
+        StageBeat(note="도윤이 열쇠를 들고 문 앞으로 돌아온다", bodies=[
+            StageBody(who="d", at=StageSpot(ref=_a(room, "문"), rel="front"), posture="walk", facing="@h")]),
+    ]
+    s = _scene(room, beats)
+    assert [(m["beat"], m["who"], m["kind"]) for m in stage.move_gaps(s, room, p)] == [(1, "d", "walk"), (3, "d", "back")]
+    assert "'책상' 쪽으로 걷는데" in stage.move_gaps(s, room, p)[0]["text"]
+    # 걷고 다음 박자에 도착하면 짚지 않는다. 떠났다가 돌아오는 것도 짚지 않는다
+    beats[1].bodies[0].at = StageSpot(ref=desk, rel="front")
+    assert stage.move_gaps(_scene(room, beats), room, p) == []
+    # 걸으며 자리를 바꾼 박자(기준점이 아닌 사람 곁이라도), 본문 장면은 짚지 않는다
+    still = [StageBeat(note="하린이 침대 쪽으로 걸어 도윤 곁에 선다", bodies=[
+        StageBody(who="h", at=StageSpot(ref="@d", rel="beside"), posture="walk", facing=f"#{bed}")])]
+    assert stage.move_gaps(_scene(room, still), room, p) == []
+    text = _scene(room, beats[:1])
+    text.role = "text"
+    assert stage.move_gaps(text, room, p) == []
+    assert stage.check(p, episode(1, plot={"events": ["도윤이 열쇠를 찾는다"]}), _scene(room, beats[:1]), room)["moves"][0]["beat"] == 1

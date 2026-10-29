@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 from . import board as board_mod
 from . import cast as cast_mod
+from .logline import josa
 from .naming import place_key
 from .schema import (AnchorAdd, BoardScene, DraftAnchor, ConsistencyIssue, DraftBody, Episode, Project, StageAnchor, StageBeat, StageBody, StageContact, StageDraft, StageRoom,
                      StageScene, StageSpot)
@@ -1167,12 +1168,60 @@ def room_of(p: Project, scene: StageScene) -> Optional[StageRoom]:
     return next((r for r in p.rooms if r.id == scene.room), None)
 
 
+# ---------- 빠진 이동 (계획 장면 안내) ----------
+# AI 초안이 '정비차로 걸어가 짐칸을 뒤진다'고 적고 자리(at)는 옮기지 않는 일이 있다 (2026-10-29 15화 실측).
+# 판정 규칙이 아니라 비교 화면 · 계획 장면의 안내라 검수 지적(to_issues)으로 가지 않는다.
+# 본문 장면은 본문이 말하지 않은 자리를 비워 두므로 보지 않는다
+
+RETURN_WORDS = ("돌아오", "돌아온", "돌아와", "돌아간", "돌아가", "되돌아")
+
+
+def _call_names(p: Project, cid: str) -> list[str]:
+    """박자 설명에서 인물을 찾는 이름: 온 이름, 띄어쓰기 없는 세 글자 이상 이름이면 성을 뗀 이름도 ('이예은' → '예은')."""
+    n = _name(p, cid).strip()
+    return [n, n[1:]] if len(n) >= 3 and " " not in n else [n] if n else []
+
+
+def move_gaps(scene: StageScene, room: Optional[StageRoom], p: Project) -> list[dict]:
+    """계획 장면에서 박자 설명과 자리가 어긋난 이동: [{beat, who, kind, text}].
+    walk: 기준점 쪽을 보고 걷는데 그 박자에도 다음 박자에도 자리를 바꾸지 않았다 (인물 · 기준점마다 한 번).
+    back: 박자 설명이 그 인물이 기준점으로 돌아온다는데 앞 박자에도 이미 그 자리였다."""
+    if scene.role != "plan" or room is None:
+        return []
+    names = {a.id: a.name for a in room.anchors}
+    out, seen = [], set()
+    prev = state_at(scene, 0)
+    for k, beat in enumerate(scene.beats, 1):
+        now = state_at(scene, k)
+        nxt = state_at(scene, k + 1) if k < len(scene.beats) else now
+        for w, s in now.items():
+            who = _name(p, w)
+            ref = s.facing[1:] if s.facing.startswith("#") else ""
+            later = nxt.get(w, s)
+            if (s.posture == "walk" and ref in names and (w, ref) not in seen and s.at_at != k and later.at_at != k + 1
+                    and (s.at is None or s.at.ref != ref)):
+                seen.add((w, ref))
+                spot = _spot_text(s.at, room, p) or "처음 자리"
+                out.append({"beat": k, "who": w, "kind": "walk",
+                            "text": f"{who}{josa(who, '이', '가')} '{names[ref]}' 쪽으로 걷는데 다음 박자까지 자리가 '{spot}' 그대로예요"})
+            at, before = s.at, prev.get(w)
+            if (at is not None and at.ref in names and names[at.ref] in beat.note and any(x in beat.note for x in RETURN_WORDS)
+                    and any(x in beat.note for x in _call_names(p, w)) and before is not None and before.at is not None
+                    and before.at.ref == at.ref):
+                out.append({"beat": k, "who": w, "kind": "back",
+                            "text": f"{who}{josa(who, '이', '가')} '{names[at.ref]}' 쪽으로 돌아온다는데 앞 박자에서 그 자리를 떠난 적이 없어요"})
+        prev = now
+    return out
+
+
 def check(p: Project, ep: Episode, scene: StageScene, room: Optional[StageRoom]) -> dict:
-    """장면 하나의 화면 값: 사건 찾기, 본문과 다른 박자, 규칙 판정(평면 + 3D, judge_all), 짝 장면(같은 사건의 다른 역할)과 견준 값.
+    """장면 하나의 화면 값: 사건 찾기, 본문과 다른 박자, 규칙 판정(평면 + 3D, judge_all), 계획 장면의 빠진 이동(moves),
+    짝 장면(같은 사건의 다른 역할)과 견준 값.
     gaps 는 계획과 다른 곳(짝이 있을 때만), match 는 계획 박자마다 견준 본문 박자다."""
     event, changed = find_event(ep, scene)
     out = {"event": event, "event_changed": changed, "stale": stale(scene, ep.text),
-           "violations": [v.model_dump() for v in judge_all(scene, room, p)] if room else [], "pair": None, "gaps": [], "match": []}
+           "violations": [v.model_dump() for v in judge_all(scene, room, p)] if room else [], "moves": move_gaps(scene, room, p),
+           "pair": None, "gaps": [], "match": []}
     if event is None:
         return out
     pair = scenes_of(ep, event)[scene.role == "plan"]

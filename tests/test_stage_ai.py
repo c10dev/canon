@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from canon import findings, pipeline, stage
+from canon import findings, pipeline, prompts, stage
 from canon.mock import MockLLM
 from canon.schema import (Character, ConsistencyReport, DraftBeat, DraftBody, DraftContact, FixOption, FixSet, Meta, Project,
                           StageBeat, StageBody, StageContact, StageDraft, StageScene, StageSpot)
@@ -234,6 +234,7 @@ def test_web_draft_job_compare_apply_undo(client):
     v = client.get("/api/projects/sa/stage/1").json()
     assert v["scenes"] == [] and [(x["event"], x["role"]) for x in v["proposals"]] == [(1, "plan")]
     assert v["proposals"][0]["violations"] == []
+    assert v["proposals"][0]["moves"] == [] and "at_ref 를 그 기준점으로 바꿉니다" in prompts.stage_draft_prompt(store.load("sa"), 1, 1)
     assert client.post("/api/projects/sa/jobs", json={"kind": "stage_extract", "ep": 1, "event": 9}).status_code == 400
     v = client.post("/api/projects/sa/stage/1/apply", json={"event": 1, "role": "plan"}).json()
     assert v["proposals"] == [] and v["scenes"][0]["scene"]["source"] == "plot" and len(v["rooms"]) == 1

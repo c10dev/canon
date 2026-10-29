@@ -2351,7 +2351,7 @@ def _stage_view(name: str, p: Project, n: int) -> dict:
         room = prop.room or prop.grown or stage.room_of(p, prop.scene)
         shared = bool(prop.adds and prop.grown) and stage.room_shared(p, prop.grown.id, n, prop.event, prop.role)
         props.append({**prop.model_dump(), "violations": [v.model_dump() for v in stage.judge_all(prop.scene, room, p)] if room else [],
-                      "stale": stage.stale(prop.scene, e.text), "room_shared": shared})
+                      "moves": stage.move_gaps(prop.scene, room, p), "stale": stage.stale(prop.scene, e.text), "room_shared": shared})
     return {**out, "proposals": props}
 
 

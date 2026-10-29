@@ -645,6 +645,7 @@ function stgCompare(prop) {
   if (prop.dropped) notes.push(`미성년 인물이 낀 성적 접촉 ${prop.dropped}개를 뺐어요.`);
   if (prop.violations.length) notes.push(`규칙 검수 ${prop.violations.length}개: ${prop.violations.slice(0, 3).map((v) => `${v.beat}박자 ${v.text}`).join(' · ')}`);
   if (prop.stale.length) notes.push(`본문에 없는 문장을 가리키는 박자 ${prop.stale.length}개`);
+  (prop.moves || []).forEach((m) => notes.push(`${m.beat}박자 빠진 이동: ${m.text}`));
   prop.notes.filter((x) => !/성적 접촉/.test(x)).forEach((x) => notes.push(x));
   return `<section class="card stg-cmp" aria-label="AI 장면 비교"><div class="between"><h2>${from} 비교</h2>
       <div class="row"><button type="button" class="btn small primary" data-action="stgApply">${cur ? '이 장면으로 바꾸기' : '적용'}</button><button type="button" class="btn small ghost" data-action="stgDiscard">버리기</button></div></div>
@@ -823,6 +824,7 @@ function viewStage(n) {
   if (ck.event_changed) notes.push(`<div class="note warn" role="status">플롯 사건이 바뀌었어요. 이 장면은 "${esc(g.scene.event_text)}" 사건으로 짠 것이에요.</div>`);
   if (ck.violations.length) notes.push(`<div class="note warn" role="status"><b>규칙 검수 ${ck.violations.length}개</b><ul class="stg-viol">${ck.violations.map((x) => `<li><a href="#" data-action="stgBeat" data-arg="${x.beat}">${x.beat}박자</a> ${stgRuleTag(x.rule)}${esc(x.text)}</li>`).join('')}</ul></div>`);
   const gaps = stgGaps();
+  if ((ck.moves || []).length) notes.push(`<div class="note warn" role="status"><b>빠진 이동 ${ck.moves.length}개</b> <span class="small">박자 설명과 자리가 어긋나요. 그 박자에 자리를 바꿔 주세요.</span><ul class="stg-viol">${ck.moves.map((x) => `<li><a href="#" data-action="stgBeat" data-arg="${x.beat}">${x.beat}박자</a> ${esc(x.text)}</li>`).join('')}</ul></div>`);
   if (g.role === 'text') notes.push(`<div class="note plain">본문에서 뽑은 추출 결과예요. 고쳐도 계획 장면은 바뀌지 않아요.${ck.pair ? '' : ' 이 사건에는 견줄 계획 장면이 없어요.'}</div>`);
   if (gaps.length) notes.push(`<div class="note plain" role="status"><b>계획과 다른 곳 ${gaps.length}개</b> <span class="small">사소한 차이예요. 본문 쪽 연출이 더 나을 수도 있어요.</span><ul class="stg-viol">${gaps.map((x) => `<li><a href="#" data-action="stgBeat" data-arg="${x.k}">${x.k === 0 ? '시작 상태' : `${x.k}박자`}</a> ${esc(x.text)}</li>`).join('')}</ul></div>`);
   if (ck.stale.length) notes.push(`<div class="note plain">본문에 없는 문장을 가리키는 박자가 ${ck.stale.length}개 있어요: ${ck.stale.map((k) => `<a href="#" data-action="stgBeat" data-arg="${k}">${k}박자</a>`).join(', ')}</div>`);
