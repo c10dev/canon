@@ -1182,6 +1182,40 @@ def _call_names(p: Project, cid: str) -> list[str]:
     return [n, n[1:]] if len(n) >= 3 and " " not in n else [n] if n else []
 
 
+def _stray(s: Now, later: Now, k: int, names: dict[str, str]) -> str:
+    """k 박자에 기준점 쪽을 보고 걷는데 그 박자에도 다음 박자에도 자리를 바꾸지 않았으면 그 기준점 id, 아니면 빈칸."""
+    ref = s.facing[1:] if s.facing.startswith("#") else ""
+    if s.posture == "walk" and ref in names and s.at_at != k and later.at_at != k + 1 and (s.at is None or s.at.ref != ref):
+        return ref
+    return ""
+
+
+def fill_arrivals(scene: StageScene, room: Optional[StageRoom], p: Project) -> list[str]:
+    """AI 계획 초안이 빠뜨린 도착 자리를 채운다 (2026-10-29 사용자): 기준점 쪽으로 걷고 자리를 바꾸지 않았으면
+    다음 박자(마지막 박자면 그 박자)에 그 기준점 앞을 넣는다. 채운 곳은 정리 기록으로 돌려준다. 작가가 짠 장면에는 쓰지 않는다."""
+    if scene.role != "plan" or room is None:
+        return []
+    names = {a.id: a.name for a in room.anchors}
+    notes = []
+    for k in range(1, len(scene.beats) + 1):
+        now = state_at(scene, k)
+        nxt = state_at(scene, k + 1) if k < len(scene.beats) else now
+        for w, s in now.items():
+            ref = _stray(s, nxt.get(w, s), k, names)
+            if not ref:
+                continue
+            j = min(k + 1, len(scene.beats))
+            beat = scene.beats[j - 1]
+            b = next((x for x in beat.bodies if x.who == w), None)
+            if b is None:
+                b = StageBody(who=w)
+                beat.bodies.append(b)
+            b.at = StageSpot(ref=ref, rel="front")
+            who = _name(p, w)
+            notes.append(f"{j}박자: {who}{josa(who, '이', '가')} '{names[ref]}' 쪽으로 걸어가 도착 자리를 '{names[ref]} 앞'으로 채웠어요")
+    return notes
+
+
 def move_gaps(scene: StageScene, room: Optional[StageRoom], p: Project) -> list[dict]:
     """계획 장면에서 박자 설명과 자리가 어긋난 이동: [{beat, who, kind, text}].
     walk: 기준점 쪽을 보고 걷는데 그 박자에도 다음 박자에도 자리를 바꾸지 않았다 (인물 · 기준점마다 한 번).
@@ -1196,10 +1230,8 @@ def move_gaps(scene: StageScene, room: Optional[StageRoom], p: Project) -> list[
         nxt = state_at(scene, k + 1) if k < len(scene.beats) else now
         for w, s in now.items():
             who = _name(p, w)
-            ref = s.facing[1:] if s.facing.startswith("#") else ""
-            later = nxt.get(w, s)
-            if (s.posture == "walk" and ref in names and (w, ref) not in seen and s.at_at != k and later.at_at != k + 1
-                    and (s.at is None or s.at.ref != ref)):
+            ref = _stray(s, nxt.get(w, s), k, names)
+            if ref and (w, ref) not in seen:
                 seen.add((w, ref))
                 spot = _spot_text(s.at, room, p) or "처음 자리"
                 out.append({"beat": k, "who": w, "kind": "walk",

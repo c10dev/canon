@@ -413,3 +413,27 @@ def test_move_gaps_walk_and_back():
     text.role = "text"
     assert stage.move_gaps(text, room, p) == []
     assert stage.check(p, episode(1, plot={"events": ["도윤이 열쇠를 찾는다"]}), _scene(room, beats[:1]), room)["moves"][0]["beat"] == 1
+
+
+def test_fill_arrivals_adds_missing_spot():
+    # AI 초안이 걷기만 적고 도착 자리를 빠뜨리면 다음 박자에 그 기준점 앞을 채운다. 채운 뒤에는 빠진 이동 안내가 없다
+    room, p = _room(), _project()
+    desk, door = _a(room, "책상"), _a(room, "문")
+    beats = [
+        StageBeat(note="도윤이 책상 쪽으로 걸어간다", bodies=[StageBody(who="d", posture="walk", facing=f"#{desk}")]),
+        StageBeat(note="도윤이 서랍을 뒤진다", bodies=[StageBody(who="h", facing=f"#{desk}")]),
+        StageBeat(note="도윤이 문 쪽으로 걸어간다", bodies=[StageBody(who="d", posture="walk", facing=f"#{door}")]),
+    ]
+    s = _scene(room, beats)
+    s.start[1].at = StageSpot(ref=_a(room, "침대"), rel="right")
+    notes = stage.fill_arrivals(s, room, p)
+    assert notes == ["2박자: 도윤이 '책상' 쪽으로 걸어가 도착 자리를 '책상 앞'으로 채웠어요",
+                     "3박자: 도윤이 '문' 쪽으로 걸어가 도착 자리를 '문 앞'으로 채웠어요"]
+    assert stage.state_at(s, 2)["d"].at == StageSpot(ref=desk, rel="front")
+    assert stage.state_at(s, 3)["d"].at == StageSpot(ref=door, rel="front")  # 마지막 박자는 그 박자에
+    assert stage.move_gaps(s, room, p) == []
+    # 두 번 채우지 않는다. 본문 장면은 본문이 말한 것만 두므로 채우지 않는다
+    assert stage.fill_arrivals(s, room, p) == []
+    text = _scene(room, [StageBeat(note="", bodies=[StageBody(who="d", posture="walk", facing=f"#{desk}")])])
+    text.role = "text"
+    assert stage.fill_arrivals(text, room, p) == [] and text.beats[0].bodies[0].at is None

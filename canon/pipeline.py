@@ -3290,6 +3290,7 @@ def _stage_ask(llm: LLM, p: Project, n: int, event: int, role: str, hint: dict |
             notes_room.append(f"방을 {room.w:g}×{room.h:g}m 에서 {grown.w:g}×{grown.h:g}m 로 넓혀요")
         room = grown
     scene, dropped, notes = stage.from_draft(d, p, ep, event, room, role)
+    notes += stage.fill_arrivals(scene, room, p)
     if role == "text":
         scene.basis = text_basis(ep.text)
     keep = {} if new_room is not None or not adds else {"grown": grown, "shift_x": dx, "shift_y": dy}
