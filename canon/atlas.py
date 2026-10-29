@@ -315,7 +315,8 @@ def layout_info(p: Project, layout: dict) -> dict:
     return {"file": p.atlas.layout, "roads": sum(r["kind"] == "road" for r in layout["roads"]),
             "bridges": sum(r["kind"] == "bridge" for r in layout["roads"]), "buildings": len(layout.get("buildings", [])),
             "width_m": round(layout["w"] * m), "height_m": round(layout["h"] * m), "meters": m,
-            "generator": layout.get("generator", ""), "source": layout.get("source", ""), "made": fill.made_count(layout)}
+            "generator": layout.get("generator", ""), "source": layout.get("source", ""), "made": fill.made_count(layout),
+            "coast_broken": bool(layout.get("coast_broken"))}
 
 
 def road_graph(layout: dict) -> dict:
@@ -362,7 +363,7 @@ def road_graph(layout: dict) -> dict:
 # ---------- 길 밖 걷기: 장소 자리에서 길까지, 이웃한 곳끼리 ----------
 
 def _field(g: dict) -> dict:
-    """길 밖을 걸을 때 쓰는 칸 지도. 긴 변을 WALK_GRID 칸으로 나누고, 칸 가운데가 건물 · 물 안이거나
+    """길 밖을 걸을 때 쓰는 칸 지도. 긴 변을 WALK_GRID 칸으로 나누고, 칸 가운데가 건물 · 물(섬 land 는 빼고) 안이거나
     강 · 성벽 선 폭 안이면 막힌 칸이다. owner 는 칸마다 건물 번호(0 부터), 물 · 강 · 성벽은 -2, 빈 땅은 -1.
     처음 쓸 때 한 번 만든다."""
     if "field" in g:
@@ -406,6 +407,8 @@ def _field(g: dict) -> dict:
                 near.setdefault((i, j), []).append(k)
     for poly in lo.get("water", []):
         fill(poly, -2)
+    for poly in lo.get("land", []):  # 바다 속 섬은 걷는 땅
+        fill(poly, -1)
     for k, poly in enumerate(lo.get("buildings", [])):
         fill(poly, k)
     for line in lo.get("rivers", []) + lo.get("walls", []):
@@ -847,12 +850,13 @@ def gen_info(p: Project) -> dict:
 
 
 def _blocked(lo: dict, xy: tuple[float, float]) -> bool:
-    """0~1 자리가 새 마을의 건물 · 물 위인가 (옛 핀이 어색해지는 곳)."""
-    if any(geom.inside(xy, [tuple(q) for q in poly]) for poly in lo["buildings"] + lo["water"]):
+    """0~1 자리가 새 마을의 건물 · 물 위인가 (옛 핀이 어색해지는 곳). 바다 속 섬(land)은 물이 아니다."""
+    has = lambda key: any(geom.inside(xy, [tuple(q) for q in poly]) for poly in lo.get(key, []))  # noqa: E731
+    if has("buildings") or (has("water") and not has("land")):
         return True
     q = (xy[0] * lo["w"], xy[1] * lo["h"])
     return any(geom.seg_dist(q, (a[0] * lo["w"], a[1] * lo["h"]), (b[0] * lo["w"], b[1] * lo["h"])) <= rv["width"] / 2
-               for rv in lo["rivers"] for a, b in zip(rv["points"], rv["points"][1:]))
+               for rv in lo.get("rivers", []) for a, b in zip(rv["points"], rv["points"][1:]))
 
 
 def generate(p: Project, spec: MapSpec) -> dict:

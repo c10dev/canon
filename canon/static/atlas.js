@@ -311,6 +311,7 @@ function atlasVillageSvg(v, W, H, layers = {}) {
 
   // 밭: 긴 변 방향으로 돌린 이랑 무늬 (15° 단위로 묶어 무늬 수를 줄인다), 세 가지 작물 색
   const pats = new Set();
+  const under0 = out.length;  // 밭 · 녹지 · 광장 그림의 처음 (바다 속 섬 위에 다시 그린다)
   (on('fields') ? v.fields || [] : []).forEach((ln, i) => {
     let best = 0;
     let deg = 0;
@@ -335,6 +336,7 @@ function atlasVillageSvg(v, W, H, layers = {}) {
   });
   (v.greens || []).forEach((ln) => out.push(`<polygon class="at-v-green" points="${pts(ln)}"></polygon>`));
   (v.squares || []).forEach((ln) => out.push(`<polygon class="at-v-square" points="${pts(ln)}"></polygon>`));
+  const under = out.slice(under0);
   // 도시 구역: 종류마다 옅은 바탕색과 점선 경계 (길 아래에 깔고, 이름은 건물 위에 따로)
   if (on('wards')) (v.wards || []).forEach((wd) => { if (!ATLAS_WARD_OUT.has(wd.kind)) out.push(`<polygon class="at-v-ward k-${esc(wd.kind)}" points="${pts(wd.shape)}" stroke-width="${m(0.8, 0.6)}"></polygon>`); });
 
@@ -357,6 +359,17 @@ function atlasVillageSvg(v, W, H, layers = {}) {
     out.push(`<path class="at-v-sand" d="${edge}" stroke-width="${m(9, 4)}"></path><polygon class="at-v-water" points="${p}"></polygon>`);
     out.push(`<g clip-path="url(#at-wclip-${i})">${[5, 12].map((d) => `<path class="at-v-wave" d="${edge}" stroke-width="${m(2 * d + 1.4, 3)}"></path><path class="at-v-water-line" d="${edge}" stroke-width="${m(2 * d - 1.4, 1.5)}"></path>`).join('')}</g>`);
   });
+  // 바다 속 섬(land, OpenStreetMap 해안선): 물결은 바다 쪽에만, 땅 바탕 위에 모래톱과 섬 안의 밭 · 녹지 · 광장을 다시 그린다
+  const land = v.land || [];
+  if (land.length) {
+    const ring = (ln) => `M${ln.map((q) => P(q).map((x) => x.toFixed(1)).join(',')).join('L')}Z`;
+    const edge = land.map(ring).join('');
+    defs.push(`<clipPath id="at-wclip-all">${(v.water || []).map((ln) => `<polygon points="${pts(ln)}"></polygon>`).join('')}</clipPath>`);
+    defs.push(`<clipPath id="at-lclip">${land.map((ln) => `<polygon points="${pts(ln)}"></polygon>`).join('')}</clipPath>`);
+    out.push(`<g clip-path="url(#at-wclip-all)">${[5, 12].map((d) => `<path class="at-v-wave" d="${edge}" stroke-width="${m(2 * d + 1.4, 3)}"></path><path class="at-v-water-line" d="${edge}" stroke-width="${m(2 * d - 1.4, 1.5)}"></path>`).join('')}</g>`);
+    out.push(`<path class="at-v-ground" d="${edge}"></path>`);
+    out.push(`<g clip-path="url(#at-lclip)"><path class="at-v-sand" d="${edge}" stroke-width="${m(9, 4)}"></path>${under.join('')}</g>`);
+  }
   stroke(v.rivers, 'at-v-sand', (r) => r.width + 5, 5);
   stroke(v.rivers, 'at-v-river', (r) => r.width, 3);
   stroke(v.rivers, 'at-v-river-line', (r) => r.width * 0.45, 1);
@@ -852,8 +865,9 @@ function atlasLayoutBox() {
   }
   const missing = !S.atlasLayout ? '<div class="note err" role="alert">마을 데이터 파일을 읽지 못했어요. 다시 올려 주세요.</div>' : '';
   const word = { 'canon-city': '도시', 'canon-modern': '현대 동네', osm: '실제 지도' }[lo.generator] || '마을';
+  const coast = lo.coast_broken ? '<div class="note" role="status">해안선이 끊겨 바다를 그리지 못했어요.</div>' : '';
   const src = lo.source ? `<div class="small">지도 데이터 ${esc(lo.source)} (<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">ODbL</a>). 지도를 내보내 쓸 때도 이 출처를 함께 적어 주세요.</div>` : '';
-  return `<div class="at-box"><h3>${word} 데이터</h3>${missing}${src}
+  return `<div class="at-box"><h3>${word} 데이터</h3>${missing}${coast}${src}
     <div class="small">길 ${lo.roads}개${lo.bridges ? ` · 다리 ${lo.bridges}개` : ''} · 건물 ${lo.buildings}채 · 약 ${atlasMeters(lo.width_m)} × ${atlasMeters(lo.height_m)}</div>
     <label class="at-scale small">1단위 = <input type="number" min="0.01" max="1000" step="0.1" value="${lo.meters}" data-atlas-meters aria-label="마을 데이터 1단위가 몇 m인지"> m</label>
     <div class="small">거리가 어색하면 축척을 바꾸세요. 걷는 시간은 초속 1.3m로 셈해요. 건물 안을 누르면 장소가 그 건물 가운데에 놓여요.</div>
