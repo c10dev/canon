@@ -1821,11 +1821,12 @@ STAGE_RULE = ("아래 배치는 장면의 배경 제약이다. 본문이 이 배
               "'지시'는 작가가 정한 박자의 흐름이니 따른다.")
 
 
-def stage_block(p: Project, n: int, budget: int = 0) -> str:
+def stage_block(p: Project, n: int, budget: int = 0, board: bool = False) -> str:
     """n화를 쓸 때 넣는 장면 연출: 작가가 짠 계획 장면만, 박자마다 지시(작가 설명)와 배치(배경 제약) 줄로 (stage.episode_lines).
+    board 이면 머리마다 그 사건을 맡은 스토리보드 장면 번호를 붙인다(스토리보드 블록 바로 뒤에 넣을 때).
     예산(context.BUDGET["stage"])을 넘으면 사건 순서대로 넣고 남은 장면 수를 적는다. 첫 장면은 넘어도 넣는다. 장면이 없으면 빈 글."""
     ep = next((e for e in p.episodes if e.plot.number == n), None)
-    scenes = stage.episode_lines(p, ep)[0] if ep else []
+    scenes = stage.episode_lines(p, ep, board)[0] if ep else []
     budget = budget or context.BUDGET["stage"]
     keep, size, cut = [], 0, 0
     for lines in scenes:
@@ -1874,6 +1875,7 @@ def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: st
     Gemini 4 암묵적 캐시는 화 사이 겹침을 쓰지 않고 앞 요청을 통째로 품은 요청에만 맞는다 (DESIGN.md 실측).
     장편은 줄거리를 부 → 아크 → 화로 접고, 인물·복선·사실을 이번 화에 관련된 것만 골라 크기를 일정하게 둔다.
     스토리보드가 있으면(use_board) 직전 화 본문 뒤, 이번 화 플롯 바로 앞에 넣고 시간 · 이동 블록은 그 안의 값으로 대신한다.
+    그때 장면 연출 블록은 스토리보드 블록 바로 뒤로 옮기고 줄마다 스토리보드 장면 번호를 붙인다 (docs/stage/specs/08-board.md).
     pre 는 직전 화 본문 바로 앞, between 은 이번 화 플롯 바로 앞에 넣는 블록 (스토리보드 만들기 프롬프트가 쓴다)."""
     ep = p.episode(n)
     sb = ep.storyboard if use_board else None
@@ -1915,15 +1917,17 @@ def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: st
     line += f"\n\n# 이동 거리 (지도 기준)\n{tr}" if tr else ""
     sp = mapprompt.spot_block(p, n)
     line += f"\n\n# 장소가 놓인 건물 (지도 기준)\n{sp}" if sp else ""
-    stg = stage_block(p, n)
-    line += f"\n\n# 장면 연출 (작가가 짠 자리 · 자세 · 접촉)\n{stg}" if stg else ""
+    stg = stage_block(p, n, board=sb is not None)
+    stg = f"\n\n# 장면 연출 (작가가 짠 자리 · 자세 · 접촉)\n{stg}" if stg else ""
+    if sb is None:
+        line += stg
     pov = pov_block(p, n)
     pov = f"\n\n# 이번 화 서술 시점 (스타일 프로필보다 우선)\n{pov}" if pov else ""
     dev = device_block(p, n)
     dev = f"\n\n# 가끔 쓰는 장치 (최근 화에서 쓴 화를 센 것. 스타일 프로필과 예시 문단보다 우선)\n{dev}" if dev else ""
 
     facts_text = chr(10).join("- " + f for f in facts) or "없음"
-    prev = pre + prev_block(p, n, last_text) + (f"\n\n{board_block(p, n)}" if sb is not None else "") + between
+    prev = pre + prev_block(p, n, last_text) + (f"\n\n{board_block(p, n)}{stg}" if sb is not None else "") + between
     if p.serial:
         act_line = f"현재 아크 안 구간: {act.name if act else '?'} ({act.start_ep if act else '?'}~{act.end_ep if act else '?'}화) 목표: {act.goal if act else ''}"
         return serial_episode_context(p, n, where=where, act_line=act_line, line=line, facts=facts_text, facts_cut=facts_cut, els=els,
@@ -2671,12 +2675,29 @@ def _stage_material(p: Project, n: int, event: int, room, prev_lines: list[str])
     return body, names
 
 
+def stage_board_lines(p: Project, n: int, event: int) -> str:
+    """연출 초안 재료: 그 사건을 맡은 스토리보드 장면의 장소 · 자리 · 함께 있는 인물 · 목표 · 전환 · 끝 상태.
+    스토리보드가 없거나 맡은 장면이 없으면 빈 글."""
+    hit = stage_mod.board_scene_of(p.episode(n), event)
+    if hit is None:
+        return ""
+    k, sc = hit
+    name = {c.id: c.name or c.id for c in p.characters}
+    rows = [("장소", " · ".join(x for x in (sc.place.strip(), sc.spot.strip()) if x)), ("시각", sc.time.strip()),
+            ("함께 있는 인물", ", ".join(name.get(x, x) for x in sc.present)), ("목표", sc.goal.strip()),
+            ("전환", sc.turn.strip()), ("끝", sc.end_state.strip())]
+    body = "\n".join(f"- {a}: {b}" for a, b in rows if b)
+    return f"[이 사건을 맡은 스토리보드 장면 {k}] (화 전체의 장면 계획. 이 장면 안에서 자리 · 몸을 짭니다)\n{body}" if body else ""
+
+
 def stage_draft_prompt(p: Project, n: int, event: int, room=None, prev_lines: list[str] | None = None) -> str:
-    """쓰기 전 연출 초안: 플롯 사건 하나를 무대 연출로. 본문은 넣지 않는다."""
+    """쓰기 전 연출 초안: 플롯 사건 하나를 무대 연출로. 본문은 넣지 않는다. 스토리보드 장면이 있으면 그 목표 · 전환 · 끝을 함께 준다."""
     body, _ = _stage_material(p, n, event, room, prev_lines or [])
+    sb = stage_board_lines(p, n, event)
+    body += f"\n\n{sb}" if sb else ""
     return f"""{body}
 
-할 일: [이번 사건]을 무대 연출 초안으로 적습니다. 작가가 쓰기 전에 장면을 미리 보는 스토리보드입니다.
+할 일: [이번 사건]을 무대 연출 초안으로 적습니다. 작가가 쓰기 전에 장면을 미리 보는 연출 계획입니다.
 - cast 에 이 사건에 나오는 인물 이름을, start 에 인물마다 처음 자리 · 자세 · 향한 쪽 · 두 손을 적습니다. 빈손은 '빈손'입니다.
 - beats 는 4~12개입니다. 박자마다 note 에 일어나는 일 한 줄을 쓰고, bodies 에는 그 박자에 바뀐 인물의 바뀐 칸만 적습니다. 적지 않은 칸은 앞 박자 그대로입니다.
 - quote 는 빈칸으로 둡니다. 동작을 하나하나 늘어놓지 말고 사건이 흐르는 데 필요한 자리 · 자세 · 접촉만 적습니다.

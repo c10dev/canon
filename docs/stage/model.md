@@ -12,6 +12,15 @@
 
 옛 `project.json` 은 빈 목록 · 거짓 기본값으로 읽힌다.
 
+### 스토리보드와의 관계 (일감 08)
+
+화별 스토리보드(`Episode.storyboard`, `canon/board.py`)와 장면 연출은 데이터를 따로 둔다. 장면 연출은 읽기만 하고 스토리보드에 아무것도 쓰지 않는다. 스토리보드도 장면 연출을 읽지 않는다.
+
+- 잇는 열쇠는 플롯 사건 번호다. `StageScene.event`(0부터)와 `BoardScene.events`(1부터)가 같은 사건을 가리키면 그 스토리보드 장면이 그 사건을 맡는다(`stage.board_scene_of`). 스토리보드 장면 번호는 저장하지 않는다(다시 만들면 바뀐다).
+- 새 장면의 출연진은 맡은 스토리보드 장면의 `present` 중 인물 목록에 있는 id 다. 비면 플롯 등장 인물이다(`stage.new_scene`).
+- 방 후보(`stage.room_hints`): 이름이 `spot` 과 같은 방 → `spot` 과 서로 포함하는 방 → `StageRoom.place` 가 `place` 와 같은 방 → 이름이 `place` 와 서로 포함하는 방. 띄어쓰기 · 가운뎃점은 무시한다.
+- 화면 값(`stage.view` 의 `board`, `board_view`): `stale`(`board.stale`) 과 사건마다 `{no, place, spot, hints}` 또는 `null`. 스토리보드가 없으면 `events` 가 빈 목록이다.
+
 ## 방
 
 ```

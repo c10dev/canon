@@ -6,6 +6,8 @@
 미성년 인물이 낀 성적 접촉은 blocked 로 거르고, 작가 입력 · AI 결과 · 프롬프트 모두 이 함수를 쓴다.
 한 사건에 계획 장면(role plan)과 본문 장면(role text)을 하나씩 두고, diff 가 계획과 다른 곳(Gap)을 잰다.
 AI 가 이름으로 적은 장면(StageDraft)은 from_draft 가 id 로 바꾸고, 본문 장면의 판정 · 차이는 to_issues 가 검수 지적으로 바꾼다.
+화별 스토리보드(Episode.storyboard, board.py)는 읽기만 한다: 사건을 맡은 스토리보드 장면(board_scene_of)으로 출연진 · 방 후보를 채운다.
+장면 연출은 플롯 사건에 붙고 스토리보드 장면 번호에는 붙이지 않는다 (docs/stage/specs/08-board.md).
 """
 from __future__ import annotations
 
@@ -16,8 +18,10 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from . import board as board_mod
 from . import cast as cast_mod
-from .schema import (ConsistencyIssue, DraftBody, Episode, Project, StageAnchor, StageBeat, StageBody, StageContact, StageDraft, StageRoom,
+from .naming import place_key
+from .schema import (BoardScene, ConsistencyIssue, DraftBody, Episode, Project, StageAnchor, StageBeat, StageBody, StageContact, StageDraft, StageRoom,
                      StageScene, StageSpot)
 
 # ---------- 고정 어휘 ----------
@@ -878,9 +882,35 @@ def new_room(p: Project, template: str, name: str = "", place: str = "") -> Stag
 ROLES = {"plan": "계획", "text": "본문"}
 
 
+def board_scene_of(ep: Episode, event: int) -> Optional[tuple[int, BoardScene]]:
+    """사건(0부터)을 맡은 스토리보드 장면: (장면 번호(1부터), 장면). 스토리보드가 없거나 맡은 장면이 없으면 None.
+    BoardScene.events 는 1부터라 event + 1 로 찾는다. 두 장면이 같은 사건을 맡으면 앞 장면이다."""
+    b = ep.storyboard
+    if b is None:
+        return None
+    return next(((k, sc) for k, sc in enumerate(b.scenes, 1) if event + 1 in sc.events), None)
+
+
+def room_hints(p: Project, scene: BoardScene) -> list[str]:
+    """스토리보드 장면에 맞는 방 id, 잘 맞는 것부터. 이름이 자리(spot)와 같은 방 → 자리와 서로 포함하는 방 → 묶인 지도 장소가
+    장면 장소(place)와 같은 방 → 이름이 장소와 같거나 서로 포함하는 방. 띄어쓰기 · 가운뎃점은 무시한다 (naming.place_key).
+    맞는 방이 없으면 빈 목록. 화면은 이 방들을 방 목록 앞에 둔다."""
+    def near(a: str, b: str) -> bool:
+        a, b = place_key(a), place_key(b)
+        return bool(a and b) and (a in b or b in a)
+
+    spot, where = scene.spot.strip(), scene.place.strip()
+    scored = []
+    for i, r in enumerate(p.rooms):
+        score = 4 if spot and place_key(r.name) == place_key(spot) else 3 if near(r.name, spot) else 2 if where and place_key(r.place) == place_key(where) else 1 if near(r.name, where) else 0
+        if score:
+            scored.append((-score, i, r.id))
+    return [rid for _, _, rid in sorted(scored)]
+
+
 def new_scene(p: Project, ep: Episode, event: int, room: StageRoom, role: str = "plan") -> StageScene:
-    """플롯 사건 하나의 새 장면. 출연진은 그 화 플롯의 등장 인물이고, 모두 문 앞(문이 없으면 방 가운데)에 빈손으로 선다.
-    한 사건에 계획 · 본문 장면은 하나씩이다."""
+    """플롯 사건 하나의 새 장면. 출연진은 그 사건을 맡은 스토리보드 장면의 present(알려진 인물만), 없으면 그 화 플롯의
+    등장 인물이고, 모두 문 앞(문이 없으면 방 가운데)에 빈손으로 선다. 한 사건에 계획 · 본문 장면은 하나씩이다."""
     events = ep.plot.events
     if not 0 <= event < len(events):
         raise ValueError(f"{ep.plot.number}화에 {event + 1}번째 사건이 없어요")
@@ -889,7 +919,9 @@ def new_scene(p: Project, ep: Episode, event: int, room: StageRoom, role: str = 
     if scenes_of(ep, event)[role == "text"] is not None:
         raise ValueError(f"이 사건에는 이미 {ROLES[role]} 장면이 있어요")
     known = {c.id for c in p.characters}
-    cast_ids = [c for c in ep.plot.characters if c in known]
+    hit = board_scene_of(ep, event)
+    cast_ids = [c for c in dict.fromkeys(hit[1].present) if c in known] if hit else []
+    cast_ids = cast_ids or [c for c in ep.plot.characters if c in known]
     door = next((a for a in room.anchors if a.kind == "door"), None)
     start = [StageBody(who=c, at=StageSpot(ref=door.id, rel="front") if door else None, posture="stand", left="", right="")
              for c in cast_ids]
@@ -956,12 +988,26 @@ def check(p: Project, ep: Episode, scene: StageScene, room: Optional[StageRoom])
     return out
 
 
+def board_view(p: Project, n: int) -> dict:
+    """화면의 스토리보드 값: 사건마다 맡은 장면(번호 · 장소 · 자리 · 방 후보 hints, 맡은 장면이 없으면 None)과 낡음.
+    스토리보드가 없으면 events 가 빈 목록이다."""
+    ep = p.episode(n)
+    events = []
+    if ep.storyboard is not None:
+        for k in range(len(ep.plot.events)):
+            hit = board_scene_of(ep, k)
+            events.append({"no": hit[0], "place": hit[1].place.strip(), "spot": hit[1].spot.strip(),
+                           "hints": room_hints(p, hit[1])} if hit else None)
+    return {"stale": board_mod.stale(p, n), "events": events}
+
+
 def view(p: Project, n: int) -> dict:
     """장면 연출 화면 값 (GET …/stage/{n})."""
     ep = p.episode(n)
     return {
         "episode": n,
         "events": ep.plot.events,
+        "board": board_view(p, n),
         "scenes": [{"scene": s.model_dump(), **check(p, ep, s, room_of(p, s))} for s in ep.stage],
         "rooms": [r.model_dump() for r in p.rooms],
         "minors": sorted(minor_ids(p)),
@@ -1030,12 +1076,13 @@ def _body_text(b: StageBody, before: Optional[Now], room: Optional[StageRoom], p
     return ", ".join(x for x in bits if x)
 
 
-def episode_lines(p: Project, ep: Episode) -> tuple[list[list[str]], int, int]:
+def episode_lines(p: Project, ep: Episode, board: bool = False) -> tuple[list[list[str]], int, int]:
     """쓰기 프롬프트에 넣을 장면 글: 장면마다 줄 목록(첫 줄은 사건 · 방 · 기준점 머리), 사건 순서.
     두 층이다(docs/stage/specs/05-prompt.md): 박자 설명(StageBeat.note)은 '지시'로 그대로, 자리 · 자세 · 향함 · 손 · 접촉은
     '배치'(배경 제약)로 짧게. 계획 장면만 넣는다: prompt 가 거짓인 장면, 본문 장면(role text, 일감 07), 사건을 찾지 못한 장면은 뺀다.
     미성년이 낀 성적 접촉(blocked)은 어느 작품에서도 빼고, 전연령 작품(Meta.adult 거짓)은 성적 접촉도 뺀다.
     그런 접촉을 뺀 박자는 지시도 뺀다(설명이 그 접촉을 말할 수 있다).
+    board 이면 머리 앞에 그 사건을 맡은 스토리보드 장면 번호('스토리보드 장면 2 · ')를 붙인다 (맡은 장면이 없으면 붙이지 않음).
     (장면 글, 미성년이라 뺀 접촉 수, 수위로 뺀 박자 수)를 낸다. 수위로 뺀 박자 수는 화면이 작가에게 알린다 (시작 상태도 박자 하나로 센다)."""
     minors, adult = minor_ids(p), p.meta.adult
     plans = [s for s in ep.stage if s.prompt and getattr(s, "role", "plan") != "text"]
@@ -1061,6 +1108,9 @@ def episode_lines(p: Project, ep: Episode) -> tuple[list[list[str]], int, int]:
             return _body_text(b, before, room, p, keep, shown), cut, block
 
         head = f"사건 {k + 1}: {ep.plot.events[k].strip()}"
+        hit = board_scene_of(ep, k) if board else None
+        if hit:
+            head = f"스토리보드 장면 {hit[0]} · {head}"
         if room:
             head += f" · {room.name}" + (f" ({', '.join(a.name for a in room.anchors)})" if room.anchors else "")
         lines, parts, beat_cut = [head], [], False

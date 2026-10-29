@@ -4,7 +4,10 @@
    인물 자리는 기준점 + 관계 말이고 좌표는 stageLayout 이 계산하고 stageLayouts 가 박자마다 앞 박자 좌표를 잇는다 (stage.place · layouts 와 같은 규칙, tests/test_stage_js.py).
    한 사건에 계획 장면(role plan)과 본문 장면(role text)이 하나씩 있다. 머리의 '계획 | 본문'으로 바꿔 보고(S.stg.role),
    본문 장면에서는 계획 인물을 흐린 원으로 겹쳐 본다(S.stg.ghost). 계획과 다른 곳(gaps)과 박자 짝(match)은 서버 stage.align 이 잰다.
-   stageState · stageLayout · stageLayouts · stageAnchorPoint · stageFacing · stageSnap · stageSexual · stagePlanBeat 은 DOM 없는 순수 함수다. */
+   화별 스토리보드(view.board, 서버 stage.board_view)는 읽기만 한다: 사건 칩을 스토리보드 장면별로 묶고(stgEventGroups),
+   새 장면 카드의 방 목록에서 스토리보드 장소에 맞는 방을 앞에 둔다(stgRoomOrder).
+   stageState · stageLayout · stageLayouts · stageAnchorPoint · stageFacing · stageSnap · stageSexual · stagePlanBeat ·
+   stgEventGroups · stgRoomOrder 는 DOM 없는 순수 함수다. */
 'use strict';
 
 Object.assign(S, {
@@ -163,6 +166,30 @@ function stagePlanBeat(match, k) {
 
 // ----- 불러오기 · 고치기 -----
 
+/** 사건 칩 묶음: 이어진 사건이 같은 스토리보드 장면이면 한 묶음. board 는 사건마다 {no, place, spot} 또는 null (stage.board_view 의 events).
+    [{no(없으면 null), place, spot, events: [사건 번호(1부터)]}]. 스토리보드가 없으면 모든 사건이 한 묶음(no null). */
+function stgEventGroups(count, board) {
+  const out = [];
+  for (let k = 0; k < count; k++) {
+    const b = (board || [])[k] || null;
+    const no = b ? b.no : null;
+    const last = out[out.length - 1];
+    if (last && last.no === no) last.events.push(k + 1);
+    else out.push({ no, place: b ? b.place : '', spot: b ? b.spot : '', events: [k + 1] });
+  }
+  return out;
+}
+
+/** 새 장면 카드의 방 순서: hints(스토리보드 장소에 맞는 방 id, stage.room_hints 순서) 먼저, 나머지는 원래 순서. */
+function stgRoomOrder(rooms, hints) {
+  const h = hints || [];
+  const rank = (r) => (h.includes(r.id) ? h.indexOf(r.id) : h.length);
+  return rooms.map((r, i) => [r, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([r]) => r);
+}
+
+/** 지금 사건을 맡은 스토리보드 장면 (없으면 null). */
+const stgBoardOf = (g) => ((g.view.board && g.view.board.events) || [])[g.ev - 1] || null;
+
 async function stgLoad(n, ev) {
   if (!n || !ep(n)) { S.stg = null; return; }
   const view = await api('GET', `/projects/${enc(S.name)}/stage/${n}`);
@@ -174,6 +201,8 @@ async function stgLoad(n, ev) {
   S.stgJump = null;
   S.stg = { n, ev, view, role: jump ? jump.role : role, ghost, sid: null, scene: null, room: null, dirty: false, beat: jump ? jump.beat : 0, who: '', mode: 'people', check: null,
     form: { by: 'right', to: '', part: '', act: 'hold' }, pick: { room: '', template: 'bedroom', name: '' }, playing: null };
+  const bs = stgBoardOf(S.stg);  // 스토리보드 장소에 맞는 방을 먼저 고르고, 없으면 새 방 이름을 자리 · 장소로
+  if (bs) S.stg.pick = { ...S.stg.pick, room: bs.hints[0] || '', name: bs.hints.length ? '' : bs.spot || bs.place };
   stgPick();
 }
 
@@ -547,12 +576,15 @@ function stgPlaces() {
 
 function stgNewCard() {
   const g = S.stg, k = g.pick;
-  const rooms = g.view.rooms;
+  const bs = stgBoardOf(g);
+  const hints = bs ? bs.hints : [];
+  const rooms = stgRoomOrder(g.view.rooms, hints);
   const tpl = Object.entries(g.view.vocab.rooms);
+  const where = bs ? [bs.place, bs.spot].filter(Boolean).join(' · ') : '';
   return `<section class="card"><h2>이 사건에는 아직 연출이 없어요</h2>
-    <p class="desc">방을 고르면 이 화 플롯의 등장 인물이 문 앞에 선 채로 시작해요. 같은 장소의 방은 다른 장면에서도 다시 써요.</p>
+    <p class="desc">${bs ? `스토리보드 장면 ${bs.no}${where ? `(${esc(where)})` : ''}의 인물이 문 앞에 선 채로 시작해요.` : '방을 고르면 이 화 플롯의 등장 인물이 문 앞에 선 채로 시작해요.'} 같은 장소의 방은 다른 장면에서도 다시 써요.</p>
     <fieldset class="stg-pick"><legend class="small">방</legend>
-      ${rooms.map((r) => `<label class="row"><input type="radio" name="stg-room" value="${esc(r.id)}" data-stg-pick="room"${k.room === r.id ? ' checked' : ''}> ${esc(r.name)}${r.place ? ` <span class="chip confirmed">${esc(r.place)}</span>` : ''}</label>`).join('')}
+      ${rooms.map((r) => `<label class="row"><input type="radio" name="stg-room" value="${esc(r.id)}" data-stg-pick="room"${k.room === r.id ? ' checked' : ''}> ${esc(r.name)}${r.place ? ` <span class="chip confirmed">${esc(r.place)}</span>` : ''}${hints.includes(r.id) ? ' <span class="chip">스토리보드 장소</span>' : ''}</label>`).join('')}
       <label class="row"><input type="radio" name="stg-room" value="" data-stg-pick="room"${k.room ? '' : ' checked'}> 새 방:
         <select data-stg-pick="template" aria-label="방 틀">${tpl.map(([t, l]) => stgOpt(t, l, k.template)).join('')}</select>
         <input data-stg-pick="name" value="${esc(k.name)}" placeholder="방 이름 (비우면 틀 이름)" aria-label="새 방 이름"></label>
@@ -720,6 +752,9 @@ function stgCss() {
 .stg-events { display: flex; flex-wrap: wrap; gap: 6px; }
 .stg-events a { text-decoration: none; }
 .stg-events a[aria-current="page"] .chip { background: var(--accent); color: var(--on-accent); }
+.stg-events.grouped { gap: 10px; align-items: center; }
+.stg-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 8px; }
+.stg-events .flag.amber { font-size: 0.75rem; color: var(--amber-ink); font-weight: 700; }
 .stg-pick { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
 .stg-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.75rem; color: var(--muted); }
 .stg-tabs { display: none; }
@@ -737,7 +772,13 @@ function viewStage(n) {
   const epPick = `<label class="row small">화 <select data-stg-ep aria-label="화 고르기">${eps.map((x) => stgOpt(String(x.plot.number), `${x.plot.number}화 ${x.plot.title}`, String(n))).join('')}</select></label>`;
   if (!e || !g) return `${head('방 하나 안에서 인물의 자리 · 자세 · 접촉을 박자마다 짜고 재생해요.')}<section class="card">${eps.length ? epPick : ''}<p class="small">${eps.length ? '사건이 있는 화를 고르세요.' : '플롯에 사건이 있는 화가 아직 없어요. 기승전결 · 플롯에서 사건을 적으면 사건마다 연출을 짤 수 있어요.'}</p></section>`;
   const has = new Set(g.view.scenes.map((x) => x.event));
-  const events = `<nav class="stg-events" aria-label="사건">${e.plot.events.map((x, k) => `<a href="${base()}/stage/${n}/${k + 1}"${k + 1 === g.ev ? ' aria-current="page"' : ''} title="${esc(x)}"><span class="chip">${k + 1}${has.has(k) ? ' ●' : ''}</span></a>`).join('')}</nav>`;
+  const chip = (k) => `<a href="${base()}/stage/${n}/${k}"${k === g.ev ? ' aria-current="page"' : ''} title="${esc(e.plot.events[k - 1])}"><span class="chip">${k}${has.has(k - 1) ? ' ●' : ''}</span></a>`;
+  const bd = g.view.board || { events: [], stale: false };
+  const groups = stgEventGroups(e.plot.events.length, bd.events);
+  const grouped = bd.events.length > 0;
+  const events = `<nav class="stg-events${grouped ? ' grouped' : ''}" aria-label="사건">${grouped && bd.stale ? '<span class="flag amber">스토리보드가 낡았어요</span>' : ''}${groups.map((x) => grouped
+    ? `<span class="stg-group"><span class="small">${x.no ? `장면 ${x.no}${x.spot || x.place ? ` · ${esc(x.spot || x.place)}` : ''}` : '맡은 장면 없음'}</span>${x.events.map(chip).join('')}</span>`
+    : x.events.map(chip).join('')).join('')}</nav>`;
   const evText = e.plot.events[g.ev - 1] || '';
   const has2 = (role) => !!stgRow(g, role);
   const roles = `<div class="seg" role="group" aria-label="장면 역할">${[['plan', '계획'], ['text', '본문']].map(([r, l]) => `<button type="button" aria-pressed="${g.role === r}" data-action="stgRole" data-arg="${r}" title="${r === 'plan' ? '쓰기 전에 짠 장면' : '본문에서 뽑은 장면'}">${l}${has2(r) ? ' ●' : ''}</button>`).join('')}</div>`;
@@ -949,7 +990,9 @@ Object.assign(actions, {
   async stgCreate() {
     const g = S.stg, k = g.pick;
     try {
-      const v = await api('POST', `/projects/${enc(S.name)}/stage/${g.n}`, { event: g.ev - 1, room: k.room, template: k.template, room_name: k.name });
+      const bs = stgBoardOf(g);  // 새 방은 스토리보드 장소가 지도 장소이면 그 장소에 묶는다 (다른 장면의 방 후보가 된다)
+      const place = !k.room && bs && stgPlaces().includes(bs.place) ? bs.place : '';
+      const v = await api('POST', `/projects/${enc(S.name)}/stage/${g.n}`, { event: g.ev - 1, room: k.room, template: k.template, room_name: k.name, place });
       stgTake(v);
       stgPick();
       toast('장면을 만들었어요');
