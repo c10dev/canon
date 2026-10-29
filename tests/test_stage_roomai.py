@@ -253,3 +253,18 @@ def test_too_many_anchors_are_noted():
     prop = pipeline.draft_stage(Many(), _project(), 15, 0, fresh="empty")
     assert len(prop.adds) == stage.MAX_ADDS
     assert any("기준점 3개(운전석, 운전석 창, 정비차 짐칸)는 한 번에 더하는 수" in x for x in prop.notes)
+
+
+def test_on_window_reads_as_front():
+    """AI 가 창 '위'(on)에 사람을 세우면 그 앞(front)으로 읽는다: 창 위에 선 몸은 차 옆면에 걸린다 (2026-10-29 15화)."""
+    class OnWindow(Scripted):
+        def json(self, system, prompt, schema, hint=None):
+            d = super().json(system, prompt, schema, hint)
+            if schema is StageDraft:
+                d.start[1].at_rel = "on"
+                d.start[0].at_rel = "on"  # 앉는 자리 위는 그대로
+            return d
+
+    prop = pipeline.draft_stage(OnWindow(), _project(), 15, 0, fresh="empty")
+    who = {b.who: b.at for b in prop.scene.start}
+    assert who["char2"].rel == "front" and who["hero"].rel == "on"

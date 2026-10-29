@@ -974,6 +974,7 @@ def from_draft(d: StageDraft, p: Project, ep: Episode, event: int, room: StageRo
         elif not cid and nm.strip():
             notes.append(f"모르는 인물: {nm.strip()}")
     active: dict[str, list[StageContact]] = {}
+    room_kinds = {a.id: a.kind for a in room.anchors}
 
     def body(x: DraftBody, start: bool) -> tuple[Optional[StageBody], str]:
         cid = who_of.get(x.name.strip())
@@ -987,7 +988,11 @@ def from_draft(d: StageDraft, p: Project, ep: Episode, event: int, room: StageRo
         if ref:
             target = anchors.get(ref) or (f"@{who_of[ref]}" if ref in who_of and who_of[ref] != cid else None)
             if target:
-                at = StageSpot(ref=target, rel=x.at_rel.strip() or "beside")
+                rel = x.at_rel.strip() or "beside"
+                # 창 · 문 · 벽 '위' · '안'에는 설 수 없다: 그 앞으로 읽는다 (2026-10-29 15화: '운전석 창 바깥 위'에 선 몸이 차 옆면에 걸렸다)
+                if rel in ("on", "in") and room_kinds.get(target) in ATTACH:
+                    rel = "front"
+                at = StageSpot(ref=target, rel=rel)
             else:
                 memo.append(f"자리: {ref} {RELS.get(x.at_rel, x.at_rel)}".strip())
         facing = x.facing.strip()
