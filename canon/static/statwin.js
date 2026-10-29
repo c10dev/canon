@@ -85,12 +85,21 @@ async function swLoad(cid) {
 // statwin.py 의 _AMOUNT · _DELTA · _SPLIT · _GRADE 와 같다
 const SW_AMOUNT = /^([^\d\s,+-]{0,4})(\s?)(-?\d[\d,]*(?:\.\d+)?)(\s?)([^\d\s,]{0,6})$/;
 const SW_DELTA = /^([+-])\s?([^\d\s,+-]{0,4})\s?(\d[\d,]*(?:\.\d+)?)\s?([^\d\s,]{0,6})$/;
-/** 지금 값 / 최대 값 ('80/100'). 바뀐 양은 앞 수에만 더한다 (statwin._FRACTION) */
-const SW_OF_MAX = /^(-?\d[\d,]*(?:\.\d+)?)(\s*\/\s*\d[\d,]*(?:\.\d+)?)$/;
+/** 지금 값 / 한도 ('80/100', '4.3/60L'). 바뀐 양은 앞 수에만 더하고 한도 뒤 단위는 그대로 둔다 (statwin._FRACTION) */
+const SW_OF_MAX = /^(-?\d[\d,]*(?:\.\d+)?)(\s*\/\s*(\d[\d,]*(?:\.\d+)?))(\s?)([^\d\s,/]{0,6})$/;
 const SW_SPLIT = /\s*(?:,|、| · )\s*/;
 const SW_GRADE = /\s*(?:\([^()]*\)|\[[^[\]]*\]|lv\.?\s*\d+|\+\d+|\d+\s*(?:레벨|단계|성|강|개))$/i;
 
-function swFmt(x, commas) {
+/** statwin._fmt 와 같다: places 를 주면 소수 자리를 그만큼 지킨다 */
+function swFmt(x, commas, places) {
+  if (places != null) {
+    let s = x.toFixed(places);
+    if (commas) {
+      const [i, f] = s.split('.');
+      s = i.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (f ? `.${f}` : '');
+    }
+    return Number(s.replace(/,/g, '')) === 0 ? s.replace(/^-/, '') : s;
+  }
   let s = x.toFixed(2);
   if (commas) {
     const [i, f] = s.split('.');
@@ -122,9 +131,10 @@ function swResolve(before, value) {
     return `${a[1]}${a[2]}${swFmt(x, a[3].includes(','))}${a[4]}${a[5]}`;
   }
   const f = b.match(SW_OF_MAX);
-  if (d && f && !d[2] && !d[4]) {
+  if (d && f && !d[2] && (!d[4] || d[4] === f[5])) {
     const x = Number(f[1].replace(/,/g, '')) + (d[1] === '+' ? 1 : -1) * Number(d[3].replace(/,/g, ''));
-    return `${swFmt(x, f[1].includes(','))}${f[2]}`;
+    const places = Math.max((f[1].split('.')[1] || '').length, (d[3].split('.')[1] || '').length);
+    return `${swFmt(x, f[1].includes(','), places)}${f[2]}${f[4]}${f[5]}`;
   }
   const ops = [];
   for (const part of swItems(v)) {

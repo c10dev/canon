@@ -195,6 +195,16 @@ function viewWrite(n) {
   let center;
   if (e.status === 'draft') {
     center = `<div class="empty"><p>${n}화 플롯이 아직 초안이에요. 확정해야 쓸 수 있어요.</p><a class="btn primary" href="${base()}/arc/${n}" data-action="gotoPlot" data-arg="${n}">${n}화 플롯 확정하러 가기</a></div>`;
+  } else if (starting && isApi && boardStart(n, blocked)) {
+    // 스토리보드를 쓰는 작품: 만들기 · 바로 쓰기 · 이대로 쓰기가 쓰기 버튼을 대신한다 (board.js)
+    center = `<div class="w-board">${autoLockNote() || orderNote(blocked)}${boardStart(n, blocked)}
+      <div class="row" style="justify-content:center"><button class="btn" data-action="startManual" data-arg="${n}"${writing || blocked.length || autoOn() ? ' disabled' : ''}>직접 쓰기</button></div>
+      <div class="w-start">
+        ${seg ? `<div class="field"><span class="small">생성 방식</span>${seg}</div>` : ''}
+        ${isApi ? boardToggle() : ''}
+        ${S.context ? `<details data-ctx-toggle${S.ctxOpen ? ' open' : ''}><summary>AI에게 보내는 컨텍스트 · ${ctxTotal()}</summary>${ctxList()}<div style="margin-top:8px">${promptBtn(n)}</div></details>` : ''}
+      </div>
+    </div>`;
   } else if (starting) {
     center = `<div class="empty">
       ${autoLockNote() || orderNote(blocked)}
@@ -206,6 +216,7 @@ function viewWrite(n) {
       ${isApi && jobFor('write', n) ? '<div class="small">다른 화면으로 옮겨 가도 계속 써요. 끝나면 알려 드려요.</div>' : ''}
       <div class="w-start">
         ${seg ? `<div class="field"><span class="small">생성 방식</span>${seg}</div>` : ''}
+        ${isApi ? boardToggle() : ''}
         ${S.context ? `<details data-ctx-toggle${S.ctxOpen ? ' open' : ''}><summary>AI에게 보내는 컨텍스트 · ${ctxTotal()}</summary>${ctxList()}<div style="margin-top:8px">${promptBtn(n)}</div></details>` : ''}
       </div>
     </div>`;
@@ -264,6 +275,7 @@ function viewWrite(n) {
     </section>
     ${editHistory(e)}
     ${versionsPanel(e)}
+    ${boardPanel(n)}
     ${e.text ? illustPanel(n) : ''}
     ${openingPanel(n)}
     ${e.text && editable ? (S.rwOpen === n ? rewritePanel(n) : chatPanel(`text:${n}`)) : ''}`;
