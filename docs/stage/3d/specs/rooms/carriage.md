@@ -1,6 +1,6 @@
 # 03-06. 장소 모듈: 마차 안 (`carriage`)
 
-상태: 명세 · 묶음: R · 공통: [../03-room.md](../03-room.md) · 먼저: [../01-body.md](../01-body.md)
+상태: 완료 (`canon/stage3d/rooms/carriage.py`, 시험 `tests/test_stage3d_rooms.py`) · 묶음: R · 공통: [../03-room.md](../03-room.md) · 먼저: [../01-body.md](../01-body.md)
 
 ## 목표
 
