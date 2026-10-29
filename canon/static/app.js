@@ -1440,7 +1440,7 @@ const CHEVRON = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" str
     role="menu" 는 쓰지 않는다: 창 안에 라디오 · 체크박스 · 나눔 버튼이 섞인다 */
 function menuBtn(id, label, body, { cls = 'btn', aria = '', title = '', align = '' } = {}) {
   const open = S.popMenu === id;
-  return `<div class="pop" data-menu="${id}"><button type="button" class="${cls}" aria-expanded="${open}" aria-controls="pop-${id}" data-action="menuToggle" data-arg="${id}"${aria ? ` aria-label="${esc(aria)}"` : ''}${title ? ` title="${esc(title)}"` : ''}>${label}</button>${open ? `<div class="pop-panel${align ? ` ${align}` : ''}" id="pop-${id}">${body()}</div>` : ''}</div>`;
+  return `<div class="menu" data-menu="${id}"><button type="button" class="${cls}" aria-expanded="${open}" aria-controls="pop-${id}" data-action="menuToggle" data-arg="${id}"${aria ? ` aria-label="${esc(aria)}"` : ''}${title ? ` title="${esc(title)}"` : ''}>${label}</button>${open ? `<div class="pop-panel${align ? ` ${align}` : ''}" id="pop-${id}">${body()}</div>` : ''}</div>`;
 }
 
 function closeMenu(focus = false) {
