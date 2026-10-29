@@ -148,3 +148,84 @@ def test_jobs_thread_keeps_scope():
             break
         time.sleep(0.01)
     assert seen["project"] == "등대" and seen["episode"] == 2
+
+
+def _limited():
+    from google.genai import errors
+
+    return errors.ClientError(429, {"error": {"code": 429, "message": "Resource exhausted. Please try again later.",
+                                              "status": "RESOURCE_EXHAUSTED"}})
+
+
+@pytest.fixture
+def pauses(monkeypatch):
+    from canon import llm as llm_mod
+
+    out = []
+    monkeypatch.setattr(llm_mod, "_pause", out.append)
+    return out
+
+
+def test_rate_limit_waits_and_calls_again(pauses):
+    """429 가 두 번 나도 기다려 다시 불러 받는다. 실패한 두 번은 실패로, 받은 한 번은 성공으로 남는다."""
+    llm = fake_gemini([_limited(), _limited(), "본문"])
+    assert llm.text("s", "p") == "본문"
+    assert pauses == [30, 60]
+    rows = usage.read()
+    assert [r["ok"] for r in rows] == [False, False, True]
+    assert rows[0]["error"].startswith("요청 한도 (429)")
+
+    good = StyleProfile().model_dump_json()
+    llm = fake_gemini([_limited(), good])
+    assert isinstance(llm.json("s", "p", StyleProfile), StyleProfile) and llm.last_attempts == 1
+
+
+def test_rate_limit_gives_up_with_clear_message(pauses):
+    """끝내 429 면 5분 안에서 기다린 뒤 해요체 안내로 멈춘다. 웹 작업 오류도 같은 글이다."""
+    from canon.llm import RATE_HINT, RATE_WAITS, RateLimited
+
+    assert sum(RATE_WAITS) <= 300
+    llm = fake_gemini([_limited() for _ in range(len(RATE_WAITS) + 1)])
+    with pytest.raises(RateLimited) as e:
+        llm.text("s", "p")
+    assert pauses == list(RATE_WAITS) and llm.client.models.replies == []
+    assert str(e.value).startswith(RATE_HINT) and "다시 시도해 주세요" in str(e.value)
+    assert [r["ok"] for r in usage.read()] == [False] * (len(RATE_WAITS) + 1)
+
+    pauses.clear()
+    llm = fake_gemini([_limited() for _ in range(len(RATE_WAITS) + 1)])
+    job = jobs.start("등대", "write", 1, "쓰기", lambda j: llm.text("s", "p"))
+    for _ in range(200):
+        if job.status != "running":
+            break
+        import time
+        time.sleep(0.01)
+    assert job.status == "error" and job.error.startswith(RATE_HINT)
+
+
+def test_rate_limit_stops_when_job_is_stopped(monkeypatch):
+    """기다리는 동안 작업을 멈추면 다시 부르지 않는다."""
+    import threading
+
+    from canon import cancel
+    from canon import llm as llm_mod
+
+    stop = threading.Event()
+    monkeypatch.setattr(llm_mod, "_pause", lambda s: stop.set())
+    llm = fake_gemini([_limited(), "본문"])
+    token = cancel.current.set(stop)
+    try:
+        with pytest.raises(cancel.Cancelled):
+            llm.text("s", "p")
+    finally:
+        cancel.current.reset(token)
+    assert llm.client.models.replies == ["본문"]
+
+
+def test_other_errors_are_not_retried(pauses):
+    from google.genai import errors
+
+    llm = fake_gemini([errors.ClientError(400, {"error": {"code": 400, "message": "bad", "status": "INVALID_ARGUMENT"}})])
+    with pytest.raises(errors.ClientError):
+        llm.text("s", "p")
+    assert pauses == []
