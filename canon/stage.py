@@ -462,3 +462,124 @@ def stale(scene: StageScene, text: str) -> list[int]:
     """인용이 본문에 없는 박자 번호 (1부터). 띄어쓰기 차이는 무시한다."""
     flat = _SPACE.sub("", text or "")
     return [k for k, beat in enumerate(scene.beats, 1) if beat.quote.strip() and _SPACE.sub("", beat.quote) not in flat]
+
+
+# ---------- 쓰기 프롬프트 줄 ----------
+# 인물 이름과 기준점 이름만 쓴다. 좌표와 방 기준 8방향은 쓰지 않는다 (평면도 밖에서는 뜻이 없다).
+# 글로 바꾸고 예산에 맞추는 것은 prompts.stage_block 이다
+
+from . import logline  # noqa: E402  (이 절만 쓴다)
+
+
+def _verb(act: str) -> str:
+    """'잡다' → '잡기'."""
+    label = ACTS[act].label if act in ACTS else act
+    return label[:-1] + "기" if label.endswith("다") else label
+
+
+def _anchor_name(room: Optional[StageRoom], aid: str) -> str:
+    return next((a.name for a in (room.anchors if room else []) if a.id == aid), "")
+
+
+def _spot_text(spot: Optional[StageSpot], room: Optional[StageRoom], p: Project) -> str:
+    if spot is None:
+        return ""
+    base = _name(p, spot.ref[1:]) if spot.ref.startswith("@") else _anchor_name(room, spot.ref)
+    return f"{base} {RELS.get(spot.rel, '')}".strip() if base else ""
+
+
+def _where(spot: Optional[StageSpot], posture: str, room: Optional[StageRoom], p: Project) -> str:
+    pose = POSTURES[posture].label if posture in POSTURES else ""
+    return " ".join(x for x in [_spot_text(spot, room, p), pose] if x)
+
+
+def _facing_text(facing: str, room: Optional[StageRoom], p: Project) -> str:
+    if facing.startswith("@"):
+        return f"{_name(p, facing[1:])} 쪽을 봄"
+    name = _anchor_name(room, facing[1:]) if facing.startswith("#") else ""
+    return f"{name} 쪽을 봄" if name else ""
+
+
+def _contact_text(c: StageContact, p: Project) -> str:
+    by = HANDS.get(c.by) or (PARTS[c.by].label if c.by in PARTS else c.by)
+    by += "로" if logline._jong(by[-1]) == 8 else logline.josa(by, "으로", "로")  # 받침 ㄹ 뒤는 '로'
+    part = PARTS[c.part].label if c.part in PARTS else c.part
+    return f"{by} {_name(p, c.to)} {part} {_verb(c.act)}"
+
+
+def _hand_text(word: str, held: Optional[str]) -> str:
+    if held is None or held.strip() == UNKNOWN:
+        return ""
+    return f"{word}에 {held.strip()}" if held.strip() else f"{word} 빈손"
+
+
+def _body_text(b: StageBody, before: Optional[Now], room: Optional[StageRoom], p: Project,
+               keep: list[StageContact], shown: set[str]) -> str:
+    """시작 상태(before 없음)는 모든 칸, 박자는 바뀐 칸만. 끝난 접촉은 시작을 글에 적은 것만 알린다."""
+    bits = []
+    if before is None:
+        bits.append(_where(b.at, b.posture, room, p))
+    elif b.at is not None or b.posture:
+        now = _where(b.at, b.posture, room, p)
+        if b.at is not None and before.at is not None and before.at != b.at:
+            old = _where(before.at, before.posture, room, p)
+            now = f"{old} → {now}" if old else now
+        bits.append(now)
+    bits += [_facing_text(b.facing, room, p), _hand_text("왼손", b.left), _hand_text("오른손", b.right),
+             *(_contact_text(c, p) for c in keep)]
+    for cid in (b.ends if before else []):
+        c = before.contacts.get(cid)
+        if c and cid in shown:
+            bits.append(f"{_contact_text(c, p)} 멈춤")
+    bits.append(b.memo.strip())
+    return ", ".join(x for x in bits if x)
+
+
+def episode_lines(p: Project, ep: Episode) -> tuple[list[list[str]], int, int]:
+    """쓰기 프롬프트에 넣을 장면 글: 장면마다 줄 목록(첫 줄은 사건 · 방 · 기준점 머리), 사건 순서.
+    prompt 가 거짓인 장면과 사건을 찾지 못한 장면은 뺀다. 미성년이 낀 성적 접촉(blocked)은 어느 작품에서도 빼고,
+    전연령 작품(Meta.adult 거짓)은 성적 접촉도 뺀다. (장면 글, 미성년이라 뺀 접촉 수, 수위로 뺀 박자 수)를 낸다.
+    수위로 뺀 박자 수는 화면이 작가에게 알린다 (시작 상태도 박자 하나로 센다)."""
+    minors, adult = minor_ids(p), p.meta.adult
+    found = sorted(((k, s) for s in ep.stage if s.prompt for k in [find_event(ep, s)[0]] if k is not None), key=lambda x: x[0])
+    out, dropped, filtered = [], 0, 0
+    for k, scene in found:
+        room = next((r for r in p.rooms if r.id == scene.room), None)
+        shown: set[str] = set()
+
+        def body(b: StageBody, before: Optional[Now]) -> tuple[str, bool]:
+            nonlocal dropped
+            keep, cut = [], False
+            for c in b.contacts:
+                if blocked(c, b.who, p, minors):
+                    dropped += 1
+                elif not adult and is_sexual(c):
+                    cut = True
+                else:
+                    keep.append(c)
+            shown.update(c.id for c in keep)
+            return _body_text(b, before, room, p, keep, shown), cut
+
+        head = f"사건 {k + 1}: {ep.plot.events[k].strip()}"
+        if room:
+            head += f" · {room.name}" + (f" · 기준점: {', '.join(a.name for a in room.anchors)}" if room.anchors else "")
+        lines, beat_cut = [head], False
+        for b in scene.start:
+            text, cut = body(b, None)
+            beat_cut = beat_cut or cut
+            if text:
+                lines.append(f"- 시작 {_name(p, b.who)}: {text}")
+        filtered += beat_cut
+        for i, beat in enumerate(scene.beats, 1):
+            before, parts, beat_cut = state_at(scene, i - 1), [], False
+            for b in beat.bodies:
+                text, cut = body(b, before.get(b.who, Now()))
+                beat_cut = beat_cut or cut
+                if text:
+                    parts.append(f"{_name(p, b.who)}: {text}")
+            filtered += beat_cut
+            if parts:
+                lines.append(f"{i}. " + " / ".join(parts))
+        if len(lines) > 1:
+            out.append(lines)
+    return out, dropped, filtered

@@ -16,7 +16,7 @@ from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, ImpactReport, PlayInfo, Project, Selection, StateDelta, StoryElement
-from . import charlog, foreshadows, mapprompt, statwin, timeline
+from . import charlog, foreshadows, mapprompt, stage, statwin, timeline
 
 SYSTEM_PLANNER = (
     "당신은 한국 웹소설/단편소설 기획 전문 편집자입니다. "
@@ -1815,6 +1815,26 @@ def voice_line(p: Project, n: int) -> str:
             "스타일 프로필의 어미 · 시제 · 문체 표지와 부딪히면 이 말투를 따르고, 문장 리듬과 묘사 밀도는 스타일 프로필을 따릅니다.")
 
 
+def stage_block(p: Project, n: int, budget: int = 0) -> str:
+    """n화를 쓸 때 넣는 장면 연출: 작가가 연출을 짠 사건만 박자 요약 글로 (stage.episode_lines).
+    예산(context.BUDGET["stage"])을 넘으면 사건 순서대로 넣고 남은 장면 수를 적는다. 첫 장면은 넘어도 넣는다. 장면이 없으면 빈 글."""
+    ep = next((e for e in p.episodes if e.plot.number == n), None)
+    scenes = stage.episode_lines(p, ep)[0] if ep else []
+    budget = budget or context.BUDGET["stage"]
+    keep, size, cut = [], 0, 0
+    for lines in scenes:
+        text = "\n".join(lines)
+        if size + len(text) > budget and keep:
+            cut += 1
+            continue
+        keep.append(text)
+        size += len(text) + 1
+    if not keep:
+        return ""
+    return "\n".join([*keep, *([f"- (장면 {cut}개 생략)"] if cut else []),
+                      "- 위 사건을 쓸 때 인물의 자리 · 자세 · 손 · 접촉을 박자 차례대로 따릅니다. 박자 사이 움직임은 본문에서 자연스럽게 잇습니다."])
+
+
 def pov_block(p: Project, n: int) -> str:
     """이번 화 서술 시점과, 직전 화와 다르면 전환 안내, 시점 인물의 서술 말투. 어느 것도 없으면 빈칸."""
     key, text = pov_of(p, n)
@@ -1887,6 +1907,8 @@ def build_episode_context(p: Project, n: int) -> str:
     line += f"\n\n# 이동 거리 (지도 기준)\n{tr}" if tr else ""
     sp = mapprompt.spot_block(p, n)
     line += f"\n\n# 장소가 놓인 건물 (지도 기준)\n{sp}" if sp else ""
+    sb = stage_block(p, n)
+    line += f"\n\n# 장면 연출 (작가가 짠 자리 · 자세 · 접촉)\n{sb}" if sb else ""
     pov = pov_block(p, n)
     pov = f"\n\n# 이번 화 서술 시점 (스타일 프로필보다 우선)\n{pov}" if pov else ""
     dev = device_block(p, n)

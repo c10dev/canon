@@ -10,7 +10,7 @@
 | 2 | 장면 연출 화면과 웹 엔드포인트 (`static/stage.js`) | 설계 | [02-screen.md](specs/02-screen.md) | 1 |
 | 3 | AI 초안(플롯 → 연출) · 추출(본문 → 연출), 연구 화면 옮기기 | 설계 | [03-ai.md](specs/03-ai.md) | 1 |
 | 4 | 검수 연결: 규칙 지적을 검수 세션에, 검수 때 함께 뽑기 | 설계 | [04-check.md](specs/04-check.md) | 1, 3 |
-| 5 | 쓰기 프롬프트 블록 | 설계 | [05-prompt.md](specs/05-prompt.md) | 1 |
+| 5 | 쓰기 프롬프트 블록 (`stage.episode_lines`, `prompts.stage_block`) | 구현 (화면 스위치는 2) | [05-prompt.md](specs/05-prompt.md) | 1 |
 
 2 · 3 · 5 는 1 뒤에 따로 할 수 있다. 2 와 3 은 모두 `web.py` 를 고치므로 같은 브랜치에서 동시에 하지 않는다(AGENTS.md 의 worktree 규칙).
 
