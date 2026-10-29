@@ -1,6 +1,7 @@
 /* 본문 부분 수정 (집필 화면). app.js 의 S, actions, api, render 와 chat.js 의 대화 패널을 그대로 쓴다.
    본문에서 드래그로 고르면 작은 도구가 뜬다. '직접 수정' 은 그 자리에서 고쳐 바로 저장하고,
    'AI에게 고치기' 는 오른쪽 대화 패널(topic 'text:<화>')을 열어 후보 2~3개를 받는다. 후보는 고른 것만 본문에 들어간다.
+   상태 정리 경고가 가리킨 문장의 AI 버튼은 대화 패널을 거치지 않고 첫 후보를 바로 넣는다 (aiFixNow).
    고친 것은 모두 서버의 Episode.edits 에 남아 하나씩 되돌릴 수 있다. */
 'use strict';
 
@@ -185,7 +186,7 @@ function warnItems(n, warnings) {
   const can = editableEp(ep(n));
   return warnings.map((w, k) => {
     const q = can && warnQuote(w, text);
-    return `<li>${esc(w)}${q ? ` <span class="row" style="gap:6px;display:inline-flex"><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}">이 문장 고르기</button><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}:ask">AI에게 고치기</button></span>` : ''}</li>`;
+    return `<li>${esc(w)}${q ? ` <span class="row" style="gap:6px;display:inline-flex"><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}">이 문장 고르기</button><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}:ask" title="AI가 고친 글을 바로 본문에 넣어요. 알림의 되돌리기로 취소할 수 있어요">AI에게 고치기</button></span>` : ''}</li>`;
   }).join('');
 }
 
@@ -456,6 +457,29 @@ function undoToast(msg, id) {
   setTimeout(() => el.remove(), 10000);
 }
 
+/** 상태 정리 경고가 가리킨 문장(q, 본문 at 자리)을 message 대로 AI에게 고치게 하고 첫 후보를 바로 본문에 넣는다.
+   다른 후보는 부분 수정 대화에 남는다. 넣은 수정은 알림의 되돌리기나 수정 기록으로 취소한다. */
+async function aiFixNow(n, q, at, message) {
+  const topic = `text:${n}`;
+  await run('AI가 고치는 중', async () => {
+    await saveIfDirty();
+    await flushText(n);
+    const selection = { start: at, text: q };
+    S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(topic)}`, { message, selection });
+    const i = chatMessages(topic).length - 1;
+    const m = chatMessages(topic)[i];
+    if (!m || !m.passage || !m.passage.candidates.length) {
+      S.sel = { n, ...selection };  // 대화 패널에서 요청을 더 적어 이어 고칠 수 있게 골라 둔다
+      return toast('AI가 원문과 다른 글을 내지 못했어요. 대화 패널에서 요청을 더 적어 보세요', true);
+    }
+    S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(topic)}/${i}/apply`, { candidate: 0 });
+    const edit = ep(n).edits[ep(n).edits.length - 1];
+    S.sel = { n, start: edit.start, text: edit.after };  // 이어서 '더 짧게' 같은 요청을 하면 넣은 글을 고친다
+    focusText(n, edit.after, edit.start);
+    undoToast('AI가 고쳤어요.', edit.id);
+  });
+}
+
 Object.assign(actions, {
   /** 본문 칸 머리의 '수정 기록 N': 접힌 기록을 펴고 그리로 내려간다. */
   openEdits() {
@@ -514,16 +538,18 @@ Object.assign(actions, {
     S.chatDraft = `검수 지적: ${x.description} → ${x.suggestion}`;
     actions.selectIssue(id);
   },
-  /** 상태 정리 경고가 가리킨 문장을 집필 화면 본문에서 고르고 부분 수정 도구를 연다. ask 면 경고를 대화 입력칸에 넣는다 */
+  /** 상태 정리 경고가 가리킨 문장을 집필 화면 본문에서 고르고 부분 수정 도구를 연다. ask 면 경고대로 AI가 바로 고친다 */
   warnPick(arg) {
     const [n, k, ask] = String(arg).split(':');
     const num = Number(n);
     const w = ((S.deltas[num] || {}).warnings || [])[Number(k)];
     const q = warnQuote(w, textNow(num));
     if (!q || !textNow(num).includes(q)) return toast('본문에서 그 문장을 찾을 수 없어요', true);
-    if (ask) S.chatDraft = `상태 정리 경고: ${w}`;
     const go = () => {
-      if (S.route[2] !== 'write' || Number(S.route[3]) !== num || focusText(num, q, 0) === -1) return;
+      if (S.route[2] !== 'write' || Number(S.route[3]) !== num) return;
+      const at = focusText(num, q, 0);
+      if (at === -1) return;
+      if (ask) return aiFixNow(num, q, at, `상태 정리 경고: ${w}`);
       S.selFocus.menu = true;
       render();
     };

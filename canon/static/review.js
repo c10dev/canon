@@ -157,7 +157,7 @@ function rvWarnSplit(warnings, names) {
 /** 경고 한 줄과 본문에서 그 문장 고르기 · AI에게 고치기 (passage.js warnPick, k 는 d.warnings 번호) */
 function rvWarnLine(n, w, k) {
   const q = editableEp(ep(n)) && warnQuote(w, textNow(n));
-  return `<div class="rv-warnline"><span>${esc(w)}</span>${q ? `<span class="row" style="gap:6px"><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}">이 문장 고르기</button><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}:ask">AI에게 고치기</button></span>` : ''}</div>`;
+  return `<div class="rv-warnline"><span>${esc(w)}</span>${q ? `<span class="row" style="gap:6px"><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}">이 문장 고르기</button><button type="button" class="btn small" data-action="warnPick" data-arg="${n}:${k}:ask" title="AI가 고친 글을 바로 본문에 넣어요. 알림의 되돌리기로 취소할 수 있어요">AI에게 고치기</button></span>` : ''}</div>`;
 }
 
 /** 갈래 고른 수 '고른/모두'. keys: 체크 키 목록 ('c0', 'e1' …) */
