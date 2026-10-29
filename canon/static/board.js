@@ -214,7 +214,7 @@ Object.assign(actions, {
   },
   async boardWrite(arg) {
     const [n, mode] = String(arg).split(':');
-    await startJob('write', Number(n), mode ? { board: mode } : {});
+    await startJob('write', Number(n), { ...(mode ? { board: mode } : {}), ...cueWriteArg(Number(n)) });
   },
   boardEdit(n) {
     S.boardEdit = { key: `${S.name}:${n}`, draft: JSON.parse(JSON.stringify(ep(n).storyboard)) };

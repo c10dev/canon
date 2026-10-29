@@ -740,6 +740,9 @@ class MockLLM:
 
     def text(self, system: str, prompt: str) -> str:
         _delay()
+        from .mock_cue import text_for
+        if (cue := text_for(prompt)) is not None:  # 큐 시트 집필 실험
+            return cue
         if "화 다시 쓰기\n" in prompt:  # 다시 생성: 지난 판과 다른 글을 낸다
             return "바람이 멎었다. 서윤은 등대 문을 밀었다.\n\n\"이번엔 내가 먼저 갈게.\"\n\n(mock 다시 쓴 본문)"
         return "바람이 불었다. 서윤은 등대 앞에 섰다.\n\n\"됐어, 내가 할게.\"\n\n(mock 본문)"
@@ -793,4 +796,4 @@ def _broken(out: str) -> str:
 
 
 # 기능별 가짜 응답 등록 (RESPONDERS). 위의 responds 를 쓰므로 맨 끝에서 불러온다
-from . import mock_birth, mock_board, mock_play  # noqa: E402,F401
+from . import mock_birth, mock_board, mock_cue, mock_play  # noqa: E402,F401

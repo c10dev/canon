@@ -62,9 +62,10 @@ def fork(p: Project, n: int, mode: ForkMode = "clear") -> list[int]:
     for x in [*p.story_arcs, *p.parts]:  # revert 는 요약을 두지만, 갈래에서는 그 아크 · 부를 다시 쓴다
         if x.end_ep >= n:
             x.summary = ""
-    for e in p.episodes:  # 스토리보드는 원본 전개의 쓰기 재료다. 갈래에서는 n화부터 다시 만든다
+    for e in p.episodes:  # 스토리보드 · 큐 시트는 원본 전개의 쓰기 재료다. 갈래에서는 n화부터 다시 만든다
         if e.plot.number >= n:
             e.storyboard = None
+            e.cue_sheet = None
     if mode == "keep":
         return []
     cleared = []
