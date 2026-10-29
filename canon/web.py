@@ -2260,6 +2260,48 @@ def stage_check(name: str, n: int, body: StageSaveIn) -> dict:
     return {**stage.check(p, e, scene, room), "dropped": dropped}
 
 
+def _frames(p: Project, scene: StageScene, room: StageRoom | None) -> dict:
+    """3D 보기 값: 박자마다 관절 좌표(stage3d.frames), 3D 판정, 아직 모듈이 없는 자세 · 틀.
+    3D 판정은 판정 모듈이 있고 자세 · 틀이 다 등록됐을 때만 낸다 (docs/stage/3d/README.md 정할 것 10)."""
+    from . import stage3d
+
+    if room is None:
+        raise ValueError("장면의 방을 찾지 못했어요")
+    found = []
+    if stage3d.complete():
+        try:
+            from .stage3d import judge as judge3d
+        except ImportError:
+            judge3d = None
+        if judge3d:
+            found = [v.model_dump() for v in judge3d.judge3d(scene, room, p)]
+    return {"frames": stage3d.frames(scene, room, p).to_dict(), "violations3d": found, "missing": stage3d.missing()}
+
+
+@app.get("/api/projects/{name}/stage/{n}/{sid}/frames")
+def stage_frames(name: str, n: int, sid: str) -> dict:
+    """저장된 장면 하나의 3D 보기 값 (화면 static/stage3d.js)."""
+    p = _load(name)
+    scene = next((s for s in p.episode(n).stage if s.id == sid), None)
+    if scene is None:
+        raise HTTPException(404, "그 장면이 없어요")
+    return _frames(p, scene, stage.room_of(p, scene))
+
+
+@app.post("/api/projects/{name}/stage/{n}/{sid}/frames")
+def stage_frames_draft(name: str, n: int, sid: str, body: StageSaveIn) -> dict:
+    """저장하지 않은 장면의 3D 보기 값 (화면이 고치는 중일 때 '다시 그리기')."""
+    p = _load(name)
+    p.episode(n)
+    if body.scene.id != sid:
+        raise ValueError("장면 번호가 주소와 달라요")
+    scene = body.scene.model_copy(deep=True)
+    room = body.room or stage.room_of(p, scene)
+    if room:
+        stage.clean_scene(scene, room, p)
+    return _frames(p, scene, room)
+
+
 @app.delete("/api/projects/{name}/stage/{n}/{sid}")
 def stage_delete(name: str, n: int, sid: str) -> dict:
     _load(name).episode(n)
