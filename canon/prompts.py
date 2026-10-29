@@ -1815,8 +1815,14 @@ def voice_line(p: Project, n: int) -> str:
             "스타일 프로필의 어미 · 시제 · 문체 표지와 부딪히면 이 말투를 따르고, 문장 리듬과 묘사 밀도는 스타일 프로필을 따릅니다.")
 
 
+# 장면 연출 블록 머리 (docs/stage/specs/05-prompt.md 의 '두 층'): 배치는 배경 제약이라 본문을 동작 묘사로 끌고 가지 않는다
+STAGE_RULE = ("아래 배치는 장면의 배경 제약이다. 본문이 이 배치와 어긋나지 않게만 쓰고, 동작 · 자리를 하나하나 묘사하지 않는다. "
+              "장면에 필요한 것만 자연스럽게 드러낸다.\n"
+              "'지시'는 작가가 정한 박자의 흐름이니 따른다.")
+
+
 def stage_block(p: Project, n: int, budget: int = 0) -> str:
-    """n화를 쓸 때 넣는 장면 연출: 작가가 연출을 짠 사건만 박자 요약 글로 (stage.episode_lines).
+    """n화를 쓸 때 넣는 장면 연출: 작가가 짠 계획 장면만, 박자마다 지시(작가 설명)와 배치(배경 제약) 줄로 (stage.episode_lines).
     예산(context.BUDGET["stage"])을 넘으면 사건 순서대로 넣고 남은 장면 수를 적는다. 첫 장면은 넘어도 넣는다. 장면이 없으면 빈 글."""
     ep = next((e for e in p.episodes if e.plot.number == n), None)
     scenes = stage.episode_lines(p, ep)[0] if ep else []
@@ -1831,8 +1837,7 @@ def stage_block(p: Project, n: int, budget: int = 0) -> str:
         size += len(text) + 1
     if not keep:
         return ""
-    return "\n".join([*keep, *([f"- (장면 {cut}개 생략)"] if cut else []),
-                      "- 위 사건을 쓸 때 인물의 자리 · 자세 · 손 · 접촉을 박자 차례대로 따릅니다. 박자 사이 움직임은 본문에서 자연스럽게 잇습니다."])
+    return "\n".join([STAGE_RULE, *keep, *([f"- (장면 {cut}개 생략)"] if cut else [])])
 
 
 def pov_block(p: Project, n: int) -> str:

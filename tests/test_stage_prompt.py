@@ -17,9 +17,9 @@ def _scene(sid: str = "s1", event: int = 1, sexual: bool = False, room: str = "r
         StageBody(who="h", at=StageSpot(ref=a["문"], rel="front"), posture="stand", facing="@d", left="", right="컵"),
         StageBody(who="d", at=StageSpot(ref=a["침대"], rel="on"), posture="lie"),
     ], beats=[
-        StageBeat(bodies=[StageBody(who="h", at=StageSpot(ref=a["침대"], rel="beside"),
+        StageBeat(note="하린이 다가가 도윤을 붙든다", bodies=[StageBody(who="h", at=StageSpot(ref=a["침대"], rel="beside"),
                                     contacts=[StageContact(id=f"{sid}c1", by="left", to="d", part="wrist_r", act="hold")])]),
-        StageBeat(bodies=[StageBody(who="d", posture="chair", contacts=touch), StageBody(who="h", ends=[f"{sid}c1"])]),
+        StageBeat(note="도윤이 일어나 앉는다", bodies=[StageBody(who="d", posture="chair", contacts=touch), StageBody(who="h", ends=[f"{sid}c1"])]),
     ])
 
 
@@ -36,12 +36,27 @@ def test_beat_summary_uses_names_not_coordinates():
     lines, dropped, filtered = stage.episode_lines(_project(), _project().episodes[0])
     assert (dropped, filtered) == (0, 0)
     assert lines == [[
-        "사건 2: 둘이 다툰다 · 하린의 방 · 기준점: 침대, 책상, 의자, 창, 문",
-        "- 시작 하린: 문 앞 서기, 도윤 쪽을 봄, 왼손 빈손, 오른손에 컵",
-        "- 시작 도윤: 침대 위 눕기",
-        "1. 하린: 문 앞 서기 → 침대 옆, 왼손으로 도윤 오른 손목 잡기",
-        "2. 도윤: 의자에 앉기 / 하린: 왼손으로 도윤 오른 손목 잡기 멈춤",
+        "사건 2: 둘이 다툰다 · 하린의 방 (침대, 책상, 의자, 창, 문)",
+        "- 처음 배치: 하린 문 앞 서기, 도윤 쪽을 봄, 오른손에 컵 / 도윤 침대 위 눕기",
+        "1. 지시: 하린이 다가가 도윤을 붙든다 | 배치: 하린 침대 옆, 왼손 → 도윤 오른 손목(잡기)",
+        "2. 지시: 도윤이 일어나 앉는다 | 배치: 도윤 의자에 앉기 / 하린 도윤 오른 손목에서 뗌",
     ]]
+
+
+def test_block_has_background_rule_and_author_notes():
+    block = prompts.stage_block(_project(), 1)
+    assert block.startswith(prompts.STAGE_RULE)
+    assert "본문이 이 배치와 어긋나지 않게만 쓰고, 동작 · 자리를 하나하나 묘사하지 않는다." in block
+    assert "지시: 하린이 다가가 도윤을 붙든다" in block
+
+
+def test_text_scenes_are_left_out():
+    text = _scene()
+    object.__setattr__(text, "role", "text")  # StageScene.role 은 일감 07 이 더한다
+    assert prompts.stage_block(_project(scenes=[text]), 1) == ""
+    plan = _scene()
+    object.__setattr__(plan, "role", "plan")
+    assert prompts.stage_block(_project(scenes=[plan]), 1)
 
 
 def test_block_comes_after_static_context():
@@ -49,7 +64,7 @@ def test_block_comes_after_static_context():
     ctx = prompts.build_episode_context(p, 1)
     assert "# 장면 연출" in ctx
     assert ctx.index(prompts.static_context(p)) < ctx.index("# 장면 연출")
-    assert "왼손으로 도윤 오른 손목 잡기" in ctx
+    assert "왼손 → 도윤 오른 손목(잡기)" in ctx
 
 
 def test_brief_has_same_block():
@@ -86,14 +101,16 @@ def test_all_ages_work_drops_sexual_contacts():
     p = _project(scenes=[_scene(sexual=True)], adult=False)
     lines, dropped, filtered = stage.episode_lines(p, p.episodes[0])
     assert (dropped, filtered) == (0, 1)
-    assert "가슴" not in prompts.stage_block(p, 1)
-    assert "오른 손목 잡기" in prompts.stage_block(p, 1)  # 성적이 아닌 접촉은 남는다
+    block = prompts.stage_block(p, 1)
+    assert "가슴" not in block
+    assert "도윤 오른 손목(잡기)" in block  # 성적이 아닌 접촉은 남는다
+    assert "도윤이 일어나 앉는다" not in block  # 접촉을 뺀 박자는 지시도 뺀다
 
 
 def test_adult_work_keeps_sexual_contacts():
     p = _project(scenes=[_scene(sexual=True)], adult=True)
     assert stage.episode_lines(p, p.episodes[0])[1:] == (0, 0)
-    assert "오른손으로 하린 가슴 쓰다듬기" in prompts.stage_block(p, 1)
+    assert "오른손 → 하린 가슴(쓰다듬기)" in prompts.stage_block(p, 1)
 
 
 def test_minor_sexual_contact_never_enters():
