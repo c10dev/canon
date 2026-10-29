@@ -109,7 +109,7 @@
         </div>
         <div class="st-ticks" aria-hidden="true"><span>시작</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
         <div class="st-legend"><span><i style="background:var(--pair-a)"></i>하린</span><span><i style="background:var(--pair-b)"></i>도윤</span><span>점선 = 접촉(손 → 부위)</span><span>빨간 선 = 규칙 검수 지적</span><span>끌기 = 돌리기 · 휠 = 확대</span></div>
-        <label class="row small"><input type="checkbox" id="gallery" autocomplete="off"> 자세 12개와 업기 시험 보기</label>
+        <label class="row small"><input type="checkbox" id="gallery" autocomplete="off"> 자세 12개와 업기 · 안기 시험 보기</label>
       </section>
 
       <div class="col">
@@ -169,20 +169,22 @@ const PART_NAMES = { wrist_l: '왼 손목', cheek_l: '왼 뺨' };
 // ----- 자세 → 관절 각도 표 (도). 3D 보기가 더하는 것은 이 표 하나다 -----
 // y: 바닥(앉을 기준점이면 그 윗면)에서 골반까지 m. pitch: 몸 전체 앞(+) 뒤(-) 기울기, roll: 옆으로 눕기.
 // spine: 허리 앞굽힘. sh: 어깨 앞올림 [왼, 오른], abd: 팔 벌림, el: 팔꿈치 굽힘, hip: 엉덩관절 앞올림, kn: 무릎 굽힘.
+// 고르면 더 적는 칸: shift: 자리에서 향한 쪽으로 옮김 m(의자는 엉덩이를 등받이 쪽으로), labd: 다리 벌림 [왼, 오른].
 const POSE = {
   stand: { y: 0.92, pitch: 0, roll: 0, spine: 0, sh: [0, 0], abd: [8, 8], el: [10, 10], hip: [0, 0], kn: [0, 0] },
   walk:  { y: 0.90, pitch: 0, roll: 0, spine: 4, sh: [25, -20], abd: [6, 6], el: [20, 20], hip: [-18, 24], kn: [28, 6] },
   run:   { y: 0.86, pitch: 0, roll: 0, spine: 16, sh: [-40, 50], abd: [8, 8], el: [85, 85], hip: [62, -22], kn: [70, 40] },
-  lean:  { y: 0.90, pitch: -8, roll: 0, spine: 0, sh: [35, 35], abd: [-18, -18], el: [105, 105], hip: [6, 18], kn: [0, 32] },
-  chair: { y: 0.08, pitch: 0, roll: 0, spine: 6, sh: [22, 22], abd: [6, 6], el: [60, 60], hip: [90, 90], kn: [90, 90] },
-  floor: { y: 0.10, pitch: 0, roll: 0, spine: 12, sh: [25, 25], abd: [6, 6], el: [40, 40], hip: [82, 82], kn: [120, 120] },
+  lean:  { y: 0.90, pitch: -10, roll: 0, spine: 2, sh: [-8, -8], abd: [6, 6], el: [15, 15], hip: [0, 30], kn: [0, 75] },
+  chair: { y: 0.08, pitch: 0, roll: 0, spine: 6, sh: [22, 22], abd: [6, 6], el: [60, 60], hip: [90, 90], kn: [90, 90], shift: -0.13 },
+  floor: { y: 0.10, pitch: 0, roll: 0, spine: 12, sh: [25, 25], abd: [6, 6], el: [40, 40], hip: [82, 82], kn: [120, 120], labd: [25, 25] },
   squat: { y: 0.42, pitch: 0, roll: 0, spine: 30, sh: [45, 45], abd: [6, 6], el: [60, 60], hip: [120, 120], kn: [140, 140] },
   kneel: { y: 0.50, pitch: 0, roll: 0, spine: 0, sh: [10, 10], abd: [6, 6], el: [30, 30], hip: [0, 0], kn: [90, 90] },
   lie:   { y: 0.12, pitch: -90, roll: 0, spine: 0, sh: [0, 0], abd: [14, 14], el: [10, 10], hip: [0, 0], kn: [8, 8] },
   side:  { y: 0.20, pitch: 0, roll: 90, spine: 10, sh: [60, 60], abd: [0, 0], el: [70, 70], hip: [35, 45], kn: [45, 60] },
   prone: { y: 0.12, pitch: 90, roll: 0, spine: 0, sh: [0, 0], abd: [12, 12], el: [6, 6], hip: [0, 0], kn: [10, 10] },
-  held:  { y: 1.05, pitch: 6, roll: 0, spine: 10, sh: [80, 80], abd: [18, 18], el: [50, 50], hip: [80, 80], kn: [85, 85] },
+  held:  { y: 1.05, pitch: 6, roll: 0, spine: 10, sh: [80, 80], abd: [18, 18], el: [50, 50], hip: [75, 75], kn: [85, 85], labd: [38, 38] },
 };
+for (const q of Object.values(POSE)) { q.shift ??= 0; q.labd ??= [0, 0]; }   // 보간이 모든 칸을 섞을 수 있게
 const SEAT = { bed: 0.5, chair: 0.45, sofa: 0.42 };   // 앉거나 누울 기준점 윗면 높이 m (틀 기본값으로 둘 값)
 const FURN = { bed: 0.5, desk: 0.75, chair: 0.45, sofa: 0.42, table: 0.72 };
 const L = { thigh: 0.44, shin: 0.46, torso: 0.5, uarm: 0.3, farm: 0.27, hand: 0.08, head: 0.11, shoulder: 0.19, hipw: 0.1 };
@@ -246,8 +248,8 @@ function nowText(k) {
 function angleTable(k) {
   const used = new Set(Object.values(stateAt(k)).map((b) => b.posture));
   const pair = (v) => `${v[0]} / ${v[1]}`;
-  $('angles').innerHTML = `<table><thead><tr><th>자세</th><th>골반 m</th><th>기울기</th><th>허리</th><th>어깨</th><th>팔꿈치</th><th>엉덩</th><th>무릎</th></tr></thead><tbody>${
-    Object.entries(POSE).map(([id, p]) => `<tr class="${used.has(id) ? 'on' : ''}"><td>${POSTURE_NAMES[id]}</td><td>${p.y.toFixed(2)}</td><td>${p.pitch || p.roll ? (p.roll ? 'roll ' + p.roll : p.pitch) : 0}</td><td>${p.spine}</td><td>${pair(p.sh)}</td><td>${pair(p.el)}</td><td>${pair(p.hip)}</td><td>${pair(p.kn)}</td></tr>`).join('')}</tbody></table>`;
+  $('angles').innerHTML = `<table><thead><tr><th>자세</th><th>골반 m</th><th>기울기</th><th>허리</th><th>어깨</th><th>팔꿈치</th><th>엉덩</th><th>다리 벌림</th><th>무릎</th><th>옮김 m</th></tr></thead><tbody>${
+    Object.entries(POSE).map(([id, p]) => `<tr class="${used.has(id) ? 'on' : ''}"><td>${POSTURE_NAMES[id]}</td><td>${p.y.toFixed(2)}</td><td>${p.pitch || p.roll ? (p.roll ? 'roll ' + p.roll : p.pitch) : 0}</td><td>${p.spine}</td><td>${pair(p.sh)}</td><td>${pair(p.el)}</td><td>${pair(p.hip)}</td><td>${pair(p.labd)}</td><td>${pair(p.kn)}</td><td>${p.shift.toFixed(2)}</td></tr>`).join('')}</tbody></table>`;
 }
 
 // ----- 3D -----
@@ -328,7 +330,10 @@ function mannequin(colorKey, name, lift = 0) {
   const chest = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, L.torso - 0.26, 4, 10), m);
   chest.scale.set(1.25, 1, 0.75); chest.position.y = L.torso / 2;
   torso.add(chest);
-  const head = new THREE.Group(); head.position.y = L.torso + 0.08 + L.head;
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.12, 10), m);
+  neck.position.y = L.torso + 0.04;
+  torso.add(neck);
+  const head = new THREE.Group(); head.position.y = L.torso + 0.08 + L.head; head.rotation.order = 'YXZ';
   head.add(new THREE.Mesh(new THREE.SphereGeometry(L.head, 16, 12), m));
   const nose = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.06, 8), m);   // 얼굴 쪽 표시
   nose.rotation.x = Math.PI / 2; nose.position.set(0, 0, L.head + 0.02);
@@ -340,36 +345,45 @@ function mannequin(colorKey, name, lift = 0) {
     const fa = seg(L.farm + L.hand, 0.04, m); fa.position.y = -L.uarm;
     ua.add(fa); torso.add(ua);
     const hand = new THREE.Object3D(); hand.position.y = -(L.farm + L.hand); fa.add(hand);
+    const palm = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 8), m); palm.position.y = -(L.farm + L.hand - 0.03); fa.add(palm);
     const wrist = new THREE.Object3D(); wrist.position.y = -L.farm; fa.add(wrist);
     arms[side] = { ua, fa, hand, wrist, sx };
     const th = seg(L.thigh, 0.065, m); th.position.set(sx * L.hipw, -0.02, 0);
     const sh = seg(L.shin, 0.05, m); sh.position.y = -L.thigh;
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.06, 0.22), m);   // 발끝으로 몸 앞을 읽는다
+    foot.position.set(0, -L.shin - 0.01, 0.06);
+    sh.add(foot);
     th.add(sh); body.add(th);
-    legs[side] = { th, sh };
+    legs[side] = { th, sh, sx };
   }
-  const marks = {
-    wrist_l: arms.l.wrist, wrist_r: arms.r.wrist, hand_l: arms.l.hand, hand_r: arms.r.hand,
-    cheek_l: new THREE.Object3D(), cheek_r: new THREE.Object3D(),
-  };
-  marks.cheek_l.position.set(0.08, -0.01, 0.07);
-  marks.cheek_r.position.set(-0.08, -0.01, 0.07);
-  head.add(marks.cheek_l, marks.cheek_r);
+  // 부위 점: PARTS id → 뼈 위 자리. 접촉 선과 IK 의 목표다
+  const marks = { wrist_l: arms.l.wrist, wrist_r: arms.r.wrist, hand_l: arms.l.hand, hand_r: arms.r.hand, knee_l: legs.l.sh, knee_r: legs.r.sh };
+  const mark = (id, parent, x, y, z) => { const o = new THREE.Object3D(); o.position.set(x, y, z); parent.add(o); marks[id] = o; };
+  mark('cheek_l', head, 0.08, -0.01, 0.07); mark('cheek_r', head, -0.08, -0.01, 0.07);
+  mark('lips', head, 0, -0.05, 0.1); mark('forehead', head, 0, 0.05, 0.09);
+  mark('neck', torso, 0, L.torso + 0.03, 0.05); mark('nape', torso, 0, L.torso + 0.03, -0.05);
+  mark('chest', torso, 0, 0.34, 0.11); mark('back', torso, 0, 0.32, -0.1);
+  mark('back_l', torso, 0.1, 0.3, -0.1); mark('back_r', torso, -0.1, 0.3, -0.1);
+  mark('shoulder_l', torso, L.shoulder, L.torso - 0.02, 0); mark('shoulder_r', torso, -L.shoulder, L.torso - 0.02, 0);
+  mark('waist', torso, 0, 0.08, 0.1);
   const tag = label(name); tag.position.set(0, L.head + 0.12 + lift, 0); head.add(tag);
-  return { root, body, torso, head, arms, legs, marks, tag };
+  return { root, body, torso, head, arms, legs, marks, tag, lean: 0 };
 }
 const D = Math.PI / 180;
 function applyPose(p, t) {
-  p.root.position.set(t.x, 0, t.z);
-  p.root.rotation.y = t.yaw;
   const q = t.pose;
+  p.root.position.set(t.x + Math.sin(t.yaw) * q.shift, 0, t.z + Math.cos(t.yaw) * q.shift);
+  p.root.rotation.y = t.yaw;
   p.body.position.y = t.base + q.y;
   p.body.rotation.set(q.pitch * D, 0, q.roll * D);
-  p.torso.rotation.x = q.spine * D;
+  p.torso.rotation.set(q.spine * D, 0, 0);
+  p.head.rotation.set(0, 0, 0);
+  p.upright = !q.pitch && !q.roll;
   for (const [i, s] of [[0, 'l'], [1, 'r']]) {
     const a = p.arms[s], g = p.legs[s];
     a.ua.rotation.set(-q.sh[i] * D, 0, a.sx * q.abd[i] * D);
     a.fa.rotation.set(-q.el[i] * D, 0, 0);
-    g.th.rotation.set(-q.hip[i] * D, 0, 0);
+    g.th.rotation.set(-q.hip[i] * D, 0, g.sx * q.labd[i] * D);
     g.sh.rotation.set(q.kn[i] * D, 0, 0);
   }
 }
@@ -393,6 +407,26 @@ function reachTo(p, side, worldTarget) {
   const f = T.clone().sub(elbow).normalize().applyQuaternion(a.ua.quaternion.clone().invert());
   a.fa.quaternion.setFromUnitVectors(DOWN, f);
 }
+// 손이 모자라면 몸통을 대상 쪽으로 비틀고(최대 35°) 앞으로 숙인다(최대 15°). 대상이 앞에 있고 몸이 서거나 앉아 있을 때만
+const clamp = (v, a) => Math.max(-a, Math.min(a, v));
+function leanToward(p, side, worldTarget) {
+  if (!p.upright) return;
+  const spine = p.torso.rotation.x;
+  for (let i = 0; i < 4; i++) {                   // 숙이면 어깨가 옮겨 가므로 몇 번 다시 잰다
+    scene.updateMatrixWorld(true);
+    const T = p.body.worldToLocal(worldTarget.clone());
+    const need = p.arms[side].ua.getWorldPosition(V()).distanceTo(worldTarget) - (L.uarm + L.farm + L.hand) + 0.01;
+    if (need <= 0 || T.z <= 0) return;
+    p.torso.rotation.y = clamp(Math.atan2(T.x, T.z) * 0.6, 35 * D);
+    p.torso.rotation.x = Math.min(spine + 15 * D, p.torso.rotation.x + need / L.torso);
+  }
+}
+// 고개는 향한 대상의 머리(또는 기준점)를 본다. 좌우 70°, 위아래 35° 안에서
+function lookAt(p, worldPoint) {
+  scene.updateMatrixWorld(true);
+  const v = p.torso.worldToLocal(worldPoint.clone()).sub(p.head.position);
+  p.head.rotation.set(clamp(-Math.atan2(v.y, Math.hypot(v.x, v.z)), 35 * D), clamp(Math.atan2(v.x, v.z), 70 * D), 0);
+}
 function contactLine(a, b, ok) {
   const geo = new THREE.BufferGeometry().setFromPoints([a, b]);
   const line = new THREE.Line(geo, ok ? mats['--contact'] : mats['--contact-bad']);
@@ -402,17 +436,23 @@ function contactLine(a, b, ok) {
 }
 function dot(p, key) { const m = new THREE.Mesh(new THREE.SphereGeometry(0.025, 10, 8), mats[key]); m.position.copy(p); m.renderOrder = 3; return m; }
 
+function lookPoint(f) {
+  if (f.startsWith('@')) return people[f.slice(1)]?.head.getWorldPosition(V());
+  const a = room.anchors.find((x) => '#' + x.id === f);
+  return a && V(a.x + a.w / 2, FURN[a.kind] || 0.9, a.y + a.h / 2);
+}
 function drawFrame(frame, s, k) {
   for (const w of Object.keys(people)) applyPose(people[w], frame[w]);
   for (const l of contactLines) world.remove(l);
   contactLines = [];
+  const touches = Object.keys(s).filter((w) => s[w].touch && people[s[w].touch.to]).map((w) => {
+    const t = s[w].touch;
+    return { p: people[w], side: t.by === 'left' ? 'l' : 'r', mark: people[t.to].marks[t.part] };
+  });
+  for (const t of touches) leanToward(t.p, t.side, t.mark.getWorldPosition(V()));
+  for (const w of Object.keys(s)) { const pt = lookPoint(s[w].facing); if (pt) lookAt(people[w], pt); }
   for (let pass = 0; pass < 2; pass++) {           // 두 사람이 서로 손을 뻗으면 한 번 더 맞춘다
-    for (const w of Object.keys(s)) {
-      const t = s[w].touch;
-      if (!t || !people[t.to]) continue;
-      const side = t.by === 'left' ? 'l' : 'r';
-      reachTo(people[w], side, people[t.to].marks[t.part].getWorldPosition(V()));
-    }
+    for (const t of touches) reachTo(t.p, t.side, t.mark.getWorldPosition(V()));
   }
   scene.updateMatrixWorld(true);
   for (const w of Object.keys(s)) {
@@ -464,24 +504,42 @@ function render() { if (renderer) { renderer.render(scene, camera); labeler.rend
 // ----- 자세 12개와 업기 시험 -----
 function buildGallery() {
   const g = new THREE.Group(), ids = Object.keys(POSE);
+  scene.add(g);                                       // IK 가 세계 좌표를 쓰므로 먼저 장면에 넣는다
   ids.forEach((id, i) => {
     const p = mannequin(i % 2 ? '--pair-b' : '--pair-a', POSTURE_NAMES[id]);
     const x = 0.6 + (i % 4) * 1.3, z = 0.6 + Math.floor(i / 4) * 1.5;
     applyPose(p, { x, z, yaw: 0.5, base: id === 'chair' ? 0.45 : 0, pose: POSE[id] });
-    if (id === 'chair') { const c = edged(new THREE.BoxGeometry(0.45, 0.45, 0.45), mats['--btn']); c.position.set(x, 0.225, z - 0.08); g.add(c); }
+    if (id === 'chair') { const c = edged(new THREE.BoxGeometry(0.45, 0.45, 0.45), mats['--btn']); c.position.set(x, 0.225, z); c.rotation.y = 0.5; g.add(c); }
+    p.root.userData.pose = id;
     if (id === 'held') p.root.visible = false;          // 혼자 뜬 '안김' 대신 아래 업기 시험에서 보인다
     g.add(p.root);
   });
-  // 업기 시험: 업힌 사람을 업은 사람의 등에 붙인다(물리 없이 기준 뼈에 매단다). 팔이 몸통을 뚫는지 본다
-  const carrier = mannequin('--pair-b', '업기 시험'), rider = mannequin('--pair-a', '업힘');
-  applyPose(carrier, { x: 5.6, z: 2.1, yaw: 0.5, base: 0, pose: { ...POSE.stand, spine: 18, sh: [60, 60], abd: [30, 30], el: [90, 90] } });
-  rider.tag.element.textContent = '업힘';
+  // 업기 시험: 업힌 사람을 업은 사람의 골반에 매단다(물리 없이). 업은 손은 업힌 무릎으로, 업힌 팔은 업은 가슴으로 IK
+  const carrier = mannequin('--pair-b', '업기 시험'), rider = mannequin('--pair-a', '업힘', 0.2);
+  carrier.root.userData.test = 'carry';
+  applyPose(carrier, { x: 6.0, z: 0.9, yaw: 0.5, base: 0, pose: { ...POSE.stand, spine: 16, hip: [12, 12], kn: [18, 18] } });
   applyPose(rider, { x: 0, z: 0, yaw: 0, base: 0, pose: POSE.held });
-  rider.root.position.set(0, -0.92 + 0.32, -0.26);
+  rider.root.position.set(0, 0.12 - POSE.held.y, -0.3);
   carrier.body.add(rider.root);
   g.add(carrier.root);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(6.6, 4.6), mats['--surface']);
-  floor.rotation.x = -Math.PI / 2; floor.position.set(3.1, -0.001, 2);
+  reachTo(carrier, 'l', rider.marks.knee_l.getWorldPosition(V()));
+  reachTo(carrier, 'r', rider.marks.knee_r.getWorldPosition(V()));
+  reachTo(rider, 'l', carrier.marks.chest.getWorldPosition(V()));
+  reachTo(rider, 'r', carrier.marks.chest.getWorldPosition(V()));
+  // 안기 시험: 마주 서서 0.34m. 두 팔을 상대 등 점으로 IK 하면 팔이 상대 몸통을 지난다
+  const a = mannequin('--pair-a', '안기 시험'), b = mannequin('--pair-b', '안김', 0.2);
+  a.root.userData.test = 'hug';
+  const hug = { ...POSE.stand, spine: 2 };
+  applyPose(a, { x: 6.0, z: 2.9, yaw: 0, base: 0, pose: hug });
+  applyPose(b, { x: 6.0, z: 3.24, yaw: Math.PI, base: 0, pose: hug });
+  g.add(a.root, b.root);
+  for (let pass = 0; pass < 2; pass++) {
+    reachTo(a, 'l', b.marks.back_r.getWorldPosition(V())); reachTo(a, 'r', b.marks.back_l.getWorldPosition(V()));
+    reachTo(b, 'l', a.marks.back_r.getWorldPosition(V())); reachTo(b, 'r', a.marks.back_l.getWorldPosition(V()));
+  }
+  a.head.rotation.y = 40 * D; b.head.rotation.y = 40 * D;   // 안을 때 고개를 서로 비켜 돌린다. 마주 보면 머리가 겹친다
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(7.4, 4.6), mats['--surface']);
+  floor.rotation.x = -Math.PI / 2; floor.position.set(3.5, -0.001, 2);
   g.add(floor);
   g.visible = false;
   return g;
@@ -491,7 +549,7 @@ const CAMS = {
   iso: { pos: [5.4, 3.3, 5.0], at: [2, 0.7, 1.5] },
   top: { pos: [2, 7.2, 1.62], at: [2, 0, 1.6] },
   door: { pos: [3.5, 1.6, 5.4], at: [2, 0.9, 1.2] },
-  gallery: { pos: [3.1, 3.4, 6.6], at: [3.1, 0.4, 2] },
+  gallery: { pos: [3.5, 4.0, 8.4], at: [3.5, 0.4, 2] },
 };
 function setCam(id) {
   const c = CAMS[id];
@@ -544,7 +602,6 @@ function init3d() {
   Object.entries(cast).forEach(([w, c], i) => { people[w] = mannequin(c.color, c.name, i * 0.2); world.add(people[w].root); });   // 가까이 서도 이름표가 겹치지 않게 높이를 엇갈린다
   scene.add(world);
   galleryGroup = buildGallery();
-  scene.add(galleryGroup);
   recolor();
   setCam('iso');
   new ResizeObserver(resize).observe(stageEl);
@@ -585,7 +642,9 @@ const s4 = layout(stateAt(4));
 $('st-dist').textContent = dist(s4.d, s4.h).toFixed(1) + 'm';
 
 if (THREE) init3d(); else $('fail').hidden = false;
-window.stage3d = { go, get people() { return people; }, get lines() { return contactLines; }, get camera() { return camera; } };   // 시안 확인용
+window.stage3d = { go, get people() { return people; }, get lines() { return contactLines; }, get camera() { return camera; },
+  get gallery() { return galleryGroup; },
+  look(at, from) { camera.position.set(...from); controls.target.set(...at); controls.update(); render(); } };   // 시안 확인용
 go(4);
 </script>
 </body>
