@@ -12,6 +12,8 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 
 지도 기능(`atlas` · 생성기 · `osm` · `bldgs` · `travel` · `static/atlas*.js`)을 고치기 전에 [docs/map/](docs/map/README.md) 를 읽는다. 모듈 경계, 지도 데이터 형식, 일감 차례와 작업 명세서가 있다. 일감을 끝내면 그 명세서의 상태와 `docs/map/plan.md` 를 고친다.
 
+장면 연출(방 안 자리 · 자세 · 신체 접촉을 박자마다 적고 재생하는 도구, `stage`)을 만들거나 고치기 전에 [docs/stage/](docs/stage/README.md) 를 읽는다. 정한 규칙, 데이터 형식, 일감 차례와 작업 명세서, 화면 시안이 있다.
+
 | 파일 | 역할 |
 |---|---|
 | `canon/schema.py` | pydantic 데이터 스키마. 모든 상태는 `Project` 하나(`project.json`)에 저장. 인물 신체 프로필(`Character.body`)은 작가 메모라 AI 응답 형식(`SkipJsonSchema`)과 프롬프트(`llm.dump` 의 context `prompt`)에서 빠진다. 이 칸을 다루는 AI 호출은 신체 프로필 제안(`pipeline.suggest_body`)뿐이고, 미성년(`cast.is_minor_age`)이면 쓰리사이즈를 제안하지 않는다. 인물 프롬프트 넣기(`Character.context`: auto 비중대로 · always 늘 · off 이름만)도 작가 전용이라 같은 방식으로 빠지고, 고르는 규칙은 `context.core_ids` · `off_ids` · `without_off`(모두 auto 면 예전 규칙과 같다). 화별 쓴 사건 체크(`Episode.events_done`, 사건 글 목록)는 집필 화면 표시용이라 `EpisodePlot` 밖에 두어 프롬프트에 들어가지 않는다. 인물 지금 차림(`CharacterState.attire`, 옷 · 상처 · 지닌 물건)은 지금 값만 덮어쓰고 지난 값은 스냅샷, 규칙은 `prompts.ATTIRE_STATE_RULE` · `attire_write_rule` · `attire_check_rule` |
