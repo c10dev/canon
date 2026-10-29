@@ -133,22 +133,6 @@ function atlasSnap(pt) {
   return [ring.reduce((n, q) => n + q[0], 0) / ring.length, ring.reduce((n, q) => n + q[1], 0) / ring.length];
 }
 
-/** 다각형 넓이 가운데 (0~1 좌표). 넓이가 0 이면 꼭짓점 평균 */
-function atlasMid(ln) {
-  let a = 0;
-  let x = 0;
-  let y = 0;
-  ln.forEach((q, j) => {
-    const p = ln[(j + 1) % ln.length];
-    const c = q[0] * p[1] - p[0] * q[1];
-    a += c;
-    x += (q[0] + p[0]) * c;
-    y += (q[1] + p[1]) * c;
-  });
-  if (Math.abs(a) < 1e-9) return [ln.reduce((n, q) => n + q[0], 0) / ln.length, ln.reduce((n, q) => n + q[1], 0) / ln.length];
-  return [x / (3 * a), y / (3 * a)];
-}
-
 /** 성 밖 구역 (밭 · 숲은 따로 그리니 구역 색 · 이름을 붙이지 않는다) */
 const ATLAS_WARD_OUT = new Set(['farm', 'wood']);
 
@@ -283,18 +267,20 @@ function atlasStreetLabels(v, W, H, fs, taken, z = 1) {
 }
 
 /** 구역 이름 (도시 생성기의 wards 성안만, 현대 동네는 슈퍼블록 · 학교): 넓이 가운데에 장소 이름표보다 조금 작게. 장소 점 · 이름표 · 다른 구역 이름과
-    겹치면 뺀다 (taken: atlasLabels 가 차지한 상자 [x0, y0, x1, y1], 여기서 놓은 상자도 더한다) */
-function atlasWardLabels(v, W, H, fs, taken) {
+    겹치면 뺀다 (taken: 인물 표 · 장소 이름표가 차지한 상자 [x0, y0, x1, y1], 여기서 놓은 상자도 더한다).
+    같은 이름은 화면 폭의 1/4 안에 한 번만, 넓은 구역부터 (atlasWardPick, z: 확대 배율) */
+function atlasWardLabels(v, W, H, fs, taken, z = 1) {
   const names = (S.atlas && S.atlas.gen && S.atlas.gen.wards) || {};
   const out = [];
-  (v.wards || []).forEach((wd) => {
-    if (ATLAS_WARD_OUT.has(wd.kind) || !names[wd.kind]) return;
-    const [cx, cy] = atlasMid(wd.shape).map((q, i) => q * (i ? H : W));
-    const w = atlasTextW(names[wd.kind], fs) * 1.2;  // 글자 사이를 띄운 만큼
+  const wards = (v.wards || []).filter((wd) => !ATLAS_WARD_OUT.has(wd.kind) && names[wd.kind]).map((wd) => ({ name: names[wd.kind], shape: wd.shape }));
+  atlasWardPick(wards, W, H, W / z / 4, (wd) => {
+    const [cx, cy] = [wd.mid[0] * W, wd.mid[1] * H];
+    const w = atlasTextW(wd.name, fs) * 1.2;  // 글자 사이를 띄운 만큼
     const b = [cx - w / 2, cy - fs * 0.6, cx + w / 2, cy + fs * 0.6];
-    if (taken.some((p) => b[0] < p[2] && b[2] > p[0] && b[1] < p[3] && b[3] > p[1])) return;
+    if (taken.some((p) => b[0] < p[2] && b[2] > p[0] && b[1] < p[3] && b[3] > p[1])) return false;
     taken.push(b);
-    out.push(`<text x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" text-anchor="middle" dominant-baseline="central">${esc(names[wd.kind])}</text>`);
+    out.push(`<text x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" text-anchor="middle" dominant-baseline="central">${esc(wd.name)}</text>`);
+    return true;
   });
   return out.length ? `<g class="at-v-ward-label" font-size="${fs.toFixed(2)}" stroke-width="${(fs * 0.3).toFixed(2)}" letter-spacing="${(fs * 0.15).toFixed(2)}">${out.join('')}</g>` : '';
 }
@@ -726,14 +712,7 @@ function atlasSvg() {
       <circle class="at-dot" cx="${x}" cy="${y}" r="${((sel ? 9 : 7) * sc).toFixed(2)}" stroke-width="${(2.5 * sc).toFixed(2)}"></circle></g>`);
     labels.push({ x, y, text: pl.name + (old ? ' (지금 자리)' : ''), cls: `${later ? ' later' : ''}${old ? ' old' : ''}`, first: sel });
   });
-  // 구역 이름은 장소 이름표가 자리를 잡은 뒤 남는 곳에만 (장소 이름표 아래 겹). 모두 장식을 비켜 간다
-  const taken = deco.boxes.slice();
-  const names = atlasLabels(labels, sc, fs, taken);
-  if (village && S.atlasLayers.wards !== false) out.push(atlasWardLabels(village, W, H, fs * 0.85, taken));
-  if (village && S.atlasLayers.streets !== false && village.streets) out.push(atlasStreetLabels(village, W, H, fs * 0.78, taken, z));
-  out.push(names);
-
-  // 인물: 같은 장소에 모이면 둘레에 나눠 놓는다
+  // 인물 표 자리: 같은 장소에 모이면 둘레에 나눠 놓는다. 표는 움직이지 않는다 (인물 자리가 뜻이 있다)
   const groups = {};
   chars.forEach((c) => {
     const r = atlasRow(f, c.id);
@@ -741,18 +720,26 @@ function atlasSvg() {
     if (!pl || !pl.pin || hidden(pl)) return;
     (groups[pl.key] = groups[pl.key] || []).push(c);
   });
+  const toks = [];
   Object.entries(groups).forEach(([k, list]) => {
     const [px, py] = xy(atlasPlace(k));
-    list.forEach((c, j) => {
-      const a = (j / list.length) * Math.PI * 2 + Math.PI / 4;
-      const rr = (list.length > 1 ? 18 + list.length * 2 : 0) * sc;
-      const x = px + 16 * sc + Math.cos(a) * rr;
-      const y = py + 16 * sc + Math.sin(a) * rr;
-      const dim = S.atlasFocus && S.atlasFocus !== c.id;
-      out.push(`<g class="at-tok${dim ? ' dim' : ''}" data-action="atlasFocus" data-arg="${esc(c.id)}"><title>${esc((c.name || c.id) + ': ' + atlasRow(f, c.id).location)}</title>
-        <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(12 * sc).toFixed(2)}" stroke-width="${(2.5 * sc).toFixed(2)}" fill="${atlasColor(c.id)}"></circle>
-        <text x="${x.toFixed(1)}" y="${(y + 4.5 * sc).toFixed(1)}" font-size="${(12 * sc).toFixed(2)}" text-anchor="middle">${esc([...(c.name || c.id)][0])}</text></g>`);
-    });
+    list.forEach((c, j) => toks.push({ c, ...atlasTokenAt(px, py, j, list.length, sc) }));
+  });
+
+  // 이름표 놓는 차례: 장식 · 인물 표 → 장소 이름표 → 구역 이름 → 길 이름. 앞에 놓은 것이 이기고, 뒤의 것은 taken 을 비켜 가거나 빠진다.
+  // 그림 겹은 따로: 구역 · 길 이름이 장소 이름표 아래, 인물 표와 장식이 맨 위
+  const taken = deco.boxes.concat(toks.map((t) => t.box));
+  const names = atlasLabels(labels, sc, fs, taken);
+  if (village && S.atlasLayers.wards !== false) out.push(atlasWardLabels(village, W, H, fs * 0.85, taken, z));
+  if (village && S.atlasLayers.streets !== false && village.streets) out.push(atlasStreetLabels(village, W, H, fs * 0.78, taken, z));
+  out.push(names);
+
+  // 인물
+  toks.forEach(({ c, x, y }) => {
+    const dim = S.atlasFocus && S.atlasFocus !== c.id;
+    out.push(`<g class="at-tok${dim ? ' dim' : ''}" data-action="atlasFocus" data-arg="${esc(c.id)}"><title>${esc((c.name || c.id) + ': ' + atlasRow(f, c.id).location)}</title>
+      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(12 * sc).toFixed(2)}" stroke-width="${(2.5 * sc).toFixed(2)}" fill="${atlasColor(c.id)}"></circle>
+      <text x="${x.toFixed(1)}" y="${(y + 4.5 * sc).toFixed(1)}" font-size="${(12 * sc).toFixed(2)}" text-anchor="middle">${esc([...(c.name || c.id)][0])}</text></g>`);
   });
   out.push(deco.svg);
   // 화풍은 마을 그림에만 (배경 그림 · 모눈 지도는 앱 색 그대로)
@@ -774,6 +761,47 @@ function atlasLabelPick(streets, W, H, gap, draw = () => true) {
     same.push([x, y]);
     return true;
   });
+}
+
+/** 다각형 넓이 가운데 (0~1 좌표). 넓이가 0 이면 꼭짓점 평균 */
+function atlasMid(ln) {
+  let a = 0;
+  let x = 0;
+  let y = 0;
+  ln.forEach((q, j) => {
+    const p = ln[(j + 1) % ln.length];
+    const c = q[0] * p[1] - p[0] * q[1];
+    a += c;
+    x += (q[0] + p[0]) * c;
+    y += (q[1] + p[1]) * c;
+  });
+  if (Math.abs(a) < 1e-9) return [ln.reduce((n, q) => n + q[0], 0) / ln.length, ln.reduce((n, q) => n + q[1], 0) / ln.length];
+  return [x / (3 * a), y / (3 * a)];
+}
+
+/** 다각형 넓이 (0~1 좌표를 W × H 로 늘린 지도 단위) */
+function atlasArea(ln, W = 1, H = 1) {
+  return Math.abs(ln.reduce((n, q, j) => {
+    const p = ln[(j + 1) % ln.length];
+    return n + q[0] * p[1] - p[0] * q[1];
+  }, 0)) / 2 * W * H;
+}
+
+/** 그릴 구역 이름 고르기: 길 이름과 같은 규칙(atlasLabelPick)에 넓이를 길이 삼아 넓은 구역부터 본다.
+    wards: [{ name, shape }] (shape 는 0~1). draw(wd) 는 wd.mid(0~1 넓이 가운데)를 받는다. 돌려주는 값: 그린 구역 */
+function atlasWardPick(wards, W, H, gap, draw = () => true) {
+  return atlasLabelPick(wards.map((wd) => ({ ...wd, length: atlasArea(wd.shape, W, H), mid: atlasMid(wd.shape) })), W, H, gap, draw);
+}
+
+/** 인물 표 자리: 장소 점(px, py)의 오른쪽 아래, 같은 장소에 n 명이면 둘레에 나눠 놓는다 (j: 차례, sc: 1/확대).
+    돌려주는 값: { x, y, box } (box 는 표 동그라미 상자. 이름표보다 먼저 taken 에 넣는다) */
+function atlasTokenAt(px, py, j, n, sc) {
+  const a = (j / n) * Math.PI * 2 + Math.PI / 4;
+  const rr = (n > 1 ? 18 + n * 2 : 0) * sc;
+  const x = px + 16 * sc + Math.cos(a) * rr;
+  const y = py + 16 * sc + Math.sin(a) * rr;
+  const r = 12 * sc;
+  return { x, y, box: [x - r, y - r, x + r, y + r] };
 }
 
 /** 축척 막대: 보이는 폭의 약 1/6 에 가장 가까운 둥근 값 (1 · 2 · 5 × 10ⁿ m, 10m 부터).
@@ -916,7 +944,7 @@ const atlasTextW = (t, fs) => [...t].reduce((n, ch) => n + (ch.charCodeAt(0) > 0
 
 /** 이름표를 서로 · 다른 점과 겹치지 않게 놓는다. 점 둘레 여덟 자리를 먼저 보고, 다 막히면 점점 먼 고리에서 빈자리를 찾아
     지시선을 긋는다. 끝내 못 찾으면 마지막 자리에 겹쳐 둔다. sc: 핀 크기 배율(1/확대), fs: 글자 크기(지도 단위)
-    taken: 먼저 차지한 상자 (지도 장식). 이것도 비켜 가고, 놓은 이름표 상자를 더해 돌려준다 */
+    taken: 먼저 차지한 상자 (지도 장식 · 인물 표). 이것도 비켜 가고, 놓은 이름표 상자를 더해 돌려준다 */
 function atlasLabels(list, sc, fs = 15 * sc, taken = []) {
   const g = 14 * sc;
   const dots = list.map((l) => [l.x - 7 * sc, l.y - 7 * sc, l.x + 7 * sc, l.y + 7 * sc]);
@@ -949,7 +977,7 @@ function atlasLabels(list, sc, fs = 15 * sc, taken = []) {
     placed.push(boxOf(spots[k]));
     out.push(`${k >= near.length ? `<line class="at-leader" x1="${l.x.toFixed(1)}" y1="${l.y.toFixed(1)}" x2="${(l.x + dx).toFixed(1)}" y2="${(l.y + dy - fs * 0.4).toFixed(1)}" stroke-width="${sc.toFixed(2)}"></line>` : ''}<text class="at-name${l.cls}" x="${(l.x + dx).toFixed(1)}" y="${(l.y + dy).toFixed(1)}" text-anchor="${a}" font-size="${fs.toFixed(2)}" stroke-width="${(fs * 0.27).toFixed(2)}">${esc(l.text)}</text>`);
   });
-  taken.push(...placed.slice(taken.length), ...dots);  // 뒤에 놓는 구역 이름이 비켜 가도록
+  taken.push(...placed.slice(taken.length), ...dots);  // 뒤에 놓는 구역 · 길 이름이 비켜 가도록
   return `<g class="at-labels">${out.join('')}</g>`;
 }
 

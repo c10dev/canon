@@ -176,3 +176,43 @@ def test_scale_bar_picks_round_value_near_a_sixth():
 def test_scale_bar_needs_known_scale():
     for mpu in (0, -1, None, "x"):
         assert _calc("atlasScaleBar", mpu, 1, 1000) is None
+
+
+def _ward(name: str, x: float, size: float = 0.04) -> dict:
+    return {"name": name, "shape": [[x, 0.5], [x + size, 0.5], [x + size, 0.5 + size], [x, 0.5 + size]]}
+
+
+def test_same_name_wards_close_together_get_one_label():
+    # 도시의 '상인' 구역 셋이 화면 폭의 1/4(250) 안에 붙어 있으면 가장 넓은 구역 하나에만 쓴다
+    wards = [_ward("상인", 0.10, 0.03), _ward("상인", 0.15, 0.05), _ward("상인", 0.20, 0.04)]
+    picked = _calc("atlasWardPick", wards, 1000, 1000, 250)
+    assert [(w["name"], w["shape"][0][0]) for w in picked] == [("상인", 0.15)]
+    assert picked[0]["mid"] == [pytest.approx(0.175), pytest.approx(0.525)]  # 그릴 자리는 넓이 가운데
+    assert picked[0]["length"] == pytest.approx(2500)  # 넓이(지도 단위²)
+
+
+def test_same_name_wards_far_apart_get_one_label_each():
+    wards = [_ward("빈민", 0.10), _ward("빈민", 0.60), _ward("상인", 0.12)]
+    picked = _calc("atlasWardPick", wards, 1000, 1000, 250)
+    assert sorted((w["name"], w["shape"][0][0]) for w in picked) == [("빈민", 0.10), ("빈민", 0.60), ("상인", 0.12)]
+    near = [_ward("빈민", 0.10), _ward("빈민", 0.20)]
+    assert len(_calc("atlasWardPick", near, 1000, 1000, 250)) == 1
+    assert len(_calc("atlasWardPick", near, 1000, 1000, 250 / 4)) == 2  # 4배 확대하면 gap 이 줄어 둘 다 보인다
+
+
+def test_place_label_moves_off_character_token():
+    # 인물 표는 장소 점의 오른쪽 아래에 놓이고, 그 상자를 먼저 taken 에 넣으면 장소 이름표가 표를 덮지 않는다
+    tok = _calc("atlasTokenAt", 100, 100, 0, 1, 1)
+    assert tok == {"x": 116, "y": 116, "box": [104, 104, 128, 128]}
+    pair = _calc("atlasTokenAt", 100, 100, 0, 2, 1)
+    assert pair["box"][2] - pair["box"][0] == 24  # 여럿이면 둘레로 나뉘어도 표 크기는 같다
+    # 위 · 아래 · 왼쪽을 다른 이름표가 막아, 비키지 않으면 오른쪽(표 위)에 놓이는 이름
+    blocks = [[60, 60, 140, 96], [60, 112, 98, 140], [40, 90, 92, 112]]
+    label = {"x": 100, "y": 100, "text": "수산시장", "cls": "", "first": False}
+    free = _boxes(_run([label], taken=blocks), 1.0)[0]
+    t = tok["box"]
+    assert free[0] < t[2] and free[2] > t[0] and free[1] < t[3] and free[3] > t[1]  # 표를 넣지 않으면 겹친다 (고치기 전)
+    r = _run([label], taken=blocks + [t])
+    b = _boxes(r, 1.0)[0]
+    assert not (b[0] < t[2] and b[2] > t[0] and b[1] < t[3] and b[3] > t[1])
+    assert r["taken"][3] == t  # 표 상자는 그대로 남아 뒤의 구역 · 길 이름도 비켜 간다
