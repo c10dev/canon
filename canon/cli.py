@@ -876,6 +876,7 @@ def cmd_write(a: argparse.Namespace) -> None:
 
 def _write(name: str, p: Project, n: int) -> None:
     print(f"{n}화 생성 중...")
+    atlas.fill_old_spots(p, store.project_dir(name) / "map")  # 건물 한 줄이 빈 옛 핀. 아래 저장에 함께 들어간다
     text = pipeline.write_episode(get_llm("write"), p, n)
     pipeline.replace_text(p.episode(n), text)  # 지금 본문이 있으면 '이전 판'에 남는다
     store.save(name, p)
@@ -983,6 +984,7 @@ def cmd_check(a: argparse.Namespace) -> None:
 def _check(name: str, p: Project, n: int, widen: bool | None = None) -> None:
     on = pipeline.widen_on(p, widen)
     print(f"{n}화 검수 중{' (넓혀 찾기 포함)' if on else ''}...")
+    atlas.fill_old_spots(p, store.project_dir(name) / "map")  # 건물 한 줄이 빈 옛 핀. 아래 저장에 함께 들어간다
     pipeline.apply_check(p, pipeline.check_episode(get_llm("check"), p, n, widen), "api", on)
     store.save(name, p)
 

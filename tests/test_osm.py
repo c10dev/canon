@@ -259,6 +259,85 @@ def test_spot_lines_in_prompt():
     assert atlas.episode_block(p, 4) == "" and "# 장소가 놓인 건물" not in prompts.build_episode_context(p, 4)
 
 
+def test_old_pins_get_spots(tmp_path, monkeypatch):
+    """건물 한 줄이 생기기 전에 놓은 핀: 지도 화면은 응답에만 싣고, 쓰기 · 검수 작업(웹 · 명령줄 · 자동 집필)은 채워 저장한다."""
+    import importlib
+
+    monkeypatch.setenv("CANON_HOME", str(tmp_path))
+    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
+    from canon import autorun, cli, pipeline, prompts, store, web
+    from canon.schema import StoryElement
+
+    from .test_mapgen import _project
+    from .test_web import _wait
+    importlib.reload(store)
+    importlib.reload(web)
+    p = _project()
+    p.elements.append(StoryElement(id="t-1", kind="장소", name="테스트타워"))
+    pipeline.confirm_plot(p, 4)
+    p.episode(4).plot.summary = "윤서가 테스트타워 앞에 선다"
+    store.save("o", p)
+    c = TestClient(web.app)
+    c.put("/api/projects/o/atlas/layout", json={"data": _xml()})
+    lo = c.get("/api/projects/o/atlas/layout").json()
+    k = next(k for k, b in enumerate(lo["blds"]) if b.get("name") == "테스트타워")
+    cx, cy = geom.centroid([tuple(q) for q in lo["buildings"][k]])
+    c.put("/api/projects/o/atlas/pins", json={"pins": [{"place": "t-1", "x": cx, "y": cy}, {"place": "el-9", "x": 0.99, "y": 0.01}]})
+    folder = store.project_dir("o") / "map"
+
+    def old() -> None:  # 이 칸이 생기기 전에 놓은 핀처럼 건물 한 줄을 지운다
+        q = store.load("o")
+        for pin in q.atlas.pins:
+            pin.spot = ""
+        store.save("o", q)
+
+    def spot() -> str:
+        return {pin.place: pin.spot for pin in store.load("o").atlas.pins}["t-1"]
+
+    old()
+    path = store.project_dir("o") / "project.json"
+    before = path.read_bytes()
+    v = c.get("/api/projects/o/atlas").json()
+    assert path.read_bytes() == before  # 지도 화면은 project.json 을 쓰지 않는다
+    assert {pl["key"]: pl["spot"] for pl in v["places"]}["t-1"].startswith("테스트타워 (")
+
+    q = store.load("o")
+    q.atlas.pins = [pin for pin in q.atlas.pins if pin.place == "el-9"]
+    assert atlas.fill_old_spots(q, folder) is False and q.atlas.pins[0].spot == ""  # 건물 밖 핀은 빈 채로, 저장할 것 없음
+
+    seen = {}
+    real = pipeline.write_episode
+
+    def spy(llm, q, n, *a, **kw):
+        seen["ctx"] = prompts.build_episode_context(q, n)
+        return real(llm, q, n, *a, **kw)
+
+    monkeypatch.setattr(pipeline, "write_episode", spy)
+    stale = c.get("/api/projects/o").json()  # 채우기 전에 읽은 화면
+    j = c.post("/api/projects/o/jobs", json={"kind": "write", "ep": 4}).json()
+    assert _wait(c, j["id"])["status"] == "done"
+    assert "# 장소가 놓인 건물 (지도 기준)" in seen["ctx"] and "- 테스트타워: 테스트타워 (" in seen["ctx"]
+    assert spot().startswith("테스트타워 (")
+    stale["episodes"] = store.load("o").model_dump(mode="json")["episodes"]
+    assert c.put("/api/projects/o", json=stale).status_code == 200
+    assert spot().startswith("테스트타워 (")  # 옛 화면 저장이 채운 값을 빈 값으로 덮지 않는다
+
+    old()
+    j = c.post("/api/projects/o/jobs", json={"kind": "check", "ep": 4}).json()
+    assert _wait(c, j["id"])["status"] == "done" and spot().startswith("테스트타워 (")
+
+    old()
+    cli.main(["check", "o", "4"])
+    assert spot().startswith("테스트타워 (")
+
+    old()
+    r = autorun.Runner.__new__(autorun.Runner)
+    r.name = "o"
+    q = store.load("o")
+    r._fill_old_spots(q)
+    assert q.atlas.pins[0].spot.startswith("테스트타워 (") and spot().startswith("테스트타워 (")
+
+
 # ---------- 바다 (natural=coastline) ----------
 
 def _coast_xml(*coasts, extra: str = "") -> str:

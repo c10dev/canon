@@ -702,6 +702,7 @@ def put_project(name: str, p: Project, response: Response, merged: str = "", for
     _keep_impacts(name, p)
     _keep_hooks(name, p)
     _keep_realign(name, p)
+    _keep_spots(disk, p)
     # 설정 변경 기록과 남겨 둔 제안은 화면이 직접 고치지 않는다. 디스크 것에 이번 저장이 고친 인물 설정만 작가 기록으로 더한다
     p.setting_log, p.setting_held = disk.setting_log, disk.setting_held
     p.agent_sessions = disk.agent_sessions  # 대화 세션은 대화 라우트와 에이전트 작업만 고친다 (화면의 옛 사본이 덮지 않게)
@@ -728,6 +729,15 @@ def _keep_realign(name: str, p: Project) -> None:
     disk = {e.plot.number: e.realign for e in store.load(name).episodes}
     for e in p.episodes:
         e.realign = disk.get(e.plot.number, "")
+
+
+def _keep_spots(disk: Project, p: Project) -> None:
+    """옛 핀의 건물 한 줄은 쓰기 · 검수 작업이 채워 디스크에 쓴다 (_fill_old_spots). 그 전에 읽은 화면이 빈 값으로 덮지 않게
+    같은 자리 핀의 디스크 값을 둔다."""
+    have = {(pin.place, pin.x, pin.y): pin.spot for pin in disk.atlas.pins if pin.spot}
+    for pin in p.atlas.pins:
+        if not pin.spot:
+            pin.spot = have.get((pin.place, pin.x, pin.y), "")
 
 
 def _keep_impacts(name: str, p: Project) -> None:
@@ -1761,6 +1771,13 @@ def _edit(name: str, fn) -> Project:
     return p
 
 
+def _fill_old_spots(name: str) -> None:
+    """쓰기 · 검수 작업을 시작할 때: 건물 한 줄이 빈 옛 핀을 채워 저장한다 (프롬프트의 '장소가 놓인 건물' 블록).
+    빈 핀이 모두 건물 밖이면 저장하지 않는다."""
+    if atlas.fill_old_spots(store.load(name), _map_dir(name)):
+        _edit(name, lambda q: atlas.fill_old_spots(q, _map_dir(name)))
+
+
 def _plot_ranges(p: Project, arc: int | None = None) -> list[tuple[str, int, int]]:
     """초안이거나 아직 없는 화가 있는 구간만 다시 만든다. 장편은 arc 번호를 주면 그 아크만."""
     status = {e.plot.number: e.status for e in p.episodes}
@@ -1852,6 +1869,7 @@ def start_job(name: str, body: JobIn) -> dict:
         label, total, owned = f"{n}화 검수", 1, set()
 
         def fn(job: jobs.Job):
+            _fill_old_spots(name)
             q0 = store.load(name)
             rep = pipeline.check_episode(llm, q0, n)
             r = _edit(name, lambda q: pipeline.apply_check(q, rep, "api", pipeline.widen_on(q0))).episode(n).rounds[-1]
@@ -1926,6 +1944,7 @@ def start_job(name: str, body: JobIn) -> dict:
                 label, total, owned = f"{n}화 본문", 1, {n}
 
                 def fn(job: jobs.Job):
+                    _fill_old_spots(name)
                     text = pipeline.write_episode(llm, store.load(name), n)
                     _edit(name, lambda q: pipeline.replace_text(q.episode(n), text))  # 지금 본문이 있으면 '이전 판'에 남는다
                     return None
@@ -2994,7 +3013,9 @@ def drop_held_setting(name: str, i: int) -> Project:
 def atlas_view(name: str) -> dict:
     """지도 화면: 장소와 자리, 화별 인물 자리, 장소와 맞지 않은 위치 글. 마을 데이터가 있으면 길 따라 걸은 경로도."""
     p = _load(name)
-    s = atlas.summary(p, atlas.load_layout(_map_dir(name), p))
+    layout = atlas.load_layout(_map_dir(name), p)
+    atlas.fill_old_spots(p, _map_dir(name), layout)  # 옛 핀의 건물 한 줄은 응답에만 싣는다. 저장은 다음 쓰기 · 검수 작업 때
+    s = atlas.summary(p, layout)
     return {**s, "travel": travel.view(p, s["frames"], s["places"]), "gen": atlas.gen_info(p)}
 
 
