@@ -45,7 +45,8 @@ NAME_ERR = '폴더 이름에 / \\ : * ? " < > | 는 쓸 수 없고, . 으로 시
 # 연산 이름(operationId)은 함수 이름이다. Swift 앱(swift/)이 openapi.json 으로 클라이언트를 만들 때 이 이름을 쓴다
 app = FastAPI(title="Canon", generate_unique_id_function=lambda route: route.name)
 # 다른 기기(Tailscale)에서 열 때 작품 JSON 과 정적 파일을 줄여 보낸다
-app.add_middleware(GZipMiddleware, minimum_size=1024)
+# 압축 단계 4: 장편 작품 GET(약 10MB)에서 기본 9 보다 압축이 0.2초 빠르고 크기는 9% 커질 뿐이다 (2026-10-29 실측)
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=4)
 _active = 0  # 처리 중인 요청 수. 자동 업데이트는 이 값이 0일 때만 다시 시작한다.
 
 
@@ -108,6 +109,13 @@ def _load(name: str) -> Project:
     if not NAME_RE.match(name) or not store.exists(name):
         raise HTTPException(404, f"프로젝트가 없어요: {name}")
     return store.load(name)
+
+
+def _view(name: str) -> Project:
+    """읽기만 하는 엔드포인트용 _load. 같은 판이면 전에 검증한 것을 함께 쓰므로 돌려받은 작품을 고치지 않는다 (store.load_view)."""
+    if not NAME_RE.match(name) or not store.exists(name):
+        raise HTTPException(404, f"프로젝트가 없어요: {name}")
+    return store.load_view(name)
 
 
 def _save(name: str, p: Project, merged: set[str] | None = None, kept: list[dict] | None = None) -> Project:
@@ -518,7 +526,7 @@ def _family(name: str) -> BranchFamily:
     if not fam:
         return BranchFamily()
     by_id = {v.id: k for k, v in fam.items()}
-    loaded = {k: store.load(k) for k in fam}
+    loaded = {k: store.load_view(k) for k in fam}
     members = []
     for k, depth in branches.order(fam):
         b, p = fam[k], loaded[k]
@@ -555,7 +563,7 @@ def make_branch(name: str, body: BranchIn) -> BranchMember:
 @app.get("/api/projects/{name}/branches")
 def branch_family(name: str) -> BranchFamily:
     """이 작품이 속한 갈래 집안. 갈래가 없으면 빈 목록."""
-    _load(name)
+    _view(name)
     return _family(name)
 
 
@@ -668,7 +676,7 @@ def get_project(name: str, request: Request) -> Response:
         tag = f'"{st.st_mtime_ns:x}-{st.st_size:x}"'
         if request.headers.get("if-none-match") == tag:
             return Response(status_code=304, headers={"ETag": tag})
-    p = _load(name)
+    p = _view(name)
     return JSONResponse(p.model_dump(mode="json"), headers={"ETag": tag} if tag else None)
 
 
@@ -2074,7 +2082,7 @@ def _now() -> str:
 @app.get("/api/projects/{name}/pending")
 def get_pending(name: str) -> dict:
     """검토를 기다리는 AI 결과와 실패한 작업. 이미 쓸 수 없게 된 상태 변경안(본문 작성 상태도, 반영 뒤 고친 화도 아닌 화)은 지운다."""
-    p = _load(name)
+    p = _view(name)
     written = {e.plot.number for e in p.episodes if e.status == "written" or pipeline.edited_after_final(e)}
     stale = [k for k, r in store.load_pending(name)["results"].items() if r["kind"] == "state" and r["ep"] not in written]
 
@@ -2825,7 +2833,7 @@ class AutoEstimate(BaseModel):
 
 
 def _auto(name: str) -> dict:
-    p = _load(name)
+    p = _view(name)
     run = autorun.get_run(name)
     out = run.model_dump() if run else None
     if out and run.pending and (run.status != "review" or p.episode(run.ep).status != "written"):

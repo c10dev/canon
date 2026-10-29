@@ -484,7 +484,10 @@ Object.assign(actions, {
     setDelta(r.ep, structuredClone(r.pending));
     // 변경안을 만든 본문을 기준으로 둔다. 그 뒤 본문을 고쳤으면 상태 승인 화면이 '이 변경안을 만든 뒤 본문을 고쳤어요'를 알린다
     if (r.pending_text) S.deltaBase[r.ep] = r.pending_text;
+    // 상태 승인 화면의 '불러오기'는 이미 그 주소라 hashchange 가 생기지 않는다. 그때는 여기서 다시 그린다
+    const was = location.hash;
     location.hash = `${base()}/review/${r.ep}`;
+    if (location.hash === was) render();
   },
   async autoRevert(n) {
     if (!(await actions.revertFrom(n))) return;  // 상태 승인 화면의 '반영 취소'와 같은 동작
