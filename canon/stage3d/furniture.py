@@ -92,9 +92,37 @@ def world_box(anchor: StageAnchor, b: Box) -> tuple[float, float, float, float, 
     return (min(ax, bx), min(ay, by), b.z0, max(ax, bx), max(ay, by), b.z1)
 
 
+_SILL, _ROOF = 1.0, 1.75  # 자리를 품은 차: 옆판 위 끝(창 아래) · 지붕 아래 끝 (m). 앉는 면 0.45 의 자리 높이에 맞춘다
+
+
+def cab_vehicle(anchor: StageAnchor) -> Furniture:
+    """자리를 품은 차(stage.place_anchors 가 자리를 차 안에 놓는다): 앞 운전 칸(stage.CAB)을 비우고 옆판 · 계기판 · 지붕만 둔다.
+    v 1 이 차 앞. 창 높이(_SILL~_ROOF)는 열려 있어 창 너머로 손이 닿는다 (차 옆 틀 rooms/car_side.py 와 같은 생각)."""
+    fx, fy = stage._front(anchor.rot)
+    depth = abs(fx) * anchor.w + abs(fy) * anchor.h
+    width = abs(fy) * anchor.w + abs(fx) * anchor.h
+    c = max(0.0, 1 - stage.CAB / depth)
+    side, dash = min(0.1 / width, 0.1), 1 - min(0.3 / depth, 0.1)
+    return Furniture((
+        Box(0, 1, 0, c, 0.3, 2.0, barrier=True),                # 뒤 칸
+        Box(0, side, c, 1, 0.45, _SILL, barrier=True),          # 옆판
+        Box(1 - side, 1, c, 1, 0.45, _SILL, barrier=True),
+        Box(0, 1, dash, 1, 0.3, _SILL, barrier=True),           # 계기판 · 앞
+        Box(0, 1, c, 1, _ROOF, 2.0),                            # 지붕
+    ))
+
+
+def shape(anchor: StageAnchor, room: StageRoom, spec: Optional[RoomSpec] = None) -> Furniture:
+    """기준점 모양: lookup 에 더해, 장소 모듈이 모양을 정하지 않은 차가 자리를 품었으면 운전 칸을 비운 차."""
+    if anchor.kind == "vehicle" and not (spec and anchor.name in spec.anchors) and any(
+            x.kind == "seat" and stage.container(x, room.anchors) is anchor for x in room.anchors):
+        return cab_vehicle(anchor)
+    return lookup(anchor, spec)
+
+
 def solids(room: StageRoom, spec: Optional[RoomSpec] = None) -> list[Solid]:
     """방의 모든 가구 상자 (기준점 순, 상자 순)."""
-    return [Solid(a.id, world_box(a, b), b.solid, b.barrier) for a in room.anchors for b in lookup(a, spec).boxes]
+    return [Solid(a.id, world_box(a, b), b.solid, b.barrier) for a in room.anchors for b in shape(a, room, spec).boxes]
 
 
 def top(f: Furniture) -> float:

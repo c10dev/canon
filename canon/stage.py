@@ -321,6 +321,75 @@ def _beside(near: StageAnchor, rel: str, a: StageAnchor, others: list[StageAncho
     return base, f"{near.name} {RELS[rel]}"
 
 
+CAB = 1.9         # 자리를 품은 차의 앞 운전 칸 길이 (m). 3D 는 이 칸을 비운다 (stage3d.furniture.cab_vehicle)
+CAB_SEAT = 1.3    # 차 앞 끝에서 운전 칸 자리 가운데까지 (m): 발 둘 자리 · 계기판을 남긴다
+
+
+def _axes(v: StageAnchor) -> tuple[tuple[int, int], tuple[int, int], float, float]:
+    """차의 (앞 방향, 안에서 앞을 보고 왼쪽, 길이, 폭). 차의 앞(rot)은 긴 쪽이다 (ANCHOR_SIZES 의 깊이)."""
+    fx, fy = _front(v.rot)
+    f = (round(fx), round(fy))
+    return f, (f[1], -f[0]), abs(f[0]) * v.w + abs(f[1]) * v.h, abs(f[1]) * v.w + abs(f[0]) * v.h
+
+
+def container(a: StageAnchor, anchors: list[StageAnchor]) -> Optional[StageAnchor]:
+    """a 의 가운데를 품은 차 (차 안 자리 · 창). 없으면 None."""
+    cx, cy = a.x + a.w / 2, a.y + a.h / 2
+    return next((v for v in anchors if v.kind == "vehicle" and v.id != a.id
+                 and v.x <= cx <= v.x + v.w and v.y <= cy <= v.y + v.h), None)
+
+
+def _box(cx: float, cy: float, w: float, h: float, a: StageAnchor, rot: int) -> StageAnchor:
+    return a.model_copy(update={"x": round(cx - w / 2, 2), "y": round(cy - h / 2, 2), "w": w, "h": h, "rot": rot})
+
+
+def _free(c: StageAnchor, others: list[StageAnchor], skip: set[str]) -> bool:
+    return not _hits(c, [b for b in others if b.id not in skip], -0.01)
+
+
+def _in_vehicle(v: StageAnchor, a: StageAnchor, others: list[StageAnchor]) -> Optional[StageAnchor]:
+    """차 안 운전 칸에 자리를 놓는다: 앞 끝에서 CAB_SEAT 뒤, 왼쪽(운전석) 먼저 · 오른쪽, 그다음 뒷줄. 앞을 본다. 자리가 없으면 None."""
+    f, left, length, width = _axes(v)
+    cx, cy = v.x + v.w / 2, v.y + v.h / 2
+    side = width / 4
+    for row in range(3):
+        back = length / 2 - CAB_SEAT - row * 0.9
+        if back - a.h / 2 < -length / 2:
+            break
+        for k in (1, -1):
+            px = cx + f[0] * back + left[0] * side * k
+            py = cy + f[1] * back + left[1] * side * k
+            w, h = (a.w, a.h) if f[0] == 0 else (a.h, a.w)
+            c = _box(px, py, w, h, a, _ROT_OF[f])
+            if _free(c, others, {v.id}):
+                return c
+    return None
+
+
+def _on_vehicle_wall(v: StageAnchor, seat: Optional[StageAnchor], a: StageAnchor, others: list[StageAnchor]) -> Optional[StageAnchor]:
+    """차 옆면에 창 · 문을 붙인다. 자리 곁이면 그 자리 높이(앞뒤)에, 자리에 가까운 옆면 먼저 · 맞은편 옆면. 앞(rot)은 차 바깥이다.
+    운전석 창 앞에 선 사람은 창밖에 선다 (차 옆 틀 car_side 와 같은 모양)."""
+    f, left, length, width = _axes(v)
+    cx, cy = v.x + v.w / 2, v.y + v.h / 2
+    if seat is not None:
+        sx, sy = seat.x + seat.w / 2 - cx, seat.y + seat.h / 2 - cy
+        along, lat = sx * f[0] + sy * f[1], sx * left[0] + sy * left[1]
+    else:
+        along, lat = length / 2 - CAB_SEAT, 1.0
+    sides = (1, -1) if lat >= 0 else (-1, 1)
+    for shift in (0, -0.9, 0.9, -1.8):
+        for k in sides:
+            out = (left[0] * k, left[1] * k)
+            d = width / 2 - a.h / 2
+            px = cx + f[0] * (along + shift) + out[0] * d
+            py = cy + f[1] * (along + shift) + out[1] * d
+            w, h = (a.w, a.h) if out[0] == 0 else (a.h, a.w)
+            c = _box(px, py, w, h, a, _ROT_OF[out])
+            if _free(c, others, {v.id} | ({seat.id} if seat else set())):
+                return c
+    return None
+
+
 def _empty_spot(room: StageRoom, a: StageAnchor, others: list[StageAnchor]) -> StageAnchor:
     """방 안에서 다른 기준점과 사람 하나 설 틈을 둔 빈 자리 (위 왼쪽부터). 없으면 방 오른쪽 바깥 (방을 넓힌다)."""
     k = 0.25
@@ -349,7 +418,16 @@ def place_anchors(room: StageRoom, drafts: list[DraftAnchor]) -> tuple[StageRoom
         _, width, depth, sit, lie = ANCHOR_SIZES.get(kind, ANCHOR_SIZES["other"])
         a = StageAnchor(id=_new_id("a", {x.id for x in r.anchors}), name=name, kind=kind, w=width, h=depth, sit=sit, lie=lie)
         near = next((x for x in r.anchors if x.name.strip() == d.near.strip()), None) if d.near.strip() else None
-        if near is not None:
+        # 차에 붙는 자리는 차 안, 차 안 자리 곁의 창 · 문은 차 옆면 (2026-10-29 15화: 운전석 · 창이 캠핑카 밖에 놓였다)
+        car = None if near is None else near if near.kind == "vehicle" else container(near, r.anchors)
+        inside = None
+        if car is not None and kind == "seat":
+            inside = _in_vehicle(car, a, r.anchors)
+        elif car is not None and kind in ("window", "door"):
+            inside = _on_vehicle_wall(car, near if near is not car else None, a, r.anchors)
+        if inside is not None:
+            a, where = inside, f"{car.name} {'안' if kind == 'seat' else '옆면'}"
+        elif near is not None:
             a, where = _beside(near, d.rel.strip(), a, r.anchors)
         else:
             a, where = _empty_spot(r, a, r.anchors), "빈 자리"

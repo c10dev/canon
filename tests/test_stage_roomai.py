@@ -207,3 +207,33 @@ def test_web_fresh_draft_job_and_apply(client):
     assert prop["room_shared"] is True and prop["grown"]["id"] == "r1"
     v = client.post("/api/projects/ra/stage/15/apply", json={"event": 1, "role": "plan", "shared": True}).json()
     assert [r["id"] for r in v["rooms"]] == ["r1"] and len(v["rooms"][0]["anchors"]) == 2
+
+
+def test_seat_and_windows_go_inside_vehicle():
+    """15화 실측(2026-10-29): '운전석 near 캠핑카'가 차 밖 곁에, 창 둘이 운전석 앞뒤에 놓였다.
+    차에 붙는 자리는 차 안 앞쪽 왼쪽, 그 곁의 창은 차 양 옆면에 붙고 창 앞은 바깥이다. 3D 는 그 차의 운전 칸을 비운다."""
+    from canon.schema import StageBody, StageContact, StageScene, StageSpot
+    from canon.stage3d import furniture
+    p = _project()
+    room = stage.make_room("empty", "r1")
+    room, adds, _, _ = stage.place_anchors(room, [
+        DraftAnchor(name="캠핑카", kind="vehicle", near="문", rel="back"),
+        DraftAnchor(name="운전석", kind="seat", near="캠핑카", rel="right"),
+        DraftAnchor(name="운전석 창", kind="window", near="운전석", rel="right"),
+        DraftAnchor(name="조수석 창", kind="window", near="운전석", rel="left"),
+        DraftAnchor(name="정비차", kind="vehicle", near="캠핑카", rel="left")])
+    a = {x.name: x for x in room.anchors}
+    car, seat, win, win2 = a["캠핑카"], a["운전석"], a["운전석 창"], a["조수석 창"]
+    assert [x.where for x in adds][1:4] == ["캠핑카 안", "캠핑카 옆면", "캠핑카 옆면"]
+    assert stage.container(seat, room.anchors) is car and stage.container(win, room.anchors) is car
+    # 차 앞이 위(rot 180)라 안에서 앞을 보고 왼쪽은 x 가 작은 쪽: 운전석과 운전석 창이 왼쪽 옆면, 조수석 창은 오른쪽 옆면
+    assert seat.x + seat.w / 2 < car.x + car.w / 2 and win.x == car.x and win2.x + win2.w == pytest.approx(car.x + car.w)
+    assert win.rot == 90 and win2.rot == 270 and seat.rot == car.rot
+    # 운전 칸을 비운 차는 자리를 품은 차뿐이다
+    assert len(furniture.shape(car, room).boxes) == 5 and furniture.shape(a["정비차"], room) == furniture.KINDS["vehicle"]
+    # 운전석에 앉은 건우와 창밖의 예은: 창 너머로 손을 잡아도 2D · 3D 지적이 없다
+    sc = StageScene(id="x", cast=["hero", "char2"], room=room.id, start=[
+        StageBody(who="hero", at=StageSpot(ref=seat.id, rel="on"), posture="chair", facing="@char2", left="", right=""),
+        StageBody(who="char2", at=StageSpot(ref=win.id, rel="front"), posture="stand", facing="@hero", left="", right="", contacts=[
+            StageContact(id="c1", by="right", to="hero", part="hand_l", act="hold")])])
+    assert stage.judge_all(sc, room, p) == []
