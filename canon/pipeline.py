@@ -3257,13 +3257,22 @@ def _pick_room(p: Project, want: str) -> StageRoom:
     return stage.make_room(tid, stage._new_id("r", {r.id for r in p.rooms}))
 
 
-def _stage_ask(llm: LLM, p: Project, n: int, event: int, role: str, hint: dict | None = None) -> StageProposal:
+def _fresh_room(p: Project, ep: Episode, event: int, template: str) -> StageRoom:
+    """새 장면 카드의 '빈 방에서 초안': 틀로 만든 새 방 (작품에는 아직 넣지 않는다). 이름은 그 사건을 맡은 스토리보드 자리 · 장소."""
+    hit = stage.board_scene_of(ep, event)
+    name = (hit[1].spot.strip() or hit[1].place.strip()) if hit else ""
+    return stage.make_room(template, stage._new_id("r", {r.id for r in p.rooms}), name)
+
+
+def _stage_ask(llm: LLM, p: Project, n: int, event: int, role: str, hint: dict | None = None, fresh: str = "") -> StageProposal:
     ep = p.episode(n)
     if not 0 <= event < len(ep.plot.events):
         raise ValueError(f"{n}화에 {event + 1}번째 사건이 없어요")
     if role == "text" and not ep.text:
         raise ValueError(f"{n}화 본문이 없어요")
     room, prev = _stage_context(p, ep, event, role)
+    if fresh and room is None:
+        room = _fresh_room(p, ep, event, fresh)
     make = prompts.stage_extract_prompt if role == "text" else prompts.stage_draft_prompt
     d = llm.json(prompts.SYSTEM_STAGE, make(p, n, event, room, prev), StageDraft,
                  hint={"episode": n, "event": event, "role": role, "text": ep.text if role == "text" else "",
@@ -3271,16 +3280,27 @@ def _stage_ask(llm: LLM, p: Project, n: int, event: int, role: str, hint: dict |
     new_room = None
     if room is None:
         room = _pick_room(p, d.room)
-        new_room = None if any(r.id == room.id for r in p.rooms) else room
+    if not any(r.id == room.id for r in p.rooms):
+        new_room = room
+    # 방에 없는 장소는 기준점으로 더해 두고 그 방으로 장면을 정리한다 (계획 초안만. 본문 뽑기는 방을 바꾸지 않는다)
+    grown, adds, dx, dy = stage.place_anchors(room, d.new_anchors if role == "plan" else [])
+    notes_room = []
+    if adds:
+        if (grown.w, grown.h) != (room.w, room.h):
+            notes_room.append(f"방을 {room.w:g}×{room.h:g}m 에서 {grown.w:g}×{grown.h:g}m 로 넓혀요")
+        room = grown
     scene, dropped, notes = stage.from_draft(d, p, ep, event, room, role)
     if role == "text":
         scene.basis = text_basis(ep.text)
-    return StageProposal(episode=n, event=event, role=role, scene=scene, room=new_room, dropped=dropped, notes=notes, at=_now())
+    keep = {} if new_room is not None or not adds else {"grown": grown, "shift_x": dx, "shift_y": dy}
+    return StageProposal(episode=n, event=event, role=role, scene=scene, room=room if new_room is not None else None, adds=adds,
+                         dropped=dropped, notes=[*notes_room, *notes], at=_now(), **keep)
 
 
-def draft_stage(llm: LLM, p: Project, n: int, event: int) -> StageProposal:
-    """플롯 사건 하나의 계획 장면 초안 (plan 단계). 본문은 넣지 않는다."""
-    return _stage_ask(llm, p, n, event, "plan")
+def draft_stage(llm: LLM, p: Project, n: int, event: int, fresh: str = "") -> StageProposal:
+    """플롯 사건 하나의 계획 장면 초안 (plan 단계). 본문은 넣지 않는다.
+    fresh 는 아직 방이 없을 때 AI 에게 고르게 하지 않고 그 틀(보통 empty)로 새 방을 만들어 준다. 방에 없는 장소는 AI 가 기준점으로 제안한다."""
+    return _stage_ask(llm, p, n, event, "plan", fresh=fresh)
 
 
 def extract_stage(llm: LLM, p: Project, n: int, event: int, hint: dict | None = None) -> StageProposal:
@@ -3316,21 +3336,43 @@ def stage_extract_all(llm: LLM, p: Project, n: int, hint: dict | None = None) ->
     return auto, held
 
 
-def apply_stage(p: Project, prop: StageProposal) -> StageScene:
+def apply_stage(p: Project, prop: StageProposal, shared: bool = False) -> StageScene:
     """AI 장면을 통째로 넣는다. 같은 사건 · 같은 역할의 장면이 있으면 바꾸고 그 장면을 prev 에 남긴다(적용 취소 한 번).
-    없던 장면이면 prev 는 id 가 빈 장면(적용 전에는 장면이 없었음)이다. 새 방이면 작품에 더한다."""
+    없던 장면이면 prev 는 id 가 빈 장면(적용 전에는 장면이 없었음)이다. 새 방이면 작품에 더한다(room_made).
+    더할 기준점(adds)이 있으면: 장면 전용 방이면 그 방에 더하고(room_prev), 공용 방(stage.room_shared)이면 그 방을 복사한
+    장면 전용 방에 더한다. shared 가 참이면 공용 방에 바로 더한다 (2026-10-29 사용자: 복사가 기본)."""
     ep = p.episode(prop.episode)
     scene = prop.scene.model_copy(deep=True)
+    made, room_prev = "", None
     if prop.room is not None:
         room = prop.room.model_copy(deep=True)
         if any(r.id == room.id for r in p.rooms):
             room.id = stage._new_id("r", {r.id for r in p.rooms})
         p.rooms.append(room)
-        scene.room = room.id
+        scene.room = made = room.id
+    elif prop.adds and prop.grown is not None:
+        base = next((r for r in p.rooms if r.id == prop.grown.id), None)
+        if base is None:  # 받은 뒤 방을 지웠으면 제안한 모습 그대로 새 방
+            grown = prop.grown.model_copy(deep=True)
+            p.rooms.append(grown)
+            made = grown.id
+        else:  # 받은 뒤 작가가 방을 고쳤을 수 있어 지금 방에 더한다
+            grown, remap = stage.grow_room(base, prop.adds, prop.shift_x, prop.shift_y, prop.grown.w, prop.grown.h)
+            stage.remap_anchors(scene, remap)
+            if stage.room_shared(p, base.id, prop.episode, prop.event, prop.role) and not shared:
+                grown.id = stage._new_id("r", {r.id for r in p.rooms})
+                grown.name, grown.place = f"{base.name} · {prop.episode}화 사건 {prop.event + 1}", ""
+                p.rooms.append(grown)
+                made = grown.id
+            else:
+                room_prev = base.model_copy(deep=True)
+                p.rooms = [grown if r.id == base.id else r for r in p.rooms]
+        scene.room = grown.id
+    scene.room_made, scene.room_prev = made, room_prev
     old = stage.scenes_of(ep, prop.event)[prop.role == "text"]
     if old is not None:
         scene.id = old.id
-        scene.prev = old.model_copy(update={"prev": None}, deep=True)
+        scene.prev = old.model_copy(update={"prev": None, "room_prev": None, "room_made": ""}, deep=True)
         ep.stage = [scene if s.id == old.id else s for s in ep.stage]
     else:
         scene.id = stage._new_id("s", {s.id for s in ep.stage})
@@ -3347,11 +3389,18 @@ def undo_stage(p: Project, n: int, sid: str) -> StageScene | None:
         raise KeyError(f"{n}화에 그런 장면이 없어요: {sid}")
     if s.prev is None:
         raise ValueError("적용 취소할 AI 적용이 없어요")
+    # 적용이 바꾼 방도 되돌린다: 기준점을 더한 방은 적용 전 모습으로, 새로 만든 방은 다른 장면이 쓰지 않으면 뺀다
+    if s.room_prev is not None:
+        p.rooms = [s.room_prev.model_copy(deep=True) if r.id == s.room_prev.id else r for r in p.rooms]
+    made = s.room_made
     if not s.prev.id:
         stage.remove_scene(ep, sid)
-        return None
-    back = s.prev.model_copy(update={"prev": None}, deep=True)
-    ep.stage = [back if x.id == sid else x for x in ep.stage]
+        back = None
+    else:
+        back = s.prev.model_copy(update={"prev": None, "room_prev": None, "room_made": ""}, deep=True)
+        ep.stage = [back if x.id == sid else x for x in ep.stage]
+    if made and not stage.room_users(p, made):
+        p.rooms = [r for r in p.rooms if r.id != made]
     return back
 
 

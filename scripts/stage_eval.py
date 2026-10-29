@@ -53,7 +53,7 @@ def project(case: dict, text: str) -> tuple[Project, Episode]:
 
 def gold_scene(p: Project, ep: Episode, gold: dict) -> StageScene:
     room = p.rooms[0]
-    s, _, notes = stage.from_draft(StageDraft.model_validate(gold), p, ep, 0, room, "text")
+    s, _, notes = stage.from_draft(StageDraft.model_validate({"new_anchors": [], **gold}), p, ep, 0, room, "text")  # 정답 세트는 기준점 제안 칸 전에 만들었다
     assert not notes, notes  # 정답은 이름 · 기준점이 모두 맞아야 한다
     return s
 

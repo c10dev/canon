@@ -1756,6 +1756,7 @@ class JobIn(BaseModel):
     repeats: int = 1  # stattrial: 조건마다 같은 화를 쓸 횟수
     conditions: list[str] = []  # stattrial: none | json | lines (비우면 셋 다)
     event: int = 0  # stage_draft, stage_extract: 플롯 사건 번호 (0부터)
+    stage_room: str = ""  # stage_draft: 아직 방이 없을 때 이 틀(보통 empty)로 새 방을 만들어 초안을 받는다 (AI 가 기준점을 더하자고 한다)
     board: Literal["", "make", "none"] = ""  # write: make 면 스토리보드를 새로 만든 뒤 쓴다(바로 쓰기), none 이면 스토리보드 없이 쓴다
 
 
@@ -1874,12 +1875,12 @@ def start_job(name: str, body: JobIn) -> dict:
             raise ValueError(f"{n}화에 {body.event + 1}번째 사건이 없어요")
         if kind == "stage_extract" and not e.text:
             raise ValueError("본문이 있는 화만 뽑아요")
-        event = body.event
+        event, fresh = body.event, body.stage_room if body.stage_room in pipeline.stage.ROOMS else ""  # 이 함수 안의 stage 는 LLM 단계 이름이다
         label, total, owned = f"{n}화 사건 {event + 1} {'연출 초안' if kind == 'stage_draft' else '본문에서 연출 뽑기'}", 1, set()
 
         def fn(job: jobs.Job):
             q = store.load(name)
-            prop = (pipeline.draft_stage if kind == "stage_draft" else pipeline.extract_stage)(llm, q, n, event)
+            prop = pipeline.draft_stage(llm, q, n, event, fresh) if kind == "stage_draft" else pipeline.extract_stage(llm, q, n, event)
             _stage_keep(name, prop)
             return {"event": event, "role": prop.role, "beats": len(prop.scene.beats), "dropped": prop.dropped}
     elif kind == "storyline":
@@ -2347,15 +2348,17 @@ def _stage_view(name: str, p: Project, n: int) -> dict:
     props = []
     for x in _stage_proposals(name, n):
         prop = StageProposal.model_validate(x)
-        room = prop.room or stage.room_of(p, prop.scene)
+        room = prop.room or prop.grown or stage.room_of(p, prop.scene)
+        shared = bool(prop.adds and prop.grown) and stage.room_shared(p, prop.grown.id, n, prop.event, prop.role)
         props.append({**prop.model_dump(), "violations": [v.model_dump() for v in stage.judge_all(prop.scene, room, p)] if room else [],
-                      "stale": stage.stale(prop.scene, e.text)})
+                      "stale": stage.stale(prop.scene, e.text), "room_shared": shared})
     return {**out, "proposals": props}
 
 
 class StageApplyIn(BaseModel):
     event: int
     role: Literal["plan", "text"] = "plan"
+    shared: bool = False  # AI 가 더하자는 기준점을 공용 방에 바로 더한다 (거짓이면 공용 방을 복사한 장면 전용 방에)
 
 
 @app.post("/api/projects/{name}/stage/{n}/apply")
@@ -2369,7 +2372,7 @@ def stage_apply(name: str, n: int, body: StageApplyIn) -> dict:
         raise ValueError("적용할 AI 장면이 없어요. 다시 받아 주세요")
     prop = StageProposal.model_validate(rec["result"])
     made = {}
-    p = _edit(name, lambda q: made.update(id=pipeline.apply_stage(q, prop).id))
+    p = _edit(name, lambda q: made.update(id=pipeline.apply_stage(q, prop, body.shared).id))
     store.edit_pending(name, lambda d: d["results"].pop(key, None))
     return {**_stage_view(name, p, n), "made": made["id"]}
 

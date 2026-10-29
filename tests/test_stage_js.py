@@ -31,7 +31,12 @@ def _scenes(room):
         StageBeat(bodies=[StageBody(who="d", at=sp(a["침대"], "right"), facing="@h"), StageBody(who="h", at=sp("@d", "front"))]),
     ])
     loop = StageScene(id="s2", cast=["p", "q"], start=[StageBody(who="p", at=sp("@q", "front")), StageBody(who="q", at=sp("@p", "back"))])
-    return [one, loop]
+    # 서로를 향하고 한쪽이 '상대 왼쪽': 박자마다 돌지 않고 앞 박자 쪽에 선다 (2026-10-29 15화 사건 1)
+    spin = StageScene(id="s3", cast=["h", "x"], start=[
+        StageBody(who="h", at=sp(a["의자"], "on"), posture="chair", facing="@x"),
+        StageBody(who="x", at=sp("@h", "left"), facing="@h"),
+    ], beats=[StageBeat(note="그대로"), StageBeat(bodies=[StageBody(who="x", posture="walk")]), StageBeat(note="그대로")])
+    return [one, loop, spin]
 
 
 @needs_node

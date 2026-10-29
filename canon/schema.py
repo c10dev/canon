@@ -1240,6 +1240,8 @@ class StageScene(BaseModel):
     prompt: bool = Field(True, description="쓰기 프롬프트에 넣기")
     role: Literal["plan", "text"] = Field("plan", description="계획 장면(쓰기 전 작가가 짠 것) · 본문 장면(본문에서 뽑은 것). 한 사건에 역할마다 하나")
     prev: Optional["StageScene"] = Field(None, description="마지막 AI 적용 전 장면 (적용 취소 한 번)")
+    room_prev: Optional[StageRoom] = Field(None, description="마지막 AI 적용이 기준점을 더한 공용 방의 적용 전 모습 (적용 취소가 되돌린다)")
+    room_made: str = Field("", description="마지막 AI 적용이 새로 만든 방 id (적용 취소 때 다른 장면이 쓰지 않으면 뺀다)")
 
 
 # LLM 이 채우는 장면 연출 (pipeline.draft_stage · extract_stage). 이름으로 적고 stage.from_draft 가 id 로 바꾼다. dict 필드를 쓰지 않는다.
@@ -1270,6 +1272,14 @@ class DraftBody(BaseModel):
     memo: str = Field("", description="목록에 없는 것을 짧게")
 
 
+class DraftAnchor(BaseModel):
+    """방에 없는 장소를 기준점으로 더하자는 제안. 자리는 다른 기준점과의 관계 말로만 적고 좌표는 코드가 정한다 (stage.place_anchors)."""
+    name: str = Field(description="기준점 이름 (박자 자리 at_ref 에 이 이름을 그대로 씀)")
+    kind: str = Field("other", description="기준점 종류 id (기준점 종류 목록)")
+    near: str = Field("", description="가까이 있는 기준점 이름: 방에 있는 것이나 이 목록 앞에 적은 것. 모르면 빈칸")
+    rel: str = Field("", description="near 에서 본 이 기준점의 쪽: front · back · left · right · beside (near 가 있을 때만)")
+
+
 class DraftBeat(BaseModel):
     quote: str = Field("", description="본문에서 뽑을 때: 이 박자를 정한 본문 문장 원문 그대로 한 문장. 쓰기 전 초안이면 빈칸")
     note: str = Field("", description="이 박자에 일어나는 일 한 줄")
@@ -1283,6 +1293,13 @@ class StageDraft(BaseModel):
     cast: list[str] = Field(description="이 장면에 나오는 인물 이름")
     start: list[DraftBody] = Field(description="시작 상태: 인물마다 아는 칸을 모두")
     beats: list[DraftBeat] = Field(description="박자 차례. 장면이 있으면 비우지 않는다")
+    new_anchors: list[DraftAnchor] = Field(description="방에 없어 더할 기준점. 더할 것이 없으면 빈 목록")
+
+
+class AnchorAdd(BaseModel):
+    """방에 더할 기준점 하나와 화면에 보일 자리 말."""
+    anchor: StageAnchor
+    where: str = ""
 
 
 class StageProposal(BaseModel):
@@ -1292,6 +1309,10 @@ class StageProposal(BaseModel):
     role: Literal["plan", "text"] = "plan"
     scene: StageScene
     room: Optional[StageRoom] = Field(None, description="새로 만들 방 (이미 있는 방을 쓰면 None)")
+    adds: list["AnchorAdd"] = Field(default_factory=list, description="AI 가 더하자고 한 기준점 (좌표는 코드가 정함)")
+    grown: Optional[StageRoom] = Field(None, description="이미 있는 방에 adds 를 더하고 넓힌 모습 (방 id 는 그대로). 새 방이면 room 에 이미 들어 있다")
+    shift_x: float = Field(0, description="grown 이 넓히며 옛 기준점을 옮긴 거리 m")
+    shift_y: float = 0
     dropped: int = Field(0, description="막은 접촉 수 (미성년 인물이 낀 성적 접촉)")
     notes: list[str] = Field(default_factory=list, description="정리하며 메모로 옮기거나 뺀 것")
     at: str = ""
