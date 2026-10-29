@@ -44,6 +44,13 @@ def test_new_save_check_delete(client):
     # 같은 방을 쓰는 두 번째 장면
     v = client.post("/api/projects/st/stage/1", json={"event": 0, "room": v["rooms"][0]["id"]}).json()
     assert len(v["rooms"]) == 1 and len(v["scenes"]) == 2
+    # 같은 사건의 본문 장면: 계획을 덮지 않고 짝으로 견준다. 두 번째 본문 장면은 막는다
+    v = client.post("/api/projects/st/stage/1", json={"event": 1, "room": v["rooms"][0]["id"], "role": "text"}).json()
+    row = next(x for x in v["scenes"] if x["scene"]["role"] == "text")
+    assert row["pair"] == sid and row["event"] == 1 and any(g["field"] == "at" for g in row["gaps"])
+    r = client.post("/api/projects/st/stage/1", json={"event": 1, "template": "bedroom", "role": "text"})
+    assert r.status_code == 400 and "이미 본문 장면" in r.json()["detail"]
+    v = client.delete(f"/api/projects/st/stage/1/{row['scene']['id']}").json()
     v = client.delete(f"/api/projects/st/stage/1/{sid}").json()
     assert [x["event"] for x in v["scenes"]] == [0]
 

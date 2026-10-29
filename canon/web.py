@@ -2203,6 +2203,7 @@ class StageNewIn(BaseModel):
     template: str = ""
     room_name: str = ""
     place: str = ""
+    role: Literal["plan", "text"] = "plan"  # 본문 장면은 보통 추출(일감 03)이 만든다
 
 
 class StageSaveIn(BaseModel):
@@ -2232,7 +2233,7 @@ def stage_new(name: str, n: int, body: StageNewIn) -> dict:
         room = next((r for r in p.rooms if r.id == body.room), None) if body.room else None
         if room is None:
             room = stage.new_room(p, body.template or "empty", body.room_name, body.place)
-        made["id"] = stage.new_scene(p, e, body.event, room).id
+        made["id"] = stage.new_scene(p, e, body.event, room, body.role).id
 
     p = _edit(name, fn)
     return {**stage.view(p, n), "made": made["id"]}

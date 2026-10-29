@@ -1250,6 +1250,7 @@ class StageScene(BaseModel):
     source: Literal["manual", "plot", "text"] = Field("manual", description="마지막으로 통째 적용한 출처: 작가 · 플롯 초안 · 본문 추출")
     basis: str = Field("", description="본문에서 뽑았을 때 본문 지문 (pipeline.text_basis)")
     prompt: bool = Field(True, description="쓰기 프롬프트에 넣기")
+    role: Literal["plan", "text"] = Field("plan", description="계획 장면(쓰기 전 작가가 짠 것) · 본문 장면(본문에서 뽑은 것). 한 사건에 역할마다 하나")
     prev: Optional["StageScene"] = Field(None, description="마지막 AI 적용 전 장면 (적용 취소 한 번)")
 
 

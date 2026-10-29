@@ -107,3 +107,44 @@ def test_views_render():
     assert "아직 연출이 없어요" in got["fresh"] and "하린의 방" in got["fresh"]
     assert got["nav"][3] == "장면 연출" and got["nav"][4] is True
     assert "/stage/1/2" in got["plot"] and "/stage/1/1" in got["plot"]
+
+
+@needs_node
+def test_plan_text_toggle_and_ghost():
+    p = Project(meta=Meta(title="t", target_episodes=2), characters=[
+        Character(id="h", name="하린", role="주인공", age="27"), Character(id="d", name="도윤", role="조연", age="29")],
+        episodes=[episode(1, plot={"title": "첫 화", "events": ["도윤이 찾아온다", "하린이 붙잡는다"], "characters": ["h", "d"]})])
+    e = p.episodes[0]
+    room = stage.new_room(p, "bedroom", "하린의 방")
+    bed = next(a.id for a in room.anchors if a.name == "침대")
+    plan = stage.new_scene(p, e, 1, room)
+    plan.beats = [StageBeat(note="도윤이 침대 옆으로", bodies=[StageBody(who="d", at=StageSpot(ref=bed, rel="right"))])]
+    text = stage.new_scene(p, e, 1, room, "text")
+    text.beats = [StageBeat(quote="도윤이 문가에 섰다.", bodies=[StageBody(who="d", facing="@h")]),
+                  StageBeat(quote="하린이 침대에 앉았다.", bodies=[StageBody(who="h", at=StageSpot(ref=bed, rel="on"), posture="chair")])]
+    view = stage.view(p, 1)
+    row = next(x for x in view["scenes"] if x["scene"]["role"] == "text")
+    got = run_js(FILES, """(() => {
+      S.project = data.p; S.name = 't'; S.route = ['p', 't', 'stage', '1', '2'];
+      const mk = (role, ev) => ({ n: 1, ev, view: data.view, role, ghost: true, sid: null, scene: null, room: null, dirty: false, beat: 0, who: '', mode: 'people', check: null,
+        form: { by: 'right', to: '', part: '', act: 'hold' }, pick: { room: '', template: 'bedroom', name: '' }, playing: null });
+      S.stg = mk('plan', 2); stgPick();
+      const plan = viewStage(1), planRole = S.stg.scene.role;
+      S.stg = mk('text', 2); stgPick();
+      const text = viewStage(1), textRole = S.stg.scene.role;
+      const ghost = stgPlanSvg(stgTarget(0).pos, stgTarget(0).ang, 0);
+      S.stg.ghost = false;
+      const plain = stgPlanSvg(stgTarget(0).pos, stgTarget(0).ang, 0);
+      S.stg = mk('text', 1); stgPick();
+      const empty = viewStage(1);
+      return { plan, planRole, text, textRole, ghost, plain, empty, beats: [0, 1, 2, 3].map((k) => stagePlanBeat(data.match, k)) };
+    })()""", {"p": dump(p), "view": view, "match": [0, 2]})
+    assert got["planRole"] == "plan" and got["textRole"] == "text"
+    assert 'data-action="stgRole" data-arg="plan" title="쓰기 전에 짠 장면">계획 ●' in got["plan"] and 'aria-pressed="true" data-action="stgRole" data-arg="plan"' in got["plan"]
+    assert "도윤이 침대 옆으로" in got["plan"] and "추출 결과" not in got["plan"] and "쓰기 프롬프트에 넣기" in got["plan"]
+    assert "추출 결과" in got["text"] and "겹쳐 보기" in got["text"] and "하린이 침대에 앉았다." in got["text"]
+    assert row["match"] == [0, 1]  # 이뤄지지 않은 계획 박자 1 은 다음 본문 박자에 견준다
+    assert row["gaps"] and "계획과 다른 곳" in got["text"] and "계획과 달라요" in got["text"]
+    assert 'data-stg-ghost-who="d"' in got["ghost"] and "흐린 원 = 계획 시작 상태" in got["ghost"] and "stg-ghost" not in got["plain"]
+    assert "본문에서 뽑기 전이에요" in got["empty"] and "장면 만들기" not in got["empty"]
+    assert got["beats"] == [0, 0, 1, 1]

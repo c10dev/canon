@@ -12,7 +12,7 @@
 | 4 | 검수 연결: 규칙 지적을 검수 세션에, 검수 때 함께 뽑기 | 설계 | [04-check.md](specs/04-check.md) | 1, 3 |
 | 5 | 쓰기 프롬프트 블록 (두 층: 지시 + 배경 제약) | 구현 (두 층) · PR [#162](https://github.com/c10dev/canon/pull/162) | [05-prompt.md](specs/05-prompt.md) | 1 |
 | 1-1 | #159 2D 문제 세 가지(인물 기준 순환, 의자 방향, 지적의 접촉 id) | 구현 · PR [#163](https://github.com/c10dev/canon/pull/163) | 01 · #159 댓글 | 1 |
-| 7 | 계획 · 본문 장면(`role`)과 계획 대비 차이 | 설계 | [07-plan-text.md](specs/07-plan-text.md) | 1-1 |
+| 7 | 계획 · 본문 장면(`role`)과 계획 대비 차이 | 구현 | [07-plan-text.md](specs/07-plan-text.md) | 1-1 |
 | 6 | 3D 판정 · 보기 (자세 모듈, 장소 모듈) | 시안 · PR [#161](https://github.com/c10dev/canon/pull/161), 모듈 명세 작성 중 | `06-3d.md` (#161 브랜치) | 7 |
 
 차례: 1-1 → 7 → 3 · 4(한 세션, 7 위에) 로 쌓는다. 5 는 문구만 고쳐 따로 간다(장면 고르기의 `role` 은 7 이 맞춘다). 6 은 명세를 먼저 쓰고, 자세 모듈 · 장소 모듈 · 3D 판정을 병렬 세션으로 만든다. 같은 파일을 고치는 일감은 앞 일감 브랜치 위에 쌓는다(AGENTS.md 의 worktree 규칙).
