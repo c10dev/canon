@@ -364,7 +364,7 @@ OpenStreetMap(OSM) 데이터를 올리면 실제 동네를 지도로 쓴다. 현
 - **낡음**: `basis` 는 직전 화 본문, 이번 화 · 다음 화 플롯, 이번 화 인물의 지금 상태를 이은 지문이다(`board.basis`). 본문을 쓰기 전에만 견준다(`board.stale`). 작가가 저장하면(`pipeline.set_storyboard`) 지금 입력을 보고 고친 것으로 보아 지문을 새로 두고 `made_by` 가 `author` · `both` 가 된다.
 - **켜기**: `Settings.storyboard`(None 이면 장편 켬 · 단편 끔, `board.on`). 켜진 작품은 쓰기 프롬프트의 직전 화가 끝 1,500자 대신 원문 전체(`board.prev_text`, 2만 자까지)다. 꺼진 단편은 프롬프트가 예전과 같다.
 - **자동 집필**: `Policy.storyboard`(기본 켬)면 `_board` 가 쓰기 전에 없거나 낡은 스토리보드를 만든다(배치로 보내지 않음). `stop_on_board_warnings`(기본 켬)는 AI 스토리보드의 이번 화 어긋남(`board.STOP_KINDS`)이나 값 범위 경고에서 멈춘다(halt `board`). 작가가 고친 스토리보드로는 멈추지 않고, 그것이 낡았으면 새로 만들지 않고 멈춘다(halt `board_stale`). 추정(`estimate`)은 화마다 plan 호출 하나와 쓰기 입력 약 3,500자를 더한다.
-- **화면**: 집필 화면의 본문 없는 화에 카드(`boardStart`: 만들기 · 바로 쓰기 · 스토리보드 없이 쓰기, `boardCard`: 어긋남 · 확정 값 · 넘겨받을 것 · 깨지 않을 것 · 장면, 고치기 `boardForm`), 쓴 화는 접어 둔 카드(`boardPanel`). 웹은 작업 `board`, 쓰기 작업의 `board`(make · none), `GET · PUT · DELETE …/episodes/{n}/storyboard`(계산 값은 `board.view`).
+- **화면**: 집필 화면의 본문 없는 화에 쓰기 시작 칸(`write.js` `writeStart`: 먼저 만들어 보기 · 만들고 바로 쓰기 · 스토리보드 없이, 머리 primary `writeGo`), 만든 스토리보드 카드(`boardStart` → `boardCard`, 머리 primary `boardGo` 이대로 쓰기: 어긋남 · 확정 값 · 넘겨받을 것 · 깨지 않을 것 · 장면, 고치기 `boardForm`), 쓴 화는 접어 둔 카드(`boardPanel`). 웹은 작업 `board`, 쓰기 작업의 `board`(make · none), `GET · PUT · DELETE …/episodes/{n}/storyboard`(계산 값은 `board.view`).
 - **2단계로 남긴 것**: 상태 추출이 스토리보드 끝 값을 미리 채우기(`statwin.board_merge`), 본문 상태창 자리 표시 `〔상태창 k〕`와 반영 때 채우기, 다시 생성 패널의 '스토리보드도 다시 만들기' 칸과 `TextVersion.storyboard`, 이동 거리 판정(`travel` 과 잇기), 기획 규칙의 '수치는 방향만'.
 
 ### 화 진행 막대 · 연재 일정 (`static/home.js`, `Project.release`)
