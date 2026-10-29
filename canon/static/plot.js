@@ -627,6 +627,27 @@ function serialHead(pending, partsPending) {
   return { html: '' };
 }
 
+/** 다음 아크 기획 앞 경고: 본문보다 너무 앞서 짠 아크, 요약이 없는 끝난 아크 · 부. 막지 않는다.
+    pipeline.plan_ahead 와 같은 규칙 (PLAN_AHEAD_MAX 2, tests/test_plan_ahead_js.py) */
+function planAhead(p) {
+  const written = Math.max(0, ...p.episodes.filter((e) => (e.text || '').trim() || e.status === 'written' || e.status === 'finalized').map((e) => e.plot.number));
+  const until = Math.max(0, ...p.story_arcs.map((a) => a.end_ep));
+  const unwritten = p.story_arcs.filter((a) => a.start_ep > written).length;
+  const r = homeRecaps(p);
+  const recaps = [...r.arcs.map((a) => ['arc', a.number]), ...r.parts.map((x) => ['part', x.number])];
+  const serial = p.meta.form === 'serial';
+  const notes = [];
+  if (serial && unwritten >= 2) {
+    const where = written ? `본문은 ${written}화까지인데` : '본문이 아직 없는데';
+    notes.push(`${where} 아크가 ${until}화까지 짜여 있어요 (본문 없는 아크 ${unwritten}개). 앞 아크를 쓰고 요약한 뒤 기획하면 쓰인 줄거리를 보고 짤 수 있어요.`);
+  }
+  if (serial && recaps.length) {
+    const names = recaps.map(([k, n]) => (k === 'arc' ? `아크 ${n}` : `${n}부`)).join(', ');
+    notes.push(`끝났는데 요약이 없어요: ${names}. 먼저 요약하면 다음 아크 기획이 그 줄거리를 제대로 봐요. 요약이 없으면 화마다 첫 문장으로만 들어가요.`);
+  }
+  return { written, planned_until: until, unwritten_arcs: unwritten, recaps, notes };
+}
+
 function nextArcPanel(start) {
   const p = P();
   if (start > p.meta.target_episodes) return `<div class="card empty"><p>총 ${p.meta.target_episodes}화까지 아크가 모두 있어요.</p><span class="small">더 쓰려면 <a href="${base()}/setup">설정 도우미</a>에서 총 화수를 늘리세요. 마지막 부 끝 화가 따라 늘어나요.</span></div>`;
@@ -655,6 +676,7 @@ function nextArcPanel(start) {
     ${old.length ? `<div class="note warn">50화 넘게 열린 복선이 ${old.length}개 있어요. 이번 아크에서 회수하거나 다시 떠올리도록 AI에게 함께 보여 줘요.</div>` : ''}
     <div class="grid-2">${input('아크 길이 (화)', 'length', { root: 'arcForm', type: 'number', min: 0, zeroBlank: true, placeholder: 'AI가 정함', hint: '비우면 AI가 내용에 맞게 (보통 10~25화)' })}<div></div></div>
     ${input('이번 아크에 바라는 것 (선택)', 'note', { root: 'arcForm', rows: 3, autogrow: true, placeholder: '예: 학교 밖으로 무대를 넓히고, 라이벌과 처음 손잡게' })}
+    ${planAhead(p).notes.map((x) => `<div class="note warn">${esc(x)}</div>`).join('')}
     <div class="row"><button class="btn primary" data-action="planNextArc"${btn.attr}>${btn.label}</button><span class="small">지금까지 실제로 쓴 줄거리(요약), 부 목표, 열린 복선을 보고 아크 하나를 제안해요. 적용 전에 고칠 수 있어요.</span></div>
   </section>`;
 }

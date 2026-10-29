@@ -407,3 +407,52 @@ def test_web_serial_flow(tmp_path, monkeypatch):
     assert p["story_arcs"] == [] and p["episodes"] == []
     p = c.post("/api/projects/t/recap/part/1", json={"summary": "1부 요약"}).json()
     assert p["parts"][0]["summary"] == "1부 요약"
+
+
+def test_plan_ahead_warns_when_two_arcs_have_no_text():
+    p = _serial()
+    a1 = _plan_arc(p)
+    first = pipeline.plan_ahead(p)
+    assert (first["written"], first["unwritten_arcs"], first["notes"]) == (0, 1, [])
+    _finish(p, a1)
+    pipeline.apply_recap(p, "arc", 1, "아크 1 요약")
+    a2 = _plan_arc(p)
+    p.episode(a2.start_ep).text = "쓰는 중"  # 본문이 조금이라도 있으면 쓴 아크로 본다
+    a3 = _plan_arc(p)
+    one = pipeline.plan_ahead(p)
+    assert (one["written"], one["unwritten_arcs"], one["notes"]) == (a2.start_ep, 1, [])
+    a4 = _plan_arc(p)
+    got = pipeline.plan_ahead(p)
+    assert got["unwritten_arcs"] == 2 and got["planned_until"] == a4.end_ep and got["recaps"] == []
+    assert got["notes"] == [f"본문은 {a2.start_ep}화까지인데 아크가 {a4.end_ep}화까지 짜여 있어요 (본문 없는 아크 2개). "
+                            "앞 아크를 쓰고 요약한 뒤 기획하면 쓰인 줄거리를 보고 짤 수 있어요."]
+    assert a3.start_ep > a2.start_ep
+    pipeline.plan_next_arc(LLM, p)  # 경고만 하고 막지 않는다
+
+
+def test_plan_ahead_suggests_pending_recaps():
+    p = _serial()
+    _finish(p, _plan_arc(p))
+    got = pipeline.plan_ahead(p)
+    assert got["recaps"] == [["arc", 1]] and got["unwritten_arcs"] == 0
+    assert len(got["notes"]) == 1 and got["notes"][0].startswith("끝났는데 요약이 없어요: 아크 1.")
+    pipeline.apply_recap(p, "arc", 1, "요약")
+    assert pipeline.plan_ahead(p)["notes"] == []
+
+
+def test_plan_ahead_is_quiet_for_short_works():
+    p = Project()
+    assert pipeline.plan_ahead(p)["notes"] == []
+
+
+def test_nextarc_cli_prints_plan_ahead_warning(tmp_path, monkeypatch, capsys):
+    from canon import cli, store
+    monkeypatch.setattr(store, "ROOT", tmp_path)
+    p = _serial()
+    _plan_arc(p)
+    _plan_arc(p)
+    store.save("ahead", p)
+    monkeypatch.setattr(cli, "get_llm", lambda stage: LLM)
+    cli.main(["nextarc", "ahead", "-y"])
+    out = capsys.readouterr().out
+    assert "본문이 아직 없는데 아크가" in out
