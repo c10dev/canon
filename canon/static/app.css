@@ -1278,7 +1278,7 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
 /* ----- 고대비(Windows 고대비 등 forced-colors): 배경 · 그림자로만 나타내던 선택과 영역을 테두리로 ----- */
 .savebar, #toast .t, #jobs { border: 1px solid transparent; }
 @media (forced-colors: active) {
-  .seg button[aria-pressed="true"], .genre-opts button[aria-pressed="true"], .dial button[aria-pressed="true"], .btn.on, button[aria-pressed="true"], .pop > .btn[aria-expanded="true"], .rv-tab[aria-selected="true"], .rv-rail-item[aria-current="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
+  .seg button[aria-pressed="true"], .genre-opts button[aria-pressed="true"], .dial button[aria-pressed="true"], .btn.on, button[aria-pressed="true"], .menu > .btn[aria-expanded="true"], .rv-tab[aria-selected="true"], .rv-rail-item[aria-current="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
   .nav a[aria-current="page"] { border-left: 4px solid Highlight; }
   .tabs button { border-bottom-color: Canvas; }
   .tabs button[aria-selected="true"] { border-bottom-color: Highlight; }
@@ -1352,9 +1352,10 @@ body.routing::before { content: ''; position: fixed; top: 0; left: 0; height: 3p
 .band-more > summary::-webkit-details-marker { display: none; }
 .band-more[open] > summary { border-color: var(--accent); color: var(--accent-ink); }
 .band-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 8; width: min(420px, calc(100vw - 32px)); padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.16); }
-/* ----- 펼침 메뉴 (app.js menuBtn): 버튼 + 펼침 창. 모양은 .band-pop 과 같다 ----- */
-.pop { position: relative; display: inline-flex; }
-.pop > .btn[aria-expanded="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+/* ----- 펼침 메뉴 (app.js menuBtn): 버튼 + 펼침 창. 모양은 .band-pop 과 같다.
+   감싸개는 .menu 다. .pop 은 대화 에이전트의 떠 있는 상자(위쪽 규칙)라 같은 이름을 쓰면 감싸개가 상자 모양을 받는다 ----- */
+.menu { position: relative; display: inline-flex; }
+.menu > .btn[aria-expanded="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
 .pop-panel { position: absolute; right: 0; top: calc(100% + 6px); z-index: 12; width: min(320px, calc(100vw - 32px)); max-height: min(70vh, 560px); overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 2px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.16); color: var(--text); font-size: 0.8125rem; text-align: left; white-space: normal; }
 .pop-panel.left { right: auto; left: 0; }
 .pop-sec { margin: 0; padding: 8px; border: none; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -1373,8 +1374,8 @@ body.routing::before { content: ''; position: fixed; top: 0; left: 0; height: 3p
 /* 분할 버튼: 복사 + ▾ */
 .split { display: inline-flex; }
 .split > .btn:first-child { border-radius: 8px 0 0 8px; }
-.split > .pop > .btn { width: 36px; padding: 0; border-left: none; border-radius: 0 8px 8px 0; }
-.split > .pop > .btn[aria-expanded="true"] { border-left: 1px solid var(--accent); }
+.split > .menu > .btn { width: 36px; padding: 0; border-left: none; border-radius: 0 8px 8px 0; }
+.split > .menu > .btn[aria-expanded="true"] { border-left: 1px solid var(--accent); }
 /* #app 밖의 대화상자 (app.js showDialog) */
 dialog.w-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 48px); border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; background: var(--surface); color: var(--text); box-shadow: 0 12px 40px rgba(0,0,0,0.24); }
 dialog.w-dialog::backdrop { background: var(--overlay); }
