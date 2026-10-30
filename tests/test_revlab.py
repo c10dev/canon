@@ -55,6 +55,60 @@ def test_schemas_have_no_dict():
     assert "length" not in RevCue.model_json_schema()["properties"]  # 글자 수는 AI 가 적지 않는다
 
 
+def _objects(node):
+    """JSON 스키마 안의 object 노드를 모두."""
+    if isinstance(node, dict):
+        if isinstance(node.get("properties"), dict):
+            yield node
+        for v in node.values():
+            yield from _objects(v)
+    elif isinstance(node, list):
+        for v in node:
+            yield from _objects(v)
+
+
+def test_response_fields_are_all_required():
+    """기본값이 있는 칸은 선택 칸이 되어 Gemini 가 빼먹는다 (실측: 출력 36토큰, title 만). Gemini 에 보내는 스키마 그대로 본다."""
+    from canon.llm import _inline_refs
+
+    for m in (RevEpisodeDraft, RevLineSet):
+        objs = list(_objects(_inline_refs(m.model_json_schema())))
+        assert len(objs) >= 2
+        for o in objs:
+            assert sorted(o.get("required", [])) == sorted(o["properties"]), o.get("title")
+
+
+class _Seq:
+    """정한 응답을 차례로 돌려주는 LLM. 받은 요청을 남긴다."""
+
+    def __init__(self, *outs):
+        self.outs, self.prompts = list(outs), []
+
+    def json(self, system, prompt, schema, hint=None):
+        self.prompts.append(prompt)
+        return self.outs.pop(0)
+
+
+def _empty_draft():
+    from canon.schema import RevTime
+    return RevEpisodeDraft(title="1화", summary="", events=[], cast=[], emotional_shift="", ending_hook="", opening="", time="",
+                           threads=[], setting="", facts=[], ties=[], addresses=[], scenes=[], board_time=RevTime(after=0, part="", days=1, end_part=""), handover=[],
+                           key="", cadence="half", cues=[])
+
+
+def test_empty_response_retries_once_then_refuses(home):
+    from canon import pipeline
+
+    lab = revlab.create("등대", STORY)
+    good = MockLLM().json(prompts.SYSTEM_REVERSE, prompts.rev_prompt(lab, 1), RevEpisodeDraft, hint={"episode": 1})
+    llm = _Seq(_empty_draft(), good)
+    assert pipeline.reverse_episode(llm, lab, 1) is good
+    assert llm.prompts[1] == llm.prompts[0] + "\n\n" + prompts.REV_EMPTY_RETRY  # 앞부분은 같고 맨 뒤에 덧붙인다
+    with pytest.raises(ValueError, match="응답이 비었어요"):
+        revlab.run_parse(lab.id, _Seq(_empty_draft(), _empty_draft()), [1])
+    assert revlab.load(lab.id).episodes[0].sheet is None  # 빈 결과는 저장하지 않는다
+
+
 def test_split_rules():
     s = revlab.split(STORY)
     assert s["how"] == "heading" and s["first"] == 1 and s["preface"] == "등대지기의 밤\n글 · 시험용"
@@ -159,9 +213,9 @@ def test_round_trip_and_blind(home):
     assert q.episodes[1].text == "" and q.style.sample_passages == []  # 원문 문장은 주지 않는다
     assert lab.episodes[1].text not in prompts.cue_score_prompt(q, 2, lab.episodes[1].sheet)
     e = revlab.run_write(lab.id, MockLLM(), 2)
-    assert sorted(e.blind) == ["original", "rewrite"] and e.take.sheet_basis == cue.basis(e.sheet)
+    assert sorted(e.blind) == ["original", "rewrite"] and e.take.sheet_basis == cue.basis(e.sheet) and e.blind_take == "plain"
     v = revlab.view(revlab.load(lab.id))["items"][1]
-    assert "blind" not in v and v["take"] and "text" not in v["take"]  # 고르기 전에는 어느 쪽인지 알리지 않는다
+    assert "blind" not in v and [t["mode"] for t in v["takes"]] == ["plain"] and "text" not in v["takes"][0]  # 고르기 전에는 알리지 않는다
     assert sorted(v["blind_texts"]) == sorted([e.text, e.take.text])
     assert [s["condition"] for s in v["scores"]] == ["original"]
     assert v["scores"][0]["rows"] and v["scores"][0]["lines_hit"] == v["scores"][0]["lines_total"]  # 원문은 큐 경계로 나눠 잰다
@@ -169,9 +223,85 @@ def test_round_trip_and_blind(home):
     assert revlab.pick(lab, 2, 2) == e.blind[1]
     revlab.save(lab)
     v = revlab.view(revlab.load(lab.id))["items"][1]
-    assert v["blind"] == e.blind and v["take"]["text"] == e.take.text and [s["label"] for s in v["scores"]] == ["원문", "되돌려 쓴 글"]
+    assert v["blind"] == e.blind and v["takes"][0]["text"] == e.take.text and [s["label"] for s in v["scores"]] == ["원문", "되돌려 쓴 글"]
     with pytest.raises(ValueError):
         revlab.pick(lab, 1, 1)  # 1화는 되돌려 쓴 글이 없다
+
+
+def test_guess_and_change_first_number(home):
+    assert revlab.guess_first("x", STORY) == 1  # 제목 줄이 이긴다
+    assert revlab.guess_first("러브 코미디를 망가뜨리는 법-33화", "제목 줄 없는 글") == 33
+    assert revlab.guess_first("〈 32화 〉 미유키의 정성", "글") == 32 and revlab.guess_first("", "글") == 1
+    lab = revlab.create("러브 코미디 33화", "제목 줄 없는 글 " * 30)
+    assert [e.number for e in lab.episodes] == [33]
+    assert revlab.create("x", "글 " * 120, first=51).episodes[0].number == 51
+    with pytest.raises(ValueError, match="1~9999"):
+        revlab.create("x", "글 " * 120, first=10000)
+    lab = _parsed(home)
+    revlab.renumber(lab, 40)
+    assert [(e.number, e.plot.number) for e in lab.episodes] == [(40, 40), (41, 41)] and lab.lines[0].branch_ep == 41
+    assert "초반 규칙" not in prompts.cue_score_prompt(revlab.world(lab, 41), 41, lab.episodes[1].sheet)
+
+
+def test_context_goes_into_rewrite(home):
+    lab = _parsed(home)
+    e = lab.episodes[0]
+    assert e.setting == "바닷가 마을의 등대" and e.facts == ["1화 전에 등대지기가 사라졌다"]  # 빈 사실은 뺀다
+    assert [(t.a, t.b, t.type) for t in e.ties] == [("서윤", "도현", "동료")]  # 실험 인물 밖은 뺀다
+    assert [(a.speaker, a.listener, a.calls) for a in e.addresses] == [("서윤", "도현", "도현")]  # 자기 자신은 뺀다
+    assert lab.cast[0].personality == "말보다 손이 먼저 나간다"
+    q = revlab.world(lab, 2)
+    assert q.world.setting == "바닷가 마을의 등대" and q.facts == ["1화 전에 등대지기가 사라졌다", "2화 전에 등대지기가 사라졌다"]
+    assert q.characters[0].personality and q.relationships[0].description == "오래 함께 등대를 지켰다"
+    p = prompts.cue_score_prompt(q, 2, lab.episodes[1].sheet)
+    for x in ("바닷가 마을의 등대", "말보다 손이 먼저 나간다", "오래 함께 등대를 지켰다", "해체(반말)", "2화 전에 등대지기가 사라졌다"):
+        assert x in p, x
+    assert revlab.context_upto(lab, 1)["facts"] == ["1화 전에 등대지기가 사라졌다"]  # 뒤 화에서 읽은 것은 앞 화 사본에 넣지 않는다
+
+
+def test_style_profile_and_two_takes(home):
+    lab = _parsed(home)
+    with pytest.raises(ValueError, match="문체 프로필을 먼저"):
+        revlab.world(lab, 1, use_style=True)
+    est = revlab.estimate(lab, "style")
+    assert [r["label"] for r in est["rows"]] == ["문체 프로필"]
+    prof = revlab.run_style(lab.id, MockLLM())
+    lab = revlab.load(lab.id)
+    assert lab.style is not None and lab.style.sample_passages == [] and prof.sample_passages == []
+    q = revlab.world(lab, 1, use_style=True)
+    assert q.style.sample_passages == [] and q.style.model_dump(exclude={"sample_passages"}) == lab.style.model_dump(exclude={"sample_passages"})
+    assert revlab.world(lab, 1).style.narration_pov == ""  # 고르지 않으면 넣지 않는다
+    assert revlab.estimate(lab, "write", [1], use_style=True)["rows"][0]["input_tokens"] >= revlab.estimate(lab, "write", [1])["rows"][0]["input_tokens"]
+    revlab.run_write(lab.id, MockLLM(), 1)
+    e = revlab.run_write(lab.id, MockLLM(), 1, use_style=True)
+    assert e.take and e.take_style and e.take_style.style and e.blind_take == "style"
+    v = revlab.view(revlab.load(lab.id))["items"][0]
+    modes = {t["mode"]: t for t in v["takes"]}
+    assert "text" in modes["plain"] and "text" not in modes["style"]  # 블라인드에 든 판만 감춘다
+    assert [s["condition"] for s in v["scores"]] == ["original", "plain"]
+    lab = revlab.load(lab.id)
+    revlab.pick(lab, 1, 0)
+    v = revlab.view(lab)["items"][0]
+    assert [s["condition"] for s in v["scores"]] == ["original", "plain", "style"] and v["blind_take"] == "style"
+    assert revlab.view(lab)["style"] and "sample_passages" not in revlab.view(lab)["style"]
+
+
+def test_old_lab_file_still_loads(home):
+    """맥락 칸을 넣기 전 파일 (인물에 성격 칸 없음, take 하나)."""
+    lab = _parsed(home)
+    revlab.run_write(lab.id, MockLLM(), 1)
+    raw = json.loads((home / ".revlab" / f"{lab.id}.json").read_text(encoding="utf-8"))
+    for c in raw["cast"]:
+        c.pop("personality")
+    for e in raw["episodes"]:
+        for k in ("setting", "facts", "ties", "addresses", "take_style", "blind_take"):
+            e.pop(k)
+    for k in ("style", "style_model", "style_at"):
+        raw.pop(k)
+    (home / ".revlab" / f"{lab.id}.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    old = revlab.load(lab.id)
+    v = revlab.view(old)["items"][0]
+    assert old.cast[0].personality == "" and [t["mode"] for t in v["takes"]] == ["plain"] and v["blind_texts"]
 
 
 def test_estimate(home):
@@ -207,28 +337,67 @@ def test_web_flow(home):
     assert c.get("/api/revlab/99").status_code == 404
     est = c.post(f"/api/revlab/{lab_id}/estimate", json={"kind": "parse"}).json()
     assert est["calls"] == 3
-    r = c.post("/api/projects/demo/jobs", json={"kind": "rev_parse", "ep": lab_id})
+    r = c.post(f"/api/revlab/{lab_id}/jobs", json={"kind": "parse"})
     assert r.status_code == 200, r.text
     j = _wait(c, r.json()["id"])
-    assert j["status"] == "done" and j["result"]["episodes"] == 2, j
+    assert j["status"] == "done" and j["result"]["episodes"] == 2 and j["project"] == revlab.JOBS and j["kind"] == "rev_parse", j
+    assert c.post("/api/projects/demo/jobs", json={"kind": "rev_parse", "ep": lab_id}).status_code == 400  # 작품 작업으로는 돌지 않는다
     v = c.get(f"/api/revlab/{lab_id}").json()
     assert v["done"] == 2 and v["lines"] and v["items"][0]["sheet"]["cues"]
     sheet = v["items"][0]["sheet"]
     sheet["key"] = "작가가 고친 조성"
     v = c.put(f"/api/revlab/{lab_id}/episodes/1/sheet", json=sheet).json()
     assert v["items"][0]["sheet"]["key"] == "작가가 고친 조성" and v["items"][0]["bounds_ok"]
-    assert c.post("/api/projects/demo/jobs", json={"kind": "rev_write", "ep": lab_id}).status_code == 400  # 화를 하나 골라야 한다
-    r = c.post("/api/projects/demo/jobs", json={"kind": "rev_write", "ep": lab_id, "episodes": [1]})
+    assert c.post(f"/api/revlab/{lab_id}/jobs", json={"kind": "write"}).status_code == 400  # 화를 하나 골라야 한다
+    r = c.post(f"/api/revlab/{lab_id}/jobs", json={"kind": "write", "episodes": [1]})
     assert _wait(c, r.json()["id"])["status"] == "done"
     v = c.post(f"/api/revlab/{lab_id}/episodes/1/pick", json={"choice": 0}).json()
     assert v["items"][0]["picked"] == "skip" and len(v["items"][0]["scores"]) == 2
+    bad = c.post(f"/api/revlab/{lab_id}/jobs", json={"kind": "write", "episodes": [1], "style": True})
+    assert bad.status_code == 400 and "문체 프로필을 먼저" in bad.text
+    assert c.post(f"/api/revlab/{lab_id}/estimate", json={"kind": "style"}).json()["calls"] == 1
+    r = c.post(f"/api/revlab/{lab_id}/jobs", json={"kind": "style"})
+    assert _wait(c, r.json()["id"])["status"] == "done" and c.get(f"/api/revlab/{lab_id}").json()["style"]
+    r = c.post(f"/api/revlab/{lab_id}/jobs", json={"kind": "write", "episodes": [1], "style": True})
+    j = _wait(c, r.json()["id"])
+    assert j["status"] == "done" and j["result"]["style"] and "문체 넣음" in j["label"], j
+    assert c.put(f"/api/revlab/{lab_id}", json={"title": "등대", "first": 30}).json()["items"][0]["number"] == 30
+    assert c.post("/api/revlab", json={"title": "33화 실험", "text": "제목 줄 없는 글 " * 30}).json()["first"] == 33
     v = c.put(f"/api/revlab/{lab_id}", json={"title": "새 이름"}).json()
-    assert v["title"] == "새 이름" and v["done"] == 2  # 글을 주지 않으면 결과는 그대로
+    assert v["title"] == "새 이름" and v["done"] == 2 and v["first"] == 30  # 글을 주지 않으면 결과는 그대로
     v = c.put(f"/api/revlab/{lab_id}", json={"title": "새 이름", "text": "다시 넣은 글 " * 40}).json()
     assert v["episodes"] == 1 and v["done"] == 0 and v["lines"] == []
-    assert c.get("/api/revlab").json()["labs"][0]["title"] == "새 이름"
-    assert c.delete(f"/api/revlab/{lab_id}").json() == {"ok": True} and revlab.ids() == []
+    assert any(x["title"] == "새 이름" for x in c.get("/api/revlab").json()["labs"])
+    assert c.delete(f"/api/revlab/{lab_id}").json() == {"ok": True} and lab_id not in revlab.ids()
     assert (home / "demo" / "project.json").read_text(encoding="utf-8") == before  # 작품은 그대로
+
+
+def test_job_runs_outside_projects(home, monkeypatch):
+    """작품을 열지 않고 돈다: 사용량 범위에 작품이 없고(작품 프리셋을 쓰지 않음), 작업 목록에는 revlab.JOBS 로 보인다."""
+    from canon import settings, usage, web
+    from canon.schema import StyleProfile
+
+    seen = []
+
+    def fake(lab_id, llm):
+        seen.append((usage.context(), settings.project_preset()))
+        return StyleProfile()
+    monkeypatch.setattr(revlab, "run_style", fake)
+    lab = revlab.create("등대", STORY)
+    c = TestClient(web.app)
+    j = _wait(c, c.post(f"/api/revlab/{lab.id}/jobs", json={"kind": "style"}).json()["id"])
+    assert j["status"] == "done" and j["project"] == revlab.JOBS
+    ctx, preset = seen[0]
+    assert not ctx.get("project") and ctx["task"] == "rev_style" and preset is None
+    again = c.post(f"/api/revlab/{lab.id}/jobs", json={"kind": "write", "episodes": [1]})
+    assert again.status_code == 400 and "역설계하세요" in again.text
+
+
+@needs_node
+def test_js_guess_first_matches_python():
+    cases = [["x", STORY], ["러브 코미디-33화", "제목 줄 없는 글"], ["〈 32화 〉 미유키", "글"], ["", "글"], ["7화", "# 12화 비\n본문"]]
+    got = run_js(FILES, "data.map(([t, x]) => revGuessFirst(t, x))", cases)
+    assert got == [revlab.guess_first(t, x) for t, x in cases] == [1, 33, 32, 1, 12]
 
 
 @needs_node
@@ -249,7 +418,7 @@ def test_js_helpers_and_view(home):
     view = revlab.view(lab)
     labels = {**revlab.labels(), **_cue_labels(), "labs": revlab.listing()}
     got = run_js(FILES, """(() => {
-      S.project = { meta: { form: 'short' }, characters: [], episodes: [], settings: {} }; S.name = 'demo';
+      S.project = null; S.name = null; S.route = ['revlab'];
       S.rev = data.home; S.cue = data.home; S.revLab = null;
       S.revDraft = { title: '', text: data.story };
       const home = viewRev();
@@ -271,6 +440,8 @@ def test_js_helpers_and_view(home):
     assert "가려 읽기" in lab and "1번이 더 읽고 싶어요" in lab and "원문</td>" not in lab  # 1화: 고르기 전에는 지표에 되돌려 쓴 글이 없다
     assert 'id="rev-cue-2"' in lab and "rev-seg sel" in lab and "cue-bars" in lab and "큐 시트 고치기" in lab
     assert "이야기 줄기" in lab and "두 사람의 관계" in lab
+    assert "인물 · 관계 · 배경" in lab and "말보다 손이 먼저 나간다" in lab and "오래 함께 등대를 지켰다" in lab and "도현 → " not in lab
+    assert "서윤 → 도현" in lab and "문체 역설계 시작" in lab and "초반 규칙이 붙어요" in lab
     assert "시작 문장을 원문에서 못 찾았어요" in got["two"] and "되돌려 쓰기 시작" in got["two"]
     e = view["items"][1]
     assert [s["cue"] for s in got["segs"]] == [i + 1 for i, b in enumerate(e["bounds"]) if b["found"] and b["end"] > b["start"]]

@@ -134,7 +134,7 @@ async function cueFetch(n) {
 
 const cueLabel = (list, key) => ((S.cue && S.cue[list]) || []).find((x) => x.key === key) || { label: key, about: '' };
 const cueUsd = (x) => (x === null || x === undefined ? '가격 모름' : `약 ${x < 1 ? x.toFixed(2) : x.toFixed(1)}달러`);
-const cueName = (id) => ((P().characters || []).find((c) => c.id === id) || {}).name || id;
+const cueName = (id) => (((P() && P().characters) || []).find((c) => c.id === id) || {}).name || id;  // 역설계 실험은 작품 밖이라 P() 가 없다
 
 function viewCue() {
   const head = header('본편과 분리', '큐 시트 집필 실험',
@@ -210,7 +210,7 @@ function cueEditor(wrap = true, off = false) {
       <label class="small">끝 상태<input data-cue="cues.${i}.exit" value="${esc(c.exit)}"></label>
     </div>`).join('');
   const total = sh.cues.reduce((a, c) => a + (c.length || 0), 0);
-  const gaps = cueVoiceGaps(sh, P().characters);
+  const gaps = cueVoiceGaps(sh, P() ? P().characters : []);
   const gapNote = gaps.length ? `<div class="note warn"><strong>말투가 빈 인물이 핵심 대사를 맡았어요</strong>
       <ul>${gaps.map((g) => `<li><a href="${base()}/cast/${enc(g.id)}">${esc(g.name)}</a> · ${g.cues.join(', ')}번 큐</li>`).join('')}</ul>
       <span class="small">핵심 대사는 본문에 글자 그대로 들어가요. 인물 카드에서 말투를 채우면 큐 시트를 만들 때와 쓸 때 그 말투를 따라요.</span></div>` : '';

@@ -80,10 +80,12 @@ def test_board_block_sits_before_plot_and_replaces_time(demo):
     _written(p, 1, "가" * 3000)
     p.timeline.enabled = True
     ctx = prompts.build_episode_context(p, 2)
-    assert "가" * 3000 in ctx and "# 직전 화 본문 (전체" in ctx  # 직전 화 원문 전체
+    assert "가" * 1501 not in ctx and "# 직전 화 마지막 부분" in ctx  # 스토리보드가 없는 화는 직전 화 끝부분만 (자기 글 따라 하기를 줄임)
     assert "# 작품 속 시간" in ctx  # 스토리보드가 없으면 시간 블록 그대로
+    assert "가" * 3000 in prompts.storyboard_prompt(p, 2)  # 스토리보드 만들기는 직전 화 원문 전체
     p.episode(2).storyboard = Storyboard.model_validate(EXAMPLES["10"])
     ctx = prompts.build_episode_context(p, 2)
+    assert "가" * 3000 in ctx and "# 직전 화 본문 (전체" in ctx  # 스토리보드를 넣는 쓰기는 직전 화 원문 전체
     i, j, k = ctx.index("# 직전 화 본문"), ctx.index("# 이번 화 스토리보드"), ctx.index("# 이번 화 플롯")
     assert i < j < k
     assert "# 작품 속 시간" not in ctx  # 스토리보드의 시간 줄이 대신한다
@@ -253,7 +255,11 @@ def test_web_job_view_put_delete(demo):
     assert r.status_code == 200 and r.json()["total"] == 2
     assert _wait(c, r.json()["id"])["status"] == "done"
     e = store.load(demo).episode(2)
-    assert e.text and e.storyboard.made_by == "ai"
+    assert e.text and e.storyboard.made_by == "ai" and not e.storyboard.skipped
+    # 스토리보드 없이 다시 쓰면 검수가 그 전제를 대조하지 않게 표시한다
+    r = c.post(f"/api/projects/{demo}/jobs", json={"kind": "write", "ep": 2, "board": "none"})
+    assert _wait(c, r.json()["id"])["status"] == "done"
+    assert store.load(demo).episode(2).storyboard.skipped
     assert c.delete(f"/api/projects/{demo}/episodes/2/storyboard").status_code == 200
     assert store.load(demo).episode(2).storyboard is None
 
@@ -273,3 +279,30 @@ def test_board_js_parse_fields():
     assert got[0] == ["keeper", "ferry"] and got[1] == [1, 2]
     assert got[2] == [{"kind": "장면", "text": "테이블에서 끝났다"}, {"kind": "", "text": "그냥 한 줄"}]
     assert got[3] == [{"character_id": "keeper", "end": "젖은 외투", "why": "장면 1"}] and got[4] == 0
+
+
+def test_check_gets_protect_and_write_has_one_priority_line(demo):
+    p = store.load(demo)
+    _written(p, 1, "가" * 3000)
+    p.episode(2).storyboard = Storyboard.model_validate(EXAMPLES["10"])
+    p.episode(2).text = "본문"
+    check = prompts.check_prompt(p, 2)
+    assert "# 스토리보드가 정한 다음 화 전제" in check and "은결의 배에서 등유를 옮겨 담지 않는다" in check
+    assert "- 스토리보드 전제:" in check
+    write = prompts.episode_prompt(p, 2)
+    assert "이번 화 플롯과 다른 곳은 스토리보드를 따릅니다" not in write
+    assert "자료가 서로 부딪히면 스토리보드, 이번 화 플롯" in write
+    p.episode(2).storyboard = None
+    assert "# 스토리보드가 정한 다음 화 전제" not in prompts.check_prompt(p, 2)
+
+
+def test_priority_line_reaches_cue_and_rework_prompts_and_skipped_board(demo):
+    p = store.load(demo)
+    _written(p, 1, "가" * 3000)
+    p.episode(2).storyboard = Storyboard.model_validate(EXAMPLES["10"])
+    assert "자료가 서로 부딪히면 스토리보드, 이번 화 플롯" in prompts.cue_sheet_prompt(p, 2)
+    p.episode(2).text = "본문"
+    p.episode(2).storyboard.skipped = True  # 스토리보드 없이 쓴 본문
+    assert "# 스토리보드가 정한 다음 화 전제" not in prompts.check_prompt(p, 2)
+    pipeline.set_storyboard(p, 2, p.episode(2).storyboard, by="author")
+    assert p.episode(2).storyboard.skipped  # 본문이 그대로면 고쳐도 표시는 남는다
