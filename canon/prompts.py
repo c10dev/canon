@@ -16,7 +16,7 @@ from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, ImpactReport, PlayInfo, Project, Selection, StateDelta, StoryElement
-from . import address, board, charlog, foreshadows, mapprompt, statwin, timeline
+from . import address, board, charlog, foreshadows, mapprompt, pairlog, statwin, timeline
 
 SYSTEM_PLANNER = (
     "당신은 한국 웹소설/단편소설 기획 전문 편집자입니다. "
@@ -2117,7 +2117,7 @@ def serial_episode_context(p: Project, n: int, *, where: str, act_line: str, lin
 {dump(states) or "1화 시작 시점, 설정 그대로"}{return_block(p, cast_ids, n)}
 
 # 관계 현재 상태
-{relations}{address.block(p, cast_ids)}
+{relations}{address.block(p, cast_ids)}{pairlog.write_block(p, n, plot_ids & cast_ids, context.BUDGET["pairs"])}
 
 # 열린 복선{f" (이번 아크와 관련된 것만, {fs_cut}개 생략)" if fs_cut else ""}
 {dump(fs) or "없음"}
@@ -2791,7 +2791,7 @@ def check_prompt(p: Project, n: int, mode: str = "", sized: bool = False) -> str
 {n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
 - 확인할 것: 확정 사실, 이야기 요소와 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
 - 동선: 한 장면 안에서 인물의 위치, 몸이 향한 쪽(앞 · 뒤, 등 · 배), 자세, 손에 든 것, 가려진 곳이 바꾸는 행동 없이 달라지는지 봅니다. 예: 등을 돌리고 망토로 몸을 가렸는데 다음 문장에서 그 인물의 표정이나 가슴께가 보임. 이때 source_episode 는 {n}, source_quote 는 같은 화의 앞 문장입니다.
-- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{address.check_rule(p)}{statwin.check_rule(p)}{protect_check_rule(p.episode(n))}
+- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{address.check_rule(p)}{statwin.check_rule(p)}{protect_check_rule(p.episode(n))}{pairlog.check_rule(pair_check_block(p, n, mode))}
 - source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 설정이나 인물 상태면 source_episode 는 0 입니다.
 {SEVERITY_RULE}
 - 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
@@ -2881,7 +2881,7 @@ def check_material(p: Project, n: int, mode: str = "", sized: bool = False) -> s
 {states}
 
 # 관계 현재 상태
-{relations}{address.block(p, check_cast(p, n) if mode == "budget" else context.without_off(p, None))}
+{relations}{address.block(p, check_cast(p, n) if mode == "budget" else context.without_off(p, None))}{pair_check_block(p, n, mode)}
 
 # 비밀 (hidden_from 의 인물은 아직 모른다)
 {secrets}
@@ -2894,6 +2894,14 @@ def check_material(p: Project, n: int, mode: str = "", sized: bool = False) -> s
 
 # {n}화 본문 (검수 대상)
 {ep.text}"""
+
+
+def pair_check_block(p: Project, n: int, mode: str = "") -> str:
+    """장편 검수(budget)의 두 사람 사이 이력 블록 (pairlog.check_block). 단편 · full 방식은 빈 글 (단편 경로는 그대로)."""
+    mode = mode or ("budget" if p.serial else "full")
+    if mode != "budget" or not p.serial:
+        return ""
+    return pairlog.check_block(p, n, set(check_cast(p, n)), context.BUDGET["check_pairs"])
 
 
 def protect_check_rule(ep) -> str:
