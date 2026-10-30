@@ -559,6 +559,11 @@ def cmd_nextarc(a: argparse.Namespace) -> None:
     if a.redo:
         gone = pipeline.remove_last_arc(p)
         print(f"아크 {gone.number}({gone.start_ep}~{gone.end_ep}화)를 지우고 다시 기획해요")
+    ahead = pipeline.plan_ahead(p)
+    for note in ahead["notes"]:  # 경고만 하고 기획은 그대로 한다
+        print(f"! {note}")
+    for kind, num in ahead["recaps"]:
+        print(f"  요약: recap {a.name} {kind} {num}")
     prop = pipeline.plan_next_arc(get_llm("plan"), p, a.len or 0, a.note or "")
     if prop.reply:
         print(prop.reply)
