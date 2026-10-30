@@ -309,6 +309,61 @@ function stagePathAt(via, e) {
   return via[via.length - 1];
 }
 
+/** 글자 폭 어림 (px): 한글 · 한자는 1em, 나머지는 0.6em (지도 atlasTextW 와 같은 어림). */
+const stageTextW = (t, fs) => [...t].reduce((n, ch) => n + (ch.charCodeAt(0) > 0x2e80 ? 1 : 0.6), 0) * fs;
+
+/** 이름표 놓기 (docs/stage/specs/11-labels.md). 평면도 · 3D 가 함께 쓰는 화면 좌표 계산이다.
+   items: [{id, x, y, text, short?, fs, kind, r?, w?, h?}] 를 놓는 차례대로 (앞이 우선). kind 는
+   'ring'(평면도 인물: 반지름 r 인 원 둘레 여덟 자리 → 먼 고리 + 지시선), 'tag'(3D 인물: 그 점 → 둘레 → 먼 고리),
+   'pin'(기준점 이름: 그 점과 위 · 아래만, 막히면 숨김). w · h 를 주면 어림 대신 그 크기(3D 는 잰 값)를 쓴다.
+   opts: {taken: 먼저 차지한 상자 [[x0, y0, x1, y1]], bounds: [x0, y0, x1, y1], prev: {id: {k, short}} (앞 프레임 자리, 고쳐 돌려준다)}.
+   자리가 없으면 short(자세를 뗀 이름)로 다시 찾고, 그래도 없으면 인물은 첫 자리에 겹쳐 두고 기준점 이름은 숨긴다.
+   돌려주는 값: {id: {cx, cy, w, h, text, leader, hidden}} (cx · cy 는 이름표 가운데). */
+function stageLabelPlace(items, opts = {}) {
+  const placed = (opts.taken || []).slice(), bounds = opts.bounds, prev = opts.prev || {}, out = {};
+  const hit = (b) => (bounds && (b[0] < bounds[0] || b[1] < bounds[1] || b[2] > bounds[2] || b[3] > bounds[3]))
+    || placed.some((p) => b[0] < p[2] && b[2] > p[0] && b[1] < p[3] && b[3] > p[1]);
+  const spots = (it, w, h) => {
+    const r = it.r || 0, g = 4, hx = w / 2, hy = h / 2, d = r * 0.7 + g;
+    const ring = [[0, r + g + hy], [0, -(r + g + hy)], [r + g + hx, 0], [-(r + g + hx), 0],
+      [d + hx, d + hy], [-(d + hx), d + hy], [d + hx, -(d + hy)], [-(d + hx), -(d + hy)]];
+    if (it.kind === 'pin') return [[0, 0], [0, -h], [0, h]];
+    const near = it.kind === 'tag' ? [[0, 0], ...ring] : ring;
+    const far = [];
+    [2, 3, 4].forEach((m) => {
+      for (let a = 0; a < 8; a++) {
+        const t = Math.PI / 2 - (a * Math.PI) / 4, c = Math.cos(t), sn = Math.sin(t), R = (r + g + h) * m;
+        far.push([c * R + c * hx, sn * R + sn * hy, true]);
+      }
+    });
+    return near.concat(far);
+  };
+  items.forEach((it) => {
+    const tries = [[it.text, false]].concat(it.short && it.short !== it.text ? [[it.short, true]] : []);
+    const before = prev[it.id];
+    if (before && before.short && tries.length > 1) tries.reverse();  // 앞 프레임에 줄였으면 줄인 글부터 (흔들림 줄이기)
+    let got = null;
+    for (const [text, short] of tries) {
+      const w = it.w && !short ? it.w : stageTextW(text, it.fs) + (it.pad || 0), h = it.h || it.fs * 1.25;
+      const list = spots(it, w, h);
+      const order = list.map((_, k) => k);
+      if (before && before.short === short && before.k < list.length) order.unshift(before.k);
+      const k = order.find((i) => !hit([it.x + list[i][0] - w / 2, it.y + list[i][1] - h / 2, it.x + list[i][0] + w / 2, it.y + list[i][1] + h / 2]));
+      if (k !== undefined) { got = { k, text, short, w, h, sp: list[k] }; break; }
+    }
+    if (!got && it.kind === 'pin') { out[it.id] = { hidden: true, text: it.text }; delete prev[it.id]; return; }
+    if (!got) {
+      const text = tries[tries.length - 1][0], short = tries.length > 1, w = stageTextW(text, it.fs) + (it.pad || 0), h = it.h || it.fs * 1.25;
+      got = { k: 0, text, short, w, h, sp: spots(it, w, h)[0] };
+    }
+    const cx = it.x + got.sp[0], cy = it.y + got.sp[1];
+    placed.push([cx - got.w / 2, cy - got.h / 2, cx + got.w / 2, cy + got.h / 2]);
+    prev[it.id] = { k: got.k, short: got.short };
+    out[it.id] = { cx, cy, w: got.w, h: got.h, text: got.text, leader: !!got.sp[2], hidden: false };
+  });
+  return out;
+}
+
 /** 박자 0~k 의 좌표 목록. 박자마다 앞 박자 좌표를 넘긴다. stage.layouts 와 같다. */
 function stageLayouts(room, scene, k = (scene.beats || []).length) {
   room = stageResolve(room);
@@ -489,6 +544,7 @@ function stgPlanSvg(pos, ang, k) {
   const bad = new Set(flags.map((v) => v.who)), badContact = new Set(flags.map((v) => v.contact).filter(Boolean));
   let out = '<defs><marker id="stg-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--muted)"/></marker></defs>';
   out += `<rect class="stg-wall" x="${sc.ox}" y="${sc.oy}" width="${room.w * sc.s}" height="${room.h * sc.s}" rx="2"/>`;
+  const pins = [];
   room.anchors.forEach((a) => {
     const [x, y] = px([a.x, a.y]);
     const [fx, fy] = stgFront(a.rot || 0);
@@ -497,8 +553,9 @@ function stgPlanSvg(pos, ang, k) {
     out += `<g class="stg-anchor ${esc(a.kind)}${edit ? ' edit' : ''}" data-stg-anchor="${esc(a.id)}"><rect x="${x}" y="${y}" width="${Math.max(a.w * sc.s, 4)}" height="${Math.max(a.h * sc.s, 4)}" rx="4"/>`;
     if (edit) out += `<path class="stg-front" d="M${cx} ${cy}L${cx + fx * 16} ${cy + fy * 16}"/>`;
     const thin = a.w * sc.s < 40 || a.h * sc.s < 18;
-    // 문 · 창처럼 얇은 기준점은 이름을 벽 바깥(뒤쪽)에 쓴다
-    out += `<text x="${thin ? cx - fx * 18 : cx}" y="${(thin ? cy - fy * 18 : cy) + 4}" text-anchor="middle">${esc(a.name)}</text></g>`;
+    // 문 · 창처럼 얇은 기준점은 이름을 벽 바깥(뒤쪽)에 쓴다. 이름은 인물 이름표 뒤에 놓는다 (stageLabelPlace)
+    pins.push({ id: 'a:' + a.id, x: thin ? cx - fx * 18 : cx, y: thin ? cy - fy * 18 : cy, text: a.name, fs: 12, kind: 'pin' });
+    out += `<title>${esc(a.name)}</title><!--stg-pin:${esc(a.id)}--></g>`;
   });
   Object.keys(st).forEach((w) => Object.values(st[w].contacts).forEach((c) => {
     if (!pos[w] || !pos[c.to]) return;
@@ -520,10 +577,22 @@ function stgPlanSvg(pos, ang, k) {
     out += `<path class="stg-move${blocked ? ' blocked' : ''}" d="M${pts.map((p) => `${p[0]} ${p[1]}`).join('L')}"><title>${blocked ? '가구에 막혀 돌아갈 길이 없어요' : '가구를 돌아가는 길'}</title></path>`;
   });
   out += stgGhostSvg(k, px);
+  // 이름표: 고른 인물 → 출연진 순 → 기준점 이름. 인물 원(반지름 16, 향함 삼각형까지 18)은 먼저 차지한다
+  const who = Object.keys(pos).sort((a, b) => (b === g.who) - (a === g.who));
+  const people = who.map((w) => {
+    const [x, y] = px(pos[w]), post = stgV().postures[st[w].posture], name = charName(w);
+    return { id: 'p:' + w, x, y, text: post ? `${name} · ${post.label}` : name, short: name, fs: 12, kind: 'ring', r: 18 };
+  });
+  const tags = stageLabelPlace(people.concat(pins), {
+    taken: people.map((p) => [p.x - 18, p.y - 18, p.x + 18, p.y + 18]), bounds: [0, 0, sc.w, sc.h], prev: stgLabelMem,
+  });
+  pins.forEach((p) => {
+    const t = tags[p.id];
+    out = out.replace(`<!--stg-pin:${esc(p.id.slice(2))}-->`, t.hidden ? '' : `<text x="${t.cx}" y="${t.cy + 4}" text-anchor="middle">${esc(t.text)}</text>`);
+  });
   Object.keys(pos).forEach((w) => {
     const [x, y] = px(pos[w]);
-    const name = charName(w);
-    const post = stgV().postures[st[w].posture];
+    const name = charName(w), tag = tags['p:' + w];
     let face = '';
     if (ang[w] != null) {
       const a = ang[w], p = (r, d) => `${x + Math.cos(a + r) * d} ${y + Math.sin(a + r) * d}`;
@@ -531,9 +600,16 @@ function stgPlanSvg(pos, ang, k) {
     }
     out += `<g class="stg-person${bad.has(w) ? ' bad' : ''}${w === g.who ? ' cur' : ''}" data-stg-who="${esc(w)}" tabindex="-1">${face}
       <circle class="body" cx="${x}" cy="${y}" r="16" fill="${stgColor(w)}"/><text class="ini" x="${x}" y="${y}">${esc(name.slice(0, 1))}</text>
-      <text class="label" x="${x}" y="${y + 32}" text-anchor="middle">${esc(name)}${post ? ` · ${esc(post.label)}` : ''}</text></g>`;
+      ${tag.leader ? stgLeader(x, y, 18, tag) : ''}<text class="label" x="${tag.cx}" y="${tag.cy + 4}" text-anchor="middle">${esc(tag.text)}</text></g>`;
   });
   return out;
+}
+
+/** 지시선: 원 가장자리(반지름 r)에서 이름표 상자의 가장 가까운 점까지. */
+function stgLeader(x, y, r, t) {
+  const ex = Math.min(Math.max(x, t.cx - t.w / 2), t.cx + t.w / 2), ey = Math.min(Math.max(y, t.cy - t.h / 2), t.cy + t.h / 2);
+  const d = Math.hypot(ex - x, ey - y) || 1;
+  return `<path class="stg-leader" d="M${x + (ex - x) * r / d} ${y + (ey - y) * r / d}L${ex} ${ey}"/>`;
 }
 
 /** 겹쳐 보기: 본문 장면 위에 이 박자에 견주는 계획 박자의 인물을 흐린 원으로. 계획 장면이 없으면 빈 글. */
@@ -560,6 +636,7 @@ function stgTarget(k) {
   return { pos, ang };
 }
 
+const stgLabelMem = {};  // 이름표마다 앞 프레임 자리 (stageLabelPlace 의 prev)
 let stgShown = null;
 let stgAnim = 0;
 /** 평면도만 다시 그린다. from 이 있으면 박자 사이를 0.6초 보간한다 (위치와 향함만). */
@@ -920,6 +997,7 @@ function stgCss() {
 .stg-person.bad circle.body { stroke: var(--red); stroke-width: 3; }
 .stg-person .ini { font-size: 13px; font-weight: 700; fill: var(--on-accent); font-family: var(--sans); text-anchor: middle; dominant-baseline: central; pointer-events: none; }
 .stg-person .label { fill: var(--text); font-size: 12px; font-weight: 700; font-family: var(--sans); pointer-events: none; }
+.stg-leader { stroke: var(--muted); stroke-width: 1; fill: none; pointer-events: none; }
 .stg-person .face { opacity: 0.85; }
 .stg-contact { stroke-width: 2.5; stroke-dasharray: 5 4; fill: none; }
 .stg-contact.bad { stroke: var(--red); }

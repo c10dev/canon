@@ -223,7 +223,10 @@ function s3Build() {
   gl.domElement.setAttribute('role', 'img');
   const labels = new CSS2DRenderer();
   labels.domElement.className = 's3-labels';
-  host.append(gl.domElement, labels.domElement);
+  const leaders = document.createElementNS('http://www.w3.org/2000/svg', 'svg');  // 이름표 지시선 (s3PlaceTags)
+  leaders.setAttribute('class', 's3-leaders');
+  leaders.setAttribute('aria-hidden', 'true');
+  host.append(gl.domElement, leaders, labels.domElement);
   const view = new THREE.Scene();
   view.add(new THREE.HemisphereLight(0xffffff, 0x777777, 2.2));
   const sun = new THREE.DirectionalLight(0xffffff, 1.4);
@@ -238,7 +241,7 @@ function s3Build() {
   controls.addEventListener('change', s3Draw);
   const world = new THREE.Group(), lines = new THREE.Group();
   view.add(world, lines);
-  Object.assign(s3, { host, gl, labels, view, camera, controls, world, lines, people: {}, mats: {} });
+  Object.assign(s3, { host, gl, labels, leaders, view, camera, controls, world, lines, people: {}, pins: [], mats: {} });
   new ResizeObserver(s3Resize).observe(host);
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', s3Recolor);
   return true;
@@ -260,11 +263,50 @@ function s3Recolor() {
   s3Draw();
 }
 
+/** 이름표: 바깥 div 는 CSS2DRenderer 가 transform 으로 옮기고, 안쪽 span 은 겹침을 피해 s3PlaceTags 가 옮긴다. */
 function s3Tag(text, cls) {
-  const el = document.createElement('div');
+  const el = document.createElement('div'), inner = document.createElement('span');
   el.className = 's3-tag ' + (cls || '');
-  el.textContent = text;
+  inner.textContent = text;
+  el.append(inner);
   return new s3.three.CSS2DObject(el);
+}
+
+/** 이름표 겹침 (docs/stage/specs/11-labels.md): 화면에 비친 자리에서 stageLabelPlace 로 놓는다. 인물이 먼저, 기준점 이름이 뒤.
+   인물 이름표는 자리가 없으면 이름만 남기고 멀리 놓으면 지시선을 긋는다. 기준점 이름은 막히면 숨긴다. 카메라를 움직일 때마다 다시 놓는다. */
+function s3PlaceTags() {
+  const { THREE } = s3.three, W = s3.host.clientWidth, H = s3.host.clientHeight, v = new THREE.Vector3();
+  const screen = (o) => {
+    o.getWorldPosition(v).project(s3.camera);
+    return v.z > 1 || Math.abs(v.x) > 1.2 || Math.abs(v.y) > 1.2 ? null : [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H];
+  };
+  const items = [], by = {};
+  Object.entries(s3.people).forEach(([w, p]) => {
+    const at = p.grp.visible && screen(p.tag);
+    if (!at) return;
+    items.push({ id: 'p:' + w, x: at[0], y: at[1], text: p.full || '', short: charName(w), fs: 12, pad: 12, h: 18, kind: 'tag' });
+    by['p:' + w] = p.tag;
+  });
+  s3.pins.forEach(({ id, tag }) => {
+    const at = screen(tag);
+    if (!at) return;
+    items.push({ id: 'a:' + id, x: at[0], y: at[1], text: tag.element.firstChild.textContent, fs: 12, pad: 12, h: 18, kind: 'pin' });
+    by['a:' + id] = tag;
+  });
+  const placed = stageLabelPlace(items, { bounds: [0, 0, W, H], prev: s3.tagMem || (s3.tagMem = {}) });
+  let lines = '';
+  items.forEach((it) => {
+    const t = placed[it.id], span = by[it.id].element.firstChild;
+    span.style.visibility = t.hidden ? 'hidden' : '';
+    if (t.hidden) return;
+    span.textContent = t.text;
+    span.style.transform = `translate(${(t.cx - it.x).toFixed(1)}px, ${(t.cy - it.y).toFixed(1)}px)`;
+    if (t.leader) {
+      const ex = Math.min(Math.max(it.x, t.cx - t.w / 2), t.cx + t.w / 2), ey = Math.min(Math.max(it.y, t.cy - t.h / 2), t.cy + t.h / 2);
+      lines += `<path d="M${it.x.toFixed(1)} ${it.y.toFixed(1)}L${ex.toFixed(1)} ${ey.toFixed(1)}"/>`;
+    }
+  });
+  s3.leaders.innerHTML = lines;
 }
 
 const s3V = (p) => new s3.three.THREE.Vector3(p[0], p[2], p[1]);
@@ -302,13 +344,15 @@ function s3Room() {
     s3.world.add(m);
     tops[s.anchor] = Math.max(tops[s.anchor] || 0, z1);
   });
+  s3.pins = [];
   room.anchors.forEach((a) => {
     const t = s3Tag(a.name, 'anchor');
     t.position.set(a.x + a.w / 2, (tops[a.id] ?? 0.5) + 0.08, a.y + a.h / 2);
     s3.world.add(t);
+    s3.pins.push({ id: a.id, tag: t });
   });
   const cyl = new THREE.CylinderGeometry(1, 1, 1, 12, 1, true), ball = new THREE.SphereGeometry(1, 14, 10);
-  s3.scene.cast.forEach((w, i) => {
+  s3.scene.cast.forEach((w) => {
     const grp = new THREE.Group(), m = lam(s3ColorVar(w));
     const parts = S3_SEGS.map(() => ({ c: new THREE.Mesh(cyl, m), a: new THREE.Mesh(ball, m), b: new THREE.Mesh(ball, m) }));
     parts.forEach((p) => grp.add(p.c, p.a, p.b));
@@ -316,7 +360,7 @@ function s3Room() {
     const tag = s3Tag(charName(w));
     grp.add(ghost, tag);
     s3.world.add(grp);
-    s3.people[w] = { grp, parts, ghost, tag, lift: (i % 3) * 0.13 };  // 가까이 서도 이름표가 겹치지 않게 높이를 엇갈린다
+    s3.people[w] = { grp, parts, ghost, tag, full: '' };  // 가까이 선 사람의 이름표는 s3PlaceTags 가 비켜 놓는다
   });
   s3.built = s3.data;
   s3Recolor();
@@ -345,7 +389,7 @@ function s3SetCam(id) {
 }
 
 function s3Draw() {
-  if (s3.gl && s3.host && s3.host.isConnected) { s3.gl.render(s3.view, s3.camera); s3.labels.render(s3.view, s3.camera); }
+  if (s3.gl && s3.host && s3.host.isConnected) { s3.gl.render(s3.view, s3.camera); s3PlaceTags(); s3.labels.render(s3.view, s3.camera); }
 }
 
 /** 박자 사이 돌아가는 이동 (stage.js stagePathFor): 섞은 몸을 곧은 보간 대신 꺾은선 위로 평면 이동만큼 옮긴다.
@@ -426,8 +470,9 @@ function s3Pose(beat, k) {
     p.ghost.visible = !b.joints;
     p.ghost.position.set(xy[0], 0.8, xy[1]);
     const head = b.joints ? b.joints.head : [xy[0], xy[1], 1.6];
-    p.tag.position.set(head[0], head[2] + 0.25 + p.lift, head[1]);
-    p.tag.element.textContent = `${charName(w)} · ${b.joints ? s3Posture(b.posture) : `${s3Posture(b.posture)} · 이 자세는 아직 3D가 없어요`}`;
+    p.tag.position.set(head[0], head[2] + 0.25, head[1]);
+    p.full = `${charName(w)} · ${b.joints ? s3Posture(b.posture) : `${s3Posture(b.posture)} · 이 자세는 아직 3D가 없어요`}`;
+    p.tag.element.firstChild.textContent = p.full;
     p.tag.element.classList.toggle('bad', bad.has(w));
     p.tag.element.classList.toggle('ghost', !b.joints);
   });
@@ -464,8 +509,11 @@ function s3CssOnce() {
 .s3-stage canvas { display: block; width: 100%; height: 100%; outline: none; }
 .s3-stage canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
 .s3-labels { position: absolute; inset: 0; pointer-events: none; }
-.s3-tag { font-family: var(--sans); font-size: 12px; font-weight: 700; color: var(--text); background: var(--glass); padding: 1px 6px; border-radius: 6px; white-space: nowrap; }
-.s3-tag.anchor { font-weight: 500; color: var(--text-2); background: transparent; }
+.s3-leaders { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; stroke: var(--muted); stroke-width: 1; fill: none; }
+.s3-tag span { display: inline-block; padding: 1px 6px; border-radius: 6px; background: var(--glass); }
+.s3-tag { font-family: var(--sans); font-size: 12px; font-weight: 700; color: var(--text); white-space: nowrap; }
+.s3-tag.anchor { font-weight: 500; color: var(--text-2); }
+.s3-tag.anchor span { background: transparent; }
 .s3-tag.ghost { color: var(--muted); }
 .s3-tag.bad { color: var(--red); }
 .s3-band { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
