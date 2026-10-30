@@ -707,6 +707,7 @@ function arcPanel(a, sel, head = {}, bar = '') {
       <div class="between"><h3>아크 요약 ${a.summary ? '<span class="chip finalized">있음</span>' : '<span class="chip written">필요</span>'}</h3>${head.kind === 'recap_arc' && head.arc === a.number ? '' : `<button class="btn small" data-action="recapArc" data-arg="${a.number}"${rb.attr}>${rb.label}</button>`}</div>
       ${r ? `${input('AI 요약 제안 (고친 뒤 저장)', `${rk}.summary`, { root: 'recaps', rows: 6, autogrow: true })}<div class="row"><button class="btn small" data-action="dropRecap" data-arg="${rk}">버리기</button><button class="btn small primary" data-action="applyRecap" data-arg="${rk}">이 요약 저장</button></div>` : ''}
       ${input('저장된 요약', `story_arcs.${k}.summary`, { rows: 4, autogrow: true, hint: '앞으로 이 아크의 화별 요약 대신 프롬프트에 들어가요. 요약이 없으면 화마다 첫 문장만 들어가 앞 이야기가 흐려져요' })}
+      ${knowsFoldBox(a)}
     </div>`;
   }
   const right = `<div class="row">
