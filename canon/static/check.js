@@ -239,7 +239,7 @@ function chkList(n, e, text, sel, checkBtn) {
   if (tab === 'opening') body = openingChecks(n);
   else if (tab === 'style') body = chkStyleBox(n);
   else if (!(e.rounds || []).length) {
-    body = `<div class="empty" style="padding:16px 8px"><p>아직 검수하지 않았어요.</p><p class="small">앞선 본문 · 설정 · 확정 사실과 어긋나는 곳을 근거 문장과 함께 찾아요.</p>${checkBtn}</div>`;
+    body = `<div class="empty" style="padding:16px 8px"><p>아직 검수하지 않았어요.</p><p class="small">앞선 본문 · 설정 · 확정 사실과 어긋나는 곳을 근거 문장과 함께 찾아요.</p>${e.status === 'written' && S.deltas[n] === undefined ? flowStateToggle() : ''}${checkBtn}</div>`;
   } else {
     const { list, changes, no } = chkShown(n, e);
     const ids = new Set(list.map((f) => f.id));
@@ -350,14 +350,15 @@ function viewCheck(n) {
   const b = jobBtn('check', n, last ? `다시 검수 · ${last.no + 1}회차` : '검수하기');
   // 주 버튼은 한 화면에 하나, 머리 줄 오른쪽 끝에 둔다 (디자인 시스템 Button). 검수 전에는 빈 목록의 '검수하기'가 주 버튼이라 머리에 두지 않는다
   const checkPrimary = !last || st.stale || !st.checked;
-  const checkBtn = `<button class="btn${checkPrimary ? ' primary' : ''}" data-action="checkEp" data-arg="${n}"${e.text && !autoOn() ? b.attr : ' disabled'}>${b.label}</button>`;
+  // 첫 검수는 flow.js flowCheck: 상태 변경안도 함께 만든다 (켰을 때). 다시 검수는 검수만
+  const checkBtn = `<button class="btn${checkPrimary ? ' primary' : ''}" data-action="${last ? 'checkEp' : 'flowCheck'}" data-arg="${n}"${e.text && !autoOn() ? b.attr : ' disabled'}>${b.label}</button>`;
   const toReview = e.status === 'written'
     ? `<a class="btn${checkPrimary ? '' : ' primary'}" href="${base()}/review/${n}">상태 승인으로${st.open ? ` · 열린 지적 ${st.open}` : ''}</a>`
     : e.status === 'finalized' && !checkPrimary ? nextStepBtn() : '';  // 반영 끝난 화도 검수가 지금 할 일이면 다음 할 일 버튼은 두지 않는다
   const lead = `${serial() ? widenToggle(false) : ''}${stageToggle()}${S.mode === 'brief' ? `<a class="btn" href="${base()}/brief/${n}" data-action="openCheckBrief" data-arg="${n}">검수 지시서</a>` : ''}`;
   const right = !e.text ? '' : !last ? lead + toReview : checkPrimary ? lead + toReview + checkBtn : lead + checkBtn + toReview;
-  const head = `<header class="page-head"><div class="row" style="gap:12px">${epNav('check', n)}<div class="lead" style="gap:2px"><div class="eyebrow">5단계 ${stepLabel('check')} · ${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span>${stepBar(e)}</div><div class="row">${right}</div></header>
-    ${autoLockNote()}`;
+  const head = `<header class="page-head"><div class="row" style="gap:12px">${epNav('check', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${flowEyebrow(n)}</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div><div class="row">${right}</div></header>
+    ${flowBar(n, 'check')}${autoLockNote()}`;
   if (!e.text) {
     return head + `<div class="card empty"><p>${n}화 본문이 아직 없어요. 본문을 쓴 뒤 검수해요.</p><a class="btn primary" href="${base()}/write/${n}">${n}화 집필로</a></div>`;
   }
@@ -366,9 +367,10 @@ function viewCheck(n) {
   const editable = editableEp(e);
   const center = editable ? draftBox(n, text) : `<div class="read" data-read="${n}">${readHtml(n, text)}</div>`;
   const notes = passageNotes(n);
+  // 본문이 왼쪽 넓은 칸, 지적 목록과 상세는 오른쪽 칸에 쌓는다 (집필 · 상태 승인 단계와 같은 자리). 좁은 폭은 목록 → 상세 → 본문 순서
   return head + chkStrip(n, e, st) + `<div class="check-cols">
-      ${chkList(n, e, text, sel, checkBtn)}
-      ${chkDetail(n, e, text, sel)}
+      <div class="c-side">${chkList(n, e, text, sel, checkBtn)}
+      ${chkDetail(n, e, text, sel)}</div>
       <section class="card w-body c-body" style="padding:0;gap:0" aria-label="본문">
         <div class="w-bar"><span class="w-count"><strong style="color:var(--text)">${text.length.toLocaleString()}</strong> / ${Number(P().meta.words_per_episode).toLocaleString()}자</span>
           ${editable ? '<div class="savebar-slot"></div>' : '<span class="w-fill"></span>'}

@@ -87,10 +87,11 @@ function markHtml(text, ranges, names = [], live = false) {
   return html + piece(at, text.length);
 }
 
-/** 밑줄 칠 곳 모두: 문체 밑줄(켰을 때), 검수 화면의 지적 문장(check.js findingRanges), 작가가 담은 고칠 곳(tofix.js). 겹치면 앞의 것만. */
+/** 밑줄 칠 곳 모두: 문체 밑줄(켰을 때), 검수 화면의 지적 문장(check.js findingRanges), 상태 승인 화면의 근거 문장(review.js rvRanges),
+    작가가 담은 고칠 곳(tofix.js). 겹치면 앞의 것만. */
 function allRanges(n, text) {
   const out = [...(marksOn && markable() ? markRanges(n, text) : []), ...(typeof findingRanges === 'function' ? findingRanges(n, text) : []),
-    ...tofixMarks(n, text)];
+    ...(typeof rvRanges === 'function' ? rvRanges(n, text) : []), ...tofixMarks(n, text)];
   out.sort((x, y) => x.a - y.a || y.b - x.b);
   let end = 0;
   return out.filter((r) => (r.a >= end ? ((end = r.b), true) : false));
