@@ -143,7 +143,7 @@ function fsAddForm(c) {
 }
 
 function viewForeshadow() {
-  const head = header('복선', '복선 센터', '복선마다 본문 어느 문장에 심고 회수했는지, 회수율과 오래 묵은 복선을 봐요. AI가 찾은 문장은 상태 승인 화면에서 골라 반영돼요.',
+  const head = header('작품 도구', '복선 센터', '복선마다 본문 어느 문장에 심고 회수했는지, 회수율과 오래 묵은 복선을 봐요. AI가 찾은 문장은 상태 승인 화면에서 골라 반영돼요.',
     `<button type="button" class="btn" data-action="fsAddToggle">+ 복선 직접 더하기</button>`);
   const c = S.fs;
   if (!c) return `${head}<div class="small">불러오는 중…</div>`;

@@ -337,3 +337,22 @@ def test_cli_sev_and_recheck(demo):
     assert "f1: 심각도를 치명으로 정했어요" in out.getvalue() and "f1: 아직 어긋나요" in out.getvalue()
     f = store.load(demo).episode(1).findings[0]
     assert (f.severity, f.status, f.log[-1].kind) == ("crit", "open", "recheck")
+
+
+def test_check_done_matches_check_state():
+    """findings.check_done 은 home.js checkState 의 done 과 같은 규칙 (작품 목록의 '검수 대기' · '상태 승인 대기')."""
+    from canon.schema import Finding, TextEdit
+    e = episode("본문")
+    assert not findings.check_done(e)  # 검수 전
+    e.checked_at = "2026-10-30T10:00:00+00:00"
+    assert findings.check_done(e)
+    e.findings = [Finding(id="f1", type="사실", description="d", source_quote="", current_quote="본문", status="open")]
+    assert not findings.check_done(e)  # 열린 지적
+    e.findings[0].status = "kept"
+    e.edits = [TextEdit(id="x1", at="2026-10-30T11:00:00+00:00")]
+    assert not findings.check_done(e)  # 검수 뒤 고침
+    e.edits[0].undone = True
+    assert findings.check_done(e)
+    e.edits = [TextEdit(id="x2", at="2026-10-30T11:00:00+00:00", group="g1")]
+    e.findings[0].closed_by, e.findings[0].fix_group = "one", "g1"
+    assert findings.check_done(e)  # 이 지적만 다시 검수가 본 고침

@@ -27,6 +27,7 @@ def test_badges():
       const p = data;
       return {
         two: navBadges(p, 2, [{ kind: 'state', ep: 2 }, { kind: 'arc', ep: 0 }], 3),
+        other: navBadges(p, 2, [{ kind: 'state', ep: 1 }], null),  // 다른 화의 상태 변경안은 4 · 5 · 6 줄이 가리키는 화의 배지가 아니다
         one: navBadges(p, 1, [], null),
         none: navBadges(p, 3, [], null),
       };
@@ -34,6 +35,7 @@ def test_badges():
     assert got["two"] == {"check": 2, "review": 1, "auto": 3, "tofix": 1}  # kept 지적 · done 고칠 곳은 세지 않는다
     assert got["one"] == {"check": 0, "review": 0, "auto": None, "tofix": 1}
     assert got["none"]["check"] == 0
+    assert got["other"]["review"] == 0
 
 
 @needs_node
@@ -51,7 +53,7 @@ def test_sidebar_render():
     w = got["write"]
     assert 'aria-current="page"' in w and "<span class=\"sr-only\"> (단계 4)</span>" in w
     assert ">2</span><span class=\"sr-only\">, 열린 지적 2개</span>" in w
-    assert ">결과</span><span class=\"sr-only\">, 반영하지 않은 상태 변경안 1개</span>" in w
+    assert ">결과</span><span class=\"sr-only\">, 반영하지 않은 상태 변경안이 있어요</span>" in w
     assert ", 남은 고칠 곳 1개" in w
     assert 'data-action="navFold" data-arg="tools"' in w and 'data-action="toggleRail"' in w and 'data-action="openPalette"' in w
     assert 'class="side-set" href="#/settings"' in w and 'data-arg="side-more"' in w
@@ -74,3 +76,34 @@ def test_play_sidebar_render():
     assert 'data-action="toggleMenu"' in got and 'data-action="toggleRail"' in got
     assert 'id="hub-slot"' not in got and 'data-action="openPalette"' not in got
     assert 'class="side-set" href="#/settings"' in got
+
+
+@needs_node
+def test_flow_rows_follow_viewed_episode():
+    got = run_js(FILES, """(() => {
+      S.project = data; S.name = 't';
+      const links = () => navItems().steps.filter(([id]) => ['write', 'check', 'review'].includes(id)).map(([, href]) => href);
+      S.route = ['p', 't', 'check', '1'];
+      const viewed = links();
+      S.route = ['p', 't', 'cast'];
+      const elsewhere = links();
+      S.route = ['p', 't', 'write', '9'];  // 없는 화는 지금 작업할 화로
+      const missing = links();
+      return { viewed, elsewhere, missing };
+    })()""", project())
+    assert got["viewed"] == ["#/p/t/write/1", "#/p/t/check/1", "#/p/t/review/1"]
+    assert got["elsewhere"] == ["#/p/t/write/2", "#/p/t/check/2", "#/p/t/review/2"]
+    assert got["missing"] == got["elsewhere"]
+
+
+@needs_node
+def test_play_copy_work_card():
+    got = run_js(FILES, """(() => {
+      S.project = data; S.name = 't'; S.route = ['p', 't'];
+      const before = { card: workCard(), next: nextStep() };
+      S.homePlay = { name: 't', title: '임유웅의 삶', world_title: '세계' };
+      return { before, card: workCard(), next: nextStep() };
+    })()""", project())
+    assert "플레이 사본" not in got["before"]["card"] and got["before"]["next"][1] != "#/play/t"
+    assert "플레이 사본 · 임유웅의 삶" in got["card"]
+    assert got["next"] == ["플레이로 돌아가기", "#/play/t"]

@@ -66,7 +66,7 @@ async function abLoad(sel) {
 }
 
 function viewAbilities() {
-  const head = header('도구', '스킬 도감', '상태창의 스킬 · 특성 · 칭호마다 설명 · 효과 · 대가를 적어요. 같은 이름(Lv3 · B급 같은 등급 꼬리를 뗀 이름)이면 모든 인물에 한 설명을 써요. 가진 인물과 얻은 화는 상태창 기록에서 계산해요.',
+  const head = header('작품 도구', '스킬 도감', '상태창의 스킬 · 특성 · 칭호마다 설명 · 효과 · 대가를 적어요. 같은 이름(Lv3 · B급 같은 등급 꼬리를 뗀 이름)이면 모든 인물에 한 설명을 써요. 가진 인물과 얻은 화는 상태창 기록에서 계산해요.',
     '<button type="button" class="btn primary" data-action="abNew" data-arg="">+ 항목</button>');
   const d = S.ab;
   if (!d) return `${head}<div class="small">불러오는 중…</div>`;

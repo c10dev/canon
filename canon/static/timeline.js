@@ -209,7 +209,7 @@ function tlRows() {
 function viewTimeline() {
   const p = P();
   const tl = p.timeline || { enabled: true, start: '', deadlines: [] };
-  const head = header('시간', '작품 속 시간', '화가 끝난 시점(날짜나 며칠째, 시간대)과 앞으로 올 기한을 기록해요. AI는 상태 변경안에 이번 화가 끝난 시점과 새 기한만 적고, 날짜 · 요일 · 남은 날은 Canon이 세요. 본문을 쓸 때는 직전 화 끝 시점, 이번 화 플롯의 시점, 열린 기한 몇 줄만 들어가서 화수가 늘어도 프롬프트가 거의 커지지 않아요.');
+  const head = header('작품 도구', '작품 속 시간', '화가 끝난 시점(날짜나 며칠째, 시간대)과 앞으로 올 기한을 기록해요. AI는 상태 변경안에 이번 화가 끝난 시점과 새 기한만 적고, 날짜 · 요일 · 남은 날은 Canon이 세요. 본문을 쓸 때는 직전 화 끝 시점, 이번 화 플롯의 시점, 열린 기한 몇 줄만 들어가서 화수가 늘어도 프롬프트가 거의 커지지 않아요.');
   const n = tlLastDone() + 1;
   const prev = tlPrev(n);
   const day = tlDay(n);
