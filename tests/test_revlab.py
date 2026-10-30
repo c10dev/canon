@@ -55,6 +55,60 @@ def test_schemas_have_no_dict():
     assert "length" not in RevCue.model_json_schema()["properties"]  # 글자 수는 AI 가 적지 않는다
 
 
+def _objects(node):
+    """JSON 스키마 안의 object 노드를 모두."""
+    if isinstance(node, dict):
+        if isinstance(node.get("properties"), dict):
+            yield node
+        for v in node.values():
+            yield from _objects(v)
+    elif isinstance(node, list):
+        for v in node:
+            yield from _objects(v)
+
+
+def test_response_fields_are_all_required():
+    """기본값이 있는 칸은 선택 칸이 되어 Gemini 가 빼먹는다 (실측: 출력 36토큰, title 만). Gemini 에 보내는 스키마 그대로 본다."""
+    from canon.llm import _inline_refs
+
+    for m in (RevEpisodeDraft, RevLineSet):
+        objs = list(_objects(_inline_refs(m.model_json_schema())))
+        assert len(objs) >= 2
+        for o in objs:
+            assert sorted(o.get("required", [])) == sorted(o["properties"]), o.get("title")
+
+
+class _Seq:
+    """정한 응답을 차례로 돌려주는 LLM. 받은 요청을 남긴다."""
+
+    def __init__(self, *outs):
+        self.outs, self.prompts = list(outs), []
+
+    def json(self, system, prompt, schema, hint=None):
+        self.prompts.append(prompt)
+        return self.outs.pop(0)
+
+
+def _empty_draft():
+    from canon.schema import RevTime
+    return RevEpisodeDraft(title="1화", summary="", events=[], cast=[], emotional_shift="", ending_hook="", opening="", time="",
+                           threads=[], scenes=[], board_time=RevTime(after=0, part="", days=1, end_part=""), handover=[],
+                           key="", cadence="half", cues=[])
+
+
+def test_empty_response_retries_once_then_refuses(home):
+    from canon import pipeline
+
+    lab = revlab.create("등대", STORY)
+    good = MockLLM().json(prompts.SYSTEM_REVERSE, prompts.rev_prompt(lab, 1), RevEpisodeDraft, hint={"episode": 1})
+    llm = _Seq(_empty_draft(), good)
+    assert pipeline.reverse_episode(llm, lab, 1) is good
+    assert llm.prompts[1] == llm.prompts[0] + "\n\n" + prompts.REV_EMPTY_RETRY  # 앞부분은 같고 맨 뒤에 덧붙인다
+    with pytest.raises(ValueError, match="응답이 비었어요"):
+        revlab.run_parse(lab.id, _Seq(_empty_draft(), _empty_draft()), [1])
+    assert revlab.load(lab.id).episodes[0].sheet is None  # 빈 결과는 저장하지 않는다
+
+
 def test_split_rules():
     s = revlab.split(STORY)
     assert s["how"] == "heading" and s["first"] == 1 and s["preface"] == "등대지기의 밤\n글 · 시험용"
