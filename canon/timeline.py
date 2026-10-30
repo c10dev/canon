@@ -270,8 +270,9 @@ def episode_block(p: Project, n: int) -> str:
     return "\n".join(lines)
 
 
-def plan_block(p: Project, n: int) -> str:
-    """플롯 기획에 넣는 블록: n화 직전 시점과 열린 기한. 꺼졌거나 없으면 빈 문자열."""
+def plan_block(p: Project, n: int, rule: str | None = None) -> str:
+    """플롯 기획에 넣는 블록: n화 직전 시점과 열린 기한. 꺼졌거나 없으면 빈 문자열.
+    rule 은 끝 줄의 지시 (비우면 화별 플롯의 time 칸 지시. 다음 아크 기획처럼 time 칸이 없는 응답은 따로 준다)."""
     if not enabled(p):
         return ""
     prev = prev_end(p, n)
@@ -282,7 +283,7 @@ def plan_block(p: Project, n: int) -> str:
     if rows:
         lines.append(f"열린 기한{f' (먼 것 {cut}개 생략)' if cut else ''}:")
         lines += rows
-    lines.append("- 화마다 time 칸에 " + ("시점을 적고(직전 화에서 얼마나 지났는지나 '3월 8일 아침' 같은 날짜)" if dated(p) else "직전 화에서 얼마나 지났는지 적고")
+    lines.append(rule if rule is not None else "- 화마다 time 칸에 " + ("시점을 적고(직전 화에서 얼마나 지났는지나 '3월 8일 아침' 같은 날짜)" if dated(p) else "직전 화에서 얼마나 지났는지 적고")
                  + ", 기한이 있으면 그 날에 맞게 사건을 놓습니다.")
     return "\n".join(lines)
 

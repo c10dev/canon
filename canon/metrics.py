@@ -406,7 +406,7 @@ class OpeningMetrics(BaseModel):
     status_ratio: float = Field(0, description="상태창처럼 괄호로 감싼 줄의 글자 비율")
 
 
-def _given(name: str) -> list[str]:
+def name_forms(name: str) -> list[str]:
     """'강서윤' → ['강서윤', '서윤']. 한글 세 글자 이름은 성을 뗀 이름으로도 부르니까."""
     name = name.strip()
     out = [name] if name else []
@@ -428,7 +428,7 @@ def measure_opening(text: str, characters: list[str], hero: str = "", lore: list
     head = text[: max(1, len(text) // 3)]
     q = _QUOTE.search(text)
     quoted = sum(len(m) for m in _QUOTE.findall(head))
-    found = sorted(((_first_at(text, _given(c)), c) for c in characters if c.strip()), key=lambda x: (x[0] is None, x[0] or 0))
+    found = sorted(((_first_at(text, name_forms(c)), c) for c in characters if c.strip()), key=lambda x: (x[0] is None, x[0] or 0))
     early = text[:2000]
     terms = [t.strip() for t in (lore or []) if len(t.strip()) >= 2]
     lore_hits = sum(early.count(t) for t in dict.fromkeys(terms))
@@ -450,7 +450,7 @@ def measure_opening(text: str, characters: list[str], hero: str = "", lore: list
         chars=len(text),
         first_dialogue_at=q.start() if q else None,
         head_dialogue_ratio=round(quoted / len(head), 2),
-        hero_at=_first_at(text, _given(hero)) if hero else None,
+        hero_at=_first_at(text, name_forms(hero)) if hero else None,
         named=[c for at, c in found if at is not None],
         lore_per_1k=round(lore_hits * 1000 / max(len(early), 1000), 1),  # 아주 짧은 글이 튀지 않게
         longest_narration=longest,
