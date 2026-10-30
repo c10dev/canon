@@ -88,3 +88,42 @@ def test_recs_name_real_choices():
     ids, bad_world, bad_era = run_js(FILES, expr, None)
     assert set(ids) <= {g.id for g in CATALOG}
     assert bad_world == [] and bad_era == []
+
+
+@needs_node
+def test_doc_status_marks_sections():
+    """기획서 목차: 필수를 채웠고 볼 것이 없는 구역만 ✓, 빈 칸 있는 인물 · 볼 관계는 주황 글."""
+    done = full()
+    done.characters[0].goal = "염전을 되찾는다"
+    for c in done.characters:
+        c.wound, c.speech_style, c.goal = "약점", "짧게 말한다", c.goal or "원한다"
+    done.relationships[0].a_view = ["믿는다"]
+    gaps = full()
+    gaps.relationships.append(Relationship(a="char2", b="hero", type=""))  # 같은 쌍 · 사이 없음
+    gaps.meta.theme = "주제"
+    got = run_js(FILES, "data.map((p) => docStatus(p))", [dump(done), dump(gaps), dump(Project())])
+    assert [x["done"] for x in got[0]] == [True, True, True, True, True, False]
+    assert got[0][3]["text"] == "2명" and got[0][4]["text"] == "1개" and got[0][5]["text"] == "0/3"
+    # 인물 둘 다 빈 칸, 관계 둘 다 볼 것(첫째는 보는 방식 없음, 둘째는 같은 쌍 · 사이 없음)
+    assert got[1][3] == {"done": False, "text": "빈 칸 2명", "warn": True}
+    assert got[1][4] == {"done": False, "text": "확인 2", "warn": True}
+    assert got[1][5]["text"] == "1/3"
+    # 빈 작품: 로그라인 비어 있음, 인물 · 관계는 필수가 비어 주황
+    assert got[2][1] == {"done": False, "text": "비어 있음", "warn": True}
+    assert got[2][3]["warn"] and got[2][4]["warn"]
+
+
+@needs_node
+def test_rel_issue_and_summary():
+    p = full()
+    p.relationships += [Relationship(a="hero", b="hero", type=""), Relationship(a="char2", b="hero", type="동료")]
+    no_cast = Project()
+    no_cast.meta.title = "제목"
+    no_world = full()
+    no_world.world.setting = ""
+    expr = """[data[0].relationships.map((r, i) => relIssue(data[0], r, i)), data.map(docSummary)]"""
+    issues, sums = run_js(FILES, expr, [dump(p), dump(no_cast), dump(no_world)])
+    assert issues == [2, "same", 0]  # 같은 쌍은 서로를 가리킨다
+    assert sums[0] == "필수 여섯 칸을 다 채웠어요. 남은 것: 인물 빈 칸 2명, 관계 확인 3"
+    assert sums[1].startswith("인물이 없어요.")
+    assert sums[2] == "필수 칸이 1개 남았어요: 세계 배경"
