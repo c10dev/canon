@@ -140,6 +140,8 @@ def _save(name: str, p: Project, merged: set[str] | None = None, kept: list[dict
             disk = store.load(name)
             # 자동 집필이 반영한 진행을 오래된 화면이 덮지 않게
             kept += [k for k in autorun.protected(name, disk, p) if k not in kept]
+            # 본문이 있는 화의 플롯은 화면이 막아도 서버에서 한 번 더 지킨다 (줄기 표시만 받는다)
+            kept += [{"field": "plot", "ep": n, "why": "locked"} for n in pipeline.keep_locked_plots(disk, p)]
             # 화면이 열린 동안 플롯 작업이 더한 새 인물 후보도 지킨다. 안 쓰이거나 등록된 후보는 sync 가 지운다
             have = {c.id for c in p.cast_candidates}
             p.cast_candidates += [c for c in disk.cast_candidates if c.id not in have]

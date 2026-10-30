@@ -18,6 +18,8 @@ def _serial(total=300) -> Project:
 
 def _plan_arc(p: Project, length=0):
     a = pipeline.apply_arc(p, pipeline.plan_next_arc(LLM, p, length))
+    # 아크의 새 인물은 후보로 들어온다. 이 도우미는 작가가 아크를 다 확정한 작품을 흉내 내므로 아크 인물 후보도 등록해 둔다
+    pipeline.register_candidates(p, [c.id for c in p.cast_candidates if c.id in a.cast])
     pipeline.apply_plots(p, pipeline.draft_plots(LLM, p, a.start_ep, a.end_ep))
     for e in p.episodes:
         if e.status == "draft":
@@ -124,20 +126,19 @@ def test_remove_last_arc_only_when_draft():
     p = _serial()
     prop = pipeline.plan_next_arc(LLM, p)
     prop.new_characters = [Character(id="newbie", name="신입", role="조연")]
+    before = {c.id for c in p.characters}
     a = pipeline.apply_arc(p, prop)
-    assert p.arc_undo[0].characters == ["newbie"]
+    assert p.arc_undo[0].characters == [] and [c.id for c in p.cast_candidates] == ["newbie"]  # 후보로 들어온다
     pipeline.apply_plots(p, pipeline.draft_plots(LLM, p, a.start_ep, a.end_ep))
     p.episode(1).status = "confirmed"
     with pytest.raises(ValueError, match="지울 수 없어요"):
         pipeline.remove_last_arc(p)
     p.episode(1).status = "draft"
-    before = {c.id for c in p.characters}
-    added = p.arc_undo[0].characters
     pipeline.remove_last_arc(p)
     assert p.story_arcs == [] and p.episodes == []
-    # 이 아크가 더한 인물은 지운다 (다시 기획한 제안의 같은 id 인물이 걸러지지 않게)
-    assert not ({c.id for c in p.characters} & set(added)) and p.arc_undo == []
-    assert {c.id for c in p.characters} == before - set(added)
+    # 이 아크가 데려온 인물 후보도 지운다 (다시 기획한 제안의 같은 id 인물이 걸러지지 않게). 인물 설정은 그대로다
+    assert p.cast_candidates == [] and p.arc_undo == []
+    assert {c.id for c in p.characters} == before
 
 
 def test_arc_paying_off_undated_foreshadow_still_saves():
@@ -505,3 +506,34 @@ def test_nextarc_cli_prints_plan_ahead_warning(tmp_path, monkeypatch, capsys):
     cli.main(["nextarc", "ahead", "-y"])
     out = capsys.readouterr().out
     assert "본문이 아직 없는데 아크가" in out
+
+
+def test_arc_new_characters_wait_as_candidates():
+    """다음 아크가 데려온 새 인물은 바로 인물 설정에 들지 않고 후보로 기다린다 (플롯이 데려온 인물과 같은 길).
+    그 인물이 나오는 화를 확정하면 등록되고, 첫 등장 화는 그 화다. 아크 주요 인물에 있으면 플롯에 없어도 지워지지 않는다."""
+    p = _serial()
+    prop = pipeline.plan_next_arc(LLM, p)
+    prop.new_characters = [Character(id="smith", name="대장장이", role="조연", tier="main")]
+    prop.arc.cast = [c for c in prop.arc.cast if c != "smith"]  # AI 가 cast 에 넣는 것을 빠뜨려도
+    a = pipeline.apply_arc(p, prop)
+    assert "smith" in a.cast and "smith" not in {c.id for c in p.characters}
+    cand = next(c for c in p.cast_candidates if c.id == "smith")
+    assert (cand.tier, cand.first_ep) == ("support", 0)  # 주역은 작가가 정한다
+    pipeline.apply_plots(p, pipeline.draft_plots(LLM, p, a.start_ep, a.end_ep))
+    pipeline.sync_candidates(p)
+    assert any(c.id == "smith" for c in p.cast_candidates)  # 플롯에 없어도 아크 주요 인물이라 남는다
+    n = a.start_ep + 2
+    p.episode(n).plot.characters.append("smith")
+    assert "smith" in pipeline.confirm_plot(p, n)
+    smith = next(c for c in p.characters if c.id == "smith")
+    assert smith.first_ep == n and p.state_of("smith") is not None
+    assert "smith" not in {c.id for c in p.cast_candidates}  # 등록되면 후보에서 빠진다
+
+
+def test_registering_arc_candidate_without_plot_uses_arc_start():
+    p = _serial()
+    prop = pipeline.plan_next_arc(LLM, p)
+    prop.new_characters = [Character(id="smith", name="대장장이", role="조연")]
+    a = pipeline.apply_arc(p, prop)
+    assert pipeline.register_candidates(p, ["smith"]) == ["smith"]
+    assert next(c for c in p.characters if c.id == "smith").first_ep == a.start_ep
