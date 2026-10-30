@@ -255,7 +255,11 @@ def test_web_job_view_put_delete(demo):
     assert r.status_code == 200 and r.json()["total"] == 2
     assert _wait(c, r.json()["id"])["status"] == "done"
     e = store.load(demo).episode(2)
-    assert e.text and e.storyboard.made_by == "ai"
+    assert e.text and e.storyboard.made_by == "ai" and not e.storyboard.skipped
+    # 스토리보드 없이 다시 쓰면 검수가 그 전제를 대조하지 않게 표시한다
+    r = c.post(f"/api/projects/{demo}/jobs", json={"kind": "write", "ep": 2, "board": "none"})
+    assert _wait(c, r.json()["id"])["status"] == "done"
+    assert store.load(demo).episode(2).storyboard.skipped
     assert c.delete(f"/api/projects/{demo}/episodes/2/storyboard").status_code == 200
     assert store.load(demo).episode(2).storyboard is None
 
@@ -290,3 +294,15 @@ def test_check_gets_protect_and_write_has_one_priority_line(demo):
     assert "자료가 서로 부딪히면 스토리보드, 이번 화 플롯" in write
     p.episode(2).storyboard = None
     assert "# 스토리보드가 정한 다음 화 전제" not in prompts.check_prompt(p, 2)
+
+
+def test_priority_line_reaches_cue_and_rework_prompts_and_skipped_board(demo):
+    p = store.load(demo)
+    _written(p, 1, "가" * 3000)
+    p.episode(2).storyboard = Storyboard.model_validate(EXAMPLES["10"])
+    assert "자료가 서로 부딪히면 스토리보드, 이번 화 플롯" in prompts.cue_sheet_prompt(p, 2)
+    p.episode(2).text = "본문"
+    p.episode(2).storyboard.skipped = True  # 스토리보드 없이 쓴 본문
+    assert "# 스토리보드가 정한 다음 화 전제" not in prompts.check_prompt(p, 2)
+    pipeline.set_storyboard(p, 2, p.episode(2).storyboard, by="author")
+    assert p.episode(2).storyboard.skipped  # 본문이 그대로면 고쳐도 표시는 남는다

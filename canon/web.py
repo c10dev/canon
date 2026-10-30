@@ -2048,7 +2048,12 @@ def start_job(name: str, body: JobIn) -> dict:
                         job.done += 1
                     job.note = f"{n}화 본문 쓰는 중"
                     text = pipeline.write_episode(llm, store.load(name), n, use_board=body.board != "none", use_cues=use_cues)
-                    _edit(name, lambda q: pipeline.replace_text(q.episode(n), text))  # 지금 본문이 있으면 '이전 판'에 남는다
+
+                    def save(q):
+                        pipeline.replace_text(q.episode(n), text)  # 지금 본문이 있으면 '이전 판'에 남는다
+                        if q.episode(n).storyboard is not None:  # 스토리보드 없이 쓴 본문은 검수가 그 전제를 대조하지 않는다
+                            q.episode(n).storyboard.skipped = body.board == "none"
+                    _edit(name, save)
                     return None
         else:
             if not e.text:

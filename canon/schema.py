@@ -1534,6 +1534,7 @@ class Storyboard(StoryboardDraft):
     made_by: SkipJsonSchema[Literal["ai", "author", "both"]] = "ai"
     basis: SkipJsonSchema[str] = Field("", description="만들 때 입력의 지문 (pipeline.board_basis). 지금 값과 다르면 낡은 것")
     checks: SkipJsonSchema[list[str]] = Field(default_factory=list, description="Canon 이 센 경고 (값 범위). AI 가 쓰지 않는다")
+    skipped: SkipJsonSchema[bool] = Field(False, description="지금 본문을 이 스토리보드 없이 썼다. 검수가 깨지 않을 것(protect)을 대조하지 않는다")
 
 
 class ForeshadowClue(BaseModel):
