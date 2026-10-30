@@ -131,13 +131,13 @@ function styleExampleCard() {
       ${sampleBlock(ex.text, ex.source, ex.episode)}
       <div class="between"><span class="small">${esc(how)} · ${ex.text.length.toLocaleString()}자</span><button type="button" class="btn small" data-action="styleExampleClear">지우기</button></div>`
     : `<div class="small">${blank ? '문체를 만든 뒤 예시를 써 볼 수 있어요.' : '아직 예시가 없어요. 지금 문체로 짧은 장면을 써서 실제로 어떻게 읽히는지 보여 줘요.'}</div>`;
-  return `<section class="card tight pf-sec" id="pf-example" tabindex="-1">
-      <div class="between"><h2>이 문체로 쓴 예시</h2><span class="small">본문에는 들어가지 않아요</span></div>
+  return `<section class="card pf-sec" id="pf-example" tabindex="-1">
+      <div class="pf-head"><h2>이 문체로 쓴 예시</h2><span class="small">본문에는 들어가지 않아요</span></div>
       ${body}
-      <div class="row">
+      <div class="row sty-ex-row">
         <input type="text" data-local="styleExScene" value="${esc(S.styleExScene || '')}" aria-label="바라는 장면" placeholder="바라는 장면 (비우면 AI가 골라요), 예: 비 오는 날 두 사람이 다툼" style="flex:1 1 240px;min-width:0"${blank ? ' disabled' : ''}>
         ${sel}
-        <button type="button" class="btn small dark" style="flex:none" data-action="styleExampleWrite"${blank ? ' disabled' : ''}>${ex ? '다시 쓰기' : '예시 쓰기'}</button>
+        <button type="button" class="btn small" style="flex:none" data-action="styleExampleWrite"${blank ? ' disabled' : ''}>${ex ? '다시 쓰기' : '예시 쓰기'}</button>
       </div>
     </section>`;
 }
