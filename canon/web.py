@@ -34,7 +34,7 @@ from .schema import FieldIdeas, NameOption, Recap
 from . import branches
 from .schema import BranchDiff, BranchInfo, ForkMode
 from . import birth, play
-from . import cue
+from . import cue, revlab
 from .schema import CueSheetDraft
 from . import stage, tofix
 from .schema import Birth, BirthSketch, Episode, PlayInfo, PlayPerson, PlayUnit, StageProposal, StageRoom, StageScene
@@ -1869,7 +1869,8 @@ def start_job(name: str, body: JobIn) -> dict:
     if kind in ("write", "state", "plots", "plot_one", "check", "board"):
         _not_auto(name)
     stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "fold_knows": "state", "rework": "revise",
-             "hook": "check", "check": "check", "opening_drafts": "write", "stattrial": "write", "stage_extract": "check", "cue_run": "write"}.get(kind, "plan")  # 나머지는 plan
+             "hook": "check", "check": "check", "opening_drafts": "write", "stattrial": "write", "stage_extract": "check", "cue_run": "write",
+             }.get(kind, "plan")  # 나머지는 plan
     llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
     if kind == "suggest":
@@ -4213,6 +4214,143 @@ def cue_estimate(name: str, n: int, body: CueEstimateIn) -> dict:
     """쓰기 호출 수와 비용 추정. AI 를 부르지 않는다."""
     p = _load(name)
     return cue.estimate(p, n, store.load_cuelab(name, n).sheet, body.conditions or None)
+
+# ---------- 역설계 실험 (canon/revlab.py, 작품 밖 화면 #/revlab) ----------
+# 작가가 넣은 소설을 거꾸로 플롯 · 스토리보드 · 큐 시트 · 이야기 줄기 · 인물 · 관계 · 배경 · 문체로 푼다.
+# 실험은 작품 밖 <CANON_HOME>/.revlab/<번호>.json, AI 작업은 POST /revlab/<번호>/jobs (작품 없이: 작업 목록의 project 는 revlab.JOBS,
+# 사용량은 작품 없이 잡히고, 모델은 작품 프리셋이 아니라 전체 단계 설정을 쓴다).
+
+class RevIn(BaseModel):
+    title: str = ""
+    text: str | None = None  # PUT 에서 비우면 글은 그대로 둔다
+    first: int | None = None  # 첫 화 번호. 비우면 만들 때 짐작하고(revlab.guess_first), PUT 에서는 그대로 둔다
+
+
+class RevEstimateIn(BaseModel):
+    kind: Literal["parse", "write", "style"] = "parse"
+    episodes: list[int] = []
+    style: bool = False  # write: 문체 프로필을 넣고 쓸 때
+
+
+class RevPickIn(BaseModel):
+    choice: int  # 1 · 2 (보인 차례), 0 이면 건너뛰기
+
+
+class RevSplitIn(BaseModel):
+    text: str
+
+
+class RevJobIn(BaseModel):
+    kind: Literal["parse", "write", "style"]
+    episodes: list[int] = []  # parse: 비우면 모든 화, write: 화 하나
+    style: bool = False  # write: 역설계한 문체 프로필을 넣고 쓴다
+
+
+def _rev(lab_id: int):
+    try:
+        return revlab.load(lab_id)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+
+
+def _rev_edit(lab_id: int, fn) -> dict:
+    _rev(lab_id)
+    return revlab.view(revlab.with_lock(lab_id, fn))
+
+
+@app.get("/api/revlab")
+def rev_home() -> dict:
+    """역설계 실험 목록과 화면 이름 (큐 칸 값은 GET /projects/<이름>/cue 와 같다)."""
+    return {"labs": revlab.listing(), **revlab.labels(), **_cue_labels()}
+
+
+@app.post("/api/revlab/split")
+def rev_split(body: RevSplitIn) -> dict:
+    """글을 화로 나눈 미리보기 (저장하지 않는다). 화면은 같은 규칙(revSplit)으로 바로 그리고, 이것은 맞춰 보기용이다."""
+    return revlab.split(body.text)
+
+
+@app.post("/api/revlab")
+def rev_create(body: RevIn) -> dict:
+    """새 실험: 글을 화로 나눠 원문만 넣는다. AI 를 부르지 않는다."""
+    return revlab.view(revlab.create(body.title, body.text or "", body.first))
+
+
+@app.get("/api/revlab/{lab_id}")
+def rev_get(lab_id: int) -> dict:
+    return revlab.view(_rev(lab_id))
+
+
+@app.put("/api/revlab/{lab_id}")
+def rev_put(lab_id: int, body: RevIn) -> dict:
+    """제목을 바꾸고, 글을 주면 다시 나눈다 (역설계 결과를 모두 지운다). 첫 화 번호를 주면 화 번호를 옮긴다."""
+    return _rev_edit(lab_id, lambda lab: revlab.replace_text(lab, body.title, body.text, body.first))
+
+
+@app.delete("/api/revlab/{lab_id}")
+def rev_delete(lab_id: int) -> dict:
+    _rev(lab_id)
+    revlab.remove(lab_id)
+    return {"ok": True}
+
+
+@app.put("/api/revlab/{lab_id}/episodes/{n}/sheet")
+def rev_put_sheet(lab_id: int, n: int, body: CueSheetDraft) -> dict:
+    """작가가 고친 큐 시트. 큐 수가 바뀌면 원문 경계를 지운다."""
+    return _rev_edit(lab_id, lambda lab: revlab.set_sheet(lab, n, body))
+
+
+@app.post("/api/revlab/{lab_id}/episodes/{n}/pick")
+def rev_pick(lab_id: int, n: int, body: RevPickIn) -> dict:
+    """블라인드 비교에서 고른다. 고르면 어느 쪽이 원문인지와 지표를 보인다."""
+    return _rev_edit(lab_id, lambda lab: revlab.pick(lab, n, body.choice))
+
+
+@app.post("/api/revlab/{lab_id}/jobs")
+def rev_job(lab_id: int, body: RevJobIn) -> dict:
+    """역설계(parse) · 되돌려 쓰기(write) · 문체 역설계(style) 작업을 시작한다. 작품을 읽지 않는다. 같은 실험의 같은 작업은 하나만 돈다."""
+    lab = _rev(lab_id)
+    kind, name = f"rev_{body.kind}", lab.title or f"실험 {lab_id}"
+    with usage.scope(project=""):  # 작품 프리셋을 고르지 않게 (settings.project_preset 은 작품 범위를 본다)
+        llm = get_llm("write" if body.kind == "write" else "plan")  # 키가 없으면 여기서 바로 오류를 보여 준다
+    if body.kind == "parse":
+        nums = revlab.choose(lab, body.episodes or None)
+        total = len(nums) + revlab.wants_lines(lab, nums)
+        label = f"{name} {len(nums)}화 역설계"
+
+        def fn(job: jobs.Job):
+            def step(done: int, _total: int, note: str) -> None:
+                job.done, job.note = done, note
+            return revlab.run_parse(lab_id, llm, nums, progress=step)
+    elif body.kind == "write":
+        if len(body.episodes) != 1:
+            raise ValueError("되돌려 쓸 화를 하나 고르세요")
+        k, use_style = body.episodes[0], body.style
+        revlab.world(lab, k, use_style)  # 역설계하지 않은 화, 문체 프로필이 없는 실험은 여기서 바로 알린다
+        total, label = 1, f"{name} {k}화 되돌려 쓰기" + (" (문체 넣음)" if use_style else "")
+
+        def fn(job: jobs.Job):
+            e = revlab.run_write(lab_id, llm, k, use_style)
+            return {"episode": k, "chars": len(revlab.blind_of(e).text), "style": use_style}
+    else:
+        revlab.style_sample(lab)
+        total, label = 1, f"{name} 문체 역설계"
+
+        def fn(job: jobs.Job):
+            return {"markers": len(revlab.run_style(lab_id, llm).markers)}
+    try:
+        with usage.scope(project="", episode=None, task=kind):
+            job = jobs.start(revlab.JOBS, kind, lab_id, label, fn, total=total)
+    except jobs.Busy as b:
+        return {**b.job.public(), "already": True}
+    return job.public()
+
+
+@app.post("/api/revlab/{lab_id}/estimate")
+def rev_estimate(lab_id: int, body: RevEstimateIn) -> dict:
+    """역설계 · 되돌려 쓰기 비용 추정. AI 를 부르지 않는다."""
+    return revlab.estimate(_rev(lab_id), body.kind, body.episodes or None, use_style=body.style)
+
 
 # ---------- 작품 속 시간 (canon/timeline.py) ----------
 # 켜고 끄기, 기준 날짜, 화가 끝난 시점, 플롯의 시점은 작품 전체 저장(PUT /projects/<이름>)으로 고친다.

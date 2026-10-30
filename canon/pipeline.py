@@ -7,7 +7,7 @@ from . import dynamics, elements, illust, metrics, naming, prompts, renumber, se
 from .judge import Judge, Question
 from .llm import LLM, dump
 from . import board, cancel, charlog, context, features, findings, foreshadows, knows, stage, statwin, timeline
-from .schema import CueSheet, CueSheetDraft, Finding, FindingRecheck, FixOption, FixPatch, FixSet
+from .schema import CueSheet, CueSheetDraft, Finding, FindingRecheck, FixOption, FixPatch, FixSet, RevEpisodeDraft, RevLineSet
 from .schema import (
     Act,
     ArcEdit,
@@ -2703,6 +2703,39 @@ def play_cues(llm: LLM, p: Project, n: int, sheet: CueSheet, progress=None) -> t
         sent += len(system) + len(prompt)
         done.append(_write(llm, p, n, prompt).strip())
     return done, sent
+
+
+# ---------- 4-2. 역설계 실험 (revlab.py) ----------
+# 작가가 넣은 소설을 거꾸로 플롯 · 스토리보드 · 큐 시트 · 이야기 줄기로 푼다. 작품에 저장하지 않는다 (revlab.apply_episode 가 실험 파일에 넣는다).
+
+def reverse_episode(llm: LLM, lab, number: int) -> RevEpisodeDraft:
+    """원문 한 화를 역설계한다 (plan 단계). 정리 · 경계 재기는 revlab.apply_episode 가 한다."""
+    from . import revlab
+
+    e = revlab.episode(lab, number)
+    if not e.text.strip():
+        raise ValueError(f"{number}화 원문이 비었어요")
+    prompt = prompts.rev_prompt(lab, number)
+    hint = {"episode": number, "names": [c.name for c in lab.cast]}
+    d = llm.json(prompts.SYSTEM_REVERSE, prompt, RevEpisodeDraft, hint=hint)
+    if not rev_empty(d):
+        return d
+    cancel.check()  # 빈 응답은 한 번만 다시 묻는다. 요청은 맨 뒤에 덧붙여 앞부분 캐시를 지킨다
+    d = llm.json(prompts.SYSTEM_REVERSE, prompt + "\n\n" + prompts.REV_EMPTY_RETRY, RevEpisodeDraft, hint=hint)
+    if rev_empty(d):
+        raise ValueError(f"{number}화 역설계 응답이 비었어요 (사건 · 장면 · 큐가 없어요). 두 번 물어도 같아서 저장하지 않았어요. 다시 시도해 주세요")
+    return d
+
+
+def rev_empty(d: RevEpisodeDraft) -> bool:
+    """역설계 응답에 사건 · 장면 · 큐 가운데 하나라도 없다 (저장하지 않고 다시 묻는다)."""
+    return not d.events or not d.scenes or not [c for c in d.cues if c.start.strip() or c.beat.strip()]
+
+
+def reverse_lines(llm: LLM, lab) -> RevLineSet:
+    """역설계한 화들의 이야기 줄기 (plan 단계). 화가 둘 넘을 때만 부른다."""
+    return llm.json(prompts.SYSTEM_REVERSE, prompts.rev_lines_prompt(lab), RevLineSet,
+                    hint={"episodes": [e.number for e in lab.episodes if e.plot]})
 
 def compare_drafts(llms: dict[str, LLM], p: Project, n: int) -> dict[str, str]:
     """같은 화를 여러 백엔드로 쓴다. 프롬프트는 write_episode 와 같다. 저장은 호출자가 한다."""

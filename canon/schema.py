@@ -2315,6 +2315,190 @@ class CueLab(BaseModel):
     model: str = ""
     run_at: str = ""
 
+
+# ---------- 역설계 실험 (canon/revlab.py) ----------
+# 작가가 넣은 소설(사람이 쓴 글)을 거꾸로 화별 플롯 · 스토리보드 · 큐 시트 · 이야기 줄기로 푼다. 작품(project.json)에 넣지 않고
+# 실험 파일 <CANON_HOME>/.revlab/<번호>.json 에 둔다. 큐 경계는 원문 글자 그대로의 시작 인용으로 받고, 글자 수는 Canon 이 잰다.
+
+# 응답 형식(Rev*)의 칸은 모두 required 다 (기본값을 두지 않는다). 기본값이 있으면 JSON 스키마에서 선택 칸이 되어
+# Gemini 가 칸을 통째로 빼고 짧게 끝낸다 (2026-10-30 실측: 5,861자 원문에 출력 36토큰, title 만 채움).
+# 그래서 스토리보드 · 큐 대사도 칸이 같은 Rev 전용 형식(RevScene · RevTime · RevHandover · RevQuote)을 두고 저장할 때 바꾼다.
+
+class RevQuote(BaseModel):
+    """핵심 대사 하나. 원문 대사를 글자 그대로 (CueLine 으로 저장)."""
+    speaker: str = Field(description="말하는 인물 이름")
+    text: str = Field(description="원문 대사 글자 그대로, 따옴표 없이")
+
+
+class RevCue(BaseModel):
+    """역설계한 큐 하나. 원문을 나누는 자리(start)를 원문 글자 그대로 적는다. 글자 수는 적지 않는다 (Canon 이 경계로 잰다)."""
+    start: str = Field(description="이 큐가 시작하는 원문 문장의 앞부분을 원문 글자 그대로 15~40자. 첫 큐는 원문 첫 문장")
+    scene: int = Field(description="이 큐가 속한 장면 번호 (scenes 의 1부터)")
+    function: CueFunction = Field(description="화성 기능. T 안정(기준선, 숨 고르기) · S 쌓기(정보, 갈등의 씨) · D 긴장(위기, 결정 직전)")
+    tension: int = Field(description="긴장도 1~5")
+    tempo: CueTempo = Field(description="템포. slow 장면을 늘임 · mid · fast 사건을 몰아침")
+    voice: CueVoice = Field(description="이 구간을 주로 무엇으로 썼는지 (편성). dialogue 대사 · action 행동 · description 묘사 · interior 속생각")
+    beat: str = Field(description="이 큐에서 바뀌는 일 한 줄")
+    lines: list[RevQuote] = Field(description="이 큐에서 정보가 밝혀지거나 관계가 바뀌는 핵심 대사 0~3개. 없으면 빈 목록")
+    exit: str = Field(description="이 큐가 끝날 때의 상태. 다음 큐가 여기서 이어받는다")
+
+
+class RevPerson(BaseModel):
+    """원문에 이름이 나온 인물 하나. 이름이 곧 id 다. 되돌려 쓰기 사본의 인물 설정이 된다 (revlab.world)."""
+    name: str = Field(description="원문에 쓴 이름 그대로")
+    role: str = Field(description="이 글에서 맡은 몫 한 줄 (주인공, 조연, 적대자 등)")
+    personality: str = Field(description="원문에서 행동과 대사로 드러난 성격 한두 문장. 드러나지 않았으면 빈 글")
+    speech: str = Field(description="원문 대사에서 보이는 말투: 어미, 말 길이, 말버릇, 자주 쓰는 짧은 표현 두세 개. 대사를 통째로 옮기지 않는다. 대사가 없으면 빈 글")
+
+
+class RevCastSaved(RevPerson):
+    """실험 파일의 인물 (RevLab.cast). 응답 형식과 칸이 같지만 저장 형식이라 기본값을 둔다 (옛 파일이 읽히게)."""
+    role: str = ""
+    personality: str = ""
+    speech: str = ""
+
+
+class RevAddress(BaseModel):
+    """한 인물이 다른 인물을 부르는 말과 말씨 (AddressForm 으로 저장). 방향이 있다."""
+    speaker: str = Field(description="말하는 인물 이름")
+    listener: str = Field(description="듣는 인물 이름")
+    calls: str = Field(description="speaker 가 listener 를 부르는 말 (예: 마츠다 군, 선배). 원문에 없으면 빈 글")
+    speech: str = Field(description="speaker 가 listener 에게 쓰는 말씨 (하십시오체 · 해요체 · 해체(반말) 등)")
+
+
+class RevTie(BaseModel):
+    """두 인물의 관계 한 줄 (Relationship 으로 저장)."""
+    a: str = Field(description="인물 이름")
+    b: str = Field(description="인물 이름")
+    type: str = Field(description="관계 종류 (친구, 선후배, 가족, 연인, 라이벌 등)")
+    description: str = Field(description="원문에 드러난 두 사람 사이 한두 문장: 지난 일, 감정, 거리감")
+
+
+class RevScene(BaseModel):
+    """장면 하나 (BoardScene 으로 저장). 대사와 본문 문장은 넣지 않는다."""
+    place: str = Field(description="장소. 원문의 장소 이름, 없으면 짧은 설명")
+    spot: str = Field(description="그 장소 안 자리. 모르면 빈 글")
+    time: str = Field(description="장면 시각이나 시간대. 모르면 빈 글")
+    present: list[str] = Field(description="이 장면에 있는 인물 이름")
+    events: list[int] = Field(description="이 장면이 맡은 events 번호 (1부터)")
+    goal: str = Field(description="시점 인물이 이 장면에서 얻으려는 것")
+    turn: str = Field(description="장면의 흐름이 바뀌는 일 한 줄")
+    end_state: str = Field(description="장면 끝 상태: 다음 장면이 이어받는 것")
+
+
+class RevTime(BaseModel):
+    """이 화의 시간 (BoardTime 으로 저장)."""
+    after: int = Field(description="직전 화가 끝난 때에서 며칠 뒤에 시작하는지. 같은 날이거나 알 수 없으면 0")
+    part: str = Field(description="시작 시간대. 모르면 빈 글")
+    days: int = Field(description="걸친 날 수. 하루 안이면 1")
+    end_part: str = Field(description="끝나는 시간대. 모르면 빈 글")
+
+
+class RevHandover(BaseModel):
+    """직전 화 끝에서 이어받은 사실 하나 (BoardHandover 로 저장)."""
+    kind: str = Field(description="장면, 시간, 몸, 물건, 인물, 숨긴 것, 숫자, 질문 중 하나")
+    text: str = Field(description="이어받은 사실 한 줄. 대사를 옮기지 않는다")
+
+
+class RevEpisodeDraft(BaseModel):
+    """LLM 응답 형식 (pipeline.reverse_episode). 원문 한 화를 플롯 · 스토리보드 · 큐 시트로 푼다. 원문에 없는 것은 짓지 않는다."""
+    title: str = Field(description="원문 안에 화 제목 줄이 있으면 그대로, 없으면 빈 글")
+    summary: str = Field(description="이 화 줄거리 2~4문장")
+    events: list[str] = Field(description="순서대로 일어나는 사건 3~6개")
+    cast: list[RevPerson] = Field(description="이 화에 이름이 나오는 인물")
+    emotional_shift: str = Field(description="주요 인물의 감정 변화가 겉으로 드러난 행동이나 대사")
+    ending_hook: str = Field(description="이 화를 끝내는 엔딩 훅")
+    opening: str = Field(description="이 화를 여는 첫 장면 한 줄")
+    time: str = Field(description="이 화가 시작하는 작품 속 시점 (직전 화에서 얼마나 지났는지나 시간대). 원문에서 알 수 없으면 빈 글")
+    threads: list[str] = Field(description="이 화가 따라가는 이야기 줄기 이름 1~3개 (예: 등대 실종 사건, 두 사람의 관계)")
+    setting: str = Field(description="원문에 드러난 세계 · 배경 한두 문장 (시대, 장소, 학교 · 조직, 생활 형편)")
+    facts: list[str] = Field(description="원문에 드러난, 이 화 전에 이미 있었던 일과 세계 사실 0~8개. 이 화에서 처음 일어난 일은 넣지 않는다")
+    ties: list[RevTie] = Field(description="이 화에 함께 나오는 인물 사이 관계")
+    addresses: list[RevAddress] = Field(description="원문 대사에 드러난 호칭 · 말씨. 한 방향에 하나")
+    scenes: list[RevScene] = Field(description="장면 순서. 장소나 시간이 바뀌는 곳에서 나눈다")
+    board_time: RevTime = Field(description="이 화의 시간")
+    handover: list[RevHandover] = Field(description="직전 화 끝에서 이어받은 것. 첫 화거나 없으면 빈 목록")
+    key: str = Field(description="조성: 이 화 정서의 기준선 한 줄")
+    cadence: CueCadence = Field(description="화 끝 종지. full 화 안에서 풀림 · half 긴장이 가장 높은 곳에서 끊음 · deceptive 풀릴 듯하다 뒤집음")
+    cues: list[RevCue] = Field(description="원문을 앞에서부터 빈틈없이 나눈 큐 4~10개, 순서대로")
+
+
+class RevLine(BaseModel):
+    """여러 화에 걸친 이야기 줄기 하나 (메인 밖). 저장할 때 Storyline 으로 바꾼다."""
+    kind: StorylineKind = Field(description="줄기 종류")
+    title: str = Field(description="줄기 이름")
+    focus: list[str] = Field(description="중심 인물 이름")
+    goal: str = Field(description="이 줄기가 풀어 가는 질문이나 목표")
+    when: str = Field(description="이야기 속 시점. 메인과 같은 시간이면 빈 글")
+    episodes: list[int] = Field(description="이 줄기를 주로 따라가는 화 번호")
+    threads: list[int] = Field(description="다른 줄기를 따라가는 화 안에 이 줄기 장면이 끼어드는 화 번호")
+    rejoin: str = Field(description="메인에 합류하며 남기는 것. 아직 합류하지 않았으면 빈 글")
+
+
+class RevLineSet(BaseModel):
+    """LLM 응답 형식 (pipeline.reverse_lines)."""
+    main: str = Field(description="메인 줄기가 풀어 가는 질문 한 줄")
+    lines: list[RevLine] = Field(description="메인 밖 줄기 0~4개")
+
+
+class RevBound(BaseModel):
+    """큐 하나가 원문에서 차지하는 자리 [start, end). found 가 거짓이면 시작 인용을 원문에서 찾지 못해 길이를 재지 못했다."""
+    start: int = 0
+    end: int = 0
+    found: bool = True
+    quote: str = ""
+
+
+class RevTake(BaseModel):
+    """역설계한 재료(플롯 · 스토리보드 · 큐 시트 · 인물 · 관계 · 배경)로 같은 화를 다시 쓴 본문 (되돌려 쓰기)."""
+    text: str = ""
+    style: bool = Field(False, description="역설계한 문체 프로필(RevLab.style)을 넣고 썼는지")
+    prompt_chars: int = 0
+    sheet_basis: str = Field("", description="쓸 때 큐 시트의 지문 (cue.basis). 지금 시트와 다르면 낡은 본문")
+    model: str = ""
+    at: str = ""
+
+
+class RevEpisode(BaseModel):
+    """원문 한 화와 그 역설계 결과. 플롯 · 스토리보드의 인물 id 와 핵심 대사의 speaker 는 인물 이름이다."""
+    number: int
+    head: str = Field("", description="원문의 화 제목 줄")
+    text: str = ""
+    plot: Optional[EpisodePlot] = None
+    storyboard: Optional[Storyboard] = None
+    sheet: Optional[CueSheet] = None
+    bounds: list[RevBound] = Field(default_factory=list, description="큐마다 원문 자리. 큐 수와 같아야 쓴다")
+    dropped: list[str] = Field(default_factory=list, description="원문에 없어 뺀 핵심 대사")
+    threads: list[str] = Field(default_factory=list)
+    setting: str = ""
+    facts: list[str] = Field(default_factory=list, description="이 화 원문에 드러난 앞 이야기 · 세계 사실")
+    ties: list[Relationship] = Field(default_factory=list, description="이 화에서 읽은 관계 (a · b 는 이름)")
+    addresses: list[AddressForm] = Field(default_factory=list, description="이 화에서 읽은 호칭 · 말씨 (speaker · listener 는 이름)")
+    model: str = ""
+    made_at: str = ""
+    take: Optional[RevTake] = Field(None, description="문체 프로필 없이 되돌려 쓴 본문 (마지막 것)")
+    take_style: Optional[RevTake] = Field(None, description="문체 프로필을 넣고 되돌려 쓴 본문 (마지막 것)")
+    blind_take: Literal["", "plain", "style"] = Field("", description="블라인드 비교에 넣은 본문 (take · take_style). 빈 값은 예전 파일이라 plain")
+    blind: list[str] = Field(default_factory=list, description="블라인드 비교 차례 (original · rewrite). 고르기 전에는 화면에 알리지 않는다")
+    picked: str = Field("", description="블라인드 비교에서 고른 것 (original · rewrite), 건너뛰면 skip")
+
+
+class RevLab(BaseModel):
+    """역설계 실험 하나. <CANON_HOME>/.revlab/<id>.json. 작품 데이터가 아니다."""
+    id: int
+    title: str = ""
+    created: str = ""
+    split: str = Field("one", description="화를 나눈 규칙 (revlab.SPLITS)")
+    preface: str = Field("", description="첫 화 제목 줄 앞의 짧은 글 (작품 제목 · 작가 줄). 역설계하지 않는다")
+    episodes: list[RevEpisode] = Field(default_factory=list)
+    cast: list[RevCastSaved] = Field(default_factory=list)
+    main: str = ""
+    lines: list[Storyline] = Field(default_factory=list)
+    lines_at: str = ""
+    style: Optional[StyleProfile] = Field(None, description="원문 전체로 역설계한 문체 프로필. 예시 문단(sample_passages)은 비운다 (되돌려 쓰기가 베끼지 않게)")
+    style_model: str = ""
+    style_at: str = ""
+
 Snapshot.model_rebuild()
 SerialRebuild.model_rebuild()
 ShortArchive.model_rebuild()

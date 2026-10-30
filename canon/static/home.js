@@ -155,7 +155,7 @@ function viewProjects() {
       ${plBar(x.finalized, x.episodes)}
       <a class="btn small pl-go" href="#/p/${enc(x.name)}">${esc(projectNext(x))} →</a></article>`;
   };
-  const tools = '<a class="btn ghost" href="#/styles">문체 라이브러리</a><a class="btn ghost" href="#/usage">사용량 · 비용</a><a class="btn ghost" href="#/settings">설정</a>';
+  const tools = '<a class="btn ghost" href="#/styles">문체 라이브러리</a><a class="btn ghost" href="#/revlab">역설계 실험</a><a class="btn ghost" href="#/usage">사용량 · 비용</a><a class="btn ghost" href="#/settings">설정</a>';
   return `${header('Canon', '작품', '인물, 관계, 문체, 복선을 데이터로 관리하면서 10~20화 단편부터 300화 장편 연재까지 써요.',
     `${tools}<a class="btn" href="#/play/new">새 플레이</a><button type="button" class="btn${open ? ' on' : ' primary'}" data-action="npToggle" aria-expanded="${open}" aria-controls="np-form">${open && list.length ? '새 작품 닫기' : '새 작품'}</button>`)}
     ${aiWarning() ? `<div class="note warn">${esc(aiWarning())} <a href="#/settings/ai" style="color:inherit;font-weight:700">AI 연결 설정</a></div>` : ''}
