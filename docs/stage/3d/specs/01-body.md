@@ -150,8 +150,11 @@ class RoomSpec:
    "bodies": {"h": {"posture": "chair", "missing": null, "attach": null,
                     "joints": {"pelvis": [x, y, z], "neck": […], "head": […], "shoulder_l": […], "elbow_l": […], "wrist_l": […], "hand_l": […],
                                "hip_l": […], "knee_l": […], "ankle_l": […], "toe_l": […], "…_r": […]}}},
-   "contacts": [{"id": "c1", "who": "d", "to": "h", "part": "wrist_l", "act": "hold", "by": "right", "hands": ["r"], "gap": 0.642, "points": [[…], […]]}]}]}
+   "contacts": [{"id": "c1", "who": "d", "to": "h", "part": "wrist_l", "act": "hold", "by": "right", "hands": ["r"], "gap": 0.642, "points": [[…], […]]}],
+   "paths": {}}]}
 ```
+
+`paths` 는 그 박자로 오는 동안 가구를 돌아가는 인물의 꺾은선이다(`{"d": {"via": [[x, y], …], "blocked": false}}`, 곧은 이동은 없음, 박자 0 은 늘 빈칸). 그림만 쓴다([../../specs/10-path.md](../../specs/10-path.md)).
 
 `solids` 의 상자는 기준점 `rot` 을 반영한 세계 좌표의 축 맞춤 상자다(`rot` 은 90° 단위라 축 맞춤으로 충분하다).
 

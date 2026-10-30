@@ -133,7 +133,7 @@ function s3Summary(beat, k, name, posture) {
 const s3 = {
   key: '', data: null, loading: false, error: '', snap: '', scene: null, room: null, cam: 'iso',
   three: null, host: null, gl: null, view: null, labels: null, world: null, camera: null, controls: null, mats: {}, people: {}, lines: null,
-  shown: null, shownK: -1, anim: 0, said: '',
+  shown: null, shownK: -1, restK: null, anim: 0, said: '',
 };
 const s3Css3 = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim() || '#888';
 const s3ColorVar = (w) => { const c = STG_COLORS[Math.max(0, s3.scene.cast.indexOf(w)) % STG_COLORS.length]; return c.slice(4, -1); };
@@ -189,7 +189,7 @@ async function s3Fetch() {
   try {
     const [three, data] = await Promise.all([load3d(), g.dirty ? api('POST', path, { scene, room }) : api('GET', path)]);
     if (s3.key !== key) return;
-    Object.assign(s3, { three, data, snap, scene, room, loading: false, shown: null, shownK: -1 });
+    Object.assign(s3, { three, data, snap, scene, room, loading: false, shown: null, shownK: -1, restK: null });
   } catch (err) {
     if (s3.key !== key) return;
     Object.assign(s3, { loading: false, error: err.message });
@@ -348,20 +348,43 @@ function s3Draw() {
   if (s3.gl && s3.host && s3.host.isConnected) { s3.gl.render(s3.view, s3.camera); s3.labels.render(s3.view, s3.camera); }
 }
 
-/** 박자 k 를 그린다. 앞에 그린 박자가 있으면 0.6초 동안 관절 좌표를 섞는다. */
+/** 박자 사이 돌아가는 이동 (stage.js stagePathFor): 섞은 몸을 곧은 보간 대신 꺾은선 위로 평면 이동만큼 옮긴다.
+   via 는 인물 id → 꺾은선, e 는 섞는 비율. 자세 · 관절은 s3Mix 그대로다. */
+function s3Detour(beat, via, e) {
+  if (!Object.keys(via).length || e >= 1) return beat;
+  const bodies = { ...beat.bodies };
+  Object.entries(via).forEach(([w, line]) => {
+    const b = bodies[w];
+    if (!b || !b.joints) return;
+    const p = stagePathAt(line, e), a = line[0], z = line[line.length - 1];
+    const dx = p[0] - (a[0] + (z[0] - a[0]) * e), dy = p[1] - (a[1] + (z[1] - a[1]) * e);
+    bodies[w] = { ...b, joints: Object.fromEntries(Object.entries(b.joints).map(([j, v]) => [j, [v[0] + dx, v[1] + dy, v[2]]])) };
+  });
+  return { ...beat, bodies };
+}
+
+/** 박자 k 를 그린다. 앞에 그린 박자가 있으면 0.6초 동안 관절 좌표를 섞는다.
+   다 그려 멈춘 박자(restK)에서 한 박자 옮길 때만 가구를 돌아가는 꺾은선을 따른다 (평면도와 같은 frames 의 paths). */
 function s3Show(k) {
   if (k === s3.shownK && s3.shown) { s3Draw(); return; }
-  const target = s3Pull(s3.data.frames.beats[k], s3Acts(k)).beat, from = s3.shown;
+  const target = s3Pull(s3.data.frames.beats[k], s3Acts(k)).beat, from = s3.shown, fk = s3.restK;
   cancelAnimationFrame(s3.anim);
   s3.shownK = k;
+  s3.restK = null;
   s3Aria(target, k);
-  if (!from || matchMedia('(prefers-reduced-motion: reduce)').matches || document.hidden) { s3Pose(target, k); s3.shown = target; return; }
+  if (!from || matchMedia('(prefers-reduced-motion: reduce)').matches || document.hidden) { s3Pose(target, k); s3.shown = target; s3.restK = k; return; }
+  const beats = s3.data.frames.beats, via = {};
+  if (fk === k - 1 || fk === k + 1) {
+    const paths = beats.map((b) => b.paths || {}), step = paths[Math.max(fk, k)] || {};
+    Object.entries(step).forEach(([w, r]) => { if (r.via.length > 2) via[w] = fk < k ? r.via : [...r.via].reverse(); });
+  }
   const t0 = performance.now();
   const step = (now) => {
     const u = Math.min(1, (now - t0) / 600), e = u < 0.5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2;
     s3.shown = s3Mix(from, target, e);
-    s3Pose(s3.shown, k);
+    s3Pose(s3Detour(s3.shown, via, e), k);
     if (u < 1) s3.anim = requestAnimationFrame(step);
+    else s3.restK = k;
   };
   s3.anim = requestAnimationFrame(step);
 }
