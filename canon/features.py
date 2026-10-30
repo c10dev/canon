@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from . import address, cast, charlog, elements, foreshadows, statwin, timeline, travel
+from . import address, cast, charlog, elements, foreshadows, naming, statwin, timeline, travel
 from .schema import Project, Snapshot, StateDelta
 
 
@@ -27,6 +27,11 @@ def _new_cast_gaps(p: Project, d: StateDelta) -> list[str]:
     """새 인물 가운데 말투가 빈 인물. 상태 변경안은 본문에서 드러난 것만 적어 말투가 비기 쉽고, 비면 다음 화부터 기본 말투로 흐른다."""
     return [f"새 인물 {c.name or c.id}의 말투(speech_style)가 비었어요. 반영한 뒤 인물 화면에서 채워 주세요."
             for c in d.new_characters if not c.speech_style.strip() and c.id not in {x.id for x in p.characters}]
+
+
+def _new_cast_names(p: Project, d: StateDelta) -> list[str]:
+    """새 인물 이름이 이미 있는 인물 · 후보와 같거나 헷갈리면, 한 화에 새 인물이 너무 많으면 알린다 (naming.new_cast_warnings)."""
+    return naming.new_cast_warnings(p, d.new_characters)
 
 
 def _add_places(p: Project, d: StateDelta) -> None:
@@ -53,6 +58,7 @@ CLEAN: tuple[Callable[[Project, StateDelta], list[str] | None], ...] = (
     address.clean_delta,       # 호칭 · 말씨 바뀜: 있는 인물 사이의 지금 값과 다른 칸만
     _clean_places,
     _new_cast_gaps,            # 말투가 빈 새 인물
+    _new_cast_names,           # 새 인물 이름 점검 · 한 화의 새 인물 수
     cast.clean_delta,          # 본문에 나와 변경안이 다룬 인물을 그 화 등장 인물에 붙일 목록 (경고 없음)
     travel.delta_warnings,     # 지도 거리와 작품 속 시간으로 보아 너무 빨리 옮겨 간 인물 (장소 정리 뒤)
     statwin.window_warnings,   # 본문 상태창이 반영할 값과 다름
