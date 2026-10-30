@@ -69,7 +69,7 @@ def test_next_arc_made_and_refined_by_chat():
     draft.arc.conflict = rev2.arc.conflict
     a4 = pipeline.apply_arc(p, draft)
     assert (a4.number, a4.start_ep, a4.conflict) == (4, start, "옛 동료의 배신")
-    assert any(c.id == "rival9" for c in p.characters)
+    assert any(c.id == "rival9" for c in p.cast_candidates) and not any(c.id == "rival9" for c in p.characters)  # 후보로
 
 
 def test_parts_changed_by_chat_keep_summaries():

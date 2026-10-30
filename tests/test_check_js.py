@@ -67,7 +67,7 @@ def test_view_check_renders():
     e = session()
     p = Project(meta=Meta(title="t", target_episodes=3), episodes=[e])
     files = ["app.js", "home.js", "branches.js", "style.js", "plot.js", "write.js", "review.js", "chat.js", "passage.js", "rewrite.js",
-             "restate.js", "opening.js", "auto.js", "marks.js", "check.js"]
+             "restate.js", "opening.js", "auto.js", "marks.js", "check.js", "flow.js"]
     html = run_js(files, """(() => {
       S.project = data; S.name = 't'; S.route = ['p', 't', 'check', '1'];
       const all = viewCheck(1);
@@ -149,7 +149,7 @@ def test_check_view_and_fix_panel_render():
                                      extra=[FixPatch(quote=Q4, replacement="도현은 속으로 빌었다.", reason="맞춤")])]
     p = Project(meta=Meta(title="t", target_episodes=3), episodes=[e])
     files = ["app.js", "home.js", "branches.js", "style.js", "plot.js", "write.js", "review.js", "chat.js", "passage.js", "rewrite.js",
-             "restate.js", "opening.js", "auto.js", "marks.js", "check.js"]
+             "restate.js", "opening.js", "auto.js", "marks.js", "check.js", "flow.js"]
     got = run_js(files, """(() => {
       S.project = data; S.name = 't'; S.route = ['p', 't', 'check', '1'];
       const view = viewCheck(1);
