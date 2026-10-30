@@ -49,6 +49,13 @@ class EventMathTest(unittest.TestCase):
         self.assertEqual(dynamics.step_stage("신뢰", "적대"), "균열")
         self.assertEqual(dynamics.step_stage("낯섦", "신뢰"), "호감")
         self.assertEqual(dynamics.step_stage("호감", "호감"), "호감")
+        # 나쁜 단계 사이는 '호감'을 거치지 않는다 (경계 ↔ 균열 간선이 없으면 반감인 쌍에 '단계: 호감'이 붙었다)
+        self.assertEqual(dynamics.step_stage("경계", "균열"), "균열")
+        self.assertEqual(dynamics.step_stage("균열", "경계"), "경계")
+        self.assertEqual(dynamics.step_stage("낯섦", "균열"), "경계")
+        for a in ("경계", "균열", "적대"):
+            for b in ("경계", "균열", "적대"):
+                self.assertNotEqual(dynamics.step_stage(a, b), "호감")
 
     def test_unbalanced_triad_raises_tension(self):
         p = Project(relationships=[
