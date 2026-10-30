@@ -1,5 +1,5 @@
 /* 인물 설정 변경. app.js 의 S, actions, api, run, render, esc, P, enc, charName, saveIfDirty, toast 를 쓴다.
-   상태 승인 화면의 설정 바꾸기 제안(scDeltaCard, 키 t, 기본으로 체크하지 않음)과 반영 기록(scHistory),
+   상태 승인 화면의 설정 바꾸기 제안 줄(scDeltaRows, 키 t, 기본으로 체크하지 않음, '직접 정할 것' 묶음)과 반영 기록(scHistory),
    인물 화면의 남겨 둔 제안(scHeldCard: 자동 집필이 반영하지 않은 것)과 설정 변경 기록(scLogCard), 그때 설정(scAt).
    서버는 canon/charlog.py. 칸 이름(SC_LABELS)은 charlog.LOG_FIELDS 와 같아 함께 고친다. */
 'use strict';
@@ -36,20 +36,16 @@ function scArrow(before, after) {
 
 // ----- 상태 승인 화면 -----
 
-function scDeltaCard(n, d, box) {
-  const list = d.setting_changes || [];
-  if (!list.length) return '';
-  const rows = list.map((x, i) => {
+/** 설정 바꾸기 제안 줄들 (체크 키 t). 상태 승인 화면은 '직접 정할 것' 묶음에 넣는다 */
+function scDeltaRows(n, d, box) {
+  return (d.setting_changes || []).map((x, i) => {
     const c = P().characters.find((y) => y.id === x.character_id) || {};
     const input = `<textarea id="sc-${i}" rows="2" data-autogrow data-sc="${i}" data-sc-ep="${n}" aria-label="${esc(charName(x.character_id))} ${scLabel(x.field)} 바꾼 뒤">${esc(x.value)}</textarea>`;
-    return `<div class="change">${box('t' + i)}<div class="body"><label for="pk-t${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(x.character_id))} · ${scLabel(x.field)}</label>
+    return `<div class="change">${box('t' + i)}<div class="body"><div class="rv-row-head"><label for="pk-t${i}" class="rv-name">${esc(charName(x.character_id))} · ${scLabel(x.field)}</label><span class="chip">설정 바꾸기</span><span class="small">기본으로 고르지 않았어요</span>${x.quote ? rvQuoteBtn(n, x.quote, `${charName(x.character_id)} ${scLabel(x.field)}`) : ''}</div>
       ${scBeforeAfter(c[x.field], input)}
       ${x.reason ? `<div class="small">${esc(x.reason)}</div>` : ''}
-      ${x.quote ? `<div class="row" style="gap:8px;flex-wrap:nowrap;align-items:flex-start"><div class="rv-quote" style="flex:1">${quoted(x.quote)}</div>${rvQuoteBtn(n, x.quote, `${charName(x.character_id)} ${scLabel(x.field)}`)}</div>` : ''}</div></div>`;
+      ${x.quote ? `<div class="rv-quote">${quoted(x.quote)}</div>` : ''}</div></div>`;
   }).join('');
-  return `<section class="card"><div class="between"><h2>인물 설정 바꾸기</h2><span class="small">기본으로 고르지 않았어요</span></div>
-    <div class="small">본문에서 뒤 화까지 이어지게 바뀐 설정이에요. 고르면 인물 설정이 바뀌고 다음 화부터 바뀐 설정으로 써요. 바뀐 기록은 인물 · 관계도 화면에 남고, 반영을 취소하면 되돌아가요.</div>
-    ${rows}</section>`;
 }
 
 document.addEventListener('input', (e) => {
