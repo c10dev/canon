@@ -16,7 +16,7 @@ from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, ImpactReport, PlayInfo, Project, Selection, StateDelta, StoryElement
-from . import board, charlog, foreshadows, mapprompt, statwin, timeline
+from . import address, board, charlog, foreshadows, mapprompt, statwin, timeline
 
 SYSTEM_PLANNER = (
     "당신은 한국 웹소설/단편소설 기획 전문 편집자입니다. "
@@ -2064,7 +2064,7 @@ def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: st
 {dump(write_states(p, state_view(p, states)[0])) or "1화 시작 시점, 설정 그대로"}
 
 # 관계 현재 상태
-{describe_relations(p, cast_ids) or dump(rels) or "없음"}
+{describe_relations(p, cast_ids) or dump(rels) or "없음"}{address.block(p, cast_ids)}
 
 # 열린 복선{f" (이번 아크와 관련된 것만, {fs_cut}개 생략)" if fs_cut else ""}
 {dump(fs) or "없음"}
@@ -2109,7 +2109,7 @@ def serial_episode_context(p: Project, n: int, *, where: str, act_line: str, lin
 {dump(states) or "1화 시작 시점, 설정 그대로"}{return_block(p, cast_ids, n)}
 
 # 관계 현재 상태
-{describe_relations(p, cast_ids, secrets=secrets) or dump(rels) or "없음"}
+{describe_relations(p, cast_ids, secrets=secrets) or dump(rels) or "없음"}{address.block(p, cast_ids)}
 
 # 열린 복선{f" (이번 아크와 관련된 것만, {fs_cut}개 생략)" if fs_cut else ""}
 {dump(fs) or "없음"}
@@ -2584,7 +2584,7 @@ def state_prompt(p: Project, n: int) -> str:
 {f"[다른 인물 (id: 이름, 역할) — 다시 만들지 않습니다]{chr(10)}{others}{chr(10)}" if others else ""}[이전 인물 상태]{knows_note(knows_cut)}
 {dump(states) or "설정 그대로"}
 [이전 관계]
-{relations}
+{relations}{address.block(p, ids if p.serial else context.without_off(p, None), "[호칭 · 말씨]")}
 [현재 비밀]
 {dump(secrets) or "없음"}
 [열린 복선]
@@ -2608,7 +2608,7 @@ def state_prompt(p: Project, n: int) -> str:
 - 아래 [이미 있는 장소]에 없는 장소(지형, 마을, 건물, 가게 등)가 이름을 갖고 처음 나왔으면 new_places 에 넣습니다. name 은 본문에 쓴 그대로, kind 는 종류 한 단어, description 은 본문에서 드러난 것만 한 줄입니다. 이름 없는 길, 방, 골목은 넣지 않습니다.
 - 이미 있는 장소를 다른 이름이나 표기로 부른 것이면 new_places 에 넣지 않고 warnings 에 적습니다.
 - character_updates 의 location 에는 [이미 있는 장소]나 new_places 의 이름을 표기 그대로 앞에 씁니다 (예: '하르덴 왕궁 서재'). 옮겨 가는 중이면 '하르덴에서 벨라 항구로 가는 배 위'처럼 떠난 곳과 갈 곳을 함께 씁니다.
-- warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다. 본문 문장이 걸리면 그 문장을 «» 안에 글자 그대로 넣어 작가가 바로 찾게 합니다.{storylines.state_rule(p, n)}{foreshadows.state_rule(p)}{statwin.state_rule(p)}{ATTIRE_STATE_RULE}{charlog.state_rule(p)}{timeline.state_rule(p, n)}"""
+- warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다. 본문 문장이 걸리면 그 문장을 «» 안에 글자 그대로 넣어 작가가 바로 찾게 합니다.{storylines.state_rule(p, n)}{foreshadows.state_rule(p)}{statwin.state_rule(p)}{ATTIRE_STATE_RULE}{charlog.state_rule(p)}{address.state_rule(p)}{timeline.state_rule(p, n)}"""
 
 
 def _check_full(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
@@ -2704,7 +2704,7 @@ def check_prompt(p: Project, n: int, mode: str = "", sized: bool = False) -> str
 {n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
 - 확인할 것: 확정 사실, 이야기 요소와 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
 - 동선: 한 장면 안에서 인물의 위치, 몸이 향한 쪽(앞 · 뒤, 등 · 배), 자세, 손에 든 것, 가려진 곳이 바꾸는 행동 없이 달라지는지 봅니다. 예: 등을 돌리고 망토로 몸을 가렸는데 다음 문장에서 그 인물의 표정이나 가슴께가 보임. 이때 source_episode 는 {n}, source_quote 는 같은 화의 앞 문장입니다.
-- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{statwin.check_rule(p)}
+- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{address.check_rule(p)}{statwin.check_rule(p)}
 - source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 설정이나 인물 상태면 source_episode 는 0 입니다.
 {SEVERITY_RULE}
 - 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
@@ -2794,7 +2794,7 @@ def check_material(p: Project, n: int, mode: str = "", sized: bool = False) -> s
 {states}
 
 # 관계 현재 상태
-{relations}
+{relations}{address.block(p, check_cast(p, n) if mode == "budget" else context.without_off(p, None))}
 
 # 비밀 (hidden_from 의 인물은 아직 모른다)
 {secrets}

@@ -24,6 +24,7 @@ function pickedDelta(n) {
     deadlines_done: pick('o', d.deadlines_done || []),
     setting_changes: pick('t', d.setting_changes || []),
     cast_added: pick('a', d.cast_added || []),
+    address_changes: pick('h', d.address_changes || []),
   };
 }
 
@@ -58,9 +59,9 @@ function refreshPreview(n) {
 }
 
 /** 상태 변경안 항목 체크 키 ('c0', 'e1' …). 설정 제안 키('sc0', 'sf:logline')와 섞이지 않게 센다. */
-const DELTA_PICK = /^[cesrfpxnqlkota]\d+$/;
+const DELTA_PICK = /^[cesrfpxnqlkotah]\d+$/;
 /** 상태 변경안에서 하나씩 골라 반영하는 목록 (StateDelta 의 목록 칸 중 warnings 를 뺀 것, tests/test_delta_count.py 가 맞춰 본다) */
-const DELTA_LISTS = ['character_updates', 'events', 'secrets_added', 'relationship_updates', 'new_facts', 'foreshadow_planted', 'foreshadow_resolved', 'foreshadow_clues', 'new_characters', 'new_places', 'deadlines_added', 'deadlines_done', 'setting_changes', 'cast_added'];
+const DELTA_LISTS = ['character_updates', 'events', 'secrets_added', 'relationship_updates', 'new_facts', 'foreshadow_planted', 'foreshadow_resolved', 'foreshadow_clues', 'new_characters', 'new_places', 'deadlines_added', 'deadlines_done', 'setting_changes', 'cast_added', 'address_changes'];
 /** 변경안 항목 수. 상태 승인 화면의 'n건 중'과 반영 확인창의 '0건'이 같은 셈을 쓴다 */
 const deltaCount = (d) => DELTA_LISTS.reduce((s, k) => s + (d[k] || []).length, 0);
 const deltaPicked = () => Object.entries(S.picks).filter(([k, v]) => v && DELTA_PICK.test(k)).length;
@@ -90,7 +91,8 @@ function setDelta(n, d, source = 'ai') {
   (d.deadlines_added || []).forEach((_, i) => { S.picks['k' + i] = true; });
   (d.deadlines_done || []).forEach((id, i) => { S.picks['o' + i] = P().timeline.deadlines.some((x) => x.id === id) || (d.deadlines_added || []).some((x) => x.id === id); });
   (d.setting_changes || []).forEach((_, i) => { S.picks['t' + i] = false; });  // 인물 설정은 작가가 직접 골라야 바뀐다
-  (d.cast_added || []).forEach((_, i) => { S.picks['a' + i] = true; });  // 본문에 나온 인물은 기본으로 그 화 등장 인물에 붙인다
+  (d.cast_added || []).forEach((_, i) => { S.picks['a' + i] = true; });
+  (d.address_changes || []).forEach((_, i) => { S.picks['h' + i] = false; });  // 호칭 · 말씨도 작가가 직접 골라야 바뀐다  // 본문에 나온 인물은 기본으로 그 화 등장 인물에 붙인다
   // 받은 그대로의 요약과 체크. 다시 만들 때 고친 것을 버리는지 묻는다 (기본으로 뺀 항목은 고친 것이 아니다)
   S.deltaOrig[n] = { summary: d.summary, picks: Object.fromEntries(Object.entries(S.picks).filter(([k]) => DELTA_PICK.test(k))), source, delta: structuredClone(d) };
 }
@@ -271,6 +273,7 @@ function viewReview(n) {
   const cards = [
     ['chars', '인물 상태', section('chars', '인물 상태', `${d.character_updates.length}명 · 바뀐 칸만 보여요 · '고치기'로 그 자리에서 고쳐요`, chars + castAddBox, toolFoot(castLink, statLink(d.character_updates)))],
     ['setting', '인물 설정 바꾸기', iconed('setting', withFoot(scDeltaCard(n, d, box), castLink))],
+    ['address', '호칭 · 말씨 바뀜', iconed('address', withFoot(addressDeltaCard(n, d, box), castLink))],
     ['newchars', '새로 나온 인물', newChars ? section('newchars', '새로 나온 인물', '', newChars, toolFoot(castLink)) : ''],
     ['places', '새로 나온 장소', newPlaces ? section('places', '새로 나온 장소', '반영하면 인과율에 장소로 등록돼요. 그 뒤로는 이 장소가 나오는 화를 쓸 때 설명이 함께 들어가요.', newPlaces) : ''],
     ['rel', '관계 사건', section('rel', '관계 사건', '종류와 강도만 고르고, 관계 수치는 Canon이 계산해요', events || '<div class="small">이번 화에 관계 사건이 없어요</div>', toolFoot(castLink))
@@ -286,7 +289,7 @@ function viewReview(n) {
   const counts = rvCounts(n);
   const pg = deck ? rvPageAt(n, cards.length) : 0;
   const railItem = ([key, label], i) => {
-    const flag = key === 'setting' ? '<span class="rv-flag amber">직접</span>' : counts[key].edited ? `<span class="rv-flag" data-rv-flag="${key}">고침 ${counts[key].edited}</span>` : `<span class="rv-flag" data-rv-flag="${key}" hidden></span>`;
+    const flag = key === 'setting' || key === 'address' ? '<span class="rv-flag amber">직접</span>' : counts[key].edited ? `<span class="rv-flag" data-rv-flag="${key}">고침 ${counts[key].edited}</span>` : `<span class="rv-flag" data-rv-flag="${key}" hidden></span>`;
     const inner = `<span class="tf" aria-hidden="true">${RV_ICON[key]}</span><span class="rv-label">${esc(label)}</span>${flag}<span class="rv-count" data-rv-count="${key}">${counts[key].text}</span>`;
     return deck
       ? `<button type="button" role="tab" id="rv-t-${i}" class="rv-tab" aria-selected="${i === pg}" aria-controls="rv-p-${i}" tabindex="${i === pg ? 0 : -1}" data-action="rvPage" data-arg="${i}">${inner}</button>`
@@ -316,10 +319,10 @@ function viewReview(n) {
 // ----- 갈래 목차 · 탭 -----
 
 /** 갈래마다 붙이는 토스페이스 이모지 */
-const RV_ICON = { chars: '👤', setting: '✏️', newchars: '🙋', places: '📍', rel: '🤝', secrets: '🤫', facts: '📌', fs: '🧩', time: '⏰', sum: '📝' };
+const RV_ICON = { chars: '👤', setting: '✏️', address: '🗣️', newchars: '🙋', places: '📍', rel: '🤝', secrets: '🤫', facts: '📌', fs: '🧩', time: '⏰', sum: '📝' };
 /** 갈래마다 세는 체크 키 앞 글자 (DELTA_PICK 의 글자). 키 → StateDelta 목록 */
-const RV_GROUP_KEYS = { chars: 'ca', setting: 't', newchars: 'n', places: 'l', rel: 'e', secrets: 'sr', facts: 'f', fs: 'pxq', time: 'ko', sum: '' };
-const PICK_LISTS = { c: 'character_updates', e: 'events', s: 'secrets_added', r: 'relationship_updates', f: 'new_facts', p: 'foreshadow_planted', x: 'foreshadow_resolved', q: 'foreshadow_clues', n: 'new_characters', l: 'new_places', k: 'deadlines_added', o: 'deadlines_done', t: 'setting_changes', a: 'cast_added' };
+const RV_GROUP_KEYS = { chars: 'ca', setting: 't', address: 'h', newchars: 'n', places: 'l', rel: 'e', secrets: 'sr', facts: 'f', fs: 'pxq', time: 'ko', sum: '' };
+const PICK_LISTS = { c: 'character_updates', e: 'events', s: 'secrets_added', r: 'relationship_updates', f: 'new_facts', p: 'foreshadow_planted', x: 'foreshadow_resolved', q: 'foreshadow_clues', n: 'new_characters', l: 'new_places', k: 'deadlines_added', o: 'deadlines_done', t: 'setting_changes', a: 'cast_added', h: 'address_changes' };
 
 /** 인물 i 의 감정 · 차림 · 알게 된 정보 중 고친 칸이 있다 */
 const charEdited = (n, i) => {
@@ -532,7 +535,7 @@ function historyView(h) {
       ${(h.new_characters || []).length ? `<section class="card"><h2>새로 나온 인물</h2>${li(h.new_characters.map((c) => `<strong>${esc(c.name || c.id)}</strong> <span class="small">${esc(c.role || '')}</span>`))}</section>` : ''}
       ${(h.cast_added || []).length ? `<section class="card"><h2>등장 인물에 붙인 인물</h2>${li(h.cast_added.map((id) => `<strong>${esc(charName(id))}</strong> <span class="small">본문에 나와 붙였어요</span>`))}</section>` : ''}
       ${(h.new_places || []).length ? `<section class="card"><h2>새로 나온 장소</h2>${li(h.new_places.map(placeLabel))}</section>` : ''}
-      ${withFoot(tlHistory(h), toolLink('timeline', '작품 속 시간'))}${withFoot(scHistory(h), cast)}
+      ${withFoot(tlHistory(h), toolLink('timeline', '작품 속 시간'))}${withFoot(scHistory(h), cast)}${withFoot(addressHistory(h), cast)}
       ${(h.secrets_added || []).length ? `<section class="card"><h2>새로 생긴 비밀</h2>${li(h.secrets_added.map((x) => `<strong>${esc(charName(x.owner))}</strong> ${esc(x.content)}`))}</section>` : ''}
       ${(h.relationship_updates || []).length ? `<section class="card"><h2>관계 유형 · 설명 변경</h2>${li(h.relationship_updates.map((r) => `${esc(charName(r.a))} ↔ ${esc(charName(r.b))} · ${esc(r.type)}${r.description ? ` · ${esc(r.description)}` : ''}`))}</section>` : ''}
     </div>`;

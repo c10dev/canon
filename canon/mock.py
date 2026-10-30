@@ -7,6 +7,7 @@ from typing import Callable, TypeVar
 from pydantic import BaseModel
 
 from .schema import (
+    AddressChange,
     Act,
     PlotAgentStep,
     ToolArg,
@@ -513,6 +514,7 @@ def _setup_revision(hint: dict) -> SetupRevision:
 
 # 상태 변경안의 지금 차림: 1화에 처음 적고 2화에 찢어진다. 그 밖의 화는 비워 그대로 둔다
 MOCK_LOOK = "어깨에 닿던 머리를 짧게 자른 단발"  # 2화 설정 바꾸기 제안 (외모)
+MOCK_CALLS = "서윤아"  # 3화 호칭 · 말씨 바뀜 제안 (도현 → 서윤, 반말로)
 MOCK_ATTIRE = {1: "젖은 회색 코트, 손전등", 2: "젖은 회색 코트(오른쪽 소매 찢어짐), 손전등, 녹슨 열쇠"}
 
 # 설정 칸 하나 AI 후보 (prompts.FIELD_IDEAS 키마다)
@@ -620,6 +622,8 @@ class MockLLM:
                 if n in (1, 2) else [],
                 setting_changes=[SettingChange(character_id="hero", field="appearance", value=MOCK_LOOK, reason="등대에서 머리를 짧게 잘랐다",
                                                quote="서윤은 등대 앞에 섰다.")] if n == 2 else [],
+                address_changes=[AddressChange(speaker="ally", listener="hero", calls=MOCK_CALLS, speech="해체(반말)",
+                                               reason="등대에서 서로 말을 놓기로 했다", quote="서윤은 등대 앞에 섰다.")] if n == 3 else [],
                 time=StoryTime(day=n, part="밤"),
                 deadlines_added=[Deadline(id="dl-01-festival", what="등대 축제", day=5, note="닷새 뒤 축제")] if n == 1 else [],
                 deadlines_done=["dl-01-festival"] if n == 3 else [],

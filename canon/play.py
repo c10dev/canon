@@ -5,7 +5,7 @@
 구간은 흘러간 일(beats)과, 있으면 결정 장면(text + choices)으로 된다. 결정 장면이 없으면 행동 없이 다음 구간으로 흐른다(kind flow).
 화면 시계가 흘러간 일을 한 줄씩 보이고, 서버는 플레이어가 닿은 구간(PlayInfo.seen)보다 한 구간 넘게 앞서 쓰지 않는다(비용 상한).
 구간은 장면 먼저(scene, play 단계) → 상태는 뒤에서(settle, state 단계). 플레이어의 행동(흘려보낸 것도)이 그 구간의 승인이라
-자동 집필처럼 사람 검토 없이 반영하고 Episode.auto 로 표시한다. 인물 설정 바꾸기 제안은 charlog.hold 로 남겨 둔다.
+자동 집필처럼 사람 검토 없이 반영하고 Episode.auto 로 표시한다. 인물 설정 바꾸기 · 호칭 제안은 features.hold 로 남겨 둔다.
 LLM 호출은 scene · settle · 장 요약뿐이고, 나머지는 코드다.
 
 장(StoryArc)은 CHAPTER_LEN 구간 범위로 미리 열고, 마지막 구간을 반영하면 요약으로 접는다(pipeline.recap). prompts.story_parts 는
@@ -19,7 +19,7 @@ import shutil
 
 from statistics import median
 
-from . import branches, cancel, charlog, dynamics, pipeline, prompts, statwin, store, timeline
+from . import branches, cancel, dynamics, features, pipeline, prompts, statwin, store, timeline
 from .llm import LLM
 from .schema import (Act, Birth, Character, Episode, EpisodePlot, Part, PlayBeat, PlayInfo, PlayPerson, PlayScene,
                      PlayTurn, PlayUnit, Project, StateDelta, StoryArc, TurnKind)
@@ -397,7 +397,7 @@ def settle(llm: LLM, p: Project, info: PlayInfo, n: int) -> StateDelta:
     except Exception as e:
         t.state, t.error = "failed", str(e) or type(e).__name__
         raise
-    charlog.hold(p, d)  # 인물 설정은 작가가 골라야 바뀐다 (autorun 과 같다)
+    features.hold(p, d)  # 인물 설정 · 호칭은 작가가 골라야 바뀐다 (autorun 과 같다)
     pipeline.apply_delta(p, d)
     p.episode(n).auto = True
     t.state, t.error = "applied", ""
