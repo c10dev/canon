@@ -265,6 +265,7 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
     cues = policy.cue_sheet and cue.on(p)
     tokens = {s: [0.0, 0.0] for s in steps}
     missing = []
+    stage_calls = 0
     for n in todo:
         e = have.get(n)
         if e is None:
@@ -277,6 +278,10 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
                 calls.append(("check", prompts.SYSTEM_CLAIMS + prompts.claims_prompt(sim, n), JSON_OUTPUT_RESERVE))
                 calls.append(("check", prompts.SYSTEM_CHECKER + prompts.widen_prompt(sim, n, [], []) + " " * (
                     prompts.WIDEN_MAX * prompts.TWOSTEP_EVIDENCE), JSON_OUTPUT_RESERVE))
+            if sim.settings.stage_extract:  # 검수 때 함께 뽑기: 사건마다 본문 장면 뽑기 (본문이 새로 쓰이므로 모두 돈다)
+                for i in range(len(e.plot.events)):
+                    calls.append(("check", prompts.SYSTEM_STAGE + prompts.stage_extract_prompt(sim, n, i), JSON_OUTPUT_RESERVE))
+                    stage_calls += 1
         if e.status in ("draft", "confirmed"):
             made = boards and e.storyboard is None
             if made:  # 스토리보드 만들기 한 번 + 쓰기 프롬프트에 들어갈 스토리보드 블록
@@ -312,6 +317,8 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
     review = [s for s in ("check", "state") if steps[s]]
     # 검수 넓히기는 검수 뒤에 진술 뽑기 · 다시 묻기를 차례로 부른다 (화마다 검수 호출 3번)
     widen = 3 if policy.check and p.serial and p.settings.check_widen else 1
+    eps_n = len(todo) - len(missing)
+    widen += stage_calls / eps_n if eps_n else 0  # 장면 뽑기도 검수 뒤에 차례로 부른다 (화마다 사건 수만큼)
     slow = widen if "check" not in measured else 1  # 잰 검수 시간은 넓히기까지 든 시간이다
     # 일반 호출: 본문 + (동시에 부르는 검수와 상태 변경안 중 긴 쪽)
     normal = steps["plan"] * secs("plan") + steps["write"] * secs("write") + eps * max((secs(s) * (slow if s == "check" else 1) for s in review), default=0.0)

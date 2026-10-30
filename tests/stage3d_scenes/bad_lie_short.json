@@ -1,0 +1,36 @@
+{
+ "note": "차 뒷좌석에 눕는다",
+ "template": "car",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "뒷좌석",
+    "rel": "on"
+   },
+   "posture": "chair"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "h",
+     "at": {
+      "ref": "뒷좌석",
+      "rel": "on"
+     },
+     "posture": "lie"
+    }
+   ]
+  }
+ ],
+ "expect": [
+  [
+   1,
+   "no_support",
+   "h"
+  ]
+ ]
+}
