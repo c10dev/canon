@@ -20,7 +20,7 @@ from pathlib import Path
 
 from . import cancel, cue, pipeline, prompts, store, usage
 from .context import CHARS_PER_TOKEN
-from .schema import (Act, Character, CueLine, CueSheet, CueSheetDraft, CueTake, Episode, EpisodePlot, Meta, Project,
+from .schema import (Act, BoardHandover, BoardScene, BoardTime, Character, CueLine, CueSheet, CueSheetDraft, CueTake, Episode, EpisodePlot, Meta, Project,
                      RevBound, RevEpisode, RevEpisodeDraft, RevLab, RevLineSet, RevPerson, RevTake, Storyboard, StoryboardDraft,
                      Storyline)
 
@@ -283,7 +283,9 @@ def apply_episode(lab: RevLab, number: int, d: RevEpisodeDraft, model: str = "")
     되돌려 쓴 본문과 블라인드 비교는 지운다 (재료가 바뀌었다)."""
     e = episode(lab, number)
     names = [x.name.strip() for x in d.cast if x.name.strip()]
-    board = pipeline.clean_storyboard(StoryboardDraft(scenes=d.scenes, time=d.board_time, handover=d.handover))
+    board = pipeline.clean_storyboard(StoryboardDraft(scenes=[BoardScene(**x.model_dump()) for x in d.scenes],
+                                                      time=BoardTime(**d.board_time.model_dump()),
+                                                      handover=[BoardHandover(**x.model_dump()) for x in d.handover]))
     k = len(board.scenes)
     cues_in = [c for c in d.cues if c.start.strip() or c.beat.strip()][:cue.MAX_CUES]
     bounds = locate(e.text, [c.start for c in cues_in])

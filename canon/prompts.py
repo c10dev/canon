@@ -2617,9 +2617,13 @@ def rev_prompt(lab, number: int) -> str:
         tail = prev.text[-revlab.PREV_TAIL:].strip()
         out.append(f"# 직전 화({prev.number}화) 줄거리\n{prev.plot.summary.strip() if prev.plot else '역설계 전이라 없음'}")
         out.append(f"# 직전 화 끝\n{tail}")
-    out.append(f"# 원문 ({number}화{f', 제목 줄: {e.head}' if e.head else ''}, {len(e.text)}자)\n{e.text}")
+    out.append(f"# 원문 ({number}화{f' · 제목 줄 «{e.head}»' if e.head else ''})\n{e.text}")
     out.append(f"위 [원문] {number}화를 화 플롯 · 스토리보드 · 큐 시트로 풀어 JSON 으로 적습니다.")
     return "\n\n".join(out)
+
+
+REV_EMPTY_RETRY = ("앞 응답에 events · scenes · cues 가 비어 있었습니다. 원문 전체를 읽고 모든 칸을 채웁니다. "
+                   "events 는 3~6개, scenes 는 1개 넘게, cues 는 원문을 빈틈없이 나눈 4~10개입니다.")
 
 
 def rev_lines_prompt(lab) -> str:
