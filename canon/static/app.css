@@ -52,24 +52,33 @@ p { margin: 0; }
 ul, ol { margin: 0; }
 
 .shell { min-height: 100vh; display: flex; flex-wrap: wrap; }
-.side { flex: 0 0 232px; padding: 24px 14px; background: var(--surface); border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 22px; }
-/* 넓은 화면은 사이드바를 붙여 둔다. 긴 화면을 내려도 메뉴와 진행 카드가 보인다 (900px 이하는 위쪽 띠라 아래 규칙이 덮는다) */
-@media (min-width: 901px) { .side { position: sticky; top: 0; align-self: flex-start; height: 100vh; overflow-y: auto; } }
+.side { flex: 0 0 232px; width: 232px; padding: 14px 12px 0; background: var(--surface); border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+/* 넓은 화면은 사이드바를 붙여 둔다. 긴 화면을 내려도 메뉴와 진행 카드가 보이고, 아래 설정 줄(.side-foot)은 사이드바를 굴려도 바닥에 붙어 있다 (900px 이하는 위쪽 띠라 아래 규칙이 덮는다) */
+@media (min-width: 901px) { .side { position: sticky; top: 0; align-self: flex-start; height: 100vh; overflow-y: auto; overscroll-behavior: contain; } }
+/* 맨 위 줄: 이름 · 알림 · 찾기 · 레일 접기. 기호 버튼(.side-ico)은 면 없이, 마우스를 올리면 bg 면 */
+.side-top { display: flex; align-items: center; gap: 4px; padding-left: 8px; }
+.side-top .brand { flex: 1 1 auto; min-width: 0; padding: 0; }
+.side-top .hub-slot { display: inline-flex; }
+.side-ico { flex: none; width: 36px; height: 36px; padding: 0; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-2); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.side-ico:hover { background: var(--bg); color: var(--text); }
+.side-ico svg { width: 18px; height: 18px; }
+.side-ico[aria-pressed="true"], .menu > .side-ico[aria-expanded="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+.drawer-head, .drawer-work { display: none; }
 .main { flex: 999 1 560px; min-width: 0; padding: 32px 40px 96px; display: flex; flex-direction: column; gap: 22px; }
 .brand { padding: 0 10px; font-size: 1.375rem; font-weight: 800; color: var(--logo); text-decoration: none; letter-spacing: -0.02em; }
 .brand-dot { color: var(--brand-2); }
 /* 사이드바 작품 칸 (app.js workCard): 테두리 없이 제목 · 화 칸 띠 · 다음 할 일. 띠 색은 작품 홈 화 칸(.ep-cell)과 같다 */
-.work-card { padding: 0 10px; display: flex; flex-direction: column; gap: 8px; }
+.work-card { padding: 0 8px; display: flex; flex-direction: column; gap: 5px; }
 .work-head { display: flex; align-items: center; gap: 4px; min-width: 0; }
-.work-title { min-width: 0; word-break: keep-all; overflow-wrap: anywhere; font-size: 1.0625rem; font-weight: 800; letter-spacing: -0.01em; line-height: 1.35; color: var(--text); text-decoration: none; }
+.work-title { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 1rem; font-weight: 800; letter-spacing: -0.01em; line-height: 1.4; color: var(--text); text-decoration: none; }  /* 긴 제목은 한 줄 줄임표, 전체는 title */
 .work-title:hover { color: var(--text); text-decoration: underline; }
 .work-switch { flex: none; width: 28px; height: 28px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); text-decoration: none; }
 .work-switch:hover { background: var(--bg); color: var(--text); }
-.work-meta { margin-top: -6px; }
+.work-meta { margin-top: -4px; }
 .work-branch { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 6px; background: var(--amber-soft); color: var(--written-ink); font-size: 0.75rem; font-weight: 700; }
-.work-where { word-break: keep-all; overflow-wrap: anywhere; font-size: 0.75rem; line-height: 1.5; color: var(--text-2); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+.work-where { font-size: 0.75rem; line-height: 1.5; color: var(--text-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .work-strip { display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: 2px; }
-.work-strip i { height: 14px; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--line); }
+.work-strip i { height: 10px; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--line); }
 .work-strip i.draft { background: var(--chip); box-shadow: inset 0 0 0 1px var(--line-strong); }
 .work-strip i.confirmed { background: var(--accent); box-shadow: none; }
 .work-strip i.written { background: var(--amber); box-shadow: none; }
@@ -77,21 +86,53 @@ ul, ol { margin: 0; }
 .work-strip i.cur { outline: 2px solid var(--text); outline-offset: 1px; }
 .work-count { display: none; }
 .work-scale { margin-top: -4px; display: flex; justify-content: space-between; gap: 6px; font-variant-numeric: tabular-nums; }
-.work-next { min-height: 32px; display: flex; align-items: center; gap: 4px; font-size: 0.8125rem; font-weight: 700; color: var(--link); text-decoration: none; }
+.work-next { min-height: 28px; display: flex; align-items: center; gap: 4px; font-size: 0.8125rem; font-weight: 700; color: var(--link); text-decoration: none; }
 .work-next:hover { text-decoration: underline; }
-.nav { display: flex; flex-direction: column; gap: 2px; }
-.nav a { min-height: 44px; padding: 0 10px; border-radius: 8px; display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text-2); font-weight: 500; }
+/* 한 줄 32px (손가락 기기 · 서랍은 44px). 이름이 길면 줄임표, 끝에 배지 */
+.nav { display: flex; flex-direction: column; gap: 1px; }
+.nav a { position: relative; min-height: 32px; padding: 0 8px; border-radius: 8px; display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text-2); font-weight: 500; white-space: nowrap; }
+@media (pointer: coarse) { .nav a, .nav-fold-head { min-height: 44px; } }
+.nav-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* 줄 끝 배지: 지적 수(빨강 면) · 결과(주황 면) · 자동 집필 쓰는 화 · 남은 고칠 곳(회색 면). 글자는 눈으로만, 낭독은 안의 .sr-only */
+.nav-badge { flex: none; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--chip); color: var(--text-2); font-size: 0.6875rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
+.nav-badge > [aria-hidden] { display: inline-flex; align-items: center; gap: 4px; }
+.nav-badge.red { background: var(--red-soft); color: var(--err-ink); }
+.nav-badge.amber { background: var(--amber-soft); color: var(--amber-ink); }
+.nav-badge .spinner.sm { width: 10px; height: 10px; }
+/* 접는 묶음: ▸ 머리 (펼치면 ▾ 방향으로 돈다) */
+.nav-fold { padding-top: 6px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 1px; }
+.nav-fold .nav-fold { padding-top: 0; border-top: none; }
+.nav-fold > .nav[hidden] { display: none; }
+.nav-fold-head { width: 100%; min-height: 28px; padding: 0 8px; border: none; border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 0.75rem; font-weight: 700; text-align: left; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.nav-fold-head:hover { background: var(--bg); color: var(--text); }
+.nav-fold-head svg { flex: none; width: 10px; height: 10px; }
+.nav-fold-head[aria-expanded="true"] svg { transform: rotate(90deg); }
+.nav-fold .nav-fold .nav-fold-head { font-weight: 500; }
+.nav-fold-count { margin-left: auto; font-weight: 500; font-variant-numeric: tabular-nums; }
 .nav a:hover { background: var(--bg); color: var(--text); }
 .nav a .num { width: 22px; height: 22px; border-radius: 6px; display: flex; align-items: center; justify-content: center; background: var(--chip); font-size: 0.75rem; font-weight: 700; }
 .nav a[aria-current="page"] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
 .nav a[aria-current="page"] .num { background: var(--accent); color: var(--on-accent); }
-.side-foot { margin-top: auto; padding: 12px 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; }
-.side-foot a { min-height: 32px; display: flex; align-items: center; }
+/* 아래 고정 줄: 설정(대화상자) + 본문 모델 · ⋯ 메뉴. 사이드바를 굴려도 바닥에 붙는다 */
+.side-foot { position: sticky; bottom: 0; z-index: 1; margin: auto -12px 0; padding: 8px 12px 10px; background: var(--surface); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; font-size: 0.75rem; }
+.side-foot-row { display: flex; align-items: center; gap: 4px; }
+.side-set { flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 8px; border-radius: 8px; display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; }
+.side-set:hover { background: var(--bg); color: var(--text); }
+.side-set svg { flex: none; width: 18px; height: 18px; color: var(--text-2); }
+.side-set .nav-label { display: flex; flex-direction: column; line-height: 1.35; }
+.side-set b { font-size: 0.8125rem; }
+.side-set small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.6875rem; color: var(--muted); }
+.side-foot .side-ico { width: 44px; height: 44px; }
+.side-warn { padding: 0 8px; color: var(--red); line-height: 1.45; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }  /* 두 줄로 자르고 전체는 title */
+/* ⋯ 메뉴는 사이드바가 굴리는 칸 밖에 뜨게 화면에 붙인다 (레일 · 서랍에서 자리만 바꾼다) */
+#pop-side-more { position: fixed; top: auto; right: auto; left: 12px; bottom: 72px; width: 240px; z-index: 46; }
+#pop-side-more .tf-credit { padding: 6px 10px 4px; }
+#pop-side-more a.pop-item { color: var(--text); text-decoration: none; }
 /* 토스페이스 이모지 아이콘. 글꼴이 늦거나 막히면 시스템 이모지로 보인다 */
 .tf { font-family: Tossface, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif; font-style: normal; font-weight: 400; line-height: 1; }
 .nav a .num.tf { background: transparent; font-size: 1.125rem; }
-.side-foot .tf-credit { margin-top: 6px; color: var(--muted); font-size: 0.6875rem; line-height: 1.5; }
-.side-foot .tf-credit a { display: inline; min-height: 0; }
+.tf-credit { display: block; padding: 0 8px; color: var(--muted); font-size: 0.6875rem; line-height: 1.5; }
+.tf-credit a { display: inline; min-height: 0; }
 
 .page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
 .page-head .lead { display: flex; flex-direction: column; gap: 6px; }
@@ -563,36 +604,14 @@ pre.brief { margin: 0; padding: 16px; border-radius: 8px; background: var(--bg);
 .cmd span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 body.chat-open .main { padding-right: 480px; }
 body.chat-open .savebar { left: calc(50% - 220px); }
-/* 901~1599px: 대화 패널(또는 다시 생성 열)을 열면 사이드바를 위쪽 띠로 접고 패널을 400px로 줄인다.
+/* 901~1599px: 대화 패널(또는 다시 생성 열)을 열면 사이드바를 레일로 접고(app.js syncRail, 아래 '레일') 패널을 400px로 줄인다.
    패널이 본문 · 머리 버튼을 덮지 않게 본문 오른쪽을 패널 폭만큼 비운다 (900px 이하는 아래쪽 시트) */
 @media (min-width: 901px) and (max-width: 1599px) {
   body.chat-open .chat-panel, body.chat-open .tool-col { width: 400px; }
   body.chat-open .main { padding-right: 24px; }
-  body.chat-open .savebar { left: calc(50% - 200px); }
-  body.chat-open .shell { flex-direction: column; flex-wrap: nowrap; padding-right: 400px; }  /* 위쪽 띠의 찾기 · 메뉴도 패널 왼쪽에 둔다 */
-  body.chat-open .side { position: static; height: auto; overflow: visible; align-self: auto; flex: none; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 16px; border-right: none; border-bottom: 1px solid var(--line); }
-  /* 위 띠 한 줄: 제목 · 부 · 아크 · 화 칸 띠 · n/N화 · 다음 할 일. 좁으면 부 · 아크부터 줄임표 */
-  body.chat-open .side .work-card { order: 1; flex: 1 1 0; min-width: 0; padding: 0; flex-direction: row; align-items: center; gap: 12px; }
-  body.chat-open .side .work-card > :is(.work-meta, .work-branch, .work-scale) { display: none; }
-  body.chat-open .side .work-switch { display: none; }
-  body.chat-open .side .work-title, body.chat-open .side .work-where { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  body.chat-open .side .work-title { font-size: 1rem; font-weight: 700; color: var(--text-2); }
-  body.chat-open .side .work-head { flex: none; max-width: 40%; }
-  body.chat-open .side .work-where { display: block; flex: 0 1 auto; min-width: 0; }
-  body.chat-open .side .work-card > :is(.work-strip, .meter) { flex: 0 1 140px; min-width: 80px; }
-  body.chat-open .side .work-strip i { height: 10px; }
-  body.chat-open .side .work-count { display: block; flex: none; white-space: nowrap; }
-  body.chat-open .side .work-next { display: block; flex: 0 1 auto; min-width: 0; min-height: 0; line-height: 32px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  body.chat-open .side .work-next > [aria-hidden] { margin-left: 4px; }
-  body.chat-open .menu-toggle { display: inline-flex; order: 2; }
-  body.chat-open .hub-slot { position: static; order: 2; }
-  body.chat-open .side-menu { display: none; order: 3; flex: 1 1 100%; flex-direction: column; gap: 12px; }
-  body.chat-open .side.open .side-menu { display: flex; }
-  body.chat-open .main { flex: 1 1 auto; width: 100%; }
+  body.chat-open .savebar { left: calc(50% - 168px); }
+  body.chat-open .shell { flex-wrap: nowrap; padding-right: 400px; }
 }
-/* 대화 패널을 연 위 띠가 좁으면 부 · 아크와 화 칸 띠, 더 좁으면 다음 할 일을 뺀다 (제목 · n/N화는 남긴다) */
-@media (min-width: 901px) and (max-width: 1199px) { body.chat-open .side .work-card > :is(.work-where, .work-strip, .meter) { display: none; } }
-@media (min-width: 901px) and (max-width: 1023px) { body.chat-open .side .work-next { display: none; } }
 /* 좁은 폭: 저장 띠를 화면 폭에 맞추고 문구와 버튼을 줄바꿈한다 */
 @media (max-width: 720px) { .savebar, body.chat-open .savebar { left: 16px; right: 16px; transform: none; flex-wrap: wrap; } .savebar > span { flex: 1 1 100%; } }
 @media (max-width: 640px) { body.chat-open .main { padding-right: 16px; } }
@@ -639,11 +658,9 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 
 /* ----- 알림 (hub.js): 사이드바 이름 옆 버튼 하나에 AI 작업과 알림을 모은다. 창(#hub-pop)과 말풍선(#toast)은 버튼 바로 아래 (placeHub 가 자리를 정한다) ----- */
 /* 넓은 폭은 이름 줄 오른쪽 끝에 띄워 둔다. 900px 이하 · 대화 패널을 연 중간 폭의 위쪽 띠에서는 '찾기' 앞에 선다 */
-@media (min-width: 901px) { .hub-slot { position: absolute; top: 22px; right: 14px; } }
 .hub-slot:empty { display: none; }
 /* 위쪽 띠에서는 옆의 '찾기' · '메뉴'와 같은 44px. 휴대폰 폭은 작품 제목 자리를 남기게 글자를 빼고 기호와 배지만 (이름은 aria-label) */
 @media (max-width: 900px) { .side .hub-btn { min-height: 44px; min-width: 44px; } }
-@media (min-width: 901px) and (max-width: 1599px) { body.chat-open .side .hub-btn { min-height: 44px; min-width: 44px; } }
 @media (max-width: 640px) { .side .hub-btn { padding: 0; } .side .hub-btn > span[aria-hidden]:not(.hub-badge, .hub-dot) { display: none; } }
 .hub-top { display: flex; justify-content: flex-end; margin-bottom: -10px; }  /* 작품 밖 화면: 본문 맨 위 오른쪽 */
 .hub-top:empty { display: none; }
@@ -696,18 +713,8 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 @media (max-width: 600px) { .stage-row { grid-template-columns: 1fr; } }
 
 /* 연구 (모델 실험) */
-.nav-extra { padding-top: 12px; border-top: 1px solid var(--line); }
-.nav-extra > .small { padding: 0 10px 4px; }
-/* 자동 집필은 단계 묶음 바로 아래에 둔다. 묶음 사이 간격(22px)보다 붙여 단계의 이어짐으로 보인다 */
-.side-menu > .nav-auto { margin-top: -16px; }
-/* 데이터가 없는 도구를 접는 '더 보기' */
-.nav-more > summary { min-height: 44px; padding: 0 10px; border-radius: 8px; display: flex; align-items: center; gap: 8px; color: var(--text-2); font-weight: 500; cursor: pointer; list-style: none; white-space: nowrap; }
-.nav-more > summary::-webkit-details-marker { display: none; }
-.nav-more > summary::before { content: '▸'; width: 22px; text-align: center; color: var(--muted); }
-.nav-more[open] > summary::before { content: '▾'; }
-.nav-more > summary:hover { background: var(--bg); color: var(--text); }
-.nav-more > summary .small { margin-left: auto; text-align: right; white-space: normal; }
-.nav-more > a { padding-left: 20px; }
+.nav-extra { padding-top: 8px; border-top: 1px solid var(--line); }  /* 플레이 사이드바의 이름 붙은 묶음 */
+.nav-extra > .small { padding: 0 8px 4px; }
 .rs-backend { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
 .rs-scroll { overflow-x: auto; position: relative; }  /* 안의 화면 낭독용 글(.sr-only, absolute)이 표 밖 문서 폭을 늘리지 않게 */
 .rs-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
@@ -1179,25 +1186,63 @@ mark.hl.flash { outline: 2px solid currentColor; outline-offset: 2px; }
 .rel-lines li.same { color: var(--text-2); }
 .rel-lines li.changed ins { text-decoration: none; font-weight: 600; }
 
-/* ----- 좁은 폭 셸: 900px 이하에서 사이드바를 위쪽 막대로 줄이고 '메뉴'로 펼친다 ----- */
+/* ----- 레일: 넓은 폭에서 사이드바를 기호만 남긴 64px 로 접는다 (맨 위 접기 버튼, 또는 901~1599px 에서 대화 패널을 연 때 저절로).
+   같은 마크업에서 이름을 눈으로만 감춘다(낭독 · title 은 남음). 배지는 점, 묶음 머리는 숨기고 작품 도구는 늘 보인다 ----- */
+@media (min-width: 901px) {
+  body.side-rail .side { flex-basis: 64px; width: 64px; padding: 12px 10px 0; }
+  body.side-rail .side-top { flex-direction: column; padding: 0; gap: 4px; }
+  body.side-rail .side-top .brand, body.side-rail .side > .work-card, body.side-rail .side-warn, body.side-rail .side-foot > .tf-credit { display: none; }
+  body.side-rail .side-ico { width: 44px; height: 40px; }
+  body.side-rail .hub-btn { min-width: 44px; min-height: 40px; padding: 0; justify-content: center; }
+  body.side-rail .hub-btn > span[aria-hidden]:not(.hub-badge, .hub-dot) { display: none; }
+  body.side-rail .nav a { min-height: 40px; padding: 0; justify-content: center; }
+  body.side-rail .nav a .num.tf { width: 22px; }
+  body.side-rail .nav-label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+  body.side-rail .nav-badge { position: absolute; top: 5px; right: 6px; width: 8px; min-width: 0; height: 8px; padding: 0; border-radius: 50%; background: var(--muted); box-shadow: 0 0 0 2px var(--surface); }
+  body.side-rail .nav-badge.red { background: var(--red); }
+  body.side-rail .nav-badge.amber { background: var(--amber); }
+  body.side-rail .nav-badge > [aria-hidden] { display: none; }
+  body.side-rail .nav-fold-head, body.side-rail .nav-extra > .small { display: none; }
+  body.side-rail .nav-fold[data-fold="tools"] > .nav[hidden] { display: flex; }
+  body.side-rail .nav-fold:not([data-fold="tools"]):has(> .nav[hidden]) { display: none; }
+  body.side-rail .side-foot { margin: auto -10px 0; padding: 8px 10px 10px; }
+  body.side-rail .side-foot-row { flex-direction: column; }
+  body.side-rail .side-set { flex: none; width: 44px; padding: 0; justify-content: center; }
+  body.side-rail #pop-side-more { left: 72px; bottom: 12px; }
+  body.side-rail-auto .rail-toggle { display: none; }
+}
+
+/* ----- 좁은 폭 셸: 900px 이하에서 사이드바를 위쪽 띠(메뉴 · 작품 제목 · n/N화 · 알림 · 찾기)로 줄이고, '메뉴'는 왼쪽 서랍으로 연다 ----- */
 .menu-toggle { display: none; }
-.side .menu-toggle { min-height: 44px; min-width: 44px; }  /* 위 띠(좁은 폭, 대화 패널을 연 중간 폭)의 '찾기' · '메뉴'는 같은 크기, 손가락 누름 영역 44px */
-.side-menu { display: flex; flex-direction: column; gap: 22px; flex: 1; }
+.side-menu { display: flex; flex-direction: column; gap: 10px; flex: 1; }
 @media (max-width: 900px) {
   .shell { flex-direction: column; flex-wrap: nowrap; }
-  .side { flex: none; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 16px; border-right: none; border-bottom: 1px solid var(--line); }
-  /* 위 띠 한 줄: Canon · 작품 제목(넘치면 줄임표) · n/N화 · 메뉴 */
-  .side .work-card { order: 1; flex: 1 1 0; min-width: 0; padding: 0; flex-direction: row; align-items: baseline; gap: 8px; }
-  .side .work-card > :not(.work-head, .work-count) { display: none; }
-  .side .work-switch { display: none; }
-  .side .work-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 1rem; font-weight: 700; color: var(--text-2); }
-  .side .work-count { display: block; flex: none; }
-  .menu-toggle { display: inline-flex; order: 2; }
-  .side-menu { display: none; order: 3; flex: 1 1 100%; flex-direction: column; gap: 12px; }
-  .side-menu > .nav-auto { margin-top: -8px; }
+  .side { flex: none; width: auto; flex-direction: row; align-items: center; gap: 4px; padding: 8px 12px 8px 4px; border-right: none; border-bottom: 1px solid var(--line); }
+  .side-top { display: contents; }
+  .side .side-top .side-ico { width: 44px; height: 44px; }
+  .side .menu-toggle { display: inline-flex; order: 0; }
+  .side-top .brand, .rail-toggle { display: none; }
+  .side .side-top .pal-open { order: 3; background: var(--btn); }
+  .side .hub-slot { order: 2; }
+  .side > .work-card { order: 1; flex: 1 1 0; min-width: 0; padding: 0 4px; flex-direction: row; align-items: baseline; gap: 8px; }
+  .side > .work-card > :not(.work-head, .work-count) { display: none; }
+  .side > .work-card .work-switch { display: none; }
+  .side > .work-card .work-title { font-weight: 700; }
+  .side > .work-card .work-count { display: block; flex: none; }
+  /* 서랍: 화면 왼쪽에 뜨고 안에서 굴린다. 뒤는 덮개(.side-scrim)로 어둡게, 누르면 닫는다 */
+  .side-menu { display: none; position: fixed; z-index: 41; top: 0; bottom: 0; left: 0; width: min(316px, 88vw); padding: 12px 10px 0; background: var(--surface); border-right: 1px solid var(--line); box-shadow: 0 12px 40px rgba(0,0,0,0.22); overflow-y: auto; overscroll-behavior: contain; }
   .side.open .side-menu { display: flex; }
+  .side-scrim { position: fixed; inset: 0; z-index: 40; background: var(--overlay); }
+  .drawer-head { display: flex; align-items: center; gap: 4px; padding-left: 10px; }
+  .drawer-head .brand { flex: 1; padding: 0; }
+  .drawer-head .side-ico { width: 44px; height: 44px; }
+  .drawer-work { display: block; }
+  .drawer-work .work-card { padding: 0 10px; }
+  .nav a, .nav-fold-head { min-height: 44px; }
+  .side-foot { margin: auto -10px 0; padding: 8px 10px 10px; }
+  #pop-side-more { left: 12px; bottom: 76px; }
+  body.menu-open { overflow: hidden; }
   .main { flex: 1 1 auto; width: 100%; }  /* 세로 배치에서 margin:auto 인 화면(설정, 사용량)이 내용 폭으로 넓어지지 않게 */
-  .hub-slot { order: 2; }
 }
 
 /* ----- 아래 고정 층 쌓기: 저장 띠 → 반영 줄 (stackBottom 이 --sb, --ab 를 정한다). 작업 목록과 알림은 알림 버튼 아래 (hub.js) ----- */
