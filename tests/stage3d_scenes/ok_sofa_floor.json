@@ -1,0 +1,47 @@
+{
+ "note": "소파에 앉은 사람 앞 바닥에 앉아 올려다본다 (바닥에 앉은 다리는 겹침에서 뺀다, 03 측정 c5)",
+ "template": "living",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "소파",
+    "rel": "on"
+   },
+   "posture": "chair"
+  },
+  {
+   "who": "d",
+   "at": {
+    "ref": "문",
+    "rel": "front"
+   },
+   "posture": "walk"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "d",
+     "at": {
+      "ref": "탁자",
+      "rel": "front"
+     },
+     "posture": "floor"
+    }
+   ]
+  },
+  {
+   "quote": "2박자",
+   "bodies": [
+    {
+     "who": "d",
+     "facing": "@h"
+    }
+   ]
+  }
+ ],
+ "expect": []
+}

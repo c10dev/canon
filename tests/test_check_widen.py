@@ -188,6 +188,7 @@ def test_web_toggle_and_autorun_estimate(tmp_path, monkeypatch):
     p = store.load("demo")
     assert p.settings.check_widen is True
     p.meta.form = "serial"
+    p.settings.stage_extract = False  # 장면 뽑기 호출은 tests/test_autorun.py 의 추정 시험이 센다
     policy = autorun.Policy()
     on = autorun.estimate(p, 6, False, policy)
     p.settings.check_widen = False

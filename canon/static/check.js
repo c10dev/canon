@@ -31,6 +31,22 @@ const FINDING_FLAG = { changed: '문장 바뀜', miss: '이번 회차에서 안 
 const ROUND_CHANGE = { new: '새로 나옴', again: '다시 나옴', gone: '사라짐' };
 
 /** 지적 옆 표시. findings.merge · settle 이 남긴 칸(first · last · closed_by)과 지금 본문(저장 전 글 포함)으로 센다. */
+/** 장면 연출 규칙 판정이 낸 지적 (schema.ConsistencyIssue.origin). */
+const ruleChip = (f) => f.origin === 'rule' ? '<span class="chip" title="장면 연출 규칙 판정이 짚었어요 (AI 검수가 아니에요)">규칙</span>' : '';
+
+/** 규칙 지적의 '장면 연출에서 보기': 그 사건 본문 장면의 그 박자로 (stage.js 의 S.stgJump). */
+function stageLink(n, f) {
+  if (f.origin !== 'rule' || f.stage_event == null || f.stage_event < 0) return '';
+  const ev = f.stage_event + 1;
+  return `<div class="row"><a class="btn small ghost" href="${base()}/stage/${n}/${ev}" data-action="stgGo" data-arg="${n}:${ev}:${f.stage_beat || 0}">장면 연출에서 보기 · 사건 ${ev}${f.stage_beat ? ` · ${f.stage_beat}박자` : ''}</a></div>`;
+}
+
+/** 검수 때 함께 뽑기 켜기 · 끄기 (Settings.stage_extract, 기본 켬). 작품 설정이라 자동 집필 검수도 따른다. */
+function stageToggle() {
+  const on = P().settings.stage_extract !== false;
+  return `<button type="button" class="btn${on ? ' on' : ''}" aria-pressed="${on}" data-action="toggleStageExtract" title="검수할 때 사건마다 본문에서 장면 연출(자리 · 자세 · 손 · 접촉)을 뽑아 규칙으로 판정해요. 본문이 바뀐 사건만 뽑고, 사건마다 검수 호출이 1번 늘어요">연출 함께 뽑기 ${on ? '켜짐' : '꺼짐'}</button>`;
+}
+
 function findingFlag(e, f, text) {
   const rounds = e.rounds || [];
   const last = rounds.length ? rounds[rounds.length - 1].no : f.last;
@@ -232,7 +248,7 @@ function chkList(n, e, text, sel, checkBtn) {
       const flag = findingFlag(e, f, text);
       const child = f.parent && ids.has(f.parent);
       return `<li><button type="button" class="chk-item${f.status === 'open' ? '' : ' done'}${child ? ' child' : ''}" aria-current="${f.id === sel}" data-action="chkSel" data-arg="${esc(f.id)}">
-        <span class="row" style="gap:4px"><span class="chip ${SEV_CHIP[f.severity] || 'warn'}">${SEVERITY[f.severity] || '보통'}</span><span class="chip">${esc(f.type)}</span><span class="chip ${FINDING_CHIP[f.status]}">${FINDING_STATUS[f.status]}</span>${no && changes[f.id] ? `<span class="chip">${ROUND_CHANGE[changes[f.id]]}</span>` : ''}${flag ? `<span class="chip${flag === 'changed' ? ' warn' : ''}">${FINDING_FLAG[flag]}</span>` : ''}${f.parent ? '<span class="chip">고치다 생김</span>' : ''}</span>
+        <span class="row" style="gap:4px"><span class="chip ${SEV_CHIP[f.severity] || 'warn'}">${SEVERITY[f.severity] || '보통'}</span><span class="chip">${esc(f.type)}</span>${ruleChip(f)}<span class="chip ${FINDING_CHIP[f.status]}">${FINDING_STATUS[f.status]}</span>${no && changes[f.id] ? `<span class="chip">${ROUND_CHANGE[changes[f.id]]}</span>` : ''}${flag ? `<span class="chip${flag === 'changed' ? ' warn' : ''}">${FINDING_FLAG[flag]}</span>` : ''}${f.parent ? '<span class="chip">고치다 생김</span>' : ''}</span>
         <span class="chk-desc">${esc(f.description)}</span><span class="small">근거 · ${esc(srcLabel(n, f))}</span></button></li>`;
     }).join('')}</ul>`
       : `${caption}<div class="empty" style="padding:16px 8px"><p class="small">${no ? `${no}회차는 지적 목록을 남기지 않은 예전 회차예요.` : S.chkFilter === 'open' ? '열린 지적이 없어요. 상태 승인으로 넘어가도 돼요.' : '이 상태의 지적이 없어요.'}</p></div>`;
@@ -256,13 +272,14 @@ function chkDetail(n, e, text, sel) {
   const kids = (e.findings || []).filter((x) => x.parent === f.id);
   const log = (f.log || []).slice().reverse().map((x) => `<li><span class="when">${x.at ? editTime(x.at) : ''}</span><span>${esc(x.text)}</span></li>`).join('');
   return `<section class="card tight c-detail" aria-label="지적 상세">
-    <div class="row" style="gap:4px"><span class="chip ${SEV_CHIP[f.severity] || 'warn'}">${SEVERITY[f.severity] || '보통'}</span><span class="chip">${esc(f.type)}</span><span class="chip ${FINDING_CHIP[f.status]}">${FINDING_STATUS[f.status]}</span><span class="small">${f.first}회차부터${f.last !== f.first ? ` · 마지막 ${f.last}회차` : ''}</span></div>
+    <div class="row" style="gap:4px"><span class="chip ${SEV_CHIP[f.severity] || 'warn'}">${SEVERITY[f.severity] || '보통'}</span><span class="chip">${esc(f.type)}</span>${ruleChip(f)}<span class="chip ${FINDING_CHIP[f.status]}">${FINDING_STATUS[f.status]}</span><span class="small">${f.first}회차부터${f.last !== f.first ? ` · 마지막 ${f.last}회차` : ''}</span></div>
     <h3 class="chk-title">${esc(f.description)}</h3>
     ${parent ? `<div class="small">원래 지적(${esc(findingShort(parent))})을 고친 문장 때문에 새로 어긋났어요. <button type="button" class="btn small ghost" data-action="chkSel" data-arg="${esc(parent.id)}">원래 지적 보기</button></div>` : ''}
     ${q ? `<div class="field"><span class="small">이번 화</span><blockquote class="chk-quote now">${esc(q)}</blockquote>${spot && !spot.near ? '' : `<div class="small">${spot ? '지금 본문에서는 비슷한 문장을 짚어 두었어요. 이미 고쳤을 수 있어요.' : '지금 본문에서 찾을 수 없어요. 이미 고쳤을 수 있어요.'}</div>`}</div>` : ''}
     ${f.source_quote ? `<div class="field"><span class="small">근거 · ${src}</span><blockquote class="chk-quote">${esc(f.source_quote)}</blockquote></div>` : ''}
     ${f.suggestion ? `<div class="field"><span class="small">고칠 방향</span><div style="font-size:0.8125rem;line-height:1.55">→ ${esc(f.suggestion)}</div></div>` : ''}
-    ${spot && can ? `<div class="row"><button type="button" class="btn small" data-action="chkOpen" data-arg="${esc(f.id)}">문장에서 고치기</button>${f.status === 'open' ? `<button type="button" class="btn small" data-action="chkRecheck" data-arg="${esc(f.id)}">이 지적만 다시 검수</button>` : ''}</div>` : ''}
+    ${spot && can ? `<div class="row"><button type="button" class="btn small" data-action="chkOpen" data-arg="${esc(f.id)}">문장에서 고치기</button>${f.status === 'open' ? `<button type="button" class="btn small" data-action="chkRecheck" data-arg="${esc(f.id)}"${f.origin === 'rule' ? ' title="AI를 부르지 않고 지금 본문 장면으로 판정만 다시 해요"' : ''}>${f.origin === 'rule' ? '판정 다시 보기' : '이 지적만 다시 검수'}</button>` : ''}</div>` : ''}
+    ${stageLink(n, f)}
     <div class="field"><span class="small">심각도 · AI가 정하고 작가가 바꿔요</span><div class="seg chk-seg3" role="group" aria-label="심각도">${sev}</div></div>
     <div class="field"><span class="small">처리</span><div class="seg chk-seg" role="group" aria-label="처리 상태">${seg}</div></div>
     ${decided ? `<div class="field"><label class="small" for="chk-note">왜 ${FINDING_STATUS[f.status]}인지 적어 두면 다시 나와도 바로 알아볼 수 있어요</label>
@@ -338,7 +355,7 @@ function viewCheck(n) {
   const toReview = e.status === 'written'
     ? `<a class="btn${checkPrimary ? '' : ' primary'}" href="${base()}/review/${n}">상태 승인으로${st.open ? ` · 열린 지적 ${st.open}` : ''}</a>`
     : e.status === 'finalized' && !checkPrimary ? nextStepBtn() : '';  // 반영 끝난 화도 검수가 지금 할 일이면 다음 할 일 버튼은 두지 않는다
-  const lead = `${serial() ? widenToggle(false) : ''}${S.mode === 'brief' ? `<a class="btn" href="${base()}/brief/${n}" data-action="openCheckBrief" data-arg="${n}">검수 지시서</a>` : ''}`;
+  const lead = `${serial() ? widenToggle(false) : ''}${stageToggle()}${S.mode === 'brief' ? `<a class="btn" href="${base()}/brief/${n}" data-action="openCheckBrief" data-arg="${n}">검수 지시서</a>` : ''}`;
   const right = !e.text ? '' : !last ? lead + toReview : checkPrimary ? lead + toReview + checkBtn : lead + checkBtn + toReview;
   const head = `<header class="page-head"><div class="row" style="gap:12px">${epNav('check', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${flowEyebrow(n)}</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div><div class="row">${right}</div></header>
     ${flowBar(n, 'check')}${autoLockNote()}`;
@@ -408,6 +425,21 @@ function afterFix(n, fid, pj) {
 }
 
 Object.assign(actions, {
+  async toggleStageExtract() {
+    const on = P().settings.stage_extract === false;
+    P().settings.stage_extract = on;
+    render();
+    try {
+      S.project = await api('PUT', `/projects/${enc(S.name)}/stage-extract`, { on });
+    } catch (err) {
+      toast(err.message, true);
+    }
+  },
+  stgGo(arg) {
+    const [n, ev, beat] = String(arg).split(':').map(Number);
+    S.stgJump = { n, ev, role: 'text', beat };
+    location.hash = `${base()}/stage/${n}/${ev}`;
+  },
   chkSel(id) {
     actions.chkOpen(id);
   },

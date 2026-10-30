@@ -483,6 +483,7 @@ function pendingShown(r) {
     case 'rebuild': return !!S.rbDraft;
     case 'rework': return !!S.reworks[r.ep];
     case 'openings': return !!S.openingPlots[r.ep];
+    case 'stage': return true;  // 장면 연출 AI 장면은 그 화면이 적용하거나 버릴 때 서버가 지운다 (web._stage_keep)
     default: return false;
   }
 }
@@ -555,6 +556,8 @@ function applyJobResult(j) {
     S.lineDraft = { ...j.result, picks: {} };
   } else if (['hook', 'openings', 'opening_drafts'].includes(j.kind)) {
     openingJobResult(j);
+  } else if (['stage_draft', 'stage_extract', 'check'].includes(j.kind) && typeof stageJobResult === 'function') {
+    stageJobResult(j);
   }
 }
 
@@ -1145,7 +1148,7 @@ const deltaPending = (n) => { const e = P() && ep(Number(n)); return !e || e.sta
 /** 페이지를 떠나면 사라지는 입력: 저장하지 않은 작품 · 문체 · 설정 변경, 본문 초안, 붙여 넣은 지시서 결과, 반영하지 않은 상태 변경안,
     분석 전 문체 예시 원문. 본문 초안은 브라우저에도 임시 보관하지만, 막힌 브라우저가 있어 여기서도 묻는다 */
 function hasUnsaved() {
-  return S.dirty || S.libDirty
+  return S.dirty || S.libDirty || S.stgDirty
     || (S.styleSampleDirty && S.styleSample.trim() !== '')
     || Object.keys(S.textDraft).some(textUnsaved)
     || Object.entries(S.briefDraft).some(([k, v]) => briefPending(k, v))
@@ -1580,7 +1583,7 @@ window.addEventListener('hashchange', async () => {
   }
   const setDlg = document.getElementById('set-dlg');
   if (setDlg && setDlg.open) setDlg.close();
-  if ((S.dirty || S.libDirty) && !confirm('저장하지 않은 변경이 있어요. 저장하지 않고 이동하면 그 변경은 사라져요. 이동할까요?')) {
+  if ((S.dirty || S.libDirty || S.stgDirty) && !confirm('저장하지 않은 변경이 있어요. 저장하지 않고 이동하면 그 변경은 사라져요. 이동할까요?')) {
     history.replaceState({ idx: navScroll.idx }, '', lastHash);
     return;
   }
@@ -1725,6 +1728,8 @@ async function routeNow() {
       if (parts[2] === 'convert') await convertLoad();
       if (parts[2] === 'cast') await castLoad(parts[3]);
       if (parts[2] === 'atlas') await atlasLoad();
+      if (parts[2] === 'stage') await stgLoad(n || currentEp(), Number(parts[4]) || 1);
+      else S.stgDirty = false;  // 장면 연출을 떠났다 (떠날 때 hashchange 가 물었다)
       if (parts[2] === 'foreshadow') await fsLoad();
       if (parts[2] === 'statwin') await swLoad(parts[3]);
       if (parts[2] === 'abilities') await abLoad(parts[3]);
@@ -1891,7 +1896,7 @@ function drawApp() {
     return;
   }
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches, cue: viewCue };
+  const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, stage: viewStage, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches, cue: viewCue };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${branchStrip(page)}${failStrip(page, n)}${draftStrip(page, n)}${body}</main></div>`;
   syncPending();
@@ -1902,6 +1907,7 @@ function drawApp() {
   if (typeof syncMarks === 'function') syncMarks();
   if (typeof syncWriteTop === 'function') syncWriteTop();
   if (typeof syncLines === 'function') syncLines();
+  if (typeof syncStage === 'function') syncStage();
   document.querySelectorAll('textarea[data-autogrow]').forEach(autosize);
   // 상태 승인 지시서 탭이 바뀌면 다시 불러온다
   if (page === 'brief' && S.briefText === null && ep(n)) {
@@ -1982,6 +1988,7 @@ function navItems() {
     ['atlas', base() + '/atlas', '🗺️', '지도', has(p.world.locations) || (p.elements || []).some((el) => el.kind === '장소')],
     ['foreshadow', base() + '/foreshadow', '🪝', '복선 센터', has(p.foreshadows)],
     ['tofix', base() + '/tofix', '📌', '고칠 곳', p.episodes.some((e) => has(e.to_fix))],
+    ['stage', `${base()}/stage/${cur}/1`, '🎬', '장면 연출', p.episodes.some((e) => has(e.stage))],
     ['statwin', base() + '/statwin', '📊', '상태창 수치', (p.states || []).some((s) => has(s.stats)) || has((p.stat_window || {}).names)],
     ['abilities', base() + '/abilities', '📖', '스킬 도감', has(p.abilities)],
     ['timeline', base() + '/timeline', '⏳', '작품 속 시간', has((p.timeline || {}).deadlines) || p.episodes.some((e) => e.time && (e.time.day > 0 || e.time.part || e.time.label))],

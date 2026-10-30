@@ -1,0 +1,39 @@
+{
+ "note": "책장에 기대 선 하린 앞에 도윤이 선다",
+ "template": "office",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "책장",
+    "rel": "against"
+   },
+   "posture": "lean"
+  },
+  {
+   "who": "d",
+   "at": {
+    "ref": "책장",
+    "rel": "front"
+   },
+   "posture": "stand"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "d",
+     "at": {
+      "ref": "@h",
+      "rel": "front"
+     },
+     "posture": "stand",
+     "facing": "@h"
+    }
+   ]
+  }
+ ],
+ "expect": []
+}
