@@ -1479,6 +1479,9 @@ class StateDelta(BaseModel):
     deadlines_added: list[Deadline] = Field(default_factory=list, description="이번 화에 새로 생기거나 날이 바뀐 기한. 바뀐 기한은 같은 id 로")
     deadlines_done: list[str] = Field(default_factory=list, description="이번 화에 닫힌 기한 id (그날이 와서 일이 일어났거나 기한이 없어짐)")
     warnings: list[str] = Field(default_factory=list, description="플롯, 설정, 말투와 어긋난 부분")
+    # 프로그램이 채운다 (cast.clean_delta). AI 응답 형식에서 뺀다. 반영 뒤에는 실제로 붙인 id 만 남아 되돌리기가 그것만 뺀다
+    cast_added: SkipJsonSchema[list[str]] = Field(
+        default_factory=list, description="반영하면 그 화 등장 인물(EpisodePlot.characters)에 붙일 인물 id: 본문에 이름이 나오고 이 변경안이 상태나 관계 사건을 다룬 인물")
 
 
 class NameOption(BaseModel):
