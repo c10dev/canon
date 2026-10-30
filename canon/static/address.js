@@ -1,5 +1,5 @@
 /* 호칭 · 말씨 (canon/address.py): 인물 · 관계도 두 사람 상세의 칸(addressCard), 인물 카드의 남겨 둔 제안(addressHeldCard),
-   상태 승인 화면의 바뀜 카드(addressDeltaCard, 체크 키 h, 기본으로 체크하지 않음)와 반영한 화 보기(addressHistory).
+   상태 승인 화면 '직접 정할 것'의 바뀜 줄(addressDeltaRows, 체크 키 h, 기본으로 체크하지 않음)와 반영한 화 보기(addressHistory).
    app.js 의 S, actions, api, run, toast, esc, P, charName 을 쓴다. */
 'use strict';
 
@@ -56,18 +56,16 @@ function addressHeldCard(c) {
     <div class="small">자동 집필은 호칭 · 말씨를 바꾸지 않아요. 두 사람 상세에서 적용하거나 버려요.</div><ul class="cast-ul">${rows}</ul></section>`;
 }
 
-/** 상태 승인 화면의 바뀜 카드. 설정 바꾸기처럼 작가가 직접 골라야 반영한다 (setDelta 가 h 키를 false 로 둔다) */
-function addressDeltaCard(n, d, box) {
-  const list = d.address_changes || [];
-  if (!list.length) return '';
-  const name = (id) => charName(id) || ((d.new_characters || []).find((c) => c.id === id) || {}).name || id;
-  const rows = list.map((x, i) => {
+/** 상태 승인 화면 '직접 정할 것'의 바뀜 줄 (scDeltaRows 와 같은 모양). 설정 바꾸기처럼 작가가 직접 골라야 반영한다 (setDelta 가 h 키를 false 로 둔다) */
+function addressDeltaRows(n, d, box) {
+  const name = (id) => ((d.new_characters || []).find((c) => c.id === id) || {}).name || charName(id);
+  return (d.address_changes || []).map((x, i) => {
     const cur = addressOf(P(), x.speaker, x.listener);
     const bits = Object.entries(ADDRESS_FIELDS).filter(([k]) => x[k]).map(([k, label]) => `<div class="row"><span class="small">${label}</span><span class="before">${esc(cur[k] || '(비어 있음)')}</span><span class="small">→</span><span class="after">${esc(x[k])}</span></div>`).join('');
-    return `<div class="change">${box('h' + i)}<div class="body"><label for="pk-h${i}" class="rv-name">${esc(name(x.speaker))} → ${esc(name(x.listener))}</label>${bits}
-      ${x.reason ? `<div class="small">${esc(x.reason)}</div>` : ''}${x.quote ? `<div class="rv-quote">“${esc(x.quote)}”</div>` : ''}</div></div>`;
+    const who = `${name(x.speaker)} → ${name(x.listener)}`;
+    return `<div class="change">${box('h' + i)}<div class="body"><div class="rv-row-head"><label for="pk-h${i}" class="rv-name">${esc(who)}</label><span class="chip">호칭 · 말씨</span><span class="small">기본으로 고르지 않았어요</span>${x.quote ? rvQuoteBtn(n, x.quote, `${who} 호칭`) : ''}</div>
+      ${bits}${x.reason ? `<div class="small">${esc(x.reason)}</div>` : ''}${x.quote ? `<div class="rv-quote">${quoted(x.quote)}</div>` : ''}</div></div>`;
   }).join('');
-  return `<section class="card rv-card"><div class="rv-card-head"><h2>호칭 · 말씨 바뀜</h2><span class="small">본문에서 부르는 말이나 말씨가 바뀐 방향이에요. 기본으로 체크하지 않아요. 골라야 다음 화부터 바뀐 대로 써요</span></div>${rows}</section>`;
 }
 
 /** 반영한 화 보기의 호칭 · 말씨 기록 */
