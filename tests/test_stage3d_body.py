@@ -211,7 +211,7 @@ def test_frames_shape():
     assert {"anchor", "box", "solid", "barrier"} == set(d["solids"][0]) and len(d["solids"][0]["box"]) == 6
     assert [b["k"] for b in d["beats"]] == [0, 1, 2, 3]
     b0 = d["beats"][0]
-    assert set(b0) == {"k", "bodies", "contacts"}
+    assert set(b0) == {"k", "bodies", "contacts", "paths"} and b0["paths"] == {}  # 박자 사이 이동 경로 (stagepath, 10-path.md)
     h = b0["bodies"]["h"]
     assert set(h) == {"posture", "missing", "attach", "joints"}
     assert set(h["joints"]) == set(s3.JOINTS)

@@ -2555,6 +2555,90 @@ def cue_play_prompt(p: Project, n: int, sheet, done: list[str]) -> str:
     parts.append(cue_step(p, sheet, k) + f"\n큐 {k} 본문만 씁니다.")
     return "\n\n".join(parts)
 
+# ---------- 역설계 실험 (revlab.py) ----------
+# 사람이 쓴 글을 거꾸로 플롯 · 스토리보드 · 큐 시트로 푼다. 바뀌지 않는 지시가 앞, 화마다 바뀌는 재료(앞 화 끝, 원문)가 뒤.
+# 큐 경계는 원문 글자 그대로의 시작 인용(start)으로 받고, 핵심 대사도 원문에 있는지 Canon 이 맞춰 본다 (revlab.locate · keep_lines).
+
+SYSTEM_REVERSE = (
+    "당신은 한국 웹소설/단편소설 구조를 분석하는 편집자입니다. 주어진 원문에 실제로 있는 것만 적고, 원문에 없는 사건, 인물, 대사, 설정을 짓지 않습니다. "
+    "인용하라는 칸은 원문 글자를 한 글자도 바꾸지 않고 옮깁니다. 모든 출력은 한국어로 작성합니다."
+)
+
+
+def rev_rules() -> str:
+    """역설계 요구사항. 모든 화 요청이 이 글로 시작한다 (화 사이에 같은 앞부분)."""
+    fn = "\n".join(f"  {k} {v[0]}: {v[1]}" for k, v in CUE_FUNCTIONS.items())
+    voice = "\n".join(f"  {k} {v[0]}: {v[1]}" for k, v in CUE_VOICES.items())
+    cad = "\n".join(f"  {k} {v[0]}: {v[1]}" for k, v in CUE_CADENCES.items())
+    return f"""# 할 일
+맨 아래 [원문] 한 화를 읽고, 작가가 이 화를 쓰기 전에 세웠을 설계를 거꾸로 적습니다. 본문을 새로 쓰지 않습니다.
+설계는 세 겹입니다: 화 플롯(요약 · 사건 · 감정 변화 · 엔딩 훅), 스토리보드(장면 순서 · 시간 · 직전 화에서 이어받은 것), 큐 시트(악보).
+
+# 화 플롯
+- summary 2~4문장, events 는 순서대로 3~6개. 원문에서 일어난 일만 적습니다.
+- cast 는 이 화에 이름이 나오는 인물. name 은 원문에 쓴 이름 그대로 (이미 나온 인물 목록에 있으면 그 이름으로). 이름 없이 나오는 인물은 넣지 않습니다.
+- speech 는 원문 대사에서 보이는 말투만 한 줄로. 대사가 없으면 비웁니다.
+- emotional_shift 는 감정 이름이 아니라 원문에 드러난 행동이나 대사. ending_hook 은 이 화가 실제로 끝난 자리.
+- threads 는 이 화가 따라가는 이야기 줄기 이름 1~3개. 이미 나온 줄기와 같으면 같은 이름을 씁니다.
+
+# 스토리보드
+- scenes: 장소나 시간이 바뀌는 곳에서 나눈 장면 순서. place 는 원문의 장소 이름(없으면 짧은 설명), present 는 그 장면에 있는 인물 이름,
+  events 는 그 장면이 맡은 events 번호(1부터), goal 은 시점 인물이 그 장면에서 얻으려는 것, turn 은 흐름이 바뀌는 일, end_state 는 장면 끝 상태.
+- board_time: after 는 직전 화가 끝난 때에서 며칠 뒤에 시작하는지 (같은 날 0, 알 수 없으면 0), part · end_part 는 시작 · 끝 시간대, days 는 걸친 날 수.
+- handover: [직전 화 끝]이 있으면 이 화가 그 끝에서 이어받은 사실 한 줄씩. 첫 화이거나 이어받은 것이 없으면 비웁니다.
+
+# 큐 시트
+큐는 원문을 나눈 연주 단위입니다. 원문을 처음부터 끝까지 빈틈없이 4~10개로 나눕니다.
+- start: 그 큐가 시작하는 문장의 앞부분을 원문 글자 그대로 15~40자. 첫 큐는 원문 첫 문장에서 시작합니다. 큐는 원문 순서를 따르고, 같은 start 를 두 번 쓰지 않습니다.
+- scene: 그 큐가 속한 scenes 번호(1부터).
+- function: 화성 기능.
+{fn}
+- tension: 긴장도 1~5. 원문의 실제 오르내림대로 적습니다.
+- tempo: slow · mid · fast. 문장 길이와 한 큐에 담긴 사건 수로 판단합니다.
+- voice: 그 큐를 주로 끌고 간 것.
+{voice}
+- beat: 그 큐에서 바뀌는 일 한 줄. exit: 그 큐가 끝날 때의 상태 (자리, 손에 든 것, 감정, 결정).
+- lines: 정보가 밝혀지거나 관계가 바뀌는 핵심 대사 0~3개. 원문 대사를 글자 그대로, 따옴표 없이 옮깁니다. speaker 는 인물 이름. 모든 큐에 넣지 않습니다.
+- key: 이 화 정서의 기준선 한 줄. cadence: 화 끝 종지.
+{cad}
+- 글자 수는 적지 않습니다. 큐 경계(start)로 Canon 이 원문에서 잽니다."""
+
+
+def rev_prompt(lab, number: int) -> str:
+    """number 화 역설계 요청. 앞부분(rev_rules)은 모든 화가 같고, 이미 나온 인물 · 줄기, 직전 화 끝, 원문이 뒤에 온다."""
+    from . import revlab
+
+    e = revlab.episode(lab, number)
+    prev = next((x for x in reversed(lab.episodes) if x.number < number), None)
+    cast = ", ".join(c.name for c in lab.cast) or "없음"
+    threads = ", ".join(dict.fromkeys(t for x in lab.episodes if x.number < number for t in x.threads)) or "없음"
+    out = [rev_rules(), f"# 이미 나온 인물\n{cast}", f"# 이미 나온 이야기 줄기\n{threads}"]
+    if prev is not None:
+        tail = prev.text[-revlab.PREV_TAIL:].strip()
+        out.append(f"# 직전 화({prev.number}화) 줄거리\n{prev.plot.summary.strip() if prev.plot else '역설계 전이라 없음'}")
+        out.append(f"# 직전 화 끝\n{tail}")
+    out.append(f"# 원문 ({number}화{f', 제목 줄: {e.head}' if e.head else ''}, {len(e.text)}자)\n{e.text}")
+    out.append(f"위 [원문] {number}화를 화 플롯 · 스토리보드 · 큐 시트로 풀어 JSON 으로 적습니다.")
+    return "\n\n".join(out)
+
+
+def rev_lines_prompt(lab) -> str:
+    """여러 화의 이야기 줄기 역설계. 화마다 역설계한 요약 · 사건 · 줄기 이름을 차례로 넣는다."""
+    rows = []
+    for e in lab.episodes:
+        if e.plot is None:
+            continue
+        rows.append(f"## {e.number}화 {e.plot.title or e.head}\n요약: {e.plot.summary}\n사건: " + " / ".join(e.plot.events)
+                    + f"\n등장: {', '.join(e.plot.characters) or '없음'}\n줄기: {', '.join(e.threads) or '없음'}")
+    return ("# 화별 역설계 결과\n" + "\n\n".join(rows) + """
+
+위 화들에서 메인 줄기와, 메인에서 갈라졌다 합류하는 줄기(서브플롯, 과거 회상, 외전, 인물 이야기)를 찾아 JSON 으로 적습니다.
+- main: 메인 줄기가 풀어 가는 질문 한 줄.
+- lines: 메인 밖 줄기 0~4개. 화들에 실제로 나온 줄기만 적고, 한 화에만 스치는 일은 줄기로 세우지 않습니다.
+  episodes 는 그 줄기를 주로 따라간 화 번호, threads 는 다른 줄기를 따라가는 화 안에 그 줄기 장면이 끼어든 화 번호. 위에 있는 화 번호만 씁니다.
+  focus 는 중심 인물 이름, rejoin 은 메인에 합류하며 남긴 것 (아직 합류하지 않았으면 비움).""")
+
+
 # ---------- 다시 생성 ----------
 # 작가가 지난 판을 읽고 다시 써 달라고 할 때. 쓰기 프롬프트(episode_prompt)는 그대로 두고 요청을 맨 뒤에 붙인다
 # (앞부분이 같아야 캐시가 맞는다). 화면(rewrite.js)은 서버가 준 빠른 요청과 재료 목록을 그대로 쓴다.

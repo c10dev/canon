@@ -1562,14 +1562,21 @@ def move_gaps(scene: StageScene, room: Optional[StageRoom], p: Project) -> list[
     return out
 
 
+def _paths(scene: StageScene, room: Optional[StageRoom]) -> list[dict]:
+    if room is None:
+        return []
+    from . import stagepath  # stagepath 가 stage3d 를 읽으므로 늦게 읽는다
+    return stagepath.paths(scene, room)
+
+
 def check(p: Project, ep: Episode, scene: StageScene, room: Optional[StageRoom]) -> dict:
     """장면 하나의 화면 값: 사건 찾기, 본문과 다른 박자, 규칙 판정(평면 + 3D, judge_all), 계획 장면의 빠진 이동(moves),
-    짝 장면(같은 사건의 다른 역할)과 견준 값.
+    박자 사이 돌아가는 이동(paths, stagepath.paths), 짝 장면(같은 사건의 다른 역할)과 견준 값.
     gaps 는 계획과 다른 곳(짝이 있을 때만), match 는 계획 박자마다 견준 본문 박자다."""
     event, changed = find_event(ep, scene)
     out = {"event": event, "event_changed": changed, "stale": stale(scene, ep.text),
            "violations": [v.model_dump() for v in judge_all(scene, room, p)] if room else [], "moves": move_gaps(scene, room, p),
-           "pair": None, "gaps": [], "match": []}
+           "paths": _paths(scene, room), "pair": None, "gaps": [], "match": []}
     if event is None:
         return out
     pair = scenes_of(ep, event)[scene.role == "plan"]

@@ -645,6 +645,7 @@ class Frames:
     solids: list[Solid]
     beats: list[BeatFrame]
     spec: Optional[RoomSpec] = None  # 장소 모듈 (없으면 종류 기본값만 썼다)
+    paths: list[dict] = field(default_factory=list)  # 박자마다 돌아가는 이동 (stagepath.paths, 그림만 쓴다)
 
     def to_dict(self) -> dict:
         """렌더러 계약 (docs/stage/3d/specs/01-body.md 의 JSON)."""
@@ -660,7 +661,8 @@ class Frames:
                                       "joints": {j: r(v) for j, v in p.body.joints().items()} if p.body else None}
                                   for w, p in b.bodies.items()},
                        "contacts": [{"id": c.id, "who": c.who, "to": c.to, "part": c.part, "act": c.act, "by": c.by, "hands": c.hands,
-                                     "gap": round(c.gap, 3), "points": [r(v) for v in c.points]} for c in b.contacts]}
+                                     "gap": round(c.gap, 3), "points": [r(v) for v in c.points]} for c in b.contacts],
+                       "paths": self.paths[b.k] if b.k < len(self.paths) else {}}
                       for b in self.beats],
         }
 
@@ -783,7 +785,9 @@ def frames(scene: StageScene, room: StageRoom, project=None, postures: Optional[
                 wrap_carrier(person.body, bodies[person.attach])
         contacts = _contacts(state, people)
         beats.append(BeatFrame(k, state, pos, people, contacts))
-    return Frames(room_spec.ceiling if room_spec else furniture.RoomSpec("").ceiling, sol, beats, room_spec)
+    from .. import stagepath  # stagepath 가 stage3d 를 읽으므로 늦게 읽는다
+    return Frames(room_spec.ceiling if room_spec else furniture.RoomSpec("").ceiling, sol, beats, room_spec,
+                  stagepath.paths(scene, room, spots))
 
 
 _FEET: dict[tuple, tuple[list, list, list]] = {}  # (각도, 면 높이) → feet_down 이 고친 엉덩 · 무릎 · 발목. 자리 · 방향과 상관없다
