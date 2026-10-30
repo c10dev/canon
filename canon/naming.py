@@ -492,6 +492,40 @@ def cast_issues(p: Project) -> list[dict]:
     return out
 
 
+NEW_CAST_MAX = 3  # 상태 변경안: 한 화에 새 인물이 이보다 많으면 알린다
+
+
+def new_cast_warnings(p: Project, new: list[Character]) -> list[str]:
+    """새 인물을 들일 때의 이름 점검 (상태 변경안 정리, features.CLEAN). 막지 않고 경고만 한다.
+    새 인물마다 이미 있는 인물 · 인물 후보 · 같이 온 새 인물과 견줘 같은 이름, 성을 뺀 이름이 같음, 헷갈리는 이름(cast_issues 와 같은 규칙)을 알린다.
+    인물 화면의 이름 점검(cast_issues)은 들인 뒤에야 보이고, 그때는 본문에 이미 그 이름이 쓰여 있다."""
+    sid = resolve_style(p)
+    known = {c.id for c in p.characters}
+    new = [c for c in new if c.name.strip() and c.id not in known]  # 이미 있는 id 는 반영해도 더하지 않는다
+    ids = {c.id for c in new}
+    have = [c for c in p.characters + p.cast_candidates if c.name.strip() and c.id not in ids]
+    out: list[str] = []
+    seen: set[frozenset] = set()
+    for i, c in enumerate(new):
+        for o in have + new[:i]:
+            key = frozenset((c.id, o.id))
+            if key in seen:
+                continue
+            seen.add(key)
+            a, b = c.name.strip(), o.name.strip()
+            ga, gb = _given(a, sid), _given(b, sid)
+            if a == b:
+                out.append(f"새 인물 {_j(a, '이', '가')} 이미 있는 인물과 이름이 같아요. 다른 사람이면 이름을 바꾸고, 같은 사람이면 새 인물에서 빼세요.")
+            elif ga == gb:
+                out.append(f"새 인물 {_pair(a, b)} 성을 뺀 이름이 같아 독자가 헷갈려요.")
+            elif same := _confusable(ga, gb, sid, bare=ga == a and gb == b):
+                out.append(f"새 인물 {_pair(a, b)} 이름 {same}{josa(same, '이', '가')} 같아 헷갈리기 쉬워요.")
+    if len(new) > NEW_CAST_MAX:
+        out.append(f"이번 화에 새 인물이 {len(new)}명 나왔어요. 한 화에 {NEW_CAST_MAX}명이 넘으면 독자가 따라가기 어려워요. "
+                   "지나가는 인물은 이름 없이 쓰거나 새 인물에서 빼세요.")
+    return out
+
+
 def cast_warnings(p: Project) -> list[str]:
     """이름 점검 글만 (명령줄). 화면은 cast_issues 로 종류 · 인물별로 묶어 보인다."""
     return [i["text"] for i in cast_issues(p)]
