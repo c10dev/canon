@@ -999,6 +999,30 @@ def pending_recaps(p: Project) -> list[tuple[str, int]]:
     return out
 
 
+PLAN_AHEAD_MAX = 2  # 본문이 하나도 없는 아크가 이만큼 있으면 다음 아크 기획 앞에서 경고한다 (하나 더 짜면 3개)
+
+
+def plan_ahead(p: Project) -> dict:
+    """다음 아크를 짜기 전에 본문보다 얼마나 앞서 기획했는지. 경고만 하고 막지 않는다. LLM 호출 없음.
+    written: 본문이 있거나 written · finalized 인 마지막 화, unwritten_arcs: written 뒤에서 시작하는 아크 수,
+    recaps: pending_recaps, notes: 화면 · 명령줄에 보일 경고 글 (static/plot.js planAhead 와 같은 규칙)."""
+    written = max((e.plot.number for e in p.episodes if e.text.strip() or e.status in ("written", "finalized")), default=0)
+    until = p.planned_until()
+    unwritten = sum(1 for a in p.story_arcs if a.start_ep > written)
+    recaps = pending_recaps(p)
+    notes = []
+    if p.serial and unwritten >= PLAN_AHEAD_MAX:
+        where = f"본문은 {written}화까지인데" if written else "본문이 아직 없는데"
+        notes.append(f"{where} 아크가 {until}화까지 짜여 있어요 (본문 없는 아크 {unwritten}개). "
+                     "앞 아크를 쓰고 요약한 뒤 기획하면 쓰인 줄거리를 보고 짤 수 있어요.")
+    if p.serial and recaps:
+        names = ", ".join(f"아크 {n}" if k == "arc" else f"{n}부" for k, n in recaps)
+        notes.append(f"끝났는데 요약이 없어요: {names}. 먼저 요약하면 다음 아크 기획이 그 줄거리를 제대로 봐요. "
+                     "요약이 없으면 화마다 첫 문장으로만 들어가요.")
+    return {"written": written, "planned_until": until, "unwritten_arcs": unwritten,
+            "recaps": [list(x) for x in recaps], "notes": notes}
+
+
 # ---------- 3-0'. 단편 → 장편 전환 ----------
 # 단편 전체가 아크 1이 된다. 이미 쓴 화의 구조는 바꿀 수 없어서 기승전결을 그대로 옮기고,
 # 그 뒤를 부 구성과 장기 떡밥으로 늘린다. 되돌리기용 백업은 호출자가 store.save_backup 으로 남긴다.
