@@ -16,7 +16,7 @@ from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, ImpactReport, PlayInfo, Project, Selection, StateDelta, StoryElement
-from . import address, board, charlog, foreshadows, mapprompt, statwin, timeline
+from . import address, board, charlog, foreshadows, knows, mapprompt, statwin, timeline
 
 SYSTEM_PLANNER = (
     "당신은 한국 웹소설/단편소설 기획 전문 편집자입니다. "
@@ -923,15 +923,17 @@ def structure_text(p: Project, n: int, head: str = "[지금 부와 아크]") -> 
 
 def state_view(p: Project, states: list, n: int | None = None, query: str = "") -> tuple[list, int]:
     """장편에서는 화마다 쌓이는 knows 를 n화와 관련된 것부터 고른 사본을 쓴다 (context.pick_knows). 저장된 상태는 그대로다.
+    고른 줄 앞에는 알게 된 화, 맨 앞에는 아크 요약 뒤 접은 줄을 붙인다 (knows.view).
     query 는 이번 화 플롯이나 본문, 이름은 넘긴 상태의 인물, 요소 · 장소는 n화의 것(context.query_terms). (사본, 뺀 수)"""
     if not p.serial:
         return states, 0
     names = [c.name for c in p.characters if c.id in {s.character_id for s in states}]
     terms = context.query_terms(p, n) if n is not None else []
     out, cut = [], 0
+    eps = knows.learned(p)
     for s in states:
-        knows, k = context.pick_knows(s.knows, query, names, terms)
-        out.append(s.model_copy(update={"knows": knows}) if k else s)
+        picked, k = context.pick_knows(s.knows, query, names, terms)
+        out.append(s.model_copy(update={"knows": knows.view(p, s, picked, eps.get(s.character_id, {}))}))
         cut += k
     return out, cut
 
@@ -1275,6 +1277,35 @@ def recap_prompt(p: Project, kind: str, number: int) -> str:
 - {size}. 일어난 순서대로 씁니다.
 - 반드시 남길 것: 인물 관계가 바뀐 계기, 드러난 비밀, 새로 생긴 약속이나 빚, 아직 풀리지 않은 문제, 주인공이 얻거나 잃은 것.
 - 화별 요약에 없는 내용은 만들지 않습니다. 해석이나 평가는 쓰지 않습니다."""
+
+
+def fold_prompt(p: Project, number: int, want: dict[str, list[str]]) -> str:
+    """아크 요약 뒤 아는 정보 접기 (pipeline.fold_knows). want 는 knows.targets: 인물마다 접을 줄."""
+    a = next(x for x in p.story_arcs if x.number == number)
+    eps = knows.learned(p)
+    name = {c.id: c.name for c in p.characters}
+    blocks = []
+    for cid, lines in want.items():
+        s = p.state_of(cid)
+        folded = "\n".join(f"  {x}" for x in (s.knows_folded if s else [])) or "  없음"
+        rows = "\n".join(f"- ({eps.get(cid, {}).get(k, 0) or '처음'}{'화' if eps.get(cid, {}).get(k) else ''}) {k}" for k in lines)
+        blocks.append(f"## {name.get(cid, cid)} ({cid})\n이미 접은 줄:\n{folded}\n접을 정보 {len(lines)}개 (알게 된 화 순서):\n{rows}")
+    return f"""아크 {a.number} {a.title} ({a.start_ep}~{a.end_ep}화)까지 요약했습니다. 아래 인물들이 알게 된 정보 가운데 오래된 것을 인물마다 {knows.FOLD_LINES}줄 이하로 접습니다.
+접은 줄은 앞으로 이 인물이 나오는 화마다 프롬프트에 들어가고, 접기 전 줄은 빠집니다.
+
+[아크 {a.number} 요약]
+{a.summary}
+
+[인물별 접을 정보]
+{chr(10).join(blocks)}
+
+요구사항:
+- folds 에 위 인물마다 하나씩 character_id 와 lines 를 넣습니다.
+- lines 에는 이 인물이 지금 아는 것 가운데 뒤 화에서 행동이나 대사의 기준이 되는 것만 남깁니다: 다른 인물의 정체와 비밀, 약속과 빚, 위험과 금기, 관계를 바꾼 사건, 세계 규칙, 아직 풀리지 않은 문제.
+- 끝난 일의 장면 세부(무엇을 먹었는지, 몇 시였는지)는 버립니다. 뒤 줄이 앞 줄을 바꿨으면 뒤의 것을 남깁니다.
+- 위 목록과 이미 접은 줄에 없는 것을 지어내지 않습니다. 이 인물이 모르는 것을 넣지 않습니다.
+- 이미 접은 줄이 있으면 그것까지 합쳐 다시 씁니다.
+- 한 줄에 한 가지, {knows.FOLD_LINE_MAX}자 이하로 씁니다. '그', '그녀' 대신 이름을 씁니다. 줄 앞에 화 표시를 붙이지 않습니다."""
 
 
 # ---------- 이야기 줄기 제안 ----------

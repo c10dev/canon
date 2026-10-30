@@ -4,7 +4,7 @@ from __future__ import annotations
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
 from .llm import LLM, dump
-from . import board, cancel, charlog, features, findings, foreshadows, statwin, timeline
+from . import board, cancel, charlog, context, features, findings, foreshadows, knows, statwin, timeline
 from .schema import CueSheet, CueSheetDraft, Finding, FindingRecheck, FixOption, FixPatch, FixSet
 from .schema import (
     Act,
@@ -16,6 +16,7 @@ from .schema import (
     Character,
     CharacterState,
     CharacterVisual,
+    KnowsFoldSet,
     ChatMessage,
     ChatScope,
     CheckRound,
@@ -993,6 +994,15 @@ def _recap_target(p: Project, kind: str, number: int):
     if hit is None:
         raise ValueError(f"{'아크' if kind == 'arc' else '부'} {number}이(가) 없어요")
     return hit
+
+
+def fold_knows(llm: LLM, p: Project, number: int) -> KnowsFoldSet:
+    """아크 number 요약 뒤 인물마다 오래된 아는 정보를 몇 줄로 접는 제안 (knows.targets 인물만). 저장하지 않는다 (knows.apply_fold)."""
+    want = knows.targets(p, number)
+    if not want:
+        raise ValueError(f"아크 {number}까지 접을 만큼 아는 정보가 쌓인 인물이 없어요 (인물마다 {context.KNOWS_KEEP}개가 넘어야 접어요)")
+    fs = llm.json(prompts.SYSTEM_EDITOR, prompts.fold_prompt(p, number, want), KnowsFoldSet, hint={"arc": number, "ids": list(want)})
+    return knows.clean_fold(p, number, fs)
 
 
 def pending_recaps(p: Project) -> list[tuple[str, int]]:
