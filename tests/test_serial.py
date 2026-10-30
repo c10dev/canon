@@ -409,6 +409,55 @@ def test_web_serial_flow(tmp_path, monkeypatch):
     assert p["parts"][0]["summary"] == "1부 요약"
 
 
+def test_next_arc_sees_relevant_facts_time_and_side_states(monkeypatch):
+    """다음 아크 기획은 최근 사실만이 아니라 부 목표 · 아크 아이디어와 관련된 옛 사실, 작품 속 시간과 기한,
+    주역 밖 기획 인물의 지금 상태를 본다. 어느 것이든 예산을 넘기면 뺀 수를 적는다."""
+    from canon import context
+    from canon.schema import CharacterState, Deadline, StoryTime
+
+    p = _serial()
+    a = _plan_arc(p)
+    _finish(p, a)
+    start = a.end_ep + 1
+    side = Character(id="smith", name="대장장이", role="조연", tier="support")
+    p.characters.append(side)
+    p.episode(a.end_ep).plot.characters.append("smith")  # 최근 플롯에 나온 조연은 기획 인물이다
+    old = "대장장이는 첫 화에서 칼값을 외상으로 남겼다"
+    p.facts = [old] + [f"잡일{i}번째 기록" for i in range(120)]
+    pr = prompts.next_arc_prompt(p, start, 0, "")
+    assert old in pr  # 기획 인물 이름이 나오는 옛 사실 (예전에는 최근 30개만 넣어 빠졌다)
+    assert "잡일119번째 기록" in pr  # 최근 사실은 늘
+    assert "잡일0번째 기록" not in pr and "관련이 적어 뺐습니다" in pr
+    # 작품 속 시간: 직전 화 끝과 열린 기한, 아크용 지시 (화별 time 칸 지시가 아니다)
+    p.episode(a.end_ep).time = StoryTime(day=5, part="밤", label="5일째 밤")
+    p.timeline.deadlines.append(Deadline(id="dl-1", what="왕성 축제 첫날", day=9, set_ep=a.start_ep))
+    pr = prompts.next_arc_prompt(p, start, 0, "")
+    assert "[작품 속 시간" in pr and "왕성 축제 첫날" in pr and prompts.ARC_TIME_RULE in pr
+    assert "화마다 time 칸에" not in pr
+    # 주역 밖 기획 인물의 상태: 최근 플롯에 나온 조연
+    p.states.append(CharacterState(character_id="smith", emotional_state="조연만의감정"))
+    pr = prompts.next_arc_prompt(p, start, 0, "")
+    assert "조연만의감정" in pr and "smith" in context.planning_cast(p, start)
+    monkeypatch.setitem(context.BUDGET, "plan_states", 1)
+    pr = prompts.next_arc_prompt(p, start, 0, "")
+    assert "조연만의감정" not in pr and "명은 예산을 넘겨 뺐습니다" in pr
+
+
+def test_old_facts_match_given_names():
+    """사실은 흔히 성을 떼고 적는다 ('건우는 …'). 세 글자 이름은 성을 뗀 이름으로도 관련 사실을 찾는다 (context.names_of)."""
+    from canon import context
+
+    p = _serial()
+    a = _plan_arc(p)
+    _finish(p, a)
+    hero = next(c for c in p.characters if c.tier == "main")
+    hero.name = "최건우"
+    assert "건우" in context.names_of(p, {hero.id})[0]
+    old = "건우는 첫 화에서 할부 서류에 서명했다"
+    p.facts = [old] + [f"잡일{i}번째 기록" for i in range(120)]
+    assert old in prompts.next_arc_prompt(p, a.end_ep + 1, 0, "")
+
+
 def test_plan_ahead_warns_when_two_arcs_have_no_text():
     p = _serial()
     a1 = _plan_arc(p)

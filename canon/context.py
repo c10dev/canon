@@ -12,7 +12,7 @@ import re
 from collections import Counter
 from typing import Iterable
 
-from . import elements
+from . import elements, metrics
 from .schema import Character, Foreshadow, Project, Secret
 
 CHARS_PER_TOKEN = 1.7  # 토크나이저가 없을 때 한국어 추정값 (gemma 실측 1.6~1.9)
@@ -29,7 +29,10 @@ BUDGET = {
     "secrets": 2_500,       # 본문 쓰기의 관계 블록에 붙는 숨긴 비밀
     "state_secrets": 6_000,  # 상태 변경안 · 검수의 비밀 목록
     "places": 3_000,        # 기획 · 검수 · 상태 변경안에 넣는 본문 · 플롯에서 나온 장소
+    "plan_fixed": 8_000,    # 화별 플롯 초안: 범위 안 · 바로 뒤의 이미 정해진 화 플롯 (prompts.fixed_plots, 장편만)
     "deadlines": 1_200,     # 쓰기 · 검수 · 기획 · 상태 변경안의 작품 속 열린 기한 (timeline.deadline_lines, 단편도)
+    "plan_facts": 6_000,    # 다음 아크 기획: 부 목표 · 아크 아이디어 · 직전 아크 플롯과 관련된 확정 사실 (최근 FACTS_RECENT 개는 늘)
+    "plan_states": 6_000,   # 다음 아크 기획: 주역 밖 기획 인물(planning_cast)의 지금 상태, 최근에 나온 인물부터
     "cast": 8_000,          # 본문 쓰기: '항상' 넣는 조연 · 단역과 이번 화 조연 · 단역의 설정. '항상' 조연 · 단역이 있을 때만 센다 (fit_cast)
     "travel": 800,          # 쓰기 · 검수의 이동 거리 (mapprompt.travel_block, 지도 크기를 알 때만)
     "spots": 600,           # 쓰기 · 검수: 플롯에 나온 장소가 놓인 건물 한 줄 (mapprompt.spot_block, MapPin.spot)
@@ -112,10 +115,11 @@ def first_sentence(text: str, limit: int = 90) -> str:
 # ---------- 확정 사실 ----------
 
 def names_of(p: Project, ids: Iterable[str]) -> tuple[list[str], list[str]]:
-    """(주역 이름, 그 밖 인물 이름)."""
+    """(주역 이름, 그 밖 인물 이름). 한글 세 글자 이름은 성을 뗀 이름도 넣는다 ('최건우' → '건우', metrics.name_forms).
+    사실 · 아는 정보는 흔히 성을 떼고 적어서, 온 이름만 찾으면 관련된 옛 사실을 놓친다."""
     ids = set(ids)
-    main = [c.name for c in p.characters if c.id in ids and c.tier == "main" and c.name]
-    other = [c.name for c in p.characters if c.id in ids and c.tier != "main" and c.name]
+    main = [x for c in p.characters if c.id in ids and c.tier == "main" for x in metrics.name_forms(c.name)]
+    other = [x for c in p.characters if c.id in ids and c.tier != "main" for x in metrics.name_forms(c.name)]
     return main, other
 
 
