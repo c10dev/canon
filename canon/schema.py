@@ -419,7 +419,7 @@ class EpisodePlot(BaseModel):
     summary: str
     events: list[str] = Field(description="순서대로 일어나는 사건 3~6개")
     characters: list[str] = Field(description="등장 인물 id")
-    emotional_shift: str = Field(description="주요 인물의 감정 변화가 겉으로 드러나는 행동이나 대사 (감정 이름이 아니라 보이는 것)")
+    emotional_shift: str = Field(description="주요 인물의 감정 변화를 '인물: 처음 → 끝 (계기)' 모양 짧은 줄로. 본문 문장으로 쓰지 않는다 (본문에 그대로 옮겨진다)")
     ending_hook: str = Field(description="다음 화로 이어지는 엔딩 훅")
     foreshadow_plant: list[str] = Field(default_factory=list, description="이번 화에 심는 복선")
     foreshadow_payoff: list[str] = Field(default_factory=list, description="이번 화에 회수하는 복선 id")
@@ -1283,9 +1283,9 @@ class BoardScene(BaseModel):
     time: str = Field("", description="장면 시각. 시간대나 '해 뜨기 약 40분 전' 처럼")
     present: list[str] = Field(default_factory=list, description="이 장면에 함께 있는 인물 id")
     events: list[int] = Field(default_factory=list, description="이 장면이 맡는 이번 화 플롯 events 번호 (1부터)")
-    goal: str = Field("", description="장면 목표: 시점 인물이 이 장면에서 얻으려는 것")
-    turn: str = Field("", description="전환점: 장면의 흐름이 바뀌는 일 한 줄")
-    end_state: str = Field("", description="장면 끝 상태: 다음 장면이 이어받는 것 (자리, 물건, 감정, 결정)")
+    goal: str = Field("", description="장면 목표: 시점 인물이 이 장면에서 얻으려는 것. 명사구 30자 안팎, 본문 문장으로 쓰지 않는다")
+    turn: str = Field("", description="전환점: 장면의 흐름이 바뀌는 일. 명사구 40자 안팎, 본문 문장으로 쓰지 않는다")
+    end_state: str = Field("", description="장면 끝 상태: 다음 장면이 이어받는 것 (자리, 물건, 감정, 결정). '건우 운전석 · 공회전 · 연료 1.2L' 처럼 값을 · 로 잇는다")
 
 
 class BoardTime(BaseModel):

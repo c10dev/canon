@@ -80,10 +80,12 @@ def test_board_block_sits_before_plot_and_replaces_time(demo):
     _written(p, 1, "가" * 3000)
     p.timeline.enabled = True
     ctx = prompts.build_episode_context(p, 2)
-    assert "가" * 3000 in ctx and "# 직전 화 본문 (전체" in ctx  # 직전 화 원문 전체
+    assert "가" * 1501 not in ctx and "# 직전 화 마지막 부분" in ctx  # 스토리보드가 없는 화는 직전 화 끝부분만 (자기 글 따라 하기를 줄임)
     assert "# 작품 속 시간" in ctx  # 스토리보드가 없으면 시간 블록 그대로
+    assert "가" * 3000 in prompts.storyboard_prompt(p, 2)  # 스토리보드 만들기는 직전 화 원문 전체
     p.episode(2).storyboard = Storyboard.model_validate(EXAMPLES["10"])
     ctx = prompts.build_episode_context(p, 2)
+    assert "가" * 3000 in ctx and "# 직전 화 본문 (전체" in ctx  # 스토리보드를 넣는 쓰기는 직전 화 원문 전체
     i, j, k = ctx.index("# 직전 화 본문"), ctx.index("# 이번 화 스토리보드"), ctx.index("# 이번 화 플롯")
     assert i < j < k
     assert "# 작품 속 시간" not in ctx  # 스토리보드의 시간 줄이 대신한다
@@ -273,3 +275,18 @@ def test_board_js_parse_fields():
     assert got[0] == ["keeper", "ferry"] and got[1] == [1, 2]
     assert got[2] == [{"kind": "장면", "text": "테이블에서 끝났다"}, {"kind": "", "text": "그냥 한 줄"}]
     assert got[3] == [{"character_id": "keeper", "end": "젖은 외투", "why": "장면 1"}] and got[4] == 0
+
+
+def test_check_gets_protect_and_write_has_one_priority_line(demo):
+    p = store.load(demo)
+    _written(p, 1, "가" * 3000)
+    p.episode(2).storyboard = Storyboard.model_validate(EXAMPLES["10"])
+    p.episode(2).text = "본문"
+    check = prompts.check_prompt(p, 2)
+    assert "# 스토리보드가 정한 다음 화 전제" in check and "은결의 배에서 등유를 옮겨 담지 않는다" in check
+    assert "- 스토리보드 전제:" in check
+    write = prompts.episode_prompt(p, 2)
+    assert "이번 화 플롯과 다른 곳은 스토리보드를 따릅니다" not in write
+    assert "자료가 서로 부딪히면 스토리보드, 이번 화 플롯" in write
+    p.episode(2).storyboard = None
+    assert "# 스토리보드가 정한 다음 화 전제" not in prompts.check_prompt(p, 2)
