@@ -2343,10 +2343,34 @@ class RevCue(BaseModel):
 
 
 class RevPerson(BaseModel):
-    """원문에 이름이 나온 인물 하나. 이름이 곧 id 다."""
+    """원문에 이름이 나온 인물 하나. 이름이 곧 id 다. 되돌려 쓰기 사본의 인물 설정이 된다 (revlab.world)."""
     name: str = Field(description="원문에 쓴 이름 그대로")
     role: str = Field(description="이 글에서 맡은 몫 한 줄 (주인공, 조연, 적대자 등)")
-    speech: str = Field(description="원문 대사에서 보이는 말투 한 줄 (어미, 호칭, 자주 쓰는 표현). 대사가 없으면 빈 글")
+    personality: str = Field(description="원문에서 행동과 대사로 드러난 성격 한두 문장. 드러나지 않았으면 빈 글")
+    speech: str = Field(description="원문 대사에서 보이는 말투: 어미, 말 길이, 말버릇, 자주 쓰는 짧은 표현 두세 개. 대사를 통째로 옮기지 않는다. 대사가 없으면 빈 글")
+
+
+class RevCastSaved(RevPerson):
+    """실험 파일의 인물 (RevLab.cast). 응답 형식과 칸이 같지만 저장 형식이라 기본값을 둔다 (옛 파일이 읽히게)."""
+    role: str = ""
+    personality: str = ""
+    speech: str = ""
+
+
+class RevAddress(BaseModel):
+    """한 인물이 다른 인물을 부르는 말과 말씨 (AddressForm 으로 저장). 방향이 있다."""
+    speaker: str = Field(description="말하는 인물 이름")
+    listener: str = Field(description="듣는 인물 이름")
+    calls: str = Field(description="speaker 가 listener 를 부르는 말 (예: 마츠다 군, 선배). 원문에 없으면 빈 글")
+    speech: str = Field(description="speaker 가 listener 에게 쓰는 말씨 (하십시오체 · 해요체 · 해체(반말) 등)")
+
+
+class RevTie(BaseModel):
+    """두 인물의 관계 한 줄 (Relationship 으로 저장)."""
+    a: str = Field(description="인물 이름")
+    b: str = Field(description="인물 이름")
+    type: str = Field(description="관계 종류 (친구, 선후배, 가족, 연인, 라이벌 등)")
+    description: str = Field(description="원문에 드러난 두 사람 사이 한두 문장: 지난 일, 감정, 거리감")
 
 
 class RevScene(BaseModel):
@@ -2386,6 +2410,10 @@ class RevEpisodeDraft(BaseModel):
     opening: str = Field(description="이 화를 여는 첫 장면 한 줄")
     time: str = Field(description="이 화가 시작하는 작품 속 시점 (직전 화에서 얼마나 지났는지나 시간대). 원문에서 알 수 없으면 빈 글")
     threads: list[str] = Field(description="이 화가 따라가는 이야기 줄기 이름 1~3개 (예: 등대 실종 사건, 두 사람의 관계)")
+    setting: str = Field(description="원문에 드러난 세계 · 배경 한두 문장 (시대, 장소, 학교 · 조직, 생활 형편)")
+    facts: list[str] = Field(description="원문에 드러난, 이 화 전에 이미 있었던 일과 세계 사실 0~8개. 이 화에서 처음 일어난 일은 넣지 않는다")
+    ties: list[RevTie] = Field(description="이 화에 함께 나오는 인물 사이 관계")
+    addresses: list[RevAddress] = Field(description="원문 대사에 드러난 호칭 · 말씨. 한 방향에 하나")
     scenes: list[RevScene] = Field(description="장면 순서. 장소나 시간이 바뀌는 곳에서 나눈다")
     board_time: RevTime = Field(description="이 화의 시간")
     handover: list[RevHandover] = Field(description="직전 화 끝에서 이어받은 것. 첫 화거나 없으면 빈 목록")
@@ -2421,8 +2449,9 @@ class RevBound(BaseModel):
 
 
 class RevTake(BaseModel):
-    """역설계한 재료(플롯 · 스토리보드 · 큐 시트)로 같은 화를 다시 쓴 본문 (되돌려 쓰기)."""
+    """역설계한 재료(플롯 · 스토리보드 · 큐 시트 · 인물 · 관계 · 배경)로 같은 화를 다시 쓴 본문 (되돌려 쓰기)."""
     text: str = ""
+    style: bool = Field(False, description="역설계한 문체 프로필(RevLab.style)을 넣고 썼는지")
     prompt_chars: int = 0
     sheet_basis: str = Field("", description="쓸 때 큐 시트의 지문 (cue.basis). 지금 시트와 다르면 낡은 본문")
     model: str = ""
@@ -2440,9 +2469,15 @@ class RevEpisode(BaseModel):
     bounds: list[RevBound] = Field(default_factory=list, description="큐마다 원문 자리. 큐 수와 같아야 쓴다")
     dropped: list[str] = Field(default_factory=list, description="원문에 없어 뺀 핵심 대사")
     threads: list[str] = Field(default_factory=list)
+    setting: str = ""
+    facts: list[str] = Field(default_factory=list, description="이 화 원문에 드러난 앞 이야기 · 세계 사실")
+    ties: list[Relationship] = Field(default_factory=list, description="이 화에서 읽은 관계 (a · b 는 이름)")
+    addresses: list[AddressForm] = Field(default_factory=list, description="이 화에서 읽은 호칭 · 말씨 (speaker · listener 는 이름)")
     model: str = ""
     made_at: str = ""
-    take: Optional[RevTake] = None
+    take: Optional[RevTake] = Field(None, description="문체 프로필 없이 되돌려 쓴 본문 (마지막 것)")
+    take_style: Optional[RevTake] = Field(None, description="문체 프로필을 넣고 되돌려 쓴 본문 (마지막 것)")
+    blind_take: Literal["", "plain", "style"] = Field("", description="블라인드 비교에 넣은 본문 (take · take_style). 빈 값은 예전 파일이라 plain")
     blind: list[str] = Field(default_factory=list, description="블라인드 비교 차례 (original · rewrite). 고르기 전에는 화면에 알리지 않는다")
     picked: str = Field("", description="블라인드 비교에서 고른 것 (original · rewrite), 건너뛰면 skip")
 
@@ -2455,10 +2490,13 @@ class RevLab(BaseModel):
     split: str = Field("one", description="화를 나눈 규칙 (revlab.SPLITS)")
     preface: str = Field("", description="첫 화 제목 줄 앞의 짧은 글 (작품 제목 · 작가 줄). 역설계하지 않는다")
     episodes: list[RevEpisode] = Field(default_factory=list)
-    cast: list[RevPerson] = Field(default_factory=list)
+    cast: list[RevCastSaved] = Field(default_factory=list)
     main: str = ""
     lines: list[Storyline] = Field(default_factory=list)
     lines_at: str = ""
+    style: Optional[StyleProfile] = Field(None, description="원문 전체로 역설계한 문체 프로필. 예시 문단(sample_passages)은 비운다 (되돌려 쓰기가 베끼지 않게)")
+    style_model: str = ""
+    style_at: str = ""
 
 Snapshot.model_rebuild()
 SerialRebuild.model_rebuild()
