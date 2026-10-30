@@ -1724,6 +1724,7 @@ async function routeNow() {
       if (parts[2] === 'check') await checkLoad(n || currentEp());
       if (parts[2] === 'research') await rsLoad();
       if (parts[2] === 'cue') await cueLoad(parts[3]);
+      if (parts[2] === 'rev') await revLoad(parts[3], parts[4]);
       if (parts[2] === 'usage') await usageLoad(S.name);
       if (parts[2] === 'convert') await convertLoad();
       if (parts[2] === 'cast') await castLoad(parts[3]);
@@ -1898,7 +1899,7 @@ function drawApp() {
     return;
   }
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, stage: viewStage, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches, cue: viewCue };
+  const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, stage: viewStage, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches, cue: viewCue, rev: viewRev };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page === 'convert' ? 'home' : page || 'home')}<main class="main">${branchStrip(page)}${failStrip(page, n)}${draftStrip(page, n)}${body}</main></div>`;
   syncPending();
@@ -2020,7 +2021,7 @@ function navItems() {
     steps,
     auto: ['auto', base() + '/auto', '🤖', autoMenuLabel()],
     tools,
-    apart: [['research', base() + '/research', '🔬', '연구 · 모델 실험'], ['cue', base() + '/cue', '🎼', '큐 시트 집필 실험'], ['usage', base() + '/usage', '💰', '사용량 · 비용']],
+    apart: [['research', base() + '/research', '🔬', '연구 · 모델 실험'], ['cue', base() + '/cue', '🎼', '큐 시트 집필 실험'], ['rev', base() + '/rev', '🔁', '역설계 실험'], ['usage', base() + '/usage', '💰', '사용량 · 비용']],
     foot: [['#/settings', '설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/', '작품 목록']],
   };
 }
