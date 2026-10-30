@@ -1512,7 +1512,27 @@ def accept_rework(p: Project, n: int, text: str, proposed: str = "") -> TextEdit
 # ---------- 3-1. 대화로 구조와 플롯 다듬기 ----------
 
 LOCKED = ("written", "finalized")  # 본문이 있어 플롯을 바꿀 수 없는 상태
+LOCKED_FREE = ("storyline", "threads")  # 본문이 있는 화도 바꿀 수 있는 플롯 칸 (줄기 표시, static/lines.js)
 CHAT_KEEP = 200  # 화면별로 남겨 두는 대화 수
+
+
+def keep_locked_plots(before: Project, p: Project) -> list[int]:
+    """화면이 보낸 작품 전체를 저장할 때(web.put_project) 본문이 있는 화(before 에서 LOCKED)의 플롯은 before 것으로 둔다.
+    화면도 막지만, 옛 화면 · 다른 클라이언트가 보낸 값이 본문과 어긋난 플롯을 남기지 않게 서버에서도 막는다.
+    줄기 표시(LOCKED_FREE)와 지운 인물을 등장 인물에서 빼는 것은 받는다. before 것으로 되돌린 화 번호를 돌려준다."""
+    old = {e.plot.number: e.plot for e in before.episodes if e.status in LOCKED}
+    gone = {c.id for c in before.characters} - {c.id for c in p.characters}
+    back: list[int] = []
+    for e in p.episodes:
+        d = old.get(e.plot.number)
+        if d is None:
+            continue
+        keep = d.model_copy(deep=True, update={k: getattr(e.plot, k) for k in LOCKED_FREE})
+        keep.characters = [c for c in keep.characters if c not in gone]
+        if keep != e.plot:
+            e.plot = keep
+            back.append(e.plot.number)
+    return back
 
 
 def revise_plot(llm: LLM, p: Project, message: str, scope: ChatScope | None = None) -> PlotRevision:
