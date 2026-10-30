@@ -714,7 +714,7 @@ function castSheet() {
   return `${castSheetHead(c, f, at)}
     <div class="csh-cols">
       <div class="csh-col">${castSheetState(c, f)}${castSheetStats(c, f)}${castTimeline(c)}</div>
-      <div class="csh-col">${castSheetEdit(c)}${castSheetRels(c, f)}${castSheetSecrets(c, f)}${castSheetSettings(c, f, at)}${scLogCard(c)}</div>
+      <div class="csh-col">${castSheetEdit(c)}${castSheetRels(c, f)}${castSheetSecrets(c, f)}${castSheetSettings(c, f, at)}${scLogCard(c)}${addressHeldCard(c)}</div>
     </div>`;
 }
 
@@ -803,6 +803,7 @@ function castPairDetail(a, b) {
     <div class="cast-kv"><span>${esc(names[0])}</span><div>${tieText(tieOf(f, a, b))}</div></div>
     <div class="cast-kv"><span>${esc(names[1])}</span><div>${tieText(tieOf(f, b, a))}</div></div>
     ${tieFixForm(a, b, names)}
+    ${addressCard(a, b)}
     ${multi ? `<h3>온기</h3>${legend}${castChart(two((t) => t.warmth), -1, 1, { grid: [-1, 0, 1], notes, label: '온기 추이' })}
     <h3>신뢰</h3>${castChart(two((t) => t.trust), 0, 1, { grid: [0, 0.5, 1], notes, label: '신뢰 추이' })}
     <h3>긴장 <span class="small" style="font-weight:400">0~10, 3 · 5 · 7에서 보통 · 높음 · 매우 높음</span></h3>${castChart([{ label: '긴장', color: 'var(--text-2)', values: tension }], 0, 10, { grid: [0, 3, 5, 7, 10], fmt: (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1)), notes, label: '긴장 추이', h: 110 })}

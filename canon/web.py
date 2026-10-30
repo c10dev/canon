@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import agent, archetypes, autorun, board, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
+from . import address, agent, archetypes, autorun, board, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
@@ -736,6 +736,7 @@ def put_project(name: str, p: Project, response: Response, merged: str = "", for
     _keep_spots(disk, p)
     # 설정 변경 기록과 남겨 둔 제안은 화면이 직접 고치지 않는다. 디스크 것에 이번 저장이 고친 인물 설정만 작가 기록으로 더한다
     p.setting_log, p.setting_held = disk.setting_log, disk.setting_held
+    p.address_forms, p.address_log, p.address_held = disk.address_forms, disk.address_log, disk.address_held  # 호칭 · 말씨는 /address 라우트만 고친다
     p.agent_sessions = disk.agent_sessions  # 대화 세션은 대화 라우트와 에이전트 작업만 고친다 (화면의 옛 사본이 덮지 않게)
     charlog.record_author(disk, p)
     archetypes.prune(p)
@@ -3167,6 +3168,40 @@ def drop_held_setting(name: str, i: int) -> Project:
     p = _load(name)
     _not_auto(name)
     charlog.drop_held(p, i)
+    return _save(name, p)
+
+
+class AddressIn(BaseModel):
+    speaker: str
+    listener: str
+    calls: str = ""
+    speech: str = ""
+
+
+@app.put("/api/projects/{name}/address")
+def set_address(name: str, body: AddressIn) -> Project:
+    """한 방향의 부르는 말 · 말씨를 정한다 (두 칸이 모두 비면 지운다). 1화 반영 뒤에는 작가 기록으로 남는다 (address.set_form)."""
+    p = _load(name)
+    _not_auto(name)
+    address.set_form(p, body.speaker, body.listener, body.calls, body.speech)
+    return _save(name, p)
+
+
+@app.post("/api/projects/{name}/address-held/{i}")
+def take_held_address(name: str, i: int) -> Project:
+    """자동 집필이 남겨 둔 호칭 · 말씨 바뀜 제안 하나를 적용한다. 그 화의 기록으로 남는다."""
+    p = _load(name)
+    _not_auto(name)
+    address.take_held(p, i)
+    return _save(name, p)
+
+
+@app.delete("/api/projects/{name}/address-held/{i}")
+def drop_held_address(name: str, i: int) -> Project:
+    """남겨 둔 호칭 · 말씨 바뀜 제안 하나를 버린다."""
+    p = _load(name)
+    _not_auto(name)
+    address.drop_held(p, i)
     return _save(name, p)
 
 
