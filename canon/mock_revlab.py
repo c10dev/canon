@@ -5,7 +5,7 @@ import re
 from collections import Counter
 
 from .mock import responds
-from .schema import RevCue, RevEpisodeDraft, RevHandover, RevLine, RevLineSet, RevPerson, RevQuote, RevScene, RevTime
+from .schema import RevAddress, RevCue, RevEpisodeDraft, RevHandover, RevLine, RevLineSet, RevPerson, RevQuote, RevScene, RevTie, RevTime
 
 FAKE_LINE = "원문에 없는 가짜 대사"  # 원문 확인(revlab.keep_lines)이 빼는지 보는 대사
 
@@ -47,7 +47,13 @@ def _episode(prompt: str, hint: dict) -> RevEpisodeDraft:
                          events=[s], goal=f"장면 {s}의 목표", turn=f"장면 {s}의 전환", end_state=f"장면 {s}이 끝난 자리") for s in (1, 2)]
     return RevEpisodeDraft(
         title="", summary=f"{n}화에서 {names[0]}이 움직인다.", events=["첫 사건", "둘째 사건", "셋째 사건"],
-        cast=[RevPerson(name=x, role="주인공" if j == 0 else "조연", speech="짧게 끊는 말투" if j == 0 else "") for j, x in enumerate(names)],
+        cast=[RevPerson(name=x, role="주인공" if j == 0 else "조연", personality="말보다 손이 먼저 나간다" if j == 0 else "",
+                        speech="짧게 끊는 말투" if j == 0 else "") for j, x in enumerate(names)],
+        setting="바닷가 마을의 등대", facts=[f"{n}화 전에 등대지기가 사라졌다", " "],
+        ties=[RevTie(a=names[0], b=x, type="동료", description="오래 함께 등대를 지켰다") for x in names[1:2]]
+        + [RevTie(a=names[0], b="모르는 사람", type="?", description="실험 인물 밖은 뺀다")],
+        addresses=[RevAddress(speaker=names[0], listener=x, calls=x, speech="해체(반말)") for x in names[1:2]]
+        + [RevAddress(speaker=names[0], listener=names[0], calls="나", speech="")],
         emotional_shift="손을 멈춘다", ending_hook="문이 열린다", opening=paras[0][:30] if paras else "", time="",
         threads=["등대 사건"] + (["두 사람의 관계"] if n % 2 == 0 else []), scenes=scenes,
         board_time=RevTime(after=0, part="새벽", days=1, end_part="아침"),

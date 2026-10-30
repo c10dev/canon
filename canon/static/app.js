@@ -200,8 +200,8 @@ function jobFor(kind, ep = null, name = S.name) {
 }
 
 // 작업이 도는 동안 버튼은 진행 상황을 보여 주고 눌리지 않게 한다
-function jobBtn(kind, ep, idle) {
-  const j = jobFor(kind, ep);
+function jobBtn(kind, ep, idle, name = S.name) {
+  const j = jobFor(kind, ep, name);
   if (!j && S.starting.has(`${kind}:${ep ?? ''}`)) return { label: `${idle} · 시작하는 중…`, attr: ' aria-disabled="true" aria-busy="true"' };
   if (!j) return { label: idle, attr: '' };
   // disabled 는 포커스를 잃게 해서 키보드 사용자가 문서 처음으로 돌아간다. aria-disabled 로 막고 포커스는 남긴다
@@ -339,11 +339,12 @@ async function pollJobs(soon = false) {
   for (const j of S.jobs) {
     const old = before.get(j.id);
     const progressed = !old || old.done !== j.done || old.status !== j.status;
-    if (progressed && j.project !== S.name && old && old.status === 'running' && j.status !== 'running') {
+    const mine = j.project === S.name || j.project === REV_JOBS;  // 역설계 실험 작업은 작품 밖이라 어느 화면에서든 제 알림을 낸다 (revlab.js)
+    if (progressed && !mine && old && old.status === 'running' && j.status !== 'running') {
       // 다른 작품을 보는 동안 끝났다. 결과는 그 작품을 열면 다시 놓인다 (pending.json)
       toast(j.status === 'error' ? `${j.project} · ${j.label} 실패: ${j.error}` : `${j.project} · ${j.label}${josa(j.label, '이', '가')} 끝났어요. 그 작품을 열면 결과가 보여요`, j.status === 'error');
     }
-    if (!progressed || j.project !== S.name) continue;
+    if (!progressed || !mine) continue;
     if (j.kind === 'agent' && typeof agentJobUpdate === 'function') await agentJobUpdate(j, old);  // 대화 에이전트 턴 (agent.js)
     if (j.kind === 'plots') {
       // 이번에 끝난 구간(지난번에 아직 만들던 화)과 새로 생긴 화만 받아 온다. 먼저 끝난 구간에서 고치던 초안은 그대로 둔다
@@ -371,7 +372,7 @@ async function pollJobs(soon = false) {
     }
     if (j.status !== 'running' && !(old && old.status !== 'running')) await finishJob(j);
     // 설정 · 사용량 · 문체 라이브러리처럼 작품 밖 화면은 S.name 이 남아 있어도 다시 그리지 않는다
-    if (S.route[0] === 'p' && (JOB_PAGES[j.kind] || []).includes(S.route[2] || 'home')) {
+    if ((S.route[0] === 'p' && (JOB_PAGES[j.kind] || []).includes(S.route[2] || 'home')) || (S.route[0] === 'revlab' && j.project === REV_JOBS)) {
       redraw = true;
       if (j.status === 'done') resultFocus = RESULT_FOCUS[j.kind] || '#app .proposal button, #app .proposal input';
     }
@@ -590,7 +591,8 @@ function retryJob(id) {
   const a = S.jobArgs[id];
   S.jobsSeen.add(id);
   S.jobs = S.jobs.filter((j) => j.id !== id);
-  if (a) startJob(a.kind, a.ep, a.extra);
+  if (a && a.retry) a.retry();  // 작품 밖 작업(역설계 실험 revlab.js)은 저마다 다시 시작한다
+  else if (a) startJob(a.kind, a.ep, a.extra);
   renderJobs();
 }
 
@@ -1645,6 +1647,10 @@ async function routeNow() {
   if (here !== lastRoute) S.focusTarget = '#app main h1';
   lastRoute = here;
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
+  if (parts[0] === 'p' && parts[2] === 'rev') {  // 역설계 실험은 작품 밖 화면으로 옮겼다. 예전 주소(#/p/<작품>/rev/…)는 새 주소로
+    location.replace(`#/revlab${parts.slice(3).map((x) => `/${encodeURIComponent(x)}`).join('')}`);
+    return;
+  }
   S.route = parts;
   S.context = null;
   S.promptText = null;
@@ -1663,6 +1669,10 @@ async function routeNow() {
       S.name = null;
       S.project = null;
       await usageLoad(parts[1] || '');
+    } else if (parts[0] === 'revlab') {
+      S.name = null;
+      S.project = null;
+      await revLoad(parts[1], parts[2]);
     } else if (parts[0] === 'styles') {
       S.name = null;
       S.project = null;
@@ -1724,7 +1734,6 @@ async function routeNow() {
       if (parts[2] === 'check') await checkLoad(n || currentEp());
       if (parts[2] === 'research') await rsLoad();
       if (parts[2] === 'cue') await cueLoad(parts[3]);
-      if (parts[2] === 'rev') await revLoad(parts[3], parts[4]);
       if (parts[2] === 'usage') await usageLoad(S.name);
       if (parts[2] === 'convert') await convertLoad();
       if (parts[2] === 'cast') await castLoad(parts[3]);
@@ -1876,6 +1885,10 @@ function drawApp() {
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1180px;margin:0 auto">${hubTop()}${viewUsage()}</main></div>`;
     return;
   }
+  if (p === 'revlab') {
+    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1280px;margin:0 auto">${hubTop()}${viewRev()}</main></div>`;
+    return;
+  }
   if (p === 'styles') {
     const body = S.route[1] && S.lib ? viewLibEntry() : viewLibrary();
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1180px;margin:0 auto">${hubTop()}${body}</main></div>`;
@@ -1897,7 +1910,7 @@ function drawApp() {
     return;
   }
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, stage: viewStage, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches, cue: viewCue, rev: viewRev };
+  const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, stage: viewStage, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches, cue: viewCue };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${branchStrip(page)}${failStrip(page, n)}${draftStrip(page, n)}${body}</main></div>`;
   syncPending();
@@ -2002,8 +2015,8 @@ function navItems() {
     steps,
     auto: ['auto', base() + '/auto', '🤖', autoMenuLabel()],
     tools,
-    apart: [['research', base() + '/research', '🔬', '연구 · 모델 실험'], ['cue', base() + '/cue', '🎼', '큐 시트 집필 실험'], ['rev', base() + '/rev', '🔁', '역설계 실험'], ['usage', base() + '/usage', '💰', '사용량 · 비용']],
-    foot: [['#/settings', '설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/', '작품 목록']],
+    apart: [['research', base() + '/research', '🔬', '연구 · 모델 실험'], ['cue', base() + '/cue', '🎼', '큐 시트 집필 실험'], ['revlab', '#/revlab', '🔁', '역설계 실험'], ['usage', base() + '/usage', '💰', '사용량 · 비용']],
+    foot: [['#/settings', '설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/revlab', '역설계 실험'], ['#/', '작품 목록']],
   };
 }
 
