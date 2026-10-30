@@ -360,6 +360,28 @@ function homeForeshadows(p) {
     .sort((a, b) => a.planted_ep - b.planted_ep || (a.id < b.id ? -1 : 1));
 }
 
+/** 본문이 없는 첫 화에 나오는 인물(플롯 인물 + 주역 · '항상', '넣지 않음' 빼고) 가운데 말투(speech_style)가 빈 인물. 없으면 null.
+ * 말투가 비면 쓰기 프롬프트에 기준이 없어 AI 기본 말투로 흐른다 (2026-10-30 인물 진단) */
+function homeSpeechGaps(p) {
+  const e = p.episodes.filter((x) => !x.text).sort((a, b) => a.plot.number - b.plot.number)[0];
+  if (!e) return null;
+  const ids = new Set(e.plot.characters || []);
+  const cast = p.characters.filter((c) => c.context !== 'off'
+    && (ids.has(c.id) || c.context === 'always' || c.tier === 'main'));
+  const gaps = cast.filter((c) => !(c.speech_style || '').trim());
+  return gaps.length ? { n: e.plot.number, chars: gaps } : null;
+}
+
+/** 본문이 없는 첫 화의 시점 인물이 서술 말투(narration_voice)가 비었으면 { n, c }, 아니면 null.
+ * povOf(n) 는 그 화의 시점 인물 (화면은 plot.js povChar: 화 → 구간 · 아크 → 작품 기본, 없으면 화에 정한 인물만).
+ * 서술 말투가 비면 시점 인물이 바뀌어도 지문이 같은 목소리로 흐른다 (prompts.voice_line 이 넣을 것이 없다) */
+function homeVoiceGap(p, povOf) {
+  const e = p.episodes.filter((x) => !x.text).sort((a, b) => a.plot.number - b.plot.number)[0];
+  if (!e) return null;
+  const c = povOf ? povOf(e.plot.number) : p.characters.find((x) => x.id === e.plot.pov);
+  return c && c.context !== 'off' && !(c.narration_voice || '').trim() ? { n: e.plot.number, c } : null;
+}
+
 /** 끝났는데 요약이 없는 아크 · 부 (부 · 아크 화면 경고 줄, pipeline.pending_recaps 와 같은 규칙). 요약이 없으면 줄거리가 접히지 않는다 */
 function homeRecaps(p) {
   if (p.meta.form !== 'serial') return { arcs: [], parts: [] };
@@ -373,7 +395,7 @@ function homeRecaps(p) {
 
 /** 확인할 것: 반영 때 검수 경고, 요약 없는 아크 · 부, 다가오거나 지난 기한, 회수 예정이 지난 복선.
     [{ tag, kind: 'warn' | 'info', label, sub, href, link }] 순서대로. home 은 작품 주소(base()) */
-function homeTodos(p, home) {
+function homeTodos(p, home, povOf = null) {
   const out = [];
   const last = p.history.length ? p.history[p.history.length - 1] : null;
   const warns = last ? last.warnings || [] : [];
@@ -400,6 +422,13 @@ function homeTodos(p, home) {
         href: `${home}/timeline`, link: '작품 속 시간' });
     }
   }
+  const voice = homeVoiceGap(p, povOf);
+  if (voice) out.push({ tag: '인물', kind: 'info', label: `${voice.n}화 시점 인물 ${voice.c.name || voice.c.id}의 서술 말투가 비었어요`,
+    sub: '시점 인물마다 지문 말투를 정해 두면 시점이 바뀔 때 목소리가 갈려요', href: `${home}/cast/${voice.c.id}`, link: '인물 카드' });
+  const gap = homeSpeechGaps(p);
+  if (gap) out.push({ tag: '인물', kind: 'info', label: `${gap.n}화 인물 ${gap.chars.length}명의 말투가 비었어요`,
+    sub: `${gap.chars.map((c) => c.name || c.id).join(', ')} · 비워 두면 AI가 기본 말투로 써요`,
+    href: `${home}/cast/${gap.chars[0].id}`, link: '인물 카드' });
   const late = homeForeshadows(p).filter((f) => f.overdue);
   if (late.length) out.push({ tag: '복선', kind: 'info', label: `회수 예정이 지난 복선 ${late.length}개`,
     sub: `${late[0].planted_ep}화 「${late[0].description}」 · ${late[0].due_ep}화에 회수 예정이었어요`, href: `${home}/foreshadow`, link: '복선 센터' });
@@ -443,7 +472,7 @@ function homeNowCard(nextLabel, nextHref) {
 }
 
 function homeTodoCard() {
-  const items = homeTodos(P(), base());
+  const items = homeTodos(P(), base(), typeof povChar === 'function' ? (n) => povChar(n).c : null);
   return `<section class="card home-todo" aria-labelledby="home-todo-h"><div class="between"><h2 id="home-todo-h">확인할 것</h2><span class="small">${items.length ? `${items.length}개` : ''}</span></div>
     ${items.length ? `<ul>${items.map((x) => `<li><span class="home-tag ${x.kind}">${x.tag}</span><div><strong>${esc(x.label)}</strong><div class="small">${esc(x.sub)}</div></div><a class="btn small" href="${x.href}">${esc(x.link)}</a></li>`).join('')}</ul>`
     : '<p class="small">확인할 것이 없어요. 반영 때 검수 경고, 요약 없는 아크, 다가오는 기한, 회수 예정이 지난 복선이 여기 모여요.</p>'}</section>`;

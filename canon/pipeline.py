@@ -6,7 +6,7 @@ import re
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
 from .llm import LLM, dump
-from . import board, cancel, charlog, features, findings, foreshadows, stage, statwin, timeline
+from . import board, cancel, charlog, context, features, findings, foreshadows, knows, stage, statwin, timeline
 from .schema import CueSheet, CueSheetDraft, Finding, FindingRecheck, FixOption, FixPatch, FixSet
 from .schema import (
     Act,
@@ -18,6 +18,7 @@ from .schema import (
     Character,
     CharacterState,
     CharacterVisual,
+    KnowsFoldSet,
     ChatMessage,
     ChatScope,
     CheckRound,
@@ -734,8 +735,8 @@ def plots_text(plots: list[EpisodePlot]) -> str:
     return "\n".join(elements.plot_text(Episode(plot=x)) for x in plots)
 
 
-# ---------- 3'. 플롯이 데려온 새 인물 ----------
-# AI 플롯 초안과 플롯 대화가 낸 새 인물은 바로 인물 설정에 넣지 않고 후보(Project.cast_candidates)로 둔다.
+# ---------- 3'. 플롯 · 아크가 데려온 새 인물 ----------
+# AI 플롯 초안, 플롯 대화, 다음 아크 기획(apply_arc)이 낸 새 인물은 바로 인물 설정에 넣지 않고 후보(Project.cast_candidates)로 둔다.
 # 작가가 플롯 편집기에서 등록하거나, 그 인물이 나오는 화를 확정하면 조연 · 단역으로 등록된다.
 
 def clean_new_characters(p: Project, chars: list[Character], plots: list[EpisodePlot]) -> list[Character]:
@@ -758,9 +759,10 @@ def add_candidates(p: Project, chars: list[Character]) -> None:
 
 
 def sync_candidates(p: Project) -> None:
-    """등록됐거나 이제 어느 화 플롯에도 나오지 않는 인물 · 장소 후보는 지운다."""
+    """등록됐거나 이제 어느 화 플롯에도, 어느 아크의 주요 인물(StoryArc.cast)에도 나오지 않는 인물 후보와 쓰이지 않는 장소 후보는 지운다.
+    아크 주요 인물을 함께 보는 까닭: 아크를 적용한 직후에는 그 아크의 화 플롯이 아직 없다."""
     known = {c.id for c in p.characters}
-    used = {c for e in p.episodes for c in e.plot.characters}
+    used = {c for e in p.episodes for c in e.plot.characters} | {c for a in p.story_arcs for c in a.cast}
     p.cast_candidates = [c for c in p.cast_candidates if c.id not in known and c.id in used]
     elements.sync_place_candidates(p)
 
@@ -774,7 +776,8 @@ def register_candidates(p: Project, ids: list[str] | None = None, episode: int |
     want = set(ids if ids is not None else [c.id for c in p.cast_candidates])
     done = []
     for c in [c for c in p.cast_candidates if c.id in want]:
-        first = min((e.plot.number for e in p.episodes if c.id in e.plot.characters), default=0)
+        arc_first = min((a.start_ep for a in p.story_arcs if c.id in a.cast), default=0)  # 아직 플롯에 없으면 그 인물을 둔 아크의 첫 화
+        first = min((e.plot.number for e in p.episodes if c.id in e.plot.characters), default=arc_first)
         _add_characters(p, [c], first)
         done.append(c.id)
     sync_candidates(p)
@@ -899,8 +902,9 @@ def clean_arc(p: Project, prop: ArcProposal) -> ArcProposal:
         prop.reply = (prop.reply.rstrip() + f"\n\n※ {'부' if part else '작품'} 끝까지 {ARC_MIN}화가 안 남아 아크를 {limit}화까지 늘렸어요.").strip()
     known = {c.id for c in p.characters}
     prop.new_characters = [c for c in prop.new_characters if c.id not in known]
-    ids = known | {c.id for c in prop.new_characters}
+    ids = known | {c.id for c in prop.new_characters} | {c.id for c in p.cast_candidates}
     a.cast = [c for c in a.cast if c in ids]
+    a.cast += [c.id for c in prop.new_characters if c.id not in a.cast]  # 이 아크를 위해 만든 인물이다 (후보로 남는 근거)
     open_fs = {f.id for f in p.foreshadows if f.status == "open"}
     a.payoffs = [f for f in a.payoffs if f in open_fs]
     return prop
@@ -921,7 +925,8 @@ def _add_characters(p: Project, chars: list[Character], first_ep: int) -> None:
 
 
 def apply_arc(p: Project, prop: ArcProposal) -> StoryArc:
-    """제안된 다음 아크를 붙인다. 새 인물과 복선 회수 예정 화도 함께 반영한다."""
+    """제안된 다음 아크를 붙인다. 복선 회수 예정 화도 함께 바꾼다. 새 인물은 인물 설정에 넣지 않고 후보로 둔다
+    (플롯이 데려온 인물과 같은 길: 그 인물이 나오는 화를 확정하거나 작가가 등록하면 조연 · 단역으로 들어온다)."""
     prop = clean_arc(p, prop.model_copy(deep=True))
     a = prop.arc
     p.story_arcs.append(a)
@@ -930,9 +935,9 @@ def apply_arc(p: Project, prop: ArcProposal) -> StoryArc:
     except ValueError:
         p.story_arcs.pop()
         raise
-    known = {c.id for c in p.characters}
-    _add_characters(p, prop.new_characters, a.start_ep)
-    undo = ArcUndo(number=a.number, characters=[c.id for c in p.characters if c.id not in known])
+    add_candidates(p, [c.model_copy(update={"tier": "support" if c.tier == "main" else c.tier, "first_ep": 0})
+                       for c in prop.new_characters])
+    undo = ArcUndo(number=a.number)  # characters 는 예전 작품(아크가 인물을 바로 더하던 때)의 되돌리기에만 남는다
     for f in p.foreshadows:
         if f.id in a.payoffs and f.status == "open":
             undo.foreshadows.append(f.id)
@@ -965,6 +970,7 @@ def remove_last_arc(p: Project) -> StoryArc:
             if f.id in due and f.due_ep == a.end_ep:
                 f.due_ep = due[f.id]
         p.arc_undo = [u for u in p.arc_undo if u is not undo]
+    sync_candidates(p)  # 이 아크만 쓰던 인물 후보를 지운다
     return a
 
 
@@ -993,6 +999,15 @@ def _recap_target(p: Project, kind: str, number: int):
     if hit is None:
         raise ValueError(f"{'아크' if kind == 'arc' else '부'} {number}이(가) 없어요")
     return hit
+
+
+def fold_knows(llm: LLM, p: Project, number: int) -> KnowsFoldSet:
+    """아크 number 요약 뒤 인물마다 오래된 아는 정보를 몇 줄로 접는 제안 (knows.targets 인물만). 저장하지 않는다 (knows.apply_fold)."""
+    want = knows.targets(p, number)
+    if not want:
+        raise ValueError(f"아크 {number}까지 접을 만큼 아는 정보가 쌓인 인물이 없어요 (인물마다 {context.KNOWS_KEEP}개가 넘어야 접어요)")
+    fs = llm.json(prompts.SYSTEM_EDITOR, prompts.fold_prompt(p, number, want), KnowsFoldSet, hint={"arc": number, "ids": list(want)})
+    return knows.clean_fold(p, number, fs)
 
 
 def pending_recaps(p: Project) -> list[tuple[str, int]]:
@@ -1517,7 +1532,27 @@ def accept_rework(p: Project, n: int, text: str, proposed: str = "") -> TextEdit
 # ---------- 3-1. 대화로 구조와 플롯 다듬기 ----------
 
 LOCKED = ("written", "finalized")  # 본문이 있어 플롯을 바꿀 수 없는 상태
+LOCKED_FREE = ("storyline", "threads")  # 본문이 있는 화도 바꿀 수 있는 플롯 칸 (줄기 표시, static/lines.js)
 CHAT_KEEP = 200  # 화면별로 남겨 두는 대화 수
+
+
+def keep_locked_plots(before: Project, p: Project) -> list[int]:
+    """화면이 보낸 작품 전체를 저장할 때(web.put_project) 본문이 있는 화(before 에서 LOCKED)의 플롯은 before 것으로 둔다.
+    화면도 막지만, 옛 화면 · 다른 클라이언트가 보낸 값이 본문과 어긋난 플롯을 남기지 않게 서버에서도 막는다.
+    줄기 표시(LOCKED_FREE)와 지운 인물을 등장 인물에서 빼는 것은 받는다. before 것으로 되돌린 화 번호를 돌려준다."""
+    old = {e.plot.number: e.plot for e in before.episodes if e.status in LOCKED}
+    gone = {c.id for c in before.characters} - {c.id for c in p.characters}
+    back: list[int] = []
+    for e in p.episodes:
+        d = old.get(e.plot.number)
+        if d is None:
+            continue
+        keep = d.model_copy(deep=True, update={k: getattr(e.plot, k) for k in LOCKED_FREE})
+        keep.characters = [c for c in keep.characters if c not in gone]
+        if keep != e.plot:
+            e.plot = keep
+            back.append(e.plot.number)
+    return back
 
 
 def revise_plot(llm: LLM, p: Project, message: str, scope: ChatScope | None = None) -> PlotRevision:

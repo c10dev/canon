@@ -305,15 +305,18 @@ function payoffPicker(label, path, locked) {
   return `<fieldset class="field"><legend class="label">${label}</legend>${rows.length ? `<div class="payoff-list">${rows.join('')}</div>` : '<div class="small">회수할 수 있는 열린 복선이 없어요. 복선은 상태 승인에서 심으면 생겨요.</div>'}</fieldset>`;
 }
 
-/** 아크 주요 인물: id 를 손으로 치지 않고 이름으로 고른다. 비중별로 묶고, 설정이 없는 id 는 빼기만 할 수 있게 남긴다 */
+/** 아크 주요 인물: id 를 손으로 치지 않고 이름으로 고른다. 비중별로 묶고, 아직 등록하지 않은 인물 후보(아크 · 플롯이 데려온 인물)는 '후보'로,
+    설정이 없는 id 는 빼기만 할 수 있게 남긴다 */
 function arcCastField(path) {
   const cur = getPath(P(), path) || [];
   const cs = P().characters;
+  const cands = (P().cast_candidates || []).filter((c) => cur.includes(c.id));
   const box = (id, text, on) => `<label class="row" style="font-size:0.8125rem;gap:6px"><input type="checkbox" data-id-list="${esc(path)}" value="${esc(id)}"${on ? ' checked' : ''}>${text}</label>`;
   const groups = TIERS.map(([t, l]) => [l, cs.filter((c) => (c.tier || 'main') === t)]).filter(([, g]) => g.length);
-  const unknown = cur.filter((id) => !cs.some((c) => c.id === id));
+  const unknown = cur.filter((id) => !cs.some((c) => c.id === id) && !cands.some((c) => c.id === id));
   return `<fieldset class="field"><legend class="label">주요 인물</legend>
     ${groups.map(([l, g]) => `<div class="row cast-boxes"><span class="small" style="min-width:32px">${l}</span>${g.map((c) => box(c.id, esc(c.name || `${c.id} (이름 없음)`), cur.includes(c.id))).join('')}</div>`).join('')}
+    ${cands.length ? `<div class="row cast-boxes"><span class="small" style="min-width:32px" title="아직 등록하지 않은 인물이에요. 나오는 화를 확정하면 등록돼요">후보</span>${cands.map((c) => box(c.id, esc(c.name || c.id), true)).join('')}</div>` : ''}
     ${unknown.length ? `<div class="row cast-boxes"><span class="small" style="min-width:32px">설정 없음</span>${unknown.map((id) => box(id, esc(id), true)).join('')}</div>` : ''}</fieldset>`;
 }
 
@@ -444,7 +447,7 @@ function castField(e, locked) {
   const btns = (pairs) => locked ? '' : `<div class="row" style="margin-top:6px">${pairs.map(([a, l, cls]) => `<button type="button" class="btn small${cls ? ' ' + cls : ''}" data-action="${a}" data-arg="${esc(n + '|' + l[1])}">${l[0]}</button>`).join('')}</div>`;
   const candNotes = cands.map((c) => `<div class="note info"><strong>새 인물 제안 · ${esc(c.name || c.id)}</strong> <span class="small">${esc(c.role)} · ${c.tier === 'minor' ? '단역' : '조연'}</span>
     ${c.personality || c.goal ? `<br>${esc(c.personality || c.goal)}` : ''}${c.speech_style ? `<br><span class="small">말투: ${esc(c.speech_style)}</span>` : ''}
-    <br><span class="small">AI 플롯이 데려온 인물이에요. 지금 등록하거나, 이 화를 확정하면 함께 등록돼요.</span>
+    <br><span class="small">AI 플롯이나 아크 기획이 데려온 인물이에요. 지금 등록하거나, 이 화를 확정하면 함께 등록돼요.</span>
     ${btns([['registerCast', ['인물로 등록', c.id], 'primary'], ['dropCast', ['이 화에서 빼기', c.id]]])}</div>`).join('');
   const unknownNotes = unknown.map((id) => `<div class="note warn"><strong>설정 없는 인물 · ${esc(id)}</strong><br><span class="small">플롯에 이름만 있고 인물 설정이 없어 본문을 쓸 때 이 인물 정보가 들어가지 않아요.</span>
     ${btns([['makeCast', ['인물로 만들기', id], 'primary'], ['dropCast', ['이 화에서 빼기', id]]])}</div>`).join('');
@@ -667,7 +670,7 @@ function nextArcPanel(start) {
       <div class="act-strip">${a.acts.map((x, i) => `<div class="act-head ${actClass(x.name)}"><div class="between"><strong>${x.name}</strong><span class="act-meta">${epRange(x.start_ep, x.end_ep)}</span></div>${input('구간 목표', `arc.acts.${i}.goal`, { root: 'arcDraft', rows: 3, autogrow: true })}</div>`).join('')}</div>
       ${input('서술 시점', 'arc.pov', { root: 'arcDraft', placeholder: `비우면 작품 기본 (${P().style.narration_pov || '정하지 않음'})` })}
       <div class="grid-2">${input('주요 인물 id', 'arc.cast', { root: 'arcDraft', kind: 'list', rows: 3 })}${input('회수할 복선 id', 'arc.payoffs', { root: 'arcDraft', kind: 'list', rows: 3 })}</div>
-      ${d.new_characters.length ? `<div class="field"><span class="label">새 인물 (조연으로 들어와요. 주역으로 올리려면 설정 도우미에서 비중을 바꾸세요)</span>${d.new_characters.map((c) => `<div class="note plain"><strong>${esc(c.name)}</strong> <span class="small">${esc(c.id)} · ${esc(c.role)}</span><br>${esc(c.personality || c.goal)}<br><span class="small">말투: ${esc(c.speech_style)}</span></div>`).join('')}</div>` : ''}
+      ${d.new_characters.length ? `<div class="field"><span class="label">새 인물 (인물 후보로 들어와요. 이 인물이 나오는 화를 확정하면 조연으로 등록돼요)</span>${d.new_characters.map((c) => `<div class="note plain"><strong>${esc(c.name)}</strong> <span class="small">${esc(c.id)} · ${esc(c.role)}</span><br>${esc(c.personality || c.goal)}<br><span class="small">말투: ${esc(c.speech_style)}</span></div>`).join('')}</div>` : ''}
       <div class="small">끝 화를 바꾸면 결 구간이 따라 늘거나 줄어요. 다른 구간 범위는 적용한 뒤 구간 고치기에서 바꿀 수 있어요.</div>
     </section>`;
   }
@@ -704,6 +707,7 @@ function arcPanel(a, sel, head = {}, bar = '') {
       <div class="between"><h3>아크 요약 ${a.summary ? '<span class="chip finalized">있음</span>' : '<span class="chip written">필요</span>'}</h3>${head.kind === 'recap_arc' && head.arc === a.number ? '' : `<button class="btn small" data-action="recapArc" data-arg="${a.number}"${rb.attr}>${rb.label}</button>`}</div>
       ${r ? `${input('AI 요약 제안 (고친 뒤 저장)', `${rk}.summary`, { root: 'recaps', rows: 6, autogrow: true })}<div class="row"><button class="btn small" data-action="dropRecap" data-arg="${rk}">버리기</button><button class="btn small primary" data-action="applyRecap" data-arg="${rk}">이 요약 저장</button></div>` : ''}
       ${input('저장된 요약', `story_arcs.${k}.summary`, { rows: 4, autogrow: true, hint: '앞으로 이 아크의 화별 요약 대신 프롬프트에 들어가요. 요약이 없으면 화마다 첫 문장만 들어가 앞 이야기가 흐려져요' })}
+      ${knowsFoldBox(a)}
     </div>`;
   }
   const right = `<div class="row">

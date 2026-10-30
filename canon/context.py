@@ -37,6 +37,7 @@ BUDGET = {
     "travel": 800,          # 쓰기 · 검수의 이동 거리 (mapprompt.travel_block, 지도 크기를 알 때만)
     "spots": 600,           # 쓰기 · 검수: 플롯에 나온 장소가 놓인 건물 한 줄 (mapprompt.spot_block, MapPin.spot)
     "stage": 1_500,         # 쓰기: 작가가 연출을 짠 사건의 박자 요약 (prompts.stage_block, 넘으면 뒤 사건의 장면부터 뺀다)
+    "address": 1_500,       # 쓰기 · 검수 · 상태 변경안: 이번 화 인물끼리의 호칭 · 말씨 줄 (address.block)
     "stat_lines": 2_000,    # 쓰기: 상태창 줄 형식(stat_window.prompt = lines)의 도감 줄. 이번 화 인물의 수치 줄은 늘 넣는다
     # 플레이 모드 (prompts.play_scene_prompt · play_state_prompt). 한 턴은 짧은 장면이라 소설보다 작게 둔다
     "play_style": 1_800,    # 장면: 줄인 스타일 프로필 (PLAY_STYLE_KEYS + 예시 문단 하나)
@@ -343,13 +344,74 @@ def planning_cast(p: Project, n: int) -> set[str]:
     return ids - off_ids(p)
 
 
-def episode_cast(p: Project, n: int) -> set[str]:
-    """이번 화 등장 인물과 주역('항상' 인물 포함). '넣지 않음' 인물은 뺀다."""
+def episode_cast(p: Project, n: int, text: str = "") -> set[str]:
+    """이번 화 등장 인물과 주역('항상' 인물 포함). text 를 주면 거기에 이름이 나오는 인물도 (named_ids). '넣지 않음' 인물은 뺀다."""
     try:
         cast = set(p.episode(n).plot.characters)
     except KeyError:
         cast = set()
-    return (cast | core_ids(p)) - off_ids(p)
+    return (cast | core_ids(p) | (named_ids(p, text) if text else set())) - off_ids(p)
+
+
+# ---------- 이름으로 켜는 인물 ----------
+# 플롯 인물 목록(EpisodePlot.characters)에 없는 조연이 본문에 나오면 그 화의 쓰기 · 검수 · 상태 변경안에 설정 · 말투 · 상태가 없었다
+# (실제 장편 83화에서 92번, 2026-10-30 인물 진단). 장편은 플롯 글 · 직전 화 끝 · 본문에 이름이 나온 인물도 넣는다.
+
+NAMED_TAIL = 1_500  # 쓰기: 직전 화 끝에서 이름을 찾는 글자 수 (prev_block 의 끝부분과 같은 길이)
+RETURN_GAP = 10  # 쓰기: 이만큼 화를 건너뛰고 다시 나오는 인물은 마지막으로 나온 화를 적는다 (return_lines)
+
+
+def name_pattern(c: Character) -> re.Pattern | None:
+    """인물 이름을 찾는 정규식. 세 글자 한국 이름은 성을 뗀 이름도, 띄어 쓴 이름은 첫 낱말도 (2글자 이상, '마르타 부인' → '마르타').
+    이름 바로 앞이 한글 · 영문이면 다른 낱말의 일부로 본다 ('김민정' 속 '민정'). 조사는 뒤에 붙으므로 뒤는 보지 않는다."""
+    forms = metrics.name_forms(c.name)
+    words = c.name.split()
+    if len(words) > 1 and len(words[0]) >= 2:
+        forms.append(words[0])
+    forms = sorted({f for f in forms if f}, key=len, reverse=True)
+    if not forms:
+        return None
+    return re.compile(r"(?<![가-힣A-Za-z])(?:" + "|".join(re.escape(f) for f in forms) + ")")
+
+
+def named_ids(p: Project, text: str) -> set[str]:
+    """text 에 이름이 나오는 인물 id. 이름은 name_pattern 규칙으로 찾는다."""
+    if not text:
+        return set()
+    out = set()
+    for c in p.characters:
+        pat = name_pattern(c)
+        if pat and pat.search(text):
+            out.add(c.id)
+    return out
+
+
+def fit_named(named: list[Character], used: int, size, budget: int) -> tuple[list[Character], int]:
+    """이름으로 켠 인물(플롯 인물 목록 밖) 설정을 남은 예산에 넣는다. used 는 이미 넣은 조연 · 단역 설정 글자.
+    조연 먼저, 같은 비중이면 앞 인물부터. (넣을 인물, 뺀 수)"""
+    order = sorted(range(len(named)), key=lambda i: (named[i].tier == "minor", i))
+    keep, total = set(), used
+    for i in order:
+        cost = size(named[i])
+        if total + cost > budget:
+            continue
+        keep.add(i)
+        total += cost
+    return [c for i, c in enumerate(named) if i in keep], len(named) - len(keep)
+
+
+def last_seen(p: Project, ids: Iterable[str], n: int) -> dict[str, int]:
+    """n화 앞 본문이 있는 화 가운데 인물이 마지막으로 나온 화 (플롯 인물이거나 본문에 이름이 나옴). 나온 적 없는 인물은 빠진다."""
+    want = {c.id: name_pattern(c) for c in p.characters if c.id in set(ids)}
+    out: dict[str, int] = {}
+    for e in sorted((e for e in p.episodes if e.text and e.plot.number < n), key=lambda e: -e.plot.number):
+        for cid, pat in list(want.items()):
+            if cid in e.plot.characters or (pat and pat.search(e.text)):
+                out[cid] = e.plot.number
+                del want[cid]
+        if not want:
+            break
+    return out
 
 
 # ---------- 옛 본문 단락 찾기 ----------

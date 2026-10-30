@@ -20,7 +20,7 @@ async function libVersionsLoad() {
   S.libVersions = S.lib && S.lib.id ? await api('GET', `/styles/${S.lib.id}/versions`).catch(() => null) : null;
 }
 
-// ----- 가끔 쓰는 장치 (profileFields 가 부른다) -----
+// ----- 가끔 쓰는 장치 (style.js 의 카드가 고치는 칸으로 부른다. 카드 이름 줄과 '+ 장치'는 카드에 있다) -----
 
 function deviceFields(base, root) {
   const prof = getPath(bindRoot(root), base);
@@ -40,8 +40,7 @@ function deviceFields(base, root) {
         <button class="btn icon-btn danger" style="margin-top:26px" data-action="deviceRemove" data-arg="${root || ''}|${i}" aria-label="장치 ${i + 1} 삭제">✕</button>
       </div></div>`;
   }).join('');
-  return `<div class="between"><h3>가끔 쓰는 장치 <span class="small" style="font-weight:400">특정 상황에만, 몇 화에 한 번 쓰는 장면 장치. 최근 화에서 쓴 화를 세어 이번 화에 쓸지 정해 줘요</span></h3><button class="btn small" data-action="deviceAdd" data-arg="${root || ''}">+ 장치</button></div>
-    ${rows || '<div class="small">아직 없어요. 레퍼런스의 버릇이 매 화 반복되면 규칙이나 대표 문단에서 빼고 여기에 적으세요.</div>'}`;
+  return rows || '<div class="small">아직 없어요. 레퍼런스의 버릇이 매 화 반복되면 규칙이나 대표 문단에서 빼고 여기에 적으세요.</div>';
 }
 
 // ----- 내 수정에서 배우기 (작품 문체 화면) -----
@@ -69,28 +68,44 @@ function suggestionRow(s, i) {
       </span></label>`;
 }
 
+/** 라이브러리에 함께 올리기 체크 (연결된 작품만) */
+function learnPushBox() {
+  const l = S.styleLink;
+  if (!l || !['same', 'changed'].includes(l.state)) return '';
+  const theirs = l.theirs || [];
+  return `<label class="check-row"><input type="checkbox" id="learn-push"${l.state === 'same' && !theirs.length ? ' checked' : ''}><span>라이브러리 '${esc(l.name)}' 에도 새 버전으로 올리기<br><span class="small">다른 작품은 다시 적용하기 전까지 그대로예요${theirs.length ? `. 라이브러리가 ${l.version}번 버전으로 더 새로워서, 올리면 그쪽에서 바뀐 칸(${theirs.map((c) => esc(c.label)).join(', ')})이 덮여요` : ''}</span></span></label>`;
+}
+
+/** 확인할 것: 아직 고르지 않은 규칙 후보. 문체 화면 맨 위 카드 (후보가 있을 때만) */
+function learnTodoCard() {
+  const r = P().style_learning;
+  const n = r.suggestions.filter((s) => !s.applied).length;
+  return `<section class="card pf-sec sty-todo" id="pf-todo" tabindex="-1">
+      <div class="pf-head"><h2>확인할 것 <span class="chip written">${n}</span></h2><span class="small">내 수정 ${r.edits_used}건에서 찾은 규칙 후보 · ${fmtDate(r.at)}</span></div>
+      ${r.summary ? `<p class="small pf-sub">${esc(r.summary)}</p>` : ''}
+      <div class="learn-list">${r.suggestions.map(suggestionRow).join('')}</div>
+      ${learnPushBox()}
+      <div class="row sty-end"><button class="btn small ghost" data-action="learnDismiss">후보 지우기</button><button class="btn small" data-action="learnApply">고른 규칙 적용</button></div>
+    </section>`;
+}
+
+/** 재료 카드: 수정 기록에서 규칙 후보 찾기. 고르지 않은 후보는 맨 위 '확인할 것' 카드에 있다 */
 function learnCard() {
   const st = S.editStats;
   const r = P().style_learning;
-  const linked = S.styleLink && ['same', 'changed'].includes(S.styleLink.state);
-  const short = st && st.usable < st.min;
+  const short = !st || st.usable < st.min;
+  const open = r && r.suggestions.some((s) => !s.applied);
   const count = st
     ? `본문을 고친 기록 ${st.total}건 중 배울 수 있는 것 ${st.usable}건${short ? ` · ${st.min}건부터 찾을 수 있어요` : ''}`
     : '';
-  // 고친 기록이 기준보다 적고 지난 후보도 없으면 찾을 수 없으니 한 줄로 줄인다
-  if ((short || !st) && !r) {
-    return `<section class="card tight"><div class="between"><h2>내 수정에서 배우기</h2><span class="small">${st ? `배울 수 있는 수정 ${st.usable}건 · ${st.min}건부터 되풀이되는 고침을 찾아요` : ''}</span></div></section>`;
-  }
-  const open = r && r.suggestions.some((s) => !s.applied);
-  const list = r ? `<div class="note plain">${esc(r.summary || '')}<div class="small">${fmtDate(r.at)} · 수정 ${r.edits_used}건을 봤어요</div></div>
-      ${r.suggestions.length ? r.suggestions.map(suggestionRow).join('') : '<div class="small">두 번 이상 되풀이된 고침을 찾지 못했어요. 본문을 더 고친 뒤 다시 찾아 보세요.</div>'}
-      ${open && linked ? `<label class="check-row"><input type="checkbox" id="learn-push"${S.styleLink.state === 'same' && !(S.styleLink.theirs || []).length ? ' checked' : ''}><span>라이브러리 '${esc(S.styleLink.name)}' 에도 새 버전으로 올리기<br><span class="small">다른 작품은 다시 적용하기 전까지 그대로예요${(S.styleLink.theirs || []).length ? `. 라이브러리가 ${S.styleLink.version}번 버전으로 더 새로워서, 올리면 그쪽에서 바뀐 칸(${S.styleLink.theirs.map((c) => esc(c.label)).join(', ')})이 덮여요` : ''}</span></span></label>` : ''}
-      <div class="row">${open ? '<button class="btn primary small" data-action="learnApply">고른 규칙 적용</button>' : ''}<button class="btn small" data-action="learnDismiss">후보 지우기</button></div>` : '';
-  return `<section class="card tight">
-      <div class="between"><h2>내 수정에서 배우기</h2><span class="small">${count}</span></div>
-      <div class="small">AI 본문을 고친 기록에서 되풀이되는 고침을 찾아 규칙 후보로 보여 줘요. 근거가 두 번 이상인 것만 내고, 고른 것만 이 작품 문체에 넣어요. 되돌린 수정, 동선 맞추기, 새로 써 넣기만 한 것은 보지 않아요.</div>
-      <div><button class="btn dark small" data-action="learnRun"${short || !st ? ' disabled' : ''}>${r ? '다시 찾기' : '수정 기록에서 규칙 찾기'}</button></div>
-      ${list}
+  // 지난 후보가 모두 들어갔거나 찾지 못했으면 그 결과를 여기에 둔다
+  const past = r && !open ? `<div class="note plain">${esc(r.summary || '')}<div class="small">${fmtDate(r.at)} · 수정 ${r.edits_used}건을 봤어요</div></div>
+      ${r.suggestions.length ? `<div class="learn-list">${r.suggestions.map(suggestionRow).join('')}</div>` : '<div class="small">두 번 이상 되풀이된 고침을 찾지 못했어요. 본문을 더 고친 뒤 다시 찾아 보세요.</div>'}
+      <div class="row"><button class="btn small ghost" data-action="learnDismiss">후보 지우기</button></div>` : '';
+  return `<section class="card pf-sec" id="pf-learn" tabindex="-1">
+      <div class="pf-head"><h2>내 수정에서 배우기</h2><button class="btn small" data-action="learnRun"${short ? ' disabled' : ''}>${r ? '다시 찾기' : '수정 기록에서 규칙 찾기'}</button></div>
+      <p class="small pf-sub">AI 본문을 고친 기록에서 되풀이되는 고침을 찾아 규칙 후보로 보여 줘요. 근거가 두 번 이상인 것만 내고, 고른 것만 이 작품 문체에 넣어요. 되돌린 수정, 동선 맞추기, 새로 써 넣기만 한 것은 보지 않아요.${count ? ` ${count}.` : ''}</p>
+      ${open ? '<p class="small">찾은 후보는 맨 위 \'확인할 것\'에서 골라요.</p>' : past}
     </section>`;
 }
 
@@ -115,7 +130,7 @@ function versionsCard() {
         ${changes ? `<details><summary class="small">바뀐 칸 (앞 버전과 비교)</summary>${changes}</details>` : ''}
       </li>`;
   }).join('');
-  return `<section class="card tight">
+  return `<section class="card tight pf-sec" id="pf-versions" tabindex="-1">
       <div class="between"><h2>버전</h2><span class="small">프로필이나 기준 지표가 바뀔 때마다 남겨요 (최근 30개)</span></div>
       <div class="field"><label for="lib-note">다음 저장의 버전 메모 <span class="hint">비우면 바뀐 칸 이름을 적어요</span></label>
         <input id="lib-note" type="text" data-local="libNote" value="${esc(S.libNote || '')}" placeholder="예: 망상 장면을 가끔 쓰는 장치로 옮김"></div>
@@ -129,7 +144,9 @@ Object.assign(actions, {
     (prof.devices = prof.devices || []).push({ name: '', when: '', cues: [], every: 5, example: '' });
     if (root === 'lib') { S.libDirty = true; renderSavebar(); }
     else markDirty();
+    styleKeepOpen(root, 'devices');
     render();
+    focusEl($('#pf-devices .device-row:last-child input'));
   },
   deviceRemove(arg) {
     const [root, i] = arg.split('|');
@@ -137,6 +154,7 @@ Object.assign(actions, {
     prof.devices.splice(Number(i), 1);
     if (root === 'lib') { S.libDirty = true; renderSavebar(); }
     else markDirty();
+    styleKeepOpen(root, 'devices');
     render();
   },
   async learnRun() {

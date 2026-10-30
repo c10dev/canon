@@ -1,5 +1,5 @@
 /* 알림: AI 작업과 알림(toast)을 버튼 하나에 모은다.
-   버튼은 사이드바 이름 옆(900px 이하와 대화 패널을 연 901~1599px 는 위쪽 띠, 작품 밖 화면은 본문 맨 위 오른쪽)에 있다.
+   버튼은 사이드바 이름 옆(900px 이하는 위쪽 띠, 레일은 찾기 아래, 작품 밖 화면은 본문 맨 위 오른쪽)에 있다.
    누르면 버튼 아래에 창(#hub-pop)이 열린다: 확인할 것 · 진행 중 · 최근 알림, 접힌 끝난 작업 · 지난 알림.
    알림은 버튼 바로 아래 말풍선(#toast)으로 뜨고 기록(S.notes)에 남는다 (app.js toast).
    보이는 상태 계산(hubState · hubAgo)은 순수 함수라 node 로 맞춰 본다 (tests/test_hub_js.py). */
@@ -17,6 +17,7 @@ const HUB_RESULT = {
   nextarc: () => ['다음 아크 제안', '/arc'],
   recap_arc: (r) => [`아크 ${r.ep} 요약 제안`, '/arc'],
   recap_part: (r) => [`${r.ep}부 요약 제안`, '/arc'],
+  fold_knows: (r) => [`아크 ${r.ep} 아는 정보 접기 제안`, '/arc'],
   storyline: () => ['이야기 줄기 제안', '/lines'],
   convert: () => ['장편 전환 계획', '/convert'],
   rebuild: () => ['재구성 안', '/convert'],
