@@ -285,6 +285,30 @@ function stageLayout(room, state, order = [], prev = null) {
   return Object.fromEntries(Object.entries(pos).map(([w, [x, y]]) => [w, [clamp(x, room.w), clamp(y, room.h)]]));
 }
 
+/** 박자 사이 돌아가는 이동 (서버 stagepath.paths, check 응답의 paths). a → b 로 옮기는 인물 w 의 꺾은선 [[x, y], ...]:
+   k 박자로 가는 경로, 없으면 k + 1 박자 경로를 거꾸로(뒤로 넘길 때). 끝점이 a · b 와 0.05m 넘게 다르면(고친 뒤 판정 전) null. */
+function stagePathFor(paths, k, w, a, b) {
+  const near = (p, q) => p && q && Math.hypot(p[0] - q[0], p[1] - q[1]) <= 0.05;
+  const fwd = paths && paths[k] && paths[k][w], back = paths && paths[k + 1] && paths[k + 1][w];
+  if (fwd && fwd.via.length > 2 && near(fwd.via[0], a) && near(fwd.via[fwd.via.length - 1], b)) return fwd.via;
+  if (back && back.via.length > 2 && near(back.via[0], b) && near(back.via[back.via.length - 1], a)) return [...back.via].reverse();
+  return null;
+}
+
+/** 꺾은선 via 위에서 길이 비율 e (0~1) 만큼 간 점. */
+function stagePathAt(via, e) {
+  const lens = via.slice(1).map((p, i) => Math.hypot(p[0] - via[i][0], p[1] - via[i][1]));
+  let left = lens.reduce((s, x) => s + x, 0) * Math.max(0, Math.min(1, e));
+  for (let i = 0; i < lens.length; i++) {
+    if (left <= lens[i] || i === lens.length - 1) {
+      const t = lens[i] ? Math.min(1, left / lens[i]) : 1;
+      return [via[i][0] + (via[i + 1][0] - via[i][0]) * t, via[i][1] + (via[i + 1][1] - via[i][1]) * t];
+    }
+    left -= lens[i];
+  }
+  return via[via.length - 1];
+}
+
 /** 박자 0~k 의 좌표 목록. 박자마다 앞 박자 좌표를 넘긴다. stage.layouts 와 같다. */
 function stageLayouts(room, scene, k = (scene.beats || []).length) {
   room = stageResolve(room);
@@ -375,7 +399,7 @@ function stgPick() {
   g.scene = row ? structuredClone(row.scene) : null;
   const room = row && g.view.rooms.find((r) => r.id === row.scene.room);
   g.room = room ? structuredClone(room) : null;
-  g.check = row ? { event_changed: row.event_changed, stale: row.stale, violations: row.violations, pair: row.pair, gaps: row.gaps || [], match: row.match || [], dropped: 0 } : null;
+  g.check = row ? { event_changed: row.event_changed, stale: row.stale, violations: row.violations, moves: row.moves || [], paths: row.paths || [], pair: row.pair, gaps: row.gaps || [], match: row.match || [], dropped: 0 } : null;
   g.beat = Math.min(g.beat, g.scene ? g.scene.beats.length : 0);
   if (g.scene && !g.scene.cast.includes(g.who)) g.who = g.scene.cast[0] || '';
 }
@@ -481,11 +505,19 @@ function stgPlanSvg(pos, ang, k) {
     const [x1, y1] = px(pos[w]), [x2, y2] = px(pos[c.to]);
     out += `<path class="stg-contact${badContact.has(c.id) ? ' bad' : ''}" d="M${x1} ${y1}L${x2} ${y2}" stroke="${stgColor(w)}"/>`;
   }));
+  const paths = (g.check && g.check.paths) || [];
   if (prev) Object.keys(now).forEach((w) => {
     if (!prev[w] || Math.hypot(prev[w][0] - now[w][0], prev[w][1] - now[w][1]) < 0.05) return;
-    const [x1, y1] = px(prev[w]), [x2, y2] = px(now[w]);
-    const d = Math.hypot(x2 - x1, y2 - y1), ux = (x2 - x1) / d, uy = (y2 - y1) / d;
-    if (d > 44) out += `<path class="stg-move" d="M${x1 + ux * 20} ${y1 + uy * 20}L${x2 - ux * 22} ${y2 - uy * 22}"/>`;
+    const row = paths[k] && paths[k][w];
+    const blocked = !!(row && row.blocked);
+    // 가구를 돌아가는 이동은 꺾은선으로, 막힌 이동은 곧은 빨간 점선으로 (docs/stage/specs/10-path.md)
+    const pts = (stagePathFor(paths, k, w, prev[w], now[w]) || [prev[w], now[w]]).map(px);
+    const cut = (p, q, by) => { const d = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1; return [p[0] + (q[0] - p[0]) * by / d, p[1] + (q[1] - p[1]) * by / d]; };
+    const span = pts.slice(1).reduce((s, p, i) => s + Math.hypot(p[0] - pts[i][0], p[1] - pts[i][1]), 0);
+    if (span <= 44) return;
+    pts[0] = cut(pts[0], pts[1], 20);
+    pts[pts.length - 1] = cut(pts[pts.length - 1], pts[pts.length - 2], 22);
+    out += `<path class="stg-move${blocked ? ' blocked' : ''}" d="M${pts.map((p) => `${p[0]} ${p[1]}`).join('L')}"><title>${blocked ? '가구에 막혀 돌아갈 길이 없어요' : '가구를 돌아가는 길'}</title></path>`;
   });
   out += stgGhostSvg(k, px);
   Object.keys(pos).forEach((w) => {
@@ -542,13 +574,15 @@ function stgDrawPlan(from) {
     stgShown = to;
     return;
   }
+  const all = (g.check && g.check.paths) || [], paths = {};
+  Object.keys(to.pos).forEach((w) => { if (from.pos[w]) paths[w] = stagePathFor(all, g.beat, w, from.pos[w], to.pos[w]); });
   const t0 = performance.now();
   const step = (t) => {
     const u = Math.min(1, (t - t0) / 600), e = u < 0.5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2;
     const pos = {}, ang = {};
     Object.keys(to.pos).forEach((w) => {
-      const a = from.pos[w] || to.pos[w];
-      pos[w] = [a[0] + (to.pos[w][0] - a[0]) * e, a[1] + (to.pos[w][1] - a[1]) * e];
+      const a = from.pos[w] || to.pos[w], via = paths[w];
+      pos[w] = via ? stagePathAt(via, e) : [a[0] + (to.pos[w][0] - a[0]) * e, a[1] + (to.pos[w][1] - a[1]) * e];
       if (to.ang[w] == null || from.ang[w] == null) ang[w] = to.ang[w];
       else {
         const d = Math.atan2(Math.sin(to.ang[w] - from.ang[w]), Math.cos(to.ang[w] - from.ang[w]));
@@ -890,6 +924,7 @@ function stgCss() {
 .stg-contact { stroke-width: 2.5; stroke-dasharray: 5 4; fill: none; }
 .stg-contact.bad { stroke: var(--red); }
 .stg-move { stroke: var(--muted); stroke-width: 1.5; fill: none; marker-end: url(#stg-arrow); }
+.stg-move.blocked { stroke: var(--red); stroke-dasharray: 5 4; }
 .stg-play { display: flex; align-items: center; gap: 12px; }
 .stg-play input[type=range] { flex: 1; accent-color: var(--accent); }
 .stg-beats { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; max-height: 360px; overflow-y: auto; }
@@ -986,6 +1021,8 @@ function viewStage(n) {
   if (ck.violations.length) notes.push(`<div class="note warn" role="status"><b>규칙 검수 ${ck.violations.length}개</b><ul class="stg-viol">${ck.violations.map((x) => `<li><a href="#" data-action="stgBeat" data-arg="${x.beat}">${x.beat}박자</a> ${stgRuleTag(x.rule)}${esc(x.text)}</li>`).join('')}</ul></div>`);
   const gaps = stgGaps();
   if ((ck.moves || []).length) notes.push(`<div class="note warn" role="status"><b>빠진 이동 ${ck.moves.length}개</b> <span class="small">박자 설명과 자리가 어긋나요. 그 박자에 자리를 바꿔 주세요.</span><ul class="stg-viol">${ck.moves.map((x) => `<li><a href="#" data-action="stgBeat" data-arg="${x.beat}">${x.beat}박자</a> ${esc(x.text)}</li>`).join('')}</ul></div>`);
+  const stuck = (ck.paths || []).flatMap((row, k) => Object.entries(row || {}).filter(([, r]) => r.blocked).map(([w]) => ({ k, w })));
+  if (stuck.length) notes.push(`<div class="note plain" role="status"><b>막힌 이동 ${stuck.length}개</b> <span class="small">가구에 막혀 돌아갈 길이 없어 곧게 그렸어요. 자리를 바꾸거나 가구를 옮겨 보세요.</span><ul class="stg-viol">${stuck.map((x) => `<li><a href="#" data-action="stgBeat" data-arg="${x.k}">${x.k}박자</a> ${esc(charName(x.w))}</li>`).join('')}</ul></div>`);
   if (g.role === 'text') notes.push(`<div class="note plain">본문에서 뽑은 추출 결과예요. 고쳐도 계획 장면은 바뀌지 않아요.${ck.pair ? '' : ' 이 사건에는 견줄 계획 장면이 없어요.'}</div>`);
   if (gaps.length) notes.push(`<div class="note plain" role="status"><b>계획과 다른 곳 ${gaps.length}개</b> <span class="small">사소한 차이예요. 본문 쪽 연출이 더 나을 수도 있어요.</span><ul class="stg-viol">${gaps.map((x) => `<li><a href="#" data-action="stgBeat" data-arg="${x.k}">${x.k === 0 ? '시작 상태' : `${x.k}박자`}</a> ${esc(x.text)}</li>`).join('')}</ul></div>`);
   if (ck.stale.length) notes.push(`<div class="note plain">본문에 없는 문장을 가리키는 박자가 ${ck.stale.length}개 있어요: ${ck.stale.map((k) => `<a href="#" data-action="stgBeat" data-arg="${k}">${k}박자</a>`).join(', ')}</div>`);

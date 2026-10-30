@@ -14,7 +14,7 @@
 | 순위 | 그만 만들 것 | 대신 쓸 것 | 일감 |
 |---|---|---|---|
 | 1 | 차 · 벽마다 짠 자리 함수, 절대 좌표로 넓히는 방 | Infinigen 식 '면에 붙는 자식' 데이터(설계만 빌림) | [09-attach.md](specs/09-attach.md) (2026-10-30 구현) |
-| 2 | 박자 사이 직선 이동(물건을 뚫음) | 서버에서 shapely `buffer` 로 장애물을 몸 반지름만큼 부풀리고 가시성 그래프(extremitypathfinder 또는 networkx)로 경로. 경유점을 `Frames` 에 실음 | 다음 |
+| 2 | 박자 사이 직선 이동(물건을 뚫음) | 서버에서 shapely `buffer` 로 장애물을 몸 반지름만큼 부풀리고 가시성 그래프(networkx)로 경로. 경유점을 `Frames` · `check` 에 실음 | [10-path.md](specs/10-path.md) (2026-10-30 구현) |
 | 3 | AI 기준점 자리 휴리스틱 | Holodeck 격자 DFS 점수 풀이(Apache-2.0, 고지 남김) + Imperative 논문의 한 값씩 고치기 + 풀기 전 방 크기 정하기(I-Design `check_size_conflicts` 생각) | 다음 |
 | 4 | 이름표 겹침 무대응 | 화면 투영 + 우선순위 탐욕 배치 + 지시선(약 40줄, 필요하면 rbush) | 다음 |
 | 5 | 손으로 짠 사각형 겹침 셈 | shapely 다각형 질의. 3D 캡슐–상자는 원하면 python-fcl 로 맞춰 봄 | 다음 |
