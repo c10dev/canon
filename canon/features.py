@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from . import charlog, elements, foreshadows, statwin, timeline, travel
+from . import cast, charlog, elements, foreshadows, statwin, timeline, travel
 from .schema import Project, Snapshot, StateDelta
 
 
@@ -52,6 +52,7 @@ CLEAN: tuple[Callable[[Project, StateDelta], list[str] | None], ...] = (
     charlog.clean_delta,
     _clean_places,
     _new_cast_gaps,            # 말투가 빈 새 인물
+    cast.clean_delta,          # 본문에 나와 변경안이 다룬 인물을 그 화 등장 인물에 붙일 목록 (경고 없음)
     travel.delta_warnings,     # 지도 거리와 작품 속 시간으로 보아 너무 빨리 옮겨 간 인물 (장소 정리 뒤)
     statwin.window_warnings,   # 본문 상태창이 반영할 값과 다름
     statwin.range_warnings,    # '지금/한도' 수치가 0 아래거나 한도 위
@@ -60,10 +61,10 @@ CLEAN: tuple[Callable[[Project, StateDelta], list[str] | None], ...] = (
 # 반영 (pipeline.apply_delta): 새 인물을 더한 직후. 작가가 고른 설정 바꾸기 제안만 온다 (자동 집필은 charlog.hold 로 미리 뺀다)
 APPLY_FIRST: tuple[Callable[[Project, StateDelta], None], ...] = (charlog.apply_delta, _add_places)
 # 반영: 상태 · 관계 · 사실 · 복선을 반영한 뒤, 반영 기록과 스냅샷 전
-APPLY_LAST: tuple[Callable[[Project, StateDelta], None], ...] = (foreshadows.apply_delta, timeline.apply_delta)
+APPLY_LAST: tuple[Callable[[Project, StateDelta], None], ...] = (foreshadows.apply_delta, timeline.apply_delta, cast.apply_delta)
 
 # 되돌리기 (pipeline.revert): 스냅샷으로 상태를 덮기 전
-REVERT_FIRST: tuple[Callable[[Project, int, Snapshot], None], ...] = (_unregister_places,)
+REVERT_FIRST: tuple[Callable[[Project, int, Snapshot], None], ...] = (_unregister_places, _revert_two(cast.revert))
 # 되돌리기: 스냅샷으로 덮고 반영 기록을 자른 뒤
 REVERT_LAST: tuple[Callable[[Project, int, Snapshot], None], ...] = (
     _revert_two(foreshadows.revert), _revert_two(statwin.revert), _revert_timeline, _revert_two(charlog.revert))

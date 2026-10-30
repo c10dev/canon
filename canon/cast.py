@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from typing import Iterator, Optional
 
-from . import charlog, dynamics
+from . import charlog, context, dynamics
 from .schema import CharacterState, Project, Snapshot, StateDelta
 
 STATE_FIELDS = ("emotional_state", "current_goal", "location", "attire")
@@ -152,6 +152,65 @@ def appearances(p: Project) -> dict[str, list[dict]]:
         for cid in dict.fromkeys(e.plot.characters + ([e.plot.pov] if e.plot.pov else [])):
             out.setdefault(cid, []).append({"n": e.plot.number, "status": e.status, "pov": e.plot.pov == cid})
     return out
+
+
+# ---------- 본문에 나온 인물을 그 화 등장 인물에 붙이기 (features 훅) ----------
+# 플롯 인물 목록에 없는 조연이 본문에 나오면 등장 화 · 기획 인물(context.planning_cast)에서 빠졌다.
+# 이름만 나온 회상 · 언급은 등장이 아니다: 실제 장편에서 이름이 나온 대목을 읽어 본 표본에서 이름이 1번 나온 화 11곳 중 10곳, 2~3번 나온 화 8곳 모두가
+# 언급이었다 (2026-10-30). 그래서 이름 수가 아니라, 본문을 읽은 상태 변경안이 그 인물의 상태나 관계 사건을 다뤘는지를 본다.
+
+STATE_UPDATE_FIELDS = ("emotional_state", "current_goal", "location", "attire", "notes", "knows", "stats")
+SHORT_NAME_HITS = 2  # 한 글자 이름('톰')은 다른 말 속에 우연히 들기 쉬워 본문에 이만큼 나와야 붙인다
+
+
+def involved(d: StateDelta) -> set[str]:
+    """변경안이 다룬 인물: 빈 칸이 아닌 상태 변경, 관계 사건의 행동한 인물 · 받은 인물 · 목격한 인물."""
+    ids = {u.character_id for u in d.character_updates if any(getattr(u, f) for f in STATE_UPDATE_FIELDS)}
+    for e in d.events:
+        ids |= {e.actor, e.target, *e.witnesses}
+    return ids
+
+
+def cast_to_add(p: Project, d: StateDelta) -> list[str]:
+    """d.episode 화 등장 인물에 붙일 인물 id. 등록된 인물만(후보 · 이번 새 인물 · '넣지 않음' 빼고), 그 화 본문에 이름이 나오고
+    (context.name_pattern) 변경안이 다룬(involved) 인물. 이미 등장 인물이면 뺀다."""
+    ep = p.episode(d.episode)
+    have, off, used = set(ep.plot.characters), context.off_ids(p), involved(d)
+    out = []
+    for c in p.characters:
+        if c.id in have or c.id in off or c.id not in used:
+            continue
+        pat = context.name_pattern(c)
+        hits = len(pat.findall(ep.text)) if pat else 0
+        if hits and (len(c.name.strip()) > 1 or hits >= SHORT_NAME_HITS):
+            out.append(c.id)
+    return out
+
+
+def clean_delta(p: Project, d: StateDelta) -> None:
+    """정리 훅 (features.CLEAN). 받은 값은 버리고 다시 센다 (채팅 앱 JSON 이 적어 보낸 값도)."""
+    d.cast_added = cast_to_add(p, d)
+
+
+def apply_delta(p: Project, d: StateDelta) -> None:
+    """반영 훅 (features.APPLY_LAST): 작가가 남긴 id 를 그 화 등장 인물에 붙이고, 실제로 붙인 것만 기록에 남긴다."""
+    ep = p.episode(d.episode)
+    ok = {c.id for c in p.characters} - context.off_ids(p)
+    d.cast_added = [x for x in dict.fromkeys(d.cast_added) if x in ok and x not in ep.plot.characters]
+    ep.plot.characters += d.cast_added
+
+
+def revert(p: Project, n: int) -> None:
+    """되돌리기 훅 (features.REVERT_FIRST, 반영 기록을 자르기 전): n화 뒤 반영이 붙인 인물을 그 화 등장 인물에서 뺀다."""
+    for d in p.history:
+        if d.episode <= n or not d.cast_added:
+            continue
+        try:
+            ep = p.episode(d.episode)
+        except KeyError:
+            continue
+        gone = set(d.cast_added)
+        ep.plot.characters = [x for x in ep.plot.characters if x not in gone]
 
 
 def _changes(prev: Optional[CharacterState], cur: Optional[CharacterState]) -> dict:
