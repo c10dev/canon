@@ -530,10 +530,14 @@ def arc_range_rule(total: int) -> str:
 - 한 화를 함께 쓰는 구간은 그 화 안에서 차례로 지나갑니다. goal 과 key_turn 은 구간마다 따로 씁니다."""
 
 
-def plot_prompt(p: Project, start: int, end: int) -> str:
+def plot_prompt(p: Project, start: int, end: int, ahead: bool = True, redo: bool = False) -> str:
+    """start~end 화 플롯 초안. ahead 면 범위 안 · 바로 뒤의 이미 정해진 화를 넣어 초안이 그 화로 이어지게 한다.
+    한 화 초안(episode_plot_prompt)은 바로 뒤 화를 따로 넣으므로 끈다. redo 는 범위 안의 화를 확정이어도 다시 짜는 요청
+    (여는 방식 안)이라, 범위 안 화는 정해진 화로 넣지 않고 뒤 화만 넣는다."""
     if p.serial:
-        return serial_plot_prompt(p, start, end)
+        return serial_plot_prompt(p, start, end, ahead, redo)
     prior = [e.plot for e in p.episodes if e.plot.number < start]
+    fixed, more = fixed_plots(p, start, end, skip=set(range(start, end + 1)) if redo else frozenset()) if ahead else ([], 0)
     return f"""{start}화부터 {end}화까지 화별 플롯을 작성하세요.
 
 [작품]
@@ -549,21 +553,27 @@ def plot_prompt(p: Project, start: int, end: int) -> str:
 [기승전결 구조]
 {dump(p.arc)}
 [앞 화 플롯 (확정 또는 초안, 이어지게 쓸 것)]
-{dump(prior) if prior else "없음"}{candidates_block(p)}
+{dump(prior) if prior else "없음"}{fixed_block(fixed, more)}{candidates_block(p)}
 [현재 열린 복선]
 {dump([f for f in p.foreshadows if f.status == "open"]) or "없음"}{time_plan(p, start)}
 
 요구사항:
-{plot_rules(p, start <= OPENING_EPISODES)}{new_cast_rule(p)}"""
+{plot_rules(p, start <= OPENING_EPISODES)}{fixed_rule(fixed, start, end)}{new_cast_rule(p)}"""
 
 
-def serial_plot_prompt(p: Project, start: int, end: int) -> str:
-    """장편: 앞 화 플롯 전부 대신 접은 줄거리와 이번 아크의 앞 화 플롯만 넣는다."""
+def serial_plot_prompt(p: Project, start: int, end: int, ahead: bool = True, redo: bool = False) -> str:
+    """장편: 앞 화 플롯 전부 대신 접은 줄거리와 이번 아크의 앞 화 플롯만 넣는다.
+    이미 정해진 화는 글자 예산(context.BUDGET["plan_fixed"])까지만. 재구성 지도가 '본문이 있는 화'로 넣는 화는 빼서 겹치지 않게 한다."""
     arc = p.arc_for(start)
     lo = arc.start_ep if arc else start
     near = [e.plot for e in p.episodes if max(1, lo - 2) <= e.plot.number < start]
+    rebuild = rebuild_map_block(p, start, end)
+    skip = {e.plot.number for e in p.episodes if rebuild and start <= e.plot.number <= end and e.text}
+    if redo:
+        skip |= set(range(start, end + 1))
+    fixed, more = fixed_plots(p, start, end, context.BUDGET["plan_fixed"], skip) if ahead else ([], 0)
     ids = context.without_off(p, set(arc.cast if arc else []) | {c for e in near for c in e.characters})
-    fs, more = relevant_foreshadows(p, start)
+    fs, fs_more = relevant_foreshadows(p, start)
     return f"""{start}화부터 {end}화까지 화별 플롯을 작성하세요.
 
 [작품]
@@ -586,12 +596,61 @@ def serial_plot_prompt(p: Project, start: int, end: int) -> str:
 [지금까지의 줄거리]
 {story_so_far(p, start) or "없음 (첫 화)"}
 [바로 앞 화 플롯 (확정 또는 초안, 이어지게 쓸 것)]
-{dump(near) if near else "없음"}{candidates_block(p)}
-[열린 복선]{f" (그 밖에 {more}개는 이번 아크와 거리가 멀어 뺐습니다)" if more else ""}
-{dump(fs) or "없음"}{time_plan(p, start)}{rebuild_map_block(p, start, end)}
+{dump(near) if near else "없음"}{fixed_block(fixed, more)}{candidates_block(p)}
+[열린 복선]{f" (그 밖에 {fs_more}개는 이번 아크와 거리가 멀어 뺐습니다)" if fs_more else ""}
+{dump(fs) or "없음"}{time_plan(p, start)}{rebuild}
 
 요구사항:
-{plot_rules(p, start <= OPENING_EPISODES)}{new_cast_rule(p)}"""
+{plot_rules(p, start <= OPENING_EPISODES)}{fixed_rule(fixed, start, end)}{new_cast_rule(p)}"""
+
+
+PLAN_AHEAD = 3  # 화별 플롯 초안에 넣는 범위 뒤의 이미 정해진 화 수
+
+
+def fixed_plots(p: Project, start: int, end: int, budget: int = 0, skip: set[int] | frozenset = frozenset()) -> tuple[list, int]:
+    """플롯 초안이 이어 붙어야 할 이미 정해진(확정 · 집필 · 반영) 화: start~end 안의 화와 end 뒤 첫 PLAN_AHEAD 개.
+    초안 결과는 apply_plots 가 정해진 화를 덮지 않으므로, 모델이 이 화들을 보고 앞뒤를 맞춰야 한다.
+    budget 이 있으면(장편) 초안으로 쓸 화에서 가까운 것부터 글자 예산까지 넣고, 뺀 수를 함께 돌려준다."""
+    eps = sorted((e for e in p.episodes if e.status != "draft" and e.plot.number not in skip), key=lambda e: e.plot.number)
+    inside = [e.plot for e in eps if start <= e.plot.number <= end]
+    after = [e.plot for e in eps if e.plot.number > end][:PLAN_AHEAD]
+    picked = inside + after
+    if not budget or not picked:
+        return picked, 0
+    taken = {x.number for x in inside} | set(skip)
+    drafts = [n for n in range(start, end + 1) if n not in taken] or [start]
+    keep, used = [], 0
+    for x in sorted(picked, key=lambda x: (min(abs(x.number - d) for d in drafts), x.number)):
+        size = len(dump(x))
+        if keep and used + size > budget:
+            continue
+        keep.append(x)
+        used += size
+    return sorted(keep, key=lambda x: x.number), len(picked) - len(keep)
+
+
+def fixed_block(fixed: list, more: int = 0) -> str:
+    """플롯 초안 프롬프트의 이미 정해진 화 블록. 없으면 아무것도 넣지 않는다."""
+    if not fixed:
+        return ""
+    note = f" (그 밖에 {more}개는 길어서 뺐습니다)" if more else ""
+    return f"\n[이미 정해진 화 (바꾸지 않음. 새로 쓰는 화가 앞뒤로 이어질 화)]{note}\n{dump(fixed)}"
+
+
+def fixed_rule(fixed: list, start: int, end: int) -> str:
+    """이미 정해진 화가 있을 때 붙는 요구사항."""
+    if not fixed:
+        return ""
+    inside = [str(x.number) for x in fixed if start <= x.number <= end]
+    after = any(x.number > end for x in fixed)
+    out = ("\n- 새로 쓰는 화는 [이미 정해진 화]로 자연스럽게 이어지고, 정해진 화가 이어받을 상황을 만들어 둡니다. "
+           "정해진 화의 사건을 미리 일으키거나 되풀이하지 않고, 정해진 화와 모순되는 사실을 만들지 않습니다.")
+    if inside:
+        out += (f"\n- {', '.join(inside)}화는 이미 정해진 화라 고쳐 쓰지 않습니다. "
+                "episodes 에는 번호를 빠뜨리지 않게 이 화들도 넣되, 위 플롯을 그대로 옮깁니다.")
+    if after:
+        out += f"\n- {end}화 뒤의 정해진 화는 episodes 에 넣지 않습니다."
+    return out
 
 
 def episode_plot_prompt(p: Project, n: int, fit_next: bool = True) -> str:
@@ -604,7 +663,7 @@ def episode_plot_prompt(p: Project, n: int, fit_next: bool = True) -> str:
     line = p.storyline(e.plot.storyline)
     line_text = (f"\n[이 화가 따라가는 이야기 줄기]\n{storylines.describe(p, line)}\n"
                  f"storyline 칸에 {line.id} 를 그대로 넣습니다." if line else "")
-    head = plot_prompt(p, n, n) + f"""
+    head = plot_prompt(p, n, n, ahead=False) + f"""
 
 [작가가 이 화에 적어 둔 것 (살려서 나머지 칸을 채울 것)]
 {dump(seed) if seed else "없음. 앞뒤 화 사이에 자연스럽게 들어가는 화를 만듭니다"}"""
@@ -653,9 +712,9 @@ def rebuild_map_block(p: Project, start: int, end: int) -> str:
             + (f"\n[본문이 있는 화의 플롯 (바꾸지 말고 그대로 다시 적을 것)]\n{dump(fixed)}" if fixed else ""))
 
 
-def time_plan(p: Project, start: int) -> str:
-    """기획 프롬프트에 붙는 작품 속 시간 블록 (timeline.plan_block). 기록이 없으면 아무것도 넣지 않는다."""
-    b = timeline.plan_block(p, start)
+def time_plan(p: Project, start: int, rule: str | None = None) -> str:
+    """기획 프롬프트에 붙는 작품 속 시간 블록 (timeline.plan_block). 기록이 없으면 아무것도 넣지 않는다. rule: 끝 줄 지시."""
+    b = timeline.plan_block(p, start, rule)
     return f"\n[작품 속 시간 ({start}화 직전)]\n{b}" if b else ""
 
 
@@ -1046,6 +1105,40 @@ def series_prompt(p: Project) -> str:
 - summary 는 비워 둡니다."""
 
 
+ARC_TIME_RULE = "- 열린 기한이 이 아크 범위에 들면 그 날에 맞게 conflict 와 acts 를 놓습니다. 기한을 넘기는 전개면 reply 에 어떻게 다루는지 적습니다."
+
+
+def plan_facts(p: Project, ids: set[str], query: str, terms: list[str]) -> tuple[list[str], int]:
+    """다음 아크 기획의 확정 사실: 적으면 전부. 많으면 기획 인물(ids, 조연 이름이 가장 무겁다)이나 직전 아크 끝 플롯의
+    이야기 요소 · 장소(terms)가 나오는 옛 사실을 query(부 목표 · 아크 아이디어 · 직전 아크 플롯 · 작가 요청)와 겹치는 순서로
+    예산(context.BUDGET["plan_facts"])만큼. 최근 FACTS_RECENT 개는 늘 넣는다 (context.pick_facts)."""
+    if len(p.facts) <= FACTS_FILTER_FROM:
+        return p.facts, 0
+    return context.pick_facts(p, ids, query, context.BUDGET["plan_facts"], terms)
+
+
+def plan_side_states(p: Project, ids: set[str], start: int, query: str) -> tuple[list, int, int]:
+    """다음 아크 기획에 넣는 주역 밖 인물(관계를 보는 planning_cast)의 지금 상태: start 전에 가장 최근 나온 인물부터
+    예산(context.BUDGET["plan_states"])만큼. 알게 된 정보는 state_view 로 고른다. (상태 사본, 뺀 인물 수, 뺀 정보 수)"""
+    main = {c.id for c in static_characters(p)}
+    last = {e_id: 0 for e_id in ids - main}
+    for e in p.episodes:
+        if e.plot.number < start:
+            for cid in e.plot.characters:
+                if cid in last:
+                    last[cid] = max(last[cid], e.plot.number)
+    side = sorted((s for s in p.states if s.character_id in last), key=lambda s: -last[s.character_id])
+    view, knows_cut = state_view(p, side, query=query)
+    out, used = [], 0
+    for s in view:
+        size = len(dump([s]))
+        if used + size > context.BUDGET["plan_states"]:
+            break
+        out.append(s)
+        used += size
+    return out, len(view) - len(out), knows_cut
+
+
 def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
     part = p.part_for(start)
     limit = part.end_ep if part else p.meta.target_episodes
@@ -1063,6 +1156,12 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
     size = f"{length}화 안팎" if length else "내용에 맞게 5~30화 (보통 10~25화). 첫 아크는 25화 안에 큰 보상이 오도록 짧고 세게"
     main_states, knows_cut = state_view(p, [s for s in p.states if s.character_id in {c.id for c in static_characters(p)}],
                                         query=note + "\n" + "\n".join(x.summary for x in prev_eps))
+    # 사실 · 조연 상태의 순서: 부 목표와 아크 아이디어, 직전 아크 끝 플롯, 작가 요청과 겹치는 것부터
+    query = "\n".join([note, part.goal if part else "", *(part.arc_ideas if part else []),
+                        *(elements.plot_text(p.episode(x.number)) for x in prev_eps)])
+    terms = list(dict.fromkeys(t for x in prev_eps for t in context.query_terms(p, x.number)))
+    facts, facts_cut = plan_facts(p, ids, query, terms)
+    side_states, side_cut, side_knows_cut = plan_side_states(p, ids, start, query)
     return f"""장편 연재의 다음 아크 하나를 기획하세요. 이 아크는 {start}화에서 시작합니다.
 
 [작품]
@@ -1079,6 +1178,8 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 {elements.plan_block(p) or "없음"}{lines_block(p)}
 [인물 현재 상태]{knows_note(knows_cut)}
 {dump(main_states) or "설정 그대로"}
+[조연 · 최근 인물 현재 상태 (최근에 나온 순서)]{f" (그 밖에 {side_cut}명은 예산을 넘겨 뺐습니다)" if side_cut else ""}{knows_note(side_knows_cut)}
+{dump(side_states) or "없음"}
 [부 구성]
 {dump(p.parts) if p.parts else "부 구성 없음 (작품 전체가 한 부)"}
 
@@ -1090,8 +1191,8 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 {dump(prev_eps) if prev_eps else "없음"}
 [열린 복선]{f" (그 밖에 {fs_more}개는 오래된 아크 단위 복선이라 뺐습니다)" if fs_more else ""}
 {fs_lines or "없음"}
-[확정된 사실 (최근)]
-{chr(10).join("- " + f for f in p.facts[-FACTS_RECENT:]) or "없음"}
+[확정된 사실 (이 아크와 관련된 것과 최근 것)]{f" (그 밖에 {facts_cut}개는 관련이 적어 뺐습니다)" if facts_cut else ""}
+{chr(10).join("- " + f for f in facts) or "없음"}{time_plan(p, start, ARC_TIME_RULE)}
 [작가의 요청]
 {note.strip() or "없음"}
 
@@ -3209,7 +3310,7 @@ def hook_prompt(p: Project, n: int, text: str) -> str:
 def opening_plots_prompt(p: Project, n: int, approaches: list[str]) -> str:
     """n화(1~3) 플롯을 여는 방식만 달리해 여러 안으로. 플롯 초안과 같은 자료를 넣고 요청만 바꾼다."""
     ways = "\n".join(f"- {a}: {OPENING_APPROACHES[a][0]}. {OPENING_APPROACHES[a][1]}" for a in approaches)
-    return f"""{plot_prompt(p, n, n)}
+    return f"""{plot_prompt(p, n, n, redo=True)}
 
 [이번 요청]
 위 자료로 {n}화 플롯 하나를 쓰되, 아래 여는 방식마다 하나씩 모두 {len(approaches)}개의 안을 내세요. 독자가 계속 읽을지 정하는 화라서 여는 방식을 비교해 고르려고 합니다.
