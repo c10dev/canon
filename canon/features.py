@@ -23,6 +23,12 @@ def _clean_places(p: Project, d: StateDelta) -> list[str]:
     return warns
 
 
+def _new_cast_gaps(p: Project, d: StateDelta) -> list[str]:
+    """새 인물 가운데 말투가 빈 인물. 상태 변경안은 본문에서 드러난 것만 적어 말투가 비기 쉽고, 비면 다음 화부터 기본 말투로 흐른다."""
+    return [f"새 인물 {c.name or c.id}의 말투(speech_style)가 비었어요. 반영한 뒤 인물 화면에서 채워 주세요."
+            for c in d.new_characters if not c.speech_style.strip() and c.id not in {x.id for x in p.characters}]
+
+
 def _add_places(p: Project, d: StateDelta) -> None:
     elements.add_places(p, d.new_places, d.episode, "본문")
 
@@ -45,6 +51,7 @@ CLEAN: tuple[Callable[[Project, StateDelta], list[str] | None], ...] = (
     timeline.clean_delta,
     charlog.clean_delta,
     _clean_places,
+    _new_cast_gaps,            # 말투가 빈 새 인물
     travel.delta_warnings,     # 지도 거리와 작품 속 시간으로 보아 너무 빨리 옮겨 간 인물 (장소 정리 뒤)
     statwin.window_warnings,   # 본문 상태창이 반영할 값과 다름
     statwin.range_warnings,    # '지금/한도' 수치가 0 아래거나 한도 위

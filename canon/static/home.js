@@ -360,6 +360,18 @@ function homeForeshadows(p) {
     .sort((a, b) => a.planted_ep - b.planted_ep || (a.id < b.id ? -1 : 1));
 }
 
+/** 본문이 없는 첫 화에 나오는 인물(플롯 인물 + 주역 · '항상', '넣지 않음' 빼고) 가운데 말투(speech_style)가 빈 인물. 없으면 null.
+ * 말투가 비면 쓰기 프롬프트에 기준이 없어 AI 기본 말투로 흐른다 (2026-10-30 인물 진단) */
+function homeSpeechGaps(p) {
+  const e = p.episodes.filter((x) => !x.text).sort((a, b) => a.plot.number - b.plot.number)[0];
+  if (!e) return null;
+  const ids = new Set(e.plot.characters || []);
+  const cast = p.characters.filter((c) => c.context !== 'off'
+    && (ids.has(c.id) || c.context === 'always' || c.tier === 'main'));
+  const gaps = cast.filter((c) => !(c.speech_style || '').trim());
+  return gaps.length ? { n: e.plot.number, chars: gaps } : null;
+}
+
 /** 끝났는데 요약이 없는 아크 · 부 (부 · 아크 화면 경고 줄, pipeline.pending_recaps 와 같은 규칙). 요약이 없으면 줄거리가 접히지 않는다 */
 function homeRecaps(p) {
   if (p.meta.form !== 'serial') return { arcs: [], parts: [] };
@@ -400,6 +412,10 @@ function homeTodos(p, home) {
         href: `${home}/timeline`, link: '작품 속 시간' });
     }
   }
+  const gap = homeSpeechGaps(p);
+  if (gap) out.push({ tag: '인물', kind: 'info', label: `${gap.n}화 인물 ${gap.chars.length}명의 말투가 비었어요`,
+    sub: `${gap.chars.map((c) => c.name || c.id).join(', ')} · 비워 두면 AI가 기본 말투로 써요`,
+    href: `${home}/cast/${gap.chars[0].id}`, link: '인물 카드' });
   const late = homeForeshadows(p).filter((f) => f.overdue);
   if (late.length) out.push({ tag: '복선', kind: 'info', label: `회수 예정이 지난 복선 ${late.length}개`,
     sub: `${late[0].planted_ep}화 「${late[0].description}」 · ${late[0].due_ep}화에 회수 예정이었어요`, href: `${home}/foreshadow`, link: '복선 센터' });
