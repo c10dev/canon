@@ -267,20 +267,20 @@ def render(p: Project, cid: str, stats: list[StatValue] | None = None) -> str:
     return w.template.replace("{name}", c.name if c else cid).replace("{rows}", rows).strip()
 
 
-def write_rule(p: Project, n: int = 0) -> str:
+def write_rule(p: Project, n: int = 0, show_format: bool = True) -> str:
     """본문 쓰기 프롬프트 끝에 붙는 규칙. 상태창을 만든 인물이 없으면 빈 글.
-    넣는 방식(stat_window.prompt)이 none 이면 빈 글, lines 면 이번 화 인물의 수치 줄과 도감 줄(lines_block)."""
+    넣는 방식(stat_window.prompt)이 none 이면 빈 글, lines 면 이번 화 인물의 수치 줄과 도감 줄(lines_block).
+    show_format 을 끄면 서식 예시를 빼고 스토리보드의 창 글을 따르게 한다 (스토리보드가 창 글을 이미 보일 때, 같은 창을 두 번 넣지 않게)."""
     if not enabled(p) or p.stat_window.prompt == "none":
         return ""
     if p.stat_window.prompt == "lines" and n:
-        return lines_block(p, n)
+        return lines_block(p, n, show_format)
     who = next((s.character_id for s in p.states if s.stats), "")
     return ("\n\n상태창: [인물 현재 상태]의 stats 가 지금 수치입니다. 본문에 상태창이나 수치를 보여 줄 때는 이 값을 그대로 쓰고, "
             "이번 화 사건으로 바뀌는 값만 바꿉니다. 이유 없이 수치를 올리거나 내리지 않습니다. "
             "스킬 · 특성 · 칭호처럼 늘어놓은 항목에 없는 것을 쓰려면 얻는 장면을 먼저 보여 줍니다."
             + (_INVENTORY_HAS if inventory(p) else "")
-            + " 상태창은 아래 서식으로 씁니다.\n"
-            + render(p, who))
+            + (" 상태창은 아래 서식으로 씁니다.\n" + render(p, who) if show_format else " 상태창 서식은 스토리보드의 창 글을 따릅니다."))
 
 
 def episode_cast(p: Project, n: int) -> list[str]:
@@ -301,9 +301,10 @@ def wants_window(p: Project, n: int) -> bool:
     return any(w and w in text for w in {"상태창", p.stat_window.title.strip()})
 
 
-def lines_block(p: Project, n: int) -> str:
+def lines_block(p: Project, n: int, show_format: bool = True) -> str:
     """상태창 줄 형식(stat_window.prompt = lines): 이번 화 인물의 수치를 한 줄씩, 그 인물이 가진 스킬 · 특성은 도감 한 줄로.
-    수치는 확인용 사실로만 주고, 상태창 서식 예시는 플롯에 상태창 장면이 있을 때만 붙인다. 도감 줄은 context.BUDGET['stat_lines'] 까지."""
+    수치는 확인용 사실로만 주고, 상태창 서식 예시는 플롯에 상태창 장면이 있을 때만 붙인다(show_format 을 끄면 붙이지 않는다).
+    도감 줄은 context.BUDGET['stat_lines'] 까지."""
     from . import abilities, context, elements
 
     ids = episode_cast(p, n)
@@ -345,7 +346,7 @@ def lines_block(p: Project, n: int) -> str:
             "본문에 수치를 쓸 때는 이 값을 그대로 쓰고, 이번 화 사건으로 바뀌는 값만 바꿉니다. 이유 없이 수치를 올리거나 내리지 않습니다. "
             "스킬 · 특성 · 칭호를 쓸 때는 위 효과와 대가를 지키고, 목록에 없는 것을 쓰려면 얻는 장면을 먼저 보여 줍니다."
             + (_INVENTORY_HAS if inventory(p) else ""))
-    if wants_window(p, n):
+    if wants_window(p, n) and show_format:
         out += " 이번 화 플롯에 상태창 장면이 있습니다. 상태창은 아래 서식으로 씁니다.\n" + render(p, ids[0])
     return out
 

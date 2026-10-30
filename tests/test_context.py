@@ -80,7 +80,7 @@ def test_serial_write_context_order_and_size():
     p.facts = [f"사실 {i} " + "가" * 80 for i in range(400)]
     ctx = prompts.build_episode_context(p, n)
     heads = ["# 현재 부와 아크", "# 지금까지의 줄거리 (끝난 부와 아크)", "# 이번 화 위치", "# 확정된 사실", "# 관계 현재 상태", "# 열린 복선",
-             "# 지금까지의 줄거리 (이번 아크)", "# 직전 화 본문 (전체", "# 이번 화 플롯"]  # 장편은 스토리보드를 써 직전 화 원문 전체
+             "# 지금까지의 줄거리 (이번 아크)", "# 직전 화 마지막 부분", "# 이번 화 플롯"]  # 스토리보드가 없는 화는 직전 화 끝부분만
     pos = [ctx.index(h) for h in heads]
     assert pos == sorted(pos)  # 아크 동안 그대로인 것이 앞, 화마다 바뀌는 것이 뒤
     assert ctx.index(prompts.static_context(p)) == 0

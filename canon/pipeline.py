@@ -2649,6 +2649,7 @@ def set_storyboard(p: Project, n: int, b: Storyboard | None, by: str = "author")
         made_by, basis = ("both" if old and old.made_by != "author" else "author"), board_basis(p, n)
     b = Storyboard(**draft.model_dump(), made_at=b.made_at or (old.made_at if old else "") or _now(), made_by=made_by, basis=basis)
     b.checks = board.checks(p, n, b)
+    b.skipped = bool(old and old.skipped and ep.text)  # 고쳐도 본문이 이 스토리보드 없이 쓴 것이면 그대로
     ep.storyboard = b
 
 
