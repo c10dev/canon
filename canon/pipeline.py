@@ -3479,7 +3479,30 @@ def style_drift(p: Project, n: int) -> tuple[metrics.StyleMetrics, list[str]]:
     if copied:
         quotes = ", ".join(f"'{s[:30]}{'…' if len(s) > 30 else ''}'" for s in copied[:3])
         warns.append(f"예시 문단을 옮긴 문장 {len(copied)}개: {quotes}")
+    moved = memo_copied(p, n, text)
+    if moved:
+        quotes = ", ".join(f"'{s[:30]}{'…' if len(s) > 30 else ''}'" for s in moved[:3])
+        warns.append(f"설계 메모를 옮긴 문장 {len(moved)}개: {quotes}")
     return cur, warns
+
+
+def memo_texts(p: Project, n: int) -> list[str]:
+    """쓰기 프롬프트에 들어가는 설계 메모 칸: 플롯 감정 변화, 스토리보드 장면 목표 · 전환 · 끝 상태 · 넘겨받을 것, 큐의 일 · 끝 상태.
+    큐 핵심 대사와 플롯 사건은 본문에 들어가야 하는 것이라 뺀다."""
+    ep = p.episode(n)
+    out = [ep.plot.emotional_shift]
+    if ep.storyboard:
+        out += [x for sc in ep.storyboard.scenes for x in (sc.goal, sc.turn, sc.end_state)]
+        out += [h.text for h in ep.storyboard.handover]
+    if ep.cue_sheet:
+        out += [x for c in ep.cue_sheet.cues for x in (c.beat, c.exit)]
+    return [x for x in out if x and x.strip()]
+
+
+def memo_copied(p: Project, n: int, text: str) -> list[str]:
+    """설계 메모를 본문에 그대로 옮긴 문장 (공백 빼고 metrics.COPY_SPAN 자 이상 겹침). 쇠맛 연구(2026-10-30)에서
+    감정 변화 칸 조각의 22%, 스토리보드 장면 메모의 11%가 본문에 그대로 옮겨졌다. 메모는 따를 것이지 옮길 글이 아니다."""
+    return metrics.copied_sentences(text, memo_texts(p, n))
 
 
 # ---------- 5-1. 초반 1~3화: 지표, 흡입력 판정, 여는 방식 여러 안 ----------
