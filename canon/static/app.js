@@ -52,6 +52,7 @@ const S = {
   arcDraft: null,    // 장편: 다음 아크 제안 (반영 전)
   planNote: '',      // 구조 다시 제안 · 플롯 초안 · 부 구성 제안에 함께 보낼 작가 요청
   arcForm: { length: 0, note: '' },  // 장편: 다음 아크 요청
+  foldDrafts: {},    // 장편: 아크 번호 → 아는 정보 접기 제안 { folds: [{ character_id, lines }] } (knows.py)
   recapDrafts: {},   // 장편: 아크·부 요약 제안. 'arc1', 'part2' 같은 키 → { kind, number, summary }. 여러 개를 함께 고친다
   namingStyles: null, // 이름 스타일 목록 (서버 naming.STYLES)
   names: {},         // 이름·지명 후보. 'c:<인물 id>' 또는 'place' → { candidates, options, ai }
@@ -183,6 +184,7 @@ const JOB_DONE_MSG = {
   nextarc: '다음 아크 제안이 도착했어요. 고친 뒤 반영하세요.',
   recap_arc: (j) => `아크 ${j.ep} 요약 제안이 도착했어요.`,
   recap_part: (j) => `${j.ep}부 요약 제안이 도착했어요.`,
+  fold_knows: (j) => `아크 ${j.ep} 아는 정보 접기 제안이 도착했어요.`,
   impact: (j) => `${j.label.replace(/^인과율: /, '')}이 끝났어요. 인과율에서 확인하세요.`,
   storyline: '이야기 줄기 제안이 도착했어요. 고른 화와 함께 반영하세요.',
   // 멈춤 · 검토 대기도 작업으로는 '끝남'이다. 사람을 기다리는지 상태별로 말한다 (autorun._launch 결과)
@@ -409,7 +411,7 @@ document.addEventListener('selectionchange', () => setTimeout(() => { if (S.rend
 
 // 작업 결과가 보이는 화면
 JOB_DONE_MSG.check = (j) => `${j.ep}화 검수가 끝났어요${j.result && j.result.round ? ` (${j.result.round}회차)` : ''}: 짚은 곳 ${j.result ? j.result.issues : 0}개${j.result && j.result.round > 1 ? `, 새 지적 ${j.result.added}개` : ''}`;
-const JOB_PAGES = { check: ['check', 'write', 'review'], suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], plot_one: ['arc', 'lines'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], storyline: ['lines'] };
+const JOB_PAGES = { check: ['check', 'write', 'review'], suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], plot_one: ['arc', 'lines'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], fold_knows: ['arc'], storyline: ['lines'] };
 
 // 작업이 project.json 에 쓴 화만 받아 온다 (mine(화면 화, 서버 화) 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
 // 저장하지 않은 입력이 있을 때 서버 것으로 바꾼 화 번호를 돌려준다.
@@ -463,7 +465,7 @@ async function finishJob(j) {
 }
 
 // ---------- 검토를 기다리는 결과 · 실패 (서버 pending.json, web.PENDING_KINDS 와 같은 목록) ----------
-const PENDING_KINDS = ['arc', 'suggest', 'series', 'nextarc', 'convert', 'rebuild', 'rework', 'storyline', 'recap_arc', 'recap_part', 'state', 'openings'];
+const PENDING_KINDS = ['arc', 'suggest', 'series', 'nextarc', 'convert', 'rebuild', 'rework', 'storyline', 'recap_arc', 'recap_part', 'fold_knows', 'state', 'openings'];
 
 /** 그 결과가 아직 화면에 제안으로 남아 있다. 반영하거나 버리면 false 가 된다. */
 function pendingShown(r) {
@@ -475,11 +477,13 @@ function pendingShown(r) {
     case 'nextarc': return !!S.arcDraft;
     case 'recap_arc': return !!S.recapDrafts['arc' + r.ep];
     case 'recap_part': return !!S.recapDrafts['part' + r.ep];
+    case 'fold_knows': return !!S.foldDrafts[r.ep];
     case 'storyline': return !!S.lineDraft;
     case 'convert': return !!S.convDraft;
     case 'rebuild': return !!S.rbDraft;
     case 'rework': return !!S.reworks[r.ep];
     case 'openings': return !!S.openingPlots[r.ep];
+    case 'stage': return true;  // 장면 연출 AI 장면은 그 화면이 적용하거나 버릴 때 서버가 지운다 (web._stage_keep)
     default: return false;
   }
 }
@@ -543,12 +547,17 @@ function applyJobResult(j) {
     S.recapDrafts[kind + j.ep] = { kind, number: j.ep, summary: j.result.summary };
     if (kind === 'arc') S.selArc = j.ep;
     else S.selPart = j.ep;
+  } else if (j.kind === 'fold_knows' && j.result) {
+    S.foldDrafts[j.ep] = { folds: j.result.folds.map((f) => ({ ...f, on: true })) };
+    S.selArc = j.ep;
   } else if (['convert', 'rebuild', 'rework'].includes(j.kind) && j.result) {
     convertResult(j);
   } else if (j.kind === 'storyline' && j.result) {
     S.lineDraft = { ...j.result, picks: {} };
   } else if (['hook', 'openings', 'opening_drafts'].includes(j.kind)) {
     openingJobResult(j);
+  } else if (['stage_draft', 'stage_extract', 'check'].includes(j.kind) && typeof stageJobResult === 'function') {
+    stageJobResult(j);
   }
 }
 
@@ -564,6 +573,7 @@ const JOB_LINK = {
   nextarc: (j) => `#/p/${enc(j.project)}/arc`,
   recap_arc: (j) => `#/p/${enc(j.project)}/arc`,
   recap_part: (j) => `#/p/${enc(j.project)}/arc`,
+  fold_knows: (j) => `#/p/${enc(j.project)}/arc`,
   impact: (j) => `#/p/${enc(j.project)}/causal${j.result ? '/' + enc(j.result.element) : ''}`,
   storyline: (j) => `#/p/${enc(j.project)}/lines`,
   auto: (j) => `#/p/${enc(j.project)}/auto`,
@@ -1138,7 +1148,7 @@ const deltaPending = (n) => { const e = P() && ep(Number(n)); return !e || e.sta
 /** 페이지를 떠나면 사라지는 입력: 저장하지 않은 작품 · 문체 · 설정 변경, 본문 초안, 붙여 넣은 지시서 결과, 반영하지 않은 상태 변경안,
     분석 전 문체 예시 원문. 본문 초안은 브라우저에도 임시 보관하지만, 막힌 브라우저가 있어 여기서도 묻는다 */
 function hasUnsaved() {
-  return S.dirty || S.libDirty
+  return S.dirty || S.libDirty || S.stgDirty
     || (S.styleSampleDirty && S.styleSample.trim() !== '')
     || Object.keys(S.textDraft).some(textUnsaved)
     || Object.entries(S.briefDraft).some(([k, v]) => briefPending(k, v))
@@ -1507,7 +1517,7 @@ Object.assign(actions, {
 // 작품마다 따로 두는 화면 상태와 빈 값. 화 번호로 잡거나 반영 전 AI 제안이라, 다른 작품에 보이거나 반영되면 안 된다
 const PER_PROJECT = {
   textDraft: () => ({}), deltas: () => ({}), deltaBase: () => ({}), deltaOrig: () => ({}),
-  suggestion: () => null, picks: () => ({}), seriesDraft: () => null, arcDraft: () => null, arcProposal: () => null, recapDrafts: () => ({}),
+  suggestion: () => null, picks: () => ({}), seriesDraft: () => null, arcDraft: () => null, arcProposal: () => null, recapDrafts: () => ({}), foldDrafts: () => ({}),
   lineDraft: () => null, convDraft: () => null, rbDraft: () => null, reworks: () => ({}),
   openingData: () => ({}), openingPlots: () => ({}), openingUsed: () => ({}), openingPrev: () => ({}), rw: () => ({}), rwInfo: () => ({}), looks: () => ({}),
   causalLinks: () => ({}), causalPicks: () => ({}), causalGone: () => null, chatPicks: () => ({}),
@@ -1573,7 +1583,7 @@ window.addEventListener('hashchange', async () => {
   }
   const setDlg = document.getElementById('set-dlg');
   if (setDlg && setDlg.open) setDlg.close();
-  if ((S.dirty || S.libDirty) && !confirm('저장하지 않은 변경이 있어요. 저장하지 않고 이동하면 그 변경은 사라져요. 이동할까요?')) {
+  if ((S.dirty || S.libDirty || S.stgDirty) && !confirm('저장하지 않은 변경이 있어요. 저장하지 않고 이동하면 그 변경은 사라져요. 이동할까요?')) {
     history.replaceState({ idx: navScroll.idx }, '', lastHash);
     return;
   }
@@ -1707,6 +1717,8 @@ async function routeNow() {
       if (parts[2] === 'convert') await convertLoad();
       if (parts[2] === 'cast') await castLoad(parts[3]);
       if (parts[2] === 'atlas') await atlasLoad();
+      if (parts[2] === 'stage') await stgLoad(n || currentEp(), Number(parts[4]) || 1);
+      else S.stgDirty = false;  // 장면 연출을 떠났다 (떠날 때 hashchange 가 물었다)
       if (parts[2] === 'foreshadow') await fsLoad();
       if (parts[2] === 'statwin') await swLoad(parts[3]);
       if (parts[2] === 'abilities') await abLoad(parts[3]);
@@ -1873,7 +1885,7 @@ function drawApp() {
     return;
   }
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches, cue: viewCue };
+  const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, stage: viewStage, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches, cue: viewCue };
   const body = (views[page] || viewHome)(n);
   $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${branchStrip(page)}${failStrip(page, n)}${draftStrip(page, n)}${body}</main></div>`;
   syncPending();
@@ -1884,6 +1896,7 @@ function drawApp() {
   if (typeof syncMarks === 'function') syncMarks();
   if (typeof syncWriteTop === 'function') syncWriteTop();
   if (typeof syncLines === 'function') syncLines();
+  if (typeof syncStage === 'function') syncStage();
   document.querySelectorAll('textarea[data-autogrow]').forEach(autosize);
   // 상태 승인 지시서 탭이 바뀌면 다시 불러온다
   if (page === 'brief' && S.briefText === null && ep(n)) {
@@ -1964,6 +1977,7 @@ function navItems() {
     ['atlas', base() + '/atlas', '🗺️', '지도', has(p.world.locations) || (p.elements || []).some((el) => el.kind === '장소')],
     ['foreshadow', base() + '/foreshadow', '🪝', '복선 센터', has(p.foreshadows)],
     ['tofix', base() + '/tofix', '📌', '고칠 곳', p.episodes.some((e) => has(e.to_fix))],
+    ['stage', `${base()}/stage/${cur}/1`, '🎬', '장면 연출', p.episodes.some((e) => has(e.stage))],
     ['statwin', base() + '/statwin', '📊', '상태창 수치', (p.states || []).some((s) => has(s.stats)) || has((p.stat_window || {}).names)],
     ['abilities', base() + '/abilities', '📖', '스킬 도감', has(p.abilities)],
     ['timeline', base() + '/timeline', '⏳', '작품 속 시간', has((p.timeline || {}).deadlines) || p.episodes.some((e) => e.time && (e.time.day > 0 || e.time.part || e.time.label))],

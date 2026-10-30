@@ -1,0 +1,42 @@
+{
+ "note": "운전석 · 조수석에 앉아 조수석이 왼손으로 운전석 오른팔을 잡는다",
+ "template": "car",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "운전석",
+    "rel": "on"
+   },
+   "posture": "chair"
+  },
+  {
+   "who": "d",
+   "at": {
+    "ref": "조수석",
+    "rel": "on"
+   },
+   "posture": "chair"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "d",
+     "contacts": [
+      {
+       "id": "c1",
+       "by": "left",
+       "to": "h",
+       "part": "upper_arm_r",
+       "act": "hold"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "expect": []
+}

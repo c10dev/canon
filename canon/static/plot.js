@@ -467,7 +467,7 @@ function eventsField(e, b, locked) {
   const tool = (k, act, d, label, text, off) => `<button type="button" class="btn icon-btn small" data-action="${act}" data-arg="${n}:${k}${d}" aria-label="사건 ${k + 1} ${label}"${off ? ' disabled' : ''}>${text}</button>`;
   const rows = evs.map((x, k) => `<li class="ev-row"><span class="ev-no" aria-hidden="true">${k + 1}</span>
       <textarea id="ev-${n}-${k}" rows="1" data-autogrow data-bind="${b}.events.${k}" data-kind="text" data-event="${n}:${k}" aria-label="사건 ${k + 1}"${locked ? ' readonly' : ''}>${esc(x)}</textarea>
-      ${locked ? '' : `<span class="ev-tools">${tool(k, 'moveEvent', ':-1', '위로', '↑', k === 0)}${tool(k, 'moveEvent', ':1', '아래로', '↓', k === evs.length - 1)}${tool(k, 'dropEvent', '', '빼기', '✕', false)}</span>`}</li>`).join('');
+      <span class="ev-tools"><a class="btn icon-btn small" href="${base()}/stage/${n}/${k + 1}" aria-label="사건 ${k + 1} 장면 연출" title="장면 연출: 자리 · 자세 · 접촉 짜기">${(e.stage || []).some((s) => s.event_text === x) ? '🎬' : '<span aria-hidden="true">＋</span>🎬'}</a>${locked ? '' : `${tool(k, 'moveEvent', ':-1', '위로', '↑', k === 0)}${tool(k, 'moveEvent', ':1', '아래로', '↓', k === evs.length - 1)}${tool(k, 'dropEvent', '', '빼기', '✕', false)}`}</span></li>`).join('');
   return `<fieldset class="field ev-field"><legend class="label">사건 순서 <span class="hint">${locked ? '' : 'Enter로 다음 사건'}</span></legend>
     ${evs.length ? `<ol class="ev-list">${rows}</ol>` : `<span class="small">${locked ? '사건이 없어요' : '아직 사건이 없어요'}</span>`}
     ${locked ? '' : `<button type="button" class="btn small ghost ev-add" data-action="addEvent" data-arg="${n}">+ 사건 더하기</button>`}</fieldset>`;
@@ -868,6 +868,7 @@ function arcPanel(a, sel, head = {}) {
       <div class="between"><h3>아크 요약 ${a.summary ? '<span class="chip finalized">있음</span>' : '<span class="chip written">필요</span>'}</h3>${head.kind === 'recap_arc' && head.arc === a.number ? '' : `<button class="btn small" data-action="recapArc" data-arg="${a.number}"${rb.attr}>${rb.label}</button>`}</div>
       ${r ? `${input('AI 요약 제안 (고친 뒤 저장)', `${rk}.summary`, { root: 'recaps', rows: 6, autogrow: true })}<div class="row"><button class="btn small" data-action="dropRecap" data-arg="${rk}">버리기</button><button class="btn small primary" data-action="applyRecap" data-arg="${rk}">이 요약 저장</button></div>` : ''}
       ${input('저장된 요약', `story_arcs.${k}.summary`, { rows: 4, autogrow: true, hint: '앞으로 이 아크의 화별 요약 대신 프롬프트에 들어가요. 요약이 없으면 화마다 첫 문장만 들어가 앞 이야기가 흐려져요' })}
+      ${knowsFoldBox(a)}
     </div>`;
   }
   const right = `<div class="row">

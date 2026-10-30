@@ -167,20 +167,17 @@ class ResearchTest(unittest.TestCase):
         self.assertEqual(r["judge"], "mock")
         self.assertIn("twostep", self.c.get(f"{self.api}/research").json()["check_modes"])
 
-        # 장면 상태표 검수: 상태표를 먼저 적고 동선만 본다. 프롬프트에는 이번 화 본문만 들어간다
-        r = self.c.post(f"{self.api}/research/check", json={"backend": {"provider": "mock"}, "episode": 1, "plants": 2, "scene": True}).json()
-        self.assertEqual([m["mode"] for m in r["runs"]], ["full", "budget", "scene"])
+        # 장면 연출 규칙 검수: 사건마다 본문 장면을 뽑고 규칙 판정이 동선만 짚는다. 심은 동선은 거리 규칙에 걸린다
+        r = self.c.post(f"{self.api}/research/check", json={"backend": {"provider": "mock"}, "episode": 1, "plants": 2, "stage": True}).json()
+        self.assertEqual([m["mode"] for m in r["runs"]], ["full", "budget", "stage"])
         sc = r["runs"][2]
         self.assertTrue(sc["ok"], sc.get("error"))
-        self.assertEqual(sc["beats"][0]["bodies"][0]["hands"], "한 손 문고리")
-        self.assertEqual([(k["kind"], k["found"]) for k in sc["by_kind"]], [("사실", 1), ("동선 · 접촉", 1)])
-        self.assertTrue(all(i["type"] == "동선" for i in sc["other"]))
-        self.assertIn({"mode": "scene", "kind": "동선 · 접촉", "found": 1, "planted": 1, "trials": 1},
+        self.assertTrue(sc["scenes"] and sc["tokens"] > 0)
+        self.assertEqual([(k["kind"], k["found"]) for k in sc["by_kind"]], [("사실", 1), ("동선 · 접촉", 1)])  # 가짜 응답은 심은 문장마다 짚는다
+        self.assertTrue(all(i["type"] == "동선" and i["origin"] == "rule" for i in sc["other"]))
+        self.assertIn({"mode": "stage", "kind": "동선 · 접촉", "found": 1, "planted": 1, "trials": 1},
                       self.c.get(f"{self.api}/research").json()["check_totals"])
-        from canon import prompts
-        sp = prompts.scene_prompt(store.load(self.name), 1)
-        self.assertIn("서윤은 등대 문을 열었다", sp)
-        self.assertNotIn("# 확정된 사실", sp)
+        self.assertEqual(store.load(self.name).episode(1).stage, [])  # 시험은 작품에 장면을 넣지 않는다
 
     def test_budget_flags_first_episode_over_limit(self):
         VllmLike.max_len = 3000

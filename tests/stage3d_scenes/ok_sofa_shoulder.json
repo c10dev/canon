@@ -1,0 +1,42 @@
+{
+ "note": "소파에 나란히 앉아 어깨에 손을 얹는다",
+ "template": "living",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "소파",
+    "rel": "on"
+   },
+   "posture": "chair"
+  },
+  {
+   "who": "d",
+   "at": {
+    "ref": "소파",
+    "rel": "on"
+   },
+   "posture": "chair"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "d",
+     "contacts": [
+      {
+       "id": "c1",
+       "by": "left",
+       "to": "h",
+       "part": "shoulder_r",
+       "act": "press"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "expect": []
+}

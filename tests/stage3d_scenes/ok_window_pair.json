@@ -1,0 +1,79 @@
+{
+ "note": "침실 창 앞에 둘이 나란히 선다 (창을 아래 벽으로 옮겼다, 03 측정 c6)",
+ "template": "bedroom",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "창",
+    "rel": "front"
+   },
+   "posture": "stand",
+   "facing": "#창"
+  },
+  {
+   "who": "d",
+   "at": {
+    "ref": "침대",
+    "rel": "on"
+   },
+   "posture": "chair"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "d",
+     "at": {
+      "ref": "창",
+      "rel": "front"
+     },
+     "posture": "walk"
+    }
+   ]
+  },
+  {
+   "quote": "2박자",
+   "bodies": [
+    {
+     "who": "d",
+     "at": {
+      "ref": "@h",
+      "rel": "beside"
+     },
+     "posture": "stand",
+     "facing": "#창"
+    }
+   ]
+  },
+  {
+   "quote": "3박자",
+   "bodies": [
+    {
+     "who": "d",
+     "contacts": [
+      {
+       "id": "c1",
+       "by": "right",
+       "to": "h",
+       "part": "forehead",
+       "act": "press"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "quote": "4박자",
+   "bodies": [
+    {
+     "who": "h",
+     "facing": "@d"
+    }
+   ]
+  }
+ ],
+ "expect": []
+}
