@@ -37,6 +37,7 @@ BUDGET = {
     "travel": 800,          # 쓰기 · 검수의 이동 거리 (mapprompt.travel_block, 지도 크기를 알 때만)
     "spots": 600,           # 쓰기 · 검수: 플롯에 나온 장소가 놓인 건물 한 줄 (mapprompt.spot_block, MapPin.spot)
     "stage": 1_500,         # 쓰기: 작가가 연출을 짠 사건의 박자 요약 (prompts.stage_block, 넘으면 뒤 사건의 장면부터 뺀다)
+    "address": 1_500,       # 쓰기 · 검수 · 상태 변경안: 이번 화 인물끼리의 호칭 · 말씨 줄 (address.block)
     "stat_lines": 2_000,    # 쓰기: 상태창 줄 형식(stat_window.prompt = lines)의 도감 줄. 이번 화 인물의 수치 줄은 늘 넣는다
     # 플레이 모드 (prompts.play_scene_prompt · play_state_prompt). 한 턴은 짧은 장면이라 소설보다 작게 둔다
     "play_style": 1_800,    # 장면: 줄인 스타일 프로필 (PLAY_STYLE_KEYS + 예시 문단 하나)

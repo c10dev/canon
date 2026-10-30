@@ -78,7 +78,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import (archetypes, autorun, branches, cast, charlog, dynamics, elements, genres, illust, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
+from . import (address, archetypes, autorun, branches, cast, charlog, dynamics, elements, features, genres, illust, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
@@ -1235,21 +1235,40 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
     if not confirm("이 변경을 반영할까요? (아니오면 project.json 수정 후 다시 update)", yes):
         return False
     held = 0
-    if delta.setting_changes:
-        if yes:  # -y 는 자동 집필처럼 인물 설정을 바꾸지 않고 남겨 둔다
-            held = charlog.hold(p, delta)
-        elif not confirm(f"설정 바꾸기 제안 {len(delta.setting_changes)}개도 인물 설정에 반영할까요? (아니오면 빼고 반영해요)", False):
+    if yes:  # -y 는 자동 집필처럼 인물 설정 · 호칭을 바꾸지 않고 남겨 둔다
+        held = features.hold(p, delta)
+    else:
+        if delta.setting_changes and not confirm(f"설정 바꾸기 제안 {len(delta.setting_changes)}개도 인물 설정에 반영할까요? (아니오면 빼고 반영해요)", False):
             delta.setting_changes = []
+        if delta.address_changes and not confirm(f"호칭 · 말씨 바뀜 제안 {len(delta.address_changes)}개도 반영할까요? (아니오면 빼고 반영해요)", False):
+            delta.address_changes = []
     pipeline.apply_delta(p, delta)
     store.save(name, p)
     print(f"{n}화 확정 완료")
     if held:
-        print(f"설정 바꾸기 제안 {held}개는 반영하지 않고 남겨 뒀어요. 웹의 인물 · 관계도 화면에서 적용하거나 버리세요")
+        print(f"설정 바꾸기 · 호칭 제안 {held}개는 반영하지 않고 남겨 뒀어요. 웹의 인물 · 관계도 화면에서 적용하거나 버리세요")
     return True
 
 
+def _print_address(p: Project, d: StateDelta) -> None:
+    """호칭 · 말씨 바뀜 제안을 지금 값과 나란히 보여 준다."""
+    if not d.address_changes:
+        return
+    name = {c.id: c.name for c in p.characters} | {c.id: c.name for c in d.new_characters}
+    print("\n--- 호칭 · 말씨 바뀜 제안 (지금 → 바꾼 뒤) ---")
+    for x in d.address_changes:
+        cur = address.find(p, x.speaker, x.listener)
+        for field, label in address.FIELDS.items():
+            after = getattr(x, field)
+            if after:
+                print(f"- {name.get(x.speaker, x.speaker)} → {name.get(x.listener, x.listener)} {label}: {(getattr(cur, field) if cur else '') or '(비어 있음)'} → {after}")
+        if x.quote:
+            print(f"  · 근거: \"{x.quote}\"")
+
+
 def _print_settings(p: Project, d: StateDelta) -> None:
-    """설정 바꾸기 제안을 지금 설정과 나란히 보여 준다."""
+    """설정 바꾸기 · 호칭 제안을 지금 값과 나란히 보여 준다."""
+    _print_address(p, d)
     if not d.setting_changes:
         return
     name = {c.id: c for c in p.characters}
