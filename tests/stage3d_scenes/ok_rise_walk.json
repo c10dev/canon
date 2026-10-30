@@ -1,0 +1,39 @@
+{
+ "note": "의자에서 일어나 걷기 시작한다: 자리는 아직 의자 (03 측정 c3)",
+ "template": "office",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "의자",
+    "rel": "on"
+   },
+   "posture": "chair"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "h",
+     "posture": "walk"
+    }
+   ]
+  },
+  {
+   "quote": "2박자",
+   "bodies": [
+    {
+     "who": "h",
+     "at": {
+      "ref": "책상",
+      "rel": "front"
+     },
+     "posture": "stand"
+    }
+   ]
+  }
+ ],
+ "expect": []
+}

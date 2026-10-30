@@ -1,0 +1,44 @@
+{
+ "note": "교탁 앞의 사람이 교탁 옆에 선 사람의 어깨를 짚는다 (자리 틈만큼 다가선다, 03 측정 c4)",
+ "template": "classroom",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "교탁",
+    "rel": "front"
+   },
+   "posture": "stand"
+  },
+  {
+   "who": "d",
+   "at": {
+    "ref": "교탁",
+    "rel": "beside"
+   },
+   "posture": "stand",
+   "facing": "@h"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "h",
+     "facing": "@d",
+     "contacts": [
+      {
+       "id": "c1",
+       "by": "right",
+       "to": "d",
+       "part": "shoulder_l",
+       "act": "press"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "expect": []
+}

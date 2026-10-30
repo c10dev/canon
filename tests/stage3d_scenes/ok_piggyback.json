@@ -1,0 +1,51 @@
+{
+ "note": "도윤이 하린을 업는다",
+ "template": "empty",
+ "start": [
+  {
+   "who": "d",
+   "at": {
+    "ref": "문",
+    "rel": "front"
+   },
+   "posture": "stand",
+   "facing": "n"
+  },
+  {
+   "who": "h",
+   "at": {
+    "ref": "@d",
+    "rel": "back"
+   },
+   "posture": "stand"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "d",
+     "contacts": [
+      {
+       "id": "c1",
+       "by": "both",
+       "to": "h",
+       "part": "thigh_l",
+       "act": "carry"
+      }
+     ]
+    },
+    {
+     "who": "h",
+     "at": {
+      "ref": "@d",
+      "rel": "back"
+     },
+     "posture": "held"
+    }
+   ]
+  }
+ ],
+ "expect": []
+}

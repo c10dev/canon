@@ -1,0 +1,36 @@
+{
+ "note": "교탁 안 바닥에 앉는다 (바닥에 앉은 다리를 빼도 몸은 본다)",
+ "template": "classroom",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "교탁",
+    "rel": "front"
+   },
+   "posture": "stand"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "h",
+     "at": {
+      "ref": "교탁",
+      "rel": "in"
+     },
+     "posture": "floor"
+    }
+   ]
+  }
+ ],
+ "expect": [
+  [
+   1,
+   "furniture_overlap",
+   "h"
+  ]
+ ]
+}

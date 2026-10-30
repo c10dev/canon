@@ -1,0 +1,11 @@
+{
+ "note": "운전석 위에 선 채로 있다: 머리가 운전석 칸 지붕을 뚫는다",
+ "template": "car_side",
+ "start": [
+  {"who": "h", "at": {"ref": "운전석", "rel": "on"}, "posture": "chair", "facing": "n"}
+ ],
+ "beats": [
+  {"quote": "1박자", "bodies": [{"who": "h", "posture": "stand"}]}
+ ],
+ "expect": [[1, "furniture_overlap", "h"]]
+}
