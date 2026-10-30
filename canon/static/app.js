@@ -1181,13 +1181,15 @@ async function save(force = false) {
   // 서버가 작업 · 자동 집필 · 다른 곳의 반영을 지키느라 화면 값 대신 서버 것을 둔 칸. 화면이 고친 칸이면 성공 토스트만으로는 버린 줄 모른다
   const head = meta.headers && meta.headers.get('X-Canon-Kept');
   const kept = head ? JSON.parse(decodeURIComponent(head)) : [];
-  const dropped = kept.filter((k) => k.field !== 'character' && edited(k)).map((k) => (k.field === 'relationships' ? '관계' : `${k.ep}화 플롯`));
+  const dropped = kept.filter((k) => k.field !== 'character' && k.why !== 'locked' && edited(k)).map((k) => (k.field === 'relationships' ? '관계' : `${k.ep}화 플롯`));
+  const locked = kept.filter((k) => k.why === 'locked' && edited(k)).map((k) => k.ep);
   const kin = kept.filter((k) => k.field === 'character').map((k) => k.name);
   if (dropped.length) toast(`작업이나 반영된 진행과 겹쳐 이 부분은 저장하지 않고 서버에 있는 것으로 두었어요: ${dropped.join(', ')}`, true);
+  if (locked.length) toast(`본문이 있는 화라 플롯은 저장하지 않고 서버에 있는 것으로 두었어요: ${rangeText(locked)}화. 이야기 줄기 표시만 바꿀 수 있어요`, true);
   if (kin.length) toast(`이 화면이 모르는 사이 반영으로 더해진 인물(${kin.join(', ')})은 지우지 않고 남겼어요`);
   if (S.route[2] === 'style') { await loadStyleLink(); await learnLoad(); }
   if (S.route[2] === 'causal') await causalLoad();
-  return !dropped.length;
+  return !dropped.length && !locked.length;
 }
 
 async function loadStyleLink() {

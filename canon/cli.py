@@ -569,7 +569,9 @@ def cmd_nextarc(a: argparse.Namespace) -> None:
         print(prop.reply)
     _print_arc(prop.arc)
     for c in prop.new_characters:
-        print(f"  새 인물: {c.name}({c.id}) {c.role} - {c.speech_style}")
+        print(f"  새 인물 후보: {c.name}({c.id}) {c.role} - {c.speech_style}")
+    if prop.new_characters:
+        print("  (새 인물은 후보로 들어와요. 나오는 화를 confirm 하면 등록돼요)")
     if confirm("이 아크를 반영할까요? (반영 후 plot 으로 화별 플롯)", a.yes):
         arc = pipeline.apply_arc(p, prop)
         print(f"저장: {store.save(a.name, p)}\n다음: plot {a.name}  ({arc.start_ep}~{arc.end_ep}화)")

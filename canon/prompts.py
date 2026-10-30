@@ -1017,6 +1017,45 @@ def extra_block(extra: list[Character], cut: int = 0) -> str:
     return f"{chr(10)}# 이번 화에 나오는 조연 · 단역 설정{note}{chr(10)}{dump(cast_view(extra)) if extra else '없음'}{chr(10)}"
 
 
+def named_block(named: list[Character], cut: int = 0) -> str:
+    """장편 본문 쓰기: 플롯 인물 목록에는 없지만 플롯 글이나 직전 화 끝에 이름이 나온 조연 · 단역 설정 (context.named_ids).
+    cut 은 예산(BUDGET['cast'])을 넘어 뺀 수."""
+    if not named and not cut:
+        return ""
+    note = f" (예산을 넘어 {cut}명은 설정을 뺐습니다)" if cut else ""
+    return (f"{chr(10)}# 플롯 글이나 직전 화 끝에 이름이 나온 인물 설정{note}. 이번 화에 나오거나 말한다면 이 설정과 말투를 따릅니다"
+            f"{chr(10)}{dump(cast_view(named)) if named else '없음'}{chr(10)}")
+
+
+RETURN_SENTENCE = 160  # 오랜만에 나오는 인물의 마지막 화 요약에서 옮기는 글자
+
+
+def return_lines(p: Project, ids: set[str], n: int) -> list[str]:
+    """ids 가운데 context.RETURN_GAP 화 넘게 나오지 않다가 n화에 다시 나오는 인물: 마지막으로 나온 화와 그 화 요약에서 이름이 나온 첫 문장(없으면 화만)."""
+    rows = []
+    by_id = {c.id: c for c in p.characters}
+    for cid, m in sorted(context.last_seen(p, ids, n).items(), key=lambda x: x[1]):
+        if n - m < context.RETURN_GAP:
+            continue
+        c = by_id[cid]
+        pat = context.name_pattern(c)
+        sents = [s for s in re.split(r"(?<=[.!?。])\s+", " ".join(p.episode(m).summary.split())) if s]
+        line = next((s for s in sents if pat and pat.search(s)), "")  # 이름이 없는 문장은 다른 인물 이야기라 옮기지 않는다
+        if len(line) > RETURN_SENTENCE:
+            line = line[:RETURN_SENTENCE - 1] + "…"
+        rows.append(f"- {c.name}: 마지막으로 나온 화 {m}화 ({n - m}화 전)" + (f". {m}화 요약: {line}" if line else ""))
+    return rows
+
+
+def return_block(p: Project, ids: set[str], n: int) -> str:
+    """장편 본문 쓰기의 인물 상태 뒤에 붙는 '오랜만에 다시 나오는 인물'. 없으면 빈 글."""
+    rows = return_lines(p, ids, n)
+    if not rows:
+        return ""
+    return (f"\n\n# 오랜만에 다시 나오는 인물 ({context.RETURN_GAP}화 넘게 나오지 않음. 그동안 바뀐 것은 줄거리와 인물 현재 상태를 따르고, "
+            "독자가 누구인지 알아보게 처음 나올 때 한두 문장으로 짚어 줍니다)\n" + "\n".join(rows))
+
+
 def candidates_block(p: Project) -> str:
     """앞 플롯이 데려왔지만 아직 등록하지 않은 새 인물과 새 장소. 다음 구간 플롯이 같은 인물이나 장소를 또 만들지 않게 한다."""
     out = ""
@@ -1958,15 +1997,23 @@ def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: st
     cast_ids = set(ep.plot.characters) or {c.id for c in static_characters(p)} or {c.id for c in p.characters}
     cast_names = ", ".join(f"{c.name}({c.id})" for c in p.characters if c.id in cast_ids)  # '넣지 않음' 인물도 이름은 남긴다
     facts, facts_cut = relevant_facts(p, cast_ids, n)
+    plot_ids = cast_ids
     cast_ids = context.without_off(p, cast_ids)  # 상태 · 관계 · 설정은 '넣지 않음' 인물을 뺀다
-    states = [s for s in p.states if s.character_id in cast_ids]
-    rels = [r for r in p.relationships if r.a in cast_ids and r.b in cast_ids]
     last_text = next((e.text for e in reversed(p.episodes) if e.plot.number == n - 1 and e.text), "")
     extra, extra_cut = side_characters(p, cast_ids), 0
+    named, named_cut = [], 0
     if p.serial:  # 장편: '항상' 조연 · 단역이 예산을 차지하면 이번 화 조연 · 단역을 단역부터 뺀다
         always = [c for c in static_characters(p) if c.tier != "main"]
         used = len(dump(cast_view(always))) if always else 0
-        extra, extra_cut = context.fit_cast(extra, used, lambda c: len(dump(cast_view([c]))), context.BUDGET["cast"])
+        size = lambda c: len(dump(cast_view([c])))  # noqa: E731
+        extra, extra_cut = context.fit_cast(extra, used, size, context.BUDGET["cast"])
+        # 플롯 인물 목록에 없지만 플롯 글이나 직전 화 끝에 이름이 나온 조연 · 단역도 남은 예산만큼 설정 · 상태 · 관계를 넣는다
+        seen = context.named_ids(p, elements.plot_text(ep) + "\n" + last_text[-context.NAMED_TAIL:]) - plot_ids
+        used += len(dump(cast_view(extra))) if extra else 0
+        named, named_cut = context.fit_named(side_characters(p, seen), used, size, context.BUDGET["cast"])
+        cast_ids = cast_ids | {c.id for c in named}
+    states = [s for s in p.states if s.character_id in cast_ids]
+    rels = [r for r in p.relationships if r.a in cast_ids and r.b in cast_ids]
     fs, fs_cut = relevant_foreshadows(p, n)
     if p.serial:  # 아크 안 구간은 아크 안에서도 바뀌어 serial_episode_context 가 접은 줄거리 뒤에 둔다 (act_line)
         where = structure_text(p, n, "# 현재 부와 아크")
@@ -2001,7 +2048,8 @@ def build_episode_context(p: Project, n: int, *, use_board: bool = True, pre: st
     if p.serial:
         act_line = f"현재 아크 안 구간: {act.name if act else '?'} ({act.start_ep if act else '?'}~{act.end_ep if act else '?'}화) 목표: {act.goal if act else ''}"
         return serial_episode_context(p, n, where=where, act_line=act_line, line=line, facts=facts_text, facts_cut=facts_cut, els=els,
-                                      cast_names=cast_names, extra=extra_block(extra, extra_cut), states=states, rels=rels, cast_ids=cast_ids,
+                                      cast_names=cast_names, extra=extra_block(extra, extra_cut) + named_block(named, named_cut),
+                                      states=states, rels=rels, cast_ids=cast_ids,
                                       fs=fs, fs_cut=fs_cut, prev=prev, tail=f"{pov}{dev}{material_block(p, n)}")
 
     return f"""{static_context(p)}
@@ -2058,7 +2106,7 @@ def serial_episode_context(p: Project, n: int, *, where: str, act_line: str, lin
 {cast_names or "설정의 인물 전원"}
 {extra}
 # 인물 현재 상태 ({n - 1}화 종료 시점){knows_note(knows_cut)}
-{dump(states) or "1화 시작 시점, 설정 그대로"}
+{dump(states) or "1화 시작 시점, 설정 그대로"}{return_block(p, cast_ids, n)}
 
 # 관계 현재 상태
 {describe_relations(p, cast_ids, secrets=secrets) or dump(rels) or "없음"}
@@ -2511,8 +2559,8 @@ def rewrite_prompt(p: Project, n: int, req, materials: dict[str, list[str]], old
 
 def state_prompt(p: Project, n: int) -> str:
     ep = p.episode(n)
-    if p.serial:  # 장편: 이번 화에 나온 인물과 주역만 자세히, 나머지는 한 줄 목록으로 ('넣지 않음' 인물은 한 줄 목록에)
-        ids = context.without_off(p, set(ep.plot.characters) | {c.id for c in static_characters(p)})
+    if p.serial:  # 장편: 이번 화 플롯 인물 · 본문에 이름이 나온 인물과 주역만 자세히, 나머지는 한 줄 목록으로 ('넣지 않음' 인물은 한 줄 목록에)
+        ids = context.without_off(p, set(ep.plot.characters) | {c.id for c in static_characters(p)} | context.named_ids(p, ep.text))
         chars = [c for c in p.characters if c.id in ids]
         states, knows_cut = state_view(p, [s for s in p.states if s.character_id in ids], n, ep.text + "\n" + elements.plot_text(ep))
         relations = rels(p, ids)
@@ -2605,11 +2653,17 @@ def check_recall(p: Project, n: int, sized: bool = False) -> tuple[list, list[tu
     return recent, context.recall(p, first, ep.text + "\n" + elements.plot_text(ep), context.BUDGET["check_recall"], recent_nos, terms)
 
 
+def check_cast(p: Project, n: int) -> set[str]:
+    """장편 검수(budget) 인물: 이번 화 플롯 인물과 주역, 본문에 이름이 나온 인물. 플롯에 적지 않은 조연도 말투 · 상태를 대조한다."""
+    return context.episode_cast(p, n, p.episode(n).text)
+
+
 def _check_budget(p: Project, n: int, sized: bool = False) -> tuple[str, str, str, str, str, str]:
     """장편 검수 자료: 직전 CHECK_RECENT 화는 원문, 그보다 앞은 접은 줄거리와 이번 화와 겹치는 옛 단락(context.recall),
-    사실 · 상태 · 관계 · 비밀은 이번 화 인물과 주역 것만. 예전 방식은 최근 화만 원문이라 오래된 장면과의 모순은 요약으로만 봤다."""
+    사실 · 상태 · 관계 · 비밀은 이번 화 인물(본문에 이름이 나온 인물 포함, check_cast)과 주역 것만.
+    예전 방식은 최근 화만 원문이라 오래된 장면과의 모순은 요약으로만 봤다."""
     ep = p.episode(n)
-    ids = context.episode_cast(p, n)
+    ids = check_cast(p, n)
     recent, found = check_recall(p, n, sized)
     recent_nos = {e.plot.number for e in recent}
     first = min(recent_nos) if recent else n
@@ -2729,10 +2783,12 @@ def check_material(p: Project, n: int, mode: str = "", sized: bool = False) -> s
     line += f"\n\n# 장소가 놓인 건물 (지도 기준)\n{sp}" if sp else ""
     pov = pov_block(p, n)
     pov = f"\n\n# {n}화 서술 시점 (스타일 프로필보다 우선)\n{pov}" if pov else ""
+    side = side_characters(p, check_cast(p, n)) if mode == "budget" else []  # 앞 블록에는 주역 설정만 있다
+    side = f"\n\n# {n}화에 나오는 조연 · 단역 설정 (말투 · 호칭 · 외모 대조용)\n{dump(cast_view(side))}" if side else ""
     return f"""{static_context(p)}
 
 # 확정된 사실
-{facts_text}{els}
+{facts_text}{els}{side}
 
 # 인물 현재 상태 ({n - 1}화 종료 시점)
 {states}
