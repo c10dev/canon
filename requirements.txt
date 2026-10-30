@@ -1,5 +1,7 @@
 google-genai>=1.0
 pydantic>=2.7
+shapely>=2.0  # 장면 연출 이동 경로 (canon/stagepath.py)
+networkx>=3.0  # 장면 연출 이동 경로의 가장 짧은 길
 fastapi>=0.110
 uvicorn>=0.29
 anthropic>=1.0  # Claude API 키(claude-api) 백엔드

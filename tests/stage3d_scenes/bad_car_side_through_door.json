@@ -1,0 +1,12 @@
+{
+ "note": "창밖에 선 사람이 운전석에 앉은 사람의 발목을 잡는다: 닫힌 문(차체 옆판)에 막힌다",
+ "template": "car_side",
+ "start": [
+  {"who": "h", "at": {"ref": "운전석", "rel": "on"}, "posture": "chair", "facing": "n"},
+  {"who": "d", "at": {"ref": "운전석 창", "rel": "front"}, "posture": "stand", "facing": "#운전석 창", "left": "", "right": ""}
+ ],
+ "beats": [
+  {"quote": "1박자", "bodies": [{"who": "d", "contacts": [{"id": "c1", "by": "right", "to": "h", "part": "ankle_l", "act": "hold"}]}]}
+ ],
+ "expect": [[1, "reach3d", "d"]]
+}

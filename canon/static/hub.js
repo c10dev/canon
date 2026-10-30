@@ -17,6 +17,7 @@ const HUB_RESULT = {
   nextarc: () => ['다음 아크 제안', '/arc'],
   recap_arc: (r) => [`아크 ${r.ep} 요약 제안`, '/arc'],
   recap_part: (r) => [`${r.ep}부 요약 제안`, '/arc'],
+  fold_knows: (r) => [`아크 ${r.ep} 아는 정보 접기 제안`, '/arc'],
   storyline: () => ['이야기 줄기 제안', '/lines'],
   convert: () => ['장편 전환 계획', '/convert'],
   rebuild: () => ['재구성 안', '/convert'],
