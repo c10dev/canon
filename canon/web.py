@@ -21,13 +21,13 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import address, agent, archetypes, autorun, board, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
+from . import address, agent, archetypes, autorun, board, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 from . import abilities, atlas, findings, foreshadows, setupchat, stattrial, statwin, timeline, travel
-from .schema import AgentSession, ChatScope, Deadline, Storyboard, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
+from .schema import AgentSession, ChatScope, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
 from .schema import FieldIdeas, NameOption, Recap
@@ -36,8 +36,8 @@ from .schema import BranchDiff, BranchInfo, ForkMode
 from . import birth, play
 from . import cue
 from .schema import CueSheetDraft
-from . import tofix
-from .schema import Birth, BirthSketch, Episode, PlayInfo, PlayPerson, PlayUnit
+from . import stage, tofix
+from .schema import Birth, BirthSketch, Episode, PlayInfo, PlayPerson, PlayUnit, StageProposal, StageRoom, StageScene
 
 STATIC = Path(__file__).parent / "static"
 # 폴더 이름: / \ 와 운영체제가 막는 : * ? " < > | 는 쓸 수 없고, . 으로 시작하지 않는다
@@ -152,6 +152,11 @@ def _save(name: str, p: Project, merged: set[str] | None = None, kept: list[dict
             marks = {e.plot.number: e.to_fix for e in disk.episodes}
             for e in p.episodes:
                 e.to_fix = marks.get(e.plot.number, [])
+            # 장면 연출도 전용 엔드포인트로만 바꾼다 (stage.py)
+            scenes = {e.plot.number: e.stage for e in disk.episodes}
+            for e in p.episodes:
+                e.stage = scenes.get(e.plot.number, [])
+            p.rooms = disk.rooms
         store.save(name, p)
     return p
 
@@ -1307,6 +1312,25 @@ def apply_recap(name: str, kind: str, number: int, body: Recap) -> Project:
     return _save(name, p)
 
 
+@app.post("/api/projects/{name}/knows-fold/{number}")
+def apply_knows_fold(name: str, number: int, body: KnowsFoldSet) -> Project:
+    """아크 요약 뒤 아는 정보 접기 제안(작업 fold_knows) 가운데 작가가 고르고 고친 인물만 적용한다 (knows.apply_fold)."""
+    p = _load(name)
+    _not_auto(name)
+    if not knows.apply_fold(p, number, body):
+        raise ValueError("적용할 접기가 없어요. 인물을 고르거나 줄을 적으세요")
+    return _save(name, p)
+
+
+@app.delete("/api/projects/{name}/knows-fold/{number}")
+def undo_knows_fold(name: str, number: int) -> Project:
+    """아크 number 에서 접은 아는 정보를 되돌린다 (knows.undo_fold)."""
+    p = _load(name)
+    _not_auto(name)
+    knows.undo_fold(p, number)
+    return _save(name, p)
+
+
 # ---------- 3-2. 이야기 줄기 ----------
 # AI 제안은 백그라운드 작업(storyline)으로 받고, 화면에서 고친 뒤 아래로 반영한다. 화에 붙이고 떼는 것은 화면이 저장(PUT)한다.
 
@@ -1777,7 +1801,7 @@ def impact_reopen(name: str, eid: str) -> Project:
 # ---------- 백그라운드 작업 ----------
 
 class JobIn(BaseModel):
-    kind: str  # suggest | arc | plots | write | board | cues | state | impact | series | nextarc | recap_arc | recap_part | storyline | convert | rebuild | rework | hook | openings | opening_drafts
+    kind: str  # suggest | arc | plots | write | board | cues | state | impact | series | nextarc | recap_arc | recap_part | fold_knows | storyline | convert | rebuild | rework | hook | openings | opening_drafts
     ep: int | None = None  # 화 번호. plots 는 장편에서 아크 번호(없으면 초안이 있는 모든 아크), recap_* 는 아크·부 번호
     element: str = ""  # impact 일 때 요소 id
     note: str = ""  # arc, series, plots, nextarc, storyline, convert, rebuild: 작가가 바라는 것
@@ -1792,6 +1816,8 @@ class JobIn(BaseModel):
     episodes: list[int] = []  # stattrial: 시험할 화
     repeats: int = 1  # stattrial: 조건마다 같은 화를 쓸 횟수
     conditions: list[str] = []  # stattrial: none | json | lines (비우면 셋 다). cue_run: oneshot | score | cues (비우면 셋 다)
+    event: int = 0  # stage_draft, stage_extract: 플롯 사건 번호 (0부터)
+    stage_room: str = ""  # stage_draft: 아직 방이 없을 때 이 틀(보통 empty)로 새 방을 만들어 초안을 받는다 (AI 가 기준점을 더하자고 한다)
     board: Literal["", "make", "none"] = ""  # write: make 면 스토리보드를 새로 만든 뒤 쓴다(바로 쓰기), none 이면 스토리보드 없이 쓴다
     cues: Literal["", "none"] = ""  # write: 큐 시트를 쓰는 작품(cue.on)인데 그 화에 없으면 만든 뒤 쓴다. none 이면 큐 시트 없이 쓴다
 
@@ -1842,8 +1868,8 @@ def start_job(name: str, body: JobIn) -> dict:
     kind, n = body.kind, body.ep
     if kind in ("write", "state", "plots", "plot_one", "check", "board"):
         _not_auto(name)
-    stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "rework": "revise",
-             "hook": "check", "check": "check", "opening_drafts": "write", "stattrial": "write", "cue_run": "write"}.get(kind, "plan")  # 나머지는 plan
+    stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "fold_knows": "state", "rework": "revise",
+             "hook": "check", "check": "check", "opening_drafts": "write", "stattrial": "write", "stage_extract": "check", "cue_run": "write"}.get(kind, "plan")  # 나머지는 plan
     llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
     if kind == "suggest":
@@ -1907,7 +1933,26 @@ def start_job(name: str, body: JobIn) -> dict:
             q0 = store.load(name)
             rep = pipeline.check_episode(llm, q0, n)
             r = _edit(name, lambda q: pipeline.apply_check(q, rep, "api", pipeline.widen_on(q0))).episode(n).rounds[-1]
-            return {"issues": len(rep.issues), "round": r.no, "added": r.added}
+            for prop in rep._stage_held:  # 작가가 손본 본문 장면은 덮지 않고 장면 연출 화면의 비교로 남긴다
+                _stage_keep(name, prop)
+            return {"issues": r.found, "round": r.no, "added": r.added, "stage": len(rep._stage)}  # 짚은 곳: 검수 모델 + 장면 연출 규칙
+    elif kind in ("stage_draft", "stage_extract"):
+        # 장면 연출 AI: 플롯 사건에서 계획 장면 초안, 본문에서 본문 장면 뽑기. 결과는 장면 연출 화면이 비교한 뒤 적용한다
+        if n is None:
+            raise ValueError("화 번호(ep)가 필요해요")
+        e = p.episode(n)
+        if not 0 <= body.event < len(e.plot.events):
+            raise ValueError(f"{n}화에 {body.event + 1}번째 사건이 없어요")
+        if kind == "stage_extract" and not e.text:
+            raise ValueError("본문이 있는 화만 뽑아요")
+        event, fresh = body.event, body.stage_room if body.stage_room in pipeline.stage.ROOMS else ""  # 이 함수 안의 stage 는 LLM 단계 이름이다
+        label, total, owned = f"{n}화 사건 {event + 1} {'연출 초안' if kind == 'stage_draft' else '본문에서 연출 뽑기'}", 1, set()
+
+        def fn(job: jobs.Job):
+            q = store.load(name)
+            prop = pipeline.draft_stage(llm, q, n, event, fresh) if kind == "stage_draft" else pipeline.extract_stage(llm, q, n, event)
+            _stage_keep(name, prop)
+            return {"event": event, "role": prop.role, "beats": len(prop.scene.beats), "dropped": prop.dropped}
     elif kind == "storyline":
         label, total, owned = "이야기 줄기 제안", 1, set()
         note, line_kind = body.note, body.line_kind
@@ -1922,6 +1967,13 @@ def start_job(name: str, body: JobIn) -> dict:
 
         def fn(job: jobs.Job):
             return pipeline.recap(llm, store.load(name), unit, n).model_dump()
+    elif kind == "fold_knows":
+        if n is None:
+            raise ValueError("아크 번호(ep)가 필요해요")
+        label, total, owned = f"아크 {n} 아는 정보 접기", 1, set()
+
+        def fn(job: jobs.Job):
+            return pipeline.fold_knows(llm, store.load(name), n).model_dump()
     elif kind == "plots":
         if not p.beats():
             raise ValueError("다음 아크를 먼저 기획하세요" if p.serial else "기승전결 구조(arc)를 먼저 만들고 저장하세요")
@@ -2127,7 +2179,7 @@ def start_job(name: str, body: JobIn) -> dict:
 
 # 결과가 반영 전 제안인 작업. 화면이 반영하거나 버릴 때까지 pending.json 에 둔다
 # (본문 · 플롯 · 판정 같은 작업은 서버가 이미 작품에 썼다)
-PENDING_KINDS = {"arc", "suggest", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "state", "openings"}
+PENDING_KINDS = {"arc", "suggest", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "fold_knows", "state", "openings"}
 
 
 def _keep_pending(name: str, kind: str, n: int | None, label: str, fn):
@@ -2369,6 +2421,186 @@ def update_tofix(name: str, n: int, mid: str, body: ToFixPatch) -> Project:
 def delete_tofix(name: str, n: int, mid: str) -> Project:
     _load(name).episode(n)
     return _edit(name, lambda p: tofix.remove(p.episode(n), mid))
+
+
+# ---------- 장면 연출 (stage.py, 화면 static/stage.js) ----------
+# 장면은 작가 자료라 이 엔드포인트로만 바꾼다. 화면의 작품 전체 저장(_save)은 디스크의 장면 · 방을 지킨다.
+# 자동 집필이 돌거나 그 화를 맡은 작업이 있으면 막는다 (작업이 저장하는 작품이 장면 저장을 덮지 않게).
+
+class StageNewIn(BaseModel):
+    event: int
+    room: str = ""      # 이미 있는 방 id. 비면 template 로 새 방
+    template: str = ""
+    room_name: str = ""
+    place: str = ""
+    role: Literal["plan", "text"] = "plan"  # 본문 장면은 보통 추출(일감 03)이 만든다
+
+
+class StageSaveIn(BaseModel):
+    scene: StageScene
+    room: StageRoom | None = None
+
+
+def _stage_free(name: str, n: int) -> None:
+    _not_auto(name)
+    if n in jobs.owned_episodes(name):
+        raise ValueError(f"{n}화를 맡은 작업이 도는 중이에요. 끝난 뒤에 저장하세요")
+
+
+@app.get("/api/projects/{name}/stage/{n}")
+def stage_view(name: str, n: int) -> dict:
+    return _stage_view(name, _load(name), n)
+
+
+@app.post("/api/projects/{name}/stage/{n}")
+def stage_new(name: str, n: int, body: StageNewIn) -> dict:
+    _load(name).episode(n)
+    _stage_free(name, n)
+    made = {}
+
+    def fn(p: Project):
+        e = p.episode(n)
+        room = next((r for r in p.rooms if r.id == body.room), None) if body.room else None
+        if room is None:
+            room = stage.new_room(p, body.template or "empty", body.room_name, body.place)
+        made["id"] = stage.new_scene(p, e, body.event, room, body.role).id
+
+    p = _edit(name, fn)
+    return {**_stage_view(name, p, n), "made": made["id"]}
+
+
+@app.put("/api/projects/{name}/stage/{n}/{sid}")
+def stage_save(name: str, n: int, sid: str, body: StageSaveIn) -> dict:
+    _load(name).episode(n)
+    _stage_free(name, n)
+    if body.scene.id != sid:
+        raise ValueError("장면 번호가 주소와 달라요")
+    out = {}
+    p = _edit(name, lambda p: out.update(dropped=stage.save_scene(p, p.episode(n), body.scene, body.room)))
+    return {**_stage_view(name, p, n), **out}
+
+
+# AI 장면(StageProposal)은 pending.json 의 results 에 'stage:<화>:<사건>:<역할>' 로 둔다 (화면 app.js 의 pendingShown 이 지우지 않는다).
+# 장면 연출 화면이 지금 장면과 나란히 보이고, 적용하면 통째로 넣고 지운다.
+
+def _stage_key(n: int, event: int, role: str) -> str:
+    return f"stage:{n}:{event}:{role}"
+
+
+def _stage_keep(name: str, prop: StageProposal) -> None:
+    key = _stage_key(prop.episode, prop.event, prop.role)
+    rec = {"key": key, "kind": "stage", "ep": prop.episode, "label": f"{prop.episode}화 사건 {prop.event + 1} 연출", "result": prop.model_dump(), "at": _now()}
+    store.edit_pending(name, lambda d: d["results"].__setitem__(key, rec))
+
+
+def _stage_proposals(name: str, n: int) -> list[dict]:
+    return [r["result"] for r in store.load_pending(name)["results"].values() if r.get("kind") == "stage" and r.get("ep") == n]
+
+
+def _stage_view(name: str, p: Project, n: int) -> dict:
+    """장면 연출 화면 값 + 검토를 기다리는 AI 장면 (비교 보기는 그 장면도 판정해 보인다)."""
+    out = stage.view(p, n)
+    e = p.episode(n)
+    props = []
+    for x in _stage_proposals(name, n):
+        prop = StageProposal.model_validate(x)
+        room = prop.room or prop.grown or stage.room_of(p, prop.scene)
+        shared = bool(prop.adds and prop.grown) and stage.room_shared(p, prop.grown.id, n, prop.event, prop.role)
+        props.append({**prop.model_dump(), "violations": [v.model_dump() for v in stage.judge_all(prop.scene, room, p)] if room else [],
+                      "moves": stage.move_gaps(prop.scene, room, p), "stale": stage.stale(prop.scene, e.text), "room_shared": shared})
+    return {**out, "proposals": props}
+
+
+class StageApplyIn(BaseModel):
+    event: int
+    role: Literal["plan", "text"] = "plan"
+    shared: bool = False  # AI 가 더하자는 기준점을 공용 방에 바로 더한다 (거짓이면 공용 방을 복사한 장면 전용 방에)
+
+
+@app.post("/api/projects/{name}/stage/{n}/apply")
+def stage_apply(name: str, n: int, body: StageApplyIn) -> dict:
+    """검토를 기다리는 AI 장면을 통째로 넣는다. 같은 사건 · 역할의 장면은 적용 취소 한 번으로 되돌릴 수 있다."""
+    _load(name).episode(n)
+    _stage_free(name, n)
+    key = _stage_key(n, body.event, body.role)
+    rec = store.load_pending(name)["results"].get(key)
+    if rec is None:
+        raise ValueError("적용할 AI 장면이 없어요. 다시 받아 주세요")
+    prop = StageProposal.model_validate(rec["result"])
+    made = {}
+    p = _edit(name, lambda q: made.update(id=pipeline.apply_stage(q, prop, body.shared).id))
+    store.edit_pending(name, lambda d: d["results"].pop(key, None))
+    return {**_stage_view(name, p, n), "made": made["id"]}
+
+
+@app.delete("/api/projects/{name}/stage/{n}/proposal/{event}/{role}")
+def stage_discard(name: str, n: int, event: int, role: str) -> dict:
+    """AI 장면을 버린다 (장면은 그대로)."""
+    store.edit_pending(name, lambda d: d["results"].pop(_stage_key(n, event, role), None))
+    return _stage_view(name, _load(name), n)
+
+
+@app.post("/api/projects/{name}/stage/{n}/{sid}/undo")
+def stage_undo(name: str, n: int, sid: str) -> dict:
+    """마지막 AI 적용을 되돌린다. 적용 전에 장면이 없었으면 장면을 뺀다."""
+    _load(name).episode(n)
+    _stage_free(name, n)
+    return _stage_view(name, _edit(name, lambda q: pipeline.undo_stage(q, n, sid)), n)
+
+
+@app.post("/api/projects/{name}/stage/{n}/check")
+def stage_check(name: str, n: int, body: StageSaveIn) -> dict:
+    """저장하지 않고 판정만 (화면이 고치는 동안). 막을 접촉 수도 센다."""
+    p = _load(name)
+    e = p.episode(n)
+    scene = body.scene.model_copy(deep=True)
+    room = body.room or stage.room_of(p, scene)
+    dropped = stage.clean_scene(scene, room, p)
+    return {**stage.check(p, e, scene, room), "dropped": dropped}
+
+
+def _frames(p: Project, scene: StageScene, room: StageRoom | None) -> dict:
+    """3D 보기 값: 박자마다 관절 좌표(stage3d.frames), 3D 판정, 아직 모듈이 없는 자세 · 틀.
+    3D 판정은 자세 · 틀이 다 등록됐을 때만 낸다 (docs/stage/3d/README.md 정할 것 10). 같은 지적이 stage.check 의 violations 에도 있다."""
+    from . import stage3d
+    from .stage3d import judge as judge3d
+
+    if room is None:
+        raise ValueError("장면의 방을 찾지 못했어요")
+    fr = stage3d.frames(scene, room, p)
+    found = [v.model_dump() for v in judge3d.judge3d(scene, room, p, frames=fr)] if stage3d.ready() else []
+    return {"frames": fr.to_dict(), "violations3d": found, "missing": stage3d.missing()}
+
+
+@app.get("/api/projects/{name}/stage/{n}/{sid}/frames")
+def stage_frames(name: str, n: int, sid: str) -> dict:
+    """저장된 장면 하나의 3D 보기 값 (화면 static/stage3d.js)."""
+    p = _load(name)
+    scene = next((s for s in p.episode(n).stage if s.id == sid), None)
+    if scene is None:
+        raise HTTPException(404, "그 장면이 없어요")
+    return _frames(p, scene, stage.room_of(p, scene))
+
+
+@app.post("/api/projects/{name}/stage/{n}/{sid}/frames")
+def stage_frames_draft(name: str, n: int, sid: str, body: StageSaveIn) -> dict:
+    """저장하지 않은 장면의 3D 보기 값 (화면이 고치는 중일 때 '다시 그리기')."""
+    p = _load(name)
+    p.episode(n)
+    if body.scene.id != sid:
+        raise ValueError("장면 번호가 주소와 달라요")
+    scene = body.scene.model_copy(deep=True)
+    room = body.room or stage.room_of(p, scene)
+    if room:
+        stage.clean_scene(scene, room, p)
+    return _frames(p, scene, room)
+
+
+@app.delete("/api/projects/{name}/stage/{n}/{sid}")
+def stage_delete(name: str, n: int, sid: str) -> dict:
+    _load(name).episode(n)
+    _stage_free(name, n)
+    return _stage_view(name, _edit(name, lambda p: stage.remove_scene(p.episode(n), sid)), n)
 
 
 # ---------- 4-1. 본문 부분 수정 ----------
@@ -4081,6 +4313,14 @@ def set_check_widen(name: str, body: CheckWiden) -> Project:
     return _save(name, p)
 
 
+@app.put("/api/projects/{name}/stage-extract")
+def set_stage_extract(name: str, body: CheckWiden) -> Project:
+    """검수 때 함께 뽑기 켜기 · 끄기 (Settings.stage_extract). 자동 집필 검수도 따른다."""
+    p = _load(name)
+    p.settings.stage_extract = body.on
+    return _save(name, p)
+
+
 class BoardSetting(BaseModel):
     on: bool
 
@@ -5016,7 +5256,7 @@ class CheckTrialIn(BaseModel):
     plants: int = 3
     modes: list[str] = []
     judge: research.Backend | None = None  # 주면 두 걸음 검수(판단기)도 시험한다
-    scene: bool = False  # 켜면 장면 상태표 검수도 시험한다
+    stage: bool = False  # 켜면 장면 연출 규칙 검수도 시험한다
 
 
 @app.post("/api/projects/{name}/research/check")
@@ -5024,7 +5264,7 @@ def research_check(name: str, body: CheckTrialIn) -> dict:
     """검수 시험: n화에 모순을 심고 검수 방식마다 찾는지 본다. 작품에는 저장하지 않는다."""
     if not 1 <= body.plants <= 5:
         raise ValueError("심을 모순은 1~5개예요")
-    res = research.check_trial(_load(name), body.episode, body.backend, body.plants, body.modes or None, judge=body.judge, scene=body.scene)
+    res = research.check_trial(_load(name), body.episode, body.backend, body.plants, body.modes or None, judge=body.judge, stage=body.stage)
     return research.record(name, "check", res)
 
 

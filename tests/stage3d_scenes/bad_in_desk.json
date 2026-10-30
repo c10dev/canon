@@ -1,0 +1,36 @@
+{
+ "note": "교탁 안에 선다",
+ "template": "classroom",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "교탁",
+    "rel": "front"
+   },
+   "posture": "stand"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "h",
+     "at": {
+      "ref": "교탁",
+      "rel": "in"
+     },
+     "posture": "stand"
+    }
+   ]
+  }
+ ],
+ "expect": [
+  [
+   1,
+   "furniture_overlap",
+   "h"
+  ]
+ ]
+}

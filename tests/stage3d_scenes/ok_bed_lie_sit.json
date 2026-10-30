@@ -1,0 +1,47 @@
+{
+ "note": "침대에 누운 하린 곁에 도윤이 걸터앉아 머리를 쓰다듬는다",
+ "template": "bedroom",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "침대",
+    "rel": "on"
+   },
+   "posture": "lie"
+  },
+  {
+   "who": "d",
+   "at": {
+    "ref": "침대",
+    "rel": "front"
+   },
+   "posture": "stand"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "d",
+     "at": {
+      "ref": "침대",
+      "rel": "on"
+     },
+     "posture": "chair",
+     "contacts": [
+      {
+       "id": "c1",
+       "by": "right",
+       "to": "h",
+       "part": "hair",
+       "act": "stroke"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "expect": []
+}

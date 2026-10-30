@@ -1,0 +1,12 @@
+{
+ "note": "창밖에 서 있다가 차체(뒤 생활칸) 안으로 걸어 들어간다: 막힌 덩어리를 뚫는다",
+ "template": "car_side",
+ "start": [
+  {"who": "h", "at": {"ref": "운전석", "rel": "on"}, "posture": "chair", "facing": "n"},
+  {"who": "d", "at": {"ref": "운전석 창", "rel": "front"}, "posture": "stand", "facing": "#운전석 창"}
+ ],
+ "beats": [
+  {"quote": "1박자", "bodies": [{"who": "d", "at": {"ref": "차체", "rel": "in"}, "posture": "walk"}]}
+ ],
+ "expect": [[1, "furniture_overlap", "d"]]
+}

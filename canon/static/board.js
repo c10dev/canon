@@ -8,6 +8,12 @@ const BOARD_STOP = ['plot_vs_state', 'plot_vs_text', 'time'];  // board.STOP_KIN
 const BOARD_BY = { ai: 'AI 제안', author: '작가가 만듦', both: 'AI 제안 · 작가가 고침' };
 const BOARD_KINDS = ['장면', '시간', '몸', '물건', '인물', '숨긴 것', '숫자', '질문'];
 
+/** 스토리보드 장면 줄의 '🎬 연출' 링크: 그 장면이 맡은 첫 사건의 장면 연출 화면 (주소 stage/<화>/<사건 번호>). */
+function boardStageLink(n, s) {
+  const first = Math.min(...s.events.filter((k) => k > 0));
+  return Number.isFinite(first) ? `<a class="small" href="${base()}/stage/${n}/${first}" title="이 장면의 자리 · 몸을 장면 연출에서 짜요">🎬 연출</a>` : '';
+}
+
 /** 이 작품이 스토리보드를 쓰는지 (board.on: 작가가 정하지 않았으면 장편 켬 · 단편 끔). */
 function boardOn() {
   const v = P().settings && P().settings.storyboard;
@@ -113,7 +119,7 @@ function boardBody(n, b, v) {
   const covered = new Set(b.scenes.flatMap((s) => s.events));
   const missing = Array.from({ length: events }, (_, i) => i + 1).filter((k) => !covered.has(k));
   parts.push(`<div class="bd-sec"><h3 class="bd-h">장면 ${b.scenes.length} <span class="small">${missing.length ? `사건 ${missing.join(', ')}번을 맡은 장면이 없어요` : events ? `사건 1~${events}을 모두 나눠 맡았어요` : ''}</span></h3>
-    <ol class="bd-scenes">${b.scenes.map((s) => `<li><div><strong>${esc([s.place, s.spot].filter(Boolean).join(' · '))}</strong>${s.time ? ` · ${esc(s.time)}` : ''}${s.present.length ? ` · ${esc(s.present.map(name).join(', '))}` : ''}${s.events.length ? ` <span class="chip">사건 ${s.events.join(', ')}</span>` : ''}</div>
+    <ol class="bd-scenes">${b.scenes.map((s) => `<li><div><strong>${esc([s.place, s.spot].filter(Boolean).join(' · '))}</strong>${s.time ? ` · ${esc(s.time)}` : ''}${s.present.length ? ` · ${esc(s.present.map(name).join(', '))}` : ''}${s.events.length ? ` <span class="chip">사건 ${s.events.join(', ')}</span> ${boardStageLink(n, s)}` : ''}</div>
       ${s.goal ? `<div class="small">목표 · ${esc(s.goal)}</div>` : ''}${s.turn ? `<div class="small">전환 · ${esc(s.turn)}</div>` : ''}${s.end_state ? `<div class="small">끝 · ${esc(s.end_state)}</div>` : ''}</li>`).join('')}</ol></div>`);
   return parts.join('');
 }

@@ -43,8 +43,8 @@ def log(f: Finding, at: str, kind: str, text: str = "") -> None:
 
 
 def _match(ep: Episode, x: ConsistencyIssue, taken: set[str]) -> Optional[Finding]:
-    """x 와 같은 문장을 짚은 옛 지적. 같은 갈래를 먼저 찾는다. 이번 회차에 이미 이은 지적은 건너뛴다."""
-    cands = [f for f in ep.findings if f.id not in taken and same(f, x)]
+    """x 와 같은 출처 · 같은 문장을 짚은 옛 지적. 같은 갈래를 먼저 찾는다. 이번 회차에 이미 이은 지적은 건너뛴다."""
+    cands = [f for f in ep.findings if f.id not in taken and f.origin == x.origin and same(f, x)]  # 규칙 지적은 규칙 지적끼리
     return next((f for f in cands if f.type == x.type), cands[0] if cands else None)
 
 
@@ -54,10 +54,10 @@ def _next_id(ep: Episode) -> str:
 
 
 def merge(ep: Episode, issues: list[ConsistencyIssue], at: str, basis: str,
-          source: CheckSource = "api", widen: bool = False) -> CheckRound:
+          source: CheckSource = "api", widen: bool = False, stage: bool = False) -> CheckRound:
     """새 회차의 검수 결과를 지적 목록에 합친다. issues · checked_at 은 이 회차 결과 그대로 둔다."""
     no = (ep.rounds[-1].no if ep.rounds else 0) + 1
-    r = CheckRound(no=no, at=at, basis=basis, source=source, widen=widen)
+    r = CheckRound(no=no, at=at, basis=basis, source=source, widen=widen, stage=stage)
     taken: set[str] = set()
     for x in issues:
         f = _match(ep, x, taken)
