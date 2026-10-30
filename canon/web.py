@@ -21,13 +21,13 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import address, agent, archetypes, autorun, board, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
+from . import address, agent, archetypes, autorun, board, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 from . import abilities, atlas, findings, foreshadows, setupchat, stattrial, statwin, timeline, travel
-from .schema import AgentSession, ChatScope, Deadline, Storyboard, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
+from .schema import AgentSession, ChatScope, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
 from .schema import FieldIdeas, NameOption, Recap
@@ -1312,6 +1312,25 @@ def apply_recap(name: str, kind: str, number: int, body: Recap) -> Project:
     return _save(name, p)
 
 
+@app.post("/api/projects/{name}/knows-fold/{number}")
+def apply_knows_fold(name: str, number: int, body: KnowsFoldSet) -> Project:
+    """아크 요약 뒤 아는 정보 접기 제안(작업 fold_knows) 가운데 작가가 고르고 고친 인물만 적용한다 (knows.apply_fold)."""
+    p = _load(name)
+    _not_auto(name)
+    if not knows.apply_fold(p, number, body):
+        raise ValueError("적용할 접기가 없어요. 인물을 고르거나 줄을 적으세요")
+    return _save(name, p)
+
+
+@app.delete("/api/projects/{name}/knows-fold/{number}")
+def undo_knows_fold(name: str, number: int) -> Project:
+    """아크 number 에서 접은 아는 정보를 되돌린다 (knows.undo_fold)."""
+    p = _load(name)
+    _not_auto(name)
+    knows.undo_fold(p, number)
+    return _save(name, p)
+
+
 # ---------- 3-2. 이야기 줄기 ----------
 # AI 제안은 백그라운드 작업(storyline)으로 받고, 화면에서 고친 뒤 아래로 반영한다. 화에 붙이고 떼는 것은 화면이 저장(PUT)한다.
 
@@ -1782,7 +1801,7 @@ def impact_reopen(name: str, eid: str) -> Project:
 # ---------- 백그라운드 작업 ----------
 
 class JobIn(BaseModel):
-    kind: str  # suggest | arc | plots | write | board | cues | state | impact | series | nextarc | recap_arc | recap_part | storyline | convert | rebuild | rework | hook | openings | opening_drafts
+    kind: str  # suggest | arc | plots | write | board | cues | state | impact | series | nextarc | recap_arc | recap_part | fold_knows | storyline | convert | rebuild | rework | hook | openings | opening_drafts
     ep: int | None = None  # 화 번호. plots 는 장편에서 아크 번호(없으면 초안이 있는 모든 아크), recap_* 는 아크·부 번호
     element: str = ""  # impact 일 때 요소 id
     note: str = ""  # arc, series, plots, nextarc, storyline, convert, rebuild: 작가가 바라는 것
@@ -1849,7 +1868,7 @@ def start_job(name: str, body: JobIn) -> dict:
     kind, n = body.kind, body.ep
     if kind in ("write", "state", "plots", "plot_one", "check", "board"):
         _not_auto(name)
-    stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "rework": "revise",
+    stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "fold_knows": "state", "rework": "revise",
              "hook": "check", "check": "check", "opening_drafts": "write", "stattrial": "write", "stage_extract": "check", "cue_run": "write"}.get(kind, "plan")  # 나머지는 plan
     llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
@@ -1948,6 +1967,13 @@ def start_job(name: str, body: JobIn) -> dict:
 
         def fn(job: jobs.Job):
             return pipeline.recap(llm, store.load(name), unit, n).model_dump()
+    elif kind == "fold_knows":
+        if n is None:
+            raise ValueError("아크 번호(ep)가 필요해요")
+        label, total, owned = f"아크 {n} 아는 정보 접기", 1, set()
+
+        def fn(job: jobs.Job):
+            return pipeline.fold_knows(llm, store.load(name), n).model_dump()
     elif kind == "plots":
         if not p.beats():
             raise ValueError("다음 아크를 먼저 기획하세요" if p.serial else "기승전결 구조(arc)를 먼저 만들고 저장하세요")
@@ -2153,7 +2179,7 @@ def start_job(name: str, body: JobIn) -> dict:
 
 # 결과가 반영 전 제안인 작업. 화면이 반영하거나 버릴 때까지 pending.json 에 둔다
 # (본문 · 플롯 · 판정 같은 작업은 서버가 이미 작품에 썼다)
-PENDING_KINDS = {"arc", "suggest", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "state", "openings"}
+PENDING_KINDS = {"arc", "suggest", "series", "nextarc", "convert", "rebuild", "rework", "storyline", "recap_arc", "recap_part", "fold_knows", "state", "openings"}
 
 
 def _keep_pending(name: str, kind: str, n: int | None, label: str, fn):

@@ -595,6 +595,26 @@ class Recap(BaseModel):
     summary: str = Field(description="다음 화를 쓸 때 참고할 요약")
 
 
+class KnowsFold(BaseModel):
+    """인물 하나의 오래된 아는 정보를 접은 줄 (canon/knows.py)."""
+    character_id: str = Field(description="인물 id")
+    lines: list[str] = Field(description="접은 뒤 남길 줄. 한 줄에 한 가지, 뒤 화에서 이 인물이 행동할 때 기준이 되는 것만")
+
+
+class KnowsFoldSet(BaseModel):
+    """아크 요약 뒤 아는 정보 접기 제안. 작가가 인물마다 골라 적용한다 (pipeline.fold_knows, knows.apply_fold)."""
+    folds: list[KnowsFold] = Field(default_factory=list)
+
+
+class KnowsFoldRecord(BaseModel):
+    """적용한 접기 기록. 되돌리기에 쓴다."""
+    arc: int
+    character_id: str
+    removed: list[str] = Field(default_factory=list, description="접어서 knows 에서 뺀 줄")
+    before: list[str] = Field(default_factory=list, description="접기 전 knows_folded")
+    after: list[str] = Field(default_factory=list, description="접은 뒤 knows_folded")
+
+
 # ---------- 단편 → 장편 전환 ----------
 
 class ScopeChange(BaseModel):
@@ -1384,6 +1404,16 @@ class CharacterState(BaseModel):
     knows: list[str] = Field(default_factory=list, description="이 인물이 알게 된 핵심 정보")
     notes: str = ""
     stats: list[StatValue] = Field(default_factory=list, description="상태창 수치. 작가가 상태창을 만든 인물만. 변경안에는 바뀐 항목만 넣는다")
+    # 아크 요약 뒤 오래된 knows 를 접은 줄 (canon/knows.py). 작가가 고른 AI 제안만 들어온다. AI 응답 형식과 프롬프트 직렬화에서는 뺀다
+    knows_folded: SkipJsonSchema[list[str]] = Field(default_factory=list, description="접은 아는 정보 (knows.apply_fold)")
+
+    @model_serializer(mode="wrap")
+    def _prompt_view(self, handler: SerializerFunctionWrapHandler, info: SerializationInfo):
+        """프롬프트용 직렬화(llm.dump 의 context prompt)에서는 접은 줄 칸을 뺀다. 프롬프트는 knows.view 가 접은 줄을 knows 앞에 붙인다."""
+        data = handler(self)
+        if isinstance(data, dict) and info.context and info.context.get("prompt"):
+            data.pop("knows_folded", None)
+        return data
 
 
 class Foreshadow(BaseModel):
@@ -1994,6 +2024,7 @@ class Project(BaseModel):
     setting_held: list[SettingChange] = Field(default_factory=list, description="자동 집필이 반영하지 않고 남겨 둔 설정 바꾸기 제안. 작가가 인물 화면에서 적용하거나 버린다")
     address_forms: list[AddressForm] = Field(default_factory=list, description="인물끼리 부르는 말과 말씨 (방향마다 하나, canon/address.py)")
     address_log: list[AddressRecord] = Field(default_factory=list, description="호칭 · 말씨가 바뀐 기록 (승인한 바뀜 제안, 1화 반영 뒤 작가가 고친 것)")
+    knows_folds: list[KnowsFoldRecord] = Field(default_factory=list, description="아는 정보를 접은 기록 (canon/knows.py)")
     address_held: list[AddressChange] = Field(default_factory=list, description="자동 집필이 반영하지 않고 남겨 둔 호칭 · 말씨 바뀜 제안. 작가가 인물 화면에서 적용하거나 버린다")
     history: list[StateDelta] = Field(default_factory=list, description="승인된 상태 변경 기록")
     ties: list[Tie] = Field(default_factory=list, description="방향 관계 (dynamics 가 계산)")
