@@ -1813,7 +1813,7 @@ class JobIn(BaseModel):
     draft: int = 0  # hook: 0 이면 그 화 본문, k 면 비교본 k 번을 판정
     rewrite: RewriteRequest | None = None  # write: 본문이 있는 화를 다시 생성. 새 판은 본문을 덮지 않고 고르기를 기다린다
     fit_next: bool = True  # plot_one: 바로 뒤 화를 바꾸지 않는 화로 보고 맞춘다. 끄면 작가가 적은 것대로 마무리하고 뒤 화에 어긋난 점을 표시한다
-    episodes: list[int] = []  # stattrial: 시험할 화. rev_parse · rev_write: 역설계 실험(ep 가 실험 번호)의 화 번호 (rev_parse 는 비우면 모든 화)
+    episodes: list[int] = []  # stattrial: 시험할 화
     repeats: int = 1  # stattrial: 조건마다 같은 화를 쓸 횟수
     conditions: list[str] = []  # stattrial: none | json | lines (비우면 셋 다). cue_run: oneshot | score | cues (비우면 셋 다)
     event: int = 0  # stage_draft, stage_extract: 플롯 사건 번호 (0부터)
@@ -1870,7 +1870,7 @@ def start_job(name: str, body: JobIn) -> dict:
         _not_auto(name)
     stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "fold_knows": "state", "rework": "revise",
              "hook": "check", "check": "check", "opening_drafts": "write", "stattrial": "write", "stage_extract": "check", "cue_run": "write",
-             "rev_write": "write"}.get(kind, "plan")  # 나머지는 plan
+             }.get(kind, "plan")  # 나머지는 plan
     llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
     if kind == "suggest":
@@ -2049,7 +2049,12 @@ def start_job(name: str, body: JobIn) -> dict:
                         job.done += 1
                     job.note = f"{n}화 본문 쓰는 중"
                     text = pipeline.write_episode(llm, store.load(name), n, use_board=body.board != "none", use_cues=use_cues)
-                    _edit(name, lambda q: pipeline.replace_text(q.episode(n), text))  # 지금 본문이 있으면 '이전 판'에 남는다
+
+                    def save(q):
+                        pipeline.replace_text(q.episode(n), text)  # 지금 본문이 있으면 '이전 판'에 남는다
+                        if q.episode(n).storyboard is not None:  # 스토리보드 없이 쓴 본문은 검수가 그 전제를 대조하지 않는다
+                            q.episode(n).storyboard.skipped = body.board == "none"
+                    _edit(name, save)
                     return None
         else:
             if not e.text:
@@ -2167,27 +2172,6 @@ def start_job(name: str, body: JobIn) -> dict:
                 job.done, job.note = done, note
             res = cue.run(name, store.load(name), llm, n, conds, progress=step)
             return {"takes": len(res["summary"]), "id": res["id"]}
-    elif kind == "rev_parse":  # 역설계 실험 (canon/revlab.py): ep 는 실험 번호. 작품은 읽지 않고, 작업 목록에만 이 작품으로 보인다
-        lab = _rev(n)
-        nums = revlab.choose(lab, body.episodes or None)
-        total = len(nums) + revlab.wants_lines(lab, nums)
-        label, owned = f"{lab.title or f'실험 {n}'} {len(nums)}화 역설계", set()
-
-        def fn(job: jobs.Job):
-            def step(done: int, _total: int, note: str) -> None:
-                job.done, job.note = done, note
-            return revlab.run_parse(n, llm, nums, progress=step)
-    elif kind == "rev_write":
-        lab = _rev(n)
-        if len(body.episodes) != 1:
-            raise ValueError("되돌려 쓸 화를 하나 고르세요")
-        k = body.episodes[0]
-        revlab.world(lab, k)  # 역설계하지 않은 화면 여기서 바로 알린다
-        label, total, owned = f"{lab.title or f'실험 {n}'} {k}화 되돌려 쓰기", 1, set()
-
-        def fn(job: jobs.Job):
-            e = revlab.run_write(n, llm, k)
-            return {"episode": k, "chars": len(e.take.text)}
     else:
         raise ValueError(f"모르는 작업이에요: {kind}")
 
@@ -4231,18 +4215,21 @@ def cue_estimate(name: str, n: int, body: CueEstimateIn) -> dict:
     p = _load(name)
     return cue.estimate(p, n, store.load_cuelab(name, n).sheet, body.conditions or None)
 
-# ---------- 역설계 실험 (canon/revlab.py, 사이드바 '본편과 분리') ----------
-# 작가가 넣은 소설을 거꾸로 플롯 · 스토리보드 · 큐 시트 · 이야기 줄기로 푼다. 실험은 작품 밖 <CANON_HOME>/.revlab/<번호>.json.
-# AI 작업은 POST /projects/<이름>/jobs 의 rev_parse · rev_write (ep 가 실험 번호, 작업 목록에 그 작품으로 보인다).
+# ---------- 역설계 실험 (canon/revlab.py, 작품 밖 화면 #/revlab) ----------
+# 작가가 넣은 소설을 거꾸로 플롯 · 스토리보드 · 큐 시트 · 이야기 줄기 · 인물 · 관계 · 배경 · 문체로 푼다.
+# 실험은 작품 밖 <CANON_HOME>/.revlab/<번호>.json, AI 작업은 POST /revlab/<번호>/jobs (작품 없이: 작업 목록의 project 는 revlab.JOBS,
+# 사용량은 작품 없이 잡히고, 모델은 작품 프리셋이 아니라 전체 단계 설정을 쓴다).
 
 class RevIn(BaseModel):
     title: str = ""
     text: str | None = None  # PUT 에서 비우면 글은 그대로 둔다
+    first: int | None = None  # 첫 화 번호. 비우면 만들 때 짐작하고(revlab.guess_first), PUT 에서는 그대로 둔다
 
 
 class RevEstimateIn(BaseModel):
-    kind: Literal["parse", "write"] = "parse"
+    kind: Literal["parse", "write", "style"] = "parse"
     episodes: list[int] = []
+    style: bool = False  # write: 문체 프로필을 넣고 쓸 때
 
 
 class RevPickIn(BaseModel):
@@ -4251,6 +4238,12 @@ class RevPickIn(BaseModel):
 
 class RevSplitIn(BaseModel):
     text: str
+
+
+class RevJobIn(BaseModel):
+    kind: Literal["parse", "write", "style"]
+    episodes: list[int] = []  # parse: 비우면 모든 화, write: 화 하나
+    style: bool = False  # write: 역설계한 문체 프로필을 넣고 쓴다
 
 
 def _rev(lab_id: int):
@@ -4280,7 +4273,7 @@ def rev_split(body: RevSplitIn) -> dict:
 @app.post("/api/revlab")
 def rev_create(body: RevIn) -> dict:
     """새 실험: 글을 화로 나눠 원문만 넣는다. AI 를 부르지 않는다."""
-    return revlab.view(revlab.create(body.title, body.text or ""))
+    return revlab.view(revlab.create(body.title, body.text or "", body.first))
 
 
 @app.get("/api/revlab/{lab_id}")
@@ -4290,8 +4283,8 @@ def rev_get(lab_id: int) -> dict:
 
 @app.put("/api/revlab/{lab_id}")
 def rev_put(lab_id: int, body: RevIn) -> dict:
-    """제목을 바꾸고, 글을 주면 다시 나눈다 (역설계 결과를 모두 지운다)."""
-    return _rev_edit(lab_id, lambda lab: revlab.replace_text(lab, body.title, body.text))
+    """제목을 바꾸고, 글을 주면 다시 나눈다 (역설계 결과를 모두 지운다). 첫 화 번호를 주면 화 번호를 옮긴다."""
+    return _rev_edit(lab_id, lambda lab: revlab.replace_text(lab, body.title, body.text, body.first))
 
 
 @app.delete("/api/revlab/{lab_id}")
@@ -4313,10 +4306,50 @@ def rev_pick(lab_id: int, n: int, body: RevPickIn) -> dict:
     return _rev_edit(lab_id, lambda lab: revlab.pick(lab, n, body.choice))
 
 
+@app.post("/api/revlab/{lab_id}/jobs")
+def rev_job(lab_id: int, body: RevJobIn) -> dict:
+    """역설계(parse) · 되돌려 쓰기(write) · 문체 역설계(style) 작업을 시작한다. 작품을 읽지 않는다. 같은 실험의 같은 작업은 하나만 돈다."""
+    lab = _rev(lab_id)
+    kind, name = f"rev_{body.kind}", lab.title or f"실험 {lab_id}"
+    with usage.scope(project=""):  # 작품 프리셋을 고르지 않게 (settings.project_preset 은 작품 범위를 본다)
+        llm = get_llm("write" if body.kind == "write" else "plan")  # 키가 없으면 여기서 바로 오류를 보여 준다
+    if body.kind == "parse":
+        nums = revlab.choose(lab, body.episodes or None)
+        total = len(nums) + revlab.wants_lines(lab, nums)
+        label = f"{name} {len(nums)}화 역설계"
+
+        def fn(job: jobs.Job):
+            def step(done: int, _total: int, note: str) -> None:
+                job.done, job.note = done, note
+            return revlab.run_parse(lab_id, llm, nums, progress=step)
+    elif body.kind == "write":
+        if len(body.episodes) != 1:
+            raise ValueError("되돌려 쓸 화를 하나 고르세요")
+        k, use_style = body.episodes[0], body.style
+        revlab.world(lab, k, use_style)  # 역설계하지 않은 화, 문체 프로필이 없는 실험은 여기서 바로 알린다
+        total, label = 1, f"{name} {k}화 되돌려 쓰기" + (" (문체 넣음)" if use_style else "")
+
+        def fn(job: jobs.Job):
+            e = revlab.run_write(lab_id, llm, k, use_style)
+            return {"episode": k, "chars": len(revlab.blind_of(e).text), "style": use_style}
+    else:
+        revlab.style_sample(lab)
+        total, label = 1, f"{name} 문체 역설계"
+
+        def fn(job: jobs.Job):
+            return {"markers": len(revlab.run_style(lab_id, llm).markers)}
+    try:
+        with usage.scope(project="", episode=None, task=kind):
+            job = jobs.start(revlab.JOBS, kind, lab_id, label, fn, total=total)
+    except jobs.Busy as b:
+        return {**b.job.public(), "already": True}
+    return job.public()
+
+
 @app.post("/api/revlab/{lab_id}/estimate")
 def rev_estimate(lab_id: int, body: RevEstimateIn) -> dict:
     """역설계 · 되돌려 쓰기 비용 추정. AI 를 부르지 않는다."""
-    return revlab.estimate(_rev(lab_id), body.kind, body.episodes or None)
+    return revlab.estimate(_rev(lab_id), body.kind, body.episodes or None, use_style=body.style)
 
 
 # ---------- 작품 속 시간 (canon/timeline.py) ----------

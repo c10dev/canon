@@ -2649,6 +2649,7 @@ def set_storyboard(p: Project, n: int, b: Storyboard | None, by: str = "author")
         made_by, basis = ("both" if old and old.made_by != "author" else "author"), board_basis(p, n)
     b = Storyboard(**draft.model_dump(), made_at=b.made_at or (old.made_at if old else "") or _now(), made_by=made_by, basis=basis)
     b.checks = board.checks(p, n, b)
+    b.skipped = bool(old and old.skipped and ep.text)  # 고쳐도 본문이 이 스토리보드 없이 쓴 것이면 그대로
     ep.storyboard = b
 
 
@@ -2714,8 +2715,21 @@ def reverse_episode(llm: LLM, lab, number: int) -> RevEpisodeDraft:
     e = revlab.episode(lab, number)
     if not e.text.strip():
         raise ValueError(f"{number}화 원문이 비었어요")
-    return llm.json(prompts.SYSTEM_REVERSE, prompts.rev_prompt(lab, number), RevEpisodeDraft,
-                    hint={"episode": number, "names": [c.name for c in lab.cast]})
+    prompt = prompts.rev_prompt(lab, number)
+    hint = {"episode": number, "names": [c.name for c in lab.cast]}
+    d = llm.json(prompts.SYSTEM_REVERSE, prompt, RevEpisodeDraft, hint=hint)
+    if not rev_empty(d):
+        return d
+    cancel.check()  # 빈 응답은 한 번만 다시 묻는다. 요청은 맨 뒤에 덧붙여 앞부분 캐시를 지킨다
+    d = llm.json(prompts.SYSTEM_REVERSE, prompt + "\n\n" + prompts.REV_EMPTY_RETRY, RevEpisodeDraft, hint=hint)
+    if rev_empty(d):
+        raise ValueError(f"{number}화 역설계 응답이 비었어요 (사건 · 장면 · 큐가 없어요). 두 번 물어도 같아서 저장하지 않았어요. 다시 시도해 주세요")
+    return d
+
+
+def rev_empty(d: RevEpisodeDraft) -> bool:
+    """역설계 응답에 사건 · 장면 · 큐 가운데 하나라도 없다 (저장하지 않고 다시 묻는다)."""
+    return not d.events or not d.scenes or not [c for c in d.cues if c.start.strip() or c.beat.strip()]
 
 
 def reverse_lines(llm: LLM, lab) -> RevLineSet:
