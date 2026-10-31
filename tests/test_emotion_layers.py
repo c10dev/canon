@@ -13,8 +13,9 @@ def test_layer_label():
     states = [CharacterState(character_id="a", emotional_state=MASK),
               CharacterState(character_id="b", emotional_state="머리：거절해야 함 /몸: 끌려 흔들림"),
               CharacterState(character_id="c", emotional_state="불안하면서도 기대함"),
-              CharacterState(character_id="d", emotional_state="속: 경계")]
-    assert prompts.layered(states) == ["a", "b"]
+              CharacterState(character_id="d", emotional_state="속: 경계"),
+              CharacterState(character_id="e", emotional_state="겉(서태준 앞): 얼음 여왕의 위압 / 속: 채현우에게 안기고 싶음")]
+    assert prompts.layered(states) == ["a", "b", "e"]
 
 
 def test_state_rule_always():
