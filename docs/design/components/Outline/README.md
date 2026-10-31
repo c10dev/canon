@@ -1,11 +1,11 @@
 # Outline
 
-구역이 여럿인 긴 화면의 짜임으로, 왼쪽 목차 열과 오른쪽 카드 한 열이다. 설정 도우미 기획서(`.setup-doc`), 문체 화면과 문체 라이브러리 항목(`.sty-doc`), 역설계 실험(`.rev-doc`)이 쓴다.
+구역이 여럿인 긴 화면의 짜임으로, 왼쪽 목차 열과 오른쪽 카드 한 열이다. 설정 도우미 기획서(`.setup-doc`), 문체 화면과 문체 라이브러리 항목(`.sty-doc`), 역설계 실험(`.rev-wrap`), 쇠맛 실험실(`.soe-wrap`)이 쓴다.
 
 ## 쓰는 법
 
 - 감싸는 칸(`.setup-wrap` · `.sty-wrap` · `.rev-wrap`)에 이름 붙은 `@container`(`setup` · `sty` · `rev`)를 둔다. 폭 규칙은 창이 아니라 이 칸의 폭을 따른다. 대화 패널을 열어도 같은 규칙이 맞는다.
-- 두 열: 목차 220px + 카드 열. 카드 열은 설정 도우미 · 문체가 최대 760px(`measure`), 역설계 실험은 남는 폭 모두. 열 사이 `space-32`.
+- 두 열: 목차 220px + 카드 열. 카드 열은 설정 도우미 · 문체가 최대 760px(`measure`), 역설계 실험 · 쇠맛 실험실은 남는 폭 모두(쇠맛 실험실의 가려 읽기 · 다시 읽기는 860px까지). 열 사이 `space-32`.
 - 목차(`.setup-toc` · `.sty-toc` · `.rev-toc`): 위에 붙어 있다(`position: sticky`, 위 16px). 목차 머리 아래에 구역 줄을 둔다.
   - 구역 줄: 38~40px, `radius-8`, `text-2` 500. 마우스를 올리면 `surface` 면. 지금 구역은 `aria-current`: `accent-soft` 면, `accent-ink` 700.
   - 줄 끝에 상태 글(`.st`, 12px `muted`)을 둔다. 할 일이 있으면 `written-ink` · `amber-ink` 700과 `amber` 점.

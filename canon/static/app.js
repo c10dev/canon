@@ -1663,6 +1663,10 @@ async function routeNow() {
       S.name = null;
       S.project = null;
       await revLoad(parts[1], parts[2]);
+    } else if (parts[0] === 'soelab') {
+      S.name = null;
+      S.project = null;
+      await soeLoad(parts[1], parts[2]);
     } else if (parts[0] === 'styles') {
       S.name = null;
       S.project = null;
@@ -1881,6 +1885,10 @@ function drawApp() {
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1280px;margin:0 auto">${hubTop()}${viewRev()}</main></div>`;
     return;
   }
+  if (p === 'soelab') {
+    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1280px;margin:0 auto">${hubTop()}${viewSoe()}</main></div>`;
+    return;
+  }
   if (p === 'styles') {
     const body = S.route[1] && S.lib ? viewLibEntry() : viewLibrary();
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1180px;margin:0 auto">${hubTop()}${body}</main></div>`;
@@ -2024,8 +2032,8 @@ function navItems() {
     steps,
     auto: ['auto', base() + '/auto', '🤖', autoMenuLabel()],
     tools,
-    apart: [['research', base() + '/research', '🔬', '연구 · 모델 실험'], ['cue', base() + '/cue', '🎼', '큐 시트 집필 실험'], ['revlab', '#/revlab', '🔁', '역설계 실험'], ['usage', base() + '/usage', '💰', '사용량 · 비용']],
-    foot: [['#/settings', '설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/revlab', '역설계 실험'], ['#/', '작품 목록']],
+    apart: [['research', base() + '/research', '🔬', '연구 · 모델 실험'], ['cue', base() + '/cue', '🎼', '큐 시트 집필 실험'], ['revlab', '#/revlab', '🔁', '역설계 실험'], ['soelab', '#/soelab', '🧪', '쇠맛 실험실'], ['usage', base() + '/usage', '💰', '사용량 · 비용']],
+    foot: [['#/settings', '설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/revlab', '역설계 실험'], ['#/soelab', '쇠맛 실험실'], ['#/', '작품 목록']],
   };
 }
 

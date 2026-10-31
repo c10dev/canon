@@ -37,6 +37,8 @@
   /* 인물 관계도 (cast.js): 온기 무덤덤 · 깊이 아낌, 긴장 보통 · 높음, 두 사람 그래프, 인물 원 */
   --warm-mid: #8A8D92; --warm-deep: #1C5CAB; --tension-mid: #C08425; --tension-high: #B4470A;
   --pair-a: #2A78D6; --pair-b: #D0571F; --ava-main: #2C3642; --ava-support: #00672D; --ava-minor: #8E4E03;
+  /* 쇠맛 실험실 그래프 (soelab.js): 사람 글 · AI 글. 그림에만 쓰고 글자에는 쓰지 않는다 */
+  --soe-human: #1D5BA3; --soe-ai: #C2620F;
   /* 이야기 줄기 색 (lines.js lineColor): 노선도 선 · 줄기 배지. 두 테마 모두 surface · bg 위 4.5:1 이상 */
   --story-1: #B4570A; --story-2: #7A3FB0; --story-3: #1C6E45; --story-4: #B42318;
   --story-5: #0E6F7C; --story-6: #6E5A00; --story-7: #A3367A; --story-8: #3E5C14;
@@ -1556,6 +1558,7 @@ mark.hl.src.sel { background: var(--accent-soft); text-decoration-color: var(--a
     --her-bg: #552C3D; --her-ink: #FEC0D7; --him-bg: #193B57; --him-ink: #A8D7FF; --good: #4996D4; --bad: #DE7065;
     --warm-mid: #8F9297; --warm-deep: #8DBEFA; --tension-mid: #A87A40; --tension-high: #E89A50;
     --pair-a: #6AA6EE; --pair-b: #F28B5E; --ava-main: #697381; --ava-support: #2E7044; --ava-minor: #8A4D12;
+    --soe-human: #80B8F6; --soe-ai: #CF6F30;
     --story-1: #F2A25E; --story-2: #C3A0F0; --story-3: #6CC796; --story-4: #F28C80;
     --story-5: #5CC4D2; --story-6: #D9C25A; --story-7: #E98BC4; --story-8: #A6C873;
   }
