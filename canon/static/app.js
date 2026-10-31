@@ -1658,6 +1658,10 @@ async function routeNow() {
     }
     if (!S.genres) S.genres = await api('GET', '/genres').catch(() => []);
     if (!S.namingStyles) S.namingStyles = await api('GET', '/naming/styles').catch(() => []);
+    if (['usage', 'revlab', 'soelab', 'styles'].includes(parts[0])) {  // 작품 밖 사이드바의 최근 작품 · 문체 수 (처음 한 번만, 작품 목록에 오면 다시 읽는다)
+      if (!S.projects) S.projects = await api('GET', '/projects').catch(() => null);
+      if (!S.libs) S.libs = await api('GET', '/styles').catch(() => null);
+    }
     if (parts[0] === 'usage') {
       S.name = null;
       S.project = null;
@@ -1762,6 +1766,7 @@ async function routeNow() {
       S.project = null;
       S.projects = await api('GET', '/projects');
       S.libs = await api('GET', '/styles').catch(() => []);
+      if (parts[0] === 'new') S.focusTarget = '#np-title';  // 사이드바 '새 작품'(#/new): 작품 목록 위에 새 작품 칸을 펴고 제목 칸으로
     }
   } catch (e) {
     // 연결 실패를 '작품 없음'과 같은 화면으로 보이지 않는다. 오류 카드와 다시 시도를 그린다
@@ -1880,23 +1885,14 @@ function drawApp() {
   if (inline) document.body.appendChild(inline);
   document.body.classList.remove('chat-open');
   const [p, , page, arg] = S.route;
-  if (p === 'usage') {
-    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1180px;margin:0 auto">${hubTop()}${viewUsage()}</main></div>`;
-    return;
-  }
-  if (p === 'revlab') {
-    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1280px;margin:0 auto">${hubTop()}${viewRev()}</main></div>`;
-    return;
-  }
-  if (p === 'soelab') {
-    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1280px;margin:0 auto">${hubTop()}${viewSoe()}</main></div>`;
-    return;
-  }
-  if (p === 'styles') {
-    const body = S.route[1] && S.lib ? viewLibEntry() : viewLibrary();
-    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1180px;margin:0 auto">${hubTop()}${body}</main></div>`;
-    return;
-  }
+  // 작품 밖 화면: 작품 밖 사이드바(outSidebar) 옆에 본문. 본문 폭은 화면마다 다르다
+  const outside = (id, width, body) => {
+    $('#app').innerHTML = `<div class="shell">${outSidebar(id)}<main class="main out-main" style="--out-w:${width}px">${body}</main></div>`;
+  };
+  if (p === 'usage') return outside('usage', 1180, viewUsage());
+  if (p === 'revlab') return outside('revlab', 1280, viewRev());
+  if (p === 'soelab') return outside('soelab', 1280, viewSoe());
+  if (p === 'styles') return outside('styles', 1180, S.route[1] && S.lib ? viewLibEntry() : viewLibrary());
   if (S.loadError) {
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:720px;margin:0 auto"><div class="card empty" role="alert">${S.loadMissing
       ? `<h2>'${esc(S.route[1] || '')}' 작품을 찾지 못했어요</h2><p>주소가 틀렸거나 지운 작품이에요. 작품 목록에서 고르세요.</p><div class="row"><a class="btn primary" href="#/">작품 목록</a></div>`
@@ -1908,10 +1904,7 @@ function drawApp() {
     playAfterDraw();
     return;
   }
-  if (p !== 'p' || !P()) {
-    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1080px;margin:0 auto">${hubTop()}${viewProjects()}</main></div>`;
-    return;
-  }
+  if (p !== 'p' || !P()) return outside(p === 'new' ? 'new' : 'projects', 1180, viewProjects());
   const n = Number(arg) || currentEp();
   const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, stage: viewStage, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches, cue: viewCue };
   const body = (views[page] || viewHome)(n);
@@ -1950,7 +1943,7 @@ function stepLabel(id) {
 
 /** 사이드바 접는 묶음(작품 도구 · 아직 안 쓴 도구 · 실험)의 처음 펼침. 사람이 머리를 눌러 바꾼 것은 브라우저에 둔다.
     아직 안 쓴 도구는 예전 '더 보기'와 같은 키(canon.navMore)를 쓴다 */
-const NAV_FOLDS = { tools: true, more: false, lab: false };
+const NAV_FOLDS = { tools: true, more: false, lab: false, recent: true, out: true };
 const navFoldKey = (k) => (k === 'more' ? 'canon.navMore' : `canon.nav.${k}`);
 function navFoldOpen(k) {
   S.navFolds = S.navFolds || {};
@@ -2143,7 +2136,7 @@ function drawerHead() {
   return `<div class="drawer-head"><a class="brand" href="#/">Canon<span class="brand-dot" aria-hidden="true">.</span></a><button type="button" class="side-ico" data-action="toggleMenu" aria-label="메뉴 닫기">${SIDE_ICON.close}</button></div>`;
 }
 
-/** 사이드바 아래 고정 줄: 설정(대화상자, 본문 모델) · ⋯ 메뉴(작품 목록 · 문체 라이브러리 · 모든 작품 사용량). 토스페이스 출처는 아래와 메뉴 안 */
+/** 사이드바 아래 고정 줄: 설정(대화상자, 본문 모델) · ⋯ 메뉴(작품 목록 · 문체 라이브러리 · 모든 작품 사용량, links 가 비면 없음). 토스페이스 출처는 아래와 메뉴 안 */
 function sideFoot(links) {
   const cfg = S.config || {};
   const model = cfg.stages ? projectStage('write').model : cfg.model || '';
@@ -2153,7 +2146,7 @@ function sideFoot(links) {
       ${warn ? `<p class="side-warn" title="${esc(warn)}">${esc(warn)}</p>` : ''}
       <div class="side-foot-row">
         <a class="side-set" href="#/settings" title="설정" aria-haspopup="dialog">${SIDE_ICON.sliders}<span class="nav-label"><b>설정</b>${model ? `<small>본문 ${esc(model)}</small>` : ''}</span></a>
-        ${menuBtn('side-more', SIDE_ICON.more, menu, { cls: 'side-ico', aria: '더 보기 메뉴', title: '작품 목록 · 문체 라이브러리 · 사용량' })}
+        ${links.length ? menuBtn('side-more', SIDE_ICON.more, menu, { cls: 'side-ico', aria: '더 보기 메뉴', title: '작품 목록 · 문체 라이브러리 · 사용량' }) : ''}
       </div>
       ${TF_CREDIT}
     </div>`;
@@ -2190,8 +2183,48 @@ function sidebar(active) {
   </nav>`;
 }
 
+/** 작품 밖 사이드바의 항목 (순수 함수, tests/test_sidebar_js.py). list 작품 목록(GET /projects, 고친 때 순서), libs 문체 라이브러리.
+    main: 작품 목록 · 새 작품 · 새 플레이, alerts · fails: 모든 작품의 확인할 것 수 · 그 가운데 멈춘 작업 수, recent: 최근 작품 셋(플레이 사본 빼고, 기호는 제목 첫 글자, 멈춘 작업 수 · 결과 수),
+    tools: 작품 밖 도구 [id, 주소, 기호, 이름, 배지 글자]. 주소가 빈 도구는 아직 열지 않은 화면이다 */
+function outNav(list = [], libs = []) {
+  const works = list.filter((x) => !x.play);
+  const alerts = (x) => x.alerts || [];
+  return {
+    main: [['projects', '#/', '📚', '작품 목록'], ['new', '#/new', '✏️', '새 작품'], ['play', '#/play/new', '🎲', '새 플레이']],
+    recent: works.slice(0, 3).map((x) => ({ name: x.name, href: `#/p/${enc(x.name)}`, mark: (x.title || x.name).trim().charAt(0) || '·', label: x.branch && x.branch.label ? `${x.title || x.name} · ${x.branch.label}` : (x.title || x.name),
+      fail: alerts(x).filter((a) => a.kind === 'fail').length, result: alerts(x).filter((a) => a.kind === 'result').length })),
+    alerts: list.reduce((k, x) => k + alerts(x).length, 0),
+    fails: list.reduce((k, x) => k + alerts(x).filter((a) => a.kind === 'fail').length, 0),
+    tools: [['styles', '#/styles', '🖋️', '문체 라이브러리', libs.length ? String(libs.length) : ''], ['revlab', '#/revlab', '🔁', '역설계 실험', ''],
+      ['soelab', '#/soelab', '🧪', '쇠맛 실험실', ''], ['usage', '#/usage', '💰', '사용량 · 비용', '']],
+  };
+}
+
+/** 작품 밖 화면(작품 목록 · 새 작품 · 사용량 · 문체 라이브러리 · 역설계 실험)의 사이드바. 작품 사이드바와 같은 틀(맨 위 줄 · 레일 · 900px 이하 띠와 서랍 · 아래 고정 줄)에
+    작품 칸 대신 작품 밖 메뉴: 작품 목록 · 새 작품 · 새 플레이, 최근 작품, 작품 밖 도구. active 는 지금 화면 id */
+function outSidebar(active) {
+  const { main, recent, alerts, fails, tools } = outNav(S.projects || [], S.libs || []);
+  const link = (item, badge = '') => navLink(item, active, badge);
+  const recentLinks = recent.map((r) => link([`p:${r.name}`, r.href, r.mark, esc(r.label)],
+    r.fail ? navBadge(r.fail, `멈춘 작업 ${r.fail}개`, 'red') : r.result ? navBadge('결과', '검토를 기다리는 결과가 있어요', 'amber') : '')).join('');
+  const toolLinks = tools.map(([id, href, mark, label, badge]) => (href
+    ? link([id, href, mark, label], badge ? navBadge(badge, `${badge}개`) : '')
+    : `<span class="nav-off" title="${esc(label)} · 아직 열지 않았어요" aria-disabled="true">${navMark(mark)}<span class="nav-label">${label}</span>${navBadge(badge, '준비 중')}</span>`)).join('');
+  return `<nav class="side side-out${S.menuOpen ? ' open' : ''}" aria-label="작품 밖 메뉴">
+    ${sideTop()}
+    <div class="side-menu" id="side-menu">
+    ${drawerHead()}
+    <div class="nav">${main.map((m) => link(m, m[0] === 'projects' && alerts ? navBadge(alerts, `확인할 것 ${alerts}개`, fails ? 'red' : 'amber') : '')).join('')}</div>
+    ${recent.length ? navFold('recent', '최근 작품', 0, recentLinks, navFoldOpen('recent')) : ''}
+    ${navFold('out', '작품 밖 도구', 0, toolLinks, navFoldOpen('out') || tools.some((t) => t[0] === active))}
+    ${sideFoot([])}
+    </div>
+    ${S.menuOpen ? '<div class="side-scrim" data-action="toggleMenu" aria-hidden="true"></div>' : ''}
+  </nav>`;
+}
+
 function header(eyebrow, title, desc, right = '') {
-  return `<header class="page-head"><div class="lead"><div class="eyebrow">${eyebrow}</div><h1>${esc(title)}</h1>${desc ? `<p class="desc">${desc}</p>` : ''}</div><div class="row">${right}</div></header>`;
+  return `<header class="page-head"><div class="lead">${eyebrow ? `<div class="eyebrow">${eyebrow}</div>` : ''}<h1>${esc(title)}</h1>${desc ? `<p class="desc">${desc}</p>` : ''}</div><div class="row">${right}</div></header>`;
 }
 
 // 화면 파일(setup.js 등)이 모두 실행된 뒤 첫 화면을 그린다
