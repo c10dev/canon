@@ -373,12 +373,18 @@ function revEstHtml(est) {
 function viewRev() {
   const d = S.rev;
   const home = (body) => `${header('실험 · 본편과 분리', '역설계 실험',
-    '사람이 쓴 소설을 화별 플롯 · 스토리보드 · 큐 시트로 거꾸로 풀고, 그 큐 시트로 같은 화를 다시 써서 원문과 견줘요. 작품 데이터는 바꾸지 않아요.')}${body}`;
+    '사람이 쓴 소설을 화별 플롯 · 스토리보드 · 큐 시트로 거꾸로 풀고, 그 큐 시트로 같은 화를 다시 써서 원문과 견줘요. 작품 데이터는 바꾸지 않아요.', revBackBtns())}${body}`;
   if (!d) return home('<div class="note plain">불러오는 중…</div>');
   if (d.error) return home(`<div class="note err">${esc(d.error)}</div>`);
   if (!S.revLab) return revHome();
   if (S.revLab.error) return home(`<div class="note err">${esc(S.revLab.error)}</div><p><a href="#/revlab">실험 목록으로</a></p>`);
   return `${revLabHead()}${revLayout(revLabToc(), revMain())}`;
+}
+
+/** 작품 밖 화면이라 사이드바가 없다. 머리 버튼 줄 앞에 작품 목록, 작품에서 들어왔으면 그 작품으로 가는 버튼을 둔다 (S.revFrom, app.js routeNow) */
+function revBackBtns() {
+  const f = S.revFrom;
+  return `${f ? `<a class="btn" href="#/p/${enc(f.name)}">‹ ${esc(f.title)}</a>` : ''}<a class="btn" href="#/">작품 목록</a>`;
 }
 
 /** 공용 목차 틀(outline.js): 넓은 칸은 왼쪽 목록, 좁은 칸(틀 720px 이하)은 위에 붙는 '지금 줄 ▾' 버튼. 오른쪽 칸은 남은 폭을 다 쓴다 */
@@ -392,7 +398,7 @@ function revHome() {
   const open = S.revNew || !labs.length || !!S.revDraft.text;
   const btn = labs.length ? `<button type="button" class="btn${open ? ' on' : ' primary'}" data-action="revNewToggle" aria-expanded="${open}" aria-controls="rev-new">+ 새 실험</button>` : '';
   const head = header('실험 · 본편과 분리', '역설계 실험',
-    '사람이 쓴 소설을 화별 플롯 · 스토리보드 · 큐 시트로 거꾸로 풀고, 그 큐 시트로 같은 화를 다시 써서 원문과 견줘요. 작품 데이터는 바꾸지 않아요.', btn);
+    '사람이 쓴 소설을 화별 플롯 · 스토리보드 · 큐 시트로 거꾸로 풀고, 그 큐 시트로 같은 화를 다시 써서 원문과 견줘요. 작품 데이터는 바꾸지 않아요.', `${revBackBtns()}${btn}`);
   const cards = labs.map((x) => {
     const c = revHomeCard(x, S.rev.min_chars);
     const meta = [`${x.first}~${x.first + x.episodes - 1}화`, `${x.chars.toLocaleString()}자`, x.cast_count ? `인물 ${x.cast_count}명` : '', fmtDateTime(x.updated)].filter(Boolean).join(' · ');
@@ -448,7 +454,7 @@ function revLabHead() {
     <a class="pop-item" href="#/revlab">실험 목록 · 새 실험</a>
     <button type="button" class="pop-item danger" data-action="revDelete">실험 지우기</button>`;
   return header('실험 · 본편과 분리 › <a href="#/revlab">역설계 실험</a>', L.title || `실험 ${L.id}`, esc(desc),
-    `${menuBtn('rev-lab', '⋯', menu, { aria: '실험 메뉴: 글 · 이름 고치기 · 다시 역설계 · 지우기' })}${revGoBtn()}`);
+    `${revBackBtns()}${menuBtn('rev-lab', '⋯', menu, { aria: '실험 메뉴: 글 · 이름 고치기 · 다시 역설계 · 지우기' })}${revGoBtn()}`);
 }
 
 /** 머리 주 버튼 (다음 할 일 하나). 작업이 도는 동안에는 진행 카드의 멈추기만, 글 · 이름을 고치는 동안에는 그 카드의 저장만 둔다. */

@@ -482,7 +482,7 @@ function homeCast(p, n = HOME_CAST) {
 function homeForeshadows(p) {
   const done = Math.max(0, ...p.episodes.filter((e) => e.status === 'finalized').map((e) => e.plot.number));
   return p.foreshadows.filter((f) => f.status === 'open')
-    .map((f) => ({ ...f, age: Math.max(0, done - f.planted_ep), overdue: f.due_ep != null && f.due_ep < done }))
+    .map((f) => ({ ...f, age: Math.max(0, done - f.planted_ep), overdue: f.due_ep != null && f.due_ep <= done }))
     .sort((a, b) => a.planted_ep - b.planted_ep || (a.id < b.id ? -1 : 1));
 }
 

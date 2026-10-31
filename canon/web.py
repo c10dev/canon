@@ -3944,6 +3944,8 @@ class ClueIn(BaseModel):
     foreshadow: str = ""  # 걸 복선 id. 비우고 description 을 주면 새 복선을 만들어 건다
     description: str = ""
     kind: str = "plant"
+    scope: str = "arc"  # 새 복선의 회수 범위
+    due_ep: int | None = None  # 새 복선의 회수 예정 화
 
 
 @app.post("/api/projects/{name}/foreshadows/clues")
@@ -3953,7 +3955,7 @@ def foreshadow_clue(name: str, body: ClueIn) -> Project:
     _not_auto(name)
     if not body.foreshadow and body.kind == "payoff":
         raise ValueError("회수할 복선을 골라 주세요")
-    fid = body.foreshadow or foreshadows.add(p, body.description, body.episode).id
+    fid = body.foreshadow or foreshadows.add(p, body.description, body.episode, body.scope, body.due_ep).id
     foreshadows.add_clue(p, body.episode, body.quote, fid, body.kind)
     return _save(name, p)
 

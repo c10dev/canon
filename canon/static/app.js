@@ -1645,6 +1645,9 @@ async function routeNow() {
   S.context = null;
   S.promptText = null;
   S.briefText = null;
+  if (parts[0] === 'revlab') {  // 작품에서 역설계 실험으로 오면 그 작품을 기억한다. 머리의 '‹ 작품' 버튼이 돌아간다 (revlab.js revBackBtns)
+    if (S.name && S.project) S.revFrom = { name: S.name, title: S.project.meta.title || S.name };
+  } else S.revFrom = null;
   if (parts[0] !== 'p') pruneProjectState();  // 작품 밖 화면으로 간다. 작품 데이터가 있을 때 끝난 초안을 정리한다
   if (parts[0] !== 'play' && typeof playStop === 'function') playStop();  // 플레이 화면을 떠나면 시계를 멈춘다
   try {
@@ -1734,7 +1737,7 @@ async function routeNow() {
       if (parts[2] === 'atlas') await atlasLoad();
       if (parts[2] === 'stage') await stgLoad(n || currentEp(), Number(parts[4]) || 1);
       else S.stgDirty = false;  // 장면 연출을 떠났다 (떠날 때 hashchange 가 물었다)
-      if (parts[2] === 'foreshadow') await fsLoad();
+      if (parts[2] === 'foreshadow') await fsLoad(parts[3]);  // foreshadow/<복선 id> 는 그 복선 쪽
       if (parts[2] === 'statwin') await swLoad(parts[3]);
       if (parts[2] === 'abilities') await abLoad(parts[3]);
       if (parts[2] === 'setup' && parts[3]) {  // 인물 화면의 '기본 설정 고치기'(setup/<인물 id>)는 그 인물 카드로 간다

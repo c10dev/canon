@@ -354,9 +354,14 @@ document.addEventListener('mousedown', (e) => {
 document.addEventListener('keydown', (e) => {
   if (!S.selTool || e.isComposing) return;
   if (e.key === 'Escape') {
-    const back = e.target.closest && e.target.closest('#sel-tool') && document.querySelector(`textarea[data-draft="${S.selTool.n}"]`);
+    // 도구 안에서 닫으면 본문 칸으로 돌아간다. 읽기 전용 본문에서 연 복선 걸기 칸(foreshadow.js)은 그 본문으로
+    const n = S.selTool.n;
+    const back = e.target.closest && e.target.closest('#sel-tool') && (document.querySelector(`textarea[data-draft="${n}"]`) || document.querySelector(`.read[data-read="${n}"]`));
     hideTool();
-    if (back) back.focus();  // 도구 안에서 닫으면 본문 칸으로 돌아간다
+    if (back) {
+      if (!back.matches('textarea') && !back.hasAttribute('tabindex')) back.setAttribute('tabindex', '-1');
+      back.focus({ preventScroll: true });
+    }
     return;
   }
   // 도구는 문서 끝에 떠 있어 Tab 으로 닿기 어렵다. 본문 칸에서 Alt+Enter 로 첫 버튼에 간다
@@ -404,9 +409,11 @@ function scrollTa(ta, top) {
 
 function syncPassage() {
   const t = S.selTool;
-  const keep = t && t.mode !== 'menu' && (t.mode !== 'finding' || S.route[2] === 'check') && editableEp(ep(t.n))
+  const keep = t && t.mode !== 'menu' && !t.read && (t.mode !== 'finding' || S.route[2] === 'check') && editableEp(ep(t.n))
     && document.querySelector(`textarea[data-draft="${t.n}"]`);  // 검수 지적 창은 검수 화면에만 남긴다 (집필 화면에도 같은 본문 칸이 있다)
-  if (!keep) hideTool();
+  // 읽기 전용 본문(반영한 화)에서 연 복선 걸기 칸(foreshadow.js)은 그 본문이 남아 있으면 둔다
+  const read = t && t.mode === 'foreshadow' && t.read && document.querySelector(`.read[data-read="${t.n}"]`);
+  if (!keep && !read) hideTool();
   const ta = document.querySelector('textarea[data-draft]');
   if (!ta) return;
   const n = ta.dataset.draft;
