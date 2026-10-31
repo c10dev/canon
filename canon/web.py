@@ -4295,6 +4295,33 @@ def rev_append(lab_id: int, body: RevSplitIn) -> dict:
     return _rev_edit(lab_id, lambda lab: revlab.append_text(lab, body.text))
 
 
+class RevEpisodeIn(BaseModel):
+    head: str = ""
+    text: str
+
+
+def _rev_idle(lab_id: int) -> None:
+    """작업이 도는 실험의 화는 고치거나 빼지 않는다 (작업이 화 번호로 결과를 넣는다)."""
+    if any(j.ep == lab_id and j.status == "running" for j in jobs.listing(revlab.JOBS)):
+        raise HTTPException(409, "이 실험의 작업이 끝난 뒤에 화를 고치거나 뺄 수 있어요")
+
+
+@app.put("/api/revlab/{lab_id}/episodes/{n}")
+def rev_put_episode(lab_id: int, n: int, body: RevEpisodeIn) -> dict:
+    """화 하나의 제목 줄과 글을 고친다. 글이 바뀌면 그 화의 역설계 결과를 지운다 (revlab.edit_episode)."""
+    _rev(lab_id)
+    _rev_idle(lab_id)
+    return _rev_edit(lab_id, lambda lab: revlab.edit_episode(lab, n, body.head, body.text))
+
+
+@app.delete("/api/revlab/{lab_id}/episodes/{n}")
+def rev_delete_episode(lab_id: int, n: int) -> dict:
+    """화 하나를 빼고 뒤 화 번호를 당긴다 (revlab.drop_episode)."""
+    _rev(lab_id)
+    _rev_idle(lab_id)
+    return _rev_edit(lab_id, lambda lab: revlab.drop_episode(lab, n))
+
+
 @app.delete("/api/revlab/{lab_id}")
 def rev_delete(lab_id: int) -> dict:
     _rev(lab_id)
