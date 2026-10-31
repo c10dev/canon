@@ -10,20 +10,20 @@
 |---|---|---|---|---|
 | 0 | AI 설정 제안의 현대 동네 · 이름으로 자리 찾기 · 건물 한 줄 | [#139](https://github.com/c10dev/canon/pull/139) · [#140](https://github.com/c10dev/canon/pull/140) 머지 | — | — |
 | 1 | 경계 정리 (파일은 그대로) | 구현, [#148](https://github.com/c10dev/canon/pull/148) 머지 | [01-boundaries.md](specs/01-boundaries.md) | 0 |
-| 2 | `canon/maps/` 패키지로 옮기기 | 설계 (#187 머지 뒤, 혼자) | [02-package.md](specs/02-package.md) | 1 |
+| 2 | `canon/maps/` 패키지로 옮기기 | 구현, PR [#191](https://github.com/c10dev/canon/pull/191) | [02-package.md](specs/02-package.md) | 1 |
 | 3 | `static/atlas.js` 나누기 | 구현, [#148](https://github.com/c10dev/canon/pull/148) 머지 | [03-atlas-js.md](specs/03-atlas-js.md) | 0 |
 | 4 | OSM 빈 블록 채우기 | 구현, [#148](https://github.com/c10dev/canon/pull/148) 머지 | [04-empty-blocks.md](specs/04-empty-blocks.md) | 1 |
-| 5 | 바다 (OSM 해안선) | 구현, PR [#187](https://github.com/c10dev/canon/pull/187) | [05-coastline.md](specs/05-coastline.md) | 0 |
-| 6 | 지하철 노선과 역 사이 이동 시간 | 구현, PR [#187](https://github.com/c10dev/canon/pull/187) | [06-subway.md](specs/06-subway.md) | 5 |
-| 7 | 길 이름표 다듬기 | 구현, PR [#187](https://github.com/c10dev/canon/pull/187) | [07-street-labels.md](specs/07-street-labels.md) | 3 |
-| 8 | 현대 장소 종류 (08a 종류 표 → 08b 자리 규칙 · 08c AI 설정 제안 · 08d 화면 · 명령줄) | 구현, PR [#187](https://github.com/c10dev/canon/pull/187) | [08-modern-kinds.md](specs/08-modern-kinds.md) | 1 |
-| 9 | 옛 핀의 건물 한 줄 채우기 | 구현, PR [#187](https://github.com/c10dev/canon/pull/187) | [09-spot-backfill.md](specs/09-spot-backfill.md) | 0 |
-| 10 | 구불구불한 하천 (현대 동네) | 구현, PR [#187](https://github.com/c10dev/canon/pull/187) | [10-winding-river.md](specs/10-winding-river.md) | 1 |
-| 11 | 지도 장식 (축척 · 나침반 · 제목 틀) | 구현, PR [#187](https://github.com/c10dev/canon/pull/187) | [11-map-frame.md](specs/11-map-frame.md) | 3 |
-| 12 | 이름표 충돌 보강 | 구현, PR [#187](https://github.com/c10dev/canon/pull/187) | [12-label-collisions.md](specs/12-label-collisions.md) | 7 |
-| 13 | 화풍을 따라가는 동선 · 핀 | 구현, PR [#187](https://github.com/c10dev/canon/pull/187) | [13-style-trails.md](specs/13-style-trails.md) | 3 |
-| 14 | 현대 지도 화풍 ([research-look.md](research-look.md) 의 P5) | 구현, PR [#187](https://github.com/c10dev/canon/pull/187) | [14-modern-style.md](specs/14-modern-style.md) | 13 |
-| 15 | 장소 종류 아이콘과 범례 ([research-look.md](research-look.md) 의 P4) | 구현, PR [#187](https://github.com/c10dev/canon/pull/187) | [15-place-icons.md](specs/15-place-icons.md) | 8 |
+| 5 | 바다 (OSM 해안선) | 구현, [#187](https://github.com/c10dev/canon/pull/187) 머지 | [05-coastline.md](specs/05-coastline.md) | 0 |
+| 6 | 지하철 노선과 역 사이 이동 시간 | 구현, [#187](https://github.com/c10dev/canon/pull/187) 머지 | [06-subway.md](specs/06-subway.md) | 5 |
+| 7 | 길 이름표 다듬기 | 구현, [#187](https://github.com/c10dev/canon/pull/187) 머지 | [07-street-labels.md](specs/07-street-labels.md) | 3 |
+| 8 | 현대 장소 종류 (08a 종류 표 → 08b 자리 규칙 · 08c AI 설정 제안 · 08d 화면 · 명령줄) | 구현, [#187](https://github.com/c10dev/canon/pull/187) 머지 | [08-modern-kinds.md](specs/08-modern-kinds.md) | 1 |
+| 9 | 옛 핀의 건물 한 줄 채우기 | 구현, [#187](https://github.com/c10dev/canon/pull/187) 머지 | [09-spot-backfill.md](specs/09-spot-backfill.md) | 0 |
+| 10 | 구불구불한 하천 (현대 동네) | 구현, [#187](https://github.com/c10dev/canon/pull/187) 머지 | [10-winding-river.md](specs/10-winding-river.md) | 1 |
+| 11 | 지도 장식 (축척 · 나침반 · 제목 틀) | 구현, [#187](https://github.com/c10dev/canon/pull/187) 머지 | [11-map-frame.md](specs/11-map-frame.md) | 3 |
+| 12 | 이름표 충돌 보강 | 구현, [#187](https://github.com/c10dev/canon/pull/187) 머지 | [12-label-collisions.md](specs/12-label-collisions.md) | 7 |
+| 13 | 화풍을 따라가는 동선 · 핀 | 구현, [#187](https://github.com/c10dev/canon/pull/187) 머지 | [13-style-trails.md](specs/13-style-trails.md) | 3 |
+| 14 | 현대 지도 화풍 ([research-look.md](research-look.md) 의 P5) | 구현, [#187](https://github.com/c10dev/canon/pull/187) 머지 | [14-modern-style.md](specs/14-modern-style.md) | 13 |
+| 15 | 장소 종류 아이콘과 범례 ([research-look.md](research-look.md) 의 P4) | 구현, [#187](https://github.com/c10dev/canon/pull/187) 머지 | [15-place-icons.md](specs/15-place-icons.md) | 8 |
 
 '먼저 끝날 것'은 코드가 겹쳐서 먼저 머지되어야 하는 일감이다. 1 · 3 은 2026-10-28 에 0 의 두 PR 위에 쌓은 브랜치 `claude/map-stack` 에서 두 세션이 함께 했고, 4 는 그 위에서 했고, 5 · 7 은 그 위에서 두 세션이 함께 했다(05 는 `osm.py` 와 물 그림, 07 은 이름표 코드만 고쳤다). 3 · 5 · 9 는 1 · 2 와 따로 할 수 있다. 같은 파일을 고치는 일감은 동시에 하지 않는다(AGENTS.md 의 worktree 규칙). 11 · 12 · 13 은 모두 `static/atlas.js` 의 그림 코드를 고쳐서 차례로 한다. 06 도 지도에 노선을 그리면 `atlas.js` 와 겹치니 시작 전에 고칠 파일을 견준다. 2026-10-29 에 08 을 조각으로 나눴다: 08a(`placekinds` 종류 표, id 표를 명세서에 먼저 적는다)를 먼저 하고, 08b(`moderngen`) · 08c(`pipeline` · `prompts` · `mock`) · 08d(`atlas.py` · `atlas-gen.js` · `cli.py`)는 08a 뒤에 함께 한다. 08a 와 함께 9(`web.py` · `cli.py` · `autorun.py`)와 14(`atlas.js`)를 한다. 9 와 08d 는 `cli.py` 가 겹쳐 08d 는 9 를 합친 뒤 시작한다. 10 은 08b 뒤, P4 아이콘은 08a 뒤. 2026-10-29 에 10(`moderngen.py`)과 15(P4, `atlas.js` · `atlas.py` · 새 기호 파일)를 함께 시작했다. 고치는 파일이 겹치지 않는다.
 

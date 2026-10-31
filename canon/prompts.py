@@ -16,7 +16,8 @@ from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, ImpactReport, PlayInfo, Project, Selection, StateDelta, StoryElement
-from . import address, board, charlog, foreshadows, knows, mapprompt, pairlog, stage, statwin, timeline
+from . import address, board, charlog, foreshadows, knows, pairlog, stage, statwin, timeline
+from .maps import prompt as mapprompt
 
 SYSTEM_PLANNER = (
     "당신은 한국 웹소설/단편소설 기획 전문 편집자입니다. "
@@ -594,7 +595,7 @@ def serial_plot_prompt(p: Project, start: int, end: int, ahead: bool = True, red
 {structure_text(p, start)}
 
 [지금까지의 줄거리]
-{story_so_far(p, start, plans=True) or "없음 (첫 화)"}
+{story_so_far(p, start) or "없음 (첫 화)"}
 [바로 앞 화 플롯 (확정 또는 초안, 이어지게 쓸 것)]
 {dump(near) if near else "없음"}{fixed_block(fixed, more)}{candidates_block(p)}
 [열린 복선]{f" (그 밖에 {fs_more}개는 이번 아크와 거리가 멀어 뺐습니다)" if fs_more else ""}
@@ -845,44 +846,32 @@ FORESHADOW_RECENT = 30  # 이 화수 안에 심은 복선은 늘 넣는다
 FORESHADOW_CAP = context.FORESHADOW_CAP
 
 
-def story_so_far(p: Project, n: int, plans: bool = False) -> str:
+def story_so_far(p: Project, n: int) -> str:
     """n화 직전까지의 줄거리. 단편은 화별 요약 전부. 장편은 끝난 부 → 이번 부의 끝난 아크 → 이번 아크의 화 순서로 접어서,
-    300화째에도 크기가 일정하다 (story_parts). plans 는 story_parts 와 같다."""
-    return "\n\n".join(x for x in story_parts(p, n, plans) if x)
+    300화째에도 크기가 일정하다 (story_parts)."""
+    return "\n\n".join(x for x in story_parts(p, n) if x)
 
 
-PLAN_ONLY = "(아직 안 씀, 플롯) "
-
-
-def story_parts(p: Project, n: int, plans: bool = False) -> tuple[str, str]:
+def story_parts(p: Project, n: int) -> tuple[str, str]:
     """(끝난 부와 아크의 접은 줄거리, 이번 아크의 화별 요약). 앞쪽은 아크가 끝날 때만 바뀌어 캐시가 맞는 자리에 둘 수 있다.
     장편은 블록 예산(context.BUDGET)을 넘으면 오래된 것부터 더 짧게 접는다. 요약이 아직 승인되지 않은 아크는
-    화별 요약 → 화마다 첫 문장 → 아크 한 줄 순서로 줄고, 승인된 요약은 마지막에야 첫 문장으로 줄인다.
-    plans: 쓰기 전에 앞 아크를 미리 기획해 둔 장편에서 뒤 아크를 기획할 때(플롯 초안 · 플롯 대화 · 다음 아크) 켠다.
-    이번 아크 앞의 아크에서 아직 반영하지 않은 화(요약 없음)는 플롯 요약으로, 플롯이 하나도 없는 아크는 아크 기획으로 채운다.
-    이번 아크의 화는 그 프롬프트들이 플롯 전체로 따로 넣으므로 요약이 있는 화만 둔다."""
+    화별 요약 → 화마다 첫 문장 → 아크 한 줄 순서로 줄고, 승인된 요약은 마지막에야 첫 문장으로 줄인다."""
     eps = sorted((e for e in p.episodes if e.plot.number < n and e.summary), key=lambda e: e.plot.number)
-    told = lambda e: e.summary or (PLAN_ONLY if e.status in ("draft", "confirmed") else "(반영 전, 플롯) ") + e.plot.summary  # noqa: E731
-    line = lambda e: f"{e.plot.number}화 {storylines.summary_tag(p, e)}{timeline.tag(p, e)}{e.plot.title}: {told(e)}"  # noqa: E731
-    short = lambda e: f"{e.plot.number}화 {storylines.summary_tag(p, e)}{timeline.tag(p, e)}{e.plot.title}: {context.first_sentence(told(e))}"  # noqa: E731
+    line = lambda e: f"{e.plot.number}화 {storylines.summary_tag(p, e)}{timeline.tag(p, e)}{e.plot.title}: {e.summary}"  # noqa: E731
+    short = lambda e: f"{e.plot.number}화 {storylines.summary_tag(p, e)}{timeline.tag(p, e)}{e.plot.title}: {context.first_sentence(e.summary)}"  # noqa: E731
     if not p.serial or not p.story_arcs:
         return "", "\n".join(map(line, eps))
     cur_arc = p.arc_for(n)
     cur_part = p.part_for(n)
     arc_start = cur_arc.start_ep if cur_arc else n
     part_start = cur_part.start_ep if cur_part else 1
-    planned = sorted((e for e in p.episodes if e.plot.number < min(n, arc_start) and (e.summary or e.plot.summary)),
-                     key=lambda e: e.plot.number) if plans else eps
     entries: list[list[str]] = []  # 블록마다 [자세히, 줄임, 한 줄]
 
     def arc_entry(a) -> list[str]:
         head = f"[아크 {a.number} {a.title} ({a.start_ep}~{a.end_ep}화)]"
         if a.summary:
             return [f"{head} {a.summary}"] * 2 + [f"{head} {context.first_sentence(a.summary, 200)}"]
-        inside = [e for e in planned if a.start_ep <= e.plot.number <= a.end_ep]
-        if not inside and plans:
-            plan = f"{head} (아직 플롯 없음, 아크 기획) 목표: {a.goal} / 갈등: {a.conflict} / 보상: {a.payoff}"
-            return [plan, plan, f"{head} (아직 플롯 없음) 목표: {a.goal}"]
+        inside = [e for e in eps if a.start_ep <= e.plot.number <= a.end_ep]
         if not inside:
             return [head] * 3
         return [head + "\n" + "\n".join(map(line, inside)),
@@ -1240,7 +1229,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 {dump(p.parts) if p.parts else "부 구성 없음 (작품 전체가 한 부)"}
 
 [지금까지의 줄거리]
-{story_so_far(p, start, plans=True) or "없음 (첫 아크)"}
+{story_so_far(p, start) or "없음 (첫 아크)"}
 [직전 아크]
 {dump(prev.model_dump(exclude={"summary"})) if prev else "없음"}
 [직전 아크의 마지막 화 플롯]
@@ -1720,7 +1709,7 @@ def _serial_plot_parts(p: Project, scope) -> tuple[str, str, str]:
 {dump(p.parts) if p.parts else "부 구성 없음"}
 
 [지금까지의 줄거리]
-{story_so_far(p, lo, plans=True) or "없음"}
+{story_so_far(p, lo) or "없음"}
 {target_block}
 [가까운 아크]
 {dump(arcs) if arcs else "아직 없음"}
@@ -2481,7 +2470,7 @@ def board_block(p: Project, n: int) -> str:
 def canon_values_block(p: Project, n: int) -> str:
     """스토리보드 만들기에 넣는 'Canon 이 센 값': 요일 셈(작품 기준이 없으면 직전 화 기록 글에서), 상태창 지금 값, 가장 빠른 탈것.
     직전 화 끝 시점과 기한은 앞의 작품 속 시간 블록(timeline.episode_block)에 있다. 넣을 것이 없으면 빈 글."""
-    from . import travel
+    from .maps import travel
 
     lines = []
     cur = timeline.current_day(p, n)
@@ -4112,7 +4101,7 @@ def map_suggest_prompt(p: Project, rows: list[dict], places: list[dict], kinds: 
                        chosen: str = "") -> str:
     """rows: atlas.gen_places (지금 고른 종류), places: atlas.places (설명),
     kinds: 지도 종류(village, city, modern)마다 장소 종류 (id, 이름) 목록 (placekinds.kinds_for). 목록이 같은 지도 종류는 한 절로 묶는다,
-    options: 지도 종류마다 설정 칸 (towngen.OPTIONS, citygen.OPTIONS, moderngen.OPTIONS), chosen: 지도 화면에서 지금 고른 지도 종류."""
+    options: 지도 종류마다 설정 칸 (atlas.MAKERS 의 생성기 OPTIONS), chosen: 지도 화면에서 지금 고른 지도 종류."""
     desc = {pl["key"]: pl for pl in places}
     lines = []
     for r in rows:

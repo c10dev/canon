@@ -1,4 +1,4 @@
-"""빈 블록 채우기 테스트 (canon/fill.py, blocks.faces, bldgs 의 지은 건물, atlas 적용 · 지우기, 웹 · 명령줄)."""
+"""빈 블록 채우기 테스트 (canon/maps/fill.py, blocks.faces, bldgs 의 지은 건물, atlas 적용 · 지우기, 웹 · 명령줄)."""
 import json
 import math
 import os
@@ -8,7 +8,10 @@ os.environ.setdefault("CANON_LLM", "mock")
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from canon import atlas, blocks, bldgs, fill, geom, osm  # noqa: E402
+from canon import atlas  # noqa: E402
+from canon.maps import blocks, fill, geom  # noqa: E402
+from canon.maps import buildings as bldgs  # noqa: E402
+from canon.maps.sources import osm  # noqa: E402
 from canon.schema import BuildingNote, StoryElement  # noqa: E402
 
 S, N, W, E = 37.500, 37.504, 127.000, 127.005  # 범위 (약 442 × 442m), tests/test_osm.py 와 같은 꼴

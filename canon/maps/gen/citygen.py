@@ -17,10 +17,10 @@ import math
 import random
 from typing import Callable, Optional
 
-from . import blocks, geom
-from .geom import Point, Poly
-from .placekinds import CATEGORY_IDS
-from .schema import MapSpec
+from ...schema import MapSpec
+from .. import blocks, geom
+from ..geom import Point, Poly
+from ..kinds import CATEGORY_IDS
 
 VERSION = 1
 GENERATOR = "canon-city"
@@ -757,7 +757,7 @@ def _city(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
         return None
 
     buildings = [hs["poly"] for hs in houses] + [lm["poly"] for lm in landmarks]
-    # 건물마다 어느 구역의 무엇인지 (buildings 와 같은 순서, canon/bldgs.py 가 쓴다). 집은 필지마다 한 채라 lot 은 건물 번호
+    # 건물마다 어느 구역의 무엇인지 (buildings 와 같은 순서, canon/maps/buildings.py 가 쓴다). 집은 필지마다 한 채라 lot 은 건물 번호
     parts = [{"lot": k, "part": "main", "zone": hs["kind"], "use": ""} for k, hs in enumerate(houses)]
     parts += [{"lot": -1, "part": "hall" if lm["kind"] == "market" else "temple", "zone": lm["kind"], "use": lm["kind"]} for lm in landmarks]
     water_out = [_union(mesh, sea)] if sea else []

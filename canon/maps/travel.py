@@ -2,7 +2,7 @@
 
 거리: 두 장소의 지도 자리(MapPin) 사이 곧은 거리에 길 굽음(DETOUR)을 곱한다. 지도의 실제 크기는 마을 데이터가 있으면
 그 크기 × 축척(Atlas.layout_size, meters), 없으면 작가가 적은 지도 가로 km(Atlas.span_km). 모르면 검사하지 않는다.
-상태 변경안을 정리할 때(pipeline.clean_delta)는 작품 폴더를 모르므로 길 데이터(atlas.route)는 쓰지 않는다.
+상태 변경안을 정리할 때(pipeline.clean_delta)는 작품 폴더를 모르므로 길 데이터(routes.route)는 쓰지 않는다.
 
 시간: 화가 끝난 시점(Episode.time)의 날수와 시간대에서 가장 넉넉한 창을 잡는다. 떠난 쪽은 시간대의 이른 끝,
 닿은 쪽은 늦은 끝, 모르는 시간대는 하루 전체, 모르는 날수는 그 앞(떠난 쪽) · 그 뒤(닿은 쪽)에서 아는 화로 넓힌다.
@@ -26,8 +26,9 @@ import math
 import re
 from typing import Optional
 
-from . import atlas, logline
-from .schema import Episode, Project, StateDelta, StoryTime, Transit
+from .. import logline
+from ..schema import Episode, Project, StateDelta, StoryTime, Transit
+from .places import frames, match, mentions, places
 
 # id → (말, 보통 빠르기 km/시, 보통 하루 km, 서두른 하루 km). 어림값. 작가가 TravelSetting.kmh · day_km 로 바꾼다
 MODES = {
@@ -268,8 +269,8 @@ def judge(p: Project, t: dict, gap: Optional[float]) -> dict:
 def moves(p: Project, fs: Optional[list[dict]] = None, pls: Optional[list[dict]] = None) -> list[dict]:
     """반영한 화마다 장소를 옮긴 인물의 이동. 거리를 모르면 빼고, 시간을 모르면 level ok · gap None.
     항목: cid, episode(닿은 화), since(떠난 장소에 있던 마지막 화), stops(장소 키), km, normal, fast, gap, level, rail, accepted."""
-    pls = pls if pls is not None else atlas.places(p)
-    fs = fs if fs is not None else atlas.frames(p, pls)
+    pls = pls if pls is not None else places(p)
+    fs = fs if fs is not None else frames(p, pls)
     pins = {pin.place: (pin.x, pin.y) for pin in p.atlas.pins}
     ok = set(p.atlas.travel.ok)
     out, last = [], {}
@@ -310,7 +311,7 @@ def view(p: Project, fs: Optional[list[dict]] = None, pls: Optional[list[dict]] 
     """지도 화면의 '이동 시간 검사' 칸: 설정, 축척을 아는지, 걸린 이동(빠듯함 · 너무 빠름), 시간을 몰라 못 본 이동 수."""
     t = p.atlas.travel
     sc = scale(p)
-    pls = pls if pls is not None else atlas.places(p)
+    pls = pls if pls is not None else places(p)
     ms = moves(p, fs, pls) if t.enabled else []
     pnames, who = {pl["key"]: pl["name"] for pl in pls}, names(p)
     hit = [{**m, "who": who.get(m["cid"], m["cid"]), "text": path_text(p, m, pnames)} for m in ms if m["level"] != OK]
@@ -352,7 +353,7 @@ def accept(p: Project, cid: str, n: int, ok: bool = True) -> None:
 def _last_places(p: Project, n: int, pls: list[dict]) -> dict[str, tuple[str, int]]:
     """n화 전까지 반영한 화에서 인물마다 마지막으로 맞춘 장소와 그 화."""
     last: dict[str, tuple[str, int]] = {}
-    for f in atlas.frames(p, pls):
+    for f in frames(p, pls):
         if f["episode"] >= n:
             break
         for r in f["rows"]:
@@ -365,13 +366,13 @@ def delta_warnings(p: Project, d: StateDelta) -> list[str]:
     """상태 변경안대로 반영하면 서둘러도 못 갈 만큼 빨리 옮겨 간 인물. 꺼졌거나 축척 · 시점을 모르면 빈 목록."""
     if not enabled(p) or scale(p) is None or d.time.day <= 0:
         return []
-    pls = atlas.places(p)
+    pls = places(p)
     last = _last_places(p, d.episode, pls)
     pnames = {pl["key"]: pl["name"] for pl in pls}
     ok = set(p.atlas.travel.ok)
     out = []
     for u in d.character_updates:
-        keys = atlas.match(p, u.location.strip(), pls) if u.location.strip() else []
+        keys = match(p, u.location.strip(), pls) if u.location.strip() else []
         before = last.get(u.character_id)
         if not keys or not before or before[0] == keys[-1] or f"{u.character_id}:{d.episode}" in ok:
             continue
@@ -387,7 +388,7 @@ def delta_warnings(p: Project, d: StateDelta) -> list[str]:
     return out
 
 
-# ---------- 프롬프트 줄 데이터 (글은 mapprompt.travel_block) ----------
+# ---------- 프롬프트 줄 데이터 (글은 prompt.travel_block) ----------
 
 def episode_moves(p: Project, n: int) -> list[dict]:
     """n화를 쓰거나 검수할 때 넣는 이동 거리의 줄 데이터: 이번 화 인물의 지금 장소에서 플롯에 나온 장소까지 거리와 걸리는 시간.
@@ -398,9 +399,9 @@ def episode_moves(p: Project, n: int) -> list[dict]:
     ep = next((e for e in p.episodes if e.plot.number == n), None)
     if ep is None:
         return []
-    pls = atlas.places(p)
+    pls = places(p)
     pnames = {pl["key"]: pl["name"] for pl in pls}
-    targets = atlas.mentions(_plot_text(ep), pls)
+    targets = mentions(_plot_text(ep), pls)
     if not targets:
         return []
     last = _last_places(p, n, pls)
@@ -418,13 +419,6 @@ def episode_moves(p: Project, n: int) -> list[dict]:
             rows.append({"cid": cid, "who": who.get(cid, cid), "src": pnames.get(here[0], here[0]), "dst": pnames.get(to, to), **t})
     rows.sort(key=lambda x: x["km"])
     return rows
-
-
-def episode_block(p: Project, n: int, budget: int = 0) -> str:
-    """옛 이름 (시험이 부른다). 글은 mapprompt.travel_block 이 만든다. mapprompt 가 travel 을 가져오므로 함수 안에서 가져온다."""
-    from . import mapprompt
-
-    return mapprompt.travel_block(p, n, budget)
 
 
 def _plot_text(e: Episode) -> str:
