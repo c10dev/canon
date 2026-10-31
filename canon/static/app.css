@@ -1153,7 +1153,7 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .usage-blocks ul { margin: var(--space-4) 0 0; padding-left: var(--space-16); }
 .price-table td { font-variant-numeric: tabular-nums; }
 #price-box.editing { border-color: var(--sel-line); }
-@container usage (max-width: 860px) {
+@container usage (max-width: 760px) {
   .usage-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .usage-tile.hero { grid-column: 1 / -1; }
   .usage-br { grid-template-columns: minmax(0, 1fr) 84px 64px; }

@@ -181,8 +181,8 @@
 ### `canon/static/outline.js`
 
 - 공용 목차 틀
-- 왼쪽 목차 + 오른쪽 카드 한 열(설정 도우미 · 문체 · 플롯 · 역설계 실험이 함께 쓴다)
-- 작품 도구 넷(갈래 비교 · 채팅 앱 작업지시서 · 자동 집필 · 고칠 곳)도 같은 틀을 쓴다
+- 왼쪽 목차 + 오른쪽 카드 한 열
+- 쓰는 화면은 `docs/design/components/Outline/README.md` 의 '쓰는 화면'에만 적는다
 - 틀 HTML `outlineDoc`(카드 열 760px, `wide` 는 남은 폭)
 - 목차 nav `outlineNav`(좁은 칸 버튼 글 `now`, 없으면 버튼 없이 목록만)
 - 열고 닫기 `outlineToggle` · `outlineClose`(열림은 `OUTLINE_OPEN` 이 기억해 다시 그려도 `aria-expanded` 가 맞음, 바깥 누르기 · 목록 줄 누르기 · Esc · 주소 바뀜에 닫고 Esc 는 버튼으로 포커스, 줄에 `data-outline-keep` 이면 열어 두고 줄이 아닌 버튼도 `data-outline-close` 면 닫음)

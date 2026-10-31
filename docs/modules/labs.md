@@ -156,7 +156,7 @@
 - `app.js` 라우팅이 작품 밖 사이드바(`outSidebar`) 옆에 `viewSoe` 를 그린다(불러오기 `soeLoad`)
 - 작품 사이드바 '실험' 묶음 🧪 · ⋯ 메뉴 · 작품 밖 도구에서 들어온다
 - 공용 목차 틀(`outline.js`)의 목차 `soeToc`(개요 · 단계 넷 `soeSteps` · 지표 14줄 · 전체), 판정하는 동안은 지표 · 전체를 접음
-- 오른쪽 칸 `.soe-main`(container `soe`: 880 · 560px)
+- 오른쪽 칸 `.soe-main`(container `soe`: 760 · 560px)
 - 머리 주 버튼 `soeGoBtn`(다음 할 일 `soeNext`)
 - 개요 `soeOverview`(진행 `soeProgress`, 보류 `soeHoldCard`, 표 `soeTable`: 칸 `soeCell` · 범위 막대 `soeRng` · 모델별 줄)
 - 말뭉치 `soeCorpus`(모으기 카드 `soeCollectCard` · 미리보기 `soePreviewHtml`)

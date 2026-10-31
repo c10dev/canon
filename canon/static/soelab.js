@@ -3,7 +3,7 @@
    저장은 작품 밖 <CANON_HOME>/.soelab/ 이고 작품 데이터(project.json)는 바꾸지 않는다.
    가려 읽기: 서버가 가린 조각(판정 대기 · 다시 읽기 예정 · 끝나지 않은 '이번 10개')의 출처 · 원천 · 묶음 · 모델 · 지표 값 · 정규식 밑줄을
    어느 응답에도 싣지 않는다. 화면도 판정하는 동안 목차의 지표 · 패턴 · 기록 줄을 접는다. 정답은 '이번 10개'를 마치면 한꺼번에 보인다.
-   배치는 공용 목차 틀(outline.js)의 왼쪽 목차 + 오른쪽 칸(.soe-main, container soe: 880 · 560px). 문장 고르기 방식은 폭이 아니라
+   배치는 공용 목차 틀(outline.js)의 왼쪽 목차 + 오른쪽 칸(.soe-main, container soe: 760 · 560px). 문장 고르기 방식은 폭이 아니라
    (pointer: coarse) 로 정한다(손가락 기기는 '문장 누르기'가 기본, ⋯ 메뉴에서 바꾼다).
    app.js 의 S, actions, api, run, render, header, esc, toast, showError, menuBtn, isTyping, fmtDate 를 쓴다.
    soeVerdict(labstats.verdict 와 같은 규칙) · soeSentences · soeSentenceAt(metrics.sentence_spans 와 같은 경계) · soeRedoDue(soelab.redo_open 과
@@ -1399,7 +1399,7 @@ details.more > summary { cursor: pointer; color: var(--link); font-size: 0.8125r
 .pp .n { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-2); }
 .soe-main .seg { flex-wrap: wrap; }
 /* 끊는 폭: @container soe */
-@container soe (max-width: 880px) {
+@container soe (max-width: 760px) {
   .soe-main .cols2, .soe-main .cols3 { grid-template-columns: minmax(0, 1fr); }
   .bars { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .big { grid-template-columns: minmax(0, 1fr); gap: 6px; }

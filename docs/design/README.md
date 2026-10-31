@@ -133,6 +133,8 @@ Canon은 AI와 함께 긴 소설을 쓰는 작가의 작업대다. 화면은 조
 
 - 디자인 시스템의 원본은 git 저장소의 `docs/design/`이다: 이 README, `layout.md`, `tokens.json`, `components/<이름>/README.md`, 미리보기 `components/<이름>/preview.html`, 미리보기가 읽는 `components/bundle.css`.
 - 화면 모양을 바꾸는 변경은 같은 변경 안에서 이 폴더를 고친다.
+- 이 폴더도 한 줄에 사실 하나를 쓴다. 화면이나 이름을 나열할 때는 한 줄에 하나씩 가나다 순으로 쓴다. 여러 세션이 같은 긴 줄에 화면 이름을 덧붙이면 병합할 때마다 부딪힌다.
+- 같은 목록을 두 문서에 두지 않는다. 목차 틀을 쓰는 화면은 Outline 문서의 '쓰는 화면'에만 적는다.
 - 색 토큰은 `canon/static/app.css`의 밝은 `:root`와 `@media (prefers-color-scheme: dark)` 안 `:root`에 있다. `tests/test_design_tokens.py`가 두 블록과 `tokens.json`의 색이 같은지 본다. 색을 더하거나 바꾸면 두 파일을 함께 고친다.
 - 간격 · 모서리 · 크기 · 그림자 · 쌓는 층은 `app.css` 맨 위 `:root`의 CSS 변수(`--space-*` · `--radius-*` · `--touch-min` 등 · `--shadow-*` · `--z-*`)로 쓴다. `tests/test_design_tokens.py`가 `tokens.json`과 같은지 본다.
 - 단계 밖 간격 값은 줄 끝 주석에 까닭을 적는다(`tokens.json` spacing 설명).
@@ -144,6 +146,3 @@ Canon은 AI와 함께 긴 소설을 쓰는 작가의 작업대다. 화면은 조
 문서가 정한 규칙과 지금 코드가 다른 곳이다. 고치면 이 목록에서 지운다.
 
 - `.pf-sec`와 `.pop-sep` 규칙이 app.css에 두 번 있다. 뒤 규칙이 이긴다.
-- 작품 홈 · 상태 승인 화면에서 갈래 만들기 칸을 펴도 머리 주 버튼이 그대로라, 칸의 `n화부터 갈래 만들기`와 주 버튼이 둘이다.
-- 다시 그리는 중인 도구 화면의 문구가 '문구' 규칙과 아직 다르다: `lines.js` · `stage.js`의 단계 이름, `lines.js` 범례의 '본문 있음', `stage.js`의 ⚠.
-- 같은 화면들의 '+' 버튼(`+ 항목`, `+ 박자` 등)과 진행 글 `저장 중`(`statwin.js` · `abilities.js` · `timeline.js` · `usage.js`)도 아직 다르다.
