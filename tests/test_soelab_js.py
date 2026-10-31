@@ -133,3 +133,16 @@ def test_kind_ids_match_server():
     assert soelab.SPAN_KINDS[5:] == ["cliche", "copy", "other"]
     assert json.dumps([soelab.KIND_LABELS[k] for k in soelab.SPAN_KINDS], ensure_ascii=False) == json.dumps(
         ["부정 후 재정의", "셋씩 나열", "감정 이름", "번역투", "서식 흔적", "상투 표현", "옮김", "기타"], ensure_ascii=False)
+
+
+@needs_node
+def test_hold_and_round_cards_copy():
+    sc = {"held": True, "queue_left": 18, "spare": {"ready": 0, "hidden": 3, "filled": None}}
+    got = run_js(FILES, "S.soe = data; soeHoldCard()", sc)
+    assert "판정을 더 하면 재판정이 따라 늘어요(남은 조각 18개)" in got and "다시 읽기로 열 수 있는 예비 조각은 없어요" in got
+    sc["spare"]["ready"] = 7
+    assert "예비 조각 7개를 다시 읽으면" in run_js(FILES, "S.soe = data; soeHoldCard()", sc)
+    r60 = {"judged": 60, "goal": 60, "stopped": False, "redo_state": {"due": 0}, "verdicts": {}, "spare": {"filled": 10}}
+    assert "예비 10개를 다시 읽기에 더했어요" in run_js(FILES, "S.soe = data; soeMilestoneCard()", r60)
+    r60["spare"]["filled"] = 0
+    assert "예비" not in run_js(FILES, "S.soe = data; soeMilestoneCard()", r60)

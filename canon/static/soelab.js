@@ -424,7 +424,7 @@ function soeHoldCard() {
   const sp = sc.spare || {};
   const more = sp.ready
     ? `<b>재판정을 늘려 주세요. 정답을 숨겨 둔 예비 조각 ${sp.ready}개를 다시 읽으면 판정 일관성을 다시 셈해요.</b> 예비 조각도 첫 판정 7일 뒤에 열려요.`
-    : sp.hidden ? '<b>예비 조각은 아직 판정하지 않았어요.</b> 판정을 더 하면 예비 조각도 다시 읽을 수 있어요.' : '다시 읽을 예비 조각이 남지 않았어요.';
+    : `<b>판정을 더 하면 재판정이 따라 늘어요(남은 조각 ${sc.queue_left || 0}개).</b> 지금 다시 읽기로 열 수 있는 예비 조각은 없어요.`;
   return `<div class="note warn" role="status"><b>판정이 흔들려 결론을 보류해요.</b> 판정 일관성의 아래 끝이 보류 기준 0.30보다 낮아요. 작가 판정 기준 칸을 흐리게 보여요.<br>${more}</div>`;
 }
 
@@ -680,7 +680,9 @@ function soeMilestoneCard() {
       <div class="row soe-state-btns"><button type="button" class="btn" data-action="soeStop">여기서 멈추기</button><button type="button" class="btn primary" data-action="soeGoal" data-arg="60">계속 읽기 (60개까지)</button></div></section>`;
   }
   if (m === 60) {
-    return `<section class="card soe-state"><span class="chip confirmed">두 번째 보고</span><h2>60개를 읽었어요. 두 번째 지표 대조를 볼 수 있어요.</h2>${measured}
+    const filled = (sc.spare || {}).filled;
+    return `<section class="card soe-state"><span class="chip confirmed">두 번째 보고</span><h2>60개를 읽었어요. 두 번째 지표 대조를 볼 수 있어요.</h2>
+      ${filled ? `<p>판정 일관성을 60개에서 보려고 정답을 숨겨 둔 예비 ${filled}개를 다시 읽기에 더했어요. 첫 판정 7일 뒤부터 열려요.</p>` : ''}${measured}
       <div class="row soe-state-btns"><a class="btn" href="#/soelab/metrics">지표 대조 보기</a><button type="button" class="btn primary" data-action="soeGoal" data-arg="90">계속 읽기 (90개까지)</button></div></section>`;
   }
   if (m === 90) {

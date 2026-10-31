@@ -349,7 +349,10 @@ def test_spare_answers_shown(c, monkeypatch, how):
         assert spare[0] in soelab.masked_ids()
         c.put("/api/soelab/state", json={"stopped": True})
     assert soelab.load_state()["spare_shown"]
-    assert not set(spare) & soelab.masked_ids()
+    opened = set(soelab.load_queue()["opened"])  # 60개에서 다시 읽기로 연 예비는 다시 읽기 규칙을 따른다 (재판정 뒤에 보임)
+    assert opened or how != "ninety"
+    spare = [x for x in spare if x not in opened]
+    assert spare and not set(spare) & soelab.masked_ids()
     k = judged.index(spare[0]) // soelab.BATCH + 1
     row = next(r for r in c.get(f"/api/soelab/batch/{k}").json()["rows"] if r["id"] == spare[0])
     assert not row["hidden"] and row["origin"] in ("human", "ai")
@@ -361,3 +364,41 @@ def test_spare_answers_shown(c, monkeypatch, how):
     # 멈췄다가 이어 해도 다시 숨기지 않는다
     c.put("/api/soelab/state", json={"stopped": False})
     assert soelab.load_state()["spare_shown"]
+
+
+# ---------- 예비: 60개에 닿으면 재판정을 30개까지 채운다 ----------
+
+def test_spare_fill_at_60(c, monkeypatch):
+    _collect(c, eps=13, sets=3)
+    q = soelab.load_queue()
+    judged = _judge_fast(40)
+    assert soelab.load_queue()["opened"] == [] and soelab.load_state()["filled"] is None  # 1차(40개)에서는 열지 않는다
+    soelab.set_state(goal=60)
+    by_id = {p.id: p for p in soelab.load_pieces()}
+    for pid in q["order"][40:60]:
+        soelab.save_judge(pid, by_id[pid].origin)
+    judged = q["order"][:60]
+    have = sum(x in set(q["redo"]) for x in judged)
+    spare = [x for x in judged if x in set(q["spare"])]
+    want = min(max(0, soelab.FILL_TO - have), len(spare))
+    q2 = soelab.load_queue()
+    assert want > 0 and len(q2["opened"]) == want and set(q2["opened"]) <= set(spare)
+    assert sum(x in set(q2["redo"]) for x in judged) == min(soelab.FILL_TO, have + len(spare))
+    sc = c.get("/api/soelab").json()
+    assert sc["spare"]["filled"] == want and sc["redo_state"]["target"] >= have + want
+    assert not set(q2["opened"]) & set(soelab.redo_due())  # 7일 규칙은 그대로
+    assert set(q2["opened"]) <= soelab.masked_ids()
+    # 한 번만: 더 판정해도 다시 채우지 않는다
+    for pid in q["order"][60:62]:
+        soelab.save_judge(pid, by_id[pid].origin)
+    assert soelab.load_queue()["opened"] == q2["opened"]
+    # 60개에서 쓴 만큼 줄어든 예비만 보류 때 열린다. 다 쓰면 열 수 없다
+    monkeypatch.setattr(soelab, "consistency", lambda *a, **k: dict(HELD))
+    c.post("/api/soelab/report")
+    left = c.get("/api/soelab").json()["spare"]["ready"]
+    assert left == min(soelab.SPARE_OPEN, len([x for x in q["order"][:62] if x in set(q["spare"])]) - want)
+    while left:
+        assert c.post("/api/soelab/spares/open").json()["opened"] == left
+        left = c.get("/api/soelab").json()["spare"]["ready"]
+    r = c.post("/api/soelab/spares/open")
+    assert r.status_code == 400 and "재판정이 따라 늘어요" in r.json()["detail"]

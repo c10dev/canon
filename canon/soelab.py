@@ -41,6 +41,8 @@ GOAL = 90                   # 가려 읽기 목표
 REDO_EVERY = 3              # 대기열 세 자리마다 하나를 다시 읽기로 (1/3)
 SPARE_EVERY = 4             # 다시 읽기로 뽑히지 않은 조각 넷마다 하나를 예비로 (모두의 1/6)
 SPARE_OPEN = 15             # 판정 일관성이 보류일 때 한 번에 다시 읽기로 옮기는 예비 수의 상한
+FILL_AT = 60                # 판정이 이만큼에 닿으면 재판정(예정 포함)을 FILL_TO 까지 예비로 채운다 (판정 일관성 결론을 60개에서 내려고)
+FILL_TO = 30
 REDO_DAYS = 7               # 첫 판정 뒤 이만큼 지나야 다시 읽을 수 있다
 BATCH = 10                  # '이번 10개'
 SEED = 7
@@ -1027,10 +1029,11 @@ def _state_path() -> Path:
 
 def load_state() -> dict:
     """가려 읽기 진행 상태: goal(이번 목표 40 · 60 · 90), stopped('여기서 멈추기'), seen(정답 카드를 넘긴 '이번 10개' 번호),
-    spare_shown(예비 정답을 보여 줌: 판정 일관성 결론이 보류 아님, 여기서 멈추기, 90개 끝 가운데 먼저 온 때. 한 번 켜면 되돌리지 않는다)."""
+    spare_shown(예비 정답을 보여 줌: 판정 일관성 결론이 보류 아님, 여기서 멈추기, 90개 끝 가운데 먼저 온 때. 한 번 켜면 되돌리지 않는다),
+    filled(60개에 닿았을 때 재판정을 채우려고 연 예비 수, 아직이면 None)."""
     path = _state_path()
     st = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    return {"goal": FIRST, "stopped": False, "seen": 0, "spare_shown": False, **st}
+    return {"goal": FIRST, "stopped": False, "seen": 0, "spare_shown": False, "filled": None, **st}
 
 
 def set_state(**kw) -> dict:
@@ -1063,12 +1066,28 @@ def spare_state(q: dict, labels: list[SoeLabel]) -> dict:
     firsts = _firsts(labels)
     hidden = spare_ids(q)
     ready = [x for x in q["spare"] if x in hidden and x in firsts]
+    st = load_state()
     return {"hidden": len(hidden), "ready": min(SPARE_OPEN, len(ready)), "opened": len(q["opened"]),
-            "shown": load_state()["spare_shown"]}
+            "waiting": len(hidden) - len(ready), "shown": st["spare_shown"], "filled": st["filled"]}
+
+
+def _open(limit: int) -> int:
+    """판정한 예비를 시드로 섞은 차례로 limit 개까지 다시 읽기 대기열로 옮긴다. 7일 규칙은 그대로다(첫 판정 날짜부터)."""
+    with _lock():
+        q, labels = load_queue(), load_labels()
+        firsts = _firsts(labels)
+        ready = [x for x in q["spare"] if x not in set(q["opened"]) and x in firsts]
+        ready.sort(key=lambda x: hashlib.sha1(f"{q.get('seed', SEED)}:open:{x}".encode()).hexdigest())
+        take = ready[:max(0, limit)]
+        if take:
+            q["opened"] = list(q["opened"]) + take
+            q["redo"] = list(q["redo"]) + take
+            save_json(_dir() / "queue.json", q)
+    return len(take)
 
 
 def open_spares(limit: int = SPARE_OPEN) -> int:
-    """판정 일관성이 보류일 때 판정한 예비를 다시 읽기 대기열로 옮긴다(시드로 섞은 차례, limit 개까지). 7일 규칙은 그대로다.
+    """판정 일관성이 보류일 때 판정한 예비를 다시 읽기 대기열로 옮긴다(limit 개까지).
     보류가 아니거나 예비 정답을 이미 보여 줬으면 막는다."""
     with _lock():
         rep = latest_report()
@@ -1077,17 +1096,28 @@ def open_spares(limit: int = SPARE_OPEN) -> int:
             raise ValueError("판정 일관성이 보류일 때만 예비를 다시 읽을 수 있어요")
         if load_state()["spare_shown"]:
             raise ValueError("예비 조각의 정답을 이미 보여 드려서 다시 읽기에 쓸 수 없어요")
-        q, labels = load_queue(), load_labels()
+        n = _open(limit)
+        if not n:
+            raise ValueError("다시 읽기로 열 예비 조각이 없어요. 판정을 더 하면 재판정이 따라 늘어요")
+    return n
+
+
+def fill_at_60() -> int:
+    """판정이 60개에 닿았을 때 한 번: 재판정(예정 포함, 첫 판정한 다시 읽기 조각)이 30개보다 적으면 보류가 아니어도
+    예비를 열어 30개까지 채운다. 연 수를 state.json 의 filled 에 남긴다(60개 라운드 카드가 보여 준다). 1차(40개)에서는 열지 않는다."""
+    with _lock():
+        st = load_state()
+        labels = load_labels()
         firsts = _firsts(labels)
-        ready = [x for x in q["spare"] if x not in set(q["opened"]) and x in firsts]
-        ready.sort(key=lambda x: hashlib.sha1(f"{q.get('seed', SEED)}:open:{x}".encode()).hexdigest())
-        take = ready[:max(0, limit)]
-        if not take:
-            raise ValueError("다시 읽기로 열 예비 조각이 없어요. 판정을 더 하면 예비도 늘어요")
-        q["opened"] = list(q["opened"]) + take
-        q["redo"] = list(q["redo"]) + take
-        save_json(_dir() / "queue.json", q)
-    return len(take)
+        if st.get("filled") is not None or len(firsts) < FILL_AT:
+            return 0
+        n = 0
+        if not st["spare_shown"]:
+            q = load_queue()
+            have = sum(x in firsts for x in q["redo"])
+            n = _open(max(0, FILL_TO - have))
+        save_json(_state_path(), {**load_state(), "filled": n})
+    return n
 
 
 def latest_report() -> Optional[dict]:
@@ -1214,6 +1244,8 @@ def save_judge(pid: str, verdict: str, spans=None, clean: bool = False, seconds:
         lb = redo(pid, verdict, sp, clean, secs, now)
     else:
         lb = judge(pid, verdict, sp, clean, secs, now)
+    if not redo_too:
+        fill_at_60()  # 60개에 닿으면 재판정을 30개까지 예비로 채운다 (한 번)
     if not redo_too and len(_firsts(load_labels())) >= GOAL:
         show_spares()  # 90개를 다 읽어 판정 단계를 끝냈다
     finished = not redo_too and not open_batch()  # 10개를 채웠거나 대기열이 바닥났다
