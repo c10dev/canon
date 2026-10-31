@@ -84,9 +84,11 @@ from . import (address, archetypes, autorun, branches, cast, charlog, dynamics, 
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
-from . import abilities, atlas, blocktrial, findings, stattrial, foreshadows, setupchat, statwin, timeline, placekinds, travel
+from . import abilities, atlas, blocktrial, findings, stattrial, foreshadows, setupchat, statwin, timeline
 from . import birth, labstats, play, soelab, tofix
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StoryArc
+from .maps import kinds as placekinds
+from .maps import travel
 
 
 def ask(label: str, default: str = "") -> str:
@@ -1751,7 +1753,7 @@ def cmd_map(a: argparse.Namespace) -> None:
 
 
 def _map_fill(a: argparse.Namespace, p, folder) -> None:
-    """map <작품> fill: OpenStreetMap 지도의 빈 블록을 지은 건물로 채운다 (canon/fill.py). --clear 는 지은 건물을 지운다."""
+    """map <작품> fill: OpenStreetMap 지도의 빈 블록을 지은 건물로 채운다 (canon/maps/fill.py). --clear 는 지은 건물을 지운다."""
     layout = atlas.load_layout(folder, p)
     if layout is None:
         sys.exit("지도 데이터가 없어요. 먼저 OpenStreetMap 파일을 올려 주세요")
@@ -1781,7 +1783,7 @@ def _map_fill(a: argparse.Namespace, p, folder) -> None:
 
 
 def _map_travel(a: argparse.Namespace, p) -> None:
-    """map <작품> travel: 이동 시간 검사 보기와 설정 (canon/travel.py)."""
+    """map <작품> travel: 이동 시간 검사 보기와 설정 (canon/maps/travel.py)."""
     t = p.atlas.travel
     changed = any(x is not None for x in (a.mode, a.span, a.kmh, a.day_km, a.check, a.ok, a.unok))
     if a.mode is not None or a.span is not None or a.kmh is not None or a.day_km is not None or a.check is not None:
