@@ -479,9 +479,9 @@ def test_js_helpers_and_view(home):
     assert "지표 모아 보기" in p["metrics"] and "가려 읽기를 마친 화" in p["metrics"]  # 아직 고르지 않아 견줄 판이 없다
     assert "초반 규칙" in got["edit"] and "글 · 이름 고치기" in got["edit"]
     assert got["edit"].count("btn primary") == 1 and got["lab"].count("btn primary") == 1  # 주 버튼은 한 화면에 하나
-    # 작품 밖 화면이라 사이드바가 없다: 머리마다 작품 목록, 작품에서 들어왔으면 그 작품으로 가는 버튼
+    # 작품 목록은 작품 밖 사이드바에 있다. 머리에는 작품에서 들어왔을 때만 그 작품으로 가는 버튼
     for k in ("home", "lab", "empty", "from", "fromHome"):
-        assert '<a class="btn" href="#/">작품 목록</a>' in got[k], k
+        assert '<a class="btn" href="#/">작품 목록</a>' not in got[k], k
     assert "‹ " not in got["home"] and "‹ " not in got["lab"]
     for k in ("from", "fromHome"):
         assert '<a class="btn" href="#/p/%EB%93%B1%EB%8C%80%20%EC%9D%BC%EC%A7%80">‹ 등대의 &lt;밤&gt;</a>' in got[k], k

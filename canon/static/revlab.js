@@ -382,10 +382,10 @@ function viewRev() {
   return `${revLabHead()}${revLayout(revLabToc(), revMain())}`;
 }
 
-/** 작품 밖 화면이라 사이드바가 없다. 머리 버튼 줄 앞에 작품 목록, 작품에서 들어왔으면 그 작품으로 가는 버튼을 둔다 (S.revFrom, app.js routeNow) */
+/** 작품에서 들어왔으면 머리 버튼 줄 앞에 그 작품으로 가는 버튼을 둔다 (S.revFrom, app.js routeNow). 작품 목록은 작품 밖 사이드바에 있다 */
 function revBackBtns() {
   const f = S.revFrom;
-  return `${f ? `<a class="btn" href="#/p/${enc(f.name)}">‹ ${esc(f.title)}</a>` : ''}<a class="btn" href="#/">작품 목록</a>`;
+  return f ? `<a class="btn" href="#/p/${enc(f.name)}">‹ ${esc(f.title)}</a>` : '';
 }
 
 /** 공용 목차 틀(outline.js): 넓은 칸은 왼쪽 목록, 좁은 칸(틀 720px 이하)은 위에 붙는 '지금 줄 ▾' 버튼. 오른쪽 칸은 남은 폭을 다 쓴다 */
