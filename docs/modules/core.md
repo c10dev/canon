@@ -21,7 +21,7 @@
 - 날수 · 요일(`days`, `weekday`: 작품 기준이 없으면 직전 화 기록 글의 요일에서)
 - 시간 한 줄(`time_line`)
 - 상태창 단계마다 바뀌기 전 · 뒤 값(`steps`, `statwin.resolve`) · 창 글(`window_text`)
-- Canon 경고(`checks`: 맡은 장면 없는 사건 · 모르는 id · 값 범위)
+- Canon 경고(`checks`: 맡은 장면 없는 사건 · 모르는 id · 값 범위 · 관계 단계를 두 칸 넘게 옮기는 플롯 `pace.plot_warnings`)
 - 자동 집필 멈춤 이유(`stop_reasons`, `STOP_KINDS`)
 - 화면 값(`view`)
 - LLM 호출 없음
@@ -212,6 +212,7 @@
 - 지시 수 · 크기 상한 시험 `tests/test_write_budget.py`
 - 화에 큐 시트가 있으면 `episode_prompt` 맨 끝에 `cue_write_block`(실험의 조건 score 와 같은 글, `use_cues=False` 면 뺌)
 - 화별 플롯 초안(`plot_prompt` · `serial_plot_prompt`)은 범위 안 · 범위 뒤 3화(`PLAN_AHEAD`)의 이미 정해진 화를 `fixed_plots` · `fixed_block` 으로 넣고 요구사항에 `fixed_rule` 을 붙인다(장편은 `context.BUDGET["plan_fixed"]`, 한 화 초안은 `ahead=False`)
+- 장편 화별 플롯 초안은 `[관계]` 뒤에 지금 관계 단계 라벨(`plan_stage_block`, 예산 `context.BUDGET["plan_stages"]`), 장편 `plot_rules` 에 '단계는 한 화에 한 칸' 한 줄
 - 다음 아크 기획(`next_arc_prompt`)은 관련 확정 사실(`plan_facts`) · 작품 속 시간(`time_plan`, 끝 줄 `ARC_TIME_RULE`) · 주역 밖 기획 인물 상태(`plan_side_states`)를 예산(`context.BUDGET` 의 `plan_facts` · `plan_states`) 안에서 넣는다
 
 ### `canon/schema.py`
