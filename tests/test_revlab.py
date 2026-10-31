@@ -463,6 +463,7 @@ def test_js_helpers_and_view(home):
     assert "문체 역설계 시작" in p["style"] and "두 사람의 관계" in p["lines"]
     assert "지표 모아 보기" in p["metrics"] and "가려 읽기를 마친 화" in p["metrics"]  # 아직 고르지 않아 견줄 판이 없다
     assert "초반 규칙" in got["edit"] and "글 · 이름 고치기" in got["edit"]
+    assert got["edit"].count("btn primary") == 1 and got["lab"].count("btn primary") == 1  # 주 버튼은 한 화면에 하나
     e = view["items"][1]
     assert [s["cue"] for s in got["segs"]] == [i + 1 for i, b in enumerate(e["bounds"]) if b["found"] and b["end"] > b["start"]]
     assert "".join(e["text"][s["start"]:s["end"]] for s in got["segs"]) == e["text"]  # 빈틈없이 덮는다

@@ -376,10 +376,10 @@ function revLabHead() {
     `${menuBtn('rev-lab', '⋯', menu, { aria: '실험 메뉴: 글 · 이름 고치기 · 다시 역설계 · 지우기' })}${revGoBtn()}`);
 }
 
-/** 머리 주 버튼 (다음 할 일 하나). 작업이 도는 동안에는 진행 카드의 멈추기만 둔다. */
+/** 머리 주 버튼 (다음 할 일 하나). 작업이 도는 동안에는 진행 카드의 멈추기만, 글 · 이름을 고치는 동안에는 그 카드의 저장만 둔다. */
 function revGoBtn() {
   const L = S.revLab;
-  if (revRunning()) return '';
+  if (revRunning() || S.revEdit) return '';  // 주 버튼은 한 화면에 하나: 글 · 이름 고치기 카드의 '저장'이 주 버튼이다
   const nx = revNext(L, S.revEp, S.rev.min_chars);
   if (!nx) return '';
   if (nx.kind === 'parse') {
@@ -857,7 +857,7 @@ document.addEventListener('keydown', (e) => {
 (() => {
   const css = `
 .rev-wrap { container: rev / inline-size; }
-.rev-doc { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 28px; align-items: start; }
+.rev-doc { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; align-items: start; }
 .rev-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .rev-toc { position: sticky; top: 16px; z-index: 4; }
 .rev-toc-now { display: none; }
@@ -880,10 +880,10 @@ document.addEventListener('keydown', (e) => {
 .rev-dot.run { background: transparent; border: 2px solid var(--line-strong); border-top-color: var(--accent); width: 10px; height: 10px; animation: rev-spin 0.9s linear infinite; }
 @keyframes rev-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .rev-dot.run { animation: none; border-color: var(--accent); } }
-.rev-meter { margin: 6px 10px 0; height: 6px; border-radius: 3px; background: var(--chip); overflow: hidden; }
+.rev-meter { margin: 6px 10px 0; height: 6px; border-radius: 4px; background: var(--chip); overflow: hidden; }
 .rev-meter.big { margin: 0; height: 8px; }
 .rev-meter > i { display: block; height: 100%; background: var(--accent); }
-.rev-how { margin: 0; padding: 0 10px 0 28px; display: flex; flex-direction: column; gap: 6px; color: var(--text-2); }
+.rev-how { margin: 0; padding: 0 10px 0 24px; display: flex; flex-direction: column; gap: 6px; color: var(--text-2); }
 .rev-how-note { margin: 8px 0 0; padding: 0 10px; }
 .btn .cost { font-weight: 400; opacity: 0.85; }
 .rev-fields { display: flex; flex-wrap: wrap; gap: 12px; }
@@ -897,7 +897,6 @@ document.addEventListener('keydown', (e) => {
 .rev-prev li { display: flex; justify-content: space-between; gap: 8px; }
 .rev-picks { gap: 4px 14px; }
 .rev-pick { padding: 0; border: none; }
-.rev-ep-head h2 { font-size: 1.125rem; }
 .rev-panel { display: flex; flex-direction: column; gap: 16px; }
 .rev-cols { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
 .rev-src { flex: 999 1 440px; min-width: 0; gap: 6px; }
@@ -922,11 +921,11 @@ document.addEventListener('keydown', (e) => {
 .rev-cue-btn { width: 100%; min-height: 44px; display: grid; grid-template-columns: 28px 20px minmax(0, 1fr); gap: 4px 8px; align-items: center; padding: 6px 8px; border: none; border-radius: 8px; background: transparent; color: inherit; font: inherit; font-size: 0.8125rem; text-align: left; cursor: pointer; }
 .rev-cue-btn:hover { background: var(--bg); }
 .rev-cue-btn .meta { grid-column: 3; font-size: 0.75rem; color: var(--muted); }
-.rev-cue-more { padding: 0 10px 10px 36px; }
+.rev-cue-more { padding: 0 10px 10px 32px; }
 .rev-kv { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 0.8125rem; }
 .rev-kv dt { color: var(--muted); }
 .rev-kv dd { margin: 0; }
-.rev-ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.rev-ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
 .rev-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
 .rev-blind { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
 .rev-blind-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -935,8 +934,7 @@ document.addEventListener('keydown', (e) => {
 .rev-mx td, .rev-mx th { white-space: nowrap; }
 .rev-mx .rev-far { color: var(--amber-ink); font-weight: 700; }
 .rev-mx-ep th { padding-top: 14px; text-align: left; }
-.rev-est summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; }
-.rev-run h2 { font-size: 1rem; }
+.rev-est summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; }
 .rev-run-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .rev-run-row { min-height: 44px; display: grid; grid-template-columns: 14px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 0 8px; border-radius: 8px; }
 .rev-run-row.run { background: var(--sel-bg); }
