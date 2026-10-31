@@ -555,18 +555,18 @@ function wizMeter() {
   return `<span class="req-meter" id="wiz-meter"><span class="bar" aria-hidden="true"><i style="width:${(n / 6) * 100}%"></i></span>필수 ${n}/6</span>`;
 }
 
-/** 마법사 목차: 기획서 목차(docToc)와 같은 자리 · 모양이고, 줄이 걸음이다. 좁은 폭에서는 걸음 막대와 'n/6 · 걸음'만 */
+/** 마법사 목차: 기획서 목차(docToc)와 같은 공용 목차 틀(outline.js)이고, 줄이 걸음이다. 좁은 폭에서는 걸음 막대와 'n/6 · 걸음'만 */
 function wizStepper() {
   const w = wizState();
   const steps = WIZ_STEPS.map((s, i) => {
     const st = wizStepState(P(), i, w.seen);
     const word = st === 'done' ? ', 채움' : st === 'miss' ? ', 빈 필수 칸 있음' : '';
     const mark = st === 'done' ? '✓' : i + 1;
-    return `<button type="button" class="toc-item ${st}" data-action="wizGo" data-arg="${i}"${i === w.step ? ' aria-current="step"' : ''} aria-label="${i + 1}. ${s}${word}"><i class="bar" aria-hidden="true"></i><span class="n" aria-hidden="true">${mark}</span><span class="tl">${s}</span><span class="st${st === 'miss' ? ' warn' : ''}">${st === 'miss' && i !== w.step ? '빈 필수' : ''}</span></button>`;
+    return `<button type="button" class="outline-item ${st}" data-action="wizGo" data-arg="${i}"${i === w.step ? ' aria-current="step"' : ''} aria-label="${i + 1}. ${s}${word}"><i class="bar" aria-hidden="true"></i><span class="n" aria-hidden="true">${mark}</span><span class="tl">${s}</span><span class="st${st === 'miss' ? ' warn' : ''}">${st === 'miss' && i !== w.step ? '빈 필수' : ''}</span></button>`;
   }).join('');
-  return `<nav class="setup-toc steps" id="wiz-steps" aria-label="설정 걸음"><div class="toc-list">${wizMeter()}${steps}
-    <p class="small toc-note">필수를 다 채우면 같은 목차로 모든 칸을 한 장에서 고쳐요.</p></div>
-    <span class="wiz-now" aria-hidden="true">${w.step + 1}/6 · ${WIZ_STEPS[w.step]}<span>필수 ${setupReqs(P()).filter(Boolean).length}/6</span></span></nav>`;
+  return outlineNav({ id: 'wiz-steps', label: '설정 걸음', cls: 'steps',
+    body: `${wizMeter()}${steps}<p class="small outline-note">필수를 다 채우면 같은 목차로 모든 칸을 한 장에서 고쳐요.</p>`,
+    after: `<span class="wiz-now" aria-hidden="true">${w.step + 1}/6 · ${WIZ_STEPS[w.step]}<span>필수 ${setupReqs(P()).filter(Boolean).length}/6</span></span>` });
 }
 
 /** 필수 칸 표시. 칸을 채우면 refreshWiz 가 글자를 바꾼다 */
@@ -726,22 +726,15 @@ function viewSetupWizard() {
   return `${header('1단계 · 새 작품', '설정 도우미', '', right)}
     ${aiNote()}
     ${S.suggestion ? viewSuggestion() : ''}
-    <div class="setup-wrap"><div class="setup-doc">${wizStepper()}
-      <div class="setup-secs"><section class="card wiz-card" aria-labelledby="wiz-q">${bodies[w.step]()}</section></div></div></div>
+    ${outlineDoc(wizStepper(), `<div class="setup-secs"><section class="card wiz-card" aria-labelledby="wiz-q">${bodies[w.step]()}</section></div>`)}
     ${wizFoot(w.step)}${chatPanel('setup')}`;
 }
 
 /** 칸을 고치면 필수 칸 수, 목차, 필수 표시, 기획서 머리 요약만 다시 그린다 (입력 중인 칸의 포커스 유지) */
 function refreshWiz() {
   if (S.route[2] !== 'setup' || !P()) return;
-  const s = $('#wiz-steps');
-  if (s) s.outerHTML = wizStepper();
-  const t = $('#setup-toc');
-  if (t) {
-    const open = t.classList.contains('open');
-    t.outerHTML = docToc();
-    if (open) $('#setup-toc').classList.add('open');
-  }
+  if ($('#wiz-steps')) outlineRefresh('wiz-steps', wizStepper());
+  if ($('#setup-toc')) outlineRefresh('setup-toc', docToc());
   const r = setupReqs(P());
   document.querySelectorAll('[data-wiz-req]').forEach((el) => {
     const ok = r[Number(el.dataset.wizReq)];
@@ -806,7 +799,7 @@ function viewSetup() {
   return setupMode() === 'wizard' ? viewSetupWizard() : viewSetupDoc();
 }
 
-// ----- 기획서: 왼쪽 목차와 오른쪽 카드 한 열. 마법사와 같은 뼈대(.setup-doc)이고, 목차 줄이 구역이다 -----
+// ----- 기획서: 왼쪽 목차와 오른쪽 카드 한 열. 마법사와 같은 공용 목차 틀(outline.js)이고, 목차 줄이 구역이다 -----
 
 /** 기획서 구역 [카드 id, 이름]. 목차와 카드가 이 순서다 */
 const DOC_SECS = [['setup-basic', '기본 정보'], ['setup-logline', '로그라인'], ['setup-world', '세계'], ['setup-chars', '인물'], ['setup-rels', '관계'], ['setup-more', '더 채우기']];
@@ -842,17 +835,16 @@ function docSummary(p) {
 // 목차에서 지금 보이는 구역 (스크롤로 바뀐다). 작품을 바꾸면 처음 구역
 let tocCur = 0;
 
-/** 기획서 목차. 좁은 폭(.setup-wrap 720px 이하)에서는 위에 붙는 '지금 구역 ▾' 버튼으로 접는다 */
+/** 기획서 목차(공용 목차 틀 outline.js). 좁은 폭(틀 720px 이하)에서는 위에 붙는 '지금 구역 ▾' 버튼으로 접는다 */
 function docToc() {
   const st = docStatus(P());
-  const items = DOC_SECS.map(([id, l], i) => `<button type="button" class="toc-item" data-action="tocGo" data-arg="${id}"${i === tocCur ? ' aria-current="true"' : ''}>
+  const items = DOC_SECS.map(([id, l], i) => `<button type="button" class="outline-item" data-action="tocGo" data-arg="${id}"${i === tocCur ? ' aria-current="true"' : ''}>
     <span class="n${st[i].done ? ' ok' : ''}" aria-hidden="true">${st[i].done ? '✓' : i + 1}</span><span class="tl">${l}</span><span class="st${st[i].warn ? ' warn' : ''}">${esc(st[i].text)}</span></button>`).join('');
   const cur = DOC_SECS[tocCur];
-  return `<nav class="setup-toc" id="setup-toc" aria-label="기획서 목차">
-    <button type="button" class="btn small toc-now" data-action="tocToggle" aria-expanded="false" aria-controls="setup-toc-list"><span>${tocCur + 1} · ${cur[1]} <span class="${st[tocCur].warn ? 'warn-text' : 'small'}">${esc(st[tocCur].text)}</span></span><span aria-hidden="true">▾</span></button>
-    <div class="toc-list" id="setup-toc-list">${wizMeter()}${items}
-      <span class="toc-sep" aria-hidden="true"></span>
-      <button type="button" class="toc-item" data-action="setupMode" data-arg="wizard"><span class="n" aria-hidden="true">↻</span><span class="tl">걸음으로 보기</span><span class="st"></span></button></div></nav>`;
+  return outlineNav({ id: 'setup-toc', label: '기획서 목차',
+    now: `${tocCur + 1} · ${cur[1]} <span class="${st[tocCur].warn ? 'warn-text' : 'small'}">${esc(st[tocCur].text)}</span>`,
+    body: `${wizMeter()}${items}<span class="outline-sep" aria-hidden="true"></span>
+      <button type="button" class="outline-item" data-action="setupMode" data-arg="wizard"><span class="n" aria-hidden="true">↻</span><span class="tl">걸음으로 보기</span><span class="st"></span></button>` });
 }
 
 /** 구역 카드 머리: 번호(필수를 채우면 ✓) · 제목 · 오른쪽 버튼 */
@@ -920,8 +912,7 @@ function viewSetupDoc() {
   return `${header('1단계 · 기획서', '설정 도우미', `<span id="setup-sum">${esc(docSummary(p))}</span>`, `${sug}${chatButton('setup')}${go('setup-go')}`)}
     ${aiNote()}
     ${S.suggestion ? viewSuggestion() : ''}
-    <div class="setup-wrap"><div class="setup-doc">${docToc()}
-    <div class="setup-secs">
+    ${outlineDoc(docToc(), `<div class="setup-secs">
       <section class="card" id="setup-basic" aria-labelledby="h-setup-basic">
         ${secHead(0, '기본 정보')}
         <div class="grid-2">${input('제목', 'meta.title', { aside: ideaBtn('meta.title', '제목 후보'), after: ideaList('meta.title') })}${episodesInput()}</div>
@@ -964,7 +955,7 @@ function viewSetupDoc() {
         ${toneBox()}
         <div class="grid-2">${input('화당 분량', 'meta.words_per_episode', { type: 'number', hint: '공백 포함 글자 수' })}${input('메모', 'meta.notes', { rows: 2 })}</div>
       </section>
-    </div></div></div>
+    </div>`)}
     ${first ? '' : `<div class="setup-foot phone-only">${go('')}</div>`}${chatPanel('setup')}`;
 }
 
@@ -1106,9 +1097,6 @@ function viewSuggestion() {
 
 // 인물 · 관계 줄은 한 번에 하나만 편다: 접힌 줄을 누르면 같은 목록의 다른 펼친 줄을 접는다 (작가가 누를 때만, 다시 그릴 때는 기억대로)
 document.addEventListener('click', (e) => {
-  // 좁은 폭에서 펼친 목차는 바깥을 누르면 닫는다
-  const toc = document.querySelector('#setup-toc.open');
-  if (toc && !toc.contains(e.target)) { toc.classList.remove('open'); toc.querySelector('.toc-now').setAttribute('aria-expanded', 'false'); }
   const sum = e.target.closest && e.target.closest('details.char-card > summary, details.rel-card > summary');
   if (!sum || S.route[2] !== 'setup') return;
   const d = sum.parentElement;
@@ -1118,19 +1106,15 @@ document.addEventListener('click', (e) => {
   list.querySelectorAll(`details.${d.classList.contains('char-card') ? 'char-card' : 'rel-card'}[open]`).forEach((x) => { x.open = false; });
 });
 
-// 기획서 목차의 지금 구역: 화면 위에서 120px 아래를 지난 마지막 구역. 스크롤마다 목차 표시만 바꾼다
-window.addEventListener('scroll', () => {
-  const toc = document.getElementById('setup-toc');
-  if (!toc) return;
-  let cur = 0;
-  DOC_SECS.forEach(([id], i) => { const el = document.getElementById(id); if (el && el.getBoundingClientRect().top <= 120) cur = i; });
-  if (innerHeight + scrollY >= document.documentElement.scrollHeight - 4) cur = DOC_SECS.length - 1;  // 맨 아래면 마지막 구역
-  if (cur === tocCur) return;
-  tocCur = cur;
-  const open = toc.classList.contains('open');
-  toc.outerHTML = docToc();
-  if (open) $('#setup-toc').classList.add('open');
-}, { passive: true });
+// 기획서 목차의 지금 구역: 화면 위에서 120px 아래를 지난 마지막 구역(맨 아래면 마지막 구역). 바뀌면 목차만 다시 그린다
+outlineSpy('setup-toc', {
+  targets: () => DOC_SECS.map(([id], i) => [i, document.getElementById(id)]),
+  set(cur) {
+    if (cur === tocCur) return;
+    tocCur = cur;
+    outlineRefresh('setup-toc', docToc());
+  },
+});
 
 Object.assign(actions, {
   // 새 작품 마법사
@@ -1312,19 +1296,11 @@ Object.assign(actions, {
     markDirty();
     updateLogline(prev);
   },
-  /** 기획서 목차에서 구역으로 간다. 좁은 폭에서 펼친 목차는 닫는다 */
+  /** 기획서 목차에서 구역으로 간다. 좁은 폭에서 펼친 목차는 공용 목차 틀이 닫는다 */
   tocGo(id) {
     const i = DOC_SECS.findIndex(([x]) => x === id);
     if (i >= 0) tocCur = i;
-    $('#setup-toc')?.classList.remove('open');
     actions.jumpTo(id);
-  },
-  /** 좁은 폭의 목차 펼치기 · 접기 */
-  tocToggle() {
-    const t = $('#setup-toc');
-    if (!t) return;
-    const on = t.classList.toggle('open');
-    t.querySelector('.toc-now').setAttribute('aria-expanded', String(on));
   },
   /** 기획서 장르 칸: 고른 장르만 보기 ↔ 목록 펴기 */
   genreEdit() {
