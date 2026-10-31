@@ -199,6 +199,16 @@
 - LLM 을 부르지 않는다
 - 자료와 출처는 `canon/naming_data.py`
 
+### `canon/pace.py`
+
+- 관계 속도: 상태 변경안의 관계 유형 · 설명이 반영 뒤 관계 단계와 반대인지 본다(features 훅 `clean_delta`, 등장 인물 붙이기 뒤)
+- 사건을 사본에 돌린 반영 뒤 단계(`_after`, `dynamics.run_episode`), 두 방향 단계의 극성(`STAGE_SIGN`, 엇갈리면 0)
+- 글 극성(`polarity`: 낱말 사전 `POSITIVE` · `NEGATIVE`, 바로 뒤 '않 · 못 · 없'은 뒤집음), 관계 극성(`rel_polarity`: 유형 먼저, 중립이면 대사를 뺀 설명)
+- 반대인 유형 바뀜의 차례 `StateDelta.rel_flagged` → 상태 승인 화면 기본 체크 해제(`review.js` `setDelta`), 사람 검토 없이 반영할 때는 빼기(`hold`, 남긴 개수로 세지 않음)
+- 두 층 감정(`prompts.LAYER`)으로 상대를 적은 쌍은 빼기(`_masked`)
+- 한 쌍 한 화 결정적(3) 사건 `BIG`(3)개 이상 경고
+- LLM 호출 없음
+
 ### `canon/pairlog.py`
 
 - 두 사람 사이 이력(장편)
