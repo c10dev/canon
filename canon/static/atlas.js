@@ -1466,7 +1466,7 @@ function atlasBldEdit(info) {
     <label class="small">메모<textarea name="note" rows="2" maxlength="500">${esc(info.note)}</textarea></label>
     ${people ? `<fieldset class="at-bld-who"><legend class="small">여기 사는 · 일하는 인물</legend>${people}</fieldset>` : ''}
     <div class="row"><button type="submit" class="btn small primary">저장</button>
-      ${info.edited ? '<button type="button" class="btn small ghost" data-action="atlasBldReset">처음 값으로</button>' : ''}
+      ${info.edited ? '<button type="button" class="btn small ghost" data-action="atlasBldReset">처음 값으로 되돌리기</button>' : ''}
       <button type="button" class="btn small ghost" data-action="atlasBldEditOpen" data-arg="">취소</button></div></form>`;
 }
 

@@ -69,7 +69,7 @@ function hookView(h, stale) {
   return `<div class="field" style="gap:8px">
       ${stale ? '<div class="note warn">판정한 뒤 본문이 바뀌었어요. 다시 판정하세요.</div>' : ''}
       <div class="row"><span class="chip ${h.next_click ? 'finalized' : 'written'}">${h.next_click ? '다음 화를 누른다' : '여기서 내릴 수 있다'}</span>
-        <span class="small">전제가 나오는 곳: ${h.premise_at >= 0 ? `${h.premise_at.toLocaleString()}자` : '찾지 못함'}</span></div>
+        <span class="small">전제가 나오는 곳: ${h.premise_at >= 0 ? `${h.premise_at.toLocaleString()}자` : '찾지 못했어요'}</span></div>
       <div style="font-size:0.8125rem;line-height:1.6">${esc(h.reason)}</div>
       ${h.reader_question ? `<div class="note plain"><strong>독자가 들고 갈 질문</strong> · ${esc(h.reader_question)}</div>` : '<div class="note warn">마지막 장면에서 독자가 들고 갈 질문이 보이지 않아요.</div>'}
       <ul class="panel-list" style="gap:0">${items}</ul>

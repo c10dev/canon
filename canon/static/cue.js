@@ -439,7 +439,7 @@ Object.assign(actions, {
   },
   async cueSave() {
     const c = cueCtx();
-    await run('큐 시트 저장 중', async () => {
+    await run('큐 시트 저장하는 중', async () => {
       if (c.kind === 'ep') {
         await saveIfDirty();
         S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${c.n}/cue-sheet`, cueEd().draft);
@@ -479,7 +479,7 @@ Object.assign(actions, {
     ed.dirty = true; render();
   },
   async cueEstimate() {
-    await run('비용 추정 중', async () => {
+    await run('비용을 추정하는 중', async () => {
       S.cueEst = await api('POST', `/projects/${enc(S.name)}/cue/${S.cueLab.episode}/estimate`, cuePlan());
     });
   },

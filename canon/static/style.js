@@ -430,7 +430,7 @@ function viewLibEntry() {
   const apply = isNew ? '' : `<section class="card tight pf-sec" id="pf-apply" tabindex="-1">
       <h2>작품에 적용</h2>
       <div class="small">${used.length ? `쓰는 작품: ${used.map((n) => `<a href="#/p/${enc(n)}/style">${esc(n)}</a>`).join(', ')}` : '아직 쓰는 작품이 없어요.'}</div>
-      ${used.length ? '<div class="small">여기서 고친 내용은 작품의 문체 화면에서 \'최신 버전 가져오기\'를 눌러야 그 작품에 들어가요.</div>' : ''}
+      ${used.length ? `<div class="small">여기서 고친 내용은 작품의 ${stepLabel('style')}에서 '최신 버전 가져오기'를 눌러야 그 작품에 들어가요.</div>` : ''}
       ${(S.projects || []).length ? `<div class="row" style="flex-wrap:nowrap"><select id="lib-target" aria-label="적용할 작품" style="flex:1;min-width:0"><option value="">작품 고르기</option>${[...others, ...(S.projects || []).filter((x) => used.includes(x.name))].map((x) => `<option value="${esc(x.name)}">${esc(x.title || x.name)}${used.includes(x.name) ? ' (다시 적용)' : ''}</option>`).join('')}</select><button class="btn small" style="flex:none" data-action="libApplyTo">적용</button></div>` : ''}
     </section>`;
   return `${header('문체 라이브러리', isNew ? '새 문체' : e.name || '이름 없음', isNew ? '원문을 붙여 넣고 분석하거나, 카드를 직접 채운 뒤 저장하세요.' : `만든 날 ${fmtDate(e.created_at)} · 고친 날 ${fmtDate(e.updated_at)}`, right)}
@@ -620,7 +620,7 @@ Object.assign(actions, {
   async libSave() {
     if (!S.lib.name.trim()) return toast('문체 이름을 입력하세요', true);
     const body = { name: S.lib.name, source: S.lib.source, notes: S.lib.notes, sample: S.lib.sample, profile: S.lib.profile, note: S.libNote || '' };
-    await run('저장 중', async () => {
+    await run('저장하는 중', async () => {
       const isNew = !S.lib.id;
       S.lib = isNew ? await api('POST', '/styles', body) : await api('PUT', `/styles/${S.lib.id}`, body);
       S.lib.used_by = S.lib.used_by || [];

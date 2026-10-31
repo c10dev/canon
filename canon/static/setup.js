@@ -40,11 +40,11 @@ function composeLogline(p) {
 function loglineChecks(p) {
   const n = composeLogline(p).length;
   return [
-    [p.who.trim().split(/\s+/).length > 1, '주인공에게 이름 말고 특징이 있다'],
-    [!!p.why.trim(), '이야기를 시작하게 만드는 일이 있다'],
-    [p.goal.trim().endsWith('다'), "목표가 눈에 보이는 행동이다 ('~한다'로 끝남)"],
-    [!!p.block.trim(), '목표를 막는 사람이나 힘이 있다'],
-    [n >= 40 && n <= 150, '길이가 40~150자 사이다'],
+    [p.who.trim().split(/\s+/).length > 1, '주인공에게 이름 말고 특징이 있어요'],
+    [!!p.why.trim(), '이야기를 시작하게 만드는 일이 있어요'],
+    [p.goal.trim().endsWith('다'), "목표가 눈에 보이는 행동이에요 ('~한다'로 끝나요)"],
+    [!!p.block.trim(), '목표를 막는 사람이나 힘이 있어요'],
+    [n >= 40 && n <= 150, '길이가 40~150자 사이예요'],
   ];
 }
 
@@ -162,7 +162,7 @@ function toneBox() {
   const dialText = toneText(d);
   const offer = dialText && m.tone.trim() && m.tone !== dialText
     ? `<div class="row"><span class="small">다이얼 문장: ${esc(dialText)}</span><button type="button" class="btn small" data-action="useToneText">다이얼 문장으로 바꾸기</button></div>` : '';
-  return `<div id="tone-box" class="field"><span class="label-text">톤 <span class="hint">양 끝 중 어디에 가까운가. 왼쪽부터 1~4단계이고, 고른 단계를 다시 누르면 꺼져요. 문장은 직접 고쳐도 되고, 직접 쓴 문장은 다이얼이 덮지 않아요</span></span>${rows}${input('톤 문장', 'meta.tone', { placeholder: '예: 조금 어둡고 진지하고 호흡이 느리다' })}${offer}</div>`;
+  return `<div id="tone-box" class="field"><span class="label-text">톤 <span class="hint">양 끝 중 어디에 가까운지 골라요. 왼쪽부터 1~4단계이고, 고른 단계를 다시 누르면 꺼져요. 문장은 직접 고쳐도 되고, 직접 쓴 문장은 다이얼이 덮지 않아요</span></span>${rows}${input('톤 문장', 'meta.tone', { placeholder: '예: 조금 어둡고 진지하고 호흡이 느리다' })}${offer}</div>`;
 }
 
 // 관계를 말로 고르기. VIEWS 는 canon/dynamics.py 의 VIEWS 와 같은 목록이다.
@@ -621,7 +621,7 @@ function wizPerson(c, i) {
   const who = esc(c.name || `${i + 1}번 인물`);
   return `<div class="wiz-person" id="wiz-char-${i}">
     <div class="between"><strong data-char-head="${i}">${esc(c.name || '이름 없음')}</strong>
-      <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보</button><button type="button" class="ai-mini" data-action="nameAI" data-arg="${esc(c.id)}" title="AI가 이 인물 이름을 골라요">✦ AI 이름 추천</button>
+      <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보 뽑기</button><button type="button" class="ai-mini" data-action="nameAI" data-arg="${esc(c.id)}" title="AI가 이 인물 이름을 골라요">✦ AI 이름 추천 받기</button>
       <button type="button" class="btn small danger" data-action="removeCharacter" data-arg="${i}" aria-label="${who} 빼기">빼기</button></div></div>
     ${namePicks('c:' + c.id, 'useName', (n) => `${c.id}|${n}`)}
     <div class="wiz-row3">${input('이름', b + '.name')}${input('나이', b + '.age', { placeholder: '예: 22' })}${input('성별', b + '.gender', { placeholder: '여' })}</div>
@@ -639,7 +639,7 @@ function wizCast() {
     <div class="row">${wizTag(4)}<span class="small">이름 있는 인물 ${n}명</span><button type="button" class="btn small ghost" data-action="checkNames">이름 점검</button></div>
     ${nameCheckBox()}
     <div class="wiz-people">${p.characters.map(wizPerson).join('') || '<div class="note plain">아직 인물이 없어요. 로그라인에 나온 사람부터 적어 보세요.</div>'}</div>
-    <div class="row"><button type="button" class="btn ghost" data-action="addCharacter">+ 인물 더하기</button><button type="button" class="btn" data-action="dexRoll" title="원형 · 상처 · 말투 · 비틀기 · 이름을 섞어 3안을 보여 줘요">원형 도감 주사위</button></div>
+    <div class="row"><button type="button" class="btn ghost" data-action="addCharacter">+ 인물 더하기</button><button type="button" class="btn" data-action="dexRoll" title="원형 · 상처 · 말투 · 비틀기 · 이름을 섞어 3안을 보여 줘요">도감 주사위 굴리기</button></div>
     ${dexRollBox()}`;
 }
 
@@ -691,7 +691,7 @@ function wizFinish() {
     named.map((c) => c.name).join(', '), p.relationships.filter((x) => x.a !== x.b).map((x) => `${charName(x.a) || x.a} ↔ ${charName(x.b) || x.b}${x.type ? ' · ' + x.type : ''}`).join(' / ')];
   const rows = WIZ_REQ.map(([label, step], i) => `<li><span class="mark ${r[i] ? 'ok' : 'no'}" aria-hidden="true">${r[i] ? '✓' : '!'}</span><span class="small">${label}</span>
     <span class="v small${r[i] ? '' : ' muted'}">${esc(vals[i]) || '비어 있어요'}</span><button type="button" class="btn small${r[i] ? '' : ' on'}" data-action="wizGo" data-arg="${step}" aria-label="${label} ${r[i] ? '고치기' : '채우기'}">${r[i] ? '고치기' : '채우기'}</button></li>`).join('');
-  return `${wizQ(all ? '뼈대가 섰어요' : '필수 칸이 남았어요', all ? '나머지 칸은 지금 더하거나, 마친 뒤 기획서에서 언제든 채워요.' : '남은 칸을 채우면 문체 단계로 넘어갈 수 있어요.')}
+  return `${wizQ(all ? '뼈대가 섰어요' : '필수 칸이 남았어요', all ? '나머지 칸은 지금 더하거나, 마친 뒤 기획서에서 언제든 채워요.' : `남은 칸을 채우면 ${stepLabel('style')}로 넘어갈 수 있어요.`)}
     <ul class="wiz-sum">${rows}</ul>
     <details class="wiz-more"><summary>더 채우면 좋아요 <span class="small">주제 · 톤 · 세계 규칙 · 장소 · 이름 스타일 · 분량 · 메모</span></summary><div class="wiz-more-body">
       ${input('주제', 'meta.theme', { hint: '이 이야기가 끝까지 묻는 질문 하나', placeholder: '예: 떠난 사람을 이해하면 용서할 수 있나?' })}
@@ -882,7 +882,7 @@ function charRow(c, i) {
       <div class="grid-3">${input('이름', b + '.name')}${input('역할', b + '.role', { placeholder: '주인공, 상대역, 조력자…' })}${setupTier(c, b, 'tier-' + i)}</div>
       ${nameIssuesFor(c.id)}
       <div class="grid-2">${input('나이', b + '.age', { placeholder: '예: 17세, 40대 초반' })}${input('성별', b + '.gender', { placeholder: '남 / 여' })}</div>
-      <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보 뽑기</button><button type="button" class="btn small" data-action="nameAI" data-arg="${esc(c.id)}">✦ AI 이름 추천</button></div>
+      <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보 뽑기</button><button type="button" class="btn small" data-action="nameAI" data-arg="${esc(c.id)}">✦ AI 이름 추천 받기</button></div>
       ${namePicks('c:' + c.id, 'useName', (n) => `${c.id}|${n}`)}
       <div class="grid-2">${input('원하는 것', b + '.goal', { hint: '작품 전체에서' })}${input('두려운 것 · 약점', b + '.wound')}</div>
       <div class="grid-2">${input('숨기는 것', b + '.secrets', { kind: 'list', rows: 2 })}${input('말투 (대사)', b + '.speech_style', { rows: 2, hint: '어미, 호칭, 대사 한 줄' })}</div>
@@ -931,12 +931,12 @@ function viewSetupDoc() {
         <div class="grid-2">${input('시대', 'world.era', { placeholder: '예: 중세풍, 현대' })}${nameStyleField()}</div>
         <div class="grid-2">${input('깨면 안 되는 규칙', 'world.rules', { kind: 'list' })}${input('장소', 'world.locations', { kind: 'list' })}</div>
         <div class="row"><select id="place-kind" aria-label="지명 종류" data-local="placeKind" style="width:auto;min-width:120px">${placeKindOptions()}</select>
-          <button type="button" class="btn small" data-action="placeCandidates">지명 후보 뽑기</button><button type="button" class="btn small" data-action="placeAI">✦ AI 지명 추천</button></div>
+          <button type="button" class="btn small" data-action="placeCandidates">지명 후보 뽑기</button><button type="button" class="btn small" data-action="placeAI">✦ AI 지명 추천 받기</button></div>
         ${namePicks('place', 'addPlace', (n) => n)}
         ${input('이름 규칙', 'world.name_rules', { kind: 'list', rows: 2, placeholder: "예: 북부 귀족은 성 앞에 '폰'을 붙인다" })}
       </section>
       <section class="card" id="setup-chars" aria-labelledby="h-setup-chars">
-        ${secHead(3, `인물 <span class="small">${p.characters.length}명</span>`, `<div class="row"><button type="button" class="btn small ghost" data-action="checkNames" title="글자가 겹치는 이름, 나이와 안 맞는 이름, AI가 자주 짓는 이름을 찾아요">이름 점검</button><button type="button" class="btn small" data-action="dexRoll" title="원형 · 상처 · 말투 · 비틀기 · 이름을 무작위로 섞어 3안을 보여 줘요">도감 주사위</button><button type="button" class="btn small" data-action="addCharacter">+ 인물</button></div>`)}
+        ${secHead(3, `인물 <span class="small">${p.characters.length}명</span>`, `<div class="row"><button type="button" class="btn small ghost" data-action="checkNames" title="글자가 겹치는 이름, 나이와 안 맞는 이름, AI가 자주 짓는 이름을 찾아요">이름 점검</button><button type="button" class="btn small" data-action="dexRoll" title="원형 · 상처 · 말투 · 비틀기 · 이름을 무작위로 섞어 3안을 보여 줘요">도감 주사위 굴리기</button><button type="button" class="btn small" data-action="addCharacter">+ 인물 더하기</button></div>`)}
         <p class="small">이름 · 말투 · 성격은 고정 설정이에요. 화마다 바뀌는 감정과 목표는 상태 승인에서 관리해요. 주역은 매 화, 조연 · 단역은 나오는 화에만 AI에 들어가요.</p>
         ${nameCheckBox()}
         ${dexRollBox()}
@@ -944,7 +944,7 @@ function viewSetupDoc() {
       </section>
       ${setupStatLink()}
       <section class="card" id="setup-rels" aria-labelledby="h-setup-rels">
-        ${secHead(4, `관계 <span class="small">${p.relationships.length}개</span>`, `<button type="button" class="btn small" data-action="addRelationship"${autoOn() ? ' disabled' : ''}>+ 관계</button>`)}
+        ${secHead(4, `관계 <span class="small">${p.relationships.length}개</span>`, `<button type="button" class="btn small" data-action="addRelationship"${autoOn() ? ' disabled' : ''}>+ 관계 더하기</button>`)}
         <p class="small">${p.snapshots.length ? '첫 반영 뒤에는 본문의 관계 사건으로 계산돼요.' : '서로 어떻게 보는지 고르면 시작 관계를 계산해요. 긴장은 자동 계산이에요.'}</p>
         ${lock}
         ${rels ? `<div class="setup-rows">${autoOn() ? `<fieldset disabled class="lockset" aria-describedby="rel-lock">${rels}</fieldset>` : rels}</div>` : '<div class="note plain">관계가 없어요.</div>'}
@@ -1123,7 +1123,7 @@ Object.assign(actions, {
     const w = wizState();
     if (!(i >= 0 && i <= 5) || i === w.step) return;
     // 앞으로 갈 때 저장한다. 저장하지 못하면 그 걸음에 남는다
-    if (i > w.step && S.dirty && !(await run('저장 중', save, { render: 'none' }))) return;
+    if (i > w.step && S.dirty && !(await run('저장하는 중', save, { render: 'none' }))) return;
     w.step = i;
     if (!w.seen.includes(i)) w.seen.push(i);
     render();

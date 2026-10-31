@@ -397,7 +397,7 @@ const revTocLink = (href, inner, cur = false) => `<a class="outline-item" href="
 function revHome() {
   const labs = S.rev.labs || [];
   const open = S.revNew || !labs.length || !!S.revDraft.text;
-  const btn = labs.length ? `<button type="button" class="btn${open ? ' on' : ' primary'}" data-action="revNewToggle" aria-expanded="${open}" aria-controls="rev-new">+ 새 실험</button>` : '';
+  const btn = labs.length ? `<button type="button" class="btn${open ? ' on' : ' primary'}" data-action="revNewToggle" aria-expanded="${open}" aria-controls="rev-new">+ 새 실험 만들기</button>` : '';
   const head = header('실험 · 본편과 분리', '역설계 실험',
     '사람이 쓴 소설을 화별 플롯 · 스토리보드 · 큐 시트로 거꾸로 풀고, 그 큐 시트로 같은 화를 다시 써서 원문과 견줘요. 작품 데이터는 바꾸지 않아요.', `${revBackBtns()}${btn}`);
   const cards = labs.map((x) => {

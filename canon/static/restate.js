@@ -58,7 +58,7 @@ function restateCard(n) {
   const later = laterWritten(n);
   const intro = `<p class="desc">${n}화는 반영한 뒤 본문을 고쳤어요. 인물 상태 · 관계 · 비밀은 ${later.length ? `뒤 화(${rangeText(later)}화)가 그 위에 쌓아서 ` : ''}여기서 바꾸지 않아요. 고친 본문에서 변경안을 다시 뽑아 요약 · 새 사실 · 새 복선 · 새 장소만 골라 반영할 수 있어요. 인물 상태까지 바꿔야 하면 아래 '${n}화부터 반영 취소'를 쓰세요.</p>`;
   if (!d) {
-    return `<section class="card rv-restate"><h2><span class="tf" aria-hidden="true">🔄</span> 고친 본문으로 다시 맞추기</h2>${intro}
+    return `<section class="card rv-restate"><h2>고친 본문으로 다시 맞추기</h2>${intro}
       <div class="row">${((b) => `<button class="btn primary" data-action="restateEp" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '고친 본문에서 다시 뽑기'))}
       <button type="button" class="btn" data-action="keepState" data-arg="${n}"${autoOn() ? ' disabled' : ''}>그대로 두기 (오타 · 문장만 고침)</button></div></section>`;
   }
@@ -68,7 +68,7 @@ function restateCard(n) {
   const skipped = [['인물 상태', d.character_updates], ['관계 사건', d.events], ['관계 유형', d.relationship_updates], ['새 비밀', d.secrets_added], ['복선 회수', d.foreshadow_resolved], ['새 인물', d.new_characters || []]]
     .filter(([, l]) => l.length).map(([k, l]) => `${k} ${l.length}건`);
   // 버튼은 카드 머리에 둔다. 카드 안에 붙는 반영 줄을 두면 stackBottom 이 그 높이를 페이지 내내 남긴다
-  return `<section class="card rv-restate"><div class="rv-card-head"><h2><span class="tf" aria-hidden="true">🔄</span> 고친 본문으로 다시 맞추기</h2>
+  return `<section class="card rv-restate"><div class="rv-card-head"><h2>고친 본문으로 다시 맞추기</h2>
       <div class="row rv-actions">${((b) => `<button class="btn small" data-action="restateEp" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '다시 뽑기'))}<button class="btn small" data-action="dropDelta" data-arg="${n}">버리기</button>
       <button class="btn primary" data-action="applyRestate" data-arg="${n}"${autoOn() ? ' disabled' : ''}>선택한 항목 반영</button></div></div>${intro}
     <div class="field"><span class="small">요약</span>

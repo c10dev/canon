@@ -263,7 +263,7 @@ function rebuildForm(p, st) {
           <li>인과율 요소 · 이야기 줄기 (새 화 번호로 옮김)</li></ul></div>
         <div class="field"><span class="label">바뀌는 것</span><ul class="small" style="margin:4px 0 0;padding-left:18px">
           <li>화 번호와 순서 (새 화 지도대로)</li><li>인물 상태 · 관계 · 확정 사실 · 복선: 1화 시작 전으로 돌린 뒤 새 순서대로 다시 반영</li>
-          <li>그대로 둔 화는 단편 때 승인한 상태 변경안을 번호만 바꿔 다시 씀 (AI 호출 없음)</li></ul></div>
+          <li>그대로 둔 화는 단편 때 승인한 상태 변경안을 번호만 바꿔 다시 써요 (AI를 부르지 않아요)</li></ul></div>
       </div>
       <div class="grid-2">${input(`장편 총 화수 (${st.min}~${st.max})`, 'total', { root: 'rbForm', type: 'number', min: st.min, max: st.max })}
         ${input(`다시 짤 앞부분 화수 (${r.min}~${r.max}, 기본 ${r.default})`, 'span', { root: 'rbForm', type: 'number', min: r.min, max: r.max })}</div>
