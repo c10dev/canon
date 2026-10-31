@@ -339,6 +339,7 @@ def test_web_flow(home):
     assert est["calls"] == 3
     r = c.post(f"/api/revlab/{lab_id}/jobs", json={"kind": "parse"})
     assert r.status_code == 200, r.text
+    assert r.json()["pending"] == [1, 2] and r.json()["total"] == 3  # 화면이 화마다 진행 줄을 그린다 (revRunRows)
     j = _wait(c, r.json()["id"])
     assert j["status"] == "done" and j["result"]["episodes"] == 2 and j["project"] == revlab.JOBS and j["kind"] == "rev_parse", j
     assert c.post("/api/projects/demo/jobs", json={"kind": "rev_parse", "ep": lab_id}).status_code == 400  # 작품 작업으로는 돌지 않는다
@@ -424,30 +425,175 @@ def test_js_helpers_and_view(home):
       const home = viewRev();
       const prev = revPreview(data.story, data.home);
       const tooMany = revPreview(Array.from({ length: 32 }, (_, i) => `${i + 1}화\\n본문`).join('\\n'), data.home);
-      S.revLab = data.lab; S.revEp = 1; S.revPick = new Set([2]); S.revSel = 2;
+      S.revLab = data.lab; S.revEp = 1; S.revPick = new Set([2]); S.revSel = 2; S.revTab = 'text';
+      S.revEsts = { 'write:2': { usd: 0.04, calls: 1, rows: [], model: 'm', note: '' } };
       const lab = viewRev();
-      S.revEp = 2;
+      S.revTab = 'write';
+      const write = viewRev();
+      S.revEp = 2; S.revTab = 'text';
       const two = viewRev();
+      S.revTab = 'write';
+      const twoWrite = viewRev();
+      const panes = {};
+      for (const k of ['overview', 'cast', 'style', 'lines', 'metrics']) { S.revPane = k; panes[k] = viewRev(); }
+      S.revRedo = true; S.revPane = 'overview';
+      const redo = viewRev();
+      S.revRedo = false;
+      S.rev = Object.assign({}, data.home, { labs: [] }); S.revLab = null; S.revDraft = { title: '', text: '' };
+      const empty = viewRev();
+      S.rev = data.home; S.revLab = data.lab;
+      S.revPane = null; S.revEdit = true;
+      const edit = viewRev();
       const e = data.lab.items[1];
-      return { home, prev, tooMany: tooMany.errs, lab, two, segs: revSegments(e.text, e.bounds),
+      return { home, prev, tooMany: tooMany.errs, lab, write, two, twoWrite, panes, edit, redo, empty, segs: revSegments(e.text, e.bounds),
                gap: revSegments('abcdef', [{ start: 2, end: 4, found: true }, { start: 4, end: 4, found: false }]) };
     })()""", {"home": labels, "lab": view, "story": STORY})
-    assert "새 실험" in got["home"] and "지난 실험" in got["home"]
+    assert "새 실험" in got["home"] and "이어 하기" in got["home"] and 'class="card rev-lab"' in got["home"]
+    assert 'id="rev-new"' in got["home"] and "btn on" in got["home"]  # 붙여 넣은 글이 있으면 새 실험 카드를 펴 둔다
     assert got["prev"]["how"] == "heading" and [e["n"] for e in got["prev"]["eps"]] == [1, 2] and not got["prev"]["errs"]
     assert got["prev"]["notes"]  # 앞머리 안내
     assert got["tooMany"] and "30화까지" in got["tooMany"][0]
     lab = got["lab"]
-    assert "가려 읽기" in lab and "1번이 더 읽고 싶어요" in lab and "원문</td>" not in lab  # 1화: 고르기 전에는 지표에 되돌려 쓴 글이 없다
+    assert 'aria-label="실험 목차"' in lab and "되돌려 쓰기" in lab and "가려 읽기" in lab  # 목차의 단계
+    assert "1번이 더 읽고 싶어요" not in lab  # 원문 · 큐 탭에는 가려 읽기가 없다
     assert 'id="rev-cue-2"' in lab and "rev-seg sel" in lab and "cue-bars" in lab and "큐 시트 고치기" in lab
-    assert "이야기 줄기" in lab and "두 사람의 관계" in lab
-    assert "인물 · 관계 · 배경" in lab and "말보다 손이 먼저 나간다" in lab and "오래 함께 등대를 지켰다" in lab and "도현 → " not in lab
-    assert "서윤 → 도현" in lab and "문체 역설계 시작" in lab and "초반 규칙이 붙어요" in lab
-    assert "시작 문장을 원문에서 못 찾았어요" in got["two"] and "되돌려 쓰기 시작" in got["two"]
+    assert 'aria-selected="true"' in lab and "원문 · 큐" in lab and "플롯 · 스토리보드" in lab
+    assert 'data-action="revGo" data-arg="1|write"' in lab and "1화 가려 읽기" in lab  # 머리 주 버튼: 지금 화에 남은 가려 읽기
+    w = got["write"]
+    assert "1번이 더 읽고 싶어요" in w and "원문</td>" not in w  # 1화: 고르기 전에는 지표에 되돌려 쓴 글이 없다
+    assert "시작 문장을 원문에서 못 찾았어요" in got["two"]
+    assert "되돌려 쓰기 시작" in got["twoWrite"] and "약 0.04달러" in got["twoWrite"] and "비용 재는 중" not in got["twoWrite"]  # 추정이 있으면 버튼에 비용
+    assert 'data-action="revWrite" data-arg="2"' in got["twoWrite"]
+    p = got["panes"]
+    assert "인물 · 관계 · 배경" in p["cast"] and "말보다 손이 먼저 나간다" in p["cast"] and "오래 함께 등대를 지켰다" in p["cast"]
+    assert "도현 → " not in p["cast"] and "서윤 → 도현" in p["cast"]
+    assert "문체 역설계 시작" in p["style"] and "두 사람의 관계" in p["lines"]
+    assert "화별 진행" in p["overview"] and "역설계할 화" not in p["overview"] and 'href="#/revlab/1/cast"' in p["overview"]  # 다 푼 실험의 개요
+    assert "다시 역설계할 화" in got["redo"] and got["redo"].count("btn primary") == 1 and "고른 1화 다시 역설계" in got["redo"]
+    assert 'id="rev-new"' in got["empty"] and "이어 하기" not in got["empty"] and "revNewToggle" not in got["empty"]  # 실험이 없으면 바로 새 실험
+    assert "지표 모아 보기" in p["metrics"] and "가려 읽기를 마친 화" in p["metrics"]  # 아직 고르지 않아 견줄 판이 없다
+    assert "초반 규칙" in got["edit"] and "글 · 이름 고치기" in got["edit"]
+    assert got["edit"].count("btn primary") == 1 and got["lab"].count("btn primary") == 1  # 주 버튼은 한 화면에 하나
     e = view["items"][1]
     assert [s["cue"] for s in got["segs"]] == [i + 1 for i, b in enumerate(e["bounds"]) if b["found"] and b["end"] > b["start"]]
     assert "".join(e["text"][s["start"]:s["end"]] for s in got["segs"]) == e["text"]  # 빈틈없이 덮는다
     assert got["gap"] == [{"cue": 0, "start": 0, "end": 2}, {"cue": 1, "start": 2, "end": 4}, {"cue": 0, "start": 4, "end": 6}]
 
+
+def _item(n, chars=500, sheet=False, takes=0, blind=False, picked="", head=""):
+    return {"number": n, "head": head, "chars": chars, "sheet": {"cues": [{}] * 3} if sheet else None,
+            "takes": [{"mode": "plain"}] * takes, "blind_texts": ["a", "b"] if blind else [], "picked": picked}
+
+
+@needs_node
+def test_js_steps_next_and_toc():
+    """단계 다섯 · 다음 할 일 · 목차의 화 줄 (revSteps · revNext · revTocEps · revEpTitle)."""
+    labs = {
+        "fresh": {"items": [_item(1), _item(2), _item(3, chars=50)], "style": None},
+        "parsed": {"items": [_item(1, sheet=True), _item(2, sheet=True), _item(3, chars=50)], "style": None},
+        "blind": {"items": [_item(1, sheet=True, takes=1, picked="original"), _item(2, sheet=True, takes=1, blind=True), _item(3, sheet=True)], "style": {"tense": "과거"}},
+        "done": {"items": [_item(1, sheet=True, takes=2, picked="skip")], "style": {}},
+    }
+    got = run_js(FILES, """Object.assign(Object.fromEntries(Object.entries(data.labs).map(([k, L]) => [k, {
+        steps: revSteps(L, 200).map((s) => `${s.id}:${s.state}:${s.right}`),
+        running: revSteps(L, 200, ['rev_parse']).map((s) => s.state),
+        share: revStepShare(revSteps(L, 200)),
+        next1: revNext(L, 1, 200), next3: revNext(L, 3, 200),
+        toc: revTocEps(L.items, 200).map((x) => `${x.n}:${x.state}:${x.right}`),
+      }])), { titles: data.heads.map((h) => revEpTitle({ head: h })) })""", {"labs": labs, "heads": ["12화 젖은 필름", "# 제 3화: 비", "3화", "", "프롤로그"]})
+    f = got["fresh"]
+    assert f["steps"] == ["split:ok:3화", "parse:now:0/2", "style:todo:고르면", "write:todo:0/0", "pick:todo:0/0"]
+    assert f["running"][1] == "run" and f["running"][3] == "now"  # 역설계가 도는 동안 '지금'은 다음 단계로
+    assert f["share"] == 0.25 and f["next1"] == {"kind": "parse", "eps": [1, 2]}  # 짧은 3화는 풀지 않는다
+    assert f["toc"] == ["1:raw:500자", "2:raw:500자", "3:short:짧음"]
+    p = got["parsed"]
+    assert p["steps"][1] == "parse:ok:2/2" and p["steps"][3] == "write:now:0/2"
+    assert p["next1"] == {"kind": "write", "n": 1} and p["next3"] == {"kind": "write", "n": 1}  # 3화(짧음)에서는 돌아서 1화
+    assert p["toc"][0] == "1:parsed:큐 3"
+    b = got["blind"]
+    assert b["steps"] == ["split:ok:3화", "parse:ok:3/3", "style:ok:있음", "write:now:2/3", "pick:todo:1/2"]
+    assert b["next1"] == {"kind": "pick", "n": 2} and b["next3"] == {"kind": "write", "n": 3}  # 지금 화를 먼저
+    assert b["toc"][:2] == ["1:wrote:씀", "2:wrote:가려 읽기"]
+    d = got["done"]
+    assert all(x.endswith(("3화", "1화")) or ":ok:" in x for x in d["steps"]) and d["share"] == 1 and d["next1"] is None
+    assert got["titles"] == ["젖은 필름", "비", "", "", "프롤로그"]
+
+
+@needs_node
+def test_js_run_rows_and_metric_rows():
+    """역설계 진행 줄(revRunRows)과 지표를 지표마다 한 줄로(revMetricRows)."""
+    items = [_item(4, head="4화 눈"), _item(5), _item(6)]
+    jobs = [{"pending": [4, 5, 6], "done": 1, "total": 4}, {"pending": [5], "done": 1, "total": 2}, {"pending": [4, 5], "done": 0, "total": 2}]
+    o = {"condition": "original", "label": "원문", "chars": 1000, "lines_total": 0, "lines_hit": 0, "dialogue_ratio": 0.1, "sentence_len": 20,
+         "mattr": 0.9, "short_endings": 0, "repeats": [], "ai_patterns": 0, "rows": [{}], "tempo_order": True}
+    t = {**o, "condition": "plain", "label": "되돌려 쓴 글", "chars": 1500, "lines_total": 4, "lines_hit": 3, "dialogue_ratio": 0.12,
+         "sentence_len": 11, "mattr": None, "repeats": ["x"], "ai_patterns": 2, "rows": [], "stale": True}
+    got = run_js(FILES, "({ rows: data.jobs.map((j) => revRunRows(j, data.items)), m: revMetricRows(data.scores) })",
+                 {"items": items, "jobs": jobs, "scores": [o, t]})
+    assert got["rows"][0] == [{"n": 4, "title": "눈", "state": "done"}, {"n": 5, "title": "", "state": "run"},
+                              {"n": 6, "title": "", "state": "wait"}, {"n": 0, "title": "이야기 줄기", "state": "wait"}]
+    assert got["rows"][1][-1] == {"n": 0, "title": "이야기 줄기", "state": "run"}  # 화를 다 풀고 줄기를 묻는 중
+    assert [r["state"] for r in got["rows"][2]] == ["run", "wait"]  # 줄기를 묻지 않는 작업
+    m = got["m"]
+    assert m["heads"] == [{"label": "원문", "stale": False}, {"label": "되돌려 쓴 글", "stale": True}]
+    row = {r["label"]: [(c["text"], c["far"]) for c in r["cells"]] for r in m["rows"]}
+    assert row["글자"] == [("1,000", False), ("1,500", True)]  # 4할 넘게 다르면 표시
+    assert row["대사 비율"] == [("10%", False), ("12%", False)]
+    assert row["문장 길이"] == [("20", False), ("11", True)]
+    assert row["핵심 대사 들어감"] == [("-", False), ("3/4", False)]
+    assert row["어휘 다양도"] == [("0.9", False), ("-", False)]
+    assert row["되풀이 문장"] == [("0", False), ("1", True)] and row["쇠맛 경고"] == [("0", False), ("2", True)]  # 원문이 0이면 하나라도 표시
+    assert row["템포 (원문 큐 경계)"] == [("맞음", False), ("-", False)]
+
+
+
+@needs_node
+def test_js_home_card_and_overview_row():
+    """처음 화면 카드(revLabLite · revHomeCard)와 개요 줄(revOverviewRow)."""
+    def st(n, sheet=False, takes=0, blind=False, picked="", chars=500):
+        return {"number": n, "head": "", "chars": chars, "sheet": sheet, "takes": takes, "blind": blind, "picked": picked}
+    labs = [
+        {"done": 0, "has_style": False, "steps": [st(1), st(2)]},
+        {"done": 2, "has_style": True, "steps": [st(1, True, 1, picked="original"), st(2, True)]},
+        {"done": 2, "has_style": False, "steps": [st(1, True, 1, blind=True), st(2, True, 2, picked="rewrite")]},
+        {"done": 1, "has_style": False, "steps": [st(1, True, 2, picked="original"), st(2, chars=10)]},
+    ]
+    o = {"condition": "original", "dialogue_ratio": 0.1, "lines_total": 0, "lines_hit": 0}
+    t = {"condition": "plain", "dialogue_ratio": 0.3, "lines_total": 4, "lines_hit": 3}
+    eps = [
+        {"number": 7, "head": "7화 눈", "chars": 900, "sheet": {"cues": [{}, {}]}, "storyboard": {"scenes": [{}]}, "missing": [2],
+         "takes": [{}], "blind_texts": [], "picked": "original", "scores": [o, t]},
+        {"number": 8, "head": "", "chars": 900, "sheet": None, "missing": [], "takes": [], "blind_texts": [], "picked": "", "scores": []},
+        {"number": 9, "head": "", "chars": 50, "sheet": None, "missing": [], "takes": [], "blind_texts": [], "picked": "", "scores": []},
+        {"number": 10, "head": "", "chars": 900, "sheet": {"cues": [{}]}, "missing": [], "takes": [{}], "blind_texts": ["a", "b"], "picked": "", "scores": [o]},
+    ]
+    got = run_js(FILES, "({ cards: data.labs.map((x) => revHomeCard(x, 200)), rows: data.eps.map((e) => revOverviewRow(e, 200)) })",
+                 {"labs": labs, "eps": eps})
+    c = got["cards"]
+    assert c[0]["chip"] == {"text": "역설계 전", "cls": ""} and c[0]["next"] == "2화 역설계" and c[0]["states"][:2] == ["ok", "now"]
+    assert c[1]["chip"]["text"] == "되돌려 쓰기 1/2" and c[1]["next"] == "2화 되돌려 쓰기" and c[1]["picks"]["original"] == 1
+    assert c[2]["next"] == "1화 가려 읽기" and c[2]["chip"]["text"] == "가려 읽기 1/2"
+    assert c[3]["chip"] == {"text": "다 견줌", "cls": "ok"} and c[3]["next"] == "" and c[3]["share"] == 1  # 짧은 화는 풀지 않는다
+    r = got["rows"]
+    assert r[0] == {"n": 7, "title": "눈", "state": "parsed", "cues": 2, "scenes": 1, "missing": 1, "takes": 1, "pick": "원문 고름",
+                    "lines": "3/4", "dlg": ["10%", "30%"], "far": True}
+    assert r[1]["state"] == "raw" and r[1]["dlg"] is None and r[1]["pick"] == ""
+    assert r[2]["state"] == "short"
+    assert r[3]["pick"] == "wait" and r[3]["lines"] == "" and r[3]["dlg"] is None  # 가려 읽기 전에는 되돌려 쓴 글의 지표가 없다
+
+
+def test_listing_summary_for_home(home):
+    """처음 화면 카드에 드는 목록 값: 최근에 고친 차례, 화마다 단계 값(원문 없음)."""
+    a = revlab.create("앞", STORY)
+    b = _parsed(home)
+    revlab.run_write(b.id, MockLLM(), 1)
+    labs = revlab.listing()
+    assert [x["id"] for x in labs][:2] == [b.id, a.id]  # b 를 나중에 고쳤다 (같은 초면 번호가 큰 쪽)
+    x = next(x for x in labs if x["id"] == b.id)
+    assert x["updated"] and x["cast_count"] == len(revlab.load(b.id).cast) and x["has_style"] is False
+    s1 = x["steps"][0]
+    assert s1["sheet"] is True and s1["takes"] == 1 and s1["blind"] is True and s1["picked"] == "" and "text" not in s1
+    assert next(x for x in labs if x["id"] == a.id)["steps"][0]["sheet"] is False
 
 def _cue_labels():
     from canon import web
