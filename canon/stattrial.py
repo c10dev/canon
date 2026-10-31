@@ -186,7 +186,7 @@ def run(name: str, p: Project, llm, episodes: list[int], repeats: int = 1, condi
                 drafts.append({"episode": n, "condition": cond, "repeat": r + 1, "prompt_chars": size,
                                "prompt_tokens": round(size / CHARS_PER_TOKEN), **score(q, n, text, ref)})
                 done += 1
-        research.save_compare(name, n, first, kind="statwin")
+        research.save_compare(name, n, first, kind="statwin", models=dict.fromkeys(first, pipeline.writer_of(llm)))
     res = {"episodes": episodes, "repeats": repeats, "conditions": conditions, "drafts": drafts, "summary": summary(drafts)}
     return research.record(name, "statwin", res)
 
