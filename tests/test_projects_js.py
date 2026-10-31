@@ -128,6 +128,6 @@ def test_out_nav_and_sidebar():
     h = got["html"]
     assert 'class="side side-out"' in h and 'aria-label="작품 밖 메뉴"' in h
     assert 'href="#/styles" title="문체 라이브러리" aria-current="page"' in h
-    assert '<span class="nav-off"' in h and "쇠맛 실험실" in h  # 아직 열지 않은 화면은 링크가 아니다
+    assert 'href="#/soelab"' in h and '<span class="nav-off"' not in h  # 쇠맛 실험실도 열었다 (nav-off 는 아직 열지 않은 화면 자리)
     assert ", 확인할 것 1개" in h and ", 멈춘 작업 1개" in h
     assert 'data-arg="side-more"' not in h and 'class="side-set" href="#/settings"' in h  # ⋯ 메뉴 없이 설정만

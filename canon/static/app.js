@@ -1668,7 +1668,7 @@ async function routeNow() {
     }
     if (!S.genres) S.genres = await api('GET', '/genres').catch(() => []);
     if (!S.namingStyles) S.namingStyles = await api('GET', '/naming/styles').catch(() => []);
-    if (['usage', 'revlab', 'styles'].includes(parts[0])) {  // 작품 밖 사이드바의 최근 작품 · 문체 수 (처음 한 번만, 작품 목록에 오면 다시 읽는다)
+    if (['usage', 'revlab', 'soelab', 'styles'].includes(parts[0])) {  // 작품 밖 사이드바의 최근 작품 · 문체 수 (처음 한 번만, 작품 목록에 오면 다시 읽는다)
       if (!S.projects) S.projects = await api('GET', '/projects').catch(() => null);
       if (!S.libs) S.libs = await api('GET', '/styles').catch(() => null);
     }
@@ -1680,6 +1680,10 @@ async function routeNow() {
       S.name = null;
       S.project = null;
       await revLoad(parts[1], parts[2]);
+    } else if (parts[0] === 'soelab') {
+      S.name = null;
+      S.project = null;
+      await soeLoad(parts[1], parts[2]);
     } else if (parts[0] === 'styles') {
       S.name = null;
       S.project = null;
@@ -1901,6 +1905,7 @@ function drawApp() {
   };
   if (p === 'usage') return outside('usage', 1180, viewUsage());
   if (p === 'revlab') return outside('revlab', 1280, viewRev());
+  if (p === 'soelab') return outside('soelab', 1280, viewSoe());
   if (p === 'styles') return outside('styles', 1180, S.route[1] && S.lib ? viewLibEntry() : viewLibrary());
   if (S.loadError) {
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:720px;margin:0 auto"><div class="card empty" role="alert">${S.loadMissing
@@ -2039,8 +2044,8 @@ function navItems() {
     steps,
     auto: ['auto', base() + '/auto', '🤖', autoMenuLabel()],
     tools,
-    apart: [['research', base() + '/research', '🔬', '연구 · 모델 실험'], ['cue', base() + '/cue', '🎼', '큐 시트 집필 실험'], ['revlab', '#/revlab', '🔁', '역설계 실험'], ['usage', base() + '/usage', '💰', '사용량 · 비용']],
-    foot: [['#/settings', '설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/revlab', '역설계 실험'], ['#/', '작품 목록']],
+    apart: [['research', base() + '/research', '🔬', '연구 · 모델 실험'], ['cue', base() + '/cue', '🎼', '큐 시트 집필 실험'], ['revlab', '#/revlab', '🔁', '역설계 실험'], ['soelab', '#/soelab', '🧪', '쇠맛 실험실'], ['usage', base() + '/usage', '💰', '사용량 · 비용']],
+    foot: [['#/settings', '설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/revlab', '역설계 실험'], ['#/soelab', '쇠맛 실험실'], ['#/', '작품 목록']],
   };
 }
 
@@ -2207,7 +2212,7 @@ function outNav(list = [], libs = []) {
     alerts: list.reduce((k, x) => k + alerts(x).length, 0),
     fails: list.reduce((k, x) => k + alerts(x).filter((a) => a.kind === 'fail').length, 0),
     tools: [['styles', '#/styles', '🖋️', '문체 라이브러리', libs.length ? String(libs.length) : ''], ['revlab', '#/revlab', '🔁', '역설계 실험', ''],
-      ['soelab', '', '🧪', '쇠맛 실험실', '곧'], ['usage', '#/usage', '💰', '사용량 · 비용', '']],
+      ['soelab', '#/soelab', '🧪', '쇠맛 실험실', ''], ['usage', '#/usage', '💰', '사용량 · 비용', '']],
   };
 }
 
