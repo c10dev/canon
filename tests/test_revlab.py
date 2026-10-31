@@ -444,8 +444,13 @@ def test_js_helpers_and_view(home):
       S.rev = data.home; S.revLab = data.lab;
       S.revPane = null; S.revEdit = true;
       const edit = viewRev();
+      S.revEdit = false; S.revFrom = { name: '등대 일지', title: '등대의 <밤>' };
+      const from = viewRev();
+      S.revLab = null;
+      const fromHome = viewRev();
+      S.revFrom = null; S.revLab = data.lab;
       const e = data.lab.items[1];
-      return { home, prev, tooMany: tooMany.errs, lab, write, two, twoWrite, panes, edit, redo, empty, segs: revSegments(e.text, e.bounds),
+      return { home, prev, tooMany: tooMany.errs, lab, write, two, twoWrite, panes, edit, redo, empty, from, fromHome, segs: revSegments(e.text, e.bounds),
                gap: revSegments('abcdef', [{ start: 2, end: 4, found: true }, { start: 4, end: 4, found: false }]) };
     })()""", {"home": labels, "lab": view, "story": STORY})
     assert "새 실험" in got["home"] and "이어 하기" in got["home"] and 'class="card rev-lab"' in got["home"]
@@ -474,6 +479,13 @@ def test_js_helpers_and_view(home):
     assert "지표 모아 보기" in p["metrics"] and "가려 읽기를 마친 화" in p["metrics"]  # 아직 고르지 않아 견줄 판이 없다
     assert "초반 규칙" in got["edit"] and "글 · 이름 고치기" in got["edit"]
     assert got["edit"].count("btn primary") == 1 and got["lab"].count("btn primary") == 1  # 주 버튼은 한 화면에 하나
+    # 작품 밖 화면이라 사이드바가 없다: 머리마다 작품 목록, 작품에서 들어왔으면 그 작품으로 가는 버튼
+    for k in ("home", "lab", "empty", "from", "fromHome"):
+        assert '<a class="btn" href="#/">작품 목록</a>' in got[k], k
+    assert "‹ " not in got["home"] and "‹ " not in got["lab"]
+    for k in ("from", "fromHome"):
+        assert '<a class="btn" href="#/p/%EB%93%B1%EB%8C%80%20%EC%9D%BC%EC%A7%80">‹ 등대의 &lt;밤&gt;</a>' in got[k], k
+    assert got["from"].count("btn primary") == 1
     e = view["items"][1]
     assert [s["cue"] for s in got["segs"]] == [i + 1 for i, b in enumerate(e["bounds"]) if b["found"] and b["end"] > b["start"]]
     assert "".join(e["text"][s["start"]:s["end"]] for s in got["segs"]) == e["text"]  # 빈틈없이 덮는다
