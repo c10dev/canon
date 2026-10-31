@@ -102,6 +102,16 @@ def open_findings(ep: Episode) -> list[Finding]:
     return [f for f in ep.findings if f.status == "open"]
 
 
+def check_done(ep: Episode) -> bool:
+    """검수가 끝났는지: 검수했고, 그 뒤 본문을 고치지 않았고, 열린 지적이 없다 (home.js checkState 의 done 과 같은 규칙).
+    '이 지적만 다시 검수'로 풀린 고침안 묶음은 그 검수가 이미 본 수정이라 고친 것으로 세지 않는다."""
+    if not ep.checked_at:
+        return False
+    seen = {f.fix_group for f in ep.findings if f.closed_by == "one" and f.fix_group}
+    last = next((x for x in reversed(ep.edits) if not x.undone and not (x.group and x.group in seen)), None)
+    return not (last and last.at > ep.checked_at) and not open_findings(ep)
+
+
 def counted(ep: Episode, issues: list[ConsistencyIssue], ignore_minor: bool = False) -> list[ConsistencyIssue]:
     """검수 결과 가운데 작가가 그대로 둠 · 잘못 짚음으로 정해 두지 않은 것 (자동 집필 허용 개수가 센다).
     ignore_minor 면 심각도 '사소'도 뺀다. 합치기 전후 어느 쪽에서 불러도 같다."""

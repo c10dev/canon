@@ -14,10 +14,12 @@ function aiWarning() {
   return '';
 }
 
-/** 작품 카드의 다음 할 일 한 줄: '3화 상태 승인 대기', '완결', '플롯 없음' (web.list_projects 의 open_ep · open_status) */
+/** 작품 카드의 다음 할 일 한 줄: '3화 검수 대기', '3화 상태 승인 대기', '완결', '플롯 없음' (web.list_projects 의 open_ep · open_status · open_checked).
+    본문을 쓴 화는 사이드바 · 작품 홈의 다음 할 일(nextStep)처럼 검수가 끝나야 상태 승인 차례다 */
 function projectNext(x) {
   if (!x.open_ep) return x.planned && x.finalized >= x.episodes ? '완결' : x.planned ? `${x.planned + 1}화부터 플롯 만들기` : '플롯 없음';
-  return `${x.open_ep}화 ${{ draft: '플롯 확정 대기', confirmed: '쓰기 대기', written: '상태 승인 대기' }[x.open_status] || ''}`;
+  const written = x.open_checked ? '상태 승인 대기' : '검수 대기';
+  return `${x.open_ep}화 ${{ draft: '플롯 확정 대기', confirmed: '쓰기 대기', written }[x.open_status] || ''}`;
 }
 
 // 새 작품 폼: 다른 화면에 다녀와도 모든 칸을 함께 남기고, 만들면 함께 비운다 (장르는 genreTarget 이 같은 S.newMeta 에 둔다)
@@ -234,6 +236,7 @@ function nextStep() {
   const r = S.auto && S.auto.run;
   if (r && r.status === 'review' && r.pending && !S.deltas[r.ep]) return [`${r.ep}화 자동 집필 변경안 검토`, base() + '/auto'];
   if (autoOn()) return [`자동 집필 진행 중${autoEp() ? ` (${autoEp()}화)` : ''}`, base() + '/auto'];
+  if (typeof playCopy === 'function' && playCopy()) return ['플레이로 돌아가기', `#/play/${enc(S.name)}`];  // 플레이 사본은 구간을 플레이 화면에서 이어 간다
   if (!p.characters.length) return ['설정 시작', base() + '/setup'];
   if (serial()) {
     const open = p.episodes.find((e) => e.status !== 'finalized');
@@ -243,8 +246,16 @@ function nextStep() {
   const e = ep(currentEp());
   if (e.status === 'draft') return [`${e.plot.number}화 플롯 확정`, base() + '/arc'];
   if (e.status === 'confirmed') return [`${e.plot.number}화 쓰기`, `${base()}/write/${e.plot.number}`];
-  if (e.status === 'written') return checkState(e).done ? [`${e.plot.number}화 상태 승인`, `${base()}/review/${e.plot.number}`] : [`${e.plot.number}화 검수`, `${base()}/check/${e.plot.number}`];
+  if (e.status === 'written') return [`${e.plot.number}화 ${stepLabel(epStage(e))}`, `${base()}/${epStage(e)}/${e.plot.number}`];
   return ['완결 원고 보기', `${base()}/write/${e.plot.number}`];
+}
+
+/** 한 화를 열 때 갈 화면: 플롯 초안은 플롯(arc), 본문을 쓴 화는 검수가 끝났으면 상태 승인(review) 아니면 검수(check), 그 밖은 집필(write).
+    다음 할 일 · 작품 홈 화 칸 · 명령 팔레트가 같은 규칙을 쓴다 (작품 목록은 서버 findings.check_done) */
+function epStage(e) {
+  if (e.status === 'draft') return 'arc';
+  if (e.status === 'written') return checkState(e).done ? 'review' : 'check';
+  return 'write';
 }
 
 /** 한 화의 검수 세션 (check.js 와 진행 막대가 함께 쓴다). checked: 한 번이라도 검수함, stale: 마지막 회차 뒤에 본문을 고침,
@@ -259,11 +270,11 @@ function checkState(e) {
   return { checked, stale, open, done: checked && !stale && !open };
 }
 
-/** 화 하나의 네 단계: 플롯 확정 · 집필 · 검수 · 승인. 검수는 마지막 검수 뒤에 본문을 고치지 않았고 열린 지적이 없을 때 끝난 것으로 본다
+/** 화 하나의 네 단계: 플롯 확정 · 집필 · 검수 · 상태 승인 (이름은 사이드바 · 한 화 흐름 띠와 같다). 검수는 마지막 검수 뒤에 본문을 고치지 않았고 열린 지적이 없을 때 끝난 것으로 본다
     (checkState). 검수 없이, 또는 열린 지적을 두고 반영한 화는 검수 칸이 빈 채로 남는다. */
 function epSteps(e) {
   const rank = { draft: 0, confirmed: 1, written: 2, finalized: 3 }[e.status] || 0;
-  return [['plot', '플롯 확정', rank >= 1], ['write', '집필', rank >= 2], ['check', '검수', rank >= 2 && checkState(e).done], ['review', '승인', rank >= 3]]
+  return [['plot', '플롯 확정', rank >= 1], ['write', '집필', rank >= 2], ['check', '검수', rank >= 2 && checkState(e).done], ['review', '상태 승인', rank >= 3]]
     .map(([key, label, done]) => ({ key, label, done }));
 }
 
@@ -486,7 +497,7 @@ function homeProgress(p) {
   const hasStyle = !!(p.style.narration_pov || p.style.sample_passages.length);
   return `<div class="home-bar" role="img" aria-label="전 ${c.target}화: ${parts.filter(([, , x]) => x).map(([, l, x]) => `${l} ${x}`).join(' · ')}">${parts.slice(0, 4).filter(([, , x]) => x).map(([k, , x]) => `<i class="${k}" style="width:${pct(x)}"></i>`).join('')}</div>
     <div class="legend home-legend">${parts.map(([k, l, x]) => `<span><i class="hb-${k}"></i>${l} <strong>${x}</strong></span>`).join('')}
-      <span><span class="legend-steps" aria-hidden="true"><b></b><b></b><b class="off"></b><b class="off"></b></span>확정 · 집필 · 검수 · 승인</span><span>↑ 올린 화</span></div>
+      <span><span class="legend-steps" aria-hidden="true"><b></b><b></b><b class="off"></b><b class="off"></b></span>플롯 확정 · 집필 · 검수 · 상태 승인</span><span>↑ 올린 화</span></div>
     <div class="small">검수 끝난 화 ${c.checked} · <a href="${base()}/setup">인물 ${p.characters.length} · 관계 ${p.relationships.length}</a> · <a href="${base()}/style">${hasStyle ? `대표 문단 ${p.style.sample_passages.length}개` : '문체 정하지 않음'}</a></div>`;
 }
 
@@ -501,7 +512,7 @@ function viewHome() {
   // 단편 기승전결: 칸 폭을 지키려고 칸은 장편처럼 줄을 바꿔 놓고, 구간은 칸 위 띠 대신 칸 아래 테두리 색과 이 머리 줄로 보인다
   const actBand = p.arc.length && !serial() ? `<div class="act-rail">${actGroups(p.arc).map((g) => `<span class="act-chip ${actClass(g.names[0])}">${g.names.join('·')} ${epRange(g.start, g.end)}</span>`).join('')}</div>` : '';
   // 장편은 지금 쓰는 부(없으면 지금 아크 근처 60화)만 칸으로 보인다
-  const curPart = serial() ? p.parts.find((x) => x.start_ep <= cur && cur <= x.end_ep) : null;
+  const curPart = serial() ? partOf(cur) : null;
   const shown = !serial() ? eps : curPart ? eps.filter((e) => e.plot.number >= curPart.start_ep && e.plot.number <= curPart.end_ep)
     : eps.filter((e) => Math.abs(e.plot.number - cur) <= 30);
   const recaps = homeRecaps(p).arcs;
@@ -509,7 +520,7 @@ function viewHome() {
   const released = releasePlan(p).released;
   const cells = shown.map((e) => {
     const n = e.plot.number;
-    const href = e.status === 'draft' ? `${base()}/arc/${n}` : e.status === 'written' ? `${base()}/${checkState(e).done ? 'review' : 'check'}/${n}` : `${base()}/write/${n}`;
+    const href = `${base()}/${epStage(e)}/${n}`;
     const act = !serial() && actOf(n);
     const st = e.auto ? '자동 반영' : STATUS[e.status].replace('플롯 ', '').replace('본문 ', '');
     const now = n === cur && e.status !== 'finalized';

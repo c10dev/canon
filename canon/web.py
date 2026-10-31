@@ -460,6 +460,7 @@ class ProjectCard(BaseModel):
     planned: int
     open_ep: int
     open_status: str
+    open_checked: bool = Field(False, description="다음에 할 화가 본문을 쓴 화(written)일 때 검수가 끝났는지 (findings.check_done). 화면은 검수 대기 · 상태 승인 대기를 가른다")
     updated_at: str
     branch: BranchInfo | None = Field(None, description="갈래 정보. 갈래가 없는 작품이면 비움 (같은 family 끼리 묶어 보인다)")
     play: PlayCard | None = Field(None, description="플레이 정보. 플레이 사본이 아니면 비움 (화면은 세계 작품 카드 안에 묶는다)")
@@ -482,6 +483,7 @@ def list_projects() -> list[ProjectCard]:
                 out.append({"name": d.name, "title": p.meta.title, "genre": p.meta.genre, "form": p.meta.form,
                             "episodes": p.meta.target_episodes, "finalized": done, "planned": len(p.episodes),
                             "open_ep": todo.plot.number if todo else 0, "open_status": todo.status if todo else "",
+                            "open_checked": bool(todo and todo.status == "written" and findings.check_done(todo)),
                             "updated_at": datetime.fromtimestamp(mtime, timezone.utc).isoformat(), "_mtime": mtime,
                             "branch": tree.get(d.name), "play": (_play_card(p, info) if (info := store.load_play(d.name)) else None)})
     out.sort(key=lambda x: -x["_mtime"])
@@ -4340,7 +4342,8 @@ def rev_job(lab_id: int, body: RevJobIn) -> dict:
             return {"markers": len(revlab.run_style(lab_id, llm).markers)}
     try:
         with usage.scope(project="", episode=None, task=kind):
-            job = jobs.start(revlab.JOBS, kind, lab_id, label, fn, total=total)
+            # 맡은 화(pending)를 보내 화면이 화마다 진행 줄을 그린다 (revlab.js revRunRows). 실험은 작품이 아니라 저장 잠금과 겹치지 않는다
+            job = jobs.start(revlab.JOBS, kind, lab_id, label, fn, total=total, owned=set(nums) if body.kind == "parse" else None)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}
     return job.public()

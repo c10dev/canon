@@ -40,6 +40,9 @@ def rows(**opt):
 def test_status_matches_project_next():
     got = run_js(FILES, "data.list.map((x) => [plStatus(x), projectNext(x)])", {"list": LIST[:4] + [LIST[6]]})
     assert got == [["writing", "4화 쓰기 대기"], ["fresh", "1화 쓰기 대기"], ["writing", "6화 쓰기 대기"], ["done", "완결"], ["fresh", "플롯 없음"]]
+    # 본문을 쓴 화: 검수가 끝나야 상태 승인 차례 (사이드바 · 작품 홈의 다음 할 일과 같다)
+    written = [{**LIST[0], "open_status": "written", "open_checked": c} for c in (False, True)]
+    assert run_js(FILES, "data.list.map(projectNext)", {"list": written}) == ["4화 검수 대기", "4화 상태 승인 대기"]
 
 
 @needs_node
