@@ -6,7 +6,7 @@ import re
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
 from .llm import LLM, dump
-from . import board, cancel, charlog, context, features, findings, foreshadows, knows, stage, statwin, timeline
+from . import board, cancel, charlog, context, features, findings, foreshadows, knows, stage, statwin, timeline, usage
 from .schema import CueSheet, CueSheetDraft, Finding, FindingRecheck, FixOption, FixPatch, FixSet, RevEpisodeDraft, RevLineSet
 from .schema import (
     Act,
@@ -1446,7 +1446,7 @@ def apply_rebuild(p: Project, prop: SerialRebuild, at: str = "") -> tuple[Projec
         src = archive.source(x.sources[0]) if x.sources else None
         if x.use in ("keep", "revise") and src is not None:
             plot = src.plot.model_copy(deep=True, update={"number": x.number, "act": act.name if act else src.plot.act})
-            eps.append(Episode(plot=plot, text=src.text, status="written"))
+            eps.append(Episode(plot=plot, text=src.text, status="written", written_by=src.written_by))
         else:
             chars = list(dict.fromkeys(c for s in x.sources if archive.source(s) for c in archive.source(s).plot.characters))
             eps.append(Episode(plot=EpisodePlot(number=x.number, act=act.name if act else "기", title=x.title, summary=x.summary,
@@ -2512,7 +2512,7 @@ def _delete_last(p: Project, n: int, keep_plot: bool) -> list[str]:
     ep.text, ep.status, ep.summary, ep.auto, ep.final_text = "", "confirmed", "", False, ""
     ep.edits, ep.hook, ep.illustrations = [], None, []
     findings.clear(ep)
-    ep.candidate, ep.versions, ep.made_by, ep.time = None, [], None, StoryTime()
+    ep.candidate, ep.versions, ep.made_by, ep.written_by, ep.time = None, [], None, "", StoryTime()
     ep.events_done = []  # 본문이 없으니 쓴 사건 체크도 비운다
     ep.to_fix = []  # 지운 본문 문장에 단 고칠 곳
     p.foreshadow_clues = [c for c in p.foreshadow_clues if c.episode != n]  # 지운 본문 문장에 건 복선 근거
@@ -2742,12 +2742,12 @@ def compare_drafts(llms: dict[str, LLM], p: Project, n: int) -> dict[str, str]:
     return {name: write_episode(llm, p, n) for name, llm in llms.items()}
 
 
-def adopt_draft(p: Project, n: int, text: str) -> None:
-    """비교에서 고른 본문을 그 화의 본문으로 쓴다. 상태 반영이 끝난 화는 되돌린 뒤에만 바꾼다."""
+def adopt_draft(p: Project, n: int, text: str, model: str = "") -> None:
+    """비교에서 고른 본문을 그 화의 본문으로 쓴다. 상태 반영이 끝난 화는 되돌린 뒤에만 바꾼다. model: 그 안을 쓴 모델 (usage.model_id)."""
     ep = p.episode(n)
     if ep.status == "finalized":
         raise ValueError(f"{n}화는 상태 반영이 끝났어요. 바꾸려면 상태 승인 화면에서 {n}화부터 반영을 취소한 뒤 다시 하세요 (명령줄은 revert {n - 1})")
-    replace_text(ep, text)
+    replace_text(ep, text, written_by=model)
 
 
 # ---------- 4-0. 다시 생성 ----------
@@ -2826,27 +2826,34 @@ def _keep_version(ep: Episode, v: TextVersion) -> None:
     ep.versions = vs
 
 
-def set_candidate(p: Project, n: int, text: str, req: RewriteRequest) -> TextVersion:
-    """새 판을 고르기 대기에 둔다. 고르지 않은 앞 새 판은 versions 로 보낸다."""
+def writer_of(llm: LLM) -> str:
+    """본문을 쓴 모델 이름 (Episode.written_by · TextVersion.model). 쓰기 호출자가 저장할 때 함께 적는다."""
+    return usage.model_id(llm)
+
+
+def set_candidate(p: Project, n: int, text: str, req: RewriteRequest, model: str = "") -> TextVersion:
+    """새 판을 고르기 대기에 둔다. 고르지 않은 앞 새 판은 versions 로 보낸다. model: 새 판을 쓴 모델 (writer_of)."""
     ep = p.episode(n)
     if ep.candidate:
         ep.candidate.kind = "rejected"
         _keep_version(ep, ep.candidate)
-    ep.candidate = TextVersion(id=_version_id(ep), at=_now(), text=text, request=clean_rewrite(req))
+    ep.candidate = TextVersion(id=_version_id(ep), at=_now(), text=text, request=clean_rewrite(req), model=model)
     return ep.candidate
 
 
-def replace_text(ep: Episode, text: str, made_by: RewriteRequest | None = None) -> None:
+def replace_text(ep: Episode, text: str, made_by: RewriteRequest | None = None, written_by: str = "") -> None:
     """지금 본문을 versions 에 남기고 text 로 바꾼다. 검수 결과는 지난 판 것이라 결정한 지적만 남긴다 (findings.new_version).
-    상태 반영이 끝난 화는 반영을 그대로 두고 before_change 로 반영 뒤 고침만 표시한다."""
+    상태 반영이 끝난 화는 반영을 그대로 두고 before_change 로 반영 뒤 고침만 표시한다.
+    written_by: 새 본문을 쓴 모델 (writer_of) 이나 'import'. 모르면 비운다. 남기는 지난 판에는 지난 본문의 모델이 따라간다."""
     done = ep.status == "finalized"
     if text == ep.text:
         ep.status = "finalized" if done else "written"
         return
     if ep.text.strip():
-        _keep_version(ep, TextVersion(id=_version_id(ep), at=_now(), text=ep.text, kind="previous", request=ep.made_by))
+        _keep_version(ep, TextVersion(id=_version_id(ep), at=_now(), text=ep.text, kind="previous", request=ep.made_by,
+                                      model=ep.written_by))
     before_change(ep)
-    ep.text, ep.made_by, ep.status = text, made_by, "finalized" if done else "written"
+    ep.text, ep.made_by, ep.written_by, ep.status = text, made_by, written_by, "finalized" if done else "written"
     findings.new_version(ep)
 
 
@@ -2856,7 +2863,7 @@ def adopt_candidate(p: Project, n: int) -> None:
     if ep.candidate is None:
         raise ValueError(f"{n}화에 고를 새 판이 없어요")
     c, ep.candidate = ep.candidate, None
-    replace_text(ep, c.text, c.request)
+    replace_text(ep, c.text, c.request, c.model)
 
 
 def drop_candidate(p: Project, n: int) -> None:
@@ -2875,7 +2882,7 @@ def restore_version(p: Project, n: int, vid: str) -> None:
     v = next((x for x in ep.versions if x.id == vid), None)
     if v is None:
         raise KeyError(f"남겨 둔 판이 없어요: {vid}")
-    replace_text(ep, v.text, v.request)
+    replace_text(ep, v.text, v.request, v.model)
     ep.versions = [x for x in ep.versions if x is not v]
 
 

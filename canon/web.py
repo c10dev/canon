@@ -2068,7 +2068,7 @@ def start_job(name: str, body: JobIn) -> dict:
 
                 def fn(job: jobs.Job):
                     text = pipeline.rewrite_episode(llm, store.load(name), n, req)
-                    _edit(name, lambda q: pipeline.set_candidate(q, n, text, req))
+                    _edit(name, lambda q: pipeline.set_candidate(q, n, text, req, pipeline.writer_of(llm)))
                     return {"candidate": True}
             else:
                 make = body.board == "make"
@@ -2094,7 +2094,7 @@ def start_job(name: str, body: JobIn) -> dict:
                     text = pipeline.write_episode(llm, store.load(name), n, use_board=body.board != "none", use_cues=use_cues)
 
                     def save(q):
-                        pipeline.replace_text(q.episode(n), text)  # 지금 본문이 있으면 '이전 판'에 남는다
+                        pipeline.replace_text(q.episode(n), text, written_by=pipeline.writer_of(llm))  # 지금 본문이 있으면 '이전 판'에 남는다
                         if q.episode(n).storyboard is not None:  # 스토리보드 없이 쓴 본문은 검수가 그 전제를 대조하지 않는다
                             q.episode(n).storyboard.skipped = body.board == "none"
                     _edit(name, save)
@@ -2317,8 +2317,9 @@ def get_job(jid: str) -> dict:
 def write_episode(name: str, n: int) -> Project:
     p = _load(name)
     _not_auto(name)
-    text = pipeline.write_episode(get_llm("write"), p, n)
-    pipeline.replace_text(p.episode(n), text)  # 지금 본문이 있으면 '이전 판'에 남는다
+    llm = get_llm("write")
+    text = pipeline.write_episode(llm, p, n)
+    pipeline.replace_text(p.episode(n), text, written_by=pipeline.writer_of(llm))  # 지금 본문이 있으면 '이전 판'에 남는다
     return _save(name, p)
 
 
@@ -2345,6 +2346,8 @@ def put_text(name: str, n: int, body: Text) -> Project:
         return _save(name, p)
     if text and ep.status == "confirmed":  # 손으로 쓰거나 붙여 넣은 본문도 AI 쓰기와 같은 순서 규칙을 따른다
         pipeline.require_previous(p, n)
+    if not ep.text or not text:  # 빈 화에 넣은 본문은 직접 쓴 것인지 채팅 앱에서 붙여 넣은 것인지 몰라 모델을 비운다
+        ep.written_by = ""
     pipeline.record_typed(p, n, ep.text, text)
     ep.text = text
     ep.status = "written" if ep.text else "confirmed"

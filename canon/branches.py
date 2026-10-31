@@ -77,8 +77,8 @@ def fork(p: Project, n: int, mode: ForkMode = "clear") -> list[int]:
             pipeline._keep_version(e, e.candidate)
             e.candidate = None
         pipeline._keep_version(e, TextVersion(id=pipeline._version_id(e), at=pipeline._now(), text=e.text,
-                                              kind="previous", request=e.made_by))
-        e.text, e.status, e.made_by = "", "confirmed", None
+                                              kind="previous", request=e.made_by, model=e.written_by))
+        e.text, e.status, e.made_by, e.written_by = "", "confirmed", None, ""
         e.hook, e.final_text = None, ""
         findings.clear(e)
         cleared.append(e.plot.number)

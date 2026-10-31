@@ -293,7 +293,8 @@ def _has_style(p: Project) -> bool:
 
 
 def collect_episodes(project: str, first: int = 1, last: int = 0) -> list[SoePiece]:
-    """작품 화(본문이 있는 화)는 AI 글. 모델은 사용량 기록에서 짐작한다(model_source usage)."""
+    """작품 화(본문이 있는 화)는 AI 글. 모델은 본문 기록(Episode.written_by)에 있으면 그것(model_source record),
+    없으면 사용량 기록에서 짐작한다(model_source usage). 채팅 앱에서 가져온 본문('import')은 모델을 모른다."""
     p = store.load_view(project)
     models = write_models(project)
     out: list[SoePiece] = []
@@ -301,9 +302,10 @@ def collect_episodes(project: str, first: int = 1, last: int = 0) -> list[SoePie
         n = e.plot.number
         if not e.text.strip() or n < first or (last and n > last):
             continue
-        m = models.get(n, "")
+        rec = e.written_by if e.written_by != "import" else ""
+        m = rec or ("" if e.written_by else models.get(n, ""))
         out += _pieces(e.text, p, origin="ai", group=f"{project}:{n}", genre="webnovel", model=m,
-                       model_source="usage" if m else "unknown", baseline=project if _has_style(p) else "",
+                       model_source="record" if rec else "usage" if m else "unknown", baseline=project if _has_style(p) else "",
                        source=dict(kind="episode", project=project, episode=n))
     return out
 
