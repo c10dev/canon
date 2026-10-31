@@ -121,9 +121,13 @@ def test_branch_compare_and_place():
       const onPage = branchStrip('branches');
       S.branchForm = { name: 't-b', from: '2', label: '', to: 't-b-갈래', mode: 'clear', err: null };
       const form = branchFormCard();
-      S.branchFam = null; S.branchForm = null;
+      const head = '<header class="page-head"><h1>x</h1><div class="row"><a class="btn small primary" href="#">다음</a></div></header><section><a class="btn primary">본문 안</a></section>';
+      const openHead = branchPlace('home', head);
+      S.branchForm = null;
+      const closedHead = branchPlace('home', head);
+      S.branchFam = null;
       const empty = viewBranches();
-      return { view, strip, placed, bare, onPage, form, empty,
+      return { view, strip, placed, bare, onPage, form, empty, openHead, closedHead,
         diff: bcParaDiff('첫.\\n\\nA만.\\n\\n끝.', '첫.\\n\\nB만.\\n\\nB둘.\\n\\n끝.') };
     })()""", {"p": dump(project()), "fam": FAM, "diff": DIFF})
     v = got["view"]
@@ -137,5 +141,11 @@ def test_branch_compare_and_place():
     assert "branch-strip" not in got["onPage"] and "1화를 고쳤어요" in got["onPage"]  # 비교 화면은 경고만
     assert 'class="br-cells"' in got["form"] and "2화부터 갈래 만들기" in got["form"] and '<details class="br-folder">' in got["form"]
     assert "card empty" in got["empty"] and 'data-action="branchOpen">갈래 만들기' in got["empty"]
+    # 갈래 만들기 칸을 펴면 칸의 만들기 버튼만 주 버튼이다. 머리와 본문(다시 맞추기 카드 등)의 주 버튼은 보조로 낮춘다
+    o = got["openHead"]
+    assert 'class="btn small" href="#">다음' in o and '<a class="btn">본문 안' in o and o.count("primary") == 1
+    assert o.index("primary") > o.index("</header>")  # 남은 하나는 머리 아래 갈래 만들기 칸
+    c = got["closedHead"]
+    assert 'class="btn small primary" href="#">다음' in c and '<a class="btn primary">본문 안' in c  # 칸이 닫히면 그대로
     assert got["diff"] == [{"a": "첫.", "b": "첫.", "same": True}, {"a": "A만.", "b": "B만.", "same": False},
                            {"a": None, "b": "B둘.", "same": False}, {"a": "끝.", "b": "끝.", "same": True}]

@@ -1133,7 +1133,7 @@ function stgCss() {
 .stg-title { gap: 4px 10px; }
 .stg-title h2 { margin: 0; }
 .stg-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px 20px; align-items: start; }
-@container stgcol (min-width: 820px) { .stg-grid { grid-template-columns: minmax(0, 1fr) 300px; } }
+@container stgcol (min-width: 760px) { .stg-grid { grid-template-columns: minmax(0, 1fr) 300px; } }
 .stg-pic { min-width: 0; }
 .stg-plan { width: 100%; height: auto; max-height: min(72vh, 680px); display: block; background: var(--canvas); border-radius: 8px; touch-action: none; user-select: none; }
 .stg-now { display: flex; flex-direction: column; gap: 12px; min-width: 0; }

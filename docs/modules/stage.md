@@ -138,7 +138,7 @@
 - `stageState` · `stageLayout` · `stageAnchorPoint` · `stageFacing` · `stageSnap` · `stageSexual` 은 `stage.state_at` · `place` · `is_sexual` 과 같은 규칙(`tests/test_stage_js.py`)
 - CSS 는 JS 에서 주입
 - 인물 색은 `STG_COLORS`: 토큰 `stage-1`~`stage-6`(빨강은 지적에만), 원 안 글자 `on-stage`
-- 무대 카드 안 칸 폭 규칙은 `@container stgcol`(820px 이상이면 평면도 옆에 그 박자 칸)
+- 무대 카드 안 칸 폭 규칙은 `@container stgcol`(760px 이상이면 평면도 옆에 그 박자 칸)
 
 ### `canon/static/stage3d-load.js`
 
