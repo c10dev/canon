@@ -243,7 +243,7 @@ function placeHub() {
   const btn = $('#hub-btn');
   const r = btn && btn.getBoundingClientRect();
   const shown = !!r && r.width > 0 && r.bottom > 0 && r.top < window.innerHeight;
-  const phone = window.innerWidth <= 640;
+  const phone = window.innerWidth <= BP.phone;
   const top = shown ? Math.round(r.bottom + 8) : 8;
   const at = (w, edge) => (phone ? edge : shown ? Math.max(14, Math.round(r.right) - w) : edge);
   const pop = $('#hub-pop');

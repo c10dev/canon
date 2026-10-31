@@ -138,7 +138,7 @@ const statLink = (updates) => (updates.some((u) => (u.stats || []).length) || P(
 // 901px 아래는 오른쪽 칸만 먼저 보이고 본문은 접어 둔다. 반영 버튼은 넓은 폭은 머리, 좁은 폭은 아래 반영 줄
 
 /** 본문을 옆에 두는 폭 (901px 이상). 좁으면 근거 문장은 오른쪽 칸 위 근거 카드로 보인다 */
-const rvWide = () => !(typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 900px)').matches);
+const rvWide = () => !(typeof window !== 'undefined' && window.matchMedia && mq('narrow').matches);
 
 /** 경고를 인물 줄에 붙인다. names: character_updates 순서의 인물 이름. 경고 글이 인물 이름으로 시작하면 그 인물 줄(by[i]),
     아니면 '본문 점검'(rest). 상태창 · 이동 시간 경고는 '이름 상태창:' · '이름이 너무 빨리'로 시작한다 (statwin · travel). 값은 경고 번호 */
@@ -459,7 +459,7 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
 
 // 화면 폭이 900px 를 넘나들면 본문 칸을 옆에 두고 빼기를 바꾼다
 if (typeof window !== 'undefined' && window.matchMedia) {
-  window.matchMedia('(max-width: 900px)').addEventListener('change', () => {
+  mq('narrow').addEventListener('change', () => {
     if (S.route[2] === 'review' && S.deltas[S.route[3]] && !isTyping()) render();
   });
 }
@@ -478,7 +478,7 @@ function rvStyle() {
   const el = document.createElement('style');
   el.id = 'rv-style';
   el.textContent = `
-#toast .rv-undo { display: flex; gap: 12px; align-items: center; padding: 8px 8px 8px 16px; border-radius: 10px; background: var(--inverse-bg); color: var(--inverse-ink); font-size: 0.8125rem; line-height: 1.5; box-shadow: 0 6px 24px rgba(0,0,0,0.2); border: 1px solid transparent; }
+#toast .rv-undo { display: flex; gap: 12px; align-items: center; padding: 8px 8px 8px 16px; border-radius: 10px; background: var(--inverse-bg); color: var(--inverse-ink); font-size: 0.8125rem; line-height: 1.5; box-shadow: var(--shadow-toast); border: 1px solid transparent; }
 #toast .rv-undo span { flex: 1; }
 #toast .rv-undo .btn { min-height: 40px; white-space: nowrap; }
 #toast .rv-undo .x { border: none; background: transparent; color: inherit; cursor: pointer; font-size: 0.875rem; min-width: 40px; min-height: 40px; }
