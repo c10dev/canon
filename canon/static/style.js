@@ -45,7 +45,7 @@ function styleTocItems(st, { hot = new Set(), todo = 0, example = '', link = '',
   return rows;
 }
 
-// ----- 목차 (왼쪽, 좁은 칸에서는 위에 붙는 '지금 카드 ▾' 버튼) -----
+// ----- 목차 (공용 목차 틀 outline.js: 왼쪽, 좁은 칸에서는 위에 붙는 '지금 카드 ▾' 버튼) -----
 
 let styleTocCur = '';    // 지금 보는 카드 id. 스크롤로 바뀐다
 let styleTocRows = [];   // 마지막으로 그린 목차 줄 (스크롤 때 목차만 다시 그린다)
@@ -58,35 +58,20 @@ function styleToc(rows = styleTocRows, label = '문체 목차') {
   const items = rows.filter(([id]) => id !== '-');
   const cur = items.find(([id]) => id === styleTocCur) || items[0];
   const list = rows.map(([id, l, right, mark]) => (id === '-'
-    ? `<span class="sty-toc-h">${esc(l)}</span>`
-    : `<button type="button" class="sty-toc-item${mark ? ` ${mark}` : ''}" data-action="styleGo" data-arg="${id}"${id === cur[0] ? ' aria-current="true"' : ''}><span class="tl">${esc(l)}</span>${mark === 'hot' ? '<span class="chip hot">변경안</span>' : ''}<span class="st">${esc(right || '')}</span></button>`)).join('');
-  return `<nav class="sty-toc" id="sty-toc" aria-label="${label}">
-      <button type="button" class="btn sty-toc-now" data-action="styleTocToggle" aria-expanded="false" aria-controls="sty-toc-list"><span>${esc(cur[1])} <span class="small">${esc(cur[2] || '')}</span></span><span aria-hidden="true">▾</span></button>
-      <div class="sty-toc-list" id="sty-toc-list">${list}</div></nav>`;
+    ? `<span class="outline-h">${esc(l)}</span>`
+    : `<button type="button" class="outline-item${mark ? ` ${mark}` : ''}" data-action="styleGo" data-arg="${id}"${id === cur[0] ? ' aria-current="true"' : ''}><span class="tl">${esc(l)}</span>${mark === 'hot' ? '<span class="chip hot">변경안</span>' : ''}<span class="st">${esc(right || '')}</span></button>`)).join('');
+  return outlineNav({ id: 'sty-toc', label, now: `${esc(cur[1])} <span class="small">${esc(cur[2] || '')}</span>`, body: list });
 }
 
-// 지금 카드: 화면 위에서 120px 아래를 지난 마지막 카드. 스크롤마다 목차 표시만 바꾼다
-window.addEventListener('scroll', () => {
-  const toc = document.getElementById('sty-toc');
-  if (!toc) return;
-  const ids = styleTocRows.map(([id]) => id).filter((id) => document.getElementById(`pf-${id}`));
-  if (!ids.length) return;
-  // 목차 순서와 카드 순서가 다르다(라이브러리 · 기준 지표 카드는 맨 위, 목차는 재료 묶음). 화면 위치로 고른다
-  const tops = ids.map((id) => [id, document.getElementById(`pf-${id}`).getBoundingClientRect().top]).sort((a, b) => a[1] - b[1]);
-  let cur = tops[0][0];
-  tops.forEach(([id, top]) => { if (top <= 120) cur = id; });
-  if (innerHeight + scrollY >= document.documentElement.scrollHeight - 4) cur = tops[tops.length - 1][0];  // 맨 아래면 마지막 카드
-  if (cur === styleTocCur) return;
-  styleTocCur = cur;
-  const open = toc.classList.contains('open');
-  toc.outerHTML = styleToc();
-  if (open) document.getElementById('sty-toc').classList.add('open');
-}, { passive: true });
-
-// 좁은 칸에서 펼친 목차는 바깥을 누르면 닫는다
-document.addEventListener('click', (e) => {
-  const toc = document.querySelector('#sty-toc.open');
-  if (toc && !toc.contains(e.target)) { toc.classList.remove('open'); toc.querySelector('.sty-toc-now').setAttribute('aria-expanded', 'false'); }
+// 지금 카드: 화면 위에서 120px 아래를 지난 마지막 카드(맨 아래면 마지막 카드). 바뀌면 목차만 다시 그린다.
+// 목차 순서와 카드 순서가 다르다(라이브러리 · 기준 지표 카드는 맨 위, 목차는 재료 묶음). outlinePick 이 화면 위치로 고른다
+outlineSpy('sty-toc', {
+  targets: () => styleTocRows.filter(([id]) => id !== '-').map(([id]) => [id, document.getElementById(`pf-${id}`)]),
+  set(cur) {
+    if (cur === styleTocCur) return;
+    styleTocCur = cur;
+    outlineRefresh('sty-toc', styleToc());
+  },
 });
 
 // ----- 프로필 카드 -----
@@ -323,7 +308,7 @@ function viewStyle() {
   if (styleBlank(st) && !(S.styleManual || {})[S.name]) {
     const rows = [['source', '원문 붙여 넣기', '', ''], ['pick', '라이브러리에서 고르기', String((S.libs || []).length), ''], ['manual', '직접 채우기', '', '']];
     return `${header('2단계', stepLabel('style'), '닮고 싶은 소설 문단을 붙여 넣으면 문체 규칙을 뽑아요. 규칙과 대표 문단이 매 화 본문 생성에 함께 들어가요.', go(false))}
-    <div class="sty-wrap style-page"><div class="sty-doc">${styleToc(rows, '문체 시작하기')}<div class="sty-secs">
+    <div class="outline-wrap style-page"><div class="outline-doc">${styleToc(rows, '문체 시작하기')}<div class="sty-secs">
       <section class="card pf-sec" id="pf-source" tabindex="-1"><div class="pf-head"><h2><label for="sample">예시 원문</label></h2>${sampleCount()}</div>${styleSampleBox(true)}</section>
       ${stylePickCard()}
       <section class="card tight pf-sec" id="pf-manual" tabindex="-1"><div class="sty-row"><div><h3>직접 채우기</h3><p class="small pf-sub">원문 없이 시점 · 시제부터 카드를 하나씩 채워요. 대화로 다듬기에서 말로 시작해도 돼요.</p></div>
@@ -336,7 +321,7 @@ function viewStyle() {
   const ex = P().style_example;
   const rows = styleTocItems(st, { hot, todo, example: ex ? (exampleStale(ex) ? '바뀜' : '있음') : '', link: styleLinkWord(S.styleLink), learn: S.editStats ? `${S.editStats.usable}건` : '' });
   return `${header('2단계', stepLabel('style'), '이 규칙과 대표 문단이 매 화 본문 생성에 함께 들어가요. 카드의 \'고치기\'로 그 카드만 고쳐요.', go(true))}
-    <div class="sty-wrap style-page"><div class="sty-doc">${styleToc(rows)}<div class="sty-secs">
+    <div class="outline-wrap style-page"><div class="outline-doc">${styleToc(rows)}<div class="sty-secs">
       ${styleStatus()}${todo ? learnTodoCard() : ''}${styleExampleCard()}${profileCards('style', '', hot)}${styleSourceCard()}${learnCard()}
     </div></div></div>${chatPanel('style')}`;
 }
@@ -449,7 +434,7 @@ function viewLibEntry() {
       ${(S.projects || []).length ? `<div class="row" style="flex-wrap:nowrap"><select id="lib-target" aria-label="적용할 작품" style="flex:1;min-width:0"><option value="">작품 고르기</option>${[...others, ...(S.projects || []).filter((x) => used.includes(x.name))].map((x) => `<option value="${esc(x.name)}">${esc(x.title || x.name)}${used.includes(x.name) ? ' (다시 적용)' : ''}</option>`).join('')}</select><button class="btn small" style="flex:none" data-action="libApplyTo">적용</button></div>` : ''}
     </section>`;
   return `${header('문체 라이브러리', isNew ? '새 문체' : e.name || '이름 없음', isNew ? '원문을 붙여 넣고 분석하거나, 카드를 직접 채운 뒤 저장하세요.' : `만든 날 ${fmtDate(e.created_at)} · 고친 날 ${fmtDate(e.updated_at)}`, right)}
-    <div class="sty-wrap lib-page"><div class="sty-doc">${styleToc(rows, '문체 목차')}<div class="sty-secs">
+    <div class="outline-wrap lib-page"><div class="outline-doc">${styleToc(rows, '문체 목차')}<div class="sty-secs">
       <section class="card pf-sec" id="pf-info" tabindex="-1">
         <div class="grid-2">${input('이름', 'name', { root: 'lib', placeholder: '예: 건조한 1인칭 하드보일드' })}
           ${input('출처', 'source', { root: 'lib', hint: '작가, 작품 등 메모', placeholder: '예: 직접 쓴 단편 「등대」' })}</div>
@@ -486,21 +471,13 @@ function styleCloseCards() {
 }
 Object.assign(actions, {
   // 문체
-  /** 목차에서 카드로 간다. 좁은 칸에서 펼친 목차는 닫는다 */
+  /** 목차에서 카드로 간다. 좁은 칸에서 펼친 목차는 공용 목차 틀이 닫는다 */
   styleGo(id) {
-    $('#sty-toc')?.classList.remove('open');
     const el = document.getElementById(`pf-${id}`);
     if (!el) return;
     styleTocCur = id;
     el.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     el.focus({ preventScroll: true });
-  },
-  /** 좁은 칸의 목차 펼치기 · 접기 */
-  styleTocToggle() {
-    const t = $('#sty-toc');
-    if (!t) return;
-    const on = t.classList.toggle('open');
-    t.querySelector('.sty-toc-now').setAttribute('aria-expanded', String(on));
   },
   /** 카드 하나를 고치는 칸 ↔ 읽는 모양. 펼치면 그 카드의 첫 칸으로 간다 */
   styleEdit(arg) {

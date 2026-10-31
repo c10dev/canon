@@ -34,13 +34,14 @@ NAV = {
               ["arc", B + "/arc", "3", "기승전결 · 플롯"], ["write", B + "/write/3", "4", "집필"], ["review", B + "/review/3", "5", "상태 승인"]],
     "auto": ["auto", B + "/auto", "A", "자동 집필"],
     "tools": [["cast", B + "/cast", "人", "인물 · 관계도", True], ["atlas", B + "/atlas", "地", "지도", False],
-              ["brief", B + "/brief/3", "✎", "작업지시서 (API 없이)", True]],
+              ["brief", B + "/brief/3", "✎", "채팅 앱 작업지시서", True]],
     "apart": [["research", B + "/research", "R", "연구 · 모델 실험"], ["usage", B + "/usage", "$", "사용량 · 비용"]],
     "foot": [["#/settings", "설정"], ["#/usage", "모든 작품 사용량 · 비용"], ["#/styles", "문체 라이브러리"], ["#/", "작품 목록"]],
 }
 INSIDE = {
     "inProject": True, "base": B, "nav": NAV, "next": ["3화 상태 승인", B + "/review/3"], "canSave": False,
-    "episodes": [{"n": n, "title": "추격전" if n == 7 else f"{n}화 제목", "status": "finalized" if n < 3 else "written" if n == 3 else "confirmed"}
+    "episodes": [{"n": n, "title": "추격전" if n == 7 else f"{n}화 제목", "status": "finalized" if n < 3 else "written" if n == 3 else "confirmed",
+                  "stage": "write" if n < 3 else "review" if n == 3 else "write"}
                  for n in range(1, 16)],
     "characters": [{"id": "c1", "name": "한서윤"}, {"id": "c 2", "name": "도윤"}],
 }
@@ -65,11 +66,13 @@ def test_palette_matches_names_and_episodes():
     assert got[""][0] == ["act", "다음 할 일 · 3화 상태 승인", B + "/review/3"]
     labels = [lab for _, lab, _ in got[""]]
     # 사이드바 이름 그대로 (접힌 도구도 찾는다)
-    for lab in ["작품 홈", "설정 도우미", "집필", "상태 승인", "자동 집필", "지도", "작업지시서 (API 없이)", "연구 · 모델 실험", "문체 라이브러리", "작품 목록"]:
+    for lab in ["작품 홈", "설정 도우미", "집필", "상태 승인", "자동 집필", "지도", "채팅 앱 작업지시서", "연구 · 모델 실험", "문체 라이브러리", "작품 목록"]:
         assert lab in labels
 
-    # 화 번호: 본문을 쓴 화는 상태 승인이 먼저, 쓰지 않은 화는 집필
-    assert got["3화"][:2] == [["ep", "3화 상태 승인", B + "/review/3"], ["ep", "3화 집필", B + "/write/3"]]
+    # 화 번호: 본문을 쓴 화는 지금 차례(stage)가 먼저, 그다음 검수 · 상태 승인 중 나머지, 집필. 쓰지 않은 화는 집필
+    assert got["3화"][:3] == [["ep", "3화 상태 승인", B + "/review/3"], ["ep", "3화 검수", B + "/check/3"], ["ep", "3화 집필", B + "/write/3"]]
+    eps = [{**e, "stage": "check"} if e["n"] == 3 else e for e in INSIDE["episodes"]]
+    assert [lab for _, lab, _ in run(["3화"], {**INSIDE, "episodes": eps})["inside"][0][:2]] == ["3화 검수", "3화 상태 승인"]
     assert got["3"] == got["3화"]
     assert got["12 화"] == [["ep", "12화 집필", B + "/write/12"]]
     # '1' 은 1화가 먼저, 그다음 10~15화
@@ -82,7 +85,7 @@ def test_palette_matches_names_and_episodes():
     # 화 제목으로도 찾는다
     assert got["추격"] == [["ep", "7화 집필", B + "/write/7"]]
     assert got["인물"][0] == ["screen", "인물 · 관계도", B + "/cast"]
-    assert got["api"][0][1] == "작업지시서 (API 없이)" and ["screen", "설정", "#/settings"] in got["api"]
+    assert got["api"][0][1] == "채팅 앱 작업지시서" and ["screen", "설정", "#/settings"] in got["api"]
     assert got["집필"][0] == ["screen", "집필", B + "/write/3"] and ["screen", "자동 집필", B + "/auto"] in got["집필"]
     assert got["없는말"] == []
     assert got["저장"] == []  # 저장할 것이 없으면 '저장' 동작을 두지 않는다

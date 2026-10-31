@@ -922,7 +922,7 @@ function viewCast() {
     <button type="button" role="tab" aria-selected="${S.castTab === 'sheet'}" aria-controls="cast-panel" data-action="castTab" data-arg="sheet">인물 카드</button>
     <button type="button" role="tab" aria-selected="${S.castTab === 'table'}" aria-controls="cast-panel" data-action="castTab" data-arg="table">등장표</button></div>`;
   const panel = (html) => `<div role="tabpanel" id="cast-panel" aria-label="${{ table: '등장표', sheet: '인물 카드' }[S.castTab] || '관계도'}">${html}</div>`;
-  const head = header('인물', '인물 · 관계도', desc, `<a class="btn" href="${base()}/setup">인물 · 관계 설정</a>`);
+  const head = header('작품 도구', '인물 · 관계도', desc, `<a class="btn" href="${base()}/setup">인물 · 관계 설정</a>`);
   if (!p.characters.length) return `${head}<div class="card empty"><p>아직 인물이 없어요.</p><a class="btn primary" href="${base()}/setup">설정 도우미에서 인물 만들기</a></div>`;
   if (!S.cast) return `${head}<div class="small">불러오는 중…</div>`;
   if (S.cast.error) {

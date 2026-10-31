@@ -768,10 +768,21 @@ function viewPlayNew() {
 async function playHomeLoad() {
   S.homePlay = null;
   const name = S.name;
+  S.homePlayOf = name;  // 이 작품을 물어봤다 (app.js routeNow 는 작품을 바꿨을 때도 다시 묻는다)
   try {
     const v = await api('GET', `/projects/${enc(name)}/play`);
     if (S.name === name) S.homePlay = v;
   } catch { /* 플레이 사본이 아니다 */ }
+}
+
+/** 지금 작품이 플레이 사본인지 (사이드바 작품 칸 · 다음 할 일) */
+function playCopy() {
+  return !!(S.homePlay && S.homePlay.name === S.name);
+}
+
+/** 사이드바 작품 칸의 플레이 사본 줄. 플레이 사본은 세계 작품과 제목이 같아 이 줄로 가른다 (branches.js branchSideTag 와 같은 자리) */
+function playSideTag() {
+  return playCopy() ? `<div class="work-branch"><span class="tf" aria-hidden="true">🎲</span>플레이 사본 · ${esc(S.homePlay.title)}</div>` : '';
 }
 
 /** 작품 홈의 '이 세계로 플레이' 카드. 플레이 사본이면 플레이로 돌아가는 카드. */

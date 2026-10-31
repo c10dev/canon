@@ -180,13 +180,13 @@ const JOB_DONE_MSG = {
   plot_one: (j) => (j.result && j.result.realign ? `${j.ep}화 플롯을 요약대로 채웠어요. ${j.result.realign}화와 어긋난 점은 ${j.result.realign}화에 '다시 맞추기'로 표시했어요.` : `${j.ep}화 플롯을 채웠어요. 다듬은 뒤 확정하세요.`),
   write: (j) => `${j.ep}화 본문을 저장했어요.`,
   state: (j) => `${j.ep}화 상태 변경안이 도착했어요.`,
-  series: '부 구성 제안이 도착했어요. 확인하고 반영하세요.',
-  nextarc: '다음 아크 제안이 도착했어요. 고친 뒤 반영하세요.',
+  series: '부 구성 제안이 도착했어요. 확인하고 적용하세요.',
+  nextarc: '다음 아크 제안이 도착했어요. 고친 뒤 적용하세요.',
   recap_arc: (j) => `아크 ${j.ep} 요약 제안이 도착했어요.`,
   recap_part: (j) => `${j.ep}부 요약 제안이 도착했어요.`,
   fold_knows: (j) => `아크 ${j.ep} 아는 정보 접기 제안이 도착했어요.`,
   impact: (j) => `${j.label.replace(/^인과율: /, '')}이 끝났어요. 인과율에서 확인하세요.`,
-  storyline: '이야기 줄기 제안이 도착했어요. 고른 화와 함께 반영하세요.',
+  storyline: '이야기 줄기 제안이 도착했어요. 고른 화와 함께 적용하세요.',
   // 멈춤 · 검토 대기도 작업으로는 '끝남'이다. 사람을 기다리는지 상태별로 말한다 (autorun._launch 결과)
   auto: (j) => `자동 집필${{ review: ' · 검토가 필요해요', paused: ' · 일시정지했어요', error: ' · 오류로 멈췄어요' }[j.result && j.result.status] || ''}: ${j.note || '멈췄어요'}`,
 };
@@ -300,7 +300,7 @@ async function startJob(kind, ep = null, extra = {}) {
     if (!j.already) toast(`${j.label}${josa(j.label, '을', '를')} 시작했어요. 끝나면 알려 드릴게요. 그동안 다른 작업을 해도 돼요.`);
     S.jobs = S.jobs.filter((x) => x.id !== j.id).concat(j);
     S.jobArgs[j.id] = { kind, ep, extra };  // 실패하면 작업 목록의 '다시 시도'가 같은 작업을 다시 시작한다
-    renderJobs();
+    renderHub();  // 작업 목록이 바뀌었다: 알림 버튼과 열린 알림 창 (hub.js)
     render();
     pollJobs(true);
   } catch (e) {
@@ -378,7 +378,7 @@ async function pollJobs(soon = false) {
       if (j.status === 'done') resultFocus = RESULT_FOCUS[j.kind] || '#app .proposal button, #app .proposal input';
     }
   }
-  renderJobs();
+  renderHub();
   // 입력 중이거나 본문 글자를 고르고 있으면 화면을 다시 그리지 않는다 (글자 · 커서 · 선택을 잃지 않게). 데이터는 이미 반영돼 있고, 입력이나 선택을 마치면 그린다
   if (redraw && (isTyping() || selecting())) S.renderPending = true;
   else if (redraw) {
@@ -460,7 +460,7 @@ async function finishJob(j) {
   setTimeout(() => {  // 끝난 작업은 잠시 뒤 목록에서 내린다 (실패는 직접 닫을 때까지 남긴다)
     S.jobsSeen.add(j.id);
     S.jobs = S.jobs.filter((x) => x.id !== j.id || x.status === 'running');
-    renderJobs();
+    renderHub();
   }, 20000);
   if (!here) return;  // 다른 작품을 보고 있으면 결과는 작업 목록에서 열어 볼 수 있다
   applyJobResult(j);
@@ -582,11 +582,6 @@ const JOB_LINK = {
   play_world: (j) => `#/play/new/${enc(j.project)}`,
 };
 
-/** 작업 목록이 바뀌었다: 알림 버튼과 열린 알림 창을 다시 맞춘다 (hub.js). */
-function renderJobs() {
-  if (typeof renderHub === 'function') renderHub();
-}
-
 /** 실패한 작업을 같은 인자로 다시 시작한다 (알림 창 · 오류 말풍선의 '다시 시도'). */
 function retryJob(id) {
   const a = S.jobArgs[id];
@@ -594,7 +589,7 @@ function retryJob(id) {
   S.jobs = S.jobs.filter((j) => j.id !== id);
   if (a && a.retry) a.retry();  // 작품 밖 작업(역설계 실험 revlab.js)은 저마다 다시 시작한다
   else if (a) startJob(a.kind, a.ep, a.extra);
-  renderJobs();
+  renderHub();
 }
 
 /** 작업 목록의 남은 시간: 지금까지 한 단계 평균으로 남은 단계를 어림한다. 단계가 하나뿐이거나 아직 하나도 끝나지 않았으면 ''.
@@ -641,7 +636,7 @@ document.addEventListener('click', (e) => {
     api('POST', `/jobs/${j.id}/stop`).then((x) => {
       Object.assign(j, x);
       toast(`${j.label}${josa(j.label, '을', '를')} 멈췄어요`);
-      renderJobs();
+      renderHub();
       if (S.route[0] === 'p' && !isTyping()) render();  // 잠겨 있던 버튼을 푼다
     }).catch((err) => toast(err.message, true));
     return;
@@ -649,7 +644,7 @@ document.addEventListener('click', (e) => {
     retryJob(t.dataset.jobRetry);
     return;
   }
-  renderJobs();
+  renderHub();
 });
 
 /** 버튼 동작 공통 처리: 진행 표시, 오류 알림, 다시 그리기. 성공하면 true.
@@ -764,6 +759,11 @@ function actOf(n) {
 
 function arcOf(n) {
   return P().story_arcs.find((a) => a.start_ep <= n && n <= a.end_ep);
+}
+
+/** 장편에서 n화가 든 부 (사이드바 작품 칸 · 작품 홈) */
+function partOf(n) {
+  return P().parts.find((x) => x.start_ep <= n && n <= x.end_ep);
 }
 
 function plannedUntil() {
@@ -1611,17 +1611,6 @@ function lostPartSummaries() {
   return P().parts.filter((x) => x.summary && !keep.has(`${x.start_ep}-${x.end_ep}`));
 }
 
-/** 장편 아크 줄: 끝났고 요약도 있는 앞쪽 아크가 많으면 한 칩으로 접는다 (고른 아크는 늘 보인다). */
-function railChips(arcs, chip) {
-  const done = (a) => a.summary && arcFinished(a);
-  let k = 0;
-  while (k < arcs.length && done(arcs[k])) k++;
-  if (S.railAll || k <= 3) return arcs.map(chip).join('');
-  const folded = arcs.slice(0, k).filter((a) => a.number !== S.selArc);
-  const keep = arcs.slice(0, k).filter((a) => a.number === S.selArc);
-  return `<button type="button" class="arc-chip" data-action="railAll" aria-expanded="false"><strong>아크 ${arcs[0].number}~${arcs[k - 1].number}</strong> <span>완료 ${folded.length}개 · 펼치기</span></button>${keep.map(chip).join('')}${arcs.slice(k).map(chip).join('')}`;
-}
-
 // 화면 이동은 하나씩 차례로 처리한다. 늦게 끝난 앞 이동이 지금 화면의 데이터(지시서, 컨텍스트 등)를 덮지 않게 하고,
 // 기다리는 사이 또 옮겼으면 중간 화면은 건너뛴다
 let routeQueue = Promise.resolve();
@@ -1692,8 +1681,8 @@ async function routeNow() {
       if (S.pendingJob && S.pendingJob.project === S.name && !S.jobsApplied.has(S.pendingJob.id)) applyJobResult(S.pendingJob);
       S.pendingJob = null;
       await loadPending();
-      if (!branchFam() || !parts[2] || parts[2] === 'branches') await branchLoad();
-      if (!parts[2]) await playHomeLoad();  // 플레이 사본이면 작품 홈에 플레이로 돌아가는 카드 (play.js)  // 갈래 머리 띠 (branches.js). 작품을 바꿨거나 작품 홈 · 갈래 비교에 오면 다시 읽는다
+      if (!branchFam() || !parts[2] || parts[2] === 'branches') await branchLoad();  // 갈래 머리 띠 (branches.js). 작품을 바꿨거나 작품 홈 · 갈래 비교에 오면 다시 읽는다
+      if (!parts[2] || S.homePlayOf !== S.name) await playHomeLoad();  // 플레이 사본인지 (play.js): 작품 홈 카드 · 사이드바 작품 칸 · 다음 할 일
       if (parts[2] === 'branches') await branchCompareLoad(parts[3], Number(parts[4]) || 0);
       scanDrafts();
       S.dirty = false;
@@ -1872,7 +1861,9 @@ function pageTitle() {
   const h1 = $('#app main h1');
   const name = h1 ? h1.textContent.trim().replace(/\s+/g, ' ') : '';
   const work = P() && S.route[0] === 'p' ? P().meta.title : '';
-  return [name, work !== name ? work : '', 'Canon'].filter(Boolean).join(' · ');
+  // 한 화 흐름의 세 화면은 제목이 모두 화 제목이라 단계 이름을 앞에 붙인다 ('검수 · 4화 「제목」')
+  const stage = work && FLOW_PAGES.includes(S.route[2]) ? stepLabel(S.route[2]) : '';
+  return [stage, name, work !== name ? work : '', 'Canon'].filter(Boolean).join(' · ');
 }
 
 function drawApp() {
@@ -1913,7 +1904,7 @@ function drawApp() {
   const n = Number(arg) || currentEp();
   const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, stage: viewStage, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches, cue: viewCue };
   const body = (views[page] || viewHome)(n);
-  $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${branchStrip(page)}${failStrip(page, n)}${draftStrip(page, n)}${body}</main></div>`;
+  $('#app').innerHTML = `<div class="shell">${sidebar(page === 'convert' ? 'home' : page || 'home')}<main class="main">${branchStrip(page)}${failStrip(page, n)}${draftStrip(page, n)}${body}</main></div>`;
   syncPending();
   keepDrafts();  // 저장 · 버리기 · AI 본문으로 초안이 사라졌으면 임시본도 바로 지운다
   syncChat();
@@ -1930,6 +1921,15 @@ function drawApp() {
       .then((r) => r.text).catch((e) => '※ ' + e.message)
       .then((t) => { S.briefText = t; render(); });
   }
+}
+
+/** 한 화 흐름의 세 화면 (flow.js FLOW_STAGES 와 같은 주소). 사이드바 4 · 5 · 6 줄과 탭 제목이 쓴다 */
+const FLOW_PAGES = ['write', 'check', 'review'];
+
+/** 사이드바 4 · 5 · 6 줄과 작업지시서가 가리킬 화: 한 화 흐름 · 작업지시서 화면에서는 보고 있는 화, 그 밖은 지금 작업할 화 */
+function navEp() {
+  const n = Number(S.route[3]);
+  return [...FLOW_PAGES, 'brief'].includes(S.route[2]) && n && ep(n) ? n : currentEp();
 }
 
 /** 작업 단계 1~6 의 이름. 사이드바 · 작품 홈 진행 카드 · 단계 화면 제목이 이 이름을 쓴다 (장편은 3단계 이름이 다르다) */
@@ -1966,7 +1966,15 @@ function syncRail() {
   const auto = document.body.classList.contains('chat-open') && w >= 901 && w <= 1599;
   document.body.classList.toggle('side-rail', railPinned() || auto);
   document.body.classList.toggle('side-rail-auto', auto);
-  document.body.classList.toggle('menu-open', !!S.menuOpen);
+  // 900px 이하 서랍을 연 동안: 서랍은 대화상자로 알리고, 뒤 화면과 위쪽 띠의 나머지는 Tab · 낭독에서 뺀다 (Esc 는 아래)
+  const drawer = !!S.menuOpen && w <= 900;
+  document.body.classList.toggle('menu-open', drawer);
+  const menu = document.getElementById('side-menu');
+  if (menu) {
+    if (drawer) { menu.setAttribute('role', 'dialog'); menu.setAttribute('aria-modal', 'true'); menu.setAttribute('aria-label', '메뉴'); }
+    else ['role', 'aria-modal', 'aria-label'].forEach((a) => menu.removeAttribute(a));
+  }
+  document.querySelectorAll('#app .shell > main, #app .side > :not(.side-menu, .side-scrim)').forEach((el) => { el.inert = drawer; });
 }
 window.addEventListener('resize', syncRail);
 
@@ -1984,7 +1992,7 @@ document.addEventListener('keydown', (e) => {
     apart: 본편과 분리한 화면 (사이드바 '실험' 묶음), foot: 작품 밖 화면 [주소, 이름] (사이드바 아래 설정 · ⋯ 메뉴). */
 function navItems() {
   const p = P();
-  const cur = currentEp();
+  const cur = navEp();
   // 번호는 작업 순서(1~6)에만 붙인다. 도구는 어느 단계에서든 쓰므로 번호 없이 아래 묶음에 둔다
   // 기호는 단계 번호이거나 토스페이스 이모지 아이콘이다 (navMark 가 그린다)
   const steps = [
@@ -2010,7 +2018,7 @@ function navItems() {
     ['lines', base() + '/lines', '🔀', '이야기 줄기', has(p.storylines)],
     ['causal', base() + '/causal', '🔗', '인과율', has(p.elements)],
     ['branches', base() + '/branches', '🌿', '갈래 비교', (branchFam() || { members: [] }).members.length > 1],
-    ['brief', `${base()}/brief/${cur}`, '📝', '작업지시서 (API 없이)', true],
+    ['brief', `${base()}/brief/${cur}`, '📝', '채팅 앱 작업지시서', true],
   ];
   return {
     steps,
@@ -2036,7 +2044,7 @@ function workCard() {
   const done = p.episodes.filter((e) => e.status === 'finalized').length;
   const total = p.meta.target_episodes;
   const cur = currentEp();
-  const part = serial() ? p.parts.find((x) => x.start_ep <= cur && cur <= x.end_ep) : null;
+  const part = serial() ? partOf(cur) : null;
   const arc = serial() ? arcOf(cur) : null;
   const [lo, hi] = arc ? [arc.start_ep, arc.end_ep] : [1, total];
   const n = hi - lo + 1;
@@ -2053,22 +2061,22 @@ function workCard() {
   const [nextLabel, nextHref] = nextStep();
   return `<div class="work-card">
       <div class="work-head"><a class="work-title" href="${base()}" title="${esc(p.meta.title || S.name)}">${esc(p.meta.title || S.name)}</a><a class="work-switch" href="#/" title="작품 목록" aria-label="다른 작품 고르기 (작품 목록)">⌄</a></div>
-      <div class="small work-meta">${esc(p.meta.genre || '장르 미정')} · ${serial() ? '장편' : '단편'} ${total}화</div>${branchSideTag()}
+      <div class="small work-meta">${esc(p.meta.genre || '장르 미정')} · ${serial() ? '장편' : '단편'} ${total}화</div>${branchSideTag()}${playSideTag()}
       ${where ? `<div class="work-where" title="${esc(whereFull)}">${where}</div>` : ''}
       ${strip}
-      <div class="small work-count" aria-hidden="true">${done}/${total}화</div>
+      <div class="small work-count" aria-hidden="true">${done}/${total} 반영</div>
       <div class="small work-scale"><span aria-hidden="true">${cells ? `${lo}화` : ''}</span><span>${done} / ${total}화 반영</span><span aria-hidden="true">${cells ? `${hi}화` : ''}</span></div>
       <a class="work-next" href="${nextHref}"><span class="sr-only">다음 할 일: </span>${esc(nextLabel)}<span aria-hidden="true">→</span></a>
     </div>`;
 }
 
-/** 사이드바 줄 끝 배지에 넣을 수 (순수 함수, tests/test_sidebar_js.py). p 작품, cur 지금 화, results 검토를 기다리는 결과, autoAt 자동 집필이 쓰는 화.
-    check: 지금 화의 열린 지적, review: 반영하지 않은 상태 변경안, auto: 자동 집필이 쓰는 화, tofix: 작품 전체의 남은 고칠 곳 */
+/** 사이드바 줄 끝 배지에 넣을 수 (순수 함수, tests/test_sidebar_js.py). p 작품, cur 4 · 5 · 6 줄이 가리키는 화(navEp), results 검토를 기다리는 결과,
+    autoAt 자동 집필이 쓰는 화. check: 그 화의 열린 지적, review: 그 화의 반영하지 않은 상태 변경안, auto: 자동 집필이 쓰는 화, tofix: 작품 전체의 남은 고칠 곳 */
 function navBadges(p, cur, results, autoAt) {
   const e = p.episodes.find((x) => x.plot.number === cur);
   return {
     check: e ? (e.findings || []).filter((f) => f.status === 'open').length : 0,
-    review: results.filter((r) => r.kind === 'state').length,
+    review: results.filter((r) => r.kind === 'state' && r.ep === cur).length,
     auto: autoAt || null,
     tofix: p.episodes.reduce((k, x) => k + (x.to_fix || []).filter((m) => m.status === 'open').length, 0),
   };
@@ -2133,7 +2141,7 @@ function sideFoot(links) {
   return `<div class="side-foot">
       ${warn ? `<p class="side-warn" title="${esc(warn)}">${esc(warn)}</p>` : ''}
       <div class="side-foot-row">
-        <a class="side-set" href="#/settings" title="설정">${SIDE_ICON.sliders}<span class="nav-label"><b>설정</b>${model ? `<small>본문 ${esc(model)}</small>` : ''}</span></a>
+        <a class="side-set" href="#/settings" title="설정" aria-haspopup="dialog">${SIDE_ICON.sliders}<span class="nav-label"><b>설정</b>${model ? `<small>본문 ${esc(model)}</small>` : ''}</span></a>
         ${menuBtn('side-more', SIDE_ICON.more, menu, { cls: 'side-ico', aria: '더 보기 메뉴', title: '작품 목록 · 문체 라이브러리 · 사용량' })}
       </div>
       ${TF_CREDIT}
@@ -2144,10 +2152,10 @@ function sideFoot(links) {
     900px 이하: 위쪽 띠(메뉴 · 작품 제목 · 알림 · 찾기)와 메뉴를 누르면 왼쪽에서 나오는 서랍(.side-menu) */
 function sidebar(active) {
   const { steps, auto, tools, apart, foot } = navItems();
-  const b = navBadges(P(), currentEp(), S.pending.name === S.name ? Object.values(S.pending.results) : [], autoEp());
+  const b = navBadges(P(), navEp(), S.pending.name === S.name ? Object.values(S.pending.results) : [], autoEp());
   const badge = {
     check: b.check ? navBadge(b.check, `열린 지적 ${b.check}개`, 'red') : '',
-    review: b.review ? navBadge('결과', `반영하지 않은 상태 변경안 ${b.review}개`, 'amber') : '',
+    review: b.review ? navBadge('결과', '반영하지 않은 상태 변경안이 있어요', 'amber') : '',
     auto: b.auto ? navBadge(`<span class="spinner sm"></span>${b.auto}화`, `${b.auto}화 쓰는 중`) : '',
     tofix: b.tofix ? navBadge(b.tofix, `남은 고칠 곳 ${b.tofix}개`) : '',
   };

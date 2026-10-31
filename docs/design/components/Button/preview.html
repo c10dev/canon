@@ -1,0 +1,29 @@
+<!-- @dsCard group="동작" height=240 subtitle="app.css 의 .btn 을 옮긴 정적 미리보기" -->
+<!doctype html>
+<html lang="ko">
+<head><meta charset="utf-8"><title>Button</title>
+<style>
+  body { padding: 16px; }
+  .rows { display: flex; flex-direction: column; gap: 14px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .cap { width: 88px; font-size: 0.75rem; color: var(--muted); }
+</style></head>
+<body>
+<div class="rows">
+  <div class="row"><span class="cap">기본 44px</span>
+    <button type="button" class="btn primary">본문 저장</button>
+    <button type="button" class="btn">되돌리기</button>
+    <button type="button" class="btn ghost">새 인물 더하기</button>
+    <button type="button" class="btn danger">이 화 지우기</button>
+    <button type="button" class="btn" disabled>반영</button></div>
+  <div class="row"><span class="cap">작은 36px</span>
+    <button type="button" class="btn small">고르기</button>
+    <button type="button" class="btn small on" aria-pressed="true">밑줄 끄기</button>
+    <button type="button" class="btn small icon-btn" aria-label="이전 화">‹</button>
+    <button type="button" class="btn small icon-btn" aria-label="다음 화">›</button></div>
+  <div class="row"><span class="cap">분할 · 작업 중</span>
+    <div class="split"><button type="button" class="btn small">복사</button><div class="menu"><button type="button" class="btn small" aria-expanded="false" aria-label="복사 방식">▾</button></div></div>
+    <button type="button" class="btn primary" aria-disabled="true" aria-busy="true">3화 플롯 만드는 중… 2/5</button></div>
+</div>
+</body>
+</html>

@@ -1,5 +1,6 @@
 /* 알림: AI 작업과 알림(toast)을 버튼 하나에 모은다.
-   버튼은 사이드바 이름 옆(900px 이하는 위쪽 띠, 레일은 찾기 아래, 작품 밖 화면은 본문 맨 위 오른쪽)에 있다.
+   버튼은 사이드바 이름 옆 '찾기' 앞(900px 이하는 위쪽 띠, 레일은 찾기 위, 작품 밖 화면은 본문 맨 위 오른쪽)에 있다.
+   사이드바와 휴대폰 폭은 글자 없이 기호와 수 배지만 보인다.
    누르면 버튼 아래에 창(#hub-pop)이 열린다: 확인할 것 · 진행 중 · 최근 알림, 접힌 끝난 작업 · 지난 알림.
    알림은 버튼 바로 아래 말풍선(#toast)으로 뜨고 기록(S.notes)에 남는다 (app.js toast).
    보이는 상태 계산(hubState · hubAgo)은 순수 함수라 node 로 맞춰 본다 (tests/test_hub_js.py). */
@@ -24,7 +25,7 @@ const HUB_RESULT = {
   rework: (r) => [`${r.ep}화 다듬기 안`, `/write/${r.ep}`],
   openings: (r) => [`${r.ep}화 여는 방식 안`, '/arc'],
 };
-// 자동 집필이 사람을 기다리며 끝난 상태 (app.js renderJobs 의 옛 '검토 필요' 표시와 같다)
+// 자동 집필이 사람을 기다리며 끝난 상태 (옛 작업 목록의 '검토 필요' 표시와 같다)
 const HUB_AUTO_WAIT = { review: '검토가 필요해요', paused: '일시정지했어요', error: '오류로 멈췄어요' };
 
 /** 버튼과 창에 보일 것. 순수 함수: 브라우저 상태를 읽지 않는다.
@@ -116,10 +117,13 @@ function hubButton(st = hubNow()) {
   const icon = st.face === 'running' ? '<span class="spinner sm" aria-hidden="true"></span>' : HUB_ICON[st.face];
   const mark = st.badge ? `<span class="hub-badge${st.red ? '' : ' amber'}" aria-hidden="true">${st.badge}</span>`
     : st.face === 'note' ? '<span class="hub-dot" aria-hidden="true"></span>' : '';
-  return `<button type="button" id="hub-btn" class="btn small hub-btn ${st.face}${S.hubOpen ? ' on' : ''}" aria-haspopup="dialog" aria-expanded="${S.hubOpen}" aria-controls="hub-pop" aria-label="${esc(st.aria)}" data-hub-toggle>${icon}<span aria-hidden="true">${esc(st.label)}</span>${mark}</button>`;
+  // 글자를 빼고 기호만 보이는 자리(넓은 폭 사이드바 · 레일 · 휴대폰 폭)에서 글자 대신 보이는 수 배지 (app.css .hub-n)
+  const n = { attention: st.attention.length, result: st.attention.length, done: st.finished.length }[st.face];
+  const count = n ? `<span class="hub-badge hub-n${{ attention: '', result: ' amber', done: ' green' }[st.face]}" aria-hidden="true">${n}</span>` : '';
+  return `<button type="button" id="hub-btn" class="btn small hub-btn ${st.face}${S.hubOpen ? ' on' : ''}" aria-haspopup="dialog" aria-expanded="${S.hubOpen}" aria-controls="hub-pop" aria-label="${esc(st.aria)}" title="${esc(st.aria)}" data-hub-toggle>${icon}<span aria-hidden="true">${esc(st.label)}</span>${mark}${count}</button>`;
 }
 
-/** 작품 밖 화면(작품 목록 · 설정 · 사용량 · 문체 라이브러리) 본문 맨 위 오른쪽의 버튼 칸. 버튼이 없으면 칸도 접힌다 (app.css .hub-top:empty). */
+/** 작품 밖 화면(작품 목록 · 사용량 · 문체 라이브러리) 본문 맨 위 오른쪽의 버튼 칸. 버튼이 없으면 칸도 접힌다 (app.css .hub-top:empty). */
 function hubTop() {
   return `<div class="hub-top" id="hub-slot">${hubButton()}</div>`;
 }
@@ -151,7 +155,7 @@ function hubAttention(a) {
     return `<li class="hub-item err"><div class="hub-t"><strong>지난 시도 실패 · ${esc(f.label)}</strong><div class="small">${esc(f.error || '')}</div></div>
       <div class="row">${keyHelp}<button type="button" class="btn small ghost" data-action="dismissFail" data-arg="${esc(f.key)}">닫기</button></div></li>`;
   }
-  return `<li class="hub-item warn"><div class="hub-t"><strong>${esc(a.label)}${josa(a.label, '이', '가')} 도착했어요</strong><div class="small">아직 반영하지 않았어요</div></div>
+  return `<li class="hub-item warn"><div class="hub-t"><strong>${esc(a.label)}${josa(a.label, '이', '가')} 도착했어요</strong><div class="small">${a.result.kind === 'state' ? '아직 반영하지 않았어요' : '아직 적용하지 않았어요'}</div></div>
     <a class="btn small" href="${base()}${a.path}">가서 보기</a></li>`;
 }
 
