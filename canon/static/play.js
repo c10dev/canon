@@ -459,7 +459,7 @@ function playClockBar(ph) {
       <div class="pnow"><strong>${esc(now)}</strong><span class="pstate ${tone}">${esc(playStatusText(ph))}${ph === 'flowing' && c.rush ? ' · 다음 결정까지' : ''}</span></div>
       <fieldset class="pspeed" aria-keyshortcuts="- +"><legend class="sr-only">배속 (−, + 키)</legend>${PLAY_SPEEDS.map((s) => `<label><input type="radio" name="play-speed" value="${s}"${c.speed === s ? ' checked' : ''}><span>${s}×</span></label>`).join('')}</fieldset>
       <span class="small">1× = ${PLAY_UNITS[p.unit] || '한 칸'} ${PLAY_UNIT_MS / 1000}초</span>
-      <button type="button" class="btn small" data-action="playRush" aria-keyshortcuts="N"${blocked ? ' aria-disabled="true"' : ''}>다음 결정까지 »</button>
+      <button type="button" class="btn small" data-action="playRush" aria-keyshortcuts="N"${blocked ? ' aria-disabled="true"' : ''}>다음 결정까지 넘기기</button>
       <label class="pswitch"><input type="checkbox" id="play-auto"${p.auto_decide ? ' checked' : ''}${p.ending ? ' disabled' : ''}>자동 결정</label>
       <div class="ptrack" aria-hidden="true"><span id="play-track" class="${tone}"></span></div>
     </div>`;
@@ -579,7 +579,7 @@ function viewPlayPast() {
     return `<li class="prow${t.number === lastN ? ' cur' : ''}"${t.number === lastN ? ' aria-current="true"' : ''}>
         <span class="small pwhen">${esc(t.when || (first && first.when) || `${t.number}구간`)}</span>
         <div class="pcol"><span>${esc(t.summary && t.kind !== 'flow' ? t.summary : first ? first.text : t.scene.slice(0, 80))}</span>${what}
-          <span class="small">${t.state === 'applied' ? '상태 반영함' : t.state === 'failed' ? '반영 실패' : '반영 중'} · 흘러간 일 ${t.beats.length}줄</span></div>
+          <span class="small">${t.state === 'applied' ? '상태를 반영했어요' : t.state === 'failed' ? '상태를 반영하지 못했어요' : '상태를 반영하는 중'} · 흘러간 일 ${t.beats.length}줄</span></div>
         <div class="row">${can ? `<button type="button" class="btn small" data-action="playAskRewind" data-arg="${t.number}">여기로 되감기</button><button type="button" class="btn small" data-action="playAskFork" data-arg="${t.number}">여기서 다르게 해 보기</button>` : ''}</div>
       </li>`;
   };

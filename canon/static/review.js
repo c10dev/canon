@@ -342,7 +342,7 @@ function viewReview(n) {
   const keepCount = shown.reduce((s, g) => s + g[3].length, 0);
   const grp = ([key, label, html, ks, peek, foot]) => {
     const open = !!(S.rvOpen && S.rvOpen[`${n}:g:${key}`]);
-    return `<details class="rv-grp" data-rv-grp="${n}:g:${key}"${open ? ' open' : ''}><summary><span class="tf" aria-hidden="true">${RV_ICON[key]}</span><strong>${label}</strong>${ks.length ? `<span class="rv-count" data-rv-keys="${ks.join(',')}">${rvKeyCount(ks)}</span>` : ''}<span class="rv-peek">${esc(peek)}</span></summary>
+    return `<details class="rv-grp" data-rv-grp="${n}:g:${key}"${open ? ' open' : ''}><summary><strong>${label}</strong>${ks.length ? `<span class="rv-count" data-rv-keys="${ks.join(',')}">${rvKeyCount(ks)}</span>` : ''}<span class="rv-peek">${esc(peek)}</span></summary>
       <div class="rv-grp-body">${html}${foot}</div></details>`;
   };
   const keep = `<section class="card rv-card rv-keep" aria-labelledby="rv-keep-h"><div class="rv-card-head"><h2 id="rv-keep-h">그대로 반영할 것 <span class="chip">${keepCount}</span></h2><span class="small">갈래를 펴서 고치거나 뺄 수 있어요</span></div>
@@ -363,9 +363,6 @@ function viewReview(n) {
   return head + stale + issues + lead + `<div class="rv-grid">${panel}${body}</div>` +
     (wide ? '' : `<div class="apply-bar rv-deck-bar" role="region" aria-label="반영"><span class="small"><strong class="pick-count" style="color:var(--text)">${picked}</strong>/${total} 고름</span>${applyBtn(`반영하고 ${n}화 완료`)}</div>`);
 }
-
-/** 갈래 아이콘 (토스페이스) */
-const RV_ICON = { chars: '👤', places: '📍', rel: '🤝', secrets: '🤫', facts: '📌', fs: '🧩', time: '⏰' };
 
 /** 인물 i 의 감정 · 차림 · 알게 된 정보 중 고친 칸이 있다 */
 const charEdited = (n, i) => {
@@ -411,7 +408,7 @@ function rvRanges(n, text) {
 function rvQuoteBtn(n, quote, label) {
   if (!quote) return '';
   const on = S.rvQuote && S.rvQuote.n === n && S.rvQuote.q === quote;
-  return `<button type="button" class="btn small rv-src" data-action="rvQuote" data-arg="${esc(JSON.stringify([n, quote, label]))}" aria-pressed="${!!on}" aria-label="${esc(label)} 본문 근거 보기"><span class="tf" aria-hidden="true">📖</span> 본문</button>`;
+  return `<button type="button" class="btn small rv-src" data-action="rvQuote" data-arg="${esc(JSON.stringify([n, quote, label]))}" aria-pressed="${!!on}" aria-label="${esc(label)} 본문 근거 보기">본문 보기</button>`;
 }
 
 /** 본문에서 문장이 든 단락과 앞뒤 단락. 못 찾으면 null */
@@ -426,8 +423,8 @@ function rvQuoteFind(text, quote) {
 /** 좁은 폭의 근거 카드 */
 function rvQuotePanel(n, q) {
   const found = rvQuoteFind(ep(n) ? ep(n).text : '', q.q);
-  return `<section class="card rv-quote-panel" aria-label="본문 근거"><div class="rv-card-head"><h2><span class="tf" aria-hidden="true">📖</span> 본문 근거</h2><span class="small">${n}화 · ${esc(q.label)}</span>
-      <button type="button" class="btn small rv-close" data-action="rvQuote" data-arg="" aria-label="본문 근거 닫기"><span class="tf" aria-hidden="true">✖️</span></button></div>
+  return `<section class="card rv-quote-panel" aria-label="본문 근거"><div class="rv-card-head"><h2>본문 근거</h2><span class="small">${n}화 · ${esc(q.label)}</span>
+      <button type="button" class="btn small rv-close" data-action="rvQuote" data-arg="" aria-label="본문 근거 닫기">✕</button></div>
     ${found ? `<div class="rv-quote-text">${found.map((x) => `<p>${x}</p>`).join('')}</div>` : `<div class="note plain">본문에서 이 문장을 그대로 찾지 못했어요. AI가 문장을 조금 바꿔 옮겼을 수 있어요.<div class="rv-quote">${quoted(q.q)}</div></div>`}
     ${found && editableEp(ep(n)) ? `<div class="row"><span class="small" style="flex:1">이 문장을 바꾸려면 집필 화면에서 고쳐요</span><button type="button" class="btn small" data-action="rvQuoteGo" data-arg="${n}">집필에서 이 문장 고르기</button></div>` : ''}</section>`;
 }

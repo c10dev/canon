@@ -75,7 +75,8 @@ function rememberRemoved(label, paths) {
   S.lastRemoved = { label, saved: paths.map((k) => [k, structuredClone(getPath(P(), k))]) };
 }
 
-const STATUS = { draft: '플롯 초안', confirmed: '플롯 확정', written: '본문 작성됨', finalized: '반영 완료' };
+// 화 상태 칩 · 범례 글자. 칩과 범례는 이 한 곳에서 글자를 가져온다 (docs/design/README.md '화 상태 칩')
+const STATUS = { draft: '초안', confirmed: '확정', written: '작성됨', finalized: '반영 완료' };
 const ACTS = ['기', '승', '전', '결'];
 
 // ---------- 공통 ----------
@@ -89,7 +90,7 @@ const base = () => `#/p/${enc(S.name)}`;
 function fmtErr(data, status) {
   const d = data && data.detail;
   if (Array.isArray(d)) return d.map((x) => { const at = (x.loc || []).slice(1).join('.'); return `입력 형식이 맞지 않아요${at ? ` (칸: ${at})` : ''}: ${x.msg}`; }).join('\n');
-  return d || `요청 실패 (${status})`;
+  return d || `서버가 요청을 처리하지 못했어요 (${status}). 잠시 뒤 다시 해 보세요`;
 }
 
 // 이 탭의 id. 서버는 작품을 저장한 화면을 기억해, 다른 탭 · 기기가 먼저 저장했으면 오래된 화면의 저장을 409 로 막는다
@@ -342,7 +343,7 @@ async function pollJobs(soon = false) {
     const mine = j.project === S.name || j.project === REV_JOBS;  // 역설계 실험 작업은 작품 밖이라 어느 화면에서든 제 알림을 낸다 (revlab.js)
     if (progressed && !mine && old && old.status === 'running' && j.status !== 'running') {
       // 다른 작품을 보는 동안 끝났다. 결과는 그 작품을 열면 다시 놓인다 (pending.json)
-      toast(j.status === 'error' ? `${j.project} · ${j.label} 실패: ${j.error}` : `${j.project} · ${j.label}${josa(j.label, '이', '가')} 끝났어요. 그 작품을 열면 결과가 보여요`, j.status === 'error');
+      toast(j.status === 'error' ? `${j.project} · ${j.label}${josa(j.label, '을', '를')} 끝내지 못했어요: ${j.error}. 그 작품을 열면 다시 시도할 수 있어요` : `${j.project} · ${j.label}${josa(j.label, '이', '가')} 끝났어요. 그 작품을 열면 결과가 보여요`, j.status === 'error');
     }
     if (!progressed || !mine) continue;
     if (j.kind === 'agent' && typeof agentJobUpdate === 'function') await agentJobUpdate(j, old);  // 대화 에이전트 턴 (agent.js)
@@ -447,7 +448,7 @@ async function finishJob(j) {
     const acts = [];
     if (S.jobArgs[j.id]) acts.push({ label: '다시 시도', run: () => retryJob(j.id) });
     if (/API 키|연결/.test(j.error || '')) acts.push({ label: '설정', run: () => openSettings('ai') });
-    toast(`${j.label} 실패: ${j.error}`, true, { actions: acts });
+    toast(`${j.label}${josa(j.label, '을', '를')} 끝내지 못했어요: ${j.error}`, true, { actions: acts });
     if (here) S.pending.failures[key] = { key, kind: j.kind, ep: j.ep, label: j.label, error: j.error };
     return;
   }
@@ -518,7 +519,7 @@ function syncPending() {
 function failStrip(page, n) {
   if (S.pending.name !== S.name) return '';
   const list = Object.values(S.pending.failures).filter((f) => (JOB_PAGES[f.kind] || []).includes(page || 'home') && (f.ep == null || !['write', 'check', 'review', 'brief'].includes(page) || f.ep === n));
-  return list.map((f) => `<div class="note warn between" role="status"><span><strong>지난 시도 실패</strong> · ${esc(f.label)}: ${esc(f.error)}${/API 키|연결/.test(f.error) ? ' <a href="#/settings/ai">AI 연결 설정</a>' : ''}</span><button type="button" class="btn small" data-action="dismissFail" data-arg="${esc(f.key)}">닫기</button></div>`).join('');
+  return list.map((f) => `<div class="note warn between" role="status"><span><strong>${esc(f.label)} · 끝내지 못했어요</strong>: ${esc(f.error)}${/API 키|연결/.test(f.error) ? ' <a href="#/settings/ai">AI 연결 설정</a>' : ' 같은 버튼을 다시 누르면 다시 시도해요.'}</span><button type="button" class="btn small" data-action="dismissFail" data-arg="${esc(f.key)}">닫기</button></div>`).join('');
 }
 
 function applyJobResult(j) {
@@ -1116,7 +1117,7 @@ function renderSavebar() {
     if (!bar) bar = newSavebar(false);  // 라이브러리 항목은 Ctrl+S 가 저장하지 않는다
     if (bar.dataset.sig !== 'lib') {
       bar.dataset.sig = 'lib';
-      bar.innerHTML = '<span>문체를 저장하지 않았어요</span><button class="btn small" data-action="libRevert">저장 전으로</button><button class="btn small primary" data-action="libSave">저장</button>';
+      bar.innerHTML = '<span>문체를 저장하지 않았어요</span><button class="btn small" data-action="libRevert">저장 전으로 되돌리기</button><button class="btn small primary" data-action="libSave">저장</button>';
     }
     stackBottom();
     return;
@@ -1217,7 +1218,7 @@ async function saveIfDirty() {
 
 const actions = {
   async save() {
-    await run('저장 중', async () => { if (await save() !== false) toast('저장했어요'); });
+    await run('저장하는 중', async () => { if (await save() !== false) toast('저장했어요'); });
   },
   async revert() {
     if (S.dirty && !confirm('저장하지 않은 변경을 모두 버리고 저장된 작품을 다시 불러올까요? 되돌릴 수 없어요.')) return;
@@ -1326,7 +1327,7 @@ const actions = {
   },
   async saveForce() {
     if (!confirm('다른 탭이나 기기에서 저장한 변경을 이 화면의 작품으로 덮어쓸까요? 그쪽에서 바꾼 설정 · 플롯은 사라져요.')) return;
-    await run('저장 중', async () => { if (await save(true) !== false) toast('저장했어요'); });
+    await run('저장하는 중', async () => { if (await save(true) !== false) toast('저장했어요'); });
   },
   async copyOrphan(n) {
     const t = S.textDraft[n] || '';

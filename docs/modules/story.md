@@ -340,8 +340,8 @@
 - 복선 하나(`fsDetail`: 축 → 본문에 걸린 문장과 흐름 `fsFlowCard` → 회수 계획 읽기 카드 `fsPlanCard`, 고치기 `S.fsEdit`, 회수로 표시 `S.fsResolving`)
 - 본문에서 고른 문장을 거는 칸은 본문 부분 수정 도구(`passage.js` `#sel-tool`)의 mode 'foreshadow'
   - `fsLinkShow` · `fsLinkHtml`: 이미 있는 복선 찾기 · 이 화 가까이 나온 후보 `fsCandidates` / 새 복선
-  - 고치는 본문은 메뉴에 '복선으로'
-  - 반영한 화의 읽기 전용 본문은 `illust.js` 도구에 '복선으로'
+  - 고치는 본문은 메뉴에 '복선으로 걸기'
+  - 반영한 화의 읽기 전용 본문은 `illust.js` 도구에 '복선으로 걸기'
   - 640px 이하 아래 시트
 - 상태 승인 화면의 복선 문장 고르기(`fsClueRows`, `q` 항목)
 - `fsBands` · `fsAt` · `fsMarks` · `fsFlag` · `fsTail` · `fsAttention` · `fsTodo` · `fsTocRows` · `fsFlow` · `fsAhead` · `fsTicks` · `fsCandidates` 는 순수 함수(`tests/test_foreshadow_js.py`)

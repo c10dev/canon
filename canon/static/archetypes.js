@@ -38,7 +38,7 @@ function dexRollBox() {
       <div class="small">상처: ${esc(w ? w.name : x.wound)} · 말투: ${esc(s ? `${s.name} "${s.sample}"` : x.speech)}</div>
       ${x.twist ? `<div class="small">비틀기: ${esc(x.twist)}</div>` : ''}
       <div class="row"><button type="button" class="btn small primary" data-action="dexAdd" data-arg="${i}">새 인물로 추가</button>
-        <button type="button" class="btn small ghost" data-action="dexReroll" data-arg="${esc(x.archetype)}">이 원형으로 다시</button></div></div>`;
+        <button type="button" class="btn small ghost" data-action="dexReroll" data-arg="${esc(x.archetype)}">이 원형으로 다시 뽑기</button></div></div>`;
   }).join('');
   return `<div class="name-picks-box">
     <div class="between"><span class="small">원형 · 상처 · 말투 · 비틀기 · 이름을 무작위로 섞었어요${r.archetype ? ` (원형은 ${esc((dexById(r.archetype) || {}).name || r.archetype)} 그대로)` : ''}</span>
