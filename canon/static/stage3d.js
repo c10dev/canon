@@ -163,10 +163,10 @@ function s3Pane() {
   return `<div class="s3-view">
       <div id="stg-3d" class="s3-slot">${s3.loading ? '<p class="s3-wait small">3D를 불러오는 중이에요…</p>' : ''}</div>
       <div class="between"><div class="seg" role="group" aria-label="카메라">${cams.map(([k, t]) => `<button type="button" aria-pressed="${s3.cam === k}" data-action="s3Cam" data-arg="${k}">${t}</button>`).join('')}</div>
-        <span class="small">끌기 = 돌리기 · 휠 = 확대 · 고치기는 평면도에서</span></div>
+        <span class="small">끌어서 돌리고 휠로 확대해요. 고치기는 평면도에서 해요</span></div>
       <p class="sr-only" id="s3-live" aria-live="polite">${esc(s3.said || '')}</p>
       ${notes.join('')}
-      <div class="stg-legend"><span>점선 = 접촉(손 → 부위)</span><span>회색 점선 = 손이 닿지 않은 틈</span><span>빨강 = 규칙 검수 지적</span></div>
+      <div class="stg-legend"><span>점선 = 접촉(손 → 부위)</span><span>회색 점선 = 손이 닿지 않은 틈</span><span>빨강 = 지적</span></div>
     </div>`;
 }
 
@@ -517,6 +517,7 @@ function s3CssOnce() {
 .s3-tag.ghost { color: var(--muted); }
 .s3-tag.bad { color: var(--red); }
 .s3-band { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+@container stgcol (max-width: 480px) { .s3-slot { aspect-ratio: 1 / 1; } }
 `;
   document.head.appendChild(st);
 }
@@ -524,6 +525,7 @@ function s3CssOnce() {
 Object.assign(actions, {
   stgView(v) {
     S.stgView = v === '3d' ? '3d' : 'plan';
+    if (S.stgView === '3d' && S.stg) Object.assign(S.stg, { mode: 'people', open: '', beatEdit: false });  // 3D 는 읽기만: 방 고치기 · 인물 고치기를 닫는다
     render();
   },
   s3Cam(id) {
