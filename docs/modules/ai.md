@@ -7,6 +7,7 @@
 - Claude 백엔드
 - 구독 로그인(`claude`, 설치된 Claude Code 를 `claude -p` 로 부름, 로그인 상태 `status`)과 API 키(`claude-api`, Anthropic SDK)
 - Canon 은 Claude 계정 로그인을 직접 받거나 토큰을 저장하지 않는다(Anthropic 정책)
+- 로그인이 필요하거나 만료된 응답(`Not logged in`, `Failed to authenticate: OAuth session expired …` 등)은 `_explain` 이 로그인 안내(`LOGIN_HINT`)로 바꾼다
 - 화면은 `static/claude.js`
 
 ### `canon/judge.py`
@@ -68,6 +69,7 @@
 - 작품 · 화 · 작업은 `scope(...)` 로 붙인다(웹 미들웨어, `jobs.start`, 자동 집필, CLI)
 - 가격표(`DEFAULT_PRICES` + 설정의 `prices`, 날짜별 `since`)로 볼 때 비용을 계산한다
 - 자동 집필 추정도 같은 가격표를 쓴다
+- 실험 · 시험 비용 추정(블록 시험 · 상태창 시험 · 큐 시트 실험 · 역설계)은 `stage_price(단계)` 로 그 단계의 실제 백엔드를 따른다: Gemini · Claude API 는 가격표, Claude 구독 · 로컬 · mock 은 종량 비용 없는 0원 줄(예전에는 백엔드와 상관없이 Gemini 이름으로 매겼다)
 - 화면은 `static/usage.js`
 - 화면 차례: 기간 · 작품 거르기 → 비용 타일 → 날짜별 막대 → '어디에 썼나' 막대 목록 → 호출 목록 → 접힌 가격표
 - 날짜별 막대는 비용 · 호출 수 중 하나(축 하나, 눈금 `usageTicks`)

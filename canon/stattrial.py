@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 import re
-from datetime import date
 
 from . import cancel, metrics, pipeline, prompts, research, statwin, usage
 from .context import CHARS_PER_TOKEN
@@ -137,10 +136,8 @@ def estimate(p: Project, episodes: list[int], repeats: int = 1, conditions: list
              model: str = "", batch: bool = False) -> dict:
     """쓰기 호출 수와 비용 추정. 입력은 조건마다 실제 요청 글자 수로, 출력은 화당 분량으로 잰다(글자 ÷ CHARS_PER_TOKEN)."""
     conditions = conditions or list(CONDITIONS)
-    from . import settings
 
-    model = model or settings.stage_model("write")[0] or settings.model()[0]
-    price = usage.rate(model, date.today().isoformat())
+    model, price = usage.stage_price("write", model)
     out_tokens = p.meta.words_per_episode / CHARS_PER_TOKEN
     rows, total = [], 0.0
     for cond in conditions:

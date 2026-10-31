@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import random
 import re
-from datetime import date
 from pathlib import Path
 
 from . import cancel, cue, pipeline, prompts, store, usage
@@ -609,14 +608,12 @@ def wants_lines(lab: RevLab, numbers: list[int]) -> bool:
 def estimate(lab: RevLab, kind: str, numbers: list[int] | None = None, model: str = "", use_style: bool = False) -> dict:
     """AI 호출 수와 비용 추정. kind: parse(역설계, plan 단계) · write(되돌려 쓰기, write 단계) · style(문체 역설계, plan 단계).
     캐시와 생각 토큰은 넣지 않는다."""
-    from . import settings
 
     if kind not in ("parse", "write", "style"):
         raise ValueError(f"모르는 추정이에요: {kind}")
     nums = choose(lab, numbers) if kind != "style" else []
     stage = "write" if kind == "write" else "plan"
-    model = model or settings.stage_model(stage)[0] or settings.model()[0]
-    price = usage.rate(model, date.today().isoformat())
+    model, price = usage.stage_price(stage, model)
     rows = []
     if kind == "style":
         tin = (len(prompts.SYSTEM_PLANNER) + len(prompts.style_prompt(style_sample(lab)))) / CHARS_PER_TOKEN

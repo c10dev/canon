@@ -138,6 +138,12 @@ class ClaudeCodeTest(unittest.TestCase):
             llm.text("s", "p")
         self.assertFalse(usage.read()[-1]["ok"])
 
+    def test_expired_oauth_session_is_a_login_error(self):
+        # 2026-10-31: 만료된 구독 로그인은 이 글로 와서 로그인 안내 없이 원문만 보였다
+        self.replies({"is_error": True, "result": "Failed to authenticate: OAuth session expired and could not be refreshed"})
+        with self.assertRaisesRegex(claude.ClaudeCodeError, "claude auth login"):
+            claude.ClaudeCodeLLM().text("s", "p")
+
     def test_old_cli_without_json_schema(self):
         (self.dir / "help.txt").write_text("--tools <tools...>", encoding="utf-8")
         llm = claude.ClaudeCodeLLM()
