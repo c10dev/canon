@@ -254,6 +254,21 @@ def test_cli_map_gen(capsys, monkeypatch, tmp_path):
     assert "--water 값은 없음, 강, 호수, 바다 중 하나예요" in str(e.value)
 
 
+def test_cli_map_gen_keeps_files_outside_the_map_folder(capsys, monkeypatch, tmp_path):
+    # 저장한 마을 이름이 map/ 밖을 가리켜도 map gen 이 그 파일을 지우지 않는다 (atlas.drop_old_file)
+    monkeypatch.setattr(store, "ROOT", tmp_path)
+    victim = tmp_path / "victim.txt"
+    for seed, bad in enumerate(["../../victim.txt", str(victim)], start=8):
+        victim.write_text("keep", encoding="utf-8")
+        p = _project()
+        p.atlas.layout = bad
+        store.save("mapout", p)
+        cli.main(["map", "mapout", "gen", "--seed", str(seed), "--size", "작음", "-y"])
+        assert store.load("mapout").atlas.layout == f"gen-village-{seed}.json"
+        assert victim.read_text(encoding="utf-8") == "keep"
+    capsys.readouterr()
+
+
 # ---------- 도시 지도 (citygen 을 지도 만들기에 연결) ----------
 
 def test_generate_city_preview_and_apply(tmp_path):

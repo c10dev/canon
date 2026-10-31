@@ -168,6 +168,21 @@ def test_web_atlas(tmp_path, monkeypatch):
     assert pr["atlas"]["image"] == "" and not (tmp_path / "w" / "map" / name).exists()
     assert pr["atlas"]["pins"]  # 자리는 그대로
 
+    # 저장한 그림 · 마을 이름이 map/ 밖을 가리켜도 지우는 길이 그 파일을 지우지 않는다
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep", encoding="utf-8")
+    c.put("/api/projects/w/atlas/image", json={"data": PNG, "aspect": 1})
+    for bad in ["../../victim.txt", str(victim)]:
+        pj = c.get("/api/projects/w").json()
+        pj["atlas"]["image"], pj["atlas"]["layout"] = bad, bad
+        assert c.put("/api/projects/w?force=true", json=pj).status_code == 200
+        assert c.delete("/api/projects/w/atlas/image").status_code == 200
+        pj = c.get("/api/projects/w").json()
+        pj["atlas"]["layout"] = bad
+        assert c.put("/api/projects/w?force=true", json=pj).status_code == 200
+        assert c.delete("/api/projects/w/atlas/layout").status_code == 200
+        assert victim.read_text(encoding="utf-8") == "keep"
+
 
 def test_clean_and_apply_sort():
     from canon.schema import NewPlace, PlaceGuess, PlaceSort

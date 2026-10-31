@@ -30,6 +30,15 @@ def test_named_ids_skip_names_inside_other_names():
     assert context.named_ids(p, "아톰이라는 말") == set()  # 한글 바로 뒤에 붙은 이름은 다른 낱말
 
 
+def test_named_ids_one_letter_name_needs_word_end():
+    p = _serial()
+    p.characters += [Character(id="j", name="진", role="")]
+    assert context.named_ids(p, "진짜 맑은 날이었다. 진심이었다.") == set()  # 다른 낱말 머리에 든 한 글자
+    assert context.named_ids(p, "진은 웃었다.") == {"j"}
+    assert context.named_ids(p, "\"진!\" 하고 불렀다.") == {"j"}
+    assert context.named_ids(p, "진이었다.") == {"j"}
+
+
 def test_write_context_adds_side_character_named_in_plot():
     p, a = _project()
     n = a.end_ep + 1

@@ -164,6 +164,7 @@
 - 지도 종류마다 종류 목록(`gen_info` 의 `kinds` · `eras` · `kind_to`)
 - 미리보기(`generate`, 저장 안 함)
 - 적용(`apply_generated`, `Atlas.spec`)
+- 옛 그림 · 마을 파일 지우기(`drop_old_file`: map/ 안의 맨 파일 이름만, web · cli 가 함께 씀)
 - 마을 이름 · 인구(`village_title`, `Atlas.title`)
 - 만들 수 있는 지도 종류와 생성기(`MAKERS`: 마을 `towngen`, 도시 `citygen`, 현대 동네 `moderngen`. 설정 칸 `OPTIONS` · 버전 · 구역 이름 `ZONES` 는 이것으로만 읽는다)
 - 빈 블록 채우기 미리보기 · 적용 · 지우기(`fill_preview` · `apply_fill` · `clear_fill`)
