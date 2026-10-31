@@ -1116,7 +1116,7 @@ function stgCss() {
   st.id = 'stg-css';
   // 공용 목차 틀(.outline-wrap.stg-wrap) 위의 화면. 칸 폭 규칙은 창이 아니라 @container outline · stgcol 로 건다 (docs/design/layout.md)
   st.textContent = `
-.stg-col { container: stgcol / inline-size; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.stg-col { container: stgcol / inline-size; display: flex; flex-direction: column; gap: var(--gap-stack); min-width: 0; }
 .stg-col > .card, .stg-col > .note { margin: 0; }
 .stg-ep { display: flex; flex-direction: column; gap: 6px; padding: 0 4px 6px; }
 .stg-ep select { width: 100%; }

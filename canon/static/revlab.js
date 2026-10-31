@@ -1163,7 +1163,7 @@ Object.assign(actions, {
 }
 .rev-drop-note { margin: 6px 10px; }
 .rev-ep-h { display: flex; align-items: center; justify-content: space-between; padding-top: 8px; padding-bottom: 0; }
-.rev-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.rev-main { display: flex; flex-direction: column; gap: var(--gap-stack); min-width: 0; }
 .rev-step { width: 20px; height: 20px; border-radius: 6px; background: var(--chip); color: var(--text-2); display: inline-flex; align-items: center; justify-content: center; font-size: 0.6875rem; font-weight: 700; flex: none; }
 .rev-step.ok { background: var(--green-soft); color: var(--green); }
 .rev-step.now { background: var(--accent); color: var(--on-accent); }

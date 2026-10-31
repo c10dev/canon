@@ -20,7 +20,7 @@ Object.assign(S, {
 (function tlStyle() {
   const bars = [1, 2, 3, 4, 5, 6, 7].map((k) => `.tl-gap .w${k} { width: ${k * 8}px; }`).join('\n');
   const css = `
-.tl-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.tl-col { display: flex; flex-direction: column; gap: var(--gap-stack); min-width: 0; }
 .tl-col > .card { scroll-margin-top: calc(var(--band, 0px) + 16px); }
 .tl-big { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
 .tl-days { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }

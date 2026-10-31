@@ -80,8 +80,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--
 .between { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
 
 /* ----- 카드 · 안내 · 빈 화면 (Card, Note, Empty) ----- */
-.card { padding: 20px 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); display: flex; flex-direction: column; gap: 14px; }
-.card.tight { padding: 16px; gap: 10px; }
+.card { padding: 20px 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); display: flex; flex-direction: column; gap: 12px; }
+.card.tight { padding: 16px; gap: 8px; }
+@media (max-width: 640px) { .card { padding: 16px; } }
 .note { padding: 12px 14px; border-radius: 8px; font-size: 0.8125rem; line-height: 1.55; }
 .note.info { background: var(--accent-soft); color: var(--info-ink); }
 .note.warn { background: var(--amber-soft); color: var(--amber-ink); border: 1px solid var(--warn-line); }
@@ -220,7 +221,7 @@ a.fl-cell:hover { background: var(--bg); color: var(--text); }
 .outline-item .n.ok, .outline-item.done .n, .sec-n.ok { background: var(--green-soft); color: var(--green); }
 .outline-item .n.run { background: var(--accent-soft); color: var(--accent-ink); }
 @container outline (max-width: 720px) {
-  .outline-doc, .outline-doc.wide { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .outline-doc, .outline-doc.wide { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .outline { top: var(--outline-band, var(--band, 0px)); margin: 0 -2px; padding: 8px 2px; background: var(--bg); }
   .outline-now { display: flex; width: 100%; justify-content: space-between; gap: 8px; }
   .outline-now + .outline-list { display: none; position: absolute; left: 0; right: 0; top: calc(100% - 4px); padding: 8px; border-radius: 12px; background: var(--surface); box-shadow: 0 6px 24px rgba(0,0,0,0.16); max-height: 70vh; overflow-y: auto; }

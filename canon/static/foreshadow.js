@@ -27,7 +27,7 @@ const FS_PICK_MAX = 6;    // 걸기 칸에 찾기 없이 보이는 복선 수
 
 (function fsStyle() {
   const css = `
-.fs-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; container: fscol / inline-size; }
+.fs-col { display: flex; flex-direction: column; gap: var(--gap-stack); min-width: 0; container: fscol / inline-size; }
 .fs-col > .card { scroll-margin-top: 16px; }
 @container outline (min-width: 721px) { .fs-wrap .outline-list { max-height: calc(100vh - 32px); overflow-y: auto; } }
 .fs-wrap .outline-item .tl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -53,7 +53,7 @@ const FS_PICK_MAX = 6;    // 걸기 칸에 찾기 없이 보이는 복선 수
 .fs-clue-pick { flex: 1; min-width: 0; font-size: 0.8125rem; line-height: 1.55; }
 .fs-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
 .fs-todo { display: flex; flex-direction: column; }
-.fs-todo-row { display: grid; grid-template-columns: 104px minmax(0, 1fr) auto; gap: 12px; align-items: center; min-height: 52px; padding: 6px 0; border-top: 1px solid var(--rule); }
+.fs-todo-row { display: grid; grid-template-columns: 104px minmax(0, 1fr) auto; gap: 12px; align-items: center; min-height: 52px; padding: var(--pad-row) 0; border-top: 1px solid var(--rule); }
 .fs-todo-row:first-child { border-top: none; }
 .fs-todo-row .t { color: var(--text); font-weight: 700; text-decoration: none; }
 .fs-todo-row .t:hover { text-decoration: underline; }
