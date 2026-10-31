@@ -7,6 +7,7 @@
 - 쓰는 쪽이 줄 것: `<button type="button">` 요소, 동사로 된 글자, 동작을 잇는 `data-action`(필요하면 `data-arg`).
 - 변형: 기본 `.btn`(테두리 없이 `btn` 면), 주 동작 `.btn.primary`(한 화면에 하나, `accent` 면), 뜨는 띠 위 `.btn.dark`, 덧붙이는 동작 `.btn.ghost`(면 · 테두리 없이 `link` 글자, 올리면 `btn` 면), 지우기 같은 위험한 동작 `.btn.danger`, 켜진 토글 `.btn.on`과 `aria-pressed="true"`(`accent` 테두리와 `accent-soft` 면).
 - 크기: 기본 `control`(44px), 작은 `.btn.small`은 `control-small`(36px). 작은 버튼은 카드 안 보조 동작에만 쓴다.
+- 손가락 기기(`pointer: coarse`)와 640px 이하에서 `.btn.small`은 `touch-min`(44px)이다. 한 줄의 작은 버튼이 함께 커져 높이가 같다.
 - 글자 없는 버튼은 `.icon-btn`(폭 44px, `btn` 면)에 `aria-label`을 준다. 사이드바 안의 글자 없는 버튼만 면 없는 `.side-ico`를 쓴다(Nav).
 - 쓸 수 없을 때는 `disabled`. 링크 모양 버튼(`<a class="btn">`)은 `aria-disabled="true"`.
 - AI 작업이 도는 동안은 `disabled` 대신 `aria-disabled="true"` · `aria-busy="true"`를 단다(Busy).
@@ -16,7 +17,7 @@
 
 - 한 줄에 나란히 놓인 버튼은 같은 높이다. 한 버튼에만 `min-height`를 덮어쓰지 않는다. 덮어써야 하면 그 줄의 버튼 모두에 같은 규칙을 건다.
 - 좁은 화면 위 띠의 `찾기` · `메뉴`는 둘 다 `touch-min` 44px다.
-- `.btn.small.icon-btn`은 폭 44px, 높이 36px라 정사각형이 아니다. 화살표 한 쌍처럼 둘이 같은 크기로 붙어 있을 때만 쓴다.
+- `.btn.small.icon-btn`은 폭 44px, 높이 36px라 정사각형이 아니다(손가락 기기는 44px 정사각형). 화살표 한 쌍처럼 둘이 같은 크기로 붙어 있을 때만 쓴다.
 - 주 버튼은 오른쪽 끝에 둔다: [버리기] [반영].
 - 포커스 링을 지우지 않는다(`accent` 3px, 2px 띄움).
 - 버튼에 테두리를 그리지 않는다. 테두리 칸은 1px 투명으로 남겨 켜진 토글 · 주 버튼과 크기가 같다.

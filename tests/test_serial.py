@@ -410,6 +410,26 @@ def test_web_serial_flow(tmp_path, monkeypatch):
     assert p["parts"][0]["summary"] == "1부 요약"
 
 
+def test_planning_story_uses_unwritten_arc_plots():
+    """쓰기 전에 앞 아크를 미리 기획해 두면, 뒤 아크를 기획하는 프롬프트의 줄거리가 그 아크의 플롯 요약과 기획을 본다.
+    본문 · 검수 프롬프트(plans 없음)는 반영한 화의 요약만 쓴다."""
+    p = _serial(300)
+    a = _plan_arc(p)
+    _finish(p, a)
+    b = _plan_arc(p)  # 플롯만 있고 아직 안 쓴 아크
+    p.episode(b.start_ep).plot.summary = "탑 둘째 층에서 길을 잃는다"
+    c = pipeline.apply_arc(p, pipeline.plan_next_arc(LLM, p, 10))  # 플롯이 아직 없는 아크
+    d = pipeline.apply_arc(p, pipeline.plan_next_arc(LLM, p, 10))
+    text = prompts.story_so_far(p, d.start_ep, plans=True)
+    assert f"{b.start_ep}화" in text and "(아직 안 씀, 플롯) 탑 둘째 층에서 길을 잃는다" in text
+    assert f"[아크 {c.number} " in text and f"(아직 플롯 없음, 아크 기획) 목표: {c.goal}" in text
+    assert "1화 요약" in text
+    assert "아직 안 씀" not in prompts.story_so_far(p, d.start_ep)
+    assert "(아직 안 씀, 플롯) 탑 둘째 층" in prompts.plot_prompt(p, d.start_ep, d.start_ep + 2)
+    # 이번 아크의 화는 '바로 앞 화 플롯'으로 들어가므로 줄거리에 플롯 요약을 겹쳐 넣지 않는다
+    assert "아직 안 씀" not in prompts.story_so_far(p, b.start_ep + 5, plans=True)
+
+
 def test_next_arc_sees_relevant_facts_time_and_side_states(monkeypatch):
     """다음 아크 기획은 최근 사실만이 아니라 부 목표 · 아크 아이디어와 관련된 옛 사실, 작품 속 시간과 기한,
     주역 밖 기획 인물의 지금 상태를 본다. 어느 것이든 예산을 넘기면 뺀 수를 적는다."""

@@ -6,12 +6,12 @@
 
 - 맨 위 줄(`.side-top`): 이름 글자 `.brand` · 알림 버튼 칸(`#hub-slot`) · `찾기` · 레일 접기. 900px 이하에서는 `메뉴`가 맨 앞에 서고 이름을 숨긴다.
   - 이름 글자: `Canon`은 `logo`, 끝 점 `.brand-dot`은 `brand-2`이고 `aria-hidden`.
-  - 글자 없는 버튼은 `.side-ico`다: 면 없이 SVG 기호 18px, `text-2` 글자, 마우스를 올리면 `bg` 면. 넓은 폭 36px, 레일 44 × 40px, 위쪽 띠 · 서랍 · 아래 고정 줄 44px. 켜진 것(`aria-pressed`, 열린 메뉴)은 `accent` 테두리와 `accent-soft` 면. 늘 `aria-label`을 준다.
+  - 글자 없는 버튼은 `.side-ico`다: 면 없이 SVG 기호 18px, `text-2` 글자, 마우스를 올리면 `bg` 면. 넓은 폭 36px, 레일 44 × 40px(손가락 기기 44px), 위쪽 띠 · 서랍 · 아래 고정 줄 44px. 켜진 것(`aria-pressed`, 열린 메뉴)은 `accent` 테두리와 `accent-soft` 면. 늘 `aria-label`을 준다.
 - 작품 칸(`.work-card`): 테두리 없이 작품 제목(16px, 800, 한 줄 줄임표) · 화 칸 띠 · 다음 할 일 링크.
   - 화 칸 띠(`.work-strip`)는 칸 하나가 한 화다. 높이 10px, 모서리 3px: 초안 `chip` 면에 `line-strong` 안쪽 테두리, 확정 `accent`, 작성됨 `amber`, 반영 완료 `green`. 지금 화는 `text` 2px 테두리. 단편은 전체 화, 장편은 지금 아크의 화를 그린다.
   - 다음 할 일(`.work-next`)은 `link` 글자 13px 700.
 - 메뉴 링크: `href`, 표시 칸 `<span class="num">`(단계 숫자) 또는 `<span class="num tf">`(토스페이스 이모지), 이름 `.nav-label`, 지금 화면 링크에 `aria-current="page"`.
-  - 메뉴 줄은 넓은 폭 32px, 손가락 기기(`pointer: coarse`)와 서랍 44px, 레일 40px. 줄 사이 1px, 모서리 `radius-8`, 글자 `text-2` 500. 긴 이름은 줄임표.
+  - 메뉴 줄은 넓은 폭 32px, 손가락 기기(`pointer: coarse`)와 서랍 44px, 레일 40px(손가락 기기 44px). 줄 사이 1px, 모서리 `radius-8`, 글자 `text-2` 500. 긴 이름은 줄임표.
   - 지금 화면은 `accent-soft` 면, `accent-ink` 글자 700, 번호 칸은 `accent` 면에 `on-accent`.
   - 표시 칸은 `aria-hidden`. 단계 번호는 `<span class="sr-only"> (단계 1)</span>`로 화면 읽기에 준다.
 - 줄 끝 배지(`.nav-badge`): 20px 높이, `radius-10`, 11px 700. 열린 지적 수는 `red-soft` · `err-ink`, 반영하지 않은 결과는 `amber-soft` · `amber-ink`, 자동 집필이 쓰는 화 · 남은 고칠 곳은 `chip` · `text-2`. 배지 글자는 눈으로만 보이고, 낭독할 글은 배지 안 `.sr-only`에 쓴다.

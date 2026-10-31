@@ -1,55 +1,62 @@
 # 지도 모듈 구조
 
-지도 코드는 지금 `canon/` 에 열세 파일(약 6,800줄)과 화면 파일 일곱(합쳐 2,732줄)으로 흩어져 있다. 이 문서는 그 경계를 세 단계로 정리하는 설계다.
-1 · 2절은 단계 1([01-boundaries.md](specs/01-boundaries.md))과 단계 3([03-atlas-js.md](specs/03-atlas-js.md)) 뒤의 구조다. 3절의 문제와 줄 번호는 단계 1 전(main `d61a100` 에 #139 · #140 을 합친 것) 기준이다. 문제 1 · 2 · 3 · 5 · 6 은 단계 1 이, 문제 7 은 단계 3 이 풀었다.
+지도 Python 코드는 `canon/maps/` 패키지 열여덟 모듈(+ `__init__.py` 셋)과 공개 면 `canon/atlas.py`(합쳐 7,406줄)에 있고, 화면 파일은 여덟(합쳐 3,573줄)이다. 이 문서는 그 경계를 세 단계로 정리한 설계다.
+1 · 2절은 단계 1([01-boundaries.md](specs/01-boundaries.md)) · 단계 2([02-package.md](specs/02-package.md)) · 단계 3([03-atlas-js.md](specs/03-atlas-js.md)) 뒤의 구조다. 3절의 문제와 줄 번호는 단계 1 전(main `d61a100` 에 #139 · #140 을 합친 것) 기준이다. 문제 1 · 2 · 3 · 5 · 6 은 단계 1 이, 문제 4 는 단계 2 가, 문제 7 은 단계 3 이 풀었다.
 
 ## 1. 지금 구조
 
 | 파일 | 줄 | 하는 일 | 가져오는 지도 모듈 |
 |---|---:|---|---|
-| `canon/atlas.py` | 1,092 | 장소 · 핀 · 위치 글 잇기, Watabou 읽기 · 지도 파일, 길찾기, 건물 고치기, 자리 찾기 · 건물 한 줄, 지도 만들기 조립(`MAKERS`), 위치 글 정리, 명령줄 출력 | bldgs, citygen, geom, moderngen, osm, placekinds, towngen (`atlas.py:23`) |
-| `canon/travel.py` | 337 | 이동 시간 검사, 프롬프트 이동 거리의 줄 데이터(`episode_moves`) | atlas (`travel.py:23`) |
-| `canon/mapprompt.py` | 55 | 쓰기 · 검수 프롬프트의 지도 블록 글과 예산: 이동 거리 · 검수 이동 줄 · 장소가 놓인 건물 | atlas, travel (`mapprompt.py:6`) |
-| `canon/towngen.py` | 938 | 마을 생성기 | geom, roadnet, placekinds (`towngen.py:17`) |
-| `canon/citygen.py` | 1,170 | 도시 생성기 | geom, blocks, placekinds (`citygen.py:20`) |
-| `canon/moderngen.py` | 764 | 현대 동네 생성기 | geom, blocks, placekinds (`moderngen.py:23`) |
-| `canon/blocks.py` | 202 | 블록 · 필지 쪼개기 공용 도구 (`citygen` 에서 옮김, 밑줄 없는 이름) | geom |
-| `canon/placekinds.py` | 158 | 장소 종류 표 `KINDS`(시대 old · modern · both) · `kinds_for` · `to_era` · `CATEGORIES` · `classify` · `default_put` · `water_for` (`towngen` 에서 옮김, 시대는 08a) | 없음 |
-| `canon/roadnet.py` | 432 | 길망 키우기 (Parish–Müller) | geom |
-| `canon/osm.py` | 620 | OpenStreetMap 파일 → 지도 데이터 (해안선으로 바다 · 섬 `land` 닫기 포함, [05](specs/05-coastline.md)) | geom |
-| `canon/fill.py` | 274 | OpenStreetMap 지도의 빈 블록 채우기 ([04](specs/04-empty-blocks.md)) | blocks, geom, moderngen(수치만), osm |
-| `canon/bldgs.py` | 516 | 건물 쓰임 · 층수 · 사람 · 거리 이름 | geom |
-| `canon/geom.py` | 347 | 기하 도구. 지도를 모른다 | 없음 |
-| `canon/static/atlas.js` | 1,962 | 지도 화면 뼈대 (상태 · 불러오기, 그림, 확대 · 이동 · 이름표, 옆 칸, 화면 조립, 저장, 되돌리기, 남은 동작 · CSS) | — |
-| `canon/static/atlas-gen.js` · `atlas-travel.js` · `atlas-table.js` · `atlas-export.js` · `atlas-find.js` · `atlas-fill.js` | 246 · 69 · 187 · 108 · 73 · 87 | 기능 파일: 지도 만들기, 이동 시간, 표, 내보내기, 이름으로 자리 찾기, 빈 블록 채우기 | — |
+| `canon/atlas.py` | 31 | 공개 면: 아래 모듈의 이름을 하나씩 다시 내보낸다. 계산 없음 | places, routes, layout, buildings, spots, makers, view |
+| `canon/maps/view.py` | 83 | 지도 화면 값 `summary`, 명령줄 출력 `describe` | places, routes, layout, buildings, makers, kinds, gen.citygen, gen.moderngen |
+| `canon/maps/makers.py` | 207 | 생성기 등록 `MAKERS`, 장소 표 `gen_places`, `gen_info`, 미리보기 `generate` · 적용 `apply_generated`, 지도 시대 `map_era`, 마을 이름 · 인구 `village_title`, 빈 블록 채우기 미리보기 · 적용 · 지우기 | places, layout, spots, buildings, fill, geom, kinds, gen.*, sources.osm |
+| `canon/maps/prompt.py` | 61 | 쓰기 · 검수 프롬프트의 지도 블록 글과 예산: 이동 거리 · 검수 이동 줄 · 장소가 놓인 건물 | travel, spots (+ `context`) |
+| `canon/maps/spots.py` | 173 | 이름으로 자리 찾기 `find_spots`, 건물 한 줄 `spot_line` · `fill_spots` · `fill_old_spots`, 프롬프트 줄 데이터 `episode_spots` | places, layout, buildings, geom |
+| `canon/maps/travel.py` | 447 | 이동 시간 검사, 지하철, 프롬프트 이동 거리의 줄 데이터(`episode_moves`) | places |
+| `canon/maps/layout.py` | 146 | 지도 데이터 형식: Watabou 읽기 `read_layout`, 올린 파일 `parse_upload`, 지도 파일 `load_layout`, 건물 정보 더하기 `enrich`, `layout_info`, 축척 | buildings, fill, sources.osm |
+| `canon/maps/fill.py` | 276 | OpenStreetMap 지도의 빈 블록 채우기 ([04](specs/04-empty-blocks.md)) | blocks, geom, gen.moderngen(수치만), sources.osm |
+| `canon/maps/gen/towngen.py` | 939 | 마을 생성기 | gen.roadnet, geom, kinds |
+| `canon/maps/gen/citygen.py` | 1,170 | 도시 생성기 | blocks, geom, kinds |
+| `canon/maps/gen/moderngen.py` | 884 | 현대 동네 생성기 | blocks, geom, kinds |
+| `canon/maps/places.py` | 243 | 장소 · 핀 · 위치 글 잇기, 화별 자리 `frames`, 시대별 장소 종류 `place_kinds`, 지도에서 장소 더하기, 위치 글 한 번에 정리 | kinds (+ `cast` · `elements` · `naming`) |
+| `canon/maps/routes.py` | 294 | 길망 `road_graph`, 길 밖 걷기, `route`, `add_routes` | 없음 |
+| `canon/maps/buildings.py` | 574 | 건물 쓰임 · 층수 · 사람 · 거리 이름(`describe`), 작가가 고친 건물 `building` · `set_building` · `building_counts` | geom |
+| `canon/maps/gen/roadnet.py` | 432 | 길망 키우기 (Parish–Müller) | geom |
+| `canon/maps/sources/osm.py` | 736 | OpenStreetMap 파일 → 지도 데이터 (해안선으로 바다 · 섬 `land` 닫기 [05](specs/05-coastline.md), 지하철 [06](specs/06-subway.md)) | geom |
+| `canon/maps/blocks.py` | 202 | 블록 · 필지 쪼개기 공용 도구 | geom |
+| `canon/maps/kinds.py` | 158 | 장소 종류 표 `KINDS`(시대 old · modern · both) · `kinds_for` · `to_era` · `CATEGORIES` · `classify` · `default_put` · `water_for` | 없음 |
+| `canon/maps/geom.py` | 347 | 기하 도구. 지도를 모른다 | 없음 |
+| `canon/static/atlas.js` | 2,521 | 지도 화면 뼈대 (상태 · 불러오기, 그림, 확대 · 이동 · 이름표, 옆 칸, 화면 조립, 저장, 되돌리기, 남은 동작 · CSS) | — |
+| `canon/static/atlas-icons.js` · `atlas-gen.js` · `atlas-travel.js` · `atlas-table.js` · `atlas-export.js` · `atlas-find.js` · `atlas-fill.js` | 230 · 286 · 81 · 187 · 108 · 73 · 87 | 기능 파일: 장소 종류 기호, 지도 만들기, 이동 시간, 표, 내보내기, 이름으로 자리 찾기, 빈 블록 채우기 | — |
 
-줄 수는 `wc -l` 로 셌다. 가져오는 지도 모듈은 모듈 맨 위의 `from . import …` 줄이다. `travel.episode_block` · `atlas.episode_block` 은 시험이 부르는 옛 이름이라 함수 안에서 `mapprompt` 를 가져온다. `towngen` 은 `CATEGORIES` · `classify` · `water_for` 를 다시 내보낸다(시험이 읽는다). `tests/test_map_imports.py` 가 순환이 없고 생성기끼리 가져오지 않는지 본다.
+줄 수는 `wc -l` 로 셌다(`__init__.py` 셋은 한 줄씩). 가져오는 지도 모듈은 모듈 맨 위의 `from . import …` · `from .x import …` 줄이고, 이름은 `canon/maps/` 기준 점 경로다. `( + …)` 는 지도 밖 canon 모듈이다. `canon/maps/` 안의 모듈은 `buildings` 를 `bldgs`, `kinds` 를 `placekinds` 라는 이름으로 가져온다(옮기기 전 함수 몸을 그대로 두려고).
 
 지도 밖에서 지도 모듈을 부르는 곳:
 
-- `web.py`: `atlas.*` 약 30개 이름. 지도 화면(`atlas_view`)은 `atlas.summary` 에 `travel.view` 를 붙인다. 웹 함수 이름은 Swift 앱의 연산 이름이다(`swift/Sources/CanonAPI/openapi.json`).
-- `cli.py`: `atlas.*` (설정 칸은 `atlas.MAKERS`) · `placekinds.CATEGORIES` · `travel.*`.
-- `pipeline.py`: `atlas.places` · `clean_sort` · `gen_places` · `MAKERS`, `placekinds.CATEGORIES` · `CATEGORY_IDS`.
-- `prompts.py`: `mapprompt.travel_block` · `travel_check_rule` · `spot_block`.
-- 그 밖: `features.py`(`travel.delta_warnings`), `birth.py`(`atlas.places`), `mock.py`(`placekinds.classify` · `water_for`, `atlas.MAKERS`), `schema.py`(설명 글).
+- 공개 면 `canon.atlas` 를 거친다: `web.py`(`atlas.*` 약 30개 이름, 지도 화면 `atlas_view` 는 `atlas.summary` 에 `travel.view` 를 붙인다. 웹 함수 이름은 Swift 앱의 연산 이름이다), `cli.py`(설정 칸은 `atlas.MAKERS`), `pipeline.py`(`atlas.places` · `clean_sort` · `gen_places` · `MAKERS`), `autorun.py` · `birth.py` · `mock.py`.
+- 바로 가져온다: `from .maps import travel`(`web` · `cli` · `features` · `prompts`), `from .maps import kinds as placekinds`(`cli` · `pipeline` · `mock`), `from .maps import prompt as mapprompt`(`prompts`). 이유는 [02 구현 메모](specs/02-package.md#구현-메모-2026-10-29).
+- `schema.py` 는 설명 글에서 이름만 적는다.
 
 ## 2. 의존 그림 (지금)
 
 ```mermaid
 flowchart LR
-  outside["web · cli · pipeline"] --> atlas
-  outside --> travel
-  prompts --> mapprompt
-  mapprompt --> atlas & travel
-  travel --> atlas
-  atlas --> towngen & citygen & moderngen & osm & bldgs & placekinds
-  towngen & citygen & moderngen --> placekinds
-  citygen & moderngen --> blocks
-  towngen --> roadnet
-  towngen & citygen & moderngen & osm & bldgs & roadnet & blocks --> geom
+  outside["web · cli · pipeline · autorun · birth · mock"] --> atlas["atlas.py (공개 면)"]
+  outside2["web · cli · features · prompts · pipeline · mock"] --> travel & kinds & prompt
+  atlas --> view & makers & spots & layout & routes & places & buildings
+  view --> makers & routes
+  prompt --> travel & spots
+  makers --> spots & gen["gen/*"] & fill
+  spots --> layout & places
+  travel --> places
+  layout --> fill & buildings & osm["sources/osm"]
+  fill --> gen
+  gen --> blocks & kinds
+  places --> kinds
 ```
 
-화살표는 모듈 맨 위의 `from . import …` 줄이다(1절 표의 줄 번호). 순환이 없다. `cli` · `pipeline` · `mock` 은 `placekinds` 도 바로 읽는다.
+화살표는 모듈 맨 위의 가져오기다. 그림을 줄이려고 건너뛰는 화살표 일부(`view → places · layout · buildings`, `makers → places · layout · buildings · osm`, `spots → buildings`, `fill → osm · blocks`)와 맨 아래층 `geom`(`blocks` · `buildings` · `gen/*` · `osm` · `fill` · `spots` · `makers` 가 가져온다)은 뺐다. 순환이 없다.
+층은 아래에서 위로 0 `geom` · `kinds` → 1 `blocks` · `sources.osm` · `gen.roadnet` · `buildings` · `routes` · `places` → 2 `gen.towngen` · `gen.citygen` · `gen.moderngen` → 3 `fill` → 4 `layout` → 5 `spots` · `travel` → 6 `makers` · `prompt` → 7 `view` 이고, 가져오기는 언제나 더 낮은 층으로 간다. `tests/test_map_imports.py` 가 이 층(`TIERS`), 순환 없음, 생성기끼리 가져오지 않음, `context` 는 `prompt` 만, 지도 모듈이 `atlas` · `web` · `cli` · `pipeline` · `prompts` 를 가져오지 않음, 공개 면에 계산이 없음을 본다.
 
 ## 3. 문제
 
@@ -62,6 +69,8 @@ flowchart LR
 7. **화면 파일 하나가 2,454줄이다(#140 뒤 2,554줄).** 섹션 주석 13개가 있다. 다른 화면은 기능마다 파일을 나눈다(`AGENTS.md` 의 화면 파일 표).
 
 ## 4. 목표 구조
+
+단계 2 가 이 구조로 옮겼다(2026-10-29). 실제 구조는 1 · 2절이 맞고, 다른 곳은 셋이다: `summary` · `describe` 를 둘 `view.py` 를 더했다(순환을 피하려고), `layout` 이 `buildings` 를 가져와 층 차례가 아래 글과 다르다, `travel` · `kinds` · `prompt` 는 바깥이 공개 면을 거치지 않고 바로 가져온다. 까닭은 [02 구현 메모](specs/02-package.md#구현-메모-2026-10-29).
 
 ```text
 canon/atlas.py            공개 면: 지금 이름을 그대로 내보낸다 (web · cli · pipeline · prompts 는 고치지 않는다)
