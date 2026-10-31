@@ -278,12 +278,19 @@
 
 ### `canon/static/abilities.js`
 
-- 스킬 도감 화면(사이드바 도구, 주소 `abilities/<항목 id>`)
-- 왼쪽 목록(상태창 항목별 묶음, 찾기, AI 에게 보일 줄이 없는 것만)
-- 오른쪽 상세(설명 · 효과 · 대가 · 등급별 효과, 가진 인물과 얻은 화 · 바뀐 기록, AI 에게 보이는 줄) 또는 고치는 칸(`abForm`, 넣기 방식 `context` 포함)
-- 도감에 없는 조각에서 만들기
-- 인물 카드 상태창 칩(`abChip`, `cast.js`)을 누르면 뜨는 도감 카드(`abShow`, `<dialog>`)
+- 스킬 도감 화면(사이드바 도구, 공용 목차 틀 `outline.js`)
+- 주소 `abilities`(개요) · `abilities/_missing`(도감에 없는 조각) · `abilities/_new`(새 항목) · `abilities/<항목 id>`
+- 왼쪽 목차 `abToc`(찾기 칸, 개요, 도감에 없는 조각, 상태창 항목별 묶음 `abGroups`, 줄 끝 `abTail`)
+- 개요 `abOverview`(수 타일, 손볼 것, 도감에 없는 조각 다섯)
+- 도감에 없는 조각 쪽 `abMissingPage`(상태창 항목 거르기, 가진 인물, '도감에 만들기')
+- 항목 쪽 `abItemPage`: 머리(⋯ 메뉴에 지우기) · 설명 · 효과 · 대가 · 등급별 효과 · 가진 인물(바뀐 걸음 `abSteps`) · AI 에게 보이는 줄
+- 카드는 읽기 먼저이고 '고치기'로 그 카드만 편다(`S.abEdit`: base · grades · new)
+- 넣기 방식 `context` 는 나눔 버튼으로 바로 저장한다(`abContext`)
+- 넣는 방식 `stat_window.prompt` 가 lines 가 아니면 AI 에게 보이는 줄 카드가 알린다
+- 인물 카드 · 상태창 수치의 상태창 칩(`abChip`)을 누르면 뜨는 도감 카드(`abShow`, 공통 대화상자 `showDialog`)
+- 칩의 '도감에 설명 없음' 점은 `abNoDoc`(`abFindLocal` 은 `abilities.find` 와 같다)
 - 목록 이름 `AB_LIST_NAMES` 는 `abilities.LIST_NAMES` 와 같다(`tests/test_statwin_js.py`)
+- `abSplit` · `abKey` 는 `abilities.split` · `key` 와 같다(`tests/test_statwin_js.py`)
 
 ### `canon/static/agent.js`
 
@@ -321,6 +328,7 @@
 - 관계도 `castMapPage`(SVG, 화별 재생, 칸 폭에 맞추고 크게 보기 `CAST_ZOOM`, 누르면 고르기만 `castMapPick` · 고른 줄 `castMapSel`, 끌어 옮긴 배치는 localStorage)
 - 인물 쪽 `castCharPage`
   - 머리 `castHead` · 보는 시점의 상태 · 상태창 수치(바뀐 양 `castStatDelta`, 카드 | 시스템 창 보기는 localStorage, 창 모양은 작품 스킨 `stat_window.skin`) · 관계 줄 `castSheetRels`(온기 막대 `castMeter`) · 비밀 · 설정과 남겨 둔 제안 · 읽기 먼저인 'AI · 서술 · 신체 · 삽화' 카드 `castEditCard`
+    - 상태창 칸 모양은 `statwin.js` `swStatsBody` 와 같이 쓴다
     - 고치기 `S.castEdit`: AI에 넣기 `charContextField` · 서술 말투 `plot.js` `voiceField` · 신체 프로필 `bodyFields` · 삽화 외형 태그 `illust.js` `visualFields`
     - AI 제안 동작은 `research.js` `bodyAI`
   - 타임라인(앞뒤 `CAST_TL_NEAR` 화)
@@ -412,17 +420,21 @@
 
 ### `canon/static/statwin.js`
 
-- 상태창 수치 화면
-  - 맨 위 작품 틀 · 처음 수치 카드 `swSetupCard`: 작품 틀 · 인물별 처음 수치 표 · AI 처음 수치 제안
-  - 1화 반영 뒤 잠금 `swLocked`
-  - 틀 `SW_PRESETS` 는 `statwin.PRESETS` 와 같음
-  - 항목 고치기
+- 상태창 수치 화면(공용 목차 틀 `outline.js`)
+  - 주소 `statwin/<인물 id>` · `statwin/_frame` · `statwin/_decor`
+  - 왼쪽 목차 `swToc`(작품 틀 · 처음 수치, 꾸미기, 비중별 인물, 상태창 없는 인물 접음, 스킬 도감)
+  - 인물 쪽 `swPersonPage`: 머리 `swHead` · 지금 상태창 `swNowCard` · 본문에 넣을 상태창 `swTextCard` · 화별 변화 `swLogCard`
+  - 지금 상태창은 읽기 먼저이고 '고치기'로 이 카드만 편다(`S.swEdit`, `swEditor`)
+  - 고치는 칸 옆 계산 값 `swCalc`
+  - 항목 고치기 · 순서 `swMove`
   - 틀 · 작품 틀
   - 복사
-  - 서식
-  - 스킬 도감 화면으로 가는 카드 `swDexLink`
-  - 꾸미기 `swDecor`: 창 이름 · 화면 스킨 `SW_SKINS` · AI 안 고르기와 적용 취소
-  - 화별 변화 표
+  - 화별 변화는 바뀐 화 목록(`swChangeParts`, 목록은 같은 이름끼리 짝지음) | 표
+  - 작품 틀 · 처음 수치 쪽 `swFramePage`: 작품 틀 · 인물별 처음 수치 표 `swInitCard` · AI 처음 수치 제안
+  - 1화 반영 뒤 잠금 `swLocked`, 잠긴 표는 0화 기록의 시작 값 `swStartValues`
+  - 틀 `SW_PRESETS` 는 `statwin.PRESETS` 와 같음
+  - 꾸미기 쪽 `swDecorPage`: 창 이름 · 본문 서식(읽기 카드) · 화면 스킨 `SW_SKINS` · AI 안 고르기와 적용 취소
+- 상태창 칸 모양 `swStatsBody`(카드 칸 | 작품 스킨 창, 칩은 `abChip`)는 인물 화면 `cast.js` `castSheetStats` 와 함께 쓴다
 - 상태 승인 화면의 상태창 줄(`swDeltaRows`)
 - `swResolve` 는 `statwin.resolve` 와 같은 규칙(`tests/test_statwin_js.py` 가 node 로 맞춰 본다)
 
