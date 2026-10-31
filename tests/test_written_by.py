@@ -5,7 +5,7 @@ import io
 import json
 from pathlib import Path
 
-from canon import autorun, pipeline, prompts, research, soelab, store, usage
+from canon import autorun, jobs, pipeline, prompts, research, soelab, store, usage
 from canon.cli import main
 from canon.schema import Episode, RewriteRequest, TextVersion
 
@@ -102,8 +102,10 @@ def test_cli_write_and_import(client, tmp_path):
 
 
 def test_autorun_records_model(demo):  # noqa: F811
-    autorun.start(demo, 1, True, Policy(), foreground=True)
-    assert store.load(demo).episode(1).written_by == "mock:mock"
+    jobs.draining.clear()  # 앞 시험(서버 재시작 흉내)이 남긴 표시가 있으면 배치 실행이 쓰기 전에 멈춘다
+    run = autorun.start(demo, 1, True, Policy(), foreground=True)  # 배치: BatchLLM 안쪽 모델을 적는다
+    ep = store.load(demo).episode(1)
+    assert ep.text and ep.written_by == "mock:mock", (run.status, [x.message for x in run.log])
 
 
 def test_play_scene_records_model(client):
