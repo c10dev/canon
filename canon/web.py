@@ -26,7 +26,7 @@ from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
-from . import abilities, atlas, findings, foreshadows, setupchat, stattrial, statwin, timeline, travel
+from . import abilities, atlas, findings, foreshadows, setupchat, stattrial, statwin, timeline
 from .schema import AgentSession, ChatScope, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
@@ -38,6 +38,7 @@ from . import cue, revlab
 from .schema import CueSheetDraft
 from . import stage, tofix
 from .schema import Birth, BirthSketch, Episode, PlayInfo, PlayPerson, PlayUnit, StageProposal, StageRoom, StageScene
+from .maps import travel
 
 STATIC = Path(__file__).parent / "static"
 # 폴더 이름: / \ 와 운영체제가 막는 : * ? " < > | 는 쓸 수 없고, . 으로 시작하지 않는다
@@ -3732,7 +3733,7 @@ class FillIn(BaseModel):
 
 @app.post("/api/projects/{name}/atlas/layout/fill")
 def atlas_layout_fill(name: str, body: FillIn) -> dict:
-    """OpenStreetMap 지도의 빈 블록 채우기 (canon/fill.py). preview 는 저장하지 않고 채울 블록 · 지을 건물을 돌려준다.
+    """OpenStreetMap 지도의 빈 블록 채우기 (canon/maps/fill.py). preview 는 저장하지 않고 채울 블록 · 지을 건물을 돌려준다.
     apply 는 지도 파일을 다시 쓰고(지은 건물은 끝에 붙여 OSM 건물 번호를 지킨다) clear 는 지은 건물을 지운다."""
     p = _load(name)
     layout = atlas.load_layout(_map_dir(name), p)
@@ -3804,7 +3805,7 @@ class TravelIn(BaseModel):
 
 @app.put("/api/projects/{name}/atlas/travel")
 def atlas_travel(name: str, body: TravelIn) -> Project:
-    """이동 시간 검사 설정: 켜기, 가장 빠른 탈것, 직접 정한 빠르기, 지도 가로 km (canon/travel.py)."""
+    """이동 시간 검사 설정: 켜기, 가장 빠른 탈것, 직접 정한 빠르기, 지도 가로 km (canon/maps/travel.py)."""
     p = _load(name)
     travel.set_setting(p, body.enabled, body.mode, body.kmh, body.day_km, body.span_km)
     return _save(name, p)
@@ -4336,6 +4337,33 @@ def rev_put(lab_id: int, body: RevIn) -> dict:
 def rev_append(lab_id: int, body: RevSplitIn) -> dict:
     """글을 나눠 마지막 화 뒤에 잇는다 (앞 화의 역설계 결과는 그대로). AI 를 부르지 않는다."""
     return _rev_edit(lab_id, lambda lab: revlab.append_text(lab, body.text))
+
+
+class RevEpisodeIn(BaseModel):
+    head: str = ""
+    text: str
+
+
+def _rev_idle(lab_id: int) -> None:
+    """작업이 도는 실험의 화는 고치거나 빼지 않는다 (작업이 화 번호로 결과를 넣는다)."""
+    if any(j.ep == lab_id and j.status == "running" for j in jobs.listing(revlab.JOBS)):
+        raise HTTPException(409, "이 실험의 작업이 끝난 뒤에 화를 고치거나 뺄 수 있어요")
+
+
+@app.put("/api/revlab/{lab_id}/episodes/{n}")
+def rev_put_episode(lab_id: int, n: int, body: RevEpisodeIn) -> dict:
+    """화 하나의 제목 줄과 글을 고친다. 글이 바뀌면 그 화의 역설계 결과를 지운다 (revlab.edit_episode)."""
+    _rev(lab_id)
+    _rev_idle(lab_id)
+    return _rev_edit(lab_id, lambda lab: revlab.edit_episode(lab, n, body.head, body.text))
+
+
+@app.delete("/api/revlab/{lab_id}/episodes/{n}")
+def rev_delete_episode(lab_id: int, n: int) -> dict:
+    """화 하나를 빼고 뒤 화 번호를 당긴다 (revlab.drop_episode)."""
+    _rev(lab_id)
+    _rev_idle(lab_id)
+    return _rev_edit(lab_id, lambda lab: revlab.drop_episode(lab, n))
 
 
 @app.delete("/api/revlab/{lab_id}")
