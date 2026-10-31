@@ -1,4 +1,5 @@
-/* 지도 내보내기 (atlas.js 에서 뗐다): 확대와 상관없이 지도 전체를 SVG 나 PNG 로 내려받는다.
+/* 지도 내보내기 (atlas.js 에서 뗐다): 지도 전체나 지금 보이는 곳을 SVG 나 PNG 로 내려받는다.
+   고르는 칸은 지도 도구 줄의 내보내기 메뉴(atlas.js atlasExportMenu): 범위 S.atlasExportHere, 인물 빼기 S.atlasExportBare.
    제목 틀 · 축척 막대 · 출처 글은 atlasSvg 의 장식(atlasDeco)이 함께 그린다.
    app.js 의 S, actions, run, P 와 atlas.js 의 atlasSvg · atlasH · ATLAS_W · atlasExporting 을 쓴다. */
 'use strict';
@@ -8,7 +9,7 @@
 /** 내보낼 SVG: 확대와 상관없이 지도 전체를, 화면에 보이는 색을 속성으로 옮겨 적어 페이지 CSS 없이도 같게 보이게 한다 */
 function atlasExportSvg() {
   const keep = S.atlasView;
-  S.atlasView = { x: 0, y: 0, z: 1 };
+  if (!S.atlasExportHere) S.atlasView = { x: 0, y: 0, z: 1 };  // 내보내기 메뉴의 '지금 보이는 곳'이면 확대한 범위 그대로
   atlasExporting = true;
   const host = document.createElement('div');
   host.style.cssText = `position:fixed;left:-99999px;top:0;width:${ATLAS_W}px`;
