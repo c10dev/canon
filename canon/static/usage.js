@@ -77,8 +77,7 @@ function viewUsage() {
   const inProject = S.route[0] === 'p';
   const head = header(inProject ? esc(P().meta.title || S.name) : 'Canon', '사용량 · 비용',
     'AI를 부를 때마다 토큰 수를 기록하고 가격표로 비용을 계산해요. <strong>추정치</strong>라 Google 청구 금액과 다를 수 있어요.',
-    // 작품 밖에서는 사이드바가 없어 작품 목록으로 가는 버튼을 둔다
-    `<a class="btn" href="${(u && u.billing_url) || 'https://aistudio.google.com/usage'}" target="_blank" rel="noopener">AI Studio 실제 사용량 ↗</a>${inProject ? '' : '<a class="btn" href="#/">작품 목록</a>'}`);
+    `<a class="btn" href="${(u && u.billing_url) || 'https://aistudio.google.com/usage'}" target="_blank" rel="noopener">AI Studio 실제 사용량 ↗</a>`);
   if (!u) return `${head}<div class="small">불러오는 중…</div>`;
   const t = u.total;
   const projects = [...new Set([...Object.keys(usageTitles), ...(u.projects || []), ...(S.usageProject ? [S.usageProject] : [])])].sort();

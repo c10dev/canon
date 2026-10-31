@@ -51,7 +51,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--
 .nav-fold-head svg { flex: none; width: 10px; height: 10px; }
 .nav-fold-head[aria-expanded="true"] svg { transform: rotate(90deg); }
 .nav a:hover { background: var(--bg); color: var(--text); }
-.nav a .num { width: 22px; height: 22px; border-radius: 6px; display: flex; align-items: center; justify-content: center; background: var(--chip); font-size: 0.75rem; font-weight: 700; }
+.nav a .num, .nav-off .num { width: 22px; height: 22px; border-radius: 6px; display: flex; align-items: center; justify-content: center; background: var(--chip); font-size: 0.75rem; font-weight: 700; }
 .nav a[aria-current="page"] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
 .nav a[aria-current="page"] .num { background: var(--accent); color: var(--on-accent); }
 .side-foot { position: sticky; bottom: 0; z-index: 1; margin: auto -12px 0; padding: 8px 12px 10px; background: var(--surface); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; font-size: 0.75rem; }
@@ -64,7 +64,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--
 .side-set small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.6875rem; color: var(--muted); }
 .side-foot .side-ico { width: 44px; height: 44px; }
 .tf { font-family: Tossface, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif; font-style: normal; font-weight: 400; line-height: 1; }
-.nav a .num.tf { background: transparent; font-size: 1.125rem; }
+.nav a .num.tf, .nav-off .num.tf { background: transparent; font-size: 1.125rem; }
+.nav-off { position: relative; min-height: 32px; padding: 0 8px; border-radius: 8px; display: flex; align-items: center; gap: 10px; color: var(--muted); font-weight: 500; white-space: nowrap; cursor: default; }
+@media (pointer: coarse) { .nav-off { min-height: 44px; } }
 .tf-credit { display: block; padding: 0 8px; color: var(--muted); font-size: 0.6875rem; line-height: 1.5; }
 .tf-credit a { display: inline; min-height: 0; }
 

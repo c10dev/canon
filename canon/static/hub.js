@@ -123,11 +123,6 @@ function hubButton(st = hubNow()) {
   return `<button type="button" id="hub-btn" class="btn small hub-btn ${st.face}${S.hubOpen ? ' on' : ''}" aria-haspopup="dialog" aria-expanded="${S.hubOpen}" aria-controls="hub-pop" aria-label="${esc(st.aria)}" title="${esc(st.aria)}" data-hub-toggle>${icon}<span aria-hidden="true">${esc(st.label)}</span>${mark}${count}</button>`;
 }
 
-/** 작품 밖 화면(작품 목록 · 사용량 · 문체 라이브러리) 본문 맨 위 오른쪽의 버튼 칸. 버튼이 없으면 칸도 접힌다 (app.css .hub-top:empty). */
-function hubTop() {
-  return `<div class="hub-top" id="hub-slot">${hubButton()}</div>`;
-}
-
 /** 작업 한 줄의 덧붙임: 다른 작품 이름, 지금 보는 화면이면 '이 화면' */
 function hubWhere(j) {
   if (j.project === '.revlab') return S.route[0] === 'revlab' ? ' <span class="chip">이 화면</span>' : ' <span class="chip">역설계 실험</span>';  // revlab.JOBS
