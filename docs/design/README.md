@@ -86,6 +86,8 @@ Canon은 AI와 함께 긴 소설을 쓰는 작가의 작업대다. 화면은 조
 
 - 어두운 테마는 운영체제 설정(`prefers-color-scheme: dark`)을 따른다. 모든 색은 토큰이라 어두운 값만 다시 정한다.
 - 고대비(`forced-colors: active`)에서는 면과 그림자로만 보이던 선택을 테두리로 바꾼다.
+- 손가락 기기(`pointer: coarse`)와 640px 이하에서는 누르는 것을 `touch-min`(44px)으로 키운다: 작은 버튼(`.btn.small`), `summary`, 알림 닫기, 대화 입력 버튼, 장르 · 아크 칩, 톤 다이얼, 레일 메뉴 줄.
+- 손가락 기기에서 입력칸 글자는 16px다. 16px보다 작으면 iOS가 누를 때 화면을 확대한다. 글자 크기를 따로 정한 칸도 같다.
 - 글자는 바탕 위 4.5:1 이상, 입력칸 테두리(`line-strong`)는 면 · 바탕 위 3:1 이상이다. 새 색을 더할 때도 두 테마 모두 이 기준을 지킨다.
 - 버튼은 글자로 알아보는 조작이라 경계에 3:1을 요구하지 않는다(2026-10-29 결정: 테두리를 없애고 `btn` 면으로만 구분). 글자 없는 버튼(`.icon-btn`)도 같은 면을 쓰고 `aria-label` 을 준다. 고대비 모드에서는 투명 테두리가 시스템 테두리 색으로 보인다.
 - 가장 빠듯한 쌍(실제로 함께 쓰는 쌍, WCAG 대비). 이 색들을 더 옅게 바꾸지 않는다.
@@ -118,13 +120,13 @@ Canon은 AI와 함께 긴 소설을 쓰는 작가의 작업대다. 화면은 조
 - 디자인 시스템의 원본은 git 저장소의 `docs/design/`이다: 이 README, `layout.md`, `tokens.json`, `components/<이름>/README.md`, 미리보기 `components/<이름>/preview.html`, 미리보기가 읽는 `components/bundle.css`.
 - 화면 모양을 바꾸는 변경은 같은 변경 안에서 이 폴더를 고친다.
 - 색 토큰은 `canon/static/app.css`의 밝은 `:root`와 `@media (prefers-color-scheme: dark)` 안 `:root`에 있다. `tests/test_design_tokens.py`가 두 블록과 `tokens.json`의 색이 같은지 본다. 색을 더하거나 바꾸면 두 파일을 함께 고친다.
-- 간격 · 모서리 · 크기 · 그림자는 CSS 변수가 아니라 px 값으로 쓴다. `tokens.json`의 값 안에서 고른다.
+- 간격 · 모서리 · 크기 · 그림자 · 쌓는 층은 `app.css` 맨 위 `:root`의 CSS 변수(`--space-*` · `--radius-*` · `--touch-min` 등 · `--shadow-*` · `--z-*`)로 쓴다. `tests/test_design_tokens.py`가 `tokens.json`과 같은지 본다.
+- 단계 밖 간격 값은 줄 끝 주석에 까닭을 적는다(`tokens.json` spacing 설명).
+- `components/bundle.css`는 같은 값을 px로 옮긴 사본이다. 변수 이름이 아니라 값이 app.css와 같으면 된다.
 - Claude 디자인 시스템 페이지는 이 폴더에서 다시 올린 보기다. 그 페이지에서 고치지 않는다.
 
 ## 코드와 아직 다른 곳
 
 문서가 정한 규칙과 지금 코드가 다른 곳이다. 고치면 이 목록에서 지운다.
 
-- 대화상자 그림자가 토큰과 다르다: `dialog.w-dialog` · `dialog.set-dlg`는 `rgba(0,0,0,0.24)`, 플레이의 `.pdlg`는 0.25다.
-- 목차 열의 펼침 목록(720px 이하, 공용 `.outline-list` 한 곳)은 토큰에 없는 그림자 `0 8px 28px rgba(0,0,0,0.18)`를 쓴다.
 - `.pf-sec`와 `.pop-sep` 규칙이 app.css에 두 번 있다. 뒤 규칙이 이긴다.

@@ -276,6 +276,6 @@ Object.assign(actions, {
 .bd-actions { flex-wrap: wrap; }
 .bd-fill { flex: 1 1 auto; }
 .bd-done > summary { cursor: pointer; font-weight: 700; }
-@media (max-width: 600px) { .bd-row { grid-template-columns: 1fr; } }`;
+@media (max-width: 640px) { .bd-row { grid-template-columns: 1fr; } }`;
   document.head.appendChild(css);
 })();
