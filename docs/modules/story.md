@@ -199,6 +199,16 @@
 - LLM 을 부르지 않는다
 - 자료와 출처는 `canon/naming_data.py`
 
+### `canon/pace.py`
+
+- 관계 속도: 상태 변경안의 관계 유형 · 설명이 반영 뒤 관계 단계와 반대인지 본다(features 훅 `clean_delta`, 등장 인물 붙이기 뒤)
+- 사건을 사본에 돌린 반영 뒤 단계(`_after`, `dynamics.run_episode`), 두 방향 단계의 극성(`STAGE_SIGN`, 엇갈리면 0)
+- 글 극성(`polarity`: 낱말 사전 `POSITIVE` · `NEGATIVE`, 바로 뒤 '않 · 못 · 없'은 뒤집음), 관계 극성(`rel_polarity`: 유형 먼저, 중립이면 대사를 뺀 설명)
+- 반대인 유형 바뀜의 차례 `StateDelta.rel_flagged` → 상태 승인 화면 기본 체크 해제(`review.js` `setDelta`), 사람 검토 없이 반영할 때는 빼기(`hold`, 남긴 개수로 세지 않음)
+- 두 층 감정(`prompts.LAYER`)으로 상대를 적은 쌍은 빼기(`_masked`)
+- 한 쌍 한 화 결정적(3) 사건 `BIG`(3)개 이상 경고
+- LLM 호출 없음
+
 ### `canon/pairlog.py`
 
 - 두 사람 사이 이력(장편)
@@ -368,7 +378,7 @@
 - 노선도 줄 차례는 `lineOrder`: 범위 시작 차례, 갈라짐 · 합류가 없는 외전은 아래 '본편 밖'
 - 다른 줄을 지나는 선은 흰 틈(`.lm-halo`)을 두고 지나간다
 - 보이는 화 `S.lineRange`(플롯 있는 화 · 전체), 폭 `S.lineZoom`(맞춤 · 크게 28px)
-- 칸 폭 520px 아래는 세로 노선도 `lineMapTall`
+- 칸 폭 560px 아래는 세로 노선도 `lineMapTall`
 - 줄기 하나(`lineDetail`): 앞뒤만 크게 그린 노선도 `lineZoomMap`(한 화 44) → 줄기 내용 읽기 카드 `lineInfoCard`(고치기 `S.lineEdit`) → 붙은 화 `lineEpsCard`
 - 화 붙이기는 붙은 화 카드의 메뉴: 붙이는 방식 `S.lineTagRole`, 가까운 화 후보 `lineCandidates`, 번호 칸
 - 쪽을 옮길 때 해시 대신 `history.replaceState`(`lineGoTo`)라 저장하지 않은 고침을 묻지 않는다

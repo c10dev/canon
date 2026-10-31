@@ -10,6 +10,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--
 .btn.primary:hover { background: var(--accent-hover); color: var(--on-accent); }
 .btn.dark { border-color: var(--inverse-bg); background: var(--inverse-bg); color: var(--inverse-ink); font-weight: 700; }
 .btn.small { min-height: 36px; padding: 0 12px; font-size: 0.8125rem; }
+@media (pointer: coarse), (max-width: 640px) { .btn.small { min-height: 44px; } }
 .btn.ghost { color: var(--link); background: transparent; }
 .btn.ghost:hover { background: var(--btn); }
 .btn.danger { color: var(--red); }
@@ -159,7 +160,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .split > .menu > .btn[aria-expanded="true"] { border-left: 1px solid var(--accent); }
 
 /* ----- 대화상자 (Dialog) ----- */
-dialog.w-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 48px); border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; background: var(--surface); color: var(--text); box-shadow: 0 12px 40px rgba(0,0,0,0.24); }
+dialog.w-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 48px); border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; background: var(--surface); color: var(--text); box-shadow: 0 12px 40px rgba(0,0,0,0.22); }
 dialog.w-dialog::backdrop { background: var(--overlay); }
 
 /* ----- 한 화 단계 띠 (FlowBar) ----- */
@@ -222,7 +223,7 @@ a.fl-cell:hover { background: var(--bg); color: var(--text); }
   .outline-doc, .outline-doc.wide { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .outline { top: var(--outline-band, var(--band, 0px)); margin: 0 -2px; padding: 8px 2px; background: var(--bg); }
   .outline-now { display: flex; width: 100%; justify-content: space-between; gap: 8px; }
-  .outline-now + .outline-list { display: none; position: absolute; left: 0; right: 0; top: calc(100% - 4px); padding: 8px; border-radius: 12px; background: var(--surface); box-shadow: 0 8px 28px rgba(0,0,0,0.18); max-height: 70vh; overflow-y: auto; }
+  .outline-now + .outline-list { display: none; position: absolute; left: 0; right: 0; top: calc(100% - 4px); padding: 8px; border-radius: 12px; background: var(--surface); box-shadow: 0 6px 24px rgba(0,0,0,0.16); max-height: 70vh; overflow-y: auto; }
   .outline.open .outline-list { display: flex; }
   .outline-item { min-height: 44px; }
 }

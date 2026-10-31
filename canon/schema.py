@@ -1701,6 +1701,9 @@ class StateDelta(BaseModel):
     # 프로그램이 채운다 (cast.clean_delta). AI 응답 형식에서 뺀다. 반영 뒤에는 실제로 붙인 id 만 남아 되돌리기가 그것만 뺀다
     cast_added: SkipJsonSchema[list[str]] = Field(
         default_factory=list, description="반영하면 그 화 등장 인물(EpisodePlot.characters)에 붙일 인물 id: 본문에 이름이 나오고 이 변경안이 상태나 관계 사건을 다룬 인물")
+    # 프로그램이 채운다 (pace.clean_delta). AI 응답 형식에서 뺀다. 상태 승인 화면이 이 차례의 relationship_updates 를 기본으로 체크하지 않는다
+    rel_flagged: SkipJsonSchema[list[int]] = Field(
+        default_factory=list, description="relationship_updates 가운데 유형 · 설명의 극성이 반영 뒤 관계 단계와 반대인 것의 차례")
 
 
 class NameOption(BaseModel):

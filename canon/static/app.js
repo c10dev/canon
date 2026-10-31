@@ -607,7 +607,12 @@ function elapsed(j) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-const narrowScreen = () => window.matchMedia('(max-width: 640px)').matches;
+/** 창 폭 경계(px). app.css 의 @media 와 같은 값이다 (docs/design/layout.md '폭 구간'). 경계를 바꾸면 app.css 도 함께 고친다.
+    phone: 휴대폰 폭, narrow: 위쪽 띠 · 아래쪽 시트로 바뀌는 폭, chatRail: 대화 패널을 열면 사이드바가 레일이 되는 폭의 끝 */
+const BP = { phone: 640, narrow: 900, chatRail: 1599 };
+/** 창 폭이 그 경계 이하인지 보는 MediaQueryList. 예: mq('phone').matches */
+const mq = (name) => window.matchMedia(`(max-width: ${BP[name]}px)`);
+const narrowScreen = () => mq('phone').matches;
 
 /** 화면 아래 고정 층이 서로와 본문 버튼을 가리지 않게 높이를 CSS 변수로 둔다.
     아래부터 저장 띠 → 반영 줄(상태 승인 화면 .apply-bar) 순서로 쌓는다. 작업 목록과 알림은 알림 버튼 아래로 옮겼다 (hub.js).
@@ -1963,11 +1968,11 @@ function railPinned() {
     900px 이하는 위쪽 띠라 app.css 가 이 표시를 쓰지 않는다. 서랍을 연 동안은 menu-open 으로 뒤 화면을 굴리지 않는다 */
 function syncRail() {
   const w = window.innerWidth;
-  const auto = document.body.classList.contains('chat-open') && w >= 901 && w <= 1599;
+  const auto = document.body.classList.contains('chat-open') && w > BP.narrow && w <= BP.chatRail;
   document.body.classList.toggle('side-rail', railPinned() || auto);
   document.body.classList.toggle('side-rail-auto', auto);
   // 900px 이하 서랍을 연 동안: 서랍은 대화상자로 알리고, 뒤 화면과 위쪽 띠의 나머지는 Tab · 낭독에서 뺀다 (Esc 는 아래)
-  const drawer = !!S.menuOpen && w <= 900;
+  const drawer = !!S.menuOpen && w <= BP.narrow;
   document.body.classList.toggle('menu-open', drawer);
   const menu = document.getElementById('side-menu');
   if (menu) {

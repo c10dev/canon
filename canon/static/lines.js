@@ -209,7 +209,7 @@ function lineMap() {
   const shown = S.lineRange === 'all' ? total : Math.max(lineLast(), ...spans.map((x) => x[1]), 1);
   // '맞춤'은 지금 노선도 칸 폭에 맞춘다 (전에 그린 칸이나 본문 폭을 잰다). 칸이 좁으면 세로로 그린다
   const wrapW = S.lineFitW || (document.querySelector('#app .ln-map-wrap') || document.querySelector('#app .ln-col') || document.querySelector('#app main') || { clientWidth: 900 }).clientWidth;
-  if (wrapW < 520 && !S.lineZoom) return lineMapTall(shown, total, wrapW);
+  if (wrapW < 560 && !S.lineZoom) return lineMapTall(shown, total, wrapW);
   const left = 168;
   const step = S.lineZoom || Math.max(4, (wrapW - left - 56) / shown);
   const X = (n) => left + (n - 0.5) * step;
@@ -838,7 +838,7 @@ function syncLines() {
   if (!wrap || S.lineZoom || S.lineFitW === wrap.clientWidth) return;
   const svg = wrap.querySelector('svg');
   const tall = !!wrap.querySelector('.ln-key');
-  if (svg && !tall && wrap.clientWidth >= 520 && Math.abs(svg.getBoundingClientRect().width - wrap.clientWidth) <= 60) return;
+  if (svg && !tall && wrap.clientWidth >= 560 && Math.abs(svg.getBoundingClientRect().width - wrap.clientWidth) <= 60) return;
   S.lineFitW = wrap.clientWidth;
   render();
 }
