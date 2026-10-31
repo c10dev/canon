@@ -259,10 +259,10 @@ function optionsCard(m, i) {
     <div>${esc(o.idea)}</div>
     ${o.changes.length ? `<ul class="small option-changes">${o.changes.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     ${o.tradeoff ? `<div class="small">얻는 것과 잃는 것 · ${esc(o.tradeoff)}</div>` : ''}
-    <div class="row"><button type="button" class="btn small" data-action="chatDirection" data-arg="${i}|${k}"${busy}>이 방향으로 변경안</button></div>
+    <div class="row"><button type="button" class="btn small" data-action="chatDirection" data-arg="${i}|${k}"${busy}>이 방향으로 변경안 받기</button></div>
   </div>`).join('');
   return `<div class="proposal">${cards}
-    <div class="row proposal-actions"><button type="button" class="btn small primary" data-action="chatMixDirections" data-arg="${i}"${busy}>고른 안 섞어서 변경안</button>
+    <div class="row proposal-actions"><button type="button" class="btn small primary" data-action="chatMixDirections" data-arg="${i}"${busy}>고른 안 섞어 변경안 받기</button>
     <span class="small">입력칸에 적어 둔 말이 있으면 함께 보내요.</span></div></div>`;
 }
 
@@ -334,7 +334,7 @@ function proposal(m, i) {
     const fold = !cur || rev.episodes.length > 3;
     parts.push(`<div class="prop-part">
       <div class="between"><label class="prop-head">${box(pickKey(i, e.number), locked)}<strong>${e.number}화</strong> ${esc(e.title)}${cur ? ` <span class="chip ${cur.status}">${STATUS[cur.status]}</span>` : ' <span class="chip ai">새 화</span>'}</label>
-        ${cur ? `<button type="button" class="btn small" data-action="selectEp" data-arg="${e.number}">지금 플롯</button>` : ''}</div>
+        ${cur ? `<button type="button" class="btn small" data-action="selectEp" data-arg="${e.number}">지금 플롯 보기</button>` : ''}</div>
       ${note}${fold ? `<details><summary class="small">바뀌는 칸 보기</summary><div class="diff">${plotDiff(e)}</div></details>` : `<div class="diff">${plotDiff(e)}</div>`}</div>`);
   });
   if ((rev.new_characters || []).length) {

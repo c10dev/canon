@@ -122,6 +122,7 @@
 - 긴장도
 - 스냅샷 재생
 - 숫자를 말로 바꾸기
+- 단계에 들어온 화(`Tie.stage_since`, `run_episode` 가 적고 `replay` 가 다시 채움)를 관계 줄에 '(n화부터)'로(`since`)
 - 말로 고른 보는 방식(`VIEWS`)으로 시작 관계 만들기
 - LLM 을 부르지 않는 순수 계산
 
@@ -207,6 +208,9 @@
 - 반대인 유형 바뀜의 차례 `StateDelta.rel_flagged` → 상태 승인 화면 기본 체크 해제(`review.js` `setDelta`), 사람 검토 없이 반영할 때는 빼기(`hold`, 남긴 개수로 세지 않음)
 - 두 층 감정(`prompts.LAYER`)으로 상대를 적은 쌍은 빼기(`_masked`)
 - 한 쌍 한 화 결정적(3) 사건 `BIG`(3)개 이상 경고
+- 쓰기 전 플롯: 화 플롯이 바라는 관계 바뀜(`plot_shifts`: 바뀜 말 `SHIFTS` · 가장 뒤 말 `_last_shift` · 이름 `name_forms`)
+- 지금 단계에서 칸 수가 쓸 수 있는 칸보다 많으면 경고(`plot_warnings` · 안 쓴 화 모두 `plan_warnings`)
+- 보이는 곳은 `board.checks` 와 `static/plot.js` `pacePlot`(같은 규칙, `tests/test_plot_pace_js.py`)
 - LLM 호출 없음
 
 ### `canon/pairlog.py`
@@ -278,12 +282,19 @@
 
 ### `canon/static/abilities.js`
 
-- 스킬 도감 화면(사이드바 도구, 주소 `abilities/<항목 id>`)
-- 왼쪽 목록(상태창 항목별 묶음, 찾기, AI 에게 보일 줄이 없는 것만)
-- 오른쪽 상세(설명 · 효과 · 대가 · 등급별 효과, 가진 인물과 얻은 화 · 바뀐 기록, AI 에게 보이는 줄) 또는 고치는 칸(`abForm`, 넣기 방식 `context` 포함)
-- 도감에 없는 조각에서 만들기
-- 인물 카드 상태창 칩(`abChip`, `cast.js`)을 누르면 뜨는 도감 카드(`abShow`, `<dialog>`)
+- 스킬 도감 화면(사이드바 도구, 공용 목차 틀 `outline.js`)
+- 주소 `abilities`(개요) · `abilities/_missing`(도감에 없는 조각) · `abilities/_new`(새 항목) · `abilities/<항목 id>`
+- 왼쪽 목차 `abToc`(찾기 칸, 개요, 도감에 없는 조각, 상태창 항목별 묶음 `abGroups`, 줄 끝 `abTail`)
+- 개요 `abOverview`(수 타일, 손볼 것, 도감에 없는 조각 다섯)
+- 도감에 없는 조각 쪽 `abMissingPage`(상태창 항목 거르기, 가진 인물, '도감에 만들기')
+- 항목 쪽 `abItemPage`: 머리(⋯ 메뉴에 지우기) · 설명 · 효과 · 대가 · 등급별 효과 · 가진 인물(바뀐 걸음 `abSteps`) · AI 에게 보이는 줄
+- 카드는 읽기 먼저이고 '고치기'로 그 카드만 편다(`S.abEdit`: base · grades · new)
+- 넣기 방식 `context` 는 나눔 버튼으로 바로 저장한다(`abContext`)
+- 넣는 방식 `stat_window.prompt` 가 lines 가 아니면 AI 에게 보이는 줄 카드가 알린다
+- 인물 카드 · 상태창 수치의 상태창 칩(`abChip`)을 누르면 뜨는 도감 카드(`abShow`, 공통 대화상자 `showDialog`)
+- 칩의 '도감에 설명 없음' 점은 `abNoDoc`(`abFindLocal` 은 `abilities.find` 와 같다)
 - 목록 이름 `AB_LIST_NAMES` 는 `abilities.LIST_NAMES` 와 같다(`tests/test_statwin_js.py`)
+- `abSplit` · `abKey` 는 `abilities.split` · `key` 와 같다(`tests/test_statwin_js.py`)
 
 ### `canon/static/agent.js`
 
@@ -298,11 +309,18 @@
 
 - 갈래 화면
 - 작품 머리 띠(`branchStrip`)
+- 띠는 화면 머리 아래 한 줄이고 집안 작품 열기는 ⋯ 메뉴(넣는 자리 `branchPlace`, 머리로 시작하지 않는 화면은 맨 위)
+- 함께 쓰는 앞 화를 고친 경고와 남겨 둔 본문 이어 가기는 띠 아래 Note
 - 사이드바 갈래 줄(`branchSideTag`)
 - 갈래 만들기 칸(`branchFormCard`, 폴더 이름 `branchFolder` 는 `home.js` `folderOf` 와 같은 규칙)
+- 만들기 칸은 화면 머리 아래에서 펴고 시작 화를 화 칸 띠로 보이며 폴더 이름은 접어 둔다
 - 작품 목록 묶기(`branchGroups`)
-- 작품 홈 갈래 카드(`branchHomeCard`: 본편으로 · 끊기)
-- 갈래 비교 화면(`viewBranches`)
+- 작품 홈 갈래 카드(`branchHomeCard`: 비교 버튼, ⋯ 메뉴에 작품 열기 · 본편으로 올리기 · 갈래 끊기)
+- 갈래 지도 줄(`branchMapRows`)은 작품 홈 갈래 카드와 갈래 비교 화면이 함께 쓴다
+- 갈래 비교 화면(`viewBranches`, 공용 목차 틀 `outline.js`)
+- 갈래 비교 목차(`bcToc`): 견줄 작품(집안 나무) · 이 비교(갈라진 길 · 화별 줄거리 · n화 본문 · n화 반영 뒤 상태)
+- 갈래 비교 본문은 문단을 맞춰 나란히 둔다(`bcParaDiff`, 기본은 다른 문단만 `S.bcAll`)
+- 갈래 비교 화면 · 띠 · 만들기 칸 시험은 `tests/test_tools_js.py`
 - 이름 없는 갈래는 폴더 이름으로 부른다(`branchName`, 명령줄 `branches` 와 같은 규칙, `tests/test_branches_js.py`)
 
 ### `canon/static/cast.js`
@@ -314,6 +332,7 @@
 - 관계도 `castMapPage`(SVG, 화별 재생, 칸 폭에 맞추고 크게 보기 `CAST_ZOOM`, 누르면 고르기만 `castMapPick` · 고른 줄 `castMapSel`, 끌어 옮긴 배치는 localStorage)
 - 인물 쪽 `castCharPage`
   - 머리 `castHead` · 보는 시점의 상태 · 상태창 수치(바뀐 양 `castStatDelta`, 카드 | 시스템 창 보기는 localStorage, 창 모양은 작품 스킨 `stat_window.skin`) · 관계 줄 `castSheetRels`(온기 막대 `castMeter`) · 비밀 · 설정과 남겨 둔 제안 · 읽기 먼저인 'AI · 서술 · 신체 · 삽화' 카드 `castEditCard`
+    - 상태창 칸 모양은 `statwin.js` `swStatsBody` 와 같이 쓴다
     - 고치기 `S.castEdit`: AI에 넣기 `charContextField` · 서술 말투 `plot.js` `voiceField` · 신체 프로필 `bodyFields` · 삽화 외형 태그 `illust.js` `visualFields`
     - AI 제안 동작은 `research.js` `bodyAI`
   - 타임라인(앞뒤 `CAST_TL_NEAR` 화)
@@ -325,11 +344,17 @@
 
 ### `canon/static/causal.js`
 
-- 인과율 화면
-- 요소 추가·편집
-- 관련 화 지도
-- 영향 분석 변경안 고르기
+- 인과율 화면(주소 `causal[/<요소 id>]`, `viewCausal`, 라우터가 부르는 `causalPick`)
+- 공용 목차 틀(`outline.js`, 목차 `causalToc`: 개요 · 손볼 것 · 종류별 요소) 위에 쪽 둘: 개요 · 요소 하나
+- 개요: 손볼 것 `causalTodoCard` → 모든 요소 `causalListCard`
+- 요소 하나(`causalDetail`): 요소 내용 읽기 카드 `causalInfoCard`(고치기 `S.causalEdit`) → 관련 화 `causalLinksCard` → 영향 분석 `causalImpact`
+- 관련 화는 30화씩 칸 줄(`CZ_CHUNK`)과 나눔 버튼 `S.causalLinkTab` 으로 거른 줄 목록
+- 칸 · 줄을 누르면(`causalCell`) 영향 분석의 그 화 칸으로, 없으면 그 화로 간다
+- 영향 분석은 화별로 어긋나는 곳과 고칠 것을 묶는다(`causalImpactBody`, 고르기 키 `pickId` 는 그대로)
+- 쪽을 옮길 때 해시 대신 `history.replaceState`(`causalGoTo`)라 저장하지 않은 고침을 묻지 않는다
+- `causalStatus` · `causalCells` 는 순수 함수(`tests/test_causal_js.py`)
 - `elements.basis` 와 같은 모양(`elBasis`)으로 분석이 지났는지 본다(`tests/test_causal_js.py`)
+- CSS 는 JS 에서 주입
 
 ### `canon/static/charlog.js`
 
@@ -350,8 +375,8 @@
 - 복선 하나(`fsDetail`: 축 → 본문에 걸린 문장과 흐름 `fsFlowCard` → 회수 계획 읽기 카드 `fsPlanCard`, 고치기 `S.fsEdit`, 회수로 표시 `S.fsResolving`)
 - 본문에서 고른 문장을 거는 칸은 본문 부분 수정 도구(`passage.js` `#sel-tool`)의 mode 'foreshadow'
   - `fsLinkShow` · `fsLinkHtml`: 이미 있는 복선 찾기 · 이 화 가까이 나온 후보 `fsCandidates` / 새 복선
-  - 고치는 본문은 메뉴에 '복선으로'
-  - 반영한 화의 읽기 전용 본문은 `illust.js` 도구에 '복선으로'
+  - 고치는 본문은 메뉴에 '복선으로 걸기'
+  - 반영한 화의 읽기 전용 본문은 `illust.js` 도구에 '복선으로 걸기'
   - 640px 이하 아래 시트
 - 상태 승인 화면의 복선 문장 고르기(`fsClueRows`, `q` 항목)
 - `fsBands` · `fsAt` · `fsMarks` · `fsFlag` · `fsTail` · `fsAttention` · `fsTodo` · `fsTocRows` · `fsFlow` · `fsAhead` · `fsTicks` · `fsCandidates` 는 순수 함수(`tests/test_foreshadow_js.py`)
@@ -366,11 +391,18 @@
 
 ### `canon/static/lines.js`
 
-- 이야기 줄기 화면
-- SVG 노선도
-- 줄기 편집
-- 화 붙이기
-- AI 제안
+- 이야기 줄기 화면(주소 `lines[/<줄기 id>]`, `viewLines`, 라우터가 부르는 `lineLoad`)
+- 공용 목차 틀(`outline.js`, 목차 `lineToc`: 노선도 · 손볼 것 · 메인에서 갈라짐 · 본편 밖 · AI 제안) 위에 쪽 둘: 노선도 · 줄기 하나
+- 노선도 쪽: SVG 노선도 `lineMapCard` → 손볼 것 `lineTodoCard` → AI 제안 `lineSuggestPanel`
+- 노선도 줄 차례는 `lineOrder`: 범위 시작 차례, 갈라짐 · 합류가 없는 외전은 아래 '본편 밖'
+- 다른 줄을 지나는 선은 흰 틈(`.lm-halo`)을 두고 지나간다
+- 보이는 화 `S.lineRange`(플롯 있는 화 · 전체), 폭 `S.lineZoom`(맞춤 · 크게 28px)
+- 칸 폭 560px 아래는 세로 노선도 `lineMapTall`
+- 줄기 하나(`lineDetail`): 앞뒤만 크게 그린 노선도 `lineZoomMap`(한 화 44) → 줄기 내용 읽기 카드 `lineInfoCard`(고치기 `S.lineEdit`) → 붙은 화 `lineEpsCard`
+- 화 붙이기는 붙은 화 카드의 메뉴: 붙이는 방식 `S.lineTagRole`, 가까운 화 후보 `lineCandidates`, 번호 칸
+- 쪽을 옮길 때 해시 대신 `history.replaceState`(`lineGoTo`)라 저장하지 않은 고침을 묻지 않는다
+- `lineOrder` · `lineTodo` 는 순수 함수(`tests/test_lines_js.py`)
+- CSS 는 JS 에서 주입(노선도 기본 모양 `.line-map` · `.lm-*` 은 app.css, 인물 화면 등장표도 쓴다)
 - 플롯 편집기의 줄기 칸(`lineField`)과 화 카드 표시(`lineBadge`)도 여기 있다
 - `storylines.span` · `tag` 와 같은 규칙이라 함께 고친다(`tests/test_lines_js.py`)
 
@@ -405,23 +437,42 @@
 
 ### `canon/static/statwin.js`
 
-- 상태창 수치 화면
-  - 맨 위 작품 틀 · 처음 수치 카드 `swSetupCard`: 작품 틀 · 인물별 처음 수치 표 · AI 처음 수치 제안
-  - 1화 반영 뒤 잠금 `swLocked`
-  - 틀 `SW_PRESETS` 는 `statwin.PRESETS` 와 같음
-  - 항목 고치기
+- 상태창 수치 화면(공용 목차 틀 `outline.js`)
+  - 주소 `statwin/<인물 id>` · `statwin/_frame` · `statwin/_decor`
+  - 왼쪽 목차 `swToc`(작품 틀 · 처음 수치, 꾸미기, 비중별 인물, 상태창 없는 인물 접음, 스킬 도감)
+  - 인물 쪽 `swPersonPage`: 머리 `swHead` · 지금 상태창 `swNowCard` · 본문에 넣을 상태창 `swTextCard` · 화별 변화 `swLogCard`
+  - 지금 상태창은 읽기 먼저이고 '고치기'로 이 카드만 편다(`S.swEdit`, `swEditor`)
+  - 고치는 칸 옆 계산 값 `swCalc`
+  - 항목 고치기 · 순서 `swMove`
   - 틀 · 작품 틀
   - 복사
-  - 서식
-  - 스킬 도감 화면으로 가는 카드 `swDexLink`
-  - 꾸미기 `swDecor`: 창 이름 · 화면 스킨 `SW_SKINS` · AI 안 고르기와 적용 취소
-  - 화별 변화 표
+  - 화별 변화는 바뀐 화 목록(`swChangeParts`, 목록은 같은 이름끼리 짝지음) | 표
+  - 작품 틀 · 처음 수치 쪽 `swFramePage`: 작품 틀 · 인물별 처음 수치 표 `swInitCard` · AI 처음 수치 제안
+  - 1화 반영 뒤 잠금 `swLocked`, 잠긴 표는 0화 기록의 시작 값 `swStartValues`
+  - 틀 `SW_PRESETS` 는 `statwin.PRESETS` 와 같음
+  - 꾸미기 쪽 `swDecorPage`: 창 이름 · 본문 서식(읽기 카드) · 화면 스킨 `SW_SKINS` · AI 안 고르기와 적용 취소
+- 상태창 칸 모양 `swStatsBody`(카드 칸 | 작품 스킨 창, 칩은 `abChip`)는 인물 화면 `cast.js` `castSheetStats` 와 함께 쓴다
 - 상태 승인 화면의 상태창 줄(`swDeltaRows`)
 - `swResolve` 는 `statwin.resolve` 와 같은 규칙(`tests/test_statwin_js.py` 가 node 로 맞춰 본다)
+
+### `canon/static/timeline.js`
+
+- 작품 속 시간 화면(`viewTimeline`)
+- 공용 목차 틀(`outline.js`, 목차 `tlTocHtml`: 지금 · 기한 · 시간 흐름 묶음 · 설정, 스크롤로 `S.tlCur`)
+- 지금 `tlNowCard`: 마지막 반영 화 끝 시점과 앞으로 열흘 띠
+- 기한 `tlDlCard`: 나눔 버튼 `S.tlDlTab`, 줄마다 ⋯ 메뉴, 지난 기한은 닫기 · 날 바꾸기
+- 시간 흐름 `tlGroupCard`: 아크 · 기승전결 구간마다 읽기 카드, 고치기 `S.tlEditGroup`, 접기 `S.tlFold`
+- 설정 `tlSetCard`: 읽기 카드, 고치기 `S.tlSetEdit`
+- `tlGroups` · `tlDeadlineRows` · `tlShort` 는 순수 함수(`tests/test_timeline_js.py`)
+- CSS 는 JS 에서 주입
 
 ### `canon/static/tofix.js`
 
 - 고칠 곳 화면(사이드바 도구, 주소 `tofix`, `viewToFix`: 남음 · 고침 · 모두, 메모 고치기, 본문에서 고치기 `tofixGo`)
+- 고칠 곳 화면은 공용 목차 틀이다(화별 목차 `tofixToc`, 화마다 카드 한 장)
+- 거르기는 머리의 나눔 버튼(Seg)이다
+- 줄은 앞뒤 문맥과 함께 보인다(`tofixContext`)
+- 메모는 읽는 글이고 ⋯ '메모 고치기'로 그 줄만 칸을 편다(`S.tofixEdit`, Ctrl+Enter 저장 · Esc 취소)
 - 본문 도구의 '나중에 고치기'와 메모 칸(`showTool` 을 감싼다, mode `tofix`)
 - 밑줄(`tofixRanges` 를 `marks.js` `allRanges` 가 함께 그림)
 - 집필 화면 본문 띠의 '고칠 곳 N'(`tofixBtn`, `tofixNext`)

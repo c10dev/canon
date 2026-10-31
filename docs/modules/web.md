@@ -19,6 +19,8 @@
 - 웹 화면의 뼈대
 - 상태 `S`
 - 서버 호출 `api`
+- 화 상태 칩 · 범례 · 툴팁 글자 `STATUS`(초안 · 확정 · 작성됨 · 반영 완료). 서버 `autorun.EP_STATUS` 와 같은 글자
+- 단계 이름 `stepLabel`(사이드바와 같은 이름, 다른 화면 문구도 이것을 쓴다)
 - 작품 밖 화면(작품 목록 · 새 작품 `#/new` · 사용량 · 문체 라이브러리 · 역설계 실험)의 사이드바 `outSidebar`
   - 항목은 순수 함수 `outNav`: 작품 목록 · 새 작품 · 새 플레이, 최근 작품 셋, 작품 밖 도구(쇠맛 실험실은 준비 중 `.nav-off`)
   - 본문 `.out-main` 폭 `--out-w` · `@container out`
@@ -180,6 +182,7 @@
 
 - 공용 목차 틀
 - 왼쪽 목차 + 오른쪽 카드 한 열(설정 도우미 · 문체 · 플롯 · 역설계 실험이 함께 쓴다)
+- 작품 도구 넷(갈래 비교 · 채팅 앱 작업지시서 · 자동 집필 · 고칠 곳)도 같은 틀을 쓴다
 - 틀 HTML `outlineDoc`(카드 열 760px, `wide` 는 남은 폭)
 - 목차 nav `outlineNav`(좁은 칸 버튼 글 `now`, 없으면 버튼 없이 목록만)
 - 열고 닫기 `outlineToggle` · `outlineClose`(열림은 `OUTLINE_OPEN` 이 기억해 다시 그려도 `aria-expanded` 가 맞음, 바깥 누르기 · 목록 줄 누르기 · Esc · 주소 바뀜에 닫고 Esc 는 버튼으로 포커스, 줄에 `data-outline-keep` 이면 열어 두고 줄이 아닌 버튼도 `data-outline-close` 면 닫음)
@@ -216,7 +219,7 @@
   - 공용 목차 틀 `outline.js` 의 왼쪽 목차 + 넓은 보드 `plotLayout`(`wide`)
   - 720px 이하 목차는 위에 붙는 버튼 `plotToc`
   - 목차 안에서 펼침을 지키는 부 접기 · 아크 펼치기 줄은 `data-outline-keep`
-  - 목차의 진행 막대 `plotMeter` · 구간 줄 `actTocItems`(누르면 `jumpAct`) · 확인할 것 `plotTodos`
+  - 목차의 진행 막대 `plotMeter` · 구간 줄 `actTocItems`(누르면 `jumpAct`) · 확인할 것 `plotTodos`(관계를 한 화에 너무 많이 옮기는 화 `pacePlot`, `pace.plot_warnings` 와 같은 규칙 `tests/test_plot_pace_js.py`)
   - 머리의 'AI로 다시 만들기 ▾' `plotAiMenu`(요청 칸 `S.planNote`)
   - 구간 한 줄 머리 + 화 카드 격자 `actBoard`
   - 구간 · 아크 · 부 고치기는 서랍 없이 그 자리에서 `actEditor` · `arcEditor` · `partEditor`
@@ -236,6 +239,21 @@
 ### `canon/static/research.js`
 
 - 연구 화면
+- 공용 목차 틀 위의 카드 한 열(`.rs-wrap`, 오른쪽 열은 960px 까지)
+- 주소 `#/p/<이름>/research[/<쪽>]`(`rsLoad(쪽)` · `rsUrl`)
+- 목차: 개요 · 준비(서버 점검) · 실험 여섯(샘플 생성 · 단계 시험 · 컨텍스트 크기 · 검수 시험 · 블라인드 비교 · 상태창 시험) · 기록
+- 목차 꼬리와 개요 카드는 쪽마다 마지막 결과 요약(`rsBrief`, 서버 `latest` · `open_compares`)
+- 개요: 이어서 볼 것(고르지 않은 비교본, 한도 넘침) · 실험 카드 · 최근 기록
+- 실험 쪽: 설정 카드 → 결과 카드 → 지난 기록(`rsPast`)
+- 지난 기록을 열면 같은 결과 카드에 다시 그린다(`rsOpen` · `rsEntry`)
+- 머리 주 버튼은 쪽마다 하나(`rsPrimary`)
+- 백엔드는 칩으로 고른다(`rsPicker`, 샘플 생성은 여럿 `rsMultiPicker`)
+- 칩 후보는 설정값 · 서버 점검 모델 · 기록에 남은 백엔드(`rsCands`)
+- 칩에 없는 백엔드는 '+ 다른 백엔드 적기'로 칸을 편다
+- 컨텍스트 크기의 화별 표는 기록에 남지 않아 방금 잰 결과(`S.rs.cur`)에만 있다
+- 칸 폭 560px 이하(`@container outline`)의 결과 표는 줄마다 칸을 쌓는다(`.rs-stack`, 칸 이름 `data-label`)
+- `rsCands` · `rsParse` · `rsBrief` · `rsLogLine` · `rsCheckCalls` 는 순수 함수(`tests/test_research_js.py`)
+- 인물 화면의 신체 프로필 · 서술 말투 AI 동작(`bodyAI` · `voiceAI`)도 이 파일에 있다
 
 ### `canon/static/restate.js`
 
@@ -323,7 +341,12 @@
   - 머리 ⋯ 메뉴 `writeMenu`: 생성 방식 · 컨텍스트 대화상자 · 채팅 앱 작업지시서 .md 내려받기(`briefDownload`) · 화 지우기
   - 본문 없는 화는 AI로 쓰기가 기본이고 머리 primary(`writeGo`, 스토리보드를 만든 화는 `boardGo`, 작업이 돌면 진행 줄 `wsBusy`)와 그 아래 쓰기 시작 칸(`writeStart`: 스토리보드 고르기 `S.wsBoard` · 직접 쓰기 · 컨텍스트)
   - 본문 띠의 저장 칸 `.savebar-slot`
-- 작업지시서(본문 · 검수 · 상태 승인 탭, `viewBrief`)
+- 작업지시서(본문 · 검수 · 상태 승인 걸음, `viewBrief`)
+- 작업지시서는 화 머리와 공용 목차 틀이다(걸음 목차 `briefToc`: 끝남 ✓ · 지금 · 본문 뒤, 4번째는 상태 승인 화면으로 가는 줄)
+- 작업지시서 머리 주 버튼은 그 걸음의 가져오기(n화 본문으로 저장 · 가져오고 검수로 · 확인하고 변경안 검토로)
+- 작업지시서 글은 240px 로 접어 보이고 '전체 펼치기'로 편다(`briefFold`)
+- 붙여 넣은 JSON 은 화면에서 먼저 읽어 본다(`briefJsonState`, 서버가 다시 확인)
+- 본문이 없는 화의 검수 · 상태 승인 걸음은 빈 화면이다
 
 ### `swift/`
 

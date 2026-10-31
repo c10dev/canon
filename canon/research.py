@@ -81,6 +81,35 @@ def history(name: str, limit: int = 30) -> list[dict]:
     return [json.loads(x) for x in reversed(lines[-limit:])]
 
 
+def latest(name: str) -> dict[str, dict]:
+    """갈래(kind)마다 마지막 기록. 연구 개요와 목차가 history 한도(30개) 밖의 실험도 마지막 결과를 보이게 한다."""
+    path = _log_path(name)
+    if not path.exists():
+        return {}
+    out: dict[str, dict] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            x = json.loads(line)
+            out[x.get("kind", "")] = x
+    return out
+
+
+def open_compares(name: str) -> list[dict]:
+    """아직 고르지 않은 블라인드 비교본: [{episode, kind, created, drafts}] (화 차례)."""
+    root = store.project_dir(name) / "compare"
+    if not root.exists():
+        return []
+    out = []
+    for key in sorted(root.glob("*/key.json")):
+        if not key.parent.name.isdigit():
+            continue
+        k = json.loads(key.read_text(encoding="utf-8"))
+        if not k.get("picked"):
+            out.append({"episode": int(key.parent.name), "kind": k.get("kind", "backend"), "created": k.get("created"),
+                        "drafts": len(k.get("order", []))})
+    return out
+
+
 # ---------- 서버 점검 ----------
 
 def probe(url: str = "", key: str | None = None) -> dict:

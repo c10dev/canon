@@ -111,6 +111,22 @@ def rels(p: Project, ids: set[str] | None = None) -> str:
                  if ids is None or (r.a in ids and r.b in ids)])
 
 
+def plan_stage_block(p: Project, ids: set[str]) -> str:
+    """장편 화별 플롯 초안의 지금 관계 단계 (마지막 반영 뒤). 방향마다 한 줄 라벨, 주역끼리 먼저, 예산(context.BUDGET["plan_stages"])까지.
+    관계 수치가 아직 없으면(첫 반영 전) 빈 글. 플롯이 한 화에 단계를 두 칸 넘게 옮기지 않게 하는 재료다 (pace.plot_warnings)."""
+    if not p.ties:
+        return ""
+    name = {c.id: c.name for c in p.characters}
+    core = context.core_ids(p)
+    ties = sorted((t for t in p.ties if t.source in ids and t.target in ids),
+                  key=lambda t: (not (t.source in core and t.target in core), t.source, t.target))
+    lines, cut = context.fit_lines([f"{name.get(t.source, t.source)} → {name.get(t.target, t.target)}: {t.stage}" for t in ties],
+                                   context.BUDGET["plan_stages"])
+    if not lines:
+        return ""
+    return "\n[지금 관계 단계 (한 화에 한 칸씩 움직임)]\n" + "\n".join(lines) + (f"\n(그 밖 {cut}줄 생략)" if cut else "")
+
+
 def setup_prompt(p: Project) -> str:
     return f"""아래는 작가가 입력한 기본 설정입니다. 비어 있거나 부족한 부분을 채워 작품 설정을 제안하세요.
 이미 입력된 내용은 바꾸지 말고 그대로 살려서 확장합니다.
@@ -588,7 +604,7 @@ def serial_plot_prompt(p: Project, start: int, end: int, ahead: bool = True, red
 [등장할 수 있는 다른 인물 (id: 이름, 역할)]
 {roster_line(p, ids) or "없음"}
 [관계]
-{rels(p, ids | {c.id for c in static_characters(p)})}
+{rels(p, ids | {c.id for c in static_characters(p)})}{plan_stage_block(p, ids | {c.id for c in static_characters(p)})}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p) or "없음"}{lines_block(p)}
 
@@ -743,6 +759,7 @@ def plot_rules(p: Project, opening: bool = False) -> str:
     return common + f"""
 - act 는 그 화가 속한 아크 안의 기승전결 위치입니다. 아크의 conflict 가 결 구간에서 해결되고, 아크의 payoff 가 전 구간 끝이나 결 구간 첫 화에 확실하게 나옵니다.
 - 주인공이 막히는 구간은 2~3화를 넘기지 않고, 막힌 만큼 시원하게 푸는 화를 뒤에 둡니다.
+- 관계 단계(낯섦 · 경계 · 호감 · 신뢰 · 균열 · 적대 · 화해)는 한 화에 한 칸씩 움직입니다. 적대에서 친구가 되는 것처럼 두 칸 넘는 변화는 계기 사건 화와 받아들이는 화로 나눠 여러 화에 둡니다.
 - 매 화 ending_hook 을 둡니다. 장면 한가운데나 새 정보가 드러나는 순간에 끊습니다. 아크 마지막 화는 다음 아크로 이어지는 떡밥으로 끊습니다. 작품 마지막 화({p.meta.target_episodes}화)만 훅 대신 여운을 둡니다.
 - 이 아크에서 심은 작은 복선은 아크 안에서 회수합니다. 아크의 payoffs 에 있는 복선은 아크가 끝나기 전에 회수합니다. 부나 작품 끝까지 끌고 갈 복선은 심을 때 그렇다고 밝힙니다.
 - 첫 아크의 큰 보상은 25화 안에 둡니다 (무료 공개 구간 안에 보상이 와야 계속 읽는다는 연재 관습)."""
@@ -1012,6 +1029,15 @@ LAYER_STATE_RULE = (
     "본문에서 머리나 겉이 아직 버티고 있으면 그 층을 남깁니다. 한 층을 지우는 것은 본문에 들키거나 털어놓거나 스스로 받아들이는 장면이 있을 때뿐입니다.\n"
     "- 상대에게 숨긴 감정(좋아함, 미움, 의심)이 본문에 처음 드러났는데 상대는 모르면 secrets_added 에도 넣고 hidden_from 에 모르는 인물을 적습니다."
 )
+
+
+def stage_check_rule(p: Project) -> str:
+    """검수 요구사항 한 줄: 관계 단계를 계기 없이 한 칸 넘게 벗어난 말과 행동. 관계 수치가 없으면 빈 글."""
+    if not p.ties:
+        return ""
+    return ("\n- 관계 단계: 두 사람의 말과 행동이 [관계 현재 상태]의 단계(낯섦 · 경계 · 호감 · 신뢰 · 균열 · 적대 · 화해)에서 "
+            "한 칸 넘게 벗어나는지 봅니다. 예: 적대 단계인데 계기 장면 없이 다정하게 대함. 이번 화 본문이나 플롯에 계기 사건이 있으면 짚지 않습니다. "
+            "겉과 속이 다른 인물('겉: … / 속: …')의 겉 태도는 짚지 않습니다. type 은 인물 정보, source_episode 는 0, source_quote 는 그 관계 줄입니다.")
 
 
 def layered(states) -> list[str]:
@@ -3011,7 +3037,7 @@ def check_prompt(p: Project, n: int, mode: str = "", sized: bool = False) -> str
 {n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
 - 확인할 것: 확정 사실, 이야기 요소와 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
 - 동선: 한 장면 안에서 인물의 위치, 몸이 향한 쪽(앞 · 뒤, 등 · 배), 자세, 손에 든 것, 가려진 곳이 바꾸는 행동 없이 달라지는지 봅니다. 예: 등을 돌리고 망토로 몸을 가렸는데 다음 문장에서 그 인물의 표정이나 가슴께가 보임. 이때 source_episode 는 {n}, source_quote 는 같은 화의 앞 문장입니다.
-- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{layer_check_rule(p, check_cast(p, n) if (mode or ("budget" if p.serial else "full")) == "budget" else None)}{address.check_rule(p)}{statwin.check_rule(p)}{protect_check_rule(p.episode(n))}{pairlog.check_rule(pair_check_block(p, n, mode))}
+- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{stage_check_rule(p)}{layer_check_rule(p, check_cast(p, n) if (mode or ("budget" if p.serial else "full")) == "budget" else None)}{address.check_rule(p)}{statwin.check_rule(p)}{protect_check_rule(p.episode(n))}{pairlog.check_rule(pair_check_block(p, n, mode))}
 - source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 설정이나 인물 상태면 source_episode 는 0 입니다.
 {SEVERITY_RULE}
 - 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.

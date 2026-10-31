@@ -108,10 +108,10 @@ function atlasGenForm(st) {
   const kindNote = st.spec.kind === 'city' ? '<p class="small">도시는 성벽 · 성문 · 구역(시장, 신전, 귀족, 장인, 빈민 등)이 있는 큰 지도예요. 이야기 장소는 종류에 맞는 구역에 놓아요.</p>'
     : st.spec.kind === 'modern' ? '<p class="small">현대 동네는 대로 격자 안에 아파트 단지 · 빌라촌 · 대로변 상가 · 역 앞 · 학교 · 공원이 있는 가상의 동네예요. 숲 칸은 공원 수를 정해요. 마을에서 고른 장소 종류는 현대 이름으로 옮겨 둬요(주막은 호텔, 신전은 교회, 장터는 마트).</p>' : '';
   const places = atlasGenPlaces(st);
-  return `<div class="between"><h3>${esc(word)} ${S.atlas.gen.made && S.atlas.layout ? '다시 ' : ''}만들기</h3><button type="button" class="btn small ghost" data-action="atlasGenSuggest">AI로 설정 제안</button></div>
+  return `<div class="between"><h3>${esc(word)} ${S.atlas.gen.made && S.atlas.layout ? '다시 ' : ''}만들기</h3><button type="button" class="btn small ghost" data-action="atlasGenSuggest">AI 설정 제안 받기</button></div>
     <div class="seg at-seg at-seg-full" role="group" aria-label="만들 지도">${maps}</div>${kindNote}
     <dl class="pf-dl at-dl at-gen-opts">${atlasGenSeg(st, 'size', '크기')}${atlasGenSeg(st, 'roads', '길')}${atlasGenSeg(st, 'water', '물')}${atlasGenSeg(st, 'fields', '밭')}${atlasGenSeg(st, 'forest', '숲')}
-      <dt>시드</dt><dd><div class="row at-nowrap"><input type="number" min="0" max="2147483647" step="1" value="${st.spec.seed}" data-at-gen-seed aria-label="시드"><button type="button" class="btn small ghost" data-action="atlasGenSeed">새 시드</button></div></dd></dl>
+      <dt>시드</dt><dd><div class="row at-nowrap"><input type="number" min="0" max="2147483647" step="1" value="${st.spec.seed}" data-at-gen-seed aria-label="시드"><button type="button" class="btn small ghost" data-action="atlasGenSeed">새 시드 뽑기</button></div></dd></dl>
     ${why}
     ${pv ? `${atlasGenResult(st)}<details class="at-gen-kinds"><summary>장소 종류 고치기</summary><div class="at-gen-places">${places}</div></details>`
     : `<p class="small">같은 시드와 설정이면 언제나 같은 ${word}${word === '마을' ? '이' : '가'} 나와요. 장소 종류는 이름에서 찾았어요. 틀리면 고르거나 AI 제안을 받아 보세요.</p>
@@ -175,7 +175,7 @@ function atlasGenBar() {
   const word = atlasGenWord(st.spec.kind);
   return `<div class="at-pv-bar" role="toolbar" aria-label="${esc(word)} 미리보기">
     <span class="row at-nowrap"><button type="button" class="btn icon-btn" data-action="atlasGenHist" data-arg="-1" title="이전 미리보기 (←)" aria-label="이전 미리보기"${at <= 0 ? ' disabled' : ''}>◀</button>
-      <button type="button" class="btn" data-action="atlasGenSeed" title="다른 시드로 (Enter)">다른 시드</button>
+      <button type="button" class="btn" data-action="atlasGenSeed" title="다른 시드로 (Enter)">다른 시드로 보기</button>
       <button type="button" class="btn icon-btn" data-action="atlasGenHist" data-arg="1" title="다음 미리보기 (→)" aria-label="다음 미리보기"${at >= st.hist.length - 1 ? ' disabled' : ''}>▶</button>
       ${st.hist.length > 1 ? `<span class="small">${at + 1}/${st.hist.length}</span>` : ''}</span>
     <span class="at-grow"></span>

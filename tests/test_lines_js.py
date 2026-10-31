@@ -48,3 +48,30 @@ def test_line_span_without_episodes_matches_server():
     p = Project(storylines=[Storyline(id="sl-x", branch_ep=3), Storyline(id="sl-y", join_ep=6)])
     got = run_js(["app.js", "lines.js"], "S.project = data; P().storylines.map((s) => String(lineSpan(s)))", dump(p))
     assert got == [",".join(map(str, storylines.span(p, s))) for s in p.storylines]
+
+
+@needs_node
+def test_line_order_and_todo():
+    """노선도 줄 차례(lineOrder): 범위 시작 차례, 범위가 없으면 뒤, 갈라짐 · 합류가 없는 외전은 본편 밖.
+    손볼 것(lineTodo): 갈라짐이 합류보다 뒤 · 총 화수보다 뒤 · 범위 밖에 붙은 화 · 합류 화 없이 열림(외전은 빼고)."""
+    eps = [episode(n) for n in range(1, 13)]
+    eps[6].plot.storyline = "late"                    # 7화
+    eps[1].plot.threads = ["early"]                   # 2화 장면
+    eps[9].plot.threads = ["early"]                   # 10화: 합류(8화) 뒤
+    eps[3].plot.threads = ["side"]                    # 4화: 외전 장면
+    lines = [Storyline(id="late", kind="인물 이야기", branch_ep=6),            # 열림
+             Storyline(id="early", branch_ep=3, join_ep=8),                   # 2화는 갈라짐 앞, 10화는 합류 뒤
+             Storyline(id="side", kind="외전"),                               # 본편 밖
+             Storyline(id="none"),                                            # 범위 없음 → 뒤
+             Storyline(id="bad", branch_ep=9, join_ep=5),                     # 갈라짐이 합류보다 뒤
+             Storyline(id="far", kind="외전", branch_ep=11, join_ep=40)]      # 외전이지만 갈라짐이 있어 안쪽, 총 화수 뒤
+    p = Project(episodes=eps, storylines=lines)
+    p.meta.target_episodes = 12
+    out = run_js(["app.js", "lines.js"], "S.project = data; ({ order: lineOrder(P()), todo: lineTodo(P()).map((t) => [t.id, t.kind, t.text]) })", dump(p))
+    assert out["order"] == {"inside": ["early", "late", "bad", "far", "none"], "outside": ["side"]}
+    assert out["todo"] == [
+        ["late", "open", "6화에 갈라졌는데 합류하는 화가 없어요. 끝까지 열어 둘 줄기면 그대로 둬도 돼요."],
+        ["early", "outside", "합류하는 화(8화) 뒤에 붙은 화가 있어요: 2, 10화"],
+        ["bad", "order", "갈라지는 화(9화)가 합류하는 화(5화)보다 뒤예요."],
+        ["far", "late", "합류하는 화가 총 화수(12화)보다 뒤예요."],
+    ]

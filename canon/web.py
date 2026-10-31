@@ -377,7 +377,7 @@ def test_config() -> ConfigTest:
             llm = make_llm(prov, model)
             llm.check()
         except Exception as e:  # SDK 오류 종류가 많아 메시지만 보여준다
-            raise HTTPException(400, f"{prov} {model or ''} 연결 실패: {getattr(e, 'message', None) or e}")
+            raise HTTPException(400, f"{prov} {model or ''} 연결을 확인하지 못했어요: {getattr(e, 'message', None) or e}. API 키와 모델 이름을 확인해 주세요")
         done.append(llm.model)
     return {"ok": True, "message": f"{', '.join(dict.fromkeys(done))} 에 연결됐어요."}
 
@@ -5433,7 +5433,8 @@ def research_probe(body: Probe) -> dict:
 def research_log(name: str) -> dict:
     _load(name)
     return {"log": research.history(name), "stages": research.STAGES, "check_modes": research.TRIAL_MODES,
-            "check_totals": research.check_totals(name)}
+            "check_totals": research.check_totals(name), "latest": research.latest(name),
+            "open_compares": research.open_compares(name)}
 
 
 class SampleIn(BaseModel):

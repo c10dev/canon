@@ -1705,7 +1705,7 @@ function atlasBldEdit(info) {
     <div class="field"><label for="at-bld-note">메모</label><textarea id="at-bld-note" name="note" rows="2" maxlength="500">${esc(info.note)}</textarea></div>
     ${people ? `<fieldset class="at-bld-who"><legend class="label-text">여기 사는 · 일하는 인물</legend>${people}</fieldset>` : ''}
     <div class="row"><button type="button" class="btn small ghost" data-action="atlasBldEditOpen" data-arg="">취소</button>
-      ${info.edited ? '<button type="button" class="btn small ghost" data-action="atlasBldReset">처음 값으로</button>' : ''}
+      ${info.edited ? '<button type="button" class="btn small ghost" data-action="atlasBldReset">처음 값으로 되돌리기</button>' : ''}
       <button type="submit" class="btn small primary">저장</button></div></form>`;
 }
 
@@ -2818,7 +2818,7 @@ document.addEventListener('keydown', (e) => {
 .at-um { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid var(--line); }
 .at-um.on { background: var(--accent-soft); }
 .at-um-note { color: var(--muted); }
-@media (max-width: 600px) { .at-um { grid-template-columns: auto minmax(0, 1fr); } .at-um select { grid-column: 2; max-width: 100%; } .at-um-bar #at-um-apply { margin-left: 0; } }
+@media (max-width: 640px) { .at-um { grid-template-columns: auto minmax(0, 1fr); } .at-um select { grid-column: 2; max-width: 100%; } .at-um-bar #at-um-apply { margin-left: 0; } }
 .at-table-wrap { overflow-x: auto; }
 .at-table { border-collapse: collapse; font-size: 0.8125rem; }
 .at-table th, .at-table td { padding: var(--space-8) var(--space-10); border-bottom: 1px solid var(--rule); white-space: nowrap; text-align: left; vertical-align: top; }

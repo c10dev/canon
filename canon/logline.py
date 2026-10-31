@@ -64,11 +64,11 @@ def checks(p: LoglineParts) -> list[tuple[bool, str]]:
     """형식 점검. 참고용 경고이며 다음 단계로 넘어가는 것을 막지 않는다."""
     n = len(compose(p))
     return [
-        (len(p.who.split()) > 1, "주인공에게 이름 말고 특징이 있다"),
-        (bool(p.why.strip()), "이야기를 시작하게 만드는 일이 있다"),
-        (p.goal.strip().endswith("다"), "목표가 눈에 보이는 행동이다 ('~한다'로 끝남)"),
-        (bool(p.block.strip()), "목표를 막는 사람이나 힘이 있다"),
-        (40 <= n <= 150, "길이가 40~150자 사이다"),
+        (len(p.who.split()) > 1, "주인공에게 이름 말고 특징이 있어요"),
+        (bool(p.why.strip()), "이야기를 시작하게 만드는 일이 있어요"),
+        (p.goal.strip().endswith("다"), "목표가 눈에 보이는 행동이에요 ('~한다'로 끝나요)"),
+        (bool(p.block.strip()), "목표를 막는 사람이나 힘이 있어요"),
+        (40 <= n <= 150, "길이가 40~150자 사이예요"),
     ]
 
 

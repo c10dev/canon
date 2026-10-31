@@ -46,7 +46,9 @@
   - `_stage_run`
   - 갈래별 찾은 수 `by_kind` · 기록 합계 `check_totals`
 - 블라인드 비교
+- 고르지 않은 비교본 목록 `open_compares`
 - 작품 데이터와 분리해 `research/log.jsonl` 에 기록
+- 갈래마다 마지막 기록 `latest`(연구 개요가 `history` 30개 밖의 실험도 보인다)
 
 ### `canon/revlab.py`
 
@@ -108,7 +110,7 @@
   - 작품 사이드바 · ⋯ 메뉴의 링크
   - 작품 밖 사이드바(`outSidebar`)
   - 작품에서 들어왔으면 머리에 그 작품으로 가는 버튼 `revBackBtns`(`S.revFrom`, `routeNow` 가 적음)
-- 처음 화면(`revHome`)은 이어 하기 카드(목록 값 `revlab.summary` 의 `steps` · `updated` → `revLabLite` · `revHomeCard`)와 머리 '+ 새 실험'으로 펴는 새 실험 칸(`revNewToggle`, 붙여 넣기 · 첫 화 번호 짐작 `revGuessFirst` · 나누기 미리보기 `revPreview`, `revNewCard`)
+- 처음 화면(`revHome`)은 이어 하기 카드(목록 값 `revlab.summary` 의 `steps` · `updated` → `revLabLite` · `revHomeCard`)와 머리 '+ 새 실험 만들기'으로 펴는 새 실험 칸(`revNewToggle`, 붙여 넣기 · 첫 화 번호 짐작 `revGuessFirst` · 나누기 미리보기 `revPreview`, `revNewCard`)
 - 실험 화면은 다른 단계 화면과 같은 공용 목차 틀(`outline.js`)의 왼쪽 목차 + 오른쪽 칸(`revLayout` · `revToc`, 칸은 남은 폭을 다 씀 `wide`, 위쪽 띠가 없어 `--outline-band: 0px`)
 - 목차 맨 위 개요
   - 주소에 화가 없을 때
@@ -134,7 +136,7 @@
 
 ### `canon/stattrial.py`
 
-- 상태창 넣기 시험(연구 화면 '상태창 시험' 탭, 명령줄 `stattrial`)
+- 상태창 넣기 시험(연구 화면 '상태창 시험' 쪽, 명령줄 `stattrial`)
 - 조건 `CONDITIONS`(none · json · lines, `stat_window.prompt` 만 바꾼 사본 `variant`)
 - 시험할 화(`candidates`, 추천 `default_pick`)
 - 그 화를 쓰기 직전 사본(`before`, `pipeline.revert`)
@@ -144,4 +146,6 @@
 - 실행(`run`: 실험 기록 kind statwin, 조건마다 첫 안을 블라인드 비교본 kind statwin 으로)
 - 작품은 저장하지 않는다
 - 화면은 `static/stattrial.js`
+- 화면은 고를 때마다 비용을 추정해(`stEst`, AI 없음) 머리 주 버튼 글에 적는다(`stHeadBtn`)
+- 지난 시험은 틀린 비율 막대(`stBars`, 한 계열)와 방식별 표
 - 웹 작업 `stattrial`

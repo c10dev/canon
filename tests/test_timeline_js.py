@@ -22,7 +22,7 @@ const fs = require('fs');
 const data = JSON.parse(fs.readFileSync(0, 'utf8'));
 const el = () => ({ appendChild() {}, set textContent(v) {} });
 const ctx = {
-  data, S: {}, actions: {}, CHAT_TOPICS: {}, P: () => data.project, ep: () => null,
+  data, S: {}, actions: {}, CHAT_TOPICS: {}, P: () => data.project, ep: () => null, outlineSpy() {},
   document: { addEventListener() {}, createElement: el, head: el() },
 };
 vm.createContext(ctx);
@@ -148,3 +148,48 @@ def test_timeline_js_calendar_left_day_match_server():
 def test_timeline_js_calendar_edge_match_server():
     cases = [("２０２４년 ３월 ４일", ""), ("", "0000-03-04"), ("0년 3월 4일", "")]
     assert _js_calendar_rows(Project(), cases) == _calendar_rows(Project(), cases)
+
+
+@needs_node
+def test_timeline_js_groups_and_deadline_rows():
+    """시간 흐름 묶음(tlGroups): 아크마다 줄, 날수를 아는 앞 화와의 차(gap), 거꾸로(back), 묶음 밖의 화.
+    기한 줄(tlDeadlineRows): 지남 · 오늘 · 사흘 안 · 열림 · 날 모름 · 닫힘 차례와 꼬리 글."""
+    from canon.schema import StoryArc
+    days = {1: 1, 2: 3, 3: 0, 4: 2, 5: 5, 7: 9}  # 3화는 날 모름(회상), 4화는 2일째로 거꾸로
+    eps = [episode(n, time=StoryTime(day=d)) for n, d in days.items()]
+    eps.reverse()  # 화 순서가 섞여 있어도 화 번호 순으로 센다
+    p = Project(episodes=eps)
+    p.meta.form = "serial"
+    p.story_arcs = [StoryArc(number=1, title="부두", start_ep=1, end_ep=3, goal=""), StoryArc(number=2, title="", start_ep=4, end_ep=5, goal="")]
+    p.timeline.deadlines = [
+        Deadline(id="a", what="지남", day=6, set_ep=1), Deadline(id="b", what="오늘", day=9, set_ep=2),
+        Deadline(id="c", what="사흘 안", day=12, set_ep=1), Deadline(id="d", what="먼 날", day=30, set_ep=1),
+        Deadline(id="e", what="모름", day=0, set_ep=1), Deadline(id="f", what="닫힘", day=2, set_ep=1, done_ep=2),
+    ]
+    expr = ("S.project = data; ({ groups: tlGroups(P()).map((g) => [g.key, g.label, g.s, g.e, g.rows.map((r) => [r.n, r.day, r.gap, r.back]), g.back, g.lo, g.hi]),"
+            " rows: tlDeadlineRows(P().timeline.deadlines, 9).map((r) => [r.d.id, r.state, r.left]),"
+            " none: tlDeadlineRows(P().timeline.deadlines, 0).map((r) => [r.d.id, r.state]) })")
+    out = run_js(["app.js", "timeline.js"], expr, dump(p))
+    assert out["groups"] == [
+        ["a1", "아크 1 부두", 1, 3, [[1, 1, None, False], [2, 3, 2, False], [3, 0, None, False]], 0, 1, 3],
+        ["a2", "아크 2", 4, 5, [[4, 2, -1, True], [5, 5, 3, False]], 1, 2, 5],
+        ["rest", "그 밖의 화", 7, 7, [[7, 9, 4, False]], 0, 9, 9],
+    ]
+    assert out["rows"] == [["a", "overdue", "3일 지남"], ["b", "today", "오늘"], ["c", "soon", "3일 남음"],
+                           ["d", "open", "21일 남음"], ["e", "unknown", "날 모름"], ["f", "closed", "2화에 닫힘"]]
+    assert [s for _, s in out["none"]] == ["open", "open", "open", "open", "unknown", "closed"]  # 지금 날수를 모르면 남은 날을 세지 않는다
+    for _, state, left in out["rows"][:4]:
+        d = next(x for x in p.timeline.deadlines if x.id == _)
+        assert left == timeline.left(d, 9)
+
+
+@needs_node
+def test_timeline_js_short_label():
+    """tlShort: 날짜를 알면 '3월 21일 수', 연도가 바뀌면 연도를 붙이고, 날짜가 없으면 '18일째 · 토'(요일을 알 때)."""
+    cases = [("", "2024-03-04"), ("2024년 12월 30일", ""), ("1일째 수요일", ""), ("", "")]
+    expr = "S.project = data.project; data.cases.map((c) => { Object.assign(P().timeline, c); return [1, 3, 18, 0].map(tlShort); })"
+    out = run_js(["app.js", "timeline.js"], expr, {"project": dump(Project()), "cases": [{"start": s, "start_date": d} for s, d in cases]})
+    assert out == [["3월 4일 월", "3월 6일 수", "3월 21일 목", ""],
+                   ["12월 30일 월", "2025년 1월 1일 수", "2025년 1월 16일 목", ""],
+                   ["1일째 · 수", "3일째 · 금", "18일째 · 토", ""],
+                   ["1일째", "3일째", "18일째", ""]]
