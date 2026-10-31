@@ -16,6 +16,9 @@
 - 웹 화면의 뼈대
 - 상태 `S`
 - 서버 호출 `api`
+- 작품 밖 화면(작품 목록 · 새 작품 `#/new` · 사용량 · 문체 라이브러리 · 역설계 실험)의 사이드바 `outSidebar`
+  - 항목은 순수 함수 `outNav`: 작품 목록 · 새 작품 · 새 플레이, 최근 작품 셋, 작품 밖 도구(쇠맛 실험실은 준비 중 `.nav-off`)
+  - 본문 `.out-main` 폭 `--out-w` · `@container out`
 - 사이드바
   - `sidebar`: 맨 위 줄 `sideTop` · 작품 칸 · 단계 · 접는 묶음 `navFold`(작품 도구 · 아직 안 쓴 도구 · 실험, 펼침 `navFoldOpen`) · 아래 고정 줄 `sideFoot`(설정 · ⋯ 메뉴)
   - 줄 끝 배지 `navBadges`(순수 함수, `tests/test_sidebar_js.py`) · `navBadge`
@@ -89,7 +92,16 @@
 
 ### `canon/static/home.js`
 
-- 작품 목록(새 작품 칸 `newProjectForm` · 이어 쓰기 · 모든 작품 한 줄 목록: 찾기 · 거르기 · 정렬과 갈래 · 플레이 묶기 `plRows`, 상태 `plStatus`, ⋯ 메뉴 `plManage`, `tests/test_projects_js.py`)
+- 작품 목록(작품 밖 사이드바 옆, `tests/test_projects_js.py`)
+  - 새 작품 칸 `newProjectForm`(주소 `#/new` 면 펴고 제목 칸으로)
+  - 이어 쓰기 카드 `plHeroCard`(고를 작품 `plHero`, 확인할 것 줄 `plAlertHref`)
+  - 모든 작품 한 줄 목록: 찾기 · 거르기(확인할 것 포함) · 정렬과 갈래 · 플레이 묶기 `plRows`
+  - 상태 `plStatus`
+  - 다음 단계 화면 링크 `projectGo`
+  - 고친 때 `fmtWhen` · 묶음 `plTimeGroup`(20묶음 넘으면 더 보기 `PL_PAGE`)
+  - ⋯ 메뉴 `plManage`(폴더 이름)
+  - 작품 없음은 `plStepsCard`
+  - 서버 카드의 확인할 것 `alerts` · 부 · 아크 `where` · 화 칸 띠 `strip`(`web.list_projects`)
 - 작품 홈
   - 지금 화 `homeNowCard` · 확인할 것 `homeTodos`(말투 빈 인물 `homeSpeechGaps`, 시점 인물 서술 말투 빈칸 `homeVoiceGap`) · 전 화수 막대 `homeProgress` · 줄인 목록 `homeCast` · `homeForeshadows`
   - 계산 함수는 작품을 받는 순수 함수 `tests/test_home_js.py`
@@ -99,7 +111,7 @@
 
 - 알림
 - AI 작업과 알림을 버튼 하나에 모은다
-- 버튼(`hubButton`, 사이드바 `#hub-slot` · 작품 밖 화면 `hubTop`)
+- 버튼(`hubButton`, 사이드바 · 작품 밖 사이드바의 `#hub-slot`)
 - 버튼 아래 창(`#hub-pop`: 확인할 것 · 진행 중 · 최근 알림 · 접힌 끝난 작업과 지난 알림, `hubOpen` · `hubClose`)
 - 말풍선과 창 자리(`placeHub`, `#toast`)
 - 알림 기록(`hubNote`, `S.notes`)
