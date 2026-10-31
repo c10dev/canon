@@ -5,8 +5,8 @@
    배치는 다른 단계 화면(설정 도우미 · 문체 · 플롯)과 같은 왼쪽 목차 + 오른쪽 칸이다. 목차는 단계 다섯(revSteps) · 화(revTocEps) · 실험 전체
    (인물 · 문체 · 줄기 · 지표), 오른쪽은 도는 작업 카드(revRunCard)와 고른 화의 탭 셋(원문 · 큐 / 플롯 · 스토리보드 / 되돌려 쓰기).
    머리 주 버튼은 다음 할 일 하나(revNext)이고 추정 비용을 함께 적는다(revEst, AI 없음). 폭은 창이 아니라 .rev-wrap 폭(@container rev)으로 바꾼다.
-   app.js 의 S, actions, api, run, render, header, esc, toast, josa, showError, renderJobs, pollJobs, jobFor, jobLeft, elapsed, menuBtn, isTyping,
-   JOB_PAGES, JOB_DONE_MSG, fmtDateTime 과 cue.js 의 cueBind · cueEd · cueScore · cueEditor · cueLabel · cueUsd · cuePct · cueYes 를 쓴다
+   app.js 의 S, actions, api, run, render, header, esc, toast, josa, showError, pollJobs, jobFor, jobLeft, elapsed, menuBtn, isTyping,
+   JOB_PAGES, JOB_DONE_MSG, fmtDateTime, hub.js 의 renderHub 와 cue.js 의 cueBind · cueEd · cueScore · cueEditor · cueLabel · cueUsd · cuePct · cueYes 를 쓴다
    (큐 시트 열쇠는 'rev:<화>'). revSplit · revGuessFirst · revSegments · revPreview · revEpTitle · revSteps · revNext · revTocEps · revRunRows ·
    revMetricRows 는 DOM 없는 순수 함수 (revSplit · revGuessFirst 는 revlab.split · guess_first 와 같은 규칙, tests/test_revlab.py). */
 'use strict';
@@ -112,7 +112,7 @@ async function revStartJob(kind, extra = {}) {
     if (!j.already) toast(`${j.label}${josa(j.label, '을', '를')} 시작했어요. 끝나면 알려 드릴게요. 그동안 다른 화면을 봐도 돼요.`);
     S.jobs = S.jobs.filter((x) => x.id !== j.id).concat(j);
     S.jobArgs[j.id] = { retry: () => { S.revLab = S.revLab && S.revLab.id === id ? S.revLab : { id }; return revStartJob(kind, extra); } };
-    renderJobs();
+    renderHub();
     pollJobs(true);
   } catch (e) {
     showError(e);

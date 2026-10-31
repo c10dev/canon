@@ -1512,7 +1512,7 @@ function atlasRefresh() {
 
 function viewAtlas() {
   const desc = '장소를 지도에 놓고, 반영한 화마다 인물이 어디에 있었는지 재생해요. 인물 위치는 상태 승인에서 반영한 위치 글을 장소 이름과 맞춘 것이에요.';
-  const head = header('지도', '지도', desc, `<a class="btn" href="${base()}/causal">장소 더하기 (인과율)</a>`);
+  const head = header('작품 도구', '지도', desc, `<a class="btn" href="${base()}/causal">장소 더하기 (인과율)</a>`);
   if (!S.atlas) return `${head}<div class="small">불러오는 중…</div>`;
   if (S.atlas.error) {
     return `${head}<div class="card empty" role="alert"><p>지도를 계산하지 못했어요.</p><div class="note err">${esc(S.atlas.error)}</div>

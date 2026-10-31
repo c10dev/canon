@@ -84,7 +84,7 @@ function palContext() {
     nav: navItems(),
     next,
     canSave: saveShortcut(true),
-    episodes: P().episodes.map((e) => ({ n: e.plot.number, title: e.plot.title || '', status: e.status })),
+    episodes: P().episodes.map((e) => ({ n: e.plot.number, title: e.plot.title || '', status: e.status, stage: epStage(e) })),
     characters: P().characters.filter((c) => c.name).map((c) => ({ id: c.id, name: c.name })),
     fields: palSetupFields(P()),
     settings,
@@ -106,7 +106,7 @@ function paletteItems(ctx) {
   const { steps, auto, tools, apart, foot } = ctx.nav;
   steps.forEach(([, href, num, label]) => out.push({ kind: 'screen', label, hint: /\d/.test(num) ? `단계 ${num}` : '', words: '', href }));
   out.push({ kind: 'screen', label: auto[3], hint: '', words: '', href: auto[1] });
-  tools.forEach(([, href, , label]) => out.push({ kind: 'screen', label, hint: '작품 도구', words: '', href }));
+  tools.forEach(([id, href, , label]) => out.push({ kind: 'screen', label, hint: '작품 도구', words: id === 'brief' ? 'API 없이' : '', href }));
   apart.forEach(([, href, , label]) => out.push({ kind: 'screen', label, hint: '본편과 분리', words: '', href }));
   foot.forEach(([href, label]) => out.push(href === '#/settings' ? settings : { kind: 'screen', label, hint: '', words: '', href }));
   ctx.characters.forEach((c) => out.push({ kind: 'char', label: c.name, hint: '인물 · 관계도', words: '', href: `${ctx.base}/cast/${encodeURIComponent('c:' + c.id)}` }));
@@ -117,10 +117,14 @@ function paletteItems(ctx) {
   out.push(...rows);
   ctx.episodes.forEach((e) => {
     const hint = [e.title, (typeof STATUS === 'object' && STATUS[e.status]) || ''].filter(Boolean).join(' · ');
-    const write = { kind: 'ep', n: e.n, label: `${e.n}화 집필`, hint, words: e.title, href: `${ctx.base}/write/${e.n}` };
-    // 본문을 쓰고 반영을 기다리는 화는 상태 승인을 앞에 둔다
-    if (e.status === 'written') out.push({ kind: 'ep', n: e.n, label: `${e.n}화 상태 승인`, hint, words: e.title, href: `${ctx.base}/review/${e.n}` });
-    out.push(write);
+    const item = (key, label) => ({ kind: 'ep', n: e.n, label: `${e.n}화 ${label}`, hint, words: e.title, href: `${ctx.base}/${key}/${e.n}` });
+    // 본문을 쓰고 반영을 기다리는 화는 검수 · 상태 승인을 앞에 두고, 지금 차례(stage, home.js epStage)를 맨 앞에 둔다
+    if (e.status === 'written') {
+      const flow = [['check', '검수'], ['review', '상태 승인']];
+      if (e.stage === 'review') flow.reverse();
+      flow.forEach(([key, label]) => out.push(item(key, label)));
+    }
+    out.push(item('write', '집필'));
   });
   return out;
 }
