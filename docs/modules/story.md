@@ -311,6 +311,7 @@
 - 갈래 화면
 - 작품 머리 띠(`branchStrip`)
 - 띠는 화면 머리 아래 한 줄이고 집안 작품 열기는 ⋯ 메뉴(넣는 자리 `branchPlace`, 머리로 시작하지 않는 화면은 맨 위)
+- 갈래 만들기 칸을 편 동안 `branchPlace` 는 머리와 본문의 주 버튼을 보조로 낮춘다(주 버튼은 칸의 만들기 하나)
 - 함께 쓰는 앞 화를 고친 경고와 남겨 둔 본문 이어 가기는 띠 아래 Note
 - 사이드바 갈래 줄(`branchSideTag`)
 - 갈래 만들기 칸(`branchFormCard`, 폴더 이름 `branchFolder` 는 `home.js` `folderOf` 와 같은 규칙)

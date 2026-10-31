@@ -102,7 +102,7 @@ function pfCard(id, label, base, root, hot) {
   const empty = styleCardEmpty(id, prof);
   const editing = empty || pfOpen(root, id);
   const isHot = styleCardKeys(id).some((k) => hot.has(k));
-  const add = editing ? { markers: ['addMarker', '+ 표지'], devices: ['deviceAdd', '+ 장치'], passages: ['addPassage', '+ 문단'] }[id] : null;
+  const add = editing ? { markers: ['addMarker', '+ 표지 더하기'], devices: ['deviceAdd', '+ 장치 더하기'], passages: ['addPassage', '+ 문단 더하기'] }[id] : null;
   const btns = [
     add ? `<button type="button" class="btn small" data-action="${add[0]}" data-arg="${root}">${add[1]}</button>` : '',
     empty && !pfOpen(root, id) ? '' : `<button type="button" class="btn small" data-action="styleEdit" data-arg="${root}|${id}" aria-expanded="${editing}">${editing ? '다 고쳤어요' : '고치기'}</button>`,
