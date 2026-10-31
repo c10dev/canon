@@ -1180,8 +1180,8 @@ Object.assign(actions, {
   async suggest() {
     await startJob('suggest');
   },
-  dropSuggestion() {
-    if (!confirmDrop('AI 설정 제안')) return;
+  async dropSuggestion() {
+    if (!(await confirmDrop('AI 설정 제안'))) return;
     S.suggestion = null;
     render();
   },
@@ -1254,14 +1254,14 @@ Object.assign(actions, {
     markDirty();
     render();
   },
-  removeCharacter(i) {
+  async removeCharacter(i) {
     const c = P().characters[i];
     // 플롯 · 반영 기록에 남은 id 는 지우지 않는다. 지우면 그 화의 등장 인물과 관계 사건이 id 로만 보인다
     const inPlots = P().episodes.filter((e) => e.plot.characters.includes(c.id)).map((e) => e.plot.number);
     const inHistory = [...new Set(P().history.filter((h) => (h.events || []).some((ev) => ev.actor === c.id || ev.target === c.id) || h.character_updates.some((u) => u.character_id === c.id)).map((h) => h.episode))];
     const used = [inPlots.length ? `${rangeText(inPlots)}화 플롯의 등장 인물` : '', inHistory.length ? `${rangeText(inHistory)}화 반영 기록` : ''].filter(Boolean);
     const warn = used.length ? `\n이 인물은 ${used.join('과 ')}에 남아 있어요. 그곳에는 이름 대신 id(${c.id})로 보여요.${inHistory.length ? ' 이미 반영한 화에 나온 인물이면 지우기보다 비중을 단역으로 낮추는 편이 안전해요.' : ''}` : '';
-    if (!confirm(`${c.name || c.id} 인물을 삭제할까요? 관계와 지금 상태도 함께 삭제돼요. 저장하기 전에는 아래 띠에서 되살릴 수 있어요.${warn}`)) return;
+    if (!(await askConfirm(`${c.name || c.id} 인물을 삭제할까요? 관계와 지금 상태도 함께 삭제돼요. 저장하기 전에는 아래 띠에서 되살릴 수 있어요.${warn}`, { ok: '삭제하기', danger: true }))) return;
     rememberRemoved(`인물 ${c.name || c.id}`, ['characters', 'relationships', 'states']);
     P().characters.splice(i, 1);
     // 인물 칸 ✦ 후보는 번호로 칸을 찾아서, 번호가 밀리면 다른 인물 칸 아래에 뜬다
@@ -1290,14 +1290,14 @@ Object.assign(actions, {
     markDirty();
     render();
   },
-  fillSlot(arg) {
+  async fillSlot(arg) {
     const [k, ...rest] = arg.split('|');
     const v = rest.join('|');
     const now = (P().meta.logline_parts[k] || '').trim();
     // 작가가 쓴 글은 묻고 바꾼다. 비었거나 예시 그대로면 바로 바꾼다
     if (now && now !== v && !slotValues(k).includes(now)) {
       const label = LOGLINE_SLOTS.find(([x]) => x === k)[1];
-      if (!confirm(`'${label}' 칸에 쓴 글을 이 예시로 바꿀까요?\n지금: ${now}\n예시: ${v}`)) return;
+      if (!(await askConfirm(`'${label}' 칸에 쓴 글을 이 예시로 바꿀까요?\n지금: ${now}\n예시: ${v}`, { ok: '바꾸기' }))) return;
     }
     const prev = composeLogline(P().meta.logline_parts);
     P().meta.logline_parts[k] = v;
@@ -1338,9 +1338,9 @@ Object.assign(actions, {
     updateLogline();
     toast('칸 내용으로 로그라인을 다시 만들었어요');
   },
-  useExample(i) {
+  async useExample(i) {
     const parts = P().meta.logline_parts;
-    if (Object.values(parts).some((v) => v.trim()) && !confirm('지금 쓴 다섯 칸을 이 예시로 바꿀까요?')) return;
+    if (Object.values(parts).some((v) => v.trim()) && !(await askConfirm('지금 쓴 다섯 칸을 이 예시로 바꿀까요?', { ok: '바꾸기' }))) return;
     Object.assign(parts, loglineExamples()[i]);
     LOGLINE_SLOTS.forEach(([k]) => { const el = $(`#f-meta-logline_parts-${k}`); if (el) el.value = parts[k]; });
     markDirty();
@@ -1362,11 +1362,11 @@ Object.assign(actions, {
     markDirty();
     $('#tone-box').outerHTML = toneBox();
   },
-  setRelType(arg) {
+  async setRelType(arg) {
     const [i, type] = arg.split('|');
     const now = (P().relationships[i].type || '').trim();
     // 직접 쓴 사이는 묻고 바꾼다. 비었거나 다른 예시를 고른 것이면 바로 바꾼다
-    if (now && now !== type && !REL_TYPES.includes(now) && !confirm(`'어떤 사이' 칸에 쓴 글을 이 예시로 바꿀까요?\n지금: ${now}\n예시: ${type}`)) return;
+    if (now && now !== type && !REL_TYPES.includes(now) && !(await askConfirm(`'어떤 사이' 칸에 쓴 글을 이 예시로 바꿀까요?\n지금: ${now}\n예시: ${type}`, { ok: '바꾸기' }))) return;
     P().relationships[i].type = type;
     markDirty();
     refreshRel(Number(i));

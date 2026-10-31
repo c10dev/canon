@@ -53,11 +53,11 @@ function knowsFoldPicked(draft) {
 
 Object.assign(actions, {
   async foldKnows(n) {
-    if (S.foldDrafts[n] && !confirm(`아크 ${n} 접기 제안이 아직 있어요. 고친 내용을 버리고 새로 받을까요?`)) return;
+    if (S.foldDrafts[n] && !(await askConfirm(`아크 ${n} 접기 제안이 아직 있어요. 고친 내용을 버리고 새로 받을까요?`, { ok: '새로 받기', danger: true }))) return;
     await startJob('fold_knows', Number(n));
   },
-  dropFold(n) {
-    if (!confirmDrop('아는 정보 접기 제안')) return;
+  async dropFold(n) {
+    if (!(await confirmDrop('아는 정보 접기 제안'))) return;
     delete S.foldDrafts[n];
     render();
   },
@@ -72,7 +72,7 @@ Object.assign(actions, {
     });
   },
   async undoFold(n) {
-    if (!confirm(`아크 ${n}에서 접은 아는 정보를 되돌릴까요? 접기 전 줄로 돌아가요.`)) return;
+    if (!(await askConfirm(`아크 ${n}에서 접은 아는 정보를 되돌릴까요? 접기 전 줄로 돌아가요.`, { ok: '되돌리기' }))) return;
     await run('되돌리는 중', async () => {
       await saveIfDirty();
       S.project = await api('DELETE', `/projects/${enc(S.name)}/knows-fold/${n}`);

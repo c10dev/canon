@@ -361,7 +361,7 @@ Object.assign(actions, {
   },
   async rwRestore(id) {
     const n = Number(S.route[3]) || currentEp();
-    if (!confirm('지금 본문을 이전 판에 남기고 이 판으로 되돌릴까요?')) return;
+    if (!(await askConfirm('지금 본문을 이전 판에 남기고 이 판으로 되돌릴까요?', { ok: '되돌리기' }))) return;
     await run('되돌리는 중', async () => {
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/versions/${enc(id)}/restore`);
       S.rwPeek = null;

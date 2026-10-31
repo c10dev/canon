@@ -193,14 +193,14 @@ Object.assign(actions, {
   async openingDrafts(n) {
     if (!openingWaysOk()) return;
     const d = S.openingData[n];
-    if (d && d.compare && !d.compare.picked && !confirm(`${n}화의 고르지 않은 비교본을 새로 쓴 것으로 바꿀까요?`)) return;
+    if (d && d.compare && !d.compare.picked && !(await askConfirm(`${n}화의 고르지 않은 비교본을 새로 쓴 것으로 바꿀까요?`, { ok: '바꾸기', danger: true }))) return;
     try { await flushText(n); } catch (e) { return toast(e.message, true); }  // 여러 안은 저장된 본문의 화 자료로 쓴다
     startJob('opening_drafts', n, { approaches: S.openingWays });
   },
-  openingPlots(n) {
+  async openingPlots(n) {
     if (!openingWaysOk()) return;
     const have = (S.openingPlots[n] || []).length;
-    if (have && !confirm(`받아 둔 안 ${have}개를 버리고 새로 받을까요?`)) return;
+    if (have && !(await askConfirm(`받아 둔 안 ${have}개를 버리고 새로 받을까요?`, { ok: '새로 받기', danger: true }))) return;
     startJob('openings', n, { approaches: S.openingWays });
   },
   async openingUsePlot(arg) {
@@ -208,7 +208,7 @@ Object.assign(actions, {
     const o = (S.openingPlots[n] || [])[i];
     if (!o) return;
     const e = ep(n);
-    if (!confirm(`${n}화 플롯을 이 안으로 바꿀까요?${e.status === 'confirmed' ? ' 확정이 풀려 다시 확정해야 해요.' : ''} ${e.opening_prev ? '안을 처음 고르기 전 플롯' : '지금 플롯'}은 '고르기 전 플롯으로 되돌리기'로 되찾을 수 있어요.`)) return;
+    if (!(await askConfirm(`${n}화 플롯을 이 안으로 바꿀까요?${e.status === 'confirmed' ? ' 확정이 풀려 다시 확정해야 해요.' : ''} ${e.opening_prev ? '안을 처음 고르기 전 플롯' : '지금 플롯'}은 '고르기 전 플롯으로 되돌리기'로 되찾을 수 있어요.`, { ok: '바꾸기' }))) return;
     await run('플롯을 바꾸는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/opening-plot`, { plot: o.plot });
@@ -219,7 +219,7 @@ Object.assign(actions, {
   },
   async openingUndoPlot(n) {
     n = Number(n);
-    if (!confirm(`${n}화 플롯을 안을 고르기 전으로 되돌릴까요?`)) return;
+    if (!(await askConfirm(`${n}화 플롯을 안을 고르기 전으로 되돌릴까요?`, { ok: '되돌리기' }))) return;
     await run('플롯을 되돌리는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/opening-plot/undo`);
@@ -228,9 +228,9 @@ Object.assign(actions, {
       toast(`${n}화 플롯을 되돌렸어요. 확정했던 화였다면 다시 확정하세요`);
     });
   },
-  openingDropPlots(n) {
+  async openingDropPlots(n) {
     n = Number(n);
-    if (!confirmDrop(`${n}화 여는 방식 플롯 안`)) return;
+    if (!(await confirmDrop(`${n}화 여는 방식 플롯 안`))) return;
     delete S.openingPlots[n];
     delete S.openingUsed[n];
     render();
@@ -238,7 +238,7 @@ Object.assign(actions, {
   async openingPick(arg) {
     const [n, k] = String(arg).split(':').map(Number);
     const unsaved = textUnsaved(n);
-    if ((ep(n).text || unsaved) && !confirm(`${k}번을 ${n}화 본문으로 바꿀까요?${unsaved ? '\n고치던 본문은 먼저 저장해 이전 판에 남겨요.' : ''}`)) return;
+    if ((ep(n).text || unsaved) && !(await askConfirm(`${k}번을 ${n}화 본문으로 바꿀까요?${unsaved ? '\n고치던 본문은 먼저 저장해 이전 판에 남겨요.' : ''}`, { ok: '바꾸기' }))) return;
     await run('공개하는 중', async () => {
       await saveIfDirty();
       await flushText(n);  // 저장하지 않은 본문을 먼저 저장해야 바꿀 때 이전 판에 남는다 (rwAdopt 와 같다)

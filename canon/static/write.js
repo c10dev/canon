@@ -491,7 +491,7 @@ Object.assign(actions, {
     render();
   },
   async writeEp(n) {
-    if (ep(n).text && !confirm(`${n}화 본문을 새로 생성할까요? 지금 본문은 사라져요.`)) return;
+    if (ep(n).text && !(await askConfirm(`${n}화 본문을 새로 생성할까요? 지금 본문은 사라져요.`, { ok: '새로 생성하기', danger: true }))) return;
     await startJob('write', n, cueWriteArg(n));
   },
   async saveText(n) {
@@ -588,7 +588,7 @@ Object.assign(actions, {
   async importText(n) {
     const text = $('#imp-body').value.trim();
     if (!text) return toast('본문을 붙여 넣으세요', true);
-    if (ep(n).text && !confirm(`${n}화의 지금 본문을 바꿀까요?`)) return;
+    if (ep(n).text && !(await askConfirm(`${n}화의 지금 본문을 바꿀까요?`, { ok: '바꾸기', danger: true }))) return;
     await run('가져오는 중', async () => {
       await saveIfDirty();
       S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, { text });
@@ -623,7 +623,7 @@ Object.assign(actions, {
   async importJson(n) {
     const raw = $('#imp-json').value;
     if (!raw.trim()) return toast('JSON을 붙여 넣으세요', true);
-    if (S.deltas[n] && !confirm(`${n}화에 검토 중인 변경안이 있어요. 골라 둔 체크와 함께 가져온 JSON으로 바꿀까요?`)) return;
+    if (S.deltas[n] && !(await askConfirm(`${n}화에 검토 중인 변경안이 있어요. 골라 둔 체크와 함께 가져온 JSON으로 바꿀까요?`, { ok: '바꾸기', danger: true }))) return;
     await run('확인하는 중', async () => {
       let d;
       try {

@@ -395,7 +395,7 @@ Object.assign(actions, {
   },
   async abDelete(id) {
     const r = S.ab.abilities.find((x) => x.ability.id === id);
-    if (!r || !confirm(`'${r.ability.name}' 도감 항목을 지울까요? 상태창 값은 그대로예요.`)) return;
+    if (!r || !(await askConfirm(`'${r.ability.name}' 도감 항목을 지울까요? 상태창 값은 그대로예요.`, { ok: '지우기', danger: true }))) return;
     await run('도감 항목 지우는 중', async () => {
       S.project = await api('DELETE', `/projects/${enc(S.name)}/abilities/${enc(id)}`);
       S.abEdit = null;

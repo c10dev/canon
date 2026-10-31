@@ -498,9 +498,9 @@ Object.assign(actions, {
     const acts = m.revision.arc && m.revision.arc.title && (next || m.revision.arc.end_ep) ? arc : picked('acts');
     const episodes = m.revision.episodes.map((e) => e.number).filter((n) => picked(n));
     if (!acts && !arc && !parts && !episodes.length) return toast('적용할 부분을 고르세요', true);
-    if (next && arc && S.arcDraft && !confirm('지금 다음 아크 초안을 이 안으로 바꿀까요? 초안에서 손본 칸도 이 안으로 바뀌어요.')) return;
+    if (next && arc && S.arcDraft && !(await askConfirm('지금 다음 아크 초안을 이 안으로 바꿀까요? 초안에서 손본 칸도 이 안으로 바뀌어요.', { ok: '바꾸기', danger: true }))) return;
     const lost = parts ? P().parts.filter((x) => x.summary && !m.revision.parts.some((y) => y.start_ep === x.start_ep && y.end_ep === x.end_ep)) : [];
-    if (lost.length && !confirm(`범위가 바뀌어 저장된 ${lost.map((x) => `${x.number}부`).join(', ')} 요약이 사라져요. 적용할까요?`)) return;
+    if (lost.length && !(await askConfirm(`범위가 바뀌어 저장된 ${lost.map((x) => `${x.number}부`).join(', ')} 요약이 사라져요. 적용할까요?`, { ok: '적용하기', danger: true }))) return;
     const draft = next && arc ? draftFromRev(m) : null;
     await run('변경안을 적용하는 중', async () => {
       await saveIfDirty();
@@ -517,7 +517,7 @@ Object.assign(actions, {
   async chatUndo(i) {
     i = Number(i);
     const m = chatMessages(S.chatTopic)[i];
-    if (!confirm(`이 변경안 적용을 취소할까요? 적용한 구조와 화 플롯을 적용하기 전으로 돌리고, 확정했던 화는 확정으로 돌아가요. 그 뒤에 다시 고치거나 확정한 화, 본문을 쓴 화는 그대로 둬요.${S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : ''}`)) return;
+    if (!(await askConfirm(`이 변경안 적용을 취소할까요? 적용한 구조와 화 플롯을 적용하기 전으로 돌리고, 확정했던 화는 확정으로 돌아가요. 그 뒤에 다시 고치거나 확정한 화, 본문을 쓴 화는 그대로 둬요.${S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : ''}`, { ok: '적용 취소', cancel: '닫기', danger: true }))) return;
     await run('적용을 취소하는 중', async () => {
       await saveIfDirty();
       const res = await api('POST', `/projects/${enc(S.name)}/chat/plot/${i}/undo`);
@@ -565,8 +565,8 @@ Object.assign(actions, {
     // 손보던 후보 글이 있으면 묻는다. 버린 뒤에도 '다시 검토'로 다시 열 수 있다
     const also = S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : '';
     if (Object.keys(S.candEdit || {}).some((k) => k.startsWith(`${i}:`))) {
-      if (!confirm(`손보던 후보 글이 있어요. 버릴까요? 다시 검토로 열면 후보는 다시 보이지만 손본 글은 남지 않아요.${also}`)) return;
-    } else if (also && !confirm(`이 변경안을 버릴까요?${also}`)) return;
+      if (!(await askConfirm(`손보던 후보 글이 있어요. 버릴까요? 다시 검토로 열면 후보는 다시 보이지만 손본 글은 남지 않아요.${also}`, { ok: '버리기', danger: true }))) return;
+    } else if (also && !(await askConfirm(`이 변경안을 버릴까요?${also}`, { ok: '버리기', danger: true }))) return;
     await run('정리하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/chat/${enc(S.chatTopic)}/${i}/dismiss`);
@@ -580,7 +580,7 @@ Object.assign(actions, {
   },
   async chatClear() {
     const open = chatMessages(S.chatTopic).filter((m) => ((m.revision || m.setup) && !chatOptionsOf(m).length || m.style) && !m.outcome).length;
-    if (!confirm(chatConf(S.chatTopic).clearAsk + (open ? `\n아직 고르지 않은 변경안 ${open}개도 함께 지워져요.` : '') + (S.dirty ? '\n저장하지 않은 다른 변경도 함께 저장해요.' : ''))) return;
+    if (!(await askConfirm(chatConf(S.chatTopic).clearAsk + (open ? `\n아직 고르지 않은 변경안 ${open}개도 함께 지워져요.` : '') + (S.dirty ? '\n저장하지 않은 다른 변경도 함께 저장해요.' : ''), { ok: '지우기', danger: true }))) return;
     await run('지우는 중', async () => {
       await saveIfDirty();
       S.project = await api('DELETE', `/projects/${enc(S.name)}/chat/${enc(S.chatTopic)}`);

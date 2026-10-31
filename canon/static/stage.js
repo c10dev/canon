@@ -1322,9 +1322,9 @@ function stgSet(field, value) {
 }
 
 Object.assign(actions, {
-  stgAi() {
+  async stgAi() {
     const g = S.stg;
-    if (g.dirty && !confirm('저장하지 않은 장면 변경이 있어요. AI 결과는 저장된 장면과 비교해요. 그래도 받을까요?')) return;
+    if (g.dirty && !(await askConfirm('저장하지 않은 장면 변경이 있어요. AI 결과는 저장된 장면과 비교해요. 그래도 받을까요?', { ok: '받기' }))) return;
     startJob(g.role === 'text' ? 'stage_extract' : 'stage_draft', g.n, { event: g.ev - 1 });
   },
   stgAiFresh() {
@@ -1333,7 +1333,7 @@ Object.assign(actions, {
   },
   async stgApply() {
     const g = S.stg;
-    if (g.dirty && !confirm('저장하지 않은 변경이 사라져요. AI 장면으로 바꿀까요?')) return;
+    if (g.dirty && !(await askConfirm('저장하지 않은 변경이 사라져요. AI 장면으로 바꿀까요?', { ok: '바꾸기', danger: true }))) return;
     try {
       const view = await api('POST', `/projects/${enc(S.name)}/stage/${g.n}/apply`, { event: g.ev - 1, role: g.role, shared: !!g.shared });
       stgTake(view);
@@ -1354,7 +1354,7 @@ Object.assign(actions, {
   },
   async stgUndo() {
     const g = S.stg;
-    if (g.dirty && !confirm('저장하지 않은 변경이 사라져요. 적용 전으로 되돌릴까요?')) return;
+    if (g.dirty && !(await askConfirm('저장하지 않은 변경이 사라져요. 적용 전으로 되돌릴까요?', { ok: '되돌리기', danger: true }))) return;
     try {
       stgTake(await api('POST', `/projects/${enc(S.name)}/stage/${g.n}/${enc(g.sid)}/undo`));
       g.dirty = false;
@@ -1383,10 +1383,10 @@ Object.assign(actions, {
   },
   stgStep(d) { actions.stgBeat(S.stg.beat + Number(d)); },
   stgBeatEdit() { S.stg.beatEdit = !S.stg.beatEdit; render(); },
-  stgRole(r) {
+  async stgRole(r) {
     const g = S.stg;
     if (g.role === r) return;
-    if (g.dirty && !confirm('저장하지 않은 변경이 사라져요. 바꿀까요?')) return;
+    if (g.dirty && !(await askConfirm('저장하지 않은 변경이 사라져요. 바꿀까요?', { ok: '바꾸기', danger: true }))) return;
     g.role = r;
     g.dirty = false;
     S.stgDirty = false;
@@ -1432,11 +1432,11 @@ Object.assign(actions, {
     g.beat += 1;
     stgTouch();
   },
-  stgBeatDrop() {
+  async stgBeatDrop() {
     const g = S.stg;
     if (!g.beat) return;
     const b = g.scene.beats[g.beat - 1];
-    if (b.bodies.length && !confirm(`${g.beat}박자를 지울까요? 이 박자에서 바꾼 것도 사라져요.`)) return;
+    if (b.bodies.length && !(await askConfirm(`${g.beat}박자를 지울까요? 이 박자에서 바꾼 것도 사라져요.`, { ok: '지우기', danger: true }))) return;
     g.scene.beats.splice(g.beat - 1, 1);
     g.beat -= 1;
     stgTouch();
@@ -1448,9 +1448,9 @@ Object.assign(actions, {
     g.beat = j + 1;
     stgTouch();
   },
-  stgCastDrop(w) {
+  async stgCastDrop(w) {
     const g = S.stg;
-    if (!confirm(`${charName(w)}을(를) 출연진에서 뺄까요? 이 인물의 자리 · 자세 · 접촉도 모두 사라져요.`)) return;
+    if (!(await askConfirm(`${charName(w)}을(를) 출연진에서 뺄까요? 이 인물의 자리 · 자세 · 접촉도 모두 사라져요.`, { ok: '빼기', danger: true }))) return;
     g.scene.cast = g.scene.cast.filter((x) => x !== w);
     const strip = (list) => list.filter((b) => b.who !== w).map((b) => ({ ...b, contacts: b.contacts.filter((c) => c.to !== w) }));
     g.scene.start = strip(g.scene.start);
@@ -1475,11 +1475,11 @@ Object.assign(actions, {
     stageTurn(a);
     stgTouch();
   },
-  stgAnchorDrop(id) {
+  async stgAnchorDrop(id) {
     const g = S.stg;
     const gone = new Set([id, ...stageChildren(g.room, id).map((a) => a.id)]);
     const used = [...g.scene.start, ...g.scene.beats.flatMap((b) => b.bodies)].some((b) => b.at && gone.has(b.at.ref));
-    if (used && !confirm('이 기준점(함께 빠지는 기준점 포함)에 선 인물이 있어요. 빼면 그 인물의 자리는 모름이 돼요. 뺄까요?')) return;
+    if (used && !(await askConfirm('이 기준점(함께 빠지는 기준점 포함)에 선 인물이 있어요. 빼면 그 인물의 자리는 모름이 돼요. 뺄까요?', { ok: '빼기', danger: true }))) return;
     g.room.anchors = g.room.anchors.filter((a) => !gone.has(a.id));
     stgTouch();
   },
@@ -1521,7 +1521,7 @@ Object.assign(actions, {
   },
   async stgDelete() {
     const g = S.stg;
-    if (!g.scene || !confirm('이 장면을 지울까요? 박자와 접촉이 모두 사라져요. 방은 남아요.')) return;
+    if (!g.scene || !(await askConfirm('이 장면을 지울까요? 박자와 접촉이 모두 사라져요. 방은 남아요.', { ok: '지우기', danger: true }))) return;
     try {
       stgTake(await api('DELETE', `/projects/${enc(S.name)}/stage/${g.n}/${enc(g.scene.id)}`));
       g.dirty = false;

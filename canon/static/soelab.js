@@ -1075,7 +1075,7 @@ Object.assign(actions, {
     });
   },
   async soeRemove(id) {
-    if (!confirm('이 조각을 말뭉치에서 뺄까요? 붙여 넣은 원문은 다시 붙여 넣으면 돌아와요.')) return;
+    if (!(await askConfirm('이 조각을 말뭉치에서 뺄까요? 붙여 넣은 원문은 다시 붙여 넣으면 돌아와요.', { ok: '빼기', danger: true }))) return;
     await run('조각 빼는 중', async () => {
       S.soePieces = await api('DELETE', `/soelab/pieces/${id}`);
       await soeRefresh();

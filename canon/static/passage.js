@@ -585,7 +585,7 @@ Object.assign(actions, {
     const edit = (ep(n) && ep(n).edits || []).find((x) => x.id === id);
     if (!edit) return toast('그 수정이 있는 화의 집필 화면에서 되돌리세요', true);  // 알림의 '되돌리기'를 다른 화면에서 누를 때
     // 칸의 초안이 서버 본문을 가린다. 먼저 저장해야 취소한 결과가 화면에 보이고, 나중에 초안을 저장해도 되살아나지 않는다
-    if ((textUnsaved(n) || S.dirty) && !confirm(`${textUnsaved(n) ? '저장하지 않은 본문 수정이 있어요. 먼저 저장하고' : '저장하지 않은 다른 변경도 함께 저장하고'} 이 수정을 취소할까요?`)) return;
+    if ((textUnsaved(n) || S.dirty) && !(await askConfirm(`${textUnsaved(n) ? '저장하지 않은 본문 수정이 있어요. 먼저 저장하고' : '저장하지 않은 다른 변경도 함께 저장하고'} 이 수정을 취소할까요?`, { ok: '수정 취소', cancel: '닫기' }))) return;
     await run('수정을 취소하는 중', async () => {
       await saveIfDirty();
       await flushText(n);
@@ -598,7 +598,7 @@ Object.assign(actions, {
   async redoEdit(id) {
     const n = Number(S.route[3]) || currentEp();
     const edit = ep(n).edits.find((x) => x.id === id);
-    if (textUnsaved(n) && !confirm('저장하지 않은 본문 수정이 있어요. 먼저 저장하고 이 수정을 다시 넣을까요?')) return;
+    if (textUnsaved(n) && !(await askConfirm('저장하지 않은 본문 수정이 있어요. 먼저 저장하고 이 수정을 다시 넣을까요?', { ok: '다시 넣기' }))) return;
     await run('다시 넣는 중', async () => {
       await saveIfDirty();
       await flushText(n);

@@ -229,16 +229,16 @@ function proposalActions(drop, apply, label = '고른 것 적용') {
   return `<div class="row proposal-actions">${b(drop, '', '버리기')}${b(apply, ' primary', label)}</div>`;
 }
 
-/** AI 제안을 버리기 전에 묻는다. 버린 제안은 되살릴 수 없고 다시 받으려면 AI를 다시 불러야 한다. */
+/** AI 제안을 버리기 전에 묻는다. 버린 제안은 되살릴 수 없고 다시 받으려면 AI를 다시 불러야 한다. Promise<boolean> */
 function confirmDrop(what) {
-  return confirm(`${what}을 버릴까요? 되살릴 수 없어서, 다시 보려면 AI에게 다시 받아야 해요.`);  // 부르는 곳은 모두 받침 있는 말(제안, 계획)
+  return askConfirm(`${what}을 버릴까요? 되살릴 수 없어서, 다시 보려면 AI에게 다시 받아야 해요.`, { ok: '버리기', danger: true });  // 부르는 곳은 모두 받침 있는 말(제안, 계획)
 }
 
-/** 초안 다시 만들기 전에 묻는다: 확정하지 않은 초안 화는 AI 새 초안으로 바뀐다. 바뀔 초안이 없으면 묻지 않는다. */
-function confirmRedraft(eps) {
+/** 초안 다시 만들기 전에 묻는다: 확정하지 않은 초안 화는 AI 새 초안으로 바뀐다. 바뀔 초안이 없으면 묻지 않는다. Promise<boolean> */
+async function confirmRedraft(eps) {
   const nums = eps.filter((e) => e.status === 'draft').map((e) => e.plot.number);
   if (!nums.length) return true;
-  return confirm(`초안 ${nums.length}화(${rangeText(nums)}화)를 AI 새 초안으로 바꿔요. 손본 내용도 사라져요. 지키려면 먼저 그 화를 확정하세요. 계속할까요?`);
+  return askConfirm(`초안 ${nums.length}화(${rangeText(nums)}화)를 AI 새 초안으로 바꿀까요? 손본 내용도 사라져요. 지키려면 먼저 그 화를 확정하세요.`, { ok: '바꾸기', danger: true });
 }
 
 /** [1,2,3,5,7,8] → '1~3, 5, 7~8' */
@@ -287,7 +287,7 @@ function rangeText(nums) {
 
 async function startJob(kind, ep = null, extra = {}) {
   // 작업은 저장된 작품을 읽는다. 저장하지 않은 변경(검토 중인 AI 제안 포함)을 말없이 저장하지 않고 먼저 묻는다
-  if (S.dirty && !confirm('저장하지 않은 변경이 있어요. 저장하고 작업을 시작할까요?')) return;
+  if (S.dirty && !(await askConfirm('저장하지 않은 변경이 있어요. 저장하고 작업을 시작할까요?', { ok: '저장하고 시작하기' }))) return;
   // 응답이 오기 전에 또 누르면 같은 요청을 다시 보내지 않는다 (jobBtn 이 그동안 버튼을 막는다)
   const key = `${kind}:${ep ?? ''}`;
   if (S.starting.has(key)) return;
@@ -641,13 +641,13 @@ document.addEventListener('click', (e) => {
     if (j && j.status === 'done') S.pendingJob = j;
   } else if (t.dataset.jobStop) {
     const j = S.jobs.find((x) => x.id === t.dataset.jobStop);
-    if (!j || !confirm(`${j.label}${josa(j.label, '을', '를')} 멈출까요? 이미 보낸 AI 호출의 응답은 버려요 (비용은 들 수 있어요).`)) return;
-    api('POST', `/jobs/${j.id}/stop`).then((x) => {
+    if (!j) return;
+    askConfirm(`${j.label}${josa(j.label, '을', '를')} 멈출까요? 이미 보낸 AI 호출의 응답은 버려요 (비용은 들 수 있어요).`, { ok: '멈추기', danger: true }).then((ok) => ok && api('POST', `/jobs/${j.id}/stop`).then((x) => {
       Object.assign(j, x);
       toast(`${j.label}${josa(j.label, '을', '를')} 멈췄어요`);
       renderHub();
       if (S.route[0] === 'p' && !isTyping()) render();  // 잠겨 있던 버튼을 푼다
-    }).catch((err) => toast(err.message, true));
+    }).catch((err) => toast(err.message, true)));
     return;
   } else if (t.dataset.jobRetry) {
     retryJob(t.dataset.jobRetry);
@@ -661,7 +661,7 @@ document.addEventListener('click', (e) => {
 /** 실패를 알린다. API 키가 없으면(첫 실행에 흔하다) 설정 대화상자를 열지 묻는다. */
 function showError(e) {
   if (e.code === 'no_key') {
-    if (confirm(`${e.message}\n\n설정을 열까요?`)) openSettings('ai');
+    askConfirm(`${e.message}\n\n설정을 열까요?`, { title: 'API 키가 없어요', ok: '설정 열기' }).then((ok) => ok && openSettings('ai'));
     return;
   }
   toast(e.message, true);
@@ -1230,7 +1230,7 @@ const actions = {
     await run('저장하는 중', async () => { if (await save() !== false) toast('저장했어요'); });
   },
   async revert() {
-    if (S.dirty && !confirm('저장하지 않은 변경을 모두 버리고 저장된 작품을 다시 불러올까요? 되돌릴 수 없어요.')) return;
+    if (S.dirty && !(await askConfirm('저장하지 않은 변경을 모두 버리고 저장된 작품을 다시 불러올까요? 되돌릴 수 없어요.', { ok: '다시 불러오기', danger: true }))) return;
     await run('불러오는 중', async () => { await loadProject(S.name); if (S.route[2] === 'style') await loadStyleLink(); });
   },
   /** n화부터 상태 반영을 취소한다 (n-1화 반영 직후로). 본문은 남고, n화 변경안은 다시 골라 반영할 수 있게 채워 둔다. */
@@ -1240,7 +1240,7 @@ const actions = {
     const h = [...P().history].reverse().find((d) => d.episode === n);
     const added = P().history.filter((d) => d.episode >= n).flatMap((d) => d.new_characters || []).map((c) => c.name || c.id);
     const places = (P().elements || []).filter((el) => el.found_in === '본문' && el.found_ep >= n).map((el) => el.name);
-    if (!confirm(`${rangeText(fin)}화의 상태 반영을 취소할까요? ${n - 1 ? `${n - 1}화 반영 직후` : '1화 시작 전'} 상태로 돌아가고, 본문은 남아 상태 승인을 다시 하게 돼요.${added.length ? ` 그 반영이 더한 인물(${added.join(', ')})도 빠져요.` : ''}${places.length ? ` 본문에서 등록한 장소(${places.join(', ')})도 빠져요. 아직 안 쓴 화 플롯에 나오거나 직접 고친 장소는 남아요.` : ''}`)) return false;
+    if (!(await askConfirm(`${rangeText(fin)}화의 상태 반영을 취소할까요? ${n - 1 ? `${n - 1}화 반영 직후` : '1화 시작 전'} 상태로 돌아가고, 본문은 남아 상태 승인을 다시 하게 돼요.${added.length ? ` 그 반영이 더한 인물(${added.join(', ')})도 빠져요.` : ''}${places.length ? ` 본문에서 등록한 장소(${places.join(', ')})도 빠져요. 아직 안 쓴 화 플롯에 나오거나 직접 고친 장소는 남아요.` : ''}`, { ok: '반영 취소', cancel: '닫기', danger: true }))) return false;
     return run('반영을 취소하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/revert/${n - 1}`);
@@ -1274,7 +1274,7 @@ const actions = {
     render();
   },
   async dupProject(name) {
-    const to = prompt(`'${name}' 의 사본 폴더 이름`, `${name}-사본`);
+    const to = await askText('', { title: `'${name}' 의 사본 폴더 이름`, value: `${name}-사본`, ok: '복제하기' });
     if (!to) return;
     await run('복제하는 중', async () => {
       await api('POST', `/projects/${enc(name)}/duplicate`, { name: to.trim() });
@@ -1283,7 +1283,7 @@ const actions = {
     });
   },
   async renameProject(name) {
-    const to = prompt(`'${name}' 의 새 폴더 이름 (주소가 바뀌어요. 작품 제목은 설정 도우미에서 바꿔요)`, name);
+    const to = await askText('주소가 바뀌어요. 작품 제목은 설정 도우미에서 바꿔요.', { title: `'${name}' 의 새 폴더 이름`, value: name, ok: '이름 바꾸기' });
     if (!to || to.trim() === name) return;
     await run('이름을 바꾸는 중', async () => {
       await api('POST', `/projects/${enc(name)}/rename`, { name: to.trim() });
@@ -1293,7 +1293,7 @@ const actions = {
   },
   async deleteProject(name) {
     const x = (S.projects || []).find((y) => y.name === name) || { title: name };
-    const typed = prompt(`'${x.title || name}' 작품을 지울까요? 서버의 projects/.trash로 옮겨 두지만 화면에서는 되살릴 수 없어요.\n지우려면 작품 제목을 그대로 적으세요.`);
+    const typed = await askText(`'${x.title || name}' 작품을 지울까요? 서버의 projects/.trash로 옮겨 두지만 화면에서는 되살릴 수 없어요.\n지우려면 작품 제목을 그대로 적으세요.`, { label: '작품 제목', ok: '지우기', danger: true });
     if (typed === null) return;
     if (typed.trim() !== (x.title || name)) return toast('제목이 달라 지우지 않았어요', true);
     await run('지우는 중', async () => {
@@ -1335,7 +1335,7 @@ const actions = {
     toast(`${r.label}을(를) 되살렸어요`);
   },
   async saveForce() {
-    if (!confirm('다른 탭이나 기기에서 저장한 변경을 이 화면의 작품으로 덮어쓸까요? 그쪽에서 바꾼 설정 · 플롯은 사라져요.')) return;
+    if (!(await askConfirm('다른 탭이나 기기에서 저장한 변경을 이 화면의 작품으로 덮어쓸까요? 그쪽에서 바꾼 설정 · 플롯은 사라져요.', { ok: '덮어쓰기', danger: true }))) return;
     await run('저장하는 중', async () => { if (await save(true) !== false) toast('저장했어요'); });
   },
   async copyOrphan(n) {
@@ -1349,16 +1349,16 @@ const actions = {
     }
     toast(`${n}화 남은 초고를 복사했어요 (${t.length.toLocaleString()}자)`);
   },
-  dropOrphan(n) {
-    if (!confirm(`${n}화 남은 초고를 버릴까요? 되돌릴 수 없어요.`)) return;
+  async dropOrphan(n) {
+    if (!(await askConfirm(`${n}화 남은 초고를 버릴까요? 되돌릴 수 없어요.`, { ok: '버리기', danger: true }))) return;
     delete S.textDraft[n];
     render();
   },
   /** 브라우저에 임시 보관한 초안을 본문 칸에 되살린다. 저장은 '본문 저장'으로 한다. */
-  restoreDraft(n) {
+  async restoreDraft(n) {
     const v = S.draftFound[n];
     if (!v) return;
-    if (textUnsaved(n) && !confirm(`${n}화 칸에 쓰던 글이 있어요. 임시 보관한 초안으로 바꿀까요?`)) return;
+    if (textUnsaved(n) && !(await askConfirm(`${n}화 칸에 쓰던 글이 있어요. 임시 보관한 초안으로 바꿀까요?`, { ok: '바꾸기', danger: true }))) return;
     S.textDraft[n] = v.text;
     delete S.draftFound[n];
     draftKept.delete(DRAFT_PREFIX(S.name) + n);  // 이 탭이 이어 맡는다. 다음 보관 때 이 탭 것으로 다시 쓴다
@@ -1377,8 +1377,8 @@ const actions = {
     }
     toast(`${n}화 임시 보관한 초안을 복사했어요 (${t.length.toLocaleString()}자)`);
   },
-  dropFoundDraft(n) {
-    if (!confirm(`${n}화 임시 보관한 초안을 버릴까요? 되돌릴 수 없어요.`)) return;
+  async dropFoundDraft(n) {
+    if (!(await askConfirm(`${n}화 임시 보관한 초안을 버릴까요? 되돌릴 수 없어요.`, { ok: '버리기', danger: true }))) return;
     draftStore.del(DRAFT_PREFIX(S.name) + n);
     delete S.draftFound[n];
     render();
@@ -1512,6 +1512,96 @@ function showDialog(id, html, back = '') {
   return el;
 }
 
+/** 확인 대화상자의 제목과 문단. 제목을 주지 않으면 첫 문단에서 첫 물음(…까요?)까지를 제목으로, 나머지를 문단으로 쓴다.
+    첫 문단에 물음이 없으면 첫 문단이 제목이다 */
+function askSplit(text, title = '') {
+  const paras = String(text ?? '').split(/\n\s*\n|\n/).map((s) => s.trim()).filter(Boolean);
+  if (title) return { title, body: paras };
+  const first = paras.shift() || '';
+  const m = first.match(/^[\s\S]*?\?(?=\s|$)/);
+  if (!m) return { title: first, body: paras };
+  const rest = first.slice(m[0].length).trim();
+  return { title: m[0].trim(), body: rest ? [rest, ...paras] : paras };
+}
+
+// 열린 확인 대화상자가 기다리는 답 { resolve, input }. 대화상자는 하나만 띄운다: 새로 물으면 앞 물음은 취소로 끝낸다
+let askPending = null;
+function askFinish(value) {
+  const p = askPending;
+  askPending = null;
+  if (p) p.resolve(value === 'ok' ? (p.input ? p.read() : true) : (p.input ? null : false));
+}
+
+/** 닫은 뒤 포커스를 돌릴 곳(showDialog 의 back). 연 버튼은 다시 그리면 사라질 수 있어 같은 동작의 버튼을 찾게 둔다.
+    펼침 메뉴 안 항목이면 메뉴는 닫히므로 그 메뉴 버튼으로 */
+function askBack(from) {
+  if (!from || !from.closest) return '';
+  const q = (v) => String(v).replace(/["\\]/g, '\\$&');
+  const menu = from.closest('[data-menu]');
+  if (menu && from.closest('.pop-panel')) return `[data-action="menuToggle"][data-arg="${q(menu.dataset.menu)}"]`;
+  const a = from.dataset && from.dataset.action;
+  if (!a) return '';
+  return `[data-action="${q(a)}"]${from.dataset.arg !== undefined ? `[data-arg="${q(from.dataset.arg)}"]` : ''}`;
+}
+
+/** 브라우저 확인 창(confirm · prompt) 대신 쓰는 확인 대화상자(디자인 시스템 Dialog의 확인 변형). input 이면 글 한 줄을 받는다 */
+function askOpen(text, o, input) {
+  askFinish('');
+  const { title, body } = askSplit(text, o.title);
+  const id = 'ask-dlg';
+  const field = input ? `${o.label ? `<label class="small" for="${id}-in">${esc(o.label)}</label>` : ''}<input type="text" id="${id}-in" value="${esc(o.value ?? '')}"${o.placeholder ? ` placeholder="${esc(o.placeholder)}"` : ''}${o.label ? '' : ` aria-labelledby="${id}-title"`} autocomplete="off">` : '';
+  const html = `<div class="dlg-body">
+    <h2 id="${id}-title">${esc(title)}</h2>
+    ${body.map((p) => `<p>${esc(p)}</p>`).join('')}
+    ${field}
+    <div class="row dlg-foot"><button type="button" class="btn" data-ask="">${esc(o.cancel || '취소')}</button><button type="button" class="btn ${o.danger ? 'danger' : 'primary'}" data-ask="ok">${esc(o.ok || '확인')}</button></div>
+  </div>`;
+  return new Promise((resolve) => {
+    const el = showDialog(id, html, askBack(document.activeElement));
+    if (!el.dataset.ask) {
+      el.dataset.ask = '1';
+      // 답은 누른 때 바로 정한다. close 이벤트는 뒤에 오므로, 이어서 연 다음 물음을 앞 close 가 취소하지 않게 열린 동안은 무시한다
+      el.addEventListener('click', (e) => {
+        if (e.target === el) return askFinish('');  // 바깥(배경) 누르기. 닫기는 showDialog 가 한다
+        const b = e.target.closest && e.target.closest('[data-ask]');
+        if (!b) return;
+        askFinish(b.dataset.ask);
+        el.close(b.dataset.ask);
+      });
+      el.addEventListener('cancel', () => askFinish(''));  // Esc
+      el.addEventListener('close', () => { if (!el.open) askFinish(el.returnValue); });
+    }
+    el.returnValue = '';
+    const inp = input ? el.querySelector(`#${id}-in`) : null;
+    askPending = { resolve, input, read: () => (inp ? inp.value : '') };
+    const to = inp || el.querySelector('[data-ask="ok"]');
+    if (to) { to.focus(); if (inp && inp.select) inp.select(); }
+  });
+}
+
+/** 브라우저 confirm 대신. 고르면 true, 취소 · Esc · 바깥 누르기는 false.
+    o: { title, ok = '확인', cancel = '취소', danger }. 위험한 동작(지우기 · 버리기 · 덮어쓰기)은 danger 와 동사 ok 를 준다 */
+function askConfirm(text, o = {}) {
+  return askOpen(text, o, false);
+}
+
+/** 브라우저 prompt 대신. 적은 글(빈 글 포함), 취소 · Esc · 바깥 누르기는 null. o: askConfirm 의 것 + { value, label, placeholder } */
+function askText(text, o = {}) {
+  return askOpen(text, o, true);
+}
+
+// 확인 대화상자가 열린 동안 키는 뒤 화면의 단축키 · Esc 처리(대화 패널 닫기 등)에 닿지 않는다. 입력칸의 Enter 는 고르기다
+window.addEventListener('keydown', (e) => {
+  const el = document.getElementById('ask-dlg');
+  if (!askPending || !el || !el.open) return;
+  e.stopImmediatePropagation();
+  if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229 && e.target && e.target.id === 'ask-dlg-in') {
+    e.preventDefault();
+    askFinish('ok');
+    el.close('ok');
+  }
+}, true);
+
 Object.assign(actions, {
   menuToggle(id) {
     S.popMenu = S.popMenu === id ? null : id;
@@ -1596,9 +1686,14 @@ window.addEventListener('hashchange', async () => {
   }
   const setDlg = document.getElementById('set-dlg');
   if (setDlg && setDlg.open) setDlg.close();
-  if ((S.dirty || S.libDirty || S.stgDirty) && !confirm('저장하지 않은 변경이 있어요. 저장하지 않고 이동하면 그 변경은 사라져요. 이동할까요?')) {
+  if (S.dirty || S.libDirty || S.stgDirty) {
+    // 주소는 이미 바뀌었다. 묻는 동안 이전 주소로 되돌려 두고, 이동을 고르면 그 주소로 다시 바꿔 이어 간다
+    const to = location.hash;
+    const st = history.state;
     history.replaceState({ idx: navScroll.idx }, '', lastHash);
-    return;
+    const go = await askConfirm('저장하지 않고 이동하면 그 변경은 사라져요. 이동할까요?', { title: '저장하지 않은 변경이 있어요', ok: '이동하기', danger: true });
+    if (!go || location.hash !== lastHash) return;  // 묻는 사이 다른 이동이 왔으면 그 이동이 다시 묻는다
+    history.replaceState(st, '', to);
   }
   // 기록 칸마다 번호를 붙여 둔다. 번호가 이미 있으면 뒤로 · 앞으로 가기다 (링크로 온 새 칸은 번호가 없다)
   navScroll.at.set(navScroll.idx, window.scrollY);

@@ -206,8 +206,8 @@ Object.assign(actions, {
     if (st && (total < st.min || total > st.max)) return toast(`장편 총 화수는 ${st.min}~${st.max}화로 정하세요`, true);
     await startJob('convert', null, { length: total, ending: S.convForm.ending, note: S.convForm.note || '' });
   },
-  convertDrop() {
-    if (!confirmDrop('AI 전환 계획')) return;
+  async convertDrop() {
+    if (!(await confirmDrop('AI 전환 계획'))) return;
     S.convDraft = null;
     render();
   },
@@ -219,7 +219,7 @@ Object.assign(actions, {
     d.facts = d.facts.filter(keep('fact:'));
     d.tiers = d.tiers.filter(keep('tier:'));
     d.episodes = d.episodes.filter((e) => convPicked('ep:' + e.number));
-    if (!confirm(`총 ${d.total_episodes}화 장편으로 전환할까요? 전환 직전 작품은 따로 남겨 되돌릴 수 있어요.`)) return;
+    if (!(await askConfirm(`총 ${d.total_episodes}화 장편으로 전환할까요? 전환 직전 작품은 따로 남겨 되돌릴 수 있어요.`, { ok: '전환하기' }))) return;
     await run('전환하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/convert/apply`, d);
@@ -235,7 +235,7 @@ Object.assign(actions, {
     });
   },
   async convertUndo() {
-    if (!confirm('전환 전 단편으로 되돌릴까요? 전환한 뒤 고친 설정과 플롯은 사라지고 전환 직전 값으로 돌아가요.')) return;
+    if (!(await askConfirm('전환 전 단편으로 되돌릴까요? 전환한 뒤 고친 설정과 플롯은 사라지고 전환 직전 값으로 돌아가요.', { ok: '되돌리기', danger: true }))) return;
     await run('되돌리는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/convert/undo`);
@@ -417,8 +417,8 @@ Object.assign(actions, {
     if (st && st.rebuild && (span < st.rebuild.min || span > Math.min(st.rebuild.max, total))) return toast(`다시 짤 앞부분은 ${st.rebuild.min}~${Math.min(st.rebuild.max, total)}화로 정하세요`, true);
     await startJob('rebuild', null, { length: total, span, ending: f.ending_at, note: f.note || '' });
   },
-  rebuildDrop() {
-    if (!confirmDrop('AI 재구성 계획')) return;
+  async rebuildDrop() {
+    if (!(await confirmDrop('AI 재구성 계획'))) return;
     S.rbDraft = null;
     S.rbPeek = 0;
     render();
@@ -431,7 +431,7 @@ Object.assign(actions, {
     const d = JSON.parse(JSON.stringify(S.rbDraft));
     d.foreshadows = d.foreshadows.filter((_, i) => convPicked('rbfs:' + i));
     d.tiers = d.tiers.filter((_, i) => convPicked('rbtier:' + i));
-    if (!confirm(`총 ${d.total_episodes}화 장편으로 재구성할까요? 화 번호가 바뀌고 인물 상태와 관계는 1화 시작 전으로 돌아가요. 재구성 직전 작품은 따로 남겨 되돌릴 수 있어요.`)) return;
+    if (!(await askConfirm(`총 ${d.total_episodes}화 장편으로 재구성할까요? 화 번호가 바뀌고 인물 상태와 관계는 1화 시작 전으로 돌아가요. 재구성 직전 작품은 따로 남겨 되돌릴 수 있어요.`, { ok: '재구성하기' }))) return;
     await run('재구성하는 중', async () => {
       await saveIfDirty();
       const out = await api('POST', `/projects/${enc(S.name)}/convert/rebuild/apply`, d);
@@ -448,8 +448,8 @@ Object.assign(actions, {
   async reworkPlan(n) {
     await startJob('rework', Number(n));
   },
-  reworkDrop(n) {
-    if (!confirmDrop(`${n}화 AI 다듬기 제안`)) return;
+  async reworkDrop(n) {
+    if (!(await confirmDrop(`${n}화 AI 다듬기 제안`))) return;
     delete S.reworks[n];
     render();
   },

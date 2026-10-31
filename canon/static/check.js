@@ -554,7 +554,7 @@ Object.assign(actions, {
         pj = await api('POST', url, { skip });
       } catch (err) {
         // 그대로 둠 · 잘못 짚음 지적의 문장을 건드리는 고침안: 서버가 막은 까닭을 보이고 작가가 확인하면 넣는다
-        if (!/그대로 두기로 정한 지적/.test(err.message) || !confirm(err.message.replace(/ 그래도 적용하려면.*$/, ' 그래도 넣을까요?'))) throw err;
+        if (!/그대로 두기로 정한 지적/.test(err.message) || !(await askConfirm(err.message.replace(/ 그래도 적용하려면.*$/, ' 그래도 넣을까요?'), { ok: '넣기' }))) throw err;
         pj = await api('POST', url, { skip, confirm: true });
       }
       afterFix(n, id, pj);

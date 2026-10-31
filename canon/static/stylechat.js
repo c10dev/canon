@@ -163,7 +163,7 @@ Object.assign(actions, {
   async styleChatUndo(i) {
     i = Number(i);
     const push = !!($(`#style-undo-push-${i}`) && $(`#style-undo-push-${i}`).checked);
-    if (!confirm(`이 변경안 적용을 취소할까요? 적용한 칸을 적용하기 전으로 돌려요. 그 뒤에 다시 고친 칸은 그대로 둬요.${S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : ''}`)) return;
+    if (!(await askConfirm(`이 변경안 적용을 취소할까요? 적용한 칸을 적용하기 전으로 돌려요. 그 뒤에 다시 고친 칸은 그대로 둬요.${S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : ''}`, { ok: '적용 취소', cancel: '닫기', danger: true }))) return;
     await run('적용을 취소하는 중', async () => {
       await saveIfDirty();
       const res = await api('POST', `/projects/${enc(S.name)}/chat/style/${i}/undo`, { push });

@@ -492,7 +492,7 @@ Object.assign(actions, {
   async agentRename() {
     const s = agentSession();
     if (!s) return;
-    const title = prompt('세션 이름', s.title || '');
+    const title = await askText('', { title: '세션 이름', value: s.title || '', ok: '이름 바꾸기' });
     if (title == null) return;
     S.agentMenu = false;
     await agentAct(() => api('PATCH', `/projects/${enc(S.name)}/sessions/${s.id}`, { title }));

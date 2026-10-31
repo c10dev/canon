@@ -989,7 +989,7 @@ Object.assign(actions, {
     const title = (document.querySelector('[data-rev-edit="title"]') || {}).value || '';
     const text = (document.querySelector('[data-rev-edit="text"]') || {}).value || '';
     const first = Number((document.querySelector('[data-rev-edit="first"]') || {}).value) || null;
-    if (text.trim() && S.revLab.done && !confirm('글을 바꾸면 다시 나누고 역설계 결과를 모두 지워요. 바꿀까요?')) return;
+    if (text.trim() && S.revLab.done && !(await askConfirm('글을 바꾸면 다시 나누고 역설계 결과를 모두 지워요. 바꿀까요?', { ok: '바꾸기', danger: true }))) return;
     const id = S.revLab.id;
     await run('저장하는 중', async () => {
       await api('PUT', `/revlab/${id}`, { title, text: text.trim() ? text : null, first });
@@ -998,8 +998,8 @@ Object.assign(actions, {
       S.revEdit = false;
     });
   },
-  revAddToggle() {
-    if (S.revAdd && S.revAdd.trim() && !confirm('붙여 넣은 글을 버리고 닫을까요?')) return;
+  async revAddToggle() {
+    if (S.revAdd && S.revAdd.trim() && !(await askConfirm('붙여 넣은 글을 버리고 닫을까요?', { ok: '버리기', danger: true }))) return;
     S.revAdd = S.revAdd === null ? '' : null;
     if (S.revAdd !== null) S.focusTarget = '#rev-atext';
     render();
@@ -1026,10 +1026,10 @@ Object.assign(actions, {
     S.focusTarget = '#rev-eptext';
     if (!S.revPane && S.revEp === e.number) render(); else revNav(e.number);
   },
-  revEpEditClose() {
+  async revEpEditClose() {
     const d = S.revEpEdit;
     const e = d && revItem(d.n);
-    if (e && (d.text !== e.text || d.head !== e.head) && !confirm('고친 글을 버리고 닫을까요?')) return;
+    if (e && (d.text !== e.text || d.head !== e.head) && !(await askConfirm('고친 글을 버리고 닫을까요?', { ok: '버리기', danger: true }))) return;
     S.revEpEdit = null;
     render();
   },
@@ -1037,7 +1037,7 @@ Object.assign(actions, {
     const d = S.revEpEdit;
     const e = revItem(d.n);
     const done = !!(e && (e.sheet || (e.takes || []).length));
-    if (done && d.text.trim() !== e.text && !confirm(`${d.n}화 글을 바꾸면 이 화의 역설계 결과와 되돌려 쓴 판을 지워요. 저장할까요?`)) return;
+    if (done && d.text.trim() !== e.text && !(await askConfirm(`${d.n}화 글을 바꾸면 이 화의 역설계 결과와 되돌려 쓴 판을 지워요. 저장할까요?`, { ok: '저장하기', danger: true }))) return;
     const id = S.revLab.id;
     await run('저장하는 중', async () => {
       await api('PUT', `/revlab/${id}/episodes/${d.n}`, { head: d.head, text: d.text });
@@ -1055,7 +1055,7 @@ Object.assign(actions, {
     const L = S.revLab;
     const later = L.items.length && L.items[L.items.length - 1].number > k;
     const what = ['원문', e.sheet ? '역설계 결과' : '', (e.takes || []).length ? '되돌려 쓴 판' : ''].filter(Boolean).join(' · ');
-    if (!confirm(`${k}화를 지울까요? ${what}${josa(what, '이', '가')} 사라져요.${later ? ' 뒤 화 번호가 하나씩 당겨져요.' : ''}`)) return;
+    if (!(await askConfirm(`${k}화를 지울까요? ${what}${josa(what, '이', '가')} 사라져요.${later ? ' 뒤 화 번호가 하나씩 당겨져요.' : ''}`, { ok: '지우기', danger: true }))) return;
     const id = L.id;
     await run('지우는 중', async () => {
       await api('DELETE', `/revlab/${id}/episodes/${k}`);
@@ -1067,7 +1067,7 @@ Object.assign(actions, {
     });
   },
   async revDelete() {
-    if (!confirm(`'${S.revLab.title || `실험 ${S.revLab.id}`}' 실험을 지울까요? 넣은 글과 역설계 결과가 모두 사라져요.`)) return;
+    if (!(await askConfirm(`'${S.revLab.title || `실험 ${S.revLab.id}`}' 실험을 지울까요? 넣은 글과 역설계 결과가 모두 사라져요.`, { ok: '지우기', danger: true }))) return;
     await run('지우는 중', async () => {
       await api('DELETE', `/revlab/${S.revLab.id}`);
       S.revLab = null;
@@ -1087,17 +1087,17 @@ Object.assign(actions, {
     else S.focusTarget = '#rev-title';
     render();
   },
-  revStyleRun() {
-    if (S.revLab.style && !confirm('지금 문체 프로필을 새로 만든 것으로 바꿀까요?')) return;
+  async revStyleRun() {
+    if (S.revLab.style && !(await askConfirm('지금 문체 프로필을 새로 만든 것으로 바꿀까요?', { ok: '바꾸기', danger: true }))) return;
     revStartJob('style');
   },
   revParse() {
     S.revRedo = false;
     revStartJob('parse', { episodes: [...S.revPick].sort((a, b) => a - b) });
   },
-  revWrite(n) {
+  async revWrite(n) {
     const k = Number(n) || S.revEp;
-    if ((S.cueEdits[revCueKey(k)] || {}).dirty && !confirm('저장하지 않은 큐 시트 고침이 있어요. 저장한 큐 시트로 되돌려 쓸까요?')) return;
+    if ((S.cueEdits[revCueKey(k)] || {}).dirty && !(await askConfirm('저장하지 않은 큐 시트 고침이 있어요. 저장한 큐 시트로 되돌려 쓸까요?', { ok: '되돌려 쓰기', danger: true }))) return;
     revStartJob('write', { episodes: [k], style: !!(S.revStyle && S.revLab.style) });
   },
   async revPick(k) {

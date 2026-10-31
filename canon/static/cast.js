@@ -964,7 +964,7 @@ Object.assign(actions, {
     const [source, target, k] = String(arg).split('|');
     const warmth = Number($(`#tf-w${k}`).value);
     const trust = Number($(`#tf-t${k}`).value);
-    if (!confirm(`${charName(source)} → ${charName(target)} 관계를 온기 ${warmth.toFixed(2)}, 신뢰 ${trust.toFixed(2)} 값으로 보정할까요?`)) return;
+    if (!(await askConfirm(`${charName(source)} → ${charName(target)} 관계를 온기 ${warmth.toFixed(2)}, 신뢰 ${trust.toFixed(2)} 값으로 보정할까요?`, { ok: '보정하기' }))) return;
     await run('보정하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/ties/adjust`, { source, target, warmth, trust });

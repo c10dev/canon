@@ -351,7 +351,7 @@ Object.assign(actions, {
     });
   },
   async illDelete(id) {
-    if (!confirm(`이 삽화 프롬프트를 지울까요?${S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : ''}`)) return;
+    if (!(await askConfirm(`이 삽화 프롬프트를 지울까요?${S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : ''}`, { ok: '지우기', danger: true }))) return;
     const n = ilEpNum();
     await run('지우는 중', async () => {
       await saveIfDirty();
@@ -368,8 +368,8 @@ Object.assign(actions, {
     const ai = ill ? ((ill.draft.characters.find((c) => c.id === cid) || {}).look || []).join(', ') : '';
     const force = !!have;
     const also = S.dirty ? '저장하지 않은 다른 변경도 함께 저장해요.' : '';
-    if (force && !confirm(`${charName(cid)}의 외형 태그를 바꿀까요?${also ? ` ${also}` : ''}\n\n지금: ${have}\nAI: ${ai}`)) return;
-    if (!force && also && !confirm(`${charName(cid)}의 외형 태그를 이 태그로 고정할까요? ${also}`)) return;
+    if (force && !(await askConfirm(`${charName(cid)}의 외형 태그를 바꿀까요?${also ? ` ${also}` : ''}\n\n지금: ${have}\nAI: ${ai}`, { ok: '바꾸기', danger: true }))) return;
+    if (!force && also && !(await askConfirm(`${charName(cid)}의 외형 태그를 이 태그로 고정할까요? ${also}`, { ok: '고정하기' }))) return;
     await run('외형 태그 저장하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/illust/${enc(id)}/keep-look`, { character_id: cid, force });
@@ -380,7 +380,7 @@ Object.assign(actions, {
     const v = ilVisual(cid);
     const filled = v ? [['외형', v.look], ['기본 옷차림', v.outfit]].filter(([, x]) => (x || []).length).map(([k]) => k) : [];
     if (v && v.subject) filled.push('그림 속 성별');
-    if (filled.length && !confirm(`지금 적힌 ${filled.join(' · ')}을(를) AI 제안으로 바꿀까요? 저장하기 전에는 '변경 모두 버리기'로 되돌릴 수 있어요`)) return;
+    if (filled.length && !(await askConfirm(`지금 적힌 ${filled.join(' · ')}을(를) AI 제안으로 바꿀까요? 저장하기 전에는 '변경 모두 버리기'로 되돌릴 수 있어요`, { ok: '바꾸기' }))) return;
     await run('외형 태그 만드는 중', async () => {
       await saveIfDirty();  // AI는 저장된 인물 설정을 읽는다. 방금 고친 설정이나 새 인물도 보게 먼저 저장한다
       const s = await api('POST', `/projects/${enc(S.name)}/characters/${enc(cid)}/look`);

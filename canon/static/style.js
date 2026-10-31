@@ -506,7 +506,7 @@ Object.assign(actions, {
     const has = P().style.narration_pov || P().style.sample_passages.length;
     const l = S.styleLink || {};
     const unlink = ['same', 'changed'].includes(l.state) ? `\n라이브러리 '${l.name}' 연결도 끊겨요. 라이브러리 항목은 그대로예요.` : '';
-    if ((has || unlink) && !confirm(`분석 결과로 지금 스타일 프로필을 바꿀까요? 저장하기 전에는 '변경 모두 버리기'로 되돌릴 수 있어요.${unlink}`)) return;
+    if ((has || unlink) && !(await askConfirm(`분석 결과로 지금 스타일 프로필을 바꿀까요? 저장하기 전에는 '변경 모두 버리기'로 되돌릴 수 있어요.${unlink}`, { ok: '바꾸기' }))) return;
     await run('문체를 분석하는 중… (최대 1분)', async () => {
       await saveIfDirty();
       const prof = await api('POST', `/projects/${enc(S.name)}/style`, { text: S.styleSample });
@@ -552,7 +552,7 @@ Object.assign(actions, {
     const e = (S.libs || []).find((x) => x.id === id);
     const l = S.styleLink || { state: 'none' };
     const lost = l.state === 'same' ? '' : '\n지금 문체는 라이브러리에 없어서 되돌릴 수 없어요. 남겨 두려면 취소하고 \'이 문체를 라이브러리에 새로 저장\'을 먼저 누르세요.';
-    if (!confirm(`'${e ? e.name : id}' 문체를 이 작품에 적용할까요? 지금 작품의 스타일 프로필은 바뀌어요.${lost}`)) return;
+    if (!(await askConfirm(`'${e ? e.name : id}' 문체를 이 작품에 적용할까요? 지금 작품의 스타일 프로필은 바뀌어요.${lost}`, { ok: '적용하기' }))) return;
     await run('적용하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/style/apply`, { style_id: id });
@@ -565,7 +565,7 @@ Object.assign(actions, {
     const bare = S.styleSample.trim() ? '' : '\n(이 화면에 붙여 넣은 원문이 없어 원문 없이 저장돼요)';
     const l = S.styleLink || {};
     const moved = ['same', 'changed'].includes(l.state) ? `\n이 작품은 새 항목에 연결되고, 지금 연결된 '${l.name}' 연결은 끊겨요. '${l.name}' 항목은 그대로 남아요.` : '';
-    const name = prompt(`라이브러리에 저장할 문체 이름${bare}${moved}`, `${P().meta.title || S.name} 문체`);
+    const name = await askText(`${bare}${moved}`, { title: '라이브러리에 저장할 문체 이름', value: `${P().meta.title || S.name} 문체`, ok: '저장하기' });
     if (name === null) return;
     await run('라이브러리에 저장하는 중', async () => {
       await saveIfDirty();
@@ -582,7 +582,7 @@ Object.assign(actions, {
     const others = users.filter((n) => n !== S.name);
     const warn = (others.length ? `\n다른 작품(${others.join(', ')})은 다시 적용하기 전까지 바뀌지 않아요.` : '')
       + ((l.theirs || []).length ? `\n라이브러리 ${l.version}번 버전에서 바뀐 칸(${l.theirs.map((c) => c.label).join(', ')})은 이 작품 값으로 덮여요.` : '');
-    const note = prompt(`이 작품의 문체를 라이브러리 '${l.name}' 의 새 버전으로 올려요. 예전 버전은 남아 있어 되돌릴 수 있어요.${warn}\n\n버전 메모 (비워도 돼요)`, '');
+    const note = await askText(`예전 버전은 남아 있어 되돌릴 수 있어요.${warn}`, { title: `이 작품의 문체를 라이브러리 '${l.name}' 의 새 버전으로 올려요`, label: '버전 메모 (비워도 돼요)', ok: '올리기' });
     if (note === null) return;
     await run('라이브러리에 올리는 중', async () => {
       await saveIfDirty();
@@ -596,7 +596,7 @@ Object.assign(actions, {
   async pullStyle() {
     const l = S.styleLink || {};
     const lost = (l.mine || []).length || !l.base_known ? ' 작품에서 고친 내용은 사라져요.' : '';
-    if (!confirm(`이 작품의 문체를 라이브러리 '${l.name}' ${l.version}번 버전으로 바꿀까요?${lost}`)) return;
+    if (!(await askConfirm(`이 작품의 문체를 라이브러리 '${l.name}' ${l.version}번 버전으로 바꿀까요?${lost}`, { ok: '바꾸기', danger: true }))) return;
     await run('적용하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/style/apply`, { style_id: l.id });
@@ -610,7 +610,7 @@ Object.assign(actions, {
   async libAnalyze() {
     if ((S.lib.sample || '').trim().length < 200) return toast('원문을 200자 이상 넣어 주세요', true);
     const has = S.lib.profile.narration_pov || S.lib.profile.sample_passages.length;
-    if (has && !confirm('분석 결과로 지금 프로필을 바꿀까요? 저장 전까지는 되돌릴 수 있어요.')) return;
+    if (has && !(await askConfirm('분석 결과로 지금 프로필을 바꿀까요? 저장 전까지는 되돌릴 수 있어요.', { ok: '바꾸기' }))) return;
     await run('문체를 분석하는 중… (최대 1분)', async () => {
       S.lib.profile = await api('POST', '/styles/analyze', { text: S.lib.sample });
       S.libDirty = true;
@@ -633,7 +633,7 @@ Object.assign(actions, {
   },
   async libRevert() {
     if (!S.libDirty) return;
-    if (!confirm(S.lib.id ? '저장하지 않은 변경을 버리고 저장된 문체로 되돌릴까요?' : '적은 내용을 모두 지우고 빈 문체로 돌아갈까요?')) return;
+    if (!(await askConfirm(S.lib.id ? '저장하지 않은 변경을 버리고 저장된 문체로 되돌릴까요?' : '적은 내용을 모두 지우고 빈 문체로 돌아갈까요?', { ok: S.lib.id ? '되돌리기' : '지우기', danger: true }))) return;
     if (!S.lib.id) {  // 아직 저장하지 않은 새 문체: 돌아갈 저장본이 없다
       S.lib = { name: '', source: '', notes: '', sample: '', profile: emptyProfile(), used_by: [] };
       S.libDirty = false;
@@ -646,7 +646,7 @@ Object.assign(actions, {
     });
   },
   async libDuplicate(id) {
-    if (S.libDirty && !confirm('저장하지 않은 변경이 있어요. 저장한 뒤 그 버전으로 복제할까요?')) return;
+    if (S.libDirty && !(await askConfirm('저장하지 않은 변경이 있어요. 저장한 뒤 그 버전으로 복제할까요?', { ok: '저장하고 복제하기' }))) return;
     if (S.libDirty) {
       await actions.libSave();
       if (S.libDirty) return;  // 저장하지 못했다 (토스트가 이유를 알린다)
@@ -669,7 +669,7 @@ Object.assign(actions, {
     const e = (S.libs || []).find((x) => x.id === id) || S.lib || {};
     const used = e.used_by || [];
     const note = used.length ? `\n이 문체를 쓰는 작품(${used.join(', ')})은 복사해 둔 문체를 그대로 써요.` : '';
-    if (!confirm(`'${e.name}' 문체를 라이브러리에서 지울까요? 되돌릴 수 없어요.${note}`)) return;
+    if (!(await askConfirm(`'${e.name}' 문체를 라이브러리에서 지울까요? 되돌릴 수 없어요.${note}`, { ok: '지우기', danger: true }))) return;
     await run('지우는 중', async () => {
       await api('DELETE', `/styles/${id}`);
       S.libDirty = false;
@@ -682,7 +682,7 @@ Object.assign(actions, {
     const name = $('#lib-target').value;
     if (!name) return toast('적용할 작품을 고르세요', true);
     if (S.libDirty) return toast('먼저 저장하세요. 저장된 문체가 작품에 복사돼요.', true);
-    if (!confirm(`'${S.lib.name}' 문체를 '${name}' 작품에 적용할까요? 그 작품의 스타일 프로필은 바뀌어요.\n그 작품의 지금 문체를 라이브러리에 저장해 두지 않았다면 되돌릴 수 없어요.`)) return;
+    if (!(await askConfirm(`'${S.lib.name}' 문체를 '${name}' 작품에 적용할까요? 그 작품의 스타일 프로필은 바뀌어요.\n그 작품의 지금 문체를 라이브러리에 저장해 두지 않았다면 되돌릴 수 없어요.`, { ok: '적용하기', danger: true }))) return;
     await run('적용하는 중', async () => {
       await api('POST', `/projects/${enc(name)}/style/apply`, { style_id: S.lib.id });
       S.lib = await api('GET', `/styles/${S.lib.id}`);
