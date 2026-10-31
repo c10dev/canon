@@ -136,6 +136,13 @@ class ClaudeCodeTest(unittest.TestCase):
         with self.assertRaisesRegex(claude.ClaudeCodeError, "claude update"):
             llm.json("s", "p", NameOptions)
 
+    def test_cli_without_tools_flag_is_not_called(self):
+        # 도구를 끌 수 없으면 소설 글을 넘기지 않는다 (옛 버전이거나 --help 를 읽지 못한 때)
+        (self.dir / "help.txt").write_text("--json-schema <schema>", encoding="utf-8")
+        with self.assertRaisesRegex(claude.ClaudeCodeError, "--tools"):
+            claude.ClaudeCodeLLM().text("s", "p")
+        self.assertEqual(self.calls(), [])
+
     def test_flags_reread_after_update(self):
         # claude update 는 같은 링크가 새 파일을 가리키게 바꾼다. 서버를 다시 켜지 않아도 새 옵션을 읽는다
         exe, new, link = self.dir / "claude", self.dir / "claude-new", self.dir / "claude-link"

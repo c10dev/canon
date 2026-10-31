@@ -265,9 +265,10 @@ class ClaudeCodeLLM:
         flags = _flags(binary)
         if schema is not None and "--json-schema" not in flags:
             raise ClaudeCodeError("이 Claude Code 버전은 구조화 출력(--json-schema)을 몰라요. `claude update` 로 올리세요.")
-        args = [binary, "-p", "--output-format", "json", "--system-prompt", system]
-        if "--tools" in flags:
-            args += ["--tools", ""]  # 파일 읽기, 명령 실행, 웹 검색을 모두 끈다
+        if "--tools" not in flags:  # 도구를 끄지 못하면 부르지 않는다 (옵션 목록을 읽지 못한 때도)
+            raise ClaudeCodeError("이 Claude Code 버전에서 도구 끄기(--tools)를 확인하지 못했어요. `claude update` 로 올리세요.")
+        args = [binary, "-p", "--output-format", "json", "--system-prompt", system,
+                "--tools", ""]  # 파일 읽기, 명령 실행, 웹 검색을 모두 끈다
         for f in ("--safe-mode", "--strict-mcp-config", "--no-session-persistence"):
             if f in flags:
                 args.append(f)
