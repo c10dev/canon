@@ -1397,7 +1397,8 @@ class StatValue(BaseModel):
 
 class CharacterState(BaseModel):
     character_id: str
-    emotional_state: str = ""
+    emotional_state: str = Field("", description="지금 감정을 짧은 라벨로. 겉 태도와 속마음, 머리의 판단과 몸 · 감정의 끌림이 맞서면 "
+                                 "'겉: … / 속: …' 또는 '머리: … / 몸: …' 두 층 (prompts.LAYER_STATE_RULE)")
     current_goal: str = ""
     location: str = ""
     attire: str = Field("", description="지금 차림: 옷, 몸에 남은 상처 · 얼룩 · 찢어짐, 지니고 다니는 물건. 변경안에는 바뀐 인물만, 이어지는 것까지 다시 적는다")
