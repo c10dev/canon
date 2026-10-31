@@ -1,0 +1,53 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Canon</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font-sans); overflow: hidden; }
+  .cover { position: relative; height: 288px; overflow: hidden; }
+  .art { position: absolute; top: 0; left: 480px; width: 480px; height: 288px; overflow: hidden; }
+  .art svg { display: block; width: 480px; height: 288px; }
+  .slab { fill: var(--accent); }
+  .cell { fill: none; stroke: var(--accent-soft); stroke-width: 1; }
+  .ink { fill: var(--accent-soft); }
+  .a1 { fill: var(--act-1); } .a2 { fill: var(--act-2); } .a3 { fill: var(--act-3); } .a4 { fill: var(--act-4); }
+  .words { position: absolute; left: var(--space-40); bottom: var(--space-32); max-width: 440px; }
+  .name { margin: 0; font-size: 120px; line-height: .9; font-weight: 800; letter-spacing: -0.02em; color: var(--logo); }
+  .dot { color: var(--brand-2); }
+  .tag { margin: var(--space-12) 0 0 6px; font-size: 14px; line-height: 20px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="cover">
+<div class="art" aria-hidden="true">
+<svg viewBox="0 0 480 288" width="480" height="288">
+<!--
+  blocks      accent (먹) 456×288 slab from x=24, bled off the top, bottom and right edges · act-1..act-4 bands 88/112/112/104 wide, 64 tall, set ON the slab so the pale 기 band never meets the pale ground — 5 colours, ≈47% of 960×288; 귤 (brand-2) stays the name's own dot, as in the app
+  arrangement one big ink slab with a strip of four unequal bands across its lower part, in story order 기 · 승 · 전 · 결 (pale to dark, the act tokens' own rule)
+  pattern     원고지 cells (Korean manuscript squares), from "원고는 넓고 읽기 좋게" and the serif prose styles: an 8×4 grid of 24px squares cut into the slab in accent-soft, the first three filled as written characters
+  scales      cell pitch space-24; slab inset space-24 / space-32; band gutter space-8; slab corner radius-12, band corners radius-8
+-->
+<rect class="slab" x="24" y="-12" width="480" height="312" rx="12"/>
+<g>
+  <rect class="cell" x="48" y="32" width="24" height="24"/><rect class="cell" x="72" y="32" width="24" height="24"/><rect class="cell" x="96" y="32" width="24" height="24"/><rect class="cell" x="120" y="32" width="24" height="24"/><rect class="cell" x="144" y="32" width="24" height="24"/><rect class="cell" x="168" y="32" width="24" height="24"/><rect class="cell" x="192" y="32" width="24" height="24"/><rect class="cell" x="216" y="32" width="24" height="24"/>
+  <rect class="cell" x="48" y="56" width="24" height="24"/><rect class="cell" x="72" y="56" width="24" height="24"/><rect class="cell" x="96" y="56" width="24" height="24"/><rect class="cell" x="120" y="56" width="24" height="24"/><rect class="cell" x="144" y="56" width="24" height="24"/><rect class="cell" x="168" y="56" width="24" height="24"/><rect class="cell" x="192" y="56" width="24" height="24"/><rect class="cell" x="216" y="56" width="24" height="24"/>
+  <rect class="cell" x="48" y="80" width="24" height="24"/><rect class="cell" x="72" y="80" width="24" height="24"/><rect class="cell" x="96" y="80" width="24" height="24"/><rect class="cell" x="120" y="80" width="24" height="24"/><rect class="cell" x="144" y="80" width="24" height="24"/><rect class="cell" x="168" y="80" width="24" height="24"/><rect class="cell" x="192" y="80" width="24" height="24"/><rect class="cell" x="216" y="80" width="24" height="24"/>
+  <rect class="cell" x="48" y="104" width="24" height="24"/><rect class="cell" x="72" y="104" width="24" height="24"/><rect class="cell" x="96" y="104" width="24" height="24"/><rect class="cell" x="120" y="104" width="24" height="24"/><rect class="cell" x="144" y="104" width="24" height="24"/><rect class="cell" x="168" y="104" width="24" height="24"/><rect class="cell" x="192" y="104" width="24" height="24"/><rect class="cell" x="216" y="104" width="24" height="24"/>
+  <rect class="ink" x="52" y="36" width="16" height="16"/><rect class="ink" x="76" y="36" width="16" height="16"/><rect class="ink" x="100" y="36" width="16" height="16"/>
+</g>
+<rect class="a1" x="48" y="192" width="88" height="64" rx="8"/>
+<rect class="a2" x="144" y="192" width="112" height="64" rx="8"/>
+<rect class="a3" x="264" y="192" width="112" height="64" rx="8"/>
+<rect class="a4" x="384" y="192" width="104" height="64" rx="8"/>
+</svg>
+</div>
+<div class="words">
+  <p class="name">Canon<span class="dot" aria-hidden="true">.</span></p>
+  <p class="tag">인물 · 말투 · 복선을 데이터로 지키며 긴 소설을 쓰는 작업대</p>
+</div>
+</div>
+</body>
+</html>
