@@ -878,7 +878,7 @@ export CANON_CLAUDE_MODEL=opus    # 선택. 비우면 Claude Code 기본 모델 
 - 브라우저가 없는 서버(상시 실행)에서는 아무 컴퓨터에서 `claude setup-token` 으로 1년짜리 토큰을 받아 **서버의 실행 환경 변수** `CLAUDE_CODE_OAUTH_TOKEN` 에 둔다 (systemd 의 `Environment=` 등). Canon 설정 파일에는 넣지 않는다.
 - 구독 호출에는 `ANTHROPIC_API_KEY` 를 넘기지 않는다. 넘기면 Claude Code 가 구독 대신 그 키로 과금하기 때문이다. API 키는 `claude-api` 방식에서만 쓴다 (설정 › AI 연결의 Anthropic API 키 칸 또는 `ANTHROPIC_API_KEY`).
 - 구독 한도는 평범한 개인 사용을 기준으로 한다. 자동 집필처럼 오래 도는 작업은 API 키 방식이 맞고, 한도에 걸리면 그 화에서 멈추고 이유를 알린다.
-- `claude` 가 PATH 에 없으면 설정 › AI 연결의 **claude 실행 파일** 칸이나 `CANON_CLAUDE_BIN` 에 경로를 적는다. 한 번 호출 제한 시간은 `CANON_CLAUDE_TIMEOUT`(초, 기본 900).
+- `claude` 가 PATH 에 없으면 설정 › AI 연결의 **claude 실행 파일** 칸이나 `CANON_CLAUDE_BIN` 에 경로를 적는다. 설정 칸은 파일 이름이 `claude` 인 경로만 받는다(로그인 없는 웹 API 로 다른 실행 파일을 부르지 않게). 다른 이름이면 `CANON_CLAUDE_BIN` 을 쓴다. 한 번 호출 제한 시간은 `CANON_CLAUDE_TIMEOUT`(초, 기본 900).
 
 ## 연구 화면 (모델 실험)
 
