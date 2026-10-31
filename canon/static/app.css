@@ -37,6 +37,9 @@
   /* 인물 관계도 (cast.js): 온기 무덤덤 · 깊이 아낌, 긴장 보통 · 높음, 두 사람 그래프, 인물 원 */
   --warm-mid: #8A8D92; --warm-deep: #1C5CAB; --tension-mid: #C08425; --tension-high: #B4470A;
   --pair-a: #2A78D6; --pair-b: #D0571F; --ava-main: #2C3642; --ava-support: #00672D; --ava-minor: #8E4E03;
+  /* 이야기 줄기 색 (lines.js lineColor): 노선도 선 · 줄기 배지. 두 테마 모두 surface · bg 위 4.5:1 이상 */
+  --story-1: #B4570A; --story-2: #7A3FB0; --story-3: #1C6E45; --story-4: #B42318;
+  --story-5: #0E6F7C; --story-6: #6E5A00; --story-7: #A3367A; --story-8: #3E5C14;
   color-scheme: light dark;
 }
 
@@ -586,7 +589,7 @@ pre.brief { margin: 0; padding: 16px; border-radius: 8px; background: var(--bg);
 .comp-send { background: var(--accent); color: var(--on-accent); }
 .comp-send:hover { background: var(--accent-hover); }
 .comp-send:disabled { opacity: 0.5; cursor: not-allowed; }
-.comp-send.stop { background: var(--inverse-bg); }
+.comp-send.stop { background: var(--inverse-bg); color: var(--inverse-ink); }
 .comp-icon svg, .comp-send svg { width: 20px; height: 20px; }
 .composer-foot { position: relative; min-height: 28px; padding: 0 6px; display: flex; align-items: center; gap: 10px; font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
 .foot-mode { min-height: 28px; padding: 0 4px; margin-left: -4px; border: 0; border-radius: 6px; background: transparent; font: inherit; font-weight: 700; color: var(--text); cursor: pointer; }
@@ -1541,7 +1544,7 @@ mark.hl.src.sel { background: var(--accent-soft); text-decoration-color: var(--a
     /* 다크의 상태색은 밝은 색이라 칸 위 글자(--on-status)를 어둡게 둔다 */
     --amber: #FEC08D; --amber-ink: #F5CAA7; --amber-soft: #392515;
     --green: #79BD87; --green-ink: #B5DBBB; --green-soft: #1A2E1E;
-    --red: #E56C61; --red-soft: #3D2320;
+    --red: #F0857B; --red-soft: #3D2320;  /* 위험 버튼 글자: btn-hover 위 4.5:1 이상 */
     --act-1: #3C2107; --act-1-ink: #FCDDC2; --act-2: #134042; --act-2-ink: #BBEBEE;
     --act-3: #544566; --act-3-ink: #EBDCFE; --act-4: #4C6446; --act-4-ink: #D0E9CA;
     --link: #A3ACB7; --link-hover: #CDD2DA; --accent-hover: #5A6370; --on-accent: #FFFFFF; --on-status: #131519;
@@ -1553,6 +1556,8 @@ mark.hl.src.sel { background: var(--accent-soft); text-decoration-color: var(--a
     --her-bg: #552C3D; --her-ink: #FEC0D7; --him-bg: #193B57; --him-ink: #A8D7FF; --good: #4996D4; --bad: #DE7065;
     --warm-mid: #8F9297; --warm-deep: #8DBEFA; --tension-mid: #A87A40; --tension-high: #E89A50;
     --pair-a: #6AA6EE; --pair-b: #F28B5E; --ava-main: #697381; --ava-support: #2E7044; --ava-minor: #8A4D12;
+    --story-1: #F2A25E; --story-2: #C3A0F0; --story-3: #6CC796; --story-4: #F28C80;
+    --story-5: #5CC4D2; --story-6: #D9C25A; --story-7: #E98BC4; --story-8: #A6C873;
   }
   .diff-row del, .pdiff del, .learn-pair del { color: var(--del-ink); }
   .diff-row ins { color: var(--green-ink); }
