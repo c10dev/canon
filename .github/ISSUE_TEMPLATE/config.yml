@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 설계 문서
+    url: https://github.com/c10dev/canon/blob/main/DESIGN.md
+    about: 데이터 구조와 설계 원칙을 먼저 볼 수 있어요.
