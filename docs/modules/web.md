@@ -217,7 +217,7 @@
   - 공용 목차 틀 `outline.js` 의 왼쪽 목차 + 넓은 보드 `plotLayout`(`wide`)
   - 720px 이하 목차는 위에 붙는 버튼 `plotToc`
   - 목차 안에서 펼침을 지키는 부 접기 · 아크 펼치기 줄은 `data-outline-keep`
-  - 목차의 진행 막대 `plotMeter` · 구간 줄 `actTocItems`(누르면 `jumpAct`) · 확인할 것 `plotTodos`
+  - 목차의 진행 막대 `plotMeter` · 구간 줄 `actTocItems`(누르면 `jumpAct`) · 확인할 것 `plotTodos`(관계를 한 화에 너무 많이 옮기는 화 `pacePlot`, `pace.plot_warnings` 와 같은 규칙 `tests/test_plot_pace_js.py`)
   - 머리의 'AI로 다시 만들기 ▾' `plotAiMenu`(요청 칸 `S.planNote`)
   - 구간 한 줄 머리 + 화 카드 격자 `actBoard`
   - 구간 · 아크 · 부 고치기는 서랍 없이 그 자리에서 `actEditor` · `arcEditor` · `partEditor`

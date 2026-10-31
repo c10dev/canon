@@ -111,6 +111,22 @@ def rels(p: Project, ids: set[str] | None = None) -> str:
                  if ids is None or (r.a in ids and r.b in ids)])
 
 
+def plan_stage_block(p: Project, ids: set[str]) -> str:
+    """장편 화별 플롯 초안의 지금 관계 단계 (마지막 반영 뒤). 방향마다 한 줄 라벨, 주역끼리 먼저, 예산(context.BUDGET["plan_stages"])까지.
+    관계 수치가 아직 없으면(첫 반영 전) 빈 글. 플롯이 한 화에 단계를 두 칸 넘게 옮기지 않게 하는 재료다 (pace.plot_warnings)."""
+    if not p.ties:
+        return ""
+    name = {c.id: c.name for c in p.characters}
+    core = context.core_ids(p)
+    ties = sorted((t for t in p.ties if t.source in ids and t.target in ids),
+                  key=lambda t: (not (t.source in core and t.target in core), t.source, t.target))
+    lines, cut = context.fit_lines([f"{name.get(t.source, t.source)} → {name.get(t.target, t.target)}: {t.stage}" for t in ties],
+                                   context.BUDGET["plan_stages"])
+    if not lines:
+        return ""
+    return "\n[지금 관계 단계 (한 화에 한 칸씩 움직임)]\n" + "\n".join(lines) + (f"\n(그 밖 {cut}줄 생략)" if cut else "")
+
+
 def setup_prompt(p: Project) -> str:
     return f"""아래는 작가가 입력한 기본 설정입니다. 비어 있거나 부족한 부분을 채워 작품 설정을 제안하세요.
 이미 입력된 내용은 바꾸지 말고 그대로 살려서 확장합니다.
@@ -588,7 +604,7 @@ def serial_plot_prompt(p: Project, start: int, end: int, ahead: bool = True, red
 [등장할 수 있는 다른 인물 (id: 이름, 역할)]
 {roster_line(p, ids) or "없음"}
 [관계]
-{rels(p, ids | {c.id for c in static_characters(p)})}
+{rels(p, ids | {c.id for c in static_characters(p)})}{plan_stage_block(p, ids | {c.id for c in static_characters(p)})}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p) or "없음"}{lines_block(p)}
 
@@ -743,6 +759,7 @@ def plot_rules(p: Project, opening: bool = False) -> str:
     return common + f"""
 - act 는 그 화가 속한 아크 안의 기승전결 위치입니다. 아크의 conflict 가 결 구간에서 해결되고, 아크의 payoff 가 전 구간 끝이나 결 구간 첫 화에 확실하게 나옵니다.
 - 주인공이 막히는 구간은 2~3화를 넘기지 않고, 막힌 만큼 시원하게 푸는 화를 뒤에 둡니다.
+- 관계 단계(낯섦 · 경계 · 호감 · 신뢰 · 균열 · 적대 · 화해)는 한 화에 한 칸씩 움직입니다. 적대에서 친구가 되는 것처럼 두 칸 넘는 변화는 계기 사건 화와 받아들이는 화로 나눠 여러 화에 둡니다.
 - 매 화 ending_hook 을 둡니다. 장면 한가운데나 새 정보가 드러나는 순간에 끊습니다. 아크 마지막 화는 다음 아크로 이어지는 떡밥으로 끊습니다. 작품 마지막 화({p.meta.target_episodes}화)만 훅 대신 여운을 둡니다.
 - 이 아크에서 심은 작은 복선은 아크 안에서 회수합니다. 아크의 payoffs 에 있는 복선은 아크가 끝나기 전에 회수합니다. 부나 작품 끝까지 끌고 갈 복선은 심을 때 그렇다고 밝힙니다.
 - 첫 아크의 큰 보상은 25화 안에 둡니다 (무료 공개 구간 안에 보상이 와야 계속 읽는다는 연재 관습)."""
