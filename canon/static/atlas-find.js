@@ -16,19 +16,19 @@ function atlasFindBox() {
   if (!fd) return '';
   const close = '<button type="button" class="btn small ghost" data-action="atlasFindClose">닫기</button>';
   if (!fd.spots.length) {
-    return `<div class="at-box"><div class="between"><h3>이름으로 자리 찾기</h3>${close}</div>
-      <div class="small">장소 이름과 같은 이름의 건물 · 가게 · 역을 찾지 못했어요. 장소를 고른 뒤 지도에서 자리를 누르세요.</div></div>`;
+    return `<section class="at-sec"><div class="between"><h3>이름으로 자리 찾기</h3>${close}</div>
+      <p class="small">장소 이름과 같은 이름의 건물 · 가게 · 역을 찾지 못했어요. 장소를 고른 뒤 지도에서 자리를 누르세요.</p></section>`;
   }
   const rows = fd.spots.map((s) => {
     const opts = [[-1, s.had ? '지금 자리 그대로' : '놓지 않기'], ...s.options.map((o, j) => [j, o.what + (o.near ? ` · ${o.near}` : '')])];
     return `<fieldset class="at-find"><legend class="small"><b>${esc(s.name)}</b>${s.had ? ' <span class="at-um-note">(이미 놓은 장소예요)</span>' : ''}</legend>
-      ${opts.map(([v, label]) => `<label class="small at-gen-take"><input type="radio" name="at-find-${esc(s.place)}" value="${v}" data-at-find="${esc(s.place)}"${fd.pick[s.place] === v ? ' checked' : ''}> ${esc(label)}</label>`).join('')}
+      ${opts.map(([v, label]) => `<label class="pop-radio at-gen-take"><input type="radio" name="at-find-${esc(s.place)}" value="${v}" data-at-find="${esc(s.place)}"${fd.pick[s.place] === v ? ' checked' : ''}> ${esc(label)}</label>`).join('')}
       ${s.more ? `<div class="small at-um-note">같은 이름이 ${s.more}곳 더 있어요. 여기 없는 곳이면 지도에서 직접 놓아 주세요.</div>` : ''}</fieldset>`;
   }).join('');
-  return `<div class="at-box at-gen"><div class="between"><h3>이름으로 자리 찾기</h3>${close}</div>
+  return `<section class="at-sec at-gen"><div class="between"><h3>이름으로 자리 찾기</h3>${close}</div>
     <div class="small">장소 이름과 같은 이름의 건물 · 가게 · 역을 찾았어요. 고른 자리는 지도에 동그라미로 보여요. 같은 이름이 여러 곳이면 골라 주세요.</div>
     <div class="at-gen-places">${rows}</div>
-    <div class="row">${atlasFindButton(fd)}</div></div>`;
+    <div class="row">${atlasFindButton(fd)}</div></section>`;
 }
 
 function atlasFindButton(fd) {
@@ -40,6 +40,7 @@ Object.assign(actions, {
   async atlasFindOpen() {
     await run('자리 찾는 중', async () => {
       await atlasFindLoad();
+      S.atlasPane = 'place';
       if (!S.atlasFind.spots.length) toast('장소 이름과 같은 이름의 건물 · 가게 · 역이 없어요');
     });
   },

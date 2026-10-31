@@ -253,21 +253,28 @@
 
 - 지도 화면 기능 파일
 - 내보내기(`atlasExportSvg`, SVG · PNG `atlasExport`)
+- 범위(지도 전체 · 지금 보이는 곳 `S.atlasExportHere`)와 인물 빼기(`S.atlasExportBare`)는 `atlas.js` 의 내보내기 메뉴(`atlasExportMenu`)가 정한다
 
 ### `canon/static/atlas-fill.js`
 
 - 지도 화면 기능 파일
 - 빈 블록 채우기(`atlasFillBox` · 미리보기 `atlasFillSvg` · `atlasFillApply` · `atlasFillClear`, 지은 건물 그리기는 `atlas.js` 의 건물 그리기 `at-v-made`)
+- 살펴보기 '지도' 칸의 실제 지도 데이터 아래에 연다
 
 ### `canon/static/atlas-find.js`
 
 - 지도 화면 기능 파일
 - 이름으로 자리 찾기(`atlasFindLoad` · `atlasFindBox` · `atlasFindApply`)
+- 살펴보기 '장소' 칸에 연다
 
 ### `canon/static/atlas-gen.js`
 
 - 지도 화면 기능 파일
 - 지도 만들기(`atlasGen*`: 설정 칸 · 지도 종류의 장소 종류 드롭다운 `atlasGenKinds` · 지도 종류를 바꿀 때 종류 옮기기 `atlasKindShift`(순수 함수, `tests/test_atlas_kinds.py`) · 미리보기 · 미리보기 막대 `atlasGenBar` · AI 설정 제안 · 적용)
+- 설정 칸(`atlasGenBox`)은 살펴보기 '지도' 칸에 있고, 설정은 나눔 버튼(`atlasGenSeg`, 동작 `atlasGenSet`)이다
+- 미리보기 중에 설정 · 장소 종류를 바꾸면 바로 다시 미리 본다(`atlasGenRun`)
+- 미리보기 막대(`atlasGenBar`)는 지도 아래 줄에 서고, 주 버튼 '이 마을 적용' 하나를 둔다
+- `tests/test_atlas_kinds.py` 는 `// ----- 지도 종류를 바꿀 때` 부터 `// ----- 지도 만들기 칸 -----` 앞까지 잘라 돌린다
 
 ### `canon/static/atlas-icons.js`
 
@@ -280,11 +287,14 @@
 
 - 지도 화면 기능 파일
 - 어디에 있었나 표(`atlasTable`)와 장소와 맞지 않은 위치(`atlasUnmatched`, AI 정리 `atlasSort` · 적용 `atlasApply`)
+- 표 칸에 이동 경고(`atlasTvLive`)를 칩으로 보이고, 칩을 누르면 그 이동을 지도에서 본다(`atlasTravelShow`)
 
 ### `canon/static/atlas-travel.js`
 
 - 지도 화면 기능 파일
 - 이동 시간 검사 칸(`atlasTravelBox`, '괜찮아요' `atlasTravelOk`)
+- 살펴보기 '이동 검사' 칸에 그린다: 기준 한 줄(탈것 · 하루 거리 · 지도 크기)과 '기준 고치기'(`atlasTvEdit`), 경고 목록
+- '지도에서 보기'(`atlasTravelShow`)는 닿은 화 시점으로 가서 그 인물의 길을 굵게 한다
 
 ### `canon/static/atlas.js`
 
@@ -305,10 +315,17 @@
   - 동선 화살표 · 화 번호 점 자리 `atlasTrailMarks` · 겹친 점 빼기 `atlasTrailDots`
   - `tests/test_atlas_js.py` 가 섹션 주석으로 잘라 돌린다
 - 화풍 다섯(`ATLAS_STYLES`, 단축키 1~5, 지금 화풍 `atlasStyleNow`, 마을 · 도시와 평지붕 지도를 따로 기억 `S.atlasStyles`)
-- 인물 색은 화풍별 CSS 변수 `--v-ink0`…`--v-ink9`(옆 칸 · 표 견본 `atlasSwatch`)
+- 인물 색은 화풍별 CSS 변수 `--v-ink0`…`--v-ink9`(살펴보기 칸 · 표 견본 `atlasSwatch`)
+- 현대 화풍 잉크는 인물 표의 흰 글자가 4.5:1 이상, 지도 바탕 위 선이 3:1 이상이다(2026-10-31, ink1 · 3 · 5 · 6 · 8 을 짙게)
 - 지도 장식(`atlasDeco`: 제목 틀 · 축척 막대 · 북쪽 화살표(OSM 만) · 출처 글 · 왼쪽 아래 범례(`atlas-icons.js`), 겹 '장식' D, 이름표보다 먼저 `taken`, 지도 단위의 m `atlasMpu`)
 - 확대 · 이동 · 이름표(`atlasLabels`, 놓는 차례: 장식 · 인물 표 → 장소 이름표 → 구역 → 길)
-- 옆 칸(`atlasSide`)과 화면 조립(`viewAtlas`, `atlasRefresh`)
+- 화면 조립(`viewAtlas`): 작업대 `.at-wrap`(`@container atwork`, 960px 아래 한 열) 안에 지도 카드와 살펴보기 칸
+- 지도 카드: 도구 줄(`atlasBar`: 보기 메뉴 `atlasViewMenu` · 토글 `atlasOpt` · 내보내기 메뉴 `atlasExportMenu`), 지도(`atlasStage`), 아래 줄(`atlasFoot`: 화 칸 `atlasEpCells` · 막대 · 재생, 미리보기 중에는 `atlasGenBar`)
+- 살펴보기 칸(`atlasSide`): 탭 인물 `atlasWho` · 장소 `atlasPlacePane` · 이동 검사 `atlasTravelBox` · 지도 `atlasMapPane`, 지금 탭 `S.atlasPane`
+- 누른 건물은 '장소' 칸(`atlasBldPanel`)에 보이고 지도에는 테두리(`at-bld-sel`)로 보인다
+- 지도 · 그림 · 놓은 장소가 없으면 빈 화면(`atlasEmptyNow` · `atlasEmpty`), '빈 판 열기'는 `S.atlasBlank`
+- 다시 그리기(`atlasRefresh`): 지도 · 살펴보기 칸 · 아래 줄, 메뉴가 열려 있지 않으면 도구 줄도(`atlasPaint` 가 포커스를 돌린다)
+- 이동 경고(`atlasTvLive`)를 지도 선 위 점선 · ! 표(`at-tv-mark`)와 화 칸 점으로 그린다(토글 `S.atlasTvMarks`)
 - 저장(`atlasSavePins`)
 - 장소 이동 되돌리기
 - 재생할 때 따라가기

@@ -79,7 +79,7 @@ Object.assign(actions, {
 (() => {
   const css = document.createElement('style');
   css.textContent = `
-.at-fill { margin-top: 6px; display: grid; gap: 4px; }
+.at-fill { margin-top: var(--space-6); display: grid; gap: var(--space-8); }
 .at-map .at-fill-area { fill: var(--accent); fill-opacity: 0.08; stroke: var(--accent); stroke-opacity: 0.35; stroke-width: 0.8; stroke-dasharray: 4 3; }
 .at-map .at-fill-new { fill: var(--accent); fill-opacity: 0.25; stroke: var(--accent); stroke-width: 0.8; stroke-dasharray: 2 1.5; }
 `;
