@@ -46,7 +46,9 @@
   - `_stage_run`
   - 갈래별 찾은 수 `by_kind` · 기록 합계 `check_totals`
 - 블라인드 비교
+- 고르지 않은 비교본 목록 `open_compares`
 - 작품 데이터와 분리해 `research/log.jsonl` 에 기록
+- 갈래마다 마지막 기록 `latest`(연구 개요가 `history` 30개 밖의 실험도 보인다)
 
 ### `canon/revlab.py`
 
@@ -130,7 +132,7 @@
 
 ### `canon/stattrial.py`
 
-- 상태창 넣기 시험(연구 화면 '상태창 시험' 탭, 명령줄 `stattrial`)
+- 상태창 넣기 시험(연구 화면 '상태창 시험' 쪽, 명령줄 `stattrial`)
 - 조건 `CONDITIONS`(none · json · lines, `stat_window.prompt` 만 바꾼 사본 `variant`)
 - 시험할 화(`candidates`, 추천 `default_pick`)
 - 그 화를 쓰기 직전 사본(`before`, `pipeline.revert`)
@@ -140,4 +142,6 @@
 - 실행(`run`: 실험 기록 kind statwin, 조건마다 첫 안을 블라인드 비교본 kind statwin 으로)
 - 작품은 저장하지 않는다
 - 화면은 `static/stattrial.js`
+- 화면은 고를 때마다 비용을 추정해(`stEst`, AI 없음) 머리 주 버튼 글에 적는다(`stHeadBtn`)
+- 지난 시험은 틀린 비율 막대(`stBars`, 한 계열)와 방식별 표
 - 웹 작업 `stattrial`
