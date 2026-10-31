@@ -1611,17 +1611,6 @@ function lostPartSummaries() {
   return P().parts.filter((x) => x.summary && !keep.has(`${x.start_ep}-${x.end_ep}`));
 }
 
-/** 장편 아크 줄: 끝났고 요약도 있는 앞쪽 아크가 많으면 한 칩으로 접는다 (고른 아크는 늘 보인다). */
-function railChips(arcs, chip) {
-  const done = (a) => a.summary && arcFinished(a);
-  let k = 0;
-  while (k < arcs.length && done(arcs[k])) k++;
-  if (S.railAll || k <= 3) return arcs.map(chip).join('');
-  const folded = arcs.slice(0, k).filter((a) => a.number !== S.selArc);
-  const keep = arcs.slice(0, k).filter((a) => a.number === S.selArc);
-  return `<button type="button" class="arc-chip" data-action="railAll" aria-expanded="false"><strong>아크 ${arcs[0].number}~${arcs[k - 1].number}</strong> <span>완료 ${folded.length}개 · 펼치기</span></button>${keep.map(chip).join('')}${arcs.slice(k).map(chip).join('')}`;
-}
-
 // 화면 이동은 하나씩 차례로 처리한다. 늦게 끝난 앞 이동이 지금 화면의 데이터(지시서, 컨텍스트 등)를 덮지 않게 하고,
 // 기다리는 사이 또 옮겼으면 중간 화면은 건너뛴다
 let routeQueue = Promise.resolve();
