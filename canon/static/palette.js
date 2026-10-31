@@ -28,8 +28,8 @@ const PAL_CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
 
 (function palStyle() {
   const css = `
-.pal-back { position: fixed; inset: 0; z-index: 45; display: flex; justify-content: center; align-items: flex-start; padding: 12vh 16px 16px; background: var(--overlay); }
-.pal { width: min(560px, 100%); max-height: 70vh; display: flex; flex-direction: column; background: var(--surface); color: var(--text); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.22); overflow: hidden; }
+.pal-back { position: fixed; inset: 0; z-index: var(--z-modal); display: flex; justify-content: center; align-items: flex-start; padding: 12vh 16px 16px; background: var(--overlay); }
+.pal { width: min(560px, 100%); max-height: 70vh; display: flex; flex-direction: column; background: var(--surface); color: var(--text); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: var(--shadow-dialog); overflow: hidden; }
 .pal input#pal-q { min-height: 52px; border: none; border-bottom: 1px solid var(--line); border-radius: 0; padding: 0 16px; font-size: 1rem; }
 .pal input#pal-q:focus { outline: none; box-shadow: inset 0 -2px 0 var(--accent); }
 .pal ul { list-style: none; margin: 0; padding: 6px; overflow-y: auto; }
