@@ -1,12 +1,14 @@
 """생성 파이프라인. 각 단계는 Project 를 받아 제안을 만들고, 반영은 호출자가 승인 후 한다."""
 from __future__ import annotations
 
+import logging
+
 import re
 
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
 from .llm import LLM, dump
-from . import board, cancel, charlog, context, features, findings, foreshadows, knows, stage, statwin, timeline, usage
+from . import board, cancel, charlog, context, features, findings, foreshadows, knows, metatail, stage, statwin, timeline, usage
 from .schema import CueSheet, CueSheetDraft, Finding, FindingRecheck, FixOption, FixPatch, FixSet, RevEpisodeDraft, RevLineSet
 from .schema import (
     Act,
@@ -2658,12 +2660,26 @@ def set_storyboard(p: Project, n: int, b: Storyboard | None, by: str = "author")
 
 
 def _write(llm: LLM, p: Project, n: int, prompt: str) -> str:
+    """본문을 쓴다. 한글이 적은 응답(영어 생각 과정 등)과 본문 대신 작업 설명 · 거절 문구만 온 응답(metatail.whole)은 다시 부른다.
+    본문 앞뒤에 붙은 확실한 작업 설명(metatail.split: 'n화 본문입니다' 머리말, 끝의 '짚어 둘 것' 같은 작가에게 하는 말)은 떼고 서버 기록에 남긴다.
+    덜 확실한 것은 떼지 않고 검수 화면의 문체 경고(style_drift)로 알린다."""
     system = prompts.writer_system(p)
+    bad = {"thought": 0, "meta": 0}
     for _ in range(WRITE_TRIES):
         text = llm.text(system, prompt)
-        if metrics.hangul_ratio(text) >= HANGUL_MIN:
-            return text
-    raise ValueError(f"{n}화 본문 대신 다른 글(영어로 된 생각 과정 등)이 {WRITE_TRIES}번 나왔어요. 다시 시도해 주세요")
+        if metrics.hangul_ratio(text) < HANGUL_MIN:
+            bad["thought"] += 1
+            continue
+        if metatail.whole(text):
+            bad["meta"] += 1
+            continue
+        body, cut = metatail.split(text)
+        if cut:
+            logging.getLogger("canon").warning("%s화 본문 앞뒤의 작업 설명 %d문단을 뗐어요: %s", n, len(cut), " / ".join(x[:80] for x in cut))
+        return body
+    what = " · ".join(f"{label} {k}번" for key, label in (("thought", "다른 글(영어로 된 생각 과정 등)"), ("meta", "작업 설명이나 거절 문구"))
+                      if (k := bad[key]))
+    raise ValueError(f"{n}화 본문 대신 {what}이 나왔어요. 다시 시도해 주세요")
 
 
 
@@ -3734,6 +3750,10 @@ def style_drift(p: Project, n: int) -> tuple[metrics.StyleMetrics, list[str]]:
     if copied:
         quotes = ", ".join(f"'{s[:30]}{'…' if len(s) > 30 else ''}'" for s in copied[:3])
         warns.append(f"예시 문단을 옮긴 문장 {len(copied)}개: {quotes}")
+    tails = metatail.warnings(text)
+    if tails:
+        quotes = ", ".join(f"'{s[:40]}{'…' if len(s) > 40 else ''}'" for s in tails[:2])
+        warns.append(f"본문이 아닌 작업 설명처럼 보이는 앞뒤 문단 {len(tails)}개: {quotes}")
     moved = memo_copied(p, n, text)
     if moved:
         quotes = ", ".join(f"'{s[:30]}{'…' if len(s) > 30 else ''}'" for s in moved[:3])

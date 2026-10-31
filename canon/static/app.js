@@ -422,7 +422,10 @@ async function mergeEpisodes(mine) {
   if (!S.name || !P()) return [];
   try {
     const gen = S.gen;
-    const fresh = await api('GET', `/projects/${enc(S.name)}`);
+    const name = S.name;
+    const fresh = await api('GET', `/projects/${enc(name)}`);
+    // 받는 사이 작품 목록이나 다른 작품으로 옮겼으면 버린다 (닫은 작품을 다시 열거나 없는 작품을 읽지 않게)
+    if (S.name !== name || !P()) return [];
     // 받는 사이 저장 · 반영 응답이나 입력이 있었으면 이 응답이 더 오래됐을 수 있다. 통째로 바꾸지 않고 작업이 쓴 화만 맞춘다
     if (!S.dirty && gen === S.gen) { S.project = fresh; return []; }
     const local = new Map(P().episodes.map((e) => [e.plot.number, e]));
@@ -739,7 +742,8 @@ function currentEp() {
   return open ? open.plot.number : eps[eps.length - 1].plot.number;
 }
 
-const serial = () => P().meta.form === 'serial';
+// 작품 밖 화면(작품 목록 등)에서는 열린 작품이 없어 단편으로 본다
+const serial = () => !!P() && P().meta.form === 'serial';
 
 /** 화마다 소속 구간을 정하는 기승전결 목록. 단편은 작품 전체 구조, 장편은 기획한 아크들의 구간 (schema.Project.beats 와 같음) */
 function beats() {
@@ -1664,7 +1668,7 @@ async function routeNow() {
     }
     if (!S.genres) S.genres = await api('GET', '/genres').catch(() => []);
     if (!S.namingStyles) S.namingStyles = await api('GET', '/naming/styles').catch(() => []);
-    if (['usage', 'revlab', 'styles'].includes(parts[0])) {  // 작품 밖 사이드바의 최근 작품 · 문체 수 (처음 한 번만, 작품 목록에 오면 다시 읽는다)
+    if (['usage', 'revlab', 'soelab', 'styles'].includes(parts[0])) {  // 작품 밖 사이드바의 최근 작품 · 문체 수 (처음 한 번만, 작품 목록에 오면 다시 읽는다)
       if (!S.projects) S.projects = await api('GET', '/projects').catch(() => null);
       if (!S.libs) S.libs = await api('GET', '/styles').catch(() => null);
     }
@@ -1676,6 +1680,10 @@ async function routeNow() {
       S.name = null;
       S.project = null;
       await revLoad(parts[1], parts[2]);
+    } else if (parts[0] === 'soelab') {
+      S.name = null;
+      S.project = null;
+      await soeLoad(parts[1], parts[2]);
     } else if (parts[0] === 'styles') {
       S.name = null;
       S.project = null;
@@ -1888,12 +1896,16 @@ function drawApp() {
   if (inline) document.body.appendChild(inline);
   document.body.classList.remove('chat-open');
   const [p, , page, arg] = S.route;
+  // 본문 부분 수정 · 검수 고치는 창(#sel-tool)은 #app 밖에 떠 있어 다시 그려도 남는다. 열린 작품이 없는 화면에서는 닫는다
+  // (작품 목록으로 옮긴 뒤 남은 창의 버튼이 없는 작품을 읽다 터졌다. 작품 화면은 아래 syncPassage 가 맞춘다)
+  if ((p !== 'p' || !P()) && typeof hideTool === 'function') hideTool();
   // 작품 밖 화면: 작품 밖 사이드바(outSidebar) 옆에 본문. 본문 폭은 화면마다 다르다
   const outside = (id, width, body) => {
     $('#app').innerHTML = `<div class="shell">${outSidebar(id)}<main class="main out-main" style="--out-w:${width}px">${body}</main></div>`;
   };
   if (p === 'usage') return outside('usage', 1180, viewUsage());
   if (p === 'revlab') return outside('revlab', 1280, viewRev());
+  if (p === 'soelab') return outside('soelab', 1280, viewSoe());
   if (p === 'styles') return outside('styles', 1180, S.route[1] && S.lib ? viewLibEntry() : viewLibrary());
   if (S.loadError) {
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:720px;margin:0 auto"><div class="card empty" role="alert">${S.loadMissing
@@ -1940,7 +1952,9 @@ function navEp() {
 
 /** 작업 단계 1~6 의 이름. 사이드바 · 작품 홈 진행 카드 · 단계 화면 제목이 이 이름을 쓴다 (장편은 3단계 이름이 다르다) */
 function stepLabel(id) {
-  return { setup: '설정 도우미', style: '문체 레퍼런스', arc: serial() ? '부 · 아크 · 플롯' : '기승전결 · 플롯', write: '집필', check: '검수', review: '상태 승인' }[id];
+  // 3단계 이름만 작품을 본다. 작품 목록의 새 작품 칸처럼 작품이 열리지 않은 곳에서도 다른 이름을 부른다
+  if (id === 'arc') return serial() ? '부 · 아크 · 플롯' : '기승전결 · 플롯';
+  return { setup: '설정 도우미', style: '문체 레퍼런스', write: '집필', check: '검수', review: '상태 승인' }[id];
 }
 
 /** 사이드바 접는 묶음(작품 도구 · 아직 안 쓴 도구 · 실험)의 처음 펼침. 사람이 머리를 눌러 바꾼 것은 브라우저에 둔다.
@@ -2030,8 +2044,8 @@ function navItems() {
     steps,
     auto: ['auto', base() + '/auto', '🤖', autoMenuLabel()],
     tools,
-    apart: [['research', base() + '/research', '🔬', '연구 · 모델 실험'], ['cue', base() + '/cue', '🎼', '큐 시트 집필 실험'], ['revlab', '#/revlab', '🔁', '역설계 실험'], ['usage', base() + '/usage', '💰', '사용량 · 비용']],
-    foot: [['#/settings', '설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/revlab', '역설계 실험'], ['#/', '작품 목록']],
+    apart: [['research', base() + '/research', '🔬', '연구 · 모델 실험'], ['cue', base() + '/cue', '🎼', '큐 시트 집필 실험'], ['revlab', '#/revlab', '🔁', '역설계 실험'], ['soelab', '#/soelab', '🧪', '쇠맛 실험실'], ['usage', base() + '/usage', '💰', '사용량 · 비용']],
+    foot: [['#/settings', '설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/revlab', '역설계 실험'], ['#/soelab', '쇠맛 실험실'], ['#/', '작품 목록']],
   };
 }
 
@@ -2198,7 +2212,7 @@ function outNav(list = [], libs = []) {
     alerts: list.reduce((k, x) => k + alerts(x).length, 0),
     fails: list.reduce((k, x) => k + alerts(x).filter((a) => a.kind === 'fail').length, 0),
     tools: [['styles', '#/styles', '🖋️', '문체 라이브러리', libs.length ? String(libs.length) : ''], ['revlab', '#/revlab', '🔁', '역설계 실험', ''],
-      ['soelab', '', '🧪', '쇠맛 실험실', '곧'], ['usage', '#/usage', '💰', '사용량 · 비용', '']],
+      ['soelab', '#/soelab', '🧪', '쇠맛 실험실', ''], ['usage', '#/usage', '💰', '사용량 · 비용', '']],
   };
 }
 

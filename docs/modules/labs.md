@@ -87,17 +87,33 @@
 
 ### `canon/soelab.py`
 
-- 쇠맛 실험실(작품 밖 `<CANON_HOME>/.soelab/`, 화면은 PR3)
+- 쇠맛 실험실(작품 밖 `<CANON_HOME>/.soelab/`, 화면은 `static/soelab.js`, 웹 `/api/soelab/...`)
 - 쇠맛 지표가 사람 글과 AI 글 · 작가 판정을 가르는지 잰다
 - 프로세스 사이 잠금 `_lock`(`fcntl.flock`) · `save_json` · `append_label`(labels.jsonl 덧붙이기)
 - 정규화 `normalize` · `chunks`(2,000자 문장 끝)
 - 모으기 `collect_revlab` · `collect_episodes`(모델은 `Episode.written_by` 가 있으면 record, 없으면 `write_models`: usage.jsonl 마지막 성공한 write) · `collect_edits` · `collect_research` · `collect_paste` → `add`(같은 글 한 번 · 원천 상한 `CAP`)
-- 대기열 `extend_queue`(판정한 자리 · 다시 읽기 예정은 고정, 1차 `FIRST` 묶음마다 한 조각)
+- 대기열 `extend_queue`(판정한 자리 · 다시 읽기 예정 · 예비는 고정, 1차 `FIRST` 묶음마다 한 조각)
+- 세 자리마다 다시 읽기 자리 하나(`_redo_slot`), 여섯 자리마다 예비 자리 하나(`_spare_slot`)를 시드로 섞는다(이번 10개 안 자리가 짐작되지 않게)
 - 판정 `judge` · `redo`(7일 뒤) · `hidden_ids`
+- 화면에서 빼는 조각 `masked_ids`: 가린 조각 + 끝나지 않은 '이번 10개' `open_batch`
+- 예비(모두의 1/6, `SPARE_EVERY`): 판정 뒤에도 정답을 숨기는 조각 `spare_ids` · 화면 값 `spare_state`
+- 예비 열기: 판정 일관성이 보류일 때만 `open_spares`(15개까지 `SPARE_OPEN`)
+- 판정 60개에 닿으면 재판정을 30개까지 예비로 채운다 `fill_at_60`(`FILL_AT` · `FILL_TO`, 한 번)
+- 예비 정답 보여 주기 `show_spares`: 보류 아님 보고서 · 여기서 멈추기 · 90개 끝 가운데 먼저 온 때
 - 채점 `features`(저장 안 함, 열쇠 `METRICS_VERSION`)
 - 보고서 `report`(출처 기준 · revlab 짝 · 작가 판정 · 모델별 참고 · 패턴 · 판정 일관성) · `view` · `export`(원문 · quote · 메모 없음)
+- 보고서는 끝나지 않은 이번 10개의 판정을 작가 판정 기준 · 패턴 · 판정 일관성에 넣지 않는다
+- 화면 값 `screen`(진행 · 다시 읽기 `redo_state` · 최근 보고서 `latest_report` · `report_summary` · 낡음 `corpus_key` · `labels_key`)
+- 진행 상태 `load_state` · `set_state`(`state.json`: 목표 40 · 60 · 90, 멈춤, 넘긴 정답 카드, `spare_shown`, `filled`)
+- 가려 읽기 `judge_view` · `save_judge`(이번 10개를 마치면 다시 채점) · 정답 `batch_reveal`(끝난 이번 10개만) · `redo_view`
+- 모으기 화면 `sources` · `gather` · `plan_add`(저장 없는 미리보기) · `collect`
+- 조각 `pieces_view` · `piece_view` · `remove_piece` · `set_origin`(붙여 넣은 글만)
+- 지표 하나 `metric_view`(점 그림 · 곡선 · 끝 조각은 가린 조각을 뺌)
+- 패턴 확인 `check_items` · `check_view` · `save_check`(`SoeLabel` kind hit, 가리지 않음) · 혼동표 `patterns_view`
+- 기록 `reports`, 지금 경고 기준 글 `threshold_text`
 - 스키마 `SoeSource` · `SoePiece` · `SoeSpan` · `SoeLabel`
 - 명령줄 `soelab collect | report | export`
+- 시험 `tests/test_soelab.py` · `tests/test_soelab_web.py`
 - LLM 호출 없음
 
 ### `canon/static/revlab.js`
@@ -133,6 +149,24 @@
 - 비용 추정은 고를 때 바로 묻고 버튼 글에 적는다(`revEst` · `revCost`, AI 없음)
 - `revSplit` · `revPreview` · `revAppendPreview` · `revSegments` · `revEpTitle` · `revSteps` · `revNext` · `revTocEps` · `revRunRows` · `revMetricRows` · `revLabLite` · `revHomeCard` · `revOverviewRow` 는 순수 함수(`tests/test_revlab.py`)
 - CSS 는 JS 에서 주입
+
+### `canon/static/soelab.js`
+
+- 쇠맛 실험실 화면(작품 밖 `#/soelab[/corpus | judge | redo | metrics[/<지표 id>] | patterns[/check] | log]`)
+- `app.js` 라우팅이 작품 밖 사이드바(`outSidebar`) 옆에 `viewSoe` 를 그린다(불러오기 `soeLoad`)
+- 작품 사이드바 '실험' 묶음 🧪 · ⋯ 메뉴 · 작품 밖 도구에서 들어온다
+- 공용 목차 틀(`outline.js`)의 목차 `soeToc`(개요 · 단계 넷 `soeSteps` · 지표 14줄 · 전체), 판정하는 동안은 지표 · 전체를 접음
+- 오른쪽 칸 `.soe-main`(container `soe`: 760 · 560px)
+- 머리 주 버튼 `soeGoBtn`(다음 할 일 `soeNext`)
+- 개요 `soeOverview`(진행 `soeProgress`, 보류 `soeHoldCard`, 표 `soeTable`: 칸 `soeCell` · 범위 막대 `soeRng` · 모델별 줄)
+- 말뭉치 `soeCorpus`(모으기 카드 `soeCollectCard` · 미리보기 `soePreviewHtml`)
+- 가려 읽기 `soeJudgePane`(원고 `soeMs`, 떠 있는 도구 `soeTool` · 자리 `soePlace`, 판정 띠 `soeStrip`, 손가락 기기는 문장 누르기)
+- 정답 카드 `soeBatchCard`, 1차 · 60 · 90개 카드 `soeMilestoneCard`, 다시 읽기 `soeRedoPane`
+- 지표 대조 `soeMetricsPane` · 지표 하나 `soeMetricOne`(`soeDotPlot` · `soeRoc`)
+- 패턴 혼동표 `soePatterns` · 패턴 확인 `soeCheckPane` · 기록 `soeLogPane`
+- 순수 함수 `soeVerdict`(labstats.verdict 와 같은 규칙) · `soeSentences` · `soeSentenceAt`(metrics.sentence_spans 와 같은 경계) · `soeRedoDue` · `soeNext` · `soeSteps` · `soeRound` · `soeMarkMerge`
+- 순수 함수 시험 `tests/test_soelab_js.py`
+- CSS 는 JS 에서 주입한다
 
 ### `canon/stattrial.py`
 

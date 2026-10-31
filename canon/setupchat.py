@@ -39,7 +39,7 @@ CHAR_LABELS: dict[str, str] = {
     "name": "이름", "role": "역할", "age": "나이", "gender": "성별", "goal": "원하는 것", "wound": "두려운 것 · 약점", "secrets": "숨기는 것",
     "speech_style": "말투 (대사)", "personality": "성격", "background": "배경", "appearance": "외모", "arc": "아크",
 }
-REL_FIELDS = ("type", "description", "goal_conflict", "a_view", "b_view")
+REL_FIELDS = ("type", "description", "destination", "goal_conflict", "a_view", "b_view")
 
 
 def started(p: Project) -> bool:
@@ -221,7 +221,8 @@ def clean(p: Project, rev: SetupRevision, mode: str = "") -> SetupRevision:
         old = _pair(p.relationships, a, b)
         if old is not None and old.a != a:  # 지금 관계와 같은 방향으로 맞춘다
             a, b, av, bv = b, a, bv, av
-        upd = {"a": a, "b": b, "type": r.type.strip(), "description": r.description.strip(), "a_view": av, "b_view": bv}
+        upd = {"a": a, "b": b, "type": r.type.strip(), "description": r.description.strip(), "a_view": av, "b_view": bv,
+               "destination": r.destination.strip() or (old.destination if old else "")}  # 비운 값은 지우는 제안이 아니다
         if old is not None:  # 수치는 보는 방식이나 본문 사건이 정한다
             upd.update(affinity=old.affinity, tension=old.tension)
             upd["type"] = upd["type"] or old.type

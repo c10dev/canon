@@ -104,11 +104,26 @@ def meta_text(p: Project) -> str:
     return f"{dump(view)}\n\n[장르 안내]\n{genres.guide(p.meta)}"
 
 
-def rels(p: Project, ids: set[str] | None = None) -> str:
+def rels(p: Project, ids: set[str] | None = None, plan: bool = True) -> str:
     """관계 설정. a_view/b_view 는 시작 관계를 만드는 설정 단계 입력이라 뺀다 (지금 관계는 Tie 가 가진다).
-    ids 를 주면 그 인물끼리의 관계만 넣는다."""
-    return dump([r.model_dump(exclude={"a_view", "b_view"}) for r in p.relationships
-                 if ids is None or (r.a in ids and r.b in ids)])
+    ids 를 주면 그 인물끼리의 관계만 넣는다. 가 닿을 곳(destination)은 기획(plan)에만, 적었을 때만 넣는다.
+    상태 · 검수에 넣으면 지금 관계를 목적지 쪽으로 앞당겨 적는다 (감정 급변 연구 E6)."""
+    out = []
+    for r in p.relationships:
+        if ids is None or (r.a in ids and r.b in ids):
+            d = r.model_dump(exclude={"a_view", "b_view"})
+            if not plan or not d.get("destination"):
+                d.pop("destination", None)
+            out.append(d)
+    return dump(out)
+
+
+def destination_block(p: Project, ids: set[str] | None = None) -> str:
+    """관계 수치를 말로 넣는 기획 프롬프트(다음 아크 · 줄기)에 붙는 가 닿을 곳. 적은 쌍이 없으면 빈 글."""
+    name = {c.id: c.name for c in p.characters}
+    lines = [f"- {name.get(r.a, r.a)} ↔ {name.get(r.b, r.b)}: {r.destination}" for r in p.relationships
+             if r.destination.strip() and (ids is None or (r.a in ids and r.b in ids))]
+    return "\n[관계가 가 닿을 곳 (작가가 정한 방향, 지금 관계 아님. 한 화에 한 단계씩 다가감)]\n" + "\n".join(lines) if lines else ""
 
 
 def plan_stage_block(p: Project, ids: set[str]) -> str:
@@ -146,7 +161,7 @@ def setup_prompt(p: Project) -> str:
 요구사항:
 - 인물은 주인공 포함 3~6명. {p.meta.target_episodes}화 분량의 단편에 맞게 압축합니다.
 - 각 인물의 speech_style 은 대사 예시 한 줄을 포함해 구체적으로 씁니다.
-- 관계는 주요 인물 쌍마다 하나씩, affinity 와 tension 은 1화 시작 시점 기준입니다.
+- 관계는 주요 인물 쌍마다 하나씩, affinity 와 tension 은 1화 시작 시점 기준입니다. type 과 description 은 1화 시작 시점의 지금 관계만 적습니다. '앙숙에서 연인으로'처럼 이야기에서 가 닿을 곳은 destination 에 따로 적습니다.
 - a_view(a 가 b 를 보는 방식)와 b_view(b 가 a 를 보는 방식)는 {", ".join(VIEWS)} 중에서 1~2개 고릅니다. 두 방향이 달라도 됩니다.
 - 인물 id 는 영문 소문자로 짓고, 이미 있는 id 는 유지합니다.
 - 이미 입력된 인물도 characters 에 같은 id 와 같은 이름으로 넣고, 비어 있는 칸(성격, 배경, 외모, 아크, 원하는 것, 약점, 말투, 비밀 등)을 채웁니다. 이미 적힌 칸은 그대로 옮겨 적습니다.
@@ -325,7 +340,7 @@ def setup_chat_prompt(p: Project, message: str, mode: str = "") -> str:
 - 글 칸은 text, world.rules · world.locations · world.name_rules 는 items 에 씁니다. 목록은 그대로 둘 항목도 빠짐없이 넣습니다. 빠진 항목은 지워집니다.
 - characters 에는 이미 있는 인물의 바뀌는 칸만 (id, field) 하나씩 넣습니다. field 는 name, role, age, gender, appearance, personality, background, goal, wound, speech_style, secrets(목록, items), arc 입니다. id 와 서술 말투는 바꾸지 않습니다. speech_style 은 대사 예시 한 줄을 포함해 구체적으로 씁니다.
 - new_characters 에는 작가가 청했거나 요청을 이루는 데 꼭 필요한 인물만, 모든 칸을 채워 넣습니다. id 는 이미 있는 인물과 겹치지 않는 영문 소문자이고 narration_voice 는 비웁니다. gender(남/여)를 적고, 이름은 위 [이름·지명 후보]에서 고르거나 같은 시대와 결로 짓습니다. 다른 인물과 이름의 첫 글자나 끝 글자가 겹치지 않게 합니다.
-- relationships 에는 바뀌는 관계와 새 관계만, 두 인물 id 와 바뀐 뒤 값 전체를 넣습니다. 같은 두 인물이면 그 관계를 고칩니다. 새 인물을 넣으면 그 인물과 이미 있는 인물의 관계도 하나 이상 넣습니다.
+- relationships 에는 바뀌는 관계와 새 관계만, 두 인물 id 와 바뀐 뒤 값 전체를 넣습니다. 같은 두 인물이면 그 관계를 고칩니다. 새 인물을 넣으면 그 인물과 이미 있는 인물의 관계도 하나 이상 넣습니다. type 과 description 은 지금 관계만, 이야기에서 가 닿을 곳은 destination 에 적습니다.
 {rel_rule}
 - 인물이나 관계를 지우는 제안은 하지 않습니다. 지워야 한다고 보면 reply 에서 말하면 작가가 화면에서 지웁니다.
 {"- 이미 쓴 화의 본문은 바뀌지 않습니다. 쓴 내용과 어긋나는 설정 변경이면 reply 에서 어느 화와 어긋나는지 알립니다." + chr(10) if written else ""}- options 는 비웁니다."""
@@ -1285,7 +1300,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 [다른 인물 (id: 이름, 역할)]
 {roster_line(p, set()) or "없음"}
 [관계 (주역 · 조연 · 최근 아크 인물)]
-{describe_relations(p, ids, secrets=plan_secrets) or rels(p, ids)}
+{describe_relations(p, ids, secrets=plan_secrets) or rels(p, ids)}{destination_block(p, ids)}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p) or "없음"}{lines_block(p)}
 [인물 현재 상태]{knows_note(knows_cut)}
@@ -1403,7 +1418,7 @@ def storyline_prompt(p: Project, note: str, kind: str) -> str:
 [다른 인물 (id: 이름, 역할)]
 {roster_line(p, set()) or "없음"}
 [관계]
-{describe_relations(p, ids, secrets=[] if p.serial else None) or rels(p, ids)}
+{describe_relations(p, ids, secrets=[] if p.serial else None) or rels(p, ids)}{destination_block(p, ids)}
 [비밀 (hidden_from 의 인물은 아직 모른다)]
 {dump(secrets) or "없음"}
 [이야기 요소]
@@ -2896,19 +2911,19 @@ def state_prompt(p: Project, n: int) -> str:
         ids = context.without_off(p, set(ep.plot.characters) | {c.id for c in static_characters(p)} | context.named_ids(p, ep.text))
         chars = [c for c in p.characters if c.id in ids]
         states, knows_cut = state_view(p, [s for s in p.states if s.character_id in ids], n, ep.text + "\n" + elements.plot_text(ep))
-        relations = rels(p, ids)
+        relations = rels(p, ids, plan=False)
         fs, _ = relevant_foreshadows(p, n)
         others = roster_line(p, ids)
         # 드러난 비밀, 이번 화 인물과 상관없는 비밀은 빼고 본문과 겹치는 것부터
         secrets, _ = context.pick_secrets(p, ids, ep.text + "\n" + elements.plot_text(ep), context.BUDGET["state_secrets"])
     else:
-        chars, states, relations, knows_cut = p.characters, p.states, rels(p), 0
+        chars, states, relations, knows_cut = p.characters, p.states, rels(p, plan=False), 0
         fs, others = [f for f in p.foreshadows if f.status == "open"], ""
         secrets = p.secrets
         if off := context.off_ids(p):  # '넣지 않음' 인물은 설정 · 상태 · 관계를 빼고 한 줄 목록에 (다시 만들지 않게)
             chars = [c for c in p.characters if c.id not in off]
             states = [s for s in p.states if s.character_id not in off]
-            relations = rels(p, context.without_off(p, None))
+            relations = rels(p, context.without_off(p, None), plan=False)
             others = ", ".join(f"{c.id}: {c.name}({c.role})" for c in p.characters if c.id in off)
     return f"""{n}화 본문을 읽고 상태 변경안을 작성하세요.
 
@@ -2966,7 +2981,7 @@ def _check_full(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
         )
     off = context.off_ids(p)  # '넣지 않음' 인물의 상태 · 관계는 뺀다
     states = [s for s in p.states if s.character_id not in off] if off else p.states
-    relations = rels(p, context.without_off(p, None)) if off else rels(p)
+    relations = rels(p, context.without_off(p, None), plan=False) if off else rels(p, plan=False)
     return (chr(10).join("- " + f for f in p.facts) or "없음", dump(states) or "1화 시작 시점, 설정 그대로",
             relations if p.relationships else "없음", dump(p.secrets) or "없음", past, "")
 
@@ -3013,7 +3028,7 @@ def _check_budget(p: Project, n: int, sized: bool = False) -> tuple[str, str, st
     facts_text = (f"(이번 화와 관련된 것만, {cut}개 생략)\n" if cut else "") + (chr(10).join("- " + f for f in facts) or "없음")
     picked, knows_cut = state_view(p, [s for s in p.states if s.character_id in ids], n, ep.text + "\n" + elements.plot_text(ep))
     states = (f"(아는 정보는 이번 화와 관련된 것부터, {knows_cut}개 생략)\n" if knows_cut else "") + (dump(picked) or "1화 시작 시점, 설정 그대로")
-    relations = describe_relations(p, ids, secrets=[]) or rels(p, ids) or "없음"  # 비밀은 아래 비밀 칸에
+    relations = describe_relations(p, ids, secrets=[]) or rels(p, ids, plan=False) or "없음"  # 비밀은 아래 비밀 칸에
     picked, _ = context.pick_secrets(p, ids, ep.text + "\n" + elements.plot_text(ep), context.BUDGET["state_secrets"])
     secrets = dump(picked) or "없음"
     note = (" (직전 화는 원문, 그보다 앞은 줄거리 요약과 이번 화와 겹치는 단락 발췌. 발췌에서 인용할 때 source_episode 는 그 발췌의 화)"
@@ -3575,12 +3590,12 @@ def impact_prompt(p: Project, el: StoryElement, linked: set[int]) -> str:
     confirmed = [e.plot.number for e in p.episodes if e.status == "confirmed"]
     others = "\n".join(elements.describe(p, x) for x in p.elements if x.id != el.id and x.context != "off")
     open_fs = [f for f in p.foreshadows if f.status == "open"]
-    chars, relations, facts, texts = p.characters, rels(p), p.facts, impact_texts(p, linked)
+    chars, relations, facts, texts = p.characters, rels(p, plan=False), p.facts, impact_texts(p, linked)
     others_line, facts_note, fs_note = "", "", ""
     if p.serial:  # 장편: 요소와 관련 화에 나오는 인물 설정만 자세히, 사실은 요소와 관련된 순서로 예산만큼, 본문은 한도를 줄인다
         ids = {c.id for c in static_characters(p)} | set(el.characters) | {
             c for e in p.episodes if e.plot.number in linked | set(el.episodes) for c in e.plot.characters}
-        chars, relations = [c for c in p.characters if c.id in ids], rels(p, ids)
+        chars, relations = [c for c in p.characters if c.id in ids], rels(p, ids, plan=False)
         others_line = roster_line(p, ids)
         if len(p.facts) > FACTS_FILTER_FROM:
             facts, cut = context.pick_facts(p, set(el.characters), f"{el.name} {el.description}",
