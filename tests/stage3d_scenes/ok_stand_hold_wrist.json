@@ -1,0 +1,42 @@
+{
+ "note": "문 앞에 나란히 서서 손목을 잡는다",
+ "template": "empty",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "문",
+    "rel": "front"
+   },
+   "posture": "stand"
+  },
+  {
+   "who": "d",
+   "at": {
+    "ref": "문",
+    "rel": "front"
+   },
+   "posture": "stand"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "d",
+     "contacts": [
+      {
+       "id": "c1",
+       "by": "right",
+       "to": "h",
+       "part": "wrist_l",
+       "act": "hold"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "expect": []
+}

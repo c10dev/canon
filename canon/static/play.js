@@ -1,5 +1,5 @@
 /* 플레이 모드 화면 (DESIGN.md 10장, 시안 안 A 읽기형): 새 플레이(#/play/new, #/play/new/<세계>), 플레이(#/play/<폴더>),
-   지난 일 · 되감기(/past), 생애 기록(/life). 작품 목록의 플레이 줄(playRows)과 작품 홈 카드(playHomeCard)도 여기 있다.
+   지난 일 · 되감기(/past), 생애 기록(/life). 작품 홈 카드(playHomeCard)도 여기 있다. 작품 목록의 플레이 줄은 home.js plGroupRows.
    시계는 화면에 있다. 써 둔 구간의 흘러간 일을 한 줄씩 보이고, 새 구간의 첫 줄이 보이면 서버에 닿았다고 알린다(see).
    서버는 닿은 구간보다 한 구간 넘게 앞서 쓰지 않는다 (web._play_continue). 시계 규칙(playItems · playGap · playPhase ·
    playTick · playClock)은 DOM 없는 순수 함수라 tests/test_play_js.py 가 node 로 맞춰 본다. */
@@ -385,26 +385,27 @@ function playTitleOf(x) {
 function playSidebar(active) {
   const p = S.play;
   const href = `#/play/${enc(p.name)}`;
-  const link = (id, to, mark, label) => `<a href="${to}"${id === active ? ' aria-current="page"' : ''}>${navMark(mark)}${label}</a>`;
+  const link = (id, to, mark, label) => navLink([id, to, mark, label], active);
   const meta = [p.days ? `${p.days}일 지남` : '', `결정 ${p.decisions}번`].filter(Boolean).join(' · ');
-  return `<nav class="side${S.menuOpen ? ' open' : ''}" aria-label="플레이 메뉴">
-    <a class="brand" href="#/">Canon<span class="brand-dot" aria-hidden="true">.</span></a>
-    <button type="button" class="btn small menu-toggle" data-action="toggleMenu" aria-expanded="${!!S.menuOpen}" aria-controls="side-menu">메뉴</button>
-    <div class="work-card">
+  const card = `<div class="work-card">
       <div class="small">플레이 · ${esc(p.world_title)}</div>
-      <div class="work-head"><a class="work-title" href="${href}">${esc(playTitleOf(p))}</a></div>
+      <div class="work-head"><a class="work-title" href="${href}" title="${esc(playTitleOf(p))}">${esc(playTitleOf(p))}</a></div>
       <div class="small work-meta">${esc(meta)}${p.ending ? ' · 끝남' : ''}</div>
-    </div>
+    </div>`;
+  return `<nav class="side${S.menuOpen ? ' open' : ''}" aria-label="플레이 메뉴">
+    ${sideTop({ hub: false, search: false })}
+    ${card}
     <div class="side-menu" id="side-menu">
+      ${drawerHead()}
+      <div class="drawer-work">${card}</div>
       <div class="nav">${link('now', href, '🎲', '지금')}${link('past', href + '/past', '📜', '지난 일 · 되감기')}${link('life', href + '/life', '📔', '생애 기록')}</div>
       <div class="nav nav-extra"><span class="small">살펴보기 · 플레이 사본</span>
-        ${link('cast', `#/p/${enc(p.name)}/cast`, '👥', '인물 · 관계도')}${link('atlas', `#/p/${enc(p.name)}/atlas`, '🗺️', '지도')}${link('timeline', `#/p/${enc(p.name)}/timeline`, '⏳', '작품 속 시간')}</div>
-      <div class="side-foot">
-        ${p.world_exists ? `<a href="#/p/${enc(p.world)}">세계 작품 「${esc(p.world_title)}」로</a>` : `<span class="small">세계 작품 「${esc(p.world)}」을 찾지 못했어요</span>`}
-        <a href="#/">작품 목록</a>
-        <span class="tf-credit">이 페이지에는 토스팀에서 제공한 <a href="https://toss.im/tossface" target="_blank" rel="noopener">토스페이스</a>가 적용되어 있어요.</span>
-      </div>
+        ${link('cast', `#/p/${enc(p.name)}/cast`, '👥', '인물 · 관계도')}${link('atlas', `#/p/${enc(p.name)}/atlas`, '🗺️', '지도')}${link('timeline', `#/p/${enc(p.name)}/timeline`, '⏳', '작품 속 시간')}
+        ${p.world_exists ? link('world', `#/p/${enc(p.world)}`, '🌐', `세계 작품 「${esc(p.world_title)}」로`) : ''}</div>
+      ${p.world_exists ? '' : `<p class="small side-warn">세계 작품 「${esc(p.world)}」을 찾지 못했어요</p>`}
+      ${sideFoot([['#/', '작품 목록']])}
     </div>
+    ${S.menuOpen ? '<div class="side-scrim" data-action="toggleMenu" aria-hidden="true"></div>' : ''}
   </nav>`;
 }
 
@@ -761,30 +762,27 @@ function viewPlayNew() {
       <span class="small">${ready ? '첫 구간을 쓰는 데 30초쯤 걸려요. 다 쓰면 시간이 흐르기 시작해요' : f.mode === 'char' ? '될 인물을 고르세요' : '출생 카드의 배경을 채우면 시작할 수 있어요'}</span></div>`;
 }
 
-// ---------- 작품 목록 · 작품 홈 (home.js 가 부른다) ----------
-
-/** 세계 작품 카드 안의 플레이 줄. */
-function playRows(plays, manage) {
-  if (!plays.length) return '';
-  const row = (x) => {
-    const q = x.play;
-    const sub = [q.origin === 'random' ? '무작위 출생' : '세계 인물', q.days ? `작품 속 ${q.days}일` : '', `결정 ${q.decisions}번`, q.ending || (q.waiting ? '결정을 기다리는 중' : '')].filter(Boolean).join(' · ');
-    const href = `#/play/${enc(x.name)}${q.ending ? '/life' : ''}`;
-    return `<li class="play-row"><span class="chip${q.ending ? '' : ' finalized'}">${q.ending ? '끝남' : '진행 중'}</span>
-      <div class="pcol"><a href="#/play/${enc(x.name)}"><strong>${esc(q.title)}</strong></a><span class="small">${esc(sub)}</span></div>
-      <a class="btn small" href="${href}">${q.ending ? '생애 기록' : '이어 하기'}</a>${manage(x, q.title)}</li>`;
-  };
-  return `<details class="branch-list play-list"${plays.some((x) => !x.play.ending) ? ' open' : ''}><summary class="small">플레이 ${plays.length}개 보기</summary><ul>${plays.map(row).join('')}</ul></details>`;
-}
+// ---------- 작품 홈 (home.js 가 부른다). 작품 목록의 플레이 줄은 home.js plGroupRows ----------
 
 /** 작품 홈을 열 때 그 작품이 플레이 사본인지 알아 둔다 (app.js routeNow). 사본이면 플레이 정보, 아니면 null. */
 async function playHomeLoad() {
   S.homePlay = null;
   const name = S.name;
+  S.homePlayOf = name;  // 이 작품을 물어봤다 (app.js routeNow 는 작품을 바꿨을 때도 다시 묻는다)
   try {
     const v = await api('GET', `/projects/${enc(name)}/play`);
     if (S.name === name) S.homePlay = v;
   } catch { /* 플레이 사본이 아니다 */ }
+}
+
+/** 지금 작품이 플레이 사본인지 (사이드바 작품 칸 · 다음 할 일) */
+function playCopy() {
+  return !!(S.homePlay && S.homePlay.name === S.name);
+}
+
+/** 사이드바 작품 칸의 플레이 사본 줄. 플레이 사본은 세계 작품과 제목이 같아 이 줄로 가른다 (branches.js branchSideTag 와 같은 자리) */
+function playSideTag() {
+  return playCopy() ? `<div class="work-branch"><span class="tf" aria-hidden="true">🎲</span>플레이 사본 · ${esc(S.homePlay.title)}</div>` : '';
 }
 
 /** 작품 홈의 '이 세계로 플레이' 카드. 플레이 사본이면 플레이로 돌아가는 카드. */

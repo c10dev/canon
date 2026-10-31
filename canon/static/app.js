@@ -38,11 +38,13 @@ const S = {
   jobsSeen: null,    // 화면을 연 시점에 이미 끝나 있던 작업 id (결과를 다시 적용하지 않는다)
   jobsApplied: new Set(),  // 결과를 이미 화면에 적용한 작업 id. 폴링이 작업 객체를 새로 받아 오므로 id 로 기억한다
   jobsMerged: {},    // 도는 플롯 작업 id → 화면이 결과를 받아 온 단계 수
-  jobsOpen: null,    // 작업 목록 펼침. null 이면 넓은 화면은 펼치고 휴대폰은 접는다
-  jobsFailed: new Set(),  // 작업 목록이 이미 본 실패 작업 id. 새 실패가 생기면 목록을 펼친다
+  notes: [],         // 알림 기록 { at, msg, err }. 새것이 앞 (hub.js 알림 창의 '최근 알림')
+  hubOpen: false,    // 알림 창이 열려 있다 (hub.js)
+  hubSeen: 0,        // 알림 창을 마지막으로 연 · 닫은 시각(ms). 그 뒤 알림만 새 알림으로 센다
+  hubSeenJobs: new Set(),  // 알림 창에서 이미 본 끝난 작업 id. 안 본 끝난 작업이 있으면 버튼이 '끝남'을 보인다
+  hubMore: false,    // 알림 창의 접힌 '끝난 작업 · 지난 알림' 칸 펼침
   starting: new Set(),    // 시작 요청을 보내고 답을 기다리는 작업 '<kind>:<ep>'
   briefDraft: {},    // 작업지시서 ② 칸에 붙여 넣은 글. '<작품>:<화>:<episode|state>' → 글
-  settingsDirty: false,  // 모델 · API 키 설정 화면에서 저장하지 않은 입력이 있다
   selArc: null,      // 장편: 플롯 보드에서 고른 아크 번호 ('next' 는 다음 아크 기획)
   editArc: false,    // 장편: 아크 고치기 서랍
   selPart: null,     // 장편: 고치는 부 번호
@@ -50,6 +52,7 @@ const S = {
   arcDraft: null,    // 장편: 다음 아크 제안 (반영 전)
   planNote: '',      // 구조 다시 제안 · 플롯 초안 · 부 구성 제안에 함께 보낼 작가 요청
   arcForm: { length: 0, note: '' },  // 장편: 다음 아크 요청
+  foldDrafts: {},    // 장편: 아크 번호 → 아는 정보 접기 제안 { folds: [{ character_id, lines }] } (knows.py)
   recapDrafts: {},   // 장편: 아크·부 요약 제안. 'arc1', 'part2' 같은 키 → { kind, number, summary }. 여러 개를 함께 고친다
   namingStyles: null, // 이름 스타일 목록 (서버 naming.STYLES)
   names: {},         // 이름·지명 후보. 'c:<인물 id>' 또는 'place' → { candidates, options, ai }
@@ -129,20 +132,31 @@ async function api(method, path, body, meta) {
   return data;
 }
 
-function toast(msg, err = false) {
+/** 알림 말풍선. 알림 버튼 바로 아래(#toast, hub.js placeHub)에 뜨고 알림 창의 '최근 알림'에 남는다.
+    opt.actions: 오류 말풍선에 붙일 할 일 버튼 [{ label, run }] (다시 시도 · 설정). 누르면 말풍선을 닫고 run 을 부른다. */
+function toast(msg, err = false, opt = {}) {
   const el = document.createElement('div');
   el.className = 't' + (err ? ' err' : '');
   if (err) {
     // 오류는 읽을 때까지 남긴다. 닫기 버튼으로 지운다
     const t = document.createElement('span');
     t.textContent = msg;
+    el.append(t);
+    for (const a of opt.actions || []) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn small t-act';
+      b.textContent = a.label;
+      b.addEventListener('click', () => { el.remove(); a.run(); });
+      el.append(b);
+    }
     const x = document.createElement('button');
     x.type = 'button';
     x.className = 'x';
     x.setAttribute('aria-label', '닫기');
     x.textContent = '✕';
     x.addEventListener('click', () => el.remove());
-    el.append(t, x);
+    el.append(x);
   } else {
     el.textContent = msg;
   }
@@ -152,6 +166,7 @@ function toast(msg, err = false) {
   while (box.children.length > 3 && box.querySelector('.t:not(.err)')) box.querySelector('.t:not(.err)').remove();
   while (box.querySelectorAll('.t.err').length > 5) box.querySelector('.t.err').remove();
   if (!err) setTimeout(() => el.remove(), 3500);
+  if (typeof hubNote === 'function') { hubNote(msg, err); renderHub(); }
 }
 
 // ---------- 백그라운드 AI 작업 ----------
@@ -165,12 +180,13 @@ const JOB_DONE_MSG = {
   plot_one: (j) => (j.result && j.result.realign ? `${j.ep}화 플롯을 요약대로 채웠어요. ${j.result.realign}화와 어긋난 점은 ${j.result.realign}화에 '다시 맞추기'로 표시했어요.` : `${j.ep}화 플롯을 채웠어요. 다듬은 뒤 확정하세요.`),
   write: (j) => `${j.ep}화 본문을 저장했어요.`,
   state: (j) => `${j.ep}화 상태 변경안이 도착했어요.`,
-  series: '부 구성 제안이 도착했어요. 확인하고 반영하세요.',
-  nextarc: '다음 아크 제안이 도착했어요. 고친 뒤 반영하세요.',
+  series: '부 구성 제안이 도착했어요. 확인하고 적용하세요.',
+  nextarc: '다음 아크 제안이 도착했어요. 고친 뒤 적용하세요.',
   recap_arc: (j) => `아크 ${j.ep} 요약 제안이 도착했어요.`,
   recap_part: (j) => `${j.ep}부 요약 제안이 도착했어요.`,
+  fold_knows: (j) => `아크 ${j.ep} 아는 정보 접기 제안이 도착했어요.`,
   impact: (j) => `${j.label.replace(/^인과율: /, '')}이 끝났어요. 인과율에서 확인하세요.`,
-  storyline: '이야기 줄기 제안이 도착했어요. 고른 화와 함께 반영하세요.',
+  storyline: '이야기 줄기 제안이 도착했어요. 고른 화와 함께 적용하세요.',
   // 멈춤 · 검토 대기도 작업으로는 '끝남'이다. 사람을 기다리는지 상태별로 말한다 (autorun._launch 결과)
   auto: (j) => `자동 집필${{ review: ' · 검토가 필요해요', paused: ' · 일시정지했어요', error: ' · 오류로 멈췄어요' }[j.result && j.result.status] || ''}: ${j.note || '멈췄어요'}`,
 };
@@ -184,8 +200,8 @@ function jobFor(kind, ep = null, name = S.name) {
 }
 
 // 작업이 도는 동안 버튼은 진행 상황을 보여 주고 눌리지 않게 한다
-function jobBtn(kind, ep, idle) {
-  const j = jobFor(kind, ep);
+function jobBtn(kind, ep, idle, name = S.name) {
+  const j = jobFor(kind, ep, name);
   if (!j && S.starting.has(`${kind}:${ep ?? ''}`)) return { label: `${idle} · 시작하는 중…`, attr: ' aria-disabled="true" aria-busy="true"' };
   if (!j) return { label: idle, attr: '' };
   // disabled 는 포커스를 잃게 해서 키보드 사용자가 문서 처음으로 돌아간다. aria-disabled 로 막고 포커스는 남긴다
@@ -284,7 +300,7 @@ async function startJob(kind, ep = null, extra = {}) {
     if (!j.already) toast(`${j.label}${josa(j.label, '을', '를')} 시작했어요. 끝나면 알려 드릴게요. 그동안 다른 작업을 해도 돼요.`);
     S.jobs = S.jobs.filter((x) => x.id !== j.id).concat(j);
     S.jobArgs[j.id] = { kind, ep, extra };  // 실패하면 작업 목록의 '다시 시도'가 같은 작업을 다시 시작한다
-    renderJobs();
+    renderHub();  // 작업 목록이 바뀌었다: 알림 버튼과 열린 알림 창 (hub.js)
     render();
     pollJobs(true);
   } catch (e) {
@@ -323,12 +339,14 @@ async function pollJobs(soon = false) {
   for (const j of S.jobs) {
     const old = before.get(j.id);
     const progressed = !old || old.done !== j.done || old.status !== j.status;
-    if (progressed && j.project !== S.name && old && old.status === 'running' && j.status !== 'running') {
+    const mine = j.project === S.name || j.project === REV_JOBS;  // 역설계 실험 작업은 작품 밖이라 어느 화면에서든 제 알림을 낸다 (revlab.js)
+    if (progressed && !mine && old && old.status === 'running' && j.status !== 'running') {
       // 다른 작품을 보는 동안 끝났다. 결과는 그 작품을 열면 다시 놓인다 (pending.json)
       toast(j.status === 'error' ? `${j.project} · ${j.label} 실패: ${j.error}` : `${j.project} · ${j.label}${josa(j.label, '이', '가')} 끝났어요. 그 작품을 열면 결과가 보여요`, j.status === 'error');
     }
-    if (!progressed || j.project !== S.name) continue;
+    if (!progressed || !mine) continue;
     if (j.kind === 'agent' && typeof agentJobUpdate === 'function') await agentJobUpdate(j, old);  // 대화 에이전트 턴 (agent.js)
+    if (j.kind === 'rev_parse' && typeof revJobStep === 'function') await revJobStep(j, old);  // 역설계가 끝낸 화를 바로 받는다 (revlab.js)
     if (j.kind === 'plots') {
       // 이번에 끝난 구간(지난번에 아직 만들던 화)과 새로 생긴 화만 받아 온다. 먼저 끝난 구간에서 고치던 초안은 그대로 둔다
       const was = old && Array.isArray(old.pending) ? new Set(old.pending) : null;
@@ -336,6 +354,8 @@ async function pollJobs(soon = false) {
       S.jobsMerged[j.id] = j.done;  // 저장할 때 이 단계까지 받아 왔다고 알린다 (save)
     }
     if (j.kind === 'write' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);
+    if (j.kind === 'board' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);  // 스토리보드는 그 화에 붙었다 (board.js)
+    if (j.kind === 'cues' && j.status !== 'running') await mergeEpisodes((e) => e.plot.number === j.ep);  // 큐 시트도 그 화에 붙었다 (cue.js)
     if (j.kind === 'plot_one' && j.status !== 'running') {
       await mergeEpisodes((e) => e.plot.number === j.ep);
       const r = j.result && j.result.realign && ep(j.result.realign);  // 뒤 화에 남긴 표시는 고치던 그 화 플롯을 덮지 않고 표시만 받는다
@@ -353,12 +373,12 @@ async function pollJobs(soon = false) {
     }
     if (j.status !== 'running' && !(old && old.status !== 'running')) await finishJob(j);
     // 설정 · 사용량 · 문체 라이브러리처럼 작품 밖 화면은 S.name 이 남아 있어도 다시 그리지 않는다
-    if (S.route[0] === 'p' && (JOB_PAGES[j.kind] || []).includes(S.route[2] || 'home')) {
+    if ((S.route[0] === 'p' && (JOB_PAGES[j.kind] || []).includes(S.route[2] || 'home')) || (S.route[0] === 'revlab' && j.project === REV_JOBS)) {
       redraw = true;
       if (j.status === 'done') resultFocus = RESULT_FOCUS[j.kind] || '#app .proposal button, #app .proposal input';
     }
   }
-  renderJobs();
+  renderHub();
   // 입력 중이거나 본문 글자를 고르고 있으면 화면을 다시 그리지 않는다 (글자 · 커서 · 선택을 잃지 않게). 데이터는 이미 반영돼 있고, 입력이나 선택을 마치면 그린다
   if (redraw && (isTyping() || selecting())) S.renderPending = true;
   else if (redraw) {
@@ -393,7 +413,7 @@ document.addEventListener('selectionchange', () => setTimeout(() => { if (S.rend
 
 // 작업 결과가 보이는 화면
 JOB_DONE_MSG.check = (j) => `${j.ep}화 검수가 끝났어요${j.result && j.result.round ? ` (${j.result.round}회차)` : ''}: 짚은 곳 ${j.result ? j.result.issues : 0}개${j.result && j.result.round > 1 ? `, 새 지적 ${j.result.added}개` : ''}`;
-const JOB_PAGES = { check: ['check', 'write', 'review'], suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], plot_one: ['arc', 'lines'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], storyline: ['lines'] };
+const JOB_PAGES = { check: ['check', 'write', 'review'], suggest: ['setup'], arc: ['arc'], plots: ['arc', 'home', 'causal'], plot_one: ['arc', 'lines'], write: ['write', 'home', 'causal'], state: ['review'], auto: ['auto', 'home', 'write', 'causal', 'arc', 'setup'], impact: ['causal'], series: ['arc'], nextarc: ['arc'], recap_arc: ['arc'], recap_part: ['arc'], fold_knows: ['arc'], storyline: ['lines'] };
 
 // 작업이 project.json 에 쓴 화만 받아 온다 (mine(화면 화, 서버 화) 이 true 인 화와 새로 생긴 화). 저장하지 않은 다른 입력은 그대로 둔다.
 // 저장하지 않은 입력이 있을 때 서버 것으로 바꾼 화 번호를 돌려준다.
@@ -424,7 +444,10 @@ async function finishJob(j) {
   if (j.status === 'cancelled') return;  // 멈춘 작업은 결과가 없다 (멈추기를 누를 때 알렸다)
   if (j.kind === 'agent' && here && $('.chat-panel')) return;  // 열린 대화 패널이 결과를 보여 준다 (agent.js)
   if (j.status === 'error') {
-    toast(`${j.label} 실패: ${j.error}`, true);
+    const acts = [];
+    if (S.jobArgs[j.id]) acts.push({ label: '다시 시도', run: () => retryJob(j.id) });
+    if (/API 키|연결/.test(j.error || '')) acts.push({ label: '설정', run: () => openSettings('ai') });
+    toast(`${j.label} 실패: ${j.error}`, true, { actions: acts });
     if (here) S.pending.failures[key] = { key, kind: j.kind, ep: j.ep, label: j.label, error: j.error };
     return;
   }
@@ -437,14 +460,14 @@ async function finishJob(j) {
   setTimeout(() => {  // 끝난 작업은 잠시 뒤 목록에서 내린다 (실패는 직접 닫을 때까지 남긴다)
     S.jobsSeen.add(j.id);
     S.jobs = S.jobs.filter((x) => x.id !== j.id || x.status === 'running');
-    renderJobs();
+    renderHub();
   }, 20000);
   if (!here) return;  // 다른 작품을 보고 있으면 결과는 작업 목록에서 열어 볼 수 있다
   applyJobResult(j);
 }
 
 // ---------- 검토를 기다리는 결과 · 실패 (서버 pending.json, web.PENDING_KINDS 와 같은 목록) ----------
-const PENDING_KINDS = ['arc', 'suggest', 'series', 'nextarc', 'convert', 'rebuild', 'rework', 'storyline', 'recap_arc', 'recap_part', 'state', 'openings'];
+const PENDING_KINDS = ['arc', 'suggest', 'series', 'nextarc', 'convert', 'rebuild', 'rework', 'storyline', 'recap_arc', 'recap_part', 'fold_knows', 'state', 'openings'];
 
 /** 그 결과가 아직 화면에 제안으로 남아 있다. 반영하거나 버리면 false 가 된다. */
 function pendingShown(r) {
@@ -456,11 +479,13 @@ function pendingShown(r) {
     case 'nextarc': return !!S.arcDraft;
     case 'recap_arc': return !!S.recapDrafts['arc' + r.ep];
     case 'recap_part': return !!S.recapDrafts['part' + r.ep];
+    case 'fold_knows': return !!S.foldDrafts[r.ep];
     case 'storyline': return !!S.lineDraft;
     case 'convert': return !!S.convDraft;
     case 'rebuild': return !!S.rbDraft;
     case 'rework': return !!S.reworks[r.ep];
     case 'openings': return !!S.openingPlots[r.ep];
+    case 'stage': return true;  // 장면 연출 AI 장면은 그 화면이 적용하거나 버릴 때 서버가 지운다 (web._stage_keep)
     default: return false;
   }
 }
@@ -493,7 +518,7 @@ function syncPending() {
 function failStrip(page, n) {
   if (S.pending.name !== S.name) return '';
   const list = Object.values(S.pending.failures).filter((f) => (JOB_PAGES[f.kind] || []).includes(page || 'home') && (f.ep == null || !['write', 'check', 'review', 'brief'].includes(page) || f.ep === n));
-  return list.map((f) => `<div class="note warn between" role="status"><span><strong>지난 시도 실패</strong> · ${esc(f.label)}: ${esc(f.error)}${/API 키|연결/.test(f.error) ? ' <a href="#/settings">모델 · API 키 설정</a>' : ''}</span><button type="button" class="btn small" data-action="dismissFail" data-arg="${esc(f.key)}">닫기</button></div>`).join('');
+  return list.map((f) => `<div class="note warn between" role="status"><span><strong>지난 시도 실패</strong> · ${esc(f.label)}: ${esc(f.error)}${/API 키|연결/.test(f.error) ? ' <a href="#/settings/ai">AI 연결 설정</a>' : ''}</span><button type="button" class="btn small" data-action="dismissFail" data-arg="${esc(f.key)}">닫기</button></div>`).join('');
 }
 
 function applyJobResult(j) {
@@ -524,12 +549,17 @@ function applyJobResult(j) {
     S.recapDrafts[kind + j.ep] = { kind, number: j.ep, summary: j.result.summary };
     if (kind === 'arc') S.selArc = j.ep;
     else S.selPart = j.ep;
+  } else if (j.kind === 'fold_knows' && j.result) {
+    S.foldDrafts[j.ep] = { folds: j.result.folds.map((f) => ({ ...f, on: true })) };
+    S.selArc = j.ep;
   } else if (['convert', 'rebuild', 'rework'].includes(j.kind) && j.result) {
     convertResult(j);
   } else if (j.kind === 'storyline' && j.result) {
     S.lineDraft = { ...j.result, picks: {} };
   } else if (['hook', 'openings', 'opening_drafts'].includes(j.kind)) {
     openingJobResult(j);
+  } else if (['stage_draft', 'stage_extract', 'check'].includes(j.kind) && typeof stageJobResult === 'function') {
+    stageJobResult(j);
   }
 }
 
@@ -545,60 +575,21 @@ const JOB_LINK = {
   nextarc: (j) => `#/p/${enc(j.project)}/arc`,
   recap_arc: (j) => `#/p/${enc(j.project)}/arc`,
   recap_part: (j) => `#/p/${enc(j.project)}/arc`,
+  fold_knows: (j) => `#/p/${enc(j.project)}/arc`,
   impact: (j) => `#/p/${enc(j.project)}/causal${j.result ? '/' + enc(j.result.element) : ''}`,
   storyline: (j) => `#/p/${enc(j.project)}/lines`,
   auto: (j) => `#/p/${enc(j.project)}/auto`,
   play_world: (j) => `#/play/new/${enc(j.project)}`,
 };
 
-function renderJobs() {
-  let box = $('#jobs');
-  if (!box) {
-    // 알림 영역으로 두지 않는다. 경과 시간 때문에 자주 다시 그려 화면 낭독기가 목록을 되풀이해 읽는다. 시작 · 끝 · 실패는 토스트(#toast)가 알린다
-    box = document.createElement('section');
-    box.id = 'jobs';
-    box.setAttribute('aria-label', 'AI 작업');
-    document.body.appendChild(box);
-  }
-  if (!S.jobs.length) { box.innerHTML = ''; box.dataset.html = ''; box.hidden = true; return; }
-  box.hidden = false;
-  const running = S.jobs.filter((j) => j.status === 'running');
-  const failed = S.jobs.filter((j) => j.status === 'error');
-  // 접힌 머리에도 하나뿐인 작업의 이름 · 진행률과 실패 수를 보인다
-  const one = running.length === 1 ? [`${running[0].label}${running[0].total > 1 ? ` ${running[0].done}/${running[0].total}` : ''}`, jobLeft(running[0], Date.now() / 1000)].filter(Boolean).join(' · ') : '';
-  const head = S.jobsOffline ? '서버 연결이 끊겼어요. 다시 연결하는 중…'
-    : running.length ? `${one ? `AI 작업 진행 중 · ${one}` : `AI 작업 ${running.length}개 진행 중`}${failed.length ? ` · ${failed.length}개 실패` : ''}`
-      : `AI 작업 끝남${failed.length ? ` · ${failed.length}개 실패` : ''}`;
-  // 새 실패가 생기면 접혀 있어도 펼쳐 알린다. 그 뒤 접고 펴기는 사용자가 정한다
-  const fresh = failed.filter((j) => !S.jobsFailed.has(j.id));
-  if (fresh.length) { fresh.forEach((j) => S.jobsFailed.add(j.id)); S.jobsOpen = true; }
-  const items = S.jobs.map((j) => {
-    const pct = j.total > 1 ? ` ${j.done}/${j.total}` : '';
-    const wait = j.kind === 'auto' && j.status === 'done' && j.result && { review: '검토 필요', paused: '멈춤', error: '오류' }[j.result.status];
-    const state = j.status === 'running' ? `<span class="spinner sm" aria-hidden="true"></span>` : wait ? `<span class="wait">${wait}</span>` : j.status === 'done' ? '<span class="ok">완료</span>' : j.status === 'cancelled' ? '<span class="small">멈춤</span>' : '<span class="bad">실패</span>';
-    const other = j.project !== S.name ? ` <span class="small">· ${esc(j.project)}</span>` : '';
-    const sub = j.status === 'error' ? j.error : j.status === 'running' ? [j.note, `경과 ${elapsed(j)}`, jobLeft(j, Date.now() / 1000)].filter(Boolean).join(' · ') : j.note;
-    const open = j.status === 'done' && j.kind in JOB_LINK ? `<a href="${JOB_LINK[j.kind](j)}" data-job-open="${j.id}">열기</a>` : '';
-    const retry = j.status === 'error' && S.jobArgs[j.id] ? `<button type="button" class="btn small" data-job-retry="${j.id}">다시 시도</button>` : '';
-    const keyHelp = j.status === 'error' && /API 키|연결/.test(j.error || '') ? '<a href="#/settings">설정</a>' : '';
-    const stop = j.status === 'running' && j.kind !== 'auto' ? `<button type="button" class="btn small" data-job-stop="${j.id}">멈추기</button>` : '';
-    return `<li>${state}<div class="jl"><strong>${esc(j.label)}${pct}</strong>${other}${sub ? `<div class="small">${esc(sub)}</div>` : ''}</div>${open}${retry}${keyHelp}${stop}${j.status !== 'running' ? `<button type="button" class="x" data-job-dismiss="${j.id}" aria-label="목록에서 지우기">✕</button>` : ''}</li>`;
-  }).join('');
-  // 넓은 화면은 펼쳐 경과 시간과 '멈추기'를 보인다. 휴대폰은 접어 둔다 (저장 띠와 버튼을 가리지 않게). 머리를 누르면 바꾼다
-  const open = S.jobsOpen === null ? !narrowScreen() : S.jobsOpen;
-  const html = `<button type="button" class="jobs-head${failed.length ? ' bad' : ''}" aria-expanded="${open}" data-jobs-toggle>${running.length ? '<span class="spinner sm" aria-hidden="true"></span>' : ''}${head}</button>${open ? `<ul>${items}</ul>` : ''}`;
-  if (box.dataset.html === html) return;
-  // 목록 안 버튼(멈추기 · 다시 시도)에 있던 포커스를 다시 그린 뒤 같은 버튼에 돌려준다
-  const f = box.contains(document.activeElement) ? document.activeElement : null;
-  const key = f && ['data-job-stop', 'data-job-retry', 'data-job-dismiss', 'data-job-open', 'data-jobs-toggle'].find((a) => f.hasAttribute(a));
-  const val = key ? f.getAttribute(key) : null;
-  box.dataset.html = html;
-  box.innerHTML = html;
-  if (key) {
-    const back = box.querySelector(key === 'data-jobs-toggle' ? '[data-jobs-toggle]' : `[${key}="${CSS.escape(val)}"]`) || box.querySelector('[data-jobs-toggle]');
-    if (back) back.focus();
-  }
-  stackBottom();
+/** 실패한 작업을 같은 인자로 다시 시작한다 (알림 창 · 오류 말풍선의 '다시 시도'). */
+function retryJob(id) {
+  const a = S.jobArgs[id];
+  S.jobsSeen.add(id);
+  S.jobs = S.jobs.filter((j) => j.id !== id);
+  if (a && a.retry) a.retry();  // 작품 밖 작업(역설계 실험 revlab.js)은 저마다 다시 시작한다
+  else if (a) startJob(a.kind, a.ep, a.extra);
+  renderHub();
 }
 
 /** 작업 목록의 남은 시간: 지금까지 한 단계 평균으로 남은 단계를 어림한다. 단계가 하나뿐이거나 아직 하나도 끝나지 않았으면 ''.
@@ -618,43 +609,21 @@ function elapsed(j) {
 
 const narrowScreen = () => window.matchMedia('(max-width: 640px)').matches;
 
-/** 화면 아래 고정 층(저장 띠, 작업 목록, 알림)이 서로와 본문 버튼을 가리지 않게 높이를 CSS 변수로 둔다.
-    아래부터 저장 띠 → 반영 줄(상태 승인 화면 .apply-bar) → 작업 목록 → 알림 순서로 쌓는다.
-    --sb: 저장 띠 높이, --ab: 반영 줄 높이(있을 때), --jb: 작업 목록 높이(좁은 폭에서 알림 아래에 쌓을 때),
-    --jh: 반영 줄 · 버튼 줄이 있거나 상태 승인 화면일 때 작업 목록 높이(넓은 폭에서도 맨 끝 줄이 작업 목록 아래에 갇히지 않게 본문 아래를 띄운다). */
+/** 화면 아래 고정 층이 서로와 본문 버튼을 가리지 않게 높이를 CSS 변수로 둔다.
+    아래부터 저장 띠 → 반영 줄(상태 승인 화면 .apply-bar) 순서로 쌓는다. 작업 목록과 알림은 알림 버튼 아래로 옮겼다 (hub.js).
+    --sb: 저장 띠 높이, --ab: 반영 줄 높이(있을 때). */
 function stackBottom() {
   const h = (el) => (el && !el.hidden ? el.getBoundingClientRect().height + 12 : 0);
   const st = document.body.style;
-  const ab = h($('#app .apply-bar'));
-  const pa = $('#app .page-actions');  // 화 플롯 페이지의 버튼 줄: 작업 목록 위로 올린다
-  const rv = $('#app .rv-grid');  // 상태 승인 화면: 세 칸이면 작업 목록이 오른쪽 열 위로, 두 칸이면 목차 칸 위로 간다 (app.css)
-  const rvRight = rv && window.innerWidth >= 1200;
   st.setProperty('--sb', `${h($('#savebar:not(.inline)'))}px`);
-  st.setProperty('--ab', `${ab}px`);
-  // 대화 패널이 열리거나 상태 승인 화면이면 알림이 작업 목록과 같은 자리(오른쪽)로 오므로 넓은 폭에서도 작업 목록 위에 쌓는다
-  st.setProperty('--jb', `${narrowScreen() || rv || document.body.classList.contains('chat-open') ? h($('#jobs')) : 0}px`);
-  st.setProperty('--jh', `${ab || pa || rv ? h($('#jobs')) : 0}px`);
-  const jh = h($('#jobs'));
-  st.setProperty('--jo', `${narrowScreen() ? 0 : jh}px`);  // 넓은 폭: 화면에 붙인 칸(상태 승인 오른쪽 열)이 작업 목록 위에서 끝나게
-  st.setProperty('--jp', `${pa && jh ? jh + 20 : 0}px`);  // 버튼 줄 아래 여백(20px)까지 작업 목록 위로
-  // 상태 승인 두 칸: 작업 목록 · 알림을 목차 칸 위에 그 폭으로 쌓고, 목차 칸은 그 위에서 끝낸다 (review.js rvRailFit)
-  const rail = rv && !rvRight && !narrowScreen() ? $('#app .rv-rail').getBoundingClientRect() : null;
-  const toasts = $('#toast');
-  st.setProperty('--rv-jx', `${rail ? Math.round(rail.left) : 16}px`);
-  st.setProperty('--rv-jw', `${rail ? Math.round(rail.width) : 200}px`);
-  st.setProperty('--rvj', `${rail ? jh + (toasts && toasts.children.length ? toasts.getBoundingClientRect().height + 12 : 0) : 0}px`);
-  if (typeof rvRailFit === 'function') rvRailFit();
+  st.setProperty('--ab', `${h($('#app .apply-bar'))}px`);
 }
 window.addEventListener('resize', () => stackBottom());
-// 상태 승인 두 칸에서는 알림도 목차 칸 위에 쌓으므로, 알림이 뜨고 질 때 높이를 다시 잰다
-if (typeof MutationObserver !== 'undefined' && $('#toast')) new MutationObserver(() => { if ($('#app .rv-grid')) stackBottom(); }).observe($('#toast'), { childList: true });
 
 document.addEventListener('click', (e) => {
-  const t = e.target.closest('[data-jobs-toggle], [data-job-dismiss], [data-job-open], [data-job-stop], [data-job-retry]');
+  const t = e.target.closest('[data-job-dismiss], [data-job-open], [data-job-stop], [data-job-retry]');
   if (!t) return;
-  if (t.dataset.jobsToggle !== undefined) {
-    S.jobsOpen = !(S.jobsOpen === null ? !narrowScreen() : S.jobsOpen);
-  } else if (t.dataset.jobDismiss) {
+  if (t.dataset.jobDismiss) {
     S.jobsSeen.add(t.dataset.jobDismiss);
     S.jobs = S.jobs.filter((j) => j.id !== t.dataset.jobDismiss);
   } else if (t.dataset.jobOpen) {
@@ -667,25 +636,23 @@ document.addEventListener('click', (e) => {
     api('POST', `/jobs/${j.id}/stop`).then((x) => {
       Object.assign(j, x);
       toast(`${j.label}${josa(j.label, '을', '를')} 멈췄어요`);
-      renderJobs();
+      renderHub();
       if (S.route[0] === 'p' && !isTyping()) render();  // 잠겨 있던 버튼을 푼다
     }).catch((err) => toast(err.message, true));
     return;
   } else if (t.dataset.jobRetry) {
-    const a = S.jobArgs[t.dataset.jobRetry];
-    S.jobsSeen.add(t.dataset.jobRetry);
-    S.jobs = S.jobs.filter((j) => j.id !== t.dataset.jobRetry);
-    if (a) startJob(a.kind, a.ep, a.extra);
+    retryJob(t.dataset.jobRetry);
+    return;
   }
-  renderJobs();
+  renderHub();
 });
 
 /** 버튼 동작 공통 처리: 진행 표시, 오류 알림, 다시 그리기. 성공하면 true.
     opt.render: 'always'(기본) | 'success'(실패하면 다시 그리지 않아 화면에만 있는 입력을 남긴다) | 'never' */
-/** 실패를 알린다. API 키가 없으면(첫 실행에 흔하다) 설정 화면으로 갈지 묻는다. */
+/** 실패를 알린다. API 키가 없으면(첫 실행에 흔하다) 설정 대화상자를 열지 묻는다. */
 function showError(e) {
   if (e.code === 'no_key') {
-    if (confirm(`${e.message}\n\n설정 화면으로 갈까요?`)) location.hash = '#/settings';
+    if (confirm(`${e.message}\n\n설정을 열까요?`)) openSettings('ai');
     return;
   }
   toast(e.message, true);
@@ -704,7 +671,7 @@ async function run(label, fn, opt = {}) {
   $('#busy').hidden = false;
   // 기다리는 동안 뒤 화면을 키보드로도 못 건드리게 막고 포커스를 상자로 옮긴다. 끝나면 누른 버튼으로 돌려준다
   const back = document.activeElement;
-  const walls = ['#app', '#jobs', '#savebar'].map((q) => $(q)).filter(Boolean);
+  const walls = ['#app', '#hub-pop', '#savebar'].map((q) => $(q)).filter(Boolean);
   walls.forEach((el) => { el.inert = true; });
   $('#busy .busy-box').focus();
   const tick = setInterval(() => {
@@ -720,8 +687,8 @@ async function run(label, fn, opt = {}) {
   } finally {
     clearInterval(tick);
     runAbort = null;
-    // 그리는 사이 새로 생긴 저장 띠 · 작업 목록도 함께 푼다
-    [...walls, ...['#app', '#jobs', '#savebar'].map((q) => $(q)).filter(Boolean)].forEach((el) => { el.inert = false; });
+    // 그리는 사이 새로 생긴 저장 띠 · 알림 창도 함께 푼다
+    [...walls, ...['#app', '#hub-pop', '#savebar'].map((q) => $(q)).filter(Boolean)].forEach((el) => { el.inert = false; });
     $('#busy').hidden = true;
     if (back && back.isConnected && back !== document.body) back.focus({ preventScroll: true });  // 다시 그리기가 이 자리를 기억한다
     if (when === 'always' || (when === 'success' && ok)) render();
@@ -792,6 +759,11 @@ function actOf(n) {
 
 function arcOf(n) {
   return P().story_arcs.find((a) => a.start_ep <= n && n <= a.end_ep);
+}
+
+/** 장편에서 n화가 든 부 (사이드바 작품 칸 · 작품 홈) */
+function partOf(n) {
+  return P().parts.find((x) => x.start_ep <= n && n <= x.end_ep);
 }
 
 function plannedUntil() {
@@ -880,7 +852,6 @@ document.addEventListener('input', (e) => {
   }
   if (el.dataset.brief) S.briefDraft[`${S.name}:${el.dataset.brief}`] = el.value;
   if (el.id === 'imp-body' && $('#imp-count')) $('#imp-count').innerHTML = importCount(el.value);
-  if (S.route[0] === 'settings' && el.id && el.id.startsWith('set-')) S.settingsDirty = true;
   if (el.dataset.local) S[el.dataset.local] = el.value;
   if (el.dataset.local === 'styleSample') S.styleSampleDirty = true;
   if (el.dataset.deltaSummary) {
@@ -1180,7 +1151,7 @@ const deltaPending = (n) => { const e = P() && ep(Number(n)); return !e || e.sta
 /** 페이지를 떠나면 사라지는 입력: 저장하지 않은 작품 · 문체 · 설정 변경, 본문 초안, 붙여 넣은 지시서 결과, 반영하지 않은 상태 변경안,
     분석 전 문체 예시 원문. 본문 초안은 브라우저에도 임시 보관하지만, 막힌 브라우저가 있어 여기서도 묻는다 */
 function hasUnsaved() {
-  return S.dirty || S.libDirty || S.settingsDirty
+  return S.dirty || S.libDirty || S.stgDirty
     || (S.styleSampleDirty && S.styleSample.trim() !== '')
     || Object.keys(S.textDraft).some(textUnsaved)
     || Object.entries(S.briefDraft).some(([k, v]) => briefPending(k, v))
@@ -1223,13 +1194,15 @@ async function save(force = false) {
   // 서버가 작업 · 자동 집필 · 다른 곳의 반영을 지키느라 화면 값 대신 서버 것을 둔 칸. 화면이 고친 칸이면 성공 토스트만으로는 버린 줄 모른다
   const head = meta.headers && meta.headers.get('X-Canon-Kept');
   const kept = head ? JSON.parse(decodeURIComponent(head)) : [];
-  const dropped = kept.filter((k) => k.field !== 'character' && edited(k)).map((k) => (k.field === 'relationships' ? '관계' : `${k.ep}화 플롯`));
+  const dropped = kept.filter((k) => k.field !== 'character' && k.why !== 'locked' && edited(k)).map((k) => (k.field === 'relationships' ? '관계' : `${k.ep}화 플롯`));
+  const locked = kept.filter((k) => k.why === 'locked' && edited(k)).map((k) => k.ep);
   const kin = kept.filter((k) => k.field === 'character').map((k) => k.name);
   if (dropped.length) toast(`작업이나 반영된 진행과 겹쳐 이 부분은 저장하지 않고 서버에 있는 것으로 두었어요: ${dropped.join(', ')}`, true);
+  if (locked.length) toast(`본문이 있는 화라 플롯은 저장하지 않고 서버에 있는 것으로 두었어요: ${rangeText(locked)}화. 이야기 줄기 표시만 바꿀 수 있어요`, true);
   if (kin.length) toast(`이 화면이 모르는 사이 반영으로 더해진 인물(${kin.join(', ')})은 지우지 않고 남겼어요`);
   if (S.route[2] === 'style') { await loadStyleLink(); await learnLoad(); }
   if (S.route[2] === 'causal') await causalLoad();
-  return !dropped.length;
+  return !dropped.length && !locked.length;
 }
 
 async function loadStyleLink() {
@@ -1274,7 +1247,20 @@ const actions = {
     if (el) { el.scrollIntoView({ block: 'center' }); el.focus(); }
   },
   toggleMenu() {
-    S.menuOpen = !S.menuOpen;  // 좁은 폭에서만 보이는 버튼. 메뉴를 고르면 화면 이동 때 닫힌다
+    S.menuOpen = !S.menuOpen;  // 900px 이하 위쪽 띠의 버튼. 서랍의 메뉴를 고르면 화면 이동 때 닫힌다
+    S.focusTarget = S.menuOpen ? '#side-menu .drawer-head .side-ico' : '#app .side-top .menu-toggle';
+    render();
+  },
+  toggleRail() {
+    S.rail = !railPinned();
+    try { localStorage.setItem('canon.rail', S.rail ? '1' : '0'); } catch { /* 저장소를 막은 브라우저: 이번 화면에서만 접는다 */ }
+    S.focusTarget = '#app .rail-toggle';
+    render();
+  },
+  navFold(k) {
+    S.navFolds[k] = !navFoldOpen(k);
+    try { localStorage.setItem(navFoldKey(k), S.navFolds[k] ? '1' : '0'); } catch { /* 저장소를 막은 브라우저: 이번 화면에서만 기억한다 */ }
+    S.focusTarget = `#app [data-action="navFold"][data-arg="${k}"]`;
     render();
   },
   async dupProject(name) {
@@ -1440,8 +1426,29 @@ const CHEVRON = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" str
     role="menu" 는 쓰지 않는다: 창 안에 라디오 · 체크박스 · 나눔 버튼이 섞인다 */
 function menuBtn(id, label, body, { cls = 'btn', aria = '', title = '', align = '' } = {}) {
   const open = S.popMenu === id;
-  return `<div class="pop" data-menu="${id}"><button type="button" class="${cls}" aria-expanded="${open}" aria-controls="pop-${id}" data-action="menuToggle" data-arg="${id}"${aria ? ` aria-label="${esc(aria)}"` : ''}${title ? ` title="${esc(title)}"` : ''}>${label}</button>${open ? `<div class="pop-panel${align ? ` ${align}` : ''}" id="pop-${id}">${body()}</div>` : ''}</div>`;
+  return `<div class="menu" data-menu="${id}"><button type="button" class="${cls}" aria-expanded="${open}" aria-controls="pop-${id}" data-action="menuToggle" data-arg="${id}"${aria ? ` aria-label="${esc(aria)}"` : ''}${title ? ` title="${esc(title)}"` : ''}>${label}</button>${open ? `<div class="pop-panel${align ? ` ${align}` : ''}" id="pop-${id}">${body()}</div>` : ''}</div>`;
 }
+
+/** 열린 메뉴 창이 화면 밖으로 나가지 않게 한다. 창은 버튼 오른쪽 끝에 맞춰 왼쪽으로 펼치는데, 좁은 화면에서 버튼이
+    줄 왼쪽으로 내려가면 창이 왼쪽 밖으로 나간다. 그러면 버튼 왼쪽 끝에 맞춘다 (.pop-panel.left) */
+function fitMenus() {
+  document.querySelectorAll('#app .pop-panel').forEach((p) => {
+    if (p.classList.contains('left')) return;
+    if (p.getBoundingClientRect().left < 8) p.classList.add('left', 'fit-left');
+  });
+}
+window.addEventListener('resize', () => {
+  document.querySelectorAll('#app .pop-panel.fit-left').forEach((p) => p.classList.remove('left', 'fit-left'));
+  fitMenus();
+});
+
+// 작업 경과 시간은 화면 전체를 다시 그리지 않고 그 글자만 1초마다 고친다 (data-elapsed="작업 id", 집필 화면 wsBusy)
+setInterval(() => {
+  document.querySelectorAll('[data-elapsed]').forEach((el) => {
+    const j = S.jobs.find((x) => x.id === el.dataset.elapsed);
+    if (j && j.status === 'running') el.textContent = `경과 ${elapsed(j)}`;
+  });
+}, 1000);
 
 function closeMenu(focus = false) {
   if (!S.popMenu) return;
@@ -1513,7 +1520,7 @@ Object.assign(actions, {
 // 작품마다 따로 두는 화면 상태와 빈 값. 화 번호로 잡거나 반영 전 AI 제안이라, 다른 작품에 보이거나 반영되면 안 된다
 const PER_PROJECT = {
   textDraft: () => ({}), deltas: () => ({}), deltaBase: () => ({}), deltaOrig: () => ({}),
-  suggestion: () => null, picks: () => ({}), seriesDraft: () => null, arcDraft: () => null, arcProposal: () => null, recapDrafts: () => ({}),
+  suggestion: () => null, picks: () => ({}), seriesDraft: () => null, arcDraft: () => null, arcProposal: () => null, recapDrafts: () => ({}), foldDrafts: () => ({}),
   lineDraft: () => null, convDraft: () => null, rbDraft: () => null, reworks: () => ({}),
   openingData: () => ({}), openingPlots: () => ({}), openingUsed: () => ({}), openingPrev: () => ({}), rw: () => ({}), rwInfo: () => ({}), looks: () => ({}),
   causalLinks: () => ({}), causalPicks: () => ({}), causalGone: () => null, chatPicks: () => ({}),
@@ -1570,7 +1577,16 @@ const navScroll = { idx: 0, max: 0, at: new Map(), restore: null };
 try { history.replaceState({ idx: 0 }, '', location.hash || '#/'); } catch { /* 기록을 못 고치면 위치 되살리기만 빠진다 */ }
 
 window.addEventListener('hashchange', async () => {
-  if ((S.dirty || S.libDirty || S.settingsDirty) && !confirm('저장하지 않은 변경이 있어요. 저장하지 않고 이동하면 그 변경은 사라져요. 이동할까요?')) {
+  // 설정 주소는 화면을 옮기지 않고 지금 화면 위에 설정 대화상자를 연다 (settings.js)
+  const setTo = settingsCat(location.hash);
+  if (setTo !== null) {
+    history.replaceState(history.state, '', lastHash || '#/');
+    openSettings(setTo);
+    return;
+  }
+  const setDlg = document.getElementById('set-dlg');
+  if (setDlg && setDlg.open) setDlg.close();
+  if ((S.dirty || S.libDirty || S.stgDirty) && !confirm('저장하지 않은 변경이 있어요. 저장하지 않고 이동하면 그 변경은 사라져요. 이동할까요?')) {
     history.replaceState({ idx: navScroll.idx }, '', lastHash);
     return;
   }
@@ -1586,7 +1602,6 @@ window.addEventListener('hashchange', async () => {
   navScroll.idx = history.state.idx;
   lastHash = location.hash;
   S.libDirty = false;
-  S.settingsDirty = false;
   await route();
 });
 
@@ -1594,17 +1609,6 @@ window.addEventListener('hashchange', async () => {
 function lostPartSummaries() {
   const keep = new Set((S.seriesDraft ? S.seriesDraft.parts : []).map((x) => `${x.start_ep}-${x.end_ep}`));
   return P().parts.filter((x) => x.summary && !keep.has(`${x.start_ep}-${x.end_ep}`));
-}
-
-/** 장편 아크 줄: 끝났고 요약도 있는 앞쪽 아크가 많으면 한 칩으로 접는다 (고른 아크는 늘 보인다). */
-function railChips(arcs, chip) {
-  const done = (a) => a.summary && arcFinished(a);
-  let k = 0;
-  while (k < arcs.length && done(arcs[k])) k++;
-  if (S.railAll || k <= 3) return arcs.map(chip).join('');
-  const folded = arcs.slice(0, k).filter((a) => a.number !== S.selArc);
-  const keep = arcs.slice(0, k).filter((a) => a.number === S.selArc);
-  return `<button type="button" class="arc-chip" data-action="railAll" aria-expanded="false"><strong>아크 ${arcs[0].number}~${arcs[k - 1].number}</strong> <span>완료 ${folded.length}개 · 펼치기</span></button>${keep.map(chip).join('')}${arcs.slice(k).map(chip).join('')}`;
 }
 
 // 화면 이동은 하나씩 차례로 처리한다. 늦게 끝난 앞 이동이 지금 화면의 데이터(지시서, 컨텍스트 등)를 덮지 않게 하고,
@@ -1633,11 +1637,17 @@ async function routeNow() {
   if (here !== lastRoute) S.focusTarget = '#app main h1';
   lastRoute = here;
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
+  if (parts[0] === 'p' && parts[2] === 'rev') {  // 역설계 실험은 작품 밖 화면으로 옮겼다. 예전 주소(#/p/<작품>/rev/…)는 새 주소로
+    location.replace(`#/revlab${parts.slice(3).map((x) => `/${encodeURIComponent(x)}`).join('')}`);
+    return;
+  }
   S.route = parts;
   S.context = null;
   S.promptText = null;
   S.briefText = null;
-  S.relations = null;
+  if (parts[0] === 'revlab') {  // 작품에서 역설계 실험으로 오면 그 작품을 기억한다. 머리의 '‹ 작품' 버튼이 돌아간다 (revlab.js revBackBtns)
+    if (S.name && S.project) S.revFrom = { name: S.name, title: S.project.meta.title || S.name };
+  } else S.revFrom = null;
   if (parts[0] !== 'p') pruneProjectState();  // 작품 밖 화면으로 간다. 작품 데이터가 있을 때 끝난 초안을 정리한다
   if (parts[0] !== 'play' && typeof playStop === 'function') playStop();  // 플레이 화면을 떠나면 시계를 멈춘다
   try {
@@ -1648,16 +1658,18 @@ async function routeNow() {
     }
     if (!S.genres) S.genres = await api('GET', '/genres').catch(() => []);
     if (!S.namingStyles) S.namingStyles = await api('GET', '/naming/styles').catch(() => []);
-    if (parts[0] === 'settings') {
-      S.settingsDirty = false;
-      S.config = await api('GET', '/config');
-      loadModelList();  // 기다리지 않는다. 목록이 오면 입력칸 추천만 채운다
-      claudeStatusLoad();  // Claude Code 로그인 상태도 기다리지 않는다 (claude.js)
-      await pricesLoad().catch((e) => toast(e.message, true));
-    } else if (parts[0] === 'usage') {
+    if (['usage', 'revlab', 'styles'].includes(parts[0])) {  // 작품 밖 사이드바의 최근 작품 · 문체 수 (처음 한 번만, 작품 목록에 오면 다시 읽는다)
+      if (!S.projects) S.projects = await api('GET', '/projects').catch(() => null);
+      if (!S.libs) S.libs = await api('GET', '/styles').catch(() => null);
+    }
+    if (parts[0] === 'usage') {
       S.name = null;
       S.project = null;
       await usageLoad(parts[1] || '');
+    } else if (parts[0] === 'revlab') {
+      S.name = null;
+      S.project = null;
+      await revLoad(parts[1], parts[2]);
     } else if (parts[0] === 'styles') {
       S.name = null;
       S.project = null;
@@ -1676,15 +1688,12 @@ async function routeNow() {
       if (S.pendingJob && S.pendingJob.project === S.name && !S.jobsApplied.has(S.pendingJob.id)) applyJobResult(S.pendingJob);
       S.pendingJob = null;
       await loadPending();
-      if (!branchFam() || !parts[2] || parts[2] === 'branches') await branchLoad();
-      if (!parts[2]) await playHomeLoad();  // 플레이 사본이면 작품 홈에 플레이로 돌아가는 카드 (play.js)  // 갈래 머리 띠 (branches.js). 작품을 바꿨거나 작품 홈 · 갈래 비교에 오면 다시 읽는다
+      if (!branchFam() || !parts[2] || parts[2] === 'branches') await branchLoad();  // 갈래 머리 띠 (branches.js). 작품을 바꿨거나 작품 홈 · 갈래 비교에 오면 다시 읽는다
+      if (!parts[2] || S.homePlayOf !== S.name) await playHomeLoad();  // 플레이 사본인지 (play.js): 작품 홈 카드 · 사이드바 작품 칸 · 다음 할 일
       if (parts[2] === 'branches') await branchCompareLoad(parts[3], Number(parts[4]) || 0);
       scanDrafts();
       S.dirty = false;
       const n = Number(parts[3]);
-      if (!parts[2] && S.project.relationships.length) {
-        S.relations = await api('GET', `/projects/${enc(S.name)}/relations`).catch((e) => ({ error: e.message }));
-      }
       if (parts[2] === 'setup') {
         S.names = {};
         S.ideas = {};
@@ -1721,11 +1730,14 @@ async function routeNow() {
       if (parts[2] === 'write' || parts[2] === 'arc' || parts[2] === 'check') await openingLoad(parts[2] === 'arc' ? 0 : (n || currentEp()));
       if (parts[2] === 'check') await checkLoad(n || currentEp());
       if (parts[2] === 'research') await rsLoad();
+      if (parts[2] === 'cue') await cueLoad(parts[3]);
       if (parts[2] === 'usage') await usageLoad(S.name);
       if (parts[2] === 'convert') await convertLoad();
       if (parts[2] === 'cast') await castLoad(parts[3]);
       if (parts[2] === 'atlas') await atlasLoad();
-      if (parts[2] === 'foreshadow') await fsLoad();
+      if (parts[2] === 'stage') await stgLoad(n || currentEp(), Number(parts[4]) || 1);
+      else S.stgDirty = false;  // 장면 연출을 떠났다 (떠날 때 hashchange 가 물었다)
+      if (parts[2] === 'foreshadow') await fsLoad(parts[3]);  // foreshadow/<복선 id> 는 그 복선 쪽
       if (parts[2] === 'statwin') await swLoad(parts[3]);
       if (parts[2] === 'abilities') await abLoad(parts[3]);
       if (parts[2] === 'setup' && parts[3]) {  // 인물 화면의 '기본 설정 고치기'(setup/<인물 id>)는 그 인물 카드로 간다
@@ -1750,6 +1762,7 @@ async function routeNow() {
       S.project = null;
       S.projects = await api('GET', '/projects');
       S.libs = await api('GET', '/styles').catch(() => []);
+      if (parts[0] === 'new') S.focusTarget = '#np-title';  // 사이드바 '새 작품'(#/new): 작품 목록 위에 새 작품 칸을 펴고 제목 칸으로
     }
   } catch (e) {
     // 연결 실패를 '작품 없음'과 같은 화면으로 보이지 않는다. 오류 카드와 다시 시도를 그린다
@@ -1794,6 +1807,7 @@ function render() {
   S.renderPending = false;
   const f = focusMark();
   drawApp();
+  syncRail();
   afterDraw(f);
   renderSavebar();  // 저장 칸이 생기거나 사라졌을 수 있다
   stackBottom();  // 반영 줄(.apply-bar)이 생기거나 사라졌을 수 있다
@@ -1834,6 +1848,7 @@ function afterDraw(f) {
     const sel = tabs.find((t) => t.getAttribute('aria-selected') === 'true') || tabs[0];
     tabs.forEach((t) => { t.tabIndex = t === sel ? 0 : -1; });
   });
+  fitMenus();
   const want = S.focusTarget;
   S.focusTarget = null;
   const target = want && document.querySelector(want);
@@ -1854,7 +1869,9 @@ function pageTitle() {
   const h1 = $('#app main h1');
   const name = h1 ? h1.textContent.trim().replace(/\s+/g, ' ') : '';
   const work = P() && S.route[0] === 'p' ? P().meta.title : '';
-  return [name, work !== name ? work : '', 'Canon'].filter(Boolean).join(' · ');
+  // 한 화 흐름의 세 화면은 제목이 모두 화 제목이라 단계 이름을 앞에 붙인다 ('검수 · 4화 「제목」')
+  const stage = work && FLOW_PAGES.includes(S.route[2]) ? stepLabel(S.route[2]) : '';
+  return [stage, name, work !== name ? work : '', 'Canon'].filter(Boolean).join(' · ');
 }
 
 function drawApp() {
@@ -1864,20 +1881,13 @@ function drawApp() {
   if (inline) document.body.appendChild(inline);
   document.body.classList.remove('chat-open');
   const [p, , page, arg] = S.route;
-  if (p === 'settings') {
-    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:820px;margin:0 auto">${viewSettings()}</main></div>`;
-    syncProviderGroups();  // 쓰지 않는 백엔드의 칸 묶음을 숨긴다 (settings.js)
-    return;
-  }
-  if (p === 'usage') {
-    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1180px;margin:0 auto">${viewUsage()}</main></div>`;
-    return;
-  }
-  if (p === 'styles') {
-    const body = S.route[1] && S.lib ? viewLibEntry() : viewLibrary();
-    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1180px;margin:0 auto">${body}</main></div>`;
-    return;
-  }
+  // 작품 밖 화면: 작품 밖 사이드바(outSidebar) 옆에 본문. 본문 폭은 화면마다 다르다
+  const outside = (id, width, body) => {
+    $('#app').innerHTML = `<div class="shell">${outSidebar(id)}<main class="main out-main" style="--out-w:${width}px">${body}</main></div>`;
+  };
+  if (p === 'usage') return outside('usage', 1180, viewUsage());
+  if (p === 'revlab') return outside('revlab', 1280, viewRev());
+  if (p === 'styles') return outside('styles', 1180, S.route[1] && S.lib ? viewLibEntry() : viewLibrary());
   if (S.loadError) {
     $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:720px;margin:0 auto"><div class="card empty" role="alert">${S.loadMissing
       ? `<h2>'${esc(S.route[1] || '')}' 작품을 찾지 못했어요</h2><p>주소가 틀렸거나 지운 작품이에요. 작품 목록에서 고르세요.</p><div class="row"><a class="btn primary" href="#/">작품 목록</a></div>`
@@ -1889,14 +1899,11 @@ function drawApp() {
     playAfterDraw();
     return;
   }
-  if (p !== 'p' || !P()) {
-    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:1080px;margin:0 auto">${viewProjects()}</main></div>`;
-    return;
-  }
+  if (p !== 'p' || !P()) return outside(p === 'new' ? 'new' : 'projects', 1180, viewProjects());
   const n = Number(arg) || currentEp();
-  const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches };
+  const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, stage: viewStage, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches, cue: viewCue };
   const body = (views[page] || viewHome)(n);
-  $('#app').innerHTML = `<div class="shell">${sidebar(page || 'home')}<main class="main">${branchStrip(page)}${failStrip(page, n)}${draftStrip(page, n)}${body}</main></div>`;
+  $('#app').innerHTML = `<div class="shell">${sidebar(page === 'convert' ? 'home' : page || 'home')}<main class="main">${branchStrip(page)}${failStrip(page, n)}${draftStrip(page, n)}${body}</main></div>`;
   syncPending();
   keepDrafts();  // 저장 · 버리기 · AI 본문으로 초안이 사라졌으면 임시본도 바로 지운다
   syncChat();
@@ -1905,6 +1912,7 @@ function drawApp() {
   if (typeof syncMarks === 'function') syncMarks();
   if (typeof syncWriteTop === 'function') syncWriteTop();
   if (typeof syncLines === 'function') syncLines();
+  if (typeof syncStage === 'function') syncStage();
   document.querySelectorAll('textarea[data-autogrow]').forEach(autosize);
   // 상태 승인 지시서 탭이 바뀌면 다시 불러온다
   if (page === 'brief' && S.briefText === null && ep(n)) {
@@ -1914,30 +1922,76 @@ function drawApp() {
   }
 }
 
+/** 한 화 흐름의 세 화면 (flow.js FLOW_STAGES 와 같은 주소). 사이드바 4 · 5 · 6 줄과 탭 제목이 쓴다 */
+const FLOW_PAGES = ['write', 'check', 'review'];
+
+/** 사이드바 4 · 5 · 6 줄과 작업지시서가 가리킬 화: 한 화 흐름 · 작업지시서 화면에서는 보고 있는 화, 그 밖은 지금 작업할 화 */
+function navEp() {
+  const n = Number(S.route[3]);
+  return [...FLOW_PAGES, 'brief'].includes(S.route[2]) && n && ep(n) ? n : currentEp();
+}
+
 /** 작업 단계 1~6 의 이름. 사이드바 · 작품 홈 진행 카드 · 단계 화면 제목이 이 이름을 쓴다 (장편은 3단계 이름이 다르다) */
 function stepLabel(id) {
   return { setup: '설정 도우미', style: '문체 레퍼런스', arc: serial() ? '부 · 아크 · 플롯' : '기승전결 · 플롯', write: '집필', check: '검수', review: '상태 승인' }[id];
 }
 
-/** 사이드바 '더 보기' 펼침. 화면을 다시 그려도 남게 브라우저에 둔다. */
-function navMoreOpen() {
-  try { return localStorage.getItem('canon.navMore') === '1'; } catch { return false; }
+/** 사이드바 접는 묶음(작품 도구 · 아직 안 쓴 도구 · 실험)의 처음 펼침. 사람이 머리를 눌러 바꾼 것은 브라우저에 둔다.
+    아직 안 쓴 도구는 예전 '더 보기'와 같은 키(canon.navMore)를 쓴다 */
+const NAV_FOLDS = { tools: true, more: false, lab: false, recent: true, out: true };
+const navFoldKey = (k) => (k === 'more' ? 'canon.navMore' : `canon.nav.${k}`);
+function navFoldOpen(k) {
+  S.navFolds = S.navFolds || {};
+  if (S.navFolds[k] === undefined) {
+    let v = null;
+    try { v = localStorage.getItem(navFoldKey(k)); } catch { /* 저장소를 막은 브라우저: 이번 화면에서만 기억한다 */ }
+    S.navFolds[k] = v === null ? NAV_FOLDS[k] : v === '1';
+  }
+  return S.navFolds[k];
 }
-// 사람이 머리를 눌러 바꾼 것만 기억한다 (지금 보는 도구라 펼쳐 그린 것은 기억하지 않는다). 펼침은 클릭 기본 동작 뒤에 읽는다
-document.addEventListener('click', (e) => {
-  const d = e.target.closest && e.target.closest('[data-nav-more] > summary') && e.target.closest('[data-nav-more]');
-  if (!d) return;
-  setTimeout(() => {
-    try { localStorage.setItem('canon.navMore', d.open ? '1' : '0'); } catch { /* 저장소를 막은 브라우저: 이번 화면에서만 펼친다 */ }
-  });
+
+/** 넓은 폭 사이드바를 레일(기호만, 64px)로 접어 두었는지. 브라우저에 둔다 */
+function railPinned() {
+  if (S.rail === undefined) {
+    try { S.rail = localStorage.getItem('canon.rail') === '1'; } catch { S.rail = false; }
+  }
+  return S.rail;
+}
+
+/** body 에 레일 표시: side-rail 은 레일로 그림, side-rail-auto 는 901~1599px 에서 대화 패널(다시 생성 열)을 열어 저절로 접힘.
+    900px 이하는 위쪽 띠라 app.css 가 이 표시를 쓰지 않는다. 서랍을 연 동안은 menu-open 으로 뒤 화면을 굴리지 않는다 */
+function syncRail() {
+  const w = window.innerWidth;
+  const auto = document.body.classList.contains('chat-open') && w >= 901 && w <= 1599;
+  document.body.classList.toggle('side-rail', railPinned() || auto);
+  document.body.classList.toggle('side-rail-auto', auto);
+  // 900px 이하 서랍을 연 동안: 서랍은 대화상자로 알리고, 뒤 화면과 위쪽 띠의 나머지는 Tab · 낭독에서 뺀다 (Esc 는 아래)
+  const drawer = !!S.menuOpen && w <= 900;
+  document.body.classList.toggle('menu-open', drawer);
+  const menu = document.getElementById('side-menu');
+  if (menu) {
+    if (drawer) { menu.setAttribute('role', 'dialog'); menu.setAttribute('aria-modal', 'true'); menu.setAttribute('aria-label', '메뉴'); }
+    else ['role', 'aria-modal', 'aria-label'].forEach((a) => menu.removeAttribute(a));
+  }
+  document.querySelectorAll('#app .shell > main, #app .side > :not(.side-menu, .side-scrim)').forEach((el) => { el.inert = drawer; });
+}
+window.addEventListener('resize', syncRail);
+
+// Esc 는 좁은 폭의 메뉴 서랍을 닫고 메뉴 버튼으로 포커스를 돌린다
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.isComposing || !S.menuOpen || S.popMenu) return;
+  e.preventDefault();
+  S.menuOpen = false;
+  S.focusTarget = '#app .side-top .menu-toggle';
+  render();
 });
 
 /** 사이드바 항목. palette.js 의 명령 팔레트도 같은 이름 · 주소를 쓴다.
     steps: 작품 홈과 단계 [id, 주소, 기호, 이름], auto: 자동 집필, tools: 작품 도구 [..., 데이터가 있는지],
-    apart: 본편과 분리한 화면, foot: 사이드바 아래 링크 [주소, 이름]. */
+    apart: 본편과 분리한 화면 (사이드바 '실험' 묶음), foot: 작품 밖 화면 [주소, 이름] (사이드바 아래 설정 · ⋯ 메뉴). */
 function navItems() {
   const p = P();
-  const cur = currentEp();
+  const cur = navEp();
   // 번호는 작업 순서(1~6)에만 붙인다. 도구는 어느 단계에서든 쓰므로 번호 없이 아래 묶음에 둔다
   // 기호는 단계 번호이거나 토스페이스 이모지 아이콘이다 (navMark 가 그린다)
   const steps = [
@@ -1956,20 +2010,21 @@ function navItems() {
     ['atlas', base() + '/atlas', '🗺️', '지도', has(p.world.locations) || (p.elements || []).some((el) => el.kind === '장소')],
     ['foreshadow', base() + '/foreshadow', '🪝', '복선 센터', has(p.foreshadows)],
     ['tofix', base() + '/tofix', '📌', '고칠 곳', p.episodes.some((e) => has(e.to_fix))],
+    ['stage', `${base()}/stage/${cur}/1`, '🎬', '장면 연출', p.episodes.some((e) => has(e.stage))],
     ['statwin', base() + '/statwin', '📊', '상태창 수치', (p.states || []).some((s) => has(s.stats)) || has((p.stat_window || {}).names)],
     ['abilities', base() + '/abilities', '📖', '스킬 도감', has(p.abilities)],
     ['timeline', base() + '/timeline', '⏳', '작품 속 시간', has((p.timeline || {}).deadlines) || p.episodes.some((e) => e.time && (e.time.day > 0 || e.time.part || e.time.label))],
     ['lines', base() + '/lines', '🔀', '이야기 줄기', has(p.storylines)],
     ['causal', base() + '/causal', '🔗', '인과율', has(p.elements)],
     ['branches', base() + '/branches', '🌿', '갈래 비교', (branchFam() || { members: [] }).members.length > 1],
-    ['brief', `${base()}/brief/${cur}`, '📝', '작업지시서 (API 없이)', true],
+    ['brief', `${base()}/brief/${cur}`, '📝', '채팅 앱 작업지시서', true],
   ];
   return {
     steps,
     auto: ['auto', base() + '/auto', '🤖', autoMenuLabel()],
     tools,
-    apart: [['research', base() + '/research', '🔬', '연구 · 모델 실험'], ['usage', base() + '/usage', '💰', '사용량 · 비용']],
-    foot: [['#/settings', '모델 · API 키 설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/', '작품 목록']],
+    apart: [['research', base() + '/research', '🔬', '연구 · 모델 실험'], ['cue', base() + '/cue', '🎼', '큐 시트 집필 실험'], ['revlab', '#/revlab', '🔁', '역설계 실험'], ['usage', base() + '/usage', '💰', '사용량 · 비용']],
+    foot: [['#/settings', '설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/revlab', '역설계 실험'], ['#/', '작품 목록']],
   };
 }
 
@@ -1982,13 +2037,13 @@ function navMark(mark) {
 const WORK_STRIP_MAX = 40;
 
 /** 사이드바 작품 칸: 제목(작품 홈) · 작품 목록, 장르, 갈래, 장편은 지금 부 · 아크, 화마다 한 칸인 띠(장편은 지금 아크만),
-    반영한 화 수, 다음 할 일(home.js nextStep). 900px 이하와 대화 패널을 연 때는 app.css 가 위쪽 띠 한 줄로 줄인다. */
+    반영한 화 수, 다음 할 일(home.js nextStep). 900px 이하는 app.css 가 위쪽 띠의 제목 · n/N화로 줄이고, 서랍(.drawer-work)에 한 번 더 그린다. 레일에서는 숨긴다. */
 function workCard() {
   const p = P();
   const done = p.episodes.filter((e) => e.status === 'finalized').length;
   const total = p.meta.target_episodes;
   const cur = currentEp();
-  const part = serial() ? p.parts.find((x) => x.start_ep <= cur && cur <= x.end_ep) : null;
+  const part = serial() ? partOf(cur) : null;
   const arc = serial() ? arcOf(cur) : null;
   const [lo, hi] = arc ? [arc.start_ep, arc.end_ep] : [1, total];
   const n = hi - lo + 1;
@@ -2004,51 +2059,174 @@ function workCard() {
   const whereFull = [part && `${part.number}부 ${part.title}`, arc && `아크 ${arc.number} ${arc.title}`].filter(Boolean).join(' · ');  // 두 줄로 자른 부 · 아크 줄의 전체 글
   const [nextLabel, nextHref] = nextStep();
   return `<div class="work-card">
-      <div class="work-head"><a class="work-title" href="${base()}">${esc(p.meta.title || S.name)}</a><a class="work-switch" href="#/" title="작품 목록" aria-label="다른 작품 고르기 (작품 목록)">⌄</a></div>
-      <div class="small work-meta">${esc(p.meta.genre || '장르 미정')} · ${serial() ? '장편' : '단편'} ${total}화</div>${branchSideTag()}
+      <div class="work-head"><a class="work-title" href="${base()}" title="${esc(p.meta.title || S.name)}">${esc(p.meta.title || S.name)}</a><a class="work-switch" href="#/" title="작품 목록" aria-label="다른 작품 고르기 (작품 목록)">⌄</a></div>
+      <div class="small work-meta">${esc(p.meta.genre || '장르 미정')} · ${serial() ? '장편' : '단편'} ${total}화</div>${branchSideTag()}${playSideTag()}
       ${where ? `<div class="work-where" title="${esc(whereFull)}">${where}</div>` : ''}
       ${strip}
-      <div class="small work-count" aria-hidden="true">${done}/${total}화</div>
+      <div class="small work-count" aria-hidden="true">${done}/${total} 반영</div>
       <div class="small work-scale"><span aria-hidden="true">${cells ? `${lo}화` : ''}</span><span>${done} / ${total}화 반영</span><span aria-hidden="true">${cells ? `${hi}화` : ''}</span></div>
       <a class="work-next" href="${nextHref}"><span class="sr-only">다음 할 일: </span>${esc(nextLabel)}<span aria-hidden="true">→</span></a>
     </div>`;
 }
 
+/** 사이드바 줄 끝 배지에 넣을 수 (순수 함수, tests/test_sidebar_js.py). p 작품, cur 4 · 5 · 6 줄이 가리키는 화(navEp), results 검토를 기다리는 결과,
+    autoAt 자동 집필이 쓰는 화. check: 그 화의 열린 지적, review: 그 화의 반영하지 않은 상태 변경안, auto: 자동 집필이 쓰는 화, tofix: 작품 전체의 남은 고칠 곳 */
+function navBadges(p, cur, results, autoAt) {
+  const e = p.episodes.find((x) => x.plot.number === cur);
+  return {
+    check: e ? (e.findings || []).filter((f) => f.status === 'open').length : 0,
+    review: results.filter((r) => r.kind === 'state' && r.ep === cur).length,
+    auto: autoAt || null,
+    tofix: p.episodes.reduce((k, x) => k + (x.to_fix || []).filter((m) => m.status === 'open').length, 0),
+  };
+}
+
+/** 배지 하나. 글자는 눈으로만 보이고 낭독은 spoken 이 링크 이름 뒤에 붙는다. 레일에서는 점으로 줄어든다 (app.css .nav-badge) */
+function navBadge(text, spoken, tone = '') {
+  return `<span class="nav-badge${tone ? ` ${tone}` : ''}"><span aria-hidden="true">${text}</span><span class="sr-only">, ${spoken}</span></span>`;
+}
+
+/** 사이드바 한 줄 [id, 주소, 기호, 이름]. 이름이 길면 줄임표, 레일에서는 이름을 눈으로만 감추고 title 로 보인다 */
+function navLink([id, href, mark, label], active, badge = '') {
+  const step = /^\d$/.test(mark) ? `<span class="sr-only"> (단계 ${mark})</span>` : '';
+  return `<a href="${href}" title="${esc(label)}"${id === active ? ' aria-current="page"' : ''}>${navMark(mark)}<span class="nav-label">${label}${step}</span>${badge}</a>`;
+}
+
+/** 접는 묶음. 머리는 ▸ 삼각형 버튼, 펼침은 navFoldOpen (레일에서는 머리를 숨기고 작품 도구는 늘 보인다) */
+function navFold(key, label, count, body, open) {
+  return `<div class="nav-fold" data-fold="${key}">
+      <button type="button" class="nav-fold-head" data-action="navFold" data-arg="${key}" aria-expanded="${open}" aria-controls="fold-${key}">${SIDE_ICON.tri}<span>${label}</span>${count ? `<span class="nav-fold-count">${count}</span>` : ''}</button>
+      <div class="nav" id="fold-${key}"${open ? '' : ' hidden'}>${body}</div>
+    </div>`;
+}
+
+/** 사이드바 기호 (선 그림, 글자 색을 따른다) */
+const SIDE_ICON = {
+  menu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
+  close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
+  panel: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>',
+  sliders: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>',
+  more: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
+  tri: '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M3.5 2 L6.5 5 L3.5 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+};
+
+const TF_CREDIT = '<span class="tf-credit">이 페이지에는 토스팀에서 제공한 <a href="https://toss.im/tossface" target="_blank" rel="noopener">토스페이스</a>가 적용되어 있어요.</span>';
+
+/** 사이드바 맨 위 줄. 넓은 폭: 이름 · 알림 · 찾기 · 레일 접기. 900px 이하 위쪽 띠: 메뉴 · (작품 칸) · 알림 · 찾기. play.js 도 쓴다 */
+function sideTop({ hub = true, search = true } = {}) {
+  const rail = railPinned();
+  const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
+  return `<div class="side-top">
+      <button type="button" class="side-ico menu-toggle" data-action="toggleMenu" aria-expanded="${!!S.menuOpen}" aria-controls="side-menu" aria-label="메뉴 열기">${SIDE_ICON.menu}</button>
+      <a class="brand" href="#/">Canon<span class="brand-dot" aria-hidden="true">.</span></a>
+      ${hub ? `<span class="hub-slot" id="hub-slot">${hubButton()}</span>` : ''}
+      ${search ? `<button type="button" class="side-ico pal-open" data-action="openPalette" aria-haspopup="dialog" aria-label="찾기" title="찾기 (${mod}K)">${SIDE_ICON.search}</button>` : ''}
+      <button type="button" class="side-ico rail-toggle" data-action="toggleRail" aria-pressed="${rail}" aria-label="사이드바 ${rail ? '펼치기' : '접기'}" title="사이드바 ${rail ? '펼치기' : '접기'}">${SIDE_ICON.panel}</button>
+    </div>`;
+}
+
+/** 900px 이하 메뉴 서랍의 머리: 이름 · 닫기 (넓은 폭에서는 숨긴다) */
+function drawerHead() {
+  return `<div class="drawer-head"><a class="brand" href="#/">Canon<span class="brand-dot" aria-hidden="true">.</span></a><button type="button" class="side-ico" data-action="toggleMenu" aria-label="메뉴 닫기">${SIDE_ICON.close}</button></div>`;
+}
+
+/** 사이드바 아래 고정 줄: 설정(대화상자, 본문 모델) · ⋯ 메뉴(작품 목록 · 문체 라이브러리 · 모든 작품 사용량, links 가 비면 없음). 토스페이스 출처는 아래와 메뉴 안 */
+function sideFoot(links) {
+  const cfg = S.config || {};
+  const model = cfg.stages ? projectStage('write').model : cfg.model || '';
+  const warn = aiWarning();
+  const menu = () => `${links.map(([href, label]) => `<a class="pop-item" href="${href}">${label}</a>`).join('')}<div class="pop-sep" role="separator"></div>${TF_CREDIT}`;
+  return `<div class="side-foot">
+      ${warn ? `<p class="side-warn" title="${esc(warn)}">${esc(warn)}</p>` : ''}
+      <div class="side-foot-row">
+        <a class="side-set" href="#/settings" title="설정" aria-haspopup="dialog">${SIDE_ICON.sliders}<span class="nav-label"><b>설정</b>${model ? `<small>본문 ${esc(model)}</small>` : ''}</span></a>
+        ${links.length ? menuBtn('side-more', SIDE_ICON.more, menu, { cls: 'side-ico', aria: '더 보기 메뉴', title: '작품 목록 · 문체 라이브러리 · 사용량' }) : ''}
+      </div>
+      ${TF_CREDIT}
+    </div>`;
+}
+
+/** 사이드바. 넓은 폭: 맨 위 줄 · 작품 칸 · 단계 · 접는 묶음 · 아래 고정 줄(설정). 레일(접음)은 같은 마크업을 app.css 가 기호만 남겨 그린다.
+    900px 이하: 위쪽 띠(메뉴 · 작품 제목 · 알림 · 찾기)와 메뉴를 누르면 왼쪽에서 나오는 서랍(.side-menu) */
 function sidebar(active) {
   const { steps, auto, tools, apart, foot } = navItems();
-  const link = ([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}>${navMark(num)}${label}</a>`;
+  const b = navBadges(P(), navEp(), S.pending.name === S.name ? Object.values(S.pending.results) : [], autoEp());
+  const badge = {
+    check: b.check ? navBadge(b.check, `열린 지적 ${b.check}개`, 'red') : '',
+    review: b.review ? navBadge('결과', '반영하지 않은 상태 변경안이 있어요', 'amber') : '',
+    auto: b.auto ? navBadge(`<span class="spinner sm"></span>${b.auto}화`, `${b.auto}화 쓰는 중`) : '',
+    tofix: b.tofix ? navBadge(b.tofix, `남은 고칠 곳 ${b.tofix}개`) : '',
+  };
+  const link = (item) => navLink(item, active, badge[item[0]] || '');
   const shown = tools.filter((t) => t[4]);
   const folded = tools.filter((t) => !t[4]);
-  const moreOpen = folded.some((t) => t[0] === active) || navMoreOpen();
-  const cfg = S.config || {};
+  const here = (xs) => xs.some((t) => t[0] === active);  // 지금 보는 화면이 든 묶음은 펼쳐 그린다 (기억하지 않는다)
+  const more = folded.length ? navFold('more', '아직 안 쓴 도구', folded.length, folded.map(link).join(''), navFoldOpen('more') || here(folded)) : '';
   return `<nav class="side${S.menuOpen ? ' open' : ''}" aria-label="작품 메뉴">
-    <a class="brand" href="#/">Canon<span class="brand-dot" aria-hidden="true">.</span></a>
-    <button type="button" class="btn small menu-toggle pal-open" data-action="openPalette" aria-haspopup="dialog">찾기</button>
-    <button type="button" class="btn small menu-toggle" data-action="toggleMenu" aria-expanded="${!!S.menuOpen}" aria-controls="side-menu">메뉴</button>
+    ${sideTop()}
     ${workCard()}
     <div class="side-menu" id="side-menu">
-    <div class="nav">${steps.map(([id, href, num, label]) => `<a href="${href}"${id === active ? ' aria-current="page"' : ''}>${navMark(num)}${label}${/\d/.test(num) ? `<span class="sr-only"> (단계 ${num})</span>` : ''}</a>`).join('')}</div>
-    <div class="nav nav-auto">${link(auto)}</div>
-    <div class="nav nav-extra"><span class="small">작품 도구</span>${shown.map(link).join('')}
-      ${folded.length ? `<details class="nav-more" data-nav-more${moreOpen ? ' open' : ''}><summary>더 보기 <span class="small">아직 데이터가 없는 도구 ${folded.length}개</span></summary>${folded.map(link).join('')}</details>` : ''}</div>
-    <div class="nav nav-extra"><span class="small">본편과 분리</span>${apart.map(link).join('')}</div>
-    <div class="side-foot">
-      <span class="small">본문 모델</span>
-      <strong style="font-size:0.8125rem">${esc(cfg.stages ? cfg.stages.write.model : cfg.model || '')}</strong>
-      ${aiWarning() ? `<span style="color:var(--red)">${esc(aiWarning())}</span>` : ''}
-      ${foot.map(([href, label]) => `<a href="${href}">${label}</a>`).join('\n      ')}
-      <span class="tf-credit">이 페이지에는 토스팀에서 제공한 <a href="https://toss.im/tossface" target="_blank" rel="noopener">토스페이스</a>가 적용되어 있어요.</span>
+    ${drawerHead()}
+    <div class="drawer-work">${workCard()}</div>
+    <div class="nav">${steps.map(link).join('')}${link(auto)}</div>
+    ${navFold('tools', '작품 도구', 0, shown.map(link).join('') + more, navFoldOpen('tools') || here(tools))}
+    ${navFold('lab', '실험 · 본편과 분리', apart.length, apart.map(link).join(''), navFoldOpen('lab') || here(apart))}
+    ${sideFoot(foot.filter(([href]) => href !== '#/settings').reverse())}
     </div>
+    ${S.menuOpen ? '<div class="side-scrim" data-action="toggleMenu" aria-hidden="true"></div>' : ''}
+  </nav>`;
+}
+
+/** 작품 밖 사이드바의 항목 (순수 함수, tests/test_sidebar_js.py). list 작품 목록(GET /projects, 고친 때 순서), libs 문체 라이브러리.
+    main: 작품 목록 · 새 작품 · 새 플레이, alerts · fails: 모든 작품의 확인할 것 수 · 그 가운데 멈춘 작업 수, recent: 최근 작품 셋(플레이 사본 빼고, 기호는 제목 첫 글자, 멈춘 작업 수 · 결과 수),
+    tools: 작품 밖 도구 [id, 주소, 기호, 이름, 배지 글자]. 주소가 빈 도구는 아직 열지 않은 화면이다 */
+function outNav(list = [], libs = []) {
+  const works = list.filter((x) => !x.play);
+  const alerts = (x) => x.alerts || [];
+  return {
+    main: [['projects', '#/', '📚', '작품 목록'], ['new', '#/new', '✏️', '새 작품'], ['play', '#/play/new', '🎲', '새 플레이']],
+    recent: works.slice(0, 3).map((x) => ({ name: x.name, href: `#/p/${enc(x.name)}`, mark: (x.title || x.name).trim().charAt(0) || '·', label: x.branch && x.branch.label ? `${x.title || x.name} · ${x.branch.label}` : (x.title || x.name),
+      fail: alerts(x).filter((a) => a.kind === 'fail').length, result: alerts(x).filter((a) => a.kind === 'result').length })),
+    alerts: list.reduce((k, x) => k + alerts(x).length, 0),
+    fails: list.reduce((k, x) => k + alerts(x).filter((a) => a.kind === 'fail').length, 0),
+    tools: [['styles', '#/styles', '🖋️', '문체 라이브러리', libs.length ? String(libs.length) : ''], ['revlab', '#/revlab', '🔁', '역설계 실험', ''],
+      ['soelab', '', '🧪', '쇠맛 실험실', '곧'], ['usage', '#/usage', '💰', '사용량 · 비용', '']],
+  };
+}
+
+/** 작품 밖 화면(작품 목록 · 새 작품 · 사용량 · 문체 라이브러리 · 역설계 실험)의 사이드바. 작품 사이드바와 같은 틀(맨 위 줄 · 레일 · 900px 이하 띠와 서랍 · 아래 고정 줄)에
+    작품 칸 대신 작품 밖 메뉴: 작품 목록 · 새 작품 · 새 플레이, 최근 작품, 작품 밖 도구. active 는 지금 화면 id */
+function outSidebar(active) {
+  const { main, recent, alerts, fails, tools } = outNav(S.projects || [], S.libs || []);
+  const link = (item, badge = '') => navLink(item, active, badge);
+  const recentLinks = recent.map((r) => link([`p:${r.name}`, r.href, r.mark, esc(r.label)],
+    r.fail ? navBadge(r.fail, `멈춘 작업 ${r.fail}개`, 'red') : r.result ? navBadge('결과', '검토를 기다리는 결과가 있어요', 'amber') : '')).join('');
+  const toolLinks = tools.map(([id, href, mark, label, badge]) => (href
+    ? link([id, href, mark, label], badge ? navBadge(badge, `${badge}개`) : '')
+    : `<span class="nav-off" title="${esc(label)} · 아직 열지 않았어요" aria-disabled="true">${navMark(mark)}<span class="nav-label">${label}</span>${navBadge(badge, '준비 중')}</span>`)).join('');
+  return `<nav class="side side-out${S.menuOpen ? ' open' : ''}" aria-label="작품 밖 메뉴">
+    ${sideTop()}
+    <div class="side-menu" id="side-menu">
+    ${drawerHead()}
+    <div class="nav">${main.map((m) => link(m, m[0] === 'projects' && alerts ? navBadge(alerts, `확인할 것 ${alerts}개`, fails ? 'red' : 'amber') : '')).join('')}</div>
+    ${recent.length ? navFold('recent', '최근 작품', 0, recentLinks, navFoldOpen('recent')) : ''}
+    ${navFold('out', '작품 밖 도구', 0, toolLinks, navFoldOpen('out') || tools.some((t) => t[0] === active))}
+    ${sideFoot([])}
     </div>
+    ${S.menuOpen ? '<div class="side-scrim" data-action="toggleMenu" aria-hidden="true"></div>' : ''}
   </nav>`;
 }
 
 function header(eyebrow, title, desc, right = '') {
-  return `<header class="page-head"><div class="lead"><div class="eyebrow">${eyebrow}</div><h1>${esc(title)}</h1>${desc ? `<p class="desc">${desc}</p>` : ''}</div><div class="row">${right}</div></header>`;
+  return `<header class="page-head"><div class="lead">${eyebrow ? `<div class="eyebrow">${eyebrow}</div>` : ''}<h1>${esc(title)}</h1>${desc ? `<p class="desc">${desc}</p>` : ''}</div><div class="row">${right}</div></header>`;
 }
 
 // 화면 파일(setup.js 등)이 모두 실행된 뒤 첫 화면을 그린다
 document.addEventListener('DOMContentLoaded', () => {
-  route();
+  // 설정 주소로 바로 열면 작품 목록 위에 설정 대화상자를 연다 (설정은 화면이 아니라 대화상자다)
+  const setTo = settingsCat(location.hash);
+  if (setTo !== null) history.replaceState({ idx: 0 }, '', '#/');
+  route().then(() => { if (setTo !== null) openSettings(setTo); });
   pollJobs();
 });

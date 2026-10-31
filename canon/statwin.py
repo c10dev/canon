@@ -31,8 +31,8 @@ SKINS: dict[str, str] = {
 # 단위가 붙은 수치: 앞에 짧은 표지(₩, Lv.), 뒤에 단위(골드, 원, G). 숫자 사이 쉼표는 자릿수
 _AMOUNT = re.compile(r"^([^\d\s,+-]{0,4})(\s?)(-?\d[\d,]*(?:\.\d+)?)(\s?)([^\d\s,]{0,6})$")
 _DELTA = re.compile(r"^([+-])\s?([^\d\s,+-]{0,4})\s?(\d[\d,]*(?:\.\d+)?)\s?([^\d\s,]{0,6})$")
-# 지금 값 / 최대 값 ('80/100'). 바뀐 양은 앞 수에만 더한다
-_FRACTION = re.compile(r"^(-?\d[\d,]*(?:\.\d+)?)(\s*/\s*\d[\d,]*(?:\.\d+)?)$")
+# 지금 값 / 한도 ('80/100', '4.3/60L'). 바뀐 양은 앞 수에만 더한다. 한도 뒤 단위는 그대로 둔다
+_FRACTION = re.compile(r"^(-?\d[\d,]*(?:\.\d+)?)(\s*/\s*(\d[\d,]*(?:\.\d+)?))(\s?)([^\d\s,/]{0,6})$")
 # 목록 항목(스킬, 특성, 칭호, 인벤토리)을 나누는 표시
 _SPLIT = re.compile(r"\s*(?:,|、| · )\s*")
 # 같은 것으로 보는 꼬리: 화염구 Lv3 · 화염구(B급) · 롱소드 +2 · 검술 3단계
@@ -45,10 +45,19 @@ def enabled(p: Project) -> bool:
     return any(s.stats for s in p.states)
 
 
-def _fmt(x: float, commas: bool = False) -> str:
+def _fmt(x: float, commas: bool = False, places: int | None = None) -> str:
+    """수를 글로. places 를 주면 소수 자리를 그만큼 지킨다('12.0'), 없으면 둘째 자리까지 쓰고 끝의 0을 지운다."""
+    if places is not None:
+        s = f"{x:,.{places}f}" if commas else f"{x:.{places}f}"
+        return s.lstrip("-") if float(s.replace(",", "")) == 0 else s
     s = f"{x:,.2f}" if commas else f"{x:.2f}"
     s = s.rstrip("0").rstrip(".")
     return "0" if s in ("-0", "") else s
+
+
+def _places(num: str) -> int:
+    """'4.30' → 2, '145' → 0."""
+    return len(num.partition(".")[2])
 
 
 def _amount(text: str):
@@ -93,7 +102,8 @@ def resolve(before: str, value: str) -> str:
     """AI 나 작가가 적은 값을 이전 값에 맞춰 새 값으로.
 
     - 수치: '+3', '-10' 은 이전 값이 수치일 때 더하고 뺀다. 단위와 자릿수 쉼표는 이전 값을 따른다('1,200골드' + '+300' → '1,500골드').
-      '80/100' 처럼 최대 값이 붙은 수치는 앞 수에만 더한다('80/100' + '-12' → '68/100'). 최대 값을 넘거나 0 아래로 가도 자르지 않는다.
+      '80/100' · '4.3/60L' 처럼 한도가 붙은 수치는 앞 수에만 더하고 한도와 단위는 그대로 둔다('4.3/60L' + '-0.7' → '3.6/60L').
+      소수 자리는 앞 수와 바뀐 양 가운데 긴 쪽을 따른다('12.0/40L' + '-2' → '10.0/40L'). 한도를 넘거나 0 아래로 가도 자르지 않는다(`out_of_range`).
     - 목록(스킬 · 특성 · 칭호 · 인벤토리): '+독 내성' 은 붙이고 '-은신' 은 뺀다. '+화염구 Lv4' 처럼 이미 있는 것의 등급만 다르면 바꾼다.
     - 그 밖에는 적은 값 그대로.
     """
@@ -104,9 +114,10 @@ def resolve(before: str, value: str) -> str:
         x = a[2] + (1 if d.group(1) == "+" else -1) * float(d.group(3).replace(",", ""))
         return f"{a[0]}{a[1]}{_fmt(x, a[5])}{a[3]}{a[4]}"
     f = _FRACTION.match(b)
-    if d and f and not d.group(2) and not d.group(4):
+    if d and f and not d.group(2) and (not d.group(4) or d.group(4) == f.group(5)):
         x = float(f.group(1).replace(",", "")) + (1 if d.group(1) == "+" else -1) * float(d.group(3).replace(",", ""))
-        return f"{_fmt(x, ',' in f.group(1))}{f.group(2)}"
+        places = max(_places(f.group(1)), _places(d.group(3)))
+        return f"{_fmt(x, ',' in f.group(1), places)}{f.group(2)}{f.group(4)}{f.group(5)}"
     ops = _ops(v)
     if ops is None or a:
         return v
@@ -124,6 +135,19 @@ def resolve(before: str, value: str) -> str:
         else:
             cur[at] = name
     return _sep(b).join(cur)
+
+
+def out_of_range(value: str) -> str:
+    """'지금/한도' 수치가 0 아래거나 한도 위면 그 까닭, 아니면 빈 글. '-0.4/60L' → '0보다 작아요'."""
+    f = _FRACTION.match(value.strip())
+    if not f:
+        return ""
+    cur, top = float(f.group(1).replace(",", "")), float(f.group(3).replace(",", ""))
+    if cur < 0:
+        return "0보다 작아요"
+    if cur > top:
+        return f"한도 {f.group(3)}{f.group(5)}보다 커요"
+    return ""
 
 
 def diff(before: str, after: str) -> dict[str, list[str]]:
@@ -243,20 +267,20 @@ def render(p: Project, cid: str, stats: list[StatValue] | None = None) -> str:
     return w.template.replace("{name}", c.name if c else cid).replace("{rows}", rows).strip()
 
 
-def write_rule(p: Project, n: int = 0) -> str:
+def write_rule(p: Project, n: int = 0, show_format: bool = True) -> str:
     """본문 쓰기 프롬프트 끝에 붙는 규칙. 상태창을 만든 인물이 없으면 빈 글.
-    넣는 방식(stat_window.prompt)이 none 이면 빈 글, lines 면 이번 화 인물의 수치 줄과 도감 줄(lines_block)."""
+    넣는 방식(stat_window.prompt)이 none 이면 빈 글, lines 면 이번 화 인물의 수치 줄과 도감 줄(lines_block).
+    show_format 을 끄면 서식 예시를 빼고 스토리보드의 창 글을 따르게 한다 (스토리보드가 창 글을 이미 보일 때, 같은 창을 두 번 넣지 않게)."""
     if not enabled(p) or p.stat_window.prompt == "none":
         return ""
     if p.stat_window.prompt == "lines" and n:
-        return lines_block(p, n)
+        return lines_block(p, n, show_format)
     who = next((s.character_id for s in p.states if s.stats), "")
     return ("\n\n상태창: [인물 현재 상태]의 stats 가 지금 수치입니다. 본문에 상태창이나 수치를 보여 줄 때는 이 값을 그대로 쓰고, "
             "이번 화 사건으로 바뀌는 값만 바꿉니다. 이유 없이 수치를 올리거나 내리지 않습니다. "
             "스킬 · 특성 · 칭호처럼 늘어놓은 항목에 없는 것을 쓰려면 얻는 장면을 먼저 보여 줍니다."
             + (_INVENTORY_HAS if inventory(p) else "")
-            + " 상태창은 아래 서식으로 씁니다.\n"
-            + render(p, who))
+            + (" 상태창은 아래 서식으로 씁니다.\n" + render(p, who) if show_format else " 상태창 서식은 스토리보드의 창 글을 따릅니다."))
 
 
 def episode_cast(p: Project, n: int) -> list[str]:
@@ -277,9 +301,10 @@ def wants_window(p: Project, n: int) -> bool:
     return any(w and w in text for w in {"상태창", p.stat_window.title.strip()})
 
 
-def lines_block(p: Project, n: int) -> str:
+def lines_block(p: Project, n: int, show_format: bool = True) -> str:
     """상태창 줄 형식(stat_window.prompt = lines): 이번 화 인물의 수치를 한 줄씩, 그 인물이 가진 스킬 · 특성은 도감 한 줄로.
-    수치는 확인용 사실로만 주고, 상태창 서식 예시는 플롯에 상태창 장면이 있을 때만 붙인다. 도감 줄은 context.BUDGET['stat_lines'] 까지."""
+    수치는 확인용 사실로만 주고, 상태창 서식 예시는 플롯에 상태창 장면이 있을 때만 붙인다(show_format 을 끄면 붙이지 않는다).
+    도감 줄은 context.BUDGET['stat_lines'] 까지."""
     from . import abilities, context, elements
 
     ids = episode_cast(p, n)
@@ -321,7 +346,7 @@ def lines_block(p: Project, n: int) -> str:
             "본문에 수치를 쓸 때는 이 값을 그대로 쓰고, 이번 화 사건으로 바뀌는 값만 바꿉니다. 이유 없이 수치를 올리거나 내리지 않습니다. "
             "스킬 · 특성 · 칭호를 쓸 때는 위 효과와 대가를 지키고, 목록에 없는 것을 쓰려면 얻는 장면을 먼저 보여 줍니다."
             + (_INVENTORY_HAS if inventory(p) else ""))
-    if wants_window(p, n):
+    if wants_window(p, n) and show_format:
         out += " 이번 화 플롯에 상태창 장면이 있습니다. 상태창은 아래 서식으로 씁니다.\n" + render(p, ids[0])
     return out
 
@@ -547,6 +572,24 @@ def window_warnings(p: Project, d: StateDelta) -> list[str]:
                     out.append(f"{name} 상태창: 본문 «{line}»의 '{key}' 항목은 상태창 기록에 없어요. 이 화에 생긴 항목이면 변경안에 넣으세요.")
             elif not same(shown, vals[k]):
                 out.append(f"{name} 상태창: 본문은 «{line}»인데 반영하면 {k}{logline.josa(k, '이', '가')} {vals[k]}{logline.josa(vals[k], '이에요', '예요')}.")
+    return out
+
+
+def range_warnings(p: Project, d: StateDelta) -> list[str]:
+    """변경안을 반영하면 0 아래로 가거나 한도를 넘는 '지금/한도' 수치. 값은 자르지 않고 작가에게 알린다."""
+    if not any(u.stats for u in d.character_updates):
+        return []
+    have = after_delta(p, d)
+    out, seen = [], set()
+    for u in d.character_updates:
+        name = next((c.name for c in p.characters if c.id == u.character_id), u.character_id) or u.character_id
+        for s in u.stats:
+            k = s.name.strip()
+            v = have.get(u.character_id, {}).get(k, "")
+            why = out_of_range(v) if v and (u.character_id, k) not in seen else ""
+            seen.add((u.character_id, k))
+            if why:
+                out.append(f"{name} 상태창: 반영하면 {k} {v}, {why}. 본문과 맞는지 확인하세요.")
     return out
 
 

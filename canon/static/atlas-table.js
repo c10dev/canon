@@ -1,5 +1,5 @@
 /* 어디에 있었나 표와 장소와 맞지 않은 위치 (atlas.js 에서 뗐다). app.js 의 S, actions, api, run, render, esc 와
-   atlas.js 의 atlasChars · atlasRow · atlasPlace · atlasKnown · atlasColor · atlasToggles · atlasLoad 를 쓴다.
+   atlas.js 의 atlasChars · atlasRow · atlasPlace · atlasKnown · atlasSwatch · atlasToggles · atlasLoad 를 쓴다.
    위치 글 잇기의 AI 제안은 서버 pipeline.sort_places, 적용은 atlas.apply_sort. */
 'use strict';
 
@@ -25,7 +25,7 @@ function atlasTable() {
       const cls = [i === S.atlasFrame ? 'cur' : '', same ? 'same' : text ? 'moved' : '', pl ? '' : 'raw'].filter(Boolean).join(' ');
       return `<td class="${cls}" title="${esc(r && r.location ? r.location : '')}">${esc(shown.length > 10 ? shown.slice(0, 10) + '…' : shown)}</td>`;
     }).join('');
-    return `<tr><th scope="row"><i style="background:${atlasColor(c.id)}"></i>${esc(c.name || c.id)}</th>${cells}</tr>`;
+    return `<tr><th scope="row">${atlasSwatch(c.id)}${esc(c.name || c.id)}</th>${cells}</tr>`;
   }).join('');
   return `<section class="card"><div class="between"><h2>어디에 있었나</h2>${atlasToggles(false)}</div>
     <div class="small">반영한 화마다 인물이 있던 곳이에요. 진한 칸은 장소가 바뀐 화, 흐린 칸은 앞 화와 같은 곳, 기울인 글은 장소와 맞지 않은 위치 글이에요. 화를 누르면 그 시점 지도로 가요.</div>

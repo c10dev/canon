@@ -1,27 +1,27 @@
 # 지도 모듈 구조
 
-지도 코드는 지금 `canon/` 에 열두 파일(약 6,300줄)과 화면 파일 여섯(합쳐 2,607줄)으로 흩어져 있다. 이 문서는 그 경계를 세 단계로 정리하는 설계다.
+지도 코드는 지금 `canon/` 에 열세 파일(약 6,800줄)과 화면 파일 일곱(합쳐 2,732줄)으로 흩어져 있다. 이 문서는 그 경계를 세 단계로 정리하는 설계다.
 1 · 2절은 단계 1([01-boundaries.md](specs/01-boundaries.md))과 단계 3([03-atlas-js.md](specs/03-atlas-js.md)) 뒤의 구조다. 3절의 문제와 줄 번호는 단계 1 전(main `d61a100` 에 #139 · #140 을 합친 것) 기준이다. 문제 1 · 2 · 3 · 5 · 6 은 단계 1 이, 문제 7 은 단계 3 이 풀었다.
 
 ## 1. 지금 구조
 
 | 파일 | 줄 | 하는 일 | 가져오는 지도 모듈 |
 |---|---:|---|---|
-| `canon/atlas.py` | 1,049 | 장소 · 핀 · 위치 글 잇기, Watabou 읽기 · 지도 파일, 길찾기, 건물 고치기, 자리 찾기 · 건물 한 줄, 지도 만들기 조립(`MAKERS`), 위치 글 정리, 명령줄 출력 | bldgs, citygen, geom, moderngen, osm, placekinds, towngen (`atlas.py:23`) |
+| `canon/atlas.py` | 1,092 | 장소 · 핀 · 위치 글 잇기, Watabou 읽기 · 지도 파일, 길찾기, 건물 고치기, 자리 찾기 · 건물 한 줄, 지도 만들기 조립(`MAKERS`), 위치 글 정리, 명령줄 출력 | bldgs, citygen, geom, moderngen, osm, placekinds, towngen (`atlas.py:23`) |
 | `canon/travel.py` | 337 | 이동 시간 검사, 프롬프트 이동 거리의 줄 데이터(`episode_moves`) | atlas (`travel.py:23`) |
 | `canon/mapprompt.py` | 55 | 쓰기 · 검수 프롬프트의 지도 블록 글과 예산: 이동 거리 · 검수 이동 줄 · 장소가 놓인 건물 | atlas, travel (`mapprompt.py:6`) |
 | `canon/towngen.py` | 938 | 마을 생성기 | geom, roadnet, placekinds (`towngen.py:17`) |
 | `canon/citygen.py` | 1,170 | 도시 생성기 | geom, blocks, placekinds (`citygen.py:20`) |
 | `canon/moderngen.py` | 764 | 현대 동네 생성기 | geom, blocks, placekinds (`moderngen.py:23`) |
-| `canon/blocks.py` | 129 | 블록 · 필지 쪼개기 공용 도구 (`citygen` 에서 옮김, 밑줄 없는 이름) | geom |
-| `canon/placekinds.py` | 64 | 장소 종류 `CATEGORIES` · `classify` · `default_put` · `water_for` (`towngen` 에서 옮김) | 없음 |
+| `canon/blocks.py` | 202 | 블록 · 필지 쪼개기 공용 도구 (`citygen` 에서 옮김, 밑줄 없는 이름) | geom |
+| `canon/placekinds.py` | 158 | 장소 종류 표 `KINDS`(시대 old · modern · both) · `kinds_for` · `to_era` · `CATEGORIES` · `classify` · `default_put` · `water_for` (`towngen` 에서 옮김, 시대는 08a) | 없음 |
 | `canon/roadnet.py` | 432 | 길망 키우기 (Parish–Müller) | geom |
-| `canon/osm.py` | 546 | OpenStreetMap 파일 → 지도 데이터 | geom |
-| `canon/fill.py` | 253 | OpenStreetMap 지도의 빈 블록 채우기 ([04](specs/04-empty-blocks.md)) | blocks, geom, moderngen(수치만), osm |
-| `canon/bldgs.py` | 512 | 건물 쓰임 · 층수 · 사람 · 거리 이름 | geom |
+| `canon/osm.py` | 620 | OpenStreetMap 파일 → 지도 데이터 (해안선으로 바다 · 섬 `land` 닫기 포함, [05](specs/05-coastline.md)) | geom |
+| `canon/fill.py` | 274 | OpenStreetMap 지도의 빈 블록 채우기 ([04](specs/04-empty-blocks.md)) | blocks, geom, moderngen(수치만), osm |
+| `canon/bldgs.py` | 516 | 건물 쓰임 · 층수 · 사람 · 거리 이름 | geom |
 | `canon/geom.py` | 347 | 기하 도구. 지도를 모른다 | 없음 |
-| `canon/static/atlas.js` | 1,924 | 지도 화면 뼈대 (상태 · 불러오기, 그림, 확대 · 이동 · 이름표, 옆 칸, 화면 조립, 저장, 되돌리기, 남은 동작 · CSS) | — |
-| `canon/static/atlas-gen.js` · `atlas-travel.js` · `atlas-table.js` · `atlas-export.js` · `atlas-find.js` | 246 · 69 · 187 · 108 · 73 | 기능 파일: 지도 만들기, 이동 시간, 표, 내보내기, 이름으로 자리 찾기 | — |
+| `canon/static/atlas.js` | 1,962 | 지도 화면 뼈대 (상태 · 불러오기, 그림, 확대 · 이동 · 이름표, 옆 칸, 화면 조립, 저장, 되돌리기, 남은 동작 · CSS) | — |
+| `canon/static/atlas-gen.js` · `atlas-travel.js` · `atlas-table.js` · `atlas-export.js` · `atlas-find.js` · `atlas-fill.js` | 246 · 69 · 187 · 108 · 73 · 87 | 기능 파일: 지도 만들기, 이동 시간, 표, 내보내기, 이름으로 자리 찾기, 빈 블록 채우기 | — |
 
 줄 수는 `wc -l` 로 셌다. 가져오는 지도 모듈은 모듈 맨 위의 `from . import …` 줄이다. `travel.episode_block` · `atlas.episode_block` 은 시험이 부르는 옛 이름이라 함수 안에서 `mapprompt` 를 가져온다. `towngen` 은 `CATEGORIES` · `classify` · `water_for` 를 다시 내보낸다(시험이 읽는다). `tests/test_map_imports.py` 가 순환이 없고 생성기끼리 가져오지 않는지 본다.
 
@@ -29,7 +29,7 @@
 
 - `web.py`: `atlas.*` 약 30개 이름. 지도 화면(`atlas_view`)은 `atlas.summary` 에 `travel.view` 를 붙인다. 웹 함수 이름은 Swift 앱의 연산 이름이다(`swift/Sources/CanonAPI/openapi.json`).
 - `cli.py`: `atlas.*` (설정 칸은 `atlas.MAKERS`) · `placekinds.CATEGORIES` · `travel.*`.
-- `pipeline.py`: `atlas.places` · `clean_sort` · `gen_places` · `MAKERS`, `placekinds.CATEGORIES` · `CATEGORY_IDS`, `moderngen.PLACE_KINDS`.
+- `pipeline.py`: `atlas.places` · `clean_sort` · `gen_places` · `MAKERS`, `placekinds.CATEGORIES` · `CATEGORY_IDS`.
 - `prompts.py`: `mapprompt.travel_block` · `travel_check_rule` · `spot_block`.
 - 그 밖: `features.py`(`travel.delta_warnings`), `birth.py`(`atlas.places`), `mock.py`(`placekinds.classify` · `water_for`, `atlas.MAKERS`), `schema.py`(설명 글).
 

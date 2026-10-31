@@ -54,7 +54,7 @@ def check_fork(p: Project, n: int) -> None:
 
 def fork(p: Project, n: int, mode: ForkMode = "clear") -> list[int]:
     """p(복사한 작품)를 n화부터 갈라지게 만든다. n-1화 반영 직후로 되돌리고(pipeline.revert), 끝 화가 n화 이후인
-    아크 · 부 요약을 지운다. clear 면 n화부터의 본문을 이전 판으로 남기고 비워 플롯 확정 상태로 돌린다.
+    아크 · 부 요약과 n화부터의 스토리보드를 지운다. clear 면 n화부터의 본문을 이전 판으로 남기고 비워 플롯 확정 상태로 돌린다.
     keep 이면 본문을 남겨 상태 승인을 다시 하게 한다. 비운 화 번호를 낸다."""
     check_fork(p, n)
     if any(e.status == "finalized" and e.plot.number >= n for e in p.episodes):
@@ -62,6 +62,10 @@ def fork(p: Project, n: int, mode: ForkMode = "clear") -> list[int]:
     for x in [*p.story_arcs, *p.parts]:  # revert 는 요약을 두지만, 갈래에서는 그 아크 · 부를 다시 쓴다
         if x.end_ep >= n:
             x.summary = ""
+    for e in p.episodes:  # 스토리보드 · 큐 시트는 원본 전개의 쓰기 재료다. 갈래에서는 n화부터 다시 만든다
+        if e.plot.number >= n:
+            e.storyboard = None
+            e.cue_sheet = None
     if mode == "keep":
         return []
     cleared = []

@@ -160,7 +160,7 @@ def describe(layout: dict, seed: str | int, style: str = "western_fantasy", spot
     center = _center(layout, M, cents, mains)
     reach = max((math.dist(center, cents[i]) for i in mains), default=1.0) or 1.0
     squares = [[M(q) for q in sq] for sq in layout.get("squares", [])]
-    wet = [[M(q) for q in ln] for ln in layout.get("water", [])]
+    wet = [[M(q) for q in ln] for ln in layout.get("water", []) + layout.get("land", [])]  # 섬(land)의 둘레도 물가
     rivers = [([M(q) for q in rv["points"]], rv.get("width", 4)) for rv in layout.get("rivers", [])]
 
     def near_water(q: Point) -> float:

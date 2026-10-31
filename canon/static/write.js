@@ -82,7 +82,7 @@ function plotStrip(n, act) {
   const steps = p.events.map((x, i) => {
     const cls = done[i] ? 'done' : i === now ? 'now' : 'todo';
     return `<li class="wp-step ${cls}"><label class="wp-check"${lock ? ` title="${lock}"` : ''}><input type="checkbox" id="ev-${n}-${i}" data-ev="${n}:${i}"${done[i] ? ' checked' : ''}${lock ? ' disabled' : ''}>
-      <span class="wp-num">${i + 1}.</span><span class="wp-text">${esc(x)}</span>${i === now ? '<span class="wp-now">지금</span>' : ''}</label></li>`;
+      <span class="wp-num">${i + 1}.</span><span class="wp-text">${esc(x)}</span>${i === now ? '<span class="wp-now">지금</span>' : ''}</label>${(e.stage || []).some((s) => s.event_text === x) ? `<a class="wp-stage small" href="${base()}/stage/${n}/${i + 1}" title="이 사건의 장면 연출">🎬 연출</a>` : ''}</li>`;
   }).join('');
   const goal = p.ending_hook ? `<li class="wp-step goal"><span class="wp-flag">${FLAG}</span><span class="wp-text"><span class="wp-goal-label">엔딩 훅</span> ${esc(p.ending_hook)}</span>${p.events.length && now < 0 ? '<span class="chip finalized">도착</span>' : ''}</li>` : '';
   const dl = [
@@ -165,12 +165,88 @@ function writeMenu(n, starting, seg) {
   const parts = [];
   if (seg && !starting) parts.push(`<div class="pop-sec"><span class="pop-legend">생성 방식</span>${seg}</div>`);
   if (S.context && e.status !== 'draft' && !starting) parts.push(`<button type="button" class="pop-item" data-action="openCtx" data-arg="${n}" aria-haspopup="dialog">컨텍스트 · 프롬프트 원문 보기<span class="small">${S.context.length}개 블록</span></button>`);
+  // 채팅 앱 작업지시서: 본문이 없으면 본문 작성 지시서, 있으면 검수 · 상태 승인 지시서 (briefTabFor)
+  const kind = briefTabFor(n);
+  if (e.status !== 'finalized' || e.text) parts.push(`<div class="pop-sec"><span class="pop-legend">채팅 앱 작업지시서</span>
+    <button type="button" class="pop-item" data-action="briefDownload" data-arg="${n}">${BRIEF_TAB_NAMES[kind].replace(/^\d /, '')} .md 내려받기</button>
+    <a class="pop-item" href="${base()}/brief/${n}">작업지시서 화면 열기</a></div>`);
   const del = deleteBlock(e);
   if (del) parts.push(`<div class="pop-sec pop-danger">${del}</div>`);
   if (!parts.length) return '';
   const dots = '<svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor" aria-hidden="true"><circle cx="4" cy="9" r="1.6"></circle><circle cx="9" cy="9" r="1.6"></circle><circle cx="14" cy="9" r="1.6"></circle></svg>';
   return menuBtn('write', dots, () => parts.join('<div class="pop-sep" role="separator"></div>'), { cls: 'btn icon-btn', aria: `${n}화 더보기` });
 }
+
+const ACT_HANJA = { 기: '起', 승: '承', 전: '轉', 결: '結' };
+/** 위치 줄의 구간 이름: '전 구간'이 '모든 구간'으로 읽히지 않게 한자를 붙인다 */
+const actLabel = (name) => (ACT_HANJA[name] ? `${name}(${ACT_HANJA[name]})` : name);
+
+// 본문이 없는 화의 쓰기 방식: 스토리보드를 쓰는 작품만 고른다 (S.wsBoard, 화면을 떠나도 남는다).
+// look 먼저 만들어 보기(boardMake) · go 만들고 바로 쓰기(boardWrite :make) · none 스토리보드 없이(boardWrite :none)
+const WS_BOARD = [
+  ['look', '먼저 만들어 보기', '장면과 확정 값(시간 · 상태창 수치 · 차림)을 보고 고친 뒤 써요'],
+  ['go', '만들고 바로 쓰기', '스토리보드를 만들고 보여 주지 않고 이어서 써요'],
+  ['none', '스토리보드 없이', '확정된 플롯과 지금까지의 데이터만으로 써요'],
+];
+
+/** 머리 primary 와 그 이름. 작업이 돌면 primary 자리에 진행 줄과 멈추기를 둔다 */
+function writeGo(n, blocked) {
+  const pick = boardOn() ? (S.wsBoard || 'look') : 'plain';
+  const [label, action, arg] = {
+    plain: [`${n}화 본문 생성`, 'writeEp', n], look: [`${n}화 스토리보드 만들기`, 'boardMake', n],
+    go: [`스토리보드 만들고 ${n}화 쓰기`, 'boardWrite', `${n}:make`], none: [`${n}화 본문 생성`, 'boardWrite', `${n}:none`],
+  }[pick];
+  const j = jobFor('board', n) || jobFor('write', n);
+  const starting = S.starting.has(`board:${n}`) || S.starting.has(`write:${n}`);
+  const off = blocked.length || autoOn();
+  const primary = j ? wsBusy(j)
+    : `<button type="button" class="btn primary" data-action="${action}" data-arg="${arg}"${off ? ' disabled' : starting ? ' aria-disabled="true" aria-busy="true"' : ''}>${label}${starting ? ' · 시작하는 중…' : ''}</button>`;
+  return { label, pick, busy: !!(j || starting), primary };
+}
+
+/** 머리 primary 자리의 진행 줄: 작업 이름 · 경과 · 멈추기 (멈추기는 app.js 의 data-job-stop 처리) */
+function wsBusy(j) {
+  // 다시 그려도 막대가 처음부터 돌지 않게, 지난 시간만큼 애니메이션을 앞당겨 시작한다 (한 바퀴 1.2초, app.css .w-busy-text i)
+  const lag = (Math.max(0, Date.now() / 1000 - j.started) % 1.2).toFixed(2);
+  return `<div class="w-busy" role="status" aria-label="${esc(j.label)} 만드는 중">
+      <div class="w-busy-text"><strong>${esc(j.label)} 만드는 중</strong><span class="small" data-elapsed="${esc(j.id)}">경과 ${elapsed(j)}</span><i aria-hidden="true" style="animation-delay:-${lag}s"></i></div>
+      <button type="button" class="btn small" data-job-stop="${j.id}">멈추기</button></div>`;
+}
+
+/** 스토리보드를 만든, 본문이 없는 화의 머리 primary: 이대로 쓰기. 입력이 바뀐 스토리보드면 보조 버튼으로 낮춘다 */
+function boardGo(n, blocked) {
+  const j = jobFor('board', n) || jobFor('write', n);
+  if (j) return wsBusy(j);
+  const stale = (boardView(n) || {}).stale;
+  const wr = jobBtn('write', n, `이대로 ${n}화 쓰기`);
+  return `<button type="button" class="btn${stale ? '' : ' primary'}" data-action="boardWrite" data-arg="${n}:"${blocked.length || autoOn() ? ' disabled' : wr.attr}>${wr.label}</button>`;
+}
+
+/** 본문이 없는 화: 머리 바로 아래의 '어떻게 쓸까요' 칸. 쓰기는 머리 primary 하나로 하고, 여기는 방식 고르기 · 직접 쓰기 · 컨텍스트 */
+function writeStart(n, blocked) {
+  const go = writeGo(n, blocked);
+  const prev = n > 1 && ep(n - 1) && ep(n - 1).status === 'finalized' ? `${n - 1}화 반영이 끝났어요. ` : '';
+  const pick = WS_BOARD.find(([k]) => k === go.pick);
+  const choose = !boardOn() ? '' : go.busy
+    ? `<p class="small">스토리보드 · ${pick[1]}로 만들고 있어요. 다른 화면으로 옮겨 가도 계속하고, 끝나면 알림 버튼에 알려요.</p>`
+    : `<fieldset class="ws-board"><legend class="small">스토리보드 <span>장면 순서와 이번 화 확정 값을 쓰기 전에 정해요</span></legend>
+      <div class="ws-opts">${WS_BOARD.map(([k, l, d]) => `<label class="ws-opt${go.pick === k ? ' on' : ''}"><input type="radio" name="ws-board" value="${k}"${go.pick === k ? ' checked' : ''}><span><strong>${l}</strong><span class="small">${d}</span></span></label>`).join('')}</div></fieldset>`;
+  const lead = go.busy || blocked.length || autoOn() ? '' : `${prev}${boardOn() ? '방식을 고르고 ' : '확정된 플롯과 지금까지의 데이터로 써요. '}머리의 <strong>${esc(go.label)}</strong>${josa(go.label, '을', '를')} 누르면 시작해요.`;
+  const writing = !!jobFor('write', n);
+  return `<section class="card w-go" aria-labelledby="w-go-h">
+      <div class="w-go-head"><h2 id="w-go-h">${n}화를 어떻게 쓸까요</h2>${lead ? `<p class="small">${lead}</p>` : ''}</div>
+      ${autoLockNote() || orderNote(blocked)}
+      ${choose}
+      <div class="w-go-foot"><button type="button" class="btn small" data-action="startManual" data-arg="${n}"${writing || blocked.length || autoOn() ? ' disabled' : ''}>직접 쓰기</button><span class="small">AI 없이 빈 칸에 직접 써요</span>
+        <span class="w-fill"></span>${boardToggle()}${cueToggle()}</div>
+      ${S.context ? `<details class="w-go-ctx" data-ctx-toggle${S.ctxOpen ? ' open' : ''}><summary>AI에게 보내는 컨텍스트 · ${ctxTotal()}</summary>${ctxList()}<div style="margin-top:8px">${promptBtn(n)}</div></details>` : ''}
+    </section>`;
+}
+document.addEventListener('change', (e) => {
+  if (e.target.name !== 'ws-board') return;
+  S.wsBoard = e.target.value;
+  render();
+});
 
 function viewWrite(n) {
   const e = ep(n);
@@ -182,32 +258,28 @@ function viewWrite(n) {
   const draft = editable ? S.textDraft[n] : undefined;
   const orphan = !editable && textUnsaved(n);
   const text = draft ?? e.text;
-  const isApi = S.mode === 'api';
+  const starting = e.status !== 'draft' && !e.text && draft === undefined;  // 본문이 없는 화
+  const fresh = starting && e.status === 'confirmed' && !e.storyboard;  // 쓰기 시작 칸(writeStart)을 머리 아래에 둔다
+  const isApi = S.mode === 'api' || starting;  // 본문이 없는 화는 늘 AI로 쓰기. 채팅 앱 작업지시서는 ⋯ 메뉴에서 연다
   const writing = !!jobFor('write', n);
   const locked = writing && !e.text;  // AI가 본문을 처음 쓰는 중: 끝나면 칸이 AI 본문으로 바뀌므로 그동안 쓴 글은 남지 않는다
 
-  // 생성 방식 토글은 설정의 본문 단계 백엔드 이름을 보인다 (설정을 아직 받지 않았으면 이름 없이)
-  const wst = ((S.config || {}).stages || {}).write;
-  const wname = wst ? ({ gemini: 'Gemini', local: '로컬', mock: 'mock' }[wst.provider] || wst.provider) : '';
+  // 생성 방식 토글은 본문 단계 백엔드 이름을 보인다 (작품 프리셋이 있으면 그 값, 설정을 아직 받지 않았으면 이름 없이)
+  const wst = projectStage('write');
+  const wname = wst ? ({ gemini: 'Gemini', local: '로컬', mock: 'mock', claude: 'Claude', 'claude-api': 'Claude API' }[wst.provider] || wst.provider) : '';
   const seg = e.status !== 'finalized' ? `<div class="seg" role="group" aria-label="생성 방식"><button type="button" aria-pressed="${isApi}" data-action="setMode" data-arg="api" title="${wst ? `본문 모델 ${esc(wst.model || '')} · 설정에서 바꿔요` : '설정에서 바꿔요'}">AI로 쓰기${wname ? ` · ${esc(wname)}` : ''}</button><button type="button" aria-pressed="${!isApi}" data-action="setMode" data-arg="brief">채팅 앱 작업지시서</button></div>` : '';
-  const starting = e.status !== 'draft' && !e.text && draft === undefined;  // 본문이 없는 화: 쓰기 버튼 아래에 생성 방식 · 컨텍스트
 
   let center;
+  let madeBoard = '';
   if (e.status === 'draft') {
     center = `<div class="empty"><p>${n}화 플롯이 아직 초안이에요. 확정해야 쓸 수 있어요.</p><a class="btn primary" href="${base()}/arc/${n}" data-action="gotoPlot" data-arg="${n}">${n}화 플롯 확정하러 가기</a></div>`;
-  } else if (starting) {
-    center = `<div class="empty">
-      ${autoLockNote() || orderNote(blocked)}
-      ${isApi ? `<p>확정된 플롯과 지금까지의 데이터로 ${n}화를 써요.</p>` : '<p>작업지시서를 채팅 앱에 붙여 넣고, 받은 본문을 가져오세요.</p>'}
-      <div class="row" style="justify-content:center">
-        ${isApi ? ((b) => `<button class="btn primary" data-action="writeEp" data-arg="${n}"${blocked.length || autoOn() ? ' disabled' : b.attr}>${b.label}</button>`)(jobBtn('write', n, `${n}화 본문 생성`)) : `<a class="btn primary" href="${base()}/brief/${n}">작업지시서 열기</a>`}
-        <button class="btn" data-action="startManual" data-arg="${n}"${writing || blocked.length || autoOn() ? ' disabled' : ''}>직접 쓰기</button>
-      </div>
-      ${isApi && jobFor('write', n) ? '<div class="small">다른 화면으로 옮겨 가도 계속 써요. 끝나면 알려 드려요.</div>' : ''}
-      <div class="w-start">
-        ${seg ? `<div class="field"><span class="small">생성 방식</span>${seg}</div>` : ''}
-        ${S.context ? `<details data-ctx-toggle${S.ctxOpen ? ' open' : ''}><summary>AI에게 보내는 컨텍스트 · ${ctxTotal()}</summary>${ctxList()}<div style="margin-top:8px">${promptBtn(n)}</div></details>` : ''}
-      </div>
+  } else if (fresh) {
+    center = '';  // 쓰기 시작 칸은 본문 칸 위에 따로 둔다 (writeStart)
+  } else if (starting && boardStart(n, blocked)) {
+    center = '';  // 만든 스토리보드(고치기 · 다시 만들기 · 이대로 쓰기, board.js)는 쓰기 시작 칸처럼 본문 칸 위에 둔다
+    madeBoard = `<div class="w-board">${autoLockNote() || orderNote(blocked)}${boardStart(n, blocked)}
+      <div class="row"><button class="btn" data-action="startManual" data-arg="${n}"${writing || blocked.length || autoOn() ? ' disabled' : ''}>직접 쓰기</button>
+        ${S.context ? `<details data-ctx-toggle${S.ctxOpen ? ' open' : ''}><summary>AI에게 보내는 컨텍스트 · ${ctxTotal()}</summary>${ctxList()}<div style="margin-top:8px">${promptBtn(n)}</div></details>` : ''}</div>
     </div>`;
   } else {
     center = `<div class="prose">${editable
@@ -215,17 +287,19 @@ function viewWrite(n) {
       : `<div class="read" data-read="${n}">${readHtml(n, text)}</div>`}</div>`;
   }
 
-  // 쓴 화의 검수가 끝나지 않았으면 '검수로'가 지금 할 일이다 (검수 화면 check.js). 끝났으면 '상태 승인으로'를 primary 로 올린다
+  // 쓴 화의 검수가 끝나지 않았으면 '검수하기'가 지금 할 일이다 (검수 단계로 옮겨 시작, flow.js flowCheck). 검수를 했으면 검수 단계로,
+  // 끝났으면 '상태 승인으로'를 primary 로 올린다. 단계 사이 이동은 머리 아래 단계 띠(flowBar)도 한다
   const cs = checkState(e);
   const toCheck = e.status === 'written' && !cs.done && !autoOn();
+  const chk = jobBtn('check', n, '검수하기');
   // 머리 버튼: 보조 버튼들 · ⋯ 메뉴 · primary 하나 (디자인 시스템: primary 는 머리 줄 오른쪽 끝)
-  const primary = toCheck ? `<a class="btn primary" href="${base()}/check/${n}">검수로</a>`
+  const primary = toCheck ? (cs.checked && !cs.stale ? `<a class="btn primary" href="${base()}/check/${n}">검수 이어 하기 · 열린 지적 ${cs.open}</a>`
+    : `<button type="button" class="btn primary" data-action="flowCheck" data-arg="${n}"${chk.attr}>${cs.stale ? '다시 검수하기' : chk.label}</button>`)
     : e.status === 'written' ? `<a class="btn primary" href="${base()}/review/${n}">상태 승인으로</a>`
-      : e.status === 'finalized' ? nextStepBtn() : '';
+      : e.status === 'finalized' ? nextStepBtn() : fresh ? writeGo(n, blocked).primary : starting && e.storyboard ? boardGo(n, blocked) : '';
   const right = `${e.text && editable ? chatButton(`text:${n}`) : ''}
     ${e.text && editable && (isApi || e.status === 'finalized') ? `${((b) => `<button class="btn${S.rwOpen === n ? ' on' : ''}" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${b.attr}>${b.label}</button>`)(jobBtn('write', n, '다시 생성'))}` : ''}
     ${editable && !isApi && e.status !== 'finalized' ? `<a class="btn" href="${base()}/brief/${n}">작업지시서</a>` : ''}
-    ${toCheck ? `<a class="btn" href="${base()}/review/${n}">상태 승인으로</a>` : ''}
     ${writeMenu(n, starting, seg)}
     ${primary}`;
 
@@ -233,7 +307,8 @@ function viewWrite(n) {
   const edits = (e.edits || []).length;
   const goal = Number(P().meta.words_per_episode).toLocaleString();
 
-  return `<header class="page-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? act.name + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}${cs.open ? `<span class="chip warn">열린 지적 ${cs.open}곳</span>` : ''}</div><div class="row">${right}</div></header>
+  return `<header class="page-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? actLabel(act.name) + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}</div><div class="row">${right}</div></header>
+    ${flowBar(n, 'write')}
     ${e.auto ? `<div class="note info">이 화는 자동 집필이 검토 없이 반영했어요. 읽어 보고 문제가 있으면 <a href="${base()}/auto">자동 집필</a>에서 이 화부터 되돌릴 수 있어요.</div>` : ''}
     ${rebuildNote(n)}
     ${e.text ? restateNote(n) : ''}
@@ -242,10 +317,12 @@ function viewWrite(n) {
       <div class="row" style="margin-top:6px"><button class="btn small" data-action="copyOrphan" data-arg="${n}">초고 복사</button><button class="btn small danger" data-action="dropOrphan" data-arg="${n}">초고 버리기</button></div></div>` : ''}
     ${editable && autoOn() ? `<div class="note warn">자동 집필이 도는 동안은 본문을 저장할 수 없어요. 쓰던 글은 이 화면에 남아 있어요. 저장하려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요. 어색한 곳은 지금도 글을 골라 '나중에 고치기'로 담아 둘 수 있어요.</div>` : ''}
     ${e.text && editable ? candidateCard(n) : ''}
-    <section class="card w-body" aria-label="본문">
+    ${fresh ? writeStart(n, blocked) : madeBoard}
+    ${starting && e.status === 'confirmed' ? cueCard(n, blocked) : ''}
+    <section class="card w-body${starting ? ' w-fresh' : ''}" aria-label="${fresh ? '이번 화 플롯' : '본문'}">
       <div class="w-stick">
         <div class="w-top">
-          <div class="w-bar">
+          ${starting ? '' : `<div class="w-bar">
             ${e.status === 'draft' ? '' : `<span class="w-count"><strong id="char-count" style="color:var(--text)">${(text || '').length.toLocaleString()}</strong><span class="lbl-l"> / ${goal}자</span><span class="lbl-s">자</span></span>`}
             ${/* 저장하지 않은 본문이 있으면 저장 띠(app.js renderSavebar)가 이 칸에 들어온다. 떠 있는 띠가 본문 끝 · 대화 입력칸을 가리지 않게 한다 */ ''}
             ${editable && (e.text || draft !== undefined) ? '<div class="savebar-slot"></div>' : '<span class="w-fill"></span>'}
@@ -254,7 +331,7 @@ function viewWrite(n) {
             ${edits ? `<button type="button" class="btn small" data-action="openEdits" title="수정 기록을 펼쳐요" aria-label="수정 기록 ${edits}개"><span class="lbl-l">수정 기록</span><span class="lbl-s">기록</span> ${edits}</button>` : ''}
             ${text ? copySplit(n) : ''}`}
             <p class="small w-hint">${e.status === 'draft' ? '플롯을 확정하면 본문을 쓸 수 있어요' : e.text ? '고칠 부분을 드래그하면 직접 고치거나 AI에게 맡기거나 나중에 고칠 곳으로 담을 수 있어요' : '본문을 직접 고친 뒤 저장할 수 있어요'}</p>
-          </div>
+          </div>`}
           ${strip.row}
         </div>
         ${strip.body}
@@ -264,6 +341,8 @@ function viewWrite(n) {
     </section>
     ${editHistory(e)}
     ${versionsPanel(e)}
+    ${boardPanel(n)}
+    ${cuePanel(n)}
     ${e.text ? illustPanel(n) : ''}
     ${openingPanel(n)}
     ${e.text && editable ? (S.rwOpen === n ? rewritePanel(n) : chatPanel(`text:${n}`)) : ''}`;
@@ -365,7 +444,7 @@ Object.assign(actions, {
   },
   async writeEp(n) {
     if (ep(n).text && !confirm(`${n}화 본문을 새로 생성할까요? 지금 본문은 사라져요.`)) return;
-    await startJob('write', n);
+    await startJob('write', n, cueWriteArg(n));
   },
   async saveText(n) {
     await run('본문 저장 중', async () => {
@@ -427,6 +506,18 @@ Object.assign(actions, {
       toast('복사했어요. 채팅 앱에 붙여 넣으세요.');
     } catch {
       toast('복사하지 못했어요. 내용을 직접 선택해 복사하세요.', true);
+    }
+  },
+  /** ⋯ 메뉴: 이 화의 지시서를 받아 바로 .md 로 내려받는다 (작업지시서 화면의 .md 내려받기와 같은 파일 이름) */
+  async briefDownload(n) {
+    const kind = briefTabFor(Number(n));
+    try {
+      const r = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/brief?kind=${kind}`);
+      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([r.text || ''], { type: 'text/markdown' })), download: `${S.name}-${String(n).padStart(2, '0')}-${kind}.md` });
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (err) {
+      toast(err.message, true);
     }
   },
   downloadBrief(n) {

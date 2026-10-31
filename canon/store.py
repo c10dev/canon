@@ -12,7 +12,7 @@ from pathlib import Path
 
 from . import cancel
 from .dynamics import seed_ties
-from .schema import BranchInfo, PlayInfo, Project
+from .schema import BranchInfo, CueLab, PlayInfo, Project
 
 ROOT = Path(os.environ.get("CANON_HOME", "projects"))
 
@@ -36,6 +36,55 @@ def load(name: str) -> Project:
     p = Project.model_validate_json(path.read_text(encoding="utf-8"))
     seed_ties(p)  # 관계 역학 이전의 project.json 은 affinity 로 방향 관계를 만든다
     return p
+
+
+# 읽기만 하는 요청(검토 대기 결과, 자동 집필 상태 등)이 화면 이동마다 장편 project.json(수 MB)을 다시 검증하지 않게,
+# 파일 판(수정 시각 · 크기 · inode)이 같으면 전에 읽은 Project 를 돌려준다. 저장은 바꿔치기(os.replace)라 판이 늘 바뀐다.
+_view_lock = threading.Lock()
+_views: dict[str, tuple[tuple[int, int, int], Project]] = {}
+
+
+def load_view(name: str) -> Project:
+    """읽기 전용 load. 돌려준 Project 는 여러 요청이 함께 쓰므로 고치지 않는다. 고쳐 저장할 작품은 load 로 읽는다."""
+    path = project_dir(name) / "project.json"
+    if not path.exists():
+        raise FileNotFoundError(f"프로젝트가 없어요: {path}")
+    # 판을 읽기 전에 잰다. 읽는 사이 바뀌면 새 내용이 옛 판으로 남을 뿐이고, 다음 호출은 새 판을 보고 다시 읽는다
+    st = path.stat()
+    key = (st.st_mtime_ns, st.st_size, st.st_ino)
+    with _view_lock:
+        hit = _views.get(name)
+    if hit and hit[0] == key:
+        return hit[1]
+    p = load(name)
+    with _view_lock:
+        _views[name] = (key, p)
+    return p
+
+
+_PRESET = re.compile(r'"model_preset":\s*("(?:[^"\\]|\\.)*")')
+_preset_seen: dict[Path, tuple[tuple[int, int], str]] = {}
+
+
+def model_preset(name: str) -> str:
+    """작품이 고른 단계 프리셋 id (Settings.model_preset). 없으면 "".
+    AI 를 부를 때마다 묻으므로 작품 전체를 읽지 않고 그 칸만 찾고, 파일이 그대로면 앞서 찾은 값을 쓴다."""
+    path = project_dir(name) / "project.json"
+    try:
+        st = path.stat()
+    except OSError:
+        return ""
+    key = (st.st_mtime_ns, st.st_size)
+    seen = _preset_seen.get(path)
+    if seen and seen[0] == key:
+        return seen[1]
+    try:
+        m = _PRESET.search(path.read_text(encoding="utf-8"))
+        value = str(json.loads(m[1])) if m else ""
+    except (OSError, ValueError):
+        value = ""
+    _preset_seen[path] = (key, value)
+    return value
 
 
 _MARK = re.compile(r'"edit_rev":\s*(\d+),\s*"saved_by":\s*("(?:[^"\\]|\\.)*")')
@@ -176,6 +225,39 @@ def save_play(name: str, info: PlayInfo) -> Path:
 def drop_play(name: str) -> None:
     _play_path(name).unlink(missing_ok=True)
 
+
+
+# ---------- 큐 시트 실험 (canon/cue.py) ----------
+# projects/<이름>/cuelab/<화>.json. 작품 데이터가 아니라서 project.json 밖에 둔다.
+
+def _cuelab_path(name: str, n: int) -> Path:
+    return project_dir(name) / "cuelab" / f"{n}.json"
+
+
+def load_cuelab(name: str, n: int) -> CueLab:
+    """n화 큐 시트 실험. 없거나 깨졌으면 빈 실험."""
+    path = _cuelab_path(name, n)
+    if path.exists():
+        try:
+            return CueLab.model_validate_json(path.read_text(encoding="utf-8"))
+        except ValueError:
+            pass
+    return CueLab(episode=n)
+
+
+def save_cuelab(name: str, lab: CueLab) -> Path:
+    path = _cuelab_path(name, lab.episode)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp.write_text(lab.model_dump_json(indent=2), encoding="utf-8")
+    os.replace(tmp, path)
+    return path
+
+
+def cuelab_episodes(name: str) -> list[int]:
+    """큐 시트 실험 파일이 있는 화."""
+    d = project_dir(name) / "cuelab"
+    return sorted(int(x.stem) for x in d.glob("*.json") if x.stem.isdigit()) if d.exists() else []
 
 def backup_path(name: str, tag: str) -> Path:
     return project_dir(name) / f"{tag}.json"

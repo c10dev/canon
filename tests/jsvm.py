@@ -30,6 +30,9 @@ process.stdout.write(JSON.stringify(vm.runInContext(process.argv[1], ctx)));
 
 def run_js(files: list[str], expr: str, data):
     """canon/static 의 files 를 읽은 vm 에서 expr 을 돌린 값."""
+    # 공용 목차 틀(outline.js)은 화면 파일이 맨 위에서 부르므로 app.js 바로 뒤에 늘 함께 읽는다 (index.html 차례)
+    if "app.js" in files and "outline.js" not in files:
+        files = [*files[: files.index("app.js") + 1], "outline.js", *files[files.index("app.js") + 1:]]
     paths = [str(STATIC / f) for f in files]
     run = subprocess.run(["node", "-e", HARNESS, expr, *paths], input=json.dumps(data, ensure_ascii=False),
                          capture_output=True, text=True, encoding="utf-8")

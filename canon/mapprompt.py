@@ -9,7 +9,7 @@ from .schema import Project
 
 def travel_block(p: Project, n: int, budget: int = 0) -> str:
     """n화를 쓰거나 검수할 때 넣는 이동 거리: 이번 화 인물의 지금 장소에서 플롯에 나온 장소까지 거리와 걸리는 시간.
-    꺼졌거나 축척을 모르거나 넣을 줄이 없으면 빈 문자열. 예산(context.BUDGET["travel"])을 넘으면 먼 것부터 뺀다."""
+    대중교통이고 지하철이 빠르면 '지하철로 약 n분 (역 → 역 n정거장, 서둘러도 n분)'. 꺼졌거나 축척을 모르거나 넣을 줄이 없으면 빈 문자열. 예산(context.BUDGET["travel"])을 넘으면 먼 것부터 뺀다."""
     moves = travel.episode_moves(p, n)
     if not moves:
         return ""
@@ -17,14 +17,18 @@ def travel_block(p: Project, n: int, budget: int = 0) -> str:
     label = travel.speed(p)[0]
     keep, size, cut = [], 0, 0
     for m in moves:
-        text = (f"- {m['who']}: {m['src']} → {m['dst']} 약 {travel.fmt_km(m['km'])}, "
-                f"{label} 보통 {travel.fmt_h(m['normal'])} (서둘러도 {travel.fmt_h(m['fast'])})")
+        r = m.get("rail")
+        how = (f"지하철로 약 {travel.fmt_h(m['normal'])} ({r['path']} {r['stops']}정거장"
+               + (f", 갈아타기 {r['transfers']}번" if r["transfers"] else "") + f", 서둘러도 {travel.fmt_h(m['fast'])})") if r else \
+            f"{label} 보통 {travel.fmt_h(m['normal'])} (서둘러도 {travel.fmt_h(m['fast'])})"
+        text = f"- {m['who']}: {m['src']} → {m['dst']} 약 {travel.fmt_km(m['km'])}, {how}"
         if size + len(text) > budget and keep:
             cut += 1
             continue
         keep.append(text)
         size += len(text) + 1
-    head = f"지도 기준 거리와 걸리는 시간 (길 굽음 포함 어림{f', 먼 것 {cut}개 생략' if cut else ''}):"
+    rail = ", 지하철은 역까지 걷기 · 기다림 · 갈아타기 포함" if any(m.get("rail") for m in moves) else ""
+    head = f"지도 기준 거리와 걸리는 시간 (길 굽음 포함 어림{rail}{f', 먼 것 {cut}개 생략' if cut else ''}):"
     tail = "- 인물이 이보다 짧은 시간에 닿으면 본문에서 탈것이나 지난 시간을 밝힙니다."
     return "\n".join([head, *keep, tail])
 

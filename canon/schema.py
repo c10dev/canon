@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, SerializationInfo, SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, SerializationInfo, SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
 from .metrics import StyleMetrics
@@ -251,7 +251,11 @@ class Snapshot(BaseModel):
 class Settings(BaseModel):
     show_numbers: bool = Field(False, description="CLI 에서 관계를 숫자로 보여줄지(True), 말로 보여줄지(False)")
     check_widen: bool = Field(False, description="장편 검수 넓히기: 검수 뒤 진술마다 옛 화를 더 찾아, 첫 검수에 없던 근거가 나온 진술만 다시 묻는다 (검수 호출 2번 더)")
+    stage_extract: bool = Field(True, description="검수 때 본문에서 장면 연출을 함께 뽑는다 (사건마다 check 호출 1번 더, 본문이 그대로인 사건은 건너뜀)")
+    storyboard: Optional[bool] = Field(None, description="화마다 쓰기 전에 스토리보드를 만들고, 쓰기 프롬프트에 직전 화 본문 전체를 넣는다. 비우면 장편 켬 · 단편 끔 (board.on)")
+    cue_sheet: Optional[bool] = Field(None, description="화마다 쓰기 전에 큐 시트(큐마다 기능 · 긴장 · 템포 · 편성 · 핵심 대사 · 분량)를 만들어 쓰기 프롬프트 끝에 넣는다. 비우면 장편 켬 · 단편 끔 (cue.on)")
     keep_snapshots: bool = Field(False, description="장편에서도 화별 스냅샷을 지우지 않고 모두 남긴다 (연구용 작품: 어느 화로든 되돌릴 수 있다). 끄면 0화 · 아크 끝 · 최근 20화만 남긴다 (pipeline.prune_snapshots)")
+    model_preset: str = Field("", description="이 작품이 쓰는 단계 프리셋 id (settings.presets: 단계별 백엔드 · 모델 묶음). 비우면 전체 설정을 따른다. 고른 프리셋이 지워졌으면 전체 설정을 따른다 (settings.project_preset)")
 
 
 # ---------- 스타일 레퍼런스 ----------
@@ -416,7 +420,7 @@ class EpisodePlot(BaseModel):
     summary: str
     events: list[str] = Field(description="순서대로 일어나는 사건 3~6개")
     characters: list[str] = Field(description="등장 인물 id")
-    emotional_shift: str = Field(description="주요 인물의 감정 변화가 겉으로 드러나는 행동이나 대사 (감정 이름이 아니라 보이는 것)")
+    emotional_shift: str = Field(description="주요 인물의 감정 변화를 '인물: 처음 → 끝 (계기)' 모양 짧은 줄로. 본문 문장으로 쓰지 않는다 (본문에 그대로 옮겨진다)")
     ending_hook: str = Field(description="다음 화로 이어지는 엔딩 훅")
     foreshadow_plant: list[str] = Field(default_factory=list, description="이번 화에 심는 복선")
     foreshadow_payoff: list[str] = Field(default_factory=list, description="이번 화에 회수하는 복선 id")
@@ -589,6 +593,26 @@ class StorylineProposal(BaseModel):
 class Recap(BaseModel):
     """아크나 부가 끝난 뒤의 요약 제안."""
     summary: str = Field(description="다음 화를 쓸 때 참고할 요약")
+
+
+class KnowsFold(BaseModel):
+    """인물 하나의 오래된 아는 정보를 접은 줄 (canon/knows.py)."""
+    character_id: str = Field(description="인물 id")
+    lines: list[str] = Field(description="접은 뒤 남길 줄. 한 줄에 한 가지, 뒤 화에서 이 인물이 행동할 때 기준이 되는 것만")
+
+
+class KnowsFoldSet(BaseModel):
+    """아크 요약 뒤 아는 정보 접기 제안. 작가가 인물마다 골라 적용한다 (pipeline.fold_knows, knows.apply_fold)."""
+    folds: list[KnowsFold] = Field(default_factory=list)
+
+
+class KnowsFoldRecord(BaseModel):
+    """적용한 접기 기록. 되돌리기에 쓴다."""
+    arc: int
+    character_id: str
+    removed: list[str] = Field(default_factory=list, description="접어서 knows 에서 뺀 줄")
+    before: list[str] = Field(default_factory=list, description="접기 전 knows_folded")
+    after: list[str] = Field(default_factory=list, description="접은 뒤 knows_folded")
 
 
 # ---------- 단편 → 장편 전환 ----------
@@ -955,6 +979,10 @@ class ConsistencyIssue(BaseModel):
     current_quote: str = Field(description="이번 화에서 어긋난 문장 원문 그대로")
     suggestion: str = Field("", description="고치는 방법 제안")
     severity: Severity = Field("mid", description="crit: 독자가 바로 알아챌 모순이거나 뒤 화 전개를 흔듦 / mid: 눈여겨 읽으면 보이는 어긋남 / low: 사소한 세부")
+    # 프로그램이 채운다 (LLM 응답 형식에서 뺀다). 장면 연출 규칙 판정(stage.to_issues)이 낸 지적은 rule
+    origin: SkipJsonSchema[Literal["ai", "rule"]] = Field("ai", description="ai: 검수 모델 / rule: 장면 연출 규칙 판정")
+    stage_event: SkipJsonSchema[int] = Field(-1, description="규칙 지적의 플롯 사건 번호 (0부터). 장면 연출 화면 링크")
+    stage_beat: SkipJsonSchema[int] = Field(0, description="규칙 지적의 본문 장면 박자 (1부터)")
 
 
 HookAspect = Literal["첫 문단", "주인공", "전제", "설명 부담", "걸린 것", "장르 약속", "엔딩"]
@@ -1017,28 +1045,10 @@ class ConsistencyReport(BaseModel):
     """본문 검수 결과. 상태를 바꾸지 않는 참고용 경고라 승인 없이 저장한다."""
     episode: int
     issues: list[ConsistencyIssue] = Field(default_factory=list, description="근거가 분명한 모순만. 없으면 빈 목록")
-
-
-class BodyState(BaseModel):
-    """장면 상태표의 한 인물. 본문이 말하지 않은 칸은 비운다."""
-    name: str = Field(description="인물 이름")
-    facing: str = Field("", description="누구 · 무엇을 향했는지 (예: 도현을 마주 봄, 도현에게 등을 댐)")
-    hands: str = Field("", description="두 손 각각 하는 일 (예: 한 손 도현의 손목, 다른 손 빈 손)")
-    worn: str = Field("", description="걸친 것을 안쪽에서 바깥 순서로 (예: 셔츠 → 외투 → 백팩 끈)")
-    front: str = Field("", description="몸 앞에 맞닿거나 놓인 사람 · 물건")
-    back: str = Field("", description="몸 뒤에 맞닿거나 놓인 사람 · 물건")
-    items: str = Field("", description="그 밖의 물건 자리 (예: 열쇠 바지 앞주머니, 가방 의자 위)")
-
-
-class SceneBeat(BaseModel):
-    quote: str = Field(description="상태를 정하거나 바꾼 본문 문장 원문 그대로 (한 문장)")
-    bodies: list[BodyState] = Field(default_factory=list, description="그 문장 뒤의 상태. 바뀐 인물만, 적지 않은 인물과 칸은 앞 줄 그대로")
-
-
-class SceneCheck(BaseModel):
-    """검수 시험 scene 방식: 본문을 장면 상태표로 옮겨 적은 뒤 상태표와 어긋나는 동선만 찾는다. 연구 화면에서만 쓴다."""
-    beats: list[SceneBeat] = Field(default_factory=list, description="먼저 적는 장면 상태표")
-    issues: list[ConsistencyIssue] = Field(default_factory=list, description="상태표와 어긋나는 문장. 근거가 분명한 것만, 없으면 빈 목록")
+    # 검수 때 뽑은 본문 장면 (pipeline.stage_extract_all, StageProposal). apply_check 가 장면에 넣고 규칙 판정을 합친다.
+    # 작가가 손본 본문 장면을 덮지 않아 넣지 못한 것은 _stage_held (웹은 장면 연출 화면의 비교로 남긴다)
+    _stage: list = PrivateAttr(default_factory=list)
+    _stage_held: list = PrivateAttr(default_factory=list)
 
 
 EditSource = Literal["manual", "ai", "typed", "impact", "fix"]
@@ -1156,6 +1166,7 @@ class CheckRound(BaseModel):
     basis: str = Field("", description="검수한 본문의 지문 (pipeline.text_basis). 비면 모름 (옛 작품)")
     source: CheckSource = Field("api", description="api: 화면 · 명령줄 검수 / chat: 채팅 앱에서 받은 JSON / auto: 자동 집필")
     widen: bool = Field(False, description="넓혀 찾기를 함께 했는지")
+    stage: bool = Field(False, description="장면 연출 규칙 판정을 함께 넣었는지 (본문 장면이 있는 사건이 하나라도)")
     found: int = Field(0, description="이 회차가 짚은 수")
     added: int = Field(0, description="그중 새 지적")
     kept_again: int = Field(0, description="그중 그대로 둠 · 잘못 짚음으로 정해 둔 지적 (상태는 그대로)")
@@ -1175,6 +1186,170 @@ class ToFix(BaseModel):
     status: Literal["open", "done"] = Field("open", description="open: 남음 / done: 고침")
     at: str = Field("", description="표시한 시각")
     done_at: str = Field("", description="고침으로 바꾼 시각")
+
+
+# ---------- 장면 연출 (canon/stage.py, docs/stage/) ----------
+# 작가 자료라 스냅샷 · 반영 취소 대상이 아니다. 좌표는 방 · 기준점에만 있고 인물 자리는 기준점 + 관계 말이다.
+
+class StageAnchor(BaseModel):
+    """방 안의 기준점: 가구 · 문 · 창. 자리 단위는 m, 방 왼쪽 위가 0."""
+    id: str
+    name: str
+    kind: str = Field("other", description="bed · door · window · desk · chair · sofa · table · wall · seat · vehicle · landmark · ground · other (stage.ANCHOR_KINDS)")
+    x: float = 0
+    y: float = 0
+    w: float = 0.5
+    h: float = 0.5
+    rot: int = Field(0, description="앞쪽 방향: 0 아래(+y) · 90 왼쪽 · 180 위 · 270 오른쪽 (평면도 기준)")
+    sit: bool = False
+    lie: bool = False
+    parent: str = Field("", description="붙은 곳: 기준점 id, 방 벽이면 'room'. 비면 붙지 않음 (stage.resolve). 붙으면 x · y · w · h · rot 는 부모 기준이다")
+    face: str = Field("", description="붙은 면: 기준점이면 inside · top · front · back · left · right, 방 벽이면 n · e · s · w (stage.FACES · WALLS)")
+
+
+class StageRoom(BaseModel):
+    """장면이 벌어지는 방. 지도 장소에 묶으면 여러 장면이 다시 쓴다."""
+    id: str
+    name: str
+    place: str = Field("", description="지도 장소 이름 (atlas.places). 비면 장면 전용 방")
+    template: str = Field("", description="고른 틀 id (stage.ROOMS)")
+    w: float = 4.0
+    h: float = 3.0
+    anchors: list[StageAnchor] = Field(default_factory=list)
+    attached: bool = Field(False, description="옛 방의 붙은 곳 짐작(stage.attach_guess)을 마친 방")
+    _world: bool = PrivateAttr(False)  # stage.resolve 가 세계 좌표로 푼 사본. 저장하지 않는다
+
+    @model_validator(mode="after")
+    def _guess(self):
+        if not self.attached:
+            from . import stage  # 순환 import 를 피해 늦게 읽는다
+            stage.attach_guess(self)
+        return self
+
+
+class StageSpot(BaseModel):
+    ref: str = Field(description="기준점 id, 또는 '@' + 인물 id")
+    rel: str = Field("beside", description="on · in · front · back · left · right · beside (stage.RELS)")
+
+
+class StageContact(BaseModel):
+    id: str
+    by: str = Field(description="left · right · both, 또는 손 아닌 부위 id (stage.PARTS)")
+    to: str = Field(description="닿는 인물 id")
+    part: str = Field(description="닿는 부위 id (stage.PARTS)")
+    act: str = Field(description="접촉 동작 id (stage.ACTS)")
+
+
+class StageBody(BaseModel):
+    """한 인물의 상태. 시작 상태는 모든 칸, 박자는 바뀐 칸만 (None · 빈칸은 앞 그대로)."""
+    who: str = Field(description="인물 id")
+    at: Optional[StageSpot] = None
+    posture: str = Field("", description="자세 id (stage.POSTURES)")
+    facing: str = Field("", description="8방향(n ne e se s sw w nw), '@' + 인물 id, '#' + 기준점 id")
+    left: Optional[str] = Field(None, description="왼손에 쥔 것. 빈칸은 빈손, '?' 는 모름, None 은 앞 그대로")
+    right: Optional[str] = Field(None, description="오른손에 쥔 것 (left 와 같은 규칙)")
+    contacts: list[StageContact] = Field(default_factory=list, description="이 박자에 새로 시작한 접촉")
+    ends: list[str] = Field(default_factory=list, description="이 박자에 끝난 접촉 id")
+    memo: str = Field("", description="고정 목록 밖의 것")
+
+
+class StageBeat(BaseModel):
+    quote: str = Field("", description="본문 문장 원문 (쓰기 전에는 빈칸)")
+    note: str = Field("", description="작가 한 줄 설명")
+    bodies: list[StageBody] = Field(default_factory=list, description="바뀐 인물만")
+
+
+class StageScene(BaseModel):
+    """플롯 사건 하나의 장면 연출."""
+    id: str
+    event: int = Field(0, description="플롯 사건 번호 (0부터)")
+    event_text: str = Field("", description="사건 글 사본. 사건을 찾을 때 번호보다 먼저 본다 (stage.find_event)")
+    room: str = Field("", description="StageRoom.id")
+    cast: list[str] = Field(default_factory=list, description="인물 id")
+    start: list[StageBody] = Field(default_factory=list, description="시작 상태: 인물마다 모든 칸")
+    beats: list[StageBeat] = Field(default_factory=list)
+    source: Literal["manual", "plot", "text"] = Field("manual", description="마지막으로 통째 적용한 출처: 작가 · 플롯 초안 · 본문 추출")
+    basis: str = Field("", description="본문에서 뽑았을 때 본문 지문 (pipeline.text_basis)")
+    prompt: bool = Field(True, description="쓰기 프롬프트에 넣기")
+    role: Literal["plan", "text"] = Field("plan", description="계획 장면(쓰기 전 작가가 짠 것) · 본문 장면(본문에서 뽑은 것). 한 사건에 역할마다 하나")
+    prev: Optional["StageScene"] = Field(None, description="마지막 AI 적용 전 장면 (적용 취소 한 번)")
+    room_prev: Optional[StageRoom] = Field(None, description="마지막 AI 적용이 기준점을 더한 공용 방의 적용 전 모습 (적용 취소가 되돌린다)")
+    room_made: str = Field("", description="마지막 AI 적용이 새로 만든 방 id (적용 취소 때 다른 장면이 쓰지 않으면 뺀다)")
+
+
+# LLM 이 채우는 장면 연출 (pipeline.draft_stage · extract_stage). 이름으로 적고 stage.from_draft 가 id 로 바꾼다. dict 필드를 쓰지 않는다.
+
+class DraftContact(BaseModel):
+    by: str = Field(description="닿게 한 쪽: left · right · both (손), 또는 손 아닌 부위 id")
+    to: str = Field(description="닿는 인물 이름")
+    part: str = Field(description="닿는 부위 id (부위 목록)")
+    act: str = Field(description="접촉 동작 id (접촉 동작 목록)")
+
+
+class DraftEnd(BaseModel):
+    to: str = Field(description="끝난 접촉의 대상 인물 이름")
+    part: str = Field(description="끝난 접촉의 부위 id")
+
+
+class DraftBody(BaseModel):
+    """한 인물의 상태. 박자에는 바뀐 칸만 적고 나머지는 빈칸으로 둔다."""
+    name: str = Field(description="인물 이름 (등장 인물 목록 그대로)")
+    at_ref: str = Field("", description="자리의 기준: 기준점 이름, 또는 인물 이름. 바뀌지 않았거나 모르면 빈칸")
+    at_rel: str = Field("", description="자리 관계 id (관계 목록). at_ref 가 있을 때만")
+    posture: str = Field("", description="자세 id (자세 목록). 바뀌지 않았거나 모르면 빈칸")
+    facing: str = Field("", description="향한 쪽: 8방향 id, 또는 인물 이름 · 기준점 이름. 바뀌지 않았거나 모르면 빈칸")
+    left: str = Field("", description="왼손에 쥔 것. 바뀌지 않았으면 빈칸, 빈손이 되면 '빈손', 모르면 '?'")
+    right: str = Field("", description="오른손에 쥔 것 (left 와 같은 규칙)")
+    contacts: list[DraftContact] = Field(default_factory=list, description="이 박자에 새로 시작한 접촉")
+    ends: list[DraftEnd] = Field(default_factory=list, description="이 박자에 끝난 접촉")
+    memo: str = Field("", description="목록에 없는 것을 짧게")
+
+
+class DraftAnchor(BaseModel):
+    """방에 없는 장소를 기준점으로 더하자는 제안. 자리는 다른 기준점과의 관계 말로만 적고 좌표는 코드가 정한다 (stage.place_anchors)."""
+    name: str = Field(description="기준점 이름 (박자 자리 at_ref 에 이 이름을 그대로 씀)")
+    kind: str = Field("other", description="기준점 종류 id (기준점 종류 목록)")
+    near: str = Field("", description="가까이 있는 기준점 이름: 방에 있는 것이나 이 목록 앞에 적은 것. 모르면 빈칸")
+    rel: str = Field("", description="near 에서 본 이 기준점의 쪽: front · back · left · right · beside (near 가 있을 때만)")
+    part: bool = Field(False, description="near 의 한 부분이면 참 (차의 짐칸 · 트렁크 · 보닛 · 운전석, 가구의 서랍처럼). 코드가 near 에 붙인다")
+
+
+class DraftBeat(BaseModel):
+    quote: str = Field("", description="본문에서 뽑을 때: 이 박자를 정한 본문 문장 원문 그대로 한 문장. 쓰기 전 초안이면 빈칸")
+    note: str = Field("", description="이 박자에 일어나는 일 한 줄")
+    bodies: list[DraftBody] = Field(description="바뀐 인물만")
+
+
+class StageDraft(BaseModel):
+    """플롯 사건 하나의 장면 연출 초안 또는 본문에서 뽑은 장면. 좌표는 적지 않는다."""
+    room: str = Field("", description="방: 방 목록의 이름 또는 방 틀 id. 방이 정해져 있으면 빈칸")
+    # 기본값을 두지 않는다: 기본값이 있으면 응답 형식에서 필수가 빠져 Gemini 가 beats 를 통째로 건너뛴다 (2026-10-29 측정)
+    cast: list[str] = Field(description="이 장면에 나오는 인물 이름")
+    start: list[DraftBody] = Field(description="시작 상태: 인물마다 아는 칸을 모두")
+    beats: list[DraftBeat] = Field(description="박자 차례. 장면이 있으면 비우지 않는다")
+    new_anchors: list[DraftAnchor] = Field(description="방에 없어 더할 기준점. 더할 것이 없으면 빈 목록")
+
+
+class AnchorAdd(BaseModel):
+    """방에 더할 기준점 하나와 화면에 보일 자리 말."""
+    anchor: StageAnchor
+    where: str = ""
+
+
+class StageProposal(BaseModel):
+    """AI 가 만든 장면을 정리한 결과. 적용 전에는 pending.json(웹)에 두고, 검수 때 뽑은 것은 바로 넣는다. LLM 이 채우지 않는다."""
+    episode: int
+    event: int
+    role: Literal["plan", "text"] = "plan"
+    scene: StageScene
+    room: Optional[StageRoom] = Field(None, description="새로 만들 방 (이미 있는 방을 쓰면 None)")
+    adds: list["AnchorAdd"] = Field(default_factory=list, description="AI 가 더하자고 한 기준점 (좌표는 코드가 정함)")
+    grown: Optional[StageRoom] = Field(None, description="이미 있는 방에 adds 를 더하고 넓힌 모습 (방 id 는 그대로). 새 방이면 room 에 이미 들어 있다")
+    shift_x: float = Field(0, description="grown 이 넓히며 옛 기준점을 옮긴 거리 m")
+    shift_y: float = 0
+    dropped: int = Field(0, description="막은 접촉 수 (미성년 인물이 낀 성적 접촉)")
+    notes: list[str] = Field(default_factory=list, description="정리하며 메모로 옮기거나 뺀 것")
+    at: str = ""
 
 
 class Episode(BaseModel):
@@ -1199,6 +1374,9 @@ class Episode(BaseModel):
     opening_prev: Optional[EpisodePlot] = Field(None, description="1~3화 여는 방식 안을 처음 고르기 전 플롯 (되돌리기용). 되돌리면 비운다")
     events_done: list[str] = Field(default_factory=list, description="집필 화면 플롯 띠에서 작가가 다 썼다고 체크한 사건의 글. 사건 글을 고치면 그 체크는 풀린다. 프롬프트에 넣지 않는다")
     to_fix: list[ToFix] = Field(default_factory=list, description="작가가 본문에 단 '고칠 곳' 표시. 프롬프트에 넣지 않는다")
+    stage: list[StageScene] = Field(default_factory=list, description="플롯 사건마다 짠 장면 연출 (canon/stage.py). 작가 자료라 스냅샷에 넣지 않는다")
+    storyboard: Optional["Storyboard"] = Field(None, description="쓰기 재료: 장면 순서와 이번 화 확정 값 (pipeline.make_storyboard). 상태 승인 대상이 아니다")
+    cue_sheet: Optional["CueSheet"] = Field(None, description="쓰기 재료: 큐 시트 (pipeline.make_cue_sheet, cue.set_episode). 쓰기 프롬프트 끝에 넣는다 (prompts.cue_write_block). 상태 승인 대상이 아니다")
 
     @model_validator(mode="after")
     def _old_check(self) -> "Episode":
@@ -1226,6 +1404,16 @@ class CharacterState(BaseModel):
     knows: list[str] = Field(default_factory=list, description="이 인물이 알게 된 핵심 정보")
     notes: str = ""
     stats: list[StatValue] = Field(default_factory=list, description="상태창 수치. 작가가 상태창을 만든 인물만. 변경안에는 바뀐 항목만 넣는다")
+    # 아크 요약 뒤 오래된 knows 를 접은 줄 (canon/knows.py). 작가가 고른 AI 제안만 들어온다. AI 응답 형식과 프롬프트 직렬화에서는 뺀다
+    knows_folded: SkipJsonSchema[list[str]] = Field(default_factory=list, description="접은 아는 정보 (knows.apply_fold)")
+
+    @model_serializer(mode="wrap")
+    def _prompt_view(self, handler: SerializerFunctionWrapHandler, info: SerializationInfo):
+        """프롬프트용 직렬화(llm.dump 의 context prompt)에서는 접은 줄 칸을 뺀다. 프롬프트는 knows.view 가 접은 줄을 knows 앞에 붙인다."""
+        data = handler(self)
+        if isinstance(data, dict) and info.context and info.context.get("prompt"):
+            data.pop("knows_folded", None)
+        return data
 
 
 class Foreshadow(BaseModel):
@@ -1261,6 +1449,92 @@ class Timeline(BaseModel):
     start: str = Field("", description="1일째가 언제인지 글로 (예: 늦겨울, 왕국력 312년). start_date 가 없으면 여기 적은 날짜 · 요일을 읽는다")
     start_date: str = Field("", description="1일째 날짜 YYYY-MM-DD. 있으면 화마다 날짜로 보이고 날짜 · 요일 · 남은 날을 Canon 이 계산한다. 비면 날수(며칠째)로 센다")
     deadlines: list[Deadline] = Field(default_factory=list)
+
+
+# ---------- 화별 스토리보드 ----------
+# 플롯과 집필 사이에 두는 쓰기 재료 (pipeline.make_storyboard). 직전 화를 반영한 뒤 쓰기 바로 전에 만든다.
+# 장면 순서와 이번 화 확정 값만 담고 대사 · 본문 문장은 담지 않는다. 상태 변경안이 아니라 상태 승인 대상이 아니다.
+# 바뀐 양만 적고 날수 · 수치 결과 · 창 글은 Canon 이 매번 센다 (prompts.board_block). 화 번호를 품은 칸은 두지 않는다.
+
+BoardWarnKind = Literal["plot_vs_state", "plot_vs_text", "time", "setting", "next_plot"]
+
+
+class BoardScene(BaseModel):
+    """장면 하나. 대사와 본문 문장은 넣지 않는다."""
+    place: str = Field("", description="장소. [장소 목록]의 이름 그대로. 목록에 없으면 새 이름")
+    spot: str = Field("", description="그 장소 안 자리 (예: 부두 끝 창고, 마차 안)")
+    time: str = Field("", description="장면 시각. 시간대나 '해 뜨기 약 40분 전' 처럼")
+    present: list[str] = Field(default_factory=list, description="이 장면에 함께 있는 인물 id")
+    events: list[int] = Field(default_factory=list, description="이 장면이 맡는 이번 화 플롯 events 번호 (1부터)")
+    goal: str = Field("", description="장면 목표: 시점 인물이 이 장면에서 얻으려는 것. 명사구 30자 안팎, 본문 문장으로 쓰지 않는다")
+    turn: str = Field("", description="전환점: 장면의 흐름이 바뀌는 일. 명사구 40자 안팎, 본문 문장으로 쓰지 않는다")
+    end_state: str = Field("", description="장면 끝 상태: 다음 장면이 이어받는 것 (자리, 물건, 감정, 결정). '건우 운전석 · 공회전 · 연료 1.2L' 처럼 값을 · 로 잇는다")
+
+
+class BoardTime(BaseModel):
+    """이 화의 시간. 날수는 적지 않고 Canon 이 직전 화 끝에서 이어 센다 (prompts.board_days)."""
+    after: int = Field(0, description="직전 화가 끝난 때에서 며칠 뒤에 시작하는지. 같은 날 0. 회상 · 외전처럼 메인 시간 밖이면 -1")
+    part: str = Field("", description="시작 시간대")
+    days: int = Field(1, description="걸치는 날 수. 하루 안이면 1")
+    end_part: str = Field("", description="끝나는 시간대")
+
+
+class BoardStat(BaseModel):
+    """상태창 수치 변화 한 단계. 단계를 차례로 쌓아 창마다 값을 Canon 이 센다 (prompts.board_steps)."""
+    character_id: str = ""
+    scene: int = Field(0, description="몇 번째 장면에서 바뀌는지 (1부터). 0 이면 화 끝")
+    changes: list[StatValue] = Field(default_factory=list, description="바뀐 항목만. 상태 변경안과 같은 말: -0.7, +300, 13, +독 내성")
+    window: bool = Field(False, description="이 순간 본문에 상태창이 뜨면 true. 뜬 창은 이 단계까지의 값을 모두 보인다")
+    notice: str = Field("", description="창에 함께 뜨는 시스템 알림 한 줄. 값이 아닌 문구")
+
+
+class BoardMove(BaseModel):
+    """장소 이동 하나."""
+    character_id: str = ""
+    to: str = Field("", description="옮겨 가는 곳. [장소 목록]의 이름 그대로")
+    scene: int = Field(0, description="몇 번째 장면에서 옮겨 가는지. 0 이면 장면 사이")
+    ok: SkipJsonSchema[bool] = False  # 작가가 '괜찮아요'로 둔 이동. AI 응답 형식과 프롬프트에서 뺀다
+
+
+class BoardAttire(BaseModel):
+    character_id: str = ""
+    end: str = Field("", description="화가 끝날 때 차림. 바뀐 인물만, 이어지는 상처와 물건까지 다시 적는다")
+    why: str = Field("", description="바뀐 장면과 까닭")
+
+
+class BoardHandover(BaseModel):
+    kind: str = Field("", description="장면, 시간, 몸, 물건, 인물, 숨긴 것, 숫자, 질문 중 하나")
+    text: str = Field("", description="직전 화 끝에서 이어받아야 하는 사실 한 줄. 대사를 옮기지 않는다")
+
+
+class BoardWarning(BaseModel):
+    kind: BoardWarnKind = "plot_vs_state"
+    target: Literal["this", "next"] = Field("this", description="this: 이번 화 플롯, next: 다음 화 플롯")
+    field: str = Field("", description="걸린 플롯 칸 (예: events[4], ending_hook, time)")
+    text: str = Field("", description="무엇이 어긋나는지")
+    resolution: str = Field("", description="이 스토리보드가 택한 처리. 플롯 칸은 바꾸지 않는다")
+
+
+class StoryboardDraft(BaseModel):
+    """LLM 응답 형식 (pipeline.make_storyboard)."""
+    scenes: list[BoardScene] = Field(default_factory=list, description="장면 3~7개, 이번 화 events 를 빠짐없이 나눠 맡는다")
+    time: BoardTime = Field(default_factory=BoardTime)
+    stats: list[BoardStat] = Field(default_factory=list, description="상태창을 쓰는 작품만")
+    stat_basis: list[str] = Field(default_factory=list, description="수치를 정한 근거 한 줄씩 (어느 상태 · 사실에서 셈했는지)")
+    moves: list[BoardMove] = Field(default_factory=list, description="다른 장소로 옮겨 가는 인물만")
+    attire: list[BoardAttire] = Field(default_factory=list)
+    handover: list[BoardHandover] = Field(default_factory=list, description="직전 화 본문 끝에서 이어받을 것")
+    protect: list[str] = Field(default_factory=list, description="다음 화 플롯이 전제하는 것. 이번 화에서 깨지 않는다")
+    warnings: list[BoardWarning] = Field(default_factory=list)
+
+
+class Storyboard(StoryboardDraft):
+    """저장 형식. 계산 결과(날수, 창 값)는 저장하지 않고 화면 · 프롬프트가 매번 센다. LLM 이 채우지 않는 칸은 응답 형식에서 뺀다."""
+    made_at: SkipJsonSchema[str] = ""
+    made_by: SkipJsonSchema[Literal["ai", "author", "both"]] = "ai"
+    basis: SkipJsonSchema[str] = Field("", description="만들 때 입력의 지문 (pipeline.board_basis). 지금 값과 다르면 낡은 것")
+    checks: SkipJsonSchema[list[str]] = Field(default_factory=list, description="Canon 이 센 경고 (값 범위). AI 가 쓰지 않는다")
+    skipped: SkipJsonSchema[bool] = Field(False, description="지금 본문을 이 스토리보드 없이 썼다. 검수가 깨지 않을 것(protect)을 대조하지 않는다")
 
 
 class ForeshadowClue(BaseModel):
@@ -1370,6 +1644,39 @@ class SettingRecord(BaseModel):
     quote: str = ""
 
 
+class AddressForm(BaseModel):
+    """한 인물이 다른 인물을 부르는 말과 그에게 쓰는 말씨. 방향이 있다 (A→B 와 B→A 가 따로). 작가가 인물 · 관계 화면에서 정하고,
+    본문에서 바뀐 것은 상태 변경안의 address_changes 로 와서 작가가 골라야 반영한다 (canon/address.py)."""
+    speaker: str = Field(description="말하는 인물 id")
+    listener: str = Field(description="듣는 인물 id")
+    calls: str = Field("", description="speaker 가 listener 를 부르는 말 (예: 도현 씨, 오라버니, 대장님)")
+    speech: str = Field("", description="speaker 가 listener 에게 쓰는 말씨 (예: 해요체, 해체(반말), 하오체)")
+
+
+class AddressChange(BaseModel):
+    """본문에서 뒤 화까지 이어지게 바뀐 호칭 · 말씨 한 방향. 작가가 상태 승인 화면에서 골라야 반영한다 (canon/address.py)."""
+    speaker: str = Field(description="말하는 인물 id")
+    listener: str = Field(description="듣는 인물 id")
+    calls: str = Field("", description="바뀐 뒤 speaker 가 listener 를 부르는 말. 그대로면 빈칸")
+    speech: str = Field("", description="바뀐 뒤 말씨: 하십시오체 · 해요체 · 하오체 · 하게체 · 해체(반말) · 해라체 중 하나나 짧은 설명. 그대로면 빈칸")
+    reason: str = Field("", description="무엇이 왜 바뀌었는지 한 줄")
+    quote: str = Field("", description="근거가 되는 대사를 본문 그대로")
+    episode: int = Field(0, description="바뀐 화. 프로그램이 채운다")
+
+
+class AddressRecord(BaseModel):
+    """호칭 · 말씨가 바뀐 기록. 되돌리기와 인물 화면에 쓴다 (canon/address.py)."""
+    episode: int = Field(description="바뀐 화. 작가가 고쳤으면 그때 마지막으로 반영한 화")
+    speaker: str
+    listener: str
+    field: Literal["calls", "speech"]
+    before: str = ""
+    after: str = ""
+    source: Literal["ai", "author"] = Field("ai", description="ai: 승인한 바뀜 제안 / author: 작가가 인물 · 관계 화면에서 고침")
+    reason: str = ""
+    quote: str = ""
+
+
 class StateDelta(BaseModel):
     """한 화를 쓴 뒤 AI 가 제안하는 상태 변경안. 사용자가 승인하면 반영된다."""
     episode: int
@@ -1385,10 +1692,14 @@ class StateDelta(BaseModel):
     new_characters: list[Character] = Field(default_factory=list, description="인물 설정에 없는데 이번 화에 이름을 갖고 처음 나온 인물. 조연은 support, 지나가는 인물은 minor")
     new_places: list[NewPlace] = Field(default_factory=list, description="장소 목록과 이야기 요소에 없는데 이번 화에 이름을 갖고 처음 나온 장소 (지형, 마을, 건물, 가게 등)")
     setting_changes: list[SettingChange] = Field(default_factory=list, description="인물 설정(외모, 성격, 말투 등)이 뒤 화까지 이어지게 바뀐 칸만. 대부분의 화는 비어 있다")
+    address_changes: list[AddressChange] = Field(default_factory=list, description="인물끼리 부르는 말이나 말씨(존댓말 · 반말)가 뒤 화까지 이어지게 바뀐 방향만. 대부분의 화는 비어 있다")
     time: StoryTime = Field(default_factory=StoryTime, description="이번 화가 끝난 작품 속 시점")
     deadlines_added: list[Deadline] = Field(default_factory=list, description="이번 화에 새로 생기거나 날이 바뀐 기한. 바뀐 기한은 같은 id 로")
     deadlines_done: list[str] = Field(default_factory=list, description="이번 화에 닫힌 기한 id (그날이 와서 일이 일어났거나 기한이 없어짐)")
     warnings: list[str] = Field(default_factory=list, description="플롯, 설정, 말투와 어긋난 부분")
+    # 프로그램이 채운다 (cast.clean_delta). AI 응답 형식에서 뺀다. 반영 뒤에는 실제로 붙인 id 만 남아 되돌리기가 그것만 뺀다
+    cast_added: SkipJsonSchema[list[str]] = Field(
+        default_factory=list, description="반영하면 그 화 등장 인물(EpisodePlot.characters)에 붙일 인물 id: 본문에 이름이 나오고 이 변경안이 상태나 관계 사건을 다룬 인물")
 
 
 class NameOption(BaseModel):
@@ -1605,7 +1916,7 @@ class PlaceLink(BaseModel):
 class MapPlace(BaseModel):
     """지도 만들기에서 작가가 고친 장소 하나: 종류와 이 지도에 놓을지."""
     key: str = Field(description="장소 키 (atlas.places)")
-    kind: str = Field("", description="종류 id (towngen.CATEGORIES). 비면 이름 · 설명에서 찾는다")
+    kind: str = Field("", description="종류 id (placekinds.KINDS). 지도 종류의 시대와 다른 id 는 placekinds.to_era 로 읽는다. 비면 이름 · 설명에서 찾는다")
     put: Optional[bool] = Field(None, description="이 지도에 놓을지. 비면 종류로 정한다 (마을 밖 장소는 놓지 않음)")
 
 
@@ -1625,10 +1936,32 @@ class MapSpec(BaseModel):
 class TravelSetting(BaseModel):
     """이동 시간 검사 설정 (canon/travel.py). 지도 거리와 작품 속 시간을 견줘 너무 빠른 이동을 찾는다."""
     enabled: bool = Field(True, description="끄면 지도 화면 · 상태 변경안 경고 · 프롬프트의 이동 거리를 모두 뺀다 (순간 이동이 흔한 작품 등)")
-    mode: str = Field("horse", description="이 세계에서 인물이 쓰는 가장 빠른 탈것 (travel.MODES 의 id)")
+    mode: str = Field("horse", description="이 세계에서 인물이 쓰는 가장 빠른 탈것 (travel.MODES 의 id). transit(대중교통)은 걸어서와 지하철(Atlas.transit) 가운데 빠른 쪽")
     kmh: float = Field(0, description="작가가 정한 이동 빠르기 (km/시). 0 이면 탈것의 기본값")
     day_km: float = Field(0, description="작가가 정한 하루 이동 거리 (km). 0 이면 탈것의 기본값")
     ok: list[str] = Field(default_factory=list, description="작가가 '괜찮아요'로 둔 이동 ('인물 id:화'). 경고에서 뺀다")
+
+
+class TransitStation(BaseModel):
+    """지하철 역 하나 (지도 데이터 transit.stations 의 사본). x · y 는 지도 비율이고 지도 밖 역은 0~1 밖일 수 있다."""
+    name: str = Field("", description="역 이름 (OpenStreetMap name 태그 그대로)")
+    x: float = 0
+    y: float = 0
+    lines: list[str] = Field(default_factory=list, description="이 역을 지나는 노선 이름")
+
+
+class TransitLine(BaseModel):
+    """지하철 노선 하나: 지도 데이터에 든 역을 차례로. 방향이 다른 relation 은 하나로 묶었다."""
+    name: str = ""
+    stations: list[int] = Field(default_factory=list, description="TransitStation 번호를 노선 차례로")
+    gaps: list[int] = Field(default_factory=list, description="stations[i] 와 stations[i+1] 사이에 파일에 없는 역 수. 비면 모두 0")
+
+
+class Transit(BaseModel):
+    """지도 데이터의 지하철(osm 의 transit 키)을 작품에 적어 둔 사본. 상태 변경안 정리 · 프롬프트처럼 작품 폴더를 모르는 곳에서
+    이동 시간 검사(travel.py)가 읽는다. 지도 파일을 놓거나 바꿀 때 atlas.fill_spots 가 다시 쓴다."""
+    stations: list[TransitStation] = Field(default_factory=list)
+    lines: list[TransitLine] = Field(default_factory=list)
 
 
 class MapFill(BaseModel):
@@ -1651,6 +1984,7 @@ class Atlas(BaseModel):
     span_km: float = Field(0, description="지도 가로가 몇 km 인지 (마을 데이터가 없을 때 이동 거리 계산). 0 이면 모름")
     layout_size: list[float] = Field(default_factory=list, description="마을 데이터의 [가로, 세로] (원래 단위). 마을 데이터를 놓을 때 채운다")
     travel: TravelSetting = Field(default_factory=TravelSetting)
+    transit: Optional[Transit] = Field(None, description="지도 데이터의 지하철 역 · 노선 사본 (OpenStreetMap 지도만). 없으면 None")
 
 
 class ReleasePlan(BaseModel):
@@ -1689,6 +2023,10 @@ class Project(BaseModel):
     abilities: list[Ability] = Field(default_factory=list, description="스킬 · 특성 · 칭호 도감 (canon/abilities.py)")
     setting_log: list[SettingRecord] = Field(default_factory=list, description="인물 설정이 바뀐 기록 (승인한 설정 바꾸기 제안, 1화 반영 뒤 작가가 고친 것)")
     setting_held: list[SettingChange] = Field(default_factory=list, description="자동 집필이 반영하지 않고 남겨 둔 설정 바꾸기 제안. 작가가 인물 화면에서 적용하거나 버린다")
+    address_forms: list[AddressForm] = Field(default_factory=list, description="인물끼리 부르는 말과 말씨 (방향마다 하나, canon/address.py)")
+    address_log: list[AddressRecord] = Field(default_factory=list, description="호칭 · 말씨가 바뀐 기록 (승인한 바뀜 제안, 1화 반영 뒤 작가가 고친 것)")
+    knows_folds: list[KnowsFoldRecord] = Field(default_factory=list, description="아는 정보를 접은 기록 (canon/knows.py)")
+    address_held: list[AddressChange] = Field(default_factory=list, description="자동 집필이 반영하지 않고 남겨 둔 호칭 · 말씨 바뀜 제안. 작가가 인물 화면에서 적용하거나 버린다")
     history: list[StateDelta] = Field(default_factory=list, description="승인된 상태 변경 기록")
     ties: list[Tie] = Field(default_factory=list, description="방향 관계 (dynamics 가 계산)")
     secrets: list[Secret] = Field(default_factory=list)
@@ -1707,6 +2045,7 @@ class Project(BaseModel):
     atlas: Atlas = Field(default_factory=Atlas, description="지도: 장소 자리, 배경 그림, 위치 글 잇기")
     timeline: Timeline = Field(default_factory=Timeline, description="작품 속 시간: 기준 날짜와 기한")
     release: ReleasePlan = Field(default_factory=ReleasePlan, description="연재 일정: 일주일에 올리는 화 수와 올린 마지막 화")
+    rooms: list[StageRoom] = Field(default_factory=list, description="장면 연출의 방 (canon/stage.py). 여러 화 · 장면이 다시 쓴다")
     # 아래 두 칸은 맨 끝에 둔다. store.save 가 파일 끝만 읽어 디스크 값을 찾는다 (store._saved_mark)
     edit_rev: int = Field(0, description="화면(브라우저 탭)이 저장한 횟수. 오래된 화면이 다른 화면의 저장을 덮지 않게 비교한다 (store.writer)")
     saved_by: str = Field("", description="마지막으로 저장한 화면(브라우저 탭) id")
@@ -1913,9 +2252,325 @@ class PlayInfo(BaseModel):
     at: str = ""
 
 
+
+# ---------- 큐 시트 집필 실험 (canon/cue.py) ----------
+# 한 화를 음악의 악보처럼 큐(연주 단위)로 나눈다. 큐마다 화성 기능(안정 · 쌓기 · 긴장), 긴장도, 템포, 편성(대사 · 행동 · 묘사 · 속생각),
+# 일어나는 일, 핵심 대사, 다음 큐로 넘기는 것을 정한다. 작품(project.json)에 넣지 않고 실험 파일 cuelab/<화>.json 에 둔다.
+
+CueFunction = Literal["T", "S", "D"]
+CueTempo = Literal["slow", "mid", "fast"]
+CueVoice = Literal["dialogue", "action", "description", "interior"]
+CueCadence = Literal["full", "half", "deceptive"]
+
+
+class CueLine(BaseModel):
+    """핵심 대사 하나. 본문에 글자 그대로 넣는다."""
+    speaker: str = Field("", description="말하는 인물 id")
+    text: str = Field("", description="대사 글. 따옴표 없이")
+
+
+class Cue(BaseModel):
+    """큐 하나 (연주 단위). 본문 문장과 묘사는 적지 않는다. 대사는 핵심 대사만."""
+    scene: int = Field(0, description="이 큐가 속한 스토리보드 장면 번호 (1부터). 스토리보드가 없으면 0")
+    function: CueFunction = Field("S", description="화성 기능. T 안정(기준선, 숨 고르기) · S 쌓기(정보, 갈등의 씨) · D 긴장(위기, 결정 직전)")
+    tension: int = Field(3, description="긴장도 1~5")
+    tempo: CueTempo = Field("mid", description="템포. slow 장면을 늘임 · mid · fast 사건을 몰아침")
+    voice: CueVoice = Field("action", description="주로 무엇으로 쓰는지 (편성). dialogue 대사 · action 행동 · description 묘사 · interior 속생각")
+    beat: str = Field("", description="이 큐에서 바뀌는 일 한 줄")
+    lines: list[CueLine] = Field(default_factory=list, description="이 큐에 반드시 들어갈 핵심 대사 0~3개")
+    exit: str = Field("", description="이 큐가 끝날 때의 상태. 다음 큐가 여기서 이어받는다")
+    length: int = Field(0, description="목표 글자 수")
+
+
+class CueSheetDraft(BaseModel):
+    """LLM 응답 형식 (pipeline.make_cue_sheet)."""
+    key: str = Field("", description="조성: 이번 화 정서의 기준선 한 줄 (예: 억눌린 불안, 들뜬 기대)")
+    cadence: CueCadence = Field("half", description="화 끝 종지. full 이 화 안에서 풀림 · half 긴장이 가장 높은 곳에서 끊음 · deceptive 풀릴 듯하다 뒤집음")
+    cues: list[Cue] = Field(default_factory=list, description="큐 4~10개, 순서대로")
+
+
+class CueSheet(CueSheetDraft):
+    """저장 형식. 실험 파일(CueLab.sheet)과 화(Episode.cue_sheet)가 함께 쓴다."""
+    made_at: SkipJsonSchema[str] = ""
+    made_by: SkipJsonSchema[Literal["ai", "board", "author", "both"]] = "ai"
+    basis: SkipJsonSchema[str] = Field("", description="화에 붙인 큐 시트를 만들 때 입력의 지문 (cue.ep_basis). 지금 값과 다르면 낡은 것. 실험 시트는 비움")
+
+
+class CueTake(BaseModel):
+    """조건 하나로 쓴 본문 (cue.CONDITIONS). parts 는 큐마다 따로 쓴 조건(cues)의 큐별 본문."""
+    condition: str
+    text: str = ""
+    parts: list[str] = Field(default_factory=list)
+    calls: int = 1
+    prompt_chars: int = Field(0, description="보낸 요청 글자 수의 합 (시스템 지시 포함)")
+    sheet_basis: str = Field("", description="이 본문을 쓸 때 쓴 큐 시트의 지문 (cue.basis). 지금 시트와 다르면 낡은 본문")
+    at: str = ""
+
+
+class CueLab(BaseModel):
+    """한 화의 큐 시트 실험. projects/<폴더>/cuelab/<화>.json. 작품 데이터가 아니다."""
+    episode: int
+    sheet: Optional[CueSheet] = None
+    takes: list[CueTake] = Field(default_factory=list)
+    model: str = ""
+    run_at: str = ""
+
+
+# ---------- 역설계 실험 (canon/revlab.py) ----------
+# 작가가 넣은 소설(사람이 쓴 글)을 거꾸로 화별 플롯 · 스토리보드 · 큐 시트 · 이야기 줄기로 푼다. 작품(project.json)에 넣지 않고
+# 실험 파일 <CANON_HOME>/.revlab/<번호>.json 에 둔다. 큐 경계는 원문 글자 그대로의 시작 인용으로 받고, 글자 수는 Canon 이 잰다.
+
+# 응답 형식(Rev*)의 칸은 모두 required 다 (기본값을 두지 않는다). 기본값이 있으면 JSON 스키마에서 선택 칸이 되어
+# Gemini 가 칸을 통째로 빼고 짧게 끝낸다 (2026-10-30 실측: 5,861자 원문에 출력 36토큰, title 만 채움).
+# 그래서 스토리보드 · 큐 대사도 칸이 같은 Rev 전용 형식(RevScene · RevTime · RevHandover · RevQuote)을 두고 저장할 때 바꾼다.
+
+class RevQuote(BaseModel):
+    """핵심 대사 하나. 원문 대사를 글자 그대로 (CueLine 으로 저장)."""
+    speaker: str = Field(description="말하는 인물 이름")
+    text: str = Field(description="원문 대사 글자 그대로, 따옴표 없이")
+
+
+class RevCue(BaseModel):
+    """역설계한 큐 하나. 원문을 나누는 자리(start)를 원문 글자 그대로 적는다. 글자 수는 적지 않는다 (Canon 이 경계로 잰다)."""
+    start: str = Field(description="이 큐가 시작하는 원문 문장의 앞부분을 원문 글자 그대로 15~40자. 첫 큐는 원문 첫 문장")
+    scene: int = Field(description="이 큐가 속한 장면 번호 (scenes 의 1부터)")
+    function: CueFunction = Field(description="화성 기능. T 안정(기준선, 숨 고르기) · S 쌓기(정보, 갈등의 씨) · D 긴장(위기, 결정 직전)")
+    tension: int = Field(description="긴장도 1~5")
+    tempo: CueTempo = Field(description="템포. slow 장면을 늘임 · mid · fast 사건을 몰아침")
+    voice: CueVoice = Field(description="이 구간을 주로 무엇으로 썼는지 (편성). dialogue 대사 · action 행동 · description 묘사 · interior 속생각")
+    beat: str = Field(description="이 큐에서 바뀌는 일 한 줄")
+    lines: list[RevQuote] = Field(description="이 큐에서 정보가 밝혀지거나 관계가 바뀌는 핵심 대사 0~3개. 없으면 빈 목록")
+    exit: str = Field(description="이 큐가 끝날 때의 상태. 다음 큐가 여기서 이어받는다")
+
+
+class RevPerson(BaseModel):
+    """원문에 이름이 나온 인물 하나. 이름이 곧 id 다. 되돌려 쓰기 사본의 인물 설정이 된다 (revlab.world)."""
+    name: str = Field(description="원문에 쓴 이름 그대로")
+    role: str = Field(description="이 글에서 맡은 몫 한 줄 (주인공, 조연, 적대자 등)")
+    personality: str = Field(description="원문에서 행동과 대사로 드러난 성격 한두 문장. 드러나지 않았으면 빈 글")
+    speech: str = Field(description="원문 대사에서 보이는 말투: 어미, 말 길이, 말버릇, 자주 쓰는 짧은 표현 두세 개. 대사를 통째로 옮기지 않는다. 대사가 없으면 빈 글")
+
+
+class RevCastSaved(RevPerson):
+    """실험 파일의 인물 (RevLab.cast). 응답 형식과 칸이 같지만 저장 형식이라 기본값을 둔다 (옛 파일이 읽히게)."""
+    role: str = ""
+    personality: str = ""
+    speech: str = ""
+
+
+class RevAddress(BaseModel):
+    """한 인물이 다른 인물을 부르는 말과 말씨 (AddressForm 으로 저장). 방향이 있다."""
+    speaker: str = Field(description="말하는 인물 이름")
+    listener: str = Field(description="듣는 인물 이름")
+    calls: str = Field(description="speaker 가 listener 를 부르는 말 (예: 마츠다 군, 선배). 원문에 없으면 빈 글")
+    speech: str = Field(description="speaker 가 listener 에게 쓰는 말씨 (하십시오체 · 해요체 · 해체(반말) 등)")
+
+
+class RevTie(BaseModel):
+    """두 인물의 관계 한 줄 (Relationship 으로 저장)."""
+    a: str = Field(description="인물 이름")
+    b: str = Field(description="인물 이름")
+    type: str = Field(description="관계 종류 (친구, 선후배, 가족, 연인, 라이벌 등)")
+    description: str = Field(description="원문에 드러난 두 사람 사이 한두 문장: 지난 일, 감정, 거리감")
+
+
+class RevScene(BaseModel):
+    """장면 하나 (BoardScene 으로 저장). 대사와 본문 문장은 넣지 않는다."""
+    place: str = Field(description="장소. 원문의 장소 이름, 없으면 짧은 설명")
+    spot: str = Field(description="그 장소 안 자리. 모르면 빈 글")
+    time: str = Field(description="장면 시각이나 시간대. 모르면 빈 글")
+    present: list[str] = Field(description="이 장면에 있는 인물 이름")
+    events: list[int] = Field(description="이 장면이 맡은 events 번호 (1부터)")
+    goal: str = Field(description="시점 인물이 이 장면에서 얻으려는 것")
+    turn: str = Field(description="장면의 흐름이 바뀌는 일 한 줄")
+    end_state: str = Field(description="장면 끝 상태: 다음 장면이 이어받는 것")
+
+
+class RevTime(BaseModel):
+    """이 화의 시간 (BoardTime 으로 저장)."""
+    after: int = Field(description="직전 화가 끝난 때에서 며칠 뒤에 시작하는지. 같은 날이거나 알 수 없으면 0")
+    part: str = Field(description="시작 시간대. 모르면 빈 글")
+    days: int = Field(description="걸친 날 수. 하루 안이면 1")
+    end_part: str = Field(description="끝나는 시간대. 모르면 빈 글")
+
+
+class RevHandover(BaseModel):
+    """직전 화 끝에서 이어받은 사실 하나 (BoardHandover 로 저장)."""
+    kind: str = Field(description="장면, 시간, 몸, 물건, 인물, 숨긴 것, 숫자, 질문 중 하나")
+    text: str = Field(description="이어받은 사실 한 줄. 대사를 옮기지 않는다")
+
+
+class RevEpisodeDraft(BaseModel):
+    """LLM 응답 형식 (pipeline.reverse_episode). 원문 한 화를 플롯 · 스토리보드 · 큐 시트로 푼다. 원문에 없는 것은 짓지 않는다."""
+    title: str = Field(description="원문 안에 화 제목 줄이 있으면 그대로, 없으면 빈 글")
+    summary: str = Field(description="이 화 줄거리 2~4문장")
+    events: list[str] = Field(description="순서대로 일어나는 사건 3~6개")
+    cast: list[RevPerson] = Field(description="이 화에 이름이 나오는 인물")
+    emotional_shift: str = Field(description="주요 인물의 감정 변화가 겉으로 드러난 행동이나 대사")
+    ending_hook: str = Field(description="이 화를 끝내는 엔딩 훅")
+    opening: str = Field(description="이 화를 여는 첫 장면 한 줄")
+    time: str = Field(description="이 화가 시작하는 작품 속 시점 (직전 화에서 얼마나 지났는지나 시간대). 원문에서 알 수 없으면 빈 글")
+    threads: list[str] = Field(description="이 화가 따라가는 이야기 줄기 이름 1~3개 (예: 등대 실종 사건, 두 사람의 관계)")
+    setting: str = Field(description="원문에 드러난 세계 · 배경 한두 문장 (시대, 장소, 학교 · 조직, 생활 형편)")
+    facts: list[str] = Field(description="원문에 드러난, 이 화 전에 이미 있었던 일과 세계 사실 0~8개. 이 화에서 처음 일어난 일은 넣지 않는다")
+    ties: list[RevTie] = Field(description="이 화에 함께 나오는 인물 사이 관계")
+    addresses: list[RevAddress] = Field(description="원문 대사에 드러난 호칭 · 말씨. 한 방향에 하나")
+    scenes: list[RevScene] = Field(description="장면 순서. 장소나 시간이 바뀌는 곳에서 나눈다")
+    board_time: RevTime = Field(description="이 화의 시간")
+    handover: list[RevHandover] = Field(description="직전 화 끝에서 이어받은 것. 첫 화거나 없으면 빈 목록")
+    key: str = Field(description="조성: 이 화 정서의 기준선 한 줄")
+    cadence: CueCadence = Field(description="화 끝 종지. full 화 안에서 풀림 · half 긴장이 가장 높은 곳에서 끊음 · deceptive 풀릴 듯하다 뒤집음")
+    cues: list[RevCue] = Field(description="원문을 앞에서부터 빈틈없이 나눈 큐 4~10개, 순서대로")
+
+
+class RevLine(BaseModel):
+    """여러 화에 걸친 이야기 줄기 하나 (메인 밖). 저장할 때 Storyline 으로 바꾼다."""
+    kind: StorylineKind = Field(description="줄기 종류")
+    title: str = Field(description="줄기 이름")
+    focus: list[str] = Field(description="중심 인물 이름")
+    goal: str = Field(description="이 줄기가 풀어 가는 질문이나 목표")
+    when: str = Field(description="이야기 속 시점. 메인과 같은 시간이면 빈 글")
+    episodes: list[int] = Field(description="이 줄기를 주로 따라가는 화 번호")
+    threads: list[int] = Field(description="다른 줄기를 따라가는 화 안에 이 줄기 장면이 끼어드는 화 번호")
+    rejoin: str = Field(description="메인에 합류하며 남기는 것. 아직 합류하지 않았으면 빈 글")
+
+
+class RevLineSet(BaseModel):
+    """LLM 응답 형식 (pipeline.reverse_lines)."""
+    main: str = Field(description="메인 줄기가 풀어 가는 질문 한 줄")
+    lines: list[RevLine] = Field(description="메인 밖 줄기 0~4개")
+
+
+class RevBound(BaseModel):
+    """큐 하나가 원문에서 차지하는 자리 [start, end). found 가 거짓이면 시작 인용을 원문에서 찾지 못해 길이를 재지 못했다."""
+    start: int = 0
+    end: int = 0
+    found: bool = True
+    quote: str = ""
+
+
+class RevTake(BaseModel):
+    """역설계한 재료(플롯 · 스토리보드 · 큐 시트 · 인물 · 관계 · 배경)로 같은 화를 다시 쓴 본문 (되돌려 쓰기)."""
+    text: str = ""
+    style: bool = Field(False, description="역설계한 문체 프로필(RevLab.style)을 넣고 썼는지")
+    prompt_chars: int = 0
+    sheet_basis: str = Field("", description="쓸 때 큐 시트의 지문 (cue.basis). 지금 시트와 다르면 낡은 본문")
+    model: str = ""
+    at: str = ""
+
+
+class RevEpisode(BaseModel):
+    """원문 한 화와 그 역설계 결과. 플롯 · 스토리보드의 인물 id 와 핵심 대사의 speaker 는 인물 이름이다."""
+    number: int
+    head: str = Field("", description="원문의 화 제목 줄")
+    text: str = ""
+    plot: Optional[EpisodePlot] = None
+    storyboard: Optional[Storyboard] = None
+    sheet: Optional[CueSheet] = None
+    bounds: list[RevBound] = Field(default_factory=list, description="큐마다 원문 자리. 큐 수와 같아야 쓴다")
+    dropped: list[str] = Field(default_factory=list, description="원문에 없어 뺀 핵심 대사")
+    threads: list[str] = Field(default_factory=list)
+    setting: str = ""
+    facts: list[str] = Field(default_factory=list, description="이 화 원문에 드러난 앞 이야기 · 세계 사실")
+    ties: list[Relationship] = Field(default_factory=list, description="이 화에서 읽은 관계 (a · b 는 이름)")
+    addresses: list[AddressForm] = Field(default_factory=list, description="이 화에서 읽은 호칭 · 말씨 (speaker · listener 는 이름)")
+    model: str = ""
+    made_at: str = ""
+    take: Optional[RevTake] = Field(None, description="문체 프로필 없이 되돌려 쓴 본문 (마지막 것)")
+    take_style: Optional[RevTake] = Field(None, description="문체 프로필을 넣고 되돌려 쓴 본문 (마지막 것)")
+    blind_take: Literal["", "plain", "style"] = Field("", description="블라인드 비교에 넣은 본문 (take · take_style). 빈 값은 예전 파일이라 plain")
+    blind: list[str] = Field(default_factory=list, description="블라인드 비교 차례 (original · rewrite). 고르기 전에는 화면에 알리지 않는다")
+    picked: str = Field("", description="블라인드 비교에서 고른 것 (original · rewrite), 건너뛰면 skip")
+
+
+class RevLab(BaseModel):
+    """역설계 실험 하나. <CANON_HOME>/.revlab/<id>.json. 작품 데이터가 아니다."""
+    id: int
+    title: str = ""
+    created: str = ""
+    split: str = Field("one", description="화를 나눈 규칙 (revlab.SPLITS)")
+    preface: str = Field("", description="첫 화 제목 줄 앞의 짧은 글 (작품 제목 · 작가 줄). 역설계하지 않는다")
+    episodes: list[RevEpisode] = Field(default_factory=list)
+    cast: list[RevCastSaved] = Field(default_factory=list)
+    main: str = ""
+    lines: list[Storyline] = Field(default_factory=list)
+    lines_at: str = ""
+    style: Optional[StyleProfile] = Field(None, description="원문 전체로 역설계한 문체 프로필. 예시 문단(sample_passages)은 비운다 (되돌려 쓰기가 베끼지 않게)")
+    style_model: str = ""
+    style_at: str = ""
+
+# ---------- 쇠맛 실험실 (canon/soelab.py) ----------
+# 작품 밖 <CANON_HOME>/.soelab/ 에 둔다. LLM 이 채우지 않는 스키마다.
+
+SoeOrigin = Literal["human", "ai", "edited", "unknown"]
+SOE_ORIGINS: dict[str, str] = {"human": "사람 글", "ai": "AI 글", "edited": "고친 글", "unknown": "모름"}
+SoeModelSource = Literal["record", "usage", "author", "unknown"]
+
+
+class SoeSource(BaseModel):
+    """조각을 가져온 원천."""
+    kind: Literal["revlab", "episode", "edit", "research", "paste", "trial"]
+    project: str = ""
+    episode: int = 0
+    lab: int = Field(0, description="역설계 실험 번호")
+    take: str = Field("", description="revlab: text · take · take_style / edit: before · after")
+    edit: str = Field("", description="TextEdit.id")
+    path: str = Field("", description="research: 연구 말뭉치 안 파일 (말뭉치 경로 기준) / paste: 붙여 넣은 글 이름")
+    chunk: int = Field(0, description="같은 글 안 조각 순번")
+
+
+class SoePiece(BaseModel):
+    """판정 · 채점의 단위인 글 조각 (정규화한 2,000자 안팎). id 는 정규화한 글 sha1 앞 12자라 같은 글은 한 번만 들어간다."""
+    id: str
+    text: str
+    origin: SoeOrigin = "unknown"
+    source: SoeSource
+    group: str = Field(description="묶음 키 '<작품|작가>:<화|작품명>'. 부트스트랩 단위. revlab 원문과 되쓰기는 같은 묶음")
+    genre: Literal["webnovel", "literary", "other"] = "webnovel"
+    model: str = Field("", description="쓴 모델 '<백엔드>:<모델>'. 사람 글은 빈 칸")
+    model_source: SoeModelSource = Field("unknown", description="모델을 어디서 알았는지: 기록 · 사용량 기록에서 짐작 · 작가가 고름 · 모름")
+    condition: str = ""
+    pair_of: str = Field("", description="짝 조각 id (revlab 되쓰기 → 원문, 고친 뒤 → 고치기 전)")
+    known: bool = Field(False, description="작가가 읽은 글. 판정 대기열에 넣지 않고 출처 판별에만 쓴다")
+    baseline: str = Field("", description="원천 기준값(style_baseline)을 가진 작품 이름. 없으면 빈 칸")
+    chars: int = 0
+    added: str = ""
+
+
+class SoeSpan(BaseModel):
+    """판정하며 작가가 표시한 곳."""
+    start: int
+    end: int
+    quote: str = ""
+    kind: str = Field("other", description="AI_PATTERNS 이름 5개 · cliche · copy · other")
+    note: str = ""
+
+
+class SoeLabel(BaseModel):
+    """판정 기록 한 줄 (labels.jsonl). 덧붙이기만 하고, 지우기는 removed 가 참인 같은 id 줄."""
+    id: str
+    at: str = ""
+    kind: Literal["piece", "pair", "hit"] = "piece"
+    piece: str = ""
+    verdict: Literal["ai", "human", "unsure", ""] = ""
+    spans: list[SoeSpan] = Field(default_factory=list)
+    clean: bool = Field(False, description="표시할 곳 없이 다 읽음 (재현율의 분모)")
+    batch: str = Field("", description="'이번 10개' id. 부트스트랩 단위 묶음(group)과 다른 말")
+    pair: list[str] = Field(default_factory=list)
+    picked: int = -1
+    hit: str = ""
+    hit_ok: Literal["yes", "no", "skip", ""] = ""
+    blind: bool = True
+    redo_of: str = Field("", description="재판정이면 원래 판정 id")
+    metrics_version: str = ""
+    seconds: int = 0
+    removed: bool = False
+
+
 Snapshot.model_rebuild()
 SerialRebuild.model_rebuild()
 ShortArchive.model_rebuild()
+StageScene.model_rebuild()
 Episode.model_rebuild()
 PlotUndo.model_rebuild()
 ChatMessage.model_rebuild()

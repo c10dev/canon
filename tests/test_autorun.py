@@ -10,7 +10,7 @@ import pytest
 
 os.environ.setdefault("CANON_HOME", tempfile.mkdtemp())  # 다른 테스트 파일보다 먼저 store 를 불러와도 저장소를 더럽히지 않게
 
-from canon import autorun, jobs, mock, store  # noqa: E402
+from canon import autorun, jobs, mock, pipeline, store  # noqa: E402
 from canon.cli import main  # noqa: E402
 from canon.schema import ConsistencyIssue, ConsistencyReport, StateDelta  # noqa: E402
 
@@ -140,7 +140,8 @@ def test_pause_keeps_batch_and_resume_reattaches(demo, monkeypatch):
     autorun.resume(demo)
     wait_until(idle(demo))
     assert autorun.load_run(demo).status == "done"
-    assert len(mock.BATCHES) == count + 2  # 본문은 기다리던 작업을 받아 오고, 검수와 상태만 새로 보냈다
+    events = len(store.load(demo).episode(1).plot.events)  # 검수 때 함께 뽑기: 사건마다 본문 장면 뽑기도 배치로 보낸다
+    assert len(mock.BATCHES) == count + 2 + events  # 본문은 기다리던 작업을 받아 오고, 검수 · 장면 뽑기와 상태만 새로 보냈다
 
 
 def test_stop_cancels_batch(demo, monkeypatch):
@@ -177,15 +178,45 @@ def test_server_restart_resumes(demo, monkeypatch):
 def test_estimate(demo, monkeypatch):
     p = store.load(demo)
     monkeypatch.setenv("CANON_LLM", "gemini")
+    events = sum(len(p.episode(n).plot.events) for n in range(1, 7))
+    stage = autorun.estimate(p, 6, False, Policy())  # 검수 때 함께 뽑기(기본 켬): 사건마다 검수 호출 하나 더
+    assert stage["calls"]["check"] == 6 + events
+    p.settings.stage_extract = False
+    assert stage["cost"] > autorun.estimate(p, 6, False, Policy())["cost"]
     off = autorun.estimate(p, 6, False, Policy())
     on = autorun.estimate(p, 6, True, Policy())
-    assert off["episodes"] == 6 and off["calls"] == {"write": 6, "check": 6, "state": 6}
+    assert off["episodes"] == 6 and off["calls"] == {"plan": 0, "write": 6, "check": 6, "state": 6}  # 단편은 스토리보드가 기본으로 꺼짐
     assert off["cost"] > 0 and on["cost"] == pytest.approx(off["cost"] / 2, abs=0.01)
     assert off["batch_rounds"] == 0 and on["batch_rounds"] == 12
     no_check = autorun.estimate(p, 6, False, Policy(check=False))
     assert no_check["calls"]["check"] == 0 and no_check["cost"] < off["cost"]
     monkeypatch.setenv("CANON_LLM_WRITE", "local")
     assert autorun.estimate(p, 6, True, Policy())["batch_rounds"] == 6  # 본문은 로컬이라 배치 없음
+
+
+def test_serial_estimate_sizes_old_passages_without_search(demo, monkeypatch):
+    """장편 추정은 검수의 옛 단락을 찾지 않고(context.recall) 예산 크기로 센다. 찾아서 잰 길이와 거의 같다."""
+    from canon import context, prompts
+
+    p = store.load(demo)
+    p.meta.form = "serial"
+    p.settings.stage_extract = False
+    monkeypatch.setitem(context.BUDGET, "check_recall", 400)
+    sim = p.model_copy(deep=True)
+    for e in sim.episodes:  # 화마다 다른 낱말이 섞인 본문이라야 옛 단락이 찾아진다 (실제 작품처럼)
+        m = e.plot.number
+        e.text = "\n\n".join(f"{m}화 {k}번째 장면에서 등대 불빛이 바다{k}를 비추고 서윤은 밧줄{m}을 감았다." for k in range(12))
+    assert prompts.check_recall(sim, 6)[1]  # 찾아서 넣는 옛 단락이 있다
+    searched = [len(prompts.check_prompt(sim, n)) for n in range(1, 7)]
+    sized = [len(prompts.check_prompt(sim, n, sized=True)) for n in range(1, 7)]
+    assert sized[:context.CHECK_RECENT + 1] == searched[:context.CHECK_RECENT + 1]  # 직전 화 밖의 옛 화가 없으면 똑같다
+    assert all(abs(a - b) <= 0.05 * b for a, b in zip(sized, searched))
+
+    def boom(*a, **k):
+        raise AssertionError("추정에서 옛 단락을 찾았어요")
+
+    monkeypatch.setattr(context, "recall", boom)
+    assert autorun.estimate(p, 6, False, Policy())["calls"]["check"] == 6
 
 
 def test_web_api(demo, monkeypatch):
@@ -195,6 +226,7 @@ def test_web_api(demo, monkeypatch):
 
     c = TestClient(web.app)
     assert c.get("/api/projects/demo/auto").json()["run"] is None
+    assert c.put("/api/projects/demo/stage-extract", json={"on": False}).json()["settings"]["stage_extract"] is False
     est = c.post("/api/projects/demo/auto/estimate", json={"target": 3, "batch": True}).json()
     assert est["episodes"] == 3 and est["batch_rounds"] == 6
 
@@ -249,7 +281,8 @@ def test_batch_schema_mismatch_is_repaired(demo):
     count = len(mock.BATCHES)
     run = autorun.start(demo, 1, True, Policy(), foreground=True)
     assert run.status == "done" and run.applied == [1]
-    assert len(mock.BATCHES) == count + 4  # 본문, 검수, 상태, 상태 고쳐 받기
+    events = len(store.load(demo).episode(1).plot.events)  # 검수 때 함께 뽑기: 사건마다 본문 장면 뽑기
+    assert len(mock.BATCHES) == count + 4 + events  # 본문, 검수, 상태, 상태 고쳐 받기, 장면 뽑기
     assert any(e.level == "warn" and "형식과 맞지 않아" in e.message for e in run.log)
     assert not run.batches
 
@@ -445,3 +478,36 @@ def test_revert_updates_run(demo):
     # 멈춘 실행의 정책은 이어 가기 전에 바꿀 수 있다
     r = c.put("/api/projects/demo/auto/policy", json={"check": False, "hand_pick_opening": False}).json()
     assert r["run"]["status"] == "paused" and r["run"]["policy"]["check"] is False
+
+
+def test_save_keeps_plot_of_written_episode(demo):
+    """본문이 있는 화의 플롯은 화면이 보낸 작품 전체 저장에서도 서버 것을 둔다. 줄기 표시와 아직 안 쓴 화의 플롯은 받는다."""
+    from urllib.parse import unquote
+
+    from fastapi.testclient import TestClient
+
+    from canon import web
+    from canon.schema import Storyline
+
+    c = TestClient(web.app)
+    p = store.load(demo)
+    p.storylines.append(Storyline(id="past", kind="과거 회상", title="등대지기의 과거", branch_ep=1, join_ep=2))
+    store.save(demo, p)
+    c.put(f"/api/projects/{demo}/episodes/1/text", json={"text": "1화 본문"})
+    before = store.load(demo).episode(1).plot
+    sent = c.get(f"/api/projects/{demo}").json()
+    sent["episodes"][0]["plot"]["title"] = "바뀐 제목"
+    sent["episodes"][0]["plot"]["storyline"] = "past"
+    sent["episodes"][1]["plot"]["title"] = "2화 새 제목"
+    r = c.put(f"/api/projects/{demo}", json=sent)
+    assert r.status_code == 200, r.text
+    p = store.load(demo)
+    assert p.episode(1).plot.title == before.title and p.episode(1).plot.storyline == "past"
+    assert p.episode(2).plot.title == "2화 새 제목"
+    assert json.loads(unquote(r.headers["X-Canon-Kept"])) == [{"field": "plot", "ep": 1, "why": "locked"}]
+    # 지운 인물은 본문이 있는 화의 등장 인물에서도 뺀다
+    old = p.model_copy(deep=True)
+    gone = p.episode(1).plot.characters[0]
+    p.characters = [x for x in p.characters if x.id != gone]
+    p.episode(1).plot.characters.remove(gone)
+    assert pipeline.keep_locked_plots(old, p) == [] and gone not in p.episode(1).plot.characters

@@ -1,0 +1,16 @@
+<!-- @dsCard group="틀" height=280 width=640 subtitle="app.css 를 옮긴 정적 미리보기 (대화상자를 제자리에 그림)" -->
+<!doctype html>
+<html lang="ko">
+<head><meta charset="utf-8"><title>Dialog</title>
+<style> body { padding: 16px; } dialog.w-dialog { position: static; margin: 0; } </style></head>
+<body>
+  <dialog class="w-dialog" open aria-labelledby="dlg-title">
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <h2 id="dlg-title" style="margin:0;font-size:1.0625rem;letter-spacing:-0.02em">여러 화 내보내기</h2>
+      <div class="field"><label for="dlg-from">범위</label><input type="text" id="dlg-from" value="1~8화"></div>
+      <p class="small" style="margin:0">8개 화를 한 파일로 이어요.</p>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn">닫기</button><button type="button" class="btn primary">내려받기</button></div>
+    </div>
+  </dialog>
+</body>
+</html>

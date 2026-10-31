@@ -8,11 +8,17 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 BRANCH = "main"
+
+# serve 가 자동 업데이트를 돌리는 동안 True. wake 를 세우면 간격을 기다리지 않고 바로 확인한다
+# (main 에 머지되면 GitHub Actions 가 POST /api/update/check 로 깨운다, .github/workflows/notify-server.yml)
+watching = False
+wake = threading.Event()
 
 
 @dataclass

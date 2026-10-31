@@ -9,7 +9,7 @@ function atlasTravelBox() {
   if (!t) return '';
   const on = `<label class="small"><input type="checkbox" data-atlas-travel="enabled"${t.enabled ? ' checked' : ''}> 지도 거리와 작품 속 시간으로 너무 빠른 이동 찾기</label>`;
   if (!t.enabled) return `<div class="at-box"><h3>이동 시간 검사</h3>${on}</div>`;
-  const modes = t.modes.map((m) => `<option value="${esc(m.id)}"${m.id === t.mode ? ' selected' : ''}>${esc(m.label)} (시속 ${m.kmh}km · 하루 ${m.day_km}km)</option>`).join('');
+  const modes = t.modes.map((m) => `<option value="${esc(m.id)}"${m.id === t.mode ? ' selected' : ''}>${esc(m.label)} (${m.id === 'transit' ? '걸어서 + 지하철' : `시속 ${m.kmh}km · 하루 ${m.day_km}km`})</option>`).join('');
   const size = t.from_layout
     ? `<div class="small">마을 데이터 축척으로 지도 크기를 약 ${esc(t.scale_text)}로 셈해요.</div>`
     : `<label class="at-scale small">지도 가로 <input type="number" min="0" max="100000" step="1" value="${t.span_km || ''}" placeholder="모름" data-atlas-travel="span_km" aria-label="지도 가로가 몇 km인지"> km</label>`;
@@ -17,6 +17,7 @@ function atlasTravelBox() {
       <label class="at-scale">시속 <input type="number" min="0" max="2000" step="0.5" value="${t.kmh || ''}" placeholder="${t.speed[1]}" data-atlas-travel="kmh" aria-label="이동 빠르기 km/시"> km</label>
       <label class="at-scale">하루 <input type="number" min="0" max="20000" step="1" value="${t.day_km || ''}" placeholder="${t.speed[2]}" data-atlas-travel="day_km" aria-label="하루 이동 거리 km"> km</label>
       <div>비우면 탈것의 기본값이에요. 서두르면 하루 ${t.speed[3]}km까지 간다고 봐요.</div></details>`;
+  const rail = t.mode === 'transit' ? atlasTransitNote(t) : '';
   let body;
   if (!t.scale) body = '<div class="note">지도 가로가 몇 km인지 적으면 장소 사이 거리를 셀 수 있어요.</div>';
   else if (!t.moves.length) {
@@ -35,7 +36,18 @@ function atlasTravelBox() {
   }
   return `<div class="at-box"><h3>이동 시간 검사</h3>${on}
     <label class="small">가장 빠른 탈것 <select data-atlas-travel="mode" aria-label="이 세계에서 가장 빠른 탈것">${modes}</select></label>
-    ${size}${own}${body}</div>`;
+    ${size}${own}${rail}${body}</div>`;
+}
+
+/** 대중교통일 때: 지하철 데이터가 있는지, 지하철로 센 이동 (서버 travel.view 의 transit · rail) */
+function atlasTransitNote(t) {
+  if (!t.transit || !t.transit.lines.length) {
+    return '<div class="note">이 지도에는 지하철 노선이 없어 걸어서만 셈해요. 지하철 노선이 든 OpenStreetMap .osm 파일을 올리면 함께 셈해요.</div>';
+  }
+  const head = `<div class="small">지하철 역 ${t.transit.stations}곳 · 노선 ${t.transit.lines.length}개(${esc(t.transit.lines.join(', '))})로 걸어서보다 빠른 길을 함께 셈해요.</div>`;
+  if (!t.rail.length) return head;
+  const items = t.rail.map((m) => `<li><div><strong>${esc(m.who)}</strong> <span class="small">${m.since}~${m.episode}화</span></div><div class="small">${esc(m.text)}</div></li>`).join('');
+  return `${head}<details class="small at-tv-rail"><summary>지하철로 센 이동 ${t.rail.length}개</summary><ul class="at-list">${items}</ul></details>`;
 }
 
 Object.assign(actions, {
