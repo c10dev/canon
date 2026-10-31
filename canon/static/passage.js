@@ -319,7 +319,7 @@ function readSel(ta) {
 function onSelect(e) {
   const isText = (el) => el && el.matches && el.matches('textarea[data-draft]');
   const ta = isText(e.target) ? e.target : document.activeElement;  // 본문 밖에서 손을 떼도 본문에서 고른 것
-  if (!isText(ta) || !editableEp(ep(Number(ta.dataset.draft)))) return;
+  if (!isText(ta) || !P() || !editableEp(ep(Number(ta.dataset.draft)))) return;  // 작품 목록으로 옮기는 사이에 남은 본문 칸
   setTimeout(() => {  // 클릭으로 고른 것이 풀리는 것까지 본 뒤에
     const s = readSel(ta);
     if (!s) return S.selTool && S.selTool.mode === 'menu' ? hideTool() : undefined;
