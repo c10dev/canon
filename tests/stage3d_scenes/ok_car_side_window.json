@@ -1,0 +1,18 @@
+{
+ "note": "불타는 세상 15화 사건 1: 시동 끈 캠핑카 운전석에 앉은 사람과 창밖에 선 사람. 창밖 사람은 보닛 앞까지 오가다 돌아와 창 너머로 물건을 건넨 뒤 운전석 문에 기댄다",
+ "template": "car_side",
+ "start": [
+  {"who": "h", "at": {"ref": "운전석", "rel": "on"}, "posture": "chair", "facing": "n", "left": "", "right": ""},
+  {"who": "d", "at": {"ref": "운전석 창", "rel": "front"}, "posture": "stand", "facing": "#운전석 창", "left": "", "right": "공구 목록"}
+ ],
+ "beats": [
+  {"quote": "1박자", "bodies": [{"who": "d", "at": {"ref": "보닛", "rel": "front"}, "posture": "walk", "facing": "n"}]},
+  {"quote": "2박자", "bodies": [{"who": "d", "at": {"ref": "운전석 창", "rel": "front"}, "posture": "stand", "facing": "#운전석 창"},
+                              {"who": "h", "facing": "w"}]},
+  {"quote": "3박자", "bodies": [{"who": "d", "right": "", "contacts": [{"id": "c1", "by": "right", "to": "h", "part": "hand_l", "act": "brush"}]},
+                              {"who": "h", "left": "공구 목록"}]},
+  {"quote": "4박자", "bodies": [{"who": "d", "ends": ["c1"]}]},
+  {"quote": "5박자", "bodies": [{"who": "d", "at": {"ref": "운전석 문", "rel": "against"}, "posture": "lean", "facing": "s"}]}
+ ],
+ "expect": []
+}

@@ -21,7 +21,7 @@ const USAGE_STAGE = { plan: '계획', write: '본문', check: '검수', state: '
 const USAGE_SOURCE = { web: '화면에서 직접', autorun: '자동 집필', research: '연구 화면', cli: '명령줄' };
 const USAGE_TASK = {
   suggest: '설정 제안', arc: '기승전결 구조', series: '부 구성', nextarc: '다음 아크', convert: '장편 전환', rebuild: '장편 재구성 계획', rework: '재구성 다듬기', storyline: '이야기 줄기',
-  recap_arc: '아크 요약', recap_part: '부 요약', plots: '화별 플롯', write: '본문', state: '상태 변경안', impact: '인과율 영향 분석',
+  recap_arc: '아크 요약', recap_part: '부 요약', fold_knows: '아는 정보 접기', plots: '화별 플롯', write: '본문', state: '상태 변경안', impact: '인과율 영향 분석',
   hook: '흡입력 판정', openings: '여는 방식 안', opening_drafts: '여러 안으로 쓰기',
   names: '이름 추천', style: '문체 분석', chat: 'AI 대화', edits: '부분 수정', auto: '자동 집필', sample: '샘플 비교',
   stage: '단계 시험', compare: '가려 비교', budget: '컨텍스트 크기', probe: '서버 점검', check: '검수', update: '상태 변경안', run: '연속 실행', fix: '부분 수정',
@@ -77,8 +77,7 @@ function viewUsage() {
   const inProject = S.route[0] === 'p';
   const head = header(inProject ? esc(P().meta.title || S.name) : 'Canon', '사용량 · 비용',
     'AI를 부를 때마다 토큰 수를 기록하고 가격표로 비용을 계산해요. <strong>추정치</strong>라 Google 청구 금액과 다를 수 있어요.',
-    // 작품 밖에서는 사이드바가 없어 작품 목록으로 가는 버튼을 둔다
-    `<a class="btn" href="${(u && u.billing_url) || 'https://aistudio.google.com/usage'}" target="_blank" rel="noopener">AI Studio 실제 사용량 ↗</a>${inProject ? '' : '<a class="btn" href="#/">작품 목록</a>'}`);
+    `<a class="btn" href="${(u && u.billing_url) || 'https://aistudio.google.com/usage'}" target="_blank" rel="noopener">AI Studio 실제 사용량 ↗</a>`);
   if (!u) return `${head}<div class="small">불러오는 중…</div>`;
   const t = u.total;
   const projects = [...new Set([...Object.keys(usageTitles), ...(u.projects || []), ...(S.usageProject ? [S.usageProject] : [])])].sort();
@@ -252,7 +251,7 @@ function usageMoreLine(u, all, list) {
   return `최근 ${list.length}건을 보여요${of}.`;
 }
 
-// ----- AI 요금 가격표 (설정 화면과 사용량 화면에서 같이 쓴다) -----
+// ----- AI 요금 가격표 (사용량 · 비용 화면) -----
 
 const PRICE_COLS = [['input', '입력'], ['output', '출력'], ['cached', '캐시 입력'], ['batch_input', '배치 입력'], ['batch_output', '배치 출력']];
 
@@ -260,11 +259,8 @@ function usagePriceSection() {
   return `<section class="card" id="price-box">${viewPrices()}</section>`;
 }
 
-// 설정 화면에서는 아직 저장하지 않은 설정 입력이 사라지지 않게 가격표 상자만 다시 그린다
 function priceRedraw() {
-  const box = $('#price-box');
-  if (box && S.route[0] === 'settings') box.innerHTML = viewPrices();
-  else render();
+  render();
 }
 
 async function priceSend(label, fn, done) {
@@ -272,7 +268,7 @@ async function priceSend(label, fn, done) {
   $('#busy').hidden = false;
   try {
     pricesSet(await fn());
-    if (S.usage && S.route[0] !== 'settings') await usageLoad();
+    if (S.usage) await usageLoad();
     toast(done);
   } catch (e) {
     toast(e.message, true);

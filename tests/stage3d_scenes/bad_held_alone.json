@@ -1,0 +1,36 @@
+{
+ "note": "받치는 사람 없이 안긴 자세",
+ "template": "empty",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "문",
+    "rel": "front"
+   },
+   "posture": "stand"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "h",
+     "at": {
+      "ref": "문",
+      "rel": "front"
+     },
+     "posture": "held"
+    }
+   ]
+  }
+ ],
+ "expect": [
+  [
+   1,
+   "no_support",
+   "h"
+  ]
+ ]
+}

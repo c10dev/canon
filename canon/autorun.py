@@ -21,7 +21,7 @@ from typing import Any, Callable, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from . import atlas, board, charlog, dynamics, findings, jobs, pipeline, prompts, settings, store, usage
+from . import atlas, board, cue, dynamics, features, findings, jobs, pipeline, prompts, settings, store, usage
 from .llm import BatchLLM, Interrupted, SchemaMismatch, get_llm
 from .research import CHARS_PER_TOKEN, JSON_OUTPUT_RESERVE, _filler
 from .schema import ConsistencyReport, Project, StateDelta, TextVersion
@@ -29,13 +29,15 @@ from .schema import ConsistencyReport, Project, StateDelta, TextVersion
 LOG_KEEP = 500
 STEP_NAMES = {"plan": "스토리보드", "write": "본문", "check": "검수", "state": "상태 변경안"}
 # 루프 단계(Run.step) 이름: 서버 재시작 뒤 어느 단계를 다시 하는지 알릴 때
-RUN_STEPS = {"board": "스토리보드 만들기", "write": "본문 쓰기", "review": "검수와 상태 변경안 만들기", "confirm": "플롯 확정"}
+RUN_STEPS = {"board": "스토리보드 만들기", "cues": "큐 시트 만들기", "write": "본문 쓰기", "review": "검수와 상태 변경안 만들기", "confirm": "플롯 확정"}
 # 화 상태 이름 (화면 STATUS 와 같은 말)
 EP_STATUS = {"draft": "플롯 초안", "confirmed": "플롯 확정", "written": "본문 작성됨", "finalized": "상태 반영 완료"}
 # 측정값이 없을 때 쓰는 단계별 소요 시간 추정 (초, 일반 호출)
 SECONDS = {"plan": 90.0, "write": 90.0, "check": 40.0, "state": 40.0}
 # 스토리보드 추정: 출력 토큰, 쓰기 프롬프트에 붙는 블록 글자 수 (손으로 채운 스토리보드 예시에서 잰 어림, DESIGN.md)
 BOARD_OUT, BOARD_CHARS = 3500, 3500
+# 큐 시트 추정: 출력 토큰, 쓰기 프롬프트에 붙는 블록 글자 수 (11화 실측: 출력 1,524토큰, 쓰기 입력 +1,375토큰, DESIGN.md)
+CUE_OUT, CUE_CHARS = 1600, 2400
 # 배치 한 번 기다리는 시간 가정 (초): 보통 범위. 최악은 24시간
 BATCH_WAIT = (3 * 60.0, 60 * 60.0)
 
@@ -57,6 +59,7 @@ class Policy(BaseModel):
     storyboard: bool = Field(True, description="화마다 쓰기 전에 스토리보드를 만들어 쓴다 (작품이 스토리보드를 쓸 때만, board.on)")
     stop_on_board_warnings: bool = Field(True, description="AI 가 만든 스토리보드에 이번 화 플롯과 어긋남(plot_vs_state · plot_vs_text · time)이나 "
                                          "값 범위 경고가 있으면 멈춤. 다음 화 플롯 경고는 기록만. 작가가 고친 스토리보드로는 멈추지 않는다")
+    cue_sheet: bool = Field(True, description="화마다 쓰기 전에 큐 시트를 만들어 쓴다 (작품이 큐 시트를 쓸 때만, cue.on)")
 
 
 class LogEntry(BaseModel):
@@ -259,8 +262,10 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
     write_out = p.meta.words_per_episode / CHARS_PER_TOKEN
     steps = {"plan": 0, "write": 0, "check": 0, "state": 0}
     boards = policy.storyboard and board.on(p)
+    cues = policy.cue_sheet and cue.on(p)
     tokens = {s: [0.0, 0.0] for s in steps}
     missing = []
+    stage_calls = 0
     for n in todo:
         e = have.get(n)
         if e is None:
@@ -273,11 +278,19 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
                 calls.append(("check", prompts.SYSTEM_CLAIMS + prompts.claims_prompt(sim, n), JSON_OUTPUT_RESERVE))
                 calls.append(("check", prompts.SYSTEM_CHECKER + prompts.widen_prompt(sim, n, [], []) + " " * (
                     prompts.WIDEN_MAX * prompts.TWOSTEP_EVIDENCE), JSON_OUTPUT_RESERVE))
+            if sim.settings.stage_extract:  # 검수 때 함께 뽑기: 사건마다 본문 장면 뽑기 (본문이 새로 쓰이므로 모두 돈다)
+                for i in range(len(e.plot.events)):
+                    calls.append(("check", prompts.SYSTEM_STAGE + prompts.stage_extract_prompt(sim, n, i), JSON_OUTPUT_RESERVE))
+                    stage_calls += 1
         if e.status in ("draft", "confirmed"):
             made = boards and e.storyboard is None
             if made:  # 스토리보드 만들기 한 번 + 쓰기 프롬프트에 들어갈 스토리보드 블록
                 calls.append(("plan", prompts.SYSTEM_PLANNER + prompts.storyboard_prompt(sim, n), BOARD_OUT))
-            calls.append(("write", prompts.writer_system(sim) + prompts.episode_prompt(sim, n) + " " * (BOARD_CHARS if made else 0), write_out))
+            sheet = cues and e.cue_sheet is None
+            if sheet:  # 큐 시트 만들기 한 번 + 쓰기 프롬프트 끝에 붙는 큐 시트 블록
+                calls.append(("plan", prompts.SYSTEM_PLANNER + prompts.cue_sheet_prompt(sim, n) + " " * (BOARD_CHARS if made else 0), CUE_OUT))
+            calls.append(("write", prompts.writer_system(sim) + prompts.episode_prompt(sim, n)
+                          + " " * ((BOARD_CHARS if made else 0) + (CUE_CHARS if sheet else 0)), write_out))
         for step, text, out in calls:
             m = measured.get(step + (":batch" if batch and batchable(step) else "")) or measured.get(step)
             steps[step] += 1
@@ -304,6 +317,8 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
     review = [s for s in ("check", "state") if steps[s]]
     # 검수 넓히기는 검수 뒤에 진술 뽑기 · 다시 묻기를 차례로 부른다 (화마다 검수 호출 3번)
     widen = 3 if policy.check and p.serial and p.settings.check_widen else 1
+    eps_n = len(todo) - len(missing)
+    widen += stage_calls / eps_n if eps_n else 0  # 장면 뽑기도 검수 뒤에 차례로 부른다 (화마다 사건 수만큼)
     slow = widen if "check" not in measured else 1  # 잰 검수 시간은 넓히기까지 든 시간이다
     # 일반 호출: 본문 + (동시에 부르는 검수와 상태 변경안 중 긴 쪽)
     normal = steps["plan"] * secs("plan") + steps["write"] * secs("write") + eps * max((secs(s) * (slow if s == "check" else 1) for s in review), default=0.0)
@@ -446,6 +461,8 @@ class Runner:
                     self._recap_note(p)
                     if self._board(p, n):
                         continue  # 새 스토리보드를 저장했다. 다시 읽고 쓴다
+                    if self._cues(p, n):
+                        continue  # 새 큐 시트를 저장했다. 다시 읽고 쓴다
                     self._write(p, n)
                     continue
                 self._review(p, n)
@@ -507,6 +524,34 @@ class Runner:
         for w in made.warnings:
             if w.target == "next" or w.kind not in board.STOP_KINDS:
                 self.log(f"스토리보드 {board.WARN_LABELS[w.kind]} 경고: {w.text}", "warn")
+        return True
+
+    def _cues(self, p: Project, n: int) -> bool:
+        """쓰기 전 큐 시트 (스토리보드 다음). 없거나, AI · 뼈대로 만든 시트가 낡았으면 새로 만들어 저장하고 True.
+        작가가 고친 시트는 낡아도 새로 만들지 않고 그대로 쓴다 (큐 시트는 확정 값이 아니라 연출 메모라 멈추지 않는다)."""
+        if not (self.run.policy.cue_sheet and cue.on(p)):
+            return False
+        s = p.episode(n).cue_sheet
+        if s is not None and (not cue.stale(p, n) or s.made_by in ("author", "both")):
+            if s.made_by in ("author", "both") and cue.stale(p, n):
+                self.log(f"{n}화 큐 시트를 만든 뒤 앞 화나 플롯이 바뀌었어요. 작가가 고친 시트라 그대로 써요", "warn")
+            return False
+        self._set(n, "cues")
+        self.log(f"{n}화 큐 시트를 만드는 중")
+        made, use = self.call("plan", n, lambda llm: pipeline.make_cue_sheet(llm, p, n))
+        if not made.cues:
+            self.log(f"{n}화 큐 시트가 비어 왔어요. 큐 시트 없이 써요", "warn", **use)
+            return False
+
+        def put(q: Project) -> None:
+            st = q.episode(n).status
+            if st != "confirmed":
+                raise _Halt("paused", f"{n}화 상태가 '{EP_STATUS.get(st, st)}'(으)로 바뀌어 멈췄어요", [
+                    f"큐 시트를 만드는 사이 {n}화가 '{EP_STATUS.get(st, st)}' 상태로 바뀌어 만든 큐 시트는 버렸어요",
+                    f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"], kind="changed")
+            cue.set_episode(q, n, made, by="ai")
+        _edit(self.name, put)
+        self.log(f"{n}화 큐 시트: 큐 {len(made.cues)}개", **use)
         return True
 
     def _write(self, p: Project, n: int) -> None:
@@ -574,7 +619,7 @@ class Runner:
                 raise _Halt("paused", f"{n}화 상태가 '{EP_STATUS.get(st, st)}'(으)로 바뀌어 멈췄어요", [
                     f"상태 변경안을 만드는 사이 {n}화가 '{EP_STATUS.get(st, st)}' 상태로 바뀌어 만든 변경안은 버렸어요",
                     f"이어 가면 {n}화의 지금 상태에서 다시 시작해요"], kind="changed")
-            held[0] = charlog.hold(q, delta)  # 인물 설정은 작가가 골라야 바뀐다. 인물 화면에 남겨 둔다
+            held[0] = features.hold(q, delta)  # 인물 설정 · 호칭은 작가가 골라야 바뀐다. 인물 화면에 남겨 둔다
             pipeline.apply_delta(q, delta)
             q.episode(n).auto = True
         held = [0]
@@ -584,7 +629,7 @@ class Runner:
         self._set(n, "applied")
         self.log(f"{n}화를 자동으로 반영했어요")
         if held[0]:
-            self.log(f"{n}화 설정 바꾸기 제안 {held[0]}개는 반영하지 않고 인물 · 관계도 화면에 남겨 뒀어요", "warn")
+            self.log(f"{n}화 설정 바꾸기 · 호칭 제안 {held[0]}개는 반영하지 않고 인물 · 관계도 화면에 남겨 뒀어요", "warn")
         every = run.policy.review_every
         if every and len(run.applied) % every == 0 and _todo(store.load(self.name), run.target):
             raise _Halt("paused", f"{every}화마다 멈추도록 설정해 멈췄어요",
@@ -678,13 +723,13 @@ def resume(name: str, approve: bool = False, rewrite: bool = False, *, foregroun
                 raise ValueError(f"변경안을 만든 뒤 {n}화 본문을 고쳤어요. 그대로 반영하면 옛 본문 기준의 요약 · 인물 상태 · 사건이 들어가요. "
                                  "검토하기에서 변경안을 다시 만들거나, 다시 쓰기를 고르세요")
             def take(q: Project) -> None:
-                held[0] = charlog.hold(q, d)  # 검토 화면 없이 반영하면 설정 바꾸기 제안은 고르지 않은 것으로 남겨 둔다
+                held[0] = features.hold(q, d)  # 검토 화면 없이 반영하면 설정 바꾸기 · 호칭 제안은 고르지 않은 것으로 남겨 둔다
                 pipeline.apply_delta(q, d)
             held = [0]
             _edit(name, take)
             r.log(f"{n}화 변경안을 검토 화면 없이 그대로 반영했어요 (사용자 승인)")
             if held[0]:
-                r.log(f"{n}화 설정 바꾸기 제안 {held[0]}개는 반영하지 않고 인물 · 관계도 화면에 남겨 뒀어요", "warn")
+                r.log(f"{n}화 설정 바꾸기 · 호칭 제안 {held[0]}개는 반영하지 않고 인물 · 관계도 화면에 남겨 뒀어요", "warn")
         elif status == "written" and rewrite:
             def back(q: Project) -> None:
                 ep = q.episode(n)

@@ -1,0 +1,19 @@
+name: 기능 제안
+description: 소설을 쓰다 막힌 곳이나 있었으면 하는 기능
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 어디서 막혔나요
+      description: 몇 화쯤, 어떤 장면에서 무엇이 무너졌는지(말투, 관계, 복선, 시간 등) 적어 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: 바라는 동작
+  - type: textarea
+    id: other
+    attributes:
+      label: 지금 쓰는 우회 방법

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from . import cancel
 from .dynamics import seed_ties
-from .schema import BranchInfo, PlayInfo, Project
+from .schema import BranchInfo, CueLab, PlayInfo, Project
 
 ROOT = Path(os.environ.get("CANON_HOME", "projects"))
 
@@ -225,6 +225,39 @@ def save_play(name: str, info: PlayInfo) -> Path:
 def drop_play(name: str) -> None:
     _play_path(name).unlink(missing_ok=True)
 
+
+
+# ---------- 큐 시트 실험 (canon/cue.py) ----------
+# projects/<이름>/cuelab/<화>.json. 작품 데이터가 아니라서 project.json 밖에 둔다.
+
+def _cuelab_path(name: str, n: int) -> Path:
+    return project_dir(name) / "cuelab" / f"{n}.json"
+
+
+def load_cuelab(name: str, n: int) -> CueLab:
+    """n화 큐 시트 실험. 없거나 깨졌으면 빈 실험."""
+    path = _cuelab_path(name, n)
+    if path.exists():
+        try:
+            return CueLab.model_validate_json(path.read_text(encoding="utf-8"))
+        except ValueError:
+            pass
+    return CueLab(episode=n)
+
+
+def save_cuelab(name: str, lab: CueLab) -> Path:
+    path = _cuelab_path(name, lab.episode)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp.write_text(lab.model_dump_json(indent=2), encoding="utf-8")
+    os.replace(tmp, path)
+    return path
+
+
+def cuelab_episodes(name: str) -> list[int]:
+    """큐 시트 실험 파일이 있는 화."""
+    d = project_dir(name) / "cuelab"
+    return sorted(int(x.stem) for x in d.glob("*.json") if x.stem.isdigit()) if d.exists() else []
 
 def backup_path(name: str, tag: str) -> Path:
     return project_dir(name) / f"{tag}.json"

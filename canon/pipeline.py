@@ -1,11 +1,13 @@
 """생성 파이프라인. 각 단계는 Project 를 받아 제안을 만들고, 반영은 호출자가 승인 후 한다."""
 from __future__ import annotations
 
+import re
+
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
 from .llm import LLM, dump
-from . import board, charlog, features, findings, foreshadows, statwin, timeline
-from .schema import Finding, FindingRecheck, FixOption, FixPatch, FixSet
+from . import board, cancel, charlog, context, features, findings, foreshadows, knows, stage, statwin, timeline
+from .schema import CueSheet, CueSheetDraft, Finding, FindingRecheck, FixOption, FixPatch, FixSet, RevEpisodeDraft, RevLineSet
 from .schema import (
     Act,
     ArcEdit,
@@ -16,12 +18,16 @@ from .schema import (
     Character,
     CharacterState,
     CharacterVisual,
+    KnowsFoldSet,
     ChatMessage,
     ChatScope,
     CheckRound,
     CheckSource,
     ConsistencyReport,
-    SceneCheck,
+    StageDraft,
+    StageProposal,
+    StageRoom,
+    StageScene,
     Conversion,
     ElementImpact,
     Episode,
@@ -729,8 +735,8 @@ def plots_text(plots: list[EpisodePlot]) -> str:
     return "\n".join(elements.plot_text(Episode(plot=x)) for x in plots)
 
 
-# ---------- 3'. 플롯이 데려온 새 인물 ----------
-# AI 플롯 초안과 플롯 대화가 낸 새 인물은 바로 인물 설정에 넣지 않고 후보(Project.cast_candidates)로 둔다.
+# ---------- 3'. 플롯 · 아크가 데려온 새 인물 ----------
+# AI 플롯 초안, 플롯 대화, 다음 아크 기획(apply_arc)이 낸 새 인물은 바로 인물 설정에 넣지 않고 후보(Project.cast_candidates)로 둔다.
 # 작가가 플롯 편집기에서 등록하거나, 그 인물이 나오는 화를 확정하면 조연 · 단역으로 등록된다.
 
 def clean_new_characters(p: Project, chars: list[Character], plots: list[EpisodePlot]) -> list[Character]:
@@ -753,9 +759,10 @@ def add_candidates(p: Project, chars: list[Character]) -> None:
 
 
 def sync_candidates(p: Project) -> None:
-    """등록됐거나 이제 어느 화 플롯에도 나오지 않는 인물 · 장소 후보는 지운다."""
+    """등록됐거나 이제 어느 화 플롯에도, 어느 아크의 주요 인물(StoryArc.cast)에도 나오지 않는 인물 후보와 쓰이지 않는 장소 후보는 지운다.
+    아크 주요 인물을 함께 보는 까닭: 아크를 적용한 직후에는 그 아크의 화 플롯이 아직 없다."""
     known = {c.id for c in p.characters}
-    used = {c for e in p.episodes for c in e.plot.characters}
+    used = {c for e in p.episodes for c in e.plot.characters} | {c for a in p.story_arcs for c in a.cast}
     p.cast_candidates = [c for c in p.cast_candidates if c.id not in known and c.id in used]
     elements.sync_place_candidates(p)
 
@@ -769,7 +776,8 @@ def register_candidates(p: Project, ids: list[str] | None = None, episode: int |
     want = set(ids if ids is not None else [c.id for c in p.cast_candidates])
     done = []
     for c in [c for c in p.cast_candidates if c.id in want]:
-        first = min((e.plot.number for e in p.episodes if c.id in e.plot.characters), default=0)
+        arc_first = min((a.start_ep for a in p.story_arcs if c.id in a.cast), default=0)  # 아직 플롯에 없으면 그 인물을 둔 아크의 첫 화
+        first = min((e.plot.number for e in p.episodes if c.id in e.plot.characters), default=arc_first)
         _add_characters(p, [c], first)
         done.append(c.id)
     sync_candidates(p)
@@ -894,8 +902,9 @@ def clean_arc(p: Project, prop: ArcProposal) -> ArcProposal:
         prop.reply = (prop.reply.rstrip() + f"\n\n※ {'부' if part else '작품'} 끝까지 {ARC_MIN}화가 안 남아 아크를 {limit}화까지 늘렸어요.").strip()
     known = {c.id for c in p.characters}
     prop.new_characters = [c for c in prop.new_characters if c.id not in known]
-    ids = known | {c.id for c in prop.new_characters}
+    ids = known | {c.id for c in prop.new_characters} | {c.id for c in p.cast_candidates}
     a.cast = [c for c in a.cast if c in ids]
+    a.cast += [c.id for c in prop.new_characters if c.id not in a.cast]  # 이 아크를 위해 만든 인물이다 (후보로 남는 근거)
     open_fs = {f.id for f in p.foreshadows if f.status == "open"}
     a.payoffs = [f for f in a.payoffs if f in open_fs]
     return prop
@@ -916,7 +925,8 @@ def _add_characters(p: Project, chars: list[Character], first_ep: int) -> None:
 
 
 def apply_arc(p: Project, prop: ArcProposal) -> StoryArc:
-    """제안된 다음 아크를 붙인다. 새 인물과 복선 회수 예정 화도 함께 반영한다."""
+    """제안된 다음 아크를 붙인다. 복선 회수 예정 화도 함께 바꾼다. 새 인물은 인물 설정에 넣지 않고 후보로 둔다
+    (플롯이 데려온 인물과 같은 길: 그 인물이 나오는 화를 확정하거나 작가가 등록하면 조연 · 단역으로 들어온다)."""
     prop = clean_arc(p, prop.model_copy(deep=True))
     a = prop.arc
     p.story_arcs.append(a)
@@ -925,9 +935,9 @@ def apply_arc(p: Project, prop: ArcProposal) -> StoryArc:
     except ValueError:
         p.story_arcs.pop()
         raise
-    known = {c.id for c in p.characters}
-    _add_characters(p, prop.new_characters, a.start_ep)
-    undo = ArcUndo(number=a.number, characters=[c.id for c in p.characters if c.id not in known])
+    add_candidates(p, [c.model_copy(update={"tier": "support" if c.tier == "main" else c.tier, "first_ep": 0})
+                       for c in prop.new_characters])
+    undo = ArcUndo(number=a.number)  # characters 는 예전 작품(아크가 인물을 바로 더하던 때)의 되돌리기에만 남는다
     for f in p.foreshadows:
         if f.id in a.payoffs and f.status == "open":
             undo.foreshadows.append(f.id)
@@ -960,6 +970,7 @@ def remove_last_arc(p: Project) -> StoryArc:
             if f.id in due and f.due_ep == a.end_ep:
                 f.due_ep = due[f.id]
         p.arc_undo = [u for u in p.arc_undo if u is not undo]
+    sync_candidates(p)  # 이 아크만 쓰던 인물 후보를 지운다
     return a
 
 
@@ -990,6 +1001,15 @@ def _recap_target(p: Project, kind: str, number: int):
     return hit
 
 
+def fold_knows(llm: LLM, p: Project, number: int) -> KnowsFoldSet:
+    """아크 number 요약 뒤 인물마다 오래된 아는 정보를 몇 줄로 접는 제안 (knows.targets 인물만). 저장하지 않는다 (knows.apply_fold)."""
+    want = knows.targets(p, number)
+    if not want:
+        raise ValueError(f"아크 {number}까지 접을 만큼 아는 정보가 쌓인 인물이 없어요 (인물마다 {context.KNOWS_KEEP}개가 넘어야 접어요)")
+    fs = llm.json(prompts.SYSTEM_EDITOR, prompts.fold_prompt(p, number, want), KnowsFoldSet, hint={"arc": number, "ids": list(want)})
+    return knows.clean_fold(p, number, fs)
+
+
 def pending_recaps(p: Project) -> list[tuple[str, int]]:
     """모든 화가 끝났는데 요약이 없는 아크와 부. 요약이 있는 부의 아크는 부 요약이 대신 들어가므로(prompts.story_so_far) 빼 둔다."""
     summed = [x for x in p.parts if x.summary]
@@ -997,6 +1017,30 @@ def pending_recaps(p: Project) -> list[tuple[str, int]]:
            and not any(x.start_ep <= a.start_ep <= x.end_ep for x in summed)]
     out += [("part", x.number) for x in p.parts if not x.summary and arc_finished(p, x)]
     return out
+
+
+PLAN_AHEAD_MAX = 2  # 본문이 하나도 없는 아크가 이만큼 있으면 다음 아크 기획 앞에서 경고한다 (하나 더 짜면 3개)
+
+
+def plan_ahead(p: Project) -> dict:
+    """다음 아크를 짜기 전에 본문보다 얼마나 앞서 기획했는지. 경고만 하고 막지 않는다. LLM 호출 없음.
+    written: 본문이 있거나 written · finalized 인 마지막 화, unwritten_arcs: written 뒤에서 시작하는 아크 수,
+    recaps: pending_recaps, notes: 화면 · 명령줄에 보일 경고 글 (static/plot.js planAhead 와 같은 규칙)."""
+    written = max((e.plot.number for e in p.episodes if e.text.strip() or e.status in ("written", "finalized")), default=0)
+    until = p.planned_until()
+    unwritten = sum(1 for a in p.story_arcs if a.start_ep > written)
+    recaps = pending_recaps(p)
+    notes = []
+    if p.serial and unwritten >= PLAN_AHEAD_MAX:
+        where = f"본문은 {written}화까지인데" if written else "본문이 아직 없는데"
+        notes.append(f"{where} 아크가 {until}화까지 짜여 있어요 (본문 없는 아크 {unwritten}개). "
+                     "앞 아크를 쓰고 요약한 뒤 기획하면 쓰인 줄거리를 보고 짤 수 있어요.")
+    if p.serial and recaps:
+        names = ", ".join(f"아크 {n}" if k == "arc" else f"{n}부" for k, n in recaps)
+        notes.append(f"끝났는데 요약이 없어요: {names}. 먼저 요약하면 다음 아크 기획이 그 줄거리를 제대로 봐요. "
+                     "요약이 없으면 화마다 첫 문장으로만 들어가요.")
+    return {"written": written, "planned_until": until, "unwritten_arcs": unwritten,
+            "recaps": [list(x) for x in recaps], "notes": notes}
 
 
 # ---------- 3-0'. 단편 → 장편 전환 ----------
@@ -1488,7 +1532,27 @@ def accept_rework(p: Project, n: int, text: str, proposed: str = "") -> TextEdit
 # ---------- 3-1. 대화로 구조와 플롯 다듬기 ----------
 
 LOCKED = ("written", "finalized")  # 본문이 있어 플롯을 바꿀 수 없는 상태
+LOCKED_FREE = ("storyline", "threads")  # 본문이 있는 화도 바꿀 수 있는 플롯 칸 (줄기 표시, static/lines.js)
 CHAT_KEEP = 200  # 화면별로 남겨 두는 대화 수
+
+
+def keep_locked_plots(before: Project, p: Project) -> list[int]:
+    """화면이 보낸 작품 전체를 저장할 때(web.put_project) 본문이 있는 화(before 에서 LOCKED)의 플롯은 before 것으로 둔다.
+    화면도 막지만, 옛 화면 · 다른 클라이언트가 보낸 값이 본문과 어긋난 플롯을 남기지 않게 서버에서도 막는다.
+    줄기 표시(LOCKED_FREE)와 지운 인물을 등장 인물에서 빼는 것은 받는다. before 것으로 되돌린 화 번호를 돌려준다."""
+    old = {e.plot.number: e.plot for e in before.episodes if e.status in LOCKED}
+    gone = {c.id for c in before.characters} - {c.id for c in p.characters}
+    back: list[int] = []
+    for e in p.episodes:
+        d = old.get(e.plot.number)
+        if d is None:
+            continue
+        keep = d.model_copy(deep=True, update={k: getattr(e.plot, k) for k in LOCKED_FREE})
+        keep.characters = [c for c in keep.characters if c not in gone]
+        if keep != e.plot:
+            e.plot = keep
+            back.append(e.plot.number)
+    return back
 
 
 def revise_plot(llm: LLM, p: Project, message: str, scope: ChatScope | None = None) -> PlotRevision:
@@ -2516,14 +2580,15 @@ HANGUL_MIN = 0.8
 WRITE_TRIES = 3
 
 
-def write_episode(llm: LLM, p: Project, n: int, approach: str = "", use_board: bool = True) -> str:
+def write_episode(llm: LLM, p: Project, n: int, approach: str = "", use_board: bool = True, use_cues: bool = True) -> str:
     """approach: 1~3화를 여러 안으로 쓸 때 여는 방식 (prompts.OPENING_APPROACHES).
-    use_board: 그 화에 스토리보드가 있으면 쓰기 프롬프트에 넣는다. 끄면 스토리보드 없이 쓴다."""
+    use_board: 그 화에 스토리보드가 있으면 쓰기 프롬프트에 넣는다. 끄면 스토리보드 없이 쓴다.
+    use_cues: 그 화에 큐 시트가 있으면 쓰기 프롬프트 끝에 넣는다. 끄면 큐 시트 없이 쓴다."""
     ep = p.episode(n)
     if ep.status == "draft":
         raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
     require_previous(p, n)
-    return _write(llm, p, n, prompts.episode_prompt(p, n, approach, use_board=use_board))
+    return _write(llm, p, n, prompts.episode_prompt(p, n, approach, use_board=use_board, use_cues=use_cues))
 
 
 # ---------- 4-0. 화별 스토리보드 ----------
@@ -2584,6 +2649,7 @@ def set_storyboard(p: Project, n: int, b: Storyboard | None, by: str = "author")
         made_by, basis = ("both" if old and old.made_by != "author" else "author"), board_basis(p, n)
     b = Storyboard(**draft.model_dump(), made_at=b.made_at or (old.made_at if old else "") or _now(), made_by=made_by, basis=basis)
     b.checks = board.checks(p, n, b)
+    b.skipped = bool(old and old.skipped and ep.text)  # 고쳐도 본문이 이 스토리보드 없이 쓴 것이면 그대로
     ep.storyboard = b
 
 
@@ -2595,6 +2661,81 @@ def _write(llm: LLM, p: Project, n: int, prompt: str) -> str:
             return text
     raise ValueError(f"{n}화 본문 대신 다른 글(영어로 된 생각 과정 등)이 {WRITE_TRIES}번 나왔어요. 다시 시도해 주세요")
 
+
+
+# ---------- 4-1. 큐 시트 집필 실험 (cue.py) ----------
+# 화를 악보처럼 큐로 나눠 진행과 핵심 대사를 먼저 정하고, 본문을 한 번에 또는 큐마다 쓴다. 작품에 저장하지 않는다.
+
+def make_cue_sheet(llm: LLM, p: Project, n: int) -> CueSheet:
+    """n화 큐 시트를 만든다 (plan 단계). 저장은 호출자가 한다."""
+    from . import cue
+
+    ep = p.episode(n)
+    if ep.status == "draft":
+        raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
+    require_previous(p, n)
+    d = llm.json(prompts.SYSTEM_PLANNER, prompts.cue_sheet_prompt(p, n), CueSheetDraft,
+                 hint={"episode": n, "events": len(ep.plot.events), "characters": ep.plot.characters,
+                       "scenes": len(ep.storyboard.scenes) if ep.storyboard else 0, "size": p.meta.words_per_episode})
+    return CueSheet(**cue.clean(p, d).model_dump(), made_at=_now(), made_by="ai")
+
+
+def write_scored(llm: LLM, p: Project, n: int, sheet: CueSheet) -> tuple[str, int]:
+    """큐 시트를 함께 주고 한 번에 쓴다. (본문, 요청 글자 수)."""
+    require_previous(p, n)
+    prompt = prompts.cue_score_prompt(p, n, sheet)
+    return _write(llm, p, n, prompt), len(prompts.writer_system(p)) + len(prompt)
+
+
+def play_cues(llm: LLM, p: Project, n: int, sheet: CueSheet, progress=None) -> tuple[list[str], int]:
+    """큐마다 차례로 쓴다. (큐별 본문, 요청 글자 수 합). progress(k, total) 는 큐를 쓰기 전에 부른다."""
+    require_previous(p, n)
+    if not sheet.cues:
+        raise ValueError("큐 시트에 큐가 없어요")
+    done: list[str] = []
+    sent = 0
+    system = prompts.writer_system(p)
+    for k in range(1, len(sheet.cues) + 1):
+        cancel.check()
+        if progress:
+            progress(k, len(sheet.cues))
+        prompt = prompts.cue_play_prompt(p, n, sheet, done)
+        sent += len(system) + len(prompt)
+        done.append(_write(llm, p, n, prompt).strip())
+    return done, sent
+
+
+# ---------- 4-2. 역설계 실험 (revlab.py) ----------
+# 작가가 넣은 소설을 거꾸로 플롯 · 스토리보드 · 큐 시트 · 이야기 줄기로 푼다. 작품에 저장하지 않는다 (revlab.apply_episode 가 실험 파일에 넣는다).
+
+def reverse_episode(llm: LLM, lab, number: int) -> RevEpisodeDraft:
+    """원문 한 화를 역설계한다 (plan 단계). 정리 · 경계 재기는 revlab.apply_episode 가 한다."""
+    from . import revlab
+
+    e = revlab.episode(lab, number)
+    if not e.text.strip():
+        raise ValueError(f"{number}화 원문이 비었어요")
+    prompt = prompts.rev_prompt(lab, number)
+    hint = {"episode": number, "names": [c.name for c in lab.cast]}
+    d = llm.json(prompts.SYSTEM_REVERSE, prompt, RevEpisodeDraft, hint=hint)
+    if not rev_empty(d):
+        return d
+    cancel.check()  # 빈 응답은 한 번만 다시 묻는다. 요청은 맨 뒤에 덧붙여 앞부분 캐시를 지킨다
+    d = llm.json(prompts.SYSTEM_REVERSE, prompt + "\n\n" + prompts.REV_EMPTY_RETRY, RevEpisodeDraft, hint=hint)
+    if rev_empty(d):
+        raise ValueError(f"{number}화 역설계 응답이 비었어요 (사건 · 장면 · 큐가 없어요). 두 번 물어도 같아서 저장하지 않았어요. 다시 시도해 주세요")
+    return d
+
+
+def rev_empty(d: RevEpisodeDraft) -> bool:
+    """역설계 응답에 사건 · 장면 · 큐 가운데 하나라도 없다 (저장하지 않고 다시 묻는다)."""
+    return not d.events or not d.scenes or not [c for c in d.cues if c.start.strip() or c.beat.strip()]
+
+
+def reverse_lines(llm: LLM, lab) -> RevLineSet:
+    """역설계한 화들의 이야기 줄기 (plan 단계). 화가 둘 넘을 때만 부른다."""
+    return llm.json(prompts.SYSTEM_REVERSE, prompts.rev_lines_prompt(lab), RevLineSet,
+                    hint={"episodes": [e.number for e in lab.episodes if e.plot]})
 
 def compare_drafts(llms: dict[str, LLM], p: Project, n: int) -> dict[str, str]:
     """같은 화를 여러 백엔드로 쓴다. 프롬프트는 write_episode 와 같다. 저장은 호출자가 한다."""
@@ -3002,8 +3143,7 @@ def suggest_map(llm: LLM, p: Project, spec: MapSpec | None = None) -> dict:
     장소 종류는 지도 종류의 시대(placekinds.era_of)를 따른다. AI 가 지도 종류를 함께 고르므로 프롬프트에는 시대마다 종류 목록(kinds_for)을 적고,
     받은 id 는 AI 가 고른 지도 종류의 목록(kind_ids(s.kind))으로 거른다.
     장소 이름은 키로 바꾸고, 모르는 장소 · 그 지도 종류에 없는 종류 id 는 뺀다 (지금 값을 그대로 둔다)."""
-    from . import atlas
-    from .maps import kinds as placekinds
+    from . import atlas, placekinds
 
     pls = atlas.places(p)
     if not pls:
@@ -3116,6 +3256,8 @@ def check_episode(llm: LLM, p: Project, n: int, widen: bool | None = None) -> Co
     report.episode = n
     if widen_on(p, widen):
         report, _ = widen_check(llm, p, n, report)
+    if p.settings.stage_extract:  # 본문 장면 뽑기: apply_check 가 장면에 넣고 규칙 판정을 합친다
+        report._stage, report._stage_held = stage_extract_all(llm, p, n)
     return report
 
 
@@ -3171,21 +3313,6 @@ def widen_check(llm: LLM, p: Project, n: int, report: ConsistencyReport, hint: d
     return ConsistencyReport(episode=n, issues=issues), stats
 
 
-def check_scene(llm: LLM, p: Project, n: int, hint: dict | None = None) -> tuple[ConsistencyReport, dict]:
-    """장면 상태표 검수 (연구 화면에서만 씀): 검수 모델이 이번 화 본문을 장면 상태표(향한 쪽, 두 손, 착용 겹침,
-    몸 앞뒤, 물건 자리)로 먼저 옮겨 적고, 그 표와 어긋나는 동선만 찾는다. 옛 화 · 설정은 넣지 않는다. (보고서, 상태표와 크기)"""
-    from .context import est_tokens
-
-    ep = p.episode(n)
-    if not ep.text:
-        raise ValueError(f"{n}화 본문이 없어요")
-    prompt = prompts.scene_prompt(p, n)
-    sc = llm.json(prompts.SYSTEM_SCENE, prompt, SceneCheck, hint={"episode": n, "text": ep.text, **(hint or {})})
-    beats = sc.beats[:prompts.SCENE_BEATS]
-    stats = {"chars": len(prompt), "tokens": est_tokens(prompts.SYSTEM_SCENE + prompt), "beats": [b.model_dump() for b in beats]}
-    return ConsistencyReport(episode=n, issues=sc.issues), stats
-
-
 def check_two_step(llm: LLM, judge: Judge, p: Project, n: int, hint: dict | None = None) -> tuple[ConsistencyReport, dict]:
     """두 걸음 검수 (연구 화면에서만 씀): 검수 모델이 이번 화의 사실 진술을 뽑고, 판단기가 진술마다 옛 화 · 설정 · 사실과 견줘
     '어긋남' 확률을 내고, 의심 진술만 근거와 함께 검수 모델이 판정한다. 옛 화는 직전 화까지 모두 찾아본다.
@@ -3228,7 +3355,195 @@ def apply_check(p: Project, r: ConsistencyReport, source: CheckSource = "api", w
     ep = p.episode(r.episode)
     if not ep.text:
         raise ValueError(f"{r.episode}화 본문이 없어요")
-    return findings.merge(ep, r.issues, _now(), text_basis(ep.text), source, widen)
+    for prop in r._stage:  # 검수 때 뽑은 본문 장면 (stage_extract_all)
+        apply_stage(p, prop)
+    # 장면 연출 규칙 판정: 설정이 꺼져 있어도 이미 있는 본문 장면은 판정한다. 검수 모델이 같은 문장을 짚었으면 뺀다
+    rule = [x for x in stage.episode_issues(p, ep) if not any(_same_quote(x.current_quote, y.current_quote) for y in r.issues)]
+    judged = any(stage.scenes_of(ep, i)[1] is not None for i in range(len(ep.plot.events)))
+    return findings.merge(ep, [*r.issues, *rule], _now(), text_basis(ep.text), source, widen, judged)
+
+
+# ---------- 5-2. 장면 연출: 플롯에서 초안, 본문에서 뽑기, 검수 때 함께 뽑기 (stage.py, docs/stage/) ----------
+# AI 는 이름 · 기준점 + 관계 말로 적고(StageDraft) stage.from_draft 가 id 로 바꿔 정리한다. 결과(StageProposal)는 저장하지 않는다.
+# 화면 버튼의 결과는 웹이 pending.json 에 두고 작가가 비교한 뒤 통째로 적용한다(apply_stage). 적용 취소는 한 번(undo_stage).
+# 검수 때 뽑은 본문 장면은 비교 없이 바로 넣되, 작가가 손본 본문 장면(source manual)은 덮지 않는다.
+
+def _stage_context(p: Project, ep: Episode, event: int, role: str) -> tuple[StageRoom | None, list[str]]:
+    """쓸 방(같은 사건의 짝 장면 방, 없으면 None)과 같은 화 앞 사건 장면이 끝난 상태."""
+    plan, text = stage.scenes_of(ep, event)
+    mine, pair = (text, plan) if role == "text" else (plan, text)
+    room = stage.room_of(p, mine) if mine else None
+    room = room or (stage.room_of(p, pair) if pair else None)
+    prev: list[str] = []
+    for i in range(event - 1, -1, -1):
+        a, b = stage.scenes_of(ep, i)
+        s = (b or a) if role == "text" else (a or b)
+        if s is not None:
+            prev = stage.end_lines(s, stage.room_of(p, s), p)
+            break
+    return room, prev
+
+
+def _pick_room(p: Project, want: str) -> StageRoom:
+    """AI 가 고른 방: 이미 있는 방 이름이면 그 방, 틀 id · 틀 이름이면 새 방 (작품에는 아직 넣지 않는다)."""
+    want = want.strip()
+    hit = next((r for r in p.rooms if r.name.strip() == want), None)
+    if hit:
+        return hit
+    tid = want if want in stage.ROOMS else next((k for k, v in stage.ROOMS.items() if v[0] == want), "empty")
+    return stage.make_room(tid, stage._new_id("r", {r.id for r in p.rooms}))
+
+
+def _fresh_room(p: Project, ep: Episode, event: int, template: str) -> StageRoom:
+    """새 장면 카드의 '빈 방에서 초안': 틀로 만든 새 방 (작품에는 아직 넣지 않는다). 이름은 그 사건을 맡은 스토리보드 자리 · 장소."""
+    hit = stage.board_scene_of(ep, event)
+    name = (hit[1].spot.strip() or hit[1].place.strip()) if hit else ""
+    return stage.make_room(template, stage._new_id("r", {r.id for r in p.rooms}), name)
+
+
+def _stage_ask(llm: LLM, p: Project, n: int, event: int, role: str, hint: dict | None = None, fresh: str = "") -> StageProposal:
+    ep = p.episode(n)
+    if not 0 <= event < len(ep.plot.events):
+        raise ValueError(f"{n}화에 {event + 1}번째 사건이 없어요")
+    if role == "text" and not ep.text:
+        raise ValueError(f"{n}화 본문이 없어요")
+    room, prev = _stage_context(p, ep, event, role)
+    if fresh and room is None:
+        room = _fresh_room(p, ep, event, fresh)
+    make = prompts.stage_extract_prompt if role == "text" else prompts.stage_draft_prompt
+    d = llm.json(prompts.SYSTEM_STAGE, make(p, n, event, room, prev), StageDraft,
+                 hint={"episode": n, "event": event, "role": role, "text": ep.text if role == "text" else "",
+                       "room": room.model_dump() if room else None, **(hint or {})})
+    new_room = None
+    if room is None:
+        room = _pick_room(p, d.room)
+    if not any(r.id == room.id for r in p.rooms):
+        new_room = room
+    # 방에 없는 장소는 기준점으로 더해 두고 그 방으로 장면을 정리한다 (계획 초안만. 본문 뽑기는 방을 바꾸지 않는다)
+    grown, adds, dx, dy = stage.place_anchors(room, d.new_anchors if role == "plan" else [])
+    notes_room = []
+    have = {a.name.strip() for a in grown.anchors}
+    over = list(dict.fromkeys(x.name.strip() for x in (d.new_anchors if role == "plan" else []) if x.name.strip() and x.name.strip() not in have))
+    if over:
+        notes_room.append(f"기준점 {len(over)}개({', '.join(over)})는 한 번에 더하는 수({stage.MAX_ADDS}개)를 넘어 뺐어요. 방 고치기에서 더해 주세요")
+    if adds:
+        if (grown.w, grown.h) != (room.w, room.h):
+            notes_room.append(f"방을 {room.w:g}×{room.h:g}m 에서 {grown.w:g}×{grown.h:g}m 로 넓혀요")
+        room = grown
+    scene, dropped, notes = stage.from_draft(d, p, ep, event, room, role)
+    notes += stage.fill_arrivals(scene, room, p)
+    if role == "text":
+        scene.basis = text_basis(ep.text)
+    keep = {} if new_room is not None or not adds else {"grown": grown, "shift_x": dx, "shift_y": dy}
+    return StageProposal(episode=n, event=event, role=role, scene=scene, room=room if new_room is not None else None, adds=adds,
+                         dropped=dropped, notes=[*notes_room, *notes], at=_now(), **keep)
+
+
+def draft_stage(llm: LLM, p: Project, n: int, event: int, fresh: str = "") -> StageProposal:
+    """플롯 사건 하나의 계획 장면 초안 (plan 단계). 본문은 넣지 않는다.
+    fresh 는 아직 방이 없을 때 AI 에게 고르게 하지 않고 그 틀(보통 empty)로 새 방을 만들어 준다. 방에 없는 장소는 AI 가 기준점으로 제안한다."""
+    return _stage_ask(llm, p, n, event, "plan", fresh=fresh)
+
+
+def extract_stage(llm: LLM, p: Project, n: int, event: int, hint: dict | None = None) -> StageProposal:
+    """화 본문에서 사건 하나의 본문 장면을 뽑는다 (check 단계). 본문 전체를 넣고 그 사건 부분만 뽑게 한다.
+    박자가 빈 응답이면 한 번만 다시 묻는다 (같은 LLM 이라 사용량에 잡힌다. 자동 집필 배치는 slot 을 따로 둔다)."""
+    prop = _stage_ask(llm, p, n, event, "text", hint)
+    if not prop.scene.beats:
+        part = getattr(llm, "part", None)
+        prop = _stage_ask(part("again") if part else llm, p, n, event, "text", hint)
+    return prop
+
+
+def stage_extract_all(llm: LLM, p: Project, n: int, hint: dict | None = None) -> tuple[list[StageProposal], list[StageProposal]]:
+    """검수 때 함께 뽑기: 사건마다 본문 장면을 뽑는다. 본문이 바뀌지 않은 사건(basis 같음)은 건너뛴다(호출 없음).
+    (바로 넣을 것, 작가가 손본 본문 장면이라 비교로만 남길 것). 한 사건이 실패해도 검수는 잇는다."""
+    ep = p.episode(n)
+    if not ep.text:
+        return [], []
+    basis = text_basis(ep.text)
+    part = getattr(llm, "part", None)  # 자동 집필 배치: 호출마다 작업 slot 을 따로 둔다
+    auto, held = [], []
+    for i in range(len(ep.plot.events)):
+        text = stage.scenes_of(ep, i)[1]
+        if text is not None and text.basis == basis:
+            continue
+        try:
+            prop = extract_stage(part(f"stage{i + 1}") if part else llm, p, n, i, hint)
+        except cancel.Cancelled:
+            raise
+        except Exception:
+            continue
+        (held if text is not None and text.source == "manual" else auto).append(prop)
+    return auto, held
+
+
+def apply_stage(p: Project, prop: StageProposal, shared: bool = False) -> StageScene:
+    """AI 장면을 통째로 넣는다. 같은 사건 · 같은 역할의 장면이 있으면 바꾸고 그 장면을 prev 에 남긴다(적용 취소 한 번).
+    없던 장면이면 prev 는 id 가 빈 장면(적용 전에는 장면이 없었음)이다. 새 방이면 작품에 더한다(room_made).
+    더할 기준점(adds)이 있으면: 장면 전용 방이면 그 방에 더하고(room_prev), 공용 방(stage.room_shared)이면 그 방을 복사한
+    장면 전용 방에 더한다. shared 가 참이면 공용 방에 바로 더한다 (2026-10-29 사용자: 복사가 기본)."""
+    ep = p.episode(prop.episode)
+    scene = prop.scene.model_copy(deep=True)
+    made, room_prev = "", None
+    if prop.room is not None:
+        room = prop.room.model_copy(deep=True)
+        if any(r.id == room.id for r in p.rooms):
+            room.id = stage._new_id("r", {r.id for r in p.rooms})
+        p.rooms.append(room)
+        scene.room = made = room.id
+    elif prop.adds and prop.grown is not None:
+        base = next((r for r in p.rooms if r.id == prop.grown.id), None)
+        if base is None:  # 받은 뒤 방을 지웠으면 제안한 모습 그대로 새 방
+            grown = prop.grown.model_copy(deep=True)
+            p.rooms.append(grown)
+            made = grown.id
+        else:  # 받은 뒤 작가가 방을 고쳤을 수 있어 지금 방에 더한다
+            grown, remap = stage.grow_room(base, prop.adds, prop.shift_x, prop.shift_y, prop.grown.w, prop.grown.h)
+            stage.remap_anchors(scene, remap)
+            if stage.room_shared(p, base.id, prop.episode, prop.event, prop.role) and not shared:
+                grown.id = stage._new_id("r", {r.id for r in p.rooms})
+                grown.name, grown.place = f"{base.name} · {prop.episode}화 사건 {prop.event + 1}", ""
+                p.rooms.append(grown)
+                made = grown.id
+            else:
+                room_prev = base.model_copy(deep=True)
+                p.rooms = [grown if r.id == base.id else r for r in p.rooms]
+        scene.room = grown.id
+    scene.room_made, scene.room_prev = made, room_prev
+    old = stage.scenes_of(ep, prop.event)[prop.role == "text"]
+    if old is not None:
+        scene.id = old.id
+        scene.prev = old.model_copy(update={"prev": None, "room_prev": None, "room_made": ""}, deep=True)
+        ep.stage = [scene if s.id == old.id else s for s in ep.stage]
+    else:
+        scene.id = stage._new_id("s", {s.id for s in ep.stage})
+        scene.prev = StageScene(id="", event=prop.event, role=prop.role)
+        ep.stage.append(scene)
+    return scene
+
+
+def undo_stage(p: Project, n: int, sid: str) -> StageScene | None:
+    """마지막 AI 적용을 되돌린다. 적용 전에 장면이 없었으면 장면을 뺀다 (None)."""
+    ep = p.episode(n)
+    s = next((x for x in ep.stage if x.id == sid), None)
+    if s is None:
+        raise KeyError(f"{n}화에 그런 장면이 없어요: {sid}")
+    if s.prev is None:
+        raise ValueError("적용 취소할 AI 적용이 없어요")
+    # 적용이 바꾼 방도 되돌린다: 기준점을 더한 방은 적용 전 모습으로, 새로 만든 방은 다른 장면이 쓰지 않으면 뺀다
+    if s.room_prev is not None:
+        p.rooms = [s.room_prev.model_copy(deep=True) if r.id == s.room_prev.id else r for r in p.rooms]
+    made = s.room_made
+    if not s.prev.id:
+        stage.remove_scene(ep, sid)
+        back = None
+    else:
+        back = s.prev.model_copy(update={"prev": None, "room_prev": None, "room_made": ""}, deep=True)
+        ep.stage = [back if x.id == sid else x for x in ep.stage]
+    if made and not stage.room_users(p, made):
+        p.rooms = [r for r in p.rooms if r.id != made]
+    return back
 
 
 # ---------- 5-0. 검수 지적 고치기: 고침안, 묶음 적용 · 되돌리기, 지적 하나 다시 검수 ----------
@@ -3250,19 +3565,33 @@ def _decided(ep: Episode) -> list[Finding]:
     return [g for g in ep.findings if g.status in findings.DECIDED]
 
 
+_SENTENCE_END = re.compile(r"[.!?…。]+[\"'”’」』)]*(?=\s|$)")
+
+
+def _adds_sentence(before: str, after: str) -> bool:
+    """고친 글이 원래 글보다 문장이 많거나 1.5배(+10자)보다 길다: 새 동작 문장을 더한 고침."""
+    count = lambda t: len(_SENTENCE_END.findall(t.strip())) or 1
+    return count(after) > count(before) or len(after.strip()) > len(before.strip()) * 1.5 + 10
+
+
 def clean_fixes(ep: Episode, f: Finding, fs: FixSet) -> list[FixOption]:
     """쓸 수 없는 고침안과 딸린 곳을 뺀다: 빈 글, 원문과 같은 글, 겹치는 안, 본문에 없는 딸린 문장,
-    지적한 문장이나 다른 딸린 곳과 겹치는 딸린 곳."""
+    지적한 문장이나 다른 딸린 곳과 겹치는 딸린 곳, 동선 지적이면 새 문장을 더한 안 · 딸린 곳."""
     quote = f.current_quote.strip()
+    motion = f.type == "동선"  # 동선 지적: 어긋난 낱말만 바꾼다. 새 동작 문장을 더한 안은 거른다 (장면 연출은 본문을 동작 묘사로 끌지 않는다)
     out: list[FixOption] = []
     for o in fs.options:
         text = o.text.strip()
         if not text or text == quote or any(text == y.text for y in out):
             continue
+        if motion and _adds_sentence(quote, text):
+            continue
         extra: list[FixPatch] = []
         for x in o.extra:
             q, rep = x.quote.strip(), x.replacement.strip()
             if not q or q not in ep.text or rep == q or (quote and (q in quote or quote in q)):
+                continue
+            if motion and _adds_sentence(q, rep):
                 continue
             if any(q in y.quote or y.quote in q for y in extra):
                 continue
@@ -3351,6 +3680,11 @@ def undo_fix(p: Project, n: int, group: str) -> tuple[list[TextEdit], list[TextE
 def recheck_finding(llm: LLM, p: Project, n: int, fid: str) -> FindingRecheck:
     """열린 지적 하나만 다시 묻는다. 저장하지 않는다 (apply_recheck). 작가가 그 지적 때문에 넣은 고침안 묶음을 함께 보인다."""
     ep, f = _open_finding(p, n, fid)
+    if f.origin == "rule":  # 장면 연출 규칙 지적: LLM 없이 지금 본문 장면으로 판정만 다시 (본문 장면은 다시 뽑지 않는다)
+        still = [x for x in stage.episode_issues(p, ep) if _same_quote(x.current_quote, f.current_quote)]
+        if not f.current_quote.strip() or f.current_quote.strip() not in ep.text:
+            return FindingRecheck(resolved=True, reason="짚은 문장이 본문에서 바뀌었어요")
+        return FindingRecheck(resolved=not still, reason=still[0].description if still else "장면 연출 규칙 판정에 더 걸리지 않아요")
     changes = [(e.before, e.after) for e in ep.edits if f.fix_group and e.group == f.fix_group and not e.undone]
     return llm.json(prompts.SYSTEM_CHECKER, prompts.recheck_prompt(p, n, f, changes, _decided(ep)), FindingRecheck,
                     hint={"episode": n, "quote": f.current_quote, "text": ep.text})
@@ -3388,7 +3722,30 @@ def style_drift(p: Project, n: int) -> tuple[metrics.StyleMetrics, list[str]]:
     if copied:
         quotes = ", ".join(f"'{s[:30]}{'…' if len(s) > 30 else ''}'" for s in copied[:3])
         warns.append(f"예시 문단을 옮긴 문장 {len(copied)}개: {quotes}")
+    moved = memo_copied(p, n, text)
+    if moved:
+        quotes = ", ".join(f"'{s[:30]}{'…' if len(s) > 30 else ''}'" for s in moved[:3])
+        warns.append(f"설계 메모를 옮긴 문장 {len(moved)}개: {quotes}")
     return cur, warns
+
+
+def memo_texts(p: Project, n: int) -> list[str]:
+    """쓰기 프롬프트에 들어가는 설계 메모 칸: 플롯 감정 변화, 스토리보드 장면 목표 · 전환 · 끝 상태 · 넘겨받을 것, 큐의 일 · 끝 상태.
+    큐 핵심 대사와 플롯 사건은 본문에 들어가야 하는 것이라 뺀다."""
+    ep = p.episode(n)
+    out = [ep.plot.emotional_shift]
+    if ep.storyboard:
+        out += [x for sc in ep.storyboard.scenes for x in (sc.goal, sc.turn, sc.end_state)]
+        out += [h.text for h in ep.storyboard.handover]
+    if ep.cue_sheet:
+        out += [x for c in ep.cue_sheet.cues for x in (c.beat, c.exit)]
+    return [x for x in out if x and x.strip()]
+
+
+def memo_copied(p: Project, n: int, text: str) -> list[str]:
+    """설계 메모를 본문에 그대로 옮긴 문장 (공백 빼고 metrics.COPY_SPAN 자 이상 겹침). 쇠맛 연구(2026-10-30)에서
+    감정 변화 칸 조각의 22%, 스토리보드 장면 메모의 11%가 본문에 그대로 옮겨졌다. 메모는 따를 것이지 옮길 글이 아니다."""
+    return metrics.copied_sentences(text, memo_texts(p, n))
 
 
 # ---------- 5-1. 초반 1~3화: 지표, 흡입력 판정, 여는 방식 여러 안 ----------

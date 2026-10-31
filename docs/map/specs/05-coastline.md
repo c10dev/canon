@@ -14,8 +14,8 @@
 
 | 파일 | 바꿀 것 |
 |---|---|
-| `canon/maps/sources/osm.py` | `natural=coastline` 선을 모아 이어 붙이고(`_rings` 재사용), 범위로 자른 뒤 테두리를 따라 바다 다각형을 닫는다. 결과는 `water` 에 더한다 |
-| `canon/maps/sources/osm.py` | 섬: 닫힌 해안선 고리는 육지다. 바다 다각형에서 뺄 수 없으면(구멍 없는 다각형) 섬을 `greens` 위에 땅으로 다시 그린다 |
+| `canon/osm.py` | `natural=coastline` 선을 모아 이어 붙이고(`_rings` 재사용), 범위로 자른 뒤 테두리를 따라 바다 다각형을 닫는다. 결과는 `water` 에 더한다 |
+| `canon/osm.py` | 섬: 닫힌 해안선 고리는 육지다. 바다 다각형에서 뺄 수 없으면(구멍 없는 다각형) 섬을 `greens` 위에 땅으로 다시 그린다 |
 | `canon/static/atlas.js` | 바다 물결 무늬(마을 생성기의 바다와 같은 그림) |
 
 ## 지도 데이터

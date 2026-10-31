@@ -248,7 +248,7 @@ function swTimeline() {
 
 function viewStatwin() {
   const p = P();
-  const head = header('상태창', '상태창 수치', '레벨, 능력치, 스킬, 특성, 칭호, 돈, 인벤토리처럼 본문 상태창에 나오는 값을 인물마다 화별로 기록해요. 항목을 하나라도 정하면 AI가 본문을 쓸 때 이 값을 따르고, 바뀐 값만 상태 변경안에 적어요. 반영은 승인한 뒤에만 돼요.');
+  const head = header('작품 도구', '상태창 수치', '레벨, 능력치, 스킬, 특성, 칭호, 돈, 인벤토리처럼 본문 상태창에 나오는 값을 인물마다 화별로 기록해요. 항목을 하나라도 정하면 AI가 본문을 쓸 때 이 값을 따르고, 바뀐 값만 상태 변경안에 적어요. 반영은 승인한 뒤에만 돼요.');
   if (!p.characters.length) return `${head}<div class="card empty"><p>아직 인물이 없어요.</p><a class="btn primary" href="${base()}/setup">설정 도우미에서 인물 만들기</a></div>`;
   const who = p.characters.map((c) => {
     const n = ((p.states.find((s) => s.character_id === c.id) || {}).stats || []).length;

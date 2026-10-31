@@ -82,7 +82,7 @@ function plotStrip(n, act) {
   const steps = p.events.map((x, i) => {
     const cls = done[i] ? 'done' : i === now ? 'now' : 'todo';
     return `<li class="wp-step ${cls}"><label class="wp-check"${lock ? ` title="${lock}"` : ''}><input type="checkbox" id="ev-${n}-${i}" data-ev="${n}:${i}"${done[i] ? ' checked' : ''}${lock ? ' disabled' : ''}>
-      <span class="wp-num">${i + 1}.</span><span class="wp-text">${esc(x)}</span>${i === now ? '<span class="wp-now">지금</span>' : ''}</label></li>`;
+      <span class="wp-num">${i + 1}.</span><span class="wp-text">${esc(x)}</span>${i === now ? '<span class="wp-now">지금</span>' : ''}</label>${(e.stage || []).some((s) => s.event_text === x) ? `<a class="wp-stage small" href="${base()}/stage/${n}/${i + 1}" title="이 사건의 장면 연출">🎬 연출</a>` : ''}</li>`;
   }).join('');
   const goal = p.ending_hook ? `<li class="wp-step goal"><span class="wp-flag">${FLAG}</span><span class="wp-text"><span class="wp-goal-label">엔딩 훅</span> ${esc(p.ending_hook)}</span>${p.events.length && now < 0 ? '<span class="chip finalized">도착</span>' : ''}</li>` : '';
   const dl = [
@@ -238,7 +238,7 @@ function writeStart(n, blocked) {
       ${autoLockNote() || orderNote(blocked)}
       ${choose}
       <div class="w-go-foot"><button type="button" class="btn small" data-action="startManual" data-arg="${n}"${writing || blocked.length || autoOn() ? ' disabled' : ''}>직접 쓰기</button><span class="small">AI 없이 빈 칸에 직접 써요</span>
-        <span class="w-fill"></span>${boardToggle()}</div>
+        <span class="w-fill"></span>${boardToggle()}${cueToggle()}</div>
       ${S.context ? `<details class="w-go-ctx" data-ctx-toggle${S.ctxOpen ? ' open' : ''}><summary>AI에게 보내는 컨텍스트 · ${ctxTotal()}</summary>${ctxList()}<div style="margin-top:8px">${promptBtn(n)}</div></details>` : ''}
     </section>`;
 }
@@ -287,17 +287,19 @@ function viewWrite(n) {
       : `<div class="read" data-read="${n}">${readHtml(n, text)}</div>`}</div>`;
   }
 
-  // 쓴 화의 검수가 끝나지 않았으면 '검수로'가 지금 할 일이다 (검수 화면 check.js). 끝났으면 '상태 승인으로'를 primary 로 올린다
+  // 쓴 화의 검수가 끝나지 않았으면 '검수하기'가 지금 할 일이다 (검수 단계로 옮겨 시작, flow.js flowCheck). 검수를 했으면 검수 단계로,
+  // 끝났으면 '상태 승인으로'를 primary 로 올린다. 단계 사이 이동은 머리 아래 단계 띠(flowBar)도 한다
   const cs = checkState(e);
   const toCheck = e.status === 'written' && !cs.done && !autoOn();
+  const chk = jobBtn('check', n, '검수하기');
   // 머리 버튼: 보조 버튼들 · ⋯ 메뉴 · primary 하나 (디자인 시스템: primary 는 머리 줄 오른쪽 끝)
-  const primary = toCheck ? `<a class="btn primary" href="${base()}/check/${n}">검수로</a>`
+  const primary = toCheck ? (cs.checked && !cs.stale ? `<a class="btn primary" href="${base()}/check/${n}">검수 이어 하기 · 열린 지적 ${cs.open}</a>`
+    : `<button type="button" class="btn primary" data-action="flowCheck" data-arg="${n}"${chk.attr}>${cs.stale ? '다시 검수하기' : chk.label}</button>`)
     : e.status === 'written' ? `<a class="btn primary" href="${base()}/review/${n}">상태 승인으로</a>`
       : e.status === 'finalized' ? nextStepBtn() : fresh ? writeGo(n, blocked).primary : starting && e.storyboard ? boardGo(n, blocked) : '';
   const right = `${e.text && editable ? chatButton(`text:${n}`) : ''}
     ${e.text && editable && (isApi || e.status === 'finalized') ? `${((b) => `<button class="btn${S.rwOpen === n ? ' on' : ''}" data-action="rwOpen" data-arg="${n}" aria-expanded="${S.rwOpen === n}"${b.attr}>${b.label}</button>`)(jobBtn('write', n, '다시 생성'))}` : ''}
     ${editable && !isApi && e.status !== 'finalized' ? `<a class="btn" href="${base()}/brief/${n}">작업지시서</a>` : ''}
-    ${toCheck ? `<a class="btn" href="${base()}/review/${n}">상태 승인으로</a>` : ''}
     ${writeMenu(n, starting, seg)}
     ${primary}`;
 
@@ -305,7 +307,8 @@ function viewWrite(n) {
   const edits = (e.edits || []).length;
   const goal = Number(P().meta.words_per_episode).toLocaleString();
 
-  return `<header class="page-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? actLabel(act.name) + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}${cs.open ? `<span class="chip warn">열린 지적 ${cs.open}곳</span>` : ''}</div><div class="row">${right}</div></header>
+  return `<header class="page-head"><div class="row" style="gap:12px">${epNav('write', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${act ? actLabel(act.name) + ' 구간 · ' : ''}${n} / ${P().meta.target_episodes}화</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span>${e.auto ? '<span class="chip ai">자동 반영</span>' : ''}</div><div class="row">${right}</div></header>
+    ${flowBar(n, 'write')}
     ${e.auto ? `<div class="note info">이 화는 자동 집필이 검토 없이 반영했어요. 읽어 보고 문제가 있으면 <a href="${base()}/auto">자동 집필</a>에서 이 화부터 되돌릴 수 있어요.</div>` : ''}
     ${rebuildNote(n)}
     ${e.text ? restateNote(n) : ''}
@@ -315,6 +318,7 @@ function viewWrite(n) {
     ${editable && autoOn() ? `<div class="note warn">자동 집필이 도는 동안은 본문을 저장할 수 없어요. 쓰던 글은 이 화면에 남아 있어요. 저장하려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요. 어색한 곳은 지금도 글을 골라 '나중에 고치기'로 담아 둘 수 있어요.</div>` : ''}
     ${e.text && editable ? candidateCard(n) : ''}
     ${fresh ? writeStart(n, blocked) : madeBoard}
+    ${starting && e.status === 'confirmed' ? cueCard(n, blocked) : ''}
     <section class="card w-body${starting ? ' w-fresh' : ''}" aria-label="${fresh ? '이번 화 플롯' : '본문'}">
       <div class="w-stick">
         <div class="w-top">
@@ -338,6 +342,7 @@ function viewWrite(n) {
     ${editHistory(e)}
     ${versionsPanel(e)}
     ${boardPanel(n)}
+    ${cuePanel(n)}
     ${e.text ? illustPanel(n) : ''}
     ${openingPanel(n)}
     ${e.text && editable ? (S.rwOpen === n ? rewritePanel(n) : chatPanel(`text:${n}`)) : ''}`;
@@ -439,7 +444,7 @@ Object.assign(actions, {
   },
   async writeEp(n) {
     if (ep(n).text && !confirm(`${n}화 본문을 새로 생성할까요? 지금 본문은 사라져요.`)) return;
-    await startJob('write', n);
+    await startJob('write', n, cueWriteArg(n));
   },
   async saveText(n) {
     await run('본문 저장 중', async () => {

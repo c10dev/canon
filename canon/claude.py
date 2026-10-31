@@ -380,7 +380,7 @@ class ClaudeAPILLM:
 
         key = api_key or settings.anthropic_key()[0]
         if not key:
-            raise RuntimeError("Anthropic API 키가 없어요. 설정 화면에서 넣거나 ANTHROPIC_API_KEY를 설정하세요.")
+            raise RuntimeError("Anthropic API 키가 없어요. 웹 설정의 AI 연결에서 넣거나 ANTHROPIC_API_KEY를 설정하세요.")
         self.client = anthropic.Anthropic(api_key=key, max_retries=3)
         self.model = model or settings.claude_model()[0] or DEFAULT_API_MODEL
         self.last_usage: dict | None = None

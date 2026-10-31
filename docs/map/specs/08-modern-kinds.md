@@ -13,7 +13,7 @@
 
 ## 종류 표 (08a 계약)
 
-08b · 08c · 08d 는 이 절만 보고 일한다. 코드는 `canon/maps/kinds.py` 이고, 이 절과 다르면 이 절을 먼저 고친다.
+08b · 08c · 08d 는 이 절만 보고 일한다. 코드는 `canon/placekinds.py` 이고, 이 절과 다르면 이 절을 먼저 고친다.
 
 ### 바뀌지 않는 것
 
@@ -120,8 +120,8 @@ def water_for(rows: list[dict]) -> str: ... # 물 종류는 모두 both 라서 �
 
 | 파일 | 바꿀 것 |
 |---|---|
-| `canon/maps/kinds.py` (01) | 현대 종류와 이름에서 찾는 낱말(`classify`) — 08a 에서 끝 |
-| `canon/maps/gen/moderngen.py` | 종류마다 자리 규칙을 새 id 로 |
+| `canon/placekinds.py` (01) | 현대 종류와 이름에서 찾는 낱말(`classify`) — 08a 에서 끝 |
+| `canon/moderngen.py` | 종류마다 자리 규칙을 새 id 로 |
 | `canon/pipeline.py` · `prompts.py` | AI 설정 제안이 지도 종류에 맞는 id 만 받는다 (#139 의 `moderngen.PLACE_KINDS` 를 대신한다) |
 | `canon/atlas.py` · `static/atlas-gen.js` · `cli.py` (08d) | 지도 종류를 바꾸면 종류 드롭다운도 바뀐다. 장소 표 · 명령줄 종류 이름도 시대를 따른다. `schema.MapPlace.kind` 설명 글(`towngen.CATEGORIES`)도 고친다 |
 

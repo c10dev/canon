@@ -32,6 +32,7 @@
   python -m canon statwin 내소설 hero   상태창 수치와 화별 변화 (--set 레벨=1 로 만들고 고치기)
   python -m canon abilities 내소설      스킬 · 특성 도감: 설명 · 효과 · 대가, 가진 인물과 얻은 화, 도감에 없는 항목
   python -m canon stattrial 내소설 [--episodes 2-13] [--repeats 1] [--estimate]   상태창 넣기 시험: 같은 화를 상태창 없음 · 지금 방식 · 고른 줄 형식으로 써서 견줌
+  python -m canon blocktrial 내소설 --conditions base,no_relations [--episodes 20-27] [--estimate]   쓰기 블록 시험: 블록 하나를 빼고 같은 화를 써서 쇠맛 지표로 견줌
   python -m canon time 내소설           작품 속 시간: 화별로 끝난 시점과 기한 (--date 2024-03-04, --add '축제@7' 이나 '축제@2024-03-10', --close ID)
   python -m canon map 내소설            지도: 장소, 인물별로 옮겨 다닌 길, 장소와 맞지 않은 위치 글
   python -m canon map 내소설 gen --size 보통 --water 강   마을 생성기로 마을 만들기 (--seed, --roads, --fields, --forest, --move, --ai)
@@ -72,21 +73,20 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import random
 import re
 import sys
 from pathlib import Path
 
-from . import (archetypes, autorun, branches, cast, charlog, dynamics, elements, genres, illust, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
+from . import (address, archetypes, autorun, branches, cast, charlog, dynamics, elements, features, genres, illust, library, logline, metrics, naming, pipeline, prompts, publish, research, store,
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
-from . import abilities, atlas, findings, stattrial, foreshadows, setupchat, statwin, timeline
-from . import birth, play, tofix
+from . import abilities, atlas, blocktrial, findings, stattrial, foreshadows, setupchat, statwin, timeline, placekinds, travel
+from . import birth, labstats, play, soelab, tofix
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StoryArc
-from .maps import kinds as placekinds
-from .maps import travel
 
 
 def ask(label: str, default: str = "") -> str:
@@ -561,12 +561,19 @@ def cmd_nextarc(a: argparse.Namespace) -> None:
     if a.redo:
         gone = pipeline.remove_last_arc(p)
         print(f"아크 {gone.number}({gone.start_ep}~{gone.end_ep}화)를 지우고 다시 기획해요")
+    ahead = pipeline.plan_ahead(p)
+    for note in ahead["notes"]:  # 경고만 하고 기획은 그대로 한다
+        print(f"! {note}")
+    for kind, num in ahead["recaps"]:
+        print(f"  요약: recap {a.name} {kind} {num}")
     prop = pipeline.plan_next_arc(get_llm("plan"), p, a.len or 0, a.note or "")
     if prop.reply:
         print(prop.reply)
     _print_arc(prop.arc)
     for c in prop.new_characters:
-        print(f"  새 인물: {c.name}({c.id}) {c.role} - {c.speech_style}")
+        print(f"  새 인물 후보: {c.name}({c.id}) {c.role} - {c.speech_style}")
+    if prop.new_characters:
+        print("  (새 인물은 후보로 들어와요. 나오는 화를 confirm 하면 등록돼요)")
     if confirm("이 아크를 반영할까요? (반영 후 plot 으로 화별 플롯)", a.yes):
         arc = pipeline.apply_arc(p, prop)
         print(f"저장: {store.save(a.name, p)}\n다음: plot {a.name}  ({arc.start_ep}~{arc.end_ep}화)")
@@ -1230,21 +1237,40 @@ def _update(name: str, p: Project, n: int, yes: bool, from_json: str | None = No
     if not confirm("이 변경을 반영할까요? (아니오면 project.json 수정 후 다시 update)", yes):
         return False
     held = 0
-    if delta.setting_changes:
-        if yes:  # -y 는 자동 집필처럼 인물 설정을 바꾸지 않고 남겨 둔다
-            held = charlog.hold(p, delta)
-        elif not confirm(f"설정 바꾸기 제안 {len(delta.setting_changes)}개도 인물 설정에 반영할까요? (아니오면 빼고 반영해요)", False):
+    if yes:  # -y 는 자동 집필처럼 인물 설정 · 호칭을 바꾸지 않고 남겨 둔다
+        held = features.hold(p, delta)
+    else:
+        if delta.setting_changes and not confirm(f"설정 바꾸기 제안 {len(delta.setting_changes)}개도 인물 설정에 반영할까요? (아니오면 빼고 반영해요)", False):
             delta.setting_changes = []
+        if delta.address_changes and not confirm(f"호칭 · 말씨 바뀜 제안 {len(delta.address_changes)}개도 반영할까요? (아니오면 빼고 반영해요)", False):
+            delta.address_changes = []
     pipeline.apply_delta(p, delta)
     store.save(name, p)
     print(f"{n}화 확정 완료")
     if held:
-        print(f"설정 바꾸기 제안 {held}개는 반영하지 않고 남겨 뒀어요. 웹의 인물 · 관계도 화면에서 적용하거나 버리세요")
+        print(f"설정 바꾸기 · 호칭 제안 {held}개는 반영하지 않고 남겨 뒀어요. 웹의 인물 · 관계도 화면에서 적용하거나 버리세요")
     return True
 
 
+def _print_address(p: Project, d: StateDelta) -> None:
+    """호칭 · 말씨 바뀜 제안을 지금 값과 나란히 보여 준다."""
+    if not d.address_changes:
+        return
+    name = {c.id: c.name for c in p.characters} | {c.id: c.name for c in d.new_characters}
+    print("\n--- 호칭 · 말씨 바뀜 제안 (지금 → 바꾼 뒤) ---")
+    for x in d.address_changes:
+        cur = address.find(p, x.speaker, x.listener)
+        for field, label in address.FIELDS.items():
+            after = getattr(x, field)
+            if after:
+                print(f"- {name.get(x.speaker, x.speaker)} → {name.get(x.listener, x.listener)} {label}: {(getattr(cur, field) if cur else '') or '(비어 있음)'} → {after}")
+        if x.quote:
+            print(f"  · 근거: \"{x.quote}\"")
+
+
 def _print_settings(p: Project, d: StateDelta) -> None:
-    """설정 바꾸기 제안을 지금 설정과 나란히 보여 준다."""
+    """설정 바꾸기 · 호칭 제안을 지금 값과 나란히 보여 준다."""
+    _print_address(p, d)
     if not d.setting_changes:
         return
     name = {c.id: c for c in p.characters}
@@ -1725,7 +1751,7 @@ def cmd_map(a: argparse.Namespace) -> None:
 
 
 def _map_fill(a: argparse.Namespace, p, folder) -> None:
-    """map <작품> fill: OpenStreetMap 지도의 빈 블록을 지은 건물로 채운다 (canon/maps/fill.py). --clear 는 지은 건물을 지운다."""
+    """map <작품> fill: OpenStreetMap 지도의 빈 블록을 지은 건물로 채운다 (canon/fill.py). --clear 는 지은 건물을 지운다."""
     layout = atlas.load_layout(folder, p)
     if layout is None:
         sys.exit("지도 데이터가 없어요. 먼저 OpenStreetMap 파일을 올려 주세요")
@@ -1755,7 +1781,7 @@ def _map_fill(a: argparse.Namespace, p, folder) -> None:
 
 
 def _map_travel(a: argparse.Namespace, p) -> None:
-    """map <작품> travel: 이동 시간 검사 보기와 설정 (canon/maps/travel.py)."""
+    """map <작품> travel: 이동 시간 검사 보기와 설정 (canon/travel.py)."""
     t = p.atlas.travel
     changed = any(x is not None for x in (a.mode, a.span, a.kmh, a.day_km, a.check, a.ok, a.unok))
     if a.mode is not None or a.span is not None or a.kmh is not None or a.day_km is not None or a.check is not None:
@@ -2109,7 +2135,7 @@ def cmd_usage(a: argparse.Namespace) -> None:
             print(f"{r['model']:<26}{r['since'] or '처음부터':>11}{r['input']:>8g}{r['output']:>8g}{r['cached'] if r['cached'] is not None else r['input']:>8g}"
                   f"{r['batch_input'] if r['batch_input'] is not None else r['input'] / 2:>9g}"
                   f"{r['batch_output'] if r['batch_output'] is not None else r['output'] / 2:>9g}{mark}")
-        print("고치려면 웹 설정 화면의 'AI 요금 가격표'에서 고친다. 로컬 모델은 0원으로 센다.")
+        print("고치려면 웹 사용량 · 비용 화면의 'AI 요금 가격표'에서 고쳐요. 로컬 모델은 0원으로 세요.")
         return
     s = usage.summary(None if a.all else a.days, a.project or None)
     t = s["total"]
@@ -2216,6 +2242,34 @@ def cmd_stattrial(a: argparse.Namespace) -> None:
     print("블라인드 비교본은 웹 연구 화면의 '블라인드 비교'에서 골라요.")
 
 
+def cmd_blocktrial(a: argparse.Namespace) -> None:
+    p = store.load(a.name)
+    cands = blocktrial.candidates(p)
+    eps = _episodes_arg(a.episodes) if a.episodes else blocktrial.default_pick(cands)
+    conds = [x.strip() for x in a.conditions.split(",") if x.strip()] or ["base"]
+    bad = [c for c in conds if c not in blocktrial.CONDITIONS]
+    if bad:
+        sys.exit(f"알 수 없는 조건이에요: {', '.join(bad)}. 고를 수 있는 것: "
+                 + ", ".join(f"{k}({v[0]})" for k, v in blocktrial.CONDITIONS.items()))
+    if not eps:
+        sys.exit("시험할 화가 없어요. 상태 반영이 끝나고 직전 화 스냅샷이 있는 화가 있어야 해요.")
+    est = blocktrial.estimate(p, eps, a.repeats, conds)
+    print(f"시험할 화: {', '.join(map(str, eps))}화 · 반복 {a.repeats}번 · 조건 {', '.join(blocktrial.CONDITIONS[c][0] for c in conds)}")
+    for r in est["rows"]:
+        print(f"  {r['label']:14s} 쓰기 {r['writes']}번 · 입력 약 {r['input_tokens']:,}토큰 · 출력 약 {r['output_tokens']:,}토큰 · {('약 %.2f달러' % r['usd']) if r['usd'] is not None else '가격 모름'}")
+    print(f"  합: 쓰기 {est['writes']}번 · {('약 %.2f달러' % est['usd']) if est['usd'] is not None else '가격 모름'} ({est['model']})")
+    if a.estimate:
+        return
+    if not a.yes and input("실제 AI를 불러 본문을 써요. 비용이 들어요. 시작할까요? [y/N] ").strip().lower() != "y":
+        print("그만뒀어요.")
+        return
+    res = blocktrial.run(a.name, p, get_llm("write"), eps, a.repeats, conds,
+                         progress=lambda d, t, note: print(f"[{d + 1}/{t}] {note}", flush=True))
+    print(blocktrial.describe(res))
+    if len(conds) > 1:
+        print("블라인드 비교본은 웹 연구 화면의 '블라인드 비교'에서 골라요.")
+
+
 def cmd_statwin(a: argparse.Namespace) -> None:
     """상태창 보기와 고치기. --set 레벨=13 HP=+20 스킬= (빈 값은 항목 지우기)."""
     p = store.load(a.name)
@@ -2281,6 +2335,55 @@ def cmd_time(a: argparse.Namespace) -> None:
     if changed:
         store.save(a.name, p)
     print(timeline.describe(p))
+
+
+def cmd_soelab(a: argparse.Namespace) -> None:
+    """쇠맛 실험실: 조각 모으기 · 판별력 보고서 · 내보내기. AI 를 부르지 않는다."""
+    if a.action == "collect":
+        src, arg = a.source, a.target
+        if src == "revlab":
+            cands = soelab.collect_revlab(int(arg))
+        elif src == "episodes":
+            first, _, last = (a.episodes or "1-").partition("-")
+            cands = soelab.collect_episodes(arg, int(first or 1), int(last or 0))
+        elif src == "edits":
+            cands = soelab.collect_edits(arg)
+        elif src == "research":
+            cands = soelab.collect_research(arg, known=a.known)
+        else:
+            text = Path(arg).expanduser().read_text(encoding="utf-8")
+            cands = soelab.collect_paste(text, a.title or Path(arg).stem, origin=a.origin, model=a.model, known=a.known)
+        if a.known and src not in ("research", "paste"):
+            for x in cands:
+                x.known = True
+        res = soelab.add(cands, cap=a.cap)
+        o = res["by_origin"]
+        print(f"조각 {res['added']}개를 더했어요 (사람 {o.get('human', 0)} · AI {o.get('ai', 0)} · 고친 글 {o.get('edited', 0)} · 모름 {o.get('unknown', 0)}). "
+              f"이미 있던 글 {res['dup']}개, 원천 상한({a.cap})을 넘은 {res['capped']}개는 넣지 않았어요.")
+        v = soelab.view()
+        vo = v["by_origin"]
+        print(f"말뭉치: 사람 {vo.get('human', 0)} · AI {vo.get('ai', 0)} · 고친 글 {vo.get('edited', 0)} · 모름 {vo.get('unknown', 0)} · 묶음 {v['groups']}")
+        g = v["eligible_groups"]
+        print(f"가려 읽기에 쓸 서로 다른 화: 사람 {g['human']}/20 · AI {g['ai']}/20 · 대기열 {v['queue']} (1차 {v['first']}/{soelab.FIRST}) · 다시 읽기 예정 {v['redo']}")
+        if v["doubled"]:
+            print("같은 화에서 2조각씩이라 1차 결과가 약할 수 있어요.")
+        if len(v["ai_models"]) == 1:
+            print("모델이 하나뿐이라 결과가 그 모델 글 기준이에요.")
+    elif a.action == "report":
+        rep = soelab.report(seed=a.seed, n_boot=a.boot, save=not a.no_save)
+        if a.json:
+            print(json.dumps(rep, ensure_ascii=False, indent=1))
+        else:
+            print(soelab.describe(rep))
+            if not a.no_save:
+                print(f"\n보고서를 저장했어요: .soelab/reports/{rep['id']}.json")
+    else:
+        out = json.dumps(soelab.export(include_hidden=a.all), ensure_ascii=False, indent=1)
+        if a.out:
+            Path(a.out).expanduser().write_text(out + "\n", encoding="utf-8")
+            print(f"내보냈어요: {a.out} (원문 · 표시한 글 · 메모는 넣지 않았어요)")
+        else:
+            print(out)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -2546,6 +2649,11 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--repeats", type=int, default=1, help="조건마다 같은 화를 쓸 횟수 (1~5)")
     sp.add_argument("--conditions", default="", help="none,json,lines 중에서 쉼표로. 비우면 셋 다")
     sp.add_argument("--estimate", action="store_true", help="쓰지 않고 비용만 추정")
+    sp = add("blocktrial", cmd_blocktrial)
+    sp.add_argument("--episodes", default="", help="시험할 화: 20-27 또는 2,5,9. 비우면 뒤쪽 8화")
+    sp.add_argument("--repeats", type=int, default=1, help="조건마다 같은 화를 쓸 횟수 (1~5)")
+    sp.add_argument("--conditions", default="", help="base,no_board,no_cues,no_profile,no_relations,no_address,no_knows 중에서 쉼표로. 비우면 base")
+    sp.add_argument("--estimate", action="store_true", help="쓰지 않고 비용만 추정")
     sp = add("time", cmd_time, yes=False)
     sp.add_argument("--date", help="1일째 날짜 YYYY-MM-DD. 정하면 화마다 날짜로 보이고 요일 · 남은 날은 Canon 이 계산해요. 빈 값이면 지움")
     sp.add_argument("--start", help="1일째에 붙일 글 (예: '늦겨울', '왕국력 312년'). 빈 값이면 지움")
@@ -2637,6 +2745,27 @@ def main(argv: list[str] | None = None) -> None:
     q.add_argument("--logline", default="")
     q.add_argument("--adult", action="store_true")
     sp.set_defaults(fn=cmd_play)
+
+    sp = sub.add_parser("soelab", help="쇠맛 실험실: 쇠맛 지표가 사람 글과 AI 글을 가르는지 재기 (AI 없음)")
+    ssub = sp.add_subparsers(dest="action", required=True)
+    q = ssub.add_parser("collect", help="조각 모으기 (정규화 · 2,000자 조각 · 같은 글은 한 번만)")
+    q.add_argument("source", choices=["revlab", "episodes", "edits", "research", "paste"])
+    q.add_argument("target", help="revlab: 실험 번호 / episodes · edits: 작품 / research: 말뭉치 폴더 / paste: 글 파일")
+    q.add_argument("--episodes", default="", help="episodes: 화 범위 a-b (비우면 모두)")
+    q.add_argument("--title", default="", help="paste: 글 이름 (비우면 파일 이름)")
+    q.add_argument("--origin", choices=["human", "ai", "unknown"], default="human", help="paste: 출처")
+    q.add_argument("--model", default="", help="paste: AI 글을 쓴 모델 '<백엔드>:<모델>'")
+    q.add_argument("--known", action="store_true", help="작가가 읽은 글: 가려 읽기에 넣지 않고 출처 판별에만 씀")
+    q.add_argument("--cap", type=int, default=soelab.CAP, help="원천 하나 · 출처 한쪽에서 받는 조각 수")
+    q = ssub.add_parser("report", help="판별력 보고서 (출처 기준 · 짝 · 작가 판정 · 모델별 참고)")
+    q.add_argument("--seed", type=int, default=soelab.SEED)
+    q.add_argument("--boot", type=int, default=labstats.BOOT, help="부트스트랩 반복 (2,000번 이상 권장)")
+    q.add_argument("--no-save", action="store_true", help="보고서 사본을 저장하지 않음")
+    q.add_argument("--json", action="store_true")
+    q = ssub.add_parser("export", help="지표와 판정만 내보내기 (원문 · 표시한 글 · 메모 빼고)")
+    q.add_argument("--out", default="")
+    q.add_argument("--all", action="store_true", help="가린 조각도 넣기 (가려 읽기 전에는 쓰지 마세요)")
+    sp.set_defaults(fn=cmd_soelab)
 
     a = ap.parse_args(argv)
     ep = getattr(a, "n", None) if getattr(a, "n", None) is not None else getattr(a, "ep", None)

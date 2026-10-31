@@ -1,0 +1,14 @@
+<!-- @dsCard group="입력" height=300 subtitle="app.css 를 옮긴 정적 미리보기" -->
+<!doctype html>
+<html lang="ko">
+<head><meta charset="utf-8"><title>Field</title>
+<style> body { padding: 16px; } </style></head>
+<body>
+  <div style="display:flex;flex-direction:column;gap:14px;max-width:420px">
+    <div class="field"><label for="f1">로그라인 <span class="hint">한 문장으로</span></label><input type="text" id="f1" value="몰락한 검가의 막내가 원수의 제자로 들어간다."></div>
+    <div class="field"><label for="f2">인물 A</label><select id="f2"><option>서윤</option><option>도현</option></select></div>
+    <div class="field"><label for="f3">반영한 요약</label><input type="text" id="f3" readonly value="서윤이 서고에서 옛 검보를 찾는다."></div>
+    <label class="row" style="gap:8px"><input type="checkbox" checked> 반영할 때 함께 적용</label>
+  </div>
+</body>
+</html>

@@ -1,15 +1,11 @@
-"""현대 동네 생성기 테스트 (canon/maps/gen/moderngen.py): 재현성, 결과 모양, 길 연결, 건물 겹침, 블록 종류, 쓰임, 이야기 장소, 건물 정보.
+"""현대 동네 생성기 테스트 (canon/moderngen.py): 재현성, 결과 모양, 길 연결, 건물 겹침, 블록 종류, 쓰임, 이야기 장소, 건물 정보.
 실행: python -m pytest tests/test_moderngen.py."""
 import json
 import math
 
 import pytest
 
-from canon import atlas
-from canon.maps import buildings as bldgs
-from canon.maps import geom
-from canon.maps import kinds as placekinds
-from canon.maps.gen import moderngen
+from canon import atlas, bldgs, geom, moderngen, placekinds
 from canon.schema import MapSpec
 
 SPOTS = [{"key": "a", "name": "동네", "kind": "center"}, {"key": "b", "name": "교회", "kind": "temple"},

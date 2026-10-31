@@ -1,4 +1,4 @@
-"""이동 시간 검사 테스트 (canon/maps/travel.py): 시간대 읽기, 걸리는 시간, 반영한 화의 이동 판정, 상태 변경안 경고,
+"""이동 시간 검사 테스트 (canon/travel.py): 시간대 읽기, 걸리는 시간, 반영한 화의 이동 판정, 상태 변경안 경고,
 '괜찮아요', 쓰기 · 검수 프롬프트의 이동 거리, 웹 · 명령줄. 실행: python -m pytest tests/test_travel.py"""
 import importlib
 import os
@@ -10,9 +10,7 @@ os.environ.setdefault("CANON_LLM", "mock")
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from canon import atlas, cli, pipeline, prompts, store  # noqa: E402
-from canon.maps import prompt as mapprompt  # noqa: E402
-from canon.maps import travel  # noqa: E402
+from canon import atlas, cli, pipeline, prompts, store, travel  # noqa: E402
 from canon.llm import get_llm  # noqa: E402
 from canon.schema import CharacterState, MapPin, StoryTime  # noqa: E402
 
@@ -117,15 +115,15 @@ def test_prompt_block():
     p = _mapped()
     pipeline.confirm_plot(p, 4)
     p.episode(4).plot.summary = "윤서가 흑송촌 장터로 간다"
-    block = mapprompt.travel_block(p, 4)
+    block = travel.episode_block(p, 4)
     assert block.startswith("지도 기준 거리") and "등대 → 흑송촌 약 624km" in block
     ctx = prompts.build_episode_context(p, 4)
     assert "# 이동 거리 (지도 기준)" in ctx and ctx.index("# 이동 거리") > ctx.index("# 작품 속 시간")
     chk = prompts.check_prompt(p, 4)
     assert "# 이동 거리 (지도 기준)" in chk and "- 이동: 위 '이동 거리'" in chk
-    assert len(mapprompt.travel_block(p, 4, budget=10).splitlines()) == 3  # 예산이 작아도 한 줄은 넣는다
+    assert len(travel.episode_block(p, 4, budget=10).splitlines()) == 3  # 예산이 작아도 한 줄은 넣는다
     p.atlas.span_km = 0
-    assert mapprompt.travel_block(p, 4) == "" and "# 이동 거리" not in prompts.build_episode_context(p, 4)
+    assert travel.episode_block(p, 4) == "" and "# 이동 거리" not in prompts.build_episode_context(p, 4)
     assert "- 이동: " not in prompts.check_prompt(p, 4)
 
 

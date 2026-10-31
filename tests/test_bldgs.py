@@ -1,4 +1,4 @@
-"""건물 정보 테스트 (canon/maps/buildings.py, atlas.enrich · building · set_building): 재현성, 결과 모양, 주소, 쓰임 수, 이야기 장소,
+"""건물 정보 테스트 (canon/bldgs.py, atlas.enrich · building · set_building): 재현성, 결과 모양, 주소, 쓰임 수, 이야기 장소,
 작가가 고친 값, 옛 지도 파일 채우기, 웹 · 명령줄."""
 import importlib
 import json
@@ -10,9 +10,7 @@ os.environ.setdefault("CANON_LLM", "mock")
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from canon import atlas, cli, store  # noqa: E402
-from canon.maps import buildings as bldgs  # noqa: E402
-from canon.maps.gen import citygen, towngen  # noqa: E402
+from canon import atlas, bldgs, citygen, cli, store, towngen  # noqa: E402
 from canon.schema import Character, MapSpec  # noqa: E402
 
 from .test_mapgen import _project  # noqa: E402

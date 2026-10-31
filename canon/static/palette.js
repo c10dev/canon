@@ -3,13 +3,13 @@
    Ctrl+K (macOS 는 ⌘K) 또는 좁은 화면 사이드바 머리의 '찾기'로 연다. 입력칸 안에서도 열린다.
    작품 안에서는 사이드바 화면(navItems 와 같은 이름), 화, 인물, 설정 칸(칸 이름과 값), 자주 쓰는 동작(다음 할 일, 저장, 알림 창 열기)을 찾는다.
    설정 칸을 고르면 S.jumpTo 에 그 칸을 두고 설정 도우미로 간다. 설정 화면(setup.js)이 기획서로 열고 칸이 든 카드를 펼친다.
-   작품 밖(작품 목록, 설정 등)에서는 작품 목록 · 설정 화면 · 알림 창만 찾는다. 알림 창(hub.js)은 알림 버튼이 없을 때도 지난 알림을 연다.
+   작품 밖(작품 목록 등)에서는 작품 목록 · 설정 · 알림 창과 설정 대화상자의 줄을 찾는다. 알림 창(hub.js)은 알림 버튼이 없을 때도 지난 알림을 연다.
    포커스는 검색 칸에만 두고, 위아래 화살표로 고른 항목은 aria-activedescendant 로 알린다.
    화면을 다시 그려도 남게 #app 밖(body)에 둔다. 닫으면 연 자리로 포커스를 돌린다. */
 'use strict';
 
 const PAL_LIMIT = 40;  // 한 번에 보이는 항목 수
-const PAL_KIND = { act: '동작', screen: '화면', char: '인물', field: '설정 칸', ep: '화' };
+const PAL_KIND = { act: '동작', screen: '화면', char: '인물', field: '설정 칸', ep: '화', setting: '설정' };
 // 찾는 설정 칸: [data-bind 경로, 칸 이름]. 이름은 기획서(setup.js)의 칸 이름과 같다
 const PAL_SETUP = [
   ['meta.title', '제목'], ['meta.logline_parts.who', '로그라인 · 누가'], ['meta.logline_parts.why', '로그라인 · 무엇 때문에'],
@@ -74,7 +74,9 @@ function palSetupFields(p) {
 
 /** 지금 화면에서 찾을 재료. 팔레트를 열 때 한 번 모은다 (paletteItems 는 이것만 본다). */
 function palContext() {
-  if (S.route[0] !== 'p' || !P()) return { inProject: false };
+  // 설정 대화상자의 줄 (settings.js 의 찾기 색인). 작품 안이면 작품 줄도
+  const settings = typeof setRowsNow === 'function' ? setRowsNow().map((r) => ({ cat: r.cat, label: r.label, sec: r.sec, words: r.words, where: (setCat(r.cat) || [])[1] })) : [];
+  if (S.route[0] !== 'p' || !P()) return { inProject: false, settings };
   const next = typeof nextStep === 'function' ? nextStep() : null;
   return {
     inProject: true,
@@ -82,18 +84,21 @@ function palContext() {
     nav: navItems(),
     next,
     canSave: saveShortcut(true),
-    episodes: P().episodes.map((e) => ({ n: e.plot.number, title: e.plot.title || '', status: e.status })),
+    episodes: P().episodes.map((e) => ({ n: e.plot.number, title: e.plot.title || '', status: e.status, stage: epStage(e) })),
     characters: P().characters.filter((c) => c.name).map((c) => ({ id: c.id, name: c.name })),
     fields: palSetupFields(P()),
+    settings,
   };
 }
 
-/** 찾을 항목 목록 { kind, label, hint, words, href | act, n, focus }. 순서: 동작 → 화면 → 인물 → 설정 칸 → 화.
+/** 찾을 항목 목록 { kind, label, hint, words, href | act, n, focus }. 순서: 동작 → 화면 → 인물 → 설정 칸 → 설정 대화상자 줄 → 화.
     설정 칸은 값으로도 찾고(words), focus 는 그 칸의 입력 요소 (setup.js input 의 id 규칙 'f-' + 경로). 검색어가 없을 때는 동작 · 화면만 보인다. */
 function paletteItems(ctx) {
-  const settings = { kind: 'screen', label: '모델 · API 키 설정', hint: '', words: '설정', href: '#/settings' };
+  const settings = { kind: 'screen', label: '설정', hint: 'AI 연결 · 키 · 모델', words: '설정 모델 API 키', href: '#/settings' };
   const hub = { kind: 'act', label: '알림 · AI 작업', hint: '지난 알림', words: '작업 알림', act: 'hub' };
-  if (!ctx.inProject) return [{ kind: 'screen', label: '작품 목록', hint: '', words: '', href: '#/' }, settings, hub];
+  // 설정 줄: 검색어가 있을 때만 보인다(paletteMatch). 고르면 그 갈래를 연다
+  const rows = (ctx.settings || []).map((r) => ({ kind: 'setting', label: r.label, hint: r.where === r.sec ? r.where : `${r.where} · ${r.sec}`, words: `${r.sec} ${r.words}`, act: 'settings', cat: r.cat }));
+  if (!ctx.inProject) return [{ kind: 'screen', label: '작품 목록', hint: '', words: '', href: '#/' }, settings, hub, ...rows];
   const out = [];
   if (ctx.next) out.push({ kind: 'act', label: `다음 할 일 · ${ctx.next[0]}`, hint: '', words: ctx.next[0], href: ctx.next[1] });
   if (ctx.canSave) out.push({ kind: 'act', label: '저장', hint: 'Ctrl+S', words: '', act: 'save' });
@@ -101,7 +106,7 @@ function paletteItems(ctx) {
   const { steps, auto, tools, apart, foot } = ctx.nav;
   steps.forEach(([, href, num, label]) => out.push({ kind: 'screen', label, hint: /\d/.test(num) ? `단계 ${num}` : '', words: '', href }));
   out.push({ kind: 'screen', label: auto[3], hint: '', words: '', href: auto[1] });
-  tools.forEach(([, href, , label]) => out.push({ kind: 'screen', label, hint: '작품 도구', words: '', href }));
+  tools.forEach(([id, href, , label]) => out.push({ kind: 'screen', label, hint: '작품 도구', words: id === 'brief' ? 'API 없이' : '', href }));
   apart.forEach(([, href, , label]) => out.push({ kind: 'screen', label, hint: '본편과 분리', words: '', href }));
   foot.forEach(([href, label]) => out.push(href === '#/settings' ? settings : { kind: 'screen', label, hint: '', words: '', href }));
   ctx.characters.forEach((c) => out.push({ kind: 'char', label: c.name, hint: '인물 · 관계도', words: '', href: `${ctx.base}/cast/${encodeURIComponent('c:' + c.id)}` }));
@@ -109,12 +114,17 @@ function paletteItems(ctx) {
     const hint = f.value ? (f.value.length > PAL_HINT ? f.value.slice(0, PAL_HINT) + '…' : f.value) : '비어 있음';
     out.push({ kind: 'field', label: f.label, hint, words: f.value, href: `${ctx.base}/setup`, focus: '#f-' + f.path.replace(/\./g, '-') });
   });
+  out.push(...rows);
   ctx.episodes.forEach((e) => {
     const hint = [e.title, (typeof STATUS === 'object' && STATUS[e.status]) || ''].filter(Boolean).join(' · ');
-    const write = { kind: 'ep', n: e.n, label: `${e.n}화 집필`, hint, words: e.title, href: `${ctx.base}/write/${e.n}` };
-    // 본문을 쓰고 반영을 기다리는 화는 상태 승인을 앞에 둔다
-    if (e.status === 'written') out.push({ kind: 'ep', n: e.n, label: `${e.n}화 상태 승인`, hint, words: e.title, href: `${ctx.base}/review/${e.n}` });
-    out.push(write);
+    const item = (key, label) => ({ kind: 'ep', n: e.n, label: `${e.n}화 ${label}`, hint, words: e.title, href: `${ctx.base}/${key}/${e.n}` });
+    // 본문을 쓰고 반영을 기다리는 화는 검수 · 상태 승인을 앞에 두고, 지금 차례(stage, home.js epStage)를 맨 앞에 둔다
+    if (e.status === 'written') {
+      const flow = [['check', '검수'], ['review', '상태 승인']];
+      if (e.stage === 'review') flow.reverse();
+      flow.forEach(([key, label]) => out.push(item(key, label)));
+    }
+    out.push(item('write', '집필'));
   });
   return out;
 }
@@ -161,7 +171,7 @@ function paletteOpen() {
   const box = document.createElement('div');
   box.id = 'palette';
   box.className = 'pal-back';
-  const where = pal.items.some((it) => it.kind === 'field') ? '화면 · 화 번호 · 인물 이름 · 설정 칸' : '화면';
+  const where = pal.items.some((it) => it.kind === 'field') ? '화면 · 화 번호 · 인물 이름 · 설정 칸 · 설정' : '화면 · 설정';
   box.innerHTML = `<div class="pal" role="dialog" aria-modal="true" aria-labelledby="pal-title">
     <h2 id="pal-title" class="sr-only">찾기</h2>
     <input id="pal-q" type="text" role="combobox" aria-expanded="true" aria-controls="pal-list" aria-autocomplete="list" aria-describedby="pal-help" autocomplete="off" spellcheck="false" placeholder="${where} 찾기">
@@ -260,6 +270,8 @@ function palPick(it) {
     toast('저장할 변경이 없어요');
   } else if (it.act === 'hub') {
     hubOpen();
+  } else if (it.act === 'settings') {
+    openSettings(it.cat);
   }
 }
 

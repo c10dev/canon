@@ -1,0 +1,49 @@
+{
+ "note": "의자에 앉은 사람 자리에 겹쳐 선다 (앉은 사람 다리를 빼도 머리 · 몸통은 본다. 선 사람 다리는 의자를 파고든다)",
+ "template": "office",
+ "start": [
+  {
+   "who": "d",
+   "at": {
+    "ref": "의자",
+    "rel": "on"
+   },
+   "posture": "chair"
+  },
+  {
+   "who": "h",
+   "at": {
+    "ref": "문",
+    "rel": "front"
+   },
+   "posture": "stand"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "h",
+     "at": {
+      "ref": "@d",
+      "rel": "on"
+     },
+     "posture": "stand"
+    }
+   ]
+  }
+ ],
+ "expect": [
+  [
+   1,
+   "body_overlap",
+   "d"
+  ],
+  [
+   1,
+   "furniture_overlap",
+   "h"
+  ]
+ ]
+}

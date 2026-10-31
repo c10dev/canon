@@ -1,0 +1,47 @@
+{
+ "note": "바닥에 앉은 하린 옆에 쪼그려 앉아 머리를 쓰다듬는다",
+ "template": "empty",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "문",
+    "rel": "front"
+   },
+   "posture": "floor"
+  },
+  {
+   "who": "d",
+   "at": {
+    "ref": "문",
+    "rel": "front"
+   },
+   "posture": "stand"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "d",
+     "at": {
+      "ref": "@h",
+      "rel": "right"
+     },
+     "posture": "squat",
+     "contacts": [
+      {
+       "id": "c1",
+       "by": "right",
+       "to": "h",
+       "part": "head",
+       "act": "stroke"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "expect": []
+}

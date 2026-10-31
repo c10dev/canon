@@ -1,4 +1,4 @@
-"""도시 생성기 테스트 (canon/maps/gen/citygen.py): 재현성, 결과 모양, 길 연결, 집 겹침, 성벽 · 성문, 구역 종류, 이야기 장소 규칙.
+"""도시 생성기 테스트 (canon/citygen.py): 재현성, 결과 모양, 길 연결, 집 겹침, 성벽 · 성문, 구역 종류, 이야기 장소 규칙.
 실행: python -m pytest tests/test_citygen.py. 성능은 CANON_PERF=1 일 때만 잰다."""
 import json
 import math
@@ -7,9 +7,7 @@ import time
 
 import pytest
 
-from canon import atlas
-from canon.maps import geom
-from canon.maps.gen import citygen
+from canon import atlas, citygen, geom
 from canon.schema import MapSpec
 
 SPOTS = [{"key": "a", "name": "대광장", "kind": "center"}, {"key": "b", "name": "대성당", "kind": "temple"},

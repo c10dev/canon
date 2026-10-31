@@ -16,8 +16,8 @@
 
 | 파일 | 바꿀 것 |
 |---|---|
-| `canon/maps/sources/osm.py` | 역 점과 노선(역 순서)을 새 키 `transit` 으로 낸다 |
-| `canon/maps/travel.py` | 탈것 '대중교통'(`TravelSetting.mode`), 시간 계산에 `transit` 을 쓴다 |
+| `canon/osm.py` | 역 점과 노선(역 순서)을 새 키 `transit` 으로 낸다 |
+| `canon/travel.py` | 탈것 '대중교통'(`TravelSetting.mode`), 시간 계산에 `transit` 을 쓴다 |
 | `canon/static/atlas.js` | 역 표지, 이동 시간 칸의 '지하철 n정거장' 글 |
 | 프롬프트 (`travel.episode_block`, 01 뒤면 `mapprompt`) | 이동 거리 줄에 '지하철로 약 n분 (n정거장)' |
 

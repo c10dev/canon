@@ -16,10 +16,7 @@ os.environ.setdefault("CANON_LLM", "mock")
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from canon import atlas, pipeline  # noqa: E402
-from canon.maps import prompt as mapprompt  # noqa: E402
-from canon.maps import travel  # noqa: E402
-from canon.maps.sources import osm  # noqa: E402
+from canon import atlas, mapprompt, osm, pipeline, travel  # noqa: E402
 from canon.schema import MapPin, Project  # noqa: E402
 
 from .test_atlas import _played  # noqa: E402

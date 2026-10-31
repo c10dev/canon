@@ -1,0 +1,36 @@
+{
+ "note": "문 앞 허공에 앉는다",
+ "template": "empty",
+ "start": [
+  {
+   "who": "h",
+   "at": {
+    "ref": "문",
+    "rel": "front"
+   },
+   "posture": "stand"
+  }
+ ],
+ "beats": [
+  {
+   "quote": "1박자",
+   "bodies": [
+    {
+     "who": "h",
+     "at": {
+      "ref": "문",
+      "rel": "front"
+     },
+     "posture": "chair"
+    }
+   ]
+  }
+ ],
+ "expect": [
+  [
+   1,
+   "no_support",
+   "h"
+  ]
+ ]
+}

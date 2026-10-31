@@ -13,8 +13,7 @@ os.environ.setdefault("CANON_LLM", "mock")
 
 import pytest  # noqa: E402
 
-from canon import atlas  # noqa: E402
-from canon.maps import kinds as placekinds  # noqa: E402
+from canon import atlas, placekinds  # noqa: E402
 from canon.schema import MapPin, MapPlace, MapSpec, StoryElement  # noqa: E402
 
 from .test_mapgen import _project  # noqa: E402

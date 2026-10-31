@@ -90,6 +90,80 @@ def _usage(u: Any) -> dict | None:
             "cached_tokens": getattr(u, "cached_content_token_count", None) or 0}
 
 
+# 429(요청 한도) 뒤 다시 부르기 전 기다리는 초. 합은 5분을 넘지 않는다. SDK 는 Client 에 retry_options 를
+# 주지 않으면 다시 부르지 않고, Canon 은 주지 않으므로 다시 부르기는 여기 한 곳뿐이다.
+RATE_WAITS = (30, 60, 120)
+RATE_HINT = "AI 서비스의 요청 한도에 걸렸어요 (429). 몇 분 뒤 다시 시도해 주세요."
+
+
+class RateLimited(RuntimeError):
+    """기다려 다시 불러도 429 가 풀리지 않았다. 화면에는 RATE_HINT 가 보인다."""
+
+    def __init__(self, waited: int):
+        super().__init__(f"{RATE_HINT} {waited}초 기다리며 {len(RATE_WAITS)}번 다시 불렀어요.")
+        self.message = str(self)
+
+
+def is_rate_limit(e: BaseException) -> bool:
+    """google-genai 의 429 RESOURCE_EXHAUSTED 오류인가."""
+    return getattr(e, "code", None) == 429 or getattr(e, "status", None) == "RESOURCE_EXHAUSTED"
+
+
+# 응답을 기다리는 가장 긴 초. 넘으면 SDK 가 시간 초과 오류를 낸다. 2026-10-30 실제 기획 호출(입력 약 17k 토큰)이
+# 13분 넘게 답이 없었고, 다시 부르니 184초에 끝났다. CANON_GEMINI_TIMEOUT(초)로 바꾼다.
+GEMINI_TIMEOUT = 600
+TIMEOUT_RETRIES = 1  # 시간 초과 뒤 다시 부르는 횟수
+TIMEOUT_HINT = "AI 서비스가 오래 응답하지 않아요. 잠시 뒤 다시 시도해 주세요."
+
+
+def gemini_timeout() -> float:
+    """Gemini 응답을 기다리는 초. 환경 변수가 없거나 0 이하이거나 숫자가 아니면 GEMINI_TIMEOUT."""
+    try:
+        v = float(os.environ.get("CANON_GEMINI_TIMEOUT", ""))
+    except ValueError:
+        return GEMINI_TIMEOUT
+    return v if v > 0 else GEMINI_TIMEOUT
+
+
+class TimedOut(RuntimeError):
+    """다시 불러도 응답 시간을 넘겼다. 화면에는 TIMEOUT_HINT 가 보인다."""
+
+    def __init__(self, seconds: float):
+        super().__init__(f"{TIMEOUT_HINT} {seconds:g}초씩 {TIMEOUT_RETRIES + 1}번 기다렸어요.")
+        self.message = str(self)
+
+
+def is_timeout(e: BaseException) -> bool:
+    """google-genai 가 응답 시간을 넘겼을 때 내는 오류인가. 보통은 httpx 의 TimeoutException 이고,
+    Vertex 의 mTLS 경로는 requests 의 Timeout 이다."""
+    kinds: list[type] = [TimeoutError]
+    try:
+        import httpx
+        kinds.append(httpx.TimeoutException)
+    except ImportError:
+        pass
+    try:
+        import httpx2  # type: ignore[import-not-found]
+        kinds.append(httpx2.TimeoutException)
+    except ImportError:
+        pass
+    try:
+        import requests
+        kinds.append(requests.exceptions.Timeout)
+    except ImportError:
+        pass
+    return isinstance(e, tuple(kinds))
+
+
+def _pause(seconds: float) -> None:
+    """기다린다. 웹 작업이면 멈추기 신호가 오는 즉시 깬다. 시험은 이 함수를 바꿔 기다리지 않는다."""
+    ev = cancel.current.get()
+    if ev is None:
+        time.sleep(seconds)
+    else:
+        ev.wait(seconds)
+
+
 def _vertex_client() -> Any:
     """서비스 계정 키 파일(없으면 gcloud 기본 자격 증명)로 Vertex AI 클라이언트를 만든다.
     키 파일은 설정에 경로만 있고, 여기서 google-auth 가 읽는다."""
@@ -111,7 +185,7 @@ def _vertex_client() -> Any:
             raise MissingKey(f"서비스 계정 키 파일이 아니에요 ({path}): {e}") from e
     project = settings.vertex_project()[0]
     if not project:
-        raise MissingKey("Vertex AI 프로젝트 ID가 없어요. 설정 화면에서 서비스 계정 키 파일이나 프로젝트 ID를 넣으세요.")
+        raise MissingKey("Vertex AI 프로젝트 ID가 없어요. 설정의 AI 연결에서 서비스 계정 키 파일이나 프로젝트 ID를 넣으세요.")
     return genai.Client(vertexai=True, project=project, location=settings.vertex_location()[0], credentials=creds)
 
 
@@ -128,7 +202,7 @@ class GeminiLLM:
         else:
             key = api_key or settings.api_key()[0]
             if not key:
-                raise MissingKey("Gemini API 키가 없어요. 웹 설정 화면에서 넣거나 GEMINI_API_KEY를 설정하세요.")
+                raise MissingKey("Gemini API 키가 없어요. 웹 설정의 AI 연결에서 넣거나 GEMINI_API_KEY를 설정하세요.")
             self.client = genai.Client(api_key=key)
         self.model = model or settings.model()[0]
         self.last_usage: dict | None = None  # 연구 화면에서 보여 줄 마지막 호출의 토큰 수
@@ -156,6 +230,31 @@ class GeminiLLM:
         return self.client.models.count_tokens(model=self.model, contents=text).total_tokens
 
     def _call(self, system: str, prompt: str, attempt: int = 1, parse: Any = None, **config: Any) -> Any:
+        """부르고 사용량을 기록한다. 429(요청 한도)면 RATE_WAITS 만큼 기다려 다시 부르고, 끝내 풀리지 않으면
+        RateLimited 를 낸다. 응답 시간을 넘기면(gemini_timeout) 바로 TIMEOUT_RETRIES 번 다시 부르고, 또 넘기면
+        TimedOut 을 낸다. 실패한 시도는 하나씩 실패로 기록한다."""
+        waited, timeouts, rate = 0, 0, iter(RATE_WAITS)
+        while True:
+            try:
+                return self._once(system, prompt, attempt, parse, **config)
+            except Exception as e:
+                if is_timeout(e):
+                    timeouts += 1
+                    if timeouts > TIMEOUT_RETRIES:
+                        raise TimedOut(gemini_timeout()) from e
+                    pause = None
+                elif is_rate_limit(e):
+                    pause = next(rate, None)
+                    if pause is None:
+                        raise RateLimited(waited) from e
+                else:
+                    raise
+            cancel.check()
+            if pause is not None:
+                _pause(pause)
+                waited += pause
+
+    def _once(self, system: str, prompt: str, attempt: int = 1, parse: Any = None, **config: Any) -> Any:
         """한 번 부르고 사용량을 기록한다. parse 가 있으면 응답 글을 parse 한 값을 돌려주고, parse 가 실패해도
         (형식 불일치) 토큰은 쓴 것이라 실패로 기록한다."""
         cancel.check()  # 멈춘 작업은 다음 호출을 보내지 않는다
@@ -167,7 +266,10 @@ class GeminiLLM:
             resp = self.client.models.generate_content(
                 model=self.model,
                 contents=prompt,
-                config=types.GenerateContentConfig(system_instruction=system, **config),
+                config=types.GenerateContentConfig(
+                    system_instruction=system,
+                    http_options=types.HttpOptions(timeout=int(gemini_timeout() * 1000)),  # 밀리초
+                    **config),
             )
             tokens = self.last_usage = _usage(resp.usage_metadata)
             if not resp.text:

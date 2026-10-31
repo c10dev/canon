@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>장면 연출 시안</title>
+<!-- 시안: 앱 CSS 를 그대로 읽고, 장면 연출 화면 CSS 만 아래에 더한다. 데이터는 가짜다 -->
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/gh/toss/tossface/dist/tossface.css" rel="stylesheet">
+<link rel="stylesheet" href="../../canon/static/app.css">
+<style>
+.st-wrap { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(320px, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 1100px) { .st-wrap { grid-template-columns: minmax(0, 1fr); } }
+.st-plan { padding: 16px; gap: 12px; }
+.st-plan svg { width: 100%; height: auto; display: block; background: var(--canvas); border-radius: 8px; }
+.st-anchor rect { fill: var(--chip); stroke: var(--line-strong); stroke-width: 1; }
+.st-anchor.door rect, .st-anchor.window rect { fill: var(--accent-soft); }
+.st-anchor text { font-size: 12px; fill: var(--text-2); font-family: var(--sans); }
+.st-wall { fill: none; stroke: var(--text-2); stroke-width: 4; }
+.st-person circle.body { stroke: var(--surface); stroke-width: 2.5; }
+.st-person text { font-size: 13px; font-weight: 700; fill: var(--on-accent); font-family: var(--sans); text-anchor: middle; dominant-baseline: central; }
+.st-person .face { opacity: 0.85; }
+.st-person .label { fill: var(--text); font-size: 12px; font-weight: 700; }
+.st-person.bad circle.body { stroke: var(--red); stroke-width: 3; }
+.st-contact { stroke-width: 2.5; stroke-dasharray: 5 4; fill: none; }
+.st-contact.bad { stroke: var(--red); }
+.st-move { stroke: var(--muted); stroke-width: 1.5; fill: none; marker-end: url(#st-arrow); }
+.st-play { display: flex; align-items: center; gap: 12px; }
+.st-play input[type=range] { flex: 1; accent-color: var(--accent); }
+.st-ticks { display: flex; justify-content: space-between; padding: 0 2px; font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.st-beats { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.st-beats button { width: 100%; text-align: left; min-height: 48px; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text); font: inherit; cursor: pointer; display: grid; grid-template-columns: 28px 1fr; gap: 2px 8px; }
+.st-beats button:hover { background: var(--bg); }
+.st-beats button[aria-current="true"] { background: var(--sel-bg); border-color: var(--sel-line); }
+.st-beats .no { grid-row: span 2; width: 24px; height: 24px; border-radius: 6px; background: var(--chip); display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; }
+.st-beats .q { font-family: var(--serif, serif); line-height: 1.5; }
+.st-beats .who { display: flex; flex-wrap: wrap; gap: 4px; }
+.st-beats .flag { color: var(--red); font-weight: 700; font-size: 0.75rem; }
+.st-person-card { padding: 14px 16px; gap: 12px; }
+.st-poses { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+.st-poses button { padding: 4px 2px 2px; border: 1px solid transparent; border-radius: 8px; background: var(--bg); color: var(--text-2); font: inherit; font-size: 0.6875rem; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.st-poses button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
+.st-poses svg { width: 34px; height: 40px; }
+.st-poses svg * { stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; fill: none; }
+.st-fields { display: grid; grid-template-columns: 56px 1fr; gap: 6px 10px; align-items: center; font-size: 0.8125rem; }
+.st-fields > span:nth-child(odd) { color: var(--muted); }
+.st-touch { display: grid; grid-template-columns: 120px 1fr; gap: 12px; align-items: center; }
+.st-bodymap { display: flex; gap: 6px; }
+.st-bodymap svg { width: 56px; height: 118px; }
+.st-bodymap .sil { fill: var(--chip); stroke: var(--line-strong); stroke-width: 1; }
+.st-bodymap .dot { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; cursor: pointer; }
+.st-bodymap .dot.on { fill: var(--pair-b); stroke: var(--pair-b); }
+.st-bodymap .dot.by { fill: var(--pair-a); stroke: var(--pair-a); }
+.st-bodymap figcaption { font-size: 0.6875rem; color: var(--muted); text-align: center; }
+.st-touch ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; font-size: 0.8125rem; }
+.st-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.75rem; color: var(--muted); }
+.st-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+.st-stack { display: flex; flex-direction: column; gap: 8px; }
+.st-tabs { display: none; }
+@media (max-width: 900px) { .st-tabs { display: flex; } .st-pane[hidden-narrow] { display: none; } }
+@media (prefers-reduced-motion: reduce) { .st-plan svg * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="side">
+    <a class="brand" href="#">Canon<span class="brand-dot">.</span></a>
+    <div class="work-card"><div class="work-head"><span class="work-title">유리 정원</span></div><span class="work-where">단편 · 로맨스</span></div>
+    <nav class="nav" aria-label="단계">
+      <a href="#"><span class="num">1</span>설정</a>
+      <a href="#"><span class="num">2</span>문체</a>
+      <a href="#"><span class="num">3</span>기승전결</a>
+      <a href="#"><span class="num">4</span>집필</a>
+      <a href="#"><span class="num">5</span>검수</a>
+      <a href="#"><span class="num">6</span>상태 승인</a>
+    </nav>
+    <nav class="nav" aria-label="도구">
+      <a href="#"><span class="num tf">🗺️</span>지도</a>
+      <a href="#" aria-current="page"><span class="num tf">🎬</span>장면 연출</a>
+      <a href="#"><span class="num tf">📌</span>고칠 곳</a>
+    </nav>
+  </aside>
+
+  <main class="main" id="main">
+    <div class="page-head">
+      <div class="lead">
+        <span class="eyebrow">3화 · 사건 2 / 4</span>
+        <h1>장면 연출</h1>
+        <p class="desc">도윤이 하린의 방에 찾아와 떠나겠다고 말한다. 하린은 붙잡지 못한다.</p>
+      </div>
+      <div class="row">
+        <button class="btn small" type="button">✦ 플롯에서 초안</button>
+        <button class="btn small" type="button">✦ 본문에서 뽑기</button>
+        <button class="btn small primary" type="button">저장</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <span class="chip">방: 하린의 방</span>
+      <span class="chip confirmed">장소에 묶임 · 하린네 집</span>
+      <span class="chip">본문 문장 5개와 이어짐</span>
+      <label class="row small"><input type="checkbox" checked> 쓰기 프롬프트에 넣기</label>
+    </div>
+
+    <div class="note warn" role="status">규칙 검수 1개: 4박자에서 도윤과 하린이 <b id="st-dist">1.3m</b> 떨어져 있어 손이 닿지 않아요. 손 접촉은 1.2m 안이어야 해요. <a href="#" onclick="go(4);return false">4박자 보기</a></div>
+
+    <div class="tabs st-tabs" role="tablist">
+      <button role="tab" aria-selected="true" onclick="narrow('plan', this)">평면도</button>
+      <button role="tab" aria-selected="false" onclick="narrow('beats', this)">박자 · 인물</button>
+    </div>
+
+    <div class="st-wrap">
+      <section class="card st-plan st-pane" data-pane="plan" aria-label="평면도">
+        <div class="between"><h2>평면도</h2><div class="seg"><button aria-pressed="true">인물</button><button aria-pressed="false">방 고치기</button></div></div>
+        <svg id="plan" viewBox="0 0 520 430" role="img" aria-label="하린의 방 평면도"></svg>
+        <div class="st-play">
+          <button class="btn small" type="button" id="playbtn" onclick="toggle()">▶ 재생</button>
+          <input type="range" id="slider" min="0" max="5" step="1" value="4" oninput="go(+this.value)" aria-label="박자">
+        </div>
+        <div class="st-ticks"><span>시작</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
+        <div class="st-legend"><span><i style="background:var(--pair-a)"></i>하린</span><span><i style="background:var(--pair-b)"></i>도윤</span><span>쐐기 = 향한 쪽</span><span>점선 = 접촉</span><span>화살표 = 이번 박자 이동</span></div>
+      </section>
+
+      <div class="col st-pane" data-pane="beats" hidden-narrow>
+        <section class="card tight">
+          <div class="between"><h2>박자</h2><button class="btn small ghost" type="button">+ 박자</button></div>
+          <ol class="st-beats" id="beats"></ol>
+        </section>
+        <section class="card st-person-card" id="pcard"></section>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+// ----- 가짜 데이터: model.md 의 Room · StageScene 모양 -----
+const S = 110, OX = 40, OY = 40;          // 1m = 110px, 방 왼쪽 위 여백
+const room = { name: '하린의 방', w: 4.0, h: 3.2, anchors: [
+  { id: 'bed', name: '침대', kind: 'bed', x: 0.2, y: 0.25, w: 1.4, h: 2.0 },
+  { id: 'desk', name: '책상', kind: 'desk', x: 2.8, y: 0.15, w: 1.0, h: 0.55 },
+  { id: 'chair', name: '의자', kind: 'chair', x: 2.2, y: 0.2, w: 0.5, h: 0.5 },
+  { id: 'win', name: '창', kind: 'window', x: 1.9, y: -0.05, w: 0.8, h: 0.1 },
+  { id: 'door', name: '문', kind: 'door', x: 3.1, y: 3.15, w: 0.8, h: 0.1 },
+] };
+const cast = { h: { name: '하린', color: 'var(--pair-a)' }, d: { name: '도윤', color: 'var(--pair-b)' } };
+// 자리는 기준점 + 관계. 좌표는 아래 spot() 이 계산한다 (stage.place 의 간이판)
+const start = {
+  h: { at: ['chair', 'on'], posture: 'chair', facing: '#desk', left: '', right: '펜' },
+  d: { at: ['door', 'front'], posture: 'stand', facing: '@h', left: '', right: '' },
+};
+const beats = [
+  { quote: '하린은 의자를 돌려 그를 보았다.', bodies: { h: { facing: '@d' } } },
+  { quote: '도윤은 대답 없이 침대 옆까지 걸어왔다.', bodies: { d: { at: ['bed', 'right'], posture: 'walk' } } },
+  { quote: '하린이 펜을 내려놓고 일어섰다.', bodies: { h: { at: ['desk', 'front'], posture: 'stand', right: '' } } },
+  { quote: '도윤이 손을 뻗어 그녀의 손목을 잡았다.', bodies: { d: { posture: 'stand', right: '하린 왼 손목 · 잡다', touch: { by: 'right', to: 'h', part: 'wrist_l', act: '잡다' } } }, bad: 'reach' },
+  { quote: '하린은 한 걸음 다가가 그의 뺨에 손을 댔다.', bodies: { h: { at: ['@d', 'front'], right: '도윤 왼 뺨 · 쓰다듬다', touch: { by: 'right', to: 'd', part: 'cheek_l', act: '쓰다듬다' } } } },
+];
+const POSES = [
+  ['stand', '서기'], ['walk', '걷기'], ['run', '뛰기'], ['lean', '기대 서기'], ['chair', '의자'], ['floor', '바닥 앉기'],
+  ['squat', '쪼그림'], ['kneel', '무릎'], ['lie', '눕기'], ['side', '옆 눕기'], ['prone', '엎드림'], ['held', '안김'],
+];
+// 막대 인형 (34x40)
+const POSE_SVG = {
+  stand: '<circle cx="17" cy="6" r="3.5"/><path d="M17 10v14M17 14l-6 6M17 14l6 6M17 24l-4 12M17 24l4 12"/>',
+  walk: '<circle cx="18" cy="6" r="3.5"/><path d="M17 10l-1 14M16 14l-6 4M16 14l7 5M16 24l-6 11M16 24l6 10"/>',
+  run: '<circle cx="21" cy="6" r="3.5"/><path d="M19 10l-4 13M18 14l-8 2M18 14l7 6M15 23l-9 7M15 23l8 4l-2 7"/>',
+  lean: '<path d="M30 4v34"/><circle cx="22" cy="7" r="3.5"/><path d="M23 11l-3 13M22 15l6 3M22 15l-6 5M20 24l-5 12M20 24l1 12"/>',
+  chair: '<circle cx="14" cy="8" r="3.5"/><path d="M14 12v12M14 16l7 4M14 24h10v12M14 24l-0 0M8 26v10M8 26h-2"/><path d="M8 22v14" opacity=".5"/>',
+  floor: '<circle cx="12" cy="12" r="3.5"/><path d="M12 16v14M12 20l7 5M12 30h12l4 4M12 30l14 0"/>',
+  squat: '<circle cx="16" cy="10" r="3.5"/><path d="M16 14l-2 11M15 18l8 3M14 25l8 -2l-1 13M14 25l-3 11"/>',
+  kneel: '<circle cx="16" cy="6" r="3.5"/><path d="M16 10v14M16 14l-6 6M16 14l6 6M16 24v10h10M16 34l-6 2"/>',
+  lie: '<circle cx="5" cy="30" r="3.5"/><path d="M9 30h14M13 30l4 -5M13 30l4 5M23 30l9 -2M23 30l9 3"/>',
+  side: '<circle cx="5" cy="28" r="3.5"/><path d="M9 29h13M13 29l2 -6M22 29l5 4l5 -2M22 29l9 1"/>',
+  prone: '<circle cx="5" cy="31" r="3.5"/><path d="M9 32h14M12 32l-2 4M14 32l2 4M23 32l9 1M23 32l9 3"/>',
+  held: '<circle cx="10" cy="14" r="3.5"/><path d="M13 16l10 4M18 18l-2 8M23 20l6 -6M23 20l7 6"/><path d="M27 4v32" opacity=".4"/>',
+};
+const PART_LABEL = { wrist_l: '왼 손목', cheek_l: '왼 뺨' };
+// 부위 점 (56x118 실루엣 위 좌표)
+const DOTS = { front: { head: [28, 12], cheek_l: [33, 14], neck: [28, 26], shoulder_l: [40, 32], chest: [28, 40], belly: [28, 56], wrist_l: [47, 64], hand_l: [48, 72], wrist_r: [9, 64], hand_r: [8, 72], thigh_l: [33, 80], knee_l: [33, 96] },
+  back: { nape: [28, 25], back: [28, 42], waist: [28, 58], hip: [28, 70] } };
+
+// ----- 상태 겹치기 -----
+function stateAt(k) {
+  const s = JSON.parse(JSON.stringify(start));
+  for (let i = 0; i < k; i++) for (const [w, b] of Object.entries(beats[i].bodies)) Object.assign(s[w], b);
+  return s;
+}
+// ----- 위치 계산 (stage.place 간이판) -----
+function anchorPt(id, rel) {
+  const a = room.anchors.find((x) => x.id === id);
+  const cx = a.x + a.w / 2, cy = a.y + a.h / 2;
+  if (rel === 'on') return [cx, cy];
+  if (rel === 'front') return a.kind === 'door' ? [cx, a.y - 0.45] : [cx, a.y + a.h + 0.4];
+  if (rel === 'right') return [a.x + a.w + 0.4, cy - 0.3];
+  return [cx, cy];
+}
+function layout(s) {
+  const pos = {};
+  for (const w of Object.keys(s)) if (!s[w].at[0].startsWith('@')) pos[w] = anchorPt(...s[w].at);
+  for (const w of Object.keys(s)) if (s[w].at[0].startsWith('@')) { const o = pos[s[w].at[0].slice(1)]; pos[w] = [o[0] + 0.55, o[1] - 0.05]; }
+  return pos;
+}
+function facingAngle(s, pos, w) {
+  const f = s[w].facing;
+  let t;
+  if (f.startsWith('@')) t = pos[f.slice(1)];
+  else if (f.startsWith('#')) { const a = room.anchors.find((x) => x.id === f.slice(1)); t = [a.x + a.w / 2, a.y + a.h / 2]; }
+  return Math.atan2(t[1] - pos[w][1], t[0] - pos[w][0]);
+}
+const px = ([x, y]) => [OX + x * S, OY + y * S];
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+
+// ----- 평면도 -----
+let cur = 4, shown = null, anim = null, playing = null;
+function planSvg(pos, ang, k) {
+  const s = stateAt(k), prev = k > 0 ? layout(stateAt(k - 1)) : null;
+  let g = '<defs><marker id="st-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--muted)"/></marker></defs>';
+  g += `<rect class="st-wall" x="${OX}" y="${OY}" width="${room.w * S}" height="${room.h * S}" rx="2"/>`;
+  for (const a of room.anchors) {
+    const [x, y] = px([a.x, a.y]);
+    g += `<g class="st-anchor ${a.kind}"><rect x="${x}" y="${y}" width="${a.w * S}" height="${a.h * S}" rx="4"/>`;
+    const ty = a.kind === 'door' ? y + a.h * S + 16 : a.kind === 'window' ? y - 6 : y + a.h * S / 2 + 4;
+    g += `<text x="${x + a.w * S / 2}" y="${ty}" text-anchor="middle">${a.name}</text></g>`;
+  }
+  const bad = beats[k - 1]?.bad;
+  for (const w of Object.keys(s)) {
+    const t = s[w].touch;
+    if (!t || !pos[t.to]) continue;
+    const [x1, y1] = px(pos[w]), [x2, y2] = px(pos[t.to]);
+    g += `<path class="st-contact ${bad ? 'bad' : ''}" d="M${x1} ${y1}L${x2} ${y2}" stroke="${cast[w].color}"/>`;
+  }
+  if (prev) for (const w of Object.keys(s)) {
+    if (dist(prev[w], layout(s)[w]) < 0.05) continue;
+    const [x1, y1] = px(prev[w]), [x2, y2] = px(layout(s)[w]);
+    const d = Math.hypot(x2 - x1, y2 - y1), ux = (x2 - x1) / d, uy = (y2 - y1) / d;
+    g += `<path class="st-move" d="M${x1 + ux * 20} ${y1 + uy * 20}L${x2 - ux * 22} ${y2 - uy * 22}"/>`;
+  }
+  for (const w of Object.keys(s)) {
+    const [x, y] = px(pos[w]), a = ang[w];
+    const fx = x + Math.cos(a) * 26, fy = y + Math.sin(a) * 26;
+    const lx = x + Math.cos(a + 2.3) * 13, ly = y + Math.sin(a + 2.3) * 13, rx = x + Math.cos(a - 2.3) * 13, ry = y + Math.sin(a - 2.3) * 13;
+    const hit = bad && Object.keys(beats[k - 1].bodies).concat(beats[k - 1].bodies.d?.touch ? ['h'] : []).includes(w);
+    g += `<g class="st-person ${hit ? 'bad' : ''}"><path class="face" d="M${fx} ${fy}L${lx} ${ly}L${rx} ${ry}Z" fill="${cast[w].color}"/>`;
+    g += `<circle class="body" cx="${x}" cy="${y}" r="16" fill="${cast[w].color}"/><text x="${x}" y="${y}">${cast[w].name[0]}</text>`;
+    g += `<text class="label" x="${x}" y="${y + 32}" text-anchor="middle">${cast[w].name} · ${POSES.find((p) => p[0] === s[w].posture)[1]}</text></g>`;
+  }
+  return g;
+}
+function target(k) {
+  const s = stateAt(k), pos = layout(s), ang = {};
+  for (const w of Object.keys(s)) ang[w] = facingAngle(s, pos, w);
+  return { pos, ang };
+}
+// 박자 사이 0.6초 보간: 위치와 향함만 (자세는 박자에서 바뀐다)
+function draw(k, from) {
+  const to = target(k), plan = document.getElementById('plan');
+  cancelAnimationFrame(anim);
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!from || reduce) { plan.innerHTML = planSvg(to.pos, to.ang, k); shown = to; return; }
+  const t0 = performance.now();
+  const step = (now) => {
+    const t = Math.min(1, (now - t0) / 600), e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+    const pos = {}, ang = {};
+    for (const w of Object.keys(to.pos)) {
+      pos[w] = [from.pos[w][0] + (to.pos[w][0] - from.pos[w][0]) * e, from.pos[w][1] + (to.pos[w][1] - from.pos[w][1]) * e];
+      let d = to.ang[w] - from.ang[w]; d = Math.atan2(Math.sin(d), Math.cos(d));
+      ang[w] = from.ang[w] + d * e;
+    }
+    plan.innerHTML = planSvg(pos, ang, k);
+    shown = { pos, ang };
+    if (t < 1) anim = requestAnimationFrame(step);
+  };
+  anim = requestAnimationFrame(step);
+}
+
+// ----- 박자 목록 · 인물 카드 -----
+function beatList() {
+  const items = [{ quote: '시작 상태', bodies: start }].concat(beats);
+  document.getElementById('beats').innerHTML = items.map((b, i) => `<li><button type="button" aria-current="${i === cur}" onclick="go(${i})">
+    <span class="no">${i === 0 ? '○' : i}</span><span class="q">${b.quote}</span>
+    <span class="who">${Object.keys(b.bodies).map((w) => `<span class="chip" style="color:${cast[w].color}">${cast[w].name}</span>`).join('')}${b.bad ? '<span class="flag">⚠ 손이 닿지 않아요</span>' : ''}</span></button></li>`).join('');
+}
+function bodyMap(touch, w) {
+  const sil = '<path class="sil" d="M28 4a9 9 0 1 1 0 18a9 9 0 1 1 0-18M18 26h20l6 6l5 36h-6l-4-28v28l2 46h-9l-2-38h-4l-2 38h-9l2-46v-28l-4 28h-6l5-36z"/>';
+  const dots = (side) => Object.entries(DOTS[side]).map(([id, [x, y]]) => `<circle class="dot ${touch && touch.part === id ? 'on' : ''}" cx="${x}" cy="${y}" r="3.6"><title>${PART_LABEL[id] || id}</title></circle>`).join('');
+  return `<div class="st-bodymap"><figure style="margin:0"><svg viewBox="0 0 56 118">${sil}${dots('front')}</svg><figcaption>앞</figcaption></figure><figure style="margin:0"><svg viewBox="0 0 56 118">${sil}${dots('back')}</svg><figcaption>뒤</figcaption></figure></div>`;
+}
+function personCard() {
+  const s = stateAt(cur), changed = cur === 0 ? Object.keys(start) : Object.keys(beats[cur - 1].bodies), w = changed[0];
+  const b = s[w], f = b.facing.startsWith('@') ? cast[b.facing.slice(1)].name + ' 쪽' : room.anchors.find((a) => '#' + a.id === b.facing).name + ' 쪽';
+  const at = b.at[0].startsWith('@') ? `${cast[b.at[0].slice(1)].name} · 앞` : `${room.anchors.find((a) => a.id === b.at[0]).name} · ${{ on: '위', front: '앞', right: '오른쪽' }[b.at[1]]}`;
+  const t = b.touch, other = t ? cast[t.to] : null;
+  document.getElementById('pcard').innerHTML = `
+    <div class="between"><h2 style="color:${cast[w].color}">${cast[w].name}</h2><span class="small">${cur === 0 ? '시작 상태' : cur + '박자에서 바뀜'}</span></div>
+    <div class="st-poses" role="group" aria-label="자세">${POSES.map(([id, label]) => `<button type="button" aria-pressed="${b.posture === id}"><svg viewBox="0 0 34 40">${POSE_SVG[id]}</svg>${label}</button>`).join('')}</div>
+    <div class="st-fields">
+      <span>자리</span><span><span class="chip">${at}</span></span>
+      <span>향함</span><span><span class="chip">${f}</span></span>
+      <span>왼손</span><span>${b.left || '빈손'}</span>
+      <span>오른손</span><span>${b.right || '빈손'}</span>
+    </div>
+    <div class="st-touch">
+      ${bodyMap(t, w)}
+      <div class="st-stack">
+        <h3>접촉</h3>
+        ${t ? `<ul><li><b>${cast[w].name}</b> 오른손 → <b>${other.name}</b> ${PART_LABEL[t.part]} · ${t.act}</li></ul>` : '<p class="small">이 박자에 새 접촉이 없어요. 부위 점을 누르면 더해요.</p>'}
+        <button class="btn small" type="button">+ 접촉 더하기</button>
+      </div>
+    </div>
+    <label class="st-stack" style="gap:4px"><span class="small">메모 (목록 밖)</span><input class="btn small" style="justify-content:flex-start" placeholder="예: 손에 힘을 주지 못함"></label>`;
+}
+function go(k) {
+  const from = shown;
+  cur = k;
+  document.getElementById('slider').value = k;
+  beatList(); personCard(); draw(k, from);
+}
+function toggle() {
+  const btn = document.getElementById('playbtn');
+  if (playing) { clearInterval(playing); playing = null; btn.textContent = '▶ 재생'; return; }
+  btn.textContent = '❚❚ 멈춤';
+  if (cur >= beats.length) go(0);
+  playing = setInterval(() => { if (cur >= beats.length) return toggle(); go(cur + 1); }, 1100);
+}
+function narrow(which, el) {
+  document.querySelectorAll('.st-tabs button').forEach((b) => b.setAttribute('aria-selected', b === el));
+  document.querySelectorAll('.st-pane').forEach((p) => p.toggleAttribute('hidden-narrow', p.dataset.pane !== which));
+}
+const s4 = layout(stateAt(4));
+document.getElementById('st-dist').textContent = dist(s4.d, s4.h).toFixed(1) + 'm';
+go(4);
+</script>
+</body>
+</html>

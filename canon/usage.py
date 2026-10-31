@@ -153,7 +153,15 @@ def _error_text(e: Any) -> str:
 
     if isinstance(e, ValidationError):
         return f"응답 형식 불일치 ({e.title})"
-    return (getattr(e, "message", None) or str(e) or type(e).__name__)[:300]
+    text = getattr(e, "message", None) or str(e) or type(e).__name__
+    if getattr(e, "code", None) == 429 or getattr(e, "status", None) == "RESOURCE_EXHAUSTED":
+        text = f"요청 한도 (429): {text}"
+    else:
+        from .llm import is_timeout
+
+        if isinstance(e, BaseException) and is_timeout(e):
+            text = f"응답 시간 초과: {text}"
+    return text[:300]
 
 
 def read(path: Optional[Path] = None) -> list[dict]:

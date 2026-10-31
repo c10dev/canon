@@ -7,6 +7,7 @@ from typing import Callable, TypeVar
 from pydantic import BaseModel
 
 from .schema import (
+    AddressChange,
     Act,
     PlotAgentStep,
     ToolArg,
@@ -25,9 +26,6 @@ from .schema import (
     FixSet,
     Direction,
     PlantedContradiction,
-    SceneBeat,
-    SceneCheck,
-    BodyState,
     PlantSet,
     MapPlaceGuess,
     MapSuggestion,
@@ -513,6 +511,7 @@ def _setup_revision(hint: dict) -> SetupRevision:
 
 # 상태 변경안의 지금 차림: 1화에 처음 적고 2화에 찢어진다. 그 밖의 화는 비워 그대로 둔다
 MOCK_LOOK = "어깨에 닿던 머리를 짧게 자른 단발"  # 2화 설정 바꾸기 제안 (외모)
+MOCK_CALLS = "서윤아"  # 3화 호칭 · 말씨 바뀜 제안 (도현 → 서윤, 반말로)
 MOCK_ATTIRE = {1: "젖은 회색 코트, 손전등", 2: "젖은 회색 코트(오른쪽 소매 찢어짐), 손전등, 녹슨 열쇠"}
 
 # 설정 칸 하나 AI 후보 (prompts.FIELD_IDEAS 키마다)
@@ -620,6 +619,8 @@ class MockLLM:
                 if n in (1, 2) else [],
                 setting_changes=[SettingChange(character_id="hero", field="appearance", value=MOCK_LOOK, reason="등대에서 머리를 짧게 잘랐다",
                                                quote="서윤은 등대 앞에 섰다.")] if n == 2 else [],
+                address_changes=[AddressChange(speaker="ally", listener="hero", calls=MOCK_CALLS, speech="해체(반말)",
+                                               reason="등대에서 서로 말을 놓기로 했다", quote="서윤은 등대 앞에 섰다.")] if n == 3 else [],
                 time=StoryTime(day=n, part="밤"),
                 deadlines_added=[Deadline(id="dl-01-festival", what="등대 축제", day=5, note="닷새 뒤 축제")] if n == 1 else [],
                 deadlines_done=["dl-01-festival"] if n == 3 else [],
@@ -653,8 +654,7 @@ class MockLLM:
                         new.append(NewPlace(name=name, kind="건물", description="위치 글에서 나온 곳"))
             return PlaceSort(matches=out, new_places=new)  # type: ignore[return-value]
         if schema is MapSuggestion:  # 이름 단어로 그 시대 종류를 고르고, 바다 쪽 장소가 있으면 바닷가 마을로. 화면에서 현대 동네를 골랐으면 현대 동네 (물은 하천)
-            from . import atlas
-            from .maps import kinds as placekinds
+            from . import atlas, placekinds
 
             era = placekinds.era_of("modern" if hint.get("kind") == "modern" else "village")
             found = {n: placekinds.classify(n, era=era) for n in hint.get("places", [])}
@@ -718,13 +718,6 @@ class MockLLM:
         if schema is ClaimSet:  # 두 걸음 검수: 본문 문장마다 진술 하나
             sents = [x.strip() for x in re.findall(r"[^.!?\n]+[.!?]", hint.get("text", "")) if len(x.strip()) > 4]
             return ClaimSet(claims=[Claim(quote=x, claim=x) for x in sents[:30]])  # type: ignore[return-value]
-        if schema is SceneCheck:  # 장면 상태표 검수: 첫 문장 상태 한 줄, 프롬프트에 들어간 심은 문장을 동선으로 짚는다
-            sents = [x.strip() for x in re.findall(r"[^.!?\n]+[.!?]", hint.get("text", "")) if len(x.strip()) > 4]
-            n = hint.get("episode", 0)
-            return SceneCheck(beats=[SceneBeat(quote=sents[0], bodies=[BodyState(name="서윤", facing="문을 향함", hands="한 손 문고리")])] if sents else [],
-                              issues=[ConsistencyIssue(type="동선", description="상태표와 어긋남", source_episode=n,
-                                                       source_quote=sents[0] if sents else "", current_quote=x)
-                                      for x in hint.get("plants", []) if x in prompt])  # type: ignore[return-value]
         if schema is ConsistencyReport and "plants" in hint:  # 검수 시험: 프롬프트에 들어간 심은 문장을 짚는다
             return ConsistencyReport(episode=hint["episode"], issues=[ConsistencyIssue(
                 type="사실", description="심은 모순", source_episode=0, source_quote="설정", current_quote=x)
@@ -741,6 +734,9 @@ class MockLLM:
 
     def text(self, system: str, prompt: str) -> str:
         _delay()
+        from .mock_cue import text_for
+        if (cue := text_for(prompt)) is not None:  # 큐 시트 집필 실험
+            return cue
         if "화 다시 쓰기\n" in prompt:  # 다시 생성: 지난 판과 다른 글을 낸다
             return "바람이 멎었다. 서윤은 등대 문을 밀었다.\n\n\"이번엔 내가 먼저 갈게.\"\n\n(mock 다시 쓴 본문)"
         return "바람이 불었다. 서윤은 등대 앞에 섰다.\n\n\"됐어, 내가 할게.\"\n\n(mock 본문)"
@@ -794,4 +790,4 @@ def _broken(out: str) -> str:
 
 
 # 기능별 가짜 응답 등록 (RESPONDERS). 위의 responds 를 쓰므로 맨 끝에서 불러온다
-from . import mock_birth, mock_board, mock_play  # noqa: E402,F401
+from . import mock_birth, mock_board, mock_cue, mock_knows, mock_play, mock_revlab, mock_stage  # noqa: E402,F401
