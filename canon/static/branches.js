@@ -46,12 +46,15 @@ function branchStrip(page) {
   return `<div class="note info branch-strip" role="note"><strong>갈래 · ${esc(me.info.label || S.name)}</strong><span>${me.info.from_ep}화부터 ${parent ? `'${esc(branchName(parent))}'${josa(branchName(parent), '과', '와')} 달라요` : '갈라졌어요'}${shared ? ` · ${shared}는 함께 써요` : ''}</span><span class="fill"></span><a href="${base()}/branches">비교</a>${more}</div>${notes}`;
 }
 
-/** 화면에 갈래 띠와 갈래 만들기 칸을 넣는다: 화면 머리(.page-head) 바로 아래. 머리로 시작하지 않는 화면은 맨 위 */
+/** 화면에 갈래 띠와 갈래 만들기 칸을 넣는다: 화면 머리(.page-head) 바로 아래. 머리로 시작하지 않는 화면은 맨 위.
+    갈래 만들기 칸을 펴면 그 칸의 만들기 버튼이 주 버튼이라, 화면의 다른 주 버튼(머리 · 다시 맞추기 카드 등)은 보조 버튼으로 낮춘다 (주 버튼은 한 화면에 하나) */
 function branchPlace(page, body) {
-  const add = branchStrip(page) + branchFormCard();
+  const form = branchFormCard();
+  const add = branchStrip(page) + form;
   if (!add) return body;
-  const lead = body.match(/^\s*<header class="page-head[\s\S]*?<\/header>/);
-  return lead ? `${lead[0]}${add}${body.slice(lead[0].length)}` : add + body;
+  const rest = form ? body.replace(/(class="[^"]*?)\s+primary\b/g, '$1') : body;
+  const lead = rest.match(/^\s*<header class="page-head[\s\S]*?<\/header>/);
+  return lead ? `${lead[0]}${add}${rest.slice(lead[0].length)}` : add + rest;
 }
 
 /** 사이드바 작품 카드의 갈래 줄. 갈래는 본편과 제목이 같아 이 줄로 가른다. */
