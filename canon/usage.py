@@ -141,6 +141,15 @@ def record(llm: Any, tokens: Optional[dict], started: Optional[float] = None, *,
         pass
 
 
+def model_id(llm: Any) -> str:
+    """본문을 쓴 모델의 이름 '<백엔드>:<모델>' (Episode.written_by). 사용량 기록의 backend · model 과 같은 값이다.
+    배치는 안쪽 LLM 으로, mock 은 'mock:mock'. 모델 이름이 비면 'default'."""
+    llm = getattr(llm, "inner", llm)
+    if type(llm).__name__ == "MockLLM":
+        return "mock:mock"
+    return f"{backend_of(llm) or type(llm).__name__}:{_model_name(llm) or 'default'}"
+
+
 def _model_name(llm: Any) -> str:
     try:
         return str(getattr(llm, "_model", None) or llm.model or "")

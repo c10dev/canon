@@ -889,8 +889,9 @@ def cmd_write(a: argparse.Namespace) -> None:
 def _write(name: str, p: Project, n: int) -> None:
     print(f"{n}화 생성 중...")
     atlas.fill_old_spots(p, store.project_dir(name) / "map")  # 건물 한 줄이 빈 옛 핀. 아래 저장에 함께 들어간다
-    text = pipeline.write_episode(get_llm("write"), p, n)
-    pipeline.replace_text(p.episode(n), text)  # 지금 본문이 있으면 '이전 판'에 남는다
+    llm = get_llm("write")
+    text = pipeline.write_episode(llm, p, n)
+    pipeline.replace_text(p.episode(n), text, written_by=pipeline.writer_of(llm))  # 지금 본문이 있으면 '이전 판'에 남는다
     store.save(name, p)
     print(f"{n}화 저장: {store.project_dir(name) / 'episodes' / f'{n:02d}.md'} ({len(text)}자)")
     for w in pipeline.style_drift(p, n)[1]:
@@ -921,8 +922,9 @@ def cmd_rewrite(a: argparse.Namespace) -> None:
                          mode="revise" if a.revise else "fresh", keep=a.keep or [])
     req = pipeline.clean_rewrite(req)
     print(f"{a.n}화 다시 생성 중... ({'지난 판 고쳐 쓰기' if req.mode == 'revise' else '처음부터 새로'})")
-    text = pipeline.rewrite_episode(get_llm("write"), p, a.n, req)
-    pipeline.set_candidate(p, a.n, text, req)
+    llm = get_llm("write")
+    text = pipeline.rewrite_episode(llm, p, a.n, req)
+    pipeline.set_candidate(p, a.n, text, req, pipeline.writer_of(llm))
     print(f"\n{text[:600]}{'…' if len(text) > 600 else ''}\n\n지금 판 {len(ep.text):,}자 → 새 판 {len(text):,}자")
     if confirm("새 판으로 바꿀까요? (지금 본문은 이전 판에 남아요)", a.yes):
         pipeline.adopt_candidate(p, a.n)
@@ -1472,7 +1474,7 @@ def cmd_brief(a: argparse.Namespace) -> None:
 
 def cmd_import(a: argparse.Namespace) -> None:
     p = store.load(a.name)
-    pipeline.replace_text(p.episode(a.n), Path(a.file).read_text(encoding="utf-8").strip())  # 지금 본문은 '이전 판'에 남는다
+    pipeline.replace_text(p.episode(a.n), Path(a.file).read_text(encoding="utf-8").strip(), written_by="import")  # 지금 본문은 '이전 판'에 남는다
     store.save(a.name, p)
     print(f"{a.n}화 본문을 가져왔어요. 다음: update {a.name} {a.n}  (또는 brief --state로 채팅 앱에서 정리 후 update --from-json)")
 
