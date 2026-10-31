@@ -16,7 +16,7 @@ const vm = require('vm');
 const fs = require('fs');
 const data = JSON.parse(fs.readFileSync(0, 'utf8'));
 const ctx = {
-  data, S: {}, actions: {}, STATUS: { draft: '플롯 초안', confirmed: '플롯 확정', written: '본문 작성됨', finalized: '반영 완료' },
+  data, S: {}, actions: {}, STATUS: { draft: '초안', confirmed: '확정', written: '작성됨', finalized: '반영 완료' },
   document: { addEventListener() {}, createElement: () => ({}), head: { appendChild() {} } }, window: { addEventListener() {} },
 };
 vm.createContext(ctx);

@@ -139,7 +139,7 @@ function passageProposal(m, i) {
     : m.outcome === 'dismissed' ? '<span class="chip">넣지 않음</span>' : '';
   if (!open) return `<details class="proposal done"><summary>${done} 후보 다시 보기</summary>${cards}${m.outcome === 'dismissed' ? `<div class="row proposal-actions"><button type="button" class="btn small" data-action="chatReopen" data-arg="${i}">다시 검토</button></div>` : ''}</details>`;
   return `<div class="proposal">${lost ? '<div class="note plain">그사이 이 부분이 바뀌어 후보를 넣을 수 없어요. 다시 골라 요청하세요.</div>' : ''}${cards}
-    <div class="row"><button class="btn small" data-action="chatDismiss" data-arg="${i}">모두 넣지 않음</button></div></div>`;
+    <div class="row"><button class="btn small" data-action="chatDismiss" data-arg="${i}">모두 넣지 않기</button></div></div>`;
 }
 
 // ----- 집필 화면 블록 -----
@@ -296,7 +296,7 @@ function showTool() {
     ? `<label class="small" for="sel-edit">고른 부분 고치기 · ${t.text.length.toLocaleString()}자</label>
        <textarea id="sel-edit" rows="${Math.min(10, Math.max(3, Math.ceil(t.text.length / 40)))}">${esc(t.text)}</textarea>
        <div class="between"><span class="small">${matchMedia('(pointer: coarse)').matches ? '' : 'Ctrl+Enter 바꾸기 · Esc 닫기'}</span><span class="row" style="gap:6px"><button type="button" class="btn small" data-action="selCancel">취소</button><button type="button" class="btn small primary" data-action="selSave">바꾸기</button></span></div>`
-    : `${t.hint ? `<span class="small sel-hint">${esc(t.hint)}</span>` : ''}<span class="sr-only">본문 칸에서 Alt+Enter로 이 도구에 오고 Esc로 돌아가요.</span><button type="button" class="btn small" data-action="selManual">직접 수정</button><button type="button" class="btn small primary" data-action="selAi">AI에게 고치기</button><button type="button" class="btn small" data-action="selIllust">삽화 프롬프트</button>`;
+    : `${t.hint ? `<span class="small sel-hint">${esc(t.hint)}</span>` : ''}<span class="sr-only">본문 칸에서 Alt+Enter로 이 도구에 오고 Esc로 돌아가요.</span><button type="button" class="btn small" data-action="selManual">직접 수정</button><button type="button" class="btn small primary" data-action="selAi">AI에게 고치기</button><button type="button" class="btn small" data-action="selIllust">삽화 프롬프트 만들기</button>`;
   el.hidden = false;
   placeTool(ta, t);
   if (t.mode === 'edit') {
@@ -319,7 +319,7 @@ function readSel(ta) {
 function onSelect(e) {
   const isText = (el) => el && el.matches && el.matches('textarea[data-draft]');
   const ta = isText(e.target) ? e.target : document.activeElement;  // 본문 밖에서 손을 떼도 본문에서 고른 것
-  if (!isText(ta) || !editableEp(ep(Number(ta.dataset.draft)))) return;
+  if (!isText(ta) || !P() || !editableEp(ep(Number(ta.dataset.draft)))) return;  // 작품 목록으로 옮기는 사이에 남은 본문 칸
   setTimeout(() => {  // 클릭으로 고른 것이 풀리는 것까지 본 뒤에
     const s = readSel(ta);
     if (!s) return S.selTool && S.selTool.mode === 'menu' ? hideTool() : undefined;

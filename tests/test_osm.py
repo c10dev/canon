@@ -1,4 +1,4 @@
-"""OpenStreetMap 지도 올리기 테스트 (canon/osm.py, atlas.parse_upload, bldgs.describe 의 실제 지도 경로, 웹 올리기)."""
+"""OpenStreetMap 지도 올리기 테스트 (canon/maps/sources/osm.py, atlas.parse_upload, bldgs.describe 의 실제 지도 경로, 웹 올리기)."""
 import json
 import math
 import os
@@ -8,8 +8,13 @@ os.environ.setdefault("CANON_LLM", "mock")
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from canon import atlas, bldgs, geom, osm, towngen  # noqa: E402
-from canon.schema import MapSpec  # noqa: E402
+from canon import atlas  # noqa: E402
+from canon.maps import buildings as bldgs  # noqa: E402
+from canon.maps import geom, makers  # noqa: E402
+from canon.maps import prompt as mapprompt  # noqa: E402
+from canon.maps.gen import towngen  # noqa: E402
+from canon.maps.sources import osm  # noqa: E402
+from canon.schema import BuildingNote, MapSpec  # noqa: E402
 
 S, N, W, E = 37.500, 37.504, 127.000, 127.005  # 범위 (약 442 × 442m)
 MX = 111320.0 * math.cos(math.radians((S + N) / 2))
@@ -226,7 +231,7 @@ def test_find_spots():
     assert [o["kind"] for o in cafe] == ["tenant"] and cafe[0]["i"] == tower["i"] and "테스트타워" in cafe[0]["what"]
     assert got["테스트공원"]["options"][0]["kind"] == "mark"
     assert got["편의점 둘"]["had"] and not got["테스트역"]["had"]
-    p.atlas.buildings = [atlas.BuildingNote(i=tower["i"], name="카페 하나")]  # 작가가 붙인 건물 이름이 입점보다 앞
+    p.atlas.buildings = [BuildingNote(i=tower["i"], name="카페 하나")]  # 작가가 붙인 건물 이름이 입점보다 앞
     assert [o["kind"] for o in {x["name"]: x for x in atlas.find_spots(p, lo)}["카페하나"]["options"]] == ["building"]
 
 
@@ -249,14 +254,14 @@ def test_spot_lines_in_prompt():
     assert spot["t-2"] == "테스트 (역) · 테스트대로 옆" and spot["t-3"] == ""  # 건물 밖은 가까운 표지, 없으면 빈 글
     pipeline.confirm_plot(p, 4)
     p.episode(4).plot.summary = "윤서가 테스트타워 앞에서 테스트역으로 걷는다"
-    block = atlas.episode_block(p, 4)
+    block = mapprompt.spot_block(p, 4)
     assert block.splitlines()[0] == f"- 테스트타워: {spot['t-1']}" and "- 테스트역: 테스트 (역)" in block and "빈터" not in block
     ctx = prompts.build_episode_context(p, 4)
     assert "# 장소가 놓인 건물 (지도 기준)" in ctx and ctx.index("# 장소가 놓인 건물") > ctx.index("# 작품 속 시간")  # 화마다 바뀌는 블록 쪽
     assert "# 장소가 놓인 건물 (지도 기준)" in prompts.check_prompt(p, 4)
-    assert "(장소 1곳 생략)" in atlas.episode_block(p, 4, budget=10)  # 예산이 작아도 한 줄은 넣고 뺀 수를 적는다
+    assert "(장소 1곳 생략)" in mapprompt.spot_block(p, 4, budget=10)  # 예산이 작아도 한 줄은 넣고 뺀 수를 적는다
     atlas.fill_spots(p, None)
-    assert atlas.episode_block(p, 4) == "" and "# 장소가 놓인 건물" not in prompts.build_episode_context(p, 4)
+    assert mapprompt.spot_block(p, 4) == "" and "# 장소가 놓인 건물" not in prompts.build_episode_context(p, 4)
 
 
 def test_old_pins_get_spots(tmp_path, monkeypatch):
@@ -397,8 +402,8 @@ def test_coastline_island():
     sea, land = _polys(lo, "water"), _polys(lo, "land")
     assert len(sea) == 1 and geom.inside((220, 400), sea[0]) and len(land) == 1 and geom.inside((220, 250), land[0])
     # 섬 위는 물이 아니다: 장소를 놓을 수 있다
-    assert atlas._blocked(lo, (220 / lo["w"], 400 / lo["h"]))
-    assert not atlas._blocked(lo, (220 / lo["w"], 250 / lo["h"]))
+    assert makers._blocked(lo, (220 / lo["w"], 400 / lo["h"]))
+    assert not makers._blocked(lo, (220 / lo["w"], 250 / lo["h"]))
     # 범위 전체가 섬 안이면 바다가 없다
     lo = osm.parse(_coast_xml([(-50, -50), (-50, 500), (500, 500), (500, -50), (-50, -50)]))
     assert "water" not in lo and "land" not in lo
@@ -425,7 +430,7 @@ def test_coastline_keeps_rivers_and_fill():
     lo = osm.parse(_coast_xml([(-100, 300), (600, 300)], extra=river))
     assert lo["rivers"] and lo["water"]
     # 빈 블록 채우기: 바다 쪽 블록은 채우지 않는다
-    from canon import fill
+    from canon.maps import fill
     lo = osm.parse(_coast_xml([(-100, 300), (600, 300)], extra=_road_grid()))
     out, info = fill.fill(lo, 1)
     sea = _polys(lo, "water")[0]

@@ -16,7 +16,8 @@ from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, ImpactReport, PlayInfo, Project, Selection, StateDelta, StoryElement
-from . import address, board, charlog, foreshadows, knows, mapprompt, pairlog, stage, statwin, timeline
+from . import address, board, charlog, foreshadows, knows, pairlog, stage, statwin, timeline
+from .maps import prompt as mapprompt
 
 SYSTEM_PLANNER = (
     "당신은 한국 웹소설/단편소설 기획 전문 편집자입니다. "
@@ -103,11 +104,42 @@ def meta_text(p: Project) -> str:
     return f"{dump(view)}\n\n[장르 안내]\n{genres.guide(p.meta)}"
 
 
-def rels(p: Project, ids: set[str] | None = None) -> str:
+def rels(p: Project, ids: set[str] | None = None, plan: bool = True) -> str:
     """관계 설정. a_view/b_view 는 시작 관계를 만드는 설정 단계 입력이라 뺀다 (지금 관계는 Tie 가 가진다).
-    ids 를 주면 그 인물끼리의 관계만 넣는다."""
-    return dump([r.model_dump(exclude={"a_view", "b_view"}) for r in p.relationships
-                 if ids is None or (r.a in ids and r.b in ids)])
+    ids 를 주면 그 인물끼리의 관계만 넣는다. 가 닿을 곳(destination)은 기획(plan)에만, 적었을 때만 넣는다.
+    상태 · 검수에 넣으면 지금 관계를 목적지 쪽으로 앞당겨 적는다 (감정 급변 연구 E6)."""
+    out = []
+    for r in p.relationships:
+        if ids is None or (r.a in ids and r.b in ids):
+            d = r.model_dump(exclude={"a_view", "b_view"})
+            if not plan or not d.get("destination"):
+                d.pop("destination", None)
+            out.append(d)
+    return dump(out)
+
+
+def destination_block(p: Project, ids: set[str] | None = None) -> str:
+    """관계 수치를 말로 넣는 기획 프롬프트(다음 아크 · 줄기)에 붙는 가 닿을 곳. 적은 쌍이 없으면 빈 글."""
+    name = {c.id: c.name for c in p.characters}
+    lines = [f"- {name.get(r.a, r.a)} ↔ {name.get(r.b, r.b)}: {r.destination}" for r in p.relationships
+             if r.destination.strip() and (ids is None or (r.a in ids and r.b in ids))]
+    return "\n[관계가 가 닿을 곳 (작가가 정한 방향, 지금 관계 아님. 한 화에 한 단계씩 다가감)]\n" + "\n".join(lines) if lines else ""
+
+
+def plan_stage_block(p: Project, ids: set[str]) -> str:
+    """장편 화별 플롯 초안의 지금 관계 단계 (마지막 반영 뒤). 방향마다 한 줄 라벨, 주역끼리 먼저, 예산(context.BUDGET["plan_stages"])까지.
+    관계 수치가 아직 없으면(첫 반영 전) 빈 글. 플롯이 한 화에 단계를 두 칸 넘게 옮기지 않게 하는 재료다 (pace.plot_warnings)."""
+    if not p.ties:
+        return ""
+    name = {c.id: c.name for c in p.characters}
+    core = context.core_ids(p)
+    ties = sorted((t for t in p.ties if t.source in ids and t.target in ids),
+                  key=lambda t: (not (t.source in core and t.target in core), t.source, t.target))
+    lines, cut = context.fit_lines([f"{name.get(t.source, t.source)} → {name.get(t.target, t.target)}: {t.stage}" for t in ties],
+                                   context.BUDGET["plan_stages"])
+    if not lines:
+        return ""
+    return "\n[지금 관계 단계 (한 화에 한 칸씩 움직임)]\n" + "\n".join(lines) + (f"\n(그 밖 {cut}줄 생략)" if cut else "")
 
 
 def setup_prompt(p: Project) -> str:
@@ -129,7 +161,7 @@ def setup_prompt(p: Project) -> str:
 요구사항:
 - 인물은 주인공 포함 3~6명. {p.meta.target_episodes}화 분량의 단편에 맞게 압축합니다.
 - 각 인물의 speech_style 은 대사 예시 한 줄을 포함해 구체적으로 씁니다.
-- 관계는 주요 인물 쌍마다 하나씩, affinity 와 tension 은 1화 시작 시점 기준입니다.
+- 관계는 주요 인물 쌍마다 하나씩, affinity 와 tension 은 1화 시작 시점 기준입니다. type 과 description 은 1화 시작 시점의 지금 관계만 적습니다. '앙숙에서 연인으로'처럼 이야기에서 가 닿을 곳은 destination 에 따로 적습니다.
 - a_view(a 가 b 를 보는 방식)와 b_view(b 가 a 를 보는 방식)는 {", ".join(VIEWS)} 중에서 1~2개 고릅니다. 두 방향이 달라도 됩니다.
 - 인물 id 는 영문 소문자로 짓고, 이미 있는 id 는 유지합니다.
 - 이미 입력된 인물도 characters 에 같은 id 와 같은 이름으로 넣고, 비어 있는 칸(성격, 배경, 외모, 아크, 원하는 것, 약점, 말투, 비밀 등)을 채웁니다. 이미 적힌 칸은 그대로 옮겨 적습니다.
@@ -308,7 +340,7 @@ def setup_chat_prompt(p: Project, message: str, mode: str = "") -> str:
 - 글 칸은 text, world.rules · world.locations · world.name_rules 는 items 에 씁니다. 목록은 그대로 둘 항목도 빠짐없이 넣습니다. 빠진 항목은 지워집니다.
 - characters 에는 이미 있는 인물의 바뀌는 칸만 (id, field) 하나씩 넣습니다. field 는 name, role, age, gender, appearance, personality, background, goal, wound, speech_style, secrets(목록, items), arc 입니다. id 와 서술 말투는 바꾸지 않습니다. speech_style 은 대사 예시 한 줄을 포함해 구체적으로 씁니다.
 - new_characters 에는 작가가 청했거나 요청을 이루는 데 꼭 필요한 인물만, 모든 칸을 채워 넣습니다. id 는 이미 있는 인물과 겹치지 않는 영문 소문자이고 narration_voice 는 비웁니다. gender(남/여)를 적고, 이름은 위 [이름·지명 후보]에서 고르거나 같은 시대와 결로 짓습니다. 다른 인물과 이름의 첫 글자나 끝 글자가 겹치지 않게 합니다.
-- relationships 에는 바뀌는 관계와 새 관계만, 두 인물 id 와 바뀐 뒤 값 전체를 넣습니다. 같은 두 인물이면 그 관계를 고칩니다. 새 인물을 넣으면 그 인물과 이미 있는 인물의 관계도 하나 이상 넣습니다.
+- relationships 에는 바뀌는 관계와 새 관계만, 두 인물 id 와 바뀐 뒤 값 전체를 넣습니다. 같은 두 인물이면 그 관계를 고칩니다. 새 인물을 넣으면 그 인물과 이미 있는 인물의 관계도 하나 이상 넣습니다. type 과 description 은 지금 관계만, 이야기에서 가 닿을 곳은 destination 에 적습니다.
 {rel_rule}
 - 인물이나 관계를 지우는 제안은 하지 않습니다. 지워야 한다고 보면 reply 에서 말하면 작가가 화면에서 지웁니다.
 {"- 이미 쓴 화의 본문은 바뀌지 않습니다. 쓴 내용과 어긋나는 설정 변경이면 reply 에서 어느 화와 어긋나는지 알립니다." + chr(10) if written else ""}- options 는 비웁니다."""
@@ -587,14 +619,14 @@ def serial_plot_prompt(p: Project, start: int, end: int, ahead: bool = True, red
 [등장할 수 있는 다른 인물 (id: 이름, 역할)]
 {roster_line(p, ids) or "없음"}
 [관계]
-{rels(p, ids | {c.id for c in static_characters(p)})}
+{rels(p, ids | {c.id for c in static_characters(p)})}{plan_stage_block(p, ids | {c.id for c in static_characters(p)})}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p) or "없음"}{lines_block(p)}
 
 {structure_text(p, start)}
 
 [지금까지의 줄거리]
-{story_so_far(p, start) or "없음 (첫 화)"}
+{story_so_far(p, start, plans=True) or "없음 (첫 화)"}
 [바로 앞 화 플롯 (확정 또는 초안, 이어지게 쓸 것)]
 {dump(near) if near else "없음"}{fixed_block(fixed, more)}{candidates_block(p)}
 [열린 복선]{f" (그 밖에 {fs_more}개는 이번 아크와 거리가 멀어 뺐습니다)" if fs_more else ""}
@@ -742,6 +774,7 @@ def plot_rules(p: Project, opening: bool = False) -> str:
     return common + f"""
 - act 는 그 화가 속한 아크 안의 기승전결 위치입니다. 아크의 conflict 가 결 구간에서 해결되고, 아크의 payoff 가 전 구간 끝이나 결 구간 첫 화에 확실하게 나옵니다.
 - 주인공이 막히는 구간은 2~3화를 넘기지 않고, 막힌 만큼 시원하게 푸는 화를 뒤에 둡니다.
+- 관계 단계(낯섦 · 경계 · 호감 · 신뢰 · 균열 · 적대 · 화해)는 한 화에 한 칸씩 움직입니다. 적대에서 친구가 되는 것처럼 두 칸 넘는 변화는 계기 사건 화와 받아들이는 화로 나눠 여러 화에 둡니다.
 - 매 화 ending_hook 을 둡니다. 장면 한가운데나 새 정보가 드러나는 순간에 끊습니다. 아크 마지막 화는 다음 아크로 이어지는 떡밥으로 끊습니다. 작품 마지막 화({p.meta.target_episodes}화)만 훅 대신 여운을 둡니다.
 - 이 아크에서 심은 작은 복선은 아크 안에서 회수합니다. 아크의 payoffs 에 있는 복선은 아크가 끝나기 전에 회수합니다. 부나 작품 끝까지 끌고 갈 복선은 심을 때 그렇다고 밝힙니다.
 - 첫 아크의 큰 보상은 25화 안에 둡니다 (무료 공개 구간 안에 보상이 와야 계속 읽는다는 연재 관습)."""
@@ -845,32 +878,44 @@ FORESHADOW_RECENT = 30  # 이 화수 안에 심은 복선은 늘 넣는다
 FORESHADOW_CAP = context.FORESHADOW_CAP
 
 
-def story_so_far(p: Project, n: int) -> str:
+def story_so_far(p: Project, n: int, plans: bool = False) -> str:
     """n화 직전까지의 줄거리. 단편은 화별 요약 전부. 장편은 끝난 부 → 이번 부의 끝난 아크 → 이번 아크의 화 순서로 접어서,
-    300화째에도 크기가 일정하다 (story_parts)."""
-    return "\n\n".join(x for x in story_parts(p, n) if x)
+    300화째에도 크기가 일정하다 (story_parts). plans 는 story_parts 와 같다."""
+    return "\n\n".join(x for x in story_parts(p, n, plans) if x)
 
 
-def story_parts(p: Project, n: int) -> tuple[str, str]:
+PLAN_ONLY = "(아직 안 씀, 플롯) "
+
+
+def story_parts(p: Project, n: int, plans: bool = False) -> tuple[str, str]:
     """(끝난 부와 아크의 접은 줄거리, 이번 아크의 화별 요약). 앞쪽은 아크가 끝날 때만 바뀌어 캐시가 맞는 자리에 둘 수 있다.
     장편은 블록 예산(context.BUDGET)을 넘으면 오래된 것부터 더 짧게 접는다. 요약이 아직 승인되지 않은 아크는
-    화별 요약 → 화마다 첫 문장 → 아크 한 줄 순서로 줄고, 승인된 요약은 마지막에야 첫 문장으로 줄인다."""
+    화별 요약 → 화마다 첫 문장 → 아크 한 줄 순서로 줄고, 승인된 요약은 마지막에야 첫 문장으로 줄인다.
+    plans: 쓰기 전에 앞 아크를 미리 기획해 둔 장편에서 뒤 아크를 기획할 때(플롯 초안 · 플롯 대화 · 다음 아크) 켠다.
+    이번 아크 앞의 아크에서 아직 반영하지 않은 화(요약 없음)는 플롯 요약으로, 플롯이 하나도 없는 아크는 아크 기획으로 채운다.
+    이번 아크의 화는 그 프롬프트들이 플롯 전체로 따로 넣으므로 요약이 있는 화만 둔다."""
     eps = sorted((e for e in p.episodes if e.plot.number < n and e.summary), key=lambda e: e.plot.number)
-    line = lambda e: f"{e.plot.number}화 {storylines.summary_tag(p, e)}{timeline.tag(p, e)}{e.plot.title}: {e.summary}"  # noqa: E731
-    short = lambda e: f"{e.plot.number}화 {storylines.summary_tag(p, e)}{timeline.tag(p, e)}{e.plot.title}: {context.first_sentence(e.summary)}"  # noqa: E731
+    told = lambda e: e.summary or (PLAN_ONLY if e.status in ("draft", "confirmed") else "(반영 전, 플롯) ") + e.plot.summary  # noqa: E731
+    line = lambda e: f"{e.plot.number}화 {storylines.summary_tag(p, e)}{timeline.tag(p, e)}{e.plot.title}: {told(e)}"  # noqa: E731
+    short = lambda e: f"{e.plot.number}화 {storylines.summary_tag(p, e)}{timeline.tag(p, e)}{e.plot.title}: {context.first_sentence(told(e))}"  # noqa: E731
     if not p.serial or not p.story_arcs:
         return "", "\n".join(map(line, eps))
     cur_arc = p.arc_for(n)
     cur_part = p.part_for(n)
     arc_start = cur_arc.start_ep if cur_arc else n
     part_start = cur_part.start_ep if cur_part else 1
+    planned = sorted((e for e in p.episodes if e.plot.number < min(n, arc_start) and (e.summary or e.plot.summary)),
+                     key=lambda e: e.plot.number) if plans else eps
     entries: list[list[str]] = []  # 블록마다 [자세히, 줄임, 한 줄]
 
     def arc_entry(a) -> list[str]:
         head = f"[아크 {a.number} {a.title} ({a.start_ep}~{a.end_ep}화)]"
         if a.summary:
             return [f"{head} {a.summary}"] * 2 + [f"{head} {context.first_sentence(a.summary, 200)}"]
-        inside = [e for e in eps if a.start_ep <= e.plot.number <= a.end_ep]
+        inside = [e for e in planned if a.start_ep <= e.plot.number <= a.end_ep]
+        if not inside and plans:
+            plan = f"{head} (아직 플롯 없음, 아크 기획) 목표: {a.goal} / 갈등: {a.conflict} / 보상: {a.payoff}"
+            return [plan, plan, f"{head} (아직 플롯 없음) 목표: {a.goal}"]
         if not inside:
             return [head] * 3
         return [head + "\n" + "\n".join(map(line, inside)),
@@ -989,7 +1034,7 @@ ATTIRE_STATE_RULE = (
 
 # 감정의 두 층: 겉 태도와 속마음(숨김 · 친한 척), 머리의 판단과 몸 · 감정의 끌림. 글 한 칸이 화마다 덮어써져
 # 한쪽 층이 사라지거나 한 화 만에 풀린다 (감정 급변 연구 2026-10-31). 쓰기에는 라벨만 가고, 지키는지는 검수가 본다.
-LAYER = re.compile(r"(?:겉|머리)\s*[:：][^/]*/\s*(?:속|몸)\s*[:：]")
+LAYER = re.compile(r"(?:겉|머리)\s*(?:\([^)]*\))?\s*[:：][^/]*/\s*(?:속|몸)\s*(?:\([^)]*\))?\s*[:：]")  # '겉(서태준 앞): …' 처럼 괄호로 상대를 붙여도 찾는다
 
 LAYER_STATE_RULE = (
     "\n- character_updates 의 emotional_state 는 짧은 라벨로 적습니다. 겉으로 보이는 태도와 속마음이 다르거나(감정을 숨김, 친한 척), "
@@ -999,6 +1044,15 @@ LAYER_STATE_RULE = (
     "본문에서 머리나 겉이 아직 버티고 있으면 그 층을 남깁니다. 한 층을 지우는 것은 본문에 들키거나 털어놓거나 스스로 받아들이는 장면이 있을 때뿐입니다.\n"
     "- 상대에게 숨긴 감정(좋아함, 미움, 의심)이 본문에 처음 드러났는데 상대는 모르면 secrets_added 에도 넣고 hidden_from 에 모르는 인물을 적습니다."
 )
+
+
+def stage_check_rule(p: Project) -> str:
+    """검수 요구사항 한 줄: 관계 단계를 계기 없이 한 칸 넘게 벗어난 말과 행동. 관계 수치가 없으면 빈 글."""
+    if not p.ties:
+        return ""
+    return ("\n- 관계 단계: 두 사람의 말과 행동이 [관계 현재 상태]의 단계(낯섦 · 경계 · 호감 · 신뢰 · 균열 · 적대 · 화해)에서 "
+            "한 칸 넘게 벗어나는지 봅니다. 예: 적대 단계인데 계기 장면 없이 다정하게 대함. 이번 화 본문이나 플롯에 계기 사건이 있으면 짚지 않습니다. "
+            "겉과 속이 다른 인물('겉: … / 속: …')의 겉 태도는 짚지 않습니다. type 은 인물 정보, source_episode 는 0, source_quote 는 그 관계 줄입니다.")
 
 
 def layered(states) -> list[str]:
@@ -1246,7 +1300,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 [다른 인물 (id: 이름, 역할)]
 {roster_line(p, set()) or "없음"}
 [관계 (주역 · 조연 · 최근 아크 인물)]
-{describe_relations(p, ids, secrets=plan_secrets) or rels(p, ids)}
+{describe_relations(p, ids, secrets=plan_secrets) or rels(p, ids)}{destination_block(p, ids)}
 [이야기 요소 (작가가 더한 설정과 사건, 시점 포함)]
 {elements.plan_block(p) or "없음"}{lines_block(p)}
 [인물 현재 상태]{knows_note(knows_cut)}
@@ -1257,7 +1311,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 {dump(p.parts) if p.parts else "부 구성 없음 (작품 전체가 한 부)"}
 
 [지금까지의 줄거리]
-{story_so_far(p, start) or "없음 (첫 아크)"}
+{story_so_far(p, start, plans=True) or "없음 (첫 아크)"}
 [직전 아크]
 {dump(prev.model_dump(exclude={"summary"})) if prev else "없음"}
 [직전 아크의 마지막 화 플롯]
@@ -1364,7 +1418,7 @@ def storyline_prompt(p: Project, note: str, kind: str) -> str:
 [다른 인물 (id: 이름, 역할)]
 {roster_line(p, set()) or "없음"}
 [관계]
-{describe_relations(p, ids, secrets=[] if p.serial else None) or rels(p, ids)}
+{describe_relations(p, ids, secrets=[] if p.serial else None) or rels(p, ids)}{destination_block(p, ids)}
 [비밀 (hidden_from 의 인물은 아직 모른다)]
 {dump(secrets) or "없음"}
 [이야기 요소]
@@ -1737,7 +1791,7 @@ def _serial_plot_parts(p: Project, scope) -> tuple[str, str, str]:
 {dump(p.parts) if p.parts else "부 구성 없음"}
 
 [지금까지의 줄거리]
-{story_so_far(p, lo) or "없음"}
+{story_so_far(p, lo, plans=True) or "없음"}
 {target_block}
 [가까운 아크]
 {dump(arcs) if arcs else "아직 없음"}
@@ -2498,7 +2552,7 @@ def board_block(p: Project, n: int) -> str:
 def canon_values_block(p: Project, n: int) -> str:
     """스토리보드 만들기에 넣는 'Canon 이 센 값': 요일 셈(작품 기준이 없으면 직전 화 기록 글에서), 상태창 지금 값, 가장 빠른 탈것.
     직전 화 끝 시점과 기한은 앞의 작품 속 시간 블록(timeline.episode_block)에 있다. 넣을 것이 없으면 빈 글."""
-    from . import travel
+    from .maps import travel
 
     lines = []
     cur = timeline.current_day(p, n)
@@ -2857,19 +2911,19 @@ def state_prompt(p: Project, n: int) -> str:
         ids = context.without_off(p, set(ep.plot.characters) | {c.id for c in static_characters(p)} | context.named_ids(p, ep.text))
         chars = [c for c in p.characters if c.id in ids]
         states, knows_cut = state_view(p, [s for s in p.states if s.character_id in ids], n, ep.text + "\n" + elements.plot_text(ep))
-        relations = rels(p, ids)
+        relations = rels(p, ids, plan=False)
         fs, _ = relevant_foreshadows(p, n)
         others = roster_line(p, ids)
         # 드러난 비밀, 이번 화 인물과 상관없는 비밀은 빼고 본문과 겹치는 것부터
         secrets, _ = context.pick_secrets(p, ids, ep.text + "\n" + elements.plot_text(ep), context.BUDGET["state_secrets"])
     else:
-        chars, states, relations, knows_cut = p.characters, p.states, rels(p), 0
+        chars, states, relations, knows_cut = p.characters, p.states, rels(p, plan=False), 0
         fs, others = [f for f in p.foreshadows if f.status == "open"], ""
         secrets = p.secrets
         if off := context.off_ids(p):  # '넣지 않음' 인물은 설정 · 상태 · 관계를 빼고 한 줄 목록에 (다시 만들지 않게)
             chars = [c for c in p.characters if c.id not in off]
             states = [s for s in p.states if s.character_id not in off]
-            relations = rels(p, context.without_off(p, None))
+            relations = rels(p, context.without_off(p, None), plan=False)
             others = ", ".join(f"{c.id}: {c.name}({c.role})" for c in p.characters if c.id in off)
     return f"""{n}화 본문을 읽고 상태 변경안을 작성하세요.
 
@@ -2894,8 +2948,8 @@ def state_prompt(p: Project, n: int) -> str:
 요구사항:
 - episode 는 {n} 입니다.
 - 변화가 있는 인물만 넣습니다.
-- events 에는 인물 사이에 일어난 관계 사건을 본문 순서대로 적습니다. kind 는 정해진 목록에서 고르고, intensity 는 1(가벼움)~3(결정적), quote 에는 근거 문장을 본문에서 그대로 옮깁니다. 관계 수치는 프로그램이 사건으로 계산하므로 적지 않고, 수동보정은 쓰지 않습니다.
-- relationship_updates 에는 관계 유형이나 설명이 바뀐 쌍만 넣습니다.
+- events 에는 인물 사이에 일어난 관계 사건을 본문 순서대로 적습니다. kind 는 정해진 목록에서 고르고, intensity 는 1(가벼움)~3(결정적)이고 3 은 한 쌍에 그 화의 전환점 하나에만 씁니다. quote 에는 근거 문장을 본문에서 그대로 옮깁니다. 관계 수치는 프로그램이 사건으로 계산하므로 적지 않고, 수동보정은 쓰지 않습니다.
+- relationship_updates 에는 관계 유형이나 설명이 바뀐 쌍만 넣습니다. 유형은 이번 화까지 쌓인 사건만큼만 바꿉니다(앙숙이 한 번 도왔다고 친구가 되지 않음).
 - 새로 생긴 비밀은 secrets_added 에 넣고, 비밀이 드러난 사건에는 reveals_secret 에 비밀 id 를 적습니다.
 - 새 복선 id 는 fs-{n:02d}-키워드 형식으로 짓습니다. 이번 아크 안에서 회수할 작은 복선은 scope 를 arc, 부나 작품 끝까지 갈 복선은 part 나 series 로 둡니다.
 - 인물 설정과 목록에 없는 인물이 이름을 갖고 처음 나왔으면 new_characters 에 넣습니다. 조연은 tier 를 support, 지나가는 인물은 minor 로 두고, 본문에서 드러난 것만 적습니다.
@@ -2927,7 +2981,7 @@ def _check_full(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
         )
     off = context.off_ids(p)  # '넣지 않음' 인물의 상태 · 관계는 뺀다
     states = [s for s in p.states if s.character_id not in off] if off else p.states
-    relations = rels(p, context.without_off(p, None)) if off else rels(p)
+    relations = rels(p, context.without_off(p, None), plan=False) if off else rels(p, plan=False)
     return (chr(10).join("- " + f for f in p.facts) or "없음", dump(states) or "1화 시작 시점, 설정 그대로",
             relations if p.relationships else "없음", dump(p.secrets) or "없음", past, "")
 
@@ -2974,7 +3028,7 @@ def _check_budget(p: Project, n: int, sized: bool = False) -> tuple[str, str, st
     facts_text = (f"(이번 화와 관련된 것만, {cut}개 생략)\n" if cut else "") + (chr(10).join("- " + f for f in facts) or "없음")
     picked, knows_cut = state_view(p, [s for s in p.states if s.character_id in ids], n, ep.text + "\n" + elements.plot_text(ep))
     states = (f"(아는 정보는 이번 화와 관련된 것부터, {knows_cut}개 생략)\n" if knows_cut else "") + (dump(picked) or "1화 시작 시점, 설정 그대로")
-    relations = describe_relations(p, ids, secrets=[]) or rels(p, ids) or "없음"  # 비밀은 아래 비밀 칸에
+    relations = describe_relations(p, ids, secrets=[]) or rels(p, ids, plan=False) or "없음"  # 비밀은 아래 비밀 칸에
     picked, _ = context.pick_secrets(p, ids, ep.text + "\n" + elements.plot_text(ep), context.BUDGET["state_secrets"])
     secrets = dump(picked) or "없음"
     note = (" (직전 화는 원문, 그보다 앞은 줄거리 요약과 이번 화와 겹치는 단락 발췌. 발췌에서 인용할 때 source_episode 는 그 발췌의 화)"
@@ -2998,7 +3052,7 @@ def check_prompt(p: Project, n: int, mode: str = "", sized: bool = False) -> str
 {n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
 - 확인할 것: 확정 사실, 이야기 요소와 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
 - 동선: 한 장면 안에서 인물의 위치, 몸이 향한 쪽(앞 · 뒤, 등 · 배), 자세, 손에 든 것, 가려진 곳이 바꾸는 행동 없이 달라지는지 봅니다. 예: 등을 돌리고 망토로 몸을 가렸는데 다음 문장에서 그 인물의 표정이나 가슴께가 보임. 이때 source_episode 는 {n}, source_quote 는 같은 화의 앞 문장입니다.
-- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{layer_check_rule(p, check_cast(p, n) if (mode or ("budget" if p.serial else "full")) == "budget" else None)}{address.check_rule(p)}{statwin.check_rule(p)}{protect_check_rule(p.episode(n))}{pairlog.check_rule(pair_check_block(p, n, mode))}
+- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{stage_check_rule(p)}{layer_check_rule(p, check_cast(p, n) if (mode or ("budget" if p.serial else "full")) == "budget" else None)}{address.check_rule(p)}{statwin.check_rule(p)}{protect_check_rule(p.episode(n))}{pairlog.check_rule(pair_check_block(p, n, mode))}
 - source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 설정이나 인물 상태면 source_episode 는 0 입니다.
 {SEVERITY_RULE}
 - 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
@@ -3536,12 +3590,12 @@ def impact_prompt(p: Project, el: StoryElement, linked: set[int]) -> str:
     confirmed = [e.plot.number for e in p.episodes if e.status == "confirmed"]
     others = "\n".join(elements.describe(p, x) for x in p.elements if x.id != el.id and x.context != "off")
     open_fs = [f for f in p.foreshadows if f.status == "open"]
-    chars, relations, facts, texts = p.characters, rels(p), p.facts, impact_texts(p, linked)
+    chars, relations, facts, texts = p.characters, rels(p, plan=False), p.facts, impact_texts(p, linked)
     others_line, facts_note, fs_note = "", "", ""
     if p.serial:  # 장편: 요소와 관련 화에 나오는 인물 설정만 자세히, 사실은 요소와 관련된 순서로 예산만큼, 본문은 한도를 줄인다
         ids = {c.id for c in static_characters(p)} | set(el.characters) | {
             c for e in p.episodes if e.plot.number in linked | set(el.episodes) for c in e.plot.characters}
-        chars, relations = [c for c in p.characters if c.id in ids], rels(p, ids)
+        chars, relations = [c for c in p.characters if c.id in ids], rels(p, ids, plan=False)
         others_line = roster_line(p, ids)
         if len(p.facts) > FACTS_FILTER_FROM:
             facts, cut = context.pick_facts(p, set(el.characters), f"{el.name} {el.description}",
@@ -4129,7 +4183,7 @@ def map_suggest_prompt(p: Project, rows: list[dict], places: list[dict], kinds: 
                        chosen: str = "") -> str:
     """rows: atlas.gen_places (지금 고른 종류), places: atlas.places (설명),
     kinds: 지도 종류(village, city, modern)마다 장소 종류 (id, 이름) 목록 (placekinds.kinds_for). 목록이 같은 지도 종류는 한 절로 묶는다,
-    options: 지도 종류마다 설정 칸 (towngen.OPTIONS, citygen.OPTIONS, moderngen.OPTIONS), chosen: 지도 화면에서 지금 고른 지도 종류."""
+    options: 지도 종류마다 설정 칸 (atlas.MAKERS 의 생성기 OPTIONS), chosen: 지도 화면에서 지금 고른 지도 종류."""
     desc = {pl["key"]: pl for pl in places}
     lines = []
     for r in rows:

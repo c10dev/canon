@@ -46,7 +46,9 @@
   - `_stage_run`
   - 갈래별 찾은 수 `by_kind` · 기록 합계 `check_totals`
 - 블라인드 비교
+- 고르지 않은 비교본 목록 `open_compares`
 - 작품 데이터와 분리해 `research/log.jsonl` 에 기록
+- 갈래마다 마지막 기록 `latest`(연구 개요가 `history` 30개 밖의 실험도 보인다)
 
 ### `canon/revlab.py`
 
@@ -54,6 +56,9 @@
 - 작가가 넣은 소설을 거꾸로 화별 플롯 · 스토리보드 · 큐 시트 · 이야기 줄기로 푼다
 - 그 큐 시트로 같은 화를 다시 써서(되돌려 쓰기) 원문과 견준다
 - 작품 밖 `<CANON_HOME>/.revlab/<번호>.json`(`RevLab`, `load` · `save` · `with_lock` · `create` · `replace_text`, 화 이어 붙이기 `append_text`: 마지막 화 + 1 부터, 앞 화 결과는 그대로)
+- 화 하나 고치기(`edit_episode`, 웹 `PUT /api/revlab/{번호}/episodes/{n}`): 글이 바뀌면 그 화의 결과 · 되돌려 쓴 판만 지운다. 제목 줄만 바뀌면 결과는 그대로
+- 화 빼기(`drop_episode`, 웹 `DELETE /api/revlab/{번호}/episodes/{n}`): 뒤 화 번호와 줄기의 `branch_ep` · `join_ep` 를 하나씩 당긴다. 마지막 남은 화는 빼지 않는다
+- 화 고치기 · 빼기는 그 실험의 작업이 도는 동안 409(`web._rev_idle`, 작업이 화 번호로 결과를 넣는다)
 - 화 나누기(`split`: 'n화' 제목 줄 → `===` 줄 → 빈 줄 셋 넘게 → 한 화, `check_text`, 화면 `revSplit` 과 같은 규칙)
 - 큐 경계(`locate`: AI 가 원문 글자 그대로 인용한 시작 문장 `RevCue.start` 를 차례로 찾음, 글자 수는 `measured`)
 - 원문에 없는 핵심 대사 빼기(`keep_lines`, `cue._flat`)
@@ -82,17 +87,33 @@
 
 ### `canon/soelab.py`
 
-- 쇠맛 실험실(작품 밖 `<CANON_HOME>/.soelab/`, 화면은 PR3)
+- 쇠맛 실험실(작품 밖 `<CANON_HOME>/.soelab/`, 화면은 `static/soelab.js`, 웹 `/api/soelab/...`)
 - 쇠맛 지표가 사람 글과 AI 글 · 작가 판정을 가르는지 잰다
 - 프로세스 사이 잠금 `_lock`(`fcntl.flock`) · `save_json` · `append_label`(labels.jsonl 덧붙이기)
 - 정규화 `normalize` · `chunks`(2,000자 문장 끝)
 - 모으기 `collect_revlab` · `collect_episodes`(모델은 `write_models`: usage.jsonl 마지막 성공한 write) · `collect_edits` · `collect_research` · `collect_paste` → `add`(같은 글 한 번 · 원천 상한 `CAP`)
-- 대기열 `extend_queue`(판정한 자리 · 다시 읽기 예정은 고정, 1차 `FIRST` 묶음마다 한 조각)
+- 대기열 `extend_queue`(판정한 자리 · 다시 읽기 예정 · 예비는 고정, 1차 `FIRST` 묶음마다 한 조각)
+- 세 자리마다 다시 읽기 자리 하나(`_redo_slot`), 여섯 자리마다 예비 자리 하나(`_spare_slot`)를 시드로 섞는다(이번 10개 안 자리가 짐작되지 않게)
 - 판정 `judge` · `redo`(7일 뒤) · `hidden_ids`
+- 화면에서 빼는 조각 `masked_ids`: 가린 조각 + 끝나지 않은 '이번 10개' `open_batch`
+- 예비(모두의 1/6, `SPARE_EVERY`): 판정 뒤에도 정답을 숨기는 조각 `spare_ids` · 화면 값 `spare_state`
+- 예비 열기: 판정 일관성이 보류일 때만 `open_spares`(15개까지 `SPARE_OPEN`)
+- 판정 60개에 닿으면 재판정을 30개까지 예비로 채운다 `fill_at_60`(`FILL_AT` · `FILL_TO`, 한 번)
+- 예비 정답 보여 주기 `show_spares`: 보류 아님 보고서 · 여기서 멈추기 · 90개 끝 가운데 먼저 온 때
 - 채점 `features`(저장 안 함, 열쇠 `METRICS_VERSION`)
 - 보고서 `report`(출처 기준 · revlab 짝 · 작가 판정 · 모델별 참고 · 패턴 · 판정 일관성) · `view` · `export`(원문 · quote · 메모 없음)
+- 보고서는 끝나지 않은 이번 10개의 판정을 작가 판정 기준 · 패턴 · 판정 일관성에 넣지 않는다
+- 화면 값 `screen`(진행 · 다시 읽기 `redo_state` · 최근 보고서 `latest_report` · `report_summary` · 낡음 `corpus_key` · `labels_key`)
+- 진행 상태 `load_state` · `set_state`(`state.json`: 목표 40 · 60 · 90, 멈춤, 넘긴 정답 카드, `spare_shown`, `filled`)
+- 가려 읽기 `judge_view` · `save_judge`(이번 10개를 마치면 다시 채점) · 정답 `batch_reveal`(끝난 이번 10개만) · `redo_view`
+- 모으기 화면 `sources` · `gather` · `plan_add`(저장 없는 미리보기) · `collect`
+- 조각 `pieces_view` · `piece_view` · `remove_piece` · `set_origin`(붙여 넣은 글만)
+- 지표 하나 `metric_view`(점 그림 · 곡선 · 끝 조각은 가린 조각을 뺌)
+- 패턴 확인 `check_items` · `check_view` · `save_check`(`SoeLabel` kind hit, 가리지 않음) · 혼동표 `patterns_view`
+- 기록 `reports`, 지금 경고 기준 글 `threshold_text`
 - 스키마 `SoeSource` · `SoePiece` · `SoeSpan` · `SoeLabel`
 - 명령줄 `soelab collect | report | export`
+- 시험 `tests/test_soelab.py` · `tests/test_soelab_web.py`
 - LLM 호출 없음
 
 ### `canon/static/revlab.js`
@@ -105,7 +126,7 @@
   - 작품 사이드바 · ⋯ 메뉴의 링크
   - 작품 밖 사이드바(`outSidebar`)
   - 작품에서 들어왔으면 머리에 그 작품으로 가는 버튼 `revBackBtns`(`S.revFrom`, `routeNow` 가 적음)
-- 처음 화면(`revHome`)은 이어 하기 카드(목록 값 `revlab.summary` 의 `steps` · `updated` → `revLabLite` · `revHomeCard`)와 머리 '+ 새 실험'으로 펴는 새 실험 칸(`revNewToggle`, 붙여 넣기 · 첫 화 번호 짐작 `revGuessFirst` · 나누기 미리보기 `revPreview`, `revNewCard`)
+- 처음 화면(`revHome`)은 이어 하기 카드(목록 값 `revlab.summary` 의 `steps` · `updated` → `revLabLite` · `revHomeCard`)와 머리 '+ 새 실험 만들기'으로 펴는 새 실험 칸(`revNewToggle`, 붙여 넣기 · 첫 화 번호 짐작 `revGuessFirst` · 나누기 미리보기 `revPreview`, `revNewCard`)
 - 실험 화면은 다른 단계 화면과 같은 공용 목차 틀(`outline.js`)의 왼쪽 목차 + 오른쪽 칸(`revLayout` · `revToc`, 칸은 남은 폭을 다 씀 `wide`, 위쪽 띠가 없어 `--outline-band: 0px`)
 - 목차 맨 위 개요
   - 주소에 화가 없을 때
@@ -116,6 +137,7 @@
   - 문체 프로필 `revStyleCard`
   - 이야기 줄기 `revLinesCard`
   - 지표 모아 보기 `revMetricsAll`
+- 목차의 화 줄마다 ⋯ 메뉴(`revEpMenu`): 글 고치기 칸 `revEpEditCard` · 지우기(위험한 묶음에 접음)
 - 머리 주 버튼은 다음 할 일(`revNext`, `revGoBtn`) · ⋯ 메뉴(글 · 이름 고치기 `revEditCard` · 다시 역설계 `revRedo`(개요의 풀 화 표) · 지우기)
 - 오른쪽 맨 위 도는 작업 카드(`revRunCard`: 화별 줄 `revRunRows`, 작업의 `pending` · `done`, 한 화가 끝날 때마다 다시 받기 `revJobStep`)
 - 화 탭 셋
@@ -128,9 +150,27 @@
 - `revSplit` · `revPreview` · `revAppendPreview` · `revSegments` · `revEpTitle` · `revSteps` · `revNext` · `revTocEps` · `revRunRows` · `revMetricRows` · `revLabLite` · `revHomeCard` · `revOverviewRow` 는 순수 함수(`tests/test_revlab.py`)
 - CSS 는 JS 에서 주입
 
+### `canon/static/soelab.js`
+
+- 쇠맛 실험실 화면(작품 밖 `#/soelab[/corpus | judge | redo | metrics[/<지표 id>] | patterns[/check] | log]`)
+- `app.js` 라우팅이 작품 밖 사이드바(`outSidebar`) 옆에 `viewSoe` 를 그린다(불러오기 `soeLoad`)
+- 작품 사이드바 '실험' 묶음 🧪 · ⋯ 메뉴 · 작품 밖 도구에서 들어온다
+- 공용 목차 틀(`outline.js`)의 목차 `soeToc`(개요 · 단계 넷 `soeSteps` · 지표 14줄 · 전체), 판정하는 동안은 지표 · 전체를 접음
+- 오른쪽 칸 `.soe-main`(container `soe`: 760 · 560px)
+- 머리 주 버튼 `soeGoBtn`(다음 할 일 `soeNext`)
+- 개요 `soeOverview`(진행 `soeProgress`, 보류 `soeHoldCard`, 표 `soeTable`: 칸 `soeCell` · 범위 막대 `soeRng` · 모델별 줄)
+- 말뭉치 `soeCorpus`(모으기 카드 `soeCollectCard` · 미리보기 `soePreviewHtml`)
+- 가려 읽기 `soeJudgePane`(원고 `soeMs`, 떠 있는 도구 `soeTool` · 자리 `soePlace`, 판정 띠 `soeStrip`, 손가락 기기는 문장 누르기)
+- 정답 카드 `soeBatchCard`, 1차 · 60 · 90개 카드 `soeMilestoneCard`, 다시 읽기 `soeRedoPane`
+- 지표 대조 `soeMetricsPane` · 지표 하나 `soeMetricOne`(`soeDotPlot` · `soeRoc`)
+- 패턴 혼동표 `soePatterns` · 패턴 확인 `soeCheckPane` · 기록 `soeLogPane`
+- 순수 함수 `soeVerdict`(labstats.verdict 와 같은 규칙) · `soeSentences` · `soeSentenceAt`(metrics.sentence_spans 와 같은 경계) · `soeRedoDue` · `soeNext` · `soeSteps` · `soeRound` · `soeMarkMerge`
+- 순수 함수 시험 `tests/test_soelab_js.py`
+- CSS 는 JS 에서 주입한다
+
 ### `canon/stattrial.py`
 
-- 상태창 넣기 시험(연구 화면 '상태창 시험' 탭, 명령줄 `stattrial`)
+- 상태창 넣기 시험(연구 화면 '상태창 시험' 쪽, 명령줄 `stattrial`)
 - 조건 `CONDITIONS`(none · json · lines, `stat_window.prompt` 만 바꾼 사본 `variant`)
 - 시험할 화(`candidates`, 추천 `default_pick`)
 - 그 화를 쓰기 직전 사본(`before`, `pipeline.revert`)
@@ -140,4 +180,6 @@
 - 실행(`run`: 실험 기록 kind statwin, 조건마다 첫 안을 블라인드 비교본 kind statwin 으로)
 - 작품은 저장하지 않는다
 - 화면은 `static/stattrial.js`
+- 화면은 고를 때마다 비용을 추정해(`stEst`, AI 없음) 머리 주 버튼 글에 적는다(`stHeadBtn`)
+- 지난 시험은 틀린 비율 막대(`stBars`, 한 계열)와 방식별 표
 - 웹 작업 `stattrial`

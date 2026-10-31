@@ -92,7 +92,7 @@ function agentPanel() {
       <button type="button" class="sess-btn" data-action="agentMenuToggle" aria-haspopup="true" aria-expanded="${S.agentMenu}">
         <strong><span class="sess-title">${esc(title)}</span>${AGENT_ICON.down}</strong><span class="small">${esc(sub)}</span></button>
       <div class="row" style="gap:4px;flex-wrap:nowrap">
-        <button type="button" class="btn small" data-action="agentNew">새 세션</button>
+        <button type="button" class="btn small" data-action="agentNew">새 세션 열기</button>
         <button type="button" class="btn icon-btn" data-action="toggleChat" aria-label="닫기">✕</button></div>
       ${S.agentMenu ? agentMenu() : ''}
     </div>

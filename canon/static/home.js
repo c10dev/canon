@@ -193,7 +193,7 @@ function plBody() {
     const head = t && t !== last ? `<li class="pl-group" role="presentation">${PL_TIME.find(([k]) => k === t)[1]}</li>` : '';
     last = t;
     return head + plGroupRows(g);
-  }).join('') + (plain ? r.lost.map((y) => plRow(y, { title: y.play.title, href: `#/play/${enc(y.name)}`, meta: '플레이 · 세계 작품을 찾지 못함', prog: '<span class="pl-prog small">-</span>' })).join('') : '');
+  }).join('') + (plain ? r.lost.map((y) => plRow(y, { title: y.play.title, href: `#/play/${enc(y.name)}`, meta: '플레이 · 세계 작품을 찾지 못했어요', prog: '<span class="pl-prog small">-</span>' })).join('') : '');
   const more = cut ? `<div class="pl-more"><button type="button" class="btn small" data-action="plAll">${r.groups.length - PL_PAGE}개 더 보기</button><span class="small">${PL_PAGE} / ${r.groups.length} · 찾기나 거르기를 쓰면 모두 보여요</span></div>` : '';
   return `${seg}${rows ? `<ul class="pl-list" aria-label="작품 ${r.groups.length}개"><li class="pl-row pl-headrow" aria-hidden="true"><span>제목</span><span>진행</span><span>다음 할 일</span><span>고친 때</span><span></span></li>${rows}</ul>${more}`
     : `<p class="note plain">${S.plQuery ? `'${esc(S.plQuery)}'에 맞는 작품이 없어요.` : '이 상태의 작품이 없어요.'}</p>`}`;
@@ -252,7 +252,7 @@ function newProjectForm(open) {
       </fieldset>
       ${genrePicker()}
       ${adultCheck(`id="np-adult"${f.adult ? ' checked' : ''}`)}
-      ${(S.libs || []).length ? `<div class="field"><label for="np-style">문체 <span class="hint">라이브러리에서 고르면 문체 단계를 건너뛸 수 있어요. 나중에 바꿔도 돼요</span></label>
+      ${(S.libs || []).length ? `<div class="field"><label for="np-style">문체 <span class="hint">라이브러리에서 고르면 ${stepLabel('style')} 단계를 건너뛸 수 있어요. 나중에 바꿔도 돼요</span></label>
         <select id="np-style"><option value="">나중에 정하기</option>${S.libs.map((x) => `<option value="${esc(x.id)}"${f.style === x.id ? ' selected' : ''}>${esc(x.name)}${x.source ? ` · ${esc(x.source)}` : ''}</option>`).join('')}</select></div>` : ''}
       <div class="row np-actions">${(S.projects || []).length ? '<button type="button" class="btn" data-action="npToggle">닫기</button>' : ''}<button type="submit" class="btn primary">만들고 설정 시작</button></div>
     </form>`;
@@ -607,7 +607,7 @@ function homeTodoCard() {
 /** 전 화수를 상태별로 나눈 막대와 수. 예전 '진행 단계' 카드의 수도 여기 한 줄로 */
 function homeProgress(p) {
   const c = homeCounts(p);
-  const parts = [['finalized', '반영', c.finalized], ['written', '작성됨', c.written], ['confirmed', '확정', c.confirmed], ['draft', '초안', c.draft], ['none', '플롯 없음', c.none]];
+  const parts = [['finalized', STATUS.finalized, c.finalized], ['written', STATUS.written, c.written], ['confirmed', STATUS.confirmed, c.confirmed], ['draft', STATUS.draft, c.draft], ['none', '플롯 없음', c.none]];
   const pct = (x) => `${Math.round((x / c.target) * 1000) / 10}%`;
   const hasStyle = !!(p.style.narration_pov || p.style.sample_passages.length);
   return `<div class="home-bar" role="img" aria-label="전 ${c.target}화: ${parts.filter(([, , x]) => x).map(([, l, x]) => `${l} ${x}`).join(' · ')}">${parts.slice(0, 4).filter(([, , x]) => x).map(([k, , x]) => `<i class="${k}" style="width:${pct(x)}"></i>`).join('')}</div>
@@ -637,7 +637,7 @@ function viewHome() {
     const n = e.plot.number;
     const href = `${base()}/${epStage(e)}/${n}`;
     const act = !serial() && actOf(n);
-    const st = e.auto ? '자동 반영' : STATUS[e.status].replace('플롯 ', '').replace('본문 ', '');
+    const st = e.auto ? '자동 반영' : STATUS[e.status];
     const now = n === cur && e.status !== 'finalized';
     // 좁은 폭에서는 상태 글자를 눈으로만 감춘다. 이름은 aria-label 로 늘 '3화 작성됨 · 제목'
     const up = n <= released;

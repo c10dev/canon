@@ -7,7 +7,7 @@ const AUTO_STATUS = {
   running: ['진행 중', 'confirmed'], paused: ['일시정지', 'written'], review: ['검토 대기', 'written'],
   stopped: ['중지됨', 'draft'], done: ['끝남', 'finalized'], error: ['오류로 멈춤', 'written'],
 };
-const AUTO_STEP = { board: '스토리보드 만드는 중', cues: '큐 시트 만드는 중', write: '본문 쓰는 중', review: '검수와 상태 변경안 만드는 중', confirm: '플롯 확정', applied: '반영함' };
+const AUTO_STEP = { board: '스토리보드 만드는 중', cues: '큐 시트 만드는 중', write: '본문 쓰는 중', review: '검수와 상태 변경안 만드는 중', confirm: '플롯 확정', applied: '반영 완료' };
 // 관계 변화 민감도: 한 인물이 다른 인물을 보는 온기나 신뢰가 한 화에 이만큼 넘게 바뀌면 멈춘다
 const AUTO_SHIFT = [[0.2, '민감하게 (작은 변화에도 멈춤)'], [0.3, '보통'], [0.45, '둔하게 (큰 변화에만 멈춤)'], [0, '보지 않음']];
 
@@ -107,7 +107,7 @@ function autoPoll(delay = 3000) {
     }
     // 서버가 다시 시작돼 하던 단계를 처음부터 다시 하면 한 번 알린다 (끊긴 호출 비용은 실행 비용에 없다)
     if (restarts != null && fresh && fresh.run && (fresh.run.restarts || 0) > restarts) {
-      toast('서버가 다시 시작돼 자동 집필을 이어 가요. 끊긴 단계는 처음부터 다시 해요. 진행 로그에서 확인하세요');
+      toast('서버가 다시 시작돼 자동 집필을 이어 가요. 끊긴 단계는 처음부터 다시 해요. 진행 기록에서 확인해요');
     }
     S.auto = fresh;
     const changed = fresh && fresh.run && (sig(fresh.run) !== before || !!fresh.active !== wasActive);
@@ -261,57 +261,109 @@ function autoHaltLinks(r) {
   }
 }
 
-/** 멈춘 실행의 승인 정책 고치기. 새로 시작하지 않아 검토 대기와 기다리던 배치를 그대로 둔다. */
-function autoRunPolicy(r) {
-  if (!S.autoRunPolicy || S.autoRunPolicy.started !== r.started) S.autoRunPolicy = { started: r.started, policy: { ...r.policy } };
-  const changed = JSON.stringify(S.autoRunPolicy.policy) !== JSON.stringify(r.policy);
-  return `<details class="auto-run-policy"${S.autoRunPolicyOpen || r.halt === 'plot_draft' ? ' open' : ''}><summary>승인 정책 바꾸기</summary>
-    <p class="small">바꾼 정책은 다음 판정부터 적용돼요. ${r.status === 'review' ? `지금 검토를 기다리는 ${r.ep}화 변경안은 그대로 남아요.` : '검토 대기와 기다리던 배치는 그대로예요.'}</p>
-    ${autoPolicyForm(S.autoRunPolicy, false, 'auto-run')}
-    <div class="row"><button class="btn small primary" data-action="autoSetPolicy"${changed ? '' : ' disabled'}>정책 적용</button></div>
-  </details>`;
+/** 멈춘 이유 한 줄에서 갈 곳 (review_reasons 의 문장 머리로 고른다). 없으면 null */
+function autoReasonLink(reason, n) {
+  if (!n) return null;
+  if (/^검수에서/.test(reason)) return { href: `${base()}/check/${n}`, label: `${n}화 검수 결과 보기` };
+  if (/^관계/.test(reason)) return { href: `${base()}/cast`, label: '관계도 보기' };
+  if (/초반 화/.test(reason)) return { href: `${base()}/write/${n}`, label: `${n}화 읽으러 가기` };
+  return null;
+}
+
+/** 승인 정책을 세 줄로: [이름, 글]. 읽기 카드 (autoPolicyForm 의 칸과 같은 뜻) */
+function autoPolicySummary(p) {
+  const on = [];
+  const off = [];
+  const go = [p.check ? '화마다 검수' : '검수 안 함'];
+  if (p.storyboard && (P().settings.storyboard ?? P().meta.form === 'serial')) go.push('스토리보드를 만들고 쓰기');
+  if (p.cue_sheet && cueOn()) go.push('큐 시트를 만들고 쓰기');
+  go.push(p.confirm_plots ? '초안 플롯도 확정하고 쓰기' : '초안 플롯에서 멈춤');
+  if (p.check) on.push(p.max_issues ? `검수 어긋남 ${p.max_issues + 1}개부터${p.ignore_minor ? '(사소한 것 빼고)' : ''}` : `검수 어긋남 1개부터${p.ignore_minor ? '(사소한 것 빼고)' : ''}`);
+  (p.check && p.stop_on_critical ? on : off).push('치명 지적');
+  (p.max_shift ? on : off).push(p.max_shift ? `관계 ${p.max_shift} 넘게 움직임` : '관계 움직임');
+  (p.stop_on_stage ? on : off).push('관계 단계 바뀜');
+  (p.stop_on_warnings ? on : off).push('변경안 경고');
+  (p.hand_pick_opening ? on : off).push('1~3화 직접 고름');
+  (p.review_every ? on : off).push(p.review_every ? `${p.review_every}화마다 읽기` : 'n화마다 읽기');
+  return [['진행', go.join(' · ')], ['멈추는 때', on.join(' · ') || '없음'], ['멈추지 않음', off.join(' · ') || '없음']];
+}
+
+/** 화 칸 띠에 그릴 화: [{ n, cls, label }]. 화가 많으면 지금 화 둘레 40칸만 */
+function autoCells(p, r) {
+  const total = r.target;
+  const applied = new Set(r.applied || []);
+  const at = Math.min(r.ep || total, total);
+  const from = total > 40 ? Math.max(1, Math.min(at - 9, total - 39)) : 1;
+  const to = Math.min(total, from + 39);
+  const out = [];
+  for (let n = from; n <= to; n += 1) {
+    const e = p.episodes.find((x) => x.plot.number === n);
+    const st = e ? e.status : 'none';
+    const cls = st === 'finalized' ? (applied.has(n) ? 'auto' : 'finalized') : st === 'none' ? '' : st;
+    out.push({ n, cls: `${cls}${n === r.ep && ['review', 'paused', 'error', 'running'].includes(r.status) ? ' cur' : ''}`, label: STATUS[st] || '플롯 없음' });
+  }
+  return out;
 }
 
 function autoBatchToggle(on, attrs = '') {
   return `<div class="seg" role="group" aria-label="배치"><button type="button" aria-pressed="${!on}" data-action="autoBatch" data-arg="off"${attrs}>배치 끔 · 빠르게</button><button type="button" aria-pressed="${on}" data-action="autoBatch" data-arg="on"${attrs}>배치 켬 · 절반 비용</button></div>`;
 }
 
+const autoMan = (x) => new Intl.NumberFormat('ko-KR', { notation: 'compact', maximumFractionDigits: 1 }).format(x || 0);
+
 function autoRunCard(r, active) {
   // 서버와 연결이 끊기면 마지막 상태를 '진행 중'으로 두지 않는다 (autoPoll 이 S.autoOffline 을 정한다)
   const [label, cls] = S.autoOffline ? ['연결 끊김', 'draft'] : AUTO_STATUS[r.status] || [r.status, ''];
-  if (S.autoOffline) active = false;
   const p = P();
   const total = r.target;
   const done = p.episodes.filter((e) => e.plot.number <= total && e.status === 'finalized').length;
   const waiting = Object.keys(r.batches || {});
   // 시작 직후에는 ep 가 아직 없다. 빈칸 대신 준비 중이라고 보인다
   const step = !active ? '' : r.ep ? `${r.ep}화 ${AUTO_STEP[r.step] || r.step}${waiting.length ? ' · 배치 결과 기다리는 중' : ''}` : '첫 화를 준비하는 중';
-  let buttons = '';
-  if (active) {
-    buttons = `<button class="btn" data-action="autoPause">일시정지</button><button class="btn" data-action="autoStop">중지</button>`;
-  } else if (r.status === 'review') {
-    buttons = `<button class="btn primary" data-action="autoOpenReview">${r.ep}화 변경안 검토하기</button>
-      <button class="btn" data-action="autoResume" data-arg="approve"${pendingStale(r) ? ' disabled aria-describedby="auto-stale"' : ''}>그대로 반영하고 이어 가기</button>
-      <button class="btn" data-action="autoResume" data-arg="rewrite">${r.ep}화 다시 쓰기</button>
-      <button class="btn" data-action="autoStop">중지</button>`;
-  } else if (['paused', 'error'].includes(r.status)) {
-    buttons = `<button class="btn primary" data-action="autoResume">이어 가기</button><button class="btn" data-action="autoStop">중지</button>`;
-  }
-  const reviewDone = r.status === 'review' && !r.pending;
-  return `<section class="card">
-    <div class="between"><h2>${total}화까지 자동 집필 <span class="chip ${cls}">${label}</span></h2>
-      <div class="row"><span class="small">배치</span>${autoBatchToggle(r.batch, r.status === 'done' || r.status === 'stopped' ? ' disabled' : '')}</div></div>
-    <div class="meter" aria-hidden="true"><i style="left:0;width:${Math.round((done / Math.max(total, 1)) * 100)}%;background:var(--green)"></i></div>
-    <div class="small">${done} / ${total}화 반영 완료 · 이번 실행에서 자동 반영 ${r.applied.length}화 · 토큰 입력 ${r.tokens_in.toLocaleString()} / 출력 ${r.tokens_out.toLocaleString()} · 비용 약 ${autoCost(r.cost)}${r.restarts ? ` · <span title="서버가 다시 시작돼 하던 단계를 처음부터 다시 했어요. 끊긴 호출 비용은 여기에 없어요">서버 재시작 ${r.restarts}번</span>` : ''}</div>
+  const cells = autoCells(p, r);
+  const strip = `<ol class="auto-cells" style="--n:${cells.length}" aria-label="${cells[0].n}~${cells[cells.length - 1].n}화">${cells.map((c) => `<li class="${c.cls}" title="${c.n}화 · ${c.label}${c.cls.startsWith('auto') ? ' · 이번 실행에서 자동 반영' : ''}"><span class="sr-only">${c.n}화 ${c.label}</span><span aria-hidden="true">${c.n}</span></li>`).join('')}</ol>`;
+  const legend = `<div class="auto-legend small" aria-hidden="true"><span><i class="auto"></i>이번 실행에서 자동 반영</span><span><i class="finalized"></i>반영 완료</span><span><i class="written"></i>작성됨 · 검토 대기</span><span><i class="confirmed"></i>플롯 확정</span><span><i class="draft"></i>플롯 초안</span></div>`;
+  const tiles = `<div class="auto-tiles">
+      <div><span class="small">반영</span><b>${done} / ${total}화</b></div>
+      <div><span class="small">이번 실행 자동 반영</span><b>${r.applied.length}화</b></div>
+      <div><span class="small">토큰 입력 / 출력</span><b>${autoMan(r.tokens_in)} / ${autoMan(r.tokens_out)}</b></div>
+      <div><span class="small">비용</span><b>약 ${autoCost(r.cost)}</b>${r.restarts ? `<span class="small" title="서버가 다시 시작돼 하던 단계를 처음부터 다시 했어요. 끊긴 호출 비용은 여기에 없어요">서버 재시작 ${r.restarts}번</span>` : ''}</div>
+    </div>`;
+  return `<section class="card" id="au-run" aria-labelledby="au-run-h">
+    <div class="between"><h2 id="au-run-h" tabindex="-1">${total}화까지 자동 집필 <span class="chip ${cls}">${label}</span></h2>${autoBatchToggle(r.batch, r.status === 'done' || r.status === 'stopped' ? ' disabled' : '')}</div>
     ${S.autoOffline ? '<div class="note warn" role="status">서버와 연결이 끊겼어요. 다시 연결되면 이어서 보여 드려요. 서버가 다시 시작되면 자동 집필은 서버에서 이어 가요.</div>' : ''}
-    ${step ? `<div class="row"><span class="spinner sm" aria-hidden="true"></span><strong>${esc(step)}</strong></div>` : ''}
+    ${step ? `<div class="row" role="status"><span class="spinner sm" aria-hidden="true"></span><strong>${esc(step)}</strong></div>` : ''}
     ${active && r.batch ? '<div class="small">배치 결과는 몇 분에서 길게는 몇 시간 뒤에 와요. 창을 닫아도 서버가 계속 기다려요.</div>' : ''}
-    ${r.reasons.length ? `<div class="note warn">${r.reasons.map((x) => `<div>${esc(x)}</div>`).join('')}${r.status === 'error' && r.reasons.some((x) => /API 키|연결|quota|429|403|401/i.test(x)) ? '<div><a href="#/settings/ai">AI 연결 설정</a>에서 키와 모델을 확인한 뒤 이어 가세요.</div>' : ''}${!active && autoHaltLinks(r) ? `<div class="row" style="margin-top:6px">${autoHaltLinks(r)}</div>` : ''}</div>` : ''}
-    ${reviewDone ? `<div class="note ok">${r.ep}화를 검토 화면에서 반영했어요. 이어 가기를 누르세요.</div>` : ''}
-    ${r.status === 'review' && pendingStale(r) ? `<div class="note warn" id="auto-stale">변경안을 만든 뒤 ${r.ep}화 본문을 고쳤어요. 그대로 반영하면 옛 본문 기준의 요약 · 인물 상태 · 사건이 들어가서 막아 두었어요. 검토하기에서 변경안을 다시 만들거나 다시 쓰기를 고르세요.</div>` : ''}
-    ${r.status === 'review' && r.pending ? '<div class="small">검토하기: 변경안을 상태 승인 화면에 열어요. 고른 항목만 반영한 뒤 여기로 돌아와 이어 가면 돼요.</div>' : ''}
-    <div class="row">${S.autoOffline ? '' : reviewDone ? '<button class="btn primary" data-action="autoResume">이어 가기</button><button class="btn" data-action="autoStop">중지</button>' : buttons}</div>
-    ${!active && !S.autoOffline && ['paused', 'review', 'error'].includes(r.status) ? autoRunPolicy(r) : ''}
+    ${strip}${legend}${tiles}
+  </section>`;
+}
+
+/** 멈춘 이유와 이어 가는 길. 돌고 있거나 끝난 실행은 그리지 않는다 */
+function autoHaltCard(r, active) {
+  if (active || S.autoOffline || !['paused', 'review', 'error'].includes(r.status)) return '';
+  const reviewDone = r.status === 'review' && !r.pending;
+  const stale = r.status === 'review' && pendingStale(r);
+  const keyErr = r.status === 'error' && r.reasons.some((x) => /API 키|연결|quota|429|403|401/i.test(x));
+  const halt = autoHaltLinks(r);
+  const rows = r.reasons.map((x) => {
+    const go = autoReasonLink(x, r.ep);
+    return `<div class="auto-reason"><div class="grow">${esc(x)}</div>${go ? `<a class="btn small" href="${go.href}">${go.label}</a>` : ''}</div>`;
+  }).join('');
+  const linked = r.reasons.some((x) => autoReasonLink(x, r.ep));
+  const ways = r.status === 'review' && !reviewDone
+    ? `<h3>어떻게 이어 갈까요</h3><ul class="auto-ways">
+        <li><div class="grow"><strong>변경안을 검토하고 이어 가기</strong><span class="small">상태 승인 화면에서 고른 항목만 반영한 뒤 여기로 돌아와 이어 가요 · 머리의 '${r.ep}화 변경안 검토하기'</span></div></li>
+        <li><div class="grow"><strong>그대로 반영하고 이어 가기</strong><span class="small">걸린 이유를 남긴 채 다음 화로 가요</span></div><button type="button" class="btn small" data-action="autoResume" data-arg="approve"${stale ? ' disabled aria-describedby="auto-stale"' : ''}>그대로 반영</button></li>
+        <li><div class="grow"><strong>${r.ep}화 다시 쓰기</strong><span class="small">본문부터 새로 써요. 지금 본문은 이전 판으로 남고, AI 비용이 다시 들어요</span></div><button type="button" class="btn small" data-action="autoResume" data-arg="rewrite">다시 쓰기</button></li>
+      </ul>` : '';
+  return `<section class="card" id="au-halt" aria-labelledby="au-halt-h">
+    <div class="between"><h2 id="au-halt-h" tabindex="-1">${r.ep ? `${r.ep}화에서 ` : ''}${r.status === 'error' ? '오류로 멈춘 이유' : '멈춘 이유'}</h2>${r.updated ? `<span class="small">${fmtDateTime(r.updated)}</span>` : ''}</div>
+    ${rows}
+    ${keyErr ? '<div class="note warn"><a href="#/settings/ai">AI 연결 설정</a>에서 키와 모델을 확인한 뒤 이어 가세요.</div>' : ''}
+    ${halt && !linked ? `<div class="row">${halt}</div>` : ''}
+    ${reviewDone ? `<div class="note ok">${r.ep}화를 상태 승인 화면에서 반영했어요. 이어 가기를 누르세요.</div>` : ''}
+    ${stale ? `<div class="note warn" id="auto-stale">변경안을 만든 뒤 ${r.ep}화 본문을 고쳤어요. 그대로 반영하면 옛 본문 기준의 요약 · 인물 상태 · 사건이 들어가서 막아 두었어요. 검토하기에서 변경안을 다시 만들거나 다시 쓰기를 고르세요.</div>` : ''}
+    ${ways}
   </section>`;
 }
 
@@ -319,71 +371,189 @@ function autoAppliedCard(active, r) {
   const all = P().episodes.filter((e) => e.auto);
   if (!all.length) return '';
   const withOpen = all.filter((e) => checkState(e).open);
-  const auto = S.autoOpenOnly && withOpen.length ? withOpen : all;
+  const only = S.autoOpenOnly && withOpen.length;
+  const list = only ? withOpen : all;
   // 로그에만 남는 문체 · 초반 경고를 화별로 센다 (autorun._write 가 'N화 본문' 다음에 남긴다)
   const style = {};
   for (const x of (r && r.log) || []) if (x.level === 'warn' && x.ep && /^(문체|초반):/.test(x.message)) style[x.ep] = (style[x.ep] || 0) + 1;
-  const rows = auto.map((e) => `<li class="row"><a href="${base()}/write/${e.plot.number}"><strong>${e.plot.number}화</strong> ${esc(e.plot.title)}</a><span class="row" style="gap:6px">${checkState(e).open ? `<span class="chip warn">열린 지적 ${checkState(e).open}</span><a class="btn small" href="${base()}/check/${e.plot.number}">검수에서 보기</a>` : ''}${style[e.plot.number] ? `<span class="chip written" title="진행 로그의 문체 · 초반 경고">문체 경고 ${style[e.plot.number]}</span>` : ''}${active ? '' : `<button class="btn small" data-action="autoRevert" data-arg="${e.plot.number}">${e.plot.number}화부터 반영 취소</button>`}</span></li>`).join('');
-  const only = withOpen.length ? `<button type="button" class="btn small" aria-pressed="${!!S.autoOpenOnly}" data-action="autoOpenOnly">열린 지적이 남은 화만 · ${withOpen.length}</button>` : '';
-  return `<section class="card"><div class="between"><h2>검토 없이 반영한 화</h2><span class="row" style="gap:8px">${only}<span class="small">${all.length}화</span></span></div>
-    <p class="desc">읽어 보고 문제가 있으면 그 화부터 반영을 취소하세요. 그 화 직전 상태로 돌아가고, 본문은 남아 상태 승인부터 다시 할 수 있어요.</p>
+  const rows = list.map((e) => `<li><div class="grow"><a href="${base()}/write/${e.plot.number}"><strong>${e.plot.number}화</strong> ${esc(e.plot.title)}</a></div>${checkState(e).open ? `<a class="btn small" href="${base()}/check/${e.plot.number}">열린 지적 ${checkState(e).open}</a>` : ''}${style[e.plot.number] ? `<span class="chip written" title="진행 기록의 문체 · 초반 경고">문체 경고 ${style[e.plot.number]}</span>` : ''}${active ? '' : `<button type="button" class="btn small ghost" data-action="autoRevert" data-arg="${e.plot.number}">${e.plot.number}화부터 반영 취소</button>`}</li>`).join('');
+  const seg = withOpen.length ? `<div class="seg" role="group" aria-label="반영한 화 거르기"><button type="button" aria-pressed="${!only}" data-action="autoOpenOnly" data-arg="all">모두 · ${all.length}</button><button type="button" aria-pressed="${!!only}" data-action="autoOpenOnly" data-arg="open">열린 지적 · ${withOpen.length}</button></div>` : `<span class="small">${all.length}화</span>`;
+  return `<section class="card" id="au-applied" aria-labelledby="au-applied-h"><div class="between"><h2 id="au-applied-h" tabindex="-1">검토 없이 반영한 화</h2>${seg}</div>
+    <p class="desc">읽어 보고 문제가 있으면 그 화부터 반영을 취소해요. 그 화 직전 상태로 돌아가고, 본문은 남아 상태 승인부터 다시 해요.</p>
     <ul class="auto-list">${rows}</ul></section>`;
+}
+
+/** 이번 실행 기록을 화별로 묶는다: [{ ep, lines, warns, tin, tout, sec }] 최신 화부터. 화가 없는 줄(시작 · 끝)은 뺀다 */
+function autoLogGroups(log) {
+  let from = 0;
+  log.forEach((x, i) => { if (x.step === 'start') from = i; });
+  const by = new Map();
+  log.slice(from).forEach((x) => {
+    if (!x.ep) return;
+    if (!by.has(x.ep)) by.set(x.ep, { ep: x.ep, lines: [], warns: [], tin: 0, tout: 0, sec: 0 });
+    const g = by.get(x.ep);
+    if (x.level === 'info') g.lines.push(`${x.message}${x.seconds ? ` ${autoDuration(x.seconds)}` : ''}${x.batch ? ' · 배치' : ''}`);
+    else g.warns.push(x);
+    g.tin += x.tokens_in || 0;
+    g.tout += x.tokens_out || 0;
+    g.sec += x.seconds || 0;
+  });
+  return [...by.values()].sort((a, b) => b.ep - a.ep);
 }
 
 function autoLogCard(r) {
   if (!r || !r.log.length) return '';
-  const shown = S.autoLogAll ? r.log : r.log.slice(-30);
-  const today = new Date().toDateString();
-  const rows = shown.slice().reverse().map((e) => {
-    const d = new Date(e.at);
-    const clock = d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    // 오늘이 아닌 줄은 날짜를 붙인다 (배치는 하루를 넘길 수 있고, 지난 실행 로그도 이어 붙는다)
-    const t = d.toDateString() === today ? clock : `${fmtDate(e.at)} ${clock}`;
-    const tok = e.tokens_in || e.tokens_out ? `${e.tokens_in.toLocaleString()} / ${e.tokens_out.toLocaleString()}` : '';
-    const cls = `lv-${e.level}${e.step === 'start' ? ' run-start' : ''}`;
-    return `<tr class="${cls}"><td class="small" data-label="시각">${t}</td><td data-label="화">${e.ep ? e.ep + '화' : ''}</td><td data-label="내용">${esc(e.message)}${e.batch ? ' <span class="chip">배치</span>' : ''}</td><td class="small" data-label="토큰">${tok}</td><td class="small" data-label="걸린 시간">${e.seconds ? autoDuration(e.seconds) : ''}</td></tr>`;
-  }).join('');
-  return `<section class="card"><h2>진행 로그</h2><div class="small">위가 최신이에요. 굵은 선 아래는 지난 실행이에요.</div><div class="rs-scroll"><table class="rs-table auto-log"><thead><tr><th>시각</th><th>화</th><th>내용</th><th>토큰 입력 / 출력</th><th>걸린 시간</th></tr></thead><tbody>${rows}</tbody></table></div>${r.log.length > shown.length ? `<div><button class="btn small" data-action="autoLogAll">이전 로그 ${r.log.length - shown.length}줄 더 보기</button></div>` : ''}</section>`;
+  const byEp = S.autoLogView !== 'all';
+  const seg = `<div class="seg" role="group" aria-label="기록 보기"><button type="button" aria-pressed="${byEp}" data-action="autoLogView" data-arg="ep">화별</button><button type="button" aria-pressed="${!byEp}" data-action="autoLogView" data-arg="all">모든 줄</button></div>`;
+  let body;
+  if (byEp) {
+    const groups = autoLogGroups(r.log);
+    const start = [...r.log].reverse().find((x) => x.step === 'start');
+    body = groups.length
+      ? `<ol class="auto-log-eps">${groups.map((g) => `<li><strong>${g.ep}화</strong><div class="auto-log-lines"><span>${g.lines.map(esc).join(' · ') || '기다리는 중'}</span>${g.warns.map((x) => `<span class="${x.level === 'error' ? 'err-text' : 'warn-text'}">${esc(x.message)}</span>`).join('')}</div><span class="small">${g.tin || g.tout ? `${autoMan(g.tin)} / ${autoMan(g.tout)}` : ''}</span></li>`).join('')}</ol>`
+      : '<p class="small">이번 실행에서 아직 쓴 화가 없어요.</p>';
+    body += `<p class="small">${start ? `${fmtDateTime(start.at)}에 시작했어요. ` : ''}토큰은 입력 / 출력이에요. 지난 실행 기록은 '모든 줄'에서 봐요.</p>`;
+  } else {
+    const shown = S.autoLogAll ? r.log : r.log.slice(-30);
+    const today = new Date().toDateString();
+    const rows = shown.slice().reverse().map((e) => {
+      const d = new Date(e.at);
+      const clock = d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      // 오늘이 아닌 줄은 날짜를 붙인다 (배치는 하루를 넘길 수 있고, 지난 실행 로그도 이어 붙는다)
+      const t = d.toDateString() === today ? clock : `${fmtDate(e.at)} ${clock}`;
+      const tok = e.tokens_in || e.tokens_out ? `${e.tokens_in.toLocaleString()} / ${e.tokens_out.toLocaleString()}` : '';
+      const cls = `lv-${e.level}${e.step === 'start' ? ' run-start' : ''}`;
+      return `<tr class="${cls}"><td class="small" data-label="시각">${t}</td><td data-label="화">${e.ep ? e.ep + '화' : ''}</td><td data-label="내용">${esc(e.message)}${e.batch ? ' <span class="chip">배치</span>' : ''}</td><td class="small" data-label="토큰">${tok}</td><td class="small" data-label="걸린 시간">${e.seconds ? autoDuration(e.seconds) : ''}</td></tr>`;
+    }).join('');
+    body = `<div class="small">위가 최신이에요. 굵은 선 아래는 지난 실행이에요.</div><div class="rs-scroll"><table class="rs-table auto-log"><thead><tr><th>시각</th><th>화</th><th>내용</th><th>토큰 입력 / 출력</th><th>걸린 시간</th></tr></thead><tbody>${rows}</tbody></table></div>${r.log.length > shown.length ? `<div><button class="btn small" data-action="autoLogAll">이전 기록 ${r.log.length - shown.length}줄 더 보기</button></div>` : ''}`;
+  }
+  return `<section class="card" id="au-log" aria-labelledby="au-log-h"><div class="between"><h2 id="au-log-h" tabindex="-1">진행 기록</h2>${seg}</div>${body}</section>`;
 }
 
+/** 승인 정책 카드: 읽기가 기본이고, 멈춘 실행에서만 '고치기'로 그 카드 안에 칸을 편다 (Card 읽기 카드와 고치기 카드) */
+function autoPolicyCard(r, active) {
+  const canEdit = !active && !S.autoOffline && ['paused', 'review', 'error'].includes(r.status);
+  const editing = canEdit && (S.autoRunPolicyOpen || r.halt === 'plot_draft');
+  if (editing && (!S.autoRunPolicy || S.autoRunPolicy.started !== r.started)) S.autoRunPolicy = { started: r.started, policy: { ...r.policy } };
+  const changed = editing && JSON.stringify(S.autoRunPolicy.policy) !== JSON.stringify(r.policy);
+  const read = `<dl class="pf-dl">${autoPolicySummary(r.policy).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`;
+  const btn = canEdit ? `<button type="button" class="btn small" data-action="autoPolicyEdit" aria-expanded="${editing}">${editing ? '닫기' : '고치기'}</button>` : '';
+  const body = editing
+    ? `<p class="small">바꾼 정책은 다음 판정부터 적용돼요. ${r.status === 'review' ? `지금 검토를 기다리는 ${r.ep}화 변경안은 그대로 남아요.` : '검토 대기와 기다리던 배치는 그대로예요.'}</p>
+      ${autoPolicyForm(S.autoRunPolicy, false, 'auto-run')}
+      <div class="row"><button type="button" class="btn" data-action="autoSetPolicy"${changed ? '' : ' disabled'}>정책 적용</button></div>`
+    : `${read}${canEdit ? '' : `<p class="small">${active ? '돌고 있는 동안은 고칠 수 없어요. 일시정지하면 고칠 수 있어요.' : '새로 시작할 때 시작 칸에서 정해요.'}</p>`}`;
+  return `<section class="card${editing ? ' editing' : ''}" id="au-policy" aria-labelledby="au-policy-h"><div class="between"><h2 id="au-policy-h" tabindex="-1">승인 정책${editing ? ' <span class="small">고치는 중</span>' : ''}</h2>${btn}</div>${body}</section>`;
+}
+
+/** 새로 시작 칸 (실행이 없거나, 끝났거나, '실행 ▾ → 설정을 바꿔 새로 시작') */
+function autoStartCard(r, f, primary) {
+  const a = S.auto || {};
+  const first = autoFirstOpen();
+  const eps = Array.from({ length: P().meta.target_episodes - first + 1 }, (_, i) => first + i);
+  const nothingLeft = !!(S.autoEst && S.autoEst.off && !S.autoEst.off.episodes);
+  const batchNote = a.batch_stages && a.batch_stages.length
+    ? '배치를 켜면 Gemini Batch API로 보내 비용이 절반이에요. 대신 단계마다 몇 분에서 길게는 24시간까지 기다려요. 화는 앞 화가 반영돼야 쓸 수 있어 한 화씩 차례로 가고, 한 화의 검수와 상태 변경안은 함께 보내요.'
+    : '지금 단계들이 Gemini가 아니라서 배치를 켜도 일반 호출로 돌아요.';
+  return `<section class="card" id="au-start" aria-labelledby="au-start-h">
+      <div class="between"><h2 id="au-start-h" tabindex="-1">${r ? '새로 시작' : '시작하기'}</h2>${r && r.status !== 'done' && r.status !== 'stopped' ? '<span class="small">새로 시작하면 지금 실행의 검토 대기와 기다리던 배치는 버려요</span>' : ''}</div>
+      <div class="grid-2">
+        <div class="field"><label for="auto-target">어디까지 쓸까요</label><select id="auto-target" data-auto="target">${eps.map((n) => `<option value="${n}"${n === f.target ? ' selected' : ''}>${n}화까지</option>`).join('')}</select></div>
+        <div class="field"><span class="label">배치</span>${autoBatchToggle(f.batch)}<span class="small">${batchNote}</span></div>
+      </div>
+      ${autoPolicyForm(f, false)}
+      <h3>예상 비용과 시간</h3>
+      <div id="auto-est">${autoEstCard()}</div>
+      ${primary ? '' : `<div class="row"><button type="button" class="btn" data-action="autoStart"${nothingLeft ? ' disabled aria-describedby="auto-est"' : ''}>${f.target}화까지 새로 시작</button><button type="button" class="btn ghost" data-action="autoFormClose">닫기</button></div>`}
+    </section>`;
+}
+
+let autoTocCur = null;
+
+/** 목차 줄: [열쇠, 이름, 꼬리, warn] */
+function autoTocRows(r, form) {
+  const rows = [];
+  if (r) {
+    const [label] = S.autoOffline ? ['연결 끊김'] : AUTO_STATUS[r.status] || [r.status];
+    rows.push(['run', '지금 실행', label]);
+    if (!(S.auto || {}).active && !S.autoOffline && ['paused', 'review', 'error'].includes(r.status)) rows.push(['halt', r.ep ? `${r.ep}화에서 멈춘 이유` : '멈춘 이유', String(r.reasons.length || ''), true]);
+    const n = P().episodes.filter((e) => e.auto).length;
+    if (n) rows.push(['applied', '검토 없이 반영한 화', `${n}화`]);
+    if (r.log.length) rows.push(['log', '진행 기록', '']);
+    rows.push(['policy', '승인 정책', '']);
+  }
+  if (form) rows.push(['start', r ? '새로 시작' : '시작하기', '']);
+  return rows;
+}
+
+let autoTocLast = [];
+
+function autoToc(rows = autoTocLast) {
+  autoTocLast = rows;
+  const cur = rows.find(([k]) => k === autoTocCur) || rows[0];
+  const body = rows.map(([k, l, st, warn]) => `<button type="button" class="outline-item${warn ? ' warn' : ''}" data-action="autoGo" data-arg="${k}"${k === cur[0] ? ' aria-current="true"' : ''}><span class="tl">${esc(l)}</span><span class="st${warn ? ' warn' : ''}">${esc(st || '')}</span></button>`).join('');
+  return outlineNav({ id: 'au-toc', label: '자동 집필 목차', now: esc(cur[1]), body });
+}
+
+outlineSpy('au-toc', {
+  targets: () => autoTocLast.map(([k]) => [k, document.getElementById(`au-${k}`)]),
+  set(cur) {
+    if (cur === autoTocCur) return;
+    autoTocCur = cur;
+    outlineRefresh('au-toc', autoToc());
+  },
+});
+
 function viewAuto() {
-  const p = P();
   const a = S.auto || {};
   const r = a.run;
-  const active = !!a.active;
+  const active = !!a.active && !S.autoOffline;
   if (!S.autoForm || S.autoForm.project !== S.name) S.autoForm = { ...autoDefaults(), project: S.name };
   const f = S.autoForm;
   // 멈춘 실행이 있으면 이어 가기가 먼저라 새로 시작하는 칸은 접어 둔다
   const ended = !r || ['done', 'stopped'].includes(r.status);
   const canStart = !active && (ended || S.autoFormOpen);
-  const batchNote = a.batch_stages && a.batch_stages.length
-    ? '배치를 켜면 Gemini Batch API로 보내 비용이 절반이에요. 대신 단계마다 몇 분에서 길게는 24시간까지 기다려요. 화는 앞 화가 반영돼야 쓸 수 있어 한 화씩 차례로 가고, 한 화의 검수와 상태 변경안은 함께 보내요.'
-    : '지금 단계들이 Gemini가 아니라서 배치를 켜도 일반 호출로 돌아요.';
   // 목표 화는 반영하지 않은 첫 화부터 고른다. 다 쓴 실행 뒤 남은 목표가 그보다 앞이면 끌어올리고 다시 추정한다
   const first = autoFirstOpen();
   if (canStart && f.target < first) {
     f.target = first;
     autoEstimate().then(render);
   }
-  const eps = Array.from({ length: p.meta.target_episodes - first + 1 }, (_, i) => first + i);
   const nothingLeft = !!(S.autoEst && S.autoEst.off && !S.autoEst.off.episodes);
-  const form = canStart ? `<section class="card">
-      <div class="between"><h2>${r ? '새로 시작' : '시작하기'}</h2>${r && r.status !== 'done' && r.status !== 'stopped' ? '<span class="small">새로 시작하면 지금 실행의 검토 대기와 기다리던 배치는 버려요</span>' : ''}</div>
-      <div class="grid-2">
-        <div class="field"><label for="auto-target">어디까지 쓸까요</label><select id="auto-target" data-auto="target">${eps.map((n) => `<option value="${n}"${n === f.target ? ' selected' : ''}>${n}화까지</option>`).join('')}</select></div>
-        <div class="field"><span class="label">배치</span>${autoBatchToggle(f.batch)}<span class="small">${batchNote}</span></div>
-      </div>
-      ${autoPolicyForm(f, false)}
-      <h3 style="font-size:0.9375rem;margin:4px 0 0">예상 비용과 시간</h3>
-      <div id="auto-est">${autoEstCard()}</div>
-      <div class="row"><button class="btn primary" data-action="autoStart"${nothingLeft ? ' disabled aria-describedby="auto-est"' : ''}>${f.target}화까지 자동 집필 시작</button></div>
-    </section>` : '';
-  const reopen = !active && !ended && !S.autoFormOpen ? '<div><button class="btn" data-action="autoFormOpen">설정을 바꿔 새로 시작</button></div>' : '';
-  return `${header('자동', '자동 집필', '목표 화까지 본문 쓰기, 검수, 상태 변경안, 반영을 알아서 반복해요. 정해 둔 기준에 걸리면 그 화에서 멈추고 검토를 기다려요.')}
-    ${r ? autoRunCard(r, active) : ''}
-    ${form}${reopen}
-    ${autoAppliedCard(active, r)}
-    ${autoLogCard(r)}`;
+  const desc = '목표 화까지 본문 · 검수 · 상태 변경안 · 반영을 알아서 반복해요. 정해 둔 기준에 걸리면 그 화에서 멈추고 기다려요.';
+  // 머리 주 버튼: 그 실행에서 지금 할 일 하나
+  let primary = '';
+  if (r && !S.autoOffline) {
+    if (active) primary = '<button type="button" class="btn" data-action="autoPause">일시정지</button>';
+    else if (r.status === 'review' && r.pending) primary = `<button type="button" class="btn primary" data-action="autoOpenReview">${r.ep}화 변경안 검토하기</button>`;
+    else if (['paused', 'review', 'error'].includes(r.status)) primary = '<button type="button" class="btn primary" data-action="autoResume">이어 가기</button>';
+  }
+  const startPrimary = canStart && ended && !nothingLeft;
+  if (startPrimary) primary = `<button type="button" class="btn primary" data-action="autoStart"${S.autoEst ? '' : ' aria-disabled="true"'}>${f.target}화까지 자동 집필 시작</button>`;
+  const menu = r && !ended && !S.autoOffline ? menuBtn('auto-run', '실행 ▾', () => `<button type="button" class="pop-item danger" data-action="autoStop">중지</button>${active ? '' : '<button type="button" class="pop-item" data-action="autoFormOpen">설정을 바꿔 새로 시작</button>'}`, { aria: '실행 더 보기' }) : '';
+  const head = header('자동', '자동 집필', desc, `${menu}${primary}`);
+  // 쓸 화가 없으면 시작 칸 대신 빈 화면 하나 (막힌 이유 + 풀 길)
+  if (canStart && ended && nothingLeft && !r) return head + autoEmpty();
+  const form = canStart ? (ended && nothingLeft ? autoEmpty() : autoStartCard(r, f, startPrimary)) : '';
+  if (!r) return `${head}<div class="auto-col auto-one">${form}</div>`;  // 실행이 없으면 시작 칸 하나라 목차를 두지 않는다
+  const main = `<div class="auto-col">${autoRunCard(r, active)}${autoHaltCard(r, active)}${autoAppliedCard(active, r)}${autoLogCard(r)}${autoPolicyCard(r, active)}${form}</div>`;
+  const rows = autoTocRows(r, !!form && form !== autoEmpty());
+  if (!rows.some(([k]) => k === autoTocCur)) autoTocCur = null;
+  return head + outlineDoc(autoToc(rows), main, { cls: 'auto-wrap' });
+}
+
+/** 쓸 화가 없을 때 빈 화면: 막힌 이유 한 문장과 풀 길 버튼 하나 */
+function autoEmpty() {
+  const x = S.autoEst && S.autoEst.off;
+  if (!x) return '';
+  const p = P();
+  if (x.missing.length || (x.drafts || []).length) {
+    const n = x.missing.length ? x.missing[0] : x.drafts[0];
+    const why = x.missing.length ? `${rangeText(x.missing)}화는 플롯이 없어 쓸 수 없어요.` : `${n}화 플롯이 아직 초안이에요. 확정하거나 '초안 플롯도 자동으로 확정하고 쓰기'를 켜야 써요.`;
+    return `<div class="card empty" id="au-start"><p>${why}</p><div><a class="btn primary" href="${base()}/arc${x.missing.length ? '' : `/${n}`}">${n}화 플롯 ${x.missing.length ? '만들러' : '확정하러'} 가기</a></div></div>`;
+  }
+  if (x.to >= p.meta.target_episodes) return `<div class="card empty" id="au-start"><p>마지막 화까지 모두 반영했어요. 더 쓸 화가 없어요.</p><div><a class="btn primary" href="${base()}">작품 홈으로</a></div></div>`;
+  return `<div class="card empty" id="au-start"><p>${x.to}화까지 남은 화가 없어요.</p><div>${autoPlotHint(x.to + 1).replace('btn small', 'btn primary')}</div></div>`;
 }
 
 document.addEventListener('change', (e) => {
@@ -405,9 +575,33 @@ document.addEventListener('change', (e) => {
 });
 
 Object.assign(actions, {
-  autoOpenOnly() {
-    S.autoOpenOnly = !S.autoOpenOnly;
+  autoOpenOnly(v) {
+    S.autoOpenOnly = v === 'open';
     render();
+  },
+  autoLogView(v) {
+    S.autoLogView = v;
+    render();
+  },
+  autoPolicyEdit() {
+    S.autoRunPolicyOpen = !S.autoRunPolicyOpen;
+    if (!S.autoRunPolicyOpen) S.autoRunPolicy = null;
+    S.focusTarget = '[data-action="autoPolicyEdit"]';
+    render();
+  },
+  autoFormClose() {
+    S.autoFormOpen = false;
+    S.focusTarget = '#au-run-h';
+    render();
+  },
+  /** 목차 줄: 그 카드로 옮기고 제목에 포커스 */
+  autoGo(k) {
+    const el = document.getElementById(`au-${k}`);
+    if (!el) return;
+    autoTocCur = k;
+    outlineRefresh('au-toc', autoToc());
+    el.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    (document.getElementById(`au-${k}-h`) || el).focus({ preventScroll: true });
   },
   autoLogAll() {
     S.autoLogAll = true;
@@ -416,6 +610,7 @@ Object.assign(actions, {
   async autoFormOpen() {
     S.autoFormOpen = true;
     await autoEstimate();
+    S.focusTarget = '#au-start-h';
     render();
   },
   async autoBatch(v) {

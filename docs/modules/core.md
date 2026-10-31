@@ -21,7 +21,7 @@
 - 날수 · 요일(`days`, `weekday`: 작품 기준이 없으면 직전 화 기록 글의 요일에서)
 - 시간 한 줄(`time_line`)
 - 상태창 단계마다 바뀌기 전 · 뒤 값(`steps`, `statwin.resolve`) · 창 글(`window_text`)
-- Canon 경고(`checks`: 맡은 장면 없는 사건 · 모르는 id · 값 범위)
+- Canon 경고(`checks`: 맡은 장면 없는 사건 · 모르는 id · 값 범위 · 관계 단계를 두 칸 넘게 옮기는 플롯 `pace.plot_warnings`)
 - 자동 집필 멈춤 이유(`stop_reasons`, `STOP_KINDS`)
 - 화면 값(`view`)
 - LLM 호출 없음
@@ -131,7 +131,7 @@
 - 상태 변경안 수명 주기에 기능이 끼어드는 자리
 - 정리(`CLEAN`) · 반영(`APPLY_FIRST` 새 인물 직후, `APPLY_LAST` 기록 전) · 되돌리기(`REVERT_FIRST` 스냅샷으로 덮기 전, `REVERT_LAST` 뒤) 목록
 - `pipeline.clean_delta` · `apply_delta` · `revert` 가 목록을 차례로 부른다
-- 사람 검토 없이 반영할 때(자동 집필 · `run -y` · 플레이)는 `hold`(`HOLD`)가 작가가 골라야 하는 제안을 빼서 남겨 둔다
+- 사람 검토 없이 반영할 때(자동 집필 · `run -y` · 플레이)는 `hold`(`HOLD`)가 작가가 골라야 하는 제안을 빼서 남겨 둔다. 관계 단계와 반대인 유형 바뀜(`pace.hold`)은 남기지 않고 빼서 경고에 적는다
 - 상태를 가진 기능을 더할 때는 `pipeline.py` 를 고치지 않고 기능 모듈에 훅을 두고 이 목록에 넣는다(목록 순서가 부르는 순서)
 - LLM 호출 없음
 
@@ -221,6 +221,9 @@
 - 지시 수 · 크기 상한 시험 `tests/test_write_budget.py`
 - 화에 큐 시트가 있으면 `episode_prompt` 맨 끝에 `cue_write_block`(실험의 조건 score 와 같은 글, `use_cues=False` 면 뺌)
 - 화별 플롯 초안(`plot_prompt` · `serial_plot_prompt`)은 범위 안 · 범위 뒤 3화(`PLAN_AHEAD`)의 이미 정해진 화를 `fixed_plots` · `fixed_block` 으로 넣고 요구사항에 `fixed_rule` 을 붙인다(장편은 `context.BUDGET["plan_fixed"]`, 한 화 초안은 `ahead=False`)
+- 장편 화별 플롯 초안은 `[관계]` 뒤에 지금 관계 단계 라벨(`plan_stage_block`, 예산 `context.BUDGET["plan_stages"]`), 장편 `plot_rules` 에 '단계는 한 화에 한 칸' 한 줄
+- 검수 요구사항의 관계 단계 한 줄(`stage_check_rule`, 관계 수치가 있을 때만)
+- 관계 설정 `rels(plan=)`: 가 닿을 곳(`Relationship.destination`)은 기획 프롬프트에만, 말로 넣는 기획은 `destination_block`
 - 다음 아크 기획(`next_arc_prompt`)은 관련 확정 사실(`plan_facts`) · 작품 속 시간(`time_plan`, 끝 줄 `ARC_TIME_RULE`) · 주역 밖 기획 인물 상태(`plan_side_states`)를 예산(`context.BUDGET` 의 `plan_facts` · `plan_states`) 안에서 넣는다
 
 ### `canon/schema.py`
@@ -251,6 +254,19 @@
 - 단계별 환경 변수 이름은 `stage_env`
 - 기본 모델은 `DEFAULT_MODEL`
 - 작품별 단계 프리셋은 `project_preset` · `stage_provider` · `stage_model`
+
+### `canon/static/auto.js`
+
+- 자동 집필 화면(`viewAuto`, 서버 `autorun.py`)
+- 실행이 있으면 공용 목차 틀이다(목차 `autoToc`: 지금 실행 · 멈춘 이유 · 검토 없이 반영한 화 · 진행 기록 · 승인 정책)
+- 실행이 없으면 시작 칸 하나이고, 쓸 화가 없으면 빈 화면(`autoEmpty`)
+- 머리 주 버튼은 그때 할 일 하나(n화 변경안 검토하기 · 이어 가기 · n화까지 자동 집필 시작)
+- 중지 · 설정을 바꿔 새로 시작은 머리 '실행 ▾' 메뉴
+- 지금 실행 카드는 화 칸 띠(`autoCells`, 40칸까지)와 수 칸 넷
+- 멈춘 이유마다 갈 곳 버튼(`autoReasonLink`: 검수 결과 · 관계도 · 그 화 읽기)
+- 진행 기록은 이번 실행을 화별로 묶는다(`autoLogGroups`, '모든 줄'은 예전 표)
+- 승인 정책은 읽기 카드(`autoPolicySummary`)이고 멈춘 실행에서만 '고치기'로 칸을 편다
+- 시험은 `tests/test_tools_js.py`
 
 ### `canon/store.py`
 

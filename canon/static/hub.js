@@ -147,7 +147,7 @@ function hubAttention(a) {
   if (a.type === 'fail') {
     const f = a.fail;
     const keyHelp = /API 키|연결/.test(f.error || '') ? '<a class="btn small" href="#/settings/ai">설정</a>' : '';
-    return `<li class="hub-item err"><div class="hub-t"><strong>지난 시도 실패 · ${esc(f.label)}</strong><div class="small">${esc(f.error || '')}</div></div>
+    return `<li class="hub-item err"><div class="hub-t"><strong>${esc(f.label)} · 끝내지 못했어요</strong><div class="small">${esc(f.error || '')}</div></div>
       <div class="row">${keyHelp}<button type="button" class="btn small ghost" data-action="dismissFail" data-arg="${esc(f.key)}">닫기</button></div></li>`;
   }
   return `<li class="hub-item warn"><div class="hub-t"><strong>${esc(a.label)}${josa(a.label, '이', '가')} 도착했어요</strong><div class="small">${a.result.kind === 'state' ? '아직 반영하지 않았어요' : '아직 적용하지 않았어요'}</div></div>
@@ -243,7 +243,7 @@ function placeHub() {
   const btn = $('#hub-btn');
   const r = btn && btn.getBoundingClientRect();
   const shown = !!r && r.width > 0 && r.bottom > 0 && r.top < window.innerHeight;
-  const phone = window.innerWidth <= 640;
+  const phone = window.innerWidth <= BP.phone;
   const top = shown ? Math.round(r.bottom + 8) : 8;
   const at = (w, edge) => (phone ? edge : shown ? Math.max(14, Math.round(r.right) - w) : edge);
   const pop = $('#hub-pop');

@@ -26,7 +26,7 @@ from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
-from . import abilities, atlas, findings, foreshadows, setupchat, stattrial, statwin, timeline, travel
+from . import abilities, atlas, findings, foreshadows, setupchat, stattrial, statwin, timeline
 from .schema import AgentSession, ChatScope, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
@@ -34,10 +34,11 @@ from .schema import FieldIdeas, NameOption, Recap
 from . import branches
 from .schema import BranchDiff, BranchInfo, ForkMode
 from . import birth, play
-from . import cue, revlab
+from . import cue, revlab, soelab
 from .schema import CueSheetDraft
 from . import stage, tofix
 from .schema import Birth, BirthSketch, Episode, PlayInfo, PlayPerson, PlayUnit, StageProposal, StageRoom, StageScene
+from .maps import travel
 
 STATIC = Path(__file__).parent / "static"
 # 폴더 이름: / \ 와 운영체제가 막는 : * ? " < > | 는 쓸 수 없고, . 으로 시작하지 않는다
@@ -376,7 +377,7 @@ def test_config() -> ConfigTest:
             llm = make_llm(prov, model)
             llm.check()
         except Exception as e:  # SDK 오류 종류가 많아 메시지만 보여준다
-            raise HTTPException(400, f"{prov} {model or ''} 연결 실패: {getattr(e, 'message', None) or e}")
+            raise HTTPException(400, f"{prov} {model or ''} 연결을 확인하지 못했어요: {getattr(e, 'message', None) or e}. API 키와 모델 이름을 확인해 주세요")
         done.append(llm.model)
     return {"ok": True, "message": f"{', '.join(dict.fromkeys(done))} 에 연결됐어요."}
 
@@ -3732,7 +3733,7 @@ class FillIn(BaseModel):
 
 @app.post("/api/projects/{name}/atlas/layout/fill")
 def atlas_layout_fill(name: str, body: FillIn) -> dict:
-    """OpenStreetMap 지도의 빈 블록 채우기 (canon/fill.py). preview 는 저장하지 않고 채울 블록 · 지을 건물을 돌려준다.
+    """OpenStreetMap 지도의 빈 블록 채우기 (canon/maps/fill.py). preview 는 저장하지 않고 채울 블록 · 지을 건물을 돌려준다.
     apply 는 지도 파일을 다시 쓰고(지은 건물은 끝에 붙여 OSM 건물 번호를 지킨다) clear 는 지은 건물을 지운다."""
     p = _load(name)
     layout = atlas.load_layout(_map_dir(name), p)
@@ -3804,7 +3805,7 @@ class TravelIn(BaseModel):
 
 @app.put("/api/projects/{name}/atlas/travel")
 def atlas_travel(name: str, body: TravelIn) -> Project:
-    """이동 시간 검사 설정: 켜기, 가장 빠른 탈것, 직접 정한 빠르기, 지도 가로 km (canon/travel.py)."""
+    """이동 시간 검사 설정: 켜기, 가장 빠른 탈것, 직접 정한 빠르기, 지도 가로 km (canon/maps/travel.py)."""
     p = _load(name)
     travel.set_setting(p, body.enabled, body.mode, body.kmh, body.day_km, body.span_km)
     return _save(name, p)
@@ -4338,6 +4339,33 @@ def rev_append(lab_id: int, body: RevSplitIn) -> dict:
     return _rev_edit(lab_id, lambda lab: revlab.append_text(lab, body.text))
 
 
+class RevEpisodeIn(BaseModel):
+    head: str = ""
+    text: str
+
+
+def _rev_idle(lab_id: int) -> None:
+    """작업이 도는 실험의 화는 고치거나 빼지 않는다 (작업이 화 번호로 결과를 넣는다)."""
+    if any(j.ep == lab_id and j.status == "running" for j in jobs.listing(revlab.JOBS)):
+        raise HTTPException(409, "이 실험의 작업이 끝난 뒤에 화를 고치거나 뺄 수 있어요")
+
+
+@app.put("/api/revlab/{lab_id}/episodes/{n}")
+def rev_put_episode(lab_id: int, n: int, body: RevEpisodeIn) -> dict:
+    """화 하나의 제목 줄과 글을 고친다. 글이 바뀌면 그 화의 역설계 결과를 지운다 (revlab.edit_episode)."""
+    _rev(lab_id)
+    _rev_idle(lab_id)
+    return _rev_edit(lab_id, lambda lab: revlab.edit_episode(lab, n, body.head, body.text))
+
+
+@app.delete("/api/revlab/{lab_id}/episodes/{n}")
+def rev_delete_episode(lab_id: int, n: int) -> dict:
+    """화 하나를 빼고 뒤 화 번호를 당긴다 (revlab.drop_episode)."""
+    _rev(lab_id)
+    _rev_idle(lab_id)
+    return _rev_edit(lab_id, lambda lab: revlab.drop_episode(lab, n))
+
+
 @app.delete("/api/revlab/{lab_id}")
 def rev_delete(lab_id: int) -> dict:
     _rev(lab_id)
@@ -4402,6 +4430,201 @@ def rev_job(lab_id: int, body: RevJobIn) -> dict:
 def rev_estimate(lab_id: int, body: RevEstimateIn) -> dict:
     """역설계 · 되돌려 쓰기 비용 추정. AI 를 부르지 않는다."""
     return revlab.estimate(_rev(lab_id), body.kind, body.episodes or None, use_style=body.style)
+
+
+# ---------- 쇠맛 실험실 (canon/soelab.py, 작품 밖 화면 #/soelab) ----------
+# 쇠맛 지표가 사람 글과 AI 글 · 작가 판정을 가르는지 잰다. AI 를 부르지 않는다. 저장은 작품 밖 <CANON_HOME>/.soelab/.
+# 가린 조각(soelab.masked_ids)의 출처 · 원천 · 묶음 · 모델 · 지표 값 · 정규식 밑줄은 어느 응답에도 싣지 않는다.
+# 정답은 '이번 10개'가 끝난 뒤에만(GET /soelab/batch/<번호>), 다시 읽기 예정 조각은 재판정 뒤에만 보인다.
+
+class SoeSourceIn(BaseModel):
+    kind: Literal["revlab", "episode", "edit", "research", "paste"]
+    lab: int = 0
+    project: str = ""
+    first: int = 0
+    last: int = 0
+    path: str = ""
+    genre: Literal["webnovel", "literary", "other", ""] = ""
+    text: str = ""
+    title: str = ""
+    origin: Literal["human", "ai", "unknown"] = "human"
+    model: Literal["claude", "gemini", "other", ""] = ""
+    known: bool = False  # 작가가 읽은 적 있는 작품: 가려 읽기 대기열에 넣지 않는다
+
+
+class SoeCollectIn(BaseModel):
+    sources: list[SoeSourceIn]
+
+
+class SoeSpanIn(BaseModel):
+    start: int
+    end: int
+    kind: str
+    note: str = ""
+
+
+class SoeJudgeIn(BaseModel):
+    piece: str
+    verdict: Literal["ai", "human", "unsure"]
+    spans: list[SoeSpanIn] = []
+    clean: bool = False  # 표시할 곳 없이 다 읽었어요
+    seconds: int = 0
+
+
+class SoeStateIn(BaseModel):
+    goal: int | None = None
+    stopped: bool | None = None
+    seen: int | None = None
+
+
+class SoeCheckIn(BaseModel):
+    hit: str
+    ok: Literal["yes", "no", "skip"]
+
+
+class SoeOriginIn(BaseModel):
+    origin: Literal["human", "ai", "unknown"]
+    model: Literal["claude", "gemini", "other", ""] = ""
+
+
+def _soe_sources(body: SoeCollectIn) -> list[dict]:
+    if not body.sources:
+        raise ValueError("모을 원천을 하나 넘게 골라 주세요")
+    return [x.model_dump() for x in body.sources]
+
+
+@app.get("/api/soelab")
+def soe_view() -> dict:
+    """화면 값: 말뭉치 · 판정 · 다시 읽기 진행, 최근 보고서(조각별 줄 없음), 다음 할 일을 고를 값."""
+    return soelab.screen()
+
+
+@app.get("/api/soelab/sources")
+def soe_sources() -> dict:
+    """모으기 카드의 원천 후보 (역설계 실험 · 작품 · 연구 말뭉치 폴더)."""
+    return soelab.sources()
+
+
+@app.post("/api/soelab/collect/preview")
+def soe_collect_preview(body: SoeCollectIn) -> dict:
+    """모으기 미리보기: 저장하지 않고 새 조각 수 · 이미 있는 글 · 상한 · 서로 다른 화 · 모델별 화를 센다."""
+    return soelab.plan_add(soelab.gather(_soe_sources(body)))
+
+
+@app.post("/api/soelab/collect")
+def soe_collect(body: SoeCollectIn) -> dict:
+    """모으고 보고서를 다시 채점한다 (AI 없음)."""
+    return {**soelab.collect(_soe_sources(body)), "screen": soelab.screen()}
+
+
+@app.get("/api/soelab/pieces")
+def soe_pieces() -> dict:
+    """조각 목록. 가린 조각은 출처 · 원천 · 묶음 · 모델을 뺀다."""
+    return soelab.pieces_view()
+
+
+@app.get("/api/soelab/pieces/{pid}")
+def soe_piece(pid: str) -> dict:
+    """조각 하나. 가린 조각은 글만."""
+    return soelab.piece_view(pid)
+
+
+@app.delete("/api/soelab/pieces/{pid}")
+def soe_piece_remove(pid: str) -> dict:
+    """붙여 넣은 조각 빼기 (판정하지 않은 것만)."""
+    soelab.remove_piece(pid)
+    return soelab.pieces_view()
+
+
+@app.put("/api/soelab/pieces/{pid}/origin")
+def soe_piece_origin(pid: str, body: SoeOriginIn) -> dict:
+    """붙여 넣은 조각의 출처 고치기 (가리지 않은 것만)."""
+    soelab.set_origin(pid, body.origin, body.model)
+    return soelab.pieces_view()
+
+
+@app.get("/api/soelab/judge")
+def soe_judge_view() -> dict:
+    """가려 읽기: 다음 조각(글 · id · 글자 수만)과 진행."""
+    return soelab.judge_view()
+
+
+@app.post("/api/soelab/judge")
+def soe_judge(body: SoeJudgeIn) -> dict:
+    """가려 읽기 판정 저장. 이번 10개를 마치면 보고서를 다시 채점한다."""
+    out = soelab.save_judge(body.piece, body.verdict, [x.model_dump() for x in body.spans], body.clean, body.seconds)
+    return {**out, **soelab.judge_view()}
+
+
+@app.get("/api/soelab/batch/{k}")
+def soe_batch(k: int) -> dict:
+    """끝난 '이번 10개'의 정답. 끝나기 전에는 막는다."""
+    return soelab.batch_reveal(k)
+
+
+@app.get("/api/soelab/redo")
+def soe_redo_view() -> dict:
+    """다시 읽기: 열린 조각 하나(글만)와 진행. 7일 전이면 piece 가 비고 열리는 날을 준다."""
+    return soelab.redo_view()
+
+
+@app.post("/api/soelab/redo")
+def soe_redo(body: SoeJudgeIn) -> dict:
+    """다시 읽기(재판정) 저장. 첫 판정 7일 전이면 막는다."""
+    out = soelab.save_judge(body.piece, body.verdict, [x.model_dump() for x in body.spans], body.clean, body.seconds, redo_too=True)
+    return {**out, **soelab.redo_view()}
+
+
+@app.put("/api/soelab/state")
+def soe_state(body: SoeStateIn) -> dict:
+    """가려 읽기 목표(40 · 60 · 90) · 여기서 멈추기 · 정답 카드를 넘긴 '이번 10개'."""
+    soelab.set_state(**{k: v for k, v in body.model_dump().items() if v is not None})
+    return soelab.screen()
+
+
+@app.post("/api/soelab/spares/open")
+def soe_spares_open() -> dict:
+    """판정 일관성이 보류일 때 판정한 예비를 다시 읽기 대기열로 옮긴다(15개까지). 7일 규칙은 그대로."""
+    n = soelab.open_spares()
+    return {"opened": n, **soelab.screen()}
+
+
+@app.post("/api/soelab/report")
+def soe_report() -> dict:
+    """다시 채점하기 (AI 없음). 새 보고서를 저장한다."""
+    soelab.report()
+    return soelab.screen()
+
+
+@app.get("/api/soelab/reports")
+def soe_reports() -> list[dict]:
+    """기록: 보고서 목록."""
+    return soelab.reports()
+
+
+@app.get("/api/soelab/metrics/{mid}")
+def soe_metric(mid: str) -> dict:
+    """지표 하나. 점 그림 · 곡선 · 끝 조각은 가린 조각을 빼고."""
+    return soelab.metric_view(mid)
+
+
+@app.get("/api/soelab/patterns")
+def soe_patterns() -> dict:
+    """패턴 혼동표."""
+    return soelab.patterns_view()
+
+
+@app.get("/api/soelab/check")
+def soe_check(kind: str = "", hit: str = "") -> dict:
+    """패턴 확인: 패턴별 진행과 다음 문장."""
+    return soelab.check_view(kind, hit)
+
+
+@app.post("/api/soelab/check")
+def soe_check_save(body: SoeCheckIn, kind: str = "") -> dict:
+    """패턴 확인 하나 매기기. 다음 문장을 함께 준다."""
+    soelab.save_check(body.hit, body.ok)
+    return soelab.check_view(kind)
 
 
 # ---------- 작품 속 시간 (canon/timeline.py) ----------
@@ -5405,7 +5628,8 @@ def research_probe(body: Probe) -> dict:
 def research_log(name: str) -> dict:
     _load(name)
     return {"log": research.history(name), "stages": research.STAGES, "check_modes": research.TRIAL_MODES,
-            "check_totals": research.check_totals(name)}
+            "check_totals": research.check_totals(name), "latest": research.latest(name),
+            "open_compares": research.open_compares(name)}
 
 
 class SampleIn(BaseModel):

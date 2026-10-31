@@ -24,7 +24,7 @@ function claudeLoginRow(id) {
   const refresh = '<button type="button" class="btn" data-action="claudeRefresh">다시 확인</button>';
   const name = (chip) => `구독 로그인 ${chip}`;
   const intro = '이 컴퓨터의 Claude Code로 Pro · Max 구독 한도 안에서 써요. 로그인은 Claude Code에서 직접 하고, Canon은 상태만 확인해요.';
-  if (!s) return setRow(id, name(SET_CHIP('확인 중')), intro, refresh, { wide: false });
+  if (!s) return setRow(id, name(SET_CHIP('확인하는 중')), intro, refresh, { wide: false });
   if (s.error) return setRow(id, name(SET_CHIP('모름', 'bad')), `상태를 확인하지 못했어요: ${esc(s.error)}`, refresh, { wide: false });
   if (!s.installed) {
     return setRow(id, name(SET_CHIP('Claude Code 없음', 'bad')),

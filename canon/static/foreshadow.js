@@ -137,7 +137,7 @@ const FS_PICK_MAX = 6;    // 걸기 칸에 찾기 없이 보이는 복선 수
 .fs-link .grid-2 { grid-template-columns: minmax(0, 1fr) 120px; }
 .fs-link .foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 @media (max-width: 640px) {
-  .sel-tool.fs-link { position: fixed; left: 0 !important; right: 0; top: auto !important; bottom: 0; width: auto; max-width: none; max-height: 85vh; padding: 14px 16px 20px; border-radius: 12px 12px 0 0; box-shadow: 0 12px 40px rgba(0,0,0,0.22); }
+  .sel-tool.fs-link { position: fixed; left: 0 !important; right: 0; top: auto !important; bottom: 0; width: auto; max-width: none; max-height: 85vh; padding: 14px 16px 20px; border-radius: 12px 12px 0 0; box-shadow: var(--shadow-dialog); }
   .fs-link .foot .btn { flex: 1; }
 }
 .fs-q-row { font-family: var(--serif); font-size: 0.8125rem; line-height: 1.7; color: var(--text-2); }`;
@@ -601,7 +601,7 @@ showTool = function showToolWithForeshadow() {
   const el = document.getElementById('sel-tool');
   const ta = t && document.querySelector(`textarea[data-draft="${t.n}"]`);
   if (!ta || !el || el.hidden || t.mode !== 'menu') return;
-  el.insertAdjacentHTML('beforeend', '<button type="button" class="btn small" data-action="selForeshadow" title="이 문장을 복선을 심거나 회수한 자리로 걸어요">복선으로</button>');
+  el.insertAdjacentHTML('beforeend', '<button type="button" class="btn small" data-action="selForeshadow" title="이 문장을 복선을 심거나 회수한 자리로 걸어요">복선으로 걸기</button>');
   placeTool(ta, t);
 };
 
@@ -618,7 +618,7 @@ if (typeof ilTool === 'function') {
   const fsIlTool = ilTool;
   ilTool = function ilToolWithForeshadow() {
     const el = fsIlTool();
-    if (!el.querySelector('[data-action="fsFromRead"]')) el.insertAdjacentHTML('beforeend', '<button type="button" class="btn small" data-action="fsFromRead">복선으로</button>');
+    if (!el.querySelector('[data-action="fsFromRead"]')) el.insertAdjacentHTML('beforeend', '<button type="button" class="btn small" data-action="fsFromRead">복선으로 걸기</button>');
     return el;
   };
 }
@@ -752,7 +752,7 @@ Object.assign(actions, {
     const due = Number($(`#fs-u-${CSS.escape(id)}`).value);
     const body = { description: $(`#fs-d-${CSS.escape(id)}`).value.trim(), scope: $(`#fs-s-${CSS.escape(id)}`).value, due_ep: due || null, clear_due: !due };
     S.fsEdit = '';
-    fsCall('저장 중', 'PUT', `/${enc(id)}`, body);
+    fsCall('저장하는 중', 'PUT', `/${enc(id)}`, body);
   },
   fsResolve(id) {
     const n = Number($(`#fs-r-${CSS.escape(id)}`).value);
