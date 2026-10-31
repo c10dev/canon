@@ -194,7 +194,8 @@ class ClaudeCodeError(RuntimeError):
 
 def _explain(text: str) -> str:
     low = text.lower()
-    if any(w in low for w in ("not logged in", "/login", "login expired", "invalid api key", "authentication", "oauth token")):
+    if any(w in low for w in ("not logged in", "/login", "login expired", "invalid api key", "authenticat", "oauth token", "oauth session",
+                                 "session expired")):
         return f"{LOGIN_HINT} ({text[:200]})"
     if "limit" in low and any(w in low for w in ("usage", "reached", "rate", "hit")):
         return f"{LIMIT_HINT} ({text[:200]})"

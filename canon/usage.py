@@ -253,6 +253,25 @@ def cost(p: Price, tin: float, tout: float, cached: float = 0.0, batch: bool = F
     return ((tin - cached) * inp + cached * cin + tout * out) / 1e6
 
 
+def stage_price(stage: str, model: str = "", day: str = "") -> tuple[str, Optional[Price]]:
+    """비용 추정에 쓸 (모델 이름, 가격 줄). 그 단계의 실제 백엔드를 따른다.
+    Gemini · Claude API 는 가격표에서 찾고 모르면 None, 로컬 · Claude 구독 · mock 은 종량 비용이 없어 0원 가격 줄.
+    예전에는 단계 백엔드와 상관없이 Gemini 모델 이름으로 값을 매겨, Claude 구독으로 쓰는 작품도 Gemini 비용이 나왔다.
+    model 을 주면 그 이름을 쓴다(백엔드는 단계 것)."""
+    from . import settings
+
+    prov = settings.stage_provider(stage)[0]
+    name = model or settings.stage_view(settings.project_preset())[stage]["model"]
+    if prov == "gemini":
+        return name, rate(name, day)
+    if prov == "claude-api":
+        from .claude import api_model
+
+        name = api_model(model or settings.stage_model(stage)[0] or settings.claude_model()[0])
+        return name, rate(name, day)
+    return name, Price(model=name, note="종량 비용 없음 (구독 · 로컬)")
+
+
 def stage_cost(backend: str, model: str, tin: float, tout: float, batch: bool = False) -> Optional[float]:
     """자동 집필 추정용. 로컬과 Claude 구독은 0, 가격을 모르는 모델이면 None."""
     if backend not in PRICED:

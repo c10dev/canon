@@ -324,3 +324,17 @@ def test_other_errors_are_not_retried(pauses):
     with pytest.raises(RuntimeError, match="503"):
         llm.text("s", "p")
     assert pauses == [] and llm.client.models.replies == ["본문"]
+
+
+def test_stage_price_follows_the_stage_backend(home, monkeypatch):
+    """비용 추정은 그 단계의 백엔드로 매긴다. Claude 구독 · 로컬은 0원, Gemini 는 가격표 (예전에는 늘 Gemini 이름으로 매겼다)."""
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    monkeypatch.setenv("CANON_LLM_WRITE", "claude")
+    name, price = usage.stage_price("write")
+    assert "gemini" not in name and price is not None and usage.cost(price, 1e6, 1e6) == 0
+    monkeypatch.setenv("CANON_LLM_WRITE", "gemini")
+    name, price = usage.stage_price("write")
+    assert name.startswith("gemini") and price is not None and usage.cost(price, 1e6, 0) > 0
+    monkeypatch.setenv("CANON_LLM_WRITE", "local")
+    assert usage.cost(usage.stage_price("write")[1], 1e6, 1e6) == 0
+    assert usage.stage_price("write", "gemini-4-argon")[0] == "gemini-4-argon"  # 이름을 주면 그 이름 (백엔드는 단계 것)

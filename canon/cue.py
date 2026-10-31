@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import date
 
 from . import board, cancel, metrics, pipeline, prompts, research, store, usage
 from .context import CHARS_PER_TOKEN
@@ -346,13 +345,11 @@ def _conds(conditions: list[str] | None) -> list[str]:
 
 def estimate(p: Project, n: int, sheet: CueSheet | None, conditions: list[str] | None = None, model: str = "") -> dict:
     """쓰기 호출 수와 비용 추정. 캐시는 넣지 않는다 (큐마다 쓰기는 앞 요청을 통째로 품어 캐시가 맞으면 입력 값이 크게 준다)."""
-    from . import settings
 
     conds = _conds(conditions)
     check_episode(p, n)
     q = before(p, n)
-    model = model or settings.stage_model("write")[0] or settings.model()[0]
-    price = usage.rate(model, date.today().isoformat())
+    model, price = usage.stage_price("write", model)
     out_tokens = p.meta.words_per_episode / CHARS_PER_TOKEN
     rows, total = [], 0.0
     for cond in conds:
