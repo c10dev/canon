@@ -521,6 +521,8 @@ function stgNewContactId() {
 
 const STG_COLORS = ['var(--pair-a)', 'var(--pair-b)', 'var(--ava-support)', 'var(--tension-mid)', 'var(--warm-deep)', 'var(--ava-minor)'];
 const stgColor = (who) => STG_COLORS[Math.max(0, S.stg.scene.cast.indexOf(who)) % STG_COLORS.length];
+/** 인물 색 점. 그림 색은 글자 대비 4.5:1 을 못 넘는 테마가 있어 이름 글자는 --text 로 두고 색은 이 점으로만 보인다 */
+const stgDot = (who) => `<i class="stg-dot" style="background:${stgColor(who)}" aria-hidden="true"></i>`;
 const stgV = () => S.stg.view.vocab;
 /** 지적 앞 규칙 이름. 3D 규칙(높이 · 몸 겹침 · 가구 · 받침 · 천장)은 '3D' 를 붙인다 (stage.vocab 의 rules · rules3d). */
 function stgRuleTag(rule) {
@@ -766,7 +768,7 @@ function stgPersonCard() {
       <button type="button" class="btn small" data-action="stgAddContact"${f.part ? '' : ' disabled'}>+ 접촉 더하기</button></div>
       ${minor ? '<p class="small">미성년 인물이 있어 성적인 부위 · 동작은 고를 수 없어요.</p>' : ''}` : '<p class="small">다른 인물이 있어야 접촉을 더할 수 있어요.</p>';
   return `<section class="card stg-pcard" aria-label="${esc(charName(w))} 상태">
-    <div class="between"><h2 style="color:${stgColor(w)}">${esc(charName(w))}</h2><span class="small">${g.beat === 0 ? '시작 상태' : `${g.beat}박자`}</span></div>
+    <div class="between"><h2>${stgDot(w)}${esc(charName(w))}</h2><span class="small">${g.beat === 0 ? '시작 상태' : `${g.beat}박자`}</span></div>
     <div class="between"><span class="small">자세</span>${mark('posture')}</div>
     <div class="stg-poses" role="group" aria-label="자세">${Object.entries(v.postures).map(([id, p]) => `<button type="button" aria-pressed="${st.posture === id}" data-action="stgPosture" data-arg="${id}"><svg viewBox="0 0 34 40" aria-hidden="true">${STG_POSE_SVG[id] || ''}</svg>${esc(p.label)}</button>`).join('')}</div>
     <div class="stg-fields">
@@ -793,7 +795,7 @@ function stgBeats() {
     const flags = viol.filter((x) => x.beat === k);
     return `<li><button type="button" aria-current="${k === g.beat}" data-action="stgBeat" data-arg="${k}">
       <span class="no">${k === 0 ? '○' : k}</span><span class="q${b && !b.quote ? ' note' : ''}">${esc(text)}</span>
-      <span class="who">${who.map((w) => `<span class="chip" style="color:${stgColor(w)}">${esc(charName(w))}</span>`).join('')}${flags.length ? `<span class="flag">⚠ ${flags.length}</span>` : ''}${stale.has(k) ? '<span class="flag amber">본문과 달라요</span>' : ''}${differ.has(k) ? '<span class="flag plan">계획과 달라요</span>' : ''}</span></button></li>`;
+      <span class="who">${who.map((w) => `<span class="chip">${stgDot(w)}${esc(charName(w))}</span>`).join('')}${flags.length ? `<span class="flag">⚠ ${flags.length}</span>` : ''}${stale.has(k) ? '<span class="flag amber">본문과 달라요</span>' : ''}${differ.has(k) ? '<span class="flag plan">계획과 달라요</span>' : ''}</span></button></li>`;
   };
   const cur = g.beat > 0 ? sc.beats[g.beat - 1] : null;
   const edit = cur ? `<div class="stg-beat-edit">
@@ -802,7 +804,7 @@ function stgBeats() {
       <div class="row"><button type="button" class="btn small ghost" data-action="stgBeatMove" data-arg="-1"${g.beat > 1 ? '' : ' disabled'}>↑ 위로</button><button type="button" class="btn small ghost" data-action="stgBeatMove" data-arg="1"${g.beat < sc.beats.length ? '' : ' disabled'}>↓ 아래로</button><button type="button" class="btn small ghost danger" data-action="stgBeatDrop">박자 지우기</button></div></div>` : '';
   return `<section class="card tight"><div class="between"><h2>박자</h2><button type="button" class="btn small" data-action="stgBeatAdd">+ 박자</button></div>
     <ol class="stg-beats">${[0, ...sc.beats.map((_, i) => i + 1)].map(row).join('')}</ol>${edit}
-    <div class="stg-cast"><span class="small">출연진</span>${sc.cast.map((w) => `<span class="chip stg-who${w === g.who ? ' cur' : ''}"><button type="button" class="linkish" data-action="stgWho" data-arg="${esc(w)}" aria-pressed="${w === g.who}" style="color:${stgColor(w)}">${esc(charName(w))}</button><button type="button" class="linkish" data-action="stgCastDrop" data-arg="${esc(w)}" aria-label="${esc(charName(w))} 빼기">✕</button></span>`).join('')}
+    <div class="stg-cast"><span class="small">출연진</span>${sc.cast.map((w) => `<span class="chip stg-who${w === g.who ? ' cur' : ''}"><button type="button" class="linkish" data-action="stgWho" data-arg="${esc(w)}" aria-pressed="${w === g.who}">${stgDot(w)}${esc(charName(w))}</button><button type="button" class="linkish" data-action="stgCastDrop" data-arg="${esc(w)}" aria-label="${esc(charName(w))} 빼기">✕</button></span>`).join('')}
       ${(() => { const rest = P().characters.filter((c) => !sc.cast.includes(c.id)); return rest.length ? `<select data-stg-cast aria-label="출연진 더하기"><option value="">+ 인물 더하기</option>${rest.map((c) => stgOpt(c.id, c.name, '')).join('')}</select>` : ''; })()}</div>
   </section>`;
 }
@@ -1025,6 +1027,7 @@ function stgCss() {
 .stg-cast { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-top: 8px; border-top: 1px solid var(--line); }
 .stg-who { gap: 6px; }
 .stg-who.cur { background: var(--accent-soft); }
+.stg-dot { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 50%; vertical-align: 0; flex: none; }
 .linkish { border: 0; background: none; padding: 0; font: inherit; cursor: pointer; color: inherit; }
 .stg-pcard { padding: 14px 16px; gap: 12px; }
 .stg-poses { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }

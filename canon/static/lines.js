@@ -13,8 +13,8 @@ const LINE_KIND_HINT = {
   '외전': '본편 밖의 시간이나 인물을 다루는 이야기',
   '인물 이야기': '조연 한 명을 깊게 다루는 이야기',
 };
-// 줄기 색: 흰 배경에서 대비 4.5 이상인 색만
-const LINE_COLORS = ['#B4570A', '#7A3FB0', '#1C6E45', '#B42318', '#0E6F7C', '#6E5A00', '#A3367A', '#3E5C14'];
+// 줄기 색: app.css 의 --story-1~8 토큰. 테마마다 값이 바뀌고 두 테마 모두 바탕 위 대비 4.5 이상
+const LINE_COLORS = Array.from({ length: 8 }, (_, i) => `var(--story-${i + 1})`);
 const DOT_FILL = { draft: 'var(--surface)', confirmed: 'var(--accent-soft)', written: 'var(--amber-soft)', finalized: 'var(--green-soft)' };
 
 /** 상태를 색만이 아니라 모양으로도 보인다 (적록 색각 이상, 고대비): 반영 완료는 가운데를 채운 점, 본문 있음은 아래 반을 채운 점,

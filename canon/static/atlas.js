@@ -2258,12 +2258,20 @@ document.addEventListener('keydown', (e) => {
   --v-frame-muted: var(--muted);
 }
 /* 인물 잉크(동선 · 인물 표 · 옆 칸 견본 .at-sw). 견본은 지도 밖이라 같은 화풍 class를 단다.
-   기본은 밝은 · 어두운 바탕 모두에서 흰 글자가 읽히는 중간 밝기, 양피지는 잉크 색, 밤은 밝은 색, 흑백 인쇄는 검정 계열(무늬는 ATLAS_DASHES).
+   기본은 흰 글자가 읽히는 중간 밝기(어두운 테마는 아래에서 밝은 잉크로 바꿈), 양피지는 잉크 색, 밤은 밝은 색, 흑백 인쇄는 검정 계열(무늬는 ATLAS_DASHES).
    --v-halo: 동선 바깥 테두리(길과 떼어 놓는다) · 화 번호 점 바탕, --v-ink-text: 인물 표 글자 */
 .at-map, .at-sw {
   --v-ink0: #2A63C9; --v-ink1: #C2410C; --v-ink2: #7C3AED; --v-ink3: #0F766E; --v-ink4: #BE185D;
   --v-ink5: #4D7C0F; --v-ink6: #A16207; --v-ink7: #475569; --v-ink8: #0E7490; --v-ink9: #9F1239;
   --v-halo: var(--surface); --v-ink-text: #FFFFFF;
+}
+/* 어두운 테마의 기본 화풍: 바깥 테두리(--v-halo)가 어두운 surface 라 밤 화풍의 밝은 잉크를 쓴다(3:1 이상). 글자는 어둡게 */
+@media (prefers-color-scheme: dark) {
+  :is(.at-map, .at-sw):not(.st-parchment):not(.st-night):not(.st-print):not(.st-modern) {
+    --v-ink0: #7FB2FF; --v-ink1: #FFA270; --v-ink2: #C9A8FF; --v-ink3: #5FE0C4; --v-ink4: #FF8FC4;
+    --v-ink5: #B8E46C; --v-ink6: #FFD36B; --v-ink7: #D2DAE6; --v-ink8: #6ED8F4; --v-ink9: #FF8D8D;
+    --v-ink-text: #10151F;
+  }
 }
 .at-map.st-parchment, .at-sw.st-parchment {
   --v-ink0: #8E2F1A; --v-ink1: #1F3A6E; --v-ink2: #2B231D; --v-ink3: #2E5E44; --v-ink4: #6E2147;
