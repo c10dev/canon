@@ -82,7 +82,8 @@ function setupRelDiff(r, cur, rev, base) {
   const before = (k) => (cur ? cur[k] : (Array.isArray(r[k]) ? [] : ''));
   const a = setupName(rev, base, r.a);
   const b = setupName(rev, base, r.b);
-  const rows = [diffField('어떤 사이', 'type', before('type'), r.type), diffField('설명', 'description', before('description'), r.description)];
+  const rows = [diffField('어떤 사이', 'type', before('type'), r.type), diffField('설명', 'description', before('description'), r.description),
+    diffField('가 닿을 곳', 'destination', before('destination') || '', r.destination || '')];
   const gc = cur ? conflictWord(cur.goal_conflict || 0) : '';
   if (cur ? gc !== conflictWord(r.goal_conflict || 0) : r.goal_conflict > 0) rows.push(diffField('원하는 게 부딪치나', 'goal_conflict', gc, conflictWord(r.goal_conflict || 0)));
   rows.push(diffField(`${esc(a)} → ${esc(b)}`, 'a_view', before('a_view'), r.a_view), diffField(`${esc(b)} → ${esc(a)}`, 'b_view', before('b_view'), r.b_view));
