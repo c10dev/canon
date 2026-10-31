@@ -213,6 +213,7 @@
 - 화에 큐 시트가 있으면 `episode_prompt` 맨 끝에 `cue_write_block`(실험의 조건 score 와 같은 글, `use_cues=False` 면 뺌)
 - 화별 플롯 초안(`plot_prompt` · `serial_plot_prompt`)은 범위 안 · 범위 뒤 3화(`PLAN_AHEAD`)의 이미 정해진 화를 `fixed_plots` · `fixed_block` 으로 넣고 요구사항에 `fixed_rule` 을 붙인다(장편은 `context.BUDGET["plan_fixed"]`, 한 화 초안은 `ahead=False`)
 - 장편 화별 플롯 초안은 `[관계]` 뒤에 지금 관계 단계 라벨(`plan_stage_block`, 예산 `context.BUDGET["plan_stages"]`), 장편 `plot_rules` 에 '단계는 한 화에 한 칸' 한 줄
+- 검수 요구사항의 관계 단계 한 줄(`stage_check_rule`, 관계 수치가 있을 때만)
 - 다음 아크 기획(`next_arc_prompt`)은 관련 확정 사실(`plan_facts`) · 작품 속 시간(`time_plan`, 끝 줄 `ARC_TIME_RULE`) · 주역 밖 기획 인물 상태(`plan_side_states`)를 예산(`context.BUDGET` 의 `plan_facts` · `plan_states`) 안에서 넣는다
 
 ### `canon/schema.py`

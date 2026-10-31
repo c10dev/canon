@@ -322,7 +322,10 @@ def run_episode(p: Project, n: int, events: list[StoryEvent], cast: Iterable[str
     meet(p.ties, p.params, cast)
     end_episode(p.ties, p.params)
     for t in p.ties:
-        t.stage = step_stage(prev_stage.get((t.source, t.target), "낯섦"), target_stage(t, t.stage))
+        stage = step_stage(prev_stage.get((t.source, t.target), "낯섦"), target_stage(t, t.stage))
+        if stage != t.stage:
+            t.stage_since = n  # 몇 화째 이 단계인지 (describe_relations 의 'n화부터')
+        t.stage = stage
     for e in events:
         if e.kind == "수동보정":
             apply_event(p.ties, p.secrets, p.params, e)
@@ -388,6 +391,11 @@ def _previous(p: Project) -> tuple[Optional[Snapshot], int]:
     return p.snapshot(eps[-2]), eps[-1]
 
 
+def since(t: Tie) -> str:
+    """단계에 들어온 화 라벨 '(7화부터)'. 모르면 빈 글. 감정이 몇 화째 어디에 머물렀는지 쓰기 · 검수 AI 가 보게 한다."""
+    return f"({t.stage_since}화부터)" if t.stage_since else ""
+
+
 def describe_relations(p: Project, ids: Optional[Iterable[str]] = None, numbers: bool = False,
                        secrets: Optional[list[Secret]] = None) -> str:
     """관계를 말로. secrets 를 주면 그 비밀만 덧붙인다 (장편은 이번 화와 관련된 것만 골라 넘긴다, 빈 목록이면 비밀은 빼고)."""
@@ -407,14 +415,14 @@ def describe_relations(p: Project, ids: Optional[Iterable[str]] = None, numbers:
             trend = f"({dw:+.2f})" if old and abs(dw) >= 0.01 else ""
             lines.append(
                 f"{nm(t.source)} → {nm(t.target)}: 온기 {t.warmth:.2f}{trend} 신뢰 {t.trust:.2f}[증거 {t.evidence:.1f}] "
-                f"원한 {t.grievance:.2f} 서열 {t.status:+.2f} 친숙 {t.familiarity:.2f} 단계 {t.stage}"
+                f"원한 {t.grievance:.2f} 서열 {t.status:+.2f} 친숙 {t.familiarity:.2f} 단계 {t.stage}{since(t)}"
             )
             continue
         trend = f"({last}화에 크게 {'식음' if dw < 0 else '깊어짐'})" if abs(dw) >= 0.15 else ""
         text = f"{nm(t.source)} → {nm(t.target)}: {warmth_word(t.warmth)}{trend}. 신뢰: {trust_word(t.trust)}. {evidence_word(t.evidence)}."
         if t.grievance >= 0.3:
             text += " 풀리지 않은 원한이 있다."
-        lines.append(text + f" 단계: {t.stage}")
+        lines.append(text + f" 단계: {t.stage}{since(t)}")
 
     for r in p.relationships:
         if r.a not in ids or r.b not in ids:

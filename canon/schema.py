@@ -177,6 +177,7 @@ class Tie(BaseModel):
     familiarity: float = Field(0.0, description="함께 겪은 정도 0~1")
     grievance: float = Field(0.0, description="풀리지 않은 원한 0~1")
     stage: RelStage = "낯섦"
+    stage_since: int = Field(0, description="이 단계에 들어온 화. 0 은 1화 시작 전부터거나 모름 (dynamics.run_episode 가 적고 replay 가 다시 채운다)")
 
     @property
     def trust(self) -> float:
