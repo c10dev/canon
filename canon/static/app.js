@@ -1738,7 +1738,7 @@ async function routeNow() {
       } else if (parts[2] === 'arc') S.selEp = null;  // 보드로 돌아오면 대화 대상도 고른 아크로 돌아간다
       if (parts[2] === 'write' || parts[2] === 'arc' || parts[2] === 'check') await openingLoad(parts[2] === 'arc' ? 0 : (n || currentEp()));
       if (parts[2] === 'check') await checkLoad(n || currentEp());
-      if (parts[2] === 'research') await rsLoad();
+      if (parts[2] === 'research') await rsLoad(parts[3]);  // research/<쪽> 은 그 실험 쪽
       if (parts[2] === 'cue') await cueLoad(parts[3]);
       if (parts[2] === 'usage') await usageLoad(S.name);
       if (parts[2] === 'convert') await convertLoad();

@@ -5628,7 +5628,8 @@ def research_probe(body: Probe) -> dict:
 def research_log(name: str) -> dict:
     _load(name)
     return {"log": research.history(name), "stages": research.STAGES, "check_modes": research.TRIAL_MODES,
-            "check_totals": research.check_totals(name)}
+            "check_totals": research.check_totals(name), "latest": research.latest(name),
+            "open_compares": research.open_compares(name)}
 
 
 class SampleIn(BaseModel):

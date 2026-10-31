@@ -1,4 +1,4 @@
-"""관계 속도: 상태 변경안의 관계 유형 · 설명이 관계 수치를 앞질러 가는지 본다. LLM 호출 없음.
+"""관계 속도: 상태 변경안의 관계 유형 · 설명(쓴 뒤)과 화별 플롯(쓰기 전)이 관계 단계를 앞질러 가는지 본다. LLM 호출 없음.
 
 관계 수치는 dynamics 가 사건으로 천천히 움직이는데, 관계 유형 · 설명은 상태 변경안이 언제든 새로 쓴다. 그래서 수치는
 적대인데 유형은 '친구'가 되는 급변이 생긴다 (감정 급변 연구 2026-10-30, 9장). 여기서는 변경안의 사건을 사본에 돌려
@@ -10,7 +10,8 @@
 from __future__ import annotations
 
 import re
-from collections import Counter
+from collections import Counter, deque
+from itertools import combinations
 
 from . import dynamics, metrics, prompts
 from .schema import Project, StateDelta
@@ -124,3 +125,106 @@ def hold(p: Project, d: StateDelta) -> int:
     d.relationship_updates = [r for i, r in enumerate(d.relationship_updates) if i not in drop]
     d.rel_flagged = []
     return 0
+
+
+# ---------- 쓰기 전: 화별 플롯이 한 화에 관계 단계를 몇 칸 옮기라고 하나 ----------
+# 플롯이 한 화 만에 적 → 친구를 요구하면 쓰기 AI 는 그대로 쓴다 (jev 10화). 단계는 한 화에 한 칸(dynamics.STAGE_EDGES)이라
+# 지금 단계에서 플롯이 바라는 쪽 단계까지 두 칸 넘으면 알린다. 앞에 안 쓴 화가 같은 쌍을 같은 쪽으로 옮기면 그만큼 칸을 더 준다.
+# 화면 static/plot.js pacePlot 이 같은 규칙이다 (tests/test_plot_pace_js.py).
+# 바뀜 말(정규식) → 가 닿을 단계. 친구 · 연인은 호감 · 신뢰, 화해 · 용서는 화해 (적대 → 화해는 한 칸이지만 적대 → 친구는 두 칸).
+# 한글은 활용하면 끝 글자가 바뀌어('되' → '된' · '됐' · '돼') 활용형까지 적는다
+_BE = "(?:되|된|됐|돼)"
+FRIEND, MAKEUP = ("호감", "신뢰"), ("화해", "호감", "신뢰")
+COOL, BREAK, ENEMY = ("경계", "균열", "적대"), ("균열", "적대"), ("적대",)
+SHIFTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (f"친구가 {_BE}", FRIEND), ("친구로 (?:합류|인정|받아들)", FRIEND), ("마음을 (?:열|연)", FRIEND), (f"믿게 {_BE}", FRIEND),
+    ("믿기 시작", FRIEND), ("신뢰하게", FRIEND), (f"연인이 {_BE}", FRIEND), ("사귀|사귄", FRIEND), ("고백을 받아들", FRIEND),
+    ("화해", MAKEUP), ("용서", MAKEUP),
+    ("등을 돌", COOL), ("멀어(?:지|진|졌|져)", COOL), ("믿지 않게", COOL), ("정을 (?:떼|뗀|뗐)", COOL),
+    ("배신(?:하|한|했|해)", BREAK), ("절교", BREAK), ("결별", BREAK),
+    (f"원수가 {_BE}", ENEMY), (f"적이 {_BE}", ENEMY), ("증오하게", ENEMY),
+)
+_SHIFTS = [(re.compile(pat), goal) for pat, goal in SHIFTS]
+
+
+def _last_shift(sent: str) -> tuple[str, ...] | None:
+    """문장의 바뀜 말 가운데 가장 뒤에 나온 것의 단계. 문장 끝 쪽이 그 화가 닿는 곳이다 ('용서하고 친구가 된다' 는 친구)."""
+    best = max(((m.start(), goal) for rx, goal in _SHIFTS for m in rx.finditer(sent)), default=None, key=lambda x: x[0])
+    return best[1] if best else None
+
+
+_SENT = re.compile(r"[.!?。\n]+")
+SIGN_WORD = {1: "가까워지는", -1: "멀어지는"}
+UP = {"호감", "신뢰", "화해"}
+
+
+def _steps(start: str, goals: tuple[str, ...]) -> int:
+    """start 에서 goals 가운데 가장 가까운 단계까지 칸 수 (dynamics.STAGE_EDGES 의 너비 우선)."""
+    seen, q = {start: 0}, deque([start])
+    while q:
+        cur = q.popleft()
+        if cur in goals:
+            return seen[cur]
+        for nxt in dynamics.STAGE_EDGES.get(cur, ()):
+            if nxt not in seen:
+                seen[nxt] = seen[cur] + 1
+                q.append(nxt)
+    return 0
+
+
+def name_forms(name: str) -> list[str]:
+    """플롯 글에서 인물을 찾을 이름들: metrics.name_forms(세 글자 한글 이름은 성을 뗀 이름도)에 더해, 띄어 쓴 이름('야마이 렌')은
+    두 글자 넘는 낱낱('야마이')도. 플롯 글은 흔히 이름 한 토막으로 부른다."""
+    out = metrics.name_forms(name)
+    return out + [w for w in name.split() if len(w) >= 2 and w not in out]
+
+
+def plot_shifts(p: Project, n: int) -> list[tuple[str, str, tuple[str, ...]]]:
+    """n 화 플롯(요약 · 사건 · 감정 변화)이 바라는 관계 바뀜: (인물, 인물, 가 닿을 단계들, SHIFTS).
+    한 문장에 플롯 인물 이름이 둘이나 셋 있고 바뀜 말이 있을 때 그 이름들의 쌍마다. 넷 이상이면 누구 얘기인지 몰라 뺀다."""
+    try:
+        plot = p.episode(n).plot
+    except KeyError:
+        return []
+    forms = [(c.id, f) for c in p.characters if c.id in plot.characters for f in name_forms(c.name)]
+    out: list[tuple[str, str, tuple[str, ...]]] = []
+    for sent in _SENT.split("\n".join([plot.summary, *plot.events, plot.emotional_shift])):
+        goal = _last_shift(sent)
+        if not goal:
+            continue
+        ids = sorted({cid for cid, f in forms if f in sent})
+        if not 2 <= len(ids) <= 3:
+            continue
+        for a, b in combinations(ids, 2):
+            if (a, b, goal) not in out:
+                out.append((a, b, goal))
+    return out
+
+
+def plot_warnings(p: Project, n: int) -> list[str]:
+    """n 화 플롯이 한 화에 관계 단계를 두 칸 넘게 옮기라고 하면 알린다. 지금 단계는 지금 관계(마지막 반영 뒤)다.
+    마지막 반영 화와 n 화 사이 안 쓴 화가 같은 쌍을 같은 쪽으로 옮기면 한 화에 한 칸씩 더 준다."""
+    last = max((e.plot.number for e in p.episodes if e.status == "finalized"), default=0)
+    nm = _names(p)
+    out = []
+    for a, b, goal in plot_shifts(p, n):
+        if _masked(p, StateDelta(episode=n, summary=""), a, b):
+            continue
+        ties = [t for t in (dynamics.find_tie(p.ties, a, b), dynamics.find_tie(p.ties, b, a)) if t]
+        if not ties:
+            continue
+        far = max(ties, key=lambda t: _steps(t.stage, goal))
+        need = _steps(far.stage, goal)
+        sign = 1 if goal[0] in UP else -1
+        room = 1 + sum(1 for k in range(last + 1, n) for x, y, g in plot_shifts(p, k) if (x, y) == (a, b) and (g[0] in UP) == (sign > 0))
+        if need > room:
+            out.append(f"{n}화 플롯: {nm.get(far.source, far.source)} → {nm.get(far.target, far.target)} 지금 단계는 {far.stage}예요. "
+                       f"이 화는 {SIGN_WORD[sign]} 쪽을 바라는데 단계가 {need}칸 움직여야 해요(한 화에 한 칸). "
+                       "계기 화와 받아들이는 화를 나누거나 앞 화에 다리를 놓아 주세요.")
+    return out
+
+
+def plan_warnings(p: Project) -> list[tuple[int, str]]:
+    """본문이 없는 모든 화의 plot_warnings: (화, 경고)."""
+    return [(e.plot.number, w) for e in sorted(p.episodes, key=lambda e: e.plot.number)
+            if not e.text.strip() and e.status in ("draft", "confirmed") for w in plot_warnings(p, e.plot.number)]

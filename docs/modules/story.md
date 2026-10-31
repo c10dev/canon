@@ -207,6 +207,9 @@
 - 반대인 유형 바뀜의 차례 `StateDelta.rel_flagged` → 상태 승인 화면 기본 체크 해제(`review.js` `setDelta`), 사람 검토 없이 반영할 때는 빼기(`hold`, 남긴 개수로 세지 않음)
 - 두 층 감정(`prompts.LAYER`)으로 상대를 적은 쌍은 빼기(`_masked`)
 - 한 쌍 한 화 결정적(3) 사건 `BIG`(3)개 이상 경고
+- 쓰기 전 플롯: 화 플롯이 바라는 관계 바뀜(`plot_shifts`: 바뀜 말 `SHIFTS` · 가장 뒤 말 `_last_shift` · 이름 `name_forms`)
+- 지금 단계에서 칸 수가 쓸 수 있는 칸보다 많으면 경고(`plot_warnings` · 안 쓴 화 모두 `plan_warnings`)
+- 보이는 곳은 `board.checks` 와 `static/plot.js` `pacePlot`(같은 규칙, `tests/test_plot_pace_js.py`)
 - LLM 호출 없음
 
 ### `canon/pairlog.py`

@@ -217,7 +217,7 @@
   - 공용 목차 틀 `outline.js` 의 왼쪽 목차 + 넓은 보드 `plotLayout`(`wide`)
   - 720px 이하 목차는 위에 붙는 버튼 `plotToc`
   - 목차 안에서 펼침을 지키는 부 접기 · 아크 펼치기 줄은 `data-outline-keep`
-  - 목차의 진행 막대 `plotMeter` · 구간 줄 `actTocItems`(누르면 `jumpAct`) · 확인할 것 `plotTodos`
+  - 목차의 진행 막대 `plotMeter` · 구간 줄 `actTocItems`(누르면 `jumpAct`) · 확인할 것 `plotTodos`(관계를 한 화에 너무 많이 옮기는 화 `pacePlot`, `pace.plot_warnings` 와 같은 규칙 `tests/test_plot_pace_js.py`)
   - 머리의 'AI로 다시 만들기 ▾' `plotAiMenu`(요청 칸 `S.planNote`)
   - 구간 한 줄 머리 + 화 카드 격자 `actBoard`
   - 구간 · 아크 · 부 고치기는 서랍 없이 그 자리에서 `actEditor` · `arcEditor` · `partEditor`
@@ -237,6 +237,21 @@
 ### `canon/static/research.js`
 
 - 연구 화면
+- 공용 목차 틀 위의 카드 한 열(`.rs-wrap`, 오른쪽 열은 960px 까지)
+- 주소 `#/p/<이름>/research[/<쪽>]`(`rsLoad(쪽)` · `rsUrl`)
+- 목차: 개요 · 준비(서버 점검) · 실험 여섯(샘플 생성 · 단계 시험 · 컨텍스트 크기 · 검수 시험 · 블라인드 비교 · 상태창 시험) · 기록
+- 목차 꼬리와 개요 카드는 쪽마다 마지막 결과 요약(`rsBrief`, 서버 `latest` · `open_compares`)
+- 개요: 이어서 볼 것(고르지 않은 비교본, 한도 넘침) · 실험 카드 · 최근 기록
+- 실험 쪽: 설정 카드 → 결과 카드 → 지난 기록(`rsPast`)
+- 지난 기록을 열면 같은 결과 카드에 다시 그린다(`rsOpen` · `rsEntry`)
+- 머리 주 버튼은 쪽마다 하나(`rsPrimary`)
+- 백엔드는 칩으로 고른다(`rsPicker`, 샘플 생성은 여럿 `rsMultiPicker`)
+- 칩 후보는 설정값 · 서버 점검 모델 · 기록에 남은 백엔드(`rsCands`)
+- 칩에 없는 백엔드는 '+ 다른 백엔드 적기'로 칸을 편다
+- 컨텍스트 크기의 화별 표는 기록에 남지 않아 방금 잰 결과(`S.rs.cur`)에만 있다
+- 칸 폭 560px 이하(`@container outline`)의 결과 표는 줄마다 칸을 쌓는다(`.rs-stack`, 칸 이름 `data-label`)
+- `rsCands` · `rsParse` · `rsBrief` · `rsLogLine` · `rsCheckCalls` 는 순수 함수(`tests/test_research_js.py`)
+- 인물 화면의 신체 프로필 · 서술 말투 AI 동작(`bodyAI` · `voiceAI`)도 이 파일에 있다
 
 ### `canon/static/restate.js`
 
