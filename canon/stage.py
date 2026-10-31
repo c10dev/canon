@@ -165,6 +165,8 @@ def vocab() -> dict:
         "parts": {k: {"label": v.label, "side": v.side, "sexual": v.sexual} for k, v in PARTS.items()},
         "acts": {k: {"label": v.label, "hands": v.hands, "sexual": v.sexual, "intimate": v.intimate, "support": v.support} for k, v in ACTS.items()},
         "rooms": {k: v[0] for k, v in ROOMS.items()}, "kinds": ANCHOR_KINDS,
+        # 새 장면 방 고르기의 작은 그림: 틀마다 크기와 기준점 상자 [x, y, w, h] (static/stage.js stgThumb)
+        "room_shapes": {k: {"w": v[1], "h": v[2], "anchors": [list(a[2:6]) for a in v[3]]} for k, v in ROOMS.items()},
         "rules": rule_names(), "rules3d": sorted(_rules3d()),
     }
 
