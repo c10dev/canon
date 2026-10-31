@@ -1745,8 +1745,7 @@ def cmd_map(a: argparse.Namespace) -> None:
         return
     old = atlas.apply_generated(folder, p, spec, take)
     print(f"저장: {store.save(a.name, p)}")
-    if old and (folder / old).is_file():
-        (folder / old).unlink()
+    atlas.drop_old_file(folder, old)
 
 
 def _map_fill(a: argparse.Namespace, p, folder) -> None:

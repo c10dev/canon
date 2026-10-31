@@ -3597,13 +3597,8 @@ def _map_dir(name: str) -> Path:
 
 
 def _drop_map_file(name: str, fname: str) -> None:
-    """map/ 안의 옛 그림 · 마을 파일을 지운다. 이름이 map/ 밖을 가리키면(경로 · 절대 경로) 지우지 않는다."""
-    if not fname or Path(fname).name != fname:
-        return
-    d = _map_dir(name)
-    path = d / fname
-    if path.is_file() and path.resolve().parent == d.resolve():
-        path.unlink()
+    """map/ 안의 옛 그림 · 마을 파일을 지운다 (atlas.drop_old_file)."""
+    atlas.drop_old_file(_map_dir(name), fname)
 
 
 @app.put("/api/projects/{name}/atlas/image")
