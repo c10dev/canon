@@ -890,5 +890,6 @@ canon/web.py       웹 UI 서버 (FastAPI) + canon/static/ 화면
 canon/jobs.py      웹에서 오래 걸리는 AI 작업을 백그라운드로 돌리고 진행 상황을 알려 줌
 canon/autorun.py   목표 화까지 자동 집필 (승인 정책, 배치, 비용 추정, 이어 가기, 1~3화 멈춤)
 tests/             흐름 테스트 (mock LLM, 가짜 OpenAI 호환 서버)
+docs/design/       디자인 시스템: 문구 · 색 · 글자 규칙, 화면 배치, 토큰 값(tokens.json), 컴포넌트 문서
 swift/             SwiftUI 앱 (서버 클라이언트, 모듈 패키지 CanonKit). 명세는 scripts/make_openapi.py 로 만든다
 ```

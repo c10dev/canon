@@ -14,6 +14,8 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 
 장면 연출(방 안 자리 · 자세 · 신체 접촉을 박자마다 적고 재생하는 도구, `stage`)을 만들거나 고치기 전에 [docs/stage/](docs/stage/README.md) 를 읽는다. 정한 규칙, 데이터 형식, 일감 차례와 작업 명세서, 화면 시안이 있다.
 
+웹 화면(`canon/static/`)의 모양을 고치기 전에 [docs/design/](docs/design/README.md) 를 읽는다. 디자인 시스템의 원본이다: 문구 · 색 · 글자 · 간격 규칙(README), 화면 배치(`layout.md`), 토큰 값(`tokens.json`), 컴포넌트별 문서와 미리보기(`components/<이름>/README.md` · `preview.html`), 미리보기가 읽는 컴포넌트 CSS 사본(`components/bundle.css`).
+
 | 파일 | 역할 |
 |---|---|
 | `canon/schema.py` | pydantic 데이터 스키마. 모든 상태는 `Project` 하나(`project.json`)에 저장. 인물 신체 프로필(`Character.body`)은 작가 메모라 AI 응답 형식(`SkipJsonSchema`)과 프롬프트(`llm.dump` 의 context `prompt`)에서 빠진다. 이 칸을 다루는 AI 호출은 신체 프로필 제안(`pipeline.suggest_body`)뿐이고, 미성년(`cast.is_minor_age`)이면 쓰리사이즈를 제안하지 않는다. 인물 프롬프트 넣기(`Character.context`: auto 비중대로 · always 늘 · off 이름만)도 작가 전용이라 같은 방식으로 빠지고, 고르는 규칙은 `context.core_ids` · `off_ids` · `without_off`(모두 auto 면 예전 규칙과 같다). 화별 쓴 사건 체크(`Episode.events_done`, 사건 글 목록)는 집필 화면 표시용이라 `EpisodePlot` 밖에 두어 프롬프트에 들어가지 않는다. 인물 지금 차림(`CharacterState.attire`, 옷 · 상처 · 지닌 물건)은 지금 값만 덮어쓰고 지난 값은 스냅샷, 규칙은 `prompts.ATTIRE_STATE_RULE` · `attire_write_rule` · `attire_check_rule`. 작품이 쓸 단계 프리셋(`Settings.model_preset`, 비우면 전체 설정)은 `settings.project_preset` 이 찾고 `stage_provider` · `stage_model` 이 지금 작업의 작품(`usage.scope`)에서 저절로 쓴다. 화별 스토리보드(`Episode.storyboard`, `Storyboard`: 장면 · 시간 · 상태창 바뀐 양 · 이동 · 끝 차림 · 넘겨받을 것 · 깨지 않을 것 · 경고)는 상태 승인 대상이 아니고, 켜기는 `Settings.storyboard`(비우면 장편 켬 · 단편 끔). 화별 큐 시트(`Episode.cue_sheet`, `CueSheet`)도 같고, 켜기는 `Settings.cue_sheet`(비우면 장편 켬 · 단편 끔) |
@@ -164,6 +166,7 @@ CANON_LLM=mock python -m canon ...  # 수동 확인
 - **API 키, `.env`, `projects/`(사용자 소설 데이터)는 커밋하지 않는다.** `.gitignore` 에 있다.
 - 스키마 필드를 바꾸면 기존 `project.json` 이 읽히도록 기본값을 둔다.
 - 기능을 바꾸면 README.md 와 DESIGN.md 의 해당 부분도 고친다.
+- 화면 모양(색, 글자, 간격, 컴포넌트, 배치, 폭 구간)을 바꾸면 같은 변경 안에서 `docs/design/` 도 고친다. 색 토큰을 더하거나 바꾸면 `canon/static/app.css` 의 두 `:root` 블록과 `docs/design/tokens.json` 을 함께 고친다(`tests/test_design_tokens.py` 가 맞춰 본다). 컴포넌트 규칙을 바꾸면 `components/bundle.css` 의 그 줄도 app.css 와 같게 고친다. Claude 디자인 시스템 페이지는 이 폴더에서 다시 올리는 보기라 그 페이지만 고치지 않는다.
 - 여러 에이전트 세션이 동시에 일할 때는 코드를 고치는 세션마다 자기 git worktree 와 브랜치를 쓴다. 같은 폴더 · 같은 브랜치에서 둘 이상이 고치면 변경이 섞여 커밋할 때 hunk 를 손으로 골라야 한다. 읽기만 하는 세션은 같은 폴더를 써도 된다.
 
 ## 로드맵
