@@ -1604,23 +1604,44 @@ dialog.w-dialog::backdrop { background: var(--overlay); }
 .pf-sec { scroll-margin-top: 64px; }
 .pf-sec:focus { outline: none; }
 .pf-sec:focus-visible { outline: 2px solid var(--sel-line); outline-offset: 2px; }
-/* ----- 2단계 문체 화면과 문체 라이브러리 항목 (style.js): 왼쪽 목차 + 오른쪽 카드 한 열 -----
-   카드는 읽는 모양이 기본이고 '고치기'로 그 카드만 고치는 칸을 편다. 폭은 창이 아니라 .sty-wrap 폭으로 바꾼다
-   (대화 패널을 열어도 같은 규칙). 720px 이하는 한 열이고 목차는 위에 붙는 '지금 카드 ▾' 버튼이다 */
-.sty-wrap { container: sty / inline-size; }
-.sty-doc { display: grid; grid-template-columns: 220px minmax(0, 760px); gap: 32px; align-items: start; }
+/* ----- 공용 목차 틀 (outline.js): 왼쪽 목차 + 오른쪽 카드 한 열. 설정 도우미 · 문체 · 역설계 실험이 함께 쓴다 -----
+   폭은 창이 아니라 .outline-wrap 폭으로 바꾼다(대화 패널을 열어도 같은 규칙). 720px 이하는 한 열이고 목차는 위에 붙는 '지금 구역 ▾' 버튼이다.
+   카드 열은 760px 에서 멈추고, .outline-doc.wide 는 남은 폭을 다 쓴다. 위쪽 띠가 없는 화면은 틀에 --outline-band: 0px */
+.outline-wrap { container: outline / inline-size; }
+.outline-doc { display: grid; grid-template-columns: 220px minmax(0, 760px); gap: 32px; align-items: start; }
+.outline-doc.wide { grid-template-columns: 220px minmax(0, 1fr); }
+.outline { position: sticky; top: 16px; z-index: 4; }
+.outline-now { display: none; }
+.outline-now .tl { min-width: 0; text-align: left; }
+.outline-list { display: flex; flex-direction: column; gap: 2px; }
+.outline-h { padding: 14px 10px 4px; font-size: 0.75rem; color: var(--muted); }
+.outline-h:first-child { padding-top: 0; }
+.outline-sep { height: 1px; margin: 8px 4px; background: var(--line); }
+.outline-note { padding: 8px 10px 0; line-height: 1.6; }
+.outline-item { min-height: 38px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-2); font: inherit; font-weight: 500; text-align: left; text-decoration: none; display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.outline-item:hover { background: var(--surface); color: var(--text); }
+.outline-item[aria-current] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
+.outline-item .tl { min-width: 0; }
+.outline-item .st { margin-left: auto; padding-left: 6px; font-size: 0.75rem; color: var(--muted); font-weight: 500; white-space: nowrap; }
+.outline-item .st.warn, .outline-item.warn .st { color: var(--amber-ink); font-weight: 700; }
+.outline-item.warn .tl::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--amber); vertical-align: 1px; }
+/* 번호 칸: 끝남 ✓ ok(초록), 지금 줄 · 지금 할 단계 now(진한 색), 하는 중 run */
+.outline-item .n, .sec-n { width: 22px; height: 22px; flex: none; border-radius: 6px; background: var(--chip); color: var(--text-2); font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.outline-item[aria-current] .n, .outline-item .n.now { background: var(--accent); color: var(--on-accent); }
+.outline-item .n.ok, .outline-item.done .n, .sec-n.ok { background: var(--green-soft); color: var(--green); }
+.outline-item .n.run { background: var(--accent-soft); color: var(--accent-ink); }
+@container outline (max-width: 720px) {
+  .outline-doc, .outline-doc.wide { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .outline { top: var(--outline-band, var(--band, 0px)); margin: 0 -2px; padding: 8px 2px; background: var(--bg); }
+  .outline-now { display: flex; width: 100%; justify-content: space-between; gap: 8px; }
+  .outline-now + .outline-list { display: none; position: absolute; left: 0; right: 0; top: calc(100% - 4px); padding: 8px; border-radius: 12px; background: var(--surface); box-shadow: 0 8px 28px rgba(0,0,0,0.18); max-height: 70vh; overflow-y: auto; }
+  .outline.open .outline-list { display: flex; }
+  .outline-item { min-height: 44px; }
+}
+@media (forced-colors: active) { .outline-item[aria-current] { outline: 2px solid Highlight; } }
+/* ----- 2단계 문체 화면과 문체 라이브러리 항목 (style.js): 공용 목차 틀 위의 카드 한 열 -----
+   카드는 읽는 모양이 기본이고 '고치기'로 그 카드만 고치는 칸을 편다 */
 .sty-secs { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-.sty-toc { position: sticky; top: 16px; z-index: 4; }
-.sty-toc-list { display: flex; flex-direction: column; gap: 2px; }
-.sty-toc-now { display: none; }
-.sty-toc-h { padding: 14px 10px 4px; font-size: 0.75rem; color: var(--muted); }
-.sty-toc-item { min-height: 38px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-2); font: inherit; font-weight: 500; text-align: left; display: flex; align-items: center; gap: 6px; cursor: pointer; }
-.sty-toc-item:hover { background: var(--surface); color: var(--text); }
-.sty-toc-item .tl { min-width: 0; }
-.sty-toc-item .st { margin-left: auto; font-size: 0.75rem; color: var(--muted); font-weight: 500; white-space: nowrap; }
-.sty-toc-item.warn .st { color: var(--written-ink); font-weight: 700; }
-.sty-toc-item.warn .tl::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--amber); vertical-align: 1px; }
-.sty-toc-item[aria-current] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
 .sty-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .sty-status { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; flex: 1 1 280px; }
 .sty-acts { margin-left: auto; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -1680,15 +1701,7 @@ dialog.w-dialog::backdrop { background: var(--overlay); }
 .learn-list { display: flex; flex-direction: column; }
 .learn-list .check-row { padding: 10px 0; border: none; border-top: 1px solid var(--rule); border-radius: 0; }
 .learn-list .check-row:first-child { border-top: none; padding-top: 0; }
-@container sty (max-width: 720px) {
-  .sty-doc { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .sty-toc { top: var(--band, 0px); margin: 0 -2px; padding: 8px 2px; background: var(--bg); }
-  .sty-toc-now { display: flex; width: 100%; justify-content: space-between; }
-  .sty-toc-list { display: none; position: absolute; left: 0; right: 0; top: calc(100% - 4px); padding: 8px; border-radius: 12px; background: var(--surface); box-shadow: 0 8px 28px rgba(0,0,0,0.18); max-height: 70vh; overflow-y: auto; }
-  .sty-toc.open .sty-toc-list { display: flex; }
-  .sty-toc-item { min-height: 44px; }
-}
-@container sty (max-width: 560px) {
+@container outline (max-width: 560px) {
   .sty-secs .grid-2 { grid-template-columns: minmax(0, 1fr); }
   .pf-dl { grid-template-columns: minmax(0, 1fr); }
   .pf-dl dd { border-top: none; padding-top: 0; }
@@ -1697,7 +1710,7 @@ dialog.w-dialog::backdrop { background: var(--overlay); }
   .mk-th { display: none; }
   .pf-dev-side { align-items: flex-start; flex-direction: row; flex-wrap: wrap; }
 }
-@media (forced-colors: active) { .sty-toc-item[aria-current], .pf-sec.editing { outline: 2px solid Highlight; } }
+@media (forced-colors: active) { .pf-sec.editing { outline: 2px solid Highlight; } }
 .field.passage textarea { font-family: var(--serif); font-size: 0.875rem; line-height: 1.85; background: var(--canvas); }
 .field.chat-target textarea, .field.chat-target input { border: 2px solid var(--accent); background: var(--sel-bg); }
 .field.chat-target > label { color: var(--accent-ink); }
@@ -2146,27 +2159,13 @@ mark.hl.tofix { text-decoration-color: var(--him-ink); text-decoration-style: da
   .req-meter .bar i { background: Highlight; }
 }
 
-/* ----- 설정 도우미 (setup.js): 왼쪽 목차 + 오른쪽 카드 한 열. 기획서와 새 작품 걸음이 같은 뼈대다 -----
-   폭은 창이 아니라 .setup-wrap 폭으로 바꾼다(대화 패널을 열어도 같은 규칙). 720px 이하는 한 열, 목차는 위에 붙는 '지금 구역 ▾' 또는 걸음 막대 */
-.setup-wrap { container: setup / inline-size; }
-.setup-doc { display: grid; grid-template-columns: 220px minmax(0, 760px); gap: 32px; align-items: start; }
+/* ----- 설정 도우미 (setup.js): 공용 목차 틀 위의 카드 한 열. 기획서와 새 작품 걸음이 같은 뼈대다 -----
+   720px 이하 기획서 목차는 위에 붙는 '지금 구역 ▾', 걸음 목차는 걸음 막대 */
 .setup-secs { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
-.setup-toc { position: sticky; top: 16px; z-index: 4; }
-.toc-list { display: flex; flex-direction: column; gap: 2px; }
-.toc-now, .wiz-now { display: none; }
-.setup-toc .req-meter { padding: 4px 10px 10px; }
-.setup-toc .req-meter .bar { flex: 1; width: auto; }
-.toc-item { min-height: 40px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-2); font: inherit; font-weight: 500; text-align: left; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 8px; align-items: center; cursor: pointer; }
-.toc-item:hover { background: var(--surface); color: var(--text); }
-.toc-item[aria-current] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
-.toc-item .n, .sec-n { width: 22px; height: 22px; border-radius: 6px; background: var(--chip); color: var(--text-2); font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
-.toc-item[aria-current] .n { background: var(--accent); color: var(--on-accent); }
-.toc-item .n.ok, .toc-item.done .n, .sec-n.ok { background: var(--green-soft); color: var(--green); }
-.toc-item .st { font-size: 0.75rem; color: var(--muted); font-weight: 500; }
-.toc-item .st.warn { color: var(--amber-ink); font-weight: 700; }
-.toc-item .bar { display: none; }
-.toc-sep { height: 1px; margin: 8px 4px; background: var(--line); }
-.toc-note { padding: 8px 10px 0; line-height: 1.6; }
+.wiz-now { display: none; }
+.outline .req-meter { padding: 4px 10px 10px; }
+.outline .req-meter .bar { flex: 1; width: auto; }
+.outline-item .bar { display: none; }
 .sec-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
 .sec-title { display: flex; align-items: center; gap: 10px; }
 .sec-n { width: 24px; height: 24px; }
@@ -2202,25 +2201,19 @@ details[open] > .row-sum { background: var(--sel-bg); }
 .setup-foot .sp { flex: 1; }
 .setup-foot .wiz-why { width: 100%; text-align: right; color: var(--muted); }
 .setup-foot.phone-only { display: none; }
-@container setup (max-width: 720px) {
-  .setup-doc { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-  .setup-toc { top: var(--band, 0px); margin: 0 -2px; padding: 8px 2px; background: var(--bg); }
-  .setup-toc:not(.steps) .toc-now { display: flex; width: 100%; justify-content: space-between; min-height: 44px; }
-  .setup-toc:not(.steps) .toc-list { display: none; position: absolute; left: 0; right: 0; top: calc(100% - 4px); padding: 8px; border-radius: 12px; background: var(--surface); box-shadow: 0 8px 28px rgba(0,0,0,0.18); }
-  .setup-toc:not(.steps).open .toc-list { display: flex; }
-  .setup-toc .toc-item { min-height: 44px; }
+@container outline (max-width: 720px) {
   /* 걸음: 막대 여섯 칸과 'n/6 · 걸음' */
-  .setup-toc.steps .toc-list { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
-  .setup-toc.steps .req-meter, .setup-toc.steps .toc-note { display: none; }
-  .setup-toc.steps .toc-item { min-height: 28px; padding: 6px 0; display: block; }
-  .setup-toc.steps .toc-item > :not(.bar) { display: none; }
-  .setup-toc.steps .toc-item .bar { display: block; height: 6px; border-radius: 3px; background: var(--seg); }
-  .setup-toc.steps .toc-item.done .bar { background: var(--green); }
-  .setup-toc.steps .toc-item.miss .bar { background: var(--amber); }
-  .setup-toc.steps .toc-item[aria-current] { background: transparent; }
-  .setup-toc.steps .toc-item[aria-current] .bar { background: var(--accent); }
-  .setup-toc.steps .wiz-now { display: flex; justify-content: space-between; padding-top: 6px; font-size: 0.8125rem; font-weight: 700; }
-  .setup-toc.steps .wiz-now span { font-weight: 400; color: var(--muted); }
+  .outline.steps .outline-list { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+  .outline.steps .req-meter, .outline.steps .outline-note { display: none; }
+  .outline.steps .outline-item { min-height: 28px; padding: 6px 0; display: block; }
+  .outline.steps .outline-item > :not(.bar) { display: none; }
+  .outline.steps .outline-item .bar { display: block; height: 6px; border-radius: 3px; background: var(--seg); }
+  .outline.steps .outline-item.done .bar { background: var(--green); }
+  .outline.steps .outline-item.miss .bar { background: var(--amber); }
+  .outline.steps .outline-item[aria-current] { background: transparent; }
+  .outline.steps .outline-item[aria-current] .bar { background: var(--accent); }
+  .outline.steps .wiz-now { display: flex; justify-content: space-between; padding-top: 6px; font-size: 0.8125rem; font-weight: 700; }
+  .outline.steps .wiz-now span { font-weight: 400; color: var(--muted); }
   .grid-3 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .grid-3 > :first-child { grid-column: 1 / -1; }
   .slots .slot > .field { display: flex; flex-direction: column; }

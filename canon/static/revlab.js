@@ -2,9 +2,9 @@
    작가가 넣은 소설을 거꾸로 화별 플롯 · 스토리보드 · 큐 시트 · 이야기 줄기로 풀고, 그 큐 시트로 같은 화를 다시 써서(되돌려 쓰기) 원문과 견준다.
    실험은 작품 밖(<CANON_HOME>/.revlab)에 두고 작품을 열지 않고 쓴다. AI 작업은 POST /revlab/<번호>/jobs (작업 rev_parse · rev_write · rev_style,
    ep 가 실험 번호, project 는 REV_JOBS). 사용량은 작품 없이 잡히고 모델은 전체 단계 설정을 쓴다.
-   배치는 다른 단계 화면(설정 도우미 · 문체 · 플롯)과 같은 왼쪽 목차 + 오른쪽 칸이다. 목차는 단계 다섯(revSteps) · 화(revTocEps) · 실험 전체
+   배치는 다른 단계 화면(설정 도우미 · 문체)과 같은 공용 목차 틀(outline.js)의 왼쪽 목차 + 오른쪽 칸이다. 목차는 단계 다섯(revSteps) · 화(revTocEps) · 실험 전체
    (인물 · 문체 · 줄기 · 지표), 오른쪽은 도는 작업 카드(revRunCard)와 고른 화의 탭 셋(원문 · 큐 / 플롯 · 스토리보드 / 되돌려 쓰기).
-   머리 주 버튼은 다음 할 일 하나(revNext)이고 추정 비용을 함께 적는다(revEst, AI 없음). 폭은 창이 아니라 .rev-wrap 폭(@container rev)으로 바꾼다.
+   머리 주 버튼은 다음 할 일 하나(revNext)이고 추정 비용을 함께 적는다(revEst, AI 없음). 폭은 창이 아니라 공용 목차 틀(outline.js, @container outline)의 폭으로 바꾼다.
    app.js 의 S, actions, api, run, render, header, esc, toast, josa, showError, pollJobs, jobFor, jobLeft, elapsed, menuBtn, isTyping,
    JOB_PAGES, JOB_DONE_MSG, fmtDateTime, hub.js 의 renderHub 와 cue.js 의 cueBind · cueEd · cueScore · cueEditor · cueLabel · cueUsd · cuePct · cueYes 를 쓴다
    (큐 시트 열쇠는 'rev:<화>'). revSplit · revGuessFirst · revSegments · revPreview · revEpTitle · revSteps · revNext · revTocEps · revRunRows ·
@@ -363,15 +363,10 @@ function viewRev() {
   return `${revLabHead()}${revLayout(revLabToc(), revMain())}`;
 }
 
-const revLayout = (toc, main) => `<div class="rev-wrap"><div class="rev-doc">${toc}<div class="rev-main">${main}</div></div></div>`;
-
-/** 목차 틀: 넓은 칸은 왼쪽 목록, 좁은 칸(720px 이하)은 위에 붙는 '지금 줄 ▾' 버튼. */
-function revToc(label, now, list) {
-  return `<nav class="rev-toc" id="rev-toc" aria-label="${label}">
-    <button type="button" class="btn rev-toc-now" data-action="revTocToggle" aria-expanded="false" aria-controls="rev-toc-list"><span>${now}</span><span aria-hidden="true">▾</span></button>
-    <div class="rev-toc-list" id="rev-toc-list">${list}</div></nav>`;
-}
-const revTocLink = (href, inner, cur = false) => `<a class="rev-toc-item" href="${href}"${cur ? ' aria-current="page"' : ''}>${inner}</a>`;
+/** 공용 목차 틀(outline.js): 넓은 칸은 왼쪽 목록, 좁은 칸(틀 720px 이하)은 위에 붙는 '지금 줄 ▾' 버튼. 오른쪽 칸은 남은 폭을 다 쓴다 */
+const revLayout = (toc, main) => outlineDoc(toc, `<div class="rev-main">${main}</div>`, { wide: true, cls: 'rev-wrap' });
+const revToc = (label, now, list) => outlineNav({ id: 'rev-toc', label, now, body: list });
+const revTocLink = (href, inner, cur = false) => `<a class="outline-item" href="${href}"${cur ? ' aria-current="page"' : ''}>${inner}</a>`;
 
 /** 처음 화면: 이어 하기 카드(최근에 고친 차례) + 새 실험 카드(머리 '+ 새 실험'으로 편다, 실험이 없거나 붙여 넣은 글이 있으면 펴 둔다). */
 function revHome() {
@@ -463,8 +458,8 @@ function revLabToc() {
   const steps = revSteps(L, S.rev.min_chars, run ? [run.kind] : []);
   const eps = revTocEps(L.items, S.rev.min_chars);
   const pane = S.revPane;
-  const stepRows = steps.map((s, i) => `<button type="button" class="rev-toc-item" data-action="revStep" data-arg="${REV_STEP_GO[s.id]}">
-      <span class="rev-step ${s.state}" aria-hidden="true">${s.state === 'ok' ? '✓' : i + 1}</span><span class="tl">${esc(s.label)}</span>
+  const stepRows = steps.map((s, i) => `<button type="button" class="outline-item" data-action="revStep" data-arg="${REV_STEP_GO[s.id]}">
+      <span class="n ${s.state}" aria-hidden="true">${s.state === 'ok' ? '✓' : i + 1}</span><span class="tl">${esc(s.label)}</span>
       <span class="st">${s.state === 'run' ? '하는 중' : esc(s.right)}</span><span class="sr-only">${{ ok: '끝남', now: '지금 할 단계', todo: '', run: '하는 중' }[s.state]}</span></button>`).join('');
   const busy = run && run.kind === 'rev_parse' ? revRunRows(run, L.items) : [];
   const epRows = eps.map((x) => {
@@ -477,9 +472,9 @@ function revLabToc() {
     return revTocLink(`#/revlab/${L.id}/${k}`, `<span class="tl">${label}</span><span class="st">${right}</span>`, pane === k);
   }).join('');
   const cur = pane === 'overview' ? `개요 · ${steps[1].label} ${steps[1].right}` : pane ? REV_PANES[pane] : (() => { const e = revItem(S.revEp); return e ? `${e.number}화${revEpTitle(e) ? ` ${esc(revEpTitle(e))}` : ''} · ${(REV_TABS.find(([k]) => k === S.revTab) || REV_TABS[0])[1]}` : '목차'; })();
-  const over = revTocLink(`#/revlab/${L.id}`, `<span class="rev-step${pane === 'overview' ? ' now' : ''}" aria-hidden="true">◎</span><span class="tl">개요</span><span class="st">${L.episodes}화</span>`, pane === 'overview');
-  return revToc('실험 목차', cur, `${over}<span class="rev-toc-h">단계</span>${stepRows}<div class="rev-meter" role="img" aria-label="단계 ${Math.round(revStepShare(steps) * 4)}/4 끝남"><i style="width:${Math.round(revStepShare(steps) * 100)}%"></i></div>
-    <span class="rev-toc-h">화</span>${epRows}<span class="rev-toc-h">실험 전체</span>${panes}`);
+  const over = revTocLink(`#/revlab/${L.id}`, `<span class="n${pane === 'overview' ? ' now' : ''}" aria-hidden="true">◎</span><span class="tl">개요</span><span class="st">${L.episodes}화</span>`, pane === 'overview');
+  return revToc('실험 목차', cur, `${over}<span class="outline-h">단계</span>${stepRows}<div class="rev-meter" role="img" aria-label="단계 ${Math.round(revStepShare(steps) * 4)}/4 끝남"><i style="width:${Math.round(revStepShare(steps) * 100)}%"></i></div>
+    <span class="outline-h">화</span>${epRows}<span class="outline-h">실험 전체</span>${panes}`);
 }
 
 function revMain() {
@@ -969,12 +964,6 @@ Object.assign(actions, {
     S.revTab = id === 'parse' ? 'text' : 'write';
     revNav(e.number);
   },
-  revTocToggle() {
-    const t = document.getElementById('rev-toc');
-    if (!t) return;
-    const on = t.classList.toggle('open');
-    t.querySelector('.rev-toc-now').setAttribute('aria-expanded', String(on));
-  },
   revCueGo(k) {
     S.revSel = S.revSel === k ? 0 : k;
     render();
@@ -983,31 +972,12 @@ Object.assign(actions, {
   },
 });
 
-// 좁은 칸의 목차 창은 바깥을 누르거나 Esc 로 닫는다
-document.addEventListener('click', (e) => {
-  const t = document.getElementById('rev-toc');
-  if (t && t.classList.contains('open') && !t.contains(e.target)) actions.revTocToggle();
-});
-document.addEventListener('keydown', (e) => {
-  const t = document.getElementById('rev-toc');
-  if (e.key === 'Escape' && t && t.classList.contains('open')) { actions.revTocToggle(); t.querySelector('.rev-toc-now').focus(); }
-});
-
 (() => {
   const css = `
-.rev-wrap { container: rev / inline-size; }
-.rev-doc { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; align-items: start; }
+/* 목차 틀은 공용(app.css .outline-*). 이 화면은 위쪽 띠가 없고, 목차의 화 이름은 한 줄로 자른다 */
+.rev-wrap { --outline-band: 0px; }
+.rev-wrap .outline-item .tl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rev-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.rev-toc { position: sticky; top: 16px; z-index: 4; }
-.rev-toc-now { display: none; }
-.rev-toc-list { display: flex; flex-direction: column; gap: 2px; }
-.rev-toc-h { padding: 14px 10px 4px; font-size: 0.75rem; color: var(--muted); }
-.rev-toc-h:first-child { padding-top: 0; }
-.rev-toc-item { min-height: 38px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-2); font: inherit; font-weight: 500; text-align: left; text-decoration: none; display: flex; align-items: center; gap: 8px; cursor: pointer; }
-.rev-toc-item:hover { background: var(--surface); color: var(--text); }
-.rev-toc-item .tl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rev-toc-item .st { margin-left: auto; padding-left: 6px; font-size: 0.75rem; color: var(--muted); font-weight: 500; white-space: nowrap; }
-.rev-toc-item[aria-current] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
 .rev-step { width: 20px; height: 20px; border-radius: 6px; background: var(--chip); color: var(--text-2); display: inline-flex; align-items: center; justify-content: center; font-size: 0.6875rem; font-weight: 700; flex: none; }
 .rev-step.ok { background: var(--green-soft); color: var(--green); }
 .rev-step.now { background: var(--accent); color: var(--on-accent); }
@@ -1097,23 +1067,17 @@ document.addEventListener('keydown', (e) => {
 .rev-run-row { min-height: 44px; display: grid; grid-template-columns: 14px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 0 8px; border-radius: 8px; }
 .rev-run-row.run { background: var(--sel-bg); }
 .rev-run-row.wait .tl { color: var(--muted); }
-@container rev (max-width: 1040px) {
+@container outline (max-width: 1040px) {
   .rev-side { position: static; max-height: none; overflow: visible; }
 }
-@container rev (max-width: 720px) {
-  .rev-doc { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .rev-toc { top: 0; margin: 0 -2px; padding: 8px 2px; background: var(--bg); }
-  .rev-toc-now { display: flex; width: 100%; justify-content: space-between; }
-  .rev-toc-list { display: none; position: absolute; left: 0; right: 0; top: calc(100% - 4px); padding: 8px; border-radius: 12px; background: var(--surface); box-shadow: 0 8px 28px rgba(0,0,0,0.18); max-height: 70vh; overflow-y: auto; }
-  .rev-toc.open .rev-toc-list { display: flex; }
-  .rev-toc-item { min-height: 44px; }
+@container outline (max-width: 720px) {
   .rev-blind { grid-template-columns: minmax(0, 1fr); }
   .rev-seg { grid-template-columns: 52px minmax(0, 1fr); gap: 8px; }
   .rev-gut-t { display: none; }
   .rev-cue-more { padding-left: 10px; }
   .rev-paste textarea { min-height: 240px; }
 }
-@media (forced-colors: active) { .rev-toc-item[aria-current], .rev-seg.sel, .rev-cue.sel, .rev-cur td { outline: 2px solid Highlight; } }
+@media (forced-colors: active) { .rev-seg.sel, .rev-cue.sel, .rev-cur td { outline: 2px solid Highlight; } }
 `;
   const el = document.createElement('style');
   el.textContent = css;
