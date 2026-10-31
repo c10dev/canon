@@ -504,31 +504,11 @@ function castSheetStats(c, f) {
   const before = prevSt && f.episode ? Object.fromEntries(prevSt.stats.map((s) => [s.name, s.value])) : null;
   const logs = (P().stat_log || []).filter((r) => r.character_id === c.id && f && r.episode === f.episode);
   const src = (name) => { const r = logs.filter((x) => x.name === name).pop(); return r ? (r.source === 'author' ? '작가가 고침' : 'AI 변경안') : ''; };
-  const items = stats.map((s) => {
-    const delta = before ? castStatDelta(before[s.name], s.value) : '';
-    const frac = s.value.match(SW_FRACTION);
-    const list = s.value.match(SW_AMOUNT) ? [] : swItems(s.value);  // 3,000원 같은 금액은 쉼표가 있어도 목록이 아니다
-    const num = (x) => Number(x.replace(/,/g, ''));
-    const pct = frac && num(frac[2]) > 0 ? Math.max(0, Math.min(100, Math.round((num(frac[1]) / num(frac[2])) * 100))) : null;
-    return { name: s.name, value: s.value, delta, from: delta ? src(s.name) : '', pct, list: list.length > 1 || (list.length && abListName(s.name)) ? list : null };
-  }).sort((x, y) => !!x.list - !!y.list);  // 한 줄을 다 쓰는 목록 항목은 뒤로 모은다
-  // 다 지운 항목은 이 시점 값에 없으니 앞 시점에서 찾아 '지움'으로 보인다
-  const gone = before ? Object.keys(before).filter((k) => before[k] && !stats.some((s) => s.name === k)) : [];
-  const moved = items.filter((x) => x.delta).length + gone.length;
-  const system = S.castTheme === 'system';
-  const deltaTag = (x) => (x.delta ? `<span class="csh-delta" title="${esc(`${f.episode}화에 바뀜${x.from ? ' · ' + x.from : ''}`)}">${esc(x.delta)}</span>` : '');
-  const body = system
-    ? `<div class="sw-sys sw-skin-${swSkin()}" role="group" aria-label="${esc(c.name)} ${esc(swTitle())}"><div class="sw-sys-title">【 ${esc(swTitle())} 】</div>
-        <dl><dt>이름</dt><dd>${esc(c.name || c.id)}</dd>${items.map((x) => `<dt>${esc(x.name)}</dt><dd>${x.pct !== null ? `<span class="sw-sys-bar" aria-hidden="true"><i style="width:${x.pct}%"></i></span>` : ''}${x.list ? x.list.map((v) => abChip(c.id, x.name, v, 'sw-sys-tag')).join('') : `<span>${esc(x.value || '—')}</span>`}${deltaTag(x)}</dd>`).join('')}
-        ${gone.map((k) => `<dt>${esc(k)}</dt><dd><s>${esc(before[k])}</s><span class="csh-delta">지움</span></dd>`).join('')}</dl>
-        <div class="sw-sys-foot"><span>${esc(frameLabel(f))}</span><span>${moved ? `이번 화에 ${moved}항목 바뀜` : ''}</span></div></div>`
-    : `<div class="csh-stats">${items.map((x) => `<div class="csh-stat${x.list ? ' wide' : ''}${x.delta ? ' moved' : ''}"><div class="between"><span class="small">${esc(x.name)}</span>${deltaTag(x)}</div>
-        ${x.list ? `<div class="csh-chips">${x.list.map((v) => abChip(c.id, x.name, v, 'csh-know')).join('')}</div>` : `<strong>${esc(x.value || '—')}</strong>`}
-        ${x.pct !== null ? `<div class="csh-bar" aria-hidden="true"><i style="width:${x.pct}%"></i></div>` : ''}</div>`).join('')}
-        ${gone.map((k) => `<div class="csh-stat moved"><div class="between"><span class="small">${esc(k)}</span><span class="csh-delta">지움</span></div><s class="small">${esc(before[k])}</s></div>`).join('')}</div>`;
-  const view = `<div class="seg" role="group" aria-label="상태창 보기"><button type="button" data-action="castTheme" data-arg="" aria-pressed="${!system}">카드</button><button type="button" data-action="castTheme" data-arg="system" aria-pressed="${system}">${esc(SW_SKINS[swSkin()])}</button></div>`;
+  const moved = before ? stats.filter((s) => castStatDelta(before[s.name], s.value)).length + Object.keys(before).filter((k) => before[k] && !stats.some((s) => s.name === k)).length : 0;
+  const foot = `<span>${esc(frameLabel(f))}</span><span>${moved ? `이번 화에 ${moved}항목 바뀜` : ''}</span>`;
+  const body = swStatsBody(c.id, c.name || c.id, stats, { before, when: f && f.episode ? `${f.episode}화` : '', src, system: S.castTheme === 'system', foot });  // statwin.js 와 같은 칸 모양
   return `<section class="card"><div class="between"><div class="row"><h2>상태창</h2>${moved ? `<span class="small">이번 화에 ${moved}항목 바뀜</span>` : ''}</div>
-      <div class="row">${view}<a class="btn small ghost" href="${link}">수치 고치기</a></div></div>${body}</section>`;
+      <div class="row">${swViewSeg()}<a class="btn small ghost" href="${link}">수치 고치기</a></div></div>${body}</section>`;
 }
 
 /** 방향 하나의 온기 막대: 가운데가 0, 왼쪽이 적대 · 오른쪽이 깊이 아낌. 글은 온기 말(숫자로 보기면 온기 · 신뢰 값) */
