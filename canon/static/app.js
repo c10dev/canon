@@ -346,6 +346,7 @@ async function pollJobs(soon = false) {
     }
     if (!progressed || !mine) continue;
     if (j.kind === 'agent' && typeof agentJobUpdate === 'function') await agentJobUpdate(j, old);  // 대화 에이전트 턴 (agent.js)
+    if (j.kind === 'rev_parse' && typeof revJobStep === 'function') await revJobStep(j, old);  // 역설계가 끝낸 화를 바로 받는다 (revlab.js)
     if (j.kind === 'plots') {
       // 이번에 끝난 구간(지난번에 아직 만들던 화)과 새로 생긴 화만 받아 온다. 먼저 끝난 구간에서 고치던 초안은 그대로 둔다
       const was = old && Array.isArray(old.pending) ? new Set(old.pending) : null;

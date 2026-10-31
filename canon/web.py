@@ -4340,7 +4340,8 @@ def rev_job(lab_id: int, body: RevJobIn) -> dict:
             return {"markers": len(revlab.run_style(lab_id, llm).markers)}
     try:
         with usage.scope(project="", episode=None, task=kind):
-            job = jobs.start(revlab.JOBS, kind, lab_id, label, fn, total=total)
+            # 맡은 화(pending)를 보내 화면이 화마다 진행 줄을 그린다 (revlab.js revRunRows). 실험은 작품이 아니라 저장 잠금과 겹치지 않는다
+            job = jobs.start(revlab.JOBS, kind, lab_id, label, fn, total=total, owned=set(nums) if body.kind == "parse" else None)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}
     return job.public()
