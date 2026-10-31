@@ -170,7 +170,8 @@
 - 확실한 머리말 · 꼬리 떼기(`split`): 대사 · 대괄호 글을 뺀 서술에 Canon 작업 낱말(`STRONG`: 스타일 프로필 · 플롯 · 본문을 · 요청하신 · 짚어 둘 …)이 있고 존댓말이 반 넘는 앞뒤 문단, 'n화 본문입니다' 머리말, '작가 메모' 머리와 목록, 한글이 거의 없는 영어 메모. 서술이 원래 존댓말인 작품은 작업 낱말 둘 이상
 - 응답 전체가 작업 설명 · 거절 · 되묻기인지(`whole`)
 - 흔한 말(`SOFT`: 원고 · 다음 화 · 원하시면 …)만 있는 앞뒤 문단은 떼지 않고 경고(`warnings`). 작가물 · 편지 · 시스템 알림 · 이야기꾼의 맺음말을 지키려는 것(2026-10-31 적대적 검토)
-- `pipeline._write` 가 떼고(서버 기록 warning) 다시 쓰며(`whole`), `pipeline.style_drift` 가 경고를 붙인다
+- 앞 · 뒤를 나눠 주는 `parts`(되살릴 자리). `split` 은 그 위의 옛 모양
+- `pipeline._write` 가 떼고(서버 기록 warning, `cut` 목록을 주면 `MetaCut` 으로 채움) 다시 쓰며(`whole`), `pipeline.style_drift` 가 경고를 붙인다
 - LLM 호출 없음
 
 ### `canon/pipeline.py`
@@ -237,6 +238,8 @@
 - 인물 프롬프트 넣기를 고르는 규칙은 `context.core_ids` · `off_ids` · `without_off`(모두 auto 면 예전 규칙과 같다)
 - 화별 쓴 사건 체크(`Episode.events_done`, 사건 글 목록)는 집필 화면 표시용이라 `EpisodePlot` 밖에 두어 프롬프트에 들어가지 않는다
 - 지금 본문을 쓴 모델(`Episode.written_by`, 판마다 `TextVersion.model`)도 프롬프트 밖이다. 값은 `usage.model_id` 의 '<백엔드>:<모델>' 이나 'import', 모르면 빈 칸
+- 쓰기가 본문 앞뒤에서 뗀 작업 설명(`Episode.meta_cut`, 판마다 `TextVersion.meta_cut`, `MetaCut`: 글 · 앞 head | 뒤 tail)도 프롬프트 밖이다. 집필 화면에서 되살리기 `pipeline.restore_cut`(수정 기록에 남음) · 지우기 `drop_cut`
+- 뗀 문단은 `write_episode(cut=)` · `rewrite_episode(cut)` 에 빈 목록을 주고 받아 `replace_text(meta_cut=)` · `set_candidate(meta_cut=)` 로 저장한다(웹 쓰기 작업 · 동기 쓰기 · 다시 생성 작업, 명령줄 `write` · `run` · `rewrite`, 자동 집필). 실험 · 비교 쓰기는 받지 않는다
 - AI 가 본문 전체를 쓰는 호출자가 `pipeline.writer_of(llm)` 을 `replace_text(written_by=)` · `set_candidate(model=)` · `research.save_compare(models=)` 로 넘긴다. 작가 수정은 바꾸지 않는다(수정 기록 `edits`)
 - 인물 지금 차림(`CharacterState.attire`, 옷 · 상처 · 지닌 물건)은 지금 값만 덮어쓰고 지난 값은 스냅샷
 - 차림 규칙은 `prompts.ATTIRE_STATE_RULE` · `attire_write_rule` · `attire_check_rule`

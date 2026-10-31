@@ -280,7 +280,7 @@
 
 - 다시 생성
 - 집필 화면의 다시 생성 열(`rwColumn`, 대화 패널 자리 `.tool-col`에 뜨고 대화 패널과 하나만 열림. 빠른 요청, 피드백, 함께 넣을 재료, 처음부터 / 고쳐 쓰기, 살릴 부분)
-- 새 판 비교(나란히 · 바뀐 곳 `textDiff`)와 고르기
+- 새 판 비교(나란히 · 바뀐 곳 `textDiff`)와 고르기. 새 판을 쓸 때 뗀 작업 설명이 있으면 그 수를 한 줄로(`TextVersion.meta_cut`, 고르면 화로 따라감)
 - 이전 판 목록과 되돌리기
 - 서버는 `pipeline.rewrite_episode` · `set_candidate` · `adopt_candidate` · `drop_candidate` · `restore_version`
 - 프롬프트는 `prompts.rewrite_prompt`
@@ -341,6 +341,7 @@
   - 머리 ⋯ 메뉴 `writeMenu`: 생성 방식 · 컨텍스트 대화상자 · 채팅 앱 작업지시서 .md 내려받기(`briefDownload`) · 화 지우기
   - 본문 없는 화는 AI로 쓰기가 기본이고 머리 primary(`writeGo`, 스토리보드를 만든 화는 `boardGo`, 작업이 돌면 진행 줄 `wsBusy`)와 그 아래 쓰기 시작 칸(`writeStart`: 스토리보드 고르기 `S.wsBoard` · 직접 쓰기 · 컨텍스트)
   - 본문 띠의 저장 칸 `.savebar-slot`
+  - 쓰기가 본문 앞뒤에서 뗀 작업 설명(`Episode.meta_cut`)은 접은 알림 `metaCutNote`: 문단마다 '본문에 되살리기'(`metaCutRestore`, 수정 기록에 남음) · '지우기'(`metaCutDrop`). 자동 집필 중이거나 고칠 수 없는 화는 버튼 없이 보기만(`tests/test_meta_cut.py`)
 - 작업지시서(본문 · 검수 · 상태 승인 걸음, `viewBrief`)
 - 작업지시서는 화 머리와 공용 목차 틀이다(걸음 목차 `briefToc`: 끝남 ✓ · 지금 · 본문 뒤, 4번째는 상태 승인 화면으로 가는 줄)
 - 작업지시서 머리 주 버튼은 그 걸음의 가져오기(n화 본문으로 저장 · 가져오고 검수로 · 확인하고 변경안 검토로)
