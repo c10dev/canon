@@ -2,7 +2,7 @@
 계약은 docs/map/specs/08-modern-kinds.md '종류 표'. 실행: python -m pytest tests"""
 import pytest
 
-from canon import placekinds as pk
+from canon.maps import kinds as pk
 
 OLD = ["center", "market", "well", "temple", "inn", "smith", "mill", "manor", "home", "shore", "bridge", "river", "pond",
        "forest", "field", "far"]

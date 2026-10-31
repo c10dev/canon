@@ -16,7 +16,8 @@ from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, ImpactReport, PlayInfo, Project, Selection, StateDelta, StoryElement
-from . import address, board, charlog, foreshadows, knows, mapprompt, pairlog, stage, statwin, timeline
+from . import address, board, charlog, foreshadows, knows, pairlog, stage, statwin, timeline
+from .maps import prompt as mapprompt
 
 SYSTEM_PLANNER = (
     "당신은 한국 웹소설/단편소설 기획 전문 편집자입니다. "
@@ -2510,7 +2511,7 @@ def board_block(p: Project, n: int) -> str:
 def canon_values_block(p: Project, n: int) -> str:
     """스토리보드 만들기에 넣는 'Canon 이 센 값': 요일 셈(작품 기준이 없으면 직전 화 기록 글에서), 상태창 지금 값, 가장 빠른 탈것.
     직전 화 끝 시점과 기한은 앞의 작품 속 시간 블록(timeline.episode_block)에 있다. 넣을 것이 없으면 빈 글."""
-    from . import travel
+    from .maps import travel
 
     lines = []
     cur = timeline.current_day(p, n)
@@ -4141,7 +4142,7 @@ def map_suggest_prompt(p: Project, rows: list[dict], places: list[dict], kinds: 
                        chosen: str = "") -> str:
     """rows: atlas.gen_places (지금 고른 종류), places: atlas.places (설명),
     kinds: 지도 종류(village, city, modern)마다 장소 종류 (id, 이름) 목록 (placekinds.kinds_for). 목록이 같은 지도 종류는 한 절로 묶는다,
-    options: 지도 종류마다 설정 칸 (towngen.OPTIONS, citygen.OPTIONS, moderngen.OPTIONS), chosen: 지도 화면에서 지금 고른 지도 종류."""
+    options: 지도 종류마다 설정 칸 (atlas.MAKERS 의 생성기 OPTIONS), chosen: 지도 화면에서 지금 고른 지도 종류."""
     desc = {pl["key"]: pl for pl in places}
     lines = []
     for r in rows:
