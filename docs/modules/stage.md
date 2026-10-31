@@ -134,7 +134,7 @@
 - 작업이 끝나면 다시 받기(`stageJobResult`)
 - 검수 화면에서 그 박자로 오기(`S.stgJump`)
 - 스토리보드 장면별 목차 사건 묶음(`stgEventGroups`, 낡으면 '스토리보드가 낡았어요') · 새 장면 방 순서(`stgRoomOrder`, '스토리보드 장소')
-- 스토리보드 카드 장면 줄의 '🎬 연출'은 `board.js` `boardStageLink`(`tests/test_stage_board.py`)
+- 스토리보드 카드 장면 줄의 '장면 연출'은 `board.js` `boardStageLink`(`tests/test_stage_board.py`)
 - `stageState` · `stageLayout` · `stageAnchorPoint` · `stageFacing` · `stageSnap` · `stageSexual` 은 `stage.state_at` · `place` · `is_sexual` 과 같은 규칙(`tests/test_stage_js.py`)
 - CSS 는 JS 에서 주입
 - 인물 색은 `STG_COLORS`: 토큰 `stage-1`~`stage-6`(빨강은 지적에만), 원 안 글자 `on-stage`

@@ -112,7 +112,7 @@ Object.assign(actions, {
     try {
       const d = await exportBody(eps);
       const url = URL.createObjectURL(new Blob([d.text], { type: 'text/plain;charset=utf-8' }));
-      const link = Object.assign(document.createElement('a'), { href: url, download: `${S.name}-${a === b ? `${a}화` : `${a}-${b}화`}.txt` });
+      const link = Object.assign(document.createElement('a'), { href: url, download: `${S.name}-${a === b ? `${a}화` : `${a}~${b}화`}.txt` });
       document.body.appendChild(link);
       link.click();
       link.remove();

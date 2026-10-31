@@ -100,7 +100,7 @@ function voiceField(c, b) {
       : (c.narration_voice || '').trim() ? `<div class="note warn">아직 ${esc(c.name || '이 인물')} 시점인 화가 없어서 이 말투는 어느 화에도 들어가지 않아요. <a href="${base()}/arc">${stepLabel('arc')}</a>에서 시점 인물을 정하세요.</div>` : ''}
     <div class="small">대사는 위의 말투(대사)를 따라요. 이 말투로 쓴 화는 어미 관련 문체 경고(과거형 비율, 문체 거리, 표지)를 빼요.</div>
     <div class="row" style="flex-wrap:nowrap"><input type="text" id="voice-req-${esc(c.id)}" aria-label="${esc(c.name || '이 인물')} 서술 말투 AI 요청" placeholder="AI에게 바랄 점 (예: 더 냉소적으로, 문장을 짧게)" style="flex:1">
-      <button type="button" class="btn small" style="flex:none" data-action="voiceAI" data-arg="${esc(c.id)}">설정에서 AI로 초안</button></div>`;
+      <button type="button" class="btn small" style="flex:none" data-action="voiceAI" data-arg="${esc(c.id)}">설정으로 AI 초안 받기</button></div>`;
   return eps.length || (c.narration_voice || '').trim() || note ? body
     : `<details class="voice-more"><summary>서술 말투 (이 인물 시점 화의 지문) <span class="small">이 인물 시점 화가 생기면 써요</span></summary><div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">${body}</div></details>`;
 }
@@ -601,7 +601,7 @@ function plotEditor(e) {
     ${sec('인물 · 시점', `${castField(e, locked)}
       ${placeCandNotes(e)}
       ${lineField(e)}
-      ${povField(e, locked)}`, locked ? '' : `<button type="button" class="btn small" data-action="newCast" data-arg="${n}">+ 새 인물</button>`)}
+      ${povField(e, locked)}`, locked ? '' : `<button type="button" class="btn small" data-action="newCast" data-arg="${n}">+ 새 인물 더하기</button>`)}
     ${sec('끝과 이음', `${tlOn() || e.plot.time ? input('작품 속 시점', b + '.time', { ...ro, hint: '직전 화에서 얼마나 지났는지. 바로 이어지면 비워요', placeholder: '예: 다음 날 아침, 사흘 뒤 밤' }) : ''}
       ${n <= 3 || e.plot.opening ? input('여는 장면', b + '.opening', { ...ro, rows: 2, autogrow: true, hint: n <= 3 ? '초반 화는 첫 장면이 독자를 붙잡아요' : '' }) : ''}
       ${input('감정 변화', b + '.emotional_shift', { ...ro, rows: 1, autogrow: true, hint: '겉으로 보이는 행동이나 대사' })}
@@ -656,12 +656,12 @@ function castQuickEdit(i) {
   return `<div class="note plain"><div class="between"><strong>${esc(c.name || '새 인물')}</strong><span class="row"><button type="button" class="btn small danger" data-action="dropNewCast" data-arg="${esc(c.id)}">이 인물 지우기</button><button type="button" class="btn small ghost" data-action="closeCastEdit">접기</button></span></div>
     <div class="grid-2">${input('이름', b + '.name')}${input('역할', b + '.role', { placeholder: '여관 주인, 동료 기사…' })}</div>
     ${nameIssuesFor(c.id)}
-    <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보 뽑기</button><button type="button" class="btn small" data-action="nameAI" data-arg="${esc(c.id)}">AI 이름 추천</button></div>
+    <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보 뽑기</button><button type="button" class="btn small" data-action="nameAI" data-arg="${esc(c.id)}">AI 이름 추천 받기</button></div>
     ${namePicks('c:' + c.id, 'useName', (x) => `${c.id}|${x}`)}
     <div class="grid-2">${tierSelect(c, b, 'cast-tier-' + i)}${input('성별', b + '.gender', { placeholder: '남 / 여' })}</div>
     ${input('성격 · 하는 일', b + '.personality', { rows: 2 })}
     ${input('말투', b + '.speech_style', { rows: 2, hint: '어미, 호칭, 대사 한 줄' })}
-    <div class="small">${c.first_ep ? `${c.first_ep}화에 처음 나와요. ` : ''}나이, 원하는 것, 배경은 설정 화면에서 채울 수 있어요.</div></div>`;
+    <div class="small">${c.first_ep ? `${c.first_ep}화에 처음 나와요. ` : ''}나이, 원하는 것, 배경은 <a href="${base()}/cast">인물 · 관계도</a>에서 채울 수 있어요.</div></div>`;
 }
 
 function tierSelect(c, b, id) {
@@ -1148,7 +1148,7 @@ Object.assign(actions, {
       보드에서 열면 닫을 때 뒤로 가기로 돌아가 보던 자리를 지키고, 페이지끼리는 기록을 늘리지 않고 바꾼다 */
   async openPlot(n) {
     n = Number(n);
-    if (S.dirty && !(await run('저장 중', async () => { if (await save() === false) throw new Error('저장하지 못해 옮기지 않았어요'); }, { render: 'never' }))) return;
+    if (S.dirty && !(await run('저장하는 중', async () => { if (await save() === false) throw new Error('저장하지 못해 옮기지 않았어요'); }, { render: 'never' }))) return;
     const onPage = plotPageN() > 0;
     if (!onPage) S.plotBack = S.route[2] === 'arc';
     S.focusTarget = '#app main h1';  // 페이지 제목으로 들어가 몇 화인지 읽게 한다
@@ -1159,7 +1159,7 @@ Object.assign(actions, {
   /** 화 플롯 페이지를 닫고 보드로. 연 카드로 포커스를 돌린다 */
   async closePlot() {
     const n = plotPageN();
-    if (S.dirty && !(await run('저장 중', async () => { if (await save() === false) throw new Error('저장하지 못해 닫지 않았어요'); }, { render: 'never' }))) return;
+    if (S.dirty && !(await run('저장하는 중', async () => { if (await save() === false) throw new Error('저장하지 못해 닫지 않았어요'); }, { render: 'never' }))) return;
     S.focusTarget = n ? `#app .ep-card[data-arg="${n}"]` : '#app main h1';
     const back = S.plotBack;
     S.plotBack = false;

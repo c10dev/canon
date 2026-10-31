@@ -90,14 +90,14 @@ function atlasGenForm(st) {
   return `<div class="at-gen-opts"><label class="at-gen-opt small">지도<select data-at-gen="kind" aria-label="만들 지도">${maps}</select></label>
       ${sel('size', '크기')}${sel('roads', '길 모양')}${sel('water', '물')}${sel('fields', '밭')}${sel('forest', '숲')}
       <label class="at-gen-opt small">시드 <span class="row"><input type="number" min="0" max="2147483647" step="1" value="${st.spec.seed}" data-at-gen-seed aria-label="시드">
-        <button type="button" class="btn small ghost" data-action="atlasGenSeed">새 시드</button></span></label></div>
+        <button type="button" class="btn small ghost" data-action="atlasGenSeed">새 시드 뽑기</button></span></label></div>
     ${why}
     ${st.spec.kind === 'city' ? '<div class="small">도시는 성벽 · 성문 · 구역(시장, 신전, 귀족, 장인, 빈민 등)이 있는 큰 지도예요. 이야기 장소는 종류에 맞는 구역에 놓아요.</div>' : ''}
     ${st.spec.kind === 'modern' ? '<div class="small">현대 동네는 대로 격자 안에 아파트 단지 · 빌라촌 · 대로변 상가 · 역 앞 · 학교 · 공원이 있는 가상의 동네예요. 숲 칸은 공원 수를 정해요. 장소 종류도 현대 이름(역, 편의점, 학교, 아파트 등)으로 골라요. 마을에서 고른 종류는 주막은 호텔, 신전은 교회, 장터는 마트로 옮겨 둬요.</div>' : ''}
     <div class="small">같은 시드와 설정이면 언제나 같은 ${word}${word === '마을' ? '이' : '가'} 나와요. 장소 종류는 이름에서 찾았어요. 틀리면 고르거나 AI 제안을 받아 보세요.</div>
     <div class="at-gen-places">${rows}</div>
     <div class="row"><button type="button" class="btn small primary" data-action="atlasGenPreview">미리보기</button>
-      <button type="button" class="btn small" data-action="atlasGenSuggest">AI로 설정 제안</button>
+      <button type="button" class="btn small" data-action="atlasGenSuggest">AI 설정 제안 받기</button>
       <button type="button" class="btn small ghost" data-action="atlasGenOpen" data-arg="">닫기</button></div>`;
 }
 
@@ -163,7 +163,7 @@ function atlasGenBar() {
     <span class="small">시드 ${st.spec.seed} · 집 ${pv.info.houses.toLocaleString()}채${st.hist.length > 1 ? ` · ${at + 1}/${st.hist.length}` : ''}</span>
     <span class="row">
       <button type="button" class="btn small ghost" data-action="atlasGenHist" data-arg="-1" title="이전 미리보기 (←)" aria-label="이전 미리보기"${at <= 0 ? ' disabled' : ''}>◀</button>
-      <button type="button" class="btn small" data-action="atlasGenSeed" title="다른 시드로 (Enter)">다른 시드</button>
+      <button type="button" class="btn small" data-action="atlasGenSeed" title="다른 시드로 (Enter)">다른 시드로 보기</button>
       <button type="button" class="btn small ghost" data-action="atlasGenHist" data-arg="1" title="다음 미리보기 (→)" aria-label="다음 미리보기"${at >= st.hist.length - 1 ? ' disabled' : ''}>▶</button>
       <button type="button" class="btn small ghost" data-action="atlasGenOpen" data-arg="" title="그만두기 (Esc)">그만두기</button>
       <button type="button" class="btn small primary" data-action="atlasGenApply">적용</button></span></div>`;

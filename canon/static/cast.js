@@ -578,7 +578,7 @@ function bodyFields(c, b) {
     <div class="grid-2">${input('체형', b + '.body.build', { placeholder: '예: 마른 근육형' })}${minor ? '' : input('쓰리사이즈', b + '.body.measurements', { placeholder: '예: 84-58-86' })}</div>
     ${minor ? '<div class="small">나이로 보아 미성년 인물이라 쓰리사이즈 칸은 두지 않아요.</div>' : ''}
     ${input('신체 특징', b + '.body.features', { rows: 2, placeholder: '예: 왼손잡이, 오른쪽 어깨에 화상 자국' })}
-    <div class="row"><button type="button" class="btn small" data-action="bodyAI" data-arg="${esc(c.id)}">AI 제안</button><span class="small">설정에 맞춰 칸을 제안해요. 고른 칸만 적용해요${minor ? ' · 쓰리사이즈는 제안하지 않아요' : ''}</span></div>
+    <div class="row"><button type="button" class="btn small" data-action="bodyAI" data-arg="${esc(c.id)}">AI 제안 받기</button><span class="small">설정에 맞춰 칸을 제안해요. 고른 칸만 적용해요${minor ? ' · 쓰리사이즈는 제안하지 않아요' : ''}</span></div>
     ${bodySuggestCard(c)}
     <div class="small">AI 프롬프트에는 넣지 않아요. 본문에 이어지게 할 외모는 설정 도우미의 '외모' 칸에 적어요.</div></div></details>`;
 }
@@ -729,7 +729,7 @@ function tieFixForm(a, b, names) {
     return `<div class="grid-2" style="align-items:end">
       <div class="field"><label for="tf-w${k}">${esc(label)} 온기 <output id="tf-w${k}o">${Number(t.warmth).toFixed(2)}</output></label><input id="tf-w${k}" type="range" min="-1" max="1" step="0.05" value="${t.warmth}" oninput="document.getElementById('tf-w${k}o').textContent=Number(this.value).toFixed(2)"></div>
       <div class="field"><label for="tf-t${k}">신뢰 <output id="tf-t${k}o">${Number(t.trust).toFixed(2)}</output></label><input id="tf-t${k}" type="range" min="0" max="1" step="0.05" value="${t.trust}" oninput="document.getElementById('tf-t${k}o').textContent=Number(this.value).toFixed(2)"></div>
-      <button type="button" class="btn small" data-action="tieFix" data-arg="${esc(`${src}|${dst}|${k}`)}">이 방향 보정</button></div>`;
+      <button type="button" class="btn small" data-action="tieFix" data-arg="${esc(`${src}|${dst}|${k}`)}">이 방향 보정하기</button></div>`;
   };
   return `<details class="tie-fix"><summary class="small">수치 직접 보정</summary>
     <div class="small" style="margin:6px 0">AI가 아니라 '수동보정' 사건으로 기록돼요. 마지막 반영 화(${n}화)에 붙고, 반영 취소로 되돌릴 수 있어요.</div>
@@ -930,7 +930,7 @@ function castTable() {
   for (let n = 1; n <= total; n++) {
     if (n === 1 || n % every === 0) out.push(`<text class="lm-tick" x="${left + (n - 0.5) * step}" y="${height - 6}" text-anchor="middle">${n}</text>`);
   }
-  const legend = `<div class="legend"><span><i class="cs-key draft"></i>플롯 초안</span><span><i class="cs-key confirmed"></i>플롯 확정</span><span><i class="cs-key written"></i>본문 있음</span><span><i class="cs-key finalized"></i>반영 완료</span><span><i style="background:var(--text);border-radius:50%;width:8px;height:8px"></i>시점 인물</span></div>`;
+  const legend = `<div class="legend">${['draft', 'confirmed', 'written', 'finalized'].map((k) => `<span><i class="cs-key ${k}"></i>${STATUS[k]}</span>`).join('')}<span><i style="background:var(--text);border-radius:50%;width:8px;height:8px"></i>시점 인물</span></div>`;
   return `<section class="card">
     <div class="between"><h2>등장표</h2><span class="small">플롯의 등장 인물 기준. 이름을 누르면 인물 카드를 열어요</span></div>
     <div class="line-map-wrap"><svg class="line-map cast-table" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="group" aria-label="인물별 등장 화">${out.join('')}</svg></div>${legend}

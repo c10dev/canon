@@ -82,7 +82,7 @@ function plotStrip(n, act) {
   const steps = p.events.map((x, i) => {
     const cls = done[i] ? 'done' : i === now ? 'now' : 'todo';
     return `<li class="wp-step ${cls}"><label class="wp-check"${lock ? ` title="${lock}"` : ''}><input type="checkbox" id="ev-${n}-${i}" data-ev="${n}:${i}"${done[i] ? ' checked' : ''}${lock ? ' disabled' : ''}>
-      <span class="wp-num">${i + 1}.</span><span class="wp-text">${esc(x)}</span>${i === now ? '<span class="wp-now">지금</span>' : ''}</label>${(e.stage || []).some((s) => s.event_text === x) ? `<a class="wp-stage small" href="${base()}/stage/${n}/${i + 1}" title="이 사건의 장면 연출">🎬 연출</a>` : ''}</li>`;
+      <span class="wp-num">${i + 1}.</span><span class="wp-text">${esc(x)}</span>${i === now ? '<span class="wp-now">지금</span>' : ''}</label>${(e.stage || []).some((s) => s.event_text === x) ? `<a class="wp-stage small" href="${base()}/stage/${n}/${i + 1}" title="이 사건의 장면 연출">장면 연출</a>` : ''}</li>`;
   }).join('');
   const goal = p.ending_hook ? `<li class="wp-step goal"><span class="wp-flag">${FLAG}</span><span class="wp-text"><span class="wp-goal-label">엔딩 훅</span> ${esc(p.ending_hook)}</span>${p.events.length && now < 0 ? '<span class="chip finalized">도착</span>' : ''}</li>` : '';
   const dl = [
@@ -495,7 +495,7 @@ Object.assign(actions, {
     await startJob('write', n, cueWriteArg(n));
   },
   async saveText(n) {
-    await run('본문 저장 중', async () => {
+    await run('본문 저장하는 중', async () => {
       await saveIfDirty();
       S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, { text: S.textDraft[n] ?? ep(n).text });
       delete S.textDraft[n];  // 만들어 둔 상태 변경안은 남기고, 본문이 바뀌었다고 알린다 (passageNotes)

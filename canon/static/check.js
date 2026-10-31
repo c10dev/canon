@@ -211,7 +211,7 @@ function chkStyleBox(n) {
   if (d.error) return `<div class="note err">${esc(d.error)}</div>`;
   return `${d.warnings.length ? `<ul class="issue-list">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : '<div class="note ok">기준을 넘은 문체 지표가 없어요.</div>'}
     <div class="small">AI 없이 저장한 본문을 레퍼런스 기준과 견줘요. 계산값이라 처리 상태는 두지 않아요.</div>
-    <div class="row"><button type="button" class="btn small" data-action="chkStyleReload" data-arg="${n}">다시 재기</button><a href="${base()}/style" style="font-size:0.8125rem">문체 화면</a></div>`;
+    <div class="row"><button type="button" class="btn small" data-action="chkStyleReload" data-arg="${n}">다시 재기</button><a href="${base()}/style" style="font-size:0.8125rem">${stepLabel('style')}로 가기</a></div>`;
 }
 
 /** 왼쪽 칸 탭. 초반 점검은 1~3화에만 있다. */
