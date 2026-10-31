@@ -1,4 +1,4 @@
-"""빈 블록 채우기: OpenStreetMap 지도(canon/osm.py)에서 건물이 덜 그려진 블록에 건물을 지어 넣는다. LLM 을 부르지 않는다.
+"""빈 블록 채우기: OpenStreetMap 지도(canon/maps/sources/osm.py)에서 건물이 덜 그려진 블록에 건물을 지어 넣는다. LLM 을 부르지 않는다.
 
 블록은 길 선과 지도 테두리가 나누는 가장 작은 면이다(blocks.faces). 빈 블록은 건물이 덮은 넓이가 EMPTY 아래이고 물 · 녹지 ·
 광장 · 밭이 OPEN 을 넘지 않는 블록이다(넓이는 블록 안 격자 점으로 잰다). 채우는 규칙은 현대 동네 생성기(moderngen)의 빌라촌이다:
@@ -17,8 +17,10 @@ import math
 import random
 from typing import Optional
 
-from . import blocks, geom, moderngen, osm
+from . import blocks, geom
+from .gen import moderngen
 from .geom import Point, Poly
+from .sources import osm
 
 RULES = {"villa": "빌라촌 (큰 블록은 아파트 단지)"}
 EMPTY = 0.10  # 건물이 덮은 넓이가 블록의 이만큼 아래면 빈 블록
