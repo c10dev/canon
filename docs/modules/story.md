@@ -343,11 +343,17 @@
 
 ### `canon/static/causal.js`
 
-- 인과율 화면
-- 요소 추가·편집
-- 관련 화 지도
-- 영향 분석 변경안 고르기
+- 인과율 화면(주소 `causal[/<요소 id>]`, `viewCausal`, 라우터가 부르는 `causalPick`)
+- 공용 목차 틀(`outline.js`, 목차 `causalToc`: 개요 · 손볼 것 · 종류별 요소) 위에 쪽 둘: 개요 · 요소 하나
+- 개요: 손볼 것 `causalTodoCard` → 모든 요소 `causalListCard`
+- 요소 하나(`causalDetail`): 요소 내용 읽기 카드 `causalInfoCard`(고치기 `S.causalEdit`) → 관련 화 `causalLinksCard` → 영향 분석 `causalImpact`
+- 관련 화는 30화씩 칸 줄(`CZ_CHUNK`)과 나눔 버튼 `S.causalLinkTab` 으로 거른 줄 목록
+- 칸 · 줄을 누르면(`causalCell`) 영향 분석의 그 화 칸으로, 없으면 그 화로 간다
+- 영향 분석은 화별로 어긋나는 곳과 고칠 것을 묶는다(`causalImpactBody`, 고르기 키 `pickId` 는 그대로)
+- 쪽을 옮길 때 해시 대신 `history.replaceState`(`causalGoTo`)라 저장하지 않은 고침을 묻지 않는다
+- `causalStatus` · `causalCells` 는 순수 함수(`tests/test_causal_js.py`)
 - `elements.basis` 와 같은 모양(`elBasis`)으로 분석이 지났는지 본다(`tests/test_causal_js.py`)
+- CSS 는 JS 에서 주입
 
 ### `canon/static/charlog.js`
 
@@ -384,11 +390,18 @@
 
 ### `canon/static/lines.js`
 
-- 이야기 줄기 화면
-- SVG 노선도
-- 줄기 편집
-- 화 붙이기
-- AI 제안
+- 이야기 줄기 화면(주소 `lines[/<줄기 id>]`, `viewLines`, 라우터가 부르는 `lineLoad`)
+- 공용 목차 틀(`outline.js`, 목차 `lineToc`: 노선도 · 손볼 것 · 메인에서 갈라짐 · 본편 밖 · AI 제안) 위에 쪽 둘: 노선도 · 줄기 하나
+- 노선도 쪽: SVG 노선도 `lineMapCard` → 손볼 것 `lineTodoCard` → AI 제안 `lineSuggestPanel`
+- 노선도 줄 차례는 `lineOrder`: 범위 시작 차례, 갈라짐 · 합류가 없는 외전은 아래 '본편 밖'
+- 다른 줄을 지나는 선은 흰 틈(`.lm-halo`)을 두고 지나간다
+- 보이는 화 `S.lineRange`(플롯 있는 화 · 전체), 폭 `S.lineZoom`(맞춤 · 크게 28px)
+- 칸 폭 560px 아래는 세로 노선도 `lineMapTall`
+- 줄기 하나(`lineDetail`): 앞뒤만 크게 그린 노선도 `lineZoomMap`(한 화 44) → 줄기 내용 읽기 카드 `lineInfoCard`(고치기 `S.lineEdit`) → 붙은 화 `lineEpsCard`
+- 화 붙이기는 붙은 화 카드의 메뉴: 붙이는 방식 `S.lineTagRole`, 가까운 화 후보 `lineCandidates`, 번호 칸
+- 쪽을 옮길 때 해시 대신 `history.replaceState`(`lineGoTo`)라 저장하지 않은 고침을 묻지 않는다
+- `lineOrder` · `lineTodo` 는 순수 함수(`tests/test_lines_js.py`)
+- CSS 는 JS 에서 주입(노선도 기본 모양 `.line-map` · `.lm-*` 은 app.css, 인물 화면 등장표도 쓴다)
 - 플롯 편집기의 줄기 칸(`lineField`)과 화 카드 표시(`lineBadge`)도 여기 있다
 - `storylines.span` · `tag` 와 같은 규칙이라 함께 고친다(`tests/test_lines_js.py`)
 
@@ -440,6 +453,17 @@
 - 상태창 칸 모양 `swStatsBody`(카드 칸 | 작품 스킨 창, 칩은 `abChip`)는 인물 화면 `cast.js` `castSheetStats` 와 함께 쓴다
 - 상태 승인 화면의 상태창 줄(`swDeltaRows`)
 - `swResolve` 는 `statwin.resolve` 와 같은 규칙(`tests/test_statwin_js.py` 가 node 로 맞춰 본다)
+
+### `canon/static/timeline.js`
+
+- 작품 속 시간 화면(`viewTimeline`)
+- 공용 목차 틀(`outline.js`, 목차 `tlTocHtml`: 지금 · 기한 · 시간 흐름 묶음 · 설정, 스크롤로 `S.tlCur`)
+- 지금 `tlNowCard`: 마지막 반영 화 끝 시점과 앞으로 열흘 띠
+- 기한 `tlDlCard`: 나눔 버튼 `S.tlDlTab`, 줄마다 ⋯ 메뉴, 지난 기한은 닫기 · 날 바꾸기
+- 시간 흐름 `tlGroupCard`: 아크 · 기승전결 구간마다 읽기 카드, 고치기 `S.tlEditGroup`, 접기 `S.tlFold`
+- 설정 `tlSetCard`: 읽기 카드, 고치기 `S.tlSetEdit`
+- `tlGroups` · `tlDeadlineRows` · `tlShort` 는 순수 함수(`tests/test_timeline_js.py`)
+- CSS 는 JS 에서 주입
 
 ### `canon/static/tofix.js`
 

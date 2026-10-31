@@ -1743,6 +1743,7 @@ async function routeNow() {
       if (parts[2] === 'stage') await stgLoad(n || currentEp(), Number(parts[4]) || 1);
       else S.stgDirty = false;  // 장면 연출을 떠났다 (떠날 때 hashchange 가 물었다)
       if (parts[2] === 'foreshadow') await fsLoad(parts[3]);  // foreshadow/<복선 id> 는 그 복선 쪽
+      if (parts[2] === 'lines') lineLoad(parts[3]);  // lines/<줄기 id> 는 그 줄기 쪽
       if (parts[2] === 'statwin') await swLoad(parts[3]);
       if (parts[2] === 'abilities') await abLoad(parts[3]);
       if (parts[2] === 'setup' && parts[3]) {  // 인물 화면의 '기본 설정 고치기'(setup/<인물 id>)는 그 인물 카드로 간다
@@ -1750,7 +1751,7 @@ async function routeNow() {
         if (i >= 0) S.focusTarget = S.jumpTo = `#f-characters-${i}-name`;
       } else if (parts[2] === 'setup' && S.jumpTo) S.focusTarget = S.jumpTo;  // 명령 팔레트에서 고른 설정 칸 (palette.js)
       if (parts[2] === 'causal') {
-        if (parts[3]) S.causalSel = parts[3];
+        causalPick(parts[3]);  // causal/<요소 id> 는 그 요소 쪽, causal 은 개요
         await causalLoad();
       }
       if (typeof autoLoad === 'function') await autoLoad(parts[2] === 'auto');
