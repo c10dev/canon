@@ -705,6 +705,10 @@ def draft_plots(llm: LLM, p: Project, start: int, end: int, note: str = "") -> P
         hint={"start": start, "end": end, "arc": beats, "note": note},
     )
     numbers = [e.number for e in batch.episodes]
+    if not numbers:
+        note = " ".join(str(getattr(llm, "last_note", "") or "").split())
+        why = f" AI가 남긴 말: {note[:300]}" if note else " AI가 이유를 남기지 않았어요."
+        raise ValueError(f"AI가 {start}~{end}화 플롯을 하나도 내지 않았어요.{why}")
     if numbers != list(range(start, end + 1)):
         raise ValueError(f"요청한 화({start}~{end})와 생성된 화({numbers})가 달라요")
     return batch
