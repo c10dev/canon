@@ -1733,7 +1733,7 @@ async function routeNow() {
       if (parts[2] === 'atlas') await atlasLoad();
       if (parts[2] === 'stage') await stgLoad(n || currentEp(), Number(parts[4]) || 1);
       else S.stgDirty = false;  // 장면 연출을 떠났다 (떠날 때 hashchange 가 물었다)
-      if (parts[2] === 'foreshadow') await fsLoad();
+      if (parts[2] === 'foreshadow') await fsLoad(parts[3]);  // foreshadow/<복선 id> 는 그 복선 쪽
       if (parts[2] === 'statwin') await swLoad(parts[3]);
       if (parts[2] === 'abilities') await abLoad(parts[3]);
       if (parts[2] === 'setup' && parts[3]) {  // 인물 화면의 '기본 설정 고치기'(setup/<인물 id>)는 그 인물 카드로 간다
