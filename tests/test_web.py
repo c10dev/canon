@@ -779,6 +779,25 @@ def test_project_list_and_folder_names(client):
     assert client.post("/api/projects/old/rename", json={"name": "a:b"}).status_code == 400
 
 
+def test_project_list_alerts_and_strip(client):
+    """작품 목록 카드: pending.json 의 멈춘 작업 · 결과(실패가 앞), 장편의 부 · 아크 줄과 지금 아크의 화 칸 띠, 단편은 전체 화."""
+    from canon import store
+    from canon.schema import Part, StoryArc
+    meta = {"title": "별빛", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "s", "meta": meta})
+    client.post("/api/projects", json={"name": "l", "meta": dict(meta, form="serial", target_episodes=200)})
+    p = store.load("l")
+    p.parts = [Part(number=1, title="봄", start_ep=1, end_ep=200, goal="g")]
+    p.story_arcs = [StoryArc(number=1, title="첫 손님", start_ep=1, end_ep=3, goal="g")]
+    store.save("l", p)
+    store.edit_pending("l", lambda d: (d["results"].__setitem__("state:1", {"kind": "state", "ep": 1, "label": "1화 상태 변경안"}),
+                                       d["failures"].__setitem__("check:1", {"kind": "check", "ep": 1, "label": "1화 검수", "error": "한도"})))
+    rows = {x["name"]: x for x in client.get("/api/projects").json()}
+    assert [(a["kind"], a["job"], a["label"]) for a in rows["l"]["alerts"]] == [("fail", "check", "1화 검수"), ("result", "state", "1화 상태 변경안")]
+    assert rows["l"]["where"] == "1부 봄 · 1아크 첫 손님" and rows["l"]["strip_from"] == 1 and rows["l"]["strip"] == ["none"] * 3
+    assert rows["s"]["alerts"] == [] and rows["s"]["where"] == "" and len(rows["s"]["strip"]) == 10
+
+
 def test_apply_edited_delta(client):
     """상태 승인 화면에서 고친 사건 종류 · 강도, 사실, 감정, 알게 된 정보가 미리 보기와 반영에 그대로 쓰인다."""
     client.post("/api/projects", json={"name": "ed", "meta": {"title": "등대", "target_episodes": 10}})

@@ -1,4 +1,5 @@
-"""인물 카드(static/cast.js)의 castStatDelta 가 상태창 수치의 바뀐 양을 맞게 적는지. node 가 있을 때만 돈다."""
+"""인물 화면(static/cast.js): castStatDelta 가 상태창 수치의 바뀐 양을 맞게 적는지, castParse 가 주소(새 쪽 주소와 옛 tab 주소)를 맞게 읽는지.
+node 가 있을 때만 돈다."""
 import json
 import shutil
 import subprocess
@@ -14,11 +15,11 @@ const vm = require('vm');
 const fs = require('fs');
 const data = JSON.parse(fs.readFileSync(0, 'utf8'));
 const noop = { addEventListener() {} };
-const ctx = { data, S: {}, actions: {}, document: { ...noop, createElement: () => ({}), head: { appendChild() {} } }, window: noop };
+const ctx = { data, URLSearchParams, S: {}, actions: {}, document: { ...noop, createElement: () => ({}), head: { appendChild() {} } }, window: noop };
 vm.createContext(ctx);
 const src = process.argv.slice(1).map((f) => fs.readFileSync(f, 'utf8')).join('\\n;\\n');
 vm.runInContext(src + `
-;globalThis.out = data.ages ? data.ages.map(isMinorAge) : data.cases.map(([b, a]) => castStatDelta(b === null ? undefined : b, a));`, ctx);
+;globalThis.out = data.urls ? data.urls.map(castParse) : data.ages ? data.ages.map(isMinorAge) : data.cases.map(([b, a]) => castStatDelta(b === null ? undefined : b, a));`, ctx);
 process.stdout.write(JSON.stringify(ctx.out));
 """
 
@@ -57,3 +58,24 @@ def test_minor_age_matches_server():
                          input=json.dumps({"ages": MINOR_CASES}), capture_output=True, text=True, encoding="utf-8")
     assert run.returncode == 0, run.stderr
     assert json.loads(run.stdout) == [cast.is_minor_age(a) for a in MINOR_CASES]
+
+
+URLS = [
+    ("", {"sel": "", "view": None, "frame": None}),
+    ("map", {"sel": "", "view": "map", "frame": None}),
+    ("table", {"sel": "", "view": "table", "frame": None}),
+    ("c:hero", {"sel": "c:hero", "view": "char", "frame": None}),
+    ("hero", {"sel": "c:hero", "view": "char", "frame": None}),  # 옛 인물 링크
+    ("p:ally|hero?f=3", {"sel": "p:ally|hero", "view": "pair", "frame": 3}),
+    ("c:hero?tab=sheet&f=2", {"sel": "c:hero", "view": "char", "frame": 2}),  # 옛 인물 카드 탭
+    ("c:hero?tab=table", {"sel": "c:hero", "view": "table", "frame": None}),  # 옛 등장표 탭
+]
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
+def test_parse_urls():
+    run = subprocess.run(["node", "-e", HARNESS, str(STATIC / "statwin.js"), str(STATIC / "cast.js")],
+                         input=json.dumps({"urls": [u for u, _ in URLS]}), capture_output=True, text=True, encoding="utf-8")
+    assert run.returncode == 0, run.stderr
+    for (u, want), got in zip(URLS, json.loads(run.stdout)):
+        assert got == want, (u, got)

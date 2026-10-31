@@ -444,8 +444,13 @@ def test_js_helpers_and_view(home):
       S.rev = data.home; S.revLab = data.lab;
       S.revPane = null; S.revEdit = true;
       const edit = viewRev();
+      S.revEdit = false; S.revFrom = { name: '등대 일지', title: '등대의 <밤>' };
+      const from = viewRev();
+      S.revLab = null;
+      const fromHome = viewRev();
+      S.revFrom = null; S.revLab = data.lab;
       const e = data.lab.items[1];
-      return { home, prev, tooMany: tooMany.errs, lab, write, two, twoWrite, panes, edit, redo, empty, segs: revSegments(e.text, e.bounds),
+      return { home, prev, tooMany: tooMany.errs, lab, write, two, twoWrite, panes, edit, redo, empty, from, fromHome, segs: revSegments(e.text, e.bounds),
                gap: revSegments('abcdef', [{ start: 2, end: 4, found: true }, { start: 4, end: 4, found: false }]) };
     })()""", {"home": labels, "lab": view, "story": STORY})
     assert "새 실험" in got["home"] and "이어 하기" in got["home"] and 'class="card rev-lab"' in got["home"]
@@ -474,6 +479,13 @@ def test_js_helpers_and_view(home):
     assert "지표 모아 보기" in p["metrics"] and "가려 읽기를 마친 화" in p["metrics"]  # 아직 고르지 않아 견줄 판이 없다
     assert "초반 규칙" in got["edit"] and "글 · 이름 고치기" in got["edit"]
     assert got["edit"].count("btn primary") == 1 and got["lab"].count("btn primary") == 1  # 주 버튼은 한 화면에 하나
+    # 작품 목록은 작품 밖 사이드바에 있다. 머리에는 작품에서 들어왔을 때만 그 작품으로 가는 버튼
+    for k in ("home", "lab", "empty", "from", "fromHome"):
+        assert '<a class="btn" href="#/">작품 목록</a>' not in got[k], k
+    assert "‹ " not in got["home"] and "‹ " not in got["lab"]
+    for k in ("from", "fromHome"):
+        assert '<a class="btn" href="#/p/%EB%93%B1%EB%8C%80%20%EC%9D%BC%EC%A7%80">‹ 등대의 &lt;밤&gt;</a>' in got[k], k
+    assert got["from"].count("btn primary") == 1
     e = view["items"][1]
     assert [s["cue"] for s in got["segs"]] == [i + 1 for i, b in enumerate(e["bounds"]) if b["found"] and b["end"] > b["start"]]
     assert "".join(e["text"][s["start"]:s["end"]] for s in got["segs"]) == e["text"]  # 빈틈없이 덮는다
@@ -604,3 +616,125 @@ def test_dump_roundtrip(home):
     lab = _parsed(home)
     again = revlab.load(lab.id)
     assert dump(again) == dump(lab)
+
+
+APPEND = "등대지기의 밤\n\n7화 아침\n" + "아침이 왔다. 서윤은 창고 열쇠를 도현에게 돌려주었다. " * 8 + "\n\n8화\n" + "도현은 열쇠를 받고 오래 말이 없었다. " * 10
+
+
+def test_append_keeps_results_and_asks_lines_again(home):
+    lab = _parsed(home)
+    before = [e.model_dump() for e in lab.episodes]
+    cast, lines, preface = [c.name for c in lab.cast], [x.id for x in lab.lines], lab.preface
+    assert revlab.append_text(lab, APPEND) == [3, 4]  # 제목 줄 번호(7화)와 상관없이 마지막 화 다음부터
+    revlab.save(lab)
+    lab = revlab.load(lab.id)
+    assert [e.model_dump() for e in lab.episodes[:2]] == before and [c.name for c in lab.cast] == cast and [x.id for x in lab.lines] == lines
+    assert [(e.number, e.head, e.sheet) for e in lab.episodes[2:]] == [(3, "7화 아침", None), (4, "8화", None)]
+    assert lab.preface == preface and "등대지기의 밤" not in lab.episodes[2].text  # 이은 글의 앞머리 줄은 넣지 않고, 실험 앞머리는 그대로
+    p = prompts.rev_prompt(lab, 3)
+    assert "직전 화(2화)" in p and "서윤" in p  # 새 화 요청에 앞 화 인물 · 직전 화가 들어간다
+    assert revlab.wants_lines(lab, [3, 4]) and not revlab.wants_lines(lab, [3])
+    assert revlab.run_parse(lab.id, MockLLM(), [3, 4])["lines"] is not None  # 새 화까지 풀면 이야기 줄기를 다시 묻는다
+
+
+def test_append_limits(home, monkeypatch):
+    lab = revlab.create("등대", STORY)
+    with pytest.raises(ValueError, match="비었어요"):
+        revlab.append_text(lab, "  ")
+    monkeypatch.setattr(revlab, "MAX_EPISODES", 3)
+    with pytest.raises(ValueError, match="이으면 4화예요"):
+        revlab.append_text(lab, APPEND)
+    monkeypatch.setattr(revlab, "MAX_EPISODES", 30)
+    monkeypatch.setattr(revlab, "MAX_CHARS", sum(len(e.text) for e in lab.episodes) + 100)
+    with pytest.raises(ValueError, match="자까지 넣을 수 있어요"):
+        revlab.append_text(lab, APPEND)
+    assert len(lab.episodes) == 2  # 막히면 그대로
+
+
+def test_web_append(home):
+    from canon import web
+
+    c = TestClient(web.app)
+    lab_id = c.post("/api/revlab", json={"title": "등대", "text": STORY}).json()["id"]
+    v = c.post(f"/api/revlab/{lab_id}/episodes", json={"text": APPEND}).json()
+    assert [e["number"] for e in v["items"]] == [1, 2, 3, 4] and v["episodes"] == 4
+    assert c.post(f"/api/revlab/{lab_id}/episodes", json={"text": ""}).status_code == 400
+    assert c.post("/api/revlab/99/episodes", json={"text": APPEND}).status_code == 404
+
+
+@needs_node
+def test_js_append_preview_matches_python(home):
+    lim = revlab.labels()
+    lab = revlab.create("등대", STORY)
+    have = {"next": 3, "episodes": 2, "chars": sum(len(e.text) for e in lab.episodes)}
+    got = run_js(FILES, "data.texts.map((t) => revAppendPreview(t, data.lim, data.have))",
+                 {"texts": [APPEND, " ", "그냥 한 화 " * 50], "lim": lim, "have": have})
+    nums = revlab.append_text(lab, APPEND)
+    assert [e["n"] for e in got[0]["eps"]] == nums and not got[0]["errs"]
+    assert any("7화부터지만 마지막 화 다음인 3화" in x for x in got[0]["notes"]) and any("넣지 않아요" in x for x in got[0]["notes"])
+    assert got[1]["errs"] and got[2]["how"] == "one" and [e["n"] for e in got[2]["eps"]] == [3]
+    many = run_js(FILES, "revAppendPreview(data.t, data.lim, data.have)", {"t": APPEND, "lim": {**lim, "max_episodes": 3}, "have": have})
+    assert many["errs"] == ["이으면 4화예요. 한 실험에 3화까지 넣을 수 있어요."]
+
+
+def _four(home):
+    """역설계를 마친 1~2화 뒤에 3~4화를 이은 실험."""
+    lab = _parsed(home)
+    revlab.append_text(lab, APPEND)
+    revlab.save(lab)
+    revlab.run_parse(lab.id, MockLLM(), [3, 4])
+    return revlab.load(lab.id)
+
+
+def test_edit_episode_clears_only_that_episode(home):
+    lab = _parsed(home)
+    revlab.run_write(lab.id, MockLLM(), 1)
+    lab = revlab.load(lab.id)
+    ep2, cast, lines = lab.episodes[1].model_dump(), len(lab.cast), len(lab.lines)
+    assert revlab.edit_episode(lab, 1, " 새 제목 ", lab.episodes[0].text) is False  # 제목 줄만 바꾸면 결과는 그대로
+    assert lab.episodes[0].head == "새 제목" and lab.episodes[0].sheet and lab.episodes[0].take
+    assert revlab.edit_episode(lab, 1, "새 제목", "고친 글이에요.\r\n" * 30) is True
+    e = lab.episodes[0]
+    assert (e.number, e.head, e.plot, e.sheet, e.take, e.bounds, e.blind) == (1, "새 제목", None, None, None, [], [])
+    assert "\r" not in e.text and lab.episodes[1].model_dump() == ep2 and len(lab.cast) == cast and len(lab.lines) == lines
+    assert revlab.edit_episode(lab, 2, "", "다시 고친 글 " * 30) is True
+    assert revlab.edit_episode(lab, 2, "", "다시 고친 글 " * 30) is False  # 같은 글이면 아무것도 지우지 않는다
+    with pytest.raises(ValueError, match="비었어요"):
+        revlab.edit_episode(lab, 1, "", "  ")
+    with pytest.raises(KeyError):
+        revlab.edit_episode(lab, 9, "", "글")
+
+
+def test_drop_episode_renumbers_later_ones(home):
+    lab = _four(home)
+    lab.lines[0].branch_ep, lab.lines[0].join_ep = 3, 4
+    keep = [(e.text, e.plot.summary) for e in lab.episodes]
+    revlab.drop_episode(lab, 2)
+    assert [(e.number, e.plot.number) for e in lab.episodes] == [(1, 1), (2, 2), (3, 3)]
+    assert [(e.text, e.plot.summary) for e in lab.episodes] == [keep[0], keep[2], keep[3]]  # 3 · 4화가 2 · 3화로 당겨진다
+    assert (lab.lines[0].branch_ep, lab.lines[0].join_ep) == (2, 3)
+    revlab.drop_episode(lab, 3)  # 마지막 화: 줄기가 가리키던 번호는 남은 마지막 화로
+    assert [e.number for e in lab.episodes] == [1, 2] and lab.lines[0].join_ep == 2
+    revlab.drop_episode(lab, 1)
+    assert [e.number for e in lab.episodes] == [1] and lab.lines[0].branch_ep == 1
+    with pytest.raises(ValueError, match="남은 화가 하나라"):
+        revlab.drop_episode(lab, 1)
+
+
+def test_web_edit_and_drop_episode(home, monkeypatch):
+    from canon import web
+
+    c = TestClient(web.app)
+    lab_id = c.post("/api/revlab", json={"title": "등대", "text": STORY}).json()["id"]
+    v = c.put(f"/api/revlab/{lab_id}/episodes/2", json={"head": "2화 고침", "text": "고친 둘째 화 " * 30}).json()
+    assert v["items"][1]["head"] == "2화 고침" and v["items"][1]["text"].startswith("고친 둘째 화")
+    assert c.put(f"/api/revlab/{lab_id}/episodes/2", json={"head": "", "text": " "}).status_code == 400
+    assert c.put(f"/api/revlab/{lab_id}/episodes/9", json={"head": "", "text": "글"}).status_code == 400
+    v = c.delete(f"/api/revlab/{lab_id}/episodes/1").json()
+    assert [(e["number"], e["head"]) for e in v["items"]] == [(1, "2화 고침")]
+    assert c.delete(f"/api/revlab/{lab_id}/episodes/1").status_code == 400
+    assert c.delete(f"/api/revlab/99/episodes/1").status_code == 404
+    busy = jobs.Job(id="x", project=revlab.JOBS, kind="rev_parse", ep=lab_id, label="역설계")
+    monkeypatch.setattr(jobs, "listing", lambda project=None: [busy])
+    r = c.put(f"/api/revlab/{lab_id}/episodes/1", json={"head": "", "text": "작업 중 고침 " * 30})
+    assert r.status_code == 409 and "작업이 끝난 뒤" in r.text

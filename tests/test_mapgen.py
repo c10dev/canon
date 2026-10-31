@@ -1,4 +1,4 @@
-"""지도 만들기 테스트: 기하 도구(canon/geom.py), 마을 생성기(canon/towngen.py), 미리보기 · 적용(atlas), 웹, 명령줄.
+"""지도 만들기 테스트: 기하 도구(canon/maps/geom.py), 마을 생성기(canon/maps/gen/towngen.py), 미리보기 · 적용(atlas), 웹, 명령줄.
 실행: python -m pytest tests/test_mapgen.py. 성능은 CANON_PERF=1 일 때만 잰다."""
 import importlib
 import json
@@ -14,7 +14,10 @@ os.environ.setdefault("CANON_LLM", "mock")
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from canon import atlas, citygen, cli, geom, moderngen, pipeline, prompts, store, towngen  # noqa: E402
+from canon import atlas, cli, pipeline, prompts, store  # noqa: E402
+from canon.maps import geom  # noqa: E402
+from canon.maps import kinds as placekinds  # noqa: E402
+from canon.maps.gen import citygen, moderngen, towngen  # noqa: E402
 from canon.llm import get_llm  # noqa: E402
 from canon.schema import MapPin, MapPlace, MapPlaceGuess, MapSpec, MapSuggestion, Project, StoryElement  # noqa: E402
 
@@ -71,9 +74,9 @@ def test_polygon_helpers():
 def test_classify_place_kinds():
     cases = {"흑송촌": "center", "촌장 댁": "manor", "달빛 주막": "inn", "서낭당": "temple", "수산시장": "shore", "장터": "market", "등대": "shore",
              "하르덴 왕궁": "far", "돌다리": "bridge", "물새집": "home", "": "home"}
-    assert {name: towngen.classify(name)[0] for name in cases} == cases
-    assert towngen.classify("검은 문", "마을 어귀의 대장간") == ("smith", "대장간")  # 이름에 없으면 설명에서
-    assert not towngen.default_put("far") and towngen.default_put("inn")
+    assert {name: placekinds.classify(name)[0] for name in cases} == cases
+    assert placekinds.classify("검은 문", "마을 어귀의 대장간") == ("smith", "대장간")  # 이름에 없으면 설명에서
+    assert not placekinds.default_put("far") and placekinds.default_put("inn")
 
 
 def test_village_is_reproducible():
@@ -348,11 +351,11 @@ def test_suggest_map_modern():
 
 def test_water_default_follows_places():
     row = lambda kind, word, put=True: {"kind": kind, "word": word, "put": put}  # noqa: E731
-    assert towngen.water_for([row("shore", "등대"), row("home", "")]) == "sea"
-    assert towngen.water_for([row("shore", "나루"), row("bridge", "다리")]) == "river"
-    assert towngen.water_for([row("pond", "연못"), row("shore", "등대", False)]) == "lake"  # 놓지 않는 장소는 세지 않는다
-    assert towngen.water_for([row("shore", "등대"), row("river", "강")]) == "sea"  # 같으면 바다
-    assert towngen.water_for([row("inn", "주막")]) == "none"
+    assert placekinds.water_for([row("shore", "등대"), row("home", "")]) == "sea"
+    assert placekinds.water_for([row("shore", "나루"), row("bridge", "다리")]) == "river"
+    assert placekinds.water_for([row("pond", "연못"), row("shore", "등대", False)]) == "lake"  # 놓지 않는 장소는 세지 않는다
+    assert placekinds.water_for([row("shore", "등대"), row("river", "강")]) == "sea"  # 같으면 바다
+    assert placekinds.water_for([row("inn", "주막")]) == "none"
     p = _project()  # 등대 · 수산시장
     assert atlas.default_spec(p).water == "sea" and atlas.gen_info(p)["spec"]["water"] == "sea"
     p.atlas.spec = MapSpec(water="none", seed=4)
@@ -392,11 +395,11 @@ def test_suggest_map_cleans_names_and_kinds():
 
 def test_map_suggest_prompt_has_setting():
     p = _project()
-    text = prompts.map_suggest_prompt(p, atlas.gen_places(p), atlas.places(p), {"village": [(c, l) for c, l, _ in towngen.CATEGORIES]},
+    text = prompts.map_suggest_prompt(p, atlas.gen_places(p), atlas.places(p), {"village": [(c, l) for c, l, _ in placekinds.CATEGORIES]},
                                   {"village": towngen.OPTIONS, "city": citygen.OPTIONS})
     assert f"배경: {p.world.setting}" in text and "장르: " in text and "- 흑송촌 (다른 이름: 흑송 마을): 산 아래 마을" in text
     assert "## 도시 (kind=city)" in text and "roads" not in text.split("## 도시")[1].split("요구사항")[0]
-    text = prompts.map_suggest_prompt(p, atlas.gen_places(p), atlas.places(p), {"village": [(c, l) for c, l, _ in towngen.CATEGORIES]},
+    text = prompts.map_suggest_prompt(p, atlas.gen_places(p), atlas.places(p), {"village": [(c, l) for c, l, _ in placekinds.CATEGORIES]},
                                       {k: m[1].OPTIONS for k, m in atlas.MAKERS.items()})
     assert "## 현대 동네 (kind=modern)" in text and "modern(현대 동네)" in text
 
@@ -490,7 +493,7 @@ def test_title_population_and_numbers():
     assert len(lo["numbers"]) == lo["houses"] == len(set(lo["numbers"]))
     assert all(0 <= i < len(lo["buildings"]) for i in lo["numbers"])
     t = out["title"]
-    people = sum(b.get("people", 0) for b in lo["blds"])  # 건물마다 센 사람의 합 (canon/bldgs.py)
+    people = sum(b.get("people", 0) for b in lo["blds"])  # 건물마다 센 사람의 합 (canon/maps/buildings.py)
     assert t == {"title": "흑송촌", "custom": False, "houses": lo["houses"], "population": int(round(people, -1)), "kind": "마을", "unit": "집"}
     atlas.set_title(p, "  흑송   나루마을 ")
     assert p.atlas.title == "흑송 나루마을" and atlas.village_title(p, lo)["custom"]

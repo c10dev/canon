@@ -73,6 +73,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import random
 import re
@@ -83,9 +84,11 @@ from . import (address, archetypes, autorun, branches, cast, charlog, dynamics, 
                storylines, updater, usage)
 from .llm import dump, get_llm
 from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
-from . import abilities, atlas, blocktrial, findings, stattrial, foreshadows, setupchat, statwin, timeline, placekinds, travel
-from . import birth, play, tofix
+from . import abilities, atlas, blocktrial, findings, stattrial, foreshadows, setupchat, statwin, timeline
+from . import birth, labstats, play, soelab, tofix
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StoryArc
+from .maps import kinds as placekinds
+from .maps import travel
 
 
 def ask(label: str, default: str = "") -> str:
@@ -1749,7 +1752,7 @@ def cmd_map(a: argparse.Namespace) -> None:
 
 
 def _map_fill(a: argparse.Namespace, p, folder) -> None:
-    """map <작품> fill: OpenStreetMap 지도의 빈 블록을 지은 건물로 채운다 (canon/fill.py). --clear 는 지은 건물을 지운다."""
+    """map <작품> fill: OpenStreetMap 지도의 빈 블록을 지은 건물로 채운다 (canon/maps/fill.py). --clear 는 지은 건물을 지운다."""
     layout = atlas.load_layout(folder, p)
     if layout is None:
         sys.exit("지도 데이터가 없어요. 먼저 OpenStreetMap 파일을 올려 주세요")
@@ -1779,7 +1782,7 @@ def _map_fill(a: argparse.Namespace, p, folder) -> None:
 
 
 def _map_travel(a: argparse.Namespace, p) -> None:
-    """map <작품> travel: 이동 시간 검사 보기와 설정 (canon/travel.py)."""
+    """map <작품> travel: 이동 시간 검사 보기와 설정 (canon/maps/travel.py)."""
     t = p.atlas.travel
     changed = any(x is not None for x in (a.mode, a.span, a.kmh, a.day_km, a.check, a.ok, a.unok))
     if a.mode is not None or a.span is not None or a.kmh is not None or a.day_km is not None or a.check is not None:
@@ -2335,6 +2338,55 @@ def cmd_time(a: argparse.Namespace) -> None:
     print(timeline.describe(p))
 
 
+def cmd_soelab(a: argparse.Namespace) -> None:
+    """쇠맛 실험실: 조각 모으기 · 판별력 보고서 · 내보내기. AI 를 부르지 않는다."""
+    if a.action == "collect":
+        src, arg = a.source, a.target
+        if src == "revlab":
+            cands = soelab.collect_revlab(int(arg))
+        elif src == "episodes":
+            first, _, last = (a.episodes or "1-").partition("-")
+            cands = soelab.collect_episodes(arg, int(first or 1), int(last or 0))
+        elif src == "edits":
+            cands = soelab.collect_edits(arg)
+        elif src == "research":
+            cands = soelab.collect_research(arg, known=a.known)
+        else:
+            text = Path(arg).expanduser().read_text(encoding="utf-8")
+            cands = soelab.collect_paste(text, a.title or Path(arg).stem, origin=a.origin, model=a.model, known=a.known)
+        if a.known and src not in ("research", "paste"):
+            for x in cands:
+                x.known = True
+        res = soelab.add(cands, cap=a.cap)
+        o = res["by_origin"]
+        print(f"조각 {res['added']}개를 더했어요 (사람 {o.get('human', 0)} · AI {o.get('ai', 0)} · 고친 글 {o.get('edited', 0)} · 모름 {o.get('unknown', 0)}). "
+              f"이미 있던 글 {res['dup']}개, 원천 상한({a.cap})을 넘은 {res['capped']}개는 넣지 않았어요.")
+        v = soelab.view()
+        vo = v["by_origin"]
+        print(f"말뭉치: 사람 {vo.get('human', 0)} · AI {vo.get('ai', 0)} · 고친 글 {vo.get('edited', 0)} · 모름 {vo.get('unknown', 0)} · 묶음 {v['groups']}")
+        g = v["eligible_groups"]
+        print(f"가려 읽기에 쓸 서로 다른 화: 사람 {g['human']}/20 · AI {g['ai']}/20 · 대기열 {v['queue']} (1차 {v['first']}/{soelab.FIRST}) · 다시 읽기 예정 {v['redo']}")
+        if v["doubled"]:
+            print("같은 화에서 2조각씩이라 1차 결과가 약할 수 있어요.")
+        if len(v["ai_models"]) == 1:
+            print("모델이 하나뿐이라 결과가 그 모델 글 기준이에요.")
+    elif a.action == "report":
+        rep = soelab.report(seed=a.seed, n_boot=a.boot, save=not a.no_save)
+        if a.json:
+            print(json.dumps(rep, ensure_ascii=False, indent=1))
+        else:
+            print(soelab.describe(rep))
+            if not a.no_save:
+                print(f"\n보고서를 저장했어요: .soelab/reports/{rep['id']}.json")
+    else:
+        out = json.dumps(soelab.export(include_hidden=a.all), ensure_ascii=False, indent=1)
+        if a.out:
+            Path(a.out).expanduser().write_text(out + "\n", encoding="utf-8")
+            print(f"내보냈어요: {a.out} (원문 · 표시한 글 · 메모는 넣지 않았어요)")
+        else:
+            print(out)
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="canon", description="데이터 기반 AI 소설 생성기 (MVP)")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -2694,6 +2746,27 @@ def main(argv: list[str] | None = None) -> None:
     q.add_argument("--logline", default="")
     q.add_argument("--adult", action="store_true")
     sp.set_defaults(fn=cmd_play)
+
+    sp = sub.add_parser("soelab", help="쇠맛 실험실: 쇠맛 지표가 사람 글과 AI 글을 가르는지 재기 (AI 없음)")
+    ssub = sp.add_subparsers(dest="action", required=True)
+    q = ssub.add_parser("collect", help="조각 모으기 (정규화 · 2,000자 조각 · 같은 글은 한 번만)")
+    q.add_argument("source", choices=["revlab", "episodes", "edits", "research", "paste"])
+    q.add_argument("target", help="revlab: 실험 번호 / episodes · edits: 작품 / research: 말뭉치 폴더 / paste: 글 파일")
+    q.add_argument("--episodes", default="", help="episodes: 화 범위 a-b (비우면 모두)")
+    q.add_argument("--title", default="", help="paste: 글 이름 (비우면 파일 이름)")
+    q.add_argument("--origin", choices=["human", "ai", "unknown"], default="human", help="paste: 출처")
+    q.add_argument("--model", default="", help="paste: AI 글을 쓴 모델 '<백엔드>:<모델>'")
+    q.add_argument("--known", action="store_true", help="작가가 읽은 글: 가려 읽기에 넣지 않고 출처 판별에만 씀")
+    q.add_argument("--cap", type=int, default=soelab.CAP, help="원천 하나 · 출처 한쪽에서 받는 조각 수")
+    q = ssub.add_parser("report", help="판별력 보고서 (출처 기준 · 짝 · 작가 판정 · 모델별 참고)")
+    q.add_argument("--seed", type=int, default=soelab.SEED)
+    q.add_argument("--boot", type=int, default=labstats.BOOT, help="부트스트랩 반복 (2,000번 이상 권장)")
+    q.add_argument("--no-save", action="store_true", help="보고서 사본을 저장하지 않음")
+    q.add_argument("--json", action="store_true")
+    q = ssub.add_parser("export", help="지표와 판정만 내보내기 (원문 · 표시한 글 · 메모 빼고)")
+    q.add_argument("--out", default="")
+    q.add_argument("--all", action="store_true", help="가린 조각도 넣기 (가려 읽기 전에는 쓰지 마세요)")
+    sp.set_defaults(fn=cmd_soelab)
 
     a = ap.parse_args(argv)
     ep = getattr(a, "n", None) if getattr(a, "n", None) is not None else getattr(a, "ep", None)

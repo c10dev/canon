@@ -26,7 +26,7 @@ from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
-from . import abilities, atlas, findings, foreshadows, setupchat, stattrial, statwin, timeline, travel
+from . import abilities, atlas, findings, foreshadows, setupchat, stattrial, statwin, timeline
 from .schema import AgentSession, ChatScope, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
@@ -38,6 +38,7 @@ from . import cue, revlab
 from .schema import CueSheetDraft
 from . import stage, tofix
 from .schema import Birth, BirthSketch, Episode, PlayInfo, PlayPerson, PlayUnit, StageProposal, StageRoom, StageScene
+from .maps import travel
 
 STATIC = Path(__file__).parent / "static"
 # 폴더 이름: / \ 와 운영체제가 막는 : * ? " < > | 는 쓸 수 없고, . 으로 시작하지 않는다
@@ -449,6 +450,15 @@ class PlayCard(_Out):
     waiting: bool = Field(description="결정 장면에서 멈춰 있다")
 
 
+class ProjectAlert(BaseModel):
+    """작품 목록의 확인할 것 한 줄 (projects/<이름>/pending.json). 화면은 작품 줄의 배지와 이어 쓰기 카드에 보인다."""
+    kind: Literal["fail", "result"] = Field(description="fail 멈춘 AI 작업 / result 검토를 기다리는 결과")
+    job: str = Field(description="작업 종류 (check, write, state 등). 화면이 가서 볼 주소를 고른다")
+    ep: int | None = None
+    label: str
+    error: str = ""
+
+
 class ProjectCard(BaseModel):
     """작품 목록의 카드 한 장."""
     name: str
@@ -464,6 +474,10 @@ class ProjectCard(BaseModel):
     updated_at: str
     branch: BranchInfo | None = Field(None, description="갈래 정보. 갈래가 없는 작품이면 비움 (같은 family 끼리 묶어 보인다)")
     play: PlayCard | None = Field(None, description="플레이 정보. 플레이 사본이 아니면 비움 (화면은 세계 작품 카드 안에 묶는다)")
+    alerts: list[ProjectAlert] = Field(default_factory=list, description="멈춘 작업과 검토를 기다리는 결과. 멈춘 작업이 앞")
+    where: str = Field("", description="장편: 다음에 할 화가 든 부 · 아크 한 줄 (예: 2부 별의 바다 · 3아크 겨울 노선). 단편 · 기획 전은 비움")
+    strip_from: int = Field(0, description="strip 의 첫 화 번호. 띠가 없으면 0")
+    strip: list[str] = Field(default_factory=list, description="화 칸 띠: 화마다 상태(draft · confirmed · written · finalized, 플롯 없는 화는 none). 장편은 지금 아크, 단편은 전체(40화까지)")
 
 
 @app.get("/api/projects")
@@ -485,9 +499,37 @@ def list_projects() -> list[ProjectCard]:
                             "open_ep": todo.plot.number if todo else 0, "open_status": todo.status if todo else "",
                             "open_checked": bool(todo and todo.status == "written" and findings.check_done(todo)),
                             "updated_at": datetime.fromtimestamp(mtime, timezone.utc).isoformat(), "_mtime": mtime,
-                            "branch": tree.get(d.name), "play": (_play_card(p, info) if (info := store.load_play(d.name)) else None)})
+                            "branch": tree.get(d.name), "play": (_play_card(p, info) if (info := store.load_play(d.name)) else None),
+                            "alerts": _card_alerts(d.name), **_card_strip(p, todo)})
     out.sort(key=lambda x: -x["_mtime"])
     return [{k: v for k, v in x.items() if k != "_mtime"} for x in out]  # play.json 은 project.json 보다 자주 바뀌지만 고친 때는 작품 기준
+
+
+STRIP_MAX = 40  # 화 칸 띠에 그리는 가장 많은 화 (app.js WORK_STRIP_MAX 와 같다)
+
+
+def _card_alerts(name: str) -> list[dict]:
+    """작품 목록의 확인할 것: pending.json 의 실패와 결과. 실패가 앞."""
+    pend = store.load_pending(name)
+    fails = [{"kind": "fail", "job": f.get("kind", ""), "ep": f.get("ep"), "label": f.get("label", ""), "error": f.get("error", "")}
+             for f in pend["failures"].values()]
+    results = [{"kind": "result", "job": r.get("kind", ""), "ep": r.get("ep"), "label": r.get("label", "")} for r in pend["results"].values()]
+    return fails + results
+
+
+def _card_strip(p, todo) -> dict:
+    """작품 목록의 부 · 아크 줄과 화 칸 띠. 장편은 다음에 할 화(없으면 마지막 화)가 든 아크, 단편은 전체 화."""
+    by_n = {e.plot.number: e.status for e in p.episodes}
+    cur = todo.plot.number if todo else max(by_n, default=1)
+    where, lo, hi = "", 1, p.meta.target_episodes
+    if p.meta.form == "serial":
+        part = next((x for x in p.parts if x.start_ep <= cur <= x.end_ep), None)
+        arc = next((x for x in p.story_arcs if x.start_ep <= cur <= x.end_ep), None)
+        where = " · ".join(t for t in [part and f"{part.number}부 {part.title}".strip(), arc and f"{arc.number}아크 {arc.title}".strip()] if t)
+        lo, hi = (arc.start_ep, arc.end_ep) if arc else (0, -1)
+    if not 0 < hi - lo + 1 <= STRIP_MAX:
+        return {"where": where, "strip_from": 0, "strip": []}
+    return {"where": where, "strip_from": lo, "strip": [by_n.get(n, "none") for n in range(lo, hi + 1)]}
 
 
 class NewName(BaseModel):
@@ -3693,7 +3735,7 @@ class FillIn(BaseModel):
 
 @app.post("/api/projects/{name}/atlas/layout/fill")
 def atlas_layout_fill(name: str, body: FillIn) -> dict:
-    """OpenStreetMap 지도의 빈 블록 채우기 (canon/fill.py). preview 는 저장하지 않고 채울 블록 · 지을 건물을 돌려준다.
+    """OpenStreetMap 지도의 빈 블록 채우기 (canon/maps/fill.py). preview 는 저장하지 않고 채울 블록 · 지을 건물을 돌려준다.
     apply 는 지도 파일을 다시 쓰고(지은 건물은 끝에 붙여 OSM 건물 번호를 지킨다) clear 는 지은 건물을 지운다."""
     p = _load(name)
     layout = atlas.load_layout(_map_dir(name), p)
@@ -3765,7 +3807,7 @@ class TravelIn(BaseModel):
 
 @app.put("/api/projects/{name}/atlas/travel")
 def atlas_travel(name: str, body: TravelIn) -> Project:
-    """이동 시간 검사 설정: 켜기, 가장 빠른 탈것, 직접 정한 빠르기, 지도 가로 km (canon/travel.py)."""
+    """이동 시간 검사 설정: 켜기, 가장 빠른 탈것, 직접 정한 빠르기, 지도 가로 km (canon/maps/travel.py)."""
     p = _load(name)
     travel.set_setting(p, body.enabled, body.mode, body.kmh, body.day_km, body.span_km)
     return _save(name, p)
@@ -3905,6 +3947,8 @@ class ClueIn(BaseModel):
     foreshadow: str = ""  # 걸 복선 id. 비우고 description 을 주면 새 복선을 만들어 건다
     description: str = ""
     kind: str = "plant"
+    scope: str = "arc"  # 새 복선의 회수 범위
+    due_ep: int | None = None  # 새 복선의 회수 예정 화
 
 
 @app.post("/api/projects/{name}/foreshadows/clues")
@@ -3914,7 +3958,7 @@ def foreshadow_clue(name: str, body: ClueIn) -> Project:
     _not_auto(name)
     if not body.foreshadow and body.kind == "payoff":
         raise ValueError("회수할 복선을 골라 주세요")
-    fid = body.foreshadow or foreshadows.add(p, body.description, body.episode).id
+    fid = body.foreshadow or foreshadows.add(p, body.description, body.episode, body.scope, body.due_ep).id
     foreshadows.add_clue(p, body.episode, body.quote, fid, body.kind)
     return _save(name, p)
 
@@ -4289,6 +4333,39 @@ def rev_get(lab_id: int) -> dict:
 def rev_put(lab_id: int, body: RevIn) -> dict:
     """제목을 바꾸고, 글을 주면 다시 나눈다 (역설계 결과를 모두 지운다). 첫 화 번호를 주면 화 번호를 옮긴다."""
     return _rev_edit(lab_id, lambda lab: revlab.replace_text(lab, body.title, body.text, body.first))
+
+
+@app.post("/api/revlab/{lab_id}/episodes")
+def rev_append(lab_id: int, body: RevSplitIn) -> dict:
+    """글을 나눠 마지막 화 뒤에 잇는다 (앞 화의 역설계 결과는 그대로). AI 를 부르지 않는다."""
+    return _rev_edit(lab_id, lambda lab: revlab.append_text(lab, body.text))
+
+
+class RevEpisodeIn(BaseModel):
+    head: str = ""
+    text: str
+
+
+def _rev_idle(lab_id: int) -> None:
+    """작업이 도는 실험의 화는 고치거나 빼지 않는다 (작업이 화 번호로 결과를 넣는다)."""
+    if any(j.ep == lab_id and j.status == "running" for j in jobs.listing(revlab.JOBS)):
+        raise HTTPException(409, "이 실험의 작업이 끝난 뒤에 화를 고치거나 뺄 수 있어요")
+
+
+@app.put("/api/revlab/{lab_id}/episodes/{n}")
+def rev_put_episode(lab_id: int, n: int, body: RevEpisodeIn) -> dict:
+    """화 하나의 제목 줄과 글을 고친다. 글이 바뀌면 그 화의 역설계 결과를 지운다 (revlab.edit_episode)."""
+    _rev(lab_id)
+    _rev_idle(lab_id)
+    return _rev_edit(lab_id, lambda lab: revlab.edit_episode(lab, n, body.head, body.text))
+
+
+@app.delete("/api/revlab/{lab_id}/episodes/{n}")
+def rev_delete_episode(lab_id: int, n: int) -> dict:
+    """화 하나를 빼고 뒤 화 번호를 당긴다 (revlab.drop_episode)."""
+    _rev(lab_id)
+    _rev_idle(lab_id)
+    return _rev_edit(lab_id, lambda lab: revlab.drop_episode(lab, n))
 
 
 @app.delete("/api/revlab/{lab_id}")

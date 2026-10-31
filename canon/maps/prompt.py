@@ -3,8 +3,10 @@
 """
 from __future__ import annotations
 
-from . import atlas, context, travel
-from .schema import Project
+from .. import context
+from ..schema import Project
+from . import travel
+from .spots import episode_spots
 
 
 def travel_block(p: Project, n: int, budget: int = 0) -> str:
@@ -43,7 +45,7 @@ def travel_check_rule(p: Project, n: int) -> str:
 def spot_block(p: Project, n: int, budget: int = 0) -> str:
     """n화를 쓰거나 검수할 때 넣는 장소의 건물: 플롯에 이름이 나온 장소 가운데 건물 한 줄(MapPin.spot)이 있는 것.
     예산(context.BUDGET["spots"])을 넘으면 뒤에 나온 장소부터 빼고 뺀 수를 적는다. 넣을 줄이 없으면 빈 글."""
-    spots = atlas.episode_spots(p, n)
+    spots = episode_spots(p, n)
     budget = budget or context.BUDGET["spots"]
     keep, size, cut = [], 0, 0
     for name, spot in spots:

@@ -215,6 +215,60 @@ def replace_text(lab: RevLab, title: str, text: str | None, first: int | None = 
         renumber(lab, first)
 
 
+def append_text(lab: RevLab, text: str) -> list[int]:
+    """글을 나눠 마지막 화 뒤에 잇는다. 앞 화의 역설계 결과 · 인물 · 줄기 · 문체는 그대로 둔다. 새 화 번호는 제목 줄 번호와 상관없이
+    마지막 화 + 1 부터 센다. 첫 제목 줄 앞의 짧은 글은 버린다 (실험의 앞머리는 바꾸지 않는다). 이야기 줄기는 새 화까지 역설계하면
+    다시 묻는다 (wants_lines). 이은 화 번호를 낸다."""
+    s = check_text(text)
+    have = sum(len(e.text) for e in lab.episodes)
+    if have + len(text) > MAX_CHARS:
+        raise ValueError(f"이으면 {have + len(text):,}자예요. 한 실험에 {MAX_CHARS:,}자까지 넣을 수 있어요")
+    if len(lab.episodes) + len(s["episodes"]) > MAX_EPISODES:
+        raise ValueError(f"이으면 {len(lab.episodes) + len(s['episodes'])}화예요. 한 실험에 {MAX_EPISODES}화까지 넣을 수 있어요")
+    start = lab.episodes[-1].number + 1 if lab.episodes else s["first"]
+    added = [RevEpisode(number=start + i, head=e["head"], text=e["text"]) for i, e in enumerate(s["episodes"])]
+    lab.episodes += added
+    return [e.number for e in added]
+
+
+def edit_episode(lab: RevLab, number: int, head: str, text: str) -> bool:
+    """화 하나의 제목 줄과 글을 고친다. 글이 바뀌면 그 화의 역설계 결과 · 경계 · 되돌려 쓴 판을 지운다(원문에 맞춰 잰 값이라서).
+    인물 · 줄기 · 문체와 다른 화는 그대로 둔다. 결과를 지웠으면 참."""
+    e = episode(lab, number)
+    text = _norm(text).strip()
+    if not text:
+        raise ValueError("글이 비었어요. 화를 빼려면 지우기를 쓰세요")
+    total = sum(len(x.text) for x in lab.episodes) - len(e.text) + len(text)
+    if total > MAX_CHARS:
+        raise ValueError(f"고치면 {total:,}자예요. 한 실험에 {MAX_CHARS:,}자까지 넣을 수 있어요")
+    e.head = head.strip()[:HEAD_MAX]
+    if text == e.text:
+        return False
+    cleared = e.plot is not None or e.take is not None or e.take_style is not None
+    lab.episodes[lab.episodes.index(e)] = RevEpisode(number=e.number, head=e.head, text=text)
+    return cleared
+
+
+def drop_episode(lab: RevLab, number: int) -> None:
+    """화 하나를 뺀다. 뒤 화 번호를 하나씩 당겨 번호가 비지 않게 한다(화 · 플롯 번호, 줄기의 갈라진 화 · 합류한 화).
+    인물 · 문체는 그대로 둔다. 마지막 남은 화는 빼지 않는다 (실험을 지운다)."""
+    e = episode(lab, number)
+    if len(lab.episodes) == 1:
+        raise ValueError("남은 화가 하나라 뺄 수 없어요. 실험을 지우세요")
+    lab.episodes.remove(e)
+    for x in lab.episodes:
+        if x.number > number:
+            x.number -= 1
+            if x.plot:
+                x.plot.number -= 1
+    last = lab.episodes[-1].number
+
+    def move(n: int) -> int:
+        return 0 if not n else min(n - 1 if n > number else n, last)
+    for s in lab.lines:
+        s.branch_ep, s.join_ep = move(s.branch_ep), move(s.join_ep)
+
+
 def episode(lab: RevLab, number: int) -> RevEpisode:
     for e in lab.episodes:
         if e.number == number:

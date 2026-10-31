@@ -77,3 +77,23 @@ def test_web_plot_job_groups_shared_acts(tmp_path, monkeypatch):
     cur = c.get("/api/projects/t3").json()
     cur["arc"] = [a.model_dump() for a in p.arc]
     assert c.put("/api/projects/t3", json=cur).status_code == 200  # 저장 검증도 구간 공유를 받아들인다
+
+
+def test_empty_plot_batch_says_so_with_model_note():
+    """AI 가 형식은 맞지만 화를 하나도 내지 않으면, 범위가 다르다는 말 대신 빈 결과와 AI 가 남긴 말을 알린다."""
+    from canon.schema import PlotBatch
+
+    class Empty:
+        last_note = "이 범위는\n쓰지 않겠습니다."
+
+        def json(self, system, prompt, schema, hint=None):
+            return PlotBatch(episodes=[])
+
+    p = Project()
+    p.meta.target_episodes = 4
+    p.arc = _plan(pipeline.act_ranges(4)).acts
+    with pytest.raises(ValueError, match="1~4화 플롯을 하나도 내지 않았어요. AI가 남긴 말: 이 범위는 쓰지 않겠습니다."):
+        pipeline.draft_plots(Empty(), p, 1, 4)
+    Empty.last_note = ""
+    with pytest.raises(ValueError, match="AI가 이유를 남기지 않았어요"):
+        pipeline.draft_plots(Empty(), p, 1, 4)

@@ -1,4 +1,4 @@
-"""지도(canon/atlas.py) 테스트 (mock LLM): 장소 목록, 위치 글 맞추기, 화별 자리, 맞지 않은 위치, 자리 저장, CLI, 웹. 실행: python -m pytest tests"""
+"""지도(canon/atlas.py · canon/maps/) 테스트 (mock LLM): 장소 목록, 위치 글 맞추기, 화별 자리, 맞지 않은 위치, 자리 저장, CLI, 웹. 실행: python -m pytest tests"""
 import base64
 import importlib
 import os
@@ -10,6 +10,7 @@ os.environ.setdefault("CANON_LLM", "mock")  # 이 파일만 돌려도 가짜 LLM
 from fastapi.testclient import TestClient  # noqa: E402
 
 from canon import atlas, cli, pipeline, prompts, store
+from canon.maps import routes
 from canon.llm import get_llm
 from canon.schema import CharacterState, MapPin, Project, StoryElement
 
@@ -316,10 +317,10 @@ def test_route_walks_around_buildings_and_water():
         assert not any(inside((ax + (bx - ax) * s / 50, ay + (by - ay) * s / 50)) for s in range(51))
     assert r["points"][0] == [0.1, 0.4] and r["points"][-1] == [0.6, 0.9]
     # 물 (30~40, 20~40) 건너편 두 자리는 길을 타지 않고 물을 돌아간다
-    pts, length = atlas._walk(g, (78, 75), (92, 75))
+    pts, length = routes._walk(g, (78, 75), (92, 75))
     assert length > 14 and all(not (80 < x < 90 and 70 < y < 90) for x, y in pts)
     # 물 한가운데 놓인 자리는 나갈 빈 땅이 가까이 없으니 곧장 걷는다
-    assert atlas._walk(g, (85, 80), (60, 80)) == ([(85, 80), (60, 80)], 25)
+    assert routes._walk(g, (85, 80), (60, 80)) == ([(85, 80), (60, 80)], 25)
 
 def test_routes_on_frames():
     p = _played()

@@ -113,6 +113,16 @@ class ClaudeCodeTest(unittest.TestCase):
         self.assertIn("형식과 맞지 않았습니다", second["stdin"])
         self.assertTrue(second["stdin"].startswith("이름 후보"))
 
+    def test_json_keeps_note_and_refusal(self):
+        self.replies({"structured_output": {"options": []}, "result": "이 요청에는 이름을 내지 않을게요."},
+                     {"stop_reason": "refusal", "structured_output": {"options": []}})
+        llm = claude.ClaudeCodeLLM()
+        self.assertEqual(llm.json("s", "p", NameOptions).options, [])
+        self.assertEqual(llm.last_note, "이 요청에는 이름을 내지 않을게요.")  # 빈 결과의 이유를 화면에 보인다
+        with self.assertRaisesRegex(claude.ClaudeCodeError, "거절"):
+            llm.json("s", "p", NameOptions)
+        self.assertEqual(llm.last_note, "")
+
     def test_json_gives_up_after_two(self):
         self.replies({"structured_output": {"options": 1}}, {"structured_output": {"options": 2}})
         with self.assertRaises(SchemaMismatch):

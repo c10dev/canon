@@ -16,7 +16,8 @@ from . import context, elements, genres, metrics, naming, storylines
 from .dynamics import VIEWS, describe_relations
 from .llm import _inline_refs, dump
 from .schema import Birth, Character, ChatMessage, Claim, ConsistencyIssue, ConsistencyReport, Foreshadow, ImpactReport, PlayInfo, Project, Selection, StateDelta, StoryElement
-from . import address, board, charlog, foreshadows, knows, mapprompt, pairlog, stage, statwin, timeline
+from . import address, board, charlog, foreshadows, knows, pairlog, stage, statwin, timeline
+from .maps import prompt as mapprompt
 
 SYSTEM_PLANNER = (
     "당신은 한국 웹소설/단편소설 기획 전문 편집자입니다. "
@@ -594,7 +595,7 @@ def serial_plot_prompt(p: Project, start: int, end: int, ahead: bool = True, red
 {structure_text(p, start)}
 
 [지금까지의 줄거리]
-{story_so_far(p, start) or "없음 (첫 화)"}
+{story_so_far(p, start, plans=True) or "없음 (첫 화)"}
 [바로 앞 화 플롯 (확정 또는 초안, 이어지게 쓸 것)]
 {dump(near) if near else "없음"}{fixed_block(fixed, more)}{candidates_block(p)}
 [열린 복선]{f" (그 밖에 {fs_more}개는 이번 아크와 거리가 멀어 뺐습니다)" if fs_more else ""}
@@ -845,32 +846,44 @@ FORESHADOW_RECENT = 30  # 이 화수 안에 심은 복선은 늘 넣는다
 FORESHADOW_CAP = context.FORESHADOW_CAP
 
 
-def story_so_far(p: Project, n: int) -> str:
+def story_so_far(p: Project, n: int, plans: bool = False) -> str:
     """n화 직전까지의 줄거리. 단편은 화별 요약 전부. 장편은 끝난 부 → 이번 부의 끝난 아크 → 이번 아크의 화 순서로 접어서,
-    300화째에도 크기가 일정하다 (story_parts)."""
-    return "\n\n".join(x for x in story_parts(p, n) if x)
+    300화째에도 크기가 일정하다 (story_parts). plans 는 story_parts 와 같다."""
+    return "\n\n".join(x for x in story_parts(p, n, plans) if x)
 
 
-def story_parts(p: Project, n: int) -> tuple[str, str]:
+PLAN_ONLY = "(아직 안 씀, 플롯) "
+
+
+def story_parts(p: Project, n: int, plans: bool = False) -> tuple[str, str]:
     """(끝난 부와 아크의 접은 줄거리, 이번 아크의 화별 요약). 앞쪽은 아크가 끝날 때만 바뀌어 캐시가 맞는 자리에 둘 수 있다.
     장편은 블록 예산(context.BUDGET)을 넘으면 오래된 것부터 더 짧게 접는다. 요약이 아직 승인되지 않은 아크는
-    화별 요약 → 화마다 첫 문장 → 아크 한 줄 순서로 줄고, 승인된 요약은 마지막에야 첫 문장으로 줄인다."""
+    화별 요약 → 화마다 첫 문장 → 아크 한 줄 순서로 줄고, 승인된 요약은 마지막에야 첫 문장으로 줄인다.
+    plans: 쓰기 전에 앞 아크를 미리 기획해 둔 장편에서 뒤 아크를 기획할 때(플롯 초안 · 플롯 대화 · 다음 아크) 켠다.
+    이번 아크 앞의 아크에서 아직 반영하지 않은 화(요약 없음)는 플롯 요약으로, 플롯이 하나도 없는 아크는 아크 기획으로 채운다.
+    이번 아크의 화는 그 프롬프트들이 플롯 전체로 따로 넣으므로 요약이 있는 화만 둔다."""
     eps = sorted((e for e in p.episodes if e.plot.number < n and e.summary), key=lambda e: e.plot.number)
-    line = lambda e: f"{e.plot.number}화 {storylines.summary_tag(p, e)}{timeline.tag(p, e)}{e.plot.title}: {e.summary}"  # noqa: E731
-    short = lambda e: f"{e.plot.number}화 {storylines.summary_tag(p, e)}{timeline.tag(p, e)}{e.plot.title}: {context.first_sentence(e.summary)}"  # noqa: E731
+    told = lambda e: e.summary or (PLAN_ONLY if e.status in ("draft", "confirmed") else "(반영 전, 플롯) ") + e.plot.summary  # noqa: E731
+    line = lambda e: f"{e.plot.number}화 {storylines.summary_tag(p, e)}{timeline.tag(p, e)}{e.plot.title}: {told(e)}"  # noqa: E731
+    short = lambda e: f"{e.plot.number}화 {storylines.summary_tag(p, e)}{timeline.tag(p, e)}{e.plot.title}: {context.first_sentence(told(e))}"  # noqa: E731
     if not p.serial or not p.story_arcs:
         return "", "\n".join(map(line, eps))
     cur_arc = p.arc_for(n)
     cur_part = p.part_for(n)
     arc_start = cur_arc.start_ep if cur_arc else n
     part_start = cur_part.start_ep if cur_part else 1
+    planned = sorted((e for e in p.episodes if e.plot.number < min(n, arc_start) and (e.summary or e.plot.summary)),
+                     key=lambda e: e.plot.number) if plans else eps
     entries: list[list[str]] = []  # 블록마다 [자세히, 줄임, 한 줄]
 
     def arc_entry(a) -> list[str]:
         head = f"[아크 {a.number} {a.title} ({a.start_ep}~{a.end_ep}화)]"
         if a.summary:
             return [f"{head} {a.summary}"] * 2 + [f"{head} {context.first_sentence(a.summary, 200)}"]
-        inside = [e for e in eps if a.start_ep <= e.plot.number <= a.end_ep]
+        inside = [e for e in planned if a.start_ep <= e.plot.number <= a.end_ep]
+        if not inside and plans:
+            plan = f"{head} (아직 플롯 없음, 아크 기획) 목표: {a.goal} / 갈등: {a.conflict} / 보상: {a.payoff}"
+            return [plan, plan, f"{head} (아직 플롯 없음) 목표: {a.goal}"]
         if not inside:
             return [head] * 3
         return [head + "\n" + "\n".join(map(line, inside)),
@@ -985,6 +998,35 @@ ATTIRE_STATE_RULE = (
     "본문에서 차림이 처음 드러났거나 바뀐 인물만 적고 그대로면 비웁니다. 바꿀 때는 이어지는 상처와 물건도 함께 다시 적습니다. "
     "본문의 차림이 [이전 인물 상태]의 attire 와 설명 없이 어긋나면 warnings 에 적습니다."
 )
+
+
+# 감정의 두 층: 겉 태도와 속마음(숨김 · 친한 척), 머리의 판단과 몸 · 감정의 끌림. 글 한 칸이 화마다 덮어써져
+# 한쪽 층이 사라지거나 한 화 만에 풀린다 (감정 급변 연구 2026-10-31). 쓰기에는 라벨만 가고, 지키는지는 검수가 본다.
+LAYER = re.compile(r"(?:겉|머리)\s*[:：][^/]*/\s*(?:속|몸)\s*[:：]")
+
+LAYER_STATE_RULE = (
+    "\n- character_updates 의 emotional_state 는 짧은 라벨로 적습니다. 겉으로 보이는 태도와 속마음이 다르거나(감정을 숨김, 친한 척), "
+    "머리로 하는 판단과 몸 · 감정의 끌림이 맞서면 '겉: … / 속: …' 또는 '머리: … / 몸: …' 두 층으로 적습니다 "
+    "(예: '겉: 다정하게 웃음 / 속: 서준을 경계', '머리: 거절해야 함 / 몸: 끌려 흔들림'). 맞서지 않으면 한 줄입니다.\n"
+    "- [이전 인물 상태]가 두 층인 인물은 이번 화에 한쪽만 바뀌어도 두 층을 다 다시 적습니다. 몸이나 감정이 이긴 장면이라도 "
+    "본문에서 머리나 겉이 아직 버티고 있으면 그 층을 남깁니다. 한 층을 지우는 것은 본문에 들키거나 털어놓거나 스스로 받아들이는 장면이 있을 때뿐입니다.\n"
+    "- 상대에게 숨긴 감정(좋아함, 미움, 의심)이 본문에 처음 드러났는데 상대는 모르면 secrets_added 에도 넣고 hidden_from 에 모르는 인물을 적습니다."
+)
+
+
+def layered(states) -> list[str]:
+    """emotional_state 가 두 층 라벨(LAYER)인 인물 id."""
+    return [s.character_id for s in states if LAYER.search(s.emotional_state or "")]
+
+
+def layer_check_rule(p: Project, ids: set[str] | None = None) -> str:
+    """검수 요구사항 한 줄. ids(검수하는 인물, 비우면 모두)의 지금 감정에 두 층 라벨이 없으면 빈 글."""
+    if not layered([s for s in p.states if ids is None or s.character_id in ids]):
+        return ""
+    return ("\n- 겉과 속: [인물 현재 상태]의 emotional_state 가 '겉: … / 속: …' 이나 '머리: … / 몸: …' 두 층인 인물이, "
+            "들키거나 털어놓거나 받아들이는 장면 없이 한 층이 사라진 듯 행동하는지 봅니다. 예: 속으로 경계하던 인물이 계기 없이 마음을 엶, "
+            "머리로 거절하던 인물의 망설임이 흔적 없이 사라짐. 숨긴 속마음은 그 인물이 시점 인물일 때만 서술로 말할 수 있고, 아니면 행동으로 새어 나와야 합니다. "
+            "type 은 인물 정보, source_episode 는 0, source_quote 는 그 emotional_state 문구입니다.")
 
 
 def static_characters(p: Project) -> list[Character]:
@@ -1228,7 +1270,7 @@ def next_arc_prompt(p: Project, start: int, length: int, note: str) -> str:
 {dump(p.parts) if p.parts else "부 구성 없음 (작품 전체가 한 부)"}
 
 [지금까지의 줄거리]
-{story_so_far(p, start) or "없음 (첫 아크)"}
+{story_so_far(p, start, plans=True) or "없음 (첫 아크)"}
 [직전 아크]
 {dump(prev.model_dump(exclude={"summary"})) if prev else "없음"}
 [직전 아크의 마지막 화 플롯]
@@ -1708,7 +1750,7 @@ def _serial_plot_parts(p: Project, scope) -> tuple[str, str, str]:
 {dump(p.parts) if p.parts else "부 구성 없음"}
 
 [지금까지의 줄거리]
-{story_so_far(p, lo) or "없음"}
+{story_so_far(p, lo, plans=True) or "없음"}
 {target_block}
 [가까운 아크]
 {dump(arcs) if arcs else "아직 없음"}
@@ -2469,7 +2511,7 @@ def board_block(p: Project, n: int) -> str:
 def canon_values_block(p: Project, n: int) -> str:
     """스토리보드 만들기에 넣는 'Canon 이 센 값': 요일 셈(작품 기준이 없으면 직전 화 기록 글에서), 상태창 지금 값, 가장 빠른 탈것.
     직전 화 끝 시점과 기한은 앞의 작품 속 시간 블록(timeline.episode_block)에 있다. 넣을 것이 없으면 빈 글."""
-    from . import travel
+    from .maps import travel
 
     lines = []
     cur = timeline.current_day(p, n)
@@ -2873,7 +2915,7 @@ def state_prompt(p: Project, n: int) -> str:
 - 아래 [이미 있는 장소]에 없는 장소(지형, 마을, 건물, 가게 등)가 이름을 갖고 처음 나왔으면 new_places 에 넣습니다. name 은 본문에 쓴 그대로, kind 는 종류 한 단어, description 은 본문에서 드러난 것만 한 줄입니다. 이름 없는 길, 방, 골목은 넣지 않습니다.
 - 이미 있는 장소를 다른 이름이나 표기로 부른 것이면 new_places 에 넣지 않고 warnings 에 적습니다.
 - character_updates 의 location 에는 [이미 있는 장소]나 new_places 의 이름을 표기 그대로 앞에 씁니다 (예: '하르덴 왕궁 서재'). 옮겨 가는 중이면 '하르덴에서 벨라 항구로 가는 배 위'처럼 떠난 곳과 갈 곳을 함께 씁니다.
-- warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다. 본문 문장이 걸리면 그 문장을 «» 안에 글자 그대로 넣어 작가가 바로 찾게 합니다.{storylines.state_rule(p, n)}{foreshadows.state_rule(p)}{statwin.state_rule(p)}{ATTIRE_STATE_RULE}{charlog.state_rule(p)}{address.state_rule(p)}{timeline.state_rule(p, n)}"""
+- warnings 에는 플롯 사건 누락, 설정/말투 위반, 확정 사실과의 모순을 적습니다. 본문 문장이 걸리면 그 문장을 «» 안에 글자 그대로 넣어 작가가 바로 찾게 합니다.{storylines.state_rule(p, n)}{foreshadows.state_rule(p)}{statwin.state_rule(p)}{ATTIRE_STATE_RULE}{LAYER_STATE_RULE}{charlog.state_rule(p)}{address.state_rule(p)}{timeline.state_rule(p, n)}"""
 
 
 def _check_full(p: Project, n: int) -> tuple[str, str, str, str, str, str]:
@@ -2969,7 +3011,7 @@ def check_prompt(p: Project, n: int, mode: str = "", sized: bool = False) -> str
 {n}화 본문에서 위 자료와 어긋나는 곳을 찾으세요.
 - 확인할 것: 확정 사실, 이야기 요소와 세부(이름, 나이, 외모, 장소, 물건), 시간 순서와 인과, 인물이 아직 모르는 정보를 아는 듯 행동하는지, 말투(호칭, 존댓말/반말, 어미), 세계관 규칙, 플롯 사건 누락.
 - 동선: 한 장면 안에서 인물의 위치, 몸이 향한 쪽(앞 · 뒤, 등 · 배), 자세, 손에 든 것, 가려진 곳이 바꾸는 행동 없이 달라지는지 봅니다. 예: 등을 돌리고 망토로 몸을 가렸는데 다음 문장에서 그 인물의 표정이나 가슴께가 보임. 이때 source_episode 는 {n}, source_quote 는 같은 화의 앞 문장입니다.
-- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{address.check_rule(p)}{statwin.check_rule(p)}{protect_check_rule(p.episode(n))}{pairlog.check_rule(pair_check_block(p, n, mode))}
+- 시점: 서술이 이 화의 서술 시점(위에 따로 없으면 스타일 프로필의 narration_pov)을 벗어나는지 봅니다. 시점 인물이 볼 수 없거나 아직 모르는 것을 서술함, 1인칭의 '나'가 다른 인물로 바뀜, 장면 구분 없이 시점 인물이 바뀜, 서술 말투가 정해진 화에서 지문의 어미가 그 말투를 벗어남(대사는 보지 않음). 근거가 시점 지시면 source_episode 는 0, source_quote 는 그 지시 문장입니다.{timeline.check_rule(p, n)}{mapprompt.travel_check_rule(p, n)}{attire_check_rule(p)}{layer_check_rule(p, check_cast(p, n) if (mode or ("budget" if p.serial else "full")) == "budget" else None)}{address.check_rule(p)}{statwin.check_rule(p)}{protect_check_rule(p.episode(n))}{pairlog.check_rule(pair_check_block(p, n, mode))}
 - source_quote 와 current_quote 는 원문을 그대로 옮깁니다. 근거가 설정이나 인물 상태면 source_episode 는 0 입니다.
 {SEVERITY_RULE}
 - 근거를 인용할 수 없는 의심은 넣지 않습니다. 모순이 없으면 issues 를 빈 목록으로 둡니다.
@@ -4100,7 +4142,7 @@ def map_suggest_prompt(p: Project, rows: list[dict], places: list[dict], kinds: 
                        chosen: str = "") -> str:
     """rows: atlas.gen_places (지금 고른 종류), places: atlas.places (설명),
     kinds: 지도 종류(village, city, modern)마다 장소 종류 (id, 이름) 목록 (placekinds.kinds_for). 목록이 같은 지도 종류는 한 절로 묶는다,
-    options: 지도 종류마다 설정 칸 (towngen.OPTIONS, citygen.OPTIONS, moderngen.OPTIONS), chosen: 지도 화면에서 지금 고른 지도 종류."""
+    options: 지도 종류마다 설정 칸 (atlas.MAKERS 의 생성기 OPTIONS), chosen: 지도 화면에서 지금 고른 지도 종류."""
     desc = {pl["key"]: pl for pl in places}
     lines = []
     for r in rows:

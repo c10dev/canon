@@ -1397,7 +1397,8 @@ class StatValue(BaseModel):
 
 class CharacterState(BaseModel):
     character_id: str
-    emotional_state: str = ""
+    emotional_state: str = Field("", description="지금 감정을 짧은 라벨로. 겉 태도와 속마음, 머리의 판단과 몸 · 감정의 끌림이 맞서면 "
+                                 "'겉: … / 속: …' 또는 '머리: … / 몸: …' 두 층 (prompts.LAYER_STATE_RULE)")
     current_goal: str = ""
     location: str = ""
     attire: str = Field("", description="지금 차림: 옷, 몸에 남은 상처 · 얼룩 · 찢어짐, 지니고 다니는 물건. 변경안에는 바뀐 인물만, 이어지는 것까지 다시 적는다")
@@ -1887,13 +1888,13 @@ class Illustration(BaseModel):
 
 # ---------- 전체 프로젝트 ----------
 
-# ---------- 지도 (canon/atlas.py) ----------
+# ---------- 지도 (canon/atlas.py 공개 면, 계산은 canon/maps/) ----------
 # 장소는 설정의 장소 칸과 인과율 '장소' 요소다. 지도는 그 위에 자리와 배경 그림, 위치 글 잇기만 더한다.
 
 class BuildingNote(BaseModel):
-    """작가가 고친 건물 하나 (지금 마을 · 도시 데이터의 건물 번호 기준). 빈 칸은 생성기가 정한 값(canon/bldgs.py)을 쓴다."""
+    """작가가 고친 건물 하나 (지금 마을 · 도시 데이터의 건물 번호 기준). 빈 칸은 생성기가 정한 값(canon/maps/buildings.py)을 쓴다."""
     i: int = Field(description="건물 번호 (마을 데이터 buildings 의 순서)")
-    use: str = Field("", description="쓰임 id (bldgs.USES). 비면 생성기 값")
+    use: str = Field("", description="쓰임 id (maps/buildings.USES). 비면 생성기 값")
     name: str = Field("", description="집 이름 · 간판. 비면 생성기 값")
     note: str = Field("", description="작가 메모")
     residents: list[str] = Field(default_factory=list, description="여기 사는 · 일하는 인물 id")
@@ -1904,7 +1905,7 @@ class MapPin(BaseModel):
     place: str = Field(description="장소 키: 인과율 장소 요소 id, 설정 장소 칸이면 'w:' + 이름")
     x: float = 0.5
     y: float = 0.5
-    spot: str = Field("", description="놓인 건물 · 표지 한 줄 (atlas.spot_line, 쓰기 · 검수 프롬프트의 atlas.episode_block). 핀 · 마을 데이터 · 건물을 바꿀 때 다시 쓴다")
+    spot: str = Field("", description="놓인 건물 · 표지 한 줄 (atlas.spot_line, 쓰기 · 검수 프롬프트의 maps/prompt.spot_block). 핀 · 마을 데이터 · 건물을 바꿀 때 다시 쓴다")
 
 
 class PlaceLink(BaseModel):
@@ -1916,12 +1917,12 @@ class PlaceLink(BaseModel):
 class MapPlace(BaseModel):
     """지도 만들기에서 작가가 고친 장소 하나: 종류와 이 지도에 놓을지."""
     key: str = Field(description="장소 키 (atlas.places)")
-    kind: str = Field("", description="종류 id (placekinds.KINDS). 지도 종류의 시대와 다른 id 는 placekinds.to_era 로 읽는다. 비면 이름 · 설명에서 찾는다")
+    kind: str = Field("", description="종류 id (maps/kinds.KINDS). 지도 종류의 시대와 다른 id 는 maps/kinds.to_era 로 읽는다. 비면 이름 · 설명에서 찾는다")
     put: Optional[bool] = Field(None, description="이 지도에 놓을지. 비면 종류로 정한다 (마을 밖 장소는 놓지 않음)")
 
 
 class MapSpec(BaseModel):
-    """지도 생성기 입력 (canon/towngen.py). 같은 값이면 언제나 같은 지도가 나온다."""
+    """지도 생성기 입력 (canon/maps/makers.py, 생성기는 canon/maps/gen/). 같은 값이면 언제나 같은 지도가 나온다."""
     kind: Literal["village", "city", "modern", "realm"] = "village"
     seed: int = Field(1, ge=0, le=2**31 - 1)
     version: int = Field(0, description="이 지도를 만든 생성기 알고리즘 버전 (적용할 때 적는다)")
@@ -1934,7 +1935,7 @@ class MapSpec(BaseModel):
 
 
 class TravelSetting(BaseModel):
-    """이동 시간 검사 설정 (canon/travel.py). 지도 거리와 작품 속 시간을 견줘 너무 빠른 이동을 찾는다."""
+    """이동 시간 검사 설정 (canon/maps/travel.py). 지도 거리와 작품 속 시간을 견줘 너무 빠른 이동을 찾는다."""
     enabled: bool = Field(True, description="끄면 지도 화면 · 상태 변경안 경고 · 프롬프트의 이동 거리를 모두 뺀다 (순간 이동이 흔한 작품 등)")
     mode: str = Field("horse", description="이 세계에서 인물이 쓰는 가장 빠른 탈것 (travel.MODES 의 id). transit(대중교통)은 걸어서와 지하철(Atlas.transit) 가운데 빠른 쪽")
     kmh: float = Field(0, description="작가가 정한 이동 빠르기 (km/시). 0 이면 탈것의 기본값")
@@ -1965,7 +1966,7 @@ class Transit(BaseModel):
 
 
 class MapFill(BaseModel):
-    """OpenStreetMap 지도의 빈 블록 채우기 입력 (canon/fill.py). 지울 때와 다시 만들 때 쓴다."""
+    """OpenStreetMap 지도의 빈 블록 채우기 입력 (canon/maps/fill.py). 지울 때와 다시 만들 때 쓴다."""
     seed: int = Field(1, description="채우기 시드. 같은 지도 · 같은 시드면 같은 건물")
     rule: str = Field("villa", description="채우는 규칙 (fill.RULES): villa 는 빌라촌, 큰 블록은 아파트 단지")
 
@@ -2498,6 +2499,74 @@ class RevLab(BaseModel):
     style: Optional[StyleProfile] = Field(None, description="원문 전체로 역설계한 문체 프로필. 예시 문단(sample_passages)은 비운다 (되돌려 쓰기가 베끼지 않게)")
     style_model: str = ""
     style_at: str = ""
+
+# ---------- 쇠맛 실험실 (canon/soelab.py) ----------
+# 작품 밖 <CANON_HOME>/.soelab/ 에 둔다. LLM 이 채우지 않는 스키마다.
+
+SoeOrigin = Literal["human", "ai", "edited", "unknown"]
+SOE_ORIGINS: dict[str, str] = {"human": "사람 글", "ai": "AI 글", "edited": "고친 글", "unknown": "모름"}
+SoeModelSource = Literal["record", "usage", "author", "unknown"]
+
+
+class SoeSource(BaseModel):
+    """조각을 가져온 원천."""
+    kind: Literal["revlab", "episode", "edit", "research", "paste", "trial"]
+    project: str = ""
+    episode: int = 0
+    lab: int = Field(0, description="역설계 실험 번호")
+    take: str = Field("", description="revlab: text · take · take_style / edit: before · after")
+    edit: str = Field("", description="TextEdit.id")
+    path: str = Field("", description="research: 연구 말뭉치 안 파일 (말뭉치 경로 기준) / paste: 붙여 넣은 글 이름")
+    chunk: int = Field(0, description="같은 글 안 조각 순번")
+
+
+class SoePiece(BaseModel):
+    """판정 · 채점의 단위인 글 조각 (정규화한 2,000자 안팎). id 는 정규화한 글 sha1 앞 12자라 같은 글은 한 번만 들어간다."""
+    id: str
+    text: str
+    origin: SoeOrigin = "unknown"
+    source: SoeSource
+    group: str = Field(description="묶음 키 '<작품|작가>:<화|작품명>'. 부트스트랩 단위. revlab 원문과 되쓰기는 같은 묶음")
+    genre: Literal["webnovel", "literary", "other"] = "webnovel"
+    model: str = Field("", description="쓴 모델 '<백엔드>:<모델>'. 사람 글은 빈 칸")
+    model_source: SoeModelSource = Field("unknown", description="모델을 어디서 알았는지: 기록 · 사용량 기록에서 짐작 · 작가가 고름 · 모름")
+    condition: str = ""
+    pair_of: str = Field("", description="짝 조각 id (revlab 되쓰기 → 원문, 고친 뒤 → 고치기 전)")
+    known: bool = Field(False, description="작가가 읽은 글. 판정 대기열에 넣지 않고 출처 판별에만 쓴다")
+    baseline: str = Field("", description="원천 기준값(style_baseline)을 가진 작품 이름. 없으면 빈 칸")
+    chars: int = 0
+    added: str = ""
+
+
+class SoeSpan(BaseModel):
+    """판정하며 작가가 표시한 곳."""
+    start: int
+    end: int
+    quote: str = ""
+    kind: str = Field("other", description="AI_PATTERNS 이름 5개 · cliche · copy · other")
+    note: str = ""
+
+
+class SoeLabel(BaseModel):
+    """판정 기록 한 줄 (labels.jsonl). 덧붙이기만 하고, 지우기는 removed 가 참인 같은 id 줄."""
+    id: str
+    at: str = ""
+    kind: Literal["piece", "pair", "hit"] = "piece"
+    piece: str = ""
+    verdict: Literal["ai", "human", "unsure", ""] = ""
+    spans: list[SoeSpan] = Field(default_factory=list)
+    clean: bool = Field(False, description="표시할 곳 없이 다 읽음 (재현율의 분모)")
+    batch: str = Field("", description="'이번 10개' id. 부트스트랩 단위 묶음(group)과 다른 말")
+    pair: list[str] = Field(default_factory=list)
+    picked: int = -1
+    hit: str = ""
+    hit_ok: Literal["yes", "no", "skip", ""] = ""
+    blind: bool = True
+    redo_of: str = Field("", description="재판정이면 원래 판정 id")
+    metrics_version: str = ""
+    seconds: int = 0
+    removed: bool = False
+
 
 Snapshot.model_rebuild()
 SerialRebuild.model_rebuild()

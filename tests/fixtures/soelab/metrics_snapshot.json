@@ -1,0 +1,267 @@
+{
+ "current": "2026-11-a",
+ "results": {
+  "01": {
+   "copied": [],
+   "drift": [
+    "문단 평균 길이: 기준 45.4 → 73.5 (+62%)",
+    "대사 비율: 기준 0.19 → 0.02 (-0.17)",
+    "상투·금지 표현: 심장이 쿵, 정적이 흘렀다, 묘한 감정, 마치 시간이 멈춘 것, 주먹을 꽉 쥐었다, 입술을 깨물었다, 숨을 삼켰다"
+   ],
+   "measure": {
+    "ai_pattern_hits": [
+     "서식 흔적 1회 (상한 0)"
+    ],
+    "chars": 1281,
+    "cliche_hits": [
+     "심장이 쿵",
+     "정적이 흘렀다",
+     "묘한 감정",
+     "마치 시간이 멈춘 것",
+     "주먹을 꽉 쥐었다",
+     "입술을 깨물었다",
+     "숨을 삼켰다"
+    ],
+    "comma_sentence_ratio": 0.2,
+    "dialogue_ratio": 0.02,
+    "mattr": 0.923,
+    "paragraph_len_mean": 73.5,
+    "past_tense_ratio": 1.0,
+    "pattern_per_1k": {
+     "감정 이름 서술": 1.56,
+     "번역투": 0.78,
+     "부정 후 재정의": 0.78,
+     "서식 흔적": 0.78,
+     "셋씩 나열": 1.56
+    },
+    "pronoun_per_1k": 1.6,
+    "repeated_phrases": [],
+    "sentence_len_cv": 0.56,
+    "sentence_len_mean": 22.9,
+    "sentences": 53,
+    "short_ending_ratio": 0.0,
+    "style_distance": 1.01,
+    "style_spread": null
+   },
+   "pattern_counts": {
+    "감정 이름 서술": 2,
+    "번역투": 1,
+    "부정 후 재정의": 1,
+    "서식 흔적": 1,
+    "셋씩 나열": 2
+   }
+  },
+  "02": {
+   "copied": [],
+   "drift": [],
+   "measure": {
+    "ai_pattern_hits": [],
+    "chars": 1100,
+    "cliche_hits": [],
+    "comma_sentence_ratio": 0.17,
+    "dialogue_ratio": 0.17,
+    "mattr": 0.901,
+    "paragraph_len_mean": 42.1,
+    "past_tense_ratio": 1.0,
+    "pattern_per_1k": {
+     "감정 이름 서술": 0.0,
+     "번역투": 0.0,
+     "부정 후 재정의": 0.0,
+     "서식 흔적": 0.0,
+     "셋씩 나열": 0.0
+    },
+    "pronoun_per_1k": 0.0,
+    "repeated_phrases": [],
+    "sentence_len_cv": 0.48,
+    "sentence_len_mean": 18.9,
+    "sentences": 54,
+    "short_ending_ratio": 0.18,
+    "style_distance": 1.13,
+    "style_spread": null
+   },
+   "pattern_counts": {
+    "감정 이름 서술": 0,
+    "번역투": 0,
+    "부정 후 재정의": 0,
+    "서식 흔적": 0,
+    "셋씩 나열": 0
+   }
+  },
+  "03": {
+   "copied": [],
+   "drift": [
+    "대사 비율: 기준 0.19 → 0.53 (+0.34)",
+    "짧은 문장으로 끝나는 문단 비율: 기준 0.17 → 0.42 (+0.25)"
+   ],
+   "measure": {
+    "ai_pattern_hits": [],
+    "chars": 1078,
+    "cliche_hits": [],
+    "comma_sentence_ratio": 0.06,
+    "dialogue_ratio": 0.53,
+    "mattr": 0.905,
+    "paragraph_len_mean": 23.1,
+    "past_tense_ratio": 1.0,
+    "pattern_per_1k": {
+     "감정 이름 서술": 0.0,
+     "번역투": 0.0,
+     "부정 후 재정의": 0.0,
+     "서식 흔적": 0.0,
+     "셋씩 나열": 0.0
+    },
+    "pronoun_per_1k": 0.0,
+    "repeated_phrases": [],
+    "sentence_len_cv": 0.55,
+    "sentence_len_mean": 15.5,
+    "sentences": 63,
+    "short_ending_ratio": 0.42,
+    "style_distance": 1.11,
+    "style_spread": null
+   },
+   "pattern_counts": {
+    "감정 이름 서술": 0,
+    "번역투": 0,
+    "부정 후 재정의": 0,
+    "서식 흔적": 0,
+    "셋씩 나열": 0
+   }
+  },
+  "04": {
+   "copied": [
+    "그해 겨울 읍내로 들어가는 신작로에는 눈이 무릎까지 쌓였고, 장날이 사흘이나 미뤄졌으며, 우체국 앞 느티나무 가지 하나가 무게를 이기지 못하고 부러져 전깃줄을 끊어 놓았다.",
+    "아버지는 그 소식을 이발소에서 듣고 왔다고 했는데, 이발소 주인은 그 이야기를 장작 패던 박 씨에게서 들었다고 했다."
+   ],
+   "drift": [
+    "문장 평균 길이: 기준 19.9 → 39.1 (+96%)",
+    "문단 평균 길이: 기준 45.4 → 170.7 (+276%)",
+    "대사 비율: 기준 0.19 → 0.0 (-0.19)",
+    "쉼표 문장 비율: 기준 0.16 → 0.4 (+0.24)"
+   ],
+   "measure": {
+    "ai_pattern_hits": [],
+    "chars": 1207,
+    "cliche_hits": [],
+    "comma_sentence_ratio": 0.4,
+    "dialogue_ratio": 0.0,
+    "mattr": 0.908,
+    "paragraph_len_mean": 170.7,
+    "past_tense_ratio": 0.93,
+    "pattern_per_1k": {
+     "감정 이름 서술": 0.0,
+     "번역투": 0.0,
+     "부정 후 재정의": 0.0,
+     "서식 흔적": 0.0,
+     "셋씩 나열": 1.66
+    },
+    "pronoun_per_1k": 0.0,
+    "repeated_phrases": [],
+    "sentence_len_cv": 0.51,
+    "sentence_len_mean": 39.1,
+    "sentences": 30,
+    "short_ending_ratio": 0.0,
+    "style_distance": 1.17,
+    "style_spread": null
+   },
+   "pattern_counts": {
+    "감정 이름 서술": 0,
+    "번역투": 0,
+    "부정 후 재정의": 0,
+    "서식 흔적": 0,
+    "셋씩 나열": 2
+   }
+  },
+  "05": {
+   "copied": [],
+   "drift": [
+    "과거형 서술 비율: 기준 0.81 → 0.18 (-0.63)",
+    "대명사 밀도(1,000자당): 기준 4.2 → 20.8 (+16.60)",
+    "쇠맛 패턴: 서식 흔적 3회 (상한 2)",
+    "문체 거리: 1.64 (원문 대목끼리 1.0, 1.5 넘으면 다른 작가 글 수준)"
+   ],
+   "measure": {
+    "ai_pattern_hits": [
+     "서식 흔적 3회 (상한 0)"
+    ],
+    "chars": 1056,
+    "cliche_hits": [],
+    "comma_sentence_ratio": 0.05,
+    "dialogue_ratio": 0.26,
+    "mattr": 0.901,
+    "paragraph_len_mean": 34.5,
+    "past_tense_ratio": 0.18,
+    "pattern_per_1k": {
+     "감정 이름 서술": 0.0,
+     "번역투": 0.0,
+     "부정 후 재정의": 0.0,
+     "서식 흔적": 2.84,
+     "셋씩 나열": 0.95
+    },
+    "pronoun_per_1k": 20.8,
+    "repeated_phrases": [],
+    "sentence_len_cv": 0.51,
+    "sentence_len_mean": 14.1,
+    "sentences": 68,
+    "short_ending_ratio": 0.21,
+    "style_distance": 1.64,
+    "style_spread": null
+   },
+   "pattern_counts": {
+    "감정 이름 서술": 0,
+    "번역투": 0,
+    "부정 후 재정의": 0,
+    "서식 흔적": 3,
+    "셋씩 나열": 1
+   }
+  },
+  "base": {
+   "ai_pattern_hits": [
+    "부정 후 재정의 2회 (상한 1)",
+    "셋씩 나열 10회 (상한 2)",
+    "감정 이름 서술 4회 (상한 3)",
+    "서식 흔적 8회 (상한 0)"
+   ],
+   "chars": 11471,
+   "cliche_hits": [
+    "심장이 쿵",
+    "정적이 흘렀다",
+    "묘한 감정",
+    "마치 시간이 멈춘 것",
+    "주먹을 꽉 쥐었다",
+    "입술을 깨물었다",
+    "숨을 삼켰다"
+   ],
+   "comma_sentence_ratio": 0.16,
+   "dialogue_ratio": 0.19,
+   "mattr": 0.916,
+   "paragraph_len_mean": 45.4,
+   "past_tense_ratio": 0.81,
+   "pattern_per_1k": {
+    "감정 이름 서술": 0.35,
+    "번역투": 0.17,
+    "부정 후 재정의": 0.17,
+    "서식 흔적": 0.7,
+    "셋씩 나열": 0.87
+   },
+   "pronoun_per_1k": 4.2,
+   "repeated_phrases": [
+    "뭐라고 써 있어",
+    "어두운 데서 다",
+    "데서 다 같이",
+    "이 분이면 돼"
+   ],
+   "sentence_len_cv": 0.67,
+   "sentence_len_mean": 19.9,
+   "sentences": 536,
+   "short_ending_ratio": 0.17,
+   "style_distance": null,
+   "style_spread": 0.3556
+  },
+  "base_centroid": "583447984144ddf23ca41bf346276b2ba669ecd24899d24f7e242d195c8c1910"
+ },
+ "versions": {
+  "2026-11-a": {
+   "constants": "68ba7a6d563a504f36433c210cc1a7fe6df0daa978d375d50fcb3ee520c914e1",
+   "results": "0d54a1832f5516767a3bdeff4ed1a0d002ea39c6fa85e7141738ec7715da9cb9"
+  }
+ }
+}

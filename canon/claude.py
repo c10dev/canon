@@ -233,7 +233,7 @@ class ClaudeCodeLLM:
         self.served = ""
         self.last_usage: dict | None = None
         self.last_attempts = 0
-        self.last_raw = ""
+        self.last_raw = self.last_note = ""
 
     @property
     def model(self) -> str:
@@ -282,7 +282,7 @@ class ClaudeCodeLLM:
         """한 번 부르고 사용량을 기록한다. 프롬프트는 표준 입력으로 넘긴다 (인자 길이 한도를 피한다).
         schema 가 있으면 검증한 값을, 없으면 글을 돌려준다."""
         t, tokens = time.time(), None
-        self.last_raw = ""
+        self.last_raw = self.last_note = ""
         try:
             args = self._args(system, strict_schema(schema) if schema else None)
             try:
@@ -300,7 +300,11 @@ class ClaudeCodeLLM:
             self.served = _served(d) or self.served
             if d.get("is_error") or d.get("subtype") not in (None, "success"):
                 raise ClaudeCodeError(f"Claude Code 오류: {_explain(str(d.get('result') or d.get('subtype') or d))}")
+            if d.get("stop_reason") == "refusal":
+                raise ClaudeCodeError("Claude가 이 요청을 거절했어요 (안전 분류기). 수위나 표현을 조정하거나 다른 백엔드로 돌리세요.")
             raw = d.get("structured_output") if schema is not None else None
+            if raw is not None:
+                self.last_note = str(d.get("result") or "").strip()  # 구조화 출력 곁에 남긴 글. 빈 결과의 이유를 보인다
             if raw is None:
                 raw = str(d.get("result") or "").strip()
                 if not raw:

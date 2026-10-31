@@ -9,11 +9,16 @@ import math
 import re
 from collections import Counter
 from statistics import mean, median, pstdev
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from pydantic import BaseModel, Field
 
 from .style_background import FEATURES
+
+# 지표 판. 상수(AI_PATTERNS · DEFAULT_CLICHES · THRESHOLDS · UPPER_ONLY · COPY_SPAN · STYLE_DISTANCE_WARN · _SENT_END)나
+# 셈 로직을 바꿔 같은 글의 값이 달라지면 올린다. tests/test_metrics_version.py 가 상수 해시와 결과 스냅샷으로 막는다.
+# 쇠맛 실험실(soelab)은 판이 다른 보고서끼리 숫자를 섞지 않는다.
+METRICS_VERSION = "2026-11-a"
 
 # 한국어 소설 생성에서 자주 보이는 상투 표현. 작품별 금지 표현은 StyleProfile.banned_phrases 에 더한다.
 DEFAULT_CLICHES = [
@@ -124,8 +129,63 @@ def _short_ending_ratio(paras: list[str]) -> Optional[float]:
     return round(sum(ends) / len(ends), 2) if ends else None
 
 
+class Span(NamedTuple):
+    kind: str   # pattern | cliche
+    name: str   # 쇠맛 패턴 이름 또는 상투 표현
+    start: int
+    end: int
+    quote: str
+
+
+def pattern_spans(text: str, banned: list[str] | None = None) -> list[Span]:
+    """쇠맛 패턴과 상투 · 금지 표현이 나온 자리. 글 차례로 돌려준다.
+    상투 표현은 measure 의 cliche_hits 와 같은 목록에서 겹치지 않게 모두 센다."""
+    out = [Span("pattern", name, m.start(), m.end(), m.group()) for name, rx, _ in AI_PATTERNS for m in rx.finditer(text)]
+    for phrase in dict.fromkeys(DEFAULT_CLICHES + (banned or [])):
+        if not phrase:
+            continue
+        i = text.find(phrase)
+        while i >= 0:
+            out.append(Span("cliche", phrase, i, i + len(phrase), phrase))
+            i = text.find(phrase, i + len(phrase))
+    return sorted(out, key=lambda s: (s.start, s.end))
+
+
 def pattern_counts(text: str) -> dict[str, int]:
-    return {name: len(rx.findall(text)) for name, rx, _ in AI_PATTERNS}
+    counts = {name: 0 for name, _, _ in AI_PATTERNS}
+    for s in pattern_spans(text):
+        if s.kind == "pattern":
+            counts[s.name] += 1
+    return counts
+
+
+def sentence_spans(text: str) -> list[tuple[int, int]]:
+    """sentences() 와 같은 문장 경계를 글자 자리 (start, end) 로. text[start:end] 가 sentences(text) 의 문장과 같다."""
+    out, at = [], 0
+    for m in [*_SENT_END.finditer(text), None]:
+        end = m.start() if m else len(text)
+        piece = text[at:end]
+        lead = len(piece) - len(piece.lstrip())
+        body = piece.strip()
+        if body:
+            out.append((at + lead, at + lead + len(body)))
+        if m:
+            at = m.end()
+    return out
+
+
+def rates_per_1k(text: str, banned: list[str] | None = None) -> dict[str, float]:
+    """쇠맛 패턴(패턴마다와 합) · 상투 표현의 1,000자당 횟수. 화당 상한(AI_PATTERNS 의 cap)은 쓰지 않는다.
+    길이가 다른 조각끼리 견줄 때 쓴다. 글자 수는 measure 와 같이 앞뒤 공백을 뺀 길이다."""
+    text = text.strip()
+    if not text:
+        return {}
+    spans = pattern_spans(text, banned)
+    k = 1000 / len(text)
+    out = {name: round(sum(s.kind == "pattern" and s.name == name for s in spans) * k, 3) for name, _, _ in AI_PATTERNS}
+    out["ai_patterns"] = round(sum(s.kind == "pattern" for s in spans) * k, 3)
+    out["cliches"] = round(sum(s.kind == "cliche" for s in spans) * k, 3)
+    return out
 
 
 def _over_cap(text: str) -> list[str]:
