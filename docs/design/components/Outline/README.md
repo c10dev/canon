@@ -2,10 +2,13 @@
 
 구역이 여럿인 긴 화면의 짜임으로, 왼쪽 목차 열과 오른쪽 카드 한 열이다. 설정 도우미(기획서 · 새 작품 걸음), 문체 화면과 문체 라이브러리 항목, 기승전결 · 플롯(보드 · 화 플롯 페이지), 역설계 실험, 인물 · 관계도(`.cast-wrap`: 목차는 관계도 · 등장표 · 비중별 인물, 줄 앞 인물 원 24px), 복선 센터(개요 · 복선 하나), 상태창 수치(`.sw-wrap`: 목차는 작품 틀 · 꾸미기 · 비중별 인물 · 스킬 도감), 스킬 도감(`.ab-wrap`: 목차 맨 위 찾기 칸, 개요 · 도감에 없는 조각 · 상태창 항목별 항목), 장면 연출(`.stg-wrap`: 목차는 화 · 사건 · 지금 사건의 박자, 박자 줄 끝에 지적 수)이 같은 컴포넌트를 쓴다. 코드는 `canon/static/outline.js` 와 `app.css` 의 '공용 목차 틀' 절이다.
 
+작품 도구 넷도 같은 컴포넌트를 쓴다: 갈래 비교(`.bc-wrap`), 채팅 앱 작업지시서(`.brief-wrap`), 자동 집필(`.auto-wrap`), 고칠 곳(`.tofix-wrap`).
+
 ## 쓰는 법
 
 - 틀은 `outlineDoc(목차, 카드 열, { wide, cls })` 로 그린다. 감싸는 칸 `.outline-wrap` 에 컨테이너 `outline` 을 둔다. 폭 규칙은 창이 아니라 이 칸의 폭을 따른다. 대화 패널을 열어도 같은 규칙이 맞는다. 화면만의 칸 규칙도 `@container outline` 으로 건다.
 - 두 열(`.outline-doc`): 목차 220px + 카드 열, 열 사이 `space-32`. 카드 열은 최대 760px(`measure`)이고, `.wide`(역설계 실험, 플롯 보드, 복선 센터, 장면 연출)는 남는 폭을 모두 쓴다.
+- 갈래 비교는 `.wide` 다. 작업지시서 · 자동 집필 · 고칠 곳은 760px 열이다.
 - 목차는 `outlineNav({ id, label, now, body })` 로 그린다(`nav.outline`). 위에 붙어 있다(`position: sticky`, 위 16px).
   - 구역 줄(`.outline-item`, button 또는 a): 38px, `radius-8`, `text-2` 500. 마우스를 올리면 `surface` 면. 지금 구역은 `aria-current`: `accent-soft` 면, `accent-ink` 700.
   - 줄 안: 번호 칸 `.n`(22px, `radius-6`, `chip` 면) · 이름 `.tl` · 끝 상태 글 `.st`(12px `muted`).
