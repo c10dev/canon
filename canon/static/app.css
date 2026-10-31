@@ -795,34 +795,29 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 
 /* 3단계 목차 + 보드 (설정 도우미 · 문체와 같은 틀): 왼쪽 220px 목차, 오른쪽 넓은 보드 · 화 플롯 카드 한 열.
    칸 폭이 720px 아래면(대화 패널 · 좁은 창) 목차는 위에 붙는 한 줄 버튼과 펼침 목록이 된다 */
-.plot-wrap { container: plot / inline-size; }
-.plot-doc { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px; align-items: start; }
+/* 목차 틀은 공용(app.css '공용 목차 틀' 절, outline.js). 아래는 이 화면만의 목차 줄 모양: 넓은 칸 목록은 화면 높이에서 스크롤,
+   묶음 이름은 굵게, 줄 이름은 두 줄(이름 + 범위), 장편의 부 · 아크 · 구간 들여쓰기, 화 플롯 페이지의 화 줄 */
 .plot-main { min-width: 0; display: flex; flex-direction: column; gap: 20px; }
 .plot-main > .card { margin: 0; }
-.plot-toc { position: sticky; top: 16px; z-index: 4; }
-.plot-toc-now { display: none; }
-.plot-toc-now .tl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-.plot-toc-list { display: flex; flex-direction: column; gap: 2px; max-height: calc(100vh - 32px); overflow-y: auto; padding-bottom: 8px; }
-.plot-toc-h { padding: 14px 10px 4px; font-size: 0.75rem; font-weight: 700; color: var(--muted); display: flex; align-items: center; gap: 6px; }
-.plot-toc-h.between { padding-right: 0; }
-.plot-toc-h .btn { min-height: 28px; height: 28px; padding: 0 6px; }
-.plot-toc-item { width: 100%; min-height: 38px; padding: 4px 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-2); font: inherit; font-size: 0.875rem; font-weight: 500; text-align: left; display: flex; align-items: center; gap: 8px; cursor: pointer; }
-.plot-toc-item:hover { background: var(--surface); color: var(--text); }
-.plot-toc-item .tl { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; line-height: 1.4; }
-.plot-toc-item .tl .small { font-weight: 400; }
-.plot-toc-item .st { margin-left: auto; flex: none; font-size: 0.75rem; color: var(--muted); font-weight: 500; white-space: nowrap; }
-.plot-toc-item[aria-current] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
-.plot-toc-item.act { min-height: 34px; padding-left: 26px; font-size: 0.8125rem; }
-.plot-toc-item.act .tl, .plot-toc-item[data-act] .tl { flex-direction: row; gap: 6px; align-items: baseline; }
-.plot-toc-item.arc { padding-left: 16px; }
-.plot-toc-item.next { margin: 2px 0 0 10px; width: calc(100% - 10px); border: 1px dashed var(--line-strong); color: var(--accent-ink); }
+.plot-wrap .outline-list { max-height: calc(100vh - 32px); overflow-y: auto; padding-bottom: 8px; }
+.plot-wrap .outline-h { font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.plot-wrap .outline-h.between { padding-right: 0; }
+.plot-wrap .outline-h .btn { min-height: 28px; height: 28px; padding: 0 6px; }
+.plot-wrap .outline-item { width: 100%; padding: 4px 10px; font-size: 0.875rem; }
+.plot-wrap .outline-item .tl { flex: 1 1 auto; display: flex; flex-direction: column; line-height: 1.4; }
+.plot-wrap .outline-item .tl .small { font-weight: 400; }
+.plot-wrap .outline-item .st { flex: none; padding-left: 0; }
+.plot-wrap .outline-item.act { min-height: 34px; padding-left: 26px; font-size: 0.8125rem; }
+.plot-wrap .outline-item.act .tl, .plot-wrap .outline-item[data-act] .tl { flex-direction: row; gap: 6px; align-items: baseline; }
+.plot-wrap .outline-item.arc { padding-left: 16px; }
+.plot-wrap .outline-item.next { margin: 2px 0 0 10px; width: calc(100% - 10px); border: 1px dashed var(--line-strong); color: var(--accent-ink); }
 .plot-toc-part { display: flex; align-items: center; gap: 2px; }
-.plot-toc-part .plot-toc-item { flex: 1 1 auto; min-width: 0; font-weight: 700; color: var(--text); }
+.plot-toc-part .outline-item { flex: 1 1 auto; min-width: 0; font-weight: 700; color: var(--text); }
 .plot-toc-part .btn { flex: none; }
-.plot-toc-item.ep-row { min-height: 36px; font-size: 0.8125rem; }
-.plot-toc-item.ep-row .no { flex: 0 0 22px; text-align: right; font-weight: 700; color: var(--muted); }
-.plot-toc-item.ep-row .tl { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.plot-toc-item.ep-row[aria-current] { background: var(--surface); border-color: var(--accent); color: var(--text); }
+.plot-wrap .outline-item.ep-row { min-height: 36px; font-size: 0.8125rem; }
+.plot-wrap .outline-item.ep-row .no { flex: 0 0 22px; text-align: right; font-weight: 700; color: var(--muted); }
+.plot-wrap .outline-item.ep-row .tl { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plot-wrap .outline-item.ep-row[aria-current] { background: var(--surface); border-color: var(--accent); color: var(--text); }
 .plot-dot { width: 10px; height: 10px; border-radius: 3px; flex: none; display: inline-block; }
 .plot-dot.act-1 { background: var(--act-1); } .plot-dot.act-2 { background: var(--act-2); } .plot-dot.act-3 { background: var(--act-3); } .plot-dot.act-4 { background: var(--act-4); }
 .plot-mk { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; box-sizing: border-box; }
@@ -855,23 +850,17 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 /* 등장 인물은 누르는 칩: 고르면 먹색 테두리 */
 .plot-page .cast-boxes label.row { min-height: 40px; padding: 0 12px 0 10px; border: 1px solid transparent; border-radius: 8px; background: var(--btn); cursor: pointer; }
 .plot-page .cast-boxes label.row:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
-@container plot (max-width: 720px) {
-  .plot-doc { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .plot-toc { top: var(--band, 0px); margin: 0 -2px; padding: 8px 2px; background: var(--bg); }
-  .plot-toc-now { display: flex; width: 100%; justify-content: space-between; gap: 8px; }
-  .plot-toc-list { display: none; position: absolute; left: 0; right: 0; top: calc(100% - 4px); padding: 8px; border-radius: 12px; background: var(--surface); box-shadow: 0 8px 28px rgba(0,0,0,0.18); max-height: 70vh; }
-  .plot-toc.open .plot-toc-list { display: flex; }
-  .plot-toc-item { min-height: 44px; }
+@container outline (max-width: 720px) {
   .plot-toc-part .btn { min-height: 44px; }
   .plot-main.plot-page { max-width: none; }
 }
-@container plot (max-width: 480px) {
+@container outline (max-width: 480px) {
   .act-eps { grid-template-columns: minmax(0, 1fr); }
   .plot-ctx .next { display: none; }
   .plot-ctx .ctx-t { -webkit-line-clamp: 2; }
   .ep-card .hook, .ep-card .ep-steps { display: none; }
 }
-@media (forced-colors: active) { .plot-toc-item[aria-current], .plot-page .cast-boxes label.row:has(input:checked) { outline: 2px solid Highlight; } }
+@media (forced-colors: active) { .plot-page .cast-boxes label.row:has(input:checked) { outline: 2px solid Highlight; } }
 
 /* ----- 인과율 ----- */
 .causal { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 20px; align-items: start; }
@@ -1062,14 +1051,65 @@ details.vis summary .small { margin-left: 6px; font-weight: 400; }
 .version-row details > div { padding-top: 4px; }
 
 /* ----- 인물 · 관계도 (cast.js) ----- */
-.cast { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
-.cast-main { flex: 3 1 560px; min-width: 0; }
-.cast-side { flex: 2 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+/* 공용 목차 틀(.outline-wrap.cast-wrap) 오른쪽 열: 시점 띠 + 지금 쪽(관계도 · 등장표 · 인물 · 두 사람). 넓은 칸은 띠가 위에, 720px 이하 칸은 아래에 붙는다 */
+.cast-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.cast-page { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.cast-bar { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.cast-bar.one { position: static; padding: 12px 16px; }
+.cast-bar input[type=range] { flex: 1 1 160px; min-width: 120px; height: 36px; accent-color: var(--accent); }
+.cast-bar-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@container outline (max-width: 720px) {
+  .cast-bar { order: 9; position: sticky; top: auto; bottom: calc(8px + var(--sb, 0px)); flex-wrap: wrap; row-gap: 2px; padding: 4px 10px 8px; box-shadow: 0 6px 24px rgba(0,0,0,0.12); }
+  .cast-bar-title { display: none; }
+  .cast-bar input[type=range] { order: -1; flex-basis: 100%; height: 28px; }
+  .cast-bar .btn { min-height: 44px; }
+  .cast-bar .icon-btn { width: 44px; }
+  .cast-bar-label { flex: 1; text-align: center; }
+}
+/* 인물 원: 목차 24px(.s) · 목록 줄 36px · 인물 머리 64px(.l). 주역 · 조연 · 단역 색, 흰 글자는 두 테마 모두 4.5:1 이상 */
+.cast-ava { flex: none; width: 36px; height: 36px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--on-accent); font-size: 0.9375rem; font-weight: 800; forced-color-adjust: none; background: var(--ava-main); }
+.cast-ava.s { width: 24px; height: 24px; font-size: 0.6875rem; }
+.cast-ava.l { width: 64px; height: 64px; font-size: 1.625rem; }
+.cast-ava.t-support { background: var(--ava-support); }
+.cast-ava.t-minor { background: var(--ava-minor); }
+.cast-ic { flex: none; width: 24px; height: 24px; border-radius: 6px; background: var(--chip); color: var(--text-2); display: inline-flex; align-items: center; justify-content: center; font-size: 0.8125rem; }
+.cast-wrap .outline-item .chip { margin-left: auto; }
+.cast-wrap .outline-item.in-pair { color: var(--accent-ink); font-weight: 700; }
+.cast-wrap .outline-item .tl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card.cast-head { flex-direction: row; align-items: flex-start; gap: 16px; }
+.cast-head-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.cast-head-id h2 { font-size: 1.375rem; }
+.cast-rels { list-style: none; margin: 0 -8px; padding: 0; display: flex; flex-direction: column; }
+.cast-rel { width: 100%; display: grid; grid-template-columns: 36px minmax(0, 1fr) minmax(220px, 300px) 16px; gap: 12px; align-items: center; padding: 10px 8px; border: 0; border-bottom: 1px solid var(--rule); border-radius: 10px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.cast-rels li:last-child .cast-rel { border-bottom-color: transparent; }
+.cast-rel:hover { background: var(--canvas); }
+.cast-rel-who { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cast-rel-meters { display: flex; flex-direction: column; gap: 4px; }
+.cast-rel-go { color: var(--muted); }
+.cast-meter { display: grid; grid-template-columns: 14px minmax(64px, 1fr) auto; gap: 6px; align-items: center; font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
+.cast-track { position: relative; height: 8px; border-radius: 999px; background: var(--seg); overflow: hidden; }
+.cast-track::before { content: ''; position: absolute; z-index: 1; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--line-strong); }
+.cast-track i { position: absolute; top: 0; bottom: 0; border-radius: 999px; }
+@container outline (max-width: 560px) {
+  .card.cast-head { gap: 12px; }
+  .cast-ava.l { width: 48px; height: 48px; font-size: 1.25rem; }
+  .cast-rel { grid-template-columns: 36px minmax(0, 1fr) 16px; }
+  .cast-rel-meters { grid-column: 2; grid-row: 2; }
+  .cast-rel-go { grid-column: 3; grid-row: 1 / 3; }
+}
+.cast-pair-h { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 1.25rem; }
+.cast-who { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 10px 0 4px; border: 0; border-radius: 999px; background: none; color: var(--text); font: inherit; font-weight: 700; cursor: pointer; }
+.cast-who:hover { background: var(--btn); }
+.cast-pick { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 12px; border: 1px solid var(--sel-line); border-radius: 10px; background: var(--sel-bg); }
+.cast-pick-who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.cast-edit { display: flex; flex-direction: column; gap: 12px; }
 .cast-slider { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .cast-slider input[type=range] { flex: 1 1 200px; min-width: 160px; accent-color: var(--accent); }
 .cast-slider .icon-btn { width: 38px; min-height: 38px; }
-.cast-graph-wrap { border: 1px solid var(--line); border-radius: 8px; background: var(--canvas); }
-.cast-graph { display: block; width: 100%; height: auto; font-family: var(--sans); user-select: none; touch-action: pan-x pan-y; }  /* 끌어 옮기기는 인물(.cg-node)에서만 스크롤을 막는다 */
+.cast-graph-wrap { border: 1px solid var(--line); border-radius: 10px; background: var(--canvas); overflow: auto; }
+.cast-graph-wrap .cast-graph { width: calc(100% * var(--cast-zoom, 1)); }
+.cast-zoom { display: flex; gap: 6px; margin-left: auto; }
+.cast-graph { display: block; max-width: none; height: auto; font-family: var(--sans); user-select: none; touch-action: pan-x pan-y; }  /* 끌어 옮기기는 인물(.cg-node)에서만 스크롤을 막는다 */
 .cast-graph .cg-edge path { fill: none; stroke-linecap: round; }
 .cast-graph .cg-edge .cg-hit { stroke: transparent; stroke-width: 14; }
 .cast-graph .cg-edge:hover path:not(.cg-hit) { filter: drop-shadow(0 0 2px rgba(0,0,0,.25)); }
@@ -1077,11 +1117,6 @@ details.vis summary .small { margin-left: 6px; font-weight: 400; }
 .cast-graph .cg-tension circle { stroke: var(--surface); stroke-width: 2; }
 .cast-graph .cg-node { cursor: grab; touch-action: none; }
 .cast-graph .cg-hitnode { fill: transparent; }
-/* 좁은 폭은 줄이지 않고 가로로 굴려 본다. 이름 · 점이 손가락으로 누를 만한 크기로 남는다. 점 밖을 끌면 화면이 굴러간다 */
-@media (max-width: 600px) {
-  .cast-graph-wrap { overflow-x: auto; }
-  .cast-graph { min-width: 560px; }
-}
 .cast-graph .cg-node:focus { outline: none; }
 .cast-graph .cg-node .cg-dot { fill: var(--surface); stroke: var(--text-2); stroke-width: 2; }
 .cast-graph .cg-node.main .cg-dot { stroke: var(--text); stroke-width: 3; }
@@ -1097,12 +1132,7 @@ details.vis summary .small { margin-left: 6px; font-weight: 400; }
 .cast-graph .cg-node[data-action] { cursor: grab; }
 .link-btn { padding: 0; border: none; background: none; font: inherit; color: var(--link); cursor: pointer; text-align: left; }
 .link-btn:hover { text-decoration: underline; }
-.cast-kv { display: grid; grid-template-columns: 7.5em minmax(0, 1fr); gap: 10px; font-size: 0.8125rem; line-height: 1.55; }
-.cast-kv > span { color: var(--muted); }
 .cast-ul { padding-left: 18px; margin: 0; display: flex; flex-direction: column; gap: 6px; font-size: 0.8125rem; line-height: 1.55; }
-.cast-rels { list-style: none; padding: 0; display: flex; flex-direction: column; }
-.cast-rels li { padding: 9px 0; border-bottom: 1px solid var(--rule); display: flex; flex-direction: column; gap: 3px; }
-.cast-rels li:last-child { border-bottom: none; }
 .cast-tl { list-style: none; padding: 0; display: flex; flex-direction: column; font-size: 0.8125rem; line-height: 1.55; }
 .cast-tl li { padding: 10px 0 10px 12px; border-left: 2px solid var(--line); display: flex; flex-direction: column; gap: 3px; }
 .cast-tl li.now { border-left-color: var(--accent); background: var(--accent-soft); }
@@ -1126,42 +1156,12 @@ details.vis summary .small { margin-left: 6px; font-weight: 400; }
 .cs-mark { fill: none; stroke: var(--accent); stroke-width: 2; }
 
 /* ----- 인물 카드 (cast.js castSheet): 인물 하나의 설정 · 지금 상태 · 상태창 수치 · 관계 · 비밀 · 기록 ----- */
-.csh { display: flex; flex-direction: column; gap: 20px; }
-.csh-roster { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; }
-.csh-pick { flex: none; min-height: 52px; padding: 6px 14px 6px 6px; display: flex; align-items: center; gap: 10px; border-radius: 999px; border: 1.5px solid var(--line); background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
-.csh-pick:hover { border-color: var(--line-strong); }
-.csh-pick[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
-.csh-pick-text { display: flex; flex-direction: column; gap: 1px; }
-/* 얼굴 자리: 주역 · 조연 · 단역 색. 흰 글자 대비가 두 테마 모두 4.5:1 이상인 고정 색 */
-.csh-ava, .csh-portrait { flex: none; display: flex; align-items: center; justify-content: center; color: var(--on-accent); font-weight: 800; forced-color-adjust: none; }
-.csh-ava { width: 40px; height: 40px; border-radius: 50%; font-size: 1rem; }
-.csh-ava.t-main, .csh-portrait.t-main { background: var(--ava-main); }
-.csh-ava.t-support, .csh-portrait.t-support { background: var(--ava-support); }
-.csh-ava.t-minor, .csh-portrait.t-minor { background: var(--ava-minor); }
-.card.csh-head { flex-direction: row; flex-wrap: wrap; gap: 24px; align-items: stretch; }
-.csh-portrait { flex-basis: 120px; height: 150px; border-radius: 12px; font-size: 3rem; }
-.csh-id { flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-.csh-id h2 { font-size: 1.5rem; font-weight: 800; }
-.csh-side { flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 /* 설정 도우미: 신체 프로필 AI 제안 칸 고르기 */
 .body-sug { display: flex; gap: 8px; align-items: flex-start; line-height: 1.5; }
 .body-sug input { margin-top: 3px; }
-.csh-body { display: flex; flex-direction: column; gap: 6px; }
-.csh-body dl { margin: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.csh-body dl > div { padding: 5px 10px; border-radius: 8px; background: var(--bg); display: flex; gap: 6px; align-items: baseline; }
-.csh-body dt { font-size: 0.6875rem; font-weight: 700; color: var(--muted); }
-.csh-body dd { margin: 0; font-size: 0.875rem; font-weight: 700; }
-.csh-body .small strong { color: var(--text-2); margin-right: 4px; }
-.csh-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.csh-fact { padding: 10px 12px; border-radius: 10px; background: var(--bg); display: flex; flex-direction: column; gap: 2px; }
-.csh-fact span { font-size: 0.6875rem; color: var(--muted); }
-.csh-fact strong { font-size: 1.25rem; font-weight: 800; }
-.csh-fact small { margin-left: 1px; font-size: 0.75rem; font-weight: 500; }
 .chip.csh-arc { white-space: normal; background: var(--act-3); color: var(--act-3-ink); }
 .chip.csh-own { background: var(--act-3); color: var(--act-3-ink); }
 .chip.warn { background: var(--amber-soft); color: var(--amber-ink); }
-.csh-cols { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
-.csh-col { flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
 .csh-row { display: grid; grid-template-columns: 6.5em minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 10px 0; border-bottom: 1px solid var(--rule); font-size: 0.875rem; line-height: 1.55; }
 .csh-row:last-child { border-bottom: none; }
 .csh-row > span:first-child { padding-top: 2px; font-size: 0.75rem; font-weight: 700; color: var(--muted); }
@@ -1197,20 +1197,11 @@ details.vis summary .small { margin-left: 6px; font-weight: 400; }
 .sw-sys-bar { flex: 1 1 120px; height: 8px; border-radius: 2px; background: var(--sw-track); overflow: hidden; }
 .sw-sys-bar i { display: block; height: 100%; background: var(--sw-bar); }
 .sw-sys-foot { padding-top: 10px; border-top: 1px solid var(--sw-rule); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; color: var(--sw-muted); font-family: var(--sw-head-font); font-size: 0.75rem; }
-.csh-rels, .csh-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.csh-rels { gap: 14px; }
-.csh-rels li { display: flex; flex-direction: column; gap: 8px; }
-.csh-dir { padding: 10px 12px; border-radius: 10px; background: var(--sel-bg); display: flex; flex-direction: column; gap: 6px; font-size: 0.8125rem; }
-.csh-meter { display: grid; grid-template-columns: 2.5em minmax(0, 1fr); gap: 8px; align-items: center; font-size: 0.75rem; color: var(--muted); }
-.csh-track { position: relative; height: 8px; border-radius: 999px; background: var(--seg); overflow: hidden; }
-.csh-track i { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 999px; background: var(--accent); }
-.csh-track.warm::before { content: ''; position: absolute; z-index: 1; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--line-strong); }
+.csh-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .csh-list { gap: 8px; font-size: 0.875rem; line-height: 1.55; }
 .csh-list li { padding: 10px 12px; border-radius: 10px; background: var(--bg); }
 .csh-held { padding: 10px 12px; border: 1px solid var(--warn-line); border-radius: 8px; background: var(--amber-soft); color: var(--amber-ink); display: flex; flex-direction: column; gap: 6px; }
-@media (max-width: 640px) {
-  .card.csh-head { gap: 14px; }
-  .csh-portrait { flex-basis: 72px; height: 90px; font-size: 2rem; }
+@container outline (max-width: 560px) {
   .csh-row { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; }
   .csh-row > span:first-child { grid-column: 1 / -1; padding-top: 0; }
   .csh-row > .csh-val { grid-column: 1 / -1; }
@@ -1232,7 +1223,6 @@ details.vis summary .small { margin-left: 6px; font-weight: 400; }
 .cast-chart .cc-col { fill: transparent; cursor: pointer; }
 .cast-chart .cc-col:hover { fill: color-mix(in srgb, var(--accent) 7%, transparent); }
 ul.cast-ul:has(> .cast-ev) { list-style: none; padding-left: 0; }
-@media (min-width: 1101px) { .cast-main { position: sticky; top: 16px; } }
 /* 집필 화면 문체 표시 (marks.js): 장치 배지, 본문 밑줄 */
 .dev-list { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .dev-badge { display: flex; flex-direction: column; gap: 3px; font-size: 0.8125rem; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
@@ -1612,7 +1602,7 @@ dialog.w-dialog::backdrop { background: var(--overlay); }
 .pf-sec { scroll-margin-top: 64px; }
 .pf-sec:focus { outline: none; }
 .pf-sec:focus-visible { outline: 2px solid var(--sel-line); outline-offset: 2px; }
-/* ----- 공용 목차 틀 (outline.js): 왼쪽 목차 + 오른쪽 카드 한 열. 설정 도우미 · 문체 · 역설계 실험이 함께 쓴다 -----
+/* ----- 공용 목차 틀 (outline.js): 왼쪽 목차 + 오른쪽 카드 한 열. 설정 도우미 · 문체 · 플롯 · 역설계 실험이 함께 쓴다 -----
    폭은 창이 아니라 .outline-wrap 폭으로 바꾼다(대화 패널을 열어도 같은 규칙). 720px 이하는 한 열이고 목차는 위에 붙는 '지금 구역 ▾' 버튼이다.
    카드 열은 760px 에서 멈추고, .outline-doc.wide 는 남은 폭을 다 쓴다. 위쪽 띠가 없는 화면은 틀에 --outline-band: 0px */
 .outline-wrap { container: outline / inline-size; }
@@ -1620,10 +1610,9 @@ dialog.w-dialog::backdrop { background: var(--overlay); }
 .outline-doc.wide { grid-template-columns: 220px minmax(0, 1fr); }
 .outline { position: sticky; top: 16px; z-index: 4; }
 .outline-now { display: none; }
-.outline-now .tl { min-width: 0; text-align: left; }
+.outline-now .tl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .outline-list { display: flex; flex-direction: column; gap: 2px; }
 .outline-h { padding: 14px 10px 4px; font-size: 0.75rem; color: var(--muted); }
-.outline-h:first-child { padding-top: 0; }
 .outline-sep { height: 1px; margin: 8px 4px; background: var(--line); }
 .outline-note { padding: 8px 10px 0; line-height: 1.6; }
 .outline-item { min-height: 38px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-2); font: inherit; font-weight: 500; text-align: left; text-decoration: none; display: flex; align-items: center; gap: 8px; cursor: pointer; }

@@ -124,5 +124,10 @@ def test_cli_and_web(tmp_path, monkeypatch, capsys):
     r = c.post("/api/projects/fs/foreshadows/clues/remove", json={"foreshadow": fid, "episode": 2, "quote": LINE})
     assert not any(x["foreshadow"] == fid for x in r.json()["foreshadow_clues"])
     assert c.post("/api/projects/fs/foreshadows", json={"description": "새 복선", "episode": 1}).status_code == 200
+    # 걸기 칸의 '+ 새 복선'은 회수 범위 · 예정 화도 함께 받는다 (넣지 않으면 이번 아크 · 미정)
+    made = c.post("/api/projects/fs/foreshadows/clues", json={"episode": 2, "quote": LINE, "description": "범위 있는 복선", "scope": "series", "due_ep": 6}).json()["foreshadows"][-1]
+    assert (made["description"], made["scope"], made["due_ep"], made["planted_ep"]) == ("범위 있는 복선", "series", 6, 2)
+    plain = c.post("/api/projects/fs/foreshadows/clues", json={"episode": 2, "quote": LINE, "description": "범위 없는 복선"}).json()["foreshadows"][-1]
+    assert (plain["scope"], plain["due_ep"]) == ("arc", None)
     assert c.post("/api/projects/fs/foreshadows/prune").status_code == 200
     assert all(x["id"] != fid for x in c.delete(f"/api/projects/fs/foreshadows/{fid}").json()["foreshadows"])

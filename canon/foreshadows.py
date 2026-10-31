@@ -266,7 +266,7 @@ def center(p: Project) -> dict:
             "payoffs": payoffs,
             "last_seen": seen,
             "planned": planned.get(f.id, []),
-            "overdue": f.status == "open" and f.due_ep is not None and f.due_ep < done,
+            "overdue": f.status == "open" and f.due_ep is not None and f.due_ep <= done,  # 예정 화까지 반영했는데 회수하지 않았다
             "stale": f.status == "open" and done - seen > LONG_OPEN,
             "broken": sum(1 for c in plants + payoffs if c["broken"]),
         })
