@@ -40,6 +40,8 @@
   /* 이야기 줄기 색 (lines.js lineColor): 노선도 선 · 줄기 배지. 두 테마 모두 surface · bg 위 4.5:1 이상 */
   --story-1: #B4570A; --story-2: #7A3FB0; --story-3: #1C6E45; --story-4: #B42318;
   --story-5: #0E6F7C; --story-6: #6E5A00; --story-7: #A3367A; --story-8: #3E5C14;
+  /* 장면 연출 인물 색 (stage.js STG_COLORS): 평면도 원 · 색 점 · 3D 몸. 빨강은 지적에만 쓰려고 뺐다. 두 테마 모두 canvas 위 4.5:1 이상, 원 안 글자 on-stage 도 4.5:1 이상 */
+  --stage-1: #2563B8; --stage-2: #B4570A; --stage-3: #1C6E45; --stage-4: #7A3FB0; --stage-5: #0E6F7C; --stage-6: #A3367A; --on-stage: #FFFFFF;
   color-scheme: light dark;
   /* 색 밖 토큰 (docs/design/tokens.json 의 spacing · radius · size · shadow · z). 두 테마가 같다.
      간격(padding · margin · gap)은 --space-* 안에서 고른다. 단계 밖 px 는 세 가지만 그대로 둔다:
@@ -1621,6 +1623,7 @@ mark.hl.src.sel { background: var(--accent-soft); text-decoration-color: var(--a
     --pair-a: #6AA6EE; --pair-b: #F28B5E; --ava-main: #697381; --ava-support: #2E7044; --ava-minor: #8A4D12;
     --story-1: #F2A25E; --story-2: #C3A0F0; --story-3: #6CC796; --story-4: #F28C80;
     --story-5: #5CC4D2; --story-6: #D9C25A; --story-7: #E98BC4; --story-8: #A6C873;
+    --stage-1: #7FB2F5; --stage-2: #F2A25E; --stage-3: #6CC796; --stage-4: #C3A0F0; --stage-5: #5CC4D2; --stage-6: #E98BC4; --on-stage: #131519;
   }
   .diff-row del, .pdiff del, .learn-pair del { color: var(--del-ink); }
   .diff-row ins { color: var(--green-ink); }

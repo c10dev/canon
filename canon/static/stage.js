@@ -432,7 +432,7 @@ async function stgLoad(n, ev) {
   const role = S.stg ? S.stg.role : 'plan', ghost = S.stg ? S.stg.ghost : true;
   const jump = S.stgJump && S.stgJump.n === n && S.stgJump.ev === ev ? S.stgJump : null;  // 검수 화면의 '장면 연출에서 보기'
   S.stgJump = null;
-  S.stg = { n, ev, view, role: jump ? jump.role : role, ghost, sid: null, scene: null, room: null, dirty: false, beat: jump ? jump.beat : 0, who: '', mode: 'people', check: null,
+  S.stg = { n, ev, view, role: jump ? jump.role : role, ghost, sid: null, scene: null, room: null, dirty: false, beat: jump ? jump.beat : 0, who: '', open: '', beatEdit: false, mode: 'people', check: null,
     form: { by: 'right', to: '', part: '', act: 'hold' }, pick: { room: '', template: 'bedroom', name: '' }, playing: null };
   const bs = stgBoardOf(S.stg);  // 스토리보드 장소에 맞는 방을 먼저 고르고, 없으면 새 방 이름을 자리 · 장소로
   if (bs) S.stg.pick = { ...S.stg.pick, room: bs.hints[0] || '', name: bs.hints.length ? '' : bs.spot || bs.place };
@@ -519,9 +519,10 @@ function stgNewContactId() {
 
 // ----- 그리기 -----
 
-const STG_COLORS = ['var(--pair-a)', 'var(--pair-b)', 'var(--ava-support)', 'var(--tension-mid)', 'var(--warm-deep)', 'var(--ava-minor)'];
+/** 인물 색: 장면 연출 토큰 stage-1~6 (app.css · docs/design/tokens.json). 빨강은 지적에만 쓴다. 원 안 첫 글자는 on-stage */
+const STG_COLORS = ['var(--stage-1)', 'var(--stage-2)', 'var(--stage-3)', 'var(--stage-4)', 'var(--stage-5)', 'var(--stage-6)'];
 const stgColor = (who) => STG_COLORS[Math.max(0, S.stg.scene.cast.indexOf(who)) % STG_COLORS.length];
-/** 인물 색 점. 그림 색은 글자 대비 4.5:1 을 못 넘는 테마가 있어 이름 글자는 --text 로 두고 색은 이 점으로만 보인다 */
+/** 인물 색 점. 이름 글자는 --text 로 두고 인물 색은 이 점으로 보인다 */
 const stgDot = (who) => `<i class="stg-dot" style="background:${stgColor(who)}" aria-hidden="true"></i>`;
 const stgV = () => S.stg.view.vocab;
 /** 지적 앞 규칙 이름. 3D 규칙(높이 · 몸 겹침 · 가구 · 받침 · 천장)은 '3D' 를 붙인다 (stage.vocab 의 rules · rules3d). */
@@ -537,8 +538,12 @@ function stgScale(room) {
   return { s, ox: 40, oy: 40, w: room.w * s + 80, h: room.h * s + 80 };
 }
 
+/** 평면도 한 화면 px 이 몇 그림 단위인지. stgDrawPlan 이 그리기 전에 잰다. 글자 · 인물 원을 화면에서 같은 크기로 그리는 데 쓴다 */
+let stgU = 1;
+
 function stgPlanSvg(pos, ang, k) {
-  const g = S.stg, room = stageResolve(g.room), sc = stgScale(room);
+  const g = S.stg, room = stageResolve(g.room), sc = stgScale(room), u = stgU;
+  const R = 16 * u, fs = 12 * u, narrow = u > 1.3;  // 좁은 칸(휴대폰)은 이름표에 자세를 빼고 이름만
   const px = ([x, y]) => [sc.ox + x * sc.s, sc.oy + y * sc.s];
   const st = stageState(g.scene, k);
   const all = stageLayouts(room, g.scene, k), prev = k > 0 ? all[k - 1] : null, now = all[k];
@@ -553,10 +558,10 @@ function stgPlanSvg(pos, ang, k) {
     const cx = x + a.w * sc.s / 2, cy = y + a.h * sc.s / 2;
     const edit = g.mode === 'room';
     out += `<g class="stg-anchor ${esc(a.kind)}${edit ? ' edit' : ''}" data-stg-anchor="${esc(a.id)}"><rect x="${x}" y="${y}" width="${Math.max(a.w * sc.s, 4)}" height="${Math.max(a.h * sc.s, 4)}" rx="4"/>`;
-    if (edit) out += `<path class="stg-front" d="M${cx} ${cy}L${cx + fx * 16} ${cy + fy * 16}"/>`;
+    if (edit) out += `<path class="stg-front" d="M${cx} ${cy}L${cx + fx * 16 * u} ${cy + fy * 16 * u}"/>`;
     const thin = a.w * sc.s < 40 || a.h * sc.s < 18;
     // 문 · 창처럼 얇은 기준점은 이름을 벽 바깥(뒤쪽)에 쓴다. 이름은 인물 이름표 뒤에 놓는다 (stageLabelPlace)
-    pins.push({ id: 'a:' + a.id, x: thin ? cx - fx * 18 : cx, y: thin ? cy - fy * 18 : cy, text: a.name, fs: 12, kind: 'pin' });
+    pins.push({ id: 'a:' + a.id, x: thin ? cx - fx * 18 * u : cx, y: thin ? cy - fy * 18 * u : cy, text: a.name, fs, kind: 'pin' });
     out += `<title>${esc(a.name)}</title><!--stg-pin:${esc(a.id)}--></g>`;
   });
   Object.keys(st).forEach((w) => Object.values(st[w].contacts).forEach((c) => {
@@ -573,24 +578,24 @@ function stgPlanSvg(pos, ang, k) {
     const pts = (stagePathFor(paths, k, w, prev[w], now[w]) || [prev[w], now[w]]).map(px);
     const cut = (p, q, by) => { const d = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1; return [p[0] + (q[0] - p[0]) * by / d, p[1] + (q[1] - p[1]) * by / d]; };
     const span = pts.slice(1).reduce((s, p, i) => s + Math.hypot(p[0] - pts[i][0], p[1] - pts[i][1]), 0);
-    if (span <= 44) return;
-    pts[0] = cut(pts[0], pts[1], 20);
-    pts[pts.length - 1] = cut(pts[pts.length - 1], pts[pts.length - 2], 22);
+    if (span <= 44 * u) return;
+    pts[0] = cut(pts[0], pts[1], 20 * u);
+    pts[pts.length - 1] = cut(pts[pts.length - 1], pts[pts.length - 2], 22 * u);
     out += `<path class="stg-move${blocked ? ' blocked' : ''}" d="M${pts.map((p) => `${p[0]} ${p[1]}`).join('L')}"><title>${blocked ? '가구에 막혀 돌아갈 길이 없어요' : '가구를 돌아가는 길'}</title></path>`;
   });
   out += stgGhostSvg(k, px);
-  // 이름표: 고른 인물 → 출연진 순 → 기준점 이름. 인물 원(반지름 16, 향함 삼각형까지 18)은 먼저 차지한다
+  // 이름표: 고른 인물 → 출연진 순 → 기준점 이름. 인물 원(반지름 16px, 향함 삼각형까지 18px)은 먼저 차지한다
   const who = Object.keys(pos).sort((a, b) => (b === g.who) - (a === g.who));
   const people = who.map((w) => {
     const [x, y] = px(pos[w]), post = stgV().postures[st[w].posture], name = charName(w);
-    return { id: 'p:' + w, x, y, text: post ? `${name} · ${post.label}` : name, short: name, fs: 12, kind: 'ring', r: 18 };
+    return { id: 'p:' + w, x, y, text: post && !narrow ? `${name} · ${post.label}` : name, short: name, fs, kind: 'ring', r: 18 * u };
   });
   const tags = stageLabelPlace(people.concat(pins), {
-    taken: people.map((p) => [p.x - 18, p.y - 18, p.x + 18, p.y + 18]), bounds: [0, 0, sc.w, sc.h], prev: stgLabelMem,
+    taken: people.map((p) => [p.x - p.r, p.y - p.r, p.x + p.r, p.y + p.r]), bounds: [0, 0, sc.w, sc.h], prev: stgLabelMem,
   });
   pins.forEach((p) => {
     const t = tags[p.id];
-    out = out.replace(`<!--stg-pin:${esc(p.id.slice(2))}-->`, t.hidden ? '' : `<text x="${t.cx}" y="${t.cy + 4}" text-anchor="middle">${esc(t.text)}</text>`);
+    out = out.replace(`<!--stg-pin:${esc(p.id.slice(2))}-->`, t.hidden ? '' : `<text x="${t.cx}" y="${t.cy + 4 * u}" text-anchor="middle">${esc(t.text)}</text>`);
   });
   Object.keys(pos).forEach((w) => {
     const [x, y] = px(pos[w]);
@@ -598,11 +603,11 @@ function stgPlanSvg(pos, ang, k) {
     let face = '';
     if (ang[w] != null) {
       const a = ang[w], p = (r, d) => `${x + Math.cos(a + r) * d} ${y + Math.sin(a + r) * d}`;
-      face = `<path class="face" d="M${p(0, 26)}L${p(2.3, 13)}L${p(-2.3, 13)}Z" fill="${stgColor(w)}"/>`;
+      face = `<path class="face" d="M${p(0, 26 * u)}L${p(2.3, 13 * u)}L${p(-2.3, 13 * u)}Z" fill="${stgColor(w)}"/>`;
     }
     out += `<g class="stg-person${bad.has(w) ? ' bad' : ''}${w === g.who ? ' cur' : ''}" data-stg-who="${esc(w)}" tabindex="-1">${face}
-      <circle class="body" cx="${x}" cy="${y}" r="16" fill="${stgColor(w)}"/><text class="ini" x="${x}" y="${y}">${esc(name.slice(0, 1))}</text>
-      ${tag.leader ? stgLeader(x, y, 18, tag) : ''}<text class="label" x="${tag.cx}" y="${tag.cy + 4}" text-anchor="middle">${esc(tag.text)}</text></g>`;
+      <circle class="body" cx="${x}" cy="${y}" r="${R}" fill="${stgColor(w)}"/><text class="ini" x="${x}" y="${y}">${esc(name.slice(0, 1))}</text>
+      ${tag.leader ? stgLeader(x, y, 18 * u, tag) : ''}<text class="label" x="${tag.cx}" y="${tag.cy + 4 * u}" text-anchor="middle">${esc(tag.text)}</text></g>`;
   });
   return out;
 }
@@ -625,8 +630,8 @@ function stgGhostSvg(k, px) {
   const pos = stageLayouts(room, row.scene, pk)[pk];
   return Object.keys(pos).map((w) => {
     const [x, y] = px(pos[w]);
-    return `<g class="stg-ghost" data-stg-ghost-who="${esc(w)}"><circle cx="${x}" cy="${y}" r="16" stroke="${stgColor(w)}"/><text x="${x}" y="${y}">${esc(charName(w).slice(0, 1))}</text></g>`;
-  }).join('') + `<text class="stg-ghost-note" x="${px([0, 0])[0]}" y="${px([0, 0])[1] - 10}">흐린 원 = 계획 ${pk === 0 ? '시작 상태' : `${pk}박자`}</text>`;
+    return `<g class="stg-ghost" data-stg-ghost-who="${esc(w)}"><circle cx="${x}" cy="${y}" r="${16 * stgU}" stroke="${stgColor(w)}"/><text x="${x}" y="${y}">${esc(charName(w).slice(0, 1))}</text></g>`;
+  }).join('') + `<text class="stg-ghost-note" x="${px([0, 0])[0]}" y="${px([0, 0])[1] - 10 * stgU}">흐린 원 = 계획 ${pk === 0 ? '시작 상태' : `${pk}박자`}</text>`;
 }
 
 function stgTarget(k) {
@@ -646,6 +651,10 @@ function stgDrawPlan(from) {
   const svg = document.getElementById('stg-plan');
   const g = S.stg;
   if (!svg || !g || !g.scene || !g.room) return;
+  // 화면 1px 이 그림 몇 단위인지 잰다: 글자 12px · 인물 원 16px 을 칸 폭과 상관없이 같게 (휴대폰에서 7px 로 줄지 않게)
+  const ctm = svg.getScreenCTM();
+  stgU = ctm && ctm.a ? Math.min(2.4, Math.max(0.6, 1 / ctm.a)) : 1;
+  svg.style.setProperty('--u', stgU);
   const to = stgTarget(g.beat);
   cancelAnimationFrame(stgAnim);
   if (!from || matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -725,13 +734,63 @@ function stgFacingLabel(f) {
   return stgV().facings[f] || f;
 }
 
+/** 박자 이름: 0 은 시작 상태. */
+const stgBeatName = (k) => (k === 0 ? '시작 상태' : `${k}박자`);
+/** 계획과 다른 곳을 지금 역할의 박자 번호(k)와 함께. */
+function stgGaps() {
+  const g = S.stg;
+  return (g.check && g.check.gaps || []).map((x) => ({ ...x, k: g.role === 'text' ? x.text_beat : x.plan_beat }));
+}
+
+/** 접촉의 '무엇으로' 이름 (손 · 부위). */
+const stgByLabel = (by) => stgV().hands[by] || (stgV().parts[by] ? stgV().parts[by].label : by);
+/** 접촉 한 줄: '오른손 → 서윤 왼 어깨 · 짚다'. */
+const stgContactText = (c) => `${stgByLabel(c.by)} → ${charName(c.to)} ${(stgV().parts[c.part] || {}).label || c.part} · ${(stgV().acts[c.act] || {}).label || c.act}`;
+
+/** 쥔 것: 빈칸은 빈손, '?' 는 모름. */
+function stgHands(l, r) {
+  const one = (side, x) => (x === STG_UNKNOWN ? `${side} 모름` : x ? `${side} ${x}` : '');
+  const out = [one('왼손', l), one('오른손', r)].filter(Boolean);
+  return out.length ? out.join(' · ') : '빈손';
+}
+
+/** 인물 한 줄 요약(읽는 모양): 자세 · 자리 · 향함 · 손 · 접촉. */
+function stgSummary(w, k) {
+  const g = S.stg, all = stageState(g.scene, k), st = all[w];
+  if (!st) return '';
+  const post = stgV().postures[st.posture];
+  const bits = [post ? post.label : '자세 모름', st.at ? stgSpotLabel(st.at) : '자리 모름'];
+  if (st.facing) bits.push(`${stgFacingLabel(st.facing)} 향함`);
+  bits.push(stgHands(st.left, st.right));
+  Object.values(st.contacts).forEach((c) => bits.push(stgContactText(c)));
+  Object.entries(all).forEach(([who, s]) => Object.values(s.contacts).forEach((c) => {
+    if (c.to === w) bits.push(`${charName(who)} ${stgByLabel(c.by)}이 닿음`);
+  }));
+  return bits.join(' · ');
+}
+
+/** 한 박자에서 바뀐 칸 (이 박자 칸 줄). */
+function stgChange(b) {
+  const v = stgV(), bits = [];
+  if (b.at) bits.push(stgSpotLabel(b.at));
+  if (b.posture) bits.push((v.postures[b.posture] || {}).label || b.posture);
+  if (b.facing) bits.push(`${stgFacingLabel(b.facing)} 향함`);
+  if (b.left != null) bits.push(b.left === STG_UNKNOWN ? '왼손 모름' : `왼손 ${b.left || '빈손'}`);
+  if (b.right != null) bits.push(b.right === STG_UNKNOWN ? '오른손 모름' : `오른손 ${b.right || '빈손'}`);
+  (b.contacts || []).forEach((c) => bits.push(stgContactText(c)));
+  if ((b.ends || []).length) bits.push(`접촉 ${b.ends.length}개 끝`);
+  if (b.memo) bits.push(b.memo);
+  return bits.join(' · ');
+}
+
+/** 고치는 인물 칸 (인물 줄을 편 자리): 자세 · 자리 · 향함 · 손 · 접촉 · 부위 도식 · 메모. g.who 를 고친다. */
 function stgPersonCard() {
   const g = S.stg, w = g.who;
-  if (!w) return '<section class="card tight"><p class="small">출연진을 더하면 인물 칸이 보여요.</p></section>';
+  if (!w) return '<p class="small">출연진을 더하면 인물 칸이 보여요.</p>';
   const v = stgV();
   const st = stageState(g.scene, g.beat)[w];
   const own = stgBody(w, false);
-  const mark = (field) => (g.beat === 0 ? '' : own && own[field] != null && own[field] !== '' ? `<button type="button" class="btn small ghost stg-keep" data-action="stgKeep" data-arg="${field}" title="이 박자에서 바꾼 것을 지우고 앞 박자 그대로 둬요">앞 그대로로</button>` : '<span class="small">앞 그대로</span>');
+  const mark = (field) => (g.beat === 0 ? '' : own && own[field] != null && own[field] !== '' ? `<button type="button" class="btn small ghost stg-keep" data-action="stgKeep" data-arg="${field}" title="이 박자에서 바꾼 것을 지우고 앞 박자 그대로 둬요">앞 박자 값으로 되돌리기</button>` : '<span class="small">앞 그대로</span>');
   const others = g.scene.cast.filter((x) => x !== w);
   const at = st.at;
   const spotOpts = [stgOpt('', '모름', at ? null : '')]
@@ -749,8 +808,7 @@ function stgPersonCard() {
   Object.entries(stageState(g.scene, g.beat)).forEach(([who, s]) => Object.values(s.contacts).forEach((c) => {
     if (who === w || c.to === w) actives.push({ who, c, at: s.contact_at[c.id] });
   }));
-  const byLabel = (c) => v.hands[c.by] || (v.parts[c.by] ? v.parts[c.by].label : c.by);
-  const contactRows = actives.map(({ who, c, at: k }) => `<li class="between"><span><b>${esc(charName(who))}</b> ${esc(byLabel(c))} → <b>${esc(charName(c.to))}</b> ${esc((v.parts[c.part] || {}).label || c.part)} · ${esc((v.acts[c.act] || {}).label || c.act)}
+  const contactRows = actives.map(({ who, c, at: k }) => `<li class="between"><span><b>${esc(charName(who))}</b> ${esc(stgByLabel(c.by))} → <b>${esc(charName(c.to))}</b> ${esc((v.parts[c.part] || {}).label || c.part)} · ${esc((v.acts[c.act] || {}).label || c.act)}
       <span class="small">${k === g.beat ? '이 박자에 시작' : k === 0 ? '시작 상태부터' : `${k}박자부터`}</span></span>
       ${who === w ? `<button type="button" class="btn small ghost" data-action="stgEnd" data-arg="${esc(c.id)}">${k === g.beat ? '빼기' : '끝내기'}</button>` : ''}</li>`).join('');
   const f = g.form;
@@ -767,9 +825,7 @@ function stgPersonCard() {
       <label><span class="small">어떻게</span><select data-stg-form="act">${actsShown.map(([k, a]) => stgOpt(k, a.label, f.act)).join('')}</select></label>
       <button type="button" class="btn small" data-action="stgAddContact"${f.part ? '' : ' disabled'}>+ 접촉 더하기</button></div>
       ${minor ? '<p class="small">미성년 인물이 있어 성적인 부위 · 동작은 고를 수 없어요.</p>' : ''}` : '<p class="small">다른 인물이 있어야 접촉을 더할 수 있어요.</p>';
-  return `<section class="card stg-pcard" aria-label="${esc(charName(w))} 상태">
-    <div class="between"><h2>${stgDot(w)}${esc(charName(w))}</h2><span class="small">${g.beat === 0 ? '시작 상태' : `${g.beat}박자`}</span></div>
-    <div class="between"><span class="small">자세</span>${mark('posture')}</div>
+  return `<div class="between"><span class="small">자세</span>${mark('posture')}</div>
     <div class="stg-poses" role="group" aria-label="자세">${Object.entries(v.postures).map(([id, p]) => `<button type="button" aria-pressed="${st.posture === id}" data-action="stgPosture" data-arg="${id}"><svg viewBox="0 0 34 40" aria-hidden="true">${STG_POSE_SVG[id] || ''}</svg>${esc(p.label)}</button>`).join('')}</div>
     <div class="stg-fields">
       <label for="stg-at">자리</label><span class="row"><select id="stg-at" data-stg-field="at">${spotOpts}</select>${mark('at')}</span>
@@ -779,60 +835,136 @@ function stgPersonCard() {
     </div>
     <div class="stg-touch">${stgBodyMap(on.concat(f.part ? [f.part] : []), by, minor)}
       <div class="stg-stack"><h3>접촉</h3>${contactRows ? `<ul class="stg-contacts">${contactRows}</ul>` : '<p class="small">지금 닿아 있는 곳이 없어요. 부위 점을 누르거나 아래에서 골라 더해요.</p>'}${form}</div></div>
-    <label class="stg-stack" style="gap:4px"><span class="small">메모 (목록 밖의 것)</span><input data-stg-field="memo" value="${esc(own ? own.memo : '')}" placeholder="예: 손에 힘을 주지 못함"></label>
-  </section>`;
+    <label class="stg-stack stg-memo"><span class="small">메모 (목록 밖의 것)</span><input data-stg-field="memo" value="${esc(own ? own.memo : '')}" placeholder="예: 손에 힘을 주지 못함"></label>
+    <div class="row"><button type="button" class="btn small ghost danger" data-action="stgCastDrop" data-arg="${esc(w)}">${esc(charName(w))} 출연진에서 빼기</button></div>`;
 }
 
-function stgBeats() {
-  const g = S.stg, sc = g.scene;
+/** 인물 카드: 지금 박자의 인물마다 한 줄(읽기), '고치기'로 그 줄만 편다. 3D 에서는 읽기만. */
+function stgPeople() {
+  const g = S.stg, k = g.beat, sc = g.scene, three = S.stgView === '3d';
+  const flags = (g.check ? g.check.violations : []).filter((x) => x.beat === k);
+  const rest = P().characters.filter((c) => !sc.cast.includes(c.id));
+  const add = !three && rest.length ? `<select class="stg-add-cast" data-stg-cast aria-label="출연진 더하기"><option value="">+ 인물 더하기</option>${rest.map((c) => stgOpt(c.id, c.name, '')).join('')}</select>` : '';
+  const rows = sc.cast.map((w) => {
+    const n = flags.filter((x) => x.who === w).length;
+    const own = k > 0 && (sc.beats[k - 1].bodies || []).some((b) => b.who === w);
+    const open = !three && g.open === w;
+    return `<li class="stg-prow${open ? ' open' : ''}">
+      <span class="nm">${stgDot(w)}<b>${esc(charName(w))}</b>${n ? ` <span class="chip bad">지적 ${n}</span>` : ''}${own ? ' <span class="chip confirmed">이 박자에 바뀜</span>' : ''}</span>
+      ${three ? '' : `<button type="button" class="btn small" data-action="stgOpen" data-arg="${esc(w)}" aria-expanded="${open}">${open ? '다 고쳤어요' : '고치기'}</button>`}
+      <span class="sum">${esc(stgSummary(w, k))}</span>
+      ${open ? `<div class="stg-pbody" aria-label="${esc(charName(w))} 상태">${stgPersonCard()}</div>` : ''}</li>`;
+  }).join('');
+  return `<section class="card stg-people" aria-label="인물"><div class="between"><h2>인물 · ${stgBeatName(k)}</h2>${three ? '<span class="small">3D에서는 읽기만 해요</span>' : add}</div>
+    ${sc.cast.length ? `<ul class="stg-plist">${rows}</ul>` : '<p class="small">출연진을 더하면 인물 칸이 보여요.</p>'}</section>`;
+}
+
+/** 무대 카드 옆 '이 박자' 칸: 박자 글, 이 박자에 바뀐 것, 그 박자의 지적 · 안내. */
+function stgNow() {
+  const g = S.stg, k = g.beat, ck = g.check || {}, b = k ? g.scene.beats[k - 1] : null, three = S.stgView === '3d';
+  const flags = (ck.violations || []).filter((x) => x.beat === k);
+  const moves = (ck.moves || []).filter((x) => x.beat === k);
+  const stuck = Object.entries(((ck.paths || [])[k]) || {}).filter(([, r]) => r.blocked).map(([w]) => w);
+  const gaps = stgGaps().filter((x) => x.k === k);
+  const stale = (ck.stale || []).includes(k);
+  let text;
+  if (!b) text = '<p class="stg-now-t">시작 상태</p><p class="small">장면이 시작할 때 모두의 자리 · 자세 · 손이에요.</p>';
+  else if (g.beatEdit && !three) text = `<div class="stg-stack">
+      <label class="stg-stack"><span class="small">한 줄 설명</span><input data-stg-beat="note" value="${esc(b.note)}" placeholder="예: 도윤이 문을 열고 들어온다"></label>
+      <label class="stg-stack"><span class="small">본문 문장 (쓴 뒤에 이어요)</span><input data-stg-beat="quote" value="${esc(b.quote)}" placeholder="본문에서 이 박자에 해당하는 문장 하나"></label>
+      <div class="row"><button type="button" class="btn small ghost" data-action="stgBeatMove" data-arg="-1"${k > 1 ? '' : ' disabled'}>위로</button><button type="button" class="btn small ghost" data-action="stgBeatMove" data-arg="1"${k < g.scene.beats.length ? '' : ' disabled'}>아래로</button><button type="button" class="btn small ghost danger" data-action="stgBeatDrop">박자 지우기</button></div></div>`;
+  else text = `${b.note ? `<p class="stg-now-t">${esc(b.note)}</p>` : ''}${b.quote ? `<p class="stg-quote">${esc(b.quote)}</p>` : `<p class="small">${b.note ? (g.role === 'text' ? '본문 문장이 없는 박자예요.' : '본문 문장은 쓴 뒤에 이어요.') : '(빈 박자)'}</p>`}`;
+  const changes = b && b.bodies.length ? `<div class="stg-stack stg-tight"><span class="small stg-h">이 박자에 바뀐 것</span>${b.bodies.map((x) => `<span class="stg-chg">${stgDot(x.who)}<span><b>${esc(charName(x.who))}</b> ${esc(stgChange(x)) || '(바뀐 칸 없음)'}</span></span>`).join('')}</div>` : '';
+  const items = [];
+  flags.forEach((x) => items.push(`<div class="stg-flag">${stgRuleTag(x.rule)}<span>${esc(x.text)}</span></div>`));
+  moves.forEach((x) => items.push(`<div class="stg-flag amber"><span class="chip">빠진 이동</span><span>${esc(x.text)}</span></div>`));
+  if (stale) items.push('<div class="stg-flag amber"><span class="chip">본문과 다름</span><span>이 박자의 문장이 본문에 없어요.</span></div>');
+  stuck.forEach((w) => items.push(`<div class="stg-flag plain"><span class="chip">막힌 이동</span><span>${esc(charName(w))}: 가구에 막혀 돌아갈 길이 없어 곧게 그렸어요. 자리를 바꾸거나 가구를 옮겨 보세요.</span></div>`));
+  gaps.forEach((x) => items.push(`<div class="stg-flag plain"><span class="chip">계획과 다름</span><span>${esc(x.text)}</span></div>`));
+  const list = items.length ? `<div class="stg-stack stg-tight">${flags.length ? `<span class="small stg-h">규칙 검수 ${flags.length}</span>` : ''}${items.join('')}</div>` : '';
+  const btns = b && !three ? `<div class="row"><button type="button" class="btn small" data-action="stgBeatEdit" aria-expanded="${!!g.beatEdit}">${g.beatEdit ? '다 고쳤어요' : '박자 글 고치기'}</button></div>` : '';
+  return `<span class="eyebrow">${stgBeatName(k)}</span>${text}${changes}${list}${btns}`;
+}
+
+/** 목차: 화 고르기 · 사건(스토리보드가 있으면 장면별로 묶음) · 지금 사건의 박자. 좁은 칸은 '지금 구역 ▾' 버튼. */
+function stgToc() {
+  const g = S.stg, n = g.n, e = ep(n);
+  const eps = P().episodes.filter((x) => x.plot.events.length);
+  const epPick = `<label class="stg-ep"><span class="small">화</span><select data-stg-ep aria-label="화 고르기">${eps.map((x) => stgOpt(String(x.plot.number), `${x.plot.number}화 ${x.plot.title}`, String(n))).join('')}</select></label>`;
+  const roles = (k) => ['plan', 'text'].filter((r) => g.view.scenes.some((x) => x.event === k - 1 && (x.scene.role || 'plan') === r)).map((r) => (r === 'plan' ? '계획' : '본문')).join(' · ') || '없음';
+  const evs = (e && e.plot.events) || [];
+  const evItem = (k) => `<a class="outline-item stg-ev" href="${base()}/stage/${n}/${k}"${k === g.ev ? ' aria-current="page"' : ''} title="${esc(evs[k - 1])}"><span class="n">${k}</span><span class="tl">${esc(evs[k - 1])}</span><span class="st">${roles(k)}</span></a>`;
+  const bd = g.view.board || { events: [], stale: false };
+  const grouped = bd.events.length > 0;
+  const events = grouped
+    ? `${bd.stale ? '<p class="outline-note warn-text">스토리보드가 낡았어요</p>' : ''}${stgEventGroups(evs.length, bd.events).map((x) => `<div class="outline-h">${x.no ? `장면 ${x.no}${x.spot || x.place ? ` · ${esc(x.spot || x.place)}` : ''}` : '맡은 장면 없음'}</div>${x.events.map(evItem).join('')}`).join('')}`
+    : `<div class="outline-h">사건</div>${evs.map((_, i) => evItem(i + 1)).join('')}`;
+  let beats = '';
   const viol = g.check ? g.check.violations : [];
-  const stale = new Set(g.check ? g.check.stale : []);
-  const differ = new Set(stgGaps().map((x) => x.k));
-  const row = (k) => {
-    const b = k === 0 ? null : sc.beats[k - 1];
-    const who = k === 0 ? sc.cast : [...new Set(b.bodies.map((x) => x.who))];
-    const text = k === 0 ? '시작 상태' : b.quote || b.note || '(빈 박자)';
-    const flags = viol.filter((x) => x.beat === k);
-    return `<li><button type="button" aria-current="${k === g.beat}" data-action="stgBeat" data-arg="${k}">
-      <span class="no">${k === 0 ? '○' : k}</span><span class="q${b && !b.quote ? ' note' : ''}">${esc(text)}</span>
-      <span class="who">${who.map((w) => `<span class="chip">${stgDot(w)}${esc(charName(w))}</span>`).join('')}${flags.length ? `<span class="flag">⚠ ${flags.length}</span>` : ''}${stale.has(k) ? '<span class="flag amber">본문과 달라요</span>' : ''}${differ.has(k) ? '<span class="flag plan">계획과 달라요</span>' : ''}</span></button></li>`;
-  };
-  const cur = g.beat > 0 ? sc.beats[g.beat - 1] : null;
-  const edit = cur ? `<div class="stg-beat-edit">
-      <label class="stg-stack" style="gap:4px"><span class="small">본문 문장 (쓴 뒤에 이어요)</span><input data-stg-beat="quote" value="${esc(cur.quote)}" placeholder="본문에서 이 박자에 해당하는 문장 하나"></label>
-      <label class="stg-stack" style="gap:4px"><span class="small">한 줄 설명</span><input data-stg-beat="note" value="${esc(cur.note)}" placeholder="예: 도윤이 문을 열고 들어온다"></label>
-      <div class="row"><button type="button" class="btn small ghost" data-action="stgBeatMove" data-arg="-1"${g.beat > 1 ? '' : ' disabled'}>↑ 위로</button><button type="button" class="btn small ghost" data-action="stgBeatMove" data-arg="1"${g.beat < sc.beats.length ? '' : ' disabled'}>↓ 아래로</button><button type="button" class="btn small ghost danger" data-action="stgBeatDrop">박자 지우기</button></div></div>` : '';
-  return `<section class="card tight"><div class="between"><h2>박자</h2><button type="button" class="btn small" data-action="stgBeatAdd">+ 박자</button></div>
-    <ol class="stg-beats">${[0, ...sc.beats.map((_, i) => i + 1)].map(row).join('')}</ol>${edit}
-    <div class="stg-cast"><span class="small">출연진</span>${sc.cast.map((w) => `<span class="chip stg-who${w === g.who ? ' cur' : ''}"><button type="button" class="linkish" data-action="stgWho" data-arg="${esc(w)}" aria-pressed="${w === g.who}">${stgDot(w)}${esc(charName(w))}</button><button type="button" class="linkish" data-action="stgCastDrop" data-arg="${esc(w)}" aria-label="${esc(charName(w))} 빼기">✕</button></span>`).join('')}
-      ${(() => { const rest = P().characters.filter((c) => !sc.cast.includes(c.id)); return rest.length ? `<select data-stg-cast aria-label="출연진 더하기"><option value="">+ 인물 더하기</option>${rest.map((c) => stgOpt(c.id, c.name, '')).join('')}</select>` : ''; })()}</div>
-  </section>`;
+  if (g.scene) {
+    const sc = g.scene, stale = new Set(g.check ? g.check.stale : []), differ = new Set(stgGaps().map((x) => x.k));
+    const row = (k) => {
+      const b = k ? sc.beats[k - 1] : null, nf = viol.filter((x) => x.beat === k).length;
+      const text = b ? b.quote || b.note || '(빈 박자)' : '시작 상태';
+      const st = [nf ? `<span class="st bad">지적 ${nf}</span>` : '', stale.has(k) ? '<span class="st warn">본문과 달라요</span>' : '', differ.has(k) ? '<span class="st">계획과 달라요</span>' : ''].join('');
+      return `<button type="button" class="outline-item stg-bt" data-action="stgBeat" data-arg="${k}"${k === g.beat ? ' aria-current="step"' : ''}><span class="n">${k ? k : '○'}</span><span class="tl${b && b.quote ? ' q' : ''}">${esc(text)}</span>${st}</button>`;
+    };
+    const add = S.stgView === '3d' ? '' : '<button type="button" class="btn small ghost" data-action="stgBeatAdd">+ 박자 더하기</button>';
+    beats = `<div class="outline-sep"></div><div class="outline-h stg-beat-h"><span>사건 ${g.ev} 박자</span>${add}</div>${[0, ...sc.beats.map((_, i) => i + 1)].map(row).join('')}
+      ${sc.beats.some((b) => b.quote) ? '<p class="outline-note small">명조 글은 본문 문장, 고딕 글은 작가 설명이에요.</p>' : ''}`;
+  }
+  const nf = g.scene ? viol.filter((x) => x.beat === g.beat).length : 0;
+  const now = `사건 ${g.ev}${g.scene ? ` · ${stgBeatName(g.beat)}` : ''}${nf ? ` <span class="chip bad">지적 ${nf}</span>` : ''}`;
+  return outlineNav({ id: 'stg-toc', label: '사건과 박자', now, body: `${eps.length > 1 ? epPick : ''}${events}${beats}` });
 }
 
-/** 계획과 다른 곳을 지금 역할의 박자 번호(k)와 함께. */
-function stgGaps() {
-  const g = S.stg;
-  return (g.check && g.check.gaps || []).map((x) => ({ ...x, k: g.role === 'text' ? x.text_beat : x.plan_beat }));
+/** 박자 줄: 재생 · 박자 눈금(지적이 있는 박자에 빨간 점). 좁은 칸에서는 아래에 붙고 앞뒤 버튼과 'k / N박자'로 바뀐다. */
+function stgBar() {
+  const g = S.stg, max = g.scene.beats.length, k = g.beat;
+  const viol = g.check ? g.check.violations : [];
+  const cnt = (i) => viol.filter((x) => x.beat === i).length;
+  const ticks = [...Array(max + 1).keys()].map((i) => {
+    const n = cnt(i);
+    return `<button type="button" class="stg-tick" data-action="stgBeat" data-arg="${i}"${i === k ? ' aria-current="step"' : ''} aria-label="${stgBeatName(i)}${n ? `, 지적 ${n}` : ''}">${i === 0 ? '시작' : i}${n ? '<i class="fl" aria-hidden="true"></i>' : ''}</button>`;
+  }).join('');
+  const n = cnt(k);
+  return `<div class="stg-bar" role="group" aria-label="박자 옮기기">
+    <button type="button" class="btn icon-btn stg-step" data-action="stgStep" data-arg="-1" aria-label="앞 박자"${k > 0 ? '' : ' disabled'}>◀</button>
+    <button type="button" class="btn" data-action="stgPlay"${max ? '' : ' disabled'}>${g.playing ? '❚❚ 멈춤' : '▶ 재생'}</button>
+    <div class="stg-ticks">${ticks}</div>
+    <span class="stg-bar-now"><b>${k === 0 ? `시작 · ${max}박자` : `${k} / ${max}박자`}</b>${n ? `<span class="bad">지적 ${n}</span>` : ''}</span>
+    <button type="button" class="btn icon-btn stg-step" data-action="stgStep" data-arg="1" aria-label="다음 박자"${k < max ? '' : ' disabled'}>▶</button></div>`;
+}
+
+/** 방 카드: 읽는 모양이 기본이고 '방 고치기'로 이 카드에서 기준점을 고친다(평면도도 기준점 끌기로 바뀐다). */
+function stgRoomCard() {
+  const g = S.stg, r = g.room, three = S.stgView === '3d', edit = g.mode === 'room' && !three;
+  if (!r) return '';
+  const used = g.view.scenes.filter((x) => x.scene.room === r.id && x.scene.id !== g.sid).length;
+  const btn = three ? '' : `<button type="button" class="btn small" data-action="stgMode" data-arg="${edit ? 'people' : 'room'}" aria-expanded="${edit}">${edit ? '다 고쳤어요' : '방 고치기'}</button>`;
+  const sum = `${esc(r.name)} · ${r.w} × ${r.h}m · ${r.place ? `지도 장소 ${esc(r.place)}` : '지도 장소에 묶이지 않음'}${used ? ` · 이 방을 쓰는 다른 장면 ${used}개` : ''}`;
+  return `<section class="card tight stg-room${edit ? ' editing' : ''}" aria-label="방"><div class="between"><h2>${edit ? '방 고치기' : '방'}</h2>${btn}</div>
+    ${edit ? stgRoomPanel() : `<p class="stg-room-sum">${sum}</p><div class="row">${r.anchors.map((a) => `<span class="chip">${esc(a.name)}</span>`).join('')}</div>`}</section>`;
 }
 
 function stgRoomPanel() {
   const g = S.stg, r = g.room;
   const kinds = { bed: '침대', door: '문', window: '창', desk: '책상', chair: '의자', sofa: '소파', table: '탁자', wall: '벽', seat: '자리', vehicle: '차', landmark: '표지', ground: '길 · 땅', other: '기타' };  // stage.ANCHOR_KINDS
   const used = g.view.scenes.filter((x) => x.scene.room === r.id && x.scene.id !== g.sid).length;
-  return `<section class="card tight"><div class="between"><h2>방 고치기</h2><span class="small">${used ? `이 방을 쓰는 다른 장면 ${used}개도 바뀌어요` : ''}</span></div>
+  return `${used ? `<p class="small warn-text">이 방을 쓰는 다른 장면 ${used}개도 바뀌어요.</p>` : ''}
     <div class="stg-fields">
       <label for="stg-rname">이름</label><input id="stg-rname" data-stg-room="name" value="${esc(r.name)}">
       <label for="stg-rplace">장소</label><input id="stg-rplace" data-stg-room="place" value="${esc(r.place)}" list="stg-places" placeholder="지도 장소에 묶으면 다른 장면에서도 골라요">
-      <label for="stg-rw">크기 (m)</label><span class="row"><input id="stg-rw" type="number" min="1" max="40" step="0.1" data-stg-room="w" value="${r.w}" aria-label="가로" style="width:80px"> × <input type="number" min="1" max="40" step="0.1" data-stg-room="h" value="${r.h}" aria-label="세로" style="width:80px"></span>
+      <label for="stg-rw">크기 (m)</label><span class="row"><input id="stg-rw" class="stg-num" type="number" min="1" max="40" step="0.1" data-stg-room="w" value="${r.w}" aria-label="가로"> × <input class="stg-num" type="number" min="1" max="40" step="0.1" data-stg-room="h" value="${r.h}" aria-label="세로"></span>
     </div>
     <datalist id="stg-places">${stgPlaces().map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
     <p class="small">평면도에서 기준점을 끌어 옮겨요. 짧은 선이 기준점의 앞쪽이에요. 붙은 기준점은 부모를 따라 움직이고, 붙은 면을 따라서만 끌려요.</p>
-    <ul class="stg-anchors">${r.anchors.map((a) => `<li class="row"><input data-stg-anchor-name="${esc(a.id)}" value="${esc(a.name)}" aria-label="기준점 이름" style="width:120px">
+    <ul class="stg-anchors">${r.anchors.map((a) => `<li class="row"><input class="stg-aname" data-stg-anchor-name="${esc(a.id)}" value="${esc(a.name)}" aria-label="기준점 이름">
       <select data-stg-anchor-kind="${esc(a.id)}" aria-label="종류">${Object.entries(kinds).map(([k, l]) => stgOpt(k, l, a.kind)).join('')}</select>
       <select data-stg-anchor-on="${esc(a.id)}" aria-label="붙은 곳" title="붙은 곳: 부모를 옮기거나 돌리면 함께 움직여요">${stageAttachOptions(r, a.id).map(([k, l]) => stgOpt(k, k ? `붙음: ${l}` : '붙지 않음', a.parent ? `${a.parent}|${a.face}` : '')).join('')}</select>
       <button type="button" class="btn small ghost" data-action="stgRotate" data-arg="${esc(a.id)}" title="상자를 90도 돌려요. 붙은 기준점도 함께 돌아요">↻ 돌리기</button>
       <button type="button" class="btn small ghost danger" data-action="stgAnchorDrop" data-arg="${esc(a.id)}">빼기</button>${stgDropNote(r, a.id)}</li>`).join('')}</ul>
-    <button type="button" class="btn small" data-action="stgAnchorAdd">+ 기준점</button></section>`;
+    <div class="row"><button type="button" class="btn small" data-action="stgAnchorAdd">+ 기준점 더하기</button></div>`;
 }
 
 /** 빼기 옆에 함께 빠지는 기준점 이름. 없으면 빈 글. */
@@ -849,29 +981,39 @@ function stgPlaces() {
   return [...new Set(names.filter(Boolean))];
 }
 
+/** 방 고르기 칸의 작은 그림: 벽과 기준점 상자만. shape = { w, h, anchors: [[x, y, w, h]] } (stage.vocab 의 room_shapes, 또는 이미 있는 방) */
+function stgThumb(shape) {
+  if (!shape) return '';
+  const s = Math.min(88 / shape.w, 52 / shape.h), ox = (100 - shape.w * s) / 2, oy = (64 - shape.h * s) / 2;
+  const box = ([x, y, w, h]) => `<rect class="a" x="${ox + x * s}" y="${oy + y * s}" width="${Math.max(w * s, 1.5)}" height="${Math.max(h * s, 1.5)}"/>`;
+  return `<svg viewBox="0 0 100 64" aria-hidden="true"><rect class="w" x="${ox}" y="${oy}" width="${shape.w * s}" height="${shape.h * s}"/>${shape.anchors.map(box).join('')}</svg>`;
+}
+
 function stgNewCard() {
   const g = S.stg, k = g.pick;
   const bs = stgBoardOf(g);
   const hints = bs ? bs.hints : [];
   const rooms = stgRoomOrder(g.view.rooms, hints);
+  const shapes = g.view.vocab.room_shapes || {};
   const tpl = Object.entries(g.view.vocab.rooms);
   const where = bs ? [bs.place, bs.spot].filter(Boolean).join(' · ') : '';
   // 스토리보드 자리에 맞는 방이 없으면 빈 방 + 플롯 초안을 먼저 권한다: AI 가 장소에 필요한 기준점을 더하자고 한다 (2026-10-29 15화 사건 1)
   const draft = bs && !hints.length ? (() => {
-    const b = jobBtn('stage_draft', g.n, '✦ 빈 방에서 플롯 초안 받기');
+    const b = jobBtn('stage_draft', g.n, '빈 방에서 플롯 초안 받기');
     return `<section class="card stg-fresh"><h2>맞는 방이 없어요</h2>
     <p class="desc">스토리보드 자리${where ? `(${esc(where)})` : ''}와 같은 방이 없어요. 빈 방에서 시작하면 AI가 박자에 나오는 장소(차 · 창 · 가구)를 기준점으로 더하자고 해요. 받은 초안은 비교한 뒤 적용해요.</p>
     <div class="row"><button type="button" class="btn primary" data-action="stgAiFresh"${b.attr}>${b.label}</button></div></section>`;
   })() : '';
-  return `${draft}<section class="card"><h2>${draft ? '직접 방을 골라 시작하기' : '이 사건에는 아직 연출이 없어요'}</h2>
-    <p class="desc">${bs ? `스토리보드 장면 ${bs.no}${where ? `(${esc(where)})` : ''}의 인물이 문 앞에 선 채로 시작해요.` : '방을 고르면 이 화 플롯의 등장 인물이 문 앞에 선 채로 시작해요.'} 같은 장소의 방은 다른 장면에서도 다시 써요.</p>
-    <fieldset class="stg-pick"><legend class="small">방</legend>
-      ${rooms.map((r) => `<label class="row"><input type="radio" name="stg-room" value="${esc(r.id)}" data-stg-pick="room"${k.room === r.id ? ' checked' : ''}> ${esc(r.name)}${r.place ? ` <span class="chip confirmed">${esc(r.place)}</span>` : ''}${hints.includes(r.id) ? ' <span class="chip">스토리보드 장소</span>' : ''}</label>`).join('')}
-      <label class="row"><input type="radio" name="stg-room" value="" data-stg-pick="room"${k.room ? '' : ' checked'}> 새 방:
-        <select data-stg-pick="template" aria-label="방 틀">${tpl.map(([t, l]) => stgOpt(t, l, k.template)).join('')}</select>
-        <input data-stg-pick="name" value="${esc(k.name)}" placeholder="방 이름 (비우면 틀 이름)" aria-label="새 방 이름"></label>
-    </fieldset>
-    <div class="row"><button type="button" class="btn primary" data-action="stgCreate">장면 만들기</button></div></section>`;
+  const own = (r) => { const w = stageResolve(r); return { w: w.w, h: w.h, anchors: w.anchors.map((a) => [a.x, a.y, a.w, a.h]) }; };
+  const cast = ((ep(g.n) || {}).plot || {}).characters || [];
+  return `${draft}<section class="card stg-empty" aria-label="새 장면"><h2>${draft ? '직접 방을 골라 시작하기' : '이 사건에는 아직 연출이 없어요'}</h2>
+    <p class="desc">${bs ? `스토리보드 장면 ${bs.no}${where ? `(${esc(where)})` : ''}의 인물이 문 앞에 선 채로 시작해요.` : `방을 고르면 이 화 플롯의 등장 인물${cast.length ? ` ${cast.length}명` : ''}이 문 앞에 선 채로 시작해요.`} AI가 먼저 짜게 하려면 위의 '플롯에서 초안'을 눌러요.</p>
+    ${rooms.length ? `<fieldset class="stg-pick"><legend class="small">이 작품의 방</legend><div class="stg-rooms">
+      ${rooms.map((r) => `<label class="stg-room-opt"><input type="radio" name="stg-room" value="${esc(r.id)}" data-stg-pick="room"${k.room === r.id ? ' checked' : ''}>${stgThumb(own(r))}<b>${esc(r.name)}</b><span class="small">${r.w} × ${r.h}m</span>${r.place ? `<span class="chip confirmed">${esc(r.place)}</span>` : ''}${hints.includes(r.id) ? '<span class="chip">스토리보드 장소</span>' : ''}</label>`).join('')}</div></fieldset>` : ''}
+    <fieldset class="stg-pick"><legend class="small">틀에서 새 방</legend><div class="stg-rooms">
+      ${tpl.map(([t, l]) => `<label class="stg-room-opt"><input type="radio" name="stg-room" value="${esc(t)}" data-stg-pick="template"${!k.room && k.template === t ? ' checked' : ''}>${stgThumb(shapes[t])}<b>${esc(l)}</b>${shapes[t] ? `<span class="small">${shapes[t].w} × ${shapes[t].h}m</span>` : ''}</label>`).join('')}</div></fieldset>
+    <div class="stg-new-foot"><label class="stg-stack stg-new-name"><span class="small">새 방 이름</span><input data-stg-pick="name" value="${esc(k.name)}" placeholder="비우면 틀 이름" aria-label="새 방 이름"${k.room ? ' disabled' : ''}></label>
+      <button type="button" class="btn${draft ? '' : ' primary'}" data-action="stgCreate">장면 만들기</button></div></section>`;
 }
 
 // ----- AI 장면: 플롯에서 초안 · 본문에서 뽑기, 비교 · 적용 · 적용 취소 -----
@@ -946,11 +1088,11 @@ function stgAddList(prop) {
 function stgAiBtn() {
   const g = S.stg, e = ep(g.n);
   if (g.role === 'text') {
-    const b = jobBtn('stage_extract', g.n, '✦ 본문에서 뽑기');
-    return e && e.text ? `<button type="button" class="btn small" data-action="stgAi"${b.attr}>${b.label}</button>` : '<span class="small">본문을 쓴 뒤 뽑아요</span>';
+    const b = jobBtn('stage_extract', g.n, '본문에서 뽑기');
+    return e && e.text ? `<button type="button" class="btn" data-action="stgAi"${b.attr}>${b.label}</button>` : '<span class="small">본문을 쓴 뒤 뽑아요</span>';
   }
-  const b = jobBtn('stage_draft', g.n, '✦ 플롯에서 초안');
-  return `<button type="button" class="btn small" data-action="stgAi"${b.attr}>${b.label}</button>`;
+  const b = jobBtn('stage_draft', g.n, '플롯에서 초안');
+  return `<button type="button" class="btn" data-action="stgAi"${b.attr}>${b.label}</button>`;
 }
 
 /** 작업이 끝나면 장면 연출 화면을 다시 받는다 (app.js applyJobResult). 검수도 본문 장면을 넣었을 수 있다. */
@@ -972,18 +1114,96 @@ function stgCss() {
   if (document.getElementById('stg-css')) return;
   const st = document.createElement('style');
   st.id = 'stg-css';
+  // 공용 목차 틀(.outline-wrap.stg-wrap) 위의 화면. 칸 폭 규칙은 창이 아니라 @container outline · stgcol 로 건다 (docs/design/layout.md)
   st.textContent = `
+.stg-col { container: stgcol / inline-size; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.stg-col > .card, .stg-col > .note { margin: 0; }
+.stg-ep { display: flex; flex-direction: column; gap: 6px; padding: 0 4px 6px; }
+.stg-ep select { width: 100%; }
+.stg-wrap .outline-list { max-height: calc(100vh - 32px); overflow-y: auto; padding-bottom: 8px; }
+.stg-wrap .outline-item .tl { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stg-wrap .outline-item .tl.q { font-family: var(--serif); }
+.stg-wrap .outline-item .st { flex: none; }
+.stg-wrap .outline-item .st + .st { margin-left: 0; }
+.stg-wrap .outline-item .st.bad { color: var(--red); font-weight: 700; }
+.stg-wrap .outline-item.stg-ev[aria-current] { background: var(--surface); border-color: var(--line); color: var(--text); }
+.stg-beat-h { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding-right: 0; }
+.stg-beat-h .btn { min-height: 32px; padding: 0 8px; }
+.stg-stage { gap: 14px; }
+.stg-title { gap: 4px 10px; }
+.stg-title h2 { margin: 0; }
+.stg-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px 20px; align-items: start; }
+@container stgcol (min-width: 820px) { .stg-grid { grid-template-columns: minmax(0, 1fr) 300px; } }
+.stg-pic { min-width: 0; }
+.stg-plan { width: 100%; height: auto; max-height: min(72vh, 680px); display: block; background: var(--canvas); border-radius: 8px; touch-action: none; user-select: none; }
+.stg-now { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.stg-now p { margin: 0; }
+.stg-now-t { font-weight: 700; line-height: 1.5; }
+.stg-quote { font-family: var(--serif); font-size: 0.9375rem; line-height: 1.7; }
+.stg-h { font-weight: 700; }
+.stg-stack { display: flex; flex-direction: column; gap: 8px; }
+.stg-stack.stg-tight { gap: 6px; }
+.stg-chg { display: flex; gap: 6px; align-items: baseline; font-size: 0.8125rem; line-height: 1.55; }
+.stg-flag { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: flex-start; padding: 8px 10px; border-radius: 8px; background: var(--red-soft); color: var(--err-ink); font-size: 0.8125rem; line-height: 1.55; }
+.stg-flag .chip { flex: none; background: var(--surface); color: inherit; }
+.stg-flag > span:last-child { flex: 1 1 160px; min-width: 0; }
+.stg-flag.amber { background: var(--amber-soft); color: var(--amber-ink); }
+.stg-flag.plain { background: var(--bg); color: var(--text-2); }
+.stg-foot { align-items: flex-start; }
+.stg-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 0.75rem; color: var(--muted); }
+.stg-legend svg { vertical-align: middle; margin-right: 4px; }
+.stg-bar { display: flex; align-items: center; gap: 8px; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.stg-ticks { flex: 1 1 auto; min-width: 0; display: flex; gap: 4px; overflow-x: auto; }
+.stg-tick { position: relative; flex: 1 0 44px; min-height: 44px; padding: 0 6px; border: 1px solid transparent; border-radius: 8px; background: var(--bg); color: var(--text-2); font: inherit; font-size: 0.8125rem; font-weight: 700; cursor: pointer; }
+.stg-tick:hover { background: var(--btn); color: var(--text); }
+.stg-tick[aria-current] { background: var(--accent); color: var(--on-accent); }
+.stg-tick .fl { position: absolute; top: 5px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
+.stg-tick[aria-current] .fl { box-shadow: 0 0 0 2px var(--surface); }
+.stg-step, .stg-bar-now { display: none; }
+.stg-bar-now { flex: 1 1 auto; flex-direction: column; align-items: center; line-height: 1.3; font-size: 0.875rem; }
+.stg-bar-now .bad { color: var(--red); font-size: 0.75rem; font-weight: 700; }
+.stg-plist { list-style: none; margin: 0; padding: 0; }
+.stg-prow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--rule); }
+.stg-prow:first-child { border-top: 0; padding-top: 0; }
+.stg-prow .nm { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.stg-prow .nm .stg-dot { width: 12px; height: 12px; margin: 0; }
+.stg-prow .sum { grid-column: 1 / -1; font-size: 0.8125rem; color: var(--text-2); line-height: 1.55; }
+.stg-pbody { grid-column: 1 / -1; margin-top: 6px; padding: 16px; border: 1px solid var(--sel-line); border-radius: 10px; background: var(--sel-bg); display: flex; flex-direction: column; gap: 12px; }
+.stg-room.editing { border-color: var(--sel-line); }
+.stg-room-sum { margin: 0; font-size: 0.8125rem; color: var(--text-2); }
+.stg-num { width: 80px; }
+.stg-aname { width: 120px; }
+.stg-empty { border-style: dashed; }
+.stg-pick { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.stg-pick legend { padding: 0; margin-bottom: 8px; font-weight: 700; }
+.stg-rooms { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.stg-room-opt { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 0.8125rem; cursor: pointer; }
+.stg-room-opt input { position: absolute; top: 14px; right: 14px; margin: 0; accent-color: var(--accent); }
+.stg-room-opt:has(input:checked) { border-color: var(--sel-line); background: var(--sel-bg); box-shadow: inset 0 0 0 1px var(--sel-line); }
+.stg-room-opt svg { width: 100%; height: 56px; display: block; background: var(--canvas); border-radius: 6px; }
+.stg-room-opt svg .w { fill: none; stroke: var(--text-2); stroke-width: 1.5; }
+.stg-room-opt svg .a { fill: var(--chip); stroke: var(--line-strong); stroke-width: 0.6; }
+.stg-room-opt .chip { align-self: flex-start; }
+.stg-new-foot { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; justify-content: space-between; }
+.stg-new-name { flex: 0 1 320px; gap: 6px; }
+@container outline (max-width: 720px) {
+  .stg-bar { order: 9; position: sticky; bottom: calc(8px + var(--sb, 0px)); z-index: 3; box-shadow: 0 6px 24px rgba(0,0,0,0.12); }
+  .stg-ticks { display: none; }
+  .stg-step { display: inline-flex; }
+  .stg-bar-now { display: flex; }
+  .stg-beat-h .btn { min-height: 44px; }
+  .stg-rooms { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stg-new-foot .btn { width: 100%; }
+  .stg-prow .btn.small { min-height: 44px; }
+}
+@media (forced-colors: active) { .stg-tick[aria-current], .stg-room-opt:has(input:checked) { outline: 2px solid Highlight; } }
 .stg-cmp { gap: 10px; }
 .stg-cmp-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
-@media (max-width: 700px) { .stg-cmp-grid { grid-template-columns: minmax(0, 1fr); } }
-.stg-cmp-grid h3 { margin: 0 0 6px; font-size: 14px; }
+@container stgcol (max-width: 640px) { .stg-cmp-grid { grid-template-columns: minmax(0, 1fr); } }
+.stg-cmp-grid h3 { margin: 0 0 6px; font-size: 0.875rem; }
 .stg-cmp-grid svg { width: 100%; height: auto; display: block; background: var(--canvas); border-radius: 8px; }
-.stg-cmp-beats { margin: 8px 0 0; padding-left: 20px; font-size: 13px; }
-.stg-cmp-beats li.new { background: var(--warm-soft, rgba(255, 200, 0, .12)); }
-.stg-wrap { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(320px, 1fr); gap: 20px; align-items: start; }
-@media (max-width: 1100px) { .stg-wrap { grid-template-columns: minmax(0, 1fr); } }
-.stg-planc { padding: 16px; gap: 12px; }
-.stg-planc svg { width: 100%; height: auto; display: block; background: var(--canvas); border-radius: 8px; touch-action: none; user-select: none; }
+.stg-cmp-beats { margin: 8px 0 0; padding-left: 20px; font-size: 0.8125rem; }
+.stg-cmp-beats li.new { background: var(--amber-soft); }
 .stg-wall { fill: none; stroke: var(--text-2); stroke-width: 4; }
 .stg-anchor rect { fill: var(--chip); stroke: var(--line-strong); stroke-width: 1; }
 .stg-anchor.door rect, .stg-anchor.window rect { fill: var(--accent-soft); }
@@ -991,136 +1211,99 @@ function stgCss() {
 .stg-adds { margin: 8px 0; }
 .stg-adds ul { list-style: none; padding: 0; margin: 6px 0; display: flex; flex-direction: column; gap: 4px; }
 .stg-anchor.edit { cursor: grab; }
-.stg-anchor text { font-size: 12px; fill: var(--text-2); font-family: var(--sans); pointer-events: none; }
+.stg-anchor text { font-size: calc(12px * var(--u, 1)); fill: var(--text-2); font-family: var(--sans); pointer-events: none; }
 .stg-front { stroke: var(--accent); stroke-width: 2.5; }
 .stg-person { cursor: grab; }
 .stg-person circle.body { stroke: var(--surface); stroke-width: 2.5; }
 .stg-person.cur circle.body { stroke: var(--text); }
 .stg-person.bad circle.body { stroke: var(--red); stroke-width: 3; }
-.stg-person .ini { font-size: 13px; font-weight: 700; fill: var(--on-accent); font-family: var(--sans); text-anchor: middle; dominant-baseline: central; pointer-events: none; }
-.stg-person .label { fill: var(--text); font-size: 12px; font-weight: 700; font-family: var(--sans); pointer-events: none; }
+.stg-person .ini { font-size: calc(13px * var(--u, 1)); font-weight: 700; fill: var(--on-stage); font-family: var(--sans); text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.stg-person .label { fill: var(--text); font-size: calc(12px * var(--u, 1)); font-weight: 700; font-family: var(--sans); pointer-events: none; paint-order: stroke; stroke: var(--canvas); stroke-width: calc(4px * var(--u, 1)); stroke-linejoin: round; }
 .stg-leader { stroke: var(--muted); stroke-width: 1; fill: none; pointer-events: none; }
 .stg-person .face { opacity: 0.85; }
 .stg-contact { stroke-width: 2.5; stroke-dasharray: 5 4; fill: none; }
 .stg-contact.bad { stroke: var(--red); }
 .stg-move { stroke: var(--muted); stroke-width: 1.5; fill: none; marker-end: url(#stg-arrow); }
 .stg-move.blocked { stroke: var(--red); stroke-dasharray: 5 4; }
-.stg-play { display: flex; align-items: center; gap: 12px; }
-.stg-play input[type=range] { flex: 1; accent-color: var(--accent); }
-.stg-beats { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; max-height: 360px; overflow-y: auto; }
-.stg-beats button { width: 100%; text-align: left; min-height: 48px; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text); font: inherit; cursor: pointer; display: grid; grid-template-columns: 28px 1fr; gap: 2px 8px; }
-.stg-beats button:hover { background: var(--bg); }
-.stg-beats button[aria-current="true"] { background: var(--sel-bg); border-color: var(--sel-line); }
-.stg-beats .no { grid-row: span 2; width: 24px; height: 24px; border-radius: 6px; background: var(--chip); display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; }
-.stg-beats .q { font-family: var(--serif); line-height: 1.5; }
-.stg-beats .q.note { font-family: var(--sans); color: var(--text-2); }
-.stg-beats .who { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-.stg-beats .flag { color: var(--red); font-weight: 700; font-size: 0.75rem; }
-.stg-beats .flag.amber { color: var(--amber-ink); }
-.stg-beats .flag.plan { color: var(--accent-ink); }
 .stg-ghost circle { fill: none; stroke-width: 2; stroke-dasharray: 3 3; opacity: 0.55; }
-.stg-ghost text { font-size: 12px; font-weight: 700; fill: var(--muted); font-family: var(--sans); text-anchor: middle; dominant-baseline: central; opacity: 0.8; }
-.stg-ghost-note { font-size: 11px; fill: var(--muted); font-family: var(--sans); }
-.stg-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; }
-.stg-beat-edit, .stg-stack { display: flex; flex-direction: column; gap: 8px; }
-.stg-beat-edit { padding-top: 8px; border-top: 1px solid var(--line); }
-.stg-cast { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-top: 8px; border-top: 1px solid var(--line); }
-.stg-who { gap: 6px; }
-.stg-who.cur { background: var(--accent-soft); }
-.stg-dot { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 50%; vertical-align: 0; flex: none; }
-.linkish { border: 0; background: none; padding: 0; font: inherit; cursor: pointer; color: inherit; }
-.stg-pcard { padding: 14px 16px; gap: 12px; }
+.stg-ghost text { font-size: calc(12px * var(--u, 1)); font-weight: 700; fill: var(--muted); font-family: var(--sans); text-anchor: middle; dominant-baseline: central; opacity: 0.8; }
+.stg-ghost-note { font-size: calc(11px * var(--u, 1)); fill: var(--muted); font-family: var(--sans); }
+.stg-dot { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 50%; vertical-align: 0; flex: none; forced-color-adjust: none; }
 .stg-poses { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
-.stg-poses button { padding: 4px 2px 2px; border: 1px solid transparent; border-radius: 8px; background: var(--bg); color: var(--text-2); font: inherit; font-size: 0.6875rem; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 58px; }
+.stg-poses button { padding: 4px 2px 2px; border: 1px solid transparent; border-radius: 8px; background: var(--surface); color: var(--text-2); font: inherit; font-size: 0.6875rem; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 58px; }
 .stg-poses button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
 .stg-poses svg { width: 34px; height: 40px; }
 .stg-poses svg * { stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; fill: none; }
-.stg-fields { display: grid; grid-template-columns: 64px 1fr; gap: 6px 10px; align-items: center; font-size: 0.8125rem; }
+.stg-fields { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 6px 10px; align-items: center; font-size: 0.8125rem; }
 .stg-fields > label { color: var(--muted); }
 .stg-fields select, .stg-fields input:not([type=number]) { min-width: 0; flex: 1; }
-.stg-touch { display: grid; grid-template-columns: 124px 1fr; gap: 12px; align-items: start; }
-@media (max-width: 480px) { .stg-touch { grid-template-columns: 1fr; } .stg-poses { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.stg-touch { display: grid; grid-template-columns: 124px minmax(0, 1fr); gap: 12px; align-items: start; }
+@container stgcol (max-width: 480px) { .stg-touch { grid-template-columns: minmax(0, 1fr); } .stg-poses { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .stg-bodymap { display: flex; gap: 6px; }
 .stg-bodymap figure { margin: 0; }
 .stg-bodymap svg { width: 56px; height: 120px; }
 .stg-bodymap .sil { fill: var(--chip); stroke: var(--line-strong); stroke-width: 1; }
 .stg-bodymap .dot { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; cursor: pointer; }
-.stg-bodymap .dot.on { fill: var(--pair-b); stroke: var(--pair-b); }
-.stg-bodymap .dot.by { fill: var(--pair-a); stroke: var(--pair-a); }
+.stg-bodymap .dot.on { fill: var(--stage-2); stroke: var(--stage-2); }
+.stg-bodymap .dot.by { fill: var(--stage-1); stroke: var(--stage-1); }
 .stg-bodymap figcaption { font-size: 0.6875rem; color: var(--muted); text-align: center; }
 .stg-contacts { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; font-size: 0.8125rem; }
 .stg-add { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .stg-add label { display: flex; flex-direction: column; gap: 2px; }
 .stg-add button { grid-column: 1 / -1; }
+.stg-memo { gap: 4px; }
 .stg-anchors { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
-.stg-events { display: flex; flex-wrap: wrap; gap: 6px; }
-.stg-events a { text-decoration: none; }
-.stg-events a[aria-current="page"] .chip { background: var(--accent); color: var(--on-accent); }
-.stg-events.grouped { gap: 10px; align-items: center; }
-.stg-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 8px; }
-.stg-events .flag.amber { font-size: 0.75rem; color: var(--amber-ink); font-weight: 700; }
-.stg-pick { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
-.stg-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.75rem; color: var(--muted); }
-.stg-tabs { display: none; }
-@media (max-width: 900px) { .stg-tabs { display: flex; } .stg-pane[data-hide] { display: none; } }
 `;
   document.head.appendChild(st);
+}
+
+/** 평면도 범례: 기호 + 낱말. */
+function stgLegend() {
+  const line = (w, dash) => `<svg width="22" height="6" aria-hidden="true"><line x1="0" y1="3" x2="22" y2="3" stroke="var(--muted)" stroke-width="${w}" stroke-dasharray="${dash}"/></svg>`;
+  const g = S.stg;
+  return `<div class="stg-legend"><span><svg width="12" height="12" aria-hidden="true"><path d="M1 11L11 11L6 1Z" fill="var(--muted)"/></svg>향한 쪽</span><span>${line(2.5, '5 4')}접촉</span><span>${line(1.5, '0')}이번 박자 이동</span>
+    <span><svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--red)" stroke-width="2.5"/></svg>지적</span>
+    <span>${g.mode === 'room' ? '기준점을 끌어 옮겨요' : '인물을 끌어 놓으면 가까운 기준점에 붙어요'}</span></div>`;
 }
 
 function viewStage(n) {
   stgCss();
   const g = S.stg;
   const e = ep(n);
-  const head = (desc, right = '') => header(`작품 도구 · ${n}화${g ? ` · 사건 ${g.ev} / ${(e && e.plot.events.length) || 0}` : ''}`, '장면 연출', desc, right);
+  const head = (desc, right = '') => header(`작품 도구 · ${n}화${e ? ` ${esc(e.plot.title)}` : ''}${g ? ` · 사건 ${g.ev} / ${(e && e.plot.events.length) || 0}` : ''}`, '장면 연출', desc, right);
   const eps = P().episodes.filter((x) => x.plot.events.length);
   const epPick = `<label class="row small">화 <select data-stg-ep aria-label="화 고르기">${eps.map((x) => stgOpt(String(x.plot.number), `${x.plot.number}화 ${x.plot.title}`, String(n))).join('')}</select></label>`;
-  if (!e || !g) return `${head('방 하나 안에서 인물의 자리 · 자세 · 접촉을 박자마다 짜고 재생해요.')}<section class="card">${eps.length ? epPick : ''}<p class="small">${eps.length ? '사건이 있는 화를 고르세요.' : '플롯에 사건이 있는 화가 아직 없어요. 기승전결 · 플롯에서 사건을 적으면 사건마다 연출을 짤 수 있어요.'}</p></section>`;
-  const has = new Set(g.view.scenes.map((x) => x.event));
-  const chip = (k) => `<a href="${base()}/stage/${n}/${k}"${k === g.ev ? ' aria-current="page"' : ''} title="${esc(e.plot.events[k - 1])}"><span class="chip">${k}${has.has(k - 1) ? ' ●' : ''}</span></a>`;
-  const bd = g.view.board || { events: [], stale: false };
-  const groups = stgEventGroups(e.plot.events.length, bd.events);
-  const grouped = bd.events.length > 0;
-  const events = `<nav class="stg-events${grouped ? ' grouped' : ''}" aria-label="사건">${grouped && bd.stale ? '<span class="flag amber">스토리보드가 낡았어요</span>' : ''}${groups.map((x) => grouped
-    ? `<span class="stg-group"><span class="small">${x.no ? `장면 ${x.no}${x.spot || x.place ? ` · ${esc(x.spot || x.place)}` : ''}` : '맡은 장면 없음'}</span>${x.events.map(chip).join('')}</span>`
-    : x.events.map(chip).join('')).join('')}</nav>`;
+  if (!e || !g) return `${head('방 하나 안에서 인물의 자리 · 자세 · 접촉을 박자마다 짜고 재생해요.')}<section class="card"><div class="empty">${eps.length ? `<p>사건이 있는 화를 고르세요.</p>${epPick}` : `<p>플롯에 사건이 있는 화가 아직 없어요. ${esc(stepLabel('arc'))}에서 사건을 적으면 사건마다 연출을 짤 수 있어요.</p><a class="btn primary" href="${base()}/arc">${esc(stepLabel('arc'))}으로</a>`}</div></section>`;
   const evText = e.plot.events[g.ev - 1] || '';
+  if (!evText) return `${head('')}<section class="card"><div class="empty"><p>${g.ev}번째 사건이 없어요.</p>${epPick}</div></section>`;
   const has2 = (role) => !!stgRow(g, role);
   const roles = `<div class="seg" role="group" aria-label="장면 역할">${[['plan', '계획'], ['text', '본문']].map(([r, l]) => `<button type="button" aria-pressed="${g.role === r}" data-action="stgRole" data-arg="${r}" title="${r === 'plan' ? '쓰기 전에 짠 장면' : '본문에서 뽑은 장면'}">${l}${has2(r) ? ' ●' : ''}</button>`).join('')}</div>`;
-  const pickBar = `<section class="card tight"><div class="stg-head">${epPick}${events}${roles}</div></section>`;
-  if (!evText) return `${head('')}<section class="card">${epPick}${events}<p class="small">${g.ev}번째 사건이 없어요.</p></section>`;
   const prop = stgProposal(g);
   const cmp = prop ? stgCompare(prop) : '';
-  if (!g.scene && g.role === 'text') return `${head(esc(evText), stgAiBtn())}${pickBar}${cmp}<section class="card"><h2>본문에서 뽑기 전이에요</h2>
-    <p class="desc">본문 장면은 본문에서 자리 · 자세 · 접촉을 뽑은 결과예요. 뽑으면 여기서 규칙으로 판정하고 계획 장면과 견줘요. 검수할 때도 함께 뽑아요(검수 화면의 '검수 때 함께 뽑기').${has2('plan') ? '' : ' 이 사건에는 계획 장면도 아직 없어요.'}</p></section>`;
-  if (!g.scene) return `${head(esc(evText), stgAiBtn())}${pickBar}${cmp}${stgNewCard()}`;
+  const wrap = (main) => outlineDoc(stgToc(), `<div class="stg-col">${main}</div>`, { wide: true, cls: 'stg-wrap' });
+  if (!g.scene && g.role === 'text') return `${head(esc(evText), roles + stgAiBtn())}${wrap(`${cmp}<section class="card stg-empty"><h2>본문에서 뽑기 전이에요</h2>
+    <p class="desc">본문 장면은 본문에서 자리 · 자세 · 접촉을 뽑은 결과예요. 뽑으면 여기서 규칙으로 판정하고 계획 장면과 견줘요. 검수할 때도 함께 뽑아요(검수 화면의 '검수 때 함께 뽑기').${has2('plan') ? '' : ' 이 사건에는 계획 장면도 아직 없어요.'}</p></section>`)}`;
+  if (!g.scene) return `${head(esc(evText), roles + stgAiBtn())}${wrap(cmp + stgNewCard())}`;
   const ck = g.check || { violations: [], stale: [], event_changed: false };
-  const save = `<button type="button" class="btn small primary" data-action="stgSave"${g.dirty ? '' : ' disabled'}>${g.dirty ? '저장' : '저장됨'}</button>`;
-  const undo = g.scene.prev ? `<button type="button" class="btn small ghost" data-action="stgUndo" title="마지막 AI 적용 전으로 되돌려요">적용 취소</button>` : '';
-  const right = `${stgAiBtn()}${undo}${save}<button type="button" class="btn small ghost danger" data-action="stgDelete">장면 지우기</button>`;
+  const three = S.stgView === '3d' && typeof s3Pane === 'function';
+  const more = menuBtn('stg-more', '<span aria-hidden="true">⋯</span>', () => `${g.scene.prev ? '<button type="button" class="pop-item" data-action="stgUndo">적용 취소<span class="small">마지막 AI 적용 전으로</span></button>' : ''}<button type="button" class="pop-item danger" data-action="stgDelete">장면 지우기<span class="small">방은 남아요</span></button>`, { cls: 'btn icon-btn', aria: '더 보기: 적용 취소 · 장면 지우기' });
+  const save = `<button type="button" class="btn primary" data-action="stgSave"${g.dirty ? '' : ' disabled'}>${g.dirty ? '저장' : '저장됨'}</button>`;
   const notes = [];
   if (ck.event_changed) notes.push(`<div class="note warn" role="status">플롯 사건이 바뀌었어요. 이 장면은 "${esc(g.scene.event_text)}" 사건으로 짠 것이에요.</div>`);
-  if (ck.violations.length) notes.push(`<div class="note warn" role="status"><b>규칙 검수 ${ck.violations.length}개</b><ul class="stg-viol">${ck.violations.map((x) => `<li><a href="#" data-action="stgBeat" data-arg="${x.beat}">${x.beat}박자</a> ${stgRuleTag(x.rule)}${esc(x.text)}</li>`).join('')}</ul></div>`);
-  const gaps = stgGaps();
-  if ((ck.moves || []).length) notes.push(`<div class="note warn" role="status"><b>빠진 이동 ${ck.moves.length}개</b> <span class="small">박자 설명과 자리가 어긋나요. 그 박자에 자리를 바꿔 주세요.</span><ul class="stg-viol">${ck.moves.map((x) => `<li><a href="#" data-action="stgBeat" data-arg="${x.beat}">${x.beat}박자</a> ${esc(x.text)}</li>`).join('')}</ul></div>`);
-  const stuck = (ck.paths || []).flatMap((row, k) => Object.entries(row || {}).filter(([, r]) => r.blocked).map(([w]) => ({ k, w })));
-  if (stuck.length) notes.push(`<div class="note plain" role="status"><b>막힌 이동 ${stuck.length}개</b> <span class="small">가구에 막혀 돌아갈 길이 없어 곧게 그렸어요. 자리를 바꾸거나 가구를 옮겨 보세요.</span><ul class="stg-viol">${stuck.map((x) => `<li><a href="#" data-action="stgBeat" data-arg="${x.k}">${x.k}박자</a> ${esc(charName(x.w))}</li>`).join('')}</ul></div>`);
   if (g.role === 'text') notes.push(`<div class="note plain">본문에서 뽑은 추출 결과예요. 고쳐도 계획 장면은 바뀌지 않아요.${ck.pair ? '' : ' 이 사건에는 견줄 계획 장면이 없어요.'}</div>`);
-  if (gaps.length) notes.push(`<div class="note plain" role="status"><b>계획과 다른 곳 ${gaps.length}개</b> <span class="small">사소한 차이예요. 본문 쪽 연출이 더 나을 수도 있어요.</span><ul class="stg-viol">${gaps.map((x) => `<li><a href="#" data-action="stgBeat" data-arg="${x.k}">${x.k === 0 ? '시작 상태' : `${x.k}박자`}</a> ${esc(x.text)}</li>`).join('')}</ul></div>`);
-  if (ck.stale.length) notes.push(`<div class="note plain">본문에 없는 문장을 가리키는 박자가 ${ck.stale.length}개 있어요: ${ck.stale.map((k) => `<a href="#" data-action="stgBeat" data-arg="${k}">${k}박자</a>`).join(', ')}</div>`);
+  const gaps = stgGaps();
+  if (gaps.length) notes.push(`<div class="note plain" role="status"><b>계획과 다른 곳 ${gaps.length}개</b> 사소한 차이예요. 본문 쪽 연출이 더 나을 수도 있어요. 목차의 '계획과 달라요' 박자에서 봐요.</div>`);
   if (ck.dropped) notes.push(`<div class="note warn">미성년 인물이 낀 성적 접촉 ${ck.dropped}개는 저장할 때 빠져요.</div>`);
-  const max = g.scene.beats.length;
-  const plan = `<section class="card stg-planc stg-pane" data-pane="plan"${S.stgPane === 'side' ? ' data-hide' : ''} aria-label="평면도">
-      <div class="between"><h2>${esc(g.room ? g.room.name : '방')}${g.role === 'text' ? ' <span class="chip">추출 결과</span>' : ''}</h2>${typeof s3Toggle === 'function' ? s3Toggle() : ''}<div class="seg" role="group" aria-label="평면도 모드"><button type="button" aria-pressed="${g.mode === 'people'}" data-action="stgMode" data-arg="people">인물</button><button type="button" aria-pressed="${g.mode === 'room'}" data-action="stgMode" data-arg="room">방 고치기</button></div></div>
-      ${S.stgView === '3d' && g.room && typeof s3Pane === 'function' ? s3Pane() : g.room ? `<svg id="stg-plan" viewBox="0 0 ${stgScale(g.room).w} ${stgScale(g.room).h}" role="img" aria-label="${esc(g.room.name)} 평면도, ${g.beat === 0 ? '시작 상태' : `${g.beat}박자`}"></svg>` : '<p class="small">방을 찾지 못했어요.</p>'}
-      <div class="stg-play"><button type="button" class="btn small" data-action="stgPlay"${max ? '' : ' disabled'}>${g.playing ? '❚❚ 멈춤' : '▶ 재생'}</button>
-        <input type="range" min="0" max="${max}" step="1" value="${g.beat}" data-stg-slider aria-label="박자" aria-valuetext="${g.beat === 0 ? '시작 상태' : `${g.beat}박자`}"><span class="small">${g.beat} / ${max}</span></div>
-      <div class="stg-legend"${S.stgView === '3d' ? ' style="display:none"' : ''}><span>쐐기 = 향한 쪽</span><span>점선 = 접촉</span><span>화살표 = 이번 박자 이동</span><span>${g.mode === 'room' ? '기준점을 끌어 옮겨요' : '인물을 끌어 놓으면 가까운 기준점에 붙어요'}</span></div>
-      ${g.role === 'text' ? (ck.pair ? `<label class="row small"><input type="checkbox" data-stg-ghost${g.ghost ? ' checked' : ''}> 겹쳐 보기 (계획 인물을 흐린 원으로)</label>` : '')
-    : `<label class="row small"><input type="checkbox" data-stg-prompt${g.scene.prompt ? ' checked' : ''}> 쓰기 프롬프트에 넣기</label>`}
-    </section>`;
-  const side = `<div class="col stg-pane" data-pane="side"${S.stgPane !== 'side' ? ' data-hide' : ''}>${g.mode === 'room' ? stgRoomPanel() : stgBeats() + stgPersonCard()}</div>`;
-  const tabs = `<div class="tabs stg-tabs" role="tablist"><button type="button" role="tab" aria-selected="${S.stgPane !== 'side'}" data-action="stgPane" data-arg="plan">평면도</button><button type="button" role="tab" aria-selected="${S.stgPane === 'side'}" data-action="stgPane" data-arg="side">${g.mode === 'room' ? '방' : '박자 · 인물'}</button></div>`;
-  return `${head(esc(evText), right)}${pickBar}${cmp}${notes.join('')}${tabs}<div class="stg-wrap">${plan}${side}</div>`;
+  const r = g.room;
+  const pic = three && r ? s3Pane() : r ? `<svg id="stg-plan" class="stg-plan" viewBox="0 0 ${stgScale(r).w} ${stgScale(r).h}" role="img" aria-label="${esc(r.name)} 평면도, ${stgBeatName(g.beat)}"></svg>` : '<p class="small">방을 찾지 못했어요.</p>';
+  const foot = g.role === 'text' ? (ck.pair ? `<label class="row small"><input type="checkbox" data-stg-ghost${g.ghost ? ' checked' : ''}> 겹쳐 보기 (계획 인물을 흐린 원으로)</label>` : '')
+    : three ? '' : `<label class="row small"><input type="checkbox" data-stg-prompt${g.scene.prompt ? ' checked' : ''}> 쓰기 프롬프트에 넣기</label>`;
+  const stageCard = `<section class="card stg-stage" aria-label="무대">
+      <div class="between"><div class="row stg-title"><h2>${esc(r ? r.name : '방')}</h2>${g.role === 'text' ? '<span class="chip">추출 결과</span>' : ''}<span class="small">${r ? `${r.w} × ${r.h}m · ` : ''}${stgBeatName(g.beat)}</span></div>${typeof s3Toggle === 'function' ? s3Toggle() : ''}</div>
+      <div class="stg-grid"><div class="stg-pic">${pic}</div><aside class="stg-now" aria-label="${stgBeatName(g.beat)}">${stgNow()}</aside></div>
+      <div class="between stg-foot">${three ? '<span></span>' : stgLegend()}${foot}</div></section>`;
+  const cards = g.mode === 'room' && !three ? stgRoomCard() + stgPeople() : stgPeople() + stgRoomCard();
+  return `${head(esc(evText), roles + stgAiBtn() + more + save)}${wrap(`${cmp}${notes.join('')}${stageCard}${stgBar()}${cards}`)}`;
 }
 
 /** render 뒤 평면도를 그린다 (app.js render 가 부른다). */
@@ -1191,7 +1374,15 @@ Object.assign(actions, {
     render();
     stgDrawPlan(from);
   },
-  stgWho(w) { S.stg.who = w; render(); },
+  /** 인물 줄 펴기 · 접기: 편 인물이 평면도에서 고른 인물이 된다 */
+  stgOpen(w) {
+    const g = S.stg;
+    g.open = g.open === w ? '' : w;
+    if (g.open) g.who = w;
+    render();
+  },
+  stgStep(d) { actions.stgBeat(S.stg.beat + Number(d)); },
+  stgBeatEdit() { S.stg.beatEdit = !S.stg.beatEdit; render(); },
   stgRole(r) {
     const g = S.stg;
     if (g.role === r) return;
@@ -1202,8 +1393,7 @@ Object.assign(actions, {
     stgPick();
     render();
   },
-  stgMode(m) { S.stg.mode = m; render(); },
-  stgPane(k) { S.stgPane = k; render(); },
+  stgMode(m) { S.stg.mode = m === 'room' ? 'room' : 'people'; render(); },
   stgPosture(id) { stgSet('posture', id); },
   stgKeep(field) {
     const b = stgBody(S.stg.who, false);
@@ -1266,6 +1456,7 @@ Object.assign(actions, {
     g.scene.start = strip(g.scene.start);
     g.scene.beats.forEach((b) => { b.bodies = strip(b.bodies); });
     if (g.who === w) g.who = g.scene.cast[0] || '';
+    if (g.open === w) g.open = '';
     stgTouch();
   },
   stgPlay() {
@@ -1385,6 +1576,7 @@ document.addEventListener('change', (e) => {
     const door = g.room.anchors.find((a) => a.kind === 'door');
     g.scene.start.push({ who: t.value, at: door ? { ref: door.id, rel: 'front' } : null, posture: 'stand', facing: '', left: '', right: '', contacts: [], ends: [], memo: '' });
     g.who = t.value;
+    g.open = t.value;
     stgTouch();
   } else if (d.stgGhost !== undefined) {
     g.ghost = t.checked;
@@ -1445,7 +1637,7 @@ document.addEventListener('pointerup', (e) => {
   if (!stgDrag) return;
   const d = stgDrag;
   stgDrag = null;
-  if (!d.moved) { render(); return; }
+  if (!d.moved) { if (d.kind === 'who') S.stg.open = d.id; render(); return; }  // 인물을 누르면 그 인물 줄을 편다
   if (d.kind === 'anchor') { stgTouch(); return; }
   const [mx, my] = stgMeters(d.svg, e);
   const at = stageSnap(S.stg.room, mx, my);
