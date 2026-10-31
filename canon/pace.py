@@ -28,9 +28,22 @@ BIG = 3  # 한 쌍에 한 화 결정적(3) 사건이 이만큼이면 경고
 _QUOTE = re.compile(r"[\'\"‘“「『][^\'\"’”」』]*[\'\"’”」』]")
 
 
-def rel_polarity(type_: str, description: str) -> int:
-    """관계의 극성. 유형 글로 보고, 유형이 중립이면 따옴표 속 대사를 뺀 설명으로 본다 (설명은 사건 이야기라 대사 속 '친구'가 섞인다)."""
-    return polarity(type_) or polarity(_QUOTE.sub("", description or ""))
+_SENT_END = re.compile(r"[.!?。\n]+")
+
+
+def rel_polarity(type_: str, description: str, others: tuple[str, ...] = ()) -> int:
+    """관계의 극성. 유형 글로 보고, 유형이 중립이면 따옴표 속 대사를 뺀 설명으로 본다 (설명은 사건 이야기라 대사 속 '친구'가 섞인다).
+    설명에서 두 사람 밖의 인물 이름(others)이 든 문장은 뺀다: '코미가 타다노를 친구로 택했다'는 코미 ↔ 야마이 관계의 극성이 아니다
+    (측정 2026-11-01, jev 9화 오탐)."""
+    if p := polarity(type_):
+        return p
+    text = _QUOTE.sub("", description or "")
+    return polarity(" ".join(x for x in _SENT_END.split(text) if not any(o in x for o in others)))
+
+
+def _others(p: Project, a: str, b: str) -> tuple[str, ...]:
+    """두 사람 밖 인물의 이름들 (세 글자 한글 이름은 성을 뗀 이름도, 띄어 쓴 이름은 낱낱도)."""
+    return tuple(f for c in p.characters if c.id not in (a, b) for f in name_forms(c.name))
 
 
 def polarity(text: str) -> int:
@@ -94,9 +107,10 @@ def clean_delta(p: Project, d: StateDelta) -> list[str]:
     nm = _names(p)
     warns: list[str] = []
     for i, r in enumerate(d.relationship_updates):
-        new = rel_polarity(r.type, r.description)
+        others = _others(p, r.a, r.b)
+        new = rel_polarity(r.type, r.description, others)
         cur = next((x for x in p.relationships if {x.a, x.b} == {r.a, r.b}), None)
-        old = rel_polarity(cur.type, cur.description) if cur else 0
+        old = rel_polarity(cur.type, cur.description, others) if cur else 0
         sign = _pair_sign(sim, r.a, r.b)
         if new and new == -sign and new != old and not _masked(p, d, r.a, r.b):
             stage = dynamics.find_tie(sim.ties, r.a, r.b) or dynamics.find_tie(sim.ties, r.b, r.a)

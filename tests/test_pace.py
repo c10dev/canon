@@ -1,7 +1,7 @@
 """관계 속도 테스트 (mock LLM): 글 극성, 관계 유형이 반영 뒤 단계와 반대일 때 경고 · 기본 체크 해제, 두 층 감정은 빼기,
 결정적 사건 남발, 사람 검토 없이 반영할 때 빼기. 실행: python -m pytest tests"""
 from canon import dynamics, features, pace, pipeline, prompts
-from canon.schema import CharacterState, Relationship, StateDelta, StoryEvent
+from canon.schema import Character, CharacterState, Relationship, StateDelta, StoryEvent
 
 from .test_storylines import _short
 from .test_timeline import _play
@@ -161,3 +161,18 @@ def test_serial_plot_prompt_has_stages_and_rule():
     assert "[지금 관계 단계 (한 화에 한 칸씩 움직임)]" in text and " → " in text.split("[지금 관계 단계")[1]
     assert "관계 단계(낯섦" in prompts.plot_rules(p) and "관계 단계(낯섦" not in prompts.plot_rules(_short(8))
     assert "[지금 관계 단계" not in prompts.plot_prompt(_short(8), 1, 8)  # 단편 플롯 초안은 그대로
+
+
+def test_description_about_a_third_person_is_ignored():
+    # jev 9화 오탐: 코미 ↔ 야마이 설명의 '코미가 타다노를 친구로 택했다'는 다른 쌍의 '친구'다
+    assert pace.rel_polarity("거절당한 숭배자", "코미가 타다노를 친구로 택했다. 야마이는 울면서 도망쳤다.", ("타다노",)) == 0
+    assert pace.rel_polarity("거절당한 숭배자", "코미가 타다노를 친구로 택했다.") == 1  # 다른 인물을 모르면 예전과 같다
+    assert pace.rel_polarity("같은 반", "둘은 서로 믿게 되었다. 타다노는 몰랐다.", ("타다노",)) == 1  # 두 사람만의 문장은 그대로 본다
+    p = _play(_short(8), 1, 1)
+    _set(p, "적대", -0.6)
+    third = Character(id="mentor", name="한해원", role="조연")  # mock 작품에는 두 사람뿐이라 셋째 인물을 더한다
+    p.characters.append(third)
+    d = _delta(relationship_updates=[Relationship(a="hero", b="ally", type="같은 반",
+                                                  description=f"{_name(p, 'hero')}는 {third.name}를 친구로 택했다.")])
+    pipeline.clean_delta(p, d)
+    assert d.rel_flagged == []
