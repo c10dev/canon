@@ -39,7 +39,7 @@
 
 ## 문서
 
-README.md · DESIGN.md · AGENTS.md 의 고칠 줄, 이 폴더의 [plan.md](../plan.md) 상태.
+README.md · DESIGN.md · `docs/modules/map.md` 의 고칠 줄, 이 폴더의 [plan.md](../plan.md) 상태.
 
 ## 확인하지 못할 것
 
