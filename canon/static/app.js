@@ -1734,7 +1734,7 @@ async function routeNow() {
       } else if (parts[2] === 'arc') S.selEp = null;  // 보드로 돌아오면 대화 대상도 고른 아크로 돌아간다
       if (parts[2] === 'write' || parts[2] === 'arc' || parts[2] === 'check') await openingLoad(parts[2] === 'arc' ? 0 : (n || currentEp()));
       if (parts[2] === 'check') await checkLoad(n || currentEp());
-      if (parts[2] === 'research') await rsLoad();
+      if (parts[2] === 'research') await rsLoad(parts[3]);  // research/<쪽> 은 그 실험 쪽
       if (parts[2] === 'cue') await cueLoad(parts[3]);
       if (parts[2] === 'usage') await usageLoad(S.name);
       if (parts[2] === 'convert') await convertLoad();
@@ -1875,8 +1875,8 @@ function pageTitle() {
   const h1 = $('#app main h1');
   const name = h1 ? h1.textContent.trim().replace(/\s+/g, ' ') : '';
   const work = P() && S.route[0] === 'p' ? P().meta.title : '';
-  // 한 화 흐름의 세 화면은 제목이 모두 화 제목이라 단계 이름을 앞에 붙인다 ('검수 · 4화 「제목」')
-  const stage = work && FLOW_PAGES.includes(S.route[2]) ? stepLabel(S.route[2]) : '';
+  // 한 화 흐름의 세 화면과 작업지시서는 제목이 모두 화 제목이라 화면 이름을 앞에 붙인다 ('검수 · 4화 「제목」')
+  const stage = !work ? '' : FLOW_PAGES.includes(S.route[2]) ? stepLabel(S.route[2]) : S.route[2] === 'brief' ? '채팅 앱 작업지시서' : '';
   return [stage, name, work !== name ? work : '', 'Canon'].filter(Boolean).join(' · ');
 }
 
@@ -1909,7 +1909,7 @@ function drawApp() {
   const n = Number(arg) || currentEp();
   const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, stage: viewStage, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches, cue: viewCue };
   const body = (views[page] || viewHome)(n);
-  $('#app').innerHTML = `<div class="shell">${sidebar(page === 'convert' ? 'home' : page || 'home')}<main class="main">${branchStrip(page)}${failStrip(page, n)}${draftStrip(page, n)}${body}</main></div>`;
+  $('#app').innerHTML = `<div class="shell">${sidebar(page === 'convert' ? 'home' : page || 'home')}<main class="main">${failStrip(page, n)}${draftStrip(page, n)}${branchPlace(page, body)}</main></div>`;
   syncPending();
   keepDrafts();  // 저장 · 버리기 · AI 본문으로 초안이 사라졌으면 임시본도 바로 지운다
   syncChat();

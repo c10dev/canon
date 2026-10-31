@@ -186,7 +186,99 @@ function plotMeter(eps, total, head) {
     </div>`;
 }
 
-/** start~end 화에서 작가가 확인할 것: 플롯이 데려온 새 인물 후보, 설정 없는 인물 id, 엔딩 훅이 빈 화(작품 마지막 화 빼고).
+/* ---------- 관계 속도: 플롯이 한 화에 관계 단계를 두 칸 넘게 옮기나 (pace.plot_warnings 와 같은 규칙, tests/test_plot_pace_js.py) ---------- */
+const PACE_EDGES = { 낯섦: ['경계', '호감'], 경계: ['낯섦', '호감', '적대', '균열'], 호감: ['낯섦', '경계', '신뢰', '균열'], 신뢰: ['호감', '균열', '화해'],
+  균열: ['호감', '신뢰', '적대', '화해', '경계'], 적대: ['경계', '균열', '화해'], 화해: ['호감', '신뢰', '균열', '적대'] };  // dynamics.STAGE_EDGES
+const PACE_BE = '(?:되|된|됐|돼)';
+const PACE_SHIFTS = (() => {  // pace.SHIFTS: [정규식, 가 닿을 단계]
+  const FRIEND = ['호감', '신뢰'], MAKEUP = ['화해', '호감', '신뢰'], COOL = ['경계', '균열', '적대'], BREAK = ['균열', '적대'], ENEMY = ['적대'];
+  return [[`친구가 ${PACE_BE}`, FRIEND], ['친구로 (?:합류|인정|받아들)', FRIEND], ['마음을 (?:열|연)', FRIEND], [`믿게 ${PACE_BE}`, FRIEND],
+    ['믿기 시작', FRIEND], ['신뢰하게', FRIEND], [`연인이 ${PACE_BE}`, FRIEND], ['사귀|사귄', FRIEND], ['고백을 받아들', FRIEND],
+    ['화해', MAKEUP], ['용서', MAKEUP],
+    ['등을 돌', COOL], ['멀어(?:지|진|졌|져)', COOL], ['믿지 않게', COOL], ['정을 (?:떼|뗀|뗐)', COOL],
+    ['배신(?:하|한|했|해)', BREAK], ['절교', BREAK], ['결별', BREAK],
+    [`원수가 ${PACE_BE}`, ENEMY], [`적이 ${PACE_BE}`, ENEMY], ['증오하게', ENEMY]].map(([pat, goal]) => [new RegExp(pat, 'g'), goal]);
+})();
+/** 문장에서 가장 뒤에 나온 바뀜 말의 단계 (pace._last_shift) */
+function paceLastShift(sent) {
+  let best = null;
+  for (const [rx, goal] of PACE_SHIFTS) for (const m of sent.matchAll(rx)) if (!best || m.index > best[0]) best = [m.index, goal];
+  return best ? best[1] : null;
+}
+const PACE_LAYER = /(?:겉|머리)\s*(?:\([^)]*\))?\s*[:：][^/]*\/\s*(?:속|몸)\s*(?:\([^)]*\))?\s*[:：]/;  // prompts.LAYER
+const PACE_UP = new Set(['호감', '신뢰', '화해']);
+/** metrics.name_forms: 한글 세 글자 이름은 성을 뗀 이름도 */
+const paceBaseForms = (name) => {
+  const n = (name || '').trim();
+  return n ? (n.length === 3 && /^[가-힣]{3}$/.test(n) ? [n, n.slice(1)] : [n]) : [];
+};
+/** pace.name_forms: 띄어 쓴 이름은 두 글자 넘는 낱낱도 */
+const paceForms = (name) => {
+  const out = paceBaseForms(name);
+  return out.concat((name || '').split(/\s+/).filter((w) => w.length >= 2 && !out.includes(w)));
+};
+function paceSteps(start, goals) {
+  const seen = { [start]: 0 };
+  const q = [start];
+  while (q.length) {
+    const cur = q.shift();
+    if (goals.includes(cur)) return seen[cur];
+    for (const nxt of PACE_EDGES[cur] || []) if (!(nxt in seen)) { seen[nxt] = seen[cur] + 1; q.push(nxt); }
+  }
+  return 0;
+}
+/** n 화 플롯이 바라는 관계 바뀜 [[인물, 인물, 가 닿을 단계들]] (pace.plot_shifts) */
+function paceShifts(p, n) {
+  const e = p.episodes.find((x) => x.plot.number === n);
+  if (!e) return [];
+  const plot = e.plot;
+  const forms = p.characters.filter((c) => plot.characters.includes(c.id)).flatMap((c) => paceForms(c.name).map((f) => [c.id, f]));
+  const out = [];
+  for (const sent of [plot.summary || '', ...(plot.events || []), plot.emotional_shift || ''].join('\n').split(/[.!?。\n]+/)) {
+    const goal = paceLastShift(sent);
+    if (!goal) continue;
+    const ids = [...new Set(forms.filter(([, f]) => sent.includes(f)).map(([id]) => id))].sort();
+    if (ids.length < 2 || ids.length > 3) continue;
+    for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
+      if (!out.some((x) => x[0] === ids[i] && x[1] === ids[j] && x[2].join() === goal.join())) out.push([ids[i], ids[j], goal]);
+    }
+  }
+  return out;
+}
+/** 두 층 감정 라벨로 상대를 적은 쌍 (pace._masked, 변경안 없이) */
+function paceMasked(p, a, b) {
+  return [[a, b], [b, a]].some(([x, y]) => {
+    const st = (p.states || []).find((s) => s.character_id === x);
+    const text = st ? st.emotional_state || '' : '';
+    const other = (p.characters.find((c) => c.id === y) || {}).name || '';
+    return PACE_LAYER.test(text) && paceBaseForms(other).some((f) => text.includes(f));
+  });
+}
+/** n 화 플롯 경고 글 (pace.plot_warnings) */
+function pacePlot(p, n) {
+  const last = Math.max(0, ...p.episodes.filter((e) => e.status === 'finalized').map((e) => e.plot.number));
+  const nm = Object.fromEntries(p.characters.map((c) => [c.id, c.name || c.id]));
+  const tie = (s, t) => (p.ties || []).find((x) => x.source === s && x.target === t);
+  const out = [];
+  for (const [a, b, goal] of paceShifts(p, n)) {
+    if (paceMasked(p, a, b)) continue;
+    const ties = [tie(a, b), tie(b, a)].filter(Boolean);
+    if (!ties.length) continue;
+    const far = ties.reduce((m, t) => (paceSteps(t.stage, goal) > paceSteps(m.stage, goal) ? t : m));
+    const need = paceSteps(far.stage, goal);
+    const up = PACE_UP.has(goal[0]);
+    let room = 1;
+    for (let k = last + 1; k < n; k++) room += paceShifts(p, k).filter(([x, y, g]) => x === a && y === b && PACE_UP.has(g[0]) === up).length;
+    if (need > room) {
+      out.push(`${n}화 플롯: ${nm[far.source] || far.source} → ${nm[far.target] || far.target} 지금 단계는 ${far.stage}예요. `
+        + `이 화는 ${up ? '가까워지는' : '멀어지는'} 쪽을 바라는데 단계가 ${need}칸 움직여야 해요(한 화에 한 칸). `
+        + '계기 화와 받아들이는 화를 나누거나 앞 화에 다리를 놓아 주세요.');
+    }
+  }
+  return out;
+}
+
+/** start~end 화에서 작가가 확인할 것: 플롯이 데려온 새 인물 후보, 설정 없는 인물 id, 엔딩 훅이 빈 화(작품 마지막 화 빼고), 관계를 너무 빨리 옮기는 화.
     본문이 있는 화는 플롯을 고칠 수 없으니 넣지 않는다. [{kind, n, text, sub}] */
 function plotTodos(p, start, end) {
   const eps = p.episodes.filter((e) => e.plot.number >= start && e.plot.number <= end && !e.text && e.status !== 'written' && e.status !== 'finalized');
@@ -201,6 +293,8 @@ function plotTodos(p, start, end) {
     .forEach((id) => out.push({ kind: 'unknown', n: e.plot.number, text: `설정 없는 인물 · ${id}`, sub: `${e.plot.number}화 등장 인물에 이름만 있어요` })));
   const noHook = eps.filter((e) => e.plot.number !== p.meta.target_episodes && !(e.plot.ending_hook || '').trim()).map((e) => e.plot.number);
   if (noHook.length) out.push({ kind: 'hook', n: noHook[0], text: `엔딩 훅 빈 화 · ${rangeText(noHook)}화`, sub: '' });
+  eps.forEach((e) => pacePlot(p, e.plot.number).forEach((w) => out.push({ kind: 'pace', n: e.plot.number,
+    text: `관계를 한 화에 너무 많이 옮김 · ${e.plot.number}화`, sub: w.replace(/^\d+화 플롯: /, '') })));
   return out;
 }
 

@@ -156,7 +156,7 @@ def _num(x: str) -> float:
 
 
 def checks(p: Project, n: int, b: Storyboard) -> list[str]:
-    """Canon 이 센 경고: 맡은 장면이 없는 플롯 사건, 모르는 인물, 0 아래나 한도 위로 간 '현재/한도' 수치."""
+    """Canon 이 센 경고: 맡은 장면이 없는 플롯 사건, 모르는 인물, 0 아래나 한도 위로 간 '현재/한도' 수치, 관계 단계를 두 칸 넘게 옮기는 플롯."""
     out = []
     e = _episode(p, n)
     if e and b.scenes:
@@ -183,6 +183,8 @@ def checks(p: Project, n: int, b: Storyboard) -> list[str]:
                 out.append(f"값 범위: {where} (0 아래예요)")
             elif x > top:
                 out.append(f"값 범위: {where} (한도를 넘어요)")
+    from . import pace  # pace 가 prompts 를 거쳐 이 모듈을 부른다
+    out += pace.plot_warnings(p, n)  # 플롯이 한 화에 관계 단계를 두 칸 넘게 옮김 (경고만, 자동 집필은 멈추지 않음)
     return out
 
 

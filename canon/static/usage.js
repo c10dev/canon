@@ -1,6 +1,7 @@
 /* 사용량 · 비용 화면과 AI 요금 가격표. app.js 의 S, actions, api, render 를 그대로 쓴다. 서버 로직은 canon/usage.py.
    모든 AI 호출(웹, 백그라운드 작업, 자동 집필, 배치, 연구, 명령줄)의 토큰을 기록해 두고, 볼 때마다 가격표로 비용을 계산한다.
-   작품 안에서 열면(#/p/<이름>/usage) 그 작품만, 밖에서 열면(#/usage) 모든 작품을 본다. 가격표는 설정 화면과 이 화면에서 고친다. */
+   작품 안에서 열면(#/p/<이름>/usage) 그 작품만, 밖에서 열면(#/usage) 모든 작품을 본다.
+   화면은 기간 · 작품 거르기 → 비용 타일 → 날짜별 막대 → '어디에 썼나' 막대 목록 → 호출 목록 → 접힌 가격표(고치기로 폄) 순서다. */
 'use strict';
 
 Object.assign(S, {
@@ -11,6 +12,11 @@ Object.assign(S, {
   usageMore: false, // 호출 목록을 20건 넘게 펼침
   usageLimit: 60,   // 서버에서 받는 최근 호출 수 ('더 불러오기'로 늘린다)
   usageBar: null,   // 차트에서 고른 막대 (날짜 키)
+  usageMetric: 'cost', // 막대 값: cost 비용 | calls 호출 수 (축은 하나만)
+  usageTable: false,   // 막대 아래 날짜별 표를 폄
+  usageBy: 'stage',    // '어디에 썼나' 나누는 기준: stage · model · project(작품을 고르면 화) · source
+  usageByAll: false,   // 그 목록을 8줄 넘게 폄
+  priceOpen: false,    // 가격표를 고치는 칸으로 폄
   prices: null,     // GET /usage/prices 결과
   priceRows: null,  // 고치는 중인 가격표 줄
   priceDirty: false,
@@ -64,8 +70,6 @@ function tok(n) {
   return Number(n || 0).toLocaleString();
 }
 
-const usageWhen = (iso) => fmtDateTime(iso);  // 날짜 형식은 app.js fmtDateTime 하나로
-
 let usageTitles = {};  // 폴더 이름 → 작품 제목
 const usageName = (p) => (usageTitles[p] && usageTitles[p] !== p ? `${usageTitles[p]} (${p})` : p);
 
@@ -75,55 +79,61 @@ const USAGE_BACKEND = { local: '로컬 · 0원', claude: 'Claude 구독', 'claud
 function viewUsage() {
   const u = S.usage;
   const inProject = S.route[0] === 'p';
-  const head = header(inProject ? esc(P().meta.title || S.name) : 'Canon', '사용량 · 비용',
-    'AI를 부를 때마다 토큰 수를 기록하고 가격표로 비용을 계산해요. <strong>추정치</strong>라 Google 청구 금액과 다를 수 있어요.',
+  const head = header(inProject ? `${esc(P().meta.title || S.name)} · 실험 · 본편과 분리` : 'Canon · 작품 밖', '사용량 · 비용',
+    'AI를 부를 때마다 토큰을 기록하고 가격표로 비용을 계산해요. <strong>추정치</strong>라 청구 금액과 다를 수 있어요.',
     `<a class="btn" href="${(u && u.billing_url) || 'https://aistudio.google.com/usage'}" target="_blank" rel="noopener">AI Studio 실제 사용량 ↗</a>`);
   if (!u) return `${head}<div class="small">불러오는 중…</div>`;
   const t = u.total;
   const projects = [...new Set([...Object.keys(usageTitles), ...(u.projects || []), ...(S.usageProject ? [S.usageProject] : [])])].sort();
-  const filters = `<div class="between usage-filters">
-      <div class="row" role="group" aria-label="기간">${USAGE_DAYS.map(([d, l]) => `<button class="btn${S.usageDays === d ? ' primary' : ''}" data-action="usageDays" data-arg="${d}" aria-pressed="${S.usageDays === d}">${l}</button>`).join('')}</div>
-      <label class="row small">작품
-        <select data-usage="project" aria-label="작품">
+  const filters = `<div class="usage-filters">
+      <div class="seg" role="group" aria-label="기간">${USAGE_DAYS.map(([d, l]) => `<button type="button" data-action="usageDays" data-arg="${d}" aria-pressed="${S.usageDays === d}">${l}</button>`).join('')}</div>
+      <label class="usage-proj"><span class="label">작품</span>
+        <select data-usage="project">
           <option value=""${S.usageProject ? '' : ' selected'}>모든 작품</option>
           ${projects.map((p) => `<option value="${esc(p)}"${p === S.usageProject ? ' selected' : ''}>${esc(usageName(p))}</option>`).join('')}
         </select></label>
     </div>`;
   if (!t.calls) {
-    return `${head}${filters}<div class="note plain">이 기간${S.usageProject ? `에 ${esc(usageName(S.usageProject))}` : ''}의 AI 호출 기록이 없어요. 이 화면이 생긴 뒤의 호출부터 기록해요 (mock은 기록하지 않음).</div>
-      ${usagePriceSection()}`;
+    const span = USAGE_DAYS.find(([d]) => d === S.usageDays)[1];
+    const where = S.usageProject ? `${esc(usageName(S.usageProject))}에서 ` : '';
+    return `${head}<div class="usage-wrap">${filters}
+      <section class="card"><div class="empty"><h2>${S.usageDays ? `${span} 동안 ` : ''}${where}AI 호출 기록이 없어요</h2>
+        <p>이 화면이 생긴 뒤의 호출부터 기록해요. mock 호출은 기록하지 않아요.</p>
+        ${S.usageDays ? '<button type="button" class="btn primary" data-action="usageDays" data-arg="0">전체 기간 보기</button>' : ''}</div></section>
+      ${usagePriceSection()}</div>`;
   }
-  const tiles = [
-    ['추정 비용', usd(t.cost), `${t.unpriced ? `가격 모르는 호출 ${t.unpriced}번 제외` : '가격표 기준'}`],
-    ['호출', `${t.calls.toLocaleString()}번`, `${t.failed ? `실패 ${t.failed}` : '실패 없음'}${t.retries ? ` · 다시 요청 ${t.retries}` : ''}`],
-    ['입력 토큰', tok(t.in), t.cached ? `캐시 ${tok(t.cached)} (싸게 매겨짐)` : '캐시 없음'],
-    ['출력 토큰', tok(t.out), '생각(thinking) 토큰 포함'],
-    ['배치로 아낀 비용', usd(t.saved), t.batch ? `배치 ${t.batch}번` : '배치 안 씀'],
-    ['실패 · 재시도 비용', usd(t.wasted), '형식 오류로 다시 받은 것 포함'],
-  ];
-  return `${head}${filters}
-    ${u.unpriced.length ? `<div class="note warn">가격표에 없는 모델이 있어요. 이 호출은 비용에서 빠졌어요. 가격을 넣으면 다시 계산해요.
-      <div class="row">${u.unpriced.map((m) => `<span class="mono">${esc(m || '(이름 없음)')}</span>${m ? ` <button class="btn small" data-action="priceAddModel" data-arg="${esc(m)}">가격 넣기</button>` : ''}`).join(' ')}</div></div>` : ''}
-    <div class="usage-tiles">${tiles.map(([k, v, s]) => `<div class="usage-tile"><div class="small">${k}</div><div class="usage-num">${v}</div><div class="small">${s}</div></div>`).join('')}</div>
-    <section class="card">${usageChart(u)}</section>
-    <div class="cols">
-      <div class="col">${usageTable('단계별', u.by_stage, (r) => esc(USAGE_STAGE[r.stage] || r.stage || '기타'))}
-        ${usageTable('모델별', u.by_model, (r) => `${esc(r.model || '(이름 없음)')} <span class="small">${USAGE_BACKEND[r.backend] || 'Gemini'}</span>`)}</div>
-      <div class="col">${S.usageProject
-        ? usageTable('화별', u.by_episode, (r) => `<a href="#/p/${enc(r.project)}/write/${r.episode}">${r.episode}화</a>`, '화가 정해지지 않은 호출(설정, 기획 등)은 빠져요')
-        : usageTable('작품별', u.by_project, (r) => r.project ? `<a href="#/p/${enc(r.project)}/usage">${esc(usageName(r.project))}</a>` : '<span class="small">작품 밖 (연구 서버 점검 등)</span>')}
-        ${usageTable('어디서 불렀나', u.by_source, (r) => esc(USAGE_SOURCE[r.source] || r.source || '기타'))}</div>
-    </div>
+  const span = S.usageDays ? `${USAGE_DAYS.find(([d]) => d === S.usageDays)[1]} ` : '전체 기간 ';
+  const tiles = `<div class="usage-tiles">
+      <div class="usage-tile hero"><span class="k">${span}추정 비용</span><span class="usage-num">${usd(t.cost)}</span><span class="small">${t.unpriced ? `가격 모르는 호출 ${t.unpriced}번 빠짐` : '가격표 기준'}</span></div>
+      <div class="usage-tile"><span class="k">호출</span><span class="usage-num">${t.calls.toLocaleString()}번</span><span class="small">${t.failed ? `실패 ${t.failed}` : '실패 없음'}${t.retries ? ` · 다시 요청 ${t.retries}` : ''}</span></div>
+      <div class="usage-tile"><span class="k">토큰 입력 · 출력</span><span class="usage-num">${tok(t.in)} · ${tok(t.out)}</span><span class="small">${t.cached ? `캐시 ${tok(t.cached)} (싸게 매겨짐)` : '캐시 없음'} · 출력은 생각 토큰 포함</span></div>
+      <div class="usage-tile"><span class="k">아낀 · 버린 비용</span><span class="usage-num">${usd(t.saved)} · ${usd(t.wasted)}</span><span class="small">${t.batch ? `배치 ${t.batch}번` : '배치 안 씀'} · 실패와 다시 요청</span></div>
+    </div>`;
+  return `${head}<div class="usage-wrap">${filters}
+    ${u.unpriced.length ? `<div class="note warn usage-unpriced"><span>가격표에 없는 모델이 있어요. 이 호출은 비용에서 빠졌어요. 가격을 넣으면 다시 계산해요.</span>
+      <span class="row">${u.unpriced.map((m) => `<span class="mono">${esc(m || '(이름 없음)')}</span>${m ? ` <button type="button" class="btn small" data-action="priceAddModel" data-arg="${esc(m)}">가격 넣기</button>` : ''}`).join(' ')}</span></div>` : ''}
+    ${tiles}
+    <section class="card" aria-labelledby="usage-chart-h">${usageChart(u)}</section>
+    ${usageBreakdown(u)}
     ${usageCalls(u)}
-    ${usagePriceSection()}`;
+    ${usagePriceSection()}</div>`;
 }
 
-// 날짜별 비용 막대. 비용이 모두 0(로컬만 씀)이면 호출 수로 그린다.
+/** 축 눈금: 0 부터 가장 큰 값을 덮는 깔끔한 간격 셋. 순수 함수(tests/test_research_js.py) */
+function usageTicks(max) {
+  if (!(max > 0)) return [0, 1, 2, 3];
+  const raw = max / 3;
+  const p = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * p).find((s) => s >= raw);
+  return [0, 1, 2, 3].map((i) => Number((step * i).toPrecision(6)));
+}
+
+// 날짜별 막대. 값은 비용 · 호출 수 중 고른 하나(축은 하나만). 비용이 모두 0(로컬만 씀)이면 호출 수로 그린다.
 function usageChart(u) {
   let byDay = Object.fromEntries(u.by_day.map((r) => [r.day, r]));
   const key = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
   // 기간 안의 날을 빈 날까지 모두 채운다 ('전체'는 첫 기록 날부터 오늘까지). 120일이 넘으면 주 단위로 묶는다.
-  // 휴대폰 폭에서는 60일이 넘으면 묶는다 (90개 막대는 폭을 넘고 너무 가늘어 누를 수 없다)
+  // 휴대폰 폭에서는 60일이 넘으면 묶는다 (90개 막대는 폭을 넘고 너무 가늘다)
   const today = new Date();
   const from = S.usageDays ? new Date(today.getFullYear(), today.getMonth(), today.getDate() - S.usageDays + 1)
     : u.by_day.length ? new Date(`${u.by_day.map((r) => r.day).sort()[0]}T00:00:00`) : today;
@@ -142,26 +152,36 @@ function usageChart(u) {
     days = Object.keys(weeks);
     byDay = Object.fromEntries(Object.entries(weeks).filter(([, r]) => r.calls));
   }
-  const byCost = u.by_day.some((r) => r.cost > 0);
+  const byCost = S.usageMetric !== 'calls' && u.by_day.some((r) => r.cost > 0);
   const val = (r) => (r ? (byCost ? r.cost : r.calls) : 0);
-  const max = Math.max(...days.map((d) => val(byDay[d])), 0) || 1;
+  const ticks = usageTicks(Math.max(...days.map((d) => val(byDay[d])), 0));
+  const top = ticks[3];
+  const fmt = (v) => (byCost ? (v === 0 ? '$0' : `$${v < 1 ? v.toFixed(v < 0.1 ? 3 : 2) : v.toFixed(v < 10 ? 1 : 0)}`) : v.toLocaleString());
   const tips = {};
   const bars = days.map((d) => {
     const r = byDay[d];
-    const h = r ? Math.max(2, Math.round((val(r) / max) * 100)) : 0;
-    const when = weekly ? `${d} 주` : d;
-    tips[d] = r ? `${when}: ${usd(r.cost)} · 호출 ${r.calls}번 · 입력 ${tok(r.in)} / 출력 ${tok(r.out)}${r.failed ? ` · 실패 ${r.failed}` : ''}` : `${when}: 호출 없음`;
+    const h = r && val(r) ? Math.max(2, Math.round((val(r) / top) * 100)) : 0;
+    const when = weekly ? `${d.slice(5).replace('-', '.')} 주` : d.slice(5).replace('-', '.');
+    tips[d] = r ? `${when} · ${usd(r.cost)} · 호출 ${r.calls}번 · 입력 ${tok(r.in)} / 출력 ${tok(r.out)}${r.failed ? ` · 실패 ${r.failed}` : ''}` : `${when} · 호출 없음`;
     // 터치에는 title 툴팁이 없어 누르면 아래 줄에 값을 적는다. 키보드는 차트 하나에 초점을 두고 ←/→ 로 옮긴다
     return `<div class="usage-bar${S.usageBar === d ? ' on' : ''}" data-bar="${d}" title="${esc(tips[d])}"><i style="height:${h}%"></i></div>`;
   }).join('');
   usageTips = { days, tips };
-  const first = days[0] || '';
-  const last = days[days.length - 1] || '';
+  const lab = (d) => (d ? `${d.slice(5).replace('-', '.')}` : '');
+  const mid = days.length > 8 ? [1, 2, 3].map((q) => days[Math.round((q * (days.length - 1)) / 4)]) : [];
   const picked = S.usageBar && tips[S.usageBar];
-  return `<div class="between"><h2>${weekly ? '주별' : '날짜별'} ${byCost ? '추정 비용' : '호출 수'}</h2><span class="small">가장 많은 ${weekly ? '주' : '날'} ${byCost ? usd(max) : `${max}번`} · 막대를 누르면 자세히</span></div>
-    <div class="usage-chart" tabindex="0" role="group" aria-label="${weekly ? '주별' : '날짜별'} ${byCost ? '비용' : '호출 수'} 막대. ←/→ 키로 옮겨 값을 봐요" aria-describedby="usage-pick">${bars}</div>
-    <div class="between small"><span>${first.slice(5)}</span><span>${last.slice(5)}</span></div>
-    <div class="small usage-pick" id="usage-pick" aria-live="polite">${picked ? esc(picked) : '막대를 누르거나, 차트에 초점을 두고 ←/→ 키로 날짜별 값을 봐요.'}</div>`;
+  const canCost = u.by_day.some((r) => r.cost > 0);
+  return `<div class="between"><h2 id="usage-chart-h">${weekly ? '주별' : '날짜별'} ${byCost ? '추정 비용' : '호출 수'}</h2>
+      <div class="row">${canCost ? `<div class="seg" role="group" aria-label="막대 값"><button type="button" data-action="usageMetric" data-arg="cost" aria-pressed="${byCost}">비용</button><button type="button" data-action="usageMetric" data-arg="calls" aria-pressed="${!byCost}">호출 수</button></div>` : ''}
+        <button type="button" class="btn small ghost" data-action="usageTable" aria-expanded="${!!S.usageTable}">${S.usageTable ? '표 접기' : '표로 보기'}</button></div></div>
+    <div class="usage-plot">
+      <div class="usage-y" aria-hidden="true">${ticks.slice().reverse().map((v) => `<span>${fmt(v)}</span>`).join('')}</div>
+      <div class="usage-chart" tabindex="0" role="group" aria-label="${weekly ? '주별' : '날짜별'} ${byCost ? '비용' : '호출 수'} 막대. ←/→ 키로 옮겨 값을 봐요" aria-describedby="usage-pick">${bars}</div>
+      <div class="usage-x" aria-hidden="true">${[days[0], ...mid, days[days.length - 1]].map((d) => `<span>${lab(d)}</span>`).join('')}</div>
+    </div>
+    <div class="small usage-pick" id="usage-pick" aria-live="polite">${picked ? esc(picked) : '막대를 누르거나, 차트에 초점을 두고 ←/→ 키로 날짜별 값을 봐요.'}</div>
+    ${S.usageTable ? `<div class="rs-scroll"><table class="rs-table"><thead><tr><th>${weekly ? '주' : '날'}</th><th>추정 비용</th><th>호출</th><th>입력</th><th>출력</th><th>실패</th></tr></thead><tbody>
+      ${days.filter((d) => byDay[d]).reverse().map((d) => { const r = byDay[d]; return `<tr><td>${lab(d)}</td><td>${usd(r.cost)}</td><td>${r.calls}</td><td>${tok(r.in)}</td><td>${tok(r.out)}</td><td>${r.failed || ''}</td></tr>`; }).join('')}</tbody></table></div>` : ''}`;
 }
 
 let usageTips = { days: [], tips: {} };  // 마지막으로 그린 차트의 막대 목록과 설명
@@ -181,6 +201,14 @@ document.addEventListener('click', (e) => {
   if (bar) usagePick(bar.dataset.bar);
 });
 
+// 휴대폰: 차트를 누른 채 옆으로 밀면 손가락 아래 막대를 고른다 (막대가 44px 보다 가늘어서)
+document.addEventListener('pointermove', (e) => {
+  if (e.pointerType !== 'touch' || !e.target.closest || !e.target.closest('.usage-chart')) return;
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const bar = el && el.closest && el.closest('.usage-bar[data-bar]');
+  if (bar && bar.dataset.bar !== S.usageBar) usagePick(bar.dataset.bar);
+});
+
 document.addEventListener('keydown', (e) => {
   if (!e.target.classList || !e.target.classList.contains('usage-chart')) return;
   const { days } = usageTips;
@@ -192,16 +220,32 @@ document.addEventListener('keydown', (e) => {
   usagePick(days[Math.max(0, Math.min(days.length - 1, at))]);
 });
 
-function usageTable(title, rows, label, note = '') {
-  if (!rows.length) return `<section class="card"><h2>${title}</h2><div class="small">${note || '기록 없음'}</div></section>`;
-  const total = rows.reduce((a, r) => a + r.cost, 0) || 1;
-  return `<section class="card"><h2>${title}</h2>
-    <div class="rs-scroll"><table class="rs-table usage-table">
-      <thead><tr><th>${title.replace(/별$/, '')}</th><th>호출</th><th>입력</th><th>출력</th><th>추정 비용</th><th aria-label="비중"></th></tr></thead>
-      <tbody>${rows.map((r) => `<tr><td>${label(r)}${r.failed ? ` <span class="chip usage-fail">실패 ${r.failed}</span>` : ''}${r.batch ? ` <span class="chip">배치 ${r.batch}</span>` : ''}</td>
-        <td>${r.calls.toLocaleString()}</td><td>${tok(r.in)}</td><td>${tok(r.out)}</td><td><strong>${r.unpriced && !r.cost ? '가격 모름' : usd(r.cost)}</strong></td>
-        <td class="usage-share"><i style="width:${Math.round((r.cost / total) * 100)}%"></i></td></tr>`).join('')}</tbody>
-    </table></div>${note ? `<div class="small">${note}</div>` : ''}</section>`;
+/** '어디에 썼나': 나누는 기준 하나를 골라 막대 목록(한 계열)으로. 작품을 고르면 작품 대신 화 */
+function usageBreakdown(u) {
+  const one = !!S.usageProject;
+  const by = S.usageBy === 'project' && one ? 'episode' : S.usageBy;
+  const opts = [['stage', '단계'], ['model', '모델'], one ? ['episode', '화'] : ['project', '작품'], ['source', '어디서']];
+  const rows = { stage: u.by_stage, model: u.by_model, project: u.by_project, episode: u.by_episode, source: u.by_source }[by] || [];
+  const label = {
+    stage: (r) => esc(USAGE_STAGE[r.stage] || r.stage || '기타'),
+    model: (r) => `${esc(r.model || '(이름 없음)')} <span class="small">${USAGE_BACKEND[r.backend] || 'Gemini'}</span>`,
+    project: (r) => (r.project ? `<a href="#/p/${enc(r.project)}/usage">${esc(usageName(r.project))}</a>` : '<span class="small">작품 밖 (연구 서버 점검 등)</span>'),
+    episode: (r) => `<a href="#/p/${enc(r.project)}/write/${r.episode}">${r.episode}화</a>`,
+    source: (r) => esc(USAGE_SOURCE[r.source] || r.source || '기타'),
+  }[by];
+  const byCost = rows.some((r) => r.cost > 0);
+  const max = Math.max(...rows.map((r) => (byCost ? r.cost : r.calls)), 0) || 1;
+  const shown = S.usageByAll ? rows : rows.slice(0, 8);
+  const list = shown.map((r) => `<div class="usage-br"><span class="lb">${label(r)}${r.failed ? ` <span class="chip usage-fail">실패 ${r.failed}</span>` : ''}${r.batch ? ` <span class="chip">배치 ${r.batch}</span>` : ''}</span>
+      <span class="bar" aria-hidden="true"><b style="width:${Math.round(((byCost ? r.cost : r.calls) / max) * 100)}%"></b></span>
+      <span class="v">${r.unpriced && !r.cost ? '가격 모름' : usd(r.cost)}</span><span class="m">${r.calls.toLocaleString()}번</span><span class="m">${tok(r.in)} · ${tok(r.out)}</span></div>`).join('');
+  return `<section class="card" aria-labelledby="usage-by-h">
+    <div class="between"><h2 id="usage-by-h">어디에 썼나</h2>
+      <div class="seg" role="group" aria-label="나누는 기준">${opts.map(([k, l]) => `<button type="button" data-action="usageBy" data-arg="${k === 'episode' ? 'project' : k}" aria-pressed="${by === k}">${l}</button>`).join('')}</div></div>
+    ${rows.length ? `<div class="usage-bars"><div class="usage-br hd" aria-hidden="true"><span>${opts.find(([k]) => k === by)[1]}</span><span>${byCost ? '비용 비중' : '호출 비중'}</span><span class="v">추정 비용</span><span class="m">호출</span><span class="m">입력 · 출력</span></div>${list}</div>
+      ${rows.length > shown.length ? `<div><button type="button" class="btn small ghost" data-action="usageByAll">${rows.length - shown.length}개 더 보기</button></div>` : ''}`
+      : `<div class="small">${by === 'episode' ? '화가 정해지지 않은 호출(설정, 기획 등)은 빠져요.' : '기록 없음'}</div>`}
+  </section>`;
 }
 
 // 입력 구성: 기록에 블록 크기가 있으면 가장 큰 두 블록과 전체 목록(펼치기). 크기는 글자 수
@@ -216,26 +260,28 @@ function usageBlocks(r) {
 function usageCalls(u) {
   const all = S.usageList === 'trouble' ? u.trouble : u.recent;
   const list = S.usageMore ? all : all.slice(0, 20);
-  const tabs = [['recent', `최근 호출`], ['trouble', `실패 · 재시도${u.trouble.length ? ` ${u.trouble.length}` : ''}`]];
+  const tabs = [['recent', '최근 호출'], ['trouble', `실패 · 다시 요청${u.trouble.length ? ` ${u.trouble.length}` : ''}`]];
   const rows = list.map((r) => {
-    // 긴 오류는 앞부분만 보이고 눌러서 펼친다 (전문을 칸에 넣으면 표가 두 배로 넓어진다)
+    // 긴 오류는 앞부분만 보이고 눌러서 펼친다
     const err = (r.error || '').length > 60
       ? `<details class="usage-err"><summary>${esc(r.error.slice(0, 60))}…</summary>${esc(r.error)}</details>` : `<span class="small usage-err">${esc(r.error || '')}</span>`;
     const state = !r.ok ? `<span class="chip usage-fail">실패</span> ${err}`
-      : (r.attempt > 1 ? '<span class="chip written">다시 요청</span>' : '<span class="chip finalized">성공</span>');
-    const where = [r.project, r.episode != null ? `${r.episode}화` : ''].filter(Boolean).join(' ');
-    return `<tr><td>${usageWhen(r.at)}</td><td>${esc(where || '-')}</td>
-      <td>${esc(USAGE_TASK[r.task] || USAGE_STAGE[r.stage] || r.task || '-')}<div class="small">${esc(USAGE_STAGE[r.stage] || r.stage || '')} · ${esc(USAGE_SOURCE[r.source] || r.source || '')}</div></td>
-      <td>${esc(r.model)}${r.batch ? ' <span class="chip">배치</span>' : ''}</td>
-      <td>${tok(r.in)}${r.cached ? `<div class="small">캐시 ${tok(r.cached)}</div>` : ''}${usageBlocks(r)}</td><td>${tok(r.out + (r.thought || 0))}${r.thought ? `<div class="small">생각 ${tok(r.thought)}</div>` : ''}</td>
-      <td>${r.seconds != null ? `${r.seconds.toFixed(1)}초` : '-'}</td><td><strong>${usd(r.cost)}</strong>${r.saved ? `<div class="small">아낌 ${usd(r.saved)}</div>` : ''}</td><td>${state}</td></tr>`;
+      : (r.attempt > 1 ? '<span class="chip warn">다시 요청</span>' : '<span class="chip ok">성공</span>');
+    const where = [r.project ? usageName(r.project) : '', r.episode != null ? `${r.episode}화` : ''].filter(Boolean).join(' · ');
+    return `<div class="usage-call">
+      <span class="when">${esc(fmtWhen(r.at))}</span>
+      <span class="where">${esc(where || '-')}</span>
+      <span class="task">${esc(USAGE_TASK[r.task] || USAGE_STAGE[r.stage] || r.task || '-')}<span class="s2">${esc(USAGE_STAGE[r.stage] || r.stage || '')} · ${esc(USAGE_SOURCE[r.source] || r.source || '')}</span></span>
+      <span class="model">${esc(r.model)}${r.batch ? ' <span class="chip">배치</span>' : ''}</span>
+      <span class="r tokens">${tok(r.in)} → ${tok(r.out + (r.thought || 0))}${r.cached ? `<span class="s2">캐시 ${tok(r.cached)}</span>` : ''}${r.thought ? `<span class="s2">생각 ${tok(r.thought)}</span>` : ''}${usageBlocks(r)}</span>
+      <span class="r secs">${r.seconds != null ? `${r.seconds.toFixed(1)}초` : '-'}</span>
+      <span class="r cost"><strong>${usd(r.cost)}</strong>${r.saved ? `<span class="s2">아낌 ${usd(r.saved)}</span>` : ''}</span>
+      <span class="state">${state}</span></div>`;
   }).join('');
-  return `<section class="card">
+  return `<section class="card" aria-label="호출 목록">
     <div class="tabs" role="tablist" aria-label="호출 목록">${tabs.map(([k, l]) => `<button type="button" role="tab" aria-selected="${S.usageList === k}" aria-controls="usage-panel" data-action="usageList" data-arg="${k}">${l}</button>`).join('')}</div>
     <div role="tabpanel" id="usage-panel" aria-label="${esc((tabs.find(([k]) => k === S.usageList) || [, ''])[1])}">
-    ${list.length ? `<div class="rs-scroll"><table class="rs-table">
-      <thead><tr><th>시각</th><th>작품</th><th>작업</th><th>모델</th><th>입력</th><th>출력</th><th>걸린 시간</th><th>추정 비용</th><th>결과</th></tr></thead>
-      <tbody>${rows}</tbody></table></div>
+    ${list.length ? `<div class="usage-calls"><div class="usage-call hd" aria-hidden="true"><span>시각</span><span>작품 · 화</span><span>작업</span><span>모델</span><span class="r">입력 → 출력</span><span class="r">걸린 시간</span><span class="r">추정 비용</span><span>결과</span></div>${rows}</div>
       <div class="row small">${usageMoreLine(u, all, list)} 형식이 어긋난 응답도 토큰은 쓴 것이라 비용에 들어가요.</div>`
       : '<div class="small">실패하거나 다시 요청한 호출이 없어요.</div>'}
     </div>
@@ -246,8 +292,8 @@ function usageCalls(u) {
 function usageMoreLine(u, all, list) {
   const total = S.usageList === 'trouble' ? (u.trouble_total ?? all.length) : u.total.calls;
   const of = total > list.length ? ` (기간 전체 ${total.toLocaleString()}건 중)` : '';
-  if (all.length > list.length) return `<button class="btn" data-action="usageMore">최근 ${all.length}건 보기${of}</button>`;
-  if (total > all.length && S.usageLimit < 1000) return `최근 ${list.length}건을 보여요${of}. <button class="btn" data-action="usageLoadMore">더 불러오기</button>`;
+  if (all.length > list.length) return `<button class="btn small" data-action="usageMore">최근 ${all.length}건 보기${of}</button>`;
+  if (total > all.length && S.usageLimit < 1000) return `최근 ${list.length}건을 보여요${of}. <button class="btn small" data-action="usageLoadMore">더 불러오기</button>`;
   return `최근 ${list.length}건을 보여요${of}.`;
 }
 
@@ -255,8 +301,14 @@ function usageMoreLine(u, all, list) {
 
 const PRICE_COLS = [['input', '입력'], ['output', '출력'], ['cached', '캐시 입력'], ['batch_input', '배치 입력'], ['batch_output', '배치 출력']];
 
+/** 가격표 카드: 읽는 모양은 한 줄 요약과 '고치기', 고치는 동안은 표 (Card '읽기 카드와 고치기 카드') */
 function usagePriceSection() {
-  return `<section class="card" id="price-box">${viewPrices()}</section>`;
+  const pr = S.prices;
+  if (S.priceOpen || S.priceDirty) return `<section class="card editing" id="price-box">${viewPrices()}</section>`;
+  const mine = pr ? pr.rows.filter((r) => r.custom).length : 0;
+  return `<section class="card tight" id="price-box"><div class="between"><div><h2>AI 요금 가격표</h2>
+      <span class="small">${pr ? `${pr.rows.length}줄 · ${mine ? `내가 고친 줄 ${mine}개` : '고친 줄 없음'} · 기본값은 ${esc(pr.checked)}에 옮겼어요 · USD / 100만 토큰` : '불러오는 중…'}</span></div>
+    <button type="button" class="btn small" data-action="priceToggle" aria-expanded="false">고치기</button></div></section>`;
 }
 
 function priceRedraw() {
@@ -292,7 +344,7 @@ function viewPrices() {
       <td class="price-act">${fixed ? '<span class="small" title="기본 줄은 지울 수 없어요. 값을 고치면 내 값으로 대신해요">기본 줄</span>'
         : `<button class="btn small" data-action="priceRemove" data-arg="${i}" aria-label="${esc(r.model || `${i + 1}번째`)} 줄 지우기">지우기</button>`}</td></tr>`;
   }).join('');
-  return `<div class="between"><h2>AI 요금 가격표</h2><span class="small">USD / 100만 토큰</span></div>
+  return `<div class="between"><h2>AI 요금 가격표 <span class="small">고치는 중 · USD / 100만 토큰</span></h2><button type="button" class="btn small" data-action="priceToggle" aria-expanded="true">다 고쳤어요</button></div>
     <p class="desc">기본값은 ${esc(pr.checked)}에 <a href="${pr.url}" target="_blank" rel="noopener">Google Gemini API 가격표</a>(유료 등급 표준 요금)에서 옮긴 값이에요. 가격이 바뀌면 여기서 고치세요. 적용 시작일을 적은 줄은 그날부터의 호출에 쓰고(예고된 인상), 고치면 지난 기록과 자동 집필 예상 비용도 이 표로 다시 계산해요. 생각 토큰은 출력 요금, 배치 칸을 비우면 절반으로 쳐요. 로컬 모델은 0원이고, 표에 없는 Gemini 모델은 '가격 모름'으로 빠져요.</p>
     <div class="rs-scroll price-scroll"><table class="rs-table price-table">
       <thead><tr><th>모델</th><th>적용 시작일</th>${PRICE_COLS.map(([, l]) => `<th>${l}</th>`).join('')}<th><span class="sr-only">줄 조작</span></th></tr></thead>
@@ -335,6 +387,29 @@ Object.assign(actions, {
     S.usageDays = Number(d);
     await run('불러오는 중', () => usageLoad());
   },
+  usageMetric(k) {
+    S.usageMetric = k === 'calls' ? 'calls' : 'cost';
+    render();
+  },
+  usageTable() {
+    S.usageTable = !S.usageTable;
+    render();
+  },
+  usageBy(k) {
+    S.usageBy = k;
+    S.usageByAll = false;
+    render();
+  },
+  usageByAll() {
+    S.usageByAll = true;
+    render();
+  },
+  priceToggle() {
+    if (S.priceOpen && S.priceDirty) return toast('고친 가격표를 저장하거나 버려요', true);
+    S.priceOpen = !S.priceOpen;
+    render();
+    document.querySelector('#price-box [data-action="priceToggle"]')?.focus();
+  },
   usageList(k) {
     S.usageList = k;
     render();
@@ -355,6 +430,7 @@ Object.assign(actions, {
   },
   // 사용량 화면의 '가격 없는 모델' 경고에서: 그 이름으로 줄을 더하고 가격 칸으로 옮긴다
   priceAddModel(model) {
+    S.priceOpen = true;
     let i = S.priceRows.findIndex((r) => r.model.trim() === model);
     if (i < 0) {
       S.priceRows.push({ model, since: '', input: 0, output: 0, cached: null, batch_input: null, batch_output: null, note: '' });
@@ -388,7 +464,7 @@ Object.assign(actions, {
     const free = S.priceRows.filter((r) => r.model.trim() && (!(r.input > 0) || !(r.output > 0))).map((r) => r.model.trim());
     if (free.length && !confirm(`${free.join(', ')}의 입력이나 출력 가격이 0원이에요. 비용이 0원으로 계산돼요. 이대로 저장할까요?`)) return;
     const rows = S.priceRows.filter((r) => r.model.trim()).map(({ custom, current, upcoming, ...r }) => r);
-    await priceSend('가격표 저장 중', () => api('PUT', '/usage/prices', { rows }), '가격표를 저장했어요. 비용을 다시 계산했어요');
+    await priceSend('가격표 저장하는 중', () => api('PUT', '/usage/prices', { rows }), '가격표를 저장했어요. 비용을 다시 계산했어요');
   },
   async priceReset() {
     if (!confirm('고친 가격을 모두 지우고 기본 가격표로 되돌릴까요?')) return;
