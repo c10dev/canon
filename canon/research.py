@@ -501,17 +501,19 @@ def run_compare(name: str, p: Project, n: int, a: Backend, b: Backend) -> dict:
     la, lb = label(a), label(b)
     if la == lb and a.url == b.url:
         raise ValueError("두 백엔드가 같아요")
-    drafts = pipeline.compare_drafts({la: make_backend(a), lb: make_backend(b)}, p, n)
-    return save_compare(name, n, drafts)
+    llms = {la: make_backend(a), lb: make_backend(b)}
+    drafts = pipeline.compare_drafts(llms, p, n)
+    return save_compare(name, n, drafts, models={k: pipeline.writer_of(x) for k, x in llms.items()})
 
 
 def run_opening_compare(name: str, p: Project, n: int, llm: LLM, approaches: list[str] | None = None) -> dict:
     """1~3화를 여는 방식마다 하나씩 써서 가려 저장한다. 고르기 전에는 어느 방식인지 보이지 않는다."""
-    return save_compare(name, n, pipeline.opening_drafts(llm, p, n, approaches), kind="opening")
+    drafts = pipeline.opening_drafts(llm, p, n, approaches)
+    return save_compare(name, n, drafts, kind="opening", models=dict.fromkeys(drafts, pipeline.writer_of(llm)))
 
 
-def save_compare(name: str, n: int, drafts: dict[str, str], kind: str = "backend") -> dict:
-    """kind: backend(백엔드 비교) 또는 opening(여는 방식 비교)."""
+def save_compare(name: str, n: int, drafts: dict[str, str], kind: str = "backend", models: dict[str, str] | None = None) -> dict:
+    """kind: backend(백엔드 비교) 또는 opening(여는 방식 비교). models: 안마다 쓴 모델 (pipeline.writer_of), 고르면 본문 기록에 따라간다."""
     order = random.sample(list(drafts), len(drafts))  # 1, 2 번에 누가 들어갔는지 가린다
     out = compare_dir(name, n)
     out.mkdir(parents=True, exist_ok=True)
@@ -519,8 +521,8 @@ def save_compare(name: str, n: int, drafts: dict[str, str], kind: str = "backend
         old.unlink()  # 앞 비교의 남은 안과 판정이 새 번호에 섞이지 않게
     for i, key in enumerate(order, 1):
         (out / f"{i}.md").write_text(drafts[key], encoding="utf-8")
-    (out / "key.json").write_text(json.dumps({"order": order, "kind": kind, "created": datetime.now().isoformat(timespec="seconds")},
-                                             ensure_ascii=False), encoding="utf-8")
+    (out / "key.json").write_text(json.dumps({"order": order, "kind": kind, "created": datetime.now().isoformat(timespec="seconds"),
+                                              "models": models or {}}, ensure_ascii=False), encoding="utf-8")
     return load_compare(name, n)
 
 
@@ -571,7 +573,7 @@ def pick_compare(name: str, p: Project, n: int, k: int, adopt: bool = True) -> d
     if not 1 <= k <= len(order):
         raise ValueError(f"고를 수 있는 번호는 1~{len(order)} 이에요")
     if adopt:
-        pipeline.adopt_draft(p, n, (out / f"{k}.md").read_text(encoding="utf-8"))
+        pipeline.adopt_draft(p, n, (out / f"{k}.md").read_text(encoding="utf-8"), key.get("models", {}).get(order[k - 1], ""))
     key["picked"] = k
     key_path.write_text(json.dumps(key, ensure_ascii=False), encoding="utf-8")
     log = out.parent / "log.jsonl"

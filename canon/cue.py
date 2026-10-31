@@ -405,7 +405,8 @@ def run(name: str, p: Project, llm, n: int, conditions: list[str] | None = None,
         done += steps[cond]
         with_lock(name, n, lambda lab: _keep(lab, [take], research._model_name(llm)))  # 뒤 조건이 실패해도 쓴 본문은 남긴다
     if len(takes) > 1:
-        research.save_compare(name, n, {t.condition: t.text for t in takes}, kind="cue")
+        research.save_compare(name, n, {t.condition: t.text for t in takes}, kind="cue",
+                              models=dict.fromkeys((t.condition for t in takes), pipeline.writer_of(llm)))
     rows = [{k: v for k, v in score(p, sheet, t).items() if k not in ("rows", "seams")} for t in takes]
     return research.record(name, "cue", {"episode": n, "conditions": conds, "cues": len(sheet.cues) if sheet else 0,
                                          "model": research._model_name(llm), "summary": rows})
