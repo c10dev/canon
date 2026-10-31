@@ -705,6 +705,10 @@ def draft_plots(llm: LLM, p: Project, start: int, end: int, note: str = "") -> P
         hint={"start": start, "end": end, "arc": beats, "note": note},
     )
     numbers = [e.number for e in batch.episodes]
+    if not numbers:
+        note = " ".join(str(getattr(llm, "last_note", "") or "").split())
+        why = f" AI가 남긴 말: {note[:300]}" if note else " AI가 이유를 남기지 않았어요."
+        raise ValueError(f"AI가 {start}~{end}화 플롯을 하나도 내지 않았어요.{why}")
     if numbers != list(range(start, end + 1)):
         raise ValueError(f"요청한 화({start}~{end})와 생성된 화({numbers})가 달라요")
     return batch
@@ -3150,7 +3154,8 @@ def suggest_map(llm: LLM, p: Project, spec: MapSpec | None = None) -> dict:
     장소 종류는 지도 종류의 시대(placekinds.era_of)를 따른다. AI 가 지도 종류를 함께 고르므로 프롬프트에는 시대마다 종류 목록(kinds_for)을 적고,
     받은 id 는 AI 가 고른 지도 종류의 목록(kind_ids(s.kind))으로 거른다.
     장소 이름은 키로 바꾸고, 모르는 장소 · 그 지도 종류에 없는 종류 id 는 뺀다 (지금 값을 그대로 둔다)."""
-    from . import atlas, placekinds
+    from . import atlas
+    from .maps import kinds as placekinds
 
     pls = atlas.places(p)
     if not pls:

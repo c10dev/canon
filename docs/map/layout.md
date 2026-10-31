@@ -19,11 +19,11 @@
 | `generator` | 글 | 예 | `read_layout`(파일 값), `canon-village` · `canon-city` · `canon-modern` · `osm` | 그리기(지붕 모양, 이름표), `bldgs.describe`(실제 · 현대 경로), `village_title` |
 | `version` | 글 | 예 | 생성기 `VERSION`, 파일 값 | 읽는 곳 없음 (기록용) |
 | `roads` | `[{kind: road \| bridge, width, points, name?}]` | 예, 하나 이상 | 모두. `name` 은 OSM 만 (현대 동네는 `streets` 에 이름을 짓는다) | 그리기, `road_graph` · `route`, `bldgs.describe`(거리 나누기 · 이름), #140 `_road_near` |
-| `buildings` | `[다각형]` | 아니요 | 모두 | 그리기, `bldgs.describe`, `atlas._blocked`, 건물 메뉴(번호 = 순서), #140 `find_spots` · `spot_line` |
-| `water`, `fields`, `greens`, `squares` | `[다각형]` | 아니요 | 모두. OSM `water` 에는 해안선으로 닫은 바다(`osm._sea`)도 든다 | 그리기, `_blocked`(물), `bldgs.describe`(광장 · 물가), `fill`(물 · 녹지로 세고 닿는 필지를 버림) |
-| `land` | `[다각형]` | 아니요 | OSM(`osm._sea`): 범위 안에 다 든 해안선 고리(섬). 다각형에 구멍을 낼 수 없어 바다 위에 땅을 다시 그린다 | 그리기(바다 위 땅 · 섬 안 밭 · 녹지 · 광장 다시 그리기), `atlas._blocked` · `_field`(섬은 물이 아님), `bldgs.describe`(섬 둘레도 물가) |
+| `buildings` | `[다각형]` | 아니요 | 모두 | 그리기, `bldgs.describe`, `makers._blocked`, 누른 건물 칸(번호 = 순서), #140 `find_spots` · `spot_line` |
+| `water`, `fields`, `greens`, `squares` | `[다각형]` | 아니요 | 모두. OSM `water` 에는 해안선으로 닫은 바다(`osm._sea`)도 든다 | 그리기, `makers._blocked`(물), `bldgs.describe`(광장 · 물가), `fill`(물 · 녹지로 세고 닿는 필지를 버림) |
+| `land` | `[다각형]` | 아니요 | OSM(`osm._sea`): 범위 안에 다 든 해안선 고리(섬). 다각형에 구멍을 낼 수 없어 바다 위에 땅을 다시 그린다 | 그리기(바다 위 땅 · 섬 안 밭 · 녹지 · 광장 다시 그리기), `makers._blocked` · `routes._field`(섬은 물이 아님), `bldgs.describe`(섬 둘레도 물가) |
 | `coast_broken` | `true` | 아니요 | OSM(`osm._sea`): 해안선 방향이 어긋나 바다를 닫지 못함(바다를 그리지 않음) | `atlas.layout_info`(`coast_broken`), 지도 데이터 칸 알림 '해안선이 끊겨 바다를 그리지 못했어요'(`atlasLayoutBox`) |
-| `rivers`, `walls` | `[{width, points}]` | 아니요 | 생성기, OSM(`rivers`), Watabou | 그리기, `_blocked`(강) |
+| `rivers`, `walls` | `[{width, points}]` | 아니요 | 생성기, OSM(`rivers`), Watabou | 그리기, `makers._blocked`(강) |
 | `trees` | `[점]` | 아니요 | 모두 | 그리기 |
 | `houses` | 수 | 아니요 | 생성기 | `village_title`(인구), 미리보기 정보 |
 | `numbers` | `[수]` | 아니요 | 생성기 | 그리기(집 번호 겹), `village_title` |

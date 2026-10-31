@@ -201,8 +201,14 @@ class ResearchTest(unittest.TestCase):
         self.assertEqual(len(c["drafts"]), 2)
         self.assertNotIn("order", c)
         self.assertNotIn("order", self.c.get(f"{self.api}/research/compare/1").json()["compare"])
+        # 연구 개요: 고르지 않은 비교본과 갈래마다 마지막 기록
+        log = self.c.get(f"{self.api}/research").json()
+        self.assertEqual([(x["episode"], x["drafts"]) for x in log["open_compares"]], [(1, 2)])
+        self.assertEqual(log["latest"]["compare"]["episode"], 1)
 
         r = self.c.post(f"{self.api}/research/compare/1/pick", json={"k": 2, "adopt": False}).json()
+        self.assertEqual(self.c.get(f"{self.api}/research").json()["open_compares"], [])
+        self.assertEqual(self.c.get(f"{self.api}/research").json()["latest"]["pick"]["episode"], 1)
         self.assertEqual(set(r["compare"]["order"]), {"mock", "local:base-12b"})
         self.assertFalse(r["result"]["adopted"])
         self.assertEqual(r["project"]["episodes"][0]["status"], "confirmed")

@@ -153,3 +153,41 @@ def test_plan_text_toggle_and_ghost():
     assert 'data-stg-ghost-who="d"' in got["ghost"] and "흐린 원 = 계획 시작 상태" in got["ghost"] and "stg-ghost" not in got["plain"]
     assert "본문에서 뽑기 전이에요" in got["empty"] and "장면 만들기" not in got["empty"]
     assert got["beats"] == [0, 0, 1, 1]
+
+
+@needs_node
+def test_outline_layout_reads_first():
+    """목차 + 무대 틀(2026-10-31 리디자인 A): 목차에 사건 · 박자와 지적 수, 박자 눈금의 빨간 점, 인물 줄은 읽기 먼저, 3D 는 고치기 버튼이 없다."""
+    p = Project(meta=Meta(title="t", target_episodes=2), characters=[
+        Character(id="h", name="하린", role="주인공", age="27"), Character(id="d", name="도윤", role="조연", age="29")],
+        episodes=[episode(1, plot={"title": "첫 화", "events": ["도윤이 찾아온다", "하린이 붙잡는다"], "characters": ["h", "d"]})])
+    room = stage.new_room(p, "living", "거실")
+    scene = stage.new_scene(p, p.episodes[0], 1, room)
+    scene.beats = [StageBeat(note="도윤이 손을 잡는다", bodies=[StageBody(who="d", right="찻잔", contacts=[StageContact(id="c1", by="right", to="h", part="hand_l", act="hold")])])]
+    view = stage.view(p, 1)
+    got = run_js(FILES, """(() => {
+      S.project = data.p; S.name = 't'; S.route = ['p', 't', 'stage', '1', '2'];
+      S.stg = { n: 1, ev: 2, view: data.view, role: 'plan', sid: null, scene: null, room: null, dirty: false, beat: 1, who: '', open: '', mode: 'people', check: null,
+        form: { by: 'right', to: '', part: '', act: 'hold' }, pick: { room: '', template: 'bedroom', name: '' }, playing: null };
+      stgPick();
+      S.stg.check = { ...S.stg.check, violations: [{ beat: 1, who: 'd', rule: 'hand_busy', text: '도윤 오른손이 바빠요', contact: 'c1' }] };
+      const shut = viewStage(1);
+      S.stg.open = 'd'; S.stg.who = 'd';
+      const open = viewStage(1);
+      S.stgView = '3d';
+      const three = viewStage(1);
+      S.stgView = 'plan';
+      return { shut, open, three, thumb: stgThumb(data.view.vocab.room_shapes.bedroom), hands: [stgHands('', ''), stgHands('?', '칼')],
+        sum: stgSummary('h', 1) };
+    })()""", {"p": dump(p), "view": view})
+    shut = got["shut"]
+    assert 'class="outline-wrap stg-wrap"' in shut and 'id="stg-toc"' in shut
+    assert '<span class="st bad">지적 1</span>' in shut and "도윤이 손을 잡는다" in shut
+    assert 'class="stg-tick" data-action="stgBeat" data-arg="1" aria-current="step" aria-label="1박자, 지적 1">1<i class="fl"' in shut
+    assert "규칙 검수 1" in shut and "도윤 오른손이 바빠요" in shut
+    assert 'data-action="stgOpen" data-arg="d" aria-expanded="false">고치기' in shut and 'data-stg-field="at"' not in shut
+    assert 'aria-expanded="true">다 고쳤어요' in got["open"] and 'data-stg-field="at"' in got["open"] and "도윤 출연진에서 빼기" in got["open"]
+    assert 'data-action="stgOpen"' not in got["three"] and "3D에서는 읽기만 해요" in got["three"] and "stgBeatAdd" not in got["three"]
+    assert got["thumb"].count('class="a"') == len(stage.ROOMS["bedroom"][3])
+    assert got["hands"] == ["빈손", "왼손 모름 · 오른손 칼"]
+    assert "도윤 오른손이 닿음" in got["sum"]

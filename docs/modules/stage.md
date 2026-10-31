@@ -6,6 +6,7 @@
 
 - 장면 연출 계산(설계 `docs/stage/`): 방 틀(`ROOMS`: 방 7 · 야외 차 옆 `car_side` · 야외 빈터 `outdoor`, `make_room`, `Project.rooms`, 기준점 종류 `ANCHOR_KINDS`, 크기 `ANCHOR_SIZES`)
 - 고정 어휘(부위 `PARTS` · 자세 `POSTURES` · 접촉 동작 `ACTS` · 관계 `RELS` · 향함 `FACINGS`, 화면용 `vocab`)
+- 새 장면 방 고르기의 작은 그림 재료는 `vocab` 의 `room_shapes`(틀마다 크기 · 기준점 상자)
 - 박자 겹치기(`state_at`)
 - 기준점 + 관계 → 좌표(`place`, 박자마다 앞 박자 좌표를 잇는 `layouts`, 화면 `static/stage.js` 의 `stageLayout` · `stageLayouts` 와 같은 규칙)
 - 규칙 판정(`judge`: 손 · 이동 자세 · 거리 · 향함 · 물건, `Violation`, 어긋난 접촉 `contact`)
@@ -101,17 +102,26 @@
 
 - 장면 연출 화면(주소 `stage/<화>/<사건 번호>`, `viewStage`, 불러오기 `stgLoad`): 평면도
   - `stgPlanSvg`
+  - 글자 · 인물 원은 칸 폭과 상관없이 화면에서 같은 크기(`stgU`: `stgDrawPlan` 이 `getScreenCTM` 으로 잼, CSS 변수 `--u`)
+  - 좁은 칸(`stgU` > 1.3)의 이름표는 자세를 빼고 이름만
   - 박자 사이 보간 `stgDrawPlan`: 가구를 돌아가는 꺾은선은 `check` 의 `paths` 에서 `stagePathFor` 로 고르고 `stagePathAt` 으로 따라감
   - 막힌 이동은 빨간 점선과 '막힌 이동' 안내
   - 이름표 겹침은 순수 함수 `stageLabelPlace`(평면도 · 3D `s3PlaceTags` 가 함께 씀, 앞 프레임 자리 `stgLabelMem`, `tests/test_stage_labels.py`)
   - 끌어 놓기 → `stageSnap`
-- 박자 목록 · 출연진(`stgBeats`)
-- 인물 칸(`stgPersonCard`: 자세 · 자리 · 향함 · 손 · 접촉 · 부위 도식, 미성년이면 성적 부위 · 동작 감춤)
-- 방 고치기
+- 화면 틀은 공용 목차 틀(`outlineDoc` · `outlineNav`, 틀 클래스 `.stg-wrap`)
+- 목차 `stgToc`: 화 고르기 · 사건(상태 글 계획 · 본문 · 없음) · 지금 사건의 박자(지적 수 · 본문과 달라요 · 계획과 달라요)
+- 무대 카드: 평면도(또는 3D)와 그 박자 칸 `stgNow`(박자 글 · 바뀐 것 `stgChange` · 그 박자의 지적과 안내)
+- 박자 글은 '박자 글 고치기'로 그 칸에서 편다(`S.stg.beatEdit`)
+- 박자 줄 `stgBar`: 재생 · 박자 눈금(지적이 있는 박자에 빨간 점)
+- 좁은 칸(`@container outline` 720px 이하)의 박자 줄은 아래에 붙고 앞뒤 버튼(`stgStep`) · 'k / N박자'로 바뀐다
+- 인물 카드 `stgPeople`: 인물마다 한 줄 요약(`stgSummary`, 손 `stgHands`)
+- 인물 줄은 '고치기'로 그 줄만 편다(`S.stg.open`, `stgOpen`, 평면도에서 인물을 눌러도 편다)
+- 편 줄의 칸(`stgPersonCard`: 자세 · 자리 · 향함 · 손 · 접촉 · 부위 도식 · 출연진에서 빼기, 미성년이면 성적 부위 · 동작 감춤)
+- 방 카드 `stgRoomCard`: 읽는 모양이고 '방 고치기'로 편다(`S.stg.mode` room, 평면도는 기준점 끌기)
   - `stgRoomPanel`: 끌기 `stageDragTo` · ↻ `stageTurn` · 붙은 곳 `stageAttach` · `stageAttachOptions` · 함께 빼기 `stgDropNote`
   - 붙은 기준점 풀기 `stageResolve` · `stageToLocal` · `stageChildren` · `stageShiftRoom` 은 `stage.resolve` · `to_local` · `children` · `shift_room` 과 같은 규칙
   - `tests/test_stage_attach.py`
-- 새 장면(`stgNewCard`)
+- 새 장면(`stgNewCard`): 이 작품의 방 · 틀을 작은 그림 칸(`stgThumb`)으로 고른다
 - 머리의 '계획 | 본문' 전환(`S.stg.role`, `stgRole`, 본문 장면이 없으면 '본문에서 뽑기 전이에요')
 - 겹쳐 보기(`stgGhostSvg`, 계획 박자는 `stagePlanBeat`)
 - 계획과 다른 박자 표시(`stgGaps`)
@@ -120,13 +130,15 @@
 - 저장 안 한 변경은 `S.stgDirty`
 - AI 버튼(`stgAiBtn`: 계획은 '플롯에서 초안' 작업 `stage_draft`, 본문은 '본문에서 뽑기' `stage_extract`)
 - 검토를 기다리는 AI 장면 비교(`stgProposal` · `stgCompare`: 끝 상태 작은 평면도 `stgMiniSvg` 나란히, 박자 목록 차이 `stgBeatList`, 적용 `stgApply` · 버리기 `stgDiscard`)
-- 적용 취소(`stgUndo`)
+- 적용 취소(`stgUndo`)는 머리의 ⋯ 메뉴(`stg-more`)에 장면 지우기와 함께 있다
 - 작업이 끝나면 다시 받기(`stageJobResult`)
 - 검수 화면에서 그 박자로 오기(`S.stgJump`)
-- 스토리보드 장면별 사건 칩 묶음(`stgEventGroups`, 낡으면 '스토리보드가 낡았어요') · 새 장면 방 순서(`stgRoomOrder`, '스토리보드 장소')
-- 스토리보드 카드 장면 줄의 '🎬 연출'은 `board.js` `boardStageLink`(`tests/test_stage_board.py`)
+- 스토리보드 장면별 목차 사건 묶음(`stgEventGroups`, 낡으면 '스토리보드가 낡았어요') · 새 장면 방 순서(`stgRoomOrder`, '스토리보드 장소')
+- 스토리보드 카드 장면 줄의 '장면 연출'은 `board.js` `boardStageLink`(`tests/test_stage_board.py`)
 - `stageState` · `stageLayout` · `stageAnchorPoint` · `stageFacing` · `stageSnap` · `stageSexual` 은 `stage.state_at` · `place` · `is_sexual` 과 같은 규칙(`tests/test_stage_js.py`)
 - CSS 는 JS 에서 주입
+- 인물 색은 `STG_COLORS`: 토큰 `stage-1`~`stage-6`(빨강은 지적에만), 원 안 글자 `on-stage`
+- 무대 카드 안 칸 폭 규칙은 `@container stgcol`(760px 이상이면 평면도 옆에 그 박자 칸)
 
 ### `canon/static/stage3d-load.js`
 
@@ -139,6 +151,8 @@
 - 장면 연출 3D 보기(설계 `docs/stage/3d/specs/05-render.md`)
 - `stage.js` · `stage3d-load.js` 와 `app.js` 의 `S` · `actions` · `api` · `render` 를 쓴다
 - 읽기 전용이다: 고치기는 평면도에서만 한다
+- 3D 로 바꾸면 방 고치기 · 인물 줄 · 박자 글 고치기를 닫고 그 버튼을 숨긴다(`stgView`)
+- 그림 칸은 4:3, 무대 카드 폭 480px 이하는 1:1
 - 서버(`GET …/stage/{화}/{장면}/frames`, `stage3d.frames`)가 낸 관절 좌표를 그리기만 한다
 - 박자 슬라이더 · 재생은 평면도와 같은 `S.stg.beat` 를 쓴다
 - three.js 는 '3D' 를 처음 누를 때 `load3d()` 로 읽는다

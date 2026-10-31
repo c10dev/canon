@@ -31,7 +31,7 @@ STEP_NAMES = {"plan": "스토리보드", "write": "본문", "check": "검수", "
 # 루프 단계(Run.step) 이름: 서버 재시작 뒤 어느 단계를 다시 하는지 알릴 때
 RUN_STEPS = {"board": "스토리보드 만들기", "cues": "큐 시트 만들기", "write": "본문 쓰기", "review": "검수와 상태 변경안 만들기", "confirm": "플롯 확정"}
 # 화 상태 이름 (화면 STATUS 와 같은 말)
-EP_STATUS = {"draft": "플롯 초안", "confirmed": "플롯 확정", "written": "본문 작성됨", "finalized": "상태 반영 완료"}
+EP_STATUS = {"draft": "초안", "confirmed": "확정", "written": "작성됨", "finalized": "반영 완료"}
 # 측정값이 없을 때 쓰는 단계별 소요 시간 추정 (초, 일반 호출)
 SECONDS = {"plan": 90.0, "write": 90.0, "check": 40.0, "state": 40.0}
 # 스토리보드 추정: 출력 토큰, 쓰기 프롬프트에 붙는 블록 글자 수 (손으로 채운 스토리보드 예시에서 잰 어림, DESIGN.md)
@@ -180,7 +180,7 @@ def review_reasons(p: Project, delta: StateDelta, report: Optional[ConsistencyRe
     issues = findings.counted(ep, report.issues, policy.ignore_minor) if report is not None else []
     if len(issues) > policy.max_issues:
         kinds = ", ".join(sorted({i.type for i in issues}))
-        out.append(f"검수에서 어긋난 곳 {len(issues)}개 ({kinds}){' · 사소한 것은 세지 않음' if policy.ignore_minor else ''}")
+        out.append(f"검수에서 어긋난 곳 {len(issues)}개 ({kinds}){' · 사소한 것은 세지 않았어요' if policy.ignore_minor else ''}")
     crit = [i for i in all_issues if i.severity == "crit"]
     if policy.stop_on_critical and crit and len(issues) <= policy.max_issues:  # 개수로 이미 멈추면 한 번만 적는다
         out.append(f"검수에서 치명적인 어긋남 {len(crit)}개: {crit[0].description}")

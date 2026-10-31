@@ -75,7 +75,8 @@ function rememberRemoved(label, paths) {
   S.lastRemoved = { label, saved: paths.map((k) => [k, structuredClone(getPath(P(), k))]) };
 }
 
-const STATUS = { draft: '플롯 초안', confirmed: '플롯 확정', written: '본문 작성됨', finalized: '반영 완료' };
+// 화 상태 칩 · 범례 글자. 칩과 범례는 이 한 곳에서 글자를 가져온다 (docs/design/README.md '화 상태 칩')
+const STATUS = { draft: '초안', confirmed: '확정', written: '작성됨', finalized: '반영 완료' };
 const ACTS = ['기', '승', '전', '결'];
 
 // ---------- 공통 ----------
@@ -89,7 +90,7 @@ const base = () => `#/p/${enc(S.name)}`;
 function fmtErr(data, status) {
   const d = data && data.detail;
   if (Array.isArray(d)) return d.map((x) => { const at = (x.loc || []).slice(1).join('.'); return `입력 형식이 맞지 않아요${at ? ` (칸: ${at})` : ''}: ${x.msg}`; }).join('\n');
-  return d || `요청 실패 (${status})`;
+  return d || `서버가 요청을 처리하지 못했어요 (${status}). 잠시 뒤 다시 해 보세요`;
 }
 
 // 이 탭의 id. 서버는 작품을 저장한 화면을 기억해, 다른 탭 · 기기가 먼저 저장했으면 오래된 화면의 저장을 409 로 막는다
@@ -342,7 +343,7 @@ async function pollJobs(soon = false) {
     const mine = j.project === S.name || j.project === REV_JOBS;  // 역설계 실험 작업은 작품 밖이라 어느 화면에서든 제 알림을 낸다 (revlab.js)
     if (progressed && !mine && old && old.status === 'running' && j.status !== 'running') {
       // 다른 작품을 보는 동안 끝났다. 결과는 그 작품을 열면 다시 놓인다 (pending.json)
-      toast(j.status === 'error' ? `${j.project} · ${j.label} 실패: ${j.error}` : `${j.project} · ${j.label}${josa(j.label, '이', '가')} 끝났어요. 그 작품을 열면 결과가 보여요`, j.status === 'error');
+      toast(j.status === 'error' ? `${j.project} · ${j.label}${josa(j.label, '을', '를')} 끝내지 못했어요: ${j.error}. 그 작품을 열면 다시 시도할 수 있어요` : `${j.project} · ${j.label}${josa(j.label, '이', '가')} 끝났어요. 그 작품을 열면 결과가 보여요`, j.status === 'error');
     }
     if (!progressed || !mine) continue;
     if (j.kind === 'agent' && typeof agentJobUpdate === 'function') await agentJobUpdate(j, old);  // 대화 에이전트 턴 (agent.js)
@@ -447,7 +448,7 @@ async function finishJob(j) {
     const acts = [];
     if (S.jobArgs[j.id]) acts.push({ label: '다시 시도', run: () => retryJob(j.id) });
     if (/API 키|연결/.test(j.error || '')) acts.push({ label: '설정', run: () => openSettings('ai') });
-    toast(`${j.label} 실패: ${j.error}`, true, { actions: acts });
+    toast(`${j.label}${josa(j.label, '을', '를')} 끝내지 못했어요: ${j.error}`, true, { actions: acts });
     if (here) S.pending.failures[key] = { key, kind: j.kind, ep: j.ep, label: j.label, error: j.error };
     return;
   }
@@ -518,7 +519,7 @@ function syncPending() {
 function failStrip(page, n) {
   if (S.pending.name !== S.name) return '';
   const list = Object.values(S.pending.failures).filter((f) => (JOB_PAGES[f.kind] || []).includes(page || 'home') && (f.ep == null || !['write', 'check', 'review', 'brief'].includes(page) || f.ep === n));
-  return list.map((f) => `<div class="note warn between" role="status"><span><strong>지난 시도 실패</strong> · ${esc(f.label)}: ${esc(f.error)}${/API 키|연결/.test(f.error) ? ' <a href="#/settings/ai">AI 연결 설정</a>' : ''}</span><button type="button" class="btn small" data-action="dismissFail" data-arg="${esc(f.key)}">닫기</button></div>`).join('');
+  return list.map((f) => `<div class="note warn between" role="status"><span><strong>${esc(f.label)} · 끝내지 못했어요</strong>: ${esc(f.error)}${/API 키|연결/.test(f.error) ? ' <a href="#/settings/ai">AI 연결 설정</a>' : ' 같은 버튼을 다시 누르면 다시 시도해요.'}</span><button type="button" class="btn small" data-action="dismissFail" data-arg="${esc(f.key)}">닫기</button></div>`).join('');
 }
 
 function applyJobResult(j) {
@@ -607,7 +608,12 @@ function elapsed(j) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-const narrowScreen = () => window.matchMedia('(max-width: 640px)').matches;
+/** 창 폭 경계(px). app.css 의 @media 와 같은 값이다 (docs/design/layout.md '폭 구간'). 경계를 바꾸면 app.css 도 함께 고친다.
+    phone: 휴대폰 폭, narrow: 위쪽 띠 · 아래쪽 시트로 바뀌는 폭, chatRail: 대화 패널을 열면 사이드바가 레일이 되는 폭의 끝 */
+const BP = { phone: 640, narrow: 900, chatRail: 1599 };
+/** 창 폭이 그 경계 이하인지 보는 MediaQueryList. 예: mq('phone').matches */
+const mq = (name) => window.matchMedia(`(max-width: ${BP[name]}px)`);
+const narrowScreen = () => mq('phone').matches;
 
 /** 화면 아래 고정 층이 서로와 본문 버튼을 가리지 않게 높이를 CSS 변수로 둔다.
     아래부터 저장 띠 → 반영 줄(상태 승인 화면 .apply-bar) 순서로 쌓는다. 작업 목록과 알림은 알림 버튼 아래로 옮겼다 (hub.js).
@@ -1116,7 +1122,7 @@ function renderSavebar() {
     if (!bar) bar = newSavebar(false);  // 라이브러리 항목은 Ctrl+S 가 저장하지 않는다
     if (bar.dataset.sig !== 'lib') {
       bar.dataset.sig = 'lib';
-      bar.innerHTML = '<span>문체를 저장하지 않았어요</span><button class="btn small" data-action="libRevert">저장 전으로</button><button class="btn small primary" data-action="libSave">저장</button>';
+      bar.innerHTML = '<span>문체를 저장하지 않았어요</span><button class="btn small" data-action="libRevert">저장 전으로 되돌리기</button><button class="btn small primary" data-action="libSave">저장</button>';
     }
     stackBottom();
     return;
@@ -1217,7 +1223,7 @@ async function saveIfDirty() {
 
 const actions = {
   async save() {
-    await run('저장 중', async () => { if (await save() !== false) toast('저장했어요'); });
+    await run('저장하는 중', async () => { if (await save() !== false) toast('저장했어요'); });
   },
   async revert() {
     if (S.dirty && !confirm('저장하지 않은 변경을 모두 버리고 저장된 작품을 다시 불러올까요? 되돌릴 수 없어요.')) return;
@@ -1326,7 +1332,7 @@ const actions = {
   },
   async saveForce() {
     if (!confirm('다른 탭이나 기기에서 저장한 변경을 이 화면의 작품으로 덮어쓸까요? 그쪽에서 바꾼 설정 · 플롯은 사라져요.')) return;
-    await run('저장 중', async () => { if (await save(true) !== false) toast('저장했어요'); });
+    await run('저장하는 중', async () => { if (await save(true) !== false) toast('저장했어요'); });
   },
   async copyOrphan(n) {
     const t = S.textDraft[n] || '';
@@ -1475,7 +1481,7 @@ document.addEventListener('keydown', (e) => {
   closeMenu(true);
 }, true);
 
-/** #app 밖의 <dialog>. 화면을 다시 그려도 열려 있다. 닫으면 열기 전 포커스로 돌아간다 (abilities.js abDialog 와 같은 방식).
+/** #app 밖의 <dialog>. 화면을 다시 그려도 열려 있다. 닫으면 열기 전 포커스로 돌아간다.
     연 요소가 그사이 사라졌으면(메뉴 항목) back 선택자로 찾은 곳으로 */
 function showDialog(id, html, back = '') {
   let el = document.getElementById(id);
@@ -1729,7 +1735,7 @@ async function routeNow() {
       } else if (parts[2] === 'arc') S.selEp = null;  // 보드로 돌아오면 대화 대상도 고른 아크로 돌아간다
       if (parts[2] === 'write' || parts[2] === 'arc' || parts[2] === 'check') await openingLoad(parts[2] === 'arc' ? 0 : (n || currentEp()));
       if (parts[2] === 'check') await checkLoad(n || currentEp());
-      if (parts[2] === 'research') await rsLoad();
+      if (parts[2] === 'research') await rsLoad(parts[3]);  // research/<쪽> 은 그 실험 쪽
       if (parts[2] === 'cue') await cueLoad(parts[3]);
       if (parts[2] === 'usage') await usageLoad(S.name);
       if (parts[2] === 'convert') await convertLoad();
@@ -1738,6 +1744,7 @@ async function routeNow() {
       if (parts[2] === 'stage') await stgLoad(n || currentEp(), Number(parts[4]) || 1);
       else S.stgDirty = false;  // 장면 연출을 떠났다 (떠날 때 hashchange 가 물었다)
       if (parts[2] === 'foreshadow') await fsLoad(parts[3]);  // foreshadow/<복선 id> 는 그 복선 쪽
+      if (parts[2] === 'lines') lineLoad(parts[3]);  // lines/<줄기 id> 는 그 줄기 쪽
       if (parts[2] === 'statwin') await swLoad(parts[3]);
       if (parts[2] === 'abilities') await abLoad(parts[3]);
       if (parts[2] === 'setup' && parts[3]) {  // 인물 화면의 '기본 설정 고치기'(setup/<인물 id>)는 그 인물 카드로 간다
@@ -1745,7 +1752,7 @@ async function routeNow() {
         if (i >= 0) S.focusTarget = S.jumpTo = `#f-characters-${i}-name`;
       } else if (parts[2] === 'setup' && S.jumpTo) S.focusTarget = S.jumpTo;  // 명령 팔레트에서 고른 설정 칸 (palette.js)
       if (parts[2] === 'causal') {
-        if (parts[3]) S.causalSel = parts[3];
+        causalPick(parts[3]);  // causal/<요소 id> 는 그 요소 쪽, causal 은 개요
         await causalLoad();
       }
       if (typeof autoLoad === 'function') await autoLoad(parts[2] === 'auto');
@@ -1869,8 +1876,8 @@ function pageTitle() {
   const h1 = $('#app main h1');
   const name = h1 ? h1.textContent.trim().replace(/\s+/g, ' ') : '';
   const work = P() && S.route[0] === 'p' ? P().meta.title : '';
-  // 한 화 흐름의 세 화면은 제목이 모두 화 제목이라 단계 이름을 앞에 붙인다 ('검수 · 4화 「제목」')
-  const stage = work && FLOW_PAGES.includes(S.route[2]) ? stepLabel(S.route[2]) : '';
+  // 한 화 흐름의 세 화면과 작업지시서는 제목이 모두 화 제목이라 화면 이름을 앞에 붙인다 ('검수 · 4화 「제목」')
+  const stage = !work ? '' : FLOW_PAGES.includes(S.route[2]) ? stepLabel(S.route[2]) : S.route[2] === 'brief' ? '채팅 앱 작업지시서' : '';
   return [stage, name, work !== name ? work : '', 'Canon'].filter(Boolean).join(' · ');
 }
 
@@ -1903,7 +1910,7 @@ function drawApp() {
   const n = Number(arg) || currentEp();
   const views = { setup: viewSetup, style: viewStyle, arc: () => (plotPageN() ? viewPlotPage(plotPageN()) : serial() ? viewSerial() : viewArc()), write: viewWrite, check: viewCheck, review: viewReview, brief: viewBrief, research: viewResearch, usage: viewUsage, auto: viewAuto, causal: viewCausal, lines: viewLines, cast: viewCast, atlas: viewAtlas, convert: viewConvert, foreshadow: viewForeshadow, tofix: viewToFix, stage: viewStage, statwin: viewStatwin, abilities: viewAbilities, timeline: viewTimeline, branches: viewBranches, cue: viewCue };
   const body = (views[page] || viewHome)(n);
-  $('#app').innerHTML = `<div class="shell">${sidebar(page === 'convert' ? 'home' : page || 'home')}<main class="main">${branchStrip(page)}${failStrip(page, n)}${draftStrip(page, n)}${body}</main></div>`;
+  $('#app').innerHTML = `<div class="shell">${sidebar(page === 'convert' ? 'home' : page || 'home')}<main class="main">${failStrip(page, n)}${draftStrip(page, n)}${branchPlace(page, body)}</main></div>`;
   syncPending();
   keepDrafts();  // 저장 · 버리기 · AI 본문으로 초안이 사라졌으면 임시본도 바로 지운다
   syncChat();
@@ -1962,11 +1969,11 @@ function railPinned() {
     900px 이하는 위쪽 띠라 app.css 가 이 표시를 쓰지 않는다. 서랍을 연 동안은 menu-open 으로 뒤 화면을 굴리지 않는다 */
 function syncRail() {
   const w = window.innerWidth;
-  const auto = document.body.classList.contains('chat-open') && w >= 901 && w <= 1599;
+  const auto = document.body.classList.contains('chat-open') && w > BP.narrow && w <= BP.chatRail;
   document.body.classList.toggle('side-rail', railPinned() || auto);
   document.body.classList.toggle('side-rail-auto', auto);
   // 900px 이하 서랍을 연 동안: 서랍은 대화상자로 알리고, 뒤 화면과 위쪽 띠의 나머지는 Tab · 낭독에서 뺀다 (Esc 는 아래)
-  const drawer = !!S.menuOpen && w <= 900;
+  const drawer = !!S.menuOpen && w <= BP.narrow;
   document.body.classList.toggle('menu-open', drawer);
   const menu = document.getElementById('side-menu');
   if (menu) {

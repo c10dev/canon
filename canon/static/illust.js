@@ -228,7 +228,7 @@ function ilTool() {
     el.id = 'ill-tool';
     el.className = 'sel-tool';
     el.hidden = true;
-    el.innerHTML = '<button type="button" class="btn small primary" data-action="illFromRead">삽화 프롬프트</button>';
+    el.innerHTML = '<button type="button" class="btn small primary" data-action="illFromRead">삽화 프롬프트 만들기</button>';
     document.body.appendChild(el);
   }
   return el;
@@ -370,7 +370,7 @@ Object.assign(actions, {
     const also = S.dirty ? '저장하지 않은 다른 변경도 함께 저장해요.' : '';
     if (force && !confirm(`${charName(cid)}의 외형 태그를 바꿀까요?${also ? ` ${also}` : ''}\n\n지금: ${have}\nAI: ${ai}`)) return;
     if (!force && also && !confirm(`${charName(cid)}의 외형 태그를 이 태그로 고정할까요? ${also}`)) return;
-    await run('외형 태그 저장 중', async () => {
+    await run('외형 태그 저장하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/illust/${enc(id)}/keep-look`, { character_id: cid, force });
       toast(`${charName(cid)}의 외형 태그로 저장했어요. 인물 화면의 인물 카드에서 고칠 수 있어요`);

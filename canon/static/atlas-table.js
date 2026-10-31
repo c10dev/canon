@@ -1,5 +1,5 @@
 /* 어디에 있었나 표와 장소와 맞지 않은 위치 (atlas.js 에서 뗐다). app.js 의 S, actions, api, run, render, esc 와
-   atlas.js 의 atlasChars · atlasRow · atlasPlace · atlasKnown · atlasSwatch · atlasToggles · atlasLoad 를 쓴다.
+   atlas.js 의 atlasChars · atlasRow · atlasPlace · atlasKnown · atlasSwatch · atlasMinorCount · atlasTvLive · atlasLoad 를 쓴다.
    위치 글 잇기의 AI 제안은 서버 pipeline.sort_places, 적용은 atlas.apply_sort. */
 'use strict';
 
@@ -10,6 +10,8 @@ function atlasTable() {
   // 시작(1화 전) 칸은 그때 위치가 적힌 인물이 있을 때만 보인다
   const fs = all.filter(([f]) => f.episode || f.rows.some((r) => r.location));
   const chars = atlasChars();
+  const tv = {};  // '인물:화' → 이동 경고 (이동 시간 검사)
+  atlasTvLive().forEach((m) => { tv[`${m.cid}:${m.episode}`] = m; });
   if (!chars.length) return '<div class="card empty"><p>위치가 기록된 인물이 아직 없어요.</p><div class="small">상태 승인에서 인물 위치(location)를 반영하면 화별로 쌓여요.</div></div>';
   const head = `<tr><th scope="col">인물</th>${fs.map(([f, i]) => `<th scope="col"${i === S.atlasFrame ? ' class="cur"' : ''}><button type="button" class="linkish" data-action="atlasGo" data-arg="${i}" title="${esc(frameLabel(f))} 지도로">${f.episode ? f.episode + '화' : '시작'}</button></th>`).join('')}</tr>`;
   const body = chars.map((c) => {
@@ -22,13 +24,19 @@ function atlasTable() {
       const shown = fog ? '?' : text;
       const same = text && text === last;
       last = text || last;
-      const cls = [i === S.atlasFrame ? 'cur' : '', same ? 'same' : text ? 'moved' : '', pl ? '' : 'raw'].filter(Boolean).join(' ');
-      return `<td class="${cls}" title="${esc(r && r.location ? r.location : '')}">${esc(shown.length > 10 ? shown.slice(0, 10) + '…' : shown)}</td>`;
+      const m = S.atlasTvMarks && f.episode && tv[`${c.id}:${f.episode}`];
+      const cls = [i === S.atlasFrame ? 'cur' : '', same ? 'same' : text ? 'moved' : '', pl ? '' : 'raw', m ? `tv ${m.level}` : ''].filter(Boolean).join(' ');
+      const flag = m ? `<button type="button" class="at-tv-chip ${m.level}" data-action="atlasTravelShow" data-arg="${esc(c.id)}:${f.episode}" title="${esc(m.text)}">${m.level === 'fast' ? '너무 빨라요' : '빠듯해요'}</button>` : '';
+      return `<td class="${cls}" title="${esc(r && r.location ? r.location : '')}">${esc(shown.length > 10 ? shown.slice(0, 10) + '…' : shown)}${flag}</td>`;
     }).join('');
     return `<tr><th scope="row">${atlasSwatch(c.id)}${esc(c.name || c.id)}</th>${cells}</tr>`;
   }).join('');
-  return `<section class="card"><div class="between"><h2>어디에 있었나</h2>${atlasToggles(false)}</div>
-    <div class="small">반영한 화마다 인물이 있던 곳이에요. 진한 칸은 장소가 바뀐 화, 흐린 칸은 앞 화와 같은 곳, 기울인 글은 장소와 맞지 않은 위치 글이에요. 화를 누르면 그 시점 지도로 가요.</div>
+  const tog = (key, label, title = '') => `<button type="button" class="btn small${S[key] ? ' on' : ''}" data-action="atlasOpt" data-arg="${key}" aria-pressed="${!!S[key]}"${title ? ` title="${esc(title)}"` : ''}>${label}</button>`;
+  const minors = atlasMinorCount();
+  const n = Object.keys(tv).length;
+  const tools = `<div class="row">${tog('atlasFog', '독자 시점', '아직 독자에게 드러나지 않은 장소를 ?로 가려요')}${minors ? tog('atlasMinor', `단역 ${minors}명`) : ''}${n ? tog('atlasTvMarks', `이동 경고 ${n}`, '너무 빠르거나 빠듯한 이동을 칸에 보여요') : ''}</div>`;
+  return `<section class="card"><div class="between"><h2>어디에 있었나</h2>${tools}</div>
+    <p class="small">반영한 화마다 인물이 있던 곳이에요. 진한 칸은 장소가 바뀐 화, 흐린 칸은 앞 화와 같은 곳, 기울인 글은 장소와 맞지 않은 위치 글이에요. 화를 누르면 그 시점 지도로, 이동 경고를 누르면 그 이동을 지도에서 봐요.</p>
     <div class="at-table-wrap"><table class="at-table">${head}${body}</table></div></section>`;
 }
 
@@ -64,12 +72,12 @@ function atlasUnmatched() {
   const done = links.map((ln, i) => `<li>${esc(ln.text)} → ${ln.place ? esc((atlasPlace(ln.place) || { name: ln.place }).name) : '지도에 그리지 않음'} <button type="button" class="btn small ghost" data-action="atlasUnlink" data-arg="${i}">풀기</button></li>`).join('');
   const picked = atlasPicked().length;
   const all = list.length && list.every((u) => atlasDraft(u.text).on);
-  const newBox = fresh.length ? `<div class="at-box"><h3>함께 등록할 새 장소 (${fresh.length})</h3>
+  const newBox = fresh.length ? `<div class="note at-sec"><h3>함께 등록할 새 장소 (${fresh.length})</h3>
       <div class="small">고른 위치 글이 이 장소를 쓰면 적용할 때 인과율 '장소'로 등록해요. 이름이나 설명은 인과율에서 고칠 수 있어요.</div>
       <ul class="at-list">${fresh.map((x) => `<li><strong>${esc(x.name)}</strong>${x.kind ? ` · ${esc(x.kind)}` : ''}${x.description ? ` · ${esc(x.description)}` : ''} <span class="small">(${x.first_ep ? x.first_ep + '화부터' : '처음부터'})</span></li>`).join('')}</ul></div>` : '';
   return `<section class="card" id="at-unmatched"><h2>장소와 맞지 않은 위치 (${list.length})</h2>
     <div class="small">상태 변경안이 적은 인물 위치에 장소 이름이 없으면 지도에 그리지 못해요. 장소에 이어 두면 같은 글은 다음부터 그 장소로 그려요.</div>
-    ${list.length ? `<div class="row"><button type="button" class="btn primary" data-action="atlasSort">AI로 한 번에 정리</button>
+    ${list.length ? `<div class="row"><button type="button" class="btn" data-action="atlasSort">AI로 한 번에 정리</button>
       <span class="small">AI가 화별 요약을 보고 위치 글마다 장소를 골라 채워요. 없는 장소는 새 장소로 제안해요. 확인하고 고른 것만 적용해요.</span></div>
     ${newBox}
     <div class="at-um-bar">

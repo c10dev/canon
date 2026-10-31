@@ -1,7 +1,8 @@
-"""디자인 시스템 색 토큰(docs/design/tokens.json)과 화면 CSS(canon/static/app.css)가 같은지 본다.
+"""디자인 시스템 토큰(docs/design/tokens.json)과 화면 CSS(canon/static/app.css)가 같은지 본다.
 
 app.css 의 밝은 테마는 맨 위 `:root`, 어두운 테마는 `@media (prefers-color-scheme: dark)` 안의 `:root` 다.
 색을 더하거나 바꾸면 두 파일을 함께 고친다.
+간격 · 모서리 · 크기 · 그림자 · 쌓는 층(z)은 테마가 없어 맨 위 `:root` 에만 있다.
 """
 import json
 import re
@@ -40,6 +41,21 @@ def _colors(body):
         if COLOR.match(v):
             out[name] = v
     return out
+
+
+NON_COLOR = ("spacing", "radius", "size", "shadow", "z")
+
+
+def _decls(body):
+    body = re.sub(r"/\*.*?\*/", "", body, flags=re.S)
+    return {name: _norm(value) for name, value in DECL.findall(body)}
+
+
+def _root_text():
+    text = CSS.read_text(encoding="utf-8")
+    light = re.search(r"^:root\s*\{", text, flags=re.M)
+    assert light, "app.css 맨 위에 :root 블록이 없어요"
+    return _block(text, light.end() - 1)
 
 
 def css_themes():
@@ -88,3 +104,31 @@ def test_parser_finds_tokens():
     assert {"bg", "accent", "overlay"} <= css_light.keys()
     assert {"bg", "accent", "overlay"} <= css_dark.keys()
     assert "sans" not in css_light  # 글꼴 변수는 색이 아니다
+
+
+def test_non_color_tokens_match_css():
+    data = json.loads(TOKENS.read_text(encoding="utf-8"))
+    css = _decls(_root_text())
+    errs = []
+    for group in NON_COLOR:
+        assert group in data, f"tokens.json 에 {group} 묶음이 없어요"
+        for tok in data[group]["tokens"]:
+            name, want = tok["name"], _norm(tok["value"])
+            if name not in css:
+                errs.append(f"--{name} 가 app.css :root 에 없어요 (tokens.json {group})")
+            elif css[name] != want:
+                errs.append(f"--{name} 값이 달라요 (tokens.json {want}, app.css {css[name]})")
+    prefixes = ("space-", "radius-", "shadow-", "z-")
+    names = {t["name"] for g in NON_COLOR for t in data[g]["tokens"]}
+    for name in sorted(css):
+        if name.startswith(prefixes) and name not in names:
+            errs.append(f"--{name} 는 app.css 에만 있어요 (docs/design/tokens.json 에 더해 주세요)")
+    assert not errs, "\n".join(errs)
+
+
+def test_z_index_uses_ladder():
+    # 쌓는 층은 --z-* 사다리로 쓴다. 0 · auto 와 한 층 안의 작은 수(1~2)만 숫자로 둘 수 있다
+    text = re.sub(r"/\*.*?\*/", "", CSS.read_text(encoding="utf-8"), flags=re.S)
+    bad = [v for v in re.findall(r"z-index\s*:\s*([^;}]+)", text)
+           if not v.strip().startswith(("var(--z-", "calc(var(--z-")) and v.strip() not in ("0", "auto")]
+    assert not bad, f"z-index 를 --z-* 변수로 써 주세요: {bad}"

@@ -46,7 +46,9 @@
   - `_stage_run`
   - 갈래별 찾은 수 `by_kind` · 기록 합계 `check_totals`
 - 블라인드 비교
+- 고르지 않은 비교본 목록 `open_compares`
 - 작품 데이터와 분리해 `research/log.jsonl` 에 기록
+- 갈래마다 마지막 기록 `latest`(연구 개요가 `history` 30개 밖의 실험도 보인다)
 
 ### `canon/revlab.py`
 
@@ -54,6 +56,9 @@
 - 작가가 넣은 소설을 거꾸로 화별 플롯 · 스토리보드 · 큐 시트 · 이야기 줄기로 푼다
 - 그 큐 시트로 같은 화를 다시 써서(되돌려 쓰기) 원문과 견준다
 - 작품 밖 `<CANON_HOME>/.revlab/<번호>.json`(`RevLab`, `load` · `save` · `with_lock` · `create` · `replace_text`, 화 이어 붙이기 `append_text`: 마지막 화 + 1 부터, 앞 화 결과는 그대로)
+- 화 하나 고치기(`edit_episode`, 웹 `PUT /api/revlab/{번호}/episodes/{n}`): 글이 바뀌면 그 화의 결과 · 되돌려 쓴 판만 지운다. 제목 줄만 바뀌면 결과는 그대로
+- 화 빼기(`drop_episode`, 웹 `DELETE /api/revlab/{번호}/episodes/{n}`): 뒤 화 번호와 줄기의 `branch_ep` · `join_ep` 를 하나씩 당긴다. 마지막 남은 화는 빼지 않는다
+- 화 고치기 · 빼기는 그 실험의 작업이 도는 동안 409(`web._rev_idle`, 작업이 화 번호로 결과를 넣는다)
 - 화 나누기(`split`: 'n화' 제목 줄 → `===` 줄 → 빈 줄 셋 넘게 → 한 화, `check_text`, 화면 `revSplit` 과 같은 규칙)
 - 큐 경계(`locate`: AI 가 원문 글자 그대로 인용한 시작 문장 `RevCue.start` 를 차례로 찾음, 글자 수는 `measured`)
 - 원문에 없는 핵심 대사 빼기(`keep_lines`, `cue._flat`)
@@ -105,7 +110,7 @@
   - 작품 사이드바 · ⋯ 메뉴의 링크
   - 작품 밖 사이드바(`outSidebar`)
   - 작품에서 들어왔으면 머리에 그 작품으로 가는 버튼 `revBackBtns`(`S.revFrom`, `routeNow` 가 적음)
-- 처음 화면(`revHome`)은 이어 하기 카드(목록 값 `revlab.summary` 의 `steps` · `updated` → `revLabLite` · `revHomeCard`)와 머리 '+ 새 실험'으로 펴는 새 실험 칸(`revNewToggle`, 붙여 넣기 · 첫 화 번호 짐작 `revGuessFirst` · 나누기 미리보기 `revPreview`, `revNewCard`)
+- 처음 화면(`revHome`)은 이어 하기 카드(목록 값 `revlab.summary` 의 `steps` · `updated` → `revLabLite` · `revHomeCard`)와 머리 '+ 새 실험 만들기'으로 펴는 새 실험 칸(`revNewToggle`, 붙여 넣기 · 첫 화 번호 짐작 `revGuessFirst` · 나누기 미리보기 `revPreview`, `revNewCard`)
 - 실험 화면은 다른 단계 화면과 같은 공용 목차 틀(`outline.js`)의 왼쪽 목차 + 오른쪽 칸(`revLayout` · `revToc`, 칸은 남은 폭을 다 씀 `wide`, 위쪽 띠가 없어 `--outline-band: 0px`)
 - 목차 맨 위 개요
   - 주소에 화가 없을 때
@@ -116,6 +121,7 @@
   - 문체 프로필 `revStyleCard`
   - 이야기 줄기 `revLinesCard`
   - 지표 모아 보기 `revMetricsAll`
+- 목차의 화 줄마다 ⋯ 메뉴(`revEpMenu`): 글 고치기 칸 `revEpEditCard` · 지우기(위험한 묶음에 접음)
 - 머리 주 버튼은 다음 할 일(`revNext`, `revGoBtn`) · ⋯ 메뉴(글 · 이름 고치기 `revEditCard` · 다시 역설계 `revRedo`(개요의 풀 화 표) · 지우기)
 - 오른쪽 맨 위 도는 작업 카드(`revRunCard`: 화별 줄 `revRunRows`, 작업의 `pending` · `done`, 한 화가 끝날 때마다 다시 받기 `revJobStep`)
 - 화 탭 셋
@@ -130,7 +136,7 @@
 
 ### `canon/stattrial.py`
 
-- 상태창 넣기 시험(연구 화면 '상태창 시험' 탭, 명령줄 `stattrial`)
+- 상태창 넣기 시험(연구 화면 '상태창 시험' 쪽, 명령줄 `stattrial`)
 - 조건 `CONDITIONS`(none · json · lines, `stat_window.prompt` 만 바꾼 사본 `variant`)
 - 시험할 화(`candidates`, 추천 `default_pick`)
 - 그 화를 쓰기 직전 사본(`before`, `pipeline.revert`)
@@ -140,4 +146,6 @@
 - 실행(`run`: 실험 기록 kind statwin, 조건마다 첫 안을 블라인드 비교본 kind statwin 으로)
 - 작품은 저장하지 않는다
 - 화면은 `static/stattrial.js`
+- 화면은 고를 때마다 비용을 추정해(`stEst`, AI 없음) 머리 주 버튼 글에 적는다(`stHeadBtn`)
+- 지난 시험은 틀린 비율 막대(`stBars`, 한 계열)와 방식별 표
 - 웹 작업 `stattrial`

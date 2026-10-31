@@ -9,6 +9,7 @@
 Object.assign(S, {
   tofixFilter: 'open',  // 고칠 곳 화면 거르기: open | done | all
   tofixIdx: {},         // 화별 '고칠 곳' 버튼으로 마지막에 고른 순서
+  tofixEdit: null,      // 고칠 곳 화면에서 메모를 고치는 줄 { name, key: '화:id', note }
 });
 
 const TOFIX_STATUS = { open: '남음', done: '고침' };  // tofix.STATUS 와 같다
@@ -119,7 +120,7 @@ showTool = function showToolWithToFix() {
   const ta = t && document.querySelector(`textarea[data-draft="${t.n}"]`);
   if (!ta || !el || el.hidden || t.mode !== 'menu') return;
   el.insertAdjacentHTML('beforeend', m
-    ? `<button type="button" class="btn small" data-action="tofixEdit" data-arg="${esc(m.id)}">메모 고치기</button><button type="button" class="btn small" data-action="tofixDone" data-arg="${t.n}:${esc(m.id)}">고침으로</button>`
+    ? `<button type="button" class="btn small" data-action="tofixEdit" data-arg="${esc(m.id)}">메모 고치기</button><button type="button" class="btn small" data-action="tofixDone" data-arg="${t.n}:${esc(m.id)}">고침으로 표시</button>`
     : '<button type="button" class="btn small" data-action="tofixNew" title="이 글을 나중에 고칠 곳으로 담아요. 본문은 바꾸지 않아 자동 집필 중에도 돼요">나중에 고치기</button>');
   placeTool(ta, t);
 };
@@ -131,61 +132,133 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// 고칠 곳 화면의 메모 칸: 칸을 떠날 때 저장한다
-document.addEventListener('change', (e) => {
+// 고칠 곳 화면의 메모 칸: Ctrl+Enter 저장, Esc 취소
+document.addEventListener('keydown', (e) => {
   const k = e.target.dataset && e.target.dataset.tofixNote;
-  if (k === undefined) return;
-  const [n, id] = k.split(':');
-  tofixCall('PUT', n, `/${enc(id)}`, { note: e.target.value }, '메모를 저장했어요');
+  if (k === undefined || e.isComposing) return;
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    actions.tofixNoteSave(k);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    actions.tofixNoteCancel(k);
+  }
 });
 
-// ----- 고칠 곳 화면 -----
+// ----- 고칠 곳 화면 (화별 목차 + 카드 한 열, outline.js) -----
+
+/** 고른 글 앞뒤 문맥: { pre, q, post }. 앞뒤로 span 글자까지, 줄바꿈에서 끊고 잘렸으면 … 을 붙인다 */
+function tofixContext(text, a, b, span = 60) {
+  const cut = (x, back) => {
+    const nl = back ? x.lastIndexOf('\n') : x.indexOf('\n');
+    if (nl !== -1) return back ? x.slice(nl + 1) : x.slice(0, nl);
+    return back ? (a - span > 0 ? `…${x}` : x) : (b + span < text.length ? `${x}…` : x);
+  };
+  return { pre: cut(text.slice(Math.max(0, a - span), a), true), q: text.slice(a, b), post: cut(text.slice(b, b + span), false) };
+}
+
+const tofixKey = (n, m) => `${n}:${m.id}`;
+const tofixEditing = (k) => S.tofixEdit && S.tofixEdit.name === S.name && S.tofixEdit.key === k;
 
 function tofixItem(x) {
   const { n, m, found } = x;
   const arg = `${n}:${esc(m.id)}`;
   const btn = (action, label, cls = '') => `<button type="button" class="btn small${cls}" data-action="${action}" data-arg="${arg}">${label}</button>`;
-  const acts = m.status === 'open'
-    ? `${found ? btn('tofixGo', '본문에서 고치기', ' primary') : ''}${btn('tofixDone', '고침으로')}`
+  const open = m.status === 'open';
+  const text = (ep(n) && ep(n).text) || '';
+  const s = found ? tofixSpot(text, m.quote, m.start) : null;
+  const c = s ? tofixContext(text, s.a, s.b) : null;
+  const quote = c
+    ? `<p class="tofix-ctx"><span class="ctx">${esc(c.pre)}</span><mark>${esc(c.q)}</mark><span class="ctx">${esc(c.post)}</span></p>`
+    : `<p class="tofix-ctx lost">${esc(clip(m.quote, 240))}</p>`;
+  const lost = !found && open ? '<div class="row tofix-lost"><span class="chip warn">본문에서 못 찾음</span><span class="small">본문에서 이 글을 찾지 못했어요. 이미 고쳤으면 고침으로 표시해요.</span></div>' : '';
+  const k = tofixKey(n, m);
+  const note = tofixEditing(k)
+    ? `<div class="field"><label for="tofix-n-${arg}">메모 · 고치는 중</label><textarea id="tofix-n-${arg}" rows="2" maxlength="${TOFIX_NOTE_MAX}" data-tofix-note="${arg}" placeholder="무엇이 어색한지 적어 두세요">${esc(S.tofixEdit.note ?? m.note)}</textarea></div>
+      <div class="between"><span class="small">${matchMedia('(pointer: coarse)').matches ? '' : 'Ctrl+Enter 저장 · Esc 취소'}</span><span class="row">${btn('tofixNoteCancel', '취소')}${btn('tofixNoteSave', '메모 저장')}</span></div>`
+    : `<div class="tofix-note${m.note ? '' : ' none'}">${m.note ? esc(m.note) : '메모 없음'}</div>`;
+  const more = menuBtn(`tf-${k}`, '⋯', () => `${open ? `<button type="button" class="pop-item" data-action="tofixNoteEdit" data-arg="${arg}">메모 고치기</button>` : ''}<button type="button" class="pop-item danger" data-action="tofixDelete" data-arg="${arg}">지우기</button>`, { cls: 'btn small ghost', aria: '이 고칠 곳 더 보기' });
+  const acts = open
+    ? `${found ? `<button type="button" class="btn small" data-action="tofixGo" data-arg="${arg}">본문에서 고치기</button>` : ''}${btn('tofixDone', '고침으로 표시')}`
     : btn('tofixReopen', '다시 남음으로');
-  return `<li class="tofix-item${m.status === 'done' ? ' done' : ''}">
-    <blockquote class="tofix-q">${esc(clip(m.quote, 240))}</blockquote>
-    ${found || m.status === 'done' ? '' : '<div class="small" style="color:var(--amber)">본문에서 이 글을 찾지 못했어요. 이미 고쳤으면 고침으로 바꾸세요.</div>'}
-    <label class="sr-only" for="tofix-n-${arg}">메모</label>
-    <textarea id="tofix-n-${arg}" rows="1" maxlength="${TOFIX_NOTE_MAX}" data-tofix-note="${arg}" placeholder="메모 (무엇이 어색한지)">${esc(m.note)}</textarea>
-    <div class="between"><span class="small">${m.status === 'done' ? `${fmtDateTime(m.done_at || m.at)} 고침` : `${fmtDateTime(m.at)} 담음`}</span>
-      <span class="row" style="gap:6px">${acts}${btn('tofixDelete', '지우기', ' ghost')}</span></div>
+  return `<li class="tofix-item${open ? '' : ' done'}${tofixEditing(k) ? ' editing' : ''}">
+    ${lost}${quote}${note}
+    ${tofixEditing(k) ? '' : `<div class="between"><span class="small">${open ? `${fmtDateTime(m.at)} 담음` : `${fmtDateTime(m.done_at || m.at)} 고침`}</span><span class="row">${acts}${more}</span></div>`}
   </li>`;
+}
+
+/** 화별 묶음 [{ n, title, items, lost }] */
+function tofixGroups(rows) {
+  const groups = [];
+  rows.forEach((x) => {
+    if (!groups.length || groups[groups.length - 1].n !== x.n) groups.push({ n: x.n, title: x.title, items: [], lost: 0 });
+    const g = groups[groups.length - 1];
+    g.items.push(x);
+    if (!x.found && x.m.status === 'open') g.lost += 1;
+  });
+  return groups;
+}
+
+let tofixTocGroups = [];  // 마지막으로 그린 목차 묶음 (스크롤 때 목차만 다시 그린다)
+let tofixTocCur = null;
+
+function tofixToc(groups = tofixTocGroups) {
+  tofixTocGroups = groups;
+  const cur = groups.find((g) => g.n === tofixTocCur) || groups[0];
+  const names = { open: '남은 고칠 곳', done: '고친 곳', all: '모든 고칠 곳' };
+  const body = `<span class="outline-h">${names[S.tofixFilter]} · ${groups.length}화</span>${groups.map((g) => `<button type="button" class="outline-item${g.lost ? ' warn' : ''}" data-action="tofixEp" data-arg="${g.n}"${g === cur ? ' aria-current="true"' : ''}><span class="tl">${g.n}화 ${esc(g.title)}</span><span class="st${g.lost ? ' warn' : ''}">${g.lost ? `못 찾음 ${g.lost}` : g.items.length}</span></button>`).join('')}
+    <div class="outline-sep"></div><p class="outline-note small">집필 화면 본문 띠의 '고칠 곳 N'으로도 차례로 옮겨 다녀요.</p>`;
+  return outlineNav({ id: 'tf-toc', label: '화별 고칠 곳', now: cur ? `${cur.n}화 ${esc(cur.title)} <span class="small">${cur.items.length}</span>` : '', body });
+}
+
+outlineSpy('tf-toc', {
+  targets: () => tofixTocGroups.map((g) => [g.n, document.getElementById(`tf-ep-${g.n}`)]),
+  set(cur) {
+    if (cur === tofixTocCur) return;
+    tofixTocCur = cur;
+    outlineRefresh('tf-toc', tofixToc());
+  },
+});
+
+/** 빈 화면에서 갈 집필 화면: 본문이 있는 마지막 화, 없으면 첫 화 */
+function tofixWriteHref() {
+  const eps = P().episodes;
+  const withText = eps.filter((e) => e.text).map((e) => e.plot.number);
+  const n = withText.length ? Math.max(...withText) : Math.min(...eps.map((e) => e.plot.number));
+  return { n, href: `${base()}/write/${n}` };
 }
 
 function viewToFix() {
   const eps = P().episodes;
   const all = tofixList(eps, 'all');
   const count = { open: all.filter((x) => x.m.status === 'open').length, done: all.filter((x) => x.m.status === 'done').length, all: all.length };
-  const head = header('작품 도구', '고칠 곳', '집필 화면에서 글을 골라 \'나중에 고치기\'로 담은 곳이에요. 본문을 바꾸지 않아 자동 집필이 도는 동안에도 담을 수 있어요. AI에게는 보내지 않아요.');
-  const names = { open: '남은', done: '고친', all: '모든' };
-  const tab = (k, l) => `<button type="button" role="tab" aria-selected="${S.tofixFilter === k}" data-action="tofixFilter" data-arg="${k}">${l} ${count[k]}</button>`;
-  const tabs = `<div class="tabs" role="tablist" aria-label="고칠 곳 거르기">${tab('open', '남음')}${tab('done', '고침')}${tab('all', '모두')}</div>`;
+  const seg = all.length ? `<div class="seg" role="group" aria-label="고칠 곳 거르기">${[['open', '남음'], ['done', '고침'], ['all', '모두']].map(([k, l]) => `<button type="button" aria-pressed="${S.tofixFilter === k}" data-action="tofixFilter" data-arg="${k}">${l} ${count[k]}</button>`).join('')}</div>` : '';
+  const head = header('작품 도구', '고칠 곳', '집필 화면에서 글을 골라 \'나중에 고치기\'로 담은 곳이에요. 본문은 그대로 두고, AI에게는 보내지 않아요.', seg);
+  if (!eps.length) return head + noEpisode();
   const rows = all.filter((x) => S.tofixFilter === 'all' || x.m.status === S.tofixFilter);
   if (!rows.length) {
-    const msg = !all.length ? '아직 담은 곳이 없어요. 집필 화면에서 어색한 글을 드래그해 고른 뒤 \'나중에 고치기\'를 누르세요.' : `${names[S.tofixFilter]} 고칠 곳이 없어요.`;
-    return `${head}<section class="card">${tabs}<div class="small" style="margin-top:12px">${msg}</div></section>`;
+    if (!all.length) {
+      const w = tofixWriteHref();
+      return `${head}<div class="card empty"><p>아직 담은 곳이 없어요. 집필 화면에서 어색한 글을 드래그해 고른 뒤 '나중에 고치기'를 누르면 여기 모여요.</p><div><a class="btn primary" href="${w.href}">${w.n}화 집필 화면으로</a></div></div>`;
+    }
+    return S.tofixFilter === 'open'
+      ? `${head}<div class="card empty"><p>남은 고칠 곳이 없어요. 담은 ${count.done}곳을 모두 고쳤어요.</p><div><button type="button" class="btn primary" data-action="tofixFilter" data-arg="done">고친 곳 보기</button></div></div>`
+      : `${head}<div class="card empty"><p>아직 고친 곳이 없어요.</p><div><button type="button" class="btn primary" data-action="tofixFilter" data-arg="open">남은 곳 보기</button></div></div>`;
   }
-  const groups = [];
-  rows.forEach((x) => {
-    if (!groups.length || groups[groups.length - 1].n !== x.n) groups.push({ n: x.n, title: x.title, items: [] });
-    groups[groups.length - 1].items.push(x);
-  });
-  return `${head}<section class="card">${tabs}</section>
-    ${groups.map((g) => `<section class="card"><div class="between"><h2>${g.n}화 ${esc(g.title)}</h2><a class="btn small" href="${base()}/write/${g.n}">집필 화면</a></div>
-      <ol class="tofix-list">${g.items.map(tofixItem).join('')}</ol></section>`).join('')}`;
+  const groups = tofixGroups(rows);
+  if (!groups.some((g) => g.n === tofixTocCur)) tofixTocCur = null;
+  const main = `<div class="tofix-col">${groups.map((g) => `<section class="card" id="tf-ep-${g.n}" aria-labelledby="tf-h-${g.n}">
+      <div class="between"><h2 id="tf-h-${g.n}" tabindex="-1">${g.n}화 ${esc(g.title)}</h2><a class="btn small ghost" href="${base()}/write/${g.n}">${g.n}화 집필 화면</a></div>
+      <ol class="tofix-list">${g.items.map(tofixItem).join('')}</ol></section>`).join('')}</div>`;
+  return `${head}${outlineDoc(tofixToc(groups), main, { cls: 'tofix-wrap' })}`;
 }
 
 /** n 화 표시 m 의 글을 집필 화면 본문 칸에서 고르고 도구를 띄운다 (passage.js syncPassage 가 다시 그린 뒤 연다). */
 function tofixFocus(n, m) {
   const s = tofixSpot(textNow(n), m.quote, m.start);
   if (!s) {
-    toast('본문에서 이 글을 찾지 못했어요. 이미 고쳤으면 고침으로 바꾸세요', true);
+    toast('본문에서 이 글을 찾지 못했어요. 이미 고쳤으면 고침으로 표시해요', true);
     return false;
   }
   S.selFocus = { n, start: s.a, end: s.b, menu: true };
@@ -228,7 +301,7 @@ Object.assign(actions, {
   tofixDone(arg) {
     const { n, id } = tofixArg(arg);
     if (S.selTool) hideTool();
-    tofixCall('PUT', n, `/${enc(id)}`, { status: 'done' }, '고침으로 바꿨어요');
+    tofixCall('PUT', n, `/${enc(id)}`, { status: 'done' }, '고침으로 표시했어요');
   },
   tofixReopen(arg) {
     const { n, id } = tofixArg(arg);
@@ -242,6 +315,37 @@ Object.assign(actions, {
   },
   tofixFilter(k) {
     S.tofixFilter = k;
+    tofixTocCur = null;
+    render();
+  },
+  /** 목차 줄: 그 화 카드로 옮기고 제목에 포커스 */
+  tofixEp(n) {
+    const el = document.getElementById(`tf-ep-${n}`);
+    if (!el) return;
+    tofixTocCur = Number(n);
+    outlineRefresh('tf-toc', tofixToc());
+    el.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    document.getElementById(`tf-h-${n}`)?.focus({ preventScroll: true });
+  },
+  /** 고칠 곳 화면: 그 줄만 메모 칸을 편다 (Card 읽기 먼저) */
+  tofixNoteEdit(arg) {
+    S.tofixEdit = { name: S.name, key: String(arg), note: null };
+    S.focusTarget = `[data-tofix-note="${CSS.escape(String(arg))}"]`;
+    render();
+  },
+  tofixNoteCancel(arg) {
+    S.tofixEdit = null;
+    S.focusTarget = `[data-action="menuToggle"][data-arg="tf-${CSS.escape(String(arg))}"]`;
+    render();
+  },
+  async tofixNoteSave(arg) {
+    const { n, id } = tofixArg(arg);
+    const el = document.querySelector(`[data-tofix-note="${CSS.escape(String(arg))}"]`);
+    const note = el ? el.value.trim() : '';
+    if (S.tofixEdit) S.tofixEdit.note = el ? el.value : null;  // 저장이 실패하면 고치던 글을 남긴다
+    if (!(await tofixCall('PUT', n, `/${enc(id)}`, { note }, '메모를 저장했어요'))) return;
+    S.tofixEdit = null;
+    S.focusTarget = `[data-action="menuToggle"][data-arg="tf-${CSS.escape(String(arg))}"]`;
     render();
   },
   /** 고칠 곳 화면에서: 그 화 집필 화면으로 가서 글을 고른다. */

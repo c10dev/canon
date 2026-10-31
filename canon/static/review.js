@@ -15,6 +15,7 @@ function pickedDelta(n) {
     events: pick('e', d.events),
     secrets_added: pick('s', d.secrets_added),
     relationship_updates: pick('r', d.relationship_updates),
+    rel_flagged: [],  // 작가가 고른 뒤라 기본 체크 표시는 필요 없다 (차례도 고른 목록과 맞지 않는다)
     new_facts: clean(pick('f', d.new_facts)),
     foreshadow_planted: pick('p', d.foreshadow_planted),
     foreshadow_resolved: pick('x', d.foreshadow_resolved),
@@ -81,7 +82,8 @@ function setDelta(n, d, source = 'ai') {
   d.character_updates.forEach((u, i) => { S.picks['c' + i] = known.has(u.character_id); });
   d.events.forEach((_, i) => { S.picks['e' + i] = true; });
   d.secrets_added.forEach((_, i) => { S.picks['s' + i] = true; });
-  d.relationship_updates.forEach((_, i) => { S.picks['r' + i] = true; });
+  // 유형 · 설명이 반영 뒤 관계 단계와 반대인 바뀜은 기본으로 빼 둔다 (pace.clean_delta). 맞으면 작가가 체크한다
+  d.relationship_updates.forEach((_, i) => { S.picks['r' + i] = !(d.rel_flagged || []).includes(i); });
   d.new_facts.forEach((_, i) => { S.picks['f' + i] = true; });
   d.foreshadow_planted.forEach((_, i) => { S.picks['p' + i] = true; });
   d.foreshadow_resolved.forEach((id, i) => { S.picks['x' + i] = P().foreshadows.some((f) => f.id === id); });
@@ -138,7 +140,7 @@ const statLink = (updates) => (updates.some((u) => (u.stats || []).length) || P(
 // 901px 아래는 오른쪽 칸만 먼저 보이고 본문은 접어 둔다. 반영 버튼은 넓은 폭은 머리, 좁은 폭은 아래 반영 줄
 
 /** 본문을 옆에 두는 폭 (901px 이상). 좁으면 근거 문장은 오른쪽 칸 위 근거 카드로 보인다 */
-const rvWide = () => !(typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 900px)').matches);
+const rvWide = () => !(typeof window !== 'undefined' && window.matchMedia && mq('narrow').matches);
 
 /** 경고를 인물 줄에 붙인다. names: character_updates 순서의 인물 이름. 경고 글이 인물 이름으로 시작하면 그 인물 줄(by[i]),
     아니면 '본문 점검'(rest). 상태창 · 이동 시간 경고는 '이름 상태창:' · '이름이 너무 빨리'로 시작한다 (statwin · travel). 값은 경고 번호 */
@@ -288,7 +290,7 @@ function viewReview(n) {
   const rels = d.relationship_updates.map((r, i) => {
     const cur = p.relationships.find((x) => (x.a === r.a && x.b === r.b) || (x.a === r.b && x.b === r.a));
     return `<div class="change">${box('r' + i)}<div class="body"><label for="pk-r${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(r.a))} ↔ ${esc(charName(r.b))}</label>
-      ${diff(cur && cur.type, r.type)}${r.description ? diff(cur && cur.description, r.description) : ''}</div></div>`;
+      ${diff(cur && cur.type, r.type)}${r.description ? diff(cur && cur.description, r.description) : ''}${(d.rel_flagged || []).includes(i) ? '<div class="small">관계 단계와 반대라 기본으로 빼 두었어요. 맞으면 체크하세요.</div>' : ''}</div></div>`;
   }).join('');
   const facts = d.new_facts.map((f, i) => `<div class="change">${box('f' + i, `확정 사실 ${i + 1} 반영`)}<div class="body"><div class="row" style="gap:6px;flex-wrap:nowrap"><input id="fv-${i}" aria-label="확정 사실 ${i + 1}" ${edit(`new_facts.${i}`, 'f' + i)} value="${esc(f)}" placeholder="비우면 빼요" style="flex:1;min-width:0;font-size:0.8125rem">${editMark(n, 'f' + i)}</div></div></div>`).join('');
   // 회수한다는 복선 id 를 모르면 '직접 정할 것'으로 (기본으로 빼 둔다, setDelta)
@@ -342,7 +344,7 @@ function viewReview(n) {
   const keepCount = shown.reduce((s, g) => s + g[3].length, 0);
   const grp = ([key, label, html, ks, peek, foot]) => {
     const open = !!(S.rvOpen && S.rvOpen[`${n}:g:${key}`]);
-    return `<details class="rv-grp" data-rv-grp="${n}:g:${key}"${open ? ' open' : ''}><summary><span class="tf" aria-hidden="true">${RV_ICON[key]}</span><strong>${label}</strong>${ks.length ? `<span class="rv-count" data-rv-keys="${ks.join(',')}">${rvKeyCount(ks)}</span>` : ''}<span class="rv-peek">${esc(peek)}</span></summary>
+    return `<details class="rv-grp" data-rv-grp="${n}:g:${key}"${open ? ' open' : ''}><summary><strong>${label}</strong>${ks.length ? `<span class="rv-count" data-rv-keys="${ks.join(',')}">${rvKeyCount(ks)}</span>` : ''}<span class="rv-peek">${esc(peek)}</span></summary>
       <div class="rv-grp-body">${html}${foot}</div></details>`;
   };
   const keep = `<section class="card rv-card rv-keep" aria-labelledby="rv-keep-h"><div class="rv-card-head"><h2 id="rv-keep-h">그대로 반영할 것 <span class="chip">${keepCount}</span></h2><span class="small">갈래를 펴서 고치거나 뺄 수 있어요</span></div>
@@ -363,9 +365,6 @@ function viewReview(n) {
   return head + stale + issues + lead + `<div class="rv-grid">${panel}${body}</div>` +
     (wide ? '' : `<div class="apply-bar rv-deck-bar" role="region" aria-label="반영"><span class="small"><strong class="pick-count" style="color:var(--text)">${picked}</strong>/${total} 고름</span>${applyBtn(`반영하고 ${n}화 완료`)}</div>`);
 }
-
-/** 갈래 아이콘 (토스페이스) */
-const RV_ICON = { chars: '👤', places: '📍', rel: '🤝', secrets: '🤫', facts: '📌', fs: '🧩', time: '⏰' };
 
 /** 인물 i 의 감정 · 차림 · 알게 된 정보 중 고친 칸이 있다 */
 const charEdited = (n, i) => {
@@ -411,7 +410,7 @@ function rvRanges(n, text) {
 function rvQuoteBtn(n, quote, label) {
   if (!quote) return '';
   const on = S.rvQuote && S.rvQuote.n === n && S.rvQuote.q === quote;
-  return `<button type="button" class="btn small rv-src" data-action="rvQuote" data-arg="${esc(JSON.stringify([n, quote, label]))}" aria-pressed="${!!on}" aria-label="${esc(label)} 본문 근거 보기"><span class="tf" aria-hidden="true">📖</span> 본문</button>`;
+  return `<button type="button" class="btn small rv-src" data-action="rvQuote" data-arg="${esc(JSON.stringify([n, quote, label]))}" aria-pressed="${!!on}" aria-label="${esc(label)} 본문 근거 보기">본문 보기</button>`;
 }
 
 /** 본문에서 문장이 든 단락과 앞뒤 단락. 못 찾으면 null */
@@ -426,8 +425,8 @@ function rvQuoteFind(text, quote) {
 /** 좁은 폭의 근거 카드 */
 function rvQuotePanel(n, q) {
   const found = rvQuoteFind(ep(n) ? ep(n).text : '', q.q);
-  return `<section class="card rv-quote-panel" aria-label="본문 근거"><div class="rv-card-head"><h2><span class="tf" aria-hidden="true">📖</span> 본문 근거</h2><span class="small">${n}화 · ${esc(q.label)}</span>
-      <button type="button" class="btn small rv-close" data-action="rvQuote" data-arg="" aria-label="본문 근거 닫기"><span class="tf" aria-hidden="true">✖️</span></button></div>
+  return `<section class="card rv-quote-panel" aria-label="본문 근거"><div class="rv-card-head"><h2>본문 근거</h2><span class="small">${n}화 · ${esc(q.label)}</span>
+      <button type="button" class="btn small rv-close" data-action="rvQuote" data-arg="" aria-label="본문 근거 닫기">✕</button></div>
     ${found ? `<div class="rv-quote-text">${found.map((x) => `<p>${x}</p>`).join('')}</div>` : `<div class="note plain">본문에서 이 문장을 그대로 찾지 못했어요. AI가 문장을 조금 바꿔 옮겼을 수 있어요.<div class="rv-quote">${quoted(q.q)}</div></div>`}
     ${found && editableEp(ep(n)) ? `<div class="row"><span class="small" style="flex:1">이 문장을 바꾸려면 집필 화면에서 고쳐요</span><button type="button" class="btn small" data-action="rvQuoteGo" data-arg="${n}">집필에서 이 문장 고르기</button></div>` : ''}</section>`;
 }
@@ -459,7 +458,7 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
 
 // 화면 폭이 900px 를 넘나들면 본문 칸을 옆에 두고 빼기를 바꾼다
 if (typeof window !== 'undefined' && window.matchMedia) {
-  window.matchMedia('(max-width: 900px)').addEventListener('change', () => {
+  mq('narrow').addEventListener('change', () => {
     if (S.route[2] === 'review' && S.deltas[S.route[3]] && !isTyping()) render();
   });
 }
@@ -478,7 +477,7 @@ function rvStyle() {
   const el = document.createElement('style');
   el.id = 'rv-style';
   el.textContent = `
-#toast .rv-undo { display: flex; gap: 12px; align-items: center; padding: 8px 8px 8px 16px; border-radius: 10px; background: var(--inverse-bg); color: var(--inverse-ink); font-size: 0.8125rem; line-height: 1.5; box-shadow: 0 6px 24px rgba(0,0,0,0.2); border: 1px solid transparent; }
+#toast .rv-undo { display: flex; gap: 12px; align-items: center; padding: 8px 8px 8px 16px; border-radius: 10px; background: var(--inverse-bg); color: var(--inverse-ink); font-size: 0.8125rem; line-height: 1.5; box-shadow: var(--shadow-toast); border: 1px solid transparent; }
 #toast .rv-undo span { flex: 1; }
 #toast .rv-undo .btn { min-height: 40px; white-space: nowrap; }
 #toast .rv-undo .x { border: none; background: transparent; color: inherit; cursor: pointer; font-size: 0.875rem; min-width: 40px; min-height: 40px; }

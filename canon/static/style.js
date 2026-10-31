@@ -102,7 +102,7 @@ function pfCard(id, label, base, root, hot) {
   const empty = styleCardEmpty(id, prof);
   const editing = empty || pfOpen(root, id);
   const isHot = styleCardKeys(id).some((k) => hot.has(k));
-  const add = editing ? { markers: ['addMarker', '+ 표지'], devices: ['deviceAdd', '+ 장치'], passages: ['addPassage', '+ 문단'] }[id] : null;
+  const add = editing ? { markers: ['addMarker', '+ 표지 더하기'], devices: ['deviceAdd', '+ 장치 더하기'], passages: ['addPassage', '+ 문단 더하기'] }[id] : null;
   const btns = [
     add ? `<button type="button" class="btn small" data-action="${add[0]}" data-arg="${root}">${add[1]}</button>` : '',
     empty && !pfOpen(root, id) ? '' : `<button type="button" class="btn small" data-action="styleEdit" data-arg="${root}|${id}" aria-expanded="${editing}">${editing ? '다 고쳤어요' : '고치기'}</button>`,
@@ -430,7 +430,7 @@ function viewLibEntry() {
   const apply = isNew ? '' : `<section class="card tight pf-sec" id="pf-apply" tabindex="-1">
       <h2>작품에 적용</h2>
       <div class="small">${used.length ? `쓰는 작품: ${used.map((n) => `<a href="#/p/${enc(n)}/style">${esc(n)}</a>`).join(', ')}` : '아직 쓰는 작품이 없어요.'}</div>
-      ${used.length ? '<div class="small">여기서 고친 내용은 작품의 문체 화면에서 \'최신 버전 가져오기\'를 눌러야 그 작품에 들어가요.</div>' : ''}
+      ${used.length ? `<div class="small">여기서 고친 내용은 작품의 ${stepLabel('style')}에서 '최신 버전 가져오기'를 눌러야 그 작품에 들어가요.</div>` : ''}
       ${(S.projects || []).length ? `<div class="row" style="flex-wrap:nowrap"><select id="lib-target" aria-label="적용할 작품" style="flex:1;min-width:0"><option value="">작품 고르기</option>${[...others, ...(S.projects || []).filter((x) => used.includes(x.name))].map((x) => `<option value="${esc(x.name)}">${esc(x.title || x.name)}${used.includes(x.name) ? ' (다시 적용)' : ''}</option>`).join('')}</select><button class="btn small" style="flex:none" data-action="libApplyTo">적용</button></div>` : ''}
     </section>`;
   return `${header('문체 라이브러리', isNew ? '새 문체' : e.name || '이름 없음', isNew ? '원문을 붙여 넣고 분석하거나, 카드를 직접 채운 뒤 저장하세요.' : `만든 날 ${fmtDate(e.created_at)} · 고친 날 ${fmtDate(e.updated_at)}`, right)}
@@ -442,7 +442,7 @@ function viewLibEntry() {
       </section>
       <section class="card pf-sec" id="pf-source" tabindex="-1">
         <div class="pf-head"><h2>원문 · 기준 지표</h2><span class="small"><span id="lib-sample-count">${(e.sample || '').length.toLocaleString()}</span>자 · 2,000자 이상 권장</span></div>
-        ${input('분석할 소설 본문', 'sample', { root: 'lib', rows: 10, style: 'font-family:var(--serif);font-size:0.9375rem;line-height:1.9', hint: '이 컴퓨터의 라이브러리 폴더에만 저장돼요' })}
+        ${input('분석할 소설 본문', 'sample', { root: 'lib', rows: 10, style: 'font-family:var(--serif);line-height:1.9', hint: '이 컴퓨터의 라이브러리 폴더에만 저장돼요' })}
         <div class="sty-row">${b ? `<span class="metric-chips">${baselineItems(b).map(([k, v, why]) => `<span title="${esc(why)}">${k} <strong>${v}</strong></span>`).join('')}</span>` : '<span class="small">원문을 넣고 저장하면 문장 길이, 대사 비율 같은 기준 지표를 재요.</span>'}
           <span class="sty-acts">${b ? menuBtn('lib-metrics', '지표 풀이', () => baselineRows(b), { cls: 'btn small ghost' }) : ''}<button class="btn small" data-action="libAnalyze">문체 분석</button></span></div>
       </section>
@@ -620,7 +620,7 @@ Object.assign(actions, {
   async libSave() {
     if (!S.lib.name.trim()) return toast('문체 이름을 입력하세요', true);
     const body = { name: S.lib.name, source: S.lib.source, notes: S.lib.notes, sample: S.lib.sample, profile: S.lib.profile, note: S.libNote || '' };
-    await run('저장 중', async () => {
+    await run('저장하는 중', async () => {
       const isNew = !S.lib.id;
       S.lib = isNew ? await api('POST', '/styles', body) : await api('PUT', `/styles/${S.lib.id}`, body);
       S.lib.used_by = S.lib.used_by || [];

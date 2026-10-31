@@ -504,31 +504,11 @@ function castSheetStats(c, f) {
   const before = prevSt && f.episode ? Object.fromEntries(prevSt.stats.map((s) => [s.name, s.value])) : null;
   const logs = (P().stat_log || []).filter((r) => r.character_id === c.id && f && r.episode === f.episode);
   const src = (name) => { const r = logs.filter((x) => x.name === name).pop(); return r ? (r.source === 'author' ? '작가가 고침' : 'AI 변경안') : ''; };
-  const items = stats.map((s) => {
-    const delta = before ? castStatDelta(before[s.name], s.value) : '';
-    const frac = s.value.match(SW_FRACTION);
-    const list = s.value.match(SW_AMOUNT) ? [] : swItems(s.value);  // 3,000원 같은 금액은 쉼표가 있어도 목록이 아니다
-    const num = (x) => Number(x.replace(/,/g, ''));
-    const pct = frac && num(frac[2]) > 0 ? Math.max(0, Math.min(100, Math.round((num(frac[1]) / num(frac[2])) * 100))) : null;
-    return { name: s.name, value: s.value, delta, from: delta ? src(s.name) : '', pct, list: list.length > 1 || (list.length && abListName(s.name)) ? list : null };
-  }).sort((x, y) => !!x.list - !!y.list);  // 한 줄을 다 쓰는 목록 항목은 뒤로 모은다
-  // 다 지운 항목은 이 시점 값에 없으니 앞 시점에서 찾아 '지움'으로 보인다
-  const gone = before ? Object.keys(before).filter((k) => before[k] && !stats.some((s) => s.name === k)) : [];
-  const moved = items.filter((x) => x.delta).length + gone.length;
-  const system = S.castTheme === 'system';
-  const deltaTag = (x) => (x.delta ? `<span class="csh-delta" title="${esc(`${f.episode}화에 바뀜${x.from ? ' · ' + x.from : ''}`)}">${esc(x.delta)}</span>` : '');
-  const body = system
-    ? `<div class="sw-sys sw-skin-${swSkin()}" role="group" aria-label="${esc(c.name)} ${esc(swTitle())}"><div class="sw-sys-title">【 ${esc(swTitle())} 】</div>
-        <dl><dt>이름</dt><dd>${esc(c.name || c.id)}</dd>${items.map((x) => `<dt>${esc(x.name)}</dt><dd>${x.pct !== null ? `<span class="sw-sys-bar" aria-hidden="true"><i style="width:${x.pct}%"></i></span>` : ''}${x.list ? x.list.map((v) => abChip(c.id, x.name, v, 'sw-sys-tag')).join('') : `<span>${esc(x.value || '—')}</span>`}${deltaTag(x)}</dd>`).join('')}
-        ${gone.map((k) => `<dt>${esc(k)}</dt><dd><s>${esc(before[k])}</s><span class="csh-delta">지움</span></dd>`).join('')}</dl>
-        <div class="sw-sys-foot"><span>${esc(frameLabel(f))}</span><span>${moved ? `이번 화에 ${moved}항목 바뀜` : ''}</span></div></div>`
-    : `<div class="csh-stats">${items.map((x) => `<div class="csh-stat${x.list ? ' wide' : ''}${x.delta ? ' moved' : ''}"><div class="between"><span class="small">${esc(x.name)}</span>${deltaTag(x)}</div>
-        ${x.list ? `<div class="csh-chips">${x.list.map((v) => abChip(c.id, x.name, v, 'csh-know')).join('')}</div>` : `<strong>${esc(x.value || '—')}</strong>`}
-        ${x.pct !== null ? `<div class="csh-bar" aria-hidden="true"><i style="width:${x.pct}%"></i></div>` : ''}</div>`).join('')}
-        ${gone.map((k) => `<div class="csh-stat moved"><div class="between"><span class="small">${esc(k)}</span><span class="csh-delta">지움</span></div><s class="small">${esc(before[k])}</s></div>`).join('')}</div>`;
-  const view = `<div class="seg" role="group" aria-label="상태창 보기"><button type="button" data-action="castTheme" data-arg="" aria-pressed="${!system}">카드</button><button type="button" data-action="castTheme" data-arg="system" aria-pressed="${system}">${esc(SW_SKINS[swSkin()])}</button></div>`;
+  const moved = before ? stats.filter((s) => castStatDelta(before[s.name], s.value)).length + Object.keys(before).filter((k) => before[k] && !stats.some((s) => s.name === k)).length : 0;
+  const foot = `<span>${esc(frameLabel(f))}</span><span>${moved ? `이번 화에 ${moved}항목 바뀜` : ''}</span>`;
+  const body = swStatsBody(c.id, c.name || c.id, stats, { before, when: f && f.episode ? `${f.episode}화` : '', src, system: S.castTheme === 'system', foot });  // statwin.js 와 같은 칸 모양
   return `<section class="card"><div class="between"><div class="row"><h2>상태창</h2>${moved ? `<span class="small">이번 화에 ${moved}항목 바뀜</span>` : ''}</div>
-      <div class="row">${view}<a class="btn small ghost" href="${link}">수치 고치기</a></div></div>${body}</section>`;
+      <div class="row">${swViewSeg()}<a class="btn small ghost" href="${link}">수치 고치기</a></div></div>${body}</section>`;
 }
 
 /** 방향 하나의 온기 막대: 가운데가 0, 왼쪽이 적대 · 오른쪽이 깊이 아낌. 글은 온기 말(숫자로 보기면 온기 · 신뢰 값) */
@@ -598,7 +578,7 @@ function bodyFields(c, b) {
     <div class="grid-2">${input('체형', b + '.body.build', { placeholder: '예: 마른 근육형' })}${minor ? '' : input('쓰리사이즈', b + '.body.measurements', { placeholder: '예: 84-58-86' })}</div>
     ${minor ? '<div class="small">나이로 보아 미성년 인물이라 쓰리사이즈 칸은 두지 않아요.</div>' : ''}
     ${input('신체 특징', b + '.body.features', { rows: 2, placeholder: '예: 왼손잡이, 오른쪽 어깨에 화상 자국' })}
-    <div class="row"><button type="button" class="btn small" data-action="bodyAI" data-arg="${esc(c.id)}">AI 제안</button><span class="small">설정에 맞춰 칸을 제안해요. 고른 칸만 적용해요${minor ? ' · 쓰리사이즈는 제안하지 않아요' : ''}</span></div>
+    <div class="row"><button type="button" class="btn small" data-action="bodyAI" data-arg="${esc(c.id)}">AI 제안 받기</button><span class="small">설정에 맞춰 칸을 제안해요. 고른 칸만 적용해요${minor ? ' · 쓰리사이즈는 제안하지 않아요' : ''}</span></div>
     ${bodySuggestCard(c)}
     <div class="small">AI 프롬프트에는 넣지 않아요. 본문에 이어지게 할 외모는 설정 도우미의 '외모' 칸에 적어요.</div></div></details>`;
 }
@@ -749,7 +729,7 @@ function tieFixForm(a, b, names) {
     return `<div class="grid-2" style="align-items:end">
       <div class="field"><label for="tf-w${k}">${esc(label)} 온기 <output id="tf-w${k}o">${Number(t.warmth).toFixed(2)}</output></label><input id="tf-w${k}" type="range" min="-1" max="1" step="0.05" value="${t.warmth}" oninput="document.getElementById('tf-w${k}o').textContent=Number(this.value).toFixed(2)"></div>
       <div class="field"><label for="tf-t${k}">신뢰 <output id="tf-t${k}o">${Number(t.trust).toFixed(2)}</output></label><input id="tf-t${k}" type="range" min="0" max="1" step="0.05" value="${t.trust}" oninput="document.getElementById('tf-t${k}o').textContent=Number(this.value).toFixed(2)"></div>
-      <button type="button" class="btn small" data-action="tieFix" data-arg="${esc(`${src}|${dst}|${k}`)}">이 방향 보정</button></div>`;
+      <button type="button" class="btn small" data-action="tieFix" data-arg="${esc(`${src}|${dst}|${k}`)}">이 방향 보정하기</button></div>`;
   };
   return `<details class="tie-fix"><summary class="small">수치 직접 보정</summary>
     <div class="small" style="margin:6px 0">AI가 아니라 '수동보정' 사건으로 기록돼요. 마지막 반영 화(${n}화)에 붙고, 반영 취소로 되돌릴 수 있어요.</div>
@@ -950,7 +930,7 @@ function castTable() {
   for (let n = 1; n <= total; n++) {
     if (n === 1 || n % every === 0) out.push(`<text class="lm-tick" x="${left + (n - 0.5) * step}" y="${height - 6}" text-anchor="middle">${n}</text>`);
   }
-  const legend = `<div class="legend"><span><i class="cs-key draft"></i>플롯 초안</span><span><i class="cs-key confirmed"></i>플롯 확정</span><span><i class="cs-key written"></i>본문 있음</span><span><i class="cs-key finalized"></i>반영 완료</span><span><i style="background:var(--text);border-radius:50%;width:8px;height:8px"></i>시점 인물</span></div>`;
+  const legend = `<div class="legend">${['draft', 'confirmed', 'written', 'finalized'].map((k) => `<span><i class="cs-key ${k}"></i>${STATUS[k]}</span>`).join('')}<span><i style="background:var(--text);border-radius:50%;width:8px;height:8px"></i>시점 인물</span></div>`;
   return `<section class="card">
     <div class="between"><h2>등장표</h2><span class="small">플롯의 등장 인물 기준. 이름을 누르면 인물 카드를 열어요</span></div>
     <div class="line-map-wrap"><svg class="line-map cast-table" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="group" aria-label="인물별 등장 화">${out.join('')}</svg></div>${legend}
