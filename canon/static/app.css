@@ -852,7 +852,7 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .plot-page .cast-boxes label.row:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
 @container plot (max-width: 720px) {
   .plot-doc { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .plot-toc { top: 0; margin: 0 -2px; padding: 8px 2px; background: var(--bg); }
+  .plot-toc { top: var(--band, 0px); margin: 0 -2px; padding: 8px 2px; background: var(--bg); }
   .plot-toc-now { display: flex; width: 100%; justify-content: space-between; gap: 8px; }
   .plot-toc-list { display: none; position: absolute; left: 0; right: 0; top: calc(100% - 4px); padding: 8px; border-radius: 12px; background: var(--surface); box-shadow: 0 8px 28px rgba(0,0,0,0.18); max-height: 70vh; }
   .plot-toc.open .plot-toc-list { display: flex; }
