@@ -39,6 +39,8 @@ CAP = 20                    # 원천 하나 · 출처 한쪽에서 받는 조각
 FIRST = 40                  # 1차 가려 읽기 (명세 4.7: 묶음마다 한 조각)
 GOAL = 90                   # 가려 읽기 목표
 REDO_EVERY = 3              # 대기열 세 자리마다 하나를 다시 읽기로 (1/3)
+SPARE_EVERY = 4             # 다시 읽기로 뽑히지 않은 조각 넷마다 하나를 예비로 (모두의 1/6)
+SPARE_OPEN = 15             # 판정 일관성이 보류일 때 한 번에 다시 읽기로 옮기는 예비 수의 상한
 REDO_DAYS = 7               # 첫 판정 뒤 이만큼 지나야 다시 읽을 수 있다
 BATCH = 10                  # '이번 10개'
 SEED = 7
@@ -141,7 +143,7 @@ def load_pieces() -> list[SoePiece]:
 def load_queue() -> dict:
     path = _dir() / "queue.json"
     q = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    return {"seed": SEED, "order": [], "redo": [], "carry": [], "doubled": False, **q}
+    return {"seed": SEED, "order": [], "redo": [], "carry": [], "spare": [], "spare_carry": [], "opened": [], "doubled": False, **q}
 
 
 def load_labels() -> list[SoeLabel]:
@@ -393,7 +395,7 @@ def extend_queue(q: dict, pieces: list[SoePiece], seed: int = SEED, judged: froz
       그래서 다시 읽기는 모을 때 정해지고, 뒤에 더 모아도 바뀌지 않는다.
     - 차례(판정하지 않은 자리): 처음 FIRST 자리는 묶음마다 한 조각(모자라면 두 조각, doubled), 사람 · AI 를 번갈아,
       다시 읽기 예정 조각을 세 자리에 하나꼴로(세 자리 안 어디인지는 시드로 섞음), 앞 조각과 다른 모델을 먼저. 사람 글을 먼저 모으고 AI 글을 뒤에 모아도 섞인다."""
-    q = {"carry": [], **q, "order": list(q["order"]), "redo": list(q["redo"])}
+    q = {"carry": [], "spare": [], "spare_carry": [], "opened": [], **q, "order": list(q["order"]), "redo": list(q["redo"])}
     seed = q.get("seed", seed)
     by_id = {p.id: p for p in pieces}
     old = [x for x in q["order"] if x in by_id]
@@ -401,11 +403,19 @@ def extend_queue(q: dict, pieces: list[SoePiece], seed: int = SEED, judged: froz
     random.Random(f"{seed}:{len(old)}").shuffle(new)
     redo = [x for x in q["redo"] if x in by_id]
     pend = [x for x in q["carry"] if x in by_id] + new
+    spare = [x for x in q["spare"] if x in by_id]
+    spend = [x for x in q["spare_carry"] if x in by_id]
     while len(pend) >= REDO_EVERY:
         tri, pend = pend[:REDO_EVERY], pend[REDO_EVERY:]
-        redo.append(random.Random(f"{seed}:redo:{tri[0]}").choice(tri))
-    q["carry"], q["redo"] = pend, redo
+        pick = random.Random(f"{seed}:redo:{tri[0]}").choice(tri)
+        redo.append(pick)
+        spend += [x for x in tri if x != pick]
+    while len(spend) >= SPARE_EVERY:  # 예비: 다시 읽기로 뽑히지 않은 조각 넷마다 하나 (모두의 1/6). 판정 일관성이 보류일 때만 다시 읽기로 연다
+        four, spend = spend[:SPARE_EVERY], spend[SPARE_EVERY:]
+        spare.append(random.Random(f"{seed}:spare:{four[0]}").choice(four))
+    q["carry"], q["redo"], q["spare"], q["spare_carry"] = pend, redo, spare, spend
     redo_set = set(redo)
+    spare_set = set(spare)
 
     order = [x for x in old if x in judged]
     rest = [x for x in old if x not in judged] + new
@@ -414,6 +424,7 @@ def extend_queue(q: dict, pieces: list[SoePiece], seed: int = SEED, judged: froz
     all_groups = Counter(by_id[x].group for x in order)
     sides = Counter(by_id[x].origin for x in order)
     redos = sum(x in redo_set for x in order)
+    spares = sum(x in spare_set for x in order)
     while rest:
         in_first = len(order) < FIRST
         pool = rest
@@ -422,8 +433,10 @@ def extend_queue(q: dict, pieces: list[SoePiece], seed: int = SEED, judged: froz
         last = by_id[order[-1]] if order else None
         want = min(("human", "ai"), key=lambda o: sides[o])
         k = len(order)  # 세 자리마다 다시 읽기 자리 하나. 자리는 시드로 섞는다(늘 1 · 4 · 7번째면 이번 10개 정답 카드에서 차례가 드러난다)
-        want_redo = k % REDO_EVERY == random.Random(f"{seed}:slot:{k // REDO_EVERY}").randrange(REDO_EVERY) and redos < (k + REDO_EVERY) // REDO_EVERY
+        want_redo = k % REDO_EVERY == _redo_slot(seed, k // REDO_EVERY) and redos < (k + REDO_EVERY) // REDO_EVERY
+        want_spare = k == _spare_slot(seed, k // SPARE_BLOCK) and spares < (k + SPARE_BLOCK) // SPARE_BLOCK
         pick = min(pool, key=lambda x: (all_groups[by_id[x].group], by_id[x].origin != want, (x in redo_set) != want_redo,
+                                        (x in spare_set) != want_spare,
                                         bool(last and by_id[x].model and by_id[x].model == last.model), rank[x]))
         rest.remove(pick)
         order.append(pick)
@@ -432,9 +445,25 @@ def extend_queue(q: dict, pieces: list[SoePiece], seed: int = SEED, judged: froz
         all_groups[by_id[pick].group] += 1
         sides[by_id[pick].origin] += 1
         redos += pick in redo_set
+        spares += pick in spare_set
     q["order"] = order
     q["doubled"] = any(c > 1 for c in Counter(by_id[x].group for x in order[:FIRST]).values())
     return q
+
+
+SPARE_BLOCK = 2 * REDO_EVERY  # 여섯 자리마다 다시 읽기 둘 · 예비 하나
+
+
+def _redo_slot(seed, t: int) -> int:
+    """세 자리 묶음 t 안에서 다시 읽기 자리 (시드로 섞음)."""
+    return random.Random(f"{seed}:slot:{t}").randrange(REDO_EVERY)
+
+
+def _spare_slot(seed, b: int) -> int:
+    """여섯 자리 묶음 b 안에서 예비 자리: 다시 읽기 자리 둘을 뺀 넷 가운데 시드로 하나 (이번 10개 안 자리가 짐작되지 않게)."""
+    redo = {SPARE_BLOCK * b + REDO_EVERY * i + _redo_slot(seed, 2 * b + i) for i in range(2)}
+    free = [k for k in range(SPARE_BLOCK * b, SPARE_BLOCK * (b + 1)) if k not in redo]
+    return free[random.Random(f"{seed}:spare:{b}").randrange(len(free))]
 
 
 def _firsts(labels: list[SoeLabel]) -> dict[str, SoeLabel]:
@@ -455,11 +484,18 @@ def _redos(labels: list[SoeLabel]) -> dict[str, SoeLabel]:
 
 
 def hidden_ids(q: Optional[dict] = None, labels: Optional[list[SoeLabel]] = None) -> set[str]:
-    """가린 조각: 대기열에 있고 아직 판정하지 않은 조각 + 다시 읽기 예정이고 아직 재판정하지 않은 조각."""
+    """가린 조각: 대기열에 있고 아직 판정하지 않은 조각 + 다시 읽기 예정이고 아직 재판정하지 않은 조각
+    + 예비(spare_ids: 판정 일관성 결론이 나오거나 판정을 끝낼 때까지)."""
     q = q or load_queue()
     labels = load_labels() if labels is None else labels
     done, redone = _firsts(labels), _redos(labels)
-    return {x for x in q["order"] if x not in done} | {x for x in q["redo"] if x not in redone}
+    return {x for x in q["order"] if x not in done} | {x for x in q["redo"] if x not in redone} | spare_ids(q)
+
+
+def spare_ids(q: Optional[dict] = None) -> set[str]:
+    """정답을 숨긴 예비 조각 (아직 다시 읽기로 열지 않았고, 예비를 보여 줄 때가 오기 전)."""
+    q = q or load_queue()
+    return set() if load_state()["spare_shown"] else set(q["spare"]) - set(q["opened"])
 
 
 def open_batch(q: Optional[dict] = None, labels: Optional[list[SoeLabel]] = None) -> set[str]:
@@ -731,6 +767,8 @@ def report(seed: int = SEED, n_boot: int = labstats.BOOT, save: bool = True) -> 
     a_groups = sorted({p.group for p, _ in judged})
     a_weights = labstats.boot_weights(a_groups, n_boot, seed + 1)
     cons = consistency(labels, seed, n_boot)
+    if save and not cons["hold"]:
+        show_spares()  # 판정 일관성 결론이 '보류 아님': 예비 정답을 보여 준다
     first_round = len(firsts) <= FIRST
 
     rows = []
@@ -933,7 +971,6 @@ def describe(rep: dict) -> str:
 # 정답은 '이번 10개'가 끝난 뒤에만(batch_reveal), 다시 읽기 예정 조각은 재판정 뒤에만 보인다.
 
 ROUND_GOALS = (FIRST, 60, GOAL)   # 1차 40 → 두 번째 보고 60 → 목표 90
-REDO_HELD = 45                    # 판정 일관성이 보류되면 재판정을 이만큼으로 늘린다 (명세 4.6)
 CHECK_PER = 20                    # 패턴 확인: 패턴마다 이만큼까지
 CHECK_KINDS = [n for n, _, _ in metrics.AI_PATTERNS] + ["cliche"]
 KIND_LABELS = {"부정 후 재정의": "부정 후 재정의", "셋씩 나열": "셋씩 나열", "감정 이름 서술": "감정 이름", "번역투": "번역투",
@@ -989,10 +1026,11 @@ def _state_path() -> Path:
 
 
 def load_state() -> dict:
-    """가려 읽기 진행 상태: goal(이번 목표 40 · 60 · 90), stopped('여기서 멈추기'), seen(정답 카드를 넘긴 '이번 10개' 번호)."""
+    """가려 읽기 진행 상태: goal(이번 목표 40 · 60 · 90), stopped('여기서 멈추기'), seen(정답 카드를 넘긴 '이번 10개' 번호),
+    spare_shown(예비 정답을 보여 줌: 판정 일관성 결론이 보류 아님, 여기서 멈추기, 90개 끝 가운데 먼저 온 때. 한 번 켜면 되돌리지 않는다)."""
     path = _state_path()
     st = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    return {"goal": FIRST, "stopped": False, "seen": 0, **st}
+    return {"goal": FIRST, "stopped": False, "seen": 0, "spare_shown": False, **st}
 
 
 def set_state(**kw) -> dict:
@@ -1001,6 +1039,8 @@ def set_state(**kw) -> dict:
         if "goal" in kw and kw["goal"] not in ROUND_GOALS:
             raise ValueError(f"목표는 {' · '.join(map(str, ROUND_GOALS))} 가운데 하나예요")
         st.update({k: v for k, v in kw.items() if k in ("goal", "stopped", "seen")})
+        if st["stopped"]:
+            st["spare_shown"] = True  # 판정 단계를 끝냈다: 예비 정답을 보여 준다
         save_json(_state_path(), st)
     return st
 
@@ -1008,6 +1048,46 @@ def set_state(**kw) -> dict:
 def _report_files() -> list[Path]:
     d = _dir() / "reports"
     return sorted(d.glob("*.json"), key=lambda x: x.stat().st_mtime) if d.exists() else []
+
+
+def show_spares() -> None:
+    """예비 정답을 보여 줄 때가 왔다 (되돌리지 않는다. 본 뒤에는 다시 읽기로 열 수 없다)."""
+    with _lock():
+        st = load_state()
+        if not st["spare_shown"]:
+            save_json(_state_path(), {**st, "spare_shown": True})
+
+
+def spare_state(q: dict, labels: list[SoeLabel]) -> dict:
+    """예비: 숨긴 수, 지금 다시 읽기로 열 수 있는 수(판정한 예비, SPARE_OPEN 까지), 연 수, 보여 줬는지."""
+    firsts = _firsts(labels)
+    hidden = spare_ids(q)
+    ready = [x for x in q["spare"] if x in hidden and x in firsts]
+    return {"hidden": len(hidden), "ready": min(SPARE_OPEN, len(ready)), "opened": len(q["opened"]),
+            "shown": load_state()["spare_shown"]}
+
+
+def open_spares(limit: int = SPARE_OPEN) -> int:
+    """판정 일관성이 보류일 때 판정한 예비를 다시 읽기 대기열로 옮긴다(시드로 섞은 차례, limit 개까지). 7일 규칙은 그대로다.
+    보류가 아니거나 예비 정답을 이미 보여 줬으면 막는다."""
+    with _lock():
+        rep = latest_report()
+        cons = (rep or {}).get("consistency") or {}
+        if not (cons.get("hold") and not cons.get("preview")):
+            raise ValueError("판정 일관성이 보류일 때만 예비를 다시 읽을 수 있어요")
+        if load_state()["spare_shown"]:
+            raise ValueError("예비 조각의 정답을 이미 보여 드려서 다시 읽기에 쓸 수 없어요")
+        q, labels = load_queue(), load_labels()
+        firsts = _firsts(labels)
+        ready = [x for x in q["spare"] if x not in set(q["opened"]) and x in firsts]
+        ready.sort(key=lambda x: hashlib.sha1(f"{q.get('seed', SEED)}:open:{x}".encode()).hexdigest())
+        take = ready[:max(0, limit)]
+        if not take:
+            raise ValueError("다시 읽기로 열 예비 조각이 없어요. 판정을 더 하면 예비도 늘어요")
+        q["opened"] = list(q["opened"]) + take
+        q["redo"] = list(q["redo"]) + take
+        save_json(_dir() / "queue.json", q)
+    return len(take)
 
 
 def latest_report() -> Optional[dict]:
@@ -1041,16 +1121,16 @@ def _today_count(firsts: dict[str, SoeLabel], today: date) -> int:
 
 
 def redo_state(q: dict, labels: list[SoeLabel], goal: int, held: bool, today: date) -> dict:
-    """다시 읽기 진행: 목표(이번 목표 안의 다시 읽기 예정 조각, 보류면 45개까지), 한 수, 지금 열린 수, 다음에 열리는 날."""
+    """다시 읽기 진행: 목표(이번 목표 안의 다시 읽기 예정 조각, 보류로 연 예비 포함), 한 수, 지금 열린 수, 다음에 열리는 날."""
     firsts, redone = _firsts(labels), _redos(labels)
     planned = [x for x in q["order"][:goal] if x in set(q["redo"])]
-    target = REDO_HELD if held else len(planned)
+    target = len(set(planned) | set(q["opened"]))
     judged_redo = [x for x in q["redo"] if x in firsts]
     waiting = [x for x in judged_redo if x not in redone]
     opens = sorted(_day(firsts[x].at) + timedelta(days=REDO_DAYS) for x in waiting)
     due = [x for x, d in zip(waiting, [_day(firsts[x].at) + timedelta(days=REDO_DAYS) for x in waiting]) if d <= today]
     later = [d for d in opens if d > today]
-    return {"target": target, "done": len(redone), "due": len(due), "waiting": len(waiting), "short": max(0, target - len(judged_redo)),
+    return {"target": target, "done": len(redone), "due": len(due), "waiting": len(waiting),
             "opens": later[0].isoformat() if later else "", "first_open": opens[0].isoformat() if opens else ""}
 
 
@@ -1081,7 +1161,7 @@ def screen(today: Optional[date] = None) -> dict:
         "marked": len(marked), "clean": sum(lb.clean for lb in firsts.values()),
         "verdicts": dict(Counter(lb.verdict for lb in firsts.values())),  # 작가 판정만 센 수 (정답 없음)
         "seconds_mean": round(mean([lb.seconds for lb in firsts.values() if lb.seconds]), 1) if any(lb.seconds for lb in firsts.values()) else 0,
-        "redo_state": redo_state(q, labels, st["goal"], held, today), "held": held,
+        "redo_state": redo_state(q, labels, st["goal"], held, today), "held": held, "spare": spare_state(q, labels),
         "report": report_summary(rep), "stale": stale,
         "check": {"done": sum(c["done"] for c in checks), "total": sum(c["total"] for c in checks)},
         "chips": {k: v for k, v in CHIP.items()}, "kinds": [[k, KIND_LABELS[k]] for k in SPAN_KINDS],
@@ -1134,6 +1214,8 @@ def save_judge(pid: str, verdict: str, spans=None, clean: bool = False, seconds:
         lb = redo(pid, verdict, sp, clean, secs, now)
     else:
         lb = judge(pid, verdict, sp, clean, secs, now)
+    if not redo_too and len(_firsts(load_labels())) >= GOAL:
+        show_spares()  # 90개를 다 읽어 판정 단계를 끝냈다
     finished = not redo_too and not open_batch()  # 10개를 채웠거나 대기열이 바닥났다
     if finished or (redo_too and not redo_due((now or datetime.now().astimezone()).date())):
         report()
@@ -1152,6 +1234,7 @@ def batch_reveal(k: int) -> dict:
     if any(lb.piece in opened for lb in rows_lb):
         raise ValueError("이번 10개를 마치면 정답을 보여 드려요")
     hidden = hidden_ids(q, labels)
+    spares = spare_ids(q)
     by_id = {p.id: p for p in load_pieces()}
     rows, same, comparable = [], 0, 0
     tot = Counter()
@@ -1160,8 +1243,8 @@ def batch_reveal(k: int) -> dict:
         if p is None:
             continue
         mine = {"i": i, "id": p.id, "verdict": lb.verdict, "clean": lb.clean, "marks": len(lb.spans), "seconds": lb.seconds}
-        if p.id in hidden:
-            rows.append({**mine, "hidden": True})
+        if p.id in hidden:  # 예비는 '나중에 보여요', 다시 읽기 예정은 '재판정 뒤에 보여요'
+            rows.append({**mine, "hidden": True, "why": "spare" if p.id in spares else "redo"})
             tot["hidden"] += 1
             continue
         sents = metrics.sentence_spans(p.text)
@@ -1305,14 +1388,16 @@ def pieces_view() -> dict:
     pieces = load_pieces()
     q, labels = load_queue(), load_labels()
     opened = open_batch(q, labels)  # 끝나지 않은 이번 10개에서는 다시 읽기로 뽑혔는지도 알리지 않는다
-    hidden_redo = {x for x in q["redo"] if x in _firsts(labels) and x not in _redos(labels) and x not in opened}
+    firsts = _firsts(labels)
+    hidden_redo = {x for x in q["redo"] if x in firsts and x not in _redos(labels) and x not in opened}
+    hidden_spare = {x for x in spare_ids(q) if x in firsts and x not in opened}
     masked = masked_ids(q, labels)
     nlab = Counter(lb.piece for lb in labels if lb.kind == "piece")
     rows = []
     for k, p in enumerate(pieces, 1):
         row = {"n": k, "id": p.id, "chars": p.chars, "labels": nlab[p.id], "known": p.known, "paste": p.source.kind == "paste"}
         if p.id in masked:
-            row["hidden"] = "redo" if p.id in hidden_redo else "judge"
+            row["hidden"] = "redo" if p.id in hidden_redo else "spare" if p.id in hidden_spare else "judge"
         else:
             row.update(origin=p.origin, source=source_label(p), group=p.group, model=model_label(p.model) if p.origin == "ai" else "",
                        model_source=p.model_source if p.origin == "ai" else "")

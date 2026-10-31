@@ -30,7 +30,7 @@ def test_verdict_matches_labstats():
 
 def _st(**kw):
     base = {"pieces": 60, "judged": 0, "goal": 40, "stopped": False, "inBatch": 0, "queueLeft": 50, "redoDue": 0,
-            "held": False, "stale": False, "checkLeft": 0}
+            "held": False, "spareReady": 0, "stale": False, "checkLeft": 0}
     return {**base, **kw}
 
 
@@ -38,7 +38,9 @@ def _st(**kw):
 def test_next_order():
     cases = [
         _st(redoDue=5),                                  # 1. 다시 읽기가 열렸으면 먼저
-        _st(redoDue=3, held=True),
+        _st(redoDue=3, held=True, spareReady=6),         # 열린 다시 읽기가 먼저
+        _st(judged=40, goal=40, held=True, spareReady=15),  # 판정 일관성 보류: 예비 열기
+        _st(judged=90, goal=90, held=True, spareReady=0),   # 열 예비가 없으면 건너뜀
         _st(judged=34, inBatch=4),                       # 2. 1차 · 중간에 멈춤
         _st(judged=30),
         _st(judged=40),                                  # 3. 1차 끝, 아직 고르지 않음 → 카드가 주 버튼
@@ -54,7 +56,9 @@ def test_next_order():
     got = run_js(FILES, "data.map((st) => soeNext(st))", cases)
     assert got == [
         {"kind": "redo", "label": "다시 읽기 5개"},
-        {"kind": "redo", "label": "다시 읽기 3개 더"},
+        {"kind": "redo", "label": "다시 읽기 3개"},
+        {"kind": "spare", "label": "다시 읽기 15개 더"},
+        {"kind": "collect", "label": "+ 조각 모으기"},
         {"kind": "judge", "label": "판정 이어 하기 (1차 6개 남음)"},
         {"kind": "judge", "label": "판정 10개 하기 (1차 10개 남음)"},
         None,

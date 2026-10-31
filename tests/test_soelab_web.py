@@ -111,16 +111,18 @@ def test_answers_only_after_batch(c):
     assert sc["ended"] == 1 and sc["batches"] == 1
     assert c.get("/api/soelab/judge").json()["piece"] is None  # 정답 카드를 넘기기 전에는 다음 조각을 주지 않는다
     rev = c.get("/api/soelab/batch/1").json()
-    redo = set(soelab.load_queue()["redo"])
+    q = soelab.load_queue()
+    redo, spare = set(q["redo"]), set(q["spare"])
     assert [r["id"] for r in rev["rows"]] == first
     for row in rev["rows"]:
-        if row["id"] in redo:  # 다시 읽기 예정 조각은 재판정 뒤에 보인다
+        if row["id"] in redo | spare:  # 다시 읽기 예정은 재판정 뒤에, 예비는 보여 줄 때가 되어야 보인다
             assert row["hidden"] and "origin" not in row and "text" not in row
+            assert row["why"] == ("spare" if row["id"] in spare else "redo")
         else:
             assert row["origin"] in ("human", "ai") and row["match"] is True
     assert rev["same"] == rev["comparable"] == sum(not r["hidden"] for r in rev["rows"])
     assert soelab.latest_report()["counts"]["judged"] == 10  # 10개를 마치면 다시 채점한다
-    hid = next(r["id"] for r in rev["rows"] if r["hidden"])
+    hid = next(r["id"] for r in rev["rows"] if r["hidden"] and r["why"] == "redo")
     assert hid in soelab.masked_ids()
     # 7일 전 다시 읽기는 막는다
     r = c.post("/api/soelab/redo", json={"piece": hid, "verdict": "ai"})
@@ -231,6 +233,7 @@ def test_web_no_llm_calls(c, monkeypatch):
         c.post("/api/soelab/check", json={"hit": v["card"]["hit"], "ok": "yes"})
     c.get("/api/soelab/sources")
     c.get("/api/soelab/reports")
+    c.post("/api/soelab/spares/open")  # 보류가 아니라 막히지만 AI 를 부르지 않는다
     assert calls == []
 
 
@@ -242,3 +245,119 @@ def test_redo_slots_not_fixed(c):
     slots = {i % 3 for i, x in enumerate(q["order"][:30]) if x in redo}
     assert len(slots) > 1
     assert sum(x in redo for x in q["order"][:30]) >= 8  # 셋에 하나꼴은 그대로
+
+
+# ---------- 예비: 판정 일관성이 보류일 때만 다시 읽기로 여는 숨긴 조각 ----------
+
+HELD = {"pairs": 30, "kappa": 0.2, "ci95": [0.05, 0.4], "preview": False, "hold": True, "hold_below": 0.3}
+SETTLED = {**HELD, "kappa": 0.7, "ci95": [0.5, 0.85], "hold": False}
+
+
+def _judge_fast(n: int, now=None) -> list[str]:
+    """대기열 차례로 n 개를 서버 함수로 판정한다 (웹 왕복 없이)."""
+    by_id = {p.id: p for p in soelab.load_pieces()}
+    done = []
+    for pid in soelab.load_queue()["order"][:n]:
+        soelab.save_judge(pid, by_id[pid].origin, now=now)
+        done.append(pid)
+    soelab.set_state(seen=n // soelab.BATCH)
+    return done
+
+
+def test_spare_ratio_and_hidden(c):
+    _collect(c, eps=13, sets=2)
+    q = soelab.load_queue()
+    n = len(q["order"])
+    assert abs(len(q["spare"]) - round(n / 6)) <= 1 and not set(q["spare"]) & set(q["redo"])
+    assert sum(x in set(q["spare"]) for x in q["order"][:30]) >= 4  # 이번 10개마다 하나 남짓
+    slots = {i % 6 for i, x in enumerate(q["order"][:48]) if x in set(q["spare"])}
+    assert len(slots) > 1  # 자리가 짐작되지 않게 섞는다
+    judged = _judge_fast(30)
+    spare = [x for x in judged if x in set(q["spare"])]
+    assert spare and set(spare) <= soelab.masked_ids()
+    rows = {r["id"]: r for r in c.get("/api/soelab/pieces").json()["rows"]}
+    assert all(rows[x]["hidden"] == "spare" for x in spare)
+    bodies = [c.get("/api/soelab").json(), c.get("/api/soelab/patterns").json(), c.get("/api/soelab/check").json(),
+              c.get("/api/soelab/redo").json()] + [c.get(f"/api/soelab/batch/{k}").json() for k in (1, 2, 3)]
+    bodies += [c.get(f"/api/soelab/metrics/{m}").json() for m in soelab.METRIC_IDS]
+    for pid in spare:
+        assert set(c.get(f"/api/soelab/pieces/{pid}").json()) == {"id", "text", "chars", "hidden"}
+        for body in bodies:
+            text = json.dumps(body, ensure_ascii=False)
+            assert pid not in text or all(
+                r["id"] != pid or (r["hidden"] and r["why"] == "spare" and "origin" not in r) for r in body.get("rows", []))
+    # 보고서 계산에는 예비 판정도 들어간다 (정답만 작가에게 숨긴다)
+    c.post("/api/soelab/report")
+    assert soelab.latest_report()["counts"]["judged"] == 30
+
+
+def test_spare_opens_only_when_held(c, monkeypatch):
+    _collect(c, eps=13, sets=2)
+    q = soelab.load_queue()
+    judged = _judge_fast(30)
+    spare = [x for x in judged if x in set(q["spare"])]
+    r = c.post("/api/soelab/spares/open")
+    assert r.status_code == 400 and "보류일 때만" in r.json()["detail"]
+    monkeypatch.setattr(soelab, "consistency", lambda *a, **k: dict(HELD))
+    c.post("/api/soelab/report")
+    sc = c.get("/api/soelab").json()
+    assert sc["held"] and sc["spare"]["ready"] == len(spare)
+    r = c.post("/api/soelab/spares/open").json()
+    assert r["opened"] == len(spare) <= soelab.SPARE_OPEN
+    q2 = soelab.load_queue()
+    assert set(spare) <= set(q2["redo"]) and set(spare) == set(q2["opened"])
+    assert set(spare) <= soelab.masked_ids()  # 다시 읽기 예정이 되어 재판정 전까지 숨긴다
+    rows = {x["id"]: x for x in c.get("/api/soelab/pieces").json()["rows"]}
+    assert all(rows[x]["hidden"] == "redo" for x in spare)
+    # 7일 규칙: 오늘 판정한 예비는 오늘 열리지 않는다
+    assert not set(spare) & set(soelab.redo_due())
+    later = datetime.now().astimezone() + timedelta(days=8)
+    assert set(spare) <= set(soelab.redo_due(later.date()))
+    assert c.post("/api/soelab/spares/open").status_code == 400  # 더 열 예비가 없다
+    soelab.save_judge(spare[0], "ai", redo_too=True, now=later)
+    assert spare[0] not in soelab.masked_ids()
+
+
+def test_spare_open_limit(c, monkeypatch):
+    _collect(c, eps=13, sets=2)
+    q = soelab.load_queue()
+    _judge_fast(len(q["order"]))
+    ready = [x for x in q["spare"]]
+    monkeypatch.setattr(soelab, "consistency", lambda *a, **k: dict(HELD))
+    soelab.set_state(goal=90)
+    soelab.report(n_boot=50)
+    assert not soelab.load_state()["spare_shown"]  # 90개 아래(52개)이고 보류라 아직 보여 주지 않았다
+    assert soelab.open_spares(limit=3) == min(3, len(ready))
+    assert soelab.screen()["spare"]["ready"] == min(soelab.SPARE_OPEN, len(ready) - 3)
+
+
+@pytest.mark.parametrize("how", ["settled", "stop", "ninety"])
+def test_spare_answers_shown(c, monkeypatch, how):
+    _collect(c, eps=13, sets=4 if how == "ninety" else 2)
+    q = soelab.load_queue()
+    if how == "ninety":
+        soelab.set_state(goal=90)
+        judged = _judge_fast(90)
+    else:
+        judged = _judge_fast(30)
+    spare = [x for x in judged if x in set(q["spare"])]
+    if how == "settled":
+        assert spare[0] in soelab.masked_ids()
+        monkeypatch.setattr(soelab, "consistency", lambda *a, **k: dict(SETTLED))
+        c.post("/api/soelab/report")
+    elif how == "stop":
+        assert spare[0] in soelab.masked_ids()
+        c.put("/api/soelab/state", json={"stopped": True})
+    assert soelab.load_state()["spare_shown"]
+    assert not set(spare) & soelab.masked_ids()
+    k = judged.index(spare[0]) // soelab.BATCH + 1
+    row = next(r for r in c.get(f"/api/soelab/batch/{k}").json()["rows"] if r["id"] == spare[0])
+    assert not row["hidden"] and row["origin"] in ("human", "ai")
+    # 본 뒤에는 다시 읽기에 쓸 수 없다 (보류가 다시 와도)
+    monkeypatch.setattr(soelab, "consistency", lambda *a, **k: dict(HELD))
+    soelab.report(n_boot=50)
+    r = c.post("/api/soelab/spares/open")
+    assert r.status_code == 400 and "이미 보여" in r.json()["detail"]
+    # 멈췄다가 이어 해도 다시 숨기지 않는다
+    c.put("/api/soelab/state", json={"stopped": False})
+    assert soelab.load_state()["spare_shown"]

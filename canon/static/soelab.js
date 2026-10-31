@@ -94,10 +94,11 @@ function soeRound(judged, goal) {
   return goal <= SOE_FIRST && judged <= SOE_FIRST ? `${judged}/${SOE_FIRST} · 1차` : `${judged}/${SOE_GOAL}`;
 }
 
-/** 머리 주 버튼(다음 할 일 하나). st: { pieces, judged, goal, stopped, inBatch, queueLeft, redoDue, held, stale, checkLeft }.
-    차례: 다시 읽기 → 판정(1차 · 60 · 90) → 1차 · 60 끝 카드가 주 버튼(null) → 다시 채점하기 → 패턴 확인 → 조각 모으기 */
+/** 머리 주 버튼(다음 할 일 하나). st: { pieces, judged, goal, stopped, inBatch, queueLeft, redoDue, held, spareReady, stale, checkLeft }.
+    차례: 다시 읽기 → 판정 일관성 보류면 예비 열기 → 판정(1차 · 60 · 90) → 1차 · 60 끝 카드가 주 버튼(null) → 다시 채점하기 → 패턴 확인 → 조각 모으기 */
 function soeNext(st) {
-  if (st.redoDue > 0) return { kind: 'redo', label: st.held ? `다시 읽기 ${st.redoDue}개 더` : `다시 읽기 ${st.redoDue}개` };
+  if (st.redoDue > 0) return { kind: 'redo', label: `다시 읽기 ${st.redoDue}개` };
+  if (st.held && st.spareReady > 0) return { kind: 'spare', label: `다시 읽기 ${st.spareReady}개 더` };
   if (st.pieces > 0 && !st.stopped && st.queueLeft > 0 && st.judged < SOE_GOAL) {
     const verb = st.inBatch > 0 ? '판정 이어 하기' : '판정 10개 하기';
     if (st.judged < SOE_FIRST) return { kind: 'judge', label: `${verb} (1차 ${SOE_FIRST - st.judged}개 남음)` };
@@ -205,7 +206,7 @@ function viewSoe() {
 function soeNextState() {
   const sc = S.soe;
   return { pieces: sc.pieces, judged: sc.judged, goal: sc.goal, stopped: sc.stopped, inBatch: sc.in_batch, queueLeft: sc.queue_left,
-    redoDue: (sc.redo_state || {}).due || 0, held: sc.held, stale: sc.pieces > 0 && ['corpus', 'none'].includes(sc.stale), checkLeft: (sc.check.total || 0) - (sc.check.done || 0) };
+    redoDue: (sc.redo_state || {}).due || 0, held: sc.held, spareReady: (sc.spare || {}).ready || 0, stale: sc.pieces > 0 && ['corpus', 'none'].includes(sc.stale), checkLeft: (sc.check.total || 0) - (sc.check.done || 0) };
 }
 
 const SOE_NEXT_GO = { redo: 'redo', judge: 'judge', check: 'patterns/check', collect: 'corpus' };
@@ -229,6 +230,7 @@ function soeGoBtn() {
   if (pane === 'corpus') return '<button type="button" class="btn primary" data-action="soeCollectOpen">+ 조각 모으기</button>';
   const nx = soeNext(soeNextState());
   if (!nx) return '';
+  if (nx.kind === 'spare') return `<button type="button" class="btn primary" data-action="soeSpareOpen">${esc(nx.label)}</button>`;
   if (nx.kind === 'rescore') return `<button type="button" class="btn primary" data-action="soeRescore">${esc(nx.label)}</button>`;
   if (nx.kind === 'collect') return `<button type="button" class="btn primary" data-action="soeCollectOpen">${esc(nx.label)}</button>`;
   return `<a class="btn primary" href="#/soelab/${SOE_NEXT_GO[nx.kind]}">${esc(nx.label)}</a>`;
@@ -419,9 +421,11 @@ function soeConsCard(rep) {
 function soeHoldCard() {
   const sc = S.soe;
   if (!sc.held) return '';
-  const rs = sc.redo_state;
-  return `<div class="note warn" role="status"><b>판정이 흔들려 결론을 보류해요.</b> 판정 일관성의 아래 끝이 보류 기준 0.30보다 낮아요. 작가 판정 기준 칸을 흐리게 보여요.<br>
-    <b>재판정을 45개로 늘려 주세요. 15개를 더 다시 읽으면 판정 일관성을 다시 셈해요.</b>${rs.short ? ` 다시 읽을 조각이 ${rs.short}개 모자라요. 판정을 더 하면 다시 읽을 조각도 늘어요.` : ''}</div>`;
+  const sp = sc.spare || {};
+  const more = sp.ready
+    ? `<b>재판정을 늘려 주세요. 정답을 숨겨 둔 예비 조각 ${sp.ready}개를 다시 읽으면 판정 일관성을 다시 셈해요.</b> 예비 조각도 첫 판정 7일 뒤에 열려요.`
+    : sp.hidden ? '<b>예비 조각은 아직 판정하지 않았어요.</b> 판정을 더 하면 예비 조각도 다시 읽을 수 있어요.' : '다시 읽을 예비 조각이 남지 않았어요.';
+  return `<div class="note warn" role="status"><b>판정이 흔들려 결론을 보류해요.</b> 판정 일관성의 아래 끝이 보류 기준 0.30보다 낮아요. 작가 판정 기준 칸을 흐리게 보여요.<br>${more}</div>`;
 }
 
 function soeLegendCard() {
@@ -525,7 +529,7 @@ function soePreviewHtml(p) {
       <span class="small">새 조각 ${p.new} · 이미 있는 글 ${p.dup}은 건너뛰어요${p.capped ? ` · 상한에 걸린 ${p.capped}개는 빼요` : ''} · 가려 읽기 대기열 +${p.queue}</span></div>`;
 }
 
-const SOE_HID = { judge: '판정 뒤에 보여요', redo: '재판정 뒤에 보여요' };
+const SOE_HID = { judge: '판정 뒤에 보여요', redo: '재판정 뒤에 보여요', spare: '나중에 보여요' };
 
 function soeSrcChip(origin) {
   if (origin === 'human') return '<span class="chip src h"><i aria-hidden="true">●</i>사람</span>';
@@ -707,9 +711,9 @@ function soeBatchCard(b) {
   const models = Object.entries(c).filter(([k]) => k.startsWith('model:')).map(([k, n]) => `${k.slice(6)} ${n}`);
   const rows = b.rows.map((r, idx) => {
     const open = S.soeBatchOpen === idx && !r.hidden;
-    const origin = r.hidden ? `<span class="chip hid">${SOE_HID.redo}</span>` : `${soeSrcChip(r.origin)}${r.model ? ` <span class="chip">${esc(r.model)}</span>` : ''}`;
+    const origin = r.hidden ? `<span class="chip hid">${SOE_HID[r.why] || SOE_HID.redo}</span>` : `${soeSrcChip(r.origin)}${r.model ? ` <span class="chip">${esc(r.model)}</span>` : ''}`;
     const match = r.hidden || r.match === null ? '<span class="small">–</span>' : r.match ? '<span class="ok">같아요</span>' : '<span class="no">달라요</span>';
-    const hits = r.hidden ? '다시 읽기로 뽑혀 재판정 뒤에 보여요' : `정규식 ${r.hits} · 내 표시 ${r.marked}${r.both ? ` · 같음 ${r.both}` : ''}${r.clean ? ' · 표시할 곳 없음' : ''}`;
+    const hits = r.hidden ? (r.why === 'spare' ? '예비로 두어 나중에 보여요 (판정 일관성 결론이 나오거나 판정을 마치면)' : '다시 읽기로 뽑혀 재판정 뒤에 보여요') : `정규식 ${r.hits} · 내 표시 ${r.marked}${r.both ? ` · 같음 ${r.both}` : ''}${r.clean ? ' · 표시할 곳 없음' : ''}`;
     const body = open ? `<div class="row-body"><div class="legend"><span class="sw"><span class="lg-mk" aria-hidden="true"></span>내 표시</span><span class="sw"><span class="lg-rx" aria-hidden="true"></span>정규식 적중</span></div>
       ${soeMs(r.text, soeSentences(r.text), { spans: r.spans, rx: r.rx, tags: false })}
       <p class="small">같음 ${r.both} · 정규식만 ${r.hits - r.both} · 내 표시만 ${r.marked - r.both}. 패턴 혼동표에 모여요.</p></div>` : '';
@@ -719,7 +723,7 @@ function soeBatchCard(b) {
       <span class="small">${esc(hits)}</span><span aria-hidden="true">${r.hidden ? '' : open ? '⌄' : '›'}</span></${tag}>${body}`;
   }).join('');
   return `<section class="card soe-end"><div class="between"><h2>10개를 마쳤어요 · 판정 ${soeRound(Math.max(sc.judged, b.k * 10), sc.goal)}</h2><span class="small">${fmtDate(b.at)} · ${Math.round(b.seconds / 60)}분</span></div>
-    <div class="cols3"><div><div class="small">출처와 같은 판정</div><div class="soe-big num">${b.same} / ${b.comparable}</div><div class="small">모르겠어요 ${b.unsure}${c.hidden ? ` · 재판정 대기 ${c.hidden}` : ''}은 빼고</div></div>
+    <div class="cols3"><div><div class="small">출처와 같은 판정</div><div class="soe-big num">${b.same} / ${b.comparable}</div><div class="small">모르겠어요 ${b.unsure}${c.hidden ? ` · 정답을 가린 ${c.hidden}` : ''}은 빼고</div></div>
       <div><div class="small">내 표시와 정규식이 같은 문장</div><div class="soe-big num">${c.both || 0}</div><div class="small">정규식만 ${c.rx_only || 0} · 내 표시만 ${c.mine_only || 0}</div></div>
       <div><div class="small">이번 10개의 출처 · 모델</div><div class="row">${c.human ? `<span class="chip src h"><i aria-hidden="true">●</i>사람 ${c.human}</span>` : ''}${c.ai ? `<span class="chip src a"><i aria-hidden="true">▲</i>AI ${c.ai}</span>` : ''}${c.hidden ? `<span class="chip hid">가림 ${c.hidden}</span>` : ''}</div>
         <div class="small">${c.ai ? `AI ${c.ai} = ${esc(models.join(' · '))}. ` : ''}판정하는 동안에는 모델도 숨겨요.</div></div></div>
@@ -981,6 +985,13 @@ Object.assign(actions, {
     await run('다시 채점하는 중 · AI 없음', async () => {
       S.soe = await api('POST', '/soelab/report');
       toast('다시 채점했어요. 지난 보고서는 기록에 남아요.');
+    });
+  },
+  async soeSpareOpen() {
+    await run('예비 조각을 다시 읽기로 옮기는 중', async () => {
+      const r = await api('POST', '/soelab/spares/open');
+      S.soe = r;
+      toast(`예비 조각 ${r.opened}개를 다시 읽기에 넣었어요. 첫 판정 7일 뒤부터 열려요.`);
     });
   },
   soeModels(id) { if (S.soeOpen.has(id)) S.soeOpen.delete(id); else S.soeOpen.add(id); render(); },

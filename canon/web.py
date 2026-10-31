@@ -4513,6 +4513,13 @@ def soe_state(body: SoeStateIn) -> dict:
     return soelab.screen()
 
 
+@app.post("/api/soelab/spares/open")
+def soe_spares_open() -> dict:
+    """판정 일관성이 보류일 때 판정한 예비를 다시 읽기 대기열로 옮긴다(15개까지). 7일 규칙은 그대로."""
+    n = soelab.open_spares()
+    return {"opened": n, **soelab.screen()}
+
+
 @app.post("/api/soelab/report")
 def soe_report() -> dict:
     """다시 채점하기 (AI 없음). 새 보고서를 저장한다."""
