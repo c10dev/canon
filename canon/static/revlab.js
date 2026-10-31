@@ -15,11 +15,12 @@ Object.assign(S, {
   rev: null,       // 서버 값 { labs, splits, max_episodes, max_chars, min_chars, … 큐 칸 이름 }
   revLab: null,    // 고른 실험 (revlab.view)
   revEp: null,     // 보는 화 번호
-  revPane: null,   // 화 대신 보는 실험 전체 칸 (REV_PANES 의 열쇠)
+  revPane: null,   // 화 대신 보는 칸: overview(개요, 주소에 화가 없을 때) 또는 REV_PANES 의 열쇠
   revTab: 'text',  // 화 탭 (REV_TABS)
   revDraft: { title: '', text: '', first: '' },  // 새 실험 칸 (first 가 비면 짐작한 번호)
   revPick: null,   // 역설계할 화 Set
-  revRedo: false,  // 역설계한 화도 다시 고르는 역설계 카드를 열었는지
+  revRedo: false,  // 역설계한 화도 다시 고르는 개요 표를 열었는지
+  revNew: false,   // 처음 화면의 새 실험 카드를 열었는지 (실험이 없거나 붙여 넣은 글이 있으면 늘 열림)
   revEsts: {},     // 비용 추정 { 열쇠(revEstKey): 값 | null(묻는 중) | { error } }
   revSel: 0,       // 원문에서 밝힌 큐 번호 (1부터)
   revEdit: false,  // 실험 글 고치기 칸을 열었는지
@@ -134,7 +135,7 @@ async function revLoad(id, n) {
   const k = Number(id) || null;
   if (!k) { S.revLab = null; return; }
   if (!S.revLab || S.revLab.id !== k || !(S.cueEdits[revCueKey(S.revEp)] || {}).dirty) await revFetch(k);
-  S.revPane = n in REV_PANES ? n : null;
+  S.revPane = !n ? 'overview' : n in REV_PANES ? n : null;
   const want = Number(n) || null;
   if (S.revLab && !S.revLab.error) {
     const nums = S.revLab.items.map((e) => e.number);
@@ -270,11 +271,58 @@ function revMetricRows(scores) {
   };
 }
 
+/** 목록 값(revlab.summary 의 steps)을 revSteps · revNext 가 읽는 실험 모양으로. */
+function revLabLite(x) {
+  return {
+    style: x.has_style ? {} : null,
+    items: (x.steps || []).map((e) => ({ number: e.number, head: e.head, chars: e.chars, sheet: e.sheet ? { cues: [] } : null,
+      takes: Array.from({ length: e.takes || 0 }, () => ({})), blind_texts: e.blind ? ['', ''] : [], picked: e.picked || '' })),
+  };
+}
+
+const REV_NEXT_LABEL = { parse: (x) => `${x.eps.length}화 역설계`, pick: (x) => `${x.n}화 가려 읽기`, write: (x) => `${x.n}화 되돌려 쓰기` };
+
+/** 처음 화면의 실험 카드 값: { chip: { text, cls }, next, states, share, picks }. 목록 값(revlab.summary) 하나로 센다. */
+function revHomeCard(x, minChars) {
+  const L = revLabLite(x);
+  const steps = revSteps(L, minChars);
+  const now = steps.find((s) => s.state === 'now');
+  const nx = L.items.length ? revNext(L, L.items[0].number, minChars) : null;
+  const picks = { original: 0, rewrite: 0, skip: 0 };
+  L.items.forEach((e) => { if (e.picked in picks) picks[e.picked] += 1; });
+  const chip = !x.done ? { text: '역설계 전', cls: '' } : !now ? { text: '다 견줌', cls: 'ok' } : { text: `${now.label} ${now.right}`, cls: '' };
+  return { chip, next: nx ? REV_NEXT_LABEL[nx.kind](nx) : '', states: steps.map((s) => s.state), share: revStepShare(steps), picks };
+}
+
+const REV_PICKED = { original: '원문 고름', rewrite: '되돌려 쓴 글 고름', skip: '고르지 않음' };
+
+/** 개요의 화별 진행 줄: 큐 · 장면 수, 못 찾은 큐, 판 수, 가려 읽기, 되돌려 쓴 글의 핵심 대사 · 대사 비율(원문과 크게 다르면 far). */
+function revOverviewRow(e, minChars) {
+  const scores = e.scores || [];
+  const orig = scores.find((x) => x.condition === 'original');
+  const take = scores.find((x) => x.condition !== 'original');
+  const o = orig ? orig.dialogue_ratio : null;
+  const t = take ? take.dialogue_ratio : null;
+  return {
+    n: e.number, title: revEpTitle(e),
+    state: e.chars < minChars ? 'short' : e.sheet ? 'parsed' : 'raw',
+    cues: e.sheet ? e.sheet.cues.length : 0, scenes: e.storyboard ? e.storyboard.scenes.length : 0, missing: (e.missing || []).length,
+    takes: (e.takes || []).length,
+    pick: (e.blind_texts || []).length ? 'wait' : e.picked ? REV_PICKED[e.picked] || '' : '',
+    lines: take && take.lines_total ? `${take.lines_hit}/${take.lines_total}` : '',
+    dlg: take && o !== null && t !== null ? [cuePct(o), cuePct(t)] : null,
+    far: !!(take && o !== null && t !== null && (o ? Math.abs(t - o) / Math.abs(o) > REV_FAR : t > 0)),
+  };
+}
+
 /* ----- 화면 ----- */
 
 const revRunning = () => (S.revLab ? REV_KINDS.map((k) => jobFor(k, S.revLab.id, REV_JOBS)).find(Boolean) || null : null);
 
 const revEstKey = (kind, eps) => `${kind}:${[...eps].sort((a, b) => a - b).join(',')}`;  // kind: parse · write · write-style · style
+
+/** 글을 치는 중 (체크박스 · 라디오는 빼서, 고르자마자 받은 비용을 바로 그린다). */
+const revTyping = () => isTyping() && !document.activeElement.matches('[type="checkbox"], [type="radio"]');
 
 /** 비용 추정 (AI 없음). 처음 부르면 서버에 묻고 null, 받으면 다시 그린다. 버튼은 추정을 받은 뒤에만 눌린다. */
 function revEst(kind, eps, style = false) {
@@ -286,7 +334,7 @@ function revEst(kind, eps, style = false) {
     api('POST', `/revlab/${id}/estimate`, { kind, episodes: eps, style })
       .then((d) => { if (S.revLab && S.revLab.id === id) S.revEsts[key] = d; })
       .catch((err) => { if (S.revLab && S.revLab.id === id) S.revEsts[key] = { error: err.message }; })
-      .finally(() => { if (!isTyping()) render(); });
+      .finally(() => { if (!revTyping()) render(); });
   }
   return v && !v.error ? v : null;
 }
@@ -310,7 +358,7 @@ function viewRev() {
     '사람이 쓴 소설을 화별 플롯 · 스토리보드 · 큐 시트로 거꾸로 풀고, 그 큐 시트로 같은 화를 다시 써서 원문과 견줘요. 작품 데이터는 바꾸지 않아요.')}${body}`;
   if (!d) return home('<div class="note plain">불러오는 중…</div>');
   if (d.error) return home(`<div class="note err">${esc(d.error)}</div>`);
-  if (!S.revLab) return home(revLayout(revHomeToc(), revNewCard()));
+  if (!S.revLab) return revHome();
   if (S.revLab.error) return home(`<div class="note err">${esc(S.revLab.error)}</div><p><a href="#/revlab">실험 목록으로</a></p>`);
   return `${revLabHead()}${revLayout(revLabToc(), revMain())}`;
 }
@@ -325,16 +373,27 @@ function revToc(label, now, list) {
 }
 const revTocLink = (href, inner, cur = false) => `<a class="rev-toc-item" href="${href}"${cur ? ' aria-current="page"' : ''}>${inner}</a>`;
 
-function revHomeToc() {
+/** 처음 화면: 이어 하기 카드(최근에 고친 차례) + 새 실험 카드(머리 '+ 새 실험'으로 편다, 실험이 없거나 붙여 넣은 글이 있으면 펴 둔다). */
+function revHome() {
   const labs = S.rev.labs || [];
-  const dot = (x) => (x.rewrites ? 'wrote' : x.done ? 'parsed' : 'raw');
-  const list = `${revTocLink('#/revlab', '<span class="rev-step now" aria-hidden="true">+</span><span class="tl">새 실험</span>', true)}
-    ${labs.length ? `<span class="rev-toc-h">지난 실험</span>${labs.map((x) => revTocLink(`#/revlab/${x.id}`,
-    `<span class="rev-dot ${dot(x)}" aria-hidden="true"></span><span class="tl">${esc(x.title || `실험 ${x.id}`)}</span><span class="st">${x.rewrites ? `씀 ${x.rewrites}` : `${x.done}/${x.episodes}`}</span>`)).join('')}` : ''}
-    <span class="rev-toc-h">어떻게 하나요</span>
-    <ol class="rev-how small"><li>붙여 넣고 화로 나눠요. AI를 부르지 않아요.</li><li>역설계: AI가 화마다 플롯 · 스토리보드 · 큐 시트를 적어요.</li><li>되돌려 쓰기: 그 큐 시트로 같은 화를 다시 써서 원문과 가려 읽고 지표를 견줘요.</li></ol>
-    <p class="small rev-how-note">역설계와 되돌려 쓰기는 실제 AI를 불러 비용이 들어요. 버튼에 추정 비용을 함께 보여 드려요.</p>`;
-  return revToc('실험 목록', '새 실험', list);
+  const open = S.revNew || !labs.length || !!S.revDraft.text;
+  const btn = labs.length ? `<button type="button" class="btn${open ? ' on' : ' primary'}" data-action="revNewToggle" aria-expanded="${open}" aria-controls="rev-new">+ 새 실험</button>` : '';
+  const head = header('실험 · 본편과 분리', '역설계 실험',
+    '사람이 쓴 소설을 화별 플롯 · 스토리보드 · 큐 시트로 거꾸로 풀고, 그 큐 시트로 같은 화를 다시 써서 원문과 견줘요. 작품 데이터는 바꾸지 않아요.', btn);
+  const cards = labs.map((x) => {
+    const c = revHomeCard(x, S.rev.min_chars);
+    const meta = [`${x.first}~${x.first + x.episodes - 1}화`, `${x.chars.toLocaleString()}자`, x.cast_count ? `인물 ${x.cast_count}명` : '', fmtDateTime(x.updated)].filter(Boolean).join(' · ');
+    const done = c.picks.original + c.picks.rewrite + c.picks.skip;
+    const tail = c.next ? `다음: ${c.next}` : done ? `원문을 고른 화 ${c.picks.original} · 되돌려 쓴 글 ${c.picks.rewrite}` : '';
+    return `<a class="card rev-lab" href="#/revlab/${x.id}"><div class="between"><h3>${esc(x.title || `실험 ${x.id}`)}</h3><span class="chip${c.chip.cls ? ` ${c.chip.cls}` : ''}">${esc(c.chip.text)}</span></div>
+      <div class="small">${esc(meta)}</div>
+      <div class="row rev-lab-steps"><span class="rev-steps" aria-hidden="true">${c.states.map((st, i) => `<span class="rev-step ${st}">${st === 'ok' ? '✓' : i + 1}</span>`).join('')}</span>
+        <span class="sr-only">단계 ${Math.round(c.share * 4)}/4 끝남.</span>${tail ? `<span class="small">${esc(tail)}</span>` : ''}</div>
+      <div class="rev-meter big${c.share === 1 ? ' full' : ''}" aria-hidden="true"><i style="width:${Math.round(c.share * 100)}%"></i></div></a>`;
+  }).join('');
+  const list = labs.length ? `<section class="rev-home-sec" aria-labelledby="rev-labs-h"><div class="between"><h2 id="rev-labs-h">이어 하기</h2><span class="small">최근에 고친 차례 · ${labs.length}개</span></div>
+    <div class="rev-labs">${cards}</div></section>` : '';
+  return `${head}<div class="rev-home">${open ? revNewCard(labs.length > 0) : ''}${list}</div>`;
 }
 
 const revDraftFirst = () => Number(S.revDraft.first) || revGuessFirst(S.revDraft.title, S.revDraft.text);
@@ -348,10 +407,13 @@ function revPreviewHtml() {
     ${v.errs.map((x) => `<div class="note err small">${esc(x)}</div>`).join('')}${v.notes.map((x) => `<div class="small">${esc(x)}</div>`).join('')}`;
 }
 
-function revNewCard() {
+function revNewCard(closable = false) {
   const ok = !revPreview(S.revDraft.text, S.rev).errs.length;
   const n = S.revDraft.text.length;
-  return `<section class="card"><h2>새 실험</h2>
+  return `<section class="card" id="rev-new"><div class="between"><h2>새 실험</h2>${closable ? '<button type="button" class="btn small ghost" data-action="revNewToggle">닫기</button>' : ''}</div>
+    <ol class="rev-how"><li><span class="rev-step now" aria-hidden="true">1</span>붙여 넣고 나누기 <span class="small">AI 없음</span></li>
+      <li><span class="rev-step" aria-hidden="true">2</span>역설계 <span class="small">플롯 · 스토리보드 · 큐 시트 · 인물</span></li>
+      <li><span class="rev-step" aria-hidden="true">3</span>되돌려 쓰기 · 가려 읽기</li></ol>
     <div class="rev-fields">
       <div class="field rev-f-title"><label for="rev-title">이름</label><input id="rev-title" type="text" data-rev-new="title" value="${esc(S.revDraft.title)}" placeholder="예: 등대지기 1~3화"></div>
       <div class="field rev-f-first"><label for="rev-first">첫 화 번호</label><input id="rev-first" type="number" min="1" max="9999" data-rev-new="first" value="${esc(S.revDraft.first)}" placeholder="${revDraftFirst()}" aria-describedby="rev-first-hint"><span class="small" id="rev-first-hint">비우면 제목 줄이나 이름의 'n화'에서 짐작해요</span></div>
@@ -360,7 +422,7 @@ function revNewCard() {
       <div class="field"><label for="rev-text">소설 글 <span class="small" id="rev-count">${n ? `· ${n.toLocaleString()}자` : ''}</span></label><textarea id="rev-text" rows="16" data-rev-new="text" placeholder="여기에 붙여 넣으세요">${esc(S.revDraft.text)}</textarea></div>
       <div class="rev-preview" id="rev-preview" aria-live="polite">${revPreviewHtml()}</div>
     </div>
-    <div class="between"><span class="small">넣은 글은 이 컴퓨터의 실험 폴더(.revlab)에만 저장해요. 만들기는 AI를 부르지 않아요.</span>
+    <div class="between"><span class="small">넣은 글은 이 컴퓨터의 실험 폴더(.revlab)에만 저장해요. 역설계와 되돌려 쓰기는 실제 AI를 불러 비용이 들어요. 버튼에 추정 비용을 함께 보여 드려요.</span>
       <button type="button" class="btn primary" data-action="revCreate"${ok ? '' : ' disabled'}>실험 만들기</button></div></section>`;
 }
 
@@ -370,7 +432,7 @@ function revLabHead() {
     L.cast.length ? `인물 ${L.cast.length}명` : '', L.lines.length ? `이야기 줄기 ${L.lines.length}개` : ''].filter(Boolean).join(' · ');
   const menu = () => `<button type="button" class="pop-item" data-action="revEditToggle">글 · 이름 고치기</button>
     ${L.done ? '<button type="button" class="pop-item" data-action="revRedo">다시 역설계할 화 고르기</button>' : ''}
-    <a class="pop-item" href="#/revlab">새 실험 · 지난 실험</a>
+    <a class="pop-item" href="#/revlab">실험 목록 · 새 실험</a>
     <button type="button" class="pop-item danger" data-action="revDelete">실험 지우기</button>`;
   return header('실험 · 본편과 분리 › <a href="#/revlab">역설계 실험</a>', L.title || `실험 ${L.id}`, esc(desc),
     `${menuBtn('rev-lab', '⋯', menu, { aria: '실험 메뉴: 글 · 이름 고치기 · 다시 역설계 · 지우기' })}${revGoBtn()}`);
@@ -379,13 +441,13 @@ function revLabHead() {
 /** 머리 주 버튼 (다음 할 일 하나). 작업이 도는 동안에는 진행 카드의 멈추기만, 글 · 이름을 고치는 동안에는 그 카드의 저장만 둔다. */
 function revGoBtn() {
   const L = S.revLab;
-  if (revRunning() || S.revEdit) return '';  // 주 버튼은 한 화면에 하나: 글 · 이름 고치기 카드의 '저장'이 주 버튼이다
+  if (revRunning() || S.revEdit || S.revRedo) return '';  // 다시 역설계를 고르는 동안에는 개요 카드의 버튼이 주 버튼  // 주 버튼은 한 화면에 하나: 글 · 이름 고치기 카드의 '저장'이 주 버튼이다
   const nx = revNext(L, S.revEp, S.rev.min_chars);
   if (!nx) return '';
   if (nx.kind === 'parse') {
     const eps = [...(S.revPick || [])].sort((a, b) => a - b);
     const est = eps.length ? revEst('parse', eps) : null;
-    return `<button type="button" class="btn primary" data-action="revParse"${eps.length && est ? '' : ' disabled'}>${eps.length ? revCost(`${eps.length}화 역설계`, est) : '역설계할 화를 고르세요'}</button>`;
+    return `<button type="button" class="btn primary" data-action="revParse"${eps.length && est ? '' : ' disabled'}>${eps.length ? revCost(`고른 ${eps.length}화 역설계`, est) : '역설계할 화를 고르세요'}</button>`;
   }
   if (nx.kind === 'pick') return `<button type="button" class="btn primary" data-action="revGo" data-arg="${nx.n}|write">${nx.n}화 가려 읽기</button>`;
   const style = !!(S.revStyle && L.style);
@@ -414,14 +476,16 @@ function revLabToc() {
     const right = { cast: L.cast.length ? `${L.cast.length}명` : '', style: L.style ? '있음' : '', lines: L.lines_at ? `${L.lines.length}개` : '', metrics: '' }[k];
     return revTocLink(`#/revlab/${L.id}/${k}`, `<span class="tl">${label}</span><span class="st">${right}</span>`, pane === k);
   }).join('');
-  const cur = pane ? REV_PANES[pane] : (() => { const e = revItem(S.revEp); return e ? `${e.number}화${revEpTitle(e) ? ` ${esc(revEpTitle(e))}` : ''} · ${(REV_TABS.find(([k]) => k === S.revTab) || REV_TABS[0])[1]}` : '목차'; })();
-  return revToc('실험 목차', cur, `<span class="rev-toc-h">단계</span>${stepRows}<div class="rev-meter" role="img" aria-label="단계 ${Math.round(revStepShare(steps) * 4)}/4 끝남"><i style="width:${Math.round(revStepShare(steps) * 100)}%"></i></div>
+  const cur = pane === 'overview' ? `개요 · ${steps[1].label} ${steps[1].right}` : pane ? REV_PANES[pane] : (() => { const e = revItem(S.revEp); return e ? `${e.number}화${revEpTitle(e) ? ` ${esc(revEpTitle(e))}` : ''} · ${(REV_TABS.find(([k]) => k === S.revTab) || REV_TABS[0])[1]}` : '목차'; })();
+  const over = revTocLink(`#/revlab/${L.id}`, `<span class="rev-step${pane === 'overview' ? ' now' : ''}" aria-hidden="true">◎</span><span class="tl">개요</span><span class="st">${L.episodes}화</span>`, pane === 'overview');
+  return revToc('실험 목차', cur, `${over}<span class="rev-toc-h">단계</span>${stepRows}<div class="rev-meter" role="img" aria-label="단계 ${Math.round(revStepShare(steps) * 4)}/4 끝남"><i style="width:${Math.round(revStepShare(steps) * 100)}%"></i></div>
     <span class="rev-toc-h">화</span>${epRows}<span class="rev-toc-h">실험 전체</span>${panes}`);
 }
 
 function revMain() {
   const parts = [revRunCard(), S.revEdit ? revEditCard() : ''];
-  if (S.revPane === 'cast') parts.push(revContextCard());
+  if (S.revPane === 'overview') parts.push(revOverview());
+  else if (S.revPane === 'cast') parts.push(revContextCard());
   else if (S.revPane === 'style') parts.push(revStyleCard());
   else if (S.revPane === 'lines') parts.push(revLinesCard());
   else if (S.revPane === 'metrics') parts.push(revMetricsAll());
@@ -462,26 +526,87 @@ function revRunCard() {
     <div class="note plain">${j.kind === 'rev_parse' ? '화마다 끝나는 대로 저장해요. 끝난 화는 지금 열어 봐도 되고, 다른 화면으로 가도 돼요. ' : ''}다 끝나면 위쪽 알림 버튼으로 알려 드려요.</div></section>`;
 }
 
-/** 역설계 카드: 풀 화 고르기 · 비용 · 시작. 역설계하지 않은 화를 보거나 '다시 역설계할 화 고르기'를 열면 보인다. */
-function revParseCard() {
+/** 개요: 역설계 전(또는 다시 역설계를 고를 때)은 풀 화 표와 화마다 받는 것, 역설계 뒤는 화별 진행 표와 실험 전체 카드. */
+function revOverview() {
   const L = S.revLab;
+  const raw = L.items.some((e) => e.chars >= S.rev.min_chars && !e.sheet);
+  if ((raw || S.revRedo) && !jobFor('rev_parse', L.id, REV_JOBS)) return `${revPickCard()}${raw && !L.done ? revGetCard() : revProgressCard()}`;
+  return `${revProgressCard()}${revLabCards()}`;
+}
+
+/** 풀 화 표: 고르기 · 제목 · 글자 · 첫 문장 · 화별 비용(모든 화를 한 번에 잰 값). 합계와 시작은 머리 주 버튼, 다시 역설계할 때는 이 카드의 버튼. */
+function revPickCard() {
+  const L = S.revLab;
+  const min = S.rev.min_chars;
+  const can = L.items.filter((e) => e.chars >= min).map((e) => e.number);
+  const each = can.length ? revEst('parse', can) : null;
   const pick = S.revPick || new Set();
-  const boxes = L.items.map((e) => {
-    const off = e.chars < S.rev.min_chars;
-    return `<label class="check-row small rev-pick"><input type="checkbox" data-rev-pick="${e.number}"${pick.has(e.number) && !off ? ' checked' : ''}${off ? ' disabled' : ''}><span>${e.number}화${e.sheet ? ' · 풀었음' : ''}${off ? ' · 짧음' : ''}</span></label>`;
-  }).join('');
   const eps = [...pick].sort((a, b) => a - b);
   const est = eps.length ? revEst('parse', eps) : null;
   const err = eps.length ? revEstErr('parse', eps) : '';
+  const cost = (label) => { const r = each && each.rows.find((x) => x.label === label); return r ? cueUsd(r.usd) : '…'; };
+  const first = (t) => { const x = String(t || '').replace(/\s+/g, ' ').trim(); return x.length > 40 ? `${x.slice(0, 40)}…` : x; };
+  const all = can.length > 0 && can.every((n) => pick.has(n));
+  const rows = L.items.map((e) => {
+    const off = e.chars < min;
+    return `<tr><td><input type="checkbox" data-rev-pick="${e.number}" aria-label="${e.number}화 고르기"${pick.has(e.number) && !off ? ' checked' : ''}${off ? ' disabled' : ''}></td>
+      <td class="rev-l"><strong>${e.number}화</strong>${revEpTitle(e) ? ` ${esc(revEpTitle(e))}` : ''}${e.sheet ? ' <span class="chip">풀었음</span>' : ''}${off ? ' <span class="chip">짧음</span>' : ''}</td>
+      <td>${e.chars.toLocaleString()}</td><td class="rev-l rev-first">${esc(first(e.text))}</td><td>${off ? '-' : esc(cost(`${e.number}화`))}</td></tr>`;
+  }).join('');
+  const lines = est && est.rows.find((r) => r.label === '이야기 줄기');
   const redo = eps.some((n) => (revItem(n) || {}).sheet);
   const busy = !!revRunning();
-  return `<section class="card"><div class="between"><h2>역설계</h2>${S.revRedo ? '<button type="button" class="btn small ghost" data-action="revRedo">닫기</button>' : ''}</div>
-    <div class="row rev-picks">${boxes}</div>
-    <p class="small">고른 화를 앞에서부터 차례로 풀어요. 앞 화 결과(인물 · 줄거리 · 끝 부분)가 다음 화 요청에 들어가요. 모든 화를 풀면 이야기 줄기를 한 번 더 물어요.</p>
+  return `<section class="card"><div class="between"><h2>${S.revRedo ? '다시 역설계할 화' : '역설계할 화'}</h2>
+      <span class="row"><label class="check-row small"><input type="checkbox" data-rev-all="1"${all ? ' checked' : ''}><span>모두 고르기</span></label>${S.revRedo ? '<button type="button" class="btn small ghost" data-action="revRedo">닫기</button>' : ''}</span></div>
+    <div class="rev-scroll"><table class="sw-table rev-pick-table"><thead><tr><th><span class="sr-only">고르기</span></th><th class="rev-l">화</th><th>글자</th><th class="rev-l">첫 문장</th><th>비용</th></tr></thead>
+      <tbody>${rows}${lines ? `<tr class="rev-muted"><td></td><td class="rev-l">이야기 줄기</td><td></td><td class="rev-l">모든 화를 푼 뒤 한 번</td><td>${esc(cueUsd(lines.usd))}</td></tr>` : ''}</tbody></table></div>
+    <p class="small">앞 화부터 차례로 풀어요. 앞 화의 인물 · 줄거리 · 끝 부분이 다음 화 요청에 들어가서, 중간 화만 고르면 앞 이야기를 모르고 풀어요.</p>
     ${redo ? '<div class="note warn small">이미 역설계한 화를 다시 풀면 그 화의 큐 시트 고침과 되돌려 쓴 글이 사라져요.</div>' : ''}
     ${err ? `<div class="note err small">비용을 재지 못했어요: ${esc(err)}</div>` : ''}
-    <div class="row"><button type="button" class="btn" data-action="revParse"${eps.length && est && !busy ? '' : ' disabled'}>${eps.length ? revCost(`고른 ${eps.length}화 역설계`, est) : '화를 고르세요'}</button></div>
+    ${S.revRedo ? `<div class="row"><button type="button" class="btn primary" data-action="revParse"${eps.length && est && !busy ? '' : ' disabled'}>${eps.length ? revCost(`고른 ${eps.length}화 다시 역설계`, est) : '화를 고르세요'}</button></div>` : ''}
     ${revEstHtml(est)}</section>`;
+}
+
+/** 화마다 받는 것 (역설계 전 개요). */
+function revGetCard() {
+  const tile = (t, d) => `<div class="rev-get"><strong>${t}</strong><span class="small">${d}</span></div>`;
+  return `<section class="card"><h2>화마다 받는 것</h2><div class="rev-gets">
+    ${tile('화 플롯', '요약 · 사건 · 등장 인물 · 감정 변화 · 엔딩 훅')}
+    ${tile('스토리보드', '장면마다 장소 · 시간 · 있는 사람 · 맡은 사건')}
+    ${tile('큐 시트', '기능 · 긴장 · 템포 · 핵심 대사. 경계는 원문 문장을 그대로 인용해 정해요')}
+    ${tile('인물 · 관계 · 배경', '되돌려 쓸 때 작품 설정으로 들어가요')}</div></section>`;
+}
+
+/** 화별 진행 표 (개요). 줄의 '열기'로 그 화의 작업대로 간다. */
+function revProgressCard() {
+  const L = S.revLab;
+  const min = S.rev.min_chars;
+  const rows = L.items.map((e) => {
+    const r = revOverviewRow(e, min);
+    const bars = e.sheet ? `<span class="rev-mini" aria-hidden="true">${cueBars(e.sheet).map((b) => `<i style="flex:${b.w} 1 0;height:${b.h}%;background:${CUE_COLORS[b.fn] || 'var(--chip)'}"></i>`).join('')}</span>` : '';
+    const parse = r.state === 'short' ? '짧아 풀지 않음' : r.state === 'raw' ? '<span class="chip">역설계 전</span>'
+      : `큐 ${r.cues}${r.scenes ? ` · 장면 ${r.scenes}` : ''}${r.missing ? ` <span class="chip warn">${r.missing}곳 못 찾음</span>` : ''}`;
+    const pick = r.pick === 'wait' ? '<span class="chip warn">남음</span>' : esc(r.pick || '-');
+    const dlg = r.dlg ? `${r.dlg[0]} → ${r.far ? `<strong class="rev-far">${r.dlg[1]}</strong>` : r.dlg[1]}` : '-';
+    return `<tr${e.number === S.revEp ? ' class="rev-cur"' : ''}><td class="rev-l"><strong>${e.number}화</strong>${r.title ? ` ${esc(r.title)}` : ''}</td><td class="rev-l">${bars}</td><td class="rev-l">${parse}</td>
+      <td>${r.takes ? `<span class="chip ok">${r.takes}판</span>` : r.state === 'parsed' ? '아직' : '-'}</td><td>${pick}</td><td>${esc(r.lines || '-')}</td><td>${dlg}</td>
+      <td><a class="btn small ghost" href="#/revlab/${L.id}/${e.number}" aria-label="${e.number}화 열기">열기 ›</a></td></tr>`;
+  }).join('');
+  return `<section class="card"><div class="between"><h2>화별 진행</h2><span class="small">'열기'로 그 화의 원문 · 큐 · 되돌려 쓰기를 봐요</span></div>
+    <div class="rev-scroll"><table class="sw-table rev-prog-table"><thead><tr><th class="rev-l">화</th><th class="rev-l">진행 (큐)</th><th class="rev-l">역설계</th><th>되돌려 쓰기</th><th>가려 읽기</th><th>핵심 대사</th><th>대사 비율 원문 → 씀</th><th><span class="sr-only">열기</span></th></tr></thead>
+    <tbody>${rows}</tbody></table></div></section>`;
+}
+
+/** 실험 전체 카드 셋 (개요): 인물 · 문체 프로필 · 이야기 줄기 한 줄 요약과 그 칸으로 가는 링크. */
+function revLabCards() {
+  const L = S.revLab;
+  const c = (L.context || [])[0] || {};
+  const st = L.style;
+  const card = (k, title, right, body) => `<a class="card tight rev-tile" href="#/revlab/${L.id}/${k}"><div class="between"><h3>${title}</h3><span class="small">${right}</span></div><p class="small">${body}</p></a>`;
+  return `<div class="rev-tiles">
+    ${card('cast', '인물 · 관계 · 배경', L.cast.length ? `${L.cast.length}명` : '', L.cast.length ? `${esc(L.cast.slice(0, 4).map((x) => x.name).join(' · '))}${c.setting ? `. ${esc(c.setting.slice(0, 40))}` : ''}` : '역설계하면 모아요.')}
+    ${card('style', '문체 프로필', st ? `표지 ${(st.markers || []).length}` : '', st ? esc([st.narration_pov, st.tense, st.sentence_rhythm].filter(Boolean).join(' · ').slice(0, 80)) : '만들면 되돌려 쓰기에 넣을 수 있어요.')}
+    ${card('lines', '이야기 줄기', L.lines_at ? `${L.lines.length}개` : '', L.lines_at ? `메인: ${esc((L.main || '정하지 않음').slice(0, 60))}` : '모든 화를 역설계하면 찾아요.')}</div>`;
 }
 
 /** 인물 · 관계 · 배경: 되돌려 쓰기 사본의 작품 설정이 되는 것 (revlab.world). 마지막으로 역설계한 화까지 읽은 값. */
@@ -556,7 +681,7 @@ function revEpisode() {
   const chip = short ? '<span class="chip">짧아 풀지 않음</span>'
     : !e.sheet ? '<span class="chip">역설계 전</span>'
       : (e.blind_texts || []).length ? '<span class="chip warn">가려 읽기 남음</span>'
-        : (e.takes || []).length ? `<span class="chip finalized">되돌려 씀 ${e.takes.length}판</span>` : '<span class="chip confirmed">역설계 완료</span>';
+        : (e.takes || []).length ? `<span class="chip ok">되돌려 씀 ${e.takes.length}판</span>` : '<span class="chip">역설계 완료</span>';
   const facts = [`${e.chars.toLocaleString()}자`];
   if (e.sheet) {
     facts.push(`큐 ${e.sheet.cues.length}`);
@@ -564,16 +689,16 @@ function revEpisode() {
     if (e.plot) facts.push(`사건 ${e.plot.events.length}`);
   }
   const head = `<div class="between rev-ep-head"><div class="row"><h2>${e.number}화${revEpTitle(e) ? ` ${esc(revEpTitle(e))}` : ''}</h2>${chip}<span class="small">${facts.join(' · ')}</span></div>${nav}</div>`;
-  const redo = S.revRedo ? revParseCard() : '';
   if (!e.sheet) {
-    return `${redo}${head}${short || S.revRedo || jobFor('rev_parse', L.id, REV_JOBS) ? '' : revParseCard()}<section class="card"><h3>원문</h3><div class="cue-text rev-raw">${esc(e.text)}</div></section>`;
+    const go = short ? `${S.rev.min_chars}자보다 짧아 역설계하지 않아요.` : jobFor('rev_parse', L.id, REV_JOBS) ? '역설계하는 중이에요. 끝나면 이 화가 바로 열려요.' : '역설계 전이에요. 풀 화는 개요에서 고르고 비용을 봐요.';
+    return `${head}<div class="note plain between"><span>${go}</span>${short ? '' : `<a class="btn small" href="#/revlab/${L.id}">개요로</a>`}</div><section class="card"><h3>원문</h3><div class="cue-text rev-raw">${esc(e.text)}</div></section>`;
   }
   cueBind(revCueKey(e.number), e.sheet);
   const tab = REV_TABS.some(([k]) => k === S.revTab) ? S.revTab : 'text';
-  const badge = { write: (e.blind_texts || []).length ? '<span class="chip warn">가려 읽기</span>' : (e.takes || []).length ? `<span class="chip finalized">${e.takes.length}판</span>` : '<span class="chip">아직</span>' };
+  const badge = { write: (e.blind_texts || []).length ? '<span class="chip warn">가려 읽기</span>' : (e.takes || []).length ? `<span class="chip ok">${e.takes.length}판</span>` : '<span class="chip">아직</span>' };
   const tabs = `<div class="tabs" role="tablist" aria-label="${e.number}화 보기">${REV_TABS.map(([k, label]) => `<button type="button" role="tab" id="rev-tab-${k}" aria-controls="rev-panel" aria-selected="${k === tab}"${k === tab ? '' : ' tabindex="-1"'} data-action="revTab" data-arg="${k}">${label}${badge[k] ? ` ${badge[k]}` : ''}</button>`).join('')}</div>`;
   const body = tab === 'plot' ? `<div class="rev-two">${revPlotCard(e)}${revBoardCard(e)}</div>` : tab === 'write' ? revWriteTab(e) : revTextTab(e);
-  return `${redo}${head}${tabs}<div role="tabpanel" id="rev-panel" aria-labelledby="rev-tab-${tab}" class="rev-panel">${body}</div>`;
+  return `${head}${tabs}<div role="tabpanel" id="rev-panel" aria-labelledby="rev-tab-${tab}" class="rev-panel">${body}</div>`;
 }
 
 /** 원문 · 큐 탭: 원문을 큐 경계로 나눈 칸 + 옆에 진행 막대와 큐 목록. */
@@ -711,6 +836,12 @@ document.addEventListener('input', (e) => {
 document.addEventListener('change', (e) => {
   const d = e.target.dataset || {};
   if (d.revStyle !== undefined) { S.revStyle = e.target.checked; render(); return; }
+  if (d.revAll !== undefined) {
+    const can = S.revLab.items.filter((x) => x.chars >= S.rev.min_chars).map((x) => x.number);
+    S.revPick = new Set(e.target.checked ? can : []);
+    render();
+    return;
+  }
   if (d.revPick !== undefined) {
     S.revPick[e.target.checked ? 'add' : 'delete'](Number(d.revPick));
     render();
@@ -745,7 +876,7 @@ JOB_DONE_MSG.rev_style = (j) => {
 
 /** 실험 안에서 옮긴다: 같은 화면이면 다시 그리고, 다른 화 · 칸이면 주소를 바꾼다 (route 가 revLoad 를 부른다). */
 function revNav(part) {
-  const to = `#/revlab/${S.revLab.id}/${part}`;
+  const to = `#/revlab/${S.revLab.id}${part === '' || part == null ? '' : `/${part}`}`;
   if (location.hash === to) render();
   else location.hash = to;
 }
@@ -782,10 +913,17 @@ Object.assign(actions, {
     });
   },
   /** 역설계한 화도 고를 수 있는 역설계 카드를 열고 닫는다. 열면 지금 화를 고른다. */
+  /** 역설계한 화도 고르는 개요 표를 열고 닫는다. 열면 지금 화를 고른다. */
   revRedo() {
     S.revRedo = !S.revRedo;
-    if (S.revRedo) { S.revPick = new Set([S.revEp]); S.revPane = null; S.focusTarget = '#app .rev-picks input'; }
-    if (S.revPane) revNav(S.revEp); else render();
+    if (S.revRedo) { S.revPick = new Set([S.revEp]); S.focusTarget = '#app .rev-pick-table input:not(:disabled)'; }
+    if (S.revPane === 'overview') render(); else revNav('');
+  },
+  revNewToggle() {
+    S.revNew = !(S.revNew || !!S.revDraft.text);
+    if (!S.revNew) S.revDraft = { title: '', text: '', first: '' };
+    else S.focusTarget = '#rev-title';
+    render();
   },
   revStyleRun() {
     if (S.revLab.style && !confirm('지금 문체 프로필을 새로 만든 것으로 바꿀까요?')) return;
@@ -820,6 +958,7 @@ Object.assign(actions, {
     const min = S.rev.min_chars;
     if (id === 'edit') { S.revEdit = true; S.focusTarget = '#rev-etitle'; render(); return; }
     if (id === 'style') { revNav('style'); return; }
+    if (id === 'parse' && items.some((e) => e.chars >= min && !e.sheet)) { revNav(''); return; }
     const find = {
       parse: () => items.find((e) => e.chars >= min && !e.sheet),
       write: () => items.find((e) => e.sheet && !(e.takes || []).length),
@@ -883,8 +1022,29 @@ document.addEventListener('keydown', (e) => {
 .rev-meter { margin: 6px 10px 0; height: 6px; border-radius: 4px; background: var(--chip); overflow: hidden; }
 .rev-meter.big { margin: 0; height: 8px; }
 .rev-meter > i { display: block; height: 100%; background: var(--accent); }
-.rev-how { margin: 0; padding: 0 10px 0 24px; display: flex; flex-direction: column; gap: 6px; color: var(--text-2); }
-.rev-how-note { margin: 8px 0 0; padding: 0 10px; }
+.rev-home { display: flex; flex-direction: column; gap: 22px; }
+.rev-home-sec { display: flex; flex-direction: column; gap: 12px; }
+.rev-labs { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.rev-lab { gap: 12px; color: inherit; text-decoration: none; }
+.rev-lab:hover { border-color: var(--sel-line); background: var(--sel-bg); }
+.rev-lab h3 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rev-lab-steps { gap: 8px; }
+.rev-steps { display: inline-flex; gap: 4px; }
+.rev-meter.full > i { background: var(--green); }
+.rev-how { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 0.8125rem; color: var(--text-2); }
+.rev-how li { display: flex; align-items: center; gap: 8px; }
+.rev-l { text-align: left; }
+.rev-first { white-space: normal; min-width: 200px; color: var(--text-2); }
+.rev-muted td { color: var(--muted); }
+.rev-cur td { background: var(--sel-bg); }
+.rev-gets { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.rev-get { padding: 14px 16px; border-radius: 10px; background: var(--bg); display: flex; flex-direction: column; gap: 4px; }
+.rev-mini { display: inline-flex; align-items: flex-end; gap: 2px; width: 110px; height: 22px; vertical-align: middle; }
+.rev-mini > i { display: block; border-radius: 2px 2px 0 0; }
+.rev-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.rev-tile { color: inherit; text-decoration: none; }
+.rev-tile:hover { border-color: var(--sel-line); background: var(--sel-bg); }
+.rev-tile p { color: var(--text-2); }
 .btn .cost { font-weight: 400; opacity: 0.85; }
 .rev-fields { display: flex; flex-wrap: wrap; gap: 12px; }
 .rev-f-title { flex: 3 1 260px; }
@@ -895,8 +1055,6 @@ document.addEventListener('keydown', (e) => {
 .rev-preview { flex: 1 1 240px; padding: 14px; border-radius: 10px; background: var(--bg); display: flex; flex-direction: column; gap: 10px; align-self: flex-start; }
 .rev-prev { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 0.8125rem; }
 .rev-prev li { display: flex; justify-content: space-between; gap: 8px; }
-.rev-picks { gap: 4px 14px; }
-.rev-pick { padding: 0; border: none; }
 .rev-panel { display: flex; flex-direction: column; gap: 16px; }
 .rev-cols { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
 .rev-src { flex: 999 1 440px; min-width: 0; gap: 6px; }
@@ -955,7 +1113,7 @@ document.addEventListener('keydown', (e) => {
   .rev-cue-more { padding-left: 10px; }
   .rev-paste textarea { min-height: 240px; }
 }
-@media (forced-colors: active) { .rev-toc-item[aria-current], .rev-seg.sel, .rev-cue.sel { outline: 2px solid Highlight; } }
+@media (forced-colors: active) { .rev-toc-item[aria-current], .rev-seg.sel, .rev-cue.sel, .rev-cur td { outline: 2px solid Highlight; } }
 `;
   const el = document.createElement('style');
   el.textContent = css;

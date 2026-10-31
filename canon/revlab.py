@@ -622,21 +622,36 @@ def run_parse(lab_id: int, llm, numbers: list[int] | None = None, progress=None)
 
 # ---------- 화면 값 ----------
 
+def _updated(lab_id: int) -> str:
+    """실험 파일을 마지막으로 저장한 때 (가려 읽기 고르기처럼 시각 칸이 없는 고침도 잡는다)."""
+    from datetime import datetime, timezone
+
+    path = _path(lab_id)
+    return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(timespec="seconds") if path.exists() else ""
+
+
 def summary(lab: RevLab) -> dict:
+    """목록 · 머리 값. steps 는 화마다 단계 판정에 드는 값만 (화면 revLabLite · revSteps · revNext 가 쓴다, 원문은 보내지 않는다)."""
     done = [e for e in lab.episodes if e.sheet]
-    return {"id": lab.id, "title": lab.title, "created": lab.created, "episodes": len(lab.episodes), "done": len(done),
-            "chars": sum(len(e.text) for e in lab.episodes), "first": lab.episodes[0].number if lab.episodes else 1,
-            "rewrites": sum(1 for e in lab.episodes if e.take or e.take_style)}
+    steps = [{"number": e.number, "head": e.head, "chars": len(e.text), "sheet": bool(e.sheet),
+              "takes": int(bool(e.take)) + int(bool(e.take_style)), "picked": e.picked,
+              "blind": not e.picked and len(e.blind) == 2 and blind_of(e) is not None} for e in lab.episodes]
+    return {"id": lab.id, "title": lab.title, "created": lab.created, "updated": _updated(lab.id) or lab.created,
+            "episodes": len(lab.episodes), "done": len(done), "chars": sum(len(e.text) for e in lab.episodes),
+            "first": lab.episodes[0].number if lab.episodes else 1,
+            "rewrites": sum(1 for e in lab.episodes if e.take or e.take_style), "cast_count": len(lab.cast),
+            "has_style": lab.style is not None, "steps": steps}
 
 
 def listing() -> list[dict]:
+    """실험 목록, 최근에 고친 차례."""
     out = []
-    for i in reversed(ids()):
+    for i in ids():
         try:
             out.append(summary(load(i)))
         except ValueError:
             continue  # 깨진 파일은 목록에서 뺀다
-    return out
+    return sorted(out, key=lambda x: (x["updated"], x["id"]), reverse=True)
 
 
 def _ep_view(lab: RevLab, e: RevEpisode) -> dict:

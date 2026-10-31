@@ -435,14 +435,21 @@ def test_js_helpers_and_view(home):
       S.revTab = 'write';
       const twoWrite = viewRev();
       const panes = {};
-      for (const k of ['cast', 'style', 'lines', 'metrics']) { S.revPane = k; panes[k] = viewRev(); }
+      for (const k of ['overview', 'cast', 'style', 'lines', 'metrics']) { S.revPane = k; panes[k] = viewRev(); }
+      S.revRedo = true; S.revPane = 'overview';
+      const redo = viewRev();
+      S.revRedo = false;
+      S.rev = Object.assign({}, data.home, { labs: [] }); S.revLab = null; S.revDraft = { title: '', text: '' };
+      const empty = viewRev();
+      S.rev = data.home; S.revLab = data.lab;
       S.revPane = null; S.revEdit = true;
       const edit = viewRev();
       const e = data.lab.items[1];
-      return { home, prev, tooMany: tooMany.errs, lab, write, two, twoWrite, panes, edit, segs: revSegments(e.text, e.bounds),
+      return { home, prev, tooMany: tooMany.errs, lab, write, two, twoWrite, panes, edit, redo, empty, segs: revSegments(e.text, e.bounds),
                gap: revSegments('abcdef', [{ start: 2, end: 4, found: true }, { start: 4, end: 4, found: false }]) };
     })()""", {"home": labels, "lab": view, "story": STORY})
-    assert "새 실험" in got["home"] and "지난 실험" in got["home"] and 'aria-label="실험 목록"' in got["home"]
+    assert "새 실험" in got["home"] and "이어 하기" in got["home"] and 'class="card rev-lab"' in got["home"]
+    assert 'id="rev-new"' in got["home"] and "btn on" in got["home"]  # 붙여 넣은 글이 있으면 새 실험 카드를 펴 둔다
     assert got["prev"]["how"] == "heading" and [e["n"] for e in got["prev"]["eps"]] == [1, 2] and not got["prev"]["errs"]
     assert got["prev"]["notes"]  # 앞머리 안내
     assert got["tooMany"] and "30화까지" in got["tooMany"][0]
@@ -461,6 +468,9 @@ def test_js_helpers_and_view(home):
     assert "인물 · 관계 · 배경" in p["cast"] and "말보다 손이 먼저 나간다" in p["cast"] and "오래 함께 등대를 지켰다" in p["cast"]
     assert "도현 → " not in p["cast"] and "서윤 → 도현" in p["cast"]
     assert "문체 역설계 시작" in p["style"] and "두 사람의 관계" in p["lines"]
+    assert "화별 진행" in p["overview"] and "역설계할 화" not in p["overview"] and 'href="#/revlab/1/cast"' in p["overview"]  # 다 푼 실험의 개요
+    assert "다시 역설계할 화" in got["redo"] and got["redo"].count("btn primary") == 1 and "고른 1화 다시 역설계" in got["redo"]
+    assert 'id="rev-new"' in got["empty"] and "이어 하기" not in got["empty"] and "revNewToggle" not in got["empty"]  # 실험이 없으면 바로 새 실험
     assert "지표 모아 보기" in p["metrics"] and "가려 읽기를 마친 화" in p["metrics"]  # 아직 고르지 않아 견줄 판이 없다
     assert "초반 규칙" in got["edit"] and "글 · 이름 고치기" in got["edit"]
     assert got["edit"].count("btn primary") == 1 and got["lab"].count("btn primary") == 1  # 주 버튼은 한 화면에 하나
@@ -535,6 +545,55 @@ def test_js_run_rows_and_metric_rows():
     assert row["되풀이 문장"] == [("0", False), ("1", True)] and row["쇠맛 경고"] == [("0", False), ("2", True)]  # 원문이 0이면 하나라도 표시
     assert row["템포 (원문 큐 경계)"] == [("맞음", False), ("-", False)]
 
+
+
+@needs_node
+def test_js_home_card_and_overview_row():
+    """처음 화면 카드(revLabLite · revHomeCard)와 개요 줄(revOverviewRow)."""
+    def st(n, sheet=False, takes=0, blind=False, picked="", chars=500):
+        return {"number": n, "head": "", "chars": chars, "sheet": sheet, "takes": takes, "blind": blind, "picked": picked}
+    labs = [
+        {"done": 0, "has_style": False, "steps": [st(1), st(2)]},
+        {"done": 2, "has_style": True, "steps": [st(1, True, 1, picked="original"), st(2, True)]},
+        {"done": 2, "has_style": False, "steps": [st(1, True, 1, blind=True), st(2, True, 2, picked="rewrite")]},
+        {"done": 1, "has_style": False, "steps": [st(1, True, 2, picked="original"), st(2, chars=10)]},
+    ]
+    o = {"condition": "original", "dialogue_ratio": 0.1, "lines_total": 0, "lines_hit": 0}
+    t = {"condition": "plain", "dialogue_ratio": 0.3, "lines_total": 4, "lines_hit": 3}
+    eps = [
+        {"number": 7, "head": "7화 눈", "chars": 900, "sheet": {"cues": [{}, {}]}, "storyboard": {"scenes": [{}]}, "missing": [2],
+         "takes": [{}], "blind_texts": [], "picked": "original", "scores": [o, t]},
+        {"number": 8, "head": "", "chars": 900, "sheet": None, "missing": [], "takes": [], "blind_texts": [], "picked": "", "scores": []},
+        {"number": 9, "head": "", "chars": 50, "sheet": None, "missing": [], "takes": [], "blind_texts": [], "picked": "", "scores": []},
+        {"number": 10, "head": "", "chars": 900, "sheet": {"cues": [{}]}, "missing": [], "takes": [{}], "blind_texts": ["a", "b"], "picked": "", "scores": [o]},
+    ]
+    got = run_js(FILES, "({ cards: data.labs.map((x) => revHomeCard(x, 200)), rows: data.eps.map((e) => revOverviewRow(e, 200)) })",
+                 {"labs": labs, "eps": eps})
+    c = got["cards"]
+    assert c[0]["chip"] == {"text": "역설계 전", "cls": ""} and c[0]["next"] == "2화 역설계" and c[0]["states"][:2] == ["ok", "now"]
+    assert c[1]["chip"]["text"] == "되돌려 쓰기 1/2" and c[1]["next"] == "2화 되돌려 쓰기" and c[1]["picks"]["original"] == 1
+    assert c[2]["next"] == "1화 가려 읽기" and c[2]["chip"]["text"] == "가려 읽기 1/2"
+    assert c[3]["chip"] == {"text": "다 견줌", "cls": "ok"} and c[3]["next"] == "" and c[3]["share"] == 1  # 짧은 화는 풀지 않는다
+    r = got["rows"]
+    assert r[0] == {"n": 7, "title": "눈", "state": "parsed", "cues": 2, "scenes": 1, "missing": 1, "takes": 1, "pick": "원문 고름",
+                    "lines": "3/4", "dlg": ["10%", "30%"], "far": True}
+    assert r[1]["state"] == "raw" and r[1]["dlg"] is None and r[1]["pick"] == ""
+    assert r[2]["state"] == "short"
+    assert r[3]["pick"] == "wait" and r[3]["lines"] == "" and r[3]["dlg"] is None  # 가려 읽기 전에는 되돌려 쓴 글의 지표가 없다
+
+
+def test_listing_summary_for_home(home):
+    """처음 화면 카드에 드는 목록 값: 최근에 고친 차례, 화마다 단계 값(원문 없음)."""
+    a = revlab.create("앞", STORY)
+    b = _parsed(home)
+    revlab.run_write(b.id, MockLLM(), 1)
+    labs = revlab.listing()
+    assert [x["id"] for x in labs][:2] == [b.id, a.id]  # b 를 나중에 고쳤다 (같은 초면 번호가 큰 쪽)
+    x = next(x for x in labs if x["id"] == b.id)
+    assert x["updated"] and x["cast_count"] == len(revlab.load(b.id).cast) and x["has_style"] is False
+    s1 = x["steps"][0]
+    assert s1["sheet"] is True and s1["takes"] == 1 and s1["blind"] is True and s1["picked"] == "" and "text" not in s1
+    assert next(x for x in labs if x["id"] == a.id)["steps"][0]["sheet"] is False
 
 def _cue_labels():
     from canon import web
