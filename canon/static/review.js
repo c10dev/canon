@@ -15,6 +15,7 @@ function pickedDelta(n) {
     events: pick('e', d.events),
     secrets_added: pick('s', d.secrets_added),
     relationship_updates: pick('r', d.relationship_updates),
+    rel_flagged: [],  // 작가가 고른 뒤라 기본 체크 표시는 필요 없다 (차례도 고른 목록과 맞지 않는다)
     new_facts: clean(pick('f', d.new_facts)),
     foreshadow_planted: pick('p', d.foreshadow_planted),
     foreshadow_resolved: pick('x', d.foreshadow_resolved),
@@ -81,7 +82,8 @@ function setDelta(n, d, source = 'ai') {
   d.character_updates.forEach((u, i) => { S.picks['c' + i] = known.has(u.character_id); });
   d.events.forEach((_, i) => { S.picks['e' + i] = true; });
   d.secrets_added.forEach((_, i) => { S.picks['s' + i] = true; });
-  d.relationship_updates.forEach((_, i) => { S.picks['r' + i] = true; });
+  // 유형 · 설명이 반영 뒤 관계 단계와 반대인 바뀜은 기본으로 빼 둔다 (pace.clean_delta). 맞으면 작가가 체크한다
+  d.relationship_updates.forEach((_, i) => { S.picks['r' + i] = !(d.rel_flagged || []).includes(i); });
   d.new_facts.forEach((_, i) => { S.picks['f' + i] = true; });
   d.foreshadow_planted.forEach((_, i) => { S.picks['p' + i] = true; });
   d.foreshadow_resolved.forEach((id, i) => { S.picks['x' + i] = P().foreshadows.some((f) => f.id === id); });
@@ -288,7 +290,7 @@ function viewReview(n) {
   const rels = d.relationship_updates.map((r, i) => {
     const cur = p.relationships.find((x) => (x.a === r.a && x.b === r.b) || (x.a === r.b && x.b === r.a));
     return `<div class="change">${box('r' + i)}<div class="body"><label for="pk-r${i}" style="font-size:0.875rem;font-weight:700">${esc(charName(r.a))} ↔ ${esc(charName(r.b))}</label>
-      ${diff(cur && cur.type, r.type)}${r.description ? diff(cur && cur.description, r.description) : ''}</div></div>`;
+      ${diff(cur && cur.type, r.type)}${r.description ? diff(cur && cur.description, r.description) : ''}${(d.rel_flagged || []).includes(i) ? '<div class="small">관계 단계와 반대라 기본으로 빼 두었어요. 맞으면 체크하세요.</div>' : ''}</div></div>`;
   }).join('');
   const facts = d.new_facts.map((f, i) => `<div class="change">${box('f' + i, `확정 사실 ${i + 1} 반영`)}<div class="body"><div class="row" style="gap:6px;flex-wrap:nowrap"><input id="fv-${i}" aria-label="확정 사실 ${i + 1}" ${edit(`new_facts.${i}`, 'f' + i)} value="${esc(f)}" placeholder="비우면 빼요" style="flex:1;min-width:0;font-size:0.8125rem">${editMark(n, 'f' + i)}</div></div></div>`).join('');
   // 회수한다는 복선 id 를 모르면 '직접 정할 것'으로 (기본으로 빼 둔다, setDelta)
