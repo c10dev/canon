@@ -24,6 +24,7 @@ Object.assign(S, {
   revEsts: {},     // 비용 추정 { 열쇠(revEstKey): 값 | null(묻는 중) | { error } }
   revSel: 0,       // 원문에서 밝힌 큐 번호 (1부터)
   revEdit: false,  // 실험 글 고치기 칸을 열었는지
+  revAdd: null,    // 화 이어 붙이기 칸에 붙여 넣은 글 (null 이면 닫힘)
   revStyle: false, // 되돌려 쓰기에 문체 프로필을 넣을지
   revRead: 'plain', // 나란히 읽기 오른쪽 판 (plain · style)
 });
@@ -81,6 +82,23 @@ function revPreview(text, lim, first = null) {
   if (eps.some((e) => e.short)) notes.push(`${lim.min_chars}자보다 짧은 화는 역설계하지 않아요.`);
   if (s.preface) notes.push(`첫 제목 줄 앞의 짧은 글(${s.preface.length}자)은 작품 제목 · 작가 줄로 보고 역설계하지 않아요.`);
   if (s.first <= 3 && s.episodes.length) notes.push('1~3화로 잡히면 되돌려 쓰기에 초반 규칙(첫 화 쓰는 법)이 붙어요. 소설 중간이면 첫 화 번호를 적으세요.');
+  return { how: s.how, label: REV_SPLITS[s.how], eps, errs, notes };
+}
+
+/** 이어 붙일 글의 나누기 미리보기 (revlab.append_text 와 같은 규칙): 새 화는 제목 줄 번호와 상관없이 마지막 화 + 1(have.next)부터 세고,
+    화 수 · 글자 수 한도는 실험 전체(have.episodes · have.chars)로 본다. 첫 제목 줄 앞의 짧은 글은 넣지 않는다. 값 모양은 revPreview 와 같다. */
+function revAppendPreview(text, lim, have) {
+  const s = revSplit(text, lim.head_max, lim.preface_min);
+  const errs = []; const notes = [];
+  const len = String(text || '').length;
+  const n = have.episodes + s.episodes.length;
+  if (!s.episodes.length) errs.push('글이 비었어요. 이어 붙일 화를 붙여 넣으세요.');
+  if (have.chars + len > lim.max_chars) errs.push(`이으면 ${(have.chars + len).toLocaleString()}자예요. 한 실험에 ${lim.max_chars.toLocaleString()}자까지 넣을 수 있어요.`);
+  if (n > lim.max_episodes) errs.push(`이으면 ${n}화예요. 한 실험에 ${lim.max_episodes}화까지 넣을 수 있어요.`);
+  const eps = s.episodes.map((e, i) => ({ n: have.next + i, head: e.head, chars: e.text.length, short: e.text.length < lim.min_chars }));
+  if (eps.some((e) => e.short)) notes.push(`${lim.min_chars}자보다 짧은 화는 역설계하지 않아요.`);
+  if (s.preface) notes.push(`첫 제목 줄 앞의 짧은 글(${s.preface.length}자)은 작품 제목 · 작가 줄로 보고 넣지 않아요.`);
+  if (s.how === 'heading' && s.episodes.length && s.first !== have.next) notes.push(`제목 줄은 ${s.first}화부터지만 마지막 화 다음인 ${have.next}화부터 이어요.`);
   return { how: s.how, label: REV_SPLITS[s.how], eps, errs, notes };
 }
 
@@ -159,7 +177,7 @@ async function revFetch(id) {
   }
   if (!old || old.id !== id) {
     S.revPick = new Set(S.revLab.items.filter((e) => !e.sheet && e.chars >= S.rev.min_chars).map((e) => e.number));
-    S.revSel = 0; S.revEdit = false; S.revRedo = false; S.revTab = 'text'; S.revEp = null;
+    S.revSel = 0; S.revEdit = false; S.revAdd = null; S.revRedo = false; S.revTab = 'text'; S.revEp = null;
   } else if (S.revPick && !S.revRedo) {
     for (const e of S.revLab.items) if (e.sheet) S.revPick.delete(e.number);  // 다 푼 화는 다음 역설계에서 뺀다
     if (!S.revPick.size) S.revPick = new Set(S.revLab.items.filter((e) => !e.sheet && e.chars >= S.rev.min_chars).map((e) => e.number));
@@ -436,7 +454,7 @@ function revLabHead() {
 /** 머리 주 버튼 (다음 할 일 하나). 작업이 도는 동안에는 진행 카드의 멈추기만, 글 · 이름을 고치는 동안에는 그 카드의 저장만 둔다. */
 function revGoBtn() {
   const L = S.revLab;
-  if (revRunning() || S.revEdit || S.revRedo) return '';  // 다시 역설계를 고르는 동안에는 개요 카드의 버튼이 주 버튼  // 주 버튼은 한 화면에 하나: 글 · 이름 고치기 카드의 '저장'이 주 버튼이다
+  if (revRunning() || S.revEdit || S.revAdd !== null || S.revRedo) return '';  // 다시 역설계를 고르는 동안에는 개요 카드의 버튼이 주 버튼  // 주 버튼은 한 화면에 하나: 글 · 이름 고치기 카드의 '저장'이 주 버튼이다
   const nx = revNext(L, S.revEp, S.rev.min_chars);
   if (!nx) return '';
   if (nx.kind === 'parse') {
@@ -474,11 +492,11 @@ function revLabToc() {
   const cur = pane === 'overview' ? `개요 · ${steps[1].label} ${steps[1].right}` : pane ? REV_PANES[pane] : (() => { const e = revItem(S.revEp); return e ? `${e.number}화${revEpTitle(e) ? ` ${esc(revEpTitle(e))}` : ''} · ${(REV_TABS.find(([k]) => k === S.revTab) || REV_TABS[0])[1]}` : '목차'; })();
   const over = revTocLink(`#/revlab/${L.id}`, `<span class="n${pane === 'overview' ? ' now' : ''}" aria-hidden="true">◎</span><span class="tl">개요</span><span class="st">${L.episodes}화</span>`, pane === 'overview');
   return revToc('실험 목차', cur, `${over}<span class="outline-h">단계</span>${stepRows}<div class="rev-meter" role="img" aria-label="단계 ${Math.round(revStepShare(steps) * 4)}/4 끝남"><i style="width:${Math.round(revStepShare(steps) * 100)}%"></i></div>
-    <span class="outline-h">화</span>${epRows}<span class="outline-h">실험 전체</span>${panes}`);
+    <span class="outline-h rev-ep-h">화<button type="button" class="btn icon-btn small" data-action="revAddToggle" aria-label="화 이어 붙이기" title="화 이어 붙이기"${S.revAdd !== null ? ' aria-pressed="true"' : ''}>＋</button></span>${epRows}<span class="outline-h">실험 전체</span>${panes}`);
 }
 
 function revMain() {
-  const parts = [revRunCard(), S.revEdit ? revEditCard() : ''];
+  const parts = [revRunCard(), S.revEdit ? revEditCard() : '', S.revAdd !== null ? revAddCard() : ''];
   if (S.revPane === 'overview') parts.push(revOverview());
   else if (S.revPane === 'cast') parts.push(revContextCard());
   else if (S.revPane === 'style') parts.push(revStyleCard());
@@ -499,6 +517,36 @@ function revEditCard() {
     ${L.preface ? `<div class="small">앞머리(역설계하지 않음): ${esc(L.preface.slice(0, 120))}</div>` : ''}
     <div class="field"><label for="rev-etext">글 <span class="small">(비우면 글은 그대로 두고 이름 · 번호만 바꿔요)</span></label><textarea id="rev-etext" rows="8" data-rev-edit="text" placeholder="새 글을 붙여 넣으면 다시 나누고 역설계 결과를 모두 지워요"></textarea></div>
     <div class="row"><button type="button" class="btn primary" data-action="revSaveEdit">저장</button></div></section>`;
+}
+
+/** 이어 붙일 화 수 · 글자 수를 셀 실험 값: 다음 화 번호 · 화 수 · 글자 수. */
+const revHave = (L) => ({ next: L.items.length ? L.items[L.items.length - 1].number + 1 : L.first, episodes: L.items.length, chars: L.chars });
+
+function revAddPreviewHtml() {
+  if (!S.revAdd.trim()) return `<div class="small">붙여 넣으면 어떻게 나뉘는지 여기 보여요. 새 화는 ${revHave(S.revLab).next}화부터 이어요. 직접 나누려면 화 사이에 <code>===</code> 한 줄을 넣으세요.</div>`;
+  const v = revAppendPreview(S.revAdd, S.rev, revHave(S.revLab));
+  const eps = v.eps.map((e) => `<li><span>${e.n}화${e.head ? ` <span class="small">${esc(e.head)}</span>` : ''}${e.short ? ' <span class="chip warn">짧음</span>' : ''}</span><span class="small">${e.chars.toLocaleString()}자</span></li>`).join('');
+  return `<div class="between"><strong>${revAddRange(v)}를 이어요</strong><span class="chip">${esc(v.label)}</span></div>
+    <ol class="rev-prev">${eps}</ol>
+    ${v.errs.map((x) => `<div class="note err small">${esc(x)}</div>`).join('')}${v.notes.map((x) => `<div class="small">${esc(x)}</div>`).join('')}`;
+}
+
+/** 이을 화 범위 글 ('5화', '5~7화'). 화가 없으면 빈 글. */
+const revAddRange = (v) => (!v.eps.length ? '' : v.eps.length > 1 ? `${v.eps[0].n}~${v.eps[v.eps.length - 1].n}화` : `${v.eps[0].n}화`);
+const revAddLabel = (v) => (v.eps.length && !v.errs.length ? `${revAddRange(v)} 이어 붙이기` : '이어 붙이기');
+
+/** 화 이어 붙이기 칸: 붙여 넣은 글을 나눠 마지막 화 뒤에 잇는다. 앞 화의 역설계 결과는 그대로 둔다 (revlab.append_text). */
+function revAddCard() {
+  const v = revAppendPreview(S.revAdd, S.rev, revHave(S.revLab));
+  const ok = !v.errs.length && !revRunning();
+  return `<section class="card"><div class="between"><h2>화 이어 붙이기</h2><button type="button" class="btn small ghost" data-action="revAddToggle">닫기</button></div>
+    <p class="small">마지막 화 뒤에 새 화를 넣어요. 앞 화의 역설계 결과 · 인물 · 문체 프로필은 그대로 두고, 새 화를 역설계할 때 앞 화의 인물 · 줄거리가 들어가요. 이야기 줄기는 새 화까지 역설계하면 다시 물어요.</p>
+    <div class="rev-paste">
+      <div class="field"><label for="rev-atext">이어 붙일 글 <span class="small" id="rev-acount">${S.revAdd ? `· ${S.revAdd.length.toLocaleString()}자` : ''}</span></label><textarea id="rev-atext" rows="12" data-rev-add="1" placeholder="여기에 붙여 넣으세요">${esc(S.revAdd)}</textarea></div>
+      <div class="rev-preview" id="rev-apreview" aria-live="polite">${revAddPreviewHtml()}</div>
+    </div>
+    ${revRunning() ? '<div class="note warn small">작업이 끝난 뒤에 이을 수 있어요.</div>' : ''}
+    <div class="row"><button type="button" class="btn primary" data-action="revAppend"${ok ? '' : ' disabled'}>${revAddLabel(v)}</button></div></section>`;
 }
 
 /** 도는 작업 카드: 역설계는 화마다 한 줄(끝난 화는 바로 열기), 되돌려 쓰기 · 문체는 한 줄. 멈추기는 알림 창과 같은 동작. */
@@ -826,6 +874,19 @@ document.addEventListener('input', (e) => {
     const btn = document.querySelector('[data-action="revCreate"]');
     if (btn) btn.disabled = !!revPreview(S.revDraft.text, S.rev).errs.length;
   }
+  if (d.revAdd) {
+    S.revAdd = e.target.value;
+    const box = document.getElementById('rev-apreview');
+    if (box) box.innerHTML = revAddPreviewHtml();
+    const count = document.getElementById('rev-acount');
+    if (count) count.textContent = S.revAdd ? `· ${S.revAdd.length.toLocaleString()}자` : '';
+    const v = revAppendPreview(S.revAdd, S.rev, revHave(S.revLab));
+    const btn = document.querySelector('[data-action="revAppend"]');
+    if (btn) {
+      btn.disabled = !!v.errs.length || !!revRunning();
+      btn.textContent = revAddLabel(v);
+    }
+  }
 });
 
 document.addEventListener('change', (e) => {
@@ -897,6 +958,27 @@ Object.assign(actions, {
       S.revLab = null;
       await revLoad(id, null);
       S.revEdit = false;
+    });
+  },
+  revAddToggle() {
+    if (S.revAdd && S.revAdd.trim() && !confirm('붙여 넣은 글을 버리고 닫을까요?')) return;
+    S.revAdd = S.revAdd === null ? '' : null;
+    if (S.revAdd !== null) S.focusTarget = '#rev-atext';
+    outlineClose();  // 좁은 칸에서 펼친 목차가 새 칸을 가리지 않게
+    render();
+  },
+  /** 붙여 넣은 글을 마지막 화 뒤에 잇고 개요로 간다. 이은 화는 역설계할 화로 골라 둔다 (revFetch 가 새 실험처럼 고른다). */
+  async revAppend() {
+    const id = S.revLab.id;
+    const before = new Set(S.revLab.items.map((e) => e.number));
+    await run('이어 붙이는 중', async () => {
+      const v = await api('POST', `/revlab/${id}/episodes`, { text: S.revAdd });
+      const added = v.items.map((e) => e.number).filter((n) => !before.has(n));
+      S.revLab = null;
+      S.revAdd = null;
+      if (location.hash === `#/revlab/${id}`) await revLoad(id, null);
+      else location.hash = `#/revlab/${id}`;
+      toast(`${added.length > 1 ? `${added[0]}~${added[added.length - 1]}화` : `${added[0]}화`}를 이었어요. 역설계할 화로 골라 뒀어요.`);
     });
   },
   async revDelete() {
@@ -977,6 +1059,8 @@ Object.assign(actions, {
 /* 목차 틀은 공용(app.css .outline-*). 이 화면은 위쪽 띠가 없고, 목차의 화 이름은 한 줄로 자른다 */
 .rev-wrap { --outline-band: 0px; }
 .rev-wrap .outline-item .tl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rev-ep-h { display: flex; align-items: center; justify-content: space-between; padding-top: 8px; padding-bottom: 0; }
+.rev-ep-h .icon-btn { min-width: 26px; min-height: 26px; padding: 0 6px; }
 .rev-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .rev-step { width: 20px; height: 20px; border-radius: 6px; background: var(--chip); color: var(--text-2); display: inline-flex; align-items: center; justify-content: center; font-size: 0.6875rem; font-weight: 700; flex: none; }
 .rev-step.ok { background: var(--green-soft); color: var(--green); }

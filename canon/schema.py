@@ -2499,6 +2499,74 @@ class RevLab(BaseModel):
     style_model: str = ""
     style_at: str = ""
 
+# ---------- 쇠맛 실험실 (canon/soelab.py) ----------
+# 작품 밖 <CANON_HOME>/.soelab/ 에 둔다. LLM 이 채우지 않는 스키마다.
+
+SoeOrigin = Literal["human", "ai", "edited", "unknown"]
+SOE_ORIGINS: dict[str, str] = {"human": "사람 글", "ai": "AI 글", "edited": "고친 글", "unknown": "모름"}
+SoeModelSource = Literal["record", "usage", "author", "unknown"]
+
+
+class SoeSource(BaseModel):
+    """조각을 가져온 원천."""
+    kind: Literal["revlab", "episode", "edit", "research", "paste", "trial"]
+    project: str = ""
+    episode: int = 0
+    lab: int = Field(0, description="역설계 실험 번호")
+    take: str = Field("", description="revlab: text · take · take_style / edit: before · after")
+    edit: str = Field("", description="TextEdit.id")
+    path: str = Field("", description="research: 연구 말뭉치 안 파일 (말뭉치 경로 기준) / paste: 붙여 넣은 글 이름")
+    chunk: int = Field(0, description="같은 글 안 조각 순번")
+
+
+class SoePiece(BaseModel):
+    """판정 · 채점의 단위인 글 조각 (정규화한 2,000자 안팎). id 는 정규화한 글 sha1 앞 12자라 같은 글은 한 번만 들어간다."""
+    id: str
+    text: str
+    origin: SoeOrigin = "unknown"
+    source: SoeSource
+    group: str = Field(description="묶음 키 '<작품|작가>:<화|작품명>'. 부트스트랩 단위. revlab 원문과 되쓰기는 같은 묶음")
+    genre: Literal["webnovel", "literary", "other"] = "webnovel"
+    model: str = Field("", description="쓴 모델 '<백엔드>:<모델>'. 사람 글은 빈 칸")
+    model_source: SoeModelSource = Field("unknown", description="모델을 어디서 알았는지: 기록 · 사용량 기록에서 짐작 · 작가가 고름 · 모름")
+    condition: str = ""
+    pair_of: str = Field("", description="짝 조각 id (revlab 되쓰기 → 원문, 고친 뒤 → 고치기 전)")
+    known: bool = Field(False, description="작가가 읽은 글. 판정 대기열에 넣지 않고 출처 판별에만 쓴다")
+    baseline: str = Field("", description="원천 기준값(style_baseline)을 가진 작품 이름. 없으면 빈 칸")
+    chars: int = 0
+    added: str = ""
+
+
+class SoeSpan(BaseModel):
+    """판정하며 작가가 표시한 곳."""
+    start: int
+    end: int
+    quote: str = ""
+    kind: str = Field("other", description="AI_PATTERNS 이름 5개 · cliche · copy · other")
+    note: str = ""
+
+
+class SoeLabel(BaseModel):
+    """판정 기록 한 줄 (labels.jsonl). 덧붙이기만 하고, 지우기는 removed 가 참인 같은 id 줄."""
+    id: str
+    at: str = ""
+    kind: Literal["piece", "pair", "hit"] = "piece"
+    piece: str = ""
+    verdict: Literal["ai", "human", "unsure", ""] = ""
+    spans: list[SoeSpan] = Field(default_factory=list)
+    clean: bool = Field(False, description="표시할 곳 없이 다 읽음 (재현율의 분모)")
+    batch: str = Field("", description="'이번 10개' id. 부트스트랩 단위 묶음(group)과 다른 말")
+    pair: list[str] = Field(default_factory=list)
+    picked: int = -1
+    hit: str = ""
+    hit_ok: Literal["yes", "no", "skip", ""] = ""
+    blind: bool = True
+    redo_of: str = Field("", description="재판정이면 원래 판정 id")
+    metrics_version: str = ""
+    seconds: int = 0
+    removed: bool = False
+
+
 Snapshot.model_rebuild()
 SerialRebuild.model_rebuild()
 ShortArchive.model_rebuild()

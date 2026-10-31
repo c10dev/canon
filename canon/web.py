@@ -4291,6 +4291,12 @@ def rev_put(lab_id: int, body: RevIn) -> dict:
     return _rev_edit(lab_id, lambda lab: revlab.replace_text(lab, body.title, body.text, body.first))
 
 
+@app.post("/api/revlab/{lab_id}/episodes")
+def rev_append(lab_id: int, body: RevSplitIn) -> dict:
+    """글을 나눠 마지막 화 뒤에 잇는다 (앞 화의 역설계 결과는 그대로). AI 를 부르지 않는다."""
+    return _rev_edit(lab_id, lambda lab: revlab.append_text(lab, body.text))
+
+
 @app.delete("/api/revlab/{lab_id}")
 def rev_delete(lab_id: int) -> dict:
     _rev(lab_id)

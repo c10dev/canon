@@ -215,6 +215,22 @@ def replace_text(lab: RevLab, title: str, text: str | None, first: int | None = 
         renumber(lab, first)
 
 
+def append_text(lab: RevLab, text: str) -> list[int]:
+    """글을 나눠 마지막 화 뒤에 잇는다. 앞 화의 역설계 결과 · 인물 · 줄기 · 문체는 그대로 둔다. 새 화 번호는 제목 줄 번호와 상관없이
+    마지막 화 + 1 부터 센다. 첫 제목 줄 앞의 짧은 글은 버린다 (실험의 앞머리는 바꾸지 않는다). 이야기 줄기는 새 화까지 역설계하면
+    다시 묻는다 (wants_lines). 이은 화 번호를 낸다."""
+    s = check_text(text)
+    have = sum(len(e.text) for e in lab.episodes)
+    if have + len(text) > MAX_CHARS:
+        raise ValueError(f"이으면 {have + len(text):,}자예요. 한 실험에 {MAX_CHARS:,}자까지 넣을 수 있어요")
+    if len(lab.episodes) + len(s["episodes"]) > MAX_EPISODES:
+        raise ValueError(f"이으면 {len(lab.episodes) + len(s['episodes'])}화예요. 한 실험에 {MAX_EPISODES}화까지 넣을 수 있어요")
+    start = lab.episodes[-1].number + 1 if lab.episodes else s["first"]
+    added = [RevEpisode(number=start + i, head=e["head"], text=e["text"]) for i, e in enumerate(s["episodes"])]
+    lab.episodes += added
+    return [e.number for e in added]
+
+
 def episode(lab: RevLab, number: int) -> RevEpisode:
     for e in lab.episodes:
         if e.number == number:

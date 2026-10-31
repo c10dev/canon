@@ -604,3 +604,62 @@ def test_dump_roundtrip(home):
     lab = _parsed(home)
     again = revlab.load(lab.id)
     assert dump(again) == dump(lab)
+
+
+APPEND = "등대지기의 밤\n\n7화 아침\n" + "아침이 왔다. 서윤은 창고 열쇠를 도현에게 돌려주었다. " * 8 + "\n\n8화\n" + "도현은 열쇠를 받고 오래 말이 없었다. " * 10
+
+
+def test_append_keeps_results_and_asks_lines_again(home):
+    lab = _parsed(home)
+    before = [e.model_dump() for e in lab.episodes]
+    cast, lines, preface = [c.name for c in lab.cast], [x.id for x in lab.lines], lab.preface
+    assert revlab.append_text(lab, APPEND) == [3, 4]  # 제목 줄 번호(7화)와 상관없이 마지막 화 다음부터
+    revlab.save(lab)
+    lab = revlab.load(lab.id)
+    assert [e.model_dump() for e in lab.episodes[:2]] == before and [c.name for c in lab.cast] == cast and [x.id for x in lab.lines] == lines
+    assert [(e.number, e.head, e.sheet) for e in lab.episodes[2:]] == [(3, "7화 아침", None), (4, "8화", None)]
+    assert lab.preface == preface and "등대지기의 밤" not in lab.episodes[2].text  # 이은 글의 앞머리 줄은 넣지 않고, 실험 앞머리는 그대로
+    p = prompts.rev_prompt(lab, 3)
+    assert "직전 화(2화)" in p and "서윤" in p  # 새 화 요청에 앞 화 인물 · 직전 화가 들어간다
+    assert revlab.wants_lines(lab, [3, 4]) and not revlab.wants_lines(lab, [3])
+    assert revlab.run_parse(lab.id, MockLLM(), [3, 4])["lines"] is not None  # 새 화까지 풀면 이야기 줄기를 다시 묻는다
+
+
+def test_append_limits(home, monkeypatch):
+    lab = revlab.create("등대", STORY)
+    with pytest.raises(ValueError, match="비었어요"):
+        revlab.append_text(lab, "  ")
+    monkeypatch.setattr(revlab, "MAX_EPISODES", 3)
+    with pytest.raises(ValueError, match="이으면 4화예요"):
+        revlab.append_text(lab, APPEND)
+    monkeypatch.setattr(revlab, "MAX_EPISODES", 30)
+    monkeypatch.setattr(revlab, "MAX_CHARS", sum(len(e.text) for e in lab.episodes) + 100)
+    with pytest.raises(ValueError, match="자까지 넣을 수 있어요"):
+        revlab.append_text(lab, APPEND)
+    assert len(lab.episodes) == 2  # 막히면 그대로
+
+
+def test_web_append(home):
+    from canon import web
+
+    c = TestClient(web.app)
+    lab_id = c.post("/api/revlab", json={"title": "등대", "text": STORY}).json()["id"]
+    v = c.post(f"/api/revlab/{lab_id}/episodes", json={"text": APPEND}).json()
+    assert [e["number"] for e in v["items"]] == [1, 2, 3, 4] and v["episodes"] == 4
+    assert c.post(f"/api/revlab/{lab_id}/episodes", json={"text": ""}).status_code == 400
+    assert c.post("/api/revlab/99/episodes", json={"text": APPEND}).status_code == 404
+
+
+@needs_node
+def test_js_append_preview_matches_python(home):
+    lim = revlab.labels()
+    lab = revlab.create("등대", STORY)
+    have = {"next": 3, "episodes": 2, "chars": sum(len(e.text) for e in lab.episodes)}
+    got = run_js(FILES, "data.texts.map((t) => revAppendPreview(t, data.lim, data.have))",
+                 {"texts": [APPEND, " ", "그냥 한 화 " * 50], "lim": lim, "have": have})
+    nums = revlab.append_text(lab, APPEND)
+    assert [e["n"] for e in got[0]["eps"]] == nums and not got[0]["errs"]
+    assert any("7화부터지만 마지막 화 다음인 3화" in x for x in got[0]["notes"]) and any("넣지 않아요" in x for x in got[0]["notes"])
+    assert got[1]["errs"] and got[2]["how"] == "one" and [e["n"] for e in got[2]["eps"]] == [3]
+    many = run_js(FILES, "revAppendPreview(data.t, data.lim, data.have)", {"t": APPEND, "lim": {**lim, "max_episodes": 3}, "have": have})
+    assert many["errs"] == ["이으면 4화예요. 한 실험에 3화까지 넣을 수 있어요."]
