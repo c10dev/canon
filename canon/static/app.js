@@ -1480,7 +1480,7 @@ document.addEventListener('keydown', (e) => {
   closeMenu(true);
 }, true);
 
-/** #app 밖의 <dialog>. 화면을 다시 그려도 열려 있다. 닫으면 열기 전 포커스로 돌아간다 (abilities.js abDialog 와 같은 방식).
+/** #app 밖의 <dialog>. 화면을 다시 그려도 열려 있다. 닫으면 열기 전 포커스로 돌아간다.
     연 요소가 그사이 사라졌으면(메뉴 항목) back 선택자로 찾은 곳으로 */
 function showDialog(id, html, back = '') {
   let el = document.getElementById(id);
