@@ -27,3 +27,29 @@ def test_el_basis_matches_server():
     got = run_js(["app.js", "causal.js"], expr, [dump(e) for e in els + changed])
     assert got == [[elements.basis(e), elements.stale(e)] for e in els + changed]
     assert [s for _, s in got] == [False] * 4 + [False, True, True, False]
+
+
+@needs_node
+def test_causal_status_and_cells():
+    """요소 상태(causalStatus)와 관련 화 칸(causalCells): 분석 전 · 다시 분석 · 검토 · 적용함, 반영한 화는 모순 · 고칠 화에서 빠진다."""
+    from canon.schema import EpisodePlot, ImpactConflict, TextPatch
+    plot = EpisodePlot(number=4, act="기", title="t", summary="", events=[], characters=[], emotional_shift="", ending_hook="")
+    rep = ImpactReport(summary="s", conflicts=[ImpactConflict(target="본문", episode=2, quote="q", problem="p", fix="본문 수정")],
+                       episodes=[plot], patches=[TextPatch(episode=2, quote="q", replacement="r")])
+    base = StoryElement(id="el-x", name="탑", description="d", since_ep=2, reveal_ep=5)
+    review = base.model_copy(update={"impact": ElementImpact(report=rep, basis=elements.basis(base))})
+    applied = base.model_copy(update={"impact": ElementImpact(report=rep, basis=elements.basis(base), outcome="applied", applied=["patch:0"])})
+    stale = base.model_copy(update={"impact": ElementImpact(report=rep, basis="옛 내용")})
+    new = base.model_copy(update={"added_after": 3})
+    links = [{"episode": 1, "where": [], "planned": False, "terms": [], "characters": ["c1"], "snippet": ""},
+             {"episode": 3, "where": ["본문"], "planned": False, "terms": ["탑"], "characters": [], "snippet": "탑"}]
+    eps = [{"n": n, "text": n <= 3} for n in range(1, 6)]
+    expr = ("({ st: data.els.map((e) => causalStatus(e)).map((s) => [s.key, s.label, s.todo]),"
+            " review: causalCells(data.els[1], data.links, 6, data.eps).map((c) => [c.cls, c.tag, c.group]),"
+            " applied: causalCells(data.els[2], data.links, 6, data.eps).map((c) => c.cls) })")
+    out = run_js(["app.js", "causal.js"], expr, {"els": [dump(e) for e in (base, review, applied, stale, new)], "links": links, "eps": eps})
+    assert out["st"] == [["none", "", False], ["review", "검토할 것 · 2개 화", True], ["applied", "적용함", False],
+                         ["stale", "다시 분석 필요", True], ["new", "분석 전", True]]
+    assert out["review"] == [["rel weak tx before", "인물만", "char"], ["bad since tx", "모순", "bad"], ["rel tx", "이름이 나옴", "rel"],
+                             ["plot", "고칠 화", "bad"], ["reveal", "", ""], ["none", "", ""]]
+    assert out["applied"][1] == "done since tx" and out["applied"][3] == "plot"  # 적용한 본문 수정 화만 빠지고, 적용하지 않은 플롯 화는 남는다
