@@ -13,8 +13,8 @@ SV 를 (4d4 - 10) × 10% 만큼 흔든다 (Ross 의 도시별 편차).
 쓰인 것은 1750~70년대). 그래서 여관 · 주점에는 간판 이름을 붙인다.
 가게는 종류마다 좋아하는 자리(광장 가까이, 큰길가, 물가, 마을 끝, 도시 구역)에 점수를 매겨 고른다.
 이야기 장소가 놓인 건물은 그 장소의 종류와 이름을 쓴다. 생성기가 알려 준 필지 정보(parts)가 없으면(올린 파일) 모든 건물을 본채로 본다.
-OpenStreetMap 지도(canon/osm.py)는 쓰임 · 이름 · 주소를 태그에서 가져오고 가게 수 · 간판 · 번지를 짓지 않는다 (_describe_osm).
-현대 동네 생성기(canon/moderngen.py)도 쓰임 · 층수는 생성기가 정한 parts 를 그대로 쓰고, 거리 이름 · 번지만 짓는다 (가상의 동네라서).
+OpenStreetMap 지도(canon/maps/sources/osm.py)는 쓰임 · 이름 · 주소를 태그에서 가져오고 가게 수 · 간판 · 번지를 짓지 않는다 (_describe_osm).
+현대 동네 생성기(canon/maps/gen/moderngen.py)도 쓰임 · 층수는 생성기가 정한 parts 를 그대로 쓰고, 거리 이름 · 번지만 짓는다 (가상의 동네라서).
 
 같은 지도 · 시드 · 장소면 언제나 같은 결과다 (난수원 f"{seed}:bldgs:{단계}"). 알고리즘을 바꾸면 VERSION 을 올린다.
 """
@@ -24,6 +24,8 @@ import math
 import random
 from typing import Callable, Optional
 
+from .. import naming
+from ..schema import BuildingNote, Project
 from . import geom
 from .geom import Point
 
@@ -47,7 +49,7 @@ USES: dict[str, tuple[str, str]] = {
     "locksmith": ("자물쇠 공방", "craft"), "ropemaker": ("밧줄 공방", "craft"), "copyist": ("필경소", "civic"),
     "bookseller": ("책방", "shop"),
 }
-# 현대 쓰임: OpenStreetMap 지도(canon/osm.py)가 태그에서, 현대 동네 생성기(canon/moderngen.py)가 블록 종류에서 고른다.
+# 현대 쓰임: OpenStreetMap 지도(canon/maps/sources/osm.py)가 태그에서, 현대 동네 생성기(canon/maps/gen/moderngen.py)가 블록 종류에서 고른다.
 # 중세 지도의 가게 수(TRADES)에는 들지 않는다
 MODERN: dict[str, tuple[str, str]] = {
     "building": ("건물", "home"), "apartment": ("아파트", "home"), "villa": ("빌라", "home"), "dorm": ("기숙사", "home"),
@@ -320,9 +322,9 @@ def describe(layout: dict, seed: str | int, style: str = "western_fantasy", spot
 def _describe_osm(layout: dict, parts: list[dict], areas: list[float], mains: list[int], streets: list[dict], front: dict,
                   polys: list, owner: list[int], spots: list[dict], M, numbers: Optional[dict] = None,
                   namer: Optional[Callable[[list[dict]], None]] = None) -> dict:
-    """OpenStreetMap 지도(canon/osm.py): 쓰임 · 이름 · 주소 · 입점한 곳은 태그 그대로, 층수는 태그가 없으면 쓰임마다 어림.
+    """OpenStreetMap 지도(canon/maps/sources/osm.py): 쓰임 · 이름 · 주소 · 입점한 곳은 태그 그대로, 층수는 태그가 없으면 쓰임마다 어림.
     사는 사람은 주거 쓰임만 연면적 × FLAT_SHARE ÷ FLAT_AREA 가구 × HOUSEHOLD_SIZE 명. 가게를 더 두거나 간판을 짓지 않는다.
-    빈 블록에 지은 건물(parts[i].made, canon/fill.py)은 made 를 적고 쓰임 · 층수 · 사람 수만 둔다.
+    빈 블록에 지은 건물(parts[i].made, canon/maps/fill.py)은 made 를 적고 쓰임 · 층수 · 사람 수만 둔다.
     거리 이름은 길 이름(name) 가운데 가장 많은 것, 이름 없는 길은 비워 둔다. 번지(no)는 0 이다.
     실제 지도에 없는 이름 · 번지를 지어 넣지 않는다 (실제 주소처럼 보여 헷갈린다).
     현대 동네 생성기 지도는 같은 규칙에 numbers(번지)와 namer(out 을 받아 거리 이름을 짓는다)를 준다."""
@@ -335,7 +337,7 @@ def _describe_osm(layout: dict, parts: list[dict], areas: list[float], mains: li
         if use in MODERN_HOMES:
             people = round(max(1, round(areas[i] * floors * FLAT_SHARE / FLAT_AREA)) * HOUSEHOLD_SIZE)
         out[i] = {"use": use, "floors": floors, "people": people}
-        if pt.get("made"):  # 빈 블록에 지은 건물 (canon/fill.py): 쓰임 · 층수 · 사람 수만, 이름 · 주소 · 입점 · 앞길을 두지 않는다
+        if pt.get("made"):  # 빈 블록에 지은 건물 (canon/maps/fill.py): 쓰임 · 층수 · 사람 수만, 이름 · 주소 · 입점 · 앞길을 두지 않는다
             out[i]["made"] = True
             continue
         for key in ("name", "addr"):
@@ -463,7 +465,7 @@ def _streets(layout: dict, M) -> tuple[list[dict], list[tuple[Point, Point, int,
 
 def _heads(style: str, r: random.Random, n: int) -> list[str]:
     """거리 이름 앞말 후보 (스타일에 맞는 땅이름 머리, 겹치지 않게 섞어서)."""
-    from . import naming_data as D
+    from .. import naming_data as D
 
     if style in ("joseon", "korea_modern"):
         pool = list(D.KO_NATIVE_HEAD) + ["".join(r.sample(D.KO_PLACE_SYL, 2)) for _ in range(n)]
@@ -514,3 +516,59 @@ def _name_streets(streets: list[dict], front: dict, out: list[dict], mains: list
             name = join(pool.pop() if pool else f"{len(used) + 1}번", tail)
         used.add(name)
         st["name"] = name
+
+
+def building(p: Project, layout: dict, i: int) -> dict:
+    """건물 하나의 정보: 생성기 값에 작가가 고친 값(Atlas.buildings)을 덮는다. 곁채는 본채 정보를 쓴다.
+    돌려주는 것: {i, main, use, label, group, floors, people, street, no, addr, tenants, name, note, residents, place, edited, made}.
+    addr · tenants 는 OpenStreetMap 지도의 실제 주소 · 입점한 곳 (없으면 빈 값)."""
+    blds = layout.get("blds") or []
+    if not 0 <= i < len(blds):
+        raise KeyError(f"건물이 없어요: {i}")
+    main = blds[i].get("of", i)
+    b = dict(blds[main])
+    mine = next((x for x in p.atlas.buildings if x.i == main), None)
+    style = naming.resolve_style(p)
+    use = (mine.use if mine and mine.use else "") or b.get("use", "home")
+    streets = layout.get("streets") or []
+    st = streets[b["street"]]["name"] if isinstance(b.get("street"), int) and b["street"] < len(streets) else ""
+    return {"i": i, "main": main, "use": use, "label": label(use, style), "group": USES.get(use, ("", "home"))[1],
+            "floors": b.get("floors", 1), "people": b.get("people", 0), "street": st, "no": b.get("no", 0),
+            "addr": b.get("addr", ""), "tenants": list(b.get("tenants", [])),
+            "name": (mine.name if mine and mine.name else "") or b.get("name", ""), "note": mine.note if mine else "",
+            "residents": list(mine.residents) if mine else [], "place": b.get("place", ""), "edited": bool(mine),
+            "made": bool(b.get("made"))}
+
+
+def building_counts(p: Project, layout: dict) -> list[tuple[str, int]]:
+    """본채 쓰임별 수 (작가가 고친 값 반영), 많은 것부터. 집 · 농가 · 셋집은 뒤로."""
+    blds = layout.get("blds") or []
+    mine = {x.i: x.use for x in p.atlas.buildings if x.use}
+    style = naming.resolve_style(p)
+    count: dict[str, int] = {}
+    for i, b in enumerate(blds):
+        if "of" in b:
+            continue
+        u = mine.get(i) or b.get("use", "home")
+        count[u] = count.get(u, 0) + 1
+    order = sorted(count.items(), key=lambda kv: (kv[0] in HOMES, -kv[1], kv[0]))
+    return [(label(u, style), n) for u, n in order]
+
+
+def set_building(p: Project, layout: dict, i: int, use: str, name: str, note: str, residents: list[str]) -> None:
+    """작가가 건물 하나를 고친다. 곁채를 고르면 본채를 고친다. 모두 비우면 고친 기록을 지운다."""
+    blds = layout.get("blds") or []
+    if not 0 <= i < len(blds):
+        raise KeyError(f"건물이 없어요: {i}")
+    main = blds[i].get("of", i)
+    if use and use not in USES:
+        raise ValueError(f"모르는 쓰임이에요: {use}")
+    name, note = " ".join(name.split())[:40], note.strip()[:500]
+    cids = {c.id for c in p.characters}
+    bad = [c for c in residents if c not in cids]
+    if bad:
+        raise ValueError(f"없는 인물이에요: {', '.join(bad)}")
+    rest = [x for x in p.atlas.buildings if x.i != main]
+    if use or name or note or residents:
+        rest.append(BuildingNote(i=main, use=use, name=name, note=note, residents=list(dict.fromkeys(residents))))
+    p.atlas.buildings = sorted(rest, key=lambda x: x.i)

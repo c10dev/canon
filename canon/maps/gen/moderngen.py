@@ -20,10 +20,10 @@ import math
 import random
 from typing import Callable, Optional
 
-from . import blocks, geom
-from .geom import Point, Poly
-from .placekinds import to_era
-from .schema import MapSpec
+from ...schema import MapSpec
+from .. import blocks, geom
+from ..geom import Point, Poly
+from ..kinds import to_era
 
 VERSION = 3
 GENERATOR = "canon-modern"

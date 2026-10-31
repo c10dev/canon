@@ -6,7 +6,7 @@
 결과는 atlas.read_layout 이 내놓는 것과 같은 모양이라 지도 그리기 · 길찾기 · 인물 동선을 그대로 쓴다.
 좌표는 m 로 계산하고 마지막에 0~1 로 나눈다. 단계마다 난수원을 따로 두어(f"{seed}:{단계}") 같은 MapSpec 이면 언제나 같은 마을이 나온다.
 
-장소 종류(CATEGORIES, classify, water_for)는 모든 생성기가 함께 쓰는 placekinds 에 있다. 도시는 citygen, 현대 동네는 moderngen.
+장소 종류(CATEGORIES, classify, water_for)는 모든 생성기가 함께 쓰는 maps/kinds.py 에 있다. 도시는 citygen, 현대 동네는 moderngen.
 """
 from __future__ import annotations
 
@@ -14,10 +14,11 @@ import math
 import random
 from typing import Optional
 
-from . import geom, roadnet
-from .geom import Point, Poly
-from .placekinds import CATEGORIES, CATEGORY_IDS, classify, default_put, water_for  # noqa: F401 (다시 내보낸다: 시험 · 옛 코드)
-from .schema import MapSpec
+from ...schema import MapSpec
+from .. import geom
+from ..geom import Point, Poly
+from ..kinds import CATEGORY_IDS
+from . import roadnet
 
 VERSION = 4  # 2: 바닷가 마을을 해안에 붙이고 바다로 가는 길 · 부두, 물가 장소를 물가에. 3: 숲 덩어리 · 생울타리 · 과수원, 길로 자른 큰 밭, 등대는 바다에만
 # 4: 길망을 roadnet 으로 (고리 · 둘레길), 가운데 연립 줄, 농가 헛간, 상징 건물
@@ -488,7 +489,7 @@ def _village(spec: MapSpec, places: list[dict], seed: str) -> Optional[dict]:
     hr = rng("houses")
     buildings: list[Poly] = []
     numbers: list[int] = []  # 집 번호를 붙일 건물 (필지마다 본채 하나, 붙은 채 · 등대 탑은 뺀다)
-    parts: list[dict] = []  # 건물마다 어느 필지의 무엇인지 (buildings 와 같은 순서, canon/bldgs.py 가 쓴다)
+    parts: list[dict] = []  # 건물마다 어느 필지의 무엇인지 (buildings 와 같은 순서, canon/maps/buildings.py 가 쓴다)
     for k, lot in enumerate(lots):
         numbers.append(len(buildings))
         made = _houses(lot, hr)

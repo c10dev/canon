@@ -36,8 +36,8 @@ import re
 import xml.etree.ElementTree as ET
 from typing import Optional
 
-from . import geom
-from .geom import Point
+from .. import geom
+from ..geom import Point
 
 GENERATOR = "osm"
 SOURCE = "© OpenStreetMap 기여자"
@@ -457,7 +457,7 @@ def _transit(stations: list[tuple[Point, dict]], routes: list[tuple[dict, list]]
 
 
 def _stop(t: dict) -> str:
-    """건물 쓰임이 아닌 표지: 버스 정류장 bus · 역 출입구 entrance (atlas.MARK_WORDS)."""
+    """건물 쓰임이 아닌 표지: 버스 정류장 bus · 역 출입구 entrance (spots.MARK_WORDS)."""
     if t.get("highway") == "bus_stop" or t.get("public_transport") in ("platform", "stop_position"):
         return "bus"
     return "entrance" if t.get("railway") == "subway_entrance" or t.get("entrance") else ""

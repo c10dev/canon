@@ -25,6 +25,7 @@ Object.assign(S, {
   revSel: 0,       // 원문에서 밝힌 큐 번호 (1부터)
   revEdit: false,  // 실험 글 고치기 칸을 열었는지
   revAdd: null,    // 화 이어 붙이기 칸에 붙여 넣은 글 (null 이면 닫힘)
+  revEpEdit: null, // 고치는 화 { n, head, text } (null 이면 닫힘)
   revStyle: false, // 되돌려 쓰기에 문체 프로필을 넣을지
   revRead: 'plain', // 나란히 읽기 오른쪽 판 (plain · style)
 });
@@ -177,7 +178,7 @@ async function revFetch(id) {
   }
   if (!old || old.id !== id) {
     S.revPick = new Set(S.revLab.items.filter((e) => !e.sheet && e.chars >= S.rev.min_chars).map((e) => e.number));
-    S.revSel = 0; S.revEdit = false; S.revAdd = null; S.revRedo = false; S.revTab = 'text'; S.revEp = null;
+    S.revSel = 0; S.revEdit = false; S.revAdd = null; S.revEpEdit = null; S.revRedo = false; S.revTab = 'text'; S.revEp = null;
   } else if (S.revPick && !S.revRedo) {
     for (const e of S.revLab.items) if (e.sheet) S.revPick.delete(e.number);  // 다 푼 화는 다음 역설계에서 뺀다
     if (!S.revPick.size) S.revPick = new Set(S.revLab.items.filter((e) => !e.sheet && e.chars >= S.rev.min_chars).map((e) => e.number));
@@ -460,7 +461,7 @@ function revLabHead() {
 /** 머리 주 버튼 (다음 할 일 하나). 작업이 도는 동안에는 진행 카드의 멈추기만, 글 · 이름을 고치는 동안에는 그 카드의 저장만 둔다. */
 function revGoBtn() {
   const L = S.revLab;
-  if (revRunning() || S.revEdit || S.revAdd !== null || S.revRedo) return '';  // 다시 역설계를 고르는 동안에는 개요 카드의 버튼이 주 버튼  // 주 버튼은 한 화면에 하나: 글 · 이름 고치기 카드의 '저장'이 주 버튼이다
+  if (revRunning() || S.revEdit || S.revAdd !== null || S.revEpEdit || S.revRedo) return '';  // 다시 역설계를 고르는 동안에는 개요 카드의 버튼이 주 버튼  // 주 버튼은 한 화면에 하나: 글 · 이름 고치기 카드의 '저장'이 주 버튼이다
   const nx = revNext(L, S.revEp, S.rev.min_chars);
   if (!nx) return '';
   if (nx.kind === 'parse') {
@@ -489,7 +490,8 @@ function revLabToc() {
   const epRows = eps.map((x) => {
     const r = busy.find((b) => b.n === x.n);
     const st = r && r.state === 'run' ? '<span class="st">푸는 중</span>' : `<span class="st">${esc(x.right)}</span>`;
-    return revTocLink(`#/revlab/${L.id}/${x.n}`, `<span class="rev-dot ${r && r.state === 'run' ? 'run' : x.state}" aria-hidden="true"></span><span class="tl">${x.n}화${x.title ? ` ${esc(x.title)}` : ''}</span>${st}`, !pane && x.n === S.revEp);
+    const link = revTocLink(`#/revlab/${L.id}/${x.n}`, `<span class="rev-dot ${r && r.state === 'run' ? 'run' : x.state}" aria-hidden="true"></span><span class="tl">${x.n}화${x.title ? ` ${esc(x.title)}` : ''}</span>${st}`, !pane && x.n === S.revEp);
+    return `<div class="rev-toc-ep${S.popMenu === `rev-ep-${x.n}` ? ' open' : ''}">${link}${menuBtn(`rev-ep-${x.n}`, SIDE_ICON.more, () => revEpMenu(x.n, !!run), { cls: 'btn icon-btn rev-toc-btn', aria: `${x.n}화 더보기: 글 고치기 · 지우기` })}</div>`;
   }).join('');
   const panes = Object.entries(REV_PANES).map(([k, label]) => {
     const right = { cast: L.cast.length ? `${L.cast.length}명` : '', style: L.style ? '있음' : '', lines: L.lines_at ? `${L.lines.length}개` : '', metrics: '' }[k];
@@ -498,11 +500,23 @@ function revLabToc() {
   const cur = pane === 'overview' ? `개요 · ${steps[1].label} ${steps[1].right}` : pane ? REV_PANES[pane] : (() => { const e = revItem(S.revEp); return e ? `${e.number}화${revEpTitle(e) ? ` ${esc(revEpTitle(e))}` : ''} · ${(REV_TABS.find(([k]) => k === S.revTab) || REV_TABS[0])[1]}` : '목차'; })();
   const over = revTocLink(`#/revlab/${L.id}`, `<span class="n${pane === 'overview' ? ' now' : ''}" aria-hidden="true">◎</span><span class="tl">개요</span><span class="st">${L.episodes}화</span>`, pane === 'overview');
   return revToc('실험 목차', cur, `${over}<span class="outline-h">단계</span>${stepRows}<div class="rev-meter" role="img" aria-label="단계 ${Math.round(revStepShare(steps) * 4)}/4 끝남"><i style="width:${Math.round(revStepShare(steps) * 100)}%"></i></div>
-    <span class="outline-h rev-ep-h">화<button type="button" class="btn icon-btn small" data-action="revAddToggle" aria-label="화 이어 붙이기" title="화 이어 붙이기"${S.revAdd !== null ? ' aria-pressed="true"' : ''}>＋</button></span>${epRows}<span class="outline-h">실험 전체</span>${panes}`);
+    <span class="outline-h rev-ep-h">화<button type="button" class="btn icon-btn rev-toc-btn${S.revAdd !== null ? ' on' : ''}" data-action="revAddToggle" data-outline-close aria-label="화 이어 붙이기" title="화 이어 붙이기" aria-pressed="${S.revAdd !== null}">${REV_PLUS}</button></span>${epRows}<span class="outline-h">실험 전체</span>${panes}`);
+}
+
+const REV_PLUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+
+/** 목차 화 줄의 ⋯ 메뉴. 지우기는 위험한 묶음으로 한 번 더 접는다 (docs/design Menu). 작업이 도는 동안은 끈다 (서버도 막는다). */
+function revEpMenu(n, busy) {
+  const off = busy ? ' disabled title="작업이 끝난 뒤에 할 수 있어요"' : '';
+  return `<button type="button" class="pop-item" data-action="revEpEdit" data-outline-close data-arg="${n}"${off}>글 고치기</button>
+    <div class="pop-sep" role="separator"></div>
+    <div class="pop-sec pop-danger"><details><summary class="small">이 화 지우기</summary>
+      <div class="small rev-drop-note">원문과 역설계 결과를 지우고 뒤 화 번호를 하나씩 당겨요.</div>
+      <button type="button" class="pop-item danger" data-action="revEpDrop" data-arg="${n}"${off}>${n}화 지우기</button></details></div>`;
 }
 
 function revMain() {
-  const parts = [revRunCard(), S.revEdit ? revEditCard() : '', S.revAdd !== null ? revAddCard() : ''];
+  const parts = [revRunCard(), S.revEdit ? revEditCard() : '', S.revAdd !== null ? revAddCard() : '', S.revEpEdit ? revEpEditCard() : ''];
   if (S.revPane === 'overview') parts.push(revOverview());
   else if (S.revPane === 'cast') parts.push(revContextCard());
   else if (S.revPane === 'style') parts.push(revStyleCard());
@@ -553,6 +567,19 @@ function revAddCard() {
     </div>
     ${revRunning() ? '<div class="note warn small">작업이 끝난 뒤에 이을 수 있어요.</div>' : ''}
     <div class="row"><button type="button" class="btn primary" data-action="revAppend"${ok ? '' : ' disabled'}>${revAddLabel(v)}</button></div></section>`;
+}
+
+/** 화 하나 고치기 칸: 제목 줄과 글. 글을 바꾸면 그 화의 역설계 결과를 지운다 (revlab.edit_episode). */
+function revEpEditCard() {
+  const d = S.revEpEdit;
+  const e = revItem(d.n);
+  if (!e) return '';
+  const done = !!(e.sheet || (e.takes || []).length);
+  return `<section class="card"><div class="between"><h2>${d.n}화 글 고치기</h2><button type="button" class="btn small ghost" data-action="revEpEditClose">닫기</button></div>
+    ${done ? '<div class="note warn small">글을 바꾸면 이 화의 역설계 결과(플롯 · 스토리보드 · 큐 시트)와 되돌려 쓴 판을 지워요. 제목 줄만 바꾸면 그대로 둬요. 다른 화 · 인물 · 이야기 줄기는 그대로예요.</div>' : ''}
+    <div class="field"><label for="rev-ephead">제목 줄</label><input id="rev-ephead" type="text" maxlength="${S.rev.head_max}" data-rev-ep="head" value="${esc(d.head)}" placeholder="비우면 '${d.n}화'로 보여요"></div>
+    <div class="field"><label for="rev-eptext">글 <span class="small" id="rev-epcount">· ${d.text.length.toLocaleString()}자</span></label><textarea id="rev-eptext" rows="16" data-rev-ep="text">${esc(d.text)}</textarea></div>
+    <div class="row"><button type="button" class="btn primary" data-action="revEpSave"${revRunning() ? ' disabled' : ''}>저장</button></div></section>`;
 }
 
 /** 도는 작업 카드: 역설계는 화마다 한 줄(끝난 화는 바로 열기), 되돌려 쓰기 · 문체는 한 줄. 멈추기는 알림 창과 같은 동작. */
@@ -880,6 +907,11 @@ document.addEventListener('input', (e) => {
     const btn = document.querySelector('[data-action="revCreate"]');
     if (btn) btn.disabled = !!revPreview(S.revDraft.text, S.rev).errs.length;
   }
+  if (d.revEp && S.revEpEdit) {
+    S.revEpEdit[d.revEp] = e.target.value;
+    const count = document.getElementById('rev-epcount');
+    if (count && d.revEp === 'text') count.textContent = `· ${e.target.value.length.toLocaleString()}자`;
+  }
   if (d.revAdd) {
     S.revAdd = e.target.value;
     const box = document.getElementById('rev-apreview');
@@ -970,7 +1002,6 @@ Object.assign(actions, {
     if (S.revAdd && S.revAdd.trim() && !confirm('붙여 넣은 글을 버리고 닫을까요?')) return;
     S.revAdd = S.revAdd === null ? '' : null;
     if (S.revAdd !== null) S.focusTarget = '#rev-atext';
-    outlineClose();  // 좁은 칸에서 펼친 목차가 새 칸을 가리지 않게
     render();
   },
   /** 붙여 넣은 글을 마지막 화 뒤에 잇고 개요로 간다. 이은 화는 역설계할 화로 골라 둔다 (revFetch 가 새 실험처럼 고른다). */
@@ -985,6 +1016,54 @@ Object.assign(actions, {
       if (location.hash === `#/revlab/${id}`) await revLoad(id, null);
       else location.hash = `#/revlab/${id}`;
       toast(`${added.length > 1 ? `${added[0]}~${added[added.length - 1]}화` : `${added[0]}화`}를 이었어요. 역설계할 화로 골라 뒀어요.`);
+    });
+  },
+  /** 목차 ⋯ 메뉴의 글 고치기: 그 화를 열고 위에 고치기 칸을 편다. */
+  revEpEdit(n) {
+    const e = revItem(Number(n));
+    if (!e) return;
+    S.revEpEdit = { n: e.number, head: e.head, text: e.text };
+    S.focusTarget = '#rev-eptext';
+    if (!S.revPane && S.revEp === e.number) render(); else revNav(e.number);
+  },
+  revEpEditClose() {
+    const d = S.revEpEdit;
+    const e = d && revItem(d.n);
+    if (e && (d.text !== e.text || d.head !== e.head) && !confirm('고친 글을 버리고 닫을까요?')) return;
+    S.revEpEdit = null;
+    render();
+  },
+  async revEpSave() {
+    const d = S.revEpEdit;
+    const e = revItem(d.n);
+    const done = !!(e && (e.sheet || (e.takes || []).length));
+    if (done && d.text.trim() !== e.text && !confirm(`${d.n}화 글을 바꾸면 이 화의 역설계 결과와 되돌려 쓴 판을 지워요. 저장할까요?`)) return;
+    const id = S.revLab.id;
+    await run('저장하는 중', async () => {
+      await api('PUT', `/revlab/${id}/episodes/${d.n}`, { head: d.head, text: d.text });
+      S.revLab = null;
+      S.revEpEdit = null;
+      await revLoad(id, String(d.n));
+      toast(`${d.n}화를 고쳤어요.`);
+    });
+  },
+  /** 목차 ⋯ 메뉴의 지우기: 화를 빼고 뒤 화 번호를 당긴다. 개요로 간다. */
+  async revEpDrop(n) {
+    const k = Number(n);
+    const e = revItem(k);
+    if (!e) return;
+    const L = S.revLab;
+    const later = L.items.length && L.items[L.items.length - 1].number > k;
+    const what = ['원문', e.sheet ? '역설계 결과' : '', (e.takes || []).length ? '되돌려 쓴 판' : ''].filter(Boolean).join(' · ');
+    if (!confirm(`${k}화를 지울까요? ${what}${josa(what, '이', '가')} 사라져요.${later ? ' 뒤 화 번호가 하나씩 당겨져요.' : ''}`)) return;
+    const id = L.id;
+    await run('지우는 중', async () => {
+      await api('DELETE', `/revlab/${id}/episodes/${k}`);
+      S.revLab = null;
+      S.revEpEdit = null;
+      if (location.hash === `#/revlab/${id}`) await revLoad(id, null);
+      else location.hash = `#/revlab/${id}`;
+      toast(`${k}화를 지웠어요.`);
     });
   },
   async revDelete() {
@@ -1065,8 +1144,25 @@ Object.assign(actions, {
 /* 목차 틀은 공용(app.css .outline-*). 이 화면은 위쪽 띠가 없고, 목차의 화 이름은 한 줄로 자른다 */
 .rev-wrap { --outline-band: 0px; }
 .rev-wrap .outline-item .tl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 목차 화 줄: 오른쪽 ⋯ 메뉴는 줄에 올리거나 포커스가 들어오거나 메뉴가 열리면 보이고, 그동안 글자 수를 가린다 (터치 화면은 늘 보임) */
+.rev-toc-ep { position: relative; }
+.rev-toc-ep.open { z-index: 5; }  /* 열린 메뉴 창이 아래 줄 위에 오게 */
+.rev-toc-ep > .menu { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); opacity: 0; }
+.rev-toc-ep:hover > .menu, .rev-toc-ep:focus-within > .menu, .rev-toc-ep.open > .menu { opacity: 1; }
+.rev-toc-ep:hover .st, .rev-toc-ep:focus-within .st, .rev-toc-ep.open .st { visibility: hidden; }
+@media (hover: none) {
+  .rev-toc-ep > .menu { opacity: 1; }
+  .rev-toc-ep .outline-item { padding-right: 52px; }
+}
+/* 목차 버튼(＋ · ⋯)은 둘 다 같은 크기: 마우스는 작은 버튼 높이 36px 정사각형, 손가락 기기는 touch-min 44px (docs/design Outline) */
+.btn.icon-btn.rev-toc-btn { width: 36px; min-height: 36px; }
+.rev-toc-btn svg { width: 18px; height: 18px; }
+@media (pointer: coarse) {
+  .btn.icon-btn.rev-toc-btn { width: 44px; min-height: 44px; }
+  .rev-toc-ep .outline-item { min-height: 44px; }
+}
+.rev-drop-note { margin: 6px 10px; }
 .rev-ep-h { display: flex; align-items: center; justify-content: space-between; padding-top: 8px; padding-bottom: 0; }
-.rev-ep-h .icon-btn { min-width: 26px; min-height: 26px; padding: 0 6px; }
 .rev-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .rev-step { width: 20px; height: 20px; border-radius: 6px; background: var(--chip); color: var(--text-2); display: inline-flex; align-items: center; justify-content: center; font-size: 0.6875rem; font-weight: 700; flex: none; }
 .rev-step.ok { background: var(--green-soft); color: var(--green); }
