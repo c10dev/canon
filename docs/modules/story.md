@@ -288,11 +288,18 @@
 
 - 갈래 화면
 - 작품 머리 띠(`branchStrip`)
+- 띠는 화면 머리 아래 한 줄이고 집안 작품 열기는 ⋯ 메뉴(넣는 자리 `branchPlace`, 머리로 시작하지 않는 화면은 맨 위)
+- 함께 쓰는 앞 화를 고친 경고와 남겨 둔 본문 이어 가기는 띠 아래 Note
 - 사이드바 갈래 줄(`branchSideTag`)
 - 갈래 만들기 칸(`branchFormCard`, 폴더 이름 `branchFolder` 는 `home.js` `folderOf` 와 같은 규칙)
+- 만들기 칸은 화면 머리 아래에서 펴고 시작 화를 화 칸 띠로 보이며 폴더 이름은 접어 둔다
 - 작품 목록 묶기(`branchGroups`)
-- 작품 홈 갈래 카드(`branchHomeCard`: 본편으로 · 끊기)
-- 갈래 비교 화면(`viewBranches`)
+- 작품 홈 갈래 카드(`branchHomeCard`: 비교 버튼, ⋯ 메뉴에 작품 열기 · 본편으로 올리기 · 갈래 끊기)
+- 갈래 지도 줄(`branchMapRows`)은 작품 홈 갈래 카드와 갈래 비교 화면이 함께 쓴다
+- 갈래 비교 화면(`viewBranches`, 공용 목차 틀 `outline.js`)
+- 갈래 비교 목차(`bcToc`): 견줄 작품(집안 나무) · 이 비교(갈라진 길 · 화별 줄거리 · n화 본문 · n화 반영 뒤 상태)
+- 갈래 비교 본문은 문단을 맞춰 나란히 둔다(`bcParaDiff`, 기본은 다른 문단만 `S.bcAll`)
+- 갈래 비교 화면 · 띠 · 만들기 칸 시험은 `tests/test_tools_js.py`
 - 이름 없는 갈래는 폴더 이름으로 부른다(`branchName`, 명령줄 `branches` 와 같은 규칙, `tests/test_branches_js.py`)
 
 ### `canon/static/cast.js`
@@ -412,6 +419,10 @@
 ### `canon/static/tofix.js`
 
 - 고칠 곳 화면(사이드바 도구, 주소 `tofix`, `viewToFix`: 남음 · 고침 · 모두, 메모 고치기, 본문에서 고치기 `tofixGo`)
+- 고칠 곳 화면은 공용 목차 틀이다(화별 목차 `tofixToc`, 화마다 카드 한 장)
+- 거르기는 머리의 나눔 버튼(Seg)이다
+- 줄은 앞뒤 문맥과 함께 보인다(`tofixContext`)
+- 메모는 읽는 글이고 ⋯ '메모 고치기'로 그 줄만 칸을 편다(`S.tofixEdit`, Ctrl+Enter 저장 · Esc 취소)
 - 본문 도구의 '나중에 고치기'와 메모 칸(`showTool` 을 감싼다, mode `tofix`)
 - 밑줄(`tofixRanges` 를 `marks.js` `allRanges` 가 함께 그림)
 - 집필 화면 본문 띠의 '고칠 곳 N'(`tofixBtn`, `tofixNext`)
