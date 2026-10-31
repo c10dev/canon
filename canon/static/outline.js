@@ -79,14 +79,14 @@ Object.assign(actions, {
 });
 
 // 바깥을 누르거나 펼친 목록의 줄을 누르면 닫는다. 줄 동작이 화면을 다시 그리기 전에 닫게 capture 로 듣는다.
-// 줄에 data-outline-keep 이 있으면(목록 안 접기 단추 등) 열어 둔다
+// 줄에 data-outline-keep 이 있으면(목록 안 접기 단추 등) 열어 두고, 줄이 아닌 버튼도 data-outline-close 면 닫는다
 document.addEventListener('click', (e) => {
   if (!OUTLINE_OPEN.size || !e.target.closest) return;
   [...OUTLINE_OPEN].forEach((id) => {
     const nav = document.getElementById(id);
     if (!nav) { OUTLINE_OPEN.delete(id); return; }
     if (!nav.contains(e.target)) outlineToggle(id, false);
-    else if (e.target.closest('.outline-list .outline-item') && !e.target.closest('[data-outline-keep]')) outlineToggle(id, false);
+    else if (e.target.closest('.outline-list .outline-item, .outline-list [data-outline-close]') && !e.target.closest('[data-outline-keep]')) outlineToggle(id, false);
   });
 }, true);
 

@@ -494,7 +494,7 @@ function revLabToc() {
   const cur = pane === 'overview' ? `개요 · ${steps[1].label} ${steps[1].right}` : pane ? REV_PANES[pane] : (() => { const e = revItem(S.revEp); return e ? `${e.number}화${revEpTitle(e) ? ` ${esc(revEpTitle(e))}` : ''} · ${(REV_TABS.find(([k]) => k === S.revTab) || REV_TABS[0])[1]}` : '목차'; })();
   const over = revTocLink(`#/revlab/${L.id}`, `<span class="n${pane === 'overview' ? ' now' : ''}" aria-hidden="true">◎</span><span class="tl">개요</span><span class="st">${L.episodes}화</span>`, pane === 'overview');
   return revToc('실험 목차', cur, `${over}<span class="outline-h">단계</span>${stepRows}<div class="rev-meter" role="img" aria-label="단계 ${Math.round(revStepShare(steps) * 4)}/4 끝남"><i style="width:${Math.round(revStepShare(steps) * 100)}%"></i></div>
-    <span class="outline-h rev-ep-h">화<button type="button" class="btn icon-btn rev-toc-btn${S.revAdd !== null ? ' on' : ''}" data-action="revAddToggle" aria-label="화 이어 붙이기" title="화 이어 붙이기" aria-pressed="${S.revAdd !== null}">${REV_PLUS}</button></span>${epRows}<span class="outline-h">실험 전체</span>${panes}`);
+    <span class="outline-h rev-ep-h">화<button type="button" class="btn icon-btn rev-toc-btn${S.revAdd !== null ? ' on' : ''}" data-action="revAddToggle" data-outline-close aria-label="화 이어 붙이기" title="화 이어 붙이기" aria-pressed="${S.revAdd !== null}">${REV_PLUS}</button></span>${epRows}<span class="outline-h">실험 전체</span>${panes}`);
 }
 
 const REV_PLUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
@@ -502,7 +502,7 @@ const REV_PLUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 /** 목차 화 줄의 ⋯ 메뉴. 지우기는 위험한 묶음으로 한 번 더 접는다 (docs/design Menu). 작업이 도는 동안은 끈다 (서버도 막는다). */
 function revEpMenu(n, busy) {
   const off = busy ? ' disabled title="작업이 끝난 뒤에 할 수 있어요"' : '';
-  return `<button type="button" class="pop-item" data-action="revEpEdit" data-arg="${n}"${off}>글 고치기</button>
+  return `<button type="button" class="pop-item" data-action="revEpEdit" data-outline-close data-arg="${n}"${off}>글 고치기</button>
     <div class="pop-sep" role="separator"></div>
     <div class="pop-sec pop-danger"><details><summary class="small">이 화 지우기</summary>
       <div class="small rev-drop-note">원문과 역설계 결과를 지우고 뒤 화 번호를 하나씩 당겨요.</div>
@@ -996,7 +996,6 @@ Object.assign(actions, {
     if (S.revAdd && S.revAdd.trim() && !confirm('붙여 넣은 글을 버리고 닫을까요?')) return;
     S.revAdd = S.revAdd === null ? '' : null;
     if (S.revAdd !== null) S.focusTarget = '#rev-atext';
-    outlineClose();  // 좁은 칸에서 펼친 목차가 새 칸을 가리지 않게
     render();
   },
   /** 붙여 넣은 글을 마지막 화 뒤에 잇고 개요로 간다. 이은 화는 역설계할 화로 골라 둔다 (revFetch 가 새 실험처럼 고른다). */
@@ -1019,7 +1018,6 @@ Object.assign(actions, {
     if (!e) return;
     S.revEpEdit = { n: e.number, head: e.head, text: e.text };
     S.focusTarget = '#rev-eptext';
-    outlineClose();
     if (!S.revPane && S.revEp === e.number) render(); else revNav(e.number);
   },
   revEpEditClose() {
