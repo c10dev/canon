@@ -52,6 +52,8 @@ Object.assign(S, {
 .cz-ticks { display: grid; grid-template-columns: repeat(${CZ_CHUNK}, minmax(0, 1fr)); font-size: 0.625rem; color: var(--muted); }
 .cz-ticks span { white-space: nowrap; }
 .cz-rows { display: flex; flex-direction: column; }
+.cz-char { min-height: var(--control-small); }
+@media (pointer: coarse), (max-width: 640px) { .cz-char { min-height: var(--touch-min); } }
 .cz-row { min-height: 52px; padding: 8px 0; border-top: 1px solid var(--rule); display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
 .cz-row > .btn { white-space: nowrap; padding: 0 8px; }
 .cz-row:first-child { border-top: none; }
@@ -242,7 +244,7 @@ function causalInfoCard(el) {
   }
   const i = causalIndex(el.id);
   const b = `elements.${i}`;
-  const chars = P().characters.map((c) => `<label class="row" style="font-size:0.8125rem;gap:6px;min-height:36px"><input type="checkbox" data-el-char="${esc(c.id)}"${el.characters.includes(c.id) ? ' checked' : ''}>${esc(c.name || c.id)}</label>`).join('');
+  const chars = P().characters.map((c) => `<label class="row cz-char" style="font-size:0.8125rem;gap:6px"><input type="checkbox" data-el-char="${esc(c.id)}"${el.characters.includes(c.id) ? ' checked' : ''}>${esc(c.name || c.id)}</label>`).join('');
   const fromStart = el.since_ep <= 0;
   return `<section class="card pf-sec editing" id="cz-info">${head}${found}
     <div class="grid-2">

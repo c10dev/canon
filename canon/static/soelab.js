@@ -1208,7 +1208,6 @@ if (window.visualViewport && typeof window.visualViewport.addEventListener === '
 
 (() => {
   const css = `
-.soe-wrap { --outline-band: 0px; }
 .soe-main { container: soe / inline-size; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .soe-main.narrow { max-width: 860px; }
 .soe-main .cols2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
@@ -1219,7 +1218,7 @@ if (window.visualViewport && typeof window.visualViewport.addEventListener === '
 .outline-item .st.warn { color: var(--amber-ink); font-weight: 700; }
 .ver-line { margin: 0; font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .soe-main .num { font-variant-numeric: tabular-nums; }
-.soe-main .mono { font-family: var(--mono, ui-monospace, monospace); font-size: 0.75rem; }
+.soe-main .mono { font-family: var(--mono); font-size: 0.75rem; }
 .soe-main .dash { color: var(--muted); }
 .soe-main .warn-text { margin: 0; color: var(--amber-ink); font-size: 0.8125rem; }
 .soe-big { display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
@@ -1342,14 +1341,14 @@ button.mk-t { cursor: pointer; min-height: 24px; align-items: center; }
 .soe-tool { width: min(452px, calc(100% - 16px)); flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 8px; padding: 10px 12px; font-family: var(--sans, inherit); font-size: 0.8125rem; line-height: 1.4; text-indent: 0; }
 .kinds { display: flex; flex-wrap: wrap; gap: 6px; }
 .kinds .btn.small { min-height: 36px; padding: 0 10px; }
-.soe-main kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px; margin-left: 4px; border-radius: 4px; background: var(--chip); color: var(--text-2); font-family: var(--mono, monospace); font-size: 0.6875rem; font-weight: 700; box-shadow: inset 0 -1px 0 var(--line); }
+.soe-main kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px; margin-left: 4px; border-radius: 4px; background: var(--chip); color: var(--text-2); font-family: var(--mono); font-size: 0.6875rem; font-weight: 700; box-shadow: inset 0 -1px 0 var(--line); }
 .btn.primary kbd { background: transparent; color: inherit; box-shadow: inset 0 0 0 1px currentColor; }
 /* 판정 띠: 아래에 붙는 버튼 줄 (화 플롯 페이지의 page-actions 줄과 같은 모양) */
-.soe-strip { position: sticky; bottom: calc(12px + var(--soe-kb, 0px) + env(safe-area-inset-bottom, 0px)); z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.12); }
+.soe-strip { position: sticky; bottom: calc(12px + var(--soe-kb, 0px) + env(safe-area-inset-bottom, 0px)); z-index: var(--z-sticky); display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.12); }
 .soe-strip .verdicts { display: flex; flex-wrap: wrap; gap: 8px; }
-.soe-strip .clean { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-size: 0.8125rem; color: var(--text-2); }
+.soe-strip .clean { display: inline-flex; align-items: center; gap: 8px; min-height: var(--touch-min); font-size: 0.8125rem; color: var(--text-2); }
 .soe-strip .end { margin-left: auto; display: flex; gap: 8px; align-items: center; }
-.soe-strip .kinds .btn { min-height: 44px; }
+.soe-strip .kinds .btn { min-height: var(--touch-min); }
 .pop-panel.up { bottom: calc(100% + 6px); top: auto; }
 .soe-mlist { gap: 8px; padding: 0 8px; }
 .soe-state { border-color: var(--sel-line); }
@@ -1417,9 +1416,9 @@ details.more > summary { cursor: pointer; color: var(--link); font-size: 0.8125r
   .soe-mline > summary .v-split { grid-column: 1 / -1; justify-self: start; }
   .soe-mbody { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 12px; }
   .soe-mref { border: 1px dashed var(--line-strong); border-radius: 8px; padding: 0 10px; }
-  .soe-mref > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+  .soe-mref > summary { min-height: var(--touch-min); display: flex; align-items: center; cursor: pointer; }
   .soe-strip .verdicts { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .soe-strip .verdicts .btn { padding: 0 6px; min-height: 44px; font-size: 0.8125rem; }
+  .soe-strip .verdicts .btn { padding: 0 6px; min-height: var(--touch-min); font-size: 0.8125rem; }
   .soe-strip.dock .kinds .btn { padding: 0 10px; font-size: 0.8125rem; }
   .soe-strip .end { width: 100%; margin-left: 0; justify-content: space-between; }
   .ms-card { padding: 20px 16px; }
@@ -1436,7 +1435,8 @@ details.more > summary { cursor: pointer; color: var(--link); font-size: 0.8125r
   .def { grid-template-columns: 72px minmax(0, 1fr); }
 }
 /* 손가락 기기: 갈래 · 판정 버튼은 44px */
-@media (pointer: coarse) { .kinds .btn.small, .soe-strip .btn, button.mk-t { min-height: 44px; } }
+@media (pointer: coarse) { .kinds .btn.small, .soe-strip .btn, button.mk-t { min-height: var(--touch-min); } }
+@media (pointer: coarse), (max-width: 640px) { .src-x select, .soe-chk, details.more > summary { min-height: var(--touch-min); } }
 @media (forced-colors: active) { .ms .sel, .ms .mk, .ms .rx { outline: 2px solid Highlight; } .bar .tr i { forced-color-adjust: none; } }
 `;
   const el = document.createElement('style');

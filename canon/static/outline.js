@@ -1,4 +1,4 @@
-/* 공용 목차 틀: 왼쪽 목차 + 오른쪽 카드 한 열 (설정 도우미 setup.js · 문체 style.js · 역설계 실험 revlab.js).
+/* 공용 목차 틀: 왼쪽 목차 + 오른쪽 카드 한 열. 쓰는 화면은 docs/design/components/Outline 의 '쓰는 화면'.
    CSS 는 app.css '공용 목차 틀' 절. 넓은 칸은 왼쪽 목록이고, 틀(.outline-wrap)이 720px 이하면 위에 붙는 '지금 구역 ▾' 버튼과 펼친 목록이다.
    열림은 OUTLINE_OPEN 이 기억한다. 목차를 다시 그려도 열림과 aria-expanded 가 맞는다.
    바깥 누르기 · 목록 줄 누르기 · Esc · 주소 바뀜에 닫고, Esc 는 버튼으로 포커스를 돌린다.

@@ -416,7 +416,7 @@ mark.hl .mn { text-underline-offset: 11px; }  /* 문체 밑줄(물결 포함) �
 .mn-list { display: flex; flex-wrap: wrap; gap: 4px; }
 .mn-pick.person { border-bottom: 2px dotted var(--mn-person); }
 .mn-pick.place { border-bottom: 2px dashed var(--mn-place); }
-.mn-card { position: absolute; z-index: var(--z-float); width: min(340px, calc(100vw - 16px)); max-height: min(70vh, 480px); overflow: auto; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); color: var(--text); box-shadow: var(--shadow-float); display: flex; flex-direction: column; gap: 8px; font-size: 0.8125rem; line-height: 1.5; box-sizing: border-box; }
+.mn-card { position: absolute; z-index: var(--z-float); width: min(340px, calc(100vw - 16px)); max-height: min(70vh, 480px); overflow: auto; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-12); background: var(--surface); color: var(--text); box-shadow: var(--shadow-float); display: flex; flex-direction: column; gap: 8px; font-size: 0.8125rem; line-height: 1.5; box-sizing: border-box; }
 .mn-card[hidden] { display: none; }
 .mn-state { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 0; }
 .mn-state dt { color: var(--muted); white-space: nowrap; }

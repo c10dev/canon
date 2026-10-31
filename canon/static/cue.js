@@ -186,7 +186,7 @@ function cueEditor(wrap = true, off = false) {
   const { draft: sh, dirty } = cueEd();
   const ai = jobBtn(c.job, c.n, c.saved ? 'AI로 다시 만들기' : 'AI로 큐 시트 만들기');
   const dis = off ? ' disabled' : '';
-  const tools = c.noTools ? '' : `<div class="row"><button type="button" class="btn small${c.saved ? '' : ' primary'}" data-action="cueMake"${off ? dis : ai.attr}>${ai.label}</button>
+  const tools = c.noTools ? '' : `<div class="row"><button type="button" class="btn small" data-action="cueMake"${off ? dis : ai.attr}>${ai.label}</button>
     <button type="button" class="btn small" data-action="cueFromBoard"${dis}>${c.board ? '스토리보드' : '플롯 사건'}에서 뼈대 만들기 (AI 없이)</button></div>`;
   const card = (inner) => (wrap ? `<section class="card">${inner}</section>` : inner);
   if (!sh) return card(wrap ? `<h2>큐 시트</h2><div class="small">아직 없어요. AI에게 만들게 하거나 ${c.board ? '스토리보드 장면' : '플롯 사건'}마다 큐 하나인 뼈대에서 시작하세요.</div>${tools}` : tools);
@@ -264,13 +264,13 @@ function cueResults() {
       <td>${s.seams.length ? `${s.seams.filter((x) => x.repeat).length}/${s.seams.length}` : '-'}</td><td>${s.rows.length ? s.closing.length : '-'}</td><td>${s.rows.length ? `${s.still.length}/${s.rows.length - 1}` : '-'}</td><td>${s.rows.length ? `${s.cut.length}/${s.rows.length - 1}` : '-'}</td><td>${cueYes(s.tempo_order)}</td>
       <td>${cuePct(s.dialogue_ratio)}</td><td>${s.sentence_len}</td><td>${s.ai_patterns}</td></tr>`).join('');
   const cur = takes.find((t) => t.condition === S.cueTab) || takes[0];
-  const tabs = takes.map((t) => `<button type="button" role="tab" aria-selected="${t === cur}" data-action="cueTabSet" data-arg="${t.condition}">${esc(t.score.label)}</button>`).join('');
+  const tabs = takes.map((t) => `<button type="button" role="tab" id="cue-tab-${esc(t.condition)}" aria-selected="${t === cur}" aria-controls="cue-take" data-action="cueTabSet" data-arg="${t.condition}">${esc(t.score.label)}</button>`).join('');
   return `<section class="card"><div class="between"><h2>결과 <span class="small">${esc(S.cueLab.model)} · ${esc(fmtDateTime(S.cueLab.run_at))}</span></h2>
       ${takes.length > 1 ? `<button type="button" class="btn small" data-action="cueCompare">블라인드 비교로</button>` : ''}</div>
     <div style="overflow-x:auto"><table class="sw-table"><thead><tr><th>조건</th><th>글자</th><th>요청</th><th>요청 토큰</th><th>핵심 대사</th><th>되풀이 문장</th><th>이음매 되풀이</th><th>여운으로 닫힌 큐</th><th>정지 장면 끝</th><th>줄표로 자른 끝</th><th>템포</th><th>대사 비율</th><th>문장 길이</th><th>쇠맛 경고</th></tr></thead><tbody>${rows}</tbody></table></div>
     <p class="small">핵심 대사는 큐 시트의 대사가 글자 그대로 들어간 수예요. 이음매 되풀이는 다음 큐 첫 문장이 앞 큐 끝을 다시 말한 곳, 여운으로 닫힌 큐는 마지막이 아닌데 짧은 끝 문장으로 맺은 큐, 정지 장면 끝은 인물이 서 있거나 바라보는 한 줄로 맺은 큐, 줄표로 자른 끝은 문장을 '——'나 말줄임으로 자르고 넘긴 큐예요. 템포는 빠른 큐의 문장이 느린 큐보다 짧은지예요.</p>
     <div class="tabs" role="tablist" aria-label="조건별 본문">${tabs}</div>
-    ${cueTake(cur)}</section>`;
+    <div class="tab-panel" role="tabpanel" id="cue-take" aria-labelledby="cue-tab-${esc(cur.condition)}">${cueTake(cur)}</div></section>`;
 }
 
 function cueTake(t) {

@@ -507,7 +507,7 @@ function s3CssOnce() {
 .s3-wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; margin: 0; }
 .s3-stage { position: absolute; inset: 0; touch-action: none; }
 .s3-stage canvas { display: block; width: 100%; height: 100%; outline: none; }
-.s3-stage canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.s3-stage canvas:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
 .s3-labels { position: absolute; inset: 0; pointer-events: none; }
 .s3-leaders { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; stroke: var(--muted); stroke-width: 1; fill: none; }
 .s3-tag span { display: inline-block; padding: 1px 6px; border-radius: 6px; background: var(--glass); }

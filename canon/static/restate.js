@@ -70,7 +70,7 @@ function restateCard(n) {
   // 버튼은 카드 머리에 둔다. 카드 안에 붙는 반영 줄을 두면 stackBottom 이 그 높이를 페이지 내내 남긴다
   return `<section class="card rv-restate"><div class="rv-card-head"><h2>고친 본문으로 다시 맞추기</h2>
       <div class="row rv-actions">${((b) => `<button class="btn small" data-action="restateEp" data-arg="${n}"${b.attr}>${b.label}</button>`)(jobBtn('state', n, '다시 뽑기'))}<button class="btn small" data-action="dropDelta" data-arg="${n}">버리기</button>
-      <button class="btn primary" data-action="applyRestate" data-arg="${n}"${autoOn() ? ' disabled' : ''}>선택한 항목 반영</button></div></div>${intro}
+      <button class="btn small primary" data-action="applyRestate" data-arg="${n}"${autoOn() ? ' disabled' : ''}>선택한 항목 반영</button></div></div>${intro}
     <div class="field"><span class="small">요약</span>
       ${e.summary && e.summary !== d.summary ? `<div class="small">지금: ${esc(e.summary)}</div>` : ''}
       <div class="change"><input type="checkbox" id="rs-${n}-sum" data-rs-pick="${n}:sum"${pk.sum ? ' checked' : ''}><label for="rs-${n}-sum" class="small">새 요약으로 바꾸기</label></div>

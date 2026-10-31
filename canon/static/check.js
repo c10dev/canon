@@ -332,10 +332,10 @@ function fixPanel(n, fid) {
       <div class="fix-way"><strong>일부러 그렇게 썼어요</strong><span class="small">그대로 둠으로 두고 이유를 남겨요. 다시 나와도 결정이 지켜져요</span><button type="button" class="btn small" data-action="setFinding" data-arg="${esc(f.id)}:kept"${busy ? ' disabled' : ''}>그대로 둠</button></div>
       <div class="fix-way"><strong>AI가 잘못 짚었어요</strong><span class="small">모순이 아니에요. 다시 나와도 결정이 지켜져요</span><button type="button" class="btn small" data-action="setFinding" data-arg="${esc(f.id)}:wrong"${busy ? ' disabled' : ''}>잘못 짚음</button></div>
     </div>`;
-  const tools = `<div class="row"><button type="button" class="btn small${fixes.length ? '' : ' primary'}" data-action="fixGet" data-arg="${esc(f.id)}"${busy ? ' disabled' : ''}>${fixes.length ? '고침안 다시 받기' : 'AI 고침안 받기'}</button>
+  const tools = `<div class="row"><button type="button" class="btn small" data-action="fixGet" data-arg="${esc(f.id)}"${busy ? ' disabled' : ''}>${fixes.length ? '고침안 다시 받기' : 'AI 고침안 받기'}</button>
       <button type="button" class="btn small" data-action="selManual">직접 고치기</button>${f.suggestion ? `<button type="button" class="btn small" data-action="issueAsk" data-arg="${esc(f.id)}">대화로 고치기</button>` : ''}</div>`;
   const done = applied ? `<div class="note info fix-done"><span>고침안을 넣었어요. 고친 문장이 다른 곳과 어긋나지 않는지 이 지적만 다시 물어볼 수 있어요.</span>
-      <span class="row" style="gap:6px"><button type="button" class="btn small" data-action="fixUndo" data-arg="${esc(f.fix_group)}"${busy ? ' disabled' : ''}>한 번에 되돌리기</button><button type="button" class="btn small primary" data-action="chkRecheck" data-arg="${esc(f.id)}"${busy ? ' disabled' : ''}>이 지적만 다시 검수</button></span></div>` : '';
+      <span class="row" style="gap:6px"><button type="button" class="btn small" data-action="fixUndo" data-arg="${esc(f.fix_group)}"${busy ? ' disabled' : ''}>한 번에 되돌리기</button><button type="button" class="btn small" data-action="chkRecheck" data-arg="${esc(f.id)}"${busy ? ' disabled' : ''}>이 지적만 다시 검수</button></span></div>` : '';
   const list = fixes.length && !applied
     ? `<span class="small">본문을 고칠게요 · AI 고침안 ${fixes.length}개</span><ol class="fix-list">${fixes.map((o, k) => fixOptionHtml(n, e, f, o, k, text, busy)).join('')}</ol>` : '';
   return `${head}${done}${list}${applied ? '' : tools}${ways}`;

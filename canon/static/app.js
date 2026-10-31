@@ -675,7 +675,8 @@ async function run(label, fn, opt = {}) {
   let ok = false;
   const t0 = Date.now();
   runAbort = new AbortController();
-  $('#busy-text').textContent = label;
+  $('#busy-label').textContent = label;
+  $('#busy-sec').textContent = '';  // 경과 초는 낭독하지 않는다(매초 바뀐다). 이름은 상자에 포커스할 때 한 번 읽힌다
   $('#busy-stop').hidden = true;
   $('#busy').hidden = false;
   // 기다리는 동안 뒤 화면을 키보드로도 못 건드리게 막고 포커스를 상자로 옮긴다. 끝나면 누른 버튼으로 돌려준다
@@ -685,7 +686,7 @@ async function run(label, fn, opt = {}) {
   $('#busy .busy-box').focus();
   const tick = setInterval(() => {
     const s = Math.round((Date.now() - t0) / 1000);
-    $('#busy-text').textContent = `${label} · ${s}초`;
+    $('#busy-sec').textContent = ` · ${s}초`;
     if (s >= 5) $('#busy-stop').hidden = false;
   }, 1000);
   try {
@@ -1908,9 +1909,10 @@ function drawApp() {
   if (p === 'soelab') return outside('soelab', 1280, viewSoe());
   if (p === 'styles') return outside('styles', 1180, S.route[1] && S.lib ? viewLibEntry() : viewLibrary());
   if (S.loadError) {
-    $('#app').innerHTML = `<div class="shell"><main class="main" style="max-width:720px;margin:0 auto"><div class="card empty" role="alert">${S.loadMissing
+    // 작품을 읽지 못한 화면도 작품 밖 사이드바 안에 그린다 (900px 이하 위쪽 띠의 메뉴 · 알림 · 찾기가 남는다)
+    outside('', 720, `<div class="card empty" role="alert">${S.loadMissing
       ? `<h2>'${esc(S.route[1] || '')}' 작품을 찾지 못했어요</h2><p>주소가 틀렸거나 지운 작품이에요. 작품 목록에서 고르세요.</p><div class="row"><a class="btn primary" href="#/">작품 목록</a></div>`
-      : `<h2>화면을 불러오지 못했어요</h2><p>${esc(S.loadError)}</p><div class="row"><button class="btn primary" data-action="retryRoute">다시 시도</button><a class="btn" href="#/">작품 목록</a></div>`}</div></main></div>`;
+      : `<h2>화면을 불러오지 못했어요</h2><p>${esc(S.loadError)}</p><div class="row"><a class="btn" href="#/">작품 목록</a><button class="btn primary" data-action="retryRoute">다시 시도</button></div>`}</div>`);
     return;
   }
   if (p === 'play') {
@@ -1995,6 +1997,8 @@ function syncRail() {
     else ['role', 'aria-modal', 'aria-label'].forEach((a) => menu.removeAttribute(a));
   }
   document.querySelectorAll('#app .shell > main, #app .side > :not(.side-menu, .side-scrim)').forEach((el) => { el.inert = drawer; });
+  // body 바로 아래 층(칸 밖 저장 띠, 알림 창)도 뺀다. 알림 말풍선(#toast)은 낭독 영역이라 그대로 둔다
+  ['body > #savebar', 'body > #hub-pop'].forEach((q) => { const el = document.querySelector(q); if (el) el.inert = drawer; });
 }
 window.addEventListener('resize', syncRail);
 

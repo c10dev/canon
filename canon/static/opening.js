@@ -160,7 +160,7 @@ function openingPlotBlock(e) {
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
         <div class="small">${n}화 플롯을 여는 방식마다 하나씩 받아 비교해요. 고른 안이 이 화 플롯이 되고, 확정했던 화는 초안으로 돌아가요.</div>
         ${openingWayPicker(false)}
-        <div class="row"><button class="btn" data-action="openingPlots" data-arg="${n}" data-opening-go="1"${S.openingWays.length < 2 ? ' disabled' : btn.attr}>${btn.label}</button>${S.openingPlots[n] ? `<button class="btn small" data-action="openingDropPlots" data-arg="${n}">안 모두 버리기</button>` : ''}${prev ? `<button class="btn small" data-action="openingUndoPlot" data-arg="${n}">고르기 전 플롯으로 되돌리기</button>` : ''}</div>
+        <div class="row"><button class="btn small" data-action="openingPlots" data-arg="${n}" data-opening-go="1"${S.openingWays.length < 2 ? ' disabled' : btn.attr}>${btn.label}</button>${S.openingPlots[n] ? `<button class="btn small" data-action="openingDropPlots" data-arg="${n}">안 모두 버리기</button>` : ''}${prev ? `<button class="btn small" data-action="openingUndoPlot" data-arg="${n}">고르기 전 플롯으로 되돌리기</button>` : ''}</div>
         ${opts}
       </div></details>`;
 }

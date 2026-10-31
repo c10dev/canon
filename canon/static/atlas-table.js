@@ -13,7 +13,7 @@ function atlasTable() {
   const tv = {};  // '인물:화' → 이동 경고 (이동 시간 검사)
   atlasTvLive().forEach((m) => { tv[`${m.cid}:${m.episode}`] = m; });
   if (!chars.length) return '<div class="card empty"><p>위치가 기록된 인물이 아직 없어요.</p><div class="small">상태 승인에서 인물 위치(location)를 반영하면 화별로 쌓여요.</div></div>';
-  const head = `<tr><th scope="col">인물</th>${fs.map(([f, i]) => `<th scope="col"${i === S.atlasFrame ? ' class="cur"' : ''}><button type="button" class="linkish" data-action="atlasGo" data-arg="${i}" title="${esc(frameLabel(f))} 지도로">${f.episode ? f.episode + '화' : '시작'}</button></th>`).join('')}</tr>`;
+  const head = `<thead><tr><th scope="col">인물</th>${fs.map(([f, i]) => `<th scope="col"${i === S.atlasFrame ? ' class="cur"' : ''}><button type="button" class="linkish" data-action="atlasGo" data-arg="${i}" title="${esc(frameLabel(f))} 지도로">${f.episode ? f.episode + '화' : '시작'}</button></th>`).join('')}</tr></thead>`;
   const body = chars.map((c) => {
     let last = null;
     const cells = fs.map(([f, i]) => {
@@ -37,7 +37,7 @@ function atlasTable() {
   const tools = `<div class="row">${tog('atlasFog', '독자 시점', '아직 독자에게 드러나지 않은 장소를 ?로 가려요')}${minors ? tog('atlasMinor', `단역 ${minors}명`) : ''}${n ? tog('atlasTvMarks', `이동 경고 ${n}`, '너무 빠르거나 빠듯한 이동을 칸에 보여요') : ''}</div>`;
   return `<section class="card"><div class="between"><h2>어디에 있었나</h2>${tools}</div>
     <p class="small">반영한 화마다 인물이 있던 곳이에요. 진한 칸은 장소가 바뀐 화, 흐린 칸은 앞 화와 같은 곳, 기울인 글은 장소와 맞지 않은 위치 글이에요. 화를 누르면 그 시점 지도로, 이동 경고를 누르면 그 이동을 지도에서 봐요.</p>
-    <div class="at-table-wrap"><table class="at-table">${head}${body}</table></div></section>`;
+    <div class="at-table-wrap"><table class="at-table">${head}<tbody>${body}</tbody></table></div></section>`;
 }
 
 // ----- 장소와 맞지 않은 위치: 골라서 한 번에 잇기, AI 제안 -----
