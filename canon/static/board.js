@@ -8,10 +8,10 @@ const BOARD_STOP = ['plot_vs_state', 'plot_vs_text', 'time'];  // board.STOP_KIN
 const BOARD_BY = { ai: 'AI 제안', author: '작가가 만듦', both: 'AI 제안 · 작가가 고침' };
 const BOARD_KINDS = ['장면', '시간', '몸', '물건', '인물', '숨긴 것', '숫자', '질문'];
 
-/** 스토리보드 장면 줄의 '🎬 연출' 링크: 그 장면이 맡은 첫 사건의 장면 연출 화면 (주소 stage/<화>/<사건 번호>). */
+/** 스토리보드 장면 줄의 '장면 연출' 링크: 그 장면이 맡은 첫 사건의 장면 연출 화면 (주소 stage/<화>/<사건 번호>). */
 function boardStageLink(n, s) {
   const first = Math.min(...s.events.filter((k) => k > 0));
-  return Number.isFinite(first) ? `<a class="small" href="${base()}/stage/${n}/${first}" title="이 장면의 자리 · 몸을 장면 연출에서 짜요">🎬 연출</a>` : '';
+  return Number.isFinite(first) ? `<a class="small" href="${base()}/stage/${n}/${first}" title="이 장면의 자리 · 몸을 장면 연출에서 짜요">장면 연출</a>` : '';
 }
 
 /** 이 작품이 스토리보드를 쓰는지 (board.on: 작가가 정하지 않았으면 장편 켬 · 단편 끔). */
@@ -238,7 +238,7 @@ Object.assign(actions, {
     render();
   },
   async boardSave(n) {
-    await run('스토리보드 저장 중', async () => {
+    await run('스토리보드 저장하는 중', async () => {
       await saveIfDirty();
       S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/storyboard`, S.boardEdit.draft);
       S.boardEdit = null;

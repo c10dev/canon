@@ -16,7 +16,7 @@ function atlasFillBox(lo) {
       : (pv.empty ? `빈 블록 ${pv.empty}곳을 찾았지만 건물이 들어갈 자리가 없어요.` : '채울 빈 블록이 없어요.');
     const swap = pv.had ? `<div class="small at-um-note">지금 지은 건물 ${pv.had.toLocaleString()}채는 지우고 새로 지어요.</div>` : '';
     return `<div class="at-fill" role="status"><div class="small"><b>빈 블록 채우기 미리보기</b> · ${msg}</div>${swap}
-      <div class="row">${pv.buildings ? '<button type="button" class="btn small primary" data-action="atlasFillApply">적용</button><button type="button" class="btn small" data-action="atlasFillPreview">다른 모양</button>' : ''}
+      <div class="row">${pv.buildings ? '<button type="button" class="btn small primary" data-action="atlasFillApply">적용</button><button type="button" class="btn small" data-action="atlasFillPreview">다른 모양 보기</button>' : ''}
         <button type="button" class="btn small ghost" data-action="atlasFillClose">닫기</button></div></div>`;
   }
   if (lo.made) {

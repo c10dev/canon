@@ -1,5 +1,5 @@
 """장면 연출과 화별 스토리보드 잇기 (docs/stage/specs/08-board.md): stage.board_scene_of · room_hints · new_scene · view,
-prompts.stage_board_lines · stage_block 자리, 화면 stage.js 의 사건 칩 묶음 · 방 순서, board.js 의 '🎬 연출' 링크."""
+prompts.stage_board_lines · stage_block 자리, 화면 stage.js 의 사건 칩 묶음 · 방 순서, board.js 의 '장면 연출' 링크."""
 import re
 
 from canon import prompts, stage
@@ -123,5 +123,5 @@ def test_js_event_groups_and_room_order():
 @needs_node
 def test_js_board_stage_link():
     got = run_js(FILES, "S.route = ['p', 'demo']; [boardStageLink(3, {events: [4, 2]}), boardStageLink(3, {events: []})]", {})
-    assert "/stage/3/2" in got[0] and "🎬 연출" in got[0]
+    assert "/stage/3/2" in got[0] and "장면 연출" in got[0]
     assert got[1] == ""

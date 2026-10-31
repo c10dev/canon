@@ -601,7 +601,7 @@ showTool = function showToolWithForeshadow() {
   const el = document.getElementById('sel-tool');
   const ta = t && document.querySelector(`textarea[data-draft="${t.n}"]`);
   if (!ta || !el || el.hidden || t.mode !== 'menu') return;
-  el.insertAdjacentHTML('beforeend', '<button type="button" class="btn small" data-action="selForeshadow" title="이 문장을 복선을 심거나 회수한 자리로 걸어요">복선으로</button>');
+  el.insertAdjacentHTML('beforeend', '<button type="button" class="btn small" data-action="selForeshadow" title="이 문장을 복선을 심거나 회수한 자리로 걸어요">복선으로 걸기</button>');
   placeTool(ta, t);
 };
 
@@ -618,7 +618,7 @@ if (typeof ilTool === 'function') {
   const fsIlTool = ilTool;
   ilTool = function ilToolWithForeshadow() {
     const el = fsIlTool();
-    if (!el.querySelector('[data-action="fsFromRead"]')) el.insertAdjacentHTML('beforeend', '<button type="button" class="btn small" data-action="fsFromRead">복선으로</button>');
+    if (!el.querySelector('[data-action="fsFromRead"]')) el.insertAdjacentHTML('beforeend', '<button type="button" class="btn small" data-action="fsFromRead">복선으로 걸기</button>');
     return el;
   };
 }
@@ -752,7 +752,7 @@ Object.assign(actions, {
     const due = Number($(`#fs-u-${CSS.escape(id)}`).value);
     const body = { description: $(`#fs-d-${CSS.escape(id)}`).value.trim(), scope: $(`#fs-s-${CSS.escape(id)}`).value, due_ep: due || null, clear_due: !due };
     S.fsEdit = '';
-    fsCall('저장 중', 'PUT', `/${enc(id)}`, body);
+    fsCall('저장하는 중', 'PUT', `/${enc(id)}`, body);
   },
   fsResolve(id) {
     const n = Number($(`#fs-r-${CSS.escape(id)}`).value);
