@@ -350,11 +350,11 @@ function viewWrite(n) {
 
 // ----- 6. 작업지시서 -----
 
-// 화마다 고른 지시서 탭 ('작품:화' → 'episode' | 'check' | 'state'). 고른 적 없는 화는 상태로 정한다:
+// 화마다 고른 지시서 걸음 ('작품:화' → 'episode' | 'check' | 'state'). 고른 적 없는 화는 상태로 정한다:
 // 본문이 있고 검수가 끝나지 않았으면 검수 지시서, 끝났으면 상태 승인 지시서
 const BRIEF_TABS = {};
 const briefTabFor = (n) => BRIEF_TABS[`${S.name}:${n}`] || (ep(n).status === 'written' ? (checkState(ep(n)).done ? 'state' : 'check') : 'episode');
-const BRIEF_TAB_NAMES = { episode: '1 본문 작성 지시서', check: '2 검수 지시서', state: '3 상태 승인 지시서' };
+const BRIEF_TAB_NAMES = { episode: '본문 작성 지시서', check: '검수 지시서', state: '상태 승인 지시서' };
 let briefImportError = null;  // 받은 JSON 가져오기에서 서버가 거절한 이유 { key: '작품:화', msg }
 
 /** 붙여 넣은 본문 글자 수와 목표 분량. 목표의 70%보다 짧으면 채팅 앱 답이 잘렸는지 보라고 한다. */
@@ -365,58 +365,106 @@ function importCount(v) {
   return `<strong>${len.toLocaleString()}</strong> / ${goal.toLocaleString()}자${short ? ' <span class="chip written">목표보다 많이 짧아요. 본문이 잘렸는지 확인하세요</span>' : ''}`;
 }
 
+/** 붙여 넣은 JSON 을 화면에서 먼저 본다: 코드 블록 표시를 지우고 읽히는지. 서버가 다시 확인한다 (check/import · state/parse) */
+function briefJsonState(raw) {
+  const t = (raw || '').trim().replace(/^```[a-zA-Z]*\s*/, '').replace(/\s*```$/, '');
+  if (!t) return { ok: null, msg: '' };
+  try {
+    JSON.parse(t);
+    return { ok: true, msg: 'JSON 형식이 맞아요. 가져오면 서버가 칸을 한 번 더 확인해요' };
+  } catch {
+    return { ok: false, msg: 'JSON으로 읽히지 않아요. 답이 잘렸는지, 앞뒤에 다른 글이 붙었는지 확인하세요' };
+  }
+}
+const briefJsonLine = (raw) => {
+  const r = briefJsonState(raw);
+  return r.ok === null ? '' : `<span class="${r.ok ? 'ok-text' : 'warn-text'}">${r.msg}</span>`;
+};
+document.addEventListener('input', (e) => {
+  const k = e.target.dataset && e.target.dataset.brief;
+  if (k && !k.endsWith(':episode') && $('#imp-status')) $('#imp-status').innerHTML = briefJsonLine(e.target.value);
+});
+
+/** 걸음 넷: [열쇠, 이름, 끝남, 막힘]. 상태 승인 반영은 화면 밖(상태 승인 화면) 걸음이다 */
+function briefSteps(e) {
+  const fin = e.status === 'finalized';
+  return [
+    ['episode', '본문 작성', !!e.text, false],
+    ['check', '검수', fin || checkState(e).done, !e.text],
+    ['state', '상태 승인 지시서', fin, !e.text],
+    ['review', '상태 승인 화면에서 반영', fin, e.status !== 'written'],
+  ];
+}
+
+function briefToc(n, e) {
+  const steps = briefSteps(e);
+  const row = ([k, l, done, blocked], i) => {
+    const tail = done ? '끝남' : blocked ? (k === 'review' ? '' : '본문 뒤') : k === S.briefTab ? '지금' : '';
+    const num = `<span class="n${done ? ' ok' : ''}">${done ? '✓' : i + 1}</span>`;
+    if (k === 'review') return `<a class="outline-item${done ? ' done' : ''}" href="${base()}/review/${n}" data-outline-close><span class="n${done ? ' ok' : ''}">${done ? '✓' : 4}</span><span class="tl">${l}</span><span class="st">${tail || '↗'}</span></a>`;
+    return `<button type="button" class="outline-item${done ? ' done' : ''}" data-action="setBriefTab" data-arg="${k}"${k === S.briefTab ? ' aria-current="step"' : ''}>${num}<span class="tl">${l}</span><span class="st">${tail}</span></button>`;
+  };
+  const cur = steps.findIndex(([k]) => k === S.briefTab);
+  return outlineNav({
+    id: 'brief-toc', label: `${n}화 걸음`, now: `${cur + 1} / 4 · ${esc(steps[cur][1])}`,
+    body: `<span class="outline-h">${n}화 걸음</span>${steps.map(row).join('')}<div class="outline-sep"></div><p class="outline-note small">Claude, Gemini, ChatGPT 구독 앱에 붙여 넣는 지시서예요. API 생성과 같은 컨텍스트를 써요.</p>`,
+  });
+}
+
 function viewBrief(n) {
   const e = ep(n);
   if (!e) return header('작품 도구', '채팅 앱 작업지시서', '') + noEpisode();
-  const body = S.briefTab === 'episode';
-  const check = S.briefTab === 'check';
+  const tab = S.briefTab;
+  const body = tab === 'episode';
+  const check = tab === 'check';
   const stateBlocked = !body && !e.text;
   // 앞 화 반영이 끝나지 않았으면 받은 본문 저장(처음 쓰는 화)과 변경안 반영을 서버가 막는다. 붙여 넣은 글은 칸에 남는다
   const order = check ? [] : (body ? e.status === 'confirmed' : e.status === 'written') ? blockedBefore(n) : [];  // 검수는 순서를 따지지 않는다
-  return `<header class="page-head"><div class="row" style="gap:12px">${epNav('brief', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${n}화 ${esc(e.plot.title)} · API 없이 쓰기</div><h1 style="font-size:1.5rem">채팅 앱 작업지시서</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div></header>
-    <p class="desc">Claude, Gemini, ChatGPT 구독 앱에 붙여 넣을 지시서예요. API 생성과 똑같은 컨텍스트를 써요.</p>
-    <div class="tabs" role="tablist" aria-label="지시서 종류">
-      ${Object.entries(BRIEF_TAB_NAMES).map(([k, l]) => `<button type="button" role="tab" aria-selected="${S.briefTab === k}" aria-controls="brief-panel" data-action="setBriefTab" data-arg="${k}">${l}</button>`).join('')}
-    </div>
-    <div class="cols" role="tabpanel" id="brief-panel" aria-label="${BRIEF_TAB_NAMES[S.briefTab]}">
-      <section class="card" style="flex:1.3 1 480px;min-width:0">
-        <div class="between"><h2><span class="small" style="font-weight:400">① </span>복사해서 채팅 앱에 붙여 넣기</h2>
-          <div class="row"><button class="btn small" data-action="downloadBrief" data-arg="${n}"${stateBlocked ? ' disabled' : ''}>.md 내려받기</button><button class="btn small dark" data-action="copyBrief"${stateBlocked ? ' disabled' : ''}>복사</button></div></div>
-        ${e.status === 'draft' && body ? '<div class="note warn">플롯이 아직 초안이에요. 확정 전 내용으로 지시서가 만들어져요.</div>' : ''}
-        ${stateBlocked
-          ? `<div class="note plain">${n}화 본문이 아직 없어 ${check ? '검수' : '상태 승인'} 지시서를 만들 수 없어요. 본문을 먼저 저장하세요. <button class="btn small" data-action="setBriefTab" data-arg="episode">본문 작성 지시서로</button></div>`
-          : `<pre class="brief mono">${esc(S.briefText ?? '불러오는 중…')}</pre>
-        ${S.briefText ? `<div class="small">${S.briefText.length.toLocaleString()}자</div>` : ''}`}
-      </section>
-      <section class="card" style="flex:1 1 380px;min-width:0">
-        ${body ? `<h2><span class="small" style="font-weight:400">② </span>받은 본문 가져오기</h2>
-          <label for="imp-body" class="small">채팅 앱이 쓴 본문을 그대로 붙여 넣으세요.</label>
-          <textarea id="imp-body" rows="12" data-brief="${n}:episode" style="font-family:var(--serif);line-height:1.8"${e.status === 'draft' || e.status === 'finalized' ? ' disabled' : ''}>${esc(S.briefDraft[`${S.name}:${n}:episode`] || '')}</textarea>
-          <div class="small" id="imp-count">${importCount(S.briefDraft[`${S.name}:${n}:episode`] || '')}</div>
-          ${e.status === 'draft' ? '<div class="small">플롯을 확정해야 본문을 저장할 수 있어요.</div>' : ''}${e.status === 'finalized' ? '<div class="small">이미 끝난 화예요.</div>' : ''}
-          ${orderNote(order)}
-          <div style="align-self:flex-end"><button class="btn primary" data-action="importText" data-arg="${n}"${e.status === 'draft' || e.status === 'finalized' || order.length ? ' disabled' : ''}>${n}화 본문으로 저장</button></div>`
-        : check ? `<h2><span class="small" style="font-weight:400">② </span>받은 검수 JSON 가져오기</h2>
-          <label for="imp-check" class="small">채팅 앱의 JSON 답변을 붙여 넣으세요. 코드 블록 표시는 자동으로 지워요. 가져오면 검수 회차 하나로 합쳐요.</label>
-          <textarea id="imp-check" rows="12" data-brief="${n}:check" class="mono"${e.text ? '' : ' disabled'}>${esc(S.briefDraft[`${S.name}:${n}:check`] || '')}</textarea>
-          ${briefImportError && briefImportError.key === `${S.name}:${n}` ? `<div class="note err" role="alert">${esc(briefImportError.msg)}</div>` : ''}
-          <div style="align-self:flex-end"><button class="btn primary" data-action="importCheck" data-arg="${n}"${e.text ? '' : ' disabled'}>가져오고 검수로</button></div>`
-        : `<h2><span class="small" style="font-weight:400">② </span>받은 JSON 가져오기</h2>
-          <label for="imp-json" class="small">채팅 앱의 JSON 답변을 붙여 넣으세요. 코드 블록 표시는 자동으로 지워요.</label>
-          <textarea id="imp-json" rows="12" data-brief="${n}:state" class="mono"${e.status !== 'written' ? ' disabled' : ''}>${esc(S.briefDraft[`${S.name}:${n}:state`] || '')}</textarea>
-          ${e.status !== 'written' ? '<div class="small">본문이 작성된 화에서만 쓸 수 있어요.</div>' : ''}
-          ${briefImportError && briefImportError.key === `${S.name}:${n}` ? `<div class="note err" role="alert">${esc(briefImportError.msg)}</div>` : ''}
-          ${orderNote(order)}
-          <div style="align-self:flex-end"><button class="btn primary" data-action="importJson" data-arg="${n}"${e.status !== 'written' || order.length ? ' disabled' : ''}>확인하고 변경안 검토로</button></div>`}
-        <div style="padding-top:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px">
-          <strong style="font-size:0.8125rem">순서</strong>
-          <ol style="padding-left:20px;display:flex;flex-direction:column;gap:4px;font-size:0.8125rem;line-height:1.55;color:var(--text-2)">
-            <li>본문 작성 지시서 → 받은 본문 저장</li><li>검수 지시서 → 받은 JSON 가져오기 → 검수 화면에서 지적 처리</li><li>상태 승인 지시서 → 받은 JSON 가져오기</li><li>상태 승인 화면에서 반영</li></ol>
-        </div>
-      </section>
-    </div>`;
-}
+  const draftKey = `${S.name}:${n}:${tab}`;
+  const draft = S.briefDraft[draftKey] || '';
+  const errNote = briefImportError && briefImportError.key === `${S.name}:${n}` ? `<div class="note err" role="alert">${esc(briefImportError.msg)}</div>` : '';
+  // 머리 주 버튼: 이 걸음의 끝 동작 (붙여 넣은 글을 가져온다)
+  let primary = '';
+  if (body) primary = `<button type="button" class="btn primary" data-action="importText" data-arg="${n}"${e.status === 'draft' || e.status === 'finalized' || order.length ? ' disabled' : ''}>${n}화 본문으로 저장</button>`;
+  else if (check && e.text) primary = `<button type="button" class="btn primary" data-action="importCheck" data-arg="${n}">가져오고 검수로</button>`;
+  else if (!check && e.text) primary = `<button type="button" class="btn primary" data-action="importJson" data-arg="${n}"${e.status !== 'written' || order.length ? ' disabled' : ''}>확인하고 변경안 검토로</button>`;
+  const act = actOf(n);
+  const head = `<header class="page-head"><div class="row brief-head">${epNav('brief', n)}<div class="lead"><div class="eyebrow">채팅 앱 작업지시서 · ${act ? `${actLabel(act.name)} 구간 · ` : ''}${n} / ${P().meta.target_episodes}화</div><h1>${n}화 ${esc(e.plot.title)}</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div><div class="row">${primary}</div></header>`;
 
+  let main;
+  if (stateBlocked) {
+    main = `<div class="card empty"><p>${n}화 본문이 아직 없어 ${check ? '검수' : '상태 승인'} 지시서를 만들 수 없어요. 본문 작성 지시서로 먼저 본문을 받아 저장하세요.</p><div><button type="button" class="btn primary" data-action="setBriefTab" data-arg="episode">본문 작성 걸음으로</button></div></div>`;
+  } else {
+    const text = S.briefText;
+    const open = S.briefOpen === draftKey;
+    const copy = `<section class="card" id="brief-copy" aria-labelledby="brief-copy-h">
+        <div class="between"><h2 id="brief-copy-h">${BRIEF_TAB_NAMES[tab]} 복사</h2><div class="row"><button type="button" class="btn small" data-action="downloadBrief" data-arg="${n}"${text ? '' : ' disabled'}>.md 내려받기</button><button type="button" class="btn small" data-action="copyBrief"${text ? '' : ' disabled'}>복사</button></div></div>
+        ${e.status === 'draft' && body ? `<div class="note warn">${n}화 플롯이 아직 초안이에요. 지시서는 만들 수 있지만, 받은 본문은 플롯을 확정해야 저장돼요. <a class="btn small" href="${base()}/arc/${n}">${n}화 플롯 확정하러 가기</a></div>` : ''}
+        ${text ? `<div class="small">${text.length.toLocaleString()}자 · 채팅 앱에 그대로 붙여 넣어요</div>` : ''}
+        <pre class="brief mono${open ? '' : ' fold'}" id="brief-text">${esc(text ?? '불러오는 중…')}</pre>
+        ${text ? `<button type="button" class="btn small ghost brief-more" data-action="briefFold" aria-expanded="${open}" aria-controls="brief-text">${open ? '지시서 접기' : '지시서 전체 펼치기'}</button>` : ''}
+      </section>`;
+    let paste;
+    if (body) {
+      paste = `<label for="imp-body" class="small">채팅 앱이 쓴 본문을 그대로 붙여 넣으세요.</label>
+        <textarea id="imp-body" rows="12" data-brief="${n}:episode" class="brief-paste prose-paste"${e.status === 'draft' || e.status === 'finalized' ? ' disabled' : ''}>${esc(draft)}</textarea>
+        <div class="small" id="imp-count">${importCount(draft)}</div>
+        ${e.status === 'finalized' ? '<div class="small">이미 상태를 반영한 화라 본문을 바꿀 수 없어요.</div>' : ''}`;
+    } else {
+      paste = `<label for="imp-${check ? 'check' : 'json'}" class="small">채팅 앱의 JSON 답을 붙여 넣으세요. 코드 블록 표시는 저절로 지워요.${check ? ' 가져오면 검수 회차 하나로 합쳐요.' : ''}</label>
+        <textarea id="imp-${check ? 'check' : 'json'}" rows="12" data-brief="${n}:${tab}" class="mono brief-paste"${check ? '' : e.status !== 'written' ? ' disabled' : ''}>${esc(draft)}</textarea>
+        <div class="small" id="imp-status" role="status">${briefJsonLine(draft)}</div>
+        ${!check && e.status !== 'written' ? `<div class="small">${e.status === 'finalized' ? '이미 상태를 반영한 화예요.' : '본문이 작성된 화에서만 쓸 수 있어요.'}</div>` : ''}`;
+    }
+    const pasteCard = `<section class="card" id="brief-paste" aria-labelledby="brief-paste-h">
+        <h2 id="brief-paste-h">${body ? '받은 본문 붙여 넣기' : check ? '받은 검수 JSON 붙여 넣기' : '받은 상태 JSON 붙여 넣기'}</h2>
+        ${paste}${errNote}${orderNote(order)}
+        <p class="small">다 붙여 넣으면 머리의 '${body ? `${n}화 본문으로 저장` : check ? '가져오고 검수로' : '확인하고 변경안 검토로'}'를 누르세요.</p>
+      </section>`;
+    main = copy + pasteCard;
+  }
+  return head + outlineDoc(briefToc(n, e), `<div class="brief-col">${main}</div>`, { cls: 'brief-wrap' });
+}
 
 /** 장편 검수 넓히기 켜기 · 끄기 (Settings.check_widen). 작품 설정이라 자동 집필 검수도 따른다.
     켜지면 `.btn.on` (디자인 시스템 Button). small 이 아니면 머리 줄의 다른 버튼과 같은 높이다 */
@@ -498,6 +546,15 @@ Object.assign(actions, {
     S.briefTab = t;
     S.briefText = null;
     briefImportError = null;
+    // 넓은 칸은 누른 걸음 줄에, 좁은 칸(목차가 접힌 버튼)은 그 버튼에 포커스를 둔다
+    S.focusTarget = OUTLINE_OPEN.has('brief-toc') || !$('#brief-toc .outline-now') || getComputedStyle($('#brief-toc .outline-now')).display === 'none' ? `#brief-toc [data-action="setBriefTab"][data-arg="${t}"]` : '#brief-toc .outline-now';
+    render();
+  },
+  /** 지시서 미리보기를 펴고 접는다 (화 · 걸음마다) */
+  briefFold() {
+    const k = `${S.name}:${S.route[3]}:${S.briefTab}`;
+    S.briefOpen = S.briefOpen === k ? null : k;
+    S.focusTarget = '.brief-more';
     render();
   },
   async copyBrief() {

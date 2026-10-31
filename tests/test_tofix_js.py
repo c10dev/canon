@@ -64,8 +64,28 @@ def test_views_render():
     })()""", dump(project()))
     assert "말투가 딱딱함" in got["open"] and 'data-action="tofixGo" data-arg="1:x1"' in got["open"]
     assert "본문에서 이 글을 찾지 못했어요" in got["open"] and "2화 둘째 화" in got["open"]
-    assert "비가 왔다." not in got["open"] and 'data-action="tofixReopen" data-arg="1:x2"' in got["done"]
+    assert 'data-arg="1:x2"' not in got["open"] and 'data-action="tofixReopen" data-arg="1:x2"' in got["done"]
+    assert '<span class="ctx">그는 웃었다. 비가 왔다. </span><mark>그는 웃었다.</mark>' in got["open"]  # 앞뒤 문맥
+    assert 'id="tf-toc"' in got["open"] and 'data-action="tofixEp" data-arg="2"' in got["open"]  # 화별 목차
+    assert 'role="tab"' not in got["all"] and 'aria-pressed="true" data-action="tofixFilter" data-arg="all"' in got["all"]
+    assert "btn primary" not in got["open"]  # 줄 버튼은 모두 보조
     assert "남음 2" in got["all"] and "고침 1" in got["all"] and "모두 3" in got["all"]
     assert 'data-action="tofixNext" data-arg="1"' in got["write"] and "고칠 곳 1개" in got["write"]
     assert got["nav"][3] == "고칠 곳" and got["nav"][4] is True
     assert "아직 담은 곳이 없어요" in got["empty"] and got["noBtn"] == ""
+    assert 'href="#/p/t/write/2"' in got["empty"] and "고칠 곳 거르기" not in got["empty"]  # 본문이 있는 마지막 화로
+
+
+@needs_node
+def test_context_and_note_edit():
+    got = run_js(FILES, """(() => {
+      S.project = data; S.name = 't'; S.route = ['p', 't', 'tofix'];
+      const t = '가'.repeat(100) + '\\n앞 문장. 고를 글 뒷 문장\\n' + '나'.repeat(100);
+      const a = t.indexOf('고를 글'), b = a + 4;
+      S.tofixEdit = { name: 't', key: '1:x1', note: null };
+      return { ctx: tofixContext(t, a, b), short: tofixContext('짧은 글', 0, 2), view: viewToFix() };
+    })()""", dump(project()))
+    assert got["ctx"] == {"pre": "앞 문장. ", "q": "고를 글", "post": " 뒷 문장"}
+    assert got["short"] == {"pre": "", "q": "짧은", "post": " 글"}
+    assert 'data-tofix-note="1:x1"' in got["view"] and "말투가 딱딱함</textarea>" in got["view"]
+    assert got["view"].count("data-tofix-note=") == 1  # 고치는 줄만 칸을 편다
