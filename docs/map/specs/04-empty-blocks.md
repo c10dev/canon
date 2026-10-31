@@ -21,9 +21,9 @@ OpenStreetMap 에 건물이 덜 그려진 주택가에서 빈 블록을 지은 �
 
 | 파일 | 바꿀 것 |
 |---|---|
-| `canon/blocks.py` (01) | 길 선으로 블록 다각형 찾기(평면 그래프의 면). 01 에서 옮긴 필지 쪼개기 재사용 |
-| `canon/osm.py` 또는 새 `canon/fill.py` | `fill(layout, seed) -> layout`: 빈 블록을 찾아 건물 · `parts` 를 더한다 |
-| `canon/bldgs.py` | `parts[i].made` 인 건물은 이름 · 주소 · 입점을 비운다 |
+| `canon/maps/blocks.py` (01) | 길 선으로 블록 다각형 찾기(평면 그래프의 면). 01 에서 옮긴 필지 쪼개기 재사용 |
+| `canon/maps/sources/osm.py` 또는 새 `canon/maps/fill.py` | `fill(layout, seed) -> layout`: 빈 블록을 찾아 건물 · `parts` 를 더한다 |
+| `canon/maps/buildings.py` | `parts[i].made` 인 건물은 이름 · 주소 · 입점을 비운다 |
 | `canon/atlas.py`, `canon/web.py` | 미리보기 · 적용 · 지우기 (`POST /atlas/layout/fill`). 적용하면 지도 파일을 다시 쓰고 고친 건물 번호를 지킨다(지은 건물은 뒤에 붙인다) |
 | `canon/static/atlas.js` (03 뒤면 `atlas-gen.js` 근처) | 버튼, 미리보기, 지은 건물 그리기 |
 | `Atlas` (`schema.py`) | 채운 입력 `fill: {seed, rule}` (지울 때와 다시 만들 때) |

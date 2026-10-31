@@ -6,7 +6,8 @@ import tempfile
 os.environ.setdefault("CANON_HOME", tempfile.mkdtemp())
 os.environ.setdefault("CANON_LLM", "mock")
 
-from canon import cli, pipeline, placekinds, store  # noqa: E402
+from canon import cli, pipeline, store  # noqa: E402
+from canon.maps import kinds as placekinds  # noqa: E402
 from canon.llm import get_llm  # noqa: E402
 from canon.schema import MapPlaceGuess, MapSpec, MapSuggestion, StoryElement  # noqa: E402
 

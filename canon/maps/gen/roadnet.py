@@ -19,8 +19,8 @@ import math
 import random
 from typing import Callable, Optional
 
-from . import geom
-from .geom import Point
+from .. import geom
+from ..geom import Point
 
 Blocked = Callable[[Point, Point], bool]
 

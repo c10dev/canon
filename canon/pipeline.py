@@ -3147,7 +3147,8 @@ def suggest_map(llm: LLM, p: Project, spec: MapSpec | None = None) -> dict:
     장소 종류는 지도 종류의 시대(placekinds.era_of)를 따른다. AI 가 지도 종류를 함께 고르므로 프롬프트에는 시대마다 종류 목록(kinds_for)을 적고,
     받은 id 는 AI 가 고른 지도 종류의 목록(kind_ids(s.kind))으로 거른다.
     장소 이름은 키로 바꾸고, 모르는 장소 · 그 지도 종류에 없는 종류 id 는 뺀다 (지금 값을 그대로 둔다)."""
-    from . import atlas, placekinds
+    from . import atlas
+    from .maps import kinds as placekinds
 
     pls = atlas.places(p)
     if not pls:
