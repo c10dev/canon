@@ -187,7 +187,8 @@ def test_redo_set_at_collect_and_blocked_before_7_days(home):
     pieces = {p.id: p for p in soelab.load_pieces()}
     assert "ai" in [pieces[x].origin for x in q2["order"][4:10]]
     # 같은 조각 · 같은 시드면 같은 다시 읽기
-    again = soelab.extend_queue({"seed": soelab.SEED, "order": q1["order"], "redo": q1["redo"]}, soelab.load_pieces(),
+    again = soelab.extend_queue({"seed": soelab.SEED, "order": q1["order"], "redo": q1["redo"], "spare": q1["spare"],
+                                 "spare_carry": q1["spare_carry"]}, soelab.load_pieces(),
                                 judged=set(q1["order"][:4]))
     assert again["redo"] == q2["redo"] and again["order"] == q2["order"]
 
@@ -306,7 +307,9 @@ def test_report_author_and_patterns(home):
     row = next(r for r in rep["metrics"] if r["id"] == "ai_patterns")
     assert row["author"]["value"] == 1.0 and row["author"]["ai_pieces"] == 24
     hidden = soelab.hidden_ids()
-    assert len(hidden) == 12  # 다시 읽기 예정은 재판정 전까지 가린다
+    q = soelab.load_queue()
+    assert len(q["redo"]) == 12 and len(q["spare"]) == 6  # 셋에 하나는 다시 읽기, 여섯에 하나는 예비
+    assert hidden == set(q["redo"]) | set(q["spare"])  # 다시 읽기 예정은 재판정 전까지, 예비는 보여 줄 때까지 가린다
     assert {r["id"] for r in rep["pieces"]} == set(pieces) - hidden
     assert not hidden & {p["id"] for p in soelab.export()["pieces"]}
     assert next(r for r in rep["patterns"] if r["pattern"] == "other") == {"pattern": "other", "marked": 0}

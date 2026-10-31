@@ -141,6 +141,7 @@ class Relationship(BaseModel):
     b: str = Field(description="인물 id")
     type: str = Field(description="연인, 라이벌, 사제, 가족 등")
     description: str = ""
+    destination: str = Field("", description="이야기에서 이 관계가 가 닿을 곳 (예: 연인, 원수). 지금 관계는 type 에 적는다. 기획 프롬프트에만 들어간다. 상태 변경안에서는 비운다")
     affinity: int = Field(0, description="-5(적대) ~ 5(깊은 신뢰)", json_schema_extra=_range(-5, 5))
     tension: int = Field(0, description="0(평온) ~ 10(폭발 직전)", json_schema_extra=_range(0, 10))
     goal_conflict: float = Field(0.0, description="두 인물의 목표가 부딪치는 정도 0~1", json_schema_extra=_range(0, 1))

@@ -275,6 +275,7 @@
 - 기록(`record`)
 - AI 는 칸 · 인물 · 관계를 지우지 않는다
 - 첫 반영 뒤에는 AI 가 관계의 시작 방식과 수치를 바꾸지 않는다
+- 관계의 가 닿을 곳(`destination`)은 AI 가 비워 보내면 지금 값을 지킨다
 - 1화 반영 뒤 바꾼 인물 칸은 `charlog.record_author` 로 남긴다
 - LLM 호출은 `pipeline.revise_setup`
 - 프롬프트는 `prompts.setup_chat_prompt`

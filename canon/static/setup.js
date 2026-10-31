@@ -257,11 +257,21 @@ function relRow(r, i) {
       <button class="btn icon-btn danger" data-action="removeRelationship" data-arg="${i}" aria-label="관계 삭제">✕</button>
     </div>${relProblem(r, i)}
     <div class="genre-opts ex-opts" role="group" aria-label="어떤 사이 예시">${chips(REL_TYPES.map((t) => [t, t]), (t) => r.type === t, 'setRelType')}</div>
+    ${relDestNote(r)}
     ${input('설명', b + '.description', { rows: 2, hint: '두 사람 사이의 사정. 매 화 프롬프트에 들어가요', placeholder: '예: 겉으로는 깍듯하지만 서로 약점을 쥐고 있다' })}
+    ${input('가 닿을 곳', b + '.destination', { hint: '이야기에서 이 관계가 어디로 가나. 플롯 · 아크 기획에만 쓰고 매 화 프롬프트에는 넣지 않아요', placeholder: '예: 연인, 원수, 서로를 인정하는 맞수' })}
     ${started ? `<div class="small">지금 호감 ${r.affinity} · 긴장 ${r.tension}. 첫 반영 뒤에는 본문의 관계 사건으로 바뀌어요.</div>` : `${view('a_view', r.a, r.b)}${view('b_view', r.b, r.a)}`}
     <div class="rel-line"><span class="label-text">원하는 게 부딪치나</span><div class="genre-opts" role="group" aria-label="목표 충돌">${chips(CONFLICTS, (w) => conflictWord(r.goal_conflict || 0) === w, 'setConflict')}</div></div>
     </div>
   </details>`;
+}
+
+/** '어떤 사이'에 목적지를 적은 것 같으면('앙숙에서 연인으로') 가 닿을 곳 칸으로 옮기라고 알린다.
+    어떤 사이는 매 화 프롬프트에 지금 관계로 들어가서, 목적지가 섞이면 AI 가 관계를 앞당겨 쓴다 */
+const REL_DEST_RE = /에서\s*\S+?\s*(?:으로|로)\s*$/;
+function relDestNote(r) {
+  return REL_DEST_RE.test((r.type || '').trim())
+    ? '<div class="note" role="status">어떤 사이에 가 닿을 곳이 섞인 것 같아요. 어떤 사이에는 지금 관계만 두고, 가는 곳은 아래 \'가 닿을 곳\'에 적어 주세요.</div>' : '';
 }
 
 /** 같은 인물끼리이거나 앞선 관계와 같은 쌍이면 알린다 (relIssue) */

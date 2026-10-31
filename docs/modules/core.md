@@ -164,6 +164,15 @@
 - 작업이 맡은 화를 저장 덮어쓰기에서 지키기(`owned_episodes`)
 - 멈추기(`stop`)
 
+### `canon/metatail.py`
+
+- 본문 앞뒤에 섞인 작업 설명(메타 코멘트) 찾기
+- 확실한 머리말 · 꼬리 떼기(`split`): 대사 · 대괄호 글을 뺀 서술에 Canon 작업 낱말(`STRONG`: 스타일 프로필 · 플롯 · 본문을 · 요청하신 · 짚어 둘 …)이 있고 존댓말이 반 넘는 앞뒤 문단, 'n화 본문입니다' 머리말, '작가 메모' 머리와 목록, 한글이 거의 없는 영어 메모. 서술이 원래 존댓말인 작품은 작업 낱말 둘 이상
+- 응답 전체가 작업 설명 · 거절 · 되묻기인지(`whole`)
+- 흔한 말(`SOFT`: 원고 · 다음 화 · 원하시면 …)만 있는 앞뒤 문단은 떼지 않고 경고(`warnings`). 작가물 · 편지 · 시스템 알림 · 이야기꾼의 맺음말을 지키려는 것(2026-10-31 적대적 검토)
+- `pipeline._write` 가 떼고(서버 기록 warning) 다시 쓰며(`whole`), `pipeline.style_drift` 가 경고를 붙인다
+- LLM 호출 없음
+
 ### `canon/pipeline.py`
 
 - 단계별 로직
@@ -214,6 +223,7 @@
 - 화별 플롯 초안(`plot_prompt` · `serial_plot_prompt`)은 범위 안 · 범위 뒤 3화(`PLAN_AHEAD`)의 이미 정해진 화를 `fixed_plots` · `fixed_block` 으로 넣고 요구사항에 `fixed_rule` 을 붙인다(장편은 `context.BUDGET["plan_fixed"]`, 한 화 초안은 `ahead=False`)
 - 장편 화별 플롯 초안은 `[관계]` 뒤에 지금 관계 단계 라벨(`plan_stage_block`, 예산 `context.BUDGET["plan_stages"]`), 장편 `plot_rules` 에 '단계는 한 화에 한 칸' 한 줄
 - 검수 요구사항의 관계 단계 한 줄(`stage_check_rule`, 관계 수치가 있을 때만)
+- 관계 설정 `rels(plan=)`: 가 닿을 곳(`Relationship.destination`)은 기획 프롬프트에만, 말로 넣는 기획은 `destination_block`
 - 다음 아크 기획(`next_arc_prompt`)은 관련 확정 사실(`plan_facts`) · 작품 속 시간(`time_plan`, 끝 줄 `ARC_TIME_RULE`) · 주역 밖 기획 인물 상태(`plan_side_states`)를 예산(`context.BUDGET` 의 `plan_facts` · `plan_states`) 안에서 넣는다
 
 ### `canon/schema.py`
