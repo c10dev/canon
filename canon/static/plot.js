@@ -206,39 +206,27 @@ function plotTodos(p, start, end) {
 
 /** 확인할 것 한 칸. n 이 있으면 그 화 플롯을, act 가 있으면 그 아크 · 부를 연다 */
 function plotTodoItem(t) {
-  const go = t.n ? `<button type="button" class="btn small ghost" data-action="openPlot" data-arg="${t.n}">${t.n}화 열기</button>`
-    : t.action ? `<button type="button" class="btn small ghost" data-action="${t.action}" data-arg="${t.arg}">${esc(t.go)}</button>` : '';
+  const go = t.n ? `<button type="button" class="btn small ghost" data-action="openPlot" data-arg="${t.n}" data-outline-close>${t.n}화 열기</button>`
+    : t.action ? `<button type="button" class="btn small ghost" data-action="${t.action}" data-arg="${t.arg}" data-outline-close>${esc(t.go)}</button>` : '';
   return `<div class="plot-todo"><strong>${esc(t.text)}</strong>${t.sub ? `<span>${esc(t.sub)}</span>` : ''}${go}</div>`;
 }
 
-/** 목차 틀. now 는 좁은 칸에서 접혔을 때 버튼에 보이는 글(HTML), body 는 목록 */
-function plotToc(label, now, body) {
-  return `<nav class="plot-toc" id="plot-toc" aria-label="${label}">
-      <button type="button" class="btn plot-toc-now" data-action="plotTocToggle" aria-expanded="false" aria-controls="plot-toc-list"><span class="tl">${now}</span><span aria-hidden="true">▾</span></button>
-      <div class="plot-toc-list" id="plot-toc-list">${body}</div></nav>`;
-}
+/** 목차(공용 목차 틀 outline.js). now 는 좁은 칸에서 접혔을 때 버튼에 보이는 글(HTML), body 는 목록 */
+const plotToc = (label, now, body) => outlineNav({ id: 'plot-toc', label, now, body });
 
-function plotTocClose() {
-  const t = $('#plot-toc.open');
-  if (!t) return;
-  t.classList.remove('open');
-  t.querySelector('.plot-toc-now').setAttribute('aria-expanded', 'false');
-}
-
-// 좁은 칸에서 펼친 목차는 바깥을 누르면 닫는다
-document.addEventListener('click', (e) => {
-  const t = document.querySelector('#plot-toc.open');
-  if (t && !t.contains(e.target)) plotTocClose();
-});
+/** 틀: 목차 + 오른쪽 칸. 보드는 남은 폭을 다 쓰고, 화 플롯 페이지는 .plot-page 가 760px 에서 멈춘다 */
+const plotLayout = (toc, main) => outlineDoc(toc, main, { wide: true, cls: 'plot-wrap' });
 
 // 보드를 내리면 목차의 지금 구간 줄을 표시한다: 화면 위에서 120px 아래를 지난 마지막 구간 (고치는 구간이 있으면 그 구간)
-window.addEventListener('scroll', () => {
-  const items = document.querySelectorAll('#plot-toc [data-act]');
-  if (!items.length || S.selAct != null) return;
-  let cur = null;
-  document.querySelectorAll('#app .act-col[id^="act-"]').forEach((el) => { if (el.getBoundingClientRect().top <= 120) cur = el.id.slice(4); });
-  items.forEach((el) => { if (el.dataset.act === cur) el.setAttribute('aria-current', 'true'); else el.removeAttribute('aria-current'); });
-}, { passive: true });
+outlineSpy('plot-toc', {
+  targets: () => [...document.querySelectorAll('#app .act-col[id^="act-"]')].map((el) => [el.id.slice(4), el]),
+  first: false,
+  bottom: false,
+  set(cur) {
+    if (S.selAct != null) return;
+    document.querySelectorAll('#plot-toc [data-act]').forEach((el) => { if (el.dataset.act === cur) el.setAttribute('aria-current', 'true'); else el.removeAttribute('aria-current'); });
+  },
+});
 
 /** 목차의 구간 줄: 누르면 그 구간 머리로 내려간다 (jumpAct). 오른쪽은 반영 수 · 고치는 중 · 초안 수 */
 function actTocItems(acts, eps) {
@@ -247,7 +235,7 @@ function actTocItems(acts, eps) {
     const c = plotCounts(inAct);
     const count = a.end_ep - a.start_ep + 1;
     const st = S.selAct === i ? '고치는 중' : c.finalized === count ? `반영 ${count}/${count}` : c.draft ? `초안 ${c.draft}` : c.total ? `반영 ${c.finalized}/${count}` : '플롯 전';
-    return `<button type="button" class="plot-toc-item" data-action="jumpAct" data-arg="${i}" data-act="${i}"${S.selAct === i ? ' aria-current="true"' : ''}><i class="plot-dot ${actClass(a.name)}" aria-hidden="true"></i><span class="tl">${a.name} <span class="small">${epRange(a.start_ep, a.end_ep)}</span></span><span class="st">${st}</span></button>`;
+    return `<button type="button" class="outline-item" data-action="jumpAct" data-arg="${i}" data-act="${i}"${S.selAct === i ? ' aria-current="true"' : ''}><i class="plot-dot ${actClass(a.name)}" aria-hidden="true"></i><span class="tl">${a.name} <span class="small">${epRange(a.start_ep, a.end_ep)}</span></span><span class="st">${st}</span></button>`;
   }).join('');
 }
 
@@ -311,12 +299,12 @@ function viewArc() {
       : eps.length ? '' : '<div class="note info">구간을 확인한 뒤 <strong>화별 플롯 초안 만들기</strong>를 누르면 각 구간에 화 카드가 채워져요.</div>';
     const toc = plotToc('구간 목차', `${plotCounts(eps).finalized}/${p.meta.target_episodes}화 반영 · 구간 ${p.arc.length}개`,
       `${plotMeter(eps, p.meta.target_episodes, `${p.meta.target_episodes}화`)}
-       <span class="plot-toc-h">구간</span>${actTocItems(p.arc, eps)}
-       ${((t) => (t.length ? `<span class="plot-toc-h">확인할 것 ${t.length}</span>${t.map(plotTodoItem).join('')}` : ''))([
+       <span class="outline-h">구간</span>${actTocItems(p.arc, eps)}
+       ${((t) => (t.length ? `<span class="outline-h">확인할 것 ${t.length}</span>${t.map(plotTodoItem).join('')}` : ''))([
         ...actCoverage(p.arc, 1, p.meta.target_episodes).map((text) => ({ text, sub: '구간 고치기에서 범위를 맞추면 저장돼요' })),
         ...plotTodos(p, 1, p.meta.target_episodes)])}
        ${eps.some((e) => povBadge(e.plot.number)) ? POV_LEGEND : ''}`);
-    board = `<div class="plot-wrap"><div class="plot-doc">${toc}<div class="plot-main"><div class="board-wrap">${note}${actBoard(p.arc, eps, sel)}</div></div></div></div>`;
+    board = plotLayout(toc, `<div class="plot-main"><div class="board-wrap">${note}${actBoard(p.arc, eps, sel)}</div></div>`);
   }
 
   // 머리: 대화 · AI로 다시 만들기 ▾ · 지금 할 일 하나(초안이 없으면 초안 만들기, 초안이 있으면 모두 확정, 그 밖에는 다음 화 쓰기)
@@ -444,7 +432,7 @@ function viewPlotPage(n) {
   return `<nav class="crumbs small" aria-label="위치"><a href="${base()}/arc" data-action="closePlot">${stepLabel('arc')}</a>${where.map((x) => ` <span aria-hidden="true">›</span> ${x}`).join('')} <span aria-hidden="true">›</span> <strong>${n}화</strong></nav>
     <header class="page-head plot-head"><div class="row" style="gap:10px;min-width:0"><h1>${n}화 ${esc(e.plot.title) || '제목 없음'}</h1>${povBadge(n)}<span class="chip ${e.status}">${STATUS[e.status]}</span></div>
       <div class="row">${navBtn(prev, '이전')}${navBtn(next, '다음')}${chatButton()}<button type="button" class="btn" data-action="closePlot">보드로</button></div></header>
-    <div class="plot-wrap"><div class="plot-doc">${toc}<div class="plot-main plot-page" aria-label="${n}화 플롯">${plotEditor(e)}</div></div></div>${chatPanel('plot')}`;
+    ${plotLayout(toc, `<div class="plot-main plot-page" aria-label="${n}화 플롯">${plotEditor(e)}</div>`)}${chatPanel('plot')}`;
 }
 
 /** 화 플롯 페이지 목차: 구간마다 묶은 화 줄. 점 색은 상태(반영 · 작성됨 · 확정 · 초안) */
@@ -453,9 +441,9 @@ function epTocItems(nums, cur) {
   return nums.map((x) => {
     const e = ep(x);
     const act = actOf(x);
-    const head = act && act !== last ? `<span class="plot-toc-h"><i class="plot-dot ${actClass(act.name)}" aria-hidden="true"></i>${act.name} ${epRange(act.start_ep, act.end_ep)}</span>` : '';
+    const head = act && act !== last ? `<span class="outline-h"><i class="plot-dot ${actClass(act.name)}" aria-hidden="true"></i>${act.name} ${epRange(act.start_ep, act.end_ep)}</span>` : '';
     last = act || last;
-    return `${head}<button type="button" class="plot-toc-item ep-row" data-action="openPlot" data-arg="${x}" aria-label="${x}화 ${esc(e.plot.title)} · ${STATUS[e.status]}"${x === cur ? ' aria-current="page"' : ''}><span class="no">${x}</span><span class="tl">${esc(e.plot.title) || '제목 없음'}</span><i class="plot-mk ${e.status}" title="${STATUS[e.status]}" aria-hidden="true"></i></button>`;
+    return `${head}<button type="button" class="outline-item ep-row" data-action="openPlot" data-arg="${x}" aria-label="${x}화 ${esc(e.plot.title)} · ${STATUS[e.status]}"${x === cur ? ' aria-current="page"' : ''}><span class="no">${x}</span><span class="tl">${esc(e.plot.title) || '제목 없음'}</span><i class="plot-mk ${e.status}" title="${STATUS[e.status]}" aria-hidden="true"></i></button>`;
   }).join('') + '<p class="small pov-legend">점: 초록 반영 · 주황 작성됨 · 먹색 확정 · 빈 점 초안</p>';
 }
 
@@ -668,16 +656,16 @@ function arcState(a) {
 /** 장편 목차 줄 하나 (serialTree 의 줄) */
 function serialTocRow(r) {
   if (r.kind === 'part') {
-    return `<div class="plot-toc-part"><button type="button" class="plot-toc-item part" data-action="tocPart" data-arg="${r.number}" aria-expanded="${r.open}"><span class="tl">${r.open ? '▾' : '▸'} ${r.number}부 ${esc(r.title)}<span class="small">${epRange(r.start, r.end)} · 아크 ${r.arcs}개</span></span></button>
-      <button type="button" class="btn small ghost" data-action="selectPart" data-arg="${r.number}" aria-pressed="${S.selPart === r.number}" aria-label="${r.number}부 고치기">고치기</button></div>`;
+    return `<div class="plot-toc-part"><button type="button" class="outline-item part" data-action="tocPart" data-arg="${r.number}" aria-expanded="${r.open}" data-outline-keep><span class="tl">${r.open ? '▾' : '▸'} ${r.number}부 ${esc(r.title)}<span class="small">${epRange(r.start, r.end)} · 아크 ${r.arcs}개</span></span></button>
+      <button type="button" class="btn small ghost" data-action="selectPart" data-arg="${r.number}" data-outline-close aria-pressed="${S.selPart === r.number}" aria-label="${r.number}부 고치기">고치기</button></div>`;
   }
-  if (r.kind === 'fold') return `<button type="button" class="plot-toc-item arc" data-action="railAll" aria-expanded="false"><span class="tl">아크 ${r.from}~${r.to}</span><span class="st">완료 ${r.count}개 · 펼치기</span></button>`;
+  if (r.kind === 'fold') return `<button type="button" class="outline-item arc" data-action="railAll" aria-expanded="false" data-outline-keep><span class="tl">아크 ${r.from}~${r.to}</span><span class="st">완료 ${r.count}개 · 펼치기</span></button>`;
   if (r.kind === 'arc') {
     const s = arcState(P().story_arcs.find((a) => a.number === r.number));
-    return `<button type="button" class="plot-toc-item arc" data-action="selectArc" data-arg="${r.number}"${r.sel ? ' aria-current="true"' : ''}><span class="tl">아크 ${r.number} ${esc(r.title)}<span class="small">${epRange(r.start, r.end)}</span></span><span class="st"><span class="chip ${s.cls}">${s.text}</span></span></button>`;
+    return `<button type="button" class="outline-item arc" data-action="selectArc" data-arg="${r.number}"${r.sel ? ' aria-current="true"' : ''}><span class="tl">아크 ${r.number} ${esc(r.title)}<span class="small">${epRange(r.start, r.end)}</span></span><span class="st"><span class="chip ${s.cls}">${s.text}</span></span></button>`;
   }
-  if (r.kind === 'act') return `<button type="button" class="plot-toc-item act" data-action="jumpAct" data-arg="${r.i}" data-act="${r.i}"><i class="plot-dot ${actClass(r.name)}" aria-hidden="true"></i><span class="tl">${r.name} <span class="small">${epRange(r.start, r.end)}</span></span></button>`;
-  return `<button type="button" class="plot-toc-item next" data-action="selectArc" data-arg="next"${r.sel ? ' aria-current="true"' : ''}><span class="tl">+ 다음 아크 <span class="small">${r.start}화부터</span></span></button>`;
+  if (r.kind === 'act') return `<button type="button" class="outline-item act" data-action="jumpAct" data-arg="${r.i}" data-act="${r.i}"><i class="plot-dot ${actClass(r.name)}" aria-hidden="true"></i><span class="tl">${r.name} <span class="small">${epRange(r.start, r.end)}</span></span></button>`;
+  return `<button type="button" class="outline-item next" data-action="selectArc" data-arg="next"${r.sel ? ' aria-current="true"' : ''}><span class="tl">+ 다음 아크 <span class="small">${r.start}화부터</span></span></button>`;
 }
 
 function viewSerial() {
@@ -743,9 +731,9 @@ function viewSerial() {
   const tree = serialTree(p, S.selArc, { open: S.tocParts || [], all: !!S.railAll });
   const toc = plotToc('부 · 아크 목차', arc ? `아크 ${arc.number} ${esc(arc.title)} <span class="small">${epRange(arc.start_ep, arc.end_ep)}</span>` : `다음 아크 <span class="small">${nextStart}화부터</span>`,
     `${plotMeter(p.episodes, p.meta.target_episodes, `${p.meta.target_episodes}화 · ${planned}화까지 기획`)}
-     <div class="plot-toc-h between"><span>${p.parts.length ? '부 · 아크' : '아크'}</span>${forced ? '' : `<button type="button" class="btn small ghost" data-action="toggleArcFull" aria-expanded="${full}">${full ? '부 구성 접기' : '부 구성 보기'}</button>`}</div>
+     <div class="outline-h between"><span>${p.parts.length ? '부 · 아크' : '아크'}</span>${forced ? '' : `<button type="button" class="btn small ghost" data-action="toggleArcFull" aria-expanded="${full}">${full ? '부 구성 접기' : '부 구성 보기'}</button>`}</div>
      ${tree.map(serialTocRow).join('')}
-     ${todos.length ? `<span class="plot-toc-h">확인할 것 ${todos.length}</span>${todos.map(plotTodoItem).join('')}` : ''}
+     ${todos.length ? `<span class="outline-h">확인할 것 ${todos.length}</span>${todos.map(plotTodoItem).join('')}` : ''}
      ${arc && p.episodes.some((e) => e.plot.number >= arc.start_ep && e.plot.number <= arc.end_ep && povBadge(e.plot.number)) ? POV_LEGEND : ''}`);
 
   const head = serialHead(pending, partsPending);
@@ -758,7 +746,7 @@ function viewSerial() {
   ]);
   const tools = chatButton() + (p.conversion ? `<a class="btn" href="${base()}/convert">단편에서 전환 · 되돌리기</a>` : '') + menu + head.html;
   return `${header('3단계', stepLabel('arc'), '왼쪽 목차에서 아크를 고르면 그 아크의 구간과 화 카드가 나와요. 끝난 아크는 요약으로 접혀서 몇백 화를 써도 프롬프트 크기가 일정해요.', tools)}
-    <div class="plot-wrap"><div class="plot-doc">${toc}<div class="plot-main">${partEdit}${series}${body}</div></div></div>${chatPanel('plot')}`;
+    ${plotLayout(toc, `<div class="plot-main">${partEdit}${series}${body}</div>`)}${chatPanel('plot')}`;
 }
 
 /** 장편 화면 머리의 primary: 지금 할 일 하나. 끝난 아크 · 부 요약 → 다음 아크 기획 → 초안 확정, 그 밖에는 다음 할 일(nextStep).
@@ -1152,28 +1140,19 @@ Object.assign(actions, {
       toast(had ? '부 구성을 바꿨어요. 아크와 반영한 화는 그대로예요.' : '부 구성을 적용했어요. 이제 첫 아크를 기획하세요.');
     });
   },
-  // 목차의 구간 줄: 그 구간 머리로 내려가고 포커스를 옮긴다. 좁은 칸에서 펼친 목차는 닫는다
+  // 목차의 구간 줄: 그 구간 머리로 내려가고 포커스를 옮긴다. 좁은 칸에서 펼친 목차는 공용 목차 틀이 닫는다
   jumpAct(i) {
-    plotTocClose();
     const el = document.getElementById(`act-${i}`);
     if (!el) return;
     el.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     el.focus({ preventScroll: true });
-  },
-  /** 좁은 칸의 목차 펼치기 · 접기 */
-  plotTocToggle() {
-    const t = $('#plot-toc');
-    if (!t) return;
-    const on = t.classList.toggle('open');
-    t.querySelector('.plot-toc-now').setAttribute('aria-expanded', String(on));
   },
   /** 장편 목차에서 부 펼치기 · 접기. 고른 아크가 든 부는 늘 펼쳐 있다 (serialTree) */
   tocPart(n) {
     n = Number(n);
     S.tocParts = (S.tocParts || []).includes(n) ? S.tocParts.filter((x) => x !== n) : [...(S.tocParts || []), n];
     S.focusTarget = `#app [data-action="tocPart"][data-arg="${n}"]`;
-    render();
-    $('#plot-toc')?.classList.add('open');  // 좁은 칸에서는 펼친 목차를 그대로 둔다
+    render();  // 좁은 칸에서 펼친 목차는 그대로다 (data-outline-keep, outline.js 가 열림을 기억한다)
   },
   toggleArcFull() {
     S.arcFull = !S.arcFull;

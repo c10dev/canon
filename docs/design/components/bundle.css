@@ -193,26 +193,35 @@ a.fl-cell:hover { background: var(--bg); color: var(--text); }
 @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
 @media (prefers-reduced-motion: reduce) { .w-busy-text i { animation: none; } }
 
-/* ----- 목차 + 카드 한 열 (Outline). 문체 화면(.sty-*) 규칙. 설정 도우미(.setup-*) · 역설계 실험(.rev-*)도 같은 크기다 ----- */
-.sty-wrap { container: sty / inline-size; }
-.sty-doc { display: grid; grid-template-columns: 220px minmax(0, 760px); gap: 32px; align-items: start; }
-.sty-secs { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-.sty-toc { position: sticky; top: 16px; z-index: 4; }
-.sty-toc-list { display: flex; flex-direction: column; gap: 2px; }
-.sty-toc-now { display: none; }
-.sty-toc-h { padding: 14px 10px 4px; font-size: 0.75rem; color: var(--muted); }
-.sty-toc-item { min-height: 38px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-2); font: inherit; font-weight: 500; text-align: left; display: flex; align-items: center; gap: 6px; cursor: pointer; }
-.sty-toc-item:hover { background: var(--surface); color: var(--text); }
-.sty-toc-item .tl { min-width: 0; }
-.sty-toc-item .st { margin-left: auto; font-size: 0.75rem; color: var(--muted); font-weight: 500; white-space: nowrap; }
-.sty-toc-item.warn .st { color: var(--written-ink); font-weight: 700; }
-.sty-toc-item.warn .tl::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--amber); vertical-align: 1px; }
-.sty-toc-item[aria-current] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
-@container sty (max-width: 720px) {
-  .sty-doc { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .sty-toc { top: var(--band, 0px); margin: 0 -2px; padding: 8px 2px; background: var(--bg); }
-  .sty-toc-now { display: flex; width: 100%; justify-content: space-between; }
-  .sty-toc-list { display: none; position: absolute; left: 0; right: 0; top: calc(100% - 4px); padding: 8px; border-radius: 12px; background: var(--surface); box-shadow: 0 8px 28px rgba(0,0,0,0.18); max-height: 70vh; overflow-y: auto; }
-  .sty-toc.open .sty-toc-list { display: flex; }
-  .sty-toc-item { min-height: 44px; }
+/* ----- 목차 + 카드 한 열 (Outline). app.css '공용 목차 틀' 절과 같다 ----- */
+.outline-wrap { container: outline / inline-size; }
+.outline-doc { display: grid; grid-template-columns: 220px minmax(0, 760px); gap: 32px; align-items: start; }
+.outline-doc.wide { grid-template-columns: 220px minmax(0, 1fr); }
+.outline { position: sticky; top: 16px; z-index: 4; }
+.outline-now { display: none; }
+.outline-now .tl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.outline-list { display: flex; flex-direction: column; gap: 2px; }
+.outline-h { padding: 14px 10px 4px; font-size: 0.75rem; color: var(--muted); }
+.outline-sep { height: 1px; margin: 8px 4px; background: var(--line); }
+.outline-note { padding: 8px 10px 0; line-height: 1.6; }
+.outline-item { min-height: 38px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-2); font: inherit; font-weight: 500; text-align: left; text-decoration: none; display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.outline-item:hover { background: var(--surface); color: var(--text); }
+.outline-item[aria-current] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
+.outline-item .tl { min-width: 0; }
+.outline-item .st { margin-left: auto; padding-left: 6px; font-size: 0.75rem; color: var(--muted); font-weight: 500; white-space: nowrap; }
+.outline-item .st.warn, .outline-item.warn .st { color: var(--amber-ink); font-weight: 700; }
+.outline-item.warn .tl::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--amber); vertical-align: 1px; }
+/* 번호 칸: 끝남 ✓ ok(초록), 지금 줄 · 지금 할 단계 now(진한 색), 하는 중 run */
+.outline-item .n, .sec-n { width: 22px; height: 22px; flex: none; border-radius: 6px; background: var(--chip); color: var(--text-2); font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.outline-item[aria-current] .n, .outline-item .n.now { background: var(--accent); color: var(--on-accent); }
+.outline-item .n.ok, .outline-item.done .n, .sec-n.ok { background: var(--green-soft); color: var(--green); }
+.outline-item .n.run { background: var(--accent-soft); color: var(--accent-ink); }
+@container outline (max-width: 720px) {
+  .outline-doc, .outline-doc.wide { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .outline { top: var(--outline-band, var(--band, 0px)); margin: 0 -2px; padding: 8px 2px; background: var(--bg); }
+  .outline-now { display: flex; width: 100%; justify-content: space-between; gap: 8px; }
+  .outline-now + .outline-list { display: none; position: absolute; left: 0; right: 0; top: calc(100% - 4px); padding: 8px; border-radius: 12px; background: var(--surface); box-shadow: 0 8px 28px rgba(0,0,0,0.18); max-height: 70vh; overflow-y: auto; }
+  .outline.open .outline-list { display: flex; }
+  .outline-item { min-height: 44px; }
 }
+.sty-secs { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
