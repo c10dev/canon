@@ -485,7 +485,7 @@ function revLabToc() {
     const r = busy.find((b) => b.n === x.n);
     const st = r && r.state === 'run' ? '<span class="st">푸는 중</span>' : `<span class="st">${esc(x.right)}</span>`;
     const link = revTocLink(`#/revlab/${L.id}/${x.n}`, `<span class="rev-dot ${r && r.state === 'run' ? 'run' : x.state}" aria-hidden="true"></span><span class="tl">${x.n}화${x.title ? ` ${esc(x.title)}` : ''}</span>${st}`, !pane && x.n === S.revEp);
-    return `<div class="rev-toc-ep${S.popMenu === `rev-ep-${x.n}` ? ' open' : ''}">${link}${menuBtn(`rev-ep-${x.n}`, '⋯', () => revEpMenu(x.n, !!run), { cls: 'btn icon-btn small rev-ep-more', aria: `${x.n}화 메뉴: 글 고치기 · 지우기`, align: 'rev-ep-pop' })}</div>`;
+    return `<div class="rev-toc-ep${S.popMenu === `rev-ep-${x.n}` ? ' open' : ''}">${link}${menuBtn(`rev-ep-${x.n}`, SIDE_ICON.more, () => revEpMenu(x.n, !!run), { cls: 'btn icon-btn rev-toc-btn', aria: `${x.n}화 더보기: 글 고치기 · 지우기` })}</div>`;
   }).join('');
   const panes = Object.entries(REV_PANES).map(([k, label]) => {
     const right = { cast: L.cast.length ? `${L.cast.length}명` : '', style: L.style ? '있음' : '', lines: L.lines_at ? `${L.lines.length}개` : '', metrics: '' }[k];
@@ -494,14 +494,19 @@ function revLabToc() {
   const cur = pane === 'overview' ? `개요 · ${steps[1].label} ${steps[1].right}` : pane ? REV_PANES[pane] : (() => { const e = revItem(S.revEp); return e ? `${e.number}화${revEpTitle(e) ? ` ${esc(revEpTitle(e))}` : ''} · ${(REV_TABS.find(([k]) => k === S.revTab) || REV_TABS[0])[1]}` : '목차'; })();
   const over = revTocLink(`#/revlab/${L.id}`, `<span class="n${pane === 'overview' ? ' now' : ''}" aria-hidden="true">◎</span><span class="tl">개요</span><span class="st">${L.episodes}화</span>`, pane === 'overview');
   return revToc('실험 목차', cur, `${over}<span class="outline-h">단계</span>${stepRows}<div class="rev-meter" role="img" aria-label="단계 ${Math.round(revStepShare(steps) * 4)}/4 끝남"><i style="width:${Math.round(revStepShare(steps) * 100)}%"></i></div>
-    <span class="outline-h rev-ep-h">화<button type="button" class="btn icon-btn small" data-action="revAddToggle" aria-label="화 이어 붙이기" title="화 이어 붙이기"${S.revAdd !== null ? ' aria-pressed="true"' : ''}>＋</button></span>${epRows}<span class="outline-h">실험 전체</span>${panes}`);
+    <span class="outline-h rev-ep-h">화<button type="button" class="btn icon-btn rev-toc-btn${S.revAdd !== null ? ' on' : ''}" data-action="revAddToggle" aria-label="화 이어 붙이기" title="화 이어 붙이기" aria-pressed="${S.revAdd !== null}">${REV_PLUS}</button></span>${epRows}<span class="outline-h">실험 전체</span>${panes}`);
 }
 
-/** 목차 화 줄의 ⋯ 메뉴. 작업이 도는 동안은 끈다 (서버도 막는다). */
+const REV_PLUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+
+/** 목차 화 줄의 ⋯ 메뉴. 지우기는 위험한 묶음으로 한 번 더 접는다 (docs/design Menu). 작업이 도는 동안은 끈다 (서버도 막는다). */
 function revEpMenu(n, busy) {
   const off = busy ? ' disabled title="작업이 끝난 뒤에 할 수 있어요"' : '';
   return `<button type="button" class="pop-item" data-action="revEpEdit" data-arg="${n}"${off}>글 고치기</button>
-    <button type="button" class="pop-item danger" data-action="revEpDrop" data-arg="${n}"${off}>지우기</button>`;
+    <div class="pop-sep" role="separator"></div>
+    <div class="pop-sec pop-danger"><details><summary class="small">이 화 지우기</summary>
+      <div class="small rev-drop-note">원문과 역설계 결과를 지우고 뒤 화 번호를 하나씩 당겨요.</div>
+      <button type="button" class="pop-item danger" data-action="revEpDrop" data-arg="${n}"${off}>${n}화 지우기</button></details></div>`;
 }
 
 function revMain() {
@@ -1141,14 +1146,19 @@ Object.assign(actions, {
 .rev-toc-ep > .menu { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); opacity: 0; }
 .rev-toc-ep:hover > .menu, .rev-toc-ep:focus-within > .menu, .rev-toc-ep.open > .menu { opacity: 1; }
 .rev-toc-ep:hover .st, .rev-toc-ep:focus-within .st, .rev-toc-ep.open .st { visibility: hidden; }
-.rev-ep-more { min-width: 30px; min-height: 30px; padding: 0 6px; background: var(--surface); }
-.rev-ep-pop { width: 180px; }
 @media (hover: none) {
   .rev-toc-ep > .menu { opacity: 1; }
-  .rev-toc-ep .outline-item { padding-right: 44px; }
+  .rev-toc-ep .outline-item { padding-right: 52px; }
 }
+/* 목차 버튼(＋ · ⋯)은 둘 다 같은 크기: 마우스는 작은 버튼 높이 36px 정사각형, 손가락 기기는 touch-min 44px (docs/design Outline) */
+.btn.icon-btn.rev-toc-btn { width: 36px; min-height: 36px; }
+.rev-toc-btn svg { width: 18px; height: 18px; }
+@media (pointer: coarse) {
+  .btn.icon-btn.rev-toc-btn { width: 44px; min-height: 44px; }
+  .rev-toc-ep .outline-item { min-height: 44px; }
+}
+.rev-drop-note { margin: 6px 10px; }
 .rev-ep-h { display: flex; align-items: center; justify-content: space-between; padding-top: 8px; padding-bottom: 0; }
-.rev-ep-h .icon-btn { min-width: 26px; min-height: 26px; padding: 0 6px; }
 .rev-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .rev-step { width: 20px; height: 20px; border-radius: 6px; background: var(--chip); color: var(--text-2); display: inline-flex; align-items: center; justify-content: center; font-size: 0.6875rem; font-weight: 700; flex: none; }
 .rev-step.ok { background: var(--green-soft); color: var(--green); }
