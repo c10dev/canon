@@ -3541,8 +3541,7 @@ def atlas_generate(name: str, body: GenerateIn) -> Project:
     p = _load(name)
     old = atlas.apply_generated(_map_dir(name), p, body.spec, body.pins)
     out = _save(name, p)
-    if old and (_map_dir(name) / old).is_file():
-        (_map_dir(name) / old).unlink()
+    _drop_map_file(name, old)
     return out
 
 
@@ -3658,6 +3657,11 @@ def _map_dir(name: str) -> Path:
     return store.project_dir(name) / "map"
 
 
+def _drop_map_file(name: str, fname: str) -> None:
+    """map/ 안의 옛 그림 · 마을 파일을 지운다 (atlas.drop_old_file)."""
+    atlas.drop_old_file(_map_dir(name), fname)
+
+
 @app.put("/api/projects/{name}/atlas/image")
 def atlas_image_set(name: str, body: MapImageIn) -> Project:
     """지도 배경 그림을 올린다. 작품 폴더의 map/ 에 파일로 두고 project.json 에는 이름만 적는다."""
@@ -3680,8 +3684,8 @@ def atlas_image_set(name: str, body: MapImageIn) -> Project:
     old = p.atlas.image
     p.atlas.image, p.atlas.aspect = fname, round(body.aspect, 4)
     out = _save(name, p)
-    if old and old != fname and (d / old).is_file():
-        (d / old).unlink()
+    if old != fname:
+        _drop_map_file(name, old)
     return out
 
 
@@ -3691,8 +3695,7 @@ def atlas_image_drop(name: str) -> Project:
     p = _load(name)
     old, p.atlas.image = p.atlas.image, ""
     out = _save(name, p)
-    if old and (_map_dir(name) / old).is_file():
-        (_map_dir(name) / old).unlink()
+    _drop_map_file(name, old)
     return out
 
 
@@ -3728,8 +3731,8 @@ def atlas_layout_set(name: str, body: LayoutIn) -> Project:
     p.atlas.layout, p.atlas.spec, p.atlas.buildings, p.atlas.layout_size, p.atlas.fill = fname, None, [], [layout["w"], layout["h"]], None
     atlas.fill_spots(p, layout)
     out = _save(name, p)
-    if old and old != fname and (d / old).is_file():
-        (d / old).unlink()
+    if old != fname:
+        _drop_map_file(name, old)
     return out
 
 
@@ -3740,8 +3743,7 @@ def atlas_layout_drop(name: str) -> Project:
     old, p.atlas.layout, p.atlas.spec, p.atlas.buildings, p.atlas.layout_size, p.atlas.fill = p.atlas.layout, "", None, [], [], None
     atlas.fill_spots(p, None)
     out = _save(name, p)
-    if old and (_map_dir(name) / old).is_file():
-        (_map_dir(name) / old).unlink()
+    _drop_map_file(name, old)
     return out
 
 

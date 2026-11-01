@@ -96,9 +96,10 @@ def test_play_flow(client, monkeypatch):  # noqa: F811
     assert v["turns"][-1]["kind"] == "auto" and v["turns"][-1]["action"] == "시장 사람에게 말을 건다" and v["decisions"] == 3
 
     # 반영 실패 → 구간은 남고 failed, 행동 없는 advance 가 반영만 다시 한다
-    client.post("/api/projects/pl/play/see", json={"n": 7})
+    # 막기는 see 보다 먼저: see 가 띄운 작업이 막기 전에 반영까지 가 버릴 수 있다
     real = prompts.play_state_prompt
     monkeypatch.setattr(prompts, "play_state_prompt", lambda *a, **k: (_ for _ in ()).throw(ValueError("형식 오류")))
+    client.post("/api/projects/pl/play/see", json={"n": 7})
     v = _settled(client, "pl")
     assert v["turns"][-1]["number"] == 8 and v["turns"][-1]["state"] == "failed" and "형식 오류" in v["turns"][-1]["error"]
     assert v["job"]["status"] == "error"

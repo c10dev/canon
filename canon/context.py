@@ -366,9 +366,28 @@ NAMED_TAIL = 1_500  # 쓰기: 직전 화 끝에서 이름을 찾는 글자 수 (
 RETURN_GAP = 10  # 쓰기: 이만큼 화를 건너뛰고 다시 나오는 인물은 마지막으로 나온 화를 적는다 (return_lines)
 
 
+# 한 글자 이름 뒤에 붙어도 이름으로 보는 말 (static/mentions.js 의 MN_TITLES · MN_JOSA · MN_FOCUS 와 같은 목록).
+# 그 뒤는 글자가 아니어야 한다. 여기 없는 글자가 이어지면('진짜', '진심') 다른 낱말로 본다
+_TITLES = ["씨", "님", "이"]
+_JOSA = ["이", "가", "은", "는", "을", "를", "의", "에", "에게", "에게서", "한테", "한테서", "께", "께서", "와", "과", "랑", "이랑", "하고",
+         "도", "만", "까지", "부터", "보다", "처럼", "같이", "로", "으로", "로서", "으로서", "로써", "으로써", "에서", "아", "야", "여", "이여",
+         "나", "이나", "며", "이며", "든", "이든", "란", "이란", "라", "이라", "라고", "이라고", "라는", "이라는", "라면", "이라면", "야말로", "이야말로",
+         "마저", "조차", "밖에", "뿐", "쯤", "다", "이다", "였다", "이었다", "예요", "이에요", "였던", "이었던", "던", "이던", "지만", "이지만", "고", "이고",
+         "요", "이요", "야", "이야", "에겐", "한텐", "들", "네"]
+_FOCUS = ["은", "는", "도", "만", "요", "가", "를", "을", "의", "에", "들", "이"]
+
+
+def _alt(words: list[str]) -> str:
+    return "|".join(re.escape(w) for w in sorted(set(words), key=len, reverse=True))
+
+
+SHORT_TAIL = rf"(?:{_alt(_TITLES)})?(?:{_alt(_JOSA)})?(?:{_alt(_FOCUS)})?(?![가-힣A-Za-z0-9])"
+
+
 def name_pattern(c: Character) -> re.Pattern | None:
     """인물 이름을 찾는 정규식. 세 글자 한국 이름은 성을 뗀 이름도, 띄어 쓴 이름은 첫 낱말도 (2글자 이상, '마르타 부인' → '마르타').
-    이름 바로 앞이 한글 · 영문이면 다른 낱말의 일부로 본다 ('김민정' 속 '민정'). 조사는 뒤에 붙으므로 뒤는 보지 않는다."""
+    이름 바로 앞이 한글 · 영문이면 다른 낱말의 일부로 본다 ('김민정' 속 '민정'). 두 글자 이상은 조사가 뒤에 붙으므로 뒤는 보지 않는다.
+    한 글자 이름('진')은 다른 낱말 머리에 들기 쉬워('진짜') 뒤에 호칭 · 조사만 오고 낱말이 끝나야 한다(SHORT_TAIL)."""
     forms = metrics.name_forms(c.name)
     words = c.name.split()
     if len(words) > 1 and len(words[0]) >= 2:
@@ -376,7 +395,8 @@ def name_pattern(c: Character) -> re.Pattern | None:
     forms = sorted({f for f in forms if f}, key=len, reverse=True)
     if not forms:
         return None
-    return re.compile(r"(?<![가-힣A-Za-z])(?:" + "|".join(re.escape(f) for f in forms) + ")")
+    alts = [re.escape(f) + (f"(?={SHORT_TAIL})" if len(f) == 1 else "") for f in forms]
+    return re.compile(r"(?<![가-힣A-Za-z])(?:" + "|".join(alts) + ")")
 
 
 def named_ids(p: Project, text: str) -> set[str]:

@@ -42,7 +42,8 @@ def _no_address(q: Project) -> None:
 
 def _no_knows(q: Project) -> None:
     for s in q.states:
-        s.knows = []
+        s.knows, s.knows_folded = [], []  # 접은 줄도 knows.view 가 '(요약)' 으로 넣는다
+    q.knows_folds = []
 
 
 CONDITIONS: dict[str, tuple[str, str, Callable[[Project], None], dict]] = {

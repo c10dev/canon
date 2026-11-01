@@ -169,6 +169,15 @@ def apply_generated(folder: Path, p: Project, spec: MapSpec, take: list[str]) ->
     return old if old and old != fname else ""
 
 
+def drop_old_file(folder: Path, fname: str) -> None:
+    """map/ 안의 옛 그림 · 마을 파일을 지운다. 이름이 map/ 밖을 가리키면(경로 · 절대 경로) 지우지 않는다."""
+    if not fname or Path(fname).name != fname:
+        return
+    path = folder / fname
+    if path.is_file() and path.resolve().parent == folder.resolve():
+        path.unlink()
+
+
 # ---------- 빈 블록 채우기 (OpenStreetMap 지도, canon/maps/fill.py) ----------
 
 def fill_preview(layout: dict, seed: int) -> dict:
