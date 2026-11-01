@@ -8,6 +8,7 @@ Gemini 구조화 출력에 그대로 넘기므로 dict 타입 필드를 쓰지 �
 """
 from __future__ import annotations
 
+import re
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, PrivateAttr, SerializationInfo, SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
@@ -580,6 +581,16 @@ class OpeningPlots(BaseModel):
 
 # ---------- 장편 연재: 작품 → 부 → 아크 → 화 ----------
 
+# AI 가 제목 앞에 번호를 붙여 보낼 때가 있다 ('1부: …', '아크 4: …'). 화면과 프롬프트가 번호를 따로 붙이므로 뗀다.
+# 번호 뒤에 구분 기호(: . - 등)가 있을 때만 뗀다. 번호만 있는 제목('1부', '아크 3')과 '2부 리그' 같은 제목은 그대로 둔다
+_PART_NO = re.compile(r"^\s*(?:제\s*)?\d+\s*부\s*[:：.\-–—·)]\s*")
+_ARC_NO = re.compile(r"^\s*(?:아크|arc)\s*\d+\s*[:：.\-–—·)]\s*", re.I)
+
+
+def strip_number(title: str, pattern: re.Pattern) -> str:
+    rest = pattern.sub("", title, count=1).strip()
+    return rest or title
+
 class Part(BaseModel):
     """부(권, 시즌). 무대와 판이 바뀌는 큰 단위. 장편(form='serial')에서만 쓴다."""
     number: int
@@ -590,6 +601,11 @@ class Part(BaseModel):
     key_turn: str = Field("", description="부를 마무리하는 큰 사건이나 드러나는 비밀")
     arc_ideas: list[str] = Field(default_factory=list, description="이 부에서 다룰 아크 후보를 순서대로 한 줄씩. 다음 아크를 기획할 때 참고")
     summary: str = Field("", description="부가 끝난 뒤의 요약. 작가가 승인한 것만 넣는다")
+
+    @field_validator("title")
+    @classmethod
+    def _strip_number(cls, v: str) -> str:
+        return strip_number(v, _PART_NO)
 
 
 class SeriesPlan(BaseModel):
@@ -619,6 +635,11 @@ class StoryArc(BaseModel):
     payoffs: list[str] = Field(default_factory=list, description="이 아크에서 회수할 열린 복선 id")
     pov: str = Field("", description="이 아크의 서술 시점 운용 한 줄 (예: 여주 서윤 1인칭으로 바뀜). 작품 기본 시점 그대로면 비움")
     summary: str = Field("", description="아크가 끝난 뒤의 요약. 작가가 승인한 것만 넣는다")
+
+    @field_validator("title")
+    @classmethod
+    def _strip_number(cls, v: str) -> str:
+        return strip_number(v, _ARC_NO)
 
 
 class ArcProposal(BaseModel):
@@ -779,6 +800,11 @@ class ArcEdit(BaseModel):
     payoffs: list[str] = Field(default_factory=list, description="이 아크에서 회수할 열린 복선 id")
     pov: str = Field("", description="이 아크의 서술 시점 운용 한 줄. 작품 기본 시점 그대로면 비움")
     end_ep: int = Field(0, description="아크 끝 화를 바꿀 때만 새 끝 화. 그대로면 0. 다음 아크를 짤 때는 꼭 넣는다")
+
+    @field_validator("title")
+    @classmethod
+    def _strip_number(cls, v: str) -> str:
+        return strip_number(v, _ARC_NO)
 
 
 class Direction(BaseModel):
