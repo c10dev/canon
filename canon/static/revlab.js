@@ -33,6 +33,7 @@ Object.assign(S, {
   revRefPick: new Set(), // 고른 원고 화 차례
   revEpEdit: null, // 고치는 화 { n, head, text } (null 이면 닫힘)
   revStyle: false, // 되돌려 쓰기에 문체 프로필을 넣을지
+  revPace: null, // 구조 · 호흡 칸의 값 { id, rows, summary } (GET /revlab/<번호>/pace)
   revStyleDiff: null, // 펼친 문체 프로필 견주기 { id, changes } (GET /revlab/<번호>/styles/<id>)
   revRead: { a: 'original', b: 0 }, // 나란히 읽기 왼쪽 · 오른쪽 ('original' 또는 판 번호, 0 이면 최근 판)
 });
@@ -149,6 +150,7 @@ async function revLoad(id, n) {
   if (!k) { S.revLab = null; return; }
   if (!S.revLab || S.revLab.id !== k || !(S.cueEdits[revCueKey(S.revEp)] || {}).dirty) await revFetch(k);
   S.revPane = !n ? 'overview' : n in REV_PANES ? n : null;
+  if (S.revPane === 'shape') await revPaceLoad();
   const want = Number(n) || null;
   if (S.revLab && !S.revLab.error) {
     const nums = S.revLab.items.map((e) => e.number);
@@ -165,6 +167,7 @@ async function revFetch(id) {
   const made = new Map(old && old.id === id ? old.items.map((e) => [e.number, e.sheet && e.sheet.made_at]) : []);
   S.revLab = await api('GET', `/revlab/${id}`).catch((e) => ({ error: e.message, id }));
   if (S.revLab.error) return;
+  if (S.revPane === 'shape') await revPaceLoad();
   for (const e of S.revLab.items) {
     const key = revCueKey(e.number);
     if ((S.cueEdits[key] || {}).dirty && made.has(e.number) && made.get(e.number) === (e.sheet && e.sheet.made_at)) continue;
@@ -182,7 +185,7 @@ async function revFetch(id) {
 
 /* ----- 단계 · 다음 할 일 · 진행 줄 · 지표 줄: DOM 없는 순수 함수 (tests/test_revlab.py) ----- */
 
-const REV_PANES = { cast: '인물 · 관계 · 배경', style: '문체 프로필', lines: '이야기 줄기', metrics: '지표 모아 보기', ai: 'AI 모델' };
+const REV_PANES = { cast: '인물 · 관계 · 배경', style: '문체 프로필', lines: '이야기 줄기', shape: '구조 · 호흡', metrics: '지표 모아 보기', ai: 'AI 모델' };
 const REV_TABS = [['text', '원문 · 큐'], ['plot', '플롯 · 스토리보드'], ['write', '되돌려 쓰기']];
 const REV_KINDS = ['rev_parse', 'rev_write', 'rev_style'];
 
@@ -566,6 +569,7 @@ function revMain() {
   else if (S.revPane === 'cast') parts.push(revContextCard());
   else if (S.revPane === 'style') parts.push(revStyleCard());
   else if (S.revPane === 'lines') parts.push(revLinesCard());
+  else if (S.revPane === 'shape') parts.push(revPaceCard());
   else if (S.revPane === 'metrics') parts.push(revMetricsAll());
   else if (S.revPane === 'ai') parts.push(revAICard());
   else parts.push(revEpisode());
@@ -813,6 +817,7 @@ function revLabCards() {
     ${card('cast', '인물 · 관계 · 배경', L.cast.length ? `${L.cast.length}명` : '', L.cast.length ? `${esc(L.cast.slice(0, 4).map((x) => x.name).join(' · '))}${c.setting ? `. ${esc(c.setting.slice(0, 40))}` : ''}` : '역설계하면 모아요.')}
     ${card('style', '문체 프로필', st ? `${L.style_id}번 · 표지 ${(st.markers || []).length}` : '', st ? esc([st.narration_pov, st.tense, st.sentence_rhythm].filter(Boolean).join(' · ').slice(0, 80)) : '만들면 되돌려 쓰기에 넣을 수 있어요.')}
     ${card('lines', '이야기 줄기', L.lines_at ? `${L.lines.length}개` : '', L.lines_at ? `메인: ${esc((L.main || '정하지 않음').slice(0, 60))}` : '모든 화를 역설계하면 찾아요.')}
+    ${card('shape', '구조 · 호흡', '', '화마다 긴장 흐름 · 끝맺음 · 분량을 이어 봐요.')}
     ${card('ai', 'AI 모델', L.ai.custom ? '이 실험만' : '설정을 따름', L.ai.stages.map((x) => `${x.stage === 'plan' ? '역설계' : '되돌려 쓰기'} ${esc(revAiText(x.use))}`).join(' · '))}</div>`;
 }
 
@@ -1000,6 +1005,91 @@ function revLinesCard() {
 }
 
 /** 지표 모아 보기: 화마다 원문과 되돌려 쓴 판의 지표. 가려 읽기 전인 판은 서버가 빼서 보낸다. */
+/** 구조 · 호흡 (GET /revlab/<번호>/pace, revlab.pace). 칸을 열 때와 실험을 다시 받을 때 받는다. */
+async function revPaceLoad() {
+  const id = S.revLab && S.revLab.id;
+  if (!id || S.revLab.error) return;
+  S.revPace = await api('GET', `/revlab/${id}/pace`).then((d) => ({ id, ...d })).catch((e) => ({ id, error: e.message }));
+}
+
+const REV_PACE_H = 5;  // 긴장도 최고값 (막대 높이의 기준)
+const revPaceTone = (t) => (t >= 4 ? 'high' : t >= 3 ? 'mid' : 'low');
+
+/** 화 안의 긴장 흐름: 큐마다 글자 수만큼 넓은 계단. [{x, w, t}] (x · w 는 0~1). 순수 함수 (tests/test_revlab.py). */
+function revPaceSteps(tension, weights) {
+  const total = weights.reduce((a, b) => a + b, 0) || 1;
+  let x = 0;
+  return tension.map((t, i) => {
+    const step = { x: x / total, w: weights[i] / total, t };
+    x += weights[i];
+    return step;
+  });
+}
+
+function revPaceSpark(r) {
+  const W = 96, H = 22;
+  const rects = revPaceSteps(r.tension, r.weights).map((c) => {
+    const h = Math.max(2, (c.t / REV_PACE_H) * H);
+    return `<rect class="rev-pace-${revPaceTone(c.t)}" x="${(c.x * W).toFixed(1)}" y="${(H - h).toFixed(1)}" width="${Math.max(c.w * W - 0.6, 0.6).toFixed(1)}" height="${h.toFixed(1)}"></rect>`;
+  }).join('');
+  return `<svg class="rev-spark" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="큐 긴장 ${r.tension.join(' · ')}">${rects}</svg>`;
+}
+
+/** 화를 따라가는 띠 그래프: 막대는 최고 긴장, 점은 평균 긴장, 막대 위 표시는 끝맺음. 막대를 누르면 그 화로 간다. */
+function revPaceStrip(rows) {
+  const L = S.revLab;
+  const col = 16, H = 90, top = 14;
+  const mark = { half: '▲', deceptive: '◆' };
+  const cols = rows.map((r, i) => {
+    const x = i * col;
+    if (!r.parsed) return `<g><title>${r.number}화 · 역설계 전</title><rect class="rev-pace-none" x="${x + 3}" y="${top + H - 4}" width="${col - 6}" height="4"></rect></g>`;
+    const h = (r.peak / REV_PACE_H) * H;
+    const avg = top + H - (r.avg / REV_PACE_H) * H;
+    const tip = `${r.number}화${r.title ? ` ${r.title}` : ''} · 최고 ${r.peak} · 평균 ${r.avg} · 끝 ${r.end} · ${cueLabel('cadences', r.cadence).label} · ${r.chars.toLocaleString()}자`;
+    return `<a href="#/revlab/${L.id}/${r.number}"><title>${esc(tip)}</title>
+      <rect class="rev-pace-${revPaceTone(r.peak)}" x="${x + 3}" y="${(top + H - h).toFixed(1)}" width="${col - 6}" height="${h.toFixed(1)}" rx="2"></rect>
+      <circle class="rev-pace-avg" cx="${x + col / 2}" cy="${avg.toFixed(1)}" r="2.2"></circle>
+      ${mark[r.cadence] ? `<text class="rev-pace-mark" x="${x + col / 2}" y="${(top + H - h - 3).toFixed(1)}" text-anchor="middle">${mark[r.cadence]}</text>` : ''}</a>`;
+  }).join('');
+  const every = rows.length > 60 ? 10 : 5;
+  const ticks = rows.map((r, i) => (i === 0 || r.number % every === 0 ? `<text class="rev-pace-tick" x="${i * col + col / 2}" y="${top + H + 14}" text-anchor="middle">${r.number}</text>` : '')).join('');
+  const w = Math.max(rows.length * col, 1);
+  return `<div class="rev-scroll"><svg class="rev-pace-strip" viewBox="0 0 ${w} ${top + H + 20}" width="${w}" height="${top + H + 20}" role="img" aria-label="화별 최고 긴장과 평균 긴장">${cols}${ticks}</svg></div>`;
+}
+
+function revPaceCard() {
+  const D = S.revPace;
+  if (!D || D.id !== S.revLab.id) return '<section class="card"><p class="small">불러오는 중이에요.</p></section>';
+  if (D.error) return `<section class="card"><p class="err">${esc(D.error)}</p></section>`;
+  const m = D.summary;
+  if (!m) return '<section class="card empty"><h2>구조 · 호흡</h2><p>화를 역설계하면 화마다 긴장 흐름 · 끝맺음 · 분량을 이어 보여 드려요. AI를 따로 부르지 않아요.</p></section>';
+  const pct = (x) => `${Math.round(x * 100)}%`;
+  const cad = Object.entries(m.cadence).map(([k, n]) => `${esc(cueLabel('cadences', k).label)} ${n}`).join(' · ');
+  const list = (xs) => (xs.length > 12 ? `${xs.slice(0, 12).join(', ')} 외 ${xs.length - 12}개` : xs.join(', '));
+  const facts = [
+    ['역설계한 화', `${m.parsed}화${m.parsed < D.rows.length ? ` (전체 ${D.rows.length}화)` : ''}`],
+    ['끝맺음', cad],
+    ['끝 긴장 4 이상', `${m.end_high}화`],
+    ['최고 긴장', `화의 평균 ${pct(m.peak_at)} 지점`],
+    [`긴장 ${REV_PACE_H}인 화`, m.tops.length ? `${m.tops.length}화${m.top_gap ? ` · 평균 ${m.top_gap}화마다` : ''}` : '없음'],
+    ['숨 고르기 화', m.rest.length ? `${m.rest.length}화 (최고 긴장 2 이하): ${list(m.rest)}화` : '없음 (최고 긴장 2 이하인 화)'],
+    ['분량', `평균 ${m.chars_mean.toLocaleString()}자 · 변동 ${pct(m.chars_cv)}`],
+  ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+  const rows = D.rows.map((r) => (r.parsed
+    ? `<tr><td class="rev-l"><a href="#/revlab/${S.revLab.id}/${r.number}">${r.number}화</a></td><td class="rev-l">${esc(r.title)}</td><td>${revPaceSpark(r)}</td>
+        <td>${r.avg}</td><td>${r.peak} <span class="small">(${pct(r.peak_at)})</span></td><td>${r.end}</td><td>${esc(cueLabel('cadences', r.cadence).label)}</td>
+        <td>${pct(r.d_share)}</td><td>${pct(r.fast_share)}</td><td>${pct(r.dialogue)}</td><td>${r.sentence_len}</td><td>${r.chars.toLocaleString()}</td></tr>`
+    : `<tr class="rev-pace-off"><td class="rev-l"><a href="#/revlab/${S.revLab.id}/${r.number}">${r.number}화</a></td><td class="rev-l">${esc(r.title)}</td><td colspan="9" class="rev-l small">역설계 전</td><td>${r.chars.toLocaleString()}</td></tr>`)).join('');
+  return `<section class="card"><div class="between"><h2>구조 · 호흡</h2><span class="small">AI를 부르지 않고 큐 시트와 원문으로 계산해요</span></div>
+    ${revPaceStrip(D.rows)}
+    <p class="small">막대는 화의 최고 긴장, 점은 평균 긴장이에요. ▲ 반종지(가장 높은 곳에서 끊음) · ◆ 기만 종지(뒤집으며 끝냄). 긴장도는 AI가 화마다 그 화 안에서 매긴 값이라, 다른 화의 같은 숫자가 같은 세기라는 뜻은 아니에요. 대사 비율 · 문장 길이 · 분량은 원문에서 잰 값이에요.</p>
+    <dl class="rev-kv">${facts}</dl></section>
+    <section class="card"><h3>화별 호흡</h3><div class="rev-scroll"><table class="sw-table rev-pace-table">
+      <thead><tr><th class="rev-l">화</th><th class="rev-l">제목</th><th>큐 긴장 흐름</th><th>평균</th><th>최고 (자리)</th><th>끝</th><th>끝맺음</th><th>D 큐</th><th>빠른 템포</th><th>대사</th><th>문장 길이</th><th>분량</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+      <p class="small">D 큐 · 빠른 템포는 글자 수 비율, 문장 길이는 문장 하나의 평균 글자 수예요.</p></section>`;
+}
+
 function revMetricsAll() {
   const L = S.revLab;
   const eps = L.items.filter((e) => (e.scores || []).length > 1);
@@ -1763,6 +1853,17 @@ Object.assign(actions, {
 .rev-get { padding: 14px 16px; border-radius: 10px; background: var(--bg); display: flex; flex-direction: column; gap: 4px; }
 .rev-mini { display: inline-flex; align-items: flex-end; gap: 2px; width: 110px; height: 22px; vertical-align: middle; }
 .rev-mini > i { display: block; border-radius: 2px 2px 0 0; }
+.rev-pace-strip { display: block; }
+.rev-pace-high { fill: var(--tension-high); }
+.rev-pace-mid { fill: var(--tension-mid); }
+.rev-pace-low { fill: var(--warm-mid); }
+.rev-pace-none { fill: var(--rule); }
+.rev-pace-avg { fill: var(--text); }
+.rev-pace-mark { font-size: 9px; fill: var(--text); }
+.rev-pace-tick { font-size: 10px; fill: var(--text-2); }
+.rev-pace-strip a:hover rect { opacity: 0.75; }
+.rev-spark { display: block; }
+.rev-pace-off td { color: var(--text-2); }
 .rev-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
 .rev-tile { color: inherit; text-decoration: none; }
 .rev-tile:hover { border-color: var(--sel-line); background: var(--sel-bg); }
