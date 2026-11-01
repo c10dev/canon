@@ -304,7 +304,14 @@ def test_style_profile_and_two_takes(home):
         revlab.world(lab, 1, use_style=True)
     est = revlab.estimate(lab, "style")
     assert [r["label"] for r in est["rows"]] == ["문체 프로필"]
-    prof = revlab.run_style(lab.id, MockLLM())
+    asks = []
+
+    class Asking(MockLLM):
+        def json(self, system, prompt, schema, hint=None):
+            asks.append(prompt)
+            return super().json(system, prompt, schema, hint)
+    prof = revlab.run_style(lab.id, Asking())
+    assert "sample_passages 는 빈 목록으로" in asks[0] and "문단 2~4개" not in asks[0]  # 버릴 대표 문단은 묻지 않는다
     lab = revlab.load(lab.id)
     assert lab.style is not None and lab.style.sample_passages == [] and prof.sample_passages == []
     q = revlab.world(lab, 1, use_style=True)
@@ -419,7 +426,7 @@ def _two_styles(home, monkeypatch):
     lab = _parsed(home)
     seen = []
 
-    def fake(llm, sample, names=None):
+    def fake(llm, sample, names=None, **kw):
         seen.append(sample)
         return StyleProfile(narration_pov="1인칭" if len(seen) == 1 else "3인칭 제한", tense="과거형")
     monkeypatch.setattr(pipeline, "analyze_style", fake)

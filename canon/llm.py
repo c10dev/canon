@@ -56,9 +56,10 @@ def _inline_refs(schema: dict) -> dict:
 class SchemaMismatch(RuntimeError):
     """다시 요청해도 모델 응답이 스키마와 맞지 않는다. 자동 집필은 이 오류에서 그 화를 멈추고 기다린다."""
 
-    def __init__(self, schema: type[BaseModel], error: ValidationError, who: str = "모델"):
+    def __init__(self, schema: type[BaseModel], error: ValidationError, who: str = "모델", note: str = ""):
         self.schema, self.brief = schema.__name__, _brief(error)
-        super().__init__(f"{who} 응답이 {self.schema} 형식과 맞지 않아요 (다시 요청해도 같음): {self.brief}")
+        super().__init__(f"{who} 응답이 {self.schema} 형식과 맞지 않아요 (다시 요청해도 같음): {self.brief}"
+                         + (f". {note}" if note else ""))
 
 
 def _brief(e: ValidationError, limit: int = 8) -> str:
@@ -69,7 +70,11 @@ def _brief(e: ValidationError, limit: int = 8) -> str:
 
 
 def repair_prompt(prompt: str, raw: str, schema: type[BaseModel], error: ValidationError) -> str:
-    """스키마와 맞지 않는 응답을 오류와 함께 돌려주며 형식만 고쳐 달라는 요청. 배치처럼 대화가 없는 곳에서도 쓴다."""
+    """스키마와 맞지 않는 응답을 오류와 함께 돌려주며 형식만 고쳐 달라는 요청. 배치처럼 대화가 없는 곳에서도 쓴다.
+    응답에 JSON 객체가 하나도 없으면 (생각 글만 쓰다 끊긴 응답) 고칠 내용이 없어 처음 요청을 그대로 다시 보낸다.
+    그런 글을 붙이면 다음 요청이 그 글을 이어 받는다."""
+    if not _json_objects(raw):
+        return prompt
     return (f"{prompt}\n\n---\n앞선 응답이 {schema.__name__} JSON 형식과 맞지 않았습니다.\n"
             f"틀린 곳: {_brief(error, 20)}\n"
             "필수 칸을 모두 채우고, 객체여야 할 자리에 문자열을 넣지 마세요. "
@@ -77,8 +82,38 @@ def repair_prompt(prompt: str, raw: str, schema: type[BaseModel], error: Validat
             f"앞선 응답:\n{raw[:12000]}")
 
 
+_DECODER = json.JSONDecoder()
+
+
+def _json_objects(raw: str, limit: int = 200) -> list[str]:
+    """글 속의 최상위 JSON 객체 글들, 나온 차례대로. 앞 객체 안의 '{' 는 건너뛴다. '{' 를 limit 번까지만 본다."""
+    out, i, tries = [], raw.find("{"), 0
+    while i != -1 and tries < limit:
+        tries += 1
+        try:
+            obj, end = _DECODER.raw_decode(raw, i)
+        except ValueError:
+            i = raw.find("{", i + 1)
+            continue
+        if isinstance(obj, dict):
+            out.append(raw[i:end])
+        i = raw.find("{", end)
+    return out
+
+
 def _validate(schema: type[T], raw: str) -> T:
-    return schema.model_validate_json(_FENCE_RE.sub("", raw.strip()))
+    """응답 글을 스키마로 읽는다. 통째로 읽히지 않으면 글 속 최상위 JSON 객체를 뒤에서부터 읽어 본다.
+    모델이 생각 과정을 본문에 쓰고 끝에 JSON 을 내는 일이 있다 (gemini-4-argon 문체 프로필, 2026-11-01)."""
+    try:
+        return schema.model_validate_json(_FENCE_RE.sub("", raw.strip()))
+    except ValidationError as first:
+        err = first
+    for span in reversed(_json_objects(raw)):
+        try:
+            return schema.model_validate_json(span)
+        except ValidationError as e:
+            err = e
+    raise err
 
 
 def _usage(u: Any) -> dict | None:
@@ -208,6 +243,7 @@ class GeminiLLM:
         self.last_usage: dict | None = None  # 연구 화면에서 보여 줄 마지막 호출의 토큰 수
         self.last_attempts = 0
         self.last_raw = ""
+        self.last_finish = ""  # 마지막 응답이 끝난 이유 (STOP, MAX_TOKENS 등)
 
     def check(self) -> None:
         """키와 모델 이름이 맞는지 가볍게 확인한다 (생성 호출 없음)."""
@@ -261,7 +297,7 @@ class GeminiLLM:
         from google.genai import types
 
         t, tokens = time.time(), None
-        self.last_raw = ""
+        self.last_raw, self.last_finish = "", ""
         try:
             resp = self.client.models.generate_content(
                 model=self.model,
@@ -272,6 +308,8 @@ class GeminiLLM:
                     **config),
             )
             tokens = self.last_usage = _usage(resp.usage_metadata)
+            reason = resp.candidates[0].finish_reason if resp.candidates else None
+            self.last_finish = getattr(reason, "name", None) or str(reason or "")
             if not resp.text:
                 raise RuntimeError(f"Gemini 응답이 비었어요: {resp.candidates[0].finish_reason if resp.candidates else resp}")
             self.last_raw = resp.text
@@ -293,7 +331,8 @@ class GeminiLLM:
                                   response_json_schema=_inline_refs(schema.model_json_schema()))
             except ValidationError as e:
                 if attempt:
-                    raise SchemaMismatch(schema, e, "Gemini") from e
+                    cut = "응답이 출력 길이 한도에 걸려 끊겼어요" if self.last_finish == "MAX_TOKENS" else ""
+                    raise SchemaMismatch(schema, e, "Gemini", cut) from e
                 ask = repair_prompt(prompt, self.last_raw, schema, e)
         raise AssertionError("unreachable")
 

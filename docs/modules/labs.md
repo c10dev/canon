@@ -106,7 +106,7 @@
 - 블라인드 고르기(`pick`, 판 번호를 주면 지금 가려 읽을 판인지 확인)
 - 지표(`compare`, `cue.score`, 원문과 판마다 condition 't<판 번호>')
 - 문체 측정(`compare`): 이 화를 뺀 원문 기준 문체 거리(`style_base`, 기준을 못 만들면 `style_note` 에 이유) · 쉼표 문장 비율 · 표지 빈도 경고 · 판이 원문과 장치 예시를 옮긴 문장(`copied` · `copied_examples`)
-- 문체 역설계(`run_style`, `pipeline.analyze_style`)
+- 문체 역설계(`run_style`, `pipeline.analyze_style(passages=False)`: 버릴 대표 문단은 묻지 않는다, `prompts.style_prompt`)
 - 문체 역설계는 실험 인물 이름을 `count_markers` 에 넘겨 이름이 든 표지를 거른다
 - 문체 프로필 기록(`RevLab.styles` · `style_id`, 더하기 `add_style`, 같은 프로필이면 더하지 않고 고름)
 - 기록 상한 `STYLE_KEEP`(넘치면 지금 프로필과 판이 가리키는 프로필을 빼고 오래된 것부터 지움, 지울 것이 없으면 `check_style_room` 이 AI 를 부르기 전에 막음)
