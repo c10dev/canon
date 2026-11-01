@@ -8,7 +8,7 @@
   Canon 이 원문에서 찾고(locate), 큐 글자 수는 그 경계로 잰다. 핵심 대사는 원문에 글자 그대로(공백 · 따옴표 · 문장부호 빼고) 있는 것만
   남긴다(keep_lines). 화가 둘 넘으면 이야기 줄기를 한 번 더 묻는다(pipeline.reverse_lines).
 - 되돌려 쓰기(run_write, write 단계): 역설계한 재료로 만든 작품 사본(world)에서 큐 시트 실험의 '큐 시트를 주고 한 번에' 조건
-  (pipeline.write_scored)으로 같은 화를 쓴다. 원문과 블라인드 비교, cue.score 지표 비교.
+  (pipeline.write_scored)으로 같은 화를 쓴다. 쓴 글은 화마다 판(RevTake)으로 MAX_TAKES 개까지 남기고, 판마다 원문과 블라인드 비교, cue.score 지표 비교.
 AI 호출 전에 비용 추정(estimate)을 보여 주고 작가가 눌러야 돈다. 인물 id 는 인물 이름이다.
 """
 from __future__ import annotations
@@ -21,7 +21,7 @@ from pathlib import Path
 from . import cancel, cue, metrics, pipeline, prompts, store, usage
 from .context import CHARS_PER_TOKEN
 from .schema import (Act, AddressForm, BoardHandover, BoardScene, BoardTime, Character, CueLine, CueSheet, CueSheetDraft, CueTake, Episode, EpisodePlot, Meta, Project,
-                     Relationship, RevBound, RevCastSaved, RevEpisode, RevEpisodeDraft, RevLab, RevLineSet, RevPerson, RevTake, Storyboard,
+                     Relationship, RevAI, RevBlind, RevBound, RevCastSaved, RevEpisode, RevEpisodeDraft, RevLab, RevLineSet, RevPerson, RevTake, Storyboard,
                      StoryboardDraft, StyleProfile, WorldSetting,
                      Storyline)
 
@@ -43,7 +43,7 @@ LINES_OUT_TOKENS = 800
 LINES_IN_CHARS = 400  # 이야기 줄기 요청에 화마다 들어가는 글자 수 추정
 JOBS = ".revlab"  # 작업 목록의 project 자리 (작품 폴더는 점으로 시작하지 않아 겹치지 않는다). 화면은 '역설계 실험'으로 보인다
 SIDES = {"original": "원문", "rewrite": "되돌려 쓴 글"}
-TAKES = {"plain": "되돌려 쓴 글", "style": "되돌려 쓴 글 (문체 넣음)"}  # RevEpisode.take · take_style
+MAX_TAKES = 8  # 화마다 남기는 되돌려 쓴 판. 저절로 지우지 않고, 차면 작가가 지울 판을 고른다 (원문 30만 자 × 8판이 상한)
 STYLE_CHARS = 30_000  # 문체 역설계에 넣는 원문 앞부분 글자 수
 STYLE_OUT_TOKENS = 2500
 FIRST_RE = re.compile(r"(\d{1,4})\s*화")  # 실험 이름에서 첫 화 번호를 짐작한다 (글에 제목 줄이 없을 때)
@@ -244,7 +244,7 @@ def edit_episode(lab: RevLab, number: int, head: str, text: str) -> bool:
     e.head = head.strip()[:HEAD_MAX]
     if text == e.text:
         return False
-    cleared = e.plot is not None or e.take is not None or e.take_style is not None
+    cleared = e.plot is not None or bool(e.takes)
     lab.episodes[lab.episodes.index(e)] = RevEpisode(number=e.number, head=e.head, text=text)
     return cleared
 
@@ -378,7 +378,7 @@ def merge_cast(lab: RevLab, people: list[RevPerson]) -> None:
 
 def apply_episode(lab: RevLab, number: int, d: RevEpisodeDraft, model: str = "") -> RevEpisode:
     """역설계 응답을 정리해 화에 넣는다: 큐 경계를 원문에서 찾고 글자 수를 재고, 원문에 없는 핵심 대사를 뺀다.
-    되돌려 쓴 본문과 블라인드 비교는 지운다 (재료가 바뀌었다)."""
+    되돌려 쓴 판은 남긴다. 쓸 때 시트 지문(sheet_basis)이 지금 시트와 달라 화면에 '시트 바뀜'으로 보인다."""
     e = episode(lab, number)
     names = [x.name.strip() for x in d.cast if x.name.strip()]
     board = pipeline.clean_storyboard(StoryboardDraft(scenes=[BoardScene(**x.model_dump()) for x in d.scenes],
@@ -410,7 +410,6 @@ def apply_episode(lab: RevLab, number: int, d: RevEpisodeDraft, model: str = "")
                    for x in d.addresses if x.speaker.strip() in who and x.listener.strip() in who and x.speaker.strip() != x.listener.strip()
                    and (x.calls.strip() or x.speech.strip())]
     e.model, e.made_at = model, pipeline._now()
-    e.take, e.take_style, e.blind_take, e.blind, e.picked = None, None, "", [], ""
     merge_cast(lab, d.cast)
     return e
 
@@ -504,35 +503,61 @@ def world(lab: RevLab, number: int, use_style: bool = False) -> Project:
                    arc=[Act(name=a, start_ep=first, end_ep=last, goal="") for a in "기"])
 
 
+def room(e: RevEpisode) -> None:
+    """새 판을 쓸 자리가 있는지. 판이 MAX_TAKES 개면 오류 (저절로 지우지 않는다)."""
+    if len(e.takes) >= MAX_TAKES:
+        raise ValueError(f"{e.number}화에 되돌려 쓴 판이 {MAX_TAKES}개예요. 새로 쓰려면 판 목록에서 지울 판을 고르세요")
+
+
+def next_no(e: RevEpisode) -> int:
+    """새 판 번호. 지운 번호는 다시 쓰지 않는다 (가려 읽기 기록 · 쇠맛 실험실 조각이 판 번호로 가리킨다)."""
+    return max([t.no for t in e.takes] + [e.last_take]) + 1
+
+
 def run_write(lab_id: int, llm, number: int, use_style: bool = False) -> RevEpisode:
-    """역설계한 재료로 number 화를 한 번에 다시 쓴다 (큐 시트 실험의 조건 score). use_style 이면 문체 프로필을 넣고 take_style 에,
-    아니면 take 에 둔다. 블라인드 비교는 방금 쓴 글과 원문으로 새로 섞는다."""
+    """역설계한 재료로 number 화를 한 번에 다시 쓴다 (큐 시트 실험의 조건 score). 새 판으로 더하고 앞 판은 그대로 둔다.
+    새 판은 원문과 따로 가려 읽는다 (차례를 새로 섞는다)."""
     from . import research
 
     lab = load(lab_id)
     e = episode(lab, number)
+    room(e)
     q = world(lab, number, use_style)
     if not e.sheet.cues:
         raise ValueError("큐 시트에 큐가 없어요")
     cancel.check()
     text, sent = pipeline.write_scored(llm, q, number, e.sheet)
-    take = RevTake(text=text, style=use_style, prompt_chars=sent, sheet_basis=cue.basis(e.sheet), model=research._model_name(llm),
-                   at=pipeline._now())
+    take = RevTake(text=text, style=use_style, prompt_chars=sent, sheet_basis=cue.basis(e.sheet), provider=pipeline.writer_of(llm).split(":", 1)[0],
+                   model=research._model_name(llm), at=pipeline._now(), blind=RevBlind(order=random.sample(list(SIDES), 2)))
     cancel.check()
 
     def put(lab: RevLab) -> None:
         x = episode(lab, number)
-        if use_style:
-            x.take_style = take
-        else:
-            x.take = take
-        x.blind_take, x.blind, x.picked = "style" if use_style else "plain", random.sample(list(SIDES), 2), ""
+        room(x)  # 쓰는 동안 다른 작업이 판을 채웠으면 저장하지 않는다
+        take.no = next_no(x)
+        x.last_take = take.no
+        x.takes.append(take)
     return episode(with_lock(lab_id, put), number)
 
 
-def blind_of(e: RevEpisode) -> RevTake | None:
-    """블라인드 비교에 들어간 되돌려 쓴 글."""
-    return e.take_style if e.blind_take == "style" else e.take
+def pending(e: RevEpisode) -> RevTake | None:
+    """가려 읽기가 남은 판 가운데 가장 먼저 쓴 것."""
+    return next((t for t in e.takes if len(t.blind.order) == 2 and not t.blind.picked), None)
+
+
+def take_of(e: RevEpisode, no: int) -> RevTake:
+    t = next((t for t in e.takes if t.no == no), None)
+    if t is None:
+        raise ValueError(f"{e.number}화에 판 {no}이 없어요")
+    return t
+
+
+def drop_take(lab: RevLab, number: int, no: int) -> None:
+    """판 하나를 지운다. 번호는 다시 쓰지 않는다."""
+    e = episode(lab, number)
+    t = take_of(e, no)
+    e.last_take = max(e.last_take, max(x.no for x in e.takes))
+    e.takes.remove(t)
 
 
 def run_style(lab_id: int, llm) -> StyleProfile:
@@ -559,15 +584,25 @@ def style_sample(lab: RevLab) -> str:
     return text
 
 
-def pick(lab: RevLab, number: int, choice: int) -> str:
-    """블라인드 비교에서 고른다: 1 · 2 (보인 차례), 0 이면 건너뛰기. 고른 쪽(original · rewrite · skip)."""
+def pick(lab: RevLab, number: int, choice: int, no: int | None = None) -> str:
+    """가려 읽기가 남은 판(pending)에서 고른다: 1 · 2 (보인 차례), 0 이면 건너뛰기. 고른 쪽(original · rewrite · skip).
+    no 를 주면 그 판이 지금 가려 읽을 판인지 확인한다 (낡은 화면이 다른 판을 고르지 않게)."""
     e = episode(lab, number)
-    if not blind_of(e) or len(e.blind) != 2:
-        raise ValueError(f"{number}화는 되돌려 쓴 글이 없어요")
+    t = pending(e)
+    if t is None:
+        raise ValueError(f"{number}화는 가려 읽을 판이 없어요")
+    if no is not None and no != t.no:
+        raise ValueError(f"지금 가려 읽을 판은 판 {t.no}이에요. 화면을 새로 불러 주세요")
     if choice not in (0, 1, 2):
         raise ValueError("1, 2 가운데 고르거나 건너뛰세요")
-    e.picked = e.blind[choice - 1] if choice else "skip"
-    return e.picked
+    t.blind.picked = t.blind.order[choice - 1] if choice else "skip"
+    t.blind.seen = sum(1 for x in e.takes if x is not t and x.blind.picked)
+    t.blind.at = pipeline._now()
+    return t.blind.picked
+
+
+def take_label(t: RevTake) -> str:
+    return f"판 {t.no}"
 
 
 def style_base(lab: RevLab, number: int) -> tuple[metrics.StyleMetrics | None, str]:
@@ -582,22 +617,21 @@ def style_base(lab: RevLab, number: int) -> tuple[metrics.StyleMetrics | None, s
 
 
 def compare(lab: RevLab, e: RevEpisode) -> list[dict]:
-    """원문과 되돌려 쓴 글의 지표 (cue.score). 원문은 큐 경계로 나눠 큐마다 분량 · 템포 · 편성도 잰다.
+    """원문과 판마다의 지표 (cue.score). 원문은 큐 경계로 나눠 큐마다 분량 · 템포 · 편성도 잰다. 판 행의 condition 은 't<판 번호>'.
     문체 측정도 더한다: 이 화를 뺀 원문 기준 문체 거리(style_base), 쉼표 문장 비율, 문체 프로필 표지 빈도 경고,
-    되돌려 쓴 글이 이 화 원문 · 장치 예시를 옮긴 문장 (metrics.copied_sentences)."""
+    판이 이 화 원문 · 장치 예시를 옮긴 문장 (metrics.copied_sentences)."""
     if not e.sheet:
         return []
     q = world(lab, e.number)
     now = cue.basis(e.sheet)
-    sides = [("original", "원문", e.text, now)] + [(k, TAKES[k], t.text, t.sheet_basis)
-                                                   for k, t in (("plain", e.take), ("style", e.take_style)) if t]
+    sides = [("original", "원문", e.text, now, None)] + [(f"t{t.no}", take_label(t), t.text, t.sheet_basis, t.no) for t in e.takes]
     base, why = style_base(lab, e.number)
     markers = lab.style.markers if lab.style else []
     examples = [d.example for d in lab.style.devices if d.example] if lab.style else []
     rows = []
-    for key, label, text, basis in sides:
+    for key, label, text, basis, no in sides:
         s = cue.score(q, e.sheet, CueTake(condition=key, text=text, parts=parts(e) if key == "original" else [], sheet_basis=basis))
-        s["label"], s["stale"] = label, basis != now
+        s["label"], s["stale"], s["take"] = label, basis != now, no
         own = key == "original"
         s.update(style_distance=metrics.style_distance(base, text) if base else None, style_note=why,
                  comma_ratio=metrics.measure(text).comma_sentence_ratio, marker_warns=metrics.marker_warnings(markers, text) if markers else None,
@@ -605,6 +639,95 @@ def compare(lab: RevLab, e: RevEpisode) -> list[dict]:
                  copied_examples=None if own or not examples else metrics.copied_sentences(text, examples))
         rows.append(s)
     return rows
+
+
+# ---------- 실험별 AI ----------
+
+AI_STAGES = {"plan": "역설계 · 문체 프로필", "write": "되돌려 쓰기"}  # RevLab.ai 칸 → 화면 이름. 작업 parse · style 은 plan, write 는 write
+AI_PROVIDERS = ("gemini", "claude", "claude-api", "local")  # 직접 고를 수 있는 백엔드 (mock 은 설정에서만)
+
+
+def stage_of(kind: str) -> str:
+    return "write" if kind == "write" else "plan"
+
+
+def default_model(provider: str) -> str:
+    """모델 칸을 비웠을 때 그 백엔드가 쓰는 모델 이름 (llm.make_llm 과 같은 기본값). 로컬은 서버가 정하면 빈 글."""
+    from . import claude, settings
+
+    if provider == "gemini":
+        return settings.model()[0]
+    if provider == "local":
+        return settings.local_model()[0]
+    if provider == "claude":
+        return settings.claude_model()[0]
+    if provider == "claude-api":
+        return settings.claude_model()[0] or claude.DEFAULT_API_MODEL
+    return ""
+
+
+def ai_choice(lab: RevLab, stage: str) -> dict:
+    """stage 작업이 쓸 백엔드와 모델 {provider, model, source}. source: settings(설정을 따름) · preset · lab(직접 고름) ·
+    gone(고른 프리셋이 지워져 설정을 따름) · mock(설정이 mock 이면 모든 작업이 mock). 실험은 작품 밖이라 작품 프리셋은 보지 않는다."""
+    from . import settings
+
+    if stage not in AI_STAGES:
+        raise ValueError(f"모르는 단계예요: {stage}")
+    pick = getattr(lab.ai, stage)
+    if settings.provider()[0] == "mock":
+        return {"provider": "mock", "model": "", "source": "mock"}
+    pre = settings.find_preset(pick.preset) if pick.preset else None
+    if pre:
+        return {"provider": settings.stage_provider(stage, pre)[0], "model": settings.stage_model(stage, pre)[0], "source": "preset"}
+    if not pick.preset and pick.provider:
+        return {"provider": pick.provider, "model": pick.model, "source": "lab"}
+    return {"provider": settings.stage_provider(stage, None)[0], "model": settings.stage_model(stage, None)[0],
+            "source": "gone" if pick.preset else "settings"}
+
+
+def llm_for(lab: RevLab, kind: str):
+    """작업(parse · write · style)이 쓸 LLM. 키가 없으면 여기서 바로 오류를 낸다 (웹은 작업을 시작하기 전에 부른다)."""
+    from .llm import make_llm
+
+    stage = stage_of(kind)
+    c = ai_choice(lab, stage)
+    llm = make_llm(c["provider"], c["model"] or None)
+    llm.stage = stage  # type: ignore[attr-defined]  # 사용량 기록이 단계를 적는다
+    return llm
+
+
+def set_ai(lab: RevLab, stage: str, preset: str = "", provider: str = "", model: str = "") -> RevAI:
+    """stage 의 AI 를 고른다: preset(프리셋 id) · provider(+ model, 직접 고름) · 모두 비우면 설정을 따름. 다음 작업부터 쓴다."""
+    from . import settings
+
+    if stage not in AI_STAGES:
+        raise ValueError(f"모르는 단계예요: {stage}")
+    preset, provider, model = preset.strip(), provider.strip().lower(), model.strip()
+    if preset:
+        if not settings.find_preset(preset):
+            raise ValueError("고른 프리셋을 찾지 못했어요. 설정 화면에서 지워졌는지 확인해 주세요")
+        pick = RevAI(preset=preset)
+    elif provider:
+        if provider not in AI_PROVIDERS:
+            raise ValueError(f"고를 수 없는 AI예요: {provider}")
+        pick = RevAI(provider=provider, model=model)
+    else:
+        pick = RevAI()
+    setattr(lab.ai, stage, pick)
+    return pick
+
+
+def ai_view(lab: RevLab) -> dict:
+    """화면 값: 단계마다 고른 값 · 쓸 값(use) · 설정을 따를 때 값(follow), 고를 수 있는 프리셋."""
+    from . import settings
+
+    def now(stage: str, follow: bool) -> dict:
+        c = ai_choice(RevLab(id=0) if follow else lab, stage)
+        return {**c, "default": default_model(c["provider"]) if not c["model"] else ""}
+    stages = [{"stage": k, "label": v, **getattr(lab.ai, k).model_dump(), "use": now(k, False), "follow": now(k, True)}
+              for k, v in AI_STAGES.items()]
+    return {"stages": stages, "presets": [{"id": p["id"], "name": p["name"]} for p in settings.presets()],
+            "custom": any(getattr(lab.ai, k) != RevAI() for k in AI_STAGES)}
 
 
 # ---------- 비용 추정과 역설계 실행 ----------
@@ -636,8 +759,11 @@ def estimate(lab: RevLab, kind: str, numbers: list[int] | None = None, model: st
     if kind not in ("parse", "write", "style"):
         raise ValueError(f"모르는 추정이에요: {kind}")
     nums = choose(lab, numbers) if kind != "style" else []
-    stage = "write" if kind == "write" else "plan"
-    model = model or settings.stage_model(stage)[0] or settings.model()[0]
+    if kind == "write":
+        for n in nums:
+            room(episode(lab, n))
+    c = ai_choice(lab, stage_of(kind))
+    model = model or c["model"] or default_model(c["provider"]) or settings.model()[0]
     price = usage.rate(model, date.today().isoformat())
     rows = []
     if kind == "style":
@@ -663,7 +789,7 @@ def estimate(lab: RevLab, kind: str, numbers: list[int] | None = None, model: st
             + {"parse": f"약 {PARSE_OUT_TOKENS:,}토큰으로 잡았어요.", "write": "원문 분량만큼 잡았어요.",
                "style": f"약 {STYLE_OUT_TOKENS:,}토큰으로 잡았어요 (원문 앞 {STYLE_CHARS:,}자까지 넣어요)."}[kind]
             + " 캐시와 생각 토큰은 넣지 않았어요.")
-    return {"kind": kind, "model": model, "priced": price is not None, "calls": len(rows), "rows": rows,
+    return {"kind": kind, "provider": c["provider"], "model": model, "priced": price is not None, "calls": len(rows), "rows": rows,
             "usd": round(total, 3) if price else None, "note": note}
 
 
@@ -710,12 +836,12 @@ def summary(lab: RevLab) -> dict:
     """목록 · 머리 값. steps 는 화마다 단계 판정에 드는 값만 (화면 revLabLite · revSteps · revNext 가 쓴다, 원문은 보내지 않는다)."""
     done = [e for e in lab.episodes if e.sheet]
     steps = [{"number": e.number, "head": e.head, "chars": len(e.text), "sheet": bool(e.sheet),
-              "takes": int(bool(e.take)) + int(bool(e.take_style)), "picked": e.picked,
-              "blind": not e.picked and len(e.blind) == 2 and blind_of(e) is not None} for e in lab.episodes]
+              "takes": len(e.takes), "blind": sum(1 for t in e.takes if _waiting(t)),
+              "picks": {k: sum(1 for t in e.takes if t.blind.picked == k) for k in ("original", "rewrite", "skip")}} for e in lab.episodes]
     return {"id": lab.id, "title": lab.title, "created": lab.created, "updated": _updated(lab.id) or lab.created,
             "episodes": len(lab.episodes), "done": len(done), "chars": sum(len(e.text) for e in lab.episodes),
             "first": lab.episodes[0].number if lab.episodes else 1,
-            "rewrites": sum(1 for e in lab.episodes if e.take or e.take_style), "cast_count": len(lab.cast),
+            "rewrites": sum(1 for e in lab.episodes if e.takes), "cast_count": len(lab.cast),
             "has_style": lab.style is not None, "steps": steps}
 
 
@@ -730,25 +856,34 @@ def listing() -> list[dict]:
     return sorted(out, key=lambda x: (x["updated"], x["id"]), reverse=True)
 
 
+def _waiting(t: RevTake) -> bool:
+    return len(t.blind.order) == 2 and not t.blind.picked
+
+
+def _take_view(t: RevTake, now: str) -> dict:
+    """판 하나의 화면 값. 가려 읽기가 남은 판은 본문과 보인 차례를 빼서 어느 쪽이 원문인지 알 수 없게 한다."""
+    b = t.blind
+    state = "wait" if _waiting(t) else "done" if b.picked else "none"
+    blind = {"state": state, "seen": b.seen, **({"picked": b.picked, "order": b.order, "at": b.at} if state == "done" else {})}
+    return {"no": t.no, "label": take_label(t), "style": t.style, "provider": t.provider, "model": t.model, "at": t.at,
+            "prompt_chars": t.prompt_chars, "stale": t.sheet_basis != now, "chars": len(t.text), "blind": blind,
+            **({} if state == "wait" else {"text": t.text})}
+
+
 def _ep_view(lab: RevLab, e: RevEpisode) -> dict:
-    """화 하나의 화면 값. 블라인드 비교를 고르기 전에는 어느 쪽이 원문인지 알 수 있는 값(차례, 되돌려 쓴 글 본문 · 지표)을 뺀다."""
-    out = e.model_dump(exclude={"take", "take_style", "blind", "blind_take"})
+    """화 하나의 화면 값. 가려 읽기를 고르기 전의 판은 어느 쪽이 원문인지 알 수 있는 값(차례, 본문 · 지표)을 뺀다."""
+    out = e.model_dump(exclude={"takes", "last_take"})
     out["chars"] = len(e.text)
     out["missing"] = [i + 1 for i, b in enumerate(e.bounds) if not b.found]
     out["bounds_ok"] = bool(e.sheet) and len(e.bounds) == len(e.sheet.cues)
     now = cue.basis(e.sheet) if e.sheet else ""
-    out["takes"] = []
-    for key, t in (("plain", e.take), ("style", e.take_style)):
-        if t:  # 블라인드에 든 글의 본문은 고른 뒤에만 보인다
-            show = bool(e.picked) or key != (e.blind_take or "plain")
-            out["takes"].append({"mode": key, "label": TAKES[key], "model": t.model, "at": t.at, "prompt_chars": t.prompt_chars,
-                                 "stale": t.sheet_basis != now, **({"text": t.text} if show else {})})
-    b = blind_of(e)
-    out["blind_texts"] = [e.text if side == "original" else b.text for side in e.blind] if b and not e.picked and len(e.blind) == 2 else []
-    if e.picked:
-        out["blind"], out["blind_take"] = e.blind, e.blind_take or "plain"
-    hide = "" if e.picked else (e.blind_take or "plain") if b else ""
-    out["scores"] = [r for r in (compare(lab, e) if e.sheet else []) if r["condition"] != hide]  # 고르기 전에는 블라인드에 든 글의 지표를 뺀다
+    out["takes"] = [_take_view(t, now) for t in e.takes]
+    out["limit"], out["next_take"] = MAX_TAKES, next_no(e)
+    b = pending(e)
+    out["blind_no"] = b.no if b else 0
+    out["blind_texts"] = [e.text if side == "original" else b.text for side in b.blind.order] if b else []
+    hide = {f"t{t.no}" for t in e.takes if _waiting(t)}
+    out["scores"] = [r for r in (compare(lab, e) if e.sheet else []) if r["condition"] not in hide]  # 고르기 전에는 그 판의 지표를 뺀다
     return out
 
 
@@ -759,10 +894,10 @@ def view(lab: RevLab) -> dict:
             "context": [{"number": e.number, **{k: [x.model_dump() for x in v] if k in ("ties", "addresses") else v
                                                  for k, v in context_upto(lab, e.number).items()}} for e in lab.episodes if e.sheet][-1:],
             "style": lab.style.model_dump(exclude={"sample_passages"}) if lab.style else None, "style_model": lab.style_model,
-            "style_at": lab.style_at, "items": [_ep_view(lab, e) for e in lab.episodes]}
+            "style_at": lab.style_at, "ai": ai_view(lab), "items": [_ep_view(lab, e) for e in lab.episodes]}
 
 
 def labels() -> dict:
     return {"splits": [{"key": k, "label": v} for k, v in SPLITS.items()], "max_episodes": MAX_EPISODES, "max_chars": MAX_CHARS,
-            "min_chars": MIN_CHARS, "preface_min": PREFACE_MIN, "head_max": HEAD_MAX}
+            "min_chars": MIN_CHARS, "preface_min": PREFACE_MIN, "head_max": HEAD_MAX, "max_takes": MAX_TAKES}
 
