@@ -596,7 +596,7 @@ function revRunCard() {
       ${r.state === 'done' && r.n ? `<a class="btn small" href="#/revlab/${L.id}/${r.n}">열기</a>` : '<span></span>'}</li>`).join('') : '';
   const left = jobLeft(j, Date.now() / 1000);
   return `<section class="card rev-run" aria-live="polite"><div class="between"><h2>${what}</h2><button type="button" class="btn small" data-job-stop="${j.id}">멈추기</button></div>
-    <div class="small"><span data-elapsed="${j.id}">경과 ${elapsed(j)}</span>${j.total > 1 ? ` · 요청 ${j.total}번 중 ${Math.min(j.done + 1, j.total)}번째` : ''}${left ? ` · ${left}` : ''}</div>
+    <div class="small"><span data-elapsed="${j.id}" aria-hidden="true">경과 ${elapsed(j)}</span>${j.total > 1 ? ` · 요청 ${j.total}번 중 ${Math.min(j.done + 1, j.total)}번째` : ''}${left ? ` · ${left}` : ''}</div>
     <div class="rev-meter big" role="progressbar" aria-valuemin="0" aria-valuemax="${j.total}" aria-valuenow="${j.done}" aria-label="${what}"><i style="width:${pct}%"></i></div>
     ${rows ? `<ol class="rev-run-rows">${rows}</ol>` : ''}
     <div class="note plain">${j.kind === 'rev_parse' ? '화마다 끝나는 대로 저장해요. 끝난 화는 지금 열어 봐도 되고, 다른 화면으로 가도 돼요. ' : ''}다 끝나면 위쪽 알림 버튼으로 알려 드려요.</div></section>`;
@@ -1135,18 +1135,18 @@ Object.assign(actions, {
     S.revSel = S.revSel === k ? 0 : k;
     render();
     const el = document.getElementById(`rev-cue-${k}`);
-    if (el && S.revSel) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (el && S.revSel) el.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   },
 });
 
 (() => {
   const css = `
-/* 목차 틀은 공용(app.css .outline-*). 이 화면은 위쪽 띠가 없고, 목차의 화 이름은 한 줄로 자른다 */
-.rev-wrap { --outline-band: 0px; }
-.rev-wrap .outline-item .tl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 목차 틀은 공용(app.css .outline-*): 목차의 화 이름은 한 줄로 자르고, 900px 이하는 위쪽 띠 아래에 붙는다.
+   화 줄의 ⋯ 메뉴 창이 목록 밖으로 나가야 해서 넓은 폭 목록도 굴리지 않는다 */
+.rev-wrap .outline-list { max-height: none; overflow: visible; }
 /* 목차 화 줄: 오른쪽 ⋯ 메뉴는 줄에 올리거나 포커스가 들어오거나 메뉴가 열리면 보이고, 그동안 글자 수를 가린다 (터치 화면은 늘 보임) */
 .rev-toc-ep { position: relative; }
-.rev-toc-ep.open { z-index: 5; }  /* 열린 메뉴 창이 아래 줄 위에 오게 */
+.rev-toc-ep.open { z-index: var(--z-raise); }  /* 열린 메뉴 창이 아래 줄 위에 오게 */
 .rev-toc-ep > .menu { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); opacity: 0; }
 .rev-toc-ep:hover > .menu, .rev-toc-ep:focus-within > .menu, .rev-toc-ep.open > .menu { opacity: 1; }
 .rev-toc-ep:hover .st, .rev-toc-ep:focus-within .st, .rev-toc-ep.open .st { visibility: hidden; }
@@ -1158,8 +1158,8 @@ Object.assign(actions, {
 .btn.icon-btn.rev-toc-btn { width: 36px; min-height: 36px; }
 .rev-toc-btn svg { width: 18px; height: 18px; }
 @media (pointer: coarse) {
-  .btn.icon-btn.rev-toc-btn { width: 44px; min-height: 44px; }
-  .rev-toc-ep .outline-item { min-height: 44px; }
+  .btn.icon-btn.rev-toc-btn { width: var(--touch-min); min-height: var(--touch-min); }
+  .rev-toc-ep .outline-item { min-height: var(--touch-min); }
 }
 .rev-drop-note { margin: 6px 10px; }
 .rev-ep-h { display: flex; align-items: center; justify-content: space-between; padding-top: 8px; padding-bottom: 0; }
@@ -1219,7 +1219,7 @@ Object.assign(actions, {
 .rev-seg { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 12px; padding: 4px 8px 4px 0; border: 1px solid transparent; border-radius: 8px; scroll-margin-top: 80px; }
 .rev-seg.sel { background: var(--sel-bg); border-color: var(--sel-line); }
 .rev-seg .cue-text { line-height: 1.9; }
-.rev-gut { align-self: stretch; min-height: 44px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 2px 0 2px 8px; border: none; border-left: 4px solid var(--line-strong); border-radius: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.rev-gut { align-self: stretch; min-height: var(--touch-min); display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 2px 0 2px 8px; border: none; border-left: 4px solid var(--line-strong); border-radius: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .rev-gut:hover { background: var(--bg); }
 .rev-gut.fn-T { border-left-color: var(--act-1-ink); }
 .rev-gut.fn-S { border-left-color: var(--act-2-ink); }
@@ -1232,7 +1232,7 @@ Object.assign(actions, {
 .rev-cues { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .rev-cue { border: 1px solid transparent; border-radius: 8px; }
 .rev-cue.sel { background: var(--sel-bg); border-color: var(--sel-line); }
-.rev-cue-btn { width: 100%; min-height: 44px; display: grid; grid-template-columns: 28px 20px minmax(0, 1fr); gap: 4px 8px; align-items: center; padding: 6px 8px; border: none; border-radius: 8px; background: transparent; color: inherit; font: inherit; font-size: 0.8125rem; text-align: left; cursor: pointer; }
+.rev-cue-btn { width: 100%; min-height: var(--touch-min); display: grid; grid-template-columns: 28px 20px minmax(0, 1fr); gap: 4px 8px; align-items: center; padding: 6px 8px; border: none; border-radius: 8px; background: transparent; color: inherit; font: inherit; font-size: 0.8125rem; text-align: left; cursor: pointer; }
 .rev-cue-btn:hover { background: var(--bg); }
 .rev-cue-btn .meta { grid-column: 3; font-size: 0.75rem; color: var(--muted); }
 .rev-cue-more { padding: 0 10px 10px 32px; }
@@ -1248,9 +1248,9 @@ Object.assign(actions, {
 .rev-mx td, .rev-mx th { white-space: nowrap; }
 .rev-mx .rev-far { color: var(--amber-ink); font-weight: 700; }
 .rev-mx-ep th { padding-top: 14px; text-align: left; }
-.rev-est summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; }
+.rev-est summary { cursor: pointer; min-height: var(--touch-min); display: flex; align-items: center; }
 .rev-run-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.rev-run-row { min-height: 44px; display: grid; grid-template-columns: 14px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 0 8px; border-radius: 8px; }
+.rev-run-row { min-height: var(--touch-min); display: grid; grid-template-columns: 14px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 0 8px; border-radius: 8px; }
 .rev-run-row.run { background: var(--sel-bg); }
 .rev-run-row.wait .tl { color: var(--muted); }
 @container outline (max-width: 1040px) {

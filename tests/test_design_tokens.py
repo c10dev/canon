@@ -155,3 +155,35 @@ def test_z_index_uses_ladder():
     bad = [v for v in re.findall(r"z-index\s*:\s*([^;}]+)", text)
            if not v.strip().startswith(("var(--z-", "calc(var(--z-")) and v.strip() not in ("0", "auto")]
     assert not bad, f"z-index 를 --z-* 변수로 써 주세요: {bad}"
+
+
+def test_z_index_in_js_css_uses_ladder():
+    # JS 가 넣는 CSS(템플릿 글 · style 속성)도 같은 사다리를 쓴다
+    bad = []
+    for path in sorted((ROOT / "canon" / "static").glob("*.js")):
+        text = path.read_text(encoding="utf-8")
+        for v in re.findall(r"z-index\s*:\s*([^;}`\"]+)", text):
+            if not v.strip().startswith(("var(--z-", "calc(var(--z-")) and v.strip() not in ("0", "auto"):
+                bad.append(f"{path.name}: z-index {v.strip()}")
+    assert not bad, "z-index 를 --z-* 변수로 써 주세요:\n" + "\n".join(bad)
+
+
+def test_font_families_match_css():
+    # 글꼴 묶음 sans · serif · mono 는 tokens.json type.families 와 app.css :root 가 같다
+    data = json.loads(TOKENS.read_text(encoding="utf-8"))
+    css = _decls(_root_text())
+    errs = []
+    for name, want in data["type"]["families"].items():
+        if name not in css:
+            errs.append(f"--{name} 가 app.css :root 에 없어요")
+        elif css[name] != _norm(want):
+            errs.append(f"--{name} 값이 달라요 (tokens.json {_norm(want)}, app.css {css[name]})")
+    assert not errs, "\n".join(errs)
+
+
+def test_font_family_lists_use_variables():
+    # 글꼴 목록을 규칙마다 다시 적지 않는다(:root 와 상태창 스킨 --sw-font 만 예외)
+    text = re.sub(r"/\*.*?\*/", "", CSS.read_text(encoding="utf-8"), flags=re.S)
+    text = text.replace(_root_text(), "")
+    bad = [m for m in re.findall(r"font-family\s*:\s*([^;}]+)", text) if "monospace" in m]
+    assert not bad, f"고정폭 글꼴은 var(--mono) 로 써 주세요: {bad}"

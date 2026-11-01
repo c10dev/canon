@@ -269,7 +269,8 @@ Object.assign(actions, {
 .bd-k { color: var(--text-2); font-size: 0.8125rem; font-weight: 700; }
 .bd-list, .bd-scenes { margin: 0; padding-left: 1.25em; display: flex; flex-direction: column; gap: 6px; }
 .bd-table { border-collapse: collapse; font-size: 0.8125rem; width: 100%; }
-.bd-table th, .bd-table td { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: top; }
+.bd-table th, .bd-table td { border-bottom: 1px solid var(--rule); padding: 4px 6px; text-align: left; vertical-align: top; }
+.bd-table thead th { font-size: 0.75rem; font-weight: 500; color: var(--muted); border-bottom-color: var(--line); }
 .bd-win { white-space: pre-wrap; font-size: 0.8125rem; background: var(--bg); padding: 8px; border-radius: 8px; }
 .bd-fs { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
 .bd-form textarea { width: 100%; }

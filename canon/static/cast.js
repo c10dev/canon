@@ -27,7 +27,7 @@ const CAST_W = 760;
 const CAST_H = 540;
 // 온기 다섯 구간 (dynamics.warmth_word 와 같은 경계): 빨강 ↔ 회색 ↔ 파랑. Swift 앱 WarmthBand 도 함께 고친다
 // 색은 app.css 토큰을 쓴다(라이트 · 다크 값이 따로 있다). SVG 에서는 style 로만 넣는다(stroke="var(..)" 속성은 먹지 않는다)
-const WARMTH_BANDS = [[-0.6, 'var(--red)', '적대한다'], [-0.2, 'var(--bad)', '반감이 있다'], [0.2, 'var(--warm-mid)', '무덤덤하다'], [0.6, 'var(--good)', '호감이 있다'], [Infinity, 'var(--warm-deep)', '깊이 아낀다']];
+const WARMTH_BANDS = [[-0.6, 'var(--warm-hostile)', '적대한다'], [-0.2, 'var(--bad)', '반감이 있다'], [0.2, 'var(--warm-mid)', '무덤덤하다'], [0.6, 'var(--good)', '호감이 있다'], [Infinity, 'var(--warm-deep)', '깊이 아낀다']];
 const TENSION_FILL = { '보통': 'var(--tension-mid)', '높음': 'var(--tension-high)', '매우 높음': 'var(--red)' };
 const PAIR_COLORS = ['var(--pair-a)', 'var(--pair-b)'];  // 쌍 그래프: 앞 인물 → 뒤 인물, 뒤 → 앞
 const TIER_R = { main: 26, support: 20, minor: 15 };

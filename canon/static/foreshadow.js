@@ -3,7 +3,7 @@
    개요: 수치 띠 → 손볼 것(끊어진 연결 · 예정 지남 · 오래 묵음과 할 일) → 복선 지도(화 축 하나, 줄마다 복선 하나) → 앞으로 회수할 것.
    복선 하나: 축 위 한 줄 → 본문에 걸린 문장과 흐름(지난 일 실선, 지금, 앞으로 점선) → 회수 계획(읽기 카드, '고치기'로 그 카드만).
    계산값은 서버 canon/foreshadows.py 의 center() 를 /foreshadows 한 번으로 받는다.
-   본문에서 문장을 골라 '복선으로'를 누르면 떠 있는 도구(#sel-tool)가 걸기 칸(mode 'foreshadow')이 된다. 고치는 본문은 passage.js 도구, 반영한 화의 읽기 전용 본문은 illust.js 도구에서 연다.
+   본문에서 문장을 골라 '복선으로 걸기'를 누르면 떠 있는 도구(#sel-tool)가 걸기 칸(mode 'foreshadow')이 된다. 고치는 본문은 passage.js 도구, 반영한 화의 읽기 전용 본문은 illust.js 도구에서 연다.
    상태 승인 화면에서 AI 가 찾은 문장은 'q' 항목으로 고른다 (fsClueRows).
    fsBands · fsAt · fsMarks · fsFlag · fsAttention · fsTodo · fsTocRows · fsFlow · fsAhead · fsTicks · fsCandidates 는 순수 함수(tests/test_foreshadow_js.py) */
 'use strict';
@@ -29,8 +29,6 @@ const FS_PICK_MAX = 6;    // 걸기 칸에 찾기 없이 보이는 복선 수
   const css = `
 .fs-col { display: flex; flex-direction: column; gap: var(--gap-stack); min-width: 0; container: fscol / inline-size; }
 .fs-col > .card { scroll-margin-top: 16px; }
-@container outline (min-width: 721px) { .fs-wrap .outline-list { max-height: calc(100vh - 32px); overflow-y: auto; } }
-.fs-wrap .outline-item .tl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fs-wrap .outline-item .mk { flex: none; width: 10px; display: inline-flex; justify-content: center; }
 .fs-sym { display: inline-block; flex: none; }
 .fs-sym.plant { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
@@ -62,6 +60,7 @@ const FS_PICK_MAX = 6;    // 걸기 칸에 찾기 없이 보이는 복선 수
 .fs-axis, .fs-row { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr) 136px; gap: 12px; align-items: center; }
 .fs-axis { padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 .fs-row { min-height: 36px; border-bottom: 1px solid var(--rule); color: var(--text); text-decoration: none; }
+@media (pointer: coarse), (max-width: 640px) { .fs-row { min-height: var(--touch-min); } }
 .fs-row:last-child { border-bottom: none; }
 .fs-row:hover { background: var(--canvas); }
 .fs-row .lb { min-width: 0; display: flex; align-items: center; gap: 8px; padding-left: 4px; }
@@ -128,7 +127,7 @@ const FS_PICK_MAX = 6;    // 걸기 칸에 찾기 없이 보이는 복선 수
 .fs-pick { display: flex; flex-direction: column; max-height: 264px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
 .fs-pick > * { flex: none; border-top: 1px solid var(--rule); }
 .fs-pick > :first-child { border-top: none; }
-.fs-pick label { min-height: 44px; padding: 6px 10px; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; font-size: 0.8125rem; cursor: pointer; }
+.fs-pick label { min-height: var(--touch-min); padding: 6px 10px; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; font-size: 0.8125rem; cursor: pointer; }
 .fs-pick label:has(input:checked) { background: var(--sel-bg); }
 .fs-pick input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
 .fs-pick .dd { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -419,7 +418,7 @@ function fsAddForm(c) {
   if (!S.fsAdd) return '';
   return `<section class="card pf-sec editing" id="fs-add" tabindex="-1">
     <div class="pf-head"><h2>복선 직접 더하기 <span class="small pf-state">고치는 중</span></h2></div>
-    <p class="small">본문 문장 없이 계획만 적어 둘 수도 있어요. 문장을 함께 걸려면 집필 화면에서 문장을 골라 '복선으로'를 누르세요.</p>
+    <p class="small">본문 문장 없이 계획만 적어 둘 수도 있어요. 문장을 함께 걸려면 집필 화면에서 문장을 골라 '복선으로 걸기'를 누르세요.</p>
     <div class="fs-edit"><div class="field"><label for="fs-new-d">내용</label><input id="fs-new-d" type="text" placeholder="예: 서윤의 목걸이에 새겨진 문양"></div>
       <div class="field"><label for="fs-new-s">회수 범위</label><select id="fs-new-s">${Object.entries(FS_SCOPE).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>
       <div class="field"><label for="fs-new-u">회수 예정 화</label><input id="fs-new-u" type="number" min="1" placeholder="미정"></div></div>
@@ -480,7 +479,7 @@ function fsFlowCard(x, c) {
   };
   return `<section class="card"><div class="fs-head"><h2>본문에 걸린 문장 ${clueN}</h2><span class="small">지난 일은 실선, 앞으로 할 일은 점선</span></div>
     <div class="fs-flow">${flow.map(row).join('')}</div>
-    <p class="note plain">AI가 찾은 문장은 상태 승인에서 고른 것만 들어와요. 집필 화면에서 문장을 골라 '복선으로'를 누르면 여기에 더해져요.</p></section>`;
+    <p class="note plain">AI가 찾은 문장은 상태 승인에서 고른 것만 들어와요. 집필 화면에서 문장을 골라 '복선으로 걸기'를 누르면 여기에 더해져요.</p></section>`;
 }
 
 function fsDetail(x, c, bands) {

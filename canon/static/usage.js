@@ -139,7 +139,7 @@ function usageChart(u) {
     : u.by_day.length ? new Date(`${u.by_day.map((r) => r.day).sort()[0]}T00:00:00`) : today;
   let days = [];
   for (let x = new Date(from); x <= today; x = new Date(x.getFullYear(), x.getMonth(), x.getDate() + 1)) days.push(key(x));
-  const narrow = window.matchMedia('(max-width: 640px)').matches;
+  const narrow = mq('phone').matches;
   const weekly = days.length > 120 || (narrow && days.length > 60);
   if (weekly) {
     const weeks = {};
@@ -316,7 +316,8 @@ function priceRedraw() {
 }
 
 async function priceSend(label, fn, done) {
-  $('#busy-text').textContent = label;
+  $('#busy-label').textContent = label;
+  $('#busy-sec').textContent = '';
   $('#busy').hidden = false;
   try {
     pricesSet(await fn());

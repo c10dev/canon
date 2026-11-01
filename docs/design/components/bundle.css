@@ -1,4 +1,4 @@
-/* Canon 공통 바탕과 컴포넌트. canon/static/app.css (main@fab47b8, 2026-10-31) 의 규칙을 그대로 옮겼다. 색은 tokens.json 의 토큰을 쓴다. 원본은 app.css 이고, 화면 모양을 바꾸면 이 파일도 함께 고친다 */
+/* Canon 공통 바탕과 컴포넌트. canon/static/app.css (main@b960880, 2026-11-01) 의 규칙을 그대로 옮겼다. 색은 tokens.json 의 토큰을 쓴다. 원본은 app.css 이고, 화면 모양을 바꾸면 이 파일도 함께 고친다 */
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&family=Noto+Serif+KR:wght@400;600&display=swap');
 :root { --sans: var(--font-sans); --serif: var(--font-serif); }
 * { box-sizing: border-box; }
@@ -10,7 +10,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--
 .btn.primary:hover { background: var(--accent-hover); color: var(--on-accent); }
 .btn.dark { border-color: var(--inverse-bg); background: var(--inverse-bg); color: var(--inverse-ink); font-weight: 700; }
 .btn.small { min-height: 36px; padding: 0 12px; font-size: 0.8125rem; }
-@media (pointer: coarse), (max-width: 640px) { .btn.small { min-height: 44px; } }
+@media (pointer: coarse), (max-width: 640px) { .btn.small, .seg button, .outline-item, .pop-radio, .pop-check { min-height: 44px; } }
 .btn.ghost { color: var(--link); background: transparent; }
 .btn.ghost:hover { background: var(--btn); }
 .btn.danger { color: var(--red); }
@@ -100,6 +100,19 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--
 .tabs button { flex: none; white-space: nowrap; min-height: 44px; padding: 0 16px; border: none; border-bottom: 3px solid transparent; background: transparent; color: var(--text-2); font: inherit; font-size: 0.875rem; cursor: pointer; }
 .tabs button[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
 .tabs.wrap { flex-wrap: wrap; overflow-x: visible; }
+/* Table */
+.rs-scroll, .sw-table-wrap { overflow-x: auto; position: relative; }
+.rs-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+.rs-table th { text-align: left; font-weight: 500; color: var(--muted); font-size: 0.75rem; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.rs-table td { padding: 6px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.rs-table td.over { background: var(--red-soft); color: var(--red); font-weight: 700; }
+.rs-table td.tight { background: var(--amber-soft); color: var(--amber-ink); font-weight: 700; }
+.sw-table { border-collapse: collapse; font-size: 0.8125rem; min-width: 100%; }
+.sw-table th, .sw-table td { padding: 8px 10px; border-bottom: 1px solid var(--rule); text-align: left; white-space: nowrap; vertical-align: top; }
+.sw-table thead th { font-size: 0.75rem; font-weight: 500; color: var(--muted); border-bottom-color: var(--line); }
+.sw-table tbody th { font-weight: 700; position: sticky; left: 0; background: var(--surface); }
+.sw-table td.ch { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
+.tab-panel { display: flex; flex-direction: column; gap: inherit; min-width: 0; }
 
 /* ----- 입력칸 (Field) ----- */
 textarea:disabled, select:disabled, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):disabled { background: var(--bg); color: var(--text-2); cursor: not-allowed; }
@@ -144,7 +157,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .pop-panel { position: absolute; right: 0; top: calc(100% + 6px); z-index: 12; width: min(320px, calc(100vw - 32px)); max-height: min(70vh, 560px); overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 2px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.16); color: var(--text); font-size: 0.8125rem; text-align: left; white-space: normal; }
 .pop-panel.left { right: auto; left: 0; }
 .pop-sec { margin: 0; padding: 8px; border: none; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.pop-sep { margin: 4px 0; border-top: 1px solid var(--rule); }
+.pop-sep { margin: 4px 0; border: 0; border-top: 1px solid var(--rule); }
 .pop-legend { padding: 0 0 4px; font-size: 0.75rem; font-weight: 700; color: var(--muted); }
 .pop-item { width: 100%; min-height: 44px; padding: 0 10px; border: none; border-radius: 8px; background: transparent; color: var(--text); font: inherit; font-size: 0.8125rem; text-align: left; display: flex; align-items: center; gap: 10px; cursor: pointer; }
 .pop-item:hover { background: var(--bg); }
@@ -201,17 +214,19 @@ a.fl-cell:hover { background: var(--bg); color: var(--text); }
 .outline-wrap { container: outline / inline-size; }
 .outline-doc { display: grid; grid-template-columns: 220px minmax(0, 760px); gap: 32px; align-items: start; }
 .outline-doc.wide { grid-template-columns: 220px minmax(0, 1fr); }
-.outline { position: sticky; top: 16px; z-index: 4; }
+.outline { position: sticky; top: calc(16px + var(--band, 0px)); z-index: 6; }
 .outline-now { display: none; }
 .outline-now .tl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .outline-list { display: flex; flex-direction: column; gap: 2px; }
+@container outline (min-width: 721px) { .outline-list { max-height: calc(100vh - 32px - var(--band, 0px)); overflow-y: auto; padding-inline: 5px; margin-inline: -5px; } }
 .outline-h { padding: 14px 10px 4px; font-size: 0.75rem; color: var(--muted); }
 .outline-sep { height: 1px; margin: 8px 4px; background: var(--line); }
 .outline-note { padding: 8px 10px 0; line-height: 1.6; }
 .outline-item { min-height: 38px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-2); font: inherit; font-weight: 500; text-align: left; text-decoration: none; display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .outline-item:hover { background: var(--surface); color: var(--text); }
 .outline-item[aria-current] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
-.outline-item .tl { min-width: 0; }
+.outline-item .tl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outline-item:focus-visible { outline-offset: -3px; }
 .outline-item .st { margin-left: auto; padding-left: 6px; font-size: 0.75rem; color: var(--muted); font-weight: 500; white-space: nowrap; }
 .outline-item .st.warn, .outline-item.warn .st { color: var(--amber-ink); font-weight: 700; }
 .outline-item.warn .tl::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--amber); vertical-align: 1px; }
@@ -222,9 +237,9 @@ a.fl-cell:hover { background: var(--bg); color: var(--text); }
 .outline-item .n.run { background: var(--accent-soft); color: var(--accent-ink); }
 @container outline (max-width: 720px) {
   .outline-doc, .outline-doc.wide { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-  .outline { top: var(--outline-band, var(--band, 0px)); margin: 0 -2px; padding: 8px 2px; background: var(--bg); }
+  .outline { top: var(--band, 0px); margin: 0 -2px; padding: 8px 2px; background: var(--bg); }
   .outline-now { display: flex; width: 100%; justify-content: space-between; gap: 8px; }
-  .outline-now + .outline-list { display: none; position: absolute; left: 0; right: 0; top: calc(100% - 4px); padding: 8px; border-radius: 12px; background: var(--surface); box-shadow: 0 6px 24px rgba(0,0,0,0.16); max-height: 70vh; overflow-y: auto; }
+  .outline-now + .outline-list { display: none; position: absolute; left: 0; right: 0; top: calc(100% - 4px); padding: 8px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface); box-shadow: 0 6px 24px rgba(0,0,0,0.16); max-height: 70vh; overflow-y: auto; }
   .outline.open .outline-list { display: flex; }
   .outline-item { min-height: 44px; }
 }

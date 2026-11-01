@@ -303,7 +303,7 @@ Object.assign(actions, {
     if (!editableEp(ep(n))) {
       const el = document.querySelectorAll(`.read mark[data-hl="${key}"]`)[i];
       if (!el) return toast('밑줄을 켜면 본문에서 볼 수 있어요', true);
-      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      el.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
       el.classList.remove('flash');
       void el.offsetWidth;
       el.classList.add('flash');
