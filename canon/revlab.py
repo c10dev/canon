@@ -3,7 +3,7 @@
 사람 글의 구조를 Canon 의 표현으로 적어 보고, 그 표현으로 같은 화를 다시 써서(되돌려 쓰기) Canon 의 큐 시트가 사람 글의 구조를
 얼마나 담는지 잰다. 작품(project.json)에는 넣지 않고 실험 파일 <CANON_HOME>/.revlab/<번호>.json 에 둔다 (문체 라이브러리처럼 작품 밖).
 
-- 나누기(split): 'n화' 제목 줄 → '===' 줄 → 빈 줄 세 개 넘게 → 한 화. 화면의 미리보기(static/revlab.js revSplit)와 같은 규칙.
+- 나누기(split): 레퍼런스 원고와 같은 규칙(refs.split): 화 표시 줄 → 기호 줄 → 빈 줄 세 개 넘게 → 한 화. 화면 미리보기도 서버에 묻는다.
 - 역설계(pipeline.reverse_episode, plan 단계): 화마다 한 번. 큐 경계는 원문 글자 그대로의 시작 인용(RevCue.start)으로 받아
   Canon 이 원문에서 찾고(locate), 큐 글자 수는 그 경계로 잰다. 핵심 대사는 원문에 글자 그대로(공백 · 따옴표 · 문장부호 빼고) 있는 것만
   남긴다(keep_lines). 화가 둘 넘으면 이야기 줄기를 한 번 더 묻는다(pipeline.reverse_lines).
@@ -26,11 +26,9 @@ from .schema import (Act, AddressForm, BoardHandover, BoardScene, BoardTime, Cha
                      Storyline)
 
 # 화를 나눈 규칙 (화면 이름)
-SPLITS: dict[str, str] = {"heading": "'n화' 제목 줄", "mark": "'===' 줄", "blank": "빈 줄 세 개 넘게", "one": "한 화"}
-HEAD_RE = re.compile(r"^\s*(?:#{1,6}\s*)?(?:제\s*)?(\d{1,4})\s*화(?:\s*[.:：\-—)]\s*|\s+|$)(.*)$")
+SPLITS: dict[str, str] = {"heading": "화 표시 줄", "mark": "기호 줄", "blank": "빈 줄 세 개 넘게", "one": "한 화"}
+HEAD_RE = re.compile(r"^\s*(?:#{1,6}\s*)?(?:제\s*)?(\d{1,4})\s*화(?:\s*[.:：\-—)]\s*|\s+|$)(.*)$")  # 제목 줄에서 제목만 뗀다 (나누기는 refs.split)
 HEAD_MAX = 60  # 제목 줄로 보는 가장 긴 줄
-MARK_RE = re.compile(r"^\s*={3,}\s*$")
-BLANK_RE = re.compile(r"\n(?:[ \t]*\n){3,}")
 PREFACE_MIN = 200  # 첫 제목 줄 앞의 글이 이만큼 넘으면 화 하나로 본다 (짧으면 작품 제목 · 작가 줄)
 MAX_EPISODES = 30
 MAX_CHARS = 300_000
@@ -57,37 +55,15 @@ def _norm(text: str) -> str:
 
 def split(text: str) -> dict:
     """글을 화로 나눈다: {how, first, preface, episodes: [{head, text}]}. first 는 첫 화 번호(제목 줄이 있으면 그 번호, 없으면 1).
-    빈 화는 뺀다. 제목 줄 앞의 짧은 글은 preface 로 남기고 역설계하지 않는다."""
-    t = _norm(text)
-    lines = t.split("\n")
-    heads = [i for i, ln in enumerate(lines) if len(ln) <= HEAD_MAX and HEAD_RE.match(ln)]
-    preface, first = "", 1
-    if heads:
-        how = "heading"
-        first = int(HEAD_RE.match(lines[heads[0]]).group(1)) or 1
-        before = "\n".join(lines[:heads[0]]).strip()
-        eps = [{"head": lines[h].strip(), "text": "\n".join(lines[h + 1:(heads[k + 1] if k + 1 < len(heads) else len(lines))]).strip()}
-               for k, h in enumerate(heads)]
-        if len(before) >= PREFACE_MIN:
-            eps.insert(0, {"head": "", "text": before})
-            first = max(first - 1, 1)
-        else:
-            preface = before
-    elif any(MARK_RE.match(ln) for ln in lines):
-        how, eps, cur = "mark", [], []
-        for ln in lines + ["==="]:
-            if MARK_RE.match(ln):
-                eps.append({"head": "", "text": "\n".join(cur).strip()})
-                cur = []
-            else:
-                cur.append(ln)
-    elif BLANK_RE.search(t):
-        how = "blank"
-        eps = [{"head": "", "text": x.strip()} for x in BLANK_RE.split(t)]
-    else:
-        how = "one"
-        eps = [{"head": "", "text": t.strip()}]
-    return {"how": how, "first": first, "preface": preface, "episodes": [e for e in eps if e["text"]]}
+    빈 화는 뺀다. 규칙은 레퍼런스 원고와 같은 refs.split 이다 (화 표시 줄 → 기호 줄 → 빈 줄 셋 넘게 → 한 화).
+    제목 줄 앞의 짧은 글은 preface 로 남기고 역설계하지 않는다. PREFACE_MIN 자 넘게 길면 화 하나로 본다."""
+    from . import refs
+
+    s = refs.split(text)
+    if s["how"] in ("heading", "custom") and len(s["preface"]) >= PREFACE_MIN:
+        s["episodes"].insert(0, {"head": "", "text": s["preface"]})
+        s["first"], s["preface"] = max(s["first"] - 1, 1), ""
+    return s
 
 
 def check_text(text: str) -> dict:
@@ -181,6 +157,25 @@ def create(title: str, text: str, first: int | None = None) -> RevLab:
     with jobs.project_lock(".revlab"):
         lab = RevLab(id=(max(ids(), default=0) + 1), title=title.strip(), created=pipeline._now(), split=s["how"], preface=s["preface"],
                      episodes=[RevEpisode(number=first + i, head=e["head"], text=e["text"]) for i, e in enumerate(s["episodes"])])
+        save(lab)
+    return lab
+
+
+def create_episodes(title: str, eps: list[dict], first: int | None = None) -> RevLab:
+    """나눠 둔 화로 새 실험 (레퍼런스 원고에서 보내기, refs.to_revlab). eps: [{head, text}]. 글을 다시 나누지 않는다."""
+    from . import jobs
+
+    eps = [e for e in eps if e["text"].strip()]
+    if not eps:
+        raise ValueError("글이 비었어요. 소설 본문을 붙여 넣으세요")
+    if len(eps) > MAX_EPISODES:
+        raise ValueError(f"{len(eps)}화예요. 한 실험에 {MAX_EPISODES}화까지 넣을 수 있어요")
+    if sum(len(e["text"]) for e in eps) > MAX_CHARS:
+        raise ValueError(f"글이 너무 길어요. {MAX_CHARS:,}자까지 넣을 수 있어요")
+    first = _check_first(first) if first else 1
+    with jobs.project_lock(".revlab"):
+        lab = RevLab(id=(max(ids(), default=0) + 1), title=title.strip(), created=pipeline._now(), split="heading",
+                     episodes=[RevEpisode(number=first + i, head=e["head"][:HEAD_MAX], text=e["text"].strip()) for i, e in enumerate(eps)])
         save(lab)
     return lab
 

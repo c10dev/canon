@@ -33,6 +33,9 @@ SPLIT_CASES = {
 }
 
 
+MANY = "\n".join(f"{i + 1}화\n본문" for i in range(32))
+
+
 @pytest.fixture()
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("CANON_LLM", "mock")
@@ -394,18 +397,29 @@ def test_job_runs_outside_projects(home, monkeypatch):
     assert again.status_code == 400 and "역설계하세요" in again.text
 
 
+def _light(text: str) -> dict:
+    """화면이 받는 나누기 값 (POST /api/revlab/split): 화 글 대신 글자 수."""
+    from canon import web
+    return web.rev_split(web.RevSplitIn(text=text))
+
+
 @needs_node
 def test_js_guess_first_matches_python():
     cases = [["x", STORY], ["러브 코미디-33화", "제목 줄 없는 글"], ["〈 32화 〉 미유키", "글"], ["", "글"], ["7화", "# 12화 비\n본문"]]
-    got = run_js(FILES, "data.map(([t, x]) => revGuessFirst(t, x))", cases)
+    got = run_js(FILES, "data.map(([t, x, s]) => revGuessFirst(t, x, s))", [[t, x, _light(x)] for t, x in cases])
     assert got == [revlab.guess_first(t, x) for t, x in cases] == [1, 33, 32, 1, 12]
 
 
+def test_split_endpoint_gives_counts_not_text():
+    v = _light(STORY)
+    assert v["how"] == "heading" and [e["chars"] for e in v["episodes"]] == [len(e["text"]) for e in revlab.split(STORY)["episodes"]]
+    assert all(set(e) == {"head", "chars"} for e in v["episodes"])
+
+
 @needs_node
-def test_js_split_matches_python():
-    got = run_js(FILES, "Object.fromEntries(Object.entries(data).map(([k, t]) => [k, revSplit(t)]))", SPLIT_CASES)
-    for k, t in SPLIT_CASES.items():
-        assert got[k] == revlab.split(t), k
+def test_js_preview_waits_for_server():
+    got = run_js(FILES, "revPreview('1화\\n본문', { max_chars: 10, max_episodes: 30, min_chars: 1 })", {})
+    assert got["pending"] and not got["errs"]
 
 
 @needs_node
@@ -423,8 +437,8 @@ def test_js_helpers_and_view(home):
       S.rev = data.home; S.cue = data.home; S.revLab = null;
       S.revDraft = { title: '', text: data.story };
       const home = viewRev();
-      const prev = revPreview(data.story, data.home);
-      const tooMany = revPreview(Array.from({ length: 32 }, (_, i) => `${i + 1}화\\n본문`).join('\\n'), data.home);
+      const prev = revPreview(data.story, data.home, null, data.split);
+      const tooMany = revPreview(data.manyText, data.home, null, data.many);
       S.revLab = data.lab; S.revEp = 1; S.revPick = new Set([2]); S.revSel = 2; S.revTab = 'text';
       S.revEsts = { 'write:2': { usd: 0.04, calls: 1, rows: [], model: 'm', note: '' } };
       const lab = viewRev();
@@ -452,7 +466,7 @@ def test_js_helpers_and_view(home):
       const e = data.lab.items[1];
       return { home, prev, tooMany: tooMany.errs, lab, write, two, twoWrite, panes, edit, redo, empty, from, fromHome, segs: revSegments(e.text, e.bounds),
                gap: revSegments('abcdef', [{ start: 2, end: 4, found: true }, { start: 4, end: 4, found: false }]) };
-    })()""", {"home": labels, "lab": view, "story": STORY})
+    })()""", {"home": labels, "lab": view, "story": STORY, "split": _light(STORY), "manyText": MANY, "many": _light(MANY)})
     assert "새 실험" in got["home"] and "이어 하기" in got["home"] and 'class="card rev-lab"' in got["home"]
     assert 'id="rev-new"' in got["home"] and "btn on" in got["home"]  # 붙여 넣은 글이 있으면 새 실험 카드를 펴 둔다
     assert got["prev"]["how"] == "heading" and [e["n"] for e in got["prev"]["eps"]] == [1, 2] and not got["prev"]["errs"]
@@ -667,13 +681,14 @@ def test_js_append_preview_matches_python(home):
     lim = revlab.labels()
     lab = revlab.create("등대", STORY)
     have = {"next": 3, "episodes": 2, "chars": sum(len(e.text) for e in lab.episodes)}
-    got = run_js(FILES, "data.texts.map((t) => revAppendPreview(t, data.lim, data.have))",
-                 {"texts": [APPEND, " ", "그냥 한 화 " * 50], "lim": lim, "have": have})
+    texts = [APPEND, " ", "그냥 한 화 " * 50]
+    got = run_js(FILES, "data.texts.map((t, i) => revAppendPreview(t, data.lim, data.have, data.splits[i]))",
+                 {"texts": texts, "lim": lim, "have": have, "splits": [_light(t) for t in texts]})
     nums = revlab.append_text(lab, APPEND)
     assert [e["n"] for e in got[0]["eps"]] == nums and not got[0]["errs"]
     assert any("7화부터지만 마지막 화 다음인 3화" in x for x in got[0]["notes"]) and any("넣지 않아요" in x for x in got[0]["notes"])
     assert got[1]["errs"] and got[2]["how"] == "one" and [e["n"] for e in got[2]["eps"]] == [3]
-    many = run_js(FILES, "revAppendPreview(data.t, data.lim, data.have)", {"t": APPEND, "lim": {**lim, "max_episodes": 3}, "have": have})
+    many = run_js(FILES, "revAppendPreview(data.t, data.lim, data.have, data.s)", {"t": APPEND, "lim": {**lim, "max_episodes": 3}, "have": have, "s": _light(APPEND)})
     assert many["errs"] == ["이으면 4화예요. 한 실험에 3화까지 넣을 수 있어요."]
 
 

@@ -30,6 +30,29 @@
 - LLM 호출 없음
 - 문체 거리 기준표는 `style_background.py`(`scripts/make_style_background.py` 로 생성)
 
+### `canon/refs.py`
+
+- 레퍼런스 원고(작품 밖 화면, 주소 `#/refs[/<id>[/<차례> | cuts]]`, 설계는 [docs/refs/](../refs/README.md))
+- 작가가 넣은 다른 소설 원고 txt 를 화 표시로 화 단위로 나눠 작품 밖에 둔다
+- 작품에는 연결하지 않는다. 고른 화로 문체 라이브러리 항목이나 역설계 실험을 만들고 그 결과물만 작품에 들어간다
+- 작품 밖 `<CANON_HOME>/.refs/<id>/`(`CANON_REFS` 로 경로 변경): 정규화한 원문 `source.txt` 와 `ref.json`(`RefBook`)
+- 경계는 줄 번호(`RefCut.line` · 본문 시작 `body`)로만 적는다. 합치기 · 나누기를 다시 해도 원문은 그대로다
+- 화 글은 읽을 때 켠 경계로 잘라 낸다(`assemble`, 화 끝 작가의 말 떼기 `_tail` · `strip_tails`)
+- 나누기 규칙은 여기 한 곳이다(`detect` · `preview` · 역설계용 `split`): 화 표시 줄 → 기호 줄 → 빈 줄 셋 넘게 → 한 화
+- 화 표시 후보 `candidates`: 단위 화 · 회 · 편 · 話 · 장(숫자 뒤) · EP · Chapter(숫자 앞), 특수 화(프롤로그 · 외전 · 에필로그 · 후기)
+- 숫자 앞 글은 비었거나 `COMMON_MIN` 번 넘게 같을 때만 받는다(공통 머리 `common_head`, 본문 속 '영화 3편' 거르기)
+- 단위마다 번호 줄기(`_lis`, 가장 긴 증가 수열)를 재 가장 긴 단위를 고르고 나머지는 `alts` 로 준다
+- 표시 `_mark`: 목차(`toc`) · 반복 머리 묶기 · 본문 속 언급(`mention`, 줄기 밖이라 끔) · 빠짐 · 겹침 · 거꾸로 · 다시 시작(파일 경계)
+- 직접 패턴(`rule` custom)은 예시 한 줄에서 꼴을 만든다(`_custom_re`)
+- 저장 `create`(권리 확인 `rights` 필수) · `update` · `delete` · `entries` · `summary`
+- 저장 때 화별 지표(`RefEp`: 글자 수 · 대사 비율 · 문장 · 문단 평균, `metrics.measure`)를 재 둔다. AI 호출 없음
+- 문체 만들기 원문 `sample`(고른 화를 이어 `SAMPLE_MAX` 자까지) · 역설계 실험 만들기 `to_revlab`(`revlab.create_episodes`, 30화까지)
+- 이 원고로 만든 것 `made`(`RefMade`, 문체는 `POST /api/styles` 의 `ref` · `ref_eps` 로 남긴다)
+- 내 작품과 견주기 `compare`(본문 있는 화 지표, 작품에 쓰지 않음)
+- 웹은 `/api/refs…`(`web.py` '레퍼런스 원고' 절)
+- 화면은 `static/refs.js`
+- 시험 `tests/test_refs.py`(원고는 `tests/fixtures/refs_story.txt`, 직접 지은 글)
+
 ### `canon/research.py`
 
 - 연구 화면(모델 실험) 로직
@@ -59,7 +82,8 @@
 - 화 하나 고치기(`edit_episode`, 웹 `PUT /api/revlab/{번호}/episodes/{n}`): 글이 바뀌면 그 화의 결과 · 되돌려 쓴 판만 지운다. 제목 줄만 바뀌면 결과는 그대로
 - 화 빼기(`drop_episode`, 웹 `DELETE /api/revlab/{번호}/episodes/{n}`): 뒤 화 번호와 줄기의 `branch_ep` · `join_ep` 를 하나씩 당긴다. 마지막 남은 화는 빼지 않는다
 - 화 고치기 · 빼기는 그 실험의 작업이 도는 동안 409(`web._rev_idle`, 작업이 화 번호로 결과를 넣는다)
-- 화 나누기(`split`: 'n화' 제목 줄 → `===` 줄 → 빈 줄 셋 넘게 → 한 화, `check_text`, 화면 `revSplit` 과 같은 규칙)
+- 화 나누기(`split`: 레퍼런스 원고와 같은 규칙 `refs.split` 에 앞머리 200자 넘으면 화 하나 규칙을 더함, `check_text`)
+- 나눠 둔 화로 실험 만들기(`create_episodes`, 레퍼런스 원고에서 보내기)
 - 큐 경계(`locate`: AI 가 원문 글자 그대로 인용한 시작 문장 `RevCue.start` 를 차례로 찾음, 글자 수는 `measured`)
 - 원문에 없는 핵심 대사 빼기(`keep_lines`, `cue._flat`)
 - 응답 넣기(`apply_episode` · 줄기 `apply_lines` · 인물 `merge_cast`, 화마다 배경 · 사실 · 관계 · 호칭)
@@ -116,6 +140,22 @@
 - 시험 `tests/test_soelab.py` · `tests/test_soelab_web.py`
 - LLM 호출 없음
 
+### `canon/static/refs.js`
+
+- 레퍼런스 원고 화면
+  - 작품 밖 `#/refs` 목록 · `#/refs/new` 넣기 · `#/refs/<id>` 개요 · `#/refs/<id>/<차례>` 화 읽기 · `#/refs/<id>/cuts` 경계 고치기
+  - `app.js` 라우팅이 `refLoad` 를 부르고 `viewRefs` 를 그림
+  - 작품 밖 사이드바 도구 줄(`outNav`, 원고 수 `S.refList`)과 작품 사이드바 ⋯ 메뉴의 링크
+- 넣기: 파일 고르기 · 끌어 놓기(여러 파일은 이름 차례로 잇고 파일마다 시작 줄 `fileLines`) · 붙여 넣기
+- 인코딩은 브라우저가 푼다(`refDecode`: BOM → UTF-8 엄격 → CP949, 깨진 글자 수 `bad`, 고르기 칸)
+- 화 나누기는 서버(`POST /api/refs/split`)에 묻고, 켠 경계로 화를 자르고 글자 수를 세는 일은 화면이 한다(`refAssemble`, `refs.assemble` 과 같은 규칙)
+- 경계 고치기(`refDraftView`): 규칙 줄(단위 칩 · 다른 규칙 · 직접 패턴 · 작가의 말 떼기 · 되돌리기) · 경계 목록(거르기 모두 · 확인할 것 · 끈 줄) · 원문 보기(줄을 눌러 여기서 나누기)
+- 고른 경계 칸(`refCutEditor`): 번호 · 제목 · 종류 · 여기부터 번호 다시 매기기 · 앞 화와 합치기
+- 개요(`refOverview`): 고른 화로 하기(범위 `refRange`, 문체 만들기 `refToStyle`, 역설계 실험 만들기 `refToRevlab`) · 분량 막대 · 내 작품과 견주기 · 화 표(정렬) · 만든 것
+- 문체 만들기는 `S.libFromRef` 에 원문을 담아 `#/styles/new` 로 간다(라이브러리 새 항목의 원문 칸)
+- `refDecode` · `refAssemble` · `refRange` · `refEpRows` 는 순수 함수(`tests/test_refs.py`)
+- CSS 는 JS 에서 주입
+
 ### `canon/static/revlab.js`
 
 - 역설계 실험 화면
@@ -127,6 +167,7 @@
   - 작품 밖 사이드바(`outSidebar`)
   - 작품에서 들어왔으면 머리에 그 작품으로 가는 버튼 `revBackBtns`(`S.revFrom`, `routeNow` 가 적음)
 - 처음 화면(`revHome`)은 이어 하기 카드(목록 값 `revlab.summary` 의 `steps` · `updated` → `revLabLite` · `revHomeCard`)와 머리 '+ 새 실험 만들기'으로 펴는 새 실험 칸(`revNewToggle`, 붙여 넣기 · 첫 화 번호 짐작 `revGuessFirst` · 나누기 미리보기 `revPreview`, `revNewCard`)
+- 나누기 미리보기는 서버(`POST /api/revlab/split`, 화 글 대신 글자 수)에 묻는다(`revSplitOf`, 잠깐 기다려 한 번, 받으면 `revSplitDone`)
 - 실험 화면은 다른 단계 화면과 같은 공용 목차 틀(`outline.js`)의 왼쪽 목차 + 오른쪽 칸(`revLayout` · `revToc`, 칸은 남은 폭을 다 씀 `wide`)
 - 목차 맨 위 개요
   - 주소에 화가 없을 때
@@ -147,7 +188,7 @@
   - 플롯 · 스토리보드
   - 되돌려 쓰기 `revWriteTab`: 가려 읽기 `revPick` · 지표 견주기 `revMetricRows` · 나란히 읽기 `revRead` · 다시 쓰기
 - 비용 추정은 고를 때 바로 묻고 버튼 글에 적는다(`revEst` · `revCost`, AI 없음)
-- `revSplit` · `revPreview` · `revAppendPreview` · `revSegments` · `revEpTitle` · `revSteps` · `revNext` · `revTocEps` · `revRunRows` · `revMetricRows` · `revLabLite` · `revHomeCard` · `revOverviewRow` 는 순수 함수(`tests/test_revlab.py`)
+- `revPreview` · `revAppendPreview` · `revSegments` · `revEpTitle` · `revSteps` · `revNext` · `revTocEps` · `revRunRows` · `revMetricRows` · `revLabLite` · `revHomeCard` · `revOverviewRow` 는 순수 함수(`tests/test_revlab.py`)
 - CSS 는 JS 에서 주입
 
 ### `canon/static/soelab.js`
