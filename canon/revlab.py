@@ -580,11 +580,13 @@ def run_write(lab_id: int, llm, number: int, use_style: bool = False) -> RevEpis
     cancel.check()
     text, sent = pipeline.write_scored(llm, q, number, e.sheet)
     take = RevTake(text=text, style=use_style, style_id=lab.style_id if use_style else 0, prompt_chars=sent, sheet_basis=cue.basis(e.sheet), lines_at=lab.lines_at, provider=pipeline.writer_of(llm).split(":", 1)[0],
-                   model=research._model_name(llm), at=pipeline._now(), blind=RevBlind(order=random.sample(list(SIDES), 2)))
-    cancel.check()
+                   model=research._model_name(llm), at=pipeline._now(), blind=RevBlind(order=random.sample(list(SIDES), 2)),
+                   stopped=cancel.stopped())  # 멈춘 뒤 온 응답도 값을 치렀으니 버리지 않고 표시해 남긴다. 실험 파일이라 작품은 바뀌지 않는다
 
     def put(lab: RevLab) -> None:
         x = episode(lab, number)
+        if take.stopped and len(x.takes) >= MAX_TAKES:
+            raise cancel.Cancelled("작업을 멈췄어요")  # 판이 꽉 찼으면 멈춘 작업의 판은 조용히 버린다
         room(x)  # 쓰는 동안 다른 작업이 판을 채웠으면 저장하지 않는다
         take.no = next_no(x)
         x.last_take = take.no
@@ -1091,7 +1093,7 @@ def _take_view(lab: RevLab, t: RevTake, now: str) -> dict:
     b = t.blind
     state = "wait" if _waiting(t) else "done" if b.picked else "none"
     blind = {"state": state, "seen": b.seen, **({"picked": b.picked, "order": b.order, "at": b.at} if state == "done" else {})}
-    return {"no": t.no, "label": take_label(t), "style": t.style, "provider": t.provider, "model": t.model, "at": t.at,
+    return {"no": t.no, "label": take_label(t), "style": t.style, "stopped": t.stopped, "provider": t.provider, "model": t.model, "at": t.at,
             "prompt_chars": t.prompt_chars, "stale": t.sheet_basis != now, "lines": lines_note(lab, t), "chars": len(t.text), "blind": blind, **_take_style(lab, t),
             **({} if state == "wait" else {"text": t.text})}
 

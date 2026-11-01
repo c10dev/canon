@@ -4634,6 +4634,12 @@ def rev_job(lab_id: int, body: RevJobIn) -> dict:
     다른 작업끼리는 함께 돌 수 있다. 역설계가 도는 중에도 저장을 마친 화는 되돌려 쓰고, 맡은 화가 겹치면 409 로 막는다."""
     lab = _rev(lab_id)
     kind, name = f"rev_{body.kind}", lab.title or f"실험 {lab_id}"
+    if old := jobs.lingering(revlab.JOBS, kind, lab_id):  # 다시 시작하면 같은 요청이 겹쳐 요청 한도(429)에 더 걸린다
+        import time
+
+        mins = max(1, round((time.time() - old.started) / 60))
+        raise HTTPException(409, f"앞에서 멈춘 '{old.label}'이 아직 AI 응답을 기다려요 ({mins}분째). "
+                                 "이미 보낸 호출은 끊을 수 없어요. 응답이 오거나 시간이 다 되면 다시 시작할 수 있어요")
     llm = revlab.llm_for(lab, body.kind)  # 실험이 고른 AI, 없으면 설정의 단계 칸. 키가 없으면 여기서 바로 오류를 보여 준다
     if body.kind == "parse":
         nums = revlab.choose(lab, body.episodes or None)

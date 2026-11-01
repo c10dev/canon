@@ -369,9 +369,12 @@ function revParsing() {
   const j = S.revLab && jobFor('rev_parse', S.revLab.id, REV_JOBS);
   return j ? (j.pending || []).slice(j.done) : [];
 }
+/** 이 실험의 kind 작업 가운데 멈췄지만 아직 AI 응답을 기다리는 것. 서버 jobs.lingering 과 같은 셈 (다시 시작하면 409). */
+const revLingering = (kind) => S.revLab && S.jobs.find((j) => j.waiting && j.project === REV_JOBS && j.kind === kind && j.ep === S.revLab.id);
 /** n 화 되돌려 쓰기를 지금 못 하는 까닭 (빈 값이면 쓸 수 있다). 서버도 같은 경우를 409 로 막는다. */
 function revWriteBlock(n) {
   if (jobFor('rev_write', S.revLab.id, REV_JOBS)) return '되돌려 쓰는 중이에요. 끝난 뒤에 새 판을 쓸 수 있어요.';
+  if (revLingering('rev_write')) return '멈춘 되돌려 쓰기가 아직 AI 응답을 기다려요. 응답이 오면 판으로 남기고, 그 뒤에 새 판을 쓸 수 있어요.';
   if (revParsing().includes(n)) return '이 화는 역설계가 끝난 뒤에 되돌려 쓸 수 있어요.';
   return '';
 }
@@ -1220,7 +1223,7 @@ function revWriteTab(e) {
   const busy = !!revRunning();
   if (takes.length) {
     const rows = [...takes].reverse().map((t) => `<tr${t.blind.state === 'wait' ? ' class="rev-muted"' : ''}>
-        <td class="rev-l"><strong>판 ${t.no}</strong>${t.stale ? ' <span class="chip" title="쓴 뒤 큐 시트가 바뀌었어요">시트 바뀜</span>' : ''}${revLinesChip(t)}</td>
+        <td class="rev-l"><strong>판 ${t.no}</strong>${t.stopped ? ' <span class="chip" title="작업을 멈춘 뒤 도착한 응답이에요. 필요 없으면 지우세요">멈춘 뒤 받은 판</span>' : ''}${t.stale ? ' <span class="chip" title="쓴 뒤 큐 시트가 바뀌었어요">시트 바뀜</span>' : ''}${revLinesChip(t)}</td>
         <td class="rev-l rev-take-who">${revTakeWho(t)} <span class="chip">${revTakeStyle(t)}</span>${revStyleTag(t) ? ` <span class="chip" title="지금 프로필과 다른 프로필로 썼어요">${esc(revStyleTag(t))}</span>` : ''}</td>
         <td>${esc(fmtDateTime(t.at))}</td><td>${t.chars.toLocaleString()}</td><td class="rev-l rev-take-pick">${revTakePickHtml(t.blind)}</td>
         <td class="rev-l"><span class="row rev-take-acts">${t.text ? `<button type="button" class="btn small ghost" data-action="revReadTake" data-arg="${t.no}">읽기</button>` : '<span class="small">가려 읽은 뒤</span>'}
@@ -1400,6 +1403,15 @@ JOB_DONE_MSG.rev_write = (j) => {
   revJobDone(j);
   const r = j.result || {};
   return `${r.episode || ''}화 판 ${r.take || ''}${r.style ? '(문체 넣음)' : ''}을 썼어요. 가려 읽고 골라 보세요.`;
+};
+JOB_STOP_NOTE.rev_write = '이미 보낸 AI 호출은 끊을 수 없어요. 응답이 오면 버리지 않고 \'멈춘 뒤 받은 판\'으로 남겨요 (비용은 들어요). 그동안 새 판은 쓸 수 없어요.';
+/** 멈춘 되돌려 쓰기의 응답이 왔다. 판으로 남았으면(result) 알리고, 그 실험을 보고 있으면 다시 받는다. */
+JOB_LATE.rev_write = async (j) => {
+  const r = j.result;
+  if (r) toast(`멈춘 ${r.episode}화 되돌려 쓰기의 응답이 와서 판 ${r.take}로 남겼어요. 필요 없으면 판 목록에서 지우세요.`);
+  if (!(S.route[0] === 'revlab' && S.revLab && S.revLab.id === j.ep)) return false;
+  await revFetch(j.ep);
+  return true;
 };
 JOB_DONE_MSG.rev_style = (j) => {
   revJobDone(j);

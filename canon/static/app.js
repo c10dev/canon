@@ -38,6 +38,7 @@ const S = {
   jobsSeen: null,    // 화면을 연 시점에 이미 끝나 있던 작업 id (결과를 다시 적용하지 않는다)
   jobsApplied: new Set(),  // 결과를 이미 화면에 적용한 작업 id. 폴링이 작업 객체를 새로 받아 오므로 id 로 기억한다
   jobsMerged: {},    // 도는 플롯 작업 id → 화면이 결과를 받아 온 단계 수
+  jobsWaiting: new Set(),  // 멈췄지만 이미 보낸 AI 호출의 응답을 기다리는 작업 id (서버 Job.waiting). 풀리면 JOB_LATE 를 부른다
   notes: [],         // 알림 기록 { at, msg, err }. 새것이 앞 (hub.js 알림 창의 '최근 알림')
   hubOpen: false,    // 알림 창이 열려 있다 (hub.js)
   hubSeen: 0,        // 알림 창을 마지막으로 연 · 닫은 시각(ms). 그 뒤 알림만 새 알림으로 센다
@@ -188,6 +189,9 @@ function toast(msg, err = false, opt = {}) {
 // 오래 걸리는 AI 호출은 서버가 백그라운드로 돌리고, 화면은 1.5초마다 상태만 묻는다.
 // 그동안 다른 화면으로 옮겨 다니며 계속 작업할 수 있다.
 
+// 멈춘 작업이 이미 보낸 호출의 응답을 다 기다린 뒤 부른다 (pollJobs). 화면을 다시 그려야 하면 참을 돌려준다
+const JOB_LATE = {};
+const JOB_STOP_NOTE = {};  // 작업 종류별 멈추기 확인 문구. 없으면 응답을 버린다는 기본 문구
 const JOB_DONE_MSG = {
   suggest: '설정 제안이 도착했어요. 설정 도우미에서 확인하세요.',
   arc: '기승전결 구조 제안이 도착했어요. 확인하고 저장하세요.',
@@ -346,6 +350,9 @@ async function pollJobs(soon = false) {
     list = S.jobs;
   }
   if (S.jobsSeen === null) S.jobsSeen = new Set(list.filter((j) => j.status !== 'running').map((j) => j.id));
+  // 멈춘 작업의 늦은 응답: 기다림이 풀린 작업은 목록에서 닫았어도 JOB_LATE 로 알린다 (revlab.js 의 멈춘 뒤 받은 판)
+  const late = list.filter((j) => S.jobsWaiting.has(j.id) && !j.waiting);
+  S.jobsWaiting = new Set(list.filter((j) => j.waiting).map((j) => j.id));
   const before = new Map(S.jobs.map((j) => [j.id, j]));
   // 화면이 목록에서 지운(닫은) 작업은 다시 보이지 않게 한다
   S.jobs = list.filter((j) => (!S.jobsSeen.has(j.id) || j.status === 'running') && !QUIET_JOBS.has(j.kind));
@@ -393,6 +400,7 @@ async function pollJobs(soon = false) {
       if (j.status === 'done') resultFocus = RESULT_FOCUS[j.kind] || '#app .proposal button, #app .proposal input';
     }
   }
+  for (const j of late) if (JOB_LATE[j.kind] && await JOB_LATE[j.kind](j)) redraw = true;
   renderHub();
   // 입력 중이거나 본문 글자를 고르고 있으면 화면을 다시 그리지 않는다 (글자 · 커서 · 선택을 잃지 않게). 데이터는 이미 반영돼 있고, 입력이나 선택을 마치면 그린다
   if (redraw && (isTyping() || selecting())) S.renderPending = true;
@@ -402,7 +410,7 @@ async function pollJobs(soon = false) {
     if (resultFocus && (!a || a === document.body || a.getAttribute('aria-busy') === 'true')) S.focusTarget = resultFocus;
     render();
   }
-  if (S.jobs.some((j) => j.status === 'running')) jobTimer = setTimeout(() => pollJobs(), S.jobsOffline ? 4000 : 1500);
+  if (S.jobs.some((j) => j.status === 'running') || S.jobsWaiting.size) jobTimer = setTimeout(() => pollJobs(), S.jobsOffline ? 4000 : 1500);
 }
 
 /** 입력칸에 포커스가 있다. #app 밖 떠 있는 본문 부분 수정 칸(#sel-tool)도 센다. 읽기 전용 칸은 빼서 결과를 바로 그린다. */
@@ -656,9 +664,10 @@ document.addEventListener('click', (e) => {
   } else if (t.dataset.jobStop) {
     const j = S.jobs.find((x) => x.id === t.dataset.jobStop);
     if (!j) return;
-    askConfirm(`${j.label}${josa(j.label, '을', '를')} 멈출까요? 이미 보낸 AI 호출의 응답은 버려요 (비용은 들 수 있어요).`, { ok: '멈추기', danger: true }).then((ok) => ok && api('POST', `/jobs/${j.id}/stop`).then((x) => {
+    askConfirm(`${j.label}${josa(j.label, '을', '를')} 멈출까요? ${JOB_STOP_NOTE[j.kind] || '이미 보낸 AI 호출의 응답은 버려요 (비용은 들 수 있어요).'}`, { ok: '멈추기', danger: true }).then((ok) => ok && api('POST', `/jobs/${j.id}/stop`).then((x) => {
       Object.assign(j, x);
       toast(`${j.label}${josa(j.label, '을', '를')} 멈췄어요`);
+      if (j.waiting) { S.jobsWaiting.add(j.id); pollJobs(true); }  // 늦은 응답을 받을 때까지 묻는다
       renderHub();
       if (S.route[0] === 'p' && !isTyping()) render();  // 잠겨 있던 버튼을 푼다
     }).catch((err) => toast(err.message, true)));

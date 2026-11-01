@@ -18,3 +18,9 @@ def check() -> None:
     ev = current.get()
     if ev is not None and ev.is_set():
         raise Cancelled("작업을 멈췄어요")
+
+
+def stopped() -> bool:
+    """멈추기 신호가 섰는가. check 와 달리 오류를 내지 않는다 (멈춘 뒤 온 응답을 버리지 않고 표시해 남기는 곳이 쓴다)."""
+    ev = current.get()
+    return ev is not None and ev.is_set()
