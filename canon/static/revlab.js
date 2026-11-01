@@ -261,7 +261,7 @@ function revRunRows(job, items) {
   return rows;
 }
 
-const REV_METRICS = [  // [이름, 값, 원문과 크게 다르면 표시할지]
+const REV_METRICS = [  // [이름, 값, 원문과 크게 다르면 표시할지 ('any' 는 하나라도 있으면), 보이는 꼴]
   ['글자', (s) => s.chars, true, (v) => v.toLocaleString()],
   ['핵심 대사 들어감', (s) => (s.lines_total ? `${s.lines_hit}/${s.lines_total}` : null), false],
   ['대사 비율', (s) => s.dialogue_ratio, true, (v) => cuePct(v)],
@@ -270,11 +270,17 @@ const REV_METRICS = [  // [이름, 값, 원문과 크게 다르면 표시할지]
   ['짧은 끝 문장', (s) => s.short_endings, false, (v) => cuePct(v)],
   ['되풀이 문장', (s) => (s.repeats || []).length, true],
   ['쇠맛 경고', (s) => s.ai_patterns, true],
+  ['문체 거리 (원문 다른 화 1.0)', (s) => s.style_distance, true],
+  ['쉼표 문장', (s) => s.comma_ratio, true, (v) => cuePct(v)],
+  ['표지 빈도 경고', (s) => (s.marker_warns ? s.marker_warns.length : null), true],
+  ['원문 옮김', (s) => (s.copied ? s.copied.length : null), 'any'],
+  ['장치 예시 옮김', (s) => (s.copied_examples ? s.copied_examples.length : null), 'any'],
   ['템포 (원문 큐 경계)', (s) => ((s.rows || []).length ? cueYes(s.tempo_order) : null), false],
 ];
 const REV_FAR = 0.4;  // 원문 값과 이 비율보다 더 다르면 표시한다
 
-/** 지표 표를 지표마다 한 줄로: { heads: [{ label, stale }], rows: [{ label, cells: [{ text, far }] }] }. 열은 scores 차례 (원문이 먼저). */
+/** 지표 표를 지표마다 한 줄로: { heads: [{ label, stale }], rows: [{ label, cells: [{ text, far }] }], notes: [] }. 열은 scores 차례 (원문이 먼저).
+    notes 는 표 밑에 둘 문체 측정 안내: 문체 거리를 재지 않은 이유, 표지 빈도 경고, 옮긴 문장. */
 function revMetricRows(scores) {
   const orig = scores.find((s) => s.condition === 'original');
   const far = (v, o) => typeof v === 'number' && typeof o === 'number' && (o ? Math.abs(v - o) / Math.abs(o) > REV_FAR : v > 0);
@@ -284,9 +290,16 @@ function revMetricRows(scores) {
       label,
       cells: scores.map((s) => {
         const v = get(s);
-        return { text: v === null || v === undefined ? '-' : fmt ? fmt(v) : String(v), far: mark && s !== orig && !!orig && far(v, get(orig)) };
+        const hit = mark === 'any' ? typeof v === 'number' && v > 0 : mark && s !== orig && !!orig && far(v, get(orig));
+        return { text: v === null || v === undefined ? '-' : fmt ? fmt(v) : String(v), far: hit };
       }),
     })),
+    notes: [
+      ...[...new Set(scores.map((s) => s.style_note).filter(Boolean))],
+      ...scores.filter((s) => (s.marker_warns || []).length).map((s) => `${s.label} 표지: ${s.marker_warns.join(', ')}`),
+      ...scores.filter((s) => (s.copied || []).length + (s.copied_examples || []).length)
+        .map((s) => `${s.label} 옮긴 문장: ${[...(s.copied || []), ...(s.copied_examples || [])].map((x) => `“${x}”`).join(' ')}`),
+    ],
   };
 }
 
@@ -870,7 +883,8 @@ function revWriteTab(e) {
     parts.push(`<section class="card"><div class="between"><h3>지표 견주기</h3><span class="small">원문과 ${Math.round(REV_FAR * 100)}% 넘게 다른 값은 굵게 보여요</span></div>
       <div class="rev-scroll"><table class="sw-table rev-mx"><thead><tr><th></th>${m.heads.map((h) => `<th>${esc(h.label)}${h.stale ? ' <span class="chip">시트 바뀜</span>' : ''}</th>`).join('')}</tr></thead>
       <tbody>${m.rows.map((r) => `<tr><td>${esc(r.label)}</td>${r.cells.map((c) => `<td${c.far ? ' class="rev-far"' : ''}>${esc(c.text)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
-      <p class="small">핵심 대사는 큐 시트의 대사가 글자 그대로 들어간 수예요. 템포는 원문만 큐 경계로 나눠 재요 (빠른 큐의 문장이 느린 큐보다 짧은지).</p></section>`);
+      <p class="small">핵심 대사는 큐 시트의 대사가 글자 그대로 들어간 수예요. 템포는 원문만 큐 경계로 나눠 재요 (빠른 큐의 문장이 느린 큐보다 짧은지). 문체 거리는 이 화를 뺀 원문으로 만든 기준까지 어미 분포 거리예요. 1.0 이면 원문의 다른 대목만큼 가까워요. 옮김은 원문 · 장치 예시와 공백 빼고 12자 이상 똑같이 이어지는 문장 수예요.</p>
+      ${m.notes.map((x) => `<p class="small">${esc(x)}</p>`).join('')}</section>`);
   }
   const shown = takes.filter((t) => t.text);
   if (!e.blind_texts.length && shown.length) {

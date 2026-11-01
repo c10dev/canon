@@ -73,7 +73,9 @@
 - 되돌려 쓰기 실행(`run_write`, 판 둘 `take` · `take_style`, `pipeline.write_scored`)
 - 블라인드 고르기(`pick`, `blind_of`)
 - 지표(`compare`, `cue.score`)
+- 문체 측정(`compare`): 이 화를 뺀 원문 기준 문체 거리(`style_base`, 기준을 못 만들면 `style_note` 에 이유) · 쉼표 문장 비율 · 표지 빈도 경고 · 원문과 장치 예시를 옮긴 문장(`copied` · `copied_examples`)
 - 문체 역설계(`run_style`, `pipeline.analyze_style`)
+- 문체 역설계는 실험 인물 이름을 `count_markers` 에 넘겨 이름이 든 표지를 거른다
 - 비용 추정(`estimate`: parse · write · style)
 - 역설계 실행(`run_parse`)
 - 화면 값(`view`, 고르기 전에는 차례를 뺌)

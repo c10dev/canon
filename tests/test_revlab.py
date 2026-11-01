@@ -286,6 +286,61 @@ def test_style_profile_and_two_takes(home):
     assert revlab.view(lab)["style"] and "sample_passages" not in revlab.view(lab)["style"]
 
 
+def test_style_profile_is_checked_and_reaches_writer(home):
+    """mock 프로필의 표지 · 장치 중 시험 원문에 있는 것만 남아 문체 넣은 판의 쓰기 요청에 들어간다 (styled 경로)."""
+    lab = _parsed(home)
+    revlab.run_style(lab.id, MockLLM())
+    lab = revlab.load(lab.id)
+    assert [m.text for m in lab.style.markers] == ["있었다"] and lab.style.markers[0].per_1k > 0  # '다' · 인물 이름 '서윤은' · 없는 표지는 빠진다
+    assert [(d.cues, d.example) for d in lab.style.devices] == [(["대답"], "대답은 없었다."), ([], "")]  # 지어낸 예시는 비운다
+    q = revlab.world(lab, 2, use_style=True)
+    assert prompts.styled(q) and not prompts.styled(revlab.world(lab, 2))
+    sys, ctx = prompts.writer_system(q), prompts.static_context(q)
+    assert "쉼표가 둘 이상" not in sys and "쉼표가 둘 이상" in prompts.writer_system(revlab.world(lab, 2))  # 기본 규칙이 바뀐다
+    assert "# 문체 표지" in ctx and "'있었다'" in ctx
+    assert "대답 없는 침묵" in prompts.cue_score_prompt(q, 2, lab.episodes[1].sheet)
+
+
+def test_compare_style_columns(home):
+    lab = _parsed(home)
+    revlab.run_style(lab.id, MockLLM())
+    revlab.run_write(lab.id, MockLLM(), 1)
+    lab = revlab.load(lab.id)
+    rows = revlab.compare(lab, lab.episodes[0])
+    o, t = rows
+    assert o["style_distance"] is None and "문체 거리 기준을 만들지 않았어요" in o["style_note"]  # 시험 원문은 6,000자보다 짧다
+    assert isinstance(o["comma_ratio"], float) and isinstance(o["marker_warns"], list) and o["copied"] is None
+    assert isinstance(t["copied"], list) and t["copied_examples"] is not None
+    lab.episodes[0].take.text = lab.episodes[0].text  # 원문을 그대로 옮긴 판
+    assert revlab.compare(lab, lab.episodes[0])[1]["copied"]
+
+
+def _prose(ending: str, n: int, seed: int) -> str:
+    """지어낸 서술 글: 같은 낱말에 어미만 ending 판으로."""
+    import random as r
+    g = r.Random(seed)
+    subj = ["그는", "바람이", "서윤이", "파도가", "불빛이", "문이", "배가", "도현이", "손끝이", "등대가"]
+    verb = {"past": ["멈췄다", "흔들렸다", "돌아섰다", "떨렸다", "꺼졌다", "울렸다", "젖었다", "닫혔다"],
+            "polite": ["멈춰요", "흔들려요", "돌아서요", "떨려요", "꺼져요", "울려요", "젖어요", "닫혀요"]}[ending]
+    adv = ["천천히", "다시", "조용히", "갑자기", "한참", "끝내", "가만히", "멀리서"]
+    paras = []
+    while sum(map(len, paras)) < n:
+        paras.append(" ".join(f"{g.choice(subj)} {g.choice(adv)} {g.choice(verb)}." for _ in range(6)))
+    return "\n\n".join(paras)
+
+
+def test_style_distance_orders_by_ending():
+    """원문(과거형 '-다')을 뺀 기준에서, 같은 어미 글이 다른 어미(해요체) 글보다 가깝다."""
+    from canon.schema import RevEpisode, RevLab
+    lab = RevLab(id=1, episodes=[RevEpisode(number=i, text=_prose("past", 3000, i)) for i in range(1, 5)])
+    base, why = revlab.style_base(lab, 4)
+    assert base and not why and base.style_centroid
+    from canon import metrics
+    same, other = metrics.style_distance(base, _prose("past", 3000, 99)), metrics.style_distance(base, _prose("polite", 3000, 99))
+    assert same < other
+    assert revlab.style_base(RevLab(id=2, episodes=lab.episodes[:2]), 1)[0] is None  # 한 화(3,000자)만 남으면 기준을 만들지 않는다
+
+
 def test_old_lab_file_still_loads(home):
     """맥락 칸을 넣기 전 파일 (인물에 성격 칸 없음, take 하나)."""
     lab = _parsed(home)
@@ -537,9 +592,11 @@ def test_js_run_rows_and_metric_rows():
     items = [_item(4, head="4화 눈"), _item(5), _item(6)]
     jobs = [{"pending": [4, 5, 6], "done": 1, "total": 4}, {"pending": [5], "done": 1, "total": 2}, {"pending": [4, 5], "done": 0, "total": 2}]
     o = {"condition": "original", "label": "원문", "chars": 1000, "lines_total": 0, "lines_hit": 0, "dialogue_ratio": 0.1, "sentence_len": 20,
-         "mattr": 0.9, "short_endings": 0, "repeats": [], "ai_patterns": 0, "rows": [{}], "tempo_order": True}
+         "mattr": 0.9, "short_endings": 0, "repeats": [], "ai_patterns": 0, "rows": [{}], "tempo_order": True,
+         "style_distance": None, "style_note": "기준이 짧아요", "comma_ratio": 0.1, "marker_warns": [], "copied": None, "copied_examples": None}
     t = {**o, "condition": "plain", "label": "되돌려 쓴 글", "chars": 1500, "lines_total": 4, "lines_hit": 3, "dialogue_ratio": 0.12,
-         "sentence_len": 11, "mattr": None, "repeats": ["x"], "ai_patterns": 2, "rows": [], "stale": True}
+         "sentence_len": 11, "mattr": None, "repeats": ["x"], "ai_patterns": 2, "rows": [], "stale": True,
+         "comma_ratio": 0.5, "marker_warns": ["'있었다' 9회 (원문 빈도면 2회 안팎)"], "copied": ["대답은 없었다."], "copied_examples": []}
     got = run_js(FILES, "({ rows: data.jobs.map((j) => revRunRows(j, data.items)), m: revMetricRows(data.scores) })",
                  {"items": items, "jobs": jobs, "scores": [o, t]})
     assert got["rows"][0] == [{"n": 4, "title": "눈", "state": "done"}, {"n": 5, "title": "", "state": "run"},
@@ -556,6 +613,10 @@ def test_js_run_rows_and_metric_rows():
     assert row["어휘 다양도"] == [("0.9", False), ("-", False)]
     assert row["되풀이 문장"] == [("0", False), ("1", True)] and row["쇠맛 경고"] == [("0", False), ("2", True)]  # 원문이 0이면 하나라도 표시
     assert row["템포 (원문 큐 경계)"] == [("맞음", False), ("-", False)]
+    assert row["문체 거리 (원문 다른 화 1.0)"] == [("-", False), ("-", False)]
+    assert row["쉼표 문장"] == [("10%", False), ("50%", True)] and row["표지 빈도 경고"] == [("0", False), ("1", True)]
+    assert row["원문 옮김"] == [("-", False), ("1", True)] and row["장치 예시 옮김"] == [("-", False), ("0", False)]  # 하나라도 옮기면 표시
+    assert m["notes"] == ["기준이 짧아요", "되돌려 쓴 글 표지: '있었다' 9회 (원문 빈도면 2회 안팎)", "되돌려 쓴 글 옮긴 문장: “대답은 없었다.”"]
 
 
 

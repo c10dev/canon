@@ -241,23 +241,37 @@ def _init_states(p: Project) -> None:
 
 # ---------- 2. 스타일 레퍼런스 ----------
 
-def analyze_style(llm: LLM, sample: str) -> StyleProfile:
+def analyze_style(llm: LLM, sample: str, names: list[str] | None = None) -> StyleProfile:
     profile = llm.json(prompts.SYSTEM_PLANNER, prompts.style_prompt(sample), StyleProfile)
-    count_markers(profile, sample)
+    count_markers(profile, sample, names)
     return profile
 
 
-def count_markers(profile: StyleProfile, sample: str) -> None:
-    """표지마다 원문 1,000자당 횟수를 센다. 모델이 적은 빈도는 믿지 않는다. 원문에 없는 표지는 뺀다."""
+MARKER_MIN_HANGUL = 2  # 표지와 장치 단서는 한글이 이만큼 있어야 쓴다 ('다' · '.' 는 거의 모든 글에 나와 뜻이 없다)
+
+
+def _marker_ok(text: str, sample: str, names: list[str]) -> bool:
+    m = metrics._marker(text)
+    return (len(re.findall(r"[가-힣]", m)) >= MARKER_MIN_HANGUL and not any(n in m for n in names)
+            and metrics.marker_count(sample, text) > 0)
+
+
+def count_markers(profile: StyleProfile, sample: str, names: list[str] | None = None) -> None:
+    """표지마다 원문 1,000자당 횟수를 센다. 모델이 적은 빈도는 믿지 않는다. 원문에 없는 표지, 한글이 2자 미만인 표지,
+    인물 이름(names, 2자 이상)이 든 표지는 뺀다. 장치 단서도 같게 거르고, 원문 표본에 없는 장치 예시는 비운다."""
+    names = [n.strip() for n in names or [] if len(n.strip()) >= 2]
     keep = []
     for m in profile.markers:
-        if metrics.marker_count(sample, m.text):
+        if _marker_ok(m.text, sample, names):
             m.per_1k = metrics.marker_rate(sample, m.text)
             keep.append(m)
     profile.markers = keep
-    for d in profile.devices:  # 장치를 알아보는 글자도 원문에 있는 것만
-        d.cues = [c for c in d.cues if metrics.marker_count(sample, c)]
+    flat = re.sub(r"\s+", "", sample)
+    for d in profile.devices:
+        d.cues = [c for c in d.cues if _marker_ok(c, sample, names)]
         d.every = max(0, d.every)
+        if d.example and re.sub(r"\s+", "", d.example) not in flat:
+            d.example = ""  # 지어낸 예시는 원문 문체가 아니다
 
 
 # ---------- 2-1. 내 수정에서 배우기 ----------
