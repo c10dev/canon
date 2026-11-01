@@ -95,22 +95,23 @@ function openingPanel(n) {
   const c = d && d.compare;
   const reveal = c && c.order;
   const finalized = e.status === 'finalized';
-  const drafts = c ? c.drafts.map((x) => `<section class="card tight${c.picked === x.n ? ' rs-picked' : ''}" style="min-width:0">
+  // 한 번에 한 안씩 읽는다 (research.js blindDeck). 지표 · 판정은 그 안을 끝까지 읽기 전까지 본문 아래에 접어 둔다
+  const card = (x, open) => `<section class="card tight${c.picked === x.n ? ' rs-picked' : ''}" style="min-width:0">
       <div class="between"><h3>${x.n}번${reveal ? ` <span class="chip ai">${esc(c.order[x.n - 1])}</span>` : ''}</h3>
         ${c.picked ? (c.picked === x.n ? '<span class="chip finalized">고름</span>' : '') : `<button class="btn small primary" data-action="openingPick" data-arg="${n}:${x.n}"${finalized ? ' disabled' : ''}>이 안 쓰기</button>`}</div>
-      <div class="small">${x.chars.toLocaleString()}자 · 대사 ${x.dialogue_ratio}</div>
-      ${x.opening.length ? `<div class="note warn">${x.opening.map(esc).join('<br>')}</div>` : '<div class="note ok">초반 지표 경고 없음</div>'}
-      ${x.hook ? hookView(x.hook, false) : `<button class="btn small" data-action="openingHookDraft" data-arg="${n}:${x.n}"${hookRunning ? ' disabled' : ''}>이 안 판정</button>`}
-      <details><summary class="small">본문 읽기</summary><div class="rs-prose">${esc(x.text)}</div></details>
-    </section>`).join('') : '';
+      ${blindProse(c, x)}
+      ${blindMetrics(open, `<div class="small">${x.chars.toLocaleString()}자 · 대사 ${x.dialogue_ratio}</div>
+        ${x.opening.length ? `<div class="note warn">${x.opening.map(esc).join('<br>')}</div>` : '<div class="note ok">초반 지표 경고 없음</div>'}
+        ${x.hook ? hookView(x.hook, false) : `<div><button class="btn small" data-action="openingHookDraft" data-arg="${n}:${x.n}"${hookRunning ? ' disabled' : ''}>이 안 판정</button></div>`}`)}
+    </section>`;
   if (finalized) return '';  // 여는 방식 비교만 남았다 (초반 지표 · 흡입력 판정은 검수 화면의 초반 점검 탭, openingChecks)
   return `<section class="card" aria-label="여는 방식 비교">
       <div class="between"><h2>여는 방식 비교</h2><a class="small" href="${base()}/check/${n}" data-action="chkOpening" data-arg="${n}">초반 지표 · 흡입력 판정은 검수에서</a></div>
-      <div class="small">같은 화를 여는 방식만 달리해 여러 안으로 쓰고, 어느 방식인지 가린 채 읽고 골라요. 고른 안이 이 화 본문이 돼요.</div>
+      <div class="small">같은 화를 여는 방식만 달리해 여러 안으로 쓰고, 어느 방식인지 가린 채 한 안씩 읽고 골라요. 고른 안이 이 화 본문이 돼요.</div>
       ${openingWayPicker(!canWrite)}
       <div class="row"><button class="btn dark" data-action="openingDrafts" data-arg="${n}" data-opening-go="${canWrite ? 1 : 0}"${canWrite && !fewWays ? draftsBtn.attr : ' disabled'}>${draftsBtn.label}</button>
         ${!canWrite ? `<span class="small">${e.status === 'draft' ? '플롯을 확정하면 쓸 수 있어요' : blocked ? '이전 화를 반영해야 쓸 수 있어요' : 'AI로 쓰기 방식에서 쓸 수 있어요'}</span>` : ''}</div>
-      ${c ? `<div class="small">${esc(fmtDateTime(c.created))}에 쓴 ${c.kind === 'opening' ? '여는 방식' : '백엔드'} 비교본${c.picked ? '' : ' · 고르기 전까지 가려요'}</div><div class="rs-compare">${drafts}</div>` : ''}
+      ${c ? `<div class="small">${esc(fmtDateTime(c.created))}에 쓴 ${c.kind === 'opening' ? '여는 방식' : '백엔드'} 비교본${c.picked ? '' : ' · 고르기 전까지 가려요'}</div>${blindDeck(c, card)}` : ''}
     </section>`;
 }
 
@@ -237,6 +238,7 @@ Object.assign(actions, {
   },
   async openingPick(arg) {
     const [n, k] = String(arg).split(':').map(Number);
+    if (!(await blindPickOk(S.openingData[n] && S.openingData[n].compare, k))) return;
     const unsaved = textUnsaved(n);
     if ((ep(n).text || unsaved) && !(await askConfirm(`${k}번을 ${n}화 본문으로 바꿀까요?${unsaved ? '\n고치던 본문은 먼저 저장해 이전 판에 남겨요.' : ''}`, { ok: '바꾸기' }))) return;
     await run('공개하는 중', async () => {

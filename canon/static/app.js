@@ -2058,6 +2058,7 @@ function drawApp() {
   if (typeof syncWriteTop === 'function') syncWriteTop();
   if (typeof syncLines === 'function') syncLines();
   if (typeof syncStage === 'function') syncStage();
+  if (typeof syncBlind === 'function') syncBlind();
   document.querySelectorAll('textarea[data-autogrow]').forEach(autosize);
   // 상태 승인 지시서 탭이 바뀌면 다시 불러온다
   if (page === 'brief' && S.briefText === null && ep(n)) {

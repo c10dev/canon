@@ -417,13 +417,13 @@ function rsCompareView() {
   const fin = e && e.status === 'finalized';
   const reveal = c && c.order;
   const others = S.rs.openCmp.filter((x) => x.episode !== n);
-  const drafts = c ? c.drafts.map((d) => `<section class="card tight${c.picked === d.n ? ' rs-picked' : ''}">
+  const card = (d, open) => `<section class="card tight${c.picked === d.n ? ' rs-picked' : ''}">
       <div class="between"><h3>${d.n}번${reveal ? ` <span class="chip ai">${esc(c.order[d.n - 1])}</span>` : ''}</h3>
         ${c.picked ? (c.picked === d.n ? '<span class="chip ok">고름</span>' : '') : `<button class="btn small" data-action="rsPick" data-arg="cmp|${d.n}">${d.n}번 고르기</button>`}</div>
-      <div class="small">${rsNum(d.chars)}자 · 문장 평균 ${rsNum(d.sentence_len_mean, 1)} · 대사 ${rsNum(d.dialogue_ratio, 2)} · 어휘 ${rsNum(d.mattr, 3)}</div>
-      ${d.warnings.length ? `<div class="note warn">${d.warnings.map(esc).join('<br>')}</div>` : ''}
-      <div class="rs-prose">${esc(d.text)}</div>
-    </section>`).join('') : '';
+      ${blindProse(c, d)}
+      ${blindMetrics(open, `<div class="small">${rsNum(d.chars)}자 · 문장 평균 ${rsNum(d.sentence_len_mean, 1)} · 대사 ${rsNum(d.dialogue_ratio, 2)} · 어휘 ${rsNum(d.mattr, 3)}</div>
+        ${d.warnings.length ? `<div class="note warn">${d.warnings.map(esc).join('<br>')}</div>` : ''}`)}
+    </section>`;
   const wins = S.rs.pickResult ? Object.entries(S.rs.pickResult.wins).map(([k, v]) => `${esc(k)} ${v}`).join(', ') : '';
   return `<section class="card" aria-labelledby="rs-set-h"><h2 id="rs-set-h">무엇을 견줄까요</h2>
       <div class="field" style="max-width:360px"><label for="rs-cmp-ep">화</label>
@@ -435,9 +435,98 @@ function rsCompareView() {
     </section>
     ${S.rs.pickResult ? `<div class="note ok" role="status">고른 쪽: ${esc(S.rs.pickResult.picked)}. 지금까지 고른 횟수: ${wins}</div>` : ''}
     ${c ? `<section class="card" aria-labelledby="rs-res-h"><div><h2 id="rs-res-h">${n}화 비교본 ${c.drafts.length}개</h2><span class="small">${esc(fmtWhen(c.created))}에 썼어요${c.picked ? '' : ' · 고르기 전까지 백엔드를 가려요'}</span></div>
-      <div class="rs-compare">${drafts}</div></section>` : ''}
+      ${blindDeck(c, card)}</section>` : ''}
     ${rsPast('compare', ['compare', 'pick'])}`;
 }
+
+// ---------- 가려 읽기: 비교본을 한 번에 한 안씩 ----------
+// 블라인드 비교와 여는 방식 비교(opening.js)가 함께 쓴다. 안을 나란히 두면 훑어 견주게 되므로 탭으로 하나만 보인다.
+// 비교본마다 지금 보는 안, 끝까지 내린 안, 안마다 읽던 자리를 기억한다. 저장하지 않는다 (새로고침하면 1번부터)
+
+S.blind = {};
+
+const blindId = (c) => `${c.episode}:${c.created}`;
+
+function blindState(c) {
+  const id = blindId(c);
+  return S.blind[id] || (S.blind[id] = { show: 1, seen: [], top: {} });
+}
+
+/** 끝까지 읽지 않은 안 번호 (1~count). 고르려는 안 k 는 뺀다. */
+function blindUnread(count, seen, k) {
+  const out = [];
+  for (let i = 1; i <= count; i++) if (i !== k && !seen.includes(i)) out.push(i);
+  return out;
+}
+
+/** 고르기 전에 다른 안을 끝까지 읽었는지 확인한다. 다 읽었거나 이미 골랐으면 묻지 않는다. */
+async function blindPickOk(c, k) {
+  if (!c || c.picked) return true;
+  const left = blindUnread(c.drafts.length, blindState(c).seen, k);
+  return !left.length || askConfirm(`${left.join(', ')}번을 아직 끝까지 읽지 않았어요. ${k}번을 고를까요?`, { ok: '고르기' });
+}
+
+/** 비교본 탭과 고른 안 하나. card(d, open): 안 카드, open 은 지표를 펼쳐 둘지 (그 안을 다 읽었거나 고른 뒤). */
+function blindDeck(c, card) {
+  const st = blindState(c);
+  const show = Math.min(st.show, c.drafts.length);
+  const id = blindId(c);
+  const tabs = c.drafts.map((d) => {
+    const who = c.order ? ` · ${esc(c.order[d.n - 1])}` : '';
+    const mark = c.picked === d.n ? ' · 고름' : st.seen.includes(d.n) ? ' · 읽음' : '';
+    return `<button type="button" role="tab" id="blind-tab-${d.n}" aria-selected="${d.n === show}" aria-controls="blind-panel" data-action="blindShow" data-arg="${esc(id)}|${d.n}">${d.n}번${who}${mark}</button>`;
+  }).join('');
+  const d = c.drafts[show - 1];
+  const left = blindUnread(c.drafts.length, st.seen, 0).length;
+  return `<div class="blind">
+      <div class="between"><div class="tabs" role="tablist" aria-label="비교본">${tabs}</div>
+        ${c.picked ? '' : `<span class="small">${left ? `${left}개 안을 아직 끝까지 읽지 않았어요` : '모두 읽었어요. 고르세요'}</span>`}</div>
+      <div id="blind-panel" role="tabpanel" aria-labelledby="blind-tab-${show}">${card(d, !!c.picked || st.seen.includes(d.n))}</div>
+    </div>`;
+}
+
+/** 비교본 본문 칸. 끝까지 내리면 읽음으로 센다 (아래 scroll). */
+function blindProse(c, d) {
+  return `<div class="rs-prose blind-prose" tabindex="0" aria-label="${d.n}번 본문" data-blind="${esc(blindId(c))}|${d.n}">${esc(d.text)}</div>`;
+}
+
+/** 지표 · 경고 · 판정은 본문 아래에 둔다. 읽기 전에 숫자가 판단을 기울지 않게 그 안을 다 읽기 전까지 접는다. */
+function blindMetrics(open, html) {
+  return `<details${open ? ' open' : ''}><summary class="small">지표 · 경고${open ? '' : ' (끝까지 읽으면 펼쳐져요)'}</summary><div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">${html}</div></details>`;
+}
+
+function blindTrack(el) {
+  const [id, k] = el.dataset.blind.split(/\|(?=\d+$)/);
+  const st = S.blind[id];
+  if (!st || !el.clientHeight) return;  // 보이지 않는 칸은 높이가 0이라 다 읽은 것처럼 보인다
+  st.top[k] = el.scrollTop;
+  if (st.seen.includes(Number(k)) || el.scrollTop + el.clientHeight < el.scrollHeight - 24) return;
+  st.seen.push(Number(k));
+  setTimeout(render);  // 그리는 중(syncBlind)에 불릴 수 있어 그리기가 끝난 뒤 다시 그린다
+}
+
+/** 다시 그린 뒤 읽던 자리로 돌린다. 내릴 것 없이 짧은 안은 바로 읽음으로 센다. */
+function syncBlind() {
+  document.querySelectorAll('#app .blind-prose').forEach((el) => {
+    const [id, k] = el.dataset.blind.split(/\|(?=\d+$)/);
+    const st = S.blind[id];
+    if (st && st.top[k]) el.scrollTop = st.top[k];
+    blindTrack(el);
+  });
+}
+
+document.addEventListener('scroll', (e) => {
+  if (e.target.matches && e.target.matches('.blind-prose')) blindTrack(e.target);
+}, true);
+
+Object.assign(actions, {
+  blindShow(arg) {
+    const [id, k] = String(arg).split(/\|(?=\d+$)/);
+    if (!S.blind[id]) return;
+    S.blind[id].show = Number(k);
+    render();
+  },
+});
 
 function rsLogView() {
   const items = S.rs.log.map((x) => {
@@ -709,6 +798,7 @@ Object.assign(actions, {
   async rsPickDraft(k) {
     const n = S.rs.compareEp;
     const adopt = S.rs.adopt && ep(n).status !== 'finalized';  // 반영이 끝난 화는 고른 기록만 남긴다
+    if (!(await blindPickOk(S.rs.compare, k))) return;
     if (adopt && ep(n).text && !(await askConfirm(`${k}번을 ${n}화 본문으로 바꿀까요?`, { ok: '바꾸기' }))) return;
     await run('공개하는 중', async () => {
       await saveIfDirty();
