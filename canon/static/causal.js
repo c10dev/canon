@@ -32,7 +32,7 @@ Object.assign(S, {
 
 (function causalStyle() {
   const css = `
-.cz-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.cz-col { display: flex; flex-direction: column; gap: var(--gap-stack); min-width: 0; }
 .cz-col > .card { scroll-margin-top: calc(var(--band, 0px) + 16px); }
 .cz-desc { font-family: var(--serif); font-size: 0.9375rem; line-height: 1.8; white-space: pre-wrap; }
 .cz-chunks { display: flex; flex-wrap: wrap; gap: 10px 24px; }
