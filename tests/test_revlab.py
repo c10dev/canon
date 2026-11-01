@@ -1246,3 +1246,27 @@ def test_long_lab_prompts_stay_in_budget(home, monkeypatch):
     q = revlab.world(small, 30)
     assert "예산" not in prompts.story_so_far(q, 30) and not any("예산" in f for f in q.facts)  # 30화 안팎은 예산에 닿지 않는다
     assert "화가 30개라" not in prompts.rev_lines_prompt(small)
+
+
+@needs_node
+def test_js_blind_reading_shows_one_side_at_a_time():
+    """가려 읽기 (revBlindDeck): 탭으로 한 쪽만 보이고, 끝까지 읽은 쪽은 '읽음', 읽지 않은 쪽을 센다."""
+    got = run_js(FILES, """(() => {
+      S.revLab = { id: 7 };
+      const e = { number: 3, blind_no: 2, blind_texts: ['첫째 쪽 글', '둘째 쪽 글'] };
+      const first = revBlindDeck(e);
+      const st = revBlindState(e);
+      st.show = 2; st.seen.push(1);
+      const second = revBlindDeck(e);
+      st.seen.push(2);
+      const other = revBlindState({ ...e, blind_no: 3 });  // 다음 판은 처음부터
+      return { first, second, done: revBlindDeck(e), other, unread: [revBlindUnread(2, [], 0), revBlindUnread(2, [], 1), revBlindUnread(2, [2], 1)] };
+    })()""", {})
+    assert got["first"].count('role="tab"') == 2
+    assert "첫째 쪽 글" in got["first"] and "둘째 쪽 글" not in got["first"] and "1, 2번을 아직 끝까지" in got["first"]
+    assert 'data-action="revPick" data-arg="1"' in got["first"] and "2번이 더 읽고" not in got["first"]
+    assert "둘째 쪽 글" in got["second"] and "첫째 쪽 글" not in got["second"]
+    assert "1번 · 읽음" in got["second"] and "2번을 아직 끝까지" in got["second"]
+    assert "모두 읽었어요" in got["done"]
+    assert got["other"] == {"show": 1, "seen": [], "top": {}}
+    assert got["unread"] == [[1, 2], [2], []]

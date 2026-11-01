@@ -21,6 +21,7 @@ Object.assign(S, {
   revPick: null,   // 역설계할 화 Set
   revRedo: false,  // 역설계한 화도 다시 고르는 개요 표를 열었는지
   revRunHide: new Set(), // 닫은 작업 카드의 작업 id. 작업은 계속 돌고, 새 작업이 시작되면 카드가 다시 보인다
+  revBlindRead: {}, // 가려 읽기마다(실험:화:판) 보는 쪽 show, 끝까지 내린 쪽 seen, 쪽마다 읽던 자리 top. 저장하지 않는다
   revNew: false,   // 처음 화면의 새 실험 카드를 열었는지 (실험이 없거나 붙여 넣은 글이 있으면 늘 열림)
   revEsts: {},     // 비용 추정 { 열쇠(revEstKey): 값 | null(묻는 중) | { error } }
   revSel: 0,       // 원문에서 밝힌 큐 번호 (1부터)
@@ -1141,6 +1142,65 @@ function revTakePickHtml(b) {
 const REV_LINES_NOTE = { before: ['줄기 전', '이야기 줄기를 만들기 전에 썼어요'], changed: ['줄기 바뀜', '쓴 뒤 이야기 줄기를 다시 만들었어요'] };
 const revLinesChip = (t) => (t.lines ? ` <span class="chip" title="${REV_LINES_NOTE[t.lines][1]}">${REV_LINES_NOTE[t.lines][0]}</span>` : '');
 
+// ---------- 가려 읽기: 한 번에 한 쪽씩 ----------
+// 두 쪽을 나란히 두면 읽지 않고 훑어 견주게 되므로 탭으로 한 쪽만 보인다. 끝까지 내린 쪽은 '읽음'으로 세고,
+// 다른 쪽을 끝까지 읽기 전에 고르면 한 번 묻는다 (막지는 않는다). 판마다 따로 기억하고 저장하지 않는다.
+
+const revBlindKey = (e) => `${S.revLab.id}:${e.number}:${e.blind_no}`;
+
+function revBlindState(e) {
+  const k = revBlindKey(e);
+  return S.revBlindRead[k] || (S.revBlindRead[k] = { show: 1, seen: [], top: {} });
+}
+
+/** 끝까지 읽지 않은 쪽 번호 (1~count). 고르려는 쪽 k 는 뺀다. */
+function revBlindUnread(count, seen, k) {
+  const out = [];
+  for (let i = 1; i <= count; i++) if (i !== k && !seen.includes(i)) out.push(i);
+  return out;
+}
+
+/** 쪽 탭과 고른 쪽 글 하나, 그 쪽을 고르는 버튼. */
+function revBlindDeck(e) {
+  const st = revBlindState(e);
+  const n = e.blind_texts.length;
+  const show = Math.min(st.show, n);
+  const tabs = e.blind_texts.map((_, i) => `<button type="button" role="tab" id="rev-blind-tab-${i + 1}" aria-selected="${i + 1 === show}" aria-controls="rev-blind-panel"
+      data-action="revBlindShow" data-arg="${i + 1}">${i + 1}번${st.seen.includes(i + 1) ? ' · 읽음' : ''}</button>`).join('');
+  const left = revBlindUnread(n, st.seen, 0);
+  return `<div class="between"><div class="tabs" role="tablist" aria-label="가려 읽기">${tabs}</div>
+      <span class="small">${left.length ? `${left.join(', ')}번을 아직 끝까지 읽지 않았어요` : '모두 읽었어요. 더 읽고 싶은 쪽을 고르세요'}</span></div>
+    <div id="rev-blind-panel" role="tabpanel" aria-labelledby="rev-blind-tab-${show}" class="rev-blind-col">
+      <div class="cue-text rev-read rev-blind-read" tabindex="0" aria-label="${show}번 글" data-rev-blind="${show}">${esc(e.blind_texts[show - 1])}</div>
+      <div><button type="button" class="btn" data-action="revPick" data-arg="${show}">${show}번이 더 읽고 싶어요</button></div></div>`;
+}
+
+/** 쪽 글 칸의 스크롤: 읽던 자리를 남기고, 끝까지 내리면 읽음으로 센다. 보이지 않는 칸(높이 0)은 세지 않는다. */
+function revBlindTrack(el) {
+  const e = S.revLab && revItem(S.revEp);
+  if (!e || !e.blind_no || !el.clientHeight) return;
+  const st = revBlindState(e);
+  const k = Number(el.dataset.revBlind);
+  st.top[k] = el.scrollTop;
+  if (st.seen.includes(k) || el.scrollTop + el.clientHeight < el.scrollHeight - 24) return;
+  st.seen.push(k);
+  setTimeout(render);  // 그리는 중(syncRevBlind)에 불릴 수 있어 그리기가 끝난 뒤 다시 그린다
+}
+
+/** 다시 그린 뒤 읽던 자리로 돌린다. 내릴 것 없이 짧은 쪽은 바로 읽음으로 센다 (app.js drawApp 이 부른다). */
+function syncRevBlind() {
+  const el = document.querySelector('#app .rev-blind-read');
+  const e = el && S.revLab && revItem(S.revEp);
+  if (!e || !e.blind_no) return;
+  const top = revBlindState(e).top[Number(el.dataset.revBlind)];
+  if (top) el.scrollTop = top;
+  revBlindTrack(el);
+}
+
+document.addEventListener('scroll', (ev) => {
+  if (ev.target.matches && ev.target.matches('.rev-blind-read')) revBlindTrack(ev.target);
+}, true);
+
 const revTakeWho = (t) => `${esc(t.model || '모델 모름')}${t.provider && t.provider !== 'mock' ? ` <span class="small">· ${esc(WRITER_BACKEND[t.provider] || t.provider)}</span>` : ''}`;
 
 function revWriteTab(e) {
@@ -1151,10 +1211,9 @@ function revWriteTab(e) {
   const c = revTakePicks(e);
   if (wait) {
     parts.push(`<section class="card"><div class="between"><h3>가려 읽기 · 판 ${wait.no}</h3><span class="small">${c.wait > 1 ? `이 화에 ${c.wait}판 남음 · ` : ''}고르면 어느 쪽인지와 지표를 보여 드려요</span></div>
-      <div class="note info">어느 쪽이 원문인지 숨겼어요. 둘 다 읽고 더 이어 읽고 싶은 쪽을 고르세요.</div>
+      <div class="note info">어느 쪽이 원문인지 숨겼어요. 한 쪽씩 끝까지 읽고 더 이어 읽고 싶은 쪽을 고르세요.</div>
       ${c.original + c.rewrite + c.skip ? `<div class="note warn small">이 화의 원문을 앞선 가려 읽기 ${c.original + c.rewrite + c.skip}번에서 이미 봤어요. 이번 결과는 '원문 본 뒤'로 따로 세요.</div>` : ''}
-      <div class="rev-blind">${e.blind_texts.map((x, i) => `<div class="rev-blind-col"><h4>${i + 1}번</h4><div class="cue-text rev-read">${esc(x)}</div>
-        <button type="button" class="btn" data-action="revPick" data-arg="${i + 1}">${i + 1}번이 더 읽고 싶어요</button></div>`).join('')}</div>
+      ${revBlindDeck(e)}
       <div class="row"><button type="button" class="btn ghost" data-action="revPick" data-arg="0">고르지 않고 결과 보기</button></div></section>`);
   }
   const busy = !!revRunning();
@@ -1559,8 +1618,16 @@ Object.assign(actions, {
     if ((S.cueEdits[revCueKey(k)] || {}).dirty && !(await askConfirm('저장하지 않은 큐 시트 고침이 있어요. 저장한 큐 시트로 되돌려 쓸까요?', { ok: '되돌려 쓰기', danger: true }))) return;
     revStartJob('write', { episodes: [k], style: !!(S.revStyle && S.revLab.style) });
   },
+  revBlindShow(k) {
+    const e = revItem(S.revEp);
+    if (!e || !e.blind_no) return;
+    revBlindState(e).show = Number(k);
+    render();
+  },
   async revPick(k) {
     const e = revItem(S.revEp);
+    const left = Number(k) && e && e.blind_no ? revBlindUnread(e.blind_texts.length, revBlindState(e).seen, Number(k)) : [];
+    if (left.length && !(await askConfirm(`${left.join(', ')}번을 아직 끝까지 읽지 않았어요. ${k}번을 고를까요?`, { ok: '고르기' }))) return;
     await run('고르는 중', async () => {
       S.revLab = await api('POST', `/revlab/${S.revLab.id}/episodes/${S.revEp}/pick`, { choice: Number(k), take: e ? e.blind_no : null });
     });
@@ -1734,6 +1801,7 @@ Object.assign(actions, {
 .rev-ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
 .rev-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
 .rev-blind { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.rev-blind-read { max-height: 70vh; }  /* 가려 읽기는 한 쪽씩이라 길게 */
 .rev-blind-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .rev-read { max-height: 60vh; overflow-y: auto; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
 .rev-scroll { overflow-x: auto; }

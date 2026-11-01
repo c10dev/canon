@@ -2024,7 +2024,11 @@ function drawApp() {
     $('#app').innerHTML = `<div class="shell">${outSidebar(id)}<main class="main out-main" style="--out-w:${width}px">${body}</main></div>`;
   };
   if (p === 'usage') return outside('usage', 1180, viewUsage());
-  if (p === 'revlab') return outside('revlab', 1280, viewRev());
+  if (p === 'revlab') {
+    outside('revlab', 1280, viewRev());
+    if (typeof syncRevBlind === 'function') syncRevBlind();  // 가려 읽기의 읽던 자리 · 읽음 (revlab.js)
+    return;
+  }
   if (p === 'soelab') return outside('soelab', 1280, viewSoe());
   if (p === 'refs') return outside('refs', 1280, viewRefs());
   if (p === 'styles') return outside('styles', 1180, S.route[1] && S.lib ? viewLibEntry() : viewLibrary());
