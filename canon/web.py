@@ -4576,6 +4576,18 @@ def rev_style_note(lab_id: int, sid: int, body: RevStyleNoteIn) -> dict:
     return _rev_edit(lab_id, lambda lab: revlab.note_style(lab, sid, body.note))
 
 
+class RevStyleLibraryIn(BaseModel):
+    name: str = ""  # 비우면 '실험 이름 문체 n번'
+
+
+@app.post("/api/revlab/{lab_id}/styles/{sid}/library")
+def rev_style_library(lab_id: int, sid: int, body: RevStyleLibraryIn) -> dict:
+    """프로필을 문체 라이브러리 새 항목으로 저장한다 (revlab.to_library). 작품은 2단계 문체에서 그 항목을 고른다."""
+    _rev(lab_id)
+    e = revlab.to_library(lab_id, sid, body.name)
+    return {**revlab.view(revlab.load(lab_id)), "saved": {"id": e.id, "name": e.name}}
+
+
 @app.delete("/api/revlab/{lab_id}/styles/{sid}")
 def rev_style_delete(lab_id: int, sid: int) -> dict:
     """문체 프로필을 지운다 (revlab.drop_style). 이 프로필로 쓴 판은 남는다."""

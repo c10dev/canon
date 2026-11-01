@@ -12240,6 +12240,67 @@
     }
    }
   },
+  "/api/revlab/{lab_id}/styles/{sid}/library": {
+   "post": {
+    "summary": "Rev Style Library",
+    "description": "프로필을 문체 라이브러리 새 항목으로 저장한다 (revlab.to_library). 작품은 2단계 문체에서 그 항목을 고른다.",
+    "operationId": "rev_style_library",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     },
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Sid"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RevStyleLibraryIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Style Library"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/revlab/{lab_id}/episodes/{n}/sheet": {
    "put": {
     "summary": "Rev Put Sheet",
@@ -26748,6 +26809,17 @@
      "text"
     ],
     "title": "RevSplitIn"
+   },
+   "RevStyleLibraryIn": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "RevStyleLibraryIn"
    },
    "RevStyleNoteIn": {
     "properties": {

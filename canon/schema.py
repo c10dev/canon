@@ -2670,6 +2670,7 @@ class RevStyle(BaseModel):
     basis: str = Field("", description="만들 때 넣은 원문(revlab.style_sample)의 sha1 앞 12자. 빈 값은 기록을 넣기 전 판")
     chars: int = Field(0, description="만들 때 넣은 원문 글자 수")
     note: str = Field("", description="작가 메모 한 줄")
+    library: str = Field("", description="이 프로필을 저장한 문체 라이브러리 항목 id (revlab.to_library). 빈 값은 저장하지 않음")
 
 # ---------- 쇠맛 실험실 (canon/soelab.py) ----------
 # 작품 밖 <CANON_HOME>/.soelab/ 에 둔다. LLM 이 채우지 않는 스키마다.

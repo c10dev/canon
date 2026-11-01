@@ -113,6 +113,7 @@
 - 기록 상한 `STYLE_KEEP`(넘치면 지금 프로필과 판이 가리키는 프로필을 빼고 오래된 것부터 지움, 지울 것이 없으면 `check_style_room` 이 AI 를 부르기 전에 막음)
 - 고르기 `select_style` · 지우기 `drop_style`(지금 프로필은 하나만 남았을 때만) · 메모 `note_style`
 - 견주기 `style_diff` · `style_view`(`library.diff`, 기본은 지금 프로필과)
+- 라이브러리에 저장 `to_library`(원문 앞부분과 AI 없이 고른 대표 문단 `pick_passages`, 항목 id `RevStyle.library`, 라이브러리에서 지우면 화면 값 `library` 가 빔), 웹 `POST /api/revlab/<번호>/styles/<id>/library`
 - 기록 화면 값 `style_items`(원문 앞부분이 바뀌었는지 `basis_ok`, `style_basis`)
 - 판은 넣은 프로필 번호 `RevTake.style_id` 를 남기고, `compare` · `_take_view` 가 `style_old` · `style_gone` 을 붙임
 - 글을 통째로 바꾸면(`replace_text`) 기록은 남기고 `style_id` 만 비움
@@ -198,7 +199,7 @@
 - 단계 다섯(`revSteps` · `revStepShare`, 누르면 그 단계 자리 `revStep`) · 화(`revTocEps`, 제목 옆 ＋ 로 화 이어 붙이기 칸 `revAddCard`, 미리보기 `revAppendPreview` 는 `append_text` 와 같은 규칙, '레퍼런스 원고에서' 갈래는 `revRefAddHtml` · 미리보기 `revRefPreview` · 다음 화 `revRefNext` 가 `append_episodes` 와 같은 규칙, 화 머리 출처 칩) · 실험 전체
   - 인물 · 관계 · 배경 `revContextCard`
   - 문체 프로필 `revStyleCard`
-  - 문체 프로필 기록 목록(`.version-list`, 이 프로필 쓰기 `revStyleUse` · 지금과 견주기 `revStyleDiff` 가 `mystyle.js` 의 `changeLines` 로 그림 · 메모 `revStyleNote` · 지우기 `revStyleDrop`)
+  - 문체 프로필 기록 목록(`.version-list`, 이 프로필 쓰기 `revStyleUse` · 지금과 견주기 `revStyleDiff` 가 `mystyle.js` 의 `changeLines` 로 그림 · 메모 `revStyleNote` · 지우기 `revStyleDrop` · 라이브러리에 저장 `revStyleToLib`, 저장한 뒤에는 라이브러리에서 보기 링크)
   - 판의 문체 한 줄 `revTakeStyle` · 다른 프로필로 쓴 판의 칩 `revStyleTag`(판 목록 · 지표 머리 · 나란히 읽기)
   - 이야기 줄기 `revLinesCard`
   - 지표 모아 보기 `revMetricsAll`
