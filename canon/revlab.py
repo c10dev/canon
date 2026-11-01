@@ -1136,6 +1136,54 @@ def sources(lab: RevLab) -> tuple[dict[str, str], dict[int, str]]:
     return names, state
 
 
+REST_PEAK = 2  # 화의 최고 긴장이 이하면 숨 고르기 화 (pace)
+TOP_TENSION = 5
+
+
+def _pace_row(e: RevEpisode) -> dict:
+    """화 하나의 호흡: 큐 시트(AI 판단)와 원문에서 잰 값. 긴장 평균 · D 비율 · 빠른 템포 비율은 큐 글자 수로 가중한다."""
+    title = (e.plot.title if e.plot else "") or re.sub(HEAD_RE, r"\2", e.head).strip()
+    row = {"number": e.number, "title": title, "chars": len(e.text.strip()), "parsed": bool(e.sheet and e.sheet.cues)}
+    if not row["parsed"]:
+        return row
+    cues = e.sheet.cues
+    w = [max(c.length, 1) for c in cues]
+    total = sum(w)
+    peak = max(c.tension for c in cues)
+    k = next(i for i, c in enumerate(cues) if c.tension == peak)
+    sents = metrics.sentences(e.text)
+    quoted = sum(len(m) for m in metrics._QUOTE.findall(e.text))
+    share = lambda ok: round(sum(x for c, x in zip(cues, w) if ok(c)) / total, 2)  # noqa: E731
+    return {**row, "cues": len(cues), "tension": [c.tension for c in cues], "functions": [c.function for c in cues], "weights": w,
+            "avg": round(sum(c.tension * x for c, x in zip(cues, w)) / total, 2), "peak": peak,
+            "peak_at": round((sum(w[:k]) + w[k] / 2) / total, 2), "end": cues[-1].tension,
+            "d_share": share(lambda c: c.function == "D"), "fast_share": share(lambda c: c.tempo == "fast"),
+            "dialogue": round(quoted / max(len(e.text), 1), 2), "sentence_len": round(len(e.text.strip()) / len(sents), 1) if sents else 0,
+            "cadence": e.sheet.cadence, "hook": e.plot.ending_hook if e.plot else ""}
+
+
+def pace(lab: RevLab) -> dict:
+    """화별 호흡(rows)과 실험 전체 요약(summary). AI 를 부르지 않고 저장하지 않는다. 긴장도는 화마다 따로 매긴 값이라
+    화 사이의 세기를 견주는 값이 아니다 (대사 비율 · 문장 길이 · 분량은 원문에서 잰 값)."""
+    rows = [_pace_row(e) for e in lab.episodes]
+    done = [r for r in rows if r["parsed"]]
+    if not done:
+        return {"rows": rows, "summary": None}
+    tops = [r["number"] for r in done if r["peak"] >= TOP_TENSION]
+    idx = {r["number"]: i for i, r in enumerate(done)}
+    gaps = [idx[b] - idx[a] for a, b in zip(tops, tops[1:])]
+    chars = [r["chars"] for r in done]
+    mean = sum(chars) / len(chars)
+    sd = (sum((c - mean) ** 2 for c in chars) / len(chars)) ** 0.5
+    return {"rows": rows, "summary": {
+        "parsed": len(done), "cadence": {k: sum(r["cadence"] == k for r in done) for k in ("full", "half", "deceptive")},
+        "rest": [r["number"] for r in done if r["peak"] <= REST_PEAK], "tops": tops,
+        "top_gap": round(sum(gaps) / len(gaps), 1) if gaps else None,
+        "peak_at": round(sum(r["peak_at"] for r in done) / len(done), 2),
+        "end_high": sum(r["end"] >= 4 for r in done),
+        "chars_mean": round(mean), "chars_cv": round(sd / mean, 2) if mean else 0}}
+
+
 def view(lab: RevLab) -> dict:
     """실험 화면 값: 화마다 원문 · 역설계 결과 · 경계 · 되돌려 쓰기, 이야기 줄기, 인물, 문체 프로필 기록(style_list).
     레퍼런스 원고에서 온 화는 원고 이름(ref_names)과 출처 상태(item 의 source_state)도 준다."""

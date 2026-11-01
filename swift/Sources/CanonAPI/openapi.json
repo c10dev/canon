@@ -12021,6 +12021,48 @@
     }
    }
   },
+  "/api/revlab/{lab_id}/pace": {
+   "get": {
+    "summary": "Rev Pace",
+    "description": "화별 호흡과 실험 전체 요약 (revlab.pace, AI 없음). 구조 · 호흡 칸을 열 때만 받는다.",
+    "operationId": "rev_pace",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Pace"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/revlab/{lab_id}/styles/{sid}": {
    "get": {
     "summary": "Rev Style Get",

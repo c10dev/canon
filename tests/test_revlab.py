@@ -947,6 +947,50 @@ def test_js_style_tag():
     assert run_js(FILES, "data.map(revStyleTag)", cases) == ["", "", "2번 프로필", "지운 프로필", "지운 프로필"]
 
 
+def test_pace_rows_and_summary(home):
+    from canon.schema import Cue
+
+    lab = _parsed(home)
+    assert revlab.pace(revlab.create("빈", STORY))["summary"] is None  # 역설계 전이면 요약 없음
+    e = lab.episodes[0]
+    e.sheet.cues = [Cue(function="T", tension=1, tempo="slow", voice="description", length=300),
+                    Cue(function="D", tension=5, tempo="fast", voice="action", length=100)]
+    e.sheet.cadence = "half"
+    lab.episodes[1].sheet.cues = [Cue(function="T", tension=2, tempo="mid", voice="dialogue", length=100)]
+    lab.episodes[1].sheet.cadence = "full"
+    d = revlab.pace(lab)
+    a, b = d["rows"]
+    assert a["avg"] == 2.0 and a["peak"] == 5 and a["peak_at"] == 0.88 and a["end"] == 5  # (1·300 + 5·100) / 400, 최고 큐 가운데 350/400
+    assert a["d_share"] == a["fast_share"] == 0.25 and a["tension"] == [1, 5] and a["weights"] == [300, 100]
+    assert 0 < a["dialogue"] < 1 and a["sentence_len"] > 0 and a["title"] == e.plot.title
+    m = d["summary"]
+    assert m["parsed"] == 2 and m["cadence"] == {"full": 1, "half": 1, "deceptive": 0}
+    assert m["rest"] == [2] and m["tops"] == [1] and m["top_gap"] is None and m["end_high"] == 1
+
+
+def test_pace_marks_unparsed(home):
+    lab = revlab.create("등대", STORY)
+    revlab.run_parse(lab.id, MockLLM(), [1])
+    rows = revlab.pace(revlab.load(lab.id))["rows"]
+    assert [r["parsed"] for r in rows] == [True, False] and "avg" not in rows[1] and rows[1]["chars"] > 0
+
+
+def test_web_pace(home):
+    from canon import web
+
+    lab = _parsed(home)
+    c = TestClient(web.app)
+    d = c.get(f"/api/revlab/{lab.id}/pace").json()
+    assert [r["number"] for r in d["rows"]] == [1, 2] and d["summary"]["parsed"] == 2
+    assert c.get("/api/revlab/999/pace").status_code == 404
+
+
+@needs_node
+def test_js_pace_steps():
+    got = run_js(FILES, "data.map(([t, w]) => revPaceSteps(t, w))", [[[1, 5], [300, 100]], [[3], [0]]])
+    assert got == [[{"x": 0, "w": 0.75, "t": 1}, {"x": 0.75, "w": 0.25, "t": 5}], [{"x": 0, "w": 0, "t": 3}]]
+
+
 @needs_node
 def test_js_home_card_and_overview_row():
     """처음 화면 카드(revLabLite · revHomeCard)와 개요 줄(revOverviewRow)."""

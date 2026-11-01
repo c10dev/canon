@@ -4557,6 +4557,12 @@ class RevStyleNoteIn(BaseModel):
 _REV_STYLE_BUSY = "문체를 역설계하는 동안에는 문체 프로필을 고르거나 지울 수 없어요"
 
 
+@app.get("/api/revlab/{lab_id}/pace")
+def rev_pace(lab_id: int) -> dict:
+    """화별 호흡과 실험 전체 요약 (revlab.pace, AI 없음). 구조 · 호흡 칸을 열 때만 받는다."""
+    return revlab.pace(_rev(lab_id))
+
+
 @app.get("/api/revlab/{lab_id}/styles/{sid}")
 def rev_style_get(lab_id: int, sid: int, against: int = 0) -> dict:
     """문체 프로필 하나와 against(비우면 지금 프로필)에서 바뀐 칸 (revlab.style_view, library.diff)."""
