@@ -358,7 +358,7 @@ def scene(llm: LLM, p: Project, info: PlayInfo, action: str = "", kind: TurnKind
                        summary=action or ("플레이어 인물이 처음 등장한다" if kind == "start" else "시간이 흐른다"),
                        events=[action] if action else [], characters=_cast_in(p, info, body), emotional_shift="", ending_hook="",
                        pov=info.player, time=(f"{s} 뒤" if (s := _skip_of(info, action)) and kind == "skip" else ""))
-    p.episodes = [e for e in p.episodes if e.plot.number != n] + [Episode(plot=plot, status="written", text=body)]
+    p.episodes = [e for e in p.episodes if e.plot.number != n] + [Episode(plot=plot, status="written", text=body, written_by=pipeline.writer_of(llm))]
     p.episodes.sort(key=lambda e: e.plot.number)
     info.turns.append(PlayTurn(number=n, kind=kind, action=action, luck=luck, beats=out.beats, choices=out.choices,
                                lean=out.lean, ending=out.ending.strip(), at=_now()))
