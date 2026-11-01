@@ -1054,7 +1054,7 @@ function revTextTab(e) {
   if (e.dropped.length) notes.push(`원문에 없어 뺀 핵심 대사: ${e.dropped.map((x) => `«${esc(x)}»`).join(' · ')}`);
   if (orig && orig.tempo_order === false) notes.push('빠른 큐의 문장이 느린 큐보다 길어요. 템포 표시가 원문과 어긋나요.');
   return `${notes.map((x) => `<div class="note warn small">${x}</div>`).join('')}
-    <div class="rev-cols"><section class="card rev-src" aria-label="${e.number}화 원문"><div class="between"><h3>원문</h3><span class="small">왼쪽 띠를 누르면 그 큐를 열어요</span></div>${revText(e)}</section>
+    <div class="rev-cols"><section class="card rev-src" aria-label="${e.number}화 원문"><div class="between"><h3>원문</h3><span class="small">위쪽 띠를 누르면 그 큐를 열어요</span></div>${revText(e)}</section>
     <aside class="rev-side"><section class="card tight">${cueScore(cueEd().draft, false)}</section>${revCueCard(e, orig)}</aside></div>`;
 }
 
@@ -1064,7 +1064,7 @@ function revText(e) {
   return `<div class="rev-text">${revSegments(e.text, e.bounds).map((s) => {
     const c = s.cue ? e.sheet.cues[s.cue - 1] : null;
     const body = `<div class="cue-text">${esc(e.text.slice(s.start, s.end).replace(/^\n+|\n+$/g, ''))}</div>`;
-    if (!c) return `<div class="rev-seg free"><span></span>${body}</div>`;
+    if (!c) return `<div class="rev-seg free">${body}</div>`;
     const on = S.revSel === s.cue;
     return `<div class="rev-seg${on ? ' sel' : ''}" id="rev-cue-${s.cue}"><button type="button" class="rev-gut fn-${esc(c.function)}" data-action="revCueGo" data-arg="${s.cue}" aria-pressed="${on}" aria-label="${s.cue}번 큐 ${on ? '닫기' : '열기'}">
       <span class="rev-fn ${esc(c.function)}">${esc(c.function)}</span><span class="small">${s.cue}<span class="rev-gut-t"> · 긴장 ${c.tension}</span></span></button>${body}</div>`;
@@ -1775,14 +1775,15 @@ Object.assign(actions, {
 .rev-src { flex: 999 1 440px; min-width: 0; gap: 6px; }
 .rev-side { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 16px; position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
 .rev-raw { max-height: 70vh; overflow-y: auto; }
-.rev-seg { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 12px; padding: 4px 8px 4px 0; border: 1px solid transparent; border-radius: 8px; scroll-margin-top: 80px; }
+.rev-seg { display: flex; flex-direction: column; gap: 6px; padding: 4px 8px 8px; border: 1px solid transparent; border-radius: 8px; scroll-margin-top: 80px; }
 .rev-seg.sel { background: var(--sel-bg); border-color: var(--sel-line); }
 .rev-seg .cue-text { line-height: 1.9; }
-.rev-gut { align-self: stretch; min-height: var(--touch-min); display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 2px 0 2px 8px; border: none; border-left: 4px solid var(--line-strong); border-radius: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+/* 큐 띠는 구간 위에 가로로 놓는다: 기능 · 큐 번호 · 긴장. 본문이 칸 폭을 다 쓴다 */
+.rev-gut { align-self: stretch; min-height: var(--touch-min); display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 6px 8px 2px; border: none; border-top: 4px solid var(--line-strong); border-radius: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .rev-gut:hover { background: var(--bg); }
-.rev-gut.fn-T { border-left-color: var(--act-1-ink); }
-.rev-gut.fn-S { border-left-color: var(--act-2-ink); }
-.rev-gut.fn-D { border-left-color: var(--act-4-ink); }
+.rev-gut.fn-T { border-top-color: var(--act-1-ink); }
+.rev-gut.fn-S { border-top-color: var(--act-2-ink); }
+.rev-gut.fn-D { border-top-color: var(--act-4-ink); }
 .rev-fn { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 22px; padding: 0 4px; border-radius: 6px; background: var(--chip); font-size: 0.75rem; font-weight: 800; }
 .rev-fn.T { background: var(--act-1); color: var(--act-1-ink); }
 .rev-fn.S { background: var(--act-2); color: var(--act-2-ink); }
@@ -1818,8 +1819,6 @@ Object.assign(actions, {
 }
 @container outline (max-width: 720px) {
   .rev-blind { grid-template-columns: minmax(0, 1fr); }
-  .rev-seg { grid-template-columns: 52px minmax(0, 1fr); gap: 8px; }
-  .rev-gut-t { display: none; }
   .rev-cue-more { padding-left: 10px; }
   .rev-paste textarea { min-height: 240px; }
 }
