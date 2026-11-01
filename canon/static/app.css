@@ -443,7 +443,7 @@ details > summary { cursor: pointer; font-size: 0.8125rem; color: var(--link); m
 /* 한글은 낱말 중간에서 끊지 않는다 ('잃었/다'). 띄어쓰기 없이 긴 글만 칸 끝에서 끊는다 */
 .board, .plot-page, .arc-facts, .arc-form, .part-card, .part-edit, .chat-panel .diff, .plot-page textarea, .style-page, .style-page textarea, .lib-page, .lib-page textarea, .rv-grid, .rv-restate, .flow-bar { word-break: keep-all; overflow-wrap: anywhere; }
 .ep-card .ep-top { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: var(--space-8); }
-.ep-card .ep-top strong { font-size: 0.8125rem; }
+.ep-card .ep-top strong { flex: none; font-size: 0.8125rem; white-space: nowrap; }  /* 칩이 넓어도 '74화'는 한 줄. 시점 칩이 대신 말줄임으로 준다 */
 .ep-card .ep-chips { display: inline-flex; align-items: center; gap: var(--space-4); min-width: 0; }
 /* 시점 배지: 여주인공 핑크, 남주인공 파랑, 그 밖의 인물 보라, 전지 회색. 물려받은 시점은 점선 테두리 */
 .pov-chip { display: inline-block; max-width: 7em; padding: 1px 7px; border-radius: var(--radius-6); border: 1px solid transparent; font-size: 0.75rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }  /* 단계 밖: 작은 칩 · 표시 안쪽 */
@@ -1899,6 +1899,8 @@ dialog.w-dialog::backdrop { background: var(--overlay); }
 .outline-now { display: none; }
 .outline-now .tl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .outline-list { display: flex; flex-direction: column; gap: var(--space-2); }
+/* 목차가 높이 한도를 넘으면 줄을 줄이지 않고 굴린다. 줄이면 min-height 까지 줄어 두 줄 제목이 다음 줄에 겹친다 */
+.outline-list > * { flex-shrink: 0; }
 /* 넓은 폭: 목차가 창보다 길면 목차 안에서 굴린다. 굴리는 칸은 가장자리를 자르므로 좌우에 포커스 링 자리를 두고 같은 만큼 당긴다(배치는 그대로) */
 @container outline (min-width: 721px) { .outline-list { max-height: calc(100vh - 32px - var(--band, 0px)); overflow-y: auto; padding-inline: 5px; margin-inline: -5px; } }
 .outline-h { padding: var(--space-14) var(--space-10) var(--space-4); font-size: 0.75rem; color: var(--muted); }

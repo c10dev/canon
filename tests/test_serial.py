@@ -557,3 +557,22 @@ def test_registering_arc_candidate_without_plot_uses_arc_start():
     a = pipeline.apply_arc(p, prop)
     assert pipeline.register_candidates(p, ["smith"]) == ["smith"]
     assert next(c for c in p.characters if c.id == "smith").first_ep == a.start_ep
+
+
+def test_part_arc_titles_drop_number_prefix():
+    # AI 가 제목 앞에 번호를 붙여도 화면이 '1부 1부: …'로 두 번 쓰지 않게 뗀다. 저장된 작품도 읽을 때 고쳐진다
+    from canon.schema import ArcEdit, Part, StoryArc
+    part = lambda t: Part(number=1, title=t, start_ep=1, end_ep=2, goal="").title
+    arc = lambda t: StoryArc(number=1, title=t, start_ep=1, end_ep=2, goal="").title
+    assert part("1부: 변방 마을의 성녀") == "변방 마을의 성녀"
+    assert part("제2부 - 흔들리는 마차") == "흔들리는 마차"
+    assert arc("아크 4: 밀실 마차의 낮과 밤") == "밀실 마차의 낮과 밤"
+    assert arc("Arc 2. 바다") == "바다"
+    assert ArcEdit(title="아크 3: 새 판").title == "새 판"
+    # 번호만 있거나 구분 기호가 없는 제목은 그대로 둔다
+    assert part("1부") == "1부" and part("2부 리그") == "2부 리그" and part("3부작의 시작") == "3부작의 시작"
+    assert arc("아크 3") == "아크 3" and arc("아크로폴리스의 밤") == "아크로폴리스의 밤"
+    assert ArcEdit(title="").title == ""
+    p = Project.model_validate({**Project(meta={"title": "t"}).model_dump(),
+                                "parts": [{"number": 1, "title": "1부: 첫 부", "start_ep": 1, "end_ep": 10, "goal": ""}]})
+    assert p.parts[0].title == "첫 부"
