@@ -21,7 +21,7 @@ import re
 from datetime import date
 from pathlib import Path
 
-from . import cancel, cue, metrics, pipeline, prompts, store, usage
+from . import cancel, context, cue, metrics, pipeline, prompts, store, usage
 from .context import CHARS_PER_TOKEN
 from .schema import (Act, AddressForm, BoardHandover, BoardScene, BoardTime, Character, CueLine, CueSheet, CueSheetDraft, CueTake, Episode, EpisodePlot, Meta, Project,
                      Relationship, RevAI, RevBlind, RevBound, RevCastSaved, RevEpisode, RevEpisodeDraft, RevLab, RevLineSet, RevPerson, RevStyle, RevTake, Storyboard,
@@ -33,8 +33,7 @@ SPLITS: dict[str, str] = {"heading": "화 표시 줄", "mark": "기호 줄", "bl
 HEAD_RE = re.compile(r"^\s*(?:#{1,6}\s*)?(?:제\s*)?(\d{1,4})\s*화(?:\s*[.:：\-—)]\s*|\s+|$)(.*)$")  # 제목 줄에서 제목만 뗀다 (나누기는 refs.split)
 HEAD_MAX = 60  # 제목 줄로 보는 가장 긴 줄
 PREFACE_MIN = 200  # 첫 제목 줄 앞의 글이 이만큼 넘으면 화 하나로 본다 (짧으면 작품 제목 · 작가 줄)
-MAX_EPISODES = 30
-MAX_CHARS = 300_000
+MAX_CHARS = 3_000_000  # 실험 하나의 원문 글자 수 (6,000자 화 500개). 화 수는 막지 않는다: 화 수만큼 커지는 요청은 예산으로 접는다 (fold_story · fit_facts · prompts.rev_lines_prompt)
 MIN_CHARS = 200  # 한 화가 이보다 짧으면 역설계하지 않는다
 FACTS_MAX = 8
 PREV_TAIL = 1500  # 역설계 요청에 넣는 직전 화 끝 글자 수
@@ -44,7 +43,7 @@ LINES_OUT_TOKENS = 800
 LINES_IN_CHARS = 400  # 이야기 줄기 요청에 화마다 들어가는 글자 수 추정
 JOBS = ".revlab"  # 작업 목록의 project 자리 (작품 폴더는 점으로 시작하지 않아 겹치지 않는다). 화면은 '역설계 실험'으로 보인다
 SIDES = {"original": "원문", "rewrite": "되돌려 쓴 글"}
-MAX_TAKES = 8  # 화마다 남기는 되돌려 쓴 판. 저절로 지우지 않고, 차면 작가가 지울 판을 고른다 (원문 30만 자 × 8판이 상한)
+MAX_TAKES = 8  # 화마다 남기는 되돌려 쓴 판. 저절로 지우지 않고, 차면 작가가 지울 판을 고른다 (원문 MAX_CHARS × 8판이 상한)
 STYLE_CHARS = 30_000  # 문체 역설계에 넣는 원문 앞부분 글자 수
 STYLE_OUT_TOKENS = 2500
 STYLE_KEEP = 20  # 실험마다 남기는 문체 프로필 수
@@ -77,8 +76,6 @@ def check_text(text: str) -> dict:
     s = split(text)
     if not s["episodes"]:
         raise ValueError("글이 비었어요. 소설 본문을 붙여 넣으세요")
-    if len(s["episodes"]) > MAX_EPISODES:
-        raise ValueError(f"{len(s['episodes'])}화로 나뉘었어요. 한 실험에 {MAX_EPISODES}화까지 넣을 수 있어요")
     return s
 
 
@@ -172,8 +169,6 @@ def create_episodes(title: str, eps: list[dict], first: int | None = None) -> Re
     eps = [e for e in eps if e["text"].strip()]
     if not eps:
         raise ValueError("글이 비었어요. 소설 본문을 붙여 넣으세요")
-    if len(eps) > MAX_EPISODES:
-        raise ValueError(f"{len(eps)}화예요. 한 실험에 {MAX_EPISODES}화까지 넣을 수 있어요")
     if sum(len(e["text"]) for e in eps) > MAX_CHARS:
         raise ValueError(f"글이 너무 길어요. {MAX_CHARS:,}자까지 넣을 수 있어요")
     first = _check_first(first) if first else 1
@@ -222,8 +217,6 @@ def append_text(lab: RevLab, text: str) -> list[int]:
     have = sum(len(e.text) for e in lab.episodes)
     if have + len(text) > MAX_CHARS:
         raise ValueError(f"이으면 {have + len(text):,}자예요. 한 실험에 {MAX_CHARS:,}자까지 넣을 수 있어요")
-    if len(lab.episodes) + len(s["episodes"]) > MAX_EPISODES:
-        raise ValueError(f"이으면 {len(lab.episodes) + len(s['episodes'])}화예요. 한 실험에 {MAX_EPISODES}화까지 넣을 수 있어요")
     start = lab.episodes[-1].number + 1 if lab.episodes else s["first"]
     added = [RevEpisode(number=start + i, head=e["head"], text=e["text"]) for i, e in enumerate(s["episodes"])]
     lab.episodes += added
@@ -457,15 +450,51 @@ def set_sheet(lab: RevLab, number: int, d: CueSheetDraft) -> RevEpisode:
 
 def context_upto(lab: RevLab, number: int) -> dict:
     """number 화까지 읽은 배경 · 사실 · 관계 · 호칭. 뒤 화가 앞 화 값을 덮는다 (같은 두 인물 · 같은 방향)."""
-    setting, facts, ties, addresses = "", [], {}, {}
+    setting, facts, ties, addresses = "", {}, {}, {}
     for x in lab.episodes:
         if x.number > number:
             break
         setting = x.setting or setting
-        facts += [f for f in x.facts if f not in facts]
+        facts.update(dict.fromkeys(x.facts))
         ties.update({frozenset((t.a, t.b)): t for t in x.ties})
         addresses.update({(a.speaker, a.listener): a for a in x.addresses})
-    return {"setting": setting, "facts": facts, "ties": list(ties.values()), "addresses": list(addresses.values())}
+    return {"setting": setting, "facts": list(facts), "ties": list(ties.values()), "addresses": list(addresses.values())}
+
+
+def fold_story(eps: list[Episode], budget: int) -> int:
+    """되돌려 쓰기 사본의 앞 화 요약을 예산(글자) 안으로 접는다. 사본은 단편이라 prompts.story_so_far 가 요약을 모두 넣어서다.
+    오래된 화부터 첫 문장으로 줄이고, 그래도 넘으면 오래된 화부터 요약을 비운다(비운 화는 줄거리에 나오지 않는다).
+    비운 화가 있으면 맨 앞 화 요약 자리에 몇 화를 뺐는지 적는다. 비운 화 수를 낸다. eps 를 고친다."""
+    line = lambda e: len(e.plot.title) + len(e.summary) + 12 if e.summary else 0  # noqa: E731 ('n화 제목: 요약' 한 줄)
+    size = sum(map(line, eps))
+    for e in eps:
+        if size <= budget:
+            return 0
+        size -= line(e)
+        e.summary = context.first_sentence(e.summary)
+        size += line(e)
+    cut = 0
+    for e in eps[:-1]:
+        if size <= budget:
+            break
+        size -= line(e)
+        e.summary, cut = "", cut + 1
+    if cut:
+        eps[0].summary = f"(앞 {cut}화 줄거리는 프롬프트 예산을 넘어 뺐습니다. {eps[cut].plot.number}화부터 이어집니다)"
+    return cut
+
+
+def fit_facts(facts: list[str], budget: int) -> list[str]:
+    """되돌려 쓰기 사본의 사실을 예산(글자) 안으로: 최근 화 사실부터 넣고, 뺐으면 몇 개 뺐는지 맨 끝 줄에 적는다.
+    단편 경로의 사실 고르기(prompts.relevant_facts)는 이름이 든 사실을 모두 넣어 화 수만큼 커진다."""
+    keep, used = [], 0
+    for f in reversed(facts):
+        if used + len(f) + 3 > budget:
+            break
+        keep.append(f)
+        used += len(f) + 3
+    cut = len(facts) - len(keep)
+    return keep[::-1] + ([f"(앞 화 사실 {cut}개는 프롬프트 예산을 넘어 뺐습니다)"] if cut else [])
 
 
 def world(lab: RevLab, number: int, use_style: bool = False) -> Project:
@@ -485,6 +514,7 @@ def world(lab: RevLab, number: int, use_style: bool = False) -> Project:
             eps.append(Episode(plot=plot, status="finalized", text=x.text, summary=plot.summary))
         else:
             eps.append(Episode(plot=plot, status="confirmed", storyboard=x.storyboard.model_copy(deep=True) if x.storyboard else None))
+    fold_story(eps[:-1], context.BUDGET["rev_story"])
     size = max(round(len(e.text) / 100) * 100, 100)
     cast = [Character(id=c.name, name=c.name, role=c.role or "인물", personality=c.personality, speech_style=c.speech) for c in lab.cast]
     ctx = context_upto(lab, number)
@@ -496,7 +526,7 @@ def world(lab: RevLab, number: int, use_style: bool = False) -> Project:
         style.sample_passages = []
     first, last = lab.episodes[0].number, lab.episodes[-1].number
     return Project(meta=Meta(title=lab.title or "역설계 실험", target_episodes=len(lab.episodes), words_per_episode=size),
-                   world=WorldSetting(setting=ctx["setting"]), characters=cast, episodes=eps, facts=ctx["facts"],
+                   world=WorldSetting(setting=ctx["setting"]), characters=cast, episodes=eps, facts=fit_facts(ctx["facts"], context.BUDGET["rev_facts"]),
                    relationships=[t.model_copy() for t in ctx["ties"]], address_forms=[a.model_copy() for a in ctx["addresses"]],
                    style=style, storylines=[s.model_copy(deep=True) for s in lab.lines],
                    arc=[Act(name=a, start_ep=first, end_ep=last, goal="") for a in "기"])
@@ -890,7 +920,7 @@ def estimate(lab: RevLab, kind: str, numbers: list[int] | None = None, model: st
         rows.append({"label": f"{n}화", "calls": 1, "input_tokens": round(tin), "output_tokens": round(tout),
                      "usd": round(usage.cost(price, tin, tout, 0, False), 3) if price else None})
     if kind == "parse" and wants_lines(lab, nums):
-        tin = (len(prompts.SYSTEM_REVERSE) + 600 + LINES_IN_CHARS * len(lab.episodes)) / CHARS_PER_TOKEN
+        tin = (len(prompts.SYSTEM_REVERSE) + 600 + min(LINES_IN_CHARS * len(lab.episodes), context.BUDGET["rev_lines"])) / CHARS_PER_TOKEN
         rows.append({"label": "이야기 줄기", "calls": 1, "input_tokens": round(tin), "output_tokens": LINES_OUT_TOKENS,
                      "usd": round(usage.cost(price, tin, LINES_OUT_TOKENS, 0, False), 3) if price else None})
     total = sum(r["usd"] or 0 for r in rows)
@@ -1002,13 +1032,13 @@ def view(lab: RevLab) -> dict:
     return {**summary(lab), "split": lab.split, "split_label": SPLITS.get(lab.split, lab.split), "preface": lab.preface,
             "cast": [c.model_dump() for c in lab.cast], "main": lab.main, "lines": [x.model_dump() for x in lab.lines], "lines_at": lab.lines_at,
             "context": [{"number": e.number, **{k: [x.model_dump() for x in v] if k in ("ties", "addresses") else v
-                                                 for k, v in context_upto(lab, e.number).items()}} for e in lab.episodes if e.sheet][-1:],
+                                                 for k, v in context_upto(lab, e.number).items()}} for e in [x for x in lab.episodes if x.sheet][-1:]],
             "style": lab.style.model_dump(exclude={"sample_passages"}) if lab.style else None,
             "style_model": cur.model if cur else "", "style_at": cur.at if cur else "", "style_list": style_items(lab),
             "ai": ai_view(lab), "items": [_ep_view(lab, e) for e in lab.episodes]}
 
 
 def labels() -> dict:
-    return {"splits": [{"key": k, "label": v} for k, v in SPLITS.items()], "max_episodes": MAX_EPISODES, "max_chars": MAX_CHARS,
+    return {"splits": [{"key": k, "label": v} for k, v in SPLITS.items()], "max_chars": MAX_CHARS,
             "min_chars": MIN_CHARS, "preface_min": PREFACE_MIN, "head_max": HEAD_MAX, "max_takes": MAX_TAKES, "style_keep": STYLE_KEEP}
 

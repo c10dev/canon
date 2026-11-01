@@ -274,4 +274,5 @@ def test_js_views(home):
     assert "저장하기 (15화)" in got["draft"] and "번호 빠짐" in got["draft"] and "여기부터 번호 다시 매기기" in got["draft"]
     assert "'등대 이야기'" in got["draft"] and "목차" in got["draft"]
     assert "2화 골랐어요" in got["book"] and "문체 만들기" in got["book"] and "화 표" in got["book"] and "ref-bar" in got["book"]
+    assert 'data-action="refToRevlab">' in got["book"] and "화 수와 상관없이 모두 합쳐 3,000,000자까지" in got["book"]  # 화 수로 막지 않는다
     assert "첫 문단" in got["read"] and "이 화 경계 고치기" in got["read"]

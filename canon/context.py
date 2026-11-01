@@ -55,6 +55,10 @@ BUDGET = {
     "play_secrets": 800,    # 장면: 장면 인물이 얽힌 숨긴 비밀 (pick_secrets 의 셈)
     "play_foreshadows": 900,  # 장면: 열린 복선 한 줄씩
     "play_state_secrets": 2_000,  # 상태 변경안: 장면 인물이 얽힌 비밀 (pick_secrets 의 셈, 넣는 글은 이보다 길다)
+    # 역설계 실험 (revlab). 화 수를 막지 않아서 화 수만큼 커지는 블록을 접는다. 30화 안팎 실험은 예산에 닿지 않는다
+    "rev_story": 12_000,    # 되돌려 쓰기 사본의 앞 화 요약 (revlab.fold_story: 오래된 화부터 첫 문장 → 뺌). 장편 story_past + story_arc 와 같은 크기
+    "rev_facts": 10_000,    # 되돌려 쓰기 사본의 사실 (revlab.fit_facts: 최근 화 사실부터)
+    "rev_lines": 40_000,    # 이야기 줄기 요청의 화별 역설계 결과 (prompts.rev_lines_prompt: 넘으면 모든 화를 첫 문장 → 줄기 이름만)
 }
 PLAY_FORESHADOW_CAP = 8  # 장면에 넣는 열린 복선 수
 PLAY_STATE_FORESHADOW_CAP = 10  # 상태 변경안에 넣는 열린 복선 수

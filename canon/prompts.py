@@ -2828,14 +2828,20 @@ REV_EMPTY_RETRY = ("앞 응답에 events · scenes · cues 가 비어 있었습�
 
 
 def rev_lines_prompt(lab) -> str:
-    """여러 화의 이야기 줄기 역설계. 화마다 역설계한 요약 · 사건 · 줄기 이름을 차례로 넣는다."""
-    rows = []
-    for e in lab.episodes:
-        if e.plot is None:
-            continue
-        rows.append(f"## {e.number}화 {e.plot.title or e.head}\n요약: {e.plot.summary}\n사건: " + " / ".join(e.plot.events)
-                    + f"\n등장: {', '.join(e.plot.characters) or '없음'}\n줄기: {', '.join(e.threads) or '없음'}")
-    return ("# 화별 역설계 결과\n" + "\n\n".join(rows) + """
+    """여러 화의 이야기 줄기 역설계. 화마다 역설계한 요약 · 사건 · 줄기 이름을 차례로 넣는다.
+    화가 많아 예산(context.BUDGET["rev_lines"])을 넘으면 모든 화를 요약 첫 문장 · 줄기로, 그래도 넘으면 줄기 이름만 넣는다
+    (줄기는 화 번호를 모두 봐야 해서 화를 빼지 않는다)."""
+    eps = [e for e in lab.episodes if e.plot is not None]
+    threads = lambda e: ", ".join(e.threads) or "없음"  # noqa: E731
+    levels = [
+        ("", [f"## {e.number}화 {e.plot.title or e.head}\n요약: {e.plot.summary}\n사건: " + " / ".join(e.plot.events)
+              + f"\n등장: {', '.join(e.plot.characters) or '없음'}\n줄기: {threads(e)}" for e in eps]),
+        (f"(화가 {len(eps)}개라 요약은 첫 문장만, 사건 · 등장은 빼고 넣었습니다)\n",
+         [f"## {e.number}화 {e.plot.title or e.head}\n요약: {context.first_sentence(e.plot.summary)}\n줄기: {threads(e)}" for e in eps]),
+        (f"(화가 {len(eps)}개라 화마다 줄기 이름만 넣었습니다)\n", [f"## {e.number}화 줄기: {threads(e)}" for e in eps]),
+    ]
+    note, rows = next(((n, r) for n, r in levels if len("\n\n".join(r)) <= context.BUDGET["rev_lines"]), levels[-1])
+    return ("# 화별 역설계 결과\n" + note + "\n\n".join(rows) + """
 
 위 화들에서 메인 줄기와, 메인에서 갈라졌다 합류하는 줄기(서브플롯, 과거 회상, 외전, 인물 이야기)를 찾아 JSON 으로 적습니다.
 - main: 메인 줄기가 풀어 가는 질문 한 줄.

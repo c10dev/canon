@@ -335,13 +335,15 @@ function refOverview(b) {
     <td>${e.order}</td><td>${esc(e.label)}${e.kind !== 'main' ? ` <span class="small">${esc(refKind(e.kind))}</span>` : ''}</td><td><a href="#/refs/${b.id}/${e.order}">${esc(e.title || '(제목 없음)')}</a></td>
     <td class="num">${e.chars.toLocaleString()}</td><td class="num">${Math.round(e.dialogue * 100)}%</td><td class="num">${e.sentence_len}</td><td class="num">${e.paragraph_len}</td></tr>`).join('');
   const n = pick.size;
-  const tooMany = n > 30;
+  const picked = b.episodes.reduce((k, e) => k + (pick.has(e.order) ? e.chars : 0), 0);
+  const revMax = S.refLabels.revlab_max_chars || 0;
+  const tooMany = revMax > 0 && picked > revMax;
   const act = `<section class="card ref-act"><div class="between"><h2>고른 화로 하기</h2><span class="small">${n ? `${n}화 골랐어요` : '표에서 화를 고르세요'}</span></div>
     <div class="row"><label class="small" for="ref-range">범위</label><input id="ref-range" type="text" data-ref-range="1" placeholder="예: 1~10, 15" size="14">
       <button type="button" class="btn small" data-action="refPickRange">고르기</button><button type="button" class="btn small" data-action="refPickNone"${n ? '' : ' disabled'}>모두 풀기</button></div>
     <div class="row"><button type="button" class="btn primary" data-action="refToStyle"${n ? '' : ' disabled'}>문체 만들기</button>
       <button type="button" class="btn" data-action="refToRevlab"${n && !tooMany ? '' : ' disabled'}>역설계 실험 만들기</button></div>
-    <p class="small">문체 만들기는 고른 화를 이어 앞 ${(S.refLabels.sample_max || 30000).toLocaleString()}자를 문체 라이브러리 새 항목의 원문 칸에 넣어요. 분석은 그 화면에서 눌러야 해요. 역설계 실험은 30화까지 넣을 수 있어요${tooMany ? ' (지금 너무 많이 골랐어요)' : ''}.</p></section>`;
+    <p class="small">문체 만들기는 고른 화를 이어 앞 ${(S.refLabels.sample_max || 30000).toLocaleString()}자를 문체 라이브러리 새 항목의 원문 칸에 넣어요. 분석은 그 화면에서 눌러야 해요. 역설계 실험은 화 수와 상관없이 모두 합쳐 ${revMax.toLocaleString()}자까지 넣을 수 있어요${tooMany ? ` (지금 ${picked.toLocaleString()}자라 너무 많이 골랐어요)` : ''}.</p></section>`;
   const made = b.made.length ? `<section class="card"><h2>이 원고로 만든 것</h2><ul class="ref-made">${b.made.map((m) => `<li><a href="#/${m.kind === 'style' ? 'styles' : 'revlab'}/${enc(m.id)}">${m.kind === 'style' ? '문체 라이브러리 항목' : `역설계 실험 ${esc(m.id)}`}</a> <span class="small">${esc(m.eps)} · ${fmtDateTime(m.at)}</span></li>`).join('')}</ul></section>` : '';
   return `${act}<section class="card"><div class="between"><h2>분량</h2><span class="small">한 화 평균 ${mean.toLocaleString()}자 · 막대를 누르면 그 화를 열어요</span></div><div class="ref-bars" aria-label="화별 글자 수">${bars}</div></section>
     ${refCompareCard()}
