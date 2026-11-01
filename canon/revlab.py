@@ -9,10 +9,13 @@
   남긴다(keep_lines). 화가 둘 넘으면 이야기 줄기를 한 번 더 묻는다(pipeline.reverse_lines).
 - 되돌려 쓰기(run_write, write 단계): 역설계한 재료로 만든 작품 사본(world)에서 큐 시트 실험의 '큐 시트를 주고 한 번에' 조건
   (pipeline.write_scored)으로 같은 화를 쓴다. 원문과 블라인드 비교, cue.score 지표 비교.
+- 문체 역설계(run_style, plan 단계): 원문 앞부분으로 문체 프로필을 만들어 기록(RevLab.styles)에 더하고 지금 프로필로 고른다.
+  예전 프로필은 남아 다시 고르거나(select_style) 칸별로 견줄 수 있다(style_diff). 되돌려 쓴 판은 넣은 프로필 번호를 남긴다.
 AI 호출 전에 비용 추정(estimate)을 보여 주고 작가가 눌러야 돈다. 인물 id 는 인물 이름이다.
 """
 from __future__ import annotations
 
+import hashlib
 import random
 import re
 from datetime import date
@@ -21,7 +24,7 @@ from pathlib import Path
 from . import cancel, cue, pipeline, prompts, store, usage
 from .context import CHARS_PER_TOKEN
 from .schema import (Act, AddressForm, BoardHandover, BoardScene, BoardTime, Character, CueLine, CueSheet, CueSheetDraft, CueTake, Episode, EpisodePlot, Meta, Project,
-                     Relationship, RevBound, RevCastSaved, RevEpisode, RevEpisodeDraft, RevLab, RevLineSet, RevPerson, RevTake, Storyboard,
+                     Relationship, RevBound, RevCastSaved, RevEpisode, RevEpisodeDraft, RevLab, RevLineSet, RevPerson, RevStyle, RevTake, Storyboard,
                      StoryboardDraft, StyleProfile, WorldSetting,
                      Storyline)
 
@@ -46,6 +49,7 @@ SIDES = {"original": "원문", "rewrite": "되돌려 쓴 글"}
 TAKES = {"plain": "되돌려 쓴 글", "style": "되돌려 쓴 글 (문체 넣음)"}  # RevEpisode.take · take_style
 STYLE_CHARS = 30_000  # 문체 역설계에 넣는 원문 앞부분 글자 수
 STYLE_OUT_TOKENS = 2500
+STYLE_KEEP = 20  # 실험마다 남기는 문체 프로필 수
 FIRST_RE = re.compile(r"(\d{1,4})\s*화")  # 실험 이름에서 첫 화 번호를 짐작한다 (글에 제목 줄이 없을 때)
 
 
@@ -210,7 +214,7 @@ def replace_text(lab: RevLab, title: str, text: str | None, first: int | None = 
         lab.split, lab.preface = s["how"], s["preface"]
         lab.episodes = [RevEpisode(number=start + i, head=e["head"], text=e["text"]) for i, e in enumerate(s["episodes"])]
         lab.cast, lab.main, lab.lines, lab.lines_at = [], "", [], ""
-        lab.style, lab.style_model, lab.style_at = None, "", ""
+        lab.style_id = 0  # 문체 프로필 기록은 남기고 고른 것만 비운다 (다른 원문으로 만든 프로필이라서)
     elif first:
         renumber(lab, first)
 
@@ -493,7 +497,7 @@ def world(lab: RevLab, number: int, use_style: bool = False) -> Project:
     style = StyleProfile()
     if use_style:
         if lab.style is None:
-            raise ValueError("문체 프로필을 먼저 역설계하세요")
+            raise ValueError("문체 프로필을 먼저 고르세요" if lab.styles else "문체 프로필을 먼저 역설계하세요")
         style = lab.style.model_copy(deep=True)
         style.sample_passages = []
     first, last = lab.episodes[0].number, lab.episodes[-1].number
@@ -516,7 +520,7 @@ def run_write(lab_id: int, llm, number: int, use_style: bool = False) -> RevEpis
         raise ValueError("큐 시트에 큐가 없어요")
     cancel.check()
     text, sent = pipeline.write_scored(llm, q, number, e.sheet)
-    take = RevTake(text=text, style=use_style, prompt_chars=sent, sheet_basis=cue.basis(e.sheet), model=research._model_name(llm),
+    take = RevTake(text=text, style=use_style, style_id=lab.style_id if use_style else 0, prompt_chars=sent, sheet_basis=cue.basis(e.sheet), model=research._model_name(llm),
                    at=pipeline._now())
     cancel.check()
 
@@ -536,19 +540,123 @@ def blind_of(e: RevEpisode) -> RevTake | None:
 
 
 def run_style(lab_id: int, llm) -> StyleProfile:
-    """원문 앞부분(STYLE_CHARS)으로 문체 프로필을 만든다 (pipeline.analyze_style, plan 단계). 예시 문단은 비우고 저장한다."""
+    """원문 앞부분(STYLE_CHARS)으로 문체 프로필을 만든다 (pipeline.analyze_style, plan 단계). 예시 문단은 비우고 기록에 더해
+    지금 프로필로 고른다 (add_style)."""
     from . import research
 
-    sample = style_sample(load(lab_id))
+    lab = load(lab_id)
+    check_style_room(lab)
+    sample = style_sample(lab)
     cancel.check()
     prof = pipeline.analyze_style(llm, sample)
     prof.sample_passages = []
     cancel.check()
-
-    def put(lab: RevLab) -> None:
-        lab.style, lab.style_model, lab.style_at = prof, research._model_name(llm), pipeline._now()
-    with_lock(lab_id, put)
+    with_lock(lab_id, lambda lab: add_style(lab, prof, research._model_name(llm), sample))
     return prof
+
+
+def _basis(text: str) -> str:
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+
+
+def style_basis(lab: RevLab) -> str:
+    """지금 원문으로 문체를 역설계하면 넣을 글의 지문. 원문이 너무 짧으면 빈 값."""
+    try:
+        return _basis(style_sample(lab))
+    except ValueError:
+        return ""
+
+
+def _kept(lab: RevLab) -> set[int]:
+    """지울 수 없는 프로필: 지금 프로필과 문체를 넣고 쓴 판이 가리키는 프로필."""
+    return {lab.style_id} | {e.take_style.style_id for e in lab.episodes if e.take_style}
+
+
+def check_style_room(lab: RevLab) -> None:
+    """새 프로필을 더할 자리가 있는지 (AI 를 부르기 전에 알린다)."""
+    if len(lab.styles) >= STYLE_KEEP and all(x.id in _kept(lab) for x in lab.styles):
+        raise ValueError(f"문체 프로필은 {STYLE_KEEP}개까지 남겨요. 쓰지 않는 프로필을 지우세요")
+
+
+def add_style(lab: RevLab, prof: StyleProfile, model: str, sample: str) -> RevStyle:
+    """프로필을 기록에 더하고 지금 프로필로 고른다. 기록에 같은 프로필이 있으면 더하지 않고 그것을 고른다.
+    STYLE_KEEP 을 넘으면 지울 수 있는 것 가운데 가장 오래된 것부터 지운다."""
+    same = next((x for x in lab.styles if x.profile == prof), None)
+    if same:
+        lab.style_id = same.id
+        return same
+    check_style_room(lab)
+    while len(lab.styles) >= STYLE_KEEP:
+        lab.styles.remove(next(x for x in lab.styles if x.id not in _kept(lab)))
+    x = RevStyle(id=lab.style_next, profile=prof, model=model, at=pipeline._now(), basis=_basis(sample), chars=len(sample))
+    lab.styles.append(x)
+    lab.style_id, lab.style_next = x.id, x.id + 1
+    return x
+
+
+def get_style(lab: RevLab, sid: int) -> RevStyle:
+    x = next((x for x in lab.styles if x.id == sid), None)
+    if x is None:
+        raise KeyError(f"{sid}번 문체 프로필이 없어요")
+    return x
+
+
+def select_style(lab: RevLab, sid: int) -> None:
+    """지금 프로필로 고른다. 다음 '문체 넣고' 되돌려 쓰기부터 이 프로필이 들어간다."""
+    lab.style_id = get_style(lab, sid).id
+
+
+def drop_style(lab: RevLab, sid: int) -> None:
+    """프로필을 지운다. 지금 프로필은 하나만 남았을 때만 지운다. 이 프로필로 쓴 판은 그대로 둔다."""
+    x = get_style(lab, sid)
+    if sid == lab.style_id and len(lab.styles) > 1:
+        raise ValueError("지금 쓰는 프로필은 지울 수 없어요. 다른 프로필을 먼저 고르세요")
+    lab.styles.remove(x)
+    if sid == lab.style_id:
+        lab.style_id = 0
+
+
+def note_style(lab: RevLab, sid: int, note: str) -> None:
+    get_style(lab, sid).note = note.strip()[:200]
+
+
+def style_diff(lab: RevLab, sid: int, against: int = 0) -> list[dict] | None:
+    """against(비우면 지금 프로필) → sid 에서 바뀐 칸 (library.diff). 견줄 프로필이 없으면 None."""
+    from . import library
+
+    b = against or lab.style_id
+    if not b:
+        return None
+    return library.diff(get_style(lab, b).profile, get_style(lab, sid).profile)
+
+
+def _style_head(p: StyleProfile) -> str:
+    return " · ".join(x for x in (p.narration_pov, p.tense, p.sentence_rhythm) if x)[:80]
+
+
+def style_items(lab: RevLab) -> list[dict]:
+    """문체 프로필 기록의 화면 값 (최근 것 먼저). 프로필 본문은 싣지 않는다 (GET …/styles/<번호>)."""
+    now = style_basis(lab)
+    used = [e.take_style.style_id for e in lab.episodes if e.take_style]
+    return [{"id": x.id, "at": x.at, "model": x.model, "note": x.note, "chars": x.chars, "current": x.id == lab.style_id,
+             "basis_ok": not x.basis or x.basis == now, "markers": len(x.profile.markers), "takes": used.count(x.id),
+             "head": _style_head(x.profile)} for x in reversed(lab.styles)]
+
+
+def style_view(lab: RevLab, sid: int, against: int = 0) -> dict:
+    """프로필 하나와 against(비우면 지금 프로필)에서 바뀐 칸."""
+    x = get_style(lab, sid)
+    item = next(i for i in style_items(lab) if i["id"] == sid)
+    return {**item, "profile": x.profile.model_dump(exclude={"sample_passages"}), "against": against or lab.style_id,
+            "changes": style_diff(lab, sid, against)}
+
+
+def _take_style(lab: RevLab, t: RevTake) -> dict:
+    """되돌려 쓴 판이 넣은 프로필: 번호, 지금 프로필과 다른지, 지운 프로필인지."""
+    if not t.style:
+        return {}
+    return {"style_id": t.style_id, "style_old": t.style_id != lab.style_id,
+            "style_gone": not any(x.id == t.style_id for x in lab.styles)}
 
 
 def style_sample(lab: RevLab) -> str:
@@ -581,6 +689,8 @@ def compare(lab: RevLab, e: RevEpisode) -> list[dict]:
     for key, label, text, basis in sides:
         s = cue.score(q, e.sheet, CueTake(condition=key, text=text, parts=parts(e) if key == "original" else [], sheet_basis=basis))
         s["label"], s["stale"] = label, basis != now
+        if key == "style":
+            s.update(_take_style(lab, e.take_style))
         rows.append(s)
     return rows
 
@@ -694,7 +804,7 @@ def summary(lab: RevLab) -> dict:
             "episodes": len(lab.episodes), "done": len(done), "chars": sum(len(e.text) for e in lab.episodes),
             "first": lab.episodes[0].number if lab.episodes else 1,
             "rewrites": sum(1 for e in lab.episodes if e.take or e.take_style), "cast_count": len(lab.cast),
-            "has_style": lab.style is not None, "steps": steps}
+            "has_style": lab.style is not None, "styles": len(lab.styles), "style_id": lab.style_id, "steps": steps}
 
 
 def listing() -> list[dict]:
@@ -720,7 +830,7 @@ def _ep_view(lab: RevLab, e: RevEpisode) -> dict:
         if t:  # 블라인드에 든 글의 본문은 고른 뒤에만 보인다
             show = bool(e.picked) or key != (e.blind_take or "plain")
             out["takes"].append({"mode": key, "label": TAKES[key], "model": t.model, "at": t.at, "prompt_chars": t.prompt_chars,
-                                 "stale": t.sheet_basis != now, **({"text": t.text} if show else {})})
+                                 "stale": t.sheet_basis != now, **_take_style(lab, t), **({"text": t.text} if show else {})})
     b = blind_of(e)
     out["blind_texts"] = [e.text if side == "original" else b.text for side in e.blind] if b and not e.picked and len(e.blind) == 2 else []
     if e.picked:
@@ -731,16 +841,18 @@ def _ep_view(lab: RevLab, e: RevEpisode) -> dict:
 
 
 def view(lab: RevLab) -> dict:
-    """실험 화면 값: 화마다 원문 · 역설계 결과 · 경계 · 되돌려 쓰기, 이야기 줄기, 인물."""
+    """실험 화면 값: 화마다 원문 · 역설계 결과 · 경계 · 되돌려 쓰기, 이야기 줄기, 인물, 문체 프로필 기록(style_list)."""
+    cur = lab.current_style
     return {**summary(lab), "split": lab.split, "split_label": SPLITS.get(lab.split, lab.split), "preface": lab.preface,
             "cast": [c.model_dump() for c in lab.cast], "main": lab.main, "lines": [x.model_dump() for x in lab.lines], "lines_at": lab.lines_at,
             "context": [{"number": e.number, **{k: [x.model_dump() for x in v] if k in ("ties", "addresses") else v
                                                  for k, v in context_upto(lab, e.number).items()}} for e in lab.episodes if e.sheet][-1:],
-            "style": lab.style.model_dump(exclude={"sample_passages"}) if lab.style else None, "style_model": lab.style_model,
-            "style_at": lab.style_at, "items": [_ep_view(lab, e) for e in lab.episodes]}
+            "style": lab.style.model_dump(exclude={"sample_passages"}) if lab.style else None,
+            "style_model": cur.model if cur else "", "style_at": cur.at if cur else "", "style_list": style_items(lab),
+            "items": [_ep_view(lab, e) for e in lab.episodes]}
 
 
 def labels() -> dict:
     return {"splits": [{"key": k, "label": v} for k, v in SPLITS.items()], "max_episodes": MAX_EPISODES, "max_chars": MAX_CHARS,
-            "min_chars": MIN_CHARS, "preface_min": PREFACE_MIN, "head_max": HEAD_MAX}
+            "min_chars": MIN_CHARS, "preface_min": PREFACE_MIN, "head_max": HEAD_MAX, "style_keep": STYLE_KEEP}
 

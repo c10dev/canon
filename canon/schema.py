@@ -2471,6 +2471,7 @@ class RevTake(BaseModel):
     """역설계한 재료(플롯 · 스토리보드 · 큐 시트 · 인물 · 관계 · 배경)로 같은 화를 다시 쓴 본문 (되돌려 쓰기)."""
     text: str = ""
     style: bool = Field(False, description="역설계한 문체 프로필(RevLab.style)을 넣고 썼는지")
+    style_id: int = Field(0, description="넣은 문체 프로필(RevStyle.id). style 이 거짓이면 0")
     prompt_chars: int = 0
     sheet_basis: str = Field("", description="쓸 때 큐 시트의 지문 (cue.basis). 지금 시트와 다르면 낡은 본문")
     model: str = ""
@@ -2513,9 +2514,46 @@ class RevLab(BaseModel):
     main: str = ""
     lines: list[Storyline] = Field(default_factory=list)
     lines_at: str = ""
-    style: Optional[StyleProfile] = Field(None, description="원문 전체로 역설계한 문체 프로필. 예시 문단(sample_passages)은 비운다 (되돌려 쓰기가 베끼지 않게)")
-    style_model: str = ""
-    style_at: str = ""
+    styles: list["RevStyle"] = Field(default_factory=list, description="문체 프로필 기록 (오래된 것 먼저, revlab.STYLE_KEEP 개까지)")
+    style_id: int = Field(0, description="지금 프로필(styles 의 id). 0 은 고른 프로필 없음")
+    style_next: int = Field(1, description="다음 RevStyle.id. 지운 번호는 다시 쓰지 않는다")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _old_style(cls, d):
+        """기록을 넣기 전 파일: style · style_model · style_at 을 1번 항목으로 옮기고, 문체를 넣은 판은 1번으로 썼다고 본다."""
+        if not isinstance(d, dict) or "styles" in d:
+            return d
+        d = dict(d)
+        old, model, at = d.pop("style", None), d.pop("style_model", ""), d.pop("style_at", "")
+        if old is not None:
+            d.update(styles=[{"id": 1, "profile": old, "model": model, "at": at}], style_id=1, style_next=2)
+            for e in d.get("episodes") or []:
+                t = e.get("take_style") if isinstance(e, dict) else None
+                if isinstance(t, dict) and t.get("style", True) and not t.get("style_id"):
+                    t["style_id"] = 1
+        return d
+
+    @property
+    def current_style(self) -> Optional["RevStyle"]:
+        return next((x for x in self.styles if x.id == self.style_id), None) if self.style_id else None
+
+    @property
+    def style(self) -> Optional[StyleProfile]:
+        """지금 문체 프로필. 예시 문단(sample_passages)은 비운다 (되돌려 쓰기가 베끼지 않게)."""
+        x = self.current_style
+        return x.profile if x else None
+
+
+class RevStyle(BaseModel):
+    """역설계 실험의 문체 프로필 한 판 (revlab.run_style). 만든 뒤 고치지 않는다 (메모만). LLM 이 채우지 않는다."""
+    id: int = Field(description="실험 안 번호. 1 부터 늘고 지워도 다시 쓰지 않는다")
+    profile: StyleProfile = Field(default_factory=StyleProfile, description="원문 앞부분으로 역설계한 프로필. 예시 문단은 비운다")
+    model: str = ""
+    at: str = ""
+    basis: str = Field("", description="만들 때 넣은 원문(revlab.style_sample)의 sha1 앞 12자. 빈 값은 기록을 넣기 전 판")
+    chars: int = Field(0, description="만들 때 넣은 원문 글자 수")
+    note: str = Field("", description="작가 메모 한 줄")
 
 # ---------- 쇠맛 실험실 (canon/soelab.py) ----------
 # 작품 밖 <CANON_HOME>/.soelab/ 에 둔다. LLM 이 채우지 않는 스키마다.
@@ -2588,6 +2626,7 @@ class SoeLabel(BaseModel):
 Snapshot.model_rebuild()
 SerialRebuild.model_rebuild()
 ShortArchive.model_rebuild()
+RevLab.model_rebuild()
 StageScene.model_rebuild()
 Episode.model_rebuild()
 PlotUndo.model_rebuild()

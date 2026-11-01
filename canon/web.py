@@ -4363,10 +4363,10 @@ class RevEpisodeIn(BaseModel):
     text: str
 
 
-def _rev_idle(lab_id: int) -> None:
-    """작업이 도는 실험의 화는 고치거나 빼지 않는다 (작업이 화 번호로 결과를 넣는다)."""
-    if any(j.ep == lab_id and j.status == "running" for j in jobs.listing(revlab.JOBS)):
-        raise HTTPException(409, "이 실험의 작업이 끝난 뒤에 화를 고치거나 뺄 수 있어요")
+def _rev_idle(lab_id: int, kinds: set[str] | None = None, msg: str = "이 실험의 작업이 끝난 뒤에 화를 고치거나 뺄 수 있어요") -> None:
+    """작업이 도는 실험의 화는 고치거나 빼지 않는다 (작업이 화 번호로 결과를 넣는다). kinds 를 주면 그 작업만 본다."""
+    if any(j.ep == lab_id and j.status == "running" and (kinds is None or j.kind in kinds) for j in jobs.listing(revlab.JOBS)):
+        raise HTTPException(409, msg)
 
 
 @app.put("/api/revlab/{lab_id}/episodes/{n}")
@@ -4383,6 +4383,40 @@ def rev_delete_episode(lab_id: int, n: int) -> dict:
     _rev(lab_id)
     _rev_idle(lab_id)
     return _rev_edit(lab_id, lambda lab: revlab.drop_episode(lab, n))
+
+
+class RevStyleNoteIn(BaseModel):
+    note: str = ""
+
+
+_REV_STYLE_BUSY = "문체를 역설계하는 동안에는 문체 프로필을 고르거나 지울 수 없어요"
+
+
+@app.get("/api/revlab/{lab_id}/styles/{sid}")
+def rev_style_get(lab_id: int, sid: int, against: int = 0) -> dict:
+    """문체 프로필 하나와 against(비우면 지금 프로필)에서 바뀐 칸 (revlab.style_view, library.diff)."""
+    return revlab.style_view(_rev(lab_id), sid, against)
+
+
+@app.post("/api/revlab/{lab_id}/styles/{sid}/select")
+def rev_style_select(lab_id: int, sid: int) -> dict:
+    """지금 문체 프로필로 고른다. 문체 역설계가 끝나면 새 프로필을 고르므로 그동안은 막는다."""
+    _rev(lab_id)
+    _rev_idle(lab_id, {"rev_style"}, _REV_STYLE_BUSY)
+    return _rev_edit(lab_id, lambda lab: revlab.select_style(lab, sid))
+
+
+@app.put("/api/revlab/{lab_id}/styles/{sid}")
+def rev_style_note(lab_id: int, sid: int, body: RevStyleNoteIn) -> dict:
+    return _rev_edit(lab_id, lambda lab: revlab.note_style(lab, sid, body.note))
+
+
+@app.delete("/api/revlab/{lab_id}/styles/{sid}")
+def rev_style_delete(lab_id: int, sid: int) -> dict:
+    """문체 프로필을 지운다 (revlab.drop_style). 이 프로필로 쓴 판은 남는다."""
+    _rev(lab_id)
+    _rev_idle(lab_id, {"rev_style"}, _REV_STYLE_BUSY)
+    return _rev_edit(lab_id, lambda lab: revlab.drop_style(lab, sid))
 
 
 @app.delete("/api/revlab/{lab_id}")
@@ -4432,10 +4466,12 @@ def rev_job(lab_id: int, body: RevJobIn) -> dict:
             return {"episode": k, "chars": len(revlab.blind_of(e).text), "style": use_style}
     else:
         revlab.style_sample(lab)
+        revlab.check_style_room(lab)
         total, label = 1, f"{name} 문체 역설계"
 
         def fn(job: jobs.Job):
-            return {"markers": len(revlab.run_style(lab_id, llm).markers)}
+            prof = revlab.run_style(lab_id, llm)
+            return {"markers": len(prof.markers), "id": revlab.load(lab_id).style_id}
     try:
         with usage.scope(project="", episode=None, task=kind):
             # 맡은 화(pending)를 보내 화면이 화마다 진행 줄을 그린다 (revlab.js revRunRows). 실험은 작품이 아니라 저장 잠금과 겹치지 않는다

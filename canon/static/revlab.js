@@ -27,6 +27,7 @@ Object.assign(S, {
   revAdd: null,    // 화 이어 붙이기 칸에 붙여 넣은 글 (null 이면 닫힘)
   revEpEdit: null, // 고치는 화 { n, head, text } (null 이면 닫힘)
   revStyle: false, // 되돌려 쓰기에 문체 프로필을 넣을지
+  revStyleDiff: null, // 펼친 문체 프로필 견주기 { id, changes } (GET /revlab/<번호>/styles/<id>)
   revRead: 'plain', // 나란히 읽기 오른쪽 판 (plain · style)
 });
 
@@ -279,7 +280,7 @@ function revMetricRows(scores) {
   const orig = scores.find((s) => s.condition === 'original');
   const far = (v, o) => typeof v === 'number' && typeof o === 'number' && (o ? Math.abs(v - o) / Math.abs(o) > REV_FAR : v > 0);
   return {
-    heads: scores.map((s) => ({ label: s.label, stale: !!s.stale })),
+    heads: scores.map((s) => ({ label: s.label, stale: !!s.stale, styleTag: revStyleTag(s) })),
     rows: REV_METRICS.map(([label, get, mark, fmt]) => ({
       label,
       cells: scores.map((s) => {
@@ -288,6 +289,12 @@ function revMetricRows(scores) {
       }),
     })),
   };
+}
+
+/** 문체를 넣고 쓴 판이 지금 프로필과 다른 프로필로 썼으면 그 이름 ('2번 프로필' · '지운 프로필'), 아니면 빈 글. */
+function revStyleTag(t) {
+  if (!t || !t.style_old) return '';
+  return t.style_gone || !t.style_id ? '지운 프로필' : `${t.style_id}번 프로필`;
 }
 
 /** 목록 값(revlab.summary 의 steps)을 revSteps · revNext 가 읽는 실험 모양으로. */
@@ -494,7 +501,7 @@ function revLabToc() {
     return `<div class="rev-toc-ep${S.popMenu === `rev-ep-${x.n}` ? ' open' : ''}">${link}${menuBtn(`rev-ep-${x.n}`, SIDE_ICON.more, () => revEpMenu(x.n, !!run), { cls: 'btn icon-btn rev-toc-btn', aria: `${x.n}화 더보기: 글 고치기 · 지우기` })}</div>`;
   }).join('');
   const panes = Object.entries(REV_PANES).map(([k, label]) => {
-    const right = { cast: L.cast.length ? `${L.cast.length}명` : '', style: L.style ? '있음' : '', lines: L.lines_at ? `${L.lines.length}개` : '', metrics: '' }[k];
+    const right = { cast: L.cast.length ? `${L.cast.length}명` : '', style: (L.style_list || []).length ? `${L.style_id ? `${L.style_id}번 · ` : ''}${L.style_list.length}개` : '', lines: L.lines_at ? `${L.lines.length}개` : '', metrics: '' }[k];
     return revTocLink(`#/revlab/${L.id}/${k}`, `<span class="tl">${label}</span><span class="st">${right}</span>`, pane === k);
   }).join('');
   const cur = pane === 'overview' ? `개요 · ${steps[1].label} ${steps[1].right}` : pane ? REV_PANES[pane] : (() => { const e = revItem(S.revEp); return e ? `${e.number}화${revEpTitle(e) ? ` ${esc(revEpTitle(e))}` : ''} · ${(REV_TABS.find(([k]) => k === S.revTab) || REV_TABS[0])[1]}` : '목차'; })();
@@ -681,7 +688,7 @@ function revLabCards() {
   const card = (k, title, right, body) => `<a class="card tight rev-tile" href="#/revlab/${L.id}/${k}"><div class="between"><h3>${title}</h3><span class="small">${right}</span></div><p class="small">${body}</p></a>`;
   return `<div class="rev-tiles">
     ${card('cast', '인물 · 관계 · 배경', L.cast.length ? `${L.cast.length}명` : '', L.cast.length ? `${esc(L.cast.slice(0, 4).map((x) => x.name).join(' · '))}${c.setting ? `. ${esc(c.setting.slice(0, 40))}` : ''}` : '역설계하면 모아요.')}
-    ${card('style', '문체 프로필', st ? `표지 ${(st.markers || []).length}` : '', st ? esc([st.narration_pov, st.tense, st.sentence_rhythm].filter(Boolean).join(' · ').slice(0, 80)) : '만들면 되돌려 쓰기에 넣을 수 있어요.')}
+    ${card('style', '문체 프로필', st ? `${L.style_id}번 · 표지 ${(st.markers || []).length}` : '', st ? esc([st.narration_pov, st.tense, st.sentence_rhythm].filter(Boolean).join(' · ').slice(0, 80)) : '만들면 되돌려 쓰기에 넣을 수 있어요.')}
     ${card('lines', '이야기 줄기', L.lines_at ? `${L.lines.length}개` : '', L.lines_at ? `메인: ${esc((L.main || '정하지 않음').slice(0, 60))}` : '모든 화를 역설계하면 찾아요.')}</div>`;
 }
 
@@ -700,22 +707,42 @@ function revContextCard() {
     ${c.facts.length ? `<h3>앞 이야기 · 사실</h3>${li(c.facts.map((f) => `<li>${esc(f)}</li>`))}` : ''}</section>`;
 }
 
-/** 문체 프로필: 원문 앞부분으로 한 번 역설계한다 (예시 문단은 비움). 되돌려 쓰기에서 넣을지 고른다. */
+/** 문체 프로필: 원문 앞부분으로 역설계한다 (예시 문단은 비움). 다시 만들면 기록에 남고 새 프로필을 지금 프로필로 고른다.
+    기록에서 다른 프로필을 고르거나(revStyleUse) 지금 프로필과 칸별로 견주거나(revStyleDiff, changeLines) 지운다. */
 function revStyleCard() {
   const L = S.revLab;
   if (!L.done) return '<section class="card empty"><h2>문체 프로필</h2><p>화를 하나 넘게 역설계한 뒤에 만들 수 있어요.</p></section>';
   const st = L.style;
+  const list = L.style_list || [];
+  const cur = list.find((x) => x.current);
   const est = revEst('style', []);
   const busy = !!revRunning();
   const kv = (k, v) => (v ? `<dt>${k}</dt><dd>${esc(v)}</dd>` : '');
   const body = st ? `<dl class="rev-kv">${kv('시점', st.narration_pov)}${kv('시제', st.tense)}${kv('문장 리듬', st.sentence_rhythm)}${kv('묘사 밀도', st.description_density)}
       ${kv('대사 비중', st.dialogue_ratio)}${kv('대사 방식', st.dialogue_style)}${kv('속생각', st.inner_monologue)}${kv('속도', st.pacing)}${kv('장면 전환', st.scene_transition)}${kv('어휘', st.vocabulary)}</dl>
       ${(st.markers || []).length ? `<div class="small">표지: ${st.markers.map((m) => `«${esc(m.text)}»`).join(' · ')}</div>` : ''}
-      <div class="small">${esc(L.style_model)} · ${esc(fmtDateTime(L.style_at))}</div>`
-    : '<p class="small">원문 앞부분으로 문체 프로필(시점 · 문장 리듬 · 대사 방식 · 표지)을 만들어요. 원문을 베끼지 않게 예시 문단은 넣지 않아요. 되돌려 쓰기에서 문체를 넣은 판과 넣지 않은 판을 견주면 차이가 구조에서 오는지 문체에서 오는지 갈라 볼 수 있어요.</p>';
-  return `<section class="card"><h2>문체 프로필</h2>${body}
-    <div class="row"><button type="button" class="btn" data-action="revStyleRun"${est && !busy ? '' : ' disabled'}>${revCost(st ? '문체 다시 역설계' : '문체 역설계 시작', est)}</button></div>
-    ${revEstHtml(est)}</section>`;
+      <div class="small">${esc(L.style_model)} · ${esc(fmtDateTime(L.style_at))}${cur && !cur.basis_ok ? ' <span class="chip">원문 앞부분이 바뀌었어요</span>' : ''}</div>`
+    : list.length ? '<p class="small">지금 고른 프로필이 없어요. 아래 기록에서 고르거나 새로 만드세요.</p>'
+      : '<p class="small">원문 앞부분으로 문체 프로필(시점 · 문장 리듬 · 대사 방식 · 표지)을 만들어요. 원문을 베끼지 않게 예시 문단은 넣지 않아요. 되돌려 쓰기에서 문체를 넣은 판과 넣지 않은 판을 견주면 차이가 구조에서 오는지 문체에서 오는지 갈라 볼 수 있어요.</p>';
+  const rows = list.map((x) => {
+    const open = S.revStyleDiff && S.revStyleDiff.id === x.id;
+    const chips = `${x.current ? ' <span class="chip finalized">지금</span>' : ''}${x.basis_ok ? '' : ' <span class="chip">다른 원문</span>'}`;
+    const diff = open ? (S.revStyleDiff.changes == null ? '<div class="small">견줄 지금 프로필이 없어요.</div>'
+      : S.revStyleDiff.changes.length ? S.revStyleDiff.changes.map(changeLines).join('') : '<div class="small">지금 프로필과 같아요.</div>') : '';
+    return `<li class="version-row">
+        <div class="between"><span><strong>${x.id}번</strong> <span class="small">${esc(fmtDateTime(x.at))}${x.model ? ` · ${esc(x.model)}` : ''} · 표지 ${x.markers}${x.takes ? ` · 쓴 판 ${x.takes}` : ''}</span>${chips}</span>
+          <span class="row">${x.current ? '' : `<button type="button" class="btn small" data-action="revStyleUse" data-arg="${x.id}"${busy ? ' disabled' : ''}>이 프로필 쓰기</button>
+            <button type="button" class="btn small ghost" data-action="revStyleDiff" data-arg="${x.id}" aria-expanded="${open}">${open ? '견주기 닫기' : '지금과 견주기'}</button>`}
+            <button type="button" class="btn small ghost" data-action="revStyleNote" data-arg="${x.id}">메모</button>
+            <button type="button" class="btn small ghost" data-action="revStyleDrop" data-arg="${x.id}"${busy || (x.current && list.length > 1) ? ' disabled' : ''}>지우기</button></span></div>
+        ${x.head ? `<div class="small">${esc(x.head)}</div>` : ''}${x.note ? `<div class="small">메모: ${esc(x.note)}</div>` : ''}${diff}
+      </li>`;
+  }).join('');
+  return `<section class="card"><div class="between"><h2>문체 프로필${cur ? ` · ${cur.id}번` : ''}</h2></div>${body}
+    <div class="row"><button type="button" class="btn" data-action="revStyleRun"${est && !busy ? '' : ' disabled'}>${revCost(list.length ? '문체 다시 역설계' : '문체 역설계 시작', est)}</button></div>
+    ${list.length ? '<p class="small">새로 만들면 기록에 남고 새 프로필을 지금 프로필로 골라요.</p>' : ''}
+    ${revEstHtml(est)}</section>
+    ${list.length ? `<section class="card tight"><div class="between"><h3>기록</h3><span class="small">최근 ${S.rev.style_keep || 20}개까지 남겨요</span></div><ul class="version-list">${rows}</ul></section>` : ''}`;
 }
 
 function revLinesCard() {
@@ -868,7 +895,7 @@ function revWriteTab(e) {
   if (!e.blind_texts.length && (e.scores || []).length > 1) {  // 가려 읽는 동안에는 지표(글자 수)를 숨긴다
     const m = revMetricRows(e.scores);
     parts.push(`<section class="card"><div class="between"><h3>지표 견주기</h3><span class="small">원문과 ${Math.round(REV_FAR * 100)}% 넘게 다른 값은 굵게 보여요</span></div>
-      <div class="rev-scroll"><table class="sw-table rev-mx"><thead><tr><th></th>${m.heads.map((h) => `<th>${esc(h.label)}${h.stale ? ' <span class="chip">시트 바뀜</span>' : ''}</th>`).join('')}</tr></thead>
+      <div class="rev-scroll"><table class="sw-table rev-mx"><thead><tr><th></th>${m.heads.map((h) => `<th>${esc(h.label)}${h.stale ? ' <span class="chip">시트 바뀜</span>' : ''}${h.styleTag ? ` <span class="chip">${esc(h.styleTag)}</span>` : ''}</th>`).join('')}</tr></thead>
       <tbody>${m.rows.map((r) => `<tr><td>${esc(r.label)}</td>${r.cells.map((c) => `<td${c.far ? ' class="rev-far"' : ''}>${esc(c.text)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
       <p class="small">핵심 대사는 큐 시트의 대사가 글자 그대로 들어간 수예요. 템포는 원문만 큐 경계로 나눠 재요 (빠른 큐의 문장이 느린 큐보다 짧은지).</p></section>`);
   }
@@ -878,7 +905,7 @@ function revWriteTab(e) {
     const seg = shown.length > 1 ? `<div class="seg" role="group" aria-label="오른쪽에 둘 판">${shown.map((x) => `<button type="button" aria-pressed="${x === t}" data-action="revRead" data-arg="${x.mode}">${x.mode === 'style' ? '문체 넣고' : '문체 없이'}</button>`).join('')}</div>` : '';
     parts.push(`<section class="card"><div class="between"><h3>나란히 읽기</h3>${seg}</div>
       <div class="rev-blind"><div class="rev-blind-col"><div class="small"><strong>원문</strong> · ${e.chars.toLocaleString()}자</div><div class="cue-text rev-read">${esc(e.text)}</div></div>
-        <div class="rev-blind-col"><div class="small"><strong>${esc(t.label)}</strong> · ${t.text.length.toLocaleString()}자 · ${esc(t.model)} · ${esc(fmtDateTime(t.at))}${t.stale ? ' · 그 뒤 큐 시트를 고쳤어요' : ''}</div><div class="cue-text rev-read">${esc(t.text)}</div></div></div></section>`);
+        <div class="rev-blind-col"><div class="small"><strong>${esc(t.label)}</strong> · ${t.text.length.toLocaleString()}자 · ${esc(t.model)} · ${esc(fmtDateTime(t.at))}${t.stale ? ' · 그 뒤 큐 시트를 고쳤어요' : ''}${revStyleTag(t) ? ` · ${esc(revStyleTag(t))}로 썼어요 (지금은 ${S.revLab.style_id ? `${S.revLab.style_id}번` : '고른 프로필 없음'})` : ''}</div><div class="cue-text rev-read">${esc(t.text)}</div></div></div></section>`);
   }
   const style = !!(S.revStyle && L.style);
   const est = revEst('write', [e.number], style);
@@ -887,7 +914,7 @@ function revWriteTab(e) {
   parts.push(`<section class="card${takes.length ? ' tight' : ''}"><h3>${takes.length ? '다시 쓰기' : '되돌려 쓰기'}</h3>
     <p class="small">역설계한 플롯 · 스토리보드 · 큐 시트와 인물 · 관계 · 호칭 · 배경만 주고(이 화 원문 문장은 주지 않음) 같은 화를 써요. 앞 화는 원문을 반영한 화로 둬요. 문체를 넣은 판과 넣지 않은 판을 하나씩 남기고, 같은 판을 다시 쓰면 바꾸고 가려 읽기를 새로 해요.</p>
     ${cueEd().dirty ? '<div class="note warn small">저장하지 않은 큐 시트 고침이 있어요. 되돌려 쓰기는 저장한 큐 시트로 해요.</div>' : ''}
-    <div class="row"><label class="check-row small"><input type="checkbox" data-rev-style="1"${style ? ' checked' : ''}${L.style ? '' : ' disabled'}><span>문체 프로필 넣기${L.style ? '' : ' (문체 프로필을 먼저 만드세요)'}</span></label>
+    <div class="row"><label class="check-row small"><input type="checkbox" data-rev-style="1"${style ? ' checked' : ''}${L.style ? '' : ' disabled'}><span>문체 프로필${L.style ? `(${L.style_id}번)` : ''} 넣기${L.style ? '' : (L.style_list || []).length ? ' (문체 프로필을 먼저 고르세요)' : ' (문체 프로필을 먼저 만드세요)'}</span></label>
       <button type="button" class="btn" data-action="revWrite" data-arg="${e.number}"${est && !busy ? '' : ' disabled'}>${revCost(`${again ? '다시 쓰기' : '되돌려 쓰기 시작'}${style ? ' (문체 넣고)' : ''}`, est)}</button></div>
     ${revEstErr('write', [e.number], style) ? `<div class="note err small">비용을 재지 못했어요: ${esc(revEstErr('write', [e.number], style))}</div>` : ''}
     ${revEstHtml(est)}</section>`);
@@ -965,7 +992,7 @@ JOB_DONE_MSG.rev_write = (j) => {
 };
 JOB_DONE_MSG.rev_style = (j) => {
   revJobDone(j);
-  return '문체 프로필을 역설계했어요. 되돌려 쓰기에서 문체 프로필 넣기를 고를 수 있어요.';
+  return `${(j.result || {}).id ? `${j.result.id}번 ` : ''}문체 프로필을 지금 프로필로 골랐어요. 되돌려 쓰기에서 문체 프로필 넣기를 고를 수 있어요.`;
 };
 
 /** 실험 안에서 옮긴다: 같은 화면이면 다시 그리고, 다른 화 · 칸이면 주소를 바꾼다 (route 가 revLoad 를 부른다). */
@@ -1087,9 +1114,39 @@ Object.assign(actions, {
     else S.focusTarget = '#rev-title';
     render();
   },
-  async revStyleRun() {
-    if (S.revLab.style && !(await askConfirm('지금 문체 프로필을 새로 만든 것으로 바꿀까요?', { ok: '바꾸기', danger: true }))) return;
+  revStyleRun() {
+    S.revStyleDiff = null;
     revStartJob('style');
+  },
+  async revStyleUse(id) {
+    const ok = await run('고르는 중', async () => {
+      S.revLab = await api('POST', `/revlab/${S.revLab.id}/styles/${id}/select`);
+      S.revStyleDiff = null;
+    });
+    if (ok) toast(`${id}번 프로필을 써요. 다음 '문체 넣고' 되돌려 쓰기부터 이 프로필이 들어가요.`);
+  },
+  async revStyleDiff(id) {
+    const k = Number(id);
+    if (S.revStyleDiff && S.revStyleDiff.id === k) { S.revStyleDiff = null; render(); return; }
+    await run('견주는 중', async () => {
+      const x = await api('GET', `/revlab/${S.revLab.id}/styles/${k}`);
+      S.revStyleDiff = { id: k, changes: x.changes };
+    });
+  },
+  async revStyleNote(id) {
+    const x = (S.revLab.style_list || []).find((s) => s.id === Number(id));
+    const note = await askText(`${id}번 프로필 메모`, { value: (x && x.note) || '', placeholder: '예: 모델을 바꿔 다시 만듦', ok: '저장하기' });
+    if (note === null) return;
+    await run('저장하는 중', async () => { S.revLab = await api('PUT', `/revlab/${S.revLab.id}/styles/${id}`, { note }); });
+  },
+  async revStyleDrop(id) {
+    const x = (S.revLab.style_list || []).find((s) => s.id === Number(id)) || {};
+    const tail = x.takes ? ` 이 프로필로 쓴 판 ${x.takes}개는 남지만 '지운 프로필'로 보여요.` : '';
+    if (!(await askConfirm(`${id}번 프로필을 지울까요?${tail}`, { ok: '지우기', danger: true }))) return;
+    await run('지우는 중', async () => {
+      S.revLab = await api('DELETE', `/revlab/${S.revLab.id}/styles/${id}`);
+      if (S.revStyleDiff && S.revStyleDiff.id === Number(id)) S.revStyleDiff = null;
+    });
   },
   revParse() {
     S.revRedo = false;
