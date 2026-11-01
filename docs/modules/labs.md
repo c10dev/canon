@@ -75,6 +75,9 @@
 - 지표(`compare`, `cue.score`)
 - 문체 역설계(`run_style`, `pipeline.analyze_style`)
 - 비용 추정(`estimate`: parse · write · style)
+- 실험별 AI(`RevLab.ai`, `RevAI`): 단계 `AI_STAGES`(plan 역설계 · 줄기 · 문체, write 되돌려 쓰기)마다 프리셋 id 또는 백엔드 `AI_PROVIDERS` + 모델
+- 쓸 AI 풀기 `ai_choice`(mock 설정 → 프리셋 → 직접 고름 → 설정 단계 칸, 작품 프리셋은 보지 않음) · LLM 만들기 `llm_for` · 고르기 `set_ai`(웹 `PUT /api/revlab/{번호}/ai`) · 화면 값 `ai_view` · 기본 모델 이름 `default_model`
+- 비용 추정 모델도 `ai_choice` 로 고른다
 - 역설계 실행(`run_parse`)
 - 화면 값(`view`, 고르기 전에는 차례를 뺌)
 - AI 호출은 `pipeline.reverse_episode` · `reverse_lines`(plan 단계, 응답 칸은 모두 required, 사건 · 장면 · 큐가 비면 한 번 더 묻고 그래도 비면 저장하지 않음 `rev_empty`)
@@ -119,7 +122,7 @@
 ### `canon/static/revlab.js`
 
 - 역설계 실험 화면
-  - 작품 밖 `#/revlab[/<번호>[/<화 · cast · style · lines · metrics>]]`
+  - 작품 밖 `#/revlab[/<번호>[/<화 · cast · style · lines · metrics · ai>]]`
   - `app.js` 라우팅이 `viewRev` 를 그림
   - 불러오기 `revLoad` · `revFetch`
   - 작업 시작 `revStartJob`
@@ -137,6 +140,8 @@
   - 문체 프로필 `revStyleCard`
   - 이야기 줄기 `revLinesCard`
   - 지표 모아 보기 `revMetricsAll`
+  - AI 모델 `revAICard`: 단계마다 설정을 따름 · 프리셋 · 직접 고르기(백엔드 나눔 버튼 · 모델 칸, 추천 목록은 `settings.js` `modelDatalist`), 만든 결과의 모델 `revAiMade`(지금 모델과 다르면 '다름'), 저장 `revAiSave`
+  - 역설계할 화 표 · 문체 프로필 · 되돌려 쓰기 칸 아래 '쓸 AI' 줄 `revAiLine`(글은 `revAiText`, `app.js` `writerLabel` 재사용)
 - 목차의 화 줄마다 ⋯ 메뉴(`revEpMenu`): 글 고치기 칸 `revEpEditCard` · 지우기(위험한 묶음에 접음)
 - 머리 주 버튼은 다음 할 일(`revNext`, `revGoBtn`) · ⋯ 메뉴(글 · 이름 고치기 `revEditCard` · 다시 역설계 `revRedo`(개요의 풀 화 표) · 지우기)
 - 오른쪽 맨 위 도는 작업 카드(`revRunCard`: 화별 줄 `revRunRows`, 작업의 `pending` · `done`, 한 화가 끝날 때마다 다시 받기 `revJobStep`)
@@ -147,7 +152,7 @@
   - 플롯 · 스토리보드
   - 되돌려 쓰기 `revWriteTab`: 가려 읽기 `revPick` · 지표 견주기 `revMetricRows` · 나란히 읽기 `revRead` · 다시 쓰기
 - 비용 추정은 고를 때 바로 묻고 버튼 글에 적는다(`revEst` · `revCost`, AI 없음)
-- `revSplit` · `revPreview` · `revAppendPreview` · `revSegments` · `revEpTitle` · `revSteps` · `revNext` · `revTocEps` · `revRunRows` · `revMetricRows` · `revLabLite` · `revHomeCard` · `revOverviewRow` 는 순수 함수(`tests/test_revlab.py`)
+- `revSplit` · `revPreview` · `revAppendPreview` · `revSegments` · `revEpTitle` · `revSteps` · `revNext` · `revTocEps` · `revRunRows` · `revMetricRows` · `revLabLite` · `revHomeCard` · `revOverviewRow` · `revAiText` · `revEpRange` · `revAiMade` 는 순수 함수(`tests/test_revlab.py`)
 - CSS 는 JS 에서 주입
 
 ### `canon/static/soelab.js`

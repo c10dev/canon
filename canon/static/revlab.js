@@ -1,14 +1,14 @@
 /* 역설계 실험 화면(서버 revlab.py, 작품 밖 화면 #/revlab[/<실험 번호>[/<화 | cast | style | lines | metrics>]], 작품 목록 · 사이드바 ⋯ 메뉴 · 작품 사이드바 실험 묶음에서 들어온다).
    작가가 넣은 소설을 거꾸로 화별 플롯 · 스토리보드 · 큐 시트 · 이야기 줄기로 풀고, 그 큐 시트로 같은 화를 다시 써서(되돌려 쓰기) 원문과 견준다.
    실험은 작품 밖(<CANON_HOME>/.revlab)에 두고 작품을 열지 않고 쓴다. AI 작업은 POST /revlab/<번호>/jobs (작업 rev_parse · rev_write · rev_style,
-   ep 가 실험 번호, project 는 REV_JOBS). 사용량은 작품 없이 잡히고 모델은 전체 단계 설정을 쓴다.
+   ep 가 실험 번호, project 는 REV_JOBS). 사용량은 작품 없이 잡히고 모델은 실험이 고른 AI(목차 'AI 모델', revAICard), 고르지 않으면 전체 단계 설정을 쓴다.
    배치는 다른 단계 화면(설정 도우미 · 문체)과 같은 공용 목차 틀(outline.js)의 왼쪽 목차 + 오른쪽 칸이다. 목차는 단계 다섯(revSteps) · 화(revTocEps) · 실험 전체
    (인물 · 문체 · 줄기 · 지표), 오른쪽은 도는 작업 카드(revRunCard)와 고른 화의 탭 셋(원문 · 큐 / 플롯 · 스토리보드 / 되돌려 쓰기).
    머리 주 버튼은 다음 할 일 하나(revNext)이고 추정 비용을 함께 적는다(revEst, AI 없음). 폭은 창이 아니라 공용 목차 틀(outline.js, @container outline)의 폭으로 바꾼다.
    app.js 의 S, actions, api, run, render, header, esc, toast, josa, showError, pollJobs, jobFor, jobLeft, elapsed, menuBtn, isTyping,
    JOB_PAGES, JOB_DONE_MSG, fmtDateTime, hub.js 의 renderHub 와 cue.js 의 cueBind · cueEd · cueScore · cueEditor · cueLabel · cueUsd · cuePct · cueYes 를 쓴다
    (큐 시트 열쇠는 'rev:<화>'). revSplit · revGuessFirst · revSegments · revPreview · revEpTitle · revSteps · revNext · revTocEps · revRunRows ·
-   revMetricRows 는 DOM 없는 순수 함수 (revSplit · revGuessFirst 는 revlab.split · guess_first 와 같은 규칙, tests/test_revlab.py). */
+   revMetricRows · revAiText · revAiMade · revEpRange 는 DOM 없는 순수 함수 (revSplit · revGuessFirst 는 revlab.split · guess_first 와 같은 규칙, tests/test_revlab.py). */
 'use strict';
 
 Object.assign(S, {
@@ -188,7 +188,7 @@ async function revFetch(id) {
 
 /* ----- 단계 · 다음 할 일 · 진행 줄 · 지표 줄: DOM 없는 순수 함수 (tests/test_revlab.py) ----- */
 
-const REV_PANES = { cast: '인물 · 관계 · 배경', style: '문체 프로필', lines: '이야기 줄기', metrics: '지표 모아 보기' };
+const REV_PANES = { cast: '인물 · 관계 · 배경', style: '문체 프로필', lines: '이야기 줄기', metrics: '지표 모아 보기', ai: 'AI 모델' };
 const REV_TABS = [['text', '원문 · 큐'], ['plot', '플롯 · 스토리보드'], ['write', '되돌려 쓰기']];
 const REV_KINDS = ['rev_parse', 'rev_write', 'rev_style'];
 
@@ -494,7 +494,7 @@ function revLabToc() {
     return `<div class="rev-toc-ep${S.popMenu === `rev-ep-${x.n}` ? ' open' : ''}">${link}${menuBtn(`rev-ep-${x.n}`, SIDE_ICON.more, () => revEpMenu(x.n, !!run), { cls: 'btn icon-btn rev-toc-btn', aria: `${x.n}화 더보기: 글 고치기 · 지우기` })}</div>`;
   }).join('');
   const panes = Object.entries(REV_PANES).map(([k, label]) => {
-    const right = { cast: L.cast.length ? `${L.cast.length}명` : '', style: L.style ? '있음' : '', lines: L.lines_at ? `${L.lines.length}개` : '', metrics: '' }[k];
+    const right = { cast: L.cast.length ? `${L.cast.length}명` : '', style: L.style ? '있음' : '', lines: L.lines_at ? `${L.lines.length}개` : '', metrics: '', ai: L.ai && L.ai.custom ? '이 실험만' : '' }[k];
     return revTocLink(`#/revlab/${L.id}/${k}`, `<span class="tl">${label}</span><span class="st">${right}</span>`, pane === k);
   }).join('');
   const cur = pane === 'overview' ? `개요 · ${steps[1].label} ${steps[1].right}` : pane ? REV_PANES[pane] : (() => { const e = revItem(S.revEp); return e ? `${e.number}화${revEpTitle(e) ? ` ${esc(revEpTitle(e))}` : ''} · ${(REV_TABS.find(([k]) => k === S.revTab) || REV_TABS[0])[1]}` : '목차'; })();
@@ -522,6 +522,7 @@ function revMain() {
   else if (S.revPane === 'style') parts.push(revStyleCard());
   else if (S.revPane === 'lines') parts.push(revLinesCard());
   else if (S.revPane === 'metrics') parts.push(revMetricsAll());
+  else if (S.revPane === 'ai') parts.push(revAICard());
   else parts.push(revEpisode());
   return parts.join('');
 }
@@ -637,6 +638,7 @@ function revPickCard() {
     <div class="rev-scroll"><table class="sw-table rev-pick-table"><thead><tr><th><span class="sr-only">고르기</span></th><th class="rev-l">화</th><th>글자</th><th class="rev-l">첫 문장</th><th>비용</th></tr></thead>
       <tbody>${rows}${lines ? `<tr class="rev-muted"><td></td><td class="rev-l">이야기 줄기</td><td></td><td class="rev-l">모든 화를 푼 뒤 한 번</td><td>${esc(cueUsd(lines.usd))}</td></tr>` : ''}</tbody></table></div>
     <p class="small">앞 화부터 차례로 풀어요. 앞 화의 인물 · 줄거리 · 끝 부분이 다음 화 요청에 들어가서, 중간 화만 고르면 앞 이야기를 모르고 풀어요.</p>
+    ${revAiLine('plan')}
     ${redo ? '<div class="note warn small">이미 역설계한 화를 다시 풀면 그 화의 큐 시트 고침과 되돌려 쓴 글이 사라져요.</div>' : ''}
     ${err ? `<div class="note err small">비용을 재지 못했어요: ${esc(err)}</div>` : ''}
     ${S.revRedo ? `<div class="row"><button type="button" class="btn primary" data-action="revParse"${eps.length && est && !busy ? '' : ' disabled'}>${eps.length ? revCost(`고른 ${eps.length}화 다시 역설계`, est) : '화를 고르세요'}</button></div>` : ''}
@@ -682,7 +684,8 @@ function revLabCards() {
   return `<div class="rev-tiles">
     ${card('cast', '인물 · 관계 · 배경', L.cast.length ? `${L.cast.length}명` : '', L.cast.length ? `${esc(L.cast.slice(0, 4).map((x) => x.name).join(' · '))}${c.setting ? `. ${esc(c.setting.slice(0, 40))}` : ''}` : '역설계하면 모아요.')}
     ${card('style', '문체 프로필', st ? `표지 ${(st.markers || []).length}` : '', st ? esc([st.narration_pov, st.tense, st.sentence_rhythm].filter(Boolean).join(' · ').slice(0, 80)) : '만들면 되돌려 쓰기에 넣을 수 있어요.')}
-    ${card('lines', '이야기 줄기', L.lines_at ? `${L.lines.length}개` : '', L.lines_at ? `메인: ${esc((L.main || '정하지 않음').slice(0, 60))}` : '모든 화를 역설계하면 찾아요.')}</div>`;
+    ${card('lines', '이야기 줄기', L.lines_at ? `${L.lines.length}개` : '', L.lines_at ? `메인: ${esc((L.main || '정하지 않음').slice(0, 60))}` : '모든 화를 역설계하면 찾아요.')}
+    ${card('ai', 'AI 모델', L.ai.custom ? '이 실험만' : '설정을 따름', L.ai.stages.map((x) => `${x.stage === 'plan' ? '역설계' : '되돌려 쓰기'} ${esc(revAiText(x.use))}`).join(' · '))}</div>`;
 }
 
 /** 인물 · 관계 · 배경: 되돌려 쓰기 사본의 작품 설정이 되는 것 (revlab.world). 마지막으로 역설계한 화까지 읽은 값. */
@@ -714,8 +717,98 @@ function revStyleCard() {
       <div class="small">${esc(L.style_model)} · ${esc(fmtDateTime(L.style_at))}</div>`
     : '<p class="small">원문 앞부분으로 문체 프로필(시점 · 문장 리듬 · 대사 방식 · 표지)을 만들어요. 원문을 베끼지 않게 예시 문단은 넣지 않아요. 되돌려 쓰기에서 문체를 넣은 판과 넣지 않은 판을 견주면 차이가 구조에서 오는지 문체에서 오는지 갈라 볼 수 있어요.</p>';
   return `<section class="card"><h2>문체 프로필</h2>${body}
+    ${revAiLine('plan')}
     <div class="row"><button type="button" class="btn" data-action="revStyleRun"${est && !busy ? '' : ' disabled'}>${revCost(st ? '문체 다시 역설계' : '문체 역설계 시작', est)}</button></div>
     ${revEstHtml(est)}</section>`;
+}
+
+/* ----- AI 모델: 이 실험의 AI 호출만 바꾼다 (서버 revlab.ai_choice · set_ai, 고르지 않으면 설정 화면의 단계 칸) ----- */
+
+const REV_AI_PROVIDERS = ['gemini', 'claude', 'claude-api', 'local'];  // revlab.AI_PROVIDERS 와 같은 차례
+
+/** 쓸 AI 한 줄: 'claude-opus-5-5 · Claude 구독'. 모델 칸이 비면 그 백엔드의 기본 모델(default), 그것도 없으면 백엔드 이름. */
+function revAiText(u) {
+  if (!u || !u.provider) return '';
+  if (u.provider === 'mock') return 'mock';
+  return writerLabel(`${u.provider}:${u.model || u.default || 'default'}`);
+}
+
+/** 화 번호 목록 → '1~3 · 5화' (화 범위는 'a~b화'). */
+function revEpRange(nums) {
+  const xs = [...new Set(nums)].sort((a, b) => a - b);
+  const out = [];
+  for (let i = 0; i < xs.length; i++) {
+    let j = i;
+    while (j + 1 < xs.length && xs[j + 1] === xs[j] + 1) j++;
+    out.push(i === j ? `${xs[i]}` : `${xs[i]}~${xs[j]}`);
+    i = j;
+  }
+  return out.length ? `${out.join(' · ')}화` : '';
+}
+
+/** 이미 만든 결과의 모델: { plan: [{ what, model }], write: [{ what, model }] }. 역설계는 같은 모델끼리 화를 묶는다. 모델을 모르면 뺀다. */
+function revAiMade(items, styleModel) {
+  const byModel = new Map();
+  for (const e of items || []) if (e.sheet && e.model) byModel.set(e.model, [...(byModel.get(e.model) || []), e.number]);
+  const plan = [...byModel].map(([model, nums]) => ({ what: `${revEpRange(nums)} 역설계`, model }));
+  if (styleModel) plan.push({ what: '문체 프로필', model: styleModel });
+  const write = [];
+  for (const e of items || []) for (const t of e.takes || []) if (t.model) write.push({ what: `${e.number}화 ${t.mode === 'style' ? '되돌려 쓴 글 (문체 넣음)' : '되돌려 쓴 글'}`, model: t.model });
+  return { plan, write };
+}
+
+const revAiStage = (stage) => ((S.revLab && S.revLab.ai && S.revLab.ai.stages) || []).find((x) => x.stage === stage) || null;
+
+/** 실행 칸 아래 한 줄: 이 작업이 쓸 AI와 바꾸러 가는 링크. */
+function revAiLine(stage) {
+  const x = revAiStage(stage);
+  if (!x) return '';
+  return `<div class="small rev-ai-line">쓸 AI: ${esc(revAiText(x.use))}${x.use.source === 'lab' || x.use.source === 'preset' ? ' · 이 실험만' : ''} · <a href="#/revlab/${S.revLab.id}/ai">바꾸기</a></div>`;
+}
+
+function revAICard() {
+  const L = S.revLab;
+  if (!S.models) loadModelList().then(() => { if (S.revPane === 'ai') render(); });  // 모델 칸 추천 목록 (settings.js)
+  const made = revAiMade(L.items, L.style_model);
+  const mock = L.ai.stages.some((x) => x.use.source === 'mock');
+  const rows = L.ai.stages.map((x) => {
+    const id = `rev-ai-${x.stage}`;
+    const gone = x.use.source === 'gone';
+    const val = x.preset ? (gone ? 'gone' : `preset:${x.preset}`) : x.provider ? 'direct' : '';
+    const opts = `<option value=""${val === '' ? ' selected' : ''}>설정을 따름 · 지금 ${esc(revAiText(x.follow))}</option>
+      ${gone ? '<option value="gone" selected>지워진 프리셋 (설정을 따름)</option>' : ''}
+      ${L.ai.presets.length ? `<optgroup label="프리셋">${L.ai.presets.map((p) => `<option value="preset:${esc(p.id)}"${val === `preset:${p.id}` ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</optgroup>` : ''}
+      <option value="direct"${val === 'direct' ? ' selected' : ''}>직접 고르기</option>`;
+    const now = x.use.model || x.use.default;
+    const list = made[x.stage].map((m) => `<li>${esc(m.what)} · ${esc(m.model)}${now && x.use.provider !== 'mock' && m.model !== now ? ' <span class="chip warn" title="지금 고른 모델과 다른 모델로 만든 결과예요">다름</span>' : ''}</li>`).join('');
+    const direct = val === 'direct' ? `<div class="seg" role="group" aria-label="${esc(x.label)} 백엔드">${REV_AI_PROVIDERS.map((k) => `<button type="button" aria-pressed="${x.provider === k}" data-action="revAiProv" data-arg="${x.stage}:${k}">${esc(WRITER_BACKEND[k])}</button>`).join('')}</div>
+        <div class="field"><label for="${id}-model">모델 <span class="hint">비우면 그 백엔드의 기본 모델${x.use.default ? ` (${esc(x.use.default)})` : ''}</span></label>
+          <input id="${id}-model" type="text" list="model-options" value="${esc(x.model)}" data-rev-ai-model="${x.stage}" placeholder="${esc(x.use.default || '기본 모델')}"></div>
+        ${x.provider === 'claude' ? '<div class="note info small">Claude 구독은 Canon 서버에 설치한 Claude Code로 불러요. 비용 추정은 API 가격표로 계산해요.</div>' : ''}` : '';
+    return `<div class="rev-ai-row"><div><h3>${esc(x.label)}</h3><p class="small">${x.stage === 'plan' ? '계획 단계 일이에요. 역설계는 화마다 한 번, 이야기 줄기와 문체 프로필은 실험에 한 번 불러요.' : '본문 단계 일이에요. 같은 화를 다른 모델로 써 보려면 여기서 바꾸고 다시 써요.'}</p></div>
+      <div class="rev-ai-pick"><div class="field"><label for="${id}">쓸 AI</label><select id="${id}" data-rev-ai="${x.stage}">${opts}</select></div>
+        ${direct}
+        <div class="small">지금 쓰는 AI: ${esc(revAiText(x.use))}</div>
+        ${list ? `<div class="small">만든 결과</div><ul class="rev-ul small">${list}</ul>` : ''}</div></div>`;
+  }).join('');
+  return `<section class="card"><h2>AI 모델 <span class="small">이 실험의 AI 호출만 바꿔요</span></h2>
+    <p class="small">실험은 작품 밖이라 작품의 AI 프리셋을 쓰지 않아요. 고르지 않으면 설정 화면의 단계 칸을 따라요. 바꾸면 다음 작업부터 쓰고, 이미 만든 결과는 그대로 둬요.</p>
+    ${mock ? '<div class="note info small">설정의 AI가 mock이라 지금은 모든 작업이 mock으로 돌아요. 여기서 고른 값은 mock을 끄면 써요.</div>' : ''}
+    ${rows}${modelDatalist()}</section>`;
+}
+
+/** AI 고르기를 서버에 저장하고 실험을 다시 받는다. 비용 추정은 모델이 바뀌었으니 새로 잰다. */
+async function revAiSave(stage, body) {
+  const id = S.revLab.id;
+  try {
+    S.revLab = await api('PUT', `/revlab/${id}/ai`, { stage, ...body });
+    S.revEsts = {};
+    const x = revAiStage(stage);
+    toast(`${x ? x.label : ''} AI를 ${revAiText(x && x.use)}${josa(revAiText(x && x.use), '으로', '로')} 바꿨어요.`);
+  } catch (e) {
+    showError(e);
+  }
+  render();
 }
 
 function revLinesCard() {
@@ -886,6 +979,7 @@ function revWriteTab(e) {
   const again = takes.some((x) => x.mode === (style ? 'style' : 'plain'));
   parts.push(`<section class="card${takes.length ? ' tight' : ''}"><h3>${takes.length ? '다시 쓰기' : '되돌려 쓰기'}</h3>
     <p class="small">역설계한 플롯 · 스토리보드 · 큐 시트와 인물 · 관계 · 호칭 · 배경만 주고(이 화 원문 문장은 주지 않음) 같은 화를 써요. 앞 화는 원문을 반영한 화로 둬요. 문체를 넣은 판과 넣지 않은 판을 하나씩 남기고, 같은 판을 다시 쓰면 바꾸고 가려 읽기를 새로 해요.</p>
+    ${revAiLine('write')}
     ${cueEd().dirty ? '<div class="note warn small">저장하지 않은 큐 시트 고침이 있어요. 되돌려 쓰기는 저장한 큐 시트로 해요.</div>' : ''}
     <div class="row"><label class="check-row small"><input type="checkbox" data-rev-style="1"${style ? ' checked' : ''}${L.style ? '' : ' disabled'}><span>문체 프로필 넣기${L.style ? '' : ' (문체 프로필을 먼저 만드세요)'}</span></label>
       <button type="button" class="btn" data-action="revWrite" data-arg="${e.number}"${est && !busy ? '' : ' disabled'}>${revCost(`${again ? '다시 쓰기' : '되돌려 쓰기 시작'}${style ? ' (문체 넣고)' : ''}`, est)}</button></div>
@@ -930,6 +1024,19 @@ document.addEventListener('input', (e) => {
 document.addEventListener('change', (e) => {
   const d = e.target.dataset || {};
   if (d.revStyle !== undefined) { S.revStyle = e.target.checked; render(); return; }
+  if (d.revAi) {
+    const v = e.target.value;
+    const x = revAiStage(d.revAi);
+    if (v === 'gone') return;
+    if (v === 'direct') revAiSave(d.revAi, { provider: (x && (x.provider || (x.follow.provider !== 'mock' && x.follow.provider))) || 'gemini' });
+    else revAiSave(d.revAi, v.startsWith('preset:') ? { preset: v.slice(7) } : {});
+    return;
+  }
+  if (d.revAiModel) {
+    const x = revAiStage(d.revAiModel);
+    if (x && x.provider) revAiSave(d.revAiModel, { provider: x.provider, model: e.target.value });
+    return;
+  }
   if (d.revAll !== undefined) {
     const can = S.revLab.items.filter((x) => x.chars >= S.rev.min_chars).map((x) => x.number);
     S.revPick = new Set(e.target.checked ? can : []);
@@ -1087,6 +1194,12 @@ Object.assign(actions, {
     else S.focusTarget = '#rev-title';
     render();
   },
+  revAiProv(arg) {
+    const [stage, provider] = String(arg).split(':');
+    const x = revAiStage(stage);
+    if (x && x.provider === provider) return;
+    revAiSave(stage, { provider });  // 백엔드를 바꾸면 모델 칸은 비워 그 백엔드의 기본 모델을 쓴다
+  },
   async revStyleRun() {
     if (S.revLab.style && !(await askConfirm('지금 문체 프로필을 새로 만든 것으로 바꿀까요?', { ok: '바꾸기', danger: true }))) return;
     revStartJob('style');
@@ -1201,6 +1314,12 @@ Object.assign(actions, {
 .rev-tile { color: inherit; text-decoration: none; }
 .rev-tile:hover { border-color: var(--sel-line); background: var(--sel-bg); }
 .rev-tile p { color: var(--text-2); }
+.rev-ai-row { display: grid; grid-template-columns: minmax(180px, 220px) 1fr; gap: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.rev-ai-row h3 { margin: 0 0 4px; }
+.rev-ai-pick { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.rev-ai-pick .seg { flex-wrap: wrap; align-self: flex-start; max-width: 100%; }
+.rev-ai-pick .seg button { white-space: nowrap; }
+@container outline (max-width: 720px) { .rev-ai-row { grid-template-columns: 1fr; } }
 .btn .cost { font-weight: 400; opacity: 0.85; }
 .rev-fields { display: flex; flex-wrap: wrap; gap: 12px; }
 .rev-f-title { flex: 3 1 260px; }

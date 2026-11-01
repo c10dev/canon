@@ -13,7 +13,7 @@ from canon import autorun, cue, jobs, prompts, revlab, store
 from canon.cli import main
 from canon.mock import MockLLM
 from canon.mock_revlab import FAKE_LINE
-from canon.schema import Cue, CueLine, CueSheetDraft, RevCue, RevEpisodeDraft, RevLineSet
+from canon.schema import Cue, CueLine, CueSheetDraft, RevAI, RevCue, RevEpisodeDraft, RevLab, RevLineSet
 
 from .jsvm import STATIC, dump, needs_node, run_js
 from .test_web import _wait
@@ -318,6 +318,61 @@ def test_estimate(home):
     assert w["kind"] == "write" and w["rows"][0]["output_tokens"] == round(len(lab.episodes[0].text) / revlab.CHARS_PER_TOKEN)
     with pytest.raises(ValueError, match="없는 화"):
         revlab.estimate(lab, "parse", [7])
+
+
+def _real_ai(monkeypatch):
+    """mock 이 아닌 설정 (단계 환경 변수는 지운다). 실제 AI 는 부르지 않는다."""
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    for k in ("CANON_MODEL", "CANON_LLM_PLAN", "CANON_LLM_WRITE", "CANON_MODEL_PLAN", "CANON_MODEL_WRITE"):
+        monkeypatch.delenv(k, raising=False)
+
+
+def test_ai_choice_follows_settings_preset_or_lab(home, monkeypatch):
+    lab = revlab.create("등대", STORY)
+    assert revlab.ai_choice(lab, "write") == {"provider": "mock", "model": "", "source": "mock"}  # mock 설정이면 모든 작업이 mock
+    assert revlab.llm_for(lab, "style").stage == "plan"
+    _real_ai(monkeypatch)
+    assert revlab.ai_choice(lab, "plan") == {"provider": "gemini", "model": "", "source": "settings"}
+    revlab.set_ai(lab, "write", provider="Claude", model=" claude-opus-5-5 ")
+    assert revlab.ai_choice(lab, "write") == {"provider": "claude", "model": "claude-opus-5-5", "source": "lab"}
+    assert revlab.ai_choice(lab, "plan")["source"] == "settings"  # 단계마다 따로 고른다
+    revlab.set_ai(lab, "plan", preset="anthropic")
+    assert revlab.ai_choice(lab, "plan") == {"provider": "claude-api", "model": "claude-opus-5-5", "source": "preset"}
+    est = revlab.estimate(lab, "parse")
+    assert est["provider"] == "claude-api" and est["model"] == "claude-opus-5-5"
+    revlab.set_ai(lab, "write")
+    assert lab.ai.write == RevAI()  # 모두 비우면 설정을 따른다
+    with pytest.raises(ValueError, match="프리셋"):
+        revlab.set_ai(lab, "plan", preset="nope")
+    with pytest.raises(ValueError, match="고를 수 없는"):
+        revlab.set_ai(lab, "plan", provider="mock")
+    with pytest.raises(ValueError, match="모르는 단계"):
+        revlab.set_ai(lab, "check", provider="gemini")
+    lab.ai.plan = RevAI(preset="gone", provider="claude")
+    assert revlab.ai_choice(lab, "plan")["source"] == "gone"  # 지워진 프리셋은 직접 고른 값이 아니라 설정을 따른다
+    v = revlab.ai_view(lab)
+    assert [x["stage"] for x in v["stages"]] == ["plan", "write"] and v["custom"]
+    assert v["stages"][1]["use"] == {"provider": "gemini", "model": "", "source": "settings", "default": "gemini-4-argon"}
+    assert {"id": "anthropic", "name": "Anthropic (Claude API 키)"} in v["presets"]
+    assert RevLab.model_validate({"id": 3}).ai.plan == RevAI()  # 옛 실험 파일도 읽힌다
+
+
+def test_web_ai_pick(home, monkeypatch):
+    from canon import web
+
+    c = TestClient(web.app)
+    lab_id = c.post("/api/revlab", json={"title": "등대", "text": STORY}).json()["id"]
+    v = c.put(f"/api/revlab/{lab_id}/ai", json={"stage": "write", "provider": "claude-api", "model": "claude-sonnet-5-5"}).json()
+    assert v["ai"]["stages"][1]["provider"] == "claude-api" and revlab.load(lab_id).ai.write.model == "claude-sonnet-5-5"
+    assert c.put(f"/api/revlab/{lab_id}/ai", json={"stage": "plan", "preset": "nope"}).status_code == 400
+    seen = []
+
+    def fake(lab, kind):
+        seen.append((lab.ai.write.provider, kind))
+        return MockLLM()
+    monkeypatch.setattr(revlab, "llm_for", fake)
+    j = _wait(c, c.post(f"/api/revlab/{lab_id}/jobs", json={"kind": "parse", "episodes": [1]}).json()["id"])
+    assert j["status"] == "done" and seen == [("claude-api", "parse")]  # 작업은 실험이 고른 AI 로 돈다
 
 
 def test_web_flow(home):
@@ -738,3 +793,21 @@ def test_web_edit_and_drop_episode(home, monkeypatch):
     monkeypatch.setattr(jobs, "listing", lambda project=None: [busy])
     r = c.put(f"/api/revlab/{lab_id}/episodes/1", json={"head": "", "text": "작업 중 고침 " * 30})
     assert r.status_code == 409 and "작업이 끝난 뒤" in r.text
+
+
+@needs_node
+def test_js_ai_text_and_made():
+    items = [{"number": 1, "sheet": {}, "model": "gemini-4-argon", "takes": [{"mode": "plain", "model": "claude-opus-5-5"}]},
+             {"number": 2, "sheet": {}, "model": "gemini-4-argon", "takes": []},
+             {"number": 3, "sheet": None, "model": "", "takes": []},
+             {"number": 5, "sheet": {}, "model": "gemini-4-argon", "takes": [{"mode": "style", "model": ""}]}]
+    got = run_js(FILES, """({
+      text: [revAiText({ provider: 'claude', model: 'claude-opus-5-5' }), revAiText({ provider: 'gemini', model: '', default: 'gemini-4-argon' }),
+        revAiText({ provider: 'local', model: '', default: '' }), revAiText({ provider: 'mock', model: '' }), revAiText(null)],
+      range: [revEpRange([3, 1, 2, 5, 7, 8]), revEpRange([4]), revEpRange([])],
+      made: revAiMade(data, 'gemini-4-argon'),
+    })""", items)
+    assert got["text"] == ["claude-opus-5-5 · Claude 구독", "gemini-4-argon · Gemini", "로컬", "mock", ""]
+    assert got["range"] == ["1~3 · 5 · 7~8화", "4화", ""]
+    assert got["made"]["plan"] == [{"what": "1~2 · 5화 역설계", "model": "gemini-4-argon"}, {"what": "문체 프로필", "model": "gemini-4-argon"}]
+    assert got["made"]["write"] == [{"what": "1화 되돌려 쓴 글", "model": "claude-opus-5-5"}]  # 모델을 모르는 판은 뺀다

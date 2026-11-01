@@ -2501,6 +2501,19 @@ class RevEpisode(BaseModel):
     picked: str = Field("", description="블라인드 비교에서 고른 것 (original · rewrite), 건너뛰면 skip")
 
 
+class RevAI(BaseModel):
+    """실험 하나의 단계 AI 고르기. 모두 비면 설정 화면의 단계 칸을 따른다. preset 이 있으면 provider · model 은 보지 않는다."""
+    preset: str = Field("", description="단계 프리셋 id (settings.presets). 지워진 프리셋이면 설정을 따른다")
+    provider: str = Field("", description="직접 고른 백엔드 (gemini · local · claude · claude-api)")
+    model: str = Field("", description="직접 고른 모델. 비면 그 백엔드의 기본 모델")
+
+
+class RevAIs(BaseModel):
+    """실험의 AI (revlab.AI_STAGES). 역설계 · 문체 프로필은 plan, 되돌려 쓰기는 write."""
+    plan: RevAI = Field(default_factory=RevAI)
+    write: RevAI = Field(default_factory=RevAI)
+
+
 class RevLab(BaseModel):
     """역설계 실험 하나. <CANON_HOME>/.revlab/<id>.json. 작품 데이터가 아니다."""
     id: int
@@ -2516,6 +2529,7 @@ class RevLab(BaseModel):
     style: Optional[StyleProfile] = Field(None, description="원문 전체로 역설계한 문체 프로필. 예시 문단(sample_passages)은 비운다 (되돌려 쓰기가 베끼지 않게)")
     style_model: str = ""
     style_at: str = ""
+    ai: RevAIs = Field(default_factory=RevAIs, description="이 실험의 AI 호출만 바꾸는 단계별 고르기 (revlab.set_ai)")
 
 # ---------- 쇠맛 실험실 (canon/soelab.py) ----------
 # 작품 밖 <CANON_HOME>/.soelab/ 에 둔다. LLM 이 채우지 않는 스키마다.

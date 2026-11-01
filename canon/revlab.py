@@ -21,7 +21,7 @@ from pathlib import Path
 from . import cancel, cue, pipeline, prompts, store, usage
 from .context import CHARS_PER_TOKEN
 from .schema import (Act, AddressForm, BoardHandover, BoardScene, BoardTime, Character, CueLine, CueSheet, CueSheetDraft, CueTake, Episode, EpisodePlot, Meta, Project,
-                     Relationship, RevBound, RevCastSaved, RevEpisode, RevEpisodeDraft, RevLab, RevLineSet, RevPerson, RevTake, Storyboard,
+                     Relationship, RevAI, RevBound, RevCastSaved, RevEpisode, RevEpisodeDraft, RevLab, RevLineSet, RevPerson, RevTake, Storyboard,
                      StoryboardDraft, StyleProfile, WorldSetting,
                      Storyline)
 
@@ -585,6 +585,95 @@ def compare(lab: RevLab, e: RevEpisode) -> list[dict]:
     return rows
 
 
+# ---------- 실험별 AI ----------
+
+AI_STAGES = {"plan": "역설계 · 문체 프로필", "write": "되돌려 쓰기"}  # RevLab.ai 칸 → 화면 이름. 작업 parse · style 은 plan, write 는 write
+AI_PROVIDERS = ("gemini", "claude", "claude-api", "local")  # 직접 고를 수 있는 백엔드 (mock 은 설정에서만)
+
+
+def stage_of(kind: str) -> str:
+    return "write" if kind == "write" else "plan"
+
+
+def default_model(provider: str) -> str:
+    """모델 칸을 비웠을 때 그 백엔드가 쓰는 모델 이름 (llm.make_llm 과 같은 기본값). 로컬은 서버가 정하면 빈 글."""
+    from . import claude, settings
+
+    if provider == "gemini":
+        return settings.model()[0]
+    if provider == "local":
+        return settings.local_model()[0]
+    if provider == "claude":
+        return settings.claude_model()[0]
+    if provider == "claude-api":
+        return settings.claude_model()[0] or claude.DEFAULT_API_MODEL
+    return ""
+
+
+def ai_choice(lab: RevLab, stage: str) -> dict:
+    """stage 작업이 쓸 백엔드와 모델 {provider, model, source}. source: settings(설정을 따름) · preset · lab(직접 고름) ·
+    gone(고른 프리셋이 지워져 설정을 따름) · mock(설정이 mock 이면 모든 작업이 mock). 실험은 작품 밖이라 작품 프리셋은 보지 않는다."""
+    from . import settings
+
+    if stage not in AI_STAGES:
+        raise ValueError(f"모르는 단계예요: {stage}")
+    pick = getattr(lab.ai, stage)
+    if settings.provider()[0] == "mock":
+        return {"provider": "mock", "model": "", "source": "mock"}
+    pre = settings.find_preset(pick.preset) if pick.preset else None
+    if pre:
+        return {"provider": settings.stage_provider(stage, pre)[0], "model": settings.stage_model(stage, pre)[0], "source": "preset"}
+    if not pick.preset and pick.provider:
+        return {"provider": pick.provider, "model": pick.model, "source": "lab"}
+    return {"provider": settings.stage_provider(stage, None)[0], "model": settings.stage_model(stage, None)[0],
+            "source": "gone" if pick.preset else "settings"}
+
+
+def llm_for(lab: RevLab, kind: str):
+    """작업(parse · write · style)이 쓸 LLM. 키가 없으면 여기서 바로 오류를 낸다 (웹은 작업을 시작하기 전에 부른다)."""
+    from .llm import make_llm
+
+    stage = stage_of(kind)
+    c = ai_choice(lab, stage)
+    llm = make_llm(c["provider"], c["model"] or None)
+    llm.stage = stage  # type: ignore[attr-defined]  # 사용량 기록이 단계를 적는다
+    return llm
+
+
+def set_ai(lab: RevLab, stage: str, preset: str = "", provider: str = "", model: str = "") -> RevAI:
+    """stage 의 AI 를 고른다: preset(프리셋 id) · provider(+ model, 직접 고름) · 모두 비우면 설정을 따름. 다음 작업부터 쓴다."""
+    from . import settings
+
+    if stage not in AI_STAGES:
+        raise ValueError(f"모르는 단계예요: {stage}")
+    preset, provider, model = preset.strip(), provider.strip().lower(), model.strip()
+    if preset:
+        if not settings.find_preset(preset):
+            raise ValueError("고른 프리셋을 찾지 못했어요. 설정 화면에서 지워졌는지 확인해 주세요")
+        pick = RevAI(preset=preset)
+    elif provider:
+        if provider not in AI_PROVIDERS:
+            raise ValueError(f"고를 수 없는 AI예요: {provider}")
+        pick = RevAI(provider=provider, model=model)
+    else:
+        pick = RevAI()
+    setattr(lab.ai, stage, pick)
+    return pick
+
+
+def ai_view(lab: RevLab) -> dict:
+    """화면 값: 단계마다 고른 값 · 쓸 값(use) · 설정을 따를 때 값(follow), 고를 수 있는 프리셋."""
+    from . import settings
+
+    def now(stage: str, follow: bool) -> dict:
+        c = ai_choice(RevLab(id=0) if follow else lab, stage)
+        return {**c, "default": default_model(c["provider"]) if not c["model"] else ""}
+    stages = [{"stage": k, "label": v, **getattr(lab.ai, k).model_dump(), "use": now(k, False), "follow": now(k, True)}
+              for k, v in AI_STAGES.items()]
+    return {"stages": stages, "presets": [{"id": p["id"], "name": p["name"]} for p in settings.presets()],
+            "custom": any(getattr(lab.ai, k) != RevAI() for k in AI_STAGES)}
+
+
 # ---------- 비용 추정과 역설계 실행 ----------
 
 def choose(lab: RevLab, numbers: list[int] | None) -> list[int]:
@@ -614,8 +703,8 @@ def estimate(lab: RevLab, kind: str, numbers: list[int] | None = None, model: st
     if kind not in ("parse", "write", "style"):
         raise ValueError(f"모르는 추정이에요: {kind}")
     nums = choose(lab, numbers) if kind != "style" else []
-    stage = "write" if kind == "write" else "plan"
-    model = model or settings.stage_model(stage)[0] or settings.model()[0]
+    c = ai_choice(lab, stage_of(kind))
+    model = model or c["model"] or default_model(c["provider"]) or settings.model()[0]
     price = usage.rate(model, date.today().isoformat())
     rows = []
     if kind == "style":
@@ -641,7 +730,7 @@ def estimate(lab: RevLab, kind: str, numbers: list[int] | None = None, model: st
             + {"parse": f"약 {PARSE_OUT_TOKENS:,}토큰으로 잡았어요.", "write": "원문 분량만큼 잡았어요.",
                "style": f"약 {STYLE_OUT_TOKENS:,}토큰으로 잡았어요 (원문 앞 {STYLE_CHARS:,}자까지 넣어요)."}[kind]
             + " 캐시와 생각 토큰은 넣지 않았어요.")
-    return {"kind": kind, "model": model, "priced": price is not None, "calls": len(rows), "rows": rows,
+    return {"kind": kind, "provider": c["provider"], "model": model, "priced": price is not None, "calls": len(rows), "rows": rows,
             "usd": round(total, 3) if price else None, "note": note}
 
 
@@ -737,7 +826,7 @@ def view(lab: RevLab) -> dict:
             "context": [{"number": e.number, **{k: [x.model_dump() for x in v] if k in ("ties", "addresses") else v
                                                  for k, v in context_upto(lab, e.number).items()}} for e in lab.episodes if e.sheet][-1:],
             "style": lab.style.model_dump(exclude={"sample_passages"}) if lab.style else None, "style_model": lab.style_model,
-            "style_at": lab.style_at, "items": [_ep_view(lab, e) for e in lab.episodes]}
+            "style_at": lab.style_at, "ai": ai_view(lab), "items": [_ep_view(lab, e) for e in lab.episodes]}
 
 
 def labels() -> dict:
