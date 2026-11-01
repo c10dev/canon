@@ -160,6 +160,16 @@ function ctxDialogHtml(n) {
 }
 
 /** 머리 ⋯ 메뉴: 생성 방식 · 컨텍스트 대화상자(둘 다 본문이 생긴 뒤. 그전에는 쓰기 버튼 아래에 있다) · 이 화 지우기. 넣을 것이 없으면 빈 글 */
+/** 쓰기가 본문 앞뒤에서 뗀 작업 설명 문단 (Episode.meta_cut). 접어 두고, 펴면 문단마다 되살리기 · 지우기. */
+function metaCutNote(n, can) {
+  const cuts = (ep(n) && ep(n).meta_cut) || [];
+  if (!cuts.length) return '';
+  const rows = cuts.map((c, k) => `<li><span class="small">${c.at === 'head' ? '본문 앞' : '본문 뒤'}</span><div class="rw-text">${esc(c.text)}</div>
+    ${can ? `<div class="row" style="margin-top:4px"><button type="button" class="btn small" data-action="metaCutRestore" data-arg="${n}:${k}">본문에 되살리기</button><button type="button" class="btn small" data-action="metaCutDrop" data-arg="${n}:${k}">지우기</button></div>` : ''}</li>`).join('');
+  return `<details class="note plain"><summary>AI가 본문 ${cuts.some((c) => c.at === 'head') && cuts.some((c) => c.at === 'tail') ? '앞뒤' : cuts[0].at === 'head' ? '앞' : '뒤'}에 붙인 작업 설명 ${cuts.length}문단을 뗐어요</summary>
+    <ul style="list-style:none;padding:0;margin:8px 0 0;display:grid;gap:8px">${rows}</ul></details>`;
+}
+
 function writeMenu(n, starting, seg) {
   const e = ep(n);
   const parts = [];
@@ -312,6 +322,7 @@ function viewWrite(n) {
     ${e.auto ? `<div class="note info">이 화는 자동 집필이 검토 없이 반영했어요. 읽어 보고 문제가 있으면 <a href="${base()}/auto">자동 집필</a>에서 이 화부터 되돌릴 수 있어요.</div>` : ''}
     ${rebuildNote(n)}
     ${e.text ? restateNote(n) : ''}
+    ${e.text ? metaCutNote(n, editable && !autoOn()) : ''}
     ${orphan ? `<div class="note warn">저장하지 않은 ${n}화 초고가 남아 있어요. 이 화는 상태 반영이 끝나 본문으로 저장할 수 없어서, 아래에는 반영된 본문을 보여요.
       <details><summary>남은 초고 보기 (${S.textDraft[n].length.toLocaleString()}자)</summary><textarea readonly id="orphan-${n}" aria-label="${n}화 남은 초고" style="width:100%;min-height:160px;margin-top:6px">${esc(S.textDraft[n])}</textarea></details>
       <div class="row" style="margin-top:6px"><button class="btn small" data-action="copyOrphan" data-arg="${n}">초고 복사</button><button class="btn small danger" data-action="dropOrphan" data-arg="${n}">초고 버리기</button></div></div>` : ''}
@@ -474,6 +485,23 @@ function widenToggle(small = true) {
 }
 
 Object.assign(actions, {
+  async metaCutRestore(arg) {
+    const [n, k] = arg.split(':').map(Number);
+    if (textUnsaved(n) && !confirm('저장하지 않은 본문 수정이 있어요. 먼저 저장하고 이 문단을 되살릴까요?')) return;
+    await run('본문에 되살리는 중', async () => {
+      await saveIfDirty();
+      await flushText(n);
+      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/meta-cut/${k}/restore`);
+      toast('본문에 되살렸어요. 수정 기록의 \'수정 취소\'로 되돌릴 수 있어요');
+    });
+  },
+  async metaCutDrop(arg) {
+    const [n, k] = arg.split(':').map(Number);
+    await run('지우는 중', async () => {
+      S.project = await api('DELETE', `/projects/${enc(S.name)}/episodes/${n}/meta-cut/${k}`);
+      toast('뗀 문단을 지웠어요');
+    });
+  },
   async toggleWiden() {
     const on = !P().settings.check_widen;
     P().settings.check_widen = on;

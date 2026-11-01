@@ -450,11 +450,11 @@ def test_halt_kind_and_policy_change_while_paused(demo):
 def test_user_saves_text_while_writing(demo, monkeypatch):
     real = autorun.pipeline.write_episode
 
-    def write(llm, p, n):
+    def write(llm, p, n, **kw):
         q = store.load(demo)  # AI가 쓰는 사이 작가가 본문을 직접 저장했다
         q.episode(n).text, q.episode(n).status = "작가가 쓴 본문", "written"
         store.save(demo, q)
-        return real(llm, p, n)
+        return real(llm, p, n, **kw)
 
     monkeypatch.setattr(autorun.pipeline, "write_episode", write)
     run = autorun.start(demo, 1, False, Policy(), foreground=True)

@@ -9,7 +9,7 @@ from . import dynamics, elements, illust, metrics, naming, prompts, renumber, se
 from .judge import Judge, Question
 from .llm import LLM, dump
 from . import board, cancel, charlog, context, features, findings, foreshadows, knows, metatail, stage, statwin, timeline, usage
-from .schema import CueSheet, CueSheetDraft, Finding, FindingRecheck, FixOption, FixPatch, FixSet, RevEpisodeDraft, RevLineSet
+from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixOption, FixPatch, FixSet, RevEpisodeDraft, RevLineSet
 from .schema import (
     Act,
     ArcEdit,
@@ -1452,7 +1452,7 @@ def apply_rebuild(p: Project, prop: SerialRebuild, at: str = "") -> tuple[Projec
         src = archive.source(x.sources[0]) if x.sources else None
         if x.use in ("keep", "revise") and src is not None:
             plot = src.plot.model_copy(deep=True, update={"number": x.number, "act": act.name if act else src.plot.act})
-            eps.append(Episode(plot=plot, text=src.text, status="written", written_by=src.written_by))
+            eps.append(Episode(plot=plot, text=src.text, status="written", written_by=src.written_by, meta_cut=src.meta_cut))
         else:
             chars = list(dict.fromkeys(c for s in x.sources if archive.source(s) for c in archive.source(s).plot.characters))
             eps.append(Episode(plot=EpisodePlot(number=x.number, act=act.name if act else "기", title=x.title, summary=x.summary,
@@ -2518,7 +2518,7 @@ def _delete_last(p: Project, n: int, keep_plot: bool) -> list[str]:
     ep.text, ep.status, ep.summary, ep.auto, ep.final_text = "", "confirmed", "", False, ""
     ep.edits, ep.hook, ep.illustrations = [], None, []
     findings.clear(ep)
-    ep.candidate, ep.versions, ep.made_by, ep.written_by, ep.time = None, [], None, "", StoryTime()
+    ep.candidate, ep.versions, ep.made_by, ep.written_by, ep.meta_cut, ep.time = None, [], None, "", [], StoryTime()
     ep.events_done = []  # 본문이 없으니 쓴 사건 체크도 비운다
     ep.to_fix = []  # 지운 본문 문장에 단 고칠 곳
     p.foreshadow_clues = [c for c in p.foreshadow_clues if c.episode != n]  # 지운 본문 문장에 건 복선 근거
@@ -2586,15 +2586,17 @@ HANGUL_MIN = 0.8
 WRITE_TRIES = 3
 
 
-def write_episode(llm: LLM, p: Project, n: int, approach: str = "", use_board: bool = True, use_cues: bool = True) -> str:
+def write_episode(llm: LLM, p: Project, n: int, approach: str = "", use_board: bool = True, use_cues: bool = True,
+                  cut: list[MetaCut] | None = None) -> str:
     """approach: 1~3화를 여러 안으로 쓸 때 여는 방식 (prompts.OPENING_APPROACHES).
     use_board: 그 화에 스토리보드가 있으면 쓰기 프롬프트에 넣는다. 끄면 스토리보드 없이 쓴다.
-    use_cues: 그 화에 큐 시트가 있으면 쓰기 프롬프트 끝에 넣는다. 끄면 큐 시트 없이 쓴다."""
+    use_cues: 그 화에 큐 시트가 있으면 쓰기 프롬프트 끝에 넣는다. 끄면 큐 시트 없이 쓴다.
+    cut: 목록을 주면 본문 앞뒤에서 뗀 작업 설명 문단을 채운다 (_write). 저장하는 호출자가 replace_text(meta_cut=)로 넘긴다."""
     ep = p.episode(n)
     if ep.status == "draft":
         raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
     require_previous(p, n)
-    return _write(llm, p, n, prompts.episode_prompt(p, n, approach, use_board=use_board, use_cues=use_cues))
+    return _write(llm, p, n, prompts.episode_prompt(p, n, approach, use_board=use_board, use_cues=use_cues), cut)
 
 
 # ---------- 4-0. 화별 스토리보드 ----------
@@ -2659,10 +2661,11 @@ def set_storyboard(p: Project, n: int, b: Storyboard | None, by: str = "author")
     ep.storyboard = b
 
 
-def _write(llm: LLM, p: Project, n: int, prompt: str) -> str:
+def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None = None) -> str:
     """본문을 쓴다. 한글이 적은 응답(영어 생각 과정 등)과 본문 대신 작업 설명 · 거절 문구만 온 응답(metatail.whole)은 다시 부른다.
     본문 앞뒤에 붙은 확실한 작업 설명(metatail.split: 'n화 본문입니다' 머리말, 끝의 '짚어 둘 것' 같은 작가에게 하는 말)은 떼고 서버 기록에 남긴다.
-    덜 확실한 것은 떼지 않고 검수 화면의 문체 경고(style_drift)로 알린다."""
+    덜 확실한 것은 떼지 않고 검수 화면의 문체 경고(style_drift)로 알린다.
+    cut 목록을 주면 뗀 문단을 앞 · 뒤 자리와 함께 채운다. 본문만 돌려주는 모양은 실험 · 비교 호출자가 그대로 쓰게 둔다."""
     system = prompts.writer_system(p)
     bad = {"thought": 0, "meta": 0}
     for _ in range(WRITE_TRIES):
@@ -2673,9 +2676,12 @@ def _write(llm: LLM, p: Project, n: int, prompt: str) -> str:
         if metatail.whole(text):
             bad["meta"] += 1
             continue
-        body, cut = metatail.split(text)
-        if cut:
-            logging.getLogger("canon").warning("%s화 본문 앞뒤의 작업 설명 %d문단을 뗐어요: %s", n, len(cut), " / ".join(x[:80] for x in cut))
+        body, head, tail = metatail.parts(text)
+        if head or tail:
+            logging.getLogger("canon").warning("%s화 본문 앞뒤의 작업 설명 %d문단을 뗐어요: %s", n, len(head) + len(tail),
+                                               " / ".join(x[:80] for x in head + tail))
+        if cut is not None:
+            cut[:] = [MetaCut(text=x, at="head") for x in head] + [MetaCut(text=x, at="tail") for x in tail]
         return body
     what = " · ".join(f"{label} {k}번" for key, label in (("thought", "다른 글(영어로 된 생각 과정 등)"), ("meta", "작업 설명이나 거절 문구"))
                       if (k := bad[key]))
@@ -2823,13 +2829,13 @@ def rewrite_prompt(p: Project, n: int, req: RewriteRequest) -> str:
     return prompts.rewrite_prompt(p, n, req, rewrite_materials(p, n), p.episode(n).text)
 
 
-def rewrite_episode(llm: LLM, p: Project, n: int, req: RewriteRequest) -> str:
-    """피드백을 반영해 그 화를 다시 쓴다. 저장하지 않는다 (set_candidate 로 새 판에 둔다)."""
+def rewrite_episode(llm: LLM, p: Project, n: int, req: RewriteRequest, cut: list[MetaCut] | None = None) -> str:
+    """피드백을 반영해 그 화를 다시 쓴다. 저장하지 않는다 (set_candidate 로 새 판에 둔다). cut 은 write_episode 와 같다."""
     ep = _editable(p, n)
     require_previous(p, n)
     if req.mode == "revise" and not ep.text.strip():
         raise ValueError("고쳐 쓸 지난 판이 없어요")
-    return _write(llm, p, n, rewrite_prompt(p, n, clean_rewrite(req)))
+    return _write(llm, p, n, rewrite_prompt(p, n, clean_rewrite(req)), cut)
 
 
 def _version_id(ep: Episode) -> str:
@@ -2851,29 +2857,35 @@ def writer_of(llm: LLM) -> str:
     return usage.model_id(llm)
 
 
-def set_candidate(p: Project, n: int, text: str, req: RewriteRequest, model: str = "") -> TextVersion:
-    """새 판을 고르기 대기에 둔다. 고르지 않은 앞 새 판은 versions 로 보낸다. model: 새 판을 쓴 모델 (writer_of)."""
+def set_candidate(p: Project, n: int, text: str, req: RewriteRequest, model: str = "",
+                  meta_cut: list[MetaCut] | None = None) -> TextVersion:
+    """새 판을 고르기 대기에 둔다. 고르지 않은 앞 새 판은 versions 로 보낸다. model: 새 판을 쓴 모델 (writer_of).
+    meta_cut: 새 판을 쓸 때 뗀 작업 설명 문단. 판에 남고 판을 고르면 화로 따라간다."""
     ep = p.episode(n)
     if ep.candidate:
         ep.candidate.kind = "rejected"
         _keep_version(ep, ep.candidate)
-    ep.candidate = TextVersion(id=_version_id(ep), at=_now(), text=text, request=clean_rewrite(req), model=model)
+    ep.candidate = TextVersion(id=_version_id(ep), at=_now(), text=text, request=clean_rewrite(req), model=model,
+                               meta_cut=list(meta_cut or []))
     return ep.candidate
 
 
-def replace_text(ep: Episode, text: str, made_by: RewriteRequest | None = None, written_by: str = "") -> None:
+def replace_text(ep: Episode, text: str, made_by: RewriteRequest | None = None, written_by: str = "",
+                 meta_cut: list[MetaCut] | None = None) -> None:
     """지금 본문을 versions 에 남기고 text 로 바꾼다. 검수 결과는 지난 판 것이라 결정한 지적만 남긴다 (findings.new_version).
     상태 반영이 끝난 화는 반영을 그대로 두고 before_change 로 반영 뒤 고침만 표시한다.
-    written_by: 새 본문을 쓴 모델 (writer_of) 이나 'import'. 모르면 비운다. 남기는 지난 판에는 지난 본문의 모델이 따라간다."""
+    written_by: 새 본문을 쓴 모델 (writer_of) 이나 'import'. 모르면 비운다. 남기는 지난 판에는 지난 본문의 모델이 따라간다.
+    meta_cut: 새 본문을 쓸 때 뗀 작업 설명 문단. 지난 판에는 지난 본문의 뗀 문단이 따라간다."""
     done = ep.status == "finalized"
     if text == ep.text:
         ep.status = "finalized" if done else "written"
         return
     if ep.text.strip():
         _keep_version(ep, TextVersion(id=_version_id(ep), at=_now(), text=ep.text, kind="previous", request=ep.made_by,
-                                      model=ep.written_by))
+                                      model=ep.written_by, meta_cut=ep.meta_cut))
     before_change(ep)
     ep.text, ep.made_by, ep.written_by, ep.status = text, made_by, written_by, "finalized" if done else "written"
+    ep.meta_cut = list(meta_cut or [])
     findings.new_version(ep)
 
 
@@ -2883,7 +2895,7 @@ def adopt_candidate(p: Project, n: int) -> None:
     if ep.candidate is None:
         raise ValueError(f"{n}화에 고를 새 판이 없어요")
     c, ep.candidate = ep.candidate, None
-    replace_text(ep, c.text, c.request, c.model)
+    replace_text(ep, c.text, c.request, c.model, c.meta_cut)
 
 
 def drop_candidate(p: Project, n: int) -> None:
@@ -2902,7 +2914,7 @@ def restore_version(p: Project, n: int, vid: str) -> None:
     v = next((x for x in ep.versions if x.id == vid), None)
     if v is None:
         raise KeyError(f"남겨 둔 판이 없어요: {vid}")
-    replace_text(ep, v.text, v.request, v.model)
+    replace_text(ep, v.text, v.request, v.model, v.meta_cut)
     ep.versions = [x for x in ep.versions if x is not v]
 
 
@@ -2972,6 +2984,29 @@ def edit_text(p: Project, n: int, sel: Selection, after: str, source: str = "man
     ep.text = ep.text[:at] + after + ep.text[at + len(sel.text):]
     return _record(ep, TextEdit(id="", source=source, start=at, before=sel.text, after=after, instruction=instruction,  # type: ignore[arg-type]
                                 preset=preset, proposed=proposed if proposed != after else "", rejected=list(rejected or [])))
+
+
+def restore_cut(p: Project, n: int, k: int) -> TextEdit:
+    """쓰기가 뗀 작업 설명 문단 k 를 뗀 자리(본문 앞 · 뒤)에 되살린다. 수정 기록에 남겨 되돌릴 수 있다. 문단은 뗀 목록에서 빠진다."""
+    ep = _editable(p, n)
+    if not 0 <= k < len(ep.meta_cut):
+        raise KeyError(f"{n}화에 그 뗀 문단이 없어요")
+    c = ep.meta_cut.pop(k)
+    before_change(ep)
+    body = ep.text.strip()
+    if c.at == "head":
+        add, start, ep.text = c.text + "\n\n", 0, c.text + "\n\n" + body
+    else:
+        add, start, ep.text = "\n\n" + c.text, len(body), body + "\n\n" + c.text
+    return _record(ep, TextEdit(id="", source="manual", start=start, before="", after=add, instruction="뗀 작업 설명 되살리기"))
+
+
+def drop_cut(p: Project, n: int, k: int) -> None:
+    """쓰기가 뗀 작업 설명 문단 k 를 지운다. 본문은 바꾸지 않는다."""
+    ep = p.episode(n)
+    if not 0 <= k < len(ep.meta_cut):
+        raise KeyError(f"{n}화에 그 뗀 문단이 없어요")
+    ep.meta_cut.pop(k)
 
 
 def record_typed(p: Project, n: int, old: str, new: str) -> TextEdit | None:

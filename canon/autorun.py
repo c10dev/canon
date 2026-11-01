@@ -557,14 +557,15 @@ class Runner:
     def _write(self, p: Project, n: int) -> None:
         self._set(n, "write")
         self.log(f"{n}화 본문을 쓰는 중" + (" (배치)" if self.run.batch and batchable("write") else ""))
-        (text, model), usage = self.call("write", n, lambda llm: (pipeline.write_episode(llm, p, n), pipeline.writer_of(llm)))
+        cut: list = []
+        (text, model), usage = self.call("write", n, lambda llm: (pipeline.write_episode(llm, p, n, cut=cut), pipeline.writer_of(llm)))
 
         def put(q: Project) -> None:
             ep = q.episode(n)
             if ep.status != "confirmed":
                 raise _Halt("paused", f"{n}화 상태가 '{EP_STATUS.get(ep.status, ep.status)}'(으)로 바뀌어 멈췄어요",
                             _changed_while_writing(n, ep.status), kind="changed")
-            ep.text, ep.status, ep.written_by = text, "written", model
+            ep.text, ep.status, ep.written_by, ep.meta_cut = text, "written", model, cut
         q = _edit(self.name, put)
         self.log(f"{n}화 본문 {len(text):,}자", **usage)
         _, drift = pipeline.style_drift(q, n)
@@ -735,8 +736,8 @@ def resume(name: str, approve: bool = False, rewrite: bool = False, *, foregroun
                 ep = q.episode(n)
                 if ep.text:  # 집필 화면의 다시 생성처럼 지금 본문을 이전 판으로 남긴다
                     pipeline._keep_version(ep, TextVersion(id=pipeline._version_id(ep), at=pipeline._now(), text=ep.text, kind="previous",
-                                                           model=ep.written_by))
-                ep.text, ep.status, ep.written_by = "", "confirmed", ""
+                                                           model=ep.written_by, meta_cut=ep.meta_cut))
+                ep.text, ep.status, ep.written_by, ep.meta_cut = "", "confirmed", "", []
                 findings.clear(ep)
             _edit(name, back)
             r.log(f"{n}화를 다시 써요")
