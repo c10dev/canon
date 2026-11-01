@@ -2552,6 +2552,7 @@ class RevTake(BaseModel):
     style_id: int = Field(0, description="넣은 문체 프로필(RevStyle.id). style 이 거짓이면 0")
     prompt_chars: int = 0
     sheet_basis: str = Field("", description="쓸 때 큐 시트의 지문 (cue.basis). 지금 시트와 다르면 낡은 본문")
+    lines_at: Optional[str] = Field(None, description="쓸 때 이야기 줄기를 만든 때 (RevLab.lines_at, 줄기가 없었으면 빈 값). 옛 판은 None")
     provider: str = Field("", description="쓴 백엔드 (gemini · claude · claude-api · local · mock). 옛 판은 빈 값")
     model: str = ""
     at: str = ""

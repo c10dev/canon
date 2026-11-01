@@ -4522,6 +4522,18 @@ def _rev_idle(lab_id: int, kinds: set[str] | None = None, msg: str = "이 실험
         raise HTTPException(409, msg)
 
 
+def _rev_parsing(lab_id: int) -> set[int]:
+    """도는 역설계 작업이 아직 저장하지 않은 화 (지금 푸는 화 포함). 작업은 맡은 화(pending)를 앞 화부터 차례로 풀고,
+    done 은 지금 푸는 화의 차례라 그 앞 화는 저장을 마쳤다 (revlab.run_parse, 화면 revRunRows 와 같은 셈)."""
+    return {n for j in jobs.listing(revlab.JOBS) if j.ep == lab_id and j.kind == "rev_parse" and j.status == "running"
+            for n in sorted(j.pending)[j.done:]}
+
+
+def _rev_writing(lab_id: int) -> set[int]:
+    """도는 되돌려 쓰기 작업이 쓰는 화."""
+    return {n for j in jobs.listing(revlab.JOBS) if j.ep == lab_id and j.kind == "rev_write" and j.status == "running" for n in j.pending}
+
+
 @app.put("/api/revlab/{lab_id}/episodes/{n}")
 def rev_put_episode(lab_id: int, n: int, body: RevEpisodeIn) -> dict:
     """화 하나의 제목 줄과 글을 고친다. 글이 바뀌면 그 화의 역설계 결과를 지운다 (revlab.edit_episode)."""
@@ -4606,12 +4618,15 @@ def rev_delete_take(lab_id: int, n: int, no: int) -> dict:
 
 @app.post("/api/revlab/{lab_id}/jobs")
 def rev_job(lab_id: int, body: RevJobIn) -> dict:
-    """역설계(parse) · 되돌려 쓰기(write) · 문체 역설계(style) 작업을 시작한다. 작품을 읽지 않는다. 같은 실험의 같은 작업은 하나만 돈다."""
+    """역설계(parse) · 되돌려 쓰기(write) · 문체 역설계(style) 작업을 시작한다. 작품을 읽지 않는다. 같은 실험의 같은 작업은 하나만 돈다.
+    다른 작업끼리는 함께 돌 수 있다. 역설계가 도는 중에도 저장을 마친 화는 되돌려 쓰고, 맡은 화가 겹치면 409 로 막는다."""
     lab = _rev(lab_id)
     kind, name = f"rev_{body.kind}", lab.title or f"실험 {lab_id}"
     llm = revlab.llm_for(lab, body.kind)  # 실험이 고른 AI, 없으면 설정의 단계 칸. 키가 없으면 여기서 바로 오류를 보여 준다
     if body.kind == "parse":
         nums = revlab.choose(lab, body.episodes or None)
+        if clash := sorted(_rev_writing(lab_id) & set(nums)):
+            raise HTTPException(409, f"{clash[0]}화를 되돌려 쓰는 중이에요. 끝난 뒤에 다시 역설계할 수 있어요")
         total = len(nums) + revlab.wants_lines(lab, nums)
         label = f"{name} {len(nums)}화 역설계"
 
@@ -4623,6 +4638,8 @@ def rev_job(lab_id: int, body: RevJobIn) -> dict:
         if len(body.episodes) != 1:
             raise ValueError("되돌려 쓸 화를 하나 고르세요")
         k, use_style = body.episodes[0], body.style
+        if k in _rev_parsing(lab_id):  # 역설계가 끝난 앞 화는 역설계가 도는 중에도 쓸 수 있다
+            raise HTTPException(409, f"{k}화는 역설계가 끝난 뒤에 되돌려 쓸 수 있어요")
         revlab.world(lab, k, use_style)  # 역설계하지 않은 화, 문체 프로필이 없는 실험은 여기서 바로 알린다
         revlab.room(revlab.episode(lab, k))  # 판이 꽉 찼으면 여기서 바로 알린다
         total, label = 1, f"{name} {k}화 되돌려 쓰기" + (" (문체 넣음)" if use_style else "")
@@ -4641,7 +4658,8 @@ def rev_job(lab_id: int, body: RevJobIn) -> dict:
     try:
         with usage.scope(project="", episode=None, task=kind):
             # 맡은 화(pending)를 보내 화면이 화마다 진행 줄을 그린다 (revlab.js revRunRows). 실험은 작품이 아니라 저장 잠금과 겹치지 않는다
-            job = jobs.start(revlab.JOBS, kind, lab_id, label, fn, total=total, owned=set(nums) if body.kind == "parse" else None)
+            job = jobs.start(revlab.JOBS, kind, lab_id, label, fn, total=total,
+                             owned=set(nums) if body.kind == "parse" else {k} if body.kind == "write" else None)
     except jobs.Busy as b:
         return {**b.job.public(), "already": True}
     return job.public()

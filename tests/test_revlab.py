@@ -1088,6 +1088,42 @@ def test_web_edit_and_drop_episode(home, monkeypatch):
     assert r.status_code == 409 and "작업이 끝난 뒤" in r.text
 
 
+def test_web_write_while_parsing(home, monkeypatch):
+    """역설계가 도는 중에도 저장을 마친 화는 되돌려 쓴다. 아직 풀지 않은 화 · 푸는 화와 되돌려 쓰는 화를 다시 역설계하는 것은 막는다."""
+    from canon import web
+
+    c = TestClient(web.app)
+    lab = _parsed(home)
+    real = jobs.listing
+    parse = jobs.Job(id="p", project=revlab.JOBS, kind="rev_parse", ep=lab.id, label="역설계", pending=[1, 2, 3], done=1)  # 1화 끝, 2화 푸는 중
+    monkeypatch.setattr(jobs, "listing", lambda project=None: [parse])
+    for n in (2, 3):
+        r = c.post(f"/api/revlab/{lab.id}/jobs", json={"kind": "write", "episodes": [n]})
+        assert r.status_code == 409 and f"{n}화는 역설계가 끝난 뒤" in r.text
+    write = jobs.Job(id="w", project=revlab.JOBS, kind="rev_write", ep=lab.id, label="되돌려 쓰기", pending=[1])
+    monkeypatch.setattr(jobs, "listing", lambda project=None: [write])
+    r = c.post(f"/api/revlab/{lab.id}/jobs", json={"kind": "parse", "episodes": [1]})
+    assert r.status_code == 409 and "1화를 되돌려 쓰는 중" in r.text
+    monkeypatch.setattr(jobs, "listing", lambda project=None: [parse] if project == revlab.JOBS else real(project))
+    r = c.post(f"/api/revlab/{lab.id}/jobs", json={"kind": "write", "episodes": [1]})
+    assert r.status_code == 200
+    monkeypatch.setattr(jobs, "listing", real)
+    assert _wait(c, r.json()["id"])["result"]["take"] == 1
+
+
+def test_lines_note_marks_takes_written_before_lines(home):
+    lab = _parsed(home)
+    assert lab.lines_at  # 화가 여럿이면 모든 화를 푼 뒤 줄기를 만든다
+    e = revlab.run_write(lab.id, MockLLM(), 1)
+    t = e.takes[-1]
+    lab = revlab.load(lab.id)
+    assert t.lines_at == lab.lines_at and revlab.lines_note(lab, t) == ""
+    assert revlab.lines_note(lab, t.model_copy(update={"lines_at": ""})) == "before"
+    assert revlab.lines_note(lab, t.model_copy(update={"lines_at": "2020-01-01T00:00"})) == "changed"
+    assert revlab.lines_note(lab, t.model_copy(update={"lines_at": None})) == ""  # 옛 판은 모른다
+    assert revlab.view(lab)["items"][0]["takes"][0]["lines"] == ""
+
+
 @needs_node
 def test_js_ai_text_and_made():
     done = lambda no, picked, seen, model, provider="claude", style=False: {"no": no, "model": model, "provider": provider, "style": style,
