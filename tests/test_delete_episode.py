@@ -54,7 +54,8 @@ def test_delete_keep_plot(client):
         fs.append(Foreshadow(id="fs-01-bell", description="종소리", planted_ep=1))
     q.foreshadow_clues += [ForeshadowClue(foreshadow="fs-01-bell", episode=n, quote="본문", by="author") for n in (1, 2)]
     q.chats.append(Chat(topic="text:2", messages=[ChatMessage(role="user", text="더 짧게")]))
-    assert client.put("/api/projects/lh", json=q.model_dump()).status_code == 200
+    from canon import store  # 작품 저장(PUT)은 디스크 스냅샷을 지키니, 스냅샷까지 고친 작품은 저장소에 바로 쓴다
+    store.save("lh", q)
 
     p = client.post("/api/projects/lh/episodes/2/delete", json={"keep_plot": True}).json()["project"]
     e = p["episodes"][1]

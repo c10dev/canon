@@ -145,6 +145,13 @@ async function api(method, path, body, meta) {
     projectCache = { path, tag: r.headers.get('ETag'), data };
     return structuredClone(data);  // 화면은 받은 작품을 고쳐 쓰므로 보관한 것과 나눈다
   }
+  // 저장한 요청(반영 등)이 작품 전체를 돌려주면 그 판으로 보관한다. 다음 화면 이동의 작품 GET 이 다시 받지 않고 304 로 끝난다
+  const saved = !whole && r.headers.get('X-Project-ETag');
+  const own = saved && path.match(/^\/projects\/[^/?]+/);
+  if (own && data && data.meta && Array.isArray(data.episodes)) {
+    projectCache = { path: own[0], tag: saved, data };
+    return structuredClone(data);
+  }
   return data;
 }
 
@@ -517,8 +524,8 @@ function pendingShown(r) {
 }
 
 /** 작품을 열 때: 다른 탭 · 새로고침 전에 받은 결과를 다시 제안으로 놓고, 실패한 작업을 알 수 있게 받아 둔다. */
-async function loadPending() {
-  const d = await api('GET', `/projects/${enc(S.name)}/pending`).catch(() => null);
+async function loadPending(pre) {
+  const d = await (pre || api('GET', `/projects/${enc(S.name)}/pending`)).catch(() => null);
   if (!d) return;
   S.pending = { name: S.name, results: d.results, failures: d.failures };
   const keep = { selEp: S.selEp, selArc: S.selArc, selPart: S.selPart };  // 되살리면서 열린 화나 아크를 옮기지 않는다
@@ -1829,9 +1836,20 @@ async function routeNow() {
       else S.project = await api('GET', `/projects/${enc(parts[1])}`);
       if (S.pendingJob && S.pendingJob.project === S.name && !S.jobsApplied.has(S.pendingJob.id)) applyJobResult(S.pendingJob);
       S.pendingJob = null;
-      await loadPending();
-      if (!branchFam() || !parts[2] || parts[2] === 'branches') await branchLoad();  // 갈래 머리 띠 (branches.js). 작품을 바꿨거나 작품 홈 · 갈래 비교에 오면 다시 읽는다
-      if (!parts[2] || S.homePlayOf !== S.name) await playHomeLoad();  // 플레이 사본인지 (play.js): 작품 홈 카드 · 사이드바 작품 칸 · 다음 할 일
+      // 이 화면이 늘 받는 것은 먼저 함께 보내고, 결과는 원래 자리에서 차례로 쓴다 (화면 상태를 고치는 순서는 그대로)
+      const pa = `/projects/${enc(S.name)}`;
+      const n0 = Number(parts[3]);
+      const early = {
+        pending: api('GET', `${pa}/pending`),
+        branches: !branchFam() || !parts[2] || parts[2] === 'branches' ? api('GET', `${pa}/branches`) : null,
+        play: !parts[2] || S.homePlayOf !== S.name ? api('GET', `${pa}/play`) : null,
+        auto: typeof autoLoad === 'function' ? api('GET', `${pa}/auto`) : null,
+        context: parts[2] === 'write' && n0 && ep(n0) && ep(n0).status !== 'draft' ? api('GET', `${pa}/episodes/${n0}/context`) : null,
+      };
+      Object.values(early).forEach((x) => x && x.catch(() => {}));  // 받는 자리에서 다시 잡는다. 그 전에 실패해도 처리 안 된 거부로 남지 않게
+      await loadPending(early.pending);
+      if (early.branches) await branchLoad(early.branches);  // 갈래 머리 띠 (branches.js). 작품을 바꿨거나 작품 홈 · 갈래 비교에 오면 다시 읽는다
+      if (early.play) await playHomeLoad(early.play);  // 플레이 사본인지 (play.js): 작품 홈 카드 · 사이드바 작품 칸 · 다음 할 일
       if (parts[2] === 'branches') await branchCompareLoad(parts[3], Number(parts[4]) || 0);
       scanDrafts();
       S.dirty = false;
@@ -1850,7 +1868,7 @@ async function routeNow() {
         await learnLoad();
       }
       if (parts[2] === 'write' && n && ep(n) && ep(n).status !== 'draft') {
-        S.context = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/context`).catch(() => null);
+        S.context = await (early.context || api('GET', `/projects/${enc(S.name)}/episodes/${n}/context`)).catch(() => null);
         if (!S.presets) S.presets = await api('GET', '/passage/presets').catch(() => []);
         if (!S.copyFormats) S.copyFormats = await api('GET', '/publish/formats').catch(() => []);
         if (ep(n).text && (S.rwOpen === n || ep(n).candidate || (ep(n).versions || []).length)) await rwLoad(n);  // 빠른 요청 이름과 재료
@@ -1891,7 +1909,7 @@ async function routeNow() {
         causalPick(parts[3]);  // causal/<요소 id> 는 그 요소 쪽, causal 은 개요
         await causalLoad();
       }
-      if (typeof autoLoad === 'function') await autoLoad(parts[2] === 'auto');
+      if (typeof autoLoad === 'function') await autoLoad(parts[2] === 'auto', early.auto);
       if (parts[2] === 'brief' && n && ep(n)) {
         S.briefTab = briefTabFor(n);
         S.briefText = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/brief?kind=${S.briefTab}`).then((r) => r.text).catch((e) => '※ ' + e.message);
