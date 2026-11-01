@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 import re
 from collections import Counter
+from functools import lru_cache
 from statistics import mean, median, pstdev
 from typing import NamedTuple, Optional
 
@@ -267,16 +268,23 @@ def _cos_dist(a: list[float], b: list[float]) -> float:
     return 1 - dot / (na * nb) if na and nb else 1.0
 
 
-def _center(rows: list[list[float]]) -> list[float]:
-    return [mean(col) for col in zip(*rows)]
-
-
 def _style_reference(text: str) -> dict:
+    """원문의 문체 중심과 퍼짐. 같은 글은 한 번만 잰다 (역설계 화면이 화마다 같은 기준을 다시 부른다)."""
+    centroid, spread = _reference(text)
+    return {"style_centroid": list(centroid), "style_spread": spread} if centroid else {}
+
+
+@lru_cache(maxsize=32)
+def _reference(text: str) -> tuple[tuple[float, ...], float]:
+    """조각마다 꼬리 빈도(z)를 한 번 재고, 조각 하나를 뺀 중심은 합에서 빼서 구한다 (조각 수 K 에 비례, 예전에는 K²).
+    퍼짐은 조각마다 나머지 조각 중심까지의 거리의 중앙값."""
     zs = [_suffix_z(c) for c in style_chunks(text)]
-    if len(zs) < STYLE_MIN_CHUNKS:
-        return {}
-    spread = median(_cos_dist(zs[i], _center(zs[:i] + zs[i + 1:])) for i in range(len(zs)))
-    return {"style_centroid": [round(x, 4) for x in _center(zs)], "style_spread": round(spread, 4)}
+    k = len(zs)
+    if k < STYLE_MIN_CHUNKS:
+        return (), 0.0
+    total = [math.fsum(col) for col in zip(*zs)]
+    spread = median(_cos_dist(z, [(t - x) / (k - 1) for t, x in zip(total, z)]) for z in zs)
+    return tuple(round(t / k, 4) for t in total), round(spread, 4)
 
 
 def style_distance(base: StyleMetrics, text: str) -> Optional[float]:
