@@ -329,7 +329,7 @@ function refOverview(b) {
   const usable = b.episodes.filter((e) => e.kind !== 'skip' && e.chars);
   const max = Math.max(1, ...usable.map((e) => e.chars));
   const mean = usable.length ? Math.round(usable.reduce((k, e) => k + e.chars, 0) / usable.length) : 0;
-  const bars = b.episodes.map((e) => `<a href="#/refs/${b.id}/${e.order}" class="ref-bar${e.kind === 'main' ? '' : ` ${e.kind}`}${pick.has(e.order) ? ' on' : ''}" style="height:${Math.max(4, Math.round((e.chars / max) * 64))}px" title="${esc(refEpName(e))} · ${e.chars.toLocaleString()}자"><span class="sr-only">${esc(refEpName(e))} ${e.chars}자</span></a>`).join('');
+  const bars = b.episodes.map((e) => `<a href="#/refs/${b.id}/${e.order}" class="ref-bar${e.kind === 'main' ? '' : ` k-${e.kind}`}${pick.has(e.order) ? ' on' : ''}" style="height:${Math.max(4, Math.round((e.chars / max) * 64))}px" title="${esc(refEpName(e))} · ${e.chars.toLocaleString()}자"><span class="sr-only">${esc(refEpName(e))} ${e.chars}자</span></a>`).join('');
   const th = REF_COLS.map(([k, l]) => `<th scope="col"><button type="button" class="ref-sort${S.refSort === k || (!S.refSort && k === 'order') ? ' on' : ''}" data-action="refSortBy" data-arg="${k}">${l}</button></th>`).join('');
   const rows = eps.map((e) => `<tr class="${e.kind === 'skip' ? 'off' : ''}"><td><input type="checkbox" data-ref-pick="${e.order}"${pick.has(e.order) ? ' checked' : ''}${e.kind === 'skip' ? ' disabled' : ''} aria-label="${esc(refEpName(e))} 고르기"></td>
     <td>${e.order}</td><td>${esc(e.label)}${e.kind !== 'main' ? ` <span class="small">${esc(refKind(e.kind))}</span>` : ''}</td><td><a href="#/refs/${b.id}/${e.order}">${esc(e.title || '(제목 없음)')}</a></td>
@@ -665,10 +665,10 @@ document.addEventListener('dragleave', (e) => { const z = e.target.closest && e.
 .ref-edit { display: flex; flex-direction: column; gap: var(--space-8); padding-bottom: var(--space-12); border-bottom: 1px solid var(--line); }
 .ref-save { position: sticky; bottom: 0; justify-content: flex-end; padding: var(--space-12) 0; background: var(--bg); }
 .ref-main { display: flex; flex-direction: column; gap: var(--space-16); }
-.ref-bars { display: flex; align-items: flex-end; gap: 1px; height: 68px; overflow-x: auto; }
+.ref-bars { position: relative; display: flex; align-items: flex-end; gap: 1px; height: 68px; overflow-x: auto; }  /* relative: 막대 안 sr-only(absolute)가 스크롤 칸 밖으로 나가 문서 폭을 늘리지 않게 */
 .ref-bar { flex: 1 0 3px; min-width: 3px; max-width: 14px; background: var(--accent); border-radius: 1px; }
-.ref-bar.side, .ref-bar.prologue, .ref-bar.epilogue { background: var(--amber); }
-.ref-bar.skip { background: var(--line-strong); }
+.ref-bar.k-side, .ref-bar.k-prologue, .ref-bar.k-epilogue { background: var(--amber); }  /* k- 접두사: 종류 이름 side · skip 이 사이드바 .side · 건너뛰기 링크 .skip 과 겹치지 않게 */
+.ref-bar.k-skip { background: var(--line-strong); }
 .ref-bar.on { outline: 2px solid var(--text); }
 .ref-table-wrap { overflow-x: auto; max-height: 70vh; }
 .ref-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
