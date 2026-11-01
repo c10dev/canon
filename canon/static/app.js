@@ -79,6 +79,20 @@ function rememberRemoved(label, paths) {
 const STATUS = { draft: '초안', confirmed: '확정', written: '작성됨', finalized: '반영 완료' };
 const ACTS = ['기', '승', '전', '결'];
 
+// 본문을 쓴 모델 글자. 값은 Episode.written_by · TextVersion.model 의 '<백엔드>:<모델>'(usage.model_id) 또는 'import'. 모르면 빈 글
+const WRITER_BACKEND = { gemini: 'Gemini', local: '로컬', claude: 'Claude 구독', 'claude-api': 'Claude API' };
+function writerLabel(w) {
+  const v = String(w || '').trim();
+  if (!v) return '';
+  if (v === 'import') return '채팅 앱에서 가져옴';
+  if (v === 'mock:mock') return 'mock';
+  const i = v.indexOf(':');
+  if (i < 0) return v;
+  const back = WRITER_BACKEND[v.slice(0, i)] || v.slice(0, i);
+  const model = v.slice(i + 1);
+  return model && model !== 'default' ? `${model} · ${back}` : back;
+}
+
 // ---------- 공통 ----------
 
 const $ = (s) => document.querySelector(s);

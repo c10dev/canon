@@ -165,7 +165,7 @@ function candidateCard(n) {
         <div><div class="small">새 판 · ${c.text.length.toLocaleString()}자</div><div class="rw-text">${esc(c.text)}</div></div></div>`
     : diffBox(cur, c.text, '', '지금 판에서 지운 글은 빨강, 새 판에 더한 글은 초록이에요.');
   return `<section class="card rw-compare" aria-label="새 판 비교">
-    <div class="between"><div><h3>새 판이 나왔어요</h3><div class="row" style="gap:6px">${rwReqLabel(n, c.request)}<span class="small">${editTime(c.at)}</span></div></div>
+    <div class="between"><div><h3>새 판이 나왔어요</h3><div class="row" style="gap:6px">${rwReqLabel(n, c.request)}${c.model ? `<span class="small">${esc(writerLabel(c.model))}</span>` : ''}<span class="small">${editTime(c.at)}</span></div></div>
       <div class="row" style="gap:6px">${side ? `<button type="button" class="btn small" aria-pressed="${S.rwSync}" data-action="rwSyncToggle" title="한 칸을 내리면 다른 칸도 같은 비율로 내려가요">스크롤 함께</button>` : ''}<div class="seg" role="group" aria-label="비교 방식"><button type="button" aria-pressed="${side}" data-action="rwViewAs" data-arg="side">나란히</button><button type="button" aria-pressed="${!side}" data-action="rwViewAs" data-arg="diff">바뀐 곳</button></div></div></div>
     ${body}
     ${(c.meta_cut || []).length ? `<div class="small">새 판을 쓸 때 AI가 붙인 작업 설명 ${c.meta_cut.length}문단을 뗐어요. 새 판으로 바꾸면 집필 화면에서 보고 되살릴 수 있어요.</div>` : ''}
@@ -183,7 +183,7 @@ function versionsPanel(e) {
   const cur = textNow(n);
   const can = editableEp(e) && S.textDraft[n] === undefined;
   const rows = list.map((v) => `<li class="edit-row">
-      <div class="between"><span class="row" style="gap:6px"><span class="chip${v.kind === 'rejected' ? '' : ' ai'}">${RW_KIND[v.kind] || v.kind}</span><span class="small">${v.text.length.toLocaleString()}자</span>${rwReqLabel(n, v.request)}<span class="small">${editTime(v.at)}</span></span>
+      <div class="between"><span class="row" style="gap:6px"><span class="chip${v.kind === 'rejected' ? '' : ' ai'}">${RW_KIND[v.kind] || v.kind}</span><span class="small">${v.text.length.toLocaleString()}자</span>${v.model ? `<span class="small">${esc(writerLabel(v.model))}</span>` : ''}${rwReqLabel(n, v.request)}<span class="small">${editTime(v.at)}</span></span>
         <span class="row" style="gap:6px"><button type="button" class="btn small" data-action="rwPeekAt" data-arg="${esc(v.id)}">${S.rwPeek === v.id ? '접기' : '지금 판과 비교'}</button>
         ${can ? `<button type="button" class="btn small" data-action="rwRestore" data-arg="${esc(v.id)}">이 판으로 복원</button>` : ''}</span></div>
       ${S.rwPeek === v.id ? diffBox(cur, v.text, 'small-diff', '빨강은 지금 판에만, 초록은 이 판에만 있는 글이에요.') : ''}</li>`).join('');
