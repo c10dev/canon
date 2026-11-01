@@ -28,7 +28,7 @@
 - 문장 경계 자리 `sentence_spans`(`sentences` 와 같은 경계)
 - 화당 상한 없는 1,000자당 횟수 `rates_per_1k`
 - LLM 호출 없음
-- 문체 거리 기준표는 `style_background.py`(`scripts/make_style_background.py` 로 생성)
+- 문체 거리 기준표는 `style_background.py`(`scripts/make_style_background.py` 로 생성) · 문체 기준 `_style_reference` 는 조각 합에서 빼는 방식이라 조각 수에 비례하고, 같은 글은 `_reference` 가 기억한다(`lru_cache` 32개)
 
 ### `canon/refs.py`
 
