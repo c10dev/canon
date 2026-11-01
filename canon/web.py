@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import address, agent, archetypes, autorun, board, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
+from . import address, agent, archetypes, autorun, board, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, refs, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
@@ -31,6 +31,7 @@ from .schema import AgentSession, ChatScope, KnowsFoldSet, Deadline, Storyboard,
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
 from .schema import FieldIdeas, NameOption, Recap
+from .schema import RefBook, RefCut, RefFile
 from . import branches
 from .schema import BranchDiff, BranchInfo, ForkMode
 from . import birth, play
@@ -1013,10 +1014,10 @@ class Sample(BaseModel):
 
 @app.post("/api/projects/{name}/style")
 def analyze_style(name: str, body: Sample) -> StyleProfile:
-    _load(name)
+    p = _load(name)
     if len(body.text.strip()) < 200:
         raise HTTPException(400, "예시 원문은 200자 이상 넣어 주세요")
-    return pipeline.analyze_style(get_llm("plan"), body.text)
+    return pipeline.analyze_style(get_llm("plan"), body.text, [c.name for c in p.characters])
 
 
 @app.post("/api/metrics")
@@ -1183,6 +1184,8 @@ class StyleIn(BaseModel):
     sample: str = ""
     profile: StyleProfile = StyleProfile()
     note: str = ""  # 이번 버전 메모. 비우면 바뀐 칸 이름
+    ref: str = ""  # 레퍼런스 원고에서 원문을 가져왔으면 그 원고 id (만든 것에 남긴다)
+    ref_eps: str = ""  # 가져온 화 범위 이름 ('1~10화')
 
 
 def _style_id(sid: str) -> str:
@@ -1206,7 +1209,10 @@ def analyze_library_style(body: Sample) -> StyleProfile:
 
 @app.post("/api/styles")
 def create_style(body: StyleIn) -> StyleEntry:
-    return library.create(body.name, body.profile, body.sample, body.source, body.notes)
+    e = library.create(body.name, body.profile, body.sample, body.source, body.notes)
+    if body.ref and refs.exists(body.ref):
+        refs.made(body.ref, "style", e.id, body.ref_eps)
+    return e
 
 
 @app.get("/api/styles/{sid}")
@@ -1241,6 +1247,128 @@ def delete_style(sid: str) -> dict:
 @app.post("/api/styles/{sid}/duplicate")
 def duplicate_style(sid: str) -> StyleEntry:
     return library.duplicate(_style_id(sid))
+
+
+# ---------- 레퍼런스 원고 (작품 밖) ----------
+# 다른 소설 원고 txt 를 화 표시로 나눠 작품 밖에 둔다 (canon/refs.py). 작품에는 연결하지 않는다.
+
+class RefSplitIn(BaseModel):
+    text: str
+    rule: str = ""  # 비우면 순서대로 고른다 (화 표시 줄 → 기호 줄 → 빈 줄 → 한 화)
+    example: str = ""  # rule custom 의 예시 줄
+    unit: str = ""  # 화 표시 단위를 고른다 (규칙 칩)
+    strip_tails: bool = True
+    files: list[int] = []  # 이어 넣은 파일마다 시작 줄
+
+
+class RefCreateIn(BaseModel):
+    name: str
+    source: str = ""
+    notes: str = ""
+    rights: bool = False
+    encoding: str = "utf-8"
+    text: str
+    rule: str = "heading"
+    example: str = ""
+    unit: str = ""
+    common_head: str = ""
+    strip_tails: bool = True
+    cuts: list[RefCut] = []
+    files: list[RefFile] = []
+
+
+class RefPutIn(BaseModel):
+    name: str | None = None
+    source: str | None = None
+    notes: str | None = None
+    cuts: list[RefCut] | None = None
+    strip_tails: bool | None = None
+    rule: str | None = None
+    example: str | None = None
+    unit: str | None = None
+
+
+class RefPickIn(BaseModel):
+    eps: list[int]  # 고른 화의 차례 (1부터)
+
+
+def _ref_id(rid: str) -> str:
+    if not refs.exists(rid):
+        raise HTTPException(404, f"레퍼런스 원고에 없는 항목이에요: {rid}")
+    return rid
+
+
+def _ref_view(b: RefBook) -> dict:
+    return {**b.model_dump(exclude={"eps"}), "episodes": refs.episodes(b), "labels": refs.labels()}
+
+
+@app.get("/api/refs")
+def list_refs() -> dict:
+    return {"refs": [refs.summary(b) for b in refs.entries()], "labels": refs.labels()}
+
+
+@app.post("/api/refs/split")
+def split_ref(body: RefSplitIn) -> dict:
+    """경계 후보 미리보기 (저장하지 않는다, 원문을 돌려주지 않는다)."""
+    return refs.preview(body.text, body.rule, body.example, body.unit, body.strip_tails, body.files)
+
+
+@app.post("/api/refs")
+def create_ref(body: RefCreateIn) -> dict:
+    b = refs.create(body.name, body.text, body.cuts, body.source, body.notes, body.rights, body.encoding, body.rule,
+                    body.example, body.unit, body.common_head, body.strip_tails, body.files)
+    return _ref_view(b)
+
+
+@app.get("/api/refs/{rid}")
+def get_ref(rid: str) -> dict:
+    return _ref_view(refs.load(_ref_id(rid)))
+
+
+@app.put("/api/refs/{rid}")
+def put_ref(rid: str, body: RefPutIn) -> dict:
+    b = refs.update(_ref_id(rid), body.name, body.source, body.notes, body.cuts, body.strip_tails, body.rule, body.example, body.unit)
+    return _ref_view(b)
+
+
+@app.delete("/api/refs/{rid}")
+def delete_ref(rid: str) -> dict:
+    refs.delete(_ref_id(rid))
+    return {"ok": True}
+
+
+@app.get("/api/refs/{rid}/source")
+def ref_source(rid: str) -> dict:
+    """원문 전체 (경계 다시 고치기 화면이 브라우저에서 다시 나눠 본다)."""
+    return {"text": "\n".join(refs.source(_ref_id(rid)))}
+
+
+@app.get("/api/refs/{rid}/text")
+def ref_text(rid: str, start: int = 0, end: int = 200) -> dict:
+    return refs.text_range(_ref_id(rid), start, end)
+
+
+@app.get("/api/refs/{rid}/eps/{order}")
+def ref_episode(rid: str, order: int) -> dict:
+    return {"order": order, "text": refs.episode_text(_ref_id(rid), order)}
+
+
+@app.post("/api/refs/{rid}/sample")
+def ref_sample(rid: str, body: RefPickIn) -> dict:
+    """문체 만들기에 넣을 원문 (고른 화를 이어 SAMPLE_MAX 자까지). AI 를 부르지 않는다."""
+    return refs.sample(_ref_id(rid), body.eps)
+
+
+@app.post("/api/refs/{rid}/revlab")
+def ref_revlab(rid: str, body: RefPickIn) -> dict:
+    """고른 화로 역설계 실험을 만든다 (AI 를 부르지 않는다)."""
+    return {"id": refs.to_revlab(_ref_id(rid), body.eps)}
+
+
+@app.get("/api/refs/{rid}/compare")
+def ref_compare(rid: str, project: str) -> dict:
+    """원고 지표와 작품의 본문 있는 화 지표 (읽기만)."""
+    return refs.compare(_ref_id(rid), _load(project))
 
 
 # ---------- 3. 구조와 플롯 ----------
@@ -4291,6 +4419,13 @@ class RevIn(BaseModel):
     first: int | None = None  # 첫 화 번호. 비우면 만들 때 짐작하고(revlab.guess_first), PUT 에서는 그대로 둔다
 
 
+class RevAIIn(BaseModel):
+    stage: Literal["plan", "write"]
+    preset: str = ""  # 단계 프리셋 id. 있으면 provider · model 은 보지 않는다
+    provider: str = ""  # 직접 고른 백엔드. preset 과 provider 가 모두 비면 설정을 따른다
+    model: str = ""  # 직접 고른 모델. 비면 그 백엔드의 기본 모델
+
+
 class RevEstimateIn(BaseModel):
     kind: Literal["parse", "write", "style"] = "parse"
     episodes: list[int] = []
@@ -4299,6 +4434,7 @@ class RevEstimateIn(BaseModel):
 
 class RevPickIn(BaseModel):
     choice: int  # 1 · 2 (보인 차례), 0 이면 건너뛰기
+    take: int | None = None  # 화면이 가려 읽던 판 번호. 지금 가려 읽을 판과 다르면 400 (낡은 화면)
 
 
 class RevSplitIn(BaseModel):
@@ -4331,8 +4467,9 @@ def rev_home() -> dict:
 
 @app.post("/api/revlab/split")
 def rev_split(body: RevSplitIn) -> dict:
-    """글을 화로 나눈 미리보기 (저장하지 않는다). 화면은 같은 규칙(revSplit)으로 바로 그리고, 이것은 맞춰 보기용이다."""
-    return revlab.split(body.text)
+    """글을 화로 나눈 미리보기 (저장하지 않는다). 화면의 미리보기가 쓴다. 화 글은 돌려주지 않고 글자 수만 준다."""
+    v = revlab.split(body.text)
+    return {**v, "episodes": [{"head": e["head"], "chars": len(e["text"])} for e in v["episodes"]]}
 
 
 @app.post("/api/revlab")
@@ -4432,10 +4569,23 @@ def rev_put_sheet(lab_id: int, n: int, body: CueSheetDraft) -> dict:
     return _rev_edit(lab_id, lambda lab: revlab.set_sheet(lab, n, body))
 
 
+@app.put("/api/revlab/{lab_id}/ai")
+def rev_put_ai(lab_id: int, body: RevAIIn) -> dict:
+    """이 실험의 단계 AI 를 고른다 (revlab.set_ai). 도는 작업은 시작할 때 고른 AI 를 그대로 쓴다."""
+    return _rev_edit(lab_id, lambda lab: revlab.set_ai(lab, body.stage, body.preset, body.provider, body.model))
+
+
 @app.post("/api/revlab/{lab_id}/episodes/{n}/pick")
 def rev_pick(lab_id: int, n: int, body: RevPickIn) -> dict:
-    """블라인드 비교에서 고른다. 고르면 어느 쪽이 원문인지와 지표를 보인다."""
-    return _rev_edit(lab_id, lambda lab: revlab.pick(lab, n, body.choice))
+    """가려 읽기가 남은 판에서 고른다. 고르면 어느 쪽이 원문인지와 그 판의 지표를 보인다."""
+    return _rev_edit(lab_id, lambda lab: revlab.pick(lab, n, body.choice, body.take))
+
+
+@app.delete("/api/revlab/{lab_id}/episodes/{n}/takes/{no}")
+def rev_delete_take(lab_id: int, n: int, no: int) -> dict:
+    """되돌려 쓴 판 하나를 지운다 (revlab.drop_take). 판 번호는 다시 쓰지 않는다."""
+    _rev_idle(lab_id)
+    return _rev_edit(lab_id, lambda lab: revlab.drop_take(lab, n, no))
 
 
 @app.post("/api/revlab/{lab_id}/jobs")
@@ -4443,8 +4593,7 @@ def rev_job(lab_id: int, body: RevJobIn) -> dict:
     """역설계(parse) · 되돌려 쓰기(write) · 문체 역설계(style) 작업을 시작한다. 작품을 읽지 않는다. 같은 실험의 같은 작업은 하나만 돈다."""
     lab = _rev(lab_id)
     kind, name = f"rev_{body.kind}", lab.title or f"실험 {lab_id}"
-    with usage.scope(project=""):  # 작품 프리셋을 고르지 않게 (settings.project_preset 은 작품 범위를 본다)
-        llm = get_llm("write" if body.kind == "write" else "plan")  # 키가 없으면 여기서 바로 오류를 보여 준다
+    llm = revlab.llm_for(lab, body.kind)  # 실험이 고른 AI, 없으면 설정의 단계 칸. 키가 없으면 여기서 바로 오류를 보여 준다
     if body.kind == "parse":
         nums = revlab.choose(lab, body.episodes or None)
         total = len(nums) + revlab.wants_lines(lab, nums)
@@ -4459,11 +4608,12 @@ def rev_job(lab_id: int, body: RevJobIn) -> dict:
             raise ValueError("되돌려 쓸 화를 하나 고르세요")
         k, use_style = body.episodes[0], body.style
         revlab.world(lab, k, use_style)  # 역설계하지 않은 화, 문체 프로필이 없는 실험은 여기서 바로 알린다
+        revlab.room(revlab.episode(lab, k))  # 판이 꽉 찼으면 여기서 바로 알린다
         total, label = 1, f"{name} {k}화 되돌려 쓰기" + (" (문체 넣음)" if use_style else "")
 
         def fn(job: jobs.Job):
-            e = revlab.run_write(lab_id, llm, k, use_style)
-            return {"episode": k, "chars": len(revlab.blind_of(e).text), "style": use_style}
+            t = revlab.run_write(lab_id, llm, k, use_style).takes[-1]
+            return {"episode": k, "take": t.no, "chars": len(t.text), "style": use_style}
     else:
         revlab.style_sample(lab)
         revlab.check_style_room(lab)

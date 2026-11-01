@@ -86,6 +86,7 @@ from .schema import (
     StyleEdit,
     StyleRevision,
     StyleSample,
+    StyleDevice,
     StyleMarker,
     StyleProfile,
     StyleRuleSuggestion,
@@ -559,8 +560,14 @@ class MockLLM:
         if schema is StyleProfile:
             return StyleProfile(narration_pov="3인칭 제한", tense="과거형", sentence_rhythm="짧은 문장 위주",
                                 dos=["감각 묘사로 장면 시작"], donts=["설명조 대사"],
-                                markers=[StyleMarker(text="않았다", note="부정으로 끝맺는 서술"),
+                                # 있었다 · 대답은 시험 원문(tests/fixtures/revlab_story.txt)에, 않았다는 examples/sample_style.txt 에 있다.
+                                # '다'(한글 1자) · '서윤은'(인물 이름) · 원문에 없는 표지와 지어낸 장치 예시는 count_markers 가 거른다
+                                markers=[StyleMarker(text="않았다", note="부정으로 끝맺는 서술"), StyleMarker(text="있었다", note="상태 서술"),
+                                         StyleMarker(text="다", per_1k=40), StyleMarker(text="서윤은", per_1k=3),
                                          StyleMarker(text="원문에없는표지", per_1k=9)],
+                                devices=[StyleDevice(name="대답 없는 침묵", when="물음에 답이 오지 않을 때", cues=["대답", "다"], every=3,
+                                                     example="대답은 없었다."),
+                                         StyleDevice(name="지어낸 장치", cues=["원문에없는글자"], example="지어낸 예시 문장이다.")],
                                 sample_passages=["바람이 불었다. 서윤은 고개를 들지 않았다."])  # type: ignore[return-value]
         if schema is ArcPlan:
             return ArcPlan(acts=_arc(hint["total"]))  # type: ignore[return-value]

@@ -3,7 +3,7 @@ import unittest
 
 from canon import pipeline, prompts
 from canon.mock import _plot
-from canon.schema import Episode, Meta, Project, StyleMarker, StyleProfile
+from canon.schema import Episode, Meta, Project, StyleDevice, StyleMarker, StyleProfile
 
 
 def _project(style: StyleProfile | None = None) -> Project:
@@ -54,6 +54,20 @@ class StylePromptTest(unittest.TestCase):
         pipeline.count_markers(prof, "갔더라. " * 5 + "가" * 975)
         self.assertEqual([m.text for m in prof.markers], ["~더라"])
         self.assertEqual(prof.markers[0].per_1k, 5.0)
+
+    def test_count_markers_drops_short_name_and_made_up(self):
+        sample = "서윤은 대답하지 않았다. 대답은 없었다. 바람이 불었다. " * 10
+        prof = StyleProfile(markers=[StyleMarker(text="다"), StyleMarker(text="."), StyleMarker(text="~다."), StyleMarker(text="서윤은"),
+                                     StyleMarker(text="않았다")],
+                            devices=[StyleDevice(name="침묵", cues=["대답", "다", "?"], example="대답은  없었다."),
+                                     StyleDevice(name="지어냄", cues=["대답"], example="그는 하늘을 보았다.")])
+        pipeline.count_markers(prof, sample, ["서윤", "도"])  # 한 글자 이름은 거르지 않는다 ('도' 가 든 표지를 다 빼지 않게)
+        self.assertEqual([m.text for m in prof.markers], ["않았다"])
+        self.assertEqual(prof.devices[0].cues, ["대답"])
+        self.assertEqual(prof.devices[0].example, "대답은  없었다.")  # 공백만 다르면 원문에 있는 것으로 본다
+        self.assertEqual(prof.devices[1].example, "")
+        pipeline.count_markers(prof := StyleProfile(markers=[StyleMarker(text="서윤은")]), sample)
+        self.assertEqual([m.text for m in prof.markers], ["서윤은"])  # 이름을 주지 않으면 이름 표지를 거르지 않는다
 
     def test_write_retries_non_korean(self):
         thought = "**Planning** The scene opens at the pier and I should keep the tone dry."

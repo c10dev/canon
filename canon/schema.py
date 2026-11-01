@@ -320,6 +320,67 @@ class StyleVersion(BaseModel):
     baseline: Optional[StyleMetrics] = None
 
 
+# ---------- 레퍼런스 원고 ----------
+# 작가가 넣은 다른 소설 원고를 화로 나눠 작품 밖에 둔다 (canon/refs.py, <CANON_HOME>/.refs/<id>/). 작품에는 연결하지 않는다.
+
+class RefCut(BaseModel):
+    """켠 경계 하나. 이 줄부터 새 화다. 원문(source.txt)은 그대로 두고 경계만 고친다."""
+    line: int = Field(description="source.txt 줄 번호 (0부터)")
+    body: int = Field(description="본문이 시작하는 줄. 화 표시 줄을 빼면 line + 1, 나누기로 만든 경계는 line")
+    head: str = Field("", description="화 표시 줄 원문")
+    label: str = Field("", description="원고의 번호 ('12', '12-1', '외전 3', '프롤로그'). 비면 번호 없음")
+    title: str = Field("", description="화 표시에서 뗀 제목")
+    kind: Literal["main", "prologue", "side", "epilogue", "skip"] = "main"
+
+
+class RefEp(BaseModel):
+    """켠 경계로 자른 화 하나의 지표 (저장 때 잰다, AI 없음)."""
+    order: int
+    chars: int = 0
+    tail_cut: int = Field(0, description="떼어 낸 작가의 말 글자 수")
+    sentences: int = 0
+    sentence_len: float = 0
+    paragraph_len: float = 0
+    dialogue: float = 0
+
+
+class RefFile(BaseModel):
+    """여러 파일을 이어 넣었을 때 파일 하나가 시작하는 줄."""
+    name: str
+    line: int = 0
+
+
+class RefMade(BaseModel):
+    """이 원고로 만든 것."""
+    kind: Literal["style", "revlab"]
+    id: str
+    at: str = ""
+    eps: str = Field("", description="고른 화 범위 이름 ('1~10화')")
+
+
+class RefBook(BaseModel):
+    """레퍼런스 원고 하나 (ref.json). 원문은 같은 폴더의 source.txt."""
+    id: str
+    name: str
+    source: str = Field("", description="작가 · 작품 등 사용자 메모")
+    notes: str = ""
+    rights: bool = Field(False, description="쓸 권리가 있는 원고라고 작가가 확인했다")
+    encoding: str = "utf-8"
+    rule: str = Field("heading", description="나눈 규칙: heading · mark · blank · one · custom")
+    rule_example: str = Field("", description="직접 패턴의 예시 줄")
+    unit: str = Field("", description="고른 화 단위 (화 · 회 · EP …)")
+    common_head: str = Field("", description="화 표시 앞에 늘 붙은 글 (작품 이름 등)")
+    strip_tails: bool = Field(True, description="화 끝 작가의 말을 뗀다")
+    cuts: list[RefCut] = Field(default_factory=list)
+    eps: list[RefEp] = Field(default_factory=list)
+    files: list[RefFile] = Field(default_factory=list)
+    made: list[RefMade] = Field(default_factory=list)
+    chars: int = 0
+    lines: int = 0
+    created_at: str = ""
+    updated_at: str = ""
+
+
 # ---------- 내 수정에서 배우기 ----------
 # 작가가 본문을 고친 기록(TextEdit)에서 되풀이되는 고침을 찾아 문체 규칙 후보로 낸다. 고른 것만 작품 문체에 넣는다.
 
@@ -2467,15 +2528,26 @@ class RevBound(BaseModel):
     quote: str = ""
 
 
+class RevBlind(BaseModel):
+    """판 하나의 가려 읽기 (원문 대 그 판). order 가 비면 가려 읽기가 없고, picked 가 비면 아직 고르지 않았다."""
+    order: list[str] = Field(default_factory=list, description="보인 차례 (original · rewrite). 고르기 전에는 화면에 알리지 않는다")
+    picked: str = Field("", description="고른 것 (original · rewrite), 건너뛰면 skip")
+    seen: int = Field(0, description="이 판을 고르기 전에 같은 화에서 끝낸 가려 읽기 수. 0 이면 원문을 처음 본 첫 읽기")
+    at: str = ""
+
+
 class RevTake(BaseModel):
-    """역설계한 재료(플롯 · 스토리보드 · 큐 시트 · 인물 · 관계 · 배경)로 같은 화를 다시 쓴 본문 (되돌려 쓰기)."""
+    """역설계한 재료(플롯 · 스토리보드 · 큐 시트 · 인물 · 관계 · 배경)로 같은 화를 다시 쓴 본문 하나 (되돌려 쓰기의 판)."""
+    no: int = Field(0, description="화 안의 판 번호. 지운 번호는 다시 쓰지 않는다")
     text: str = ""
     style: bool = Field(False, description="역설계한 문체 프로필(RevLab.style)을 넣고 썼는지")
     style_id: int = Field(0, description="넣은 문체 프로필(RevStyle.id). style 이 거짓이면 0")
     prompt_chars: int = 0
     sheet_basis: str = Field("", description="쓸 때 큐 시트의 지문 (cue.basis). 지금 시트와 다르면 낡은 본문")
+    provider: str = Field("", description="쓴 백엔드 (gemini · claude · claude-api · local · mock). 옛 판은 빈 값")
     model: str = ""
     at: str = ""
+    blind: RevBlind = Field(default_factory=RevBlind)
 
 
 class RevEpisode(BaseModel):
@@ -2495,11 +2567,41 @@ class RevEpisode(BaseModel):
     addresses: list[AddressForm] = Field(default_factory=list, description="이 화에서 읽은 호칭 · 말씨 (speaker · listener 는 이름)")
     model: str = ""
     made_at: str = ""
-    take: Optional[RevTake] = Field(None, description="문체 프로필 없이 되돌려 쓴 본문 (마지막 것)")
-    take_style: Optional[RevTake] = Field(None, description="문체 프로필을 넣고 되돌려 쓴 본문 (마지막 것)")
-    blind_take: Literal["", "plain", "style"] = Field("", description="블라인드 비교에 넣은 본문 (take · take_style). 빈 값은 예전 파일이라 plain")
-    blind: list[str] = Field(default_factory=list, description="블라인드 비교 차례 (original · rewrite). 고르기 전에는 화면에 알리지 않는다")
-    picked: str = Field("", description="블라인드 비교에서 고른 것 (original · rewrite), 건너뛰면 skip")
+    takes: list[RevTake] = Field(default_factory=list, description="되돌려 쓴 판, 쓴 차례 (revlab.MAX_TAKES 까지)")
+    last_take: int = Field(0, description="지금까지 쓴 가장 큰 판 번호. 지운 판의 번호를 다시 쓰지 않게 둔다")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _old_takes(cls, data):
+        """옛 파일의 take · take_style(판마다 마지막 하나)과 가려 읽기 칸을 판 목록으로 옮긴다."""
+        if not isinstance(data, dict) or "takes" in data or not ({"take", "take_style"} & data.keys()):
+            return data
+        data = dict(data)
+        pick = data.pop("blind_take", "") or "plain"
+        order, picked = data.pop("blind", []) or [], data.pop("picked", "") or ""
+        olds = [(k, data.pop(k, None)) for k in ("take", "take_style")]
+        olds = sorted(((k, t) for k, t in olds if t), key=lambda kt: str((kt[1] or {}).get("at", "")))
+        takes = []
+        for no, (k, t) in enumerate(olds, 1):
+            t = dict(t)
+            if (k == "take_style") == (pick == "style") and len(order) == 2:
+                t["blind"] = {"order": order, "picked": picked}
+            takes.append({**t, "no": no})
+        data["takes"] = takes
+        return data
+
+
+class RevAI(BaseModel):
+    """실험 하나의 단계 AI 고르기. 모두 비면 설정 화면의 단계 칸을 따른다. preset 이 있으면 provider · model 은 보지 않는다."""
+    preset: str = Field("", description="단계 프리셋 id (settings.presets). 지워진 프리셋이면 설정을 따른다")
+    provider: str = Field("", description="직접 고른 백엔드 (gemini · local · claude · claude-api)")
+    model: str = Field("", description="직접 고른 모델. 비면 그 백엔드의 기본 모델")
+
+
+class RevAIs(BaseModel):
+    """실험의 AI (revlab.AI_STAGES). 역설계 · 문체 프로필은 plan, 되돌려 쓰기는 write."""
+    plan: RevAI = Field(default_factory=RevAI)
+    write: RevAI = Field(default_factory=RevAI)
 
 
 class RevLab(BaseModel):
@@ -2517,6 +2619,7 @@ class RevLab(BaseModel):
     styles: list["RevStyle"] = Field(default_factory=list, description="문체 프로필 기록 (오래된 것 먼저, revlab.STYLE_KEEP 개까지)")
     style_id: int = Field(0, description="지금 프로필(styles 의 id). 0 은 고른 프로필 없음")
     style_next: int = Field(1, description="다음 RevStyle.id. 지운 번호는 다시 쓰지 않는다")
+    ai: RevAIs = Field(default_factory=RevAIs, description="이 실험의 AI 호출만 바꾸는 단계별 고르기 (revlab.set_ai)")
 
     @model_validator(mode="before")
     @classmethod
@@ -2529,9 +2632,12 @@ class RevLab(BaseModel):
         if old is not None:
             d.update(styles=[{"id": 1, "profile": old, "model": model, "at": at}], style_id=1, style_next=2)
             for e in d.get("episodes") or []:
-                t = e.get("take_style") if isinstance(e, dict) else None
-                if isinstance(t, dict) and t.get("style", True) and not t.get("style_id"):
-                    t["style_id"] = 1
+                if not isinstance(e, dict):
+                    continue
+                takes = list(e.get("takes") or []) + [e.get("take_style")]  # 판 목록 전 파일은 take_style 에 있다
+                for t in takes:
+                    if isinstance(t, dict) and t.get("style", "takes" not in e) and not t.get("style_id"):
+                        t["style_id"] = 1
         return d
 
     @property

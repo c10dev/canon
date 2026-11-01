@@ -1,14 +1,14 @@
 /* 역설계 실험 화면(서버 revlab.py, 작품 밖 화면 #/revlab[/<실험 번호>[/<화 | cast | style | lines | metrics>]], 작품 목록 · 사이드바 ⋯ 메뉴 · 작품 사이드바 실험 묶음에서 들어온다).
    작가가 넣은 소설을 거꾸로 화별 플롯 · 스토리보드 · 큐 시트 · 이야기 줄기로 풀고, 그 큐 시트로 같은 화를 다시 써서(되돌려 쓰기) 원문과 견준다.
    실험은 작품 밖(<CANON_HOME>/.revlab)에 두고 작품을 열지 않고 쓴다. AI 작업은 POST /revlab/<번호>/jobs (작업 rev_parse · rev_write · rev_style,
-   ep 가 실험 번호, project 는 REV_JOBS). 사용량은 작품 없이 잡히고 모델은 전체 단계 설정을 쓴다.
+   ep 가 실험 번호, project 는 REV_JOBS). 사용량은 작품 없이 잡히고 모델은 실험이 고른 AI(목차 'AI 모델', revAICard), 고르지 않으면 전체 단계 설정을 쓴다.
    배치는 다른 단계 화면(설정 도우미 · 문체)과 같은 공용 목차 틀(outline.js)의 왼쪽 목차 + 오른쪽 칸이다. 목차는 단계 다섯(revSteps) · 화(revTocEps) · 실험 전체
    (인물 · 문체 · 줄기 · 지표), 오른쪽은 도는 작업 카드(revRunCard)와 고른 화의 탭 셋(원문 · 큐 / 플롯 · 스토리보드 / 되돌려 쓰기).
    머리 주 버튼은 다음 할 일 하나(revNext)이고 추정 비용을 함께 적는다(revEst, AI 없음). 폭은 창이 아니라 공용 목차 틀(outline.js, @container outline)의 폭으로 바꾼다.
    app.js 의 S, actions, api, run, render, header, esc, toast, josa, showError, pollJobs, jobFor, jobLeft, elapsed, menuBtn, isTyping,
    JOB_PAGES, JOB_DONE_MSG, fmtDateTime, hub.js 의 renderHub 와 cue.js 의 cueBind · cueEd · cueScore · cueEditor · cueLabel · cueUsd · cuePct · cueYes 를 쓴다
-   (큐 시트 열쇠는 'rev:<화>'). revSplit · revGuessFirst · revSegments · revPreview · revEpTitle · revSteps · revNext · revTocEps · revRunRows ·
-   revMetricRows 는 DOM 없는 순수 함수 (revSplit · revGuessFirst 는 revlab.split · guess_first 와 같은 규칙, tests/test_revlab.py). */
+   (큐 시트 열쇠는 'rev:<화>'). revGuessFirst · revSegments · revPreview · revEpTitle · revSteps · revNext · revTocEps · revRunRows ·
+   revMetricRows · revAiText · revAiMade · revEpRange · revTakePicks 는 DOM 없는 순수 함수 (tests/test_revlab.py). 글 나누기는 서버(POST /api/revlab/split, refs.split)에 묻는다 (revSplitOf). */
 'use strict';
 
 Object.assign(S, {
@@ -28,59 +28,49 @@ Object.assign(S, {
   revEpEdit: null, // 고치는 화 { n, head, text } (null 이면 닫힘)
   revStyle: false, // 되돌려 쓰기에 문체 프로필을 넣을지
   revStyleDiff: null, // 펼친 문체 프로필 견주기 { id, changes } (GET /revlab/<번호>/styles/<id>)
-  revRead: 'plain', // 나란히 읽기 오른쪽 판 (plain · style)
+  revRead: { a: 'original', b: 0 }, // 나란히 읽기 왼쪽 · 오른쪽 ('original' 또는 판 번호, 0 이면 최근 판)
 });
 
-const REV_HEAD = /^\s*(?:#{1,6}\s*)?(?:제\s*)?(\d{1,4})\s*화(?:\s*[.:：\-—)]\s*|\s+|$)(.*)$/;
-const REV_MARK = /^\s*={3,}\s*$/;
-const REV_BLANK = /\n(?:[ \t]*\n){3,}/;
-const REV_SPLITS = { heading: "'n화' 제목 줄", mark: "'===' 줄", blank: '빈 줄 세 개 넘게', one: '한 화' };
+const REV_HEAD = /^\s*(?:#{1,6}\s*)?(?:제\s*)?(\d{1,4})\s*화(?:\s*[.:：\-—)]\s*|\s+|$)(.*)$/;  // 제목 줄에서 제목만 뗀다 (revlab.HEAD_RE)
+const REV_SPLITS = { heading: '화 표시 줄', mark: '기호 줄', blank: '빈 줄 세 개 넘게', one: '한 화' };  // revlab.SPLITS
+const REV_SPLIT = new Map();  // 글 → 서버가 나눈 값 { how, first, preface, episodes: [{ head, chars }] } (나누기 규칙은 refs.split 한 곳)
+let revSplitTimer = null;
 
-/** 글 → 화 (revlab.split 과 같은 규칙): { how, first, preface, episodes: [{ head, text }] }. 제목 줄 → '===' 줄 → 빈 줄 셋 넘게 → 한 화.
-    제목 줄 앞 글이 preMin 자보다 짧으면 preface(역설계하지 않음), 길면 화 하나. */
-function revSplit(text, headMax = 60, preMin = 200) {
-  const t = String(text || '').replace(/﻿/g, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  const lines = t.split('\n');
-  const heads = lines.map((l, i) => (l.length <= headMax && REV_HEAD.test(l) ? i : -1)).filter((i) => i >= 0);
-  let how; let eps; let preface = ''; let first = 1;
-  if (heads.length) {
-    how = 'heading';
-    first = Number(lines[heads[0]].match(REV_HEAD)[1]) || 1;
-    const before = lines.slice(0, heads[0]).join('\n').trim();
-    eps = heads.map((h, k) => ({ head: lines[h].trim(), text: lines.slice(h + 1, k + 1 < heads.length ? heads[k + 1] : lines.length).join('\n').trim() }));
-    if (before.length >= preMin) { eps.unshift({ head: '', text: before }); first = Math.max(first - 1, 1); } else preface = before;
-  } else if (lines.some((l) => REV_MARK.test(l))) {
-    how = 'mark'; eps = [];
-    let cur = [];
-    for (const l of [...lines, '===']) {
-      if (REV_MARK.test(l)) { eps.push({ head: '', text: cur.join('\n').trim() }); cur = []; } else cur.push(l);
-    }
-  } else if (REV_BLANK.test(t)) {
-    how = 'blank'; eps = t.split(REV_BLANK).map((x) => ({ head: '', text: x.trim() }));
-  } else {
-    how = 'one'; eps = [{ head: '', text: t.trim() }];
-  }
-  return { how, first, preface, episodes: eps.filter((e) => e.text) };
+/** 글을 나눈 값. 아직 받지 않았으면 null 을 돌려주고 서버에 묻는다(잠깐 기다려 한 번만). 받으면 미리보기 칸을 다시 그린다 (revSplitDone). */
+function revSplitOf(text) {
+  const t = String(text || '');
+  if (REV_SPLIT.has(t)) return REV_SPLIT.get(t);
+  if (!t.trim()) return { how: 'one', first: 1, preface: '', episodes: [] };
+  clearTimeout(revSplitTimer);
+  revSplitTimer = setTimeout(() => {
+    api('POST', '/revlab/split', { text: t }).then((v) => {
+      if (REV_SPLIT.size > 20) REV_SPLIT.clear();
+      REV_SPLIT.set(t, v);
+      revSplitDone();
+    }).catch(() => {});
+  }, 250);
+  return null;
 }
 
-/** 첫 화 번호 짐작 (revlab.guess_first): 글에 'n화' 제목 줄이 있으면 그 번호, 없으면 실험 이름의 'n화', 그것도 없으면 1. */
-function revGuessFirst(title, text) {
-  const s = revSplit(text);
-  if (s.how === 'heading') return s.first;
+/** 첫 화 번호 짐작 (revlab.guess_first): 글에 화 표시 줄이 있으면 그 번호, 없으면 실험 이름의 'n화', 그것도 없으면 1. s 는 서버가 나눈 값 */
+function revGuessFirst(title, text, s = revSplitOf(text)) {
+  if (s && s.how === 'heading') return s.first;
   const m = String(title || '').match(/(\d{1,4})\s*화/);
   return m ? Number(m[1]) || 1 : 1;
 }
 
-/** 나누기 미리보기 값: 화마다 번호 · 제목 · 글자 수 · 짧음, 막는 까닭(errs)과 알릴 것(notes). lim 은 서버 이름표 (max_chars 등). */
-function revPreview(text, lim, first = null) {
-  const s = revSplit(text, lim.head_max, lim.preface_min);
+/** 나누기 미리보기 값: 화마다 번호 · 제목 · 글자 수 · 짧음, 막는 까닭(errs)과 알릴 것(notes). lim 은 서버 이름표 (max_chars 등).
+    s 는 서버가 나눈 값(revSplitOf). 아직 없으면 pending 이다 */
+function revPreview(text, lim, first = null, s0 = revSplitOf(text)) {
+  if (!s0) return { pending: true, how: '', label: '', eps: [], errs: [], notes: [] };
+  const s = { ...s0 };
   if (first) s.first = first;
   const errs = []; const notes = [];
   const len = String(text || '').length;
   if (!s.episodes.length) errs.push('글이 비었어요. 소설 본문을 붙여 넣으세요.');
   if (len > lim.max_chars) errs.push(`글이 너무 길어요 (${len.toLocaleString()}자). ${lim.max_chars.toLocaleString()}자까지 넣을 수 있어요.`);
   if (s.episodes.length > lim.max_episodes) errs.push(`${s.episodes.length}화로 나뉘었어요. 한 실험에 ${lim.max_episodes}화까지 넣을 수 있어요.`);
-  const eps = s.episodes.map((e, i) => ({ n: s.first + i, head: e.head, chars: e.text.length, short: e.text.length < lim.min_chars }));
+  const eps = s.episodes.map((e, i) => ({ n: s.first + i, head: e.head, chars: e.chars, short: e.chars < lim.min_chars }));
   if (eps.some((e) => e.short)) notes.push(`${lim.min_chars}자보다 짧은 화는 역설계하지 않아요.`);
   if (s.preface) notes.push(`첫 제목 줄 앞의 짧은 글(${s.preface.length}자)은 작품 제목 · 작가 줄로 보고 역설계하지 않아요.`);
   if (s.first <= 3 && s.episodes.length) notes.push('1~3화로 잡히면 되돌려 쓰기에 초반 규칙(첫 화 쓰는 법)이 붙어요. 소설 중간이면 첫 화 번호를 적으세요.');
@@ -89,15 +79,15 @@ function revPreview(text, lim, first = null) {
 
 /** 이어 붙일 글의 나누기 미리보기 (revlab.append_text 와 같은 규칙): 새 화는 제목 줄 번호와 상관없이 마지막 화 + 1(have.next)부터 세고,
     화 수 · 글자 수 한도는 실험 전체(have.episodes · have.chars)로 본다. 첫 제목 줄 앞의 짧은 글은 넣지 않는다. 값 모양은 revPreview 와 같다. */
-function revAppendPreview(text, lim, have) {
-  const s = revSplit(text, lim.head_max, lim.preface_min);
+function revAppendPreview(text, lim, have, s = revSplitOf(text)) {
+  if (!s) return { pending: true, how: '', label: '', eps: [], errs: [], notes: [] };
   const errs = []; const notes = [];
   const len = String(text || '').length;
   const n = have.episodes + s.episodes.length;
   if (!s.episodes.length) errs.push('글이 비었어요. 이어 붙일 화를 붙여 넣으세요.');
   if (have.chars + len > lim.max_chars) errs.push(`이으면 ${(have.chars + len).toLocaleString()}자예요. 한 실험에 ${lim.max_chars.toLocaleString()}자까지 넣을 수 있어요.`);
   if (n > lim.max_episodes) errs.push(`이으면 ${n}화예요. 한 실험에 ${lim.max_episodes}화까지 넣을 수 있어요.`);
-  const eps = s.episodes.map((e, i) => ({ n: have.next + i, head: e.head, chars: e.text.length, short: e.text.length < lim.min_chars }));
+  const eps = s.episodes.map((e, i) => ({ n: have.next + i, head: e.head, chars: e.chars, short: e.chars < lim.min_chars }));
   if (eps.some((e) => e.short)) notes.push(`${lim.min_chars}자보다 짧은 화는 역설계하지 않아요.`);
   if (s.preface) notes.push(`첫 제목 줄 앞의 짧은 글(${s.preface.length}자)은 작품 제목 · 작가 줄로 보고 넣지 않아요.`);
   if (s.how === 'heading' && s.episodes.length && s.first !== have.next) notes.push(`제목 줄은 ${s.first}화부터지만 마지막 화 다음인 ${have.next}화부터 이어요.`);
@@ -189,7 +179,7 @@ async function revFetch(id) {
 
 /* ----- 단계 · 다음 할 일 · 진행 줄 · 지표 줄: DOM 없는 순수 함수 (tests/test_revlab.py) ----- */
 
-const REV_PANES = { cast: '인물 · 관계 · 배경', style: '문체 프로필', lines: '이야기 줄기', metrics: '지표 모아 보기' };
+const REV_PANES = { cast: '인물 · 관계 · 배경', style: '문체 프로필', lines: '이야기 줄기', metrics: '지표 모아 보기', ai: 'AI 모델' };
 const REV_TABS = [['text', '원문 · 큐'], ['plot', '플롯 · 스토리보드'], ['write', '되돌려 쓰기']];
 const REV_KINDS = ['rev_parse', 'rev_write', 'rev_style'];
 
@@ -202,12 +192,26 @@ function revEpTitle(e) {
 
 /** 실험의 단계 다섯: [{ id, label, state, right }]. state 는 ok(끝남) · now(지금 할 단계) · todo · run(그 단계 작업이 도는 중).
     문체 프로필은 고르는 단계라 '지금'이 되지 않는다. minChars 보다 짧은 화는 역설계 대상에서 뺀다. kinds 는 도는 작업 종류. */
+/** 화의 판마다 가려 읽기 셈: { original, rewrite, skip, wait, first: { original, rewrite } }. first 는 원문을 처음 본 가려 읽기(seen 0)만. */
+function revTakePicks(e) {
+  const c = { original: 0, rewrite: 0, skip: 0, wait: 0, first: { original: 0, rewrite: 0 } };
+  for (const t of (e && e.takes) || []) {
+    const b = t.blind || {};
+    if (b.state === 'wait') c.wait += 1;
+    else if (b.picked in c) {
+      c[b.picked] += 1;
+      if (!b.seen && b.picked in c.first) c.first[b.picked] += 1;
+    }
+  }
+  return c;
+}
+
 function revSteps(L, minChars, kinds = []) {
   const items = L.items || [];
   const can = items.filter((e) => e.chars >= minChars);
   const parsed = can.filter((e) => e.sheet);
   const wrote = items.filter((e) => (e.takes || []).length);
-  const picked = wrote.filter((e) => e.picked);
+  const picked = wrote.filter((e) => !revTakePicks(e).wait);
   const rows = [
     { id: 'split', label: '나누기', ok: items.length > 0, right: `${items.length}화` },
     { id: 'parse', label: '역설계', ok: can.length > 0 && parsed.length === can.length, right: `${parsed.length}/${can.length}`, kind: 'rev_parse' },
@@ -247,7 +251,7 @@ function revNext(L, n, minChars) {
 function revTocEps(items, minChars) {
   return (items || []).map((e) => {
     const state = e.chars < minChars ? 'short' : (e.takes || []).length ? 'wrote' : e.sheet ? 'parsed' : 'raw';
-    const right = { short: '짧음', wrote: (e.blind_texts || []).length ? '가려 읽기' : '씀', parsed: `큐 ${e.sheet ? e.sheet.cues.length : 0}`, raw: `${e.chars.toLocaleString()}자` }[state];
+    const right = { short: '짧음', wrote: (e.blind_texts || []).length ? '가려 읽기' : `${(e.takes || []).length}판`, parsed: `큐 ${e.sheet ? e.sheet.cues.length : 0}`, raw: `${e.chars.toLocaleString()}자` }[state];
     return { n: e.number, title: revEpTitle(e), state, right };
   });
 }
@@ -262,7 +266,7 @@ function revRunRows(job, items) {
   return rows;
 }
 
-const REV_METRICS = [  // [이름, 값, 원문과 크게 다르면 표시할지]
+const REV_METRICS = [  // [이름, 값, 원문과 크게 다르면 표시할지 ('any' 는 하나라도 있으면), 보이는 꼴]
   ['글자', (s) => s.chars, true, (v) => v.toLocaleString()],
   ['핵심 대사 들어감', (s) => (s.lines_total ? `${s.lines_hit}/${s.lines_total}` : null), false],
   ['대사 비율', (s) => s.dialogue_ratio, true, (v) => cuePct(v)],
@@ -271,30 +275,37 @@ const REV_METRICS = [  // [이름, 값, 원문과 크게 다르면 표시할지]
   ['짧은 끝 문장', (s) => s.short_endings, false, (v) => cuePct(v)],
   ['되풀이 문장', (s) => (s.repeats || []).length, true],
   ['쇠맛 경고', (s) => s.ai_patterns, true],
+  ['문체 거리 (원문 다른 화 1.0)', (s) => s.style_distance, true],
+  ['쉼표 문장', (s) => s.comma_ratio, true, (v) => cuePct(v)],
+  ['표지 빈도 경고', (s) => (s.marker_warns ? s.marker_warns.length : null), true],
+  ['원문 옮김', (s) => (s.copied ? s.copied.length : null), 'any'],
+  ['장치 예시 옮김', (s) => (s.copied_examples ? s.copied_examples.length : null), 'any'],
   ['템포 (원문 큐 경계)', (s) => ((s.rows || []).length ? cueYes(s.tempo_order) : null), false],
 ];
 const REV_FAR = 0.4;  // 원문 값과 이 비율보다 더 다르면 표시한다
 
-/** 지표 표를 지표마다 한 줄로: { heads: [{ label, stale }], rows: [{ label, cells: [{ text, far }] }] }. 열은 scores 차례 (원문이 먼저). */
+/** 지표 표를 지표마다 한 줄로: { heads: [{ label, stale }], rows: [{ label, cells: [{ text, far }] }], notes: [] }. 열은 scores 차례 (원문이 먼저).
+    notes 는 표 밑에 둘 문체 측정 안내: 문체 거리를 재지 않은 이유, 표지 빈도 경고, 옮긴 문장. */
 function revMetricRows(scores) {
   const orig = scores.find((s) => s.condition === 'original');
   const far = (v, o) => typeof v === 'number' && typeof o === 'number' && (o ? Math.abs(v - o) / Math.abs(o) > REV_FAR : v > 0);
   return {
-    heads: scores.map((s) => ({ label: s.label, stale: !!s.stale, styleTag: revStyleTag(s) })),
+    heads: scores.map((s) => ({ label: s.label, stale: !!s.stale })),
     rows: REV_METRICS.map(([label, get, mark, fmt]) => ({
       label,
       cells: scores.map((s) => {
         const v = get(s);
-        return { text: v === null || v === undefined ? '-' : fmt ? fmt(v) : String(v), far: mark && s !== orig && !!orig && far(v, get(orig)) };
+        const hit = mark === 'any' ? typeof v === 'number' && v > 0 : mark && s !== orig && !!orig && far(v, get(orig));
+        return { text: v === null || v === undefined ? '-' : fmt ? fmt(v) : String(v), far: hit };
       }),
     })),
+    notes: [
+      ...[...new Set(scores.map((s) => s.style_note).filter(Boolean))],
+      ...scores.filter((s) => (s.marker_warns || []).length).map((s) => `${s.label} 표지: ${s.marker_warns.join(', ')}`),
+      ...scores.filter((s) => (s.copied || []).length + (s.copied_examples || []).length)
+        .map((s) => `${s.label} 옮긴 문장: ${[...(s.copied || []), ...(s.copied_examples || [])].map((x) => `“${x}”`).join(' ')}`),
+    ],
   };
-}
-
-/** 문체를 넣고 쓴 판이 지금 프로필과 다른 프로필로 썼으면 그 이름 ('2번 프로필' · '지운 프로필'), 아니면 빈 글. */
-function revStyleTag(t) {
-  if (!t || !t.style_old) return '';
-  return t.style_gone || !t.style_id ? '지운 프로필' : `${t.style_id}번 프로필`;
 }
 
 /** 목록 값(revlab.summary 의 steps)을 revSteps · revNext 가 읽는 실험 모양으로. */
@@ -302,7 +313,8 @@ function revLabLite(x) {
   return {
     style: x.has_style ? {} : null,
     items: (x.steps || []).map((e) => ({ number: e.number, head: e.head, chars: e.chars, sheet: e.sheet ? { cues: [] } : null,
-      takes: Array.from({ length: e.takes || 0 }, () => ({})), blind_texts: e.blind ? ['', ''] : [], picked: e.picked || '' })),
+      takes: Array.from({ length: e.takes || 0 }, (_, i) => ({ blind: { state: i < (e.blind || 0) ? 'wait' : 'done' } })),
+      blind_texts: e.blind ? ['', ''] : [], picks: e.picks || {} })),
   };
 }
 
@@ -315,29 +327,32 @@ function revHomeCard(x, minChars) {
   const now = steps.find((s) => s.state === 'now');
   const nx = L.items.length ? revNext(L, L.items[0].number, minChars) : null;
   const picks = { original: 0, rewrite: 0, skip: 0 };
-  L.items.forEach((e) => { if (e.picked in picks) picks[e.picked] += 1; });
+  L.items.forEach((e) => { for (const k of Object.keys(picks)) picks[k] += (e.picks || {})[k] || 0; });
   const chip = !x.done ? { text: '역설계 전', cls: '' } : !now ? { text: '다 견줌', cls: 'ok' } : { text: `${now.label} ${now.right}`, cls: '' };
   return { chip, next: nx ? REV_NEXT_LABEL[nx.kind](nx) : '', states: steps.map((s) => s.state), share: revStepShare(steps), picks };
 }
 
-const REV_PICKED = { original: '원문 고름', rewrite: '되돌려 쓴 글 고름', skip: '고르지 않음' };
-
-/** 개요의 화별 진행 줄: 큐 · 장면 수, 못 찾은 큐, 판 수, 가려 읽기, 되돌려 쓴 글의 핵심 대사 · 대사 비율(원문과 크게 다르면 far). */
+/** 개요의 화별 진행 줄: 큐 · 장면 수, 못 찾은 큐, 판 수 · 모델 수, 판마다 가려 읽기 셈, 최근 판의 핵심 대사,
+    대사 비율 원문 → 판들(하나면 그 값, 여럿이면 최소~최대. 원문과 크게 다른 판이 있으면 far). */
 function revOverviewRow(e, minChars) {
   const scores = e.scores || [];
   const orig = scores.find((x) => x.condition === 'original');
-  const take = scores.find((x) => x.condition !== 'original');
+  const ts = scores.filter((x) => x.condition !== 'original');
+  const take = ts[ts.length - 1];
   const o = orig ? orig.dialogue_ratio : null;
-  const t = take ? take.dialogue_ratio : null;
+  const ds = ts.map((x) => x.dialogue_ratio).filter((v) => typeof v === 'number');
+  const lo = Math.min(...ds);
+  const hi = Math.max(...ds);
+  const isFar = (v) => (o ? Math.abs(v - o) / Math.abs(o) > REV_FAR : v > 0);
   return {
     n: e.number, title: revEpTitle(e),
     state: e.chars < minChars ? 'short' : e.sheet ? 'parsed' : 'raw',
     cues: e.sheet ? e.sheet.cues.length : 0, scenes: e.storyboard ? e.storyboard.scenes.length : 0, missing: (e.missing || []).length,
-    takes: (e.takes || []).length,
-    pick: (e.blind_texts || []).length ? 'wait' : e.picked ? REV_PICKED[e.picked] || '' : '',
+    takes: (e.takes || []).length, models: new Set((e.takes || []).map((t) => t.model)).size,
+    picks: revTakePicks(e),
     lines: take && take.lines_total ? `${take.lines_hit}/${take.lines_total}` : '',
-    dlg: take && o !== null && t !== null ? [cuePct(o), cuePct(t)] : null,
-    far: !!(take && o !== null && t !== null && (o ? Math.abs(t - o) / Math.abs(o) > REV_FAR : t > 0)),
+    dlg: o !== null && ds.length ? [cuePct(o), ds.length > 1 && lo !== hi ? `${cuePct(lo)}~${cuePct(hi)}` : cuePct(ds[ds.length - 1])] : null,
+    far: o !== null && ds.some(isFar),
   };
 }
 
@@ -411,7 +426,7 @@ function revHome() {
     const c = revHomeCard(x, S.rev.min_chars);
     const meta = [`${x.first}~${x.first + x.episodes - 1}화`, `${x.chars.toLocaleString()}자`, x.cast_count ? `인물 ${x.cast_count}명` : '', fmtDateTime(x.updated)].filter(Boolean).join(' · ');
     const done = c.picks.original + c.picks.rewrite + c.picks.skip;
-    const tail = c.next ? `다음: ${c.next}` : done ? `원문을 고른 화 ${c.picks.original} · 되돌려 쓴 글 ${c.picks.rewrite}` : '';
+    const tail = c.next ? `다음: ${c.next}` : done ? `가려 읽기 원문 ${c.picks.original} · 판 ${c.picks.rewrite}` : '';
     return `<a class="card rev-lab" href="#/revlab/${x.id}"><div class="between"><h3>${esc(x.title || `실험 ${x.id}`)}</h3><span class="chip${c.chip.cls ? ` ${c.chip.cls}` : ''}">${esc(c.chip.text)}</span></div>
       <div class="small">${esc(meta)}</div>
       <div class="row rev-lab-steps"><span class="rev-steps" aria-hidden="true">${c.states.map((st, i) => `<span class="rev-step ${st}">${st === 'ok' ? '✓' : i + 1}</span>`).join('')}</span>
@@ -428,6 +443,7 @@ const revDraftFirst = () => Number(S.revDraft.first) || revGuessFirst(S.revDraft
 function revPreviewHtml() {
   if (!S.revDraft.text.trim()) return '<div class="small">붙여 넣으면 어떻게 나뉘는지 여기 보여요. 직접 나누려면 화 사이에 <code>===</code> 한 줄을 넣으세요.</div>';
   const v = revPreview(S.revDraft.text, S.rev, revDraftFirst());
+  if (v.pending) return '<div class="small">나누는 중이에요…</div>';
   const eps = v.eps.map((e) => `<li><span>${e.head ? esc(e.head) : `${e.n}화`}${e.short ? ' <span class="chip warn">짧음</span>' : ''}</span><span class="small">${e.chars.toLocaleString()}자</span></li>`).join('');
   return `<div class="between"><strong>${v.eps.length}화로 나눠요</strong><span class="chip">${esc(v.label)}</span></div>
     <ol class="rev-prev">${eps}</ol>
@@ -435,7 +451,8 @@ function revPreviewHtml() {
 }
 
 function revNewCard(closable = false) {
-  const ok = !revPreview(S.revDraft.text, S.rev).errs.length;
+  const pv = revPreview(S.revDraft.text, S.rev);
+  const ok = !pv.errs.length && !pv.pending;
   const n = S.revDraft.text.length;
   return `<section class="card" id="rev-new"><div class="between"><h2>새 실험</h2>${closable ? '<button type="button" class="btn small ghost" data-action="revNewToggle">닫기</button>' : ''}</div>
     <ol class="rev-how"><li><span class="rev-step now" aria-hidden="true">1</span>붙여 넣고 나누기 <span class="small">AI 없음</span></li>
@@ -501,7 +518,7 @@ function revLabToc() {
     return `<div class="rev-toc-ep${S.popMenu === `rev-ep-${x.n}` ? ' open' : ''}">${link}${menuBtn(`rev-ep-${x.n}`, SIDE_ICON.more, () => revEpMenu(x.n, !!run), { cls: 'btn icon-btn rev-toc-btn', aria: `${x.n}화 더보기: 글 고치기 · 지우기` })}</div>`;
   }).join('');
   const panes = Object.entries(REV_PANES).map(([k, label]) => {
-    const right = { cast: L.cast.length ? `${L.cast.length}명` : '', style: (L.style_list || []).length ? `${L.style_id ? `${L.style_id}번 · ` : ''}${L.style_list.length}개` : '', lines: L.lines_at ? `${L.lines.length}개` : '', metrics: '' }[k];
+    const right = { cast: L.cast.length ? `${L.cast.length}명` : '', style: (L.style_list || []).length ? `${L.style_id ? `${L.style_id}번 · ` : ''}${L.style_list.length}개` : '', lines: L.lines_at ? `${L.lines.length}개` : '', metrics: '', ai: L.ai && L.ai.custom ? '이 실험만' : '' }[k];
     return revTocLink(`#/revlab/${L.id}/${k}`, `<span class="tl">${label}</span><span class="st">${right}</span>`, pane === k);
   }).join('');
   const cur = pane === 'overview' ? `개요 · ${steps[1].label} ${steps[1].right}` : pane ? REV_PANES[pane] : (() => { const e = revItem(S.revEp); return e ? `${e.number}화${revEpTitle(e) ? ` ${esc(revEpTitle(e))}` : ''} · ${(REV_TABS.find(([k]) => k === S.revTab) || REV_TABS[0])[1]}` : '목차'; })();
@@ -529,6 +546,7 @@ function revMain() {
   else if (S.revPane === 'style') parts.push(revStyleCard());
   else if (S.revPane === 'lines') parts.push(revLinesCard());
   else if (S.revPane === 'metrics') parts.push(revMetricsAll());
+  else if (S.revPane === 'ai') parts.push(revAICard());
   else parts.push(revEpisode());
   return parts.join('');
 }
@@ -552,6 +570,7 @@ const revHave = (L) => ({ next: L.items.length ? L.items[L.items.length - 1].num
 function revAddPreviewHtml() {
   if (!S.revAdd.trim()) return `<div class="small">붙여 넣으면 어떻게 나뉘는지 여기 보여요. 새 화는 ${revHave(S.revLab).next}화부터 이어요. 직접 나누려면 화 사이에 <code>===</code> 한 줄을 넣으세요.</div>`;
   const v = revAppendPreview(S.revAdd, S.rev, revHave(S.revLab));
+  if (v.pending) return '<div class="small">나누는 중이에요…</div>';
   const eps = v.eps.map((e) => `<li><span>${e.n}화${e.head ? ` <span class="small">${esc(e.head)}</span>` : ''}${e.short ? ' <span class="chip warn">짧음</span>' : ''}</span><span class="small">${e.chars.toLocaleString()}자</span></li>`).join('');
   return `<div class="between"><strong>${revAddRange(v)}를 이어요</strong><span class="chip">${esc(v.label)}</span></div>
     <ol class="rev-prev">${eps}</ol>
@@ -565,7 +584,7 @@ const revAddLabel = (v) => (v.eps.length && !v.errs.length ? `${revAddRange(v)} 
 /** 화 이어 붙이기 칸: 붙여 넣은 글을 나눠 마지막 화 뒤에 잇는다. 앞 화의 역설계 결과는 그대로 둔다 (revlab.append_text). */
 function revAddCard() {
   const v = revAppendPreview(S.revAdd, S.rev, revHave(S.revLab));
-  const ok = !v.errs.length && !revRunning();
+  const ok = !v.errs.length && !v.pending && !revRunning();
   return `<section class="card"><div class="between"><h2>화 이어 붙이기</h2><button type="button" class="btn small ghost" data-action="revAddToggle">닫기</button></div>
     <p class="small">마지막 화 뒤에 새 화를 넣어요. 앞 화의 역설계 결과 · 인물 · 문체 프로필은 그대로 두고, 새 화를 역설계할 때 앞 화의 인물 · 줄거리가 들어가요. 이야기 줄기는 새 화까지 역설계하면 다시 물어요.</p>
     <div class="rev-paste">
@@ -644,7 +663,8 @@ function revPickCard() {
     <div class="rev-scroll"><table class="sw-table rev-pick-table"><thead><tr><th><span class="sr-only">고르기</span></th><th class="rev-l">화</th><th>글자</th><th class="rev-l">첫 문장</th><th>비용</th></tr></thead>
       <tbody>${rows}${lines ? `<tr class="rev-muted"><td></td><td class="rev-l">이야기 줄기</td><td></td><td class="rev-l">모든 화를 푼 뒤 한 번</td><td>${esc(cueUsd(lines.usd))}</td></tr>` : ''}</tbody></table></div>
     <p class="small">앞 화부터 차례로 풀어요. 앞 화의 인물 · 줄거리 · 끝 부분이 다음 화 요청에 들어가서, 중간 화만 고르면 앞 이야기를 모르고 풀어요.</p>
-    ${redo ? '<div class="note warn small">이미 역설계한 화를 다시 풀면 그 화의 큐 시트 고침과 되돌려 쓴 글이 사라져요.</div>' : ''}
+    ${revAiLine('plan')}
+    ${redo ? '<div class="note warn small">이미 역설계한 화를 다시 풀면 그 화의 큐 시트 고침이 사라져요. 되돌려 쓴 판은 남고 \'시트 바뀜\'으로 보여요.</div>' : ''}
     ${err ? `<div class="note err small">비용을 재지 못했어요: ${esc(err)}</div>` : ''}
     ${S.revRedo ? `<div class="row"><button type="button" class="btn primary" data-action="revParse"${eps.length && est && !busy ? '' : ' disabled'}>${eps.length ? revCost(`고른 ${eps.length}화 다시 역설계`, est) : '화를 고르세요'}</button></div>` : ''}
     ${revEstHtml(est)}</section>`;
@@ -669,14 +689,15 @@ function revProgressCard() {
     const bars = e.sheet ? `<span class="rev-mini" aria-hidden="true">${cueBars(e.sheet).map((b) => `<i style="flex:${b.w} 1 0;height:${b.h}%;background:${CUE_COLORS[b.fn] || 'var(--chip)'}"></i>`).join('')}</span>` : '';
     const parse = r.state === 'short' ? '짧아 풀지 않음' : r.state === 'raw' ? '<span class="chip">역설계 전</span>'
       : `큐 ${r.cues}${r.scenes ? ` · 장면 ${r.scenes}` : ''}${r.missing ? ` <span class="chip warn">${r.missing}곳 못 찾음</span>` : ''}`;
-    const pick = r.pick === 'wait' ? '<span class="chip warn">남음</span>' : esc(r.pick || '-');
+    const pk = r.picks;
+    const pick = `${pk.original || pk.rewrite || pk.skip ? `원문 ${pk.original} · 판 ${pk.rewrite}` : '-'}${pk.wait ? ` <span class="chip warn">${pk.wait} 남음</span>` : ''}`;
     const dlg = r.dlg ? `${r.dlg[0]} → ${r.far ? `<strong class="rev-far">${r.dlg[1]}</strong>` : r.dlg[1]}` : '-';
     return `<tr${e.number === S.revEp ? ' class="rev-cur"' : ''}><td class="rev-l"><strong>${e.number}화</strong>${r.title ? ` ${esc(r.title)}` : ''}</td><td class="rev-l">${bars}</td><td class="rev-l">${parse}</td>
-      <td>${r.takes ? `<span class="chip ok">${r.takes}판</span>` : r.state === 'parsed' ? '아직' : '-'}</td><td>${pick}</td><td>${esc(r.lines || '-')}</td><td>${dlg}</td>
+      <td>${r.takes ? `<span class="chip ok">${r.takes}판</span>${r.models > 1 ? ` <span class="small">모델 ${r.models}</span>` : ''}` : r.state === 'parsed' ? '아직' : '-'}</td><td>${pick}</td><td>${esc(r.lines || '-')}</td><td>${dlg}</td>
       <td><a class="btn small ghost" href="#/revlab/${L.id}/${e.number}" aria-label="${e.number}화 열기">열기 ›</a></td></tr>`;
   }).join('');
   return `<section class="card"><div class="between"><h2>화별 진행</h2><span class="small">'열기'로 그 화의 원문 · 큐 · 되돌려 쓰기를 봐요</span></div>
-    <div class="rev-scroll"><table class="sw-table rev-prog-table"><thead><tr><th class="rev-l">화</th><th class="rev-l">진행 (큐)</th><th class="rev-l">역설계</th><th>되돌려 쓰기</th><th>가려 읽기</th><th>핵심 대사</th><th>대사 비율 원문 → 씀</th><th><span class="sr-only">열기</span></th></tr></thead>
+    <div class="rev-scroll"><table class="sw-table rev-prog-table"><thead><tr><th class="rev-l">화</th><th class="rev-l">진행 (큐)</th><th class="rev-l">역설계</th><th>되돌려 쓰기</th><th>가려 읽기</th><th>핵심 대사 (최근 판)</th><th>대사 비율 원문 → 판들</th><th><span class="sr-only">열기</span></th></tr></thead>
     <tbody>${rows}</tbody></table></div></section>`;
 }
 
@@ -689,7 +710,8 @@ function revLabCards() {
   return `<div class="rev-tiles">
     ${card('cast', '인물 · 관계 · 배경', L.cast.length ? `${L.cast.length}명` : '', L.cast.length ? `${esc(L.cast.slice(0, 4).map((x) => x.name).join(' · '))}${c.setting ? `. ${esc(c.setting.slice(0, 40))}` : ''}` : '역설계하면 모아요.')}
     ${card('style', '문체 프로필', st ? `${L.style_id}번 · 표지 ${(st.markers || []).length}` : '', st ? esc([st.narration_pov, st.tense, st.sentence_rhythm].filter(Boolean).join(' · ').slice(0, 80)) : '만들면 되돌려 쓰기에 넣을 수 있어요.')}
-    ${card('lines', '이야기 줄기', L.lines_at ? `${L.lines.length}개` : '', L.lines_at ? `메인: ${esc((L.main || '정하지 않음').slice(0, 60))}` : '모든 화를 역설계하면 찾아요.')}</div>`;
+    ${card('lines', '이야기 줄기', L.lines_at ? `${L.lines.length}개` : '', L.lines_at ? `메인: ${esc((L.main || '정하지 않음').slice(0, 60))}` : '모든 화를 역설계하면 찾아요.')}
+    ${card('ai', 'AI 모델', L.ai.custom ? '이 실험만' : '설정을 따름', L.ai.stages.map((x) => `${x.stage === 'plan' ? '역설계' : '되돌려 쓰기'} ${esc(revAiText(x.use))}`).join(' · '))}</div>`;
 }
 
 /** 인물 · 관계 · 배경: 되돌려 쓰기 사본의 작품 설정이 되는 것 (revlab.world). 마지막으로 역설계한 화까지 읽은 값. */
@@ -738,11 +760,129 @@ function revStyleCard() {
         ${x.head ? `<div class="small">${esc(x.head)}</div>` : ''}${x.note ? `<div class="small">메모: ${esc(x.note)}</div>` : ''}${diff}
       </li>`;
   }).join('');
-  return `<section class="card"><div class="between"><h2>문체 프로필${cur ? ` · ${cur.id}번` : ''}</h2></div>${body}
+  return `<section class="card"><h2>문체 프로필${cur ? ` · ${cur.id}번` : ''}</h2>${body}
+    ${revAiLine('plan')}
     <div class="row"><button type="button" class="btn" data-action="revStyleRun"${est && !busy ? '' : ' disabled'}>${revCost(list.length ? '문체 다시 역설계' : '문체 역설계 시작', est)}</button></div>
     ${list.length ? '<p class="small">새로 만들면 기록에 남고 새 프로필을 지금 프로필로 골라요.</p>' : ''}
     ${revEstHtml(est)}</section>
     ${list.length ? `<section class="card tight"><div class="between"><h3>기록</h3><span class="small">최근 ${S.rev.style_keep || 20}개까지 남겨요</span></div><ul class="version-list">${rows}</ul></section>` : ''}`;
+}
+
+/** 문체를 넣고 쓴 판이 지금 프로필과 다른 프로필로 썼으면 그 이름 ('2번 프로필' · '지운 프로필'), 아니면 빈 글. */
+function revStyleTag(t) {
+  if (!t || !t.style_old) return '';
+  return t.style_gone || !t.style_id ? '지운 프로필' : `${t.style_id}번 프로필`;
+}
+
+/** 판의 문체 한 줄: '문체 넣음 · 2번' (지금 프로필과 다르면 '· 2번 프로필' 칩으로). */
+const revTakeStyle = (t) => (t.style ? `문체 넣음${t.style_id ? ` · ${t.style_id}번` : ''}` : '문체 없이');
+
+/* ----- AI 모델: 이 실험의 AI 호출만 바꾼다 (서버 revlab.ai_choice · set_ai, 고르지 않으면 설정 화면의 단계 칸) ----- */
+
+const REV_AI_PROVIDERS = ['gemini', 'claude', 'claude-api', 'local'];  // revlab.AI_PROVIDERS 와 같은 차례
+
+/** 쓸 AI 한 줄: 'claude-opus-5-5 · Claude 구독'. 모델 칸이 비면 그 백엔드의 기본 모델(default), 그것도 없으면 백엔드 이름. */
+function revAiText(u) {
+  if (!u || !u.provider) return '';
+  if (u.provider === 'mock') return 'mock';
+  return writerLabel(`${u.provider}:${u.model || u.default || 'default'}`);
+}
+
+/** 화 번호 목록 → '1~3 · 5화' (화 범위는 'a~b화'). */
+function revEpRange(nums) {
+  const xs = [...new Set(nums)].sort((a, b) => a - b);
+  const out = [];
+  for (let i = 0; i < xs.length; i++) {
+    let j = i;
+    while (j + 1 < xs.length && xs[j + 1] === xs[j] + 1) j++;
+    out.push(i === j ? `${xs[i]}` : `${xs[i]}~${xs[j]}`);
+    i = j;
+  }
+  return out.length ? `${out.join(' · ')}화` : '';
+}
+
+/** 이미 만든 결과의 모델. plan: [{ what, model }] (역설계는 같은 모델끼리 화를 묶는다).
+    write: 백엔드 · 모델마다 [{ provider, model, eps, n, style, picks: revTakePicks 모양 }] (쓴 차례). 모델을 모르면 뺀다. */
+function revAiMade(items, styleModel) {
+  const byModel = new Map();
+  for (const e of items || []) if (e.sheet && e.model) byModel.set(e.model, [...(byModel.get(e.model) || []), e.number]);
+  const plan = [...byModel].map(([model, nums]) => ({ what: `${revEpRange(nums)} 역설계`, model }));
+  if (styleModel) plan.push({ what: '문체 프로필', model: styleModel });
+  const byTake = new Map();
+  for (const e of items || []) {
+    for (const t of e.takes || []) {
+      if (!t.model) continue;
+      const k = `${t.provider || ''}:${t.model}`;
+      const x = byTake.get(k) || { provider: t.provider || '', model: t.model, eps: [], n: 0, style: 0, takes: [] };
+      if (!x.eps.includes(e.number)) x.eps.push(e.number);
+      x.n += 1;
+      x.style += t.style ? 1 : 0;
+      x.takes.push(t);
+      byTake.set(k, x);
+    }
+  }
+  const write = [...byTake.values()].map(({ takes, ...x }) => ({ ...x, picks: revTakePicks({ takes }) }));
+  return { plan, write };
+}
+
+const revAiStage = (stage) => ((S.revLab && S.revLab.ai && S.revLab.ai.stages) || []).find((x) => x.stage === stage) || null;
+
+/** 실행 칸 아래 한 줄: 이 작업이 쓸 AI와 바꾸러 가는 링크. */
+function revAiLine(stage) {
+  const x = revAiStage(stage);
+  if (!x) return '';
+  return `<div class="small rev-ai-line">쓸 AI: ${esc(revAiText(x.use))}${x.use.source === 'lab' || x.use.source === 'preset' ? ' · 이 실험만' : ''} · <a href="#/revlab/${S.revLab.id}/ai">바꾸기</a></div>`;
+}
+
+function revAICard() {
+  const L = S.revLab;
+  if (!S.models) loadModelList().then(() => { if (S.revPane === 'ai') render(); });  // 모델 칸 추천 목록 (settings.js)
+  const made = revAiMade(L.items, L.style_model);
+  const mock = L.ai.stages.some((x) => x.use.source === 'mock');
+  const rows = L.ai.stages.map((x) => {
+    const id = `rev-ai-${x.stage}`;
+    const gone = x.use.source === 'gone';
+    const val = x.preset ? (gone ? 'gone' : `preset:${x.preset}`) : x.provider ? 'direct' : '';
+    const opts = `<option value=""${val === '' ? ' selected' : ''}>설정을 따름 · 지금 ${esc(revAiText(x.follow))}</option>
+      ${gone ? '<option value="gone" selected>지워진 프리셋 (설정을 따름)</option>' : ''}
+      ${L.ai.presets.length ? `<optgroup label="프리셋">${L.ai.presets.map((p) => `<option value="preset:${esc(p.id)}"${val === `preset:${p.id}` ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</optgroup>` : ''}
+      <option value="direct"${val === 'direct' ? ' selected' : ''}>직접 고르기</option>`;
+    const now = x.use.model || x.use.default;
+    const list = x.stage === 'plan' ? made.plan.map((m) => `<li>${esc(m.what)} · ${esc(m.model)}${now && x.use.provider !== 'mock' && m.model !== now ? ' <span class="chip warn" title="지금 고른 모델과 다른 모델로 만든 결과예요">다름</span>' : ''}</li>`).join('') : '';
+    const table = x.stage === 'write' && made.write.length ? `<div class="small">만든 결과 · 모델마다</div><div class="rev-scroll"><table class="sw-table rev-made"><thead><tr><th class="rev-l">AI 모델</th><th>화</th><th>판</th><th>가려 읽기</th><th>첫 읽기만</th></tr></thead><tbody>
+      ${made.write.map((m) => `<tr><td class="rev-l">${revTakeWho(m)}${m.provider ? '' : ' <span class="small" title="백엔드를 적기 전에 쓴 판이에요">· 백엔드 모름</span>'}${x.use.provider !== 'mock' && m.model === now && (!m.provider || m.provider === x.use.provider) ? ' <span class="chip">지금 고름</span>' : ''}</td>
+        <td>${revEpRange(m.eps)}</td><td>${m.n}판${m.style ? ` <span class="small">(문체 ${m.style})</span>` : ''}</td>
+        <td>원문 ${m.picks.original} · 판 ${m.picks.rewrite}${m.picks.wait ? ` <span class="chip warn">${m.picks.wait} 남음</span>` : ''}</td>
+        <td>${m.picks.first.original + m.picks.first.rewrite ? `원문 ${m.picks.first.original} · 판 ${m.picks.first.rewrite}` : '-'}</td></tr>`).join('')}</tbody></table></div>
+      <p class="small">'첫 읽기만'은 그 화의 원문을 처음 본 가려 읽기만 센 값이에요. 모델을 견줄 때는 이 칸이 덜 치우쳐요.</p>` : '';
+    const direct = val === 'direct' ? `<div class="seg" role="group" aria-label="${esc(x.label)} 백엔드">${REV_AI_PROVIDERS.map((k) => `<button type="button" aria-pressed="${x.provider === k}" data-action="revAiProv" data-arg="${x.stage}:${k}">${esc(WRITER_BACKEND[k])}</button>`).join('')}</div>
+        <div class="field"><label for="${id}-model">모델 <span class="hint">비우면 그 백엔드의 기본 모델${x.use.default ? ` (${esc(x.use.default)})` : ''}</span></label>
+          <input id="${id}-model" type="text" list="model-options" value="${esc(x.model)}" data-rev-ai-model="${x.stage}" placeholder="${esc(x.use.default || '기본 모델')}"></div>
+        ${x.provider === 'claude' ? '<div class="note info small">Claude 구독은 Canon 서버에 설치한 Claude Code로 불러요. 비용 추정은 API 가격표로 계산해요.</div>' : ''}` : '';
+    return `<div class="rev-ai-row"><div><h3>${esc(x.label)}</h3><p class="small">${x.stage === 'plan' ? '계획 단계 일이에요. 역설계는 화마다 한 번, 이야기 줄기와 문체 프로필은 실험에 한 번 불러요.' : '본문 단계 일이에요. 같은 화를 다른 모델로 써 보려면 여기서 바꾸고 새 판을 써요. 앞 모델의 판과 가려 읽기 결과는 남아요.'}</p></div>
+      <div class="rev-ai-pick"><div class="field"><label for="${id}">쓸 AI</label><select id="${id}" data-rev-ai="${x.stage}">${opts}</select></div>
+        ${direct}
+        <div class="small">지금 쓰는 AI: ${esc(revAiText(x.use))}</div>
+        ${list ? `<div class="small">만든 결과</div><ul class="rev-ul small">${list}</ul>` : ''}${table}</div></div>`;
+  }).join('');
+  return `<section class="card"><h2>AI 모델 <span class="small">이 실험의 AI 호출만 바꿔요</span></h2>
+    <p class="small">실험은 작품 밖이라 작품의 AI 프리셋을 쓰지 않아요. 고르지 않으면 설정 화면의 단계 칸을 따라요. 바꾸면 다음 작업부터 쓰고, 이미 만든 결과는 그대로 둬요.</p>
+    ${mock ? '<div class="note info small">설정의 AI가 mock이라 지금은 모든 작업이 mock으로 돌아요. 여기서 고른 값은 mock을 끄면 써요.</div>' : ''}
+    ${rows}${modelDatalist()}</section>`;
+}
+
+/** AI 고르기를 서버에 저장하고 실험을 다시 받는다. 비용 추정은 모델이 바뀌었으니 새로 잰다. */
+async function revAiSave(stage, body) {
+  const id = S.revLab.id;
+  try {
+    S.revLab = await api('PUT', `/revlab/${id}/ai`, { stage, ...body });
+    S.revEsts = {};
+    const x = revAiStage(stage);
+    toast(`${x ? x.label : ''} AI를 ${revAiText(x && x.use)}${josa(revAiText(x && x.use), '으로', '로')} 바꿨어요.`);
+  } catch (e) {
+    showError(e);
+  }
+  render();
 }
 
 function revLinesCard() {
@@ -760,12 +900,13 @@ function revLinesCard() {
 function revMetricsAll() {
   const L = S.revLab;
   const eps = L.items.filter((e) => (e.scores || []).length > 1);
-  if (!eps.length) return '<section class="card empty"><h2>지표 모아 보기</h2><p>되돌려 쓰고 가려 읽기를 마친 화가 생기면 원문과 지표를 나란히 모아 보여 드려요.</p></section>';
+  if (!eps.length) return '<section class="card empty"><h2>지표 모아 보기</h2><p>되돌려 쓰고 가려 읽기를 마친 판이 생기면 원문과 판마다의 지표를 나란히 모아 보여 드려요.</p></section>';
   const body = eps.map((e) => {
     const m = revMetricRows(e.scores);
-    const pick = e.picked ? (e.picked === 'skip' ? '고르지 않음' : e.picked === 'original' ? '원문을 고름' : '되돌려 쓴 글을 고름') : '';
+    const c = revTakePicks(e);
+    const pick = `${e.takes.length}판 · 가려 읽기 원문 ${c.original} · 판 ${c.rewrite}${c.wait ? ` · ${c.wait} 남음` : ''}`;
     return `<tr class="rev-mx-ep"><th colspan="${m.heads.length + 1}"><button type="button" class="btn small ghost" data-action="revGo" data-arg="${e.number}|write">${e.number}화${revEpTitle(e) ? ` ${esc(revEpTitle(e))}` : ''}</button> <span class="small">${pick}</span></th></tr>
-      <tr><td></td>${m.heads.map((h) => `<th>${esc(h.label)}</th>`).join('')}</tr>
+      <tr><td></td>${e.scores.map(revScoreHead(e)).join('')}</tr>
       ${m.rows.map((r) => `<tr><td>${esc(r.label)}</td>${r.cells.map((c) => `<td${c.far ? ' class="rev-far"' : ''}>${esc(c.text)}</td>`).join('')}</tr>`).join('')}`;
   }).join('');
   return `<section class="card"><div class="between"><h2>지표 모아 보기</h2><span class="small">원문과 ${Math.round(REV_FAR * 100)}% 넘게 다른 값은 굵게 보여요</span></div>
@@ -879,44 +1020,90 @@ function revCueCard(e, orig) {
 }
 
 /** 되돌려 쓰기 탭: 가려 읽기 → (고른 뒤) 지표 견주기 · 나란히 읽기 → 다시 쓰기. */
+/** 지표 표 머리 칸: 원문, 또는 '판 N' 과 모델 · 문체 두 줄 (시트가 바뀐 판은 칩). */
+const revScoreHead = (e) => (sc) => {
+  if (sc.condition === 'original') return '<th>원문</th>';
+  const t = (e.takes || []).find((x) => x.no === sc.take) || {};
+  return `<th class="rev-th2"><span>${esc(sc.label)}</span><span class="small">${esc(t.model || '')}${t.style ? ` · 문체${t.style_id ? ` ${t.style_id}번` : ''}` : ''}</span>${sc.stale ? '<span class="chip">시트 바뀜</span>' : ''}${revStyleTag(t) ? `<span class="chip">${esc(revStyleTag(t))}</span>` : ''}</th>`;
+};
+
+const REV_TAKE_PICK = { original: '원문 고름', rewrite: '이 판 고름', skip: '고르지 않음' };
+
+/** 판 목록의 가려 읽기 칸. 원문을 처음 본 가려 읽기면 '첫 읽기', 앞서 원문을 본 뒤면 '원문 본 뒤'. */
+function revTakePickHtml(b) {
+  if (b.state === 'wait') return '<span class="chip warn">가려 읽기 남음</span>';
+  if (b.state !== 'done') return '-';
+  const what = b.picked === 'rewrite' ? '<strong>이 판 고름</strong>' : esc(REV_TAKE_PICK[b.picked] || '-');
+  return `${what}${b.seen ? ' <span class="small" title="이 화의 원문을 앞선 가려 읽기에서 본 뒤에 고른 결과예요">· 원문 본 뒤</span>' : b.picked !== 'skip' ? ' <span class="chip ok">첫 읽기</span>' : ''}`;
+}
+
+const revTakeWho = (t) => `${esc(t.model || '모델 모름')}${t.provider && t.provider !== 'mock' ? ` <span class="small">· ${esc(WRITER_BACKEND[t.provider] || t.provider)}</span>` : ''}`;
+
 function revWriteTab(e) {
   const L = S.revLab;
   const takes = e.takes || [];
   const parts = [];
-  if (e.blind_texts.length) {
-    parts.push(`<section class="card"><h3>가려 읽기</h3><div class="note info">어느 쪽이 원문인지 숨겼어요. 둘 다 읽고 더 이어 읽고 싶은 쪽을 고르세요. 고르면 어느 쪽인지와 지표를 보여 드려요.</div>
+  const wait = takes.find((t) => t.no === e.blind_no);
+  const c = revTakePicks(e);
+  if (wait) {
+    parts.push(`<section class="card"><div class="between"><h3>가려 읽기 · 판 ${wait.no}</h3><span class="small">${c.wait > 1 ? `이 화에 ${c.wait}판 남음 · ` : ''}고르면 어느 쪽인지와 지표를 보여 드려요</span></div>
+      <div class="note info">어느 쪽이 원문인지 숨겼어요. 둘 다 읽고 더 이어 읽고 싶은 쪽을 고르세요.</div>
+      ${c.original + c.rewrite + c.skip ? `<div class="note warn small">이 화의 원문을 앞선 가려 읽기 ${c.original + c.rewrite + c.skip}번에서 이미 봤어요. 이번 결과는 '원문 본 뒤'로 따로 세요.</div>` : ''}
       <div class="rev-blind">${e.blind_texts.map((x, i) => `<div class="rev-blind-col"><h4>${i + 1}번</h4><div class="cue-text rev-read">${esc(x)}</div>
         <button type="button" class="btn" data-action="revPick" data-arg="${i + 1}">${i + 1}번이 더 읽고 싶어요</button></div>`).join('')}</div>
       <div class="row"><button type="button" class="btn ghost" data-action="revPick" data-arg="0">고르지 않고 결과 보기</button></div></section>`);
-  } else if (e.picked) {
-    const what = (x) => (x === 'original' ? '원문' : (takes.find((t) => t.mode === e.blind_take) || { label: '되돌려 쓴 글' }).label);
-    parts.push(`<div class="note ok">가려 읽기: ${e.picked === 'skip' ? '고르지 않았어요.' : `<strong>${esc(what(e.picked))}</strong>을 골랐어요. ${e.blind.map((x, i) => `${i + 1}번은 ${esc(what(x))}`).join(', ')}이었어요.`}</div>`);
   }
-  if (!e.blind_texts.length && (e.scores || []).length > 1) {  // 가려 읽는 동안에는 지표(글자 수)를 숨긴다
+  const busy = !!revRunning();
+  if (takes.length) {
+    const rows = [...takes].reverse().map((t) => `<tr${t.blind.state === 'wait' ? ' class="rev-muted"' : ''}>
+        <td class="rev-l"><strong>판 ${t.no}</strong>${t.stale ? ' <span class="chip" title="쓴 뒤 큐 시트가 바뀌었어요">시트 바뀜</span>' : ''}</td>
+        <td class="rev-l rev-take-who">${revTakeWho(t)} <span class="chip">${revTakeStyle(t)}</span>${revStyleTag(t) ? ` <span class="chip" title="지금 프로필과 다른 프로필로 썼어요">${esc(revStyleTag(t))}</span>` : ''}</td>
+        <td>${esc(fmtDateTime(t.at))}</td><td>${t.chars.toLocaleString()}</td><td class="rev-l rev-take-pick">${revTakePickHtml(t.blind)}</td>
+        <td class="rev-l"><span class="row rev-take-acts">${t.text ? `<button type="button" class="btn small ghost" data-action="revReadTake" data-arg="${t.no}">읽기</button>` : '<span class="small">가려 읽은 뒤</span>'}
+          <button type="button" class="btn small ghost" data-action="revTakeDrop" data-arg="${t.no}" aria-label="판 ${t.no} 지우기"${busy ? ' disabled' : ''}>지우기</button></span></td></tr>`).join('');
+    const models = new Set(takes.map((t) => t.model)).size;
+    parts.push(`<section class="card"><div class="between"><h3>되돌려 쓴 판 <span class="small">${takes.length} / ${e.limit}판${models > 1 ? ` · 모델 ${models}개` : ''}</span></h3>
+        <span class="small">다시 써도 앞 판은 남아요</span></div>
+      <div class="rev-scroll"><table class="sw-table rev-takes"><thead><tr><th class="rev-l">판</th><th class="rev-l">AI 모델 · 문체</th><th>쓴 때</th><th>글자</th><th class="rev-l">가려 읽기</th><th><span class="sr-only">동작</span></th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+      <p class="small">'첫 읽기'는 이 화의 원문을 처음 본 가려 읽기예요. 그 뒤의 고르기는 원문을 알아볼 수 있어 '원문 본 뒤'로 따로 세요.</p></section>`);
+  }
+  if ((e.scores || []).length > 1) {
     const m = revMetricRows(e.scores);
     parts.push(`<section class="card"><div class="between"><h3>지표 견주기</h3><span class="small">원문과 ${Math.round(REV_FAR * 100)}% 넘게 다른 값은 굵게 보여요</span></div>
-      <div class="rev-scroll"><table class="sw-table rev-mx"><thead><tr><th></th>${m.heads.map((h) => `<th>${esc(h.label)}${h.stale ? ' <span class="chip">시트 바뀜</span>' : ''}${h.styleTag ? ` <span class="chip">${esc(h.styleTag)}</span>` : ''}</th>`).join('')}</tr></thead>
-      <tbody>${m.rows.map((r) => `<tr><td>${esc(r.label)}</td>${r.cells.map((c) => `<td${c.far ? ' class="rev-far"' : ''}>${esc(c.text)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
-      <p class="small">핵심 대사는 큐 시트의 대사가 글자 그대로 들어간 수예요. 템포는 원문만 큐 경계로 나눠 재요 (빠른 큐의 문장이 느린 큐보다 짧은지).</p></section>`);
+      ${c.wait ? `<div class="note plain small">가려 읽기가 남은 판은 고른 뒤에 표에 들어가요.</div>` : ''}
+      <div class="rev-scroll"><table class="sw-table rev-mx rev-mx-wide"><thead><tr><th></th>${e.scores.map(revScoreHead(e)).join('')}</tr></thead>
+      <tbody>${m.rows.map((r) => `<tr><td>${esc(r.label)}</td>${r.cells.map((x) => `<td${x.far ? ' class="rev-far"' : ''}>${esc(x.text)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+      <p class="small">핵심 대사는 큐 시트의 대사가 글자 그대로 들어간 수예요. 템포는 원문만 큐 경계로 나눠 재요 (빠른 큐의 문장이 느린 큐보다 짧은지). 문체 거리는 이 화를 뺀 원문으로 만든 기준까지 어미 분포 거리예요. 1.0 이면 원문의 다른 대목만큼 가까워요. 옮김은 원문 · 장치 예시와 공백 빼고 12자 이상 똑같이 이어지는 문장 수예요. 판이 많으면 표를 옆으로 밀어 봐요.</p>
+      ${m.notes.map((x) => `<p class="small">${esc(x)}</p>`).join('')}</section>`);
   }
   const shown = takes.filter((t) => t.text);
-  if (!e.blind_texts.length && shown.length) {
-    const t = shown.find((x) => x.mode === S.revRead) || shown[0];
-    const seg = shown.length > 1 ? `<div class="seg" role="group" aria-label="오른쪽에 둘 판">${shown.map((x) => `<button type="button" aria-pressed="${x === t}" data-action="revRead" data-arg="${x.mode}">${x.mode === 'style' ? '문체 넣고' : '문체 없이'}</button>`).join('')}</div>` : '';
-    parts.push(`<section class="card"><div class="between"><h3>나란히 읽기</h3>${seg}</div>
-      <div class="rev-blind"><div class="rev-blind-col"><div class="small"><strong>원문</strong> · ${e.chars.toLocaleString()}자</div><div class="cue-text rev-read">${esc(e.text)}</div></div>
-        <div class="rev-blind-col"><div class="small"><strong>${esc(t.label)}</strong> · ${t.text.length.toLocaleString()}자 · ${esc(t.model)} · ${esc(fmtDateTime(t.at))}${t.stale ? ' · 그 뒤 큐 시트를 고쳤어요' : ''}${revStyleTag(t) ? ` · ${esc(revStyleTag(t))}로 썼어요 (지금은 ${S.revLab.style_id ? `${S.revLab.style_id}번` : '고른 프로필 없음'})` : ''}</div><div class="cue-text rev-read">${esc(t.text)}</div></div></div></section>`);
+  if (shown.length) {
+    const side = (v) => (v === 'original' ? 'original' : shown.find((t) => t.no === Number(v)) ? Number(v) : null);
+    const a = side(S.revRead.a) ?? 'original';
+    const b = side(S.revRead.b) ?? shown[shown.length - 1].no;
+    const opt = (sel) => `<option value="original"${sel === 'original' ? ' selected' : ''}>원문</option>${shown.map((t) => `<option value="${t.no}"${sel === t.no ? ' selected' : ''}>판 ${t.no} · ${esc(t.model)}${t.style ? ` · ${revTakeStyle(t)}` : ''}</option>`).join('')}`;
+    const col = (v) => {
+      if (v === 'original') return `<div class="rev-blind-col"><div class="small"><strong>원문</strong> · ${e.chars.toLocaleString()}자</div><div class="cue-text rev-read">${esc(e.text)}</div></div>`;
+      const t = shown.find((x) => x.no === v);
+      return `<div class="rev-blind-col"><div class="small"><strong>판 ${t.no}</strong> · ${t.text.length.toLocaleString()}자 · ${revTakeWho(t)} · ${esc(fmtDateTime(t.at))}${t.stale ? ' · 쓴 뒤 큐 시트가 바뀌었어요' : ''}${t.style ? ` · ${revTakeStyle(t)}` : ''}${revStyleTag(t) ? ` (지금은 ${S.revLab.style_id ? `${S.revLab.style_id}번` : '고른 프로필 없음'})` : ''}</div><div class="cue-text rev-read">${esc(t.text)}</div></div>`;
+    };
+    parts.push(`<section class="card" id="rev-side"><div class="between"><h3>나란히 읽기</h3>
+        <span class="row rev-read-picks"><label class="small" for="rev-read-a">왼쪽</label><select id="rev-read-a" data-rev-read="a">${opt(a)}</select>
+          <label class="small" for="rev-read-b">오른쪽</label><select id="rev-read-b" data-rev-read="b">${opt(b)}</select></span></div>
+      <div class="rev-blind">${col(a)}${col(b)}</div></section>`);
   }
   const style = !!(S.revStyle && L.style);
-  const est = revEst('write', [e.number], style);
-  const busy = !!revRunning();
-  const again = takes.some((x) => x.mode === (style ? 'style' : 'plain'));
-  parts.push(`<section class="card${takes.length ? ' tight' : ''}"><h3>${takes.length ? '다시 쓰기' : '되돌려 쓰기'}</h3>
-    <p class="small">역설계한 플롯 · 스토리보드 · 큐 시트와 인물 · 관계 · 호칭 · 배경만 주고(이 화 원문 문장은 주지 않음) 같은 화를 써요. 앞 화는 원문을 반영한 화로 둬요. 문체를 넣은 판과 넣지 않은 판을 하나씩 남기고, 같은 판을 다시 쓰면 바꾸고 가려 읽기를 새로 해요.</p>
+  const full = takes.length >= e.limit;
+  const est = full ? null : revEst('write', [e.number], style);
+  parts.push(`<section class="card${takes.length ? ' tight' : ''}"><h3>${takes.length ? '새 판 쓰기' : '되돌려 쓰기'}</h3>
+    <p class="small">역설계한 플롯 · 스토리보드 · 큐 시트와 인물 · 관계 · 호칭 · 배경만 주고(이 화 원문 문장은 주지 않음) 같은 화를 써요. 앞 화는 원문을 반영한 화로 둬요. 새 판은 목록에 더하고 앞 판은 그대로 두며, 원문과 가려 읽기를 따로 해요.</p>
+    ${revAiLine('write')}
     ${cueEd().dirty ? '<div class="note warn small">저장하지 않은 큐 시트 고침이 있어요. 되돌려 쓰기는 저장한 큐 시트로 해요.</div>' : ''}
+    ${full ? `<div class="note warn small">이 화에 판이 ${e.limit}개예요. 새로 쓰려면 위 판 목록에서 지울 판을 고르세요.</div>` : ''}
     <div class="row"><label class="check-row small"><input type="checkbox" data-rev-style="1"${style ? ' checked' : ''}${L.style ? '' : ' disabled'}><span>문체 프로필${L.style ? `(${L.style_id}번)` : ''} 넣기${L.style ? '' : (L.style_list || []).length ? ' (문체 프로필을 먼저 고르세요)' : ' (문체 프로필을 먼저 만드세요)'}</span></label>
-      <button type="button" class="btn" data-action="revWrite" data-arg="${e.number}"${est && !busy ? '' : ' disabled'}>${revCost(`${again ? '다시 쓰기' : '되돌려 쓰기 시작'}${style ? ' (문체 넣고)' : ''}`, est)}</button></div>
-    ${revEstErr('write', [e.number], style) ? `<div class="note err small">비용을 재지 못했어요: ${esc(revEstErr('write', [e.number], style))}</div>` : ''}
+      <button type="button" class="btn" data-action="revWrite" data-arg="${e.number}"${est && !busy && !full ? '' : ' disabled'}>${full ? `판 ${e.next_take} 쓰기` : revCost(`판 ${e.next_take} 쓰기${style ? ' (문체 넣고)' : ''}`, est)}</button></div>
+    ${!full && revEstErr('write', [e.number], style) ? `<div class="note err small">비용을 재지 못했어요: ${esc(revEstErr('write', [e.number], style))}</div>` : ''}
     ${revEstHtml(est)}</section>`);
   return parts.join('');
 }
@@ -925,14 +1112,7 @@ document.addEventListener('input', (e) => {
   const d = e.target.dataset || {};
   if (d.revNew) {
     S.revDraft[d.revNew] = e.target.value;
-    const box = document.getElementById('rev-preview');
-    if (box) box.innerHTML = revPreviewHtml();
-    const count = document.getElementById('rev-count');
-    if (count) count.textContent = S.revDraft.text ? `· ${S.revDraft.text.length.toLocaleString()}자` : '';
-    const num = document.getElementById('rev-first');
-    if (num) num.placeholder = revGuessFirst(S.revDraft.title, S.revDraft.text);
-    const btn = document.querySelector('[data-action="revCreate"]');
-    if (btn) btn.disabled = !!revPreview(S.revDraft.text, S.rev).errs.length;
+    revNewRefresh();
   }
   if (d.revEp && S.revEpEdit) {
     S.revEpEdit[d.revEp] = e.target.value;
@@ -941,22 +1121,61 @@ document.addEventListener('input', (e) => {
   }
   if (d.revAdd) {
     S.revAdd = e.target.value;
-    const box = document.getElementById('rev-apreview');
-    if (box) box.innerHTML = revAddPreviewHtml();
-    const count = document.getElementById('rev-acount');
-    if (count) count.textContent = S.revAdd ? `· ${S.revAdd.length.toLocaleString()}자` : '';
-    const v = revAppendPreview(S.revAdd, S.rev, revHave(S.revLab));
-    const btn = document.querySelector('[data-action="revAppend"]');
-    if (btn) {
-      btn.disabled = !!v.errs.length || !!revRunning();
-      btn.textContent = revAddLabel(v);
-    }
+    revAddRefresh();
   }
 });
+
+/** 새 실험 칸의 미리보기 · 글자 수 · 첫 화 번호 · 만들기 버튼만 다시 그린다 (입력 중에는 화면 전체를 그리지 않는다). */
+function revNewRefresh() {
+  const box = document.getElementById('rev-preview');
+  if (box) box.innerHTML = revPreviewHtml();
+  const count = document.getElementById('rev-count');
+  if (count) count.textContent = S.revDraft.text ? `· ${S.revDraft.text.length.toLocaleString()}자` : '';
+  const num = document.getElementById('rev-first');
+  if (num) num.placeholder = revGuessFirst(S.revDraft.title, S.revDraft.text);
+  const btn = document.querySelector('[data-action="revCreate"]');
+  const v = revPreview(S.revDraft.text, S.rev);
+  if (btn) btn.disabled = !!v.errs.length || !!v.pending;
+}
+
+function revAddRefresh() {
+  if (S.revAdd === null) return;
+  const box = document.getElementById('rev-apreview');
+  if (box) box.innerHTML = revAddPreviewHtml();
+  const count = document.getElementById('rev-acount');
+  if (count) count.textContent = S.revAdd ? `· ${S.revAdd.length.toLocaleString()}자` : '';
+  const v = revAppendPreview(S.revAdd, S.rev, revHave(S.revLab));
+  const btn = document.querySelector('[data-action="revAppend"]');
+  if (btn) {
+    btn.disabled = !!v.errs.length || !!v.pending || !!revRunning();
+    btn.textContent = revAddLabel(v);
+  }
+}
+
+/** 서버가 나눈 값이 오면 보이는 미리보기를 다시 그린다. */
+function revSplitDone() {
+  if (S.route[0] !== 'revlab') return;
+  if (document.getElementById('rev-preview')) revNewRefresh();
+  if (document.getElementById('rev-apreview')) revAddRefresh();
+}
 
 document.addEventListener('change', (e) => {
   const d = e.target.dataset || {};
   if (d.revStyle !== undefined) { S.revStyle = e.target.checked; render(); return; }
+  if (d.revRead) { S.revRead = { ...S.revRead, [d.revRead]: e.target.value === 'original' ? 'original' : Number(e.target.value) }; render(); return; }
+  if (d.revAi) {
+    const v = e.target.value;
+    const x = revAiStage(d.revAi);
+    if (v === 'gone') return;
+    if (v === 'direct') revAiSave(d.revAi, { provider: (x && (x.provider || (x.follow.provider !== 'mock' && x.follow.provider))) || 'gemini' });
+    else revAiSave(d.revAi, v.startsWith('preset:') ? { preset: v.slice(7) } : {});
+    return;
+  }
+  if (d.revAiModel) {
+    const x = revAiStage(d.revAiModel);
+    if (x && x.provider) revAiSave(d.revAiModel, { provider: x.provider, model: e.target.value });
+    return;
+  }
   if (d.revAll !== undefined) {
     const can = S.revLab.items.filter((x) => x.chars >= S.rev.min_chars).map((x) => x.number);
     S.revPick = new Set(e.target.checked ? can : []);
@@ -988,7 +1207,8 @@ JOB_DONE_MSG.rev_parse = (j) => {
 };
 JOB_DONE_MSG.rev_write = (j) => {
   revJobDone(j);
-  return `${(j.result || {}).episode || ''}화 되돌려 쓰기${(j.result || {}).style ? '(문체 넣음)' : ''}가 끝났어요. 가려 읽고 골라 보세요.`;
+  const r = j.result || {};
+  return `${r.episode || ''}화 판 ${r.take || ''}${r.style ? '(문체 넣음)' : ''}을 썼어요. 가려 읽고 골라 보세요.`;
 };
 JOB_DONE_MSG.rev_style = (j) => {
   revJobDone(j);
@@ -1114,6 +1334,12 @@ Object.assign(actions, {
     else S.focusTarget = '#rev-title';
     render();
   },
+  revAiProv(arg) {
+    const [stage, provider] = String(arg).split(':');
+    const x = revAiStage(stage);
+    if (x && x.provider === provider) return;
+    revAiSave(stage, { provider });  // 백엔드를 바꾸면 모델 칸은 비워 그 백엔드의 기본 모델을 쓴다
+  },
   revStyleRun() {
     S.revStyleDiff = null;
     revStartJob('style');
@@ -1158,12 +1384,27 @@ Object.assign(actions, {
     revStartJob('write', { episodes: [k], style: !!(S.revStyle && S.revLab.style) });
   },
   async revPick(k) {
+    const e = revItem(S.revEp);
     await run('고르는 중', async () => {
-      S.revLab = await api('POST', `/revlab/${S.revLab.id}/episodes/${S.revEp}/pick`, { choice: Number(k) });
+      S.revLab = await api('POST', `/revlab/${S.revLab.id}/episodes/${S.revEp}/pick`, { choice: Number(k), take: e ? e.blind_no : null });
+    });
+  },
+  /** 판 목록의 '읽기': 나란히 읽기 오른쪽에 그 판을 놓고 그 칸으로 내려간다 */
+  revReadTake(no) {
+    S.revRead = { ...S.revRead, b: Number(no) };
+    render();
+    const box = document.getElementById('rev-side');
+    if (box) box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+  async revTakeDrop(no) {
+    const n = S.revEp;
+    if (!(await askConfirm(`${n}화의 판 ${no}을 지울까요? 본문과 가려 읽기 결과가 함께 사라지고 되돌릴 수 없어요.`, { ok: '판 지우기', danger: true }))) return;
+    await run('지우는 중', async () => {
+      S.revLab = await api('DELETE', `/revlab/${S.revLab.id}/episodes/${n}/takes/${no}`);
+      S.revEsts = {};
     });
   },
   revTab(k) { S.revTab = k; render(); },
-  revRead(k) { S.revRead = k; render(); },
   /** 'n|탭': 그 화의 그 탭으로 */
   revGo(arg) {
     const [n, tab] = String(arg).split('|');
@@ -1258,6 +1499,24 @@ Object.assign(actions, {
 .rev-tile { color: inherit; text-decoration: none; }
 .rev-tile:hover { border-color: var(--sel-line); background: var(--sel-bg); }
 .rev-tile p { color: var(--text-2); }
+.rev-takes td, .rev-takes th { white-space: nowrap; }
+.rev-takes td.rev-take-pick { white-space: normal; min-width: 120px; }
+.rev-takes td.rev-take-who { white-space: normal; min-width: 120px; }
+.rev-takes tr.rev-muted td { color: var(--text-2); }
+.rev-take-acts { gap: 4px; flex-wrap: wrap; }
+.rev-takes td:last-child { white-space: normal; }
+.rev-th2 { vertical-align: bottom; }
+.rev-th2 > span { display: block; }
+.rev-mx-wide td:first-child { position: sticky; left: 0; background: var(--surface); }
+.rev-read-picks { gap: 6px; flex-wrap: wrap; }
+.rev-read-picks select { max-width: 260px; }
+.rev-made td, .rev-made th { white-space: nowrap; }
+.rev-ai-row { display: grid; grid-template-columns: minmax(180px, 220px) 1fr; gap: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.rev-ai-row h3 { margin: 0 0 4px; }
+.rev-ai-pick { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.rev-ai-pick .seg { flex-wrap: wrap; align-self: flex-start; max-width: 100%; }
+.rev-ai-pick .seg button { white-space: nowrap; }
+@container outline (max-width: 720px) { .rev-ai-row { grid-template-columns: 1fr; } }
 .btn .cost { font-weight: 400; opacity: 0.85; }
 .rev-fields { display: flex; flex-wrap: wrap; gap: 12px; }
 .rev-f-title { flex: 3 1 260px; }

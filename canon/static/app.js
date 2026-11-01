@@ -79,6 +79,20 @@ function rememberRemoved(label, paths) {
 const STATUS = { draft: '초안', confirmed: '확정', written: '작성됨', finalized: '반영 완료' };
 const ACTS = ['기', '승', '전', '결'];
 
+// 본문을 쓴 모델 글자. 값은 Episode.written_by · TextVersion.model 의 '<백엔드>:<모델>'(usage.model_id) 또는 'import'. 모르면 빈 글
+const WRITER_BACKEND = { gemini: 'Gemini', local: '로컬', claude: 'Claude 구독', 'claude-api': 'Claude API' };
+function writerLabel(w) {
+  const v = String(w || '').trim();
+  if (!v) return '';
+  if (v === 'import') return '채팅 앱에서 가져옴';
+  if (v === 'mock:mock') return 'mock';
+  const i = v.indexOf(':');
+  if (i < 0) return v;
+  const back = WRITER_BACKEND[v.slice(0, i)] || v.slice(0, i);
+  const model = v.slice(i + 1);
+  return model && model !== 'default' ? `${model} · ${back}` : back;
+}
+
 // ---------- 공통 ----------
 
 const $ = (s) => document.querySelector(s);
@@ -1764,9 +1778,10 @@ async function routeNow() {
     }
     if (!S.genres) S.genres = await api('GET', '/genres').catch(() => []);
     if (!S.namingStyles) S.namingStyles = await api('GET', '/naming/styles').catch(() => []);
-    if (['usage', 'revlab', 'soelab', 'styles'].includes(parts[0])) {  // 작품 밖 사이드바의 최근 작품 · 문체 수 (처음 한 번만, 작품 목록에 오면 다시 읽는다)
+    if (['usage', 'revlab', 'soelab', 'styles', 'refs'].includes(parts[0])) {  // 작품 밖 사이드바의 최근 작품 · 문체 · 원고 수 (처음 한 번만, 작품 목록에 오면 다시 읽는다)
       if (!S.projects) S.projects = await api('GET', '/projects').catch(() => null);
       if (!S.libs) S.libs = await api('GET', '/styles').catch(() => null);
+      if (!S.refList) S.refList = await api('GET', '/refs').then((r) => r.refs).catch(() => null);
     }
     if (parts[0] === 'usage') {
       S.name = null;
@@ -1780,18 +1795,26 @@ async function routeNow() {
       S.name = null;
       S.project = null;
       await soeLoad(parts[1], parts[2]);
+    } else if (parts[0] === 'refs') {
+      S.name = null;
+      S.project = null;
+      await refLoad(parts[1], parts[2]);
     } else if (parts[0] === 'styles') {
       S.name = null;
       S.project = null;
       S.libs = await api('GET', '/styles');
       if (parts[1] === 'new') {
-        S.lib = { name: '', source: '', notes: '', sample: '', profile: emptyProfile(), used_by: [] };
+        // 레퍼런스 원고의 '문체 만들기'에서 오면 고른 화 원문과 출처를 넣어 둔다 (refs.js refToStyle)
+        const from = S.libFromRef;
+        S.libFromRef = null;
+        S.lib = { name: from ? from.name : '', source: from ? from.source : '', notes: '', sample: from ? from.text : '', profile: emptyProfile(), used_by: [],
+          ref: from ? from.ref : '', ref_eps: from ? from.eps : '' };
       } else if (parts[1]) {
         S.lib = await api('GET', `/styles/${enc(parts[1])}`);
         S.projects = await api('GET', '/projects');
         await libVersionsLoad();
       }
-      S.libDirty = false;
+      S.libDirty = !!S.lib.ref;  // 원고에서 가져온 원문은 저장 전까지 이 화면에만 있다
     } else if (parts[0] === 'p' && parts[1]) {
       if (S.name !== parts[1] || S.dirty) await loadProject(parts[1]);
       else S.project = await api('GET', `/projects/${enc(parts[1])}`);
@@ -1873,6 +1896,7 @@ async function routeNow() {
       S.project = null;
       S.projects = await api('GET', '/projects');
       S.libs = await api('GET', '/styles').catch(() => []);
+      S.refList = await api('GET', '/refs').then((r) => r.refs).catch(() => null);
       if (parts[0] === 'new') S.focusTarget = '#np-title';  // 사이드바 '새 작품'(#/new): 작품 목록 위에 새 작품 칸을 펴고 제목 칸으로
     }
   } catch (e) {
@@ -2002,6 +2026,7 @@ function drawApp() {
   if (p === 'usage') return outside('usage', 1180, viewUsage());
   if (p === 'revlab') return outside('revlab', 1280, viewRev());
   if (p === 'soelab') return outside('soelab', 1280, viewSoe());
+  if (p === 'refs') return outside('refs', 1280, viewRefs());
   if (p === 'styles') return outside('styles', 1180, S.route[1] && S.lib ? viewLibEntry() : viewLibrary());
   if (S.loadError) {
     // 작품을 읽지 못한 화면도 작품 밖 사이드바 안에 그린다 (900px 이하 위쪽 띠의 메뉴 · 알림 · 찾기가 남는다)
@@ -2144,7 +2169,7 @@ function navItems() {
     auto: ['auto', base() + '/auto', '🤖', autoMenuLabel()],
     tools,
     apart: [['research', base() + '/research', '🔬', '연구 · 모델 실험'], ['cue', base() + '/cue', '🎼', '큐 시트 집필 실험'], ['revlab', '#/revlab', '🔁', '역설계 실험'], ['soelab', '#/soelab', '🧪', '쇠맛 실험실'], ['usage', base() + '/usage', '💰', '사용량 · 비용']],
-    foot: [['#/settings', '설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/revlab', '역설계 실험'], ['#/soelab', '쇠맛 실험실'], ['#/', '작품 목록']],
+    foot: [['#/settings', '설정'], ['#/usage', '모든 작품 사용량 · 비용'], ['#/styles', '문체 라이브러리'], ['#/refs', '레퍼런스 원고'], ['#/revlab', '역설계 실험'], ['#/soelab', '쇠맛 실험실'], ['#/', '작품 목록']],
   };
 }
 
@@ -2301,7 +2326,7 @@ function sidebar(active) {
 /** 작품 밖 사이드바의 항목 (순수 함수, tests/test_sidebar_js.py). list 작품 목록(GET /projects, 고친 때 순서), libs 문체 라이브러리.
     main: 작품 목록 · 새 작품 · 새 플레이, alerts · fails: 모든 작품의 확인할 것 수 · 그 가운데 멈춘 작업 수, recent: 최근 작품 셋(플레이 사본 빼고, 기호는 제목 첫 글자, 멈춘 작업 수 · 결과 수),
     tools: 작품 밖 도구 [id, 주소, 기호, 이름, 배지 글자]. 주소가 빈 도구는 아직 열지 않은 화면이다 */
-function outNav(list = [], libs = []) {
+function outNav(list = [], libs = [], refList = []) {
   const works = list.filter((x) => !x.play);
   const alerts = (x) => x.alerts || [];
   return {
@@ -2310,7 +2335,8 @@ function outNav(list = [], libs = []) {
       fail: alerts(x).filter((a) => a.kind === 'fail').length, result: alerts(x).filter((a) => a.kind === 'result').length })),
     alerts: list.reduce((k, x) => k + alerts(x).length, 0),
     fails: list.reduce((k, x) => k + alerts(x).filter((a) => a.kind === 'fail').length, 0),
-    tools: [['styles', '#/styles', '🖋️', '문체 라이브러리', libs.length ? String(libs.length) : ''], ['revlab', '#/revlab', '🔁', '역설계 실험', ''],
+    tools: [['styles', '#/styles', '🖋️', '문체 라이브러리', libs.length ? String(libs.length) : ''], ['refs', '#/refs', '📑', '레퍼런스 원고', refList.length ? String(refList.length) : ''],
+      ['revlab', '#/revlab', '🔁', '역설계 실험', ''],
       ['soelab', '#/soelab', '🧪', '쇠맛 실험실', ''], ['usage', '#/usage', '💰', '사용량 · 비용', '']],
   };
 }
@@ -2318,7 +2344,7 @@ function outNav(list = [], libs = []) {
 /** 작품 밖 화면(작품 목록 · 새 작품 · 사용량 · 문체 라이브러리 · 역설계 실험)의 사이드바. 작품 사이드바와 같은 틀(맨 위 줄 · 레일 · 900px 이하 띠와 서랍 · 아래 고정 줄)에
     작품 칸 대신 작품 밖 메뉴: 작품 목록 · 새 작품 · 새 플레이, 최근 작품, 작품 밖 도구. active 는 지금 화면 id */
 function outSidebar(active) {
-  const { main, recent, alerts, fails, tools } = outNav(S.projects || [], S.libs || []);
+  const { main, recent, alerts, fails, tools } = outNav(S.projects || [], S.libs || [], S.refList || []);
   const link = (item, badge = '') => navLink(item, active, badge);
   const recentLinks = recent.map((r) => link([`p:${r.name}`, r.href, r.mark, esc(r.label)],
     r.fail ? navBadge(r.fail, `멈춘 작업 ${r.fail}개`, 'red') : r.result ? navBadge('결과', '검토를 기다리는 결과가 있어요', 'amber') : '')).join('');
