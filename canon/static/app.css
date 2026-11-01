@@ -796,7 +796,9 @@ body.chat-open .savebar { left: calc(50% - 220px); }
 .rs-table td.over { background: var(--red-soft); color: var(--red); font-weight: 700; }
 .rs-table td.tight { background: var(--amber-soft); color: var(--amber-ink); font-weight: 700; }
 .rs-prose { max-height: 480px; overflow: auto; padding: var(--space-12) var(--space-14); border-radius: var(--radius-8); background: var(--bg); font-family: var(--serif); font-size: 0.9375rem; line-height: 1.9; white-space: pre-wrap; word-break: break-word; }
-.rs-compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: var(--gap-stack); }
+/* 가려 읽기 (research.js blindDeck): 탭으로 한 안씩, 본문은 화면 높이에 맞춰 길게 */
+.blind { display: flex; flex-direction: column; gap: var(--space-12); }
+.blind .blind-prose { max-height: 70vh; }
 .rs-picked { border: 2px solid var(--green); }
 .rs-log { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
 .rs-log li { padding: var(--space-10) 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: var(--space-4); font-size: 0.8125rem; }
