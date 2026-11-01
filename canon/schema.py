@@ -97,7 +97,7 @@ class Character(BaseModel):
     age: str = ""
     gender: str = Field("", description="남 / 여, 정하지 않았으면 빈칸")
     appearance: str = ""
-    personality: str = ""
+    personality: str = Field("", description="겉 태도와 속마음이 함께 보이는 성격 1~2문장. 형용사 나열 대신, 어떤 상황에서 어떻게 행동하는지 버릇 하나를 넣는다")
     background: str = ""
     goal: str = Field("", description="작품 전체에서 원하는 것")
     wound: str = Field("", description="결핍, 트라우마, 약점")
@@ -289,7 +289,7 @@ class StyleProfile(BaseModel):
     scene_transition: str = Field("", description="장면 전환 방식")
     vocabulary: str = Field("", description="어휘 수준, 한자어/외래어, 비유 경향")
     dos: list[str] = Field(default_factory=list, description="반드시 지킬 문체 규칙")
-    donts: list[str] = Field(default_factory=list, description="피해야 할 표현이나 습관")
+    donts: list[str] = Field(default_factory=list, description="피해야 할 습관. 항목마다 대신 할 것을 함께 적는다 (예: 감정을 이름으로 설명하지 않고, 손이나 시선의 움직임으로 보여 준다)")
     banned_phrases: list[str] = Field(default_factory=list, description="본문에 나오면 안 되는 구체적 표현 (문자열 그대로 검사)")
     markers: list[StyleMarker] = Field(default_factory=list, description="이 문체를 알아보게 하는 표지 5~10개와 원문 빈도. 빈도 안팎으로 쓰고 몰아 쓰지 않는다")
     devices: list[StyleDevice] = Field(default_factory=list, description="특정 상황에만 가끔 쓰는 장면 장치 0~3개. 매 화 쓰면 버릇이 되는 것")
