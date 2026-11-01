@@ -641,7 +641,8 @@ function viewHome() {
     const now = n === cur && e.status !== 'finalized';
     // 좁은 폭에서는 상태 글자를 눈으로만 감춘다. 이름은 aria-label 로 늘 '3화 작성됨 · 제목'
     const up = n <= released;
-    return `<a class="ep-cell ${e.status}${now ? ' current' : ''}${up ? ' released' : ''}${act ? ' ' + actClass(act.name) + '-edge' : ''}" href="${href}" title="${esc(`${e.plot.title ? e.plot.title + ' · ' : ''}${stepText(e)}`)}" aria-label="${esc(`${n}화 ${st} · ${stepText(e)}${up ? ' · 올린 화' : ''}${now ? ' · 지금 화' : ''}${e.plot.title ? ' · ' + e.plot.title : ''}`)}"><strong>${n}</strong><span>${st}</span>${stepBar(e)}</a>`;
+    const by = e.text && writerLabel(e.written_by) ? ` · 쓴 모델 ${writerLabel(e.written_by)}` : '';
+    return `<a class="ep-cell ${e.status}${now ? ' current' : ''}${up ? ' released' : ''}${act ? ' ' + actClass(act.name) + '-edge' : ''}" href="${href}" title="${esc(`${e.plot.title ? e.plot.title + ' · ' : ''}${stepText(e)}${by}`)}" aria-label="${esc(`${n}화 ${st} · ${stepText(e)}${up ? ' · 올린 화' : ''}${now ? ' · 지금 화' : ''}${e.plot.title ? ' · ' + e.plot.title : ''}${by}`)}"><strong>${n}</strong><span>${st}</span>${stepBar(e)}</a>`;
   }).join('');
 
   const states = homeCast(p).map((c) => {
