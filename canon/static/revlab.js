@@ -12,7 +12,7 @@
 'use strict';
 
 Object.assign(S, {
-  rev: null,       // 서버 값 { labs, splits, max_episodes, max_chars, min_chars, … 큐 칸 이름 }
+  rev: null,       // 서버 값 { labs, splits, max_chars, min_chars, … 큐 칸 이름 }
   revLab: null,    // 고른 실험 (revlab.view)
   revEp: null,     // 보는 화 번호
   revPane: null,   // 화 대신 보는 칸: overview(개요, 주소에 화가 없을 때) 또는 REV_PANES 의 열쇠
@@ -73,7 +73,6 @@ function revPreview(text, lim, first = null, s0 = revSplitOf(text)) {
   const len = String(text || '').length;
   if (!s.episodes.length) errs.push('글이 비었어요. 소설 본문을 붙여 넣으세요.');
   if (len > lim.max_chars) errs.push(`글이 너무 길어요 (${len.toLocaleString()}자). ${lim.max_chars.toLocaleString()}자까지 넣을 수 있어요.`);
-  if (s.episodes.length > lim.max_episodes) errs.push(`${s.episodes.length}화로 나뉘었어요. 한 실험에 ${lim.max_episodes}화까지 넣을 수 있어요.`);
   const eps = s.episodes.map((e, i) => ({ n: s.first + i, head: e.head, chars: e.chars, short: e.chars < lim.min_chars }));
   if (eps.some((e) => e.short)) notes.push(`${lim.min_chars}자보다 짧은 화는 역설계하지 않아요.`);
   if (s.preface) notes.push(`첫 제목 줄 앞의 짧은 글(${s.preface.length}자)은 작품 제목 · 작가 줄로 보고 역설계하지 않아요.`);
@@ -82,15 +81,13 @@ function revPreview(text, lim, first = null, s0 = revSplitOf(text)) {
 }
 
 /** 이어 붙일 글의 나누기 미리보기 (revlab.append_text 와 같은 규칙): 새 화는 제목 줄 번호와 상관없이 마지막 화 + 1(have.next)부터 세고,
-    화 수 · 글자 수 한도는 실험 전체(have.episodes · have.chars)로 본다. 첫 제목 줄 앞의 짧은 글은 넣지 않는다. 값 모양은 revPreview 와 같다. */
+    글자 수 한도는 실험 전체(have.chars)로 본다 (화 수는 막지 않는다). 첫 제목 줄 앞의 짧은 글은 넣지 않는다. 값 모양은 revPreview 와 같다. */
 function revAppendPreview(text, lim, have, s = revSplitOf(text)) {
   if (!s) return { pending: true, how: '', label: '', eps: [], errs: [], notes: [] };
   const errs = []; const notes = [];
   const len = String(text || '').length;
-  const n = have.episodes + s.episodes.length;
   if (!s.episodes.length) errs.push('글이 비었어요. 이어 붙일 화를 붙여 넣으세요.');
   if (have.chars + len > lim.max_chars) errs.push(`이으면 ${(have.chars + len).toLocaleString()}자예요. 한 실험에 ${lim.max_chars.toLocaleString()}자까지 넣을 수 있어요.`);
-  if (n > lim.max_episodes) errs.push(`이으면 ${n}화예요. 한 실험에 ${lim.max_episodes}화까지 넣을 수 있어요.`);
   const eps = s.episodes.map((e, i) => ({ n: have.next + i, head: e.head, chars: e.chars, short: e.chars < lim.min_chars }));
   if (eps.some((e) => e.short)) notes.push(`${lim.min_chars}자보다 짧은 화는 역설계하지 않아요.`);
   if (s.preface) notes.push(`첫 제목 줄 앞의 짧은 글(${s.preface.length}자)은 작품 제목 · 작가 줄로 보고 넣지 않아요.`);
@@ -590,7 +587,7 @@ const revRefTaken = (book, L) => new Set(L.items.filter((x) => x.source && x.sou
 const revRefUsable = (e) => e.kind !== 'skip' && e.chars > 0;
 
 /** 레퍼런스 원고에서 고른 화의 미리보기 (revlab.append_episodes 와 같은 규칙). book: GET /refs/<id> 값, pick: 고른 차례,
- * L: 실험 { items, chars }, lim: { max_episodes, max_chars }. 이미 실험에 있는 화는 빼고(skipped), 새 화 번호는 마지막 화 + 1 부터 센다.
+ * L: 실험 { items, chars }, lim: { max_chars } (화 수는 막지 않는다). 이미 실험에 있는 화는 빼고(skipped), 새 화 번호는 마지막 화 + 1 부터 센다.
  * missing 은 고른 화와 이미 넣은 화 사이에서 빠진 원고 화 이름 (제외 화는 셈하지 않는다). */
 function revRefPreview(book, pick, L, lim) {
   const taken = revRefTaken(book, L);
@@ -601,7 +598,6 @@ function revRefPreview(book, pick, L, lim) {
   const eps = fresh.map((e, i) => ({ n: next + i, order: e.order, label: e.label, title: e.title, chars: e.chars }));
   const chars = eps.reduce((k, e) => k + e.chars, 0);
   const errs = [];
-  if (L.items.length + eps.length > lim.max_episodes) errs.push(`이으면 ${L.items.length + eps.length}화예요. 한 실험에 ${lim.max_episodes}화까지 넣을 수 있어요`);
   if (L.chars + chars > lim.max_chars) errs.push(`이으면 ${(L.chars + chars).toLocaleString()}자예요. 한 실험에 ${lim.max_chars.toLocaleString()}자까지 넣을 수 있어요`);
   const have = [...taken, ...fresh.map((e) => e.order)];
   const lo = Math.min(...have);

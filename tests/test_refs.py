@@ -180,7 +180,7 @@ def _book():
     return refs.create("등대", STORY, cuts, rights=True)
 
 
-def test_append_from_ref_keeps_source_and_skips_repeats(home):
+def test_append_from_ref_keeps_source_and_skips_repeats(home, monkeypatch):
     b = _book()
     lab_id = refs.to_revlab(b.id, [2, 3])
     lab = revlab.load(lab_id)
@@ -192,8 +192,11 @@ def test_append_from_ref_keeps_source_and_skips_repeats(home):
     assert refs.load(b.id).made[-1].id == str(lab_id) and refs.load(b.id).made[-1].eps == "2화~4화"
     with pytest.raises(ValueError, match="모두 이 실험에"):
         refs.to_lab(b.id, [2, 3], lab_id)
-    with pytest.raises(ValueError, match="30화까지"):
-        refs.to_lab(b.id, list(range(6, 15)), revlab.create("가득", "\n\n===\n\n".join(["글" * 300] * 25)).id)
+    full = revlab.create("가득", "\n\n===\n\n".join(["글" * 300] * 32))  # 화 수는 막지 않는다 (예전 상한 30화)
+    assert len(refs.to_lab(b.id, [6, 7], full.id)[1]["added"]) == 2
+    monkeypatch.setattr(revlab, "MAX_CHARS", sum(len(e.text) for e in revlab.load(full.id).episodes) + 10)  # 글자 수 상한만 남았다
+    with pytest.raises(ValueError, match="자까지"):
+        refs.to_lab(b.id, [8], full.id)
 
 
 def test_append_from_ref_view_marks_changed_and_gone(home):
@@ -324,4 +327,5 @@ def test_js_views(home):
     assert "저장하기 (15화)" in got["draft"] and "번호 빠짐" in got["draft"] and "여기부터 번호 다시 매기기" in got["draft"]
     assert "'등대 이야기'" in got["draft"] and "목차" in got["draft"]
     assert "2화 골랐어요" in got["book"] and "문체 만들기" in got["book"] and "화 표" in got["book"] and "ref-bar" in got["book"]
+    assert 'data-action="refToRevlab">' in got["book"] and "화 수와 상관없이 모두 합쳐 3,000,000자까지" in got["book"]  # 화 수로 막지 않는다
     assert "첫 문단" in got["read"] and "이 화 경계 고치기" in got["read"]

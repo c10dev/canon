@@ -133,8 +133,7 @@ def test_split_rules():
 def test_check_text_limits():
     with pytest.raises(ValueError, match="비었어요"):
         revlab.check_text("  \n ")
-    with pytest.raises(ValueError, match="30화까지"):
-        revlab.check_text("\n".join(f"{i}화\n본문" for i in range(1, 33)))
+    assert len(revlab.check_text(MANY)["episodes"]) == 32  # 화 수는 막지 않는다 (예전 상한 30화)
     with pytest.raises(ValueError, match="너무 길어요"):
         revlab.check_text("가" * (revlab.MAX_CHARS + 1))
 
@@ -640,7 +639,7 @@ def test_web_flow(home):
     before = (home / "demo" / "project.json").read_text(encoding="utf-8")
     c = TestClient(web.app)
     h = c.get("/api/revlab").json()
-    assert h["labs"] == [] and [x["key"] for x in h["functions"]] == ["T", "S", "D"] and h["max_episodes"] == revlab.MAX_EPISODES
+    assert h["labs"] == [] and [x["key"] for x in h["functions"]] == ["T", "S", "D"] and "max_episodes" not in h and h["max_chars"] == revlab.MAX_CHARS
     assert c.post("/api/revlab/split", json={"text": STORY}).json()["how"] == "heading"
     assert c.post("/api/revlab", json={"title": "x", "text": " "}).status_code == 400
     v = c.post("/api/revlab", json={"title": "등대", "text": STORY}).json()
@@ -735,7 +734,7 @@ def test_split_endpoint_gives_counts_not_text():
 
 @needs_node
 def test_js_preview_waits_for_server():
-    got = run_js(FILES, "revPreview('1화\\n본문', { max_chars: 10, max_episodes: 30, min_chars: 1 })", {})
+    got = run_js(FILES, "revPreview('1화\\n본문', { max_chars: 10, min_chars: 1 })", {})
     assert got["pending"] and not got["errs"]
 
 
@@ -755,7 +754,7 @@ def test_js_helpers_and_view(home):
       S.revDraft = { title: '', text: data.story };
       const home = viewRev();
       const prev = revPreview(data.story, data.home, null, data.split);
-      const tooMany = revPreview(data.manyText, data.home, null, data.many);
+      const many = revPreview(data.manyText, data.home, null, data.many);
       S.revLab = data.lab; S.revEp = 1; S.revPick = new Set([2]); S.revSel = 2; S.revTab = 'text';
       S.revEsts = { 'write:2': { usd: 0.04, calls: 1, rows: [], model: 'm', note: '' } };
       const lab = viewRev();
@@ -781,14 +780,14 @@ def test_js_helpers_and_view(home):
       const fromHome = viewRev();
       S.revFrom = null; S.revLab = data.lab;
       const e = data.lab.items[1];
-      return { home, prev, tooMany: tooMany.errs, lab, write, two, twoWrite, panes, edit, redo, empty, from, fromHome, segs: revSegments(e.text, e.bounds),
+      return { home, prev, many, lab, write, two, twoWrite, panes, edit, redo, empty, from, fromHome, segs: revSegments(e.text, e.bounds),
                gap: revSegments('abcdef', [{ start: 2, end: 4, found: true }, { start: 4, end: 4, found: false }]) };
     })()""", {"home": labels, "lab": view, "story": STORY, "split": _light(STORY), "manyText": MANY, "many": _light(MANY)})
     assert "새 실험" in got["home"] and "이어 하기" in got["home"] and 'class="card rev-lab"' in got["home"]
     assert 'id="rev-new"' in got["home"] and "btn on" in got["home"]  # 붙여 넣은 글이 있으면 새 실험 카드를 펴 둔다
     assert got["prev"]["how"] == "heading" and [e["n"] for e in got["prev"]["eps"]] == [1, 2] and not got["prev"]["errs"]
     assert got["prev"]["notes"]  # 앞머리 안내
-    assert got["tooMany"] and "30화까지" in got["tooMany"][0]
+    assert not got["many"]["errs"] and len(got["many"]["eps"]) == 32  # 화 수로는 막지 않는다
     lab = got["lab"]
     assert 'aria-label="실험 목차"' in lab and "되돌려 쓰기" in lab and "가려 읽기" in lab  # 목차의 단계
     assert "1번이 더 읽고 싶어요" not in lab  # 원문 · 큐 탭에는 가려 읽기가 없다
@@ -993,10 +992,6 @@ def test_append_limits(home, monkeypatch):
     lab = revlab.create("등대", STORY)
     with pytest.raises(ValueError, match="비었어요"):
         revlab.append_text(lab, "  ")
-    monkeypatch.setattr(revlab, "MAX_EPISODES", 3)
-    with pytest.raises(ValueError, match="이으면 4화예요"):
-        revlab.append_text(lab, APPEND)
-    monkeypatch.setattr(revlab, "MAX_EPISODES", 30)
     monkeypatch.setattr(revlab, "MAX_CHARS", sum(len(e.text) for e in lab.episodes) + 100)
     with pytest.raises(ValueError, match="자까지 넣을 수 있어요"):
         revlab.append_text(lab, APPEND)
@@ -1026,8 +1021,8 @@ def test_js_append_preview_matches_python(home):
     assert [e["n"] for e in got[0]["eps"]] == nums and not got[0]["errs"]
     assert any("7화부터지만 마지막 화 다음인 3화" in x for x in got[0]["notes"]) and any("넣지 않아요" in x for x in got[0]["notes"])
     assert got[1]["errs"] and got[2]["how"] == "one" and [e["n"] for e in got[2]["eps"]] == [3]
-    many = run_js(FILES, "revAppendPreview(data.t, data.lim, data.have, data.s)", {"t": APPEND, "lim": {**lim, "max_episodes": 3}, "have": have, "s": _light(APPEND)})
-    assert many["errs"] == ["이으면 4화예요. 한 실험에 3화까지 넣을 수 있어요."]
+    big = run_js(FILES, "revAppendPreview(data.t, data.lim, data.have, data.s)", {"t": APPEND, "lim": {**lim, "max_chars": have["chars"] + 10}, "have": have, "s": _light(APPEND)})
+    assert len(big["errs"]) == 1 and "자까지 넣을 수 있어요" in big["errs"][0]  # 글자 수만 막는다 (화 수는 막지 않는다)
 
 
 def _four(home):
@@ -1130,13 +1125,88 @@ def test_ref_preview_and_next_js():
         {"order": 6, "label": "4화", "title": "", "kind": "main", "chars": 1000},
         {"order": 7, "label": "5화", "title": "", "kind": "main", "chars": 0}]}
     lab = {"items": [{"number": 1, "source": {"ref": "r1", "order": 2}}, {"number": 2, "source": None}], "chars": 2000}
-    lim = {"max_episodes": 30, "max_chars": 300000}
+    lim = {"max_chars": 300000}
     got = run_js(FILES, """[revRefPreview(data.book, [2, 4, 6], data.lab, data.lim), revRefNext(data.book, data.lab, 5),
-      revRefPreview(data.book, [3], data.lab, { max_episodes: 2, max_chars: 2500 }), revRefPreview(data.book, [2], data.lab, data.lim)]""",
+      revRefPreview(data.book, [3], data.lab, { max_chars: 2500 }), revRefPreview(data.book, [2], data.lab, data.lim)]""",
                  {"book": book, "lab": lab, "lim": lim})
     full, nxt, over, none = got
     assert [(e["n"], e["order"]) for e in full["eps"]] == [(3, 4), (4, 6)] and full["skipped"] == 1 and full["chars"] == 2000
     assert full["missing"] == ["2화"] and full["errs"] == [] and full["next"] == 3  # 차례 3(2화)이 빠지고, 제외 화(5)는 세지 않는다
     assert nxt == [3, 4, 6]  # 넣은 마지막 차례 뒤로, 제외 화와 글 없는 화는 빼고
-    assert len(over["errs"]) == 2 and "30화" not in over["errs"][0]
+    assert len(over["errs"]) == 1 and "2,500자" in over["errs"][0]  # 화 수는 막지 않고 글자 수만 본다
     assert none["eps"] == [] and none["skipped"] == 1 and none["missing"] == []
+
+
+# ---------- 화 수 상한 없음 (예전 30화) ----------
+
+def _many_text(n: int, size: int = 900) -> str:
+    return "\n\n".join(f"{i}화 제목 {i}\n" + (f"{i}화의 서윤은 등대 계단을 올랐다. \"누가 있어요?\" 바람이 거셌다.\n\n" * (size // 40)) for i in range(1, n + 1))
+
+
+def test_fifty_episodes_split_list_and_estimate(home):
+    """30화가 넘는 원고(50화)도 모든 화가 나뉘고, 목록 · 화면 값 · 비용 추정(역설계 · 되돌려 쓰기)에 다 나온다."""
+    from canon import web
+    c = TestClient(web.app)
+    text = _many_text(50)
+    s = c.post("/api/revlab/split", json={"text": text}).json()
+    assert s["how"] == "heading" and len(s["episodes"]) == 50
+    v = c.post("/api/revlab", json={"title": "긴 실험", "text": text}).json()
+    lab_id = v["id"]
+    assert [x["number"] for x in v["items"]] == list(range(1, 51)) and v["episodes"] == 50
+    assert next(x for x in c.get("/api/revlab").json()["labs"] if x["id"] == lab_id)["episodes"] == 50
+    est = c.post(f"/api/revlab/{lab_id}/estimate", json={"kind": "parse"}).json()
+    assert [r["label"] for r in est["rows"]] == [f"{n}화" for n in range(1, 51)] + ["이야기 줄기"]
+    revlab.run_parse(lab_id, MockLLM())
+    lab = revlab.load(lab_id)
+    assert all(e.sheet for e in lab.episodes) and lab.lines
+    est = c.post(f"/api/revlab/{lab_id}/estimate", json={"kind": "write"}).json()
+    assert len(est["rows"]) == 50 and est["rows"][-1]["label"] == "50화"
+    more = c.post(f"/api/revlab/{lab_id}/episodes", json={"text": _many_text(3)}).json()
+    assert [x["number"] for x in more["items"]][-3:] == [51, 52, 53]  # 이어 붙이기도 화 수로 막지 않는다
+
+
+def test_refs_to_revlab_takes_more_than_thirty(home):
+    from canon import refs
+    from canon.schema import RefCut
+    text = _many_text(40, 300)
+    cuts = [RefCut(**{k: c[k] for k in ("line", "body", "head", "label", "title", "kind")}) for c in refs.preview(text)["cuts"] if c["on"]]
+    b = refs.create("긴 원고", text, cuts, rights=True)
+    lab = revlab.load(refs.to_revlab(b.id, list(range(1, 41))))
+    assert len(lab.episodes) == 40 and lab.episodes[-1].number == 40
+    assert refs.labels()["revlab_max_chars"] == revlab.MAX_CHARS
+
+
+def _fill(lab, n: int) -> None:
+    """화마다 실제 같은 크기의 역설계 결과 (요약 약 150자, 사실 8개, 사건 5개)를 넣는다."""
+    for e in lab.episodes[:n]:
+        d = MockLLM().json(prompts.SYSTEM_REVERSE, prompts.rev_prompt(lab, e.number), RevEpisodeDraft, hint={"episode": e.number})
+        d.summary = f"{e.number}화 요약 첫 문장이에요. " + "서윤은 등대에서 아버지의 흔적을 찾다가 낯선 남자와 마주친다. " * 3
+        d.events = [f"{e.number}화 사건 {k}: 서윤이 계단을 오르다 무언가를 본다" for k in range(5)]
+        d.facts = [f"{e.number}화: 등대지기 윤만석은 {k}년 전 겨울에 사라졌다" for k in range(8)]
+        revlab.apply_episode(lab, e.number, d, "mock")
+
+
+def test_long_lab_prompts_stay_in_budget(home, monkeypatch):
+    """화 수만큼 커지는 블록(되돌려 쓰기 사본의 줄거리 · 사실, 이야기 줄기 요청)은 예산 안으로 접고 뺀 수를 적는다. 30화는 그대로."""
+    from canon import context
+    lab = revlab.create("긴 실험", _many_text(200, 300))
+    _fill(lab, 200)
+    q = revlab.world(lab, 200)
+    story = prompts.story_so_far(q, 200)
+    assert len(story) <= context.BUDGET["rev_story"] + 200
+    assert "1화 제목 1: 1화 요약 첫 문장이에요.\n" in story and story.endswith("마주친다.")  # 오래된 화는 첫 문장, 최근 화는 그대로
+    monkeypatch.setitem(context.BUDGET, "rev_story", 1_000)
+    story = prompts.story_so_far(revlab.world(lab, 200), 200)
+    assert len(story) <= 1_200 and story.startswith("1화 제목 1: (앞 ") and "줄거리는 프롬프트 예산을 넘어 뺐습니다" in story
+    assert "199화" in story and "\n2화 " not in story  # 오래된 화부터 빼고 몇 화를 뺐는지 적는다
+    assert len("\n".join(q.facts)) <= context.BUDGET["rev_facts"] + 100 and "사실" in q.facts[-1] and "개는 프롬프트 예산을 넘어" in q.facts[-1]
+    lines = prompts.rev_lines_prompt(lab)
+    assert len(lines) <= context.BUDGET["rev_lines"] + 2000 and "1화" in lines and "200화" in lines  # 줄기는 화를 빼지 않는다
+    assert "화가 200개라" in lines
+    est = revlab.estimate(lab, "parse", [200])
+    assert est["rows"][-1]["label"] == "이야기 줄기" and est["rows"][-1]["input_tokens"] < context.BUDGET["rev_lines"]
+    small = revlab.create("짧은 실험", _many_text(30, 300))
+    _fill(small, 30)
+    q = revlab.world(small, 30)
+    assert "예산" not in prompts.story_so_far(q, 30) and not any("예산" in f for f in q.facts)  # 30화 안팎은 예산에 닿지 않는다
+    assert "화가 30개라" not in prompts.rev_lines_prompt(small)

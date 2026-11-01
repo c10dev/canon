@@ -49,7 +49,7 @@
 - 직접 패턴(`rule` custom)은 예시 한 줄에서 꼴을 만든다(`_custom_re`)
 - 저장 `create`(권리 확인 `rights` 필수) · `update` · `delete` · `entries` · `summary`
 - 저장 때 화별 지표(`RefEp`: 글자 수 · 대사 비율 · 문장 · 문단 평균, `metrics.measure`)를 재 둔다. AI 호출 없음
-- 문체 만들기 원문 `sample`(고른 화를 이어 `SAMPLE_MAX` 자까지) · 역설계 실험 만들기 `to_revlab`(`revlab.create_episodes`, 30화까지) · 있는 실험에 잇기 `to_lab`(`revlab.append_episodes`, 화마다 출처 `RevSource`) · 화 차례별 지금 글 `texts`(출처 상태용)
+- 문체 만들기 원문 `sample`(고른 화를 이어 `SAMPLE_MAX` 자까지) · 역설계 실험 만들기 `to_revlab`(`revlab.create_episodes`, 화 수는 막지 않고 글자 수만 `revlab.MAX_CHARS`) · 있는 실험에 잇기 `to_lab`(`revlab.append_episodes`, 화마다 출처 `RevSource`) · 화 차례별 지금 글 `texts`(출처 상태용)
 - 이 원고로 만든 것 `made`(`RefMade`, 문체는 `POST /api/styles` 의 `ref` · `ref_eps` 로 남긴다)
 - 내 작품과 견주기 `compare`(본문 있는 화 지표, 작품에 쓰지 않음)
 - 웹은 `/api/refs…`(`web.py` '레퍼런스 원고' 절)
