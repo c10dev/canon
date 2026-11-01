@@ -12477,7 +12477,7 @@
   "/api/revlab/{lab_id}/jobs": {
    "post": {
     "summary": "Rev Job",
-    "description": "역설계(parse) · 되돌려 쓰기(write) · 문체 역설계(style) 작업을 시작한다. 작품을 읽지 않는다. 같은 실험의 같은 작업은 하나만 돈다.",
+    "description": "역설계(parse) · 되돌려 쓰기(write) · 문체 역설계(style) 작업을 시작한다. 작품을 읽지 않는다. 같은 실험의 같은 작업은 하나만 돈다.\n다른 작업끼리는 함께 돌 수 있다. 역설계가 도는 중에도 저장을 마친 화는 되돌려 쓰고, 맡은 화가 겹치면 409 로 막는다.",
     "operationId": "rev_job",
     "parameters": [
      {

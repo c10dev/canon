@@ -20,6 +20,7 @@ Object.assign(S, {
   revDraft: { title: '', text: '', first: '' },  // 새 실험 칸 (first 가 비면 짐작한 번호)
   revPick: null,   // 역설계할 화 Set
   revRedo: false,  // 역설계한 화도 다시 고르는 개요 표를 열었는지
+  revRunHide: new Set(), // 닫은 작업 카드의 작업 id. 작업은 계속 돌고, 새 작업이 시작되면 카드가 다시 보인다
   revNew: false,   // 처음 화면의 새 실험 카드를 열었는지 (실험이 없거나 붙여 넣은 글이 있으면 늘 열림)
   revEsts: {},     // 비용 추정 { 열쇠(revEstKey): 값 | null(묻는 중) | { error } }
   revSel: 0,       // 원문에서 밝힌 큐 번호 (1부터)
@@ -360,6 +361,19 @@ function revOverviewRow(e, minChars) {
 /* ----- 화면 ----- */
 
 const revRunning = () => (S.revLab ? REV_KINDS.map((k) => jobFor(k, S.revLab.id, REV_JOBS)).find(Boolean) || null : null);
+/** 이 실험에 도는 작업 모두. 역설계가 도는 중에도 끝난 화는 되돌려 쓸 수 있어 둘이 함께 돌 수 있다. */
+const revRunJobs = () => (S.revLab ? REV_KINDS.map((k) => jobFor(k, S.revLab.id, REV_JOBS)).filter(Boolean) : []);
+/** 도는 역설계가 아직 저장하지 않은 화 (지금 푸는 화 포함). 서버 web._rev_parsing 과 같은 셈. */
+function revParsing() {
+  const j = S.revLab && jobFor('rev_parse', S.revLab.id, REV_JOBS);
+  return j ? (j.pending || []).slice(j.done) : [];
+}
+/** n 화 되돌려 쓰기를 지금 못 하는 까닭 (빈 값이면 쓸 수 있다). 서버도 같은 경우를 409 로 막는다. */
+function revWriteBlock(n) {
+  if (jobFor('rev_write', S.revLab.id, REV_JOBS)) return '되돌려 쓰는 중이에요. 끝난 뒤에 새 판을 쓸 수 있어요.';
+  if (revParsing().includes(n)) return '이 화는 역설계가 끝난 뒤에 되돌려 쓸 수 있어요.';
+  return '';
+}
 
 const revEstKey = (kind, eps) => `${kind}:${[...eps].sort((a, b) => a - b).join(',')}`;  // kind: parse · write · write-style · style
 
@@ -504,14 +518,16 @@ const REV_STEP_GO = { split: 'edit', parse: 'parse', style: 'style', write: 'wri
 
 function revLabToc() {
   const L = S.revLab;
-  const run = revRunning();
-  const steps = revSteps(L, S.rev.min_chars, run ? [run.kind] : []);
+  const runs = revRunJobs();
+  const run = runs[0] || null;
+  const steps = revSteps(L, S.rev.min_chars, runs.map((j) => j.kind));
   const eps = revTocEps(L.items, S.rev.min_chars);
   const pane = S.revPane;
   const stepRows = steps.map((s, i) => `<button type="button" class="outline-item" data-action="revStep" data-arg="${REV_STEP_GO[s.id]}">
       <span class="n ${s.state}" aria-hidden="true">${s.state === 'ok' ? '✓' : i + 1}</span><span class="tl">${esc(s.label)}</span>
       <span class="st">${s.state === 'run' ? '하는 중' : esc(s.right)}</span><span class="sr-only">${{ ok: '끝남', now: '지금 할 단계', todo: '', run: '하는 중' }[s.state]}</span></button>`).join('');
-  const busy = run && run.kind === 'rev_parse' ? revRunRows(run, L.items) : [];
+  const parse = runs.find((j) => j.kind === 'rev_parse');
+  const busy = parse ? revRunRows(parse, L.items) : [];
   const epRows = eps.map((x) => {
     const r = busy.find((b) => b.n === x.n);
     const st = r && r.state === 'run' ? '<span class="st">푸는 중</span>' : `<span class="st">${esc(x.right)}</span>`;
@@ -541,7 +557,7 @@ function revEpMenu(n, busy) {
 }
 
 function revMain() {
-  const parts = [revRunCard(), S.revEdit ? revEditCard() : '', S.revAdd !== null ? revAddCard() : '', S.revEpEdit ? revEpEditCard() : ''];
+  const parts = [revRunJobs().filter((j) => !S.revRunHide.has(j.id)).map(revRunCard).join(''), S.revEdit ? revEditCard() : '', S.revAdd !== null ? revAddCard() : '', S.revEpEdit ? revEpEditCard() : ''];
   if (S.revPane === 'overview') parts.push(revOverview());
   else if (S.revPane === 'cast') parts.push(revContextCard());
   else if (S.revPane === 'style') parts.push(revStyleCard());
@@ -691,10 +707,9 @@ function revEpEditCard() {
     <div class="row"><button type="button" class="btn primary" data-action="revEpSave"${revRunning() ? ' disabled' : ''}>저장</button></div></section>`;
 }
 
-/** 도는 작업 카드: 역설계는 화마다 한 줄(끝난 화는 바로 열기), 되돌려 쓰기 · 문체는 한 줄. 멈추기는 알림 창과 같은 동작. */
-function revRunCard() {
-  const j = revRunning();
-  if (!j) return '';
+/** 도는 작업 카드: 역설계는 화마다 한 줄(끝난 화는 바로 열기), 되돌려 쓰기 · 문체는 한 줄. 멈추기는 알림 창과 같은 동작.
+    닫으면 그 작업 동안만 감춘다 (진행은 알림 창에 남는다). 역설계와 되돌려 쓰기가 함께 돌면 카드가 둘이다. */
+function revRunCard(j) {
   const L = S.revLab;
   const pct = Math.round((100 * j.done) / Math.max(1, j.total));
   const what = { rev_parse: '역설계하는 중', rev_write: '되돌려 쓰는 중', rev_style: '문체를 역설계하는 중' }[j.kind];
@@ -704,11 +719,11 @@ function revRunCard() {
       <span class="small">${{ done: '끝', run: '푸는 중', wait: '기다림' }[r.state]}</span>
       ${r.state === 'done' && r.n ? `<a class="btn small" href="#/revlab/${L.id}/${r.n}">열기</a>` : '<span></span>'}</li>`).join('') : '';
   const left = jobLeft(j, Date.now() / 1000);
-  return `<section class="card rev-run" aria-live="polite"><div class="between"><h2>${what}</h2><button type="button" class="btn small" data-job-stop="${j.id}">멈추기</button></div>
+  return `<section class="card rev-run" aria-live="polite"><div class="between"><h2>${what}</h2><span class="row" style="gap:6px"><button type="button" class="btn small" data-job-stop="${j.id}">멈추기</button><button type="button" class="btn small ghost" data-action="revRunClose" data-arg="j${j.id}" title="작업은 계속 돌아요">닫기</button></span></div>
     <div class="small"><span data-elapsed="${j.id}" aria-hidden="true">경과 ${elapsed(j)}</span>${j.total > 1 ? ` · 요청 ${j.total}번 중 ${Math.min(j.done + 1, j.total)}번째` : ''}${left ? ` · ${left}` : ''}</div>
     <div class="rev-meter big" role="progressbar" aria-valuemin="0" aria-valuemax="${j.total}" aria-valuenow="${j.done}" aria-label="${what}"><i style="width:${pct}%"></i></div>
     ${rows ? `<ol class="rev-run-rows">${rows}</ol>` : ''}
-    <div class="note plain">${j.kind === 'rev_parse' ? '화마다 끝나는 대로 저장해요. 끝난 화는 지금 열어 봐도 되고, 다른 화면으로 가도 돼요. ' : ''}다 끝나면 위쪽 알림 버튼으로 알려 드려요.</div></section>`;
+    <div class="note plain">${j.kind === 'rev_parse' ? '화마다 끝나는 대로 저장해요. 끝난 화는 지금 열어 되돌려 써도 되고, 다른 화면으로 가도 돼요. ' : ''}다 끝나면 위쪽 알림 버튼으로 알려 드려요.</div></section>`;
 }
 
 /** 개요: 역설계 전(또는 다시 역설계를 고를 때)은 풀 화 표와 화마다 받는 것, 역설계 뒤는 화별 진행 표와 실험 전체 카드. */
@@ -1122,6 +1137,10 @@ function revTakePickHtml(b) {
   return `${what}${b.seen ? ' <span class="small" title="이 화의 원문을 앞선 가려 읽기에서 본 뒤에 고른 결과예요">· 원문 본 뒤</span>' : b.picked !== 'skip' ? ' <span class="chip ok">첫 읽기</span>' : ''}`;
 }
 
+// 판을 쓴 뒤 이야기 줄기가 생기거나 바뀜 (revlab.lines_note): [칩, 설명]
+const REV_LINES_NOTE = { before: ['줄기 전', '이야기 줄기를 만들기 전에 썼어요'], changed: ['줄기 바뀜', '쓴 뒤 이야기 줄기를 다시 만들었어요'] };
+const revLinesChip = (t) => (t.lines ? ` <span class="chip" title="${REV_LINES_NOTE[t.lines][1]}">${REV_LINES_NOTE[t.lines][0]}</span>` : '');
+
 const revTakeWho = (t) => `${esc(t.model || '모델 모름')}${t.provider && t.provider !== 'mock' ? ` <span class="small">· ${esc(WRITER_BACKEND[t.provider] || t.provider)}</span>` : ''}`;
 
 function revWriteTab(e) {
@@ -1141,7 +1160,7 @@ function revWriteTab(e) {
   const busy = !!revRunning();
   if (takes.length) {
     const rows = [...takes].reverse().map((t) => `<tr${t.blind.state === 'wait' ? ' class="rev-muted"' : ''}>
-        <td class="rev-l"><strong>판 ${t.no}</strong>${t.stale ? ' <span class="chip" title="쓴 뒤 큐 시트가 바뀌었어요">시트 바뀜</span>' : ''}</td>
+        <td class="rev-l"><strong>판 ${t.no}</strong>${t.stale ? ' <span class="chip" title="쓴 뒤 큐 시트가 바뀌었어요">시트 바뀜</span>' : ''}${revLinesChip(t)}</td>
         <td class="rev-l rev-take-who">${revTakeWho(t)} <span class="chip">${revTakeStyle(t)}</span>${revStyleTag(t) ? ` <span class="chip" title="지금 프로필과 다른 프로필로 썼어요">${esc(revStyleTag(t))}</span>` : ''}</td>
         <td>${esc(fmtDateTime(t.at))}</td><td>${t.chars.toLocaleString()}</td><td class="rev-l rev-take-pick">${revTakePickHtml(t.blind)}</td>
         <td class="rev-l"><span class="row rev-take-acts">${t.text ? `<button type="button" class="btn small ghost" data-action="revReadTake" data-arg="${t.no}">읽기</button>` : '<span class="small">가려 읽은 뒤</span>'}
@@ -1171,7 +1190,7 @@ function revWriteTab(e) {
     const col = (v) => {
       if (v === 'original') return `<div class="rev-blind-col"><div class="small"><strong>원문</strong> · ${e.chars.toLocaleString()}자</div><div class="cue-text rev-read">${esc(e.text)}</div></div>`;
       const t = shown.find((x) => x.no === v);
-      return `<div class="rev-blind-col"><div class="small"><strong>판 ${t.no}</strong> · ${t.text.length.toLocaleString()}자 · ${revTakeWho(t)} · ${esc(fmtDateTime(t.at))}${t.stale ? ' · 쓴 뒤 큐 시트가 바뀌었어요' : ''}${t.style ? ` · ${revTakeStyle(t)}` : ''}${revStyleTag(t) ? ` (지금은 ${S.revLab.style_id ? `${S.revLab.style_id}번` : '고른 프로필 없음'})` : ''}</div><div class="cue-text rev-read">${esc(t.text)}</div></div>`;
+      return `<div class="rev-blind-col"><div class="small"><strong>판 ${t.no}</strong> · ${t.text.length.toLocaleString()}자 · ${revTakeWho(t)} · ${esc(fmtDateTime(t.at))}${t.stale ? ' · 쓴 뒤 큐 시트가 바뀌었어요' : ''}${t.lines ? ` · ${REV_LINES_NOTE[t.lines][1]}` : ''}${t.style ? ` · ${revTakeStyle(t)}` : ''}${revStyleTag(t) ? ` (지금은 ${S.revLab.style_id ? `${S.revLab.style_id}번` : '고른 프로필 없음'})` : ''}</div><div class="cue-text rev-read">${esc(t.text)}</div></div>`;
     };
     parts.push(`<section class="card" id="rev-side"><div class="between"><h3>나란히 읽기</h3>
         <span class="row rev-read-picks"><label class="small" for="rev-read-a">왼쪽</label><select id="rev-read-a" data-rev-read="a">${opt(a)}</select>
@@ -1181,13 +1200,17 @@ function revWriteTab(e) {
   const style = !!(S.revStyle && L.style);
   const full = takes.length >= e.limit;
   const est = full ? null : revEst('write', [e.number], style);
+  const block = revWriteBlock(e.number);
+  const parse = jobFor('rev_parse', L.id, REV_JOBS);
+  const early = !block && parse && parse.total > (parse.pending || []).length;  // 역설계가 끝나면 이야기 줄기를 만든다
   parts.push(`<section class="card${takes.length ? ' tight' : ''}"><h3>${takes.length ? '새 판 쓰기' : '되돌려 쓰기'}</h3>
     <p class="small">역설계한 플롯 · 스토리보드 · 큐 시트와 인물 · 관계 · 호칭 · 배경만 주고(이 화 원문 문장은 주지 않음) 같은 화를 써요. 앞 화는 원문을 반영한 화로 둬요. 새 판은 목록에 더하고 앞 판은 그대로 두며, 원문과 가려 읽기를 따로 해요.</p>
     ${revAiLine('write')}
     ${cueEd().dirty ? '<div class="note warn small">저장하지 않은 큐 시트 고침이 있어요. 되돌려 쓰기는 저장한 큐 시트로 해요.</div>' : ''}
+    ${block ? `<div class="note plain small">${block}</div>` : early ? '<div class="note plain small">역설계가 끝나면 이야기 줄기를 만들어요. 지금 쓰면 줄기 없이 써서 판에 \'줄기 전\'이 붙어요.</div>' : ''}
     ${full ? `<div class="note warn small">이 화에 판이 ${e.limit}개예요. 새로 쓰려면 위 판 목록에서 지울 판을 고르세요.</div>` : ''}
     <div class="row"><label class="check-row small"><input type="checkbox" data-rev-style="1"${style ? ' checked' : ''}${L.style ? '' : ' disabled'}><span>문체 프로필${L.style ? `(${L.style_id}번)` : ''} 넣기${L.style ? '' : (L.style_list || []).length ? ' (문체 프로필을 먼저 고르세요)' : ' (문체 프로필을 먼저 만드세요)'}</span></label>
-      <button type="button" class="btn" data-action="revWrite" data-arg="${e.number}"${est && !busy && !full ? '' : ' disabled'}>${full ? `판 ${e.next_take} 쓰기` : revCost(`판 ${e.next_take} 쓰기${style ? ' (문체 넣고)' : ''}`, est)}</button></div>
+      <button type="button" class="btn" data-action="revWrite" data-arg="${e.number}"${est && !block && !full ? '' : ' disabled'}>${full ? `판 ${e.next_take} 쓰기` : revCost(`판 ${e.next_take} 쓰기${style ? ' (문체 넣고)' : ''}`, est)}</button></div>
     ${!full && revEstErr('write', [e.number], style) ? `<div class="note err small">비용을 재지 못했어요: ${esc(revEstErr('write', [e.number], style))}</div>` : ''}
     ${revEstHtml(est)}</section>`);
   return parts.join('');
@@ -1420,6 +1443,11 @@ Object.assign(actions, {
     S.revEpEdit = { n: e.number, head: e.head, text: e.text };
     S.focusTarget = '#rev-eptext';
     if (!S.revPane && S.revEp === e.number) render(); else revNav(e.number);
+  },
+  revRunClose(arg) {
+    S.revRunHide.add(String(arg).slice(1));  // 'j' 를 붙여 받는다 (숫자만 된 id 를 숫자로 바꾸지 않게)
+    render();
+    toast('작업은 계속 돌아요. 진행은 위쪽 알림 버튼에서 볼 수 있어요');
   },
   async revEpEditClose() {
     const d = S.revEpEdit;

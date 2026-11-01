@@ -578,7 +578,7 @@ def run_write(lab_id: int, llm, number: int, use_style: bool = False) -> RevEpis
         raise ValueError("큐 시트에 큐가 없어요")
     cancel.check()
     text, sent = pipeline.write_scored(llm, q, number, e.sheet)
-    take = RevTake(text=text, style=use_style, style_id=lab.style_id if use_style else 0, prompt_chars=sent, sheet_basis=cue.basis(e.sheet), provider=pipeline.writer_of(llm).split(":", 1)[0],
+    take = RevTake(text=text, style=use_style, style_id=lab.style_id if use_style else 0, prompt_chars=sent, sheet_basis=cue.basis(e.sheet), lines_at=lab.lines_at, provider=pipeline.writer_of(llm).split(":", 1)[0],
                    model=research._model_name(llm), at=pipeline._now(), blind=RevBlind(order=random.sample(list(SIDES), 2)))
     cancel.check()
 
@@ -1021,13 +1021,21 @@ def _waiting(t: RevTake) -> bool:
     return len(t.blind.order) == 2 and not t.blind.picked
 
 
+def lines_note(lab: RevLab, t: RevTake) -> str:
+    """판을 쓴 뒤 이야기 줄기가 생기거나 바뀌었는지: before(줄기 없이 씀) · changed(다른 줄기로 씀) · 빈 값.
+    역설계가 도는 중에도 끝난 화는 되돌려 쓸 수 있어서, 줄기를 만들기 전에 쓴 판이 생긴다. 옛 판(None)은 모른다."""
+    if t.lines_at is None or not lab.lines_at or t.lines_at == lab.lines_at:
+        return ""
+    return "changed" if t.lines_at else "before"
+
+
 def _take_view(lab: RevLab, t: RevTake, now: str) -> dict:
     """판 하나의 화면 값. 가려 읽기가 남은 판은 본문과 보인 차례를 빼서 어느 쪽이 원문인지 알 수 없게 한다."""
     b = t.blind
     state = "wait" if _waiting(t) else "done" if b.picked else "none"
     blind = {"state": state, "seen": b.seen, **({"picked": b.picked, "order": b.order, "at": b.at} if state == "done" else {})}
     return {"no": t.no, "label": take_label(t), "style": t.style, "provider": t.provider, "model": t.model, "at": t.at,
-            "prompt_chars": t.prompt_chars, "stale": t.sheet_basis != now, "chars": len(t.text), "blind": blind, **_take_style(lab, t),
+            "prompt_chars": t.prompt_chars, "stale": t.sheet_basis != now, "lines": lines_note(lab, t), "chars": len(t.text), "blind": blind, **_take_style(lab, t),
             **({} if state == "wait" else {"text": t.text})}
 
 
