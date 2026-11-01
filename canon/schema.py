@@ -289,7 +289,7 @@ class StyleProfile(BaseModel):
     scene_transition: str = Field("", description="장면 전환 방식")
     vocabulary: str = Field("", description="어휘 수준, 한자어/외래어, 비유 경향")
     dos: list[str] = Field(default_factory=list, description="반드시 지킬 문체 규칙")
-    donts: list[str] = Field(default_factory=list, description="피해야 할 습관. 항목마다 대신 할 것을 함께 적는다 (예: 감정을 이름으로 설명하지 않고, 손이나 시선의 움직임으로 보여 준다)")
+    donts: list[str] = Field(default_factory=list, description="피해야 할 습관. 항목마다 대신 할 것을 함께 적는다 (예: 감정을 이름으로 설명하지 않고, 손이나 시선의 움직임으로 보여 준다). 대신 할 것은 원문이나 작가가 고친 글이 실제로 쓰는 방식에서 가져오고, 찾지 못하면 피할 것만 적는다")
     banned_phrases: list[str] = Field(default_factory=list, description="본문에 나오면 안 되는 구체적 표현 (문자열 그대로 검사)")
     markers: list[StyleMarker] = Field(default_factory=list, description="이 문체를 알아보게 하는 표지 5~10개와 원문 빈도. 빈도 안팎으로 쓰고 몰아 쓰지 않는다")
     devices: list[StyleDevice] = Field(default_factory=list, description="특정 상황에만 가끔 쓰는 장면 장치 0~3개. 매 화 쓰면 버릇이 되는 것")
