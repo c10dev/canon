@@ -18,7 +18,7 @@ import re
 from datetime import date
 from pathlib import Path
 
-from . import cancel, cue, pipeline, prompts, store, usage
+from . import cancel, cue, metrics, pipeline, prompts, store, usage
 from .context import CHARS_PER_TOKEN
 from .schema import (Act, AddressForm, BoardHandover, BoardScene, BoardTime, Character, CueLine, CueSheet, CueSheetDraft, CueTake, Episode, EpisodePlot, Meta, Project,
                      Relationship, RevAI, RevBlind, RevBound, RevCastSaved, RevEpisode, RevEpisodeDraft, RevLab, RevLineSet, RevPerson, RevTake, Storyboard,
@@ -564,9 +564,10 @@ def run_style(lab_id: int, llm) -> StyleProfile:
     """원문 앞부분(STYLE_CHARS)으로 문체 프로필을 만든다 (pipeline.analyze_style, plan 단계). 예시 문단은 비우고 저장한다."""
     from . import research
 
-    sample = style_sample(load(lab_id))
+    lab = load(lab_id)
+    sample = style_sample(lab)
     cancel.check()
-    prof = pipeline.analyze_style(llm, sample)
+    prof = pipeline.analyze_style(llm, sample, [c.name for c in lab.cast])
     prof.sample_passages = []
     cancel.check()
 
@@ -604,17 +605,38 @@ def take_label(t: RevTake) -> str:
     return f"판 {t.no}"
 
 
+def style_base(lab: RevLab, number: int) -> tuple[metrics.StyleMetrics | None, str]:
+    """문체 거리 기준: number 화를 뺀 원문 전체로 만든다 (leave-one-out, 되돌려 쓴 화의 원문이 기준에 들지 않게).
+    기준을 만들기에 짧으면 (None, 이유)."""
+    rest = "\n\n".join(x.text for x in lab.episodes if x.number != number)
+    base = metrics.StyleMetrics(**metrics._style_reference(rest))
+    if base.style_centroid:
+        return base, ""
+    need = metrics.STYLE_CHUNK * metrics.STYLE_MIN_CHUNKS
+    return None, f"이 화를 뺀 원문이 {len(rest.strip()):,}자라 문체 거리 기준을 만들지 않았어요 ({need:,}자 넘게 있어야 해요)"
+
+
 def compare(lab: RevLab, e: RevEpisode) -> list[dict]:
-    """원문과 판마다의 지표 (cue.score). 원문은 큐 경계로 나눠 큐마다 분량 · 템포 · 편성도 잰다. 판 행의 condition 은 't<판 번호>'."""
+    """원문과 판마다의 지표 (cue.score). 원문은 큐 경계로 나눠 큐마다 분량 · 템포 · 편성도 잰다. 판 행의 condition 은 't<판 번호>'.
+    문체 측정도 더한다: 이 화를 뺀 원문 기준 문체 거리(style_base), 쉼표 문장 비율, 문체 프로필 표지 빈도 경고,
+    판이 이 화 원문 · 장치 예시를 옮긴 문장 (metrics.copied_sentences)."""
     if not e.sheet:
         return []
     q = world(lab, e.number)
     now = cue.basis(e.sheet)
     sides = [("original", "원문", e.text, now, None)] + [(f"t{t.no}", take_label(t), t.text, t.sheet_basis, t.no) for t in e.takes]
+    base, why = style_base(lab, e.number)
+    markers = lab.style.markers if lab.style else []
+    examples = [d.example for d in lab.style.devices if d.example] if lab.style else []
     rows = []
     for key, label, text, basis, no in sides:
         s = cue.score(q, e.sheet, CueTake(condition=key, text=text, parts=parts(e) if key == "original" else [], sheet_basis=basis))
         s["label"], s["stale"], s["take"] = label, basis != now, no
+        own = key == "original"
+        s.update(style_distance=metrics.style_distance(base, text) if base else None, style_note=why,
+                 comma_ratio=metrics.measure(text).comma_sentence_ratio, marker_warns=metrics.marker_warnings(markers, text) if markers else None,
+                 copied=None if own else metrics.copied_sentences(text, [e.text]),
+                 copied_examples=None if own or not examples else metrics.copied_sentences(text, examples))
         rows.append(s)
     return rows
 

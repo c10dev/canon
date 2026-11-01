@@ -251,7 +251,7 @@ def stage_trial(p: Project, b: Backend, stage: str, sample_text: str = "") -> di
         if stage == "setup":
             result: BaseModel = pipeline.suggest_setup(llm, p)
         elif stage == "style":
-            result = pipeline.analyze_style(llm, sample_text)
+            result = pipeline.analyze_style(llm, sample_text, [c.name for c in p.characters])
         else:
             result = pipeline.plan_arc(llm, p)
         empty = empty_fields(result)

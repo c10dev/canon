@@ -193,6 +193,8 @@
   - 빈칸 제안은 이미 있는 인물도 빈 칸만 `fill_character`
 - 스토리보드: `make_storyboard` · `set_storyboard` · 낡음 지문 `board_basis`, `write_episode(use_board=)`
 - 큐 시트: `make_cue_sheet`, 넣기는 `cue.set_episode`, `write_episode(use_cues=)`
+- 문체 분석 `analyze_style` 뒤 `count_markers` 가 표지 · 장치 단서를 거른다: 원문에 없는 것, 한글 2자 미만(`MARKER_MIN_HANGUL`), 인물 이름(2자 이상)이 든 것
+- `count_markers` 는 원문 표본에 없는(공백 빼고 견줌) 장치 예시를 비운다
 - 검수
   - 장편 넓혀 찾기 `widen_check`: 첫 검수에 없던 옛 단락이 근거로 나온 진술만 다시 묻기
   - `Settings.check_widen`

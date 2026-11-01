@@ -76,7 +76,9 @@
 - 옛 파일의 `take` · `take_style` 은 `RevEpisode` before 검사기가 판 1 · 2 로 옮긴다
 - 블라인드 고르기(`pick`, 판 번호를 주면 지금 가려 읽을 판인지 확인)
 - 지표(`compare`, `cue.score`, 원문과 판마다 condition 't<판 번호>')
+- 문체 측정(`compare`): 이 화를 뺀 원문 기준 문체 거리(`style_base`, 기준을 못 만들면 `style_note` 에 이유) · 쉼표 문장 비율 · 표지 빈도 경고 · 판이 원문과 장치 예시를 옮긴 문장(`copied` · `copied_examples`)
 - 문체 역설계(`run_style`, `pipeline.analyze_style`)
+- 문체 역설계는 실험 인물 이름을 `count_markers` 에 넘겨 이름이 든 표지를 거른다
 - 비용 추정(`estimate`: parse · write · style)
 - 실험별 AI(`RevLab.ai`, `RevAI`): 단계 `AI_STAGES`(plan 역설계 · 줄기 · 문체, write 되돌려 쓰기)마다 프리셋 id 또는 백엔드 `AI_PROVIDERS` + 모델
 - 쓸 AI 풀기 `ai_choice`(mock 설정 → 프리셋 → 직접 고름 → 설정 단계 칸, 작품 프리셋은 보지 않음) · LLM 만들기 `llm_for` · 고르기 `set_ai`(웹 `PUT /api/revlab/{번호}/ai`) · 화면 값 `ai_view` · 기본 모델 이름 `default_model`

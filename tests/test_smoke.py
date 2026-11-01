@@ -36,7 +36,7 @@ class SmokeTest(unittest.TestCase):
         self.assertTrue((store.project_dir("demo") / "briefs" / "03-episode.md").exists())
         self.assertTrue((store.project_dir("demo") / "briefs" / "03-check.md").exists())
         self.assertIsNotNone(p.style_baseline)
-        self.assertEqual([m.text for m in p.style.markers], ["않았다"])  # 원문에 없는 표지는 빠지고 빈도는 원문에서 센다
+        self.assertEqual([m.text for m in p.style.markers], ["않았다", "있었다"])  # 원문에 없는 표지 · 한 글자 · 인물 이름 표지는 빠지고 빈도는 원문에서 센다
         self.assertGreater(p.style.markers[0].per_1k, 0)
         brief = (store.project_dir("demo") / "briefs" / "03-episode.md").read_text(encoding="utf-8")
         self.assertIn("# 문체 표지", brief)

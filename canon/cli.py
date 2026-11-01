@@ -188,7 +188,7 @@ def cmd_style(a: argparse.Namespace) -> None:
     if not a.file:
         sys.exit("예시 원문 파일이나 --library ID 를 주세요 (라이브러리 목록: python -m canon styles)")
     sample = Path(a.file).read_text(encoding="utf-8")
-    profile = pipeline.analyze_style(get_llm("plan"), sample)
+    profile = pipeline.analyze_style(get_llm("plan"), sample, [c.name for c in p.characters])
     print(dump(profile))
     if confirm("이 스타일 프로필을 저장할까요?", a.yes):
         p.style = profile

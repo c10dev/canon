@@ -1013,10 +1013,10 @@ class Sample(BaseModel):
 
 @app.post("/api/projects/{name}/style")
 def analyze_style(name: str, body: Sample) -> StyleProfile:
-    _load(name)
+    p = _load(name)
     if len(body.text.strip()) < 200:
         raise HTTPException(400, "예시 원문은 200자 이상 넣어 주세요")
-    return pipeline.analyze_style(get_llm("plan"), body.text)
+    return pipeline.analyze_style(get_llm("plan"), body.text, [c.name for c in p.characters])
 
 
 @app.post("/api/metrics")
