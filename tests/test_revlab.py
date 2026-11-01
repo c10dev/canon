@@ -1113,6 +1113,30 @@ def test_js_ai_text_and_made():
     assert gem["picks"]["wait"] == 1 and gem["n"] == 1
 
 
+@needs_node
+def test_ref_preview_and_next_js():
+    """revRefPreview · revRefNext: 이미 있는 화 빼기, 새 번호, 빠진 원고 화, 한도 (revlab.append_episodes 와 같은 규칙)."""
+    book = {"id": "r1", "episodes": [
+        {"order": 1, "label": "프롤로그", "title": "", "kind": "prologue", "chars": 900},
+        {"order": 2, "label": "1화", "title": "시작", "kind": "main", "chars": 1000},
+        {"order": 3, "label": "2화", "title": "", "kind": "main", "chars": 1000},
+        {"order": 4, "label": "3화", "title": "", "kind": "main", "chars": 1000},
+        {"order": 5, "label": "", "title": "", "kind": "skip", "chars": 300},
+        {"order": 6, "label": "4화", "title": "", "kind": "main", "chars": 1000},
+        {"order": 7, "label": "5화", "title": "", "kind": "main", "chars": 0}]}
+    lab = {"items": [{"number": 1, "source": {"ref": "r1", "order": 2}}, {"number": 2, "source": None}], "chars": 2000}
+    lim = {"max_chars": 300000}
+    got = run_js(FILES, """[revRefPreview(data.book, [2, 4, 6], data.lab, data.lim), revRefNext(data.book, data.lab, 5),
+      revRefPreview(data.book, [3], data.lab, { max_chars: 2500 }), revRefPreview(data.book, [2], data.lab, data.lim)]""",
+                 {"book": book, "lab": lab, "lim": lim})
+    full, nxt, over, none = got
+    assert [(e["n"], e["order"]) for e in full["eps"]] == [(3, 4), (4, 6)] and full["skipped"] == 1 and full["chars"] == 2000
+    assert full["missing"] == ["2화"] and full["errs"] == [] and full["next"] == 3  # 차례 3(2화)이 빠지고, 제외 화(5)는 세지 않는다
+    assert nxt == [3, 4, 6]  # 넣은 마지막 차례 뒤로, 제외 화와 글 없는 화는 빼고
+    assert len(over["errs"]) == 1 and "2,500자" in over["errs"][0]  # 화 수는 막지 않고 글자 수만 본다
+    assert none["eps"] == [] and none["skipped"] == 1 and none["missing"] == []
+
+
 # ---------- 화 수 상한 없음 (예전 30화) ----------
 
 def _many_text(n: int, size: int = 900) -> str:

@@ -49,7 +49,7 @@
 - 직접 패턴(`rule` custom)은 예시 한 줄에서 꼴을 만든다(`_custom_re`)
 - 저장 `create`(권리 확인 `rights` 필수) · `update` · `delete` · `entries` · `summary`
 - 저장 때 화별 지표(`RefEp`: 글자 수 · 대사 비율 · 문장 · 문단 평균, `metrics.measure`)를 재 둔다. AI 호출 없음
-- 문체 만들기 원문 `sample`(고른 화를 이어 `SAMPLE_MAX` 자까지) · 역설계 실험 만들기 `to_revlab`(`revlab.create_episodes`, 화 수는 막지 않고 글자 수만 `revlab.MAX_CHARS`)
+- 문체 만들기 원문 `sample`(고른 화를 이어 `SAMPLE_MAX` 자까지) · 역설계 실험 만들기 `to_revlab`(`revlab.create_episodes`, 화 수는 막지 않고 글자 수만 `revlab.MAX_CHARS`) · 있는 실험에 잇기 `to_lab`(`revlab.append_episodes`, 화마다 출처 `RevSource`) · 화 차례별 지금 글 `texts`(출처 상태용)
 - 이 원고로 만든 것 `made`(`RefMade`, 문체는 `POST /api/styles` 의 `ref` · `ref_eps` 로 남긴다)
 - 내 작품과 견주기 `compare`(본문 있는 화 지표, 작품에 쓰지 않음)
 - 웹은 `/api/refs…`(`web.py` '레퍼런스 원고' 절)
@@ -88,7 +88,8 @@
 - 문체 프로필 고르기 · 지우기(웹 `POST /api/revlab/{번호}/styles/{id}/select` · `DELETE …/styles/{id}`)는 `rev_style` 작업이 도는 동안만 409
 - 문체 프로필 하나 보기 · 견주기 `GET /api/revlab/{번호}/styles/{id}?against=` · 메모 `PUT …/styles/{id}`
 - 화 나누기(`split`: 레퍼런스 원고와 같은 규칙 `refs.split` 에 앞머리 200자 넘으면 화 하나 규칙을 더함, `check_text`)
-- 나눠 둔 화로 실험 만들기(`create_episodes`, 레퍼런스 원고에서 보내기)
+- 나눠 둔 화로 실험 만들기(`create_episodes`, 레퍼런스 원고에서 보내기) · 잇기(`append_episodes`: 다시 나누지 않음, 같은 원고 화는 뺌, 웹은 `POST /api/revlab/{번호}/episodes` 의 `{ref, eps}`)
+- 화 출처 `RevEpisode.source`(`RevSource`, 프롬프트에 넣지 않음)와 화면 값의 출처 상태 `sources`(same · changed · gone)
 - 큐 경계(`locate`: AI 가 원문 글자 그대로 인용한 시작 문장 `RevCue.start` 를 차례로 찾음, 글자 수는 `measured`)
 - 원문에 없는 핵심 대사 빼기(`keep_lines`, `cue._flat`)
 - 응답 넣기(`apply_episode` · 줄기 `apply_lines` · 인물 `merge_cast`, 화마다 배경 · 사실 · 관계 · 호칭)
@@ -194,7 +195,7 @@
   - 주소에 화가 없을 때
   - `revOverview`: 역설계 전 풀 화 표 `revPickCard` · 받는 것 `revGetCard`
   - 뒤 화별 진행 `revProgressCard` · `revOverviewRow` · 실험 전체 카드 `revLabCards`
-- 단계 다섯(`revSteps` · `revStepShare`, 누르면 그 단계 자리 `revStep`) · 화(`revTocEps`, 제목 옆 ＋ 로 화 이어 붙이기 칸 `revAddCard`, 미리보기 `revAppendPreview` 는 `append_text` 와 같은 규칙) · 실험 전체
+- 단계 다섯(`revSteps` · `revStepShare`, 누르면 그 단계 자리 `revStep`) · 화(`revTocEps`, 제목 옆 ＋ 로 화 이어 붙이기 칸 `revAddCard`, 미리보기 `revAppendPreview` 는 `append_text` 와 같은 규칙, '레퍼런스 원고에서' 갈래는 `revRefAddHtml` · 미리보기 `revRefPreview` · 다음 화 `revRefNext` 가 `append_episodes` 와 같은 규칙, 화 머리 출처 칩) · 실험 전체
   - 인물 · 관계 · 배경 `revContextCard`
   - 문체 프로필 `revStyleCard`
   - 문체 프로필 기록 목록(`.version-list`, 이 프로필 쓰기 `revStyleUse` · 지금과 견주기 `revStyleDiff` 가 `mystyle.js` 의 `changeLines` 로 그림 · 메모 `revStyleNote` · 지우기 `revStyleDrop`)

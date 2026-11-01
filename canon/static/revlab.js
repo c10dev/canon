@@ -7,8 +7,8 @@
    머리 주 버튼은 다음 할 일 하나(revNext)이고 추정 비용을 함께 적는다(revEst, AI 없음). 폭은 창이 아니라 공용 목차 틀(outline.js, @container outline)의 폭으로 바꾼다.
    app.js 의 S, actions, api, run, render, header, esc, toast, josa, showError, pollJobs, jobFor, jobLeft, elapsed, menuBtn, isTyping,
    JOB_PAGES, JOB_DONE_MSG, fmtDateTime, hub.js 의 renderHub 와 cue.js 의 cueBind · cueEd · cueScore · cueEditor · cueLabel · cueUsd · cuePct · cueYes 를 쓴다
-   (큐 시트 열쇠는 'rev:<화>'). revGuessFirst · revSegments · revPreview · revEpTitle · revSteps · revNext · revTocEps · revRunRows ·
-   revMetricRows · revAiText · revAiMade · revEpRange · revTakePicks 는 DOM 없는 순수 함수 (tests/test_revlab.py). 글 나누기는 서버(POST /api/revlab/split, refs.split)에 묻는다 (revSplitOf). */
+   (큐 시트 열쇠는 'rev:<화>'). 화 이어 붙이기의 '레퍼런스 원고에서' 는 refs.js 의 refRange · refEpName 을 쓴다. revGuessFirst · revSegments · revPreview · revEpTitle · revSteps · revNext · revTocEps · revRunRows ·
+   revMetricRows · revAiText · revAiMade · revEpRange · revTakePicks · revRefPreview · revRefNext 는 DOM 없는 순수 함수 (tests/test_revlab.py). 글 나누기는 서버(POST /api/revlab/split, refs.split)에 묻는다 (revSplitOf). */
 'use strict';
 
 Object.assign(S, {
@@ -25,6 +25,10 @@ Object.assign(S, {
   revSel: 0,       // 원문에서 밝힌 큐 번호 (1부터)
   revEdit: false,  // 실험 글 고치기 칸을 열었는지
   revAdd: null,    // 화 이어 붙이기 칸에 붙여 넣은 글 (null 이면 닫힘)
+  revAddFrom: 'text', // 이어 붙일 곳: text(붙여 넣기) · ref(레퍼런스 원고에서)
+  revRefs: null,   // 레퍼런스 원고 목록 (GET /refs, 처음 열 때 받는다)
+  revRefBook: null, // 고른 원고 (GET /refs/<id>: episodes 에 차례 · 이름 · 제목 · 종류 · 글자 수)
+  revRefPick: new Set(), // 고른 원고 화 차례
   revEpEdit: null, // 고치는 화 { n, head, text } (null 이면 닫힘)
   revStyle: false, // 되돌려 쓰기에 문체 프로필을 넣을지
   revStyleDiff: null, // 펼친 문체 프로필 견주기 { id, changes } (GET /revlab/<번호>/styles/<id>)
@@ -578,11 +582,93 @@ function revAddPreviewHtml() {
 const revAddRange = (v) => (!v.eps.length ? '' : v.eps.length > 1 ? `${v.eps[0].n}~${v.eps[v.eps.length - 1].n}화` : `${v.eps[0].n}화`);
 const revAddLabel = (v) => (v.eps.length && !v.errs.length ? `${revAddRange(v)} 이어 붙이기` : '이어 붙이기');
 
-/** 화 이어 붙이기 칸: 붙여 넣은 글을 나눠 마지막 화 뒤에 잇는다. 앞 화의 역설계 결과는 그대로 둔다 (revlab.append_text). */
+/** 실험에 이미 있는 이 원고 화의 차례. */
+const revRefTaken = (book, L) => new Set(L.items.filter((x) => x.source && x.source.ref === book.id).map((x) => x.source.order));
+const revRefUsable = (e) => e.kind !== 'skip' && e.chars > 0;
+
+/** 레퍼런스 원고에서 고른 화의 미리보기 (revlab.append_episodes 와 같은 규칙). book: GET /refs/<id> 값, pick: 고른 차례,
+ * L: 실험 { items, chars }, lim: { max_chars } (화 수는 막지 않는다). 이미 실험에 있는 화는 빼고(skipped), 새 화 번호는 마지막 화 + 1 부터 센다.
+ * missing 은 고른 화와 이미 넣은 화 사이에서 빠진 원고 화 이름 (제외 화는 셈하지 않는다). */
+function revRefPreview(book, pick, L, lim) {
+  const taken = revRefTaken(book, L);
+  const want = new Set(pick);
+  const chosen = book.episodes.filter((e) => want.has(e.order) && revRefUsable(e));
+  const fresh = chosen.filter((e) => !taken.has(e.order));
+  const next = L.items.length ? L.items[L.items.length - 1].number + 1 : 1;
+  const eps = fresh.map((e, i) => ({ n: next + i, order: e.order, label: e.label, title: e.title, chars: e.chars }));
+  const chars = eps.reduce((k, e) => k + e.chars, 0);
+  const errs = [];
+  if (L.chars + chars > lim.max_chars) errs.push(`이으면 ${(L.chars + chars).toLocaleString()}자예요. 한 실험에 ${lim.max_chars.toLocaleString()}자까지 넣을 수 있어요`);
+  const have = [...taken, ...fresh.map((e) => e.order)];
+  const lo = Math.min(...have);
+  const hi = Math.max(...have);
+  const missing = fresh.length ? book.episodes.filter((e) => revRefUsable(e) && e.order > lo && e.order < hi && !have.includes(e.order)).map((e) => e.label || `${e.order}번째`) : [];
+  return { eps, skipped: chosen.length - fresh.length, chars, errs, missing, next };
+}
+
+/** '이어서 다음 k화': 실험에 넣은 이 원고의 마지막 차례 뒤로, 아직 넣지 않은 쓸 수 있는 화 k개의 차례. */
+function revRefNext(book, L, k = 5) {
+  const taken = revRefTaken(book, L);
+  const last = taken.size ? Math.max(...taken) : 0;
+  return book.episodes.filter((e) => revRefUsable(e) && e.order > last && !taken.has(e.order)).slice(0, k).map((e) => e.order);
+}
+
+const revRefLabel = (v) => (!v.eps.length ? '이어 붙이기' : `${v.eps.length > 1 ? `${v.eps[0].n}~${v.eps[v.eps.length - 1].n}화` : `${v.eps[0].n}화`}로 이어 붙이기`);
+
+/** 화 이어 붙이기의 '레퍼런스 원고에서' 칸: 원고 고르기, 화 표, 미리보기. */
+function revRefAddHtml() {
+  if (!S.revRefs) return '<div class="small">레퍼런스 원고를 불러오는 중이에요…</div>';
+  if (S.revRefs.error) return `<div class="note err small">${esc(S.revRefs.error)}</div>`;
+  if (!S.revRefs.refs.length) return '<p class="small">레퍼런스 원고가 없어요. <a href="#/refs/new">레퍼런스 원고</a>에서 원고 txt를 먼저 넣으세요.</p>';
+  const b = S.revRefBook;
+  const opts = S.revRefs.refs.map((r) => `<option value="${esc(r.id)}"${b && b.id === r.id ? ' selected' : ''}>${esc(r.name)} · ${r.episodes}화</option>`).join('');
+  const sel = `<div class="row"><label class="small" for="rev-ref">원고</label><select id="rev-ref" data-rev-ref="1"><option value="">원고 고르기</option>${opts}</select>
+    ${b ? `<a class="small" href="#/refs/${enc(b.id)}">원고 화면 ›</a>` : ''}</div>`;
+  if (!b) return sel;
+  if (b.error) return `${sel}<div class="note err small">${esc(b.error)}</div>`;
+  const L = S.revLab;
+  const taken = revRefTaken(b, L);
+  const v = revRefPreview(b, S.revRefPick, L, S.rev);
+  const rows = b.episodes.map((e) => {
+    const has = taken.has(e.order);
+    const off = !revRefUsable(e) || has;
+    const note = has ? '<span class="chip">이미 있음</span>' : e.kind === 'skip' ? '<span class="small">제외</span>' : '';
+    return `<tr class="${off ? 'off' : ''}"><td><input type="checkbox" data-rev-ref-pick="${e.order}"${S.revRefPick.has(e.order) && !off ? ' checked' : ''}${off ? ' disabled' : ''} aria-label="${esc(refEpName(e))} 고르기"></td>
+      <td>${esc(e.label || `${e.order}번째`)}</td><td>${esc(e.title || '')} ${note}</td><td class="num">${e.chars.toLocaleString()}</td></tr>`;
+  }).join('');
+  const prev = v.eps.length
+    ? `<div class="between"><strong>${v.eps.length}화를 이어요 → ${v.eps.length > 1 ? `${v.eps[0].n}~${v.eps[v.eps.length - 1].n}화` : `${v.eps[0].n}화`}</strong><span class="small">${v.chars.toLocaleString()}자</span></div>
+      <div class="small">원고 ${esc(v.eps.map((e) => e.label || `${e.order}번째`).join(', '))}${v.skipped ? ` · 이미 있는 ${v.skipped}화는 빼요` : ''}</div>`
+    : `<div class="small">표에서 이을 화를 고르세요. 새 화는 ${v.next}화부터 이어요.</div>`;
+  const notes = [...v.errs.map((x) => `<div class="note err small">${esc(x)}</div>`),
+    v.missing.length ? `<div class="note warn small">원고 ${esc(v.missing.slice(0, 5).join(', '))}${v.missing.length > 5 ? ` 외 ${v.missing.length - 5}화` : ''}가 빠져요.</div>` : ''].join('');
+  return `${sel}
+    <div class="row"><button type="button" class="btn small" data-action="revRefNext">이어서 다음 5화</button>
+      <label class="small" for="rev-ref-range">범위</label><input id="rev-ref-range" type="text" data-rev-ref-range="1" placeholder="예: 16~20" size="12">
+      <button type="button" class="btn small" data-action="revRefRange">고르기</button>
+      <button type="button" class="btn small" data-action="revRefNone"${S.revRefPick.size ? '' : ' disabled'}>모두 풀기</button></div>
+    <div class="rev-ref-table"><table class="tbl"><thead><tr><th scope="col"><span class="sr-only">고르기</span></th><th scope="col">번호</th><th scope="col">제목</th><th scope="col" class="num">글자</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="rev-preview" aria-live="polite">${prev}${notes}</div>`;
+}
+
+/** 화 이어 붙이기 칸: 붙여 넣은 글을 나눠, 또는 레퍼런스 원고에서 고른 화를 마지막 화 뒤에 잇는다. 앞 화의 역설계 결과는 그대로 둔다
+ * (revlab.append_text · append_episodes). */
 function revAddCard() {
+  const from = `<div class="seg" role="group" aria-label="이어 붙일 곳">${[['text', '글 붙여 넣기'], ['ref', '레퍼런스 원고에서']].map(([k, l]) => `<button type="button" aria-pressed="${S.revAddFrom === k}" data-action="revAddFrom" data-arg="${k}">${l}</button>`).join('')}</div>`;
+  const shut = '<button type="button" class="btn small ghost" data-action="revAddToggle">닫기</button>';
+  if (S.revAddFrom === 'ref') {
+    const b = S.revRefBook;
+    const v = b && !b.error ? revRefPreview(b, S.revRefPick, S.revLab, S.rev) : { eps: [], errs: [] };
+    const ok = v.eps.length && !v.errs.length && !revRunning();
+    return `<section class="card"><div class="between"><h2>화 이어 붙이기</h2>${shut}</div>${from}
+      <p class="small">원고에서 나눈 화를 그대로 마지막 화 뒤에 넣어요. 이미 이 실험에 있는 화는 빼요. 화 번호는 원고 번호와 상관없이 이어서 세고, 원고 번호는 화 머리에 출처로 보여요.</p>
+      ${revRefAddHtml()}
+      ${revRunning() ? '<div class="note warn small">작업이 끝난 뒤에 이을 수 있어요.</div>' : ''}
+      <div class="row"><button type="button" class="btn primary" data-action="revAppendRef"${ok ? '' : ' disabled'}>${revRefLabel(v)}</button></div></section>`;
+  }
   const v = revAppendPreview(S.revAdd, S.rev, revHave(S.revLab));
   const ok = !v.errs.length && !v.pending && !revRunning();
-  return `<section class="card"><div class="between"><h2>화 이어 붙이기</h2><button type="button" class="btn small ghost" data-action="revAddToggle">닫기</button></div>
+  return `<section class="card"><div class="between"><h2>화 이어 붙이기</h2>${shut}</div>${from}
     <p class="small">마지막 화 뒤에 새 화를 넣어요. 앞 화의 역설계 결과 · 인물 · 문체 프로필은 그대로 두고, 새 화를 역설계할 때 앞 화의 인물 · 줄거리가 들어가요. 이야기 줄기는 새 화까지 역설계하면 다시 물어요.</p>
     <div class="rev-paste">
       <div class="field"><label for="rev-atext">이어 붙일 글 <span class="small" id="rev-acount">${S.revAdd ? `· ${S.revAdd.length.toLocaleString()}자` : ''}</span></label><textarea id="rev-atext" rows="12" data-rev-add="1" placeholder="여기에 붙여 넣으세요">${esc(S.revAdd)}</textarea></div>
@@ -929,7 +1015,9 @@ function revEpisode() {
     if (e.storyboard) facts.push(`장면 ${e.storyboard.scenes.length}`);
     if (e.plot) facts.push(`사건 ${e.plot.events.length}`);
   }
-  const head = `<div class="between rev-ep-head"><div class="row"><h2>${e.number}화${revEpTitle(e) ? ` ${esc(revEpTitle(e))}` : ''}</h2>${chip}<span class="small">${facts.join(' · ')}</span></div>${nav}</div>`;
+  const src = e.source ? `<a class="chip" href="#/refs/${enc(e.source.ref)}/${e.source.order}" title="이 화가 온 레퍼런스 원고">원고${(L.ref_names || {})[e.source.ref] ? ` 《${esc(L.ref_names[e.source.ref])}》` : ''} ${esc(e.source.label ? (/^\d+$/.test(e.source.label) ? `${e.source.label}화` : e.source.label) : `${e.source.order}번째`)}</a>`
+    + ({ changed: ' <span class="chip warn" title="원고 경계를 고쳐 그 화 글이 넣을 때와 달라요">원고가 바뀌었어요</span>', gone: ' <span class="chip warn">원고에 없어요</span>' }[e.source_state] || '') : '';
+  const head = `<div class="between rev-ep-head"><div class="row"><h2>${e.number}화${revEpTitle(e) ? ` ${esc(revEpTitle(e))}` : ''}</h2>${chip}${src}<span class="small">${facts.join(' · ')}</span></div>${nav}</div>`;
   if (!e.sheet) {
     const go = short ? `${S.rev.min_chars}자보다 짧아 역설계하지 않아요.` : jobFor('rev_parse', L.id, REV_JOBS) ? '역설계하는 중이에요. 끝나면 이 화가 바로 열려요.' : '역설계 전이에요. 풀 화는 개요에서 고르고 비용을 봐요.';
     return `${head}<div class="note plain between"><span>${go}</span>${short ? '' : `<a class="btn small" href="#/revlab/${L.id}">개요로</a>`}</div><section class="card"><h3>원문</h3><div class="cue-text rev-raw">${esc(e.text)}</div></section>`;
@@ -1135,6 +1223,22 @@ function revNewRefresh() {
   if (btn) btn.disabled = !!v.errs.length || !!v.pending;
 }
 
+/** 레퍼런스 원고 목록을 받는다. 이 실험의 화가 온 원고가 있으면 그 원고를 먼저 연다. */
+async function revRefLoad() {
+  if (S.revRefs && !S.revRefs.error) return;
+  S.revRefs = await api('GET', '/refs').catch((e) => ({ error: e.message, refs: [] }));
+  const from = (S.revLab && S.revLab.items || []).map((x) => x.source && x.source.ref).filter(Boolean).pop();
+  if (from && S.revRefs.refs.some((r) => r.id === from)) await revRefOpen(from);
+  else render();
+}
+
+/** 원고 하나의 화 목록을 받는다 (GET /refs/<id>). 빈 값이면 고르기를 푼다. */
+async function revRefOpen(rid) {
+  S.revRefPick = new Set();
+  S.revRefBook = rid ? await api('GET', `/refs/${enc(rid)}`).catch((e) => ({ error: e.message, id: rid })) : null;
+  render();
+}
+
 function revAddRefresh() {
   if (S.revAdd === null) return;
   const box = document.getElementById('rev-apreview');
@@ -1159,6 +1263,13 @@ function revSplitDone() {
 document.addEventListener('change', (e) => {
   const d = e.target.dataset || {};
   if (d.revStyle !== undefined) { S.revStyle = e.target.checked; render(); return; }
+  if (d.revRef) { revRefOpen(e.target.value); return; }
+  if (d.revRefPick !== undefined) {
+    const o = Number(d.revRefPick);
+    if (e.target.checked) S.revRefPick.add(o); else S.revRefPick.delete(o);
+    render();
+    return;
+  }
   if (d.revRead) { S.revRead = { ...S.revRead, [d.revRead]: e.target.value === 'original' ? 'original' : Number(e.target.value) }; render(); return; }
   if (d.revAi) {
     const v = e.target.value;
@@ -1245,8 +1356,48 @@ Object.assign(actions, {
   async revAddToggle() {
     if (S.revAdd && S.revAdd.trim() && !(await askConfirm('붙여 넣은 글을 버리고 닫을까요?', { ok: '버리기', danger: true }))) return;
     S.revAdd = S.revAdd === null ? '' : null;
-    if (S.revAdd !== null) S.focusTarget = '#rev-atext';
+    S.revRefPick = new Set();
+    if (S.revAdd === null) { S.revRefs = null; S.revRefBook = null; }  // 다시 열면 원고 목록을 새로 받는다
+    if (S.revAdd !== null && S.revAddFrom === 'ref') revRefLoad();
+    else if (S.revAdd !== null) S.focusTarget = '#rev-atext';
     render();
+  },
+  revAddFrom(k) {
+    S.revAddFrom = k === 'ref' ? 'ref' : 'text';
+    if (S.revAddFrom === 'ref') revRefLoad();
+    render();
+  },
+  revRefNext() {
+    if (!S.revRefBook || S.revRefBook.error) return;
+    revRefNext(S.revRefBook, S.revLab).forEach((o) => S.revRefPick.add(o));
+    render();
+  },
+  revRefRange() {
+    const b = S.revRefBook;
+    const box = document.getElementById('rev-ref-range');
+    if (!b || b.error || !box) return;
+    const taken = revRefTaken(b, S.revLab);
+    const got = refRange(box.value, b.episodes.filter((e) => revRefUsable(e) && !taken.has(e.order)));
+    if (!got.length) { toast('그 범위에 고를 수 있는 화가 없어요'); return; }
+    got.forEach((o) => S.revRefPick.add(o));
+    render();
+  },
+  revRefNone() { S.revRefPick = new Set(); render(); },
+  /** 고른 원고 화를 마지막 화 뒤에 잇는다 (POST /revlab/<번호>/episodes { ref, eps }). 이은 화는 역설계할 화로 골라 둔다. */
+  async revAppendRef() {
+    const id = S.revLab.id;
+    const b = S.revRefBook;
+    await run('이어 붙이는 중', async () => {
+      const v = await api('POST', `/revlab/${id}/episodes`, { ref: b.id, eps: [...S.revRefPick].sort((x, y) => x - y) });
+      const added = v.added || [];
+      S.revLab = null;
+      S.revAdd = null;
+      S.revRefPick = new Set();
+      if (location.hash === `#/revlab/${id}`) await revLoad(id, null);
+      else location.hash = `#/revlab/${id}`;
+      const span = added.length > 1 ? `${added[0]}~${added[added.length - 1]}화` : `${added[0]}화`;
+      toast(`${span}를 이었어요.${v.skipped ? ` 이미 있던 ${v.skipped}화는 뺐어요.` : ''} 역설계할 화로 골라 뒀어요.`);
+    });
   },
   /** 붙여 넣은 글을 마지막 화 뒤에 잇고 개요로 간다. 이은 화는 역설계할 화로 골라 둔다 (revFetch 가 새 실험처럼 고른다). */
   async revAppend() {
