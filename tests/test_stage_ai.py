@@ -1,10 +1,12 @@
 """장면 연출 AI(일감 03)와 검수 연결(04): 초안 · 뽑기 → 비교 → 적용 · 적용 취소, 이름 정리와 막기, 규칙 지적, 검수 때 함께 뽑기.
 mock LLM. 실행: python -m pytest tests"""
+import threading
 import time
 
 import pytest
 
-from canon import findings, pipeline, prompts, stage
+from canon import cancel, findings, pipeline, prompts, stage
+from canon.llm import Interrupted
 from canon.mock import MockLLM
 from canon.schema import (Character, ConsistencyReport, DraftBeat, DraftBody, DraftContact, FixOption, FixSet, Meta, Project,
                           StageBeat, StageBody, StageContact, StageDraft, StageScene, StageSpot)
@@ -30,6 +32,13 @@ class Counting(MockLLM):
     def json(self, system, prompt, schema, hint=None):
         self.calls.append(schema.__name__)
         return super().json(system, prompt, schema, hint)
+
+
+def _plan(p: Project, *events: int) -> None:
+    """사건마다 빈 계획 장면을 붙인다. 검수 때 함께 뽑기는 계획 장면이 있는 사건만 뽑는다."""
+    ep = p.episode(1)
+    for i in events:
+        ep.stage.append(StageScene(id=f"p{i}", event=i, event_text=ep.plot.events[i], role="plan", source="plot"))
 
 
 class NoLLM:
@@ -185,13 +194,98 @@ def test_check_extracts_only_when_on_and_text_changed():
     assert llm.calls == ["ConsistencyReport"] and p.episode(1).stage == []  # 끄면 뽑기 호출이 없다
     p.settings.stage_extract = True
     llm.calls.clear()
+    pipeline.check_episode(llm, p, 1)
+    assert llm.calls == ["ConsistencyReport"]  # 계획 장면이 없으면 뽑지 않는다 (장면 연출 화면 버튼으로)
+    _plan(p, 0, 1)
+    llm.calls.clear()
     rep = pipeline.check_episode(llm, p, 1)
-    assert llm.calls == ["ConsistencyReport", "StageDraft", "StageDraft"]  # 사건마다 하나
+    assert llm.calls == ["ConsistencyReport", "StageDraft", "StageDraft"]  # 계획 장면이 있는 사건마다 하나
     pipeline.apply_check(p, rep)
-    assert [s.role for s in p.episode(1).stage] == ["text", "text"] and len(p.rooms) == 2
+    assert [s.role for s in p.episode(1).stage] == ["plan", "plan", "text", "text"] and len(p.rooms) == 2
     llm.calls.clear()
     pipeline.apply_check(p, pipeline.check_episode(llm, p, 1))
     assert llm.calls == ["ConsistencyReport"]  # 본문이 그대로면 다시 뽑지 않는다
+
+
+def test_check_extracts_only_planned_events():
+    p = _project()
+    _plan(p, 1)
+    llm = Counting()
+    rep = pipeline.check_episode(llm, p, 1)
+    assert llm.calls == ["ConsistencyReport", "StageDraft"] and [x.event for x in rep._stage] == [1]
+
+
+class Gate(MockLLM):
+    """장면 뽑기 호출을 붙잡아 동시에 몇 개가 들어오는지 잰다."""
+    def __init__(self, hold: int):
+        self.hold, self.now, self.most, self.lock, self.go = hold, 0, 0, threading.Lock(), threading.Event()
+
+    def json(self, system, prompt, schema, hint=None):
+        if schema is StageDraft:
+            with self.lock:
+                self.now += 1
+                self.most = max(self.most, self.now)
+                if self.now >= self.hold:
+                    self.go.set()
+            self.go.wait(5)
+            with self.lock:
+                self.now -= 1
+        return super().json(system, prompt, schema, hint)
+
+
+def test_check_extracts_events_at_the_same_time_up_to_the_limit():
+    p = _project()
+    p.episode(1).plot.events += ["도윤이 앉는다", "하린이 돌아선다", "둘이 나간다"]
+    _plan(p, 0, 1, 2, 3, 4)
+    llm = Gate(pipeline.STAGE_EXTRACT_WORKERS)
+    t = time.perf_counter()
+    auto, held = pipeline.stage_extract_all(llm, p, 1)
+    assert time.perf_counter() - t < 4  # 차례로 불렀으면 첫 호출이 5초를 기다린다
+    assert llm.most == pipeline.STAGE_EXTRACT_WORKERS  # 동시 호출 수 상한
+    assert [x.event for x in auto] == [0, 1, 2, 3, 4] and held == []  # 결과는 사건 차례
+
+
+def test_check_extract_passes_context_and_stops_on_cancel():
+    p = _project()
+    _plan(p, 0, 1)
+    seen = []
+
+    class See(MockLLM):
+        def json(self, system, prompt, schema, hint=None):
+            seen.append(cancel.current.get())
+            return super().json(system, prompt, schema, hint)
+
+    ev = threading.Event()
+    tok = cancel.current.set(ev)
+    try:
+        pipeline.stage_extract_all(See(), p, 1)
+        assert seen == [ev, ev]  # 스레드에도 작업 정보(contextvars)가 간다
+        ev.set()
+        seen.clear()
+        with pytest.raises(cancel.Cancelled):
+            pipeline.stage_extract_all(See(), p, 1)
+        assert seen == []  # 멈춘 뒤에는 부르지 않는다
+    finally:
+        cancel.current.reset(tok)
+
+
+def test_check_extract_raises_batch_interrupt_but_skips_other_failures():
+    p = _project()
+    _plan(p, 0, 1)
+
+    class Fail(MockLLM):
+        def __init__(self, err):
+            self.err = err
+
+        def json(self, system, prompt, schema, hint=None):
+            if schema is StageDraft and hint["event"] == 0:
+                raise self.err
+            return super().json(system, prompt, schema, hint)
+
+    auto, _ = pipeline.stage_extract_all(Fail(RuntimeError("x")), p, 1)
+    assert [x.event for x in auto] == [1]  # 한 사건이 실패해도 잇는다
+    with pytest.raises(Interrupted):  # 자동 집필 배치의 멈춤 · 일시정지는 올린다
+        pipeline.stage_extract_all(Fail(Interrupted(cancelled=False)), p, 1)
 
 
 def test_check_does_not_overwrite_author_text_scene():
@@ -202,6 +296,7 @@ def test_check_does_not_overwrite_author_text_scene():
     s2.beats[0].note = "작가가 고침"
     stage.save_scene(p, p.episode(1), s2, None)
     assert p.episode(1).stage[0].source == "manual"  # 작가가 손본 본문 장면
+    _plan(p, 0, 1)
     rep = pipeline.check_episode(MockLLM(), p, 1)
     assert [x.event for x in rep._stage_held] == [1] and [x.event for x in rep._stage] == [0]
     pipeline.apply_check(p, rep)

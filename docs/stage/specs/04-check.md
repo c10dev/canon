@@ -8,7 +8,7 @@
 
 ## 두 역할 결정 (2026-10-29)
 
-- 검수 때 본문 장면 추출이 자동으로 돈다(`Settings.stage_extract` 기본 켬). 추출 결과는 본문 장면(`role = text`, 일감 07)으로 두고 계획 장면을 덮지 않는다.
+- 검수 때 본문 장면 추출이 자동으로 돈다(`Settings.stage_extract` 기본 켬). 2026-11-01 부터 계획 장면이 있는 사건만 자동으로 뽑고, 다른 사건은 장면 연출 화면 버튼으로 뽑는다. 추출 결과는 본문 장면(`role = text`, 일감 07)으로 두고 계획 장면을 덮지 않는다.
 - 판별은 둘이다: 본문 장면의 규칙 판정(`judge`), 계획 장면이 있으면 계획 대비 차이(`stage.diff`, 일감 07).
 - 동선 지적의 심각도는 low 다. 고침안(`propose_fixes`)은 어긋난 낱말만 바꾸고, 새 동작 문장을 더하는 고침안은 `clean_fixes` 가 거른다.
 
@@ -26,7 +26,7 @@
 |---|---|
 | `canon/schema.py` | `ConsistencyIssue.origin`, `CheckRound.stage: bool = False` |
 | `canon/stage.py` | `to_issues(violations, scene)`: 인용 있는 박자만, `current_quote` 는 어긋난 박자 인용, `source_quote` 는 `cause` 박자 인용(시작 상태면 빈칸), 한 문장의 여러 위반은 하나로 |
-| `canon/pipeline.py` | `check_episode` 끝에서 `Settings.stage_extract` 가 켜져 있으면 사건마다 `extract_stage` → 장면이 비었으면 바로 적용(작가 장면은 덮지 않음) → `judge` → `to_issues` 를 같은 `apply_check` 에 넣음. 첫 검수 지적과 `same_quote` 이면 뺌. 꺼져 있어도 이미 있는 장면의 판정은 넣는다 |
+| `canon/pipeline.py` | `check_episode` 끝에서 `Settings.stage_extract` 가 켜져 있으면 계획 장면이 있는 사건마다 `extract_stage`(3개까지 동시에) → 장면이 비었으면 바로 적용(작가 장면은 덮지 않음) → `judge` → `to_issues` 를 같은 `apply_check` 에 넣음. 첫 검수 지적과 `same_quote` 이면 뺌. 꺼져 있어도 이미 있는 장면의 판정은 넣는다 |
 | `canon/findings.py` | 규칙 지적의 다시 검수(`recheck_finding` 에서 `origin == "rule"` 이면 판정만) |
 | `canon/web.py` | `PUT …/stage-extract`(`check-widen` 과 같은 모양) |
 | `canon/autorun.py` | 비용 추정에 사건 수만큼 추출 호출 더하기(설정이 켜졌을 때) |

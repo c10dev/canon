@@ -43,6 +43,9 @@
 - 왼쪽 · 위로 넓히기 `shift_room`(뿌리 · 벽 기준점만)
 - 옛 방 짐작 `attach_guess`(`StageRoom.attached` 가 거짓이면 `model_validator` 가 부름)
 - AI 호출은 `pipeline.draft_stage`(plan, 빈 방에서 받기 `fresh`, 공용 방이면 복사한 장면 전용 방에 더함) · `extract_stage`(check) · 검수 때 함께 뽑기 `stage_extract_all`(`Settings.stage_extract`, 본문 지문이 같으면 건너뜀, 작가가 손본 본문 장면 `source manual` 은 덮지 않음)
+- 검수 때 함께 뽑기는 계획 장면이 있는 사건만 뽑는다. 다른 사건은 장면 연출 화면 '본문에서 뽑기' 버튼이 맡는다(2026-11-01 사용자)
+- 검수 때 함께 뽑기는 사건마다 따로 부르고 `pipeline.STAGE_EXTRACT_WORKERS`(3)개까지 동시에 부른다. 스레드에는 `contextvars.copy_context()` 로 작품 · 화 · 멈춤 신호를 넘긴다
+- 검수 때 함께 뽑기에서 멈추기(`cancel.Cancelled`)와 배치 멈춤(`llm.Interrupted`)은 바로 올리고 아직 보내지 않은 사건은 부르지 않는다. 다른 실패는 그 사건만 건너뛴다
 - 적용 · 적용 취소 `apply_stage` · `undo_stage`(`prev`, id 가 빈 prev 는 '적용 전에 없었음')
 - 프롬프트 `prompts.stage_draft_prompt` · `stage_extract_prompt`
 - 가짜 응답 `mock_stage.py`

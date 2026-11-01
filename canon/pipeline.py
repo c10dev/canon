@@ -1,13 +1,15 @@
 """생성 파이프라인. 각 단계는 Project 를 받아 제안을 만들고, 반영은 호출자가 승인 후 한다."""
 from __future__ import annotations
 
+import contextvars
 import logging
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
-from .llm import LLM, dump
+from .llm import LLM, Interrupted, dump
 from . import board, cancel, charlog, context, features, findings, foreshadows, knows, metatail, stage, statwin, timeline, usage
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixOption, FixPatch, FixSet, RevEpisodeDraft, RevLineSet
 from .schema import (
@@ -3319,7 +3321,7 @@ def check_episode(llm: LLM, p: Project, n: int, widen: bool | None = None) -> Co
     report.episode = n
     if widen_on(p, widen):
         report, _ = widen_check(llm, p, n, report)
-    if p.settings.stage_extract:  # 본문 장면 뽑기: apply_check 가 장면에 넣고 규칙 판정을 합친다
+    if p.settings.stage_extract:  # 계획 장면이 있는 사건만 본문 장면 뽑기: apply_check 가 장면에 넣고 규칙 판정을 합친다
         report._stage, report._stage_held = stage_extract_all(llm, p, n)
     return report
 
@@ -3518,26 +3520,43 @@ def extract_stage(llm: LLM, p: Project, n: int, event: int, hint: dict | None = 
     return prop
 
 
+STAGE_EXTRACT_WORKERS = 3  # 검수 때 함께 뽑기의 동시 호출 수. 429 는 llm 의 RATE_WAITS 재시도가 맡는다
+
+
 def stage_extract_all(llm: LLM, p: Project, n: int, hint: dict | None = None) -> tuple[list[StageProposal], list[StageProposal]]:
-    """검수 때 함께 뽑기: 사건마다 본문 장면을 뽑는다. 본문이 바뀌지 않은 사건(basis 같음)은 건너뛴다(호출 없음).
-    (바로 넣을 것, 작가가 손본 본문 장면이라 비교로만 남길 것). 한 사건이 실패해도 검수는 잇는다."""
+    """검수 때 함께 뽑기: 계획 장면이 있는 사건만 본문 장면을 뽑는다 (2026-11-01 사용자: 나머지는 장면 연출 화면 버튼).
+    본문이 바뀌지 않은 사건(basis 같음)은 건너뛴다(호출 없음). 사건마다 따로 부르고 STAGE_EXTRACT_WORKERS 개씩 동시에 부른다.
+    (바로 넣을 것, 작가가 손본 본문 장면이라 비교로만 남길 것). 한 사건이 실패해도 검수는 잇는다. 멈추기는 바로 올린다."""
     ep = p.episode(n)
     if not ep.text:
         return [], []
     basis = text_basis(ep.text)
     part = getattr(llm, "part", None)  # 자동 집필 배치: 호출마다 작업 slot 을 따로 둔다
-    auto, held = [], []
+    todo = []
     for i in range(len(ep.plot.events)):
-        text = stage.scenes_of(ep, i)[1]
-        if text is not None and text.basis == basis:
+        plan, text = stage.scenes_of(ep, i)
+        if plan is None or (text is not None and text.basis == basis):
             continue
-        try:
-            prop = extract_stage(part(f"stage{i + 1}") if part else llm, p, n, i, hint)
-        except cancel.Cancelled:
-            raise
-        except Exception:
-            continue
-        (held if text is not None and text.source == "manual" else auto).append(prop)
+        todo.append((i, text))
+    if not todo:
+        return [], []
+
+    def one(i: int) -> StageProposal:
+        cancel.check()
+        return extract_stage(part(f"stage{i + 1}") if part else llm, p, n, i, hint)
+
+    auto, held = [], []
+    with ThreadPoolExecutor(max_workers=min(STAGE_EXTRACT_WORKERS, len(todo))) as pool:
+        futures = [(text, pool.submit(contextvars.copy_context().run, one, i)) for i, text in todo]
+        for text, fut in futures:
+            try:
+                prop = fut.result()
+            except (cancel.Cancelled, Interrupted):
+                pool.shutdown(wait=False, cancel_futures=True)  # 아직 보내지 않은 사건은 부르지 않는다
+                raise
+            except Exception:
+                continue
+            (held if text is not None and text.source == "manual" else auto).append(prop)
     return auto, held
 
 
