@@ -14076,6 +14076,7 @@
      "personality": {
       "type": "string",
       "title": "Personality",
+      "description": "겉 태도와 속마음이 함께 보이는 성격 1~2문장. 형용사 나열 대신, 어떤 상황에서 어떻게 행동하는지 버릇 하나를 넣는다",
       "default": ""
      },
      "background": {
@@ -24161,7 +24162,7 @@
       },
       "type": "array",
       "title": "Donts",
-      "description": "피해야 할 표현이나 습관"
+      "description": "피해야 할 습관. 항목마다 대신 할 것을 함께 적는다 (예: 감정을 이름으로 설명하지 않고, 손이나 시선의 움직임으로 보여 준다)"
      },
      "banned_phrases": {
       "items": {
