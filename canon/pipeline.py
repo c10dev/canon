@@ -241,8 +241,9 @@ def _init_states(p: Project) -> None:
 
 # ---------- 2. 스타일 레퍼런스 ----------
 
-def analyze_style(llm: LLM, sample: str, names: list[str] | None = None) -> StyleProfile:
-    profile = llm.json(prompts.SYSTEM_PLANNER, prompts.style_prompt(sample), StyleProfile)
+def analyze_style(llm: LLM, sample: str, names: list[str] | None = None, passages: bool = True) -> StyleProfile:
+    """passages 가 거짓이면 대표 문단을 묻지 않는다 (prompts.style_prompt)."""
+    profile = llm.json(prompts.SYSTEM_PLANNER, prompts.style_prompt(sample, passages), StyleProfile)
     count_markers(profile, sample, names)
     return profile
 

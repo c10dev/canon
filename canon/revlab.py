@@ -556,13 +556,14 @@ def drop_take(lab: RevLab, number: int, no: int) -> None:
 
 
 def run_style(lab_id: int, llm) -> StyleProfile:
-    """원문 앞부분(STYLE_CHARS)으로 문체 프로필을 만든다 (pipeline.analyze_style, plan 단계). 예시 문단은 비우고 저장한다."""
+    """원문 앞부분(STYLE_CHARS)으로 문체 프로필을 만든다 (pipeline.analyze_style, plan 단계). 예시 문단은 묻지 않고,
+    모델이 그래도 내면 비우고 저장한다."""
     from . import research
 
     lab = load(lab_id)
     sample = style_sample(lab)
     cancel.check()
-    prof = pipeline.analyze_style(llm, sample, [c.name for c in lab.cast])
+    prof = pipeline.analyze_style(llm, sample, [c.name for c in lab.cast], passages=False)
     prof.sample_passages = []
     cancel.check()
 
@@ -762,7 +763,7 @@ def estimate(lab: RevLab, kind: str, numbers: list[int] | None = None, model: st
     price = usage.rate(model, date.today().isoformat())
     rows = []
     if kind == "style":
-        tin = (len(prompts.SYSTEM_PLANNER) + len(prompts.style_prompt(style_sample(lab)))) / CHARS_PER_TOKEN
+        tin = (len(prompts.SYSTEM_PLANNER) + len(prompts.style_prompt(style_sample(lab), passages=False))) / CHARS_PER_TOKEN
         rows.append({"label": "문체 프로필", "calls": 1, "input_tokens": round(tin), "output_tokens": STYLE_OUT_TOKENS,
                      "usd": round(usage.cost(price, tin, STYLE_OUT_TOKENS, 0, False), 3) if price else None})
     for n in nums:
