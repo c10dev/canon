@@ -69,14 +69,23 @@ Canon은 AI와 함께 긴 소설을 쓰는 작가의 작업대다. 화면은 조
 - 이름 글자는 로고 파일이 없어 `brand`(22px, 800)로 쓴다: `Canon`은 `logo`, 끝 점 `.`은 `brand-2`. 점은 화면 읽기에서 숨긴다.
 - 입력칸 이름은 `label`, 제목 위 위치 줄은 `eyebrow`, 덧붙임은 `small`.
 - 집필 화면 본문은 `prose`(16px, 줄 간격 2), 줄 폭 `measure` 760px. 비교 화면은 `prose-compare`, 인용 블록은 `prose-quote`.
+- 제목 줄 높이는 `h1` 36px · `h2` 24px · `h3` 22px다(layout.md '글자 리듬').
 - 손가락으로 쓰는 기기(`pointer: coarse`)에서는 입력칸 글자를 16px로 올린다. 작으면 iOS가 화면을 확대한다.
 - 폰트는 Google Fonts에서 받는다: Noto Sans KR 400 · 500 · 700 · 800, Noto Serif KR 400 · 600.
 
+## 리듬
+
+- 같은 종류의 간격은 모든 화면에서 같은 값이다. 수준은 여덟이다: 페이지 · 구역 · 목차 홈 · 쌓기 · 카드 안쪽 · 묶음 · 줄 · 이름.
+- 바깥 수준의 간격이 안쪽 수준보다 늘 크다: 구역 24 > 쌓기 16 > 묶음 12 > 줄 8 > 이름 6px.
+- 화면 짜임의 간격은 수준 이름의 CSS 변수(`--gap-stack`, `--pad-card-x` 등)로 쓴다. 표와 규칙은 layout.md '간격 리듬'.
+- 카드 사이는 어느 화면이든 16px다. 화면마다 따로 정하지 않는다.
+- 640px 이하는 본문 여백(위 24 · 좌우 16px)과 카드 안쪽(16px)만 줄인다.
+
 ## 간격과 모서리
 
-- 간격은 `space-*` 값 안에서 고른다. 가장 흔한 값은 `space-8`(버튼 · 칩 줄)과 `space-6`(입력칸 이름과 칸 사이)이다.
-- 카드는 안쪽 `space-20` · `space-24`, 묶음 사이 `space-14`. 화면 큰 덩어리 사이는 `space-22`.
-- 넓은 화면 본문 여백은 `space-32` · `space-40`, 640px 이하는 좌우 `space-16`.
+- 간격 값은 `space-*` 단계 안에서 고른다. 화면 짜임은 위 '리듬'의 이름을 쓰고, `space-*`는 칸 안 작은 간격에 쓴다.
+- 카드는 안쪽 `pad-card-y` · `pad-card-x`(20 · 24px), 묶음 사이 `gap-group`(12px). 카드 사이는 `gap-stack`(16px), 머리 아래는 `gap-section`(24px).
+- 넓은 화면 본문 여백은 `pad-page-y` · `pad-page-x`(32 · 40px), 640px 이하는 위 24 · 좌우 16px.
 - 모서리: 조작하는 것 `radius-8`, 카드 · 대화상자 · 펼침 메뉴 창 `radius-12`, 칩 `radius-6`, 받침 · 화 카드 · 알림 `radius-10`.
 
 ## 조작 요소의 크기
@@ -146,7 +155,7 @@ Canon은 AI와 함께 긴 소설을 쓰는 작가의 작업대다. 화면은 조
 - 이 폴더도 한 줄에 사실 하나를 쓴다. 화면이나 이름을 나열할 때는 한 줄에 하나씩 가나다 순으로 쓴다. 여러 세션이 같은 긴 줄에 화면 이름을 덧붙이면 병합할 때마다 부딪힌다.
 - 같은 목록을 두 문서에 두지 않는다. 목차 틀을 쓰는 화면은 Outline 문서의 '쓰는 화면'에만 적는다.
 - 색 토큰은 `canon/static/app.css`의 밝은 `:root`와 `@media (prefers-color-scheme: dark)` 안 `:root`에 있다. `tests/test_design_tokens.py`가 두 블록과 `tokens.json`의 색이 같은지 본다. 색을 더하거나 바꾸면 두 파일을 함께 고친다.
-- 간격 · 모서리 · 크기 · 그림자 · 쌓는 층은 `app.css` 맨 위 `:root`의 CSS 변수(`--space-*` · `--radius-*` · `--touch-min` 등 · `--shadow-*` · `--z-*`)로 쓴다. `tests/test_design_tokens.py`가 `tokens.json`과 같은지 본다.
+- 간격 · 간격 리듬 · 모서리 · 크기 · 그림자 · 쌓는 층은 `app.css` 맨 위 `:root`의 CSS 변수(`--space-*` · `--gap-*` · `--pad-*` · `--radius-*` · `--touch-min` 등 · `--shadow-*` · `--z-*`)로 쓴다. `tests/test_design_tokens.py`가 `tokens.json`과 같은지 본다.
 - 단계 밖 간격 값은 줄 끝 주석에 까닭을 적는다(`tokens.json` spacing 설명).
 - `components/bundle.css`는 같은 값을 px로 옮긴 사본이다. 변수 이름이 아니라 값이 app.css와 같으면 된다.
 - Claude 디자인 시스템 페이지는 이 폴더에서 다시 올린 보기다. 그 페이지에서 고치지 않는다.

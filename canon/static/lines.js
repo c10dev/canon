@@ -48,7 +48,7 @@ DRAFT_ROOTS.lineForm = () => S.lineForm;
 
 (function lineStyle() {
   const css = `
-.ln-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.ln-col { display: flex; flex-direction: column; gap: var(--gap-stack); min-width: 0; }
 .ln-col > .card { scroll-margin-top: calc(var(--band, 0px) + 16px); }
 .ln-wrap .outline-item .sw, .ln-key .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; background: var(--lc); }
 .ln-map-wrap { overflow-x: auto; }

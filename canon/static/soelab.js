@@ -1208,10 +1208,10 @@ if (window.visualViewport && typeof window.visualViewport.addEventListener === '
 
 (() => {
   const css = `
-.soe-main { container: soe / inline-size; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.soe-main { container: soe / inline-size; display: flex; flex-direction: column; gap: var(--gap-stack); min-width: 0; }
 .soe-main.narrow { max-width: 860px; }
-.soe-main .cols2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
-.soe-main .cols3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.soe-main .cols2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--gap-stack); }
+.soe-main .cols3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap-stack); }
 .soe-toc-fold { padding: 8px 10px; }
 .outline-item .st .chip { font-size: 0.6875rem; padding: 1px 6px; }
 .outline-item.warn .tl::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--amber); vertical-align: 1px; }

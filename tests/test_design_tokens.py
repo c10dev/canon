@@ -2,7 +2,7 @@
 
 app.css 의 밝은 테마는 맨 위 `:root`, 어두운 테마는 `@media (prefers-color-scheme: dark)` 안의 `:root` 다.
 색을 더하거나 바꾸면 두 파일을 함께 고친다.
-간격 · 모서리 · 크기 · 그림자 · 쌓는 층(z)은 테마가 없어 맨 위 `:root` 에만 있다.
+간격 · 간격 리듬 · 모서리 · 크기 · 그림자 · 쌓는 층(z)은 테마가 없어 맨 위 `:root` 에만 있다.
 """
 import json
 import re
@@ -43,7 +43,7 @@ def _colors(body):
     return out
 
 
-NON_COLOR = ("spacing", "radius", "size", "shadow", "z")
+NON_COLOR = ("spacing", "rhythm", "radius", "size", "shadow", "z")
 
 
 def _decls(body):
@@ -118,11 +118,34 @@ def test_non_color_tokens_match_css():
                 errs.append(f"--{name} 가 app.css :root 에 없어요 (tokens.json {group})")
             elif css[name] != want:
                 errs.append(f"--{name} 값이 달라요 (tokens.json {want}, app.css {css[name]})")
-    prefixes = ("space-", "radius-", "shadow-", "z-")
+    prefixes = ("space-", "gap-", "pad-", "radius-", "shadow-", "z-")
     names = {t["name"] for g in NON_COLOR for t in data[g]["tokens"]}
     for name in sorted(css):
         if name.startswith(prefixes) and name not in names:
             errs.append(f"--{name} 는 app.css 에만 있어요 (docs/design/tokens.json 에 더해 주세요)")
+    assert not errs, "\n".join(errs)
+
+
+def test_rhythm_uses_space_scale():
+    # 간격 리듬은 spacing 단계를 가리키는 이름이다. 640px 이하 값(phone)도 단계 안에서 고른다
+    data = json.loads(TOKENS.read_text(encoding="utf-8"))
+    steps = {t["name"] for t in data["spacing"]["tokens"]}
+    errs = []
+    for tok in data["rhythm"]["tokens"]:
+        for key in ("value", "phone"):
+            v = tok.get(key)
+            if v is None:
+                continue
+            m = re.fullmatch(r"var\(--([\w-]+)\)", v)
+            if not m or m.group(1) not in steps:
+                errs.append(f"--{tok['name']} {key} 는 var(--space-*) 여야 해요: {v}")
+    text = CSS.read_text(encoding="utf-8")
+    phone = re.search(r"@media \(max-width: 640px\) \{ :root \{([^}]*)\}", text)
+    assert phone, "app.css 에 640px 이하 리듬(:root) 블록이 없어요"
+    got = _decls(phone.group(1))
+    want = {t["name"]: _norm(t["phone"]) for t in data["rhythm"]["tokens"] if "phone" in t}
+    if got != want:
+        errs.append(f"640px 이하 리듬이 tokens.json phone 과 달라요: app.css {got}, tokens.json {want}")
     assert not errs, "\n".join(errs)
 
 
