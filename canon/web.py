@@ -4306,6 +4306,7 @@ class RevEstimateIn(BaseModel):
 
 class RevPickIn(BaseModel):
     choice: int  # 1 · 2 (보인 차례), 0 이면 건너뛰기
+    take: int | None = None  # 화면이 가려 읽던 판 번호. 지금 가려 읽을 판과 다르면 400 (낡은 화면)
 
 
 class RevSplitIn(BaseModel):
@@ -4413,8 +4414,15 @@ def rev_put_ai(lab_id: int, body: RevAIIn) -> dict:
 
 @app.post("/api/revlab/{lab_id}/episodes/{n}/pick")
 def rev_pick(lab_id: int, n: int, body: RevPickIn) -> dict:
-    """블라인드 비교에서 고른다. 고르면 어느 쪽이 원문인지와 지표를 보인다."""
-    return _rev_edit(lab_id, lambda lab: revlab.pick(lab, n, body.choice))
+    """가려 읽기가 남은 판에서 고른다. 고르면 어느 쪽이 원문인지와 그 판의 지표를 보인다."""
+    return _rev_edit(lab_id, lambda lab: revlab.pick(lab, n, body.choice, body.take))
+
+
+@app.delete("/api/revlab/{lab_id}/episodes/{n}/takes/{no}")
+def rev_delete_take(lab_id: int, n: int, no: int) -> dict:
+    """되돌려 쓴 판 하나를 지운다 (revlab.drop_take). 판 번호는 다시 쓰지 않는다."""
+    _rev_idle(lab_id)
+    return _rev_edit(lab_id, lambda lab: revlab.drop_take(lab, n, no))
 
 
 @app.post("/api/revlab/{lab_id}/jobs")
@@ -4437,11 +4445,12 @@ def rev_job(lab_id: int, body: RevJobIn) -> dict:
             raise ValueError("되돌려 쓸 화를 하나 고르세요")
         k, use_style = body.episodes[0], body.style
         revlab.world(lab, k, use_style)  # 역설계하지 않은 화, 문체 프로필이 없는 실험은 여기서 바로 알린다
+        revlab.room(revlab.episode(lab, k))  # 판이 꽉 찼으면 여기서 바로 알린다
         total, label = 1, f"{name} {k}화 되돌려 쓰기" + (" (문체 넣음)" if use_style else "")
 
         def fn(job: jobs.Job):
-            e = revlab.run_write(lab_id, llm, k, use_style)
-            return {"episode": k, "chars": len(revlab.blind_of(e).text), "style": use_style}
+            t = revlab.run_write(lab_id, llm, k, use_style).takes[-1]
+            return {"episode": k, "take": t.no, "chars": len(t.text), "style": use_style}
     else:
         revlab.style_sample(lab)
         total, label = 1, f"{name} 문체 역설계"

@@ -256,15 +256,17 @@ def test_models_from_usage_and_record(home):
     got = {p.source.episode: (p.model, p.model_source) for p in soelab.collect_episodes("작품")}
     assert got == {1: ("claude:claude-opus-5-5", "usage"), 2: ("", "unknown")}
 
-    lab = RevLab(id=1, episodes=[RevEpisode(number=1, text=story(1302), take=RevTake(text=story(1303), model="gemini-4-argon"),
-                                            take_style=RevTake(text=story(1304), model=""))])
+    lab = RevLab(id=1, episodes=[RevEpisode(number=1, text=story(1302), takes=[
+        RevTake(no=1, text=story(1303), model="gemini-4-argon"), RevTake(no=2, text=story(1304), model=""),
+        RevTake(no=4, text=story(1305), provider="claude-api", model="claude-opus-5-5")])])
     revlab.save(lab)
     ps = soelab.collect_revlab(1)
     orig = [p for p in ps if p.origin == "human"]
     assert len(orig) == 1 and all(p.group == "revlab1:1" for p in ps)
-    take = next(p for p in ps if p.source.take == "take")
+    take = next(p for p in ps if p.source.take == "t1")
     assert (take.model, take.model_source, take.pair_of) == ("gemini:gemini-4-argon", "record", orig[0].id)
-    assert next(p for p in ps if p.source.take == "take_style").model_source == "unknown"
+    assert next(p for p in ps if p.source.take == "t2").model_source == "unknown"
+    assert next(p for p in ps if p.source.take == "t4").model == "claude-api:claude-opus-5-5"  # 백엔드 기록이 있으면 모델 이름에서 짐작하지 않는다
 
 
 def _corpus(home, judged: int = 0):

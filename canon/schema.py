@@ -2467,14 +2467,25 @@ class RevBound(BaseModel):
     quote: str = ""
 
 
+class RevBlind(BaseModel):
+    """판 하나의 가려 읽기 (원문 대 그 판). order 가 비면 가려 읽기가 없고, picked 가 비면 아직 고르지 않았다."""
+    order: list[str] = Field(default_factory=list, description="보인 차례 (original · rewrite). 고르기 전에는 화면에 알리지 않는다")
+    picked: str = Field("", description="고른 것 (original · rewrite), 건너뛰면 skip")
+    seen: int = Field(0, description="이 판을 고르기 전에 같은 화에서 끝낸 가려 읽기 수. 0 이면 원문을 처음 본 첫 읽기")
+    at: str = ""
+
+
 class RevTake(BaseModel):
-    """역설계한 재료(플롯 · 스토리보드 · 큐 시트 · 인물 · 관계 · 배경)로 같은 화를 다시 쓴 본문 (되돌려 쓰기)."""
+    """역설계한 재료(플롯 · 스토리보드 · 큐 시트 · 인물 · 관계 · 배경)로 같은 화를 다시 쓴 본문 하나 (되돌려 쓰기의 판)."""
+    no: int = Field(0, description="화 안의 판 번호. 지운 번호는 다시 쓰지 않는다")
     text: str = ""
     style: bool = Field(False, description="역설계한 문체 프로필(RevLab.style)을 넣고 썼는지")
     prompt_chars: int = 0
     sheet_basis: str = Field("", description="쓸 때 큐 시트의 지문 (cue.basis). 지금 시트와 다르면 낡은 본문")
+    provider: str = Field("", description="쓴 백엔드 (gemini · claude · claude-api · local · mock). 옛 판은 빈 값")
     model: str = ""
     at: str = ""
+    blind: RevBlind = Field(default_factory=RevBlind)
 
 
 class RevEpisode(BaseModel):
@@ -2494,11 +2505,28 @@ class RevEpisode(BaseModel):
     addresses: list[AddressForm] = Field(default_factory=list, description="이 화에서 읽은 호칭 · 말씨 (speaker · listener 는 이름)")
     model: str = ""
     made_at: str = ""
-    take: Optional[RevTake] = Field(None, description="문체 프로필 없이 되돌려 쓴 본문 (마지막 것)")
-    take_style: Optional[RevTake] = Field(None, description="문체 프로필을 넣고 되돌려 쓴 본문 (마지막 것)")
-    blind_take: Literal["", "plain", "style"] = Field("", description="블라인드 비교에 넣은 본문 (take · take_style). 빈 값은 예전 파일이라 plain")
-    blind: list[str] = Field(default_factory=list, description="블라인드 비교 차례 (original · rewrite). 고르기 전에는 화면에 알리지 않는다")
-    picked: str = Field("", description="블라인드 비교에서 고른 것 (original · rewrite), 건너뛰면 skip")
+    takes: list[RevTake] = Field(default_factory=list, description="되돌려 쓴 판, 쓴 차례 (revlab.MAX_TAKES 까지)")
+    last_take: int = Field(0, description="지금까지 쓴 가장 큰 판 번호. 지운 판의 번호를 다시 쓰지 않게 둔다")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _old_takes(cls, data):
+        """옛 파일의 take · take_style(판마다 마지막 하나)과 가려 읽기 칸을 판 목록으로 옮긴다."""
+        if not isinstance(data, dict) or "takes" in data or not ({"take", "take_style"} & data.keys()):
+            return data
+        data = dict(data)
+        pick = data.pop("blind_take", "") or "plain"
+        order, picked = data.pop("blind", []) or [], data.pop("picked", "") or ""
+        olds = [(k, data.pop(k, None)) for k in ("take", "take_style")]
+        olds = sorted(((k, t) for k, t in olds if t), key=lambda kt: str((kt[1] or {}).get("at", "")))
+        takes = []
+        for no, (k, t) in enumerate(olds, 1):
+            t = dict(t)
+            if (k == "take_style") == (pick == "style") and len(order) == 2:
+                t["blind"] = {"order": order, "picked": picked}
+            takes.append({**t, "no": no})
+        data["takes"] = takes
+        return data
 
 
 class RevAI(BaseModel):
