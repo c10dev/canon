@@ -85,6 +85,8 @@
 - 화 하나 고치기(`edit_episode`, 웹 `PUT /api/revlab/{번호}/episodes/{n}`): 글이 바뀌면 그 화의 결과 · 되돌려 쓴 판만 지운다. 제목 줄만 바뀌면 결과는 그대로
 - 화 빼기(`drop_episode`, 웹 `DELETE /api/revlab/{번호}/episodes/{n}`): 뒤 화 번호와 줄기의 `branch_ep` · `join_ep` 를 하나씩 당긴다. 마지막 남은 화는 빼지 않는다
 - 화 고치기 · 빼기는 그 실험의 작업이 도는 동안 409(`web._rev_idle`, 작업이 화 번호로 결과를 넣는다)
+- 문체 프로필 고르기 · 지우기(웹 `POST /api/revlab/{번호}/styles/{id}/select` · `DELETE …/styles/{id}`)는 `rev_style` 작업이 도는 동안만 409
+- 문체 프로필 하나 보기 · 견주기 `GET /api/revlab/{번호}/styles/{id}?against=` · 메모 `PUT …/styles/{id}`
 - 화 나누기(`split`: 레퍼런스 원고와 같은 규칙 `refs.split` 에 앞머리 200자 넘으면 화 하나 규칙을 더함, `check_text`)
 - 나눠 둔 화로 실험 만들기(`create_episodes`, 레퍼런스 원고에서 보내기)
 - 큐 경계(`locate`: AI 가 원문 글자 그대로 인용한 시작 문장 `RevCue.start` 를 차례로 찾음, 글자 수는 `measured`)
@@ -106,6 +108,14 @@
 - 문체 측정(`compare`): 이 화를 뺀 원문 기준 문체 거리(`style_base`, 기준을 못 만들면 `style_note` 에 이유) · 쉼표 문장 비율 · 표지 빈도 경고 · 판이 원문과 장치 예시를 옮긴 문장(`copied` · `copied_examples`)
 - 문체 역설계(`run_style`, `pipeline.analyze_style(passages=False)`: 버릴 대표 문단은 묻지 않는다, `prompts.style_prompt`)
 - 문체 역설계는 실험 인물 이름을 `count_markers` 에 넘겨 이름이 든 표지를 거른다
+- 문체 프로필 기록(`RevLab.styles` · `style_id`, 더하기 `add_style`, 같은 프로필이면 더하지 않고 고름)
+- 기록 상한 `STYLE_KEEP`(넘치면 지금 프로필과 판이 가리키는 프로필을 빼고 오래된 것부터 지움, 지울 것이 없으면 `check_style_room` 이 AI 를 부르기 전에 막음)
+- 고르기 `select_style` · 지우기 `drop_style`(지금 프로필은 하나만 남았을 때만) · 메모 `note_style`
+- 견주기 `style_diff` · `style_view`(`library.diff`, 기본은 지금 프로필과)
+- 기록 화면 값 `style_items`(원문 앞부분이 바뀌었는지 `basis_ok`, `style_basis`)
+- 판은 넣은 프로필 번호 `RevTake.style_id` 를 남기고, `compare` · `_take_view` 가 `style_old` · `style_gone` 을 붙임
+- 글을 통째로 바꾸면(`replace_text`) 기록은 남기고 `style_id` 만 비움
+- 옛 파일의 `style` · `style_model` · `style_at` 은 읽을 때 1번 항목으로 옮김(`RevLab._old_style`)
 - 비용 추정(`estimate`: parse · write · style)
 - 실험별 AI(`RevLab.ai`, `RevAI`): 단계 `AI_STAGES`(plan 역설계 · 줄기 · 문체, write 되돌려 쓰기)마다 프리셋 id 또는 백엔드 `AI_PROVIDERS` + 모델
 - 쓸 AI 풀기 `ai_choice`(mock 설정 → 프리셋 → 직접 고름 → 설정 단계 칸, 작품 프리셋은 보지 않음) · LLM 만들기 `llm_for` · 고르기 `set_ai`(웹 `PUT /api/revlab/{번호}/ai`) · 화면 값 `ai_view` · 기본 모델 이름 `default_model`
@@ -187,6 +197,8 @@
 - 단계 다섯(`revSteps` · `revStepShare`, 누르면 그 단계 자리 `revStep`) · 화(`revTocEps`, 제목 옆 ＋ 로 화 이어 붙이기 칸 `revAddCard`, 미리보기 `revAppendPreview` 는 `append_text` 와 같은 규칙) · 실험 전체
   - 인물 · 관계 · 배경 `revContextCard`
   - 문체 프로필 `revStyleCard`
+  - 문체 프로필 기록 목록(`.version-list`, 이 프로필 쓰기 `revStyleUse` · 지금과 견주기 `revStyleDiff` 가 `mystyle.js` 의 `changeLines` 로 그림 · 메모 `revStyleNote` · 지우기 `revStyleDrop`)
+  - 판의 문체 한 줄 `revTakeStyle` · 다른 프로필로 쓴 판의 칩 `revStyleTag`(판 목록 · 지표 머리 · 나란히 읽기)
   - 이야기 줄기 `revLinesCard`
   - 지표 모아 보기 `revMetricsAll`
   - AI 모델 `revAICard`: 단계마다 설정을 따름 · 프리셋 · 직접 고르기(백엔드 나눔 버튼 · 모델 칸, 추천 목록은 `settings.js` `modelDatalist`), 만든 결과의 모델 `revAiMade`(지금 모델과 다르면 '다름'), 저장 `revAiSave`
@@ -201,7 +213,7 @@
   - 플롯 · 스토리보드
   - 되돌려 쓰기 `revWriteTab`: 가려 읽기(판마다, `revPick` 이 판 번호를 보냄) · 되돌려 쓴 판 표(`revTakePickHtml`, 읽기 `revReadTake` · 지우기 `revTakeDrop`) · 지표 견주기 `revMetricRows`(머리 `revScoreHead`) · 나란히 읽기(왼쪽 · 오른쪽 고름 `S.revRead`) · 새 판 쓰기
 - 비용 추정은 고를 때 바로 묻고 버튼 글에 적는다(`revEst` · `revCost`, AI 없음)
-- `revPreview` · `revAppendPreview` · `revSegments` · `revEpTitle` · `revSteps` · `revNext` · `revTocEps` · `revRunRows` · `revMetricRows` · `revLabLite` · `revHomeCard` · `revOverviewRow` · `revAiText` · `revEpRange` · `revAiMade` · `revTakePicks` 는 순수 함수(`tests/test_revlab.py`)
+- `revPreview` · `revAppendPreview` · `revSegments` · `revEpTitle` · `revSteps` · `revNext` · `revTocEps` · `revRunRows` · `revMetricRows` · `revStyleTag` · `revLabLite` · `revHomeCard` · `revOverviewRow` · `revAiText` · `revEpRange` · `revAiMade` · `revTakePicks` 는 순수 함수(`tests/test_revlab.py`)
 - CSS 는 JS 에서 주입
 
 ### `canon/static/soelab.js`

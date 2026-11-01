@@ -406,7 +406,7 @@ def test_old_lab_file_still_loads(home):
             for k in ("no", "provider"):
                 t.pop(k)
             e["take"] = t
-    for k in ("style", "style_model", "style_at"):
+    for k in ("styles", "style_id", "style_next"):
         raw.pop(k)
     (home / ".revlab" / f"{lab.id}.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
     old = revlab.load(lab.id)
@@ -416,6 +416,149 @@ def test_old_lab_file_still_loads(home):
                "blind_take": "plain", "blind": ["rewrite", "original"], "picked": "original"}
     e = revlab.RevEpisode.model_validate(old_two)
     assert [(t.no, t.text, t.blind.picked) for t in e.takes] == [(1, "나", ""), (2, "가", "original")]  # 쓴 때 차례로, 가려 읽기는 그 판에
+
+
+def _two_styles(home, monkeypatch):
+    """문체를 두 번 역설계한 실험 (두 번째는 시점이 다르다). 1번 프로필로 '문체 넣고' 판 1을 쓴 뒤 2번을 만든다."""
+    from canon import pipeline
+    from canon.schema import StyleProfile
+
+    lab = _parsed(home)
+    seen = []
+
+    def fake(llm, sample, names=None, **kw):
+        seen.append(sample)
+        return StyleProfile(narration_pov="1인칭" if len(seen) == 1 else "3인칭 제한", tense="과거형")
+    monkeypatch.setattr(pipeline, "analyze_style", fake)
+    revlab.run_style(lab.id, MockLLM())
+    revlab.run_write(lab.id, MockLLM(), 1, use_style=True)
+    revlab.run_style(lab.id, MockLLM())
+    return revlab.load(lab.id)
+
+
+def test_style_history_keeps_old_and_links_takes(home, monkeypatch):
+    lab = _two_styles(home, monkeypatch)
+    assert [x.id for x in lab.styles] == [1, 2] and lab.style_id == 2 and lab.style.narration_pov == "3인칭 제한"
+    assert lab.styles[0].profile.narration_pov == "1인칭" and lab.styles[0].basis and lab.styles[0].chars > 0
+    e = lab.episodes[0]
+    assert e.takes[0].style_id == 1
+    row = next(r for r in revlab.compare(lab, e) if r["condition"] == "t1")
+    assert row["style_id"] == 1 and row["style_old"] and not row["style_gone"]
+    revlab.run_write(lab.id, MockLLM(), 1)
+    lab = revlab.load(lab.id)
+    plain = next(r for r in revlab.compare(lab, lab.episodes[0]) if r["condition"] == "t2")
+    assert "style_id" not in plain  # 문체를 넣지 않은 판
+    v = revlab.view(lab)
+    assert [x["id"] for x in v["style_list"]] == [2, 1] and v["style_list"][1]["takes"] == 1 and v["style_list"][0]["current"]
+    take = v["items"][0]["takes"][0]
+    assert take["style_old"] and take["style_id"] == 1 and "text" not in take  # 가려 읽기가 남은 판의 본문은 여전히 감춘다
+    assert revlab.summary(lab)["styles"] == 2 and revlab.summary(lab)["style_id"] == 2
+    changes = revlab.style_view(lab, 1)["changes"]
+    assert [(c["key"], c["before"], c["after"]) for c in changes] == [("narration_pov", "3인칭 제한", "1인칭")]
+    assert revlab.style_diff(lab, 1, 1) == []
+
+
+def test_style_same_profile_selects_existing(home, monkeypatch):
+    lab = _two_styles(home, monkeypatch)
+    revlab.add_style(lab, lab.styles[0].profile.model_copy(deep=True), "m", "글")
+    assert len(lab.styles) == 2 and lab.style_id == 1
+
+
+def test_style_select_changes_world_and_take(home, monkeypatch):
+    lab = _two_styles(home, monkeypatch)
+    revlab.with_lock(lab.id, lambda x: revlab.select_style(x, 1))
+    lab = revlab.load(lab.id)
+    assert revlab.world(lab, 1, use_style=True).style.narration_pov == "1인칭"
+    assert not next(r for r in revlab.compare(lab, lab.episodes[0]) if r["condition"] == "t1")["style_old"]
+    with pytest.raises(KeyError, match="9번"):
+        revlab.select_style(lab, 9)
+
+
+def test_style_drop(home, monkeypatch):
+    lab = _two_styles(home, monkeypatch)
+    with pytest.raises(ValueError, match="지금 쓰는 프로필"):
+        revlab.drop_style(lab, 2)
+    revlab.drop_style(lab, 1)
+    assert next(r for r in revlab.compare(lab, lab.episodes[0]) if r["condition"] == "t1")["style_gone"]
+    assert [x.id for x in lab.styles] == [2]
+    revlab.drop_style(lab, 2)
+    assert lab.styles == [] and lab.style_id == 0 and lab.style is None and lab.style_next == 3
+    with pytest.raises(ValueError, match="먼저 역설계하세요"):
+        revlab.world(lab, 1, use_style=True)
+
+
+def test_style_keep_limit(home, monkeypatch):
+    from canon.schema import StyleProfile
+
+    lab = _two_styles(home, monkeypatch)  # 1번은 판 1이 가리킨다
+    monkeypatch.setattr(revlab, "STYLE_KEEP", 3)
+    for i in range(3):
+        revlab.add_style(lab, StyleProfile(tense=f"t{i}"), "m", "글")
+    assert [x.id for x in lab.styles] == [1, 4, 5]  # 판이 가리키는 1번과 지금 프로필은 남고 오래된 2 · 3번이 빠진다
+    t = lab.episodes[0].takes[0]
+    lab.episodes[0].takes += [t.model_copy(update={"no": 2, "style_id": 4})]
+    with pytest.raises(ValueError, match="3개까지"):
+        revlab.check_style_room(lab)
+
+
+def test_replace_and_append_keep_styles(home, monkeypatch):
+    lab = _two_styles(home, monkeypatch)
+    assert all(x["basis_ok"] for x in revlab.style_items(lab))
+    revlab.append_text(lab, APPEND)  # 앞 30,000자 안이라 넣을 글이 바뀐다
+    assert not any(x["basis_ok"] for x in revlab.style_items(lab)) and lab.style_id == 2
+    revlab.replace_text(lab, "새 글", "다시 넣은 글 " * 40)
+    assert len(lab.styles) == 2 and lab.style_id == 0 and lab.style is None
+    assert not any(x["basis_ok"] for x in revlab.style_items(lab))
+
+
+def test_old_style_file_moves_to_history(home):
+    lab = _parsed(home)
+    revlab.run_style(lab.id, MockLLM())
+    revlab.run_write(lab.id, MockLLM(), 1, use_style=True)
+    revlab.run_write(lab.id, MockLLM(), 2, use_style=True)
+    path = home / ".revlab" / f"{lab.id}.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    cur = raw.pop("styles")[0]
+    for k in ("style_id", "style_next"):
+        raw.pop(k)
+    raw.update(style=cur["profile"], style_model="gemini:x", style_at="2026-10-30T10:00:00")
+    raw["episodes"][0]["takes"][0].pop("style_id")
+    t = raw["episodes"][1].pop("takes")[0]  # 판 목록 전 파일: take_style 하나
+    t.pop("style_id"), t.pop("no"), t.pop("blind")
+    raw["episodes"][1]["take_style"] = t
+    path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    old = revlab.load(lab.id)
+    assert [(x.id, x.model, x.basis) for x in old.styles] == [(1, "gemini:x", "")] and old.style_id == 1 and old.style_next == 2
+    assert [t.style_id for e in old.episodes for t in e.takes] == [1, 1] and revlab.style_items(old)[0]["basis_ok"]
+    revlab.save(old)
+    again = json.loads(path.read_text(encoding="utf-8"))
+    assert "style_model" not in again and "style" not in again and again["style_id"] == 1
+
+
+def test_web_styles(home, monkeypatch):
+    from canon import web
+
+    lab = _two_styles(home, monkeypatch)
+    c = TestClient(web.app)
+    v = c.get(f"/api/revlab/{lab.id}").json()
+    assert [x["id"] for x in v["style_list"]] == [2, 1] and v["style_model"] and v["style"]["narration_pov"] == "3인칭 제한"
+    x = c.get(f"/api/revlab/{lab.id}/styles/1").json()
+    assert x["profile"]["narration_pov"] == "1인칭" and x["against"] == 2 and x["changes"][0]["key"] == "narration_pov"
+    assert c.get(f"/api/revlab/{lab.id}/styles/1", params={"against": 1}).json()["changes"] == []
+    assert c.get(f"/api/revlab/{lab.id}/styles/9").status_code == 400
+    v = c.put(f"/api/revlab/{lab.id}/styles/1", json={"note": " 첫 판 "}).json()
+    assert v["style_list"][1]["note"] == "첫 판"
+    v = c.post(f"/api/revlab/{lab.id}/styles/1/select").json()
+    assert v["style_id"] == 1 and v["style"]["narration_pov"] == "1인칭"
+    assert c.delete(f"/api/revlab/{lab.id}/styles/1").status_code == 400
+    v = c.delete(f"/api/revlab/{lab.id}/styles/2").json()
+    assert [x["id"] for x in v["style_list"]] == [1]
+    busy = jobs.Job(id="x", project=revlab.JOBS, kind="rev_style", ep=lab.id, label="문체 역설계")
+    monkeypatch.setattr(jobs, "listing", lambda project=None: [busy])
+    r = c.post(f"/api/revlab/{lab.id}/styles/1/select")
+    assert r.status_code == 409 and "문체를 역설계하는 동안" in r.text
+    busy.kind = "rev_write"
+    assert c.post(f"/api/revlab/{lab.id}/styles/1/select").status_code == 200  # 되돌려 쓰는 동안에는 고를 수 있다
 
 
 def test_estimate(home):
@@ -753,6 +896,13 @@ def test_js_run_rows_and_metric_rows():
     assert row["원문 옮김"] == [("-", False), ("1", True)] and row["장치 예시 옮김"] == [("-", False), ("0", False)]  # 하나라도 옮기면 표시
     assert m["notes"] == ["기준이 짧아요", "되돌려 쓴 글 표지: '있었다' 9회 (원문 빈도면 2회 안팎)", "되돌려 쓴 글 옮긴 문장: “대답은 없었다.”"]
 
+
+
+@needs_node
+def test_js_style_tag():
+    cases = [{}, {"style_id": 2, "style_old": False}, {"style_id": 2, "style_old": True}, {"style_id": 2, "style_old": True, "style_gone": True},
+             {"style_id": 0, "style_old": True}]
+    assert run_js(FILES, "data.map(revStyleTag)", cases) == ["", "", "2번 프로필", "지운 프로필", "지운 프로필"]
 
 
 @needs_node
