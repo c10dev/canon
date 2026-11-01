@@ -41,10 +41,10 @@ function stageLink(n, f) {
   return `<div class="row"><a class="btn small ghost" href="${base()}/stage/${n}/${ev}" data-action="stgGo" data-arg="${n}:${ev}:${f.stage_beat || 0}">장면 연출에서 보기 · 사건 ${ev}${f.stage_beat ? ` · ${f.stage_beat}박자` : ''}</a></div>`;
 }
 
-/** 검수 때 함께 뽑기 켜기 · 끄기 (Settings.stage_extract, 기본 켬). 작품 설정이라 자동 집필 검수도 따른다. */
+/** 검수 때 함께 뽑기 켜기 · 끄기 (Settings.stage_extract, 기본 켬, 계획 장면이 있는 사건만). 작품 설정이라 자동 집필 검수도 따른다. */
 function stageToggle() {
   const on = P().settings.stage_extract !== false;
-  return `<button type="button" class="btn${on ? ' on' : ''}" aria-pressed="${on}" data-action="toggleStageExtract" title="검수할 때 사건마다 본문에서 장면 연출(자리 · 자세 · 손 · 접촉)을 뽑아 규칙으로 판정해요. 본문이 바뀐 사건만 뽑고, 사건마다 검수 호출이 1번 늘어요">연출 함께 뽑기 ${on ? '켜짐' : '꺼짐'}</button>`;
+  return `<button type="button" class="btn${on ? ' on' : ''}" aria-pressed="${on}" data-action="toggleStageExtract" title="검수할 때 계획 장면이 있는 사건마다 본문에서 장면 연출(자리 · 자세 · 손 · 접촉)을 뽑아 규칙으로 판정해요. 본문이 바뀐 사건만 뽑고, 그런 사건마다 검수 호출이 1번 늘어요. 다른 사건은 장면 연출의 '본문에서 뽑기'로 뽑아요">연출 함께 뽑기 ${on ? '켜짐' : '꺼짐'}</button>`;
 }
 
 function findingFlag(e, f, text) {

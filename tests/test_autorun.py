@@ -12,7 +12,7 @@ os.environ.setdefault("CANON_HOME", tempfile.mkdtemp())  # 다른 테스트 파�
 
 from canon import autorun, jobs, mock, pipeline, store  # noqa: E402
 from canon.cli import main  # noqa: E402
-from canon.schema import ConsistencyIssue, ConsistencyReport, StateDelta  # noqa: E402
+from canon.schema import ConsistencyIssue, ConsistencyReport, StageScene, StateDelta  # noqa: E402
 
 
 @pytest.fixture()
@@ -140,8 +140,7 @@ def test_pause_keeps_batch_and_resume_reattaches(demo, monkeypatch):
     autorun.resume(demo)
     wait_until(idle(demo))
     assert autorun.load_run(demo).status == "done"
-    events = len(store.load(demo).episode(1).plot.events)  # 검수 때 함께 뽑기: 사건마다 본문 장면 뽑기도 배치로 보낸다
-    assert len(mock.BATCHES) == count + 2 + events  # 본문은 기다리던 작업을 받아 오고, 검수 · 장면 뽑기와 상태만 새로 보냈다
+    assert len(mock.BATCHES) == count + 2  # 본문은 기다리던 작업을 받아 오고, 검수와 상태만 새로 보냈다 (계획 장면이 없어 장면 뽑기 없음)
 
 
 def test_stop_cancels_batch(demo, monkeypatch):
@@ -178,11 +177,19 @@ def test_server_restart_resumes(demo, monkeypatch):
 def test_estimate(demo, monkeypatch):
     p = store.load(demo)
     monkeypatch.setenv("CANON_LLM", "gemini")
-    events = sum(len(p.episode(n).plot.events) for n in range(1, 7))
-    stage = autorun.estimate(p, 6, False, Policy())  # 검수 때 함께 뽑기(기본 켬): 사건마다 검수 호출 하나 더
-    assert stage["calls"]["check"] == 6 + events
+    assert autorun.estimate(p, 6, False, Policy())["calls"]["check"] == 6  # 계획 장면이 없으면 장면 뽑기도 없다
+    for n in (1, 2):  # 1 · 2화의 사건마다 계획 장면
+        ep = p.episode(n)
+        ep.stage = [StageScene(id=f"p{i}", event=i, event_text=x, role="plan") for i, x in enumerate(ep.plot.events)]
+    planned = sum(len(p.episode(n).plot.events) for n in (1, 2))
+    stage = autorun.estimate(p, 6, False, Policy())  # 검수 때 함께 뽑기(기본 켬): 계획 장면이 있는 사건마다 검수 호출 하나 더
+    assert planned and stage["calls"]["check"] == 6 + planned
     p.settings.stage_extract = False
     assert stage["cost"] > autorun.estimate(p, 6, False, Policy())["cost"]
+    p.settings.stage_extract = True
+    waves = sum(-(-len(p.episode(n).plot.events) // pipeline.STAGE_EXTRACT_WORKERS) for n in (1, 2))
+    assert autorun.estimate(p, 6, True, Policy())["batch_rounds"] == pytest.approx(12 + waves)  # 동시에 부르는 사건은 한 차례
+    p.settings.stage_extract = False
     off = autorun.estimate(p, 6, False, Policy())
     on = autorun.estimate(p, 6, True, Policy())
     assert off["episodes"] == 6 and off["calls"] == {"plan": 0, "write": 6, "check": 6, "state": 6}  # 단편은 스토리보드가 기본으로 꺼짐
@@ -278,11 +285,16 @@ def test_web_api(demo, monkeypatch):
 
 def test_batch_schema_mismatch_is_repaired(demo):
     mock.BAD_JSON[:] = ["StateDelta"]  # 실제 배치에서 본 것처럼 summary 가 빠지고 항목이 문자열
+    p = store.load(demo)
+    ep = p.episode(1)
+    ep.stage = [StageScene(id=f"p{i}", event=i, event_text=x, role="plan") for i, x in enumerate(ep.plot.events)]
+    store.save(demo, p)
     count = len(mock.BATCHES)
     run = autorun.start(demo, 1, True, Policy(), foreground=True)
     assert run.status == "done" and run.applied == [1]
-    events = len(store.load(demo).episode(1).plot.events)  # 검수 때 함께 뽑기: 사건마다 본문 장면 뽑기
-    assert len(mock.BATCHES) == count + 4 + events  # 본문, 검수, 상태, 상태 고쳐 받기, 장면 뽑기
+    events = len(ep.plot.events)  # 검수 때 함께 뽑기: 계획 장면이 있는 사건마다 본문 장면 뽑기 (사건마다 배치 slot)
+    assert events and len(mock.BATCHES) == count + 4 + events  # 본문, 검수, 상태, 상태 고쳐 받기, 장면 뽑기
+    assert [s.role for s in store.load(demo).episode(1).stage].count("text") == events
     assert any(e.level == "warn" and "형식과 맞지 않아" in e.message for e in run.log)
     assert not run.batches
 

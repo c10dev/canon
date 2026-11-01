@@ -8,7 +8,7 @@
 |---|---|---|
 | `Project.rooms: list[StageRoom]` | 방 목록 | 방은 여러 화 · 장면이 다시 쓴다 |
 | `Episode.stage: list[StageScene]` | 그 화의 장면 목록 | 플롯이 `Episode.plot` 에 있으므로 화 끼워 넣기 · 빼기(`renumber`)가 화와 함께 옮긴다 |
-| `Settings.stage_extract: bool = True` | 검수 때 함께 뽑기 (두 역할 결정으로 기본 켬) | `Settings.check_widen` 과 같은 모양 |
+| `Settings.stage_extract: bool = True` | 검수 때 함께 뽑기 (두 역할 결정으로 기본 켬, 2026-11-01 부터 계획 장면이 있는 사건만) | `Settings.check_widen` 과 같은 모양 |
 
 옛 `project.json` 은 빈 목록 · 거짓 기본값으로 읽힌다.
 

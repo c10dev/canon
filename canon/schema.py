@@ -253,7 +253,7 @@ class Snapshot(BaseModel):
 class Settings(BaseModel):
     show_numbers: bool = Field(False, description="CLI 에서 관계를 숫자로 보여줄지(True), 말로 보여줄지(False)")
     check_widen: bool = Field(False, description="장편 검수 넓히기: 검수 뒤 진술마다 옛 화를 더 찾아, 첫 검수에 없던 근거가 나온 진술만 다시 묻는다 (검수 호출 2번 더)")
-    stage_extract: bool = Field(True, description="검수 때 본문에서 장면 연출을 함께 뽑는다 (사건마다 check 호출 1번 더, 본문이 그대로인 사건은 건너뜀)")
+    stage_extract: bool = Field(True, description="검수 때 본문에서 장면 연출을 함께 뽑는다 (계획 장면이 있는 사건마다 check 호출 1번 더, 본문이 그대로인 사건은 건너뜀)")
     storyboard: Optional[bool] = Field(None, description="화마다 쓰기 전에 스토리보드를 만들고, 쓰기 프롬프트에 직전 화 본문 전체를 넣는다. 비우면 장편 켬 · 단편 끔 (board.on)")
     cue_sheet: Optional[bool] = Field(None, description="화마다 쓰기 전에 큐 시트(큐마다 기능 · 긴장 · 템포 · 편성 · 핵심 대사 · 분량)를 만들어 쓰기 프롬프트 끝에 넣는다. 비우면 장편 켬 · 단편 끔 (cue.on)")
     keep_snapshots: bool = Field(False, description="장편에서도 화별 스냅샷을 지우지 않고 모두 남긴다 (연구용 작품: 어느 화로든 되돌릴 수 있다). 끄면 0화 · 아크 끝 · 최근 20화만 남긴다 (pipeline.prune_snapshots)")
