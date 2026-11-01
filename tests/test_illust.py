@@ -64,7 +64,7 @@ def test_illust_prompt_has_rules(client):
     from canon import store
     p = store.load("lh")
     text = prompts.illust_prompt(p, 1, None, "뒷모습")
-    assert "뒷모습" in text and "source#" in text and "전연령" in text and "saved_look_tags" in text
+    assert "뒷모습" in text and "source#" in text and "전연령" not in text and "saved_look_tags" in text
 
 
 def test_web_flow(client):

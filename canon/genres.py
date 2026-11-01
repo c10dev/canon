@@ -374,7 +374,7 @@ def label(meta: Meta) -> str:
 
 
 def guide(meta: Meta) -> str:
-    """프롬프트에 넣을 장르 안내와 수위. 고른 장르가 없으면 수위만 적는다."""
+    """프롬프트에 넣을 장르 안내. 수위 지시는 넣지 않는다 (수위는 화면과 프로그램 규칙에서만 다룬다, llm.POLICY_NOTE)."""
     blocks = []
     for gid in meta.genres:
         g = BY_ID.get(gid)
@@ -393,12 +393,7 @@ def guide(meta: Meta) -> str:
         if g.avoid:
             lines.append("피할 것: " + " / ".join(g.avoid))
         blocks.append("\n".join(lines))
-    rating = (
-        "성인 독자 대상 작품입니다. 성숙한 주제와 수위 있는 연애, 폭력 묘사를 이야기에 필요한 만큼 다룰 수 있습니다."
-        if meta.adult else
-        "전연령 작품입니다. 노골적인 성적 묘사와 과도하게 잔혹한 묘사는 쓰지 않고 암시로 처리합니다."
-    )
-    return "\n\n".join(blocks + [f"## 수위\n{rating}"])
+    return "\n\n".join(blocks) or "고른 장르가 없습니다."
 
 
 def opening_beats(meta: Meta, n: int) -> list[str]:

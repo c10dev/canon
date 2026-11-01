@@ -17,7 +17,7 @@ os.environ["CANON_LLM"] = "mock"
 os.environ["CANON_HOME"] = tempfile.mkdtemp()
 
 from canon import claude, settings, usage  # noqa: E402
-from canon.llm import SchemaMismatch, get_llm  # noqa: E402
+from canon.llm import SchemaMismatch, get_llm, with_note  # noqa: E402
 from canon.schema import NameOptions  # noqa: E402
 
 FAKE = textwrap.dedent('''\
@@ -89,7 +89,7 @@ class ClaudeCodeTest(unittest.TestCase):
         for f in ("--safe-mode", "--strict-mcp-config", "--no-session-persistence"):
             self.assertIn(f, args)
         self.assertNotIn("--json-schema", args)
-        self.assertEqual(call["stdin"], "등대를 써라")  # 긴 프롬프트도 인자 길이 한도에 걸리지 않게 표준 입력으로
+        self.assertEqual(call["stdin"], with_note("등대를 써라"))  # 긴 프롬프트도 인자 길이 한도에 걸리지 않게 표준 입력으로
         self.assertIsNone(call["env"]["ANTHROPIC_API_KEY"])  # 키가 있으면 구독 대신 키로 과금된다
         self.assertEqual(call["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"], "1")
         self.assertNotEqual(Path(call["cwd"]).resolve(), Path.cwd().resolve())  # 저장소의 CLAUDE.md, 훅을 읽지 않는 빈 폴더
@@ -293,9 +293,9 @@ class ClaudeAPITest(unittest.TestCase):
         first, second, third, other = (r["messages"][0]["content"] for r in self.reqs)
         self.assertIsInstance(first, str)  # 처음 보는 종류는 겹칠 앞 요청이 없다
         mark = {"type": "text", "text": head, "cache_control": {"type": "ephemeral"}}
-        self.assertEqual(second, [mark, {"type": "text", "text": "\n\n# 이번 화 플롯\n2화"}])
+        self.assertEqual(second, [mark, {"type": "text", "text": with_note("\n\n# 이번 화 플롯\n2화")}])
         self.assertEqual(third[0], mark)  # 같은 자리에 표시해야 앞 요청이 쓴 캐시를 읽는다
-        self.assertEqual("".join(b["text"] for b in third), head + "\n\n# 이번 화 플롯\n3화")
+        self.assertEqual("".join(b["text"] for b in third), with_note(head + "\n\n# 이번 화 플롯\n3화"))
         self.assertIsInstance(other, str)  # 시스템 프롬프트가 다르면 따로 센다
         self.assertEqual(claude.cache_blocks(("k",), "짧은 글\n\n끝"), "짧은 글\n\n끝")
 

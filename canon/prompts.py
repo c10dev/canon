@@ -100,7 +100,6 @@ def meta_text(p: Project) -> str:
     """작품 정보와 장르 안내. 장르 id 대신 이름을 넣는다."""
     view = p.meta.model_dump(exclude={"genres", "adult", "logline_parts", "tone_dials"})
     view["genre"] = genres.label(p.meta)
-    view["rating"] = "성인" if p.meta.adult else "전연령"
     return f"{dump(view)}\n\n[장르 안내]\n{genres.guide(p.meta)}"
 
 
@@ -3929,8 +3928,7 @@ def illust_prompt(p: Project, n: int, sel: Selection | None, request: str = "") 
         body = f"# {n}화 본문{' (앞부분)' if cut else ''}\n{text[:ILLUST_FULL_LIMIT]}"
         pick = ("- 이 화에서 삽화 한 장으로 가장 좋은 장면을 고릅니다. 이 화의 핵심 사건이나 감정이 바뀌는 순간, 인물이 또렷이 보이는 순간을 고르고 "
                 "마지막 장면의 반전은 미리 보여 주지 않습니다. quote 에는 그 장면 문장을 본문에서 원문 그대로 1~3문장 옮깁니다.")
-    rating = ("성인 독자 대상 작품입니다. 장면에 맞게 general, sensitive, questionable, explicit 중에서 고릅니다."
-              if p.meta.adult else "전연령 작품입니다. general 이나 sensitive 만 씁니다. 노출과 잔혹한 묘사는 그림에서 피합니다.")
+    rating = "장면에 맞게 general, sensitive, questionable, explicit 중에서 고릅니다."  # 전연령 작품은 illust.assemble 이 낮춘다
     return f"""# 작품
 제목: {p.meta.title}
 장르: {genres.label(p.meta)}

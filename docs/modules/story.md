@@ -151,7 +151,7 @@
 ### `canon/genres.py`
 
 - 장르 목록(`CATALOG`)과 장르별 안내
-- 프롬프트의 장르 안내와 수위 블록(`guide`)
+- 프롬프트의 장르 안내(`guide`, 수위 지시는 넣지 않는다)
 - 설정 화면의 장르별 로그라인 예시(`Genre.logline`)
 
 ### `canon/illust.py`
