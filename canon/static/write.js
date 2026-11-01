@@ -219,7 +219,7 @@ function wsBusy(j) {
   // 다시 그려도 막대가 처음부터 돌지 않게, 지난 시간만큼 애니메이션을 앞당겨 시작한다 (한 바퀴 1.2초, app.css .w-busy-text i)
   const lag = (Math.max(0, Date.now() / 1000 - j.started) % 1.2).toFixed(2);
   return `<div class="w-busy" role="status" aria-label="${esc(j.label)} 만드는 중">
-      <div class="w-busy-text"><strong>${esc(j.label)} 만드는 중</strong><span class="small" data-elapsed="${esc(j.id)}">경과 ${elapsed(j)}</span><i aria-hidden="true" style="animation-delay:-${lag}s"></i></div>
+      <div class="w-busy-text"><strong>${esc(j.label)} 만드는 중</strong><span class="small" data-elapsed="${esc(j.id)}" aria-hidden="true">경과 ${elapsed(j)}</span><i aria-hidden="true" style="animation-delay:-${lag}s"></i></div>
       <button type="button" class="btn small" data-job-stop="${j.id}">멈추기</button></div>`;
 }
 

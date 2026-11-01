@@ -1732,12 +1732,13 @@ function viewAtlas() {
       <a class="btn primary" href="${base()}/causal">인과율에서 장소 더하기</a></div>${S.atlas.frames.length > 1 ? atlasTable() : ''}`;
   }
   const tabs = `<div class="tabs" role="tablist" aria-label="지도 화면">
-    <button type="button" role="tab" aria-selected="${S.atlasTab === 'map'}" data-action="atlasTab" data-arg="map">지도</button>
-    <button type="button" role="tab" aria-selected="${S.atlasTab === 'table'}" data-action="atlasTab" data-arg="table">어디에 있었나</button></div>`;
-  if (S.atlasTab === 'table') return `${head}${tabs}${atlasTable()}${atlasUnmatched()}`;
+    <button type="button" role="tab" id="at-vtab-map" aria-selected="${S.atlasTab === 'map'}" aria-controls="at-tabview" data-action="atlasTab" data-arg="map">지도</button>
+    <button type="button" role="tab" id="at-vtab-table" aria-selected="${S.atlasTab === 'table'}" aria-controls="at-tabview" data-action="atlasTab" data-arg="table">어디에 있었나</button></div>`;
+  const view = (body) => `<div class="tab-panel" role="tabpanel" id="at-tabview" aria-labelledby="at-vtab-${S.atlasTab === 'table' ? 'table' : 'map'}">${body}</div>`;
+  if (S.atlasTab === 'table') return `${head}${tabs}${view(`${atlasTable()}${atlasUnmatched()}`)}`;
   const mode = atlasGenPreview() ? 'gen' : 'play';
   return `${head}${tabs}
-    <div class="at-wrap"><div class="at-work">
+    <div class="at-wrap" role="tabpanel" id="at-tabview" aria-labelledby="at-vtab-map"><div class="at-work">
       <section class="at-stage" aria-label="지도">
         <div class="at-bar" id="atlas-bar">${atlasBar()}</div>
         <div id="atlas-stage">${atlasStage()}</div>
@@ -2472,6 +2473,7 @@ document.addEventListener('keydown', (e) => {
 .at-tv-row .row { gap: var(--space-6); }
 .at-tv-set { padding-bottom: var(--space-14); border-bottom: 1px solid var(--rule); }
 .at-tv-chip { display: block; margin-top: var(--space-4); padding: 0 var(--space-8); min-height: 24px; border: none; border-radius: var(--radius-6); font: inherit; font-size: 0.75rem; font-weight: 700; font-style: normal; cursor: pointer; }
+@media (pointer: coarse), (max-width: 640px) { .at-tv-chip { min-height: var(--touch-min); } }
 .at-tv-chip.fast { background: var(--red-soft); color: var(--err-ink); }
 .at-tv-chip.tight { background: var(--amber-soft); color: var(--amber-ink); }
 .at-table td.tv.fast { background: var(--red-soft); }
@@ -2823,11 +2825,13 @@ document.addEventListener('keydown', (e) => {
 .at-table { border-collapse: collapse; font-size: 0.8125rem; }
 .at-table th, .at-table td { padding: var(--space-8) var(--space-10); border-bottom: 1px solid var(--rule); white-space: nowrap; text-align: left; vertical-align: top; }
 .at-table th:first-child { position: sticky; left: 0; background: var(--surface); }
+.at-table thead th { font-size: 0.75rem; font-weight: 500; color: var(--muted); border-bottom-color: var(--line); }
 .at-table td.same { color: var(--muted); }
 .at-table td.moved { font-weight: 700; }
 .at-table td.raw { font-style: italic; }
 .at-table .cur { background: var(--accent-soft); }
-.at-table .linkish { min-height: 24px; border: none; background: none; padding: 0; font: inherit; font-weight: 700; color: var(--link); cursor: pointer; }`;
+.at-table .linkish { min-height: 24px; border: none; background: none; padding: 0; font: inherit; font-weight: 700; color: var(--link); cursor: pointer; }
+@media (pointer: coarse), (max-width: 640px) { .at-table .linkish { min-height: var(--touch-min); } }`;
   const el = document.createElement('style');
   el.textContent = css;
   document.head.appendChild(el);

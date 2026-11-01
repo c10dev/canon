@@ -85,7 +85,8 @@ DRAFT_ROOTS.lineForm = () => S.lineForm;
 .ln-pick { display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow-y: auto; }
 .ln-pick .pop-check .small { display: block; }
 .ln-focus { display: flex; flex-wrap: wrap; gap: 4px 14px; }
-.ln-focus label { min-height: 36px; display: inline-flex; align-items: center; gap: 6px; font-size: 0.8125rem; }`;
+.ln-focus label { min-height: 36px; display: inline-flex; align-items: center; gap: 6px; font-size: 0.8125rem; }
+@media (pointer: coarse), (max-width: 640px) { .ln-focus label { min-height: var(--touch-min); } }`;
   const el = document.createElement('style');
   el.textContent = css;
   document.head.appendChild(el);

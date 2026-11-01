@@ -116,7 +116,7 @@ function atlasGenForm(st) {
     ${pv ? `${atlasGenResult(st)}<details class="at-gen-kinds"><summary>장소 종류 고치기</summary><div class="at-gen-places">${places}</div></details>`
     : `<p class="small">같은 시드와 설정이면 언제나 같은 ${word}${word === '마을' ? '이' : '가'} 나와요. 장소 종류는 이름에서 찾았어요. 틀리면 고르거나 AI 제안을 받아 보세요.</p>
       <div class="label-text">장소 종류</div><div class="at-gen-places">${places}</div>
-      <div class="row"><button type="button" class="btn small ghost" data-action="atlasGenOpen" data-arg="">닫기</button><button type="button" class="btn primary" data-action="atlasGenPreview">미리보기</button></div>`}`;
+      <div class="row"><button type="button" class="btn small ghost" data-action="atlasGenOpen" data-arg="">닫기</button><button type="button" class="btn small primary" data-action="atlasGenPreview">미리보기</button></div>`}`;
 }
 
 /** 미리보기 결과: 새 자리로 옮길 장소 고르기, 놓지 못한 장소. 적용은 지도 아래 막대 (atlasGenBar) */

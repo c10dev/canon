@@ -191,7 +191,7 @@ function illustPanel(n) {
   const open = S.illOpen[n] ?? (count > 0 || !!sel);
   return `<details class="card" id="ill-panel" data-ill-ep="${n}" aria-label="삽화 프롬프트"${open ? ' open' : ''}>
     <summary class="between"><h2>삽화 프롬프트 <span class="small">NovelAI${count ? ` · ${count}개` : ''}</span></h2>
-      <span class="small">본문을 드래그해 '삽화 프롬프트'를 누르거나, 장면을 AI에게 맡기세요</span></summary>
+      <span class="small">본문을 드래그해 '삽화 프롬프트 만들기'를 누르거나, 장면을 AI에게 맡기세요</span></summary>
     <div class="cols" style="gap:16px">
       <div style="flex:2 1 420px;min-width:0;display:flex;flex-direction:column;gap:10px">
         ${sel ? `<div class="sel-target" style="padding:0;border:0"><div class="between"><span class="small">그릴 부분 · ${sel.text.length.toLocaleString()}자</span><button type="button" class="btn small" data-action="illClear">고른 것 풀기</button></div>
@@ -290,7 +290,7 @@ function syncIllust() {
   const panel = document.getElementById('ill-panel');
   if (panel && !panel.open) panel.open = true;
   const card = document.querySelector('#ill-panel .ill-card');
-  (card || document.getElementById('ill-panel'))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  (card || document.getElementById('ill-panel'))?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
 }
 
 function ilEpNum() {

@@ -79,7 +79,7 @@ ${bars}
 }
 .tl-time { display: grid; grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1.4fr); gap: 8px; }
 @media (max-width: 640px) { .tl-time { grid-template-columns: 1fr; } }
-.tl-wrap .check-row { min-height: 44px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.tl-wrap .check-row { min-height: var(--touch-min); display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .tl-start { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 12px; }
 @container outline (max-width: 560px) { .tl-start { grid-template-columns: 1fr; } }
 .tl-form { display: grid; grid-template-columns: minmax(0, 2fr) 150px minmax(0, 2fr) auto; gap: 8px; align-items: end; padding: 10px 0; border-top: 1px solid var(--rule); }

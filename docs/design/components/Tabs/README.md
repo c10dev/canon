@@ -8,6 +8,8 @@
 - 탭 높이 `touch-min`(44px), 고른 탭은 `accent` 밑줄 3px와 `accent-ink` 글자 700.
 - 탭이 많으면 기본은 옆으로 스크롤한다. 줄을 넘겨야 하면 `.tabs.wrap`.
 - 왼쪽 · 오른쪽 화살표와 Home · End 키로 탭을 옮긴다(앱이 `role="tablist"`마다 붙인다).
+- 탭 버튼마다 `id`를 두고, 아래 판은 `role="tabpanel"` · `aria-labelledby`(고른 탭 id)로 잇는다.
+- 판 안에 덩어리가 여럿이면 `.tab-panel`로 감싼다. 부모 칸의 간격을 그대로 쓴다(`gap: inherit`).
 
 ## 지킬 것
 

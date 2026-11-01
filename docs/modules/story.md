@@ -332,6 +332,7 @@
 - 오른쪽 한 열의 쪽 `castPage`(`S.castView`: map · table · char · pair, 옮기기 `castShow`, 주소 `cast/<map · table · c:id · p:a|b>?f=` 와 옛 `?tab=` 은 `castParse`)
 - 열 맨 위 시점 띠 `castBar`(좁은 칸은 아래에 붙음)
 - 관계도 `castMapPage`(SVG, 화별 재생, 칸 폭에 맞추고 크게 보기 `CAST_ZOOM`, 누르면 고르기만 `castMapPick` · 고른 줄 `castMapSel`, 끌어 옮긴 배치는 localStorage)
+- 관계도 온기 다섯 단계 선 색은 `WARMTH_BANDS`(적대 `--warm-hostile`, 반감 `--bad`, 무덤덤 `--warm-mid`, 호감 `--good`, 아낌 `--warm-deep`)
 - 인물 쪽 `castCharPage`
   - 머리 `castHead` · 보는 시점의 상태 · 상태창 수치(바뀐 양 `castStatDelta`, 카드 | 시스템 창 보기는 localStorage, 창 모양은 작품 스킨 `stat_window.skin`) · 관계 줄 `castSheetRels`(온기 막대 `castMeter`) · 비밀 · 설정과 남겨 둔 제안 · 읽기 먼저인 'AI · 서술 · 신체 · 삽화' 카드 `castEditCard`
     - 상태창 칸 모양은 `statwin.js` `swStatsBody` 와 같이 쓴다

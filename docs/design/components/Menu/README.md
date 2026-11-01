@@ -9,10 +9,14 @@
 - 창(`.pop-panel`): 버튼 오른쪽 끝에 맞춰 6px 아래, 폭 `min(320px, 100vw - 32px)`, 높이 `min(70vh, 560px)`까지(넘으면 안에서 굴림), 안쪽 8px, `surface` 면, `line-strong` 테두리, `radius-12`, `shadow-float`, 글자 13px. 왼쪽 밖으로 나가면 앱이 버튼 왼쪽 끝에 다시 맞춘다(`fitMenus`).
 - 창 안의 부품:
   - 동작 줄 `.pop-item`: 44px, `radius-8`, 마우스를 올리면 `bg` 면. 덧붙임은 오른쪽 끝 `.small`. 위험한 동작은 `.pop-item.danger`.
-  - 고르기 줄 `.pop-radio` · `.pop-check`: 40px, 20px 라디오 · 체크박스(`accent` 색), 이름 아래 설명.
+  - 고르기 줄 `.pop-radio` · `.pop-check`: 40px, 20px 라디오 · 체크박스(`accent` 색), 이름 아래 설명. 손가락 기기와 640px 이하에서는 44px.
   - 묶음 `.pop-sec`과 묶음 이름 `.pop-legend`(12px 700 `muted`), 나누는 선 `.pop-sep`(`rule`).
   - 지우기 같은 위험한 묶음은 `<details class="pop-danger">`로 한 번 더 접는다. 머리 글자는 `red`.
   - 창 안에 나눔 버튼(Seg)을 둘 수 있다. 줄이 넘치면 다음 줄로 간다.
+- 메뉴 버튼을 쓰지 않는 뜨는 창도 같은 가장자리를 쓴다: `line-strong` 테두리, `radius-12`, `shadow-float`.
+  - 대화 패널의 세션 · 빠른 요청 · 권한 모드 창(`.pop`, agent.js): 높이 `min(70vh, 560px)`까지. 자리는 패널 안 버튼 위 · 아래에 화면이 정한다.
+  - 인물 · 지명 이름 카드(`.mn-card`, mentions.js): 폭 `min(340px, 100vw - 16px)`, 높이 `min(70vh, 480px)`까지, `z-float`.
+  - 본문 부분 수정 도구(`.sel-tool`): 고른 글 위에 뜨는 버튼 줄과 고치는 칸, `z-float`.
 - 분할 버튼(`.split`): 주 동작 버튼 + 오른쪽 ▾ 메뉴 버튼(36px 폭). 두 면 사이를 `surface` 1px 틈으로 나눈다. 집필 화면의 `복사 ▾`가 그 예다.
 
 ## 지킬 것

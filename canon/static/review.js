@@ -479,8 +479,8 @@ function rvStyle() {
   el.textContent = `
 #toast .rv-undo { display: flex; gap: 12px; align-items: center; padding: 8px 8px 8px 16px; border-radius: 10px; background: var(--inverse-bg); color: var(--inverse-ink); font-size: 0.8125rem; line-height: 1.5; box-shadow: var(--shadow-toast); border: 1px solid transparent; }
 #toast .rv-undo span { flex: 1; }
-#toast .rv-undo .btn { min-height: 40px; white-space: nowrap; }
-#toast .rv-undo .x { border: none; background: transparent; color: inherit; cursor: pointer; font-size: 0.875rem; min-width: 40px; min-height: 40px; }
+#toast .rv-undo .btn { min-height: var(--touch-min); white-space: nowrap; }
+#toast .rv-undo .x { border: none; background: transparent; color: inherit; cursor: pointer; font-size: 0.875rem; min-width: var(--touch-min); min-height: var(--touch-min); }
 @media (forced-colors: active) { #toast .rv-undo { border-color: CanvasText; } }`;
   document.head.appendChild(el);
 }
