@@ -826,3 +826,66 @@ def test_apply_edited_delta(client):
     st = next(s for s in p["states"] if s["character_id"] == edited["character_updates"][0]["character_id"])
     assert st["emotional_state"] == "작가가 고친 감정" and "작가가 고친 정보" in st["knows"]
     assert client.get("/api/projects/ed/relations").json()["numbers"] == after["numbers"]
+
+
+def test_save_response_carries_project_tag(client):
+    """저장한 요청은 저장한 판(X-Project-ETag)을 붙이고, 그 판으로 묻는 작품 GET 은 304 다. 응답 본문은 작품 GET 과 같다."""
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    p = client.post("/api/projects", json={"name": "st", "meta": meta}).json()
+    p["meta"]["title"] = "등대 2"
+    r = client.put("/api/projects/st", json=p)
+    tag = r.headers["x-project-etag"]
+    got = client.get("/api/projects/st")
+    assert got.headers["etag"] == tag and got.json() == r.json()
+    assert client.get("/api/projects/st", headers={"If-None-Match": tag}).status_code == 304
+    # 저장하지 않은 요청에는 붙이지 않는다
+    assert "x-project-etag" not in client.get("/api/projects/st/pending").headers
+
+
+def test_load_cache_returns_copies(client):
+    """읽은 작품 캐시: load 로 받은 작품을 고쳐도 다음 읽기에 번지지 않고, 파일이 바뀌면 다시 읽는다."""
+    from canon import store
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "lc", "meta": meta})
+    a = store.load("lc")
+    a.meta.title = "고친 사본"
+    assert store.load("lc").meta.title == "등대" and store.load_view("lc").meta.title == "등대"
+    path = store.project_dir("lc") / "project.json"
+    path.write_text(path.read_text(encoding="utf-8").replace('"등대"', '"등대섬"'), encoding="utf-8")
+    assert store.load("lc").meta.title == "등대섬"
+
+
+def test_saved_cache_matches_disk(client):
+    """저장 직후 캐시에 둔 작품은 디스크에서 다시 읽은 것과 같다. 작품 응답은 스냅샷을 화 번호만 보내고, 작품 저장은 디스크 스냅샷을 지킨다."""
+    from canon import store
+    from canon.schema import Project, Snapshot
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "sc", "meta": meta})
+    p = store.load("sc")
+    p.snapshots = [Snapshot(episode=0, facts=["첫 사실"])]
+    store.save("sc", p)
+    disk = Project.model_validate_json((store.project_dir("sc") / "project.json").read_text(encoding="utf-8"))
+    store.seed_ties(disk)
+    assert store.load_view("sc").model_dump_json() == disk.model_dump_json()
+    got = client.get("/api/projects/sc").json()
+    assert got["snapshots"] == [{"episode": 0}]
+    got["meta"]["title"] = "등대 2"
+    r = client.put("/api/projects/sc", json=got)
+    assert r.status_code == 200 and r.json()["snapshots"] == [{"episode": 0}]
+    assert store.load("sc").snapshots[0].facts == ["첫 사실"]
+
+
+def test_cast_and_atlas_views_are_tagged(client):
+    """인물 · 지도 화면 값은 작품 판으로 기억한다. 같은 판이면 304, 작품을 저장하면 판이 바뀌어 다시 계산한다."""
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    p = client.post("/api/projects", json={"name": "cv", "meta": meta}).json()
+    for path in ("/api/projects/cv/cast", "/api/projects/cv/atlas"):
+        r = client.get(path)
+        tag = r.headers["etag"]
+        assert r.status_code == 200 and "frames" in r.json()
+        assert client.get(path, headers={"If-None-Match": tag}).status_code == 304
+        assert client.get(path).json() == r.json()
+    tag = client.get("/api/projects/cv/cast").headers["etag"]
+    p["meta"]["title"] = "등대 2"
+    client.put("/api/projects/cv", json=p)
+    assert client.get("/api/projects/cv/cast", headers={"If-None-Match": tag}).status_code == 200

@@ -279,8 +279,9 @@
 ### `canon/store.py`
 
 - `projects/<이름>/project.json` 저장
-- 본문을 `episodes/NN.md` 로 내보내기
-- 읽기 전용 GET 의 작품 캐시(`load_view`, 같은 판이면 검증을 건너뜀, 돌려받은 작품은 고치지 않음, 웹은 `web._view`)
+- 본문을 `episodes/NN.md` 로 내보내기(바뀐 화만 다시 씀), project.json 은 들여쓰기 없이
+- 작품 캐시: 같은 판이면 검증을 건너뜀. `load_view` 는 캐시 것(고치지 않음, 웹은 `web._view`), `load` 는 깊은 복사본. 저장하면 저장한 내용을 바로 캐시에 둠(`_remember`)
+- 파일 판(`tag`, 작품 GET 의 ETag). 웹 요청이 저장한 판은 `saved` 에 남아 응답의 `X-Project-ETag` 가 된다
 - 화면 저장 기록(`writer`, `edit_rev` · `saved_by`, 파일 끝만 읽음)
 - 검토를 기다리는 AI 결과와 실패한 작업(`pending.json`, `load_pending` / `edit_pending`)
 
@@ -296,6 +297,8 @@
 ### `canon/web.py`
 
 - 웹 UI 서버(`python -m canon serve`)
+- 작품 GET 과 작품을 돌려주는 응답은 스냅샷을 화 번호만 보낸다(`_SNAPSHOT_LIGHT`). 작품 저장(PUT)은 디스크 스냅샷을 지킨다
+- 인물 · 관계도와 지도 응답은 작품 판으로 JSON 을 기억하고 ETag 를 붙인다(`_json_view`)
 - CLI 와 같은 store · pipeline · prompts 를 쓰고 화면은 `canon/static/` 의 정적 파일이다
 - AI 가 만든 제안(설정, 문체, 구조, 상태 변경안)은 바로 저장하지 않고 돌려준다
 - 사용자가 화면에서 고르거나 고친 뒤 저장 요청을 보낼 때 반영한다

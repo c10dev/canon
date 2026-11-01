@@ -765,12 +765,12 @@ function viewPlayNew() {
 // ---------- 작품 홈 (home.js 가 부른다). 작품 목록의 플레이 줄은 home.js plGroupRows ----------
 
 /** 작품 홈을 열 때 그 작품이 플레이 사본인지 알아 둔다 (app.js routeNow). 사본이면 플레이 정보, 아니면 null. */
-async function playHomeLoad() {
+async function playHomeLoad(pre) {
   S.homePlay = null;
   const name = S.name;
   S.homePlayOf = name;  // 이 작품을 물어봤다 (app.js routeNow 는 작품을 바꿨을 때도 다시 묻는다)
   try {
-    const v = await api('GET', `/projects/${enc(name)}/play`);
+    const v = await (pre || api('GET', `/projects/${enc(name)}/play`));
     if (S.name === name) S.homePlay = v;
   } catch { /* 플레이 사본이 아니다 */ }
 }

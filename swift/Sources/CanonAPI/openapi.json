@@ -671,7 +671,7 @@
    },
    "get": {
     "summary": "Get Project",
-    "description": "작품 전체. 화면이 가진 판(ETag)과 같으면 304 로 본문 없이 답한다 (장편은 수 MB 라 화면 이동마다 받지 않게).",
+    "description": "작품 전체. 화면이 가진 판(ETag)과 같으면 304 로 본문 없이 답한다 (장편은 수 MB 라 화면 이동마다 받지 않게).\n스냅샷은 화 번호만 보낸다: 화면은 스냅샷이 있는지만 보고, 장편 작품의 절반 가까이가 스냅샷이다. 작품 저장(PUT)은 디스크 스냅샷을 지킨다.",
     "operationId": "get_project",
     "parameters": [
      {
@@ -8937,7 +8937,7 @@
   "/api/projects/{name}/cast": {
    "get": {
     "summary": "Cast View",
-    "description": "인물 화면: 화별 관계 프레임(관계도 재생), 인물별 등장 화와 타임라인 (canon/cast.py).",
+    "description": "인물 화면: 화별 관계 프레임(관계도 재생), 인물별 등장 화와 타임라인 (canon/cast.py). 작품이 그대로면 기억한 결과를 보낸다 (_json_view).",
     "operationId": "cast_view",
     "parameters": [
      {
@@ -9229,7 +9229,7 @@
   "/api/projects/{name}/atlas": {
    "get": {
     "summary": "Atlas View",
-    "description": "지도 화면: 장소와 자리, 화별 인물 자리, 장소와 맞지 않은 위치 글. 마을 데이터가 있으면 길 따라 걸은 경로도.",
+    "description": "지도 화면: 장소와 자리, 화별 인물 자리, 장소와 맞지 않은 위치 글. 마을 데이터가 있으면 길 따라 걸은 경로도.\n작품과 지도 폴더(map/)가 그대로면 기억한 결과를 보낸다 (_json_view).",
     "operationId": "atlas_view",
     "parameters": [
      {

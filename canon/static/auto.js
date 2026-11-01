@@ -51,9 +51,9 @@ function autoDefaults() {
   };
 }
 
-async function autoLoad(withEstimate = true) {
+async function autoLoad(withEstimate = true, pre) {
   if (!S.name) return;
-  S.auto = await api('GET', `/projects/${enc(S.name)}/auto`).catch(() => null);
+  S.auto = await (pre || api('GET', `/projects/${enc(S.name)}/auto`)).catch(() => null);
   if (!S.autoForm || S.autoForm.project !== S.name) S.autoForm = { ...autoDefaults(), project: S.name };
   // 추정은 남은 화가 많으면 몇 초 걸린다. 화면을 먼저 그리고('추정하는 중…') 끝나면 다시 그린다
   if (withEstimate) {

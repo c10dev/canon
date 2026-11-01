@@ -4,9 +4,9 @@
 'use strict';
 
 /** 지금 작품의 갈래 집안 (web.branch_family). 작품을 바꿨거나 작품 홈에 올 때 다시 읽는다. */
-async function branchLoad() {
+async function branchLoad(pre) {
   const name = S.name;
-  const fam = await api('GET', `/projects/${enc(name)}/branches`).catch(() => null);
+  const fam = await (pre || api('GET', `/projects/${enc(name)}/branches`)).catch(() => null);
   S.branchFam = fam && { ...fam, name };
 }
 
