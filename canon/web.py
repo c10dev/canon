@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import address, agent, archetypes, autorun, board, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, research, settings, store, usage
+from . import address, agent, archetypes, autorun, board, cancel, cast, charlog, dynamics, elements, genres, illust, jobs, knows, library, metrics, naming, pipeline, prompts, publish, refs, research, settings, store, usage
 from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
@@ -31,6 +31,7 @@ from .schema import AgentSession, ChatScope, KnowsFoldSet, Deadline, Storyboard,
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
 from .schema import FieldIdeas, NameOption, Recap
+from .schema import RefBook, RefCut, RefFile
 from . import branches
 from .schema import BranchDiff, BranchInfo, ForkMode
 from . import birth, play
@@ -1183,6 +1184,8 @@ class StyleIn(BaseModel):
     sample: str = ""
     profile: StyleProfile = StyleProfile()
     note: str = ""  # 이번 버전 메모. 비우면 바뀐 칸 이름
+    ref: str = ""  # 레퍼런스 원고에서 원문을 가져왔으면 그 원고 id (만든 것에 남긴다)
+    ref_eps: str = ""  # 가져온 화 범위 이름 ('1~10화')
 
 
 def _style_id(sid: str) -> str:
@@ -1206,7 +1209,10 @@ def analyze_library_style(body: Sample) -> StyleProfile:
 
 @app.post("/api/styles")
 def create_style(body: StyleIn) -> StyleEntry:
-    return library.create(body.name, body.profile, body.sample, body.source, body.notes)
+    e = library.create(body.name, body.profile, body.sample, body.source, body.notes)
+    if body.ref and refs.exists(body.ref):
+        refs.made(body.ref, "style", e.id, body.ref_eps)
+    return e
 
 
 @app.get("/api/styles/{sid}")
@@ -1241,6 +1247,128 @@ def delete_style(sid: str) -> dict:
 @app.post("/api/styles/{sid}/duplicate")
 def duplicate_style(sid: str) -> StyleEntry:
     return library.duplicate(_style_id(sid))
+
+
+# ---------- 레퍼런스 원고 (작품 밖) ----------
+# 다른 소설 원고 txt 를 화 표시로 나눠 작품 밖에 둔다 (canon/refs.py). 작품에는 연결하지 않는다.
+
+class RefSplitIn(BaseModel):
+    text: str
+    rule: str = ""  # 비우면 순서대로 고른다 (화 표시 줄 → 기호 줄 → 빈 줄 → 한 화)
+    example: str = ""  # rule custom 의 예시 줄
+    unit: str = ""  # 화 표시 단위를 고른다 (규칙 칩)
+    strip_tails: bool = True
+    files: list[int] = []  # 이어 넣은 파일마다 시작 줄
+
+
+class RefCreateIn(BaseModel):
+    name: str
+    source: str = ""
+    notes: str = ""
+    rights: bool = False
+    encoding: str = "utf-8"
+    text: str
+    rule: str = "heading"
+    example: str = ""
+    unit: str = ""
+    common_head: str = ""
+    strip_tails: bool = True
+    cuts: list[RefCut] = []
+    files: list[RefFile] = []
+
+
+class RefPutIn(BaseModel):
+    name: str | None = None
+    source: str | None = None
+    notes: str | None = None
+    cuts: list[RefCut] | None = None
+    strip_tails: bool | None = None
+    rule: str | None = None
+    example: str | None = None
+    unit: str | None = None
+
+
+class RefPickIn(BaseModel):
+    eps: list[int]  # 고른 화의 차례 (1부터)
+
+
+def _ref_id(rid: str) -> str:
+    if not refs.exists(rid):
+        raise HTTPException(404, f"레퍼런스 원고에 없는 항목이에요: {rid}")
+    return rid
+
+
+def _ref_view(b: RefBook) -> dict:
+    return {**b.model_dump(exclude={"eps"}), "episodes": refs.episodes(b), "labels": refs.labels()}
+
+
+@app.get("/api/refs")
+def list_refs() -> dict:
+    return {"refs": [refs.summary(b) for b in refs.entries()], "labels": refs.labels()}
+
+
+@app.post("/api/refs/split")
+def split_ref(body: RefSplitIn) -> dict:
+    """경계 후보 미리보기 (저장하지 않는다, 원문을 돌려주지 않는다)."""
+    return refs.preview(body.text, body.rule, body.example, body.unit, body.strip_tails, body.files)
+
+
+@app.post("/api/refs")
+def create_ref(body: RefCreateIn) -> dict:
+    b = refs.create(body.name, body.text, body.cuts, body.source, body.notes, body.rights, body.encoding, body.rule,
+                    body.example, body.unit, body.common_head, body.strip_tails, body.files)
+    return _ref_view(b)
+
+
+@app.get("/api/refs/{rid}")
+def get_ref(rid: str) -> dict:
+    return _ref_view(refs.load(_ref_id(rid)))
+
+
+@app.put("/api/refs/{rid}")
+def put_ref(rid: str, body: RefPutIn) -> dict:
+    b = refs.update(_ref_id(rid), body.name, body.source, body.notes, body.cuts, body.strip_tails, body.rule, body.example, body.unit)
+    return _ref_view(b)
+
+
+@app.delete("/api/refs/{rid}")
+def delete_ref(rid: str) -> dict:
+    refs.delete(_ref_id(rid))
+    return {"ok": True}
+
+
+@app.get("/api/refs/{rid}/source")
+def ref_source(rid: str) -> dict:
+    """원문 전체 (경계 다시 고치기 화면이 브라우저에서 다시 나눠 본다)."""
+    return {"text": "\n".join(refs.source(_ref_id(rid)))}
+
+
+@app.get("/api/refs/{rid}/text")
+def ref_text(rid: str, start: int = 0, end: int = 200) -> dict:
+    return refs.text_range(_ref_id(rid), start, end)
+
+
+@app.get("/api/refs/{rid}/eps/{order}")
+def ref_episode(rid: str, order: int) -> dict:
+    return {"order": order, "text": refs.episode_text(_ref_id(rid), order)}
+
+
+@app.post("/api/refs/{rid}/sample")
+def ref_sample(rid: str, body: RefPickIn) -> dict:
+    """문체 만들기에 넣을 원문 (고른 화를 이어 SAMPLE_MAX 자까지). AI 를 부르지 않는다."""
+    return refs.sample(_ref_id(rid), body.eps)
+
+
+@app.post("/api/refs/{rid}/revlab")
+def ref_revlab(rid: str, body: RefPickIn) -> dict:
+    """고른 화로 역설계 실험을 만든다 (AI 를 부르지 않는다)."""
+    return {"id": refs.to_revlab(_ref_id(rid), body.eps)}
+
+
+@app.get("/api/refs/{rid}/compare")
+def ref_compare(rid: str, project: str) -> dict:
+    """원고 지표와 작품의 본문 있는 화 지표 (읽기만)."""
+    return refs.compare(_ref_id(rid), _load(project))
 
 
 # ---------- 3. 구조와 플롯 ----------
@@ -4339,8 +4467,9 @@ def rev_home() -> dict:
 
 @app.post("/api/revlab/split")
 def rev_split(body: RevSplitIn) -> dict:
-    """글을 화로 나눈 미리보기 (저장하지 않는다). 화면은 같은 규칙(revSplit)으로 바로 그리고, 이것은 맞춰 보기용이다."""
-    return revlab.split(body.text)
+    """글을 화로 나눈 미리보기 (저장하지 않는다). 화면의 미리보기가 쓴다. 화 글은 돌려주지 않고 글자 수만 준다."""
+    v = revlab.split(body.text)
+    return {**v, "episodes": [{"head": e["head"], "chars": len(e["text"])} for e in v["episodes"]]}
 
 
 @app.post("/api/revlab")

@@ -124,7 +124,7 @@ def test_out_nav_and_sidebar():
     assert [r["name"] for r in nav["recent"]] == ["sea", "glass", "sea-b"]  # 플레이 사본은 빼고 고친 때 순서로 셋
     assert nav["recent"][2]["fail"] == 1 and nav["recent"][2]["label"] == "검은 바다 B · 떠나는 길" and nav["recent"][0]["mark"] == "검"
     assert (nav["alerts"], nav["fails"]) == (1, 1)
-    assert [t[0] for t in nav["tools"]] == ["styles", "revlab", "soelab", "usage"] and nav["tools"][0][4] == "2"
+    assert [t[0] for t in nav["tools"]] == ["styles", "refs", "revlab", "soelab", "usage"] and nav["tools"][0][4] == "2"
     h = got["html"]
     assert 'class="side side-out"' in h and 'aria-label="작품 밖 메뉴"' in h
     assert 'href="#/styles" title="문체 라이브러리" aria-current="page"' in h

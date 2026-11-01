@@ -20,7 +20,7 @@ const any = new Proxy(function () {}, {
   get: (t, k) => (k === Symbol.toPrimitive ? () => '' : k === 'then' ? undefined : any),
   apply: () => any, construct: () => any,
 });
-const ctx = { data, console, structuredClone, document: any, window: any, localStorage: any, sessionStorage: any, navigator: any,
+const ctx = { data, console, structuredClone, TextDecoder, TextEncoder, document: any, window: any, localStorage: any, sessionStorage: any, navigator: any,
   location: any, history: any, matchMedia: any, fetch: any, setInterval() {}, setTimeout() {}, clearTimeout() {}, requestAnimationFrame() {} };
 vm.createContext(ctx);
 for (const f of process.argv.slice(2)) vm.runInContext(fs.readFileSync(f, 'utf8'), ctx, { filename: f });

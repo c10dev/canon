@@ -619,7 +619,8 @@ Object.assign(actions, {
   },
   async libSave() {
     if (!S.lib.name.trim()) return toast('문체 이름을 입력하세요', true);
-    const body = { name: S.lib.name, source: S.lib.source, notes: S.lib.notes, sample: S.lib.sample, profile: S.lib.profile, note: S.libNote || '' };
+    const body = { name: S.lib.name, source: S.lib.source, notes: S.lib.notes, sample: S.lib.sample, profile: S.lib.profile, note: S.libNote || '',
+      ref: S.lib.ref || '', ref_eps: S.lib.ref_eps || '' };  // 레퍼런스 원고에서 가져온 원문이면 그 원고의 '만든 것'에 남는다
     await run('저장하는 중', async () => {
       const isNew = !S.lib.id;
       S.lib = isNew ? await api('POST', '/styles', body) : await api('PUT', `/styles/${S.lib.id}`, body);

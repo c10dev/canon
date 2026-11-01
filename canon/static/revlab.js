@@ -7,8 +7,8 @@
    머리 주 버튼은 다음 할 일 하나(revNext)이고 추정 비용을 함께 적는다(revEst, AI 없음). 폭은 창이 아니라 공용 목차 틀(outline.js, @container outline)의 폭으로 바꾼다.
    app.js 의 S, actions, api, run, render, header, esc, toast, josa, showError, pollJobs, jobFor, jobLeft, elapsed, menuBtn, isTyping,
    JOB_PAGES, JOB_DONE_MSG, fmtDateTime, hub.js 의 renderHub 와 cue.js 의 cueBind · cueEd · cueScore · cueEditor · cueLabel · cueUsd · cuePct · cueYes 를 쓴다
-   (큐 시트 열쇠는 'rev:<화>'). revSplit · revGuessFirst · revSegments · revPreview · revEpTitle · revSteps · revNext · revTocEps · revRunRows ·
-   revMetricRows · revAiText · revAiMade · revEpRange · revTakePicks 는 DOM 없는 순수 함수 (revSplit · revGuessFirst 는 revlab.split · guess_first 와 같은 규칙, tests/test_revlab.py). */
+   (큐 시트 열쇠는 'rev:<화>'). revGuessFirst · revSegments · revPreview · revEpTitle · revSteps · revNext · revTocEps · revRunRows ·
+   revMetricRows · revAiText · revAiMade · revEpRange · revTakePicks 는 DOM 없는 순수 함수 (tests/test_revlab.py). 글 나누기는 서버(POST /api/revlab/split, refs.split)에 묻는다 (revSplitOf). */
 'use strict';
 
 Object.assign(S, {
@@ -30,56 +30,46 @@ Object.assign(S, {
   revRead: { a: 'original', b: 0 }, // 나란히 읽기 왼쪽 · 오른쪽 ('original' 또는 판 번호, 0 이면 최근 판)
 });
 
-const REV_HEAD = /^\s*(?:#{1,6}\s*)?(?:제\s*)?(\d{1,4})\s*화(?:\s*[.:：\-—)]\s*|\s+|$)(.*)$/;
-const REV_MARK = /^\s*={3,}\s*$/;
-const REV_BLANK = /\n(?:[ \t]*\n){3,}/;
-const REV_SPLITS = { heading: "'n화' 제목 줄", mark: "'===' 줄", blank: '빈 줄 세 개 넘게', one: '한 화' };
+const REV_HEAD = /^\s*(?:#{1,6}\s*)?(?:제\s*)?(\d{1,4})\s*화(?:\s*[.:：\-—)]\s*|\s+|$)(.*)$/;  // 제목 줄에서 제목만 뗀다 (revlab.HEAD_RE)
+const REV_SPLITS = { heading: '화 표시 줄', mark: '기호 줄', blank: '빈 줄 세 개 넘게', one: '한 화' };  // revlab.SPLITS
+const REV_SPLIT = new Map();  // 글 → 서버가 나눈 값 { how, first, preface, episodes: [{ head, chars }] } (나누기 규칙은 refs.split 한 곳)
+let revSplitTimer = null;
 
-/** 글 → 화 (revlab.split 과 같은 규칙): { how, first, preface, episodes: [{ head, text }] }. 제목 줄 → '===' 줄 → 빈 줄 셋 넘게 → 한 화.
-    제목 줄 앞 글이 preMin 자보다 짧으면 preface(역설계하지 않음), 길면 화 하나. */
-function revSplit(text, headMax = 60, preMin = 200) {
-  const t = String(text || '').replace(/﻿/g, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  const lines = t.split('\n');
-  const heads = lines.map((l, i) => (l.length <= headMax && REV_HEAD.test(l) ? i : -1)).filter((i) => i >= 0);
-  let how; let eps; let preface = ''; let first = 1;
-  if (heads.length) {
-    how = 'heading';
-    first = Number(lines[heads[0]].match(REV_HEAD)[1]) || 1;
-    const before = lines.slice(0, heads[0]).join('\n').trim();
-    eps = heads.map((h, k) => ({ head: lines[h].trim(), text: lines.slice(h + 1, k + 1 < heads.length ? heads[k + 1] : lines.length).join('\n').trim() }));
-    if (before.length >= preMin) { eps.unshift({ head: '', text: before }); first = Math.max(first - 1, 1); } else preface = before;
-  } else if (lines.some((l) => REV_MARK.test(l))) {
-    how = 'mark'; eps = [];
-    let cur = [];
-    for (const l of [...lines, '===']) {
-      if (REV_MARK.test(l)) { eps.push({ head: '', text: cur.join('\n').trim() }); cur = []; } else cur.push(l);
-    }
-  } else if (REV_BLANK.test(t)) {
-    how = 'blank'; eps = t.split(REV_BLANK).map((x) => ({ head: '', text: x.trim() }));
-  } else {
-    how = 'one'; eps = [{ head: '', text: t.trim() }];
-  }
-  return { how, first, preface, episodes: eps.filter((e) => e.text) };
+/** 글을 나눈 값. 아직 받지 않았으면 null 을 돌려주고 서버에 묻는다(잠깐 기다려 한 번만). 받으면 미리보기 칸을 다시 그린다 (revSplitDone). */
+function revSplitOf(text) {
+  const t = String(text || '');
+  if (REV_SPLIT.has(t)) return REV_SPLIT.get(t);
+  if (!t.trim()) return { how: 'one', first: 1, preface: '', episodes: [] };
+  clearTimeout(revSplitTimer);
+  revSplitTimer = setTimeout(() => {
+    api('POST', '/revlab/split', { text: t }).then((v) => {
+      if (REV_SPLIT.size > 20) REV_SPLIT.clear();
+      REV_SPLIT.set(t, v);
+      revSplitDone();
+    }).catch(() => {});
+  }, 250);
+  return null;
 }
 
-/** 첫 화 번호 짐작 (revlab.guess_first): 글에 'n화' 제목 줄이 있으면 그 번호, 없으면 실험 이름의 'n화', 그것도 없으면 1. */
-function revGuessFirst(title, text) {
-  const s = revSplit(text);
-  if (s.how === 'heading') return s.first;
+/** 첫 화 번호 짐작 (revlab.guess_first): 글에 화 표시 줄이 있으면 그 번호, 없으면 실험 이름의 'n화', 그것도 없으면 1. s 는 서버가 나눈 값 */
+function revGuessFirst(title, text, s = revSplitOf(text)) {
+  if (s && s.how === 'heading') return s.first;
   const m = String(title || '').match(/(\d{1,4})\s*화/);
   return m ? Number(m[1]) || 1 : 1;
 }
 
-/** 나누기 미리보기 값: 화마다 번호 · 제목 · 글자 수 · 짧음, 막는 까닭(errs)과 알릴 것(notes). lim 은 서버 이름표 (max_chars 등). */
-function revPreview(text, lim, first = null) {
-  const s = revSplit(text, lim.head_max, lim.preface_min);
+/** 나누기 미리보기 값: 화마다 번호 · 제목 · 글자 수 · 짧음, 막는 까닭(errs)과 알릴 것(notes). lim 은 서버 이름표 (max_chars 등).
+    s 는 서버가 나눈 값(revSplitOf). 아직 없으면 pending 이다 */
+function revPreview(text, lim, first = null, s0 = revSplitOf(text)) {
+  if (!s0) return { pending: true, how: '', label: '', eps: [], errs: [], notes: [] };
+  const s = { ...s0 };
   if (first) s.first = first;
   const errs = []; const notes = [];
   const len = String(text || '').length;
   if (!s.episodes.length) errs.push('글이 비었어요. 소설 본문을 붙여 넣으세요.');
   if (len > lim.max_chars) errs.push(`글이 너무 길어요 (${len.toLocaleString()}자). ${lim.max_chars.toLocaleString()}자까지 넣을 수 있어요.`);
   if (s.episodes.length > lim.max_episodes) errs.push(`${s.episodes.length}화로 나뉘었어요. 한 실험에 ${lim.max_episodes}화까지 넣을 수 있어요.`);
-  const eps = s.episodes.map((e, i) => ({ n: s.first + i, head: e.head, chars: e.text.length, short: e.text.length < lim.min_chars }));
+  const eps = s.episodes.map((e, i) => ({ n: s.first + i, head: e.head, chars: e.chars, short: e.chars < lim.min_chars }));
   if (eps.some((e) => e.short)) notes.push(`${lim.min_chars}자보다 짧은 화는 역설계하지 않아요.`);
   if (s.preface) notes.push(`첫 제목 줄 앞의 짧은 글(${s.preface.length}자)은 작품 제목 · 작가 줄로 보고 역설계하지 않아요.`);
   if (s.first <= 3 && s.episodes.length) notes.push('1~3화로 잡히면 되돌려 쓰기에 초반 규칙(첫 화 쓰는 법)이 붙어요. 소설 중간이면 첫 화 번호를 적으세요.');
@@ -88,15 +78,15 @@ function revPreview(text, lim, first = null) {
 
 /** 이어 붙일 글의 나누기 미리보기 (revlab.append_text 와 같은 규칙): 새 화는 제목 줄 번호와 상관없이 마지막 화 + 1(have.next)부터 세고,
     화 수 · 글자 수 한도는 실험 전체(have.episodes · have.chars)로 본다. 첫 제목 줄 앞의 짧은 글은 넣지 않는다. 값 모양은 revPreview 와 같다. */
-function revAppendPreview(text, lim, have) {
-  const s = revSplit(text, lim.head_max, lim.preface_min);
+function revAppendPreview(text, lim, have, s = revSplitOf(text)) {
+  if (!s) return { pending: true, how: '', label: '', eps: [], errs: [], notes: [] };
   const errs = []; const notes = [];
   const len = String(text || '').length;
   const n = have.episodes + s.episodes.length;
   if (!s.episodes.length) errs.push('글이 비었어요. 이어 붙일 화를 붙여 넣으세요.');
   if (have.chars + len > lim.max_chars) errs.push(`이으면 ${(have.chars + len).toLocaleString()}자예요. 한 실험에 ${lim.max_chars.toLocaleString()}자까지 넣을 수 있어요.`);
   if (n > lim.max_episodes) errs.push(`이으면 ${n}화예요. 한 실험에 ${lim.max_episodes}화까지 넣을 수 있어요.`);
-  const eps = s.episodes.map((e, i) => ({ n: have.next + i, head: e.head, chars: e.text.length, short: e.text.length < lim.min_chars }));
+  const eps = s.episodes.map((e, i) => ({ n: have.next + i, head: e.head, chars: e.chars, short: e.chars < lim.min_chars }));
   if (eps.some((e) => e.short)) notes.push(`${lim.min_chars}자보다 짧은 화는 역설계하지 않아요.`);
   if (s.preface) notes.push(`첫 제목 줄 앞의 짧은 글(${s.preface.length}자)은 작품 제목 · 작가 줄로 보고 넣지 않아요.`);
   if (s.how === 'heading' && s.episodes.length && s.first !== have.next) notes.push(`제목 줄은 ${s.first}화부터지만 마지막 화 다음인 ${have.next}화부터 이어요.`);
@@ -452,6 +442,7 @@ const revDraftFirst = () => Number(S.revDraft.first) || revGuessFirst(S.revDraft
 function revPreviewHtml() {
   if (!S.revDraft.text.trim()) return '<div class="small">붙여 넣으면 어떻게 나뉘는지 여기 보여요. 직접 나누려면 화 사이에 <code>===</code> 한 줄을 넣으세요.</div>';
   const v = revPreview(S.revDraft.text, S.rev, revDraftFirst());
+  if (v.pending) return '<div class="small">나누는 중이에요…</div>';
   const eps = v.eps.map((e) => `<li><span>${e.head ? esc(e.head) : `${e.n}화`}${e.short ? ' <span class="chip warn">짧음</span>' : ''}</span><span class="small">${e.chars.toLocaleString()}자</span></li>`).join('');
   return `<div class="between"><strong>${v.eps.length}화로 나눠요</strong><span class="chip">${esc(v.label)}</span></div>
     <ol class="rev-prev">${eps}</ol>
@@ -459,7 +450,8 @@ function revPreviewHtml() {
 }
 
 function revNewCard(closable = false) {
-  const ok = !revPreview(S.revDraft.text, S.rev).errs.length;
+  const pv = revPreview(S.revDraft.text, S.rev);
+  const ok = !pv.errs.length && !pv.pending;
   const n = S.revDraft.text.length;
   return `<section class="card" id="rev-new"><div class="between"><h2>새 실험</h2>${closable ? '<button type="button" class="btn small ghost" data-action="revNewToggle">닫기</button>' : ''}</div>
     <ol class="rev-how"><li><span class="rev-step now" aria-hidden="true">1</span>붙여 넣고 나누기 <span class="small">AI 없음</span></li>
@@ -577,6 +569,7 @@ const revHave = (L) => ({ next: L.items.length ? L.items[L.items.length - 1].num
 function revAddPreviewHtml() {
   if (!S.revAdd.trim()) return `<div class="small">붙여 넣으면 어떻게 나뉘는지 여기 보여요. 새 화는 ${revHave(S.revLab).next}화부터 이어요. 직접 나누려면 화 사이에 <code>===</code> 한 줄을 넣으세요.</div>`;
   const v = revAppendPreview(S.revAdd, S.rev, revHave(S.revLab));
+  if (v.pending) return '<div class="small">나누는 중이에요…</div>';
   const eps = v.eps.map((e) => `<li><span>${e.n}화${e.head ? ` <span class="small">${esc(e.head)}</span>` : ''}${e.short ? ' <span class="chip warn">짧음</span>' : ''}</span><span class="small">${e.chars.toLocaleString()}자</span></li>`).join('');
   return `<div class="between"><strong>${revAddRange(v)}를 이어요</strong><span class="chip">${esc(v.label)}</span></div>
     <ol class="rev-prev">${eps}</ol>
@@ -590,7 +583,7 @@ const revAddLabel = (v) => (v.eps.length && !v.errs.length ? `${revAddRange(v)} 
 /** 화 이어 붙이기 칸: 붙여 넣은 글을 나눠 마지막 화 뒤에 잇는다. 앞 화의 역설계 결과는 그대로 둔다 (revlab.append_text). */
 function revAddCard() {
   const v = revAppendPreview(S.revAdd, S.rev, revHave(S.revLab));
-  const ok = !v.errs.length && !revRunning();
+  const ok = !v.errs.length && !v.pending && !revRunning();
   return `<section class="card"><div class="between"><h2>화 이어 붙이기</h2><button type="button" class="btn small ghost" data-action="revAddToggle">닫기</button></div>
     <p class="small">마지막 화 뒤에 새 화를 넣어요. 앞 화의 역설계 결과 · 인물 · 문체 프로필은 그대로 두고, 새 화를 역설계할 때 앞 화의 인물 · 줄거리가 들어가요. 이야기 줄기는 새 화까지 역설계하면 다시 물어요.</p>
     <div class="rev-paste">
@@ -1089,14 +1082,7 @@ document.addEventListener('input', (e) => {
   const d = e.target.dataset || {};
   if (d.revNew) {
     S.revDraft[d.revNew] = e.target.value;
-    const box = document.getElementById('rev-preview');
-    if (box) box.innerHTML = revPreviewHtml();
-    const count = document.getElementById('rev-count');
-    if (count) count.textContent = S.revDraft.text ? `· ${S.revDraft.text.length.toLocaleString()}자` : '';
-    const num = document.getElementById('rev-first');
-    if (num) num.placeholder = revGuessFirst(S.revDraft.title, S.revDraft.text);
-    const btn = document.querySelector('[data-action="revCreate"]');
-    if (btn) btn.disabled = !!revPreview(S.revDraft.text, S.rev).errs.length;
+    revNewRefresh();
   }
   if (d.revEp && S.revEpEdit) {
     S.revEpEdit[d.revEp] = e.target.value;
@@ -1105,18 +1091,43 @@ document.addEventListener('input', (e) => {
   }
   if (d.revAdd) {
     S.revAdd = e.target.value;
-    const box = document.getElementById('rev-apreview');
-    if (box) box.innerHTML = revAddPreviewHtml();
-    const count = document.getElementById('rev-acount');
-    if (count) count.textContent = S.revAdd ? `· ${S.revAdd.length.toLocaleString()}자` : '';
-    const v = revAppendPreview(S.revAdd, S.rev, revHave(S.revLab));
-    const btn = document.querySelector('[data-action="revAppend"]');
-    if (btn) {
-      btn.disabled = !!v.errs.length || !!revRunning();
-      btn.textContent = revAddLabel(v);
-    }
+    revAddRefresh();
   }
 });
+
+/** 새 실험 칸의 미리보기 · 글자 수 · 첫 화 번호 · 만들기 버튼만 다시 그린다 (입력 중에는 화면 전체를 그리지 않는다). */
+function revNewRefresh() {
+  const box = document.getElementById('rev-preview');
+  if (box) box.innerHTML = revPreviewHtml();
+  const count = document.getElementById('rev-count');
+  if (count) count.textContent = S.revDraft.text ? `· ${S.revDraft.text.length.toLocaleString()}자` : '';
+  const num = document.getElementById('rev-first');
+  if (num) num.placeholder = revGuessFirst(S.revDraft.title, S.revDraft.text);
+  const btn = document.querySelector('[data-action="revCreate"]');
+  const v = revPreview(S.revDraft.text, S.rev);
+  if (btn) btn.disabled = !!v.errs.length || !!v.pending;
+}
+
+function revAddRefresh() {
+  if (S.revAdd === null) return;
+  const box = document.getElementById('rev-apreview');
+  if (box) box.innerHTML = revAddPreviewHtml();
+  const count = document.getElementById('rev-acount');
+  if (count) count.textContent = S.revAdd ? `· ${S.revAdd.length.toLocaleString()}자` : '';
+  const v = revAppendPreview(S.revAdd, S.rev, revHave(S.revLab));
+  const btn = document.querySelector('[data-action="revAppend"]');
+  if (btn) {
+    btn.disabled = !!v.errs.length || !!v.pending || !!revRunning();
+    btn.textContent = revAddLabel(v);
+  }
+}
+
+/** 서버가 나눈 값이 오면 보이는 미리보기를 다시 그린다. */
+function revSplitDone() {
+  if (S.route[0] !== 'revlab') return;
+  if (document.getElementById('rev-preview')) revNewRefresh();
+  if (document.getElementById('rev-apreview')) revAddRefresh();
+}
 
 document.addEventListener('change', (e) => {
   const d = e.target.dataset || {};

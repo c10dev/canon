@@ -23,7 +23,7 @@ AI 로 소설을 길게 쓸수록 인물 관계, 심리, 말투, 복선, 문체�
 | LLM 백엔드 · 사용량 · 판단기 · 가짜 응답(mock) · 환경 변수를 고칠 때 | [docs/modules/ai.md](docs/modules/ai.md) |
 | 인물 · 관계 · 호칭 · 복선 · 상태창 · 도감 · 시간 · 인과율 · 줄기 · 갈래 · 플레이 같은 이야기 데이터 기능과 그 화면을 고칠 때 | [docs/modules/story.md](docs/modules/story.md) |
 | 화면 뼈대(`app.js` · `outline.js` · `hub.js` · 팔레트 · 대화 패널)나 단계 화면 파일(`settings.js` · `home.js` · `setup.js` · `style.js` · `plot.js` · `write.js` · `check.js` · `review.js` 등)을 고칠 때 | [docs/modules/web.md](docs/modules/web.md) |
-| 역설계 · 쇠맛 실험실 · 문체 지표 · 연구 화면 · 시험(`stattrial` · `blocktrial`)을 고칠 때 | [docs/modules/labs.md](docs/modules/labs.md) |
+| 역설계 · 레퍼런스 원고 · 쇠맛 실험실 · 문체 지표 · 연구 화면 · 시험(`stattrial` · `blocktrial`)을 고칠 때 | [docs/modules/labs.md](docs/modules/labs.md). 레퍼런스 원고의 정한 규칙과 남은 일감은 [docs/refs/](docs/refs/README.md) |
 | 장면 연출 코드(`stage` · `stagepath` · `stage3d` · `static/stage*.js`)를 고칠 때 | [docs/modules/stage.md](docs/modules/stage.md) |
 | 지도 코드를 고칠 때 | [docs/modules/map.md](docs/modules/map.md) |
 

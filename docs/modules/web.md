@@ -22,7 +22,7 @@
 - 화 상태 칩 · 범례 · 툴팁 글자 `STATUS`(초안 · 확정 · 작성됨 · 반영 완료). 서버 `autorun.EP_STATUS` 와 같은 글자
 - 본문을 쓴 모델 글자 `writerLabel`(`Episode.written_by` · `TextVersion.model` → '모델 · 백엔드', 백엔드 이름 `WRITER_BACKEND`, `tests/test_write_js.py`)
 - 단계 이름 `stepLabel`(사이드바와 같은 이름, 다른 화면 문구도 이것을 쓴다)
-- 작품 밖 화면(작품 목록 · 새 작품 `#/new` · 사용량 · 문체 라이브러리 · 역설계 실험 · 쇠맛 실험실)의 사이드바 `outSidebar`
+- 작품 밖 화면(작품 목록 · 새 작품 `#/new` · 사용량 · 문체 라이브러리 · 레퍼런스 원고 · 역설계 실험 · 쇠맛 실험실)의 사이드바 `outSidebar`
   - 항목은 순수 함수 `outNav`: 작품 목록 · 새 작품 · 새 플레이, 최근 작품 셋, 작품 밖 도구(아직 열지 않은 화면 자리는 `.nav-off`)
   - 본문 `.out-main` 폭 `--out-w` · `@container out`
   - 작품을 읽지 못한 화면(주소가 틀림 · 불러오기 오류)도 작품 밖 사이드바 안에 그린다(본문 720px)
