@@ -104,9 +104,15 @@ def _sure(para: str, polite: bool) -> bool:
 
 def split(text: str) -> tuple[str, list[str]]:
     """(본문, 뗀 문단들). 앞과 뒤에서 이어진 확실한 메타 문단만 뗀다. 메타 문단 바로 안쪽의 구분선, '작가 메모' 머리 뒤의 목록도 함께 뗀다."""
+    body, head, tail = parts(text)
+    return body, head + tail
+
+
+def parts(text: str) -> tuple[str, list[str], list[str]]:
+    """(본문, 앞에서 뗀 문단들, 뒤에서 뗀 문단들). split 과 같은 규칙. 되살릴 때 자리를 알려고 앞뒤를 나눈다."""
     paras, sep = _paras(text)
     if len(paras) < 3:
-        return text, []
+        return text, [], []
     polite = polite_body(paras[1:-1])
     head = 0
     while head < len(paras) - 2 and _sure(paras[head], polite):
@@ -122,8 +128,8 @@ def split(text: str) -> tuple[str, list[str]]:
     if tail < len(paras) and tail - 1 > head and _RULE.match(paras[tail - 1]):
         tail -= 1
     if head == 0 and tail == len(paras):
-        return text, []
-    return sep.join(paras[head:tail]), paras[:head] + paras[tail:]
+        return text, [], []
+    return sep.join(paras[head:tail]), paras[:head], paras[tail:]
 
 
 def warnings(text: str) -> list[str]:

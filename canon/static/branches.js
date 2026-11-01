@@ -420,7 +420,7 @@ Object.assign(actions, {
     const m = (branchFam() || { members: [] }).members.find((x) => x.name === name);
     if (!m) return;
     const nm = branchName(m);
-    if (!confirm(`'${nm}'${josa(nm, '을', '를')} 본편으로 올릴까요? 갈래 정보만 바뀌고 작품 내용과 폴더 이름은 그대로예요.`)) return;
+    if (!(await askConfirm(`'${nm}'${josa(nm, '을', '를')} 본편으로 올릴까요? 갈래 정보만 바뀌고 작품 내용과 폴더 이름은 그대로예요.`, { ok: '본편으로 올리기' }))) return;
     let ok = false;
     await run('본편으로 올리는 중', async () => {
       await api('POST', `/projects/${enc(name)}/promote`);
@@ -437,7 +437,7 @@ Object.assign(actions, {
     const kids = fam.members.filter((x) => x.parent_name === name).map(branchName);
     const up = fam.members.find((x) => x.name === m.parent_name);
     const moved = kids.length && up ? ` 이 갈래에서 갈라진 ${kids.map((k) => `'${k}'`).join(', ')}${josa(kids[kids.length - 1], '은', '는')} '${branchName(up)}'에 다시 이어요.` : '';
-    if (!confirm(`'${nm}' 갈래를 끊을까요? 따로 선 작품이 되고 작품 내용은 그대로예요.${moved}`)) return;
+    if (!(await askConfirm(`'${nm}' 갈래를 끊을까요? 따로 선 작품이 되고 작품 내용은 그대로예요.${moved}`, { ok: '끊기', danger: true }))) return;
     let ok = false;
     await run('갈래를 끊는 중', async () => {
       await api('POST', `/projects/${enc(name)}/detach`);

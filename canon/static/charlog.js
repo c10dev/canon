@@ -98,7 +98,7 @@ Object.assign(actions, {
   },
   async scDrop(i) {
     const x = (P().setting_held || [])[i];
-    if (x && !confirm(`${charName(x.character_id)}의 ${scLabel(x.field)} 바꾸기 제안을 버릴까요?`)) return;
+    if (x && !(await askConfirm(`${charName(x.character_id)}의 ${scLabel(x.field)} 바꾸기 제안을 버릴까요?`, { ok: '버리기', danger: true }))) return;
     await run('버리는 중', async () => {
       await saveIfDirty();
       S.project = await api('DELETE', `/projects/${enc(S.name)}/setting-held/${i}`);

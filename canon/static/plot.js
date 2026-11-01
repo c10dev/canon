@@ -1048,10 +1048,10 @@ Object.assign(actions, {
     markDirty();
     render();
   },
-  closeCastEdit() {
+  async closeCastEdit() {
     // 이름을 정하지 않고 접으면 'char4' 같은 id 만 남는다. 지울지 묻는다
     const c = P().characters.find((x) => x.id === S.castEdit);
-    if (c && !c.name.trim() && confirm('이름 없는 인물을 지울까요? 남기려면 취소를 누르고, 나중에 등장 인물의 고치기로 다시 열어요.')) return actions.dropNewCast(c.id, true);
+    if (c && !c.name.trim() && (await askConfirm('이름 없는 인물을 지울까요? 남기려면 취소를 누르고, 나중에 등장 인물의 고치기로 다시 열어요.', { ok: '지우기', danger: true }))) return actions.dropNewCast(c.id, true);
     S.castEdit = '';
     render();
   },
@@ -1061,14 +1061,14 @@ Object.assign(actions, {
     render();
   },
   /** 서랍에서 만든 인물을 지운다. 이 인물을 넣은 화의 등장 인물에서도 빼서 '설정 없는 인물'로 남지 않게 한다. 다른 곳에 쓰였으면 설정 화면의 삭제로 보낸다. */
-  dropNewCast(id, asked = false) {
+  async dropNewCast(id, asked = false) {
     const i = P().characters.findIndex((x) => x.id === id);
     if (i < 0) return;
     const c = P().characters[i];
     const used = P().relationships.some((r) => r.a === id || r.b === id) || P().history.some((h) => h.character_updates.some((u) => u.character_id === id) || (h.events || []).some((ev) => ev.actor === id || ev.target === id));
     if (used) return toast(`${c.name || id}${josa(c.name || id, '은', '는')} 관계나 반영 기록에 쓰여서 여기서 지울 수 없어요. 설정 도우미에서 지우세요`, true);
     const eps = P().episodes.filter((e) => e.plot.characters.includes(id)).map((e) => e.plot.number);
-    if (!asked && !confirm(`${c.name || id} 인물을 지울까요? ${eps.length ? `${rangeText(eps)}화 등장 인물에서도 빠져요. ` : ''}저장하기 전에는 아래 띠에서 인물을 되살릴 수 있어요.`)) return;
+    if (!asked && !(await askConfirm(`${c.name || id} 인물을 지울까요? ${eps.length ? `${rangeText(eps)}화 등장 인물에서도 빠져요. ` : ''}저장하기 전에는 아래 띠에서 인물을 되살릴 수 있어요.`, { ok: '지우기', danger: true }))) return;
     rememberRemoved(`인물 ${c.name || id}`, ['characters', 'states']);
     P().characters.splice(i, 1);
     P().states = P().states.filter((x) => x.character_id !== id);
@@ -1099,13 +1099,13 @@ Object.assign(actions, {
     render();
     toast('구조를 바꿨어요. 저장하면 작품에 들어가요');
   },
-  dropArcProposal() {
-    if (!confirmDrop('AI 구조 제안')) return;
+  async dropArcProposal() {
+    if (!(await confirmDrop('AI 구조 제안'))) return;
     S.arcProposal = null;
     render();
   },
   async draftPlots() {
-    if (!confirmRedraft(P().episodes)) return;
+    if (!(await confirmRedraft(P().episodes))) return;
     await startJob('plots', null, { note: S.planNote || '' });
   },
   // 사건 칸 (eventsField). at 자리에 빈 칸을 넣는다 (비우면 끝에)
@@ -1203,7 +1203,7 @@ Object.assign(actions, {
     const drafts = P().episodes.filter((e) => e.status === 'draft' && (!a || (e.plot.number >= a.start_ep && e.plot.number <= a.end_ep)));
     if (!drafts.length) return toast('확정할 초안이 없어요');
     if (jobFor('plots')) return toast('플롯 초안을 만드는 중이에요. 끝난 뒤에 확정하세요', true);
-    if (!confirm(`초안 ${drafts.length}화를 모두 확정할까요?`)) return;
+    if (!(await askConfirm(`초안 ${drafts.length}화를 모두 확정할까요?`, { ok: '모두 확정하기' }))) return;
     await run('확정하는 중', async () => {
       await saveIfDirty();
       const before = P().characters.length;
@@ -1215,17 +1215,17 @@ Object.assign(actions, {
 
   // 장편: 부 · 아크
   async planSeries() {
-    if (P().parts.length && !confirm('지금 부 구성을 AI 제안으로 바꿀까요? 적용 전에 확인할 수 있어요.')) return;
+    if (P().parts.length && !(await askConfirm('지금 부 구성을 AI 제안으로 바꿀까요? 적용 전에 확인할 수 있어요.', { ok: '바꾸기' }))) return;
     await startJob('series', null, { note: S.planNote || '' });
   },
-  dropSeries() {
-    if (!confirmDrop('AI 부 구성 제안')) return;
+  async dropSeries() {
+    if (!(await confirmDrop('AI 부 구성 제안'))) return;
     S.seriesDraft = null;
     render();
   },
   async applySeries() {
     const lost = lostPartSummaries();
-    if (lost.length && !confirm(`범위가 바뀌어 저장된 ${lost.map((x) => `${x.number}부`).join(', ')} 요약이 사라져요. 적용할까요?`)) return;
+    if (lost.length && !(await askConfirm(`범위가 바뀌어 저장된 ${lost.map((x) => `${x.number}부`).join(', ')} 요약이 사라져요. 적용할까요?`, { ok: '적용하기', danger: true }))) return;
     await run('적용하는 중', async () => {
       await saveIfDirty();
       const had = P().story_arcs.length > 0;
@@ -1283,8 +1283,8 @@ Object.assign(actions, {
   async planNextArc() {
     await startJob('nextarc', null, { length: Number(S.arcForm.length) || 0, note: S.arcForm.note || '' });
   },
-  dropArc() {
-    if (!confirmDrop('AI 다음 아크 제안')) return;
+  async dropArc() {
+    if (!(await confirmDrop('AI 다음 아크 제안'))) return;
     S.arcDraft = null;
     render();
   },
@@ -1299,7 +1299,7 @@ Object.assign(actions, {
     });
   },
   async removeLastArc() {
-    if (!confirm('마지막 아크와 그 아크의 플롯 초안을 지울까요? 다시 기획할 수 있어요.')) return;
+    if (!(await askConfirm('마지막 아크와 그 아크의 플롯 초안을 지울까요? 다시 기획할 수 있어요.', { ok: '지우기', danger: true }))) return;
     await run('지우는 중', async () => {
       await saveIfDirty();
       S.project = await api('DELETE', `/projects/${enc(S.name)}/arcs/last`);
@@ -1308,19 +1308,19 @@ Object.assign(actions, {
   },
   async draftArcPlots(n) {
     const a = P().story_arcs.find((x) => x.number === Number(n));
-    if (a && !confirmRedraft(P().episodes.filter((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep))) return;
+    if (a && !(await confirmRedraft(P().episodes.filter((e) => e.plot.number >= a.start_ep && e.plot.number <= a.end_ep)))) return;
     await startJob('plots', Number(n), { note: S.planNote || '' });
   },
   async recapArc(n) {
-    if (S.recapDrafts['arc' + n] && !confirm(`아크 ${n} 요약 제안이 아직 있어요. 고친 내용을 버리고 새로 받을까요?`)) return;
+    if (S.recapDrafts['arc' + n] && !(await askConfirm(`아크 ${n} 요약 제안이 아직 있어요. 고친 내용을 버리고 새로 받을까요?`, { ok: '새로 받기', danger: true }))) return;
     await startJob('recap_arc', Number(n));
   },
   async recapPart(n) {
-    if (S.recapDrafts['part' + n] && !confirm(`${n}부 요약 제안이 아직 있어요. 고친 내용을 버리고 새로 받을까요?`)) return;
+    if (S.recapDrafts['part' + n] && !(await askConfirm(`${n}부 요약 제안이 아직 있어요. 고친 내용을 버리고 새로 받을까요?`, { ok: '새로 받기', danger: true }))) return;
     await startJob('recap_part', Number(n));
   },
-  dropRecap(key) {
-    if (!confirmDrop('AI 요약 제안')) return;
+  async dropRecap(key) {
+    if (!(await confirmDrop('AI 요약 제안'))) return;
     delete S.recapDrafts[key];
     render();
   },

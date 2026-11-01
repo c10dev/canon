@@ -581,7 +581,7 @@ Object.assign(actions, {
     const o = S.deltaOrig[n];
     // S.picks 는 설정 제안 화면과 같이 쓴다. 변경안을 받을 때 있던 칸만 비교한다
     const edited = d && o && (d.summary !== o.summary || Object.entries(o.picks).some(([k, v]) => S.picks[k] !== v) || deltaEdited(n));
-    if (edited && !confirm('고친 요약 · 항목과 체크를 버리고 변경안을 다시 만들까요?')) return;
+    if (edited && !(await askConfirm('고친 요약 · 항목과 체크를 버리고 변경안을 다시 만들까요?', { ok: '다시 만들기', danger: true }))) return;
     if (S.textDraft[n] !== undefined) {
       try {
         S.project = await api('PUT', `/projects/${enc(S.name)}/episodes/${n}/text`, { text: S.textDraft[n] });
@@ -601,7 +601,7 @@ Object.assign(actions, {
       (out.warnings || []).length ? `경고 ${out.warnings.length}건이 남아 있어요.` : '',
       S.deltaBase[n] !== undefined && ep(n) && S.deltaBase[n] !== ep(n).text ? '변경안을 만든 뒤 본문을 고쳤어요.' : '',
     ].filter(Boolean);
-    if (why.length && !confirm(`${why.join(' ')} ${n}화를 마칠까요? 반영하면 반영 취소로만 돌아갈 수 있어요.`)) return;
+    if (why.length && !(await askConfirm(`${why.join(' ')} ${n}화를 마칠까요? 반영하면 반영 취소로만 돌아갈 수 있어요.`, { ok: '마치기' }))) return;
     await run('반영하는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/apply`, out);
@@ -676,8 +676,8 @@ Object.assign(actions, {
     rvUndoClose(false);
     location.hash = `${base()}/review/${n}`;  // 다시 고를 변경안이 있는 화면으로
   },
-  dropDelta(n) {
-    if (!confirm('이 변경안을 버릴까요?')) return;
+  async dropDelta(n) {
+    if (!(await askConfirm('이 변경안을 버릴까요?', { ok: '버리기', danger: true }))) return;
     delete S.deltas[n];
     render();
   },

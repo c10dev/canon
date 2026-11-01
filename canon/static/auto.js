@@ -135,7 +135,7 @@ async function autoFlushDrafts(upTo) {
     save.length ? `${save.join(', ')}화에 저장하지 않은 본문이 있어요. 먼저 저장하고 이어 갈까요? 저장한 본문은 자동 집필이 검수해요.` : '',
     stuck.length ? `${stuck.join(', ')}화 초안은 앞 화 반영 전이라 지금 저장할 수 없어요. 자동 집필이 그 화를 쓰면 초안은 집필 화면에 따로 남아 복사할 수 있어요.` : '',
   ].filter(Boolean).join('\n\n');
-  if (!confirm(`${ask}\n\n취소하면 시작하지 않아요.`)) return false;
+  if (!(await askConfirm(`${ask}\n\n취소하면 시작하지 않아요.`, { title: '저장하지 않은 본문이 있어요', ok: '이어 가기' }))) return false;
   try {
     for (const n of save) await flushText(n);
     return true;
@@ -635,8 +635,8 @@ Object.assign(actions, {
       lines.push(`예상 시간 ${est.batch_rounds ? `${autoDuration(est.seconds_min)}~${autoDuration(est.seconds_max)} (배치는 한 번에 최대 24시간까지 걸릴 수 있어요)` : `약 ${autoDuration(est.seconds_min)}`}`);
       lines.push(`예상 비용 ${est.cost == null ? '알 수 없어요 (가격표에 없는 모델)' : autoCost(est.cost)}`);
     }
-    lines.push('정해 둔 멈춤 조건에 걸리지 않은 화는 검토 없이 상태를 반영해요.', '시작할까요?');
-    if (!confirm(lines.join('\n'))) return;
+    lines.push('정해 둔 멈춤 조건에 걸리지 않은 화는 검토 없이 상태를 반영해요.');
+    if (!(await askConfirm(lines.join('\n'), { title: '자동 집필을 시작할까요?', ok: '시작하기' }))) return;
     await run('자동 집필을 시작하는 중', async () => {
       await saveIfDirty();
       S.auto = await api('POST', `/projects/${enc(S.name)}/auto/start`, { target: f.target, batch: f.batch, policy: f.policy });
@@ -654,7 +654,7 @@ Object.assign(actions, {
     render();
   },
   async autoStop() {
-    if (!confirm('자동 집필을 중지할까요? 기다리던 배치 작업이 있으면 취소해요. 이미 반영한 화는 그대로예요.')) return;
+    if (!(await askConfirm('자동 집필을 중지할까요? 기다리던 배치 작업이 있으면 취소해요. 이미 반영한 화는 그대로예요.', { ok: '중지하기', danger: true }))) return;
     try {
       S.auto = await api('POST', `/projects/${enc(S.name)}/auto/stop`);
     } catch (e) { toast(e.message, true); }
@@ -663,8 +663,8 @@ Object.assign(actions, {
   async autoResume(how) {
     const body = { approve: how === 'approve', rewrite: how === 'rewrite' };
     const r = S.auto.run;
-    if (how === 'approve' && !confirm(`${r.ep}화 변경안을 보지 않고 그대로 반영할까요?`)) return;
-    if (how === 'rewrite' && !confirm(`${r.ep}화를 다시 쓸까요? 지금 본문은 이전 판으로 남아 집필 화면에서 되돌릴 수 있어요.`)) return;
+    if (how === 'approve' && !(await askConfirm(`${r.ep}화 변경안을 보지 않고 그대로 반영할까요?`, { ok: '반영하기' }))) return;
+    if (how === 'rewrite' && !(await askConfirm(`${r.ep}화를 다시 쓸까요? 지금 본문은 이전 판으로 남아 집필 화면에서 되돌릴 수 있어요.`, { ok: '다시 쓰기' }))) return;
     if (!(await autoFlushDrafts(r.target))) return;
     await run('이어 가는 중', async () => {
       await saveIfDirty();

@@ -182,7 +182,7 @@ Object.assign(actions, {
     });
   },
   async learnDismiss() {
-    if (!confirm(`찾은 규칙 후보를 지울까요? 이미 넣은 규칙은 그대로예요.${S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : ''}`)) return;
+    if (!(await askConfirm(`찾은 규칙 후보를 지울까요? 이미 넣은 규칙은 그대로예요.${S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : ''}`, { ok: '지우기', danger: true }))) return;
     await run('지우는 중', async () => {
       await saveIfDirty();
       S.project = await api('POST', `/projects/${enc(S.name)}/style/learn/dismiss`);
@@ -191,7 +191,7 @@ Object.assign(actions, {
   async libRestore(n) {
     const msg = S.libDirty ? '\n저장하지 않은 변경은 사라져요.' : '';
     const used = (S.lib.used_by || []).length ? `\n이 문체를 쓰는 작품(${S.lib.used_by.join(', ')})은 다시 적용해야 바뀌어요.` : '';
-    if (!confirm(`${n}번 버전으로 되돌릴까요? 지금 상태도 버전으로 남아 있어 다시 돌아올 수 있어요.${msg}${used}`)) return;
+    if (!(await askConfirm(`${n}번 버전으로 되돌릴까요? 지금 상태도 버전으로 남아 있어 다시 돌아올 수 있어요.${msg}${used}`, { ok: '되돌리기' }))) return;
     await run('되돌리는 중', async () => {
       S.lib = await api('POST', `/styles/${S.lib.id}/versions/${n}/restore`);
       S.libDirty = false;

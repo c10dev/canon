@@ -2031,7 +2031,7 @@ Object.assign(actions, {
       { before: atlasPinMap(), label: `'${pl.name}' ${pl.pin ? '옮기기' : '놓기'}` });
   },
   async atlasDropLayout() {
-    if (!confirm('마을 데이터를 지울까요? 장소 자리는 그대로 남아요.')) return;
+    if (!(await askConfirm('마을 데이터를 지울까요? 장소 자리는 그대로 남아요.', { ok: '지우기', danger: true }))) return;
     await run('지우는 중', async () => {
       await saveIfDirty();
       S.project = await api('DELETE', `/projects/${enc(S.name)}/atlas/layout`);
@@ -2040,7 +2040,7 @@ Object.assign(actions, {
     });
   },
   async atlasDropImage() {
-    if (!confirm('배경 그림을 지울까요? 장소 자리는 그대로 남아요.')) return;
+    if (!(await askConfirm('배경 그림을 지울까요? 장소 자리는 그대로 남아요.', { ok: '지우기', danger: true }))) return;
     await run('지우는 중', async () => {
       await saveIfDirty();
       S.project = await api('DELETE', `/projects/${enc(S.name)}/atlas/image`);

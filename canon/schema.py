@@ -1088,6 +1088,12 @@ class RewriteRequest(BaseModel):
 VersionKind = Literal["previous", "rejected"]
 
 
+class MetaCut(BaseModel):
+    """쓰기가 본문 앞뒤에서 뗀 작업 설명 문단 하나 (metatail.split). 작가가 본문에 되살리거나 지운다. 프롬프트에 넣지 않는다."""
+    text: str
+    at: Literal["head", "tail"] = Field("tail", description="본문 앞(head)에서 뗐는지 뒤(tail)에서 뗐는지. 되살릴 때 그 자리에 붙인다")
+
+
 class TextVersion(BaseModel):
     """한 화 본문의 다른 판. 다시 생성으로 나와 고르기를 기다리는 새 판, 바꾸기 전 판, 고르지 않은 새 판."""
     id: str
@@ -1096,6 +1102,7 @@ class TextVersion(BaseModel):
     kind: VersionKind = Field("previous", description="previous: 새 판으로 바꾸기 전 본문 / rejected: 고르지 않은 새 판")
     request: Optional[RewriteRequest] = Field(None, description="이 판을 만든 다시 생성 요청 (처음 쓴 판이면 비움)")
     model: str = Field("", description="이 판을 쓴 모델 (Episode.written_by 와 같은 모양). 모르면 비움. 프롬프트에 넣지 않는다")
+    meta_cut: list[MetaCut] = Field(default_factory=list, description="이 판을 쓸 때 앞뒤에서 뗀 작업 설명 문단. 판을 고르면 Episode.meta_cut 으로 따라간다")
 
 
 FindingStatus = Literal["open", "fixed", "kept", "wrong"]
@@ -1373,6 +1380,8 @@ class Episode(BaseModel):
     made_by: Optional[RewriteRequest] = Field(None, description="지금 본문을 만든 다시 생성 요청 (처음 쓴 판이나 직접 쓴 본문이면 비움)")
     written_by: str = Field("", description="지금 본문을 쓴 모델 '<백엔드>:<모델>' (usage.model_id), 채팅 앱에서 가져온 본문은 'import'. "
                                             "모르면(옛 본문, 화면에서 붙여 넣은 본문) 비움. 작가가 고쳐도 바꾸지 않는다(고친 것은 edits). 프롬프트에 넣지 않는다")
+    meta_cut: list[MetaCut] = Field(default_factory=list, description="지금 본문을 쓸 때 앞뒤에서 뗀 작업 설명 문단 (metatail.split). "
+                                                                   "집필 화면에서 본문에 되살리거나 지운다. 프롬프트에 넣지 않는다")
     final_text: str = Field("", description="상태 반영이 끝난 뒤 본문을 처음 고치기 직전의 본문. 지금 본문과 다르면 반영된 요약 · 상태가 고치기 전 본문 기준이다. 다시 맞추거나 그대로 두기로 하면 비운다")
     time: "StoryTime" = Field(default_factory=lambda: StoryTime(), description="이 화가 끝난 작품 속 시점. 상태 반영 때 채운다")
     realign: str = Field("", description="앞 화 플롯을 뒤 화에 맞추지 않고 다시 짜면서 이 화와 어긋나게 된 점. 이 화 플롯을 다시 짜거나 작가가 확인하면 비운다")

@@ -421,14 +421,14 @@ function cueSynced() {
 }
 
 Object.assign(actions, {
-  cueMake() {
+  async cueMake() {
     const c = cueCtx();
-    if (c.saved && !confirm(c.saved.made_by === 'ai' ? '지금 큐 시트를 AI가 만든 새 시트로 바꿀까요?' : '고친 큐 시트예요. 새로 만들면 고친 내용이 사라져요. 바꿀까요?')) return;
+    if (c.saved && !(await askConfirm(c.saved.made_by === 'ai' ? '지금 큐 시트를 AI가 만든 새 시트로 바꿀까요?' : '고친 큐 시트예요. 새로 만들면 고친 내용이 사라져요. 바꿀까요?', { ok: '바꾸기', danger: true }))) return;
     startJob(c.job, c.n);
   },
   async cueFromBoard() {
     const c = cueCtx();
-    if (c.saved && !confirm('지금 큐 시트를 뼈대로 바꿀까요?')) return;
+    if (c.saved && !(await askConfirm('지금 큐 시트를 뼈대로 바꿀까요?', { ok: '바꾸기', danger: true }))) return;
     await run('뼈대 만드는 중', async () => {
       if (c.kind === 'ep') {
         await saveIfDirty();
@@ -451,7 +451,7 @@ Object.assign(actions, {
   },
   cueReset() { cueSynced(); render(); },
   async cueClear(n) {
-    if (!confirm(`${n}화 큐 시트를 지울까요? 지우면 큐 시트를 쓰는 작품은 쓰기를 누를 때 새로 만들어요.`)) return;
+    if (!(await askConfirm(`${n}화 큐 시트를 지울까요? 지우면 큐 시트를 쓰는 작품은 쓰기를 누를 때 새로 만들어요.`, { ok: '지우기', danger: true }))) return;
     await run('큐 시트 지우는 중', async () => {
       await saveIfDirty();
       S.project = await api('DELETE', `/projects/${enc(S.name)}/episodes/${n}/cue-sheet`);

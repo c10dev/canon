@@ -2068,8 +2068,9 @@ def start_job(name: str, body: JobIn) -> dict:
                 label, total, owned = f"{n}화 새 판", 1, {n}
 
                 def fn(job: jobs.Job):
-                    text = pipeline.rewrite_episode(llm, store.load(name), n, req)
-                    _edit(name, lambda q: pipeline.set_candidate(q, n, text, req, pipeline.writer_of(llm)))
+                    cut: list = []
+                    text = pipeline.rewrite_episode(llm, store.load(name), n, req, cut)
+                    _edit(name, lambda q: pipeline.set_candidate(q, n, text, req, pipeline.writer_of(llm), cut))
                     return {"candidate": True}
             else:
                 make = body.board == "make"
@@ -2092,10 +2093,11 @@ def start_job(name: str, body: JobIn) -> dict:
                         _edit(name, lambda q: cue.set_episode(q, n, s, by="ai"))
                         job.done += 1
                     job.note = f"{n}화 본문 쓰는 중"
-                    text = pipeline.write_episode(llm, store.load(name), n, use_board=body.board != "none", use_cues=use_cues)
+                    cut: list = []
+                    text = pipeline.write_episode(llm, store.load(name), n, use_board=body.board != "none", use_cues=use_cues, cut=cut)
 
                     def save(q):
-                        pipeline.replace_text(q.episode(n), text, written_by=pipeline.writer_of(llm))  # 지금 본문이 있으면 '이전 판'에 남는다
+                        pipeline.replace_text(q.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut)  # 지금 본문이 있으면 '이전 판'에 남는다
                         if q.episode(n).storyboard is not None:  # 스토리보드 없이 쓴 본문은 검수가 그 전제를 대조하지 않는다
                             q.episode(n).storyboard.skipped = body.board == "none"
                     _edit(name, save)
@@ -2318,9 +2320,9 @@ def get_job(jid: str) -> dict:
 def write_episode(name: str, n: int) -> Project:
     p = _load(name)
     _not_auto(name)
-    llm = get_llm("write")
-    text = pipeline.write_episode(llm, p, n)
-    pipeline.replace_text(p.episode(n), text, written_by=pipeline.writer_of(llm))  # 지금 본문이 있으면 '이전 판'에 남는다
+    llm, cut = get_llm("write"), []
+    text = pipeline.write_episode(llm, p, n, cut=cut)
+    pipeline.replace_text(p.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut)  # 지금 본문이 있으면 '이전 판'에 남는다
     return _save(name, p)
 
 
@@ -2348,7 +2350,7 @@ def put_text(name: str, n: int, body: Text) -> Project:
     if text and ep.status == "confirmed":  # 손으로 쓰거나 붙여 넣은 본문도 AI 쓰기와 같은 순서 규칙을 따른다
         pipeline.require_previous(p, n)
     if not ep.text or not text:  # 빈 화에 넣은 본문은 직접 쓴 것인지 채팅 앱에서 붙여 넣은 것인지 몰라 모델을 비운다
-        ep.written_by = ""
+        ep.written_by, ep.meta_cut = "", []
     pipeline.record_typed(p, n, ep.text, text)
     ep.text = text
     ep.status = "written" if ep.text else "confirmed"
@@ -2764,6 +2766,20 @@ def edit_passage(name: str, n: int, body: EditIn) -> Project:
     _load(name).episode(n)
     _text_guard(name, n)
     return _edit(name, lambda p: pipeline.edit_text(p, n, body.selection, body.after.strip(), "manual"))
+
+
+@app.post("/api/projects/{name}/episodes/{n}/meta-cut/{k}/restore")
+def restore_meta_cut(name: str, n: int, k: int) -> Project:
+    """쓰기가 뗀 작업 설명 문단 하나를 본문 앞이나 뒤에 되살린다. 수정 기록에 남아 되돌릴 수 있다."""
+    _load(name).episode(n)
+    _text_guard(name, n)
+    return _edit(name, lambda p: pipeline.restore_cut(p, n, k))
+
+
+@app.delete("/api/projects/{name}/episodes/{n}/meta-cut/{k}")
+def drop_meta_cut(name: str, n: int, k: int) -> Project:
+    """쓰기가 뗀 작업 설명 문단 하나를 지운다. 본문은 그대로다."""
+    return _edit(name, lambda p: pipeline.drop_cut(p, n, k))
 
 
 @app.post("/api/projects/{name}/episodes/{n}/edits/{eid}/undo")

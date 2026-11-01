@@ -63,7 +63,7 @@ Object.assign(actions, {
     });
   },
   async atlasFillClear() {
-    if (!confirm('빈 블록에 지은 건물을 지울까요? 그 건물에 놓은 장소 자리는 그대로 남아요.')) return;
+    if (!(await askConfirm('빈 블록에 지은 건물을 지울까요? 그 건물에 놓은 장소 자리는 그대로 남아요.', { ok: '지우기', danger: true }))) return;
     await run('지우는 중', async () => {
       await saveIfDirty();
       const r = await api('POST', `/projects/${enc(S.name)}/atlas/layout/fill`, { mode: 'clear' });
