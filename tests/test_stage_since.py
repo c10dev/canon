@@ -4,7 +4,7 @@ from canon import dynamics, prompts
 from canon.schema import Character, Project, Relationship, StoryEvent, Tie
 
 from .test_storylines import _short
-from .test_timeline import _play
+from .test_timeline import LLM, _play
 
 
 def _pair() -> Project:
@@ -55,3 +55,35 @@ def test_check_rule_only_with_ties():
     p = _play(_short(8), 1, 2)
     assert "- 관계 단계:" in prompts.check_prompt(p, 3)
     assert prompts.stage_check_rule(Project()) == ""
+
+
+def test_replay_keeps_relations_added_mid_story():
+    """1화 뒤에 작가가 더한 관계와 상태 변경안이 더한 새 쌍도 다시 계산(replay)에서 그대로 나온다.
+    예전에는 둘 다 빠져 기본값(낯섦)으로 바뀌었다 (2026-11-01 서버 작품 캠핑카 · saintess)."""
+    from canon import pipeline
+    from canon.schema import StateDelta
+
+    p = _play(_short(8), 1, 2)
+    ids = [c.id for c in p.characters]
+    pairs = {frozenset((r.a, r.b)) for r in p.relationships}
+    a, b = next((x, y) for x in ids for y in ids if x < y and frozenset((x, y)) not in pairs)
+    p.relationships.append(Relationship(a=a, b=b, type="경계", a_view=["경계한다"], b_view=["미워한다"]))  # 작가가 2화 뒤에 더함
+    _play(p, 3, 4)
+    others = [(x, y) for x in ids for y in ids if x < y and frozenset((x, y)) not in pairs | {frozenset((a, b))}]
+    if others:  # 상태 변경안이 5화에 새 쌍을 더한다
+        c, d = others[0]
+        pipeline.confirm_plot(p, 5)
+        p.episode(5).text = "본문."
+        p.episode(5).status = "written"
+        delta = pipeline.extract_state(LLM, p, 5).model_copy(update={"relationship_updates": [Relationship(a=c, b=d, type="동료", affinity=3)]})
+        pipeline.apply_delta(p, StateDelta.model_validate(delta.model_dump()))
+    live = {(t.source, t.target): t for t in p.ties}
+    again = {(t.source, t.target): t for t in dynamics.replay(p)}
+    assert set(again) == set(live)
+    for k, t in live.items():
+        assert again[k].stage == t.stage and abs(again[k].warmth - t.warmth) < 1e-9, k
+    assert live[(a, b)].stage != "낯섦"  # 작가가 정한 경계가 살아 있다
+    # 스냅샷이 지워진 장편처럼: 그 화 스냅샷이 없으면 지금 반영과 같은 차례로 만든다 (작가가 정한 시작 관계를 잃지 않는다)
+    p.snapshots = [s for s in p.snapshots if s.episode == 0 or s.episode >= 5]
+    pruned = {(t.source, t.target): t for t in dynamics.replay(p)}
+    assert set(pruned) == set(live) and pruned[(a, b)].stage != "낯섦"

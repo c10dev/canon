@@ -17,7 +17,7 @@ from collections import deque
 from itertools import combinations
 from typing import Iterable, Optional
 
-from .schema import ModelParams, Project, RelStage, Secret, Snapshot, StoryEvent, Tie
+from .schema import ModelParams, Project, Relationship, RelStage, Secret, Snapshot, StoryEvent, Tie
 
 # 사건 종류별 효과 (강도 1당). 받는 쪽(target)이 행위자(actor)를 보는 간선에 적용한다.
 # warmth: 온기 변화, trust: +면 긍정 증거 / -면 부정 증거, grievance: 원한 변화, status: 받는 쪽 서열 변화
@@ -332,8 +332,39 @@ def run_episode(p: Project, n: int, events: list[StoryEvent], cast: Iterable[str
     sync_relationships(p)
 
 
+def _late_relations(p: Project, base: Snapshot) -> dict[int, list[Relationship]]:
+    """1화 시작 전(스냅샷 0)에는 없고 나중에 들어온 관계를 들어온 화별로. 상태 변경안이 더한 관계(history 의 relationship_updates)는
+    replay 가 그 화의 변경안에서 직접 넣으므로 뺀다. 남는 것은 작가가 1화 반영 뒤 설정 화면에서 더한 관계다.
+    반영(apply_delta)은 그런 관계를 다음 화를 반영할 때 처음에(ensure_initial) 간선으로 만든다. 그래서 그 관계가 처음 보이는 스냅샷의 화,
+    스냅샷이 지워졌으면 그 관계가 없던 마지막 스냅샷 다음 화에 넣는다. 값은 처음 보이는 스냅샷의 것(그때 작가가 정한 시작 관계)."""
+    key = lambda r: frozenset((r.a, r.b))  # noqa: E731
+    have = {key(r) for r in base.relationships}
+    by_delta = {key(u) for d in p.history for u in d.relationship_updates}
+    snaps = sorted((s for s in p.snapshots if s.episode > 0), key=lambda s: s.episode)
+    out: dict[int, list[Relationship]] = {}
+    for r in p.relationships:
+        k = key(r)
+        if k in have or k in by_delta:
+            continue
+        first = next((s for s in snaps if any(key(x) == k for x in s.relationships)), None)
+        if first is None:
+            continue  # 마지막 반영 뒤에 더했다: 아직 간선이 없다 (다음 반영 때 생긴다)
+        lacking = [s.episode for s in snaps if s.episode < first.episode and not any(key(x) == k for x in s.relationships)]
+        at = (max(lacking) + 1) if lacking else 1
+        at = min(at, first.episode)
+        start = next(x for x in first.relationships if key(x) == k)
+        out.setdefault(at, []).append(start.model_copy(deep=True))
+    return out
+
+
 def replay(p: Project) -> list[Tie]:
-    """스냅샷 0 + 사건 로그로 현재 간선을 다시 계산한다. 계수를 바꾼 뒤 recalc 에 쓴다."""
+    """스냅샷 0 + 사건 로그로 현재 간선을 다시 계산한다. 계수를 바꾼 뒤 recalc 에 쓴다.
+    1화 뒤에 생긴 관계(작가가 설정 화면에서 더한 관계, 상태 변경안이 더한 새 쌍)도 넣는다. 예전에는 둘 다 빠져, 다시 계산하면
+    그 관계가 기본값(낯섦)으로 바뀌었다 (2026-11-01 서버 작품 캠핑카 · saintess).
+    - 그 화 스냅샷이 남아 있으면: 그 화를 돌린 뒤 새 쌍의 간선과 관계를 스냅샷 값으로 넣는다. 반영 코드가 판마다 달라
+      (예전에는 새 쌍을 수치로 만들지 않고 기본 간선에서 시작했다) 그때 실제로 생긴 값을 그대로 잇는 것이 가장 맞다.
+    - 스냅샷이 지워졌으면: 지금 반영(pipeline.apply_delta)과 같은 차례로 만든다. 작가가 더한 관계는 그 화 처음에(_late_relations),
+      상태 변경안이 더한 새 쌍은 그 화 사건 전에(seed_ties)."""
     base = p.snapshot(0)
     if base is None:
         return [t.model_copy(deep=True) for t in p.ties]
@@ -343,17 +374,42 @@ def replay(p: Project) -> list[Tie]:
         secrets=[s.model_copy(deep=True) for s in base.secrets],
         params=p.params,
     )
+    pair = lambda a, b: frozenset((a, b))  # noqa: E731
+    late = _late_relations(p, base)
     added = {s.id for s in base.secrets}
     for ep in p.episodes:
         n = ep.plot.number
         if ep.status != "finalized":
             continue
+        snap = p.snapshot(n)
         delta = next((d for d in p.history if d.episode == n), None)
+        known = {pair(r.a, r.b) for r in sim.relationships}
+        born = [r for r in (snap.relationships if snap else []) if pair(r.a, r.b) not in known]
+        if snap is None:
+            if late.get(n):
+                sim.relationships += late[n]
+                seed_ties(sim)
+            for upd in delta.relationship_updates if delta else []:
+                if upd.a != upd.b and pair(upd.a, upd.b) not in {pair(r.a, r.b) for r in sim.relationships}:
+                    sim.relationships.append(upd.model_copy(deep=True))
+                    seed_ties(sim)
+        if delta and delta.relationship_updates and not delta.events:  # 사건 없이 수치만 온 예전 변경안 (apply_delta 와 같게)
+            for upd in delta.relationship_updates:
+                for r in sim.relationships:
+                    if pair(r.a, r.b) == pair(upd.a, upd.b):
+                        r.affinity, r.tension = upd.affinity, upd.tension
+                        for x, y in ((r.a, r.b), (r.b, r.a)):
+                            get_tie(sim.ties, x, y).warmth = clip(upd.affinity / 5)
         for s in delta.secrets_added if delta else []:
             if s.id not in added:
                 sim.secrets.append(s.model_copy(deep=True))
                 added.add(s.id)
         run_episode(sim, n, [e for e in p.events if e.episode == n], ep.plot.characters)
+        if born:
+            new = {pair(r.a, r.b) for r in born}
+            sim.ties = [t for t in sim.ties if pair(t.source, t.target) not in new]
+            sim.ties += [t.model_copy(deep=True) for t in snap.ties if pair(t.source, t.target) in new]
+            sim.relationships += [r.model_copy(deep=True) for r in born]
     return sim.ties
 
 
