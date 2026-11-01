@@ -47,6 +47,7 @@ MAX_TAKES = 8  # 화마다 남기는 되돌려 쓴 판. 저절로 지우지 않�
 STYLE_CHARS = 30_000  # 문체 역설계에 넣는 원문 앞부분 글자 수
 STYLE_OUT_TOKENS = 2500
 STYLE_KEEP = 20  # 실험마다 남기는 문체 프로필 수
+PASSAGE_CHARS = (200, 600)  # 라이브러리로 보낼 때 고르는 대표 문단 하나의 글자 수 (to_library)
 FIRST_RE = re.compile(r"(\d{1,4})\s*화")  # 실험 이름에서 첫 화 번호를 짐작한다 (글에 제목 줄이 없을 때)
 
 
@@ -707,6 +708,55 @@ def style_diff(lab: RevLab, sid: int, against: int = 0) -> list[dict] | None:
     return library.diff(get_style(lab, b).profile, get_style(lab, sid).profile)
 
 
+def pick_passages(text: str, names: list[str]) -> list[str]:
+    """AI 없이 대표 문단 둘을 고른다: 서술이 가장 많은 덩어리 하나, 대사가 반쯤인 덩어리 하나 (원문 차례로).
+    덩어리는 문단 처음에서 시작해 이어진 문단을 PASSAGE_CHARS 글자까지 붙인다. 너무 긴 문단은 줄 단위로 나눈다.
+    인물 이름(2자 이상)이 든 덩어리는 고르지 않는다 (작품에 이름이 새지 않게). 둘은 겹치지 않는다."""
+    lo, hi = PASSAGE_CHARS
+    names = [n.strip() for n in names if len(n.strip()) >= 2]
+    units = []  # 덩어리를 짓는 조각: 문단, 긴 문단은 줄
+    for para in re.split(r"\n\s*\n", text):
+        lines = [x.strip() for x in para.splitlines() if x.strip()]
+        units += ["\n".join(lines)] if len("\n".join(lines)) <= hi else [x for x in lines if len(x) <= hi]
+    units = [u for u in units if u]
+    chunks = []  # (시작, 끝, 글)
+    for i in range(len(units)):
+        j, body = i + 1, units[i]
+        while len(body) < lo and j < len(units):
+            body, j = body + "\n" + units[j], j + 1
+        if lo <= len(body) <= hi and not any(n in body for n in names):
+            chunks.append((i, j, body))
+    share = {c: sum(len(m) for m in metrics._QUOTE.findall(c[2])) / len(c[2]) for c in chunks}
+    if not chunks:
+        return []
+    first = min(chunks, key=lambda c: (share[c], len(c[2])))  # 같으면 앞에 붙은 짧은 문단이 없는 쪽
+    talk = [c for c in chunks if share[c] >= 0.2 and (c[1] <= first[0] or c[0] >= first[1])]
+    out = [first] + ([min(talk, key=lambda c: (abs(share[c] - 0.5), len(c[2])))] if talk else [])
+    return [c[2] for c in sorted(out)]
+
+
+def to_library(lab_id: int, sid: int, name: str):
+    """프로필을 문체 라이브러리 새 항목으로 저장한다 (library.create). 원문 앞부분(style_sample)을 함께 넣고
+    대표 문단은 pick_passages 로 채운다. 이미 저장한 항목이 남아 있으면 새로 만들지 않고 그 항목을 돌려준다."""
+    from . import library
+
+    lab = load(lab_id)
+    x = get_style(lab, sid)
+    if x.library and library.exists(x.library):
+        return library.load(x.library)
+    sample = style_sample(lab)
+    prof = x.profile.model_copy(deep=True)
+    prof.sample_passages = pick_passages(sample, [c.name for c in lab.cast])
+    title = lab.title or f"실험 {lab.id}"
+    notes = f"역설계 실험 「{title}」의 {sid}번 프로필({x.model or '모델 모름'})에서 가져왔어요. 대표 문단은 원문에서 저절로 골랐어요."
+    if x.basis and x.basis != _basis(sample):
+        notes += " 원문 앞부분이 프로필을 만들 때와 달라요."
+    e = library.create(name.strip() or f"{title} 문체 {sid}번", prof, sample, source=f"역설계 실험 「{title}」", notes=notes,
+                       note="역설계 실험에서 가져옴")
+    with_lock(lab_id, lambda lab: setattr(get_style(lab, sid), "library", e.id))
+    return e
+
+
 def _style_head(p: StyleProfile) -> str:
     return " · ".join(x for x in (p.narration_pov, p.tense, p.sentence_rhythm) if x)[:80]
 
@@ -717,7 +767,14 @@ def style_items(lab: RevLab) -> list[dict]:
     used = _style_used(lab)
     return [{"id": x.id, "at": x.at, "model": x.model, "note": x.note, "chars": x.chars, "current": x.id == lab.style_id,
              "basis_ok": not x.basis or x.basis == now, "markers": len(x.profile.markers), "takes": used.count(x.id),
-             "head": _style_head(x.profile)} for x in reversed(lab.styles)]
+             "head": _style_head(x.profile), "library": _saved(x)} for x in reversed(lab.styles)]
+
+
+def _saved(x: RevStyle) -> str:
+    """저장한 라이브러리 항목 id. 라이브러리에서 지웠으면 빈 값 (다시 저장할 수 있게)."""
+    from . import library
+
+    return x.library if x.library and library.exists(x.library) else ""
 
 
 def style_view(lab: RevLab, sid: int, against: int = 0) -> dict:

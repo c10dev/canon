@@ -560,6 +560,49 @@ def test_web_styles(home, monkeypatch):
     assert c.post(f"/api/revlab/{lab.id}/styles/1/select").status_code == 200  # 되돌려 쓰는 동안에는 고를 수 있다
 
 
+def test_pick_passages_narration_and_talk():
+    calm = "\n".join(["바람이 낮게 불었다. 창틀이 오래된 소리를 냈다."] * 8)
+    talk = "\n".join(["\u201c어디 가?\u201d", "문이 반쯤 열려 있었다. 그 틈으로 빛이 길게 들어왔다.", "\u201c잠깐 나갔다 올게.\u201d"] * 4)
+    named = "\n".join(["서윤은 바람 소리를 들었다. 창틀이 오래된 소리를 냈다."] * 8)
+    text = "\n\n".join(["짧은 앞 문단.", named, "짧다.", calm, talk])
+    got = revlab.pick_passages(text, ["서윤", "한"])
+    assert len(got) == 2 and got[0].startswith("바람이") and "\u201c" in got[1]  # 원문 차례, 이름이 든 덩어리는 빼고
+    assert all(revlab.PASSAGE_CHARS[0] <= len(x) <= revlab.PASSAGE_CHARS[1] for x in got)
+    assert revlab.pick_passages("짧다", []) == []
+
+
+def test_style_to_library_and_project(home, monkeypatch):
+    from canon import library
+    from canon.schema import Meta, Project
+
+    lab = _two_styles(home, monkeypatch)
+    e = revlab.to_library(lab.id, 1, " 등대 문체 ")
+    assert e.name == "등대 문체" and e.profile.narration_pov == "1인칭" and e.sample == revlab.style_sample(lab)
+    assert e.baseline is not None and "1번 프로필" in e.notes and e.source.startswith("역설계 실험")
+    assert e.profile.sample_passages == revlab.pick_passages(e.sample, [c.name for c in lab.cast])
+    assert revlab.load(lab.id).styles[0].profile.sample_passages == []  # 실험의 프로필은 그대로 (되돌려 쓰기가 베끼지 않게)
+    items = revlab.view(revlab.load(lab.id))["style_list"]
+    assert [(x["id"], x["library"]) for x in items] == [(2, ""), (1, e.id)]
+    assert revlab.to_library(lab.id, 1, "다른 이름").id == e.id and len(library.entries()) == 1  # 두 번 눌러도 하나
+    p = Project(meta=Meta(title="새 작품"))
+    library.apply(p, library.load(e.id))
+    assert p.style.narration_pov == "1인칭" and p.style_id == e.id and p.style.sample_passages == e.profile.sample_passages
+    library.delete(e.id)
+    assert revlab.view(revlab.load(lab.id))["style_list"][1]["library"] == ""  # 지웠으면 다시 저장할 수 있다
+    assert revlab.to_library(lab.id, 1, "").name == f"{lab.title} 문체 1번"
+
+
+def test_web_style_to_library(home, monkeypatch):
+    from canon import web
+
+    lab = _two_styles(home, monkeypatch)
+    c = TestClient(web.app)
+    r = c.post(f"/api/revlab/{lab.id}/styles/2/library", json={"name": "새 문체"}).json()
+    assert r["saved"]["name"] == "새 문체" and r["style_list"][0]["library"] == r["saved"]["id"]
+    assert c.get(f"/api/styles/{r['saved']['id']}").json()["profile"]["narration_pov"] == "3인칭 제한"
+    assert c.post(f"/api/revlab/{lab.id}/styles/9/library", json={}).status_code == 400
+
+
 def test_estimate(home):
     lab = revlab.create("등대", STORY)
     est = revlab.estimate(lab, "parse")

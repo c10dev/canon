@@ -854,6 +854,7 @@ function revStyleCard() {
         <div class="between"><span><strong>${x.id}번</strong> <span class="small">${esc(fmtDateTime(x.at))}${x.model ? ` · ${esc(x.model)}` : ''} · 표지 ${x.markers}${x.takes ? ` · 쓴 판 ${x.takes}` : ''}</span>${chips}</span>
           <span class="row">${x.current ? '' : `<button type="button" class="btn small" data-action="revStyleUse" data-arg="${x.id}"${busy ? ' disabled' : ''}>이 프로필 쓰기</button>
             <button type="button" class="btn small ghost" data-action="revStyleDiff" data-arg="${x.id}" aria-expanded="${open}">${open ? '견주기 닫기' : '지금과 견주기'}</button>`}
+            ${x.library ? `<a class="btn small ghost" href="#/styles/${enc(x.library)}">라이브러리에서 보기</a>` : `<button type="button" class="btn small ghost" data-action="revStyleToLib" data-arg="${x.id}">라이브러리에 저장</button>`}
             <button type="button" class="btn small ghost" data-action="revStyleNote" data-arg="${x.id}">메모</button>
             <button type="button" class="btn small ghost" data-action="revStyleDrop" data-arg="${x.id}"${busy || (x.current && list.length > 1) ? ' disabled' : ''}>지우기</button></span></div>
         ${x.head ? `<div class="small">${esc(x.head)}</div>` : ''}${x.note ? `<div class="small">메모: ${esc(x.note)}</div>` : ''}${diff}
@@ -862,7 +863,7 @@ function revStyleCard() {
   return `<section class="card"><h2>문체 프로필${cur ? ` · ${cur.id}번` : ''}</h2>${body}
     ${revAiLine('plan')}
     <div class="row"><button type="button" class="btn" data-action="revStyleRun"${est && !busy ? '' : ' disabled'}>${revCost(list.length ? '문체 다시 역설계' : '문체 역설계 시작', est)}</button></div>
-    ${list.length ? '<p class="small">새로 만들면 기록에 남고 새 프로필을 지금 프로필로 골라요.</p>' : ''}
+    ${list.length ? `<p class="small">새로 만들면 기록에 남고 새 프로필을 지금 프로필로 골라요. 작품에 쓰려면 기록에서 '라이브러리에 저장'을 누른 뒤 작품의 ${stepLabel('style')}에서 '라이브러리에서 고르기'로 적용하세요.</p>` : ''}
     ${revEstHtml(est)}</section>
     ${list.length ? `<section class="card tight"><div class="between"><h3>기록</h3><span class="small">최근 ${S.rev.style_keep || 20}개까지 남겨요</span></div><ul class="version-list">${rows}</ul></section>` : ''}`;
 }
@@ -1593,6 +1594,18 @@ Object.assign(actions, {
       const x = await api('GET', `/revlab/${S.revLab.id}/styles/${k}`);
       S.revStyleDiff = { id: k, changes: x.changes };
     });
+  },
+  async revStyleToLib(id) {
+    const L = S.revLab;
+    const name = await askText(`${id}번 프로필을 문체 라이브러리에 저장`, { value: `${L.title || `실험 ${L.id}`} 문체 ${id}번`, placeholder: '라이브러리에 보일 이름', ok: '저장하기' });
+    if (name === null) return;
+    let saved = null;
+    const ok = await run('저장하는 중', async () => {
+      const r = await api('POST', `/revlab/${L.id}/styles/${id}/library`, { name });
+      saved = r.saved;
+      S.revLab = r;
+    });
+    if (ok && saved) toast(`문체 라이브러리에 '${saved.name}' 항목을 저장했어요. 원문과 원문에서 고른 대표 문단도 함께 넣었어요. 작품의 ${stepLabel('style')}에서 '라이브러리에서 고르기'로 적용하세요.`);
   },
   async revStyleNote(id) {
     const x = (S.revLab.style_list || []).find((s) => s.id === Number(id));
