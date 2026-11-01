@@ -23,6 +23,13 @@ def test_old_meta_keeps_text_genre():
 def test_guide_in_prompts():
     p = Project(meta=Meta(title="t", genres=["mystery", "오컬트"], adult=True))
     ctx = prompts.static_context(p)
-    assert "## 미스터리 · 추리" in ctx and "## 오컬트" in ctx and "성인 독자 대상" in ctx
+    assert "## 미스터리 · 추리" in ctx and "## 오컬트" in ctx
     assert '"genre": "미스터리 · 추리 · 오컬트"' in ctx and "mystery" not in ctx
-    assert "전연령" in prompts.setup_prompt(Project(meta=Meta(title="t")))
+
+
+def test_no_rating_instruction_in_prompts():
+    """수위는 프롬프트에 지시로 넣지 않는다. 성인 · 전연령 작품의 요청이 같다 (화면과 프로그램 규칙만 다르다)."""
+    adult, kids = (Project(meta=Meta(title="t", genres=["mystery"], adult=a)) for a in (True, False))
+    assert prompts.static_context(adult) == prompts.static_context(kids)
+    for text in (prompts.static_context(kids), prompts.setup_prompt(kids)):
+        assert "수위" not in text and "전연령" not in text and "암시로" not in text and "rating" not in text

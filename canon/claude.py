@@ -280,12 +280,14 @@ class ClaudeCodeLLM:
     def _call(self, system: str, prompt: str, schema: type[BaseModel] | None = None, attempt: int = 1) -> Any:
         """한 번 부르고 사용량을 기록한다. 프롬프트는 표준 입력으로 넘긴다 (인자 길이 한도를 피한다).
         schema 가 있으면 검증한 값을, 없으면 글을 돌려준다."""
+        from .llm import with_note
+
         t, tokens = time.time(), None
         self.last_raw = self.last_note = ""
         try:
             args = self._args(system, strict_schema(schema) if schema else None)
             try:
-                proc = _run(args, self.timeout, stdin=prompt)
+                proc = _run(args, self.timeout, stdin=with_note(prompt))
             except subprocess.TimeoutExpired as e:
                 raise ClaudeCodeError(f"Claude Code 응답이 {int(self.timeout)}초 안에 오지 않았어요 (CANON_CLAUDE_TIMEOUT)") from e
             try:
@@ -404,10 +406,12 @@ class ClaudeAPILLM:
         return self.client.messages.count_tokens(model=self.model, messages=[{"role": "user", "content": text}]).input_tokens
 
     def _call(self, system: str, prompt: str, schema: type[BaseModel] | None = None, attempt: int = 1) -> Any:
+        from .llm import with_note
+
         t, tokens = time.time(), None
         self.last_raw = ""
         req: dict[str, Any] = {"model": self.model, "max_tokens": MAX_TOKENS, "system": system,
-                               "messages": [{"role": "user", "content": cache_blocks((self.model, system, schema and schema.__name__), prompt)}]}
+                               "messages": [{"role": "user", "content": cache_blocks((self.model, system, schema and schema.__name__), with_note(prompt))}]}
         if schema is not None:
             req["output_config"] = {"format": {"type": "json_schema", "schema": strict_schema(schema)}}
         if self.model.startswith(FALLBACK_MODELS):

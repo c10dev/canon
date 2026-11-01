@@ -330,7 +330,7 @@ def test_batch_fix_slot_reattaches_after_restart():
 
 
 def test_gemini_json_retries_with_error():
-    from canon.llm import GeminiLLM, SchemaMismatch
+    from canon.llm import GeminiLLM, SchemaMismatch, with_note
 
     good = StateDelta(episode=1, summary="s").model_dump_json()
     bad = '{"episode": 1, "character_updates": ["cecilia: emotional_state=분노"]}'
@@ -346,7 +346,7 @@ def test_gemini_json_retries_with_error():
     llm.client = SimpleNamespace(models=SimpleNamespace(generate_content=generate))
     llm.model = "gemini-4-argon"
     assert llm.json("", "원래 요청", StateDelta).summary == "s" and llm.last_attempts == 2
-    assert asks[0] == "원래 요청" and asks[1].startswith("원래 요청") and "틀린 곳" in asks[1] and bad in asks[1]
+    assert asks[0] == with_note("원래 요청") and asks[1].startswith("원래 요청") and "틀린 곳" in asks[1] and bad in asks[1]
     replies[:] = [bad, bad]
     with pytest.raises(SchemaMismatch):
         llm.json("", "원래 요청", StateDelta)

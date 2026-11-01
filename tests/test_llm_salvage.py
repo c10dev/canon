@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from canon.llm import GeminiLLM, SchemaMismatch, _json_objects, _validate, repair_prompt
+from canon.llm import POLICY_NOTE, GeminiLLM, SchemaMismatch, _json_objects, _validate, repair_prompt, with_note
 from canon.schema import StateDelta, StyleProfile
 
 GOOD = StyleProfile(narration_pov="1인칭", markers=[{"text": "것이었다"}]).model_dump_json()
@@ -62,7 +62,13 @@ def test_gemini_salvages_without_second_call():
 def test_gemini_retries_plain_prompt_and_names_length_cut():
     llm, asks = _gemini([LEAK, GOOD])
     assert llm.json("", "원래 요청", StyleProfile).narration_pov == "1인칭"
-    assert asks == ["원래 요청", "원래 요청"]
+    assert asks == [with_note("원래 요청")] * 2
     llm, _ = _gemini([LEAK, LEAK], reason="MAX_TOKENS")
     with pytest.raises(SchemaMismatch, match="출력 길이 한도"):
         llm.json("", "원래 요청", StyleProfile)
+
+
+def test_every_request_ends_with_the_policy_note():
+    llm, asks = _gemini([GOOD])
+    llm.text("", "요청")
+    assert asks[0].endswith("\n\n" + POLICY_NOTE) and asks[0].count(POLICY_NOTE) == 1
