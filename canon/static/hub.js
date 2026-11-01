@@ -162,7 +162,8 @@ function hubRunning(j) {
 }
 
 function hubFinished(j) {
-  const state = j.status === 'cancelled' ? '<span class="chip">멈춤</span>' : '<span class="chip ok">완료</span>';
+  const state = j.waiting ? '<span class="chip" title="이미 보낸 AI 호출은 끊을 수 없어 응답을 기다려요">멈춤 · 응답 기다림</span>'
+    : j.status === 'cancelled' ? '<span class="chip">멈춤</span>' : '<span class="chip ok">완료</span>';
   const open = j.status === 'done' && j.kind in JOB_LINK ? `<a href="${JOB_LINK[j.kind](j)}" data-job-open="${j.id}">열기</a>` : '';
   return `<li class="hub-item plain">${state}<div class="hub-t"><strong>${esc(j.label)}</strong>${hubWhere(j)}</div>${open}<button type="button" class="x" data-job-dismiss="${j.id}" aria-label="${esc(j.label)} 목록에서 지우기">✕</button></li>`;
 }

@@ -1270,3 +1270,85 @@ def test_js_blind_reading_shows_one_side_at_a_time():
     assert "모두 읽었어요" in got["done"]
     assert got["other"] == {"show": 1, "seen": [], "top": {}}
     assert got["unread"] == [[1, 2], [2], []]
+
+
+class _StopMid(MockLLM):
+    """응답을 돌려주기 직전에 멈추기를 누른 것처럼 한다 (호출은 이미 보냈다)."""
+
+    def __init__(self, ev):
+        super().__init__()
+        self.ev = ev
+
+    def text(self, system: str, prompt: str) -> str:
+        out = super().text(system, prompt)
+        self.ev.set()
+        return out
+
+
+def test_stopped_write_keeps_late_take(home, monkeypatch):
+    import threading
+
+    from canon import cancel
+
+    lab = _parsed(home)
+    ev = threading.Event()
+    tok = cancel.current.set(ev)
+    try:
+        e = revlab.run_write(lab.id, _StopMid(ev), 1)
+        assert e.takes[-1].stopped and e.takes[-1].no == 1  # 값을 치른 응답은 버리지 않고 표시해 남긴다
+        assert revlab.view(revlab.load(lab.id))["items"][0]["takes"][0]["stopped"] is True
+        ev.clear()
+        revlab.run_write(lab.id, MockLLM(), 1)
+        assert not revlab.load(lab.id).episodes[0].takes[-1].stopped
+        monkeypatch.setattr(revlab, "room", lambda e: None)  # 시작할 때는 자리가 있었고, 쓰는 동안 판이 꽉 찬 것으로 둔다
+        monkeypatch.setattr(revlab, "MAX_TAKES", 2)
+        with pytest.raises(cancel.Cancelled):
+            revlab.run_write(lab.id, _StopMid(ev), 1)
+        assert len(revlab.load(lab.id).episodes[0].takes) == 2  # 꽉 찼으면 멈춘 작업의 판은 버린다
+    finally:
+        cancel.current.reset(tok)
+
+
+def test_stopped_job_waits_and_blocks_restart(home):
+    import threading
+
+    from canon import web
+
+    go = threading.Event()
+
+    def fn(job):
+        go.wait(5)
+        return {"episode": 1, "take": 3}
+
+    lab = _parsed(home)
+    j = jobs.start(revlab.JOBS, "rev_write", lab.id, "등대 1화 되돌려 쓰기", fn)
+    try:
+        assert j.public()["waiting"] is False
+        jobs.stop(j.id)
+        assert j.public()["waiting"] is True and jobs.lingering(revlab.JOBS, "rev_write", lab.id) is j
+        assert jobs.lingering(revlab.JOBS, "rev_parse", lab.id) is None
+        r = TestClient(web.app).post(f"/api/revlab/{lab.id}/jobs", json={"kind": "write", "episodes": [1]})
+        assert r.status_code == 409 and "아직 AI 응답을 기다려요" in r.text  # 다시 시작하면 호출이 겹친다
+    finally:
+        go.set()
+    for _ in range(100):
+        if not j.alive:
+            break
+        threading.Event().wait(0.05)
+    p = j.public()
+    assert p["status"] == "cancelled" and p["waiting"] is False and p["result"] == {"episode": 1, "take": 3}
+    assert jobs.lingering(revlab.JOBS, "rev_write", lab.id) is None
+
+
+@needs_node
+def test_js_stopped_take_and_waiting_job():
+    got = run_js(FILES, """(() => {
+      S.revLab = { id: 4 };
+      S.jobs = [{ id: 'a', project: REV_JOBS, kind: 'rev_write', ep: 4, status: 'cancelled', waiting: true }];
+      const wait = revWriteBlock(1);
+      S.jobs[0].waiting = false;
+      return { wait, free: revWriteBlock(1), note: JOB_STOP_NOTE.rev_write, hub: [hubFinished({ ...S.jobs[0], label: 'x', waiting: true }), hubFinished({ ...S.jobs[0], label: 'x' })] };
+    })()""", {})
+    assert "아직 AI 응답을 기다려요" in got["wait"] and got["free"] == ""
+    assert "멈춘 뒤 받은 판" in got["note"]
+    assert "응답 기다림" in got["hub"][0] and "응답 기다림" not in got["hub"][1]

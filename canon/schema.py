@@ -2556,6 +2556,7 @@ class RevTake(BaseModel):
     provider: str = Field("", description="쓴 백엔드 (gemini · claude · claude-api · local · mock). 옛 판은 빈 값")
     model: str = ""
     at: str = ""
+    stopped: bool = Field(False, description="작업을 멈춘 뒤 도착한 응답으로 남긴 판 (revlab.run_write). 작가가 보고 지울 수 있다")
     blind: RevBlind = Field(default_factory=RevBlind)
 
 

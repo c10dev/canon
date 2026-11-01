@@ -41,14 +41,20 @@ class Job:
     pending: list[int] = field(default_factory=list)  # 맡은 화 중 아직 결과를 쓰지 않은 화 (화면이 그 화만 잠근다)
     released: dict[int, tuple[float, set[int]]] = field(default_factory=dict)  # 단계(done) → (내려놓은 시각, 화). release 참고
     stop: threading.Event = field(default_factory=threading.Event)  # 멈추기 신호 (cancel.current)
+    alive: bool = True  # 스레드가 아직 돈다. 멈춘 작업도 이미 보낸 AI 호출의 응답을 기다리는 동안은 참 (waiting)
 
     def public(self) -> dict:
         return {
             "id": self.id, "project": self.project, "kind": self.kind, "ep": self.ep, "label": self.label,
             "total": self.total, "done": self.done, "note": self.note, "status": self.status,
             "result": self.result, "error": self.error, "started": self.started, "finished": self.finished,
-            "pending": sorted(self.pending),
+            "pending": sorted(self.pending), "waiting": self.waiting,
         }
+
+    @property
+    def waiting(self) -> bool:
+        """멈췄지만 이미 보낸 AI 호출의 응답을 아직 기다린다 (호출은 끊을 수 없어 비용이 든다)."""
+        return self.status == "cancelled" and self.alive
 
     def release(self, eps: set[int]) -> None:
         """단계 하나가 eps 화의 결과를 저장했다. 작업이 도는 중에도 그 화는 확정하고 고칠 수 있게 맡은 화에서 뺀다.
@@ -103,8 +109,10 @@ def start(project: str, kind: str, ep: int | None, label: str, fn: Callable[[Job
         cancel.current.set(job.stop)
         try:
             out = fn(job)
-            if job.status == "running":  # 멈춘 작업은 끝나도 결과를 내지 않는다
+            if job.status == "running":
                 job.result, job.done, job.status = out, job.total, "done"
+            else:  # 멈춘 작업은 끝나도 done 이 되지 않는다. 멈춘 뒤 온 응답을 남긴 작업(revlab.run_write)은 그 결과를 싣는다
+                job.result = out
         except cancel.Cancelled:
             job.status, job.error = "cancelled", "멈췄어요"
         except Exception as e:  # 화면에 그대로 보여 준다
@@ -113,6 +121,7 @@ def start(project: str, kind: str, ep: int | None, label: str, fn: Callable[[Job
                 job.status = "error"
         finally:
             job.finished = job.finished or time.time()
+            job.alive = False
 
     # 사용량 기록이 어느 작품의 어떤 작업인지 알도록 부른 쪽의 컨텍스트(usage.scope)를 스레드에 넘긴다
     ctx = contextvars.copy_context()
@@ -129,6 +138,11 @@ def stop(jid: str) -> Job:
         job.stop.set()
         job.status, job.error, job.finished = "cancelled", "멈췄어요", time.time()
     return job
+
+
+def lingering(project: str, kind: str, ep: int | None) -> Job | None:
+    """같은 작업 가운데 멈췄지만 아직 AI 응답을 기다리는 것 (Job.waiting). 다시 시작하면 호출이 겹친다."""
+    return next((j for j in list(_jobs.values()) if j.waiting and (j.project, j.kind, j.ep) == (project, kind, ep)), None)
 
 
 def get(jid: str) -> Job | None:
