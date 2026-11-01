@@ -4419,6 +4419,13 @@ class RevIn(BaseModel):
     first: int | None = None  # 첫 화 번호. 비우면 만들 때 짐작하고(revlab.guess_first), PUT 에서는 그대로 둔다
 
 
+class RevAIIn(BaseModel):
+    stage: Literal["plan", "write"]
+    preset: str = ""  # 단계 프리셋 id. 있으면 provider · model 은 보지 않는다
+    provider: str = ""  # 직접 고른 백엔드. preset 과 provider 가 모두 비면 설정을 따른다
+    model: str = ""  # 직접 고른 모델. 비면 그 백엔드의 기본 모델
+
+
 class RevEstimateIn(BaseModel):
     kind: Literal["parse", "write", "style"] = "parse"
     episodes: list[int] = []
@@ -4427,6 +4434,7 @@ class RevEstimateIn(BaseModel):
 
 class RevPickIn(BaseModel):
     choice: int  # 1 · 2 (보인 차례), 0 이면 건너뛰기
+    take: int | None = None  # 화면이 가려 읽던 판 번호. 지금 가려 읽을 판과 다르면 400 (낡은 화면)
 
 
 class RevSplitIn(BaseModel):
@@ -4527,10 +4535,23 @@ def rev_put_sheet(lab_id: int, n: int, body: CueSheetDraft) -> dict:
     return _rev_edit(lab_id, lambda lab: revlab.set_sheet(lab, n, body))
 
 
+@app.put("/api/revlab/{lab_id}/ai")
+def rev_put_ai(lab_id: int, body: RevAIIn) -> dict:
+    """이 실험의 단계 AI 를 고른다 (revlab.set_ai). 도는 작업은 시작할 때 고른 AI 를 그대로 쓴다."""
+    return _rev_edit(lab_id, lambda lab: revlab.set_ai(lab, body.stage, body.preset, body.provider, body.model))
+
+
 @app.post("/api/revlab/{lab_id}/episodes/{n}/pick")
 def rev_pick(lab_id: int, n: int, body: RevPickIn) -> dict:
-    """블라인드 비교에서 고른다. 고르면 어느 쪽이 원문인지와 지표를 보인다."""
-    return _rev_edit(lab_id, lambda lab: revlab.pick(lab, n, body.choice))
+    """가려 읽기가 남은 판에서 고른다. 고르면 어느 쪽이 원문인지와 그 판의 지표를 보인다."""
+    return _rev_edit(lab_id, lambda lab: revlab.pick(lab, n, body.choice, body.take))
+
+
+@app.delete("/api/revlab/{lab_id}/episodes/{n}/takes/{no}")
+def rev_delete_take(lab_id: int, n: int, no: int) -> dict:
+    """되돌려 쓴 판 하나를 지운다 (revlab.drop_take). 판 번호는 다시 쓰지 않는다."""
+    _rev_idle(lab_id)
+    return _rev_edit(lab_id, lambda lab: revlab.drop_take(lab, n, no))
 
 
 @app.post("/api/revlab/{lab_id}/jobs")
@@ -4538,8 +4559,7 @@ def rev_job(lab_id: int, body: RevJobIn) -> dict:
     """역설계(parse) · 되돌려 쓰기(write) · 문체 역설계(style) 작업을 시작한다. 작품을 읽지 않는다. 같은 실험의 같은 작업은 하나만 돈다."""
     lab = _rev(lab_id)
     kind, name = f"rev_{body.kind}", lab.title or f"실험 {lab_id}"
-    with usage.scope(project=""):  # 작품 프리셋을 고르지 않게 (settings.project_preset 은 작품 범위를 본다)
-        llm = get_llm("write" if body.kind == "write" else "plan")  # 키가 없으면 여기서 바로 오류를 보여 준다
+    llm = revlab.llm_for(lab, body.kind)  # 실험이 고른 AI, 없으면 설정의 단계 칸. 키가 없으면 여기서 바로 오류를 보여 준다
     if body.kind == "parse":
         nums = revlab.choose(lab, body.episodes or None)
         total = len(nums) + revlab.wants_lines(lab, nums)
@@ -4554,11 +4574,12 @@ def rev_job(lab_id: int, body: RevJobIn) -> dict:
             raise ValueError("되돌려 쓸 화를 하나 고르세요")
         k, use_style = body.episodes[0], body.style
         revlab.world(lab, k, use_style)  # 역설계하지 않은 화, 문체 프로필이 없는 실험은 여기서 바로 알린다
+        revlab.room(revlab.episode(lab, k))  # 판이 꽉 찼으면 여기서 바로 알린다
         total, label = 1, f"{name} {k}화 되돌려 쓰기" + (" (문체 넣음)" if use_style else "")
 
         def fn(job: jobs.Job):
-            e = revlab.run_write(lab_id, llm, k, use_style)
-            return {"episode": k, "chars": len(revlab.blind_of(e).text), "style": use_style}
+            t = revlab.run_write(lab_id, llm, k, use_style).takes[-1]
+            return {"episode": k, "take": t.no, "chars": len(t.text), "style": use_style}
     else:
         revlab.style_sample(lab)
         total, label = 1, f"{name} 문체 역설계"

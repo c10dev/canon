@@ -271,7 +271,7 @@ def write_models(project: str) -> dict[int, str]:
 
 
 def collect_revlab(lab_id: int) -> list[SoePiece]:
-    """역설계 실험: 원문은 사람 글, 되돌려 쓴 글(take · take_style)은 AI 글. 같은 화는 같은 묶음이고 되쓰기는 원문과 짝."""
+    """역설계 실험: 원문은 사람 글, 되돌려 쓴 판(RevEpisode.takes, 원천 take 't<판 번호>')은 AI 글. 같은 화는 같은 묶음이고 되쓰기는 원문과 짝."""
     lab = revlab.load(lab_id)
     out: list[SoePiece] = []
     for e in lab.episodes:
@@ -279,13 +279,12 @@ def collect_revlab(lab_id: int) -> list[SoePiece]:
         base = dict(group=group, genre="webnovel")
         orig = _pieces(e.text, origin="human", source=dict(kind="revlab", lab=lab.id, episode=e.number, take="text"), **base)
         out += orig
-        for take_name in ("take", "take_style"):
-            tk = getattr(e, take_name)
-            if not tk or not tk.text:
+        for tk in e.takes:
+            if not tk.text:
                 continue
-            ai = _pieces(tk.text, origin="ai", model=model_key(_backend_of(tk.model), tk.model) if tk.model else "",
+            ai = _pieces(tk.text, origin="ai", model=model_key(tk.provider or _backend_of(tk.model), tk.model) if tk.model else "",
                          model_source="record" if tk.model else "unknown",
-                         source=dict(kind="revlab", lab=lab.id, episode=e.number, take=take_name), **base)
+                         source=dict(kind="revlab", lab=lab.id, episode=e.number, take=f"t{tk.no}"), **base)
             for k, p in enumerate(ai):
                 p.pair_of = orig[min(k, len(orig) - 1)].id if orig else ""
             out += ai
@@ -842,18 +841,18 @@ def report(seed: int = SEED, n_boot: int = labstats.BOOT, save: bool = True) -> 
 
 
 def _pair_rows(pieces: list[SoePiece], feats: dict, mid: str, d: int) -> dict:
-    """revlab 짝 같은 방향 비율: 화와 되쓰기 종류마다 (되쓰기 평균 − 원문 평균) 이 AI 쪽 방향인지."""
-    sides: dict[tuple[str, str], dict[str, list[float]]] = defaultdict(lambda: {"human": [], "ai": []})
+    """revlab 짝 같은 방향 비율: 화와 되쓴 판마다 (판 평균 − 원문 평균) 이 AI 쪽 방향인지. 판은 원천 take(옛 조각은 take · take_style, 새 조각은 't<판 번호>')로 가른다."""
+    human: dict[str, list[float]] = defaultdict(list)
+    ai: dict[tuple[str, str], list[float]] = defaultdict(list)
     for p in pieces:
         v = feats[p.id][mid]
         if p.source.kind != "revlab" or v is None:
             continue
         if p.origin == "human":
-            for take in ("take", "take_style"):
-                sides[(p.group, take)]["human"].append(v)
+            human[p.group].append(v)
         elif p.origin == "ai":
-            sides[(p.group, p.source.take)]["ai"].append(v)
-    diffs = [d * (mean(s["ai"]) - mean(s["human"])) for s in sides.values() if s["ai"] and s["human"]]
+            ai[(p.group, p.source.take)].append(v)
+    diffs = [d * (mean(vs) - mean(human[g])) for (g, _), vs in ai.items() if vs and human[g]]
     r = labstats.pair_agree(diffs)
     return {**{k: _rnd(v) if isinstance(v, float) else v for k, v in r.items()}, "same_side": r["n"] > 0 and r["lo"] > 0.5}
 
@@ -1325,8 +1324,8 @@ def sources() -> dict:
             lab = revlab.load(x["id"])
         except (FileNotFoundError, ValueError):
             continue
-        takes = sum(bool(e.take and e.take.text) + bool(e.take_style and e.take_style.text) for e in lab.episodes)
-        models = sorted({model_label(model_key(_backend_of(t.model), t.model)) for e in lab.episodes for t in (e.take, e.take_style) if t and t.text and t.model})
+        takes = sum(1 for e in lab.episodes for t in e.takes if t.text)
+        models = sorted({model_label(model_key(t.provider or _backend_of(t.model), t.model)) for e in lab.episodes for t in e.takes if t.text and t.model})
         labs.append({"id": lab.id, "title": lab.title or f"실험 {lab.id}", "episodes": len(lab.episodes), "takes": takes, "models": models})
     projects = []
     if store.ROOT.exists():

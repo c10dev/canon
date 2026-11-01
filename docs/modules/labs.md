@@ -94,11 +94,17 @@
   - 인물 id 는 이름
   - 그 화까지 읽은 배경 · 사실 · 관계 · 호칭 `context_upto`
   - 문체 프로필은 고를 때만이고 예시 문단은 늘 비움
-- 되돌려 쓰기 실행(`run_write`, 판 둘 `take` · `take_style`, `pipeline.write_scored`)
-- 블라인드 고르기(`pick`, `blind_of`)
-- 지표(`compare`, `cue.score`)
+- 되돌려 쓰기 실행(`run_write`, 새 판을 `RevEpisode.takes` 에 더함, `pipeline.write_scored`)
+- 판 상한 `MAX_TAKES`(8, 저절로 지우지 않음, 자리 확인 `room`) · 판 번호 `next_no`(지운 번호를 다시 쓰지 않음, `RevEpisode.last_take`) · 판 지우기 `drop_take`(웹 `DELETE /api/revlab/{번호}/episodes/{n}/takes/{판}`)
+- 판마다 가려 읽기(`RevBlind`: 차례 · 고름 · 앞서 끝낸 가려 읽기 수 `seen`), 가려 읽을 판 `pending`(먼저 쓴 판부터)
+- 옛 파일의 `take` · `take_style` 은 `RevEpisode` before 검사기가 판 1 · 2 로 옮긴다
+- 블라인드 고르기(`pick`, 판 번호를 주면 지금 가려 읽을 판인지 확인)
+- 지표(`compare`, `cue.score`, 원문과 판마다 condition 't<판 번호>')
 - 문체 역설계(`run_style`, `pipeline.analyze_style`)
 - 비용 추정(`estimate`: parse · write · style)
+- 실험별 AI(`RevLab.ai`, `RevAI`): 단계 `AI_STAGES`(plan 역설계 · 줄기 · 문체, write 되돌려 쓰기)마다 프리셋 id 또는 백엔드 `AI_PROVIDERS` + 모델
+- 쓸 AI 풀기 `ai_choice`(mock 설정 → 프리셋 → 직접 고름 → 설정 단계 칸, 작품 프리셋은 보지 않음) · LLM 만들기 `llm_for` · 고르기 `set_ai`(웹 `PUT /api/revlab/{번호}/ai`) · 화면 값 `ai_view` · 기본 모델 이름 `default_model`
+- 비용 추정 모델도 `ai_choice` 로 고른다
 - 역설계 실행(`run_parse`)
 - 화면 값(`view`, 고르기 전에는 차례를 뺌)
 - AI 호출은 `pipeline.reverse_episode` · `reverse_lines`(plan 단계, 응답 칸은 모두 required, 사건 · 장면 · 큐가 비면 한 번 더 묻고 그래도 비면 저장하지 않음 `rev_empty`)
@@ -115,7 +121,7 @@
 - 쇠맛 지표가 사람 글과 AI 글 · 작가 판정을 가르는지 잰다
 - 프로세스 사이 잠금 `_lock`(`fcntl.flock`) · `save_json` · `append_label`(labels.jsonl 덧붙이기)
 - 정규화 `normalize` · `chunks`(2,000자 문장 끝)
-- 모으기 `collect_revlab` · `collect_episodes`(모델은 `Episode.written_by` 가 있으면 record, 없으면 `write_models`: usage.jsonl 마지막 성공한 write) · `collect_edits` · `collect_research` · `collect_paste` → `add`(같은 글 한 번 · 원천 상한 `CAP`)
+- 모으기 `collect_revlab`(판마다 원천 take 't<판 번호>', 모델은 판의 백엔드 기록이 있으면 그것) · `collect_episodes`(모델은 `Episode.written_by` 가 있으면 record, 없으면 `write_models`: usage.jsonl 마지막 성공한 write) · `collect_edits` · `collect_research` · `collect_paste` → `add`(같은 글 한 번 · 원천 상한 `CAP`)
 - 대기열 `extend_queue`(판정한 자리 · 다시 읽기 예정 · 예비는 고정, 1차 `FIRST` 묶음마다 한 조각)
 - 세 자리마다 다시 읽기 자리 하나(`_redo_slot`), 여섯 자리마다 예비 자리 하나(`_spare_slot`)를 시드로 섞는다(이번 10개 안 자리가 짐작되지 않게)
 - 판정 `judge` · `redo`(7일 뒤) · `hidden_ids`
@@ -159,7 +165,7 @@
 ### `canon/static/revlab.js`
 
 - 역설계 실험 화면
-  - 작품 밖 `#/revlab[/<번호>[/<화 · cast · style · lines · metrics>]]`
+  - 작품 밖 `#/revlab[/<번호>[/<화 · cast · style · lines · metrics · ai>]]`
   - `app.js` 라우팅이 `viewRev` 를 그림
   - 불러오기 `revLoad` · `revFetch`
   - 작업 시작 `revStartJob`
@@ -178,6 +184,8 @@
   - 문체 프로필 `revStyleCard`
   - 이야기 줄기 `revLinesCard`
   - 지표 모아 보기 `revMetricsAll`
+  - AI 모델 `revAICard`: 단계마다 설정을 따름 · 프리셋 · 직접 고르기(백엔드 나눔 버튼 · 모델 칸, 추천 목록은 `settings.js` `modelDatalist`), 만든 결과의 모델 `revAiMade`(지금 모델과 다르면 '다름'), 저장 `revAiSave`
+  - 역설계할 화 표 · 문체 프로필 · 되돌려 쓰기 칸 아래 '쓸 AI' 줄 `revAiLine`(글은 `revAiText`, `app.js` `writerLabel` 재사용)
 - 목차의 화 줄마다 ⋯ 메뉴(`revEpMenu`): 글 고치기 칸 `revEpEditCard` · 지우기(위험한 묶음에 접음)
 - 머리 주 버튼은 다음 할 일(`revNext`, `revGoBtn`) · ⋯ 메뉴(글 · 이름 고치기 `revEditCard` · 다시 역설계 `revRedo`(개요의 풀 화 표) · 지우기)
 - 오른쪽 맨 위 도는 작업 카드(`revRunCard`: 화별 줄 `revRunRows`, 작업의 `pending` · `done`, 한 화가 끝날 때마다 다시 받기 `revJobStep`)
@@ -186,9 +194,9 @@
   - 큐 목록 `revCueCard`(고른 큐만 펼침 `revCueGo`)
   - 큐 시트 편집기 `cue.js` `cueEditor`(열쇠 `rev:<화>`, `cueCtx` 의 kind rev)
   - 플롯 · 스토리보드
-  - 되돌려 쓰기 `revWriteTab`: 가려 읽기 `revPick` · 지표 견주기 `revMetricRows` · 나란히 읽기 `revRead` · 다시 쓰기
+  - 되돌려 쓰기 `revWriteTab`: 가려 읽기(판마다, `revPick` 이 판 번호를 보냄) · 되돌려 쓴 판 표(`revTakePickHtml`, 읽기 `revReadTake` · 지우기 `revTakeDrop`) · 지표 견주기 `revMetricRows`(머리 `revScoreHead`) · 나란히 읽기(왼쪽 · 오른쪽 고름 `S.revRead`) · 새 판 쓰기
 - 비용 추정은 고를 때 바로 묻고 버튼 글에 적는다(`revEst` · `revCost`, AI 없음)
-- `revPreview` · `revAppendPreview` · `revSegments` · `revEpTitle` · `revSteps` · `revNext` · `revTocEps` · `revRunRows` · `revMetricRows` · `revLabLite` · `revHomeCard` · `revOverviewRow` 는 순수 함수(`tests/test_revlab.py`)
+- `revPreview` · `revAppendPreview` · `revSegments` · `revEpTitle` · `revSteps` · `revNext` · `revTocEps` · `revRunRows` · `revMetricRows` · `revLabLite` · `revHomeCard` · `revOverviewRow` · `revAiText` · `revEpRange` · `revAiMade` · `revTakePicks` 는 순수 함수(`tests/test_revlab.py`)
 - CSS 는 JS 에서 주입
 
 ### `canon/static/soelab.js`

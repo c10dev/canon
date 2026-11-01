@@ -100,3 +100,11 @@ def test_write_go_follows_board_choice():
     assert busy == [True, True]
     assert busy_blocked is True  # 도는 작업은 막힌 화여도 보인다
     assert blocked is True  # 앞 화 반영 전에는 누를 수 없다
+
+
+@needs_node
+def test_writer_label_names_backend_and_model():
+    expr = """[writerLabel('gemini:gemini-4-argon'), writerLabel('claude:claude-opus-5-5'), writerLabel('claude-api:default'),
+      writerLabel('import'), writerLabel('mock:mock'), writerLabel(''), writerLabel(undefined), writerLabel('odd')]"""
+    assert run_js(FILES, expr, None) == ["gemini-4-argon · Gemini", "claude-opus-5-5 · Claude 구독", "Claude API",
+                                          "채팅 앱에서 가져옴", "mock", "", "", "odd"]

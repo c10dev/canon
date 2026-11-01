@@ -13,7 +13,7 @@ from canon import autorun, cue, jobs, prompts, revlab, store
 from canon.cli import main
 from canon.mock import MockLLM
 from canon.mock_revlab import FAKE_LINE
-from canon.schema import Cue, CueLine, CueSheetDraft, RevCue, RevEpisodeDraft, RevLineSet
+from canon.schema import Cue, CueLine, CueSheetDraft, RevAI, RevCue, RevEpisodeDraft, RevLab, RevLineSet
 
 from .jsvm import STATIC, dump, needs_node, run_js
 from .test_web import _wait
@@ -216,19 +216,55 @@ def test_round_trip_and_blind(home):
     assert q.episodes[1].text == "" and q.style.sample_passages == []  # 원문 문장은 주지 않는다
     assert lab.episodes[1].text not in prompts.cue_score_prompt(q, 2, lab.episodes[1].sheet)
     e = revlab.run_write(lab.id, MockLLM(), 2)
-    assert sorted(e.blind) == ["original", "rewrite"] and e.take.sheet_basis == cue.basis(e.sheet) and e.blind_take == "plain"
+    t = e.takes[0]
+    assert t.no == 1 and sorted(t.blind.order) == ["original", "rewrite"] and t.sheet_basis == cue.basis(e.sheet) and t.provider == "mock"
     v = revlab.view(revlab.load(lab.id))["items"][1]
-    assert "blind" not in v and [t["mode"] for t in v["takes"]] == ["plain"] and "text" not in v["takes"][0]  # 고르기 전에는 알리지 않는다
-    assert sorted(v["blind_texts"]) == sorted([e.text, e.take.text])
+    assert v["takes"][0]["blind"] == {"state": "wait", "seen": 0} and "text" not in v["takes"][0]  # 고르기 전에는 알리지 않는다
+    assert v["blind_no"] == 1 and sorted(v["blind_texts"]) == sorted([e.text, t.text]) and v["next_take"] == 2
     assert [s["condition"] for s in v["scores"]] == ["original"]
     assert v["scores"][0]["rows"] and v["scores"][0]["lines_hit"] == v["scores"][0]["lines_total"]  # 원문은 큐 경계로 나눠 잰다
     lab = revlab.load(lab.id)
-    assert revlab.pick(lab, 2, 2) == e.blind[1]
+    with pytest.raises(ValueError, match="판 1"):
+        revlab.pick(lab, 2, 2, no=5)  # 낡은 화면이 다른 판을 고르지 않게
+    assert revlab.pick(lab, 2, 2, no=1) == t.blind.order[1]
     revlab.save(lab)
     v = revlab.view(revlab.load(lab.id))["items"][1]
-    assert v["blind"] == e.blind and v["takes"][0]["text"] == e.take.text and [s["label"] for s in v["scores"]] == ["원문", "되돌려 쓴 글"]
+    b = v["takes"][0]["blind"]
+    assert b["state"] == "done" and b["order"] == t.blind.order and b["seen"] == 0 and v["takes"][0]["text"] == t.text
+    assert [s["label"] for s in v["scores"]] == ["원문", "판 1"] and v["scores"][1]["take"] == 1 and v["blind_texts"] == []
     with pytest.raises(ValueError):
-        revlab.pick(lab, 1, 1)  # 1화는 되돌려 쓴 글이 없다
+        revlab.pick(lab, 1, 1)  # 1화는 되돌려 쓴 판이 없다
+
+
+def test_takes_are_kept_per_model_and_capped(home, monkeypatch):
+    lab = _parsed(home)
+    for _ in range(3):
+        revlab.run_write(lab.id, MockLLM(), 1)
+    lab = revlab.load(lab.id)
+    e = lab.episodes[0]
+    assert [t.no for t in e.takes] == [1, 2, 3] and revlab.pending(e).no == 1  # 다시 써도 앞 판은 남고, 오래된 판부터 가려 읽는다
+    revlab.pick(lab, 1, 1)
+    revlab.pick(lab, 1, 0)
+    assert [t.blind.seen for t in e.takes[:2]] == [0, 1] and revlab.pending(e).no == 3  # 원문을 본 뒤의 고르기는 seen 으로 센다
+    revlab.drop_take(lab, 1, 3)
+    revlab.save(lab)
+    e = revlab.run_write(lab.id, MockLLM(), 1)
+    assert [t.no for t in e.takes] == [1, 2, 4]  # 지운 번호는 다시 쓰지 않는다
+    with pytest.raises(ValueError, match="판 9"):
+        revlab.drop_take(revlab.load(lab.id), 1, 9)
+    lab = revlab.load(lab.id)
+    sheet = lab.episodes[0].sheet.model_dump()
+    revlab.apply_episode(lab, 1, revlab.pipeline.reverse_episode(MockLLM(), lab, 1))
+    assert len(lab.episodes[0].takes) == 3  # 다시 역설계해도 판은 남는다
+    lab.episodes[0].sheet.key = "바뀐 조성"
+    v = revlab._ep_view(lab, lab.episodes[0])
+    assert all(t["stale"] for t in v["takes"]) and sheet  # 쓸 때 시트와 달라 '시트 바뀜'
+    revlab.save(lab)
+    monkeypatch.setattr(revlab, "MAX_TAKES", 3)
+    with pytest.raises(ValueError, match="지울 판"):
+        revlab.run_write(lab.id, MockLLM(), 1)
+    with pytest.raises(ValueError, match="지울 판"):
+        revlab.estimate(revlab.load(lab.id), "write", [1])
 
 
 def test_guess_and_change_first_number(home):
@@ -276,35 +312,48 @@ def test_style_profile_and_two_takes(home):
     assert revlab.world(lab, 1).style.narration_pov == ""  # 고르지 않으면 넣지 않는다
     assert revlab.estimate(lab, "write", [1], use_style=True)["rows"][0]["input_tokens"] >= revlab.estimate(lab, "write", [1])["rows"][0]["input_tokens"]
     revlab.run_write(lab.id, MockLLM(), 1)
+    lab = revlab.load(lab.id)
+    revlab.pick(lab, 1, 1)
+    revlab.save(lab)
     e = revlab.run_write(lab.id, MockLLM(), 1, use_style=True)
-    assert e.take and e.take_style and e.take_style.style and e.blind_take == "style"
+    assert [(t.no, t.style) for t in e.takes] == [(1, False), (2, True)]
     v = revlab.view(revlab.load(lab.id))["items"][0]
-    modes = {t["mode"]: t for t in v["takes"]}
-    assert "text" in modes["plain"] and "text" not in modes["style"]  # 블라인드에 든 판만 감춘다
-    assert [s["condition"] for s in v["scores"]] == ["original", "plain"]
+    assert "text" in v["takes"][0] and "text" not in v["takes"][1]  # 가려 읽기가 남은 판만 감춘다
+    assert [s["condition"] for s in v["scores"]] == ["original", "t1"] and v["blind_no"] == 2
     lab = revlab.load(lab.id)
     revlab.pick(lab, 1, 0)
     v = revlab.view(lab)["items"][0]
-    assert [s["condition"] for s in v["scores"]] == ["original", "plain", "style"] and v["blind_take"] == "style"
+    assert [s["condition"] for s in v["scores"]] == ["original", "t1", "t2"] and v["takes"][1]["blind"]["seen"] == 1
     assert revlab.view(lab)["style"] and "sample_passages" not in revlab.view(lab)["style"]
 
 
 def test_old_lab_file_still_loads(home):
-    """맥락 칸을 넣기 전 파일 (인물에 성격 칸 없음, take 하나)."""
+    """맥락 칸을 넣기 전 파일 (인물에 성격 칸 없음, 판 목록 대신 take 하나와 화의 가려 읽기 칸)."""
     lab = _parsed(home)
     revlab.run_write(lab.id, MockLLM(), 1)
     raw = json.loads((home / ".revlab" / f"{lab.id}.json").read_text(encoding="utf-8"))
     for c in raw["cast"]:
         c.pop("personality")
     for e in raw["episodes"]:
-        for k in ("setting", "facts", "ties", "addresses", "take_style", "blind_take"):
+        for k in ("setting", "facts", "ties", "addresses", "last_take"):
             e.pop(k)
+        takes = e.pop("takes")
+        if takes:
+            t = takes[0]
+            e["blind"], e["picked"] = t.pop("blind")["order"], ""
+            for k in ("no", "provider"):
+                t.pop(k)
+            e["take"] = t
     for k in ("style", "style_model", "style_at"):
         raw.pop(k)
     (home / ".revlab" / f"{lab.id}.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
     old = revlab.load(lab.id)
     v = revlab.view(old)["items"][0]
-    assert old.cast[0].personality == "" and [t["mode"] for t in v["takes"]] == ["plain"] and v["blind_texts"]
+    assert old.cast[0].personality == "" and [t["no"] for t in v["takes"]] == [1] and v["blind_no"] == 1 and v["blind_texts"]
+    old_two = {"number": 3, "take": {"text": "가", "at": "2026-10-30T02"}, "take_style": {"text": "나", "style": True, "at": "2026-10-30T01"},
+               "blind_take": "plain", "blind": ["rewrite", "original"], "picked": "original"}
+    e = revlab.RevEpisode.model_validate(old_two)
+    assert [(t.no, t.text, t.blind.picked) for t in e.takes] == [(1, "나", ""), (2, "가", "original")]  # 쓴 때 차례로, 가려 읽기는 그 판에
 
 
 def test_estimate(home):
@@ -321,6 +370,61 @@ def test_estimate(home):
     assert w["kind"] == "write" and w["rows"][0]["output_tokens"] == round(len(lab.episodes[0].text) / revlab.CHARS_PER_TOKEN)
     with pytest.raises(ValueError, match="없는 화"):
         revlab.estimate(lab, "parse", [7])
+
+
+def _real_ai(monkeypatch):
+    """mock 이 아닌 설정 (단계 환경 변수는 지운다). 실제 AI 는 부르지 않는다."""
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    for k in ("CANON_MODEL", "CANON_LLM_PLAN", "CANON_LLM_WRITE", "CANON_MODEL_PLAN", "CANON_MODEL_WRITE"):
+        monkeypatch.delenv(k, raising=False)
+
+
+def test_ai_choice_follows_settings_preset_or_lab(home, monkeypatch):
+    lab = revlab.create("등대", STORY)
+    assert revlab.ai_choice(lab, "write") == {"provider": "mock", "model": "", "source": "mock"}  # mock 설정이면 모든 작업이 mock
+    assert revlab.llm_for(lab, "style").stage == "plan"
+    _real_ai(monkeypatch)
+    assert revlab.ai_choice(lab, "plan") == {"provider": "gemini", "model": "", "source": "settings"}
+    revlab.set_ai(lab, "write", provider="Claude", model=" claude-opus-5-5 ")
+    assert revlab.ai_choice(lab, "write") == {"provider": "claude", "model": "claude-opus-5-5", "source": "lab"}
+    assert revlab.ai_choice(lab, "plan")["source"] == "settings"  # 단계마다 따로 고른다
+    revlab.set_ai(lab, "plan", preset="anthropic")
+    assert revlab.ai_choice(lab, "plan") == {"provider": "claude-api", "model": "claude-opus-5-5", "source": "preset"}
+    est = revlab.estimate(lab, "parse")
+    assert est["provider"] == "claude-api" and est["model"] == "claude-opus-5-5"
+    revlab.set_ai(lab, "write")
+    assert lab.ai.write == RevAI()  # 모두 비우면 설정을 따른다
+    with pytest.raises(ValueError, match="프리셋"):
+        revlab.set_ai(lab, "plan", preset="nope")
+    with pytest.raises(ValueError, match="고를 수 없는"):
+        revlab.set_ai(lab, "plan", provider="mock")
+    with pytest.raises(ValueError, match="모르는 단계"):
+        revlab.set_ai(lab, "check", provider="gemini")
+    lab.ai.plan = RevAI(preset="gone", provider="claude")
+    assert revlab.ai_choice(lab, "plan")["source"] == "gone"  # 지워진 프리셋은 직접 고른 값이 아니라 설정을 따른다
+    v = revlab.ai_view(lab)
+    assert [x["stage"] for x in v["stages"]] == ["plan", "write"] and v["custom"]
+    assert v["stages"][1]["use"] == {"provider": "gemini", "model": "", "source": "settings", "default": "gemini-4-argon"}
+    assert {"id": "anthropic", "name": "Anthropic (Claude API 키)"} in v["presets"]
+    assert RevLab.model_validate({"id": 3}).ai.plan == RevAI()  # 옛 실험 파일도 읽힌다
+
+
+def test_web_ai_pick(home, monkeypatch):
+    from canon import web
+
+    c = TestClient(web.app)
+    lab_id = c.post("/api/revlab", json={"title": "등대", "text": STORY}).json()["id"]
+    v = c.put(f"/api/revlab/{lab_id}/ai", json={"stage": "write", "provider": "claude-api", "model": "claude-sonnet-5-5"}).json()
+    assert v["ai"]["stages"][1]["provider"] == "claude-api" and revlab.load(lab_id).ai.write.model == "claude-sonnet-5-5"
+    assert c.put(f"/api/revlab/{lab_id}/ai", json={"stage": "plan", "preset": "nope"}).status_code == 400
+    seen = []
+
+    def fake(lab, kind):
+        seen.append((lab.ai.write.provider, kind))
+        return MockLLM()
+    monkeypatch.setattr(revlab, "llm_for", fake)
+    j = _wait(c, c.post(f"/api/revlab/{lab_id}/jobs", json={"kind": "parse", "episodes": [1]}).json()["id"])
+    assert j["status"] == "done" and seen == [("claude-api", "parse")]  # 작업은 실험이 고른 AI 로 돈다
 
 
 def test_web_flow(home):
@@ -355,8 +459,16 @@ def test_web_flow(home):
     assert c.post(f"/api/revlab/{lab_id}/jobs", json={"kind": "write"}).status_code == 400  # 화를 하나 골라야 한다
     r = c.post(f"/api/revlab/{lab_id}/jobs", json={"kind": "write", "episodes": [1]})
     assert _wait(c, r.json()["id"])["status"] == "done"
-    v = c.post(f"/api/revlab/{lab_id}/episodes/1/pick", json={"choice": 0}).json()
-    assert v["items"][0]["picked"] == "skip" and len(v["items"][0]["scores"]) == 2
+    j = c.get(f"/api/jobs/{r.json()['id']}").json()
+    assert j["result"]["take"] == 1
+    assert c.post(f"/api/revlab/{lab_id}/episodes/1/pick", json={"choice": 0, "take": 2}).status_code == 400  # 낡은 화면
+    v = c.post(f"/api/revlab/{lab_id}/episodes/1/pick", json={"choice": 0, "take": 1}).json()
+    assert v["items"][0]["takes"][0]["blind"]["picked"] == "skip" and len(v["items"][0]["scores"]) == 2
+    r = c.post(f"/api/revlab/{lab_id}/jobs", json={"kind": "write", "episodes": [1]})
+    assert _wait(c, r.json()["id"])["result"]["take"] == 2  # 다시 써도 앞 판은 남는다
+    v = c.delete(f"/api/revlab/{lab_id}/episodes/1/takes/2").json()
+    assert [t["no"] for t in v["items"][0]["takes"]] == [1] and v["items"][0]["next_take"] == 3
+    assert c.delete(f"/api/revlab/{lab_id}/episodes/1/takes/2").status_code == 400
     bad = c.post(f"/api/revlab/{lab_id}/jobs", json={"kind": "write", "episodes": [1], "style": True})
     assert bad.status_code == 400 and "문체 프로필을 먼저" in bad.text
     assert c.post(f"/api/revlab/{lab_id}/estimate", json={"kind": "style"}).json()["calls"] == 1
@@ -481,7 +593,7 @@ def test_js_helpers_and_view(home):
     w = got["write"]
     assert "1번이 더 읽고 싶어요" in w and "원문</td>" not in w  # 1화: 고르기 전에는 지표에 되돌려 쓴 글이 없다
     assert "시작 문장을 원문에서 못 찾았어요" in got["two"]
-    assert "되돌려 쓰기 시작" in got["twoWrite"] and "약 0.04달러" in got["twoWrite"] and "비용 재는 중" not in got["twoWrite"]  # 추정이 있으면 버튼에 비용
+    assert "판 1 쓰기" in got["twoWrite"] and "약 0.04달러" in got["twoWrite"] and "비용 재는 중" not in got["twoWrite"]  # 추정이 있으면 버튼에 비용
     assert 'data-action="revWrite" data-arg="2"' in got["twoWrite"]
     p = got["panes"]
     assert "인물 · 관계 · 배경" in p["cast"] and "말보다 손이 먼저 나간다" in p["cast"] and "오래 함께 등대를 지켰다" in p["cast"]
@@ -490,7 +602,7 @@ def test_js_helpers_and_view(home):
     assert "화별 진행" in p["overview"] and "역설계할 화" not in p["overview"] and 'href="#/revlab/1/cast"' in p["overview"]  # 다 푼 실험의 개요
     assert "다시 역설계할 화" in got["redo"] and got["redo"].count("btn primary") == 1 and "고른 1화 다시 역설계" in got["redo"]
     assert 'id="rev-new"' in got["empty"] and "이어 하기" not in got["empty"] and "revNewToggle" not in got["empty"]  # 실험이 없으면 바로 새 실험
-    assert "지표 모아 보기" in p["metrics"] and "가려 읽기를 마친 화" in p["metrics"]  # 아직 고르지 않아 견줄 판이 없다
+    assert "지표 모아 보기" in p["metrics"] and "가려 읽기를 마친 판" in p["metrics"]  # 아직 고르지 않아 견줄 판이 없다
     assert "초반 규칙" in got["edit"] and "글 · 이름 고치기" in got["edit"]
     assert got["edit"].count("btn primary") == 1 and got["lab"].count("btn primary") == 1  # 주 버튼은 한 화면에 하나
     # 작품 목록은 작품 밖 사이드바에 있다. 머리에는 작품에서 들어왔을 때만 그 작품으로 가는 버튼
@@ -506,9 +618,11 @@ def test_js_helpers_and_view(home):
     assert got["gap"] == [{"cue": 0, "start": 0, "end": 2}, {"cue": 1, "start": 2, "end": 4}, {"cue": 0, "start": 4, "end": 6}]
 
 
-def _item(n, chars=500, sheet=False, takes=0, blind=False, picked="", head=""):
+def _item(n, chars=500, sheet=False, takes=0, blind=False, head=""):
+    """화면 값 한 화. blind 면 마지막 판이 가려 읽기가 남은 판, 앞 판들은 고른 판."""
+    ts = [{"no": i + 1, "blind": {"state": "wait" if blind and i == takes - 1 else "done", "picked": "original", "seen": i}} for i in range(takes)]
     return {"number": n, "head": head, "chars": chars, "sheet": {"cues": [{}] * 3} if sheet else None,
-            "takes": [{"mode": "plain"}] * takes, "blind_texts": ["a", "b"] if blind else [], "picked": picked}
+            "takes": ts, "blind_texts": ["a", "b"] if blind else []}
 
 
 @needs_node
@@ -517,8 +631,8 @@ def test_js_steps_next_and_toc():
     labs = {
         "fresh": {"items": [_item(1), _item(2), _item(3, chars=50)], "style": None},
         "parsed": {"items": [_item(1, sheet=True), _item(2, sheet=True), _item(3, chars=50)], "style": None},
-        "blind": {"items": [_item(1, sheet=True, takes=1, picked="original"), _item(2, sheet=True, takes=1, blind=True), _item(3, sheet=True)], "style": {"tense": "과거"}},
-        "done": {"items": [_item(1, sheet=True, takes=2, picked="skip")], "style": {}},
+        "blind": {"items": [_item(1, sheet=True, takes=1), _item(2, sheet=True, takes=1, blind=True), _item(3, sheet=True)], "style": {"tense": "과거"}},
+        "done": {"items": [_item(1, sheet=True, takes=2)], "style": {}},
     }
     got = run_js(FILES, """Object.assign(Object.fromEntries(Object.entries(data.labs).map(([k, L]) => [k, {
         steps: revSteps(L, 200).map((s) => `${s.id}:${s.state}:${s.right}`),
@@ -539,7 +653,7 @@ def test_js_steps_next_and_toc():
     b = got["blind"]
     assert b["steps"] == ["split:ok:3화", "parse:ok:3/3", "style:ok:있음", "write:now:2/3", "pick:todo:1/2"]
     assert b["next1"] == {"kind": "pick", "n": 2} and b["next3"] == {"kind": "write", "n": 3}  # 지금 화를 먼저
-    assert b["toc"][:2] == ["1:wrote:씀", "2:wrote:가려 읽기"]
+    assert b["toc"][:2] == ["1:wrote:1판", "2:wrote:가려 읽기"]
     d = got["done"]
     assert all(x.endswith(("3화", "1화")) or ":ok:" in x for x in d["steps"]) and d["share"] == 1 and d["next1"] is None
     assert got["titles"] == ["젖은 필름", "비", "", "", "프롤로그"]
@@ -576,36 +690,42 @@ def test_js_run_rows_and_metric_rows():
 @needs_node
 def test_js_home_card_and_overview_row():
     """처음 화면 카드(revLabLite · revHomeCard)와 개요 줄(revOverviewRow)."""
-    def st(n, sheet=False, takes=0, blind=False, picked="", chars=500):
-        return {"number": n, "head": "", "chars": chars, "sheet": sheet, "takes": takes, "blind": blind, "picked": picked}
+    def st(n, sheet=False, takes=0, blind=0, picks=None, chars=500):
+        return {"number": n, "head": "", "chars": chars, "sheet": sheet, "takes": takes, "blind": blind,
+                "picks": {"original": 0, "rewrite": 0, "skip": 0, **(picks or {})}}
     labs = [
         {"done": 0, "has_style": False, "steps": [st(1), st(2)]},
-        {"done": 2, "has_style": True, "steps": [st(1, True, 1, picked="original"), st(2, True)]},
-        {"done": 2, "has_style": False, "steps": [st(1, True, 1, blind=True), st(2, True, 2, picked="rewrite")]},
-        {"done": 1, "has_style": False, "steps": [st(1, True, 2, picked="original"), st(2, chars=10)]},
+        {"done": 2, "has_style": True, "steps": [st(1, True, 1, picks={"original": 1}), st(2, True)]},
+        {"done": 2, "has_style": False, "steps": [st(1, True, 1, blind=1), st(2, True, 2, picks={"rewrite": 2})]},
+        {"done": 1, "has_style": False, "steps": [st(1, True, 2, picks={"original": 1, "skip": 1}), st(2, chars=10)]},
     ]
     o = {"condition": "original", "dialogue_ratio": 0.1, "lines_total": 0, "lines_hit": 0}
-    t = {"condition": "plain", "dialogue_ratio": 0.3, "lines_total": 4, "lines_hit": 3}
+    t1 = {"condition": "t1", "take": 1, "dialogue_ratio": 0.11, "lines_total": 4, "lines_hit": 2}
+    t2 = {"condition": "t2", "take": 2, "dialogue_ratio": 0.3, "lines_total": 4, "lines_hit": 3}
+    done = lambda no, picked, seen, model="m": {"no": no, "model": model, "blind": {"state": "done", "picked": picked, "seen": seen}}
     eps = [
         {"number": 7, "head": "7화 눈", "chars": 900, "sheet": {"cues": [{}, {}]}, "storyboard": {"scenes": [{}]}, "missing": [2],
-         "takes": [{}], "blind_texts": [], "picked": "original", "scores": [o, t]},
-        {"number": 8, "head": "", "chars": 900, "sheet": None, "missing": [], "takes": [], "blind_texts": [], "picked": "", "scores": []},
-        {"number": 9, "head": "", "chars": 50, "sheet": None, "missing": [], "takes": [], "blind_texts": [], "picked": "", "scores": []},
-        {"number": 10, "head": "", "chars": 900, "sheet": {"cues": [{}]}, "missing": [], "takes": [{}], "blind_texts": ["a", "b"], "picked": "", "scores": [o]},
+         "takes": [done(1, "original", 0), done(2, "rewrite", 1, "n"), {"no": 3, "model": "n", "blind": {"state": "wait", "seen": 2}}],
+         "blind_texts": ["a", "b"], "scores": [o, t1, t2]},
+        {"number": 8, "head": "", "chars": 900, "sheet": None, "missing": [], "takes": [], "blind_texts": [], "scores": []},
+        {"number": 9, "head": "", "chars": 50, "sheet": None, "missing": [], "takes": [], "blind_texts": [], "scores": []},
+        {"number": 10, "head": "", "chars": 900, "sheet": {"cues": [{}]}, "missing": [], "takes": [done(1, "original", 0)], "blind_texts": [], "scores": [o, t1]},
     ]
     got = run_js(FILES, "({ cards: data.labs.map((x) => revHomeCard(x, 200)), rows: data.eps.map((e) => revOverviewRow(e, 200)) })",
                  {"labs": labs, "eps": eps})
     c = got["cards"]
     assert c[0]["chip"] == {"text": "역설계 전", "cls": ""} and c[0]["next"] == "2화 역설계" and c[0]["states"][:2] == ["ok", "now"]
     assert c[1]["chip"]["text"] == "되돌려 쓰기 1/2" and c[1]["next"] == "2화 되돌려 쓰기" and c[1]["picks"]["original"] == 1
+    assert c[3]["picks"] == {"original": 1, "rewrite": 0, "skip": 1} and c[2]["picks"]["rewrite"] == 2  # 판마다 센다
     assert c[2]["next"] == "1화 가려 읽기" and c[2]["chip"]["text"] == "가려 읽기 1/2"
     assert c[3]["chip"] == {"text": "다 견줌", "cls": "ok"} and c[3]["next"] == "" and c[3]["share"] == 1  # 짧은 화는 풀지 않는다
     r = got["rows"]
-    assert r[0] == {"n": 7, "title": "눈", "state": "parsed", "cues": 2, "scenes": 1, "missing": 1, "takes": 1, "pick": "원문 고름",
-                    "lines": "3/4", "dlg": ["10%", "30%"], "far": True}
-    assert r[1]["state"] == "raw" and r[1]["dlg"] is None and r[1]["pick"] == ""
+    assert r[0] == {"n": 7, "title": "눈", "state": "parsed", "cues": 2, "scenes": 1, "missing": 1, "takes": 3, "models": 2,
+                    "picks": {"original": 1, "rewrite": 1, "skip": 0, "wait": 1, "first": {"original": 1, "rewrite": 0}},
+                    "lines": "3/4", "dlg": ["10%", "11%~30%"], "far": True}  # 핵심 대사는 최근 판, 대사 비율은 판들의 범위
+    assert r[1]["state"] == "raw" and r[1]["dlg"] is None and r[1]["takes"] == 0
     assert r[2]["state"] == "short"
-    assert r[3]["pick"] == "wait" and r[3]["lines"] == "" and r[3]["dlg"] is None  # 가려 읽기 전에는 되돌려 쓴 글의 지표가 없다
+    assert r[3]["dlg"] == ["10%", "11%"] and r[3]["far"] is False and r[3]["lines"] == "2/4"
 
 
 def test_listing_summary_for_home(home):
@@ -618,7 +738,7 @@ def test_listing_summary_for_home(home):
     x = next(x for x in labs if x["id"] == b.id)
     assert x["updated"] and x["cast_count"] == len(revlab.load(b.id).cast) and x["has_style"] is False
     s1 = x["steps"][0]
-    assert s1["sheet"] is True and s1["takes"] == 1 and s1["blind"] is True and s1["picked"] == "" and "text" not in s1
+    assert s1["sheet"] is True and s1["takes"] == 1 and s1["blind"] == 1 and s1["picks"] == {"original": 0, "rewrite": 0, "skip": 0} and "text" not in s1
     assert next(x for x in labs if x["id"] == a.id)["steps"][0]["sheet"] is False
 
 def _cue_labels():
@@ -707,10 +827,10 @@ def test_edit_episode_clears_only_that_episode(home):
     lab = revlab.load(lab.id)
     ep2, cast, lines = lab.episodes[1].model_dump(), len(lab.cast), len(lab.lines)
     assert revlab.edit_episode(lab, 1, " 새 제목 ", lab.episodes[0].text) is False  # 제목 줄만 바꾸면 결과는 그대로
-    assert lab.episodes[0].head == "새 제목" and lab.episodes[0].sheet and lab.episodes[0].take
+    assert lab.episodes[0].head == "새 제목" and lab.episodes[0].sheet and lab.episodes[0].takes
     assert revlab.edit_episode(lab, 1, "새 제목", "고친 글이에요.\r\n" * 30) is True
     e = lab.episodes[0]
-    assert (e.number, e.head, e.plot, e.sheet, e.take, e.bounds, e.blind) == (1, "새 제목", None, None, None, [], [])
+    assert (e.number, e.head, e.plot, e.sheet, e.takes, e.bounds) == (1, "새 제목", None, None, [], [])
     assert "\r" not in e.text and lab.episodes[1].model_dump() == ep2 and len(lab.cast) == cast and len(lab.lines) == lines
     assert revlab.edit_episode(lab, 2, "", "다시 고친 글 " * 30) is True
     assert revlab.edit_episode(lab, 2, "", "다시 고친 글 " * 30) is False  # 같은 글이면 아무것도 지우지 않는다
@@ -753,3 +873,28 @@ def test_web_edit_and_drop_episode(home, monkeypatch):
     monkeypatch.setattr(jobs, "listing", lambda project=None: [busy])
     r = c.put(f"/api/revlab/{lab_id}/episodes/1", json={"head": "", "text": "작업 중 고침 " * 30})
     assert r.status_code == 409 and "작업이 끝난 뒤" in r.text
+
+
+@needs_node
+def test_js_ai_text_and_made():
+    done = lambda no, picked, seen, model, provider="claude", style=False: {"no": no, "model": model, "provider": provider, "style": style,
+                                                                            "blind": {"state": "done", "picked": picked, "seen": seen}}
+    items = [{"number": 1, "sheet": {}, "model": "gemini-4-argon",
+              "takes": [done(1, "original", 0, "claude-opus-5-5"), done(2, "rewrite", 1, "claude-opus-5-5", style=True),
+                        {"no": 3, "model": "gemini-4-argon", "provider": "gemini", "blind": {"state": "wait", "seen": 2}}]},
+             {"number": 2, "sheet": {}, "model": "gemini-4-argon", "takes": [done(1, "rewrite", 0, "claude-opus-5-5")]},
+             {"number": 3, "sheet": None, "model": "", "takes": []},
+             {"number": 5, "sheet": {}, "model": "gemini-4-argon", "takes": [{"no": 1, "model": "", "blind": {"state": "none"}}]}]
+    got = run_js(FILES, """({
+      text: [revAiText({ provider: 'claude', model: 'claude-opus-5-5' }), revAiText({ provider: 'gemini', model: '', default: 'gemini-4-argon' }),
+        revAiText({ provider: 'local', model: '', default: '' }), revAiText({ provider: 'mock', model: '' }), revAiText(null)],
+      range: [revEpRange([3, 1, 2, 5, 7, 8]), revEpRange([4]), revEpRange([])],
+      made: revAiMade(data, 'gemini-4-argon'),
+    })""", items)
+    assert got["text"] == ["claude-opus-5-5 · Claude 구독", "gemini-4-argon · Gemini", "로컬", "mock", ""]
+    assert got["range"] == ["1~3 · 5 · 7~8화", "4화", ""]
+    assert got["made"]["plan"] == [{"what": "1~2 · 5화 역설계", "model": "gemini-4-argon"}, {"what": "문체 프로필", "model": "gemini-4-argon"}]
+    opus, gem = got["made"]["write"]  # 백엔드 · 모델마다 한 줄, 모델을 모르는 판은 뺀다
+    assert (opus["provider"], opus["model"], opus["eps"], opus["n"], opus["style"]) == ("claude", "claude-opus-5-5", [1, 2], 3, 1)
+    assert opus["picks"]["original"] == 1 and opus["picks"]["rewrite"] == 2 and opus["picks"]["first"] == {"original": 1, "rewrite": 1}
+    assert gem["picks"]["wait"] == 1 and gem["n"] == 1
