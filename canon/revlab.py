@@ -24,7 +24,7 @@ from pathlib import Path
 from . import cancel, cue, metrics, pipeline, prompts, store, usage
 from .context import CHARS_PER_TOKEN
 from .schema import (Act, AddressForm, BoardHandover, BoardScene, BoardTime, Character, CueLine, CueSheet, CueSheetDraft, CueTake, Episode, EpisodePlot, Meta, Project,
-                     Relationship, RevAI, RevBlind, RevBound, RevCastSaved, RevEpisode, RevEpisodeDraft, RevLab, RevLineSet, RevPerson, RevStyle, RevTake, Storyboard,
+                     Relationship, RevAI, RevBlind, RevBound, RevCastSaved, RevEpisode, RevEpisodeDraft, RevLab, RevLineSet, RevPerson, RevSource, RevStyle, RevTake, Storyboard,
                      StoryboardDraft, StyleProfile, WorldSetting,
                      Storyline)
 
@@ -165,8 +165,13 @@ def create(title: str, text: str, first: int | None = None) -> RevLab:
     return lab
 
 
+def _given(eps: list[dict], start: int) -> list[RevEpisode]:
+    """나눠 둔 화 [{head, text, source?}] → start 화부터의 RevEpisode. source 는 RevSource (레퍼런스 원고에서 온 화)."""
+    return [RevEpisode(number=start + i, head=e["head"][:HEAD_MAX], text=e["text"].strip(), source=e.get("source")) for i, e in enumerate(eps)]
+
+
 def create_episodes(title: str, eps: list[dict], first: int | None = None) -> RevLab:
-    """나눠 둔 화로 새 실험 (레퍼런스 원고에서 보내기, refs.to_revlab). eps: [{head, text}]. 글을 다시 나누지 않는다."""
+    """나눠 둔 화로 새 실험 (레퍼런스 원고에서 보내기, refs.to_revlab). eps: [{head, text, source?}]. 글을 다시 나누지 않는다."""
     from . import jobs
 
     eps = [e for e in eps if e["text"].strip()]
@@ -179,9 +184,28 @@ def create_episodes(title: str, eps: list[dict], first: int | None = None) -> Re
     first = _check_first(first) if first else 1
     with jobs.project_lock(".revlab"):
         lab = RevLab(id=(max(ids(), default=0) + 1), title=title.strip(), created=pipeline._now(), split="heading",
-                     episodes=[RevEpisode(number=first + i, head=e["head"][:HEAD_MAX], text=e["text"].strip()) for i, e in enumerate(eps)])
+                     episodes=_given(eps, first))
         save(lab)
     return lab
+
+
+def append_episodes(lab: RevLab, eps: list[dict]) -> tuple[list[int], int]:
+    """나눠 둔 화를 마지막 화 뒤에 잇는다 (레퍼런스 원고에서, refs.to_lab). 글을 다시 나누지 않고, 앞 화의 결과는 그대로 둔다.
+    같은 원고 화(source 의 ref · order)가 이미 실험에 있으면 뺀다. 화 번호는 원고 번호와 상관없이 마지막 화 + 1 부터 이어 센다.
+    (이은 화 번호, 뺀 화 수)."""
+    have = {(e.source.ref, e.source.order) for e in lab.episodes if e.source}
+    eps = [e for e in eps if e["text"].strip()]
+    fresh = [e for e in eps if not (e.get("source") and (e["source"].ref, e["source"].order) in have)]
+    if not fresh:
+        raise ValueError("고른 화가 모두 이 실험에 있어요" if eps else "글이 비었어요")
+    count, chars = len(lab.episodes) + len(fresh), sum(len(e.text) for e in lab.episodes) + sum(len(e["text"]) for e in fresh)
+    if count > MAX_EPISODES:
+        raise ValueError(f"이으면 {count}화예요. 한 실험에 {MAX_EPISODES}화까지 넣을 수 있어요")
+    if chars > MAX_CHARS:
+        raise ValueError(f"이으면 {chars:,}자예요. 한 실험에 {MAX_CHARS:,}자까지 넣을 수 있어요")
+    added = _given(fresh, lab.episodes[-1].number + 1 if lab.episodes else 1)
+    lab.episodes += added
+    return [e.number for e in added], len(eps) - len(fresh)
 
 
 def renumber(lab: RevLab, first: int) -> None:
@@ -996,16 +1020,40 @@ def _ep_view(lab: RevLab, e: RevEpisode) -> dict:
     return out
 
 
+def sources(lab: RevLab) -> tuple[dict[str, str], dict[int, str]]:
+    """레퍼런스 원고에서 온 화의 출처: (원고 id → 이름, 화 번호 → 상태). 상태는 same(넣을 때와 같음) · changed(원고 경계를
+    고쳐 글이 달라짐) · gone(원고나 그 화가 없어짐). 원고 하나는 한 번만 읽는다."""
+    from . import refs
+
+    names, state, cache = {}, {}, {}
+    for e in lab.episodes:
+        if not e.source:
+            continue
+        rid = e.source.ref
+        if rid not in cache:
+            cache[rid] = refs.texts(rid)
+            try:
+                names[rid] = refs.load(rid).name
+            except KeyError:
+                names[rid] = ""
+        now = (cache[rid] or {}).get(e.source.order)
+        state[e.number] = "gone" if now is None else "same" if _basis(now) == e.source.basis else "changed"
+    return names, state
+
+
 def view(lab: RevLab) -> dict:
-    """실험 화면 값: 화마다 원문 · 역설계 결과 · 경계 · 되돌려 쓰기, 이야기 줄기, 인물, 문체 프로필 기록(style_list)."""
+    """실험 화면 값: 화마다 원문 · 역설계 결과 · 경계 · 되돌려 쓰기, 이야기 줄기, 인물, 문체 프로필 기록(style_list).
+    레퍼런스 원고에서 온 화는 원고 이름(ref_names)과 출처 상태(item 의 source_state)도 준다."""
     cur = lab.current_style
+    names, state = sources(lab)
     return {**summary(lab), "split": lab.split, "split_label": SPLITS.get(lab.split, lab.split), "preface": lab.preface,
             "cast": [c.model_dump() for c in lab.cast], "main": lab.main, "lines": [x.model_dump() for x in lab.lines], "lines_at": lab.lines_at,
             "context": [{"number": e.number, **{k: [x.model_dump() for x in v] if k in ("ties", "addresses") else v
                                                  for k, v in context_upto(lab, e.number).items()}} for e in lab.episodes if e.sheet][-1:],
             "style": lab.style.model_dump(exclude={"sample_passages"}) if lab.style else None,
             "style_model": cur.model if cur else "", "style_at": cur.at if cur else "", "style_list": style_items(lab),
-            "ai": ai_view(lab), "items": [_ep_view(lab, e) for e in lab.episodes]}
+            "ai": ai_view(lab), "ref_names": names,
+            "items": [{**_ep_view(lab, e), "source_state": state.get(e.number, "")} for e in lab.episodes]}
 
 
 def labels() -> dict:

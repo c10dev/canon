@@ -641,6 +641,14 @@ def made(rid: str, kind: str, ref_id: str, eps: str) -> None:
     _write(b)
 
 
+def _sent(b: RefBook, chosen: list[dict]) -> list[dict]:
+    """역설계 실험에 넘길 화: 화 표시 줄 · 글 · 출처(RevSource)."""
+    from . import revlab
+    from .schema import RevSource
+    return [{"head": c["head"], "text": c["text"],
+             "source": RevSource(ref=b.id, order=c["order"], label=c["num"], basis=revlab._basis(c["text"].strip()))} for c in chosen]
+
+
 def to_revlab(rid: str, orders: list[int]) -> int:
     """고른 화로 역설계 실험을 만든다. 나눈 화와 화 표시 줄을 그대로 넘기고, 첫 화 번호는 원고 번호를 쓴다."""
     from . import revlab
@@ -649,9 +657,34 @@ def to_revlab(rid: str, orders: list[int]) -> int:
     if len(chosen) > revlab.MAX_EPISODES:
         raise ValueError(f"{len(chosen)}화를 골랐어요. 한 실험에 {revlab.MAX_EPISODES}화까지 넣을 수 있어요")
     first = int(chosen[0]["num"]) if chosen[0]["num"].isdigit() else None
-    lab = revlab.create_episodes(f"{b.name} {span(chosen)}", chosen, first)
+    lab = revlab.create_episodes(f"{b.name} {span(chosen)}", _sent(b, chosen), first)
     made(rid, "revlab", str(lab.id), span(chosen))
     return lab.id
+
+
+def to_lab(rid: str, orders: list[int], lab_id: int) -> tuple:
+    """고른 화를 있는 역설계 실험의 마지막 화 뒤에 잇는다 (revlab.append_episodes). 이미 그 실험에 있는 화는 뺀다.
+    (실험, {"added": 이은 화 번호, "skipped": 뺀 수})."""
+    from . import revlab
+    b = load(rid)
+    chosen = pick(b, orders)
+    out: dict = {}
+
+    def put(lab) -> None:
+        out["added"], out["skipped"] = revlab.append_episodes(lab, _sent(b, chosen))
+    lab = revlab.with_lock(lab_id, put)
+    made(rid, "revlab", str(lab_id), span(chosen))
+    return lab, out
+
+
+def texts(rid: str) -> dict[int, str] | None:
+    """원고의 화 차례 → 지금 글 (역설계 실험 화면이 원고가 바뀌었는지 본다). 원고가 없으면 None."""
+    try:
+        b = load(rid)
+    except KeyError:
+        return None
+    on = sorted(b.cuts, key=lambda c: c.line)
+    return {k + 1: e["text"].strip() for k, e in enumerate(assemble(source(rid), b.cuts, b.strip_tails)) if on[k].kind != "skip"}
 
 
 def compare(rid: str, p) -> dict:

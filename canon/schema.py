@@ -2520,6 +2520,14 @@ class RevLineSet(BaseModel):
     lines: list[RevLine] = Field(description="메인 밖 줄기 0~4개")
 
 
+class RevSource(BaseModel):
+    """역설계 실험의 화가 온 레퍼런스 원고 화 (refs.to_revlab · to_lab). 화면 표시와 겹침 막기에만 쓴다. 프롬프트에 넣지 않는다."""
+    ref: str = Field(description="레퍼런스 원고 id")
+    order: int = Field(description="원고의 화 차례 (1부터, RefEp.order)")
+    label: str = Field("", description="원고 번호 ('16', '외전 3', '프롤로그')")
+    basis: str = Field("", description="넣을 때 글의 지문 (revlab._basis). 원고 경계를 고쳐 글이 바뀌었는지 본다")
+
+
 class RevBound(BaseModel):
     """큐 하나가 원문에서 차지하는 자리 [start, end). found 가 거짓이면 시작 인용을 원문에서 찾지 못해 길이를 재지 못했다."""
     start: int = 0
@@ -2555,6 +2563,7 @@ class RevEpisode(BaseModel):
     number: int
     head: str = Field("", description="원문의 화 제목 줄")
     text: str = ""
+    source: Optional[RevSource] = Field(None, description="레퍼런스 원고에서 온 화면 그 원고 화. 붙여 넣은 화는 없음")
     plot: Optional[EpisodePlot] = None
     storyboard: Optional[Storyboard] = None
     sheet: Optional[CueSheet] = None

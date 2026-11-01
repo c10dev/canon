@@ -174,6 +174,56 @@ def test_sample_and_revlab(home):
         refs.to_revlab(b.id, [])
 
 
+def _book():
+    d = refs.preview(STORY)
+    cuts = [RefCut(**{k: c[k] for k in ("line", "body", "head", "label", "title", "kind")}) for c in _on(d)]
+    return refs.create("등대", STORY, cuts, rights=True)
+
+
+def test_append_from_ref_keeps_source_and_skips_repeats(home):
+    b = _book()
+    lab_id = refs.to_revlab(b.id, [2, 3])
+    lab = revlab.load(lab_id)
+    assert [(e.source.ref, e.source.order, e.source.label) for e in lab.episodes] == [(b.id, 2, "1"), (b.id, 3, "2")]
+    lab, out = refs.to_lab(b.id, [3, 4, 5], lab_id)  # 3 은 이미 있다
+    assert out == {"added": [3, 4], "skipped": 1}
+    assert [e.number for e in lab.episodes] == [1, 2, 3, 4] and lab.episodes[2].source.order == 4
+    assert lab.episodes[2].head == refs.pick(b, [4])[0]["head"] and lab.episodes[2].text == refs.pick(b, [4])[0]["text"].strip()
+    assert refs.load(b.id).made[-1].id == str(lab_id) and refs.load(b.id).made[-1].eps == "2화~4화"
+    with pytest.raises(ValueError, match="모두 이 실험에"):
+        refs.to_lab(b.id, [2, 3], lab_id)
+    with pytest.raises(ValueError, match="30화까지"):
+        refs.to_lab(b.id, list(range(6, 15)), revlab.create("가득", "\n\n===\n\n".join(["글" * 300] * 25)).id)
+
+
+def test_append_from_ref_view_marks_changed_and_gone(home):
+    b = _book()
+    lab_id = refs.to_revlab(b.id, [2, 3])
+    v = revlab.view(revlab.load(lab_id))
+    assert v["ref_names"] == {b.id: "등대"} and [x["source_state"] for x in v["items"]] == ["same", "same"]
+    cuts = sorted(b.cuts, key=lambda c: c.line)
+    refs.update(b.id, cuts=[c for c in cuts if c.line != cuts[2].line])  # 2화 경계를 빼면 1화 글이 길어지고 차례가 당겨진다
+    v = revlab.view(revlab.load(lab_id))
+    assert v["items"][0]["source_state"] == "changed"
+    refs.delete(b.id)
+    v = revlab.view(revlab.load(lab_id))
+    assert [x["source_state"] for x in v["items"]] == ["gone", "gone"] and v["ref_names"] == {b.id: ""}
+    assert revlab.view(revlab.create("붙여 넣기", "글" * 300))["items"][0]["source_state"] == ""
+
+
+def test_api_append_from_ref(home):
+    c = TestClient(web.app)
+    b = _book()
+    lab = c.post(f"/api/refs/{b.id}/revlab", json={"eps": [2]}).json()["id"]
+    assert c.post(f"/api/revlab/{lab}/episodes", json={"text": "글" * 300, "ref": b.id, "eps": [3]}).status_code == 400
+    assert c.post(f"/api/revlab/{lab}/episodes", json={}).status_code == 400
+    assert c.post(f"/api/revlab/{lab}/episodes", json={"ref": b.id}).status_code == 400
+    r = c.post(f"/api/revlab/{lab}/episodes", json={"ref": b.id, "eps": [2, 3, 4]}).json()
+    assert r["added"] == [2, 3] and r["skipped"] == 1 and [x["source"]["order"] for x in r["items"]] == [2, 3, 4]
+    assert c.post(f"/api/revlab/{lab}/episodes", json={"ref": "없는원고", "eps": [2]}).status_code in (400, 404)
+    assert c.post(f"/api/revlab/{lab}/episodes", json={"text": "1화\n\n" + "글" * 300}).json()["items"][-1]["source"] is None
+
+
 def test_revlab_split_uses_refs():
     s = revlab.split(STORY)
     assert s["how"] == "heading" and s["episodes"][0]["head"] == "등대 이야기 프롤로그"

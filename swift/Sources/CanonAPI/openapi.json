@@ -277,7 +277,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -745,7 +745,7 @@
      "content": {
       "application/json": {
        "schema": {
-        "$ref": "#/components/schemas/Project"
+        "$ref": "#/components/schemas/Project-Input"
        }
       }
      }
@@ -756,7 +756,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -806,7 +806,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -939,7 +939,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -1396,7 +1396,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -1527,7 +1527,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -1617,7 +1617,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -1667,7 +1667,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -1704,7 +1704,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -2081,6 +2081,542 @@
     }
    }
   },
+  "/api/refs": {
+   "get": {
+    "summary": "List Refs",
+    "operationId": "list_refs",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response List Refs"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "summary": "Create Ref",
+    "operationId": "create_ref",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RefCreateIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Create Ref"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/refs/split": {
+   "post": {
+    "summary": "Split Ref",
+    "description": "경계 후보 미리보기 (저장하지 않는다, 원문을 돌려주지 않는다).",
+    "operationId": "split_ref",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RefSplitIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Split Ref"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/refs/{rid}": {
+   "get": {
+    "summary": "Get Ref",
+    "operationId": "get_ref",
+    "parameters": [
+     {
+      "name": "rid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Rid"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Get Ref"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "put": {
+    "summary": "Put Ref",
+    "operationId": "put_ref",
+    "parameters": [
+     {
+      "name": "rid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Rid"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RefPutIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Put Ref"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Delete Ref",
+    "operationId": "delete_ref",
+    "parameters": [
+     {
+      "name": "rid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Rid"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Delete Ref"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/refs/{rid}/source": {
+   "get": {
+    "summary": "Ref Source",
+    "description": "원문 전체 (경계 다시 고치기 화면이 브라우저에서 다시 나눠 본다).",
+    "operationId": "ref_source",
+    "parameters": [
+     {
+      "name": "rid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Rid"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Ref Source"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/refs/{rid}/text": {
+   "get": {
+    "summary": "Ref Text",
+    "operationId": "ref_text",
+    "parameters": [
+     {
+      "name": "rid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Rid"
+      }
+     },
+     {
+      "name": "start",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 0,
+       "title": "Start"
+      }
+     },
+     {
+      "name": "end",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 200,
+       "title": "End"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Ref Text"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/refs/{rid}/eps/{order}": {
+   "get": {
+    "summary": "Ref Episode",
+    "operationId": "ref_episode",
+    "parameters": [
+     {
+      "name": "rid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Rid"
+      }
+     },
+     {
+      "name": "order",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Order"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Ref Episode"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/refs/{rid}/sample": {
+   "post": {
+    "summary": "Ref Sample",
+    "description": "문체 만들기에 넣을 원문 (고른 화를 이어 SAMPLE_MAX 자까지). AI 를 부르지 않는다.",
+    "operationId": "ref_sample",
+    "parameters": [
+     {
+      "name": "rid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Rid"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RefPickIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Ref Sample"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/refs/{rid}/revlab": {
+   "post": {
+    "summary": "Ref Revlab",
+    "description": "고른 화로 역설계 실험을 만든다 (AI 를 부르지 않는다).",
+    "operationId": "ref_revlab",
+    "parameters": [
+     {
+      "name": "rid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Rid"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RefPickIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Ref Revlab"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/refs/{rid}/compare": {
+   "get": {
+    "summary": "Ref Compare",
+    "description": "원고 지표와 작품의 본문 있는 화 지표 (읽기만).",
+    "operationId": "ref_compare",
+    "parameters": [
+     {
+      "name": "rid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Rid"
+      }
+     },
+     {
+      "name": "project",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Project"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Ref Compare"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/arc": {
    "post": {
     "summary": "Plan Arc",
@@ -2152,7 +2688,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -2201,7 +2737,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -2250,7 +2786,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -2289,7 +2825,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -2380,7 +2916,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -2491,7 +3027,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -2530,7 +3066,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -2598,7 +3134,113 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/knows-fold/{number}": {
+   "post": {
+    "summary": "Apply Knows Fold",
+    "description": "아크 요약 뒤 아는 정보 접기 제안(작업 fold_knows) 가운데 작가가 고르고 고친 인물만 적용한다 (knows.apply_fold).",
+    "operationId": "apply_knows_fold",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "number",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Number"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/KnowsFoldSet"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project-Output"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Undo Knows Fold",
+    "description": "아크 number 에서 접은 아는 정보를 되돌린다 (knows.undo_fold).",
+    "operationId": "undo_knows_fold",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "number",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Number"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -2647,7 +3289,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -2695,7 +3337,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -2743,7 +3385,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -2791,7 +3433,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -2840,7 +3482,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -3059,7 +3701,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -3105,7 +3747,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -3173,7 +3815,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -3230,7 +3872,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -3288,7 +3930,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -3547,7 +4189,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/AgentSession"
+         "$ref": "#/components/schemas/AgentSession-Output"
         }
        }
       }
@@ -3605,7 +4247,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/AgentSession"
+         "$ref": "#/components/schemas/AgentSession-Output"
         }
        }
       }
@@ -3972,7 +4614,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -4020,7 +4662,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -4068,7 +4710,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -4398,7 +5040,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -4457,7 +5099,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -4628,7 +5270,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -4674,7 +5316,210 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/episodes/{n}/cue-sheet": {
+   "get": {
+    "summary": "Get Cue Sheet",
+    "description": "Canon 이 센 값: 켜짐, 낡음, 핵심 대사가 들어간 수 (cue.ep_view).",
+    "operationId": "get_cue_sheet",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Get Cue Sheet"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "put": {
+    "summary": "Put Cue Sheet",
+    "description": "작가가 고친 큐 시트를 저장한다. AI · 뼈대 시트를 고치면 made_by 가 both 가 된다.",
+    "operationId": "put_cue_sheet",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CueSheetDraft"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project-Output"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Drop Cue Sheet",
+    "operationId": "drop_cue_sheet",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project-Output"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/episodes/{n}/cue-sheet/board": {
+   "post": {
+    "summary": "Board Cue Sheet",
+    "description": "AI 없이 스토리보드 장면(없으면 플롯 사건)마다 큐 하나인 뼈대를 넣는다.",
+    "operationId": "board_cue_sheet",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -4732,7 +5577,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -4799,7 +5644,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -4854,7 +5699,620 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/stage/{n}": {
+   "get": {
+    "summary": "Stage View",
+    "operationId": "stage_view",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Stage View"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "summary": "Stage New",
+    "operationId": "stage_new",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StageNewIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Stage New"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/stage/{n}/{sid}": {
+   "put": {
+    "summary": "Stage Save",
+    "operationId": "stage_save",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     },
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StageSaveIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Stage Save"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Stage Delete",
+    "operationId": "stage_delete",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     },
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Stage Delete"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/stage/{n}/apply": {
+   "post": {
+    "summary": "Stage Apply",
+    "description": "검토를 기다리는 AI 장면을 통째로 넣는다. 같은 사건 · 역할의 장면은 적용 취소 한 번으로 되돌릴 수 있다.",
+    "operationId": "stage_apply",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StageApplyIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Stage Apply"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/stage/{n}/proposal/{event}/{role}": {
+   "delete": {
+    "summary": "Stage Discard",
+    "description": "AI 장면을 버린다 (장면은 그대로).",
+    "operationId": "stage_discard",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     },
+     {
+      "name": "event",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Event"
+      }
+     },
+     {
+      "name": "role",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Role"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Stage Discard"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/stage/{n}/{sid}/undo": {
+   "post": {
+    "summary": "Stage Undo",
+    "description": "마지막 AI 적용을 되돌린다. 적용 전에 장면이 없었으면 장면을 뺀다.",
+    "operationId": "stage_undo",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     },
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Stage Undo"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/stage/{n}/check": {
+   "post": {
+    "summary": "Stage Check",
+    "description": "저장하지 않고 판정만 (화면이 고치는 동안). 막을 접촉 수도 센다.",
+    "operationId": "stage_check",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StageSaveIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Stage Check"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/stage/{n}/{sid}/frames": {
+   "get": {
+    "summary": "Stage Frames",
+    "description": "저장된 장면 하나의 3D 보기 값 (화면 static/stage3d.js).",
+    "operationId": "stage_frames",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     },
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Stage Frames"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "summary": "Stage Frames Draft",
+    "description": "저장하지 않은 장면의 3D 보기 값 (화면이 고치는 중일 때 '다시 그리기').",
+    "operationId": "stage_frames_draft",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     },
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StageSaveIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Stage Frames Draft"
         }
        }
       }
@@ -5011,7 +6469,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -5059,7 +6517,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -5116,7 +6574,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -5198,7 +6656,123 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/episodes/{n}/meta-cut/{k}/restore": {
+   "post": {
+    "summary": "Restore Meta Cut",
+    "description": "쓰기가 뗀 작업 설명 문단 하나를 본문 앞이나 뒤에 되살린다. 수정 기록에 남아 되돌릴 수 있다.",
+    "operationId": "restore_meta_cut",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     },
+     {
+      "name": "k",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "K"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project-Output"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/episodes/{n}/meta-cut/{k}": {
+   "delete": {
+    "summary": "Drop Meta Cut",
+    "description": "쓰기가 뗀 작업 설명 문단 하나를 지운다. 본문은 그대로다.",
+    "operationId": "drop_meta_cut",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     },
+     {
+      "name": "k",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "K"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -5255,7 +6829,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -5312,7 +6886,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -5445,7 +7019,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -5494,7 +7068,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -5779,7 +7353,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -5847,7 +7421,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -5915,7 +7489,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -5972,7 +7546,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -6343,7 +7917,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -6411,7 +7985,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -6469,7 +8043,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -6546,7 +8120,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -6604,7 +8178,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -6662,7 +8236,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -6770,7 +8344,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -6829,7 +8403,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -6878,7 +8452,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -6927,7 +8501,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -7441,7 +9015,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -7488,7 +9062,153 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/address": {
+   "put": {
+    "summary": "Set Address",
+    "description": "한 방향의 부르는 말 · 말씨를 정한다 (두 칸이 모두 비면 지운다). 1화 반영 뒤에는 작가 기록으로 남는다 (address.set_form).",
+    "operationId": "set_address",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AddressIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project-Output"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/address-held/{i}": {
+   "post": {
+    "summary": "Take Held Address",
+    "description": "자동 집필이 남겨 둔 호칭 · 말씨 바뀜 제안 하나를 적용한다. 그 화의 기록으로 남는다.",
+    "operationId": "take_held_address",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "i",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "I"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project-Output"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Drop Held Address",
+    "description": "남겨 둔 호칭 · 말씨 바뀜 제안 하나를 버린다.",
+    "operationId": "drop_held_address",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "i",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "I"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -7684,7 +9404,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -7734,7 +9454,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -7920,7 +9640,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -7970,7 +9690,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -8124,7 +9844,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -8162,7 +9882,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -8247,7 +9967,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -8285,7 +10005,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -8346,7 +10066,7 @@
   "/api/projects/{name}/atlas/layout/fill": {
    "post": {
     "summary": "Atlas Layout Fill",
-    "description": "OpenStreetMap 지도의 빈 블록 채우기 (canon/fill.py). preview 는 저장하지 않고 채울 블록 · 지을 건물을 돌려준다.\napply 는 지도 파일을 다시 쓰고(지은 건물은 끝에 붙여 OSM 건물 번호를 지킨다) clear 는 지은 건물을 지운다.",
+    "description": "OpenStreetMap 지도의 빈 블록 채우기 (canon/maps/fill.py). preview 는 저장하지 않고 채울 블록 · 지을 건물을 돌려준다.\napply 는 지도 파일을 다시 쓰고(지은 건물은 끝에 붙여 OSM 건물 번호를 지킨다) clear 는 지은 건물을 지운다.",
     "operationId": "atlas_layout_fill",
     "parameters": [
      {
@@ -8485,7 +10205,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -8506,7 +10226,7 @@
   "/api/projects/{name}/atlas/travel": {
    "put": {
     "summary": "Atlas Travel",
-    "description": "이동 시간 검사 설정: 켜기, 가장 빠른 탈것, 직접 정한 빠르기, 지도 가로 km (canon/travel.py).",
+    "description": "이동 시간 검사 설정: 켜기, 가장 빠른 탈것, 직접 정한 빠르기, 지도 가로 km (canon/maps/travel.py).",
     "operationId": "atlas_travel",
     "parameters": [
      {
@@ -8535,7 +10255,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -8585,7 +10305,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -8635,7 +10355,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -8722,7 +10442,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -8780,7 +10500,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -8826,7 +10546,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -8885,7 +10605,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -8933,7 +10653,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -8983,7 +10703,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -9032,7 +10752,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -9072,7 +10792,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -9178,7 +10898,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -9227,7 +10947,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -9415,7 +11135,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -9532,7 +11252,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -9642,6 +11362,1937 @@
     }
    }
   },
+  "/api/projects/{name}/cue": {
+   "get": {
+    "summary": "Cue Home",
+    "description": "큐 시트 실험 화면: 시험할 수 있는 화, 실험 파일이 있는 화, 화면 이름, 지난 실험(실험 기록 kind cue, 최근 10개).",
+    "operationId": "cue_home",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Cue Home"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/cue/{n}": {
+   "get": {
+    "summary": "Cue Lab",
+    "description": "n화 큐 시트와 조건별 본문 · 채점.",
+    "operationId": "cue_lab",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Cue Lab"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/cue/{n}/sheet": {
+   "put": {
+    "summary": "Cue Put Sheet",
+    "description": "작가가 고친 큐 시트를 저장한다.",
+    "operationId": "cue_put_sheet",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CueSheetDraft"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Cue Put Sheet"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/cue/{n}/sheet/board": {
+   "post": {
+    "summary": "Cue Board Sheet",
+    "description": "AI 없이 스토리보드 장면(없으면 플롯 사건)마다 큐 하나인 뼈대를 만든다. 지금 시트를 덮는다.",
+    "operationId": "cue_board_sheet",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Cue Board Sheet"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/cue/{n}/estimate": {
+   "post": {
+    "summary": "Cue Estimate",
+    "description": "쓰기 호출 수와 비용 추정. AI 를 부르지 않는다.",
+    "operationId": "cue_estimate",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CueEstimateIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Cue Estimate"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/revlab": {
+   "get": {
+    "summary": "Rev Home",
+    "description": "역설계 실험 목록과 화면 이름 (큐 칸 값은 GET /projects/<이름>/cue 와 같다).",
+    "operationId": "rev_home",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Rev Home"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "summary": "Rev Create",
+    "description": "새 실험: 글을 화로 나눠 원문만 넣는다. AI 를 부르지 않는다.",
+    "operationId": "rev_create",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RevIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Rev Create"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/revlab/split": {
+   "post": {
+    "summary": "Rev Split",
+    "description": "글을 화로 나눈 미리보기 (저장하지 않는다). 화면의 미리보기가 쓴다. 화 글은 돌려주지 않고 글자 수만 준다.",
+    "operationId": "rev_split",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RevSplitIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Rev Split"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/revlab/{lab_id}": {
+   "get": {
+    "summary": "Rev Get",
+    "operationId": "rev_get",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "put": {
+    "summary": "Rev Put",
+    "description": "제목을 바꾸고, 글을 주면 다시 나눈다 (역설계 결과를 모두 지운다). 첫 화 번호를 주면 화 번호를 옮긴다.",
+    "operationId": "rev_put",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RevIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Put"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Rev Delete",
+    "operationId": "rev_delete",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Delete"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/revlab/{lab_id}/episodes": {
+   "post": {
+    "summary": "Rev Append",
+    "description": "글을 나눠, 또는 레퍼런스 원고에서 고른 화를 마지막 화 뒤에 잇는다 (앞 화의 역설계 결과는 그대로). AI 를 부르지 않는다.\n원고 화는 다시 나누지 않고, 이미 이 실험에 있는 화는 뺀다 (refs.to_lab). 응답은 실험 화면 값에 added · skipped 를 더한다.",
+    "operationId": "rev_append",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RevAppendIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Append"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/revlab/{lab_id}/episodes/{n}": {
+   "put": {
+    "summary": "Rev Put Episode",
+    "description": "화 하나의 제목 줄과 글을 고친다. 글이 바뀌면 그 화의 역설계 결과를 지운다 (revlab.edit_episode).",
+    "operationId": "rev_put_episode",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RevEpisodeIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Put Episode"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Rev Delete Episode",
+    "description": "화 하나를 빼고 뒤 화 번호를 당긴다 (revlab.drop_episode).",
+    "operationId": "rev_delete_episode",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Delete Episode"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/revlab/{lab_id}/styles/{sid}": {
+   "get": {
+    "summary": "Rev Style Get",
+    "description": "문체 프로필 하나와 against(비우면 지금 프로필)에서 바뀐 칸 (revlab.style_view, library.diff).",
+    "operationId": "rev_style_get",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     },
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Sid"
+      }
+     },
+     {
+      "name": "against",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 0,
+       "title": "Against"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Style Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "put": {
+    "summary": "Rev Style Note",
+    "operationId": "rev_style_note",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     },
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Sid"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RevStyleNoteIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Style Note"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Rev Style Delete",
+    "description": "문체 프로필을 지운다 (revlab.drop_style). 이 프로필로 쓴 판은 남는다.",
+    "operationId": "rev_style_delete",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     },
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Sid"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Style Delete"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/revlab/{lab_id}/styles/{sid}/select": {
+   "post": {
+    "summary": "Rev Style Select",
+    "description": "지금 문체 프로필로 고른다. 문체 역설계가 끝나면 새 프로필을 고르므로 그동안은 막는다.",
+    "operationId": "rev_style_select",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     },
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Sid"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Style Select"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/revlab/{lab_id}/episodes/{n}/sheet": {
+   "put": {
+    "summary": "Rev Put Sheet",
+    "description": "작가가 고친 큐 시트. 큐 수가 바뀌면 원문 경계를 지운다.",
+    "operationId": "rev_put_sheet",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CueSheetDraft"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Put Sheet"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/revlab/{lab_id}/ai": {
+   "put": {
+    "summary": "Rev Put Ai",
+    "description": "이 실험의 단계 AI 를 고른다 (revlab.set_ai). 도는 작업은 시작할 때 고른 AI 를 그대로 쓴다.",
+    "operationId": "rev_put_ai",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RevAIIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Put Ai"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/revlab/{lab_id}/episodes/{n}/pick": {
+   "post": {
+    "summary": "Rev Pick",
+    "description": "가려 읽기가 남은 판에서 고른다. 고르면 어느 쪽이 원문인지와 그 판의 지표를 보인다.",
+    "operationId": "rev_pick",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RevPickIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Pick"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/revlab/{lab_id}/episodes/{n}/takes/{no}": {
+   "delete": {
+    "summary": "Rev Delete Take",
+    "description": "되돌려 쓴 판 하나를 지운다 (revlab.drop_take). 판 번호는 다시 쓰지 않는다.",
+    "operationId": "rev_delete_take",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     },
+     {
+      "name": "no",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "No"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Delete Take"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/revlab/{lab_id}/jobs": {
+   "post": {
+    "summary": "Rev Job",
+    "description": "역설계(parse) · 되돌려 쓰기(write) · 문체 역설계(style) 작업을 시작한다. 작품을 읽지 않는다. 같은 실험의 같은 작업은 하나만 돈다.",
+    "operationId": "rev_job",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RevJobIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Job"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/revlab/{lab_id}/estimate": {
+   "post": {
+    "summary": "Rev Estimate",
+    "description": "역설계 · 되돌려 쓰기 비용 추정. AI 를 부르지 않는다.",
+    "operationId": "rev_estimate",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RevEstimateIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Estimate"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/soelab": {
+   "get": {
+    "summary": "Soe View",
+    "description": "화면 값: 말뭉치 · 판정 · 다시 읽기 진행, 최근 보고서(조각별 줄 없음), 다음 할 일을 고를 값.",
+    "operationId": "soe_view",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Soe View"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/soelab/sources": {
+   "get": {
+    "summary": "Soe Sources",
+    "description": "모으기 카드의 원천 후보 (역설계 실험 · 작품 · 연구 말뭉치 폴더).",
+    "operationId": "soe_sources",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Soe Sources"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/soelab/collect/preview": {
+   "post": {
+    "summary": "Soe Collect Preview",
+    "description": "모으기 미리보기: 저장하지 않고 새 조각 수 · 이미 있는 글 · 상한 · 서로 다른 화 · 모델별 화를 센다.",
+    "operationId": "soe_collect_preview",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SoeCollectIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Soe Collect Preview"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/soelab/collect": {
+   "post": {
+    "summary": "Soe Collect",
+    "description": "모으고 보고서를 다시 채점한다 (AI 없음).",
+    "operationId": "soe_collect",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SoeCollectIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Soe Collect"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/soelab/pieces": {
+   "get": {
+    "summary": "Soe Pieces",
+    "description": "조각 목록. 가린 조각은 출처 · 원천 · 묶음 · 모델을 뺀다.",
+    "operationId": "soe_pieces",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Soe Pieces"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/soelab/pieces/{pid}": {
+   "get": {
+    "summary": "Soe Piece",
+    "description": "조각 하나. 가린 조각은 글만.",
+    "operationId": "soe_piece",
+    "parameters": [
+     {
+      "name": "pid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Pid"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Soe Piece"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Soe Piece Remove",
+    "description": "붙여 넣은 조각 빼기 (판정하지 않은 것만).",
+    "operationId": "soe_piece_remove",
+    "parameters": [
+     {
+      "name": "pid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Pid"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Soe Piece Remove"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/soelab/pieces/{pid}/origin": {
+   "put": {
+    "summary": "Soe Piece Origin",
+    "description": "붙여 넣은 조각의 출처 고치기 (가리지 않은 것만).",
+    "operationId": "soe_piece_origin",
+    "parameters": [
+     {
+      "name": "pid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Pid"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SoeOriginIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Soe Piece Origin"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/soelab/judge": {
+   "get": {
+    "summary": "Soe Judge View",
+    "description": "가려 읽기: 다음 조각(글 · id · 글자 수만)과 진행.",
+    "operationId": "soe_judge_view",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Soe Judge View"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "summary": "Soe Judge",
+    "description": "가려 읽기 판정 저장. 이번 10개를 마치면 보고서를 다시 채점한다.",
+    "operationId": "soe_judge",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SoeJudgeIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Soe Judge"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/soelab/batch/{k}": {
+   "get": {
+    "summary": "Soe Batch",
+    "description": "끝난 '이번 10개'의 정답. 끝나기 전에는 막는다.",
+    "operationId": "soe_batch",
+    "parameters": [
+     {
+      "name": "k",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "K"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Soe Batch"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/soelab/redo": {
+   "get": {
+    "summary": "Soe Redo View",
+    "description": "다시 읽기: 열린 조각 하나(글만)와 진행. 7일 전이면 piece 가 비고 열리는 날을 준다.",
+    "operationId": "soe_redo_view",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Soe Redo View"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "summary": "Soe Redo",
+    "description": "다시 읽기(재판정) 저장. 첫 판정 7일 전이면 막는다.",
+    "operationId": "soe_redo",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SoeJudgeIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Soe Redo"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/soelab/state": {
+   "put": {
+    "summary": "Soe State",
+    "description": "가려 읽기 목표(40 · 60 · 90) · 여기서 멈추기 · 정답 카드를 넘긴 '이번 10개'.",
+    "operationId": "soe_state",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SoeStateIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Soe State"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/soelab/spares/open": {
+   "post": {
+    "summary": "Soe Spares Open",
+    "description": "판정 일관성이 보류일 때 판정한 예비를 다시 읽기 대기열로 옮긴다(15개까지). 7일 규칙은 그대로.",
+    "operationId": "soe_spares_open",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Soe Spares Open"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/soelab/report": {
+   "post": {
+    "summary": "Soe Report",
+    "description": "다시 채점하기 (AI 없음). 새 보고서를 저장한다.",
+    "operationId": "soe_report",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Soe Report"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/soelab/reports": {
+   "get": {
+    "summary": "Soe Reports",
+    "description": "기록: 보고서 목록.",
+    "operationId": "soe_reports",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "additionalProperties": true,
+          "type": "object"
+         },
+         "type": "array",
+         "title": "Response Soe Reports"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/soelab/metrics/{mid}": {
+   "get": {
+    "summary": "Soe Metric",
+    "description": "지표 하나. 점 그림 · 곡선 · 끝 조각은 가린 조각을 빼고.",
+    "operationId": "soe_metric",
+    "parameters": [
+     {
+      "name": "mid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Mid"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Soe Metric"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/soelab/patterns": {
+   "get": {
+    "summary": "Soe Patterns",
+    "description": "패턴 혼동표.",
+    "operationId": "soe_patterns",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Soe Patterns"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/soelab/check": {
+   "get": {
+    "summary": "Soe Check",
+    "description": "패턴 확인: 패턴별 진행과 다음 문장.",
+    "operationId": "soe_check",
+    "parameters": [
+     {
+      "name": "kind",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Kind"
+      }
+     },
+     {
+      "name": "hit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Hit"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Soe Check"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "summary": "Soe Check Save",
+    "description": "패턴 확인 하나 매기기. 다음 문장을 함께 준다.",
+    "operationId": "soe_check_save",
+    "parameters": [
+     {
+      "name": "kind",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Kind"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SoeCheckIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Soe Check Save"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/timeline": {
    "get": {
     "summary": "Timeline View",
@@ -9714,7 +13365,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -9762,7 +13413,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -9870,7 +13521,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -9920,7 +13571,57 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/stage-extract": {
+   "put": {
+    "summary": "Set Stage Extract",
+    "description": "검수 때 함께 뽑기 켜기 · 끄기 (Settings.stage_extract). 자동 집필 검수도 따른다.",
+    "operationId": "set_stage_extract",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CheckWiden"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -9970,7 +13671,57 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/cue-setting": {
+   "put": {
+    "summary": "Set Cue Setting",
+    "description": "화별 큐 시트 켜기 · 끄기 (Settings.cue_sheet). 켜면 쓰기 전에 큐 시트를 만들어 쓰기 프롬프트 끝에 넣는다.",
+    "operationId": "set_cue_setting",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/BoardSetting"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -10020,7 +13771,157 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/Project"
+         "$ref": "#/components/schemas/Project-Output"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/timeline-setting": {
+   "put": {
+    "summary": "Set Timeline Setting",
+    "description": "작품 속 시간 기록 켜기 · 끄기 (Timeline.enabled). 끄면 상태 변경안에 시점을 적지 않고 쓰기 · 검수에 시간 블록을 넣지 않는다.",
+    "operationId": "set_timeline_setting",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TimelineSetting"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project-Output"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/stat-prompt": {
+   "put": {
+    "summary": "Set Stat Prompt",
+    "description": "쓰기 프롬프트에 상태창 수치를 넣는 방식 (StatWindow.prompt: json · lines · none, statwin.write_rule).",
+    "operationId": "set_stat_prompt",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StatPromptIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project-Output"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/model-preset": {
+   "put": {
+    "summary": "Set Model Preset",
+    "description": "작품이 쓸 단계 프리셋을 고른다. 이 작품의 AI 호출은 그 프리셋의 단계별 백엔드 · 모델을 쓴다 (settings.project_preset).",
+    "operationId": "set_model_preset",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ModelPresetIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project-Output"
         }
        }
       }
@@ -11675,7 +15576,183 @@
     ],
     "title": "Act"
    },
-   "AgentSession": {
+   "AddressChange": {
+    "properties": {
+     "speaker": {
+      "type": "string",
+      "title": "Speaker",
+      "description": "말하는 인물 id"
+     },
+     "listener": {
+      "type": "string",
+      "title": "Listener",
+      "description": "듣는 인물 id"
+     },
+     "calls": {
+      "type": "string",
+      "title": "Calls",
+      "description": "바뀐 뒤 speaker 가 listener 를 부르는 말. 그대로면 빈칸",
+      "default": ""
+     },
+     "speech": {
+      "type": "string",
+      "title": "Speech",
+      "description": "바뀐 뒤 말씨: 하십시오체 · 해요체 · 하오체 · 하게체 · 해체(반말) · 해라체 중 하나나 짧은 설명. 그대로면 빈칸",
+      "default": ""
+     },
+     "reason": {
+      "type": "string",
+      "title": "Reason",
+      "description": "무엇이 왜 바뀌었는지 한 줄",
+      "default": ""
+     },
+     "quote": {
+      "type": "string",
+      "title": "Quote",
+      "description": "근거가 되는 대사를 본문 그대로",
+      "default": ""
+     },
+     "episode": {
+      "type": "integer",
+      "title": "Episode",
+      "description": "바뀐 화. 프로그램이 채운다",
+      "default": 0
+     }
+    },
+    "type": "object",
+    "required": [
+     "speaker",
+     "listener"
+    ],
+    "title": "AddressChange",
+    "description": "본문에서 뒤 화까지 이어지게 바뀐 호칭 · 말씨 한 방향. 작가가 상태 승인 화면에서 골라야 반영한다 (canon/address.py)."
+   },
+   "AddressForm": {
+    "properties": {
+     "speaker": {
+      "type": "string",
+      "title": "Speaker",
+      "description": "말하는 인물 id"
+     },
+     "listener": {
+      "type": "string",
+      "title": "Listener",
+      "description": "듣는 인물 id"
+     },
+     "calls": {
+      "type": "string",
+      "title": "Calls",
+      "description": "speaker 가 listener 를 부르는 말 (예: 도현 씨, 오라버니, 대장님)",
+      "default": ""
+     },
+     "speech": {
+      "type": "string",
+      "title": "Speech",
+      "description": "speaker 가 listener 에게 쓰는 말씨 (예: 해요체, 해체(반말), 하오체)",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "speaker",
+     "listener"
+    ],
+    "title": "AddressForm",
+    "description": "한 인물이 다른 인물을 부르는 말과 그에게 쓰는 말씨. 방향이 있다 (A→B 와 B→A 가 따로). 작가가 인물 · 관계 화면에서 정하고,\n본문에서 바뀐 것은 상태 변경안의 address_changes 로 와서 작가가 골라야 반영한다 (canon/address.py)."
+   },
+   "AddressIn": {
+    "properties": {
+     "speaker": {
+      "type": "string",
+      "title": "Speaker"
+     },
+     "listener": {
+      "type": "string",
+      "title": "Listener"
+     },
+     "calls": {
+      "type": "string",
+      "title": "Calls",
+      "default": ""
+     },
+     "speech": {
+      "type": "string",
+      "title": "Speech",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "speaker",
+     "listener"
+    ],
+    "title": "AddressIn"
+   },
+   "AddressRecord": {
+    "properties": {
+     "episode": {
+      "type": "integer",
+      "title": "Episode",
+      "description": "바뀐 화. 작가가 고쳤으면 그때 마지막으로 반영한 화"
+     },
+     "speaker": {
+      "type": "string",
+      "title": "Speaker"
+     },
+     "listener": {
+      "type": "string",
+      "title": "Listener"
+     },
+     "field": {
+      "type": "string",
+      "enum": [
+       "calls",
+       "speech"
+      ],
+      "title": "Field"
+     },
+     "before": {
+      "type": "string",
+      "title": "Before",
+      "default": ""
+     },
+     "after": {
+      "type": "string",
+      "title": "After",
+      "default": ""
+     },
+     "source": {
+      "type": "string",
+      "enum": [
+       "ai",
+       "author"
+      ],
+      "title": "Source",
+      "description": "ai: 승인한 바뀜 제안 / author: 작가가 인물 · 관계 화면에서 고침",
+      "default": "ai"
+     },
+     "reason": {
+      "type": "string",
+      "title": "Reason",
+      "default": ""
+     },
+     "quote": {
+      "type": "string",
+      "title": "Quote",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "episode",
+     "speaker",
+     "listener",
+     "field"
+    ],
+    "title": "AddressRecord",
+    "description": "호칭 · 말씨가 바뀐 기록. 되돌리기와 인물 화면에 쓴다 (canon/address.py)."
+   },
+   "AgentSession-Input": {
     "properties": {
      "id": {
       "type": "string",
@@ -11722,7 +15799,7 @@
      },
      "turns": {
       "items": {
-       "$ref": "#/components/schemas/AgentTurn"
+       "$ref": "#/components/schemas/AgentTurn-Input"
       },
       "type": "array",
       "title": "Turns"
@@ -11745,7 +15822,77 @@
     "title": "AgentSession",
     "description": "대화 세션. 주제(topic)마다 여럿 둘 수 있고, 기본 대상(target)과 권한 모드를 기억한다."
    },
-   "AgentTurn": {
+   "AgentSession-Output": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "topic": {
+      "type": "string",
+      "title": "Topic",
+      "default": "plot"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title",
+      "default": ""
+     },
+     "target": {
+      "type": "string",
+      "title": "Target",
+      "description": "ChatScope.target: '' 기본, 'arc:N', 'next'",
+      "default": ""
+     },
+     "mode": {
+      "type": "string",
+      "enum": [
+       "ask",
+       "draft",
+       "all"
+      ],
+      "title": "Mode",
+      "default": "draft"
+     },
+     "auto_kinds": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Auto Kinds",
+      "description": "승인 카드에서 '이 세션에서 묻지 않기'로 고른 종류"
+     },
+     "archived": {
+      "type": "boolean",
+      "title": "Archived",
+      "default": false
+     },
+     "turns": {
+      "items": {
+       "$ref": "#/components/schemas/AgentTurn-Output"
+      },
+      "type": "array",
+      "title": "Turns"
+     },
+     "created": {
+      "type": "string",
+      "title": "Created",
+      "default": ""
+     },
+     "updated": {
+      "type": "string",
+      "title": "Updated",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "id"
+    ],
+    "title": "AgentSession",
+    "description": "대화 세션. 주제(topic)마다 여럿 둘 수 있고, 기본 대상(target)과 권한 모드를 기억한다."
+   },
+   "AgentTurn-Input": {
     "properties": {
      "user": {
       "type": "string",
@@ -11792,7 +15939,100 @@
      },
      "writes": {
       "items": {
-       "$ref": "#/components/schemas/WriteRecord"
+       "$ref": "#/components/schemas/WriteRecord-Input"
+      },
+      "type": "array",
+      "title": "Writes"
+     },
+     "approval": {
+      "$ref": "#/components/schemas/Approval"
+     },
+     "ask": {
+      "$ref": "#/components/schemas/AskCard"
+     },
+     "end": {
+      "type": "string",
+      "enum": [
+       "",
+       "done",
+       "wait",
+       "ask",
+       "cap",
+       "stopped",
+       "error"
+      ],
+      "title": "End",
+      "description": "'' 은 돌아가는 중",
+      "default": ""
+     },
+     "error": {
+      "type": "string",
+      "title": "Error",
+      "default": ""
+     },
+     "job": {
+      "type": "string",
+      "title": "Job",
+      "description": "이 턴을 돌리는 작업 id",
+      "default": ""
+     },
+     "at": {
+      "type": "string",
+      "title": "At",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "AgentTurn"
+   },
+   "AgentTurn-Output": {
+    "properties": {
+     "user": {
+      "type": "string",
+      "title": "User",
+      "default": ""
+     },
+     "mode": {
+      "type": "string",
+      "title": "Mode",
+      "description": "'options': 방향 여러 안으로 물어 달라고 한 말",
+      "default": ""
+     },
+     "where": {
+      "type": "string",
+      "title": "Where",
+      "description": "작가가 보낼 때 보고 있던 곳 (pipeline.chat_where)",
+      "default": ""
+     },
+     "act": {
+      "type": "string",
+      "title": "Act",
+      "default": ""
+     },
+     "episode": {
+      "type": "integer",
+      "title": "Episode",
+      "default": 0
+     },
+     "draft": {
+      "$ref": "#/components/schemas/ArcProposal",
+      "description": "다음 아크 대상일 때 보낼 때의 화면 초안"
+     },
+     "steps": {
+      "items": {
+       "$ref": "#/components/schemas/StepRecord"
+      },
+      "type": "array",
+      "title": "Steps"
+     },
+     "reply": {
+      "type": "string",
+      "title": "Reply",
+      "default": ""
+     },
+     "writes": {
+      "items": {
+       "$ref": "#/components/schemas/WriteRecord-Output"
       },
       "type": "array",
       "title": "Writes"
@@ -12333,6 +16573,10 @@
      },
      "travel": {
       "$ref": "#/components/schemas/TravelSetting"
+     },
+     "transit": {
+      "$ref": "#/components/schemas/Transit",
+      "description": "지도 데이터의 지하철 역 · 노선 사본 (OpenStreetMap 지도만). 없으면 None"
      }
     },
     "type": "object",
@@ -12493,7 +16737,8 @@
        "review_every": 0,
        "hand_pick_opening": true,
        "storyboard": true,
-       "stop_on_board_warnings": true
+       "stop_on_board_warnings": true,
+       "cue_sheet": true
       }
      }
     },
@@ -13023,19 +17268,19 @@
      "goal": {
       "type": "string",
       "title": "Goal",
-      "description": "장면 목표: 시점 인물이 이 장면에서 얻으려는 것",
+      "description": "장면 목표: 시점 인물이 이 장면에서 얻으려는 것. 명사구 30자 안팎, 본문 문장으로 쓰지 않는다",
       "default": ""
      },
      "turn": {
       "type": "string",
       "title": "Turn",
-      "description": "전환점: 장면의 흐름이 바뀌는 일 한 줄",
+      "description": "전환점: 장면의 흐름이 바뀌는 일. 명사구 40자 안팎, 본문 문장으로 쓰지 않는다",
       "default": ""
      },
      "end_state": {
       "type": "string",
       "title": "End State",
-      "description": "장면 끝 상태: 다음 장면이 이어받는 것 (자리, 물건, 감정, 결정)",
+      "description": "장면 끝 상태: 다음 장면이 이어받는 것 (자리, 물건, 감정, 결정). '건우 운전석 · 공회전 · 연료 1.2L' 처럼 값을 · 로 잇는다",
       "default": ""
      }
     },
@@ -13590,7 +17835,7 @@
      "use": {
       "type": "string",
       "title": "Use",
-      "description": "쓰임 id (bldgs.USES). 비면 생성기 값",
+      "description": "쓰임 id (maps/buildings.USES). 비면 생성기 값",
       "default": ""
      },
      "name": {
@@ -13619,7 +17864,7 @@
      "i"
     ],
     "title": "BuildingNote",
-    "description": "작가가 고친 건물 하나 (지금 마을 · 도시 데이터의 건물 번호 기준). 빈 칸은 생성기가 정한 값(canon/bldgs.py)을 쓴다."
+    "description": "작가가 고친 건물 하나 (지금 마을 · 도시 데이터의 건물 번호 기준). 빈 칸은 생성기가 정한 값(canon/maps/buildings.py)을 쓴다."
    },
    "Candidate": {
     "properties": {
@@ -14257,6 +18502,7 @@
      "emotional_state": {
       "type": "string",
       "title": "Emotional State",
+      "description": "지금 감정을 짧은 라벨로. 겉 태도와 속마음, 머리의 판단과 몸 · 감정의 끌림이 맞서면 '겉: … / 속: …' 또는 '머리: … / 몸: …' 두 층 (prompts.LAYER_STATE_RULE)",
       "default": ""
      },
      "current_goal": {
@@ -14295,6 +18541,15 @@
       "type": "array",
       "title": "Stats",
       "description": "상태창 수치. 작가가 상태창을 만든 인물만. 변경안에는 바뀐 항목만 넣는다"
+     },
+     "knows_folded": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Knows Folded",
+      "description": "접은 아는 정보 (knows.apply_fold)",
+      "default": []
      }
     },
     "type": "object",
@@ -14353,7 +18608,7 @@
     "title": "CharacterVisual",
     "description": "삽화마다 똑같이 넣는 인물 외형 태그. 작가가 정하고, AI 는 덮지 않는다."
    },
-   "Chat": {
+   "Chat-Input": {
     "properties": {
      "topic": {
       "type": "string",
@@ -14361,7 +18616,28 @@
      },
      "messages": {
       "items": {
-       "$ref": "#/components/schemas/ChatMessage"
+       "$ref": "#/components/schemas/ChatMessage-Input"
+      },
+      "type": "array",
+      "title": "Messages"
+     }
+    },
+    "type": "object",
+    "required": [
+     "topic"
+    ],
+    "title": "Chat",
+    "description": "화면별 대화 기록. 플롯 화면은 'plot', 본문 부분 수정은 화마다 'text:<화>', 문체 화면은 'style', 설정 도우미는 'setup'."
+   },
+   "Chat-Output": {
+    "properties": {
+     "topic": {
+      "type": "string",
+      "title": "Topic"
+     },
+     "messages": {
+      "items": {
+       "$ref": "#/components/schemas/ChatMessage-Output"
       },
       "type": "array",
       "title": "Messages"
@@ -14478,7 +18754,7 @@
     "type": "object",
     "title": "ChatIn"
    },
-   "ChatMessage": {
+   "ChatMessage-Input": {
     "properties": {
      "role": {
       "type": "string",
@@ -14517,11 +18793,123 @@
       "description": "설정 대화: 변경안을 적용하기 전 설정 (적용 취소용)"
      },
      "plot_before": {
-      "$ref": "#/components/schemas/PlotUndo",
+      "$ref": "#/components/schemas/PlotUndo-Input",
       "description": "플롯 대화: 변경안을 적용하기 전 값 (적용 취소용)"
      },
      "plot_after": {
-      "$ref": "#/components/schemas/PlotUndo",
+      "$ref": "#/components/schemas/PlotUndo-Input",
+      "description": "플롯 대화: 변경안을 적용한 직후 값. 그 뒤에 다시 고친 부분은 취소할 때 남긴다"
+     },
+     "episode": {
+      "type": "integer",
+      "title": "Episode",
+      "description": "문체 대화: 작가가 참고하라고 고른 화",
+      "default": 0
+     },
+     "selection": {
+      "$ref": "#/components/schemas/Selection",
+      "description": "본문 부분 수정: 고친 대상"
+     },
+     "preset": {
+      "type": "string",
+      "title": "Preset",
+      "description": "본문 부분 수정: 고른 빠른 요청 (prompts.PASSAGE_PRESETS)",
+      "default": ""
+     },
+     "outcome": {
+      "type": "string",
+      "enum": [
+       "",
+       "applied",
+       "dismissed"
+      ],
+      "title": "Outcome",
+      "description": "변경안을 반영했는지, 버렸는지",
+      "default": ""
+     },
+     "applied": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Applied",
+      "description": "반영한 부분: 'acts' 구조, 'arc' 아크 칸, 'parts' 부 구성, 화 번호. 본문 수정이면 후보 번호(0부터), 문체 대화면 칸 이름, 설정 대화면 부분 id (setupchat.part_ids)"
+     },
+     "target": {
+      "type": "string",
+      "title": "Target",
+      "description": "플롯 대화: 변경안이 겨냥한 곳 (ChatScope.target, 기본이면 기록할 때의 실제 대상)",
+      "default": ""
+     },
+     "where": {
+      "type": "string",
+      "title": "Where",
+      "description": "플롯 대화: 작가가 보낼 때 보고 있던 곳 (예: 아크 3 · 승 구간 · 15화)",
+      "default": ""
+     },
+     "mode": {
+      "type": "string",
+      "title": "Mode",
+      "description": "플롯 · 설정 대화: 'options' 면 방향 여러 안을 청한 말",
+      "default": ""
+     },
+     "at": {
+      "type": "string",
+      "title": "At",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "role",
+     "text"
+    ],
+    "title": "ChatMessage"
+   },
+   "ChatMessage-Output": {
+    "properties": {
+     "role": {
+      "type": "string",
+      "enum": [
+       "user",
+       "assistant"
+      ],
+      "title": "Role"
+     },
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "revision": {
+      "$ref": "#/components/schemas/PlotRevision",
+      "description": "assistant 가 낸 플롯 변경안"
+     },
+     "passage": {
+      "$ref": "#/components/schemas/PassageRevision",
+      "description": "assistant 가 낸 본문 부분 수정 후보"
+     },
+     "style": {
+      "$ref": "#/components/schemas/StyleRevision",
+      "description": "assistant 가 낸 문체 변경안"
+     },
+     "style_before": {
+      "$ref": "#/components/schemas/StyleProfile",
+      "description": "문체 대화: 변경안을 적용하기 전 작품 문체 (적용 취소용)"
+     },
+     "setup": {
+      "$ref": "#/components/schemas/SetupRevision",
+      "description": "assistant 가 낸 설정 변경안이나 방향 여러 안"
+     },
+     "setup_before": {
+      "$ref": "#/components/schemas/SetupBefore",
+      "description": "설정 대화: 변경안을 적용하기 전 설정 (적용 취소용)"
+     },
+     "plot_before": {
+      "$ref": "#/components/schemas/PlotUndo-Output",
+      "description": "플롯 대화: 변경안을 적용하기 전 값 (적용 취소용)"
+     },
+     "plot_after": {
+      "$ref": "#/components/schemas/PlotUndo-Output",
       "description": "플롯 대화: 변경안을 적용한 직후 값. 그 뒤에 다시 고친 부분은 취소할 때 남긴다"
      },
      "episode": {
@@ -14624,6 +19012,12 @@
       "description": "넓혀 찾기를 함께 했는지",
       "default": false
      },
+     "stage": {
+      "type": "boolean",
+      "title": "Stage",
+      "description": "장면 연출 규칙 판정을 함께 넣었는지 (본문 장면이 있는 사건이 하나라도)",
+      "default": false
+     },
      "found": {
       "type": "integer",
       "title": "Found",
@@ -14705,9 +19099,9 @@
      "judge": {
       "$ref": "#/components/schemas/Backend"
      },
-     "scene": {
+     "stage": {
       "type": "boolean",
-      "title": "Scene",
+      "title": "Stage",
       "default": false
      }
     },
@@ -14890,6 +19284,15 @@
       "type": "string",
       "title": "Kind",
       "default": "plant"
+     },
+     "scope": {
+      "type": "string",
+      "title": "Scope",
+      "default": "arc"
+     },
+     "due_ep": {
+      "type": "integer",
+      "title": "Due Ep"
      }
     },
     "type": "object",
@@ -15133,6 +19536,14 @@
       "title": "Stage Presets",
       "default": []
      },
+     "local_sampling": {
+      "additionalProperties": {
+       "type": "number"
+      },
+      "type": "object",
+      "title": "Local Sampling",
+      "default": {}
+     },
      "path": {
       "type": "string",
       "title": "Path"
@@ -15172,6 +19583,7 @@
      "stage_settings",
      "stage_model_settings",
      "stage_presets",
+     "local_sampling",
      "path"
     ],
     "title": "ConfigView",
@@ -15231,6 +19643,28 @@
       "title": "Severity",
       "description": "crit: 독자가 바로 알아챌 모순이거나 뒤 화 전개를 흔듦 / mid: 눈여겨 읽으면 보이는 어긋남 / low: 사소한 세부",
       "default": "mid"
+     },
+     "origin": {
+      "enum": [
+       "ai",
+       "rule"
+      ],
+      "type": "string",
+      "title": "Origin",
+      "description": "ai: 검수 모델 / rule: 장면 연출 규칙 판정",
+      "default": "ai"
+     },
+     "stage_event": {
+      "type": "integer",
+      "title": "Stage Event",
+      "description": "규칙 지적의 플롯 사건 번호 (0부터). 장면 연출 화면 링크",
+      "default": -1
+     },
+     "stage_beat": {
+      "type": "integer",
+      "title": "Stage Beat",
+      "description": "규칙 지적의 본문 장면 박자 (1부터)",
+      "default": 0
      }
     },
     "type": "object",
@@ -15295,6 +19729,204 @@
     "type": "object",
     "title": "Conversion",
     "description": "단편에서 장편으로 바꾼 기록. 되돌릴 백업은 projects/<이름>/before-serial.json 에 따로 둔다 (store.save_backup)."
+   },
+   "Cue": {
+    "properties": {
+     "scene": {
+      "type": "integer",
+      "title": "Scene",
+      "description": "이 큐가 속한 스토리보드 장면 번호 (1부터). 스토리보드가 없으면 0",
+      "default": 0
+     },
+     "function": {
+      "type": "string",
+      "enum": [
+       "T",
+       "S",
+       "D"
+      ],
+      "title": "Function",
+      "description": "화성 기능. T 안정(기준선, 숨 고르기) · S 쌓기(정보, 갈등의 씨) · D 긴장(위기, 결정 직전)",
+      "default": "S"
+     },
+     "tension": {
+      "type": "integer",
+      "title": "Tension",
+      "description": "긴장도 1~5",
+      "default": 3
+     },
+     "tempo": {
+      "type": "string",
+      "enum": [
+       "slow",
+       "mid",
+       "fast"
+      ],
+      "title": "Tempo",
+      "description": "템포. slow 장면을 늘임 · mid · fast 사건을 몰아침",
+      "default": "mid"
+     },
+     "voice": {
+      "type": "string",
+      "enum": [
+       "dialogue",
+       "action",
+       "description",
+       "interior"
+      ],
+      "title": "Voice",
+      "description": "주로 무엇으로 쓰는지 (편성). dialogue 대사 · action 행동 · description 묘사 · interior 속생각",
+      "default": "action"
+     },
+     "beat": {
+      "type": "string",
+      "title": "Beat",
+      "description": "이 큐에서 바뀌는 일 한 줄",
+      "default": ""
+     },
+     "lines": {
+      "items": {
+       "$ref": "#/components/schemas/CueLine"
+      },
+      "type": "array",
+      "title": "Lines",
+      "description": "이 큐에 반드시 들어갈 핵심 대사 0~3개"
+     },
+     "exit": {
+      "type": "string",
+      "title": "Exit",
+      "description": "이 큐가 끝날 때의 상태. 다음 큐가 여기서 이어받는다",
+      "default": ""
+     },
+     "length": {
+      "type": "integer",
+      "title": "Length",
+      "description": "목표 글자 수",
+      "default": 0
+     }
+    },
+    "type": "object",
+    "title": "Cue",
+    "description": "큐 하나 (연주 단위). 본문 문장과 묘사는 적지 않는다. 대사는 핵심 대사만."
+   },
+   "CueEstimateIn": {
+    "properties": {
+     "conditions": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Conditions",
+      "default": []
+     }
+    },
+    "type": "object",
+    "title": "CueEstimateIn"
+   },
+   "CueLine": {
+    "properties": {
+     "speaker": {
+      "type": "string",
+      "title": "Speaker",
+      "description": "말하는 인물 id",
+      "default": ""
+     },
+     "text": {
+      "type": "string",
+      "title": "Text",
+      "description": "대사 글. 따옴표 없이",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "CueLine",
+    "description": "핵심 대사 하나. 본문에 글자 그대로 넣는다."
+   },
+   "CueSheet": {
+    "properties": {
+     "key": {
+      "type": "string",
+      "title": "Key",
+      "description": "조성: 이번 화 정서의 기준선 한 줄 (예: 억눌린 불안, 들뜬 기대)",
+      "default": ""
+     },
+     "cadence": {
+      "type": "string",
+      "enum": [
+       "full",
+       "half",
+       "deceptive"
+      ],
+      "title": "Cadence",
+      "description": "화 끝 종지. full 이 화 안에서 풀림 · half 긴장이 가장 높은 곳에서 끊음 · deceptive 풀릴 듯하다 뒤집음",
+      "default": "half"
+     },
+     "cues": {
+      "items": {
+       "$ref": "#/components/schemas/Cue"
+      },
+      "type": "array",
+      "title": "Cues",
+      "description": "큐 4~10개, 순서대로"
+     },
+     "made_at": {
+      "type": "string",
+      "title": "Made At",
+      "default": ""
+     },
+     "made_by": {
+      "enum": [
+       "ai",
+       "board",
+       "author",
+       "both"
+      ],
+      "type": "string",
+      "title": "Made By",
+      "default": "ai"
+     },
+     "basis": {
+      "type": "string",
+      "title": "Basis",
+      "description": "화에 붙인 큐 시트를 만들 때 입력의 지문 (cue.ep_basis). 지금 값과 다르면 낡은 것. 실험 시트는 비움",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "CueSheet",
+    "description": "저장 형식. 실험 파일(CueLab.sheet)과 화(Episode.cue_sheet)가 함께 쓴다."
+   },
+   "CueSheetDraft": {
+    "properties": {
+     "key": {
+      "type": "string",
+      "title": "Key",
+      "description": "조성: 이번 화 정서의 기준선 한 줄 (예: 억눌린 불안, 들뜬 기대)",
+      "default": ""
+     },
+     "cadence": {
+      "type": "string",
+      "enum": [
+       "full",
+       "half",
+       "deceptive"
+      ],
+      "title": "Cadence",
+      "description": "화 끝 종지. full 이 화 안에서 풀림 · half 긴장이 가장 높은 곳에서 끊음 · deceptive 풀릴 듯하다 뒤집음",
+      "default": "half"
+     },
+     "cues": {
+      "items": {
+       "$ref": "#/components/schemas/Cue"
+      },
+      "type": "array",
+      "title": "Cues",
+      "description": "큐 4~10개, 순서대로"
+     }
+    },
+    "type": "object",
+    "title": "CueSheetDraft",
+    "description": "LLM 응답 형식 (pipeline.make_cue_sheet)."
    },
    "Deadline": {
     "properties": {
@@ -15692,7 +20324,7 @@
     "title": "ElementLink",
     "description": "관련 화 지도의 한 화 (elements.Link). snippet 도 응답에는 늘 있다."
    },
-   "Episode": {
+   "Episode-Input": {
     "properties": {
      "plot": {
       "$ref": "#/components/schemas/EpisodePlot"
@@ -15790,6 +20422,20 @@
       "$ref": "#/components/schemas/RewriteRequest",
       "description": "지금 본문을 만든 다시 생성 요청 (처음 쓴 판이나 직접 쓴 본문이면 비움)"
      },
+     "written_by": {
+      "type": "string",
+      "title": "Written By",
+      "description": "지금 본문을 쓴 모델 '<백엔드>:<모델>' (usage.model_id), 채팅 앱에서 가져온 본문은 'import'. 모르면(옛 본문, 화면에서 붙여 넣은 본문) 비움. 작가가 고쳐도 바꾸지 않는다(고친 것은 edits). 프롬프트에 넣지 않는다",
+      "default": ""
+     },
+     "meta_cut": {
+      "items": {
+       "$ref": "#/components/schemas/MetaCut"
+      },
+      "type": "array",
+      "title": "Meta Cut",
+      "description": "지금 본문을 쓸 때 앞뒤에서 뗀 작업 설명 문단 (metatail.split). 집필 화면에서 본문에 되살리거나 지운다. 프롬프트에 넣지 않는다"
+     },
      "final_text": {
       "type": "string",
       "title": "Final Text",
@@ -15826,9 +20472,192 @@
       "title": "To Fix",
       "description": "작가가 본문에 단 '고칠 곳' 표시. 프롬프트에 넣지 않는다"
      },
+     "stage": {
+      "items": {
+       "$ref": "#/components/schemas/StageScene-Input"
+      },
+      "type": "array",
+      "title": "Stage",
+      "description": "플롯 사건마다 짠 장면 연출 (canon/stage.py). 작가 자료라 스냅샷에 넣지 않는다"
+     },
      "storyboard": {
       "$ref": "#/components/schemas/Storyboard",
       "description": "쓰기 재료: 장면 순서와 이번 화 확정 값 (pipeline.make_storyboard). 상태 승인 대상이 아니다"
+     },
+     "cue_sheet": {
+      "$ref": "#/components/schemas/CueSheet",
+      "description": "쓰기 재료: 큐 시트 (pipeline.make_cue_sheet, cue.set_episode). 쓰기 프롬프트 끝에 넣는다 (prompts.cue_write_block). 상태 승인 대상이 아니다"
+     }
+    },
+    "type": "object",
+    "required": [
+     "plot"
+    ],
+    "title": "Episode"
+   },
+   "Episode-Output": {
+    "properties": {
+     "plot": {
+      "$ref": "#/components/schemas/EpisodePlot"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "draft",
+       "confirmed",
+       "written",
+       "finalized"
+      ],
+      "title": "Status",
+      "default": "draft"
+     },
+     "text": {
+      "type": "string",
+      "title": "Text",
+      "default": ""
+     },
+     "summary": {
+      "type": "string",
+      "title": "Summary",
+      "default": ""
+     },
+     "issues": {
+      "items": {
+       "$ref": "#/components/schemas/ConsistencyIssue"
+      },
+      "type": "array",
+      "title": "Issues",
+      "description": "마지막 회차의 검수 결과 그대로. 처리 상태는 findings"
+     },
+     "checked_at": {
+      "type": "string",
+      "title": "Checked At",
+      "description": "마지막 검수 시각. 그 뒤에 본문을 고쳤으면 검수 결과가 오래된 것",
+      "default": ""
+     },
+     "findings": {
+      "items": {
+       "$ref": "#/components/schemas/Finding"
+      },
+      "type": "array",
+      "title": "Findings",
+      "description": "검수 세션의 지적 (회차를 합친 것)"
+     },
+     "rounds": {
+      "items": {
+       "$ref": "#/components/schemas/CheckRound"
+      },
+      "type": "array",
+      "title": "Rounds",
+      "description": "검수 회차 (최근 것만)"
+     },
+     "edits": {
+      "items": {
+       "$ref": "#/components/schemas/TextEdit"
+      },
+      "type": "array",
+      "title": "Edits",
+      "description": "본문 부분 수정 기록 (최근 것만)"
+     },
+     "auto": {
+      "type": "boolean",
+      "title": "Auto",
+      "description": "자동 집필이 사람 검토 없이 반영한 화. 사용자가 다시 반영하면 False",
+      "default": false
+     },
+     "hook": {
+      "$ref": "#/components/schemas/HookReport",
+      "description": "1~3화 흡입력 판정 (마지막 것). basis 가 지금 본문과 다르면 오래된 것"
+     },
+     "illustrations": {
+      "items": {
+       "$ref": "#/components/schemas/Illustration"
+      },
+      "type": "array",
+      "title": "Illustrations",
+      "description": "삽화 프롬프트 (NovelAI)"
+     },
+     "candidate": {
+      "$ref": "#/components/schemas/TextVersion",
+      "description": "다시 생성으로 나와 지금 본문과 비교해 고르기를 기다리는 새 판"
+     },
+     "versions": {
+      "items": {
+       "$ref": "#/components/schemas/TextVersion"
+      },
+      "type": "array",
+      "title": "Versions",
+      "description": "바꾸기 전 판과 고르지 않은 새 판 (최근 것만)"
+     },
+     "made_by": {
+      "$ref": "#/components/schemas/RewriteRequest",
+      "description": "지금 본문을 만든 다시 생성 요청 (처음 쓴 판이나 직접 쓴 본문이면 비움)"
+     },
+     "written_by": {
+      "type": "string",
+      "title": "Written By",
+      "description": "지금 본문을 쓴 모델 '<백엔드>:<모델>' (usage.model_id), 채팅 앱에서 가져온 본문은 'import'. 모르면(옛 본문, 화면에서 붙여 넣은 본문) 비움. 작가가 고쳐도 바꾸지 않는다(고친 것은 edits). 프롬프트에 넣지 않는다",
+      "default": ""
+     },
+     "meta_cut": {
+      "items": {
+       "$ref": "#/components/schemas/MetaCut"
+      },
+      "type": "array",
+      "title": "Meta Cut",
+      "description": "지금 본문을 쓸 때 앞뒤에서 뗀 작업 설명 문단 (metatail.split). 집필 화면에서 본문에 되살리거나 지운다. 프롬프트에 넣지 않는다"
+     },
+     "final_text": {
+      "type": "string",
+      "title": "Final Text",
+      "description": "상태 반영이 끝난 뒤 본문을 처음 고치기 직전의 본문. 지금 본문과 다르면 반영된 요약 · 상태가 고치기 전 본문 기준이다. 다시 맞추거나 그대로 두기로 하면 비운다",
+      "default": ""
+     },
+     "time": {
+      "$ref": "#/components/schemas/StoryTime",
+      "description": "이 화가 끝난 작품 속 시점. 상태 반영 때 채운다"
+     },
+     "realign": {
+      "type": "string",
+      "title": "Realign",
+      "description": "앞 화 플롯을 뒤 화에 맞추지 않고 다시 짜면서 이 화와 어긋나게 된 점. 이 화 플롯을 다시 짜거나 작가가 확인하면 비운다",
+      "default": ""
+     },
+     "opening_prev": {
+      "$ref": "#/components/schemas/EpisodePlot",
+      "description": "1~3화 여는 방식 안을 처음 고르기 전 플롯 (되돌리기용). 되돌리면 비운다"
+     },
+     "events_done": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Events Done",
+      "description": "집필 화면 플롯 띠에서 작가가 다 썼다고 체크한 사건의 글. 사건 글을 고치면 그 체크는 풀린다. 프롬프트에 넣지 않는다"
+     },
+     "to_fix": {
+      "items": {
+       "$ref": "#/components/schemas/ToFix"
+      },
+      "type": "array",
+      "title": "To Fix",
+      "description": "작가가 본문에 단 '고칠 곳' 표시. 프롬프트에 넣지 않는다"
+     },
+     "stage": {
+      "items": {
+       "$ref": "#/components/schemas/StageScene-Output"
+      },
+      "type": "array",
+      "title": "Stage",
+      "description": "플롯 사건마다 짠 장면 연출 (canon/stage.py). 작가 자료라 스냅샷에 넣지 않는다"
+     },
+     "storyboard": {
+      "$ref": "#/components/schemas/Storyboard",
+      "description": "쓰기 재료: 장면 순서와 이번 화 확정 값 (pipeline.make_storyboard). 상태 승인 대상이 아니다"
+     },
+     "cue_sheet": {
+      "$ref": "#/components/schemas/CueSheet",
+      "description": "쓰기 재료: 큐 시트 (pipeline.make_cue_sheet, cue.set_episode). 쓰기 프롬프트 끝에 넣는다 (prompts.cue_write_block). 상태 승인 대상이 아니다"
      }
     },
     "type": "object",
@@ -15893,7 +20722,7 @@
      "emotional_shift": {
       "type": "string",
       "title": "Emotional Shift",
-      "description": "주요 인물의 감정 변화가 겉으로 드러나는 행동이나 대사 (감정 이름이 아니라 보이는 것)"
+      "description": "주요 인물의 감정 변화를 '인물: 처음 → 끝 (계기)' 모양 짧은 줄로. 본문 문장으로 쓰지 않는다 (본문에 그대로 옮겨진다)"
      },
      "ending_hook": {
       "type": "string",
@@ -16119,7 +20948,7 @@
       "default": 3
      },
      "project": {
-      "$ref": "#/components/schemas/Project"
+      "$ref": "#/components/schemas/Project-Input"
      }
     },
     "type": "object",
@@ -16198,6 +21027,28 @@
       "title": "Severity",
       "description": "crit: 독자가 바로 알아챌 모순이거나 뒤 화 전개를 흔듦 / mid: 눈여겨 읽으면 보이는 어긋남 / low: 사소한 세부",
       "default": "mid"
+     },
+     "origin": {
+      "enum": [
+       "ai",
+       "rule"
+      ],
+      "type": "string",
+      "title": "Origin",
+      "description": "ai: 검수 모델 / rule: 장면 연출 규칙 판정",
+      "default": "ai"
+     },
+     "stage_event": {
+      "type": "integer",
+      "title": "Stage Event",
+      "description": "규칙 지적의 플롯 사건 번호 (0부터). 장면 연출 화면 링크",
+      "default": -1
+     },
+     "stage_beat": {
+      "type": "integer",
+      "title": "Stage Beat",
+      "description": "규칙 지적의 본문 장면 박자 (1부터)",
+      "default": 0
      },
      "id": {
       "type": "string",
@@ -17615,6 +22466,16 @@
       "title": "Conditions",
       "default": []
      },
+     "event": {
+      "type": "integer",
+      "title": "Event",
+      "default": 0
+     },
+     "stage_room": {
+      "type": "string",
+      "title": "Stage Room",
+      "default": ""
+     },
      "board": {
       "type": "string",
       "enum": [
@@ -17623,6 +22484,15 @@
        "none"
       ],
       "title": "Board",
+      "default": ""
+     },
+     "cues": {
+      "type": "string",
+      "enum": [
+       "",
+       "none"
+      ],
+      "title": "Cues",
       "default": ""
      }
     },
@@ -17662,6 +22532,87 @@
      "on"
     ],
     "title": "KeepSnapshots"
+   },
+   "KnowsFold": {
+    "properties": {
+     "character_id": {
+      "type": "string",
+      "title": "Character Id",
+      "description": "인물 id"
+     },
+     "lines": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Lines",
+      "description": "접은 뒤 남길 줄. 한 줄에 한 가지, 뒤 화에서 이 인물이 행동할 때 기준이 되는 것만"
+     }
+    },
+    "type": "object",
+    "required": [
+     "character_id",
+     "lines"
+    ],
+    "title": "KnowsFold",
+    "description": "인물 하나의 오래된 아는 정보를 접은 줄 (canon/knows.py)."
+   },
+   "KnowsFoldRecord": {
+    "properties": {
+     "arc": {
+      "type": "integer",
+      "title": "Arc"
+     },
+     "character_id": {
+      "type": "string",
+      "title": "Character Id"
+     },
+     "removed": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Removed",
+      "description": "접어서 knows 에서 뺀 줄"
+     },
+     "before": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Before",
+      "description": "접기 전 knows_folded"
+     },
+     "after": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "After",
+      "description": "접은 뒤 knows_folded"
+     }
+    },
+    "type": "object",
+    "required": [
+     "arc",
+     "character_id"
+    ],
+    "title": "KnowsFoldRecord",
+    "description": "적용한 접기 기록. 되돌리기에 쓴다."
+   },
+   "KnowsFoldSet": {
+    "properties": {
+     "folds": {
+      "items": {
+       "$ref": "#/components/schemas/KnowsFold"
+      },
+      "type": "array",
+      "title": "Folds"
+     }
+    },
+    "type": "object",
+    "title": "KnowsFoldSet",
+    "description": "아크 요약 뒤 아는 정보 접기 제안. 작가가 인물마다 골라 적용한다 (pipeline.fold_knows, knows.apply_fold)."
    },
    "LayoutIn": {
     "properties": {
@@ -17810,7 +22761,7 @@
     },
     "type": "object",
     "title": "MapFill",
-    "description": "OpenStreetMap 지도의 빈 블록 채우기 입력 (canon/fill.py). 지울 때와 다시 만들 때 쓴다."
+    "description": "OpenStreetMap 지도의 빈 블록 채우기 입력 (canon/maps/fill.py). 지울 때와 다시 만들 때 쓴다."
    },
    "MapImageIn": {
     "properties": {
@@ -17850,7 +22801,7 @@
      "spot": {
       "type": "string",
       "title": "Spot",
-      "description": "놓인 건물 · 표지 한 줄 (atlas.spot_line, 쓰기 · 검수 프롬프트의 atlas.episode_block). 핀 · 마을 데이터 · 건물을 바꿀 때 다시 쓴다",
+      "description": "놓인 건물 · 표지 한 줄 (atlas.spot_line, 쓰기 · 검수 프롬프트의 maps/prompt.spot_block). 핀 · 마을 데이터 · 건물을 바꿀 때 다시 쓴다",
       "default": ""
      }
     },
@@ -17871,7 +22822,7 @@
      "kind": {
       "type": "string",
       "title": "Kind",
-      "description": "종류 id (towngen.CATEGORIES). 비면 이름 · 설명에서 찾는다",
+      "description": "종류 id (maps/kinds.KINDS). 지도 종류의 시대와 다른 id 는 maps/kinds.to_era 로 읽는다. 비면 이름 · 설명에서 찾는다",
       "default": ""
      },
      "put": {
@@ -17974,7 +22925,7 @@
     },
     "type": "object",
     "title": "MapSpec",
-    "description": "지도 생성기 입력 (canon/towngen.py). 같은 값이면 언제나 같은 지도가 나온다."
+    "description": "지도 생성기 입력 (canon/maps/makers.py, 생성기는 canon/maps/gen/). 같은 값이면 언제나 같은 지도가 나온다."
    },
    "Meta": {
     "properties": {
@@ -18063,6 +23014,30 @@
     },
     "type": "object",
     "title": "Meta"
+   },
+   "MetaCut": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "at": {
+      "type": "string",
+      "enum": [
+       "head",
+       "tail"
+      ],
+      "title": "At",
+      "description": "본문 앞(head)에서 뗐는지 뒤(tail)에서 뗐는지. 되살릴 때 그 자리에 붙인다",
+      "default": "tail"
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "MetaCut",
+    "description": "쓰기가 본문 앞뒤에서 뗀 작업 설명 문단 하나 (metatail.split). 작가가 본문에 되살리거나 지운다. 프롬프트에 넣지 않는다."
    },
    "MetersIn": {
     "properties": {
@@ -18183,6 +23158,17 @@
     "type": "object",
     "title": "ModelParams",
     "description": "관계 역학 계수. 장르별 프리셋은 이 값을 바꾸는 방식으로 넣는다."
+   },
+   "ModelPresetIn": {
+    "properties": {
+     "preset": {
+      "type": "string",
+      "title": "Preset",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "ModelPresetIn"
    },
    "NameCheckIn": {
     "properties": {
@@ -18333,7 +23319,7 @@
       "default": false
      },
      "project": {
-      "$ref": "#/components/schemas/Project"
+      "$ref": "#/components/schemas/Project-Input"
      }
     },
     "type": "object",
@@ -19810,7 +24796,7 @@
     "title": "PlotRevision",
     "description": "플롯 대화에서 AI 가 내는 답과 변경안. 사용자가 고른 부분만 반영한다 (pipeline.apply_revision)."
    },
-   "PlotUndo": {
+   "PlotUndo-Input": {
     "properties": {
      "target_episodes": {
       "type": "integer",
@@ -19846,7 +24832,53 @@
      },
      "episodes": {
       "items": {
-       "$ref": "#/components/schemas/Episode"
+       "$ref": "#/components/schemas/Episode-Input"
+      },
+      "type": "array",
+      "title": "Episodes"
+     }
+    },
+    "type": "object",
+    "title": "PlotUndo",
+    "description": "플롯 대화 변경안을 적용하기 전이나 뒤의 값 (적용 취소용, AI 가 채우지 않는다).\nepisodes 는 적용 전이면 바뀌거나 빠진 화, 적용 뒤면 바뀐 화다. 적용 전에 없던 화(새 화)는 적용 전 쪽에 없다."
+   },
+   "PlotUndo-Output": {
+    "properties": {
+     "target_episodes": {
+      "type": "integer",
+      "title": "Target Episodes",
+      "default": 0
+     },
+     "acts": {
+      "items": {
+       "$ref": "#/components/schemas/Act"
+      },
+      "type": "array",
+      "title": "Acts",
+      "description": "단편 기승전결 구조"
+     },
+     "arc": {
+      "$ref": "#/components/schemas/StoryArc",
+      "description": "장편: 변경안이 겨냥한 아크"
+     },
+     "parts": {
+      "items": {
+       "$ref": "#/components/schemas/Part"
+      },
+      "type": "array",
+      "title": "Parts"
+     },
+     "foreshadows": {
+      "items": {
+       "$ref": "#/components/schemas/ForeshadowDue"
+      },
+      "type": "array",
+      "title": "Foreshadows",
+      "description": "아직 회수하지 않은 복선의 회수 예정 화"
+     },
+     "episodes": {
+      "items": {
+       "$ref": "#/components/schemas/Episode-Output"
       },
       "type": "array",
       "title": "Episodes"
@@ -19928,6 +24960,12 @@
       "type": "boolean",
       "title": "Stop On Board Warnings",
       "description": "AI 가 만든 스토리보드에 이번 화 플롯과 어긋남(plot_vs_state · plot_vs_text · time)이나 값 범위 경고가 있으면 멈춤. 다음 화 플롯 경고는 기록만. 작가가 고친 스토리보드로는 멈추지 않는다",
+      "default": true
+     },
+     "cue_sheet": {
+      "type": "boolean",
+      "title": "Cue Sheet",
+      "description": "화마다 쓰기 전에 큐 시트를 만들어 쓴다 (작품이 큐 시트를 쓸 때만, cue.on)",
       "default": true
      }
     },
@@ -20152,7 +25190,7 @@
     "type": "object",
     "title": "Probe"
    },
-   "Project": {
+   "Project-Input": {
     "properties": {
      "meta": {
       "$ref": "#/components/schemas/Meta"
@@ -20259,7 +25297,7 @@
      },
      "episodes": {
       "items": {
-       "$ref": "#/components/schemas/Episode"
+       "$ref": "#/components/schemas/Episode-Input"
       },
       "type": "array",
       "title": "Episodes"
@@ -20329,6 +25367,38 @@
       "title": "Setting Held",
       "description": "자동 집필이 반영하지 않고 남겨 둔 설정 바꾸기 제안. 작가가 인물 화면에서 적용하거나 버린다"
      },
+     "address_forms": {
+      "items": {
+       "$ref": "#/components/schemas/AddressForm"
+      },
+      "type": "array",
+      "title": "Address Forms",
+      "description": "인물끼리 부르는 말과 말씨 (방향마다 하나, canon/address.py)"
+     },
+     "address_log": {
+      "items": {
+       "$ref": "#/components/schemas/AddressRecord"
+      },
+      "type": "array",
+      "title": "Address Log",
+      "description": "호칭 · 말씨가 바뀐 기록 (승인한 바뀜 제안, 1화 반영 뒤 작가가 고친 것)"
+     },
+     "knows_folds": {
+      "items": {
+       "$ref": "#/components/schemas/KnowsFoldRecord"
+      },
+      "type": "array",
+      "title": "Knows Folds",
+      "description": "아는 정보를 접은 기록 (canon/knows.py)"
+     },
+     "address_held": {
+      "items": {
+       "$ref": "#/components/schemas/AddressChange"
+      },
+      "type": "array",
+      "title": "Address Held",
+      "description": "자동 집필이 반영하지 않고 남겨 둔 호칭 · 말씨 바뀜 제안. 작가가 인물 화면에서 적용하거나 버린다"
+     },
      "history": {
       "items": {
        "$ref": "#/components/schemas/StateDelta"
@@ -20375,7 +25445,7 @@
      },
      "chats": {
       "items": {
-       "$ref": "#/components/schemas/Chat"
+       "$ref": "#/components/schemas/Chat-Input"
       },
       "type": "array",
       "title": "Chats",
@@ -20383,7 +25453,7 @@
      },
      "agent_sessions": {
       "items": {
-       "$ref": "#/components/schemas/AgentSession"
+       "$ref": "#/components/schemas/AgentSession-Input"
       },
       "type": "array",
       "title": "Agent Sessions",
@@ -20402,7 +25472,7 @@
       "description": "단편에서 장편으로 바꾼 기록. 되돌리면 지운다"
      },
      "archive": {
-      "$ref": "#/components/schemas/ShortArchive",
+      "$ref": "#/components/schemas/ShortArchive-Input",
       "description": "재구성 전 단편 원고와 새 화 지도"
      },
      "storylines": {
@@ -20437,6 +25507,14 @@
       "$ref": "#/components/schemas/ReleasePlan",
       "description": "연재 일정: 일주일에 올리는 화 수와 올린 마지막 화"
      },
+     "rooms": {
+      "items": {
+       "$ref": "#/components/schemas/StageRoom"
+      },
+      "type": "array",
+      "title": "Rooms",
+      "description": "장면 연출의 방 (canon/stage.py). 여러 화 · 장면이 다시 쓴다"
+     },
      "edit_rev": {
       "type": "integer",
       "title": "Edit Rev",
@@ -20452,6 +25530,386 @@
     },
     "type": "object",
     "title": "Project"
+   },
+   "Project-Output": {
+    "properties": {
+     "meta": {
+      "$ref": "#/components/schemas/Meta"
+     },
+     "world": {
+      "$ref": "#/components/schemas/WorldSetting"
+     },
+     "characters": {
+      "items": {
+       "$ref": "#/components/schemas/Character"
+      },
+      "type": "array",
+      "title": "Characters"
+     },
+     "cast_candidates": {
+      "items": {
+       "$ref": "#/components/schemas/Character"
+      },
+      "type": "array",
+      "title": "Cast Candidates",
+      "description": "AI 플롯이 제안한 새 인물. 작가가 등록하거나 그 인물이 나오는 화를 확정하면 characters 로 옮긴다"
+     },
+     "cast_archetypes": {
+      "items": {
+       "$ref": "#/components/schemas/ArchetypePick"
+      },
+      "type": "array",
+      "title": "Cast Archetypes",
+      "description": "인물마다 원형 도감에서 고른 원형. 프롬프트에는 넣지 않는다"
+     },
+     "place_candidates": {
+      "items": {
+       "$ref": "#/components/schemas/NewPlace"
+      },
+      "type": "array",
+      "title": "Place Candidates",
+      "description": "AI 플롯이 지은 새 장소. 그 장소가 나오는 화를 확정하면 인과율 '장소' 요소로 옮긴다"
+     },
+     "relationships": {
+      "items": {
+       "$ref": "#/components/schemas/Relationship"
+      },
+      "type": "array",
+      "title": "Relationships"
+     },
+     "style": {
+      "$ref": "#/components/schemas/StyleProfile"
+     },
+     "style_baseline": {
+      "$ref": "#/components/schemas/StyleMetrics",
+      "description": "레퍼런스 원문 전체로 잰 문체 지표 (style 명령 때 저장)"
+     },
+     "style_id": {
+      "type": "string",
+      "title": "Style Id",
+      "description": "문체 라이브러리에서 가져온 항목 id. 비어 있으면 이 작품에서 직접 만든 문체",
+      "default": ""
+     },
+     "style_version": {
+      "type": "integer",
+      "title": "Style Version",
+      "description": "가져오거나 올린 라이브러리 항목의 버전 번호. 0 은 모름",
+      "default": 0
+     },
+     "style_example": {
+      "$ref": "#/components/schemas/StyleExample",
+      "description": "문체 화면의 '이 문체로 쓴 예시'"
+     },
+     "style_learning": {
+      "$ref": "#/components/schemas/StyleLearning",
+      "description": "수정 기록에서 찾은 문체 규칙 후보 (마지막 것)"
+     },
+     "arc": {
+      "items": {
+       "$ref": "#/components/schemas/Act"
+      },
+      "type": "array",
+      "title": "Arc",
+      "description": "단편: 작품 전체의 기승전결. 장편에서는 비워 두고 아크마다 기승전결을 둔다"
+     },
+     "parts": {
+      "items": {
+       "$ref": "#/components/schemas/Part"
+      },
+      "type": "array",
+      "title": "Parts",
+      "description": "장편: 부 구성"
+     },
+     "story_arcs": {
+      "items": {
+       "$ref": "#/components/schemas/StoryArc"
+      },
+      "type": "array",
+      "title": "Story Arcs",
+      "description": "장편: 지금까지 기획한 아크. 다음 아크를 하나씩 붙인다"
+     },
+     "arc_undo": {
+      "items": {
+       "$ref": "#/components/schemas/ArcUndo"
+      },
+      "type": "array",
+      "title": "Arc Undo",
+      "description": "아크마다 붙일 때 바꾼 것 (마지막 아크를 지우면 되돌린다)"
+     },
+     "episodes": {
+      "items": {
+       "$ref": "#/components/schemas/Episode-Output"
+      },
+      "type": "array",
+      "title": "Episodes"
+     },
+     "states": {
+      "items": {
+       "$ref": "#/components/schemas/CharacterState"
+      },
+      "type": "array",
+      "title": "States"
+     },
+     "facts": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Facts"
+     },
+     "foreshadows": {
+      "items": {
+       "$ref": "#/components/schemas/Foreshadow"
+      },
+      "type": "array",
+      "title": "Foreshadows"
+     },
+     "foreshadow_clues": {
+      "items": {
+       "$ref": "#/components/schemas/ForeshadowClue"
+      },
+      "type": "array",
+      "title": "Foreshadow Clues",
+      "description": "복선이 본문에 걸린 문장 (복선 센터)"
+     },
+     "stat_log": {
+      "items": {
+       "$ref": "#/components/schemas/StatRecord"
+      },
+      "type": "array",
+      "title": "Stat Log",
+      "description": "상태창 수치가 바뀐 기록"
+     },
+     "stat_window": {
+      "$ref": "#/components/schemas/StatWindow",
+      "description": "본문에 넣는 상태창 서식"
+     },
+     "abilities": {
+      "items": {
+       "$ref": "#/components/schemas/Ability"
+      },
+      "type": "array",
+      "title": "Abilities",
+      "description": "스킬 · 특성 · 칭호 도감 (canon/abilities.py)"
+     },
+     "setting_log": {
+      "items": {
+       "$ref": "#/components/schemas/SettingRecord"
+      },
+      "type": "array",
+      "title": "Setting Log",
+      "description": "인물 설정이 바뀐 기록 (승인한 설정 바꾸기 제안, 1화 반영 뒤 작가가 고친 것)"
+     },
+     "setting_held": {
+      "items": {
+       "$ref": "#/components/schemas/SettingChange"
+      },
+      "type": "array",
+      "title": "Setting Held",
+      "description": "자동 집필이 반영하지 않고 남겨 둔 설정 바꾸기 제안. 작가가 인물 화면에서 적용하거나 버린다"
+     },
+     "address_forms": {
+      "items": {
+       "$ref": "#/components/schemas/AddressForm"
+      },
+      "type": "array",
+      "title": "Address Forms",
+      "description": "인물끼리 부르는 말과 말씨 (방향마다 하나, canon/address.py)"
+     },
+     "address_log": {
+      "items": {
+       "$ref": "#/components/schemas/AddressRecord"
+      },
+      "type": "array",
+      "title": "Address Log",
+      "description": "호칭 · 말씨가 바뀐 기록 (승인한 바뀜 제안, 1화 반영 뒤 작가가 고친 것)"
+     },
+     "knows_folds": {
+      "items": {
+       "$ref": "#/components/schemas/KnowsFoldRecord"
+      },
+      "type": "array",
+      "title": "Knows Folds",
+      "description": "아는 정보를 접은 기록 (canon/knows.py)"
+     },
+     "address_held": {
+      "items": {
+       "$ref": "#/components/schemas/AddressChange"
+      },
+      "type": "array",
+      "title": "Address Held",
+      "description": "자동 집필이 반영하지 않고 남겨 둔 호칭 · 말씨 바뀜 제안. 작가가 인물 화면에서 적용하거나 버린다"
+     },
+     "history": {
+      "items": {
+       "$ref": "#/components/schemas/StateDelta"
+      },
+      "type": "array",
+      "title": "History",
+      "description": "승인된 상태 변경 기록"
+     },
+     "ties": {
+      "items": {
+       "$ref": "#/components/schemas/Tie"
+      },
+      "type": "array",
+      "title": "Ties",
+      "description": "방향 관계 (dynamics 가 계산)"
+     },
+     "secrets": {
+      "items": {
+       "$ref": "#/components/schemas/Secret"
+      },
+      "type": "array",
+      "title": "Secrets"
+     },
+     "events": {
+      "items": {
+       "$ref": "#/components/schemas/StoryEvent"
+      },
+      "type": "array",
+      "title": "Events",
+      "description": "승인된 사건 로그"
+     },
+     "params": {
+      "$ref": "#/components/schemas/ModelParams"
+     },
+     "snapshots": {
+      "items": {
+       "$ref": "#/components/schemas/Snapshot"
+      },
+      "type": "array",
+      "title": "Snapshots"
+     },
+     "settings": {
+      "$ref": "#/components/schemas/Settings"
+     },
+     "chats": {
+      "items": {
+       "$ref": "#/components/schemas/Chat-Output"
+      },
+      "type": "array",
+      "title": "Chats",
+      "description": "화면별 AI 대화 기록 (옛 단발 대화. 에이전트 세션의 '이전 대화')"
+     },
+     "agent_sessions": {
+      "items": {
+       "$ref": "#/components/schemas/AgentSession-Output"
+      },
+      "type": "array",
+      "title": "Agent Sessions",
+      "description": "대화 에이전트 세션 (canon/agent.py)"
+     },
+     "elements": {
+      "items": {
+       "$ref": "#/components/schemas/StoryElement"
+      },
+      "type": "array",
+      "title": "Elements",
+      "description": "인과율: 언제든 더하는 요소, 특징, 설정, 사건"
+     },
+     "conversion": {
+      "$ref": "#/components/schemas/Conversion",
+      "description": "단편에서 장편으로 바꾼 기록. 되돌리면 지운다"
+     },
+     "archive": {
+      "$ref": "#/components/schemas/ShortArchive-Output",
+      "description": "재구성 전 단편 원고와 새 화 지도"
+     },
+     "storylines": {
+      "items": {
+       "$ref": "#/components/schemas/Storyline"
+      },
+      "type": "array",
+      "title": "Storylines",
+      "description": "메인에서 갈라지는 이야기 줄기 (서브플롯, 과거 회상, 외전, 인물 이야기)"
+     },
+     "visuals": {
+      "items": {
+       "$ref": "#/components/schemas/CharacterVisual"
+      },
+      "type": "array",
+      "title": "Visuals",
+      "description": "삽화용 인물 외형 태그"
+     },
+     "illust": {
+      "$ref": "#/components/schemas/IllustSettings",
+      "description": "삽화 프롬프트 설정"
+     },
+     "atlas": {
+      "$ref": "#/components/schemas/Atlas",
+      "description": "지도: 장소 자리, 배경 그림, 위치 글 잇기"
+     },
+     "timeline": {
+      "$ref": "#/components/schemas/Timeline",
+      "description": "작품 속 시간: 기준 날짜와 기한"
+     },
+     "release": {
+      "$ref": "#/components/schemas/ReleasePlan",
+      "description": "연재 일정: 일주일에 올리는 화 수와 올린 마지막 화"
+     },
+     "rooms": {
+      "items": {
+       "$ref": "#/components/schemas/StageRoom"
+      },
+      "type": "array",
+      "title": "Rooms",
+      "description": "장면 연출의 방 (canon/stage.py). 여러 화 · 장면이 다시 쓴다"
+     },
+     "edit_rev": {
+      "type": "integer",
+      "title": "Edit Rev",
+      "description": "화면(브라우저 탭)이 저장한 횟수. 오래된 화면이 다른 화면의 저장을 덮지 않게 비교한다 (store.writer)",
+      "default": 0
+     },
+     "saved_by": {
+      "type": "string",
+      "title": "Saved By",
+      "description": "마지막으로 저장한 화면(브라우저 탭) id",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "Project"
+   },
+   "ProjectAlert": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "fail",
+       "result"
+      ],
+      "title": "Kind",
+      "description": "fail 멈춘 AI 작업 / result 검토를 기다리는 결과"
+     },
+     "job": {
+      "type": "string",
+      "title": "Job",
+      "description": "작업 종류 (check, write, state 등). 화면이 가서 볼 주소를 고른다"
+     },
+     "ep": {
+      "type": "integer",
+      "title": "Ep"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "error": {
+      "type": "string",
+      "title": "Error",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "kind",
+     "job",
+     "label"
+    ],
+    "title": "ProjectAlert",
+    "description": "작품 목록의 확인할 것 한 줄 (projects/<이름>/pending.json). 화면은 작품 줄의 배지와 이어 쓰기 카드에 보인다."
    },
    "ProjectCard": {
     "properties": {
@@ -20491,6 +25949,12 @@
       "type": "string",
       "title": "Open Status"
      },
+     "open_checked": {
+      "type": "boolean",
+      "title": "Open Checked",
+      "description": "다음에 할 화가 본문을 쓴 화(written)일 때 검수가 끝났는지 (findings.check_done). 화면은 검수 대기 · 상태 승인 대기를 가른다",
+      "default": false
+     },
      "updated_at": {
       "type": "string",
       "title": "Updated At"
@@ -20502,6 +25966,34 @@
      "play": {
       "$ref": "#/components/schemas/PlayCard",
       "description": "플레이 정보. 플레이 사본이 아니면 비움 (화면은 세계 작품 카드 안에 묶는다)"
+     },
+     "alerts": {
+      "items": {
+       "$ref": "#/components/schemas/ProjectAlert"
+      },
+      "type": "array",
+      "title": "Alerts",
+      "description": "멈춘 작업과 검토를 기다리는 결과. 멈춘 작업이 앞"
+     },
+     "where": {
+      "type": "string",
+      "title": "Where",
+      "description": "장편: 다음에 할 화가 든 부 · 아크 한 줄 (예: 2부 별의 바다 · 3아크 겨울 노선). 단편 · 기획 전은 비움",
+      "default": ""
+     },
+     "strip_from": {
+      "type": "integer",
+      "title": "Strip From",
+      "description": "strip 의 첫 화 번호. 띠가 없으면 0",
+      "default": 0
+     },
+     "strip": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Strip",
+      "description": "화 칸 띠: 화마다 상태(draft · confirmed · written · finalized, 플롯 없는 화는 none). 장편은 지금 아크, 단편은 전체(40화까지)"
      }
     },
     "type": "object",
@@ -20657,6 +26149,253 @@
     "title": "Recap",
     "description": "아크나 부가 끝난 뒤의 요약 제안."
    },
+   "RefCreateIn": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "source": {
+      "type": "string",
+      "title": "Source",
+      "default": ""
+     },
+     "notes": {
+      "type": "string",
+      "title": "Notes",
+      "default": ""
+     },
+     "rights": {
+      "type": "boolean",
+      "title": "Rights",
+      "default": false
+     },
+     "encoding": {
+      "type": "string",
+      "title": "Encoding",
+      "default": "utf-8"
+     },
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "rule": {
+      "type": "string",
+      "title": "Rule",
+      "default": "heading"
+     },
+     "example": {
+      "type": "string",
+      "title": "Example",
+      "default": ""
+     },
+     "unit": {
+      "type": "string",
+      "title": "Unit",
+      "default": ""
+     },
+     "common_head": {
+      "type": "string",
+      "title": "Common Head",
+      "default": ""
+     },
+     "strip_tails": {
+      "type": "boolean",
+      "title": "Strip Tails",
+      "default": true
+     },
+     "cuts": {
+      "items": {
+       "$ref": "#/components/schemas/RefCut"
+      },
+      "type": "array",
+      "title": "Cuts",
+      "default": []
+     },
+     "files": {
+      "items": {
+       "$ref": "#/components/schemas/RefFile"
+      },
+      "type": "array",
+      "title": "Files",
+      "default": []
+     }
+    },
+    "type": "object",
+    "required": [
+     "name",
+     "text"
+    ],
+    "title": "RefCreateIn"
+   },
+   "RefCut": {
+    "properties": {
+     "line": {
+      "type": "integer",
+      "title": "Line",
+      "description": "source.txt 줄 번호 (0부터)"
+     },
+     "body": {
+      "type": "integer",
+      "title": "Body",
+      "description": "본문이 시작하는 줄. 화 표시 줄을 빼면 line + 1, 나누기로 만든 경계는 line"
+     },
+     "head": {
+      "type": "string",
+      "title": "Head",
+      "description": "화 표시 줄 원문",
+      "default": ""
+     },
+     "label": {
+      "type": "string",
+      "title": "Label",
+      "description": "원고의 번호 ('12', '12-1', '외전 3', '프롤로그'). 비면 번호 없음",
+      "default": ""
+     },
+     "title": {
+      "type": "string",
+      "title": "Title",
+      "description": "화 표시에서 뗀 제목",
+      "default": ""
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "main",
+       "prologue",
+       "side",
+       "epilogue",
+       "skip"
+      ],
+      "title": "Kind",
+      "default": "main"
+     }
+    },
+    "type": "object",
+    "required": [
+     "line",
+     "body"
+    ],
+    "title": "RefCut",
+    "description": "켠 경계 하나. 이 줄부터 새 화다. 원문(source.txt)은 그대로 두고 경계만 고친다."
+   },
+   "RefFile": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "line": {
+      "type": "integer",
+      "title": "Line",
+      "default": 0
+     }
+    },
+    "type": "object",
+    "required": [
+     "name"
+    ],
+    "title": "RefFile",
+    "description": "여러 파일을 이어 넣었을 때 파일 하나가 시작하는 줄."
+   },
+   "RefPickIn": {
+    "properties": {
+     "eps": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Eps"
+     }
+    },
+    "type": "object",
+    "required": [
+     "eps"
+    ],
+    "title": "RefPickIn"
+   },
+   "RefPutIn": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "source": {
+      "type": "string",
+      "title": "Source"
+     },
+     "notes": {
+      "type": "string",
+      "title": "Notes"
+     },
+     "cuts": {
+      "items": {
+       "$ref": "#/components/schemas/RefCut"
+      },
+      "type": "array",
+      "title": "Cuts"
+     },
+     "strip_tails": {
+      "type": "boolean",
+      "title": "Strip Tails"
+     },
+     "rule": {
+      "type": "string",
+      "title": "Rule"
+     },
+     "example": {
+      "type": "string",
+      "title": "Example"
+     },
+     "unit": {
+      "type": "string",
+      "title": "Unit"
+     }
+    },
+    "type": "object",
+    "title": "RefPutIn"
+   },
+   "RefSplitIn": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "rule": {
+      "type": "string",
+      "title": "Rule",
+      "default": ""
+     },
+     "example": {
+      "type": "string",
+      "title": "Example",
+      "default": ""
+     },
+     "unit": {
+      "type": "string",
+      "title": "Unit",
+      "default": ""
+     },
+     "strip_tails": {
+      "type": "boolean",
+      "title": "Strip Tails",
+      "default": true
+     },
+     "files": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Files",
+      "default": []
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "RefSplitIn"
+   },
    "RelationPreview": {
     "properties": {
      "words": {
@@ -20731,6 +26470,12 @@
       "title": "Description",
       "default": ""
      },
+     "destination": {
+      "type": "string",
+      "title": "Destination",
+      "description": "이야기에서 이 관계가 가 닿을 곳 (예: 연인, 원수). 지금 관계는 type 에 적는다. 기획 프롬프트에만 들어간다. 상태 변경안에서는 비운다",
+      "default": ""
+     },
      "affinity": {
       "type": "integer",
       "maximum": 5.0,
@@ -20803,7 +26548,7 @@
    "Renumbered": {
     "properties": {
      "project": {
-      "$ref": "#/components/schemas/Project"
+      "$ref": "#/components/schemas/Project-Output"
      },
      "notes": {
       "items": {
@@ -20820,6 +26565,200 @@
     ],
     "title": "Renumbered",
     "description": "화를 넣거나 뺀 뒤의 작품과 무엇을 옮겼는지."
+   },
+   "RevAIIn": {
+    "properties": {
+     "stage": {
+      "type": "string",
+      "enum": [
+       "plan",
+       "write"
+      ],
+      "title": "Stage"
+     },
+     "preset": {
+      "type": "string",
+      "title": "Preset",
+      "default": ""
+     },
+     "provider": {
+      "type": "string",
+      "title": "Provider",
+      "default": ""
+     },
+     "model": {
+      "type": "string",
+      "title": "Model",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "stage"
+    ],
+    "title": "RevAIIn"
+   },
+   "RevAppendIn": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "title": "Text",
+      "default": ""
+     },
+     "ref": {
+      "type": "string",
+      "title": "Ref",
+      "default": ""
+     },
+     "eps": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Eps"
+     }
+    },
+    "type": "object",
+    "title": "RevAppendIn",
+    "description": "화 이어 붙이기: 붙여 넣은 글(text) 또는 레퍼런스 원고의 화(ref · eps 차례) 가운데 하나."
+   },
+   "RevEpisodeIn": {
+    "properties": {
+     "head": {
+      "type": "string",
+      "title": "Head",
+      "default": ""
+     },
+     "text": {
+      "type": "string",
+      "title": "Text"
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "RevEpisodeIn"
+   },
+   "RevEstimateIn": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "parse",
+       "write",
+       "style"
+      ],
+      "title": "Kind",
+      "default": "parse"
+     },
+     "episodes": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Episodes",
+      "default": []
+     },
+     "style": {
+      "type": "boolean",
+      "title": "Style",
+      "default": false
+     }
+    },
+    "type": "object",
+    "title": "RevEstimateIn"
+   },
+   "RevIn": {
+    "properties": {
+     "title": {
+      "type": "string",
+      "title": "Title",
+      "default": ""
+     },
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "first": {
+      "type": "integer",
+      "title": "First"
+     }
+    },
+    "type": "object",
+    "title": "RevIn"
+   },
+   "RevJobIn": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "parse",
+       "write",
+       "style"
+      ],
+      "title": "Kind"
+     },
+     "episodes": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Episodes",
+      "default": []
+     },
+     "style": {
+      "type": "boolean",
+      "title": "Style",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "kind"
+    ],
+    "title": "RevJobIn"
+   },
+   "RevPickIn": {
+    "properties": {
+     "choice": {
+      "type": "integer",
+      "title": "Choice"
+     },
+     "take": {
+      "type": "integer",
+      "title": "Take"
+     }
+    },
+    "type": "object",
+    "required": [
+     "choice"
+    ],
+    "title": "RevPickIn"
+   },
+   "RevSplitIn": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "title": "Text"
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "RevSplitIn"
+   },
+   "RevStyleNoteIn": {
+    "properties": {
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "RevStyleNoteIn"
    },
    "ReworkIn": {
     "properties": {
@@ -21370,7 +27309,7 @@
     "properties": {
      "sessions": {
       "items": {
-       "$ref": "#/components/schemas/AgentSession"
+       "$ref": "#/components/schemas/AgentSession-Output"
       },
       "type": "array",
       "title": "Sessions"
@@ -21520,16 +27459,33 @@
       "description": "장편 검수 넓히기: 검수 뒤 진술마다 옛 화를 더 찾아, 첫 검수에 없던 근거가 나온 진술만 다시 묻는다 (검수 호출 2번 더)",
       "default": false
      },
+     "stage_extract": {
+      "type": "boolean",
+      "title": "Stage Extract",
+      "description": "검수 때 본문에서 장면 연출을 함께 뽑는다 (계획 장면이 있는 사건마다 check 호출 1번 더, 본문이 그대로인 사건은 건너뜀)",
+      "default": true
+     },
      "storyboard": {
       "type": "boolean",
       "title": "Storyboard",
       "description": "화마다 쓰기 전에 스토리보드를 만들고, 쓰기 프롬프트에 직전 화 본문 전체를 넣는다. 비우면 장편 켬 · 단편 끔 (board.on)"
+     },
+     "cue_sheet": {
+      "type": "boolean",
+      "title": "Cue Sheet",
+      "description": "화마다 쓰기 전에 큐 시트(큐마다 기능 · 긴장 · 템포 · 편성 · 핵심 대사 · 분량)를 만들어 쓰기 프롬프트 끝에 넣는다. 비우면 장편 켬 · 단편 끔 (cue.on)"
      },
      "keep_snapshots": {
       "type": "boolean",
       "title": "Keep Snapshots",
       "description": "장편에서도 화별 스냅샷을 지우지 않고 모두 남긴다 (연구용 작품: 어느 화로든 되돌릴 수 있다). 끄면 0화 · 아크 끝 · 최근 20화만 남긴다 (pipeline.prune_snapshots)",
       "default": false
+     },
+     "model_preset": {
+      "type": "string",
+      "title": "Model Preset",
+      "description": "이 작품이 쓰는 단계 프리셋 id (settings.presets: 단계별 백엔드 · 모델 묶음). 비우면 전체 설정을 따른다. 고른 프리셋이 지워졌으면 전체 설정을 따른다 (settings.project_preset)",
+      "default": ""
      }
     },
     "type": "object",
@@ -21789,11 +27745,54 @@
     "title": "SetupSuggestion",
     "description": "설정 도우미: 사용자가 채운 기본 정보를 바탕으로 빈칸을 제안."
    },
-   "ShortArchive": {
+   "ShortArchive-Input": {
     "properties": {
      "episodes": {
       "items": {
-       "$ref": "#/components/schemas/Episode"
+       "$ref": "#/components/schemas/Episode-Input"
+      },
+      "type": "array",
+      "title": "Episodes"
+     },
+     "arc": {
+      "items": {
+       "$ref": "#/components/schemas/Act"
+      },
+      "type": "array",
+      "title": "Arc"
+     },
+     "history": {
+      "items": {
+       "$ref": "#/components/schemas/StateDelta"
+      },
+      "type": "array",
+      "title": "History"
+     },
+     "map": {
+      "items": {
+       "$ref": "#/components/schemas/RebuildEpisode"
+      },
+      "type": "array",
+      "title": "Map",
+      "description": "새 화 → 옛 화 지도"
+     },
+     "dropped": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Dropped"
+     }
+    },
+    "type": "object",
+    "title": "ShortArchive",
+    "description": "재구성 전 단편. 새로 쓰는 화의 원고 재료와, 그대로 둔 화의 옛 상태 변경안 재사용에 쓴다."
+   },
+   "ShortArchive-Output": {
+    "properties": {
+     "episodes": {
+      "items": {
+       "$ref": "#/components/schemas/Episode-Output"
       },
       "type": "array",
       "title": "Episodes"
@@ -21907,6 +27906,253 @@
     ],
     "title": "Snapshot",
     "description": "n화 상태 반영 직후의 상태. revert 와 추세 계산에 쓴다. episode 0 은 1화 시작 전."
+   },
+   "SoeCheckIn": {
+    "properties": {
+     "hit": {
+      "type": "string",
+      "title": "Hit"
+     },
+     "ok": {
+      "type": "string",
+      "enum": [
+       "yes",
+       "no",
+       "skip"
+      ],
+      "title": "Ok"
+     }
+    },
+    "type": "object",
+    "required": [
+     "hit",
+     "ok"
+    ],
+    "title": "SoeCheckIn"
+   },
+   "SoeCollectIn": {
+    "properties": {
+     "sources": {
+      "items": {
+       "$ref": "#/components/schemas/SoeSourceIn"
+      },
+      "type": "array",
+      "title": "Sources"
+     }
+    },
+    "type": "object",
+    "required": [
+     "sources"
+    ],
+    "title": "SoeCollectIn"
+   },
+   "SoeJudgeIn": {
+    "properties": {
+     "piece": {
+      "type": "string",
+      "title": "Piece"
+     },
+     "verdict": {
+      "type": "string",
+      "enum": [
+       "ai",
+       "human",
+       "unsure"
+      ],
+      "title": "Verdict"
+     },
+     "spans": {
+      "items": {
+       "$ref": "#/components/schemas/SoeSpanIn"
+      },
+      "type": "array",
+      "title": "Spans",
+      "default": []
+     },
+     "clean": {
+      "type": "boolean",
+      "title": "Clean",
+      "default": false
+     },
+     "seconds": {
+      "type": "integer",
+      "title": "Seconds",
+      "default": 0
+     }
+    },
+    "type": "object",
+    "required": [
+     "piece",
+     "verdict"
+    ],
+    "title": "SoeJudgeIn"
+   },
+   "SoeOriginIn": {
+    "properties": {
+     "origin": {
+      "type": "string",
+      "enum": [
+       "human",
+       "ai",
+       "unknown"
+      ],
+      "title": "Origin"
+     },
+     "model": {
+      "type": "string",
+      "enum": [
+       "claude",
+       "gemini",
+       "other",
+       ""
+      ],
+      "title": "Model",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "origin"
+    ],
+    "title": "SoeOriginIn"
+   },
+   "SoeSourceIn": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "revlab",
+       "episode",
+       "edit",
+       "research",
+       "paste"
+      ],
+      "title": "Kind"
+     },
+     "lab": {
+      "type": "integer",
+      "title": "Lab",
+      "default": 0
+     },
+     "project": {
+      "type": "string",
+      "title": "Project",
+      "default": ""
+     },
+     "first": {
+      "type": "integer",
+      "title": "First",
+      "default": 0
+     },
+     "last": {
+      "type": "integer",
+      "title": "Last",
+      "default": 0
+     },
+     "path": {
+      "type": "string",
+      "title": "Path",
+      "default": ""
+     },
+     "genre": {
+      "type": "string",
+      "enum": [
+       "webnovel",
+       "literary",
+       "other",
+       ""
+      ],
+      "title": "Genre",
+      "default": ""
+     },
+     "text": {
+      "type": "string",
+      "title": "Text",
+      "default": ""
+     },
+     "title": {
+      "type": "string",
+      "title": "Title",
+      "default": ""
+     },
+     "origin": {
+      "type": "string",
+      "enum": [
+       "human",
+       "ai",
+       "unknown"
+      ],
+      "title": "Origin",
+      "default": "human"
+     },
+     "model": {
+      "type": "string",
+      "enum": [
+       "claude",
+       "gemini",
+       "other",
+       ""
+      ],
+      "title": "Model",
+      "default": ""
+     },
+     "known": {
+      "type": "boolean",
+      "title": "Known",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "kind"
+    ],
+    "title": "SoeSourceIn"
+   },
+   "SoeSpanIn": {
+    "properties": {
+     "start": {
+      "type": "integer",
+      "title": "Start"
+     },
+     "end": {
+      "type": "integer",
+      "title": "End"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "start",
+     "end",
+     "kind"
+    ],
+    "title": "SoeSpanIn"
+   },
+   "SoeStateIn": {
+    "properties": {
+     "goal": {
+      "type": "integer",
+      "title": "Goal"
+     },
+     "stopped": {
+      "type": "boolean",
+      "title": "Stopped"
+     },
+     "seen": {
+      "type": "integer",
+      "title": "Seen"
+     }
+    },
+    "type": "object",
+    "title": "SoeStateIn"
    },
    "SortApplyIn": {
     "properties": {
@@ -22044,6 +28290,194 @@
     "title": "SpeechKit",
     "description": "말투 틀: 어미 · 호칭 규칙과 대사 한 줄."
    },
+   "StageAnchor": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind",
+      "description": "bed · door · window · desk · chair · sofa · table · wall · seat · vehicle · landmark · ground · other (stage.ANCHOR_KINDS)",
+      "default": "other"
+     },
+     "x": {
+      "type": "number",
+      "title": "X",
+      "default": 0
+     },
+     "y": {
+      "type": "number",
+      "title": "Y",
+      "default": 0
+     },
+     "w": {
+      "type": "number",
+      "title": "W",
+      "default": 0.5
+     },
+     "h": {
+      "type": "number",
+      "title": "H",
+      "default": 0.5
+     },
+     "rot": {
+      "type": "integer",
+      "title": "Rot",
+      "description": "앞쪽 방향: 0 아래(+y) · 90 왼쪽 · 180 위 · 270 오른쪽 (평면도 기준)",
+      "default": 0
+     },
+     "sit": {
+      "type": "boolean",
+      "title": "Sit",
+      "default": false
+     },
+     "lie": {
+      "type": "boolean",
+      "title": "Lie",
+      "default": false
+     },
+     "parent": {
+      "type": "string",
+      "title": "Parent",
+      "description": "붙은 곳: 기준점 id, 방 벽이면 'room'. 비면 붙지 않음 (stage.resolve). 붙으면 x · y · w · h · rot 는 부모 기준이다",
+      "default": ""
+     },
+     "face": {
+      "type": "string",
+      "title": "Face",
+      "description": "붙은 면: 기준점이면 inside · top · front · back · left · right, 방 벽이면 n · e · s · w (stage.FACES · WALLS)",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name"
+    ],
+    "title": "StageAnchor",
+    "description": "방 안의 기준점: 가구 · 문 · 창. 자리 단위는 m, 방 왼쪽 위가 0."
+   },
+   "StageApplyIn": {
+    "properties": {
+     "event": {
+      "type": "integer",
+      "title": "Event"
+     },
+     "role": {
+      "type": "string",
+      "enum": [
+       "plan",
+       "text"
+      ],
+      "title": "Role",
+      "default": "plan"
+     },
+     "shared": {
+      "type": "boolean",
+      "title": "Shared",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "event"
+    ],
+    "title": "StageApplyIn"
+   },
+   "StageBeat": {
+    "properties": {
+     "quote": {
+      "type": "string",
+      "title": "Quote",
+      "description": "본문 문장 원문 (쓰기 전에는 빈칸)",
+      "default": ""
+     },
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "description": "작가 한 줄 설명",
+      "default": ""
+     },
+     "bodies": {
+      "items": {
+       "$ref": "#/components/schemas/StageBody"
+      },
+      "type": "array",
+      "title": "Bodies",
+      "description": "바뀐 인물만"
+     }
+    },
+    "type": "object",
+    "title": "StageBeat"
+   },
+   "StageBody": {
+    "properties": {
+     "who": {
+      "type": "string",
+      "title": "Who",
+      "description": "인물 id"
+     },
+     "at": {
+      "$ref": "#/components/schemas/StageSpot"
+     },
+     "posture": {
+      "type": "string",
+      "title": "Posture",
+      "description": "자세 id (stage.POSTURES)",
+      "default": ""
+     },
+     "facing": {
+      "type": "string",
+      "title": "Facing",
+      "description": "8방향(n ne e se s sw w nw), '@' + 인물 id, '#' + 기준점 id",
+      "default": ""
+     },
+     "left": {
+      "type": "string",
+      "title": "Left",
+      "description": "왼손에 쥔 것. 빈칸은 빈손, '?' 는 모름, None 은 앞 그대로"
+     },
+     "right": {
+      "type": "string",
+      "title": "Right",
+      "description": "오른손에 쥔 것 (left 와 같은 규칙)"
+     },
+     "contacts": {
+      "items": {
+       "$ref": "#/components/schemas/StageContact"
+      },
+      "type": "array",
+      "title": "Contacts",
+      "description": "이 박자에 새로 시작한 접촉"
+     },
+     "ends": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Ends",
+      "description": "이 박자에 끝난 접촉 id"
+     },
+     "memo": {
+      "type": "string",
+      "title": "Memo",
+      "description": "고정 목록 밖의 것",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "who"
+    ],
+    "title": "StageBody",
+    "description": "한 인물의 상태. 시작 상태는 모든 칸, 박자는 바뀐 칸만 (None · 빈칸은 앞 그대로)."
+   },
    "StageConfig": {
     "properties": {
      "provider": {
@@ -22083,6 +28517,43 @@
     "title": "StageConfig",
     "description": "단계 하나가 지금 쓰는 백엔드와 모델 (settings.public 의 stages)."
    },
+   "StageContact": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "by": {
+      "type": "string",
+      "title": "By",
+      "description": "left · right · both, 또는 손 아닌 부위 id (stage.PARTS)"
+     },
+     "to": {
+      "type": "string",
+      "title": "To",
+      "description": "닿는 인물 id"
+     },
+     "part": {
+      "type": "string",
+      "title": "Part",
+      "description": "닿는 부위 id (stage.PARTS)"
+     },
+     "act": {
+      "type": "string",
+      "title": "Act",
+      "description": "접촉 동작 id (stage.ACTS)"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "by",
+     "to",
+     "part",
+     "act"
+    ],
+    "title": "StageContact"
+   },
    "StageIn": {
     "properties": {
      "backend": {
@@ -22104,6 +28575,48 @@
      "stage"
     ],
     "title": "StageIn"
+   },
+   "StageNewIn": {
+    "properties": {
+     "event": {
+      "type": "integer",
+      "title": "Event"
+     },
+     "room": {
+      "type": "string",
+      "title": "Room",
+      "default": ""
+     },
+     "template": {
+      "type": "string",
+      "title": "Template",
+      "default": ""
+     },
+     "room_name": {
+      "type": "string",
+      "title": "Room Name",
+      "default": ""
+     },
+     "place": {
+      "type": "string",
+      "title": "Place",
+      "default": ""
+     },
+     "role": {
+      "type": "string",
+      "enum": [
+       "plan",
+       "text"
+      ],
+      "title": "Role",
+      "default": "plan"
+     }
+    },
+    "type": "object",
+    "required": [
+     "event"
+    ],
+    "title": "StageNewIn"
    },
    "StagePreset": {
     "properties": {
@@ -22144,6 +28657,299 @@
     ],
     "title": "StagePreset",
     "description": "단계별 백엔드 · 모델 묶음 (settings.presets). builtin 이면 기본 묶음이라 지울 수 없다."
+   },
+   "StageRoom": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "place": {
+      "type": "string",
+      "title": "Place",
+      "description": "지도 장소 이름 (atlas.places). 비면 장면 전용 방",
+      "default": ""
+     },
+     "template": {
+      "type": "string",
+      "title": "Template",
+      "description": "고른 틀 id (stage.ROOMS)",
+      "default": ""
+     },
+     "w": {
+      "type": "number",
+      "title": "W",
+      "default": 4.0
+     },
+     "h": {
+      "type": "number",
+      "title": "H",
+      "default": 3.0
+     },
+     "anchors": {
+      "items": {
+       "$ref": "#/components/schemas/StageAnchor"
+      },
+      "type": "array",
+      "title": "Anchors"
+     },
+     "attached": {
+      "type": "boolean",
+      "title": "Attached",
+      "description": "옛 방의 붙은 곳 짐작(stage.attach_guess)을 마친 방",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name"
+    ],
+    "title": "StageRoom",
+    "description": "장면이 벌어지는 방. 지도 장소에 묶으면 여러 장면이 다시 쓴다."
+   },
+   "StageSaveIn": {
+    "properties": {
+     "scene": {
+      "$ref": "#/components/schemas/StageScene-Input"
+     },
+     "room": {
+      "$ref": "#/components/schemas/StageRoom"
+     }
+    },
+    "type": "object",
+    "required": [
+     "scene"
+    ],
+    "title": "StageSaveIn"
+   },
+   "StageScene-Input": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "event": {
+      "type": "integer",
+      "title": "Event",
+      "description": "플롯 사건 번호 (0부터)",
+      "default": 0
+     },
+     "event_text": {
+      "type": "string",
+      "title": "Event Text",
+      "description": "사건 글 사본. 사건을 찾을 때 번호보다 먼저 본다 (stage.find_event)",
+      "default": ""
+     },
+     "room": {
+      "type": "string",
+      "title": "Room",
+      "description": "StageRoom.id",
+      "default": ""
+     },
+     "cast": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Cast",
+      "description": "인물 id"
+     },
+     "start": {
+      "items": {
+       "$ref": "#/components/schemas/StageBody"
+      },
+      "type": "array",
+      "title": "Start",
+      "description": "시작 상태: 인물마다 모든 칸"
+     },
+     "beats": {
+      "items": {
+       "$ref": "#/components/schemas/StageBeat"
+      },
+      "type": "array",
+      "title": "Beats"
+     },
+     "source": {
+      "type": "string",
+      "enum": [
+       "manual",
+       "plot",
+       "text"
+      ],
+      "title": "Source",
+      "description": "마지막으로 통째 적용한 출처: 작가 · 플롯 초안 · 본문 추출",
+      "default": "manual"
+     },
+     "basis": {
+      "type": "string",
+      "title": "Basis",
+      "description": "본문에서 뽑았을 때 본문 지문 (pipeline.text_basis)",
+      "default": ""
+     },
+     "prompt": {
+      "type": "boolean",
+      "title": "Prompt",
+      "description": "쓰기 프롬프트에 넣기",
+      "default": true
+     },
+     "role": {
+      "type": "string",
+      "enum": [
+       "plan",
+       "text"
+      ],
+      "title": "Role",
+      "description": "계획 장면(쓰기 전 작가가 짠 것) · 본문 장면(본문에서 뽑은 것). 한 사건에 역할마다 하나",
+      "default": "plan"
+     },
+     "prev": {
+      "$ref": "#/components/schemas/StageScene-Input",
+      "description": "마지막 AI 적용 전 장면 (적용 취소 한 번)"
+     },
+     "room_prev": {
+      "$ref": "#/components/schemas/StageRoom",
+      "description": "마지막 AI 적용이 기준점을 더한 공용 방의 적용 전 모습 (적용 취소가 되돌린다)"
+     },
+     "room_made": {
+      "type": "string",
+      "title": "Room Made",
+      "description": "마지막 AI 적용이 새로 만든 방 id (적용 취소 때 다른 장면이 쓰지 않으면 뺀다)",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "id"
+    ],
+    "title": "StageScene",
+    "description": "플롯 사건 하나의 장면 연출."
+   },
+   "StageScene-Output": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "event": {
+      "type": "integer",
+      "title": "Event",
+      "description": "플롯 사건 번호 (0부터)",
+      "default": 0
+     },
+     "event_text": {
+      "type": "string",
+      "title": "Event Text",
+      "description": "사건 글 사본. 사건을 찾을 때 번호보다 먼저 본다 (stage.find_event)",
+      "default": ""
+     },
+     "room": {
+      "type": "string",
+      "title": "Room",
+      "description": "StageRoom.id",
+      "default": ""
+     },
+     "cast": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Cast",
+      "description": "인물 id"
+     },
+     "start": {
+      "items": {
+       "$ref": "#/components/schemas/StageBody"
+      },
+      "type": "array",
+      "title": "Start",
+      "description": "시작 상태: 인물마다 모든 칸"
+     },
+     "beats": {
+      "items": {
+       "$ref": "#/components/schemas/StageBeat"
+      },
+      "type": "array",
+      "title": "Beats"
+     },
+     "source": {
+      "type": "string",
+      "enum": [
+       "manual",
+       "plot",
+       "text"
+      ],
+      "title": "Source",
+      "description": "마지막으로 통째 적용한 출처: 작가 · 플롯 초안 · 본문 추출",
+      "default": "manual"
+     },
+     "basis": {
+      "type": "string",
+      "title": "Basis",
+      "description": "본문에서 뽑았을 때 본문 지문 (pipeline.text_basis)",
+      "default": ""
+     },
+     "prompt": {
+      "type": "boolean",
+      "title": "Prompt",
+      "description": "쓰기 프롬프트에 넣기",
+      "default": true
+     },
+     "role": {
+      "type": "string",
+      "enum": [
+       "plan",
+       "text"
+      ],
+      "title": "Role",
+      "description": "계획 장면(쓰기 전 작가가 짠 것) · 본문 장면(본문에서 뽑은 것). 한 사건에 역할마다 하나",
+      "default": "plan"
+     },
+     "prev": {
+      "$ref": "#/components/schemas/StageScene-Output",
+      "description": "마지막 AI 적용 전 장면 (적용 취소 한 번)"
+     },
+     "room_prev": {
+      "$ref": "#/components/schemas/StageRoom",
+      "description": "마지막 AI 적용이 기준점을 더한 공용 방의 적용 전 모습 (적용 취소가 되돌린다)"
+     },
+     "room_made": {
+      "type": "string",
+      "title": "Room Made",
+      "description": "마지막 AI 적용이 새로 만든 방 id (적용 취소 때 다른 장면이 쓰지 않으면 뺀다)",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "required": [
+     "id"
+    ],
+    "title": "StageScene",
+    "description": "플롯 사건 하나의 장면 연출."
+   },
+   "StageSpot": {
+    "properties": {
+     "ref": {
+      "type": "string",
+      "title": "Ref",
+      "description": "기준점 id, 또는 '@' + 인물 id"
+     },
+     "rel": {
+      "type": "string",
+      "title": "Rel",
+      "description": "on · in · front · back · left · right · beside (stage.RELS)",
+      "default": "beside"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ref"
+    ],
+    "title": "StageSpot"
    },
    "StartView": {
     "properties": {
@@ -22297,6 +29103,24 @@
     "type": "object",
     "title": "StatInitSuggestion",
     "description": "1화 전 상태창 처음 수치 제안 (pipeline.suggest_initial_stats). 작가가 인물마다 골라 적용한다."
+   },
+   "StatPromptIn": {
+    "properties": {
+     "mode": {
+      "type": "string",
+      "enum": [
+       "json",
+       "lines",
+       "none"
+      ],
+      "title": "Mode"
+     }
+    },
+    "type": "object",
+    "required": [
+     "mode"
+    ],
+    "title": "StatPromptIn"
    },
    "StatRecord": {
     "properties": {
@@ -22766,6 +29590,14 @@
       "title": "Setting Changes",
       "description": "인물 설정(외모, 성격, 말투 등)이 뒤 화까지 이어지게 바뀐 칸만. 대부분의 화는 비어 있다"
      },
+     "address_changes": {
+      "items": {
+       "$ref": "#/components/schemas/AddressChange"
+      },
+      "type": "array",
+      "title": "Address Changes",
+      "description": "인물끼리 부르는 말이나 말씨(존댓말 · 반말)가 뒤 화까지 이어지게 바뀐 방향만. 대부분의 화는 비어 있다"
+     },
      "time": {
       "$ref": "#/components/schemas/StoryTime",
       "description": "이번 화가 끝난 작품 속 시점"
@@ -22793,6 +29625,24 @@
       "type": "array",
       "title": "Warnings",
       "description": "플롯, 설정, 말투와 어긋난 부분"
+     },
+     "cast_added": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Cast Added",
+      "description": "반영하면 그 화 등장 인물(EpisodePlot.characters)에 붙일 인물 id: 본문에 이름이 나오고 이 변경안이 상태나 관계 사건을 다룬 인물",
+      "default": []
+     },
+     "rel_flagged": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Rel Flagged",
+      "description": "relationship_updates 가운데 유형 · 설명의 극성이 반영 뒤 관계 단계와 반대인 것의 차례",
+      "default": []
      }
     },
     "type": "object",
@@ -23317,6 +30167,12 @@
       "title": "Checks",
       "description": "Canon 이 센 경고 (값 범위). AI 가 쓰지 않는다",
       "default": []
+     },
+     "skipped": {
+      "type": "boolean",
+      "title": "Skipped",
+      "description": "지금 본문을 이 스토리보드 없이 썼다. 검수가 깨지 않을 것(protect)을 대조하지 않는다",
+      "default": false
      }
     },
     "type": "object",
@@ -23798,6 +30654,16 @@
       "type": "string",
       "title": "Note",
       "default": ""
+     },
+     "ref": {
+      "type": "string",
+      "title": "Ref",
+      "default": ""
+     },
+     "ref_eps": {
+      "type": "string",
+      "title": "Ref Eps",
+      "default": ""
      }
     },
     "type": "object",
@@ -23843,7 +30709,7 @@
       "$ref": "#/components/schemas/StyleSummary"
      },
      "project": {
-      "$ref": "#/components/schemas/Project"
+      "$ref": "#/components/schemas/Project-Output"
      }
     },
     "type": "object",
@@ -24621,6 +31487,20 @@
      "request": {
       "$ref": "#/components/schemas/RewriteRequest",
       "description": "이 판을 만든 다시 생성 요청 (처음 쓴 판이면 비움)"
+     },
+     "model": {
+      "type": "string",
+      "title": "Model",
+      "description": "이 판을 쓴 모델 (Episode.written_by 와 같은 모양). 모르면 비움. 프롬프트에 넣지 않는다",
+      "default": ""
+     },
+     "meta_cut": {
+      "items": {
+       "$ref": "#/components/schemas/MetaCut"
+      },
+      "type": "array",
+      "title": "Meta Cut",
+      "description": "이 판을 쓸 때 앞뒤에서 뗀 작업 설명 문단. 판을 고르면 Episode.meta_cut 으로 따라간다"
      }
     },
     "type": "object",
@@ -24689,6 +31569,12 @@
       ],
       "title": "Stage",
       "default": "낯섦"
+     },
+     "stage_since": {
+      "type": "integer",
+      "title": "Stage Since",
+      "description": "이 단계에 들어온 화. 0 은 1화 시작 전부터거나 모름 (dynamics.run_episode 가 적고 replay 가 다시 채운다)",
+      "default": 0
      }
     },
     "type": "object",
@@ -24880,6 +31766,19 @@
     "title": "TimelineRow",
     "description": "화 하나의 시점: 플롯의 시점(plan), 끝난 시점(time), 날수를 아는 앞 화에서 지난 날(gap)."
    },
+   "TimelineSetting": {
+    "properties": {
+     "on": {
+      "type": "boolean",
+      "title": "On"
+     }
+    },
+    "type": "object",
+    "required": [
+     "on"
+    ],
+    "title": "TimelineSetting"
+   },
    "TimelineView": {
     "properties": {
      "day": {
@@ -25046,6 +31945,86 @@
     "title": "ToneDials",
     "description": "톤을 양 끝 사이에서 고른 값. 0 은 고르지 않음, 1~4 는 왼쪽 끝에서 오른쪽 끝."
    },
+   "Transit": {
+    "properties": {
+     "stations": {
+      "items": {
+       "$ref": "#/components/schemas/TransitStation"
+      },
+      "type": "array",
+      "title": "Stations"
+     },
+     "lines": {
+      "items": {
+       "$ref": "#/components/schemas/TransitLine"
+      },
+      "type": "array",
+      "title": "Lines"
+     }
+    },
+    "type": "object",
+    "title": "Transit",
+    "description": "지도 데이터의 지하철(osm 의 transit 키)을 작품에 적어 둔 사본. 상태 변경안 정리 · 프롬프트처럼 작품 폴더를 모르는 곳에서\n이동 시간 검사(travel.py)가 읽는다. 지도 파일을 놓거나 바꿀 때 atlas.fill_spots 가 다시 쓴다."
+   },
+   "TransitLine": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name",
+      "default": ""
+     },
+     "stations": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Stations",
+      "description": "TransitStation 번호를 노선 차례로"
+     },
+     "gaps": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Gaps",
+      "description": "stations[i] 와 stations[i+1] 사이에 파일에 없는 역 수. 비면 모두 0"
+     }
+    },
+    "type": "object",
+    "title": "TransitLine",
+    "description": "지하철 노선 하나: 지도 데이터에 든 역을 차례로. 방향이 다른 relation 은 하나로 묶었다."
+   },
+   "TransitStation": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name",
+      "description": "역 이름 (OpenStreetMap name 태그 그대로)",
+      "default": ""
+     },
+     "x": {
+      "type": "number",
+      "title": "X",
+      "default": 0
+     },
+     "y": {
+      "type": "number",
+      "title": "Y",
+      "default": 0
+     },
+     "lines": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Lines",
+      "description": "이 역을 지나는 노선 이름"
+     }
+    },
+    "type": "object",
+    "title": "TransitStation",
+    "description": "지하철 역 하나 (지도 데이터 transit.stations 의 사본). x · y 는 지도 비율이고 지도 밖 역은 0~1 밖일 수 있다."
+   },
    "TravelIn": {
     "properties": {
      "enabled": {
@@ -25111,7 +32090,7 @@
      "mode": {
       "type": "string",
       "title": "Mode",
-      "description": "이 세계에서 인물이 쓰는 가장 빠른 탈것 (travel.MODES 의 id)",
+      "description": "이 세계에서 인물이 쓰는 가장 빠른 탈것 (travel.MODES 의 id). transit(대중교통)은 걸어서와 지하철(Atlas.transit) 가운데 빠른 쪽",
       "default": "horse"
      },
      "kmh": {
@@ -25137,7 +32116,7 @@
     },
     "type": "object",
     "title": "TravelSetting",
-    "description": "이동 시간 검사 설정 (canon/travel.py). 지도 거리와 작품 속 시간을 견줘 너무 빠른 이동을 찾는다."
+    "description": "이동 시간 검사 설정 (canon/maps/travel.py). 지도 거리와 작품 속 시간을 견줘 너무 빠른 이동을 찾는다."
    },
    "TurnIn": {
     "properties": {
@@ -25844,7 +32823,7 @@
     "title": "WriteItem",
     "description": "바로 쓴 것 한 부분. key 는 'parts' · 'arc' · 'acts' · 'draft'(다음 아크 초안) · 화 번호."
    },
-   "WriteRecord": {
+   "WriteRecord-Input": {
     "properties": {
      "tool": {
       "type": "string",
@@ -25869,10 +32848,45 @@
       "title": "Items"
      },
      "before": {
-      "$ref": "#/components/schemas/PlotUndo"
+      "$ref": "#/components/schemas/PlotUndo-Input"
      },
      "after": {
-      "$ref": "#/components/schemas/PlotUndo"
+      "$ref": "#/components/schemas/PlotUndo-Input"
+     }
+    },
+    "type": "object",
+    "title": "WriteRecord",
+    "description": "한 번에 쓴 것. 되돌리기는 before · after 로 지금 값이 쓴 직후 값과 같은 부분만 돌린다 (pipeline.plot_undo)."
+   },
+   "WriteRecord-Output": {
+    "properties": {
+     "tool": {
+      "type": "string",
+      "title": "Tool",
+      "default": "edit_plot"
+     },
+     "target": {
+      "type": "string",
+      "title": "Target",
+      "description": "ChatScope.target: 쓸 때의 대상",
+      "default": ""
+     },
+     "revision": {
+      "$ref": "#/components/schemas/PlotRevision",
+      "description": "쓴 부분이 들어 있는 변경안 (다음 아크 초안을 화면에 놓을 때 쓴다)"
+     },
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/WriteItem"
+      },
+      "type": "array",
+      "title": "Items"
+     },
+     "before": {
+      "$ref": "#/components/schemas/PlotUndo-Output"
+     },
+     "after": {
+      "$ref": "#/components/schemas/PlotUndo-Output"
      }
     },
     "type": "object",

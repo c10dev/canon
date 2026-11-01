@@ -4489,10 +4489,26 @@ def rev_put(lab_id: int, body: RevIn) -> dict:
     return _rev_edit(lab_id, lambda lab: revlab.replace_text(lab, body.title, body.text, body.first))
 
 
+class RevAppendIn(BaseModel):
+    """화 이어 붙이기: 붙여 넣은 글(text) 또는 레퍼런스 원고의 화(ref · eps 차례) 가운데 하나."""
+    text: str = ""
+    ref: str = ""
+    eps: list[int] = Field(default_factory=list)
+
+
 @app.post("/api/revlab/{lab_id}/episodes")
-def rev_append(lab_id: int, body: RevSplitIn) -> dict:
-    """글을 나눠 마지막 화 뒤에 잇는다 (앞 화의 역설계 결과는 그대로). AI 를 부르지 않는다."""
-    return _rev_edit(lab_id, lambda lab: revlab.append_text(lab, body.text))
+def rev_append(lab_id: int, body: RevAppendIn) -> dict:
+    """글을 나눠, 또는 레퍼런스 원고에서 고른 화를 마지막 화 뒤에 잇는다 (앞 화의 역설계 결과는 그대로). AI 를 부르지 않는다.
+    원고 화는 다시 나누지 않고, 이미 이 실험에 있는 화는 뺀다 (refs.to_lab). 응답은 실험 화면 값에 added · skipped 를 더한다."""
+    if bool(body.text.strip()) == bool(body.ref):
+        raise HTTPException(400, "붙여 넣은 글이나 레퍼런스 원고 가운데 하나만 보내세요")
+    if not body.ref:
+        return _rev_edit(lab_id, lambda lab: revlab.append_text(lab, body.text))
+    _rev(lab_id)
+    if not body.eps:
+        raise HTTPException(400, "이어 붙일 화를 고르세요")
+    lab, out = refs.to_lab(_ref_id(body.ref), body.eps, lab_id)
+    return {**revlab.view(lab), **out}
 
 
 class RevEpisodeIn(BaseModel):
