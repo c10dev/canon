@@ -646,8 +646,6 @@ def to_revlab(rid: str, orders: list[int]) -> int:
     from . import revlab
     b = load(rid)
     chosen = pick(b, orders)
-    if len(chosen) > revlab.MAX_EPISODES:
-        raise ValueError(f"{len(chosen)}화를 골랐어요. 한 실험에 {revlab.MAX_EPISODES}화까지 넣을 수 있어요")
     first = int(chosen[0]["num"]) if chosen[0]["num"].isdigit() else None
     lab = revlab.create_episodes(f"{b.name} {span(chosen)}", chosen, first)
     made(rid, "revlab", str(lab.id), span(chosen))
@@ -676,6 +674,7 @@ def _stats(rows: list[dict]) -> dict:
 
 
 def labels() -> dict:
+    from . import revlab
     return {"rules": [{"key": k, "label": v} for k, v in RULES.items()], "kinds": [{"key": k, "label": v} for k, v in KINDS.items()],
             "flags": FLAGS, "warn": sorted(WARN), "max_chars": MAX_CHARS, "max_cuts": MAX_CUTS, "sample_max": SAMPLE_MAX,
-            "units": UNIT_ORDER}
+            "units": UNIT_ORDER, "revlab_max_chars": revlab.MAX_CHARS}
