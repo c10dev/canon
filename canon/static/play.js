@@ -900,8 +900,8 @@ Object.assign(actions, {
     toast(focus ? `초점을 '${focus}'(으)로 바꿨어요. 다음 구간부터 따라요` : '초점을 AI가 정하게 했어요');
     playDraw();
   },
-  playEnd() {
-    if (!confirm('플레이를 끝낼까요? 도는 쓰기는 멈춰요. 되감으면 다시 이어 갈 수 있어요')) return;
+  async playEnd() {
+    if (!(await askConfirm('플레이를 끝낼까요? 도는 쓰기는 멈춰요. 되감으면 다시 이어 갈 수 있어요', { ok: '끝내기' }))) return;
     run('끝내는 중', async () => {
       playSet(await api('POST', `/projects/${enc(S.playName)}/play/end`, { reason: '' }));
       location.hash = `#/play/${enc(S.playName)}/life`;

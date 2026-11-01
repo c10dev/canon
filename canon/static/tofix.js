@@ -307,10 +307,10 @@ Object.assign(actions, {
     const { n, id } = tofixArg(arg);
     tofixCall('PUT', n, `/${enc(id)}`, { status: 'open' }, '다시 남음으로 바꿨어요');
   },
-  tofixDelete(arg) {
+  async tofixDelete(arg) {
     const { n, id } = tofixArg(arg);
     const m = (ep(n).to_fix || []).find((x) => x.id === id);
-    if (m && m.note && !confirm('메모가 있는 고칠 곳이에요. 지울까요?')) return;
+    if (m && m.note && !(await askConfirm('메모가 있는 고칠 곳이에요. 지울까요?', { ok: '지우기', danger: true }))) return;
     tofixCall('DELETE', n, `/${enc(id)}`, undefined, '지웠어요');
   },
   tofixFilter(k) {

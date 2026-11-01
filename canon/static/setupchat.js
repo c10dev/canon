@@ -183,7 +183,7 @@ Object.assign(actions, {
   },
   async setupChatUndo(i) {
     i = Number(i);
-    if (!confirm(`이 변경안 적용을 취소할까요? 적용한 칸을 적용하기 전으로 돌려요. 그 뒤에 다시 고친 칸과 이미 플롯이나 관계에 쓰이는 새 인물은 그대로 둬요.${S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : ''}`)) return;
+    if (!(await askConfirm(`이 변경안 적용을 취소할까요? 적용한 칸을 적용하기 전으로 돌려요. 그 뒤에 다시 고친 칸과 이미 플롯이나 관계에 쓰이는 새 인물은 그대로 둬요.${S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : ''}`, { ok: '적용 취소', cancel: '닫기', danger: true }))) return;
     const m = chatMessages('setup')[i];
     const base = m.setup_before || P();
     await run('적용을 취소하는 중', async () => {

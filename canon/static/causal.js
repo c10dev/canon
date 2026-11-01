@@ -475,7 +475,7 @@ Object.assign(actions, {
   async causalDelete(id) {
     const el = causalEl(id || S.causalSel);
     // 지우기는 바로 저장한다. 다른 화면에서 고친 저장 안 한 변경도 함께 저장되므로 그 사실을 알린다
-    if (!el || !confirm(`'${el.name || '이름 없음'}' 요소를 지울까요? 이미 반영한 플롯과 본문은 그대로예요.${S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : ''} 지운 뒤 이 화면에서 바로 되살릴 수 있어요.`)) return;
+    if (!el || !(await askConfirm(`'${el.name || '이름 없음'}' 요소를 지울까요? 이미 반영한 플롯과 본문은 그대로예요.${S.dirty ? ' 저장하지 않은 다른 변경도 함께 저장해요.' : ''} 지운 뒤 이 화면에서 바로 되살릴 수 있어요.`, { ok: '지우기', danger: true }))) return;
     const gone = structuredClone(el);
     P().elements = P().elements.filter((x) => x.id !== el.id);
     if (await run('지우는 중', async () => { await save(); await causalLoad(); })) S.causalGone = gone;

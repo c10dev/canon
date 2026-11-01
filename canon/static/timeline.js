@@ -530,7 +530,7 @@ Object.assign(actions, {
   async tlReopen(id) { await tlPut({ ...tlFind(id), done_ep: 0 }, '기한을 다시 열었어요'); },
   async tlDrop(id) {
     const d = tlFind(id);
-    if (!confirm(`'${d.what}' 기한을 지울까요? 되돌리기 기록에서도 지워져요.`)) return;
+    if (!(await askConfirm(`'${d.what}' 기한을 지울까요? 되돌리기 기록에서도 지워져요.`, { ok: '지우기', danger: true }))) return;
     await run('기한 지우는 중', async () => {
       await saveIfDirty();
       S.project = await api('DELETE', `/projects/${enc(S.name)}/timeline/deadlines/${enc(id)}`);

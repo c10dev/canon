@@ -95,7 +95,7 @@ Object.assign(actions, {
   },
   async addrDrop(i) {
     const x = (P().address_held || [])[i];
-    if (x && !confirm(`${charName(x.speaker)} → ${charName(x.listener)} 호칭 · 말씨 바뀜 제안을 버릴까요?`)) return;
+    if (x && !(await askConfirm(`${charName(x.speaker)} → ${charName(x.listener)} 호칭 · 말씨 바뀜 제안을 버릴까요?`, { ok: '버리기', danger: true }))) return;
     await run('버리는 중', async () => {
       await saveIfDirty();
       S.project = await api('DELETE', `/projects/${enc(S.name)}/address-held/${i}`);

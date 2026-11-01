@@ -567,7 +567,7 @@ Object.assign(actions, {
   async voiceAI(cid) {
     const c = P().characters.find((x) => x.id === cid);
     if (!c) return;
-    if ((c.narration_voice || '').trim() && !confirm('지금 적힌 서술 말투를 AI 초안으로 바꿀까요? 저장하기 전에는 되돌릴 수 있어요')) return;
+    if ((c.narration_voice || '').trim() && !(await askConfirm('지금 적힌 서술 말투를 AI 초안으로 바꿀까요? 저장하기 전에는 되돌릴 수 있어요', { ok: '바꾸기' }))) return;
     await run('서술 말투 초안 만드는 중', async () => {
       await saveIfDirty();  // AI는 저장된 인물 설정을 읽는다. 방금 고친 설정이나 새 인물도 보게 먼저 저장한다
       const req = document.getElementById(`voice-req-${cid}`);
@@ -698,7 +698,7 @@ Object.assign(actions, {
   },
   async rsCompare() {
     const n = S.rs.compareEp;
-    if (S.rs.compare && !S.rs.compare.picked && !confirm(`${n}화의 고르지 않은 비교본을 새로 쓴 것으로 바꿀까요?`)) return;
+    if (S.rs.compare && !S.rs.compare.picked && !(await askConfirm(`${n}화의 고르지 않은 비교본을 새로 쓴 것으로 바꿀까요?`, { ok: '바꾸기', danger: true }))) return;
     await run(`${n}화를 두 백엔드로 쓰는 중… (몇 분 걸릴 수 있어요)`, async () => {
       S.rs.compare = (await api('POST', `/projects/${enc(S.name)}/research/compare/${n}`,
         { a: rsBackend(S.rs.compareA), b: rsBackend(S.rs.compareB) })).compare;
@@ -709,7 +709,7 @@ Object.assign(actions, {
   async rsPickDraft(k) {
     const n = S.rs.compareEp;
     const adopt = S.rs.adopt && ep(n).status !== 'finalized';  // 반영이 끝난 화는 고른 기록만 남긴다
-    if (adopt && ep(n).text && !confirm(`${k}번을 ${n}화 본문으로 바꿀까요?`)) return;
+    if (adopt && ep(n).text && !(await askConfirm(`${k}번을 ${n}화 본문으로 바꿀까요?`, { ok: '바꾸기' }))) return;
     await run('공개하는 중', async () => {
       await saveIfDirty();
       const r = await api('POST', `/projects/${enc(S.name)}/research/compare/${n}/pick`, { k, adopt });

@@ -1,6 +1,6 @@
 """node 대조 시험 공용 하네스: canon/static/*.js 를 vm 하나에 차례로 읽고, 식 하나를 돌려 JSON 으로 받는다.
 화면 파일이 맨 위에서 거는 브라우저 전역(document, window, localStorage …)은 무엇을 불러도 조용히 넘어가는 대역으로 둔다.
-식 안에서 S.project = data.project 처럼 data 로 상태를 넣는다."""
+식 안에서 S.project = data.project 처럼 data 로 상태를 넣는다. 식이 Promise 면 풀린 값을 받는다."""
 import json
 import shutil
 import subprocess
@@ -24,7 +24,8 @@ const ctx = { data, console, structuredClone, document: any, window: any, localS
   location: any, history: any, matchMedia: any, fetch: any, setInterval() {}, setTimeout() {}, clearTimeout() {}, requestAnimationFrame() {} };
 vm.createContext(ctx);
 for (const f of process.argv.slice(2)) vm.runInContext(fs.readFileSync(f, 'utf8'), ctx, { filename: f });
-process.stdout.write(JSON.stringify(vm.runInContext(process.argv[1], ctx)));
+// 식이 Promise 를 돌려주면(async 함수 시험) 풀린 값을 쓴다
+Promise.resolve(vm.runInContext(process.argv[1], ctx)).then((v) => process.stdout.write(JSON.stringify(v)));
 """
 
 

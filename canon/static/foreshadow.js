@@ -759,8 +759,8 @@ Object.assign(actions, {
     fsCall('회수로 표시하는 중', 'POST', `/${enc(id)}/resolve`, { episode: n });
   },
   fsReopen(id) { fsCall('다시 여는 중', 'POST', `/${enc(id)}/reopen`); },
-  fsDelete(id) {
-    if (!confirm('이 복선과 걸어 둔 문장을 모두 지울까요? 플롯의 회수 계획에서도 빠져요.')) return;
+  async fsDelete(id) {
+    if (!(await askConfirm('이 복선과 걸어 둔 문장을 모두 지울까요? 플롯의 회수 계획에서도 빠져요.', { ok: '지우기', danger: true }))) return;
     if (S.fsSel === id) location.hash = fsHref('');
     fsCall('지우는 중', 'DELETE', `/${enc(id)}`);
   },

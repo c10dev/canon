@@ -669,7 +669,7 @@ Object.assign(actions, {
   },
   async setKeyClear(kind) {
     const name = { gemini: 'Gemini API 키', anthropic: 'Anthropic API 키' }[kind];
-    if (!name || !confirm(`저장된 ${name}를 지울까요?`)) return;
+    if (!name || !(await askConfirm(`저장된 ${name}를 지울까요?`, { ok: '지우기', danger: true }))) return;
     await setSave(kind === 'gemini' ? 'gemini-key' : 'anthropic-key', kind === 'gemini' ? { clear_key: true } : { clear_anthropic_key: true }, '키를 지웠어요');
   },
   async setSeg(arg) {
@@ -713,7 +713,7 @@ Object.assign(actions, {
     const name = el ? el.value.trim() : '';
     if (!name) { setNote('preset-save', '프리셋 이름을 적어 주세요', 'err'); el?.focus(); return; }
     const c = S.config || {};
-    if ((c.stage_presets || []).some((x) => !x.builtin && x.name === name) && !confirm(`'${name}' 프리셋을 지금 단계 칸으로 바꿀까요?`)) return;
+    if ((c.stage_presets || []).some((x) => !x.builtin && x.name === name) && !(await askConfirm(`'${name}' 프리셋을 지금 단계 칸으로 바꿀까요?`, { ok: '바꾸기', danger: true }))) return;
     setNote('preset-save', '저장하는 중…');
     try {
       const r = await api('POST', '/config/presets', { name, stages: c.stage_settings || {}, stage_models: c.stage_model_settings || {} });
@@ -727,7 +727,7 @@ Object.assign(actions, {
   },
   async setPresetDelete(id) {
     const pre = ((S.config || {}).stage_presets || []).find((x) => x.id === String(id));
-    if (!pre || pre.builtin || !confirm(`'${pre.name}' 프리셋을 지울까요? 지금 단계 설정은 그대로예요. 이 프리셋을 고른 작품은 전체 설정을 따라요.`)) return;
+    if (!pre || pre.builtin || !(await askConfirm(`'${pre.name}' 프리셋을 지울까요? 지금 단계 설정은 그대로예요. 이 프리셋을 고른 작품은 전체 설정을 따라요.`, { ok: '지우기', danger: true }))) return;
     try {
       const r = await api('DELETE', `/config/presets/${encodeURIComponent(pre.id)}`);
       S.config.stage_presets = r.stage_presets;

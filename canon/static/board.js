@@ -208,7 +208,7 @@ function boardToggle() {
 Object.assign(actions, {
   async boardMake(n) {
     const e = ep(n);
-    if (e.storyboard && e.storyboard.made_by !== 'ai' && !confirm('작가가 고친 스토리보드예요. 새로 만들면 고친 내용이 사라져요. 다시 만들까요?')) return;
+    if (e.storyboard && e.storyboard.made_by !== 'ai' && !(await askConfirm('작가가 고친 스토리보드예요. 새로 만들면 고친 내용이 사라져요. 다시 만들까요?', { ok: '다시 만들기', danger: true }))) return;
     S.boardEdit = null;
     await startJob('board', Number(n));
   },
@@ -246,7 +246,7 @@ Object.assign(actions, {
     });
   },
   async boardDrop(n) {
-    if (!confirm(`${n}화 스토리보드를 지울까요?`)) return;
+    if (!(await askConfirm(`${n}화 스토리보드를 지울까요?`, { ok: '지우기', danger: true }))) return;
     await run('스토리보드 지우는 중', async () => {
       await saveIfDirty();
       S.project = await api('DELETE', `/projects/${enc(S.name)}/episodes/${n}/storyboard`);

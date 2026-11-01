@@ -463,12 +463,12 @@ Object.assign(actions, {
       return;
     }
     const free = S.priceRows.filter((r) => r.model.trim() && (!(r.input > 0) || !(r.output > 0))).map((r) => r.model.trim());
-    if (free.length && !confirm(`${free.join(', ')}의 입력이나 출력 가격이 0원이에요. 비용이 0원으로 계산돼요. 이대로 저장할까요?`)) return;
+    if (free.length && !(await askConfirm(`${free.join(', ')}의 입력이나 출력 가격이 0원이에요. 비용이 0원으로 계산돼요. 이대로 저장할까요?`, { ok: '저장하기' }))) return;
     const rows = S.priceRows.filter((r) => r.model.trim()).map(({ custom, current, upcoming, ...r }) => r);
     await priceSend('가격표 저장하는 중', () => api('PUT', '/usage/prices', { rows }), '가격표를 저장했어요. 비용을 다시 계산했어요');
   },
   async priceReset() {
-    if (!confirm('고친 가격을 모두 지우고 기본 가격표로 되돌릴까요?')) return;
+    if (!(await askConfirm('고친 가격을 모두 지우고 기본 가격표로 되돌릴까요?', { ok: '되돌리기', danger: true }))) return;
     await priceSend('되돌리는 중', () => api('DELETE', '/usage/prices'), '기본 가격표로 되돌렸어요');
   },
 });

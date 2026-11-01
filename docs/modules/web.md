@@ -43,6 +43,11 @@
 - 입력 바인딩(`data-bind`)
 - 공통 동작(`actions` 의 저장 · 되돌리기 · 작품 관리)
 - 펼침 메뉴(`menuBtn`, 열린 메뉴 `S.popMenu`, Esc · 바깥 누르기로 닫기)와 `#app` 밖 대화상자(`showDialog`)
+- 확인 대화상자 `askConfirm`(Promise<boolean>) · `askText`(Promise<string|null>): 브라우저 `confirm` · `prompt` 대신 쓴다(디자인 시스템 Dialog)
+- 확인 대화상자를 부르는 동작은 `async` 로 두고 `await` 로 답을 기다린다
+- `confirmDrop` · `confirmRedraft` 도 Promise 를 돌려준다
+- 화면 이동 확인(저장하지 않은 변경): 묻는 동안 주소를 이전 주소로 되돌려 두고, 이동을 고르면 새 주소로 바꿔 이어 간다
+- 화면 파일에 브라우저 `confirm` · `prompt` 가 남지 않았는지 `tests/test_ask_js.py` 가 본다
 - 라우팅
 - 사이드바
 - 다시 그리기와 포커스

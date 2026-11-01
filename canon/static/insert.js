@@ -127,7 +127,7 @@ async function delLast(n, keepPlot) {
   }
   if (e.text) parts.push(`본문 ${e.text.length.toLocaleString()}자와 수정 기록 · 이전 판 · 삽화 프롬프트를 지워요.`);
   parts.push(keepPlot ? '플롯은 확정된 채로 남아 다시 쓸 수 있어요.' : `플롯도 빼고${ep(n + 1) ? ' 뒤 화를 한 칸씩 당기고' : ''} 총 화수가 1 줄어요.`);
-  if (!confirm(`${n}화 '${e.plot.title || '제목 없음'}'을(를) 지울까요?\n\n${parts.join('\n')}\n\n지우기 전 작품은 백업 파일로 남지만 화면에서 되돌릴 수는 없어요.`)) return;
+  if (!(await askConfirm(`${n}화 '${e.plot.title || '제목 없음'}'을(를) 지울까요?\n\n${parts.join('\n')}\n\n지우기 전 작품은 백업 파일로 남지만 화면에서 되돌릴 수는 없어요.`, { ok: '지우기', danger: true }))) return;
   await run('화를 지우는 중', async () => {
     await saveIfDirty();
     const r = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/delete`, { keep_plot: keepPlot });
@@ -192,7 +192,7 @@ Object.assign(actions, {
     lines.push(moved.length ? `뒤 화가 한 칸씩 당겨져 ${moved[0]}~${moved[moved.length - 1]}화가 ${moved[0] - 1}~${moved[moved.length - 1] - 1}화가 돼요. 구간 · 아크 범위와 복선 · 인과율 요소 · 이야기 줄기의 화 번호도 함께 옮겨요.`
       : '마지막 화라 당겨지는 화는 없어요.');
     lines.push('뺀 화의 플롯은 되돌릴 수 없어요.');
-    if (!confirm(lines.join('\n'))) return;
+    if (!(await askConfirm(lines.join('\n'), { ok: '빼기', danger: true }))) return;
     const ok = await run('화를 빼는 중', async () => {
       await saveIfDirty();
       const r = await api('DELETE', `/projects/${enc(S.name)}/episodes/${n}`);
