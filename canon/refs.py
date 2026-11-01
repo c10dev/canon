@@ -32,6 +32,8 @@ LONG_TIMES = 3  # 평균의 이 배수를 넘으면 '아주 김'
 DUP_GAP = 200  # 같은 번호 화 표시 사이 글이 이보다 짧으면 반복 머리 (목차 줄 · 제목 한 번 더)
 TOC_GAP = 50  # 화 표시 사이 글이 이보다 짧은 줄이 TOC_RUN 개 넘게 이어지면 목차
 TOC_RUN = 10
+RUN_MIN = 3  # 번호가 다시 시작한 뒤 이만큼 이어 올라야 새 줄기로 본다
+RUN_STEP = 3  # 새 줄기에서 다음 번호까지 허락하는 건너뜀 (번호 빠짐 몇 개)
 COMMON_MIN = 3  # 숫자 앞 글이 같은 화 표시 줄이 이만큼 있으면 공통 머리로 본다
 TAIL_FROM = 0.6  # 작가의 말 줄은 화의 이 비율 뒤에 있을 때만 뗀다
 SAMPLE_MAX = 30_000  # 문체 만들기에 넘기는 원문 글자 수 (revlab.STYLE_CHARS 와 같은 값)
@@ -49,7 +51,7 @@ UNIT_ORDER = ["화", "회", "편", "話", "EP", "Chapter", "장"]
 _OPEN = r"[\s#\[【〈《<(\-=*]*"
 _CLOSE = r"[\]】〉》>)]*"
 _SEP = r"(?:\s*[.:：\-—)]\s*|\s+|$)"
-SUFFIX_RE = re.compile(rf"^{_OPEN}(?P<pre>.*?)(?:[제第]\s*)?(?P<num>\d{{1,4}})(?:\s*-\s*(?P<sub>\d{{1,2}}))?\s*(?P<unit>화|회|편|話|장)"
+SUFFIX_RE = re.compile(rf"^{_OPEN}(?P<pre>.*?)(?:[제第]\s*)?(?<!\d)(?P<num>\d{{1,5}})(?:\s*-\s*(?P<sub>\d{{1,2}}))?\s*(?P<unit>화|회|편|話|장)"
                        rf"(?:\s*\(\s*(?P<part>\d{{1,2}})\s*\)|\s*(?P<half>[상중하])(?=\W|$))?\s*{_CLOSE}{_SEP}(?P<title>.*)$")
 PREFIX_RE = re.compile(rf"^{_OPEN}(?P<pre>.*?)(?P<unit>episode|chapter|ep|ch)\s*\.?\s*(?P<num>\d{{1,4}})(?:\s*-\s*(?P<sub>\d{{1,2}}))?\s*{_CLOSE}{_SEP}(?P<title>.*)$",
                        re.IGNORECASE)
@@ -78,6 +80,28 @@ def _key(pre: str) -> str:
     return re.sub(r"\d+", "#", re.sub(r"[\s\[\]【】〈〉《》<>()#\-=*.:：]+", "", pre))
 
 
+PAIRS = {"]": "[", "】": "【", "〉": "〈", "》": "《", ">": "<", ")": "("}
+
+
+def _title(t: str) -> str:
+    """제목에서 화 표시 전체를 감싼 괄호의 닫는 쪽을 뗀다 ('< EP.1 : 시작 >' → '시작'). 제목 안에서 열린 괄호는 둔다."""
+    t = t.strip()
+    while t and t[-1] in PAIRS and t.count(PAIRS[t[-1]]) < t.count(t[-1]):
+        t = t[:-1].rstrip()
+    return t
+
+
+def _special(c: dict) -> dict:
+    """번호 화 표시의 제목이 특수 화 이름뿐이면('EP.0 : 프롤로그') 그 종류로 본다. 0화면 이름표도 그 이름이다."""
+    word = re.sub(r"\s+", " ", c["title"]).lower()
+    kind = SPECIAL.get(word, SPECIAL.get(word.replace(" ", "")))
+    if kind and c["kind"] == "main":
+        c["kind"] = kind
+        if not c["num"]:
+            c["word"] = c["title"]
+    return c
+
+
 def _parse(line: str) -> Optional[dict]:
     """줄 하나를 화 표시 후보로 읽는다. 아니면 None. 값: unit · num · sub · title · kind · pre(공통 머리 비교용)."""
     if not line.strip() or len(line) > HEAD_MAX:
@@ -87,17 +111,17 @@ def _parse(line: str) -> Optional[dict]:
         pre = m.group("pre")
         side = bool(SIDE_RE.search(pre))
         sub = m.group("sub") or m.group("part") or m.group("half") or ""
-        return {"unit": m.group("unit"), "num": int(m.group("num")), "sub": sub, "title": m.group("title").strip(),
-                "kind": "side" if side else "main", "pre": SIDE_RE.sub("", pre)}
+        return _special({"unit": m.group("unit"), "num": int(m.group("num")), "sub": sub, "title": _title(m.group("title")),
+                         "kind": "side" if side else "main", "pre": SIDE_RE.sub("", pre)})
     m = PREFIX_RE.match(line)
     if m and not m.group("pre").strip()[-1:].isalpha():  # 'deep 3' 같은 영어 낱말 끝은 아니다
-        return {"unit": PREFIX_UNITS[m.group("unit").lower()], "num": int(m.group("num")), "sub": m.group("sub") or "",
-                "title": m.group("title").strip(), "kind": "main", "pre": m.group("pre")}
+        return _special({"unit": PREFIX_UNITS[m.group("unit").lower()], "num": int(m.group("num")), "sub": m.group("sub") or "",
+                         "title": _title(m.group("title")), "kind": "main", "pre": m.group("pre")})
     m = SPECIAL_RE.match(line)
     if m:
         word = re.sub(r"\s+", " ", m.group("word").lower())
         kind = SPECIAL.get(word, SPECIAL.get(word.replace(" ", ""), "side"))
-        return {"unit": "", "num": int(m.group("num")) if m.group("num") else 0, "sub": "", "title": m.group("title").strip(),
+        return {"unit": "", "num": int(m.group("num")) if m.group("num") else 0, "sub": "", "title": _title(m.group("title")),
                 "kind": kind, "pre": m.group("pre"), "word": m.group("word")}
     return None
 
@@ -130,6 +154,31 @@ def _lis(keys: list[tuple]) -> set[int]:
     return out
 
 
+def _runs(cs: list[dict]) -> list[list[dict]]:
+    """번호가 처음부터 다시 시작하는 자리(2부 1화, 한 파일에 이은 2권)에서 줄을 나눈다.
+    번호가 앞 두 줄보다 작거나 같고, 그 줄부터 RUN_MIN 개 넘게 번호가 이어 오르면 새 줄기다.
+    앞 두 줄을 보는 것은 3화 본문 속 '9화' 한 줄 뒤의 4화를 새 줄기로 잘못 보지 않게 하려는 것이다.
+    이어 오르지 않는 줄은 앞 줄기에 남아 번호 줄기 밖(본문 속 언급)이 된다."""
+    out: list[list[dict]] = [[]]
+    for i, c in enumerate(cs):
+        last = out[-1][-1] if out[-1] else None
+        before = out[-1][-2] if len(out[-1]) > 1 else None
+        if last is not None and c["num"] < last["num"] and (before is None or c["num"] <= before["num"]):
+            k, prev = 1, c["num"]
+            for x in cs[i + 1:]:
+                if not prev < x["num"] <= prev + RUN_STEP:
+                    break
+                k, prev = k + 1, x["num"]
+            if k >= RUN_MIN:
+                out.append([])
+        out[-1].append(c)
+    return out
+
+
+def _chain_len(cs: list[dict]) -> int:
+    return sum(len(_lis([(c["num"], _sub_key(c["sub"])) for c in run])) for run in _runs(cs))
+
+
 def _sub_key(sub: str) -> int:
     return {"상": 1, "중": 2, "하": 3}.get(sub, int(sub) if sub.isdigit() else 0)
 
@@ -142,8 +191,8 @@ def candidates(lines: list[str], rule: str = "heading", example: str = "", unit:
         for i, ln in enumerate(lines):
             m = pat.match(ln) if ln.strip() and len(ln) <= HEAD_MAX else None
             if m:
-                found.append({"line": i, "unit": "custom", "num": int(m.group("num")), "sub": "", "title": m.group("title").strip(),
-                              "kind": "main", "head": ln.strip()})
+                found.append(_special({"line": i, "unit": "custom", "num": int(m.group("num")), "sub": "", "title": _title(m.group("title")),
+                                       "kind": "main", "head": ln.strip()}))
         return {"cuts": found, "unit": "custom", "alts": [], "common_head": ""}
     raw = []
     for i, ln in enumerate(lines):
@@ -163,7 +212,7 @@ def candidates(lines: list[str], rule: str = "heading", example: str = "", unit:
     for c in raw:
         if c["unit"]:
             by_unit.setdefault(c["unit"], []).append(c)
-    chain_len = {u: len(_lis([(c["num"], _sub_key(c["sub"])) for c in cs if c["kind"] == "main"])) for u, cs in by_unit.items()}
+    chain_len = {u: _chain_len([c for c in cs if c["kind"] == "main"]) for u, cs in by_unit.items()}
     order = sorted(by_unit, key=lambda u: (-chain_len[u], UNIT_ORDER.index(u)))
     pick = unit if unit in by_unit else (order[0] if order else "")
     alts = [{"unit": u, "count": len(by_unit[u])} for u in order if u != pick]
@@ -218,24 +267,27 @@ def _mark(cuts: list[dict], files: list[int]) -> None:
     for c in cuts:
         if c["on"] and c["kind"] in ("main", "side") and c["num"]:
             groups.setdefault((seg_of(c["line"]), c["kind"]), []).append(c)
-    for (seg, _), cs in groups.items():
-        chain = _lis([(c["num"], _sub_key(c["sub"])) for c in cs])
-        if len(cs) >= 3:
-            for i, c in enumerate(cs):
-                if i not in chain:
-                    c["on"], c["flags"] = False, c["flags"] + ["mention"]
-        kept = [c for c in cs if c["on"]]
-        if seg and kept and kept[0]["num"] == 1 and any(x["num"] > 1 for g in groups.values() for x in g if seg_of(x["line"]) < seg):
-            kept[0]["flags"].append("restart")
-        for a, b in zip(kept, kept[1:]):
-            if b["num"] == a["num"] and b["sub"] == a["sub"]:
-                a["flags"].append("dup")
-                b["flags"].append("dup")
-            elif b["num"] < a["num"]:
-                b["flags"].append("back")
-            elif b["num"] > a["num"] + 1:
-                b["flags"].append("gap")
-                b["gap"] = [a["num"] + 1, b["num"] - 1]
+    for (seg, _), all_cs in groups.items():
+        for r, cs in enumerate(_runs(all_cs)):  # 줄기마다 따로 잰다. 한 줄기로 재면 다시 시작한 뒤 화가 모두 꺼져 앞 마지막 화에 붙었다
+            chain = _lis([(c["num"], _sub_key(c["sub"])) for c in cs])
+            if len(cs) >= 3:
+                for i, c in enumerate(cs):
+                    if i not in chain:
+                        c["on"], c["flags"] = False, c["flags"] + ["mention"]
+            kept = [c for c in cs if c["on"]]
+            if kept and r:
+                kept[0]["flags"].append("restart")
+            elif seg and kept and kept[0]["num"] == 1 and any(x["num"] > 1 for g in groups.values() for x in g if seg_of(x["line"]) < seg):
+                kept[0]["flags"].append("restart")
+            for a, b in zip(kept, kept[1:]):
+                if b["num"] == a["num"] and b["sub"] == a["sub"]:
+                    a["flags"].append("dup")
+                    b["flags"].append("dup")
+                elif b["num"] < a["num"]:
+                    b["flags"].append("back")
+                elif b["num"] > a["num"] + 1:
+                    b["flags"].append("gap")
+                    b["gap"] = [a["num"] + 1, b["num"] - 1]
 
 
 def _gaps(lines: list[str], cuts: list[dict]) -> None:
@@ -282,7 +334,7 @@ def detect(text: str, rule: str = "", example: str = "", unit: str = "", files: 
                 continue
             for c in cuts:
                 c["body"] = c["line"] + 1
-                c["label"] = _label(c) if r == "heading" else str(c["num"])
+                c["label"] = _label(c)
             _gaps(lines, cuts)
             _mark(cuts, files)
             for c in cuts:

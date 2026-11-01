@@ -98,6 +98,35 @@ def test_restart_in_second_file():
     assert len(on) == 7 and "restart" in on[4]["flags"]
 
 
+def test_restart_in_one_file_keeps_later_episodes():
+    """한 파일 안에서 번호가 1부터 다시 시작하면(2부 1화) 뒤 화를 끄지 않는다. 예전에는 뒤 화가 모두 꺼져 앞 마지막 화가 아주 커졌다."""
+    body = "본문 문장이다. " * 50
+    heads = [f"{n}화" for n in range(1, 301)] + ["9화"] + [f"{n}화" for n in range(1, 81)]
+    d = refs.preview("\n".join(f"{h}\n{body}" for h in heads))
+    on = _on(d)
+    assert len(on) == 380 and max(c["chars"] for c in on) < len(body) * 3  # 300화만 꺼진 '9화' 줄 글을 품어 두 배
+    assert [c["label"] for c in d["cuts"] if not c["on"]] == ["9"]  # 300화 본문 속 '9화' 한 줄은 끈다
+    assert [c["line"] for c in on if "restart" in c["flags"]] == [on[300]["line"]]
+    # 3화 본문 속 '9화' 뒤의 4화는 새 줄기가 아니다
+    d = refs.detect("\n".join(f"{h}\n본문" for h in ["1화", "2화", "3화", "9화", "4화", "5화", "6화"]))
+    assert [c["label"] for c in _on(d)] == ["1", "2", "3", "4", "5", "6"] and not any("restart" in c["flags"] for c in d["cuts"])
+
+
+@pytest.mark.parametrize("kw", [{}, {"rule": "custom", "example": "< EP.0 : 프롤로그 >"}])
+def test_wrapped_heads_drop_closing_bracket(kw):
+    """'< EP.1 : 시작 >' 처럼 화 표시 전체를 감싼 괄호의 닫는 쪽은 제목에 넣지 않는다. 'EP.0 : 프롤로그' 는 프롤로그다."""
+    text = "\n".join(f"{h}\n본문" for h in ["< EP.0 : 프롤로그 >", "< EP.1 : 시작 >", "< EP.2 : 비 오는 날 (상) >", "< EP.3 >"])
+    on = _on(refs.detect(text, **kw))
+    assert [(c["label"], c["title"], c["kind"]) for c in on] == [
+        ("프롤로그", "프롤로그", "prologue"), ("1", "시작", "main"), ("2", "비 오는 날 (상)", "main"), ("3", "", "main")]
+    assert refs._title("제목 [완]") == "제목 [완]"
+
+
+def test_five_digit_numbers():
+    d = refs.detect("\n".join(f"{n}화\n본문" for n in range(9998, 10002)))
+    assert [c["label"] for c in _on(d)] == ["9998", "9999", "10000", "10001"]
+
+
 def test_rule_fallbacks():
     assert refs.detect("하나\n***\n둘")["rule"] == "mark"
     assert refs.detect("하나\n\n\n\n둘")["rule"] == "blank"
