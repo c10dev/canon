@@ -487,7 +487,7 @@ function widenToggle(small = true) {
 Object.assign(actions, {
   async metaCutRestore(arg) {
     const [n, k] = arg.split(':').map(Number);
-    if (textUnsaved(n) && !confirm('저장하지 않은 본문 수정이 있어요. 먼저 저장하고 이 문단을 되살릴까요?')) return;
+    if (textUnsaved(n) && !(await askConfirm('저장하지 않은 본문 수정이 있어요. 먼저 저장하고 이 문단을 되살릴까요?', { ok: '저장하고 되살리기' }))) return;
     await run('본문에 되살리는 중', async () => {
       await saveIfDirty();
       await flushText(n);
