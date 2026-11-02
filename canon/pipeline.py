@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
 from .llm import LLM, Interrupted, dump
-from . import board, cancel, charlog, context, features, findings, foreshadows, knows, metatail, stage, statwin, timeline, usage
+from . import anchor, board, cancel, charlog, context, features, findings, foreshadows, knows, metatail, stage, statwin, timeline, usage
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixOption, FixPatch, FixSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
 from .schema import (
@@ -2953,6 +2953,7 @@ def replace_text(ep: Episode, text: str, made_by: RewriteRequest | None = None, 
     before_change(ep)
     ep.text, ep.made_by, ep.written_by, ep.status = text, made_by, written_by, "finalized" if done else "written"
     ep.meta_cut = list(meta_cut or [])
+    ep.style_basis = ""  # 이 판을 쓸 때의 문체를 모른다. AI 가 방금 쓴 본문이면 부른 쪽이 anchor.stamp 로 남긴다
     findings.new_version(ep)
 
 
@@ -3844,7 +3845,9 @@ def apply_recheck(p: Project, n: int, fid: str, res: FindingRecheck) -> list[Fin
 
 
 def style_baseline(p: Project) -> metrics.StyleMetrics:
-    """레퍼런스 원문 전체로 잰 값이 없으면(예전 프로젝트) 발췌 문단으로 잰다."""
+    """문체 기준값: 작품 정착 문체(anchor) → 레퍼런스 원문 전체로 잰 값 → (예전 프로젝트) 발췌 문단으로 잰 값."""
+    if p.anchor is not None and p.anchor.metrics is not None:
+        return p.anchor.metrics
     return p.style_baseline or metrics.measure("\n\n".join(p.style.sample_passages))
 
 
@@ -3861,11 +3864,13 @@ def style_drift(p: Project, n: int) -> tuple[metrics.StyleMetrics, list[str]]:
     voiced = (c := prompts.pov_character(p, n)) is not None and bool(c.narration_voice.strip())
     if voiced:  # 시점 인물의 서술 말투로 쓴 화는 어미가 기준 원문과 달라야 맞다
         warns = [w for w in warns if not w.startswith(VOICE_SKIP)]
-    marks = [] if voiced else metrics.marker_warnings(p.style.markers, text)
+    marks = [] if voiced else metrics.marker_warnings(anchor.markers(p), text)
     if marks:
         warns.append(f"문체 표지: {', '.join(marks)}")
     warns[:0] = [f"장치 {w}" for w in metrics.device_warnings(p.style.devices, p.episodes, n, text)]  # 자동 집필 기록은 앞 3개만 남긴다
-    copied = metrics.copied_sentences(text, p.style.sample_passages)
+    if (drift := anchor.warning(p, n)):
+        warns.append(drift)
+    copied = metrics.copied_sentences(text, list(dict.fromkeys(p.style.sample_passages + prompts.style_passages(p))))
     if copied:
         quotes = ", ".join(f"'{s[:30]}{'…' if len(s) > 30 else ''}'" for s in copied[:3])
         warns.append(f"예시 문단을 옮긴 문장 {len(copied)}개: {quotes}")

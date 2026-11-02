@@ -8,6 +8,7 @@
 - 목표 화까지 (스토리보드 `_board`, `Policy.storyboard` · `stop_on_board_warnings`) → (큐 시트 `_cues`, `Policy.cue_sheet`) → write → check + state → 정책(`Policy`) 통과 시 반영을 반복
 - 배치(`llm.BatchLLM`) 켜고 끄기
 - 비용·시간 추정
+- 정착 문체 흐름 멈춤(`Policy.max_style_distance`, 0 이면 끔, `anchor.rolling`)
 - `autorun.json` 에 진행 기록
 - 서버 재시작 후 이어 가기
 - 화면은 `static/auto.js`
@@ -103,6 +104,8 @@
 - 입력 지문(`ep_basis`: 스토리보드 입력 + 스토리보드 내용) · 낡음(`stale`)
 - 넣기 · 지우기(`set_episode`)
 - 화면 값(`ep_view`: 낡음 · 핵심 대사가 들어간 수)
+- 쓴 화의 큐 실현도 `realized`(목표 글자 수 비율로 자른 대략 위치 `split_by_target`, 편성 `voice_ok` · 템포 `tempo_ok`: fast 는 화 평균보다 짧은 문장, slow 는 긴 문장)
+- 쓴 화의 템포 곡선(`ep_view` 의 `curve`, `metrics.tempo_curve`)
 - 큐 시트 집필 실험(사이드바 '본편과 분리', 주소 `cue/<화>`, 실험 사본은 화의 큐 시트를 지움 `before`): 한 화를 악보처럼 큐로 나눈 큐 시트(`CueSheet`: 조성 · 끝 종지, 큐 `Cue`: 기능 T · S · D · 긴장도 · 템포 · 편성 · 일 · 핵심 대사 `CueLine` · 끝 상태 · 글자 수)
 - AI 없는 뼈대(`from_board`)
 - 정리(`clean`) · 지문(`basis`) · 넣기(`set_sheet`)

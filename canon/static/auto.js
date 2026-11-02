@@ -10,6 +10,8 @@ const AUTO_STATUS = {
 const AUTO_STEP = { board: '스토리보드 만드는 중', cues: '큐 시트 만드는 중', write: '본문 쓰는 중', review: '검수와 상태 변경안 만드는 중', confirm: '플롯 확정', applied: '반영 완료' };
 // 관계 변화 민감도: 한 인물이 다른 인물을 보는 온기나 신뢰가 한 화에 이만큼 넘게 바뀌면 멈춘다
 const AUTO_SHIFT = [[0.2, '민감하게 (작은 변화에도 멈춤)'], [0.3, '보통'], [0.45, '둔하게 (큰 변화에만 멈춤)'], [0, '보지 않음']];
+// 정착 문체 흐름 멈춤 (anchor.py 의 DRIFT_WARN 과 같은 값, 1.3 은 사람 웹소설 다른 작품끼리 평균 1.33 아래)
+const AUTO_STYLE = [[0, '보지 않음'], [1.15, '1.15 넘으면 (흐름 경고와 같음)'], [1.3, '1.3 넘으면 (다른 작품 글 쪽)']];
 
 Object.assign(S, {
   auto: null,      // GET /auto 결과 { run, active, batch_stages }
@@ -46,7 +48,7 @@ function autoDefaults() {
     batch: last ? last.batch : false,
     policy: last ? { cue_sheet: true, ...last.policy } : {
       check: true, max_issues: 0, ignore_minor: false, stop_on_critical: true, max_shift: 0.3, stop_on_stage: false, stop_on_warnings: false, confirm_plots: false, review_every: 0, hand_pick_opening: true,
-      storyboard: true, stop_on_board_warnings: true, cue_sheet: true,
+      storyboard: true, stop_on_board_warnings: true, cue_sheet: true, max_style_distance: 0,
     },
   };
 }
@@ -231,6 +233,7 @@ function autoPolicyForm(f, disabled, bind = 'auto') {
       <div class="field"><label for="${id('issues')}">검수에서 어긋난 곳이 몇 개를 넘으면 멈출까요</label><select id="${id('issues')}" data-${bind}="policy.max_issues"${dis || (p.check ? '' : ' disabled')}>${opts([[0, '하나라도 있으면 멈춤'], [1, '1개까지 넘어감'], [2, '2개까지 넘어감'], [5, '5개까지 넘어감']], p.max_issues)}</select></div>
       <div class="field"><label for="${id('shift')}">관계가 크게 움직이면 멈추기</label><select id="${id('shift')}" data-${bind}="policy.max_shift"${dis}>${opts(AUTO_SHIFT, p.max_shift)}</select></div>
     </div>
+    ${P().anchor ? `<div class="grid-2"><div class="field"><label for="${id('style')}">정착 문체에서 멀어지면 멈추기</label><select id="${id('style')}" data-${bind}="policy.max_style_distance"${dis}>${opts(AUTO_STYLE, p.max_style_distance || 0)}</select><span class="small">최근 5화 평균 문체 거리로 봐요. 사람이 쓴 웹소설도 연재하며 0.85~1.05까지는 움직여요</span></div></div>` : ''}
     <div class="grid-2">
       ${chk('stop_on_critical', '치명적인 어긋남이 있으면 멈추기', '위 개수와 상관없이, 검수가 치명으로 본 곳이 하나라도 있으면 멈춰요')}
       ${chk('ignore_minor', '사소한 어긋남은 세지 않기', '물건 색처럼 사소한 곳은 위 개수에 넣지 않아요. 켜면 덜 멈추지만 작은 어긋남이 쌓일 수 있어요')}
@@ -281,6 +284,7 @@ function autoPolicySummary(p) {
   if (p.check) on.push(p.max_issues ? `검수 어긋남 ${p.max_issues + 1}개부터${p.ignore_minor ? '(사소한 것 빼고)' : ''}` : `검수 어긋남 1개부터${p.ignore_minor ? '(사소한 것 빼고)' : ''}`);
   (p.check && p.stop_on_critical ? on : off).push('치명 지적');
   (p.max_shift ? on : off).push(p.max_shift ? `관계 ${p.max_shift} 넘게 움직임` : '관계 움직임');
+  if (P().anchor) (p.max_style_distance ? on : off).push(p.max_style_distance ? `정착 문체 거리 ${p.max_style_distance} 넘음` : '정착 문체 흐름');
   (p.stop_on_stage ? on : off).push('관계 단계 바뀜');
   (p.stop_on_warnings ? on : off).push('변경안 경고');
   (p.hand_pick_opening ? on : off).push('1~3화 직접 고름');

@@ -5,7 +5,7 @@ from canon.schema import Meta, Project, StyleDevice, StyleMarker, StyleProfile
 
 from .jsvm import dump, episode, needs_node, run_js
 
-FILES = ["app.js", "setup.js", "chat.js", "passage.js", "marks.js", "style.js", "mystyle.js", "stylechat.js"]
+FILES = ["app.js", "setup.js", "chat.js", "passage.js", "marks.js", "style.js", "mystyle.js", "anchor.js", "stylechat.js"]
 
 
 def profile() -> StyleProfile:

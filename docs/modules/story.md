@@ -46,6 +46,24 @@
 - 멈추거나 실패한 턴은 `reconcile`
 - 프롬프트 `prompts.agent_plot_prompt`
 
+### `canon/anchor.py`
+
+- 작품 정착 문체: 작가가 고른 반영한 화를 이 작품의 문체 기준으로 고정한다(`Project.anchor`, `StyleAnchor`)
+- 고를 수 있는 화 `usable`(반영 끝, 본문 있음, 서술 말투 화 아님) · 처음 추천 `suggest`(앞 5화, 저장하지 않음)
+- 재기 `measure` · `set_anchor`(합쳐 6,000자 이상, 대표 문단은 고른 화 본문에 글자 그대로 있어야 함, 표지 빈도는 고른 화에서 다시 셈)
+- 잴 때 고른 화 뒤 10화가 떨어진 평균 거리 `later`(크면 고른 화가 작품을 대표하지 못함)
+- 대표 문단 후보 `candidates`(문단 묶음 중 문장 길이 · 대사 비율이 기준에 가까운 것, 대사 위주 · 서술 위주 하나씩 먼저)
+- 본문 지문 `basis` · 낡음 `stale`(정착 화 본문을 고치거나 지우면 다시 재라고 알림, 번호만 옮기면 그대로)
+- 기준이 있으면 `pipeline.style_baseline` 이 이것을 쓰고 표지 빈도는 `markers`, 쓰기 예시는 `prompts.style_passages`
+- 흐름 `distance` · `rolling`(최근 5화, 서술 말투 화 · 정착 화 빼고) · 경고 `warning`(`DRIFT_WARN` 1.15, `pipeline.style_drift` 가 붙임)
+- 문턱은 사람 웹소설 4편 실측: 같은 작품은 80화 뒤 0.85~1.05(`HUMAN_BAND`), 다른 작품끼리 평균 1.33(`OTHER_AUTHOR`)
+- AI 가 쓴 본문의 문체 지문 `stamp` · `style_basis`(`Episode.style_basis`, `pipeline.replace_text` 가 비움)
+- 화면 값 `view` · 추이 `trend`(문체를 바꾼 화 `changed`)
+- 화 번호 옮기기 `move`(`renumber.move_points` 가 부름)
+- 라이브러리에는 올리지 않는다(`library.push_project` 는 `p.style` 만)
+- LLM 호출 없음
+- 화면은 `static/anchor.js`
+
 ### `canon/archetypes.py`
 
 - 원형 도감
@@ -264,6 +282,7 @@
 - 새 화 AI 초안은 `draft_episode`(`prompts.episode_plot_prompt`)
 - 본문이 있거나 반영한 마지막 화 지우기는 `delete_last`(반영 취소 → 본문 비우기 → 화 빼기, 웹은 `before-delete-<화>.json` 백업)
 - 화 번호를 품은 칸을 새로 만들면 `move_points` 에도 넣는다
+- 정착 문체 화 번호도 옮긴다(`anchor.move`)
 - 화면은 `static/insert.js` (넣을 수 있는 자리 `lastFixed` 는 `last_fixed` 와 같은 규칙, `tests/test_insert_js.py`)
 
 ### `canon/setupchat.py`
@@ -305,6 +324,14 @@
 - 입력 상자(+ 재료, `/` 빠른 요청 `AGENT_CMDS`, 보내기 · 멈추기)와 상태 줄(권한 모드 · 대상 · 모델 · 단계 상한)
 - 진행은 `pollJobs` 가 `agentJobUpdate` 로 알린다
 - 권한 이름 `AGENT_MODES` · `AGENT_KINDS` 는 `agent.MODE_LABELS` · `KIND_LABELS` 와 같다(`tests/test_agent_js.py`)
+
+### `canon/static/anchor.js`
+
+- 문체 화면의 '작품 정착 문체' 카드(`anchorCard`, 목차 줄 `anchorTocWord`)
+- 화 칩으로 고르기 · 대표 문단 후보 고르기(4개까지) · 저장 · 다시 재기 · 지우기(`anchorChooser`)
+- 정착 문체와 레퍼런스 기준 비교 표(`anchorCompare`)
+- 화별 문체 거리 추이 SVG(`anchorChart`: 사람 연재 띠 · 경고 점선 · 최근 5화 평균 선 · 문체를 바꾼 화 세로선)
+- 서버는 `web.py` 의 '2-0. 작품 정착 문체'
 
 ### `canon/static/branches.js`
 

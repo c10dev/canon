@@ -40,6 +40,7 @@ function styleTocItems(st, { hot = new Set(), todo = 0, example = '', link = '',
   STYLE_CARDS.forEach(([id, label]) => rows.push([id, label, styleCount(id, st), styleCardKeys(id).some((k) => hot.has(k)) ? 'hot' : '']));
   rows.push(['-', '재료', '', '']);
   rows.push(['status', '라이브러리 · 기준 지표', link, link === '다름' ? 'warn' : '']);
+  if (S.anchorView) { const w = anchorTocWord(); rows.push(['anchor', '작품 정착 문체', w, w === '멀어짐' || w === '다시 재기' ? 'warn' : '']); }
   rows.push(['source', '원문 · 다시 분석', '', '']);
   rows.push(['learn', '내 수정에서 배우기', learn, '']);
   return rows;
@@ -322,7 +323,7 @@ function viewStyle() {
   const rows = styleTocItems(st, { hot, todo, example: ex ? (exampleStale(ex) ? '바뀜' : '있음') : '', link: styleLinkWord(S.styleLink), learn: S.editStats ? `${S.editStats.usable}건` : '' });
   return `${header('2단계', stepLabel('style'), '이 규칙과 대표 문단이 매 화 본문 생성에 함께 들어가요. 카드의 \'고치기\'로 그 카드만 고쳐요.', go(true))}
     <div class="outline-wrap style-page"><div class="outline-doc">${styleToc(rows)}<div class="sty-secs">
-      ${styleStatus()}${todo ? learnTodoCard() : ''}${styleExampleCard()}${profileCards('style', '', hot)}${styleSourceCard()}${learnCard()}
+      ${styleStatus()}${todo ? learnTodoCard() : ''}${styleExampleCard()}${profileCards('style', '', hot)}${anchorCard()}${styleSourceCard()}${learnCard()}
     </div></div></div>${chatPanel('style')}`;
 }
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+from . import anchor
 from .schema import Project
 
 Point = Callable[[int], int]
@@ -120,4 +121,5 @@ def move_points(p: Project, f: Point, gone: int = 0) -> dict[str, int]:
         p.archive.map = [x for x in p.archive.map if x.number != gone]
         for x in p.archive.map:
             x.number = f(x.number)
+    anchor.move(p, f, gone)
     return count

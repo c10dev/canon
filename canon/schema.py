@@ -321,6 +321,19 @@ class StyleVersion(BaseModel):
     baseline: Optional[StyleMetrics] = None
 
 
+class StyleAnchor(BaseModel):
+    """작품 정착 문체 (canon/anchor.py). 작가가 고른 반영한 화를 이 작품의 문체 기준으로 고정한다.
+    문체 지표 · 경고 · 추이는 레퍼런스 대신 이 기준을 보고, 쓰기 프롬프트의 문체 예시는 passages 를 쓴다.
+    라이브러리에는 올리지 않는다 (작품 장면이 다른 작품으로 번지지 않게)."""
+    episodes: list[int] = Field(default_factory=list, description="기준으로 고른 화 번호. 서술 말투가 있는 시점 인물의 화는 고르지 않는다")
+    basis: str = Field("", description="고른 화 본문의 지문 (anchor.basis). 지금 본문과 다르면 다시 재야 한다")
+    metrics: Optional[StyleMetrics] = Field(None, description="고른 화를 이어 붙여 잰 문체 지표 (문체 거리 기준 포함)")
+    markers: list[StyleMarker] = Field(default_factory=list, description="스타일 프로필 표지를 고른 화에서 다시 센 빈도")
+    passages: list[str] = Field(default_factory=list, description="고른 화에서 작가가 고른 대표 문단 0~4개. 있으면 쓰기 프롬프트의 문체 예시로 쓴다")
+    later: Optional[float] = Field(None, description="잴 때 고른 화 뒤 화들이 이 기준에서 떨어진 평균 문체 거리. 크면 고른 화가 작품을 대표하지 못한다")
+    at: str = ""
+
+
 # ---------- 레퍼런스 원고 ----------
 # 작가가 넣은 다른 소설 원고를 화로 나눠 작품 밖에 둔다 (canon/refs.py, <CANON_HOME>/.refs/<id>/). 작품에는 연결하지 않는다.
 
@@ -1478,6 +1491,7 @@ class Episode(BaseModel):
     stage: list[StageScene] = Field(default_factory=list, description="플롯 사건마다 짠 장면 연출 (canon/stage.py). 작가 자료라 스냅샷에 넣지 않는다")
     storyboard: Optional["Storyboard"] = Field(None, description="쓰기 재료: 장면 순서와 이번 화 확정 값 (pipeline.make_storyboard). 상태 승인 대상이 아니다")
     cue_sheet: Optional["CueSheet"] = Field(None, description="쓰기 재료: 큐 시트 (pipeline.make_cue_sheet, cue.set_episode). 쓰기 프롬프트 끝에 넣는다 (prompts.cue_write_block). 상태 승인 대상이 아니다")
+    style_basis: str = Field("", description="AI 가 지금 본문을 쓸 때의 문체 지문 (anchor.style_basis). 비면 모름 (손으로 쓴 본문, 다시 생성 판을 고른 본문)")
 
     @model_validator(mode="after")
     def _old_check(self) -> "Episode":
@@ -2112,6 +2126,7 @@ class Project(BaseModel):
     style_baseline: Optional[StyleMetrics] = Field(None, description="레퍼런스 원문 전체로 잰 문체 지표 (style 명령 때 저장)")
     style_id: str = Field("", description="문체 라이브러리에서 가져온 항목 id. 비어 있으면 이 작품에서 직접 만든 문체")
     style_version: int = Field(0, description="가져오거나 올린 라이브러리 항목의 버전 번호. 0 은 모름")
+    anchor: Optional[StyleAnchor] = Field(None, description="작품 정착 문체 (canon/anchor.py). 비면 레퍼런스 기준을 쓴다")
     style_example: Optional[StyleExample] = Field(None, description="문체 화면의 '이 문체로 쓴 예시'")
     style_learning: Optional[StyleLearning] = Field(None, description="수정 기록에서 찾은 문체 규칙 후보 (마지막 것)")
     arc: list[Act] = Field(default_factory=list, description="단편: 작품 전체의 기승전결. 장편에서는 비워 두고 아크마다 기승전결을 둔다")

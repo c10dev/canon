@@ -26,7 +26,7 @@ from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
-from . import abilities, atlas, findings, foreshadows, setupchat, stattrial, statwin, studio, timeline
+from . import abilities, anchor, atlas, findings, foreshadows, setupchat, stattrial, statwin, studio, timeline
 from .schema import SceneCard, StudioSession
 from .schema import AgentSession, ChatScope, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .metrics import StyleMetrics
@@ -1115,6 +1115,91 @@ def keep_style(name: str, body: StyleKeep) -> StyleKept:
             p.style_baseline = e.baseline
         _save(name, p)
     return {"entry": library.summary(e), "project": p}
+
+
+# ---------- 2-0. 작품 정착 문체 ----------
+# 작가가 고른 반영한 화를 이 작품의 문체 기준으로 고정한다 (canon/anchor.py). 작가 입력이라 바로 저장한다. LLM 호출 없음.
+
+class AnchorMetrics(BaseModel):
+    chars: int
+    sentence_len: float
+    dialogue_ratio: float
+    past_tense_ratio: float | None = None
+    distance_ready: bool = False
+
+
+class AnchorInfo(BaseModel):
+    episodes: list[int]
+    passages: list[str] = []
+    later: float | None = None
+    at: str = ""
+    stale: bool = False
+    metrics: AnchorMetrics | None = None
+
+
+class AnchorPoint(BaseModel):
+    """화 하나의 정착 문체 거리 (anchor.trend). 서술 말투 화는 distance 가 없다."""
+    n: int
+    distance: float | None = None
+    rolling: float | None = None
+    voiced: bool = False
+    anchor: bool = False
+    auto: bool = False
+    changed: bool = False
+
+
+class AnchorView(BaseModel):
+    """문체 화면의 정착 문체 카드 (anchor.view). band 는 사람 연재가 머문 거리 범위, warn 은 흐름 경고 기준."""
+    anchor: AnchorInfo | None = None
+    reference: AnchorMetrics | None = None
+    usable: list[int] = []
+    suggest: list[int] = []
+    trend: list[AnchorPoint] = []
+    window: int
+    warn: float
+    band: list[float]
+    other: float
+    min_chars: int
+    per_episode_warn: float
+
+
+class AnchorPick(BaseModel):
+    episodes: list[int]
+    passages: list[str] = []
+
+
+class AnchorCandidates(BaseModel):
+    passages: list[str]
+    chars: int
+    later: float | None = None
+
+
+@app.get("/api/projects/{name}/style/anchor")
+def anchor_view(name: str) -> AnchorView:
+    return anchor.view(_load(name))
+
+
+@app.post("/api/projects/{name}/style/anchor/candidates")
+def anchor_candidates(name: str, body: AnchorPick) -> AnchorCandidates:
+    """고를 화로 대표 문단 후보와 그 화의 글자 수, 뒤 화가 떨어진 거리를 미리 본다. 저장하지 않는다."""
+    p = _load(name)
+    a = anchor.measure(p, body.episodes)
+    return {"passages": anchor.candidates(p, body.episodes), "chars": a.metrics.chars if a.metrics else 0, "later": a.later}
+
+
+@app.put("/api/projects/{name}/style/anchor")
+def anchor_save(name: str, body: AnchorPick) -> Project:
+    """정착 문체를 고른 화와 대표 문단으로 잰다 (다시 재기도 같다)."""
+    p = _load(name)
+    anchor.set_anchor(p, body.episodes, body.passages)
+    return _save(name, p)
+
+
+@app.delete("/api/projects/{name}/style/anchor")
+def anchor_drop(name: str) -> Project:
+    p = _load(name)
+    anchor.clear(p)
+    return _save(name, p)
 
 
 # ---------- 2-1. 내 수정에서 배우기 ----------
@@ -2386,6 +2471,7 @@ def start_job(name: str, body: JobIn) -> dict:
 
                     def save(q):
                         pipeline.replace_text(q.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut)  # 지금 본문이 있으면 '이전 판'에 남는다
+                        anchor.stamp(q, n)
                         if q.episode(n).storyboard is not None:  # 스토리보드 없이 쓴 본문은 검수가 그 전제를 대조하지 않는다
                             q.episode(n).storyboard.skipped = body.board == "none"
                     _edit(name, save)
@@ -2611,6 +2697,7 @@ def write_episode(name: str, n: int) -> Project:
     llm, cut = get_llm("write"), []
     text = pipeline.write_episode(llm, p, n, cut=cut)
     pipeline.replace_text(p.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut)  # 지금 본문이 있으면 '이전 판'에 남는다
+    anchor.stamp(p, n)
     return _save(name, p)
 
 

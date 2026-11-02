@@ -366,10 +366,44 @@ function cuePanel(n) {
   if (!S.cue || S.cue.error || !S.cue.functions) return '';
   const hits = v && v.total ? ` · 핵심 대사 ${v.hit}/${v.total}` : '';
   const missed = v && v.missed.length ? `<div class="note warn small">본문에 없는 핵심 대사: ${v.missed.map((x) => `«${esc(x)}»`).join(' · ')}</div>` : '';
-  const lines = e.cue_sheet.cues.map((c) => `<li>${esc(c.function)} · 긴장 ${c.tension} · ${esc(cueLabel('voices', c.voice).label)} — ${esc(c.beat)}${c.lines.length ? `<br>${c.lines.map((x) => `${esc(cueName(x.speaker) || '?')}: «${esc(x.text)}»`).join(' · ')}` : ''}</li>`).join('');
-  return `<details class="card cue-card cue-done"><summary>이 화를 쓴 큐 시트 · 큐 ${e.cue_sheet.cues.length}개${hits}</summary>
-    ${missed}${cueScore(e.cue_sheet, false)}<ol class="small cue-sum">${lines}</ol>
+  const rows = (v && v.rows) || [];
+  const lines = e.cue_sheet.cues.map((c, i) => `<li>${esc(c.function)} · 긴장 ${c.tension} · ${esc(cueLabel('voices', c.voice).label)} — ${esc(c.beat)}${cueRealized(rows[i])}${c.lines.length ? `<br>${c.lines.map((x) => `${esc(cueName(x.speaker) || '?')}: «${esc(x.text)}»`).join(' · ')}` : ''}</li>`).join('');
+  return `<details class="card cue-card cue-done"><summary>이 화를 쓴 큐 시트 · 큐 ${e.cue_sheet.cues.length}개${hits}${cueRealizedSum(rows)}</summary>
+    ${missed}${cueScore(e.cue_sheet, false)}${cueCurve(v, e.text.length)}<ol class="small cue-sum">${lines}</ol>
     <p class="small">다시 생성은 이 큐 시트를 그대로 써요.</p></details>`;
+}
+
+// ----- 큐 실현도 (cue.realized): 본문을 큐 목표 글자 수 비율로 잘라 본 대략 위치의 값 -----
+
+/** 큐 하나: 편성(대사 비율) · 템포(문장 길이 대 화 평균)가 계획대로인지 */
+function cueRealized(r) {
+  if (!r) return '';
+  const bits = [];
+  if (r.voice_ok != null) bits.push(`<span class="chip${r.voice_ok ? ' confirmed' : ' written'}" title="이 큐 자리의 대사 비율 ${Math.round(r.dialogue_ratio * 100)}%">편성 ${r.voice_ok ? '맞음' : '어긋남'}</span>`);
+  if (r.tempo_ok != null) bits.push(`<span class="chip${r.tempo_ok ? ' confirmed' : ' written'}" title="이 큐 자리의 문장 평균 ${r.sentence_len.toFixed(1)}자, 화 평균 ${r.episode_sentence_len.toFixed(1)}자. ${r.tempo === 'fast' ? '빠른 큐는 짧게' : '느린 큐는 길게'} 써야 맞아요">템포 ${r.tempo_ok ? '맞음' : '어긋남'}</span>`);
+  return bits.length ? ` <span class="row-inline">${bits.join(' ')}</span>` : '';
+}
+
+/** 요약: 어긋난 큐 수 */
+function cueRealizedSum(rows) {
+  const bad = rows.filter((r) => r.voice_ok === false || r.tempo_ok === false).length;
+  return rows.length ? ` · 계획과 어긋난 큐 ${bad}개` : '';
+}
+
+/** 템포 곡선: 400자 창마다 대사 비율 막대, 큐 경계 세로선 */
+function cueCurve(v, total) {
+  const c = (v && v.curve) || [];
+  if (c.length < 3 || !total) return '';
+  const W = 640, H = 70;
+  const x = (at) => (at / total) * W;
+  const bars = c.map((w, i) => {
+    const x0 = x(w.at), x1 = i + 1 < c.length ? x(c[i + 1].at) : W;
+    const h = Math.max(1, w.dialogue_ratio * (H - 12));
+    return `<rect x="${x0.toFixed(1)}" y="${(H - 10 - h).toFixed(1)}" width="${Math.max(1, x1 - x0 - 1).toFixed(1)}" height="${h.toFixed(1)}" class="cue-curve-bar"><title>${w.at.toLocaleString()}자 부근 · 대사 ${Math.round(w.dialogue_ratio * 100)}% · 문장 ${w.sentence_len.toFixed(1)}자</title></rect>`;
+  }).join('');
+  const cuts = ((v && v.rows) || []).slice(1).map((r) => `<line x1="${x(r.start).toFixed(1)}" x2="${x(r.start).toFixed(1)}" y1="0" y2="${H - 10}" class="cue-curve-cut"><title>${r.cue}번 큐 시작 (대략)</title></line>`).join('');
+  return `<figure class="cue-curve"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="이 화의 대사 비율 흐름">${bars}${cuts}</svg>
+    <figcaption class="small">막대는 400자마다 대사 비율, 세로선은 큐 경계(목표 글자 수 비율로 자른 대략 위치)예요.</figcaption></figure>`;
 }
 
 /** 'cues.2.tension' 같은 경로에 값을 넣는다. */
