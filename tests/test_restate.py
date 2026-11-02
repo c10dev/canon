@@ -60,10 +60,11 @@ def test_restate_adds_summary_facts_foreshadows(client):
         assert sum(f["id"] == old_fs for f in p["foreshadows"]) == 1
     assert p["states"] == states and p["events"] == events  # 인물 상태 · 관계 사건은 바꾸지 않는다
 
-    # 1화 · 2화 스냅샷과 1화 반영 기록에도 들어가 되돌려도 남는다
-    for s in p["snapshots"]:
-        if s["episode"] >= 1:
-            assert "등대지기는 왼손잡이다" in s["facts"] and any(f["id"] == "fs-01-rain" for f in s["foreshadows"])
+    # 1화 · 2화 스냅샷과 1화 반영 기록에도 들어가 되돌려도 남는다 (화면 응답의 스냅샷은 화 번호만이라 저장소에서 본다)
+    from canon import store
+    for s in store.load("lh").snapshots:
+        if s.episode >= 1:
+            assert "등대지기는 왼손잡이다" in s.facts and any(f.id == "fs-01-rain" for f in s.foreshadows)
     h = next(x for x in reversed(p["history"]) if x["episode"] == 1)
     assert h["summary"] == "고친 1화 요약" and "등대지기는 왼손잡이다" in h["new_facts"]
     p = client.post("/api/projects/lh/revert/1").json()

@@ -20,6 +20,10 @@ ROOT = Path(os.environ.get("CANON_HOME", "projects"))
 # 화면이 저장하면 Project.edit_rev 를 올리고 saved_by 에 남긴다. 빈 값이면 디스크의 두 값을 그대로 둔다
 writer: ContextVar[str] = ContextVar("writer", default="")
 
+# 이번 웹 요청이 저장한 작품의 판 {이름: tag}. 웹 미들웨어가 요청마다 빈 dict 를 두고, 저장 응답에 판을 붙인다
+# (화면이 저장 응답을 받은 작품으로 보관해 다음 GET 이 304 가 되게). 작업 스레드는 문맥을 복사해도 같은 dict 를 본다
+saved: ContextVar[dict | None] = ContextVar("saved", default=None)
+
 
 def project_dir(name: str) -> Path:
     return ROOT / name
@@ -29,37 +33,75 @@ def exists(name: str) -> bool:
     return (project_dir(name) / "project.json").exists()
 
 
-def load(name: str) -> Project:
-    path = project_dir(name) / "project.json"
-    if not path.exists():
-        raise FileNotFoundError(f"프로젝트가 없어요: {path}")
-    p = Project.model_validate_json(path.read_text(encoding="utf-8"))
-    seed_ties(p)  # 관계 역학 이전의 project.json 은 affinity 로 방향 관계를 만든다
-    return p
+def tag(path: Path) -> str:
+    """파일의 판: 바뀌면 달라지는 값 (작품 GET 의 ETag)."""
+    return _tag(path.stat())
 
 
-# 읽기만 하는 요청(검토 대기 결과, 자동 집필 상태 등)이 화면 이동마다 장편 project.json(수 MB)을 다시 검증하지 않게,
-# 파일 판(수정 시각 · 크기 · inode)이 같으면 전에 읽은 Project 를 돌려준다. 저장은 바꿔치기(os.replace)라 판이 늘 바뀐다.
+def _tag(st: os.stat_result) -> str:
+    return f'"{st.st_mtime_ns:x}-{st.st_size:x}"'
+
+
+# 읽은 작품 캐시 {이름: (파일 판, Project)}. 화면 이동마다 여러 요청이 장편 project.json(수 MB)을 읽는데, JSON 검증만 0.1초쯤 걸린다.
+# 파일 판(수정 시각 · 크기 · inode)이 같으면 전에 읽은 것을 쓴다. 저장은 바꿔치기(os.replace)라 판이 늘 바뀐다.
+# load 는 고쳐 써도 되는 깊은 복사본(0.03초), load_view 는 캐시 것을 돌려준다. 저장하면 저장한 내용을 바로 캐시에 둔다 (_remember)
 _view_lock = threading.Lock()
 _views: dict[str, tuple[tuple[int, int, int], Project]] = {}
+_VIEWS_MAX = 4
+
+
+def _key(st: os.stat_result) -> tuple[int, int, int]:
+    return (st.st_mtime_ns, st.st_size, st.st_ino)
+
+
+def _keep(name: str, key: tuple[int, int, int], p: Project) -> None:
+    with _view_lock:
+        _views.pop(name, None)
+        _views[name] = (key, p)
+        while len(_views) > _VIEWS_MAX:
+            _views.pop(next(iter(_views)))
 
 
 def load_view(name: str) -> Project:
     """읽기 전용 load. 돌려준 Project 는 여러 요청이 함께 쓰므로 고치지 않는다. 고쳐 저장할 작품은 load 로 읽는다."""
     path = project_dir(name) / "project.json"
-    if not path.exists():
-        raise FileNotFoundError(f"프로젝트가 없어요: {path}")
     # 판을 읽기 전에 잰다. 읽는 사이 바뀌면 새 내용이 옛 판으로 남을 뿐이고, 다음 호출은 새 판을 보고 다시 읽는다
-    st = path.stat()
-    key = (st.st_mtime_ns, st.st_size, st.st_ino)
+    try:
+        st = path.stat()
+    except FileNotFoundError:
+        raise FileNotFoundError(f"프로젝트가 없어요: {path}") from None
     with _view_lock:
         hit = _views.get(name)
-    if hit and hit[0] == key:
+    if hit and hit[0] == _key(st):
         return hit[1]
-    p = load(name)
-    with _view_lock:
-        _views[name] = (key, p)
+    p = Project.model_validate_json(path.read_text(encoding="utf-8"))
+    seed_ties(p)  # 관계 역학 이전의 project.json 은 affinity 로 방향 관계를 만든다
+    _keep(name, _key(st), p)
     return p
+
+
+def load(name: str) -> Project:
+    """작품을 읽는다. 고쳐 써도 되는 사본이다."""
+    return load_view(name).model_copy(deep=True)
+
+
+def _remember(name: str, st: os.stat_result, p: Project) -> None:
+    """방금 저장한 작품을 캐시에 둔다 (저장 직후 첫 읽기도 JSON 을 다시 검증하지 않게).
+    디스크에서 읽은 것과 같도록 저장한 값을 다시 검증하고 seed_ties 를 거친다 (검증기가 범위를 자르는 칸 등)."""
+    fresh = Project.model_validate(p.model_dump())
+    seed_ties(fresh)
+    _keep(name, _key(st), fresh)
+
+
+# 내보낸 본문 파일 {경로: (내용 해시, 수정 시각)}. 작가가 파일을 고쳤거나 지웠으면 시각이 달라 다시 쓴다
+_md_written: dict[Path, tuple[int, int]] = {}
+
+
+def _mtime(f: Path) -> int:
+    try:
+        return f.stat().st_mtime_ns
+    except FileNotFoundError:
+        return -1
 
 
 _PRESET = re.compile(r'"model_preset":\s*("(?:[^"\\]|\\.)*")')
@@ -147,17 +189,24 @@ def save(name: str, p: Project) -> Path:
             p.edit_rev, p.saved_by = rev, by
         shutil.copy(path, d / "project.prev.json")  # 직전 버전 하나는 남겨 둔다
     # 다른 스레드(자동 집필, 백그라운드 작업)가 쓰는 도중에 읽어도 빈 파일을 보지 않게 바꿔치기로 쓴다
+    # 들여쓰기 없이 쓴다: 장편은 들여쓰기만으로 1MB 넘게 커지고 저장마다 0.015초 더 걸린다 (2026-11-02 실측)
     tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-    tmp.write_text(p.model_dump_json(indent=2), encoding="utf-8")
+    tmp.write_text(p.model_dump_json(), encoding="utf-8")
+    st = tmp.stat()  # 바꿔치기는 inode 와 수정 시각을 그대로 옮긴다. 바꾼 뒤 다른 스레드가 또 써도 이 판은 이 내용이다
     os.replace(tmp, path)
+    _remember(name, st, p)
+    if (got := saved.get()) is not None:
+        got[name] = _tag(st)
 
     ep_dir = d / "episodes"
     for ep in p.episodes:
         if ep.text:
             ep_dir.mkdir(exist_ok=True)
-            (ep_dir / f"{ep.plot.number:02d}.md").write_text(
-                f"# {ep.plot.number}화. {ep.plot.title}\n\n{ep.text}\n", encoding="utf-8"
-            )
+            f = ep_dir / f"{ep.plot.number:02d}.md"
+            body = f"# {ep.plot.number}화. {ep.plot.title}\n\n{ep.text}\n"
+            if _md_written.get(f) != (hash(body), _mtime(f)):  # 지난번에 쓴 그대로면 다시 쓰지 않는다
+                f.write_text(body, encoding="utf-8")
+                _md_written[f] = (hash(body), _mtime(f))
     if ep_dir.is_dir():  # 본문을 지운 화나 빠진 화의 내보낸 파일은 지운다 (NN.md 만, 작가가 둔 다른 파일은 그대로)
         have = {e.plot.number for e in p.episodes if e.text}
         for f in ep_dir.glob("*.md"):
