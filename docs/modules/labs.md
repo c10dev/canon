@@ -254,10 +254,13 @@
 - 세션 화면 `stuSession`: 왼쪽 열 상황 카드 `stuCardForm`, 오른쪽 넓은 열 본보기 문단 `stuModelCard`(있을 때만, 지표 `model_measure`, 출발 글로 넣기 `stuModelSource` · 복사) · 직접 쓰기 `stuWriteCard` 와 시도 카드 `stuTryCard`(고른 것 먼저, 그다음 최근 것)
 - 카드 칸은 `DRAFT_ROOTS.stuForm` 으로 묶고, 칸을 벗어날 때(change) 조용히 저장한다(`stuSaveCard`). AI 안 쓰기 · 시도 저장 전에도 먼저 저장한다
 - 연습 고르기는 체크 칸 `data-stu-drill`(목록은 서버 `GET /api/studio` 의 `drills`)
+- 구조 칸 `stuStructureForm`: 박자 줄(`data-stu-beat`, 더하기 `stuBeatAdd` · 옮기기 `stuBeatMove` · 빼기 `stuBeatDrop`, 목록은 `beats`) · 가릴 것 · 감각 전환 · 본보기 보이기
+- 본보기 카드의 뜯어보기 `stuAnatomy` · 결과 `stuAnatomyHtml` · 카드에 적용 `stuAnatomyApply`, 상황 바꿔 보기 카드 `stuVariantCard`(`stuVariants`, 새 연습 `stuFromVariant`), 시도의 독자 질문 `stuReader` · `stuReaderHtml`
+- AI 호출 전 카드 저장 `stuCall`. CSS 는 JS 에서 주입(`STU_CSS`)
 - 시도 카드: 지표 칩(`stuChecks`: 지켰나 ✓ · 못 지킴 ✕ · 읽고 판단 ?), 글자 · 문장 · 대사 비율, 걸린 곳 «인용», 문체 표지 횟수
 - 고쳐 쓰기(`stuRewrite`)는 그 시도 글을 직접 쓰기 칸에 옮기고 `base` 로 남긴다. AI 안은 고치지 않고 작가 글만 고친다(`stuEditOpen`)
 - 머리 주 버튼은 'AI 안 n개 쓰기'(n 은 카드 아래 고르기 `S.stuN`, 1~4). 시도가 꽉 차면 막는다
-- 새 CSS 없이 공용 클래스(`.cols` · `.card` · `.chip.ok` · `.chip.bad` · `.check-row` · `.rw-text`)만 쓴다
+- 공용 클래스(`.cols` · `.card` · `.chip.ok` · `.chip.bad` · `.check-row` · `.rw-text` · `.rs-table`)에 구조 · 상황 목록 칸만 `STU_CSS` 로 더한다
 
 ### `canon/stattrial.py`
 
@@ -291,6 +294,12 @@
 - 감정 이름 확인은 대사 밖 서술에서만 `EMOTION_WORDS` 와 쇠맛 패턴 '감정 이름 서술'을 본다
 - 프롬프트 재료 `world`: 고른 문체만 채운 저장하지 않는 `Project`(프롬프트는 `prompts.paragraph_system` · `paragraph_prompt`)
 - AI 호출은 `pipeline.draft_paragraph`(write 단계, 빈 안 · 겹치는 안 · 출발 글과 같은 안을 빼고 굵은 글씨를 뗌)
+- 구조: 카드의 문장 차례 `beats`(박자 `BEATS`, 화면 목록 `beats()`) · 가릴 것 `withhold` · 감각 전환 `sense` · 본보기 보이기 `show_model`, 프롬프트 블록 `prompts.structure_block`
+- 뜯어보기 `pipeline.anatomize_paragraph`(plan) → `clean_anatomy`(본보기에 없는 인용은 버림) · `set_anatomy`(지문 `anatomy_of`, 화면 `anatomy_stale`) · `apply_anatomy`
+- 상황 바꿔 보기 `pipeline.vary_scene`(plan, `can_vary`, `clean_variants`, 수 `VARIANTS`) → 고른 상황으로 새 세션 `from_variant`
+- 독자 질문 `pipeline.reader_check`(check) → `set_reader`(본문에 없는 인용은 비움), 시도 글을 고치면 지움
+- 지표의 본보기 베끼기 `copied`(`metrics.copied_sentences`), 연습 '가정 문장 하나'(`IMAGINE_RE`, 대사 밖)
+- 웹 `POST /api/studio/{id}/anatomy` · `anatomy/apply` · `variants` · `variants/{i}` · `tries/{no}/reader`
 - 웹은 작업 목록을 거치지 않고 바로 돌려준다(`POST /api/studio/{id}/draft`, 사용량 작업 이름 `studio`). 쓰는 동안 바뀐 시도를 덮지 않게 저장 직전에 다시 읽는다
 - 작품에는 넣지 않는다. 본문으로 보내기 · 문체 학습으로 보내기는 아직 없다
 - 가짜 응답 `mock_studio.py`

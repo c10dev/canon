@@ -7,6 +7,7 @@ AI 호출은 pipeline.draft_paragraph (write 단계). 이 모듈은 LLM 을 부�
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import uuid
@@ -16,7 +17,8 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from . import library, metrics, store
-from .schema import Project, SceneCard, StudioCandidate, StudioSession, StudioTry, StyleProfile
+from .schema import (ParagraphAnatomy, Project, ReaderCheck, SceneCard, SceneVariant, StudioCandidate, StudioPerson, StudioSession, StudioTry,
+                     StyleProfile)
 
 ID_RE = re.compile(r"^[0-9a-f]{8,32}$")
 LENGTH = (100, 1200)  # 목표 글자 수 범위
@@ -27,6 +29,23 @@ TEXT_MAX = 4000  # 시도 하나 · 출발 글의 글자 수 상한 (문단 연�
 TITLE_MAX = 60
 REF_MAX = 120  # 본보기 문단 출처 한 줄
 CV_MIN_SENTENCES = 4  # 문장 길이 변화폭은 문장이 이만큼은 있어야 잰다
+BEATS_MAX = 10  # 카드의 문장 차례 칸 수
+VARIANTS = (2, 5)  # 상황 바꿔 보기에서 한 번에 받는 상황 수
+LINE_MAX = 200  # 가릴 것 · 감각 전환 한 줄
+
+# 문장 박자: id → (화면 이름, 프롬프트 지시). 순서가 화면 고르기 순서다
+BEATS: dict[str, tuple[str, str]] = {
+    "setup": ("깔기", "누가 어디서 무엇을 하는지 자리를 잡는다"),
+    "trigger": ("계기", "자세 · 소리 · 움직임이 바뀌어 시선이나 주의가 열린다"),
+    "focus": ("초점", "한 가지를 가까이 크게 보여 준다. 여럿을 늘어놓지 않는다"),
+    "imagine": ("가정", "시점 인물이 사실이 아니라 '~면 ~할 것 같다' 같은 상상으로 넘어간다. 본 것을 다른 감각으로 옮겨도 된다"),
+    "react": ("반응", "시점 인물의 몸이나 행동이 반응한다. 감정 이름은 쓰지 않는다"),
+    "cut": ("끊기", "짧은 문장으로 끊고 넘긴다. 정리하거나 교훈을 말하지 않는다"),
+    "line": ("대사", "한 인물의 짧은 대사 한마디"),
+}
+
+# 가정 문장 표지: 시점 인물이 사실에서 상상으로 넘어가는 말 ('가정 문장 하나' 연습). 대사 밖 서술에서만 센다
+IMAGINE_RE = re.compile(r"것\s*같|듯(?:이|한|했|하|싶)|마치|느낌|모양이었|싶었|싶다|지도 몰|지도 모르|라면|다면")
 
 # 감정 이름: 대사 밖 서술에 나오면 '감정 이름 없이' 연습에 걸린다. 쇠맛 패턴 '감정 이름 서술'보다 넓게 낱말만 본다
 EMOTION_WORDS = ["슬픔", "슬펐다", "슬퍼졌다", "불안", "두려움", "두려웠다", "공포", "기쁨", "기뻤다", "설렘", "설렜다", "외로움", "외로웠다",
@@ -72,6 +91,11 @@ def _check_three(text: str, m: metrics.StyleMetrics, counts: dict) -> tuple[bool
     return (m.sentences <= 3, f"{m.sentences}문장이에요")
 
 
+def _check_imagine(text: str, m: metrics.StyleMetrics, counts: dict) -> tuple[bool, str]:
+    hits = IMAGINE_RE.findall(_narration(text))
+    return (bool(hits), f"가정 표지 {len(hits)}개 ({', '.join(dict.fromkeys(hits))})" if hits else "'~것 같다' · '마치' · '~라면' 같은 가정 표지가 서술에 없어요")
+
+
 def _check_less_ai(text: str, m: metrics.StyleMetrics, counts: dict) -> tuple[bool, str]:
     found = [f"{k} {v}회" for k, v in counts.items() if v] + m.cliche_hits
     return (not found, "쇠맛 패턴 · 상투 표현이 없어요" if not found else f"걸린 것: {', '.join(found)}")
@@ -86,12 +110,17 @@ DRILLS: dict[str, Drill] = {
     "rhythm": Drill("긴 문장 · 짧은 문장 섞기", "아주 짧은 문장과 긴 문장을 섞어 리듬을 만듭니다. 길이가 비슷한 문장을 셋 넘게 잇지 않습니다.", _check_rhythm),
     "three": Drill("세 문장 안에", "세 문장 안에 끝냅니다. 목표 글자 수보다 이 제약이 먼저입니다.", _check_three),
     "less_ai": Drill("쇠맛 없이", "감정 이름, 정리하는 문장, 번역투, 셋씩 나열, 여운을 노린 짧은 끝 문장을 쓰지 않고 구체적인 행동과 사물로 씁니다.", _check_less_ai),
+    "imagine": Drill("가정 문장 하나", "시점 인물이 본 것에서 '~면 ~할 것 같다' 같은 상상으로 넘어가는 문장을 하나 넣습니다. 상상은 사실로 확인해 주지 않습니다.", _check_imagine),
     "blocking": Drill("자리 · 자세 분명히", "인물마다 어디에 있고 어느 쪽을 보며 손에 무엇을 들었는지 그릴 수 있게 씁니다. 자리를 바꾸면 바꾸는 행동을 씁니다."),
 }
 
 
 def drills() -> list[dict]:
     return [{"id": k, "label": d.label, "rule": d.rule, "auto": d.check is not None} for k, d in DRILLS.items()]
+
+
+def beats() -> list[dict]:
+    return [{"id": k, "label": v[0], "rule": v[1]} for k, v in BEATS.items()]
 
 
 # ---------- 저장 ----------
@@ -144,10 +173,14 @@ def sessions() -> list[StudioSession]:
 def clean_card(card: SceneCard) -> SceneCard:
     """앞뒤 공백을 떼고, 빈 인물 · 모르는 연습 · 범위 밖 길이를 고친다. 없는 문체 항목은 막는다."""
     c = card.model_copy(deep=True)
-    for k in ("pov", "place", "time", "action", "aim", "extra", "style_id"):
+    for k in ("pov", "place", "time", "action", "aim", "extra", "style_id", "withhold", "sense"):
         setattr(c, k, getattr(c, k).strip())
     c.source = c.source.strip()[:TEXT_MAX]
     c.model = c.model.strip()[:TEXT_MAX]
+    c.beats = [b for b in c.beats if b in BEATS][:BEATS_MAX]
+    c.withhold = c.withhold.strip()[:LINE_MAX]
+    c.sense = c.sense.strip()[:LINE_MAX]
+    c.show_model = bool(c.show_model and c.model)
     c.ref = c.ref.strip()[:REF_MAX]
     c.people = [x.model_copy(update={"name": x.name.strip(), "note": x.note.strip(), "speech": x.speech.strip()})
                 for x in c.people if x.name.strip() or x.note.strip() or x.speech.strip()]
@@ -247,7 +280,10 @@ def edit(s: StudioSession, no: int, text: Optional[str] = None, star: Optional[b
     if text is not None:
         if t.by != "author":
             raise ValueError("AI 안은 고치지 않고 고쳐 쓴 글을 새 시도로 남겨요")
-        t.text = _text(text)
+        new = _text(text)
+        if new != t.text:
+            t.reader = None  # 독자 질문은 고치기 전 글을 본 것
+        t.text = new
     if star is not None:
         t.star = star
     return t
@@ -308,7 +344,9 @@ def measure(text: str, card: SceneCard, style: Optional[StyleProfile] = None) ->
         else:
             ok, why = d.check(text, m, counts)
             checks.append({"id": k, "label": d.label, "ok": ok, "why": why})
+    copied = metrics.copied_sentences(text, [card.model]) if card.model and text.strip() != card.model.strip() else []
     return {
+        "copied": copied,
         "chars": m.chars, "sentences": m.sentences, "sentence_len_mean": round(m.sentence_len_mean, 1),
         "sentence_len_cv": round(m.sentence_len_cv, 2) if m.sentences >= CV_MIN_SENTENCES else None,
         "dialogue_pct": round(m.dialogue_ratio * 100), "hits": hits, "markers": marks, "checks": checks,
@@ -316,9 +354,9 @@ def measure(text: str, card: SceneCard, style: Optional[StyleProfile] = None) ->
 
 
 def view(s: StudioSession) -> dict:
-    """화면에 보내는 세션: 시도마다 지표, 문체 이름."""
+    """화면에 보내는 세션: 시도마다 지표, 문체 이름, 뜯어보기가 지금 본보기 것인지."""
     st = style_of(s.card)
-    return {**s.model_dump(), "style_name": style_name(s.card),
+    return {**s.model_dump(), "style_name": style_name(s.card), "anatomy_stale": bool(s.anatomy) and s.anatomy_of != model_basis(s.card),
             "measures": {str(t.no): measure(t.text, s.card, st) for t in s.tries},
             "model_measure": measure(s.card.model, s.card, st) if s.card.model else None}
 
@@ -327,3 +365,100 @@ def summary(s: StudioSession) -> dict:
     return {"id": s.id, "title": s.title, "tries": len(s.tries), "authored": sum(t.by == "author" for t in s.tries),
             "starred": sum(t.star for t in s.tries), "style_name": style_name(s.card), "drills": s.card.drills,
             "created_at": s.created_at, "updated_at": s.updated_at}
+
+
+# ---------- 구조: 본보기 뜯어보기 · 상황 바꿔 보기 · 독자 질문 ----------
+
+def model_basis(card: SceneCard) -> str:
+    return hashlib.sha1(card.model.strip().encode()).hexdigest()[:12] if card.model.strip() else ""
+
+
+def _flat(t: str) -> str:
+    return re.sub(r"\s+", "", t)
+
+
+def clean_anatomy(a: ParagraphAnatomy, model: str) -> ParagraphAnatomy:
+    """본보기에 글자 그대로(공백 빼고) 있는 문장 인용만 남기고 본보기 차례로 놓는다. 한 줄 칸은 다듬는다.
+    남는 줄이 없으면 막는다 (AI 가 문장을 지어냈다)."""
+    flat = _flat(model)
+    seen, rows = set(), []
+    for x in a.lines:
+        q = _flat(x.quote)
+        at = flat.find(q) if len(q) >= 2 else -1
+        if at < 0 or at in seen or x.beat not in BEATS:
+            continue
+        seen.add(at)
+        rows.append((at, x.model_copy(update={"quote": x.quote.strip(), "note": x.note.strip()})))
+    if not rows:
+        raise ValueError("AI가 본보기에 없는 문장을 적었어요. 다시 해 보세요")
+    return ParagraphAnatomy(lines=[x for _, x in sorted(rows, key=lambda r: r[0])][:BEATS_MAX], withhold=a.withhold.strip()[:LINE_MAX],
+                            sense=a.sense.strip()[:LINE_MAX], reader=a.reader.strip()[:LINE_MAX])
+
+
+def set_anatomy(s: StudioSession, a: ParagraphAnatomy) -> None:
+    s.anatomy = clean_anatomy(a, s.card.model)
+    s.anatomy_of = model_basis(s.card)
+
+
+def apply_anatomy(s: StudioSession) -> None:
+    """뜯어본 박자 차례 · 가릴 것 · 감각 전환을 카드에 적용한다 (작가가 누른다). 빈 칸은 지금 값을 둔다."""
+    a = s.anatomy
+    if not a:
+        raise ValueError("먼저 본보기를 뜯어보세요")
+    s.card.beats = [x.beat for x in a.lines][:BEATS_MAX]
+    s.card.withhold = a.withhold or s.card.withhold
+    s.card.sense = a.sense or s.card.sense
+
+
+def can_vary(card: SceneCard) -> None:
+    if not (card.beats or card.model or card.action):
+        raise ValueError("문장 차례를 고르거나, 본보기를 넣거나, 무슨 일을 적으세요")
+
+
+def clean_variants(vs: list[SceneVariant], card: SceneCard) -> list[SceneVariant]:
+    """빈 상황 · 겹치는 상황 · 지금 카드와 같은 장소+일을 뺀다. 시점 인물이 인물 목록에 없으면 비운다."""
+    out, seen = [], {(card.place.strip(), card.action.strip())}
+    for v in vs:
+        v = v.model_copy(update={k: getattr(v, k).strip() for k in ("place", "time", "action", "pov", "why")})
+        v.people = [p.model_copy(update={"name": p.name.strip(), "note": p.note.strip()}) for p in v.people if p.name.strip()][:3]
+        key = (v.place, v.action)
+        if not v.action or key in seen:
+            continue
+        seen.add(key)
+        if v.pov not in [p.name for p in v.people]:
+            v.pov = ""
+        out.append(v)
+    if not out:
+        raise ValueError("AI가 쓸 만한 상황을 내지 않았어요. 다시 해 보세요")
+    return out[:VARIANTS[1]]
+
+
+def from_variant(sid: str, i: int) -> StudioSession:
+    """고른 상황으로 새 세션을 만든다. 구조(문장 차례 · 가릴 것 · 감각 전환) · 연습 · 문체 · 본보기는 그대로, 상황 칸과 인물만 바꾼다.
+    출발 글은 옛 상황 글이라 비운다. 원래 세션은 그대로 둔다."""
+    s = load(sid)
+    if not 0 <= i < len(s.variants):
+        raise KeyError(f"{i + 1}번 상황이 없어요")
+    v = s.variants[i]
+    c = s.card.model_copy(deep=True, update={"place": v.place, "time": v.time, "action": v.action, "pov": v.pov, "aim": "", "source": "",
+                                             "people": [StudioPerson(name=p.name, note=p.note) for p in v.people]})
+    out = StudioSession(id=uuid.uuid4().hex[:12], title=(v.action or title_of(c))[:TITLE_MAX], card=clean_card(c))
+    if s.anatomy and s.anatomy_of == model_basis(c):
+        out.anatomy, out.anatomy_of = s.anatomy.model_copy(deep=True), s.anatomy_of
+    return save(out)
+
+
+def set_reader(s: StudioSession, no: int, r: ReaderCheck) -> StudioTry:
+    """독자 질문 결과를 시도에 남긴다. '적혀 있음'인데 인용이 본문에 없으면 인용을 비운다 (지어낸 인용을 보이지 않게)."""
+    t = find(s, no)
+    flat = _flat(t.text)
+    gaps = []
+    for g in r.gaps:
+        g = g.model_copy(update={"imagined": g.imagined.strip(), "quote": g.quote.strip()})
+        if not g.imagined:
+            continue
+        if not g.written or (g.quote and _flat(g.quote) not in flat):
+            g.quote = ""
+        gaps.append(g)
+    t.reader = ReaderCheck(gaps=gaps[:6])
+    return t

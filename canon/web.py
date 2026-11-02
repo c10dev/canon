@@ -1282,8 +1282,8 @@ def _studio(sid: str) -> StudioSession:
 
 @app.get("/api/studio")
 def list_studio() -> dict:
-    return {"sessions": [studio.summary(x) for x in studio.sessions()], "drills": studio.drills(),
-            "length": list(studio.LENGTH), "max_tries": studio.MAX_TRIES}
+    return {"sessions": [studio.summary(x) for x in studio.sessions()], "drills": studio.drills(), "beats": studio.beats(),
+            "length": list(studio.LENGTH), "max_tries": studio.MAX_TRIES, "variants": list(studio.VARIANTS)}
 
 
 @app.post("/api/studio")
@@ -1325,6 +1325,66 @@ def draft_studio(sid: str, body: StudioDraftIn) -> dict:
         cands = pipeline.draft_paragraph(llm, s.card, body.n)
     s = _studio(sid)
     studio.add_ai(s, cands, getattr(llm, "model", "") or "")
+    return studio.view(studio.save(s))
+
+
+class StudioVariantsIn(BaseModel):
+    k: int = 4
+
+
+@app.post("/api/studio/{sid}/anatomy")
+def anatomy_studio(sid: str) -> dict:
+    """본보기 문단을 문장마다 박자로 뜯어본다 (pipeline.anatomize_paragraph, plan 단계). 카드에는 적용하지 않는다."""
+    s = _studio(sid)
+    with usage.scope(task="studio"):
+        a = pipeline.anatomize_paragraph(get_llm("plan"), s.card)
+    s = _studio(sid)
+    studio.set_anatomy(s, a)
+    return studio.view(studio.save(s))
+
+
+@app.post("/api/studio/{sid}/anatomy/apply")
+def apply_anatomy_studio(sid: str) -> dict:
+    """뜯어본 문장 차례 · 가릴 것 · 감각 전환을 카드에 적용한다."""
+    s = _studio(sid)
+    studio.apply_anatomy(s)
+    s.card = studio.clean_card(s.card)
+    return studio.view(studio.save(s))
+
+
+@app.post("/api/studio/{sid}/variants")
+def variants_studio(sid: str, body: StudioVariantsIn) -> dict:
+    """같은 구조로 쓸 다른 상황을 받는다 (pipeline.vary_scene, plan 단계). 세션에는 마지막 제안만 둔다."""
+    s = _studio(sid)
+    with usage.scope(task="studio"):
+        vs = pipeline.vary_scene(get_llm("plan"), s.card, body.k)
+    s = _studio(sid)
+    s.variants = vs
+    return studio.view(studio.save(s))
+
+
+@app.post("/api/studio/{sid}/variants/{i}")
+def from_variant_studio(sid: str, i: int) -> dict:
+    """고른 상황(0부터)으로 새 연습을 만든다. 원래 연습은 그대로 둔다."""
+    _studio(sid)
+    try:
+        return studio.view(studio.from_variant(sid, i))
+    except KeyError as e:
+        raise HTTPException(404, str(e.args[0])) from None
+
+
+@app.post("/api/studio/{sid}/tries/{no}/reader")
+def reader_studio(sid: str, no: int) -> dict:
+    """시도 하나를 독자 질문으로 점검한다 (pipeline.reader_check, check 단계): 독자가 채울 것이 이미 적혀 있나."""
+    s = _studio(sid)
+    try:
+        text = studio.find(s, no).text
+    except KeyError as e:
+        raise HTTPException(404, str(e.args[0])) from None
+    with usage.scope(task="studio"):
+        r = pipeline.reader_check(get_llm("check"), text)
+    s = _studio(sid)
+    studio.set_reader(s, no, r)
     return studio.view(studio.save(s))
 
 

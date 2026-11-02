@@ -8,6 +8,8 @@ async function stuLoad(id) {
   const home = await api('GET', '/studio');
   S.stuList = home.sessions;
   S.stuDrills = home.drills;
+  S.stuBeats = home.beats;
+  S.stuVarRange = home.variants;
   S.stuLength = home.length;
   S.stuMax = home.max_tries;
   if (!id) { S.stu = null; S.stuForm = null; return; }
@@ -52,7 +54,7 @@ function stuSession() {
     <button type="button" class="btn danger" data-action="stuDelete">지우기</button>
     <button type="button" class="btn primary" data-action="stuDraft"${full ? ' disabled title="시도가 꽉 찼어요. 지울 시도를 고르세요"' : ''}>AI 안 ${n}개 쓰기</button>`;
   const head = header('문단 연습장', s.title, s.style_name ? `문체: ${esc(s.style_name)}` : '문체를 고르지 않았어요. 기본 문체 규칙으로 써요.', right);
-  return `${head}<div class="cols"><div class="col">${stuCardForm()}</div><div class="col wide">${stuModelCard()}${stuWriteCard()}${stuTries()}</div></div>`;
+  return `${head}<div class="cols"><div class="col">${stuCardForm()}</div><div class="col wide">${stuModelCard()}${stuVariantCard()}${stuWriteCard()}${stuTries()}</div></div>`;
 }
 
 /** 본보기 문단 (역설계 실험 원문에서 가져옴, revlab.paragraph_card). 시도와 같은 지표로 재서 맨 위에 둔다. 프롬프트에는 넣지 않는다. */
@@ -64,9 +66,58 @@ function stuModelCard() {
       <div class="between"><div class="row"><span class="chip">본보기</span>${c.ref ? `<span class="small">${esc(c.ref)}</span>` : ''}</div>
         <span class="small">AI에게는 보내지 않아요</span></div>
       <div class="rw-text">${esc(c.model)}</div>${m ? stuChecks(m) : ''}
-      <div class="row"><button type="button" class="btn small" data-action="stuModelSource"${c.source === c.model ? ' disabled title="이미 출발 글이에요"' : ''}>출발 글로 넣기</button>
-        <button type="button" class="btn small" data-action="stuModelCopy">복사</button></div></section>`;
+      <div class="row"><button type="button" class="btn small${S.stu.anatomy ? '' : ' primary'}" data-action="stuAnatomy">${S.stu.anatomy ? '다시 뜯어보기' : '구조 뜯어보기'}</button>
+        <button type="button" class="btn small" data-action="stuModelSource"${c.source === c.model ? ' disabled title="이미 출발 글이에요"' : ''}>출발 글로 넣기</button>
+        <button type="button" class="btn small" data-action="stuModelCopy">복사</button></div>${stuAnatomyHtml()}</section>`;
 }
+
+const stuBeatLabel = (id) => ((S.stuBeats || []).find((b) => b.id === id) || { label: id }).label;
+
+/** 뜯어보기 결과: 문장마다 박자 · 하는 일, 가린 것 · 감각 전환 · 독자가 채우는 것. '카드에 적용'은 차례 · 가릴 것 · 감각 전환을 카드로. */
+function stuAnatomyHtml() {
+  const a = S.stu.anatomy;
+  if (!a) return '';
+  const c = S.stu.card;
+  const same = !S.stu.anatomy_stale && a.lines.map((x) => x.beat).join() === c.beats.join() && (!a.withhold || a.withhold === c.withhold) && (!a.sense || a.sense === c.sense);
+  const rows = a.lines.map((x, i) => `<tr><td class="small">${i + 1}</td><td><span class="chip">${esc(stuBeatLabel(x.beat))}</span></td><td>«${esc(x.quote)}…»<br><span class="small">${esc(x.note)}</span></td></tr>`).join('');
+  const kv = (k, v) => (v ? `<dt>${k}</dt><dd>${esc(v)}</dd>` : '');
+  return `<div class="stu-anatomy"><div class="between"><h3>구조</h3>${S.stu.anatomy_stale ? '<span class="chip warn">본보기가 바뀌었어요</span>' : ''}</div>
+      <div class="rs-scroll"><table class="rs-table"><thead><tr><th>#</th><th>박자</th><th>문장 · 하는 일</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <dl class="stu-kv">${kv('가린 것', a.withhold)}${kv('감각 전환', a.sense)}${kv('독자가 채우는 것', a.reader)}</dl>
+      <div class="row"><button type="button" class="btn small${same ? '' : ' primary'}" data-action="stuAnatomyApply"${same ? ' disabled title="카드와 같아요"' : ''}>카드에 적용</button>
+        <span class="small">문장 차례 · 가릴 것 · 감각 전환을 카드로 옮겨요</span></div></div>`;
+}
+
+/** 상황 바꿔 보기: 같은 구조로 쓸 다른 상황 후보. 고르면 구조 · 연습 · 문체를 그대로 둔 새 연습이 열린다. */
+function stuVariantCard() {
+  const c = S.stu.card;
+  if (!(c.beats.length || c.model || c.action)) return '';
+  const vs = S.stu.variants || [];
+  const k = Number(S.stuK) || 4;
+  const [lo, hi] = S.stuVarRange || [2, 5];
+  const list = vs.map((v, i) => `<li class="stu-var"><div><strong>${esc(v.action)}</strong><div class="small">${esc([v.place, v.time].filter(Boolean).join(' · '))}${v.people.length ? ` · ${esc(v.people.map((p) => p.name + (p.name === v.pov ? '(시점)' : '')).join(', '))}` : ''}</div>
+      ${v.why ? `<div class="small">${esc(v.why)}</div>` : ''}</div><button type="button" class="btn small" data-action="stuFromVariant" data-arg="${i}">이 상황으로 새 연습</button></li>`).join('');
+  return `<section class="card" id="stu-variants"><div class="between"><h2>상황 바꿔 보기</h2>
+      <div class="row"><label class="small stu-k">한 번에 <select data-local="stuK" aria-label="받을 상황 수">${Array.from({ length: hi - lo + 1 }, (_, j) => lo + j).map((x) => `<option${x === k ? ' selected' : ''}>${x}</option>`).join('')}</select>개</label>
+      <button type="button" class="btn small" data-action="stuVariants">${vs.length ? '다시 받기' : '다른 상황 받기'}</button></div></div>
+      <p class="small">${c.beats.length ? `문장 차례(${esc(c.beats.map(stuBeatLabel).join(' → '))})` : '카드의 구조'}는 그대로 두고 장소 · 인물 · 일만 바꾼 상황을 AI가 내요. 고르면 새 연습이 열리고 이 연습은 그대로 남아요.</p>
+      ${list ? `<ul class="stu-vars">${list}</ul>` : ''}</section>`;
+}
+
+const STU_CSS = `.stu-anatomy { display: grid; gap: var(--gap-row); border-top: 1px solid var(--line); padding-top: var(--space-10); }
+.stu-kv { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 0.8125rem; }
+.stu-kv dt { color: var(--muted); }
+.stu-kv dd { margin: 0; }
+.stu-vars { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-8); }
+.stu-var { display: flex; justify-content: space-between; align-items: center; gap: var(--space-10); padding: var(--space-8) 0; border-top: 1px solid var(--line); }
+.stu-var:first-child { border-top: 0; }
+.stu-beat { display: flex; gap: var(--space-6); align-items: center; }
+.stu-beat select { flex: 1; min-width: 0; }
+.stu-k { display: inline-flex; align-items: center; gap: var(--space-4); white-space: nowrap; }
+.stu-k select { width: auto; }
+.stu-gaps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-4); }
+@media (max-width: 600px) { .stu-var { flex-direction: column; align-items: stretch; } }`;
+(() => { const st = document.createElement('style'); st.textContent = STU_CSS; document.head.appendChild(st); })();
 
 // ----- 상황 카드 -----
 
@@ -95,12 +146,32 @@ function stuCardForm() {
       <h3>인물</h3>${people || '<p class="small">아직 인물이 없어요.</p>'}
       <div class="row"><button type="button" class="btn small" data-action="stuPersonAdd">+ 인물</button></div>
       <h3>연습</h3><div style="display:grid;gap:var(--gap-row)">${drills}</div>
+      ${stuStructureForm(c, o)}
       ${input('더 지킬 것', 'card.extra', { ...o, rows: 2, placeholder: '예: 마지막 문장은 대사로' })}
       ${styleSel}
       <details${c.source ? ' open' : ''}><summary>고쳐 쓸 출발 글</summary>${input('출발 글', 'card.source', { ...o, rows: 5, placeholder: '다른 글의 한 문단을 넣으면 같은 상황을 고쳐 써요' })}</details>
       <div class="row"><button type="button" class="btn small${S.stuDirty ? ' primary' : ''}" data-action="stuSaveCard">카드 저장</button>
         <label class="small">한 번에 <select data-local="stuN" aria-label="AI 안 수">${[1, 2, 3, 4].map((k) => `<option${k === (Number(S.stuN) || 3) ? ' selected' : ''}>${k}</option>`).join('')}</select>개</label></div>
     </section>`;
+}
+
+/** 카드의 구조 칸: 문장 차례(박자 고르기 · 옮기기 · 빼기) · 가릴 것 · 감각 전환 · 본보기를 AI에게 보이기. */
+function stuStructureForm(c, o) {
+  const opts = (sel) => (S.stuBeats || []).map((b) => `<option value="${esc(b.id)}"${b.id === sel ? ' selected' : ''}>${esc(b.label)}</option>`).join('');
+  const rows = c.beats.map((b, i) => `<div class="stu-beat"><span class="small">${i + 1}</span>
+      <select data-stu-beat="${i}" aria-label="${i + 1}번째 박자">${opts(b)}</select>
+      <button type="button" class="btn small ghost" data-action="stuBeatMove" data-arg="${i}:-1"${i ? '' : ' disabled'} aria-label="${i + 1}번째 박자 위로">↑</button>
+      <button type="button" class="btn small ghost" data-action="stuBeatMove" data-arg="${i}:1"${i < c.beats.length - 1 ? '' : ' disabled'} aria-label="${i + 1}번째 박자 아래로">↓</button>
+      <button type="button" class="btn small ghost" data-action="stuBeatDrop" data-arg="${i}" aria-label="${i + 1}번째 박자 빼기">✕</button></div>`).join('');
+  const rule = (S.stuBeats || []).map((b) => `<strong>${esc(b.label)}</strong> ${esc(b.rule)}`).join('<br>');
+  return `<h3>구조</h3>
+      <div style="display:grid;gap:var(--space-6)">${rows || '<p class="small">문장 차례가 없으면 AI가 정해요.</p>'}</div>
+      <div class="row"><button type="button" class="btn small" data-action="stuBeatAdd">+ 박자</button>
+        <details class="small"><summary>박자 뜻</summary><p>${rule}</p></details></div>
+      ${input('가릴 것', 'card.withhold', { ...o, placeholder: '글자로 쓰지 않고 독자가 짐작하게 둘 것, 예: 인물의 속마음' })}
+      ${input('감각 전환', 'card.sense', { ...o, placeholder: '예: 보는 것 → 촉감' })}
+      ${c.model ? `<label class="check-row"><input type="checkbox" data-root="stuForm" data-bind="card.show_model" data-kind="bool"${c.show_model ? ' checked' : ''}>
+        <span><strong>본보기를 AI에게 보이기</strong><br><span class="small">구조와 호흡만 참고하고 문장은 옮기지 말라고 함께 적어요. 옮긴 문장은 시도마다 알려요.</span></span></label>` : ''}`;
 }
 
 /** 카드를 저장한다. quiet 면 덮개 없이 (칸을 벗어날 때). 실패하면 알린다. */
@@ -132,6 +203,13 @@ document.addEventListener('input', (e) => {
 document.addEventListener('change', (e) => {
   const el = e.target;
   if (!el.dataset || S.route[0] !== 'studio' || !S.stuForm) return;
+  if (el.dataset.stuBeat != null) {
+    S.stuForm.card.beats[Number(el.dataset.stuBeat)] = el.value;
+    S.stuDirty = true;
+    stuSaveCard(true);
+    return;
+  }
+  if (el.dataset.local === 'stuK') { render(); return; }
   if (el.dataset.stuDrill) {
     const ds = S.stuForm.card.drills.filter((d) => d !== el.dataset.stuDrill);
     S.stuForm.card.drills = el.checked ? [...ds, el.dataset.stuDrill] : ds;
@@ -166,7 +244,8 @@ function stuChecks(m) {
     <div class="small">${esc(facts)}</div>
     ${why.length ? `<div class="small">${why.map(esc).join('<br>')}</div>` : ''}
     ${hits.length ? `<div class="small">걸린 곳: ${hits.join(' · ')}</div>` : ''}
-    ${marks.length ? `<div class="small">문체 표지: ${marks.join(' · ')}</div>` : ''}`;
+    ${marks.length ? `<div class="small">문체 표지: ${marks.join(' · ')}</div>` : ''}
+    ${(m.copied || []).length ? `<div class="small warn-text">본보기에서 옮긴 문장: ${m.copied.map((x) => `«${esc(x)}»`).join(' · ')}</div>` : ''}`;
 }
 
 function stuTryCard(t) {
@@ -182,11 +261,21 @@ function stuTryCard(t) {
       <button type="button" class="btn small${t.star ? ' primary' : ''}" data-action="stuStar" data-arg="${t.no}" aria-pressed="${t.star}">${t.star ? '★ 고름' : '☆ 고르기'}</button>
       <button type="button" class="btn small" data-action="stuRewrite" data-arg="${t.no}">고쳐 쓰기</button>
       ${t.by === 'author' ? `<button type="button" class="btn small" data-action="stuEditOpen" data-arg="${t.no}">고치기</button>` : ''}
+      <button type="button" class="btn small" data-action="stuReader" data-arg="${t.no}">${t.reader ? '독자 질문 다시' : '독자 질문'}</button>
       <button type="button" class="btn small" data-action="stuCopy" data-arg="${t.no}">복사</button>
       <button type="button" class="btn small danger" data-action="stuDrop" data-arg="${t.no}">지우기</button></div>`;
   return `<section class="card" id="stu-try-${t.no}">
       <div class="between"><div class="row">${who}${base}${t.note ? `<span class="small">${esc(t.note)}</span>` : ''}</div><span class="small">${esc(fmtDateTime(t.at))}</span></div>
-      ${body}${m ? stuChecks(m) : ''}${btns}</section>`;
+      ${body}${m ? stuChecks(m) : ''}${editing ? '' : stuReaderHtml(t)}${btns}</section>`;
+}
+
+/** 독자 질문 결과: 독자가 채울 것마다 '독자 몫'(본문에 없음) 또는 '적혀 있음'(인용). 적힌 것이 많으면 빈칸이 적은 글이다. */
+function stuReaderHtml(t) {
+  const r = t.reader;
+  if (!r) return '';
+  const open = r.gaps.filter((g) => !g.written).length;
+  const rows = r.gaps.map((g) => `<li>${g.written ? '<span class="chip">적혀 있음</span>' : '<span class="chip ok">독자 몫</span>'} ${esc(g.imagined)}${g.quote ? ` <span class="small">«${esc(g.quote)}»</span>` : ''}</li>`).join('');
+  return `<details class="small"${S.stuReaderOpen === t.no ? ' open' : ''}><summary>독자 질문: 독자 몫 ${open}개 · 적혀 있음 ${r.gaps.length - open}개</summary><ul class="stu-gaps">${rows}</ul></details>`;
 }
 
 function stuTries() {
@@ -198,7 +287,62 @@ function stuTries() {
 
 // ----- 동작 -----
 
+/** 카드를 먼저 저장하고(고친 것이 있으면) AI 호출을 보낸다. */
+async function stuCall(label, path, body) {
+  await run(label, async () => {
+    if (S.stuDirty) stuSet(await api('PUT', `/studio/${enc(S.stu.id)}`, S.stuForm));
+    stuSet(await api('POST', `/studio/${enc(S.stu.id)}${path}`, body));
+  });
+}
+
 Object.assign(actions, {
+  async stuAnatomy() {
+    await stuCall('본보기 문장마다 박자를 짚는 중… (최대 1분)', '/anatomy');
+  },
+  async stuAnatomyApply() {
+    const c = S.stu.card;
+    if ((c.beats.length || c.withhold || c.sense) && !(await askConfirm('카드의 문장 차례 · 가릴 것 · 감각 전환을 뜯어본 값으로 바꿀까요?', { ok: '바꾸기' }))) return;
+    await stuCall('카드에 적용하는 중', '/anatomy/apply');
+    toast('구조를 카드에 적용했어요. AI 안이 이 문장 차례를 따라요');
+  },
+  async stuVariants() {
+    await stuCall('같은 구조로 쓸 다른 상황을 받는 중… (최대 1분)', '/variants', { k: Number(S.stuK) || 4 });
+  },
+  async stuFromVariant(i) {
+    await run('새 연습을 만드는 중', async () => {
+      if (S.stuDirty) stuSet(await api('PUT', `/studio/${enc(S.stu.id)}`, S.stuForm));
+      const s = await api('POST', `/studio/${enc(S.stu.id)}/variants/${Number(i)}`);
+      location.hash = `#/studio/${enc(s.id)}`;
+      toast('고른 상황으로 새 연습을 만들었어요. 구조 · 연습 · 문체는 그대로예요');
+    }, { render: 'never' });
+  },
+  async stuReader(no) {
+    S.stuReaderOpen = no;
+    await stuCall('처음 읽는 독자로 읽는 중… (최대 1분)', `/tries/${no}/reader`);
+  },
+  stuBeatAdd() {
+    const c = S.stuForm.card;
+    const order = (S.stuBeats || []).map((b) => b.id);
+    const last = c.beats[c.beats.length - 1];
+    c.beats.push(order[Math.min(order.indexOf(last) + 1, order.length - 1)] || order[0]);
+    S.stuDirty = true;
+    stuSaveCard(true);
+    render();
+  },
+  stuBeatMove(arg) {
+    const [i, d] = String(arg).split(':').map(Number);
+    const b = S.stuForm.card.beats;
+    [b[i], b[i + d]] = [b[i + d], b[i]];
+    S.stuDirty = true;
+    stuSaveCard(true);
+    render();
+  },
+  stuBeatDrop(i) {
+    S.stuForm.card.beats.splice(Number(i), 1);
+    S.stuDirty = true;
+    stuSaveCard(true);
+    render();
+  },
   async stuModelSource() {
     const f = S.stuForm.card;
     if (f.source && f.source !== f.model && !(await askConfirm('고쳐 쓸 출발 글을 본보기 문단으로 바꿀까요? 지금 출발 글은 사라져요.', { ok: '바꾸기', danger: true }))) return;
