@@ -281,6 +281,14 @@ def test_board_js_parse_fields():
     assert got[3] == [{"character_id": "keeper", "end": "젖은 외투", "why": "장면 1"}] and got[4] == 0
 
 
+@needs_node
+def test_board_job_redraws_write_page_and_says_done():
+    """스토리보드 작업이 끝나면 집필 화면을 다시 그리고 끝 알림 글이 있다 (없으면 '만드는 중' 줄이 남고 알림이 빈다)."""
+    got = run_js(FILES, "[JOB_PAGES.board, JOB_DONE_MSG.board({ ep: 3 })]", {})
+    assert got[0] == ["write"]
+    assert got[1].startswith("3화 스토리보드를 만들었어요")
+
+
 def test_check_gets_protect_and_write_has_one_priority_line(demo):
     p = store.load(demo)
     _written(p, 1, "가" * 3000)

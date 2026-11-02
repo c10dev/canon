@@ -8,6 +8,10 @@ const BOARD_STOP = ['plot_vs_state', 'plot_vs_text', 'time'];  // board.STOP_KIN
 const BOARD_BY = { ai: 'AI 제안', author: '작가가 만듦', both: 'AI 제안 · 작가가 고침' };
 const BOARD_KINDS = ['장면', '시간', '몸', '물건', '인물', '숨긴 것', '숫자', '질문'];
 
+// 스토리보드 작업이 끝나면 집필 화면을 다시 그려 진행 줄을 걷고 카드를 놓는다 (app.js pollJobs)
+JOB_PAGES.board = ['write'];
+JOB_DONE_MSG.board = (j) => `${j.ep}화 스토리보드를 만들었어요. 확인하고 고치거나 이대로 쓰세요.`;
+
 /** 스토리보드 장면 줄의 '장면 연출' 링크: 그 장면이 맡은 첫 사건의 장면 연출 화면 (주소 stage/<화>/<사건 번호>). */
 function boardStageLink(n, s) {
   const first = Math.min(...s.events.filter((k) => k > 0));
