@@ -14,7 +14,7 @@ import threading
 import time
 import zlib
 from pathlib import Path
-from typing import Literal
+from typing import Literal, NoReturn
 from urllib.parse import quote, unquote
 
 from fastapi import FastAPI, HTTPException, Request
@@ -44,6 +44,7 @@ from . import cue, revlab, soelab
 from .schema import CueSheetDraft
 from . import stage, tofix
 from .schema import Birth, BirthSketch, Episode, PlayInfo, PlayPerson, PlayUnit, StageProposal, StageRoom, StageScene
+from .logline import josa
 from .maps import travel
 
 STATIC = Path(__file__).parent / "static"
@@ -2298,6 +2299,13 @@ def _plot_ranges(p: Project, arc: int | None = None) -> list[tuple[str, int, int
     return out
 
 
+def _waiting_409(old: jobs.Job) -> NoReturn:
+    """멈춘 작업 old 가 아직 AI 응답을 기다린다. 그 응답이 올 때까지 새 작업을 막는다."""
+    mins = max(1, round((time.time() - old.started) / 60))
+    raise HTTPException(409, f"앞에서 멈춘 '{old.label}'{josa(old.label, '이', '가')} 아직 AI 응답을 기다려요 ({mins}분째). "
+                             "이미 보낸 호출은 끊을 수 없어요. 응답이 오거나 시간이 다 되면 다시 시작할 수 있어요")
+
+
 @app.post("/api/projects/{name}/jobs")
 def start_job(name: str, body: JobIn) -> dict:
     """오래 걸리는 AI 작업을 시작하고 바로 돌아온다. 결과는 GET /api/jobs 로 본다."""
@@ -2305,6 +2313,8 @@ def start_job(name: str, body: JobIn) -> dict:
     kind, n = body.kind, body.ep
     if kind in ("write", "state", "plots", "plot_one", "check", "board"):
         _not_auto(name)
+    if kind in jobs.EP_AI_KINDS and (old := jobs.waiting_on(name, n)):  # 같은 화에 호출이 겹치면 요청 한도(429)에 더 걸린다
+        _waiting_409(old)
     stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "fold_knows": "state", "rework": "revise",
              "hook": "check", "check": "check", "opening_drafts": "write", "stattrial": "write", "stage_extract": "check", "cue_run": "write",
              }.get(kind, "plan")  # 나머지는 plan
@@ -4954,11 +4964,7 @@ def rev_job(lab_id: int, body: RevJobIn) -> dict:
     lab = _rev(lab_id)
     kind, name = f"rev_{body.kind}", lab.title or f"실험 {lab_id}"
     if old := jobs.lingering(revlab.JOBS, kind, lab_id):  # 다시 시작하면 같은 요청이 겹쳐 요청 한도(429)에 더 걸린다
-        import time
-
-        mins = max(1, round((time.time() - old.started) / 60))
-        raise HTTPException(409, f"앞에서 멈춘 '{old.label}'이 아직 AI 응답을 기다려요 ({mins}분째). "
-                                 "이미 보낸 호출은 끊을 수 없어요. 응답이 오거나 시간이 다 되면 다시 시작할 수 있어요")
+        _waiting_409(old)
     llm = revlab.llm_for(lab, body.kind)  # 실험이 고른 AI, 없으면 설정의 단계 칸. 키가 없으면 여기서 바로 오류를 보여 준다
     if body.kind == "parse":
         nums = revlab.choose(lab, body.episodes or None)

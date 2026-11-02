@@ -39,6 +39,7 @@ const S = {
   jobsApplied: new Set(),  // 결과를 이미 화면에 적용한 작업 id. 폴링이 작업 객체를 새로 받아 오므로 id 로 기억한다
   jobsMerged: {},    // 도는 플롯 작업 id → 화면이 결과를 받아 온 단계 수
   jobsWaiting: new Set(),  // 멈췄지만 이미 보낸 AI 호출의 응답을 기다리는 작업 id (서버 Job.waiting). 풀리면 JOB_LATE 를 부른다
+  jobsHeld: [],      // 그 작업들. 목록에서 닫은 작업도 담아, 같은 화의 AI 작업 버튼을 잠근다 (epWaiting)
   notes: [],         // 알림 기록 { at, msg, err }. 새것이 앞 (hub.js 알림 창의 '최근 알림')
   hubOpen: false,    // 알림 창이 열려 있다 (hub.js)
   hubSeen: 0,        // 알림 창을 마지막으로 연 · 닫은 시각(ms). 그 뒤 알림만 새 알림으로 센다
@@ -225,10 +226,26 @@ function jobFor(kind, ep = null, name = S.name) {
   return S.jobs.find((j) => j.status === 'running' && j.project === name && j.kind === kind && (ep == null || j.ep === ep));
 }
 
+// 한 화를 두고 AI 를 부르는 작업. 같은 화에서 멈춘 작업이 아직 응답을 기다리면 새로 시작하지 않는다 (서버 jobs.EP_AI_KINDS, 409)
+const EP_AI_KINDS = new Set(['board', 'check', 'cues', 'plot_one', 'state', 'write']);
+const EP_WAIT_TIP = '앞에서 멈춘 작업이 아직 AI 응답을 기다려요. 이미 보낸 호출은 끊을 수 없어요. 응답이 오면 다시 시작할 수 있어요';
+
+/** n 화의 EP_AI_KINDS 작업 가운데 멈췄지만 아직 AI 응답을 기다리는 것. 서버 jobs.waiting_on 과 같은 셈 */
+function epWaiting(n, name = S.name) {
+  return n == null ? null : S.jobsHeld.find((j) => j.waiting && j.project === name && j.ep === n && EP_AI_KINDS.has(j.kind)) || null;
+}
+
+/** 그 화의 AI 작업을 왜 지금 시작할 수 없는지 알리는 칸. 기다리는 작업이 없으면 빈 값 */
+function epWaitNote(n) {
+  const w = epWaiting(n);
+  return w ? `<div class="note info" role="status">앞에서 멈춘 '${esc(w.label)}'${josa(w.label, '이', '가')} 아직 AI 응답을 기다려요. 이미 보낸 호출은 끊을 수 없어요. 응답이 오면 ${n}화 AI 작업을 다시 시작할 수 있어요.</div>` : '';
+}
+
 // 작업이 도는 동안 버튼은 진행 상황을 보여 주고 눌리지 않게 한다
 function jobBtn(kind, ep, idle, name = S.name) {
   const j = jobFor(kind, ep, name);
   if (!j && S.starting.has(`${kind}:${ep ?? ''}`)) return { label: `${idle} · 시작하는 중…`, attr: ' aria-disabled="true" aria-busy="true"' };
+  if (!j && EP_AI_KINDS.has(kind) && epWaiting(ep, name)) return { label: `${idle} · 응답 기다리는 중`, attr: ` aria-disabled="true" title="${EP_WAIT_TIP}"` };
   if (!j) return { label: idle, attr: '' };
   // disabled 는 포커스를 잃게 해서 키보드 사용자가 문서 처음으로 돌아간다. aria-disabled 로 막고 포커스는 남긴다
   return { label: `${j.label} 만드는 중…${j.total > 1 ? ` ${j.done}/${j.total}` : ''}`, attr: ' aria-disabled="true" aria-busy="true"' };
@@ -359,7 +376,8 @@ async function pollJobs(soon = false) {
   if (S.jobsSeen === null) S.jobsSeen = new Set(list.filter((j) => j.status !== 'running').map((j) => j.id));
   // 멈춘 작업의 늦은 응답: 기다림이 풀린 작업은 목록에서 닫았어도 JOB_LATE 로 알린다 (revlab.js 의 멈춘 뒤 받은 판)
   const late = list.filter((j) => S.jobsWaiting.has(j.id) && !j.waiting);
-  S.jobsWaiting = new Set(list.filter((j) => j.waiting).map((j) => j.id));
+  S.jobsHeld = list.filter((j) => j.waiting);
+  S.jobsWaiting = new Set(S.jobsHeld.map((j) => j.id));
   const before = new Map(S.jobs.map((j) => [j.id, j]));
   // 화면이 목록에서 지운(닫은) 작업은 다시 보이지 않게 한다
   S.jobs = list.filter((j) => (!S.jobsSeen.has(j.id) || j.status === 'running') && !QUIET_JOBS.has(j.kind));
@@ -408,6 +426,7 @@ async function pollJobs(soon = false) {
     }
   }
   for (const j of late) if (JOB_LATE[j.kind] && await JOB_LATE[j.kind](j)) redraw = true;
+  if (S.route[0] === 'p' && late.some((j) => j.project === S.name && EP_AI_KINDS.has(j.kind))) redraw = true;  // 그 화의 AI 작업 버튼을 푼다 (epWaiting)
   renderHub();
   // 입력 중이거나 본문 글자를 고르고 있으면 화면을 다시 그리지 않는다 (글자 · 커서 · 선택을 잃지 않게). 데이터는 이미 반영돼 있고, 입력이나 선택을 마치면 그린다
   if (redraw && (isTyping() || selecting())) S.renderPending = true;
@@ -674,7 +693,7 @@ document.addEventListener('click', (e) => {
     askConfirm(`${j.label}${josa(j.label, '을', '를')} 멈출까요? ${JOB_STOP_NOTE[j.kind] || '이미 보낸 AI 호출의 응답은 버려요 (비용은 들 수 있어요).'}`, { ok: '멈추기', danger: true }).then((ok) => ok && api('POST', `/jobs/${j.id}/stop`).then((x) => {
       Object.assign(j, x);
       toast(`${j.label}${josa(j.label, '을', '를')} 멈췄어요`);
-      if (j.waiting) { S.jobsWaiting.add(j.id); pollJobs(true); }  // 늦은 응답을 받을 때까지 묻는다
+      if (j.waiting) { S.jobsWaiting.add(j.id); S.jobsHeld.push(j); pollJobs(true); }  // 늦은 응답을 받을 때까지 묻는다
       renderHub();
       if (S.route[0] === 'p' && !isTyping()) render();  // 잠겨 있던 버튼을 푼다
     }).catch((err) => toast(err.message, true)));

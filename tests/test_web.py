@@ -584,6 +584,35 @@ def test_stop_job_discards_result(client, monkeypatch):
     assert client.post("/api/projects/st/jobs", json={"kind": "suggest"}).json()["status"] == "running"
 
 
+def test_stopped_call_blocks_same_episode_ai_jobs(client):
+    """멈춘 작업이 아직 AI 응답을 기다리면 같은 화의 AI 작업은 종류가 달라도 409 로 막는다 (호출이 겹치면 429 가 잦다)."""
+    import threading
+    import time
+
+    from canon import jobs
+
+    meta = {"title": "등대", "genre": "미스터리", "logline": "x", "target_episodes": 10}
+    client.post("/api/projects", json={"name": "wt", "meta": meta})
+    go = threading.Event()
+    j = jobs.start("wt", "board", 3, "3화 스토리보드", lambda job: go.wait(5))
+    try:
+        jobs.stop(j.id)
+        assert jobs.waiting_on("wt", 3) is j and jobs.waiting_on("wt", 4) is None and jobs.waiting_on("other", 3) is None
+        for kind in sorted(jobs.EP_AI_KINDS):
+            r = client.post("/api/projects/wt/jobs", json={"kind": kind, "ep": 3, "board": "make"})
+            assert r.status_code == 409 and "'3화 스토리보드'가 아직 AI 응답을 기다려요" in r.text, kind
+        assert client.post("/api/projects/wt/jobs", json={"kind": "write", "ep": 4}).status_code != 409  # 다른 화는 막지 않는다
+        assert client.post("/api/projects/wt/jobs", json={"kind": "suggest"}).status_code == 200  # 화를 두지 않는 작업도 막지 않는다
+    finally:
+        go.set()
+    for _ in range(100):
+        if not j.alive:
+            break
+        time.sleep(0.05)
+    assert jobs.waiting_on("wt", 3) is None
+    assert client.post("/api/projects/wt/jobs", json={"kind": "check", "ep": 3}).status_code == 400  # 응답이 오면 다시 시작할 수 있다 (본문이 없어 400)
+
+
 def test_project_manage_check_job_and_tie_adjust(client, tmp_path):
     """작품 복제 · 이름 바꾸기 · 지우기(휴지통), 한 화 검수 작업, 관계 수동보정, AI 연결 상태."""
     import time
