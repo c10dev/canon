@@ -531,6 +531,69 @@ text 에는 그 대목을 같은 내용, 같은 사건, 같은 인물로 위 스
 - 대사는 인물 설정의 speech_style 을 따르고, 문단은 빈 줄로 나눕니다. 제목, 해설, 마크다운 기호는 쓰지 않습니다."""
 
 
+# ---------- 문단 연습장 (canon/studio.py) ----------
+
+_PARAGRAPH_WRITER = (
+    "당신은 소설가입니다. 주어진 스타일 프로필과 예시 문단의 문체를 따르고, 상황 카드 하나를 문단 하나짜리 장면으로 씁니다. "
+    "카드에 적힌 인물, 장소, 일은 바꾸지 않고, 빈 칸은 장면에 맞게 정합니다. "
+    "본문만 출력하고 제목, 해설, 메모는 붙이지 않습니다.\n\n"
+)
+
+
+def paragraph_system(p: Project) -> str:
+    """문단 연습장의 시스템 프롬프트. 문체 원문이 있는 문체는 원문과 부딪히는 기본 규칙을 뺀다 (writer_system 과 같은 규칙)."""
+    return _PARAGRAPH_WRITER + prose_rules(styled(p))
+
+
+def paragraph_markers(p: Project, length: int) -> str:
+    """문체 표지를 문단 분량으로 적는다. 화 분량 기준(marker_block)으로 적으면 한 문단에 몰아 쓴다."""
+    marks = [m for m in p.style.markers if m.text.strip()]
+    if not marks:
+        return ""
+    rows = []
+    for m in marks:
+        k = m.per_1k * length / 1000 if m.per_1k else 0
+        freq = f"이 문단에 {k:.0f}번 안팎" if k >= 1 else "이 문단에는 많아야 한 번"
+        rows.append(f"- '{m.text}': {freq}{f' ({m.note})' if m.note else ''}")
+    return f"\n\n# 문체 표지 (원문에서 센 빈도를 문단 분량 약 {length}자에 맞춘 것. 몰아 쓰지 않습니다)\n" + "\n".join(rows)
+
+
+def paragraph_prompt(p: Project, card, n: int, rules: list[str]) -> str:
+    """card 는 SceneCard, rules 는 고른 연습의 지시 (studio.DRILLS). 앞쪽은 문체 블록(문체가 같으면 같은 글), 뒤쪽이 카드."""
+    people = "\n".join(
+        f"- {x.name or '(이름 없음)'}" + (f": {x.note}" if x.note else "") + (f" / 말투: {x.speech}" if x.speech else "")
+        for x in card.people) or "카드에 없음. 장면에 맞게 정합니다"
+    rows = [("시점 인물", card.pov), ("장소", card.place), ("때 · 날씨", card.time), ("무슨 일", card.action),
+            ("독자에게 남길 것", card.aim)]
+    scene = "\n".join(f"- {k}: {v or '빈칸 (장면에 맞게 정합니다)'}" for k, v in rows)
+    extra = [*rules, *([card.extra] if card.extra else [])]
+    limits = "\n".join(f"- {r}" for r in extra) or "없음"
+    source = f"\n\n# 출발 글 (같은 상황을 고쳐 씁니다. 문장을 그대로 옮기지 않습니다)\n{card.source}" if card.source else ""
+    style = (style_block(p, paragraph_markers(p, card.length)) if p.style.model_dump(exclude_defaults=True)
+             else "# 문체\n고른 문체가 없습니다. 기본 문체 규칙을 따릅니다.")
+    return f"""{style}
+
+# 인물
+{people}
+
+# 상황
+{scene}
+
+# 연습 제약 (꼭 지킵니다)
+{limits}{source}
+
+# 할 일
+위 상황을 문단 하나(약 {card.length}자)로 씁니다. 서로 다른 안 {n}개를 candidates 에 넣습니다.
+안마다 첫 문장, 무엇을 먼저 보여 줄지, 인물과의 거리를 다르게 하고, note 에 그 차이를 한 줄로 적습니다.
+
+요구사항:
+- 각 안은 빈 줄 없이 한 덩어리로 씁니다. 대사는 줄바꿈 하나로 나눠도 됩니다.
+- 스타일 프로필의 시점, 시제, 문장 리듬, 대사 방식, 지킬 것과 피할 것을 따릅니다. 금지 표현은 쓰지 않습니다.
+- 문체 예시 문단의 문장을 그대로 옮기지 않습니다.
+- 인물의 대사는 카드의 말투를 따릅니다. 카드에 없는 큰 사건을 더하지 않습니다.
+- 제목, 해설, 마크다운 기호는 쓰지 않습니다."""
+
+
 def arc_prompt(p: Project) -> str:
     return f"""아래 작품을 총 {p.meta.target_episodes}화로 완결하는 기승전결 구조를 설계하세요.
 
@@ -2382,21 +2445,26 @@ def style_rules_view(p: Project) -> dict:
     return rules
 
 
+def style_block(p: Project, markers: str | None = None) -> str:
+    """문체 예시와 스타일 프로필. 예시 문단이 있으면 예시를 앞에 둔다 (문체는 서술보다 예시로).
+    markers 를 주면 화 분량 기준 표지 블록(marker_block) 대신 그 글을 붙인다 (문단 연습장)."""
+    style = p.style
+    samples = "\n\n---\n\n".join(style.sample_passages) or "없음"
+    profile = f"# 스타일 프로필\n{dump(style_rules_view(p))}{marker_block(p) if markers is None else markers}"
+    example = f"# 문체 예시 (이 문체를 따를 것, 내용은 가져오지 말 것)\n{samples}"
+    return f"{example}\n\n{profile}" if style.sample_passages else f"{profile}\n\n{example}"
+
+
 def static_context(p: Project) -> str:
     """작품 내내 바뀌지 않는 블록: 작품 정보, 세계관, 문체, 인물 설정.
     예시 문단이 있는 작품은 예시 문단을 스타일 프로필 앞에 둔다 (문체는 서술보다 예시로)."""
-    style = p.style
-    samples = "\n\n---\n\n".join(style.sample_passages) or "없음"
-    profile = f"# 스타일 프로필\n{dump(style_rules_view(p))}{marker_block(p)}"
-    example = f"# 문체 예시 (이 문체를 따를 것, 내용은 가져오지 말 것)\n{samples}"
-    style_text = f"{example}\n\n{profile}" if style.sample_passages else f"{profile}\n\n{example}"
     return f"""# 작품 정보
 {meta_text(p)}
 
 # 세계관 (깨면 안 되는 규칙 포함)
 {dump(p.world)}
 
-{style_text}
+{style_block(p)}
 
 # 인물 설정{static_note(p)}
 {dump(cast_view(static_characters(p)))}"""

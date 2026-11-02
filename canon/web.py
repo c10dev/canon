@@ -26,7 +26,8 @@ from .llm import GeminiLLM, LocalLLM, MissingKey, get_llm, make_llm
 from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록)
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
-from . import abilities, atlas, findings, foreshadows, setupchat, stattrial, statwin, timeline
+from . import abilities, atlas, findings, foreshadows, setupchat, stattrial, statwin, studio, timeline
+from .schema import SceneCard, StudioSession
 from .schema import AgentSession, ChatScope, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
@@ -1247,6 +1248,105 @@ def delete_style(sid: str) -> dict:
 @app.post("/api/styles/{sid}/duplicate")
 def duplicate_style(sid: str) -> StyleEntry:
     return library.duplicate(_style_id(sid))
+
+
+# ---------- 문단 연습장 (canon/studio.py, 작품 밖 화면 #/studio) ----------
+# 한 문단짜리 장면을 상황 카드로 AI 에게 여러 안 쓰게 하거나 작가가 직접 써 본다. 저장은 작품 밖 <CANON_HOME>/.studio/.
+# AI 안은 짧은 요청이라 작업 목록을 거치지 않고 문체 예시(style_example)처럼 바로 돌려준다.
+
+class StudioIn(BaseModel):
+    title: str = ""
+    card: SceneCard = SceneCard()
+
+
+class StudioDraftIn(BaseModel):
+    n: int = 3
+
+
+class StudioTryIn(BaseModel):
+    text: str
+    base: int = 0  # 고쳐 쓴 시도 번호
+
+
+class StudioTryEdit(BaseModel):
+    text: str | None = None
+    star: bool | None = None
+
+
+def _studio(sid: str) -> StudioSession:
+    try:
+        return studio.load(sid)
+    except KeyError as e:
+        raise HTTPException(404, str(e.args[0])) from None
+
+
+@app.get("/api/studio")
+def list_studio() -> dict:
+    return {"sessions": [studio.summary(x) for x in studio.sessions()], "drills": studio.drills(),
+            "length": list(studio.LENGTH), "max_tries": studio.MAX_TRIES}
+
+
+@app.post("/api/studio")
+def create_studio(body: StudioIn) -> dict:
+    return studio.view(studio.create(body.card, body.title))
+
+
+@app.get("/api/studio/{sid}")
+def get_studio(sid: str) -> dict:
+    return studio.view(_studio(sid))
+
+
+@app.put("/api/studio/{sid}")
+def put_studio(sid: str, body: StudioIn) -> dict:
+    _studio(sid)
+    return studio.view(studio.update(sid, body.card, body.title))
+
+
+@app.delete("/api/studio/{sid}")
+def delete_studio(sid: str) -> dict:
+    _studio(sid)
+    studio.delete(sid)
+    return {"ok": True}
+
+
+@app.post("/api/studio/{sid}/duplicate")
+def duplicate_studio(sid: str) -> dict:
+    _studio(sid)
+    return studio.view(studio.duplicate(sid))
+
+
+@app.post("/api/studio/{sid}/draft")
+def draft_studio(sid: str, body: StudioDraftIn) -> dict:
+    """AI 안 n 개를 써서 시도로 남긴다. 쓰는 동안 바뀐 시도를 덮지 않게 저장 직전에 다시 읽는다."""
+    s = _studio(sid)
+    studio.room(s, max(studio.DRAFTS[0], min(studio.DRAFTS[1], body.n)))
+    llm = get_llm("write")
+    with usage.scope(task="studio"):
+        cands = pipeline.draft_paragraph(llm, s.card, body.n)
+    s = _studio(sid)
+    studio.add_ai(s, cands, getattr(llm, "model", "") or "")
+    return studio.view(studio.save(s))
+
+
+@app.post("/api/studio/{sid}/tries")
+def add_studio_try(sid: str, body: StudioTryIn) -> dict:
+    s = _studio(sid)
+    studio.add_author(s, body.text, body.base)
+    return studio.view(studio.save(s))
+
+
+@app.put("/api/studio/{sid}/tries/{no}")
+def edit_studio_try(sid: str, no: int, body: StudioTryEdit) -> dict:
+    s = _studio(sid)
+    studio.edit(s, no, body.text, body.star)
+    return studio.view(studio.save(s))
+
+
+@app.delete("/api/studio/{sid}/tries/{no}")
+def delete_studio_try(sid: str, no: int) -> dict:
+    s = _studio(sid)
+    studio.remove(s, no)
+    return studio.view(studio.save(s))
 
 
 # ---------- 레퍼런스 원고 (작품 밖) ----------

@@ -238,6 +238,20 @@
 - 순수 함수 시험 `tests/test_soelab_js.py`
 - CSS 는 JS 에서 주입한다
 
+### `canon/static/studio.js`
+
+- 문단 연습장 화면(작품 밖 `#/studio[/<세션 id>]`)
+- `app.js` 라우팅이 작품 밖 사이드바(`outSidebar`) 옆에 `viewStudio` 를 그린다(불러오기 `stuLoad`, 본문 폭 1180px)
+- 작품 밖 도구 ✍️ · 작품 사이드바 ⋯ 메뉴에서 들어온다
+- 처음 화면 `stuHome`: 세션 카드(`.grid-auto`)와 머리 '+ 새 연습'(빈 카드로 세션을 바로 만든다)
+- 세션 화면 `stuSession`: 왼쪽 열 상황 카드 `stuCardForm`, 오른쪽 넓은 열 직접 쓰기 `stuWriteCard` 와 시도 카드 `stuTryCard`(고른 것 먼저, 그다음 최근 것)
+- 카드 칸은 `DRAFT_ROOTS.stuForm` 으로 묶고, 칸을 벗어날 때(change) 조용히 저장한다(`stuSaveCard`). AI 안 쓰기 · 시도 저장 전에도 먼저 저장한다
+- 연습 고르기는 체크 칸 `data-stu-drill`(목록은 서버 `GET /api/studio` 의 `drills`)
+- 시도 카드: 지표 칩(`stuChecks`: 지켰나 ✓ · 못 지킴 ✕ · 읽고 판단 ?), 글자 · 문장 · 대사 비율, 걸린 곳 «인용», 문체 표지 횟수
+- 고쳐 쓰기(`stuRewrite`)는 그 시도 글을 직접 쓰기 칸에 옮기고 `base` 로 남긴다. AI 안은 고치지 않고 작가 글만 고친다(`stuEditOpen`)
+- 머리 주 버튼은 'AI 안 n개 쓰기'(n 은 카드 아래 고르기 `S.stuN`, 1~4). 시도가 꽉 차면 막는다
+- 새 CSS 없이 공용 클래스(`.cols` · `.card` · `.chip.ok` · `.chip.bad` · `.check-row` · `.rw-text`)만 쓴다
+
 ### `canon/stattrial.py`
 
 - 상태창 넣기 시험(연구 화면 '상태창 시험' 쪽, 명령줄 `stattrial`)
@@ -253,3 +267,24 @@
 - 화면은 고를 때마다 비용을 추정해(`stEst`, AI 없음) 머리 주 버튼 글에 적는다(`stHeadBtn`)
 - 지난 시험은 틀린 비율 막대(`stBars`, 한 계열)와 방식별 표
 - 웹 작업 `stattrial`
+
+### `canon/studio.py`
+
+- 문단 연습장(작품 밖 `<CANON_HOME>/.studio/<id>.json`, `CANON_STUDIO` 로 경로 변경, 화면은 `static/studio.js`, 웹 `/api/studio/...`)
+- 한 문단짜리 장면을 상황 카드(`SceneCard`: 인물 · 시점 · 장소 · 때 · 무슨 일 · 남길 것 · 목표 글자 수 · 연습 · 더 지킬 것 · 출발 글 · 문체)로 쓴다
+- 세션 `StudioSession` 은 카드 하나와 시도 `StudioTry`(AI 안 · 작가 글, 고쳐 쓴 시도 번호 `base`, 고름 `star`)
+- 저장 `load` · `save`(임시 파일 뒤 바꿔 넣기) · `sessions` · `create` · `update` · `delete` · `duplicate`(카드만 복사)
+- 카드 정리 `clean_card`: 빈 인물 · 모르는 연습을 빼고 길이를 `LENGTH` 로 맞추고, 문체 라이브러리에 없는 문체는 막는다
+- 시도 `add_ai` · `add_author`(고친 곳이 없으면 막음) · `edit`(작가 글만 고침, 고르기는 모두) · `remove`(그 시도를 고쳐 쓴 글은 `base` 0)
+- 세션마다 시도 `MAX_TRIES` 개까지. 저절로 지우지 않고 막는다(`room`)
+- 연습 종류 `DRILLS`(`Drill`: 이름 · 프롬프트 지시 · 지표 확인). 확인이 없는 연습(소리 · 냄새 · 촉감, 자리 · 자세)은 작가가 읽고 판단한다
+- 문단 지표 `measure`: 비율 대신 개수로 센다. 길이 · 연습 확인, 걸린 곳(`metrics.pattern_spans`), 문체 표지 횟수(`metrics.marker_count`)
+- 화 단위 지표(어휘 다양도 · 문체 거리 · 쇠맛 화당 상한)는 문단에 맞지 않아 쓰지 않는다. 문장 길이 변화폭은 4문장부터 잰다
+- 감정 이름 확인은 대사 밖 서술에서만 `EMOTION_WORDS` 와 쇠맛 패턴 '감정 이름 서술'을 본다
+- 프롬프트 재료 `world`: 고른 문체만 채운 저장하지 않는 `Project`(프롬프트는 `prompts.paragraph_system` · `paragraph_prompt`)
+- AI 호출은 `pipeline.draft_paragraph`(write 단계, 빈 안 · 겹치는 안 · 출발 글과 같은 안을 빼고 굵은 글씨를 뗌)
+- 웹은 작업 목록을 거치지 않고 바로 돌려준다(`POST /api/studio/{id}/draft`, 사용량 작업 이름 `studio`). 쓰는 동안 바뀐 시도를 덮지 않게 저장 직전에 다시 읽는다
+- 작품에는 넣지 않는다. 본문으로 보내기 · 문체 학습으로 보내기는 아직 없다
+- 가짜 응답 `mock_studio.py`
+- 시험 `tests/test_studio.py`
+- LLM 호출 없음

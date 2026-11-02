@@ -2767,6 +2767,62 @@ class SoeLabel(BaseModel):
     removed: bool = False
 
 
+# ---------- 문단 연습장 (canon/studio.py, 작품 밖 <CANON_HOME>/.studio) ----------
+# 한 문단짜리 장면을 상황 카드로 AI 에게 여러 안 쓰게 하거나 작가가 직접 써 보고, 문단 지표로 견준다. 작품에는 넣지 않는다.
+
+class StudioPerson(BaseModel):
+    """상황 카드의 인물 (작가가 적는다)."""
+    name: str = ""
+    note: str = Field("", description="성격 · 처지 한두 줄")
+    speech: str = Field("", description="말투")
+
+
+class SceneCard(BaseModel):
+    """문단 하나로 쓸 상황. 빈 칸은 AI 가 정한다."""
+    people: list[StudioPerson] = Field(default_factory=list)
+    pov: str = Field("", description="시점 인물 이름. 비면 AI 가 정한다")
+    place: str = ""
+    time: str = Field("", description="때 · 날씨")
+    action: str = Field("", description="무슨 일이 일어나나")
+    aim: str = Field("", description="독자에게 남길 것 (감정 이름 대신 보여 줄 것)")
+    length: int = Field(400, description="목표 글자 수 (studio.LENGTH 범위로 맞춘다)")
+    drills: list[str] = Field(default_factory=list, description="연습 종류 id (studio.DRILLS)")
+    extra: str = Field("", description="작가가 더 적은 제약")
+    source: str = Field("", description="고쳐 쓸 출발 글. 비면 새로 쓴다")
+    style_id: str = Field("", description="문체 라이브러리 항목 id. 비면 기본 문체 규칙만")
+
+
+class StudioTry(BaseModel):
+    """같은 카드로 쓴 문단 하나. AI 안이거나 작가가 쓴 글이다."""
+    no: int
+    by: Literal["ai", "author"] = "ai"
+    text: str = ""
+    note: str = Field("", description="AI 안: 어떤 방향으로 썼는지 한 줄")
+    base: int = Field(0, description="작가가 고쳐 쓴 시도 번호. 0 이면 처음부터 쓴 글")
+    model: str = ""
+    star: bool = Field(False, description="작가가 고른 시도")
+    at: str = ""
+
+
+class StudioSession(BaseModel):
+    id: str
+    title: str = ""
+    card: SceneCard = Field(default_factory=SceneCard)
+    tries: list[StudioTry] = Field(default_factory=list)
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class StudioCandidate(BaseModel):
+    text: str = Field(description="문단 하나. 제목 · 해설 · 마크다운 없이 본문만")
+    note: str = Field("", description="이 안이 다른 안과 어떻게 다른지 한 줄")
+
+
+class StudioDraft(BaseModel):
+    """문단 연습장의 AI 안 (pipeline.draft_paragraph)."""
+    candidates: list[StudioCandidate] = Field(default_factory=list, description="서로 다른 방향으로 쓴 문단 안")
+
+
 Snapshot.model_rebuild()
 SerialRebuild.model_rebuild()
 ShortArchive.model_rebuild()
