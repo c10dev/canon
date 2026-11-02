@@ -1439,3 +1439,62 @@ def test_js_stopped_take_and_waiting_job():
     assert "아직 AI 응답을 기다려요" in got["wait"] and got["free"] == ""
     assert "멈춘 뒤 받은 판" in got["note"]
     assert "응답 기다림" in got["hub"][0] and "응답 기다림" not in got["hub"][1]
+
+
+def test_paragraph_card_from_cue_and_scene(home, monkeypatch):
+    from canon import studio
+
+    lab = _parsed(home)
+    e = lab.episodes[0]
+    k = 2
+    b = e.bounds[k - 1]
+    para = e.text[b.start:b.end].strip().split("\n\n")[0]
+    card, title = revlab.paragraph_card(lab, e.number, para)
+    c = e.sheet.cues[k - 1]
+    sc = e.storyboard.scenes[c.scene - 1]
+    assert card.model == para and card.length == len(para) and title == f"등대 {e.number}화 문단"
+    assert card.action == c.beat and card.place == f"{sc.place} · {sc.spot}" and card.time == sc.time
+    assert card.ref == f"역설계 실험 「등대」 {e.number}화 · {k}번 큐"
+    assert card.extra.startswith("원문 이 대목: ") and f"긴장도 {c.tension}/5" in card.extra
+    assert [p.name for p in card.people] == [x.name for x in lab.cast if x.name in sc.present]
+    assert card.people[0].speech == lab.cast[0].speech and card.style_id == ""
+    # 화면은 큐 칸마다 앞뒤 줄바꿈을 떼므로 두 큐에 걸친 글은 공백이 다르다 → 공백을 느슨하게 찾는다
+    nxt = e.bounds[k]
+    tail, head = e.text[b.start:b.end].strip()[-20:], e.text[nxt.start:nxt.end].strip()[:20]
+    loose, _ = revlab.paragraph_card(lab, e.number, f"{tail} {head}")
+    assert loose.model.startswith(tail) and loose.model.endswith(head) and loose.ref.endswith(f"{k}번 큐")
+    with pytest.raises(ValueError, match="찾지 못했어요"):
+        revlab.paragraph_card(lab, e.number, "원문에 없는 글")
+    with pytest.raises(KeyError):
+        revlab.paragraph_card(lab, 99, para)
+    # 경계가 큐 수와 맞지 않으면 큐 · 장면 없이 본보기만
+    e.bounds = e.bounds[:1]
+    bare, _ = revlab.paragraph_card(lab, e.number, para)
+    assert bare.action == "" and bare.place == "" and bare.extra == "" and bare.ref == f"역설계 실험 「등대」 {e.number}화"
+    # 지금 프로필을 라이브러리에 저장했으면 그 문체를 고른다
+    lab = _two_styles(home, monkeypatch)
+    lib = revlab.to_library(lab.id, lab.style_id, "")
+    styled, _ = revlab.paragraph_card(revlab.load(lab.id), 1, para)
+    assert styled.style_id == lib.id
+    s = studio.view(studio.create(styled, "연습"))
+    assert s["card"]["model"] == para and s["model_measure"]["chars"] == len(para)
+
+
+def test_web_paragraph_to_studio(home):
+    from canon import prompts, web
+    from canon.schema import SceneCard
+
+    lab = _parsed(home)
+    e = lab.episodes[0]
+    para = e.text[e.bounds[0].start:e.bounds[0].end].strip().split("\n\n")[0]
+    c = TestClient(web.app)
+    r = c.post(f"/api/revlab/{lab.id}/episodes/{e.number}/studio", json={"text": para})
+    assert r.status_code == 200
+    s = r.json()
+    assert s["card"]["model"] == para and s["title"] == f"등대 {e.number}화 문단" and s["model_measure"]
+    assert c.get(f"/api/studio/{s['id']}").json()["card"]["ref"].endswith("1번 큐")
+    assert revlab.load(lab.id).model_dump() == lab.model_dump()  # 실험 파일은 그대로
+    assert para not in prompts.paragraph_prompt(revlab.world(lab, e.number), SceneCard(**s["card"]), 2, [])  # 본보기는 AI 에게 보내지 않는다
+    assert c.post(f"/api/revlab/{lab.id}/episodes/{e.number}/studio", json={"text": "없는 글"}).status_code == 400
+    assert c.post(f"/api/revlab/{lab.id}/episodes/99/studio", json={"text": para}).status_code == 404
+    assert c.post(f"/api/revlab/999/episodes/1/studio", json={"text": para}).status_code == 404

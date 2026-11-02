@@ -1130,7 +1130,7 @@ function revEpisode() {
   const head = `<div class="between rev-ep-head"><div class="row"><h2>${e.number}화${revEpTitle(e) ? ` ${esc(revEpTitle(e))}` : ''}</h2>${chip}${src}<span class="small">${facts.join(' · ')}</span></div>${nav}</div>`;
   if (!e.sheet) {
     const go = short ? `${S.rev.min_chars}자보다 짧아 역설계하지 않아요.` : jobFor('rev_parse', L.id, REV_JOBS) ? '역설계하는 중이에요. 끝나면 이 화가 바로 열려요.' : '역설계 전이에요. 풀 화는 개요에서 고르고 비용을 봐요.';
-    return `${head}<div class="note plain between"><span>${go}</span>${short ? '' : `<a class="btn small" href="#/revlab/${L.id}">개요로</a>`}</div><section class="card"><h3>원문</h3><div class="cue-text rev-raw">${esc(e.text)}</div></section>`;
+    return `${head}<div class="note plain between"><span>${go}</span>${short ? '' : `<a class="btn small" href="#/revlab/${L.id}">개요로</a>`}</div><section class="card rev-src"><div class="between"><h3>원문</h3><span class="small">글을 드래그해 고르면 문단 연습장으로 보낼 수 있어요</span></div><div class="cue-text rev-raw">${esc(e.text)}</div></section>`;
   }
   cueBind(revCueKey(e.number), e.sheet);
   const tab = REV_TABS.some(([k]) => k === S.revTab) ? S.revTab : 'text';
@@ -1148,7 +1148,7 @@ function revTextTab(e) {
   if (e.dropped.length) notes.push(`원문에 없어 뺀 핵심 대사: ${e.dropped.map((x) => `«${esc(x)}»`).join(' · ')}`);
   if (orig && orig.tempo_order === false) notes.push('빠른 큐의 문장이 느린 큐보다 길어요. 템포 표시가 원문과 어긋나요.');
   return `${notes.map((x) => `<div class="note warn small">${x}</div>`).join('')}
-    <div class="rev-cols"><section class="card rev-src" aria-label="${e.number}화 원문"><div class="between"><h3>원문</h3><span class="small">위쪽 띠를 누르면 그 큐를 열어요</span></div>${revText(e)}</section>
+    <div class="rev-cols"><section class="card rev-src" aria-label="${e.number}화 원문"><div class="between"><h3>원문</h3><span class="small">위쪽 띠를 누르면 그 큐를 열어요 · 글을 드래그해 고르면 문단 연습장으로 보낼 수 있어요</span></div>${revText(e)}</section>
     <aside class="rev-side"><section class="card tight">${cueScore(cueEd().draft, false)}</section>${revCueCard(e, orig)}</aside></div>`;
 }
 
@@ -1954,3 +1954,69 @@ Object.assign(actions, {
   el.textContent = css;
   document.head.appendChild(el);
 })();
+
+// ----- 원문 문단을 문단 연습장으로 (revlab.paragraph_card) -----
+
+function revParaTool() {
+  let el = document.getElementById('rev-para-tool');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'rev-para-tool';
+    el.className = 'sel-tool';
+    el.hidden = true;
+    el.innerHTML = '<button type="button" class="btn small primary" data-action="revToStudio">문단 연습장으로</button>';
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+/** 원문 칸 안에서 고른 글. 큐 칸 여럿에 걸쳐도 된다 (서버가 공백을 느슨하게 찾는다). */
+function revParaSel() {
+  const s = window.getSelection();
+  if (!s || s.isCollapsed || !s.rangeCount || S.route[0] !== 'revlab' || !S.revEp) return null;
+  const r = s.getRangeAt(0);
+  const box = document.querySelector('#app .rev-src');
+  if (!box || !box.contains(r.startContainer) || !box.contains(r.endContainer)) return null;
+  const text = s.toString().trim();
+  return text ? { lab: S.revLab.id, n: S.revEp, text, rect: r.getBoundingClientRect() } : null;
+}
+
+function onRevParaSelect(e, showOnly = false) {
+  if (e && e.target && e.target.closest && e.target.closest('#rev-para-tool')) return;
+  setTimeout(() => {
+    const s = revParaSel();
+    const el = document.getElementById('rev-para-tool');
+    if (!s) { if (!showOnly && el) el.hidden = true; return; }
+    S.revParaPending = s;
+    const t = revParaTool();
+    t.hidden = false;
+    const w = t.offsetWidth || 140;
+    t.style.left = `${Math.min(Math.max(8, s.rect.right - w), document.documentElement.clientWidth - w - 8) + window.scrollX}px`;
+    t.style.top = `${s.rect.bottom + 6 + window.scrollY}px`;
+  }, 0);
+}
+
+document.addEventListener('mouseup', onRevParaSelect);
+document.addEventListener('touchend', onRevParaSelect);
+document.addEventListener('keyup', (e) => { if (e.shiftKey || e.key === 'Shift') onRevParaSelect(e); });
+let revParaTimer = 0;
+document.addEventListener('selectionchange', () => {
+  clearTimeout(revParaTimer);
+  revParaTimer = setTimeout(() => onRevParaSelect(null, true), 200);
+});
+window.addEventListener('hashchange', () => { const el = document.getElementById('rev-para-tool'); if (el) el.hidden = true; });
+
+Object.assign(actions, {
+  async revToStudio() {
+    const s = S.revParaPending;
+    const el = document.getElementById('rev-para-tool');
+    if (el) el.hidden = true;
+    window.getSelection()?.removeAllRanges();
+    if (!s) return;
+    await run('문단 연습장 카드를 만드는 중', async () => {
+      const x = await api('POST', `/revlab/${s.lab}/episodes/${s.n}/studio`, { text: s.text });
+      location.hash = `#/studio/${enc(x.id)}`;
+      toast('원문 문단을 본보기로 둔 연습을 만들었어요. 카드는 큐 · 장면 · 인물에서 채웠어요');
+    }, { render: 'never' });
+  },
+});

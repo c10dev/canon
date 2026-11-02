@@ -115,6 +115,12 @@
 - 견주기 `style_diff` · `style_view`(`library.diff`, 기본은 지금 프로필과)
 - 구조 · 호흡 `pace`(화마다 `_pace_row`: 큐 글자 수로 가중한 평균 긴장 · 최고 긴장과 자리 · 끝 긴장 · D 큐 · 빠른 템포 비율, 원문에서 잰 대사 비율 · 문장 길이, 끝맺음. 요약: 끝맺음 수 · 숨 고르기 화 `REST_PEAK` · 긴장 `TOP_TENSION` 화와 간격 · 분량 변동. 저장 안 함, AI 없음), 웹 `GET /api/revlab/<번호>/pace`
 - 라이브러리에 저장 `to_library`(원문 앞부분과 AI 없이 고른 대표 문단 `pick_passages`, 항목 id `RevStyle.library`, 라이브러리에서 지우면 화면 값 `library` 가 빔), 웹 `POST /api/revlab/<번호>/styles/<id>/library`
+- 문단 연습장 카드 `paragraph_card`: 원문에서 고른 문단으로 `SceneCard` 를 채운다. AI 없음, 실험은 바꾸지 않음
+  - 원문 자리 `find_passage`: 글자 그대로 없으면 공백 묶음을 느슨하게 찾는다 (화면은 큐 칸마다 앞뒤 줄바꿈을 뗀다)
+  - 든 큐 `_cue_at`(경계가 큐 수와 맞을 때만)의 일 · 장면(장소 · 자리 · 때 · 있는 인물), 화 플롯 시점 인물, 실험 인물(성격 · 말투)
+  - 큐 기능 · 긴장 · 템포 · 편성은 '더 지킬 것' 한 줄. 문단은 본보기 `SceneCard.model`, 출처 `ref`
+  - 지금 프로필을 라이브러리에 저장했으면 그 문체를 고른다
+  - 웹 `POST /api/revlab/<번호>/episodes/<화>/studio`(세션을 만들어 돌려줌)
 - 기록 화면 값 `style_items`(원문 앞부분이 바뀌었는지 `basis_ok`, `style_basis`)
 - 판은 넣은 프로필 번호 `RevTake.style_id` 를 남기고, `compare` · `_take_view` 가 `style_old` · `style_gone` 을 붙임
 - 글을 통째로 바꾸면(`replace_text`) 기록은 남기고 `style_id` 만 비움
@@ -216,6 +222,7 @@
   - 큐 시트 편집기 `cue.js` `cueEditor`(열쇠 `rev:<화>`, `cueCtx` 의 kind rev)
   - 플롯 · 스토리보드
   - 되돌려 쓰기 `revWriteTab`: 가려 읽기(판마다, `revPick` 이 판 번호를 보냄) · 되돌려 쓴 판 표(`revTakePickHtml`, 읽기 `revReadTake` · 지우기 `revTakeDrop`) · 지표 견주기 `revMetricRows`(머리 `revScoreHead`) · 나란히 읽기(왼쪽 · 오른쪽 고름 `S.revRead`) · 새 판 쓰기
+- 원문 칸(`.rev-src`)에서 글을 고르면 뜨는 '문단 연습장으로' 도구(`revParaTool` · `revParaSel` · `onRevParaSelect`, 동작 `revToStudio` → `#/studio/<id>`)
 - 비용 추정은 고를 때 바로 묻고 버튼 글에 적는다(`revEst` · `revCost`, AI 없음)
 - `revPreview` · `revAppendPreview` · `revSegments` · `revEpTitle` · `revSteps` · `revNext` · `revTocEps` · `revRunRows` · `revMetricRows` · `revStyleTag` · `revLabLite` · `revHomeCard` · `revOverviewRow` · `revAiText` · `revEpRange` · `revAiMade` · `revTakePicks` 는 순수 함수(`tests/test_revlab.py`)
 - CSS 는 JS 에서 주입
@@ -244,7 +251,7 @@
 - `app.js` 라우팅이 작품 밖 사이드바(`outSidebar`) 옆에 `viewStudio` 를 그린다(불러오기 `stuLoad`, 본문 폭 1180px)
 - 작품 밖 도구 ✍️ · 작품 사이드바 ⋯ 메뉴에서 들어온다
 - 처음 화면 `stuHome`: 세션 카드(`.grid-auto`)와 머리 '+ 새 연습'(빈 카드로 세션을 바로 만든다)
-- 세션 화면 `stuSession`: 왼쪽 열 상황 카드 `stuCardForm`, 오른쪽 넓은 열 직접 쓰기 `stuWriteCard` 와 시도 카드 `stuTryCard`(고른 것 먼저, 그다음 최근 것)
+- 세션 화면 `stuSession`: 왼쪽 열 상황 카드 `stuCardForm`, 오른쪽 넓은 열 본보기 문단 `stuModelCard`(있을 때만, 지표 `model_measure`, 출발 글로 넣기 `stuModelSource` · 복사) · 직접 쓰기 `stuWriteCard` 와 시도 카드 `stuTryCard`(고른 것 먼저, 그다음 최근 것)
 - 카드 칸은 `DRAFT_ROOTS.stuForm` 으로 묶고, 칸을 벗어날 때(change) 조용히 저장한다(`stuSaveCard`). AI 안 쓰기 · 시도 저장 전에도 먼저 저장한다
 - 연습 고르기는 체크 칸 `data-stu-drill`(목록은 서버 `GET /api/studio` 의 `drills`)
 - 시도 카드: 지표 칩(`stuChecks`: 지켰나 ✓ · 못 지킴 ✕ · 읽고 판단 ?), 글자 · 문장 · 대사 비율, 걸린 곳 «인용», 문체 표지 횟수
@@ -271,7 +278,8 @@
 ### `canon/studio.py`
 
 - 문단 연습장(작품 밖 `<CANON_HOME>/.studio/<id>.json`, `CANON_STUDIO` 로 경로 변경, 화면은 `static/studio.js`, 웹 `/api/studio/...`)
-- 한 문단짜리 장면을 상황 카드(`SceneCard`: 인물 · 시점 · 장소 · 때 · 무슨 일 · 남길 것 · 목표 글자 수 · 연습 · 더 지킬 것 · 출발 글 · 문체)로 쓴다
+- 한 문단짜리 장면을 상황 카드(`SceneCard`: 인물 · 시점 · 장소 · 때 · 무슨 일 · 남길 것 · 목표 글자 수 · 연습 · 더 지킬 것 · 출발 글 · 문체 · 본보기 문단 `model` · 출처 `ref`)로 쓴다
+- 본보기 문단은 역설계 실험에서 가져온다(`revlab.paragraph_card`). 프롬프트에는 넣지 않고, `view` 가 시도와 같은 지표로 잰 `model_measure` 를 붙인다
 - 세션 `StudioSession` 은 카드 하나와 시도 `StudioTry`(AI 안 · 작가 글, 고쳐 쓴 시도 번호 `base`, 고름 `star`)
 - 저장 `load` · `save`(임시 파일 뒤 바꿔 넣기) · `sessions` · `create` · `update` · `delete` · `duplicate`(카드만 복사)
 - 카드 정리 `clean_card`: 빈 인물 · 모르는 연습을 빼고 길이를 `LENGTH` 로 맞추고, 문체 라이브러리에 없는 문체는 막는다
