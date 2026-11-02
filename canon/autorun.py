@@ -21,7 +21,7 @@ from typing import Any, Callable, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from . import atlas, board, cue, dynamics, features, findings, jobs, pipeline, prompts, settings, store, usage
+from . import anchor, atlas, board, cue, dynamics, features, findings, jobs, pipeline, prompts, settings, store, usage
 from . import stage as stage_mod
 from .llm import BatchLLM, Interrupted, SchemaMismatch, get_llm
 from .research import CHARS_PER_TOKEN, JSON_OUTPUT_RESERVE, _filler
@@ -61,6 +61,8 @@ class Policy(BaseModel):
     stop_on_board_warnings: bool = Field(True, description="AI 가 만든 스토리보드에 이번 화 플롯과 어긋남(plot_vs_state · plot_vs_text · time)이나 "
                                          "값 범위 경고가 있으면 멈춤. 다음 화 플롯 경고는 기록만. 작가가 고친 스토리보드로는 멈추지 않는다")
     cue_sheet: bool = Field(True, description="화마다 쓰기 전에 큐 시트를 만들어 쓴다 (작품이 큐 시트를 쓸 때만, cue.on)")
+    max_style_distance: float = Field(0, description="작품 정착 문체에서 최근 화 평균 문체 거리(anchor.rolling)가 이만큼 넘으면 멈춤. "
+                                     "0 이면 보지 않음. 정착 문체가 없으면 보지 않음")
 
 
 class LogEntry(BaseModel):
@@ -189,6 +191,10 @@ def review_reasons(p: Project, delta: StateDelta, report: Optional[ConsistencyRe
         out.append(f"{delta.episode}화는 초반 화라 직접 읽고 반영하도록 멈춰요 (집필 화면에서 초반 점검과 여는 방식 비교를 쓸 수 있어요)")
     if policy.stop_on_warnings and delta.warnings:
         out.append(f"상태 변경안 경고 {len(delta.warnings)}개: {delta.warnings[0]}")
+    if policy.max_style_distance > 0 and not anchor.voiced(p, delta.episode):
+        r = anchor.rolling(p, delta.episode)
+        if r is not None and r > policy.max_style_distance:
+            out.append(f"정착 문체에서 멀어졌어요: 최근 {anchor.WINDOW}화 평균 문체 거리 {r} (멈춤 기준 {policy.max_style_distance})")
     names = _names(p)
     unknown = sorted({u.character_id for u in delta.character_updates if u.character_id not in names})
     if unknown:
@@ -568,6 +574,7 @@ class Runner:
                 raise _Halt("paused", f"{n}화 상태가 '{EP_STATUS.get(ep.status, ep.status)}'(으)로 바뀌어 멈췄어요",
                             _changed_while_writing(n, ep.status), kind="changed")
             ep.text, ep.status, ep.written_by, ep.meta_cut = text, "written", model, cut
+            anchor.stamp(q, n)
         q = _edit(self.name, put)
         self.log(f"{n}화 본문 {len(text):,}자", **usage)
         _, drift = pipeline.style_drift(q, n)

@@ -66,8 +66,8 @@ SYSTEM_WRITER = _WRITER + PROSE_RULES
 
 
 def styled(p: Project) -> bool:
-    """원문을 분석한 문체가 있는 작품인지. 예시 문단이나 표지가 있으면 그렇다고 본다."""
-    return bool(p.style.sample_passages or p.style.markers)
+    """원문을 분석한 문체가 있는 작품인지. 예시 문단(정착 문체의 대표 문단 포함)이나 표지가 있으면 그렇다고 본다."""
+    return bool(p.style.sample_passages or p.style.markers or (p.anchor and p.anchor.passages))
 
 
 def writer_system(p: Project) -> str:
@@ -2529,14 +2529,24 @@ def style_rules_view(p: Project) -> dict:
     return rules
 
 
+def style_passages(p: Project) -> list[str]:
+    """쓰기 프롬프트의 문체 예시 문단: 작품 정착 문체의 대표 문단이 있으면 그것만, 없으면 레퍼런스 대표 문단.
+    둘을 섞지 않는다. 레퍼런스와 작품이 굳힌 목소리가 다르면 두 예시가 서로 반대로 당긴다."""
+    a = p.anchor
+    return list(a.passages) if a is not None and a.passages else list(p.style.sample_passages)
+
+
 def style_block(p: Project, markers: str | None = None) -> str:
     """문체 예시와 스타일 프로필. 예시 문단이 있으면 예시를 앞에 둔다 (문체는 서술보다 예시로).
     markers 를 주면 화 분량 기준 표지 블록(marker_block) 대신 그 글을 붙인다 (문단 연습장)."""
-    style = p.style
-    samples = "\n\n---\n\n".join(style.sample_passages) or "없음"
+    passages = style_passages(p)
+    samples = "\n\n---\n\n".join(passages) or "없음"
     profile = f"# 스타일 프로필\n{dump(style_rules_view(p))}{marker_block(p) if markers is None else markers}"
-    example = f"# 문체 예시 (이 문체를 따를 것, 내용은 가져오지 말 것)\n{samples}"
-    return f"{example}\n\n{profile}" if style.sample_passages else f"{profile}\n\n{example}"
+    own = p.anchor is not None and bool(p.anchor.passages)
+    head = ("# 문체 예시 (이 작품이 지금까지 써 온 문체. 이 문체를 이어 쓸 것, 내용은 가져오지 말 것)" if own
+            else "# 문체 예시 (이 문체를 따를 것, 내용은 가져오지 말 것)")
+    example = f"{head}\n{samples}"
+    return f"{example}\n\n{profile}" if passages else f"{profile}\n\n{example}"
 
 
 def static_context(p: Project) -> str:
@@ -2586,9 +2596,10 @@ def device_block(p: Project, n: int) -> str:
 
 def marker_block(p: Project) -> str:
     """문체 표지와 원문 빈도를 한 화 분량 기준 횟수로 바꿔 적는다. 모델이 표지를 몰아 쓰지 않게 한다."""
-    marks = [m for m in p.style.markers if m.text.strip()]
+    marks = [m for m in (_anchor_markers(p) if p.anchor is not None else p.style.markers) if m.text.strip()]
     if not marks:
         return ""
+    own = p.anchor is not None and {m.text for m in marks} <= {m.text for m in p.anchor.markers}  # 잰 뒤에 더한 표지는 원문 빈도
     size = p.meta.words_per_episode
     rows = []
     for m in marks:
@@ -2598,8 +2609,14 @@ def marker_block(p: Project) -> str:
         else:
             freq = "원문 빈도 모름, 가끔"
         rows.append(f"- '{m.text}': {freq}{f' ({m.note})' if m.note else ''}")
-    return (f"\n\n# 문체 표지 (원문에서 센 빈도를 이번 화 분량 약 {size}자에 맞춘 것. 이만큼 섞어 쓰고 몰아 쓰지 않습니다)\n"
+    src = "이 작품의 정착 문체에서" if own else "원문에서"
+    return (f"\n\n# 문체 표지 ({src} 센 빈도를 이번 화 분량 약 {size}자에 맞춘 것. 이만큼 섞어 쓰고 몰아 쓰지 않습니다)\n"
             + "\n".join(rows))
+
+
+def _anchor_markers(p: Project) -> list:
+    from . import anchor
+    return anchor.markers(p)
 
 
 def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = True, use_cues: bool = True) -> str:
@@ -4455,7 +4472,7 @@ def play_style(p: Project) -> str:
         out[k] = v
         used += cost
     text = dump(out) if out else "없음"
-    sample = next((s for s in p.style.sample_passages if s.strip()), "")
+    sample = next((s for s in style_passages(p) if s.strip()), "")
     room = context.BUDGET["play_style"] - used
     if sample and room > 200:
         clip = sample.strip()[:min(PLAY_SAMPLE, room)]

@@ -2629,3 +2629,29 @@ details[open] > .row-sum { background: var(--sel-bg); }
 }
 /* 이름 줄에 ✦ 버튼이 있는 칸과 나란한 칸의 입력칸 높이를 맞춘다 */
 .setup-secs .grid-2 > .field > label, .setup-secs .grid-3 > .field > label { min-height: 36px; display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-4); }
+/* 작품 정착 문체 (anchor.js) */
+.anchor-cmp { border-collapse: collapse; margin: var(--space-8) 0; }
+.anchor-cmp th, .anchor-cmp td { padding: var(--space-4) var(--space-10); border-bottom: 1px solid var(--line); text-align: left; }
+.anchor-cmp td { font-variant-numeric: tabular-nums; }
+.anchor-eps { display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-8); max-height: 160px; overflow-y: auto; padding: var(--space-4) 0; }
+.chip-check { display: inline-flex; align-items: center; gap: var(--space-4); min-height: var(--control-small); padding: 0 var(--space-8); border: 1px solid var(--line); border-radius: var(--radius-6); font-size: 0.8125rem; cursor: pointer; }
+.chip-check:has(input:checked) { background: var(--accent-soft); border-color: var(--accent); }
+.anchor-cands { display: flex; flex-direction: column; gap: var(--space-8); margin-top: var(--space-10); }
+.anchor-cand { display: flex; gap: var(--space-8); align-items: flex-start; padding: var(--space-8); border: 1px solid var(--line); border-radius: var(--radius-6); white-space: pre-wrap; font-size: 0.8125rem; cursor: pointer; }
+.anchor-cand:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.anchor-pass blockquote { margin: var(--space-6) 0; padding-left: var(--space-10); border-left: 3px solid var(--line); white-space: pre-wrap; }
+.anchor-chart { margin: var(--space-10) 0 0; }
+.anchor-chart svg { width: 100%; height: auto; display: block; }
+.anchor-band { fill: var(--accent-soft); }
+.anchor-warn { stroke: var(--warn-line); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.anchor-change { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 2 3; }
+.anchor-roll { fill: none; stroke: var(--accent); stroke-width: 2; }
+.anchor-dot { fill: var(--muted); }
+.anchor-dot.auto { fill: var(--written-ink); }
+.anchor-dot.own { fill: var(--accent); }
+.anchor-tick { font-size: 10px; fill: var(--muted); }
+.cue-curve { margin: var(--space-8) 0; }
+.cue-curve svg { width: 100%; height: auto; display: block; }
+.cue-curve-bar { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 0.5; }
+.cue-curve-cut { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 3 3; }
+.row-inline { display: inline-flex; gap: var(--space-4); flex-wrap: wrap; }

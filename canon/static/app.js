@@ -1234,7 +1234,7 @@ async function save(force = false) {
   if (dropped.length) toast(`작업이나 반영된 진행과 겹쳐 이 부분은 저장하지 않고 서버에 있는 것으로 두었어요: ${dropped.join(', ')}`, true);
   if (locked.length) toast(`본문이 있는 화라 플롯은 저장하지 않고 서버에 있는 것으로 두었어요: ${rangeText(locked)}화. 이야기 줄기 표시만 바꿀 수 있어요`, true);
   if (kin.length) toast(`이 화면이 모르는 사이 반영으로 더해진 인물(${kin.join(', ')})은 지우지 않고 남겼어요`);
-  if (S.route[2] === 'style') { await loadStyleLink(); await learnLoad(); }
+  if (S.route[2] === 'style') { await loadStyleLink(); await learnLoad(); await anchorLoad(); }
   if (S.route[2] === 'causal') await causalLoad();
   return !dropped.length && !locked.length;
 }
@@ -1852,6 +1852,7 @@ async function routeNow() {
         S.libs = await api('GET', '/styles').catch(() => []);
         await loadStyleLink();
         await learnLoad();
+        await anchorLoad();
       }
       if (parts[2] === 'write' && n && ep(n) && ep(n).status !== 'draft') {
         S.context = await api('GET', `/projects/${enc(S.name)}/episodes/${n}/context`).catch(() => null);

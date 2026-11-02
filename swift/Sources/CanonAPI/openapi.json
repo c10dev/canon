@@ -1464,6 +1464,180 @@
     }
    }
   },
+  "/api/projects/{name}/style/anchor": {
+   "get": {
+    "summary": "Anchor View",
+    "operationId": "anchor_view",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnchorView"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "put": {
+    "summary": "Anchor Save",
+    "description": "정착 문체를 고른 화와 대표 문단으로 잰다 (다시 재기도 같다).",
+    "operationId": "anchor_save",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AnchorPick"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project-Output"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Anchor Drop",
+    "operationId": "anchor_drop",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project-Output"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/projects/{name}/style/anchor/candidates": {
+   "post": {
+    "summary": "Anchor Candidates",
+    "description": "고를 화로 대표 문단 후보와 그 화의 글자 수, 뒤 화가 떨어진 거리를 미리 본다. 저장하지 않는다.",
+    "operationId": "anchor_candidates",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AnchorPick"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnchorCandidates"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/style/edits": {
    "get": {
     "summary": "Style Edit Stats",
@@ -16933,6 +17107,242 @@
     "type": "object",
     "title": "AgentUndoIn"
    },
+   "AnchorCandidates": {
+    "properties": {
+     "passages": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Passages"
+     },
+     "chars": {
+      "type": "integer",
+      "title": "Chars"
+     },
+     "later": {
+      "type": "number",
+      "title": "Later"
+     }
+    },
+    "type": "object",
+    "required": [
+     "passages",
+     "chars"
+    ],
+    "title": "AnchorCandidates"
+   },
+   "AnchorInfo": {
+    "properties": {
+     "episodes": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Episodes"
+     },
+     "passages": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Passages",
+      "default": []
+     },
+     "later": {
+      "type": "number",
+      "title": "Later"
+     },
+     "at": {
+      "type": "string",
+      "title": "At",
+      "default": ""
+     },
+     "stale": {
+      "type": "boolean",
+      "title": "Stale",
+      "default": false
+     },
+     "metrics": {
+      "$ref": "#/components/schemas/AnchorMetrics"
+     }
+    },
+    "type": "object",
+    "required": [
+     "episodes"
+    ],
+    "title": "AnchorInfo"
+   },
+   "AnchorMetrics": {
+    "properties": {
+     "chars": {
+      "type": "integer",
+      "title": "Chars"
+     },
+     "sentence_len": {
+      "type": "number",
+      "title": "Sentence Len"
+     },
+     "dialogue_ratio": {
+      "type": "number",
+      "title": "Dialogue Ratio"
+     },
+     "past_tense_ratio": {
+      "type": "number",
+      "title": "Past Tense Ratio"
+     },
+     "distance_ready": {
+      "type": "boolean",
+      "title": "Distance Ready",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "chars",
+     "sentence_len",
+     "dialogue_ratio"
+    ],
+    "title": "AnchorMetrics"
+   },
+   "AnchorPick": {
+    "properties": {
+     "episodes": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Episodes"
+     },
+     "passages": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Passages",
+      "default": []
+     }
+    },
+    "type": "object",
+    "required": [
+     "episodes"
+    ],
+    "title": "AnchorPick"
+   },
+   "AnchorPoint": {
+    "properties": {
+     "n": {
+      "type": "integer",
+      "title": "N"
+     },
+     "distance": {
+      "type": "number",
+      "title": "Distance"
+     },
+     "rolling": {
+      "type": "number",
+      "title": "Rolling"
+     },
+     "voiced": {
+      "type": "boolean",
+      "title": "Voiced",
+      "default": false
+     },
+     "anchor": {
+      "type": "boolean",
+      "title": "Anchor",
+      "default": false
+     },
+     "auto": {
+      "type": "boolean",
+      "title": "Auto",
+      "default": false
+     },
+     "changed": {
+      "type": "boolean",
+      "title": "Changed",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "n"
+    ],
+    "title": "AnchorPoint",
+    "description": "화 하나의 정착 문체 거리 (anchor.trend). 서술 말투 화는 distance 가 없다."
+   },
+   "AnchorView": {
+    "properties": {
+     "anchor": {
+      "$ref": "#/components/schemas/AnchorInfo"
+     },
+     "reference": {
+      "$ref": "#/components/schemas/AnchorMetrics"
+     },
+     "usable": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Usable",
+      "default": []
+     },
+     "suggest": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Suggest",
+      "default": []
+     },
+     "trend": {
+      "items": {
+       "$ref": "#/components/schemas/AnchorPoint"
+      },
+      "type": "array",
+      "title": "Trend",
+      "default": []
+     },
+     "window": {
+      "type": "integer",
+      "title": "Window"
+     },
+     "warn": {
+      "type": "number",
+      "title": "Warn"
+     },
+     "band": {
+      "items": {
+       "type": "number"
+      },
+      "type": "array",
+      "title": "Band"
+     },
+     "other": {
+      "type": "number",
+      "title": "Other"
+     },
+     "min_chars": {
+      "type": "integer",
+      "title": "Min Chars"
+     },
+     "per_episode_warn": {
+      "type": "number",
+      "title": "Per Episode Warn"
+     }
+    },
+    "type": "object",
+    "required": [
+     "window",
+     "warn",
+     "band",
+     "other",
+     "min_chars",
+     "per_episode_warn"
+    ],
+    "title": "AnchorView",
+    "description": "문체 화면의 정착 문체 카드 (anchor.view). band 는 사람 연재가 머문 거리 범위, warn 은 흐름 경고 기준."
+   },
    "Approval": {
     "properties": {
      "tool": {
@@ -17579,7 +17989,8 @@
        "hand_pick_opening": true,
        "storyboard": true,
        "stop_on_board_warnings": true,
-       "cue_sheet": true
+       "cue_sheet": true,
+       "max_style_distance": 0.0
       }
      }
     },
@@ -21328,6 +21739,12 @@
      "cue_sheet": {
       "$ref": "#/components/schemas/CueSheet",
       "description": "쓰기 재료: 큐 시트 (pipeline.make_cue_sheet, cue.set_episode). 쓰기 프롬프트 끝에 넣는다 (prompts.cue_write_block). 상태 승인 대상이 아니다"
+     },
+     "style_basis": {
+      "type": "string",
+      "title": "Style Basis",
+      "description": "AI 가 지금 본문을 쓸 때의 문체 지문 (anchor.style_basis). 비면 모름 (손으로 쓴 본문, 다시 생성 판을 고른 본문)",
+      "default": ""
      }
     },
     "type": "object",
@@ -21499,6 +21916,12 @@
      "cue_sheet": {
       "$ref": "#/components/schemas/CueSheet",
       "description": "쓰기 재료: 큐 시트 (pipeline.make_cue_sheet, cue.set_episode). 쓰기 프롬프트 끝에 넣는다 (prompts.cue_write_block). 상태 승인 대상이 아니다"
+     },
+     "style_basis": {
+      "type": "string",
+      "title": "Style Basis",
+      "description": "AI 가 지금 본문을 쓸 때의 문체 지문 (anchor.style_basis). 비면 모름 (손으로 쓴 본문, 다시 생성 판을 고른 본문)",
+      "default": ""
      }
     },
     "type": "object",
@@ -25808,6 +26231,12 @@
       "title": "Cue Sheet",
       "description": "화마다 쓰기 전에 큐 시트를 만들어 쓴다 (작품이 큐 시트를 쓸 때만, cue.on)",
       "default": true
+     },
+     "max_style_distance": {
+      "type": "number",
+      "title": "Max Style Distance",
+      "description": "작품 정착 문체에서 최근 화 평균 문체 거리(anchor.rolling)가 이만큼 넘으면 멈춤. 0 이면 보지 않음. 정착 문체가 없으면 보지 않음",
+      "default": 0
      }
     },
     "type": "object",
@@ -26095,6 +26524,10 @@
       "title": "Style Version",
       "description": "가져오거나 올린 라이브러리 항목의 버전 번호. 0 은 모름",
       "default": 0
+     },
+     "anchor": {
+      "$ref": "#/components/schemas/StyleAnchor",
+      "description": "작품 정착 문체 (canon/anchor.py). 비면 레퍼런스 기준을 쓴다"
      },
      "style_example": {
       "$ref": "#/components/schemas/StyleExample",
@@ -26436,6 +26869,10 @@
       "title": "Style Version",
       "description": "가져오거나 올린 라이브러리 항목의 버전 번호. 0 은 모름",
       "default": 0
+     },
+     "anchor": {
+      "$ref": "#/components/schemas/StyleAnchor",
+      "description": "작품 정착 문체 (canon/anchor.py). 비면 레퍼런스 기준을 쓴다"
      },
      "style_example": {
       "$ref": "#/components/schemas/StyleExample",
@@ -31405,6 +31842,57 @@
     },
     "type": "object",
     "title": "StudioVariantsIn"
+   },
+   "StyleAnchor": {
+    "properties": {
+     "episodes": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Episodes",
+      "description": "기준으로 고른 화 번호. 서술 말투가 있는 시점 인물의 화는 고르지 않는다"
+     },
+     "basis": {
+      "type": "string",
+      "title": "Basis",
+      "description": "고른 화 본문의 지문 (anchor.basis). 지금 본문과 다르면 다시 재야 한다",
+      "default": ""
+     },
+     "metrics": {
+      "$ref": "#/components/schemas/StyleMetrics",
+      "description": "고른 화를 이어 붙여 잰 문체 지표 (문체 거리 기준 포함)"
+     },
+     "markers": {
+      "items": {
+       "$ref": "#/components/schemas/StyleMarker"
+      },
+      "type": "array",
+      "title": "Markers",
+      "description": "스타일 프로필 표지를 고른 화에서 다시 센 빈도"
+     },
+     "passages": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Passages",
+      "description": "고른 화에서 작가가 고른 대표 문단 0~4개. 있으면 쓰기 프롬프트의 문체 예시로 쓴다"
+     },
+     "later": {
+      "type": "number",
+      "title": "Later",
+      "description": "잴 때 고른 화 뒤 화들이 이 기준에서 떨어진 평균 문체 거리. 크면 고른 화가 작품을 대표하지 못한다"
+     },
+     "at": {
+      "type": "string",
+      "title": "At",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "StyleAnchor",
+    "description": "작품 정착 문체 (canon/anchor.py). 작가가 고른 반영한 화를 이 작품의 문체 기준으로 고정한다.\n문체 지표 · 경고 · 추이는 레퍼런스 대신 이 기준을 보고, 쓰기 프롬프트의 문체 예시는 passages 를 쓴다.\n라이브러리에는 올리지 않는다 (작품 장면이 다른 작품으로 번지지 않게)."
    },
    "StyleDevice": {
     "properties": {

@@ -294,6 +294,33 @@ def style_distance(base: StyleMetrics, text: str) -> Optional[float]:
     return round(_cos_dist(_suffix_z(text), base.style_centroid) / base.style_spread, 2)
 
 
+# ---------- 템포 곡선 ----------
+# 화 안에서 대사 대목과 서술 대목이 어떻게 오가는지 본다. 화면 표시용이라 경고를 내지 않는다.
+# 사람 웹소설 4편과 AI 연재 4개의 창별 기복이 같은 범위여서(reports/문체 흐름 실측 2026-11-02.md) 기복 자체로는 가르지 않는다.
+TEMPO_WINDOW = 400
+
+
+def tempo_curve(text: str, size: int = TEMPO_WINDOW) -> list[dict]:
+    """문단 경계를 지켜 size 자 안팎으로 자른 창마다 위치(at, 글자) · 글자 수 · 대사 비율 · 문장 평균 길이."""
+    out, cur, at, pos = [], "", 0, 0
+    for para in re.split(r"(\n+)", text):
+        if not para.strip():
+            pos += len(para)
+            continue
+        if not cur:
+            at = pos
+        cur = f"{cur}\n{para}" if cur else para
+        pos += len(para)
+        if len(cur) >= size:
+            m = measure(cur)
+            out.append({"at": at, "chars": m.chars, "dialogue_ratio": m.dialogue_ratio, "sentence_len": m.sentence_len_mean})
+            cur = ""
+    if len(cur.strip()) >= size / 2:
+        m = measure(cur)
+        out.append({"at": at, "chars": m.chars, "dialogue_ratio": m.dialogue_ratio, "sentence_len": m.sentence_len_mean})
+    return out
+
+
 # ---------- 문체 표지와 베끼기 ----------
 
 def _marker(marker: str) -> str:

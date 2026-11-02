@@ -189,13 +189,51 @@ def set_episode(p: Project, n: int, d: CueSheetDraft | None, by: str = "author")
 
 
 def ep_view(p: Project, n: int) -> dict:
-    """집필 화면 값: 켜짐, 낡음, 본문이 있으면 핵심 대사가 들어간 수와 빠진 대사."""
+    """집필 화면 값: 켜짐, 낡음, 본문이 있으면 핵심 대사가 들어간 수와 빠진 대사, 큐마다 실현도(rows), 템포 곡선(curve)."""
     e = p.episode(n)
     s = e.cue_sheet
-    out = {"on": on(p), "stale": stale(p, n), "hit": 0, "total": 0, "missed": []}
+    out = {"on": on(p), "stale": stale(p, n), "hit": 0, "total": 0, "missed": [], "rows": [], "curve": []}
+    if e.text:
+        out["curve"] = metrics.tempo_curve(e.text)
     if s and e.text:
         out["hit"], out["total"], out["missed"] = line_hits(s, e.text)
+        out["rows"] = realized(s, e.text)
     return out
+
+
+def split_by_target(sheet: CueSheet, text: str) -> list[tuple[int, int]]:
+    """본문을 큐 목표 글자 수 비율로 자른 자리 [(시작, 끝)]. 큐마다 따로 쓴 본문이 아니라서 대략 위치다.
+    자리는 문단 경계로 맞춘다 (가장 가까운 줄바꿈)."""
+    total = sum(max(c.length, 0) for c in sheet.cues)
+    k = len(sheet.cues)
+    if not k or not text:
+        return []
+    cuts, acc = [0], 0
+    for c in sheet.cues[:-1]:
+        acc += max(c.length, 0) if total else 1
+        at = round(acc / (total or k) * len(text))
+        back, fwd = text.rfind("\n", 0, at), text.find("\n", at)
+        cand = [x for x in (back, fwd) if x > cuts[-1]]
+        cuts.append(min(cand, key=lambda x: abs(x - at)) if cand else max(at, cuts[-1]))
+    cuts.append(len(text))
+    return [(a, max(a, b)) for a, b in zip(cuts, cuts[1:])]
+
+
+def realized(sheet: CueSheet, text: str) -> list[dict]:
+    """큐마다 계획(편성 · 템포)이 본문에 실현됐는지. 편성은 대사 비율(cue_rows 의 voice_ok),
+    템포는 문장 길이를 화 평균과 견준다: fast 는 짧게, slow 는 길게 (tempo_ok, mid 는 None).
+    위치는 split_by_target 이라 대략이다 (start · end 글자 위치를 함께 준다)."""
+    spans = split_by_target(sheet, text)
+    if not spans:
+        return []
+    rows = cue_rows(sheet, [text[a:b] for a, b in spans])
+    avg = metrics.measure(text).sentence_len_mean
+    for r, (a, b) in zip(rows, spans):
+        sl = r["sentence_len"]
+        r["start"], r["end"] = a, b
+        r["tempo_ok"] = None if r["tempo"] == "mid" or not sl else sl < avg if r["tempo"] == "fast" else sl > avg
+        r["episode_sentence_len"] = avg
+    return rows
 
 
 # ---------- 채점 (LLM 없음) ----------
