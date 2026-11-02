@@ -2790,6 +2790,8 @@ class SceneCard(BaseModel):
     extra: str = Field("", description="작가가 더 적은 제약")
     source: str = Field("", description="고쳐 쓸 출발 글. 비면 새로 쓴다")
     style_id: str = Field("", description="문체 라이브러리 항목 id. 비면 기본 문체 규칙만")
+    model: str = Field("", description="본보기 문단: 역설계 실험 원문에서 가져온 문단 (revlab.paragraph_card). 화면에 고정해 견주고, 프롬프트에는 넣지 않는다")
+    ref: str = Field("", description="본보기 문단의 출처 한 줄 (실험 · 화 · 큐)")
 
 
 class StudioTry(BaseModel):

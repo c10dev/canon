@@ -759,6 +759,63 @@ def to_library(lab_id: int, sid: int, name: str):
     return e
 
 
+def find_passage(text: str, sel: str) -> tuple[int, int] | None:
+    """화면에서 고른 글의 원문 자리 [start, end). 화면은 큐 칸마다 앞뒤 줄바꿈을 떼고 그려서, 고른 글의 공백이 원문과 다를 수 있다.
+    글자 그대로 찾고, 없으면 공백 묶음을 아무 공백으로 보고 찾는다. 처음 나온 자리를 쓴다."""
+    sel = sel.strip()
+    if not sel:
+        return None
+    i = text.find(sel)
+    if i >= 0:
+        return i, i + len(sel)
+    m = re.search(r"\s+".join(re.escape(w) for w in sel.split()), text)
+    return (m.start(), m.end()) if m else None
+
+
+def _cue_at(e: RevEpisode, start: int) -> int:
+    """start 가 든 큐 번호 (1부터). 경계가 큐 수와 맞지 않거나 어느 큐에도 들지 않으면 0."""
+    if not e.sheet or len(e.bounds) != len(e.sheet.cues):
+        return 0
+    return next((i + 1 for i, b in enumerate(e.bounds) if b.found and b.start <= start < b.end), 0)
+
+
+def paragraph_card(lab: RevLab, number: int, sel: str):
+    """원문에서 고른 문단으로 문단 연습장 상황 카드를 채운다 (studio.SceneCard). LLM 은 부르지 않는다.
+    그 문단이 든 큐(일 · 기능 · 긴장 · 템포 · 편성, 기능부터는 '더 지킬 것' 한 줄)와 큐의 장면(장소 · 때 · 있는 인물), 화 플롯의 시점 인물,
+    실험 인물(성격 · 말투)을 옮긴다. 문단은 본보기(model)로 두고, 지금 프로필을 라이브러리에 저장했으면 그 문체를 고른다."""
+    from . import library, studio
+    from .schema import SceneCard, StudioPerson
+
+    e = episode(lab, number)
+    at = find_passage(e.text, sel)
+    if at is None:
+        raise ValueError("고른 글을 원문에서 찾지 못했어요. 원문 칸 안에서 다시 골라 보세요")
+    passage = e.text[at[0]:at[1]].strip()
+    if len(passage) > studio.TEXT_MAX:
+        raise ValueError(f"문단 연습장은 {studio.TEXT_MAX:,}자까지 받아요. 더 짧게 고르세요")
+    k = _cue_at(e, at[0])
+    c = e.sheet.cues[k - 1] if k else None
+    scenes = e.storyboard.scenes if e.storyboard else []
+    sc = scenes[c.scene - 1] if c and 0 < c.scene <= len(scenes) else None
+    pov = e.plot.pov if e.plot else ""
+    names = [x.name for x in lab.cast if x.name and (x.name in passage or (sc and x.name in sc.present) or x.name == pov)]
+    cast = {x.name: x for x in lab.cast}
+    people = [StudioPerson(name=n, note=" · ".join(v for v in (cast[n].role, cast[n].personality) if v), speech=cast[n].speech) for n in names]
+    extra = ""
+    if c:
+        word = lambda d, v: d.get(v, (v, ""))[0]
+        extra = (f"원문 이 대목: 기능 {word(prompts.CUE_FUNCTIONS, c.function)} · 긴장도 {c.tension}/5 · "
+                 f"템포 {word(prompts.CUE_TEMPOS, c.tempo)} · {word(prompts.CUE_VOICES, c.voice)} 위주")
+    x = lab.current_style
+    lib = x.library if x and x.library and library.exists(x.library) else ""
+    title = lab.title or f"실험 {lab.id}"
+    ref = f"역설계 실험 「{title}」 {number}화" + (f" · {k}번 큐" if k else "")
+    card = SceneCard(people=people, pov=pov if pov in cast or pov in passage else "", place=" · ".join(x for x in ((sc.place, sc.spot) if sc else ()) if x),
+                     time=sc.time if sc else "", action=c.beat if c else "",
+                     length=len(passage), extra=extra, style_id=lib, model=passage, ref=ref)
+    return card, f"{title} {number}화 문단"
+
+
 def _style_head(p: StyleProfile) -> str:
     return " · ".join(x for x in (p.narration_pov, p.tense, p.sentence_rhythm) if x)[:80]
 

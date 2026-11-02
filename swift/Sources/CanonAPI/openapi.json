@@ -2081,6 +2081,445 @@
     }
    }
   },
+  "/api/studio": {
+   "get": {
+    "summary": "List Studio",
+    "operationId": "list_studio",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response List Studio"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "summary": "Create Studio",
+    "operationId": "create_studio",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StudioIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "type": "object",
+         "title": "Response Create Studio"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/studio/{sid}": {
+   "get": {
+    "summary": "Get Studio",
+    "operationId": "get_studio",
+    "parameters": [
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Get Studio"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "put": {
+    "summary": "Put Studio",
+    "operationId": "put_studio",
+    "parameters": [
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StudioIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Put Studio"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Delete Studio",
+    "operationId": "delete_studio",
+    "parameters": [
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Delete Studio"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/studio/{sid}/duplicate": {
+   "post": {
+    "summary": "Duplicate Studio",
+    "operationId": "duplicate_studio",
+    "parameters": [
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Duplicate Studio"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/studio/{sid}/draft": {
+   "post": {
+    "summary": "Draft Studio",
+    "description": "AI 안 n 개를 써서 시도로 남긴다. 쓰는 동안 바뀐 시도를 덮지 않게 저장 직전에 다시 읽는다.",
+    "operationId": "draft_studio",
+    "parameters": [
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StudioDraftIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Draft Studio"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/studio/{sid}/tries": {
+   "post": {
+    "summary": "Add Studio Try",
+    "operationId": "add_studio_try",
+    "parameters": [
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StudioTryIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Add Studio Try"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/studio/{sid}/tries/{no}": {
+   "put": {
+    "summary": "Edit Studio Try",
+    "operationId": "edit_studio_try",
+    "parameters": [
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     },
+     {
+      "name": "no",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "No"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StudioTryEdit"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Edit Studio Try"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Delete Studio Try",
+    "operationId": "delete_studio_try",
+    "parameters": [
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     },
+     {
+      "name": "no",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "No"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Delete Studio Try"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/refs": {
    "get": {
     "summary": "List Refs",
@@ -12326,6 +12765,67 @@
          "type": "object",
          "additionalProperties": true,
          "title": "Response Rev Style Library"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/revlab/{lab_id}/episodes/{number}/studio": {
+   "post": {
+    "summary": "Rev Paragraph Studio",
+    "description": "원문에서 고른 문단으로 문단 연습장 세션을 만든다 (revlab.paragraph_card → studio.create). 실험 파일은 바꾸지 않는다.",
+    "operationId": "rev_paragraph_studio",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     },
+     {
+      "name": "number",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Number"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RevParagraphIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Paragraph Studio"
         }
        }
       }
@@ -26822,6 +27322,19 @@
     ],
     "title": "RevJobIn"
    },
+   "RevParagraphIn": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "title": "Text"
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "RevParagraphIn"
+   },
    "RevPickIn": {
     "properties": {
      "choice": {
@@ -27101,6 +27614,93 @@
      "prompt"
     ],
     "title": "SampleIn"
+   },
+   "SceneCard": {
+    "properties": {
+     "people": {
+      "items": {
+       "$ref": "#/components/schemas/StudioPerson"
+      },
+      "type": "array",
+      "title": "People"
+     },
+     "pov": {
+      "type": "string",
+      "title": "Pov",
+      "description": "시점 인물 이름. 비면 AI 가 정한다",
+      "default": ""
+     },
+     "place": {
+      "type": "string",
+      "title": "Place",
+      "default": ""
+     },
+     "time": {
+      "type": "string",
+      "title": "Time",
+      "description": "때 · 날씨",
+      "default": ""
+     },
+     "action": {
+      "type": "string",
+      "title": "Action",
+      "description": "무슨 일이 일어나나",
+      "default": ""
+     },
+     "aim": {
+      "type": "string",
+      "title": "Aim",
+      "description": "독자에게 남길 것 (감정 이름 대신 보여 줄 것)",
+      "default": ""
+     },
+     "length": {
+      "type": "integer",
+      "title": "Length",
+      "description": "목표 글자 수 (studio.LENGTH 범위로 맞춘다)",
+      "default": 400
+     },
+     "drills": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Drills",
+      "description": "연습 종류 id (studio.DRILLS)"
+     },
+     "extra": {
+      "type": "string",
+      "title": "Extra",
+      "description": "작가가 더 적은 제약",
+      "default": ""
+     },
+     "source": {
+      "type": "string",
+      "title": "Source",
+      "description": "고쳐 쓸 출발 글. 비면 새로 쓴다",
+      "default": ""
+     },
+     "style_id": {
+      "type": "string",
+      "title": "Style Id",
+      "description": "문체 라이브러리 항목 id. 비면 기본 문체 규칙만",
+      "default": ""
+     },
+     "model": {
+      "type": "string",
+      "title": "Model",
+      "description": "본보기 문단: 역설계 실험 원문에서 가져온 문단 (revlab.paragraph_card). 화면에 고정해 견주고, 프롬프트에는 넣지 않는다",
+      "default": ""
+     },
+     "ref": {
+      "type": "string",
+      "title": "Ref",
+      "description": "본보기 문단의 출처 한 줄 (실험 · 화 · 큐)",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "SceneCard",
+    "description": "문단 하나로 쓸 상황. 빈 칸은 AI 가 정한다."
    },
    "ScopeChange": {
     "properties": {
@@ -30430,6 +31030,102 @@
     ],
     "title": "StorylineProposal",
     "description": "AI 가 제안하는 이야기 줄기 하나와 그 줄기가 들어갈 화."
+   },
+   "StudioDraftIn": {
+    "properties": {
+     "n": {
+      "type": "integer",
+      "title": "N",
+      "default": 3
+     }
+    },
+    "type": "object",
+    "title": "StudioDraftIn"
+   },
+   "StudioIn": {
+    "properties": {
+     "title": {
+      "type": "string",
+      "title": "Title",
+      "default": ""
+     },
+     "card": {
+      "$ref": "#/components/schemas/SceneCard",
+      "default": {
+       "people": [],
+       "pov": "",
+       "place": "",
+       "time": "",
+       "action": "",
+       "aim": "",
+       "length": 400,
+       "drills": [],
+       "extra": "",
+       "source": "",
+       "style_id": "",
+       "model": "",
+       "ref": ""
+      }
+     }
+    },
+    "type": "object",
+    "title": "StudioIn"
+   },
+   "StudioPerson": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name",
+      "default": ""
+     },
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "description": "성격 · 처지 한두 줄",
+      "default": ""
+     },
+     "speech": {
+      "type": "string",
+      "title": "Speech",
+      "description": "말투",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "StudioPerson",
+    "description": "상황 카드의 인물 (작가가 적는다)."
+   },
+   "StudioTryEdit": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "star": {
+      "type": "boolean",
+      "title": "Star"
+     }
+    },
+    "type": "object",
+    "title": "StudioTryEdit"
+   },
+   "StudioTryIn": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "base": {
+      "type": "integer",
+      "title": "Base",
+      "default": 0
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "StudioTryIn"
    },
    "StyleDevice": {
     "properties": {

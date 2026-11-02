@@ -4694,6 +4694,21 @@ def rev_style_library(lab_id: int, sid: int, body: RevStyleLibraryIn) -> dict:
     return {**revlab.view(revlab.load(lab_id)), "saved": {"id": e.id, "name": e.name}}
 
 
+class RevParagraphIn(BaseModel):
+    text: str  # 원문 칸에서 고른 글
+
+
+@app.post("/api/revlab/{lab_id}/episodes/{number}/studio")
+def rev_paragraph_studio(lab_id: int, number: int, body: RevParagraphIn) -> dict:
+    """원문에서 고른 문단으로 문단 연습장 세션을 만든다 (revlab.paragraph_card → studio.create). 실험 파일은 바꾸지 않는다."""
+    lab = _rev(lab_id)
+    try:
+        card, title = revlab.paragraph_card(lab, number, body.text)
+    except KeyError as e:
+        raise HTTPException(404, str(e)) from e
+    return studio.view(studio.create(card, title))
+
+
 @app.delete("/api/revlab/{lab_id}/styles/{sid}")
 def rev_style_delete(lab_id: int, sid: int) -> dict:
     """문체 프로필을 지운다 (revlab.drop_style). 이 프로필로 쓴 판은 남는다."""

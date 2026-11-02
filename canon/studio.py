@@ -25,6 +25,7 @@ MAX_TRIES = 40  # 세션마다 남기는 시도. 저절로 지우지 않고, 차
 DRAFTS = (1, 4)  # AI 에게 한 번에 받는 안 수 범위
 TEXT_MAX = 4000  # 시도 하나 · 출발 글의 글자 수 상한 (문단 연습이라 길게 받지 않는다)
 TITLE_MAX = 60
+REF_MAX = 120  # 본보기 문단 출처 한 줄
 CV_MIN_SENTENCES = 4  # 문장 길이 변화폭은 문장이 이만큼은 있어야 잰다
 
 # 감정 이름: 대사 밖 서술에 나오면 '감정 이름 없이' 연습에 걸린다. 쇠맛 패턴 '감정 이름 서술'보다 넓게 낱말만 본다
@@ -146,6 +147,8 @@ def clean_card(card: SceneCard) -> SceneCard:
     for k in ("pov", "place", "time", "action", "aim", "extra", "style_id"):
         setattr(c, k, getattr(c, k).strip())
     c.source = c.source.strip()[:TEXT_MAX]
+    c.model = c.model.strip()[:TEXT_MAX]
+    c.ref = c.ref.strip()[:REF_MAX]
     c.people = [x.model_copy(update={"name": x.name.strip(), "note": x.note.strip(), "speech": x.speech.strip()})
                 for x in c.people if x.name.strip() or x.note.strip() or x.speech.strip()]
     c.drills = [d for d in dict.fromkeys(c.drills) if d in DRILLS]
@@ -157,7 +160,7 @@ def clean_card(card: SceneCard) -> SceneCard:
 
 def title_of(card: SceneCard) -> str:
     """제목이 비었을 때 카드로 짓는다: 무슨 일, 없으면 장소, 없으면 '새 연습'."""
-    base = card.action or card.place or (card.source[:30] if card.source else "") or "새 연습"
+    base = card.action or card.place or (card.source[:30] if card.source else "") or (card.model[:30] if card.model else "") or "새 연습"
     return base[:TITLE_MAX]
 
 
@@ -316,7 +319,8 @@ def view(s: StudioSession) -> dict:
     """화면에 보내는 세션: 시도마다 지표, 문체 이름."""
     st = style_of(s.card)
     return {**s.model_dump(), "style_name": style_name(s.card),
-            "measures": {str(t.no): measure(t.text, s.card, st) for t in s.tries}}
+            "measures": {str(t.no): measure(t.text, s.card, st) for t in s.tries},
+            "model_measure": measure(s.card.model, s.card, st) if s.card.model else None}
 
 
 def summary(s: StudioSession) -> dict:

@@ -52,7 +52,20 @@ function stuSession() {
     <button type="button" class="btn danger" data-action="stuDelete">지우기</button>
     <button type="button" class="btn primary" data-action="stuDraft"${full ? ' disabled title="시도가 꽉 찼어요. 지울 시도를 고르세요"' : ''}>AI 안 ${n}개 쓰기</button>`;
   const head = header('문단 연습장', s.title, s.style_name ? `문체: ${esc(s.style_name)}` : '문체를 고르지 않았어요. 기본 문체 규칙으로 써요.', right);
-  return `${head}<div class="cols"><div class="col">${stuCardForm()}</div><div class="col wide">${stuWriteCard()}${stuTries()}</div></div>`;
+  return `${head}<div class="cols"><div class="col">${stuCardForm()}</div><div class="col wide">${stuModelCard()}${stuWriteCard()}${stuTries()}</div></div>`;
+}
+
+/** 본보기 문단 (역설계 실험 원문에서 가져옴, revlab.paragraph_card). 시도와 같은 지표로 재서 맨 위에 둔다. 프롬프트에는 넣지 않는다. */
+function stuModelCard() {
+  const c = S.stu.card;
+  if (!c.model) return '';
+  const m = S.stu.model_measure;
+  return `<section class="card stu-model" id="stu-model">
+      <div class="between"><div class="row"><span class="chip">본보기</span>${c.ref ? `<span class="small">${esc(c.ref)}</span>` : ''}</div>
+        <span class="small">AI에게는 보내지 않아요</span></div>
+      <div class="rw-text">${esc(c.model)}</div>${m ? stuChecks(m) : ''}
+      <div class="row"><button type="button" class="btn small" data-action="stuModelSource"${c.source === c.model ? ' disabled title="이미 출발 글이에요"' : ''}>출발 글로 넣기</button>
+        <button type="button" class="btn small" data-action="stuModelCopy">복사</button></div></section>`;
 }
 
 // ----- 상황 카드 -----
@@ -186,6 +199,21 @@ function stuTries() {
 // ----- 동작 -----
 
 Object.assign(actions, {
+  async stuModelSource() {
+    const f = S.stuForm.card;
+    if (f.source && f.source !== f.model && !(await askConfirm('고쳐 쓸 출발 글을 본보기 문단으로 바꿀까요? 지금 출발 글은 사라져요.', { ok: '바꾸기', danger: true }))) return;
+    f.source = f.model;
+    S.stuDirty = true;
+    if (await stuSaveCard()) toast('본보기 문단을 출발 글로 넣었어요. AI 안은 같은 상황을 고쳐 써요');
+  },
+  async stuModelCopy() {
+    try {
+      await copyPlain(S.stu.card.model);
+      toast('복사했어요');
+    } catch (e) {
+      toast(e.message, true);
+    }
+  },
   async stuNew() {
     await run('새 연습을 만드는 중', async () => {
       const s = await api('POST', '/studio', { title: '', card: {} });
