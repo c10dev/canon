@@ -65,6 +65,7 @@
   - `mock_play.py` 장면
   - `mock_revlab.py` 역설계
   - `mock_stage.py` 장면 연출
+  - `mock_studio.py` 문단 연습장
 
 ### `canon/usage.py`
 

@@ -12,6 +12,7 @@ from .judge import Judge, Question
 from .llm import LLM, Interrupted, dump
 from . import board, cancel, charlog, context, features, findings, foreshadows, knows, metatail, stage, statwin, timeline, usage
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixOption, FixPatch, FixSet, RevEpisodeDraft, RevLineSet
+from .schema import SceneCard, StudioCandidate, StudioDraft
 from .schema import (
     Act,
     ArcEdit,
@@ -624,6 +625,30 @@ def style_example(llm: LLM, p: Project, scene: str = "", episode: int = 0) -> St
     source = r.source.strip()
     return StyleExample(text=text, source=source if source and source in ref else "", episode=episode if ref else 0,
                         scene=scene.strip(), by="example", profile=p.style.model_copy(deep=True), at=_now())
+
+
+def draft_paragraph(llm: LLM, card: SceneCard, n: int = 3) -> list[StudioCandidate]:
+    """문단 연습장: 상황 카드로 서로 다른 문단 안 n 개를 쓴다 (write 단계). 저장하지 않는다 (studio.add_ai 가 남긴다).
+    빈 안, 겹치는 안, 출발 글과 같은 안은 뺀다. 마크다운 굵은 글씨 · 줄 앞 기호는 떼어 낸다."""
+    from . import studio
+
+    studio.can_draft(card)
+    lo, hi = studio.DRAFTS
+    n = max(lo, min(hi, n))
+    p = studio.world(card)
+    rules = [studio.DRILLS[k].rule for k in card.drills if k in studio.DRILLS]
+    r = llm.json(prompts.paragraph_system(p), prompts.paragraph_prompt(p, card, n, rules), StudioDraft,
+                 hint={"n": n, "action": card.action, "source": card.source, "names": [x.name for x in card.people if x.name]})
+    keep, seen = [], {card.source.strip()} if card.source.strip() else set()
+    for c in r.candidates:
+        text = re.sub(r"\*\*(.+?)\*\*", r"\1", c.text).strip()
+        text = re.sub(r"^\s*(?:#+|[-*]|\d+[.)])\s+", "", text, flags=re.M).strip()
+        if text and text not in seen:
+            seen.add(text)
+            keep.append(StudioCandidate(text=text, note=c.note.strip()))
+    if not keep:
+        raise ValueError("AI가 쓸 만한 문단을 내지 않았어요. 다시 해 보세요")
+    return keep[:n]
 
 
 def library_blank(st: StyleProfile) -> bool:

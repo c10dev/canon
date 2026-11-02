@@ -1,0 +1,325 @@
+"""문단 연습장: 한 문단짜리 장면을 상황 카드(SceneCard)로 AI 에게 여러 안 쓰게 하거나 작가가 직접 써 보고, 문단 지표로 견준다.
+
+작품(project.json)에는 넣지 않고 세션 파일 <CANON_HOME>/.studio/<id>.json 에 둔다 (CANON_STUDIO 로 경로 변경, 문체 라이브러리처럼 작품 밖).
+문체는 문체 라이브러리 항목을 고르면 그 프로필을 프롬프트에 넣고, 고르지 않으면 기본 문체 규칙만 쓴다.
+한 문단은 화 하나보다 훨씬 짧아 화 단위 지표(어휘 다양도 · 문체 거리 · 화당 상한)는 쓰지 않고, 개수로 센다(measure).
+AI 호출은 pipeline.draft_paragraph (write 단계). 이 모듈은 LLM 을 부르지 않는다.
+"""
+from __future__ import annotations
+
+import os
+import re
+import uuid
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Callable, Optional
+
+from . import library, metrics, store
+from .schema import Project, SceneCard, StudioCandidate, StudioSession, StudioTry, StyleProfile
+
+ID_RE = re.compile(r"^[0-9a-f]{8,32}$")
+LENGTH = (100, 1200)  # 목표 글자 수 범위
+LENGTH_SLACK = 0.35  # 목표 글자 수에서 이만큼 벗어나면 길이 확인이 걸린다
+MAX_TRIES = 40  # 세션마다 남기는 시도. 저절로 지우지 않고, 차면 작가가 지울 시도를 고른다
+DRAFTS = (1, 4)  # AI 에게 한 번에 받는 안 수 범위
+TEXT_MAX = 4000  # 시도 하나 · 출발 글의 글자 수 상한 (문단 연습이라 길게 받지 않는다)
+TITLE_MAX = 60
+CV_MIN_SENTENCES = 4  # 문장 길이 변화폭은 문장이 이만큼은 있어야 잰다
+
+# 감정 이름: 대사 밖 서술에 나오면 '감정 이름 없이' 연습에 걸린다. 쇠맛 패턴 '감정 이름 서술'보다 넓게 낱말만 본다
+EMOTION_WORDS = ["슬픔", "슬펐다", "슬퍼졌다", "불안", "두려움", "두려웠다", "공포", "기쁨", "기뻤다", "설렘", "설렜다", "외로움", "외로웠다",
+                 "분노", "화가 났다", "서러움", "서러웠다", "안도", "죄책감", "긴장감", "허탈", "절망", "행복했다", "그리움", "그리웠다"]
+
+
+@dataclass(frozen=True)
+class Drill:
+    label: str
+    rule: str  # 프롬프트에 넣는 지시
+    check: Optional[Callable[[str, metrics.StyleMetrics, dict], tuple[bool, str]]] = None  # (지켰나, 까닭). 없으면 작가가 읽고 판단
+
+
+def _narration(text: str) -> str:
+    return metrics._QUOTE.sub(" ", text)
+
+
+def _check_show(text: str, m: metrics.StyleMetrics, counts: dict) -> tuple[bool, str]:
+    words = [w for w in EMOTION_WORDS if w in _narration(text)]
+    named = counts.get("감정 이름 서술", 0)
+    if not words and not named:
+        return True, "서술에 감정 이름이 없어요"
+    return False, f"서술에 감정 이름이 있어요: {', '.join(words) or '감정 이름 서술'}"
+
+
+def _check_no_dialogue(text: str, m: metrics.StyleMetrics, counts: dict) -> tuple[bool, str]:
+    return (True, "대사가 없어요") if m.dialogue_ratio == 0 else (False, f"대사가 {round(m.dialogue_ratio * 100)}% 있어요")
+
+
+def _check_dialogue(text: str, m: metrics.StyleMetrics, counts: dict) -> tuple[bool, str]:
+    pct = round(m.dialogue_ratio * 100)
+    return (pct >= 50, f"대사가 {pct}%예요" + ("" if pct >= 50 else " (절반 넘게 바라요)"))
+
+
+def _check_rhythm(text: str, m: metrics.StyleMetrics, counts: dict) -> tuple[bool, str]:
+    if m.sentences < CV_MIN_SENTENCES:
+        return False, f"문장이 {m.sentences}개라 리듬을 재기에 짧아요 ({CV_MIN_SENTENCES}개 넘게)"
+    cv = round(m.sentence_len_cv, 2)
+    return (cv >= 0.5, f"문장 길이 변화폭 {cv}" + ("" if cv >= 0.5 else " (0.5 넘게 바라요)"))
+
+
+def _check_three(text: str, m: metrics.StyleMetrics, counts: dict) -> tuple[bool, str]:
+    return (m.sentences <= 3, f"{m.sentences}문장이에요")
+
+
+def _check_less_ai(text: str, m: metrics.StyleMetrics, counts: dict) -> tuple[bool, str]:
+    found = [f"{k} {v}회" for k, v in counts.items() if v] + m.cliche_hits
+    return (not found, "쇠맛 패턴 · 상투 표현이 없어요" if not found else f"걸린 것: {', '.join(found)}")
+
+
+# 연습 종류. 화면(static/studio.js)은 GET /api/studio 의 drills 로 받는다
+DRILLS: dict[str, Drill] = {
+    "show": Drill("감정 이름 없이", "서술에 감정 이름(슬픔, 불안, 설렘 같은 말)을 쓰지 않고 행동, 사물, 몸의 반응으로 보여 줍니다.", _check_show),
+    "senses": Drill("소리 · 냄새 · 촉감으로", "보이는 것보다 소리, 냄새, 촉감 가운데 하나를 중심으로 장면을 세웁니다."),
+    "no_dialogue": Drill("대사 없이", "따옴표 대사를 쓰지 않습니다. 말은 행동과 서술로만 전합니다.", _check_no_dialogue),
+    "dialogue": Drill("대사로 끌고 가기", "대사가 장면을 끌고 갑니다. 서술은 대사 사이에 짧은 행동 한 줄씩만 둡니다.", _check_dialogue),
+    "rhythm": Drill("긴 문장 · 짧은 문장 섞기", "아주 짧은 문장과 긴 문장을 섞어 리듬을 만듭니다. 길이가 비슷한 문장을 셋 넘게 잇지 않습니다.", _check_rhythm),
+    "three": Drill("세 문장 안에", "세 문장 안에 끝냅니다. 목표 글자 수보다 이 제약이 먼저입니다.", _check_three),
+    "less_ai": Drill("쇠맛 없이", "감정 이름, 정리하는 문장, 번역투, 셋씩 나열, 여운을 노린 짧은 끝 문장을 쓰지 않고 구체적인 행동과 사물로 씁니다.", _check_less_ai),
+    "blocking": Drill("자리 · 자세 분명히", "인물마다 어디에 있고 어느 쪽을 보며 손에 무엇을 들었는지 그릴 수 있게 씁니다. 자리를 바꾸면 바꾸는 행동을 씁니다."),
+}
+
+
+def drills() -> list[dict]:
+    return [{"id": k, "label": d.label, "rule": d.rule, "auto": d.check is not None} for k, d in DRILLS.items()]
+
+
+# ---------- 저장 ----------
+
+def root() -> Path:
+    return Path(os.environ.get("CANON_STUDIO") or store.ROOT / ".studio")
+
+
+def _path(sid: str) -> Path:
+    if not ID_RE.match(sid):
+        raise KeyError(f"문단 연습장에 없는 세션이에요: {sid}")
+    return root() / f"{sid}.json"
+
+
+def _now() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def load(sid: str) -> StudioSession:
+    path = _path(sid)
+    if not path.exists():
+        raise KeyError(f"문단 연습장에 없는 세션이에요: {sid}")
+    return StudioSession.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+def save(s: StudioSession) -> StudioSession:
+    s.created_at = s.created_at or _now()
+    s.updated_at = _now()
+    path = _path(s.id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(s.model_dump_json(indent=2), encoding="utf-8")
+    tmp.replace(path)
+    return s
+
+
+def sessions() -> list[StudioSession]:
+    d = root()
+    if not d.exists():
+        return []
+    out = []
+    for f in d.glob("*.json"):
+        try:
+            out.append(StudioSession.model_validate_json(f.read_text(encoding="utf-8")))
+        except ValueError:
+            continue  # 깨진 파일은 목록에서 뺀다 (지우지 않는다)
+    return sorted(out, key=lambda s: s.updated_at, reverse=True)
+
+
+def clean_card(card: SceneCard) -> SceneCard:
+    """앞뒤 공백을 떼고, 빈 인물 · 모르는 연습 · 범위 밖 길이를 고친다. 없는 문체 항목은 막는다."""
+    c = card.model_copy(deep=True)
+    for k in ("pov", "place", "time", "action", "aim", "extra", "style_id"):
+        setattr(c, k, getattr(c, k).strip())
+    c.source = c.source.strip()[:TEXT_MAX]
+    c.people = [x.model_copy(update={"name": x.name.strip(), "note": x.note.strip(), "speech": x.speech.strip()})
+                for x in c.people if x.name.strip() or x.note.strip() or x.speech.strip()]
+    c.drills = [d for d in dict.fromkeys(c.drills) if d in DRILLS]
+    c.length = max(LENGTH[0], min(LENGTH[1], int(c.length or 0) or 400))
+    if c.style_id and not library.exists(c.style_id):
+        raise ValueError("고른 문체를 문체 라이브러리에서 찾지 못했어요. 다른 문체를 고르세요")
+    return c
+
+
+def title_of(card: SceneCard) -> str:
+    """제목이 비었을 때 카드로 짓는다: 무슨 일, 없으면 장소, 없으면 '새 연습'."""
+    base = card.action or card.place or (card.source[:30] if card.source else "") or "새 연습"
+    return base[:TITLE_MAX]
+
+
+def create(card: SceneCard, title: str = "") -> StudioSession:
+    c = clean_card(card)
+    return save(StudioSession(id=uuid.uuid4().hex[:12], title=(title.strip() or title_of(c))[:TITLE_MAX], card=c))
+
+
+def update(sid: str, card: SceneCard, title: str = "") -> StudioSession:
+    """title 이 비었거나, 카드로 지은 제목을 그대로 보냈으면 새 카드로 다시 짓는다 (작가가 적은 제목만 남는다)."""
+    s = load(sid)
+    auto = s.title == title_of(s.card)[:TITLE_MAX]
+    s.card = clean_card(card)
+    title = title.strip()
+    s.title = (title if title and not (auto and title == s.title) else title_of(s.card))[:TITLE_MAX]
+    return save(s)
+
+
+def delete(sid: str) -> None:
+    path = _path(sid)
+    if not path.exists():
+        raise KeyError(f"문단 연습장에 없는 세션이에요: {sid}")
+    path.unlink()
+
+
+def duplicate(sid: str) -> StudioSession:
+    """카드만 복사한 새 세션 (같은 상황을 한 칸만 바꿔 다시 써 볼 때). 시도는 옮기지 않는다."""
+    s = load(sid)
+    return save(StudioSession(id=uuid.uuid4().hex[:12], title=f"{s.title} 사본"[:TITLE_MAX], card=s.card.model_copy(deep=True)))
+
+
+# ---------- 시도 ----------
+
+def _next_no(s: StudioSession) -> int:
+    return max((t.no for t in s.tries), default=0) + 1
+
+
+def room(s: StudioSession, more: int = 1) -> None:
+    if len(s.tries) + more > MAX_TRIES:
+        raise ValueError(f"시도는 세션마다 {MAX_TRIES}개까지 남겨요. 지울 시도를 고르거나 세션을 복제해 새로 시작하세요")
+
+
+def find(s: StudioSession, no: int) -> StudioTry:
+    t = next((x for x in s.tries if x.no == no), None)
+    if t is None:
+        raise KeyError(f"{no}번 시도가 없어요")
+    return t
+
+
+def add_ai(s: StudioSession, cands: list[StudioCandidate], model: str = "") -> list[StudioTry]:
+    room(s, len(cands))
+    now, out = _now(), []
+    for c in cands:
+        t = StudioTry(no=_next_no(s), by="ai", text=c.text, note=c.note.strip(), model=model, at=now)
+        s.tries.append(t)
+        out.append(t)
+    return out
+
+
+def _text(text: str) -> str:
+    text = text.strip()
+    if not text:
+        raise ValueError("글을 적으세요")
+    if len(text) > TEXT_MAX:
+        raise ValueError(f"문단 연습은 {TEXT_MAX:,}자까지 받아요")
+    return text
+
+
+def add_author(s: StudioSession, text: str, base: int = 0) -> StudioTry:
+    """작가가 쓴 글. base 를 주면 그 시도를 고쳐 쓴 것으로 남긴다 (같은 글이면 막는다)."""
+    text = _text(text)
+    if base:
+        if find(s, base).text.strip() == text:
+            raise ValueError("고친 곳이 없어요")
+    room(s)
+    t = StudioTry(no=_next_no(s), by="author", text=text, base=base, at=_now())
+    s.tries.append(t)
+    return t
+
+
+def edit(s: StudioSession, no: int, text: Optional[str] = None, star: Optional[bool] = None) -> StudioTry:
+    """작가 글만 고칠 수 있다. AI 안은 고쳐 쓰기(add_author 의 base)로 새 시도를 만든다. 고르기(star)는 모두 된다."""
+    t = find(s, no)
+    if text is not None:
+        if t.by != "author":
+            raise ValueError("AI 안은 고치지 않고 고쳐 쓴 글을 새 시도로 남겨요")
+        t.text = _text(text)
+    if star is not None:
+        t.star = star
+    return t
+
+
+def remove(s: StudioSession, no: int) -> None:
+    find(s, no)
+    s.tries = [t for t in s.tries if t.no != no]
+    for t in s.tries:  # 지운 시도를 고쳐 쓴 글은 처음부터 쓴 글로 본다
+        if t.base == no:
+            t.base = 0
+
+
+# ---------- 문체와 프롬프트 재료 ----------
+
+def style_of(card: SceneCard) -> Optional[StyleProfile]:
+    if not card.style_id or not library.exists(card.style_id):
+        return None
+    return library.load(card.style_id).profile
+
+
+def style_name(card: SceneCard) -> str:
+    if not card.style_id:
+        return ""
+    return library.load(card.style_id).name if library.exists(card.style_id) else ""
+
+
+def world(card: SceneCard) -> Project:
+    """프롬프트 함수(prompts.style_block 등)가 읽는 작품 모양. 문체만 채운 저장하지 않는 사본이다."""
+    st = style_of(card)
+    return Project(style=st.model_copy(deep=True)) if st else Project()
+
+
+def can_draft(card: SceneCard) -> None:
+    if not (card.action or card.source or card.place or card.people):
+        raise ValueError("무슨 일이 일어나는지 적거나, 인물 · 장소를 적거나, 고쳐 쓸 출발 글을 넣으세요")
+
+
+# ---------- 문단 지표 ----------
+
+def measure(text: str, card: SceneCard, style: Optional[StyleProfile] = None) -> dict:
+    """문단 하나의 지표. 비율 대신 개수로 센다. 화면에 그대로 보낸다 (저장하지 않음, 같은 글이면 같은 값)."""
+    banned = [x for x in (style.banned_phrases if style else []) if x.strip()]
+    m = metrics.measure(text, banned)
+    counts = metrics.pattern_counts(text)
+    hits = [{"kind": sp.kind, "name": sp.name, "quote": sp.quote} for sp in metrics.pattern_spans(text, banned)]
+    marks = [{"text": mk.text, "count": metrics.marker_count(text, mk.text)} for mk in (style.markers if style else []) if mk.text.strip()]
+    checks = []
+    if "three" not in card.drills:
+        lo, hi = round(card.length * (1 - LENGTH_SLACK)), round(card.length * (1 + LENGTH_SLACK))
+        ok = lo <= m.chars <= hi
+        checks.append({"id": "length", "label": "길이", "ok": ok,
+                       "why": f"{m.chars:,}자" + ("" if ok else f" (목표 {card.length:,}자, {lo:,}~{hi:,}자를 바라요)")})
+    for k in card.drills:
+        d = DRILLS[k]
+        if d.check is None:
+            checks.append({"id": k, "label": d.label, "ok": None, "why": "읽고 판단해요"})
+        else:
+            ok, why = d.check(text, m, counts)
+            checks.append({"id": k, "label": d.label, "ok": ok, "why": why})
+    return {
+        "chars": m.chars, "sentences": m.sentences, "sentence_len_mean": round(m.sentence_len_mean, 1),
+        "sentence_len_cv": round(m.sentence_len_cv, 2) if m.sentences >= CV_MIN_SENTENCES else None,
+        "dialogue_pct": round(m.dialogue_ratio * 100), "hits": hits, "markers": marks, "checks": checks,
+    }
+
+
+def view(s: StudioSession) -> dict:
+    """화면에 보내는 세션: 시도마다 지표, 문체 이름."""
+    st = style_of(s.card)
+    return {**s.model_dump(), "style_name": style_name(s.card),
+            "measures": {str(t.no): measure(t.text, s.card, st) for t in s.tries}}
+
+
+def summary(s: StudioSession) -> dict:
+    return {"id": s.id, "title": s.title, "tries": len(s.tries), "authored": sum(t.by == "author" for t in s.tries),
+            "starred": sum(t.star for t in s.tries), "style_name": style_name(s.card), "drills": s.card.drills,
+            "created_at": s.created_at, "updated_at": s.updated_at}
