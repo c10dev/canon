@@ -12,7 +12,7 @@ from .judge import Judge, Question
 from .llm import LLM, Interrupted, dump
 from . import board, cancel, charlog, context, features, findings, foreshadows, knows, metatail, stage, statwin, timeline, usage
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixOption, FixPatch, FixSet, RevEpisodeDraft, RevLineSet
-from .schema import SceneCard, StudioCandidate, StudioDraft
+from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
 from .schema import (
     Act,
     ArcEdit,
@@ -649,6 +649,31 @@ def draft_paragraph(llm: LLM, card: SceneCard, n: int = 3) -> list[StudioCandida
     if not keep:
         raise ValueError("AI가 쓸 만한 문단을 내지 않았어요. 다시 해 보세요")
     return keep[:n]
+
+
+def anatomize_paragraph(llm: LLM, card: SceneCard) -> ParagraphAnatomy:
+    """문단 연습장: 본보기 문단을 문장마다 박자로 뜯어본다 (plan 단계). 정리는 studio.clean_anatomy 가 한다."""
+    if not card.model.strip():
+        raise ValueError("본보기 문단이 없어요")
+    return llm.json(prompts.SYSTEM_ANATOMY, prompts.anatomy_prompt(card.model), ParagraphAnatomy, hint={"model": card.model})
+
+
+def vary_scene(llm: LLM, card: SceneCard, k: int = 4) -> list[SceneVariant]:
+    """문단 연습장: 같은 구조로 쓸 다른 상황 k 개 (plan 단계). 저장하지 않는다."""
+    from . import studio
+
+    studio.can_vary(card)
+    lo, hi = studio.VARIANTS
+    k = max(lo, min(hi, k))
+    r = llm.json(prompts.SYSTEM_PLANNER, prompts.variants_prompt(card, k), SceneVariants, hint={"k": k, "place": card.place, "action": card.action})
+    return studio.clean_variants(r.variants, card)
+
+
+def reader_check(llm: LLM, text: str) -> ReaderCheck:
+    """문단 연습장: 독자가 채울 것과 그것이 이미 적혀 있는지 (check 단계)."""
+    if not text.strip():
+        raise ValueError("점검할 글이 없어요")
+    return llm.json(prompts.SYSTEM_READER, prompts.reader_prompt(text), ReaderCheck, hint={"text": text})
 
 
 def library_blank(st: StyleProfile) -> bool:

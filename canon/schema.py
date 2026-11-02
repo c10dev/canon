@@ -2770,6 +2770,9 @@ class SoeLabel(BaseModel):
 # ---------- 문단 연습장 (canon/studio.py, 작품 밖 <CANON_HOME>/.studio) ----------
 # 한 문단짜리 장면을 상황 카드로 AI 에게 여러 안 쓰게 하거나 작가가 직접 써 보고, 문단 지표로 견준다. 작품에는 넣지 않는다.
 
+StudioBeat = Literal["setup", "trigger", "focus", "imagine", "react", "cut", "line"]  # 문장 박자 (studio.BEATS)
+
+
 class StudioPerson(BaseModel):
     """상황 카드의 인물 (작가가 적는다)."""
     name: str = ""
@@ -2792,6 +2795,10 @@ class SceneCard(BaseModel):
     style_id: str = Field("", description="문체 라이브러리 항목 id. 비면 기본 문체 규칙만")
     model: str = Field("", description="본보기 문단: 역설계 실험 원문에서 가져온 문단 (revlab.paragraph_card). 화면에 고정해 견주고, 프롬프트에는 넣지 않는다")
     ref: str = Field("", description="본보기 문단의 출처 한 줄 (실험 · 화 · 큐)")
+    beats: list[str] = Field(default_factory=list, description="문장 차례 (studio.BEATS id). 비면 AI 가 정한다")
+    withhold: str = Field("", description="가릴 것: 쓰지 않고 독자가 짐작하게 둘 것 한 줄")
+    sense: str = Field("", description="감각 전환: 본 것을 어느 감각으로 넘길지 한 줄 (예: 보는 것 → 촉감)")
+    show_model: bool = Field(False, description="본보기 문단을 프롬프트에 구조 참고로 넣는다 (문장은 옮기지 않게 지시)")
 
 
 class StudioTry(BaseModel):
@@ -2803,7 +2810,53 @@ class StudioTry(BaseModel):
     base: int = Field(0, description="작가가 고쳐 쓴 시도 번호. 0 이면 처음부터 쓴 글")
     model: str = ""
     star: bool = Field(False, description="작가가 고른 시도")
+    reader: Optional[ReaderCheck] = Field(None, description="독자 질문 점검 결과 (pipeline.reader_check)")
     at: str = ""
+
+
+class AnatomyLine(BaseModel):
+    """본보기 문단의 문장 하나가 하는 일 (pipeline.anatomize_paragraph)."""
+    quote: str = Field(description="그 문장의 앞부분을 원문 글자 그대로 10~30자")
+    beat: StudioBeat = Field(description="박자. setup 깔기 · trigger 계기 · focus 초점 · imagine 가정 · react 반응 · cut 끊기 · line 대사")
+    note: str = Field(description="이 문장이 독자에게 하는 일 한 줄. 문장 내용을 옮겨 적지 않는다")
+
+
+class ParagraphAnatomy(BaseModel):
+    """본보기 문단 뜯어보기. 저장 형식도 같다 (StudioSession.anatomy)."""
+    lines: list[AnatomyLine] = Field(description="문장마다 한 줄, 원문 차례")
+    withhold: str = Field(description="이 문단이 쓰지 않고 독자가 짐작하게 둔 것 한 줄")
+    sense: str = Field(description="본 것을 다른 감각으로 넘긴 곳 한 줄 (예: 보는 것 → 촉감). 없으면 빈 글")
+    reader: str = Field(description="읽은 사람이 머릿속으로 채우게 되는 것 한 줄")
+
+
+class VariantPerson(BaseModel):
+    name: str = Field(description="인물 이름")
+    note: str = Field(description="성격 · 처지 한 줄")
+
+
+class SceneVariant(BaseModel):
+    """같은 구조로 쓸 다른 상황 하나 (pipeline.vary_scene)."""
+    place: str = Field(description="장소")
+    time: str = Field(description="때 · 날씨")
+    action: str = Field(description="무슨 일이 일어나나 한 줄")
+    people: list[VariantPerson] = Field(description="인물 1~3명")
+    pov: str = Field(description="시점 인물 이름 (people 가운데 하나)")
+    why: str = Field(description="이 상황에서 구조의 계기 · 초점 · 가정이 무엇이 되는지 한 줄")
+
+
+class SceneVariants(BaseModel):
+    variants: list[SceneVariant] = Field(description="서로 다른 상황")
+
+
+class ReaderGap(BaseModel):
+    """독자가 머릿속으로 채울 것 하나 (pipeline.reader_check)."""
+    imagined: str = Field(description="독자가 상상하거나 짐작하게 되는 것 한 줄")
+    written: bool = Field(description="그것이 본문에 이미 글자로 적혀 있으면 참")
+    quote: str = Field(description="written 이 참이면 적힌 문장 일부를 원문 그대로, 아니면 빈 글")
+
+
+class ReaderCheck(BaseModel):
+    gaps: list[ReaderGap] = Field(description="독자가 채울 것 2~5개")
 
 
 class StudioSession(BaseModel):
@@ -2811,6 +2864,9 @@ class StudioSession(BaseModel):
     title: str = ""
     card: SceneCard = Field(default_factory=SceneCard)
     tries: list[StudioTry] = Field(default_factory=list)
+    anatomy: Optional[ParagraphAnatomy] = Field(None, description="본보기 뜯어보기 마지막 결과 (studio.clean_anatomy 를 거친 것)")
+    anatomy_of: str = Field("", description="뜯어본 본보기 글의 지문. 지금 본보기와 다르면 낡은 것")
+    variants: list[SceneVariant] = Field(default_factory=list, description="상황 바꿔 보기 마지막 제안")
     created_at: str = ""
     updated_at: str = ""
 

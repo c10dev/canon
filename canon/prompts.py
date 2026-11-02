@@ -569,6 +569,7 @@ def paragraph_prompt(p: Project, card, n: int, rules: list[str]) -> str:
     extra = [*rules, *([card.extra] if card.extra else [])]
     limits = "\n".join(f"- {r}" for r in extra) or "없음"
     source = f"\n\n# 출발 글 (같은 상황을 고쳐 씁니다. 문장을 그대로 옮기지 않습니다)\n{card.source}" if card.source else ""
+    shape = structure_block(card)
     style = (style_block(p, paragraph_markers(p, card.length)) if p.style.model_dump(exclude_defaults=True)
              else "# 문체\n고른 문체가 없습니다. 기본 문체 규칙을 따릅니다.")
     return f"""{style}
@@ -580,11 +581,11 @@ def paragraph_prompt(p: Project, card, n: int, rules: list[str]) -> str:
 {scene}
 
 # 연습 제약 (꼭 지킵니다)
-{limits}{source}
+{limits}{shape}{source}
 
 # 할 일
 위 상황을 문단 하나(약 {card.length}자)로 씁니다. 서로 다른 안 {n}개를 candidates 에 넣습니다.
-안마다 첫 문장, 무엇을 먼저 보여 줄지, 인물과의 거리를 다르게 하고, note 에 그 차이를 한 줄로 적습니다.
+{"안마다 구조의 문장 차례는 지키고, 초점에 둘 것과 가정의 내용을 다르게 하고" if card.beats else "안마다 첫 문장, 무엇을 먼저 보여 줄지, 인물과의 거리를 다르게 하고"}, note 에 그 차이를 한 줄로 적습니다.
 
 요구사항:
 - 각 안은 빈 줄 없이 한 덩어리로 씁니다. 대사는 줄바꿈 하나로 나눠도 됩니다.
@@ -592,6 +593,89 @@ def paragraph_prompt(p: Project, card, n: int, rules: list[str]) -> str:
 - 문체 예시 문단의 문장을 그대로 옮기지 않습니다.
 - 인물의 대사는 카드의 말투를 따릅니다. 카드에 없는 큰 사건을 더하지 않습니다.
 - 제목, 해설, 마크다운 기호는 쓰지 않습니다."""
+
+
+def structure_block(card) -> str:
+    """문단 연습장 카드의 구조: 문장 차례(studio.BEATS) · 가릴 것 · 감각 전환 · 본보기(show_model). 비면 빈 글."""
+    from . import studio
+
+    parts = []
+    if card.beats:
+        rows = "\n".join(f"{i}. {studio.BEATS[b][0]}: {studio.BEATS[b][1]}" for i, b in enumerate(card.beats, 1))
+        parts.append(f"# 구조 (문장 차례. 한 박자가 한두 문장입니다)\n{rows}")
+    if card.withhold:
+        parts.append(f"# 가릴 것 (글자로 쓰지 않고 독자가 짐작하게 둡니다)\n{card.withhold}")
+    if card.sense:
+        parts.append(f"# 감각 전환 (한 번만)\n{card.sense}")
+    if card.show_model and card.model:
+        parts.append("# 본보기 문단 (구조와 호흡만 참고합니다. 낱말, 문장, 비유, 인물, 장소를 옮기지 않습니다)\n" + card.model)
+    return "".join(f"\n\n{x}" for x in parts)
+
+
+SYSTEM_ANATOMY = (
+    "당신은 소설 문장을 해부하는 편집자입니다. 문단이 독자의 상상을 어떻게 움직이는지 문장마다 짚습니다. "
+    "문장을 고쳐 쓰거나 평가하지 않고, 문장 내용을 옮겨 적지 않습니다. 모든 출력은 한국어로 작성합니다."
+)
+
+
+def anatomy_prompt(model: str) -> str:
+    """본보기 문단 뜯어보기 (pipeline.anatomize_paragraph)."""
+    from . import studio
+
+    beats = "\n".join(f"- {k} ({v[0]}): {v[1]}" for k, v in studio.BEATS.items())
+    return f"""# 박자
+{beats}
+
+# 문단
+{model}
+
+# 할 일
+문단의 문장마다 lines 에 한 줄씩, 원문 차례로 적습니다.
+- quote: 그 문장의 앞부분을 원문 글자 그대로 10~30자 적습니다.
+- beat: 위 박자 가운데 그 문장이 맡은 것 하나.
+- note: 이 문장이 독자에게 하는 일 한 줄 (예: 시선을 한 곳으로 좁힌다). 문장 내용을 옮겨 적지 않습니다.
+withhold 에는 문단이 글자로 쓰지 않고 독자가 짐작하게 둔 것, sense 에는 본 것을 다른 감각으로 넘긴 곳(없으면 빈 글),
+reader 에는 읽은 사람이 머릿속으로 채우게 되는 것을 한 줄씩 적습니다."""
+
+
+def variants_prompt(card, k: int) -> str:
+    """같은 구조로 쓸 다른 상황 k 개 (pipeline.vary_scene). 본보기 글은 넣지 않는다 (상황을 닮게 만들지 않으려고)."""
+    from . import studio
+
+    shape = " → ".join(studio.BEATS[b][0] for b in card.beats) or "카드에 없음"
+    now = "\n".join(f"- {a}: {b}" for a, b in (("장소", card.place), ("때", card.time), ("무슨 일", card.action),
+                                              ("인물", ", ".join(x.name for x in card.people if x.name))) if b) or "- 비어 있음"
+    return f"""# 구조
+문장 차례: {shape}
+가릴 것: {card.withhold or "없음"}
+감각 전환: {card.sense or "없음"}
+
+# 지금 상황 (이것과 다른 상황을 냅니다)
+{now}
+
+# 할 일
+위 구조를 그대로 쓸 수 있는 서로 다른 상황 {k}개를 variants 에 넣습니다.
+- 장소, 인물, 무슨 일을 지금 상황과 다르게 하고, 상황끼리도 서로 겹치지 않게 합니다.
+- 상황마다 구조의 계기, 초점, 가정이 무엇이 될지 why 에 한 줄로 적습니다.
+- 본문 문장은 쓰지 않습니다. 칸마다 짧은 명사구나 한 줄로 적습니다."""
+
+
+SYSTEM_READER = (
+    "당신은 처음 읽는 독자입니다. 문단을 읽고 머릿속으로 채우게 되는 것을 적습니다. "
+    "글을 고치거나 평가하지 않습니다. 모든 출력은 한국어로 작성합니다."
+)
+
+
+def reader_prompt(text: str) -> str:
+    """독자 질문 점검 (pipeline.reader_check): 독자가 채울 것과 그것이 이미 글자로 적혀 있는지."""
+    return f"""# 문단
+{text}
+
+# 할 일
+이 문단을 읽은 독자가 상상하거나 짐작하게 되는 것을 gaps 에 2~5개 적습니다.
+- imagined: 그것 한 줄.
+- written: 그것이 문단에 이미 글자로 적혀 있으면 참, 독자가 스스로 채워야 하면 거짓.
+- quote: written 이 참이면 적힌 문장 일부를 원문 글자 그대로, 거짓이면 빈 글."""
 
 
 def arc_prompt(p: Project) -> str:

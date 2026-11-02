@@ -2361,6 +2361,244 @@
     }
    }
   },
+  "/api/studio/{sid}/anatomy": {
+   "post": {
+    "summary": "Anatomy Studio",
+    "description": "본보기 문단을 문장마다 박자로 뜯어본다 (pipeline.anatomize_paragraph, plan 단계). 카드에는 적용하지 않는다.",
+    "operationId": "anatomy_studio",
+    "parameters": [
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Anatomy Studio"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/studio/{sid}/anatomy/apply": {
+   "post": {
+    "summary": "Apply Anatomy Studio",
+    "description": "뜯어본 문장 차례 · 가릴 것 · 감각 전환을 카드에 적용한다.",
+    "operationId": "apply_anatomy_studio",
+    "parameters": [
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Apply Anatomy Studio"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/studio/{sid}/variants": {
+   "post": {
+    "summary": "Variants Studio",
+    "description": "같은 구조로 쓸 다른 상황을 받는다 (pipeline.vary_scene, plan 단계). 세션에는 마지막 제안만 둔다.",
+    "operationId": "variants_studio",
+    "parameters": [
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StudioVariantsIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Variants Studio"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/studio/{sid}/variants/{i}": {
+   "post": {
+    "summary": "From Variant Studio",
+    "description": "고른 상황(0부터)으로 새 연습을 만든다. 원래 연습은 그대로 둔다.",
+    "operationId": "from_variant_studio",
+    "parameters": [
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     },
+     {
+      "name": "i",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "I"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response From Variant Studio"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/studio/{sid}/tries/{no}/reader": {
+   "post": {
+    "summary": "Reader Studio",
+    "description": "시도 하나를 독자 질문으로 점검한다 (pipeline.reader_check, check 단계): 독자가 채울 것이 이미 적혀 있나.",
+    "operationId": "reader_studio",
+    "parameters": [
+     {
+      "name": "sid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Sid"
+      }
+     },
+     {
+      "name": "no",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "No"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Reader Studio"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/studio/{sid}/tries": {
    "post": {
     "summary": "Add Studio Try",
@@ -27696,6 +27934,32 @@
       "title": "Ref",
       "description": "본보기 문단의 출처 한 줄 (실험 · 화 · 큐)",
       "default": ""
+     },
+     "beats": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Beats",
+      "description": "문장 차례 (studio.BEATS id). 비면 AI 가 정한다"
+     },
+     "withhold": {
+      "type": "string",
+      "title": "Withhold",
+      "description": "가릴 것: 쓰지 않고 독자가 짐작하게 둘 것 한 줄",
+      "default": ""
+     },
+     "sense": {
+      "type": "string",
+      "title": "Sense",
+      "description": "감각 전환: 본 것을 어느 감각으로 넘길지 한 줄 (예: 보는 것 → 촉감)",
+      "default": ""
+     },
+     "show_model": {
+      "type": "boolean",
+      "title": "Show Model",
+      "description": "본보기 문단을 프롬프트에 구조 참고로 넣는다 (문장은 옮기지 않게 지시)",
+      "default": false
      }
     },
     "type": "object",
@@ -31064,7 +31328,11 @@
        "source": "",
        "style_id": "",
        "model": "",
-       "ref": ""
+       "ref": "",
+       "beats": [],
+       "withhold": "",
+       "sense": "",
+       "show_model": false
       }
      }
     },
@@ -31126,6 +31394,17 @@
      "text"
     ],
     "title": "StudioTryIn"
+   },
+   "StudioVariantsIn": {
+    "properties": {
+     "k": {
+      "type": "integer",
+      "title": "K",
+      "default": 4
+     }
+    },
+    "type": "object",
+    "title": "StudioVariantsIn"
    },
    "StyleDevice": {
     "properties": {

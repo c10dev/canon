@@ -172,3 +172,106 @@ def test_web_flow(client, tmp_path):
     assert client.post(f"/api/studio/{empty['id']}/draft", json={}).status_code == 400
     # 작품 목록에는 섞이지 않는다
     assert client.get("/api/projects").json() == []
+
+
+MODEL = "서연은 버스 맨 뒷자리에 앉아 있었다. 차가 덜컹이자 우산 끝이 바닥을 긁었다. 젖은 손잡이에 빗물이 맺혀 있었다. 쥐면 손바닥까지 차가워질 것 같았다. 서연은 주먹을 쥐었다 폈다."
+
+
+def test_clean_card_structure(home):
+    c = studio.clean_card(card(beats=["setup", "없는 박자", "focus"] + ["cut"] * 20, withhold=" 속마음 ", sense=" 보는 것 → 촉감 ", show_model=True))
+    assert c.beats[:2] == ["setup", "focus"] and len(c.beats) == studio.BEATS_MAX
+    assert c.withhold == "속마음" and c.sense == "보는 것 → 촉감" and c.show_model is False  # 본보기가 없으면 보이지 않는다
+    assert studio.clean_card(card(model=MODEL, show_model=True)).show_model is True
+    assert {b["id"] for b in studio.beats()} == set(studio.BEATS)
+
+
+def test_imagine_drill_and_copied(home):
+    c = card(drills=["imagine"], model=MODEL)
+    ok = {x["id"]: x for x in studio.measure("빗물이 맺혀 있었다. 쥐면 차가울 것 같았다.", c)["checks"]}["imagine"]
+    assert ok["ok"] is True and "것 같" in ok["why"]
+    no = {x["id"]: x for x in studio.measure("빗물이 맺혀 있었다. \"차가울 것 같아.\"", c)["checks"]}["imagine"]
+    assert no["ok"] is False  # 대사 안의 가정은 세지 않는다
+    m = studio.measure("창밖이 어두웠다. 젖은 손잡이에 빗물이 맺혀 있었다.", c)
+    assert m["copied"] == ["젖은 손잡이에 빗물이 맺혀 있었다."]
+    assert studio.measure(MODEL, c)["copied"] == []  # 본보기 자신은 재지 않는다
+    assert studio.measure("다른 글.", card())["copied"] == []
+
+
+def test_structure_prompt(home):
+    c = studio.clean_card(card(beats=["setup", "imagine", "react"], withhold="속마음", sense="보는 것 → 촉감", model=MODEL))
+    text = prompts.paragraph_prompt(Project(), c, 2, [])
+    assert "1. 깔기:" in text and "2. 가정:" in text and "# 가릴 것" in text and "속마음" in text and "보는 것 → 촉감" in text
+    assert "구조의 문장 차례는 지키고" in text and MODEL not in text  # 본보기는 보이기를 켜야 넣는다
+    c.show_model = True
+    text = prompts.paragraph_prompt(Project(), c, 2, [])
+    assert MODEL in text and "옮기지 않습니다" in text and text.index("# 구조") < text.index("# 본보기 문단") < text.index("# 할 일")
+    assert prompts.structure_block(SceneCard()) == ""
+
+
+def test_anatomy_clean_and_apply(home):
+    s = studio.create(card(model=MODEL))
+    a = pipeline.anatomize_paragraph(MockLLM(), s.card)
+    studio.set_anatomy(s, a)
+    assert len(s.anatomy.lines) == 5 and all(x.quote in MODEL for x in s.anatomy.lines)  # 지어낸 문장은 빠진다
+    assert s.anatomy.withhold == "인물의 속마음" and studio.view(s)["anatomy_stale"] is False
+    studio.apply_anatomy(s)
+    assert s.card.beats == ["setup", "trigger", "focus", "imagine", "react"] and s.card.sense == "보는 것 → 촉감"
+    s.card.model = MODEL + " 버스가 섰다."
+    assert studio.view(s)["anatomy_stale"] is True
+    from canon.schema import AnatomyLine, ParagraphAnatomy
+    with pytest.raises(ValueError, match="본보기에 없는"):
+        studio.clean_anatomy(ParagraphAnatomy(lines=[AnatomyLine(quote="없는 문장", beat="cut", note="")], withhold="", sense="", reader=""), MODEL)
+    with pytest.raises(ValueError, match="본보기 문단이 없어요"):
+        pipeline.anatomize_paragraph(MockLLM(), SceneCard())
+    with pytest.raises(ValueError, match="뜯어보세요"):
+        studio.apply_anatomy(studio.create(card()))
+
+
+def test_variants_make_new_session(home):
+    s = studio.create(card(beats=["setup", "focus"], withhold="속마음", model=MODEL, place="정류장", drills=["show"], source="옛 글"))
+    vs = pipeline.vary_scene(MockLLM(), s.card, 3)
+    assert len(vs) == 3 and vs[0].pov == "" and vs[1].pov == "인물2"  # 인물 목록에 없는 시점은 비운다
+    assert all(v.action and v.people and all(p.name.strip() for p in v.people) for v in vs)
+    s.variants = vs
+    studio.save(s)
+    n = studio.from_variant(s.id, 1)
+    assert n.id != s.id and n.card.action == vs[1].action and n.card.place == vs[1].place and [p.name for p in n.card.people] == ["인물2"]
+    assert n.card.beats == ["setup", "focus"] and n.card.withhold == "속마음" and n.card.drills == ["show"] and n.card.model == MODEL
+    assert n.card.source == "" and n.tries == [] and studio.load(s.id).card.place == "정류장"
+    with pytest.raises(KeyError):
+        studio.from_variant(s.id, 9)
+    with pytest.raises(ValueError, match="문장 차례"):
+        pipeline.vary_scene(MockLLM(), SceneCard(), 3)
+
+
+def test_reader_check_and_edit_clears(home):
+    s = studio.create(card())
+    t = studio.add_author(s, "서연은 우산을 접었다. 빗소리가 멀어졌다.")
+    studio.set_reader(s, t.no, pipeline.reader_check(MockLLM(), t.text))
+    g = t.reader.gaps
+    assert [x.imagined for x in g] == ["장소의 분위기", "인물의 표정", "다음에 일어날 일"]
+    assert g[0].written and g[0].quote == t.text[:8].strip() and g[1].quote == "" and g[2].quote == ""  # 본문에 없는 인용 · 독자 몫의 인용은 비운다
+    studio.edit(s, t.no, star=True)
+    assert t.reader is not None
+    studio.edit(s, t.no, text="서연은 우산을 폈다.")
+    assert t.reader is None
+
+
+def test_web_structure_flow(client):
+    s = client.post("/api/studio", json={"card": {"action": "우산을 건넨다", "model": MODEL}}).json()
+    assert {b["id"] for b in client.get("/api/studio").json()["beats"]} == set(studio.BEATS)
+    s = client.post(f"/api/studio/{s['id']}/anatomy").json()
+    assert len(s["anatomy"]["lines"]) == 5 and s["card"]["beats"] == []  # 적용은 따로
+    s = client.post(f"/api/studio/{s['id']}/anatomy/apply").json()
+    assert s["card"]["beats"][0] == "setup"
+    s = client.post(f"/api/studio/{s['id']}/variants", json={"k": 2}).json()
+    assert len(s["variants"]) == 2
+    n = client.post(f"/api/studio/{s['id']}/variants/0").json()
+    assert n["id"] != s["id"] and n["card"]["beats"] == s["card"]["beats"] and n["anatomy"]
+    assert client.post(f"/api/studio/{s['id']}/variants/7").status_code == 404
+    s = client.post(f"/api/studio/{s['id']}/draft", json={"n": 1}).json()
+    s = client.post(f"/api/studio/{s['id']}/tries/1/reader").json()
+    assert len(s["tries"][0]["reader"]["gaps"]) == 3
+    assert client.post(f"/api/studio/{s['id']}/tries/9/reader").status_code == 404
+    e = client.post("/api/studio", json={"card": {}}).json()
+    assert client.post(f"/api/studio/{e['id']}/anatomy").status_code == 400
