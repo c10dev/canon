@@ -2,6 +2,14 @@
 
 이 파일의 줄은 [AGENTS.md](../../AGENTS.md) 의 '문서 줄 규칙'을 따른다.
 
+### `canon/aipick.py`
+
+- 작품 밖 도구(역설계 실험 · 문단 연습장)가 저마다 단계 AI 를 고르는 규칙. 고르기는 `AIPick`(예전 이름 `RevAI`): 프리셋 id · 백엔드 + 모델 · 모두 비움
+- 쓸 AI 풀기 `choice`: mock 설정 → 고른 프리셋(`settings.stage_provider(stage, preset)`) → 직접 고름(source own) → 설정 단계 칸(작품 프리셋은 보지 않음). 지워진 프리셋은 source gone 으로 설정을 따른다
+- LLM 만들기 `make`(단계를 붙임) · 고르기 정리 `clean`(직접 고를 수 있는 백엔드 `PROVIDERS`) · 화면 값 `view`(use · follow · default) · 프리셋 목록 `presets` · 기본 모델 이름 `default_model`
+- 역설계 실험은 직접 고른 값의 source 를 lab 으로 바꿔 보인다(`revlab._lab`)
+- LLM 호출 없음
+
 ### `canon/blocktrial.py`
 
 - 쓰기 블록 시험(명령줄 `blocktrial`)
@@ -121,7 +129,7 @@
 - 옛 파일의 `style` · `style_model` · `style_at` 은 읽을 때 1번 항목으로 옮김(`RevLab._old_style`)
 - 비용 추정(`estimate`: parse · write · style)
 - 실험별 AI(`RevLab.ai`, `RevAI`): 단계 `AI_STAGES`(plan 역설계 · 줄기 · 문체, write 되돌려 쓰기)마다 프리셋 id 또는 백엔드 `AI_PROVIDERS` + 모델
-- 쓸 AI 풀기 `ai_choice`(mock 설정 → 프리셋 → 직접 고름 → 설정 단계 칸, 작품 프리셋은 보지 않음) · LLM 만들기 `llm_for` · 고르기 `set_ai`(웹 `PUT /api/revlab/{번호}/ai`) · 화면 값 `ai_view` · 기본 모델 이름 `default_model`
+- 쓸 AI 풀기 `ai_choice` · LLM 만들기 `llm_for` · 고르기 `set_ai`(웹 `PUT /api/revlab/{번호}/ai`) · 화면 값 `ai_view` 는 단계를 확인하고 `aipick` 에 맡긴다
 - 비용 추정 모델도 `ai_choice` 로 고른다
 - 역설계 실행(`run_parse`)
 - 화면 값(`view`, 고르기 전에는 차례를 뺌)
@@ -249,7 +257,9 @@
 - 연습 고르기는 체크 칸 `data-stu-drill`(목록은 서버 `GET /api/studio` 의 `drills`)
 - 시도 카드: 지표 칩(`stuChecks`: 지켰나 ✓ · 못 지킴 ✕ · 읽고 판단 ?), 글자 · 문장 · 대사 비율, 걸린 곳 «인용», 문체 표지 횟수
 - 고쳐 쓰기(`stuRewrite`)는 그 시도 글을 직접 쓰기 칸에 옮기고 `base` 로 남긴다. AI 안은 고치지 않고 작가 글만 고친다(`stuEditOpen`)
-- 머리 주 버튼은 'AI 안 n개 쓰기'(n 은 카드 아래 고르기 `S.stuN`, 1~4). 시도가 꽉 차면 막는다
+- 머리 주 버튼은 'AI 안 n개 쓰기 · 쓸 AI'(n 은 카드 아래 고르기 `S.stuN`, 1~4). 시도가 꽉 차면 막는다
+- AI 모델 카드 `stuAiCard`: 설정을 따름 · 프리셋 · 직접 고르기(백엔드 나눔 버튼 · 모델 칸), 역설계 실험 `revAICard` 와 같은 모양. 저장 `stuAiSave`(고치던 카드를 먼저 저장)
+- AI 글 한 줄은 역설계 실험의 `revAiText` · `REV_AI_PROVIDERS`(`revlab.js`)를 함께 쓴다. 시도 카드에도 쓴 AI 를 적는다
 - 새 CSS 없이 공용 클래스(`.cols` · `.card` · `.chip.ok` · `.chip.bad` · `.check-row` · `.rw-text`)만 쓴다
 
 ### `canon/stattrial.py`
@@ -284,6 +294,8 @@
 - 프롬프트 재료 `world`: 고른 문체만 채운 저장하지 않는 `Project`(프롬프트는 `prompts.paragraph_system` · `paragraph_prompt`)
 - AI 호출은 `pipeline.draft_paragraph`(write 단계, 빈 안 · 겹치는 안 · 출발 글과 같은 안을 빼고 굵은 글씨를 뗌)
 - 웹은 작업 목록을 거치지 않고 바로 돌려준다(`POST /api/studio/{id}/draft`, 사용량 작업 이름 `studio`). 쓰는 동안 바뀐 시도를 덮지 않게 저장 직전에 다시 읽는다
+- 세션마다 AI 를 고른다(`StudioSession.ai`, `set_ai` · `llm_for` · `ai_view`, 규칙은 `aipick`, 웹 `PUT /api/studio/{id}/ai`). 고르지 않으면 설정의 본문 쓰기 단계. 복제는 AI 고르기도 옮긴다
+- AI 안은 쓴 백엔드 · 모델을 시도에 적는다(`StudioTry.provider` · `model`, 설정이 mock 이면 mock)
 - 작품에는 넣지 않는다. 본문으로 보내기 · 문체 학습으로 보내기는 아직 없다
 - 가짜 응답 `mock_studio.py`
 - 시험 `tests/test_studio.py`

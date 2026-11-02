@@ -1273,6 +1273,12 @@ class StudioTryEdit(BaseModel):
     star: bool | None = None
 
 
+class StudioAIIn(BaseModel):
+    preset: str = ""
+    provider: str = ""
+    model: str = ""
+
+
 def _studio(sid: str) -> StudioSession:
     try:
         return studio.load(sid)
@@ -1320,11 +1326,20 @@ def draft_studio(sid: str, body: StudioDraftIn) -> dict:
     """AI 안 n 개를 써서 시도로 남긴다. 쓰는 동안 바뀐 시도를 덮지 않게 저장 직전에 다시 읽는다."""
     s = _studio(sid)
     studio.room(s, max(studio.DRAFTS[0], min(studio.DRAFTS[1], body.n)))
-    llm = get_llm("write")
+    use = studio.ai_view(s)["use"]
+    llm = studio.llm_for(s)  # 세션이 고른 AI, 없으면 설정의 본문 쓰기 단계. 키가 없으면 여기서 바로 오류를 보여 준다
     with usage.scope(task="studio"):
         cands = pipeline.draft_paragraph(llm, s.card, body.n)
     s = _studio(sid)
-    studio.add_ai(s, cands, getattr(llm, "model", "") or "")
+    studio.add_ai(s, cands, getattr(llm, "model", "") or use["model"], use["provider"])
+    return studio.view(studio.save(s))
+
+
+@app.put("/api/studio/{sid}/ai")
+def put_studio_ai(sid: str, body: StudioAIIn) -> dict:
+    """이 세션의 AI 를 고른다 (studio.set_ai). 이미 쓴 시도는 그대로 둔다."""
+    s = _studio(sid)
+    studio.set_ai(s, body.preset, body.provider, body.model)
     return studio.view(studio.save(s))
 
 

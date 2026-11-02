@@ -1,6 +1,7 @@
 /* 문단 연습장 (작품 밖 화면 #/studio[/<세션 id>]). 서버는 canon/studio.py · pipeline.draft_paragraph, 엔드포인트는 /api/studio.
    상황 카드(SceneCard)로 AI 안을 여러 개 받거나 작가가 직접 써 보고, 문단 지표(studio.measure)로 견준다. 작품에는 넣지 않는다.
-   카드는 S.stuForm 에 고치고, 칸을 벗어날 때(change) 조용히 저장한다. AI 안 쓰기 · 시도 저장 전에도 먼저 저장한다. */
+   카드는 S.stuForm 에 고치고, 칸을 벗어날 때(change) 조용히 저장한다. AI 안 쓰기 · 시도 저장 전에도 먼저 저장한다.
+   세션마다 AI 를 고른다(stuAiCard, 서버 studio.set_ai · aipick). 글 한 줄은 역설계 실험과 같은 revAiText (revlab.js). */
 
 DRAFT_ROOTS.stuForm = () => S.stuForm;
 
@@ -47,12 +48,13 @@ function stuSession() {
   const s = S.stu;
   const full = s.tries.length >= (S.stuMax || 40);
   const n = Number(S.stuN) || 3;
+  const who = revAiText(s.ai_view.use);
   const right = `<a class="btn" href="#/studio">목록으로</a>
     <button type="button" class="btn" data-action="stuDuplicate">카드 복제</button>
     <button type="button" class="btn danger" data-action="stuDelete">지우기</button>
-    <button type="button" class="btn primary" data-action="stuDraft"${full ? ' disabled title="시도가 꽉 찼어요. 지울 시도를 고르세요"' : ''}>AI 안 ${n}개 쓰기</button>`;
+    <button type="button" class="btn primary" data-action="stuDraft"${full ? ' disabled title="시도가 꽉 찼어요. 지울 시도를 고르세요"' : ''}>AI 안 ${n}개 쓰기${who ? ` · ${esc(who)}` : ''}</button>`;
   const head = header('문단 연습장', s.title, s.style_name ? `문체: ${esc(s.style_name)}` : '문체를 고르지 않았어요. 기본 문체 규칙으로 써요.', right);
-  return `${head}<div class="cols"><div class="col">${stuCardForm()}</div><div class="col wide">${stuWriteCard()}${stuTries()}</div></div>`;
+  return `${head}<div class="cols"><div class="col">${stuCardForm()}${stuAiCard()}</div><div class="col wide">${stuWriteCard()}${stuTries()}</div></div>`;
 }
 
 // ----- 상황 카드 -----
@@ -124,9 +126,60 @@ document.addEventListener('change', (e) => {
     S.stuForm.card.drills = el.checked ? [...ds, el.dataset.stuDrill] : ds;
     S.stuDirty = true;
   }
+  if (el.dataset.stuAi !== undefined) {
+    const v = el.value;
+    const a = S.stu.ai_view;
+    if (v === 'gone') return;
+    if (v === 'direct') stuAiSave({ provider: a.provider || (a.follow.provider !== 'mock' && a.follow.provider) || 'gemini' });
+    else stuAiSave(v.startsWith('preset:') ? { preset: v.slice(7) } : {});
+    return;
+  }
+  if (el.dataset.stuAiModel !== undefined) {
+    if (S.stu.ai_view.provider) stuAiSave({ provider: S.stu.ai_view.provider, model: el.value });
+    return;
+  }
   if (el.dataset.root === 'stuForm' || el.dataset.stuDrill) stuSaveCard(true);
   if (el.dataset.local === 'stuN') render();  // 머리 버튼 글자(AI 안 n개)
 });
+
+// ----- AI 고르기 -----
+
+/** 이 세션의 AI (서버 ai_view: 고른 값 · use · follow · presets). 바꾸면 다음 AI 안부터 쓰고, 이미 쓴 시도는 그대로 둔다. */
+function stuAiCard() {
+  const a = S.stu.ai_view;
+  if (!S.models) loadModelList().then(() => { if (S.route[0] === 'studio' && S.stu) render(); });  // 모델 칸 추천 목록 (settings.js)
+  const gone = a.use.source === 'gone';
+  const val = a.preset ? (gone ? 'gone' : `preset:${a.preset}`) : a.provider ? 'direct' : '';
+  const opts = `<option value=""${val === '' ? ' selected' : ''}>설정을 따름 · 지금 ${esc(revAiText(a.follow))}</option>
+    ${gone ? '<option value="gone" selected>지워진 프리셋 (설정을 따름)</option>' : ''}
+    ${a.presets.length ? `<optgroup label="프리셋">${a.presets.map((p) => `<option value="preset:${esc(p.id)}"${val === `preset:${p.id}` ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</optgroup>` : ''}
+    <option value="direct"${val === 'direct' ? ' selected' : ''}>직접 고르기</option>`;
+  const direct = val === 'direct' ? `<div class="seg" role="group" aria-label="백엔드">${REV_AI_PROVIDERS.map((k) => `<button type="button" aria-pressed="${a.provider === k}" data-action="stuAiProv" data-arg="${k}">${esc(WRITER_BACKEND[k])}</button>`).join('')}</div>
+      <div class="field"><label for="stu-ai-model">모델 <span class="hint">비우면 그 백엔드의 기본 모델${a.use.default ? ` (${esc(a.use.default)})` : ''}</span></label>
+        <input id="stu-ai-model" type="text" list="model-options" value="${esc(a.model)}" data-stu-ai-model placeholder="${esc(a.use.default || '기본 모델')}"></div>
+      ${a.provider === 'claude' ? '<div class="note info small">Claude 구독은 Canon 서버에 설치한 Claude Code로 불러요. 답이 오기까지 수십 초 걸릴 수 있어요.</div>' : ''}` : '';
+  return `<section class="card">
+      <div class="between"><h2>AI 모델</h2><span class="small">이 연습의 AI 안만 바꿔요</span></div>
+      <div class="field"><label for="stu-ai">쓸 AI</label><select id="stu-ai" data-stu-ai>${opts}</select></div>
+      ${direct}
+      <div class="small">지금 쓰는 AI: ${esc(revAiText(a.use))}</div>
+      ${a.use.source === 'mock' ? '<div class="note info small">설정의 AI가 mock이라 지금은 mock으로 써요. 여기서 고른 값은 mock을 끄면 써요.</div>' : ''}
+      ${modelDatalist()}
+    </section>`;
+}
+
+/** AI 고르기를 저장한다. 고치던 카드가 있으면 먼저 저장한다 (받은 세션이 카드 칸을 서버 것으로 바꾸므로). */
+async function stuAiSave(body) {
+  try {
+    if (S.stuDirty) stuSet(await api('PUT', `/studio/${enc(S.stu.id)}`, S.stuForm));
+    stuSet(await api('PUT', `/studio/${enc(S.stu.id)}/ai`, body));
+    const who = revAiText(S.stu.ai_view.use);
+    toast(`AI를 ${who}${josa(who, '으로', '로')} 바꿨어요. 다음 AI 안부터 써요`);
+  } catch (e) {
+    showError(e);
+  }
+  render();
+}
 
 // ----- 직접 쓰기 -----
 
@@ -158,7 +211,8 @@ function stuChecks(m) {
 
 function stuTryCard(t) {
   const m = S.stu.measures[String(t.no)];
-  const who = t.by === 'ai' ? `<span class="chip ai">AI ${t.no}번</span>` : `<span class="chip">직접 ${t.no}번</span>`;
+  const model = t.by === 'ai' && t.model ? `<span class="small">${esc(revAiText({ provider: t.provider || 'gemini', model: t.model }))}</span>` : '';
+  const who = (t.by === 'ai' ? `<span class="chip ai">AI ${t.no}번</span>` : `<span class="chip">직접 ${t.no}번</span>`) + model;
   const base = t.base ? `<span class="small">${t.base}번을 고쳐 씀</span>` : '';
   const editing = S.stuEdit === t.no;
   const body = editing
@@ -186,6 +240,10 @@ function stuTries() {
 // ----- 동작 -----
 
 Object.assign(actions, {
+  stuAiProv(k) {
+    if (k === S.stu.ai_view.provider) return;
+    stuAiSave({ provider: k });  // 백엔드를 바꾸면 모델 칸은 비워 그 백엔드의 기본 모델을 쓴다
+  },
   async stuNew() {
     await run('새 연습을 만드는 중', async () => {
       const s = await api('POST', '/studio', { title: '', card: {} });

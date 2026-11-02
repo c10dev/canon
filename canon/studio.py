@@ -3,7 +3,8 @@
 작품(project.json)에는 넣지 않고 세션 파일 <CANON_HOME>/.studio/<id>.json 에 둔다 (CANON_STUDIO 로 경로 변경, 문체 라이브러리처럼 작품 밖).
 문체는 문체 라이브러리 항목을 고르면 그 프로필을 프롬프트에 넣고, 고르지 않으면 기본 문체 규칙만 쓴다.
 한 문단은 화 하나보다 훨씬 짧아 화 단위 지표(어휘 다양도 · 문체 거리 · 화당 상한)는 쓰지 않고, 개수로 센다(measure).
-AI 호출은 pipeline.draft_paragraph (write 단계). 이 모듈은 LLM 을 부르지 않는다.
+AI 호출은 pipeline.draft_paragraph (write 단계). 세션마다 AI 를 고를 수 있고(set_ai, 규칙은 aipick), 고르지 않으면
+설정 화면의 본문 쓰기 단계를 따른다. 이 모듈은 LLM 을 부르지 않는다.
 """
 from __future__ import annotations
 
@@ -15,10 +16,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
-from . import library, metrics, store
+from . import aipick, library, metrics, store
 from .schema import Project, SceneCard, StudioCandidate, StudioSession, StudioTry, StyleProfile
 
 ID_RE = re.compile(r"^[0-9a-f]{8,32}$")
+STAGE = "write"  # AI 안은 본문 쓰기 일이다
 LENGTH = (100, 1200)  # 목표 글자 수 범위
 LENGTH_SLACK = 0.35  # 목표 글자 수에서 이만큼 벗어나면 길이 확인이 걸린다
 MAX_TRIES = 40  # 세션마다 남기는 시도. 저절로 지우지 않고, 차면 작가가 지울 시도를 고른다
@@ -184,9 +186,10 @@ def delete(sid: str) -> None:
 
 
 def duplicate(sid: str) -> StudioSession:
-    """카드만 복사한 새 세션 (같은 상황을 한 칸만 바꿔 다시 써 볼 때). 시도는 옮기지 않는다."""
+    """카드와 AI 고르기만 복사한 새 세션 (같은 상황을 한 칸이나 모델만 바꿔 다시 써 볼 때). 시도는 옮기지 않는다."""
     s = load(sid)
-    return save(StudioSession(id=uuid.uuid4().hex[:12], title=f"{s.title} 사본"[:TITLE_MAX], card=s.card.model_copy(deep=True)))
+    return save(StudioSession(id=uuid.uuid4().hex[:12], title=f"{s.title} 사본"[:TITLE_MAX], card=s.card.model_copy(deep=True),
+                              ai=s.ai.model_copy()))
 
 
 # ---------- 시도 ----------
@@ -207,11 +210,11 @@ def find(s: StudioSession, no: int) -> StudioTry:
     return t
 
 
-def add_ai(s: StudioSession, cands: list[StudioCandidate], model: str = "") -> list[StudioTry]:
+def add_ai(s: StudioSession, cands: list[StudioCandidate], model: str = "", provider: str = "") -> list[StudioTry]:
     room(s, len(cands))
     now, out = _now(), []
     for c in cands:
-        t = StudioTry(no=_next_no(s), by="ai", text=c.text, note=c.note.strip(), model=model, at=now)
+        t = StudioTry(no=_next_no(s), by="ai", text=c.text, note=c.note.strip(), provider=provider, model=model, at=now)
         s.tries.append(t)
         out.append(t)
     return out
@@ -256,6 +259,22 @@ def remove(s: StudioSession, no: int) -> None:
     for t in s.tries:  # 지운 시도를 고쳐 쓴 글은 처음부터 쓴 글로 본다
         if t.base == no:
             t.base = 0
+
+
+# ---------- AI 고르기 ----------
+
+def set_ai(s: StudioSession, preset: str = "", provider: str = "", model: str = "") -> None:
+    """이 세션의 AI: preset(프리셋 id) · provider(+ model) · 모두 비우면 설정의 본문 쓰기 단계. 다음 AI 안부터 쓴다."""
+    s.ai = aipick.clean(preset, provider, model)
+
+
+def llm_for(s: StudioSession):
+    """AI 안을 쓸 LLM. 키가 없으면 여기서 바로 오류를 낸다."""
+    return aipick.make(s.ai, STAGE)
+
+
+def ai_view(s: StudioSession) -> dict:
+    return {**aipick.view(s.ai, STAGE), "presets": aipick.presets()}
 
 
 # ---------- 문체와 프롬프트 재료 ----------
@@ -315,7 +334,7 @@ def measure(text: str, card: SceneCard, style: Optional[StyleProfile] = None) ->
 def view(s: StudioSession) -> dict:
     """화면에 보내는 세션: 시도마다 지표, 문체 이름."""
     st = style_of(s.card)
-    return {**s.model_dump(), "style_name": style_name(s.card),
+    return {**s.model_dump(), "style_name": style_name(s.card), "ai_view": ai_view(s),
             "measures": {str(t.no): measure(t.text, s.card, st) for t in s.tries}}
 
 

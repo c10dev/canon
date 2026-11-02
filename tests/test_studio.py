@@ -4,15 +4,16 @@ import importlib
 import pytest
 from fastapi.testclient import TestClient
 
-from canon import pipeline, prompts, studio
+from canon import aipick, pipeline, prompts, studio
 from canon.mock import MockLLM
-from canon.schema import Project, SceneCard, StudioCandidate, StudioPerson, StyleMarker, StyleProfile
+from canon.schema import AIPick, Project, SceneCard, StudioCandidate, StudioPerson, StyleMarker, StyleProfile
 
 
 @pytest.fixture()
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("CANON_STUDIO", str(tmp_path / "studio"))
     monkeypatch.setenv("CANON_STYLES", str(tmp_path / "styles"))
+    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
     return tmp_path
 
 
@@ -153,8 +154,13 @@ def test_web_flow(client, tmp_path):
     assert (tmp_path / ".studio" / f"{s['id']}.json").exists() and s["style_name"] == "건조체"
     assert client.post("/api/studio", json={"card": {"style_id": "abcdef12"}}).status_code == 400
 
+    assert s["ai_view"]["use"]["source"] == "mock"
+    assert client.put(f"/api/studio/{s['id']}/ai", json={"provider": "nope"}).status_code == 400
+    s = client.put(f"/api/studio/{s['id']}/ai", json={"provider": "gemini", "model": "gemini-3.8-flash"}).json()
+    assert s["ai"] == {"preset": "", "provider": "gemini", "model": "gemini-3.8-flash"}
     s = client.post(f"/api/studio/{s['id']}/draft", json={"n": 2}).json()
     assert [t["by"] for t in s["tries"]] == ["ai", "ai"] and s["tries"][0]["note"]
+    assert s["tries"][0]["provider"] == "mock"  # 설정이 mock 이면 고른 AI 대신 mock 으로 쓰고, 쓴 것을 적는다
     assert s["measures"]["1"]["checks"][0]["id"] == "length"
     s = client.post(f"/api/studio/{s['id']}/tries", json={"text": "서연은 우산을 내밀었다.", "base": 1}).json()
     assert s["tries"][-1]["base"] == 1
@@ -172,3 +178,36 @@ def test_web_flow(client, tmp_path):
     assert client.post(f"/api/studio/{empty['id']}/draft", json={}).status_code == 400
     # 작품 목록에는 섞이지 않는다
     assert client.get("/api/projects").json() == []
+
+
+def _real_ai(monkeypatch):
+    """mock 이 아닌 설정 (단계 환경 변수는 지운다). 실제 AI 는 부르지 않는다."""
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    for k in ("CANON_MODEL", "CANON_LLM_WRITE", "CANON_MODEL_WRITE"):
+        monkeypatch.delenv(k, raising=False)
+
+
+def test_session_ai(home, monkeypatch):
+    s = studio.create(card())
+    monkeypatch.setenv("CANON_LLM", "mock")
+    assert studio.ai_view(s)["use"]["source"] == "mock"  # mock 설정이면 무엇을 골랐든 mock
+    assert studio.llm_for(s).stage == "write"
+    _real_ai(monkeypatch)
+    v = studio.ai_view(s)
+    assert v["use"] == v["follow"] and v["use"]["provider"] == "gemini" and v["use"]["source"] == "settings"
+    assert {p["id"] for p in v["presets"]} >= {"gemini", "anthropic"}
+    studio.set_ai(s, provider=" Claude-API ", model=" claude-haiku-5-5 ")
+    assert s.ai == AIPick(provider="claude-api", model="claude-haiku-5-5")
+    assert studio.ai_view(s)["use"] == {"provider": "claude-api", "model": "claude-haiku-5-5", "source": "own", "default": ""}
+    assert studio.ai_view(s)["follow"]["provider"] == "gemini"  # 설정을 따를 때 값은 그대로 보인다
+    studio.set_ai(s, preset="anthropic")
+    assert studio.ai_view(s)["use"]["model"] == "claude-opus-5-5"  # 프리셋의 본문 쓰기 단계
+    studio.save(s)
+    assert studio.duplicate(s.id).ai == AIPick(preset="anthropic")  # 복제는 AI 고르기도 옮긴다
+    studio.set_ai(s)
+    assert s.ai == AIPick()
+    with pytest.raises(ValueError, match="고를 수 없는"):
+        studio.set_ai(s, provider="mock")
+    with pytest.raises(ValueError, match="프리셋"):
+        studio.set_ai(s, preset="nope")
+    assert aipick.choice(AIPick(preset="gone"), "write")["source"] == "gone"  # 지워진 프리셋은 설정을 따른다

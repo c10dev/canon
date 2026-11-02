@@ -2628,11 +2628,15 @@ class RevEpisode(BaseModel):
         return data
 
 
-class RevAI(BaseModel):
-    """실험 하나의 단계 AI 고르기. 모두 비면 설정 화면의 단계 칸을 따른다. preset 이 있으면 provider · model 은 보지 않는다."""
+class AIPick(BaseModel):
+    """작품 밖 도구(역설계 실험 · 문단 연습장)의 단계 AI 고르기 (canon/aipick.py). 모두 비면 설정 화면의 단계 칸을 따른다.
+    preset 이 있으면 provider · model 은 보지 않는다."""
     preset: str = Field("", description="단계 프리셋 id (settings.presets). 지워진 프리셋이면 설정을 따른다")
     provider: str = Field("", description="직접 고른 백엔드 (gemini · local · claude · claude-api)")
     model: str = Field("", description="직접 고른 모델. 비면 그 백엔드의 기본 모델")
+
+
+RevAI = AIPick  # 역설계 실험에서 처음 쓴 이름
 
 
 class RevAIs(BaseModel):
@@ -2799,7 +2803,8 @@ class StudioTry(BaseModel):
     text: str = ""
     note: str = Field("", description="AI 안: 어떤 방향으로 썼는지 한 줄")
     base: int = Field(0, description="작가가 고쳐 쓴 시도 번호. 0 이면 처음부터 쓴 글")
-    model: str = ""
+    provider: str = Field("", description="AI 안을 쓴 백엔드")
+    model: str = Field("", description="AI 안을 쓴 모델")
     star: bool = Field(False, description="작가가 고른 시도")
     at: str = ""
 
@@ -2809,6 +2814,7 @@ class StudioSession(BaseModel):
     title: str = ""
     card: SceneCard = Field(default_factory=SceneCard)
     tries: list[StudioTry] = Field(default_factory=list)
+    ai: AIPick = Field(default_factory=AIPick, description="이 세션의 AI (studio.set_ai). 비면 설정의 본문 쓰기 단계")
     created_at: str = ""
     updated_at: str = ""
 
