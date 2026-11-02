@@ -3019,6 +3019,55 @@ def rev_lines_prompt(lab) -> str:
   focus 는 중심 인물 이름, rejoin 은 메인에 합류하며 남긴 것 (아직 합류하지 않았으면 비움).""")
 
 
+REV_CADENCE = {"full": "화 안에서 풀림", "half": "높은 곳에서 끊음", "deceptive": "풀릴 듯하다 뒤집음"}
+
+
+def rev_arcs_prompt(lab) -> str:
+    """여러 화를 아크 · 부로 나누는 역설계. 화마다 역설계한 요약 · 사건 · 엔딩 훅 · 줄기 · 호흡(최고 긴장, 끝맺음)을 차례로 넣는다.
+    화가 많아 예산(context.BUDGET["rev_arcs"])을 넘으면 모든 화를 요약 첫 문장으로, 그래도 넘으면 제목 · 훅 첫 문장만 넣는다
+    (아크는 화를 빠짐없이 덮어야 해서 화를 빼지 않는다)."""
+    eps = [e for e in lab.episodes if e.plot is not None]
+    title = lambda e: e.plot.title or e.head  # noqa: E731
+    threads = lambda e: ", ".join(e.threads) or "없음"  # noqa: E731
+
+    def pulse(e) -> str:
+        if not (e.sheet and e.sheet.cues):
+            return ""
+        return f"\n호흡: 최고 긴장 {max(c.tension for c in e.sheet.cues)} · 끝맺음 {REV_CADENCE.get(e.sheet.cadence, e.sheet.cadence)}"
+    levels = [
+        ("", [f"## {e.number}화 {title(e)}\n요약: {e.plot.summary}\n사건: " + " / ".join(e.plot.events)
+              + f"\n엔딩 훅: {e.plot.ending_hook or '없음'}\n줄기: {threads(e)}{pulse(e)}" for e in eps]),
+        (f"(화가 {len(eps)}개라 요약은 첫 문장만, 사건은 빼고 넣었습니다)\n",
+         [f"## {e.number}화 {title(e)}\n요약: {context.first_sentence(e.plot.summary)}\n엔딩 훅: {e.plot.ending_hook or '없음'}"
+          f"\n줄기: {threads(e)}{pulse(e)}" for e in eps]),
+        (f"(화가 {len(eps)}개라 화마다 제목과 엔딩 훅 첫 문장만 넣었습니다)\n",
+         [f"## {e.number}화 {title(e)} — {context.first_sentence(e.plot.ending_hook) or '훅 없음'}" for e in eps]),
+    ]
+    note, rows = next(((n, r) for n, r in levels if len("\n\n".join(r)) <= context.BUDGET["rev_arcs"]), levels[-1])
+    head = []
+    if lab.main:
+        head.append(f"메인 줄기: {lab.main}")
+    for x in lab.lines:
+        span = f"{x.branch_ep}~{x.join_ep or ''}화" if x.branch_ep else ""
+        head.append(f"- {x.kind} '{x.title}' {span}: {x.goal}".rstrip(": "))
+    if lab.cast:
+        head.append("인물 목록: " + ", ".join(c.name for c in lab.cast))
+    first, last = eps[0].number, eps[-1].number
+    return ("# 작품 줄기와 인물\n" + ("\n".join(head) or "없음") + "\n\n# 화별 역설계 결과\n" + note + "\n\n".join(rows) + f"""
+
+위 {first}~{last}화를 아크로 나눠 JSON 으로 적습니다. 아크는 한 가지 문제가 생겨 커지고, 풀리거나 뒤집히는 덩어리입니다.
+- arcs: {first}화부터 {last}화까지 빈틈없이, 겹치지 않게 차례로. 경계는 문제가 풀리거나 새 문제가 시작되는 화에 둡니다.
+  화 수를 맞추려고 고르게 나누지 않습니다. 아크 길이는 원문이 정합니다.
+  - goal · conflict · payoff: 원문에 실제로 일어난 일로 한 줄씩.
+  - climax_ep: 그 아크의 문제가 가장 크게 터지거나 풀리는 화.
+  - acts: 아크 안의 기승전결 네 구간 (name 기 · 승 · 전 · 결), start_ep 부터 end_ep 까지 빈틈없이. goal 은 그 구간이 끝난 상태, key_turn 은 전환점.
+  - cast: 이 아크에 주로 나오는 인물 이름 (인물 목록의 이름 그대로).
+  - why: 이 아크를 end_ep 에서 끝낸 근거 한 줄 (그 화에서 일어난 일).
+- parts: 아크 여럿을 묶는 더 큰 흐름(주인공의 처지나 무대가 크게 바뀌는 곳)이 원문에 분명할 때만 적습니다. 없으면 빈 목록. 부의 경계는 아크 경계와 맞춥니다.
+- reply: 작가에게 2~4문장으로 어떻게 나눴는지와 어디가 애매했는지 적습니다.
+- 호흡의 긴장도는 화마다 그 화 안에서 매긴 값이라, 다른 화의 같은 숫자가 같은 세기라는 뜻이 아닙니다. 경계는 사건과 엔딩 훅을 먼저 보고 정합니다.""")
+
+
 # ---------- 다시 생성 ----------
 # 작가가 지난 판을 읽고 다시 써 달라고 할 때. 쓰기 프롬프트(episode_prompt)는 그대로 두고 요청을 맨 뒤에 붙인다
 # (앞부분이 같아야 캐시가 맞는다). 화면(rewrite.js)은 서버가 준 빠른 요청과 재료 목록을 그대로 쓴다.
