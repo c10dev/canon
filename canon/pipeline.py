@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
-from .llm import LLM, Interrupted, dump
+from .llm import LLM, Interrupted, dump, thinking
 from . import anchor, board, cancel, charlog, context, features, findings, foreshadows, knows, metatail, stage, statwin, timeline, usage
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixOption, FixPatch, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
@@ -3407,11 +3407,17 @@ def check_episode(llm: LLM, p: Project, n: int, widen: bool | None = None, motio
     return report
 
 
+# 동선 따로 보기의 생각 수준. 2026-11-03 시험(gemini-3.8-flash, 동선 모순 25개 × 2회): 기본 30/50 · 낮음 26/50,
+# 걸린 시간 중앙값은 심은 본문 16.5초 → 6.4초, 원래 본문 33.9초(최대 146초) → 4.7초. 기본이면 본 검수(중앙 약 33초)보다 늦어 검수 전체를 늦출 수 있다
+MOTION_THINK = "low"
+
+
 def motion_check(llm: LLM, p: Project, n: int, hint: dict | None = None) -> list[ConsistencyIssue]:
     """동선 따로 보기: 이번 화 인물 이름과 본문만 넣고 같은 화 안의 동선 어긋남만 찾는다 (prompts.motion_prompt).
-    갈래 · 근거 화는 모델이 다르게 적어도 동선 · 이번 화로 고친다. 인용 문장이 빈 지적은 버린다."""
+    생각 수준은 MOTION_THINK (지원하는 백엔드만). 갈래 · 근거 화는 모델이 다르게 적어도 동선 · 이번 화로 고친다. 인용 문장이 빈 지적은 버린다."""
     cancel.check()
-    rep = llm.json(prompts.SYSTEM_MOTION, prompts.motion_prompt(p, n), ConsistencyReport, hint={"episode": n, "motion": True, **(hint or {})})
+    with thinking(MOTION_THINK):
+        rep = llm.json(prompts.SYSTEM_MOTION, prompts.motion_prompt(p, n), ConsistencyReport, hint={"episode": n, "motion": True, **(hint or {})})
     out = []
     for x in rep.issues:
         if x.current_quote.strip():

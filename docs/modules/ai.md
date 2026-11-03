@@ -28,6 +28,7 @@
 - 단계 이름은 `settings.STAGES` 다
 - Gemini 429 요청 한도는 `GeminiLLM._call` 이 `RATE_WAITS`(30 · 60 · 120초)만큼 기다려 다시 부른다(기다리기 전 `cancel.check`, 실패한 시도는 하나씩 사용량에 실패로)
 - 끝내 막히면 해요체 안내 `RateLimited`(`RATE_HINT`)
+- 생각 수준 `thinking(level)`(contextvar `THINK`): 안에서 부른 Gemini 호출 · 배치에 `thinking_level` 을 붙인다. 다른 백엔드는 무시한다. 받지 않는 모델은 400 한 번 뒤 `_NO_THINK` 에 넣고 설정 없이 부른다
 - 응답 시간 한도는 요청마다 SDK `HttpOptions(timeout)` 로 준다(`GEMINI_TIMEOUT` 600초, `CANON_GEMINI_TIMEOUT` 초로 바꿈, `gemini_timeout`)
 - 시간 한도를 넘기면(`is_timeout`) `cancel.check` 뒤 한 번 더 부른다
 - 또 넘기면 해요체 안내 `TimedOut`(`TIMEOUT_HINT`)

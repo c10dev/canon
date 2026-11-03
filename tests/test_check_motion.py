@@ -138,3 +138,53 @@ def test_cli_web_and_autorun_estimate(tmp_path, monkeypatch):
     assert off["calls"]["check"] == 6 and on["calls"]["check"] == 12
     assert on["tokens_in"] > off["tokens_in"]
     assert on["seconds_min"] == off["seconds_min"]  # 본 검수와 동시에 부르므로 시간은 그대로
+
+
+class FakeModels:
+    """GeminiLLM 의 client.models 흉내: 부른 설정을 남긴다. refuse 면 생각 설정이 있는 요청을 400 으로 거절한다."""
+
+    def __init__(self, refuse: bool = False):
+        self.configs: list = []
+        self.refuse = refuse
+        self.lock = threading.Lock()
+
+    def generate_content(self, model, contents, config):
+        from types import SimpleNamespace
+        with self.lock:
+            self.configs.append(config)
+        if self.refuse and config.thinking_config is not None:
+            raise RuntimeError("400 INVALID_ARGUMENT. Thinking level is unsupported for this model")
+        meta = SimpleNamespace(prompt_token_count=10, candidates_token_count=5, thoughts_token_count=0, cached_content_token_count=0)
+        return SimpleNamespace(text='{"episode": 2, "issues": []}', usage_metadata=meta, candidates=[])
+
+
+def _gemini(models: FakeModels, model: str = "gemini-3.8-flash"):
+    from types import SimpleNamespace
+
+    from canon.llm import GeminiLLM
+    llm = GeminiLLM.__new__(GeminiLLM)
+    llm.client = SimpleNamespace(models=models)
+    llm.model, llm.last_usage, llm.last_attempts, llm.last_raw, llm.last_finish, llm.stage = model, None, 0, "", "", "check"
+    return llm
+
+
+def test_motion_call_asks_gemini_for_low_thinking(tmp_path, monkeypatch):
+    monkeypatch.setenv("CANON_USAGE", str(tmp_path / "usage.jsonl"))
+    models = FakeModels()
+    pipeline.check_episode(_gemini(models), _project(), 2)
+    levels = {c.system_instruction: c.thinking_config for c in models.configs}
+    assert levels[prompts.SYSTEM_CHECKER] is None  # 본 검수는 모델 기본값
+    assert "low" in str(levels[prompts.SYSTEM_MOTION].thinking_level).lower()
+
+
+def test_model_that_refuses_thinking_level_is_called_without_it(tmp_path, monkeypatch):
+    from canon import llm as llm_mod
+
+    monkeypatch.setenv("CANON_USAGE", str(tmp_path / "usage.jsonl"))
+    monkeypatch.setattr(llm_mod, "_NO_THINK", set())
+    models = FakeModels(refuse=True)
+    assert pipeline.motion_check(_gemini(models, "gemini-old"), _project(), 2) == []
+    assert [c.thinking_config is not None for c in models.configs] == [True, False]  # 거절되면 설정 없이 한 번 더
+    assert "gemini-old" in llm_mod._NO_THINK
+    pipeline.motion_check(_gemini(models, "gemini-old"), _project(), 2)
+    assert models.configs[-1].thinking_config is None  # 다음부터는 처음부터 빼고 부른다

@@ -19,6 +19,8 @@ import re
 import time
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any, Protocol, TypeVar
 
 from pydantic import BaseModel, ValidationError
@@ -30,6 +32,26 @@ T = TypeVar("T", bound=BaseModel)
 
 class MissingKey(RuntimeError):
     """API 키가 없다. 웹은 서버 오류가 아니라 설정 안내로 보인다 (code no_key)."""
+
+
+# 생각 수준 (Gemini thinking_level). 작은 확인 호출(동선 따로 보기)은 thinking("low") 안에서 불러 생각을 줄인다.
+# 비면 모델 기본값. Gemini 만 쓰고 다른 백엔드는 무시한다. 받지 않는 모델이면 400 을 한 번 받은 뒤 그 모델은 생각 설정 없이 부른다.
+THINK: ContextVar[str] = ContextVar("think", default="")
+_NO_THINK: set[str] = set()
+
+
+@contextmanager
+def thinking(level: str):
+    tok = THINK.set(level)
+    try:
+        yield
+    finally:
+        THINK.reset(tok)
+
+
+def _think_refused(e: Exception) -> bool:
+    msg = str(e).lower()
+    return bool(THINK.get()) and "think" in msg and ("400" in msg or "invalid" in msg)
 
 
 class LLM(Protocol):
@@ -292,6 +314,9 @@ class GeminiLLM:
                     pause = next(rate, None)
                     if pause is None:
                         raise RateLimited(waited) from e
+                elif _think_refused(e) and self.model not in _NO_THINK:
+                    _NO_THINK.add(self.model)  # 이 모델은 생각 수준을 받지 않는다: 설정 없이 다시 부른다
+                    pause = None
                 else:
                     raise
             cancel.check()
@@ -307,6 +332,9 @@ class GeminiLLM:
 
         t, tokens = time.time(), None
         self.last_raw, self.last_finish = "", ""
+        level = THINK.get()
+        if level and self.model not in _NO_THINK and "thinking_config" not in config:
+            config = {**config, "thinking_config": types.ThinkingConfig(thinking_level=level)}
         try:
             resp = self.client.models.generate_content(
                 model=self.model,
@@ -365,11 +393,14 @@ class GeminiLLM:
         못하거나 서버가 요청을 거절(400)하면 response_json_schema 로 보낸다."""
         from google.genai import errors
 
+        level = THINK.get() if self.model not in _NO_THINK else ""
+        think = {"thinking_config": {"thinking_level": level}} if level else {}
+
         def create(fmt: dict[str, Any]) -> Any:
             return self.client.batches.create(
                 model=self.model,
                 src=[{"contents": [{"role": "user", "parts": [{"text": with_note(prompt)}]}],
-                      "config": {"system_instruction": system, **fmt}}],
+                      "config": {"system_instruction": system, **think, **fmt}}],
                 config={"display_name": label[:120]},
             )
 
