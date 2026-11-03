@@ -72,3 +72,16 @@ def test_every_request_ends_with_the_policy_note():
     llm, asks = _gemini([GOOD])
     llm.text("", "요청")
     assert asks[0].endswith("\n\n" + POLICY_NOTE) and asks[0].count(POLICY_NOTE) == 1
+
+
+def test_out_cap_sets_gemini_output_limit_only_inside():
+    from canon.llm import out_cap
+
+    llm, _ = _gemini([GOOD, GOOD])
+    seen = []
+    generate = llm.client.models.generate_content
+    llm.client.models.generate_content = lambda model, contents, config: seen.append(config.max_output_tokens) or generate(model, contents, config)
+    with out_cap(1000):
+        llm.json("", "요청", StyleProfile)
+    llm.json("", "요청", StyleProfile)
+    assert seen == [1000, None]

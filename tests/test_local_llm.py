@@ -107,6 +107,16 @@ class LocalLLMTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             LocalLLM().json("시스템", "분석", StyleProfile)
 
+    def test_out_cap_sends_max_tokens_only_inside(self):
+        from canon.llm import out_cap
+
+        good = StyleProfile(narration_pov="1인칭").model_dump_json()
+        FakeServer.replies = [good, good]
+        with out_cap(1000):
+            LocalLLM().json("시스템", "분석", StyleProfile)
+        LocalLLM().json("시스템", "분석", StyleProfile)
+        self.assertEqual([r.get("max_tokens") for r in FakeServer.requests], [1000, None])
+
     def test_out_of_range_numbers_are_clamped(self):
         from canon.schema import Relationship, StoryEvent
         r = Relationship(a="a", b="b", type="적", affinity=40, tension=90, goal_conflict=-1.0)
