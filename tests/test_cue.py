@@ -273,3 +273,22 @@ def test_run_keeps_finished_conditions_when_later_fails(demo):
     with pytest.raises(RuntimeError):
         cue.run(demo, p, Quota(), 1, ["oneshot", "score", "cues"])
     assert [t.condition for t in store.load_cuelab(demo, 1).takes] == ["oneshot", "score"]
+
+
+def test_cue_sheet_call_caps_output_tokens(demo):
+    from canon import llm as llm_mod
+
+    class Capped(MockLLM):
+        def json(self, system, prompt, schema, hint=None):
+            caps.append(llm_mod._out_cap.get())
+            return super().json(system, prompt, schema, hint)
+
+        def text(self, system, prompt):
+            caps.append(llm_mod._out_cap.get())
+            return "글"
+
+    caps: list = []
+    llm = Capped()
+    pipeline.make_cue_sheet(llm, store.load(demo), 1)
+    llm.text("", "다른 요청")
+    assert caps == [pipeline.CUE_OUT_TOKENS, None]  # 큐 시트 호출 안에서만, 끝나면 풀린다

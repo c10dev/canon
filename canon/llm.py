@@ -19,7 +19,9 @@ import re
 import time
 import urllib.error
 import urllib.request
-from typing import Any, Protocol, TypeVar
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any, Iterator, Protocol, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -199,6 +201,22 @@ def is_timeout(e: BaseException) -> bool:
     return isinstance(e, tuple(kinds))
 
 
+# 이 안의 호출이 받을 가장 많은 출력 토큰. None 이면 모델 기본 한도. out_cap 으로 정한다.
+_out_cap: ContextVar[int | None] = ContextVar("out_cap", default=None)
+
+
+@contextmanager
+def out_cap(tokens: int) -> Iterator[None]:
+    """이 안의 Gemini · 로컬 호출은 출력을 tokens 토큰까지만 받는다 (생각 토큰 포함). 모델이 같은 글을
+    되풀이하면 기본 한도(65,536)까지 13분 넘게 쓴다. 2026-11-03 큐 시트 호출이 그랬고, 응답이 계속 흘러
+    들어와 응답 시간 초과(gemini_timeout)도 걸리지 않았다. 한도에 걸린 JSON 은 형식 고치기 재시도로 넘어간다."""
+    token = _out_cap.set(tokens)
+    try:
+        yield
+    finally:
+        _out_cap.reset(token)
+
+
 def _pause(seconds: float) -> None:
     """기다린다. 웹 작업이면 멈추기 신호가 오는 즉시 깬다. 시험은 이 함수를 바꿔 기다리지 않는다."""
     ev = cancel.current.get()
@@ -307,6 +325,8 @@ class GeminiLLM:
 
         t, tokens = time.time(), None
         self.last_raw, self.last_finish = "", ""
+        if cap := _out_cap.get():
+            config.setdefault("max_output_tokens", cap)
         try:
             resp = self.client.models.generate_content(
                 model=self.model,
@@ -661,6 +681,8 @@ class LocalLLM:
             if sent and sent[-1].get("role") == "user" and isinstance(sent[-1].get("content"), str):
                 sent[-1] = {**sent[-1], "content": with_note(sent[-1]["content"])}  # 마지막 사용자 메시지 끝
             body = {"model": self.model, "messages": [{"role": "system", "content": system}, *sent], **extra}
+            if cap := _out_cap.get():
+                body.setdefault("max_tokens", cap)
             resp = self._request("POST", "/chat/completions", body)
             tokens = self.last_usage = _local_usage(resp.get("usage"))
             choice = (resp.get("choices") or [{}])[0]

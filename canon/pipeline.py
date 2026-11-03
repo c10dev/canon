@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from . import dynamics, elements, illust, metrics, naming, prompts, renumber, setupchat, storylines
 from .judge import Judge, Question
-from .llm import LLM, Interrupted, dump
+from .llm import LLM, Interrupted, dump, out_cap
 from . import anchor, board, cancel, charlog, context, features, findings, foreshadows, knows, metatail, stage, statwin, timeline, usage
 from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixOption, FixPatch, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
@@ -2759,6 +2759,10 @@ def _write(llm: LLM, p: Project, n: int, prompt: str, cut: list[MetaCut] | None 
 # ---------- 4-1. 큐 시트 집필 실험 (cue.py) ----------
 # 화를 악보처럼 큐로 나눠 진행과 핵심 대사를 먼저 정하고, 본문을 한 번에 또는 큐마다 쓴다. 작품에 저장하지 않는다.
 
+# 큐 시트 한 번의 출력 토큰 한도. 보통 응답은 1,500~2,000토큰이다 (2026-11-03 8~9화). 넘으면 같은 글을 되풀이하는 중이다.
+CUE_OUT_TOKENS = 16384
+
+
 def make_cue_sheet(llm: LLM, p: Project, n: int) -> CueSheet:
     """n화 큐 시트를 만든다 (plan 단계). 저장은 호출자가 한다."""
     from . import cue
@@ -2767,9 +2771,10 @@ def make_cue_sheet(llm: LLM, p: Project, n: int) -> CueSheet:
     if ep.status == "draft":
         raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
     require_previous(p, n)
-    d = llm.json(prompts.SYSTEM_PLANNER, prompts.cue_sheet_prompt(p, n), CueSheetDraft,
-                 hint={"episode": n, "events": len(ep.plot.events), "characters": ep.plot.characters,
-                       "scenes": len(ep.storyboard.scenes) if ep.storyboard else 0, "size": p.meta.words_per_episode})
+    with out_cap(CUE_OUT_TOKENS):
+        d = llm.json(prompts.SYSTEM_PLANNER, prompts.cue_sheet_prompt(p, n), CueSheetDraft,
+                     hint={"episode": n, "events": len(ep.plot.events), "characters": ep.plot.characters,
+                           "scenes": len(ep.storyboard.scenes) if ep.storyboard else 0, "size": p.meta.words_per_episode})
     return CueSheet(**cue.clean(p, d).model_dump(), made_at=_now(), made_by="ai")
 
 
