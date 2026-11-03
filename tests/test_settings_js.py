@@ -123,3 +123,14 @@ def test_put_config_changes_only_sent_field(client):
     assert got["stage_settings"] == {"check": "claude"} and got["stage_model_settings"] == {"state": "gemini-3.8-flash"}
     got = c.put("/api/config", json={"model": "gemini-3.8-flash"}).json()
     assert got["model_setting"] == "gemini-3.8-flash" and got["stage_settings"] == {"check": "claude"}
+
+
+def test_put_config_takes_only_a_claude_binary(client):
+    """claude_bin 은 로그인 없는 웹 API 로 바꿀 수 있어 claude 라는 이름의 파일만 받는다 (그 파일을 --version 으로 실행한다)"""
+    c, _ = client
+    r = c.put("/api/config", json={"claude_bin": "/bin/sh"})
+    assert r.status_code == 400 and "claude" in r.json()["detail"]
+    assert c.get("/api/config").json()["claude_bin"] in ("", None)
+    got = c.put("/api/config", json={"claude_bin": "~/.local/bin/claude"}).json()
+    assert got["claude_bin"] == "~/.local/bin/claude"
+    assert c.put("/api/config", json={"claude_bin": ""}).json()["claude_bin"] in ("", None)

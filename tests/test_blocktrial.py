@@ -41,8 +41,12 @@ def test_variants_change_only_the_copy():
     assert base.style.sentence_rhythm  # 사본만 바꾼다
     assert len(prompts.episode_prompt(q, 3)) < len(prompts.episode_prompt(base, 3))
     assert blocktrial.variant(base, "no_board")[1] == {"use_board": False}
+    base.states[0].knows_folded = ["접은 비밀: 도윤은 왕자다"]  # 아크 요약 뒤 접은 줄도 빼야 한다
     q, _ = blocktrial.variant(base, "no_knows")
-    assert all(not s.knows for s in q.states)
+    assert all(not s.knows and not s.knows_folded for s in q.states) and not q.knows_folds
+    q.meta.form = "serial"
+    assert all(not s.knows for s in prompts.state_view(q, q.states, None, "")[0])  # 장편 프롬프트에도 '(요약)' 줄이 없다
+    assert base.states[0].knows_folded  # 사본만 바꾼다
     try:
         blocktrial.variant(base, "nope")
         raise AssertionError("막혀야 한다")

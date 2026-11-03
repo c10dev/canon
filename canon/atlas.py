@@ -18,7 +18,7 @@ from .maps.layout import (  # noqa: F401
 )
 from .maps.makers import (  # noqa: F401
     CITY_POP_PER_HOUSE, MAKERS, MODERN_STYLES, POP_PER_HOUSE, apply_fill, apply_generated, clear_fill, default_spec,
-    fill_preview, gen_info, gen_places, generate, made_count, map_era, set_title, village_title,
+    drop_old_file, fill_preview, gen_info, gen_places, generate, made_count, map_era, set_title, village_title,
 )
 from .maps.places import (  # noqa: F401
     SORT_CHUNK, add_place, apply_sort, clean_sort, frames, match, mentions, name_ideas, place_by_name, place_kinds,

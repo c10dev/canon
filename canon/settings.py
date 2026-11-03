@@ -248,6 +248,9 @@ def _set_stage_map(data: dict, key: str, values: dict[str, str]) -> None:
         data.pop(key, None)
 
 
+CLAUDE_BIN_NAMES = ("claude", "claude.exe", "claude.cmd")  # 설정 파일의 claude_bin 으로 받는 파일 이름
+
+
 def update(*, provider: str | None = None, model: str | None = None,
            api_key: str | None = None, clear_key: bool = False,
            local_url: str | None = None, local_model: str | None = None,
@@ -258,6 +261,9 @@ def update(*, provider: str | None = None, model: str | None = None,
            vertex_credentials: str | None = None, vertex_project: str | None = None,
            vertex_location: str | None = None) -> None:
     """None 인 값은 그대로 둔다. 빈 문자열이면 파일에서 지운다."""
+    if claude_bin and claude_bin.strip() and Path(claude_bin.strip()).name.lower() not in CLAUDE_BIN_NAMES:
+        # 설정 화면(로그인 없는 웹 API)으로 아무 실행 파일이나 부르게 하지 않는다. 다른 이름은 CANON_CLAUDE_BIN 으로
+        raise ValueError("claude 실행 파일 경로만 적을 수 있어요 (파일 이름이 claude). 다른 이름이면 CANON_CLAUDE_BIN으로 정하세요")
     data = _read()
     for key, value in (("provider", provider), ("model", model), ("gemini_api_key", api_key),
                        ("local_url", local_url), ("local_model", local_model), ("local_key", local_key),
