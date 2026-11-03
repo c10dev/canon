@@ -114,6 +114,8 @@ const CLIENT = Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
 
 // 마지막으로 받은 작품 JSON과 그 판(ETag). 같은 판이면 서버가 304 로 본문 없이 답하고 이것을 복사해 쓴다 (장편은 수 MB)
 let projectCache = null;  // { path, tag, data }
+// 작품 전체 JSON 인가. 본문이 빈 응답(304 를 바꿔 넘기는 브라우저 · 프록시, 끊긴 응답)을 작품으로 받거나 보관하지 않게 본다
+const isProjectJson = (d) => !!(d && d.meta && Array.isArray(d.episodes));
 
 /** meta 를 넘기면 응답 헤더를 meta.headers 에 담는다. 실패하면 Error 의 status 에 HTTP 상태를 담는다. */
 async function api(method, path, body, meta) {
@@ -136,8 +138,15 @@ async function api(method, path, body, meta) {
     // 서버가 꺼졌거나 네트워크가 끊겼다 (브라우저마다 다른 영어 문구 대신)
     throw Object.assign(new Error('서버에 연결하지 못했어요. 서버가 켜져 있는지, 네트워크가 연결됐는지 확인하세요'), { status: 0 });
   }
-  if (whole && r.status === 304 && projectCache && projectCache.path === path) return structuredClone(projectCache.data);
+  const asked = whole && 'If-None-Match' in opt.headers;
+  if (whole && r.status === 304 && projectCache && projectCache.path === path && isProjectJson(projectCache.data)) return structuredClone(projectCache.data);
   const data = await r.json().catch(() => ({}));
+  if (whole && (r.ok || r.status === 304) && !isProjectJson(data)) {
+    // 보관한 판으로 물었는데 작품이 아닌 답이 왔다: 보관한 것을 버리고 조건 없이 한 번 더 받는다 (한 번 받은 빈 답이 새로고침 전까지 남지 않게)
+    projectCache = null;
+    if (asked) return api(method, path, body, meta);
+    throw Object.assign(new Error('작품을 받지 못했어요. 잠시 뒤 다시 시도하세요'), { status: r.status });
+  }
   if (!r.ok) throw Object.assign(new Error(fmtErr(data, r.status)), { status: r.status, code: data && data.code });
   if (meta) meta.headers = r.headers;
   // 문체를 분석했거나 라이브러리에 저장했으면 붙여 넣은 원문은 더 잃을 것이 없다 (hasUnsaved)
@@ -149,7 +158,7 @@ async function api(method, path, body, meta) {
   // 저장한 요청(반영 등)이 작품 전체를 돌려주면 그 판으로 보관한다. 다음 화면 이동의 작품 GET 이 다시 받지 않고 304 로 끝난다
   const saved = !whole && r.headers.get('X-Project-ETag');
   const own = saved && path.match(/^\/projects\/[^/?]+/);
-  if (own && data && data.meta && Array.isArray(data.episodes)) {
+  if (own && isProjectJson(data)) {
     projectCache = { path: own[0], tag: saved, data };
     return structuredClone(data);
   }
