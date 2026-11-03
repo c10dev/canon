@@ -115,6 +115,9 @@
 - 고르기 `select_style` · 지우기 `drop_style`(지금 프로필은 하나만 남았을 때만) · 메모 `note_style`
 - 견주기 `style_diff` · `style_view`(`library.diff`, 기본은 지금 프로필과)
 - 구조 · 호흡 `pace`(화마다 `_pace_row`: 큐 글자 수로 가중한 평균 긴장 · 최고 긴장과 자리 · 끝 긴장 · D 큐 · 빠른 템포 비율, 원문에서 잰 대사 비율 · 문장 길이, 끝맺음. 요약: 끝맺음 수 · 숨 고르기 화 `REST_PEAK` · 긴장 `TOP_TENSION` 화와 간격 · 분량 변동. 저장 안 함, AI 없음), 웹 `GET /api/revlab/<번호>/pace`
+- 아크 · 부 역설계 `run_arcs`(`can_arcs`: 4화 넘게 · 모든 화 역설계, `pipeline.reverse_arcs`, 응답 `RevArcSet`), 정리 `clean_arcs`(`_cover` · `_fit_acts`), 저장 `RevLab.arcs`(`RevArcPlan`)
+  - 작가 고침 `set_arcs`(by author · both), 그 뒤 AI 안은 `arc_offer`(`put_arcs`, 고르기 `take_offer`), 지우기 `clear_arcs`
+  - 화 번호 옮기기 `_shift_arcs`, 낡음 `arc_state`(아크 밖 화 · 다시 역설계한 화). 웹 `PUT` · `DELETE /api/revlab/<번호>/arcs`, `POST .../arcs/offer`
 - 라이브러리에 저장 `to_library`(원문 앞부분과 AI 없이 고른 대표 문단 `pick_passages`, 항목 id `RevStyle.library`, 라이브러리에서 지우면 화면 값 `library` 가 빔), 웹 `POST /api/revlab/<번호>/styles/<id>/library`
 - 문단 연습장 카드 `paragraph_card`: 원문에서 고른 문단으로 `SceneCard` 를 채운다. AI 없음, 실험은 바꾸지 않음
   - 원문 자리 `find_passage`: 글자 그대로 없으면 공백 묶음을 느슨하게 찾는다 (화면은 큐 칸마다 앞뒤 줄바꿈을 뗀다)
@@ -211,6 +214,7 @@
   - 판의 문체 한 줄 `revTakeStyle` · 다른 프로필로 쓴 판의 칩 `revStyleTag`(판 목록 · 지표 머리 · 나란히 읽기)
   - 이야기 줄기 `revLinesCard`
   - 구조 · 호흡 `revPaceCard`(칸을 열 때와 실험을 다시 받을 때 `revPaceLoad`, 화별 띠 그래프 `revPaceStrip`, 큐 긴장 계단 `revPaceSpark` · 순수 함수 `revPaceSteps`)
+  - 아크 · 부 `revArcsCard`(띠 `revArcBand`, 표 `revArcTable`, 고치기 `revArcEditor` · `revArcInput`, 새 AI 안 고르기)
   - 지표 모아 보기 `revMetricsAll`
   - AI 모델 `revAICard`: 단계마다 설정을 따름 · 프리셋 · 직접 고르기(백엔드 나눔 버튼 · 모델 칸, 추천 목록은 `settings.js` `modelDatalist`), 만든 결과의 모델 `revAiMade`(지금 모델과 다르면 '다름'), 저장 `revAiSave`
   - 역설계할 화 표 · 문체 프로필 · 되돌려 쓰기 칸 아래 '쓸 AI' 줄 `revAiLine`(글은 `revAiText`, `app.js` `writerLabel` 재사용)

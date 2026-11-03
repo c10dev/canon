@@ -5,7 +5,7 @@ import re
 from collections import Counter
 
 from .mock import responds
-from .schema import RevAddress, RevCue, RevEpisodeDraft, RevHandover, RevLine, RevLineSet, RevPerson, RevQuote, RevScene, RevTie, RevTime
+from .schema import Act, RevArc, RevArcSet, RevPart, RevAddress, RevCue, RevEpisodeDraft, RevHandover, RevLine, RevLineSet, RevPerson, RevQuote, RevScene, RevTie, RevTime
 
 FAKE_LINE = "원문에 없는 가짜 대사"  # 원문 확인(revlab.keep_lines)이 빼는지 보는 대사
 
@@ -68,3 +68,20 @@ def _lines(prompt: str, hint: dict) -> RevLineSet:
     return RevLineSet(main="등대에서 사라진 사람을 찾을 수 있을까", lines=[
         RevLine(kind="서브플롯", title="두 사람의 관계", focus=["서윤"], goal="믿어도 될까",
                 when="", episodes=[n for n in eps if n % 2 == 0] + [99], threads=[n for n in eps[1:] if n % 2 == 1], rejoin="")])
+
+
+@responds(RevArcSet)
+def _arcs(prompt: str, hint: dict) -> RevArcSet:
+    """두 아크: 앞 절반 · 뒤 절반. 첫 아크만 기승전결을 내고(뒤는 정리가 채운다), 뒤 아크는 시작을 한 화 늦게 내 빈틈을 만든다.
+    없는 인물 '유령'과 범위 밖 클라이맥스 999화도 넣는다 (정리가 빼는지 본다). 화가 여섯 넘으면 부 둘."""
+    eps = sorted(hint.get("episodes") or [])
+    cast = list(hint.get("cast") or [])
+    a, b, mid = eps[0], eps[-1], eps[len(eps) // 2 - 1]
+    q = max((mid - a + 1) // 4, 1)
+    acts = [Act(name=n, start_ep=min(a + i * q, mid), end_ep=mid if i == 3 else min(a + i * q + q - 1, mid), goal=f"{n} 끝", key_turn="")
+            for i, n in enumerate("기승전결")]
+    arcs = [RevArc(title="등대 실종", start_ep=a, end_ep=mid, goal="사라진 사람의 흔적을 찾는다", conflict="마을이 입을 다문다", payoff="일지를 찾는다",
+                   climax_ep=mid, acts=acts, cast=cast[:1] + ["유령"], why=f"{mid}화에서 일지를 찾는다"),
+            RevArc(title="", start_ep=min(mid + 2, b), end_ep=b, goal="진실을 밝힌다", conflict="", payoff="", climax_ep=999, acts=[], cast=[], why="")]
+    parts = [RevPart(title="1부", start_ep=a, end_ep=mid, goal="흔적", key_turn="일지"), RevPart(title="2부", start_ep=mid + 1, end_ep=b, goal="진실")] if len(eps) > 6 else []
+    return RevArcSet(parts=parts, arcs=arcs, reply="일지를 찾는 화에서 나눴어요.")

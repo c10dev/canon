@@ -24,7 +24,7 @@ from pathlib import Path
 from . import cancel, context, cue, metrics, pipeline, prompts, store, usage
 from .context import CHARS_PER_TOKEN
 from .schema import (Act, AddressForm, BoardHandover, BoardScene, BoardTime, Character, CueLine, CueSheet, CueSheetDraft, CueTake, Episode, EpisodePlot, Meta, Project,
-                     Relationship, RevAI, RevBlind, RevBound, RevCastSaved, RevEpisode, RevEpisodeDraft, RevLab, RevLineSet, RevPerson, RevSource, RevStyle, RevTake, Storyboard,
+                     Relationship, RevAI, RevBlind, RevBound, RevCastSaved, RevEpisode, RevEpisodeDraft, RevArc, RevArcPlan, RevArcSet, RevLab, RevLineSet, RevPart, RevPerson, RevSource, RevStyle, RevTake, Storyboard,
                      StoryboardDraft, StyleProfile, WorldSetting,
                      Storyline)
 
@@ -40,6 +40,8 @@ PREV_TAIL = 1500  # 역설계 요청에 넣는 직전 화 끝 글자 수
 QUOTE_MIN = 2  # 시작 인용이 이보다 짧으면(공백 빼고) 찾지 않는다. 짧은 인용도 앞 큐 뒤에서만 찾아 흔한 말에 덜 걸린다
 PARSE_OUT_TOKENS = 3000  # 화 하나 역설계 응답 토큰 추정 (큐 8개 · 장면 4개 안팎의 JSON)
 LINES_OUT_TOKENS = 800
+ARCS_MIN = 4  # 아크를 찾는 가장 적은 화 수
+ARCS_OUT_TOKENS = 3000  # 아크 역설계 응답 토큰 추정 (아크 열 개 안팎 · 기승전결)
 LINES_IN_CHARS = 400  # 이야기 줄기 요청에 화마다 들어가는 글자 수 추정
 JOBS = ".revlab"  # 작업 목록의 project 자리 (작품 폴더는 점으로 시작하지 않아 겹치지 않는다). 화면은 '역설계 실험'으로 보인다
 SIDES = {"original": "원문", "rewrite": "되돌려 쓴 글"}
@@ -216,6 +218,7 @@ def renumber(lab: RevLab, first: int) -> None:
     for x in lab.lines:
         x.branch_ep = x.branch_ep + delta if x.branch_ep else 0
         x.join_ep = x.join_ep + delta if x.join_ep else 0
+    _shift_arcs(lab, lambda n: n + delta if n else 0)
 
 
 def replace_text(lab: RevLab, title: str, text: str | None, first: int | None = None) -> None:
@@ -227,6 +230,7 @@ def replace_text(lab: RevLab, title: str, text: str | None, first: int | None = 
         lab.split, lab.preface = s["how"], s["preface"]
         lab.episodes = [RevEpisode(number=start + i, head=e["head"], text=e["text"]) for i, e in enumerate(s["episodes"])]
         lab.cast, lab.main, lab.lines, lab.lines_at = [], "", [], ""
+        clear_arcs(lab)
         lab.style_id = 0  # 문체 프로필 기록은 남기고 고른 것만 비운다 (다른 원문으로 만든 프로필이라서)
     elif first:
         renumber(lab, first)
@@ -282,6 +286,7 @@ def drop_episode(lab: RevLab, number: int) -> None:
         return 0 if not n else min(n - 1 if n > number else n, last)
     for s in lab.lines:
         s.branch_ep, s.join_ep = move(s.branch_ep), move(s.join_ep)
+    _shift_arcs(lab, lambda n: n - 1 if n > number else n, lambda n: n - 1 if n >= number else n, gone=number)
 
 
 def episode(lab: RevLab, number: int) -> RevEpisode:
@@ -467,6 +472,166 @@ def set_sheet(lab: RevLab, number: int, d: CueSheetDraft) -> RevEpisode:
         e.bounds = []
     e.sheet = CueSheet(**d.model_dump(), made_at=pipeline._now(), made_by="both" if e.sheet.made_by != "author" else "author")
     return e
+
+
+# ---------- 아크 · 부 역설계 ----------
+# 모든 화를 역설계한 뒤 작가가 부른다 (run_arcs, plan 단계). AI 안은 clean_arcs 가 화를 빈틈 · 겹침 없이 덮게 고친다.
+# 작가가 고친 아크(by author · both)가 있으면 새 AI 안은 덮지 않고 arc_offer 에 둔다.
+
+def can_arcs(lab: RevLab) -> None:
+    """아크를 찾을 수 있는지. 아니면 오류."""
+    if len(lab.episodes) < ARCS_MIN:
+        raise ValueError(f"화가 {ARCS_MIN}개 넘게 있어야 아크를 찾아요")
+    left = [e.number for e in lab.episodes if e.plot is None]
+    if left:
+        raise ValueError(f"모든 화를 역설계한 뒤에 아크를 찾아요 (남은 화: {', '.join(map(str, left[:5]))}{' 외' if len(left) > 5 else ''})")
+
+
+def _cover(items: list, first: int, last: int, what: str, notes: list[str]) -> list:
+    """start_ep · end_ep 를 가진 것들을 first~last 화를 빈틈 · 겹침 없이 차례로 덮게 고친다. 빈틈은 뒤 것을 앞으로 늘이고,
+    겹치면 뒤 것을 민다. 다 밀려 남은 화가 없는 것은 버린다. 고친 수 · 버린 수를 notes 에 적는다."""
+    xs = sorted([x for x in items if x.start_ep <= x.end_ep and x.end_ep >= first and x.start_ep <= last], key=lambda x: (x.start_ep, x.end_ep))
+    dropped, moved, out, nxt = len(items) - len(xs), 0, [], first
+    for x in xs:
+        s, e = nxt, min(x.end_ep, last)
+        if s > e:
+            dropped += 1
+            continue
+        moved += (s, e) != (x.start_ep, x.end_ep)
+        x.start_ep, x.end_ep = s, e
+        out.append(x)
+        nxt = e + 1
+    if out and out[-1].end_ep < last:
+        out[-1].end_ep, moved = last, moved + 1
+    if moved:
+        notes.append(f"{what} {moved}개의 범위를 화가 빈틈없이 이어지게 옮겼어요")
+    if dropped:
+        notes.append(f"범위가 맞지 않는 {what} {dropped}개를 뺐어요")
+    return out
+
+
+def _fit_acts(a: RevArc) -> None:
+    """아크 안 기승전결을 아크 범위에 맞춘다. 네 구간이 모두 있으면 AI 가 낸 길이를 비중으로, 아니면 기본 비율로 나눈다.
+    구간의 목표 · 전환점은 이름으로 이어 남긴다."""
+    by = {}
+    for x in sorted(a.acts, key=pipeline.act_order):
+        if x.name in pipeline.ACT_NAMES and x.name not in by:
+            by[x.name] = x
+    weights = [max(by[n].end_ep - by[n].start_ep + 1, 1) for n in pipeline.ACT_NAMES] if len(by) == 4 else None
+    ranges = pipeline.act_ranges(a.end_ep, a.start_ep, weights)
+    a.acts = [Act(name=n, start_ep=s, end_ep=e, goal=by[n].goal.strip() if n in by else "", key_turn=by[n].key_turn.strip() if n in by else "")
+              for n, (s, e) in zip(pipeline.ACT_NAMES, ranges)]
+
+
+def clean_arcs(lab: RevLab, d: RevArcSet | RevArcPlan, by: str = "ai", model: str = "") -> RevArcPlan:
+    """AI 안이나 작가가 고친 값을 실험의 화에 맞춘다: 아크는 첫 화~마지막 화를 빈틈없이, 클라이맥스 화는 범위 안(아니면 0),
+    인물은 실험 인물 목록에 있는 이름만, 부는 있으면 같은 규칙으로 덮고 아크 경계와 어긋나면 알린다. d 는 고치지 않는다."""
+    first, last = lab.episodes[0].number, lab.episodes[-1].number
+    notes: list[str] = []
+    names = {c.name for c in lab.cast}
+    arcs = [RevArc(**x.model_dump()) for x in d.arcs]
+    for a in arcs:
+        for k in ("title", "goal", "conflict", "payoff", "why"):
+            setattr(a, k, getattr(a, k).strip())
+    arcs = _cover(arcs, first, last, "아크", notes)
+    if not arcs:
+        raise ValueError("아크가 하나도 없어요")
+    for i, a in enumerate(arcs, 1):
+        a.title = a.title or f"아크 {i}"
+        a.climax_ep = a.climax_ep if a.start_ep <= a.climax_ep <= a.end_ep else 0
+        a.cast = list(dict.fromkeys(c.strip() for c in a.cast if c.strip() and (not names or c.strip() in names)))
+        _fit_acts(a)
+    parts = [RevPart(**{k: v.strip() if isinstance(v, str) else v for k, v in x.model_dump().items()}) for x in d.parts]
+    parts = _cover(parts, first, last, "부", notes) if parts else []
+    for i, x in enumerate(parts, 1):
+        x.title = x.title or f"{i}부"
+    edges = {a.end_ep for a in arcs}
+    off = [x.title for x in parts[:-1] if x.end_ep not in edges]
+    if off:
+        notes.append(f"{', '.join(off)}의 끝이 아크 경계와 맞지 않아요")
+    return RevArcPlan(parts=parts, arcs=arcs, reply=d.reply.strip(), notes=notes, by=by, model=model, at=pipeline._now())
+
+
+def put_arcs(lab: RevLab, plan: RevArcPlan) -> None:
+    """새 AI 안을 넣는다. 작가가 고친 아크가 있으면 덮지 않고 arc_offer 에 둔다."""
+    if lab.arcs and lab.arcs.by != "ai":
+        lab.arc_offer = plan
+    else:
+        lab.arcs, lab.arc_offer = plan, None
+
+
+def run_arcs(lab_id: int, llm) -> RevArcPlan:
+    """아크 · 부를 역설계해 넣는다 (put_arcs). 넣은 안을 낸다."""
+    from . import research
+
+    lab = load(lab_id)
+    can_arcs(lab)
+    cancel.check()
+    d = pipeline.reverse_arcs(llm, lab)
+    cancel.check()
+    model = research._model_name(llm)
+
+    def put(lab: RevLab) -> None:
+        can_arcs(lab)  # 기다리는 동안 화가 바뀌었을 수 있다
+        put_arcs(lab, clean_arcs(lab, d, "ai", model))
+    lab = with_lock(lab_id, put)
+    return lab.arc_offer or lab.arcs
+
+
+def set_arcs(lab: RevLab, parts: list[RevPart], arcs: list[RevArc]) -> None:
+    """작가가 고친 아크 · 부. AI 안을 고쳤으면 by both, 처음부터 작가가 만들었으면 author. 범위는 clean_arcs 가 맞춘다."""
+    if not lab.episodes:
+        raise ValueError("화가 없어요")
+    old = lab.arcs
+    by = "author" if old is None or old.by == "author" else "both"
+    plan = clean_arcs(lab, RevArcPlan(parts=parts, arcs=arcs, reply=old.reply if old else ""), by, old.model if old else "")
+    lab.arcs = plan
+
+
+def take_offer(lab: RevLab, take: bool) -> None:
+    """작가가 고친 아크 대신 새 AI 안을 쓸지(take) 버릴지."""
+    if lab.arc_offer is None:
+        raise ValueError("기다리는 AI 아크 안이 없어요")
+    if take:
+        lab.arcs = clean_arcs(lab, lab.arc_offer, "ai", lab.arc_offer.model)
+    lab.arc_offer = None
+
+
+def clear_arcs(lab: RevLab) -> None:
+    lab.arcs = lab.arc_offer = None
+
+
+def _shift_arcs(lab: RevLab, start, end=None, gone: int = 0) -> None:
+    """화 번호가 바뀔 때 아크 · 부 범위를 함께 옮기고(start · end: 옛 시작 · 끝 화 → 새 번호), 빈틈 없이 다시 덮는다.
+    gone: 뺀 화. 그 화만 있던 아크는 빠지고, 그 화가 클라이맥스였으면 비운다. 아크가 다 빠지면 지운다."""
+    end = end or start
+    for plan in (lab.arcs, lab.arc_offer):
+        if plan is None:
+            continue
+        for x in [*plan.arcs, *plan.parts]:
+            x.start_ep, x.end_ep = start(x.start_ep), end(x.end_ep)
+        for a in plan.arcs:
+            a.climax_ep = 0 if not a.climax_ep or a.climax_ep == gone else start(a.climax_ep)
+            for t in a.acts:
+                t.start_ep, t.end_ep = start(t.start_ep), end(t.end_ep)
+    for k in ("arcs", "arc_offer"):
+        plan = getattr(lab, k)
+        if plan is None:
+            continue
+        try:
+            setattr(lab, k, clean_arcs(lab, plan, plan.by, plan.model).model_copy(update={"at": plan.at, "notes": plan.notes}))
+        except ValueError:
+            setattr(lab, k, None)
+
+
+def arc_state(lab: RevLab) -> dict:
+    """아크가 낡았는지: 아크 밖 화(뒤에 이은 화), 아크를 찾은 뒤 다시 역설계한 화."""
+    plan = lab.arcs
+    if plan is None:
+        return {"outside": [], "reparsed": []}
+    end = plan.arcs[-1].end_ep if plan.arcs else 0
+    return {"outside": [e.number for e in lab.episodes if e.number > end],
+            "reparsed": [e.number for e in lab.episodes if e.made_at and e.made_at > plan.at]}
 
 
 # ---------- 되돌려 쓰기 ----------
@@ -1029,13 +1194,14 @@ def wants_lines(lab: RevLab, numbers: list[int]) -> bool:
 
 
 def estimate(lab: RevLab, kind: str, numbers: list[int] | None = None, model: str = "", use_style: bool = False) -> dict:
-    """AI 호출 수와 비용 추정. kind: parse(역설계, plan 단계) · write(되돌려 쓰기, write 단계) · style(문체 역설계, plan 단계).
+    """AI 호출 수와 비용 추정. kind: parse(역설계, plan 단계) · write(되돌려 쓰기, write 단계) · style(문체 역설계, plan 단계) ·
+    arcs(아크 · 부 역설계, plan 단계).
     캐시와 생각 토큰은 넣지 않는다."""
     from . import settings
 
-    if kind not in ("parse", "write", "style"):
+    if kind not in ("parse", "write", "style", "arcs"):
         raise ValueError(f"모르는 추정이에요: {kind}")
-    nums = choose(lab, numbers) if kind != "style" else []
+    nums = choose(lab, numbers) if kind in ("parse", "write") else []
     if kind == "write":
         for n in nums:
             room(episode(lab, n))
@@ -1047,6 +1213,11 @@ def estimate(lab: RevLab, kind: str, numbers: list[int] | None = None, model: st
         tin = (len(prompts.SYSTEM_PLANNER) + len(prompts.style_prompt(style_sample(lab), passages=False))) / CHARS_PER_TOKEN
         rows.append({"label": "문체 프로필", "calls": 1, "input_tokens": round(tin), "output_tokens": STYLE_OUT_TOKENS,
                      "usd": round(usage.cost(price, tin, STYLE_OUT_TOKENS, 0, False), 3) if price else None})
+    if kind == "arcs":
+        can_arcs(lab)
+        tin = (len(prompts.SYSTEM_REVERSE) + len(prompts.rev_arcs_prompt(lab))) / CHARS_PER_TOKEN
+        rows.append({"label": "아크 · 부", "calls": 1, "input_tokens": round(tin), "output_tokens": ARCS_OUT_TOKENS,
+                     "usd": round(usage.cost(price, tin, ARCS_OUT_TOKENS, 0, False), 3) if price else None})
     for n in nums:
         if kind == "parse":
             tin = (len(prompts.SYSTEM_REVERSE) + len(prompts.rev_prompt(lab, n))) / CHARS_PER_TOKEN
@@ -1062,9 +1233,10 @@ def estimate(lab: RevLab, kind: str, numbers: list[int] | None = None, model: st
         rows.append({"label": "이야기 줄기", "calls": 1, "input_tokens": round(tin), "output_tokens": LINES_OUT_TOKENS,
                      "usd": round(usage.cost(price, tin, LINES_OUT_TOKENS, 0, False), 3) if price else None})
     total = sum(r["usd"] or 0 for r in rows)
-    note = ("입력은 실제 요청 글자 수를 글자당 토큰 추정값으로 나눠 셌어요. 출력은 화마다 "
+    note = ("입력은 실제 요청 글자 수를 글자당 토큰 추정값으로 나눠 셌어요. 출력은 " + ("화마다 " if nums else "")
             + {"parse": f"약 {PARSE_OUT_TOKENS:,}토큰으로 잡았어요.", "write": "원문 분량만큼 잡았어요.",
-               "style": f"약 {STYLE_OUT_TOKENS:,}토큰으로 잡았어요 (원문 앞 {STYLE_CHARS:,}자까지 넣어요)."}[kind]
+               "style": f"약 {STYLE_OUT_TOKENS:,}토큰으로 잡았어요 (원문 앞 {STYLE_CHARS:,}자까지 넣어요).",
+               "arcs": f"약 {ARCS_OUT_TOKENS:,}토큰으로 잡았어요."}[kind]
             + " 캐시와 생각 토큰은 넣지 않았어요.")
     return {"kind": kind, "provider": c["provider"], "model": model, "priced": price is not None, "calls": len(rows), "rows": rows,
             "usd": round(total, 3) if price else None, "note": note}
@@ -1253,6 +1425,8 @@ def view(lab: RevLab) -> dict:
             "style": lab.style.model_dump(exclude={"sample_passages"}) if lab.style else None,
             "style_model": cur.model if cur else "", "style_at": cur.at if cur else "", "style_list": style_items(lab),
             "ai": ai_view(lab), "ref_names": names,
+            "arcs": lab.arcs.model_dump() if lab.arcs else None, "arc_offer": lab.arc_offer.model_dump() if lab.arc_offer else None,
+            "arc_state": arc_state(lab), "arcs_min": ARCS_MIN,
             "items": [{**_ep_view(lab, e), "source_state": state.get(e.number, "")} for e in lab.episodes]}
 
 

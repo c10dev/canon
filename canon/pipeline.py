@@ -11,7 +11,7 @@ from . import dynamics, elements, illust, metrics, naming, prompts, renumber, se
 from .judge import Judge, Question
 from .llm import LLM, Interrupted, dump
 from . import anchor, board, cancel, charlog, context, features, findings, foreshadows, knows, metatail, stage, statwin, timeline, usage
-from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixOption, FixPatch, FixSet, RevEpisodeDraft, RevLineSet
+from .schema import CueSheet, CueSheetDraft, Finding, MetaCut, FindingRecheck, FixOption, FixPatch, FixSet, RevArcSet, RevEpisodeDraft, RevLineSet
 from .schema import ParagraphAnatomy, ReaderCheck, SceneCard, SceneVariant, SceneVariants, StudioCandidate, StudioDraft
 from .schema import (
     Act,
@@ -2829,6 +2829,13 @@ def reverse_lines(llm: LLM, lab) -> RevLineSet:
     """역설계한 화들의 이야기 줄기 (plan 단계). 화가 둘 넘을 때만 부른다."""
     return llm.json(prompts.SYSTEM_REVERSE, prompts.rev_lines_prompt(lab), RevLineSet,
                     hint={"episodes": [e.number for e in lab.episodes if e.plot]})
+
+def reverse_arcs(llm: LLM, lab) -> RevArcSet:
+    """역설계한 화들을 아크 · 부로 나눈다 (plan 단계). 정리는 revlab.clean_arcs 가 한다."""
+    eps = [e.number for e in lab.episodes if e.plot]
+    return llm.json(prompts.SYSTEM_REVERSE, prompts.rev_arcs_prompt(lab), RevArcSet,
+                    hint={"episodes": eps, "cast": [c.name for c in lab.cast]})
+
 
 def compare_drafts(llms: dict[str, LLM], p: Project, n: int) -> dict[str, str]:
     """같은 화를 여러 백엔드로 쓴다. 프롬프트는 write_episode 와 같다. 저장은 호출자가 한다."""

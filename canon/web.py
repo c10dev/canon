@@ -31,7 +31,7 @@ from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 from . import abilities, anchor, atlas, findings, foreshadows, setupchat, stattrial, statwin, studio, timeline
-from .schema import SceneCard, StudioSession
+from .schema import RevArc, RevPart, SceneCard, StudioSession
 from .schema import AgentSession, ChatScope, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
@@ -4754,7 +4754,7 @@ class RevAIIn(BaseModel):
 
 
 class RevEstimateIn(BaseModel):
-    kind: Literal["parse", "write", "style"] = "parse"
+    kind: Literal["parse", "write", "style", "arcs"] = "parse"
     episodes: list[int] = []
     style: bool = False  # write: 문체 프로필을 넣고 쓸 때
 
@@ -4769,7 +4769,7 @@ class RevSplitIn(BaseModel):
 
 
 class RevJobIn(BaseModel):
-    kind: Literal["parse", "write", "style"]
+    kind: Literal["parse", "write", "style", "arcs"]
     episodes: list[int] = []  # parse: 비우면 모든 화, write: 화 하나
     style: bool = False  # write: 역설계한 문체 프로필을 넣고 쓴다
 
@@ -4944,6 +4944,33 @@ def rev_style_delete(lab_id: int, sid: int) -> dict:
     return _rev_edit(lab_id, lambda lab: revlab.drop_style(lab, sid))
 
 
+class RevArcsIn(BaseModel):
+    parts: list[RevPart] = []
+    arcs: list[RevArc]
+
+
+@app.put("/api/revlab/{lab_id}/arcs")
+def rev_set_arcs(lab_id: int, body: RevArcsIn) -> dict:
+    """작가가 고친 아크 · 부 (revlab.set_arcs). 범위는 화를 빈틈없이 덮게 맞추고 기승전결은 아크 범위에 다시 나눈다."""
+    return _rev_edit(lab_id, lambda lab: revlab.set_arcs(lab, body.parts, body.arcs))
+
+
+class RevArcOfferIn(BaseModel):
+    take: bool
+
+
+@app.post("/api/revlab/{lab_id}/arcs/offer")
+def rev_arc_offer(lab_id: int, body: RevArcOfferIn) -> dict:
+    """작가가 고친 아크가 있을 때 받은 새 AI 안을 쓰거나(take) 버린다 (revlab.take_offer)."""
+    return _rev_edit(lab_id, lambda lab: revlab.take_offer(lab, body.take))
+
+
+@app.delete("/api/revlab/{lab_id}/arcs")
+def rev_clear_arcs(lab_id: int) -> dict:
+    """아크 · 부와 기다리는 AI 안을 지운다 (revlab.clear_arcs)."""
+    return _rev_edit(lab_id, revlab.clear_arcs)
+
+
 @app.delete("/api/revlab/{lab_id}")
 def rev_delete(lab_id: int) -> dict:
     _rev(lab_id)
@@ -4978,7 +5005,7 @@ def rev_delete_take(lab_id: int, n: int, no: int) -> dict:
 
 @app.post("/api/revlab/{lab_id}/jobs")
 def rev_job(lab_id: int, body: RevJobIn) -> dict:
-    """역설계(parse) · 되돌려 쓰기(write) · 문체 역설계(style) 작업을 시작한다. 작품을 읽지 않는다. 같은 실험의 같은 작업은 하나만 돈다.
+    """역설계(parse) · 되돌려 쓰기(write) · 문체 역설계(style) · 아크 역설계(arcs) 작업을 시작한다. 작품을 읽지 않는다. 같은 실험의 같은 작업은 하나만 돈다.
     다른 작업끼리는 함께 돌 수 있다. 역설계가 도는 중에도 저장을 마친 화는 되돌려 쓰고, 맡은 화가 겹치면 409 로 막는다."""
     lab = _rev(lab_id)
     kind, name = f"rev_{body.kind}", lab.title or f"실험 {lab_id}"
@@ -5009,6 +5036,15 @@ def rev_job(lab_id: int, body: RevJobIn) -> dict:
         def fn(job: jobs.Job):
             t = revlab.run_write(lab_id, llm, k, use_style).takes[-1]
             return {"episode": k, "take": t.no, "chars": len(t.text), "style": use_style}
+    elif body.kind == "arcs":
+        revlab.can_arcs(lab)
+        if _rev_parsing(lab_id):
+            raise HTTPException(409, "역설계가 끝난 뒤에 아크를 찾을 수 있어요")
+        total, label = 1, f"{name} 아크 역설계"
+
+        def fn(job: jobs.Job):
+            plan = revlab.run_arcs(lab_id, llm)
+            return {"arcs": len(plan.arcs), "parts": len(plan.parts), "offer": revlab.load(lab_id).arc_offer is not None}
     else:
         revlab.style_sample(lab)
         revlab.check_style_room(lab)
