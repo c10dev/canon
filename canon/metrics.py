@@ -189,6 +189,30 @@ def rates_per_1k(text: str, banned: list[str] | None = None) -> dict[str, float]
     return out
 
 
+# 묘사 밀도: 비유 표지와 시각 밖 감각어. 서술이 평평해졌는지 보는 거친 지표다 ('평소처럼' 같은 비유 아닌 '처럼'도 센다).
+# measure 에는 아직 넣지 않는다. 사람 웹소설로 기준을 잰 뒤 경고로 올린다 (서술 단조로움 개선, 2026-11-03).
+IMAGERY: dict[str, re.Pattern[str]] = {
+    "figurative": re.compile(r"처럼|마치|듯이|마냥"),
+    "sound": re.compile(r"소리|울렸|울리|귓가|삐걱|덜컹|바스락|철컥|딸깍|찰칵|웅웅|윙윙|쾅|쿵"),
+    "smell": re.compile(r"냄새|내음|향기|향이|향을|비린내|탄내|악취|매캐|퀴퀴|코를 찌르"),
+    "temperature": re.compile(r"차갑|차가[운웠워]|뜨겁|뜨거[운웠워]|따뜻|따듯|서늘|싸늘|미지근|후끈|열기|냉기|한기"),
+    "touch": re.compile(r"끈적|까끌|축축|눅눅|미끄|매끄|거칠|보드라|말랑|따끔|저릿|얼얼|질척"),
+    "taste": re.compile(r"맛|짭짤|달콤|씁쓸|비릿|시큼|텁텁|혀끝"),
+}
+SENSES = ("sound", "smell", "temperature", "touch", "taste")
+
+
+def imagery(text: str) -> dict[str, float]:
+    """IMAGERY 항목별 1,000자당 횟수와 감각어 합(senses). 대사 안도 센다."""
+    text = text.strip()
+    if not text:
+        return {}
+    k = 1000 / len(text)
+    out = {name: round(len(rx.findall(text)) * k, 2) for name, rx in IMAGERY.items()}
+    out["senses"] = round(sum(out[s] for s in SENSES), 2)
+    return out
+
+
 def _over_cap(text: str) -> list[str]:
     counts = pattern_counts(text)
     return [f"{name} {counts[name]}회 (상한 {cap})" for name, _, cap in AI_PATTERNS if counts[name] > cap]
