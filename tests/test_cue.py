@@ -94,6 +94,22 @@ def test_prompts_share_prefix_and_extend(demo):
     assert "정지 장면" in prompts.cue_head(p, 1, s) and "줄표(——)" in prompts.cue_head(p, 1, s) and "약 4000자를 넘지 않게" in prompts.cue_score_prompt(p, 1, s)
 
 
+def test_sheet_prompt_dialogue_share_from_style_baseline(demo):
+    from canon.metrics import StyleMetrics
+
+    p = store.load(demo)
+    p.style_baseline = None
+    assert prompts.cue_dialogue_share(p) is None
+    text = prompts.cue_sheet_prompt(p, 1)
+    assert "대사로 끌고 가는 큐(dialogue)를 아끼지 않습니다" in text and "모든 화가 5까지 오르지 않습니다" in text
+    assert "모든 큐에 대사를 넣지 않습니다" not in text and "느린 큐와 핵심 큐에 더 줍니다" not in text
+    p.style_baseline = StyleMetrics(chars=10000, dialogue_ratio=0.24)
+    assert prompts.cue_dialogue_share(p) == 0.6  # 0.24 ÷ 대사 큐의 대사 몫 0.4
+    assert "대사 비율은 24% 입니다. dialogue 큐의 length 합이 화 글자의 약 60% 가" in prompts.cue_sheet_prompt(p, 1)
+    p.style_baseline = StyleMetrics(chars=10000, dialogue_ratio=0.5)
+    assert prompts.cue_dialogue_share(p) == 0.8  # 위 끝
+
+
 def test_scoring_without_llm():
     s = _sheet()
     assert cue.line_hits(s, "그가 말했다. “문을 연 건, 내가 아니야!”") == (1, 1, [])

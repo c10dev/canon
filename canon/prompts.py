@@ -2822,11 +2822,26 @@ CUE_CADENCES: dict[str, tuple[str, str]] = {
 }
 
 
+def cue_dialogue_share(p: Project) -> float | None:
+    """대사 큐가 차지할 화 글자 몫: 작품 문체 기준의 대사 비율 ÷ 대사 큐의 대사 몫(CUE_DIALOGUE_SHARE). 기준이 없으면 None.
+    레퍼런스 원고 100화 역설계(2026-11-03): 대사 비율 24% 에 대사 큐 몫 56% 로, 이 셈(60%)과 가깝다."""
+    base = p.style_baseline
+    if base is None or base.chars <= 0:
+        return None
+    return min(round(base.dialogue_ratio / CUE_DIALOGUE_SHARE, 2), 0.8)
+
+
 def cue_sheet_prompt(p: Project, n: int) -> str:
-    """n화 큐 시트 만들기. 앞부분은 쓰기 프롬프트와 같은 컨텍스트(스토리보드가 있으면 그 장면 순서 포함), 요구사항은 맨 끝."""
+    """n화 큐 시트 만들기. 앞부분은 쓰기 프롬프트와 같은 컨텍스트(스토리보드가 있으면 그 장면 순서 포함), 요구사항은 맨 끝.
+    긴장 · 템포 · 편성 · 분량 · 종지 지시는 레퍼런스 원고 역설계와 견준 실측(2026-11-03, DESIGN.md '화별 큐 시트')에 맞췄다.
+    예전 지시는 모든 화를 긴장 5 · 반종지로 끝내고, 느린 큐 57% · 대사 큐 21% · 큐 길이를 거의 고르게 나눴다."""
     size = p.meta.words_per_episode
     fn = "\n".join(f"  {k} {v[0]}: {v[1]}" for k, v in CUE_FUNCTIONS.items())
     cad = "\n".join(f"  {k} {v[0]}: {v[1]}" for k, v in CUE_CADENCES.items())
+    share = cue_dialogue_share(p)
+    dialogue = (f"  이 작품 문체 기준의 대사 비율은 {p.style_baseline.dialogue_ratio:.0%} 입니다. dialogue 큐의 length 합이 화 글자의 약 {share:.0%} 가 되게 합니다."
+                if share is not None else
+                "  인물이 둘 넘게 함께 있는 장면은 주고받는 대사로 끌고 가는 큐(dialogue)를 아끼지 않습니다.")
     return build_episode_context(p, n) + f"""
 
 위 자료로 {n}화의 큐 시트(악보)를 JSON 으로 만듭니다. 본문을 쓰지 않습니다.
@@ -2834,17 +2849,23 @@ def cue_sheet_prompt(p: Project, n: int) -> str:
 
 - function: 화성 기능.
 {fn}
-  T → S → D 로 긴장을 올리고, 큐가 풀리면 다시 T 나 S 로 내려옵니다. 같은 기능이 셋 넘게 이어지지 않게 합니다.
-- tension: 긴장도 1~5. 화 전체에 오르내림이 있어야 하고, 가장 높은 큐는 화 뒤쪽 3분의 1 안에 둡니다.
-- tempo: slow · mid · fast. voice: dialogue · action · description · interior 중 그 큐를 주로 끌고 갈 것.
+  이번 화 플롯이 실제로 오르내리는 대로 고릅니다. 같은 기능이 셋 넘게 이어지지 않게 합니다.
+- tension: 긴장도 1~5. 화 안에 오르내림이 있어야 합니다. 모든 화가 5까지 오르지 않습니다.
+  5는 위기 · 폭로 · 결정이 있는 화에만 씁니다. 관계 · 일상 · 준비가 중심인 화는 정점을 3~4에 둡니다.
+- tempo: slow · mid · fast. 대부분의 큐는 mid 입니다. slow 는 한 순간을 늘여야 하는 큐(고백, 충격, 결정의 순간)에만 쓰고, 화 글자의 4분의 1을 넘지 않게 합니다.
+- voice: dialogue · action · description · interior 중 그 큐를 주로 끌고 갈 것. description 은 새 자리에 들어서는 큐처럼 꼭 필요한 곳에만 씁니다.
+{dialogue}
 - beat: 그 큐에서 바뀌는 일 한 줄. 이번 화 플롯 events 를 빠짐없이 큐들에 나눠 담습니다. 스토리보드가 있으면 장면 순서를 따르고 scene 에 장면 번호를 적습니다.
-- lines: 그 큐에 반드시 들어갈 핵심 대사 0~3개 (speaker 는 인물 id). 정보가 밝혀지는 말, 관계가 바뀌는 말, 엔딩 훅의 말처럼 바꾸면 안 되는 대사만 적습니다.
-  인물의 speech_style 을 그대로 따릅니다. 모든 큐에 대사를 넣지 않습니다.
+- lines: 그 큐에 반드시 들어갈 핵심 대사 0~3개 (speaker 는 인물 id). 정보가 밝혀지는 말, 관계가 바뀌는 말, 엔딩 훅의 말처럼 바꾸면 안 되는 대사를 적습니다.
+  인물의 speech_style 을 그대로 따릅니다. dialogue 큐에는 1~3개를 적습니다.
 - exit: 그 큐가 끝날 때의 상태 (자리, 손에 든 것, 감정, 결정). 다음 큐가 여기서 이어받습니다.
-- length: 목표 글자 수. 합이 약 {size}자가 되게 합니다. 느린 큐와 핵심 큐에 더 줍니다.
+- length: 목표 글자 수. 합이 약 {size}자가 되게 합니다. 핵심 큐는 길게, 이어 주는 큐는 짧게 줍니다.
+  큐 길이를 고르게 나누지 않습니다. 가장 긴 큐는 가장 짧은 큐의 두 배를 넘습니다.
 - key: 이번 화 정서의 기준선 한 줄.
 - cadence: 화 끝 종지. 플롯의 ending_hook 에 맞춥니다.
 {cad}
+  ending_hook 이 이 화 안에서 매듭지어지는 일(합의, 화해, 하루의 마무리, 다음을 기다리게 하는 한마디)이면 full 로 하고, 마지막 큐는 긴장을 내려 T 나 S 로 닫습니다.
+  위기 한가운데서 끊는 훅만 half 입니다.
 - 묘사, 본문 문장, 화 번호를 적지 않습니다.""" + priority_line(p, n, p.episode(n).storyboard is not None)
 
 
