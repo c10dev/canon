@@ -26,7 +26,7 @@
 - 자동 집필 멈춤 이유(`stop_reasons`, `STOP_KINDS`)
 - 화면 값(`view`)
 - LLM 호출 없음
-- AI 호출은 `pipeline.make_storyboard`
+- AI 호출은 `pipeline.make_storyboard`, 작가 요청대로 고치기는 `pipeline.revise_storyboard`
 - 화면은 `static/board.js`
 
 ### `canon/cancel.py`
@@ -197,7 +197,7 @@
   - 칸 목록 `prompts.FIELD_IDEAS`
   - 인물 칸 키 `prompts.idea_key`
   - 빈칸 제안은 이미 있는 인물도 빈 칸만 `fill_character`
-- 스토리보드: `make_storyboard` · `set_storyboard` · 낡음 지문 `board_basis`, `write_episode(use_board=)`
+- 스토리보드: `make_storyboard` · `set_storyboard` · 낡음 지문 `board_basis`, `write_episode(use_board=)`, AI 고치기 `revise_storyboard` → `apply_storyboard_revision`(고치기 전 것은 `Episode.storyboard_prev`) · 적용 취소 `undo_storyboard`
 - 큐 시트: `make_cue_sheet`, 넣기는 `cue.set_episode`, `write_episode(use_cues=)`
 - 문체 분석 `analyze_style` 뒤 `count_markers` 가 표지 · 장치 단서를 거른다: 원문에 없는 것, 한글 2자 미만(`MARKER_MIN_HANGUL`), 인물 이름(2자 이상)이 든 것
 - `count_markers` 는 원문 표본에 없는(공백 빼고 견줌) 장치 예시를 비운다
@@ -222,7 +222,7 @@
 - 인물 고르기는 `static_characters` · `side_characters` · `roster_line` · `cast_block` 이 `Character.context` 를 따른다
 - 장편은 플롯 인물 목록 밖이라도 이름이 나온 조연을 넣는다(쓰기 `named_block`, 검수 `check_cast`, 상태 변경안)
 - 오랜만에 나오는 인물은 `return_block`
-- 스토리보드 만들기 `storyboard_prompt`(Canon 이 센 값 `canon_values_block`)
+- 스토리보드 만들기 `storyboard_prompt`(Canon 이 센 값 `canon_values_block`), 고치기 `storyboard_revise_prompt`(만들기 프롬프트 뒤에 지금 스토리보드와 요청)
 - 쓰기에 넣는 `board_block`(직전 화 본문 뒤, 이번 화 플롯 바로 앞, 시간 · 이동 블록을 대신함)
 - 직전 화 블록 `prev_block`(스토리보드를 넣는 화와 스토리보드 만들기만 원문 전체, `build_episode_context(full_prev=)`)
 - 쇠맛을 줄이는 쓰기 규칙: 블록 차례 한 줄 `priority_line`

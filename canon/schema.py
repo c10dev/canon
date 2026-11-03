@@ -1504,6 +1504,7 @@ class Episode(BaseModel):
     to_fix: list[ToFix] = Field(default_factory=list, description="작가가 본문에 단 '고칠 곳' 표시. 프롬프트에 넣지 않는다")
     stage: list[StageScene] = Field(default_factory=list, description="플롯 사건마다 짠 장면 연출 (canon/stage.py). 작가 자료라 스냅샷에 넣지 않는다")
     storyboard: Optional["Storyboard"] = Field(None, description="쓰기 재료: 장면 순서와 이번 화 확정 값 (pipeline.make_storyboard). 상태 승인 대상이 아니다")
+    storyboard_prev: Optional["Storyboard"] = Field(None, description="AI 가 요청대로 고치기 전 스토리보드 (적용 취소용, pipeline.undo_storyboard). 다른 방법으로 바꾸면 비운다")
     cue_sheet: Optional["CueSheet"] = Field(None, description="쓰기 재료: 큐 시트 (pipeline.make_cue_sheet, cue.set_episode). 쓰기 프롬프트 끝에 넣는다 (prompts.cue_write_block). 상태 승인 대상이 아니다")
     style_basis: str = Field("", description="AI 가 지금 본문을 쓸 때의 문체 지문 (anchor.style_basis). 비면 모름 (손으로 쓴 본문, 다시 생성 판을 고른 본문)")
 
@@ -1665,6 +1666,7 @@ class Storyboard(StoryboardDraft):
     basis: SkipJsonSchema[str] = Field("", description="만들 때 입력의 지문 (pipeline.board_basis). 지금 값과 다르면 낡은 것")
     checks: SkipJsonSchema[list[str]] = Field(default_factory=list, description="Canon 이 센 경고 (값 범위). AI 가 쓰지 않는다")
     skipped: SkipJsonSchema[bool] = Field(False, description="지금 본문을 이 스토리보드 없이 썼다. 검수가 깨지 않을 것(protect)을 대조하지 않는다")
+    ask: SkipJsonSchema[str] = Field("", description="이 스토리보드를 AI 가 고칠 때 받은 작가 요청 (pipeline.revise_storyboard). 작가가 저장하거나 새로 만들면 비운다")
 
 
 class ForeshadowClue(BaseModel):

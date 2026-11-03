@@ -6185,6 +6185,55 @@
     }
    }
   },
+  "/api/projects/{name}/episodes/{n}/storyboard/undo": {
+   "post": {
+    "summary": "Undo Storyboard",
+    "description": "AI 가 요청대로 고치기 전 스토리보드로 되돌린다 (Episode.storyboard_prev).",
+    "operationId": "undo_storyboard",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Name"
+      }
+     },
+     {
+      "name": "n",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "N"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Project-Output"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/projects/{name}/episodes/{n}/cue-sheet": {
    "get": {
     "summary": "Get Cue Sheet",
@@ -21930,6 +21979,10 @@
       "$ref": "#/components/schemas/Storyboard",
       "description": "쓰기 재료: 장면 순서와 이번 화 확정 값 (pipeline.make_storyboard). 상태 승인 대상이 아니다"
      },
+     "storyboard_prev": {
+      "$ref": "#/components/schemas/Storyboard",
+      "description": "AI 가 요청대로 고치기 전 스토리보드 (적용 취소용, pipeline.undo_storyboard). 다른 방법으로 바꾸면 비운다"
+     },
      "cue_sheet": {
       "$ref": "#/components/schemas/CueSheet",
       "description": "쓰기 재료: 큐 시트 (pipeline.make_cue_sheet, cue.set_episode). 쓰기 프롬프트 끝에 넣는다 (prompts.cue_write_block). 상태 승인 대상이 아니다"
@@ -22106,6 +22159,10 @@
      "storyboard": {
       "$ref": "#/components/schemas/Storyboard",
       "description": "쓰기 재료: 장면 순서와 이번 화 확정 값 (pipeline.make_storyboard). 상태 승인 대상이 아니다"
+     },
+     "storyboard_prev": {
+      "$ref": "#/components/schemas/Storyboard",
+      "description": "AI 가 요청대로 고치기 전 스토리보드 (적용 취소용, pipeline.undo_storyboard). 다른 방법으로 바꾸면 비운다"
      },
      "cue_sheet": {
       "$ref": "#/components/schemas/CueSheet",
@@ -31935,6 +31992,12 @@
       "title": "Skipped",
       "description": "지금 본문을 이 스토리보드 없이 썼다. 검수가 깨지 않을 것(protect)을 대조하지 않는다",
       "default": false
+     },
+     "ask": {
+      "type": "string",
+      "title": "Ask",
+      "description": "이 스토리보드를 AI 가 고칠 때 받은 작가 요청 (pipeline.revise_storyboard). 작가가 저장하거나 새로 만들면 비운다",
+      "default": ""
      }
     },
     "type": "object",

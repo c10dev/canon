@@ -368,3 +368,72 @@ def test_priority_line_reaches_cue_and_rework_prompts_and_skipped_board(demo):
     assert "# 스토리보드가 정한 다음 화 전제" not in prompts.check_prompt(p, 2)
     pipeline.set_storyboard(p, 2, p.episode(2).storyboard, by="author")
     assert p.episode(2).storyboard.skipped  # 본문이 그대로면 고쳐도 표시는 남는다
+
+
+def test_revise_keeps_prefix_and_undo(demo):
+    """AI 고치기: 만들기 프롬프트 뒤에 지금 스토리보드와 요청을 붙이고, 고치기 전 것은 적용 취소로 되돌린다."""
+    p = store.load(demo)
+    _written(p, 1)
+    with pytest.raises(ValueError, match="스토리보드가 없어요"):
+        pipeline.revise_storyboard(MockLLM(), p, 2, "2장면을 밤으로")
+    pipeline.set_storyboard(p, 2, pipeline.make_storyboard(MockLLM(), p, 2), by="ai")
+    first = p.episode(2).storyboard.model_copy(deep=True)
+    with pytest.raises(ValueError, match="고칠 내용"):
+        pipeline.revise_storyboard(MockLLM(), p, 2, "  ")
+    text = prompts.storyboard_revise_prompt(p, 2, first, "1장면을 밤으로")
+    assert text.startswith(prompts.storyboard_prompt(p, 2))  # 앞부분이 같아야 캐시가 맞는다
+    assert text.index("# 지금 스토리보드") < text.index("# 작가 요청") and text.rstrip().endswith("warnings 에 적습니다.")
+    assert '"made_by"' not in text and '"basis"' not in text  # 저장 칸은 프롬프트에 넣지 않는다
+
+    b = pipeline.revise_storyboard(MockLLM(), p, 2, "1장면을 밤으로")
+    assert b.made_by == "both" and b.ask == "1장면을 밤으로" and b.scenes[0].time == "밤"
+    assert b.scenes[1:] == first.scenes[1:] and "요청: 1장면을 밤으로" in b.protect
+    pipeline.apply_storyboard_revision(p, 2, b)
+    pipeline.apply_storyboard_revision(p, 2, pipeline.revise_storyboard(MockLLM(), p, 2, "한 번 더"))
+    e = p.episode(2)
+    assert e.storyboard.ask == "한 번 더" and e.storyboard_prev.scenes == first.scenes  # 연달아 고쳐도 처음 것을 남긴다
+    pipeline.undo_storyboard(p, 2)
+    assert e.storyboard.scenes == first.scenes and e.storyboard.made_by == "ai" and e.storyboard_prev is None
+    with pytest.raises(ValueError, match="되돌릴"):
+        pipeline.undo_storyboard(p, 2)
+    # 작가가 저장하면 적용 취소는 없어진다
+    pipeline.apply_storyboard_revision(p, 2, pipeline.revise_storyboard(MockLLM(), p, 2, "다시"))
+    pipeline.set_storyboard(p, 2, e.storyboard.model_copy(deep=True))
+    assert e.storyboard_prev is None
+
+
+def test_web_board_revise_job_and_undo(demo):
+    from canon import web
+
+    c = TestClient(web.app)
+    p = store.load(demo)
+    _written(p, 1)
+    store.save(demo, p)
+    r = c.post(f"/api/projects/{demo}/jobs", json={"kind": "board", "ep": 2, "note": "1장면을 밤으로"})
+    assert r.status_code == 400 and "먼저 만드세요" in r.text
+    assert _wait(c, c.post(f"/api/projects/{demo}/jobs", json={"kind": "board", "ep": 2}).json()["id"])["status"] == "done"
+    r = c.post(f"/api/projects/{demo}/jobs", json={"kind": "board", "ep": 2, "note": "1장면을 밤으로"})
+    assert r.status_code == 200 and r.json()["label"] == "2화 스토리보드 고친 안"
+    j = _wait(c, r.json()["id"])
+    assert j["status"] == "done" and j["result"] == {"revised": True}
+    e = store.load(demo).episode(2)
+    assert e.storyboard.scenes[0].time == "밤" and e.storyboard_prev is not None
+    out = c.post(f"/api/projects/{demo}/episodes/2/storyboard/undo")
+    assert out.status_code == 200
+    e = store.load(demo).episode(2)
+    assert e.storyboard.scenes[0].time != "밤" and e.storyboard_prev is None
+    assert c.post(f"/api/projects/{demo}/episodes/2/storyboard/undo").status_code == 400
+
+
+@needs_node
+def test_board_js_changes_and_done_message():
+    got = run_js(FILES, """(() => {
+      const sc = (t) => ({ place: '부두', spot: '', time: t, present: [], events: [1], goal: '', turn: '', end_state: '' });
+      const base = { scenes: [sc('새벽'), sc('아침')], time: { after: 0 }, stats: [], stat_basis: [], moves: [], attire: [], handover: [], protect: [], warnings: [] };
+      const cur = JSON.parse(JSON.stringify(base));
+      cur.scenes[1].time = '밤'; cur.scenes.push(sc('낮')); cur.protect = ['새 줄'];
+      return [boardChanges(base, cur), boardChanges(base, base), boardChanges(null, base),
+        JOB_DONE_MSG.board({ ep: 2, result: { revised: true } }), JOB_DONE_MSG.board({ ep: 2, result: null })];
+    })()""", {})
+    assert got[0] == ["장면 2", "장면 3 더함", "깨지 않을 것"] and got[1] == [] and got[2] == []
+    assert got[3].startswith("2화 스토리보드를 요청대로 고쳤어요") and got[4].startswith("2화 스토리보드를 만들었어요")
