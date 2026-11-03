@@ -37,6 +37,16 @@ class StylePromptTest(unittest.TestCase):
         self.assertNotIn("쉼표가 둘 이상", prompts.writer_system(p))
         self.assertNotIn("쉼표가 둘 이상", prompts.reviser_system(p))
 
+    def test_vivid_rules(self):
+        # 금지만 하던 비유 규칙을 대신 할 일로 바꾸고, 감각 · 늘려 쓰기 · 튀는 생각 규칙은 문체 원문이 있어도 넣는다
+        for rules in (prompts.prose_rules(False), prompts.prose_rules(True)):
+            self.assertNotIn("비유는 아끼고", rules)
+            for rule in ("비유는 장면마다", "소리, 냄새, 온도", "시간을 늘려", "엉뚱한 연상"):
+                self.assertIn(rule, rules)
+        self.assertIn(prompts.FOCUS_LINE, prompts.episode_prompt(_project(), 1))
+        self.assertIn("vivid", prompts.REWRITE_PRESETS)
+        self.assertIn("vivid", prompts.PASSAGE_PRESETS)
+
     def test_marker_block(self):
         self.assertEqual(prompts.marker_block(_project()), "")
         p = _project(StyleProfile(markers=[StyleMarker(text="것이었다", note="문단 끝", per_1k=0.8),

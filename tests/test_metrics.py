@@ -130,6 +130,17 @@ class StyleReferenceTest(unittest.TestCase):
         self.assertTrue(any(w.startswith("쇠맛 패턴") for w in metrics.drift(metrics.measure(SAMPLE), cur)))
         self.assertFalse(any(w.startswith("쇠맛 패턴") for w in metrics.drift(cur, cur)))  # 원문이 원래 쓰면 봐준다
 
+    def test_imagery(self):
+        self.assertEqual(metrics.imagery("  "), {})
+        flat = metrics.imagery("민수가 문을 열었다. 안에는 아무도 없었다. 민수는 방으로 들어갔다.")
+        self.assertEqual(flat["senses"], 0)
+        self.assertEqual(flat["figurative"], 0)
+        text = "녹슨 경첩이 삐걱 울렸다. 기름 냄새가 코를 찔렀다. 손잡이는 얼음처럼 차가웠다. 혀끝에 쇠맛이 돌았다."
+        m = metrics.imagery(text)
+        for name in ("sound", "smell", "temperature", "taste", "figurative"):
+            self.assertGreater(m[name], 0, name)
+        self.assertEqual(m["senses"], round(sum(m[s] for s in metrics.SENSES), 2))
+
 
 if __name__ == "__main__":
     unittest.main()
