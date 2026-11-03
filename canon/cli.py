@@ -992,15 +992,17 @@ def cmd_check(a: argparse.Namespace) -> None:
     else:
         if a.widen and not p.serial:
             print("넓혀 찾기는 장편 검수에만 있어요. 보통 검수만 해요")
-        _check(a.name, p, a.n, a.widen)
+        _check(a.name, p, a.n, a.widen, a.motion)
     _print_issues(p, a.n)
 
 
-def _check(name: str, p: Project, n: int, widen: bool | None = None) -> None:
+def _check(name: str, p: Project, n: int, widen: bool | None = None, motion: bool | None = None) -> None:
     on = pipeline.widen_on(p, widen)
-    print(f"{n}화 검수 중{' (넓혀 찾기 포함)' if on else ''}...")
+    moving = p.settings.check_motion if motion is None else motion
+    extra = " · ".join(x for x, y in (("넓혀 찾기", on), ("동선 따로 보기", moving)) if y)
+    print(f"{n}화 검수 중{f' ({extra} 포함)' if extra else ''}...")
     atlas.fill_old_spots(p, store.project_dir(name) / "map")  # 건물 한 줄이 빈 옛 핀. 아래 저장에 함께 들어간다
-    pipeline.apply_check(p, pipeline.check_episode(get_llm("check"), p, n, widen), "api", on)
+    pipeline.apply_check(p, pipeline.check_episode(get_llm("check"), p, n, widen, motion), "api", on)
     store.save(name, p)
 
 
@@ -2514,6 +2516,8 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--from-json", help="채팅 앱에서 받은 검수 결과 JSON 파일")
     sp.add_argument("--widen", action=argparse.BooleanOptionalAction, default=None,
                     help="장편: 검수 뒤 근거를 못 넣은 진술만 옛 화를 더 찾아 다시 물음 (검수 호출 2번 더). 비우면 작품 설정을 따름")
+    sp.add_argument("--motion", action=argparse.BooleanOptionalAction, default=None,
+                    help="동선만 따로 한 번 더 봄 (이번 화 본문만 넣는 검수 호출 1번 더, 본 검수와 동시에). 비우면 작품 설정을 따름")
     sp.add_argument("--keep", metavar="ID", help="이 지적을 그대로 둠 (다시 검수해도 열리지 않음)")
     sp.add_argument("--wrong", metavar="ID", help="이 지적을 잘못 짚음으로")
     sp.add_argument("--fixed", metavar="ID", help="이 지적을 고침으로")

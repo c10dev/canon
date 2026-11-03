@@ -343,6 +343,7 @@ def _hit(found: str, planted: str) -> bool:
 TRIAL_MODES = {**prompts.CHECK_MODES,
                "widen": "budget 검수 뒤 진술마다 옛 화를 더 찾아, 첫 검수에 없던 단락이 근거로 나온 진술만 다시 판정 (검수 넓히기)",
                "twostep": "진술 뽑기 → 판단기가 옛 화 전부와 견줘 거르기 → 의심만 검수 모델이 판정 (판단기 시험)",
+               "motion": "이번 화 인물 이름과 본문만 넣고 동선만 따로 찾음 (동선 따로 보기, 동선 외 갈래는 보지 않음)",
                "stage": "사건마다 본문에서 장면 연출(자리 · 자세 · 향함 · 손 · 접촉)을 뽑고 규칙 판정(stage.judge)으로 동선만 검수 (동선 외 갈래는 보지 않음)"}
 
 
@@ -354,7 +355,7 @@ def check_trial(p: Project, n: int, b: Backend, plants: int = 3, modes: list[str
     ep = p.episode(n)
     if not ep.text:
         raise ValueError(f"{n}화 본문이 없어요")
-    modes = modes or list(prompts.CHECK_MODES) + (["widen"] if p.serial else []) + (["twostep"] if judge else []) + (["stage"] if stage else [])
+    modes = modes or list(prompts.CHECK_MODES) + (["widen"] if p.serial else []) + ["motion"] + (["twostep"] if judge else []) + (["stage"] if stage else [])
     bad = [m for m in modes if m not in TRIAL_MODES]
     if bad:
         raise ValueError(f"알 수 없는 검수 방식: {', '.join(bad)} ({' | '.join(TRIAL_MODES)})")
@@ -385,6 +386,9 @@ def check_trial(p: Project, n: int, b: Backend, plants: int = 3, modes: list[str
             continue
         if mode == "stage":
             runs.append(_by_kind(_stage_run(llm, q, n, used), kinds))
+            continue
+        if mode == "motion":
+            runs.append(_by_kind(_motion_run(llm, q, n, used), kinds))
             continue
         prompt = prompts.check_prompt(q, n, "budget" if mode == "widen" else mode)
         row: dict[str, Any] = {"mode": mode, "chars": len(prompt), "tokens": context.est_tokens(prompts.SYSTEM_CHECKER + prompt)}
@@ -441,6 +445,22 @@ def check_totals(name: str) -> list[dict]:
             for k in dict.fromkeys(kinds):
                 sums.setdefault((m["mode"], k), [0, 0, 0])[2] += 1
     return [{"mode": mode, "kind": k, "found": f, "planted": n, "trials": t} for (mode, k), (f, n, t) in sums.items()]
+
+
+def _motion_run(llm: LLM, q: Project, n: int, used: list) -> dict:
+    """동선 따로 보기 한 번 (pipeline.motion_check). 실제 검수에서는 본 검수와 동시에 불러 지적을 합친다."""
+    prompt = prompts.motion_prompt(q, n)
+    row: dict[str, Any] = {"mode": "motion", "chars": len(prompt), "tokens": context.est_tokens(prompts.SYSTEM_MOTION + prompt)}
+    t1 = time.perf_counter()
+    try:
+        issues = pipeline.motion_check(llm, q, n, hint={"plants": [x.replacement for x in used]})
+        hits = [any(_hit(i.current_quote, x.replacement) for i in issues) for x in used]
+        extra = [i.model_dump() for i in issues if not any(_hit(i.current_quote, x.replacement) for x in used)]
+        row.update(ok=True, hits=hits, found=sum(hits), other=extra, usage=getattr(llm, "last_usage", None))
+    except Exception as e:
+        row.update(ok=False, error=f"{type(e).__name__}: {e}")
+    row["seconds"] = round(time.perf_counter() - t1, 2)
+    return row
 
 
 def _stage_run(llm: LLM, q: Project, n: int, used: list) -> dict:

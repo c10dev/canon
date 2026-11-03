@@ -285,6 +285,8 @@ def estimate(p: Project, target: int, batch: bool, policy: Policy, name: str | N
                 calls.append(("check", prompts.SYSTEM_CLAIMS + prompts.claims_prompt(sim, n), JSON_OUTPUT_RESERVE))
                 calls.append(("check", prompts.SYSTEM_CHECKER + prompts.widen_prompt(sim, n, [], []) + " " * (
                     prompts.WIDEN_MAX * prompts.TWOSTEP_EVIDENCE), JSON_OUTPUT_RESERVE))
+            if sim.settings.check_motion:  # 동선 따로 보기: 본 검수와 동시에 부르므로 시간은 늘지 않는다
+                calls.append(("check", prompts.SYSTEM_MOTION + prompts.motion_prompt(sim, n), JSON_OUTPUT_RESERVE))
             if sim.settings.stage_extract:  # 검수 때 함께 뽑기: 계획 장면이 있는 사건마다 본문 장면 뽑기 (본문이 새로 쓰이므로 모두 돈다)
                 planned = [i for i in range(len(e.plot.events)) if stage_mod.scenes_of(e, i)[0] is not None]
                 for i in planned:

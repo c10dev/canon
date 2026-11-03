@@ -5370,6 +5370,14 @@ def set_check_widen(name: str, body: CheckWiden) -> Project:
     return _save(name, p)
 
 
+@app.put("/api/projects/{name}/check-motion")
+def set_check_motion(name: str, body: CheckWiden) -> Project:
+    """동선 따로 보기 켜기 · 끄기 (Settings.check_motion). 자동 집필 검수도 따른다."""
+    p = _load(name)
+    p.settings.check_motion = body.on
+    return _save(name, p)
+
+
 @app.put("/api/projects/{name}/stage-extract")
 def set_stage_extract(name: str, body: CheckWiden) -> Project:
     """검수 때 함께 뽑기 켜기 · 끄기 (Settings.stage_extract). 자동 집필 검수도 따른다."""

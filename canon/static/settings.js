@@ -88,6 +88,7 @@ const SET_ROWS = [
   { id: 'timeline', cat: 'writing', sec: '집필', label: '작품 속 시간 기록', words: '시간 날짜 기한 타임라인' },
   { id: 'travel', cat: 'writing', sec: '집필', label: '이동 시간 검사', words: '지도 이동 거리 탈것' },
   { id: 'stat-prompt', cat: 'writing', sec: '집필', label: '상태창 수치 넣기', words: '상태창 수치 프롬프트 json lines' },
+  { id: 'motion', cat: 'writing', sec: '검수', label: '동선 따로 보기', words: '검수 동선 손 자세 향한 쪽 물건' },
   { id: 'widen', cat: 'writing', sec: '검수', label: '넓혀 찾기', words: '검수 넓히기 옛 화 장편' },
   { id: 'numbers', cat: 'writing', sec: '보기 · 보관', label: '관계를 숫자로 보기', words: '관계 숫자 말' },
   { id: 'snapshots', cat: 'writing', sec: '보기 · 보관', label: '스냅샷 모두 남기기', words: '스냅샷 되돌리기 장편 보관' },
@@ -313,6 +314,9 @@ function setRowHtml(id) {
       return setRow(id, '상태창 수치 넣기', '본문 쓰기 프롬프트에 인물 상태창 수치를 넣는 방식이에요. 연구 화면의 상태창 시험에서 셋을 견줘 볼 수 있어요.',
         `<select class="set-inp" data-setfield="stat_prompt" aria-labelledby="rn-${id}">${[['json', '인물 상태에 그대로 (기본)'], ['lines', '이번 화 인물만 줄로'], ['none', '넣지 않음']].map(([k, l]) => `<option value="${k}"${v === k ? ' selected' : ''}>${l}</option>`).join('')}</select>`);
     }
+    case 'motion':
+      return p ? setRow(id, '동선 따로 보기', '검수할 때 이번 화 본문만 넣고 인물의 자리 · 향한 쪽 · 손 · 물건이 어긋난 곳을 한 번 더 찾아요. 본 검수와 동시에 불러서 기다리는 시간은 그대로고, 검수 호출이 1번 늘어요.',
+        SW(id, p.settings.check_motion !== false, '동선 따로 보기'), { wide: false }) : '';
     case 'widen':
       return serialOn() ? setRow(id, `넓혀 찾기 ${SET_CHIP('장편')}`, '검수 뒤 이번 화 진술마다 옛 화를 더 찾아, 처음 검수에 넣지 못한 근거가 나온 진술만 다시 물어요. 검수 호출이 2번 늘어요.',
         SW(id, !!p.settings.check_widen, '넓혀 찾기'), { wide: false }) : '';
@@ -692,6 +696,7 @@ Object.assign(actions, {
         const on = !t.enabled;
         return setProjectSave(key, 'atlas/travel', { enabled: on, mode: t.mode, kmh: t.kmh, day_km: t.day_km, span_km: p.atlas.span_km }, (x) => { x.atlas.travel.enabled = on; });
       },
+      motion: () => { const on = p.settings.check_motion === false; return setProjectSave(key, 'check-motion', { on }, (x) => { x.settings.check_motion = on; }); },
       widen: () => { const on = !p.settings.check_widen; return setProjectSave(key, 'check-widen', { on }, (x) => { x.settings.check_widen = on; }); },
       numbers: () => { const on = !p.settings.show_numbers; return setProjectSave(key, 'view', { show_numbers: on }, (x) => { x.settings.show_numbers = on; }); },
       snapshots: () => { const on = !p.settings.keep_snapshots; return setProjectSave(key, 'keep-snapshots', { on }, (x) => { x.settings.keep_snapshots = on; }); },

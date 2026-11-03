@@ -8,7 +8,7 @@ import pytest
 from canon import cancel, findings, pipeline, prompts, stage
 from canon.llm import Interrupted
 from canon.mock import MockLLM
-from canon.schema import (Character, ConsistencyReport, DraftBeat, DraftBody, DraftContact, FixOption, FixSet, Meta, Project,
+from canon.schema import (Character, ConsistencyReport, DraftBeat, DraftBody, DraftContact, FixOption, FixSet, Meta, Project, Settings,
                           StageBeat, StageBody, StageContact, StageDraft, StageScene, StageSpot)
 
 from .jsvm import episode
@@ -22,7 +22,8 @@ def _project(minor: bool = False, text: str = TEXT) -> Project:
         Character(id="h", name="하린", role="주인공", age="16" if minor else "27"),
         Character(id="d", name="도윤", role="조연", age="29"),
     ], episodes=[episode(1, text=text, status="written",
-                         plot={"title": "첫 화", "events": ["도윤이 찾아온다", "하린이 붙잡는다"], "characters": ["h", "d"]})])
+                         plot={"title": "첫 화", "events": ["도윤이 찾아온다", "하린이 붙잡는다"], "characters": ["h", "d"]})],
+        settings=Settings(check_motion=False))  # 동선 따로 보기 호출은 tests/test_check_motion.py 가 센다
 
 
 class Counting(MockLLM):
