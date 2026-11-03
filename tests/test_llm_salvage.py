@@ -2,9 +2,10 @@
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 from canon.llm import POLICY_NOTE, GeminiLLM, SchemaMismatch, _json_objects, _validate, repair_prompt, with_note
-from canon.schema import StateDelta, StyleProfile
+from canon.schema import CueSheetDraft, StateDelta, StyleProfile
 
 GOOD = StyleProfile(narration_pov="1인칭", markers=[{"text": "것이었다"}]).model_dump_json()
 LEAK = ("Sample passages must NOT contain the devices! Clean passage: { ... } ], -> Done. "
@@ -26,6 +27,17 @@ def test_validate_takes_the_last_object_that_fits():
     assert _validate(StateDelta, raw).episode == 2
     with pytest.raises(Exception):
         _validate(StateDelta, LEAK)
+
+
+BROKEN_CUES = ('{"key": "불안", "cadence": "half", "cues": [{"scene": 1, "beat": "문을 연다", "lines": []}, '
+               '{"scene": 2, "beat": "묻는다", "lines": [{"speaker": "a", "text": "왜?"}]}],}')  # 끝 쉼표로 바깥 객체가 깨짐
+
+
+def test_validate_skips_inner_objects_of_a_broken_answer():
+    # 바깥 객체가 깨지면 안쪽 큐 객체만 남는다. 칸이 모두 기본값인 CueSheetDraft 가 그것을 큐 0개로 받으면 안 된다
+    with pytest.raises(ValidationError):
+        _validate(CueSheetDraft, BROKEN_CUES)
+    assert len(_validate(CueSheetDraft, BROKEN_CUES.replace("],}", "]}")).cues) == 2
 
 
 def test_repair_resends_the_first_prompt_when_no_json():
@@ -57,6 +69,12 @@ def _gemini(replies, reason="STOP"):
 def test_gemini_salvages_without_second_call():
     llm, asks = _gemini([LEAK + GOOD])
     assert llm.json("", "원래 요청", StyleProfile).narration_pov == "1인칭" and len(asks) == 1 and llm.last_finish == "STOP"
+
+
+def test_gemini_repairs_a_broken_answer_instead_of_reading_an_empty_sheet():
+    llm, asks = _gemini([BROKEN_CUES, BROKEN_CUES.replace("],}", "]}")])
+    assert len(llm.json("", "원래 요청", CueSheetDraft).cues) == 2
+    assert len(asks) == 2 and BROKEN_CUES in asks[1]  # 두 번째 요청은 깨진 응답을 붙인 형식 고치기
 
 
 def test_gemini_retries_plain_prompt_and_names_length_cut():

@@ -112,14 +112,24 @@ def _json_objects(raw: str, limit: int = 200) -> list[str]:
     return out
 
 
+def _own_keys(schema: type[BaseModel], span: str) -> bool:
+    """span 객체가 schema 의 칸을 하나라도 가졌는지. 칸이 모두 기본값인 스키마는 어떤 객체든 받으므로
+    바깥 JSON 이 깨졌을 때 안쪽 항목 객체(큐 하나, 대사 하나)를 빈 응답으로 읽지 않게 거른다."""
+    return not set(json.loads(span)).isdisjoint(schema.model_fields)
+
+
 def _validate(schema: type[T], raw: str) -> T:
     """응답 글을 스키마로 읽는다. 통째로 읽히지 않으면 글 속 최상위 JSON 객체를 뒤에서부터 읽어 본다.
-    모델이 생각 과정을 본문에 쓰고 끝에 JSON 을 내는 일이 있다 (gemini-4-argon 문체 프로필, 2026-11-01)."""
+    모델이 생각 과정을 본문에 쓰고 끝에 JSON 을 내는 일이 있다 (gemini-4-argon 문체 프로필, 2026-11-01).
+    스키마 칸이 하나도 없는 객체는 읽지 않는다: 바깥 JSON 이 깨지면 _json_objects 가 안쪽 항목 객체를 내고,
+    칸이 모두 기본값인 CueSheetDraft 는 그것을 큐 0개로 받았다 (10화 큐 시트, 2026-11-03)."""
     try:
         return schema.model_validate_json(_FENCE_RE.sub("", raw.strip()))
     except ValidationError as first:
         err = first
     for span in reversed(_json_objects(raw)):
+        if not _own_keys(schema, span):
+            continue
         try:
             return schema.model_validate_json(span)
         except ValidationError as e:
