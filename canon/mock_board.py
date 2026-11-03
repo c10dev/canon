@@ -9,8 +9,14 @@ CONFLICT = "[어긋남]"  # 이번 화 플롯 글에 이 표시가 있으면 이
 
 @responds(StoryboardDraft)
 def _board(prompt: str, hint: dict) -> StoryboardDraft:
-    """hint: episode, events(플롯 사건 수), characters(플롯 인물 id), stats(상태창 인물 → 항목 이름).
+    """hint: episode, events(플롯 사건 수), characters(플롯 인물 id), stats(상태창 인물 → 항목 이름), 고치기면 revise(지금 스토리보드) · ask.
     사건마다 장면 하나(7개까지, 남는 사건은 마지막 장면), 상태창 인물은 첫 항목을 마지막 장면에서 1 줄인다."""
+    if hint.get("revise"):  # 고치기 (pipeline.revise_storyboard): 지금 스토리보드에서 첫 장면 시각만 바꾸고 요청을 깨지 않을 것에 남긴다
+        d = StoryboardDraft.model_validate(hint["revise"])
+        if d.scenes:
+            d.scenes[0].time = "밤"
+        d.protect.append(f"요청: {hint.get('ask', '')}")
+        return d
     k = max(int(hint.get("events") or 3), 1)
     n_scenes = min(k, 7)
     cast = list(hint.get("characters") or [])

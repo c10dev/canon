@@ -1,6 +1,7 @@
 // ----- 4. 집필: 화별 스토리보드 카드 -----
 // 쓰기 직전의 장면 순서와 이번 화 확정 값 (Episode.storyboard, 서버 board.py · pipeline.make_storyboard).
-// 본문이 없는 화의 집필 화면에서 만들기 · 고치기 · 다시 만들기 · 이대로 쓰기를 둔다. 상태 승인 대상이 아니라 저장하면 바로 들어간다.
+// 본문이 없는 화의 집필 화면에서 만들기 · 고치기 · AI에게 고치기 · 다시 만들기 · 이대로 쓰기를 둔다. 상태 승인 대상이 아니라 저장하면 바로 들어간다.
+// AI에게 고치기는 작업 board 에 요청(note)을 실어 보낸다 (pipeline.revise_storyboard). 고치기 전 것은 Episode.storyboard_prev 에 남아 적용 취소할 수 있다.
 // Canon 이 센 값(시간 한 줄, 상태창 단계, 경고)은 GET …/storyboard 로 받는다 (boardView). write.js 의 viewWrite 가 부른다.
 
 const BOARD_WARN = { plot_vs_state: '플롯 · 상태', plot_vs_text: '플롯 · 앞 화 본문', time: '시간', setting: '설정', next_plot: '다음 화 플롯' };
@@ -10,7 +11,27 @@ const BOARD_KINDS = ['장면', '시간', '몸', '물건', '인물', '숨긴 것'
 
 // 스토리보드 작업이 끝나면 집필 화면을 다시 그려 진행 줄을 걷고 카드를 놓는다 (app.js pollJobs)
 JOB_PAGES.board = ['write'];
-JOB_DONE_MSG.board = (j) => `${j.ep}화 스토리보드를 만들었어요. 확인하고 고치거나 이대로 쓰세요.`;
+JOB_DONE_MSG.board = (j) => (j.result && j.result.revised
+  ? `${j.ep}화 스토리보드를 요청대로 고쳤어요. 바뀐 곳을 확인하세요.`
+  : `${j.ep}화 스토리보드를 만들었어요. 확인하고 고치거나 이대로 쓰세요.`);
+
+const BOARD_PARTS = [['time', '시간'], ['stats', '상태창'], ['stat_basis', '상태창 근거'], ['moves', '이동'], ['attire', '끝 차림'],
+  ['handover', '넘겨받을 것'], ['protect', '깨지 않을 것'], ['warnings', '어긋남 경고']];
+
+/** AI 고치기 전(prev)과 지금(cur) 스토리보드에서 바뀐 곳 이름 목록: '장면 2', '장면 4 더함', '시간' … */
+function boardChanges(prev, cur) {
+  if (!prev || !cur) return [];
+  const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  const out = [];
+  const k = Math.max(prev.scenes.length, cur.scenes.length);
+  for (let i = 0; i < k; i++) {
+    if (i >= cur.scenes.length) out.push(`장면 ${i + 1} 뺌`);
+    else if (i >= prev.scenes.length) out.push(`장면 ${i + 1} 더함`);
+    else if (!same(prev.scenes[i], cur.scenes[i])) out.push(`장면 ${i + 1}`);
+  }
+  for (const [key, label] of BOARD_PARTS) if (!same(prev[key], cur[key])) out.push(label);
+  return out;
+}
 
 /** 스토리보드 장면 줄의 '장면 연출' 링크: 그 장면이 맡은 첫 사건의 장면 연출 화면 (주소 stage/<화>/<사건 번호>). */
 function boardStageLink(n, s) {
@@ -68,6 +89,9 @@ function boardCard(n, off) {
   const edit = S.boardEdit && S.boardEdit.key === `${S.name}:${n}` ? S.boardEdit : null;
   const stale = v && v.stale;
   const mk = jobBtn('board', n, '다시 만들기');
+  const ai = jobBtn('board', n, 'AI에게 고치기');
+  const askKey = `${S.name}:${n}`;
+  const askText = S.boardAsk && S.boardAsk.key === askKey ? S.boardAsk.text : '';
   const wr = jobBtn('write', n, `이대로 ${n}화 쓰기`);
   const head = `<div class="row bd-head"><h2 class="bd-title">이번 화 스토리보드</h2><span class="chip ai">${BOARD_BY[b.made_by] || 'AI 제안'}</span>
     ${b.made_at ? `<span class="small">${fmtDateTime(b.made_at)}</span>` : ''}
@@ -79,7 +103,14 @@ function boardCard(n, off) {
       <div class="row bd-actions"><button class="btn" data-action="boardCancel">취소</button><button class="btn danger" data-action="boardDrop" data-arg="${n}">스토리보드 지우기</button>
         <span class="bd-fill"></span><button class="btn primary" data-action="boardSave" data-arg="${n}">고친 스토리보드 저장</button></div></section>`;
   }
-  return `<section class="card bd-card" aria-label="${n}화 스토리보드">${head}${boardBody(n, b, v)}
+  const changed = boardChanges(e.storyboard_prev, b);
+  const revised = e.storyboard_prev ? `<div class="note info bd-revised"><strong>AI가 요청대로 고쳤어요</strong>${b.ask ? `<div class="small">요청 · «${esc(b.ask)}»</div>` : ''}
+      <div class="small">${changed.length ? `바뀐 곳 · ${esc(changed.join(', '))}` : '바뀐 곳이 없어요'}</div>
+      <div class="row"><button class="btn small" data-action="boardUndo" data-arg="${n}"${off ? ' disabled' : ''}>적용 취소</button></div></div>` : '';
+  const ask = `<div class="bd-ask"><label class="field"><span class="small">AI에게 고쳐 달라고 하기 · 바꿀 곳만 적으면 나머지는 그대로 둬요</span>
+      <textarea data-bd-ask="${n}" rows="2" maxlength="2000" placeholder="예: 2장면을 밤 부두로 옮기고, 3장면 끝에 열쇠를 숨겨 둬"${off ? ' disabled' : ''}>${esc(askText)}</textarea></label>
+      <div class="row"><span class="bd-fill"></span><button class="btn" data-action="boardAsk" data-arg="${n}"${off ? ' disabled' : ai.attr}>${ai.label}</button></div></div>`;
+  return `<section class="card bd-card" aria-label="${n}화 스토리보드">${head}${revised}${boardBody(n, b, v)}${ask}
     <div class="row bd-actions"><button class="btn" data-action="boardEdit" data-arg="${n}"${off ? ' disabled' : ''}>고치기</button>
       <button class="btn${stale ? ' primary' : ''}" data-action="boardMake" data-arg="${n}"${off ? ' disabled' : mk.attr}>${mk.label}</button>
       <span class="bd-fill"></span>
@@ -202,6 +233,10 @@ document.addEventListener('input', (e) => {
 document.addEventListener('change', (e) => {
   if (e.target.dataset && e.target.dataset.bdType === 'bool' && S.boardEdit) boardSet(S.boardEdit.draft, e.target.dataset.bd, e.target.checked);
 });
+document.addEventListener('input', (e) => {
+  const n = e.target.dataset && e.target.dataset.bdAsk;
+  if (n) S.boardAsk = { key: `${S.name}:${n}`, text: e.target.value };
+});
 
 /** 스토리보드 켜기 · 끄기 (Settings.storyboard). 집필 화면의 쓰기 시작 칸(writeStart) 아래 줄에 둔다. */
 function boardToggle() {
@@ -215,6 +250,21 @@ Object.assign(actions, {
     if (e.storyboard && e.storyboard.made_by !== 'ai' && !(await askConfirm('작가가 고친 스토리보드예요. 새로 만들면 고친 내용이 사라져요. 다시 만들까요?', { ok: '다시 만들기', danger: true }))) return;
     S.boardEdit = null;
     await startJob('board', Number(n));
+  },
+  async boardAsk(n) {
+    const text = S.boardAsk && S.boardAsk.key === `${S.name}:${n}` ? S.boardAsk.text.trim() : '';
+    if (!text) { toast('고칠 내용을 적어 주세요'); return; }
+    S.boardEdit = null;
+    const seen = new Set(S.jobs.map((j) => j.id));
+    await startJob('board', Number(n), { note: text });
+    if (S.jobs.some((j) => !seen.has(j.id) && j.kind === 'board' && j.ep === Number(n))) S.boardAsk = null;  // 시작했으면 요청 칸을 비운다
+  },
+  async boardUndo(n) {
+    await run('적용 취소하는 중', async () => {
+      await saveIfDirty();
+      S.project = await api('POST', `/projects/${enc(S.name)}/episodes/${n}/storyboard/undo`);
+      toast('AI가 고치기 전 스토리보드로 되돌렸어요');
+    });
   },
   async boardToggle() {
     const on = !boardOn();
@@ -281,6 +331,9 @@ Object.assign(actions, {
 .bd-actions { flex-wrap: wrap; }
 .bd-fill { flex: 1 1 auto; }
 .bd-done > summary { cursor: pointer; font-weight: 700; }
+.bd-ask { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--rule); padding-top: 10px; }
+.bd-ask textarea { width: 100%; }
+.bd-revised { display: flex; flex-direction: column; gap: 4px; }
 @media (max-width: 640px) { .bd-row { grid-template-columns: 1fr; } }`;
   document.head.appendChild(css);
 })();

@@ -2242,7 +2242,7 @@ class JobIn(BaseModel):
     kind: str  # suggest | arc | plots | write | board | cues | state | impact | series | nextarc | recap_arc | recap_part | fold_knows | storyline | convert | rebuild | rework | hook | openings | opening_drafts
     ep: int | None = None  # 화 번호. plots 는 장편에서 아크 번호(없으면 초안이 있는 모든 아크), recap_* 는 아크·부 번호
     element: str = ""  # impact 일 때 요소 id
-    note: str = ""  # arc, series, plots, nextarc, storyline, convert, rebuild: 작가가 바라는 것
+    note: str = ""  # arc, series, plots, nextarc, storyline, convert, rebuild: 작가가 바라는 것. board: 있으면 지금 스토리보드를 이 요청대로 AI 가 고친다
     line_kind: str = ""  # storyline: 원하는 줄기 종류 (비우면 AI 가 고름)
     length: int = 0  # nextarc: 아크 화수 (0 이면 AI 가 정함). convert, rebuild: 장편 총 화수
     ending: str = ""  # convert: keep | reopen, rebuild: arc | part | series (단편 결말이 갈 곳). 비우면 AI 가 고름
@@ -2534,14 +2534,27 @@ def start_job(name: str, body: JobIn) -> dict:
         if p.episode(n).status == "draft":
             raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요")
         pipeline.require_previous(p, n)
-        label, total, owned = f"{n}화 스토리보드", 1, {n}
+        ask = body.note.strip()
+        if ask:
+            if p.episode(n).storyboard is None:
+                raise ValueError(f"{n}화 스토리보드가 없어요. 먼저 만드세요")
+            label, total, owned = f"{n}화 스토리보드 고친 안", 1, {n}
 
-        def fn(job: jobs.Job):
-            b = pipeline.make_storyboard(llm, store.load(name), n)
-            if cancel.stopped():  # 멈춘 뒤 온 응답도 값을 치렀다
-                return {"kept": _keep_late_board(name, n, b)}
-            _edit(name, lambda q: pipeline.set_storyboard(q, n, b, by="ai"))
-            return None
+            def fn(job: jobs.Job):
+                b = pipeline.revise_storyboard(llm, store.load(name), n, ask)
+                if cancel.stopped():  # 멈춘 고치기의 늦은 응답은 버린다 (작가가 그사이 다르게 고쳤을 수 있다)
+                    return {"kept": False}
+                _edit(name, lambda q: pipeline.apply_storyboard_revision(q, n, b))
+                return {"revised": True}
+        else:
+            label, total, owned = f"{n}화 스토리보드", 1, {n}
+
+            def fn(job: jobs.Job):
+                b = pipeline.make_storyboard(llm, store.load(name), n)
+                if cancel.stopped():  # 멈춘 뒤 온 응답도 값을 치렀다
+                    return {"kept": _keep_late_board(name, n, b)}
+                _edit(name, lambda q: pipeline.set_storyboard(q, n, b, by="ai"))
+                return None
     elif kind == "cues":
         if n is None:
             raise ValueError("화 번호(ep)가 필요해요")
@@ -2832,6 +2845,14 @@ def drop_storyboard(name: str, n: int) -> Project:
     _board_guard(name, n)
     _load(name).episode(n)
     return _edit(name, lambda p: pipeline.set_storyboard(p, n, None))
+
+
+@app.post("/api/projects/{name}/episodes/{n}/storyboard/undo")
+def undo_storyboard(name: str, n: int) -> Project:
+    """AI 가 요청대로 고치기 전 스토리보드로 되돌린다 (Episode.storyboard_prev)."""
+    _board_guard(name, n)
+    _load(name).episode(n)
+    return _edit(name, lambda p: pipeline.undo_storyboard(p, n))
 
 
 # ---------- 4-0. 화별 큐 시트 ----------

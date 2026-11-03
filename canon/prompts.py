@@ -2792,6 +2792,27 @@ def storyboard_prompt(p: Project, n: int) -> str:
 
 
 
+BOARD_ASK_LIMIT = 2000  # 스토리보드 고치기 요청 글자 수 (web.JobIn.note)
+
+
+def storyboard_revise_prompt(p: Project, n: int, current, ask: str) -> str:
+    """n화 스토리보드를 작가 요청대로 고치기 (pipeline.revise_storyboard). 앞부분은 storyboard_prompt 그대로 두고
+    지금 스토리보드와 요청을 맨 끝에 붙인다 (만들기와 앞부분이 같아야 캐시가 맞는다)."""
+    from .schema import StoryboardDraft
+    draft = StoryboardDraft(**current.model_dump(include=set(StoryboardDraft.model_fields)))
+    return storyboard_prompt(p, n) + f"""
+
+# 지금 스토리보드
+{dump(draft)}
+
+# 작가 요청
+{ask.strip()[:BOARD_ASK_LIMIT]}
+
+위 [지금 스토리보드]를 [작가 요청]대로 고친 스토리보드 전체를 JSON 으로 돌려줍니다. 본문을 쓰지 않습니다.
+- 요청이 건드리지 않은 장면 · 칸은 글자 하나 바꾸지 않고 그대로 옮깁니다. 요청과 함께 바뀌어야 맞는 칸(장면 번호, 끝 상태, 이동, 차림, 상태창 단계)만 따라 고칩니다.
+- 위 규칙(대사 · 본문 문장 금지, 화 번호 금지, events 를 빠짐없이 나눠 맡기)은 고친 뒤에도 지킵니다.
+- 요청이 [인물 현재 상태] · [직전 화 본문] · [Canon 이 센 값]과 어긋나면 요청대로 고치되, 어긋나는 점을 warnings 에 적습니다."""
+
 # ---------- 큐 시트 집필 실험 (canon/cue.py) ----------
 # 한 화를 악보처럼 큐로 나눠 진행(화성 기능 · 긴장도 · 템포 · 편성)과 핵심 대사를 먼저 정하고 그 위에 본문을 쓴다.
 # 세 조건 모두 쓰기 프롬프트(episode_prompt)를 앞에 그대로 두고 뒤에만 덧붙인다 (앞부분이 같아야 캐시가 맞는다).

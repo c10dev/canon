@@ -2689,6 +2689,46 @@ def make_storyboard(llm: LLM, p: Project, n: int) -> Storyboard:
     return b
 
 
+def revise_storyboard(llm: LLM, p: Project, n: int, ask: str) -> Storyboard:
+    """n화 스토리보드를 작가 요청 ask 대로 AI 가 고친다. 저장하지 않는다 (호출자가 apply_storyboard_revision 으로 넣는다).
+    작가가 바란 고침이라 made_by 는 both: 자동 집필이 낡았다고 새로 만들어 덮지 않는다."""
+    ep = p.episode(n)
+    if ep.storyboard is None:
+        raise ValueError(f"{n}화 스토리보드가 없어요. 먼저 만드세요")
+    if not ask.strip():
+        raise ValueError("고칠 내용을 적어 주세요")
+    if ep.status == "draft":
+        raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
+    require_previous(p, n)
+    d = llm.json(prompts.SYSTEM_PLANNER, prompts.storyboard_revise_prompt(p, n, ep.storyboard, ask), StoryboardDraft,
+                 hint={"episode": n, "events": len(ep.plot.events), "characters": ep.plot.characters,
+                       "stats": {s.character_id: [x.name for x in s.stats] for s in p.states if s.stats},
+                       "revise": ep.storyboard.model_dump(include=set(StoryboardDraft.model_fields)), "ask": ask})
+    b = Storyboard(**clean_storyboard(d).model_dump(), made_at=_now(), made_by="both", basis=board_basis(p, n),
+                   ask=ask.strip()[:prompts.BOARD_ASK_LIMIT])
+    b.checks = board.checks(p, n, b)
+    return b
+
+
+def apply_storyboard_revision(p: Project, n: int, b: Storyboard) -> None:
+    """AI 가 고친 스토리보드 b 를 넣고, 고치기 전 것을 적용 취소용으로 둔다. 연달아 고치면 처음 것을 남긴다."""
+    ep = p.episode(n)
+    old = ep.storyboard
+    ep.storyboard_prev = ep.storyboard_prev or old
+    b.skipped = bool(old and old.skipped and ep.text)
+    ep.storyboard = b
+
+
+def undo_storyboard(p: Project, n: int) -> None:
+    """AI 가 고치기 전 스토리보드로 되돌린다."""
+    ep = p.episode(n)
+    if ep.storyboard_prev is None:
+        raise ValueError(f"{n}화 스토리보드에 되돌릴 AI 고치기가 없어요")
+    prev = ep.storyboard_prev
+    prev.checks = board.checks(p, n, prev)
+    ep.storyboard, ep.storyboard_prev = prev, None
+
+
 def clean_storyboard(d: StoryboardDraft) -> StoryboardDraft:
     """빈 장면 · 빈 줄을 빼고, 장면 번호를 장면 수 안으로 맞춘다."""
     d.scenes = [x for x in d.scenes if any(v.strip() for v in (x.place, x.spot, x.goal, x.turn, x.end_state))]
@@ -2713,6 +2753,7 @@ def set_storyboard(p: Project, n: int, b: Storyboard | None, by: str = "author")
     """스토리보드를 넣거나 지운다(b=None). 작가가 저장하면(by='author') 지금 입력을 보고 고친 것으로 보아 지문을 지금 값으로 둔다.
     AI 가 만든 것을 작가가 고치면 made_by 는 both. 본문을 쓴 뒤에도 고칠 수 있다 (다시 생성이 그대로 쓴다)."""
     ep = p.episode(n)
+    ep.storyboard_prev = None  # 작가 저장 · 새로 만들기 · 지우기 뒤에는 AI 고치기 적용 취소가 없다
     if b is None:
         ep.storyboard = None
         return
