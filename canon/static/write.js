@@ -259,6 +259,13 @@ document.addEventListener('change', (e) => {
   render();
 });
 
+/** '직접 쓰기'로 빈 칸을 연 화: 쓰기 시작 칸으로 돌아가는 줄. 그 화에 AI 작업이 돌면 끈다 */
+function manualNote(n) {
+  const busy = S.jobs.some((j) => j.status === 'running' && j.project === S.name && j.ep === n && EP_AI_KINDS.has(j.kind));
+  return `<div class="note info w-manual">AI 없이 직접 쓰고 있어요. 스토리보드나 AI 본문 생성으로 쓰려면 쓰기 시작 칸으로 돌아가요.
+      <div class="row" style="margin-top:6px"><button type="button" class="btn small" data-action="backToStart" data-arg="${n}"${busy ? ' disabled title="이 화의 AI 작업이 끝난 뒤에 돌아갈 수 있어요"' : ''}>AI로 쓰기로 돌아가기</button></div></div>`;
+}
+
 function viewWrite(n) {
   const e = ep(n);
   if (!e) return header('4단계', '집필', '') + noEpisode();
@@ -330,6 +337,7 @@ function viewWrite(n) {
     ${editable && autoOn() ? `<div class="note warn">자동 집필이 도는 동안은 본문을 저장할 수 없어요. 쓰던 글은 이 화면에 남아 있어요. 저장하려면 <a href="${base()}/auto">자동 집필</a>을 일시정지하세요. 어색한 곳은 지금도 글을 골라 '나중에 고치기'로 담아 둘 수 있어요.</div>` : ''}
     ${e.text && editable ? candidateCard(n) : ''}
     ${fresh ? writeStart(n, blocked) : madeBoard}
+    ${editable && !e.text && draft !== undefined ? manualNote(n) : ''}
     ${starting && e.status === 'confirmed' ? cueCard(n, blocked) : ''}
     <section class="card w-body${starting ? ' w-fresh' : ''}" aria-label="${fresh ? '이번 화 플롯' : '본문'}">
       <div class="w-stick">
@@ -533,6 +541,17 @@ Object.assign(actions, {
   },
   startManual(n) {
     S.textDraft[n] = '';
+    render();
+  },
+  /** '직접 쓰기'를 거둔다: 빈 칸을 닫고 쓰기 시작 칸(스토리보드 · AI 본문 생성)으로 돌아간다. 그 화의 스토리보드 · 큐 시트는 둔다 */
+  async backToStart(n) {
+    n = Number(n);
+    if (ep(n).text) return;
+    if (textUnsaved(n) && !(await askConfirm(`${n}화에 직접 쓴 글을 버리고 AI로 쓰기로 돌아갈까요? 되돌릴 수 없어요.`, { ok: '버리고 돌아가기', danger: true }))) return;
+    delete S.textDraft[n];
+    const k = DRAFT_PREFIX(S.name) + n;  // 이 화의 임시 보관 초안도 지운다. 남기면 다시 열 때 '저장하지 않은 초안'으로 뜬다
+    draftStore.del(k);
+    draftKept.delete(k);
     render();
   },
   gotoPlot(n) {

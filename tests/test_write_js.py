@@ -1,7 +1,9 @@
 """집필 화면(static/write.js)의 이번 화 플롯 띠와 공통 펼침 메뉴(app.js menuBtn). node 가 있을 때만 돈다."""
+import re
+
 from canon.schema import Project
 
-from .jsvm import dump, episode, needs_node, run_js
+from .jsvm import STATIC, dump, episode, needs_node, run_js
 
 FILES = ["app.js", "plot.js", "write.js", "chat.js", "passage.js", "timeline.js"]
 
@@ -108,3 +110,39 @@ def test_writer_label_names_backend_and_model():
       writerLabel('import'), writerLabel('mock:mock'), writerLabel(''), writerLabel(undefined), writerLabel('odd')]"""
     assert run_js(FILES, expr, None) == ["gemini-4-argon · Gemini", "claude-opus-5-5 · Claude 구독", "Claude API",
                                           "채팅 앱에서 가져옴", "mock", "", "", "odd"]
+
+
+@needs_node
+def test_back_to_start_after_manual():
+    # '직접 쓰기'로 빈 칸을 연 화: 쓰기 시작 칸으로 돌아가는 버튼. 쓴 글이 있으면 묻고, 그 화에 AI 작업이 돌면 끈다
+    files = re.findall(r'src="/static/([a-z]+\.js)"', (STATIC / "index.html").read_text(encoding="utf-8"))
+    expr = """(async () => {
+      S.project = data; S.name = 'lh'; S.route = ['p', 'lh', 'write', '2']; S.jobs = [];
+      P().episodes[0].status = 'finalized'; P().episodes[1].status = 'confirmed';
+      const asked = [];
+      askConfirm = async (q) => { asked.push(q); return asked.length > 1; };
+      render = () => {};  // vm 에는 화면이 없다
+      const fresh = viewWrite(2);
+      actions.startManual(2);
+      const manual = viewWrite(2);
+      S.jobs = [{ id: 'j1', status: 'running', project: 'lh', kind: 'board', ep: 2, label: '2화 스토리보드', started: 0, done: 0, total: 1 }];
+      const busy = viewWrite(2);
+      S.jobs = [];
+      await actions.backToStart('2');
+      const empty = [S.textDraft[2] === undefined, asked.length, viewWrite(2)];
+      actions.startManual(2); S.textDraft[2] = '첫 문장';
+      await actions.backToStart('2');
+      const kept = S.textDraft[2];
+      await actions.backToStart('2');
+      return { fresh, manual, busy, empty, kept, after: S.textDraft[2] === undefined, asked: asked.length, written: viewWrite(1) };
+    })()"""
+    got = run_js(files, expr, _project())
+    btn = 'data-action="backToStart" data-arg="2"'
+    assert btn not in got["fresh"] and "2화를 어떻게 쓸까요" in got["fresh"]
+    assert btn in got["manual"] and "AI로 쓰기로 돌아가기" in got["manual"] and "2화를 어떻게 쓸까요" not in got["manual"]
+    assert f'{btn} disabled' in got["busy"]
+    gone, asked_empty, back = got["empty"]
+    assert gone and asked_empty == 0  # 빈 칸만 열었으면 묻지 않는다
+    assert btn not in back and "2화를 어떻게 쓸까요" in back
+    assert got["kept"] == "첫 문장" and got["after"] is True and got["asked"] == 2  # 첫 물음은 취소, 둘째는 버리고 돌아감
+    assert "backToStart" not in got["written"]  # 본문이 있는 화에는 없다
