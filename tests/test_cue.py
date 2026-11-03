@@ -249,7 +249,7 @@ def test_js_helpers_and_view(demo):
     assert got["bars"] == [[c.function, c.tension * 20] for c in sheet.cues]
     assert got["width"] == 100
     assert got["flat"] >= 2  # 앞쪽 정점 · 평평한 긴장 (큐가 넷 넘으면 같은 기능 넷도)
-    assert "큐 시트 집필 실험" in got["html"] and "cue-bars" in got["html"] and "hero: 대사" in got["html"]
+    assert "큐 시트 집필 실험" in got["html"] and "cue-bars" in got["html"] and f"{hero.name}: 대사" in got["html"]  # 대사 칸은 인물 이름
     # 말투가 빈 인물만, 큐 번호는 겹치지 않게. 모르는 id 와 말투가 있는 인물은 빼고
     assert got["gaps"] == [{"id": "hero", "name": hero.name, "cues": [1, 2]}]
     assert "말투가 빈 인물이 핵심 대사를 맡았어요" in got["html"] and "/cast/hero" in got["html"]

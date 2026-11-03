@@ -21385,6 +21385,12 @@
       "title": "Basis",
       "description": "화에 붙인 큐 시트를 만들 때 입력의 지문 (cue.ep_basis). 지금 값과 다르면 낡은 것. 실험 시트는 비움",
       "default": ""
+     },
+     "skipped": {
+      "type": "boolean",
+      "title": "Skipped",
+      "description": "지금 본문을 이 큐 시트 없이 썼다 (쓰기 작업의 cues: none). 다시 생성도 넣지 않고, 실현도를 세지 않는다",
+      "default": false
      }
     },
     "type": "object",

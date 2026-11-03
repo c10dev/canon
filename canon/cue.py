@@ -173,9 +173,17 @@ def stale(p: Project, n: int) -> bool:
     return bool(s and s.basis and not e.text and s.basis != ep_basis(p, n))
 
 
+def remake(p: Project, n: int) -> bool:
+    """쓰기 전에 AI 가 큐 시트를 (새로) 만들어야 하는지: 시트가 없거나, AI · 뼈대로 만든 시트가 낡았다.
+    작가가 고친 시트(author · both)는 낡아도 그대로 쓴다. 웹 쓰기 작업과 자동 집필(_cues)이 같은 규칙을 쓴다."""
+    s = p.episode(n).cue_sheet
+    return s is None or (s.made_by in ("ai", "board") and stale(p, n))
+
+
 def set_episode(p: Project, n: int, d: CueSheetDraft | None, by: str = "author") -> None:
     """화에 큐 시트를 넣거나 지운다(d=None). 작가가 저장하면 지금 입력을 보고 고친 것으로 보아 지문을 지금 값으로 둔다.
-    AI · 뼈대 시트를 작가가 고치면 made_by 는 both. 본문을 쓴 뒤에도 고칠 수 있다 (다시 생성이 그대로 쓴다)."""
+    AI · 뼈대 시트를 작가가 고치면 made_by 는 both. 본문을 쓴 뒤에도 고칠 수 있다 (다시 생성이 그대로 쓴다).
+    본문이 있으면 그 본문을 큐 시트 없이 썼는지(skipped)는 그대로 둔다."""
     ep = p.episode(n)
     if d is None:
         ep.cue_sheet = None
@@ -185,17 +193,27 @@ def set_episode(p: Project, n: int, d: CueSheetDraft | None, by: str = "author")
     draft = clean(p, CueSheetDraft(**d.model_dump(include=set(CueSheetDraft.model_fields))))
     if not draft.cues:
         raise ValueError("큐가 하나도 없어요. 일어나는 일이나 핵심 대사를 적은 큐가 있어야 해요")
-    ep.cue_sheet = CueSheet(**draft.model_dump(), made_at=pipeline._now(), made_by=made_by, basis=ep_basis(p, n))
+    ep.cue_sheet = CueSheet(**draft.model_dump(), made_at=pipeline._now(), made_by=made_by, basis=ep_basis(p, n),
+                            skipped=bool(old and old.skipped and ep.text))
+
+
+def mark_used(p: Project, n: int, used: bool) -> None:
+    """방금 쓴 본문에 화의 큐 시트를 넣었는지 적는다 (CueSheet.skipped). 시트가 없으면 아무것도 하지 않는다."""
+    s = p.episode(n).cue_sheet
+    if s is not None:
+        s.skipped = not used
 
 
 def ep_view(p: Project, n: int) -> dict:
-    """집필 화면 값: 켜짐, 낡음, 본문이 있으면 핵심 대사가 들어간 수와 빠진 대사, 큐마다 실현도(rows), 템포 곡선(curve)."""
+    """집필 화면 값: 켜짐, 낡음, 본문이 있으면 핵심 대사가 들어간 수와 빠진 대사, 큐마다 실현도(rows), 템포 곡선(curve).
+    본문을 큐 시트 없이 썼으면(skipped) 대사 · 실현도를 세지 않는다."""
     e = p.episode(n)
     s = e.cue_sheet
-    out = {"on": on(p), "stale": stale(p, n), "hit": 0, "total": 0, "missed": [], "rows": [], "curve": []}
+    out = {"on": on(p), "stale": stale(p, n), "skipped": bool(s and s.skipped and e.text),
+           "hit": 0, "total": 0, "missed": [], "rows": [], "curve": []}
     if e.text:
         out["curve"] = metrics.tempo_curve(e.text)
-    if s and e.text:
+    if s and e.text and not out["skipped"]:
         out["hit"], out["total"], out["missed"] = line_hits(s, e.text)
         out["rows"] = realized(s, e.text)
     return out

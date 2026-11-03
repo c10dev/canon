@@ -4,7 +4,7 @@
    한 화를 악보처럼 큐로 나눠 화성 기능(T 안정 · S 쌓기 · D 긴장) · 긴장도 · 템포 · 편성 · 핵심 대사를 먼저 정한다.
    실험 화면은 같은 화를 세 조건(지금 방식 한 번에 · 큐 시트를 주고 한 번에 · 큐마다 이어 쓰기)으로 써서 견주고 작품에는 저장하지 않는다.
    집필 화면은 화에 붙인 큐 시트(Episode.cue_sheet)를 만들고 고친다. 쓰기는 그 시트를 프롬프트 끝에 넣어 한 번에 쓴다.
-   고치는 큐 시트는 열쇠('lab:<화>' 실험 · 'ep:<화>' 집필)마다 따로 둔다(S.cueEdits, cueBind). 편집기 · 막대는 둘이 함께 쓴다.
+   고치는 큐 시트는 열쇠('lab:<화>:<작품>' 실험 · 'ep:<화>:<작품>' 집필, cueKeyOf)마다 따로 둔다(S.cueEdits, cueBind). 편집기 · 막대는 둘이 함께 쓴다.
    cueLinesParse · cueLinesText · cueBars · cueCurveOk · cueVoiceGaps 는 DOM 없는 순수 함수 (tests/test_cue.py). */
 'use strict';
 
@@ -13,7 +13,7 @@ Object.assign(S, {
   cueLab: null,    // 고른 화 { episode, title, board, sheet, takes, model, run_at }
   cueEdits: {},    // 열쇠마다 고치는 큐 시트 { draft, dirty } (저장 전)
   cueKey: '',      // 지금 화면이 고치는 열쇠
-  cueSkip: {},     // 집필: 화마다 '이번 화는 큐 시트 없이 쓰기'
+  cueSkip: {},     // 집필: 화마다 '이번 화는 큐 시트 없이 쓰기' (열쇠 cueKeyOf('ep', 화))
   cueConds: null,  // 고른 조건 Set
   cueEst: null,
   cueTab: '',      // 읽는 본문의 조건
@@ -21,18 +21,19 @@ Object.assign(S, {
 
 const CUE_COLORS = { T: 'var(--act-1)', S: 'var(--act-2)', D: 'var(--act-4)' };
 
-/** 핵심 대사 칸 글('인물 id: 대사' 한 줄에 하나) → [{speaker, text}]. 콜론이 없으면 말하는 인물을 비운다. */
-function cueLinesParse(text, max = 3) {
+/** 핵심 대사 칸 글('인물: 대사' 한 줄에 하나) → [{speaker, text}]. 콜론이 없으면 말하는 인물을 비운다.
+    idOf 는 칸에 적은 인물(이름이나 id)을 인물 id 로 바꾼다 (집필 · 실험 화면은 cueId). */
+function cueLinesParse(text, max = 3, idOf = (s) => s) {
   return String(text || '').split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
     const m = l.match(/^([^:：«"“]{1,30})[:：]\s*(.+)$/);
     const body = (m ? m[2] : l).trim().replace(/^[«"“「『]+|[»"”」』]+$/g, '').trim();
-    return { speaker: m ? m[1].trim() : '', text: body };
+    return { speaker: m ? idOf(m[1].trim()) : '', text: body };
   }).filter((x) => x.text).slice(0, max);
 }
 
-/** [{speaker, text}] → 핵심 대사 칸 글. */
-function cueLinesText(lines) {
-  return (lines || []).map((x) => (x.speaker ? `${x.speaker}: ${x.text}` : x.text)).join('\n');
+/** [{speaker, text}] → 핵심 대사 칸 글. nameOf 는 인물 id 를 칸에 보일 이름으로 바꾼다 (cueName). */
+function cueLinesText(lines, nameOf = (id) => id) {
+  return (lines || []).map((x) => (x.speaker ? `${nameOf(x.speaker)}: ${x.text}` : x.text)).join('\n');
 }
 
 /** 진행 막대: 큐마다 너비(목표 글자 수 비율, %)와 높이(긴장도 비율, %). 글자 수가 없으면 같은 너비. */
@@ -84,6 +85,10 @@ function cueOn() {
   return v ?? P().meta.form === 'serial';
 }
 
+/** 고치는 큐 시트 · '큐 시트 없이 쓰기'의 열쇠. 작품 이름을 붙여, 다른 작품의 같은 화 번호에 고침이 섞이지 않게 한다.
+    역설계 실험(rev:<화>)은 작품 밖이라 쓰지 않는다. cueCtx 는 앞 두 칸(종류 · 화)만 읽는다 */
+const cueKeyOf = (kind, n) => `${kind}:${n}:${S.name}`;
+
 /** 지금 고치는 큐 시트 { draft, dirty }. */
 const cueEd = () => S.cueEdits[S.cueKey] || { draft: null, dirty: false };
 
@@ -122,12 +127,13 @@ async function cueLoad(n) {
   if (!S.cueConds) S.cueConds = new Set(['oneshot', 'score', 'cues']);
   const k = Number(n) || null;
   if (!k) { S.cueLab = null; return; }
-  if (!S.cueLab || S.cueLab.episode !== k || !(S.cueEdits[`lab:${k}`] || {}).dirty) await cueFetch(k);
+  if (!S.cueLab || S.cueLab.project !== S.name || S.cueLab.episode !== k || !(S.cueEdits[cueKeyOf('lab', k)] || {}).dirty) await cueFetch(k);
 }
 
 async function cueFetch(n) {
   S.cueLab = await api('GET', `/projects/${enc(S.name)}/cue/${n}`).catch((e) => ({ error: e.message, episode: n }));
-  S.cueEdits[`lab:${n}`] = { draft: S.cueLab.sheet ? structuredClone(S.cueLab.sheet) : null, dirty: false };
+  S.cueLab.project = S.name;
+  S.cueEdits[cueKeyOf('lab', n)] = { draft: S.cueLab.sheet ? structuredClone(S.cueLab.sheet) : null, dirty: false };
   S.cueEst = null;
   if (!S.cueTab && S.cueLab.takes && S.cueLab.takes.length) S.cueTab = S.cueLab.takes[0].condition;
 }
@@ -135,6 +141,8 @@ async function cueFetch(n) {
 const cueLabel = (list, key) => ((S.cue && S.cue[list]) || []).find((x) => x.key === key) || { label: key, about: '' };
 const cueUsd = (x) => (x === null || x === undefined ? '가격 모름' : `약 ${x < 1 ? x.toFixed(2) : x.toFixed(1)}달러`);
 const cueName = (id) => (((P() && P().characters) || []).find((c) => c.id === id) || {}).name || id;  // 역설계 실험은 작품 밖이라 P() 가 없다
+/** 핵심 대사 칸에 적은 인물 → 인물 id. 이름이나 id 가 맞는 인물이 없으면 적은 그대로 (역설계 실험은 이름이 id) */
+const cueId = (s) => (((P() && P().characters) || []).find((c) => c.id === s || c.name === s) || {}).id || s;
 
 function viewCue() {
   const head = header('본편과 분리', '큐 시트 집필 실험',
@@ -149,7 +157,7 @@ function viewCue() {
     <p class="small">반영이 끝난 화는 그 화를 쓰기 직전 상태로 되돌린 사본에서 써요. 원래 본문과 견줄 수 있어요.</p></section>`;
   if (!n) return `${head}${cueIntro()}${pick}${cueRuns()}`;
   if (S.cueLab.error) return `${head}${pick}<div class="note err">${esc(S.cueLab.error)}</div>`;
-  cueBind(`lab:${n}`, S.cueLab.sheet);
+  cueBind(cueKeyOf('lab', n), S.cueLab.sheet);
   return `${head}${pick}${cueScore()}${cueEditor()}${cueRunCard()}${cueResults()}${cueRuns()}`;
 }
 
@@ -204,8 +212,8 @@ function cueEditor(wrap = true, off = false) {
         <label class="small">글자 <input type="number" min="0" step="100" style="width:90px" data-cue="cues.${i}.length" data-num="1" value="${c.length || 0}"></label>
       </div>
       <label class="small">일어나는 일<input data-cue="cues.${i}.beat" value="${esc(c.beat)}"></label>
-      <label class="small">핵심 대사 <span class="small">(한 줄에 하나, '인물 id: 대사', ${S.cue.max_lines}개까지. 본문에 글자 그대로 들어가요)</span>
-        <textarea rows="2" data-cue-lines="${i}">${esc(cueLinesText(c.lines))}</textarea></label>
+      <label class="small">핵심 대사 <span class="small">(한 줄에 하나, '인물 이름: 대사', ${S.cue.max_lines}개까지. 본문에 글자 그대로 들어가요)</span>
+        <textarea rows="2" data-cue-lines="${i}">${esc(cueLinesText(c.lines, cueName))}</textarea></label>
       ${c.lines.length ? `<div class="small">${c.lines.map((x) => `${esc(cueName(x.speaker) || '?')}: «${esc(x.text)}»`).join(' · ')}</div>` : ''}
       <label class="small">끝 상태<input data-cue="cues.${i}.exit" value="${esc(c.exit)}"></label>
     </div>`).join('');
@@ -214,8 +222,11 @@ function cueEditor(wrap = true, off = false) {
   const gapNote = gaps.length ? `<div class="note warn"><strong>말투가 빈 인물이 핵심 대사를 맡았어요</strong>
       <ul>${gaps.map((g) => `<li><a href="${base()}/cast/${enc(g.id)}">${esc(g.name)}</a> · ${g.cues.join(', ')}번 큐</li>`).join('')}</ul>
       <span class="small">핵심 대사는 본문에 글자 그대로 들어가요. 인물 카드에서 말투를 채우면 큐 시트를 만들 때와 쓸 때 그 말투를 따라요.</span></div>` : '';
-  const H = wrap ? 'h2' : 'h3';
-  return card(`<div class="between"><${H}>큐 시트 <span class="small">큐 ${sh.cues.length}개 · 약 ${total.toLocaleString()}자 · ${esc(CUE_BY[c.saved ? c.saved.made_by : 'author'] || '')}</span></${H}>
+  // 카드 안(wrap 끔)은 카드 머리가 이미 '큐 시트 · 큐 n개 · 만든 이'를 보여 분량만 적는다
+  const title = wrap ? `<h2>큐 시트 <span class="small">큐 ${sh.cues.length}개 · 약 ${total.toLocaleString()}자 · ${esc(CUE_BY[c.saved ? c.saved.made_by : 'author'] || '')}</span></h2>`
+    : `<span class="small">큐 ${sh.cues.length}개 · 약 ${total.toLocaleString()}자</span>`;
+  const usedBy = c.kind === 'ep' ? (ep(c.n) && ep(c.n).text ? '다시 생성은' : '쓰기는') : c.kind === 'rev' ? '되돌려 쓰기는' : '실험은';
+  return card(`<div class="between">${title}
       <span class="row" style="gap:6px"><button type="button" class="btn small" data-action="cueSave"${dirty && !off ? '' : ' disabled'}>저장</button>${dirty ? '<button type="button" class="btn small ghost" data-action="cueReset">되돌리기</button>' : ''}</span></div>
     ${tools}
     ${gapNote}
@@ -223,7 +234,7 @@ function cueEditor(wrap = true, off = false) {
       <label class="small">화 끝 종지 ${cueSelect('cadences', 'cadence', sh.cadence)}</label></div>
     <div class="cue-list">${rows}</div>
     <button type="button" class="btn small" data-action="cueAdd"${sh.cues.length >= S.cue.max_cues ? ' disabled' : ''}>큐 더하기</button>
-    ${dirty ? `<div class="note warn">저장하지 않은 고침이 있어요. ${{ ep: '쓰기', rev: '되돌려 쓰기' }[c.kind] || '실험'}는 저장한 큐 시트로 해요.</div>` : ''}`);
+    ${dirty ? `<div class="note warn">저장하지 않은 고침이 있어요. ${usedBy} 저장한 큐 시트로 해요.</div>` : ''}`);
 }
 
 const CUE_BY = { ai: 'AI', board: '뼈대', author: '작가', both: 'AI + 작가' };
@@ -334,7 +345,15 @@ function cueToggle() {
 }
 
 /** 쓰기 작업에 붙이는 값: 이 화를 큐 시트 없이 쓰기로 골랐으면 cues: none. */
-const cueWriteArg = (n) => (S.cueSkip[n] ? { cues: 'none' } : {});
+const cueWriteArg = (n) => (S.cueSkip[cueKeyOf('ep', n)] ? { cues: 'none' } : {});
+
+/** 접는 칸(<details>)이 다시 그려도 열린 채 남게, 열쇠마다 연 것을 기억한다 (data-cue-open). */
+const cueOpen = (key, dirty) => (dirty || S.cueOpen[key] ? ' open' : '');
+S.cueOpen = {};
+document.addEventListener('toggle', (e) => {
+  const k = e.target.dataset && e.target.dataset.cueOpen;
+  if (k) S.cueOpen[k] = e.target.open;
+}, true);
 
 /** 본문이 없는 화의 큐 시트 카드. 큐 시트를 쓰는 작품이거나 이 화에 큐 시트가 있으면 보인다. */
 function cueCard(n, blocked) {
@@ -342,35 +361,56 @@ function cueCard(n, blocked) {
   if (!e || e.text || e.status !== 'confirmed' || (!cueOn() && !e.cue_sheet)) return '';
   const v = cueView(n);
   if (!S.cue || S.cue.error || !S.cue.functions) return '';
-  cueBind(`ep:${n}`, e.cue_sheet);
+  const key = cueKeyOf('ep', n);
+  cueBind(key, e.cue_sheet);
   const busy = jobFor('cues', n) || jobFor('write', n) || jobFor('board', n);
   const off = !!(blocked.length || autoOn() || busy);
-  const skip = !!S.cueSkip[n];
+  const skip = !!S.cueSkip[key];
   const s = e.cue_sheet;
   const { dirty } = cueEd();
   const head = `<div class="between"><h2>큐 시트 <span class="small">${s ? `큐 ${s.cues.length}개 · ${esc(CUE_BY[s.made_by] || '')}` : '아직 없음'}</span></h2>
       ${s ? `<button type="button" class="btn small ghost" data-action="cueClear" data-arg="${n}"${off ? ' disabled' : ''}>지우기</button>` : ''}</div>`;
-  const lead = s ? (v && v.stale ? `<div class="note warn">큐 시트를 만든 뒤 직전 화 본문, 플롯, 인물 상태, 스토리보드 중 하나가 바뀌었어요. 다시 만들거나, 그대로 쓰려면 내용을 확인하세요.</div>` : '')
+  // 낡은 AI · 뼈대 시트는 쓰기 작업이 새로 만든다 (cue.remake, 큐 시트를 쓰는 작품일 때). 작가가 고친 시트는 그대로 쓴다
+  const remake = s && cueOn() && (s.made_by === 'ai' || s.made_by === 'board');
+  const again = jobBtn('cues', n, 'AI로 다시 만들기');
+  const lead = s ? (v && v.stale && !skip ? `<div class="note warn">큐 시트를 만든 뒤 직전 화 본문, 플롯, 인물 상태, 스토리보드 중 하나가 바뀌었어요. ${remake
+      ? '쓰기를 누르면 AI가 지금 자료로 큐 시트를 새로 만들고 그 위에 써요.'
+      : '작가가 고친 큐 시트라 쓰기는 이 시트를 그대로 써요. 내용을 확인하거나 다시 만드세요.'}
+      <div class="row" style="margin-top:6px"><button type="button" class="btn small" data-action="cueMake"${off ? ' disabled' : again.attr}>${again.label}</button></div></div>` : '')
     : `<p class="small">${skip ? '이번 화는 큐 시트 없이 써요.' : `쓰기를 누르면 AI가 ${e.storyboard ? '스토리보드 장면 순서를 받아 ' : ''}큐 시트를 먼저 만들고 그 위에 써요. 먼저 보고 고치려면 아래에서 만드세요.`}</p>`;
-  const body = s ? `${cueScore(cueEd().draft, false)}<details class="cue-edit"${dirty ? ' open' : ''}><summary>큐 시트 고치기${dirty ? ' · 저장하지 않은 고침' : ''}</summary>${cueEditor(false, off)}</details>`
+  const body = s ? `${cueScore(cueEd().draft, false)}<details class="cue-edit" data-cue-open="${esc(key)}"${cueOpen(key, dirty)}><summary>큐 시트 고치기${dirty ? ' · 저장하지 않은 고침' : ''}</summary>${cueEditor(false, off)}</details>`
     : cueEditor(false, off);
   return `<section class="card cue-card" aria-label="${n}화 큐 시트">${head}${lead}${skip ? '' : body}
     <label class="check-row small"><input type="checkbox" data-cue-skip="${n}"${skip ? ' checked' : ''}${off ? ' disabled' : ''}><span>이번 화는 큐 시트 없이 쓰기</span></label></section>`;
 }
 
-/** 본문을 쓴 화: 쓸 때 쓴 큐 시트와 핵심 대사가 들어간 수를 접어 둔다 (다시 생성도 이 큐 시트를 그대로 쓴다). */
+/** 본문을 쓴 화: 쓸 때 쓴 큐 시트와 핵심 대사가 들어간 수를 접어 둔다. 다시 생성이 이 큐 시트를 그대로 쓰므로 여기서 고치고 지운다.
+    본문을 큐 시트 없이 썼으면(skipped) 그렇다고만 알린다 (다시 생성도 넣지 않는다). */
 function cuePanel(n) {
   const e = ep(n);
   if (!e || !e.text || !e.cue_sheet) return '';
   const v = cueView(n);
   if (!S.cue || S.cue.error || !S.cue.functions) return '';
+  const s = e.cue_sheet;
+  const key = cueKeyOf('ep', n);
+  const off = !!(autoOn() || jobFor('cues', n) || jobFor('write', n));
+  const clear = `<button type="button" class="btn small ghost" data-action="cueClear" data-arg="${n}"${off ? ' disabled' : ''}>큐 시트 지우기</button>`;
+  if (s.skipped) {
+    return `<details class="card cue-card cue-done" data-cue-open="${esc(key)}"${cueOpen(key)}><summary>큐 시트 · 큐 ${s.cues.length}개 · 이 본문은 큐 시트 없이 썼어요</summary>
+      <p class="small">쓸 때 '이번 화는 큐 시트 없이 쓰기'를 골랐어요. 다시 생성도 이 큐 시트를 넣지 않아요.</p>
+      ${cueScore(s, false)}<div class="row">${clear}</div></details>`;
+  }
+  cueBind(key, s);
+  const { dirty } = cueEd();
   const hits = v && v.total ? ` · 핵심 대사 ${v.hit}/${v.total}` : '';
   const missed = v && v.missed.length ? `<div class="note warn small">본문에 없는 핵심 대사: ${v.missed.map((x) => `«${esc(x)}»`).join(' · ')}</div>` : '';
   const rows = (v && v.rows) || [];
-  const lines = e.cue_sheet.cues.map((c, i) => `<li>${esc(c.function)} · 긴장 ${c.tension} · ${esc(cueLabel('voices', c.voice).label)} — ${esc(c.beat)}${cueRealized(rows[i])}${c.lines.length ? `<br>${c.lines.map((x) => `${esc(cueName(x.speaker) || '?')}: «${esc(x.text)}»`).join(' · ')}` : ''}</li>`).join('');
-  return `<details class="card cue-card cue-done"><summary>이 화를 쓴 큐 시트 · 큐 ${e.cue_sheet.cues.length}개${hits}${cueRealizedSum(rows)}</summary>
-    ${missed}${cueScore(e.cue_sheet, false)}${cueCurve(v, e.text.length)}<ol class="small cue-sum">${lines}</ol>
-    <p class="small">다시 생성은 이 큐 시트를 그대로 써요.</p></details>`;
+  const lines = s.cues.map((c, i) => `<li>${esc(c.function)} · 긴장 ${c.tension} · ${esc(cueLabel('voices', c.voice).label)} — ${esc(c.beat)}${cueRealized(rows[i])}${c.lines.length ? `<br>${c.lines.map((x) => `${esc(cueName(x.speaker) || '?')}: «${esc(x.text)}»`).join(' · ')}` : ''}</li>`).join('');
+  return `<details class="card cue-card cue-done" data-cue-open="${esc(key)}"${cueOpen(key, dirty)}><summary>이 화를 쓴 큐 시트 · 큐 ${s.cues.length}개${hits}${cueRealizedSum(rows)}</summary>
+    ${missed}${cueScore(s, false)}${cueCurve(v, e.text.length)}<ol class="small cue-sum">${lines}</ol>
+    <p class="small">다시 생성은 이 큐 시트를 그대로 써요. 고치면 다음 다시 생성부터 고친 시트를 써요.</p>
+    <details class="cue-edit" data-cue-open="${esc(key)}:edit"${cueOpen(`${key}:edit`, dirty)}><summary>큐 시트 고치기${dirty ? ' · 저장하지 않은 고침' : ''}</summary>${cueEditor(false, off)}</details>
+    <div class="row">${clear}</div></details>`;
 }
 
 // ----- 큐 실현도 (cue.realized): 본문을 큐 목표 글자 수 비율로 잘라 본 대략 위치의 값 -----
@@ -421,14 +461,14 @@ document.addEventListener('input', (e) => {
   const ed = cueEd();
   if (!ed.draft) return;
   if (d.cue && e.target.tagName !== 'SELECT') { cueSet(d.cue, d.num ? Number(e.target.value) || 0 : e.target.value); return; }
-  if (d.cueLines !== undefined) { ed.draft.cues[Number(d.cueLines)].lines = cueLinesParse(e.target.value, S.cue.max_lines); ed.dirty = true; }
+  if (d.cueLines !== undefined) { ed.draft.cues[Number(d.cueLines)].lines = cueLinesParse(e.target.value, S.cue.max_lines, cueId); ed.dirty = true; }
 });
 
 document.addEventListener('change', (e) => {
   const d = e.target.dataset || {};
   if (d.cueEp) { if (e.target.value) location.hash = `${base()}/cue/${e.target.value}`; return; }
   if (d.cueCond !== undefined) { S.cueConds[e.target.checked ? 'add' : 'delete'](d.cueCond); S.cueEst = null; render(); return; }
-  if (d.cueSkip !== undefined) { S.cueSkip[d.cueSkip] = e.target.checked; render(); return; }
+  if (d.cueSkip !== undefined) { S.cueSkip[cueKeyOf('ep', d.cueSkip)] = e.target.checked; render(); return; }
   const ed = cueEd();
   if (d.cue && ed.draft) { cueSet(d.cue, d.num ? Number(e.target.value) || 0 : e.target.value); S.cueEst = null; render(); return; }
   if ((d.cue !== undefined || d.cueLines !== undefined) && ed.draft) render();  // 막대 · 대사 미리보기 · 저장 버튼
@@ -485,11 +525,12 @@ Object.assign(actions, {
   },
   cueReset() { cueSynced(); render(); },
   async cueClear(n) {
-    if (!(await askConfirm(`${n}화 큐 시트를 지울까요? 지우면 큐 시트를 쓰는 작품은 쓰기를 누를 때 새로 만들어요.`, { ok: '지우기', danger: true }))) return;
+    const after = ep(n) && ep(n).text ? '지우면 다시 생성은 큐 시트 없이 써요.' : '지우면 큐 시트를 쓰는 작품은 쓰기를 누를 때 새로 만들어요.';
+    if (!(await askConfirm(`${n}화 큐 시트를 지울까요? ${after}`, { ok: '지우기', danger: true }))) return;
     await run('큐 시트 지우는 중', async () => {
       await saveIfDirty();
       S.project = await api('DELETE', `/projects/${enc(S.name)}/episodes/${n}/cue-sheet`);
-      S.cueEdits[`ep:${n}`] = { draft: null, dirty: false };
+      S.cueEdits[cueKeyOf('ep', n)] = { draft: null, dirty: false };
     });
   },
   async cueToggle() {

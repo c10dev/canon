@@ -297,7 +297,8 @@ function viewWrite(n) {
     center = '';  // 만든 스토리보드(고치기 · 다시 만들기 · 이대로 쓰기, board.js)는 쓰기 시작 칸처럼 본문 칸 위에 둔다
     madeBoard = `<div class="w-board">${autoLockNote() || orderNote(blocked) || epWaitNote(n)}${boardStart(n, blocked)}
       <div class="row"><button class="btn" data-action="startManual" data-arg="${n}"${writing || blocked.length || autoOn() ? ' disabled' : ''}>직접 쓰기</button>
-        ${S.context ? `<details data-ctx-toggle${S.ctxOpen ? ' open' : ''}><summary>AI에게 보내는 컨텍스트 · ${ctxTotal()}</summary>${ctxList()}<div style="margin-top:8px">${promptBtn(n)}</div></details>` : ''}</div>
+        ${S.context ? `<details data-ctx-toggle${S.ctxOpen ? ' open' : ''}><summary>AI에게 보내는 컨텍스트 · ${ctxTotal()}</summary>${ctxList()}<div style="margin-top:8px">${promptBtn(n)}</div></details>` : ''}
+        <span class="w-fill"></span>${cueToggle()}</div>
     </div>`;
   } else {
     center = `<div class="prose">${editable

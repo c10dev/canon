@@ -542,7 +542,7 @@ class Runner:
         if not (self.run.policy.cue_sheet and cue.on(p)):
             return False
         s = p.episode(n).cue_sheet
-        if s is not None and (not cue.stale(p, n) or s.made_by in ("author", "both")):
+        if not cue.remake(p, n):
             if s.made_by in ("author", "both") and cue.stale(p, n):
                 self.log(f"{n}화 큐 시트를 만든 뒤 앞 화나 플롯이 바뀌었어요. 작가가 고친 시트라 그대로 써요", "warn")
             return False
@@ -576,6 +576,7 @@ class Runner:
                 raise _Halt("paused", f"{n}화 상태가 '{EP_STATUS.get(ep.status, ep.status)}'(으)로 바뀌어 멈췄어요",
                             _changed_while_writing(n, ep.status), kind="changed")
             ep.text, ep.status, ep.written_by, ep.meta_cut = text, "written", model, cut
+            cue.mark_used(q, n, True)  # 자동 집필은 있는 큐 시트를 넣어 쓴다 (prompts.episode_prompt)
             anchor.stamp(q, n)
         q = _edit(self.name, put)
         self.log(f"{n}화 본문 {len(text):,}자", **usage)
