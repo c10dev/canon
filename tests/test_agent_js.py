@@ -10,3 +10,13 @@ def test_mode_and_kind_labels_match_server():
                  "({ modes: Object.fromEntries(Object.entries(AGENT_MODES).map(([k, v]) => [k, v[0]])), kinds: AGENT_KINDS })", None)
     assert got["modes"] == agent.MODE_LABELS
     assert got["kinds"] == agent.KIND_LABELS
+
+
+@needs_node
+def test_step_wait_matches_server():
+    got = run_js(["app.js", "chat.js", "agent.js"],
+                 "({ wait: AGENT_STEP_WAIT, text: agentStepWait({ started: Date.now() / 1000 - 75 }),"
+                 " step: agentStepWait({ started: 0, step_at: Date.now() / 1000 - 5 }) })", None)
+    assert got["wait"] == agent.STEP_WAIT
+    assert got["text"] == "이번 단계 1:15"
+    assert got["step"] == "이번 단계 0:05"

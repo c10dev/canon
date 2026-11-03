@@ -173,12 +173,15 @@ TIMEOUT_HINT = "AI 서비스가 오래 응답하지 않아요. 잠시 뒤 다시
 
 
 def gemini_timeout() -> float:
-    """Gemini 응답을 기다리는 초. 환경 변수가 없거나 0 이하이거나 숫자가 아니면 GEMINI_TIMEOUT."""
+    """Gemini 응답을 기다리는 초. 환경 변수가 없거나 0 이하이거나 숫자가 아니면 GEMINI_TIMEOUT.
+    wait_cap 안이면 그 값을 넘지 않는다."""
     try:
         v = float(os.environ.get("CANON_GEMINI_TIMEOUT", ""))
     except ValueError:
-        return GEMINI_TIMEOUT
-    return v if v > 0 else GEMINI_TIMEOUT
+        v = 0
+    v = v if v > 0 else GEMINI_TIMEOUT
+    cap = _wait_cap.get()
+    return min(v, cap) if cap else v
 
 
 class TimedOut(RuntimeError):
@@ -225,6 +228,22 @@ def out_cap(tokens: int) -> Iterator[None]:
         yield
     finally:
         _out_cap.reset(token)
+
+
+# 이 안의 호출이 응답을 기다릴 가장 긴 초. None 이면 단계 기본값(gemini_timeout, 로컬 timeout). wait_cap 으로 정한다.
+_wait_cap: ContextVar[float | None] = ContextVar("wait_cap", default=None)
+
+
+@contextmanager
+def wait_cap(seconds: float) -> Iterator[None]:
+    """이 안의 Gemini · 로컬 호출은 응답을 seconds 초까지만 기다린다. 넘기면 한 번 다시 부르고(TIMEOUT_RETRIES),
+    또 넘기면 TimedOut 이다. 2026-11-03 플롯 대화 한 단계가 응답 없이 8분 넘게 멈춰 있었다.
+    기본 한도(600초)면 오류가 뜨기까지 20분이다."""
+    token = _wait_cap.set(seconds)
+    try:
+        yield
+    finally:
+        _wait_cap.reset(token)
 
 
 def _pause(seconds: float) -> None:
@@ -617,7 +636,7 @@ class LocalLLM:
         url = path if path.startswith("http") else self.base_url + path
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            with urllib.request.urlopen(req, timeout=min(self.timeout, _wait_cap.get() or self.timeout)) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")[:500]

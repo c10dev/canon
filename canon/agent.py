@@ -10,11 +10,12 @@
 
 from __future__ import annotations
 
+import time
 import uuid
 from datetime import datetime, timezone
 
 from . import cancel, context, jobs, pipeline, prompts, store
-from .llm import LLM, dump
+from .llm import LLM, dump, out_cap, wait_cap
 from .schema import (AgentSession, AgentTurn, Approval, AskCard, ChatScope, PlotAgentStep, PlotRevision, Project, StepRecord,
                      WriteItem, WriteRecord)
 
@@ -27,6 +28,10 @@ MODE_LABELS = {"ask": "물어보기", "draft": "빈 곳 · 초안만 자동", "a
 KIND_LABELS = {"draft": "초안 화", "next": "다음 아크 초안", "confirmed": "확정한 화", "arc": "아크 칸", "acts": "구간 · 범위", "parts": "부 구성"}
 DRAFT_KINDS = ("draft", "next")
 READ_TOOLS = ("read_plots", "read_summaries", "find_text", "read_cast")
+# 한 단계의 AI 호출 한도. 보통 5~30초, 길어도 4분 남짓이다(2026-11-03 사용량 기록 13건, 가장 긴 것 263초).
+# 응답이 없으면 STEP_WAIT 초 뒤 한 번 다시 부르고, 또 없으면 오류로 턴을 멈춘다 (llm.wait_cap)
+STEP_WAIT = 300
+STEP_OUT_TOKENS = 16384  # 가장 긴 단계 출력은 생각 포함 약 9,100토큰이었다. 같은 글을 되풀이하면 여기서 끊는다
 
 
 def now() -> str:
@@ -355,7 +360,10 @@ def run_turn(llm: LLM, name: str, sid: str, t: int, job=None) -> dict:
         scope = scope_of(p, s, turn)
         hint = {**pipeline.plot_chat_hint(p, turn.user, scope), "agent": True, "mode": turn.mode,
                 "steps": [x.kind for x in turn.steps], "tools": [x.tool for x in turn.steps]}
-        step = llm.json(prompts.SYSTEM_AGENT_PLOT, prompts.agent_plot_prompt(p, s, turn, scope, MAX_STEPS - i), PlotAgentStep, hint=hint)
+        if job is not None:
+            job.step_at = time.time()
+        with wait_cap(STEP_WAIT), out_cap(STEP_OUT_TOKENS):
+            step = llm.json(prompts.SYSTEM_AGENT_PLOT, prompts.agent_plot_prompt(p, s, turn, scope, MAX_STEPS - i), PlotAgentStep, hint=hint)
         end = _edit(name, lambda q: _step(q, sid, t, step))
         if job is not None:
             job.done = i + 1

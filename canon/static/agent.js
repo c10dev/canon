@@ -12,6 +12,8 @@ const AGENT_CMDS = [['/여러안', '바꾸기 전에 방향 여러 안으로 물
   ['/새세션', '지금 보는 곳으로 새 세션'], ['/되돌리기', '마지막으로 바꾼 턴 되돌리기']];
 const AGENT_STEP_ICON = { read: '읽', write: '씀', wait: '물', block: '막', ask: '?', note: '·' };
 const AGENT_LEGACY = 'legacy';
+const AGENT_SLOW = 60;  // 한 단계를 이 초보다 오래 기다리면 늦음 안내를 보인다 (보통 5~30초)
+const AGENT_STEP_WAIT = 300;  // 서버 agent.STEP_WAIT 와 같다. 이만큼 응답이 없으면 한 번 다시 부르고, 또 없으면 오류로 멈춘다
 const AGENT_ICON = {
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>',
   send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"></path></svg>',
@@ -60,6 +62,16 @@ function agentSession() {
 
 function agentRunningJob() {
   return S.jobs.find((j) => j.status === 'running' && j.project === S.name && j.kind === 'agent');
+}
+
+/** 지금 단계를 기다린 초 (서버 시각 기준이라 몇 초 어긋날 수 있다). */
+function agentStepSec(j) {
+  return Math.max(0, Math.round(Date.now() / 1000 - (j.step_at || j.started)));
+}
+
+function agentStepWait(j) {
+  const sec = agentStepSec(j);
+  return `이번 단계 ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
 }
 
 function agentTargetText(target) {
@@ -151,7 +163,8 @@ function agentTurn(s, t, i) {
       ${running ? `<li class="step run"><span class="ico" aria-hidden="true">…</span><span class="what">다음 단계를 고르는 중</span><span class="why"></span></li>` : ''}</ol></details>` : '';
   const job = running ? agentRunningJob() : null;
   const bar = running ? `<div class="run-bar" role="status"><span class="spinner small" aria-hidden="true"></span>
-      <span>${job ? job.done : t.steps.length}/${S.agent.max_steps}단계</span><span class="run-meter" aria-hidden="true"><i style="width:${Math.round(((job ? job.done : 0) / S.agent.max_steps) * 100)}%"></i></span></div>` : '';
+      <span>${job ? job.done : t.steps.length}/${S.agent.max_steps}단계</span>${job ? `<span data-step-wait="${job.id}" aria-hidden="true">${agentStepWait(job)}</span>` : ''}<span class="run-meter" aria-hidden="true"><i style="width:${Math.round(((job ? job.done : 0) / S.agent.max_steps) * 100)}%"></i></span></div>
+      ${job ? `<div class="note warn" data-step-slow="${job.id}"${agentStepSec(job) > AGENT_SLOW ? '' : ' hidden'}>AI 응답이 늦어요. 한 단계는 보통 30초 안에 끝나요. ${AGENT_STEP_WAIT / 60}분 동안 응답이 없으면 한 번 다시 부르고, 또 없으면 오류로 멈춰요. 기다리지 않으려면 ■ 로 멈춘 뒤 '이어 하기'로 다시 보내세요.</div>` : ''}` : '';
   const ends = {
     cap: `<div class="note warn"><div>${S.agent.max_steps}단계에서 멈췄어요. 이어서 더 할 수 있어요.</div>${last ? `<div class="row proposal-actions"><button type="button" class="btn small primary" data-action="agentContinue" data-arg="${i}">이어 하기</button></div>` : ''}</div>`,
     stopped: `<div class="note plain"><div>멈췄어요. 쓰던 것은 저장하지 않았어요.${t.error ? ` (${esc(t.error)})` : ''}</div>${last ? `<div class="row proposal-actions"><button type="button" class="btn small" data-action="agentContinue" data-arg="${i}">이어 하기</button></div>` : ''}</div>`,
@@ -587,3 +600,15 @@ document.addEventListener('click', (e) => {
   S.agentMenu = S.agentModeMenu = S.agentPlus = false;
   redrawChat();
 });
+
+// 이번 단계에서 기다린 시간과 늦음 안내는 대화 기록을 다시 그리지 않고 1초마다 그 자리만 고친다 (app.js 의 data-elapsed 와 같은 방식)
+setInterval(() => {
+  document.querySelectorAll('[data-step-wait]').forEach((el) => {
+    const j = S.jobs.find((x) => x.id === el.dataset.stepWait);
+    if (j && j.status === 'running') el.textContent = agentStepWait(j);
+  });
+  document.querySelectorAll('[data-step-slow]').forEach((el) => {
+    const j = S.jobs.find((x) => x.id === el.dataset.stepSlow);
+    el.hidden = !(j && j.status === 'running' && agentStepSec(j) > AGENT_SLOW);
+  });
+}, 1000);
