@@ -4,6 +4,7 @@ LLM 호출 직전과 작품 저장 직전에 check() 로 확인해, 멈춘 작�
 from __future__ import annotations
 
 import threading
+from contextlib import contextmanager
 from contextvars import ContextVar
 
 
@@ -24,3 +25,13 @@ def stopped() -> bool:
     """멈추기 신호가 섰는가. check 와 달리 오류를 내지 않는다 (멈춘 뒤 온 응답을 버리지 않고 표시해 남기는 곳이 쓴다)."""
     ev = current.get()
     return ev is not None and ev.is_set()
+
+
+@contextmanager
+def ignored():
+    """멈추기 신호를 잠시 보지 않는다. 멈춘 뒤 온 응답을 남기는 곳이 저장(store.save 의 check)을 지나게 쓴다."""
+    tok = current.set(None)
+    try:
+        yield
+    finally:
+        current.reset(tok)

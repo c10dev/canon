@@ -145,6 +145,18 @@ def lingering(project: str, kind: str, ep: int | None) -> Job | None:
     return next((j for j in list(_jobs.values()) if j.waiting and (j.project, j.kind, j.ep) == (project, kind, ep)), None)
 
 
+# 한 화를 두고 AI 를 부르는 작업. 같은 화에서 멈춘 작업이 아직 응답을 기다리면 이 작업은 새로 시작하지 않는다 (waiting_on)
+EP_AI_KINDS = frozenset({"board", "check", "cues", "plot_one", "state", "write"})
+
+
+def waiting_on(project: str, ep: int | None) -> Job | None:
+    """그 화의 EP_AI_KINDS 작업 가운데 멈췄지만 아직 AI 응답을 기다리는 것. 종류가 달라도 다시 시작하면 호출이 겹친다."""
+    if ep is None:
+        return None
+    return next((j for j in list(_jobs.values())
+                 if j.waiting and j.kind in EP_AI_KINDS and (j.project, j.ep) == (project, ep)), None)
+
+
 def get(jid: str) -> Job | None:
     return _jobs.get(jid)
 
