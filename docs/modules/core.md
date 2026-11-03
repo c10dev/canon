@@ -116,7 +116,7 @@
 - 비용 추정(`estimate`)
 - 실행(`run`, 실험 기록 · 블라인드 비교본 kind cue)
 - AI 호출은 `pipeline.make_cue_sheet` · `write_scored` · `play_cues`
-- 프롬프트 `prompts.cue_sheet_prompt` · `cue_sheet_block` · `cue_score_prompt` · `cue_head` · `cue_step` · `cue_play_prompt`(k번째 요청이 앞 요청과 응답을 통째로 품음)
+- 프롬프트 `prompts.cue_sheet_prompt`(대사 큐 몫은 작품 문체 기준에서 `cue_dialogue_share`) · `cue_sheet_block` · `cue_score_prompt` · `cue_head` · `cue_step` · `cue_play_prompt`(k번째 요청이 앞 요청과 응답을 통째로 품음)
 - 작품에 저장하지 않고 `cuelab/<화>.json`(`store.load_cuelab` · `save_cuelab`)
 - 화면은 `static/cue.js`
   - 실험 화면과 집필 화면의 큐 시트 카드 `cueCard`
