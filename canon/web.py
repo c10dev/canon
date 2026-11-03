@@ -2306,6 +2306,21 @@ def _waiting_409(old: jobs.Job) -> NoReturn:
                              "이미 보낸 호출은 끊을 수 없어요. 응답이 오거나 시간이 다 되면 다시 시작할 수 있어요")
 
 
+def _keep_late_board(name: str, n: int, b: Storyboard) -> bool:
+    """멈춘 스토리보드 작업의 늦은 응답 b 를 n 화에 남긴다. 그 사이 스토리보드나 본문이 생겼거나 플롯 확정을 풀었으면 버린다."""
+    kept = False
+
+    def put(q: Project) -> None:
+        nonlocal kept
+        e = q.episode(n)
+        if e.storyboard is None and not e.text and e.status != "draft":
+            pipeline.set_storyboard(q, n, b, by="ai")
+            kept = True
+    with cancel.ignored():
+        _edit(name, put)
+    return kept
+
+
 @app.post("/api/projects/{name}/jobs")
 def start_job(name: str, body: JobIn) -> dict:
     """오래 걸리는 AI 작업을 시작하고 바로 돌아온다. 결과는 GET /api/jobs 로 본다."""
@@ -2523,6 +2538,8 @@ def start_job(name: str, body: JobIn) -> dict:
 
         def fn(job: jobs.Job):
             b = pipeline.make_storyboard(llm, store.load(name), n)
+            if cancel.stopped():  # 멈춘 뒤 온 응답도 값을 치렀다
+                return {"kept": _keep_late_board(name, n, b)}
             _edit(name, lambda q: pipeline.set_storyboard(q, n, b, by="ai"))
             return None
     elif kind == "cues":
@@ -2654,6 +2671,8 @@ def _keep_pending(name: str, kind: str, n: int | None, label: str, fn):
                 d["failures"][key] = fail
             store.edit_pending(name, put_fail)
             raise
+        if cancel.stopped():
+            return out  # 멈춘 작업은 성공으로 남기지 않는다. 늦은 응답을 남긴 작업(스토리보드)은 결과만 싣는다
         rec = None
         if kind in PENDING_KINDS and out is not None:
             # 상태 변경안은 만든 본문을 함께 둔다. 그 뒤 본문을 고쳤으면 화면이 알린다

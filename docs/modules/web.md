@@ -40,6 +40,7 @@
 - body 바로 아래 층(칸 밖 저장 띠 `#savebar`, 알림 창 `#hub-pop`)도 서랍을 연 동안 `inert`다. 알림 말풍선 `#toast`는 낭독 영역이라 뺀다
 - 백그라운드 작업 · 검토 대기 결과
 - 멈췄지만 AI 응답을 기다리는 작업(`S.jobsHeld`)이 있는 화는 `jobBtn` 이 `EP_AI_KINDS` 버튼을 '응답 기다리는 중'으로 잠근다(`epWaiting` · `epWaitNote`, 서버 `jobs.waiting_on` 과 같은 셈)
+- 멈춘 스토리보드 작업의 응답이 오면 `JOB_LATE.board` 가 남겼는지 알리고, 남겼으면 그 화를 다시 받는다
 - 짧은 기다림 가림막 `run`(`#busy`): 상자 이름은 작업 이름(`#busy-label`)이고, 1초마다 바뀌는 경과 초(`#busy-sec`)는 낭독하지 않는다
 - 알림 말풍선(`toast`, 작업 실패는 '다시 시도' · '설정' 버튼, 기록과 자리는 `hub.js`)
 - 입력 바인딩(`data-bind`)

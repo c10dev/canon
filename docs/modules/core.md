@@ -34,6 +34,7 @@
 - 웹 작업 멈추기 신호
 - `jobs.start` 가 스레드마다 둔다
 - LLM 호출 전과 저장 전에 `check()` 로 확인해 멈춘 작업이 결과를 저장하지 못하게 한다
+- 멈춘 뒤 온 응답을 남기는 곳은 `ignored()` 안에서 저장한다(스토리보드 `_keep_late_board`)
 
 ### `canon/cli.py`
 
@@ -309,5 +310,7 @@
 - 사용자가 화면에서 고르거나 고친 뒤 저장 요청을 보낼 때 반영한다
 - 오래 걸리는 AI 작업은 `jobs.start` 로 돌린다
 - `start_job` 은 같은 화에서 멈춘 작업이 AI 응답을 기다리면 `EP_AI_KINDS` 작업을 409 로 막는다(`_waiting_409`, 역설계 실험 `rev_job` 과 같은 문구)
+- 멈춘 스토리보드 작업의 늦은 응답은 그 화에 스토리보드 · 본문이 없고 플롯이 확정돼 있으면 남긴다(`_keep_late_board`, 결과 `{kept}`)
+- `_keep_pending` 은 멈춘 작업의 결과를 pending.json 에 남기지 않고 지난 실패도 지우지 않는다
 - 읽기 전용 GET 은 `_view`(`store.load_view`)로 작품을 읽는다
 - 작품 전체 저장은 `put_project`

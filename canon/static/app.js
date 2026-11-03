@@ -220,6 +220,20 @@ const JOB_DONE_MSG = {
 // 작업 목록 · 알림에 넣지 않는 작업: 플레이 화면이 시계와 출생 카드에 따로 보인다 (play.js)
 const QUIET_JOBS = new Set(['play_turn', 'play_sketch']);
 JOB_DONE_MSG.play_world = (j) => `새 세계 ${j.project}${josa(j.project, '을', '를')} 만들었어요. 새 플레이에서 고르세요.`;
+JOB_STOP_NOTE.board = '이미 보낸 AI 호출은 끊을 수 없어요. 응답이 오면 그 화에 스토리보드와 본문이 아직 없을 때만 남겨요 (비용은 들어요). 그동안 그 화의 AI 작업은 시작할 수 없어요.';
+/** 멈춘 스토리보드 작업의 응답이 왔다 (서버 _keep_late_board). 그 화에 남았으면(result.kept) 알리고 그 화를 다시 받는다 */
+JOB_LATE.board = async (j) => {
+  const r = j.result;
+  if (!r) return false;  // 응답이 오기 전에 실패했다
+  if (!r.kept) {
+    toast(`멈춘 '${j.label}'의 응답이 왔지만 그 사이 ${j.ep}화에 스토리보드나 본문이 생겼거나 플롯 확정을 풀어 남기지 않았어요.`);
+    return false;
+  }
+  toast(`멈춘 '${j.label}'의 응답이 와서 ${j.ep}화에 남겼어요. 필요 없으면 스토리보드 지우기를 누르세요.`);
+  if (j.project !== S.name) return false;
+  await mergeEpisodes((e) => e.plot.number === j.ep);
+  return true;
+};
 let jobTimer = null;
 
 function jobFor(kind, ep = null, name = S.name) {
