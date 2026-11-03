@@ -35,6 +35,8 @@
 - 대화 에이전트(지금은 플롯 대화 `plot`만)
 - 세션(`AgentSession`, 주제마다 여럿, 기본 대상 · 권한 모드 `ask|draft|all`)
 - 턴(`AgentTurn`)을 백그라운드 작업 `agent` 로 돌린다(`run_turn`, 단계마다 `llm.json(PlotAgentStep)`, 최대 `MAX_STEPS`=8, 단계마다 저장)
+- `PlotAgentStep.tool` 은 빈 글과 도구 이름만 받는 Literal 이다. 빈 글이면 reply 로 턴을 끝낸다
+- 모델이 'reply' · 'done' 같은 끝 이름(`schema.AGENT_END_TOOLS`)을 tool 에 적으면 빈 글로 받는다
 - 도구는 읽기(`read_plots` · `read_summaries` · `find_text`(`context.recall`) · `read_cast`, 결과 `RESULT_LIMIT` 자)와 쓰기 `edit_plot`
 - 되묻기 `ask`
 - 쓰기는 `clean_revision` 으로 거른다(본문이 있는 화는 막힘)

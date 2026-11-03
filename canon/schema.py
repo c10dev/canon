@@ -978,16 +978,29 @@ class ToolArg(BaseModel):
     value: str = Field("", description="인자 값")
 
 
+AGENT_END_TOOLS = ("done", "end", "finish", "none", "reply")  # 모델이 턴 끝을 도구 이름처럼 적는 말. 빈 tool 과 같이 받는다
+
+
 class PlotAgentStep(BaseModel):
     """플롯 대화 에이전트의 한 단계. 도구 하나를 부르거나, tool 을 비우고 reply 로 턴을 끝낸다 (agent.run_turn)."""
     thought: str = Field("", description="작가에게 보일 한 줄: 이 단계에서 무엇을 왜 하는지")
-    tool: str = Field("", description="부를 도구 이름 ([도구] 목록에 있는 것). 비우면 reply 로 턴을 끝낸다")
+    tool: Literal["", "read_plots", "read_summaries", "find_text", "read_cast", "edit_plot", "ask"] = Field(
+        "", description="부를 도구 이름 ([도구] 목록에 있는 것). 턴을 끝낼 때는 빈 글로 두고 reply 칸에 답을 쓴다. reply 는 도구 이름이 아니다")
     args: list[ToolArg] = Field(default_factory=list, description="읽기 도구의 인자")
     edit: PlotRevision = Field(default_factory=lambda: PlotRevision(reply=""),
                                description="edit_plot 일 때만: 바꿀 것만 채운 변경안. reply 는 한 줄 설명. 다른 도구면 비워 둔다")
     question: str = Field("", description="ask 일 때만: 작가에게 묻는 말")
     options: list[Direction] = Field(default_factory=list, description="ask 일 때만: 고를 방향 2~3개 (방향을 물을 때)")
     reply: str = Field("", description="tool 이 비었을 때: 작가에게 하는 답 2~5문장. 무엇을 바꿨고 무엇을 물었는지")
+
+    @field_validator("tool", mode="before")
+    @classmethod
+    def _end_name(cls, v):
+        """'reply' · 'done' 같은 끝 이름은 빈 글(턴 끝)로, 대소문자는 작게 받는다. 없는 도구 이름은 형식 오류로 다시 묻는다."""
+        if not isinstance(v, str):
+            return v
+        v = v.strip().lower()
+        return "" if v in AGENT_END_TOOLS else v
 
 
 class StepRecord(BaseModel):
