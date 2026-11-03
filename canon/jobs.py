@@ -36,6 +36,7 @@ class Job:
     result: Any = None
     error: str = ""
     started: float = field(default_factory=time.time)
+    step_at: float = 0  # 지금 단계를 시작한 시각. 0 이면 started. 단계마다 AI 를 부르는 작업(agent.run_turn)이 고친다
     finished: float | None = None
     owned: set[int] = field(default_factory=set)
     pending: list[int] = field(default_factory=list)  # 맡은 화 중 아직 결과를 쓰지 않은 화 (화면이 그 화만 잠근다)
@@ -47,7 +48,7 @@ class Job:
         return {
             "id": self.id, "project": self.project, "kind": self.kind, "ep": self.ep, "label": self.label,
             "total": self.total, "done": self.done, "note": self.note, "status": self.status,
-            "result": self.result, "error": self.error, "started": self.started, "finished": self.finished,
+            "result": self.result, "error": self.error, "started": self.started, "step_at": self.step_at or self.started, "finished": self.finished,
             "pending": sorted(self.pending), "waiting": self.waiting,
         }
 

@@ -203,3 +203,42 @@ def test_next_arc_goes_to_draft_without_changing_the_project(client):
     keys = [i["key"] for w in t["writes"] for i in w["items"]]
     assert keys == ["draft"] and t["writes"][0]["revision"]["arc"]["title"] == "대화로 짠 아크"
     assert [a.model_dump() for a in store.load("sr").story_arcs] == arcs  # 다음 아크 초안은 화면에만 놓인다
+
+
+def test_step_call_waits_less_and_caps_output(client, monkeypatch):
+    """한 단계의 AI 호출은 STEP_WAIT 초까지만 기다리고 출력도 STEP_OUT_TOKENS 까지 받는다. 작업에 단계 시작 시각을 남긴다."""
+    import time
+
+    from canon import agent, jobs, llm, store
+    from canon.schema import PlotAgentStep
+
+    monkeypatch.delenv("CANON_GEMINI_TIMEOUT", raising=False)
+    _project(client)
+    sid = _session(client)
+    p = store.load("lh")
+    t = agent.add_turn(p, sid, "3화 전개가 너무 빨라")
+    store.save("lh", p)
+    seen = {}
+
+    class Fake:
+        def json(self, system, prompt, schema, hint=None):
+            seen.update(wait=llm.gemini_timeout(), out=llm._out_cap.get())
+            return PlotAgentStep(reply="그대로 둘게요")
+
+    job = jobs.Job(id="x", project="lh", kind="agent", ep=None, label="")
+    before = time.time()
+    assert agent.run_turn(Fake(), "lh", sid, t, job)["end"] == "done"
+    assert seen == {"wait": agent.STEP_WAIT, "out": agent.STEP_OUT_TOKENS}
+    assert job.step_at >= before and job.public()["step_at"] == job.step_at
+    assert llm.gemini_timeout() == llm.GEMINI_TIMEOUT  # 단계 밖은 그대로
+
+
+def test_wait_cap_never_raises_the_limit(monkeypatch):
+    from canon import llm
+
+    monkeypatch.setenv("CANON_GEMINI_TIMEOUT", "90")
+    with llm.wait_cap(300):
+        assert llm.gemini_timeout() == 90
+    monkeypatch.delenv("CANON_GEMINI_TIMEOUT")
+    with llm.wait_cap(300):
+        assert llm.gemini_timeout() == 300
