@@ -3986,7 +3986,7 @@ def memo_texts(p: Project, n: int) -> list[str]:
     if ep.storyboard:
         out += [x for sc in ep.storyboard.scenes for x in (sc.goal, sc.turn, sc.end_state)]
         out += [h.text for h in ep.storyboard.handover]
-    if ep.cue_sheet:
+    if ep.cue_sheet and not ep.cue_sheet.skipped:  # 큐 시트 없이 쓴 본문에는 큐 메모가 들어가지 않았다
         out += [x for c in ep.cue_sheet.cues for x in (c.beat, c.exit)]
     return [x for x in out if x and x.strip()]
 

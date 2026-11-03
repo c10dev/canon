@@ -2430,6 +2430,7 @@ class CueSheet(CueSheetDraft):
     made_at: SkipJsonSchema[str] = ""
     made_by: SkipJsonSchema[Literal["ai", "board", "author", "both"]] = "ai"
     basis: SkipJsonSchema[str] = Field("", description="화에 붙인 큐 시트를 만들 때 입력의 지문 (cue.ep_basis). 지금 값과 다르면 낡은 것. 실험 시트는 비움")
+    skipped: SkipJsonSchema[bool] = Field(False, description="지금 본문을 이 큐 시트 없이 썼다 (쓰기 작업의 cues: none). 다시 생성도 넣지 않고, 실현도를 세지 않는다")
 
 
 class CueTake(BaseModel):

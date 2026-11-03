@@ -2493,7 +2493,7 @@ def start_job(name: str, body: JobIn) -> dict:
             else:
                 make = body.board == "make"
                 use_cues = body.cues != "none"
-                make_cues = use_cues and cue.on(p) and e.cue_sheet is None and not e.text
+                make_cues = use_cues and cue.on(p) and not e.text and cue.remake(p, n)  # 없거나 낡은 AI · 뼈대 시트
                 plan = get_llm("plan") if make or make_cues else None  # 스토리보드 · 큐 시트는 plan 단계 모델
                 label = f"{n}화 {'스토리보드와 ' if make else ''}{'큐 시트와 ' if make_cues else ''}본문"
                 total, owned = 1 + make + make_cues, {n}
@@ -2519,6 +2519,7 @@ def start_job(name: str, body: JobIn) -> dict:
                         anchor.stamp(q, n)
                         if q.episode(n).storyboard is not None:  # 스토리보드 없이 쓴 본문은 검수가 그 전제를 대조하지 않는다
                             q.episode(n).storyboard.skipped = body.board == "none"
+                        cue.mark_used(q, n, use_cues)  # 큐 시트 없이 쓴 본문: 다시 생성도 넣지 않고 화면이 '쓴 큐 시트'로 보이지 않는다
                     _edit(name, save)
                     return None
         else:
@@ -2759,6 +2760,7 @@ def write_episode(name: str, n: int) -> Project:
     llm, cut = get_llm("write"), []
     text = pipeline.write_episode(llm, p, n, cut=cut)
     pipeline.replace_text(p.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut)  # 지금 본문이 있으면 '이전 판'에 남는다
+    cue.mark_used(p, n, True)
     anchor.stamp(p, n)
     return _save(name, p)
 

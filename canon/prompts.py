@@ -3183,7 +3183,9 @@ def rewrite_block(p: Project, n: int, req, materials: dict[str, list[str]], old:
 
 
 def rewrite_prompt(p: Project, n: int, req, materials: dict[str, list[str]], old: str = "") -> str:
-    return episode_prompt(p, n) + "\n\n" + rewrite_block(p, n, req, materials, old)
+    """지금 본문을 큐 시트 없이 썼으면(CueSheet.skipped) 다시 생성도 큐 시트를 넣지 않는다."""
+    s = p.episode(n).cue_sheet
+    return episode_prompt(p, n, use_cues=not (s and s.skipped)) + "\n\n" + rewrite_block(p, n, req, materials, old)
 
 
 def state_prompt(p: Project, n: int) -> str:

@@ -183,17 +183,109 @@ def test_js_card_and_panel(demo):
       S.cue = data.labels; S.cueViewSig = cueSig(2); S.cueViewData = { on: true, stale: true, hit: 0, total: 0, missed: [] };
       const card = cueCard(2, []);
       const edit = cueEd();
-      S.cueSkip[3] = true;
+      const key = S.cueKey;
+      S.cueSkip[cueKeyOf('ep', 3)] = true;
       const skip = cueWriteArg(3);
       S.cueViewSig = cueSig(1); S.cueViewData = { on: true, stale: false, hit: 0, total: 1, missed: ['등불을 끄지 마.'] };
       const panel = cuePanel(1);
       S.project.settings.cue_sheet = false;
       const off = cueCard(3, []);
-      return { card, key: S.cueKey, lines: edit.draft.cues[1].lines, skip, panel, off, none: cueWriteArg(2) };
+      return { card, key, lines: edit.draft.cues[1].lines, skip, panel, off, none: cueWriteArg(2) };
     })()""", {"p": dump(p), "labels": labels})
     assert "큐 시트" in got["card"] and "cue-bars" in got["card"] and "큐 시트 고치기" in got["card"]
     assert "바뀌었어요" in got["card"] and "이번 화는 큐 시트 없이 쓰기" in got["card"]
-    assert got["key"] == "ep:2" and got["lines"][0]["text"] == "등불을 끄지 마."  # 패널 · 그리지 않은 카드는 열쇠를 바꾸지 않는다
+    assert got["key"] == "ep:2:demo" and got["lines"][0]["text"] == "등불을 끄지 마."
+    assert "AI가 지금 자료로 큐 시트를 새로 만들고" not in got["card"]  # 작가가 고친 시트는 낡아도 쓰기가 그대로 쓴다
+    assert "큐 시트 고치기" in got["panel"] and "큐 시트 지우기" in got["panel"]  # 쓴 화도 다시 생성용 시트를 고친다
     assert got["skip"] == {"cues": "none"} and got["none"] == {}
     assert "핵심 대사 0/1" in got["panel"] and "본문에 없는 핵심 대사" in got["panel"]
     assert got["off"] == ""  # 끈 작품 · 시트 없는 화는 카드가 없다
+
+
+def test_web_write_remakes_stale_ai_sheet_but_keeps_author_sheet(demo):
+    """쓰기 작업은 낡은 AI · 뼈대 시트를 새로 만든다 (자동 집필 _cues 와 같은 규칙 cue.remake). 작가가 고친 시트는 그대로 쓴다."""
+    from canon import web
+
+    c = TestClient(web.app)
+    p = store.load(demo)
+    cue.set_episode(p, 1, _sheet("옛 AI 대사."), by="ai")
+    p.episode(1).cue_sheet.basis = "old"
+    cue.set_episode(p, 2, _sheet("작가가 정한 말."))
+    p.episode(2).cue_sheet.basis = "old"
+    store.save(demo, p)
+    assert cue.remake(p, 1) and not cue.remake(p, 2) and cue.stale(p, 2)
+    r = c.post(f"/api/projects/{demo}/jobs", json={"kind": "write", "ep": 1})
+    assert r.json()["total"] == 2 and "큐 시트와" in r.json()["label"]
+    assert _wait(c, r.json()["id"])["status"] == "done"
+    e = store.load(demo).episode(1)
+    assert e.cue_sheet.basis != "old" and "옛 AI 대사." not in [x.text for k in e.cue_sheet.cues for x in k.lines]
+    p = store.load(demo)
+    p.episode(1).status = "finalized"
+    store.save(demo, p)
+    r = c.post(f"/api/projects/{demo}/jobs", json={"kind": "write", "ep": 2})
+    assert r.json()["total"] == 1
+    assert _wait(c, r.json()["id"])["status"] == "done"
+    e = store.load(demo).episode(2)
+    assert e.cue_sheet.made_by == "author" and "작가가 정한 말." in e.text
+
+
+def test_write_without_sheet_marks_skipped(demo):
+    """'이번 화는 큐 시트 없이 쓰기'로 쓰면 시트에 skipped 를 적는다: 화면 값은 대사를 세지 않고, 다시 생성 · 검수 메모도 시트를 넣지 않는다."""
+    from canon import web
+    from canon.schema import RewriteRequest
+
+    c = TestClient(web.app)
+    p = store.load(demo)
+    cue.set_episode(p, 1, _sheet())
+    store.save(demo, p)
+    r = c.post(f"/api/projects/{demo}/jobs", json={"kind": "write", "ep": 1, "cues": "none"})
+    assert r.json()["total"] == 1
+    assert _wait(c, r.json()["id"])["status"] == "done"
+    p = store.load(demo)
+    assert p.episode(1).cue_sheet.skipped and "등불을 끄지 마." not in p.episode(1).text
+    v = c.get(f"/api/projects/{demo}/episodes/1/cue-sheet").json()
+    assert v["skipped"] and v["total"] == 0 and v["rows"] == []
+    assert "# 이번 화 큐 시트" not in pipeline.rewrite_prompt(p, 1, RewriteRequest())
+    assert "등대에 오른다" not in pipeline.memo_texts(p, 1)
+    cue.set_episode(p, 1, _sheet("고친 말."))  # 본문이 있는 동안 작가가 고쳐도 지금 본문에 대한 사실은 그대로
+    assert p.episode(1).cue_sheet.skipped
+    store.save(demo, p)
+    r = c.post(f"/api/projects/{demo}/jobs", json={"kind": "write", "ep": 1})  # 큐 시트를 넣어 새로 쓰면 지운다
+    assert _wait(c, r.json()["id"])["status"] == "done"
+    p = store.load(demo)
+    assert not p.episode(1).cue_sheet.skipped and "# 이번 화 큐 시트" in pipeline.rewrite_prompt(p, 1, RewriteRequest())
+
+
+@needs_node
+def test_js_keys_per_project_names_and_skipped_panel(demo):
+    """고치는 큐 시트 · '없이 쓰기'는 작품마다 따로, 대사 칸은 인물 이름으로 읽고 쓴다, 없이 쓴 화의 패널."""
+    p = store.load(demo)
+    hero = next(ch for ch in p.characters if ch.id == "hero")
+    cue.set_episode(p, 2, _sheet())
+    p.episode(1).text, p.episode(1).status = "앞 화.", "finalized"
+    cue.set_episode(p, 1, _sheet())
+    p.episode(1).cue_sheet.skipped = True
+    labels = {"candidates": [], "labs": [], "runs": [], **_labels(), "name": "demo"}
+    got = run_js(FILES, """(() => {
+      S.project = data.p; S.name = 'demo'; S.route = ['p', 'demo', 'write', '2'];
+      S.cue = data.labels; S.cueViewSig = cueSig(2); S.cueViewData = { on: true, stale: false, hit: 0, total: 0, missed: [] };
+      cueCard(2, []);
+      cueEd().draft.cues[0].tension = 4; cueEd().dirty = true;
+      S.cueSkip[cueKeyOf('ep', 2)] = true;
+      const card = cueCard(2, []);
+      const lines = cueLinesText(data.p.episodes[1].cue_sheet.cues[1].lines, cueName);
+      const parsed = cueLinesParse(lines + '\\n모르는 사람: 안녕', 3, cueId);
+      S.cueViewSig = cueSig(1); S.cueViewData = { on: true, skipped: true, stale: false, hit: 0, total: 0, missed: [], rows: [] };
+      const panel = cuePanel(1);
+      // 다른 작품의 같은 화: 고침도 '없이 쓰기'도 따라오지 않는다
+      S.name = 'other'; S.cue = { ...data.labels, name: 'other' }; S.project = structuredClone(data.p); S.project.episodes[1].cue_sheet = null;
+      S.cueViewSig = cueSig(2); S.cueViewData = { on: true, stale: false, hit: 0, total: 0, missed: [] };
+      const other = cueCard(2, []);
+      return { card, lines, parsed, panel, other, otherDraft: cueEd().draft, otherSkip: cueWriteArg(2) };
+    })()""", {"p": dump(p), "labels": labels})
+    assert "cue-row" not in got["card"] and "checked" in got["card"]  # 없이 쓰기를 고르면 편집기를 접는다
+    assert got["lines"] == f"{hero.name}: 등불을 끄지 마."
+    assert got["parsed"] == [{"speaker": "hero", "text": "등불을 끄지 마."}, {"speaker": "모르는 사람", "text": "안녕"}]
+    assert "이 본문은 큐 시트 없이 썼어요" in got["panel"] and "핵심 대사" not in got["panel"] and "큐 시트 고치기" not in got["panel"]
+    assert "아직 없음" in got["other"] and "cue-row" not in got["other"] and got["otherDraft"] is None
+    assert got["otherSkip"] == {}

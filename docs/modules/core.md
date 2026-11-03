@@ -103,7 +103,9 @@
 
 - 집필 경로의 화별 큐 시트(`Episode.cue_sheet`): 켜짐(`on`)
 - 입력 지문(`ep_basis`: 스토리보드 입력 + 스토리보드 내용) · 낡음(`stale`)
-- 넣기 · 지우기(`set_episode`)
+- 넣기 · 지우기(`set_episode`, 본문이 있으면 `skipped` 를 그대로 둠)
+- 새로 만들지(`remake`: 없거나 낡은 AI · 뼈대 시트, 웹 쓰기 작업 · 자동 집필 `_cues`)
+- 방금 쓴 본문에 시트를 넣었는지(`mark_used` → `CueSheet.skipped`, 없이 쓴 화는 `ep_view` 가 세지 않고 다시 생성 `prompts.rewrite_prompt` · `pipeline.memo_texts` 도 뺌)
 - 화면 값(`ep_view`: 낡음 · 핵심 대사가 들어간 수)
 - 쓴 화의 큐 실현도 `realized`(목표 글자 수 비율로 자른 대략 위치 `split_by_target`, 편성 `voice_ok` · 템포 `tempo_ok`: fast 는 화 평균보다 짧은 문장, slow 는 긴 문장)
 - 쓴 화의 템포 곡선(`ep_view` 의 `curve`, `metrics.tempo_curve`)
@@ -122,7 +124,8 @@
   - 실험 화면과 집필 화면의 큐 시트 카드 `cueCard`
   - 역설계 실험도 편집기를 함께 씀(열쇠 `rev:<화>`) · 쓴 화의 접은 카드 `cuePanel` · 켜기 `cueToggle`
   - 편집기 `cueEditor` 와 막대 `cueScore` 는 둘이 함께 씀
-  - 고치는 시트는 열쇠마다 `cueBind`
+  - 고치는 시트는 열쇠마다 `cueBind`(집필 · 실험 열쇠는 작품 이름을 붙인 `cueKeyOf`, '없이 쓰기' `S.cueSkip` 도)
+  - 핵심 대사 칸은 인물 이름(`cueName` · `cueId`)
   - 순수 함수 `cueLinesParse` · `cueLinesText` · `cueBars` · `cueCurveOk` · 말투가 빈 핵심 대사 인물 `cueVoiceGaps`
   - `tests/test_cue.py` · `test_cue_write.py`
 - 웹은 작업 `cues`

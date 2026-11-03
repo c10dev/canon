@@ -85,7 +85,7 @@ from . import (address, archetypes, autorun, branches, cast, charlog, dynamics, 
 from .llm import dump, get_llm
 from .schema import FINDING_STATUS, SEVERITY, ConsistencyReport, LoglineParts, Meta, Project, RewriteRequest, Selection, StateDelta, StoryElement, Storyline, StorylineProposal
 from . import abilities, anchor, atlas, blocktrial, findings, stattrial, foreshadows, setupchat, statwin, timeline
-from . import birth, labstats, play, soelab, tofix
+from . import birth, cue, labstats, play, soelab, tofix
 from .schema import ArcProposal, ChatScope, Deadline, MapPlace, StatValue, StoryArc
 from .maps import kinds as placekinds
 from .maps import travel
@@ -892,6 +892,7 @@ def _write(name: str, p: Project, n: int) -> None:
     llm, cut = get_llm("write"), []
     text = pipeline.write_episode(llm, p, n, cut=cut)
     pipeline.replace_text(p.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut)  # 지금 본문이 있으면 '이전 판'에 남는다
+    cue.mark_used(p, n, True)
     anchor.stamp(p, n)
     store.save(name, p)
     print(f"{n}화 저장: {store.project_dir(name) / 'episodes' / f'{n:02d}.md'} ({len(text)}자)")
