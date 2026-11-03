@@ -123,6 +123,26 @@ def test_step_cap_and_continue(client):
     assert len(_turn(client, sid)["steps"]) == 16
 
 
+def test_end_name_as_tool_ends_the_turn(client):
+    _project(client)
+    sid = _session(client)
+    t = _say(client, sid, "읽고 끝 이름으로 끝내 줘")
+    assert [s["kind"] for s in t["steps"]] == ["read"] and t["end"] == "done"  # '없는 도구예요' 단계가 없다
+    assert t["reply"] == "읽어 보니 고칠 곳이 없어요."
+
+
+def test_step_tool_names():
+    import pytest
+    from pydantic import ValidationError
+
+    from canon.schema import PlotAgentStep
+
+    assert [PlotAgentStep(tool=x).tool for x in ("reply", " Reply ", "DONE", "finish", "end", "none", "")] == [""] * 7
+    assert PlotAgentStep(tool="Read_Plots").tool == "read_plots"
+    with pytest.raises(ValidationError):
+        PlotAgentStep(tool="write_plot")  # 없는 도구는 형식 오류로 다시 묻는다
+
+
 def test_options_mode_asks_without_writing(client):
     _project(client)
     sid = _session(client)
