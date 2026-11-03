@@ -2561,6 +2561,48 @@ class RevLineSet(BaseModel):
     lines: list[RevLine] = Field(description="메인 밖 줄기 0~4개")
 
 
+class RevPart(BaseModel):
+    """역설계한 부 하나 (pipeline.reverse_arcs). 실험에 저장할 때도 이 모양이다. Canon 장편의 Part 와 같은 칸."""
+    title: str = Field("", description="부 이름 짧게")
+    start_ep: int = Field(0, description="부 첫 화 번호")
+    end_ep: int = Field(0, description="부 마지막 화 번호")
+    goal: str = Field("", description="이 부가 끝날 때 이야기가 도달한 상태")
+    key_turn: str = Field("", description="부를 마무리하는 큰 사건이나 드러난 비밀")
+
+
+class RevArc(BaseModel):
+    """역설계한 아크 하나 (pipeline.reverse_arcs). 실험에 저장할 때도 이 모양이다 (작가가 고친 값 포함). Canon 장편의 StoryArc 와 같은 칸에
+    클라이맥스 화(climax_ep)와 경계 근거(why)를 더했다."""
+    title: str = Field("", description="아크 이름 짧게")
+    start_ep: int = Field(0, description="아크 첫 화 번호")
+    end_ep: int = Field(0, description="아크 마지막 화 번호")
+    goal: str = Field("", description="아크가 끝날 때 바뀌어 있는 것")
+    conflict: str = Field("", description="이 아크에서 주인공을 막는 문제나 상대")
+    payoff: str = Field("", description="아크 클라이맥스에서 독자가 받는 보상")
+    climax_ep: int = Field(0, description="이 아크의 문제가 가장 크게 터지거나 풀리는 화 번호 (start_ep~end_ep 안)")
+    acts: list[Act] = Field(default_factory=list, description="아크 안의 기승전결 네 구간. start_ep 부터 end_ep 까지 빈틈없이")
+    cast: list[str] = Field(default_factory=list, description="이 아크에 주로 나오는 인물 이름 (인물 목록의 이름 그대로)")
+    why: str = Field("", description="이 아크를 end_ep 에서 끝낸 근거 한 줄: 그 화에서 일어난 일")
+
+
+class RevArcSet(BaseModel):
+    """LLM 응답 형식 (pipeline.reverse_arcs)."""
+    parts: list[RevPart] = Field(default_factory=list, description="아크 여럿을 묶는 더 큰 흐름이 분명할 때만. 없으면 빈 목록")
+    arcs: list[RevArc] = Field(description="첫 화부터 마지막 화까지 빈틈없이 차례로 나눈 아크")
+    reply: str = Field("", description="작가에게 하는 설명 2~4문장: 어떻게 나눴고 어디가 애매했는지")
+
+
+class RevArcPlan(BaseModel):
+    """실험에 저장한 아크 · 부 (revlab.clean_arcs 를 거친 값). by: ai 그대로 · author 작가가 처음부터 · both AI 안을 작가가 고침."""
+    parts: list[RevPart] = Field(default_factory=list)
+    arcs: list[RevArc] = Field(default_factory=list)
+    reply: str = ""
+    notes: list[str] = Field(default_factory=list, description="정리하며 고친 것 (범위를 옮김, 버린 아크 등)")
+    by: Literal["ai", "author", "both"] = "ai"
+    model: str = ""
+    at: str = ""
+
+
 class RevSource(BaseModel):
     """역설계 실험의 화가 온 레퍼런스 원고 화 (refs.to_revlab · to_lab). 화면 표시와 겹침 막기에만 쓴다. 프롬프트에 넣지 않는다."""
     ref: str = Field(description="레퍼런스 원고 id")
@@ -2668,6 +2710,8 @@ class RevLab(BaseModel):
     main: str = ""
     lines: list[Storyline] = Field(default_factory=list)
     lines_at: str = ""
+    arcs: Optional[RevArcPlan] = Field(None, description="역설계한 아크 · 부 (revlab.run_arcs, set_arcs). 없으면 아직 찾지 않음")
+    arc_offer: Optional[RevArcPlan] = Field(None, description="작가가 고친 아크가 있을 때 새로 받은 AI 안. 작가가 바꾸거나 버린다 (revlab.take_offer)")
     styles: list["RevStyle"] = Field(default_factory=list, description="문체 프로필 기록 (오래된 것 먼저, revlab.STYLE_KEEP 개까지)")
     style_id: int = Field(0, description="지금 프로필(styles 의 id). 0 은 고른 프로필 없음")
     style_next: int = Field(1, description="다음 RevStyle.id. 지운 번호는 다시 쓰지 않는다")

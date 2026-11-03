@@ -14,7 +14,7 @@ import threading
 import time
 import zlib
 from pathlib import Path
-from typing import Literal
+from typing import Literal, NoReturn
 from urllib.parse import quote, unquote
 
 from fastapi import FastAPI, HTTPException, Request
@@ -31,7 +31,7 @@ from . import claude  # Claude 백엔드 (구독 로그인 상태, 모델 목록
 from .schema import (Ability, ArcPlan, BodySuggestion, StatInitSuggestion, StatSkin, StatWindowSuggestion, Character, WorldSetting, ArcProposal, EpisodePlot, LookSuggestion, VoiceSuggestion, Meta, Project, RewriteRequest, Selection, SerialConversion, SerialRebuild, SeriesPlan, SetupSuggestion, StateDelta,
                      StorylineProposal, StyleEntry, StyleProfile)
 from . import abilities, anchor, atlas, findings, foreshadows, setupchat, stattrial, statwin, studio, timeline
-from .schema import SceneCard, StudioSession
+from .schema import RevArc, RevPart, SceneCard, StudioSession
 from .schema import AgentSession, ChatScope, KnowsFoldSet, Deadline, Storyboard, StoryTime, Foreshadow, MapPin, MapSpec, NewPlace, StatValue
 from .metrics import StyleMetrics
 from .schema import CharacterState, ConsistencyReport, FindingStatus, Severity, StoryEvent
@@ -44,6 +44,7 @@ from . import cue, revlab, soelab
 from .schema import CueSheetDraft
 from . import stage, tofix
 from .schema import Birth, BirthSketch, Episode, PlayInfo, PlayPerson, PlayUnit, StageProposal, StageRoom, StageScene
+from .logline import josa
 from .maps import travel
 
 STATIC = Path(__file__).parent / "static"
@@ -2298,6 +2299,28 @@ def _plot_ranges(p: Project, arc: int | None = None) -> list[tuple[str, int, int
     return out
 
 
+def _waiting_409(old: jobs.Job) -> NoReturn:
+    """멈춘 작업 old 가 아직 AI 응답을 기다린다. 그 응답이 올 때까지 새 작업을 막는다."""
+    mins = max(1, round((time.time() - old.started) / 60))
+    raise HTTPException(409, f"앞에서 멈춘 '{old.label}'{josa(old.label, '이', '가')} 아직 AI 응답을 기다려요 ({mins}분째). "
+                             "이미 보낸 호출은 끊을 수 없어요. 응답이 오거나 시간이 다 되면 다시 시작할 수 있어요")
+
+
+def _keep_late_board(name: str, n: int, b: Storyboard) -> bool:
+    """멈춘 스토리보드 작업의 늦은 응답 b 를 n 화에 남긴다. 그 사이 스토리보드나 본문이 생겼거나 플롯 확정을 풀었으면 버린다."""
+    kept = False
+
+    def put(q: Project) -> None:
+        nonlocal kept
+        e = q.episode(n)
+        if e.storyboard is None and not e.text and e.status != "draft":
+            pipeline.set_storyboard(q, n, b, by="ai")
+            kept = True
+    with cancel.ignored():
+        _edit(name, put)
+    return kept
+
+
 @app.post("/api/projects/{name}/jobs")
 def start_job(name: str, body: JobIn) -> dict:
     """오래 걸리는 AI 작업을 시작하고 바로 돌아온다. 결과는 GET /api/jobs 로 본다."""
@@ -2305,6 +2328,8 @@ def start_job(name: str, body: JobIn) -> dict:
     kind, n = body.kind, body.ep
     if kind in ("write", "state", "plots", "plot_one", "check", "board"):
         _not_auto(name)
+    if kind in jobs.EP_AI_KINDS and (old := jobs.waiting_on(name, n)):  # 같은 화에 호출이 겹치면 요청 한도(429)에 더 걸린다
+        _waiting_409(old)
     stage = {"write": "write", "state": "state", "recap_arc": "state", "recap_part": "state", "fold_knows": "state", "rework": "revise",
              "hook": "check", "check": "check", "opening_drafts": "write", "stattrial": "write", "stage_extract": "check", "cue_run": "write",
              }.get(kind, "plan")  # 나머지는 plan
@@ -2513,6 +2538,8 @@ def start_job(name: str, body: JobIn) -> dict:
 
         def fn(job: jobs.Job):
             b = pipeline.make_storyboard(llm, store.load(name), n)
+            if cancel.stopped():  # 멈춘 뒤 온 응답도 값을 치렀다
+                return {"kept": _keep_late_board(name, n, b)}
             _edit(name, lambda q: pipeline.set_storyboard(q, n, b, by="ai"))
             return None
     elif kind == "cues":
@@ -2644,6 +2671,8 @@ def _keep_pending(name: str, kind: str, n: int | None, label: str, fn):
                 d["failures"][key] = fail
             store.edit_pending(name, put_fail)
             raise
+        if cancel.stopped():
+            return out  # 멈춘 작업은 성공으로 남기지 않는다. 늦은 응답을 남긴 작업(스토리보드)은 결과만 싣는다
         rec = None
         if kind in PENDING_KINDS and out is not None:
             # 상태 변경안은 만든 본문을 함께 둔다. 그 뒤 본문을 고쳤으면 화면이 알린다
@@ -4725,7 +4754,7 @@ class RevAIIn(BaseModel):
 
 
 class RevEstimateIn(BaseModel):
-    kind: Literal["parse", "write", "style"] = "parse"
+    kind: Literal["parse", "write", "style", "arcs"] = "parse"
     episodes: list[int] = []
     style: bool = False  # write: 문체 프로필을 넣고 쓸 때
 
@@ -4740,7 +4769,7 @@ class RevSplitIn(BaseModel):
 
 
 class RevJobIn(BaseModel):
-    kind: Literal["parse", "write", "style"]
+    kind: Literal["parse", "write", "style", "arcs"]
     episodes: list[int] = []  # parse: 비우면 모든 화, write: 화 하나
     style: bool = False  # write: 역설계한 문체 프로필을 넣고 쓴다
 
@@ -4915,6 +4944,33 @@ def rev_style_delete(lab_id: int, sid: int) -> dict:
     return _rev_edit(lab_id, lambda lab: revlab.drop_style(lab, sid))
 
 
+class RevArcsIn(BaseModel):
+    parts: list[RevPart] = []
+    arcs: list[RevArc]
+
+
+@app.put("/api/revlab/{lab_id}/arcs")
+def rev_set_arcs(lab_id: int, body: RevArcsIn) -> dict:
+    """작가가 고친 아크 · 부 (revlab.set_arcs). 범위는 화를 빈틈없이 덮게 맞추고 기승전결은 아크 범위에 다시 나눈다."""
+    return _rev_edit(lab_id, lambda lab: revlab.set_arcs(lab, body.parts, body.arcs))
+
+
+class RevArcOfferIn(BaseModel):
+    take: bool
+
+
+@app.post("/api/revlab/{lab_id}/arcs/offer")
+def rev_arc_offer(lab_id: int, body: RevArcOfferIn) -> dict:
+    """작가가 고친 아크가 있을 때 받은 새 AI 안을 쓰거나(take) 버린다 (revlab.take_offer)."""
+    return _rev_edit(lab_id, lambda lab: revlab.take_offer(lab, body.take))
+
+
+@app.delete("/api/revlab/{lab_id}/arcs")
+def rev_clear_arcs(lab_id: int) -> dict:
+    """아크 · 부와 기다리는 AI 안을 지운다 (revlab.clear_arcs)."""
+    return _rev_edit(lab_id, revlab.clear_arcs)
+
+
 @app.delete("/api/revlab/{lab_id}")
 def rev_delete(lab_id: int) -> dict:
     _rev(lab_id)
@@ -4949,16 +5005,12 @@ def rev_delete_take(lab_id: int, n: int, no: int) -> dict:
 
 @app.post("/api/revlab/{lab_id}/jobs")
 def rev_job(lab_id: int, body: RevJobIn) -> dict:
-    """역설계(parse) · 되돌려 쓰기(write) · 문체 역설계(style) 작업을 시작한다. 작품을 읽지 않는다. 같은 실험의 같은 작업은 하나만 돈다.
+    """역설계(parse) · 되돌려 쓰기(write) · 문체 역설계(style) · 아크 역설계(arcs) 작업을 시작한다. 작품을 읽지 않는다. 같은 실험의 같은 작업은 하나만 돈다.
     다른 작업끼리는 함께 돌 수 있다. 역설계가 도는 중에도 저장을 마친 화는 되돌려 쓰고, 맡은 화가 겹치면 409 로 막는다."""
     lab = _rev(lab_id)
     kind, name = f"rev_{body.kind}", lab.title or f"실험 {lab_id}"
     if old := jobs.lingering(revlab.JOBS, kind, lab_id):  # 다시 시작하면 같은 요청이 겹쳐 요청 한도(429)에 더 걸린다
-        import time
-
-        mins = max(1, round((time.time() - old.started) / 60))
-        raise HTTPException(409, f"앞에서 멈춘 '{old.label}'이 아직 AI 응답을 기다려요 ({mins}분째). "
-                                 "이미 보낸 호출은 끊을 수 없어요. 응답이 오거나 시간이 다 되면 다시 시작할 수 있어요")
+        _waiting_409(old)
     llm = revlab.llm_for(lab, body.kind)  # 실험이 고른 AI, 없으면 설정의 단계 칸. 키가 없으면 여기서 바로 오류를 보여 준다
     if body.kind == "parse":
         nums = revlab.choose(lab, body.episodes or None)
@@ -4984,6 +5036,15 @@ def rev_job(lab_id: int, body: RevJobIn) -> dict:
         def fn(job: jobs.Job):
             t = revlab.run_write(lab_id, llm, k, use_style).takes[-1]
             return {"episode": k, "take": t.no, "chars": len(t.text), "style": use_style}
+    elif body.kind == "arcs":
+        revlab.can_arcs(lab)
+        if _rev_parsing(lab_id):
+            raise HTTPException(409, "역설계가 끝난 뒤에 아크를 찾을 수 있어요")
+        total, label = 1, f"{name} 아크 역설계"
+
+        def fn(job: jobs.Job):
+            plan = revlab.run_arcs(lab_id, llm)
+            return {"arcs": len(plan.arcs), "parts": len(plan.parts), "offer": revlab.load(lab_id).arc_offer is not None}
     else:
         revlab.style_sample(lab)
         revlab.check_style_room(lab)

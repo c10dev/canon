@@ -13255,6 +13255,150 @@
     }
    }
   },
+  "/api/revlab/{lab_id}/arcs": {
+   "put": {
+    "summary": "Rev Set Arcs",
+    "description": "작가가 고친 아크 · 부 (revlab.set_arcs). 범위는 화를 빈틈없이 덮게 맞추고 기승전결은 아크 범위에 다시 나눈다.",
+    "operationId": "rev_set_arcs",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RevArcsIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Set Arcs"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Rev Clear Arcs",
+    "description": "아크 · 부와 기다리는 AI 안을 지운다 (revlab.clear_arcs).",
+    "operationId": "rev_clear_arcs",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Clear Arcs"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/revlab/{lab_id}/arcs/offer": {
+   "post": {
+    "summary": "Rev Arc Offer",
+    "description": "작가가 고친 아크가 있을 때 받은 새 AI 안을 쓰거나(take) 버린다 (revlab.take_offer).",
+    "operationId": "rev_arc_offer",
+    "parameters": [
+     {
+      "name": "lab_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Lab Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RevArcOfferIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Rev Arc Offer"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/revlab/{lab_id}/episodes/{n}/sheet": {
    "put": {
     "summary": "Rev Put Sheet",
@@ -13492,7 +13636,7 @@
   "/api/revlab/{lab_id}/jobs": {
    "post": {
     "summary": "Rev Job",
-    "description": "역설계(parse) · 되돌려 쓰기(write) · 문체 역설계(style) 작업을 시작한다. 작품을 읽지 않는다. 같은 실험의 같은 작업은 하나만 돈다.\n다른 작업끼리는 함께 돌 수 있다. 역설계가 도는 중에도 저장을 마친 화는 되돌려 쓰고, 맡은 화가 겹치면 409 로 막는다.",
+    "description": "역설계(parse) · 되돌려 쓰기(write) · 문체 역설계(style) · 아크 역설계(arcs) 작업을 시작한다. 작품을 읽지 않는다. 같은 실험의 같은 작업은 하나만 돈다.\n다른 작업끼리는 함께 돌 수 있다. 역설계가 도는 중에도 저장을 마친 화는 되돌려 쓰고, 맡은 화가 겹치면 409 로 막는다.",
     "operationId": "rev_job",
     "parameters": [
      {
@@ -27900,6 +28044,114 @@
     "title": "RevAppendIn",
     "description": "화 이어 붙이기: 붙여 넣은 글(text) 또는 레퍼런스 원고의 화(ref · eps 차례) 가운데 하나."
    },
+   "RevArc": {
+    "properties": {
+     "title": {
+      "type": "string",
+      "title": "Title",
+      "description": "아크 이름 짧게",
+      "default": ""
+     },
+     "start_ep": {
+      "type": "integer",
+      "title": "Start Ep",
+      "description": "아크 첫 화 번호",
+      "default": 0
+     },
+     "end_ep": {
+      "type": "integer",
+      "title": "End Ep",
+      "description": "아크 마지막 화 번호",
+      "default": 0
+     },
+     "goal": {
+      "type": "string",
+      "title": "Goal",
+      "description": "아크가 끝날 때 바뀌어 있는 것",
+      "default": ""
+     },
+     "conflict": {
+      "type": "string",
+      "title": "Conflict",
+      "description": "이 아크에서 주인공을 막는 문제나 상대",
+      "default": ""
+     },
+     "payoff": {
+      "type": "string",
+      "title": "Payoff",
+      "description": "아크 클라이맥스에서 독자가 받는 보상",
+      "default": ""
+     },
+     "climax_ep": {
+      "type": "integer",
+      "title": "Climax Ep",
+      "description": "이 아크의 문제가 가장 크게 터지거나 풀리는 화 번호 (start_ep~end_ep 안)",
+      "default": 0
+     },
+     "acts": {
+      "items": {
+       "$ref": "#/components/schemas/Act"
+      },
+      "type": "array",
+      "title": "Acts",
+      "description": "아크 안의 기승전결 네 구간. start_ep 부터 end_ep 까지 빈틈없이"
+     },
+     "cast": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Cast",
+      "description": "이 아크에 주로 나오는 인물 이름 (인물 목록의 이름 그대로)"
+     },
+     "why": {
+      "type": "string",
+      "title": "Why",
+      "description": "이 아크를 end_ep 에서 끝낸 근거 한 줄: 그 화에서 일어난 일",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "RevArc",
+    "description": "역설계한 아크 하나 (pipeline.reverse_arcs). 실험에 저장할 때도 이 모양이다 (작가가 고친 값 포함). Canon 장편의 StoryArc 와 같은 칸에\n클라이맥스 화(climax_ep)와 경계 근거(why)를 더했다."
+   },
+   "RevArcOfferIn": {
+    "properties": {
+     "take": {
+      "type": "boolean",
+      "title": "Take"
+     }
+    },
+    "type": "object",
+    "required": [
+     "take"
+    ],
+    "title": "RevArcOfferIn"
+   },
+   "RevArcsIn": {
+    "properties": {
+     "parts": {
+      "items": {
+       "$ref": "#/components/schemas/RevPart"
+      },
+      "type": "array",
+      "title": "Parts",
+      "default": []
+     },
+     "arcs": {
+      "items": {
+       "$ref": "#/components/schemas/RevArc"
+      },
+      "type": "array",
+      "title": "Arcs"
+     }
+    },
+    "type": "object",
+    "required": [
+     "arcs"
+    ],
+    "title": "RevArcsIn"
+   },
    "RevEpisodeIn": {
     "properties": {
      "head": {
@@ -27925,7 +28177,8 @@
       "enum": [
        "parse",
        "write",
-       "style"
+       "style",
+       "arcs"
       ],
       "title": "Kind",
       "default": "parse"
@@ -27973,7 +28226,8 @@
       "enum": [
        "parse",
        "write",
-       "style"
+       "style",
+       "arcs"
       ],
       "title": "Kind"
      },
@@ -28009,6 +28263,43 @@
      "text"
     ],
     "title": "RevParagraphIn"
+   },
+   "RevPart": {
+    "properties": {
+     "title": {
+      "type": "string",
+      "title": "Title",
+      "description": "부 이름 짧게",
+      "default": ""
+     },
+     "start_ep": {
+      "type": "integer",
+      "title": "Start Ep",
+      "description": "부 첫 화 번호",
+      "default": 0
+     },
+     "end_ep": {
+      "type": "integer",
+      "title": "End Ep",
+      "description": "부 마지막 화 번호",
+      "default": 0
+     },
+     "goal": {
+      "type": "string",
+      "title": "Goal",
+      "description": "이 부가 끝날 때 이야기가 도달한 상태",
+      "default": ""
+     },
+     "key_turn": {
+      "type": "string",
+      "title": "Key Turn",
+      "description": "부를 마무리하는 큰 사건이나 드러난 비밀",
+      "default": ""
+     }
+    },
+    "type": "object",
+    "title": "RevPart",
+    "description": "역설계한 부 하나 (pipeline.reverse_arcs). 실험에 저장할 때도 이 모양이다. Canon 장편의 Part 와 같은 칸."
    },
    "RevPickIn": {
     "properties": {

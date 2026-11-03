@@ -59,6 +59,7 @@ BUDGET = {
     "rev_story": 12_000,    # 되돌려 쓰기 사본의 앞 화 요약 (revlab.fold_story: 오래된 화부터 첫 문장 → 뺌). 장편 story_past + story_arc 와 같은 크기
     "rev_facts": 10_000,    # 되돌려 쓰기 사본의 사실 (revlab.fit_facts: 최근 화 사실부터)
     "rev_lines": 40_000,    # 이야기 줄기 요청의 화별 역설계 결과 (prompts.rev_lines_prompt: 넘으면 모든 화를 첫 문장 → 줄기 이름만)
+    "rev_arcs": 40_000,     # 아크 역설계 요청의 화별 역설계 결과 (prompts.rev_arcs_prompt: 넘으면 모든 화를 첫 문장 → 제목 · 훅만)
 }
 PLAY_FORESHADOW_CAP = 8  # 장면에 넣는 열린 복선 수
 PLAY_STATE_FORESHADOW_CAP = 10  # 상태 변경안에 넣는 열린 복선 수

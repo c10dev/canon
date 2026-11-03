@@ -289,6 +289,60 @@ def test_board_job_redraws_write_page_and_says_done():
     assert got[1].startswith("3화 스토리보드를 만들었어요")
 
 
+def test_stopped_board_keeps_late_storyboard(demo, monkeypatch):
+    """멈춘 스토리보드 작업의 늦은 응답은 값을 치렀으니 그 화에 스토리보드와 본문이 없으면 남긴다. 그 사이 생겼으면 버린다."""
+    import threading
+    import time
+
+    from canon import cancel, web
+
+    go, sent = threading.Event(), threading.Event()
+
+    class Late(MockLLM):
+        def json(self, *a, **k):
+            sent.set()
+            go.wait(5)
+            with cancel.ignored():  # 이미 보낸 호출의 응답은 멈춘 뒤에도 온다
+                return super().json(*a, **k)
+
+    monkeypatch.setattr(web, "get_llm", lambda *a, **k: Late())
+    c = TestClient(web.app)
+    p = store.load(demo)
+    _written(p, 1)
+    store.save(demo, p)
+
+    def stopped_late():
+        go.clear()
+        sent.clear()
+        jid = c.post(f"/api/projects/{demo}/jobs", json={"kind": "board", "ep": 2}).json()["id"]
+        assert sent.wait(5)
+        assert c.post(f"/api/jobs/{jid}/stop").json()["waiting"] is True
+        return jobs.get(jid)
+
+    j = stopped_late()
+    go.set()
+    for _ in range(100):
+        if not j.alive:
+            break
+        time.sleep(0.05)
+    assert j.status == "cancelled" and j.result == {"kept": True}
+    sb = store.load(demo).episode(2).storyboard
+    assert sb is not None and sb.made_by == "ai"
+    assert "board:2" not in store.load_pending(demo)["failures"]
+    q = store.load(demo)
+    q.episode(2).storyboard.protect = ["작가 줄"]
+    store.save(demo, q)
+
+    j = stopped_late()  # 이미 스토리보드가 있으면 늦은 응답으로 덮지 않는다
+    go.set()
+    for _ in range(100):
+        if not j.alive:
+            break
+        time.sleep(0.05)
+    assert j.status == "cancelled" and j.result == {"kept": False}
+    assert store.load(demo).episode(2).storyboard.protect == ["작가 줄"]
+
+
 def test_check_gets_protect_and_write_has_one_priority_line(demo):
     p = store.load(demo)
     _written(p, 1, "가" * 3000)

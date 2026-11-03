@@ -34,6 +34,7 @@ Object.assign(S, {
   revEpEdit: null, // 고치는 화 { n, head, text } (null 이면 닫힘)
   revStyle: false, // 되돌려 쓰기에 문체 프로필을 넣을지
   revPace: null, // 구조 · 호흡 칸의 값 { id, rows, summary } (GET /revlab/<번호>/pace)
+  revArcEdit: null, // 아크 · 부 고치는 중인 값 { id, parts, arcs } (PUT /revlab/<번호>/arcs)
   revStyleDiff: null, // 펼친 문체 프로필 견주기 { id, changes } (GET /revlab/<번호>/styles/<id>)
   revRead: { a: 'original', b: 0 }, // 나란히 읽기 왼쪽 · 오른쪽 ('original' 또는 판 번호, 0 이면 최근 판)
 });
@@ -187,7 +188,7 @@ async function revFetch(id) {
 
 const REV_PANES = { cast: '인물 · 관계 · 배경', style: '문체 프로필', lines: '이야기 줄기', shape: '구조 · 호흡', metrics: '지표 모아 보기', ai: 'AI 모델' };
 const REV_TABS = [['text', '원문 · 큐'], ['plot', '플롯 · 스토리보드'], ['write', '되돌려 쓰기']];
-const REV_KINDS = ['rev_parse', 'rev_write', 'rev_style'];
+const REV_KINDS = ['rev_parse', 'rev_write', 'rev_style', 'rev_arcs'];
 
 /** 화 제목 줄에서 'n화'를 뗀 이름 ('12화 젖은 필름' → '젖은 필름'). 제목 줄이 없으면 빈 글. */
 function revEpTitle(e) {
@@ -542,7 +543,7 @@ function revLabToc() {
     return `<div class="rev-toc-ep${S.popMenu === `rev-ep-${x.n}` ? ' open' : ''}">${link}${menuBtn(`rev-ep-${x.n}`, SIDE_ICON.more, () => revEpMenu(x.n, !!run), { cls: 'btn icon-btn rev-toc-btn', aria: `${x.n}화 더보기: 글 고치기 · 지우기` })}</div>`;
   }).join('');
   const panes = Object.entries(REV_PANES).map(([k, label]) => {
-    const right = { cast: L.cast.length ? `${L.cast.length}명` : '', style: (L.style_list || []).length ? `${L.style_id ? `${L.style_id}번 · ` : ''}${L.style_list.length}개` : '', lines: L.lines_at ? `${L.lines.length}개` : '', metrics: '', ai: L.ai && L.ai.custom ? '이 실험만' : '' }[k];
+    const right = { cast: L.cast.length ? `${L.cast.length}명` : '', style: (L.style_list || []).length ? `${L.style_id ? `${L.style_id}번 · ` : ''}${L.style_list.length}개` : '', lines: L.lines_at ? `${L.lines.length}개` : '', shape: L.arcs ? `아크 ${L.arcs.arcs.length}` : '', metrics: '', ai: L.ai && L.ai.custom ? '이 실험만' : '' }[k];
     return revTocLink(`#/revlab/${L.id}/${k}`, `<span class="tl">${label}</span><span class="st">${right}</span>`, pane === k);
   }).join('');
   const cur = pane === 'overview' ? `개요 · ${steps[1].label} ${steps[1].right}` : pane ? REV_PANES[pane] : (() => { const e = revItem(S.revEp); return e ? `${e.number}화${revEpTitle(e) ? ` ${esc(revEpTitle(e))}` : ''} · ${(REV_TABS.find(([k]) => k === S.revTab) || REV_TABS[0])[1]}` : '목차'; })();
@@ -720,7 +721,7 @@ function revEpEditCard() {
 function revRunCard(j) {
   const L = S.revLab;
   const pct = Math.round((100 * j.done) / Math.max(1, j.total));
-  const what = { rev_parse: '역설계하는 중', rev_write: '되돌려 쓰는 중', rev_style: '문체를 역설계하는 중' }[j.kind];
+  const what = { rev_parse: '역설계하는 중', rev_write: '되돌려 쓰는 중', rev_style: '문체를 역설계하는 중', rev_arcs: '아크를 찾는 중' }[j.kind];
   const rows = j.kind === 'rev_parse' ? revRunRows(j, L.items).map((r) => `<li class="rev-run-row ${r.state}">
       <span class="rev-dot ${r.state === 'done' ? 'wrote' : r.state}" aria-hidden="true"></span>
       <span class="tl">${r.n ? `<strong>${r.n}화</strong>${r.title ? ` ${esc(r.title)}` : ''}` : `<strong>${esc(r.title)}</strong> <span class="small">모든 화를 푼 뒤 한 번</span>`}</span>
@@ -817,7 +818,7 @@ function revLabCards() {
     ${card('cast', '인물 · 관계 · 배경', L.cast.length ? `${L.cast.length}명` : '', L.cast.length ? `${esc(L.cast.slice(0, 4).map((x) => x.name).join(' · '))}${c.setting ? `. ${esc(c.setting.slice(0, 40))}` : ''}` : '역설계하면 모아요.')}
     ${card('style', '문체 프로필', st ? `${L.style_id}번 · 표지 ${(st.markers || []).length}` : '', st ? esc([st.narration_pov, st.tense, st.sentence_rhythm].filter(Boolean).join(' · ').slice(0, 80)) : '만들면 되돌려 쓰기에 넣을 수 있어요.')}
     ${card('lines', '이야기 줄기', L.lines_at ? `${L.lines.length}개` : '', L.lines_at ? `메인: ${esc((L.main || '정하지 않음').slice(0, 60))}` : '모든 화를 역설계하면 찾아요.')}
-    ${card('shape', '구조 · 호흡', '', '화마다 긴장 흐름 · 끝맺음 · 분량을 이어 봐요.')}
+    ${card('shape', '구조 · 호흡', L.arcs ? `아크 ${L.arcs.arcs.length}개${L.arcs.parts.length ? ` · ${L.arcs.parts.length}부` : ''}` : '', L.arcs ? esc(L.arcs.arcs.map((a) => a.title).join(' → ').slice(0, 80)) : '화마다 긴장 흐름 · 끝맺음 · 분량을 이어 보고 아크로 나눠요.')}
     ${card('ai', 'AI 모델', L.ai.custom ? '이 실험만' : '설정을 따름', L.ai.stages.map((x) => `${x.stage === 'plan' ? '역설계' : '되돌려 쓰기'} ${esc(revAiText(x.use))}`).join(' · '))}</div>`;
 }
 
@@ -1038,7 +1039,9 @@ function revPaceSpark(r) {
 /** 화를 따라가는 띠 그래프: 막대는 최고 긴장, 점은 평균 긴장, 막대 위 표시는 끝맺음. 막대를 누르면 그 화로 간다. */
 function revPaceStrip(rows) {
   const L = S.revLab;
-  const col = 16, H = 90, top = 14;
+  const col = 16, H = 90;
+  const band = revArcBand(rows, col, L.arcs);
+  const top = 14 + band.h;
   const mark = { half: '▲', deceptive: '◆' };
   const cols = rows.map((r, i) => {
     const x = i * col;
@@ -1054,7 +1057,100 @@ function revPaceStrip(rows) {
   const every = rows.length > 60 ? 10 : 5;
   const ticks = rows.map((r, i) => (i === 0 || r.number % every === 0 ? `<text class="rev-pace-tick" x="${i * col + col / 2}" y="${top + H + 14}" text-anchor="middle">${r.number}</text>` : '')).join('');
   const w = Math.max(rows.length * col, 1);
-  return `<div class="rev-scroll"><svg class="rev-pace-strip" viewBox="0 0 ${w} ${top + H + 20}" width="${w}" height="${top + H + 20}" role="img" aria-label="화별 최고 긴장과 평균 긴장">${cols}${ticks}</svg></div>`;
+  return `<div class="rev-scroll"><svg class="rev-pace-strip" viewBox="0 0 ${w} ${top + H + 20}" width="${w}" height="${top + H + 20}" role="img" aria-label="화별 최고 긴장과 평균 긴장${band.h ? ', 위 띠는 아크와 부' : ''}">${band.svg}${cols}${ticks}</svg></div>`;
+}
+
+/** 띠 그래프 위 아크 · 부 띠 (rows 의 화 차례에 맞춘다). 아크마다 칸 하나, 클라이맥스 화는 점. 아크가 없으면 높이 0. */
+function revArcBand(rows, col, plan) {
+  if (!plan || !plan.arcs.length) return { h: 0, svg: '' };
+  const at = new Map(rows.map((r, i) => [r.number, i]));
+  const ph = plan.parts.length ? 16 : 0, ah = 20;
+  const box = (x, y, cls, start, end, label, tip) => {
+    const a = at.get(start), b = at.get(end);
+    if (a == null || b == null) return '';
+    const x0 = a * col + 1, w = (b - a + 1) * col - 2;
+    const room = Math.floor(w / 11);
+    const text = room >= 2 ? (label.length > room ? `${label.slice(0, room - 1)}…` : label) : '';
+    return `<g><title>${esc(tip)}</title><rect class="${cls}" x="${x0}" y="${y}" width="${Math.max(w, 2)}" height="${(cls === 'rev-band-part' ? ph : ah) - 3}" rx="3"></rect>
+      ${text ? `<text class="rev-band-t" x="${x0 + 5}" y="${y + (cls === 'rev-band-part' ? 10 : 12)}">${esc(text)}</text>` : ''}</g>`;
+  };
+  const parts = plan.parts.map((p) => box(0, 2, 'rev-band-part', p.start_ep, p.end_ep, p.title, `${p.title} · ${p.start_ep}~${p.end_ep}화${p.goal ? ` · ${p.goal}` : ''}`)).join('');
+  const arcs = plan.arcs.map((a, i) => {
+    const c = at.get(a.climax_ep);
+    const dot = c == null ? '' : `<circle class="rev-band-climax" cx="${c * col + col / 2}" cy="${2 + ph + ah - 6}" r="2.4"><title>${a.climax_ep}화 클라이맥스</title></circle>`;
+    return box(0, 2 + ph, `rev-band-arc rev-band-${i % 2 ? 'b' : 'a'}`, a.start_ep, a.end_ep, a.title, `${a.title} · ${a.start_ep}~${a.end_ep}화${a.goal ? ` · ${a.goal}` : ''}`) + dot;
+  }).join('');
+  return { h: ph + ah + 4, svg: parts + arcs };
+}
+
+/** 아크 범위 글 ('3~9화', 한 화면 '3화'). */
+const revSpan = (x) => (x.start_ep === x.end_ep ? `${x.start_ep}화` : `${x.start_ep}~${x.end_ep}화`);
+
+/** 아크 · 부 표 (읽기). plan: RevArcPlan. */
+function revArcTable(plan) {
+  const parts = plan.parts.length ? `<div class="small rev-arc-parts">${plan.parts.map((p) => `<span><strong>${esc(p.title)}</strong> ${revSpan(p)}${p.goal ? ` · ${esc(p.goal)}` : ''}${p.key_turn ? ` · 마무리: ${esc(p.key_turn)}` : ''}</span>`).join('')}</div>` : '';
+  const rows = plan.arcs.map((a) => `<tr><td class="rev-l"><strong>${esc(a.title)}</strong><div class="small">${revSpan(a)} · ${a.end_ep - a.start_ep + 1}화</div></td>
+      <td class="rev-l small">${a.goal ? `<div>목표: ${esc(a.goal)}</div>` : ''}${a.conflict ? `<div>갈등: ${esc(a.conflict)}</div>` : ''}${a.payoff ? `<div>보상: ${esc(a.payoff)}</div>` : ''}${a.cast.length ? `<div>인물: ${esc(a.cast.join(', '))}</div>` : ''}</td>
+      <td>${a.climax_ep ? `<a href="#/revlab/${S.revLab.id}/${a.climax_ep}">${a.climax_ep}화</a>` : '<span class="small">없음</span>'}</td>
+      <td class="rev-l small">${a.acts.map((t) => `<div><strong>${t.name}</strong> ${revSpan(t)}${t.goal ? ` ${esc(t.goal)}` : ''}</div>`).join('')}</td>
+      <td class="rev-l small">${esc(a.why)}</td></tr>`).join('');
+  return `${parts}<div class="rev-scroll"><table class="sw-table rev-arc-table"><thead><tr><th class="rev-l">아크</th><th class="rev-l">목표 · 갈등 · 보상</th><th>클라이맥스</th><th class="rev-l">기승전결</th><th class="rev-l">끊은 근거</th></tr></thead><tbody>${rows}</tbody></table></div>
+    ${plan.reply ? `<p class="small">${esc(plan.reply)}</p>` : ''}${plan.notes.length ? `<ul class="rev-ul small">${plan.notes.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}`;
+}
+
+/** 아크 · 부 고치는 칸: 아크 · 부마다 카드 하나. 끝 화를 바꾸면 다음 것의 시작이 따라온다 (마지막 것의 끝은 마지막 화).
+    기승전결은 저장할 때 서버가 아크 범위에 다시 나눈다. */
+function revArcEditor() {
+  const E = S.revArcEdit;
+  const last = S.revLab.items[S.revLab.items.length - 1].number;
+  const NAMES = { title: '이름', end_ep: '끝 화', goal: '목표', conflict: '갈등', payoff: '보상', climax_ep: '클라이맥스 화', key_turn: '마무리 사건' };
+  const f = (kind, i, k, v, attrs = '') => {
+    const id = `rev-arc-${kind}-${i}-${k}`;
+    return `<div class="field rev-arc-f-${k}"><label for="${id}">${NAMES[k]}</label><input id="${id}" type="${['end_ep', 'climax_ep'].includes(k) ? 'number' : 'text'}" data-rev-arc="${kind}:${i}:${k}" value="${esc(v)}"${attrs}></div>`;
+  };
+  const end = (kind, x, i, list) => (i === list.length - 1 ? '' : f(kind, i, 'end_ep', x.end_ep, ` min="${x.start_ep}" max="${list[i + 1].end_ep - 1}"`));
+  const arcs = E.arcs.map((a, i, list) => `<li class="rev-arc-ed"><div class="between"><strong>아크 ${i + 1}</strong><span class="small">${revSpan(a)}</span></div>
+      <div class="rev-arc-grid">${f('arcs', i, 'title', a.title)}${end('arcs', a, i, list)}${f('arcs', i, 'climax_ep', a.climax_ep || '', ` min="${a.start_ep}" max="${a.end_ep}"`)}</div>
+      ${f('arcs', i, 'goal', a.goal)}${f('arcs', i, 'conflict', a.conflict)}${f('arcs', i, 'payoff', a.payoff)}
+      <div class="row"><button type="button" class="btn small ghost" data-action="revArcSplit" data-arg="${i}"${a.end_ep > a.start_ep ? '' : ' disabled'}>가운데에서 나누기</button>
+        ${i ? `<button type="button" class="btn small ghost" data-action="revArcMerge" data-arg="arcs:${i}">앞 아크와 합치기</button>` : ''}</div></li>`).join('');
+  const parts = E.parts.map((p, i, list) => `<li class="rev-arc-ed"><div class="between"><strong>${i + 1}부</strong><span class="small">${revSpan(p)}</span></div>
+      <div class="rev-arc-grid">${f('parts', i, 'title', p.title)}${end('parts', p, i, list)}</div>${f('parts', i, 'goal', p.goal)}${f('parts', i, 'key_turn', p.key_turn)}
+      <div class="row">${i ? `<button type="button" class="btn small ghost" data-action="revArcMerge" data-arg="parts:${i}">앞 부와 합치기</button>` : ''}</div></li>`).join('');
+  return `<ol class="rev-arc-eds">${arcs}</ol>
+    ${parts ? `<h3>부</h3><ol class="rev-arc-eds">${parts}</ol>` : ''}
+    <div class="row"><button type="button" class="btn small ghost" data-action="revPartAdd">${E.parts.length ? '마지막 부 나누기' : `부로 묶기 (${S.revLab.items[0].number}~${last}화 한 부)`}</button></div>
+    <p class="small">끝 화를 바꾸면 다음 것이 그 다음 화부터 시작해요. 기승전결은 저장할 때 아크 범위에 맞춰 다시 나눠요.</p>
+    <div class="row"><button type="button" class="btn primary" data-action="revArcSave">저장</button><button type="button" class="btn ghost" data-action="revArcEditClose">취소</button></div>`;
+}
+
+/** 아크 · 부 카드 (구조 · 호흡 칸). 모든 화를 역설계해야 찾는다. 작가가 고친 아크가 있으면 새 AI 안은 견주어 고른다. */
+function revArcsCard() {
+  const L = S.revLab;
+  const plan = L.arcs, offer = L.arc_offer;
+  const ready = L.items.length >= L.arcs_min && L.items.every((e) => e.sheet);
+  const busy = !!revRunning();
+  const est = ready ? revEst('arcs', []) : null;
+  const run = ready ? `<div class="row"><button type="button" class="btn${plan ? '' : ' primary'}" data-action="revArcsRun"${est && !busy ? '' : ' disabled'}>${revCost(plan ? '아크 다시 찾기' : '아크 찾기', est)}</button></div>${revAiLine('plan')}${revEstHtml(est)}` : '';
+  if (!plan) {
+    return `<section class="card"><h2>아크 · 부</h2><p class="small">${ready ? '화별 역설계 결과(요약 · 사건 · 엔딩 훅 · 줄기 · 호흡)를 AI가 한 번 읽고, Canon 장편과 같은 모양의 아크(목표 · 갈등 · 보상 · 기승전결)와 부로 나눠요. 받은 안은 고칠 수 있어요.'
+      : `${L.arcs_min}화 넘게 있고 모든 화를 역설계해야 아크를 찾아요.`}</p>${run}
+      ${ready ? `<div class="row"><button type="button" class="btn small ghost" data-action="revArcEditOpen">직접 나누기</button></div>` : ''}</section>`;
+  }
+  const st = L.arc_state || { outside: [], reparsed: [] };
+  const warn = [st.outside.length ? `${revSpan({ start_ep: st.outside[0], end_ep: st.outside[st.outside.length - 1] })}는 아크 밖이에요 (아크를 찾은 뒤 이은 화).` : '',
+    st.reparsed.length ? `아크를 찾은 뒤 다시 역설계한 화가 있어요: ${st.reparsed.slice(0, 8).join(', ')}화.` : ''].filter(Boolean);
+  const by = { ai: 'AI 안', author: '작가가 나눔', both: 'AI 안을 고침' }[plan.by];
+  const editing = S.revArcEdit && S.revArcEdit.id === L.id;
+  const head = `<div class="between"><h2>아크 · 부 <span class="small">${plan.arcs.length}개${plan.parts.length ? ` · ${plan.parts.length}부` : ''}</span></h2>
+    <span class="small">${esc(by)} · ${esc(fmtDateTime(plan.at))}${plan.model ? ` · ${esc(plan.model)}` : ''}</span></div>`;
+  const tools = editing ? '' : `<div class="row"><button type="button" class="btn small" data-action="revArcEditOpen"${busy ? ' disabled' : ''}>고치기</button>
+    <button type="button" class="btn small ghost" data-action="revArcClear"${busy ? ' disabled' : ''}>지우기</button></div>`;
+  const offerCard = offer ? `<section class="card"><div class="between"><h3>새 AI 안 <span class="small">${offer.arcs.length}개${offer.parts.length ? ` · ${offer.parts.length}부` : ''}</span></h3><span class="small">${esc(fmtDateTime(offer.at))}</span></div>
+    <p class="small">고친 아크를 덮지 않으려고 따로 두었어요. 이 안으로 바꾸면 고친 값은 사라져요.</p>${revArcTable(offer)}
+    <div class="row"><button type="button" class="btn" data-action="revArcOffer" data-arg="take">이 안으로 바꾸기</button><button type="button" class="btn ghost" data-action="revArcOffer" data-arg="drop">버리기</button></div></section>` : '';
+  return `<section class="card">${head}${warn.length ? `<div class="note">${warn.map(esc).join(' ')}</div>` : ''}
+    ${editing ? revArcEditor() : revArcTable(plan)}${tools}${editing ? '' : run}</section>${offerCard}`;
 }
 
 function revPaceCard() {
@@ -1084,6 +1180,7 @@ function revPaceCard() {
     ${revPaceStrip(D.rows)}
     <p class="small">막대는 화의 최고 긴장, 점은 평균 긴장이에요. ▲ 반종지(가장 높은 곳에서 끊음) · ◆ 기만 종지(뒤집으며 끝냄). 긴장도는 AI가 화마다 그 화 안에서 매긴 값이라, 다른 화의 같은 숫자가 같은 세기라는 뜻은 아니에요. 대사 비율 · 문장 길이 · 분량은 원문에서 잰 값이에요.</p>
     <dl class="rev-kv">${facts}</dl></section>
+    ${revArcsCard()}
     <section class="card"><h3>화별 호흡</h3><div class="rev-scroll"><table class="sw-table rev-pace-table">
       <thead><tr><th class="rev-l">화</th><th class="rev-l">제목</th><th>큐 긴장 흐름</th><th>평균</th><th>최고 (자리)</th><th>끝</th><th>끝맺음</th><th>D 큐</th><th>빠른 템포</th><th>대사</th><th>문장 길이</th><th>분량</th></tr></thead>
       <tbody>${rows}</tbody></table></div>
@@ -1384,7 +1481,28 @@ document.addEventListener('input', (e) => {
     S.revAdd = e.target.value;
     revAddRefresh();
   }
+  if (d.revArc && S.revArcEdit) revArcInput(d.revArc, e.target.value, false);
 });
+document.addEventListener('change', (e) => {
+  const d = e.target.dataset || {};
+  if (d.revArc && S.revArcEdit) revArcInput(d.revArc, e.target.value, true);
+});
+
+/** 아크 · 부 고치는 칸 하나. 끝 화는 다음 것의 시작을 끌고 가고, 칸을 떠날 때(done) 범위 글을 다시 그린다. */
+function revArcInput(key, value, done) {
+  const [kind, i, k] = key.split(':');
+  const list = S.revArcEdit[kind], x = list && list[Number(i)];
+  if (!x) return;
+  if (k !== 'end_ep' && k !== 'climax_ep') { x[k] = value; return; }
+  const n = Math.round(Number(value)) || 0;
+  if (k === 'climax_ep') { x.climax_ep = n; return; }
+  if (!done) return;
+  const next = list[Number(i) + 1];
+  x.end_ep = Math.min(Math.max(n, x.start_ep), next ? next.end_ep - 1 : x.end_ep);
+  if (next) next.start_ep = x.end_ep + 1;
+  if (kind === 'arcs') for (const a of [x, next].filter(Boolean)) if (a.climax_ep && (a.climax_ep < a.start_ep || a.climax_ep > a.end_ep)) a.climax_ep = 0;
+  render();
+}
 
 /** 새 실험 칸의 미리보기 · 글자 수 · 첫 화 번호 · 만들기 버튼만 다시 그린다 (입력 중에는 화면 전체를 그리지 않는다). */
 function revNewRefresh() {
@@ -1475,6 +1593,7 @@ document.addEventListener('change', (e) => {
 JOB_PAGES.rev_parse = ['rev'];
 JOB_PAGES.rev_write = ['rev'];
 JOB_PAGES.rev_style = ['rev'];
+JOB_PAGES.rev_arcs = ['rev'];
 /** 작업이 끝나면 그 실험을 보고 있을 때 다시 받는다. 고치던 큐 시트는 그 화를 다시 역설계하지 않았으면 남는다 (revFetch). */
 function revJobDone(j) {
   if (j.status === 'done' && S.revLab && S.revLab.id === j.ep) revFetch(j.ep).then(render);
@@ -1502,6 +1621,12 @@ JOB_LATE.rev_write = async (j) => {
   if (!(S.route[0] === 'revlab' && S.revLab && S.revLab.id === j.ep)) return false;
   await revFetch(j.ep);
   return true;
+};
+JOB_DONE_MSG.rev_arcs = (j) => {
+  revJobDone(j);
+  const r = j.result || {};
+  return r.offer ? `새 아크 안(${r.arcs}개)을 받았어요. 고친 아크는 그대로 두었으니 구조 · 호흡 칸에서 견주고 고르세요.`
+    : `아크 ${r.arcs || 0}개${r.parts ? ` · ${r.parts}부` : ''}로 나눴어요. 구조 · 호흡 칸에서 보고 고칠 수 있어요.`;
 };
 JOB_DONE_MSG.rev_style = (j) => {
   revJobDone(j);
@@ -1682,6 +1807,82 @@ Object.assign(actions, {
     S.revStyleDiff = null;
     revStartJob('style');
   },
+  revArcsRun() {
+    revStartJob('arcs');
+  },
+  /** 아크 고치기를 연다. 아크가 없으면 모든 화를 한 아크로 두고 시작한다. */
+  revArcEditOpen() {
+    const L = S.revLab;
+    const first = L.items[0].number, last = L.items[L.items.length - 1].number;
+    const plan = L.arcs || { parts: [], arcs: [{ title: '아크 1', start_ep: first, end_ep: last, goal: '', conflict: '', payoff: '', climax_ep: 0, acts: [], cast: [], why: '' }] };
+    S.revArcEdit = { id: L.id, parts: structuredClone(plan.parts), arcs: structuredClone(plan.arcs) };
+    render();
+  },
+  revArcEditClose() {
+    S.revArcEdit = null;
+    render();
+  },
+  /** 아크를 가운데에서 둘로 나눈다. 뒤 아크는 빈 칸으로 시작하고 클라이맥스 화는 범위에 남은 쪽이 갖는다. */
+  revArcSplit(i) {
+    const E = S.revArcEdit, k = Number(i), a = E.arcs[k];
+    if (!a || a.end_ep <= a.start_ep) return;
+    const mid = Math.floor((a.start_ep + a.end_ep) / 2);
+    const b = { title: '새 아크', start_ep: mid + 1, end_ep: a.end_ep, goal: '', conflict: '', payoff: '', climax_ep: a.climax_ep > mid ? a.climax_ep : 0, acts: [], cast: [...a.cast], why: '' };
+    a.end_ep = mid;
+    if (a.climax_ep > mid) a.climax_ep = 0;
+    E.arcs.splice(k + 1, 0, b);
+    render();
+  },
+  /** 'arcs:3' · 'parts:1': 앞 것과 합친다 (앞 것의 이름 · 목표를 남긴다). */
+  revArcMerge(arg) {
+    const [kind, i] = String(arg).split(':');
+    const list = S.revArcEdit[kind], k = Number(i);
+    if (!k || !list[k]) return;
+    list[k - 1].end_ep = list[k].end_ep;
+    if (kind === 'arcs' && !list[k - 1].climax_ep) list[k - 1].climax_ep = list[k].climax_ep;
+    list.splice(k, 1);
+    render();
+  },
+  /** 부가 없으면 모든 화를 한 부로, 있으면 마지막 부를 그 안의 가운데 아크 경계에서 나눈다. */
+  revPartAdd() {
+    const E = S.revArcEdit, L = S.revLab;
+    const first = L.items[0].number, last = L.items[L.items.length - 1].number;
+    if (!E.parts.length) { E.parts = [{ title: '1부', start_ep: first, end_ep: last, goal: '', key_turn: '' }]; render(); return; }
+    const p = E.parts[E.parts.length - 1];
+    const cuts = E.arcs.map((a) => a.end_ep).filter((n) => n >= p.start_ep && n < p.end_ep);
+    if (!cuts.length) { toast('마지막 부 안에 아크 경계가 없어요. 아크를 먼저 나누세요.'); return; }
+    const cut = cuts[Math.floor((cuts.length - 1) / 2)];
+    E.parts.push({ title: `${E.parts.length + 1}부`, start_ep: cut + 1, end_ep: p.end_ep, goal: '', key_turn: '' });
+    p.end_ep = cut;
+    render();
+  },
+  async revArcSave() {
+    const E = S.revArcEdit, id = S.revLab.id;
+    const ok = await run('저장하는 중', async () => {
+      S.revLab = await api('PUT', `/revlab/${id}/arcs`, { parts: E.parts, arcs: E.arcs });
+      S.revArcEdit = null;
+    });
+    if (ok) toast('아크를 저장했어요.');
+  },
+  async revArcOffer(arg) {
+    const take = arg === 'take';
+    if (take && !(await askConfirm('새 AI 안으로 바꿀까요? 고친 아크는 사라져요.', { ok: '바꾸기' }))) return;
+    const id = S.revLab.id;
+    const ok = await run(take ? '바꾸는 중' : '버리는 중', async () => {
+      S.revLab = await api('POST', `/revlab/${id}/arcs/offer`, { take });
+      S.revArcEdit = null;
+    });
+    if (ok) toast(take ? '새 AI 안으로 바꿨어요.' : '새 AI 안을 버렸어요.');
+  },
+  async revArcClear() {
+    if (!(await askConfirm('아크 · 부를 지울까요? 고친 값도 사라져요.', { ok: '지우기', danger: true }))) return;
+    const id = S.revLab.id;
+    const ok = await run('지우는 중', async () => {
+      S.revLab = await api('DELETE', `/revlab/${id}/arcs`);
+      S.revArcEdit = null;
+    });
+    if (ok) toast('아크 · 부를 지웠어요.');
+  },
   async revStyleUse(id) {
     const ok = await run('고르는 중', async () => {
       S.revLab = await api('POST', `/revlab/${S.revLab.id}/styles/${id}/select`);
@@ -1861,6 +2062,18 @@ Object.assign(actions, {
 .rev-pace-avg { fill: var(--text); }
 .rev-pace-mark { font-size: 9px; fill: var(--text); }
 .rev-pace-tick { font-size: 10px; fill: var(--text-2); }
+.rev-band-part { fill: var(--chip); }
+.rev-band-arc.rev-band-a { fill: var(--accent-soft); }
+.rev-band-arc.rev-band-b { fill: var(--amber-soft); }
+.rev-band-t { font-size: 10px; fill: var(--text); }
+.rev-band-climax { fill: var(--tension-high); }
+.rev-arc-parts { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.rev-arc-table td { vertical-align: top; }
+.rev-arc-eds { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.rev-arc-ed { border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+.rev-arc-grid { display: grid; grid-template-columns: minmax(0, 1fr) 96px 120px; gap: 8px; align-items: end; }
+.rev-arc-grid .field input { width: 100%; }
+@media (max-width: 560px) { .rev-arc-grid { grid-template-columns: 1fr 1fr; } .rev-arc-grid .rev-arc-f-title { grid-column: 1 / -1; } }
 .rev-pace-strip a:hover rect { opacity: 0.75; }
 .rev-spark { display: block; }
 .rev-pace-off td { color: var(--text-2); }

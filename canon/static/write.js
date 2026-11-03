@@ -209,9 +209,10 @@ function writeGo(n, blocked) {
   const j = jobFor('board', n) || jobFor('write', n);
   const starting = S.starting.has(`board:${n}`) || S.starting.has(`write:${n}`);
   const off = blocked.length || autoOn();
+  const wait = !j && !starting && epWaiting(n);  // 멈춘 작업이 아직 응답을 기다린다 (서버도 409 로 막는다)
   const primary = j ? wsBusy(j)
-    : `<button type="button" class="btn primary" data-action="${action}" data-arg="${arg}"${off ? ' disabled' : starting ? ' aria-disabled="true" aria-busy="true"' : ''}>${label}${starting ? ' · 시작하는 중…' : ''}</button>`;
-  return { label, pick, busy: !!(j || starting), primary };
+    : `<button type="button" class="btn primary" data-action="${action}" data-arg="${arg}"${off ? ' disabled' : starting ? ' aria-disabled="true" aria-busy="true"' : wait ? ` aria-disabled="true" title="${EP_WAIT_TIP}"` : ''}>${label}${starting ? ' · 시작하는 중…' : wait ? ' · 응답 기다리는 중' : ''}</button>`;
+  return { label, pick, busy: !!(j || starting), wait: !!wait, primary };
 }
 
 /** 머리 primary 자리의 진행 줄: 작업 이름 · 경과 · 멈추기 (멈추기는 app.js 의 data-job-stop 처리) */
@@ -241,11 +242,11 @@ function writeStart(n, blocked) {
     ? `<p class="small">스토리보드 · ${pick[1]}로 만들고 있어요. 다른 화면으로 옮겨 가도 계속하고, 끝나면 알림 버튼에 알려요.</p>`
     : `<fieldset class="ws-board"><legend class="small">스토리보드 <span>장면 순서와 이번 화 확정 값을 쓰기 전에 정해요</span></legend>
       <div class="ws-opts">${WS_BOARD.map(([k, l, d]) => `<label class="ws-opt${go.pick === k ? ' on' : ''}"><input type="radio" name="ws-board" value="${k}"${go.pick === k ? ' checked' : ''}><span><strong>${l}</strong><span class="small">${d}</span></span></label>`).join('')}</div></fieldset>`;
-  const lead = go.busy || blocked.length || autoOn() ? '' : `${prev}${boardOn() ? '방식을 고르고 ' : '확정된 플롯과 지금까지의 데이터로 써요. '}머리의 <strong>${esc(go.label)}</strong>${josa(go.label, '을', '를')} 누르면 시작해요.`;
+  const lead = go.busy || go.wait || blocked.length || autoOn() ? '' : `${prev}${boardOn() ? '방식을 고르고 ' : '확정된 플롯과 지금까지의 데이터로 써요. '}머리의 <strong>${esc(go.label)}</strong>${josa(go.label, '을', '를')} 누르면 시작해요.`;
   const writing = !!jobFor('write', n);
   return `<section class="card w-go" aria-labelledby="w-go-h">
       <div class="w-go-head"><h2 id="w-go-h">${n}화를 어떻게 쓸까요</h2>${lead ? `<p class="small">${lead}</p>` : ''}</div>
-      ${autoLockNote() || orderNote(blocked)}
+      ${autoLockNote() || orderNote(blocked) || epWaitNote(n)}
       ${choose}
       <div class="w-go-foot"><button type="button" class="btn small" data-action="startManual" data-arg="${n}"${writing || blocked.length || autoOn() ? ' disabled' : ''}>직접 쓰기</button><span class="small">AI 없이 빈 칸에 직접 써요</span>
         <span class="w-fill"></span>${boardToggle()}${cueToggle()}</div>
@@ -287,7 +288,7 @@ function viewWrite(n) {
     center = '';  // 쓰기 시작 칸은 본문 칸 위에 따로 둔다 (writeStart)
   } else if (starting && boardStart(n, blocked)) {
     center = '';  // 만든 스토리보드(고치기 · 다시 만들기 · 이대로 쓰기, board.js)는 쓰기 시작 칸처럼 본문 칸 위에 둔다
-    madeBoard = `<div class="w-board">${autoLockNote() || orderNote(blocked)}${boardStart(n, blocked)}
+    madeBoard = `<div class="w-board">${autoLockNote() || orderNote(blocked) || epWaitNote(n)}${boardStart(n, blocked)}
       <div class="row"><button class="btn" data-action="startManual" data-arg="${n}"${writing || blocked.length || autoOn() ? ' disabled' : ''}>직접 쓰기</button>
         ${S.context ? `<details data-ctx-toggle${S.ctxOpen ? ' open' : ''}><summary>AI에게 보내는 컨텍스트 · ${ctxTotal()}</summary>${ctxList()}<div style="margin-top:8px">${promptBtn(n)}</div></details>` : ''}</div>
     </div>`;
