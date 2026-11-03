@@ -47,6 +47,12 @@ function stageToggle() {
   return `<button type="button" class="btn${on ? ' on' : ''}" aria-pressed="${on}" data-action="toggleStageExtract" title="검수할 때 계획 장면이 있는 사건마다 본문에서 장면 연출(자리 · 자세 · 손 · 접촉)을 뽑아 규칙으로 판정해요. 본문이 바뀐 사건만 뽑고, 그런 사건마다 검수 호출이 1번 늘어요. 다른 사건은 장면 연출의 '본문에서 뽑기'로 뽑아요">연출 함께 뽑기 ${on ? '켜짐' : '꺼짐'}</button>`;
 }
 
+/** 동선 따로 보기 켜기 · 끄기 (Settings.check_motion, 기본 켬). 작품 설정이라 자동 집필 검수도 따른다. */
+function motionToggle() {
+  const on = P().settings.check_motion !== false;
+  return `<button type="button" class="btn${on ? ' on' : ''}" aria-pressed="${on}" data-action="toggleCheckMotion" title="검수할 때 이번 화 본문만 넣고 인물의 자리 · 향한 쪽 · 손 · 물건이 어긋난 곳을 한 번 더 찾아요. 본 검수와 동시에 불러서 기다리는 시간은 그대로고, 검수 호출이 1번 늘어요">동선 따로 보기 ${on ? '켜짐' : '꺼짐'}</button>`;
+}
+
 function findingFlag(e, f, text) {
   const rounds = e.rounds || [];
   const last = rounds.length ? rounds[rounds.length - 1].no : f.last;
@@ -355,7 +361,7 @@ function viewCheck(n) {
   const toReview = e.status === 'written'
     ? `<a class="btn${checkPrimary ? '' : ' primary'}" href="${base()}/review/${n}">상태 승인으로${st.open ? ` · 열린 지적 ${st.open}` : ''}</a>`
     : e.status === 'finalized' && !checkPrimary ? nextStepBtn() : '';  // 반영 끝난 화도 검수가 지금 할 일이면 다음 할 일 버튼은 두지 않는다
-  const lead = `${serial() ? widenToggle(false) : ''}${stageToggle()}${S.mode === 'brief' ? `<a class="btn" href="${base()}/brief/${n}" data-action="openCheckBrief" data-arg="${n}">검수 지시서</a>` : ''}`;
+  const lead = `${serial() ? widenToggle(false) : ''}${motionToggle()}${stageToggle()}${S.mode === 'brief' ? `<a class="btn" href="${base()}/brief/${n}" data-action="openCheckBrief" data-arg="${n}">검수 지시서</a>` : ''}`;
   const right = !e.text ? '' : !last ? lead + toReview : checkPrimary ? lead + toReview + checkBtn : lead + checkBtn + toReview;
   const head = `<header class="page-head"><div class="row" style="gap:12px">${epNav('check', n)}<div class="lead" style="gap:2px"><div class="eyebrow">${flowEyebrow(n)}</div><h1 style="font-size:1.5rem">${n}화 ${esc(e.plot.title)}</h1></div><span class="chip ${e.status}">${STATUS[e.status]}</span></div><div class="row">${right}</div></header>
     ${flowBar(n, 'check')}${autoLockNote()}`;
@@ -425,6 +431,16 @@ function afterFix(n, fid, pj) {
 }
 
 Object.assign(actions, {
+  async toggleCheckMotion() {
+    const on = P().settings.check_motion === false;
+    P().settings.check_motion = on;
+    render();
+    try {
+      S.project = await api('PUT', `/projects/${enc(S.name)}/check-motion`, { on });
+    } catch (err) {
+      toast(err.message, true);
+    }
+  },
   async toggleStageExtract() {
     const on = P().settings.stage_extract === false;
     P().settings.stage_extract = on;

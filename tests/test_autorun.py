@@ -140,7 +140,7 @@ def test_pause_keeps_batch_and_resume_reattaches(demo, monkeypatch):
     autorun.resume(demo)
     wait_until(idle(demo))
     assert autorun.load_run(demo).status == "done"
-    assert len(mock.BATCHES) == count + 2  # 본문은 기다리던 작업을 받아 오고, 검수와 상태만 새로 보냈다 (계획 장면이 없어 장면 뽑기 없음)
+    assert len(mock.BATCHES) == count + 3  # 본문은 기다리던 작업을 받아 오고, 검수 · 동선 따로 보기 · 상태만 새로 보냈다 (계획 장면이 없어 장면 뽑기 없음)
 
 
 def test_stop_cancels_batch(demo, monkeypatch):
@@ -176,6 +176,7 @@ def test_server_restart_resumes(demo, monkeypatch):
 
 def test_estimate(demo, monkeypatch):
     p = store.load(demo)
+    p.settings.check_motion = False  # 동선 따로 보기 호출은 tests/test_check_motion.py 가 센다
     monkeypatch.setenv("CANON_LLM", "gemini")
     assert autorun.estimate(p, 6, False, Policy())["calls"]["check"] == 6  # 계획 장면이 없으면 장면 뽑기도 없다
     for n in (1, 2):  # 1 · 2화의 사건마다 계획 장면
@@ -208,6 +209,7 @@ def test_serial_estimate_sizes_old_passages_without_search(demo, monkeypatch):
     p = store.load(demo)
     p.meta.form = "serial"
     p.settings.stage_extract = False
+    p.settings.check_motion = False
     monkeypatch.setitem(context.BUDGET, "check_recall", 400)
     sim = p.model_copy(deep=True)
     for e in sim.episodes:  # 화마다 다른 낱말이 섞인 본문이라야 옛 단락이 찾아진다 (실제 작품처럼)
@@ -293,7 +295,7 @@ def test_batch_schema_mismatch_is_repaired(demo):
     run = autorun.start(demo, 1, True, Policy(), foreground=True)
     assert run.status == "done" and run.applied == [1]
     events = len(ep.plot.events)  # 검수 때 함께 뽑기: 계획 장면이 있는 사건마다 본문 장면 뽑기 (사건마다 배치 slot)
-    assert events and len(mock.BATCHES) == count + 4 + events  # 본문, 검수, 상태, 상태 고쳐 받기, 장면 뽑기
+    assert events and len(mock.BATCHES) == count + 5 + events  # 본문, 검수, 동선 따로 보기, 상태, 상태 고쳐 받기, 장면 뽑기
     assert [s.role for s in store.load(demo).episode(1).stage].count("text") == events
     assert any(e.level == "warn" and "형식과 맞지 않아" in e.message for e in run.log)
     assert not run.batches

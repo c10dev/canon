@@ -139,8 +139,8 @@ class ResearchTest(unittest.TestCase):
         store.save(self.name, p)
         r = self.c.post(f"{self.api}/research/check", json={"backend": {"provider": "mock"}, "episode": 1, "plants": 2}).json()
         self.assertEqual(len(r["planted"]), 2)
-        self.assertEqual([m["mode"] for m in r["runs"]], ["full", "budget"])
-        self.assertTrue(all(m["ok"] and m["found"] == 2 for m in r["runs"]))
+        self.assertEqual([m["mode"] for m in r["runs"]], ["full", "budget", "motion"])
+        self.assertTrue(all(m["ok"] and m["found"] == 2 for m in r["runs"]))  # 가짜 응답은 동선 따로 보기에서도 심은 문장마다 짚는다
         self.assertIn("사실 그는 처음 보는 사람이었다", r["planted"][0]["replacement"])
         # 동선 모순은 몸 · 접촉 · 물건 갈래로 세고, 근거는 같은 화 앞 문장
         self.assertEqual([(x["kind"], x["source_episode"], x["distance"]) for x in r["planted"]], [("사실", 0, None), ("동선 · 접촉", 1, 0)])
@@ -158,8 +158,8 @@ class ResearchTest(unittest.TestCase):
 
         r = self.c.post(f"{self.api}/research/check", json={"backend": {"provider": "mock"}, "episode": 1, "plants": 2,
                                                              "judge": {"provider": "mock"}}).json()
-        self.assertEqual([m["mode"] for m in r["runs"]], ["full", "budget", "twostep"])
-        two = r["runs"][2]
+        self.assertEqual([m["mode"] for m in r["runs"]], ["full", "budget", "motion", "twostep"])
+        two = r["runs"][3]
         self.assertTrue(two["ok"], two.get("error"))
         self.assertEqual((two["found"], two["raised"], two["flagged"]), (2, [True, True], 2))
         self.assertEqual(two["claims"], 4)
@@ -169,8 +169,8 @@ class ResearchTest(unittest.TestCase):
 
         # 장면 연출 규칙 검수: 사건마다 본문 장면을 뽑고 규칙 판정이 동선만 짚는다. 심은 동선은 거리 규칙에 걸린다
         r = self.c.post(f"{self.api}/research/check", json={"backend": {"provider": "mock"}, "episode": 1, "plants": 2, "stage": True}).json()
-        self.assertEqual([m["mode"] for m in r["runs"]], ["full", "budget", "stage"])
-        sc = r["runs"][2]
+        self.assertEqual([m["mode"] for m in r["runs"]], ["full", "budget", "motion", "stage"])
+        sc = r["runs"][3]
         self.assertTrue(sc["ok"], sc.get("error"))
         self.assertTrue(sc["scenes"] and sc["tokens"] > 0)
         self.assertEqual([(k["kind"], k["found"]) for k in sc["by_kind"]], [("사실", 1), ("동선 · 접촉", 1)])  # 가짜 응답은 심은 문장마다 짚는다

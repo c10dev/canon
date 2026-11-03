@@ -3319,6 +3319,40 @@ def check_prompt(p: Project, n: int, mode: str = "", sized: bool = False) -> str
 - episode 는 {n} 입니다."""
 
 
+# ---------- 동선 따로 보기: 이번 화 본문만 넣고 동선만 찾는 검수 호출 (pipeline.motion_check) ----------
+# 2026-11-03 검수 시험: 동선 모순 25개를 본 검수(budget, flash)는 7개, 이 프롬프트는 flash 14개 · argon 19개를 찾았다.
+# 본 검수 프롬프트에서 동선은 여러 확인 항목 가운데 한 줄이라 옛 화 · 설정 대조에 묻힌다. 근거가 같은 화 앞 문장이라 옛 화와 설정은 넣지 않는다.
+
+SYSTEM_MOTION = (
+    "당신은 연재 소설의 교정 편집자입니다. 한 화 본문 안에서 인물의 몸 · 손 · 옷 · 물건의 상태가 바꾸는 행동 없이 달라지는 곳만 찾습니다. "
+    "모든 지적에는 상태를 정한 앞 문장과 어긋난 문장을 원문 그대로 인용합니다. 문장의 좋고 나쁨은 평가하지 않습니다."
+)
+
+
+def motion_prompt(p: Project, n: int) -> str:
+    """동선 따로 보기 프롬프트: 이번 화 인물 이름과 본문, 동선 갈래별 확인 목록."""
+    cast = context.characters_by_ids(p, context.episode_cast(p, n))
+    names = "\n".join(f"- {c.name} ({c.role})" if c.role else f"- {c.name}" for c in cast) or "없음"
+    return f"""# 등장 인물
+{names}
+
+# {n}화 본문
+{p.episode(n).text}
+
+{n}화 본문 안에서 동선이 어긋난 곳을 찾으세요. 장면마다 인물의 위치, 향한 쪽, 두 손, 걸친 것, 맞닿은 것, 물건 자리를 따라가며 읽습니다.
+- 향한 쪽: 돌아서는 행동 없이 향한 쪽이 바뀜, 등을 진 인물의 얼굴이나 앞모습이 보임.
+- 손: 두 손이 다 찬 채 다른 일을 함, 쥔 것을 놓지 않고 그 손으로 다른 것을 함, 왼손 · 오른손이 앞 문장과 바뀜.
+- 접촉: 잡고 · 안고 · 업은 상태가 놓는 행동 없이 풀리거나, 그 상태로는 할 수 없는 동작을 함.
+- 겹침 순서: 바깥에 걸친 것을 벗지 않고 안쪽 것을 벗거나 입음. 벗은 것 · 낀 것이 다시 입거나 벗는 행동 없이 바뀜.
+- 물건 자리: 내려놓거나 건넨 물건을 다시 집지 않고 씀, 넣은 곳과 다른 곳에서 꺼냄.
+- 위치 · 자세: 앉아 있던 인물이 일어나는 행동 없이 걷거나 서 있음, 멀리 있던 인물이 다가오는 행동 없이 맞닿음.
+- type 은 동선, source_episode 는 {n}, source_quote 는 상태를 정한 앞 문장, current_quote 는 어긋난 문장입니다. 둘 다 원문 그대로 옮깁니다.
+- 바꾸는 행동이 생략되었다고 볼 수 있는 자연스러운 경우(장면이 넘어감, 시간이 흐름)는 넣지 않습니다.
+{SEVERITY_RULE}
+- 근거 문장을 인용할 수 없는 의심은 넣지 않습니다. 어긋남이 없으면 issues 를 빈 목록으로 둡니다.
+- episode 는 {n} 입니다."""
+
+
 def _finding_text(n: int, f: ConsistencyIssue) -> str:
     src = "설정 · 확정 사실" if not f.source_episode else ("이번 화 앞 문장" if f.source_episode == n else f"{f.source_episode}화")
     return (f"- 갈래: {f.type}\n- 무엇이 어긋났나: {f.description}\n- 이번 화 문장: {f.current_quote}\n"

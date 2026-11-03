@@ -28,6 +28,7 @@ from .schema import (
     ChatScope,
     CheckRound,
     CheckSource,
+    ConsistencyIssue,
     ConsistencyReport,
     StageDraft,
     StageProposal,
@@ -3386,17 +3387,56 @@ def keep_illust_look(p: Project, n: int, iid: str, cid: str, force: bool = False
 
 # ---------- 5. 검수 (모순 찾기, 문체 지표) ----------
 
-def check_episode(llm: LLM, p: Project, n: int, widen: bool | None = None) -> ConsistencyReport:
-    """한 화 검수. 장편이고 widen 이면(비우면 작품 설정 check_widen) 검수 넓히기(widen_check)를 이어 붙인다. 단편은 넓히지 않는다."""
+def check_episode(llm: LLM, p: Project, n: int, widen: bool | None = None, motion: bool | None = None) -> ConsistencyReport:
+    """한 화 검수. 장편이고 widen 이면(비우면 작품 설정 check_widen) 검수 넓히기(widen_check)를 이어 붙인다. 단편은 넓히지 않는다.
+    motion 이면(비우면 작품 설정 check_motion) 동선 따로 보기(motion_check)를 본 검수와 동시에 불러 지적을 합친다."""
     if not p.episode(n).text:
         raise ValueError(f"{n}화 본문이 없어요")
-    report = llm.json(prompts.SYSTEM_CHECKER, prompts.check_prompt(p, n), ConsistencyReport, hint={"episode": n})
-    report.episode = n
-    if widen_on(p, widen):
-        report, _ = widen_check(llm, p, n, report)
+    part = getattr(llm, "part", None)  # 자동 집필 배치: 호출마다 작업 slot 을 따로 둔다 (llm.BatchLLM.part)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        side = (pool.submit(contextvars.copy_context().run, motion_check, part("motion") if part else llm, p, n)
+                if (p.settings.check_motion if motion is None else motion) else None)
+        report = llm.json(prompts.SYSTEM_CHECKER, prompts.check_prompt(p, n), ConsistencyReport, hint={"episode": n})
+        report.episode = n
+        if widen_on(p, widen):
+            report, _ = widen_check(llm, p, n, report)
+        if side is not None:
+            report = merge_motion(report, _side_result(side))
     if p.settings.stage_extract:  # 계획 장면이 있는 사건만 본문 장면 뽑기: apply_check 가 장면에 넣고 규칙 판정을 합친다
         report._stage, report._stage_held = stage_extract_all(llm, p, n)
     return report
+
+
+def motion_check(llm: LLM, p: Project, n: int, hint: dict | None = None) -> list[ConsistencyIssue]:
+    """동선 따로 보기: 이번 화 인물 이름과 본문만 넣고 같은 화 안의 동선 어긋남만 찾는다 (prompts.motion_prompt).
+    갈래 · 근거 화는 모델이 다르게 적어도 동선 · 이번 화로 고친다. 인용 문장이 빈 지적은 버린다."""
+    cancel.check()
+    rep = llm.json(prompts.SYSTEM_MOTION, prompts.motion_prompt(p, n), ConsistencyReport, hint={"episode": n, "motion": True, **(hint or {})})
+    out = []
+    for x in rep.issues:
+        if x.current_quote.strip():
+            x.type, x.source_episode = "동선", n
+            out.append(x)
+    return out
+
+
+def _side_result(fut) -> list[ConsistencyIssue]:
+    """동선 따로 보기 결과. 실패해도 본 검수는 살린다. 멈추기 · 배치 멈춤은 그대로 올린다."""
+    try:
+        return fut.result()
+    except (cancel.Cancelled, Interrupted):
+        raise
+    except Exception:
+        return []
+
+
+def merge_motion(report: ConsistencyReport, extra: list[ConsistencyIssue]) -> ConsistencyReport:
+    """동선 따로 보기 지적을 본 검수 뒤에 붙인다. 이미 짚은 문장(findings.same_quote)과 겹치는 지적은 뺀다."""
+    issues = list(report.issues)
+    for x in extra:
+        if not any(_same_quote(x.current_quote, y.current_quote) for y in issues):
+            issues.append(x)
+    return ConsistencyReport(episode=report.episode, issues=issues)
 
 
 def widen_on(p: Project, widen: bool | None = None) -> bool:

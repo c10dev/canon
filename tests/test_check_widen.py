@@ -37,6 +37,7 @@ def _project(serial: bool = True) -> Project:
     p = Project(meta=Meta(title="t", form="serial" if serial else "short", target_episodes=6),
                 characters=[Character(id="a", name="서윤", role="주인공", tier="main")],
                 episodes=[Episode(plot=_plot(n), status="finalized" if n < 6 else "written", text=t) for n, t in texts.items()])
+    p.settings.check_motion = False  # 동선 따로 보기 호출은 tests/test_check_motion.py 가 센다
     return p
 
 
@@ -159,14 +160,14 @@ def test_research_trial_runs_widen_mode_for_serial(tmp_path, monkeypatch):
     monkeypatch.setitem(context.BUDGET, "check_recall", 0)
     p = _project()
     r = research.check_trial(p, 6, research.Backend(provider="mock"), plants=1, seed=1)
-    assert [m["mode"] for m in r["runs"]] == ["full", "budget", "widen"]
+    assert [m["mode"] for m in r["runs"]] == ["full", "budget", "widen", "motion"]
     w = r["runs"][2]
     assert w["ok"], w.get("error")
     assert w["claims"] >= 1 and "first_found" in w and "raised" in w
     assert w["tokens"] > r["runs"][1]["tokens"]  # 첫 검수 + 진술 뽑기 (+ 다시 묻기)
     assert "widen" in research.TRIAL_MODES
     short = research.check_trial(_project(serial=False), 6, research.Backend(provider="mock"), plants=1, seed=1)
-    assert [m["mode"] for m in short["runs"]] == ["full", "budget"]
+    assert [m["mode"] for m in short["runs"]] == ["full", "budget", "motion"]
 
 
 def test_web_toggle_and_autorun_estimate(tmp_path, monkeypatch):
@@ -189,6 +190,7 @@ def test_web_toggle_and_autorun_estimate(tmp_path, monkeypatch):
     assert p.settings.check_widen is True
     p.meta.form = "serial"
     p.settings.stage_extract = False  # 장면 뽑기 호출은 tests/test_autorun.py 의 추정 시험이 센다
+    p.settings.check_motion = False  # 동선 따로 보기 호출은 tests/test_check_motion.py 가 센다
     policy = autorun.Policy()
     on = autorun.estimate(p, 6, False, policy)
     p.settings.check_widen = False
