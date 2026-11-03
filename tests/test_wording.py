@@ -15,6 +15,8 @@ SPACED = re.compile(rf"[A-Za-z0-9)\]] ({PARTICLES})(?=$|[\s,.!?:;'\"<)\]…·])"
 LEADING = re.compile(rf"^ ({PARTICLES})(?=$|[\s,.!?:;'\"<)\]…·])")
 # 합쇼체 끝맺음 (해요체로 쓴다): ㅂ 받침 글자 + '니다' ('합니다', '없습니다'). '아니다' 는 걸리지 않는다
 FORMAL = re.compile(r"[가-힣]니다(?![가-힣])")
+# 템플릿 문자열로 주입하는 CSS 의 주석 (화면 문구가 아니다)
+CSS_COMMENT = re.compile(r"/\*.*?\*/", re.S)
 # 식 뒤의 '이'가 조사가 아니라 지시어('이 구조', '이 수정')인 문구
 ALLOW_LEADING = (" 이 구조는", " 이 수정을")
 
@@ -25,7 +27,8 @@ def formal(text: str):
 
 def js_strings(src: str):
     """JS 소스에서 문자열 조각을 (줄, 글, 식 바로 뒤인지) 로 낸다. 주석과 정규식 리터럴은 건너뛴다.
-    템플릿 문자열은 ${...} 를 식으로 다시 읽어 안쪽 문자열도 낸다."""
+    템플릿 문자열은 ${...} 를 식으로 다시 읽어 안쪽 문자열도 낸다.
+    템플릿 안의 /* ... */ 는 JS 가 주입하는 CSS 의 주석이라 화면에 보이지 않으므로 뺀다."""
     out = []
     i, n, line = 0, len(src), 1
     stack = []  # 템플릿 안 ${ 깊이: 닫는 } 를 만나면 템플릿으로 돌아간다
@@ -75,7 +78,7 @@ def js_strings(src: str):
                     line += 1
                 buf.append(src[j])
                 j += 1
-            out.append((start, "".join(buf), after_expr))
+            out.append((start, CSS_COMMENT.sub("", "".join(buf)), after_expr))
             if src.startswith("${", j):
                 stack.append(0)
                 i = j + 2
@@ -167,7 +170,8 @@ def test_server_messages_follow_wording_rules():
 
 def test_scanner_reads_strings_not_comments():
     src = "// AI 가 주석\nconst a = 'AI 가 문자열'; const r = /x 가/; const t = `${n} 가 ${'Gemini 나'}` /* API 를 */;"
+    src += "\nconst css = `.a { color: red; }  /* k- 접두사: side 이 .side 과 겹치지 않게 */\n.b { }`;"
     texts = [t for _, t, _ in js_strings(src)]
     assert "AI 가 문자열" in texts and "Gemini 나" in texts
-    assert not any("주석" in t or "API 를" in t or "x 가" in t for t in texts)
+    assert not any("주석" in t or "API 를" in t or "x 가" in t or "접두사" in t for t in texts)
     assert problems(js_strings(src), "x") and len(problems(js_strings(src), "x")) == 3
