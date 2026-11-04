@@ -89,6 +89,11 @@
 - 본문(`draftBox` · `readHtml`, 지적 문장 밑줄 `findingRanges` 를 `marks.js` 의 `allRanges` 가 함께 그림, 바뀐 문장은 비슷한 문장 `nearQuote`)
 - 지적 상세(심각도 `setSeverity`, 처리 상태 `setFinding`, 메모, 처리 기록)
 - 문장에서 뜨는 고치는 창(`fixPanel`, `passage.js` 떠 있는 도구 mode `finding`: 고침안 `fixGet` · 딸린 곳 빼기 `fixSkip` · 적용 `fixApply` · 묶음 되돌리기 `fixUndo` · 이 지적만 다시 검수 `chkRecheck` · 다른 처리 길)
+- 고침안 한꺼번에의 띠(`fbBar`): 열린 지적 모두 고침안 받기 `fixAll`(작업 `fixes`), 한꺼번에 검토 열기 `fbOpen`
+- 한꺼번에 검토 화면(`fbView`): 지적마다 고르기 `fbPick` · 안 고르기 `fbOpt` · 딸린 곳 `fbSkip` · 모두 고르기 `fbAll`
+- 같은 문장을 바꾸는 안 표시(`fbClash`), 넣기 `fbApply`(`POST …/fixes/apply`), 되돌리기 `fbUndo`
+- 고르기는 기본으로 켜지 않는다. 작업이 끝나면 `fixesJobResult` 가 검토 화면을 연다
+- `fbNeed` 는 서버 `pipeline.fix_targets` 와 같은 셈
 - 장면 연출 규칙 지적은 '규칙' 표시(`ruleChip`)와 '장면 연출에서 보기'(`stageLink`, `stgGo`)
 - 다시 검수 버튼은 '판정 다시 보기'(LLM 없음)
 - 머리의 '연출 함께 뽑기'(`stageToggle`, `Settings.stage_extract`)

@@ -167,3 +167,52 @@ def test_check_view_and_fix_panel_render():
     assert "AI 고침안 1개" in got["panel"] and "이 화의 딸린 곳 1" in got["panel"]
     assert "근거 쪽이 틀렸어요" in got["panel"] and 'data-action="setFinding" data-arg="f1:wrong"' in got["panel"]
     assert "다시 열기" in got["closed"]
+
+
+@needs_node
+def test_fix_batch_view():
+    """고침안 한꺼번에: 지적 목록 위 띠(받기 · 검토), 검토 화면의 고르기 · 같은 문장 겹침 표시 · 넣을 수 없는 지적, 서버 fix_targets 와 같은 셈."""
+    from canon import pipeline
+    from canon.schema import FixOption, FixPatch, Meta, Project
+    e = episode(1, status="written", text=TEXT)
+    findings.merge(e, [issue(Q1), issue(Q2, "동선"), issue(Q3, "말투"), issue("본문에 없는 문장.", "시점")], "2026-10-28T10:00:00", "b")
+    p = Project(meta=Meta(title="t", target_episodes=3), episodes=[e])
+    files = ["app.js", "home.js", "branches.js", "style.js", "plot.js", "write.js", "review.js", "chat.js", "passage.js", "rewrite.js",
+             "restate.js", "opening.js", "auto.js", "marks.js", "check.js", "flow.js"]
+    before = run_js(files, """(() => {
+      S.project = data; S.name = 't'; S.route = ['p', 't', 'check', '1'];
+      return { view: viewCheck(1), need: fbNeed(ep(1), ep(1).text).map((f) => f.id) };
+    })()""", dump(p))
+    assert before["need"] == pipeline.fix_targets(e) == ["f1", "f2", "f3"]
+    assert 'data-action="fixAll" data-arg="1"' in before["view"] and "열린 지적 3개 고침안 받기" in before["view"]
+    assert 'data-action="fbOpen"' not in before["view"]  # 받은 고침안이 없으면 검토 버튼도 없다
+
+    e.findings[0].fixes = [FixOption(label="왼손으로", text="도현은 왼손에 남은 흉터를 감췄다."),
+                           FixOption(label="뒤까지", text="도현은 흉터를 감췄다.", extra=[FixPatch(quote=Q2, replacement="서윤은 문을 붙잡았다.", reason="맞춤")])]
+    e.findings[1].fixes = [FixOption(label="한 손으로", text="서윤은 문손잡이를 한 손으로 붙잡았다.")]
+    e.findings[2].fixes = [FixOption(label="옛 안", text="x", extra=[FixPatch(quote="본문에 없는 곳.", replacement="y")])]  # 본문이 바뀌어 넣을 수 없음
+    p = Project(meta=Meta(title="t", target_episodes=3), episodes=[e])
+    got = run_js(files, """(() => {
+      S.project = data; S.name = 't'; S.route = ['p', 't', 'check', '1'];
+      render = () => {};  // 동작이 다시 그리기를 부른다 (이 시험은 화면 함수를 직접 부른다)
+      const list = viewCheck(1);
+      S.fbOpen = 1;
+      const empty = viewCheck(1);
+      actions.fbAll('1');
+      const all = viewCheck(1);
+      actions.fbOpt('f1:1');  // f1 의 둘째 안은 f2 문장도 바꾼다 → f2 에 겹침 표시
+      const clash = fbClash(1, ep(1), ep(1).text, findingOrder(ep(1).findings.filter((f) => f.status === 'open')));
+      const clashView = viewCheck(1);
+      actions.fbPick('f2');
+      return { list, empty, all, clash: Object.fromEntries(Object.entries(clash).map(([k, v]) => [k, v.id])), clashView,
+               after: viewCheck(1), on: Object.keys(S.fbOn).sort(), need: fbNeed(ep(1), ep(1).text).map((f) => f.id) };
+    })()""", dump(p))
+    assert got["need"] == pipeline.fix_targets(e) == ["f3"]
+    assert 'data-action="fbOpen" data-arg="1">한꺼번에 검토 · 2' in got["list"]
+    assert "고침안 한꺼번에 검토" in got["empty"] and "고른 0개 넣기" in got["empty"] and 'data-action="fbApply" disabled' in got["empty"]
+    assert "아직 고침안이 없어요" not in got["empty"] and "고침안을 받은 뒤 본문이 바뀌었어요" in got["empty"]  # f3
+    assert "지적한 문장을 지금 본문에서 찾을 수 없어요" in got["empty"]  # f4
+    assert "남은 1개 고침안 받기" in got["empty"]
+    assert "고른 2개 넣기" in got["all"]  # 넣을 수 있는 f1 · f2 만
+    assert got["clash"] == {"f2": "f1"} and "같은 문장을 바꿔요" in got["clashView"]
+    assert got["on"] == ["1:f1"] and "고른 1개 넣기" in got["after"] and "같은 문장을 바꿔요" not in got["after"]

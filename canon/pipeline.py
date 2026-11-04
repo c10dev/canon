@@ -3909,6 +3909,39 @@ def store_fixes(p: Project, n: int, fid: str, opts: list[FixOption]) -> Finding:
     return f
 
 
+FIX_WORKERS = 3  # 열린 지적 고침안을 한꺼번에 받을 때 동시에 부르는 수 (web 작업 'fixes')
+
+
+def fix_usable(ep: Episode, f: Finding, opt: FixOption) -> bool:
+    """이 고침안을 지금 본문에 넣을 수 있는지: 지적한 문장과 딸린 곳이 모두 본문에 그대로 있다 (check.js fixMissing 과 같은 셈)."""
+    quotes = [f.current_quote.strip(), *(x.quote.strip() for x in opt.extra)]
+    return all(q and q in ep.text for q in quotes)
+
+
+def fix_targets(ep: Episode) -> list[str]:
+    """한꺼번에 고침안을 받을 지적: 열린 지적 가운데 지적한 문장이 지금 본문에 있고, 넣을 수 있는 고침안이 하나도 없는 것."""
+    out = []
+    for f in findings.open_findings(ep):
+        q = f.current_quote.strip()
+        if q and q in ep.text and not any(fix_usable(ep, f, o) for o in f.fixes):
+            out.append(f.id)
+    return out
+
+
+def apply_fixes(p: Project, n: int, picks: list[tuple[str, int, list[int]]], confirm: bool = False) -> tuple[list[str], list[tuple[str, str]]]:
+    """작가가 고른 고침안을 차례로 넣는다 (지적, 고침안 번호, 뺄 딸린 곳). 지적마다 한 묶음이라 하나씩 되돌릴 수 있다.
+    앞 고침안이 같은 문장을 바꿔 못 넣은 것은 까닭과 함께 돌려주고 나머지는 넣는다. (넣은 지적, (못 넣은 지적, 까닭))."""
+    _editable(p, n)
+    done, failed = [], []
+    for fid, k, skip in picks:
+        try:
+            apply_fix(p, n, fid, k, skip, confirm)
+            done.append(fid)
+        except (ValueError, KeyError) as e:
+            failed.append((fid, str(e.args[0]) if e.args else type(e).__name__))
+    return done, failed
+
+
 def _group_id(ep: Episode) -> str:
     nums = [int(e.group[1:]) for e in ep.edits if e.group[1:].isdigit()]
     return f"x{max(nums, default=0) + 1}"

@@ -160,6 +160,7 @@
 - 합치기는 출처(`ConsistencyIssue.origin`: ai · rule)가 같은 지적끼리
 - 규칙 지적의 다시 검수는 `pipeline.recheck_finding` 이 LLM 없이 판정만
 - 고침안 · 다시 검수의 AI 호출은 `pipeline.propose_fixes` · `apply_fix` · `undo_fix` · `recheck_finding`
+- 고침안 한꺼번에: 받을 지적 `pipeline.fix_targets`(넣을 수 있는 안 `fix_usable` 이 없는 열린 지적, `check.js` `fbNeed` 와 같은 셈), 웹 작업 `fixes`(`FIX_WORKERS` 개씩 동시에, 받는 대로 `store_fixes`), 고른 안 넣기 `apply_fixes`(웹 `POST …/fixes/apply`, 못 넣은 것은 까닭과 함께)
 - 프롬프트 `prompts.fix_prompt` · `recheck_prompt`(앞부분은 검수와 같은 `check_material`)
 - 결정은 검수 프롬프트에 넣지 않는다
 - LLM 호출 없음
