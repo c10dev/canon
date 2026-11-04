@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2C3642" alt="MIT 라이선스"></a>
-  <img src="https://img.shields.io/badge/python-3-2C3642?logo=python&logoColor=white" alt="Python 3">
+  <img src="https://img.shields.io/badge/python-3.12+-2C3642?logo=python&logoColor=white" alt="Python 3.12+">
   <img src="https://img.shields.io/badge/LLM-Gemini%20%C2%B7%20Claude%20%C2%B7%20%EB%A1%9C%EC%BB%AC-D16604" alt="LLM: Gemini, Claude, 로컬">
   <img src="https://img.shields.io/badge/%ED%99%94%EB%A9%B4-%EC%9B%B9%20%C2%B7%20CLI-1C6E45" alt="화면: 웹, CLI">
 </p>

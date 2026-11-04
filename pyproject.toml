@@ -1,0 +1,13 @@
+# 도구 설정만 둔다. 설치는 requirements.lock 으로 한다.
+
+[tool.ruff]
+target-version = "py312"  # f-string 안에 같은 따옴표를 쓴다 (PEP 701)
+extend-exclude = ["swift", "canon/static/vendor"]
+
+[tool.ruff.lint]
+# 구문 오류와 pyflakes(쓰지 않는 import · 변수, 정의 안 된 이름)만 본다. 모양 규칙은 아직 켜지 않는다
+select = ["E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F811"]  # pytest fixture 를 import 한 이름을 시험 함수 인자로 다시 받는다
+"**/__init__.py" = ["F401"]  # 패키지가 하위 모듈 이름을 다시 내보낸다

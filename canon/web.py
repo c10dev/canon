@@ -347,15 +347,15 @@ def put_config(body: SettingsIn) -> ConfigView:
     choices = settings.PROVIDERS
     if body.provider is not None and body.provider not in choices:
         raise HTTPException(400, f"provider는 {' / '.join(choices)} 중 하나예요")
-    for stage, value in (body.stages or {}).items():
-        if stage not in settings.STAGES or (value and value not in choices):
-            raise HTTPException(400, f"단계 설정이 잘못됐어요: {stage}={value}")
-    for stage in body.stage_models or {}:
-        if stage not in settings.STAGES:
-            raise HTTPException(400, f"알 수 없는 단계예요: {stage}")
-    for stage, value in (body.stage_efforts or {}).items():
-        if stage not in settings.STAGES or (value and value.strip().lower() not in settings.EFFORTS):
-            raise HTTPException(400, f"추론 강도는 {' / '.join(settings.EFFORTS)} 중 하나예요: {stage}={value}")
+    for step, value in (body.stages or {}).items():
+        if step not in settings.STAGES or (value and value not in choices):
+            raise HTTPException(400, f"단계 설정이 잘못됐어요: {step}={value}")
+    for step in body.stage_models or {}:
+        if step not in settings.STAGES:
+            raise HTTPException(400, f"알 수 없는 단계예요: {step}")
+    for step, value in (body.stage_efforts or {}).items():
+        if step not in settings.STAGES or (value and value.strip().lower() not in settings.EFFORTS):
+            raise HTTPException(400, f"추론 강도는 {' / '.join(settings.EFFORTS)} 중 하나예요: {step}={value}")
     if body.gemini_auth not in (None, "", "key", "vertex"):
         raise HTTPException(400, "Gemini 연결 방식은 key / vertex 중 하나예요")
     if body.vertex_credentials and body.vertex_credentials.lstrip().startswith("{"):

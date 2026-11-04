@@ -260,7 +260,6 @@ def _wind(river: dict, j: int, vlines: list[dict], hlines: list[dict], rw: float
     가운데 선은 대로 줄(a → b)에 노이즈를 더한 것이고 흔드는 폭은 하천 폭의 WIND 배다. 강변길 조각은 칸 안에서 곧아 블록이
     볼록하게 남는다. 그래서 강변길은 하천에서 둔치 폭(BANK) 넘게 떨어질 만큼 바깥으로 민다. 옆 슈퍼블록이 SHORE_DEPTH 보다 얕아지면
     흔드는 폭을 DAMP 차례로 줄인다. 곧게 해도 안 되면 False."""
-    a, b = river["a"], river["b"]
     noise = geom.Noise(r)
     wave, amp, oy = r.uniform(*WAVE), rw * r.uniform(*WIND), r.uniform(0, 64)
     n = max(2, math.ceil(w / RIVER_STEP))

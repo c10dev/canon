@@ -2,7 +2,6 @@
 
     CANON_HOME=$(mktemp -d) python -m pytest -q tests/test_auto_polish.py
 """
-import pytest
 
 from canon import autorun, pipeline, store
 

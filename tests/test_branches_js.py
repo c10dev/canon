@@ -1,6 +1,5 @@
 """갈래 화면(static/branches.js · home.js)이 서버와 같은 규칙을 쓰는지. node 가 있을 때만 돈다.
 branchName ↔ 명령줄 branches 의 이름, folderOf · branchFolder 가 만드는 폴더 이름 ↔ web.NAME_RE."""
-import pytest
 
 from canon import web
 

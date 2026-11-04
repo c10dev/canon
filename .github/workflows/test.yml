@@ -31,6 +31,8 @@ jobs:
           node-version: "22"
       - name: 의존성 설치
         run: pip install -r requirements.lock
+      - name: 정적 검사
+        run: ruff check canon tests scripts
       - name: 전체 시험
         run: |
           export CANON_HOME="$(mktemp -d)"
