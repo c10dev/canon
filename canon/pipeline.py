@@ -2768,10 +2768,10 @@ def make_storyboard(llm: LLM, p: Project, n: int) -> Storyboard:
     if ep.status == "draft":
         raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
     require_previous(p, n)
-    d = llm.json(prompts.SYSTEM_PLANNER, prompts.storyboard_prompt(p, n), StoryboardDraft,
-                 hint={"episode": n, "events": len(ep.plot.events), "characters": ep.plot.characters,
-                       "stats": {s.character_id: [x.name for x in s.stats] for s in p.states if s.stats}})
-    b = Storyboard(**clean_storyboard(d).model_dump(), made_at=_now(), made_by="ai", basis=board_basis(p, n))
+    d = _board_draft(llm, n, len(ep.plot.events), prompts.storyboard_prompt(p, n),
+                     {"episode": n, "events": len(ep.plot.events), "characters": ep.plot.characters,
+                      "stats": {s.character_id: [x.name for x in s.stats] for s in p.states if s.stats}})
+    b = Storyboard(**d.model_dump(), made_at=_now(), made_by="ai", basis=board_basis(p, n))
     b.checks = board.checks(p, n, b)
     return b
 
@@ -2787,11 +2787,11 @@ def revise_storyboard(llm: LLM, p: Project, n: int, ask: str) -> Storyboard:
     if ep.status == "draft":
         raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요 (confirm 먼저)")
     require_previous(p, n)
-    d = llm.json(prompts.SYSTEM_PLANNER, prompts.storyboard_revise_prompt(p, n, ep.storyboard, ask), StoryboardDraft,
-                 hint={"episode": n, "events": len(ep.plot.events), "characters": ep.plot.characters,
-                       "stats": {s.character_id: [x.name for x in s.stats] for s in p.states if s.stats},
-                       "revise": ep.storyboard.model_dump(include=set(StoryboardDraft.model_fields)), "ask": ask})
-    b = Storyboard(**clean_storyboard(d).model_dump(), made_at=_now(), made_by="both", basis=board_basis(p, n),
+    d = _board_draft(llm, n, len(ep.plot.events), prompts.storyboard_revise_prompt(p, n, ep.storyboard, ask),
+                     {"episode": n, "events": len(ep.plot.events), "characters": ep.plot.characters,
+                      "stats": {s.character_id: [x.name for x in s.stats] for s in p.states if s.stats},
+                      "revise": ep.storyboard.model_dump(include=set(StoryboardDraft.model_fields)), "ask": ask})
+    b = Storyboard(**d.model_dump(), made_at=_now(), made_by="both", basis=board_basis(p, n),
                    ask=ask.strip()[:prompts.BOARD_ASK_LIMIT])
     b.checks = board.checks(p, n, b)
     return b
@@ -2814,6 +2814,20 @@ def undo_storyboard(p: Project, n: int) -> None:
     prev = ep.storyboard_prev
     prev.checks = board.checks(p, n, prev)
     ep.storyboard, ep.storyboard_prev = prev, None
+
+
+def _board_draft(llm: LLM, n: int, events: int, prompt: str, hint: dict) -> StoryboardDraft:
+    """스토리보드 응답을 받아 정리한다. 플롯에 사건이 있는데 장면이 하나도 없으면 한 번 더 묻고, 그래도 없으면 저장하지 않게 오류를 낸다.
+    실측(2026-11-04, gemini-4-argon): 성인 장면이 많은 플롯에서 다른 칸은 채우고 scenes 만 비운 응답(finish STOP)을 연달아 냈다."""
+    d = clean_storyboard(llm.json(prompts.SYSTEM_PLANNER, prompt, StoryboardDraft, hint=hint))
+    if d.scenes or not events:
+        return d
+    d = clean_storyboard(llm.json(prompts.SYSTEM_PLANNER, prompt + prompts.board_scenes_retry(events), StoryboardDraft,
+                                  hint={**hint, "retry": True}))
+    if d.scenes:
+        return d
+    raise RuntimeError(f"AI가 {n}화 스토리보드의 장면을 하나도 만들지 않았어요 (두 번 물었어요). "
+                       "모델이 이 플롯의 장면을 나누지 않는 것일 수 있어요. 설정에서 계획 단계 모델을 바꾸거나, 스토리보드 없이 쓰거나 직접 장면을 적어 주세요")
 
 
 def clean_storyboard(d: StoryboardDraft) -> StoryboardDraft:
