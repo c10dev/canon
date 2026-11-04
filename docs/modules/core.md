@@ -285,6 +285,8 @@
 - 단계별 환경 변수 이름은 `stage_env`
 - 기본 모델은 `DEFAULT_MODEL`
 - 작품별 단계 프리셋은 `project_preset` · `stage_provider` · `stage_model`
+- 단계별 추론 강도는 `stage_effort`(설정 파일 `stage_efforts`, `CANON_EFFORT_<단계>`)
+- 백엔드에 넘길 강도는 `provider_effort`(Claude `EFFORTS`, Gemini `GEMINI_EFFORTS`, Gemini 는 xhigh · max 를 high 로)
 
 ### `canon/static/auto.js`
 

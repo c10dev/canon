@@ -38,12 +38,15 @@
 - 응답 읽기 `_validate`: 통째로 읽히지 않으면 글 속 최상위 JSON 객체(`_json_objects`)를 뒤에서부터 읽는다(생각 글이 앞에 새는 응답, Gemini · 배치 · Claude 공통)
 - 형식 고치기 `repair_prompt`: 응답에 JSON 객체가 없으면 처음 요청을 그대로 다시 보낸다
 - Gemini 응답이 끝난 이유는 `last_finish`(두 번째도 실패하고 `MAX_TOKENS` 면 `SchemaMismatch` 글에 길이 한도를 적는다)
+- Gemini 추론 강도(`GeminiLLM.effort`, `settings.GEMINI_EFFORTS`)는 `thinking_config.thinking_level` 로 넘긴다(일반 호출과 배치)
+- 강도를 비우면 `thinking_config` 를 보내지 않는다(모델 기본값)
+- 생각 토큰도 출력 한도(`out_cap`)에 든다
 - 설정 화면의 Gemini 연결 방식은 `static/vertex.js`
 - 환경 변수
   - `ANTHROPIC_API_KEY`: Claude API 키(`claude-api` 만 키를 씀)
   - `CANON_BATCH_POLL`: 배치 결과를 묻는 간격 초(기본 30, `llm.BatchLLM`)
   - `CANON_CLAUDE_BIN` · `CANON_CLAUDE_MODEL` · `CANON_CLAUDE_TIMEOUT`: Claude
-  - `CANON_EFFORT_<단계>`: 단계별 Claude 추론 강도(low · medium · high · xhigh · max, `settings.stage_effort`)
+  - `CANON_EFFORT_<단계>`: 단계별 추론 강도(low · medium · high · xhigh · max, `settings.stage_effort`). Claude · Gemini 만 쓴다
   - `CANON_GEMINI_AUTH`: Gemini 연결 방식(key | vertex)
   - `CANON_GEMINI_TIMEOUT`: Gemini 응답을 기다리는 초(기본 600)
   - `CANON_HOME`: 프로젝트 저장 위치(기본 `projects/`)
