@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 
 from . import cancel, context, jobs, pipeline, prompts, renumber, store
 from .llm import LLM, dump, out_cap, wait_cap
-from .schema import (AgentSession, AgentTurn, Approval, AskCard, ChatScope, PlotAgentStep, PlotRevision, Project, RenumberOp,
+from .schema import (AgentAsk, AgentSession, AgentTurn, Approval, AskCard, ChatScope, PlotAgentStep, PlotRevision, Project, RenumberOp,
                      StepRecord, WriteItem, WriteRecord)
 
 TOPICS = ("plot",)
@@ -47,6 +47,11 @@ EMPTY_ASK_TOOL = "ask_empty"  # 묻는 말도 방향 안도 없는 ask 를 되�
 EMPTY_ASK_NOTE = ("방금 ask 에 묻는 말(question)도 방향 안(options)도 없어 작가에게 보일 것이 없어요. "
                   "물을 것이 있으면 question 을 채워 다시 ask 를 부르고, 없으면 tool 을 비우고 reply 에 답을 바로 다 쓰세요")
 EMPTY_ASK_REPLY = "AI가 묻는 말을 비운 채 멈췄어요. 같은 요청을 다시 보내거나 더 구체적으로 말해 주세요."
+# 도구 이름만 있고 변경안(edit)이 빈 edit_plot. 2026-11-04 gemini-4-argon 이 같은 단계 프롬프트에 두 번 중 한 번
+# {"thought", "tool": "edit_plot"} 만 내고 끝냈다(finish STOP). 같은 턴의 실제 단계는 같은 꼴의 빈 ask 였다
+EMPTY_EDIT_TOOL = "edit_empty"
+EMPTY_EDIT_NOTE = ("방금 tool 은 edit_plot 인데 edit 칸이 비어 바꿀 것이 없어요. 도구를 고르면 같은 응답 안에서 그 도구의 칸을 채웁니다. "
+                   "edit 에 바꿀 것(episodes, acts, arc, parts 중 필요한 것)을 채워 다시 edit_plot 을 부르거나, 방향을 정하지 못했으면 ask 로 물으세요")
 PREAMBLE_NOTE = ("방금 reply 는 할 일을 예고만 했어요. 작가는 그 내용을 기다리고, 이 답이 턴의 마지막 말이 됩니다. "
                  "분석 · 검토 · 답을 reply 에 바로 다 쓰세요. 더 읽을 것이 있으면 읽기 도구를 먼저 부르세요")
 
@@ -463,6 +468,36 @@ def _edit(name: str, fn):
     return out
 
 
+FILL_NOTE = ("\n\n[이번 단계] 도구 {tool} 을(를) 골랐습니다 (생각: {thought}). 이 도구의 칸만 채웁니다. {what}")
+FILL_WHAT = {"ask": "작가에게 물을 question 과, 방향을 묻는다면 서로 다른 방향 options 2~3개를 채웁니다.",
+             "edit_plot": "변경안을 [변경안 규칙]대로 채웁니다. reply 는 한 줄 설명입니다."}
+
+
+def fill(llm: LLM, system: str, prompt: str, step: PlotAgentStep, hint: dict) -> PlotAgentStep:
+    """도구 이름만 오고 그 도구의 칸이 빈 단계면, 그 칸만 담은 작은 형식으로 한 번 더 부른다 (같은 단계).
+    2026-11-04 gemini-4-argon 이 부 대상 세션의 첫 단계를 6번 중 5번 {thought, tool} 만 내고 끝냈다(출력 86~157토큰).
+    프롬프트에 '칸을 채운다'를 더해도 4번 모두 비었고, 같은 프롬프트 뒤에 AgentAsk 로 다시 부르니 2번 모두 묻는 말과
+    방향 3안을 냈다. edit_plot 을 PlotRevision 으로 채우게 하면 방향 안(options)만 낼 때가 있어, 그때는 되묻기로 바꾼다."""
+    tool = step.tool.strip()
+    if tool == "ask" and not step.question.strip() and not step.options:
+        a = llm.json(system, prompt + FILL_NOTE.format(tool=tool, thought=step.thought.strip(), what=FILL_WHAT["ask"]), AgentAsk,
+                     hint={**hint, "fill": "ask"})
+        return step.model_copy(update={"question": a.question, "options": a.options, "reply": step.reply or a.reply})
+    if tool == "edit_plot" and empty_edit(step.edit):
+        rev = llm.json(system, prompt + FILL_NOTE.format(tool=tool, thought=step.thought.strip(), what=FILL_WHAT["edit_plot"]), PlotRevision,
+                       hint={**hint, "fill": "edit"})
+        if rev.options and empty_edit(rev.model_copy(update={"options": []})):
+            return step.model_copy(update={"tool": "ask", "question": rev.reply.strip() or "어느 방향으로 갈까요?", "options": rev.options[:4],
+                                           "reply": step.reply or rev.reply})
+        return step.model_copy(update={"edit": rev})
+    return step
+
+
+def empty_edit(edit: PlotRevision) -> bool:
+    """edit_plot 의 변경안에 바꿀 것이 하나도 없는지 (reply 말고 모든 칸이 기본값)."""
+    return edit.model_dump(exclude={"reply"}) == PlotRevision(reply="").model_dump(exclude={"reply"})
+
+
 def is_preamble(reply: str) -> bool:
     """답이 내용 없이 할 일을 예고만 하는지 ("…분석해 전달합니다", "…살펴보겠습니다")."""
     reply = reply.strip()
@@ -510,6 +545,11 @@ def _step(p: Project, sid: str, t: int, step: PlotAgentStep, move: bool = True, 
         if renumber_step(p, turn, tool, args, move, held or []):
             turn.reply = step.reply.strip() or step.thought.strip()
             end = "wait"
+    elif tool == "edit_plot" and empty_edit(step.edit):
+        if not any(x.tool == EMPTY_EDIT_TOOL for x in turn.steps):
+            turn.steps.append(StepRecord(kind="note", tool=EMPTY_EDIT_TOOL, why="고칠 내용이 비어 다시 청했어요", result=EMPTY_EDIT_NOTE))
+        else:
+            turn.steps.append(StepRecord(kind="note", tool="edit_plot", why="바뀌는 것이 없어요", result="바뀌는 것이 없어요"))
     elif tool == "edit_plot":
         turn.steps += edit_plot(p, s, turn, step.edit)
         if turn.approval and turn.approval.state == "wait":
@@ -536,8 +576,10 @@ def run_turn(llm: LLM, name: str, sid: str, t: int, job=None) -> dict:
                 "steps": [x.kind for x in turn.steps], "tools": [x.tool for x in turn.steps]}
         if job is not None:
             job.step_at = time.time()
+        prompt = prompts.agent_plot_prompt(p, s, turn, scope, MAX_STEPS - i)
         with wait_cap(STEP_WAIT), out_cap(STEP_OUT_TOKENS):
-            step = llm.json(prompts.SYSTEM_AGENT_PLOT, prompts.agent_plot_prompt(p, s, turn, scope, MAX_STEPS - i), PlotAgentStep, hint=hint)
+            step = llm.json(prompts.SYSTEM_AGENT_PLOT, prompt, PlotAgentStep, hint=hint)
+            step = fill(llm, prompts.SYSTEM_AGENT_PLOT, prompt, step, hint)
         move, held = not store.shares_text(name), store.pending_eps(name)
         end = _edit(name, lambda q: _step(q, sid, t, step, move, held))
         if job is not None:

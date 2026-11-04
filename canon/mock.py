@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from .schema import (
     AddressChange,
     Act,
+    AgentAsk,
     PlotAgentStep,
     ToolArg,
     ArcEdit,
@@ -336,6 +337,10 @@ def _agent_step(hint: dict) -> PlotAgentStep:
     hit = re.search(r"(\d+)화 빼", msg)
     if hit and "approval" not in tools and "remove_episode" not in tools:
         return PlotAgentStep(thought="화를 빼요", tool="remove_episode", args=[ToolArg(name="n", value=hit.group(1))])
+    if "빈 고치기" in msg and "edit_plot" not in tools:  # 도구 이름만 내고 edit 을 비운 응답 (2026-11-04 gemini-4-argon). 채우기는 PlotRevision
+        return PlotAgentStep(thought="고쳐요", tool="edit_plot")
+    if "빈 채우기" in msg and not steps:  # 묻는 말을 비운 ask. 채우기는 AgentAsk
+        return PlotAgentStep(thought="물어요", tool="ask")
     if "빈 물음" in msg:  # 묻는 말 · 안 · 답이 모두 빈 ask (2026-11-04 실제 응답 모양). '계속' 이면 되돌려도 또 빈 ask
         if "ask_empty" in tools and "계속" not in msg:
             return PlotAgentStep(reply="1~7화를 보면 승 구간의 감각 묘사가 4화에서 끊겨요.")
@@ -636,6 +641,10 @@ class MockLLM:
             return _revision(hint)  # type: ignore[return-value]
         if schema is PlotAgentStep:
             return _agent_step(hint)  # type: ignore[return-value]
+        if schema is AgentAsk:  # 빈 ask 채우기 (agent.fill). '빈 물음' 은 채워도 빈 채로 둬 되돌림 단계를 시험한다
+            if "빈 물음" in hint["message"]:
+                return AgentAsk(question="")  # type: ignore[return-value]
+            return AgentAsk(question="몇 화로 갈까요?", options=[Direction(title=t, idea=f"{t}로 간다.") for t in ("7화", "15화")])  # type: ignore[return-value]
         if schema is StateDelta:
             n = hint["episode"]
             return StateDelta(

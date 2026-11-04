@@ -194,7 +194,10 @@ class TimedOut(RuntimeError):
 
 def is_timeout(e: BaseException) -> bool:
     """google-genai 가 응답 시간을 넘겼을 때 내는 오류인가. 보통은 httpx 의 TimeoutException 이고,
-    Vertex 의 mTLS 경로는 requests 의 Timeout 이다."""
+    Vertex 의 mTLS 경로는 requests 의 Timeout 이다. 서버가 요청의 시간 한도를 먼저 넘기면 504 DEADLINE_EXCEEDED
+    ('Deadline expired before operation could complete.')를 돌려준다 (2026-11-04 플롯 대화 한 단계, 297초)."""
+    if getattr(e, "code", None) == 504 or getattr(e, "status", None) == "DEADLINE_EXCEEDED":
+        return True
     kinds: list[type] = [TimeoutError]
     try:
         import httpx

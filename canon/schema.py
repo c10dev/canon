@@ -1007,6 +1007,13 @@ class PlotAgentStep(BaseModel):
         return "" if v in AGENT_END_TOOLS else v
 
 
+class AgentAsk(BaseModel):
+    """빈 ask 를 채우는 작은 형식 (agent.fill). PlotAgentStep 을 통째로 받으면 Gemini 가 tool 만 고르고 칸을 비울 때가 있다."""
+    question: str = Field(description="작가에게 묻는 말")
+    options: list[Direction] = Field(default_factory=list, description="고를 방향 2~3개 (방향을 물을 때)")
+    reply: str = Field("", description="묻기 전에 작가에게 하는 짧은 말 1~3문장")
+
+
 class StepRecord(BaseModel):
     """턴의 한 단계 (화면의 단계 줄). result 는 다음 단계 프롬프트에 넣는 결과로, 턴이 끝나면 비운다."""
     kind: Literal["read", "write", "wait", "block", "ask", "note"] = "read"

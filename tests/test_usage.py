@@ -259,6 +259,17 @@ def test_timeout_calls_once_more(pauses):
     assert rows[0]["error"].startswith("응답 시간 초과")
 
 
+def test_server_deadline_counts_as_timeout(pauses):
+    """서버가 시간 한도를 먼저 넘겨 504 DEADLINE_EXCEEDED 를 돌려줘도 한 번 더 부른다 (2026-11-04 플롯 대화 한 단계)."""
+    from google.genai import errors
+
+    late = errors.ServerError(504, {"error": {"code": 504, "message": "Deadline expired before operation could complete.",
+                                              "status": "DEADLINE_EXCEEDED"}})
+    llm = fake_gemini([late, "본문"])
+    assert llm.text("s", "p") == "본문"
+    assert usage.read()[0]["error"].startswith("응답 시간 초과")
+
+
 def test_timeout_twice_gives_clear_message(pauses):
     """두 번 다 넘기면 해요체 안내로 멈춘다. 웹 작업 오류도 같은 글이다."""
     from canon.llm import TIMEOUT_HINT, TimedOut
