@@ -130,7 +130,7 @@ def test_settings(client, tmp_path, monkeypatch):
     assert client.put("/api/config", json={"stage_efforts": {"check": "huge"}}).status_code == 400
     c = client.put("/api/config", json={"stages": {"check": "claude"}, "stage_efforts": {"check": "high"}}).json()
     assert c["stages"]["check"]["effort"] == "high" and c["stage_effort_settings"] == {"check": "high"}
-    assert c["efforts"] == ["low", "medium", "high", "xhigh", "max"]
+    assert c["efforts"] == ["low", "medium", "high", "xhigh", "max"] and c["gemini_efforts"] == ["low", "medium", "high"]
     c = client.put("/api/config", json={"stages": {"check": ""}, "stage_efforts": {"check": ""}}).json()
     assert c["stage_effort_settings"] == {} and c["stages"]["check"]["effort"] == ""
     from canon.llm import get_llm as _get

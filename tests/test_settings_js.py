@@ -71,6 +71,27 @@ def test_preset_of_and_env_list(tmp_path, monkeypatch):
 
 
 @needs_node
+def test_effort_select_lists_what_the_backend_takes(tmp_path, monkeypatch):
+    monkeypatch.setenv("CANON_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setenv("CANON_LLM", "gemini")
+    monkeypatch.setenv("CANON_LLM_CHECK", "claude")
+    monkeypatch.setenv("CANON_LLM_STATE", "local")
+    from canon import settings
+    settings.update(stage_efforts={"plan": "max", "write": "medium"})
+    c = settings.public()
+    got = run_js(FILES, """(() => {
+      const c = data.config;
+      const opts = (s) => [...effortSelect(s, s, c.stages[s], c).matchAll(/<option value="([^"]*)"( selected)?>([^<]*)</g)].map((m) => [m[1], !!m[2], m[3]]);
+      return { plan: opts('plan'), write: opts('write'), check: opts('check').map((o) => o[0]), state: effortSelect('state', 'state', c.stages.state, c) };
+    })()""", {"config": c})
+    assert [o[0] for o in got["write"]] == ["", "low", "medium", "high"]  # Gemini 는 낮음 · 보통 · 높음
+    assert ["medium", True, "추론 강도: 보통"] in got["write"]
+    assert got["plan"][-1] == ["max", True, "추론 강도: 최대 → 높음"]  # Gemini 가 받지 않는 값은 실제로 넘기는 값과 함께
+    assert got["check"] == ["", "low", "medium", "high", "xhigh", "max"]
+    assert got["state"] == ""  # 로컬 서버 단계에는 칸이 없다
+
+
+@needs_node
 def test_palette_finds_setting_rows():
     got = run_js(["app.js", "notify.js", "settings.js", "palette.js"], f"""(() => {{
       const settings = {ROWS}.map((r) => ({{ ...r, where: setCat(r.cat)[1] }}));

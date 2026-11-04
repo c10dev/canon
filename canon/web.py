@@ -212,7 +212,7 @@ class StageConfig(_Out):
     model_source: str
     env: str  # 백엔드를 정한 환경 변수 이름. 없으면 ""
     model_env: str
-    effort: str = ""  # Claude 추론 강도. Claude 단계가 아니거나 정하지 않았으면 "" (모델 기본값)
+    effort: str = ""  # 추론 강도(그 백엔드가 받는 값). Claude · Gemini 단계가 아니거나 정하지 않았으면 "" (모델 기본값)
     effort_source: str = "default"
     effort_env: str = ""
 
@@ -260,7 +260,8 @@ class ConfigView(_Out):
     stage_settings: dict[str, str]  # 설정 파일에 적은 단계별 백엔드
     stage_model_settings: dict[str, str]
     stage_effort_settings: dict[str, str] = {}
-    efforts: list[str] = []
+    efforts: list[str] = []  # Claude 단계에서 고르는 추론 강도
+    gemini_efforts: list[str] = []  # Gemini 단계에서 고르는 추론 강도 (thinking_level)
     stage_presets: list[StagePreset] = []
     local_sampling: dict[str, float] = {}  # 로컬 본문 생성 샘플링 (설정 파일 local_sampling 이 기본값을 덮는다). 화면은 읽기만
     path: str  # 설정 파일 경로
@@ -330,7 +331,7 @@ class SettingsIn(BaseModel):
     local_key: str | None = None
     stages: dict[str, str] | None = None  # {"write": "local"}, 빈 값이면 전체 설정을 따름
     stage_models: dict[str, str] | None = None  # {"state": "gemini-3.8-flash"}, 빈 값이면 백엔드 기본 모델
-    stage_efforts: dict[str, str] | None = None  # {"check": "high"}, Claude 추론 강도. 빈 값이면 모델 기본값
+    stage_efforts: dict[str, str] | None = None  # {"check": "high"}, 추론 강도(Claude · Gemini). 빈 값이면 모델 기본값
     claude_model: str | None = None
     claude_bin: str | None = None
     anthropic_api_key: str | None = None  # Claude Console API 키. 구독 로그인은 Claude Code 가 따로 관리

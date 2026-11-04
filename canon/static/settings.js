@@ -390,20 +390,30 @@ function stageRow(s, c) {
      <input class="set-inp half" type="text" data-setstagemodel="${s}" aria-label="${esc(label)} 모델" list="model-options" value="${esc((c.stage_model_settings || {})[s] || '')}" placeholder="모델: ${esc(st.model || '기본')}"${lockModel ? ' readonly' : ''}>${effortSelect(s, label, st, c)}`);
 }
 
-// Claude 추론 강도 (settings.EFFORTS). Claude 백엔드 단계에만 보인다. 비우면 모델 기본값
+// 추론 강도 (settings.EFFORTS · GEMINI_EFFORTS). Claude · Gemini 백엔드 단계에만 보인다. 비우면 모델 기본값
 const EFFORT_LABEL = { low: '낮음', medium: '보통', high: '높음', xhigh: '아주 높음', max: '최대' };
 const effortLocked = (s, st) => st.effort_env === `CANON_EFFORT_${s.toUpperCase()}`;
+const effortShown = (st) => ['claude', 'claude-api', 'gemini'].includes(st.provider);
+
+/** 그 단계 백엔드가 받는 강도 목록. Gemini 는 thinking_level (낮음 · 보통 · 높음) */
+function effortOptions(st, c) {
+  if (st.provider === 'gemini') return c.gemini_efforts || ['low', 'medium', 'high'];
+  return c.efforts || Object.keys(EFFORT_LABEL);
+}
 
 function effortSelect(s, label, st, c) {
-  if (!['claude', 'claude-api'].includes(st.provider)) return '';
+  if (!effortShown(st)) return '';
   const own = (c.stage_effort_settings || {})[s] || '';
+  const list = effortOptions(st, c);
   const follow = STAGE_PARENT[s] && !own && st.effort ? `${stageFollow(STAGE_PARENT[s])} (${EFFORT_LABEL[st.effort] || st.effort})` : '추론 강도: 모델 기본값';
-  const opts = (c.efforts || Object.keys(EFFORT_LABEL)).map((v) => `<option value="${v}"${own === v ? ' selected' : ''}>추론 강도: ${EFFORT_LABEL[v] || v}</option>`).join('');
-  return `<select class="set-inp half" data-setstageeffort="${s}" aria-label="${esc(label)} 추론 강도"${effortLocked(s, st) ? ' disabled' : ''}><option value="">${esc(follow)}</option>${opts}</select>`;
+  const opts = list.map((v) => `<option value="${v}"${own === v ? ' selected' : ''}>추론 강도: ${EFFORT_LABEL[v] || v}</option>`).join('');
+  // 다른 백엔드에서 고른 값(Gemini 단계의 아주 높음 · 최대)은 그대로 두고 실제로 넘기는 값을 함께 보인다 (settings.provider_effort)
+  const kept = own && !list.includes(own) ? `<option value="${own}" selected>추론 강도: ${EFFORT_LABEL[own] || own} → ${EFFORT_LABEL[st.effort] || st.effort}</option>` : '';
+  return `<select class="set-inp half" data-setstageeffort="${s}" aria-label="${esc(label)} 추론 강도"${effortLocked(s, st) ? ' disabled' : ''}><option value="">${esc(follow)}</option>${opts}${kept}</select>`;
 }
 
 function effortNote(s, st) {
-  if (!['claude', 'claude-api'].includes(st.provider)) return '';
+  if (!effortShown(st)) return '';
   if (effortLocked(s, st)) return esc(`추론 강도는 환경 변수 CANON_EFFORT_${s.toUpperCase()}이 정했어요 (${EFFORT_LABEL[st.effort] || st.effort})`);
   return '';
 }
