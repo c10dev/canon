@@ -6411,7 +6411,8 @@ def research_log(name: str) -> dict:
     _need(name)
     return {"log": research.history(name), "stages": research.STAGES, "check_modes": research.TRIAL_MODES,
             "check_totals": research.check_totals(name), "latest": research.latest(name),
-            "open_compares": research.open_compares(name)}
+            "open_compares": research.open_compares(name),
+            "check_langs": research.TRIAL_LANGS, "check_lang_tally": research.lang_tally(name)}
 
 
 class SampleIn(BaseModel):
@@ -6458,6 +6459,7 @@ class CheckTrialIn(BaseModel):
     modes: list[str] = []
     judge: research.Backend | None = None  # 주면 두 걸음 검수(판단기)도 시험한다
     stage: bool = False  # 켜면 장면 연출 규칙 검수도 시험한다
+    langs: list[str] = []  # 검수 지시문 언어(research.TRIAL_LANGS). 비우면 한국어만, en 을 넣으면 영어판도 돌린다
 
 
 @app.post("/api/projects/{name}/research/check")
@@ -6465,7 +6467,8 @@ def research_check(name: str, body: CheckTrialIn) -> dict:
     """검수 시험: n화에 모순을 심고 검수 방식마다 찾는지 본다. 작품에는 저장하지 않는다."""
     if not 1 <= body.plants <= 5:
         raise ValueError("심을 모순은 1~5개예요")
-    res = research.check_trial(_load(name), body.episode, body.backend, body.plants, body.modes or None, judge=body.judge, stage=body.stage)
+    res = research.check_trial(_load(name), body.episode, body.backend, body.plants, body.modes or None, judge=body.judge, stage=body.stage,
+                               langs=body.langs or None)
     return research.record(name, "check", res)
 
 

@@ -74,6 +74,9 @@
   - 장면 연출 규칙 검수 `stage` 는 고르면: 사건마다 `pipeline.extract_stage` → `stage.episode_issues`
   - `_stage_run`
   - 갈래별 찾은 수 `by_kind` · 기록 합계 `check_totals`
+  - 검수 지시문 영어판 비교 `TRIAL_LANGS`(=`prompts.CHECK_LANGS`): `langs` 에 en 을 주면 같은 사본의 full · budget 을 영어판으로도 검수한다(`_check_run`)
+  - 영어판은 시스템 프롬프트 `prompts.checker_system` · 자료 칸 제목 · 요구사항 · 응답 설명 `schema.ConsistencyReportEn` 만 영어다. 작품 자료 · 인용 · 기능별 검수 규칙은 한국어 그대로
+  - 한국어판 · 영어판 짝 누적 `lang_tally`(두 판 모두 성공한 줄만). `check_totals` 는 한국어판만 센다
 - 블라인드 비교
 - 고르지 않은 비교본 목록 `open_compares`
 - 작품 데이터와 분리해 `research/log.jsonl` 에 기록

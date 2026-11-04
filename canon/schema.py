@@ -1191,6 +1191,27 @@ class ConsistencyReport(BaseModel):
     _stage_held: list = PrivateAttr(default_factory=list)
 
 
+class ConsistencyIssueEn(ConsistencyIssue):
+    """검수 지시문 영어판(prompts.CHECK_LANGS)의 응답 칸. 칸과 type 값은 ConsistencyIssue 와 같고 설명만 영어다."""
+    type: IssueType = Field(description="Kind of contradiction, as the Korean label. 사실: confirmed fact or detail / 시간: order or causality / "
+                                        "인물 정보: knows what they do not know yet / 말투: speech / 세계관: world rule / 플롯: plot event missing / "
+                                        "동선: within a scene, position, facing, posture, held item, or hidden part changes without an action / "
+                                        "시점: narration tells what the POV character cannot see or know, first-person 나 becomes another character, "
+                                        "or the POV character changes without a marker")
+    description: str = Field(description="What contradicts what, in one Korean sentence")
+    source_episode: int = Field(0, description="Episode of the earlier evidence. 0 if the evidence is a setting, a confirmed fact, "
+                                               "or a character state; this episode if it is an earlier sentence in the same episode")
+    source_quote: str = Field(description="The evidence, verbatim in the original Korean (for a setting, that setting sentence)")
+    current_quote: str = Field(description="The contradicting sentence in this episode, verbatim in the original Korean")
+    suggestion: str = Field("", description="How to fix it, in Korean")
+    severity: Severity = Field("mid", description="crit: a reader notices it at once, or it shakes later episodes / mid: visible on a careful read / low: a minor detail")
+
+
+class ConsistencyReportEn(ConsistencyReport):
+    """ConsistencyReport 의 영어 설명판. 검수 시험에서만 쓰고, 받은 뒤 ConsistencyReport 로 읽어도 된다."""
+    issues: list[ConsistencyIssueEn] = Field(default_factory=list, description="Only contradictions with clear evidence. Empty if none")
+
+
 EditSource = Literal["manual", "ai", "typed", "impact", "fix"]
 
 

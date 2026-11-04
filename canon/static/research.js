@@ -42,7 +42,7 @@ function rsInit(name) {
     stageBackend: backend(), stage: 'style', stageText: '',
     budgetBackend: backend(),
     checkBackend: backend(), checkEp: null, checkPlants: 3, checkModes: {},
-    checkJudge: backend(), checkTwoStep: false, checkStage: false,
+    checkJudge: backend(), checkTwoStep: false, checkStage: false, checkEnglish: false, checkLangs: {}, checkTally: [],
     compareEp: null, compareA: cmpA, compareB: cmpB, compare: null, adopt: true, pickResult: null, probeError: null,
     cur: {},     // 쪽마다 이 화면에서 방금 돌린 결과 (컨텍스트 크기는 기록보다 자세하다)
     open: {},    // 쪽마다 지난 기록에서 연 결과 id
@@ -58,6 +58,8 @@ async function rsLoadLog() {
   S.rs.stages = r.stages;
   S.rs.checkModes = r.check_modes || {};
   S.rs.checkTotals = r.check_totals || [];
+  S.rs.checkLangs = r.check_langs || {};
+  S.rs.checkTally = r.check_lang_tally || [];
 }
 
 /** 주소의 쪽(sec)을 연다. 비우거나 모르는 쪽이면 개요 */
@@ -179,7 +181,7 @@ function rsLogLine(x, stages = {}) {
   if (x.kind === 'stage') return `${stages[x.stage] || x.stage} · ${x.backend} · ${x.ok ? `빈 칸 ${x.empty.length}/${x.fields}, 범위 밖 ${x.out_of_range.length}, 시도 ${x.attempts}번` : '실패'} · ${x.seconds}초`;
   if (x.kind === 'budget') return `${x.backend} · 한도 ${x.limit ? rsNum(x.limit) : '알 수 없음'} · ${x.first_over ? `${x.first_over}화부터 넘침` : x.first_tight ? `${x.first_tight}화부터 빠듯함` : '넘침 없음'}`;
   if (x.kind === 'compare') return `${x.episode}화 · ${(x.backends || []).join(' · ')}`;
-  if (x.kind === 'check') return `${x.episode}화 · ${x.backend} · ${(x.runs || []).map((m) => `${m.mode} ${m.ok ? `${m.found}/${(x.planted || []).length}` : '실패'}`).join(' · ')}`;
+  if (x.kind === 'check') return `${x.episode}화 · ${x.backend} · ${(x.runs || []).map((m) => `${rsRunName(x, m)} ${m.ok ? `${m.found}/${(x.planted || []).length}` : '실패'}`).join(' · ')}`;
   if (x.kind === 'cue') return `${x.episode}화 · 큐 ${x.cues}개 · ${(x.summary || []).map((s) => `${s.label} ${rsNum(s.chars)}자`).join(' · ')}`;
   if (x.kind === 'pick') return `${x.episode}화 · ${x.picked} 고름${x.adopted ? ' (본문 채택)' : ''}`;
   if (x.kind === 'statwin') return `${(x.episodes || []).join(' · ')}화 × ${(x.summary || []).length}방식 · 틀린 값 ${(x.summary || []).map((s) => (s.error_rate == null ? '-' : `${Math.round(s.error_rate * 100)}%`)).join(' · ')}`;
@@ -357,34 +359,53 @@ function rsCheckTotals() {
     </section>`;
 }
 
+// 검수 시험 한 줄의 이름. 영어 지시문을 함께 돌린 시험만 언어를 붙인다
+const rsRunName = (r, m) => ((r.langs || []).length > 1 && (m.mode === 'full' || m.mode === 'budget') ? `${m.mode} · ${m.lang === 'en' ? '영어' : '한국어'}` : m.mode);
+const rsPct = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : '-');
+
+// 한국어판 · 영어판 짝 시험 누적 (research.lang_tally). 한쪽만 찾은 수가 두 판의 차이를 만든다
+function rsTallyCard() {
+  const t = S.rs.checkTally || [];
+  if (!t.length) return '';
+  const rows = t.map((x) => `<tr><td class="rs-k">${esc(x.mode)}</td><td data-label="시험 · 심은 모순">${x.trials}번 · ${x.planted}개</td>
+      <td data-label="한국어 찾음"><strong>${x.ko_found}/${x.planted}</strong> ${rsPct(x.ko_found, x.planted)}</td><td data-label="영어 찾음"><strong>${x.en_found}/${x.planted}</strong> ${rsPct(x.en_found, x.planted)}</td>
+      <td data-label="한쪽만 찾음">${x.only_ko} / ${x.only_en}</td><td data-label="시험당 다른 지적">${rsNum(x.ko_other / x.trials, 1)} / ${rsNum(x.en_other / x.trials, 1)}</td></tr>`).join('');
+  return `<section class="card" aria-labelledby="rs-lang-h">
+      <div class="between"><h2 id="rs-lang-h">지시문 언어 비교</h2><span class="small">이 작품의 검수 시험 기록을 모두 더했어요</span></div>
+      <p class="desc">한국어판과 영어판을 함께 돌린 시험에서 두 판이 모두 성공한 방식만 셌어요. 같은 사본을 두 판으로 검수하니 차이는 '한쪽만 찾음'에서 나와요.</p>
+      <table class="rs-table rs-stack"><thead><tr><th>방식</th><th>시험 · 심은 모순</th><th>한국어 찾음</th><th>영어 찾음</th><th>한쪽만 찾음 (한국어 / 영어)</th><th>시험당 다른 지적 (한국어 / 영어)</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="small">한쪽만 찾은 수가 적으면 우연과 구별하기 어려워요. 여러 화에서 시험을 쌓아 보세요.</div>
+    </section>`;
+}
+
 function rsCheckOut(r) {
   if (!r) return '';
   const n = (r.planted || []).length;
-  const stats = r.runs.map((m) => `<div class="rs-stat"><span class="k">${esc(m.mode)}</span><span class="v">${m.ok ? `${m.found}/${n}` : '실패'}</span>
+  const stats = r.runs.map((m) => `<div class="rs-stat"><span class="k">${esc(rsRunName(r, m))}</span><span class="v">${m.ok ? `${m.found}/${n}` : '실패'}</span>
       <span class="k">${m.ok ? `다른 지적 ${m.other.length}개 · ${m.seconds}초` : esc(m.error)}</span></div>`).join('');
-  const head = r.runs.map((x) => `<th>${esc(x.mode)}${x.tokens == null ? '' : `<div class="small">~${rsNum(x.tokens)} 토큰</div>`}</th>`).join('');
+  const head = r.runs.map((x) => `<th>${esc(rsRunName(r, x))}${x.tokens == null ? '' : `<div class="small">~${rsNum(x.tokens)} 토큰</div>`}</th>`).join('');
   const rows = r.planted.map((x, i) => `<tr><td class="rs-k"><div class="row" style="gap:6px"><span class="chip">${esc(x.kind || x.type)}</span><span class="small">근거: ${!x.source_episode ? '설정이나 확정 사실' : x.distance ? `${x.source_episode}화 (${x.distance}화 전)` : '같은 화 앞 문장'}</span></div>
         <div class="rs-quote"><del>${esc(x.quote)}</del><br><ins>${esc(x.replacement)}</ins></div></td>
-        ${r.runs.map((m) => `<td data-label="${esc(m.mode)}">${!m.ok ? '<span class="chip bad">실패</span>' : m.hits[i] ? '<span class="chip ok">찾음</span>' : '<span class="chip bad">놓침</span>'}${m.ok && m.raised && !m.hits[i] ? `<div class="small">${m.mode === 'widen' ? (m.raised[i] ? '다시 물었지만 놓침' : '넓혀 찾지 못함') : m.raised[i] ? '판단기는 올림' : '판단기가 놓침'}</div>` : ''}${m.ok && m.first_found && m.hits[i] && !m.first_found[i] ? '<div class="small">넓혀 찾아서 찾음</div>' : ''}</td>`).join('')}</tr>`).join('');
+        ${r.runs.map((m) => `<td data-label="${esc(rsRunName(r, m))}">${!m.ok ? '<span class="chip bad">실패</span>' : m.hits[i] ? '<span class="chip ok">찾음</span>' : '<span class="chip bad">놓침</span>'}${m.ok && m.raised && !m.hits[i] ? `<div class="small">${m.mode === 'widen' ? (m.raised[i] ? '다시 물었지만 놓침' : '넓혀 찾지 못함') : m.raised[i] ? '판단기는 올림' : '판단기가 놓침'}</div>` : ''}${m.ok && m.first_found && m.hits[i] && !m.first_found[i] ? '<div class="small">넓혀 찾아서 찾음</div>' : ''}</td>`).join('')}</tr>`).join('');
   const extra = (m) => [
     m.mode === 'twostep' && m.ok ? `판단기 ~${rsNum(m.judge_tokens)} 토큰 · 진술 ${m.claims}개 중 ${m.flagged}개 의심` : '',
     m.mode === 'widen' && m.ok ? `진술 ${m.claims}개 중 ${m.widened}개 다시 물음 · 더한 지적 ${m.added}개` : '',
     m.mode === 'stage' && m.ok ? `장면 ${m.scenes.length}개 · 박자 ${m.scenes.reduce((a, s) => a + s.beats.length, 0)}개 · 동선만 봄` : '',
   ].filter(Boolean);
-  const notes = r.runs.flatMap((m) => extra(m).map((t) => `<div class="small">${esc(m.mode)}: ${esc(t)}</div>`)).join('');
+  const notes = r.runs.flatMap((m) => extra(m).map((t) => `<div class="small">${esc(rsRunName(r, m))}: ${esc(t)}</div>`)).join('');
   return `<section class="card" aria-labelledby="rs-res-h">
       <div><h2 id="rs-res-h">결과 · ${r.episode}화 · ${esc(r.backend)}</h2><span class="small">${esc(fmtWhen(r.time))} · 심은 모순 ${n}개${r.skipped.length ? ` (원문을 못 찾아 ${r.skipped.length}개 뺌)` : ''} · ${r.seconds}초</span></div>
       <div class="rs-stats">${stats}</div>${notes}
       <table class="rs-table rs-stack"><thead><tr><th>심은 모순</th>${head}</tr></thead><tbody>${rows}</tbody></table>
-      ${r.runs.filter((m) => m.ok && m.other.length).map((m) => `<details><summary>${esc(m.mode)}의 다른 지적 ${m.other.length}개</summary><ul>${m.other.map((i) => `<li class="small">${esc(i.type)}: ${esc(i.description)}</li>`).join('')}</ul></details>`).join('')}
+      ${r.runs.filter((m) => m.ok && m.other.length).map((m) => `<details><summary>${esc(rsRunName(r, m))}의 다른 지적 ${m.other.length}개</summary><ul>${m.other.map((i) => `<li class="small">${esc(i.type)}: ${esc(i.description)}</li>`).join('')}</ul></details>`).join('')}
       ${r.runs.filter((m) => m.mode === 'stage' && m.ok && m.scenes.length).map((m) => `<details><summary>모델이 뽑은 장면 ${m.scenes.length}개</summary><ol>${m.scenes.map((x) => `<li class="small">사건 ${x.event + 1} · 박자 ${x.beats.length}개${x.dropped ? ` · 막은 접촉 ${x.dropped}개` : ''}${x.beats.map((b) => `<div class="rs-prose">${esc(b)}</div>`).join('')}</li>`).join('')}</ol></details>`).join('')}
       ${r.runs.filter((m) => m.mode === 'twostep' && m.ok && m.judged.length).map((m) => `<details><summary>판단기가 본 진술 ${m.judged.length}개 (${esc(m.judge)})</summary><ul>${m.judged.map((j) => `<li class="small">${j.flagged ? '<span class="chip warn">의심</span> ' : ''}어긋남 ${Math.round((j.probs[1] || 0) * 100)}% · ${esc(j.claim)}${j.mass < 0.5 ? ' <span class="hint">선택지 밖 답이 많았어요</span>' : ''}</li>`).join('')}</ul></details>`).join('')}
     </section>`;
 }
 
-/** 검수 시험 호출 수: 심기 1번 + full · budget, 장편은 widen 3번, 두 걸음은 검수 2번. 판단기 · 장면 연출은 진술 · 사건 수만큼 더한다 */
-function rsCheckCalls(serial, twoStep, stage) {
-  return { n: 1 + 2 + (serial ? 3 : 0) + (twoStep ? 2 : 0), more: !!(twoStep || stage) };
+/** 검수 시험 호출 수: 심기 1번 + full · budget, 장편은 widen 3번, 두 걸음은 검수 2번, 영어 지시문은 full · budget 2번. 판단기 · 장면 연출은 진술 · 사건 수만큼 더한다 */
+function rsCheckCalls(serial, twoStep, stage, english = false) {
+  return { n: 1 + 2 + (serial ? 3 : 0) + (twoStep ? 2 : 0) + (english ? 2 : 0), more: !!(twoStep || stage) };
 }
 
 function rsCheckView() {
@@ -400,10 +421,11 @@ function rsCheckView() {
       </div>
       <div class="field"><span class="label">함께 시험할 방식 <span class="hint">늘 시험하는 방식: ${esc(Object.keys(S.rs.checkModes).filter((k) => k === 'full' || k === 'budget' || (k === 'widen' && serial())).join(' · '))}</span></span>
         ${opt('checkTwoStep', '두 걸음 검수', '+ 판단기 호출 진술 수만큼', '위 백엔드가 진술을 뽑고 의심만 판정해요. 그 사이에 판단기가 진술마다 선택지 확률만 내요(로컬 서버는 logprobs 지원 필요).')}
-        ${opt('checkStage', '장면 연출 규칙 검수', '+ 사건 수만큼', '사건마다 본문에서 장면 연출(자리 · 자세 · 향한 쪽 · 손 · 접촉)을 뽑고, 규칙 판정이 동선만 짚어요.')}</div>
+        ${opt('checkStage', '장면 연출 규칙 검수', '+ 사건 수만큼', '사건마다 본문에서 장면 연출(자리 · 자세 · 향한 쪽 · 손 · 접촉)을 뽑고, 규칙 판정이 동선만 짚어요.')}
+        ${opt('checkEnglish', '영어 지시문', '+ 2번', '같은 사본의 full · budget을 검수 지시문 영어판으로도 검수해요. 작품 자료와 인용은 한국어 그대로예요.')}</div>
       ${S.rs.checkTwoStep ? rsPicker('checkJudge', '판단기') : ''}
       ${modes ? `<details class="rs-more"><summary>검수 방식 설명</summary><ul class="small">${modes}</ul></details>` : ''}
-    </section>${rsCheckOut(rsEntry('check'))}${rsCheckTotals()}${rsPast('check')}`;
+    </section>${rsCheckOut(rsEntry('check'))}${rsCheckTotals()}${rsTallyCard()}${rsPast('check')}`;
 }
 
 function rsCompareView() {
@@ -579,7 +601,7 @@ function rsPrimary(t) {
   if (t === 'stage') return btn('rsStage', '시험하기');
   if (t === 'budget') return btn('rsBudget', '재기');
   if (t === 'check') {
-    const k = rsCheckCalls(serial(), S.rs.checkTwoStep, S.rs.checkStage);
+    const k = rsCheckCalls(serial(), S.rs.checkTwoStep, S.rs.checkStage, S.rs.checkEnglish);
     return btn('rsCheck', `시험하기 · 호출 ${k.n}번${k.more ? ' 넘게' : ''}`, !P().episodes.some((e) => e.text));
   }
   if (t === 'compare') {
@@ -766,7 +788,8 @@ Object.assign(actions, {
     await run(`${n}화에 모순을 심고 검수 방식마다 검수하는 중… (저장하지 않음)`, async () => {
       const x = await api('POST', `/projects/${enc(S.name)}/research/check`,
         { backend: rsBackend(S.rs.checkBackend), episode: n, plants: Number(S.rs.checkPlants) || 3,
-          ...(S.rs.checkTwoStep ? { judge: rsBackend(S.rs.checkJudge) } : {}), stage: !!S.rs.checkStage });
+          ...(S.rs.checkTwoStep ? { judge: rsBackend(S.rs.checkJudge) } : {}), stage: !!S.rs.checkStage,
+          ...(S.rs.checkEnglish ? { langs: ['ko', 'en'] } : {}) });
       rsGot('check', x);
       await rsLoadLog();  // 기록과 갈래별 합계를 함께 새로
     });
