@@ -198,7 +198,8 @@ function agentTurn(s, t, i) {
 
 function agentToolName(tool) {
   return { read_plots: '화 플롯 읽기', read_summaries: '화 요약 목록', find_text: '본문 단락 찾기', read_cast: '인물 읽기',
-    edit_plot: '플롯 고치기', insert_episodes: '화 넣기', remove_episode: '화 빼기', ask: '되묻기', approval: '작가의 답' }[tool] || tool;
+    edit_plot: '플롯 고치기', insert_episodes: '화 넣기', remove_episode: '화 빼기', ask: '되묻기', approval: '작가의 답',
+    ask_empty: '빈 되묻기', edit_empty: '빈 고치기', reply: '예고만 한 답' }[tool] || tool;
 }
 
 /** 바로 쓴 것 한 부분의 바뀐 칸. 쓰기 전 · 뒤 값(before · after)으로 비교한다 (지금 값은 이미 바뀌었다). */

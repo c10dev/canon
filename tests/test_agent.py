@@ -151,6 +151,31 @@ def test_empty_ask_is_sent_back_once(client):
     assert t["end"] == "done" and t["reply"].startswith("AI가 묻는 말을 비운 채")
 
 
+def test_empty_tool_payload_is_filled_in_the_same_step(client):
+    """tool 만 고르고 칸을 비운 응답은 그 칸만 담은 형식으로 한 번 더 불러 채운다 (2026-11-04 gemini-4-argon)."""
+    _project(client)
+    sid = _session(client)
+    t = _say(client, sid, "빈 고치기로 3화 전개가 너무 빨라")
+    assert [(s["kind"], s["tool"]) for s in t["steps"]][0] == ("write", "edit_plot") and t["writes"]
+    t = _say(client, sid, "빈 채우기")
+    assert t["end"] == "ask" and t["ask"]["question"] == "몇 화로 갈까요?" and len(t["ask"]["options"]) == 2
+
+
+def test_fill_turns_options_only_edit_into_ask():
+    from canon import agent
+    from canon.schema import Direction, PlotAgentStep, PlotRevision
+
+    class Fake:
+        def json(self, system, prompt, schema, hint=None):
+            assert "[이번 단계] 도구 edit_plot" in prompt and schema is PlotRevision
+            return PlotRevision(reply="방향부터 골라 주세요", options=[Direction(title="가", idea="가")])
+
+    step = agent.fill(Fake(), "s", "p", PlotAgentStep(thought="고쳐요", tool="edit_plot"), {})
+    assert step.tool == "ask" and step.question == "방향부터 골라 주세요" and step.options[0].title == "가"
+    full = PlotAgentStep(tool="ask", question="이미 있음")
+    assert agent.fill(Fake(), "s", "p", full, {}) is full  # 칸이 있으면 부르지 않는다
+
+
 def test_is_preamble():
     from canon.agent import is_preamble
     assert is_preamble("아크 1(1~7화)의 기승전결 구조, 심리·감각의 점층성, 그리고 현재 화별 플롯의 보완 필요 지점을 분석해 작가님께 전달합니다.")
