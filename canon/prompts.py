@@ -2647,8 +2647,34 @@ def episode_prompt(p: Project, n: int, approach: str = "", use_board: bool = Tru
         + priority_line(p, n, sb is not None)
         + statwin.write_rule(p, n, show_format=not windows)
         + attire_write_rule(p, board=sb is not None)
+        + ending_line(p, n)
         + (cue_write_block(p, sheet) if sheet and sheet.cues else "")
     )
+
+
+# 서술이 '~다.' 끝 과거형 문장을 줄줄이 늘어놓지 않게, 문장 끝 몫을 숫자로 준다. 프로필의 "현재형을 적극 사용" 같은 글은 잘 옮겨지지 않았다.
+# 작품마다 그대로인 글이라 화마다 바뀌는 큐 시트 블록보다 앞에 둔다 (실측 때는 큐 시트 뒤에 붙였다).
+# 실측(2026-11-04, Claude 구독, 장편 84화): 지금 자리에서 '~다.' 끝 89% → 82%, 다섯 줄 이상 덩어리 62% → 42% (DESIGN.md '문장 끝 섞기').
+_COUNT = {1: "하나", 2: "둘", 3: "셋", 4: "넷", 5: "다섯", 6: "여섯", 7: "일곱", 8: "여덟"}
+_LINES = {3: "두", 4: "세", 5: "네", 6: "다섯"}  # ENDING_RUN → 넘기지 않을 줄 수
+ENDING_SHARE = (0.5, 0.7)  # 열에 다섯~일곱. 사람 웹소설 4편이 45~73%
+PRESENT_SHARE_MAX = 0.3
+
+
+def ending_line(p: Project, n: int) -> str:
+    """쓰기 요청 끝의 문장 끝 섞기 줄. 몫은 문체 기준(정착 문체 → 원문 기준값 → 예시 문단)에서, 서술 문장이 모자라면 사람 웹소설 중앙값.
+    시점 인물의 서술 말투로 쓰는 화는 어미가 따로 정해져 있어 넣지 않는다."""
+    c = pov_character(p, n)
+    if c is not None and c.narration_voice.strip():
+        return ""
+    base = (p.anchor.metrics if p.anchor and p.anchor.metrics else None) or p.style_baseline or metrics.measure("\n\n".join(p.style.sample_passages))
+    da = base.da_ending_ratio if base.da_ending_ratio is not None else metrics.ENDING_DEFAULTS["da_ending_ratio"]
+    k = round(min(max(da, ENDING_SHARE[0]), ENDING_SHARE[1]) * 10)
+    present = 1 - base.past_tense_ratio if base.past_tense_ratio is not None else 0
+    tense = (f"'~다.' 끝 가운데 열에 {_COUNT[round(min(present, PRESENT_SHARE_MAX) * 10)]}쯤은 '~한다', '~느껴진다' 같은 현재형으로 씁니다. "
+             if present >= 0.2 else "")
+    return (f"\n\n서술 문장의 끝을 섞습니다. 서술 문장 열에 {_COUNT[k]}쯤만 '~다.'로 맺고, 나머지는 명사 끝, 말줄임(…), 시점 인물이 스스로 묻는 물음, "
+            f"말을 도중에 끊은 연결 끝(-고, -는데, -지만)으로 맺습니다. {tense}'~다.'로 끝나는 서술 문장을 {_LINES[metrics.ENDING_RUN]} 줄 넘게 잇지 않습니다.")
 
 
 # 사건을 차례로 처리하느라 요약처럼 흐르지 않게, 한 장면에 머물 자리를 준다 (서술 단조로움 개선, 2026-11-03).

@@ -3944,7 +3944,7 @@ def style_baseline(p: Project) -> metrics.StyleMetrics:
     return p.style_baseline or metrics.measure("\n\n".join(p.style.sample_passages))
 
 
-VOICE_SKIP = ("과거형 서술 비율", "문체 거리")  # 서술 말투가 있는 화에서 빼는 어미 관련 경고
+VOICE_SKIP = ("과거형 서술 비율", "문체 거리", "'~다.'")  # 서술 말투가 있는 화에서 빼는 어미 관련 경고 (문장 끝 두 줄 포함)
 
 
 def style_drift(p: Project, n: int) -> tuple[metrics.StyleMetrics, list[str]]:

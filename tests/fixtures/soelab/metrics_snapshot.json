@@ -1,11 +1,12 @@
 {
- "current": "2026-11-a",
+ "current": "2026-11-b",
  "results": {
   "01": {
    "copied": [],
    "drift": [
     "문단 평균 길이: 기준 45.4 → 73.5 (+62%)",
     "대사 비율: 기준 0.19 → 0.02 (-0.17)",
+    "'~다.' 다섯 줄 이상 이어진 서술 비율: 기준 0.61 → 0.94 (+0.33)",
     "상투·금지 표현: 심장이 쿵, 정적이 흘렀다, 묘한 감정, 마치 시간이 멈춘 것, 주먹을 꽉 쥐었다, 입술을 깨물었다, 숨을 삼켰다"
    ],
    "measure": {
@@ -23,6 +24,8 @@
      "숨을 삼켰다"
     ],
     "comma_sentence_ratio": 0.2,
+    "da_ending_ratio": 0.96,
+    "da_run_ratio": 0.94,
     "dialogue_ratio": 0.02,
     "mattr": 0.923,
     "paragraph_len_mean": 73.5,
@@ -59,6 +62,8 @@
     "chars": 1100,
     "cliche_hits": [],
     "comma_sentence_ratio": 0.17,
+    "da_ending_ratio": 0.94,
+    "da_run_ratio": 0.43,
     "dialogue_ratio": 0.17,
     "mattr": 0.901,
     "paragraph_len_mean": 42.1,
@@ -98,6 +103,8 @@
     "chars": 1078,
     "cliche_hits": [],
     "comma_sentence_ratio": 0.06,
+    "da_ending_ratio": null,
+    "da_run_ratio": null,
     "dialogue_ratio": 0.53,
     "mattr": 0.905,
     "paragraph_len_mean": 23.1,
@@ -142,6 +149,8 @@
     "chars": 1207,
     "cliche_hits": [],
     "comma_sentence_ratio": 0.4,
+    "da_ending_ratio": 0.9,
+    "da_run_ratio": 0.77,
     "dialogue_ratio": 0.0,
     "mattr": 0.908,
     "paragraph_len_mean": 170.7,
@@ -185,6 +194,8 @@
     "chars": 1056,
     "cliche_hits": [],
     "comma_sentence_ratio": 0.05,
+    "da_ending_ratio": 0.83,
+    "da_run_ratio": 0.49,
     "dialogue_ratio": 0.26,
     "mattr": 0.901,
     "paragraph_len_mean": 34.5,
@@ -231,6 +242,8 @@
     "숨을 삼켰다"
    ],
    "comma_sentence_ratio": 0.16,
+   "da_ending_ratio": 0.91,
+   "da_run_ratio": 0.61,
    "dialogue_ratio": 0.19,
    "mattr": 0.916,
    "paragraph_len_mean": 45.4,
@@ -262,6 +275,10 @@
   "2026-11-a": {
    "constants": "68ba7a6d563a504f36433c210cc1a7fe6df0daa978d375d50fcb3ee520c914e1",
    "results": "0d54a1832f5516767a3bdeff4ed1a0d002ea39c6fa85e7141738ec7715da9cb9"
+  },
+  "2026-11-b": {
+   "constants": "440dc8b158ad882e5333a5dc5439d0c594e3ca3702a11357e87cbc451056ce07",
+   "results": "311c8b63699fbdad838ee92baee6b06a39e633ee5cb28db62b8cae1887ea6def"
   }
  }
 }

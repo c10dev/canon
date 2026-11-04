@@ -27,6 +27,8 @@
 - 쇠맛 패턴 · 상투 표현 자리 `pattern_spans`(`Span`, `pattern_counts` 는 이 위에서 셈)
 - 문장 경계 자리 `sentence_spans`(`sentences` 와 같은 경계)
 - 화당 상한 없는 1,000자당 횟수 `rates_per_1k`
+- 서술 문장 끝 `_endings`(`da_ending_ratio` · `da_run_ratio`, 따옴표로 여는 줄은 대사로 빼고 덩어리를 끊음, 서술 문장이 `ENDING_MIN` 개 미만이면 재지 않음)
+- 문장 끝 경고는 기준값이 비면 사람 웹소설 중앙값 `ENDING_DEFAULTS` 와 견줌
 - 템포 곡선 `tempo_curve`(400자 창마다 대사 비율 · 문장 길이, 화면 표시용, 경고 없음)
 - LLM 호출 없음
 - 문체 거리 기준표는 `style_background.py`(`scripts/make_style_background.py` 로 생성) · 문체 기준 `_style_reference` 는 조각 합에서 빼는 방식이라 조각 수에 비례하고, 같은 글은 `_reference` 가 기억한다(`lru_cache` 32개)
