@@ -895,6 +895,7 @@ class ChatScope(BaseModel):
     """플롯 대화를 보낼 때 화면이 알려 주는 것 (AI 가 채우지 않는다).
     target: '' 기본(단편은 작품 전체, 장편은 본문이 없는 첫 아크), 'arc:3' 그 아크, 'next' 다음 아크 기획."""
     target: str = ""
+    focus: str = ""  # 세션이 고른 다듬을 곳 'part:N' · 'ep:N' (pipeline.chat_focus). target 은 그 곳이 든 아크
     act: str = ""  # 화면에서 연 구간 이름 (기 · 승 · 전 · 결)
     episode: int = 0  # 화면에서 연 화
     mode: Literal["", "options"] = ""  # options: 변경안 대신 방향 여러 안을 받는다
@@ -1086,7 +1087,7 @@ class AgentSession(BaseModel):
     id: str
     topic: ChatTopic = "plot"
     title: str = ""
-    target: str = Field("", description="ChatScope.target: '' 기본, 'arc:N', 'next'")
+    target: str = Field("", description="다듬을 곳: '' 기본, 'arc:N', 'next', 'part:N'(부), 'ep:N'(한 화 플롯). 부 · 화는 그 곳이 든 아크로 읽는다 (pipeline.chat_target)")
     mode: AgentMode = "draft"
     auto_kinds: list[str] = Field(default_factory=list, description="승인 카드에서 '이 세션에서 묻지 않기'로 고른 종류")
     archived: bool = False

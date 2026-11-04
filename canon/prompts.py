@@ -1998,6 +1998,24 @@ def _agent_turn_line(t) -> str:
     return out + (f"\n  ({' · '.join(notes)})" if notes else "")
 
 
+def agent_focus_block(p: Project, focus: str) -> str:
+    """세션이 고른 다듬을 곳(부 · 한 화) 블록. 고르지 않았으면 빈 글. 세션 안에서는 바뀌지 않는다."""
+    from .pipeline import chat_focus
+
+    kind, lo, hi, name = chat_focus(p, focus)
+    if kind == "part":
+        arcs = [f"- 아크 {a.number} 「{a.title}」 ({a.start_ep}~{a.end_ep}화): {a.goal}" for a in sorted(p.story_arcs, key=lambda x: x.start_ep)
+                if lo <= a.start_ep <= hi]
+        return (f"[이 세션에서 다듬을 곳] {name}. 이 부의 구성(parts 의 이 부)과 이 부의 아크 · 화를 다룹니다. "
+                "이 부 밖의 화를 고치면 작가에게 물어집니다.\n[이 부의 아크]\n" + ("\n".join(arcs) or "아직 없음") + "\n")
+    if kind == "ep":
+        e = p.episode(lo)
+        locked = " 이 화는 본문이 있어 플롯을 바꿀 수 없으니, 분석하거나 뒤 화를 맞추는 쪽으로 돕습니다." if e.status in ("written", "finalized") else ""
+        return (f"[이 세션에서 다듬을 곳] {name}. 이 화의 플롯을 다룹니다. 앞뒤 화나 아크 · 구조를 함께 고쳐야 하면 넣어도 되지만 "
+                f"작가에게 물어집니다.{locked}\n")
+    return ""
+
+
 def agent_plot_prompt(p: Project, session, turn, scope, left: int) -> str:
     """대화 에이전트 한 단계의 프롬프트. 앞은 플롯 대화와 같은 작품 · 구조 블록, 그 뒤 도구와 규칙(바뀌지 않음),
     세션의 지난 턴, 새 말, 이번 턴에 한 단계 순서다. 단계마다 앞 요청을 통째로 품고 끝에만 덧붙인다."""
@@ -2015,7 +2033,7 @@ def agent_plot_prompt(p: Project, session, turn, scope, left: int) -> str:
 [변경안 규칙 (edit_plot 의 edit)]
 {rules}
 
-[이 세션의 지난 대화]
+{agent_focus_block(p, scope.focus)}[이 세션의 지난 대화]
 {chr(10).join(_agent_turn_line(t) for t in past) or "없음 (첫 턴)"}
 {f"[작가가 보고 있는 곳] {where} (작가가 '이 화', '여기', '이 구간'이라고 하면 이곳입니다){chr(10)}" if where else ""}
 [작가의 새 말]
