@@ -1040,6 +1040,7 @@ canon/illust.py    NovelAI 삽화 프롬프트 조립 (인물 외형 태그, 인
 canon/library.py   문체 라이브러리 (작품과 따로 저장하는 문체 항목, 버전 · 비교 · 되돌리기)
 canon/cli.py       명령줄
 canon/web.py       웹 UI 서버 (FastAPI) + canon/static/ 화면
+canon/routes/      기능별 웹 라우트 (지도 · 플레이 · 실험실 등, web.py 가 붙인다)
 canon/jobs.py      웹에서 오래 걸리는 AI 작업을 백그라운드로 돌리고 진행 상황을 알려 줌
 canon/autorun.py   목표 화까지 자동 집필 (승인 정책, 배치, 비용 추정, 이어 가기, 1~3화 멈춤)
 tests/             흐름 테스트 (mock LLM, 가짜 OpenAI 호환 서버)

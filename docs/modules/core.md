@@ -365,6 +365,8 @@
 ### `canon/web.py`
 
 - 웹 UI 서버(`python -m canon serve`)
+- 기능별 라우트 일곱 묶음은 `canon/routes/` 에 있다(`ROUTES`: 문단 연습장 · 레퍼런스 · 지도 · 역설계 · 쇠맛 · 플레이 · 연구). 맨 끝의 `_attach_routes` 가 붙인다
+- 붙인 라우트는 `app.routes` 에 감싼 모양으로만 들어가서, 응답 모양을 바꾸는 코드는 `_ROUTERS` 의 라우트도 함께 본다(`_SNAPSHOT_LIGHT`)
 - `serve` 는 로깅 설정이 없으면 INFO 수준, 시각 · 수준 · 로거 이름을 붙인 형식으로 정한다. 업데이트 · 자동 집필 이어 가기 안내도 이 로그로 낸다
 - 작품 GET 과 작품을 돌려주는 응답은 스냅샷을 화 번호만 보낸다(`_SNAPSHOT_LIGHT`). 작품 저장(PUT)은 디스크 스냅샷을 지킨다
 - 인물 · 관계도와 지도 응답은 작품 판으로 JSON 을 기억하고 ETag 를 붙인다(`_json_view`)

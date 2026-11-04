@@ -297,6 +297,13 @@
 - 정착 문체 화 번호도 옮긴다(`anchor.move`)
 - 화면은 `static/insert.js` (넣을 수 있는 자리 `lastFixed` 는 `last_fixed` 와 같은 규칙, `tests/test_insert_js.py`)
 
+### `canon/routes/play.py`
+
+- 플레이 모드 웹 라우트(`/api/projects/{name}/play/...`, 출생 배경)
+- 작품 목록 카드의 플레이 요약(`_play_card` · `_play_days`)은 `web.py` 에 남는다
+- `web.py` 맨 끝의 `_attach_routes` 가 `router` 를 앱에 붙이고 `EXPORTS` 의 이름을 `web` 에도 둔다
+- 공용 도우미(`_load` · `_save` · `_edit` 등)는 `..web` 에서 불러 쓴다
+
 ### `canon/setupchat.py`
 
 - 설정 도우미 대화(대화 주제 `setup`)
@@ -461,7 +468,7 @@
 - 생애 기록(`/life`)
 - 작품 홈 카드(`playHomeCard`)
 - 시계 규칙은 DOM 없는 순수 함수(`playItems` · `playGap` · `playClockStart` · `playPhase` · `playTick` · `playClock`, `tests/test_play_js.py`)
-- 서버는 `web.py` 의 `/api/projects/{이름}/play…` 와 `/api/play/worlds`: 구간 작업 `play_turn`(남은 반영 → 장면 → 반영, 플레이 잠금 `_play_lock`, 다음 흐름 `_play_continue`)
+- 서버는 `routes/play.py` 의 `/api/projects/{이름}/play…` 와 `/api/play/worlds`: 구간 작업 `play_turn`(남은 반영 → 장면 → 반영, 플레이 잠금 `_play_lock`, 다음 흐름 `_play_continue`)
 - 배경 `play_sketch`
 - 새 세계 `play_world`
 - 앞 둘은 작업 목록에 넣지 않는다(`app.js` `QUIET_JOBS`)
