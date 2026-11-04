@@ -45,6 +45,27 @@ def test_character_ideas_from_pipeline():
         pipeline.suggest_field(MockLLM(), p, "characters.0.name")
 
 
+def test_goal_wound_secrets_speech_ideas():
+    """원하는 것 · 두려운 것 · 숨기는 것 · 말투에도 ✦ 후보. 숨기는 것은 목록 칸이라 지금 목록을 보이고 이미 있는 항목은 뺀다."""
+    p = cast()
+    p.characters[0].secrets = ["등대 열쇠의 사본을 몰래 가지고 있다.", " "]
+    assert prompts.field_value(p, "characters.0.secrets") == "등대 열쇠의 사본을 몰래 가지고 있다."
+    text = prompts.field_prompt(p, "characters.0.secrets")
+    assert "[채울 칸] 서윤의 숨기는 것" in text and "지금 값: \n- 등대 열쇠의 사본을 몰래 가지고 있다." in text
+    assert "목록에 한 줄로 더해지는 새 항목" in text and "더 좋게 고친 후보" not in text
+    ideas = pipeline.suggest_field(MockLLM(), p, "characters.0.secrets")
+    assert [o.text for o in ideas.options] == ["동생이 사라진 밤 마지막으로 통화한 사람이 자기다.", "섬을 떠날 배표를 이미 사 두었다."]
+    # 말투는 대사 예시의 끝 따옴표를 지우지 않는다 (양끝을 함께 감싼 것만 벗긴다)
+    speech = pipeline.suggest_field(MockLLM(), p, "characters.1.speech_style")
+    assert len(speech.options) == 3 and all(o.text.endswith('"') and not o.text.startswith(('"', "“")) for o in speech.options)
+    assert "[채울 칸] 도현의 말투" in prompts.field_prompt(p, "characters.1.speech_style")
+    for k in ("goal", "wound"):
+        got = pipeline.suggest_field(MockLLM(), p, f"characters.1.{k}")
+        assert len(got.options) == 3
+    # 원하는 것이 적혀 있으면 그 값과 같은 후보는 빠지고 고친 후보를 청한다
+    assert "지금 값: 오빠를 찾는다" in prompts.field_prompt(p, "characters.0.goal")
+
+
 def test_fill_only_blank_fields_of_existing_character():
     p = cast()
     pipeline.apply_setup(p, suggestion(
@@ -96,6 +117,38 @@ def test_js_character_ideas():
     assert got["none"] == ""
     assert got["ok"] == "고집이 세다"
     assert got["stale"][:2] == ["", False] and "다시" in got["stale"][2]
+
+
+
+@needs_node
+def test_js_secret_idea_appends():
+    """숨기는 것 ✦: 고른 후보는 목록에 한 줄 더하고 (빈 줄은 정리, 있는 줄은 두 번 넣지 않음), 인물 카드의 네 칸에 ✦ 가 붙는다."""
+    expr = """(() => {
+      S.project = data.project;
+      S.name = 'demo';
+      render = () => {};
+      P().characters[0].secrets = ['편지를 숨겼다', ' '];
+      const opts = [{ text: '배표를 사 두었다', reason: '' }, { text: '편지를 숨겼다', reason: '' }];
+      S.ideas = { 'characters.0.secrets': { cid: 'hero', options: opts } };
+      const head = ideaList('characters.0.secrets');
+      actions.useIdea('characters.0.secrets|0');
+      const once = [...P().characters[0].secrets];
+      S.ideas = { 'characters.0.secrets': { cid: 'hero', options: opts } };
+      actions.useIdea('characters.0.secrets|1');
+      S.ideas = { 'characters.0.speech_style': { cid: 'hero', options: [{ text: '짧은 반말. 예: "가."', reason: '' }] } };
+      actions.useIdea('characters.0.speech_style|0');
+      const card = charRow(P().characters[0], 0);
+      const wiz = wizPerson(P().characters[0], 0);
+      const args = (h) => [...h.matchAll(/data-action="fieldIdeas" data-arg="([^"]+)"/g)].map((m) => m[1]);
+      return { head, once, twice: P().characters[0].secrets, speech: P().characters[0].speech_style, card: args(card), wiz: args(wiz) };
+    })()"""
+    files = ["app.js", "home.js", "setup.js", "archetypes.js", "statwin.js", "illust.js", "charlog.js", "cast.js", "plot.js", "chat.js", "setupchat.js", "ideas.js"]
+    got = run_js(files, expr, {"project": dump(cast())})
+    assert "고르면 목록에 한 줄 더해져요" in got["head"]
+    assert got["once"] == ["편지를 숨겼다", "배표를 사 두었다"] and got["twice"] == got["once"]
+    assert got["speech"] == '짧은 반말. 예: "가."'
+    assert {f"characters.0.{k}" for k in ("goal", "wound", "secrets", "speech_style")} <= set(got["card"])
+    assert got["wiz"] == ["characters.0.goal"]
 
 
 @needs_node

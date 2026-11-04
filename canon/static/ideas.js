@@ -3,7 +3,7 @@
    칸 옆 ✦ 버튼(ideaBtn)을 누르면 서버(pipeline.suggest_field)가 후보 셋을 주고, 칸 바로 아래(ideaList)에 펼친다.
    기다리는 동안 화면을 막지 않고 그 자리에 '후보를 만들고 있어요'를 보인다. 고르기 전에는 칸을 바꾸지 않는다.
    여러 칸을 바꾸는 제안은 '대화로 다듬기'(setupchat.js)가 맡는다.
-   키는 칸의 data-bind 경로이고 prompts.FIELD_IDEAS 의 키와 같다 (tests/test_ideas_js.py).
+   키는 칸의 data-bind 경로이고 prompts.FIELD_IDEAS 의 키와 같다 (tests/test_ideas_js.py). 목록 칸(IDEA_LISTS, 숨기는 것)은 고른 후보를 한 줄 더한다.
    인물 칸은 경로가 characters.<번호>.<칸> 이라 번호 자리를 * 로 바꿔 찾는다 (ideaKey, prompts.idea_key 와 같은 규칙). */
 'use strict';
 
@@ -19,7 +19,14 @@ const IDEA_FIELDS = {
   'characters.*.background': '배경',
   'characters.*.appearance': '외모',
   'characters.*.arc': '아크',
+  'characters.*.goal': '원하는 것',
+  'characters.*.wound': '두려운 것 · 약점',
+  'characters.*.secrets': '숨기는 것',
+  'characters.*.speech_style': '말투',
 };
+
+/** 목록 칸: 고른 후보를 덮어쓰지 않고 목록에 한 줄 더한다 (prompts.IDEA_LISTS 와 같다) */
+const IDEA_LISTS = new Set(['characters.*.secrets']);
 
 /** 칸 경로 → IDEA_FIELDS 키 ('characters.2.arc' → 'characters.*.arc') */
 const ideaKey = (path) => path.replace(/^characters\.\d+\./, 'characters.*.');
@@ -59,7 +66,7 @@ function ideaList(path) {
     : r.options.map((o, i) => `<button type="button" class="opt" data-action="useIdea" data-arg="${esc(path + '|' + i)}">${esc(o.text)}${o.reason ? `<small>${esc(o.reason)}</small>` : ''}</button>`).join('')
       || '<span class="small">후보가 없어요. 다시 받아 보세요</span>';
   const acts = r.loading ? '' : `<div class="acts"><button type="button" class="btn small" data-action="fieldIdeas" data-arg="${esc(path)}">다시 받기</button><button type="button" class="btn small" data-action="closeIdeas" data-arg="${esc(path)}">닫기</button></div>`;
-  return `<div id="${ideaId(path)}" class="cands" role="group" aria-label="${esc(label)} AI 후보"><div class="ch"><span>✦ 후보 · 고르면 칸에 들어가요</span></div>${body}${acts}</div>`;
+  return `<div id="${ideaId(path)}" class="cands" role="group" aria-label="${esc(label)} AI 후보"><div class="ch"><span>✦ 후보 · ${IDEA_LISTS.has(ideaKey(path)) ? '고르면 목록에 한 줄 더해져요' : '고르면 칸에 들어가요'}</span></div>${body}${acts}</div>`;
 }
 
 Object.assign(actions, {
@@ -97,7 +104,10 @@ Object.assign(actions, {
     }
     const slot = path.startsWith('meta.logline_parts.');
     const prev = slot ? composeLogline(P().meta.logline_parts) : '';
-    setPath(P(), path, o.text);
+    if (IDEA_LISTS.has(ideaKey(path))) {  // 목록 칸은 한 줄 더하기 (이미 있으면 그대로)
+      const cur = (getPath(P(), path) || []).filter((x) => String(x).trim());
+      setPath(P(), path, cur.includes(o.text) ? cur : [...cur, o.text]);
+    } else setPath(P(), path, o.text);
     delete S.ideas[path];
     markDirty();
     if (slot) updateLogline(prev);  // 합친 로그라인 문장도 새 칸 내용으로 (직접 고친 문장은 그대로)

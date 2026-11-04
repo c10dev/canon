@@ -147,7 +147,8 @@ def field_stage(field: str) -> str:
 
 def suggest_field(llm: LLM, p: Project, field: str, n: int = 3) -> FieldIdeas:
     """설정 칸 하나의 AI 후보 (✦). 저장하지 않는다 (작가가 하나를 고르면 화면이 칸에 넣고 작품을 저장한다).
-    field 는 화면 칸 경로 (인물 칸은 characters.<번호>.<칸>). 빈 후보, 겹치는 후보, 지금 값과 같은 후보는 뺀다."""
+    field 는 화면 칸 경로 (인물 칸은 characters.<번호>.<칸>). 빈 후보, 겹치는 후보, 지금 값과 같은 후보는 뺀다.
+    목록 칸(prompts.IDEA_LISTS)은 후보를 한 줄로 고치고, 목록에 이미 있는 항목은 뺀다."""
     key = prompts.idea_key(field)
     if key not in prompts.FIELD_IDEAS:
         raise KeyError(f"후보를 받을 수 없는 칸이에요: {field}")
@@ -157,11 +158,21 @@ def suggest_field(llm: LLM, p: Project, field: str, n: int = 3) -> FieldIdeas:
         raise KeyError(f"없는 인물의 칸이에요: {field}") from None
     ideas = llm.json(prompts.SYSTEM_PLANNER, prompts.field_prompt(p, field, n), FieldIdeas, hint={"field": key, "n": n})
     now, seen, out = prompts.field_value(p, field), set(), []
+    listed = key in prompts.IDEA_LISTS  # 목록 칸: 후보는 한 줄, 이미 있는 항목은 뺀다
+    taken = set(now.splitlines()) if listed else {now}
+    quotes = "\"'“”‘’"
     for o in ideas.options:
-        o.text, o.reason = o.text.strip().strip("\"'“”‘’"), o.reason.strip()
+        o.text, o.reason = o.text.strip(), o.reason.strip()
+        if key == "characters.*.speech_style":  # 말투는 대사 예시가 따옴표로 끝나므로 양끝을 함께 감쌌을 때만 벗긴다
+            if len(o.text) > 1 and o.text[0] in quotes and o.text[-1] in quotes:
+                o.text = o.text[1:-1].strip()
+        else:
+            o.text = o.text.strip(quotes)
+        if listed:
+            o.text = " ".join(o.text.split()).lstrip("-• ").strip()
         if field.startswith("meta.logline_parts."):
             o.text = o.text.rstrip(".")
-        if o.text and o.text != now and o.text not in seen:
+        if o.text and o.text not in taken and o.text not in seen:
             seen.add(o.text)
             out.append(o)
     ideas.options = out[:n]

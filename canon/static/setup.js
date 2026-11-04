@@ -638,7 +638,7 @@ function wizPerson(c, i) {
     ${nameIssuesFor(c.id)}
     ${input('역할', b + '.role', { placeholder: '주인공, 상대역, 조력자…' })}
     <div class="genre-opts ex-opts" role="group" aria-label="${who} 역할 예시">${WIZ_ROLES.map((r) => `<button type="button" aria-pressed="${c.role === r}" data-action="wizRole" data-arg="${i}|${r}">${r}</button>`).join('')}</div>
-    ${input('원하는 것', b + '.goal', { hint: '한 줄', placeholder: '예: 염전을 되찾아 동생을 지키고 싶다' })}
+    ${charIdeaInput('원하는 것', b + '.goal', { hint: '한 줄', placeholder: '예: 염전을 되찾아 동생을 지키고 싶다' })}
   </div>`;
 }
 
@@ -878,7 +878,7 @@ const episodesInput = () => (serial()
   ? input('총 화수', 'meta.target_episodes', { type: 'number', min: 1, max: 1000, hint: '늘리거나 줄이면 마지막 부 끝 화가 따라가요' })
   : input('총 화수', 'meta.target_episodes', { type: 'number', min: 4, max: 40, hint: '단편 4~40화, 10~20화를 권해요' }));
 
-/** 인물 카드의 '더 자세히' 칸 + ✦ 후보 (ideas.js). 펼침은 openMap 의 'cd:<id>' 가 기억해 다시 그려도 접히지 않는다 */
+/** 인물 카드의 칸 + ✦ 후보 (ideas.js). 펼침은 openMap 의 'cd:<id>' 가 기억해 다시 그려도 접히지 않는다 */
 const charIdeaInput = (label, path, opt) => input(label, path, { ...opt, aside: ideaBtn(path), after: ideaList(path) });
 
 /** 인물 한 줄. 누르면 그 자리에서 펴고, 다른 인물은 접는다 (한 번에 하나) */
@@ -894,8 +894,8 @@ function charRow(c, i) {
       <div class="grid-2">${input('나이', b + '.age', { placeholder: '예: 17세, 40대 초반' })}${input('성별', b + '.gender', { placeholder: '남 / 여' })}</div>
       <div class="row"><button type="button" class="btn small" data-action="nameCandidates" data-arg="${esc(c.id)}">이름 후보 뽑기</button><button type="button" class="btn small" data-action="nameAI" data-arg="${esc(c.id)}">✦ AI 이름 추천 받기</button></div>
       ${namePicks('c:' + c.id, 'useName', (n) => `${c.id}|${n}`)}
-      <div class="grid-2">${input('원하는 것', b + '.goal', { hint: '작품 전체에서' })}${input('두려운 것 · 약점', b + '.wound')}</div>
-      <div class="grid-2">${input('숨기는 것', b + '.secrets', { kind: 'list', rows: 2 })}${input('말투 (대사)', b + '.speech_style', { rows: 2, hint: '어미, 호칭, 대사 한 줄' })}</div>
+      <div class="grid-2">${charIdeaInput('원하는 것', b + '.goal', { hint: '작품 전체에서' })}${charIdeaInput('두려운 것 · 약점', b + '.wound')}</div>
+      <div class="grid-2">${charIdeaInput('숨기는 것', b + '.secrets', { kind: 'list', rows: 2 })}${charIdeaInput('말투 (대사)', b + '.speech_style', { rows: 2, hint: '어미, 호칭, 대사 한 줄' })}</div>
       <details data-open-key="${esc('cd:' + c.id)}"${cardOpen('cd:' + c.id, false) ? ' open' : ''}><summary>더 자세히: 성격, 배경, 외모, 아크</summary><div class="row-more">
         ${charIdeaInput('성격', b + '.personality', { rows: 2 })}${charIdeaInput('배경', b + '.background', { rows: 2 })}${charIdeaInput('외모', b + '.appearance')}
         ${charIdeaInput('아크', b + '.arc', { hint: '시작 → 결말' })}${input('id', b + '.id', { hint: '관계와 플롯이 인물을 찾는 값이라 바꿀 수 없어요', readonly: true })}
