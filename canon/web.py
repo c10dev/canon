@@ -15,7 +15,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Callable, Literal, NoReturn
+from typing import Any, Callable, Literal, NoReturn
 from urllib.parse import quote, unquote
 
 from fastapi import FastAPI, HTTPException, Request
@@ -824,6 +824,46 @@ def put_project(name: str, p: Project, response: Response, merged: str = "", for
     if kept:  # 화면이 '저장했습니다' 대신 무엇을 저장하지 않았는지 알린다
         response.headers["X-Canon-Kept"] = quote(json.dumps(kept, ensure_ascii=False))
     return out
+
+
+class ProjectPatch(BaseModel):
+    """화면이 고친 칸만 보내는 작품 저장. fields 는 Project 의 최상위 칸 이름 → 값이다.
+    episodes 안에서 고치지 않은 화는 {"$same": 화 번호} 로 보내고, 서버가 디스크의 그 화로 채운다."""
+    edit_rev: int = 0
+    fields: dict[str, Any] = Field(default_factory=dict)
+
+
+# 화면이 고치지 않는 칸. 보내도 받지 않는다 (스냅샷은 화면이 화 번호만 가진다, 저장 기록은 서버가 정한다)
+_PATCH_SKIP = {"snapshots", "edit_rev", "saved_by"}
+
+
+@app.patch("/api/projects/{name}")
+def patch_project(name: str, body: ProjectPatch, response: Response, merged: str = "", force: bool = False) -> Project:
+    """작품 저장(PUT)과 같지만 바뀐 칸만 받는다. 보내지 않은 칸은 디스크 것을 그대로 쓰고, 그 뒤 검사와 지키기는 PUT 과 같다.
+    장편은 작품이 수 MB 라 칸 하나를 고칠 때마다 통째로 올리지 않게 한다."""
+    disk = _load(name)
+    data = disk.model_dump(mode="json")
+    for k, v in body.fields.items():
+        if k not in Project.model_fields:
+            raise HTTPException(400, f"작품에 없는 칸이에요: {k}")
+        if k in _PATCH_SKIP:
+            continue
+        if k == "episodes":
+            have = {e["plot"]["number"]: e for e in data["episodes"]}
+            if not isinstance(v, list):
+                raise HTTPException(400, "episodes는 목록이어야 해요")
+            try:
+                v = [have[x["$same"]] if isinstance(x, dict) and "$same" in x else x for x in v]
+            except KeyError as e:
+                raise HTTPException(409, f"{e.args[0]}화가 서버에 없어요. 다시 불러온 뒤 저장해 주세요") from None
+        data[k] = v
+    data["edit_rev"] = body.edit_rev
+    try:
+        p = Project.model_validate(data)
+    except ValidationError as e:
+        from fastapi.exceptions import RequestValidationError
+        raise RequestValidationError(e.errors(include_url=False)) from None
+    return put_project(name, p, response, merged=merged, force=force)
 
 
 def _keep_hooks(saved: Project, p: Project) -> None:

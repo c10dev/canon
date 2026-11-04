@@ -66,8 +66,31 @@ const S = {
 };
 
 // 서버에서 받은 작품의 관계와 화별 플롯. 저장할 때 화면이 실제로 고친 칸만 가려 '서버 것으로 두었어요'를 알린다 (save)
+// keys 는 최상위 칸, eps 는 화마다 받은 그대로의 JSON. 저장은 달라진 칸 · 화만 보낸다 (patchBody)
 let projectBase = null;
-const baseOf = (p) => p && { rels: JSON.stringify(p.relationships), plots: new Map(p.episodes.map((e) => [e.plot.number, JSON.stringify(e.plot)])) };
+const baseOf = (p) => p && {
+  rels: JSON.stringify(p.relationships), plots: new Map(p.episodes.map((e) => [e.plot.number, JSON.stringify(e.plot)])),
+  keys: new Map(Object.keys(p).filter((k) => k !== 'episodes').map((k) => [k, JSON.stringify(p[k])])),
+  eps: new Map(p.episodes.map((e) => [e.plot.number, JSON.stringify(e)])),
+};
+
+/** 작품 저장(PATCH)에 보낼 것: 받은 판과 달라진 최상위 칸만. episodes 는 고치지 않은 화를 { $same: 화 } 로 줄인다.
+    받은 판이 없으면 모든 칸을 보낸다. 스냅샷 · 저장 기록은 서버가 정하므로 보내지 않는다 */
+function patchBody(p, base) {
+  const fields = {};
+  for (const k of Object.keys(p)) {
+    if (k === 'snapshots' || k === 'edit_rev' || k === 'saved_by') continue;
+    if (k === 'episodes') {
+      const eps = p.episodes.map((e) => (base && base.eps.get(e.plot.number) === JSON.stringify(e) ? { $same: e.plot.number } : e));
+      const order = base ? [...base.eps.keys()] : [];
+      const same = base && eps.length === order.length && eps.every((e, i) => e.$same === order[i]);
+      if (!same) fields.episodes = eps;
+    } else if (!base || base.keys.get(k) !== JSON.stringify(p[k])) {
+      fields[k] = p[k];
+    }
+  }
+  return { edit_rev: p.edit_rev || 0, fields };
+}
 let projectNow = S.project;
 delete S.project;
 Object.defineProperty(S, 'project', { enumerable: true, get: () => projectNow, set: (v) => { projectNow = v; projectBase = baseOf(v); S.gen++; S.lastRemoved = null; } });
@@ -517,7 +540,7 @@ async function mergeEpisodes(mine) {
       const cur = local.get(e.plot.number);
       if (cur && !mine(cur, e)) continue;
       local.set(e.plot.number, e);
-      if (projectBase) projectBase.plots.set(e.plot.number, JSON.stringify(e.plot));
+      if (projectBase) { projectBase.plots.set(e.plot.number, JSON.stringify(e.plot)); projectBase.eps.set(e.plot.number, JSON.stringify(e)); }
       if (cur) changed.push(e.plot.number);
     }
     P().episodes = [...local.keys()].sort((a, b) => a - b).map((k) => local.get(k));
@@ -1277,7 +1300,7 @@ async function save(force = false) {
   const edited = (k) => !base || (k.field === 'relationships' ? JSON.stringify(sent.relationships) !== base.rels
     : JSON.stringify((sent.episodes.find((e) => e.plot.number === k.ep) || {}).plot) !== base.plots.get(k.ep));
   try {
-    S.project = await api('PUT', `/projects/${enc(S.name)}?merged=${enc(merged)}${force ? '&force=true' : ''}`, sent, meta);
+    S.project = await api('PATCH', `/projects/${enc(S.name)}?merged=${enc(merged)}${force ? '&force=true' : ''}`, patchBody(sent, base), meta);
   } catch (e) {
     if (e.status === 409) {  // 다른 화면이 먼저 저장했다. 저장 띠에서 다시 불러오기와 덮어쓰기 중에 고른다
       S.conflict = true;
