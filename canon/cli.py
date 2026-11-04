@@ -1352,7 +1352,7 @@ def cmd_auto(a: argparse.Namespace) -> None:
                             stop_on_critical=not a.no_stop_critical, max_shift=a.max_shift,
                             stop_on_stage=a.stop_on_stage, stop_on_warnings=a.stop_on_warnings,
                             confirm_plots=a.confirm_plots, review_every=a.review_every,
-                            hand_pick_opening=not a.auto_opening)
+                            hand_pick_opening=not a.auto_opening, polish=a.polish)
     if not a.resume:
         target = a.to or p.meta.target_episodes
         est = autorun.estimate(p, target, a.batch, policy, a.name)
@@ -2546,6 +2546,7 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--stop-on-stage", action="store_true", help="관계 단계가 바뀌면 멈춤")
     sp.add_argument("--stop-on-warnings", action="store_true", help="상태 변경안 경고가 있으면 멈춤")
     sp.add_argument("--auto-opening", action="store_true", help="1~3화도 멈추지 않고 정책대로 반영 (기본은 1~3화에서 멈춤)")
+    sp.add_argument("--polish", action="store_true", help="화마다 쓴 뒤 서술 문장만 다듬은 판으로 바꾸기 (본문 부분 수정 단계 모델, 쓴 판은 이전 판에 남음)")
     sp.add_argument("--confirm-plots", action="store_true", help="초안 플롯을 자동 확정하고 진행")
     sp.add_argument("--review-every", type=int, default=0, help="N화마다 멈춤")
     sp.add_argument("--resume", action="store_true", help="멈춘 실행 이어 가기")
