@@ -1664,12 +1664,65 @@ def focus_arc(p: Project) -> StoryArc | None:
     return arcs[-1] if arcs else None
 
 
+def _target_number(target: str) -> int:
+    try:
+        return int(target.split(":", 1)[1])
+    except (IndexError, ValueError):
+        raise ValueError(f"모르는 대화 대상이에요: {target}") from None
+
+
+def chat_focus(p: Project, target: str = "") -> tuple[str, int, int, str]:
+    """세션이 고른 다듬을 곳 'part:N'(부) · 'ep:N'(한 화 플롯). (종류 'part' · 'ep', 처음 화, 끝 화, 이름).
+    그 밖의 대상이면 ('', 0, 0, ''). 없는 부 · 화면 ValueError."""
+    target = (target or "").strip()
+    if target.startswith("part:"):
+        if not p.serial:
+            raise ValueError("부는 장편에만 있어요")
+        n = _target_number(target)
+        part = next((x for x in p.parts if x.number == n), None)
+        if part is None:
+            raise ValueError(f"{n}부가 없어요. 부를 다시 고르세요")
+        return "part", part.start_ep, part.end_ep, f"{n}부" + (f" 「{part.title}」" if part.title else "") + f" ({part.start_ep}~{part.end_ep}화)"
+    if target.startswith("ep:"):
+        n = _target_number(target)
+        e = next((x for x in p.episodes if x.plot.number == n), None)
+        if e is None:
+            raise ValueError(f"{n}화 플롯이 없어요. 화를 다시 고르세요")
+        return "ep", n, n, f"{n}화" + (f" 「{e.plot.title}」" if e.plot.title else "") + " 플롯"
+    return "", 0, 0, ""
+
+
+def chat_session_target(p: Project, target: str = "") -> str:
+    """세션에 기억할 대상. 부 · 화는 그대로('part:N' · 'ep:N'), 나머지는 chat_target 의 실제 대상."""
+    target = (target or "").strip()
+    if chat_focus(p, target)[0]:
+        return target
+    return chat_target(p, target)[0]
+
+
 def chat_target(p: Project, target: str = "") -> tuple[str, StoryArc | None]:
     """플롯 대화가 겨냥하는 곳과 그 아크. 돌려주는 이름은 기록에 남길 실제 대상이다:
-    단편은 늘 '' (작품 전체), 장편은 'arc:N' 이나 'next' (다음 아크 기획). 비우면 focus_arc, 아크가 없으면 다음 아크."""
+    단편은 늘 '' (작품 전체), 장편은 'arc:N' 이나 'next' (다음 아크 기획). 비우면 focus_arc, 아크가 없으면 다음 아크.
+    'ep:N' 은 그 화가 든 아크(기획 밖이면 다음 아크), 'part:N' 은 그 부의 아크(본문이 없는 첫 아크, 없으면 마지막 아크,
+    아크가 아직 없으면 다음 아크)로 읽는다. 다듬을 범위는 chat_focus 가 따로 준다."""
+    kind = chat_focus(p, target)[0]  # 없는 부 · 화는 여기서 막는다
     if not p.serial:
         return "", None
     target = (target or "").strip()
+    if kind == "ep":
+        n = _target_number(target)
+        a = next((x for x in p.story_arcs if x.start_ep <= n <= x.end_ep), None)
+        return (f"arc:{a.number}", a) if a else chat_target(p, "next")
+    if kind == "part":
+        _, lo, hi, _ = chat_focus(p, target)
+        inside = sorted((x for x in p.story_arcs if lo <= x.start_ep <= hi), key=lambda x: x.start_ep)
+        f = focus_arc(p)
+        a = f if f in inside else next((x for x in inside if x.start_ep >= (f.start_ep if f else 0)), None) or (inside[-1] if inside else None)
+        if a:
+            return f"arc:{a.number}", a
+        if lo <= next_arc_start(p) <= hi:
+            return chat_target(p, "next")
+        raise ValueError(f"{_target_number(target)}부에 아크가 없고, 다음 아크도 이 부에서 시작하지 않아요")
     if target.startswith("arc:"):
         try:
             number = int(target[4:])
@@ -1699,6 +1752,9 @@ def chat_where(p: Project, scope: ChatScope) -> str:
     """작가가 보낼 때 보고 있던 곳 한 줄 (예: 아크 3 (25~40화) · 승 구간 (28~33화) · 30화 「시험장」)."""
     target, focus = chat_target(p, scope.target)
     out = []
+    kind, _, _, name = chat_focus(p, scope.focus)
+    if kind == "part":
+        out.append(name)
     if focus:
         out.append(f"아크 {focus.number} ({focus.start_ep}~{focus.end_ep}화)")
     elif target == "next":

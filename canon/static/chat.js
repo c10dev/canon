@@ -611,8 +611,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || !S.chatOpen || !document.querySelector('.chat-panel')) return;
   if (S.selTool) return;
   e.preventDefault();
-  if (S.agentMenu || S.agentModeMenu || S.agentPlus) {  // 대화 에이전트의 펼친 목록을 먼저 닫는다 (agent.js)
-    S.agentMenu = S.agentModeMenu = S.agentPlus = false;
+  if (S.agentMenu || S.agentModeMenu || S.agentPlus || S.agentTargetMenu) {  // 대화 에이전트의 펼친 목록을 먼저 닫는다 (agent.js)
+    S.agentMenu = S.agentModeMenu = S.agentPlus = S.agentTargetMenu = false;
     redrawChat();
     return;
   }

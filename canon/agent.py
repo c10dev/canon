@@ -27,7 +27,7 @@ TITLE_LIMIT = 24
 MODE_LABELS = {"ask": "물어보기", "draft": "빈 곳 · 초안만 자동", "all": "모두 자동"}
 # 쓰기 한 부분의 종류. '빈 곳 · 초안만 자동'은 draft · next 만 바로 쓰고 나머지는 묻는다
 KIND_LABELS = {"draft": "초안 화", "next": "다음 아크 초안", "confirmed": "확정한 화", "arc": "아크 칸", "acts": "구간 · 범위", "parts": "부 구성",
-               "renumber": "화 넣기 · 빼기"}
+               "renumber": "화 넣기 · 빼기", "outside": "다듬을 곳 밖"}
 DRAFT_KINDS = ("draft", "next")
 READ_TOOLS = ("read_plots", "read_summaries", "find_text", "read_cast")
 # 화 넣기 · 빼기. 뒤 화 번호(본문만 있고 반영하지 않은 화 포함, renumber.last_fixed)가 바뀌므로 권한 모드와 상관없이 늘 묻는다
@@ -78,7 +78,7 @@ def turn_of(p: Project, sid: str, t: int) -> tuple[AgentSession, AgentTurn]:
 def new_session(p: Project, topic: str, target: str = "", title: str = "") -> AgentSession:
     if topic not in TOPICS:
         raise ValueError(f"대화 에이전트가 아직 없는 주제예요: {topic}")
-    target, _ = pipeline.chat_target(p, target)
+    target = pipeline.chat_session_target(p, target)
     s = AgentSession(id=uuid.uuid4().hex[:10], topic=topic, title=title.strip()[:60], target=target, created=now(), updated=now())
     p.agent_sessions.append(s)
     return s
@@ -94,7 +94,7 @@ def update_session(p: Project, sid: str, *, title: str | None = None, mode: str 
             raise ValueError(f"모르는 권한 모드예요: {mode}")
         s.mode = mode  # type: ignore[assignment]
     if target is not None:
-        s.target, _ = pipeline.chat_target(p, target)
+        s.target = pipeline.chat_session_target(p, target)
     if archived is not None:
         s.archived = archived
     s.updated = now()
@@ -111,7 +111,8 @@ def scope_of(p: Project, s: AgentSession, turn: AgentTurn) -> ChatScope:
     draft = turn.draft
     if target == "next" and draft is not None and draft.arc.start_ep != pipeline.next_arc_start(p):
         draft = None  # 그 사이 아크가 붙어 초안 자리가 맞지 않는다
-    return ChatScope(target=target, act=turn.act, episode=turn.episode, mode="options" if turn.mode == "options" else "", draft=draft)
+    focus = s.target if pipeline.chat_focus(p, s.target)[0] else ""
+    return ChatScope(target=target, focus=focus, act=turn.act, episode=turn.episode, mode="options" if turn.mode == "options" else "", draft=draft)
 
 
 def add_turn(p: Project, sid: str, message: str, *, mode: str = "", act: str = "", episode: int = 0, draft=None) -> int:
@@ -171,6 +172,8 @@ def permit(s: AgentSession, kind: str) -> str:
     """'auto' (바로 쓴다) 또는 'ask' (작가에게 묻는다). 막힘은 정리 단계(clean_revision)가 따로 판정한다. 화 넣기 · 빼기는 늘 묻는다."""
     if kind == "renumber":
         return "ask"
+    if kind == "outside":  # 세션이 고른 부 · 화 밖은 '모두 자동'이어도 묻는다 ('이 세션에서 묻지 않기'는 따른다)
+        return "auto" if kind in s.auto_kinds else "ask"
     if s.mode == "all" or kind in s.auto_kinds:
         return "auto"
     if s.mode == "ask":
@@ -204,6 +207,16 @@ def _parts(p: Project, rev: PlotRevision, target: str) -> list[tuple[str, str]]:
             kind = "draft"
         out.append((str(e.number), kind))
     return out
+
+
+def outside(p: Project, focus: str, key: str) -> bool:
+    """세션이 고른 다듬을 곳(chat_focus) 밖의 쓰기 부분인지. 부를 고르면 그 부 밖의 화, 화를 고르면 그 화 말고 모두."""
+    kind, lo, hi, _ = pipeline.chat_focus(p, focus)
+    if not kind:
+        return False
+    if key.isdigit():
+        return not lo <= int(key) <= hi
+    return kind == "ep"  # 부를 고르면 부 구성 · 그 부의 아크 칸 · 구조는 안이다
 
 
 def _groups(p: Project, rev: PlotRevision, target: str, keys: list[str]) -> list[str]:
@@ -291,7 +304,7 @@ def edit_plot(p: Project, s: AgentSession, turn: AgentTurn, edit: PlotRevision) 
     by_no = {e.plot.number: e for e in p.episodes}
     blocked = [n for n in raw if n not in kept]
     steps: list[StepRecord] = []
-    parts = _parts(p, rev, target)
+    parts = [(k, "outside" if outside(p, scope.focus, k) else kind) for k, kind in _parts(p, rev, target)]
     auto = [k for k, kind in parts if permit(s, kind) == "auto"]
     ask = [k for k, kind in parts if k not in auto]
     linked = set(_groups(p, rev, target, ask))  # 함께 써야 하는 부분 하나라도 물으면 함께 묻는다

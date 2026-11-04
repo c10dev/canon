@@ -33,7 +33,7 @@
 ### `canon/agent.py`
 
 - 대화 에이전트(지금은 플롯 대화 `plot`만)
-- 세션(`AgentSession`, 주제마다 여럿, 기본 대상 · 권한 모드 `ask|draft|all`)
+- 세션(`AgentSession`, 주제마다 여럿, 다듬을 곳 · 권한 모드 `ask|draft|all`). 다듬을 곳은 `arc:N` · `next` · 부 `part:N` · 한 화 `ep:N`(`pipeline.chat_focus`, 그 곳이 든 아크는 `chat_target`), 밖을 고치면 종류 `outside` 로 늘 묻는다(`outside`, `permit`)
 - 턴(`AgentTurn`)을 백그라운드 작업 `agent` 로 돌린다(`run_turn`, 단계마다 `llm.json(PlotAgentStep)`, 최대 `MAX_STEPS`=8, 단계마다 저장)
 - `PlotAgentStep.tool` 은 빈 글과 도구 이름만 받는 Literal 이다. 빈 글이면 reply 로 턴을 끝낸다
 - 모델이 'reply' · 'done' 같은 끝 이름(`schema.AGENT_END_TOOLS`)을 tool 에 적으면 빈 글로 받는다

@@ -8,7 +8,7 @@ const AGENT_MODES = { ask: ['물어보기', '쓰기마다 그 자리에서 승�
   draft: ['빈 곳 · 초안만 자동', '초안 화 · 새 화 · 다음 아크 초안은 바로 쓰고, 확정한 화와 범위는 물어요.'],
   all: ['모두 자동', '막힌 것 말고는 묻지 않고 써요. 턴마다 되돌릴 수 있어요.'] };
 const AGENT_KINDS = { draft: '초안 화', next: '다음 아크 초안', confirmed: '확정한 화', arc: '아크 칸', acts: '구간 · 범위', parts: '부 구성',
-  renumber: '화 넣기 · 빼기' };
+  renumber: '화 넣기 · 빼기', outside: '다듬을 곳 밖' };
 const AGENT_CMDS = [['/여러안', '바꾸기 전에 방향 여러 안으로 물어요'], ['/대상', '이 세션의 대상을 지금 보는 곳으로'],
   ['/새세션', '지금 보는 곳으로 새 세션'], ['/되돌리기', '마지막으로 바꾼 턴 되돌리기']];
 const AGENT_STEP_ICON = { read: '읽', write: '씀', wait: '물', block: '막', ask: '?', note: '·' };
@@ -28,6 +28,7 @@ Object.assign(S, {
   agentDraft: '',
   agentMenu: false,     // 세션 목록
   agentModeMenu: false, // 권한 모드 메뉴
+  agentTargetMenu: false, // 다듬을 곳 메뉴
   agentPlus: false,     // 함께 넣을 재료
   agentPicks: {},       // '턴:부분' → 승인 카드에서 쓸지
   agentRemember: {},    // 턴 → 이 세션에서 묻지 않기
@@ -75,7 +76,17 @@ function agentStepWait(j) {
   return `이번 단계 ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
 }
 
+/** 세션의 다듬을 곳 이름. 부 · 화(part:N · ep:N)는 서버 pipeline.chat_focus, 아크 · 다음 아크는 chat_target 과 같은 대상 */
 function agentTargetText(target) {
+  const m = /^(part|ep):(\d+)$/.exec(target || '');
+  if (m && m[1] === 'part') {
+    const x = (P().parts || []).find((y) => y.number === Number(m[2]));
+    return x ? `${x.number}부${x.title ? ` ${x.title}` : ''}` : `${m[2]}부`;
+  }
+  if (m) {
+    const e = ep(Number(m[2]));
+    return `${m[2]}화 플롯${e && e.plot.title ? ` ${e.plot.title}` : ''}`;
+  }
   const a = plotTargetArc(target);
   if (a) return `아크 ${a.number}${a.title ? ` ${a.title}` : ''}`;
   if (target === 'next') return `다음 아크 (${plannedUntil() + 1}화부터)`;
@@ -99,7 +110,7 @@ function agentPanel() {
   const s = agentSession();
   const legacy = S.agentSid === AGENT_LEGACY;
   const title = legacy ? '이전 대화' : s ? (s.title || '새 세션') : '새 세션';
-  const sub = legacy ? `플롯 · 옛 기록 ${S.agent.legacy}개` : `플롯 · 대상: ${agentTargetText(s ? s.target : plotScope().target)}`;
+  const sub = legacy ? `플롯 · 옛 기록 ${S.agent.legacy}개` : `플롯 · 다듬을 곳: ${agentTargetText(s ? s.target : plotScope().target)}`;
   return `<aside class="chat-panel" aria-label="대화로 다듬기">
     <div class="chat-head">
       <button type="button" class="sess-btn" data-action="agentMenuToggle" aria-haspopup="true" aria-expanded="${S.agentMenu}">
@@ -304,6 +315,35 @@ function agentAsk(t, i, last) {
   </div>`;
 }
 
+/** 다듬을 곳 고르기: 부 · 아크 · 다음 아크(장편), 작품 전체(단편), 한 화 플롯. 고른 곳 밖을 고치면 늘 물어요 (agent.outside) */
+function agentTargetMenu(cur) {
+  const p = P();
+  const opt = (t, label, sub) => `<button type="button" class="mode-opt" aria-pressed="${t === cur}" data-action="agentTarget" data-arg="${esc(t)}"><strong>${esc(label)}</strong>${sub ? `<span class="small">${esc(sub)}</span>` : ''}</button>`;
+  const head = (t) => `<div class="pop-title">${t}</div>`;
+  const out = [];
+  if (serial()) {
+    if ((p.parts || []).length) out.push(head('부'), ...p.parts.map((x) => opt(`part:${x.number}`, `${x.number}부${x.title ? ` ${x.title}` : ''}`, `${epRange(x.start_ep, x.end_ep)} · 부 구성과 이 부의 아크`)));
+    const arcs = [...p.story_arcs].sort((a, b) => a.start_ep - b.start_ep);
+    out.push(head('아크'), ...arcs.map((a) => opt(`arc:${a.number}`, `아크 ${a.number}${a.title ? ` ${a.title}` : ''}`, `${epRange(a.start_ep, a.end_ep)} · 아크 칸 · 기승전결 · 화별 플롯`)));
+    if (plannedUntil() < p.meta.target_episodes) out.push(opt('next', '다음 아크', `${plannedUntil() + 1}화부터 기획`));
+  } else {
+    out.push(opt('', '작품 전체', '기승전결 구조와 모든 화'));
+  }
+  const last = p.episodes.reduce((m, e) => Math.max(m, e.plot.number), 0);
+  const open = Number(S.selEp) || 0;
+  out.push(head('화 플롯'));
+  if (open && ep(open)) out.push(opt(`ep:${open}`, `${open}화 플롯${ep(open).plot.title ? ` ${ep(open).plot.title}` : ''}`, '지금 연 화. 다른 화를 고치면 물어봐요'));
+  if (last) {
+    out.push(`<div class="row" style="padding:2px 10px 6px;gap:6px;flex-wrap:nowrap"><input id="agent-target-ep" type="number" min="1" max="${last}" value="${open || ''}" placeholder="화 번호" aria-label="다듬을 화 번호" style="width:90px">
+      <button type="button" class="btn small" data-action="agentTargetEp">이 화로</button></div>`);
+  }
+  return `<div class="pop mode-menu target-menu" role="group" aria-label="다듬을 곳">
+    <div class="pop-title">이 세션에서 다듬을 곳 · 다음 턴부터</div>
+    ${out.join('')}
+    <hr class="pop-sep"><span class="small" style="padding:0 10px 4px">고른 곳 밖(다른 화, 부를 골랐으면 그 부 밖)을 고치면 권한 모드와 상관없이 물어봐요.</span>
+  </div>`;
+}
+
 function agentComposer() {
   const s = agentSession();
   const job = agentRunningJob();
@@ -329,13 +369,14 @@ function agentComposer() {
     </div>
     <div class="composer-foot">
       <button type="button" class="foot-mode" data-action="agentModeToggle" aria-haspopup="true" aria-expanded="${S.agentModeMenu}">${AGENT_MODES[mode][0]}</button>
-      <span class="foot-meta">${esc(agentTargetText(target))}</span>
+      <button type="button" class="foot-mode foot-target" data-action="agentTargetToggle" aria-haspopup="true" aria-expanded="${S.agentTargetMenu}" title="이 세션에서 다듬을 곳: 부 · 아크 · 화 플롯">${esc(agentTargetText(target))} ▾</button>
       <span class="foot-right"><b>${esc(S.agent.model)}</b><span>${S.agent.max_steps}단계</span></span>
       ${S.agentModeMenu ? `<div class="pop mode-menu" role="group" aria-label="권한 모드">
         <div class="pop-title">이 세션의 권한 · 다음 턴부터</div>
         ${Object.entries(AGENT_MODES).map(([k, [l, d]]) => `<button type="button" class="mode-opt" aria-pressed="${k === mode}" data-action="agentMode" data-arg="${k}"><strong>${l}</strong><span class="small">${d}</span></button>`).join('')}
         <hr class="pop-sep"><span class="small" style="padding:0 10px 4px">어느 모드에서도 본문이 있는 화 · 관계 수치 · 지우기는 하지 않아요.</span>
       </div>` : ''}
+      ${S.agentTargetMenu ? agentTargetMenu(target) : ''}
     </div>
   </div>`;
 }
@@ -500,17 +541,38 @@ Object.assign(actions, {
   },
   agentMenuToggle() {
     S.agentMenu = !S.agentMenu;
-    S.agentModeMenu = S.agentPlus = false;
+    S.agentModeMenu = S.agentPlus = S.agentTargetMenu = false;
     redrawChat();
   },
   agentModeToggle() {
     S.agentModeMenu = !S.agentModeMenu;
-    S.agentMenu = S.agentPlus = false;
+    S.agentMenu = S.agentPlus = S.agentTargetMenu = false;
     redrawChat();
+  },
+  agentTargetToggle() {
+    S.agentTargetMenu = !S.agentTargetMenu;
+    S.agentMenu = S.agentPlus = S.agentModeMenu = false;
+    redrawChat();
+  },
+  async agentTarget(target) {
+    S.agentTargetMenu = false;
+    const s = agentSession();
+    const res = await agentAct(async () => {
+      if (s) return api('PATCH', `/projects/${enc(S.name)}/sessions/${s.id}`, { target });
+      const made = await api('POST', `/projects/${enc(S.name)}/sessions`, { topic: 'plot', target });
+      agentSelect(made.id);
+      return made;
+    });
+    if (res) toast(`다듬을 곳을 바꿨어요: ${agentTargetText(target)}`);
+  },
+  agentTargetEp() {
+    const n = Number(($('#agent-target-ep') || {}).value);
+    if (!n || !ep(n)) return toast('플롯이 있는 화 번호를 넣으세요', true);
+    return actions.agentTarget(`ep:${n}`);
   },
   agentPlusToggle() {
     S.agentPlus = !S.agentPlus;
-    S.agentMenu = S.agentModeMenu = false;
+    S.agentMenu = S.agentModeMenu = S.agentTargetMenu = false;
     redrawChat();
   },
   agentMaterial(kind) {
@@ -619,9 +681,9 @@ document.addEventListener('input', (e) => {
 
 // 패널 밖을 누르면 펼친 목록을 닫는다
 document.addEventListener('click', (e) => {
-  if (!(S.agentMenu || S.agentModeMenu || S.agentPlus)) return;
+  if (!(S.agentMenu || S.agentModeMenu || S.agentPlus || S.agentTargetMenu)) return;
   if (e.target.closest('.pop, .sess-btn, .foot-mode, .comp-icon')) return;
-  S.agentMenu = S.agentModeMenu = S.agentPlus = false;
+  S.agentMenu = S.agentModeMenu = S.agentPlus = S.agentTargetMenu = false;
   redrawChat();
 });
 

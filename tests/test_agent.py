@@ -356,3 +356,38 @@ def test_op_from_and_shift():
         agent.op_from("insert_episodes", {"at": "3", "count": "11"})
     with pytest.raises(ValueError):
         agent.op_from("remove_episode", {})
+
+
+def test_part_and_episode_targets():
+    import pytest
+    from canon import pipeline, prompts
+    p, a1, a2, a3 = _three_arcs()  # 1부 1~100화, 아크 1~3 (1~36화), 아크 1은 반영함
+    assert pipeline.chat_target(p, "part:1") == ("arc:2", a2)  # 본문이 없는 첫 아크
+    assert pipeline.chat_target(p, "ep:30") == ("arc:3", a3)
+    assert pipeline.chat_session_target(p, "part:1") == "part:1" and pipeline.chat_session_target(p, "") == "arc:2"
+    assert pipeline.chat_focus(p, "ep:30")[:3] == ("ep", 30, 30)
+    with pytest.raises(ValueError, match="아크가 없고"):
+        pipeline.chat_target(p, "part:2")
+    with pytest.raises(ValueError, match="9부가 없어요"):
+        pipeline.chat_target(p, "part:9")
+    with pytest.raises(ValueError, match="40화 플롯이 없어요"):
+        pipeline.chat_target(p, "ep:40")
+    block = prompts.agent_focus_block(p, "part:1")
+    assert "1부" in block and f"아크 {a3.number}" in block and prompts.agent_focus_block(p, "") == ""
+
+
+def test_episode_focus_asks_outside_even_in_all_mode(client):
+    _project(client)
+    sid = _session(client, mode="all", target="ep:3")
+    assert _turn_session(client, sid)["target"] == "ep:3"
+    t = _say(client, sid, "3화 전개가 너무 빨라")
+    assert t["writes"] and t["writes"][0]["items"][0]["key"] == "3"  # 고른 화는 권한 모드대로 바로 쓴다
+    r = client.patch(f"/api/projects/lh/sessions/{sid}", json={"target": "ep:5"})
+    assert r.status_code == 200 and r.json()["target"] == "ep:5"
+    t = _say(client, sid, "3화 전개가 너무 빨라")
+    assert t["end"] == "wait" and t["approval"]["kinds"] == ["outside"]  # 고른 화 밖이라 '모두 자동'이어도 묻는다
+    assert client.patch(f"/api/projects/lh/sessions/{sid}", json={"target": "ep:99"}).status_code == 400
+
+
+def _turn_session(client, sid, name="lh"):
+    return next(x for x in client.get(f"/api/projects/{name}/sessions?topic=plot").json()["sessions"] if x["id"] == sid)
