@@ -109,10 +109,12 @@ def test_old_prose_emotional_shift_stays_out_of_the_write_prompt():
     p.episode(n).plot.emotional_shift = "서윤이 문을 걸어 잠그고 등을 돌린 채 한참을 서 있다"
     text = prompts.episode_prompt(p, n)
     assert "등을 돌린 채" not in text and "emotional_shift 는 감정 이름으로" not in text
-    assert "등을 돌린 채" in prompts.check_prompt(p, n)  # 검수는 그대로 본다
+    # 검수 · 상태 변경안도 쓰기가 받은 플롯만 본다: 받지 않은 문장을 '플롯 누락'으로 짚지 않게
+    assert "등을 돌린 채" not in prompts.check_prompt(p, n) and "등을 돌린 채" not in prompts.state_prompt(p, n)
     p.episode(n).plot.emotional_shift = "서윤: 문을 잠금 → 문을 엶 (도현의 사과)"
     text = prompts.episode_prompt(p, n)
     assert "문을 잠금 → 문을 엶" in text and "emotional_shift 는 감정 이름으로" in text
+    assert "문을 잠금 → 문을 엶" in prompts.check_prompt(p, n)  # 라벨 모양은 검수도 그대로 본다
     arrow = p.episode(n).plot.model_copy(update={"emotional_shift": "a -> b"})
     assert prompts.write_plot(arrow).emotional_shift == "a -> b"
 

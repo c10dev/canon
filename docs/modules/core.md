@@ -230,6 +230,7 @@
 - 쓰기에 넣는 `board_block`(직전 화 본문 뒤, 이번 화 플롯 바로 앞, 시간 · 이동 블록을 대신함)
 - 직전 화 블록 `prev_block`(스토리보드를 넣는 화와 스토리보드 만들기만 원문 전체, `build_episode_context(full_prev=)`)
 - 쇠맛을 줄이는 쓰기 규칙: 블록 차례 한 줄 `priority_line`
+- 이번 화 플롯은 쓰기 · 검수(`check_material`) · 상태 변경안(`state_prompt`) · 부분 수정(`passage_prompt`)이 모두 `write_plot` 으로 넣는다(라벨 모양이 아닌 예전 `emotional_shift` 를 뺌). 플롯 화면 · 흡입력 판정은 그대로
 - 장편 관계 줄 `serial_relations` · 인물 상태 `fit_states`(예산 `context.BUDGET` 의 `relations` · `states`)
 - 예시 문단이 있는 작품의 스타일 프로필 `style_rules_view`(칸마다 `STYLE_FIELD_LIMIT`, 예시 문단이 앞)
 - 스토리보드 깨지 않을 것을 검수에 `protect_block` · `protect_check_rule`
