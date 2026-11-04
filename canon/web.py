@@ -16,7 +16,7 @@ import time
 import zlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Literal, NoReturn
+from typing import Callable, Literal, NoReturn
 from urllib.parse import quote, unquote
 
 from fastapi import FastAPI, HTTPException, Request
@@ -2272,7 +2272,7 @@ def impact_reopen(name: str, eid: str) -> Project:
 # ---------- 백그라운드 작업 ----------
 
 class JobIn(BaseModel):
-    kind: str  # suggest | arc | plots | write | board | cues | state | check | fixes | impact | series | nextarc | recap_arc | recap_part | fold_knows | storyline | convert | rebuild | rework | hook | openings | opening_drafts
+    kind: str  # JOB_MAKERS 의 이름 하나 (suggest, arc, plots, write, check …)
     ep: int | None = None  # 화 번호. plots 는 장편에서 아크 번호(없으면 초안이 있는 모든 아크), recap_* 는 아크·부 번호
     element: str = ""  # impact 일 때 요소 id
     note: str = ""  # arc, series, plots, nextarc, storyline, convert, rebuild: 작가가 바라는 것. board: 있으면 지금 스토리보드를 이 요청대로 AI 가 고친다
@@ -2354,6 +2354,483 @@ def _keep_late_board(name: str, n: int, b: Storyboard) -> bool:
     return kept
 
 
+# ---------- 작업 종류별 준비 (start_job 이 JOB_MAKERS 에서 찾는다) ----------
+# 함수마다 (이름표, 전체 걸음, 맡은 화, 할 일 fn(job)) 을 돌려준다. 새 작업은 함수를 더하고 JOB_MAKERS 에 이름을 넣는다.
+
+def _job_suggest(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 suggest: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    label, total, owned = "설정 제안", 1, set()
+
+    def fn(job: jobs.Job):
+        return pipeline.suggest_setup(llm, store.load(name)).model_dump()
+    return label, total, owned, fn
+
+
+def _job_arc(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 arc: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    label, total, owned = "기승전결 구조 제안", 1, set()
+    note = body.note
+
+    def fn(job: jobs.Job):
+        return pipeline.plan_arc(llm, store.load(name), note).model_dump()
+    return label, total, owned, fn
+
+
+def _job_series(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 series: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    label, total, owned = "부 구성 제안", 1, set()
+    note = body.note
+
+    def fn(job: jobs.Job):
+        return pipeline.plan_series(llm, store.load(name), note).model_dump()
+    return label, total, owned, fn
+
+
+def _job_nextarc(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 nextarc: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    label, total, owned = f"{pipeline.next_arc_start(p)}화부터 다음 아크 제안", 1, set()
+    note, length = body.note, body.length
+
+    def fn(job: jobs.Job):
+        return pipeline.plan_next_arc(llm, store.load(name), length, note).model_dump()
+    return label, total, owned, fn
+
+
+def _job_convert(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 convert: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    _not_auto(name)
+    size, ending, note = body.length, body.ending, body.note
+    pipeline.check_convertible(p, size)  # 화수가 맞지 않으면 작업을 시작하기 전에 알린다
+    label, total, owned = f"장편 {size}화로 전환 계획", 1, set()
+
+    def fn(job: jobs.Job):
+        return pipeline.propose_conversion(llm, store.load(name), size, ending, note).model_dump()
+    return label, total, owned, fn
+
+
+def _job_rebuild(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 rebuild: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    _not_auto(name)
+    size, ending, note = body.length, body.ending, body.note
+    span = pipeline.check_rebuild(p, size, body.span, ending)
+    label, total, owned = f"장편 {size}화로 재구성 계획", 1, set()
+
+    def fn(job: jobs.Job):
+        return pipeline.propose_rebuild(llm, store.load(name), size, span, ending, note).model_dump()
+    return label, total, owned, fn
+
+
+def _job_rework(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 rework: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    _not_auto(name)
+    if n is None:
+        raise ValueError("화 번호(ep)가 필요해요")
+    x = p.archive.entry(n) if p.archive else None
+    if x is None or x.use != "revise":
+        raise ValueError(f"{n}화는 재구성에서 다듬기로 고른 화가 아니에요")
+    label, total, owned = f"{n}화 다듬기", 1, set()
+
+    def fn(job: jobs.Job):
+        return pipeline.propose_rework(llm, store.load(name), n).model_dump()
+    return label, total, owned, fn
+
+
+def _job_check(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 check: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    # 한 화 검수: 앞선 본문 전체와 설정에 어긋난 곳을 찾아 그 화에 붙인다 (집필 화면이 보여 주고 고칠 문장을 고르게 한다)
+    if n is None or not p.episode(n).text:
+        raise ValueError("본문이 있는 화만 검수해요")
+    label, total, owned = f"{n}화 검수", 1, set()
+
+    def fn(job: jobs.Job):
+        _fill_old_spots(name)
+        q0 = store.load(name)
+        rep = pipeline.check_episode(llm, q0, n)
+        r = _edit(name, lambda q: pipeline.apply_check(q, rep, "api", pipeline.widen_on(q0))).episode(n).rounds[-1]
+        for prop in rep._stage_held:  # 작가가 손본 본문 장면은 덮지 않고 장면 연출 화면의 비교로 남긴다
+            _stage_keep(name, prop)
+        return {"issues": r.found, "round": r.no, "added": r.added, "stage": len(rep._stage)}  # 짚은 곳: 검수 모델 + 장면 연출 규칙
+    return label, total, owned, fn
+
+
+def _job_fixes(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 fixes: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    # 열린 지적마다 AI 고침안을 받아 그 지적에 남긴다. 본문은 바꾸지 않는다 (작가가 검수 화면의 '한꺼번에 검토'에서 고른 것만 넣는다)
+    if n is None or not p.episode(n).text:
+        raise ValueError("본문이 있는 화만 고침안을 받아요")
+    pipeline._editable(p, n)
+    todo = pipeline.fix_targets(p.episode(n))
+    if not todo:
+        raise ValueError("고침안을 받을 열린 지적이 없어요. 지적한 문장이 지금 본문에 있고 넣을 수 있는 고침안이 없는 지적만 받아요")
+    label, total, owned = f"{n}화 지적 {len(todo)}개 고침안", len(todo), set()
+
+    def fn(job: jobs.Job):
+        q0 = store.load(name)
+        failed: list[dict] = []
+        with ThreadPoolExecutor(max_workers=min(pipeline.FIX_WORKERS, len(todo))) as pool:
+            futures = {pool.submit(contextvars.copy_context().run, pipeline.propose_fixes, llm, q0, n, fid): fid for fid in todo}
+            for fut in as_completed(futures):
+                fid = futures[fut]
+                try:
+                    opts = fut.result()
+                except cancel.Cancelled:
+                    raise
+                except Exception as e:  # 한 지적이 실패해도 나머지는 남긴다
+                    failed.append({"id": fid, "error": getattr(e, "message", None) or str(e) or type(e).__name__})
+                else:
+                    cancel.check()
+                    _edit(name, lambda q: pipeline.store_fixes(q, n, fid, opts))
+                job.done += 1
+        if len(failed) == len(todo):
+            raise ValueError(f"고침안을 하나도 받지 못했어요: {failed[0]['error']}")
+        return {"done": len(todo) - len(failed), "failed": failed}
+    return label, total, owned, fn
+
+
+def _job_stage_draft(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 stage_draft · stage_extract: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    # 장면 연출 AI: 플롯 사건에서 계획 장면 초안, 본문에서 본문 장면 뽑기. 결과는 장면 연출 화면이 비교한 뒤 적용한다
+    if n is None:
+        raise ValueError("화 번호(ep)가 필요해요")
+    e = p.episode(n)
+    if not 0 <= body.event < len(e.plot.events):
+        raise ValueError(f"{n}화에 {body.event + 1}번째 사건이 없어요")
+    if kind == "stage_extract" and not e.text:
+        raise ValueError("본문이 있는 화만 뽑아요")
+    event, fresh = body.event, body.stage_room if body.stage_room in pipeline.stage.ROOMS else ""  # 이 함수 안의 stage 는 LLM 단계 이름이다
+    label, total, owned = f"{n}화 사건 {event + 1} {'연출 초안' if kind == 'stage_draft' else '본문에서 연출 뽑기'}", 1, set()
+
+    def fn(job: jobs.Job):
+        q = store.load(name)
+        prop = pipeline.draft_stage(llm, q, n, event, fresh) if kind == "stage_draft" else pipeline.extract_stage(llm, q, n, event)
+        _stage_keep(name, prop)
+        return {"event": event, "role": prop.role, "beats": len(prop.scene.beats), "dropped": prop.dropped}
+    return label, total, owned, fn
+
+
+def _job_storyline(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 storyline: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    label, total, owned = "이야기 줄기 제안", 1, set()
+    note, line_kind = body.note, body.line_kind
+
+    def fn(job: jobs.Job):
+        return pipeline.suggest_storyline(llm, store.load(name), note, line_kind).model_dump()
+    return label, total, owned, fn
+
+
+def _job_recap_arc(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 recap_arc · recap_part: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    unit = kind.removeprefix("recap_")
+    if n is None:
+        raise ValueError("아크나 부 번호(ep)가 필요해요")
+    label, total, owned = (f"아크 {n} 요약" if unit == "arc" else f"{n}부 요약"), 1, set()  # 화면과 같은 이름 ('1부')
+
+    def fn(job: jobs.Job):
+        return pipeline.recap(llm, store.load(name), unit, n).model_dump()
+    return label, total, owned, fn
+
+
+def _job_fold_knows(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 fold_knows: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    if n is None:
+        raise ValueError("아크 번호(ep)가 필요해요")
+    label, total, owned = f"아크 {n} 아는 정보 접기", 1, set()
+
+    def fn(job: jobs.Job):
+        return pipeline.fold_knows(llm, store.load(name), n).model_dump()
+    return label, total, owned, fn
+
+
+def _job_plots(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 plots: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    if not p.beats():
+        raise ValueError("다음 아크를 먼저 기획하세요" if p.serial else "기승전결 구조(arc)를 먼저 만들고 저장하세요")
+    ranges = _plot_ranges(p, n if p.serial else None)
+    if not ranges:
+        raise ValueError("모든 화가 확정되어 새로 만들 초안이 없어요")
+    draft = {e.plot.number for e in p.episodes if e.status == "draft"}
+    have = {e.plot.number for e in p.episodes}
+    owned = {k for _, a, b in ranges for k in range(a, b + 1) if k in draft or k not in have}
+    label, total = "화별 플롯 초안", len(ranges)
+    note = body.note
+
+    def fn(job: jobs.Job):
+        # 구간마다 따로 부른다: 한 번에 20화를 받는 것보다 빠르게 첫 결과가 오고, 실패해도 앞 구간은 남는다
+        for act, a, b in ranges:
+            arc = store.load(name).arc_for(a)
+            job.note = f"{f'아크 {arc.number} ' if arc else ''}{act} 구간 ({a}~{b}화) 만드는 중"
+            batch = pipeline.draft_plots(llm, store.load(name), a, b, note)
+            _edit(name, lambda q: pipeline.apply_plots(q, batch))
+            job.done += 1
+            job.release({k for k in owned if a <= k <= b})  # 끝난 구간은 작업이 도는 중에도 확정하고 고칠 수 있다
+        job.note = ""
+        return None
+    return label, total, owned, fn
+
+
+def _job_plot_one(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 plot_one: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    if n is None:
+        raise ValueError("화 번호(ep)가 필요해요")
+    if p.episode(n).status != "draft":
+        raise ValueError(f"{n}화는 확정된 화라 AI 초안으로 바꾸지 않아요. 초안으로 되돌린 뒤 하세요")
+    label, total, owned = f"{n}화 플롯 초안", 1, {n}
+
+    def fn(job: jobs.Job):
+        batch = pipeline.draft_episode(llm, store.load(name), n, body.fit_next)
+        out: dict = {}
+        _edit(name, lambda q: out.update(realign=pipeline.apply_draft(q, batch)))
+        if not out.get("realign"):
+            return None
+        return {"realign": out["realign"], "gap": batch.next_gap}  # type: ignore[attr-defined]
+    return label, total, owned, fn
+
+
+def _job_write(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 write · state: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    if n is None:
+        raise ValueError("화 번호(ep)가 필요해요")
+    e = p.episode(n)
+    if kind == "write":
+        if e.status == "draft":
+            raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요")
+        if body.rewrite is not None and e.text:  # 다시 생성: 새 판은 본문을 덮지 않고 고르기를 기다린다 (반영이 끝난 화도)
+            req = pipeline.clean_rewrite(body.rewrite)
+            polish = req.mode == "polish"  # 서술 다듬기는 revise 단계 모델 (설정 화면에서 다듬기만 다른 모델로 고를 수 있다)
+            use = get_llm("revise") if polish else llm
+            label, total, owned = f"{n}화 {'서술 다듬기' if polish else '새 판'}", 1, {n}
+
+            def fn(job: jobs.Job):
+                cut: list = []
+                text = pipeline.rewrite_episode(use, store.load(name), n, req, cut)
+                _edit(name, lambda q: pipeline.set_candidate(q, n, text, req, pipeline.writer_of(use), cut))
+                return {"candidate": True}
+        else:
+            make = body.board == "make"
+            use_cues = body.cues != "none"
+            make_cues = use_cues and cue.on(p) and not e.text and cue.remake(p, n)  # 없거나 낡은 AI · 뼈대 시트
+            plan = get_llm("plan") if make or make_cues else None  # 스토리보드 · 큐 시트는 plan 단계 모델
+            label = f"{n}화 {'스토리보드와 ' if make else ''}{'큐 시트와 ' if make_cues else ''}본문"
+            total, owned = 1 + make + make_cues, {n}
+
+            def fn(job: jobs.Job):
+                _fill_old_spots(name)
+                if make:
+                    job.note = f"{n}화 스토리보드 만드는 중"
+                    b = pipeline.make_storyboard(plan, store.load(name), n)
+                    _edit(name, lambda q: pipeline.set_storyboard(q, n, b, by="ai"))
+                    job.done = 1
+                if make_cues:  # 스토리보드 다음: 큐 시트는 스토리보드 장면 순서를 받아 만든다
+                    job.note = f"{n}화 큐 시트 만드는 중"
+                    s = pipeline.make_cue_sheet(plan, store.load(name), n)
+                    _edit(name, lambda q: cue.set_episode(q, n, s, by="ai"))
+                    job.done += 1
+                job.note = f"{n}화 본문 쓰는 중"
+                cut: list = []
+                text = pipeline.write_episode(llm, store.load(name), n, use_board=body.board != "none", use_cues=use_cues, cut=cut)
+
+                def save(q):
+                    pipeline.replace_text(q.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut)  # 지금 본문이 있으면 '이전 판'에 남는다
+                    anchor.stamp(q, n)
+                    if q.episode(n).storyboard is not None:  # 스토리보드 없이 쓴 본문은 검수가 그 전제를 대조하지 않는다
+                        q.episode(n).storyboard.skipped = body.board == "none"
+                    cue.mark_used(q, n, use_cues)  # 큐 시트 없이 쓴 본문: 다시 생성도 넣지 않고 화면이 '쓴 큐 시트'로 보이지 않는다
+                _edit(name, save)
+                return None
+    else:
+        if not e.text:
+            raise ValueError(f"{n}화 본문이 없어요")
+        label, total, owned = f"{n}화 {'고친 본문 다시 맞추기' if e.status == 'finalized' else '상태 변경안'}", 1, set()
+
+        def fn(job: jobs.Job):
+            return pipeline.extract_state(llm, store.load(name), n).model_dump()
+    return label, total, owned, fn
+
+
+def _job_board(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 board: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    if n is None:
+        raise ValueError("화 번호(ep)가 필요해요")
+    if p.episode(n).status == "draft":
+        raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요")
+    pipeline.require_previous(p, n)
+    ask = body.note.strip()
+    if ask:
+        if p.episode(n).storyboard is None:
+            raise ValueError(f"{n}화 스토리보드가 없어요. 먼저 만드세요")
+        label, total, owned = f"{n}화 스토리보드 고친 안", 1, {n}
+
+        def fn(job: jobs.Job):
+            b = pipeline.revise_storyboard(llm, store.load(name), n, ask)
+            if cancel.stopped():  # 멈춘 고치기의 늦은 응답은 버린다 (작가가 그사이 다르게 고쳤을 수 있다)
+                return {"kept": False}
+            _edit(name, lambda q: pipeline.apply_storyboard_revision(q, n, b))
+            return {"revised": True}
+    else:
+        label, total, owned = f"{n}화 스토리보드", 1, {n}
+
+        def fn(job: jobs.Job):
+            b = pipeline.make_storyboard(llm, store.load(name), n)
+            if cancel.stopped():  # 멈춘 뒤 온 응답도 값을 치렀다
+                return {"kept": _keep_late_board(name, n, b)}
+            _edit(name, lambda q: pipeline.set_storyboard(q, n, b, by="ai"))
+            return None
+    return label, total, owned, fn
+
+
+def _job_cues(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 cues: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    if n is None:
+        raise ValueError("화 번호(ep)가 필요해요")
+    if p.episode(n).status == "draft":
+        raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요")
+    pipeline.require_previous(p, n)
+    label, total, owned = f"{n}화 큐 시트", 1, {n}
+
+    def fn(job: jobs.Job):
+        s = pipeline.make_cue_sheet(llm, store.load(name), n)
+        _edit(name, lambda q: cue.set_episode(q, n, s, by="ai"))
+        return {"cues": len(s.cues)}
+    return label, total, owned, fn
+
+
+def _job_hook(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 hook · openings · opening_drafts: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    if n is None or not prompts.is_opening(n):
+        raise ValueError(f"1~{prompts.OPENING_EPISODES}화 번호(ep)가 필요해요")
+    ways, k = body.approaches, body.draft
+    if kind == "hook":
+        if k:
+            research.compare_text(name, n, k)  # 비교본이 없으면 바로 알린다
+        elif not p.episode(n).text:
+            raise ValueError(f"{n}화 본문이 없어요")
+        label, total, owned = f"{n}화 흡입력 판정" + (f" (비교본 {k}번)" if k else ""), 1, set()
+
+        def fn(job: jobs.Job):
+            q = store.load(name)
+            rep = pipeline.check_hook(llm, q, n, research.compare_text(name, n, k) if k else None)
+            if k:
+                research.save_compare_hook(name, n, k, rep)
+            else:
+                _edit(name, lambda q: pipeline.apply_hook(q, rep))
+            return rep.model_dump()
+    elif kind == "openings":
+        label, total, owned = f"{n}화 여는 방식 플롯 안", 1, set()
+
+        def fn(job: jobs.Job):
+            return pipeline.suggest_openings(llm, store.load(name), n, ways).model_dump()
+    else:
+        if p.episode(n).status == "draft":
+            raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요")
+        label, total, owned = f"{n}화 여는 방식 본문 안", 1, set()
+
+        def fn(job: jobs.Job):
+            c = research.run_opening_compare(name, store.load(name), n, llm, ways)
+            research.record(name, "compare", {"episode": n, "kind": "opening", "backends": [
+                prompts.OPENING_APPROACHES[a][0] for a in (ways or prompts.DEFAULT_APPROACHES) if a in prompts.OPENING_APPROACHES]})
+            return {"episode": n, "count": len(c["drafts"])}
+    return label, total, owned, fn
+
+
+def _job_impact(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 impact: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    el = elements.get(p, body.element)
+    eid = el.id
+    if not el.name.strip() or not el.description.strip():
+        raise ValueError("요소의 이름과 설명을 적고 저장한 뒤 분석하세요")
+    label, total, owned = f"인과율: {el.name} 영향 분석", 1, set()
+
+    def fn(job: jobs.Job):
+        rep = pipeline.analyze_impact(llm, store.load(name), eid)
+        _edit(name, lambda q: pipeline.record_impact(q, eid, rep))
+        return {"element": eid}
+    return label, total, owned, fn
+
+
+def _job_stattrial(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 stattrial: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    eps, reps, conds = sorted(set(body.episodes)), body.repeats, body.conditions or list(stattrial.CONDITIONS)
+    bad = [c for c in conds if c not in stattrial.CONDITIONS]
+    if bad:
+        raise ValueError(f"알 수 없는 조건이에요: {', '.join(bad)}")
+    ok = {c["episode"] for c in stattrial.candidates(p)}
+    if not eps or any(x not in ok for x in eps):
+        raise ValueError("시험할 화를 고르세요. 상태 반영이 끝난 화만 시험할 수 있어요")
+    total = len(eps) * reps * len(conds)
+    if not 1 <= reps <= 5 or total > stattrial.MAX_WRITES:
+        raise ValueError(f"반복은 1~5번, 본문은 한 번에 {stattrial.MAX_WRITES}개까지예요 (지금 {total}개)")
+    label, owned = f"상태창 시험 ({len(eps)}화 · {reps}번 · 조건 {len(conds)}개)", set()
+
+    def fn(job: jobs.Job):
+        def step(done: int, _total: int, note: str) -> None:
+            job.done, job.note = done, note
+        res = stattrial.run(name, store.load(name), llm, eps, reps, conds, progress=step)
+        return {"drafts": len(res["drafts"]), "id": res["id"]}
+    return label, total, owned, fn
+
+
+def _job_cue_sheet(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 cue_sheet: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    cue.check_episode(p, n)
+    label, total, owned = f"{n}화 큐 시트 만들기", 1, set()
+
+    def fn(job: jobs.Job):
+        sheet = pipeline.make_cue_sheet(llm, cue.before(store.load(name), n), n)
+        cue.with_lock(name, n, lambda lab: cue.set_sheet(lab, sheet, p, by="ai"))
+        return {"cues": len(sheet.cues)}
+    return label, total, owned, fn
+
+
+def _job_cue_run(name: str, body: "JobIn", p: Project, kind: str, n: int | None, llm) -> tuple[str, int, set[int], Callable]:
+    """작업 cue_run: (이름표, 전체 걸음, 맡은 화, 할 일)."""
+    conds = cue._conds(body.conditions or None)
+    cue.check_episode(p, n)
+    sheet = store.load_cuelab(name, n).sheet
+    if sheet is None and cue.NEEDS_SHEET & set(conds):
+        raise ValueError("큐 시트를 먼저 만드세요")
+    total = sum(len(sheet.cues) if c == "cues" else 1 for c in conds)
+    label, owned = f"{n}화 큐 시트 실험 (조건 {len(conds)}개 · 쓰기 {total}번)", set()
+
+    def fn(job: jobs.Job):
+        def step(done: int, _total: int, note: str) -> None:
+            job.done, job.note = done, note
+        res = cue.run(name, store.load(name), llm, n, conds, progress=step)
+        return {"takes": len(res["summary"]), "id": res["id"]}
+    return label, total, owned, fn
+
+
+JOB_MAKERS: dict[str, Callable] = {
+    "suggest": _job_suggest,
+    "arc": _job_arc,
+    "series": _job_series,
+    "nextarc": _job_nextarc,
+    "convert": _job_convert,
+    "rebuild": _job_rebuild,
+    "rework": _job_rework,
+    "check": _job_check,
+    "fixes": _job_fixes,
+    "stage_draft": _job_stage_draft,
+    "stage_extract": _job_stage_draft,
+    "storyline": _job_storyline,
+    "recap_arc": _job_recap_arc,
+    "recap_part": _job_recap_arc,
+    "fold_knows": _job_fold_knows,
+    "plots": _job_plots,
+    "plot_one": _job_plot_one,
+    "write": _job_write,
+    "state": _job_write,
+    "board": _job_board,
+    "cues": _job_cues,
+    "hook": _job_hook,
+    "openings": _job_hook,
+    "opening_drafts": _job_hook,
+    "impact": _job_impact,
+    "stattrial": _job_stattrial,
+    "cue_sheet": _job_cue_sheet,
+    "cue_run": _job_cue_run,
+}
+
+
 @app.post("/api/projects/{name}/jobs")
 def start_job(name: str, body: JobIn) -> dict:
     """오래 걸리는 AI 작업을 시작하고 바로 돌아온다. 결과는 GET /api/jobs 로 본다."""
@@ -2368,358 +2845,10 @@ def start_job(name: str, body: JobIn) -> dict:
              }.get(kind, "plan")  # 나머지는 plan
     llm = get_llm(stage)  # 키가 없으면 여기서 바로 오류를 보여 준다
 
-    if kind == "suggest":
-        label, total, owned = "설정 제안", 1, set()
-
-        def fn(job: jobs.Job):
-            return pipeline.suggest_setup(llm, store.load(name)).model_dump()
-    elif kind == "arc":
-        label, total, owned = "기승전결 구조 제안", 1, set()
-        note = body.note
-
-        def fn(job: jobs.Job):
-            return pipeline.plan_arc(llm, store.load(name), note).model_dump()
-    elif kind == "series":
-        label, total, owned = "부 구성 제안", 1, set()
-        note = body.note
-
-        def fn(job: jobs.Job):
-            return pipeline.plan_series(llm, store.load(name), note).model_dump()
-    elif kind == "nextarc":
-        label, total, owned = f"{pipeline.next_arc_start(p)}화부터 다음 아크 제안", 1, set()
-        note, length = body.note, body.length
-
-        def fn(job: jobs.Job):
-            return pipeline.plan_next_arc(llm, store.load(name), length, note).model_dump()
-    elif kind == "convert":
-        _not_auto(name)
-        size, ending, note = body.length, body.ending, body.note
-        pipeline.check_convertible(p, size)  # 화수가 맞지 않으면 작업을 시작하기 전에 알린다
-        label, total, owned = f"장편 {size}화로 전환 계획", 1, set()
-
-        def fn(job: jobs.Job):
-            return pipeline.propose_conversion(llm, store.load(name), size, ending, note).model_dump()
-    elif kind == "rebuild":
-        _not_auto(name)
-        size, ending, note = body.length, body.ending, body.note
-        span = pipeline.check_rebuild(p, size, body.span, ending)
-        label, total, owned = f"장편 {size}화로 재구성 계획", 1, set()
-
-        def fn(job: jobs.Job):
-            return pipeline.propose_rebuild(llm, store.load(name), size, span, ending, note).model_dump()
-    elif kind == "rework":
-        _not_auto(name)
-        if n is None:
-            raise ValueError("화 번호(ep)가 필요해요")
-        x = p.archive.entry(n) if p.archive else None
-        if x is None or x.use != "revise":
-            raise ValueError(f"{n}화는 재구성에서 다듬기로 고른 화가 아니에요")
-        label, total, owned = f"{n}화 다듬기", 1, set()
-
-        def fn(job: jobs.Job):
-            return pipeline.propose_rework(llm, store.load(name), n).model_dump()
-    elif kind == "check":
-        # 한 화 검수: 앞선 본문 전체와 설정에 어긋난 곳을 찾아 그 화에 붙인다 (집필 화면이 보여 주고 고칠 문장을 고르게 한다)
-        if n is None or not p.episode(n).text:
-            raise ValueError("본문이 있는 화만 검수해요")
-        label, total, owned = f"{n}화 검수", 1, set()
-
-        def fn(job: jobs.Job):
-            _fill_old_spots(name)
-            q0 = store.load(name)
-            rep = pipeline.check_episode(llm, q0, n)
-            r = _edit(name, lambda q: pipeline.apply_check(q, rep, "api", pipeline.widen_on(q0))).episode(n).rounds[-1]
-            for prop in rep._stage_held:  # 작가가 손본 본문 장면은 덮지 않고 장면 연출 화면의 비교로 남긴다
-                _stage_keep(name, prop)
-            return {"issues": r.found, "round": r.no, "added": r.added, "stage": len(rep._stage)}  # 짚은 곳: 검수 모델 + 장면 연출 규칙
-    elif kind == "fixes":
-        # 열린 지적마다 AI 고침안을 받아 그 지적에 남긴다. 본문은 바꾸지 않는다 (작가가 검수 화면의 '한꺼번에 검토'에서 고른 것만 넣는다)
-        if n is None or not p.episode(n).text:
-            raise ValueError("본문이 있는 화만 고침안을 받아요")
-        pipeline._editable(p, n)
-        todo = pipeline.fix_targets(p.episode(n))
-        if not todo:
-            raise ValueError("고침안을 받을 열린 지적이 없어요. 지적한 문장이 지금 본문에 있고 넣을 수 있는 고침안이 없는 지적만 받아요")
-        label, total, owned = f"{n}화 지적 {len(todo)}개 고침안", len(todo), set()
-
-        def fn(job: jobs.Job):
-            q0 = store.load(name)
-            failed: list[dict] = []
-            with ThreadPoolExecutor(max_workers=min(pipeline.FIX_WORKERS, len(todo))) as pool:
-                futures = {pool.submit(contextvars.copy_context().run, pipeline.propose_fixes, llm, q0, n, fid): fid for fid in todo}
-                for fut in as_completed(futures):
-                    fid = futures[fut]
-                    try:
-                        opts = fut.result()
-                    except cancel.Cancelled:
-                        raise
-                    except Exception as e:  # 한 지적이 실패해도 나머지는 남긴다
-                        failed.append({"id": fid, "error": getattr(e, "message", None) or str(e) or type(e).__name__})
-                    else:
-                        cancel.check()
-                        _edit(name, lambda q: pipeline.store_fixes(q, n, fid, opts))
-                    job.done += 1
-            if len(failed) == len(todo):
-                raise ValueError(f"고침안을 하나도 받지 못했어요: {failed[0]['error']}")
-            return {"done": len(todo) - len(failed), "failed": failed}
-    elif kind in ("stage_draft", "stage_extract"):
-        # 장면 연출 AI: 플롯 사건에서 계획 장면 초안, 본문에서 본문 장면 뽑기. 결과는 장면 연출 화면이 비교한 뒤 적용한다
-        if n is None:
-            raise ValueError("화 번호(ep)가 필요해요")
-        e = p.episode(n)
-        if not 0 <= body.event < len(e.plot.events):
-            raise ValueError(f"{n}화에 {body.event + 1}번째 사건이 없어요")
-        if kind == "stage_extract" and not e.text:
-            raise ValueError("본문이 있는 화만 뽑아요")
-        event, fresh = body.event, body.stage_room if body.stage_room in pipeline.stage.ROOMS else ""  # 이 함수 안의 stage 는 LLM 단계 이름이다
-        label, total, owned = f"{n}화 사건 {event + 1} {'연출 초안' if kind == 'stage_draft' else '본문에서 연출 뽑기'}", 1, set()
-
-        def fn(job: jobs.Job):
-            q = store.load(name)
-            prop = pipeline.draft_stage(llm, q, n, event, fresh) if kind == "stage_draft" else pipeline.extract_stage(llm, q, n, event)
-            _stage_keep(name, prop)
-            return {"event": event, "role": prop.role, "beats": len(prop.scene.beats), "dropped": prop.dropped}
-    elif kind == "storyline":
-        label, total, owned = "이야기 줄기 제안", 1, set()
-        note, line_kind = body.note, body.line_kind
-
-        def fn(job: jobs.Job):
-            return pipeline.suggest_storyline(llm, store.load(name), note, line_kind).model_dump()
-    elif kind in ("recap_arc", "recap_part"):
-        unit = kind.removeprefix("recap_")
-        if n is None:
-            raise ValueError("아크나 부 번호(ep)가 필요해요")
-        label, total, owned = (f"아크 {n} 요약" if unit == "arc" else f"{n}부 요약"), 1, set()  # 화면과 같은 이름 ('1부')
-
-        def fn(job: jobs.Job):
-            return pipeline.recap(llm, store.load(name), unit, n).model_dump()
-    elif kind == "fold_knows":
-        if n is None:
-            raise ValueError("아크 번호(ep)가 필요해요")
-        label, total, owned = f"아크 {n} 아는 정보 접기", 1, set()
-
-        def fn(job: jobs.Job):
-            return pipeline.fold_knows(llm, store.load(name), n).model_dump()
-    elif kind == "plots":
-        if not p.beats():
-            raise ValueError("다음 아크를 먼저 기획하세요" if p.serial else "기승전결 구조(arc)를 먼저 만들고 저장하세요")
-        ranges = _plot_ranges(p, n if p.serial else None)
-        if not ranges:
-            raise ValueError("모든 화가 확정되어 새로 만들 초안이 없어요")
-        draft = {e.plot.number for e in p.episodes if e.status == "draft"}
-        have = {e.plot.number for e in p.episodes}
-        owned = {k for _, a, b in ranges for k in range(a, b + 1) if k in draft or k not in have}
-        label, total = "화별 플롯 초안", len(ranges)
-        note = body.note
-
-        def fn(job: jobs.Job):
-            # 구간마다 따로 부른다: 한 번에 20화를 받는 것보다 빠르게 첫 결과가 오고, 실패해도 앞 구간은 남는다
-            for act, a, b in ranges:
-                arc = store.load(name).arc_for(a)
-                job.note = f"{f'아크 {arc.number} ' if arc else ''}{act} 구간 ({a}~{b}화) 만드는 중"
-                batch = pipeline.draft_plots(llm, store.load(name), a, b, note)
-                _edit(name, lambda q: pipeline.apply_plots(q, batch))
-                job.done += 1
-                job.release({k for k in owned if a <= k <= b})  # 끝난 구간은 작업이 도는 중에도 확정하고 고칠 수 있다
-            job.note = ""
-            return None
-    elif kind == "plot_one":
-        if n is None:
-            raise ValueError("화 번호(ep)가 필요해요")
-        if p.episode(n).status != "draft":
-            raise ValueError(f"{n}화는 확정된 화라 AI 초안으로 바꾸지 않아요. 초안으로 되돌린 뒤 하세요")
-        label, total, owned = f"{n}화 플롯 초안", 1, {n}
-
-        def fn(job: jobs.Job):
-            batch = pipeline.draft_episode(llm, store.load(name), n, body.fit_next)
-            out: dict = {}
-            _edit(name, lambda q: out.update(realign=pipeline.apply_draft(q, batch)))
-            if not out.get("realign"):
-                return None
-            return {"realign": out["realign"], "gap": batch.next_gap}  # type: ignore[attr-defined]
-    elif kind in ("write", "state"):
-        if n is None:
-            raise ValueError("화 번호(ep)가 필요해요")
-        e = p.episode(n)
-        if kind == "write":
-            if e.status == "draft":
-                raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요")
-            if body.rewrite is not None and e.text:  # 다시 생성: 새 판은 본문을 덮지 않고 고르기를 기다린다 (반영이 끝난 화도)
-                req = pipeline.clean_rewrite(body.rewrite)
-                polish = req.mode == "polish"  # 서술 다듬기는 revise 단계 모델 (설정 화면에서 다듬기만 다른 모델로 고를 수 있다)
-                use = get_llm("revise") if polish else llm
-                label, total, owned = f"{n}화 {'서술 다듬기' if polish else '새 판'}", 1, {n}
-
-                def fn(job: jobs.Job):
-                    cut: list = []
-                    text = pipeline.rewrite_episode(use, store.load(name), n, req, cut)
-                    _edit(name, lambda q: pipeline.set_candidate(q, n, text, req, pipeline.writer_of(use), cut))
-                    return {"candidate": True}
-            else:
-                make = body.board == "make"
-                use_cues = body.cues != "none"
-                make_cues = use_cues and cue.on(p) and not e.text and cue.remake(p, n)  # 없거나 낡은 AI · 뼈대 시트
-                plan = get_llm("plan") if make or make_cues else None  # 스토리보드 · 큐 시트는 plan 단계 모델
-                label = f"{n}화 {'스토리보드와 ' if make else ''}{'큐 시트와 ' if make_cues else ''}본문"
-                total, owned = 1 + make + make_cues, {n}
-
-                def fn(job: jobs.Job):
-                    _fill_old_spots(name)
-                    if make:
-                        job.note = f"{n}화 스토리보드 만드는 중"
-                        b = pipeline.make_storyboard(plan, store.load(name), n)
-                        _edit(name, lambda q: pipeline.set_storyboard(q, n, b, by="ai"))
-                        job.done = 1
-                    if make_cues:  # 스토리보드 다음: 큐 시트는 스토리보드 장면 순서를 받아 만든다
-                        job.note = f"{n}화 큐 시트 만드는 중"
-                        s = pipeline.make_cue_sheet(plan, store.load(name), n)
-                        _edit(name, lambda q: cue.set_episode(q, n, s, by="ai"))
-                        job.done += 1
-                    job.note = f"{n}화 본문 쓰는 중"
-                    cut: list = []
-                    text = pipeline.write_episode(llm, store.load(name), n, use_board=body.board != "none", use_cues=use_cues, cut=cut)
-
-                    def save(q):
-                        pipeline.replace_text(q.episode(n), text, written_by=pipeline.writer_of(llm), meta_cut=cut)  # 지금 본문이 있으면 '이전 판'에 남는다
-                        anchor.stamp(q, n)
-                        if q.episode(n).storyboard is not None:  # 스토리보드 없이 쓴 본문은 검수가 그 전제를 대조하지 않는다
-                            q.episode(n).storyboard.skipped = body.board == "none"
-                        cue.mark_used(q, n, use_cues)  # 큐 시트 없이 쓴 본문: 다시 생성도 넣지 않고 화면이 '쓴 큐 시트'로 보이지 않는다
-                    _edit(name, save)
-                    return None
-        else:
-            if not e.text:
-                raise ValueError(f"{n}화 본문이 없어요")
-            label, total, owned = f"{n}화 {'고친 본문 다시 맞추기' if e.status == 'finalized' else '상태 변경안'}", 1, set()
-
-            def fn(job: jobs.Job):
-                return pipeline.extract_state(llm, store.load(name), n).model_dump()
-    elif kind == "board":
-        if n is None:
-            raise ValueError("화 번호(ep)가 필요해요")
-        if p.episode(n).status == "draft":
-            raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요")
-        pipeline.require_previous(p, n)
-        ask = body.note.strip()
-        if ask:
-            if p.episode(n).storyboard is None:
-                raise ValueError(f"{n}화 스토리보드가 없어요. 먼저 만드세요")
-            label, total, owned = f"{n}화 스토리보드 고친 안", 1, {n}
-
-            def fn(job: jobs.Job):
-                b = pipeline.revise_storyboard(llm, store.load(name), n, ask)
-                if cancel.stopped():  # 멈춘 고치기의 늦은 응답은 버린다 (작가가 그사이 다르게 고쳤을 수 있다)
-                    return {"kept": False}
-                _edit(name, lambda q: pipeline.apply_storyboard_revision(q, n, b))
-                return {"revised": True}
-        else:
-            label, total, owned = f"{n}화 스토리보드", 1, {n}
-
-            def fn(job: jobs.Job):
-                b = pipeline.make_storyboard(llm, store.load(name), n)
-                if cancel.stopped():  # 멈춘 뒤 온 응답도 값을 치렀다
-                    return {"kept": _keep_late_board(name, n, b)}
-                _edit(name, lambda q: pipeline.set_storyboard(q, n, b, by="ai"))
-                return None
-    elif kind == "cues":
-        if n is None:
-            raise ValueError("화 번호(ep)가 필요해요")
-        if p.episode(n).status == "draft":
-            raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요")
-        pipeline.require_previous(p, n)
-        label, total, owned = f"{n}화 큐 시트", 1, {n}
-
-        def fn(job: jobs.Job):
-            s = pipeline.make_cue_sheet(llm, store.load(name), n)
-            _edit(name, lambda q: cue.set_episode(q, n, s, by="ai"))
-            return {"cues": len(s.cues)}
-    elif kind in ("hook", "openings", "opening_drafts"):
-        if n is None or not prompts.is_opening(n):
-            raise ValueError(f"1~{prompts.OPENING_EPISODES}화 번호(ep)가 필요해요")
-        ways, k = body.approaches, body.draft
-        if kind == "hook":
-            if k:
-                research.compare_text(name, n, k)  # 비교본이 없으면 바로 알린다
-            elif not p.episode(n).text:
-                raise ValueError(f"{n}화 본문이 없어요")
-            label, total, owned = f"{n}화 흡입력 판정" + (f" (비교본 {k}번)" if k else ""), 1, set()
-
-            def fn(job: jobs.Job):
-                q = store.load(name)
-                rep = pipeline.check_hook(llm, q, n, research.compare_text(name, n, k) if k else None)
-                if k:
-                    research.save_compare_hook(name, n, k, rep)
-                else:
-                    _edit(name, lambda q: pipeline.apply_hook(q, rep))
-                return rep.model_dump()
-        elif kind == "openings":
-            label, total, owned = f"{n}화 여는 방식 플롯 안", 1, set()
-
-            def fn(job: jobs.Job):
-                return pipeline.suggest_openings(llm, store.load(name), n, ways).model_dump()
-        else:
-            if p.episode(n).status == "draft":
-                raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요")
-            label, total, owned = f"{n}화 여는 방식 본문 안", 1, set()
-
-            def fn(job: jobs.Job):
-                c = research.run_opening_compare(name, store.load(name), n, llm, ways)
-                research.record(name, "compare", {"episode": n, "kind": "opening", "backends": [
-                    prompts.OPENING_APPROACHES[a][0] for a in (ways or prompts.DEFAULT_APPROACHES) if a in prompts.OPENING_APPROACHES]})
-                return {"episode": n, "count": len(c["drafts"])}
-    elif kind == "impact":
-        el = elements.get(p, body.element)
-        eid = el.id
-        if not el.name.strip() or not el.description.strip():
-            raise ValueError("요소의 이름과 설명을 적고 저장한 뒤 분석하세요")
-        label, total, owned = f"인과율: {el.name} 영향 분석", 1, set()
-
-        def fn(job: jobs.Job):
-            rep = pipeline.analyze_impact(llm, store.load(name), eid)
-            _edit(name, lambda q: pipeline.record_impact(q, eid, rep))
-            return {"element": eid}
-    elif kind == "stattrial":
-        eps, reps, conds = sorted(set(body.episodes)), body.repeats, body.conditions or list(stattrial.CONDITIONS)
-        bad = [c for c in conds if c not in stattrial.CONDITIONS]
-        if bad:
-            raise ValueError(f"알 수 없는 조건이에요: {', '.join(bad)}")
-        ok = {c["episode"] for c in stattrial.candidates(p)}
-        if not eps or any(x not in ok for x in eps):
-            raise ValueError("시험할 화를 고르세요. 상태 반영이 끝난 화만 시험할 수 있어요")
-        total = len(eps) * reps * len(conds)
-        if not 1 <= reps <= 5 or total > stattrial.MAX_WRITES:
-            raise ValueError(f"반복은 1~5번, 본문은 한 번에 {stattrial.MAX_WRITES}개까지예요 (지금 {total}개)")
-        label, owned = f"상태창 시험 ({len(eps)}화 · {reps}번 · 조건 {len(conds)}개)", set()
-
-        def fn(job: jobs.Job):
-            def step(done: int, _total: int, note: str) -> None:
-                job.done, job.note = done, note
-            res = stattrial.run(name, store.load(name), llm, eps, reps, conds, progress=step)
-            return {"drafts": len(res["drafts"]), "id": res["id"]}
-    elif kind == "cue_sheet":
-        cue.check_episode(p, n)
-        label, total, owned = f"{n}화 큐 시트 만들기", 1, set()
-
-        def fn(job: jobs.Job):
-            sheet = pipeline.make_cue_sheet(llm, cue.before(store.load(name), n), n)
-            cue.with_lock(name, n, lambda lab: cue.set_sheet(lab, sheet, p, by="ai"))
-            return {"cues": len(sheet.cues)}
-    elif kind == "cue_run":
-        conds = cue._conds(body.conditions or None)
-        cue.check_episode(p, n)
-        sheet = store.load_cuelab(name, n).sheet
-        if sheet is None and cue.NEEDS_SHEET & set(conds):
-            raise ValueError("큐 시트를 먼저 만드세요")
-        total = sum(len(sheet.cues) if c == "cues" else 1 for c in conds)
-        label, owned = f"{n}화 큐 시트 실험 (조건 {len(conds)}개 · 쓰기 {total}번)", set()
-
-        def fn(job: jobs.Job):
-            def step(done: int, _total: int, note: str) -> None:
-                job.done, job.note = done, note
-            res = cue.run(name, store.load(name), llm, n, conds, progress=step)
-            return {"takes": len(res["summary"]), "id": res["id"]}
-    else:
+    maker = JOB_MAKERS.get(kind)
+    if maker is None:
         raise ValueError(f"모르는 작업이에요: {kind}")
+    label, total, owned, fn = maker(name, body, p, kind, n, llm)
 
     try:
         with usage.scope(episode=n if kind in ("write", "board", "state", "check", "fixes", "rework", "hook", "openings", "opening_drafts", "plot_one", "cue_sheet", "cue_run", "cues") else None, task=kind):
