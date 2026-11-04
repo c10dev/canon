@@ -79,8 +79,12 @@ function cueVoiceGaps(sheet, chars) {
   return [...out.values()];
 }
 
-/** 이 작품이 화마다 큐 시트를 쓰는지 (cue.on: 작가가 정하지 않았으면 장편 켬 · 단편 끔, 스토리보드와 같은 규칙). */
+/** 쓰기 재료가 고정점만인지 (board.fixed_only). 그러면 큐 시트를 만들지도 넣지도 않는다. */
+const fixedOnly = () => !!(P().settings && P().settings.write_material === 'fixed');
+
+/** 이 작품이 화마다 큐 시트를 쓰는지 (cue.on: 작가가 정하지 않았으면 장편 켬 · 단편 끔, 스토리보드와 같은 규칙. 고정점만이면 끔). */
 function cueOn() {
+  if (fixedOnly()) return false;
   const v = P().settings && P().settings.cue_sheet;
   return v ?? P().meta.form === 'serial';
 }
@@ -340,6 +344,7 @@ function cueView(n) {
 
 /** 큐 시트 켜기 · 끄기 (Settings.cue_sheet). 집필 화면의 쓰기 시작 칸(writeStart) 아래 줄에 둔다. */
 function cueToggle() {
+  if (fixedOnly()) return `<div class="field"><span class="small">화별 큐 시트</span><button type="button" class="btn small" disabled title="쓰기 재료가 '고정점만'이라 큐 시트를 쓰지 않아요. 설정의 쓰기 재료에서 바꿀 수 있어요">큐 시트 안 씀 (고정점만)</button></div>`;
   const on = cueOn();
   return `<div class="field"><span class="small">화별 큐 시트</span><button type="button" class="btn small${on ? ' on' : ''}" aria-pressed="${on}" data-action="cueToggle" title="쓰기 전에 큐마다 긴장 · 템포 · 편성 · 핵심 대사 · 분량을 정하고 쓰기 요청 끝에 넣어요. 화당 AI 호출이 하나 늘어요">큐 시트 ${on ? '켜짐' : '꺼짐'}</button></div>`;
 }
@@ -358,7 +363,7 @@ document.addEventListener('toggle', (e) => {
 /** 본문이 없는 화의 큐 시트 카드. 큐 시트를 쓰는 작품이거나 이 화에 큐 시트가 있으면 보인다. */
 function cueCard(n, blocked) {
   const e = ep(n);
-  if (!e || e.text || e.status !== 'confirmed' || (!cueOn() && !e.cue_sheet)) return '';
+  if (!e || e.text || e.status !== 'confirmed' || fixedOnly() || (!cueOn() && !e.cue_sheet)) return '';  // 고정점만이면 시트가 있어도 쓰지 않는다
   const v = cueView(n);
   if (!S.cue || S.cue.error || !S.cue.functions) return '';
   const key = cueKeyOf('ep', n);

@@ -133,6 +133,7 @@
 - 쓰기 작업의 `cues`(none)
 - `…/episodes/{n}/cue-sheet`
 - `…/cue-setting`
+- `…/write-material`
 
 ### `canon/features.py`
 
@@ -267,6 +268,7 @@
 - 작품이 쓸 단계 프리셋(`Settings.model_preset`, 비우면 전체 설정)은 `settings.project_preset` 이 찾고 `stage_provider` · `stage_model` 이 지금 작업의 작품(`usage.scope`)에서 저절로 쓴다
 - 화별 스토리보드(`Episode.storyboard`, `Storyboard`: 장면 · 시간 · 상태창 바뀐 양 · 이동 · 끝 차림 · 넘겨받을 것 · 깨지 않을 것 · 경고)는 상태 승인 대상이 아니다
 - 스토리보드 켜기는 `Settings.storyboard`(비우면 장편 켬 · 단편 끔)
+- 쓰기 재료는 `Settings.write_material`(fixed 면 고정점만: `board.fixed_only`, 장면 목록 · 큐 시트를 쓰기 요청에서 뺌, `cue.on` 끔)
 - 화별 큐 시트(`Episode.cue_sheet`, `CueSheet`)도 상태 승인 대상이 아니다
 - 큐 시트 켜기는 `Settings.cue_sheet`(비우면 장편 켬 · 단편 끔)
 

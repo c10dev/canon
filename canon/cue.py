@@ -154,7 +154,9 @@ def set_sheet(lab: CueLab, d: CueSheetDraft, p: Project, by: str = "author") -> 
 # ---------- 집필 경로: 화에 붙인 큐 시트 ----------
 
 def on(p: Project) -> bool:
-    """이 작품이 화마다 큐 시트를 쓰는지. 작가가 정하지 않았으면 장편 켬 · 단편 끔 (스토리보드와 같은 규칙, board.on)."""
+    """이 작품이 화마다 큐 시트를 쓰는지. 작가가 정하지 않았으면 장편 켬 · 단편 끔 (스토리보드와 같은 규칙, board.on). 쓰기 재료가 고정점만이면 끔."""
+    if board.fixed_only(p):  # 쓰기 재료가 고정점만이면 큐 시트를 만들지 않는다
+        return False
     v = p.settings.cue_sheet
     return p.serial if v is None else v
 
