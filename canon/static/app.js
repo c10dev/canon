@@ -404,6 +404,7 @@ async function pollJobs(soon = false) {
   const before = new Map(S.jobs.map((j) => [j.id, j]));
   // 화면이 목록에서 지운(닫은) 작업은 다시 보이지 않게 한다
   S.jobs = list.filter((j) => (!S.jobsSeen.has(j.id) || j.status === 'running') && !QUIET_JOBS.has(j.kind));
+  if (typeof notifyJobs === 'function') notifyJobs(S.jobs, before);  // 탭이 뒤에 있으면 브라우저 알림 (notify.js)
   let redraw = false;
   let resultFocus = null;
   for (const j of S.jobs) {
@@ -2052,7 +2053,7 @@ function focusEl(el) {
 function afterDraw(f) {
   const main = $('#app main');
   if (main) { main.id = 'main'; main.tabIndex = -1; }
-  document.title = pageTitle();
+  document.title = typeof notifyTitle === 'function' ? notifyTitle(pageTitle(), notifyUnseen) : pageTitle();  // 안 본 알림 수 (notify.js)
   // 탭 묶음: 고른 탭만 Tab 으로 들어가고 나머지는 화살표로 옮긴다 (아래 keydown)
   document.querySelectorAll('#app [role="tablist"]').forEach((list) => {
     const tabs = [...list.querySelectorAll('[role="tab"]')];

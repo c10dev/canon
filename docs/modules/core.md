@@ -11,6 +11,7 @@
 - 정착 문체 흐름 멈춤(`Policy.max_style_distance`, 0 이면 끔, `anchor.rolling`)
 - `autorun.json` 에 진행 기록
 - 서버 재시작 후 이어 가기
+- 화를 반영할 때마다 작업의 `step_ep` 를 그 화로 고친다(화면 알림 `notify.js`)
 - 화면은 `static/auto.js`
 
 ### `canon/board.py`
@@ -175,6 +176,7 @@
 - 멈추기(`stop`)
 - 멈췄지만 AI 응답을 기다리는 같은 작업 찾기(`lingering`)
 - 같은 화의 AI 작업(`EP_AI_KINDS`) 가운데 응답을 기다리는 것 찾기(`waiting_on`). 종류가 달라도 같은 화면 호출이 겹친다
+- 단계 하나가 마지막으로 끝낸 화(`Job.step_ep`). 화면 `notify.js` 가 바뀔 때마다 알린다
 
 ### `canon/metatail.py`
 

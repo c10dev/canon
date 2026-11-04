@@ -692,6 +692,8 @@ class Runner:
         with self.ctl.lock:
             run.applied.append(n)
         self._set(n, "applied")
+        if self.job is not None:
+            self.job.step_ep = n  # 화면이 'n화를 반영했어요' 알림을 보낸다 (notify.js)
         self.log(f"{n}화를 자동으로 반영했어요")
         if held[0]:
             self.log(f"{n}화 설정 바꾸기 · 호칭 제안 {held[0]}개는 반영하지 않고 인물 · 관계도 화면에 남겨 뒀어요", "warn")

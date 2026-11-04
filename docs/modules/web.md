@@ -45,6 +45,7 @@
 - 멈춘 스토리보드 작업의 응답이 오면 `JOB_LATE.board` 가 남겼는지 알리고, 남겼으면 그 화를 다시 받는다
 - 짧은 기다림 가림막 `run`(`#busy`): 상자 이름은 작업 이름(`#busy-label`)이고, 1초마다 바뀌는 경과 초(`#busy-sec`)는 낭독하지 않는다
 - 알림 말풍선(`toast`, 작업 실패는 '다시 시도' · '설정' 버튼, 기록과 자리는 `hub.js`)
+- 작업 목록을 받을 때마다 `notify.js` 의 `notifyJobs` 를 부르고, 탭 제목에 안 본 알림 수를 붙인다(`notifyTitle`)
 - 입력 바인딩(`data-bind`)
 - 공통 동작(`actions` 의 저장 · 되돌리기 · 작품 관리)
 - 펼침 메뉴(`menuBtn`, 열린 메뉴 `S.popMenu`, Esc · 바깥 누르기로 닫기)와 `#app` 밖 대화상자(`showDialog`)
@@ -160,7 +161,7 @@
 
 - 웹 화면 한 쪽
 - 화면 파일을 `<script>` 로 읽는다
-- 읽는 차례: `app.js` → `outline.js` → `hub.js` → 화면 파일들(`check.js` 바로 뒤 `flow.js`, `atlas.js` 바로 뒤 `atlas-*.js`)
+- 읽는 차례: `app.js` → `outline.js` → `hub.js` → `notify.js` → 화면 파일들(`check.js` 바로 뒤 `flow.js`, `atlas.js` 바로 뒤 `atlas-*.js`)
 - 새 화면 파일을 더하면 여기에 `<script>` 를 넣는다
 
 ### `canon/static/marks.js`
@@ -187,6 +188,20 @@
 - 문체 화면의 맨 위 '확인할 것' 카드(고르지 않은 규칙 후보 `learnTodoCard`)와 재료 묶음의 '내 수정에서 배우기' 카드(`learnCard`, 서버 `pipeline.learn_style` / `apply_learning`)
 - 라이브러리 항목의 버전 목록
 - 장치의 쓴 화 세기는 `metrics.device_last` 와 같은 규칙
+
+### `canon/static/notify.js`
+
+- 작업이 끝나면 알리기
+- 탭이 뒤에 있거나 창에 포커스가 없을 때 브라우저 알림(Notification API)을 보내고 탭 제목 앞에 수를 붙인다
+- 탭을 보고 있으면 `app.js` 의 말풍선이 이미 알리므로 보내지 않는다
+- 자동 집필의 화별 반영(서버 `Job.step_ep`)은 말풍선이 없어 탭을 보고 있으면 말풍선을 띄운다
+- 알림을 누르면 그 탭으로 와서 결과 화면(`JOB_LINK`)을 연다
+- 켜기 · 끄기와 알릴 작업 묶음(`NOTIFY_GROUPS`: 본문 쓰기 · 다시 생성 · 검수 · 상태 변경안 · 자동 집필 · 그 밖)은 localStorage `canon.notify`
+- 권한은 설정 › 이 브라우저 › 알림에서 켤 때만 묻는다(`notifyTurnOn`)
+- https 나 localhost 가 아닌 주소는 브라우저 알림을 쓸 수 없어 탭 제목에만 표시한다(`notifyPermission` 'unsupported')
+- 켜 두면 도는 작업이 없어도 30초마다 작업 목록을 묻는다(다른 탭 · 기기 · 명령줄에서 시작한 작업)
+- 계산은 순수 함수 `notifyPrefs` · `notifyGroup` · `notifyEvent` · `notifyWays` · `notifyTitle`(`tests/test_notify_js.py`)
+- `index.html` 에서 `hub.js` 바로 뒤, `settings.js` 앞에 읽는다
 
 ### `canon/static/opening.js`
 
@@ -319,6 +334,7 @@
   - 키만 줄 안 '키 저장'
   - 작품별 단계 값 `projectStage`
   - Claude 로그인 줄 `claude.js` · Vertex 줄 `vertex.js`
+  - 이 브라우저 › 알림 갈래의 줄은 `notify.js` 의 값을 그리고 고친다(`notifyPref` · `notifyTurnOn` · `notifyTest`)
   - `tests/test_settings_js.py` · `tests/test_model_preset.py`
 
 ### `canon/static/setup.js`

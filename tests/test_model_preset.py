@@ -141,12 +141,12 @@ def test_cli_model(env, capsys):
     assert "전체 설정을 따라요" in capsys.readouterr().out
 
 
-# settings.js 가 읽힐 때 거는 이벤트만 흉내 내고, projectStage 결과를 돌려준다
+# settings.js 가 읽힐 때 거는 이벤트와 앞서 읽는 notify.js 의 알릴 작업 목록만 흉내 내고, projectStage 결과를 돌려준다
 HARNESS = """
 const vm = require('vm');
 const fs = require('fs');
 const data = JSON.parse(fs.readFileSync(0, 'utf8'));
-const ctx = { data, S: { config: data.config, project: data.project }, actions: {}, document: { addEventListener() {} }, window: { addEventListener() {} } };
+const ctx = { data, S: { config: data.config, project: data.project }, actions: {}, NOTIFY_GROUPS: [], document: { addEventListener() {} }, window: { addEventListener() {} } };
 vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(process.argv[1], 'utf8') + `
 ;globalThis.out = Object.fromEntries(data.stages.map((s) => [s, projectStage(s)]));`, ctx);

@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from canon.schema import Meta, Project
 from .jsvm import needs_node, run_js
 
-FILES = ["app.js", "settings.js"]
+FILES = ["app.js", "notify.js", "settings.js"]
 ROWS = "SET_ROWS.map((r) => ({ cat: r.cat, label: r.label, sec: r.sec, words: r.words }))"
 
 
@@ -72,7 +72,7 @@ def test_preset_of_and_env_list(tmp_path, monkeypatch):
 
 @needs_node
 def test_palette_finds_setting_rows():
-    got = run_js(["app.js", "settings.js", "palette.js"], f"""(() => {{
+    got = run_js(["app.js", "notify.js", "settings.js", "palette.js"], f"""(() => {{
       const settings = {ROWS}.map((r) => ({{ ...r, where: setCat(r.cat)[1] }}));
       const items = paletteItems({{ inProject: false, settings }});
       return {{ empty: paletteMatch(items, '').map((i) => i.label), key: paletteMatch(items, 'Anthropic').map((i) => [i.kind, i.label, i.act, i.cat, i.hint]) }};
