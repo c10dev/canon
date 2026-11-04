@@ -2483,12 +2483,14 @@ def start_job(name: str, body: JobIn) -> dict:
                 raise ValueError(f"{n}화 플롯이 아직 확정되지 않았어요")
             if body.rewrite is not None and e.text:  # 다시 생성: 새 판은 본문을 덮지 않고 고르기를 기다린다 (반영이 끝난 화도)
                 req = pipeline.clean_rewrite(body.rewrite)
-                label, total, owned = f"{n}화 새 판", 1, {n}
+                polish = req.mode == "polish"  # 서술 다듬기는 revise 단계 모델 (설정 화면에서 다듬기만 다른 모델로 고를 수 있다)
+                use = get_llm("revise") if polish else llm
+                label, total, owned = f"{n}화 {'서술 다듬기' if polish else '새 판'}", 1, {n}
 
                 def fn(job: jobs.Job):
                     cut: list = []
-                    text = pipeline.rewrite_episode(llm, store.load(name), n, req, cut)
-                    _edit(name, lambda q: pipeline.set_candidate(q, n, text, req, pipeline.writer_of(llm), cut))
+                    text = pipeline.rewrite_episode(use, store.load(name), n, req, cut)
+                    _edit(name, lambda q: pipeline.set_candidate(q, n, text, req, pipeline.writer_of(use), cut))
                     return {"candidate": True}
             else:
                 make = body.board == "make"

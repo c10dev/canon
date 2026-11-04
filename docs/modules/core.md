@@ -76,6 +76,7 @@
   - `pov`: 화별 서술 시점(남주 → 여주 등) 보기 · 정하기
   - `promote`: 본편 고르기
   - `rewrite`: 피드백 · 검수 결과 등을 반영해 그 화를 다시 생성(새 판과 바꿀지 고르기, 이전 판 되돌리기)
+  - `rewrite --polish`: 대사 · 사건은 그대로 두고 서술 문장만 다듬은 새 판(revise 단계 모델)
   - `rework`: 재구성의 다듬기 화
   - `setupchat`: 설정을 말로 다듬기
   - `stats`: 화별 문체 지표 확인
@@ -235,6 +236,7 @@
 - 스토리보드 깨지 않을 것을 검수에 `protect_block` · `protect_check_rule`
 - 지시 수 · 크기 상한 시험 `tests/test_write_budget.py`
 - 화에 큐 시트가 있으면 `episode_prompt` 맨 끝에 `cue_write_block`(실험의 조건 score 와 같은 글, `use_cues=False` 면 뺌)
+- `episode_prompt` 끝(큐 시트 블록 앞)의 문장 끝 섞기 줄 `ending_line`('~다.' 몫과 현재형 몫은 문체 기준에서 `ENDING_SHARE` · `PRESENT_SHARE_MAX` 안으로, 서술 말투가 있는 화는 뺌)
 - 화별 플롯 초안(`plot_prompt` · `serial_plot_prompt`)은 범위 안 · 범위 뒤 3화(`PLAN_AHEAD`)의 이미 정해진 화를 `fixed_plots` · `fixed_block` 으로 넣고 요구사항에 `fixed_rule` 을 붙인다(장편은 `context.BUDGET["plan_fixed"]`, 한 화 초안은 `ahead=False`)
 - 장편 화별 플롯 초안은 `[관계]` 뒤에 지금 관계 단계 라벨(`plan_stage_block`, 예산 `context.BUDGET["plan_stages"]`), 장편 `plot_rules` 에 '단계는 한 화에 한 칸' 한 줄
 - 검수 요구사항의 관계 단계 한 줄(`stage_check_rule`, 관계 수치가 있을 때만)
@@ -255,6 +257,9 @@
 - 쓴 모델은 집필 화면 머리 · 이전 판 · 새 판 카드 · 작품 홈 화 칸 툴팁에 보인다(`app.js` `writerLabel`)
 - 쓰기가 본문 앞뒤에서 뗀 작업 설명(`Episode.meta_cut`, 판마다 `TextVersion.meta_cut`, `MetaCut`: 글 · 앞 head | 뒤 tail)도 프롬프트 밖이다. 집필 화면에서 되살리기 `pipeline.restore_cut`(수정 기록에 남음) · 지우기 `drop_cut`
 - 뗀 문단은 `write_episode(cut=)` · `rewrite_episode(cut)` 에 빈 목록을 주고 받아 `replace_text(meta_cut=)` · `set_candidate(meta_cut=)` 로 저장한다(웹 쓰기 작업 · 동기 쓰기 · 다시 생성 작업, 명령줄 `write` · `run` · `rewrite`, 자동 집필). 실험 · 비교 쓰기는 받지 않는다
+- 서술 다듬기 `polish_episode`(다시 생성의 방식 `polish`, 프롬프트 `prompts.polish_prompt` · `POLISH_RULES`, 문장 끝 몫은 쓰기와 같은 `ending_rule`)
+- 다듬은 글은 대사 · 효과음 줄(`fixed_lines`)이 같고 글자 수가 `POLISH_SPAN` 안이어야 쓴다(`polish_problem`, `POLISH_TRIES` 번까지 다시 부름)
+- 웹 쓰기 작업과 명령줄은 `polish` 일 때 revise 단계 모델을 부른다
 - AI 가 본문 전체를 쓰는 호출자가 `pipeline.writer_of(llm)` 을 `replace_text(written_by=)` · `set_candidate(model=)` · `research.save_compare(models=)` 로 넘긴다. 작가 수정은 바꾸지 않는다(수정 기록 `edits`)
 - 인물 지금 차림(`CharacterState.attire`, 옷 · 상처 · 지닌 물건)은 지금 값만 덮어쓰고 지난 값은 스냅샷
 - 차림 규칙은 `prompts.ATTIRE_STATE_RULE` · `attire_write_rule` · `attire_check_rule`

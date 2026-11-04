@@ -16,10 +16,10 @@ from pydantic import BaseModel, Field
 
 from .style_background import FEATURES
 
-# 지표 판. 상수(AI_PATTERNS · DEFAULT_CLICHES · THRESHOLDS · UPPER_ONLY · COPY_SPAN · STYLE_DISTANCE_WARN · _SENT_END)나
+# 지표 판. 상수(AI_PATTERNS · DEFAULT_CLICHES · THRESHOLDS · UPPER_ONLY · COPY_SPAN · STYLE_DISTANCE_WARN · _SENT_END · ENDING_*)나
 # 셈 로직을 바꿔 같은 글의 값이 달라지면 올린다. tests/test_metrics_version.py 가 상수 해시와 결과 스냅샷으로 막는다.
 # 쇠맛 실험실(soelab)은 판이 다른 보고서끼리 숫자를 섞지 않는다.
-METRICS_VERSION = "2026-11-a"
+METRICS_VERSION = "2026-11-b"
 
 # 한국어 소설 생성에서 자주 보이는 상투 표현. 작품별 금지 표현은 StyleProfile.banned_phrases 에 더한다.
 DEFAULT_CLICHES = [
@@ -82,6 +82,8 @@ class StyleMetrics(BaseModel):
     comma_sentence_ratio: Optional[float] = Field(None, description="서술 문장 중 쉼표가 있는 문장 비율. AI 한국어 글은 사람보다 높다")
     short_ending_ratio: Optional[float] = Field(None, description="두 문장 이상 서술 문단 중 12자 이하 짧은 문장으로 끝나는 비율 (여운 연출 남발)")
     pronoun_per_1k: Optional[float] = Field(None, description="1,000자당 '그는/그녀의' 류 대명사 수 (번역투)")
+    da_ending_ratio: Optional[float] = Field(None, description="대사 밖 서술 문장 중 '~다.' 로 맺는 비율. 서술 문장이 ENDING_MIN 개 미만이면 재지 않음")
+    da_run_ratio: Optional[float] = Field(None, description="대사 밖 서술 문장 중 '~다.' 끝이 ENDING_RUN 줄 이상 이어진 덩어리에 든 비율 (대사가 끼면 끊김)")
     ai_pattern_hits: list[str] = Field(default_factory=list, description="화당 상한을 넘은 쇠맛 패턴 (이름 n회, 상한 m)")
     pattern_per_1k: dict[str, float] = Field(default_factory=dict, description="쇠맛 패턴별 1,000자당 횟수. 기준값에 있으면 원문이 원래 쓰는 만큼은 경고하지 않는다")
     style_centroid: list[float] = Field(default_factory=list, description="2,000자 조각 3개 이상일 때 어절 끝 특징의 정규화 중심 (문체 거리 기준)")
@@ -119,6 +121,45 @@ def _mattr(words: list[str], window: int = 100) -> Optional[float]:
 def _repeated(words: list[str], n: int = 3, min_count: int = 3) -> list[str]:
     grams = Counter(" ".join(words[i:i + n]) for i in range(len(words) - n + 1))
     return [g for g, c in grams.most_common(10) if c >= min_count]
+
+
+# 서술 문장 끝 (2026-11-04 실측, reports/고정점만 쓰기 실험). 사람 웹소설 4편 앞 30화는 서술의 45~73% 를 '~다.' 로 맺고,
+# '~다.' 다섯 줄 이상 덩어리는 1~22% 였다. Claude 로 쓴 한 화는 84~91% · 40~63% 였다.
+ENDING_RUN = 5    # '~다.' 끝이 이만큼 이어지면 덩어리로 센다
+ENDING_MIN = 30   # 서술 문장이 이보다 적으면 비율을 재지 않는다 (예시 문단 몇 개로는 기준이 서지 않는다)
+ENDING_DEFAULTS = {"da_ending_ratio": 0.56, "da_run_ratio": 0.04}  # 기준이 없을 때: 위 사람 4편의 중앙값
+_QUOTE_OPEN = ("\"", "“", "「", "『", "‘", "'")
+
+
+def _da_end(sentence: str) -> bool:
+    """'~다.' 로 맺은 문장인지. '~다…' · '~다!' · '~다?' 는 아니다."""
+    s = sentence.rstrip("\"'”’」』) ")
+    return s.endswith("다.") or s.endswith("다")
+
+
+def _endings(text: str) -> tuple[Optional[float], Optional[float]]:
+    """(da_ending_ratio, da_run_ratio). 따옴표로 여는 줄과 따옴표뿐인 문장은 대사로 빼고, 그 자리에서 덩어리를 끊는다."""
+    seq: list[Optional[bool]] = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith(_QUOTE_OPEN):
+            seq.append(None)
+            continue
+        seq += [None if _QUOTE.fullmatch(x) else _da_end(x) for x in sentences(line)]
+    narr = [x for x in seq if x is not None]
+    if len(narr) < ENDING_MIN:
+        return None, None
+    runs, cur = [], 0
+    for x in seq + [None]:
+        if x:
+            cur += 1
+            continue
+        if cur:
+            runs.append(cur)
+        cur = 0
+    return round(sum(narr) / len(narr), 2), round(sum(r for r in runs if r >= ENDING_RUN) / len(narr), 2)
 
 
 def _short_ending_ratio(paras: list[str]) -> Optional[float]:
@@ -231,6 +272,7 @@ def measure(text: str, banned: list[str] | None = None) -> StyleMetrics:
     words = re.findall(r"[^\s\"'“”‘’「」『』.,!?…]+", text)
     phrases = list(dict.fromkeys(DEFAULT_CLICHES + (banned or [])))
     avg = mean(lens)
+    da, run = _endings(text)
     return StyleMetrics(
         chars=len(text),
         sentences=len(sents),
@@ -245,6 +287,8 @@ def measure(text: str, banned: list[str] | None = None) -> StyleMetrics:
         comma_sentence_ratio=round(sum("," in s for s in narration) / len(narration), 2) if narration else None,
         short_ending_ratio=_short_ending_ratio(paras),
         pronoun_per_1k=round(len(_PRONOUN.findall(text)) * 1000 / len(text), 1),
+        da_ending_ratio=da,
+        da_run_ratio=run,
         ai_pattern_hits=_over_cap(text),
         pattern_per_1k={k: round(v * 1000 / len(text), 2) for k, v in pattern_counts(text).items()},
         **_style_reference(text),
@@ -440,9 +484,11 @@ THRESHOLDS: dict[str, tuple[str, float, bool]] = {
     "comma_sentence_ratio": ("쉼표 문장 비율", 0.15, False),
     "short_ending_ratio": ("짧은 문장으로 끝나는 문단 비율", 0.2, False),
     "pronoun_per_1k": ("대명사 밀도(1,000자당)", 3.0, False),
+    "da_ending_ratio": ("'~다.' 끝 서술 비율", 0.2, False),
+    "da_run_ratio": ("'~다.' 다섯 줄 이상 이어진 서술 비율", 0.2, False),
 }
 # 쇠맛 지표는 기준보다 높을 때만 문제라서 낮아진 쪽은 경고하지 않는다.
-UPPER_ONLY = {"comma_sentence_ratio", "short_ending_ratio", "pronoun_per_1k"}
+UPPER_ONLY = {"comma_sentence_ratio", "short_ending_ratio", "pronoun_per_1k", "da_ending_ratio", "da_run_ratio"}
 
 
 def drift(base: StyleMetrics, cur: StyleMetrics) -> list[str]:
@@ -450,6 +496,8 @@ def drift(base: StyleMetrics, cur: StyleMetrics) -> list[str]:
     out = []
     for key, (label, limit, relative) in THRESHOLDS.items():
         b, c = getattr(base, key), getattr(cur, key)
+        if b is None:  # 서술 끝은 기준 원문이 짧거나 옛 기준값이면 사람 웹소설 중앙값과 견준다
+            b = ENDING_DEFAULTS.get(key)
         if b is None or c is None or (relative and not b):
             continue
         diff = (c - b) / b if relative else c - b

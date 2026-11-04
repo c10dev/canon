@@ -37,6 +37,7 @@ def constants() -> dict:
         "COPY_SPAN": metrics.COPY_SPAN,
         "STYLE_DISTANCE_WARN": metrics.STYLE_DISTANCE_WARN,
         "_SENT_END": metrics._SENT_END.pattern,
+        "ENDING": [metrics.ENDING_RUN, metrics.ENDING_MIN, metrics.ENDING_DEFAULTS],
     }
 
 

@@ -22,7 +22,7 @@ DEFAULT_LOCAL_URL = "http://localhost:11434/v1"  # Ollama. llama.cpp 는 :8080/v
 # claude: 설치된 Claude Code 의 구독 로그인, claude-api: Anthropic API 키 (claude.py)
 PROVIDERS = ("gemini", "local", "claude", "claude-api", "mock")
 # 단계: plan(설정 제안, 문체 분석, 기승전결, 화별 플롯) / write(본문) / check(검수) / state(상태 추출)
-# / name(이름·지명 AI 추천) / revise(본문 부분 수정) / illustration(삽화 프롬프트) / play(플레이 모드 장면)
+# / name(이름·지명 AI 추천) / revise(본문 부분 수정, 서술 다듬기) / illustration(삽화 프롬프트) / play(플레이 모드 장면)
 STAGES = ("plan", "write", "check", "state", "name", "revise", "illustration", "play")
 # 따로 정하지 않으면 이 단계의 설정을 따른다 (이름 추천 · 삽화 프롬프트는 계획 단계 일이고, 부분 수정 · 플레이 장면은 본문 쓰기 일이다)
 STAGE_PARENT = {"name": "plan", "revise": "write", "illustration": "plan", "play": "write"}

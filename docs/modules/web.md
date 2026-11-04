@@ -293,6 +293,7 @@
 
 - 다시 생성
 - 집필 화면의 다시 생성 열(`rwColumn`, 대화 패널 자리 `.tool-col`에 뜨고 대화 패널과 하나만 열림. 빠른 요청, 피드백, 함께 넣을 재료, 처음부터 / 고쳐 쓰기, 살릴 부분)
+- 방식 '서술만 다듬기'(`polish`)는 다른 칸을 감추고 정해진 규칙만 보낸다. 버튼은 '다듬은 판 만들기'
 - 새 판 비교(나란히 · 바뀐 곳 `textDiff`)와 고르기. 새 판을 쓸 때 뗀 작업 설명이 있으면 그 수를 한 줄로(`TextVersion.meta_cut`, 고르면 화로 따라감)
 - 이전 판 목록과 되돌리기
 - 서버는 `pipeline.rewrite_episode` · `set_candidate` · `adopt_candidate` · `drop_candidate` · `restore_version`
