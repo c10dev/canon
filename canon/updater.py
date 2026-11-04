@@ -14,6 +14,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 BRANCH = "main"
+LOCK = "requirements.lock"  # 버전을 고정한 의존성 목록. 있으면 requirements.txt 대신 이것을 설치한다
 
 # serve 가 자동 업데이트를 돌리는 동안 True. wake 를 세우면 간격을 기다리지 않고 바로 확인한다
 # (main 에 머지되면 GitHub Actions 가 POST /api/update/check 로 깨운다, .github/workflows/notify-server.yml)
@@ -55,10 +56,11 @@ def update(repo: Path = REPO, install: bool = True, smoke: bool = True) -> Resul
     except (OSError, subprocess.SubprocessError) as e:
         return Result(False, f"업데이트 확인 실패: {_reason(e)}")
 
-    if install and "requirements.txt" in changed:
+    if install and {"requirements.txt", LOCK} & set(changed):
+        reqs = repo / LOCK if (repo / LOCK).exists() else repo / "requirements.txt"
         try:
             subprocess.run(
-                [sys.executable, "-m", "pip", "install", "--quiet", "-r", str(repo / "requirements.txt")],
+                [sys.executable, "-m", "pip", "install", "--quiet", "-r", str(reqs)],
                 capture_output=True, text=True, timeout=600, check=True,
             )
         except (OSError, subprocess.SubprocessError) as e:

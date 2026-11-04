@@ -1,3 +1,4 @@
+# 범위만 적는다. 설치는 버전을 고정한 requirements.lock 으로 한다 (다시 만드는 명령은 AGENTS.md '개발 명령')
 google-genai>=1.0
 pydantic>=2.7
 shapely>=2.0  # 장면 연출 이동 경로 (canon/stagepath.py)

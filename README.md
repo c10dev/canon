@@ -70,7 +70,7 @@ API 키 없이 화면만 보려면 mock 모드로 띄운다.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-python -m pip install -r requirements.txt
+python -m pip install -r requirements.lock
 CANON_LLM=mock python -m canon serve   # http://127.0.0.1:8000
 ```
 
@@ -94,7 +94,7 @@ CANON_LLM=mock python -m canon serve   # http://127.0.0.1:8000
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate   # macOS Homebrew Python 은 가상환경 필요
-python -m pip install -r requirements.txt
+python -m pip install -r requirements.lock
 export GEMINI_API_KEY=...            # https://aistudio.google.com/apikey
 export CANON_MODEL=gemini-4-argon # 선택, 사용할 Gemini 모델 (기본값)
 ```
@@ -109,7 +109,7 @@ python -m canon serve --no-browser     # 브라우저는 열지 않기
 CANON_LLM=mock python -m canon serve   # API 키 없이 화면만 둘러보기
 ```
 
-`serve` 는 시작할 때와 실행 중 10분마다 GitHub `main` 의 새 코드를 확인해 받는다(`git pull` 과 같다). 실행 중에 받으면 진행 중인 요청과 백그라운드 AI 작업(Gemini 호출 등)이 끝난 뒤 스스로 다시 시작하고, `requirements.txt` 가 바뀌었으면 의존성도 설치한다. `main` 브랜치가 아니거나, 고친 파일이나 올리지 않은 커밋이 있으면 받지 않고 이유만 출력한다. 작품(`projects/`)과 설정(`~/.canon/config.json`)은 git 이 다루지 않으므로 그대로다. 끄려면 `--no-update`, 간격은 `--update-interval 30`(분). 손으로 받으려면 `python -m canon upgrade`. `POST /api/update/check` 를 부르면 간격을 기다리지 않고 바로 확인한다(아래 '머지하면 바로 받기').
+`serve` 는 시작할 때와 실행 중 10분마다 GitHub `main` 의 새 코드를 확인해 받는다(`git pull` 과 같다). 실행 중에 받으면 진행 중인 요청과 백그라운드 AI 작업(Gemini 호출 등)이 끝난 뒤 스스로 다시 시작하고, `requirements.txt` 나 `requirements.lock` 이 바뀌었으면 잠금 파일(`requirements.lock`)대로 의존성도 설치한다. `main` 브랜치가 아니거나, 고친 파일이나 올리지 않은 커밋이 있으면 받지 않고 이유만 출력한다. 작품(`projects/`)과 설정(`~/.canon/config.json`)은 git 이 다루지 않으므로 그대로다. 끄려면 `--no-update`, 간격은 `--update-interval 30`(분). 손으로 받으려면 `python -m canon upgrade`. `POST /api/update/check` 를 부르면 간격을 기다리지 않고 바로 확인한다(아래 '머지하면 바로 받기').
 
 macOS 에서는 Finder 로 `scripts/canon-mac.command` 를 더블클릭해도 된다. 저장소의 `.venv` 를 켜고 서버를 띄운 뒤 브라우저를 연다(이미 켜져 있으면 브라우저만 연다). 처음 한 번은 우클릭 → 열기로 실행 허용이 필요할 수 있다. Dock 에 끌어 두면 앱처럼 쓸 수 있다.
 
@@ -250,7 +250,7 @@ Vercel 같은 서버리스 호스팅은 맞지 않는다. 소설 데이터를 �
 ```bash
 # 서버에서: 저장소를 받고 가상환경 준비
 git clone https://github.com/c10dev/canon ~/canon && cd ~/canon
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+python3 -m venv .venv && .venv/bin/pip install -r requirements.lock
 # deploy/canon.service 의 USER 와 경로를 고친 뒤 등록 (부팅 때 자동 실행)
 sudo cp deploy/canon.service /etc/systemd/system/canon.service
 sudo systemctl daemon-reload && sudo systemctl enable --now canon
